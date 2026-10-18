@@ -160,3 +160,64 @@ cases:
   - { in: "15번 사려다 취소", out: { mentions: [15] } }   # '취소'가 들어간 메시지는 주문으로 보지 않는다
   - { in: "안녕하세요 15", out: { mentions: [15] } }
   - { in: "12,500원이요", out: {} }                       # 금액 모양은 LOOSE에서도 번호가 아니다
+---
+# S01 분쟁 판정 — 꼬리 그림 이모지 허용 목록(D-033, RA-S01-003)과 번호 개수 상한(D-034, RA-S01-004). STRICT, 기본 설정.
+# 판단 기준은 D-006 그대로: 질문·부정·아쉬움 이모지가 붙은 번호, 수십 개 번호를 나열한 장난 메시지를 주문으로 보지 않는다(놓친 주문은 언급 강조 + 클릭 한 번).
+suite: chat
+settings: { parseMode: STRICT, multiNumber: ALL, maxNumber: 999 }
+cases:
+  # 목록 밖 그림 이모지 → 그 밖의 문자 → 주문 아님, 번호는 언급
+  - { in: "15❓", out: { mentions: [15] } }                # ❓ U+2753 = 물음표 이모지 → '?'처럼 질문
+  - { in: "15 ❔", out: { mentions: [15] } }               # ❔ U+2754
+  - { in: "15⁉", out: { mentions: [15] } }                # ⁉ U+2049
+  - { in: "15번 😭", out: { mentions: [15] } }             # 😭 U+1F62D = 'ㅠㅠ'(놓쳐서 아쉬움)와 같은 뜻
+  - { in: "15 🥲", out: { mentions: [15] } }               # 🥲 U+1F972
+  - { in: "15 🤔", out: { mentions: [15] } }               # 🤔 U+1F914 고민
+  - { in: "15 ❌", out: { mentions: [15] } }               # ❌ U+274C 부정
+  - { in: "15 🚫", out: { mentions: [15] } }               # 🚫 U+1F6AB 금지
+  - { in: "15 💔", out: { mentions: [15] } }               # 💔 U+1F494 — 하트지만 목록 밖
+  - { in: "15 👀", out: { mentions: [15] } }               # 👀 U+1F440 — 목록에 없으면 주문 아님
+  - { in: "15 🙅‍♀️", out: { mentions: [15] } } # 🙅(U+1F645, 목록 밖)+ZWJ+♀ → 글자 하나라도 목록 밖이면 주문 아님
+  - { in: "15 ❤️‍🩹", out: { mentions: [15] } } # ❤(목록)+FE0F+ZWJ+🩹(U+1FA79, 목록 밖) → 주문 아님
+  # 허용 목록 안 그림 이모지 → 주문
+  - { in: "15 🥰", out: { claims: [15] } }                 # 🥰 U+1F970 웃는 얼굴
+  - { in: "15번 💕💕", out: { claims: [15] } }             # 💕 U+1F495 하트
+  - { in: "15 🙏🏻", out: { claims: [15] } }               # 🙏 U+1F64F + 피부색 U+1F3FB
+  - { in: "15 🙋‍♀️", out: { claims: [15] } }   # 🙋(U+1F64B)+ZWJ+♀(U+2640)+FE0F → 모두 목록·수식 문자
+  - { in: "15‼", out: { claims: [15] } }                  # ‼ U+203C = '!!'
+  - { in: "15 ✨🌸", out: { claims: [15] } }               # ✨ U+2728, 🌸 U+1F338
+  - { in: "15 ❤️‍🔥", out: { claims: [15] } }   # ❤+FE0F+ZWJ+🔥(U+1F525) → 모두 목록·수식 문자
+  # 취소 꼬리 = 주문 꼬리 + ㅠ·ㅜ + 😢😭🥲
+  - { in: "15번 취소 😭", out: { cancels: [15] } }
+  - { in: "15 취소 🤔", out: { mentions: [15] } }          # 🤔는 취소 꼬리에도 없다
+  - { in: "15 취소❓", out: { mentions: [15] } }
+  # 번호 개수 상한 — 서로 다른 번호 6개 이상이면 주문 아님(언급), 같은 번호 반복은 하나로 센다
+  - { in: "1 2 3 4 5", out: { claims: [1, 2, 3, 4, 5] } }                       # 서로 다른 번호 5개 → 주문
+  - { in: "1 2 3 4 5 6", out: { mentions: [1, 2, 3, 4, 5, 6] } }                # 6개 → 주문 아님, 언급 전부
+  - { in: "1,2,3,4,5,6,7,8,9,10", out: { mentions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] } }  # 쉼표 목록(묶음 모양 아님) 10개
+  - { in: "15 15 15 15 15 15", out: { claims: [15] } }                          # 서로 다른 번호 1개
+  - { in: "1 2 3 4 5 5 1", out: { claims: [1, 2, 3, 4, 5] } }                   # 7번 썼지만 서로 다른 번호는 5개
+  - { in: "찜 1 2 3 4 5 6번 주세요", out: { mentions: [1, 2, 3, 4, 5, 6] } }    # 문법은 맞지만 6개 → 주문 아님
+---
+# S01 분쟁 판정 — 번호 개수 상한은 multiNumber 적용 전에 본다 (D-034): FIRST
+suite: chat
+settings: { parseMode: STRICT, multiNumber: FIRST, maxNumber: 999 }
+cases:
+  - { in: "1 2 3 4 5 6", out: { mentions: [1, 2, 3, 4, 5, 6] } }   # 6개 → 주문 아님(첫 번호만 주문으로 살리지 않는다)
+  - { in: "1 2 3 4 5", out: { claims: [1] } }                      # 5개 → 주문, FIRST라 첫 번호만
+---
+# S01 분쟁 판정 — 번호 개수 상한 (D-034): IGNORE
+suite: chat
+settings: { parseMode: STRICT, multiNumber: IGNORE, maxNumber: 999 }
+cases:
+  - { in: "1 2 3 4 5 6", out: { mentions: [1, 2, 3, 4, 5, 6] } }   # 원래도 둘 이상이면 언급 — 결과 같음
+---
+# S01 분쟁 판정 — LOOSE에서도 허용 목록·번호 개수 상한은 같다 (D-033, D-034)
+suite: chat
+settings: { parseMode: LOOSE, multiNumber: ALL, maxNumber: 999 }
+cases:
+  - { in: "1 2 3 4 5 6 다 주세요", out: { mentions: [1, 2, 3, 4, 5, 6] } }  # 가장 긴 주문 부분 '1 2 3 4 5 6'이 6개 → 짧은 앞부분으로 물러나지 않고 주문 아님
+  - { in: "1 2 3 4 5 다 주세요", out: { claims: [1, 2, 3, 4, 5] } }         # 5개 → 주문
+  - { in: "15❓ 남았나요", out: { mentions: [15] } }        # '15' 뒤가 ❓(꼬리 기호 아님) → 주문 부분이 끝나지 않음
+  - { in: "15😭 놓쳤어요", out: { mentions: [15] } }        # 😭는 주문 꼬리 기호가 아님
+  - { in: "15🥰예뻐요", out: { claims: [15] } }             # 허용 목록 꼬리 기호로 끝난 주문 부분

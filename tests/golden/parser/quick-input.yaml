@@ -65,3 +65,11 @@ cases:
   - { in: "15 핑크프릴 100", out: { no: 15, name: "핑크프릴", price: 100 } }
   - { in: "15 핑크프릴 99", out: { error: PRICE_TOO_LOW, no: 15, name: "핑크프릴" } }
   - { in: "15 핑크프릴 1만", out: { no: 15, name: "핑크프릴", price: 10000 } }
+---
+# S01 분쟁 판정 — 단위 바로 뒤 한글 일의 자리는 가격이 아니다 (R-14 4, D-032, RA-S01-002). 천원 단위(기본).
+suite: quick-input
+settings: { unit: THOUSAND }
+cases:
+  - { in: "15 핑크프릴 만오", out: { error: PRICE_MISSING, no: 15, name: "핑크프릴 만오" } }       # '만오' null, '핑크프릴 만오'도 금액 아님 → 가격 없음, 품종 = 번호 뒤 전부
+  - { in: "15 핑크프릴 삼천오", out: { error: PRICE_MISSING, no: 15, name: "핑크프릴 삼천오" } }
+  - { in: "15 핑크프릴 만오천", out: { no: 15, name: "핑크프릴", price: 15000 } }                # 10000 + 5×1000
