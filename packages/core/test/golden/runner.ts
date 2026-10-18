@@ -97,7 +97,12 @@ interface TraceStep {
 interface Trace {
   readonly steps: readonly TraceStep[]
   readonly problems: readonly Problem[]
+  /** 코어가 "미구현"을 알려 멈춘 지점. 끝까지 돌았으면 없음 */
+  readonly stoppedAt?: { readonly where: string; readonly message: string }
 }
+
+/** 최종 expect 비교에서 멈췄을 때의 위치 이름 */
+const FINAL_EXPECT = 'expect (최종 비교)'
 
 function checkEffectReport(event: GoldenEvent, snapshot: GoldenSnapshot): string | undefined {
   if (event.type !== 'effect.labelPrinted' && event.type !== 'effect.thanksSent') return undefined
@@ -119,42 +124,54 @@ function checkEffectReport(event: GoldenEvent, snapshot: GoldenSnapshot): string
   return `효과 보고 대상이 없다: ${event.type} ${product} ${buyerKey}${target === undefined ? '' : ` ${target}`} (취소되지 않은 ${kind} 효과 없음)`
 }
 
+/**
+ * 시나리오를 처음부터 한 번 돌린다.
+ * 코어가 "미구현"을 알리면 그 지점에서 멈추되, 그때까지 쌓인 trace·problems는 버리지 않고 함께 돌려준다
+ * (README "결과 상태": 불일치·결정성 위반은 허용 목록과 상관없이 항상 실패 — 뒤의 미구현이 앞의 실패를 가리면 안 된다).
+ */
 function runScenarioOnce(engine: GoldenEngineCore, doc: ScenarioDoc): Trace {
   const steps: TraceStep[] = []
   const problems: Problem[] = []
-  let state = engine.start(structuredClone(doc.setup))
-  let snapshot: GoldenSnapshot | undefined
-  const observe = (): GoldenSnapshot => (snapshot ??= engine.observe(state))
-  const compare = (expect: ScenarioDoc['expect'], where: string | undefined): Problem[] => {
-    try {
-      return compareExpect(expect, observe(), where)
-    } catch (error) {
-      if (isNotImplemented(error) || error instanceof RunnerFailure) throw error
-      throw new RunnerFailure(`관찰 스냅샷 비교 중 예외 (스냅샷 형식 오류?): ${describeError(error)}`, where)
+  let where = '시작 상태'
+  try {
+    let state = engine.start(structuredClone(doc.setup))
+    let snapshot: GoldenSnapshot | undefined
+    const observe = (): GoldenSnapshot => (snapshot ??= engine.observe(state))
+    const compare = (expect: ScenarioDoc['expect'], at: string | undefined): Problem[] => {
+      try {
+        return compareExpect(expect, observe(), at)
+      } catch (error) {
+        if (isNotImplemented(error) || error instanceof RunnerFailure) throw error
+        throw new RunnerFailure(`관찰 스냅샷 비교 중 예외 (스냅샷 형식 오류?): ${describeError(error)}`, at)
+      }
     }
-  }
-  steps.push({ where: '시작 상태', serialized: stableSerialize({ state }) })
+    steps.push({ where, serialized: stableSerialize({ state }) })
 
-  for (const step of doc.steps) {
-    const where = `events[${step.index}]`
-    if (step.kind === 'assert') {
-      problems.push(...compare(step.expect, where))
-      continue
+    for (const step of doc.steps) {
+      where = `events[${step.index}]`
+      if (step.kind === 'assert') {
+        problems.push(...compare(step.expect, where))
+        continue
+      }
+      const reportProblem = checkEffectReport(step.event, observe())
+      if (reportProblem !== undefined) throw new RunnerFailure(reportProblem, where)
+      const result: unknown = engine.apply(state, structuredClone(step.event))
+      if (typeof result !== 'object' || result === null || !('state' in result) || !('effects' in result) || !Array.isArray(result.effects)) {
+        throw new RunnerFailure('apply 결과는 { state, effects: [] } 모양이어야 한다', where)
+      }
+      state = result.state
+      snapshot = engine.observe(state)
+      for (const violation of engine.invariants?.(state, snapshot) ?? []) {
+        problems.push({ where, path: `불변식 ${violation.id}`, message: violation.message })
+      }
+      steps.push({ where, serialized: stableSerialize({ state, effects: result.effects, snapshot }) })
     }
-    const reportProblem = checkEffectReport(step.event, observe())
-    if (reportProblem !== undefined) throw new RunnerFailure(reportProblem, where)
-    const result: unknown = engine.apply(state, structuredClone(step.event))
-    if (typeof result !== 'object' || result === null || !('state' in result) || !('effects' in result) || !Array.isArray(result.effects)) {
-      throw new RunnerFailure('apply 결과는 { state, effects: [] } 모양이어야 한다', where)
-    }
-    state = result.state
-    snapshot = engine.observe(state)
-    for (const violation of engine.invariants?.(state, snapshot) ?? []) {
-      problems.push({ where, path: `불변식 ${violation.id}`, message: violation.message })
-    }
-    steps.push({ where, serialized: stableSerialize({ state, effects: result.effects, snapshot }) })
+    where = FINAL_EXPECT
+    problems.push(...compare(doc.expect, undefined))
+  } catch (error) {
+    if (!isNotImplemented(error)) throw error
+    return { steps, problems, stoppedAt: { where, message: error.message } }
   }
-  problems.push(...compare(doc.expect, undefined))
   return { steps, problems }
 }
 
@@ -184,12 +201,31 @@ function firstDifference(a: readonly TraceStep[], b: readonly TraceStep[]): Prob
   return undefined
 }
 
+/** 두 실행이 미구현으로 멈춘 지점이 다르면 결정성 위반 (같은 이벤트 열인데 한쪽만 더 가거나 덜 갔다) */
+function stopDifference(first: Trace, second: Trace): Problem | undefined {
+  const a = first.stoppedAt?.where
+  const b = second.stoppedAt?.where
+  if (a === b) return undefined
+  const describe = (where: string | undefined): string => (where === undefined ? '끝까지 실행' : `${where}에서 미구현으로 멈춤`)
+  return {
+    where: a ?? b ?? '(알 수 없음)',
+    message: '처음부터 두 번 실행했는데 "미구현"으로 멈춘 지점이 다르다',
+    expected: describe(a),
+    actual: describe(b),
+  }
+}
+
+/**
+ * 엔진 시나리오 하나의 결과 (README "결과 상태", AC-S00-23, AC-S00-27).
+ * 판정 우선순위: 러너 오류 > 결정성 위반 > 불일치 > 미구현 > 통과.
+ * - 미구현으로 멈춰도 두 번째 실행을 같은 지점까지 돌려 그 앞까지의 결정성을 비교한다.
+ * - 멈추기 전에 드러난 불일치·불변식 위반은 그대로 불일치다(허용 목록으로 숨길 수 없다).
+ */
 function runScenario(core: GoldenCore, doc: ScenarioDoc): { status: ItemStatus; problems: Problem[] } {
   let first: Trace
   try {
     first = runScenarioOnce(core.engine, doc)
   } catch (error) {
-    if (isNotImplemented(error)) return { status: 'not-implemented', problems: [{ message: error.message }] }
     if (error instanceof RunnerFailure) return { status: 'runner-error', problems: [{ ...(error.where ? { where: error.where } : {}), message: error.message }] }
     if (error instanceof SerializationError) return { status: 'runner-error', problems: [{ message: error.message }] }
     return { status: 'runner-error', problems: [{ message: `미구현이 아닌 예외: ${describeError(error)}` }] }
@@ -198,14 +234,24 @@ function runScenario(core: GoldenCore, doc: ScenarioDoc): { status: ItemStatus; 
   try {
     second = runScenarioOnce(core.engine, doc)
   } catch (error) {
+    const firstEnd = first.stoppedAt === undefined ? '첫 실행은 끝났는데' : `첫 실행은 ${first.stoppedAt.where}에서 미구현으로 멈췄는데`
     return {
       status: 'determinism',
-      problems: [{ message: `첫 실행은 끝났는데 두 번째 실행에서만 예외가 났다: ${describeError(error)}` }, ...first.problems],
+      problems: [{ message: `${firstEnd} 두 번째 실행에서만 예외가 났다: ${describeError(error)}` }, ...first.problems],
     }
   }
-  const difference = firstDifference(first.steps, second.steps)
+  const difference = firstDifference(first.steps, second.steps) ?? stopDifference(first, second)
   if (difference) return { status: 'determinism', problems: [difference, ...first.problems] }
-  return { status: first.problems.length > 0 ? 'mismatch' : 'pass', problems: [...first.problems] }
+  const { stoppedAt } = first
+  if (first.problems.length > 0) {
+    const stopNote: Problem[] =
+      stoppedAt === undefined
+        ? []
+        : [{ where: stoppedAt.where, message: `여기서 코어가 미구현을 알려 멈췄다. 이 뒤는 확인하지 못했다: ${stoppedAt.message}` }]
+    return { status: 'mismatch', problems: [...first.problems, ...stopNote] }
+  }
+  if (stoppedAt !== undefined) return { status: 'not-implemented', problems: [{ where: stoppedAt.where, message: stoppedAt.message }] }
+  return { status: 'pass', problems: [] }
 }
 
 // ── 전체 실행 ────────────────────────────────────────────────────────────

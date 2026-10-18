@@ -3,6 +3,7 @@
 import { spawnSync } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { NotImplementedError } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
 import { createFakeCore, emptySnapshot } from './fake-core.ts'
 import { listGoldenFiles, runGoldenDir } from './fs-runner.ts'
@@ -239,6 +240,110 @@ describe('결정성 검사 (AC-S00-27)', () => {
     const item = run(golden, { core }).items[0]
     expect(item?.status).toBe('runner-error')
     expect(item?.problems[0]?.message).toContain('직렬화할 수 없는 값')
+  })
+})
+
+describe('미구현으로 멈춘 시나리오 — 뒤의 미구현이 앞의 실패를 가리지 않는다 (README "결과 상태", AC-S00-23, AC-S00-27, TD-S00-001)', () => {
+  const PAYMENT = { at: '20:10:00', type: 'settlement.payment', buyer: 'UC_A', date: '2026-10-18', amount: 1000 }
+  const ALLOW = 'scenarios: ["G-ENG-*"]\n'
+  const CLAIM = { product: 'b1/15', buyer: 'X', status: 'CONFIRMED' } as const
+
+  /** settlement.payment에서만 미구현을 던지는 엔진 (판정만 구현하고 정산은 아직인 스프린트를 흉내 낸다) */
+  function partial(options: { snapshot?: (count: number) => GoldenSnapshot; hidden?: () => number; invariants?: GoldenCore['engine']['invariants'] } = {}): GoldenCore {
+    return createFakeCore({
+      snapshot: emptySnapshot(),
+      engine: {
+        start: () => ({ count: 0 }),
+        apply: (state, event) => {
+          if (event.type === 'settlement.payment') throw new NotImplementedError('정산(가짜)')
+          const count = (state as { count: number }).count + 1
+          return { state: { count, ...(options.hidden ? { hidden: options.hidden() } : {}) }, effects: [] }
+        },
+        observe: (state) => options.snapshot?.((state as { count: number }).count) ?? emptySnapshot(),
+        ...(options.invariants ? { invariants: options.invariants } : {}),
+      },
+    })
+  }
+
+  it('중간 검사 불일치 뒤 미구현 → 불일치 (허용 목록에 있어도 실패), 멈춘 지점도 보여 준다', () => {
+    const core = partial({ snapshot: (count) => emptySnapshot({ claims: count > 0 ? [CLAIM] : [] }) })
+    const report = run(scenario({ events: [REGISTER, { type: 'assert', expect: { claimCount: 0 } }, PAYMENT] }), { core, allowlist: ALLOW })
+    const item = report.items[0]
+    expect(item).toMatchObject({ status: 'mismatch', listed: true, allowed: false })
+    expect(item?.problems).toEqual([
+      { where: 'events[1]', path: 'claimCount', expected: 0, actual: 1 },
+      { where: 'events[2]', message: '여기서 코어가 미구현을 알려 멈췄다. 이 뒤는 확인하지 못했다: 아직 구현하지 않은 기능: 정산(가짜)' },
+    ])
+    expect(report.totals).toMatchObject({ mismatch: 1, notImplementedAllowed: 0 })
+    expect(report.ok).toBe(false)
+    expect(formatReport(report)).toContain('✗ 불일치 · fixture.yaml · G-ENG-901')
+  })
+
+  it('불변식 위반 뒤 미구현 → 불일치', () => {
+    const core = partial({ invariants: () => [{ id: 'INV-1', message: '한 상품을 두 명에게 팔았다' }] })
+    const item = run(scenario({ events: [REGISTER, PAYMENT] }), { core, allowlist: ALLOW }).items[0]
+    expect(item?.status).toBe('mismatch')
+    expect(item?.problems[0]).toEqual({ where: 'events[0]', path: '불변식 INV-1', message: '한 상품을 두 명에게 팔았다' })
+  })
+
+  it('미구현 앞까지의 결정성도 본다: 숨은 상태 → 결정성 위반, 처음 달라진 events[n]', () => {
+    let calls = 0
+    const core = partial({ hidden: () => ++calls })
+    const item = run(scenario({ events: [REGISTER, PAYMENT] }), { core, allowlist: ALLOW }).items[0]
+    expect(item?.status).toBe('determinism')
+    expect(item?.problems[0]?.where).toBe('events[0]')
+    expect(calls).toBe(2) // 첫 실행이 미구현으로 끝나도 두 번째 실행을 같은 지점까지 돌렸다
+  })
+
+  it('두 실행이 멈춘 지점이 다르면 결정성 위반', () => {
+    let runs = 0
+    const core = createFakeCore({
+      snapshot: emptySnapshot(),
+      engine: {
+        start: () => {
+          runs++
+          return {}
+        },
+        observe: () => {
+          // 두 번째 실행의 최종 비교에서만 미구현
+          if (runs === 2) throw new NotImplementedError('관찰(가짜)')
+          return emptySnapshot()
+        },
+        apply: (state) => ({ state, effects: [] }),
+      },
+    })
+    const golden = scenario({ events: [{ type: 'assert', expect: {} }] })
+    const item = run(golden, { core, allowlist: ALLOW }).items[0]
+    expect(item?.status).toBe('determinism')
+    expect(item?.problems[0]).toMatchObject({ where: 'events[0]', expected: '끝까지 실행', actual: 'events[0]에서 미구현으로 멈춤' })
+  })
+
+  it('첫 실행은 미구현으로 멈췄는데 두 번째 실행에서만 다른 예외 → 결정성 위반', () => {
+    let runs = 0
+    const core = createFakeCore({
+      snapshot: emptySnapshot(),
+      engine: {
+        start: () => {
+          runs++
+          if (runs === 1) throw new NotImplementedError('시작(가짜)')
+          throw new RangeError('두 번째만')
+        },
+      },
+    })
+    const item = run(scenario(), { core }).items[0]
+    expect(item?.status).toBe('determinism')
+    expect(item?.problems[0]?.message).toBe('첫 실행은 시작 상태에서 미구현으로 멈췄는데 두 번째 실행에서만 예외가 났다: RangeError: 두 번째만')
+  })
+
+  it('앞에 실패가 없으면 미구현 (허용 목록에 있으면 허용), 멈춘 지점을 적는다', () => {
+    const report = run(scenario({ events: [REGISTER, { type: 'assert', expect: { claimCount: 0 } }, PAYMENT] }), { core: partial(), allowlist: ALLOW })
+    expect(report.items[0]).toMatchObject({ status: 'not-implemented', allowed: true, problems: [{ where: 'events[2]', message: '아직 구현하지 않은 기능: 정산(가짜)' }] })
+    expect(report.ok).toBe(true)
+  })
+
+  it('최종 expect에서 미구현이면 위치는 최종 비교', () => {
+    const core = createFakeCore({ snapshot: emptySnapshot(), engine: { observe: createFakeCore().engine.observe } })
+    expect(run(scenario(), { core }).items[0]?.problems[0]?.where).toBe('expect (최종 비교)')
   })
 })
 
