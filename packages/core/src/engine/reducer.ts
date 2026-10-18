@@ -273,17 +273,24 @@ function assign(d: Draft, e: HostAssignEvent): void {
   }
   if (target !== undefined) replaceWinner(d, target, slot, replaceTo === 'CANCEL')
   confirm(d, claim, slot, product)
-  // 교체된 1등이 대기로 들어가 한도를 넘으면 맨 끝 대기자부터 품절
+  // 교체된 1등이 대기로 들어가 한도를 넘으면 맨 끝 대기자부터 품절 (차단 중인 1등은 대기에 들어가지 않아 넘치지 않는다, D-049)
   const max = d.settings['waitlist.max']
   while (slot.waitlist.length > 0 && slot.waitlist.length > max) finish(d.claim(slot.waitlist.pop() as string), slot, 'REJECTED', 'SOLD_OUT')
   settleAwaiting(slot)
 }
 
-/** 교체: 그 1등의 확정을 풀고(R-13) 취소하거나 대기 1순위로 넣는다. release()와 달리 승계는 없다 — 빈 자리는 배정받는 구매자가 채운다 */
+/**
+ * 교체: 그 1등의 확정을 풀고(R-13) 취소하거나 대기 1순위로 넣는다. release()와 달리 승계는 없다 — 빈 자리는 배정받는 구매자가 채운다.
+ * 차단 중인 구매자의 찜은 대기에 들어가지 않는다(D-049): 대기 대신 REJECTED(BLOCKED), 대기가 늘지 않으니 넘침 정리도 없다
+ */
 function replaceWinner(d: Draft, target: ClaimDraft, slot: SlotDraft, cancel: boolean): void {
   unconfirm(d, target, slot)
   if (cancel) {
     finish(target, slot, 'CANCELLED', null)
+    return
+  }
+  if (d.isBlocked(target.buyer)) {
+    finish(target, slot, 'REJECTED', 'BLOCKED')
     return
   }
   target.status = 'WAITLISTED'

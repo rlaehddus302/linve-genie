@@ -255,6 +255,11 @@ function checkStep(scenario: Scenario, prev: EngineState, event: EngineEvent, ne
   // D-038: 같은 구매자가 그 번호에 활성 찜이 있으면 새 찜은 생기지 않는다 (4번 줄을 맨 먼저)
   const activeBefore = new Set([...before.values()].filter((c) => c.status === 'CONFIRMED' || c.status === 'WAITLISTED' || c.status === 'PENDING').map((c) => `${c.product}|${c.buyer}`))
   for (const claim of after.filter((c) => !before.has(c.id))) expect(activeBefore.has(`${claim.product}|${claim.buyer}`), `${where}: 같은 사람의 두 번째 찜`).toBe(false)
+  // D-040·D-049: 차단 중인 구매자에게는 대기·보류 찜이 없다 (그래서 승계가 차단한 사람을 확정하지 않는다)
+  const blocked = new Set(listBuyers(next).filter((b) => b.blocked).map((b) => b.id))
+  for (const claim of after) {
+    if (claim.status === 'WAITLISTED' || claim.status === 'PENDING') expect(blocked.has(claim.buyer), `${where}: 차단 중인 ${claim.buyer}의 ${claim.status} 찜`).toBe(false)
+  }
   // D-041: "승계 결정 필요" 표시는 대기가 있고 빈 자리가 있을 때만 남는다
   for (const product of listProducts(next)) {
     if (product.awaitingSuccession) expect(product.waitlist.length > 0 && product.winners.length < product.stock, `${where}: ${product.key} 표시가 남았다`).toBe(true)

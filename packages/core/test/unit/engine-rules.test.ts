@@ -281,6 +281,77 @@ describe('수동 조치 (AC-S02-60~62)', () => {
     expect(half.states[4]).toBe(half.states[3])
   })
 
+  describe('차단 중인 구매자의 찜은 대기에 들어가지 않는다 (D-049, TD-S02-001)', () => {
+    const block = (buyer: string): EventInput => ({ type: 'host.blockBuyer', buyer, reason: '장난' })
+    const unblock = (buyer: string): EventInput => ({ type: 'host.unblockBuyer', buyer, reason: '풀어 줌' })
+    const replace = (buyer: string, winner: string, replaceTo: 'WAITLIST' | 'CANCEL'): EventInput => ({ type: 'host.assign', b: 'b1', no: 15, buyer, reason: 'r', replace: winner, replaceTo })
+
+    it('차단한 1등을 대기로 교체 → 차단 거절, 배정받은 사람이 취소돼도 차단한 사람에게 자동 승계·효과가 없다', () => {
+      const { state, emitted } = play([register(15), chat('A', '15'), chat('B', '15'), block('A'), replace('B', 'A', 'WAITLIST'), host('host.cancel', 15, 'B')], { 'waitlist.max': 2 })
+      expect(claimsOf(state)).toEqual([
+        ['b1/15', 'A', 'REJECTED', 'BLOCKED'],
+        ['b1/15', 'B', 'CANCELLED', null],
+      ])
+      expect(product(state, 15)).toEqual({ status: 'OPEN', winners: [], waitlist: [], awaiting: false })
+      // B 취소 때 새로 나온 효과가 없다. A의 효과는 확정버전 1뿐이고 모두 취소
+      expect(emitted[5]).toEqual([])
+      expect(listEffects(state).filter((e) => e.buyer === 'A').map((e) => [e.kind, e.confirmVersion, e.status])).toEqual([
+        ['PRINT_PRODUCT_LABEL', 1, 'CANCELLED'],
+        ['POST_THANKS', 1, 'CANCELLED'],
+      ])
+    })
+
+    it('대기가 꽉 찼을 때 차단한 1등(라벨 출력됨)을 대기로 교체 → 라벨 폐기, 대기자는 그대로(맨 끝 품절 없음)', () => {
+      const { state } = play(
+        [register(15), chat('A', '15'), chat('B', '15'), chat('C', '15'), chat('D', '안녕'), { type: 'effect.labelPrinted', effectId: 'c1:PRINT_PRODUCT_LABEL:-:1' }, block('A'), replace('D', 'A', 'WAITLIST')],
+        { 'waitlist.max': 2 },
+      )
+      expect(product(state, 15)).toEqual({ status: 'SOLD', winners: ['D'], waitlist: ['B', 'C'], awaiting: false })
+      expect(claimsOf(state)).toEqual([
+        ['b1/15', 'A', 'REJECTED', 'BLOCKED'],
+        ['b1/15', 'B', 'WAITLISTED', null],
+        ['b1/15', 'C', 'WAITLISTED', null],
+        ['b1/15', 'D', 'CONFIRMED', null],
+      ])
+      expect(listEffects(state).filter((e) => e.kind === 'VOID_LABEL').map((e) => [e.buyer, e.confirmVersion, e.status])).toEqual([['A', 1, 'PENDING']])
+    })
+
+    it('대기 한도 0에서도 차단한 1등은 품절이 아니라 차단 거절', () => {
+      const { state } = play([register(15), chat('A', '15'), chat('X', '안녕'), block('A'), replace('X', 'A', 'WAITLIST')], { 'waitlist.max': 0 })
+      expect(claimsOf(state)).toEqual([
+        ['b1/15', 'A', 'REJECTED', 'BLOCKED'],
+        ['b1/15', 'X', 'CONFIRMED', null],
+      ])
+    })
+
+    it('배정받는 사람의 대기 찜이 빠지고 차단한 1등은 들어가지 않는다 — 다음 대기자가 1순위', () => {
+      const { state } = play([register(15), chat('A', '15'), chat('B', '15'), chat('C', '15'), block('A'), replace('C', 'A', 'WAITLIST')], { 'waitlist.max': 2 })
+      expect(product(state, 15)).toEqual({ status: 'SOLD', winners: ['C'], waitlist: ['B'], awaiting: false })
+    })
+
+    it('차단과 교체의 순서가 바뀌어도 그 찜의 결과는 같다 (교체 뒤 차단 → 차단 거절)', () => {
+      const blockThenReplace = play([register(15), chat('A', '15'), chat('X', '안녕'), block('A'), replace('X', 'A', 'WAITLIST')])
+      const replaceThenBlock = play([register(15), chat('A', '15'), chat('X', '안녕'), replace('X', 'A', 'WAITLIST'), block('A')])
+      expect(claimsOf(replaceThenBlock.state)).toEqual(claimsOf(blockThenReplace.state))
+      expect(product(replaceThenBlock.state, 15)).toEqual(product(blockThenReplace.state, 15))
+    })
+
+    it('취소로 교체하면 차단 여부와 상관없이 CANCELLED, 차단을 푼 뒤 교체는 평소대로 대기 1순위', () => {
+      const cancelled = play([register(15), chat('A', '15'), chat('X', '안녕'), block('A'), replace('X', 'A', 'CANCEL')])
+      expect(claimsOf(cancelled.state)).toEqual([
+        ['b1/15', 'A', 'CANCELLED', null],
+        ['b1/15', 'X', 'CONFIRMED', null],
+      ])
+      const unblocked = play([register(15), chat('A', '15'), chat('X', '안녕'), block('A'), unblock('A'), replace('X', 'A', 'WAITLIST')])
+      expect(product(unblocked.state, 15)).toEqual({ status: 'SOLD', winners: ['X'], waitlist: ['A'], awaiting: false })
+    })
+
+    it('배정받는 구매자의 차단 여부는 보지 않는다 — 차단된 사람에게 넘기고 차단 안 된 1등은 대기 1순위', () => {
+      const { state } = play([register(15), chat('A', '15'), chat('X', '안녕'), block('X'), replace('X', 'A', 'WAITLIST')])
+      expect(product(state, 15)).toEqual({ status: 'SOLD', winners: ['X'], waitlist: ['A'], awaiting: false })
+    })
+  })
+
   it('promote: 대기 몇 순위든 지정한 사람, 대기가 아닌 사람·없는 번호는 아무 일도 없다', () => {
     const { state, states } = play([
       register(15),

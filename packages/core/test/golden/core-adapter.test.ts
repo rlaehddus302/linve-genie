@@ -183,14 +183,14 @@ describe('invariants 훅 — 매 이벤트 뒤 checkInvariants, 위반은 불일
 })
 
 describe('실제 tests/golden 전체를 실제 코어로 (AC-S02-90과 같은 합계)', () => {
-  it('통과 425 · 미구현(허용) 20 · 나머지 0, S03 시나리오는 모두 중간 검사 전에 미구현으로 멈춘다', () => {
+  it('통과 427 · 미구현(허용) 20 · 나머지 0, S03 시나리오는 모두 중간 검사 전에 미구현으로 멈춘다', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
       files: 12,
       parserCases: 379,
-      scenarios: 66,
-      pass: 425,
+      scenarios: 68,
+      pass: 427,
       mismatch: 0,
       notImplementedAllowed: 20,
       notImplementedDisallowed: 0,
