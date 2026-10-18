@@ -22,3 +22,46 @@ settings: { unit: WON }
 cases:
   - { in: "15 핑크프릴 10000", out: { no: 15, name: "핑크프릴", price: 10000 } }
   - { in: "15 핑크프릴 10", out: { error: PRICE_TOO_LOW, no: 15, name: "핑크프릴" } }   # 100원 미만 거부
+---
+# S01 보강 — 빠른 입력 세부 (DOMAIN_RULES R-16, D-030). 천원 단위(기본), 번호 범위는 claim.maxNumber 기본값 999.
+# 판단 기준: 애매하면 등록하지 않고(오류) 고칠 곳으로 커서를 보낸다 — 잘못 등록된 상품은 방송 중에 찾기 어렵다.
+suite: quick-input
+settings: { unit: THOUSAND }
+cases:
+  # 성공 — 공백 정리, 전각 숫자, 선행 0, 떨어진 '번', 슬래시 형식
+  - { in: "  15 핑크프릴 10  ", out: { no: 15, name: "핑크프릴", price: 10000 } }
+  - { in: "31  방울복랑   금  15000", out: { no: 31, name: "방울복랑 금", price: 15000 } }   # 품종 안 공백은 한 칸으로
+  - { in: "１５ 핑크프릴 １０", out: { no: 15, name: "핑크프릴", price: 10000 } }
+  - { in: "015 핑크프릴 10", out: { no: 15, name: "핑크프릴", price: 10000 } }
+  - { in: "15 번 핑크프릴 10", out: { no: 15, name: "핑크프릴", price: 10000 } }             # 번호 다음 토큰이 '번' 하나면 번호에 붙는다
+  - { in: "15/방울복랑 금/15", out: { no: 15, name: "방울복랑 금", price: 15000 } }          # 번호 바로 뒤 '/' → 슬래시 형식
+  - { in: "15 핑크/블루 10", out: { no: 15, name: "핑크/블루", price: 10000 } }               # 슬래시 형식이 아니면 '/'는 품종 글자
+  - { in: "15 <b>핑크</b> 10", out: { no: 15, name: "<b>핑크</b>", price: 10000 } }          # 파서는 글자를 바꾸지 않는다(화면에서 이스케이프)
+  # 가격 = 끝에서부터 금액으로 읽히는 가장 긴 토큰 묶음
+  - { in: "15 핑크프릴 1만 5천", out: { no: 15, name: "핑크프릴", price: 15000 } }           # '1만 5천' = 15000 ('5천'만 떼지 않는다)
+  - { in: "15 핑크프릴 만 원", out: { no: 15, name: "핑크프릴", price: 10000 } }
+  - { in: "15 레티지아 2호 10", out: { no: 15, name: "레티지아 2호", price: 10000 } }        # '2호 10'은 금액이 아님 → '10'만 가격
+  - { in: "15 핑크프릴 1500", out: { no: 15, name: "핑크프릴", price: 1500 } }               # 1000 이상은 원 그대로 (D-007)
+  - { in: "999 핑크프릴 10", out: { no: 999, name: "핑크프릴", price: 10000 } }              # 번호 경계
+  - { in: "15 1만", out: { no: 15, name: "", price: 10000 } }
+  # 가격 빠짐 — 등록하지 않고 번호·품종을 돌려준다(PRD-01 AC3)
+  - { in: "15", out: { error: PRICE_MISSING, no: 15, name: "" } }
+  - { in: "15번", out: { error: PRICE_MISSING, no: 15, name: "" } }
+  - { in: "15 핑크프릴 1.23456만", out: { error: PRICE_MISSING, no: 15, name: "핑크프릴 1.23456만" } }
+  - { in: "15 핑크프릴 -5000", out: { error: PRICE_MISSING, no: 15, name: "핑크프릴 -5000" } }
+  - { in: "15 핑크프릴 1만5", out: { error: PRICE_MISSING, no: 15, name: "핑크프릴 1만5" } }   # 애매한 금액(R-14)은 가격으로 보지 않는다
+  # 가격 하한 100원 — 단위 설정과 무관, 0원 포함
+  - { in: "15 핑크프릴 0", out: { error: PRICE_TOO_LOW, no: 15, name: "핑크프릴" } }
+  - { in: "15 핑크프릴 10원", out: { error: PRICE_TOO_LOW, no: 15, name: "핑크프릴" } }      # '원'이 붙으면 10원
+  # 번호 오류 — error 키만
+  - { in: "1000 핑크프릴 10", out: { error: NUMBER_INVALID } }   # maxNumber(999) 밖 — 채팅으로 찜할 수 없는 번호는 만들지 않는다
+  - { in: "15.5 핑크프릴 10", out: { error: NUMBER_INVALID } }   # 숫자로 시작하지만 번호 형식이 아님
+  - { in: "   ", out: { error: EMPTY } }
+---
+# S01 보강 — 원 단위 가격 하한 경계
+suite: quick-input
+settings: { unit: WON }
+cases:
+  - { in: "15 핑크프릴 100", out: { no: 15, name: "핑크프릴", price: 100 } }
+  - { in: "15 핑크프릴 99", out: { error: PRICE_TOO_LOW, no: 15, name: "핑크프릴" } }
+  - { in: "15 핑크프릴 1만", out: { no: 15, name: "핑크프릴", price: 10000 } }

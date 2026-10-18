@@ -61,3 +61,102 @@ cases:
   - { in: "15번 너무 예뻐요 살게요", out: { claims: [15] } }
   - { in: "15번 18번 중에 뭐가 나아요?", out: { claims: [15, 18] } }
   - { in: "예뻐요 15번", out: { mentions: [15] } }   # 맨 앞이 번호가 아니면 주문 아님
+---
+# S01 보강 — R-3 세부 규칙 (D-028). STRICT, 기본 설정.
+# 판단 기준: 오인 주문(판매 사고)보다 놓친 주문(클릭 한 번으로 찜 변환, ORD-12)이 덜 위험하다 (D-006).
+suite: chat
+settings: { parseMode: STRICT, multiNumber: ALL, maxNumber: 999 }
+cases:
+  # 주문 — 붙여 쓰기·띄어 쓰기, 꼬리말, 꼬리 기호
+  - { in: "찜15", out: { claims: [15] } }                 # 찜 뒤 공백 없어도 된다
+  - { in: "15찜", out: { claims: [15] } }                 # 꼬리말 붙여 쓰기
+  - { in: "15번 할게요", out: { claims: [15] } }
+  - { in: "15 구매요", out: { claims: [15] } }
+  - { in: "15번 ㅋㅋㅋ", out: { claims: [15] } }
+  - { in: "15번^^", out: { claims: [15] } }
+  - { in: "15번 ♡♡", out: { claims: [15] } }
+  - { in: "15 👍🏻", out: { claims: [15] } }              # 피부색 수식 문자(U+1F3FB)가 붙은 이모지
+  - { in: "15번 😍😍", out: { claims: [15] } }
+  # 번호 범위·자릿수
+  - { in: "1", out: { claims: [1] } }
+  - { in: "999", out: { claims: [999] } }                 # maxNumber 경계
+  - { in: "0015", out: { claims: [15] } }                 # 4자리까지 선행 0 허용
+  - { in: "00015", out: {} }                              # 5자리 숫자 덩어리는 번호가 아니다 → 언급도 없음
+  # 여러 번호 — 구분자 공백·쉼표·슬래시·가운뎃점, 메시지 순서, 중복은 처음 자리
+  - { in: "１５ ２８", out: { claims: [15, 28] } }
+  - { in: "15·28", out: { claims: [15, 28] } }
+  - { in: "15, 28", out: { claims: [15, 28] } }
+  - { in: "15번,28번", out: { claims: [15, 28] } }
+  - { in: "찜 15 28", out: { claims: [15, 28] } }
+  - { in: "28 15", out: { claims: [28, 15] } }            # 정렬하지 않는다
+  - { in: "15 28 15", out: { claims: [15, 28] } }         # 같은 번호는 처음 나온 자리에 하나
+  - { in: "15 번 28 번 주세요", out: { claims: [15, 28] } }
+  # 취소 — 번호 하나만. 취소에는 ㅠ·ㅜ도 허용
+  - { in: "15번 취소!!", out: { cancels: [15] } }
+  - { in: "15 취소할게요", out: { cancels: [15] } }
+  - { in: "15번 취소요 ㅠㅠ", out: { cancels: [15] } }
+  - { in: "015 취소", out: { cancels: [15] } }
+  - { in: "15 28 취소", out: { mentions: [15, 28] } }     # 번호 여러 개 취소는 문법 밖 → 언급만(방송자가 보고 처리)
+  - { in: "취소 15", out: { mentions: [15] } }            # 취소가 앞에 오면 문법 밖
+  - { in: "취소", out: {} }
+  # 주문 아님 — 질문(?)·문법 밖 꼬리·범위 밖 번호가 섞임
+  - { in: "15?", out: { mentions: [15] } }                # ?는 꼬리 기호가 아니다(질문)
+  - { in: "15번?", out: { mentions: [15] } }
+  - { in: "15번요?", out: { mentions: [15] } }
+  - { in: "15번 ㅠㅠ", out: { mentions: [15] } }          # ㅠ는 주문 꼬리 기호가 아니다(놓쳐서 아쉬움일 수 있음)
+  - { in: "15%", out: { mentions: [15] } }                # %는 꼬리 기호가 아니다
+  - { in: "15번 살게요", out: { mentions: [15] } }        # '살게요'는 꼬리말 목록에 없다
+  - { in: "15번이랑 28번이요", out: { mentions: [15, 28] } }
+  - { in: "15 1000", out: { mentions: [15] } }            # 범위 밖 번호(1000)가 섞이면 주문 아님, 언급은 범위 안만
+  - { in: "15 0", out: { mentions: [15] } }
+  - { in: "15번 15번 예뻐요", out: { mentions: [15] } }   # 언급도 중복 없이
+  # 금액 모양은 번호가 아니다 — 주문·취소·언급 어디에도 넣지 않는다
+  - { in: "12,500", out: {} }                             # 천 단위 쉼표 묶음 = 금액 (12번+500번으로 읽지 않는다)
+  - { in: "12,500이요", out: {} }
+  - { in: "15,000원이요?", out: {} }
+  - { in: "1.5만 맞나요?", out: {} }                      # 숫자.숫자 = 금액
+  - { in: "십오번", out: {} }                             # 한글 수사는 채팅 주문 번호가 아니다
+  - { in: "   ", out: {} }
+---
+# S01 보강 — maxNumber를 바꾼 경우 (D-028 범위 규칙)
+suite: chat
+settings: { parseMode: STRICT, multiNumber: ALL, maxNumber: 50 }
+cases:
+  - { in: "50", out: { claims: [50] } }
+  - { in: "51", out: {} }                                 # 범위 밖 → 언급도 없음
+  - { in: "15 51", out: { mentions: [15] } }
+  - { in: "51번 예뻐요", out: {} }
+  - { in: "51 취소", out: {} }
+---
+# S01 보강 — multiNumber: FIRST
+suite: chat
+settings: { parseMode: STRICT, multiNumber: FIRST, maxNumber: 999 }
+cases:
+  - { in: "28 15", out: { claims: [28] } }                # 정렬이 아니라 처음 나온 번호
+  - { in: "15 15 28", out: { claims: [15] } }             # 첫 번호 말고는 버린다(언급에도 넣지 않음)
+  - { in: "15 취소", out: { cancels: [15] } }             # 취소에는 영향 없음
+  - { in: "15번 18번 중에 뭐가 나아요?", out: { mentions: [15, 18] } }  # 주문이 아닌 메시지의 언급은 그대로
+---
+# S01 보강 — multiNumber: IGNORE
+suite: chat
+settings: { parseMode: STRICT, multiNumber: IGNORE, maxNumber: 999 }
+cases:
+  - { in: "15 15", out: { claims: [15] } }                # 같은 번호 반복은 번호 하나
+  - { in: "15,28,31", out: { mentions: [15, 28, 31] } }
+  - { in: "15 취소", out: { cancels: [15] } }
+---
+# S01 보강 — LOOSE: 맨 앞 주문 부분은 끝·공백 앞에서 끝나거나 꼬리 기호로 끝나야 한다. 취소가 우선 (D-028)
+suite: chat
+settings: { parseMode: LOOSE, multiNumber: ALL, maxNumber: 999 }
+cases:
+  - { in: "3개 남았나요?", out: { mentions: [3] } }       # '3' 뒤가 '개' → 주문 부분이 끝나지 않음
+  - { in: "15개요", out: { mentions: [15] } }
+  - { in: "15?", out: { mentions: [15] } }
+  - { in: "15번 2개 가능해요?", out: { claims: [15] } }   # '15번 2'는 '개' 앞이라 안 되고, '15번'까지가 주문. 나머지 숫자는 언급하지 않는다
+  - { in: "15번이요 감사합니다", out: { claims: [15] } }
+  - { in: "15!!예뻐요", out: { claims: [15] } }           # 꼬리 기호로 끝난 주문 부분
+  - { in: "15 취소", out: { cancels: [15] } }
+  - { in: "15 취소할게요 죄송해요", out: { cancels: [15] } }  # 맨 앞이 취소 문법이면 취소
+  - { in: "15번 사려다 취소", out: { mentions: [15] } }   # '취소'가 들어간 메시지는 주문으로 보지 않는다
+  - { in: "안녕하세요 15", out: { mentions: [15] } }
+  - { in: "12,500원이요", out: {} }                       # 금액 모양은 LOOSE에서도 번호가 아니다

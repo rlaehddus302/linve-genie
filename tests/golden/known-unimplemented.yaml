@@ -8,6 +8,6 @@
 #
 # suites: 파서 suite 이름 (chat / amount / korean-number / quick-input) — 그 suite의 모든 문서·사례
 # scenarios: 엔진 시나리오 ID. '*'는 0글자 이상과 맞는다. 어떤 시나리오와도 맞지 않는 항목은 읽기 오류.
-sprint: S00
-suites: [chat, amount, korean-number, quick-input]   # S01에서 제거 (파서)
+sprint: S01
+suites: []                                           # S01에서 파서 4개 suite(chat·amount·korean-number·quick-input) 전부 제거 — 파서 미구현은 이제 실패
 scenarios: ["G-ENG-*"]                               # S02·S03에서 범위에 맞게 줄인다 (엔진)
