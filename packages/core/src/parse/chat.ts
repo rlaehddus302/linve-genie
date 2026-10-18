@@ -18,24 +18,54 @@ const SEPARATORS = new Set([' ', ',', '/', '·'])
 const CLAIM_WORDS = byLengthDesc(['이요', '요', '여', '찜', '찜이요', '찜할게요', '주세요', '할게요', '구매', '구매요', '구매합니다'])
 /** 취소 말 (R-3 취소 문법) */
 const CANCEL_WORDS = byLengthDesc(['취소', '취소요', '취소할게요', '취소해주세요'])
-/** 보이는 꼬리 기호 (R-3 세부 "꼬리 기호") */
-const TAIL_CHARS = new Set(['!', '~', '.', '^', '*', '♡', '♥', '☆', '★', 'ㅎ', 'ㅋ'])
-/** 취소에만 더 허용하는 꼬리 기호 */
-const CANCEL_ONLY_TAIL_CHARS = new Set(['ㅠ', 'ㅜ'])
-const PICTOGRAPHIC = /^\p{Extended_Pictographic}$/u
+/** 기호 꼬리 (R-3 세부 "꼬리 기호"). ♥ U+2665는 그림 이모지이기도 하다. */
+const TAIL_SYMBOLS = ['!', '~', '.', '^', '*', '♡', '♥', '☆', '★', 'ㅎ', 'ㅋ']
+/** 취소에만 더 허용하는 꼬리 (R-3 세부 "취소"): ㅠ ㅜ와 😢 U+1F622 · 😭 U+1F62D · 🥲 U+1F972 */
+const CANCEL_ONLY_TAIL_SYMBOLS = ['ㅠ', 'ㅜ']
+const CANCEL_ONLY_TAIL_EMOJI = [0x1f622, 0x1f62d, 0x1f972]
+
+/**
+ * 꼬리 그림 이모지 허용 목록 (R-3 세부, D-033) 83자: 주문 의사·호감·응원만. DOMAIN_RULES에 적힌 코드 포인트 그대로다.
+ * 목록 밖의 그림 이모지(❓ ❔ ⁉ 질문, ❌ 🚫 부정, 😭 🤔 💔 아쉬움·고민, 👀 등)는 "그 밖의 문자"라 주문이 아니다(언급).
+ * 목록을 넓히려면 DECISIONS를 거친다. 단위 테스트가 DOMAIN_RULES의 목록과 대조한다.
+ */
+export const CLAIM_TAIL_EMOJI: ReadonlySet<number> = new Set([
+  // 하트(22): 💕 U+1F495 ~ 💟 U+1F49F 11자, 💔 U+1F494는 아님
+  0x2764, 0x2763, 0x1f48c, 0x1f493, 0x1f495, 0x1f496, 0x1f497, 0x1f498, 0x1f499, 0x1f49a, 0x1f49b, 0x1f49c, 0x1f49d, 0x1f49e, 0x1f49f, 0x1f5a4, 0x1f90d,
+  0x1f90e, 0x1f9e1, 0x1fa75, 0x1fa76, 0x1fa77,
+  // 웃는·좋아하는 얼굴(23): 😅 U+1F605 · 😇 U+1F607 · 😈 U+1F608 · 😌 · 😏 등은 아님
+  0x1f600, 0x1f601, 0x1f602, 0x1f603, 0x1f604, 0x1f606, 0x1f609, 0x1f60a, 0x1f60b, 0x1f60d, 0x1f60e, 0x1f617, 0x1f618, 0x1f619, 0x1f61a, 0x1f63b, 0x263a,
+  0x1f642, 0x1f917, 0x1f923, 0x1f929, 0x1f970, 0x1f973,
+  // 손(11)
+  0x1f44c, 0x1f44d, 0x1f44f, 0x1f64b, 0x1f64c, 0x1f64f, 0x270b, 0x270c, 0x261d, 0x1f91e, 0x1faf6,
+  // 반짝·축하(9)
+  0x2728, 0x2b50, 0x1f31f, 0x1f4ab, 0x1f525, 0x1f4af, 0x1f389, 0x1f38a, 0x1f381,
+  // 꽃·식물(13)
+  0x1f331, 0x1f335, 0x1f337, 0x1f338, 0x1f339, 0x1f33a, 0x1f33b, 0x1f33c, 0x1f33f, 0x1f340, 0x1f490, 0x2618, 0x1fab4,
+  // 느낌표(3, '!'와 같다)
+  0x2757, 0x2755, 0x203c,
+  // 성별 기호(2, 사람 이모지 조합용: 🙋‍♀️)
+  0x2640, 0x2642,
+])
+
+const codePointsOf = (chars: readonly string[]): number[] => chars.map((char) => char.codePointAt(0) as number)
+/** 주문 꼬리의 보이는 글자: 기호 + 허용 목록 그림 이모지 */
+const CLAIM_TAIL: ReadonlySet<number> = new Set([...codePointsOf(TAIL_SYMBOLS), ...CLAIM_TAIL_EMOJI])
+/** 취소 꼬리의 보이는 글자: 주문 꼬리 + ㅠ ㅜ 😢 😭 🥲 */
+const CANCEL_TAIL: ReadonlySet<number> = new Set([...CLAIM_TAIL, ...codePointsOf(CANCEL_ONLY_TAIL_SYMBOLS), ...CANCEL_ONLY_TAIL_EMOJI])
 
 /** 그림 이모지의 수식 문자: U+FE0F, U+200D, 피부색 U+1F3FB~U+1F3FF. 혼자서는 보이지 않는다. */
 function isEmojiModifier(codePoint: number): boolean {
   return codePoint === 0xfe0f || codePoint === 0x200d || (codePoint >= 0x1f3fb && codePoint <= 0x1f3ff)
 }
 
+/** 주문 꼬리의 보이는 글자인가. ZWJ 조합도 글자 하나씩 이 판정을 거친다(scanTail): 조합 안 글자 하나라도 목록 밖이면 꼬리가 끊긴다. */
 function isVisibleClaimTail(codePoint: number): boolean {
-  const char = String.fromCodePoint(codePoint)
-  return TAIL_CHARS.has(char) || PICTOGRAPHIC.test(char)
+  return CLAIM_TAIL.has(codePoint)
 }
 
 function isVisibleCancelTail(codePoint: number): boolean {
-  return isVisibleClaimTail(codePoint) || CANCEL_ONLY_TAIL_CHARS.has(String.fromCodePoint(codePoint))
+  return CANCEL_TAIL.has(codePoint)
 }
 
 // ── 숫자 덩어리와 금액 모양 ───────────────────────────────────────────────

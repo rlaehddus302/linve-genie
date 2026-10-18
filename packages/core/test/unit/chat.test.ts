@@ -1,7 +1,9 @@
 // R-3 채팅 주문 인식 (AC-S01-10~18). 골든 chat.yaml이 정답 사례이고, 여기서는 규칙 문장과 속성을 넓게 확인한다.
+import { readFileSync } from 'node:fs'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { parseChat, type ChatParseResult, type SettingsOverride } from '@livejjim/core'
+import { CLAIM_TAIL_EMOJI } from '../../src/parse/chat.ts'
 
 type Expected = Partial<Record<keyof ChatParseResult, number[]>>
 
@@ -12,6 +14,39 @@ function check(cases: ReadonlyArray<readonly [string, Expected]>, settings: Sett
   for (const [input, expected] of cases) {
     expect(parseChat(input, settings), `${JSON.stringify(input)} ${JSON.stringify(settings)}`).toEqual({ claims: [], cancels: [], mentions: [], ...expected })
   }
+}
+
+/**
+ * DOMAIN_RULES R-3 세부 "꼬리 그림 이모지 허용 목록"의 분류 줄(`  - 하트(22): …`)에 적힌 코드 포인트(오름차순).
+ * `U+A ~ … U+B`는 범위, `U+X는 아님`은 뺀다. 분류마다 괄호 안 개수와 같은지도 본다. 구현과 따로 규칙 문서에서 읽는다.
+ */
+function allowlistFromDomainRules(): number[] {
+  const text = readFileSync(new URL('../../../../docs/spec/DOMAIN_RULES.md', import.meta.url), 'utf8')
+  const start = text.indexOf('**꼬리 그림 이모지 허용 목록**')
+  expect(start, '허용 목록 문단').toBeGreaterThan(0)
+  const all: number[] = []
+  for (const line of text.slice(start).split('\n').slice(1)) {
+    const category = /^\s+- [^(:]+\((\d+)[,)][^:]*:(.*)$/.exec(line)
+    if (category === null) break
+    const [, count, body] = category as unknown as [string, string, string]
+    const codes = [...body.matchAll(/U\+([0-9A-F]{4,6})(는 아님)?/g)]
+    const found: number[] = []
+    const excluded: number[] = []
+    codes.forEach((code, k) => {
+      const codePoint = Number.parseInt(code[1] as string, 16)
+      if (code[2] !== undefined) return void excluded.push(codePoint)
+      const previous = codes[k - 1]
+      const between = previous === undefined ? '' : body.slice((previous.index) + previous[0].length, code.index)
+      const from = found.at(-1)
+      if (between.includes('~') && from !== undefined) for (let c = from + 1; c <= codePoint; c++) found.push(c)
+      else found.push(codePoint)
+    })
+    const kept = found.filter((codePoint) => !excluded.includes(codePoint))
+    expect(kept, line).toHaveLength(Number(count))
+    all.push(...kept)
+  }
+  expect(all, '분류 합계').toHaveLength(83)
+  return all.sort((a, b) => a - b)
 }
 
 /** 채팅 같은 조각을 이어 붙인 메시지 (속성 테스트용) */
@@ -76,7 +111,7 @@ describe('AC-S01-10 STRICT 주문', () => {
 })
 
 describe('AC-S01-11 꼬리 기호와 질문', () => {
-  it('꼬리 기호: ! ~ . ^ * ♡ ♥ ☆ ★ ㅎ ㅋ, 그림 이모지와 수식 문자', () => {
+  it('꼬리 기호: ! ~ . ^ * ♡ ♥ ☆ ★ ㅎ ㅋ, 허용 목록 그림 이모지와 수식 문자', () => {
     check([
       ['15 ❤\uFE0F', { claims: [15] }],
       ['15 👍🏻', { claims: [15] }],
@@ -85,10 +120,63 @@ describe('AC-S01-11 꼬리 기호와 질문', () => {
       ['15!~.^*♡♥☆★ㅎㅋ', { claims: [15] }],
       ['15 ! ~ ♡', { claims: [15] }],
       ['15 ❤\uFE0F\u200D🔥', { claims: [15] }],
-      ['15 👨\u200D👩\u200D👧', { claims: [15] }],
+      ['15 🙋\u200D♀\uFE0F', { claims: [15] }], // 🙋+ZWJ+♀+FE0F: 모두 목록·수식 문자
       ['15번 ‼', { claims: [15] }],
       ['15\uFE0F', { claims: [15] }],
     ])
+  })
+
+  it('D-033: 목록 밖 그림 이모지는 그 밖의 문자 — 꼬리의 그림 이모지는 조합 안 글자까지 하나하나 목록에 있어야 한다', () => {
+    // LOOSE는 번호 바로 뒤에 붙여 쓴 것만 본다. LOOSE에서 공백 뒤에 오는 것은 "공백 앞에서 끝난 부분"이라 규칙 문장상 주문이다(TD-S01-005, spec-keeper 판단 대기).
+    const attached: ReadonlyArray<readonly [string, Expected]> = [
+      ['15\u{2753}', { mentions: [15] }],
+      ['15\u{1F62D}', { mentions: [15] }],
+      ['15\u{1F440}\u{2764}\uFE0F예뻐요', { mentions: [15] }],
+      ['15\u{1F645}\u200D\u{2640}\uFE0F 예뻐요', { mentions: [15] }],
+      ['15\u{1F64B}\u200D\u{2640}\uFE0F 예뻐요', { claims: [15] }],
+    ]
+    check(attached, LOOSE)
+    for (const settings of [STRICT]) {
+      check(
+        [
+          ['15\u{2753}', { mentions: [15] }], // ❓ 질문
+          ['15 \u{2754}', { mentions: [15] }], // ❔
+          ['15\u{2049}', { mentions: [15] }], // ⁉
+          ['15번 \u{1F62D}', { mentions: [15] }], // 😭 주문 꼬리에는 없다(취소에만)
+          ['15 \u{274C}', { mentions: [15] }], // ❌ 부정
+          ['15 \u{1F494}', { mentions: [15] }], // 💔 💓와 💕 사이지만 목록 밖
+          ['15 \u{1F605}', { mentions: [15] }], // 😅 😄와 😆 사이지만 목록 밖
+          ['15 \u{1F468}\u200D\u{1F469}\u200D\u{1F467}', { mentions: [15] }], // 사람 이모지는 목록 밖
+          ['15 \u{1F645}\u200D\u{2640}\uFE0F', { mentions: [15] }], // 🙅‍♀️
+          ['15 \u{2764}\uFE0F\u200D\u{1FA79}', { mentions: [15] }], // ❤️‍🩹: 🩹가 목록 밖
+          ['15 \u{2764}\uFE0F\u{1F440}', { mentions: [15] }], // ❤️👀: 첫 이모지만 보면 안 된다
+          ['15 \u{1F440}\u{2764}\uFE0F', { mentions: [15] }], // 👀❤️: 마지막 이모지만 보면 안 된다
+          ['15 \u{1F440}\u{1F3FB}', { mentions: [15] }], // 피부색은 목록 밖 글자를 살리지 않는다
+        ],
+        settings,
+      )
+    }
+  })
+
+  it('D-033: 허용 목록 83자 각각은 주문 꼬리, 목록·기호 밖의 Extended_Pictographic은 주문 꼬리가 아니다', () => {
+    expect(CLAIM_TAIL_EMOJI.size).toBe(83)
+    const pictographic = /^\p{Extended_Pictographic}$/u
+    const wrong: string[] = []
+    for (let codePoint = 0; codePoint <= 0x10ffff; codePoint++) {
+      if (codePoint >= 0xd800 && codePoint <= 0xdfff) continue
+      const char = String.fromCodePoint(codePoint)
+      if (!pictographic.test(char)) continue
+      // ♥ U+2665는 기호 목록에 있으면서 그림 이모지이기도 하다
+      const want = CLAIM_TAIL_EMOJI.has(codePoint) || codePoint === 0x2665 ? { claims: [15] } : { mentions: [15] }
+      const actual = parseChat(`15${char}`)
+      if (JSON.stringify(actual) !== JSON.stringify({ claims: [], cancels: [], mentions: [], ...want })) wrong.push(codePoint.toString(16))
+    }
+    expect(wrong).toEqual([])
+    for (const codePoint of CLAIM_TAIL_EMOJI) expect(pictographic.test(String.fromCodePoint(codePoint)), codePoint.toString(16)).toBe(true)
+  })
+
+  it('D-033: 코어의 허용 목록은 DOMAIN_RULES R-3 세부 "꼬리 그림 이모지 허용 목록"에 적힌 코드 포인트와 같다', () => {
+    expect([...CLAIM_TAIL_EMOJI].sort((a, b) => a - b)).toEqual(allowlistFromDomainRules())
   })
 
   it('그 밖의 문자가 붙으면 주문이 아니다', () => {
