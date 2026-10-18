@@ -2,6 +2,7 @@
 // 검증을 통과한 문서만 러너가 실행한다. 이벤트 변환(at → UTC, seq 부여)도 여기서 한다.
 import type { SettingsOverride } from '@livejjim/core'
 import {
+  ASSIGN_REPLACE_FIELDS,
   BROADCAST_ID_RE,
   BUYER_EXPECT_KEYS,
   CLAIM_EXPECT_KEYS,
@@ -624,6 +625,10 @@ function validateScenario(raw: Record<string, unknown>): ValidationResult {
       if (type === 'settlement.shippingOverride') {
         if (entry.mode === 'FIXED' && !hasValue(entry, 'amount')) c.fail(p, `mode FIXED에는 amount가 필요하다`)
         if (entry.mode !== 'FIXED' && hasValue(entry, 'amount')) c.fail([...p, 'amount'], `amount는 mode FIXED일 때만 쓴다`)
+      }
+      if (type === 'host.assign') {
+        const present = ASSIGN_REPLACE_FIELDS.filter((field) => hasValue(entry, field))
+        if (present.length === 1) c.fail(p, `host.assign의 replace와 replaceTo는 함께 쓴다 ('${present[0] ?? ''}'만 있다)`)
       }
 
       // 시각

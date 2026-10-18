@@ -120,6 +120,26 @@ const CASES: Readonly<Record<string, { category: string; loaded?: number; errors
       },
     ],
   },
+  '05-event-fields-host.yaml': {
+    category: '5. (S02 어휘) host.assign replace·replaceTo 짝, host.reopen·host.dismissCancel 필드',
+    errors: [
+      {
+        doc: 1,
+        label: 'G-ENG-901',
+        issues: [
+          ['events[0]', "replace와 replaceTo는 함께 쓴다 ('replace'만 있다)"],
+          ['events[1]', "replace와 replaceTo는 함께 쓴다 ('replaceTo'만 있다)"],
+          ['events[2].replaceTo', 'WAITLIST / CANCEL 중 하나'],
+          ['events[3]', "필수 필드 'reason'가 없다"],
+          ['events[4]', "필수 필드 'reason'가 없다"],
+          ['events[5].buyer', "모르는 필드 'buyer'"],
+          ['events[6]', "필수 필드 'buyer'가 없다"],
+          ['events[7].reason', '빈 문자열이 아닌'],
+          ['events[8].replace', "ref 's9'인 문자찜이 없다"],
+        ],
+      },
+    ],
+  },
   '06-undeclared-broadcast.yaml': {
     category: '6. 선언하지 않은 방송',
     errors: [

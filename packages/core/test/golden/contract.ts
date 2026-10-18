@@ -162,6 +162,8 @@ const spec = (required: Record<string, FieldKind>, optional: Record<string, Fiel
 
 const hostWithBuyer = spec({ b: F.b, no: F.no, buyer: F.buyer, reason: F.reason })
 const hostConfirmLike = spec({ b: F.b, no: F.no, buyer: F.buyer }, { reason: F.reason })
+/** host.assign의 교체 대상(replace)과 교체 방법(replaceTo)은 함께 쓴다 (README 이벤트 표, D-042). 하나만 있으면 validate에서 읽기 오류 */
+export const ASSIGN_REPLACE_FIELDS = ['replace', 'replaceTo'] as const
 const productByNo = spec({ b: F.b, no: F.no })
 const blockLike = spec({ buyer: F.buyer, reason: F.reason })
 
@@ -188,6 +190,9 @@ export const EVENT_SPECS: Readonly<Record<string, EventSpec>> = {
   'host.promote': hostWithBuyer,
   'host.confirm': hostConfirmLike,
   'host.approveCancel': hostConfirmLike,
+  'host.dismissCancel': hostConfirmLike,
+  'host.assign': spec({ b: F.b, no: F.no, buyer: F.buyer, reason: F.reason }, { replace: F.buyer, replaceTo: F.v(oneOf(['WAITLIST', 'CANCEL'])) }),
+  'host.reopen': spec({ b: F.b, no: F.no, reason: F.reason }),
   'host.resolveConflict': spec({ b: F.b, no: F.no, decision: F.v(oneOf(['KEEP', 'SWITCH'])) }, { reason: F.reason }),
   'host.convertMessage': spec({ b: F.b, msg: F.message, no: F.no }, { reason: F.reason }),
   'host.blockBuyer': blockLike,

@@ -1,0 +1,16 @@
+# 범주 5 (S02 어휘): host.assign의 replace·replaceTo는 함께 쓴다, 새 조치의 필수·선택 필드와 열거값
+id: G-ENG-901
+title: 방송자 조치 필드 (S02)
+refs: [R-9]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: host.assign, b: b1, no: 15, buyer: UC_A, reason: 단골, replace: UC_B }
+  - { at: "20:00:01", type: host.assign, b: b1, no: 15, buyer: UC_A, reason: 단골, replaceTo: CANCEL }
+  - { at: "20:00:02", type: host.assign, b: b1, no: 15, buyer: UC_A, reason: 단골, replace: UC_B, replaceTo: DROP }
+  - { at: "20:00:03", type: host.assign, b: b1, no: 15, buyer: UC_A }
+  - { at: "20:00:04", type: host.reopen, b: b1, no: 15 }
+  - { at: "20:00:05", type: host.reopen, b: b1, no: 15, reason: 다시, buyer: UC_A }
+  - { at: "20:00:06", type: host.dismissCancel, b: b1, no: 15 }
+  - { at: "20:00:07", type: host.dismissCancel, b: b1, no: 15, buyer: UC_A, reason: "" }
+  - { at: "20:00:08", type: host.assign, b: b1, no: 15, buyer: UC_A, reason: 단골, replace: "sms:s9", replaceTo: WAITLIST }
+expect: {}
