@@ -1,0 +1,16 @@
+{
+  "name": "@livejjim/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./golden": "./test/golden/api.ts"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "fast-check": "4.10.2",
+    "vitest": "5.0.5",
+    "yaml": "2.9.1"
+  }
+}

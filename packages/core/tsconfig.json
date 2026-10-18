@@ -1,0 +1,5 @@
+// 판정 엔진 소스. Node·DOM 타입 없이 검사한다 (코어는 순수 함수, D-024).
+{
+  "extends": "../../tsconfig.base.json",
+  "include": ["src/**/*.ts"]
+}

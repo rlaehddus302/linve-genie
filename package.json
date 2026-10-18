@@ -1,0 +1,30 @@
+{
+  "name": "livejjim",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.14.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "verify": "node scripts/verify/verify.mjs",
+    "typecheck": "node scripts/verify/stage.mjs typecheck",
+    "lint": "node scripts/verify/stage.mjs lint",
+    "test": "node scripts/verify/stage.mjs test",
+    "golden": "node scripts/verify/stage.mjs golden",
+    "adversarial": "node scripts/verify/stage.mjs adversarial",
+    "coverage": "node scripts/verify/stage.mjs coverage"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@livejjim/core": "workspace:*",
+    "@types/node": "24.19.2",
+    "@vitest/coverage-v8": "5.0.5",
+    "eslint": "10.13.0",
+    "fast-check": "4.10.2",
+    "globals": "17.13.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.2",
+    "vitest": "5.0.5"
+  }
+}

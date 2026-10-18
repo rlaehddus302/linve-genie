@@ -1,0 +1,8 @@
+// 코어 테스트와 골든 러너. Node 타입을 쓴다.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+}

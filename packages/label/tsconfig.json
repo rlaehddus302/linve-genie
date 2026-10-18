@@ -1,0 +1,8 @@
+// 라벨 패키지 (S07). S00은 빈 진입점만 검사한다.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM"]
+  },
+  "include": ["src/**/*.ts"]
+}
