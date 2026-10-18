@@ -1,4 +1,6 @@
-// 저장소 공용 ESLint 설정 (AC-S00-04, AC-S00-05). 경고도 실패다: `eslint . --max-warnings 0`
+// 저장소 공용 ESLint 설정 (AC-S00-04, AC-S00-05). 경고도 실패다: `eslint --config eslint.config.mjs . --max-warnings 0`
+// 저장소의 ESLint 설정은 이 파일 하나다. 하위 폴더에 eslint.config.*·.eslintrc*를 두면 lint 단계가 실패한다(TD-S00-013):
+// ESLint 10은 파일마다 가장 가까운 설정 파일을 쓰므로, 그런 파일 아래에는 코어 순수성·화면 XSS 규칙이 빠진다.
 import { builtinModules } from 'node:module'
 import js from '@eslint/js'
 import { defineConfig, globalIgnores } from 'eslint/config'

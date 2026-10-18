@@ -234,11 +234,47 @@ function readJsonText(text) {
   }
 }
 
+/** lint 단계가 쓰는 유일한 ESLint 설정 (루트) */
+const ESLINT_CONFIG = 'eslint.config.mjs'
+const ESLINT_CONFIG_NAME = /^(?:eslint\.config\.[cm]?[jt]s|\.eslintrc(?:\..*)?)$/
+/** 다른 ESLint 설정 파일을 찾지 않는 폴더: 설치물, git, 오케스트레이터 소유(.claude, lint 무시 범위) */
+const ESLINT_SCAN_SKIP = new Set(['node_modules', '.git', '.claude'])
+
+/**
+ * 루트 eslint.config.mjs 말고 다른 ESLint 설정 파일 (TD-S00-013).
+ * ESLint 10은 파일마다 그 파일 폴더에서 가장 가까운 eslint.config.*를 쓴다. 하위 폴더에 설정 파일이 하나 생기면
+ * 그 아래 파일에는 루트 규칙(코어 순수성 AC-S00-05, 화면 XSS AC-S00-06)이 하나도 적용되지 않는다.
+ * lint 단계는 --config로 루트 설정을 강제하고, 그런 파일이 있으면 경로를 보여 주고 실패한다.
+ */
+export function strayEslintConfigs() {
+  const found = []
+  const scan = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (ESLINT_SCAN_SKIP.has(entry.name)) continue
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) scan(full)
+      else if (ESLINT_CONFIG_NAME.test(entry.name) && full !== join(ROOT, ESLINT_CONFIG)) found.push(full)
+    }
+  }
+  scan(ROOT)
+  return found.sort()
+}
+
 async function lint() {
-  const result = await exec([bin('eslint'), '.', '--max-warnings', '0'])
-  if (result.code === 0) return { status: 'pass', detail: '오류 0 · 경고 0 (--max-warnings 0)' }
+  const stray = strayEslintConfigs().map(rel)
+  // --config: 폴더별 설정 파일을 찾지 않고 루트 설정 하나로 모든 파일을 검사한다
+  const result = await exec([bin('eslint'), '--config', join(ROOT, ESLINT_CONFIG), '.', '--max-warnings', '0'])
+  if (stray.length > 0) {
+    process.stdout.write(
+      `✗ 루트 ${ESLINT_CONFIG} 말고 다른 ESLint 설정 파일이 있다 ${stray.length}개 — 지우고 규칙은 루트 설정에만 둔다.\n` +
+        `  이런 파일이 있으면 그 아래 파일에 코어 순수성(AC-S00-05)·화면 XSS(AC-S00-06) 규칙이 빠진다:\n${bullet(stray)}\n`,
+    )
+  }
   const m = /(\d+) problems? \((\d+) errors?, (\d+) warnings?\)/.exec(result.output)
-  return { status: 'fail', detail: m ? `오류 ${m[2]} · 경고 ${m[3]} (--max-warnings 0)` : `ESLint 종료 코드 ${result.code}` }
+  const counts = result.code === 0 ? '오류 0 · 경고 0' : m ? `오류 ${m[2]} · 경고 ${m[3]}` : `ESLint 종료 코드 ${result.code}`
+  const strayNote = stray.length > 0 ? ` · 다른 ESLint 설정 파일 ${stray.length}개 (${stray.join(', ')})` : ''
+  const ok = result.code === 0 && stray.length === 0
+  return { status: ok ? 'pass' : 'fail', detail: `${counts} (--max-warnings 0, 설정 ${ESLINT_CONFIG} 하나)${strayNote}` }
 }
 
 async function vitestRun(config, label, mustBeUnder, mustNotBeUnder) {
