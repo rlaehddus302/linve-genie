@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { ESLint } from 'eslint'
 import { TEST_TIME_ZONE } from './time-zone.mjs'
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -158,8 +159,22 @@ const STRICT_FAMILY = [
   'alwaysStrict',
 ]
 
-/** 타입 검사 대상 확장자. 선언 파일(.d.ts·.d.mts·.d.cts·.d.<확장자>.ts)은 skipLibCheck로 검사하지 않으므로 뺀다 */
-const isTypeScriptSource = (path) => /\.(?:[cm]?ts|tsx)$/.test(path) && !/\.d(?:\.[^./\\]+)?\.[cm]?ts$/.test(path)
+/** 선언 파일(.d.ts·.d.mts·.d.cts·.d.<확장자>.ts) */
+const isDeclarationFile = (path) => /\.d(?:\.[^./\\]+)?\.[cm]?ts$/.test(path)
+/** 타입 검사 대상 확장자. 선언 파일은 skipLibCheck로 검사하지 않으므로 뺀다(대신 범위 안에 두는 것 자체를 막는다) */
+const isTypeScriptSource = (path) => /\.(?:[cm]?ts|tsx)$/.test(path) && !isDeclarationFile(path)
+
+/**
+ * 범위 안 선언 파일 (SA-S00-011). skipLibCheck가 node_modules뿐 아니라 저장소 안 .d.ts의 오류도 숨기므로,
+ * 손으로 쓴 선언 파일에 넣은 잘못된 타입은 어디서도 잡히지 않는다. 범위 안에는 두지 않는다.
+ */
+export function declarationFilesInScope() {
+  const files = [...workspaceFiles(isDeclarationFile), ...walk(join(ROOT, 'tests', 'adversarial'), isDeclarationFile)]
+  for (const entry of readdirSync(ROOT, { withFileTypes: true })) {
+    if (entry.isFile() && isDeclarationFile(entry.name)) files.push(join(ROOT, entry.name))
+  }
+  return files.sort()
+}
 
 /**
  * 타입 검사 범위(AC-S00-03): `packages/*`·`apps/*` 아래 전부(src·test·패키지 루트의 도구 설정 파일), `tests/adversarial/**`,
@@ -196,6 +211,8 @@ async function typecheck() {
     if (options.strict !== true) problems.push(`${rel(config)}: strict가 꺼져 있다`)
     if (options.noUncheckedIndexedAccess !== true) problems.push(`${rel(config)}: noUncheckedIndexedAccess가 꺼져 있다`)
     for (const flag of STRICT_FAMILY) if (options[flag] === false) problems.push(`${rel(config)}: ${flag}를 끄면 안 된다`)
+    // noCheck는 strict를 켠 채로 타입 오류 보고를 통째로 끈다 (SA-S00-009). 아래 tsc 실행에서도 --noCheck false로 덮어쓴다.
+    if (options.noCheck === true) problems.push(`${rel(config)}: noCheck를 켜면 타입 오류를 하나도 보지 않는다 — 지운다`)
   }
 
   // 범위 안 TS 파일이 모두 어떤 설정의 검사 대상인지 (AC-S00-03 "범위 안 어느 파일에든", TD-S00-015)
@@ -209,10 +226,18 @@ async function typecheck() {
     )
   }
 
+  const declarations = declarationFilesInScope().map(rel)
+  if (declarations.length > 0) {
+    problems.push(
+      `범위 안 선언 파일 ${declarations.length}개 — skipLibCheck 때문에 그 안의 타입 오류는 검사되지 않는다. .ts 파일에 export type으로 옮긴다` +
+        ` (Vite 환경 타입은 tsconfig의 types: ["vite/client"]로):\n${bullet(declarations)}`,
+    )
+  }
+
   let failed = 0
   for (const config of configs) {
     process.stdout.write(`tsc --noEmit -p ${rel(config)}\n`)
-    const result = await exec([tsc, '--noEmit', '-p', config])
+    const result = await exec([tsc, '--noEmit', '--noCheck', 'false', '-p', config])
     if (result.code !== 0) failed++
   }
   for (const problem of problems) process.stdout.write(`✗ ${problem}\n`)
@@ -260,8 +285,50 @@ export function strayEslintConfigs() {
   return found.sort()
 }
 
+/**
+ * 린트 범위 전체에서 (1) 인라인 설정 주석이 무시되고(noInlineConfig) (2) @ts-nocheck·@ts-ignore 금지 규칙이 오류인지
+ * ESLint가 실제로 계산한 설정으로 확인한다 (SA-S00-013). 둘 중 하나라도 빠지면 eslint-disable 한 줄 + // @ts-nocheck로
+ * lint·typecheck를 함께 피할 수 있다.
+ */
+/** 린트 확인용 패키지 폴더. pnpm-workspace.yaml이 없으면(일부만 복사한 저장소) packages/*·apps/* 폴더를 직접 본다.
+ *  워크스페이스 설정 자체가 없는 문제는 typecheck 단계가 실패로 잡는다. */
+function lintProbeDirs() {
+  try {
+    return workspacePackages()
+  } catch {
+    return ['packages', 'apps'].flatMap((base) =>
+      existsSync(join(ROOT, base))
+        ? readdirSync(join(ROOT, base), { withFileTypes: true })
+            .filter((entry) => entry.isDirectory() && entry.name !== 'node_modules')
+            .map((entry) => join(ROOT, base, entry.name))
+        : [],
+    )
+  }
+}
+
+export async function lintGuardProblems() {
+  const eslint = new ESLint({ cwd: ROOT, overrideConfigFile: join(ROOT, ESLINT_CONFIG) })
+  const probes = [join(ROOT, '__probe__.ts'), join(ROOT, 'tests', 'adversarial', '__probe__.ts')]
+  for (const dir of lintProbeDirs()) probes.push(join(dir, 'src', '__probe__.ts'), join(dir, 'test', '__probe__.ts'), join(dir, '__probe__.ts'))
+  const problems = []
+  for (const probe of probes) {
+    const config = await eslint.calculateConfigForFile(probe)
+    const where = rel(probe).replace('__probe__.ts', '*.ts')
+    if (!config) {
+      problems.push(`${where}: 린트 대상에서 빠져 있다`)
+      continue
+    }
+    if (config.linterOptions?.noInlineConfig !== true) problems.push(`${where}: noInlineConfig가 꺼져 있다 — 주석으로 규칙을 끌 수 있다`)
+    const rule = config.rules?.['@typescript-eslint/ban-ts-comment']
+    const level = Array.isArray(rule) ? rule[0] : rule
+    if (level !== 2 && level !== 'error') problems.push(`${where}: @typescript-eslint/ban-ts-comment가 오류가 아니다 — @ts-nocheck·@ts-ignore를 쓸 수 있다`)
+  }
+  return problems
+}
+
 async function lint() {
   const stray = strayEslintConfigs().map(rel)
+  const guards = await lintGuardProblems()
   // --config: 폴더별 설정 파일을 찾지 않고 루트 설정 하나로 모든 파일을 검사한다
   const result = await exec([bin('eslint'), '--config', join(ROOT, ESLINT_CONFIG), '.', '--max-warnings', '0'])
   if (stray.length > 0) {
@@ -272,9 +339,11 @@ async function lint() {
   }
   const m = /(\d+) problems? \((\d+) errors?, (\d+) warnings?\)/.exec(result.output)
   const counts = result.code === 0 ? '오류 0 · 경고 0' : m ? `오류 ${m[2]} · 경고 ${m[3]}` : `ESLint 종료 코드 ${result.code}`
+  for (const problem of guards) process.stdout.write(`✗ ${problem}\n`)
   const strayNote = stray.length > 0 ? ` · 다른 ESLint 설정 파일 ${stray.length}개 (${stray.join(', ')})` : ''
-  const ok = result.code === 0 && stray.length === 0
-  return { status: ok ? 'pass' : 'fail', detail: `${counts} (--max-warnings 0, 설정 ${ESLINT_CONFIG} 하나)${strayNote}` }
+  const guardNote = guards.length > 0 ? ` · 주석 우회 방지 설정 문제 ${guards.length}개` : ''
+  const ok = result.code === 0 && stray.length === 0 && guards.length === 0
+  return { status: ok ? 'pass' : 'fail', detail: `${counts} (--max-warnings 0, 설정 ${ESLINT_CONFIG} 하나)${strayNote}${guardNote}` }
 }
 
 /** 실제로 실행된 테스트의 상태. 그 밖(skipped·pending·todo·disabled)은 건너뛴 것이다 */
@@ -290,7 +359,11 @@ async function vitestRun(config, label, { under, notUnder = [], expected, config
   mkdirSync(CACHE, { recursive: true })
   const out = join(CACHE, `${label}.json`)
   rmSync(out, { force: true })
-  const result = await exec([bin('vitest'), 'run', '--config', config, '--reporter=default', '--reporter=json', `--outputFile.json=${out}`], { tz: true })
+  // --typecheck.enabled=false: 설정 파일의 typecheck 모드(테스트를 실행하지 않고 타입만 보고 passed로 보고)를 덮어쓴다 (SA-S00-010)
+  const result = await exec(
+    [bin('vitest'), 'run', '--config', config, '--typecheck.enabled=false', '--reporter=default', '--reporter=json', `--outputFile.json=${out}`],
+    { tz: true },
+  )
   const json = readJson(out)
   if (!json) return { status: 'fail', detail: `결과 파일이 없다 (Vitest 종료 코드 ${result.code})` }
   const files = json.testResults.map((r) => rel(r.name)).sort()
@@ -361,7 +434,7 @@ async function adversarial() {
 async function coverage() {
   const summaryPath = join(ROOT, 'coverage', 'coverage-summary.json')
   rmSync(summaryPath, { force: true })
-  const result = await exec([bin('vitest'), 'run', '--config', 'vitest.coverage.config.ts'], { tz: true })
+  const result = await exec([bin('vitest'), 'run', '--config', 'vitest.coverage.config.ts', '--typecheck.enabled=false'], { tz: true })
   const summary = readJson(summaryPath)
   const total = summary?.total
   if (!total) return { status: 'fail', detail: `커버리지 요약이 없다 (종료 코드 ${result.code})` }

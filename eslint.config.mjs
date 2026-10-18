@@ -156,8 +156,11 @@ export default defineConfig(
   tseslint.configs.recommended,
 
   {
-    linterOptions: { reportUnusedDisableDirectives: 'error' },
+    // 저장소 전체에서 eslint-disable·인라인 설정 주석을 무시한다 (SA-S00-013). 무시된 주석은 경고로 남고 --max-warnings 0으로 실패한다.
+    linterOptions: { noInlineConfig: true, reportUnusedDisableDirectives: 'error' },
     rules: {
+      // @ts-nocheck·@ts-ignore 금지 (@ts-expect-error는 설명이 있으면 허용). 인라인 설정 무시와 함께 써야 우회가 막힌다.
+      '@typescript-eslint/ban-ts-comment': 'error',
       '@typescript-eslint/no-unused-vars': [
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },

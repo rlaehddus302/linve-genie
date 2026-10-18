@@ -28,6 +28,7 @@ tools: Read, Grep, Glob, Bash
   - 입금 상태 경계
 - `docs/DECISIONS.md`에서 확정(ACCEPTED)된 값이 코드 기본값과 같은지 확인한다.
 - 골든 무결성: 이번 스프린트에 골든이 바뀌었다면 `[spec]` 커밋이고 DECISIONS 근거가 있는지 확인한다.
+- 미구현 허용 목록: `tests/golden/known-unimplemented.yaml`에 이번 스프린트 범위의 골든이 남아 있으면 blocker다. 미구현이 통과로 숨기 때문이다. `pnpm verify` 요약의 "미구현(허용)" 수가 스프린트마다 줄어야 한다.
 
 ## 4. 스펙 이탈
 - 스펙에 없는 동작(조용한 임의 결정)이 있으면 major다. 스펙에 없는 기능이 추가된 것도 같다.

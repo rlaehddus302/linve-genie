@@ -4,6 +4,7 @@
 - `docs/spec/**`, `docs/DECISIONS.md`: spec-keeper 소유
 - `tests/**` (골든·적대·E2E 전부): spec-keeper·테스터 소유
 - `.claude/**`, `scripts/harness/**`, `harness/**`, `CLAUDE.md`
+- **검증 게이트**: `scripts/verify/**`, `vitest.adversarial.config.ts`. S00 이후 오케스트레이터 소유다. 바꿔야 하면 `dev-notes.md`에 요청을 남긴다(D-027).
 - 예외: `harness/sprints/<Sxx>/dev-notes.md`는 써도 된다
 
 ## 내 영역과 남의 영역

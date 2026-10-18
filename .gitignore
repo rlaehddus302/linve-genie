@@ -1,13 +1,28 @@
 node_modules/
-dist/
-build/
-coverage/
+# 전역 gitignore(core.excludesFile)에 build/·dist/ 등이 있어도 소스 안의 같은 이름 폴더는 추적한다.
+# 저장소 .gitignore가 전역 설정보다 우선하고, 같은 파일 안에서는 뒤의 규칙이 이긴다.
+!dist/
+!build/
+!coverage/
+!.vite/
+# 결과물 폴더는 루트와 패키지 바로 아래만 무시한다. eslint.config.mjs 무시 범위·scripts/verify PACKAGE_OUTPUT_DIRS와 같은 기준 (SA-S00-012)
+/dist/
+/build/
+/coverage/
+/.vite/
+/packages/*/dist/
+/packages/*/build/
+/packages/*/coverage/
+/packages/*/.vite/
+/apps/*/dist/
+/apps/*/build/
+/apps/*/coverage/
+/apps/*/.vite/
 .env
 .env.*
 !.env.example
 *.log
 .DS_Store
 .turbo/
-.vite/
 playwright-report/
 test-results/

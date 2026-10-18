@@ -20,7 +20,8 @@ sprints:
     acceptanceHints:
       - pnpm verify 한 번으로 전체 검사가 돈다
       - 골든 러너가 tests/golden/**/*.yaml 전부를 읽고, 미구현 항목은 "미구현"으로 표시된다 (S00에서는 golden 단계를 '알려진 실패'로 허용하는 플래그 제공, S01부터 끔)
-    status: fail
+    status: done
+    note: 워크플로 결과는 FAIL(게이트 우회 5건 남음) → 오케스트레이터가 직접 수정해 pnpm verify 6단계 통과 (D-027)
 
   - id: S01
     phase: 1

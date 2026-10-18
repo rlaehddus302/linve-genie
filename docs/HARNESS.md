@@ -115,6 +115,8 @@
 | 검증 | `pnpm verify` | 타입체크·린트·단위·골든·적대·E2E(해당 시) 전부 통과, `packages/core` 커버리지 95% 이상 |
 | 보호 경로 | `node scripts/harness/check-protected.mjs $(cat harness/sprints/<S>/BASE)` | 역할별 커밋이 자기 영역만 건드림, 금지 패턴(`.only`, `.skip`, `todo` 등) 없음, 커밋 안 된 변경 없음 |
 
+검증 파이프라인(`scripts/verify/**`, `vitest.adversarial.config.ts`)은 S00 이후 오케스트레이터 소유다(D-027). 개발자가 게이트를 고쳐 통과하는 길을 구조적으로 막는다. 테스터도 제품을 공격하지, 파이프라인 우회를 찾지 않는다.
+
 ## 6. 진행 방식: 자율 모드
 
 사용자는 **묻지 말고 끝까지 진행, 완성되면 보고**를 원한다.

@@ -252,7 +252,7 @@ async function review(round, prevOpen, opt) {
 // ───────────────────────── ① Spec ─────────────────────────
 phase('Spec')
 const spec = await agent(
-  `${head('spec-keeper')}\n\n[할 일]\n1) ${DIR}/BASE 가 없으면 git rev-parse HEAD 기록.\n2) 백로그의 ${S} 범위를 ${DIR}/acceptance.md 수용 기준으로 작성 (AC-${S}-번호, spec ID, 담당 영역 태그 [core]/[device]/[server]/[web], Given/When/Then, 확인 방법, 범위 밖 항목).\n3) 판정·정산·파서 관련은 tests/golden/ 에 시나리오 추가·보강 (기존 약화 금지).\n4) 모호한 점은 스스로 판매자에게 안전한 쪽으로 정해 docs/DECISIONS.md 에 AUTO 로 기록. blocking 은 사용자만 할 수 있는 일 없이는 진행 불가일 때만.\n5) [spec] ${S}: 로 커밋.`,
+  `${head('spec-keeper')}\n\n[할 일]\n1) ${DIR}/BASE 가 없으면 git rev-parse HEAD 기록.\n2) 백로그의 ${S} 범위를 ${DIR}/acceptance.md 수용 기준으로 작성 (AC-${S}-번호, spec ID, 담당 영역 태그 [core]/[device]/[server]/[web], Given/When/Then, 확인 방법, 범위 밖 항목).\n3) 판정·정산·파서 관련은 tests/golden/ 에 시나리오 추가·보강 (기존 약화 금지). 이번 스프린트 범위의 골든은 tests/golden/known-unimplemented.yaml 허용 목록에서 반드시 제거한다(남기면 미구현이 통과로 숨는다).\n4) 모호한 점은 스스로 판매자에게 안전한 쪽으로 정해 docs/DECISIONS.md 에 AUTO 로 기록. blocking 은 사용자만 할 수 있는 일 없이는 진행 불가일 때만.\n5) [spec] ${S}: 로 커밋.`,
   role('spec-keeper', { phase: 'Spec', label: `spec:${S}`, schema: SPEC_OUT }),
 )
 if (!spec) return { status: 'ERROR', sprint: S, stage: 'spec' }

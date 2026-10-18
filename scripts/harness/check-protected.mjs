@@ -23,7 +23,8 @@ const ROLES = {
   spec: { allow: [/^docs\/spec\//, /^docs\/DECISIONS\.md$/, /^tests\/golden\//, SPRINT_FILE('acceptance\\.md'), SPRINT_FILE('BASE')] },
   // dev:core / dev:server / dev:web / dev:device 모두 같은 금지 목록 (영역 침범은 감사자가 판단)
   dev: {
-    deny: [/^docs\/spec\//, /^docs\/DECISIONS\.md$/, /^tests\//, /^\.claude\//, /^scripts\/harness\//, /^CLAUDE\.md$/, /^harness\//],
+    // scripts/verify·vitest.adversarial.config.ts: 검증 게이트 자체는 S00 이후 오케스트레이터 소유 (D-027)
+    deny: [/^docs\/spec\//, /^docs\/DECISIONS\.md$/, /^tests\//, /^\.claude\//, /^scripts\/harness\//, /^scripts\/verify\//, /^vitest\.adversarial\.config\.ts$/, /^CLAUDE\.md$/, /^harness\//],
     except: [SPRINT_FILE('dev-notes\\.md')],
   },
   'test:domain': { allow: [/^tests\/adversarial\//, SPRINT_FILE('test-notes-domain\\.md')] },
