@@ -66,3 +66,37 @@ README에 문장으로 없는 부분은 판매자에게 안전한 쪽(오타가 
 
 ### 이 PC에서 확인할 때
 - 이 개발 PC는 3000번 포트를 OrbStack(Grafana 컨테이너)이 쓰고 있다. 기본 포트로 띄우면 "다른 프로그램이 이미 쓰고 있는 포트예요(기본 포트 3000)"로 종료 코드 1이 나온다. `PORT=3456 pnpm --filter @livejjim/server start`로 확인했다.
+
+## dev-web
+
+### 만든 것
+- `apps/web` = `@livejjim/web`. 런타임 의존성 `react`·`react-dom` 19.3.1. 개발 의존성 `vite` 8.3.4(Vitest가 쓰는 것과 같은 버전), `@vitejs/plugin-react` 6.1.2, `vitest` 5.0.5, `jsdom` 30.1.3, `@testing-library/react` 16.3.3, `@testing-library/dom` 10.4.2, `@types/react`·`@types/react-dom` 19.3.0, `@types/node` 24.19.2, `eslint` 10.13.0. 모두 정확한 버전.
+- `index.html`: `<html lang="ko">`, `<title>라이브찜</title>`, viewport, `#root`, 진입 스크립트 `/src/main.tsx`.
+- `src/App.tsx`(첫 화면: `main` > 제목 "라이브찜" + "준비 중이에요."), `src/main.tsx`(`#root`에 붙임), `src/styles.css`.
+- `eslint.config.mjs`에 `apps/web/**` 블록(AC-S00-06).
+- 단위 테스트 6개 파일(71개). 기본 환경 jsdom, Node가 필요한 파일은 `*.node.test.ts` + 맨 위 `// @vitest-environment node`.
+
+### 결정과 이유 (스펙과 다르지 않음, 구현 선택)
+- **글자 크기**: `html { font-size: max(100%, 16px) }`. 사용자가 브라우저 글자를 키웠으면 따르고, 줄였어도 16px 밑으로 내려가지 않는다. 본문은 1.125rem(18px)로 조금 키웠다(55세 판매자 페르소나). 테스트가 모든 `font-size`를 16px 이상인지 계산하고, 모르는 표기(`small`, `calc()`, `vw`)는 실패로 본다.
+- **375px 폭**: 고정 폭을 두지 않고 `max-width`(40rem)만 쓴다. `overflow-wrap: anywhere`로 긴 낱말(앞으로 들어올 닉네임 등)도 줄을 바꾼다. 한국어는 `word-break: keep-all`. 375px 브라우저에서 `scrollWidth`가 375인 것을 직접 확인했다.
+- **외부 리소스 없음**: 글꼴은 기기에 있는 것만(`system-ui`, Apple SD Gothic Neo, 맑은 고딕, Noto Sans KR 순). 브라우저가 `/favicon.ico`를 따로 요청하지 않게 `<link rel="icon" href="data:,">`를 둔다. 개발 서버에서 외부 요청이 0건인 것을 확인했다.
+- **XSS 린트는 AC보다 조금 넓게 막는다(NFR-06, CLAUDE.md 규칙 7과 같은 방향).**
+  - `dangerouslySetInnerHTML`: JSX 속성뿐 아니라 `createElement` 속성, 펼친 객체, 문자열·계산·템플릿 키, 속성 읽기까지.
+  - DOM으로 직접 HTML 넣기: `innerHTML`·`outerHTML` 대입, `insertAdjacentHTML`, `document.write(ln)`. 그리고 `no-eval`·`no-implied-eval`·`no-new-func`.
+  - `apps/web/**` 전체(src·test·설정, `.jsx` 포함)에 적용한다. 읽기(`el.innerHTML`을 보는 것)는 막지 않는다.
+  - 문자열을 이어 붙여 만든 키처럼 정적으로 알 수 없는 우회는 린트로 막을 수 없다. 그건 리뷰 몫이다.
+  - 주의: flat config에서 같은 파일에 `no-restricted-syntax`를 두 블록이 걸면 뒤 블록이 앞 블록을 통째로 덮는다. 나중에 저장소 전체 `no-restricted-syntax`를 추가하면 이 목록(`rawHtmlSyntax`)을 합쳐야 한다. 회귀 테스트(`xss-lint.node.test.ts`)가 이를 잡는다.
+- **`@vitejs/plugin-react`**: 개발 서버의 React 빠른 새로고침용. `vitest.config.ts`는 `vite.config.ts`를 `mergeConfig`로 물려받는다.
+- **빌드 확인을 test 단계에 넣었다(`build.node.test.ts`).** verify 단계 목록(AC-S00-10)은 그대로 두고, 웹 단위 테스트 하나가 `vite build`를 임시 폴더에 실제로 돌린다(작업 트리의 `dist`를 건드리지 않음). Vitest가 넣은 `NODE_ENV=test`를 빼서 운영용 빌드로 만든다. 빌드가 깨지면 test 단계가 실패한다. 약 0.1초.
+- **Vitest는 CSS import를(`?raw`까지) 빈 문자열로 바꾼다.** 그래서 스타일 검사는 Node 환경에서 파일을 직접 읽는다. 규칙을 하나도 못 읽으면 실패하게 해서 빈 검사가 통과하지 않게 했다.
+- **tsconfig 두 개**: `tsconfig.json`(화면 소스·jsdom 테스트, DOM 타입 + `vite/client`, `module: preserve`·`moduleResolution: bundler`·`jsx: react-jsx`)과 `tsconfig.node.json`(Vite·Vitest 설정, `*.node.test.ts`, Node 타입). 둘 다 `../../tsconfig.base.json`을 상속하고 strict 계열을 끄지 않는다.
+- 일부러 망가뜨려 확인했다(모두 테스트·린트·타입 검사가 잡음, 되돌림): `dangerouslySetInnerHTML` 넣기(lint), 타입 오류(typecheck), 제목 글자 바꾸기, 외부 글꼴 `<link>`, `lang="en"`, 영어 제목, `p { font-size: 14px }`, `width: 400px`, CSS `@import url(https://…)`, `html` 87.5%, 렌더링 중 `fetch`, 없는 파일 import(빌드 실패), 영어 문장.
+
+### 의존성 메모 (AC-S00-02)
+- `@testing-library/dom`은 직접 import하지 않지만 `@testing-library/react`의 필수 peer 의존성이라 명시했다.
+- `eslint`는 루트에도 있지만 `xss-lint.node.test.ts`가 import하므로 웹 패키지에도 같은 버전(10.13.0)으로 적었다(유령 의존성 방지).
+- `@types/node`는 `tsconfig.node.json`(설정 파일·Node 테스트)이 쓴다.
+- 루트 `package.json`은 바꾸지 않았다. S00의 test-domain 공격 대상(F절)에 웹이 없어서 루트 devDependency로 넣지 않았다.
+
+### 넣지 않은 것 (범위 밖)
+- Tailwind·TanStack Query·PWA(S05~S06), Playwright 설정(S05), 서버 호출·프록시(S04 이후).
