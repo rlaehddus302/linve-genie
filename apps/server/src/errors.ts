@@ -1,0 +1,62 @@
+// 서버 오류 응답 (AC-S00-41).
+// - 본문은 항상 JSON {"error":{"code","message"}}이다.
+// - 스택 추적·파일 경로·프레임워크 내부 메시지를 담지 않는다. 받은 요청 값(경로·헤더·본문)도 되돌려 주지 않는다.
+// - message는 화면에 그대로 보여 줘도 되는 쉬운 한국어다. code는 프로그램이 분기할 때 쓴다.
+
+export type ErrorCode =
+  | 'BAD_REQUEST'
+  | 'NOT_FOUND'
+  | 'METHOD_NOT_ALLOWED'
+  | 'REQUEST_TIMEOUT'
+  | 'PAYLOAD_TOO_LARGE'
+  | 'HEADERS_TOO_LARGE'
+  | 'REQUEST_ERROR'
+  | 'INTERNAL_ERROR'
+
+export interface ErrorBody {
+  readonly error: {
+    readonly code: ErrorCode
+    readonly message: string
+  }
+}
+
+export interface DescribedError {
+  readonly status: number
+  readonly body: ErrorBody
+}
+
+const KNOWN: ReadonlyMap<number, ErrorBody['error']> = new Map([
+  [400, { code: 'BAD_REQUEST', message: '요청 형식이 올바르지 않아요.' }],
+  [404, { code: 'NOT_FOUND', message: '요청한 주소를 찾을 수 없어요.' }],
+  [405, { code: 'METHOD_NOT_ALLOWED', message: '이 주소에서는 할 수 없는 요청이에요.' }],
+  [408, { code: 'REQUEST_TIMEOUT', message: '요청이 너무 오래 걸려서 끊었어요.' }],
+  [413, { code: 'PAYLOAD_TOO_LARGE', message: '보낸 내용이 너무 커요.' }],
+  [431, { code: 'HEADERS_TOO_LARGE', message: '요청 정보가 너무 커요.' }],
+])
+
+const OTHER_CLIENT_ERROR: ErrorBody['error'] = { code: 'REQUEST_ERROR', message: '요청을 처리할 수 없어요.' }
+const SERVER_ERROR: ErrorBody['error'] = { code: 'INTERNAL_ERROR', message: '서버에 문제가 생겼어요. 잠시 뒤 다시 시도해 주세요.' }
+
+/**
+ * 상태 코드에 맞는 오류 본문을 고른다.
+ * 4xx는 그대로 두고, 5xx도 그대로 두되 내용은 일반 문구로 바꾼다. 그 밖의 값(2xx·3xx·잘못된 숫자)은 500으로 본다.
+ */
+export function describeError(status: number): DescribedError {
+  if (Number.isInteger(status) && status >= 400 && status <= 499) {
+    return { status, body: { error: KNOWN.get(status) ?? OTHER_CLIENT_ERROR } }
+  }
+  if (Number.isInteger(status) && status >= 500 && status <= 599) {
+    return { status, body: { error: SERVER_ERROR } }
+  }
+  return { status: 500, body: { error: SERVER_ERROR } }
+}
+
+export const JSON_CONTENT_TYPE = 'application/json'
+
+/** 오류 응답(Response). 추가 헤더(예: 405의 Allow)를 받을 수 있다. Content-Type은 항상 JSON이다. */
+export function errorResponse(status: number, extraHeaders: Readonly<Record<string, string>> = {}): Response {
+  const described = describeError(status)
+  const headers = new Headers(extraHeaders)
+  headers.set('Content-Type', JSON_CONTENT_TYPE)
+  return new Response(JSON.stringify(described.body), { status: described.status, headers })
+}
