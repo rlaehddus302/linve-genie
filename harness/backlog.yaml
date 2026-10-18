@@ -42,7 +42,7 @@ sprints:
       순수 리듀서 apply(state, event) → { state, effects }. R-0~R-5, R-8, R-9, R-13.
       골든 engine/01~03, 07 통과. INV-1~12 속성 테스트.
     specIds: [ORD-02, ORD-03, ORD-04, ORD-05, ORD-06, ORD-07, ORD-11, ORD-12, PRD-03, PRD-04]
-    status: todo
+    status: done
 
   - id: S03
     phase: 1
@@ -208,3 +208,10 @@ techDebt:
   - "RA-S01-010: D-034 상한이 메시지 단위라 연속 메시지로 수십 개 확정 가능 (S02 R-4로)"
   - "TD-S01-018: 끝 신호 목록 밖 같은 뜻 글자('15 …?'·'15 ⁇'·반각 ㅠ·'T_T')가 LOOSE 주문"
   - "TD-S01-019: AC-S01-17 속성 문장 두 곳이 규칙 문장과 어긋남('취소' 말, U+3164)"
+  - "SA-S02-002: 모르는 이벤트 종류를 조용히 무시 — R-1 표기 sms.claim·chat.message·settlement.*가 알림 없이 버려짐"
+  - "TD-S02-002: 한 번호 보류 찜·한 구매자 찜이 많으면 이벤트마다 기록 배열 전체 복사로 처리 시간이 찜 수 제곱으로 증가"
+  - "RA-S02-001: checkInvariants가 구매자×찜 이중 순회·bySlot 펼침 복사인데 주석은 매 이벤트 뒤 호출이라 적음"
+  - "RA-S02-003: 효과 ID가 엔진 상태 하나 안에서만 유일 — outbox 키 범위 미기록"
+  - "RA-S02-004: 감사 문구에 시청자 닉네임을 처리 없이 넣어 자동 공개 게시 (정규화 담당 미지정)"
+  - "RA-S02-005: applyEvent가 R-1 이벤트(broadcast.start/end, effect.failed)에서 예외를 던져 재생이 멈출 수 있음"
+  - "RA-S02-006: 처리 시간 테스트가 이벤트 하나 최댓값(<50ms)을 단언해 CI 부하에서 흔들릴 수 있음"
