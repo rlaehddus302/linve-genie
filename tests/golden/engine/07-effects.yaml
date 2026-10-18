@@ -53,3 +53,97 @@ expect:
   pendingEffects:                                     # 아직 실행 대상인 효과만
     - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, confirmVersion: 3 }
     - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_A, confirmVersion: 3 }
+---
+# S02 보강 — 효과 세부 (R-13, D-044). 기대값 계산은 각 줄 주석.
+id: G-ENG-064
+title: 감사 문구 — 품종이 없으면 자리째 빼고, 가격은 세 자리 쉼표 + 원, 이름은 확정되는 순간의 닉네임
+refs: [YT-04, R-13, R-11, D-044]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: "", price: 8000 }          # 품종 미입력 (PRD-01 AC3)
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 금황성, price: 1000000 }
+  - { at: "20:00:02", type: product.register, b: b1, no: 17, name: 미니마, price: 800 }
+  - { at: "20:00:03", type: product.register, b: b1, no: 18, name: 방울복랑 금, price: 15000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }   # "15번 8,000원 홍길동님 …" (빈 품종과 그 뒤 공백을 뺀다)
+  - { at: "20:00:11", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "16" }   # 1,000,000원
+  - { at: "20:00:12", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "17" }   # 800원 (쉼표 없음)
+  - { at: "20:00:13", type: chat, b: b1, id: m4, ch: UC_A, nick: 홍길동, text: "18" }   # 품종 안 공백은 그대로
+  - { at: "20:00:14", type: chat, b: b1, id: m5, ch: UC_D, nick: 박민수, text: "17" }   # 17번 대기
+  - { at: "20:00:20", type: chat, b: b1, id: m6, ch: UC_D, nick: 민수맘, text: "안녕하세요" }  # 닉네임이 바뀜
+  - { at: "20:01:00", type: host.cancel, b: b1, no: 17, buyer: UC_C, reason: 구매자 요청 }  # D 승계 → 이름은 지금 닉네임 '민수맘'
+expect:
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, text: "15번 8,000원 홍길동님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/16, buyer: UC_B, text: "16번 금황성 1,000,000원 김철수님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/17, buyer: UC_C, text: "17번 미니마 800원 이영희님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/18, buyer: UC_A, text: "18번 방울복랑 금 15,000원 홍길동님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/17, buyer: UC_D, text: "17번 미니마 800원 민수맘님 구매 감사합니다", confirmVersion: 2 }
+  effectCounts: { POST_THANKS: 5 }
+---
+id: G-ENG-065
+title: 실시간 채팅 감사를 끄고 영상 댓글(판매마다)을 켜면 영상 댓글만, 묶음 시간은 엔진 효과를 바꾸지 않는다
+refs: [YT-04, YT-05, YT-07, R-13, D-044]
+settings: { thanks.liveChat: false, thanks.videoComment: PER_SALE, thanks.batchWindowSec: 30 }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:02", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:03", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "16" }   # 30초 안이지만 엔진은 판매마다 따로 낸다(묶음은 outbox, S11)
+expect:
+  effects:
+    - { kind: POST_THANKS, target: VIDEO_COMMENT, product: b1/15, buyer: UC_A, text: "15번 핑크프릴 10,000원 홍길동님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: VIDEO_COMMENT, product: b1/16, buyer: UC_B, text: "16번 라울 5,000원 김철수님 구매 감사합니다" }
+  effectCounts: { POST_THANKS: 2, PRINT_PRODUCT_LABEL: 2, NOTIFY: 0 }
+  pendingEffects:    # 실시간 채팅 감사 없음, 화면 알림(NOTIFY) 없음
+    - { kind: POST_THANKS, target: VIDEO_COMMENT, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: POST_THANKS, target: VIDEO_COMMENT, product: b1/16, buyer: UC_B, confirmVersion: 1 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/16, buyer: UC_B, confirmVersion: 1 }
+---
+id: G-ENG-066
+title: 영상 댓글 = 요약이면 판매마다 영상 댓글 효과를 내지 않는다 (방송 끝 요약은 S11)
+refs: [YT-05, R-13, D-044]
+settings: { thanks.videoComment: SUMMARY }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+expect:
+  effectCounts: { POST_THANKS: 1, PRINT_PRODUCT_LABEL: 1 }
+  pendingEffects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+---
+id: G-ENG-067
+title: 잠금 세부 — 방송자 확인·감사 게시 보고도 잠근다, 같은 보고 두 번은 한 번, 자동 취소는 잠금 전 확정·대기 찜에 바로 적용
+refs: [ORD-07, R-7, R-8, R-9, R-13, INV-10, INV-11, D-043, D-044]
+settings: { cancel.buyerChat: AUTO, print.autoOnConfirm: false }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:02", type: product.register, b: b1, no: 17, name: 성미인, price: 8000 }
+  - { at: "20:00:03", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15 16 17" }  # A 세 상품 확정(각 확정버전 1). 자동 출력 꺼짐 → 감사만
+  - { at: "20:00:04", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "17" }        # 17번 대기 [B]
+  - { at: "20:00:05", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "17" }        # 17번 대기 [B, C]
+  - { at: "20:00:10", type: host.confirm, b: b1, no: 15, buyer: UC_A }                       # 15번 A 잠금
+  - { at: "20:00:11", type: effect.thanksSent, b: b1, no: 16, buyer: UC_A }                  # 16번 감사 완료 → 잠금
+  - { at: "20:00:12", type: effect.thanksSent, b: b1, no: 16, buyer: UC_A }                  # 같은 효과 두 번째 보고 → 아무 일도 없음 (INV-11)
+  - { at: "20:01:00", type: chat, b: b1, id: m4, ch: UC_A, nick: 홍길동, text: "15 취소" }   # 잠금 후 → 요청
+  - { at: "20:01:01", type: chat, b: b1, id: m5, ch: UC_A, nick: 홍길동, text: "16 취소" }   # 잠금 후 → 요청
+  - { at: "20:01:02", type: chat, b: b1, id: m6, ch: UC_C, nick: 이영희, text: "17 취소" }   # 대기 찜(잠금 없음) → 바로 취소 → 대기 [B]
+  - { at: "20:01:03", type: chat, b: b1, id: m7, ch: UC_A, nick: 홍길동, text: "17 취소" }   # 잠금 전 확정 → 바로 취소 → 자동 승계: B 확정(확정버전 2)
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A }
+    b1/16: { status: SOLD, winner: UC_A }
+    b1/17: { status: SOLD, winner: UC_B, waitlist: [] }
+  claims:
+    - { product: b1/17, buyer: UC_A, status: CANCELLED }
+    - { product: b1/17, buyer: UC_C, status: CANCELLED }
+  cancelRequests: [{ product: b1/15, buyer: UC_A }, { product: b1/16, buyer: UC_A }]
+  effectCounts: { POST_THANKS: 4, PRINT_PRODUCT_LABEL: 0, VOID_LABEL: 0 }   # A15·A16·A17·B17
+  pendingEffects:    # A16은 완료, A17은 취소됨
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/17, buyer: UC_B, confirmVersion: 2 }

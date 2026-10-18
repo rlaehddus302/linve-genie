@@ -114,3 +114,137 @@ expect:
   claims:
     - { product: b1/15, buyer: UC_X, status: REJECTED, reason: BY_HOST }
     - { product: b1/16, buyer: UC_X, status: REJECTED, reason: BLOCKED }
+---
+# S02 보강 — 취소·승계·취소 요청 세부 (R-8, R-13, D-041, D-043, D-044). 기대값 계산은 각 줄 주석.
+id: G-ENG-026
+title: 자동 승계가 이어지면 확정버전이 1씩 늘고, 출력된 라벨만 폐기되며, 게시된 감사는 그대로 둔다 (접수순에서 R-13 확인)
+refs: [ORD-07, R-8, R-13, INV-11, D-044]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }      # A 확정(1): 감사 A1, 라벨 A1
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }      # 대기 1
+  - { at: "20:00:03", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15" }      # 대기 2
+  - { at: "20:00:04", type: effect.labelPrinted, b: b1, no: 15, buyer: UC_A }               # 라벨 A1 완료(잠금)
+  # A 취소 → 감사 A1(미실행) 취소, 라벨 A1(출력됨) → VOID_LABEL(A, 확정버전 1). 자동 승계: B 확정(2): 감사 B2, 라벨 B2
+  - { at: "20:01:00", type: host.cancel, b: b1, no: 15, buyer: UC_A, reason: 구매자 요청 }
+  - { at: "20:01:05", type: effect.thanksSent, b: b1, no: 15, buyer: UC_B }                 # 감사 B2 게시 완료
+  # B 취소 → 라벨 B2(미실행) 취소, 출력된 라벨 없음 → 폐기 없음, 게시된 감사 B2는 지우지 않음. 자동 승계: C 확정(3)
+  - { at: "20:02:00", type: host.cancel, b: b1, no: 15, buyer: UC_B, reason: 구매자 요청 }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_C, waitlist: [] }
+  buyers:
+    UC_A: { subtotal: 0 }
+    UC_B: { subtotal: 0 }
+    UC_C: { items: [b1/15], subtotal: 10000 }
+  effects:
+    - { kind: VOID_LABEL, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_C, text: "15번 핑크프릴 10,000원 이영희님 구매 감사합니다", confirmVersion: 3 }
+  effectCounts: { POST_THANKS: 3, PRINT_PRODUCT_LABEL: 3, VOID_LABEL: 1 }   # 감사 A1·B2·C3, 라벨 A1·B2·C3, 폐기 A1
+  pendingEffects:                                                            # 폐기 A1(완료 보고 이벤트 없음, S08), C3 두 개
+    - { kind: VOID_LABEL, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_C, confirmVersion: 3 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_C, confirmVersion: 3 }
+---
+id: G-ENG-027
+title: 대기 찜 취소·무효는 뒤 순번을 당기고, 대기 없는 1등 취소·무효는 다시 판매 중
+refs: [ORD-07, ORD-12, R-8, INV-7]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }      # A 확정(15번 확정버전 1)
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }      # 대기 [B]
+  - { at: "20:00:03", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15" }      # 대기 [B, C]
+  - { at: "20:00:04", type: chat, b: b1, id: m4, ch: UC_D, nick: 박민수, text: "15" }      # 대기 [B, C, D]
+  - { at: "20:00:05", type: chat, b: b1, id: m5, ch: UC_E, nick: 최지우, text: "15" }      # 대기 [B, C, D, E]
+  - { at: "20:01:00", type: host.cancel, b: b1, no: 15, buyer: UC_C, reason: 구매자 요청 }  # 대기 찜 취소 → [B, D, E]
+  - { at: "20:01:01", type: host.reject, b: b1, no: 15, buyer: UC_B, reason: 장난 주문 }   # 대기 찜 무효 → [D, E]
+  - { type: assert, expect: { products: { b1/15: { winner: UC_A, waitlist: [UC_D, UC_E] } }, claims: [{ product: b1/15, buyer: UC_B, status: REJECTED, reason: BY_HOST }, { product: b1/15, buyer: UC_C, status: CANCELLED }] } }
+  - { at: "20:01:02", type: host.cancel, b: b1, no: 15, buyer: UC_A, reason: 구매자 요청 }  # 1등 취소 → D 확정(확정버전 2), 대기 [E]
+  - { at: "20:02:00", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:02:01", type: chat, b: b1, id: m6, ch: UC_F, nick: 장난꾼, text: "16" }      # F 확정(16번 확정버전 1)
+  - { at: "20:02:02", type: host.reject, b: b1, no: 16, buyer: UC_F, reason: 장난 주문 }   # 1등 무효 → 대기 없음 → OPEN
+  - { type: assert, expect: { products: { b1/16: { status: OPEN, winner: null, waitlist: [] } } } }
+  - { at: "20:02:03", type: chat, b: b1, id: m7, ch: UC_G, nick: 정다은, text: "16" }      # G 확정(16번 확정버전 2)
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_D, waitlist: [UC_E] }
+    b1/16: { status: SOLD, winner: UC_G, waitlist: [] }
+  claims:
+    - { product: b1/16, buyer: UC_F, status: REJECTED, reason: BY_HOST }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/16, buyer: UC_G, text: "16번 라울 5,000원 정다은님 구매 감사합니다" }
+  effectCounts: { POST_THANKS: 4, PRINT_PRODUCT_LABEL: 4, VOID_LABEL: 0 }   # A1·D2(15번), F1·G2(16번). 출력 보고 없음 → 폐기 없음
+  pendingEffects:                                                            # A1·F1은 확정이 풀려 취소됨
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_D, confirmVersion: 2 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_D, confirmVersion: 2 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/16, buyer: UC_G, confirmVersion: 2 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/16, buyer: UC_G, confirmVersion: 2 }
+---
+id: G-ENG-028
+title: 승계=묻기 세부 — 대기가 없으면 바로 판매 중, 결정 대기 중 대기 한도를 넘으면 품절, 재오픈하면 대기자 정리 (D-041)
+refs: [ORD-07, R-8, R-4, D-041]
+settings: { cancel.succession: ASK, waitlist.max: 2 }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:02", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }      # A 15번 확정(15번 확정버전 1)
+  - { at: "20:00:03", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }      # 대기 [B]
+  - { at: "20:00:04", type: chat, b: b1, id: m3, ch: UC_A, nick: 홍길동, text: "16" }      # A 16번 확정(16번 확정버전 1)
+  - { at: "20:01:00", type: host.cancel, b: b1, no: 16, buyer: UC_A, reason: 구매자 요청 }  # 16번 대기 없음 → 표시 없이 OPEN
+  - { at: "20:01:01", type: chat, b: b1, id: m4, ch: UC_C, nick: 이영희, text: "16" }      # 5번 줄 아님 → 6번 줄 확정(16번 확정버전 2)
+  - { type: assert, expect: { products: { b1/16: { status: SOLD, winner: UC_C } } } }
+  - { at: "20:02:00", type: host.cancel, b: b1, no: 15, buyer: UC_A, reason: 구매자 요청 }  # 15번 대기 [B] 있음 → "승계 결정 필요", 1등 없음
+  - { at: "20:02:01", type: chat, b: b1, id: m5, ch: UC_D, nick: 박민수, text: "15" }      # 5번 줄: 대기 1 < 한도 2 → 대기 [B, D]
+  - { at: "20:02:02", type: chat, b: b1, id: m6, ch: UC_E, nick: 최지우, text: "15" }      # 5번 줄: 대기 2 = 한도 → REJECTED(SOLD_OUT)
+  - { type: assert, expect: { products: { b1/15: { winner: null, waitlist: [UC_B, UC_D] } }, claims: [{ product: b1/15, buyer: UC_E, status: REJECTED, reason: SOLD_OUT }] } }
+  - { at: "20:02:30", type: host.reopen, b: b1, no: 15, reason: 다시 받기 }                # REOPEN과 같다: B·D → WAITLIST_CLEARED, OPEN, 표시 사라짐
+  - { type: assert, expect: { products: { b1/15: { status: OPEN, winner: null, waitlist: [] } } } }
+  - { at: "20:02:31", type: chat, b: b1, id: m7, ch: UC_E, nick: 최지우, text: "15" }      # E는 활성 찜 없음 → 새 찜, 6번 줄 확정(15번 확정버전 2)
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_E, waitlist: [] }
+    b1/16: { status: SOLD, winner: UC_C, waitlist: [] }
+  claims:
+    - { product: b1/15, buyer: UC_B, status: REJECTED, reason: WAITLIST_CLEARED }
+    - { product: b1/15, buyer: UC_D, status: REJECTED, reason: WAITLIST_CLEARED }
+    - { product: b1/15, buyer: UC_E, status: CONFIRMED }
+  claimCount: 7      # A·15, B·15, A·16, C·16, D·15, E·15(품절), E·15(확정)
+  effectCounts: { POST_THANKS: 4, PRINT_PRODUCT_LABEL: 4 }
+  pendingEffects:    # A의 두 확정 효과는 취소됨
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/16, buyer: UC_C, confirmVersion: 2 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/16, buyer: UC_C, confirmVersion: 2 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_E, confirmVersion: 2 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_E, confirmVersion: 2 }
+---
+id: G-ENG-029
+title: 시청자 취소 요청 세부 — 같은 요청은 하나, 찜이 끝나면 요청도 사라짐, 거절은 요청만 지움, 요청 없는 승인은 아무 일도 없음 (D-043)
+refs: [ORD-07, R-8, D-043]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:02", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }       # A 15번 확정
+  - { at: "20:00:03", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }       # 대기 [B]
+  - { at: "20:00:04", type: chat, b: b1, id: m3, ch: UC_A, nick: 홍길동, text: "16" }       # A 16번 확정
+  - { at: "20:01:00", type: chat, b: b1, id: m4, ch: UC_A, nick: 홍길동, text: "15 취소" }   # 요청 (15, A)
+  - { at: "20:01:01", type: chat, b: b1, id: m5, ch: UC_A, nick: 홍길동, text: "15번 취소요" } # 같은 요청 → 하나만
+  - { at: "20:01:02", type: chat, b: b1, id: m6, ch: UC_B, nick: 김철수, text: "15 취소" }   # B는 대기 찜(활성) → 요청 (15, B)
+  - { at: "20:01:03", type: chat, b: b1, id: m7, ch: UC_A, nick: 홍길동, text: "16 취소" }   # 요청 (16, A)
+  - { type: assert, expect: { cancelRequests: [{ product: b1/15, buyer: UC_A }, { product: b1/15, buyer: UC_B }, { product: b1/16, buyer: UC_A }] } }
+  - { at: "20:02:00", type: host.cancel, b: b1, no: 15, buyer: UC_A, reason: 방송자 확인 }   # A 15번 취소 → 요청 (15, A) 사라짐. 자동 승계: B 확정, B의 요청은 남음
+  - { at: "20:02:01", type: host.dismissCancel, b: b1, no: 16, buyer: UC_A, reason: 포장 끝남 } # 요청만 지움, A는 16번 1등 그대로
+  - { at: "20:02:02", type: host.approveCancel, b: b1, no: 16, buyer: UC_A }                # 요청이 없다 → 아무 일도 없음
+  - { type: assert, expect: { products: { b1/15: { winner: UC_B, waitlist: [] }, b1/16: { winner: UC_A } }, cancelRequests: [{ product: b1/15, buyer: UC_B }] } }
+  - { at: "20:02:30", type: host.approveCancel, b: b1, no: 15, buyer: UC_B }                # 대기 중에 한 요청이지만 지금 확정 찜을 취소 → 대기 없음 → OPEN
+expect:
+  products:
+    b1/15: { status: OPEN, winner: null, waitlist: [] }
+    b1/16: { status: SOLD, winner: UC_A }
+  claims:
+    - { product: b1/15, buyer: UC_A, status: CANCELLED }
+    - { product: b1/15, buyer: UC_B, status: CANCELLED }
+    - { product: b1/16, buyer: UC_A, status: CONFIRMED }
+  cancelRequests: []

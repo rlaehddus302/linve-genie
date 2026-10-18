@@ -11,7 +11,7 @@
 | `parser/chat.yaml` | 채팅 메시지 → 주문/취소/언급 (R-3) |
 | `parser/amount.yaml` | 한글·숫자 금액 → 원 (빠른 입력·음성 공용), 한글 수사 → 정수 |
 | `parser/quick-input.yaml` | 빠른 입력 한 줄 → 번호·품종·가격 |
-| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13). `08-time.yaml`은 시각 해석(D-022, D-023) |
+| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13). `08-time.yaml`은 시각 해석(D-022, D-023), `09-host-and-product.yaml`은 방송자 조치·상품 명령 세부(S02, D-039~D-043) |
 | `known-unimplemented.yaml` | **예약 파일.** 알려진 미구현 허용 목록 (D-020). 골든 시나리오가 아니다 |
 
 ## 러너가 읽는 범위 (D-020, D-021)
@@ -145,7 +145,9 @@ expect:
 | `chat` | `b`, `id`(메시지 ID), `ch`(채널 ID), `nick`, `text` | `owner`(불리언, 기본 false), `publishedAt` |
 | `sms` | `b`, `ref`(시나리오 안에서 유일), `no`, `received` | `memo`, `phone`, `buyer`(지정 구매자 키) |
 | `host.cancel` / `host.reject` / `host.promote` | `b`, `no`, `buyer`, `reason` | |
-| `host.confirm` / `host.approveCancel` | `b`, `no`, `buyer` | `reason` |
+| `host.confirm` / `host.approveCancel` / `host.dismissCancel` | `b`, `no`, `buyer` | `reason` |
+| `host.assign` | `b`, `no`, `buyer`, `reason` | `replace`(구매자 키 — 교체할 지금 1등), `replaceTo`(`WAITLIST`/`CANCEL`). 둘은 함께 쓴다(하나만 있으면 읽기 오류) |
+| `host.reopen` | `b`, `no`, `reason` | |
 | `host.resolveConflict` | `b`, `no`, `decision`(`KEEP`/`SWITCH`) | `reason` |
 | `host.convertMessage` | `b`, `msg`(메시지 ID), `no` | `reason` |
 | `host.blockBuyer` / `host.unblockBuyer` | `buyer`, `reason` | |
@@ -159,8 +161,8 @@ expect:
 | `settlement.refund` | `buyer`, `date`, `amount`(1 이상), `reason` | |
 | `assert` | `expect` | (`at` 없음, `seq` 없음) |
 
-- R-1의 나머지(`host.assign`, `effect.failed`, `broadcast.start`/`end`, 포장·배송 상태)는 처음 쓰는 스프린트에서 spec-keeper가 이 표에 추가한다.
-- 효과 보고(`effect.labelPrinted` / `effect.thanksSent`)는 그 (상품, 구매자[, 대상])의 가장 최근에 나온, 취소되지 않은 해당 효과의 실행 완료로 본다. 그런 효과가 없으면 러너 오류.
+- R-1의 나머지(`effect.failed`, `broadcast.start`/`end`, 포장·배송 상태)는 처음 쓰는 스프린트에서 spec-keeper가 이 표에 추가한다. (`host.assign`·`host.reopen`·`host.dismissCancel`은 S02에서 추가 — D-041~D-043)
+- 효과 보고(`effect.labelPrinted` / `effect.thanksSent`)는 그 (상품, 구매자[, 대상])의 가장 최근에 나온, 취소되지 않은 해당 효과의 실행 완료로 본다. 그런 효과가 없으면 러너 오류. 엔진에는 그 효과의 ID로 넘긴다(R-13 "효과 보고" — 바꾸는 일은 코어 어댑터가 한다). 이미 실행 완료된 효과도 "취소되지 않은" 효과이므로 같은 보고를 두 번 적을 수 있다(두 번째는 아무 일도 없어야 한다, INV-11).
 
 ## 설정 키 (형식 계약)
 
@@ -189,7 +191,7 @@ expect:
 | └ `payment` | `UNPAID`·`PARTIAL`·`PAID`·`OVERPAID` |
 | `effects` | 적은 항목마다, 지금까지 나온 효과(실행·취소 여부 무관) 중 적은 필드가 모두 같은 것이 **서로 다른 효과로 하나씩** 있어야 함. 순서 무관 |
 | `effectCounts` | 종류별로 지금까지 나온 효과 수가 정확히 같음(0이면 하나도 없어야 함) |
-| `pendingEffects` | 아직 실행 대상인 효과(나왔고, 취소·SKIPPED가 아니고, 실행 완료 보고가 없는 것) **전체**와 적은 필드 기준으로 정확히 같은 목록. 순서 무관 |
+| `pendingEffects` | 아직 실행 대상인 효과(나왔고, 취소·SKIPPED가 아니고, 실행 완료 보고가 없는 것) **전체**와 적은 필드 기준으로 정확히 같은 목록. 순서 무관. `VOID_LABEL`은 완료 보고 이벤트가 아직 없어(S08) 나온 뒤 계속 실행 대상이다. 엔진은 `NOTIFY`를 내지 않는다(D-044) |
 | `claims` | 적은 항목마다 (상품 키, 구매자)의 **가장 최근** 찜의 `status`와 (적었으면) `reason`. 상품 키는 상품이 아직 없어도 된다(보류 찜) |
 | `pending` | 번호별 보류 찜의 구매자, 판정 순위(R-6) 순서대로 정확히 같음. `[]` = 없음 |
 | `sameBuyer` | 묶음마다 모든 키가 같은 구매자로 풀림 |

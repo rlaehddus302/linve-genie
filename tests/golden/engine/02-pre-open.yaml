@@ -76,3 +76,107 @@ expect:
   products:
     b1/15: { status: SOLD, winner: UC_A, waitlist: [] }
     b2/15: { status: SOLD, winner: UC_B, waitlist: [] }
+---
+# S02 보강 — 보류 찜 세부 (R-5, R-2 상품 명령 D-039, 차단 D-040, 취소 요청 D-043). 기대값 계산은 각 줄 주석.
+id: G-ENG-015
+title: 보류 찜 유효 시간 경계 — 공개 시각 − 유효 시간 정각은 포함, 1ms라도 앞이면 만료 (유효 시간 10초)
+refs: [ORD-06, R-5]
+settings: { claim.preOpenWindowSec: 10 }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:09.999", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:10.000", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }
+  - { at: "20:00:15", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15" }
+  # 공개 T = 20:00:20.000 → 유효 구간 시작 T − 10초 = 20:00:10.000
+  # A(20:00:09.999) < 시작 → 만료. B(20:00:10.000) = 시작 → 포함(경계 포함) → 확정. C → 대기 1순위
+  - { at: "20:00:20", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_B, waitlist: [UC_C] }
+  claims:
+    - { product: b1/15, buyer: UC_A, status: REJECTED, reason: EXPIRED }
+  pending: { b1/15: [] }
+  effectCounts: { POST_THANKS: 1, PRINT_PRODUCT_LABEL: 1 }
+---
+id: G-ENG-016
+title: 공개 순간 보류 찜이 재고·대기 한도를 넘으면 순서대로 재고만큼 확정, 한도만큼 대기, 나머지 품절 — 확정버전은 확정마다 하나씩
+refs: [ORD-06, ORD-11, R-5, R-4, R-13, D-044]
+settings: { waitlist.max: 1 }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }
+  - { at: "20:00:03", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15" }
+  - { at: "20:00:04", type: chat, b: b1, id: m4, ch: UC_D, nick: 박민수, text: "15" }
+  # 공개 T = 20:00:10 → 유효 구간 시작 19:59:40 → 네 찜 모두 포함, 판정 순위(seq) 순서로 R-4:
+  # A 확정(확정 0 < 재고 2, 확정버전 1) → B 확정(1 < 2, 확정버전 2) → C 대기(대기 0 < 한도 1) → D 품절
+  - { at: "20:00:10", type: product.register, b: b1, no: 15, name: 핑크프릴 모종, price: 3000, stock: 2 }
+expect:
+  products:
+    b1/15: { status: SOLD, winners: [UC_A, UC_B], waitlist: [UC_C] }
+  claims:
+    - { product: b1/15, buyer: UC_D, status: REJECTED, reason: SOLD_OUT }
+  pending: { b1/15: [] }
+  buyers:
+    UC_A: { items: [b1/15], subtotal: 3000 }
+    UC_B: { items: [b1/15], subtotal: 3000 }
+  pendingEffects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_B, confirmVersion: 2 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_B, confirmVersion: 2 }
+---
+id: G-ENG-017
+title: 보류 찜이 공개 전에 끝나는 길 — 방송자 취소·무효, 시청자 취소 요청 승인, 차단
+refs: [ORD-06, ORD-07, ORD-12, R-5, R-8, R-9, D-040, D-043]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }      # 보류 (찜 1)
+  - { at: "20:00:01", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }      # 보류 (찜 2)
+  - { at: "20:00:02", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15" }      # 보류 (찜 3)
+  - { at: "20:00:03", type: chat, b: b1, id: m4, ch: UC_D, nick: 박민수, text: "15" }      # 보류 (찜 4)
+  - { at: "20:00:04", type: chat, b: b1, id: m5, ch: UC_E, nick: 최지우, text: "15" }      # 보류 (찜 5)
+  - { at: "20:00:05", type: host.cancel, b: b1, no: 15, buyer: UC_A, reason: 방송자 착오 }  # 보류 찜 취소 → CANCELLED
+  - { at: "20:00:06", type: host.reject, b: b1, no: 15, buyer: UC_E, reason: 장난 주문 }   # 보류 찜 무효 → REJECTED(BY_HOST)
+  - { at: "20:00:07", type: chat, b: b1, id: m6, ch: UC_B, nick: 김철수, text: "15 취소" }  # 기본 REQUEST, B는 보류 찜(활성) → 취소 요청
+  - { type: assert, expect: { pending: { b1/15: [UC_B, UC_C, UC_D] }, cancelRequests: [{ product: b1/15, buyer: UC_B }] } }
+  - { at: "20:00:08", type: host.approveCancel, b: b1, no: 15, buyer: UC_B }               # B 보류 찜 취소, 요청 사라짐
+  - { at: "20:00:09", type: host.blockBuyer, buyer: UC_C, reason: 반복 장난 }              # C의 보류 찜 → REJECTED(BLOCKED) (D-040)
+  # 공개 T = 20:00:10 → 유효 구간 시작 19:59:40. 남은 보류 찜은 D 하나 → 확정
+  - { at: "20:00:10", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_D, waitlist: [] }
+  claims:
+    - { product: b1/15, buyer: UC_A, status: CANCELLED }
+    - { product: b1/15, buyer: UC_B, status: CANCELLED }
+    - { product: b1/15, buyer: UC_C, status: REJECTED, reason: BLOCKED }
+    - { product: b1/15, buyer: UC_D, status: CONFIRMED }
+    - { product: b1/15, buyer: UC_E, status: REJECTED, reason: BY_HOST }
+  pending: { b1/15: [] }
+  cancelRequests: []
+  claimCount: 5
+---
+id: G-ENG-018
+title: 미리 등록(READY)한 상품 — 일시 중지는 받지 않고, 판매 종료하면 그 번호의 보류 찜도 거절, 공개 시각 기준 유효 시간 안 찜은 판정
+refs: [PRD-04, ORD-06, R-2, R-5, D-039]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000, status: READY }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000, status: READY }
+  - { at: "20:00:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }      # READY → 보류
+  - { at: "20:00:06", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "16" }      # READY → 보류
+  - { at: "20:00:07", type: product.hold, b: b1, no: 15 }                                   # READY는 hold를 받지 않는다 → 아무 일도 없음
+  - { type: assert, expect: { products: { b1/15: { status: READY } }, pending: { b1/15: [UC_A], b1/16: [UC_B] } } }
+  - { at: "20:00:08", type: product.close, b: b1, no: 16 }                                  # 확정·대기 없음 → CLOSED, 16번 보류 찜(B) → REJECTED(NOT_ON_SALE)
+  - { at: "20:00:09", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "16" }      # CLOSED → REJECTED(NOT_ON_SALE)
+  # 15번 공개 T = 20:00:20 → 유효 구간 시작 19:59:50 ≤ A(20:00:05) → A 확정
+  - { at: "20:00:20", type: product.open, b: b1, no: 15 }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A }
+    b1/16: { exists: true, status: CLOSED, winner: null }
+  claims:
+    - { product: b1/16, buyer: UC_B, status: REJECTED, reason: NOT_ON_SALE }
+    - { product: b1/16, buyer: UC_C, status: REJECTED, reason: NOT_ON_SALE }
+  pending: { b1/15: [], b1/16: [] }
