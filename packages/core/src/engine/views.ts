@@ -207,11 +207,11 @@ export function listEffects(state: EngineState): EffectInfo[] {
     }))
 }
 
-/** 처리 대기 중인 시청자 취소 요청 (활성 찜에 걸린 것만), 요청 순서 */
+/** 처리 대기 중인 시청자 취소 요청 (활성 찜에 걸린 것만), 요청 순서 (요청은 채팅 하나에 하나라 seq가 겹치지 않는다) */
 export function listCancelRequests(state: EngineState): CancelRequestInfo[] {
   return pvalues(state.claims)
     .filter((claim) => claim.request !== null && isActive(claim.status))
-    .sort((a, b) => (a.request as number) - (b.request as number) || a.n - b.n)
+    .sort((a, b) => (a.request as number) - (b.request as number))
     .map((claim) => ({ product: claim.key, buyer: claim.buyer, claim: claim.id, seq: claim.request as number }))
 }
 

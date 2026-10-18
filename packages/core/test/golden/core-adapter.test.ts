@@ -8,7 +8,9 @@ import {
   listSettlements,
   type EngineState,
 } from '@livejjim/core'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { runGoldenDir } from './fs-runner.ts'
 import { pget, pset } from '../../src/engine/pmap.ts'
 import { play as playEvents, type EventInput } from '../unit/engine-helpers.ts'
 import { realCore, reportTarget, toEngineEvent, toSnapshot } from './core-adapter.ts'
@@ -177,5 +179,28 @@ describe('invariants 훅 — 매 이벤트 뒤 checkInvariants, 위반은 불일
   it('S03 이벤트는 어댑터를 거쳐 엔진의 미구현으로 멈춘다', () => {
     const state = play([])
     expect(() => realCore.engine.apply(state, golden({ type: 'sms', b: 'b1', ref: 's1', no: 15, received: '20:00' }))).toThrow(NotImplementedError)
+  })
+})
+
+describe('실제 tests/golden 전체를 실제 코어로 (AC-S02-90과 같은 합계)', () => {
+  it('통과 425 · 미구현(허용) 20 · 나머지 0, S03 시나리오는 모두 중간 검사 전에 미구현으로 멈춘다', () => {
+    const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
+    const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
+    expect(report.totals).toEqual({
+      files: 12,
+      parserCases: 379,
+      scenarios: 66,
+      pass: 425,
+      mismatch: 0,
+      notImplementedAllowed: 20,
+      notImplementedDisallowed: 0,
+      readError: 0,
+      determinism: 0,
+      runnerError: 0,
+    })
+    expect(report.ok).toBe(true)
+    for (const item of report.items) {
+      if (item.kind === 'scenario' && item.status === 'not-implemented') expect(item.problems[0]?.message, item.id).toContain('S03')
+    }
   })
 })

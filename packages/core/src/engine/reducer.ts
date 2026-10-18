@@ -137,7 +137,7 @@ function productCommand(d: Draft, e: ProductCommandEvent): void {
   if (phase === 'CLOSED' || current.winners.length > 0 || current.waitlist.length > 0) return
   const slot = d.slot(e.b, e.no)
   slot.product = { ...product, phase: 'CLOSED' }
-  for (const id of slot.pending) finish(d.claim(id) as ClaimDraft, slot, 'REJECTED', 'NOT_ON_SALE')
+  for (const id of slot.pending) finish(d.claim(id), slot, 'REJECTED', 'NOT_ON_SALE')
   slot.pending = []
 }
 
@@ -185,10 +185,10 @@ function viewerCancel(d: Draft, b: string, no: number, buyer: string): void {
   if (current === undefined) return
   // AUTO: 잠금은 확정 찜에만 있다 → 잠긴 확정 찜만 요청, 나머지(잠금 전 확정·대기·보류)는 바로 방송자 취소와 같게
   if (mode === 'AUTO' && !(current.status === 'CONFIRMED' && current.locked)) {
-    release(d, d.claim(current.id) as ClaimDraft, d.slot(b, no), 'CANCELLED', null)
+    release(d, d.claim(current.id), d.slot(b, no), 'CANCELLED', null)
     return
   }
-  if (current.request === null) (d.claim(current.id) as ClaimDraft).request = d.seq
+  if (current.request === null) d.claim(current.id).request = d.seq
 }
 
 function activeClaim(d: Draft, b: string, no: number, buyer: string): ReturnType<Draft['readClaim']> {
@@ -204,7 +204,7 @@ function hostRelease(d: Draft, e: HostClaimEvent): void {
   const current = activeClaim(d, e.b, e.no, e.buyer)
   if (current === undefined) return
   const [status, reason] = e.type === 'host.reject' ? (['REJECTED', 'BY_HOST'] as const) : (['CANCELLED', null] as const)
-  release(d, d.claim(current.id) as ClaimDraft, d.slot(e.b, e.no), status, reason)
+  release(d, d.claim(current.id), d.slot(e.b, e.no), status, reason)
 }
 
 /** host.promote: 자리가 비어 있고 대상이 대기 찜일 때만 확정 (대기 몇 순위든) */
@@ -217,7 +217,7 @@ function promote(d: Draft, e: HostClaimEvent): void {
   if (now.winners.length >= product.stock) return
   const slot = d.slot(e.b, e.no)
   slot.waitlist.splice(slot.waitlist.indexOf(current.id), 1)
-  confirm(d, d.claim(current.id) as ClaimDraft, slot, product)
+  confirm(d, d.claim(current.id), slot, product)
   settleAwaiting(slot)
 }
 
@@ -226,12 +226,12 @@ function claimAction(d: Draft, e: HostClaimOptionalReasonEvent): void {
   const current = activeClaim(d, e.b, e.no, e.buyer)
   if (current === undefined) return
   if (e.type === 'host.confirm') {
-    if (current.status === 'CONFIRMED' && !current.locked) (d.claim(current.id) as ClaimDraft).locked = true
+    if (current.status === 'CONFIRMED' && !current.locked) d.claim(current.id).locked = true
     return
   }
   if (current.request === null) return
-  if (e.type === 'host.dismissCancel') (d.claim(current.id) as ClaimDraft).request = null
-  else release(d, d.claim(current.id) as ClaimDraft, d.slot(e.b, e.no), 'CANCELLED', null)
+  if (e.type === 'host.dismissCancel') d.claim(current.id).request = null
+  else release(d, d.claim(current.id), d.slot(e.b, e.no), 'CANCELLED', null)
 }
 
 /** host.reopen: "승계 결정 필요" 표시가 있을 때만 REOPEN 규칙 (D-041) */
@@ -265,13 +265,13 @@ function assign(d: Draft, e: HostAssignEvent): void {
     claim = d.newClaim({ ...fields, status: 'PENDING', reason: null, price: null, version: null, locked: false, request: null, effects: [] })
   } else {
     slot.waitlist.splice(slot.waitlist.indexOf(own.id), 1)
-    claim = d.claim(own.id) as ClaimDraft
+    claim = d.claim(own.id)
   }
   if (target !== undefined) replaceWinner(d, target, slot, replaceTo === 'CANCEL')
   confirm(d, claim, slot, product)
   // 교체된 1등이 대기로 들어가 한도를 넘으면 맨 끝 대기자부터 품절
   const max = d.settings['waitlist.max']
-  while (slot.waitlist.length > 0 && slot.waitlist.length > max) finish(d.claim(slot.waitlist.pop() as string) as ClaimDraft, slot, 'REJECTED', 'SOLD_OUT')
+  while (slot.waitlist.length > 0 && slot.waitlist.length > max) finish(d.claim(slot.waitlist.pop() as string), slot, 'REJECTED', 'SOLD_OUT')
   settleAwaiting(slot)
 }
 
@@ -302,7 +302,7 @@ function block(d: Draft, e: HostBlockEvent): void {
     const slot = d.slot(record.b, record.no)
     const list = record.status === 'WAITLISTED' ? slot.waitlist : slot.pending
     list.splice(list.indexOf(id), 1)
-    finish(d.claim(id) as ClaimDraft, slot, 'REJECTED', 'BLOCKED')
+    finish(d.claim(id), slot, 'REJECTED', 'BLOCKED')
     settleAwaiting(slot)
   }
 }
@@ -314,8 +314,8 @@ function report(d: Draft, e: EffectReportEvent): void {
   const kind = e.type === 'effect.labelPrinted' ? 'PRINT_PRODUCT_LABEL' : 'POST_THANKS'
   // 모르는 효과 ID, 종류가 다른 보고, 이미 완료된 효과(INV-11)는 아무 일도 없다
   if (effect === undefined || effect.kind !== kind || effect.status === 'DONE') return
-  const claim = d.claim(effect.claim) as ClaimDraft
-  ;(d.effect(effect.id) as { status: string }).status = 'DONE'
+  const claim = d.claim(effect.claim)
+  d.effect(effect).status = 'DONE'
   if (effect.status === 'PENDING') {
     // 지금 확정(확정버전)의 효과면 잠금 (R-7.3). 잠금은 확정 하나에 대한 것이다
     if (claim.status === 'CONFIRMED' && claim.version === effect.version) claim.locked = true

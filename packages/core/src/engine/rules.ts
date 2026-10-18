@@ -1,6 +1,6 @@
 // 판정 규칙 (DOMAIN_RULES R-4, R-5, R-8, R-13). 모두 작업 사본(Draft) 위에서 돈다.
 import { formatThanksText } from '../format.ts'
-import { ownGet, ownSet, type ClaimDraft, type Draft, type SlotDraft } from './draft.ts'
+import { CorruptStateError, ownGet, ownSet, type ClaimDraft, type Draft, type SlotDraft } from './draft.ts'
 import type { ClaimReason, ClaimStatus, EffectKind, ProductRecord, SlotRecord, ThanksTarget } from './types.ts'
 
 /** R-4 판정 결과. none = 4번 줄(같은 사람 반복) — 새 찜을 만들지 않는다 */
@@ -76,12 +76,11 @@ export function confirm(d: Draft, claim: ClaimDraft, slot: SlotDraft, product: P
   claim.locked = false
   slot.winners.push(claim.id)
   ownSet(slot.active, claim.buyer, claim.id)
-  const buyer = d.buyer(claim.buyer)
-  const display = buyer?.display ?? claim.buyer
-  if (buyer !== undefined) buyer.subtotal += product.price
+  const buyer = d.knownBuyer(claim.buyer)
+  buyer.subtotal += product.price
   const { settings } = d
   if (settings['print.autoOnConfirm']) emit(d, claim, 'PRINT_PRODUCT_LABEL', null, version, null)
-  const text = formatThanksText({ no: slot.no, name: product.name, price: product.price, buyerName: display })
+  const text = formatThanksText({ no: slot.no, name: product.name, price: product.price, buyerName: buyer.display })
   if (settings['thanks.liveChat']) emit(d, claim, 'POST_THANKS', 'LIVE_CHAT', version, text)
   if (settings['thanks.videoComment'] === 'PER_SALE') emit(d, claim, 'POST_THANKS', 'VIDEO_COMMENT', version, text)
 }
@@ -94,13 +93,13 @@ export function unconfirm(d: Draft, claim: ClaimDraft, slot: SlotDraft): void {
   const version = claim.version
   for (const id of [...claim.effects]) {
     const effect = d.readEffect(id)
-    if (effect === undefined || effect.version !== version || effect.kind === 'VOID_LABEL') continue
-    if (effect.status === 'PENDING') (d.effect(id) as { status: string }).status = 'CANCELLED'
+    if (effect === undefined) throw new CorruptStateError(`찜 ${claim.id}의 효과 ${id}가 없다`)
+    if (effect.version !== version || effect.kind === 'VOID_LABEL') continue
+    if (effect.status === 'PENDING') d.effect(effect).status = 'CANCELLED'
     else if (effect.status === 'DONE' && effect.kind === 'PRINT_PRODUCT_LABEL') voidLabel(d, claim, effect.version)
   }
   remove(slot.winners, claim.id)
-  const buyer = d.buyer(claim.buyer)
-  if (buyer !== undefined) buyer.subtotal -= claim.price ?? 0
+  d.knownBuyer(claim.buyer).subtotal -= claim.price ?? 0
   claim.locked = false
 }
 
@@ -116,7 +115,7 @@ export function settleAwaiting(slot: SlotDraft): void {
 
 /** REOPEN 규칙: 대기자 전원 WAITLIST_CLEARED (R-8) */
 export function clearWaitlist(d: Draft, slot: SlotDraft): void {
-  for (const id of slot.waitlist) finish(d.claim(id) as ClaimDraft, slot, 'REJECTED', 'WAITLIST_CLEARED')
+  for (const id of slot.waitlist) finish(d.claim(id), slot, 'REJECTED', 'WAITLIST_CLEARED')
   slot.waitlist = []
   slot.awaiting = false
 }
@@ -127,7 +126,7 @@ function succession(d: Draft, slot: SlotDraft, product: ProductRecord): void {
   const mode = d.settings['cancel.succession']
   if (mode === 'REOPEN') clearWaitlist(d, slot)
   else if (mode === 'ASK') slot.awaiting = true
-  else confirm(d, d.claim(slot.waitlist.shift() as string) as ClaimDraft, slot, product)
+  else confirm(d, d.claim(slot.waitlist.shift() as string), slot, product)
 }
 
 /**
@@ -177,7 +176,7 @@ export function openPending(d: Draft, slot: SlotDraft, openedAt: number): void {
   const ids = slot.pending
   slot.pending = []
   for (const id of ids) {
-    const claim = d.claim(id) as ClaimDraft
+    const claim = d.claim(id)
     if (claim.at < start) {
       finish(claim, slot, 'REJECTED', 'EXPIRED')
       continue

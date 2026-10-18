@@ -39,6 +39,17 @@ export interface EffectDraft extends Omit<EffectRecord, 'status'> {
   status: EffectRecord['status']
 }
 
+/**
+ * 상태가 손상되었다(서로 가리키는 기록이 없다). 엔진이 만든 상태에서는 생기지 않는다.
+ * 저장된 스냅샷이 망가졌을 때 조용히 틀린 판정을 이어 가지 않고 멈추게 한다(S04 재생 무결성 검사).
+ */
+export class CorruptStateError extends Error {
+  constructor(what: string) {
+    super(`판정 엔진 상태가 손상되었다: ${what}`)
+    this.name = 'CorruptStateError'
+  }
+}
+
 /** 신뢰할 수 없는 문자열 키(`__proto__` 등)도 자기 속성으로만 읽고 쓴다 */
 export function ownGet<T>(record: Readonly<Record<string, T>>, key: string): T | undefined {
   return Object.hasOwn(record, key) ? record[key] : undefined
@@ -123,12 +134,12 @@ export class Draft {
     return created
   }
 
-  /** 있는 찜의 작업 사본 (없는 ID면 undefined) */
-  claim(id: string): ClaimDraft | undefined {
+  /** 있는 찜의 작업 사본 */
+  claim(id: string): ClaimDraft {
     const draft = this.claims.get(id)
     if (draft !== undefined) return draft
     const base = pget(this.base.claims, id)
-    if (base === undefined) return undefined
+    if (base === undefined) throw new CorruptStateError(`찜 ${id}가 없다`)
     const created: ClaimDraft = { ...base, effects: [...base.effects] }
     this.claims.set(id, created)
     return created
@@ -138,8 +149,7 @@ export class Draft {
     const n = ++this.counters.claims
     const created: ClaimDraft = { id: `c${String(n)}`, n, ...fields }
     this.claims.set(created.id, created)
-    const buyer = this.buyer(fields.buyer)
-    if (buyer !== undefined) buyer.claims.push(created.id)
+    this.knownBuyer(fields.buyer).claims.push(created.id)
     return created
   }
 
@@ -154,19 +164,25 @@ export class Draft {
     return created
   }
 
+  /** 기록이 있어야 하는 구매자(찜의 주인)의 작업 사본 */
+  knownBuyer(id: string): BuyerDraft {
+    const draft = this.buyer(id)
+    if (draft === undefined) throw new CorruptStateError(`구매자 ${id}가 없다`)
+    return draft
+  }
+
   newBuyer(id: string, nick: string): BuyerDraft {
     const created: BuyerDraft = { id, n: ++this.counters.buyers, display: nick, names: [nick], claims: [], subtotal: 0 }
     this.buyers.set(id, created)
     return created
   }
 
-  effect(id: string): EffectDraft | undefined {
-    const draft = this.effects.get(id)
+  /** 읽은 효과의 작업 사본 (readEffect로 찾은 기록을 넘긴다) */
+  effect(record: EffectRecord): EffectDraft {
+    const draft = this.effects.get(record.id)
     if (draft !== undefined) return draft
-    const base = pget(this.base.effects, id)
-    if (base === undefined) return undefined
-    const created: EffectDraft = { ...base }
-    this.effects.set(id, created)
+    const created: EffectDraft = { ...record }
+    this.effects.set(record.id, created)
     return created
   }
 
