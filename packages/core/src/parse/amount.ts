@@ -26,6 +26,11 @@ const MAN = '만'
 const MAN_EXPONENT = 4
 const WON = '원'
 
+/** 한글 단위 글자(십·백·천·만)인가 */
+export function isUnitChar(char: string): boolean {
+  return char === MAN || SMALL_UNITS.has(char)
+}
+
 /**
  * R-14로 해석되는 문자열이 가질 수 있는 공백 구분 토큰의 최대 개수.
  * `[계수]만` + 천·백·십·일의 자리 묶음 4개 + `원` = 6 (만의 계수 안에는 공백이 없고, 계수는 단위에 붙여 쓴다).
