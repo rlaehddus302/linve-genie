@@ -43,6 +43,24 @@ describe('화면 XSS 린트', () => {
     expect(messages[0]?.message).toContain('React 기본 이스케이프')
   })
 
+  // TD-S00-004: 소스 안 주석으로 금지를 끌 수 없다. 웹 블록의 noInlineConfig가 주석을 무시하고,
+  // ESLint는 무시한 주석마다 경고를 낸다 → lint 단계(--max-warnings 0)는 주석만 있어도 실패한다.
+  it.each([
+    ['다음 줄 끄기', `// eslint-disable-next-line no-restricted-syntax\nexport const A = (p: { h: string }) => <div ${RAW}={{ __html: p.h }} />\n`],
+    ['같은 줄 끄기', `export const A = (p: { h: string }) => <div ${RAW}={{ __html: p.h }} /> // eslint-disable-line\n`],
+    ['파일 전체 끄기', `/* eslint-disable */\nexport const A = (p: { h: string }) => <div ${RAW}={{ __html: p.h }} />\n`],
+    ['규칙 이름으로 끄고 다시 켜기', `/* eslint-disable no-restricted-syntax */\nexport const A = (p: { h: string }) => <div ${RAW}={{ __html: p.h }} />\n/* eslint-enable no-restricted-syntax */\n`],
+    ['인라인 설정으로 규칙 끄기', `/* eslint no-restricted-syntax: "off" */\nexport const A = (p: { h: string }) => <div ${RAW}={{ __html: p.h }} />\n`],
+    ['인라인 설정으로 경고로 낮추기', `/* eslint no-restricted-syntax: "warn" */\nexport const A = (p: { h: string }) => <div ${RAW}={{ __html: p.h }} />\n`],
+  ])('끄기 주석(%s)이 있어도 실패한다', async (_name, code) => {
+    const messages = await xssMessages(code)
+    expect(messages.length).toBeGreaterThan(0)
+    expect(messages.every((m) => m.severity === 2)).toBe(true)
+    const ignoredDirectives = (await lint(code)).filter((m) => m.ruleId === null && m.message.includes('noInlineConfig'))
+    expect(ignoredDirectives.length).toBeGreaterThan(0)
+    expect(ignoredDirectives.every((m) => m.severity >= 1)).toBe(true)
+  })
+
   it.each([
     ['test 폴더', 'apps/web/test/__probe__.test.tsx'],
     ['설정 파일', 'apps/web/vite.config.ts'],

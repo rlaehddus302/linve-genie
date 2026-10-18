@@ -206,6 +206,9 @@ export default defineConfig(
   // 웹 화면 XSS 방지 (AC-S00-06, NFR-06). apps/web 전체(src·test·설정)에 적용한다.
   {
     files: ['apps/web/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'],
+    // 소스 안의 eslint-disable·인라인 설정 주석을 모두 무시한다 → XSS 금지를 주석으로 끌 수 없다 (TD-S00-004).
+    // 무시된 주석은 ESLint가 경고로 알리고, lint는 경고도 실패(--max-warnings 0)이므로 그런 주석은 남을 수 없다.
+    linterOptions: { noInlineConfig: true, reportUnusedDisableDirectives: 'error' },
     rules: {
       'no-restricted-syntax': ['error', ...rawHtmlSyntax],
       'no-eval': 'error',
