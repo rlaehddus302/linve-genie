@@ -1,0 +1,65 @@
+// 서버 기동 (AC-S00-42): pnpm --filter @livejjim/server start
+// - PORT(기본 3000)에서 대기한다. 저장소 루트의 .env가 있으면 읽는다(이미 있는 환경변수가 우선).
+// - 기동 로그에 환경변수 값을 찍지 않는다.
+// - Ctrl+C(SIGINT)·SIGTERM이면 새 연결을 받지 않고 진행 중인 요청을 마친 뒤 종료 코드 0으로 끝난다.
+//   한 번 더 누르면 바로 끝낸다.
+import { existsSync } from 'node:fs'
+import { createApp } from './app.ts'
+import { DEFAULT_PORT, readPort } from './config.ts'
+import { createNodeServer } from './node-server.ts'
+
+/** 종료를 요청한 뒤 남은 연결을 강제로 끊기까지 기다리는 시간 */
+const FORCE_CLOSE_AFTER_MS = 5000
+
+const say = (line: string) => process.stdout.write(`[server] ${line}\n`)
+const complain = (line: string) => process.stderr.write(`[server] ${line}\n`)
+
+// 저장소 루트의 .env (커밋하지 않는다. 키 목록은 .env.example)
+const ENV_FILE = new URL('../../../.env', import.meta.url)
+if (existsSync(ENV_FILE)) process.loadEnvFile(ENV_FILE)
+
+const setting = readPort(process.env)
+if (!setting.ok) {
+  complain(`시작하지 못했어요. ${setting.message}`)
+  process.exit(1)
+}
+
+const server = createNodeServer({ app: createApp() })
+
+// PORT 환경변수 값은 로그에 찍지 않는다. 기본값일 때만 번호를 보여 준다.
+const where = setting.fromEnv ? 'PORT 환경변수로 지정한 포트' : `기본 포트 ${DEFAULT_PORT}`
+
+server.on('error', (error: Error & { code?: string }) => {
+  // Node 오류 메시지에는 포트 번호가 들어 있으므로 코드만 보고 우리 문장으로 알린다
+  if (error.code === 'EADDRINUSE') complain(`시작하지 못했어요. 다른 프로그램이 이미 쓰고 있는 포트예요(${where}). PORT 환경변수로 다른 포트를 지정해 주세요.`)
+  else if (error.code === 'EACCES') complain(`시작하지 못했어요. 열 권한이 없는 포트예요(${where}).`)
+  else complain(`시작하지 못했어요. (오류 코드: ${error.code ?? '알 수 없음'})`)
+  process.exitCode = 1
+})
+
+server.listen(setting.port, () => {
+  say(`시작했어요. ${where}에서 기다리는 중이에요. 상태 확인: GET /health · 끄려면 Ctrl+C`)
+})
+
+let stopping = false
+function stop(): void {
+  if (stopping) {
+    complain('바로 끝낼게요.')
+    process.exit(1)
+  }
+  stopping = true
+  say('끄는 중이에요. 진행 중인 요청을 마무리하고 있어요.')
+  server.close((error) => {
+    if (error) {
+      complain('서버가 이미 멈춰 있었어요.')
+      process.exitCode = 1
+      return
+    }
+    say('껐어요.')
+  })
+  server.closeIdleConnections()
+  setTimeout(() => server.closeAllConnections(), FORCE_CLOSE_AFTER_MS).unref()
+}
+
+process.on('SIGINT', stop)
+process.on('SIGTERM', stop)
