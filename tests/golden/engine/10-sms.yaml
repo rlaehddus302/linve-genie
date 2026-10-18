@@ -1,0 +1,136 @@
+# S03 보강 — 문자찜 구매자 정하기 (ORD-08, BUY-02, R-11, D-051). 기대값 계산은 각 줄 주석.
+# 기본 설정: 접수순(ARRIVAL), 대기 한도 5, 자동 승계, 자동 출력·실시간 채팅 감사 켬 → 확정마다 라벨 1 + 감사 1.
+# 구매자 키 sms:<ref> = 그 ref의 문자찜이 정한 구매자(지정 구매자 / 같은 휴대폰 번호의 문자 구매자 / 새 문자 구매자).
+id: G-ENG-100
+title: 문자찜 구매자 — 휴대폰 번호는 형식이 달라도 숫자가 같으면 잇고, 번호 일부·국가 번호는 잇지 않으며, 지정 구매자가 먼저, 표시 이름은 최근 메모
+refs: [ORD-08, BUY-02, R-11, R-13, YT-04, D-051]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 1, name: 금황성, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 2, name: 라울, price: 5000 }
+  - { at: "20:00:02", type: product.register, b: b1, no: 3, name: 성미인, price: 8000 }
+  - { at: "20:00:03", type: product.register, b: b1, no: 4, name: 미니마, price: 6000 }
+  - { at: "20:00:04", type: product.register, b: b1, no: 5, name: 핑크프릴, price: 7000 }
+  - { at: "20:00:05", type: chat, b: b1, id: m1, ch: UC_H, nick: 홍길동, text: "안녕하세요" }        # UC_H는 구매자로 기록(찜 없음)
+  # 01012345678(11자리, 01로 시작) → 새 문자 구매자 X. 표시 "문자찜(길동 이모)". 1번 확정(찜 1)
+  - { at: "20:00:10", type: sms, b: b1, ref: s1, no: 1, received: "20:00:08", memo: 길동 이모, phone: "010-1234-5678" }
+  # 공백이 섞여도 숫자 01012345678 → X. 2번 확정(찜 2). 메모 없음 → 표시 그대로
+  - { at: "20:00:11", type: sms, b: b1, ref: s2, no: 2, received: "20:00", phone: "010 1234 5678" }
+  # "5678"은 4자리 → 휴대폰 번호 모양 아님 → 전화번호 없는 것과 같다 → 새 구매자 Y3. 3번 확정(찜 3)
+  - { at: "20:00:12", type: sms, b: b1, ref: s3, no: 3, received: "20:00:11", phone: "5678" }
+  # 같은 "5678"이어도 잇지 않는다 → 또 새 구매자 Y4. 4번 확정(찜 4)
+  - { at: "20:00:13", type: sms, b: b1, ref: s4, no: 4, received: "20:00:12", phone: "5678" }
+  # "+82 10-1234-5678" → 숫자 821012345678(12자리, 82로 시작) → 모양 아님 → X와 잇지 않고 새 구매자 Y5. 5번 확정(찜 5)
+  - { at: "20:00:14", type: sms, b: b1, ref: s5, no: 5, received: "20:00:13", phone: "+82 10-1234-5678" }
+  # 지정 구매자 UC_H가 먼저(전화번호는 보지 않는다) → UC_H의 찜. 2번은 X가 1등 → 대기 [UC_H] (찜 6)
+  - { at: "20:00:15", type: sms, b: b1, ref: s6, no: 2, received: "20:00:14", buyer: UC_H, phone: "010-1234-5678" }
+  # 전각 숫자도 반각으로 → 01012345678 → X. X는 1번에 활성 찜(확정)이 있음 → 새 찜 없음(R-4 4번 줄). 메모 "길동" → 표시 "문자찜(길동)"
+  - { at: "20:00:16", type: sms, b: b1, ref: s7, no: 1, received: "20:00:15", phone: "０１０１２３４５６７８", memo: 길동 }
+  # 엔진이 모르는 지정 구매자 → 이벤트 전체가 아무 일도 없다(찜·구매자 없음)
+  - { at: "20:00:17", type: sms, b: b1, ref: s8, no: 3, received: "20:00:16", buyer: UC_Z }
+expect:
+  products:
+    b1/1: { status: SOLD, winner: "sms:s1" }
+    b1/2: { status: SOLD, winner: "sms:s1", waitlist: [UC_H] }
+    b1/3: { status: SOLD, winner: "sms:s3" }
+    b1/4: { status: SOLD, winner: "sms:s4" }
+    b1/5: { status: SOLD, winner: "sms:s5" }
+  sameBuyer: [["sms:s1", "sms:s2", "sms:s7"]]
+  buyers:
+    "sms:s1": { items: [b1/1, b1/2], subtotal: 15000, display: "문자찜(길동)", nameHistory: ["문자찜(길동 이모)", "문자찜(길동)"] }   # 10,000 + 5,000
+    "sms:s3": { items: [b1/3], subtotal: 8000, display: 문자찜, nameHistory: [문자찜] }    # s4와 이어졌다면 items가 [b1/3, b1/4]
+    "sms:s4": { items: [b1/4], subtotal: 6000, display: 문자찜 }
+    "sms:s5": { items: [b1/5], subtotal: 7000, display: 문자찜 }                          # X와 이어졌다면 items에 b1/1·b1/2
+    "sms:s6": { items: [], subtotal: 0, display: 홍길동 }                                 # = UC_H, 메모 없음 · 대기 중
+  claims:
+    - { product: b1/2, buyer: UC_H, status: WAITLISTED }
+  claimCount: 6                                    # s1~s6. s7은 같은 사람 반복, s8은 아무 일도 없음
+  settlements:
+    "sms:s1@2026-10-18": { subtotal: 15000, shipping: 4000, total: 19000, payment: UNPAID }
+  effects:                                         # 감사 문구의 이름은 문자찜이면 항상 "문자찜" — 메모·전화번호 없음
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/1, buyer: "sms:s1", text: "1번 금황성 10,000원 문자찜님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/2, buyer: "sms:s1", text: "2번 라울 5,000원 문자찜님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/3, buyer: "sms:s3", text: "3번 성미인 8,000원 문자찜님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/4, buyer: "sms:s4", text: "4번 미니마 6,000원 문자찜님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/5, buyer: "sms:s5", text: "5번 핑크프릴 7,000원 문자찜님 구매 감사합니다" }
+  effectCounts: { POST_THANKS: 5, PRINT_PRODUCT_LABEL: 5 }
+---
+id: G-ENG-101
+title: 문자찜 보류 찜의 유효 시간은 수신 시각이 아니라 입력(도착) 시각으로 잰다, 판매 중이 아니면 거절, 차단된 지정 구매자는 거절, 문자 구매자에게 직접 배정
+refs: [ORD-08, ORD-06, R-4, R-5, R-9, R-11, D-042, D-051, D-052]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: chat, b: b1, id: m1, ch: UC_X, nick: 장난꾼, text: "안녕하세요" }
+  - { at: "20:00:01", type: host.blockBuyer, buyer: UC_X, reason: 반복 장난 }
+  - { at: "20:00:10", type: sms, b: b1, ref: s1, no: 15, received: "19:50" }       # 15번 없음 → 보류 (at 20:00:10). 수신 19:50은 보지 않는다 (찜 1)
+  - { at: "20:00:20", type: sms, b: b1, ref: s2, no: 16, received: "20:00:59" }    # 16번 없음 → 보류 (at 20:00:20). 수신 시각은 39초 뒤(같은 날) (찜 2)
+  # 15번 공개 T=20:00:35 → 유효 구간 시작 20:00:05. s1의 at 20:00:10 ≥ 20:00:05 → 판정 → 확정(확정버전 1)
+  - { at: "20:00:35", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  # 16번 공개 T=20:01:00 → 시작 20:00:30. s2의 at 20:00:20 < 20:00:30 → 만료. (수신 20:00:59로 쟀다면 유효였다)
+  - { at: "20:01:00", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { type: assert, expect: { pending: { b1/15: [], b1/16: [] }, products: { b1/15: { winner: "sms:s1" }, b1/16: { winner: null } }, claims: [{ product: b1/16, buyer: "sms:s2", status: REJECTED, reason: EXPIRED }] } }
+  - { at: "20:01:05", type: product.hold, b: b1, no: 16 }
+  - { at: "20:01:06", type: sms, b: b1, ref: s3, no: 16, received: "20:01:05" }               # HOLD → REJECTED(NOT_ON_SALE) (찜 3)
+  - { at: "20:01:07", type: sms, b: b1, ref: s4, no: 15, received: "20:01:06", buyer: UC_X }  # 지정 구매자 UC_X 차단 중 → REJECTED(BLOCKED) (찜 4)
+  # 구매자 키 sms:s1 → s1의 문자 구매자. 확정 찜 취소 → 대기 없음 → OPEN. 미실행 효과(라벨·감사 1)는 취소
+  - { at: "20:01:10", type: host.cancel, b: b1, no: 15, buyer: "sms:s1", reason: 문자 착오 }
+  # s2의 문자 구매자는 엔진이 아는 구매자(찜은 만료됐어도). 빈 자리 → 새 확정 찜(찜 5, 확정버전 2). 문자 구매자 → 이름 "문자찜"
+  - { at: "20:01:20", type: host.assign, b: b1, no: 15, buyer: "sms:s2", reason: 전화로 다시 주문 }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: "sms:s2", waitlist: [] }
+    b1/16: { status: HOLD, winner: null }
+  claims:
+    - { product: b1/15, buyer: "sms:s1", status: CANCELLED }
+    - { product: b1/16, buyer: "sms:s2", status: REJECTED, reason: EXPIRED }
+    - { product: b1/16, buyer: "sms:s3", status: REJECTED, reason: NOT_ON_SALE }
+    - { product: b1/15, buyer: UC_X, status: REJECTED, reason: BLOCKED }
+    - { product: b1/15, buyer: "sms:s2", status: CONFIRMED }
+  claimCount: 5
+  buyers:
+    "sms:s1": { items: [], subtotal: 0 }
+    "sms:s2": { items: [b1/15], subtotal: 10000, display: 문자찜 }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:s1", text: "15번 핑크프릴 10,000원 문자찜님 구매 감사합니다", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:s2", text: "15번 핑크프릴 10,000원 문자찜님 구매 감사합니다", confirmVersion: 2 }
+  pendingEffects:                                  # s1의 효과는 출력 전 취소 → 폐기 없음
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:s2", confirmVersion: 2 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: "sms:s2", confirmVersion: 2 }
+---
+id: G-ENG-102
+title: 같은 휴대폰 번호의 문자찜은 다른 방송(같은 날)에서도 한 구매자 — 다른 ref의 키로 조치해도 같은 구매자의 찜, 출력된 라벨은 폐기
+refs: [ORD-08, BUY-02, BUY-04, STL-01, R-11, R-12, R-13, D-051]
+broadcasts:
+  - { id: b1, date: 2026-10-18, title: 1부 }
+  - { id: b2, date: 2026-10-18, title: 2부 }
+events:
+  - { at: "14:00:00", type: product.register, b: b1, no: 1, name: 금황성, price: 20000 }
+  - { at: "14:00:05", type: sms, b: b1, ref: s1, no: 1, received: "14:00:03", phone: "010-5555-0001" }   # 새 문자 구매자 X → b1/1 확정(1)
+  - { at: "14:00:10", type: effect.labelPrinted, b: b1, no: 1, buyer: "sms:s1" }                         # X의 b1/1 라벨 출력됨
+  - { at: "20:00:00", type: product.register, b: b2, no: 1, name: 라울, price: 5000 }
+  - { at: "20:00:01", type: product.register, b: b2, no: 2, name: 성미인, price: 8000 }
+  - { at: "20:00:05", type: sms, b: b2, ref: s2, no: 1, received: "20:00:04", phone: "01055550001" }     # 같은 번호 → X → b2/1 확정(1)
+  - { at: "20:00:06", type: sms, b: b2, ref: s3, no: 2, received: "20:00:05", phone: "010-5555-0001" }   # X → b2/2 확정(1)
+  - { at: "20:10:00", type: host.reject, b: b2, no: 2, buyer: "sms:s3", reason: 이중 입력 }             # X의 b2/2 무효, 출력 전이라 폐기 없음, 대기 없음 → OPEN
+  # sms:s2도 X → X의 b1/1 찜을 무효로. 출력된 라벨 → VOID_LABEL(b1/1, 확정버전 1). 감사 1은 취소
+  - { at: "20:10:01", type: host.reject, b: b1, no: 1, buyer: "sms:s2", reason: 착오 }
+expect:
+  products:
+    b1/1: { status: OPEN, winner: null }
+    b2/1: { status: SOLD, winner: "sms:s1" }
+    b2/2: { status: OPEN, winner: null }
+  sameBuyer: [["sms:s1", "sms:s2", "sms:s3"]]
+  buyers:
+    "sms:s1": { items: [b2/1], subtotal: 5000, byBroadcast: { b2: 5000 }, display: 문자찜 }
+  settlements:
+    "sms:s1@2026-10-18": { subtotal: 5000, shipping: 4000, total: 9000, payment: UNPAID }   # 같은 날 1·2부 한 묶음: 5,000 + 4,000
+  claims:
+    - { product: b2/2, buyer: "sms:s3", status: REJECTED, reason: BY_HOST }
+    - { product: b1/1, buyer: "sms:s1", status: REJECTED, reason: BY_HOST }
+  effects:
+    - { kind: VOID_LABEL, product: b1/1, buyer: "sms:s1", confirmVersion: 1 }
+  effectCounts: { VOID_LABEL: 1, PRINT_PRODUCT_LABEL: 3, POST_THANKS: 3 }
+  pendingEffects:
+    - { kind: VOID_LABEL, product: b1/1, buyer: "sms:s1", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b2/1, buyer: "sms:s1", confirmVersion: 1 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b2/1, buyer: "sms:s1", confirmVersion: 1 }

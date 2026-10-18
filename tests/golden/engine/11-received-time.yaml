@@ -1,0 +1,401 @@
+# S03 보강 — 실제 시각순 정렬 키·역전·충돌·메시지 변환 (ORD-09, ORD-10, ORD-12, R-4 "대기에 넣는 자리", R-6, R-7, D-052~D-054).
+# 정렬 키 (T, r, seq): 정확한 시각 t → (t, 1). 분 단위 문자 [m, m+1분) → SMS면 (m, 0), YOUTUBE·HOST면 (m+1분, 0).
+# 채팅의 실제 시각 = publishedAt(적지 않으면 at). 문자 = received(날짜는 입력 시각에 가장 가까운 날, D-023).
+# 기본 설정: 대기 한도 5, 자동 승계, 확정마다 라벨 1 + 감사 1. 기대값 계산은 각 줄 주석.
+id: G-ENG-110
+title: 같은 분 동률 YOUTUBE — 구간 끝 정각의 유튜브보다는 분 단위 문자가 앞서고, 구간 안이면 유튜브, 구간 시작 전이면 유튜브
+refs: [ORD-09, R-6, R-7, D-052]
+settings: { contention.policy: RECEIVED_TIME, contention.sameMinuteTieBreaker: YOUTUBE }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:02", type: product.register, b: b1, no: 17, name: 성미인, price: 8000 }
+  - { at: "20:01:00", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }                              # t = 20:01:00.000 → 15번 확정(1)
+  - { at: "20:01:01", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "16", publishedAt: "20:00:59.999" }   # t = 20:00:59.999 → 16번 확정(1)
+  - { at: "20:01:02", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "17", publishedAt: "19:59:59.999" }   # t = 19:59:59.999 → 17번 확정(1)
+  # "20:00" = [20:00:00, 20:01:00) → 키 (20:01:00, 0) < UC_A (20:01:00, 1) → 문자가 앞섬(t ≥ 구간 끝). A 잠금 전 → 자동 역전: s1 확정(2), A 대기 1순위
+  - { at: "20:01:30", type: sms, b: b1, ref: s1, no: 15, received: "20:00" }
+  # 키 (20:01:00, 0) > UC_B (20:00:59.999, 1) → 구간 안 = 동률 → YOUTUBE → B가 앞섬 → s2는 대기
+  - { at: "20:01:31", type: sms, b: b1, ref: s2, no: 16, received: "20:00" }
+  # UC_C 19:59:59.999 < 구간 시작 → C가 앞섬 → s3는 대기
+  - { at: "20:01:32", type: sms, b: b1, ref: s3, no: 17, received: "20:00" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: "sms:s1", waitlist: [UC_A], conflict: false }
+    b1/16: { status: SOLD, winner: UC_B, waitlist: ["sms:s2"], conflict: false }
+    b1/17: { status: SOLD, winner: UC_C, waitlist: ["sms:s3"], conflict: false }
+  effectCounts: { POST_THANKS: 4, PRINT_PRODUCT_LABEL: 4, VOID_LABEL: 0 }
+  pendingEffects:                                  # A의 미실행 효과(확정버전 1)는 역전으로 취소
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:s1", confirmVersion: 2 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: "sms:s1", confirmVersion: 2 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/16, buyer: UC_B, confirmVersion: 1 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/16, buyer: UC_B, confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/17, buyer: UC_C, confirmVersion: 1 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/17, buyer: UC_C, confirmVersion: 1 }
+---
+id: G-ENG-111
+title: 같은 분 동률 SMS — 구간 시작 정각의 유튜브와 같으면 분 단위 문자가 앞서고, 초까지 입력한 문자와의 동률에서도 분 단위 문자가 앞선다
+refs: [ORD-08, ORD-09, R-6, R-7, D-052]
+settings: { contention.policy: RECEIVED_TIME, contention.sameMinuteTieBreaker: SMS }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:02", type: product.register, b: b1, no: 17, name: 성미인, price: 8000 }
+  - { at: "20:00:30", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15", publishedAt: "20:00:00" }        # t = 20:00:00.000 → 15번 확정(1)
+  - { at: "20:00:31", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "16", publishedAt: "19:59:59.999" }    # 16번 확정(1)
+  # SMS → "20:00" 키 (20:00:00, 0) < UC_A (20:00:00, 1) → 문자가 앞섬 → A 잠금 전 → 역전: s1 확정(2), A 대기
+  - { at: "20:00:40", type: sms, b: b1, ref: s1, no: 15, received: "20:00" }
+  # 키 (20:00:00, 0) > UC_B (19:59:59.999, 1) → B가 앞섬(구간 시작 전) → s2 대기
+  - { at: "20:00:41", type: sms, b: b1, ref: s2, no: 16, received: "20:00" }
+  - { at: "20:00:42", type: sms, b: b1, ref: s3, no: 17, received: "20:00:30" }   # 초까지 → 정확한 시각 20:00:30 → 17번 확정(1)
+  # "20:00" 키 (20:00:00, 0) < s3 (20:00:30, 1) → 동률(정확한 시각 쪽이 문자여도 같다) → SMS → 분 단위 쪽이 앞섬 → 역전: s4 확정(2), s3 대기
+  - { at: "20:00:43", type: sms, b: b1, ref: s4, no: 17, received: "20:00" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: "sms:s1", waitlist: [UC_A], conflict: false }
+    b1/16: { status: SOLD, winner: UC_B, waitlist: ["sms:s2"], conflict: false }
+    b1/17: { status: SOLD, winner: "sms:s4", waitlist: ["sms:s3"], conflict: false }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:s1", text: "15번 핑크프릴 10,000원 문자찜님 구매 감사합니다", confirmVersion: 2 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/17, buyer: "sms:s4", text: "17번 성미인 8,000원 문자찜님 구매 감사합니다", confirmVersion: 2 }
+  effectCounts: { POST_THANKS: 5, PRINT_PRODUCT_LABEL: 5, VOID_LABEL: 0 }      # A·B·s1·s3·s4
+---
+id: G-ENG-112
+title: 늦게 온 선순위 찜은 대기열의 맞는 자리(자기보다 앞서는 대기자 중 가장 뒤 바로 뒤)에 끼워 넣고, 넘치면 맨 끝 대기자가 품절
+refs: [ORD-04, ORD-09, R-4, R-7, INV-7, D-053]
+settings: { contention.policy: RECEIVED_TIME, waitlist.max: 2 }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }    # A 확정, t 20:00:10 (찜 1)
+  - { at: "20:00:30", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }    # 대기 [B(30)] (찜 2)
+  - { at: "20:00:40", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15" }    # 대기 [B(30), C(40)] (찜 3)
+  # s1 t 20:00:35: A(10)보다 뒤 → 대기 자리. 앞서는 대기자 B(30) → B 바로 뒤 → [B, s1, C] → 한도 2 초과 → 맨 끝 C 품절 (찜 4)
+  - { at: "20:00:50", type: sms, b: b1, ref: s1, no: 15, received: "20:00:35" }
+  - { type: assert, expect: { products: { b1/15: { winner: UC_A, waitlist: [UC_B, "sms:s1"] } }, claims: [{ product: b1/15, buyer: UC_C, status: REJECTED, reason: SOLD_OUT }] } }
+  # s2 t 20:00:45: 앞서는 대기자 B(30)·s1(35) → s1 뒤 → [B, s1, s2] → 맨 끝 s2 자신이 품절 (찜 5)
+  - { at: "20:00:55", type: sms, b: b1, ref: s2, no: 15, received: "20:00:45" }
+  # s3 t 20:00:20: A(10)보다 뒤. 앞서는 대기자 없음 → 1순위 → [s3, B, s1] → 맨 끝 s1 품절 (찜 6)
+  - { at: "20:01:00", type: sms, b: b1, ref: s3, no: 15, received: "20:00:20" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: ["sms:s3", UC_B], conflict: false }
+  claims:
+    - { product: b1/15, buyer: UC_C, status: REJECTED, reason: SOLD_OUT }
+    - { product: b1/15, buyer: "sms:s1", status: REJECTED, reason: SOLD_OUT }
+    - { product: b1/15, buyer: "sms:s2", status: REJECTED, reason: SOLD_OUT }
+    - { product: b1/15, buyer: "sms:s3", status: WAITLISTED }
+  claimCount: 6
+  effectCounts: { POST_THANKS: 1, PRINT_PRODUCT_LABEL: 1 }
+---
+id: G-ENG-113
+title: 재고 2 — 순위가 가장 뒤인 1등과 비교해 역전하고, 밀려난 1등은 대기 1순위. 앞선 1등의 잠금은 상관없다
+refs: [ORD-09, ORD-11, R-6, R-7, R-13, D-053]
+settings: { contention.policy: RECEIVED_TIME }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000, stock: 2 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }    # A 확정(1), t 10
+  - { at: "20:00:20", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }    # B 확정(2), t 20 → SOLD
+  - { at: "20:00:30", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15" }    # 대기 [C]
+  # s1 t 15. 가장 뒤 1등 = B(20). s1이 앞섬, B 잠금 전 → 역전: B 효과 취소, s1 확정(3), B → 대기 1순위 [B, C]
+  - { at: "20:00:40", type: sms, b: b1, ref: s1, no: 15, received: "20:00:15" }
+  - { type: assert, expect: { products: { b1/15: { winners: [UC_A, "sms:s1"], waitlist: [UC_B, UC_C] } } } }
+  - { at: "20:00:50", type: effect.thanksSent, b: b1, no: 15, buyer: UC_A }              # A 잠금 (비교 대상이 아니므로 상관없다)
+  # s2 t 05. 1등 A(10)·s1(15) 중 가장 뒤 = s1. s2가 앞섬, s1 잠금 전 → 역전: s2 확정(4), s1 → 대기 1순위 [s1, B, C]
+  - { at: "20:01:00", type: sms, b: b1, ref: s2, no: 15, received: "20:00:05" }
+expect:
+  products:
+    b1/15: { status: SOLD, winners: [UC_A, "sms:s2"], waitlist: ["sms:s1", UC_B, UC_C], conflict: false }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:s1", text: "15번 핑크프릴 10,000원 문자찜님 구매 감사합니다", confirmVersion: 3 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:s2", text: "15번 핑크프릴 10,000원 문자찜님 구매 감사합니다", confirmVersion: 4 }
+  effectCounts: { POST_THANKS: 4, PRINT_PRODUCT_LABEL: 4, VOID_LABEL: 0 }
+  pendingEffects:                                  # A 감사는 완료, A 라벨은 남음. B(2)·s1(3)은 취소
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:s2", confirmVersion: 4 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: "sms:s2", confirmVersion: 4 }
+---
+id: G-ENG-114
+title: 역전으로 밀려난 1등 — 대기가 넘치면 맨 끝 대기자가 품절, 차단 중이면 대기에 넣지 않고 차단 거절(넘침 정리도 없음)
+refs: [ORD-09, ORD-12, R-4, R-7, R-9, D-049, D-053]
+settings: { contention.policy: RECEIVED_TIME, waitlist.max: 1 }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }    # A 15번 확정
+  - { at: "20:00:11", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }    # 대기 [B]
+  - { at: "20:00:12", type: chat, b: b1, id: m3, ch: UC_X, nick: 장난꾼, text: "16" }    # X 16번 확정
+  - { at: "20:00:13", type: chat, b: b1, id: m4, ch: UC_Y, nick: 이영희, text: "16" }    # 대기 [Y]
+  - { at: "20:00:20", type: host.blockBuyer, buyer: UC_X, reason: 반복 장난 }              # X의 확정 찜은 그대로
+  # s1 t 05 < A(10) → 역전: s1 확정(2), A → 대기 1순위 [A, B] → 한도 1 초과 → 맨 끝 B 품절 → [A]
+  - { at: "20:00:30", type: sms, b: b1, ref: s1, no: 15, received: "20:00:05" }
+  # s2 t 06 < X(12) → 역전: s2 확정(2), X는 차단 중 → 대기에 넣지 않고 REJECTED(BLOCKED). 대기 [Y] 그대로
+  - { at: "20:00:31", type: sms, b: b1, ref: s2, no: 16, received: "20:00:06" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: "sms:s1", waitlist: [UC_A] }
+    b1/16: { status: SOLD, winner: "sms:s2", waitlist: [UC_Y] }
+  claims:
+    - { product: b1/15, buyer: UC_A, status: WAITLISTED }
+    - { product: b1/15, buyer: UC_B, status: REJECTED, reason: SOLD_OUT }
+    - { product: b1/16, buyer: UC_X, status: REJECTED, reason: BLOCKED }
+    - { product: b1/16, buyer: UC_Y, status: WAITLISTED }
+  buyers:
+    UC_X: { items: [], subtotal: 0 }
+  effectCounts: { POST_THANKS: 4, PRINT_PRODUCT_LABEL: 4, VOID_LABEL: 0 }
+---
+id: G-ENG-115
+title: 입금 기록이 있는 1등은 잠금 후 — 더 빠른 문자찜은 충돌, 바꾸기를 고르면 입금한 사람은 대기로 가고 정산은 과입금
+refs: [ORD-09, ORD-10, R-7, R-12, STL-07, STL-09, INV-10, D-053, D-058]
+settings: { contention.policy: RECEIVED_TIME }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }               # A 확정(1). 묶음 10,000 + 4,000 = 14,000
+  - { at: "20:05:00", type: settlement.payment, buyer: UC_A, date: 2026-10-18, amount: 14000 }       # 받은 금액 14,000 > 0 → A 잠금
+  - { at: "20:06:00", type: sms, b: b1, ref: s1, no: 15, received: "20:00:05" }                     # t 05 < A(10), A 잠금 후 → 충돌
+  - { type: assert, expect: { products: { b1/15: { winner: UC_A, conflict: true } }, claims: [{ product: b1/15, buyer: "sms:s1", status: CONFLICT }], settlements: { UC_A@2026-10-18: { total: 14000, payment: PAID } } } }
+  # 바꾸기: s1 확정(2), A 확정이 풀림(미실행 라벨·감사 취소, 출력 전이라 폐기 없음) → A 대기 1순위
+  - { at: "20:07:00", type: host.resolveConflict, b: b1, no: 15, decision: SWITCH, reason: 문자가 먼저 }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: "sms:s1", waitlist: [UC_A], conflict: false }
+  settlements:
+    UC_A@2026-10-18: { subtotal: 0, shipping: 0, adjustments: 0, total: 0, refundDue: 14000, payment: OVERPAID }   # 품목 없음, 받은 14,000 → 전액 환불 필요
+    "sms:s1@2026-10-18": { subtotal: 10000, shipping: 4000, total: 14000, payment: UNPAID }
+  pendingEffects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:s1", confirmVersion: 2 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: "sms:s1", confirmVersion: 2 }
+  effectCounts: { VOID_LABEL: 0 }
+---
+id: G-ENG-116
+title: 직접 배정한 1등은 늦게 온 선순위 문자찜이 자동으로 밀어내지 않는다(잠금 전이어도 충돌), 유지를 고르면 순위대로 대기
+refs: [ORD-09, ORD-10, ORD-12, R-6, R-7, R-9, D-053]
+settings: { contention.policy: RECEIVED_TIME }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15번 살게요" }   # 주문 아님(언급). A는 구매자로 기록
+  - { at: "20:00:20", type: host.assign, b: b1, no: 15, buyer: UC_A, reason: 채팅 확인 }          # 배정 찜, 순위 재료 = 이 조치의 at 20:00:20 → 확정(1)
+  - { at: "20:00:30", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }              # t 30 → 대기 [B]
+  # s1 t 10 < A(20). A는 배정 찜 → R-7에서 늘 잠금 후 → 충돌 (출력·게시·확인·입금 보고는 없다)
+  - { at: "20:00:40", type: sms, b: b1, ref: s1, no: 15, received: "20:00:10" }
+  - { type: assert, expect: { products: { b1/15: { winner: UC_A, waitlist: [UC_B], conflict: true } }, claims: [{ product: b1/15, buyer: "sms:s1", status: CONFLICT }] } }
+  # 유지: s1을 대기 자리에. 대기 [B(30)] 중 s1(10)보다 앞서는 대기자 없음 → 1순위 → [s1, B]
+  - { at: "20:01:00", type: host.resolveConflict, b: b1, no: 15, decision: KEEP }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: ["sms:s1", UC_B], conflict: false }
+  claims:
+    - { product: b1/15, buyer: "sms:s1", status: WAITLISTED }
+  effectCounts: { POST_THANKS: 1, PRINT_PRODUCT_LABEL: 1 }
+---
+id: G-ENG-117
+title: 충돌은 상품마다 하나 — 충돌 중에 더 앞선 찜이 와도 대기 자리로. 1등이 취소되면 충돌이 먼저 풀려 순위대로 대기에 들어간 뒤 자동 승계
+refs: [ORD-07, ORD-09, ORD-10, R-7, R-8, D-053]
+settings: { contention.policy: RECEIVED_TIME }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }       # A 확정(1), t 10
+  - { at: "20:00:11", type: host.confirm, b: b1, no: 15, buyer: UC_A }                       # A 잠금
+  - { at: "20:00:20", type: sms, b: b1, ref: s1, no: 15, received: "20:00:08" }             # t 08 < A, 잠금 후 → 충돌
+  # s2 t 03: A보다 앞서지만 이미 충돌 중 → 역전·새 충돌 없이 대기 자리 → [s2]
+  - { at: "20:00:30", type: sms, b: b1, ref: s2, no: 15, received: "20:00:03" }
+  - { type: assert, expect: { products: { b1/15: { winner: UC_A, waitlist: ["sms:s2"], conflict: true } }, claims: [{ product: b1/15, buyer: "sms:s1", status: CONFLICT }, { product: b1/15, buyer: "sms:s2", status: WAITLISTED }] } }
+  - { at: "20:00:40", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }       # t 40 → 대기 [s2, B]
+  # A 취소 → 자리가 빔 → 충돌이 먼저 풀림: s1(08)을 대기 자리에 — 앞서는 대기자 s2(03) 바로 뒤 → [s2, s1, B]
+  # 그다음 자동 승계: 대기 1순위 s2 확정(2) → 대기 [s1, B]
+  - { at: "20:01:00", type: host.cancel, b: b1, no: 15, buyer: UC_A, reason: 구매자 요청 }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: "sms:s2", waitlist: ["sms:s1", UC_B], conflict: false }
+  claims:
+    - { product: b1/15, buyer: UC_A, status: CANCELLED }
+    - { product: b1/15, buyer: "sms:s1", status: WAITLISTED }
+  pendingEffects:                                  # A(1)의 미실행 효과는 취소
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:s2", confirmVersion: 2 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: "sms:s2", confirmVersion: 2 }
+---
+id: G-ENG-118
+title: 공개 순간 보류 찜은 실제 시각순으로 정렬해 하나씩 판정 — 게시 시각이 빠른 늦은 도착이 1등, HOST 동률이 1등 자리를 다투면 공개 순간에도 충돌
+refs: [ORD-06, ORD-09, ORD-10, R-5, R-6, R-7, D-052]
+settings: { contention.policy: RECEIVED_TIME }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000, status: READY }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }                              # 보류. 키 (20:00:10, 1)
+  - { at: "20:00:12", type: sms, b: b1, ref: s1, no: 15, received: "20:00" }                                       # 보류. HOST → 키 (20:01:00, 0)
+  - { at: "20:00:15", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15", publishedAt: "20:00:02" }     # 보류. 키 (20:00:02, 1)
+  - { at: "20:00:20", type: sms, b: b1, ref: s2, no: 15, received: "20:00:40" }                                    # 보류. 키 (20:00:40, 1) (같은 날, 20초 뒤)
+  - { type: assert, expect: { pending: { b1/15: [UC_B, UC_A, "sms:s2", "sms:s1"] } } }
+  # 공개 T=20:00:30 → 유효 구간 시작 20:00:00. 모든 at(10·12·15·20) ≥ 시작 → 전부 판정. 정렬 순서대로:
+  # B 확정(1) → A: B보다 뒤 → 대기 [A] → s2: 뒤 → A(10) 뒤 → [A, s2]
+  # → s1: 1등 B(20:00:02)가 s1 구간 [20:00, 20:01) 안 → 동률 → HOST → 충돌
+  - { at: "20:00:30", type: product.open, b: b1, no: 15 }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_B, waitlist: [UC_A, "sms:s2"], conflict: true }
+  claims:
+    - { product: b1/15, buyer: "sms:s1", status: CONFLICT }
+  pending: { b1/15: [] }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_B, text: "15번 핑크프릴 10,000원 김철수님 구매 감사합니다", confirmVersion: 1 }
+  effectCounts: { POST_THANKS: 1, PRINT_PRODUCT_LABEL: 1 }
+---
+id: G-ENG-119
+title: 유지를 골랐는데 대기가 차 있으면 맨 끝 대기자가 품절, 충돌 찜도 활성 찜(같은 구매자 다시 입력은 찜 없음), 충돌 없는 상품의 결정은 아무 일도 없다
+refs: [ORD-10, R-4, R-7, INV-2, D-039, D-053]
+settings: { contention.policy: RECEIVED_TIME, waitlist.max: 1 }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }        # A 확정 (찜 1)
+  - { at: "20:00:11", type: effect.labelPrinted, b: b1, no: 15, buyer: UC_A }                 # A 잠금
+  - { at: "20:00:20", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }        # 대기 [B] (찜 2)
+  - { at: "20:00:30", type: sms, b: b1, ref: s1, no: 15, received: "20:00:05" }              # t 05 < A, 잠금 후 → 충돌 (찜 3)
+  - { at: "20:00:35", type: sms, b: b1, ref: s2, no: 15, received: "20:00:06", buyer: "sms:s1" }   # 지정 = s1의 구매자. 충돌 찜이 활성 → 새 찜 없음
+  # 유지: s1(05)을 대기 자리에 → B(20)보다 앞섬 → 1순위 [s1, B] → 한도 1 초과 → 맨 끝 B 품절
+  - { at: "20:01:00", type: host.resolveConflict, b: b1, no: 15, decision: KEEP }
+  - { at: "20:01:10", type: host.resolveConflict, b: b1, no: 15, decision: SWITCH }          # 충돌 없음 → 아무 일도 없음
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: ["sms:s1"], conflict: false }
+  claims:
+    - { product: b1/15, buyer: UC_B, status: REJECTED, reason: SOLD_OUT }
+    - { product: b1/15, buyer: "sms:s1", status: WAITLISTED }
+  sameBuyer: [["sms:s1", "sms:s2"]]
+  claimCount: 3
+  effectCounts: { POST_THANKS: 1, PRINT_PRODUCT_LABEL: 1, VOID_LABEL: 0 }
+---
+id: G-ENG-120
+title: 메시지 변환 — 방송자 메시지·이미 그 번호의 찜을 만든 메시지(그 찜이 취소됐어도)·두 번 누름은 아무 일도 없고, 원래 순위로 대기 자리·충돌(접수순에서도), 다른 번호로는 다시 변환, 상품이 없으면 원래 시각으로 보류
+refs: [ORD-01, ORD-10, ORD-12, R-5, R-7, D-054]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }    # seq 1
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }         # seq 2
+  - { at: "20:00:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15번이용ㅎ" }  # seq 3. STRICT에서 주문 아님(언급)
+  - { at: "20:00:06", type: chat, b: b1, id: m2, ch: UC_O, nick: 방송자, text: "15", owner: true }   # seq 4. 무시하는 방송자 메시지
+  - { at: "20:00:07", type: chat, b: b1, id: m3, ch: UC_B, nick: 김철수, text: "15" }          # seq 5. B 15번 확정(1) (찜 1)
+  - { at: "20:00:08", type: chat, b: b1, id: m4, ch: UC_C, nick: 이영희, text: "15" }          # seq 6. 대기 [C] (찜 2)
+  - { at: "20:00:09", type: chat, b: b1, id: m5, ch: UC_D, nick: 박민수, text: "16" }          # seq 7. D 16번 확정(1) (찜 3)
+  - { at: "20:00:10", type: chat, b: b1, id: m6, ch: UC_E, nick: 최영수, text: "십육번 주세요" }   # seq 8. 한글 수사는 번호 아님 → 아무 찜 없음
+  - { at: "20:00:30", type: host.convertMessage, b: b1, msg: m2, no: 15 }                     # 무시한 방송자 메시지 → 아무 일도 없음
+  - { at: "20:00:31", type: host.convertMessage, b: b1, msg: m3, no: 15 }                     # m3은 이미 15번 찜을 만들었다 → 아무 일도 없음
+  # m6 → E의 16번 찜, 순위 seq 8 > D(7) → 1등을 밀어내지 않음 → 대기 자리 [E] (찜 4)
+  - { at: "20:00:32", type: host.convertMessage, b: b1, msg: m6, no: 16 }
+  # m1 → A의 15번 찜, 순위 seq 3 < B(5) → 1등을 밀어내야 함 → 변환은 잠금과 상관없이 늘 충돌 (찜 5)
+  - { at: "20:00:33", type: host.convertMessage, b: b1, msg: m1, no: 15, reason: 놓친 주문 }
+  - { type: assert, expect: { products: { b1/15: { winner: UC_B, waitlist: [UC_C], conflict: true }, b1/16: { winner: UC_D, waitlist: [UC_E] } }, claims: [{ product: b1/15, buyer: UC_A, status: CONFLICT }] } }
+  - { at: "20:00:34", type: host.convertMessage, b: b1, msg: m1, no: 15 }                     # 두 번 누름: m1은 이미 15번 찜을 만들었다 → 아무 일도 없음
+  # 유지: A(seq 3)를 대기 자리에 → C(6)보다 앞섬 → [A, C]
+  - { at: "20:00:40", type: host.resolveConflict, b: b1, no: 15, decision: KEEP }
+  # B 취소 → 자동 승계: A 확정(2), 이름은 A의 닉네임 → 대기 [C]
+  - { at: "20:00:50", type: host.cancel, b: b1, no: 15, buyer: UC_B, reason: 구매자 변심 }
+  # m3이 만든 15번 찜(B)은 방금 취소됐다 — 지금 상태와 상관없이 m3은 이미 15번 찜을 만들었으므로 아무 일도 없다(옛 순위 seq 5로 되살아나 C 앞에 끼지 않는다)
+  - { at: "20:00:55", type: host.convertMessage, b: b1, msg: m3, no: 15 }
+  # m1은 16번 찜을 만든 적 없음 → A의 16번 찜(순위 seq 3) < D(7) → 충돌 (찜 6)
+  - { at: "20:01:00", type: host.convertMessage, b: b1, msg: m1, no: 16 }
+  # 17번 없음 → 보류. 유효 시간은 원래 메시지의 at(20:00:10)으로 잰다 (찜 7)
+  - { at: "20:01:10", type: host.convertMessage, b: b1, msg: m6, no: 17 }
+  # 17번 공개 T=20:01:20 → 시작 20:00:50. E의 보류 찜 at 20:00:10 < 20:00:50 → 만료
+  - { at: "20:01:20", type: product.register, b: b1, no: 17, name: 미니마, price: 3000 }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: [UC_C], conflict: false }
+    b1/16: { status: SOLD, winner: UC_D, waitlist: [UC_E], conflict: true }
+    b1/17: { status: OPEN, winner: null }
+  claims:
+    - { product: b1/15, buyer: UC_B, status: CANCELLED }
+    - { product: b1/16, buyer: UC_A, status: CONFLICT }
+    - { product: b1/17, buyer: UC_E, status: REJECTED, reason: EXPIRED }
+  pending: { b1/17: [] }
+  claimCount: 7
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, text: "15번 핑크프릴 10,000원 홍길동님 구매 감사합니다", confirmVersion: 2 }
+  effectCounts: { POST_THANKS: 3, PRINT_PRODUCT_LABEL: 3 }      # B(1)·D(1)·A(2)
+---
+id: G-ENG-121
+title: 충돌 찜이 끝나는 길 — 시청자 자동 취소(충돌 찜은 잠금 없음), 차단. 끝나면 충돌 표시가 사라지고 다음 충돌을 받는다
+refs: [ORD-07, ORD-10, ORD-12, R-7, R-8, R-9, D-053]
+settings: { contention.policy: RECEIVED_TIME, cancel.buyerChat: AUTO }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:11", type: host.confirm, b: b1, no: 15, buyer: UC_A }                                          # A 잠금
+  - { at: "20:00:12", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "16" }
+  - { at: "20:00:13", type: host.confirm, b: b1, no: 16, buyer: UC_B }                                          # B 잠금
+  - { at: "20:00:20", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15", publishedAt: "20:00:05" }  # t 05 < A(10) → 충돌
+  - { at: "20:00:21", type: chat, b: b1, id: m4, ch: UC_D, nick: 박민수, text: "16", publishedAt: "20:00:06" }  # t 06 < B(12) → 충돌
+  - { type: assert, expect: { products: { b1/15: { conflict: true }, b1/16: { conflict: true } }, claims: [{ product: b1/15, buyer: UC_C, status: CONFLICT }, { product: b1/16, buyer: UC_D, status: CONFLICT }] } }
+  - { at: "20:00:30", type: chat, b: b1, id: m5, ch: UC_C, nick: 이영희, text: "15 취소" }                        # AUTO, 충돌 찜엔 잠금 없음 → 바로 취소
+  - { at: "20:00:31", type: host.blockBuyer, buyer: UC_D, reason: 장난 }                                         # D의 충돌 찜 → REJECTED(BLOCKED)
+  - { at: "20:00:40", type: chat, b: b1, id: m6, ch: UC_E, nick: 최영수, text: "15", publishedAt: "20:00:07" }  # 충돌이 풀렸으므로 새 충돌
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: [], conflict: true }
+    b1/16: { status: SOLD, winner: UC_B, waitlist: [], conflict: false }
+  claims:
+    - { product: b1/15, buyer: UC_C, status: CANCELLED }
+    - { product: b1/16, buyer: UC_D, status: REJECTED, reason: BLOCKED }
+    - { product: b1/15, buyer: UC_E, status: CONFLICT }
+  cancelRequests: []
+  effectCounts: { POST_THANKS: 2, PRINT_PRODUCT_LABEL: 2 }
+---
+id: G-ENG-122
+title: 대기 1순위에 밀려난 1등(배정 찜)이 있어 대기열이 순위대로가 아니어도, 늦게 온 찜은 자기보다 앞서는 대기자 중 가장 뒤 바로 뒤에 들어간다
+refs: [ORD-09, ORD-12, R-4, R-6, R-7, R-9, D-053]
+settings: { contention.policy: RECEIVED_TIME }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }        # A 확정(1), t 10
+  - { at: "20:00:30", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }        # 대기 [B(30)]
+  - { at: "20:00:35", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "안녕하세요" }  # C 기록
+  # C에게 배정, A는 취소로 교체 → C 배정 찜(순위 = 조치 at 20:01:00) 확정(2). 대기 [B]
+  - { at: "20:01:00", type: host.assign, b: b1, no: 15, buyer: UC_C, reason: 전화 주문, replace: UC_A, replaceTo: CANCEL }
+  - { at: "20:01:10", type: sms, b: b1, ref: s1, no: 15, received: "20:00:05" }              # t 05 < C(60), C는 배정 찜 → 충돌
+  # 바꾸기: s1 확정(3), 가장 뒤 1등 C → 대기 1순위 → [C(60), B(30)] (순위대로가 아니다)
+  - { at: "20:01:20", type: host.resolveConflict, b: b1, no: 15, decision: SWITCH }
+  - { type: assert, expect: { products: { b1/15: { winner: "sms:s1", waitlist: [UC_C, UC_B], conflict: false } } } }
+  # s2 t 40: 1등 s1(05)보다 뒤 → 대기 자리. s2보다 앞서는 대기자 = B(30) (C(60)는 뒤) → B 바로 뒤 → [C, B, s2]
+  - { at: "20:01:30", type: sms, b: b1, ref: s2, no: 15, received: "20:00:40" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: "sms:s1", waitlist: [UC_C, UC_B, "sms:s2"], conflict: false }
+  claims:
+    - { product: b1/15, buyer: UC_A, status: CANCELLED }
+    - { product: b1/15, buyer: UC_C, status: WAITLISTED }
+  pendingEffects:                                  # A(1)·C(2)의 미실행 효과는 취소
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:s1", confirmVersion: 3 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: "sms:s1", confirmVersion: 3 }
+---
+id: G-ENG-123
+title: HOST 동률은 초까지 입력한 문자와 분 단위 문자 사이에도 있고, 늦게 온 쪽이 정확한 시각이어도 1등 자리를 다투면 잠금과 상관없이 충돌
+refs: [ORD-09, ORD-10, R-6, R-7, D-052]
+settings: { contention.policy: RECEIVED_TIME }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:40", type: sms, b: b1, ref: s1, no: 15, received: "20:00:30" }      # 초까지 → 정확한 시각 20:00:30 → 15번 확정(1)
+  # 분 단위 [20:00, 20:01) 안에 s1(20:00:30) → 동률 → HOST → 충돌 (s1은 잠금 전, 둘 다 문자)
+  - { at: "20:00:50", type: sms, b: b1, ref: s2, no: 15, received: "20:00" }
+  - { at: "20:01:00", type: sms, b: b1, ref: s3, no: 16, received: "20:00" }         # 분 단위 → 16번 확정(1)
+  # A 게시 20:00:20은 s3 구간 안 → 동률 → HOST → 충돌. (키로는 A가 앞서지만 동률이 먼저라 자동 역전이 아니다)
+  - { at: "20:01:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "16", publishedAt: "20:00:20" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: "sms:s1", waitlist: [], conflict: true }
+    b1/16: { status: SOLD, winner: "sms:s3", waitlist: [], conflict: true }
+  claims:
+    - { product: b1/15, buyer: "sms:s2", status: CONFLICT }
+    - { product: b1/16, buyer: UC_A, status: CONFLICT }
+  effectCounts: { POST_THANKS: 2, PRINT_PRODUCT_LABEL: 2 }
