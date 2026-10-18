@@ -60,6 +60,26 @@ const restrictedProperties = [
 // 접두어 없는 이름은 paths로, `node:` 접두어는 정규식 패턴 하나로 막는다
 const bareBuiltins = builtinModules.filter((name) => !name.startsWith('node:'))
 
+/** 화면 XSS 방지 메시지 (AC-S00-06, NFR-06, CLAUDE.md 규칙 7). */
+const xss = (why) => `화면에 HTML 문자열을 그대로 넣지 않는다(NFR-06): ${why} 채팅·닉네임 같은 글자는 React 기본 이스케이프로만 보여 준다.`
+const RAW_HTML_PROP = xss('dangerouslySetInnerHTML은 쓰지 않는다.')
+const RAW_HTML_DOM = xss('innerHTML·outerHTML 대입, insertAdjacentHTML, document.write는 쓰지 않는다.')
+
+const rawHtmlSyntax = [
+  // JSX 속성 <div dangerouslySetInnerHTML={...} />
+  { selector: "JSXIdentifier[name='dangerouslySetInnerHTML']", message: RAW_HTML_PROP },
+  // createElement('div', { dangerouslySetInnerHTML }), 펼친 객체 {...{ dangerouslySetInnerHTML }}, props.dangerouslySetInnerHTML
+  { selector: "Identifier[name='dangerouslySetInnerHTML']", message: RAW_HTML_PROP },
+  // { 'dangerouslySetInnerHTML': ... }, props['dangerouslySetInnerHTML'], 템플릿 문자열 키
+  { selector: "Literal[value='dangerouslySetInnerHTML']", message: RAW_HTML_PROP },
+  { selector: "TemplateElement[value.cooked='dangerouslySetInnerHTML']", message: RAW_HTML_PROP },
+  // DOM으로 직접 HTML 넣기
+  { selector: "AssignmentExpression > MemberExpression.left[property.name=/^(innerHTML|outerHTML)$/]", message: RAW_HTML_DOM },
+  { selector: "AssignmentExpression > MemberExpression.left[property.value=/^(innerHTML|outerHTML)$/]", message: RAW_HTML_DOM },
+  { selector: "CallExpression > MemberExpression.callee[property.name='insertAdjacentHTML']", message: RAW_HTML_DOM },
+  { selector: "CallExpression > MemberExpression.callee[object.name='document'][property.name=/^(write|writeln)$/]", message: RAW_HTML_DOM },
+]
+
 export default defineConfig(
   globalIgnores([
     '**/node_modules/',
@@ -118,6 +138,17 @@ export default defineConfig(
           patterns: [{ regex: '^node:', message: NODE }],
         },
       ],
+      'no-eval': 'error',
+      'no-implied-eval': 'error',
+      'no-new-func': 'error',
+    },
+  },
+
+  // 웹 화면 XSS 방지 (AC-S00-06, NFR-06). apps/web 전체(src·test·설정)에 적용한다.
+  {
+    files: ['apps/web/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'],
+    rules: {
+      'no-restricted-syntax': ['error', ...rawHtmlSyntax],
       'no-eval': 'error',
       'no-implied-eval': 'error',
       'no-new-func': 'error',
