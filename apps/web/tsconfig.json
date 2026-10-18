@@ -1,0 +1,14 @@
+// 웹 화면 소스와 브라우저(jsdom) 테스트. Node 타입 없이 DOM 타입으로 검사한다.
+// Node가 필요한 파일(설정·빌드/린트 확인 테스트)은 tsconfig.node.json이 검사한다.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "types": ["vite/client"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx"],
+  "exclude": ["test/**/*.node.test.ts"]
+}
