@@ -1,4 +1,4 @@
-# 방송자 조치·상품 명령 세부 (S02 — DOMAIN_RULES R-2 상품 명령, R-8, R-9, D-039~D-043). 기대값 계산은 각 줄 주석.
+# 방송자 조치·상품 명령 세부 (S02 — DOMAIN_RULES R-2 상품 명령, R-8, R-9, D-039~D-043, 분쟁 판정 D-049). 기대값 계산은 각 줄 주석.
 # 맞지 않는 상태에 온 명령은 아무것도 바꾸지 않는다(D-039): 기대값에 "그대로"인 것을 함께 적는다.
 id: G-ENG-080
 title: 직접 배정 — 빈 자리면 확정, 1등이 있는데 교체가 없거나·모르는 구매자·판매 중이 아닌 상품·이미 1등이면 아무 일도 없다
@@ -218,3 +218,76 @@ expect:
     b1/15: { status: SOLD, winner: UC_A, waitlist: [UC_B] }
   cancelRequests: []
   claimCount: 2
+---
+# S02 분쟁 판정 TD-S02-001 (D-049): 차단 중인 구매자의 찜은 대기에 들어가지 않는다.
+# 교체(WAITLIST)로 밀려나는 1등이 차단 중이면 대기에 넣지 않고 REJECTED(BLOCKED)로 끝낸다 — 차단 뒤 자동 승계로 다시 1등이 되어 라벨·공개 감사가 나가는 길을 막는다.
+id: G-ENG-088
+title: 차단한 1등을 교체(대기로)하면 대기에 들어가지 않고 차단 거절 — 배정받은 사람이 취소돼도 차단한 사람에게 자동 승계되지 않는다
+refs: [ORD-12, R-9, R-8, R-13, D-040, D-042, D-049]
+settings: { waitlist.max: 2 }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 장난꾼, text: "15" }        # A 확정(1) (찜 1), 감사 A1·라벨 A1
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }        # 대기 [B] (찜 2)
+  - { at: "20:00:10", type: host.blockBuyer, buyer: UC_A, reason: 반복 장난 }                 # A의 확정 찜은 그대로 (D-040)
+  # 교체: B의 대기 찜이 대기에서 빠져 확정(2) → 대기 []. A의 확정이 풀림 → 감사 A1·라벨 A1 취소(출력 전 → 폐기 없음).
+  # A는 차단 중 → 대기에 넣지 않고 REJECTED(BLOCKED) (D-049)
+  - { at: "20:00:20", type: host.assign, b: b1, no: 15, buyer: UC_B, reason: 차단한 사람 대신, replace: UC_A, replaceTo: WAITLIST }
+  - { type: assert, expect: { products: { b1/15: { status: SOLD, winner: UC_B, waitlist: [] } }, claims: [{ product: b1/15, buyer: UC_A, status: REJECTED, reason: BLOCKED }, { product: b1/15, buyer: UC_B, status: CONFIRMED }] } }
+  # B 취소 → 자동 승계: 대기가 비어 있음 → 1등 없음, OPEN. 감사 B2·라벨 B2 취소. A에게는 아무것도 나가지 않는다
+  - { at: "20:00:30", type: host.cancel, b: b1, no: 15, buyer: UC_B, reason: 구매자 요청 }
+  - { type: assert, expect: { products: { b1/15: { status: OPEN, winner: null, waitlist: [] } }, effectCounts: { POST_THANKS: 2, PRINT_PRODUCT_LABEL: 2, VOID_LABEL: 0 }, pendingEffects: [] } }
+  - { at: "20:00:31", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15" }        # C 확정(3) (찜 3)
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_C, waitlist: [] }
+  claims:
+    - { product: b1/15, buyer: UC_A, status: REJECTED, reason: BLOCKED }
+    - { product: b1/15, buyer: UC_B, status: CANCELLED }
+    - { product: b1/15, buyer: UC_C, status: CONFIRMED }
+  claimCount: 3
+  buyers:
+    UC_A: { items: [], subtotal: 0 }
+    UC_B: { items: [], subtotal: 0 }
+    UC_C: { items: [b1/15], subtotal: 10000 }
+  effectCounts: { POST_THANKS: 3, PRINT_PRODUCT_LABEL: 3, VOID_LABEL: 0 }    # A1·B2·C3 각각 감사·라벨 하나씩
+  pendingEffects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_C, text: "15번 핑크프릴 10,000원 이영희님 구매 감사합니다", confirmVersion: 3 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_C, confirmVersion: 3 }
+---
+# S02 분쟁 판정 TD-S02-001 (D-049): 대기가 꽉 찼을 때 차단한 1등을 교체(대기로)해도 대기는 넘치지 않는다 — 잘못 없는 맨 끝 대기자가 품절되지 않는다.
+# 차단되지 않은 1등을 교체하면 대기 1순위로 들어가 맨 끝 대기자가 품절된다(G-ENG-081과 비교).
+id: G-ENG-089
+title: 대기가 꽉 찬 상품에서 차단한 1등(라벨 출력됨)을 교체(대기로) — 라벨은 폐기, 차단한 사람은 차단 거절, 대기자는 그대로
+refs: [ORD-12, R-9, R-13, INV-7, D-040, D-042, D-044, D-049]
+settings: { waitlist.max: 2 }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 장난꾼, text: "15" }        # A 확정(1) (찜 1)
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }        # 대기 [B] (찜 2)
+  - { at: "20:00:03", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15" }        # 대기 [B, C] (찜 3) — 한도 2로 꽉 참
+  - { at: "20:00:04", type: chat, b: b1, id: m4, ch: UC_D, nick: 다육사랑, text: "15번 살게요" }  # STRICT에선 언급뿐 → 찜 없음. D는 구매자로 기록 (D-045)
+  - { at: "20:00:05", type: effect.labelPrinted, b: b1, no: 15, buyer: UC_A }                 # 라벨 A1 출력됨(잠금 — 방송자 조치는 잠금과 상관없다)
+  - { at: "20:00:10", type: host.blockBuyer, buyer: UC_A, reason: 반복 장난 }                 # A의 확정 찜은 그대로 (D-040)
+  # 교체: D는 15번 찜이 없음 → 새 확정 찜(찜 4, 확정버전 2). A의 확정이 풀림 → 감사 A1 취소, 라벨 A1 → VOID_LABEL(A, 1).
+  # A는 차단 중 → 대기에 넣지 않고 REJECTED(BLOCKED) (D-049) → 대기 [B, C] 그대로, 넘침 없음 → C 품절 없음
+  - { at: "20:01:00", type: host.assign, b: b1, no: 15, buyer: UC_D, reason: 차단한 사람 대신, replace: UC_A, replaceTo: WAITLIST }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_D, waitlist: [UC_B, UC_C] }
+  claims:
+    - { product: b1/15, buyer: UC_A, status: REJECTED, reason: BLOCKED }
+    - { product: b1/15, buyer: UC_B, status: WAITLISTED }
+    - { product: b1/15, buyer: UC_C, status: WAITLISTED }
+    - { product: b1/15, buyer: UC_D, status: CONFIRMED }
+  claimCount: 4
+  buyers:
+    UC_A: { items: [], subtotal: 0 }
+    UC_D: { items: [b1/15], subtotal: 10000 }
+  effectCounts: { POST_THANKS: 2, PRINT_PRODUCT_LABEL: 2, VOID_LABEL: 1 }    # A1·D2 감사·라벨, A1 라벨 폐기
+  pendingEffects:
+    - { kind: VOID_LABEL, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_D, text: "15번 핑크프릴 10,000원 다육사랑님 구매 감사합니다", confirmVersion: 2 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_D, confirmVersion: 2 }
