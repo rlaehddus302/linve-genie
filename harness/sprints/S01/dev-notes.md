@@ -80,3 +80,14 @@
 
 ### 검증 (라운드 2)
 - `pnpm verify` 6단계 통과: typecheck(설정 7·TS 83) · lint(오류 0·경고 0) · test(파일 25·테스트 603) · golden(333/333, 불일치 0, 미구현(허용) 42) · adversarial(파일 11·테스트 496, 실패 0) · coverage(라인 100%·분기 100%, packages/core/src 10개).
+
+### 수정 라운드 3 (오케스트레이터 요청): D-035 구현
+
+| 지적 | 응답 | 내용 |
+|---|---|---|
+| SA-S01-008 · TD-S01-005 · RA-S01-011 | FIXED | D-035. `chat.ts`에 `hasEndSignal`(한 자리)과 `endsWithSignal`(두 자리 — 고른 부분 뒤, `parts` 중 가장 큰 end 뒤)을 넣고, 취소·주문 모두 `pickPart` 직후 부른다. 공백(기록), 피부색, `\p{Default_Ignorable_Code_Point}`(U+3164 포함)를 건너뛴 첫 글자가 질문 기호 5자 · 꼬리 아닌 한글 호환 자모 · 꼬리 아닌 `Extended_Pictographic` · `번` · 공백 없이 붙은 ASCII 숫자이면 주문·취소가 아니다. 꼬리 기준은 주문 `CLAIM_TAIL`, 취소 `CANCEL_TAIL`. 번호 개수 상한·`multiNumber`보다 먼저, 더 짧은 부분으로 물러나지 않는다. 취소가 걸리면 LOOSE의 `취소` 포함 규칙으로 주문도 아니다. `chat.test.ts`의 '판단 대기' 주석을 D-035로 고치고 D-033 사례를 STRICT·LOOSE 모두로 돌렸다. 새 describe "AC-S01-17 LOOSE 끝 신호"(신호 1~5, 건너뛰기, 두 자리, multiNumber, 취소, 첫 글자만, STRICT 무영향, 속성) |
+| TD-S01-016 (minor) | FIXED | 같은 변경으로 `15❤️‍🩹`·`15 ❤️‍🩹` → 언급(ZWJ 뒤 🩹가 끝 신호 3) |
+
+- 정규식은 끝 신호 자리에서 글자 하나를 검사할 때만 쓴다(`^\p{…}$`, 되돌아감 없음). 꼬리 판정은 여전히 코드 포인트 집합이다. 라운드 2 참고 문장의 "정규식 없이"는 끝 신호 검사에는 해당하지 않는다.
+- 위 spec-keeper 4(`15 번째 사진` → 주문)는 D-035 4로 언급이 되었다.
+- 검증: `pnpm verify` 6단계 통과 — typecheck(설정 7·TS 84) · lint(오류 0·경고 0) · test(파일 25·테스트 615) · golden(366/366, 불일치 0, 미구현(허용) 42) · adversarial(파일 12·테스트 548, 실패 0) · coverage(라인 100%·분기 100%, packages/core/src 10개).
