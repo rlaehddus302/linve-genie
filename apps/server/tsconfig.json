@@ -1,8 +1,9 @@
 // 서버: Node 24가 TypeScript를 그대로 실행한다(node src/main.ts). 빌드 없이 타입 검사만 한다.
+// 패키지 루트의 도구 설정 파일(vitest.config.ts, 앞으로 drizzle.config.ts 등)도 검사한다 (AC-S00-03).
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+  "include": ["*.ts", "src/**/*.ts", "test/**/*.ts"]
 }

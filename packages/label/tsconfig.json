@@ -1,8 +1,8 @@
-// 라벨 패키지 (S07). S00은 빈 진입점만 검사한다.
+// 라벨 패키지 (S07). S00은 빈 진입점만 있다. test/는 test 단계가 실행하므로 타입 검사에도 넣는다 (AC-S00-03).
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2024", "DOM"]
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts"]
 }

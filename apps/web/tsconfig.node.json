@@ -1,8 +1,8 @@
-// Node에서 도는 파일: Vite·Vitest 설정과 빌드·린트 확인 테스트.
+// Node에서 도는 파일: 패키지 루트의 도구 설정 파일(Vite·Vitest 등)과 빌드·린트 확인 테스트.
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["vite.config.ts", "vitest.config.ts", "test/**/*.node.test.ts", "test/urls.ts"]
+  "include": ["*.ts", "test/**/*.node.test.ts", "test/urls.ts"]
 }

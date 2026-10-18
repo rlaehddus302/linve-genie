@@ -2,8 +2,8 @@
 // 단계: typecheck → lint → test → golden → adversarial → coverage
 // 각 단계는 자기 대상만 돈다. 결과: { name, status: 'pass'|'fail'|'skip', detail, durationMs }
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
-import { dirname, join, relative, sep } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs'
+import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TEST_TIME_ZONE } from './time-zone.mjs'
 
@@ -57,8 +57,8 @@ function readJson(path) {
 
 // ── 워크스페이스 ─────────────────────────────────────────────────────────
 
-/** pnpm-workspace.yaml의 `packages:` 목록(`dir/*` 형태)을 따라 패키지 폴더를 찾는다 */
-export function workspacePackages() {
+/** pnpm-workspace.yaml의 `packages:` 목록(`dir/*` 형태)에서 바탕 폴더(`packages`, `apps`)를 찾는다 */
+export function workspaceBases() {
   const text = readFileSync(join(ROOT, 'pnpm-workspace.yaml'), 'utf8')
   const globs = []
   let inPackages = false
@@ -73,10 +73,16 @@ export function workspacePackages() {
       else if (/^\S/.test(line)) inPackages = false
     }
   }
-  const dirs = []
-  for (const glob of globs) {
+  return globs.map((glob) => {
     if (!glob.endsWith('/*') || glob.slice(0, -2).includes('*')) throw new Error(`pnpm-workspace.yaml: 'dir/*' 형태만 지원한다 (${glob})`)
-    const base = join(ROOT, glob.slice(0, -2))
+    return join(ROOT, glob.slice(0, -2))
+  })
+}
+
+/** 워크스페이스 패키지 폴더 (바탕 폴더 바로 아래, package.json이 있는 폴더) */
+export function workspacePackages() {
+  const dirs = []
+  for (const base of workspaceBases()) {
     if (!existsSync(base)) continue
     for (const name of readdirSync(base).sort()) {
       const dir = join(base, name)
@@ -97,6 +103,47 @@ function walk(dir, predicate, out = []) {
   return out.sort()
 }
 
+/** 패키지 바로 아래의 빌드·측정 결과 폴더. eslint.config.mjs의 무시 범위와 같다(소스 안의 같은 이름 폴더는 검사 대상). */
+const PACKAGE_OUTPUT_DIRS = new Set(['dist', 'build', 'coverage', '.vite'])
+
+/**
+ * `packages/*`·`apps/*` 아래의 파일을 모두 찾는다. package.json이 없는 폴더도 포함한다(범위 = 폴더, AC-S00-03).
+ * node_modules와 패키지 바로 아래의 빌드·측정 결과 폴더만 뺀다.
+ */
+function workspaceFiles(predicate) {
+  const out = []
+  for (const base of workspaceBases()) {
+    if (!existsSync(base)) continue
+    for (const pkg of readdirSync(base, { withFileTypes: true })) {
+      const pkgPath = join(base, pkg.name)
+      if (!pkg.isDirectory()) {
+        if (predicate(pkgPath)) out.push(pkgPath)
+        continue
+      }
+      if (pkg.name === 'node_modules') continue
+      for (const entry of readdirSync(pkgPath, { withFileTypes: true })) {
+        if (entry.name === 'node_modules' || (entry.isDirectory() && PACKAGE_OUTPUT_DIRS.has(entry.name))) continue
+        const full = join(pkgPath, entry.name)
+        if (entry.isDirectory()) walk(full, predicate, out)
+        else if (predicate(full)) out.push(full)
+      }
+    }
+  }
+  return out.sort()
+}
+
+/** 경로 비교용: 심볼릭 링크(macOS의 /tmp → /private/tmp 등)를 푼 절대 경로 */
+function real(path) {
+  try {
+    return realpathSync(path)
+  } catch {
+    return path
+  }
+}
+
+const listLines = (output) => output.split('\n').map((line) => line.trim()).filter((line) => line !== '' && isAbsolute(line))
+const bullet = (items) => items.map((item) => `  ${item}`).join('\n')
+
 // ── 단계 ─────────────────────────────────────────────────────────────────
 
 const STRICT_FAMILY = [
@@ -110,6 +157,22 @@ const STRICT_FAMILY = [
   'useUnknownInCatchVariables',
   'alwaysStrict',
 ]
+
+/** 타입 검사 대상 확장자. 선언 파일(.d.ts·.d.mts·.d.cts·.d.<확장자>.ts)은 skipLibCheck로 검사하지 않으므로 뺀다 */
+const isTypeScriptSource = (path) => /\.(?:[cm]?ts|tsx)$/.test(path) && !/\.d(?:\.[^./\\]+)?\.[cm]?ts$/.test(path)
+
+/**
+ * 타입 검사 범위(AC-S00-03): `packages/*`·`apps/*` 아래 전부(src·test·패키지 루트의 도구 설정 파일), `tests/adversarial/**`,
+ * 저장소 루트의 TS 파일. 어느 tsconfig의 include에도 들지 않은 파일은 타입 오류가 있어도 tsc가 보지 않으므로,
+ * 범위 안 파일이 모두 어떤 설정의 검사 대상인지 따로 확인한다 (TD-S00-015).
+ */
+export function typecheckScope() {
+  const files = [...workspaceFiles(isTypeScriptSource), ...walk(join(ROOT, 'tests', 'adversarial'), isTypeScriptSource)]
+  for (const entry of readdirSync(ROOT, { withFileTypes: true })) {
+    if (entry.isFile() && isTypeScriptSource(entry.name)) files.push(join(ROOT, entry.name))
+  }
+  return files.sort()
+}
 
 async function typecheck() {
   const configs = []
@@ -134,6 +197,18 @@ async function typecheck() {
     if (options.noUncheckedIndexedAccess !== true) problems.push(`${rel(config)}: noUncheckedIndexedAccess가 꺼져 있다`)
     for (const flag of STRICT_FAMILY) if (options[flag] === false) problems.push(`${rel(config)}: ${flag}를 끄면 안 된다`)
   }
+
+  // 범위 안 TS 파일이 모두 어떤 설정의 검사 대상인지 (AC-S00-03 "범위 안 어느 파일에든", TD-S00-015)
+  const listed = await Promise.all(configs.map((config) => exec([tsc, '--listFilesOnly', '-p', config], { quiet: true })))
+  const checked = new Set(listed.flatMap((r) => listLines(r.output)).map(real))
+  const scope = typecheckScope()
+  const unchecked = scope.filter((file) => !checked.has(real(file))).map(rel)
+  if (unchecked.length > 0) {
+    problems.push(
+      `어떤 tsconfig의 검사 대상에도 들어 있지 않은 파일 ${unchecked.length}개 — 이대로면 타입 오류가 있어도 통과한다. 알맞은 tsconfig의 include에 넣는다 (AC-S00-03):\n${bullet(unchecked)}`,
+    )
+  }
+
   let failed = 0
   for (const config of configs) {
     process.stdout.write(`tsc --noEmit -p ${rel(config)}\n`)
@@ -142,9 +217,12 @@ async function typecheck() {
   }
   for (const problem of problems) process.stdout.write(`✗ ${problem}\n`)
   const ok = failed === 0 && problems.length === 0
+  const outsideNote = unchecked.length > 0 ? ` · 검사 대상 밖 파일 ${unchecked.length}개 (${unchecked.join(', ')})` : ''
   return {
     status: ok ? 'pass' : 'fail',
-    detail: ok ? `설정 ${configs.length}개 (strict·noUncheckedIndexedAccess 확인)` : `설정 ${configs.length}개 중 타입 오류 ${failed}개 · 설정 문제 ${problems.length}개`,
+    detail: ok
+      ? `설정 ${configs.length}개 · 범위 안 TS 파일 ${scope.length}개 모두 검사 (strict·noUncheckedIndexedAccess 확인)`
+      : `설정 ${configs.length}개 중 타입 오류 ${failed}개 · 설정 문제 ${problems.length}개${outsideNote}`,
   }
 }
 

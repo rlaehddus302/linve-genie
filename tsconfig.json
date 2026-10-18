@@ -1,8 +1,8 @@
-// 루트 설정: 루트 도구 설정 파일과 적대 테스트(tests/adversarial)를 검사한다 (AC-S00-03, AC-S00-15).
+// 루트 설정: 루트 도구 설정 파일(*.ts)과 적대 테스트(tests/adversarial)를 검사한다 (AC-S00-03, AC-S00-15).
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["vitest.config.ts", "vitest.adversarial.config.ts", "vitest.coverage.config.ts", "scripts/verify/*.d.mts", "tests/adversarial/**/*.ts"]
+  "include": ["*.ts", "scripts/verify/*.d.mts", "tests/adversarial/**/*.ts"]
 }
