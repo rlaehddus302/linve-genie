@@ -137,10 +137,11 @@ const rawHtmlSyntax = [
 export default defineConfig(
   globalIgnores([
     '**/node_modules/',
-    '**/dist/',
-    '**/build/',
-    '**/coverage/',
-    '**/.vite/',
+    // 빌드·측정 결과물은 저장소 루트와 각 패키지 바로 아래 폴더만 무시한다.
+    // `**/build/`처럼 깊이와 상관없이 무시하면 apps/web/src/build/·packages/core/src/dist/ 같은 소스 폴더가
+    // XSS 금지(AC-S00-06)·코어 순수성(AC-S00-05) 검사를 통째로 피한다.
+    '{dist,build,coverage,.vite}/',
+    '{apps,packages}/*/{dist,build,coverage,.vite}/',
     // 오케스트레이터·하네스 소유 (개발자가 고칠 수 없는 경로)
     '.claude/',
     'scripts/harness/',

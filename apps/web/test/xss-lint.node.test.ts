@@ -65,7 +65,13 @@ describe('화면 XSS 린트', () => {
     ['test 폴더', 'apps/web/test/__probe__.test.tsx'],
     ['설정 파일', 'apps/web/vite.config.ts'],
     ['jsx 파일', 'apps/web/src/__probe__.jsx'],
+    // 빌드 결과물 무시 규칙이 소스 안의 같은 이름 폴더까지 덮으면 린트를 통째로 피한다
+    ['src/build 폴더', 'apps/web/src/build/__probe__.tsx'],
+    ['src/dist 폴더', 'apps/web/src/dist/__probe__.tsx'],
+    ['src/coverage 폴더', 'apps/web/src/coverage/__probe__.tsx'],
+    ['src/.vite 폴더', 'apps/web/src/.vite/__probe__.tsx'],
   ])('apps/web의 %s에도 적용된다', async (_name, filePath) => {
+    expect(await eslint.isPathIgnored(filePath)).toBe(false)
     const code = filePath.endsWith('.jsx') ? `export const A = (p) => <div ${RAW}={{ __html: p.h }} />\n` : `export const p = { ${RAW}: { __html: '' } }\n`
     expect(await xssMessages(code, filePath)).not.toHaveLength(0)
   })
