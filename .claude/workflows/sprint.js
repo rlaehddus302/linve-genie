@@ -218,7 +218,7 @@ async function review(round, prevOpen, opt) {
     const prev = mine.length ? `\n\n[내 이전 지적 — 다시 공격해 resolvedIds 또는 같은 ID로 응답]\n${j(mine)}` : ''
     out.tests[t] = await agent(
       `${head('test-' + t)}\n\n[할 일] 라운드 ${round}. 이번 스프린트 범위(${DIR}/acceptance.md)를 깨뜨려라. 재현한 버그는 실패하는 테스트로 남기고 [test:${t}] ${S}: 로 커밋. 끝날 때 커밋 안 된 변경이 없어야 한다.${round > 0 ? ' 수정으로 생긴 새 구멍도 찾아라.' : ''}${ho}${prev}`,
-      role('test-' + t, { phase: ph, label: `test-${t}:r${round}`, schema: TEST_OUT }),
+      role('test-' + t, { phase: ph, label: `test-${t}:r${round}`, schema: TEST_OUT, effort: 'medium' }),
     )
   }
   if (opt.ux) {
@@ -328,6 +328,20 @@ while (open.serious.length && round < MAX_FIX) {
     }
     decisions.push(...((arb && arb.decisions) || []))
     log(`분쟁 ${disputes.length}건 판정`)
+    // 판정 반영 패스: UPHOLD는 스펙·골든이 방금 바뀌었을 수 있으므로 재검증 전에 같은 라운드에서 바로 고친다
+    const upheld = new Map(((arb && arb.rulings) || []).filter((x) => x.ruling === 'UPHOLD').map((x) => [x.findingId, x.reason]))
+    const redo = {}
+    for (const f of open.serious.filter((x) => upheld.has(x.id))) {
+      const a = areaOf(f)
+      ;(redo[a] = redo[a] || []).push(Object.assign({}, f, { ruling: upheld.get(f.id) }))
+    }
+    for (const area of ORDER.filter((a) => redo[a])) {
+      const fx2 = await agent(
+        `${head('dev-' + area)}\n\n[할 일] 분쟁 판정 반영 (라운드 ${round}). 아래 지적은 spec-keeper가 UPHOLD 했다 — 스펙·골든·DECISIONS가 방금 바뀌었을 수 있으니 git log -3 과 해당 문서를 다시 읽고 최신 기준으로 고쳐라. 반박은 더 받지 않는다(FIXED 또는 NOT_MINE만).\n[dev:${area}] ${S}: 로 커밋, 마지막에 pnpm verify.\n\n${j(redo[area])}`,
+        role('dev-' + area, { phase: 'Fix', label: `fix-ruling-${area}:r${round}`, schema: BUILD_OUT }),
+      )
+      if (fx2) builds.push(Object.assign({ area, round }, fx2))
+    }
   }
   const prevOpen = open.serious.concat(open.minor)
   const retests = TESTS.filter((t) => open.serious.some((f) => f.id.startsWith(TEST_PREFIX[t])))
