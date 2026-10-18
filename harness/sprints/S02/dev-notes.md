@@ -68,3 +68,11 @@
   - (c)(화면에서만 막기)는 엔진이 서버 API·재생으로 같은 이벤트를 받을 수 있어 단독으로는 부족하다. (a)를 정한 뒤 화면이 차단된 1등의 교체 옵션 기본값을 `CANCEL`로 두는 것은 S05에서 덧붙이면 된다.
   - 같은 빈틈이 S03 R-7(역전 "w → 대기 1순위", 충돌 `SWITCH` "w는 대기 1순위로")에도 있다. 문장을 "차단된 구매자의 확정 찜이 대기로 가야 할 때(교체 `WAITLIST`, 역전, `SWITCH`)는 `REJECTED(BLOCKED)`"처럼 일반화하면 S03에서 다시 묻지 않아도 된다.
 - 판정이 (a)로 나면 구현은 `packages/core/src/engine/reducer.ts`의 `replaceWinner`에서 `cancel`이 아니고 `d.isBlocked(target.buyer)`이면 `finish(target, slot, 'REJECTED', 'BLOCKED')`로 끝내는 한 갈래와 단위 테스트(두 재현 순서)다. 확정이 풀릴 때 규칙(R-13: 미실행 효과 취소, 출력된 라벨 `VOID_LABEL`)은 `unconfirm`이 이미 처리한다.
+
+#### TD-S02-001 — FIXED (spec-keeper 판정 UPHOLD, D-049 반영)
+- 판정: D-049 "차단 중인 구매자의 찜은 대기에 들어가지 않는다"(DOMAIN_RULES v0.1.6 R-9), 골든 G-ENG-088·089.
+- 구현: `packages/core/src/engine/reducer.ts` `replaceWinner` — `replaceTo=WAITLIST`인데 밀려나는 1등이 차단 중이면 대기에 넣지 않고 `REJECTED(BLOCKED)`. 대기가 늘지 않으므로 `assign`의 넘침 정리(맨 끝 `SOLD_OUT`)도 일어나지 않는다. 확정이 풀릴 때 규칙(미실행 효과 취소, 출력된 라벨 `VOID_LABEL`)은 `unconfirm`이 그대로 처리한다. 배정받는 구매자의 차단 여부는 계속 보지 않는다(D-042).
+- 단위 테스트(`engine-rules.test.ts` "차단 중인 구매자의 찜은 대기에 들어가지 않는다"): 두 재현 순서, 대기 한도 0(품절 아닌 차단 거절), 배정받는 사람의 대기 찜이 빠질 때, 차단·교체 순서가 바뀌어도 같은 결과, `CANCEL`·차단 해제 뒤 교체·차단된 사람에게 배정.
+- 속성 테스트(`engine-properties.test.ts`): 매 이벤트 뒤 "차단 중인 구매자에게는 대기·보류 찜이 없다"를 검사. 수정 전 코어로 돌리면 무작위 로그 두 종류와 고정 시드 회귀가 모두 이 검사로 실패하는 것을 확인했다(새 단위 테스트 5개, 골든 합계 테스트도 실패).
+- 골든 합계(`core-adapter.test.ts`, AC-S02-90): 엔진 시나리오 68 · 통과 427.
+- S03 메모: R-7 역전·충돌 `SWITCH`로 확정 찜이 대기로 갈 때도 같은 문장을 따른다(D-049). 그때 대기로 보내는 곳을 `replaceWinner`의 갈래와 같은 도우미로 묶는다.
