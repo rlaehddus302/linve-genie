@@ -1,0 +1,86 @@
+// 설정 기본값은 코어 안 한 곳(settings.ts)에서만 정의한다 (AC-S01-01).
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { describe, expect, it } from 'vitest'
+import { DEFAULT_SETTINGS, resolveSettings, type SettingsOverride } from '@livejjim/core'
+
+const SRC = fileURLToPath(new URL('../../src/', import.meta.url))
+
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = join(dir, entry.name)
+    return entry.isDirectory() ? sourceFiles(full) : full.endsWith('.ts') ? [full] : []
+  })
+}
+
+describe('DEFAULT_SETTINGS — DOMAIN_RULES 판매 규칙 설정표 기본값', () => {
+  it('설정표의 18개 키와 기본값', () => {
+    expect(DEFAULT_SETTINGS).toEqual({
+      'claim.parseMode': 'STRICT',
+      'claim.multiNumber': 'ALL',
+      'claim.maxNumber': 999,
+      'claim.ignoreOwner': true,
+      'claim.preOpenWindowSec': 30,
+      'waitlist.max': 5,
+      'cancel.buyerChat': 'REQUEST',
+      'cancel.succession': 'AUTO',
+      'contention.policy': 'ARRIVAL',
+      'contention.sameMinuteTieBreaker': 'HOST',
+      'price.unit': 'THOUSAND',
+      'shipping.baseFee': 4000,
+      'shipping.freeThreshold': null,
+      'settlement.groupBy': 'DATE',
+      'print.autoOnConfirm': true,
+      'thanks.liveChat': true,
+      'thanks.videoComment': 'OFF',
+      'thanks.batchWindowSec': 0,
+    })
+  })
+
+  it('바꿀 수 없다(호출 사이에 남는 상태가 생기지 않게)', () => {
+    expect(Object.isFrozen(DEFAULT_SETTINGS)).toBe(true)
+  })
+
+  it('파서 기본값 리터럴은 settings.ts에만 있다 — 파서마다 따로 적지 않는다', () => {
+    const others = sourceFiles(SRC).filter((file) => !file.endsWith(`${join('src', 'settings.ts')}`))
+    expect(others.length).toBeGreaterThan(0)
+    for (const file of others) {
+      const text = readFileSync(file, 'utf8')
+      for (const literal of [/(?<!\d)999(?!\d)/, /'STRICT'/, /'ALL'/, /'THOUSAND'/]) expect(literal.test(text), `${file}: ${String(literal)}`).toBe(false)
+    }
+  })
+})
+
+describe('resolveSettings', () => {
+  it('빠진 키는 기본값, 있는 키는 덮어쓴다', () => {
+    const resolved = resolveSettings({ 'claim.maxNumber': 50, 'price.unit': 'WON' })
+    expect(resolved).toEqual({ ...DEFAULT_SETTINGS, 'claim.maxNumber': 50, 'price.unit': 'WON' })
+  })
+
+  it('넘긴 객체를 바꾸지 않고 새 객체를 돌려준다', () => {
+    const override: SettingsOverride = Object.freeze({ 'claim.parseMode': 'LOOSE' })
+    const resolved = resolveSettings(override)
+    expect(override).toEqual({ 'claim.parseMode': 'LOOSE' })
+    expect(resolved).not.toBe(DEFAULT_SETTINGS)
+    resolved['claim.maxNumber'] = 1
+    expect(DEFAULT_SETTINGS['claim.maxNumber']).toBe(999)
+    expect(resolveSettings()['claim.maxNumber']).toBe(999)
+  })
+
+  it('값이 undefined인 키와 상속된 속성은 기본값을 쓴다', () => {
+    const inherited = Object.create({ 'claim.maxNumber': 5 }) as SettingsOverride
+    expect(resolveSettings(inherited)['claim.maxNumber']).toBe(999)
+    expect(resolveSettings({ 'claim.maxNumber': undefined })['claim.maxNumber']).toBe(999)
+  })
+
+  it('객체가 아닌 값(null, 문자열 등)은 빈 설정으로 본다', () => {
+    expect(resolveSettings(null)).toEqual(DEFAULT_SETTINGS)
+    expect(resolveSettings('LOOSE' as unknown as SettingsOverride)).toEqual(DEFAULT_SETTINGS)
+  })
+
+  it('설정표에 없는 키는 무시한다', () => {
+    const resolved = resolveSettings({ 'claim.unknown': 1 } as unknown as SettingsOverride)
+    expect(Object.keys(resolved)).toEqual(Object.keys(DEFAULT_SETTINGS))
+  })
+})
