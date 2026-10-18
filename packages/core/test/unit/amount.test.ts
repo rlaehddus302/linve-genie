@@ -263,6 +263,22 @@ describe('AC-S01-22 거부', () => {
       WON,
     )
   })
+
+  it('U+FEFF는 공백이 아니다 — 숫자 사이·단위 사이에 끼면 null (TD-S01-001)', () => {
+    const zwnbsp = String.fromCodePoint(0xfeff)
+    for (const settings of [WON, THOUSAND]) {
+      table(
+        [
+          [`1${zwnbsp}500`, null], // 화면엔 1500. 500·500,000이 아니다
+          [`1만${zwnbsp}2500`, null],
+          [`이만${zwnbsp}오천`, null],
+          [`${zwnbsp}10000`, null],
+          [`10000${zwnbsp}`, null],
+        ],
+        settings,
+      )
+    }
+  })
 })
 
 describe('빠른 입력이 기대는 성질: 해석되는 금액의 토큰 수는 AMOUNT_MAX_TOKENS 이하', () => {
