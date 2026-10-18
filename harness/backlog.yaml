@@ -20,7 +20,7 @@ sprints:
     acceptanceHints:
       - pnpm verify 한 번으로 전체 검사가 돈다
       - 골든 러너가 tests/golden/**/*.yaml 전부를 읽고, 미구현 항목은 "미구현"으로 표시된다 (S00에서는 golden 단계를 '알려진 실패'로 허용하는 플래그 제공, S01부터 끔)
-    status: todo
+    status: fail
 
   - id: S01
     phase: 1
@@ -169,4 +169,19 @@ sprints:
     humanGate: HG-4
     status: todo
 
-techDebt: []
+techDebt:
+  - "RA-S00-001: 골든 러너가 엔진의 입력 state 제자리 수정을 잡지 못함"
+  - "RA-S00-002: golden 어댑터 observe가 항상 미구현이라 S02에서 G-ENG-* 허용으로 조용히 통과 가능"
+  - "RA-S00-003: 코어 순수성 린트가 외부 패키지 import와 WeakRef·FinalizationRegistry·Atomics·import.meta를 막지 않음"
+  - "RA-S00-004: 서버 기본 오류 기록이 예외 객체 전체를 stderr에 남김"
+  - "TD-S00-007: Expect 헤더 오류(417)와 CONNECT 요청이 JSON 오류로 답하지 않음"
+  - "TD-S00-008: Host 헤더 두 개·absolute-form 요청을 200으로 처리"
+  - "TD-S00-009: 결정성 검사가 시작 상태의 관찰 스냅샷을 비교하지 않음"
+  - "TD-S00-010: 관찰 스냅샷 형식·열거값 미검사로 pendingEffects·effectCounts 부정 검사가 조용히 통과 가능"
+  - "TD-S00-011: 코어 순수성 린트 정적 우회(Math 별칭, Function 생성자, .jsx, src 밖 import)"
+  - "TD-S00-012: 골든 파일 탐색이 심볼릭 링크와 대문자 확장자를 조용히 건너뜀"
+  - "TD-S00-016: 화면 XSS 린트가 Object.assign innerHTML·setHTMLUnsafe·createContextualFragment·srcdoc을 통과시킴"
+  - "TD-S00-019: 범위 안 .d.ts가 타입 검사·범위 대조에서 빠짐"
+  - "TD-S00-020: .gitignore가 src/build 등 소스 폴더를 무시해 커밋에서 빠짐"
+  - "TD-S00-021: 스펙 확인 필요 — Host 없는 HTTP/1.0 GET /health를 400으로 거절"
+
