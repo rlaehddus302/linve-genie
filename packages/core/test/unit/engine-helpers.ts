@@ -1,9 +1,9 @@
 // 엔진 단위·속성 테스트 도구 (테스트 파일 아님).
-import { applyEvent, initEngine, type EngineEffect, type EngineEvent, type EngineState, type SettingsOverride } from '@livejjim/core'
+import { applyEvent, initEngine, type DeferredEvent, type EngineEffect, type EngineEvent, type EngineState, type SettingsOverride } from '@livejjim/core'
 
-/** seq·at을 뺀 이벤트 (play가 채운다) */
+/** seq·at을 뺀 S02 이벤트 (play가 채운다). S03 이벤트는 테스트에서 따로 만든다 */
 type WithoutClock<E> = E extends unknown ? Omit<E, 'seq' | 'at'> : never
-export type EventInput = WithoutClock<EngineEvent> & { readonly at?: number }
+export type EventInput = WithoutClock<Exclude<EngineEvent, DeferredEvent>> & { readonly at?: number }
 
 export const B1 = { id: 'b1', date: '2026-10-18', title: '1부' } as const
 export const B2 = { id: 'b2', date: '2026-10-18', title: '2부' } as const
