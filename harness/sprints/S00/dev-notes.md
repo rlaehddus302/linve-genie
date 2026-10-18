@@ -112,3 +112,12 @@ README에 문장으로 없는 부분은 판매자에게 안전한 쪽(오타가 
 
 ### 넣지 않은 것 (범위 밖)
 - Tailwind·TanStack Query·PWA(S05~S06), Playwright 설정(S05), 서버 호출·프록시(S04 이후).
+
+### 수정 라운드 1 (SA-S00-005, TD-S00-004)
+- **끄기 주석으로 XSS 금지를 끌 수 있던 문제**: `eslint.config.mjs`의 `apps/web/**` 블록에 `linterOptions: { noInlineConfig: true, reportUnusedDisableDirectives: 'error' }`를 넣었다(코어 블록과 같은 방식).
+  - 다음 줄·같은 줄·파일 전체 끄기, 규칙 이름으로 끄고 다시 켜기, `/* eslint 규칙: "off" | "warn" */` 인라인 설정이 모두 무시되고 XSS 금지는 오류(2)로 남는다.
+  - ESLint는 무시한 주석마다 "noInlineConfig 때문에 효과 없음" 경고를 낸다. lint 단계는 `--max-warnings 0`이라 주석만 있어도 실패한다. 그래서 웹에서는 어떤 규칙도 주석으로 끌 수 없다. 지금 `apps/web`에는 그런 주석이 없다. 나중에 꼭 필요한 규칙이 생기면 noInlineConfig를 풀지 말고 그 규칙을 설정에서 조정한다.
+- **같은 AC의 다른 우회도 함께 막았다(빌드 결과물 무시 규칙)**: 전역 무시가 `**/dist/`·`**/build/`·`**/coverage/`·`**/.vite/`라서 `apps/web/src/build/Chat.tsx` 같은 소스 폴더도 린트를 통째로 피했다(`eslint.isPathIgnored`로 확인). 무시 범위를 저장소 루트와 각 패키지 바로 아래(`{apps,packages}/*/{dist,build,coverage,.vite}/`)로 좁혔다.
+  - 루트 공용 파일이라 **dev-core 영역에도 영향**이 있다: `packages/core/src/build/`·`src/dist/` 아래 파일도 이제 코어 순수성 검사를 받는다(이전에는 무시됐다). 코어 쪽 회귀 테스트는 dev-core 몫으로 남긴다.
+  - 실제 결과물 폴더(`coverage/`, `apps/web/dist/`, `packages/*/dist/` 등)는 그대로 무시된다. `pnpm lint` 오류 0 · 경고 0.
+- 회귀 테스트(`apps/web/test/xss-lint.node.test.ts`): 끄기 주석 6가지 → XSS 오류가 남고 무시 경고가 나온다. `src/build`·`src/dist`·`src/coverage`·`src/.vite` 폴더 → 무시되지 않고 XSS 오류. 고치기 전 설정으로 돌려 10개가 모두 실패하는 것을 확인했다.
