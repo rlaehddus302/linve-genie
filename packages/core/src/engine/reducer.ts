@@ -209,12 +209,13 @@ function hostRelease(d: Draft, e: HostClaimEvent): void {
 
 /** host.promote: 자리가 비어 있고 대상이 대기 찜일 때만 확정 (대기 몇 순위든) */
 function promote(d: Draft, e: HostClaimEvent): void {
+  const now = d.readSlot(slotKey(e.b, e.no))
   const current = activeClaim(d, e.b, e.no, e.buyer)
-  if (current?.status !== 'WAITLISTED') return
+  if (now === undefined || current?.status !== 'WAITLISTED') return
+  // 대기 찜이 있는 번호에는 상품이 있다 (대기는 판매 중인 상품에서 생기고, 대기가 남은 상품은 닫히지 않는다)
+  const product = now.product as ProductRecord
+  if (now.winners.length >= product.stock) return
   const slot = d.slot(e.b, e.no)
-  // 대기 찜이 있는 번호에는 상품이 있다 (대기는 판매 중인 상품에서만 생긴다)
-  const product = slot.product as ProductRecord
-  if (slot.winners.length >= product.stock) return
   slot.waitlist.splice(slot.waitlist.indexOf(current.id), 1)
   confirm(d, d.claim(current.id) as ClaimDraft, slot, product)
   settleAwaiting(slot)

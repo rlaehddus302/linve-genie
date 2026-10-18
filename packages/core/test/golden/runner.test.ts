@@ -297,16 +297,19 @@ describe('미구현으로 멈춘 시나리오 — 뒤의 미구현이 앞의 실
 
   it('두 실행이 멈춘 지점이 다르면 결정성 위반', () => {
     let runs = 0
+    let observed = 0
     const core = createFakeCore({
       snapshot: emptySnapshot(),
       engine: {
         start: () => {
           runs++
+          observed = 0
           return {}
         },
         observe: () => {
-          // 두 번째 실행의 최종 비교에서만 미구현
-          if (runs === 2) throw new NotImplementedError('관찰(가짜)')
+          // 시작 상태 관찰은 두 실행 모두 미구현(같은 표시) — 두 번째 실행만 중간 검사의 관찰에서도 미구현
+          observed++
+          if (observed === 1 || runs === 2) throw new NotImplementedError('관찰(가짜)')
           return emptySnapshot()
         },
         apply: (state) => ({ state, effects: [] }),
@@ -367,11 +370,13 @@ describe('러너 오류', () => {
     expect(item).toMatchObject({ status: 'runner-error', problems: [{ where: 'events[0]', message: 'apply 결과는 { state, effects: [] } 모양이어야 한다' }] })
   })
 
-  it('관찰 스냅샷 형식이 틀려 비교 중 예외가 나면 러너 오류', () => {
+  it('관찰 스냅샷 형식이 틀리면 비교 전에 러너 오류 (AC-S02-92: 비교 중 예외로 늦게 드러나지 않게)', () => {
     const core = createFakeCore({ snapshot: { buyerKeys: {} } as GoldenSnapshot })
     const item = run(scenario({ expect: { claimCount: 0 } }), { core }).items[0]
     expect(item?.status).toBe('runner-error')
-    expect(item?.problems[0]?.message).toContain('관찰 스냅샷 비교 중 예외')
+    expect(item?.problems[0]).toMatchObject({ where: '시작 상태' })
+    expect(item?.problems[0]?.message).toContain('관찰 스냅샷 형식 오류 7건')
+    expect(item?.problems[0]?.message).toContain("스냅샷: 'products'가 없다")
   })
 
   it('파서가 미구현이 아닌 예외를 던지면 러너 오류', () => {

@@ -5,6 +5,7 @@ import { EMPTY_ALLOWLIST, readAllowlist, type Allowlist } from './allowlist.ts'
 import { SCENARIO_ID_RE, SUITES, isPlainObject, type SuiteName } from './contract.ts'
 import { compareExpect, compareParserOutput } from './compare.ts'
 import { SerializationError, stableSerialize } from './serialize.ts'
+import { snapshotIssues } from './snapshot-check.ts'
 import type {
   FileSummary,
   GoldenCore,
@@ -135,17 +136,38 @@ function runScenarioOnce(engine: GoldenEngineCore, doc: ScenarioDoc): Trace {
   let where = '시작 상태'
   try {
     let state = engine.start(structuredClone(doc.setup))
+    /** 지금 상태를 직렬화한 값. 엔진이 상태를 제자리에서 바꾸는지 확인한다 (RA-S00-001) */
+    let stateText = stableSerialize(state)
+    /** 관찰 스냅샷 + 형식 검사 (TD-S00-010). 형식이 틀리면 러너 오류 */
+    const look = (at: string | undefined): GoldenSnapshot => {
+      const seen = engine.observe(state)
+      const issues = snapshotIssues(seen)
+      if (issues.length > 0) {
+        const shown = issues.slice(0, 5).join(' · ')
+        throw new RunnerFailure(`관찰 스냅샷 형식 오류 ${issues.length}건: ${shown}${issues.length > 5 ? ' …' : ''}`, at)
+      }
+      return seen
+    }
     let snapshot: GoldenSnapshot | undefined
-    const observe = (): GoldenSnapshot => (snapshot ??= engine.observe(state))
+    const observe = (at: string | undefined): GoldenSnapshot => (snapshot ??= look(at))
     const compare = (expect: ScenarioDoc['expect'], at: string | undefined): Problem[] => {
+      const seen = observe(at ?? FINAL_EXPECT)
       try {
-        return compareExpect(expect, observe(), at)
+        return compareExpect(expect, seen, at)
       } catch (error) {
-        if (isNotImplemented(error) || error instanceof RunnerFailure) throw error
         throw new RunnerFailure(`관찰 스냅샷 비교 중 예외 (스냅샷 형식 오류?): ${describeError(error)}`, at)
       }
     }
-    steps.push({ where, serialized: stableSerialize({ state }) })
+    // 결정성 검사의 첫 단계에 시작 상태의 관찰 스냅샷도 넣는다 (TD-S00-009).
+    // 관찰이 아직 미구현인 코어(S00 가짜 코어 등)는 표시만 남기고, 관찰이 필요한 지점에서 미구현으로 멈춘다.
+    let startSnapshot: GoldenSnapshot | string
+    try {
+      startSnapshot = observe(where)
+    } catch (error) {
+      if (!isNotImplemented(error)) throw error
+      startSnapshot = '(관찰 미구현)'
+    }
+    steps.push({ where, serialized: stableSerialize({ state, snapshot: startSnapshot }) })
 
     for (const step of doc.steps) {
       where = `events[${step.index}]`
@@ -153,14 +175,19 @@ function runScenarioOnce(engine: GoldenEngineCore, doc: ScenarioDoc): Trace {
         problems.push(...compare(step.expect, where))
         continue
       }
-      const reportProblem = checkEffectReport(step.event, observe())
+      const reportProblem = checkEffectReport(step.event, observe(where))
       if (reportProblem !== undefined) throw new RunnerFailure(reportProblem, where)
+      if (stableSerialize(state) !== stateText) throw new RunnerFailure('관찰·불변식 검사 중에 엔진이 상태를 제자리에서 바꿨다 (RA-S00-001)', where)
       const result: unknown = engine.apply(state, structuredClone(step.event))
+      if (stableSerialize(state) !== stateText) {
+        throw new RunnerFailure('엔진이 넘겨받은 상태를 제자리에서 바꿨다 — apply는 입력을 그대로 두고 새 상태를 돌려줘야 한다 (RA-S00-001, AC-S02-02)', where)
+      }
       if (typeof result !== 'object' || result === null || !('state' in result) || !('effects' in result) || !Array.isArray(result.effects)) {
         throw new RunnerFailure('apply 결과는 { state, effects: [] } 모양이어야 한다', where)
       }
       state = result.state
-      snapshot = engine.observe(state)
+      stateText = stableSerialize(state)
+      snapshot = look(where)
       for (const violation of engine.invariants?.(state, snapshot) ?? []) {
         problems.push({ where, path: `불변식 ${violation.id}`, message: violation.message })
       }
