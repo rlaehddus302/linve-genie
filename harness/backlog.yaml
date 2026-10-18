@@ -1,6 +1,7 @@
 # 라이브찜 스프린트 백로그
 # status: todo | doing | done | fail | blocked
-# humanGate: 이 스프린트가 끝나면 사람 확인이 필요 (SPEC §9)
+# humanGate: 이 스프린트가 끝나면 사람 확인이 필요 (SPEC §9) — 자율 진행 중엔 모의 검증으로 대신하고 최종 보고에 모은다
+# devs: 개발 영역(core/device/server/web, 의존 순서로 실행) · tests: 테스트 종류(domain/e2e)
 # 순서대로 진행한다. 오케스트레이터가 리포트를 보고 순서·범위를 조정한다.
 
 sprints:
@@ -8,6 +9,8 @@ sprints:
   - id: S00
     phase: 1
     title: 부트스트랩 — 저장소 골격과 검증 파이프라인
+    devs: [core, server, web]
+    tests: [domain]
     goal: >
       pnpm 모노레포(packages/core, packages/label, apps/server, apps/web), TypeScript strict, ESLint, Vitest,
       fast-check, 골든 러너 골격(tests/golden 의 YAML을 읽어 엔진에 넣고 expect 비교, 아직 엔진 없으면 "미구현"으로 실패),
@@ -22,6 +25,8 @@ sprints:
   - id: S01
     phase: 1
     title: 코어 I — 파서 (채팅·금액·빠른 입력)
+    devs: [core]
+    tests: [domain]
     goal: 채팅 주문 인식(R-3), 한글 금액·수사 파서, 빠른 입력 파서. 골든 parser/* 전부 통과.
     specIds: [ORD-01, PRD-01]
     status: todo
@@ -29,6 +34,8 @@ sprints:
   - id: S02
     phase: 1
     title: 코어 II — 판정 엔진 (선착순·대기·보류·취소·승계·수동 조치)
+    devs: [core]
+    tests: [domain]
     goal: >
       순수 리듀서 apply(state, event) → { state, effects }. R-0~R-5, R-8, R-9, R-13.
       골든 engine/01~03, 07 통과. INV-1~12 속성 테스트.
@@ -38,6 +45,8 @@ sprints:
   - id: S03
     phase: 1
     title: 코어 III — 문자찜·경합·충돌, 상품 수정, 구매자·정산 계산
+    devs: [core]
+    tests: [domain]
     goal: R-6, R-7, R-10, R-11, R-12. 골든 engine/04~06 통과.
     specIds: [ORD-08, ORD-09, ORD-10, PRD-02, BUY-01, BUY-02, BUY-03, BUY-04, STL-01, STL-02, STL-03, STL-07, STL-09]
     status: todo
@@ -45,6 +54,8 @@ sprints:
   - id: S04
     phase: 1
     title: 저장소·API·실시간 동기화
+    devs: [server]
+    tests: [domain]
     goal: >
       PostgreSQL(Drizzle) 스키마, 이벤트 저장(입력 우선 기록, 외부 ID 유일 제약), 방송별 직렬 처리,
       프로젝션, 재생 무결성 검사 명령, REST API, 실시간 푸시(SSE 또는 WebSocket), 판매자 로그인(단일 판매자부터).
@@ -55,6 +66,8 @@ sprints:
   - id: S05
     phase: 1
     title: 라이브 콘솔 + 리허설(시뮬레이터) 모드
+    devs: [server, web]
+    tests: [domain, e2e]
     goal: >
       방송 만들기, 빠른 입력, 상품 보드, 채팅 패널(주문 강조·메시지→찜 변환), 알림 띠(충돌·보류·취소 요청),
       되돌리기, 단축키. 가짜 채팅 생성기로 방송 리허설.
@@ -65,6 +78,8 @@ sprints:
   - id: S06
     phase: 1
     title: 문자찜 입력(휴대폰) + 구매자·정산 화면
+    devs: [server, web]
+    tests: [e2e]
     goal: 휴대폰 문자찜 입력, 구매자 목록·상세·합치기, 정산 묶음 목록, 입금·배송비 예외 입력. PWA 설치.
     specIds: [ORD-08, BUY-03, BUY-04, STL-01, STL-07, UX-04, UX-07]
     uxReview: true
@@ -75,6 +90,8 @@ sprints:
   - id: S07
     phase: 2
     title: 라벨 렌더러 + 템플릿 편집 + 미리보기 + PNG/PDF
+    devs: [device, web]
+    tests: [domain, e2e]
     goal: >
       캔버스 렌더러(한글 글꼴 내장, 203dpi, 50x30mm=384x240px, 1비트 변환), 샘플 라벨 형식 기본 템플릿,
       긴 품종명 자동 축소/줄바꿈, 상품·포장 라벨, PNG 저장, 라벨 크기 PDF, A4 모아찍기 PDF.
@@ -85,6 +102,8 @@ sprints:
   - id: S08
     phase: 2
     title: NIIMBOT B1 직접 출력 + 출력 대기열 + 재출력
+    devs: [device, server, web]
+    tests: [domain, e2e]
     goal: >
       niimbluelib로 Web Bluetooth(기본)·Web Serial(USB) 연결, 연결 마법사·테스트 인쇄, 서버 기록 출력 대기열,
       자동 출력, 끊김 복구, 재출력·이력, 프린트 스테이션. 프린터 어댑터 인터페이스 + 가짜 프린터로 테스트.
@@ -96,6 +115,8 @@ sprints:
   - id: S09
     phase: 2
     title: 명세서 PDF + 엑셀 판매대장 + 포장 모드 + 백업·복구
+    devs: [device, server, web]
+    tests: [domain, e2e]
     goal: 구매 내역 확인서 PDF(법정 증빙 아님 고지), 엑셀 판매대장, 포장 모드(체크리스트→포장 라벨→완료), 일일 백업·복구·전체 내보내기.
     specIds: [STL-04, STL-05, STL-06, STL-08, STL-10, DAT-03, DAT-04, BUY-05, PRD-05]
     uxReview: true
@@ -105,6 +126,8 @@ sprints:
   - id: S10
     phase: 3
     title: 유튜브 계정 연결 + 방송 선택 + 채팅 수집(streamList)
+    devs: [server, web]
+    tests: [domain, e2e]
     goal: >
       구글 OAuth(최소 권한), 내 라이브 목록에서 선택/URL 붙여넣기, liveChatMessages.streamList(gRPC) 수집,
       끊김 시 nextPageToken 이어받기, 폴링 대체 경로, 할당량 계산·표시. 수집기는 어댑터 + 가짜 채팅 서버로 테스트.
@@ -114,6 +137,8 @@ sprints:
   - id: S11
     phase: 3
     title: 감사 메시지 발송함 (실시간 채팅·영상 댓글·묶음·재시도·중복 방지)
+    devs: [server, web]
+    tests: [domain, e2e]
     goal: >
       outbox: 효과 ID 멱등, 지수 백오프 재시도, 타임아웃 시 게시 여부 확인 후 재시도, 수동 재전송,
       묶음 감사(글자 수 분할), 자동 게시 사전 동의, 할당량 부족 시 묶음 전환.
@@ -124,6 +149,8 @@ sprints:
   - id: S12
     phase: 3
     title: 시작 마법사 + 배포 + 운영
+    devs: [server, web]
+    tests: [e2e]
     goal: 시작 마법사(가게→규칙→프린터→유튜브→리허설), 배포 설정, 개인정보처리방침·이용약관 초안 페이지, 모니터링, 백업 스케줄.
     specIds: [UX-02, SYS-04]
     uxReview: true
@@ -133,6 +160,8 @@ sprints:
   - id: S13
     phase: 4
     title: 음성 등록 (Web Speech 기본, 클라우드 STT 어댑터)
+    devs: [device, server, web]
+    tests: [domain, e2e]
     goal: >
       마이크 수집, STT 어댑터(Web Speech 기본 / Deepgram·리턴제로 선택), 추출기(금액·수사 파서 재사용 + 품종 사전 자모 유사도),
       제안 카드(Enter 확정·바로 수정·신뢰도 높으면 자동 확정 옵션), 녹음 샘플 기반 정확도 측정 스크립트.

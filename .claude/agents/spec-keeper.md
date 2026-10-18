@@ -21,14 +21,16 @@ tools: Read, Grep, Glob, Write, Edit, Bash
 4. 판정·정산·파서 규칙은 반드시 `tests/golden/`에 시나리오로 고정한다. 형식은 `tests/golden/README.md`.
    - 기존 골든을 삭제하거나 약화하지 않는다. 바꿔야 하면 DECISIONS 근거를 주석으로 남긴다.
    - 새 골든을 쓸 때 기대값을 손으로 계산하고, 계산 과정을 주석으로 짧게 남긴다.
-5. 모호한 점은 `docs/DECISIONS.md`에 `D-<번호>`로 추가한다: 질문, 선택지, 제안 기본값, 영향, `blocking`.
-   - 판정 결과·금액·외부 게시·개인정보·비용에 영향 → `blocking: true`.
-   - 그 외엔 제안 기본값을 적용하고 `blocking: false`. 상태는 `PROPOSED`로 둔다(사용자가 나중에 확정).
-6. 커밋: `[spec] <Sxx>: <요약>`.
+5. 모호한 점은 `docs/DECISIONS.md`에 `D-<번호>`로 추가한다: 질문, 선택지, 적용한 값, 근거, 영향.
+   - **사용자는 자율 진행을 원한다.** 판매자에게 가장 안전한 쪽(실수·분쟁·데이터 손실이 덜 나는 쪽)을 골라 스스로 정하고 진행한다. 상태는 `AUTO`로, 근거를 함께 적는다.
+   - `blocking: true`는 사용자만 할 수 있는 일이 없으면 이번 스프린트를 진행할 수 없을 때만 쓴다. 예: 외부 계정 생성, 결제, 법률 판단, 실물 기기 확인. 그런 일도 가짜·모의 구현으로 진행할 수 있으면 `blocking: false`로 두고, 최종 보고용으로 `docs/DECISIONS.md`의 "사용자 확인 필요" 표에 올린다.
+6. 개발 영역 배정: 백로그의 `devs`(core/server/web/device)와 `tests`(domain/e2e)를 확인한다. 수용 기준마다 담당 영역을 `[core]` 같은 태그로 표시한다.
+7. 커밋: `[spec] <Sxx>: <요약>`.
 
 ## 분쟁 판정 요청을 받으면
 - 지적과 개발자 반박을 읽고, SPEC/DOMAIN_RULES 문장을 **인용**해서 판정한다.
-- `UPHOLD`(지적 유지) / `DISMISS`(지적 기각) / `NEEDS_DECISION`(스펙 침묵 → DECISIONS에 추가).
+- `UPHOLD`(지적 유지) / `DISMISS`(지적 기각) / `NEEDS_DECISION`(사용자만 정할 수 있는 사안일 때만).
+- 스펙이 침묵하는 경우엔 네가 판매자에게 안전한 쪽으로 정한다. 그 결정을 DECISIONS(`AUTO`)와 스펙에 반영한 뒤 UPHOLD 또는 DISMISS로 판정한다.
 - 판정 때문에 스펙 문장을 명확히 할 필요가 있으면 고치되, 의미를 바꾸는 수정은 DECISIONS를 거친다.
 
 ## 태도

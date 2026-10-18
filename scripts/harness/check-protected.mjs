@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 하네스 보호 경로 게이트
 // 사용: node scripts/harness/check-protected.mjs <baseRef>
-// 1) baseRef..HEAD 커밋마다 제목 접두어([spec]/[dev]/[qa]/[ux]/[harness]/[orch])로 역할을 판별하고,
+// 1) baseRef..HEAD 커밋마다 제목 접두어([spec]/[dev:core|server|web|device]/[test:domain|e2e]/[ux]/[harness]/[orch])로 역할을 판별하고,
 //    역할이 건드리면 안 되는 경로를 건드렸는지 검사한다.
 // 2) 추적 중인 테스트 파일에 금지 패턴(.only/.skip/todo 등)이 있는지 검사한다.
 // 3) 커밋 안 된 변경이 있는지 검사한다.
@@ -21,15 +21,19 @@ const SPRINT_FILE = (name) => new RegExp(`^harness/sprints/[^/]+/${name}$`)
 const ROLES = {
   // allow: 이 목록 안만 수정 가능 / deny: 이 목록만 수정 불가
   spec: { allow: [/^docs\/spec\//, /^docs\/DECISIONS\.md$/, /^tests\/golden\//, SPRINT_FILE('acceptance\\.md'), SPRINT_FILE('BASE')] },
+  // dev:core / dev:server / dev:web / dev:device 모두 같은 금지 목록 (영역 침범은 감사자가 판단)
   dev: {
-    deny: [/^docs\/spec\//, /^docs\/DECISIONS\.md$/, /^tests\/golden\//, /^tests\/adversarial\//, /^\.claude\//, /^scripts\/harness\//, /^CLAUDE\.md$/, /^harness\//],
+    deny: [/^docs\/spec\//, /^docs\/DECISIONS\.md$/, /^tests\//, /^\.claude\//, /^scripts\/harness\//, /^CLAUDE\.md$/, /^harness\//],
     except: [SPRINT_FILE('dev-notes\\.md')],
   },
-  qa: { allow: [/^tests\/adversarial\//, SPRINT_FILE('qa-notes\\.md')] },
+  'test:domain': { allow: [/^tests\/adversarial\//, SPRINT_FILE('test-notes-domain\\.md')] },
+  'test:e2e': { allow: [/^tests\/e2e\//, SPRINT_FILE('test-notes-e2e\\.md')] },
   ux: { allow: [/^harness\/sprints\/[^/]+\/ux\//] },
   harness: { allow: [SPRINT_FILE('report\\.md'), /^harness\/backlog\.yaml$/] },
   orch: { allow: [/.*/] }, // 오케스트레이터(메인 세션·사용자)
 }
+const ROLE_RE = /^\[(spec|dev(?::(?:core|server|web|device))?|test:(?:domain|e2e)|ux|harness|orch)\]/
+const ruleKey = (tag) => (tag.startsWith('dev') ? 'dev' : tag)
 
 const violations = []
 
@@ -39,12 +43,12 @@ for (const chunk of log.split('\0').filter((c) => c.trim())) {
   const [headLine, ...rest] = chunk.split('\n')
   const [hash, subject = ''] = headLine.split('\t')
   const files = rest.map((s) => s.trim()).filter(Boolean)
-  const m = subject.match(/^\[(spec|dev|qa|ux|harness|orch)\]/)
+  const m = subject.match(ROLE_RE)
   if (!m) {
     violations.push(`${hash.slice(0, 8)} 역할 접두어 없는 커밋: "${subject}"`)
     continue
   }
-  const rule = ROLES[m[1]]
+  const rule = ROLES[ruleKey(m[1])]
   for (const f of files) {
     let bad = false
     if (rule.allow) bad = !rule.allow.some((re) => re.test(f))
