@@ -30,7 +30,8 @@ sprints:
     tests: [domain]
     goal: 채팅 주문 인식(R-3), 한글 금액·수사 파서, 빠른 입력 파서. 골든 parser/* 전부 통과.
     specIds: [ORD-01, PRD-01]
-    status: fail
+    status: done
+    note: 워크플로 결과 FAIL(마지막 판정 D-035 미구현) → 코어 개발자 추가 패스로 구현, pnpm verify 6단계 통과 (오케스트레이터 확인)
 
   - id: S02
     phase: 1
