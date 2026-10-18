@@ -1,0 +1,24 @@
+# PRD-01 빠른 입력 한 줄 → { no, name, price } 또는 { error }
+suite: quick-input
+settings: { unit: THOUSAND }
+cases:
+  - { in: "15 핑크프릴 10000", out: { no: 15, name: "핑크프릴", price: 10000 } }
+  - { in: "15 핑크프릴 1만", out: { no: 15, name: "핑크프릴", price: 10000 } }
+  - { in: "15번 핑크프릴 만원", out: { no: 15, name: "핑크프릴", price: 10000 } }
+  - { in: "15/핑크프릴/10", out: { no: 15, name: "핑크프릴", price: 10000 } }
+  - { in: "15 핑크프릴 10", out: { no: 15, name: "핑크프릴", price: 10000 } }
+  - { in: "194 왕비뇌신금 8", out: { no: 194, name: "왕비뇌신금", price: 8000 } }
+  - { in: "31 방울복랑 금 15000", out: { no: 31, name: "방울복랑 금", price: 15000 } }
+  - { in: "28 라울 5천", out: { no: 28, name: "라울", price: 5000 } }
+  - { in: "15 10000", out: { no: 15, name: "", price: 10000 } }       # 품종 없이 등록 가능
+  - { in: "15 핑크프릴", out: { error: PRICE_MISSING, no: 15, name: "핑크프릴" } }
+  - { in: "핑크프릴 10000", out: { error: NUMBER_MISSING } }
+  - { in: "", out: { error: EMPTY } }
+  - { in: "0 핑크프릴 10000", out: { error: NUMBER_INVALID } }
+  - { in: "15 핑크프릴 공짜", out: { error: PRICE_MISSING, no: 15, name: "핑크프릴 공짜" } }
+---
+suite: quick-input
+settings: { unit: WON }
+cases:
+  - { in: "15 핑크프릴 10000", out: { no: 15, name: "핑크프릴", price: 10000 } }
+  - { in: "15 핑크프릴 10", out: { error: PRICE_TOO_LOW, no: 15, name: "핑크프릴" } }   # 100원 미만 거부

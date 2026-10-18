@@ -1,0 +1,63 @@
+# R-3 채팅 주문 인식 — STRICT 모드, 기본 설정
+suite: chat
+settings: { parseMode: STRICT, multiNumber: ALL, maxNumber: 999 }
+cases:
+  # 기본 주문
+  - { in: "15", out: { claims: [15] } }
+  - { in: "15번", out: { claims: [15] } }
+  - { in: "  15  번 ", out: { claims: [15] } }
+  - { in: "15번이요", out: { claims: [15] } }
+  - { in: "15번요!!", out: { claims: [15] } }
+  - { in: "15 찜", out: { claims: [15] } }
+  - { in: "찜 15", out: { claims: [15] } }
+  - { in: "15번 찜할게요", out: { claims: [15] } }
+  - { in: "15번 주세요", out: { claims: [15] } }
+  - { in: "15 구매합니다", out: { claims: [15] } }
+  - { in: "15ㅎㅎ", out: { claims: [15] } }
+  - { in: "15번~~", out: { claims: [15] } }
+  - { in: "15 ❤️", out: { claims: [15] } }
+  - { in: "15.", out: { claims: [15] } }
+  - { in: "１５", out: { claims: [15] } }          # 전각 숫자
+  - { in: "015", out: { claims: [15] } }           # 선행 0
+  # 번호 여러 개
+  - { in: "15 28", out: { claims: [15, 28] } }
+  - { in: "15,28,31", out: { claims: [15, 28, 31] } }
+  - { in: "15번 28번", out: { claims: [15, 28] } }
+  - { in: "15/28", out: { claims: [15, 28] } }
+  - { in: "15 15", out: { claims: [15] } }         # 같은 메시지 안 중복은 하나
+  # 취소
+  - { in: "15 취소", out: { cancels: [15] } }
+  - { in: "15번 취소요", out: { cancels: [15] } }
+  - { in: "15번 취소해주세요", out: { cancels: [15] } }
+  # 주문 아님 — 번호 언급만 (콘솔 강조용)
+  - { in: "15번 너무 예뻐요", out: { mentions: [15] } }
+  - { in: "15번 18번 중에 뭐가 나아요?", out: { mentions: [15, 18] } }
+  - { in: "3개 남았나요?", out: { mentions: [3] } }
+  - { in: "15번 2개 가능해요?", out: { mentions: [15, 2] } }
+  # 주문 아님 — 아무것도 없음
+  - { in: "안녕하세요", out: {} }
+  - { in: "만원이요?", out: {} }
+  - { in: "0", out: {} }                            # 번호는 1부터
+  - { in: "1000", out: {} }                         # maxNumber 초과
+  - { in: "15000", out: {} }
+  - { in: "", out: {} }
+  - { in: "<script>15</script>", out: { mentions: [15] } }  # 주문 아님. 화면에선 반드시 이스케이프
+---
+suite: chat
+settings: { parseMode: STRICT, multiNumber: FIRST, maxNumber: 999 }
+cases:
+  - { in: "15 28", out: { claims: [15] } }
+  - { in: "15,28,31", out: { claims: [15] } }
+---
+suite: chat
+settings: { parseMode: STRICT, multiNumber: IGNORE, maxNumber: 999 }
+cases:
+  - { in: "15 28", out: { mentions: [15, 28] } }
+  - { in: "15", out: { claims: [15] } }
+---
+suite: chat
+settings: { parseMode: LOOSE, multiNumber: ALL, maxNumber: 999 }
+cases:
+  - { in: "15번 너무 예뻐요 살게요", out: { claims: [15] } }
+  - { in: "15번 18번 중에 뭐가 나아요?", out: { claims: [15, 18] } }
+  - { in: "예뻐요 15번", out: { mentions: [15] } }   # 맨 앞이 번호가 아니면 주문 아님

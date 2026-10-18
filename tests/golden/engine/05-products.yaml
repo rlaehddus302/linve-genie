@@ -1,0 +1,48 @@
+id: G-ENG-040
+title: 가격 변경 — 기본은 확정 찜의 가격 유지, 입금 전 찜에 적용 옵션
+refs: [PRD-02, R-10, DAT-05]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:30", type: product.update, b: b1, no: 15, price: 12000, applyTo: NEW_ONLY }
+  - { at: "20:01:00", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:01:01", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "16" }
+  - { at: "20:01:30", type: product.update, b: b1, no: 16, price: 6000, applyTo: UNPAID_CLAIMS }
+expect:
+  products:
+    b1/15: { price: 12000, priceHistory: [{ from: 10000, to: 12000 }] }
+    b1/16: { price: 6000, priceHistory: [{ from: 5000, to: 6000 }] }
+  buyers:
+    UC_A: { subtotal: 10000 }
+    UC_B: { subtotal: 6000 }
+---
+id: G-ENG-041
+title: 번호를 잘못 등록했다가 고침 — 틀린 번호의 찜은 확인 대상, 맞는 번호 보류 찜은 판정
+refs: [PRD-02, R-10, R-5]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 51, name: 핑크프릴, price: 10000 }   # 15를 51로 잘못 입력
+  - { at: "20:00:03", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }        # 보류
+  - { at: "20:00:04", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "51" }        # 화면의 오타를 보고 씀
+  - { at: "20:00:10", type: product.renumber, b: b1, from: 51, to: 15 }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: [] }
+    b1/51: { exists: false }
+  claims:
+    - { product: b1/15, buyer: UC_B, status: REJECTED, reason: RENUMBERED }
+---
+id: G-ENG-042
+title: 재고를 늘리면 대기 1순위부터 확정
+refs: [ORD-11, R-10]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }
+  - { at: "20:00:03", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15" }
+  - { at: "20:00:30", type: product.update, b: b1, no: 15, stock: 2 }
+expect:
+  products:
+    b1/15: { status: SOLD, winners: [UC_A, UC_B], waitlist: [UC_C] }

@@ -1,0 +1,115 @@
+id: G-ENG-030
+title: 접수순(기본) — 문자 수신이 더 빨라도 늦게 입력되면 대기
+refs: [ORD-08, ORD-09, R-6, INV-8]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:01:30", type: sms, b: b1, ref: s1, no: 15, received: "20:00:05" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: ["sms:s1"], conflict: false }
+---
+id: G-ENG-031
+title: 실제 시각순 — 1등이 잠금 전이면 더 빠른 문자찜이 자동 역전
+refs: [ORD-09, R-6, R-7]
+settings: { contention.policy: RECEIVED_TIME }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:40", type: sms, b: b1, ref: s1, no: 15, received: "20:00:05" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: "sms:s1", waitlist: [UC_A], conflict: false }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:s1", text: "15번 핑크프릴 10,000원 문자찜님 구매 감사합니다" }
+  effectCounts: { VOID_LABEL: 0 }        # A 라벨은 출력 전이었으므로 폐기할 것도 없다
+  pendingEffects:                         # A의 미실행 효과는 취소됨
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:s1", confirmVersion: 2 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: "sms:s1", confirmVersion: 2 }
+---
+id: G-ENG-032
+title: 실제 시각순 — 1등이 잠금 후면 충돌, 방송자가 바꾸기 선택
+refs: [ORD-09, ORD-10, R-7, INV-10]
+settings: { contention.policy: RECEIVED_TIME }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:12", type: effect.thanksSent, b: b1, no: 15, buyer: UC_A }          # 잠금
+  - { at: "20:00:40", type: sms, b: b1, ref: s1, no: 15, received: "20:00:05" }
+  - { type: assert, expect: { products: { b1/15: { winner: UC_A, conflict: true } }, claims: [{ product: b1/15, buyer: "sms:s1", status: CONFLICT }] } }
+  - { at: "20:01:00", type: host.resolveConflict, b: b1, no: 15, decision: SWITCH }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: "sms:s1", waitlist: [UC_A], conflict: false }
+---
+id: G-ENG-033
+title: 같은 분 동률 + 방송자 결정 → 잠금과 무관하게 충돌, 유지 선택
+refs: [ORD-09, ORD-10, R-6, R-7]
+settings: { contention.policy: RECEIVED_TIME, contention.sameMinuteTieBreaker: HOST }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:50", type: sms, b: b1, ref: s1, no: 15, received: "20:00" }       # 분 단위 → [20:00:00, 20:01:00)
+  - { type: assert, expect: { products: { b1/15: { winner: UC_A, conflict: true } } } }
+  - { at: "20:01:10", type: host.resolveConflict, b: b1, no: 15, decision: KEEP }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: ["sms:s1"], conflict: false }
+---
+id: G-ENG-034
+title: 같은 분 동률 + 문자 우선 → 잠금 전이므로 문자 역전
+refs: [ORD-09, R-6]
+settings: { contention.policy: RECEIVED_TIME, contention.sameMinuteTieBreaker: SMS }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:50", type: sms, b: b1, ref: s1, no: 15, received: "20:00" }
+expect:
+  products:
+    b1/15: { winner: "sms:s1", waitlist: [UC_A] }
+---
+id: G-ENG-035
+title: 같은 분 동률 + 유튜브 우선 → 문자는 대기
+refs: [ORD-09, R-6]
+settings: { contention.policy: RECEIVED_TIME, contention.sameMinuteTieBreaker: YOUTUBE }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:50", type: sms, b: b1, ref: s1, no: 15, received: "20:00" }
+expect:
+  products:
+    b1/15: { winner: UC_A, waitlist: ["sms:s1"], conflict: false }
+---
+id: G-ENG-036
+title: 분 단위 문자라도 구간이 완전히 앞서면 동률이 아니다 (HOST여도 충돌 아님)
+refs: [ORD-09, R-6]
+settings: { contention.policy: RECEIVED_TIME, contention.sameMinuteTieBreaker: HOST }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "19:58:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:50", type: sms, b: b1, ref: s1, no: 15, received: "19:59" }       # [19:59:00, 20:00:00) < 20:00:10
+expect:
+  products:
+    b1/15: { winner: "sms:s1", waitlist: [UC_A], conflict: false }
+---
+id: G-ENG-037
+title: 접수순이어도 방송자가 놓친 채팅을 찜으로 바꾸면 원래 순위로 → 1등을 밀어내야 하면 충돌
+refs: [ORD-01, ORD-10, ORD-12, R-7]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15번이용ㅎ 제가 살게요" }  # STRICT에선 주문 아님
+  - { at: "20:00:08", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }
+  - { at: "20:00:30", type: host.convertMessage, b: b1, msg: m1, no: 15 }
+  - { type: assert, expect: { products: { b1/15: { winner: UC_B, conflict: true } } } }
+  - { at: "20:00:40", type: host.resolveConflict, b: b1, no: 15, decision: SWITCH }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: [UC_B], conflict: false }

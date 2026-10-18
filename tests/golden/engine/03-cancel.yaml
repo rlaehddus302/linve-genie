@@ -1,0 +1,116 @@
+id: G-ENG-020
+title: 1등 취소 + 자동 승계 → 새 1등에게 라벨·감사, 이전 라벨 폐기
+refs: [ORD-07, R-8, R-13]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }
+  - { at: "20:00:03", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15" }
+  - { at: "20:00:04", type: effect.labelPrinted, b: b1, no: 15, buyer: UC_A }      # A 라벨은 이미 출력됨
+  - { at: "20:05:00", type: host.cancel, b: b1, no: 15, buyer: UC_A, reason: 구매자 요청 }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_B, waitlist: [UC_C] }
+  claims:
+    - { product: b1/15, buyer: UC_A, status: CANCELLED }
+  buyers:
+    UC_A: { subtotal: 0 }
+    UC_B: { subtotal: 10000 }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_B, text: "15번 핑크프릴 10,000원 김철수님 구매 감사합니다" }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_B }
+    - { kind: VOID_LABEL, product: b1/15, buyer: UC_A }
+  effectCounts: { POST_THANKS: 2, PRINT_PRODUCT_LABEL: 2, VOID_LABEL: 1 }
+---
+id: G-ENG-021
+title: 승계=재오픈 → 대기자 정리 후 다시 판매
+refs: [ORD-07, R-8]
+settings: { cancel.succession: REOPEN }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }
+  - { at: "20:05:00", type: host.cancel, b: b1, no: 15, buyer: UC_A, reason: 구매자 요청 }
+  - { type: assert, expect: { products: { b1/15: { status: OPEN, winner: null, waitlist: [] } }, claims: [{ product: b1/15, buyer: UC_B, status: REJECTED, reason: WAITLIST_CLEARED }] } }
+  - { at: "20:05:10", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15" }
+  - { at: "20:05:11", type: chat, b: b1, id: m4, ch: UC_B, nick: 김철수, text: "15" }   # 정리된 사람도 다시 찜 가능
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_C, waitlist: [UC_B] }
+---
+id: G-ENG-022
+title: 승계=묻기 → 결정 전 새 찜은 대기로만, 방송자가 지정
+refs: [ORD-07, R-8, R-4]
+settings: { cancel.succession: ASK }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }
+  - { at: "20:05:00", type: host.cancel, b: b1, no: 15, buyer: UC_A, reason: 구매자 요청 }
+  - { at: "20:05:05", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15" }
+  - { type: assert, expect: { products: { b1/15: { winner: null, waitlist: [UC_B, UC_C] } } } }
+  - { at: "20:05:30", type: host.promote, b: b1, no: 15, buyer: UC_C, reason: 단골 우선 }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_C, waitlist: [UC_B] }
+---
+id: G-ENG-023
+title: 시청자 채팅 취소(기본=요청) → 방송자 승인 후 반영
+refs: [ORD-07, R-8]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }
+  - { at: "20:01:00", type: chat, b: b1, id: m3, ch: UC_A, nick: 홍길동, text: "15 취소" }
+  - { at: "20:01:01", type: chat, b: b1, id: m4, ch: UC_C, nick: 이영희, text: "15번 취소요" }  # 활성 찜 없음 → 무시
+  - { type: assert, expect: { products: { b1/15: { winner: UC_A } }, cancelRequests: [{ product: b1/15, buyer: UC_A }] } }
+  - { at: "20:01:30", type: host.approveCancel, b: b1, no: 15, buyer: UC_A }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_B, waitlist: [] }
+  cancelRequests: []
+---
+id: G-ENG-024
+title: 시청자 취소=자동 — 잠금 전이면 즉시, 잠금 후면 요청으로
+refs: [ORD-07, R-8, R-7]
+settings: { cancel.buyerChat: AUTO }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:02", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:03", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }
+  - { at: "20:00:04", type: chat, b: b1, id: m3, ch: UC_A, nick: 홍길동, text: "16" }
+  - { at: "20:00:06", type: effect.labelPrinted, b: b1, no: 16, buyer: UC_A }     # 16번은 잠금
+  - { at: "20:01:00", type: chat, b: b1, id: m4, ch: UC_A, nick: 홍길동, text: "15 취소" }
+  - { at: "20:01:01", type: chat, b: b1, id: m5, ch: UC_A, nick: 홍길동, text: "16 취소" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_B }
+    b1/16: { status: SOLD, winner: UC_A }
+  cancelRequests: [{ product: b1/16, buyer: UC_A }]
+---
+id: G-ENG-025
+title: 장난 찜 무효 처리 → 승계, 차단된 구매자의 이후 찜은 거절
+refs: [ORD-12, R-8, R-9]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_X, nick: 장난꾼, text: "15" }
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }
+  - { at: "20:00:30", type: host.reject, b: b1, no: 15, buyer: UC_X, reason: 장난 주문 }
+  - { at: "20:00:31", type: host.blockBuyer, buyer: UC_X, reason: 반복 장난 }
+  - { at: "20:01:00", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:01:01", type: chat, b: b1, id: m3, ch: UC_X, nick: 장난꾼, text: "16" }
+  - { at: "20:01:02", type: chat, b: b1, id: m4, ch: UC_C, nick: 이영희, text: "16" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_B }
+    b1/16: { status: SOLD, winner: UC_C, waitlist: [] }
+  claims:
+    - { product: b1/15, buyer: UC_X, status: REJECTED, reason: BY_HOST }
+    - { product: b1/16, buyer: UC_X, status: REJECTED, reason: BLOCKED }

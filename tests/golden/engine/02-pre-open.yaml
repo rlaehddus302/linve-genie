@@ -1,0 +1,78 @@
+id: G-ENG-010
+title: 등록보다 먼저 온 찜은 보류했다가 등록 순간 순서대로 판정
+refs: [ORD-06, R-5]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:07", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }
+  - { type: assert, expect: { pending: { b1/15: [UC_A, UC_B] }, products: { b1/15: { exists: false } } } }
+  - { at: "20:00:12", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:13", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: [UC_B, UC_C] }
+  pending: { b1/15: [] }
+---
+id: G-ENG-011
+title: 유효 시간(30초)보다 오래된 보류 찜은 만료
+refs: [ORD-06, R-5]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:40", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }
+  - { at: "20:00:45", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }  # 유효 구간 20:00:15~
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_B, waitlist: [] }
+  claims:
+    - { product: b1/15, buyer: UC_A, status: REJECTED, reason: EXPIRED }
+---
+id: G-ENG-012
+title: 미리 등록한(READY) 상품은 공개 시점 기준으로 판정
+refs: [PRD-04, ORD-06, R-2, R-5]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "19:50:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000, status: READY }
+  - { at: "19:50:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000, status: READY }
+  - { at: "19:59:00", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "16" }   # 공개 2분 전 — 만료 대상
+  - { at: "20:00:10", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }
+  - { at: "20:00:20", type: product.open, b: b1, no: 15 }
+  - { at: "20:01:00", type: product.open, b: b1, no: 16 }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_B }
+    b1/16: { status: OPEN, winner: null }
+  claims:
+    - { product: b1/16, buyer: UC_A, status: REJECTED, reason: EXPIRED }
+---
+id: G-ENG-013
+title: 일시 중지(HOLD) 상품은 찜을 받지 않는다
+refs: [PRD-04, R-4]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.hold, b: b1, no: 15 }
+  - { at: "20:00:02", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:30", type: product.open, b: b1, no: 15 }
+  - { at: "20:00:31", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_B, waitlist: [] }
+  claims:
+    - { product: b1/15, buyer: UC_A, status: REJECTED, reason: NOT_ON_SALE }
+---
+id: G-ENG-014
+title: 방송이 다르면 같은 번호라도 다른 상품 (채팅은 자기 방송에만 적용)
+refs: [R-0, STL-01]
+broadcasts:
+  - { id: b1, date: 2026-10-18, title: 1부 }
+  - { id: b2, date: 2026-10-18, title: 2부 }
+events:
+  - { at: "14:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "14:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:00", type: product.register, b: b2, no: 15, name: 라울, price: 5000 }
+  - { at: "20:00:01", type: chat, b: b2, id: n1, ch: UC_B, nick: 김철수, text: "15" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: [] }
+    b2/15: { status: SOLD, winner: UC_B, waitlist: [] }

@@ -1,0 +1,55 @@
+id: G-ENG-060
+title: 문자찜 감사 메시지에는 메모·전화번호를 절대 넣지 않는다
+refs: [YT-04, ORD-08, DAT-06]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:05", type: sms, b: b1, ref: s1, no: 15, received: "20:00:03", memo: 김영희 이모, phone: "010-9999-1234" }
+expect:
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:s1", text: "15번 핑크프릴 10,000원 문자찜님 구매 감사합니다" }
+---
+id: G-ENG-061
+title: 감사 메시지·자동 출력을 끄면 효과가 나오지 않는다
+refs: [YT-04, LBL-09]
+settings: { thanks.liveChat: false, print.autoOnConfirm: false }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+expect:
+  products:
+    b1/15: { winner: UC_A }
+  effectCounts: { POST_THANKS: 0, PRINT_PRODUCT_LABEL: 0 }
+---
+id: G-ENG-062
+title: 영상 댓글(판매마다)을 켜면 채팅·댓글 두 곳에 각각 효과
+refs: [YT-04, YT-05]
+settings: { thanks.videoComment: PER_SALE }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+expect:
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A }
+    - { kind: POST_THANKS, target: VIDEO_COMMENT, product: b1/15, buyer: UC_A }
+  effectCounts: { POST_THANKS: 2 }
+---
+id: G-ENG-063
+title: 1등이 A→문자→A로 바뀌면 매번 미실행 효과는 취소되고, 다시 확정된 A는 새 확정 버전의 효과를 받는다
+refs: [R-7, R-13, INV-11]
+settings: { contention.policy: RECEIVED_TIME }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:20", type: sms, b: b1, ref: s1, no: 15, received: "20:00:05" }
+  - { at: "20:00:30", type: host.cancel, b: b1, no: 15, buyer: "sms:s1", reason: 문자 착오 }   # 다시 UC_A가 1등
+expect:
+  products:
+    b1/15: { winner: UC_A, waitlist: [] }
+  effectCounts: { POST_THANKS: 3, PRINT_PRODUCT_LABEL: 3, VOID_LABEL: 0 }   # A → s1 → A(새 확정 버전). 출력된 라벨이 없으니 폐기도 없음
+  pendingEffects:                                     # 아직 실행 대상인 효과만
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, confirmVersion: 3 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_A, confirmVersion: 3 }

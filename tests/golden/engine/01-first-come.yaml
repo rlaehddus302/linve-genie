@@ -1,0 +1,111 @@
+id: G-ENG-001
+title: 기본 선착순 — 먼저 쓴 사람이 산다. 재수신·같은 사람 반복은 무시
+refs: [ORD-02, ORD-03, ORD-04, R-4, INV-2, INV-3]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:02.100", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:02.300", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15번" }
+  - { at: "20:00:02.400", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }   # 같은 메시지 재수신
+  - { at: "20:00:03.000", type: chat, b: b1, id: m3, ch: UC_A, nick: 홍길동, text: "15!!" } # 같은 사람 반복
+  - { at: "20:00:03.500", type: chat, b: b1, id: m4, ch: UC_C, nick: 이영희, text: "15" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: [UC_B, UC_C] }
+  buyers:
+    UC_A: { items: [b1/15], subtotal: 10000 }
+    UC_B: { items: [], subtotal: 0 }
+  claimCount: 3
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, text: "15번 핑크프릴 10,000원 홍길동님 구매 감사합니다" }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_A }
+  effectCounts: { POST_THANKS: 1, PRINT_PRODUCT_LABEL: 1 }
+---
+id: G-ENG-002
+title: 상품별 독립 판정 + 대기 한도 초과는 품절
+refs: [ORD-03, ORD-04, R-4]
+settings: { waitlist.max: 2 }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 28, name: 라울, price: 5000 }
+  - { at: "20:00:02", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:03", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "28" }
+  - { at: "20:00:04", type: chat, b: b1, id: m3, ch: UC_B, nick: 김철수, text: "15" }
+  - { at: "20:00:05", type: chat, b: b1, id: m4, ch: UC_C, nick: 이영희, text: "15" }
+  - { at: "20:00:06", type: chat, b: b1, id: m5, ch: UC_D, nick: 박민수, text: "15" }
+  - { at: "20:00:07", type: chat, b: b1, id: m6, ch: UC_A, nick: 홍길동, text: "28" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: [UC_B, UC_C] }
+    b1/28: { status: SOLD, winner: UC_B, waitlist: [UC_A] }
+  claims:
+    - { product: b1/15, buyer: UC_D, status: REJECTED, reason: SOLD_OUT }
+  buyers:
+    UC_A: { subtotal: 10000 }
+    UC_B: { subtotal: 5000 }
+---
+id: G-ENG-003
+title: 과거에 소개한 번호도 계속 주문된다 (요청서 3-3)
+refs: [PRD-03, R-4]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:01:00", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:01:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "16" }
+  - { at: "20:20:00", type: product.register, b: b1, no: 50, name: 방울복랑, price: 15000 }
+  - { at: "20:20:10", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }   # 20분 전 상품
+  - { at: "20:20:11", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "16" }   # 이미 팔린 과거 상품
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_B }
+    b1/16: { status: SOLD, winner: UC_A, waitlist: [UC_C] }
+    b1/50: { status: OPEN, winner: null }
+---
+id: G-ENG-004
+title: 대기 한도 0이면 1등 외 모두 품절
+refs: [ORD-04]
+settings: { waitlist.max: 0 }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: [] }
+  claims:
+    - { product: b1/15, buyer: UC_B, status: REJECTED, reason: SOLD_OUT }
+---
+id: G-ENG-005
+title: 한 메시지 여러 번호 + 방송자 본인 채팅 무시
+refs: [ORD-01, R-3]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 28, name: 라울, price: 5000 }
+  - { at: "20:00:02", type: chat, b: b1, id: m0, ch: UC_OWNER, nick: 비트다육, owner: true, text: "15" }
+  - { at: "20:00:03", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15, 28" }
+  - { at: "20:00:04", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15번 너무 예뻐요" }  # 주문 아님
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: [] }
+    b1/28: { status: SOLD, winner: UC_A }
+  buyers:
+    UC_A: { items: [b1/15, b1/28], subtotal: 15000 }
+  claimCount: 2
+---
+id: G-ENG-006
+title: 재고 2 — 앞선 2명 확정, 취소되면 대기자 승계
+refs: [ORD-11, R-4, R-8]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴 모종, price: 3000, stock: 2 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }
+  - { at: "20:00:03", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15" }
+  - { type: assert, expect: { products: { b1/15: { status: SOLD, winners: [UC_A, UC_B], waitlist: [UC_C] } } } }
+  - { at: "20:01:00", type: host.cancel, b: b1, no: 15, buyer: UC_A, reason: 구매자 요청 }
+expect:
+  products:
+    b1/15: { status: SOLD, winners: [UC_B, UC_C], waitlist: [] }

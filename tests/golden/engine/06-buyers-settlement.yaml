@@ -1,0 +1,115 @@
+id: G-ENG-050
+title: 요청서 3-7 예시 — 구매자별 합산, 취소한 찜은 제외
+refs: [BUY-04, STL-03, R-12, INV-5, INV-9]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 28, name: 라울, price: 5000 }
+  - { at: "20:00:02", type: product.register, b: b1, no: 31, name: 방울복랑, price: 15000 }
+  - { at: "20:00:03", type: product.register, b: b1, no: 40, name: 라울, price: 7000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_H, nick: 홍길동, text: "15,28,31" }
+  - { at: "20:00:11", type: chat, b: b1, id: m2, ch: UC_H, nick: 홍길동, text: "40" }
+  - { at: "20:10:00", type: host.cancel, b: b1, no: 40, buyer: UC_H, reason: 구매자 변심 }
+expect:
+  buyers:
+    UC_H: { items: [b1/15, b1/28, b1/31], subtotal: 30000 }
+  settlements:
+    UC_H@2026-10-18: { subtotal: 30000, shipping: 4000, total: 34000, payment: UNPAID }
+  effectCounts: { POST_THANKS: 4 }
+---
+id: G-ENG-051
+title: 요청서 3-8 예시 — 1·2·3부 통합 45,000원, 닉네임 변경은 같은 사람, 동명이인은 다른 사람
+refs: [STL-01, BUY-01, R-11, R-12]
+broadcasts:
+  - { id: b1, date: 2026-10-18, title: 1부 }
+  - { id: b2, date: 2026-10-18, title: 2부 }
+  - { id: b3, date: 2026-10-18, title: 3부 }
+events:
+  - { at: "10:00:00", type: product.register, b: b1, no: 1, name: 핑크프릴, price: 10000 }
+  - { at: "10:00:01", type: product.register, b: b1, no: 2, name: 라울, price: 10000 }
+  - { at: "10:00:05", type: chat, b: b1, id: a1, ch: UC_H, nick: 홍길동, text: "1 2" }
+  - { at: "14:00:00", type: product.register, b: b2, no: 1, name: 방울복랑, price: 15000 }
+  - { at: "14:00:05", type: chat, b: b2, id: b1m, ch: UC_H, nick: 길동이, text: "1" }       # 닉네임 바뀜, 같은 채널
+  - { at: "20:00:00", type: product.register, b: b3, no: 1, name: 성미인, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b3, no: 2, name: 미니마, price: 5000 }
+  - { at: "20:00:05", type: chat, b: b3, id: c1, ch: UC_H, nick: 길동이, text: "1" }
+  - { at: "20:00:06", type: chat, b: b3, id: c2, ch: UC_H2, nick: 홍길동, text: "2" }       # 다른 채널, 같은 닉네임
+expect:
+  buyers:
+    UC_H: { subtotal: 45000, byBroadcast: { b1: 20000, b2: 15000, b3: 10000 }, display: 길동이, nameHistory: [홍길동, 길동이] }
+    UC_H2: { subtotal: 5000, display: 홍길동 }
+  settlements:
+    UC_H@2026-10-18: { subtotal: 45000, shipping: 4000, total: 49000 }
+    UC_H2@2026-10-18: { subtotal: 5000, shipping: 4000, total: 9000 }
+---
+id: G-ENG-052
+title: 배송비 규칙 — 무료 기준, 직접 수령, 조정(할인), 품목 없음
+refs: [STL-02, STL-03, R-12]
+settings: { shipping.baseFee: 4000, shipping.freeThreshold: 50000 }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 1, name: 금황성, price: 50000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 2, name: 라일락, price: 49000 }
+  - { at: "20:00:02", type: product.register, b: b1, no: 3, name: 라울, price: 5000 }
+  - { at: "20:00:03", type: product.register, b: b1, no: 4, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 가, text: "1" }
+  - { at: "20:00:11", type: chat, b: b1, id: m2, ch: UC_B, nick: 나, text: "2" }
+  - { at: "20:00:12", type: chat, b: b1, id: m3, ch: UC_C, nick: 다, text: "3" }
+  - { at: "20:00:13", type: chat, b: b1, id: m4, ch: UC_D, nick: 라, text: "4" }
+  - { at: "20:30:00", type: host.cancel, b: b1, no: 4, buyer: UC_D, reason: 구매자 요청 }
+  - { at: "21:00:00", type: settlement.shippingOverride, buyer: UC_C, date: 2026-10-18, mode: PICKUP }
+  - { at: "21:00:01", type: settlement.adjust, buyer: UC_B, date: 2026-10-18, amount: -3000, reason: 단골 할인 }
+expect:
+  settlements:
+    UC_A@2026-10-18: { subtotal: 50000, shipping: 0, total: 50000 }
+    UC_B@2026-10-18: { subtotal: 49000, shipping: 4000, adjustments: -3000, total: 50000 }
+    UC_C@2026-10-18: { subtotal: 5000, shipping: 0, total: 5000 }
+    UC_D@2026-10-18: { subtotal: 0, shipping: 0, total: 0 }
+---
+id: G-ENG-053
+title: 입금 후 취소 → 과입금(환불 필요) → 환불 기록 후 입금 완료
+refs: [STL-07, STL-09, R-12]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 28, name: 라울, price: 5000 }
+  - { at: "20:00:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15 28" }
+  - { at: "21:00:00", type: settlement.payment, buyer: UC_A, date: 2026-10-18, amount: 19000 }
+  - { type: assert, expect: { settlements: { UC_A@2026-10-18: { total: 19000, payment: PAID } } } }
+  - { at: "21:10:00", type: host.cancel, b: b1, no: 28, buyer: UC_A, reason: 상품 하자 }
+  - { type: assert, expect: { settlements: { UC_A@2026-10-18: { total: 14000, payment: OVERPAID, refundDue: 5000 } } } }
+  - { at: "21:20:00", type: settlement.refund, buyer: UC_A, date: 2026-10-18, amount: 5000, reason: 28번 하자 환불 }
+expect:
+  settlements:
+    UC_A@2026-10-18: { total: 14000, payment: PAID, refundDue: 0 }
+---
+id: G-ENG-054
+title: 문자찜 구매자를 유튜브 구매자와 합치기 → 배송비 한 번, 되돌리기 가능
+refs: [BUY-03, R-11, R-12]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:05", type: sms, b: b1, ref: s1, no: 15, received: "20:00:03", memo: 길동 }
+  - { at: "20:00:06", type: chat, b: b1, id: m1, ch: UC_H, nick: 홍길동, text: "16" }
+  - { at: "21:00:00", type: buyer.merge, from: "sms:s1", into: UC_H, reason: 같은 사람 확인 }
+  - { type: assert, expect: { buyers: { UC_H: { items: [b1/15, b1/16], subtotal: 15000 } }, settlements: { UC_H@2026-10-18: { shipping: 4000, total: 19000 } } } }
+  - { at: "21:05:00", type: buyer.unmerge, from: "sms:s1", reason: 잘못 합침 }
+expect:
+  buyers:
+    UC_H: { items: [b1/16], subtotal: 5000 }
+    "sms:s1": { items: [b1/15], subtotal: 10000 }
+---
+id: G-ENG-055
+title: 전화번호가 같은 문자찜은 같은 구매자 (형식이 달라도)
+refs: [BUY-02, R-11]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:05", type: sms, b: b1, ref: s1, no: 15, received: "20:00", phone: "010-1234-5678" }
+  - { at: "20:00:06", type: sms, b: b1, ref: s2, no: 16, received: "20:00", phone: "01012345678" }
+expect:
+  sameBuyer: [["sms:s1", "sms:s2"]]
+  settlements:
+    "sms:s1@2026-10-18": { subtotal: 15000, shipping: 4000, total: 19000 }
