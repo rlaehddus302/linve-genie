@@ -110,8 +110,8 @@ describe('AC-S01-21 한글 단위', () => {
         ['2십만', 200000],
         ['만 이천 오백 십 오 원', 12515],
         ['오', 5],
-        ['만오', 10005],
-        ['천오', 1005],
+        ['만오', null], // D-032: 일의 자리 바로 앞이 만 (15,000? 10,005?)
+        ['천오', null], // D-032: 일의 자리 바로 앞이 천 (1,500? 1,005?)
         ['구천구백구십구만 구천구백구십구', 99999999],
         ['9999만', 99990000],
       ],
@@ -187,19 +187,103 @@ describe('AC-S01-21 한글 단위', () => {
     )
   })
 
-  it('속성: 1 ≤ n ≤ 99,999,999의 표준 한자어 읽기(+원) → n (WON·THOUSAND)', () => {
+  it('D-032: 한글 일의 자리는 앞에 단위가 없거나 바로 앞 단위가 십일 때만 — 바로 앞이 만·천·백이면 null (공백·만의 계수 안 포함)', () => {
+    const cases: ReadonlyArray<readonly [string, number | null]> = [
+      // R-14 4 규칙 문장의 실패 예
+      ['만오', null],
+      ['만 오', null],
+      ['이만오', null],
+      ['천오', null],
+      ['삼천오', null],
+      ['오천오 원', null],
+      ['백오', null],
+      ['1천오', null],
+      ['1만 오', null],
+      ['만오천오', null],
+      ['백만오', null],
+      ['백오만', null],
+      // 같은 모양: 일(1)도 일의 자리, 숫자 계수여도 바로 앞 단위로 본다, 공백을 사이에 둬도 같다
+      ['만일', null],
+      ['백일', null],
+      ['천사', null],
+      ['1백오', null],
+      ['만 천 백 오', null],
+      ['일만 일', null],
+      ['천오만', null],
+      ['1천오만', null],
+      ['백오만 1005', null],
+      ['구천구백구십구만 구천구백구', null],
+      // 받는 예
+      ['오', 5],
+      ['오원', 5],
+      ['십오', 15],
+      ['오십오', 55],
+      ['백오십', 150],
+      ['천오백원', 1500],
+      ['십일', 11],
+      ['백십일', 111],
+      ['만십오', 10015],
+      ['만 십 오', 10015],
+      ['만오백', 10500],
+      ['오만', 50000],
+      ['오만오천', 55000],
+      ['십오만', 150000],
+      ['오십오만 오십오', 550055],
+      ['105만', 1050000], // 숫자 계수에는 적용하지 않는다
+      ['1005만', 10050000],
+      ['1만 1005', 11005], // 만 뒤 네 자리 숫자에는 한글 일의 자리가 없다
+    ]
+    table(cases, WON)
+    table(cases, THOUSAND)
+  })
+
+  /** AC-S01-21 속성의 예외식: 만 미만 묶음 b, 만의 계수 m에 대해 표준 읽기에서 일의 자리 한글 숫자 바로 앞이 만·천·백인 수 */
+  const ambiguousOnes = (n: number): boolean => {
+    const below = n % 10000
+    const man = Math.floor(n / 10000)
+    const ones = (v: number): boolean => v % 100 >= 1 && v % 100 <= 9
+    return (ones(below) && (below >= 100 || man >= 1)) || (ones(man) && man >= 100)
+  }
+
+  /** 같은 판정을 읽기 글자에 규칙 문장대로 직접 적용한 것: 한글 일의 자리(만 앞 계수의 끝, 맨 끝) 바로 앞 글자가 만·천·백인가 */
+  const ambiguousReading = (text: string): boolean => {
+    const SINO = '일이삼사오육칠팔구'
+    const endsWithOnesAfterBigUnit = (part: string): boolean => part.length >= 2 && SINO.includes(part.slice(-1)) && '만천백'.includes(part.slice(-2, -1))
+    const man = text.indexOf('만')
+    return endsWithOnesAfterBigUnit(text) || (man >= 0 && endsWithOnesAfterBigUnit(text.slice(0, man)))
+  }
+
+  it('속성: 예외식은 읽기 글자에 규칙 문장을 그대로 적용한 결과와 같다 (1..20000 전부 + 무작위)', () => {
+    for (let n = 1; n <= 20000; n++) expect(ambiguousOnes(n), String(n)).toBe(ambiguousReading(sinoReading(n)))
+    fc.assert(
+      fc.property(fc.integer({ min: 1, max: 99_999_999 }), (n) => {
+        expect(ambiguousOnes(n), String(n)).toBe(ambiguousReading(sinoReading(n)))
+      }),
+      { numRuns: 5000 },
+    )
+  })
+
+  it('속성: 1 ≤ n ≤ 99,999,999의 표준 한자어 읽기(+원) → n, 단 D-032 예외식에 드는 n은 null (WON·THOUSAND)', () => {
     fc.assert(
       fc.property(fc.integer({ min: 1, max: 99_999_999 }), fc.boolean(), (n, won) => {
         const text = `${sinoReading(n)}${won ? '원' : ''}`
-        expect(parseAmount(text, WON), text).toBe(n)
-        expect(parseAmount(text, THOUSAND), text).toBe(n)
+        const expected = ambiguousOnes(n) ? null : n
+        expect(parseAmount(text, WON), text).toBe(expected)
+        expect(parseAmount(text, THOUSAND), text).toBe(expected)
       }),
       { numRuns: 3000 },
     )
   })
 
-  it('속성: 1..20000의 표준 한자어 읽기를 모두 확인', () => {
-    for (let n = 1; n <= 20000; n++) expect(parseAmount(sinoReading(n), WON)).toBe(n)
+  it('속성: 1..20000의 표준 한자어 읽기를 모두 확인 (D-032 예외식에 드는 n은 null)', () => {
+    let rejected = 0
+    for (let n = 1; n <= 20000; n++) {
+      const expected = ambiguousOnes(n) ? null : n
+      if (expected === null) rejected++
+      expect(parseAmount(sinoReading(n), WON), sinoReading(n)).toBe(expected)
+    }
+    // 예외식이 비어 있으면 위 확인이 D-032를 보지 못한다: 만 미만 b = 100..9999 중 b mod 100이 1~9인 수 891개 + 1만대 이상의 b = 1..9 등
+    expect(rejected).toBeGreaterThan(1000)
   })
 })
 
@@ -301,9 +385,10 @@ describe('빠른 입력이 기대는 성질: 해석되는 금액의 토큰 수�
 })
 
 describe('parseBelowMan — 금액(R-14)·한글 수사(R-15) 공용 만 미만 해석', () => {
+  const literal = { onesOnlyAfterTen: false, afterMan: false } as const
   const both = [
-    { spaces: true, digitCoefficients: true },
-    { spaces: false, digitCoefficients: false },
+    { spaces: true, digitCoefficients: true, onesOnlyAfterTen: true, afterMan: false },
+    { spaces: false, digitCoefficients: false, ...literal },
   ]
   it('빈 문자열·끝 공백·앞 공백은 null', () => {
     for (const options of both) {
@@ -314,9 +399,30 @@ describe('parseBelowMan — 금액(R-14)·한글 수사(R-15) 공용 만 미만 
   })
 
   it('옵션: 공백·숫자 계수', () => {
-    expect(parseBelowMan('이천 오백', { spaces: true, digitCoefficients: false })).toBe(2500)
-    expect(parseBelowMan('이천 오백', { spaces: false, digitCoefficients: true })).toBeNull()
-    expect(parseBelowMan('2천5백', { spaces: false, digitCoefficients: true })).toBe(2500)
-    expect(parseBelowMan('2천5백', { spaces: true, digitCoefficients: false })).toBeNull()
+    expect(parseBelowMan('이천 오백', { spaces: true, digitCoefficients: false, ...literal })).toBe(2500)
+    expect(parseBelowMan('이천 오백', { spaces: false, digitCoefficients: true, ...literal })).toBeNull()
+    expect(parseBelowMan('2천5백', { spaces: false, digitCoefficients: true, ...literal })).toBe(2500)
+    expect(parseBelowMan('2천5백', { spaces: true, digitCoefficients: false, ...literal })).toBeNull()
+  })
+
+  it('옵션: 단위 바로 뒤 한글 일의 자리 (D-032) — 금액은 켜고, R-15 번호는 끈다', () => {
+    const amount = { spaces: true, digitCoefficients: true, onesOnlyAfterTen: true, afterMan: false } as const
+    const remainder = { ...amount, afterMan: true } as const
+    const number = { spaces: false, digitCoefficients: false, ...literal } as const
+    // 바로 앞 단위가 천·백 → 금액 null, 번호는 글자 그대로
+    expect(parseBelowMan('천오', amount)).toBeNull()
+    expect(parseBelowMan('천오', number)).toBe(1005)
+    expect(parseBelowMan('백일', amount)).toBeNull()
+    expect(parseBelowMan('백일', number)).toBe(101)
+    expect(parseBelowMan('천 백 오', amount)).toBeNull()
+    // 바로 앞 단위가 십이거나 앞에 단위가 없으면 받는다
+    expect(parseBelowMan('백십오', amount)).toBe(115)
+    expect(parseBelowMan('오', amount)).toBe(5)
+    // 만 뒤 나머지: 첫 묶음의 바로 앞 단위는 만
+    expect(parseBelowMan('오', remainder)).toBeNull()
+    expect(parseBelowMan('십오', remainder)).toBe(15)
+    expect(parseBelowMan('오백', remainder)).toBe(500)
+    // afterMan만 켜고 onesOnlyAfterTen을 끄면 글자 그대로
+    expect(parseBelowMan('오', { ...remainder, onesOnlyAfterTen: false })).toBe(5)
   })
 })

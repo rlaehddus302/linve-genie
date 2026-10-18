@@ -1,8 +1,10 @@
 // R-15 한글 수사 → 상품 번호 (음성 번호용, D-029). 결과는 1..9999 또는 null.
-import { parseBelowMan } from './amount.ts'
+import { parseBelowMan, type BelowManOptions } from './amount.ts'
 import { asText, isAllDigits, normalizeText } from './text.ts'
 
 const MAX_DIGITS = 4
+/** 한자어 수사: 공백·숫자 계수 없음, 일의 자리는 글자 그대로 (R-15: 금액의 D-032는 적용하지 않는다, `백오` → 105) */
+const NUMBER_BELOW_MAN: BelowManOptions = { spaces: false, digitCoefficients: false, onesOnlyAfterTen: false, afterMan: false }
 
 /** 고유어 십의 자리 */
 const NATIVE_TENS: ReadonlyArray<readonly [string, number]> = [
@@ -62,5 +64,5 @@ export function parseKoreanNumber(text: string): number | null {
   }
   // 한자어(천·백·십 + 일~구, 공백·숫자 계수 없음 → 1..9999) 또는 고유어(1..99).
   // 둘을 섞으면(`백열다섯`) 어느 쪽에도 맞지 않는다. `만` 이상은 지원하지 않는다.
-  return parseBelowMan(s, { spaces: false, digitCoefficients: false }) ?? parseNative(s)
+  return parseBelowMan(s, NUMBER_BELOW_MAN) ?? parseNative(s)
 }

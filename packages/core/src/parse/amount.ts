@@ -78,20 +78,37 @@ function parseNumeral(s: string, unitIsWon: boolean): number | null {
 
 // ── 한글 단위 형식 (R-14 4) ──────────────────────────────────────────────
 
-interface BelowManOptions {
+export interface BelowManOptions {
   /** 단위 묶음 사이 공백 허용 */
   readonly spaces: boolean
   /** 천·백·십의 계수로 숫자 1~9 허용 (R-15 한글 수사는 한글만) */
   readonly digitCoefficients: boolean
+  /**
+   * 금액(R-14 4, D-032): 한글 일의 자리는 앞에 단위가 없거나 바로 앞 단위가 십일 때만 받는다.
+   * 바로 앞이 만·천·백이면(묶음 사이 공백이 있어도) null. `만오`·`천오`·`백오`는 줄임말(15,000·1,500·150)인지 글자 그대로인지 애매하다.
+   * 한글 수사(R-15 번호)는 글자 그대로 읽으므로 끈다(`백오` → 105).
+   */
+  readonly onesOnlyAfterTen: boolean
+  /** 만 뒤의 나머지를 읽는다: 첫 묶음의 바로 앞 단위는 만이다(`만 오`의 `오`). onesOnlyAfterTen과 함께 쓴다. */
+  readonly afterMan: boolean
 }
+
+/** R-14 금액: 만이 없는 만 미만 표현 */
+const AMOUNT_BELOW_MAN: BelowManOptions = { spaces: true, digitCoefficients: true, onesOnlyAfterTen: true, afterMan: false }
+/** R-14 금액: 만의 한글 계수 (공백 없음) */
+const AMOUNT_MAN_COEFFICIENT: BelowManOptions = { spaces: false, digitCoefficients: true, onesOnlyAfterTen: true, afterMan: false }
+/** R-14 금액: 만 뒤의 한글 나머지 */
+const AMOUNT_MAN_REMAINDER: BelowManOptions = { spaces: true, digitCoefficients: true, onesOnlyAfterTen: true, afterMan: true }
 
 /**
  * 만 미만 표현 `[계수]천 [계수]백 [계수]십 [일의 자리]` → 1..9999. 틀리면 null(빈 문자열 포함).
  * - 큰 단위부터 한 번씩, 계수 생략은 1. 계수는 숫자 1~9(허용 시) 또는 한글 일~구, 단위에 붙여 쓴다.
  * - 일의 자리는 한글 일~구만, 맨 끝에만. 단위 뒤의 단위 없는 숫자(`2천500`)는 실패.
+ * - onesOnlyAfterTen이면 일의 자리의 바로 앞 단위가 없거나 십이어야 한다 (D-032).
  */
 export function parseBelowMan(s: string, options: BelowManOptions): number | null {
   let total = 0
+  // 마지막으로 읽은 단위의 지수. 아직 없으면 만(4): 다음 단위는 이보다 작아야 한다.
   let lastExponent = MAN_EXPONENT
   let groups = 0
   let i = 0
@@ -113,25 +130,34 @@ export function parseBelowMan(s: string, options: BelowManOptions): number | nul
     }
     // 단위가 없으면 한글 일의 자리여야 하고, 거기서 끝나야 한다
     if (sino === undefined || i !== s.length) return null
+    // D-032: 바로 앞 단위(앞 묶음의 단위, 첫 묶음이면 만 뒤 나머지의 만)가 있는데 십이 아니면 애매하다
+    const unitBefore = groups > 0 || options.afterMan
+    if (options.onesOnlyAfterTen && unitBefore && lastExponent !== 1) return null
     total += sino
     groups++
   }
   return groups > 0 ? total : null
 }
 
-/** 만의 계수: 숫자 1~4자리(선행 0 없음) 또는 공백 없는 만 미만 한글 단위 표현. 생략은 1. */
+/**
+ * 만의 계수: 숫자 1~4자리(선행 0 없음) 또는 공백 없는 만 미만 한글 단위 표현. 생략은 1.
+ * 한글 계수 안에서도 D-032를 적용한다(`백오만` null, `십오만` 15). 숫자 계수(`105만`)에는 한글 일의 자리가 없다.
+ */
 function parseManCoefficient(s: string): number | null {
   if (s === '') return 1
   if (isAllDigits(s)) return s.length <= 4 && !s.startsWith('0') ? Number(s) : null
-  return parseBelowMan(s, { spaces: false, digitCoefficients: true })
+  return parseBelowMan(s, AMOUNT_MAN_COEFFICIENT)
 }
 
-/** 만 뒤의 나머지: 정확히 네 자리 숫자(`2500`, `2,500`, 선행 0 없음) 또는 만 미만 한글 단위 표현 */
+/**
+ * 만 뒤의 나머지: 정확히 네 자리 숫자(`2500`, `2,500`, 선행 0 없음) 또는 만 미만 한글 단위 표현.
+ * 한글 표현의 첫 묶음 바로 앞 단위는 만이다(`만오`·`만 오` null, `만십오` 10,015). 네 자리 숫자에는 한글 일의 자리가 없다(`1만 1005`).
+ */
 function parseManRemainder(s: string): number | null {
   const grouped = s.length === 5 && s[1] === ','
   const digits = grouped ? `${s[0]}${s.slice(2)}` : s
   if (isAllDigits(digits)) return digits.length === 4 && !digits.startsWith('0') ? Number(digits) : null
-  return parseBelowMan(s, { spaces: true, digitCoefficients: true })
+  return parseBelowMan(s, AMOUNT_MAN_REMAINDER)
 }
 
 /** 소수 계수 + 단위 하나 (`1.5만`, `1.25만`, `1.5천`, `0.5만`) */
@@ -156,7 +182,7 @@ function parseKoreanUnits(s: string): number | null {
   const parts = s.split(MAN)
   if (parts.length > 2) return null
   const [before, after] = parts as [string, string | undefined]
-  if (after === undefined) return parseBelowMan(s, { spaces: true, digitCoefficients: true })
+  if (after === undefined) return parseBelowMan(s, AMOUNT_BELOW_MAN)
   const coefficient = parseManCoefficient(before)
   if (coefficient === null) return null
   const remainderText = after.startsWith(' ') ? after.slice(1) : after
