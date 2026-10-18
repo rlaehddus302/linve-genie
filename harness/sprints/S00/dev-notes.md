@@ -32,3 +32,37 @@ README에 문장으로 없는 부분은 판매자에게 안전한 쪽(오타가 
 ### 의존성 메모 (AC-S00-02)
 - 루트 `@livejjim/core`(workspace:*)·`fast-check`는 지금 루트 파일이 import하지 않지만, `tests/adversarial`이 import하도록 둔 것이다(AC-S00-15가 요구). 노드 모듈 해석은 루트 `node_modules`에서 찾는다.
 - TypeScript는 6.0.3. typescript-eslint 8.71.2가 `<6.1.0`만 지원해서 최신 7.x 대신 6.0.x를 골랐다.
+
+## dev-server
+
+### 만든 것
+- `apps/server` = `@livejjim/server`. 런타임 의존성 `hono` 4.13.13, `@hono/node-server` 2.1.5 (정확한 버전). 개발 의존성 `@types/node`·`vitest`(코어와 같은 버전).
+- `src/app.ts` `createApp({ logError? })`: `GET /health` → 200 `application/json` `{"status":"ok"}`. DB·외부 서비스·환경변수를 보지 않는다.
+- `src/errors.ts`: 모든 오류 응답은 `{"error":{"code","message"}}` JSON. message는 쉬운 한국어, code는 영문 대문자(프로그램 분기용).
+- `src/node-server.ts` `createNodeServer({ app, logError? })`: 앱을 Node HTTP 서버에 붙인다(listen은 하지 않음).
+- `src/config.ts` `readPort(env)`, `src/main.ts`(기동), 루트 `.env.example`(`PORT`만).
+
+### 결정과 이유 (스펙과 다르지 않음, 구현 선택)
+- **Hono를 골랐다(TECH_REVIEW §6 "Fastify 또는 Hono").** 웹 표준 Request/Response라 `app.request()`로 포트 없이 테스트하기 쉽고, SSE 도우미가 패키지 안에 있어 S04 실시간 푸시에 새 의존성이 필요 없다. Node 연결은 공식 어댑터 `@hono/node-server`.
+- **빌드 없음.** `node src/main.ts`로 Node 24가 타입을 벗겨 바로 실행한다(`erasableSyntaxOnly`가 이를 보장). 배포(S12)에서 필요하면 그때 빌드 단계를 붙인다.
+- **오류 응답은 앱에 닿기 전 단계까지 JSON으로 통일했다(AC-S00-41, F절 "잘못된 헤더").**
+  - 없는 경로 404, 허용하지 않는 메서드 405(+`Allow: GET, HEAD`), 처리 중 예외 500.
+  - Hono `onError`는 Error 인스턴스만 받으므로, 맨 앞 미들웨어가 Error가 아닌 값(`throw '문자열'`)도 JSON 500으로 바꾼다.
+  - 프레임워크가 만든 `HTTPException`(예: 깨진 JSON 본문 → 400)은 상태만 살리고 메시지·사용자 지정 응답은 버린다. 5xx는 상태를 살리되 일반 문구로 답한다.
+  - 응답에 받은 요청 값(경로·헤더·본문)을 되돌려 주지 않는다(반사형 XSS 차단).
+  - `@hono/node-server`의 기본 동작은 잘못된 Host 헤더에 본문 없는 400, 앱 호출 실패에 본문 없는 500, 응답 스트림 오류에 `Error: <메시지>` 텍스트를 준다. 그래서 `serve()` 대신 `getRequestListener(..., { errorHandler })` + `http.createServer`로 직접 붙여 앞의 둘을 JSON으로 바꿨다. 응답 스트림 오류는 스트리밍 응답이 없는 지금은 생기지 않는다(S04에서 SSE를 붙일 때 다시 본다).
+  - Node HTTP 파서 오류(`clientError`: 잘못된 요청 줄·헤더, 요청 밀반입 형태, 너무 큰 헤더, 시간 초과)도 Node 기본과 같은 상태(400·413·431·408)에 JSON 본문으로 답한다. 이미 응답 헤더를 보낸 연결이면 덧붙이지 않고 끊는다(Node 기본과 같은 기준).
+  - `requireHostHeader: false`: Node가 Host 없는 HTTP/1.1 요청을 본문 없는 400으로 먼저 끊지 않게 했다. 그런 요청은 어댑터가 `RequestError`로 넘기고 JSON 400이 된다(상태는 RFC 9112대로 400 그대로). Host 없는 HTTP/1.0도 같은 400이다(주소를 만들 수 없음).
+- **기동 로그에 환경변수 값을 찍지 않는다(AC-S00-42).** PORT를 지정했으면 "PORT 환경변수로 지정한 포트", 아니면 "기본 포트 3000"이라고만 쓴다. 포트 충돌 등 Node 오류 메시지에는 포트 번호가 들어 있어 오류 코드만 보고 우리 문장으로 알린다. 잘못된 PORT 값도 메시지에 되풀이하지 않는다.
+- **PORT 규칙**: 없거나 빈 문자열이면 3000. 있으면 1~65535의 10진 숫자만(공백·소수·`1e3`·`0x50`·전각 숫자는 시작 실패, 종료 코드 1).
+- **`.env`**: 저장소 루트의 `.env`가 있으면 `main.ts`가 `process.loadEnvFile`로 읽는다. 이미 있는 환경변수가 우선한다. `.env.example`은 루트에 두고 `PORT`만 적었다.
+- **종료**: SIGINT(Ctrl+C)·SIGTERM → 새 연결을 받지 않고, 쉬는 연결은 바로 닫고, 진행 중인 요청을 마친 뒤 종료 코드 0. 5초가 지나도 남은 연결은 강제로 끊는다. 한 번 더 누르면 바로 종료(코드 1). `pnpm --filter @livejjim/server start`에서 pnpm이 SIGINT를 넘겨 주는 것까지 손으로 확인했다.
+- **단위 테스트는 포트를 열지 않는다(AC-S00-40).** 앱은 `app.request()`, Node HTTP 계층은 listen하지 않은 서버에 `stream.duplexPair()`로 만든 메모리 연결을 `connection` 이벤트로 넘겨 원시 요청 바이트를 보낸다. 테스트 파일이 끝날 때 `Server.prototype.listen`이 한 번도 불리지 않았는지 확인한다.
+- 구현을 일부러 망가뜨려(404 처리 제거, 미들웨어 제거, 4xx 메시지 노출, 헬스 본문 변경, 405 제거, Host 검사 기본값, clientError 처리 제거, headersSent 검사 무력화, 포트 하한 제거, Content-Type 덮어쓰기 허용) 10가지 모두 테스트가 잡는 것을 확인하고 되돌렸다.
+
+### 의존성 메모 (AC-S00-02)
+- 루트 `@livejjim/server`(workspace:*)는 루트 파일이 import하지 않지만, test-domain이 `tests/adversarial`에서 서버 오류 응답(F절)을 포트 없이 공격할 수 있게 둔 것이다. 루트 `@livejjim/core`와 같은 이유.
+- 서버는 S00에서 `@livejjim/core`를 쓰지 않으므로 의존성에 넣지 않았다(S04에서 추가).
+
+### 이 PC에서 확인할 때
+- 이 개발 PC는 3000번 포트를 OrbStack(Grafana 컨테이너)이 쓰고 있다. 기본 포트로 띄우면 "다른 프로그램이 이미 쓰고 있는 포트예요(기본 포트 3000)"로 종료 코드 1이 나온다. `PORT=3456 pnpm --filter @livejjim/server start`로 확인했다.
