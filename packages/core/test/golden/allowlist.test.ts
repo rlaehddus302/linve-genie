@@ -146,6 +146,60 @@ describe('허용 목록 읽기 오류 (AC-S00-23)', () => {
   })
 })
 
+describe('골든 문서의 읽기 오류가 허용 목록을 무효로 만들지 않는다 (AC-S00-22 "한 파일의 오류가 다른 파일 결과를 가리지 않는다", TD-S00-002)', () => {
+  const chatFile = { path: 'parser/chat.yaml', text: suiteDoc('chat', [{ in: '15', out: { claims: [15] } }]) }
+  const engineFile = { path: 'engine/01.yaml', text: scenario({ id: 'G-ENG-001' }) }
+  const LIST = 'suites: [chat, amount]\nscenarios: ["G-ENG-*"]\n'
+  const statuses = (report: ReturnType<typeof run>) => report.items.map((item) => [item.file, item.status, item.allowed])
+
+  it('suite 문서의 형식 오류: 읽기 오류는 그 파일 하나, 목록의 그 suite는 "골든에 있는 suite"로 본다', () => {
+    const amountFile = { path: 'parser/amount.yaml', text: suiteDoc('amount', [{ in: '만원', out: 10000 }], { unitt: 'WON' }) }
+    const report = run([amountFile, chatFile, engineFile], { allowlist: LIST })
+    expect(report.readErrors.map((e) => e.file)).toEqual(['parser/amount.yaml'])
+    expect(statuses(report)).toEqual([
+      ['engine/01.yaml', 'not-implemented', true],
+      ['parser/chat.yaml', 'not-implemented', true],
+    ])
+    expect(report.warnings).toEqual([])
+    expect(report.ok).toBe(false)
+  })
+
+  it('YAML 문법 오류로 파일 전체를 못 읽음: 맞는 문서가 없는 항목은 읽기 오류 대신 확인 보류 경고, 다른 파일의 허용은 그대로', () => {
+    const broken = { path: 'parser/amount.yaml', text: 'suite: amount\ncases: [\n' }
+    const report = run([broken, chatFile, engineFile], { allowlist: LIST })
+    expect(report.readErrors.map((e) => e.file)).toEqual(['parser/amount.yaml'])
+    expect(statuses(report)).toEqual([
+      ['engine/01.yaml', 'not-implemented', true],
+      ['parser/chat.yaml', 'not-implemented', true],
+    ])
+    expect(report.warnings).toEqual(["허용 목록 suites[1]: suite 'amount'에 맞는 골든 문서가 없다 (읽지 못한 골든 문서가 있어 확인 보류)"])
+    expect(report.ok).toBe(false)
+  })
+
+  it('suite·id를 알아볼 수 없는 문서가 있으면 맞는 시나리오가 없는 패턴도 확인 보류 (그 패턴은 아무것도 허용하지 않는다)', () => {
+    const unknown = { path: 'engine/02.yaml', text: 'idd: G-ENG-900\n' }
+    const report = run([engineFile, unknown], { allowlist: 'scenarios: ["G-ENG-001", "G-ENG-900"]\n' })
+    expect(report.readErrors.map((e) => e.file)).toEqual(['engine/02.yaml'])
+    expect(statuses(report)).toEqual([['engine/01.yaml', 'not-implemented', true]])
+    expect(report.warnings).toEqual(["허용 목록 scenarios[1]: 패턴 'G-ENG-900'에 맞는 시나리오가 없다 (읽지 못한 골든 문서가 있어 확인 보류)"])
+  })
+
+  it('골든을 모두 읽었으면 맞는 문서가 없는 항목은 그대로 읽기 오류 (회귀)', () => {
+    const report = run([chatFile, engineFile], { allowlist: LIST })
+    expect(report.readErrors.map((e) => [e.file, e.issues.map((i) => i.message)])).toEqual([
+      ['known-unimplemented.yaml', ["suite 'amount'에 맞는 골든 문서가 없다"]],
+    ])
+    expect(report.totals.notImplementedAllowed).toBe(0)
+  })
+
+  it('정체를 아는 문서의 읽기 오류만 있으면 보류하지 않는다 (진짜로 없는 suite는 여전히 읽기 오류)', () => {
+    const amountFile = { path: 'parser/amount.yaml', text: suiteDoc('amount', [{ in: '만원', out: 10000 }], { unitt: 'WON' }) }
+    const report = run([amountFile, engineFile], { allowlist: 'suites: [amount, chat]\nscenarios: ["G-ENG-*"]\n' })
+    expect(report.readErrors.map((e) => e.file)).toEqual(['parser/amount.yaml', 'known-unimplemented.yaml'])
+    expect(report.readErrors[1]?.issues.map((i) => i.message)).toEqual(["suite 'chat'에 맞는 골든 문서가 없다"])
+  })
+})
+
 describe('패턴', () => {
   it.each([
     ['G-ENG-*', 'G-ENG-001', true],

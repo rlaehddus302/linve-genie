@@ -2,7 +2,7 @@
 // 입력은 파일 내용(문자열)과 코어(GoldenCore)뿐이다. 파일 시스템·환경변수·명령행을 보지 않는다.
 import { isNotImplemented } from '@livejjim/core'
 import { EMPTY_ALLOWLIST, readAllowlist, type Allowlist } from './allowlist.ts'
-import { SCENARIO_ID_RE, type SuiteName } from './contract.ts'
+import { SCENARIO_ID_RE, SUITES, isPlainObject, type SuiteName } from './contract.ts'
 import { compareExpect, compareParserOutput } from './compare.ts'
 import { SerializationError, stableSerialize } from './serialize.ts'
 import type {
@@ -262,12 +262,24 @@ interface LoadedDocument {
   readonly doc: ValidatedDocument
 }
 
+/** 형식 검증과 상관없이 문서가 어느 suite·시나리오인지 (허용 목록 대조용). 알아볼 수 없으면 빈 객체 */
+function documentIdentity(value: unknown): { readonly suite?: SuiteName; readonly id?: string } {
+  if (!isPlainObject(value)) return {}
+  const suite = typeof value.suite === 'string' && (SUITES as readonly string[]).includes(value.suite) ? (value.suite as SuiteName) : undefined
+  const id = typeof value.id === 'string' && SCENARIO_ID_RE.test(value.id) ? value.id : undefined
+  return { ...(suite === undefined ? {} : { suite }), ...(id === undefined ? {} : { id }) }
+}
+
 /** 골든 파일 내용과 허용 목록으로 골든을 돌린다 (프로그램 API, 테스트용). */
 export function runGoldenSources(options: RunGoldenSourcesOptions): GoldenReport {
   const files = [...options.files].sort((a, b) => byCodeUnit(a.path, b.path))
   const readErrors: ReadError[] = []
   const loaded: LoadedDocument[] = []
+  // 허용 목록 대조용: 읽기 오류 문서까지 포함해 골든에 있는 suite·시나리오 ID (AC-S00-22: 한 문서의 오류가 다른 파일 결과를 가리지 않게)
+  const knownSuites = new Set<string>()
   const knownIds = new Set<string>()
+  /** 정체를 알 수 없는 읽기 오류(파일 전체를 못 읽음, suite·id를 알아볼 수 없는 문서)가 있는지 */
+  let goldenIncomplete = false
   const firstSeen = new Map<string, { file: string; docIndex: number }>()
   const summaries = new Map<string, { parserCases: number; scenarios: number; readErrors: number }>()
 
@@ -282,17 +294,22 @@ export function runGoldenSources(options: RunGoldenSourcesOptions): GoldenReport
     if (!parsed.ok) {
       readErrors.push({ file: file.path, issues: parsed.issues.map((issue) => ({ ...issue, message: `YAML 오류: ${issue.message}` })) })
       summary.readErrors++
+      goldenIncomplete = true
       continue
     }
     if (parsed.documents.length === 0) {
       readErrors.push({ file: file.path, issues: [{ message: 'YAML 문서가 없다' }] })
       summary.readErrors++
+      goldenIncomplete = true
       continue
     }
     for (const document of parsed.documents) {
+      const identity = documentIdentity(document.value)
+      if (identity.suite !== undefined) knownSuites.add(identity.suite)
+      if (identity.id !== undefined) knownIds.add(identity.id)
       const result = validateDocument(document.value)
       if (!result.ok) {
-        if (result.label !== undefined && SCENARIO_ID_RE.test(result.label)) knownIds.add(result.label)
+        if (identity.suite === undefined && identity.id === undefined) goldenIncomplete = true
         readErrors.push({
           file: file.path,
           docIndex: document.index,
@@ -308,7 +325,6 @@ export function runGoldenSources(options: RunGoldenSourcesOptions): GoldenReport
       }
       const doc = result.doc
       if (doc.kind === 'scenario') {
-        knownIds.add(doc.id)
         const previous = firstSeen.get(doc.id)
         if (previous) {
           const line = document.lineOf(['id'])
@@ -331,13 +347,14 @@ export function runGoldenSources(options: RunGoldenSourcesOptions): GoldenReport
   }
 
   // 허용 목록
-  const loadedSuites = new Set(loaded.flatMap((entry) => (entry.doc.kind === 'suite' ? [entry.doc.suite] : [])))
-  const allowlistResult = readAllowlist(options.allowlist.text, loadedSuites, knownIds)
+  const allowlistResult = readAllowlist(options.allowlist.text, knownSuites, knownIds, { goldenIncomplete })
   let allowlist: Allowlist = EMPTY_ALLOWLIST
   let sprint: string | undefined
+  const warnings: string[] = []
   if (allowlistResult.ok) {
     allowlist = allowlistResult.allowlist
     sprint = allowlist.sprint
+    for (const note of allowlistResult.deferred) warnings.push(`허용 목록 ${note}`)
   } else {
     sprint = allowlistResult.sprint
     readErrors.push({ file: options.allowlist.path, label: '허용 목록', issues: allowlistResult.issues })
@@ -382,7 +399,6 @@ export function runGoldenSources(options: RunGoldenSourcesOptions): GoldenReport
   }
 
   // 경고: 허용 목록에 있는데 통과
-  const warnings: string[] = []
   for (const suite of allowlist.suites) {
     const cases = items.filter((item) => item.kind === 'parser' && item.suite === suite)
     const passed = cases.filter((item) => item.status === 'pass').length
