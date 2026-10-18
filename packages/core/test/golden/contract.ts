@@ -2,6 +2,8 @@
 // 여기 없는 suite·이벤트 종류·필드·설정 키·expect 키·열거값은 읽기 오류다.
 // 새 어휘는 spec-keeper가 README에 먼저 추가하고, 그다음 이 파일을 맞춘다.
 
+import { YamlFloat } from './yaml.ts'
+
 export const SUITES = ['chat', 'amount', 'korean-number', 'quick-input'] as const
 export type SuiteName = (typeof SUITES)[number]
 
@@ -45,8 +47,9 @@ export type ValueCheck = (value: unknown) => string | undefined
 
 const show = (value: unknown): string => {
   if (value === undefined) return 'undefined'
+  if (value instanceof YamlFloat) return `${value.source} (YAML 실수 표기)`
   try {
-    return JSON.stringify(value) ?? String(value)
+    return JSON.stringify(value, (_key, inner: unknown) => (inner instanceof YamlFloat ? `${inner.source} (YAML 실수 표기)` : inner)) ?? String(value)
   } catch {
     return String(value)
   }
@@ -55,13 +58,19 @@ const show = (value: unknown): string => {
 export const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
+/** 실수 표기를 정수 자리에 썼을 때 덧붙이는 안내 */
+const floatHint = (value: unknown): string =>
+  value instanceof YamlFloat ? ' — 금액·번호·개수는 정수로만 적는다. 천 단위 구분 점·소수점·지수 표기는 쓸 수 없다' : ''
+
 export const intAtLeast =
   (min: number): ValueCheck =>
   (value) =>
-    typeof value === 'number' && Number.isSafeInteger(value) && value >= min ? undefined : `${min} 이상 정수여야 한다 (값: ${show(value)})`
+    typeof value === 'number' && Number.isSafeInteger(value) && value >= min
+      ? undefined
+      : `${min} 이상 정수여야 한다 (값: ${show(value)})${floatHint(value)}`
 
 export const anyInt: ValueCheck = (value) =>
-  typeof value === 'number' && Number.isSafeInteger(value) ? undefined : `정수여야 한다 (값: ${show(value)})`
+  typeof value === 'number' && Number.isSafeInteger(value) ? undefined : `정수여야 한다 (값: ${show(value)})${floatHint(value)}`
 
 export const bool: ValueCheck = (value) =>
   typeof value === 'boolean' ? undefined : `true 또는 false여야 한다 (값: ${show(value)})`
@@ -81,7 +90,11 @@ export const oneOf =
 export const intOrNull =
   (min: number): ValueCheck =>
   (value) =>
-    value === null ? undefined : intAtLeast(min)(value) === undefined ? undefined : `${min} 이상 정수 또는 null이어야 한다 (값: ${show(value)})`
+    value === null
+      ? undefined
+      : intAtLeast(min)(value) === undefined
+        ? undefined
+        : `${min} 이상 정수 또는 null이어야 한다 (값: ${show(value)})${floatHint(value)}`
 
 export { show as showValue }
 
