@@ -127,7 +127,7 @@ describe('AC-S01-11 꼬리 기호와 질문', () => {
   })
 
   it('D-033: 목록 밖 그림 이모지는 그 밖의 문자 — 꼬리의 그림 이모지는 조합 안 글자까지 하나하나 목록에 있어야 한다', () => {
-    // LOOSE는 번호 바로 뒤에 붙여 쓴 것만 본다. LOOSE에서 공백 뒤에 오는 것은 "공백 앞에서 끝난 부분"이라 규칙 문장상 주문이다(TD-S01-005, spec-keeper 판단 대기).
+    // LOOSE는 붙여 쓴 것은 꼬리가 끊겨서, 공백 뒤에 오는 것은 끝 신호(R-3 LOOSE 세부 "끝 신호" 3, D-035)로 막는다. 아래 사례는 STRICT·LOOSE 결과가 같다.
     const attached: ReadonlyArray<readonly [string, Expected]> = [
       ['15\u{2753}', { mentions: [15] }],
       ['15\u{1F62D}', { mentions: [15] }],
@@ -136,7 +136,7 @@ describe('AC-S01-11 꼬리 기호와 질문', () => {
       ['15\u{1F64B}\u200D\u{2640}\uFE0F 예뻐요', { claims: [15] }],
     ]
     check(attached, LOOSE)
-    for (const settings of [STRICT]) {
+    for (const settings of [STRICT, LOOSE]) {
       check(
         [
           ['15\u{2753}', { mentions: [15] }], // ❓ 질문
@@ -598,6 +598,185 @@ describe('AC-S01-17 LOOSE', () => {
   })
 })
 
+describe('AC-S01-17 LOOSE 끝 신호 (R-3 LOOSE 세부 "끝 신호", D-035)', () => {
+  const FE0F = '️'
+  const ZWSP = '​'
+
+  it('1 질문 기호 ? ？ ❓ ❔ ⁉ — 공백을 사이에 두어도 주문이 아니다', () => {
+    check(
+      [
+        ['15 ?', { mentions: [15] }],
+        ['15 ？', { mentions: [15] }],
+        ['15 \u{2753} 남았나요', { mentions: [15] }],
+        ['15 \u{2754}', { mentions: [15] }],
+        ['15번 \u{2049}', { mentions: [15] }],
+        ['15!\u{2753}', { mentions: [15] }],
+        ['15 주세요 ?', { mentions: [15] }],
+      ],
+      LOOSE,
+    )
+  })
+
+  it('2 꼬리 기호가 아닌 한글 호환 자모 — ㅎ·ㅋ는 꼬리 기호, U+3164 채움 문자는 건너뛴다', () => {
+    check(
+      [
+        ['15번 ㅠㅠ', { mentions: [15] }],
+        ['15 ㄴㄴ', { mentions: [15] }],
+        ['15 ㅇㅇ', { mentions: [15] }],
+        ['15 ㅡㅡ', { mentions: [15] }],
+        ['15!ㄷㄷ', { mentions: [15] }],
+        ['15 ㅋㅋ 예뻐요', { claims: [15] }],
+        ['15 ㅎ', { claims: [15] }],
+        ['15 ㅤ예뻐요', { claims: [15] }],
+        ['15 ㅤㅠ', { mentions: [15] }],
+      ],
+      LOOSE,
+    )
+  })
+
+  it('3 꼬리 기호가 아닌 그림 이모지 — 허용 목록·♥는 그대로 꼬리', () => {
+    check(
+      [
+        ['15 \u{274C}', { mentions: [15] }],
+        ['15번 \u{1F62D}', { mentions: [15] }],
+        ['15 \u{1F914} 고민', { mentions: [15] }],
+        ['15\u{1F44D}\u{1F44E}', { mentions: [15] }],
+        [`15 \u{2764}${FE0F} \u{1F62D}`, { mentions: [15] }], // 더 짧은 부분 '15 ❤️'로 물러나지 않는다
+        ['15 \u{1F44D} 예뻐요', { claims: [15] }],
+        ['15 \u{2665} 예뻐요', { claims: [15] }],
+      ],
+      LOOSE,
+    )
+  })
+
+  it('4 번호 부분에 들어가지 못하고 남은 번 — 숫자와 공백 하나 뒤의 번이 부분에 들어가면 주문', () => {
+    check(
+      [
+        ['15 번째 사진', { mentions: [15] }],
+        ['15 번호 맞나요', { mentions: [15] }],
+        ['15! 번째', { mentions: [15] }],
+        ['15 번 예뻐요', { claims: [15] }],
+        ['15번 번개', { mentions: [15] }],
+      ],
+      LOOSE,
+    )
+  })
+
+  it('5 공백 없이 붙은 숫자 — 공백 뒤 숫자는 신호가 아니다, 보이지 않는 글자만 사이에 있으면 붙은 것', () => {
+    check(
+      [
+        ['15~28', { mentions: [15, 28] }],
+        [`15 \u{2764}${FE0F}28`, { mentions: [15, 28] }],
+        ['15 28~3', { mentions: [15, 28, 3] }],
+        [`15!${ZWSP}3`, { mentions: [15, 3] }],
+        [`15 \u{2764}${FE0F} 28`, { claims: [15] }],
+        ['15! 28개', { claims: [15] }],
+      ],
+      LOOSE,
+    )
+  })
+
+  it('공백·피부색·보이지 않는 글자를 모두 건너뛴 첫 글자를 본다. 건너뛰고 끝나면 볼 글자가 없다', () => {
+    check(
+      [
+        [`15 ${ZWSP}\u{1F62D}`, { mentions: [15] }],
+        ['15 \u{1F3FB}\u{274C}', { mentions: [15] }],
+        [`15 ${ZWSP}\u{1F3FB}\u{274C}`, { mentions: [15] }], // 보이지 않는 글자 뒤 피부색도 건너뛴다
+        ['15 \u{E0067}\u{E007F}\u{1F62D}', { mentions: [15] }], // 태그 글자(U+E0000대)도 Default_Ignorable
+        ['15 \u{E0001}예뻐요', { claims: [15] }],
+        ['15 \u{1F3FF}\u{1F3FB} 예뻐요', { claims: [15] }],
+        ['15 ﻿?', { mentions: [15] }],
+        [`15 ${ZWSP}⁠‎ ㅠ`, { mentions: [15] }],
+        [`15 ${ZWSP}예뻐요`, { claims: [15] }],
+        [`15 ${ZWSP}`, { claims: [15] }],
+        ['15 \u{1F3FB}', { claims: [15] }],
+      ],
+      LOOSE,
+    )
+  })
+
+  it('두 자리: (나) 끝 경계와 상관없는 가장 긴 맨 앞 부분 뒤도 본다', () => {
+    check(
+      [
+        ['15 28\u{2753}', { mentions: [15, 28] }], // 고른 부분 '15', 가장 긴 부분 '15 28'
+        ['15 찜\u{2753}', { mentions: [15] }],
+        ['1 2 3 4 5 6\u{2753}', { mentions: [1, 2, 3, 4, 5, 6] }], // 고른 부분 '1 2 3 4 5'
+        ['15 28ㅠ', { mentions: [15, 28] }],
+        ['15 28개', { claims: [15] }], // 가장 긴 부분 '15 28' 뒤 '개'는 신호가 아니다
+      ],
+      LOOSE,
+    )
+  })
+
+  it('더 짧은 부분으로 물러나지 않고, 번호 개수 상한·multiNumber보다 먼저 본다', () => {
+    for (const multi of ['ALL', 'FIRST', 'IGNORE'] as const) {
+      check(
+        [
+          ['15 28 \u{2753}', { mentions: [15, 28] }],
+          ['15,28 \u{274C}', { mentions: [15, 28] }],
+          ['1 2 3 4 5 6 7 ？', { mentions: [1, 2, 3, 4, 5, 6, 7] }],
+        ],
+        { ...LOOSE, 'claim.multiNumber': multi },
+      )
+    }
+  })
+
+  it('취소 부분은 취소 꼬리 기준 — ㅠ ㅜ 😢 😭 🥲는 신호가 아니다. 걸리면 취소가 아니고 주문도 아니다', () => {
+    check(
+      [
+        ['15번 취소 \u{1F62D} 죄송해요', { cancels: [15] }],
+        ['15 취소 ㅜㅜ 죄송해요', { cancels: [15] }],
+        ['15 취소 \u{1F972}', { cancels: [15] }],
+        ['15번 취소 \u{2753}', { mentions: [15] }],
+        ['15 취소 번복할게요', { mentions: [15] }],
+        ['15 취소 ㄴㄴ', { mentions: [15] }],
+        ['15 취소!2', { mentions: [15, 2] }],
+        ['15 취소 \u{1F440}', { mentions: [15] }],
+      ],
+      LOOSE,
+    )
+  })
+
+  it('두 자리의 첫 글자만 본다 — 그 뒤의 말은 보지 않는다', () => {
+    check(
+      [
+        ['15번 너무 예뻐요 \u{2753}', { claims: [15] }],
+        ['15 말고 16', { claims: [15] }],
+        ['15 28 너무 예뻐요 ?', { claims: [15, 28] }],
+        ['15번 2개 가능해요?', { claims: [15] }],
+      ],
+      LOOSE,
+    )
+  })
+
+  it('STRICT에는 영향이 없다 — 메시지 전체가 부분이라 뒤에 글자가 없다', () => {
+    check(
+      [
+        ['15', { claims: [15] }],
+        ['15 ㅋㅋ', { claims: [15] }],
+        ['15 취소 ㅠ', { cancels: [15] }],
+        ['15 \u{2753}', { mentions: [15] }],
+      ],
+      STRICT,
+    )
+  })
+
+  it('속성: LOOSE 주문 부분 + 건너뛰는 글자 + 끝 신호 1~3번 글자 + 아무 말 → claims·cancels가 빈다', () => {
+    const order = fc.constantFrom('15', '15번', '찜 15', '15 28', '15 주세요', '15!!', `15 \u{2764}${FE0F}`, '15 ㅋㅋ', '15/28번')
+    const signal = fc.constantFrom('?', '？', '\u{2753}', '\u{2754}', '\u{2049}', 'ㅠ', 'ㅜ', 'ㄴ', 'ㅇ', '\u{274C}', '\u{1F62D}', '\u{1F914}', '\u{1F440}')
+    const skip = fc.constantFrom('', ' ', ` ${ZWSP}`, ' \u{1F3FB}', ` ${FE0F}`, ' ㅤ')
+    fc.assert(
+      fc.property(order, skip, signal, chatMessage, fc.constantFrom('ALL' as const, 'FIRST' as const, 'IGNORE' as const), (head, between, mark, rest, multi) => {
+        const text = `${head}${between}${mark}${rest}`
+        const actual = parseChat(text, { ...LOOSE, 'claim.multiNumber': multi })
+        expect(actual.claims, JSON.stringify(text)).toEqual([])
+        expect(actual.cancels, JSON.stringify(text)).toEqual([])
+      }),
+      { numRuns: 2000 },
+    )
+  })
+})
+
 describe('AC-S01-18 정규화', () => {
   it('앞뒤 공백, 연속 공백(탭·줄바꿈·NBSP·전각 공백), 전각 숫자', () => {
     expect(parseChat('  15  번 ')).toEqual(parseChat('15 번'))
@@ -627,6 +806,7 @@ describe('AC-S01-18 정규화', () => {
       )
     }
     // 공백 사이의 U+FEFF는 구분자가 아니다: STRICT는 주문이 아니고, LOOSE는 공백 앞에서 끝난 맨 앞 부분 '15'만 주문
+    // (끝 신호 자리에서 공백·U+FEFF를 건너뛴 첫 글자 '2'는 공백 뒤라 "붙은 숫자"가 아니다, D-035 5)
     check([[`15 ${zwnbsp} 28`, { mentions: [15, 28] }]], STRICT)
     check([[`15 ${zwnbsp} 28`, { claims: [15] }]], LOOSE)
   })

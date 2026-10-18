@@ -220,6 +220,7 @@ function scanCancel(s: string): { value: number; parts: PartEnd[] } | undefined 
  * 모드에 맞는 부분을 고른다.
  * - STRICT: 메시지 전체가 부분이어야 한다.
  * - LOOSE: 메시지 끝·공백 앞에서 끝나거나, 공백·보이는 꼬리 기호로 끝나는 부분 중 가장 긴 것 (R-3 LOOSE 세부).
+ * 고른 부분 뒤의 끝 신호(D-035)는 endsWithSignal이 따로 본다.
  */
 function pickPart(s: string, parts: readonly PartEnd[], loose: boolean): PartEnd | undefined {
   let best: PartEnd | undefined
@@ -228,6 +229,53 @@ function pickPart(s: string, parts: readonly PartEnd[], loose: boolean): PartEnd
     if (ok && (best === undefined || part.end > best.end)) best = part
   }
   return best
+}
+
+// ── LOOSE 끝 신호 (R-3 LOOSE 세부 "끝 신호", D-035) ────────────────────────
+
+/** 끝 신호 1: 질문 기호 ? ？ ❓ ❔ ⁉ */
+const QUESTION_MARKS: ReadonlySet<number> = new Set([0x3f, 0xff1f, 0x2753, 0x2754, 0x2049])
+/** 끝 신호 4: '번' U+BC88 */
+const BEON = 0xbc88
+const DEFAULT_IGNORABLE = /^\p{Default_Ignorable_Code_Point}$/u
+const PICTOGRAPHIC = /^\p{Extended_Pictographic}$/u
+
+/** 끝 신호 자리에서 건너뛰는 보이지 않는 글자: 피부색 수식 문자 U+1F3FB~U+1F3FF, Default_Ignorable_Code_Point(U+FE0F·U+200D·U+200B·U+FEFF·U+3164 등) */
+function isInvisible(codePoint: number): boolean {
+  return (codePoint >= 0x1f3fb && codePoint <= 0x1f3ff) || DEFAULT_IGNORABLE.test(String.fromCodePoint(codePoint))
+}
+
+/**
+ * 맨 앞 부분이 at에서 끝났을 때, 공백·보이지 않는 글자를 건너뛴 첫 글자가 끝 신호인가 (D-035).
+ * 첫 글자만 본다. 건너뛰고 나서 메시지가 끝나면 신호가 아니다. 2·3의 "꼬리 기호"는 isVisibleTail(주문 꼬리 / 취소 꼬리)로 정한다.
+ */
+function hasEndSignal(s: string, at: number, isVisibleTail: (codePoint: number) => boolean): boolean {
+  let i = at
+  let spaced = false
+  for (;;) {
+    const codePoint = s.codePointAt(i)
+    if (codePoint === undefined) return false
+    if (codePoint === 0x20) spaced = true
+    else if (!isInvisible(codePoint)) {
+      if (QUESTION_MARKS.has(codePoint)) return true // 1 질문 기호
+      if (codePoint >= 0x3131 && codePoint <= 0x318e) return !isVisibleTail(codePoint) // 2 꼬리 기호(ㅎ ㅋ, 취소는 ㅠ ㅜ도)가 아닌 한글 호환 자모
+      if (PICTOGRAPHIC.test(String.fromCodePoint(codePoint))) return !isVisibleTail(codePoint) // 3 꼬리 기호가 아닌 그림 이모지
+      if (codePoint === BEON) return true // 4 번호 부분에 들어가지 못하고 남은 '번'
+      return !spaced && isDigitAt(s, i) // 5 공백 없이 붙은 숫자(보이지 않는 글자만 사이에 있어도 붙은 것)
+    }
+    i += codePoint > 0xffff ? 2 : 1
+  }
+}
+
+/**
+ * LOOSE 끝 신호 검사(D-035): 두 자리 — (가) 고른(가장 긴) 부분 바로 뒤, (나) 끝 경계와 상관없이 문법에 맞는 가장 긴 맨 앞 부분 바로 뒤.
+ * (나)가 더 길면 고른 부분 뒤에 이어진 번호·꼬리말에 붙은 신호도 잡는다(`15 28❓`). 걸리면 더 짧은 부분으로 물러나지 않는다.
+ * STRICT는 고른 부분이 메시지 끝까지라 두 자리 모두 볼 글자가 없다.
+ */
+function endsWithSignal(s: string, picked: PartEnd, parts: readonly PartEnd[], isVisibleTail: (codePoint: number) => boolean): boolean {
+  let longest = picked.end
+  for (const part of parts) if (part.end > longest) longest = part.end
+  return hasEndSignal(s, picked.end, isVisibleTail) || (longest !== picked.end && hasEndSignal(s, longest, isVisibleTail))
 }
 
 // ── 공개 함수 ────────────────────────────────────────────────────────────
@@ -252,14 +300,19 @@ export function parseChat(text: string, settings: SettingsOverride = {}): ChatPa
   // (TD-S01-002: '15 1000원이에요'가 '15 1000'과 같이 언급). STRICT는 메시지 전체가 주문 부분이라 결과가 같다.
   // 주문·취소 부분의 번호는 모두 이 후보 안에 있으므로 부분 번호를 따로 검사하지 않는다.
   if (!runs.some((run) => run.amount) && numberValues.every(inRange)) {
+    // 취소가 먼저: 끝 경계·끝 신호(취소 꼬리 기준) 조건이 같다. 끝 신호에 걸리면 취소가 아니고, LOOSE라 '취소'가 들어 있어 주문도 아니다.
     const cancel = scanCancel(s)
-    if (cancel !== undefined && pickPart(s, cancel.parts, loose) !== undefined) return result([], [cancel.value], [])
+    if (cancel !== undefined) {
+      const part = pickPart(s, cancel.parts, loose)
+      if (part !== undefined && !endsWithSignal(s, part, cancel.parts, isVisibleCancelTail)) return result([], [cancel.value], [])
+    }
 
     // LOOSE: '취소'가 들어간 메시지는 주문으로 보지 않는다. STRICT에서는 문법상 주문이 될 수 없다.
     if (!(loose && s.includes('취소'))) {
       const claim = scanClaim(s)
       const part = pickPart(s, claim.parts, loose)
-      const numbers = part === undefined ? [] : claim.numbers.slice(0, part.count)
+      // 끝 신호(D-035)는 번호 개수 상한·multiNumber보다 먼저 본다. 걸리면 더 짧은 부분으로 물러나지 않고 주문이 아니다(아래 언급으로).
+      const numbers = part === undefined || endsWithSignal(s, part, claim.parts, isVisibleClaimTail) ? [] : claim.numbers.slice(0, part.count)
       const unique = uniqueInOrder(numbers)
       // 번호 개수 상한(D-034): 서로 다른 번호(값으로 센다: 015 = 15)가 6개 이상이면 주문이 아니다(아래 언급으로).
       // multiNumber보다 먼저 본다(FIRST·IGNORE도 같다). LOOSE도 고른 부분 하나에만 적용하고 더 짧은 부분으로 물러나지 않는다.
