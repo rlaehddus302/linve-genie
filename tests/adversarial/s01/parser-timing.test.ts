@@ -54,6 +54,15 @@ const ADVERSARIAL: Readonly<Record<string, string>> = {
   '빠른 입력: 슬래시 반복': `15/${repeat('/')}`,
   '빠른 입력: 슬래시 형식 + "핑크/" 반복': `15/${repeat('핑크/')}10`,
   '빠른 입력: 번호 뒤 "만 천 백 십 오 원 " 반복': `15 ${repeat('만 천 백 십 오 원 ')}`,
+  // 수정 라운드 2 대상(D-032~D-034): 허용 목록 꼬리·번호 개수 상한·한글 일의 자리 판정
+  '"15" 뒤 허용 목록 이모지 반복': `15${repeat(String.fromCodePoint(0x1f495, 0x1f970, 0x1f338))}`,
+  '"15 " 뒤 ❤️‍🔥(ZWJ 조합) 반복': `15 ${repeat('\u2764\ufe0f\u200d\ud83d\udd25')}`,
+  '"15 취소 " 뒤 😭 반복': `15 취소 ${repeat(String.fromCodePoint(0x1f62d))}`,
+  '서로 다른 번호 나열 "1 2 … 999" 반복': repeat(Array.from({ length: 999 }, (_, i) => String(i + 1)).join(' ') + ' '),
+  '같은 번호 반복 "15 " 1만 자 뒤 "다 주세요"': `${repeat('15 ')}다 주세요`,
+  '"만오" 반복': repeat('만오'),
+  '"천오 " 반복': repeat('천오 '),
+  '빠른 입력: 번호 뒤 "백오만 " 반복': `15 핑크 ${repeat('백오만 ')}`,
 }
 
 describe('AC-S01-03 회귀: 적대 입력 하나당 1초 안 (네 함수, 채팅은 STRICT·LOOSE)', () => {

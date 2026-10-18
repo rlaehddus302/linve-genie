@@ -176,6 +176,16 @@ describe('오인 주문 회귀 (AC-S01-11·15·16): 문법 밖 글자가 붙으�
     ['15번 18번 중에 뭐가 나아요?', { ...LOOSE, 'claim.multiNumber': 'FIRST' }, claims(15)],
     ['15번 18번 중에 뭐가 나아요?', { ...LOOSE, 'claim.multiNumber': 'IGNORE' }, mentions(15, 18)],
     ['15 15 예뻐요', { ...LOOSE, 'claim.multiNumber': 'IGNORE' }, claims(15)],
+    // TD-S01-002 회귀: LOOSE도 범위는 메시지 전체로 본다 — 범위 밖 번호 뒤에 '원'·'개'가 붙어도 주문이 되지 않는다
+    ['15 1000', LOOSE, mentions(15)],
+    ['15 1000원', LOOSE, mentions(15)],
+    ['15 1000원이에요', LOOSE, mentions(15)],
+    ['15 2000원 맞죠?', LOOSE, mentions(15)],
+    ['15 0개', LOOSE, mentions(15)],
+    ['15 0원', LOOSE, mentions(15)],
+    ['15번 너무 예뻐요 9999번째 방송 축하해요', LOOSE, mentions(15)],
+    ['15 취소 1000번째', LOOSE, mentions(15)],
+    ['15번 예뻐요 51번도요', { ...LOOSE, 'claim.maxNumber': 50 }, mentions(15)],
   ]
   for (const [text, settings, expected] of LOOSE_CASES) {
     it(`${JSON.stringify(settings)} ${JSON.stringify(text)}`, () => {
