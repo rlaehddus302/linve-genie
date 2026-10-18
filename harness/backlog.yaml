@@ -50,6 +50,10 @@ sprints:
     devs: [core]
     tests: [domain]
     goal: R-6, R-7, R-10, R-11, R-12. 골든 engine/04~06 통과.
+    carryOver:
+      - 모르는 이벤트 종류는 조용히 무시하지 말고 오류로 알린다. R-1 표기(chat.message·sms.claim)와 README 표기 통일 (SA-S02-002)
+      - Draft의 배열 통째 복사 제거(보류 찜·구매자 찜이 많아도 이벤트당 비용 일정), checkInvariants를 한 번 순회로 (TD-S02-002, RA-S02-001)
+      - 처리 시간 테스트는 최댓값 대신 p99·준비 구간 제외로 (RA-S02-006)
     specIds: [ORD-08, ORD-09, ORD-10, PRD-02, BUY-01, BUY-02, BUY-03, BUY-04, STL-01, STL-02, STL-03, STL-07, STL-09]
     status: todo
 
@@ -62,6 +66,9 @@ sprints:
       PostgreSQL(Drizzle) 스키마, 이벤트 저장(입력 우선 기록, 외부 ID 유일 제약), 방송별 직렬 처리,
       프로젝션, 재생 무결성 검사 명령, REST API, 실시간 푸시(SSE 또는 WebSocket), 판매자 로그인(단일 판매자부터).
       테스트는 PGlite로 도커 없이.
+    carryOver:
+      - outbox·효과 중복 제거 키 = (판매자, 방송/엔진 범위, 효과 ID) — 효과 ID는 엔진 상태 안에서만 유일 (RA-S02-003)
+      - 엔진이 지원하지 않는 이벤트 종류는 로그에 쓰지 않고, 재생 중 오류를 만나면 경보 후 마지막 정상 상태로 (RA-S02-005)
     specIds: [DAT-01, DAT-02, DAT-05, DAT-06, SYS-01, SYS-02, NFR-01, NFR-03, NFR-06, NFR-07]
     status: todo
 
@@ -144,6 +151,8 @@ sprints:
     goal: >
       outbox: 효과 ID 멱등, 지수 백오프 재시도, 타임아웃 시 게시 여부 확인 후 재시도, 수동 재전송,
       묶음 감사(글자 수 분할), 자동 게시 사전 동의, 할당량 부족 시 묶음 전환.
+    carryOver:
+      - 감사 문구의 구매자 이름 정규화: 제어문자·줄바꿈 제거, 길이 제한, URL·@ 무력화, 빈 이름 대체 문구 (RA-S02-004)
     specIds: [YT-04, YT-05, YT-06, YT-07]
     humanGate: HG-3
     status: todo
