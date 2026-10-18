@@ -60,6 +60,60 @@ const restrictedProperties = [
 // 접두어 없는 이름은 paths로, `node:` 접두어는 정규식 패턴 하나로 막는다
 const bareBuiltins = builtinModules.filter((name) => !name.startsWith('node:'))
 
+/**
+ * 코어 소스 주석 검사 (AC-S00-05, AC-S00-13, D-024).
+ * - 순수성 규칙은 소스 안 주석으로 끌 수 없다. 코어 블록의 `noInlineConfig`가 주석을 무시하게 하고,
+ *   여기서는 그런 주석 자체를 오류로 알려 리뷰 없이도 눈에 띄게 한다.
+ * - 커버리지 무시 주석(v8·c8·istanbul·node:coverage ignore)은 95% 기준과 "모든 소스 파일 측정"을 우회하므로 쓸 수 없다.
+ *   Vitest v8 커버리지(ast-v8-to-istanbul)가 따르는 표기를 모두 막는다. 대소문자는 가리지 않는다.
+ */
+const LINT_DIRECTIVE = /^\s*(?:eslint-disable(?:-line|-next-line)?|eslint-enable|eslint-env|eslint)(?=\s|$)/
+const BLOCK_DIRECTIVE = /^\s*(?:globals?|exported)(?=\s|$)/
+const COVERAGE_IGNORE = /(?:istanbul|[cv]8|node:coverage)\s+ignore(?=\W|$)/i
+const coreGuards = {
+  meta: { name: 'livejjim-core-guards' },
+  rules: {
+    'no-inline-lint-config': {
+      meta: {
+        type: 'problem',
+        schema: [],
+        messages: {
+          directive: pure('린트 규칙을 끄거나 바꾸는 주석은 코어 소스에서 쓸 수 없다. 순수성 규칙은 주석으로 꺼지지 않는다(설정 noInlineConfig).'),
+        },
+      },
+      create(context) {
+        return {
+          Program() {
+            for (const comment of context.sourceCode.getAllComments()) {
+              const isDirective = LINT_DIRECTIVE.test(comment.value) || (comment.type === 'Block' && BLOCK_DIRECTIVE.test(comment.value))
+              if (isDirective) context.report({ loc: comment.loc, messageId: 'directive' })
+            }
+          },
+        }
+      },
+    },
+    'no-coverage-ignore': {
+      meta: {
+        type: 'problem',
+        schema: [],
+        messages: {
+          ignore:
+            '코어 커버리지 측정에서 코드를 빼는 주석은 쓸 수 없다(AC-S00-13: packages/core/src의 모든 소스를 측정하고 라인·분기 95% 이상). 테스트를 추가한다.',
+        },
+      },
+      create(context) {
+        return {
+          Program() {
+            for (const comment of context.sourceCode.getAllComments()) {
+              if (COVERAGE_IGNORE.test(comment.value)) context.report({ loc: comment.loc, messageId: 'ignore' })
+            }
+          },
+        }
+      },
+    },
+  },
+}
+
 /** 화면 XSS 방지 메시지 (AC-S00-06, NFR-06, CLAUDE.md 규칙 7). */
 const xss = (why) => `화면에 HTML 문자열을 그대로 넣지 않는다(NFR-06): ${why} 채팅·닉네임 같은 글자는 React 기본 이스케이프로만 보여 준다.`
 const RAW_HTML_PROP = xss('dangerouslySetInnerHTML은 쓰지 않는다.')
@@ -118,8 +172,13 @@ export default defineConfig(
   // 코어 순수성 (AC-S00-05, D-024). packages/core/test(골든 러너 포함)와 다른 패키지에는 적용하지 않는다.
   {
     files: ['packages/core/src/**/*.{ts,tsx,mts,cts,js,mjs,cjs}'],
+    // 소스 안의 eslint-disable·인라인 설정·global 주석을 모두 무시한다 → 순수성 규칙을 주석으로 끌 수 없다 (TD-S00-003)
+    linterOptions: { noInlineConfig: true, reportUnusedDisableDirectives: 'error' },
     languageOptions: { globals: { ...globals.es2024 } },
+    plugins: { 'core-guards': coreGuards },
     rules: {
+      'core-guards/no-inline-lint-config': 'error',
+      'core-guards/no-coverage-ignore': 'error',
       'no-restricted-globals': ['error', ...restrictedGlobals],
       'no-restricted-properties': ['error', ...restrictedProperties],
       'no-restricted-syntax': [
