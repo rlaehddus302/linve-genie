@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SETTINGS, resolveSettings, type SettingsOverride } from '@livejjim/core'
+import { DEFAULT_SETTINGS, parseAmount, parseChat, parseQuickInput, resolveSettings, type SettingsOverride } from '@livejjim/core'
 
 const SRC = fileURLToPath(new URL('../../src/', import.meta.url))
 
@@ -82,5 +82,20 @@ describe('resolveSettings', () => {
   it('설정표에 없는 키는 무시한다', () => {
     const resolved = resolveSettings({ 'claim.unknown': 1 } as unknown as SettingsOverride)
     expect(Object.keys(resolved)).toEqual(Object.keys(DEFAULT_SETTINGS))
+  })
+})
+
+describe('파서는 같은 기본값을 쓴다', () => {
+  it('설정을 안 넘긴 것 = 빈 설정 = 기본값을 그대로 넘긴 것', () => {
+    const variants: ReadonlyArray<SettingsOverride | undefined> = [undefined, {}, DEFAULT_SETTINGS]
+    for (const settings of variants) {
+      expect(parseChat('999', settings)).toEqual({ claims: [999], cancels: [], mentions: [] })
+      expect(parseChat('1000', settings)).toEqual({ claims: [], cancels: [], mentions: [] })
+      expect(parseChat('15번 너무 예뻐요', settings)).toEqual({ claims: [], cancels: [], mentions: [15] })
+      expect(parseChat('15 28', settings)).toEqual({ claims: [15, 28], cancels: [], mentions: [] })
+      expect(parseAmount('10', settings)).toBe(10000)
+      expect(parseQuickInput('999 핑크프릴 10', settings)).toEqual({ no: 999, name: '핑크프릴', price: 10000 })
+      expect(parseQuickInput('1000 핑크프릴 10', settings)).toEqual({ error: 'NUMBER_INVALID' })
+    }
   })
 })

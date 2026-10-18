@@ -29,14 +29,16 @@ describe('NotImplementedError — 코어가 미구현을 알리는 유일한 방
   })
 })
 
-// S01: 파서를 구현하는 대로 S00의 "미구현을 알린다" 항목을 AC-S01-01 기준의 테스트로 바꾼다(스펙 변경에 따른 교체).
-describe('AC-S01-01 파서 — S00에서 정한 이름·모양 그대로, 미구현을 알리지 않는다', () => {
+// S01: 파서 4종을 구현했다. S00의 "미구현을 알린다" 항목 중 파서 4개는 AC-S01-01 기준의 테스트로 바꿨다(스펙 변경에 따른 교체).
+describe('AC-S01-01 파서 4종 — S00에서 정한 이름·모양 그대로, 미구현을 알리지 않는다', () => {
   const calls: ReadonlyArray<readonly [string, () => unknown, unknown]> = [
     ['parseChat', () => parseChat('15'), { claims: [15], cancels: [], mentions: [] }],
     ['parseChat(설정)', () => parseChat('15', { 'claim.parseMode': 'STRICT' }), { claims: [15], cancels: [], mentions: [] }],
     ['parseAmount', () => parseAmount('1만'), 10000],
     ['parseAmount(설정)', () => parseAmount('10', { 'price.unit': 'THOUSAND' }), 10000],
     ['parseKoreanNumber', () => parseKoreanNumber('십오'), 15],
+    ['parseQuickInput', () => parseQuickInput('15 핑크프릴 10'), { no: 15, name: '핑크프릴', price: 10000 }],
+    ['parseQuickInput(설정)', () => parseQuickInput('15 핑크프릴 10', { 'price.unit': 'WON' }), { error: 'PRICE_TOO_LOW', no: 15, name: '핑크프릴' }],
   ]
 
   it.each(calls)('%s → 예외 없이 결과', (_name, call, expected) => {
@@ -67,10 +69,8 @@ describe('AC-S01-01 파서 — S00에서 정한 이름·모양 그대로, 미구
   })
 })
 
-describe('아직 구현하지 않은 코어 API는 미구현을 알린다', () => {
+describe('엔진 API는 S02까지 미구현을 알린다', () => {
   const calls: ReadonlyArray<readonly [string, () => unknown]> = [
-    ['parseQuickInput', () => parseQuickInput('15 핑크프릴 10')],
-    ['parseQuickInput(설정)', () => parseQuickInput('15 핑크프릴 10', { 'price.unit': 'WON' })],
     ['initEngine', () => initEngine({ broadcasts: [{ id: 'b1', date: '2026-10-18', title: '1부' }], settings: {} })],
     ['applyEvent', () => applyEvent({}, { seq: 1, at: 0, type: 'product.register' })],
   ]

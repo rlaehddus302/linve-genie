@@ -1,5 +1,5 @@
 // 실제 코어(@livejjim/core)를 골든 러너의 GoldenCore 모양으로 감싼다.
-// 파서(S01)·엔진(S02~S03)을 구현하면 이 파일에서 코어 결과를 GoldenSnapshot으로 옮긴다.
+// 파서(S01)는 코어 결과를 바꾸지 않고 그대로 넘긴다(AC-S01-04). 엔진(S02~S03)을 구현하면 이 파일에서 엔진 상태를 GoldenSnapshot으로 옮긴다.
 import { NotImplementedError, applyEvent, initEngine, parseAmount, parseChat, parseKoreanNumber, parseQuickInput, type EngineState } from '@livejjim/core'
 import type { GoldenCore } from './types.ts'
 
