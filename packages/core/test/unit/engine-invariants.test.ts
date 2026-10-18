@@ -88,4 +88,11 @@ describe('손상된 상태로 판정을 이어 가지 않는다 (CorruptStateErr
     const broken = withClaim(VALID, 'c1', { effects: ['c1:PRINT_PRODUCT_LABEL:-:1', 'c1:LOST:-:1'] })
     expect(() => apply(broken, { type: 'host.cancel', b: 'b1', no: 15, buyer: 'A', reason: 'r' })).toThrow('효과 c1:LOST:-:1가 없다')
   })
+
+  it('같은 구매자의 보류 찜이 한 번호에 둘이면 공개할 때 멈춘다', () => {
+    // 16번: D 보류(c4). 같은 D의 두 번째 보류 찜을 억지로 끼워 넣는다
+    const second = { ...claim(VALID, 'c4'), id: 'c9', n: 9 }
+    const broken = withSlot({ ...VALID, claims: pset(VALID.claims, 'c9', second) }, 'b1/16', { pending: ['c4', 'c9'] })
+    expect(() => apply(broken, { type: 'product.register', b: 'b1', no: 16, name: 'x', price: 1 })).toThrow(CorruptStateError)
+  })
 })

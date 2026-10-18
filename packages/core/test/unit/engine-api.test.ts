@@ -254,6 +254,15 @@ describe('AC-S02-04 S03 기능은 미구현을 알린다 (조용히 무시하지
   })
 
   it.each([
+    ['broadcast.start', 'S04'],
+    ['broadcast.end', 'S04'],
+    ['effect.failed', 'S11'],
+  ] as const)('R-1의 나중 스프린트 이벤트 %s도 조용히 무시하지 않고 미구현을 알린다 (%s)', (type, sprint) => {
+    const { state } = play([register(15)])
+    expect(() => applyEvent(state, { seq: 2, at: T0 + 2000, type } as unknown as EngineEvent)).toThrow(sprint)
+  })
+
+  it.each([
     ['contention.policy=RECEIVED_TIME', { 'contention.policy': 'RECEIVED_TIME' }],
     ['settlement.groupBy=MANUAL', { 'settlement.groupBy': 'MANUAL' }],
   ] as const)('설정 %s → initEngine이 NotImplementedError', (_name, settings) => {

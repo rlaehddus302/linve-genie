@@ -121,8 +121,11 @@ export interface EffectReportEvent extends EventBase {
   readonly effectId: string
 }
 
-/** S03에서 구현하는 이벤트 (D-037). 엔진은 NotImplementedError를 던진다 */
+/** S03 이후에 구현하는 이벤트 (D-037). 엔진은 NotImplementedError를 던진다 */
 export type DeferredEventType =
+  | 'broadcast.start'
+  | 'broadcast.end'
+  | 'effect.failed'
   | 'sms'
   | 'product.update'
   | 'product.renumber'

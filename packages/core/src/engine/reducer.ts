@@ -28,7 +28,7 @@ import type {
 
 // ── S03 경계 (D-037) ─────────────────────────────────────────────────────
 
-/** S03에서 구현하는 이벤트 → 보고용 기능 이름 */
+/** S03 이후에 구현하는 이벤트 → 보고용 기능 이름 */
 const DEFERRED_EVENTS: Readonly<Record<string, string>> = {
   sms: '문자찜(sms, ORD-08) — S03',
   'product.update': '상품 수정(product.update, R-10) — S03',
@@ -41,6 +41,10 @@ const DEFERRED_EVENTS: Readonly<Record<string, string>> = {
   'settlement.adjust': '정산 조정(settlement.adjust, R-12) — S03',
   'settlement.payment': '입금 기록(settlement.payment, R-12) — S03',
   'settlement.refund': '환불 기록(settlement.refund, R-12) — S03',
+  // R-1에 있지만 처음 쓰는 스프린트에서 형식을 정한다 (README 이벤트 표 아래 메모)
+  'broadcast.start': '방송 시작(broadcast.start, R-1) — S04',
+  'broadcast.end': '방송 종료(broadcast.end, R-1) — S04',
+  'effect.failed': '효과 실패 보고(effect.failed, R-13) — S11',
 }
 
 // ── 시작 ─────────────────────────────────────────────────────────────────

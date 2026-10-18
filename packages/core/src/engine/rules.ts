@@ -182,8 +182,8 @@ export function openPending(d: Draft, slot: SlotDraft, openedAt: number): void {
       continue
     }
     const outcome = decide(d, slot, claim.buyer, claim.id)
-    // 공개된 상품이므로 보류·같은 사람 반복은 나오지 않는다(INV-2). 혹시 나오면 판정하지 않고 만료로 끝낸다.
-    if (outcome.kind === 'none' || outcome.kind === 'pending') finish(claim, slot, 'REJECTED', 'EXPIRED')
-    else place(d, claim, slot, outcome)
+    // 공개된 상품이라 보류는 나오지 않고, 같은 사람 반복(4번 줄)은 활성 찜이 둘(INV-2 위반)일 때만 나온다
+    if (outcome.kind === 'none' || outcome.kind === 'pending') throw new CorruptStateError(`보류 찜 ${claim.id}: 같은 구매자의 활성 찜이 ${slot.key}에 또 있다`)
+    place(d, claim, slot, outcome)
   }
 }
