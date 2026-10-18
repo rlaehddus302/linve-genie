@@ -90,3 +90,38 @@ describe('S02 회귀: 묻기(ASK)', () => {
     expect(product(p.state, 15)?.awaitingSuccession).toBe(false)
   })
 })
+
+describe('S02 회귀: 차단 중인 1등 교체 (D-049, TD-S02-001 재공격)', () => {
+  it('출력·취소 요청이 있는 차단된 1등을 대기로 교체 → REJECTED(BLOCKED)·요청 사라짐·VOID_LABEL, 해제 뒤 새 찜은 맨 뒤 대기', () => {
+    const q = play(
+      [
+        reg(15),
+        chat('A', '15'),
+        chat('B', '15'),
+        chat('C', '안녕'),
+        labelPrinted('c1:PRINT_PRODUCT_LABEL:-:1'),
+        chat('A', '15 취소'),
+        block('A'),
+        host('host.assign', 15, 'C', { replace: 'A', replaceTo: 'WAITLIST' }),
+        host('host.cancel', 15, 'C'),
+        { type: 'host.unblockBuyer', buyer: 'A', reason: '사유' },
+        chat('A', '15'),
+      ],
+      { 'waitlist.max': 2 },
+    )
+    expect(listClaims(q.state).map((c) => [c.id, c.buyer, c.status, c.reason])).toEqual([
+      ['c1', 'A', 'REJECTED', 'BLOCKED'],
+      ['c2', 'B', 'CONFIRMED', null],
+      ['c3', 'C', 'CANCELLED', null],
+      ['c4', 'A', 'WAITLISTED', null],
+    ])
+    expect(listCancelRequests(q.state)).toEqual([])
+    expect(listEffects(q.state).filter((e) => e.buyer === 'A').map((e) => [e.id, e.status])).toEqual([
+      ['c1:PRINT_PRODUCT_LABEL:-:1', 'DONE'],
+      ['c1:POST_THANKS:LIVE_CHAT:1', 'CANCELLED'],
+      ['c1:VOID_LABEL:-:1', 'PENDING'],
+    ])
+    expect(product(q.state, 15)?.waitlist).toEqual(['A'])
+    expect(checkInvariants(q.state)).toEqual([])
+  })
+})
