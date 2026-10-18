@@ -1,0 +1,10 @@
+# 범주 1: suite도 id도 없는 문서 / 모르는 suite 이름 / 둘 다 있는 문서
+title: 아무것도 아닌 문서
+---
+suite: chatt
+cases:
+  - { in: "15", out: { claims: [15] } }
+---
+suite: chat
+id: G-ENG-901
+cases: []

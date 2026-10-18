@@ -1,0 +1,24 @@
+# 범주 2: 사례에 in·out 외의 키 / suite별 out 형식 위반
+suite: chat
+cases:
+  - { in: "15", out: { claims: [15] }, note: 메모 }
+  - { in: 15, out: {} }
+  - { in: "15", out: { claim: [15] } }
+  - { in: "15", out: { claims: [0] } }
+  - { in: "15" }
+---
+suite: quick-input
+cases:
+  - { in: "15 핑크 10", out: { no: 15, name: 핑크 } }
+  - { in: "15 핑크", out: { error: PRICE_MISSING, price: 0 } }
+  - { in: "", out: { error: BLANK } }
+---
+suite: amount
+cases:
+  - { in: "만원", out: "10000" }
+  - { in: "만원", out: 1.5 }
+---
+suite: korean-number
+settings: { unit: WON }
+cases:
+  - { in: "십오", out: 0 }

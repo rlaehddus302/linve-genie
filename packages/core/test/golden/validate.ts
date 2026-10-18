@@ -1,0 +1,705 @@
+// 골든 문서 검증 — README 형식 계약 밖은 전부 읽기 오류 (D-021).
+// 검증을 통과한 문서만 러너가 실행한다. 이벤트 변환(at → UTC, seq 부여)도 여기서 한다.
+import type { SettingsOverride } from '@livejjim/core'
+import {
+  BROADCAST_ID_RE,
+  BUYER_EXPECT_KEYS,
+  CLAIM_EXPECT_KEYS,
+  CLAIM_STATUSES,
+  EFFECT_EXPECT_KEYS,
+  EFFECT_KINDS,
+  EVENT_SPECS,
+  EXPECT_KEYS,
+  PAYMENT_STATUSES,
+  PRODUCT_EXPECT_KEYS,
+  PRODUCT_KEY_RE,
+  PRODUCT_STATUSES,
+  QUICK_INPUT_ERRORS,
+  REJECT_REASONS,
+  SCENARIO_ID_RE,
+  SETTING_CHECKS,
+  SETTLEMENT_EXPECT_KEYS,
+  SMS_PREFIX,
+  SUITES,
+  SUITE_SETTINGS,
+  TARGETS,
+  anyInt,
+  bool,
+  intAtLeast,
+  isPlainObject,
+  nonEmptyStr,
+  oneOf,
+  showValue,
+  str,
+  type ClaimStatus,
+  type EffectKind,
+  type FieldKind,
+  type PaymentStatus,
+  type ProductStatus,
+  type RejectReason,
+  type SuiteName,
+  type Target,
+  type ValueCheck,
+} from './contract.ts'
+import { isShortAt, isValidReceived, parseDate, resolveAt } from './time.ts'
+import type { GoldenBroadcast, GoldenEvent, GoldenSetup } from './types.ts'
+import type { PathSegment } from './yaml.ts'
+
+// ── 검증된 문서 ──────────────────────────────────────────────────────────
+
+export interface ProductExpect {
+  readonly status?: ProductStatus
+  readonly winner?: string | null
+  readonly winners?: readonly string[]
+  readonly waitlist?: readonly string[]
+  readonly conflict?: boolean
+  readonly exists?: boolean
+  readonly price?: number
+  readonly priceHistory?: readonly { readonly from: number; readonly to: number }[]
+}
+
+export interface BuyerExpect {
+  readonly items?: readonly string[]
+  readonly subtotal?: number
+  readonly byBroadcast?: Readonly<Record<string, number>>
+  readonly display?: string
+  readonly nameHistory?: readonly string[]
+}
+
+export interface SettlementExpect {
+  readonly subtotal?: number
+  readonly shipping?: number
+  readonly adjustments?: number
+  readonly total?: number
+  readonly refundDue?: number
+  readonly payment?: PaymentStatus
+}
+
+export interface EffectExpect {
+  readonly kind: EffectKind
+  readonly target?: Target
+  readonly product?: string
+  readonly buyer?: string
+  readonly text?: string
+  readonly confirmVersion?: number
+}
+
+export interface ClaimExpect {
+  readonly product: string
+  readonly buyer: string
+  readonly status: ClaimStatus
+  readonly reason?: RejectReason
+}
+
+export interface Expect {
+  readonly products?: Readonly<Record<string, ProductExpect>>
+  readonly buyers?: Readonly<Record<string, BuyerExpect>>
+  readonly settlements?: Readonly<Record<string, SettlementExpect>>
+  readonly effects?: readonly EffectExpect[]
+  readonly effectCounts?: Readonly<Partial<Record<EffectKind, number>>>
+  readonly pendingEffects?: readonly EffectExpect[]
+  readonly claims?: readonly ClaimExpect[]
+  readonly pending?: Readonly<Record<string, readonly string[]>>
+  readonly sameBuyer?: readonly (readonly string[])[]
+  readonly claimCount?: number
+  readonly cancelRequests?: readonly { readonly product: string; readonly buyer: string }[]
+}
+
+export interface ParserCase {
+  /** 문서 안 사례 번호 (1부터) */
+  readonly index: number
+  readonly input: string
+  readonly out: unknown
+}
+
+export interface ParserSuiteDoc {
+  readonly kind: 'suite'
+  readonly suite: SuiteName
+  /** DOMAIN_RULES 키(점 표기)로 바꾼 설정 */
+  readonly settings: SettingsOverride
+  readonly cases: readonly ParserCase[]
+}
+
+export type ScenarioStep =
+  | { readonly kind: 'event'; readonly index: number; readonly event: GoldenEvent }
+  | { readonly kind: 'assert'; readonly index: number; readonly expect: Expect }
+
+export interface ScenarioDoc {
+  readonly kind: 'scenario'
+  readonly id: string
+  readonly title: string
+  readonly refs: readonly string[]
+  readonly setup: GoldenSetup
+  readonly steps: readonly ScenarioStep[]
+  readonly expect: Expect
+}
+
+export type ValidatedDocument = ParserSuiteDoc | ScenarioDoc
+
+export interface ValidationIssue {
+  readonly path: readonly PathSegment[]
+  readonly message: string
+}
+
+export type ValidationResult =
+  | { readonly ok: true; readonly doc: ValidatedDocument }
+  | { readonly ok: false; readonly label?: string; readonly issues: readonly ValidationIssue[] }
+
+/** `events[3].at`, `expect.products.b1/15.winner` 같은 표시용 경로 */
+export function formatPath(path: readonly PathSegment[]): string {
+  let out = ''
+  for (const segment of path) {
+    if (typeof segment === 'number') out += `[${segment}]`
+    else out += out === '' ? segment : `.${segment}`
+  }
+  return out
+}
+
+// ── 검사 도구 ────────────────────────────────────────────────────────────
+
+interface ScenarioContext {
+  readonly broadcasts: ReadonlyMap<string, GoldenBroadcast>
+  readonly smsRefs: ReadonlySet<string>
+  readonly messageIds: ReadonlySet<string>
+  /** 방송 날짜가 하나뿐이면 그 날짜 (방송 없는 이벤트의 짧은 at 기준) */
+  readonly singleDate: string | undefined
+}
+
+class Checker {
+  readonly issues: ValidationIssue[] = []
+
+  fail(path: readonly PathSegment[], message: string): false {
+    this.issues.push({ path: [...path], message })
+    return false
+  }
+
+  value(path: readonly PathSegment[], value: unknown, check: ValueCheck): boolean {
+    const reason = check(value)
+    return reason === undefined ? true : this.fail(path, reason)
+  }
+
+  object(path: readonly PathSegment[], value: unknown, what = '맵'): value is Record<string, unknown> {
+    return isPlainObject(value) ? true : this.fail(path, `${what}이어야 한다 (값: ${showValue(value)})`)
+  }
+
+  array(path: readonly PathSegment[], value: unknown, minLength = 0): value is unknown[] {
+    if (!Array.isArray(value)) return this.fail(path, `목록이어야 한다 (값: ${showValue(value)})`)
+    if (value.length < minLength) return this.fail(path, `항목이 ${minLength}개 이상이어야 한다`)
+    return true
+  }
+
+  /** 모르는 키와 빠진 필수 키를 찾는다. */
+  keys(path: readonly PathSegment[], obj: Record<string, unknown>, allowed: readonly string[], required: readonly string[], what = '키'): boolean {
+    let ok = true
+    for (const key of Object.keys(obj)) {
+      if (!allowed.includes(key)) ok = this.fail([...path, key], `모르는 ${what} '${key}'`)
+    }
+    for (const key of required) {
+      if (!Object.hasOwn(obj, key)) ok = this.fail(path, `필수 ${what} '${key}'가 없다`)
+    }
+    return ok
+  }
+}
+
+function hasValue(obj: Record<string, unknown>, key: string): boolean {
+  return Object.hasOwn(obj, key)
+}
+
+// ── 공통 참조 검사 ───────────────────────────────────────────────────────
+
+function checkBuyerKey(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], value: unknown): value is string {
+  if (typeof value !== 'string' || value === '' || value.trim() !== value) {
+    return c.fail(path, `구매자 키는 앞뒤 공백 없는 문자열이어야 한다 (값: ${showValue(value)})`)
+  }
+  if (value.startsWith(SMS_PREFIX)) {
+    const ref = value.slice(SMS_PREFIX.length)
+    if (!ctx.smsRefs.has(ref)) return c.fail(path, `구매자 키 '${value}': 시나리오에 ref '${ref}'인 문자찜이 없다`)
+  }
+  return true
+}
+
+function checkProductKey(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], value: unknown): value is string {
+  if (typeof value !== 'string') return c.fail(path, `상품 키는 '<방송>/<번호>' 문자열이어야 한다 (값: ${showValue(value)})`)
+  const m = PRODUCT_KEY_RE.exec(value)
+  if (!m) return c.fail(path, `상품 키 형식 오류 '${value}' ('<방송>/<번호>', 번호는 1 이상)`)
+  const broadcast = m[1] ?? ''
+  if (!ctx.broadcasts.has(broadcast)) return c.fail(path, `상품 키 '${value}': 선언하지 않은 방송 '${broadcast}'`)
+  return true
+}
+
+function checkBuyerList(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], value: unknown, minLength = 0): boolean {
+  if (!c.array(path, value, minLength)) return false
+  let ok = true
+  value.forEach((item, i) => {
+    if (!checkBuyerKey(c, ctx, [...path, i], item)) ok = false
+  })
+  return ok
+}
+
+function checkSettlementKey(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], key: string): boolean {
+  const at = key.lastIndexOf('@')
+  if (at <= 0) return c.fail(path, `정산 키 형식 오류 '${key}' ('<구매자 키>@<YYYY-MM-DD>')`)
+  const buyer = key.slice(0, at)
+  const date = key.slice(at + 1)
+  if (!parseDate(date)) return c.fail(path, `정산 키 '${key}'의 날짜 형식 오류 (YYYY-MM-DD)`)
+  return checkBuyerKey(c, ctx, path, buyer)
+}
+
+// ── expect ───────────────────────────────────────────────────────────────
+
+function checkEffectEntry(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], value: unknown): void {
+  if (!c.object(path, value)) return
+  c.keys(path, value, EFFECT_EXPECT_KEYS, ['kind'])
+  if (hasValue(value, 'kind')) c.value([...path, 'kind'], value.kind, oneOf(EFFECT_KINDS))
+  if (hasValue(value, 'target')) c.value([...path, 'target'], value.target, oneOf(TARGETS))
+  if (hasValue(value, 'product')) checkProductKey(c, ctx, [...path, 'product'], value.product)
+  if (hasValue(value, 'buyer')) checkBuyerKey(c, ctx, [...path, 'buyer'], value.buyer)
+  if (hasValue(value, 'text')) c.value([...path, 'text'], value.text, str)
+  if (hasValue(value, 'confirmVersion')) c.value([...path, 'confirmVersion'], value.confirmVersion, intAtLeast(1))
+}
+
+function checkExpect(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], value: unknown): void {
+  if (!c.object(path, value)) return
+  c.keys(path, value, EXPECT_KEYS, [], 'expect 키')
+
+  if (hasValue(value, 'products')) {
+    const p = [...path, 'products']
+    if (c.object(p, value.products)) {
+      for (const [key, product] of Object.entries(value.products)) {
+        const kp = [...p, key]
+        checkProductKey(c, ctx, kp, key)
+        if (!c.object(kp, product)) continue
+        c.keys(kp, product, PRODUCT_EXPECT_KEYS, [], '상품 expect 키')
+        if (hasValue(product, 'status')) c.value([...kp, 'status'], product.status, oneOf(PRODUCT_STATUSES))
+        if (hasValue(product, 'winner') && product.winner !== null) checkBuyerKey(c, ctx, [...kp, 'winner'], product.winner)
+        if (hasValue(product, 'winners')) checkBuyerList(c, ctx, [...kp, 'winners'], product.winners)
+        if (hasValue(product, 'waitlist')) checkBuyerList(c, ctx, [...kp, 'waitlist'], product.waitlist)
+        if (hasValue(product, 'conflict')) c.value([...kp, 'conflict'], product.conflict, bool)
+        if (hasValue(product, 'exists')) c.value([...kp, 'exists'], product.exists, bool)
+        if (hasValue(product, 'price')) c.value([...kp, 'price'], product.price, intAtLeast(0))
+        if (hasValue(product, 'priceHistory')) {
+          const hp = [...kp, 'priceHistory']
+          if (c.array(hp, product.priceHistory)) {
+            product.priceHistory.forEach((entry, i) => {
+              if (!c.object([...hp, i], entry)) return
+              c.keys([...hp, i], entry, ['from', 'to'], ['from', 'to'])
+              if (hasValue(entry, 'from')) c.value([...hp, i, 'from'], entry.from, intAtLeast(0))
+              if (hasValue(entry, 'to')) c.value([...hp, i, 'to'], entry.to, intAtLeast(0))
+            })
+          }
+        }
+      }
+    }
+  }
+
+  if (hasValue(value, 'buyers')) {
+    const p = [...path, 'buyers']
+    if (c.object(p, value.buyers)) {
+      for (const [key, buyer] of Object.entries(value.buyers)) {
+        const kp = [...p, key]
+        checkBuyerKey(c, ctx, kp, key)
+        if (!c.object(kp, buyer)) continue
+        c.keys(kp, buyer, BUYER_EXPECT_KEYS, [], '구매자 expect 키')
+        if (hasValue(buyer, 'items') && c.array([...kp, 'items'], buyer.items)) {
+          buyer.items.forEach((item, i) => checkProductKey(c, ctx, [...kp, 'items', i], item))
+        }
+        if (hasValue(buyer, 'subtotal')) c.value([...kp, 'subtotal'], buyer.subtotal, intAtLeast(0))
+        if (hasValue(buyer, 'byBroadcast') && c.object([...kp, 'byBroadcast'], buyer.byBroadcast)) {
+          for (const [b, amount] of Object.entries(buyer.byBroadcast)) {
+            if (!ctx.broadcasts.has(b)) c.fail([...kp, 'byBroadcast', b], `선언하지 않은 방송 '${b}'`)
+            c.value([...kp, 'byBroadcast', b], amount, intAtLeast(0))
+          }
+        }
+        if (hasValue(buyer, 'display')) c.value([...kp, 'display'], buyer.display, str)
+        if (hasValue(buyer, 'nameHistory') && c.array([...kp, 'nameHistory'], buyer.nameHistory)) {
+          buyer.nameHistory.forEach((name, i) => c.value([...kp, 'nameHistory', i], name, str))
+        }
+      }
+    }
+  }
+
+  if (hasValue(value, 'settlements')) {
+    const p = [...path, 'settlements']
+    if (c.object(p, value.settlements)) {
+      for (const [key, settlement] of Object.entries(value.settlements)) {
+        const kp = [...p, key]
+        checkSettlementKey(c, ctx, kp, key)
+        if (!c.object(kp, settlement)) continue
+        c.keys(kp, settlement, SETTLEMENT_EXPECT_KEYS, [], '정산 expect 키')
+        for (const field of ['subtotal', 'shipping', 'refundDue'] as const) {
+          if (hasValue(settlement, field)) c.value([...kp, field], settlement[field], intAtLeast(0))
+        }
+        for (const field of ['adjustments', 'total'] as const) {
+          if (hasValue(settlement, field)) c.value([...kp, field], settlement[field], anyInt)
+        }
+        if (hasValue(settlement, 'payment')) c.value([...kp, 'payment'], settlement.payment, oneOf(PAYMENT_STATUSES))
+      }
+    }
+  }
+
+  for (const listKey of ['effects', 'pendingEffects'] as const) {
+    if (!hasValue(value, listKey)) continue
+    const p = [...path, listKey]
+    const list = value[listKey]
+    if (c.array(p, list)) list.forEach((entry, i) => checkEffectEntry(c, ctx, [...p, i], entry))
+  }
+
+  if (hasValue(value, 'effectCounts')) {
+    const p = [...path, 'effectCounts']
+    if (c.object(p, value.effectCounts)) {
+      for (const [kind, count] of Object.entries(value.effectCounts)) {
+        c.value([...p, kind], kind, oneOf(EFFECT_KINDS))
+        c.value([...p, kind], count, intAtLeast(0))
+      }
+    }
+  }
+
+  if (hasValue(value, 'claims')) {
+    const p = [...path, 'claims']
+    if (c.array(p, value.claims)) {
+      value.claims.forEach((entry, i) => {
+        const ep = [...p, i]
+        if (!c.object(ep, entry)) return
+        c.keys(ep, entry, CLAIM_EXPECT_KEYS, ['product', 'buyer', 'status'])
+        if (hasValue(entry, 'product')) checkProductKey(c, ctx, [...ep, 'product'], entry.product)
+        if (hasValue(entry, 'buyer')) checkBuyerKey(c, ctx, [...ep, 'buyer'], entry.buyer)
+        if (hasValue(entry, 'status')) c.value([...ep, 'status'], entry.status, oneOf(CLAIM_STATUSES))
+        if (hasValue(entry, 'reason')) c.value([...ep, 'reason'], entry.reason, oneOf(REJECT_REASONS))
+      })
+    }
+  }
+
+  if (hasValue(value, 'pending')) {
+    const p = [...path, 'pending']
+    if (c.object(p, value.pending)) {
+      for (const [key, buyers] of Object.entries(value.pending)) {
+        checkProductKey(c, ctx, [...p, key], key)
+        checkBuyerList(c, ctx, [...p, key], buyers)
+      }
+    }
+  }
+
+  if (hasValue(value, 'sameBuyer')) {
+    const p = [...path, 'sameBuyer']
+    if (c.array(p, value.sameBuyer)) value.sameBuyer.forEach((group, i) => checkBuyerList(c, ctx, [...p, i], group, 2))
+  }
+
+  if (hasValue(value, 'claimCount')) c.value([...path, 'claimCount'], value.claimCount, intAtLeast(0))
+
+  if (hasValue(value, 'cancelRequests')) {
+    const p = [...path, 'cancelRequests']
+    if (c.array(p, value.cancelRequests)) {
+      value.cancelRequests.forEach((entry, i) => {
+        const ep = [...p, i]
+        if (!c.object(ep, entry)) return
+        c.keys(ep, entry, ['product', 'buyer'], ['product', 'buyer'])
+        if (hasValue(entry, 'product')) checkProductKey(c, ctx, [...ep, 'product'], entry.product)
+        if (hasValue(entry, 'buyer')) checkBuyerKey(c, ctx, [...ep, 'buyer'], entry.buyer)
+      })
+    }
+  }
+}
+
+// ── 설정 ─────────────────────────────────────────────────────────────────
+
+function checkScenarioSettings(c: Checker, value: unknown): SettingsOverride {
+  if (value === undefined) return {}
+  if (!c.object(['settings'], value)) return {}
+  const out: Record<string, unknown> = {}
+  for (const [key, setting] of Object.entries(value)) {
+    const check = Object.hasOwn(SETTING_CHECKS, key) ? SETTING_CHECKS[key] : undefined
+    if (!check) {
+      c.fail(['settings', key], `모르는 설정 키 '${key}'`)
+      continue
+    }
+    if (c.value(['settings', key], setting, check)) out[key] = setting
+  }
+  return out as SettingsOverride
+}
+
+// ── 파서 suite ───────────────────────────────────────────────────────────
+
+const intArray =
+  (min: number): ValueCheck =>
+  (value) => {
+    if (!Array.isArray(value)) return `${min} 이상 정수 목록이어야 한다 (값: ${showValue(value)})`
+    for (const item of value) {
+      const reason = intAtLeast(min)(item)
+      if (reason) return `${min} 이상 정수 목록이어야 한다 (값: ${showValue(value)})`
+    }
+    return undefined
+  }
+
+function checkSuiteOut(c: Checker, suite: SuiteName, path: readonly PathSegment[], out: unknown): void {
+  switch (suite) {
+    case 'chat': {
+      if (!c.object(path, out)) return
+      c.keys(path, out, ['claims', 'cancels', 'mentions'], [], 'chat out 키')
+      for (const key of ['claims', 'cancels', 'mentions'] as const) {
+        if (hasValue(out, key)) c.value([...path, key], out[key], intArray(1))
+      }
+      return
+    }
+    case 'amount':
+      if (out !== null) c.value(path, out, (v) => (intAtLeast(0)(v) ? `0 이상 정수(원) 또는 null이어야 한다 (값: ${showValue(v)})` : undefined))
+      return
+    case 'korean-number':
+      if (out !== null) c.value(path, out, (v) => (intAtLeast(1)(v) ? `1 이상 정수 또는 null이어야 한다 (값: ${showValue(v)})` : undefined))
+      return
+    case 'quick-input': {
+      if (!c.object(path, out)) return
+      if (hasValue(out, 'error')) {
+        c.keys(path, out, ['error', 'no', 'name'], ['error'], 'quick-input 실패 out 키')
+        c.value([...path, 'error'], out.error, oneOf(QUICK_INPUT_ERRORS))
+        if (hasValue(out, 'no')) c.value([...path, 'no'], out.no, intAtLeast(1))
+        if (hasValue(out, 'name')) c.value([...path, 'name'], out.name, str)
+      } else {
+        c.keys(path, out, ['no', 'name', 'price'], ['no', 'name', 'price'], 'quick-input 성공 out 키')
+        if (hasValue(out, 'no')) c.value([...path, 'no'], out.no, intAtLeast(1))
+        if (hasValue(out, 'name')) c.value([...path, 'name'], out.name, str)
+        if (hasValue(out, 'price')) c.value([...path, 'price'], out.price, intAtLeast(0))
+      }
+      return
+    }
+  }
+}
+
+function validateSuite(raw: Record<string, unknown>): ValidationResult {
+  const c = new Checker()
+  c.keys([], raw, ['suite', 'settings', 'cases'], ['suite', 'cases'])
+  const suiteValue = raw.suite
+  const label = typeof suiteValue === 'string' ? suiteValue : undefined
+  if (typeof suiteValue !== 'string' || !(SUITES as readonly string[]).includes(suiteValue)) {
+    c.fail(['suite'], `모르는 suite 이름 ${showValue(suiteValue)} (${SUITES.join(' / ')} 중 하나)`)
+    return { ok: false, ...(label === undefined ? {} : { label }), issues: c.issues }
+  }
+  const suite = suiteValue as SuiteName
+  const mapping = SUITE_SETTINGS[suite]
+  const settings: Record<string, unknown> = {}
+  if (hasValue(raw, 'settings') && c.object(['settings'], raw.settings)) {
+    for (const [key, setting] of Object.entries(raw.settings)) {
+      const domainKey = Object.hasOwn(mapping, key) ? mapping[key] : undefined
+      const check = domainKey === undefined ? undefined : SETTING_CHECKS[domainKey]
+      if (domainKey === undefined || check === undefined) {
+        c.fail(['settings', key], `suite '${suite}'에 없는 설정 키 '${key}'`)
+        continue
+      }
+      if (c.value(['settings', key], setting, check)) settings[domainKey] = setting
+    }
+  }
+  const cases: ParserCase[] = []
+  if (hasValue(raw, 'cases') && c.array(['cases'], raw.cases)) {
+    raw.cases.forEach((entry, i) => {
+      const p = ['cases', i]
+      if (!c.object(p, entry)) return
+      c.keys(p, entry, ['in', 'out'], ['in', 'out'], '사례 키')
+      const inputOk = hasValue(entry, 'in') && c.value([...p, 'in'], entry.in, str)
+      if (hasValue(entry, 'out')) checkSuiteOut(c, suite, [...p, 'out'], entry.out)
+      if (inputOk) cases.push({ index: i + 1, input: entry.in as string, out: entry.out })
+    })
+  }
+  if (c.issues.length > 0) return { ok: false, label: suite, issues: c.issues }
+  return { ok: true, doc: { kind: 'suite', suite, settings: settings as SettingsOverride, cases } }
+}
+
+// ── 엔진 시나리오 ────────────────────────────────────────────────────────
+
+function collectContext(c: Checker, raw: Record<string, unknown>): ScenarioContext {
+  const broadcasts = new Map<string, GoldenBroadcast>()
+  if (hasValue(raw, 'broadcasts') && c.array(['broadcasts'], raw.broadcasts, 1)) {
+    raw.broadcasts.forEach((entry, i) => {
+      const p = ['broadcasts', i]
+      if (!c.object(p, entry)) return
+      c.keys(p, entry, ['id', 'date', 'title'], ['id', 'date', 'title'], '방송 키')
+      const idOk = hasValue(entry, 'id') && c.value([...p, 'id'], entry.id, (v) =>
+        typeof v === 'string' && BROADCAST_ID_RE.test(v) ? undefined : `방송 ID는 공백·'/'·'@' 없는 문자열이어야 한다 (값: ${showValue(v)})`,
+      )
+      const dateOk =
+        hasValue(entry, 'date') &&
+        c.value([...p, 'date'], entry.date, (v) => (typeof v === 'string' && parseDate(v) ? undefined : `날짜 형식 오류 ${showValue(v)} (YYYY-MM-DD)`))
+      const titleOk = hasValue(entry, 'title') && c.value([...p, 'title'], entry.title, nonEmptyStr)
+      if (!idOk || !dateOk || !titleOk) return
+      const id = entry.id as string
+      if (broadcasts.has(id)) {
+        c.fail([...p, 'id'], `방송 ID '${id}' 중복`)
+        return
+      }
+      broadcasts.set(id, { id, date: entry.date as string, title: entry.title as string })
+    })
+  }
+  const smsRefs = new Set<string>()
+  const messageIds = new Set<string>()
+  if (Array.isArray(raw.events)) {
+    for (const event of raw.events) {
+      if (!isPlainObject(event)) continue
+      if (event.type === 'sms' && typeof event.ref === 'string') smsRefs.add(event.ref)
+      if (event.type === 'chat' && typeof event.id === 'string') messageIds.add(event.id)
+    }
+  }
+  const dates = new Set([...broadcasts.values()].map((b) => b.date))
+  const singleDate = dates.size === 1 ? [...dates][0] : undefined
+  return { broadcasts, smsRefs, messageIds, singleDate }
+}
+
+function checkField(
+  c: Checker,
+  ctx: ScenarioContext,
+  path: readonly PathSegment[],
+  kind: FieldKind,
+  value: unknown,
+  seenSmsRefs: Set<string>,
+): void {
+  switch (kind.kind) {
+    case 'broadcast':
+      if (typeof value !== 'string' || !ctx.broadcasts.has(value)) c.fail(path, `선언하지 않은 방송 ${showValue(value)}`)
+      return
+    case 'buyer':
+      checkBuyerKey(c, ctx, path, value)
+      return
+    case 'channel':
+      if (c.value(path, value, nonEmptyStr) && (value as string).startsWith(SMS_PREFIX)) {
+        c.fail(path, `채널 ID는 '${SMS_PREFIX}'로 시작할 수 없다 (문자찜 구매자 키와 겹친다)`)
+      }
+      return
+    case 'message':
+      if (typeof value !== 'string' || !ctx.messageIds.has(value)) c.fail(path, `시나리오에 없는 채팅 메시지 ID ${showValue(value)}`)
+      return
+    case 'smsRef':
+      if (!c.value(path, value, nonEmptyStr)) return
+      if (seenSmsRefs.has(value as string)) c.fail(path, `문자찜 ref '${String(value)}' 중복`)
+      seenSmsRefs.add(value as string)
+      return
+    case 'date':
+      if (typeof value !== 'string' || !parseDate(value)) c.fail(path, `날짜 형식 오류 ${showValue(value)} (YYYY-MM-DD)`)
+      return
+    case 'received':
+      if (typeof value !== 'string' || !isValidReceived(value)) c.fail(path, `수신 시각 형식 오류 ${showValue(value)} (HH:MM 또는 HH:MM:SS)`)
+      return
+    case 'at':
+      // at·publishedAt은 방송 날짜가 필요해 호출한 쪽에서 해석한다
+      return
+    case 'value':
+      c.value(path, value, kind.check)
+      return
+  }
+}
+
+function validateScenario(raw: Record<string, unknown>): ValidationResult {
+  const c = new Checker()
+  const label = typeof raw.id === 'string' ? raw.id : undefined
+  c.keys([], raw, ['id', 'title', 'refs', 'settings', 'broadcasts', 'events', 'expect'], ['id', 'title', 'refs', 'broadcasts', 'events', 'expect'])
+  c.value(['id'], raw.id, (v) => (typeof v === 'string' && SCENARIO_ID_RE.test(v) ? undefined : `시나리오 ID 형식 오류 ${showValue(v)} (G-ENG-세 자리)`))
+  if (hasValue(raw, 'title')) c.value(['title'], raw.title, nonEmptyStr)
+  if (hasValue(raw, 'refs') && c.array(['refs'], raw.refs, 1)) {
+    raw.refs.forEach((ref, i) => c.value(['refs', i], ref, nonEmptyStr))
+  }
+  const settings = checkScenarioSettings(c, raw.settings)
+  const ctx = collectContext(c, raw)
+
+  const steps: ScenarioStep[] = []
+  const seenSmsRefs = new Set<string>()
+  let seq = 0
+  let previousAt: { utcMs: number; index: number } | undefined
+  if (hasValue(raw, 'events') && c.array(['events'], raw.events)) {
+    raw.events.forEach((entry, n) => {
+      const p = ['events', n]
+      if (!c.object(p, entry, '이벤트는 맵')) return
+      const type = entry.type
+      if (type === 'assert') {
+        c.keys(p, entry, ['type', 'expect'], ['expect'], '중간 검사 키')
+        checkExpect(c, ctx, [...p, 'expect'], entry.expect)
+        if (isPlainObject(entry.expect)) steps.push({ kind: 'assert', index: n, expect: entry.expect as Expect })
+        return
+      }
+      const spec = typeof type === 'string' && Object.hasOwn(EVENT_SPECS, type) ? EVENT_SPECS[type] : undefined
+      if (!spec) {
+        c.fail(hasValue(entry, 'type') ? [...p, 'type'] : p, hasValue(entry, 'type') ? `모르는 이벤트 종류 ${showValue(type)}` : `이벤트 종류(type)가 없다`)
+        return
+      }
+      const allowed = ['at', 'type', ...Object.keys(spec.required), ...Object.keys(spec.optional)]
+      c.keys(p, entry, allowed, ['at', ...Object.keys(spec.required)], '필드')
+      for (const [field, kind] of [...Object.entries(spec.required), ...Object.entries(spec.optional)]) {
+        if (hasValue(entry, field)) checkField(c, ctx, [...p, field], kind, entry[field], seenSmsRefs)
+      }
+      if (type === 'settlement.shippingOverride') {
+        if (entry.mode === 'FIXED' && !hasValue(entry, 'amount')) c.fail(p, `mode FIXED에는 amount가 필요하다`)
+        if (entry.mode !== 'FIXED' && hasValue(entry, 'amount')) c.fail([...p, 'amount'], `amount는 mode FIXED일 때만 쓴다`)
+      }
+
+      // 시각
+      const broadcast = spec.hasBroadcast && typeof entry.b === 'string' ? ctx.broadcasts.get(entry.b) : undefined
+      const baseDate = spec.hasBroadcast ? broadcast?.date : ctx.singleDate
+      const baseKnown = spec.hasBroadcast ? broadcast !== undefined : true
+      let atMs: number | undefined
+      if (hasValue(entry, 'at')) {
+        if (typeof entry.at !== 'string') {
+          c.fail([...p, 'at'], `at은 문자열이어야 한다 (값: ${showValue(entry.at)})`)
+        } else if (!spec.hasBroadcast && ctx.singleDate === undefined && isShortAt(entry.at) && ctx.broadcasts.size > 0) {
+          c.fail([...p, 'at'], `날짜가 다른 방송이 섞인 시나리오에서 방송(b) 없는 이벤트의 짧은 at "${entry.at}" — ISO 시각(오프셋 포함)으로 적어야 한다`)
+        } else if (baseKnown) {
+          const resolved = resolveAt(entry.at, baseDate)
+          if (!resolved.ok) c.fail([...p, 'at'], resolved.reason)
+          else atMs = resolved.utcMs
+        }
+      }
+      if (atMs !== undefined) {
+        if (previousAt !== undefined && atMs < previousAt.utcMs) {
+          c.fail([...p, 'at'], `at 역행: events[${previousAt.index}]보다 이르다 (자정 뒤는 ISO 시각으로 적는다)`)
+        }
+        previousAt = { utcMs: atMs, index: n }
+      }
+      let publishedMs: number | undefined
+      if (type === 'chat' && hasValue(entry, 'publishedAt')) {
+        if (typeof entry.publishedAt !== 'string') {
+          c.fail([...p, 'publishedAt'], `publishedAt은 문자열이어야 한다 (값: ${showValue(entry.publishedAt)})`)
+        } else if (baseKnown) {
+          const resolved = resolveAt(entry.publishedAt, baseDate)
+          if (!resolved.ok) c.fail([...p, 'publishedAt'], resolved.reason)
+          else publishedMs = resolved.utcMs
+        }
+      }
+
+      seq += 1
+      if (atMs === undefined) return
+      const { at: _at, type: _type, publishedAt: _publishedAt, ...fields } = entry
+      const event: GoldenEvent = {
+        seq,
+        at: atMs,
+        type: type as string,
+        ...fields,
+        ...(type === 'chat' ? { publishedAt: publishedMs ?? atMs } : {}),
+      }
+      steps.push({ kind: 'event', index: n, event })
+    })
+  }
+
+  const expectValue = raw.expect
+  if (hasValue(raw, 'expect')) checkExpect(c, ctx, ['expect'], expectValue)
+
+  if (c.issues.length > 0) return { ok: false, ...(label === undefined ? {} : { label }), issues: c.issues }
+  return {
+    ok: true,
+    doc: {
+      kind: 'scenario',
+      id: raw.id as string,
+      title: raw.title as string,
+      refs: raw.refs as string[],
+      setup: { broadcasts: [...ctx.broadcasts.values()], settings },
+      steps,
+      expect: expectValue as Expect,
+    },
+  }
+}
+
+/** YAML 문서 하나를 형식 계약으로 검증한다. */
+export function validateDocument(value: unknown): ValidationResult {
+  if (!isPlainObject(value)) {
+    return { ok: false, issues: [{ path: [], message: `문서는 맵이어야 한다 (suite 또는 id 필요, 값: ${showValue(value)})` }] }
+  }
+  const isSuite = Object.hasOwn(value, 'suite')
+  const isScenario = Object.hasOwn(value, 'id')
+  if (isSuite && isScenario) return { ok: false, issues: [{ path: [], message: `suite와 id가 함께 있다 (문서는 파서 suite 또는 엔진 시나리오 중 하나)` }] }
+  if (isSuite) return validateSuite(value)
+  if (isScenario) return validateScenario(value)
+  return { ok: false, issues: [{ path: [], message: `suite도 id도 없는 문서` }] }
+}

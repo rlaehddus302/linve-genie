@@ -1,0 +1,17 @@
+# 범주 13: 열거값 오류
+id: G-ENG-901
+title: 열거값 오타
+refs: [R-4]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000, status: CLOSED }
+expect:
+  products:
+    b1/15: { status: SOLDOUT }
+  claims:
+    - { product: b1/15, buyer: UC_A, status: REJECTED, reason: SOLDOUT }
+  effects:
+    - { kind: PRINT_LABEL, target: CHAT }
+  effectCounts: { PRINT_LABEL: 1 }
+  settlements:
+    UC_A@2026-10-18: { payment: DONE }

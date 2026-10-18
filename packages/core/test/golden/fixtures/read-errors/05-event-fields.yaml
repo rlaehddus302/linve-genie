@@ -1,0 +1,17 @@
+# 범주 5: 이벤트 필수 필드 없음 / 모르는 필드 / 값 형식 오류
+id: G-ENG-901
+title: 이벤트 필드
+refs: [R-1]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000, stok: 2 }
+  - { at: "20:00:02", type: product.register, b: b1, no: "17", name: 라울, price: -1 }
+  - { at: "20:00:03", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: 15, owner: "yes" }
+  - { at: "20:00:04", type: chat, b: b1, id: m2, ch: "sms:s1", nick: 홍길동, text: "15" }
+  - { at: "20:00:05", type: host.convertMessage, b: b1, msg: m9, no: 15 }
+  - { at: "20:00:06", type: host.cancel, b: b1, no: 15, buyer: "sms:s9", reason: 요청 }
+  - { at: "20:00:07", type: settlement.shippingOverride, buyer: UC_A, date: 2026-10-18, mode: FIXED }
+  - { at: "20:00:08", type: settlement.shippingOverride, buyer: UC_A, date: 2026-10-18, mode: PICKUP, amount: 0 }
+  - { at: "20:00:09", type: host.cancel, b: b1, no: 15, buyer: UC_A, reason: "" }
+expect: {}

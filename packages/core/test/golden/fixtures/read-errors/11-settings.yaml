@@ -1,0 +1,37 @@
+# 범주 11: 모르는 설정 키나 값
+id: G-ENG-901
+title: 모르는 설정 키
+refs: [R-4]
+settings: { waitlist.maxx: 2 }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events: []
+expect: {}
+---
+id: G-ENG-902
+title: 선택지에 없는 값 (소문자 off)
+refs: [R-8]
+settings: { cancel.buyerChat: off }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events: []
+expect: {}
+---
+id: G-ENG-903
+title: 정수 또는 null 자리에 문자열
+refs: [R-12]
+settings: { shipping.freeThreshold: 없음 }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events: []
+expect: {}
+---
+id: G-ENG-904
+title: YAML 1.2에서 yes는 불리언이 아니다
+refs: [R-3]
+settings: { claim.ignoreOwner: yes }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events: []
+expect: {}
+---
+suite: chat
+settings: { parseMode: strict }
+cases:
+  - { in: "15", out: { claims: [15] } }

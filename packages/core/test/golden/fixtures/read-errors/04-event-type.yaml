@@ -1,0 +1,9 @@
+# 범주 4: 모르는 이벤트 종류
+id: G-ENG-901
+title: 모르는 이벤트 종류
+refs: [R-1]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: chat.message, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  - { at: "20:00:01", b: b1 }
+expect: {}

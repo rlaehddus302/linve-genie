@@ -1,0 +1,42 @@
+# 범주 3: 시나리오 필수 키 없음 / ID 형식 오류 / 모르는 최상위 키 / ID 중복 / 빈 목록
+id: G-ENG-901
+title: refs 없음
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events: []
+expect: {}
+---
+id: G-ENG-01
+title: ID 형식 오류
+refs: [R-4]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events: []
+expect: {}
+---
+id: G-ENG-903
+title: 모르는 최상위 키
+refs: [R-4]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events: []
+expect: {}
+note: 메모
+---
+id: G-ENG-904
+title: 처음 나온 ID (정상)
+refs: [R-4]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events: []
+expect: {}
+---
+id: G-ENG-904
+title: 중복된 ID
+refs: [R-4]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events: []
+expect: {}
+---
+id: G-ENG-906
+title: refs·broadcasts가 비었다
+refs: []
+broadcasts: []
+events: []
+expect: {}

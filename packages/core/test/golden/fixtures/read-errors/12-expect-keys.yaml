@@ -1,0 +1,40 @@
+# 범주 12: 모르는 expect 키 (최상위·하위, 중간 검사 포함)
+id: G-ENG-901
+title: 최상위 키 오타
+refs: [R-4]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events: []
+expect:
+  prodcuts:
+    b1/15: { status: OPEN }
+---
+id: G-ENG-902
+title: 상품 하위 키 오타
+refs: [R-4]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events: []
+expect:
+  products:
+    b1/15: { winer: UC_A }
+---
+id: G-ENG-903
+title: 중간 검사 안의 모르는 키
+refs: [R-4]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { type: assert, expect: { buyers: { UC_A: { total: 0 } } } }
+  - { type: assert, at: "20:00:01", expect: {} }
+expect: {}
+---
+id: G-ENG-904
+title: 효과·정산·찜 하위 키 오타
+refs: [R-13]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events: []
+expect:
+  effects:
+    - { kind: POST_THANKS, buyr: UC_A }
+  settlements:
+    UC_A@2026-10-18: { totl: 0 }
+  claims:
+    - { product: b1/15, buyer: UC_A, status: CONFIRMED, why: 메모 }

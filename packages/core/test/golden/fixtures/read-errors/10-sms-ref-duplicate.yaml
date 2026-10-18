@@ -1,0 +1,10 @@
+# 범주 10: sms ref 중복
+id: G-ENG-901
+title: 문자찜 ref 중복
+refs: [R-6]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: sms, b: b1, ref: s1, no: 15, received: "20:00" }
+  - { at: "20:00:02", type: sms, b: b1, ref: s1, no: 15, received: "20:01" }
+expect: {}

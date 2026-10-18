@@ -1,0 +1,3 @@
+suite: chat
+cases:
+  - { in: "15", out: { claims: [15] } }

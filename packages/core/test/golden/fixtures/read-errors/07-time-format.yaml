@@ -1,0 +1,24 @@
+# 범주 7: at·publishedAt·received·date 형식 오류, 오프셋 없는 ISO
+id: G-ENG-901
+title: 시각 형식
+refs: [D-022]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "2026-10-18T20:00:01", type: product.open, b: b1, no: 15 }
+  - { at: "24:00:00", type: product.open, b: b1, no: 15 }
+  - { at: "20:00:03.1234", type: product.open, b: b1, no: 15 }
+  - { at: "2026-10-18T20:00:04+9:00", type: product.open, b: b1, no: 15 }
+  - { at: 20000, type: product.open, b: b1, no: 15 }
+  - { at: "20:00:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15", publishedAt: "8:00:00" }
+  - { at: "20:00:06", type: sms, b: b1, ref: s1, no: 15, received: "8:01" }
+  - { at: "20:00:07", type: sms, b: b1, ref: s2, no: 15, received: "20:01:05.5" }
+  - { at: "20:00:08", type: settlement.payment, buyer: UC_A, date: 2026-13-01, amount: 1000 }
+expect: {}
+---
+id: G-ENG-902
+title: 없는 방송 날짜
+refs: [D-022]
+broadcasts: [{ id: b1, date: 2026-02-29, title: 1부 }]
+events: []
+expect: {}

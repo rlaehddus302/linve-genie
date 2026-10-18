@@ -1,0 +1,12 @@
+# 범주 6: 선언하지 않은 방송
+id: G-ENG-901
+title: 선언하지 않은 방송
+refs: [R-0]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b9, no: 15, name: 핑크프릴, price: 10000 }
+expect:
+  products:
+    b9/15: { status: OPEN }
+  buyers:
+    UC_A: { byBroadcast: { b9: 0 } }

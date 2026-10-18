@@ -1,0 +1,4 @@
+# 픽스처 폴더의 예약 파일 (골든으로 읽지 않는다)
+sprint: T00
+suites: [chat]
+scenarios: ["G-ENG-9*"]

@@ -1,0 +1,19 @@
+# 범주 14: 상품 키·정산 키 형식 오류
+id: G-ENG-901
+title: 키 형식
+refs: [R-12]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events: []
+expect:
+  products:
+    b1-15: { status: OPEN }
+    b1/015: { status: OPEN }
+  settlements:
+    UC_A@2026-1-1: { total: 0 }
+    UC_A: { total: 0 }
+  buyers:
+    UC_A: { items: [b1/0] }
+  claims:
+    - { product: b2/15, buyer: UC_A, status: CONFIRMED }
+  pending:
+    b1/15: ["sms:zz"]

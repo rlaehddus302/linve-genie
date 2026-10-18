@@ -1,0 +1,22 @@
+# 범주 9: 날짜가 섞인 시나리오에서 방송 없는 이벤트의 짧은 at
+id: G-ENG-901
+title: 날짜가 다른 방송 + 방송 없는 이벤트의 짧은 at
+refs: [D-022]
+broadcasts:
+  - { id: b1, date: 2026-10-18, title: 1부 }
+  - { id: b2, date: 2026-10-19, title: 2부 }
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "21:00:00", type: settlement.payment, buyer: UC_A, date: 2026-10-18, amount: 1000 }
+expect: {}
+---
+id: G-ENG-902
+title: 날짜가 하나뿐이면 방송 없는 이벤트도 짧은 at 가능 (정상)
+refs: [D-022]
+broadcasts:
+  - { id: b1, date: 2026-10-18, title: 1부 }
+  - { id: b2, date: 2026-10-18, title: 2부 }
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "21:00:00", type: settlement.payment, buyer: UC_A, date: 2026-10-18, amount: 1000 }
+expect: {}

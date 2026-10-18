@@ -1,0 +1,6 @@
+id: G-ENG-901
+title: 확장자 yml
+refs: [R-4]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events: []
+expect: {}
