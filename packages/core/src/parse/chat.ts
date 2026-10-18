@@ -18,6 +18,8 @@ const SEPARATORS = new Set([' ', ',', '/', '·'])
 const CLAIM_WORDS = byLengthDesc(['이요', '요', '여', '찜', '찜이요', '찜할게요', '주세요', '할게요', '구매', '구매요', '구매합니다'])
 /** 취소 말 (R-3 취소 문법) */
 const CANCEL_WORDS = byLengthDesc(['취소', '취소요', '취소할게요', '취소해주세요'])
+/** 메시지당 서로 다른 주문 번호의 상한 (R-3 세부 "번호 개수 상한", D-034). 설정 키가 아니라 고정값이다. */
+const MAX_CLAIM_NUMBERS = 5
 /** 기호 꼬리 (R-3 세부 "꼬리 기호"). ♥ U+2665는 그림 이모지이기도 하다. */
 const TAIL_SYMBOLS = ['!', '~', '.', '^', '*', '♡', '♥', '☆', '★', 'ㅎ', 'ㅋ']
 /** 취소에만 더 허용하는 꼬리 (R-3 세부 "취소"): ㅠ ㅜ와 😢 U+1F622 · 😭 U+1F62D · 🥲 U+1F972 */
@@ -258,8 +260,10 @@ export function parseChat(text: string, settings: SettingsOverride = {}): ChatPa
       const claim = scanClaim(s)
       const part = pickPart(s, claim.parts, loose)
       const numbers = part === undefined ? [] : claim.numbers.slice(0, part.count)
-      if (numbers.length > 0) {
-        const unique = uniqueInOrder(numbers)
+      const unique = uniqueInOrder(numbers)
+      // 번호 개수 상한(D-034): 서로 다른 번호(값으로 센다: 015 = 15)가 6개 이상이면 주문이 아니다(아래 언급으로).
+      // multiNumber보다 먼저 본다(FIRST·IGNORE도 같다). LOOSE도 고른 부분 하나에만 적용하고 더 짧은 부분으로 물러나지 않는다.
+      if (unique.length > 0 && unique.length <= MAX_CLAIM_NUMBERS) {
         if (multi === 'FIRST') return result(unique.slice(0, 1), [], [])
         if (multi !== 'IGNORE' || unique.length === 1) return result(unique, [], [])
       }

@@ -332,6 +332,74 @@ describe('AC-S01-14 여러 번호 설정', () => {
   })
 })
 
+describe('AC-S01-19 메시지당 번호 개수 상한 (D-034)', () => {
+  const MULTI = ['ALL', 'FIRST', 'IGNORE'] as const
+
+  it('서로 다른 번호 6개 이상이면 주문이 아니고 언급 — ALL·FIRST·IGNORE, STRICT·LOOSE 모두', () => {
+    for (const mode of [STRICT, LOOSE]) {
+      for (const multi of MULTI) {
+        const settings = { ...mode, 'claim.multiNumber': multi }
+        check(
+          [
+            ['1 2 3 4 5 6', { mentions: [1, 2, 3, 4, 5, 6] }],
+            ['1,2,3,4,5,6,7,8,9,10', { mentions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] }],
+            ['찜 1 2 3 4 5 6번 주세요', { mentions: [1, 2, 3, 4, 5, 6] }],
+            ['1 2 3 4 5 6 1 2', { mentions: [1, 2, 3, 4, 5, 6] }],
+            ['１ ２ ３ ４ ５ ６', { mentions: [1, 2, 3, 4, 5, 6] }],
+            ['15 15 15 15 15 15', { claims: [15] }], // 서로 다른 번호 1개
+            ['15 015 0015 １５ 15번', { claims: [15] }], // 값으로 센다
+          ],
+          settings,
+        )
+      }
+    }
+  })
+
+  it('5개까지는 multiNumber대로 주문 (같은 번호 반복은 하나)', () => {
+    check([['1 2 3 4 5', { claims: [1, 2, 3, 4, 5] }], ['1 2 3 4 5 5 1', { claims: [1, 2, 3, 4, 5] }], ['1 01 001 0001 2 3 4 5', { claims: [1, 2, 3, 4, 5] }]])
+    check([['1 2 3 4 5', { claims: [1] }]], { 'claim.multiNumber': 'FIRST' })
+    check([['1 2 3 4 5', { mentions: [1, 2, 3, 4, 5] }]], { 'claim.multiNumber': 'IGNORE' })
+  })
+
+  it('LOOSE: 고른(가장 긴) 부분에 적용하고 더 짧은 앞부분으로 물러나지 않는다', () => {
+    check(
+      [
+        ['1 2 3 4 5 6 다 주세요', { mentions: [1, 2, 3, 4, 5, 6] }],
+        ['1 2 3 4 5 6!! 다 주세요', { mentions: [1, 2, 3, 4, 5, 6] }],
+        ['1 2 3 4 5 다 주세요', { claims: [1, 2, 3, 4, 5] }],
+      ],
+      LOOSE,
+    )
+  })
+
+  it('취소는 번호 하나라 상한과 무관하다', () => {
+    check([['6 취소', { cancels: [6] }]])
+  })
+
+  it('속성: 번호를 k개(1~12) 나열한 메시지 — 서로 다른 번호 ≤ 5면 multiNumber대로, ≥ 6이면 언급(나온 순서). 주문은 언제나 5개 이하', () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.integer({ min: 1, max: 30 }), { minLength: 1, maxLength: 12 }),
+        fc.constantFrom(' ', ',', '/', '·', '번 '),
+        fc.constantFrom(...MULTI),
+        fc.constantFrom(STRICT, LOOSE),
+        (values, separator, multi, mode) => {
+          const text = values.join(separator)
+          const distinct = [...new Set(values)]
+          const actual = parseChat(text, { ...mode, 'claim.multiNumber': multi })
+          expect(actual.claims.length, text).toBeLessThanOrEqual(5)
+          const expected =
+            distinct.length >= 6 || (multi === 'IGNORE' && distinct.length > 1)
+              ? { mentions: distinct }
+              : { claims: multi === 'FIRST' ? distinct.slice(0, 1) : distinct }
+          expect(actual, text).toEqual({ claims: [], cancels: [], mentions: [], ...expected })
+        },
+      ),
+      { numRuns: 3000 },
+    )
+  })
+})
+
 describe('AC-S01-15 취소', () => {
   it('번호 하나 [번] 취소말 [꼬리 기호·ㅠ·ㅜ]', () => {
     for (const settings of [STRICT, LOOSE]) {
