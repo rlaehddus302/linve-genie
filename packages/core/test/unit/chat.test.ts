@@ -1,0 +1,421 @@
+// R-3 채팅 주문 인식 (AC-S01-10~18). 골든 chat.yaml이 정답 사례이고, 여기서는 규칙 문장과 속성을 넓게 확인한다.
+import fc from 'fast-check'
+import { describe, expect, it } from 'vitest'
+import { parseChat, type ChatParseResult, type SettingsOverride } from '@livejjim/core'
+
+type Expected = Partial<Record<keyof ChatParseResult, number[]>>
+
+const STRICT = { 'claim.parseMode': 'STRICT' } as const
+const LOOSE = { 'claim.parseMode': 'LOOSE' } as const
+
+function check(cases: ReadonlyArray<readonly [string, Expected]>, settings: SettingsOverride = {}): void {
+  for (const [input, expected] of cases) {
+    expect(parseChat(input, settings), `${JSON.stringify(input)} ${JSON.stringify(settings)}`).toEqual({ claims: [], cancels: [], mentions: [], ...expected })
+  }
+}
+
+/** 채팅 같은 조각을 이어 붙인 메시지 (속성 테스트용) */
+const PIECES = [
+  '15', '28', '3', '0', '1000', '015', '0015', '00015', '９', '１５', '번', ' ', '  ', '\t', '\n', ',', '/', '·', '찜', '요', '이요', '주세요', '할게요', '구매',
+  '취소', '취소요', '취소할게요', '!', '?', '~', '.', '^', '*', '♡', '★', 'ㅋ', 'ㅎ', 'ㅠ', 'ㅜ', '❤\uFE0F', '👍🏻', '😍', '\uFE0F', '\u200D', '\u200B', '\u00A0',
+  '12,500', '1.5', '만원', '예뻐요', '개', '살게요', '%', '<b>', '1\uFE0F\u20E3', '-', ':',
+]
+const chatMessage = fc.array(fc.constantFrom(...PIECES), { maxLength: 10 }).map((pieces) => pieces.join(''))
+const anyText = fc.oneof(chatMessage, fc.string({ maxLength: 30 }), fc.string({ unit: 'binary', maxLength: 30 }))
+const chatSettings = fc.record(
+  {
+    'claim.parseMode': fc.constantFrom('STRICT' as const, 'LOOSE' as const),
+    'claim.multiNumber': fc.constantFrom('ALL' as const, 'FIRST' as const, 'IGNORE' as const),
+    'claim.maxNumber': fc.constantFrom(1, 9, 50, 999, 9999),
+  },
+  { requiredKeys: [] },
+)
+
+describe('AC-S01-10 STRICT 주문', () => {
+  it('메시지 전체가 [찜] 번호목록 [꼬리말] [꼬리 기호]이면 주문', () => {
+    check([
+      ['15', { claims: [15] }],
+      ['15번', { claims: [15] }],
+      ['  15  번 ', { claims: [15] }],
+      ['찜15', { claims: [15] }],
+      ['찜 15', { claims: [15] }],
+      ['15찜', { claims: [15] }],
+      ['15 찜', { claims: [15] }],
+      ['15번 찜할게요', { claims: [15] }],
+      ['15찜이요', { claims: [15] }],
+      ['15번여', { claims: [15] }],
+      ['15 구매합니다', { claims: [15] }],
+      ['15 구매요!', { claims: [15] }],
+      ['015', { claims: [15] }],
+      ['0015', { claims: [15] }],
+      ['１５', { claims: [15] }],
+      ['15,28,31', { claims: [15, 28, 31] }],
+      ['15,,28', { claims: [15, 28] }],
+      ['15 , 28', { claims: [15, 28] }],
+      ['28 15', { claims: [28, 15] }],
+      ['15 28 15', { claims: [15, 28] }],
+      ['15번,28번', { claims: [15, 28] }],
+      ['찜 15 28', { claims: [15, 28] }],
+      ['15 번 28 번 주세요', { claims: [15, 28] }],
+      ['찜 15 찜', { claims: [15] }],
+    ])
+  })
+
+  it('꼬리말은 R-3 목록에 있는 말만, 하나만', () => {
+    check([
+      ['15번 살게요', { mentions: [15] }],
+      ['15 찜 할게요', { mentions: [15] }],
+      ['15요요', { mentions: [15] }],
+      ['15번번', { mentions: [15] }],
+      ['찜', {}],
+      ['찜 찜 15', { mentions: [15] }],
+      ['15, 찜', { mentions: [15] }],
+      ['15,', { mentions: [15] }],
+    ])
+  })
+})
+
+describe('AC-S01-11 꼬리 기호와 질문', () => {
+  it('꼬리 기호: ! ~ . ^ * ♡ ♥ ☆ ★ ㅎ ㅋ, 그림 이모지와 수식 문자', () => {
+    check([
+      ['15 ❤\uFE0F', { claims: [15] }],
+      ['15 👍🏻', { claims: [15] }],
+      ['15번^^', { claims: [15] }],
+      ['15번 ㅋㅋㅋ', { claims: [15] }],
+      ['15!~.^*♡♥☆★ㅎㅋ', { claims: [15] }],
+      ['15 ! ~ ♡', { claims: [15] }],
+      ['15 ❤\uFE0F\u200D🔥', { claims: [15] }],
+      ['15 👨\u200D👩\u200D👧', { claims: [15] }],
+      ['15번 ‼', { claims: [15] }],
+      ['15\uFE0F', { claims: [15] }],
+    ])
+  })
+
+  it('그 밖의 문자가 붙으면 주문이 아니다', () => {
+    check([
+      ['15?', { mentions: [15] }],
+      ['15번요?', { mentions: [15] }],
+      ['15번 ㅠㅠ', { mentions: [15] }],
+      ['15%', { mentions: [15] }],
+      ['15 ❤\uFE0E', { mentions: [15] }], // U+FE0E(글자 표시 선택자)는 목록에 없다
+      ['15\u200B', { mentions: [15] }],
+      ['15\u200E', { mentions: [15] }],
+      ['15 #\uFE0F\u20E3', { mentions: [15] }],
+      ['15 🇰🇷', { mentions: [15] }],
+      ['15!?', { mentions: [15] }],
+    ])
+  })
+
+  it('속성: STRICT에서 끝에 ?가 있는 메시지는 claims·cancels가 비어 있다', () => {
+    fc.assert(
+      fc.property(anyText, fc.constantFrom('?', ' ?', '??', '？?'), chatSettings, (text, question, settings) => {
+        const result = parseChat(`${text}${question}`, { ...settings, ...STRICT })
+        expect(result.claims).toEqual([])
+        expect(result.cancels).toEqual([])
+      }),
+      { numRuns: 3000 },
+    )
+  })
+})
+
+describe('AC-S01-12 번호 범위·자릿수', () => {
+  it('숫자 1~4자리, 1..maxNumber. 범위 밖이 섞이면 주문·취소가 아니다', () => {
+    check([
+      ['0', {}],
+      ['0000', {}],
+      ['1000', {}],
+      ['15000', {}],
+      ['00015', {}],
+      ['15 1000', { mentions: [15] }],
+      ['15 0', { mentions: [15] }],
+      ['1000 취소', {}],
+      ['15 00015', { mentions: [15] }],
+    ])
+  })
+
+  it('maxNumber 50', () => {
+    check(
+      [
+        ['50', { claims: [50] }],
+        ['51', {}],
+        ['15 51', { mentions: [15] }],
+        ['51 취소', {}],
+        ['50 취소', { cancels: [50] }],
+      ],
+      { 'claim.maxNumber': 50 },
+    )
+  })
+
+  it('maxNumber 1과 9999 경계', () => {
+    check(
+      [
+        ['1', { claims: [1] }],
+        ['2', {}],
+      ],
+      { 'claim.maxNumber': 1 },
+    )
+    check(
+      [
+        ['9999', { claims: [9999] }],
+        ['10000', {}],
+      ],
+      { 'claim.maxNumber': 9999 },
+    )
+  })
+
+  it('속성: n=1..999 → "n"·"n번"은 claims [n], n=1000..9999 → 세 배열 모두 빔', () => {
+    for (let n = 1; n <= 9999; n++) {
+      const expected = n <= 999 ? { claims: [n], cancels: [], mentions: [] } : { claims: [], cancels: [], mentions: [] }
+      expect(parseChat(String(n))).toEqual(expected)
+      expect(parseChat(`${n}번`)).toEqual(expected)
+    }
+  })
+})
+
+describe('AC-S01-13 금액 모양은 번호가 아니다', () => {
+  it('천 단위 쉼표 묶음 전체와 숫자.숫자는 금액 덩어리 — 주문·취소·언급 어디에도 없다', () => {
+    for (const settings of [STRICT, LOOSE]) {
+      check(
+        [
+          ['12,500', {}],
+          ['12,500이요', {}],
+          ['15,000원이요?', {}],
+          ['1.5만 맞나요?', {}],
+          ['1,000,000', {}],
+          ['12,500,', {}],
+          ['1.5', {}],
+          ['15 1.5', { mentions: [15] }],
+          ['15번 12,500원', { mentions: [15] }],
+          ['15 취소 12,500', { mentions: [15] }],
+          ['1,000.5', {}],
+          ['15,28.5', { mentions: [15] }],
+        ],
+        settings,
+      )
+    }
+  })
+
+  it('묶음 모양이 아니면 번호 목록', () => {
+    check([
+      ['15,28,31', { claims: [15, 28, 31] }],
+      ['15, 28', { claims: [15, 28] }],
+      ['1,50', { claims: [1, 50] }],
+      ['15.', { claims: [15] }],
+    ])
+  })
+})
+
+describe('AC-S01-14 여러 번호 설정', () => {
+  it('ALL · FIRST · IGNORE', () => {
+    check([['28 15', { claims: [28, 15] }]], { 'claim.multiNumber': 'ALL' })
+    check(
+      [
+        ['28 15', { claims: [28] }],
+        ['15 15 28', { claims: [15] }],
+        ['15 취소', { cancels: [15] }],
+        ['15번 18번 중에 뭐가 나아요?', { mentions: [15, 18] }],
+      ],
+      { 'claim.multiNumber': 'FIRST' },
+    )
+    check(
+      [
+        ['15,28,31', { mentions: [15, 28, 31] }],
+        ['15 15', { claims: [15] }],
+        ['15', { claims: [15] }],
+        ['15 취소', { cancels: [15] }],
+      ],
+      { 'claim.multiNumber': 'IGNORE' },
+    )
+    check([['15 28 예뻐요', { mentions: [15, 28] }]], { ...LOOSE, 'claim.multiNumber': 'IGNORE' })
+  })
+
+  it('속성: ALL의 claims가 비면 FIRST도 비고, 아니면 FIRST = [ALL의 첫 원소]', () => {
+    fc.assert(
+      fc.property(anyText, fc.constantFrom('STRICT' as const, 'LOOSE' as const), fc.constantFrom(9, 50, 999), (text, mode, maxNumber) => {
+        const base = { 'claim.parseMode': mode, 'claim.maxNumber': maxNumber }
+        const all = parseChat(text, { ...base, 'claim.multiNumber': 'ALL' })
+        const first = parseChat(text, { ...base, 'claim.multiNumber': 'FIRST' })
+        expect(first.claims).toEqual(all.claims.slice(0, 1))
+        expect(first.cancels).toEqual(all.cancels)
+        if (all.claims.length === 0) expect(first.mentions).toEqual(all.mentions)
+      }),
+      { numRuns: 3000 },
+    )
+  })
+})
+
+describe('AC-S01-15 취소', () => {
+  it('번호 하나 [번] 취소말 [꼬리 기호·ㅠ·ㅜ]', () => {
+    for (const settings of [STRICT, LOOSE]) {
+      check(
+        [
+          ['15 취소', { cancels: [15] }],
+          ['15번 취소!!', { cancels: [15] }],
+          ['15번 취소요 ㅠㅠ', { cancels: [15] }],
+          ['015 취소', { cancels: [15] }],
+          ['15 취소할게요', { cancels: [15] }],
+          ['15번 취소해주세요 ㅜㅜ', { cancels: [15] }],
+          ['15취소', { cancels: [15] }],
+          ['15 번 취소 ❤\uFE0F', { cancels: [15] }],
+          ['15 28 취소', { mentions: [15, 28] }],
+          ['취소 15', { mentions: [15] }],
+          ['취소', {}],
+          ['찜 15 취소', { mentions: [15] }],
+        ],
+        settings,
+      )
+    }
+  })
+
+  it('STRICT: 취소 뒤에 다른 말이 오면 취소가 아니다', () => {
+    check([
+      ['15 취소 28', { mentions: [15, 28] }],
+      ['15 취소합니다', { mentions: [15] }],
+      ['15 취소?', { mentions: [15] }],
+    ])
+  })
+})
+
+describe('AC-S01-16 언급', () => {
+  it('주문도 취소도 아닌 메시지의 1~4자리·범위 안 숫자 덩어리, 나온 순서, 중복 없음', () => {
+    check([
+      ['15번 2개 가능해요?', { mentions: [15, 2] }],
+      ['15번 15번 예뻐요', { mentions: [15] }],
+      ['<script>15</script>', { mentions: [15] }],
+      ['십오번', {}],
+      ['010-1234-5678', { mentions: [10] }],
+      ['8:30', { mentions: [8, 30] }],
+      ['1\uFE0F\u20E35\uFE0F\u20E3', { mentions: [1, 5] }],
+      ['١٥', {}],
+      ['१५', {}],
+      ['15\u200B28', { mentions: [15, 28] }],
+    ])
+  })
+
+  it('속성: 비어 있지 않은 배열 ≤ 1, 각 배열 중복 없음, 모든 값 1..maxNumber 정수', () => {
+    fc.assert(
+      fc.property(anyText, chatSettings, (text, settings) => {
+        const result = parseChat(text, settings)
+        const maxNumber = settings['claim.maxNumber'] ?? 999
+        const lists = [result.claims, result.cancels, result.mentions]
+        expect(lists.filter((list) => list.length > 0).length).toBeLessThanOrEqual(1)
+        for (const list of lists) {
+          expect(new Set(list).size).toBe(list.length)
+          for (const n of list) {
+            expect(Number.isInteger(n)).toBe(true)
+            expect(n).toBeGreaterThanOrEqual(1)
+            expect(n).toBeLessThanOrEqual(maxNumber)
+          }
+        }
+        expect(result.cancels.length).toBeLessThanOrEqual(1)
+      }),
+      { numRuns: 5000 },
+    )
+  })
+})
+
+describe('AC-S01-17 LOOSE', () => {
+  it('맨 앞 주문 부분이 끝·공백 앞에서 끝나거나 공백·꼬리 기호로 끝나면 주문 (가장 긴 부분)', () => {
+    check(
+      [
+        ['15번 너무 예뻐요 살게요', { claims: [15] }],
+        ['15번 18번 중에 뭐가 나아요?', { claims: [15, 18] }],
+        ['15!!예뻐요', { claims: [15] }],
+        ['15번 2개 가능해요?', { claims: [15] }],
+        ['15번이요 감사합니다', { claims: [15] }],
+        ['15 28 예뻐요', { claims: [15, 28] }],
+        ['15 28개 주세요', { claims: [15] }],
+        ['15❤\uFE0F예뻐요', { claims: [15] }],
+        ['찜 15 예뻐요', { claims: [15] }],
+        ['15', { claims: [15] }],
+        ['3개 남았나요?', { mentions: [3] }],
+        ['15개요', { mentions: [15] }],
+        ['15?', { mentions: [15] }],
+        ['예뻐요 15번', { mentions: [15] }],
+        ['15번째', { mentions: [15] }],
+        ['15,28개', { mentions: [15, 28] }],
+        ['15 1000원이에요', { claims: [15] }], // 경계를 만족하는 부분은 '15'뿐('15 1000'은 '원' 앞). 뒤의 숫자는 보지 않는다(골든 '15번 2개 가능해요?'와 같음)
+        ['15 1000', { mentions: [15] }], // 메시지 끝까지가 주문 부분인데 범위 밖 번호가 섞임
+      ],
+      LOOSE,
+    )
+  })
+
+  it('수식 문자만으로는 "꼬리 기호로 끝남"이 되지 않는다 — 보이는 숫자를 가르는 주문 부분은 없다', () => {
+    check(
+      [
+        ['1\u200D5', { mentions: [1, 5] }],
+        ['1\uFE0F5', { mentions: [1, 5] }],
+        ['1\uFE0F\u20E35\uFE0F\u20E3', { mentions: [1, 5] }],
+        ['1🏻5', { mentions: [1, 5] }],
+        ['15\uFE0F예뻐요', { mentions: [15] }],
+        ['15 \uFE0F예뻐요', { claims: [15] }],
+        ['15❤\uFE0F예뻐요', { claims: [15] }],
+      ],
+      LOOSE,
+    )
+  })
+
+  it('취소가 먼저, 취소가 들어간 메시지는 주문이 아니다', () => {
+    check(
+      [
+        ['15 취소할게요 죄송해요', { cancels: [15] }],
+        ['15 취소 28', { cancels: [15] }],
+        ['15 취소ㅠ죄송', { cancels: [15] }],
+        ['15번 사려다 취소', { mentions: [15] }],
+        ['15 취소요청', { mentions: [15] }],
+        ['15 취소합니다', { mentions: [15] }],
+        ['1000 취소할게요', {}],
+      ],
+      LOOSE,
+    )
+  })
+
+  it('금액 덩어리·범위·여러 번호·언급 규칙은 STRICT와 같다', () => {
+    check(
+      [
+        ['12,500원이요', {}],
+        ['15 1000', { mentions: [15] }],
+        ['안녕하세요 15', { mentions: [15] }],
+      ],
+      LOOSE,
+    )
+    check([['28 15 예뻐요', { claims: [28] }]], { ...LOOSE, 'claim.multiNumber': 'FIRST' })
+  })
+
+  it('속성: STRICT에서 주문이면 LOOSE에서도 같은 주문', () => {
+    fc.assert(
+      fc.property(anyText, (text) => {
+        const strict = parseChat(text, STRICT)
+        if (strict.claims.length > 0) expect(parseChat(text, LOOSE).claims).toEqual(strict.claims)
+        if (strict.cancels.length > 0) expect(parseChat(text, LOOSE).cancels).toEqual(strict.cancels)
+      }),
+      { numRuns: 3000 },
+    )
+  })
+})
+
+describe('AC-S01-18 정규화', () => {
+  it('앞뒤 공백, 연속 공백(탭·줄바꿈·NBSP·전각 공백), 전각 숫자', () => {
+    expect(parseChat('  15  번 ')).toEqual(parseChat('15 번'))
+    expect(parseChat('１５ ２８')).toEqual(parseChat('15 28'))
+    check([
+      ['15\n28', { claims: [15, 28] }],
+      ['15\t\t번', { claims: [15] }],
+      ['15\u00A0번', { claims: [15] }],
+      ['15\u3000찜', { claims: [15] }],
+      ['\n\n15\n\n', { claims: [15] }],
+    ])
+  })
+
+  it('속성: 공백을 늘리거나 앞뒤에 붙여도 결과가 같다', () => {
+    const spaces = fc.constantFrom(' ', '  ', '\t', '\n', ' \u00A0', '\u3000')
+    fc.assert(
+      fc.property(chatMessage, spaces, spaces, spaces, chatSettings, (text, before, after, inner, settings) => {
+        const widened = `${before}${text.replace(/ /g, ` ${inner}`)}${after}`
+        expect(parseChat(widened, settings)).toEqual(parseChat(text, settings))
+      }),
+      { numRuns: 3000 },
+    )
+  })
+})
