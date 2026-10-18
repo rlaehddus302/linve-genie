@@ -6,9 +6,11 @@ import { NotImplementedError } from '@livejjim/core'
 import {
   createFakeCore,
   emptySnapshot,
+  formatUtcIso,
   listGoldenFiles,
   parseGoldenYaml,
   realCore,
+  resolveAt,
   type GoldenCore,
   type GoldenEvent,
   type GoldenSnapshot,
@@ -513,6 +515,61 @@ describe('시간대 (AC-S00-14·26, D-026) — 회귀', () => {
       expect(result.stdout.trim().split('\n')).toEqual(expected)
     },
   )
+
+  it('resolveAt: 무작위 ISO·짧은 형식이 Date.parse(같은 뜻의 ISO 문자열)와 같은 UTC 밀리초, 없는 날짜·시각·오프셋·4자리 소수는 거부', () => {
+    const p2 = (n: number): string => String(n).padStart(2, '0')
+    const zone = fc.oneof(
+      fc.constant('Z'),
+      fc.tuple(fc.constantFrom('+', '-'), fc.integer({ min: 0, max: 24 }), fc.integer({ min: 0, max: 60 })).map(([sign, h, m]) => `${sign}${p2(h)}:${p2(m)}`),
+    )
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 9999 }),
+        fc.integer({ min: 0, max: 13 }),
+        fc.integer({ min: 0, max: 32 }),
+        fc.integer({ min: 0, max: 24 }),
+        fc.integer({ min: 0, max: 60 }),
+        fc.integer({ min: 0, max: 60 }),
+        fc.option(fc.stringMatching(/^[0-9]{1,4}$/)),
+        zone,
+        (year, month, day, hour, minute, second, fraction, offset) => {
+          const text = `${String(year).padStart(4, '0')}-${p2(month)}-${p2(day)}T${p2(hour)}:${p2(minute)}:${p2(second)}${fraction === null ? '' : `.${fraction}`}${offset}`
+          const lastDay = new Date(0)
+          lastDay.setUTCFullYear(year, month, 0)
+          const valid =
+            month >= 1 &&
+            month <= 12 &&
+            day >= 1 &&
+            day <= lastDay.getUTCDate() &&
+            hour <= 23 &&
+            minute <= 59 &&
+            second <= 59 &&
+            (fraction === null || fraction.length <= 3) &&
+            (offset === 'Z' || (Number(offset.slice(1, 3)) <= 23 && Number(offset.slice(4, 6)) <= 59))
+          const result = resolveAt(text, undefined)
+          expect(result.ok, text).toBe(valid)
+          if (result.ok) expect(formatUtcIso(result.utcMs), text).toBe(new Date(Date.parse(text)).toISOString())
+        },
+      ),
+      { numRuns: 3000 },
+    )
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 23 }),
+        fc.integer({ min: 0, max: 59 }),
+        fc.integer({ min: 0, max: 59 }),
+        fc.integer({ min: 0, max: 999 }),
+        fc.integer({ min: 1, max: 60_000 }),
+        (hour, minute, second, ms, dayNumber) => {
+          const base = new Date(dayNumber * 86_400_000).toISOString().slice(0, 10)
+          const text = `${p2(hour)}:${p2(minute)}:${p2(second)}.${String(ms).padStart(3, '0')}`
+          const result = resolveAt(text, base)
+          expect(result.ok && formatUtcIso(result.utcMs), `${base} ${text}`).toBe(new Date(Date.parse(`${base}T${text}+09:00`)).toISOString())
+        },
+      ),
+      { numRuns: 3000 },
+    )
+  })
 
   it('적대 단계는 Pacific/Honolulu에서 돈다', () => {
     expect(process.env.TZ).toBe('Pacific/Honolulu')

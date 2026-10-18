@@ -167,6 +167,15 @@ describe('커버리지 설정 약화 감지 (AC-S00-13) — 회귀', () => {
     expect(Number(result.stdout)).toBeGreaterThanOrEqual(95)
   })
 
+  it('측정에서 코드를 빼는 다른 설정이 없다: ignoreClassMethods·allowExternal·excludeAfterRemap·임계값 자동 조정', () => {
+    // ignoreClassMethods에 이름을 적으면 그 메서드 안의 문장·분기가 측정에서 빠진다(ast-v8-to-istanbul ignoreNode)
+    const extra = coverage as (CoverageShape & { ignoreClassMethods?: readonly string[]; allowExternal?: boolean; excludeAfterRemap?: boolean }) | undefined
+    expect(extra?.ignoreClassMethods ?? []).toEqual([])
+    expect(extra?.allowExternal ?? false).toBe(false)
+    expect(extra?.excludeAfterRemap ?? false).toBe(false)
+    expect(coverage?.thresholds?.['autoUpdate'] ?? false).toBe(false)
+  })
+
   it('verify의 coverage 단계는 이 설정 파일을 쓴다', () => {
     expect(readFileSync(join(ROOT, 'scripts', 'verify', 'stages.mjs'), 'utf8')).toContain("'vitest.coverage.config.ts'")
   })
