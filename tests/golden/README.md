@@ -1,6 +1,6 @@
 # 골든 시나리오 (실행 가능한 스펙)
 
-이 폴더는 **보호 경로**다. spec-keeper만 수정한다. developer·qa-breaker가 이 폴더의 파일을 바꾸면 하네스 게이트가 실패한다.
+이 폴더는 **보호 경로**다. spec-keeper만 수정한다. 개발자·테스터가 이 폴더의 파일을 바꾸면 하네스 게이트가 실패한다.
 골든은 DOMAIN_RULES.md의 규칙을 예시로 고정한 것이다. 구현이 골든과 다르면 구현이 틀린 것이다.
 골든이 스펙과 다르면 spec-keeper가 DECISIONS.md 근거와 함께 고친다.
 
@@ -9,9 +9,33 @@
 | 경로 | 내용 |
 |---|---|
 | `parser/chat.yaml` | 채팅 메시지 → 주문/취소/언급 (R-3) |
-| `parser/amount.yaml` | 한글·숫자 금액 → 원 (빠른 입력·음성 공용) |
+| `parser/amount.yaml` | 한글·숫자 금액 → 원 (빠른 입력·음성 공용), 한글 수사 → 정수 |
 | `parser/quick-input.yaml` | 빠른 입력 한 줄 → 번호·품종·가격 |
-| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13) |
+| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13). `08-time.yaml`은 시각 해석(D-022, D-023) |
+| `known-unimplemented.yaml` | **예약 파일.** 알려진 미구현 허용 목록 (D-020). 골든 시나리오가 아니다 |
+
+## 러너가 읽는 범위 (D-020, D-021)
+
+- `tests/golden/` 아래 모든 `*.yaml`·`*.yml`을 하위 폴더까지 읽는다. 예외는 예약 파일 `tests/golden/known-unimplemented.yaml` 하나뿐이다.
+- 파일은 경로의 문자 코드 순서로, 문서는 파일 안 순서로 처리한다. 같은 골든이면 출력도 항상 같다.
+- **YAML 1.2 core schema**로 읽는다. 날짜·시각을 자동 변환하지 않고, `true`/`false`만 불리언이다. (`no:` 키나 `OFF` 값이 불리언으로 바뀌는 YAML 1.1 사고를 막는다.)
+- 문서마다 `suite`가 있으면 파서 suite, `id`가 있으면 엔진 시나리오다. 둘 다 아니면 **읽기 오류**.
+- 이 README의 형식 계약(이벤트 종류·필드, 설정 키, `expect` 키, 열거값, 시각 형식)에 없는 것이 나오면 **읽기 오류**다. 오타가 조용히 무시되어 검사가 빠지는 일을 막기 위해서다. 새 어휘가 필요하면 spec-keeper가 이 README에 먼저 추가한다.
+
+## 결과 상태
+
+| 상태 | 뜻 | 실패로 세나 |
+|---|---|---|
+| 통과 | 기대와 같음 | 아니오 |
+| 불일치 | 기대와 다름 | **항상 실패** |
+| 미구현 | 코어가 그 기능을 아직 "미구현"이라고 알림 (방법은 코어가 하나로 정함) | 허용 목록에 있으면 아니오(`미구현(허용)`으로 따로 셈), 없으면 실패 |
+| 읽기 오류 | YAML 문법 오류, 형식 계약 위반, 허용 목록 오류 | **항상 실패** |
+| 결정성 위반 | 같은 시나리오를 처음부터 두 번 돌린 결과가 다름 (NFR-02) | **항상 실패** |
+| 러너 오류 | "미구현" 외의 예외, 효과 보고 이벤트의 대상 효과 없음 등 | **항상 실패** |
+
+- 허용 목록에 있는데 실제로 통과한 항목은 "허용 목록에서 빼도 됨" 경고로 보여 준다(실패 아님).
+- 실패마다 위치(파일, 시나리오 ID 또는 suite·사례 번호·입력, 중간 검사면 `events[n]`), `expect` 경로(예: `products.b1/15.winner`), 기대값, 실제값을 보여 준다.
+- 끝에 합계를 보여 준다: 파일 수, 사례·시나리오 수, 통과 / 불일치 / 미구현(허용) / 미구현(불허) / 읽기 오류 / 결정성 위반 / 러너 오류.
 
 ## 파서 사례 형식
 
@@ -25,6 +49,15 @@ cases:
   - { in: "안녕하세요", out: {} }
 ```
 `out`에 없는 키는 빈 값이어야 한다. 즉 `{}`는 주문·취소·언급이 모두 없다는 뜻이다.
+
+| suite | settings 키 (DOMAIN_RULES 키) | `out` 형식과 비교 |
+|---|---|---|
+| `chat` | `parseMode`(`claim.parseMode`), `multiNumber`(`claim.multiNumber`), `maxNumber`(`claim.maxNumber`) | 키는 `claims`·`cancels`·`mentions`만. 값은 1 이상 정수 배열이고 **메시지에 나온 순서대로** 같아야 한다. 없는 키 = 빈 배열 |
+| `amount` | `unit`(`price.unit`: `WON`/`THOUSAND`) | 0 이상 정수(원) 또는 `null`(해석 실패) |
+| `korean-number` | 없음 | 1 이상 정수 또는 `null` |
+| `quick-input` | `unit`(`price.unit`) | 성공 `{ no, name, price }` 정확히 세 키. 실패 `{ error, no?, name? }`, `error` ∈ `PRICE_MISSING`·`NUMBER_MISSING`·`EMPTY`·`NUMBER_INVALID`·`PRICE_TOO_LOW`. **`out`에 없는 키는 실제 결과에도 없어야 한다**(`undefined`는 없음으로 본다) |
+
+사례의 키는 `in`(문자열)과 `out`뿐이다.
 
 ## 엔진 시나리오 형식
 
@@ -54,6 +87,9 @@ expect:
   pending: { b1/16: [UC_D] }  # 보류 중인 찜
 ```
 
+- 시나리오 키: `id`(`G-ENG-` + 세 자리, 전체에서 유일), `title`, `refs`(1개 이상), `broadcasts`(1개 이상, 각 `{ id, date: YYYY-MM-DD, title }`), `events`, `expect`, 선택 `settings`.
+- `settings`는 DOMAIN_RULES 기본값 위에 덮어쓰며, 시나리오의 모든 방송에 시작 시점 스냅샷으로 적용된다.
+
 **추가 검사 키** (`expect` 안, 필요할 때만)
 
 | 키 | 뜻 |
@@ -70,7 +106,7 @@ expect:
 | `settlements.<k>.adjustments` / `refundDue` | 조정 합계 / 환불 필요 금액 |
 | `pendingEffects` | 아직 실행 대상(취소·SKIPPED 아님)인 효과의 정확한 목록. `confirmVersion` = 그 상품의 몇 번째 확정인지(1부터) |
 
-**중간 검사**: 이벤트 목록 안에 `{ type: assert, expect: {...} }`를 넣으면 그 시점의 상태를 검사한다.
+**중간 검사**: 이벤트 목록 안에 `{ type: assert, expect: {...} }`를 넣으면 그 시점의 상태를 검사한다. 중간 검사가 틀리면 마지막 `expect`가 맞아도 시나리오는 실패다.
 
 **규칙**
 - `at`은 `HH:MM:SS[.mmm]` (KST, 방송 날짜 기준). 채팅의 `publishedAt`은 따로 적지 않으면 `at`과 같다.
@@ -79,3 +115,87 @@ expect:
 - 효과 실행 결과: `{ type: effect.labelPrinted, b, no, buyer }` / `{ type: effect.thanksSent, ... }`.
 - `expect`에 적은 것만 검사한다. 적지 않은 상품·구매자는 검사하지 않는다(단, 불변식은 항상 검사).
 - 러너는 시나리오마다 불변식 INV-1~12를 자동으로 함께 검사한다.
+- 러너는 시나리오마다 처음부터 **두 번** 실행해 각 이벤트 뒤의 상태·효과가 같은지 확인한다. 다르면 결정성 위반 (NFR-02).
+
+## 시각 (D-022, D-026)
+
+| 형식 | 예 | 해석 |
+|---|---|---|
+| 짧은 형식 | `"20:00:00"`, `"20:00:02.1"`, `"20:00:02.100"` | 그 이벤트의 방송(`b`) 날짜의 KST 시각. 소수점 아래는 1~3자리 = 밀리초(`.1` = 100ms) |
+| ISO 8601 | `"2026-10-19T00:00:10+09:00"`, `"2026-10-18T15:00:10Z"` | 적힌 오프셋 그대로. 오프셋 없는 ISO는 읽기 오류 |
+
+- 러너는 `at`을 UTC 시각으로 바꿔 엔진에 넘긴다(예: 2026-10-18 방송의 `"20:00:00"` → `2026-10-18T11:00:00.000Z`). 결과는 실행 환경의 시간대와 무관해야 한다.
+- `at`은 파일 순서대로 **줄어들면 안 된다**(같은 값은 허용). 자정을 넘긴 시각을 짧은 형식으로 쓰면 앞 이벤트보다 이른 시각이 되어 읽기 오류가 난다 → 자정 뒤는 ISO로 쓴다.
+- `b`가 없는 이벤트(`host.blockBuyer`, `buyer.*`, `settlement.*` 등)의 짧은 형식은 방송 날짜가 하나뿐인 시나리오에서만 쓸 수 있다. 날짜가 다른 방송이 섞이면 ISO가 필수다.
+- `publishedAt`은 `at`과 같은 형식이다. 순서 제한은 없다(유튜브 게시 시각은 도착 순서와 다를 수 있다).
+- `received`(문자 수신 시각)는 `HH:MM` 또는 `HH:MM:SS`. 날짜는 DOMAIN_RULES R-6 "문자 수신 시각의 날짜"(D-023)로 정한다: 입력 시각(`at`)에 가장 가까운 날짜. 분 단위면 구간 `[HH:MM:00, +1분)`.
+- `seq`는 `events`에서 `assert`를 뺀 순번(1부터)이다. 재수신 사본도 자기 `seq`를 받는다.
+- 정산 묶음 날짜(`구매자@날짜`)는 찜 시각이 아니라 **방송의 `date`**다 (R-12).
+
+## 이벤트 종류와 필드 (형식 계약)
+
+모든 이벤트에 `at`(필수)과 `type`이 있다. 표에 없는 종류·필드는 읽기 오류다. `b`는 `broadcasts`에 선언된 방송이어야 한다.
+
+| type | 필수 | 선택 |
+|---|---|---|
+| `product.register` | `b`, `no`(1 이상), `name`(빈 문자열 가능), `price`(0 이상 정수) | `stock`(1 이상, 기본 1), `status`(`OPEN` 기본 / `READY`) |
+| `product.open` / `product.hold` / `product.close` | `b`, `no` | |
+| `product.update` | `b`, `no` | `name`, `price`, `stock`, `applyTo`(`NEW_ONLY` 기본 / `UNPAID_CLAIMS`) |
+| `product.renumber` | `b`, `from`, `to` | |
+| `chat` | `b`, `id`(메시지 ID), `ch`(채널 ID), `nick`, `text` | `owner`(불리언, 기본 false), `publishedAt` |
+| `sms` | `b`, `ref`(시나리오 안에서 유일), `no`, `received` | `memo`, `phone`, `buyer`(지정 구매자 키) |
+| `host.cancel` / `host.reject` / `host.promote` | `b`, `no`, `buyer`, `reason` | |
+| `host.confirm` / `host.approveCancel` | `b`, `no`, `buyer` | `reason` |
+| `host.resolveConflict` | `b`, `no`, `decision`(`KEEP`/`SWITCH`) | `reason` |
+| `host.convertMessage` | `b`, `msg`(메시지 ID), `no` | `reason` |
+| `host.blockBuyer` / `host.unblockBuyer` | `buyer`, `reason` | |
+| `buyer.merge` | `from`, `into`, `reason` | |
+| `buyer.unmerge` | `from`, `reason` | |
+| `effect.labelPrinted` | `b`, `no`, `buyer` | |
+| `effect.thanksSent` | `b`, `no`, `buyer` | `target`(`LIVE_CHAT` 기본 / `VIDEO_COMMENT`) |
+| `settlement.shippingOverride` | `buyer`, `date`, `mode`(`PICKUP`/`COMBINED`/`FIXED`) | `amount`(0 이상, `FIXED`일 때) |
+| `settlement.adjust` | `buyer`, `date`, `amount`(정수, 음수 가능), `reason` | |
+| `settlement.payment` | `buyer`, `date`, `amount`(1 이상) | `memo` |
+| `settlement.refund` | `buyer`, `date`, `amount`(1 이상), `reason` | |
+| `assert` | `expect` | (`at` 없음, `seq` 없음) |
+
+- R-1의 나머지(`host.assign`, `effect.failed`, `broadcast.start`/`end`, 포장·배송 상태)는 처음 쓰는 스프린트에서 spec-keeper가 이 표에 추가한다.
+- 효과 보고(`effect.labelPrinted` / `effect.thanksSent`)는 그 (상품, 구매자[, 대상])의 가장 최근에 나온, 취소되지 않은 해당 효과의 실행 완료로 본다. 그런 효과가 없으면 러너 오류.
+
+## 설정 키 (형식 계약)
+
+`settings`의 키는 DOMAIN_RULES 설정표의 키만 쓴다. 값도 표의 선택지만 쓴다.
+`claim.parseMode`, `claim.multiNumber`, `claim.maxNumber`, `claim.ignoreOwner`, `claim.preOpenWindowSec`, `waitlist.max`, `cancel.buyerChat`, `cancel.succession`, `contention.policy`, `contention.sameMinuteTieBreaker`, `price.unit`, `shipping.baseFee`, `shipping.freeThreshold`(정수 또는 `null`), `settlement.groupBy`, `print.autoOnConfirm`, `thanks.liveChat`, `thanks.videoComment`, `thanks.batchWindowSec`.
+
+## `expect` 비교 규칙 (형식 계약)
+
+| 키 | 비교 방식 |
+|---|---|
+| `products.<방송>/<번호>` | 지금 그 번호를 가진 상품(번호 변경 뒤엔 새 번호로 찾는다). 적은 필드만 비교 |
+| └ `status` | `READY`·`OPEN`·`SOLD`·`HOLD`·`CLOSED` |
+| └ `winner` | 확정 구매자 1명. `null` = 확정 없음. 확정이 2명 이상이면 불일치 |
+| └ `winners` | 확정 구매자 집합. 순서 무관, 정확히 같음 |
+| └ `waitlist` | 대기 구매자, **1순위부터 순서대로** 정확히 같음 |
+| └ `conflict` | 충돌 표시 여부 |
+| └ `exists` | 그 번호의 상품 기록이 있는지(`CLOSED`도 있는 것으로 본다) |
+| └ `price` / `priceHistory` | 현재 가격 / 가격 변경 이력 `[{ from, to }]` 시간순, 정확히 같음 |
+| `buyers.<키>` | 키를 지금의 구매자로 풀어서(합치기·전화번호 연결 반영) 비교 |
+| └ `items` | 확정 찜의 상품 키 집합. 순서 무관, 정확히 같음 |
+| └ `subtotal` | 확정 찜 가격 스냅샷의 합 |
+| └ `byBroadcast` | 방송별 합계. 확정 찜이 있는 방송 전부와 정확히 같음 |
+| └ `display` / `nameHistory` | 표시 이름 / 닉네임이 바뀔 때마다 쌓인 목록(처음 것 포함, 시간순, 연속 중복 없음) |
+| `settlements.<키>@<날짜>` | (구매자, 날짜) 정산 묶음. 품목이 없는 묶음은 금액 전부 0, `payment: UNPAID` |
+| └ `subtotal`·`shipping`·`adjustments`·`total`·`refundDue` | 정수 원. `refundDue`는 `OVERPAID`일 때 차액, 아니면 0 |
+| └ `payment` | `UNPAID`·`PARTIAL`·`PAID`·`OVERPAID` |
+| `effects` | 적은 항목마다, 지금까지 나온 효과(실행·취소 여부 무관) 중 적은 필드가 모두 같은 것이 **서로 다른 효과로 하나씩** 있어야 함. 순서 무관 |
+| `effectCounts` | 종류별로 지금까지 나온 효과 수가 정확히 같음(0이면 하나도 없어야 함) |
+| `pendingEffects` | 아직 실행 대상인 효과(나왔고, 취소·SKIPPED가 아니고, 실행 완료 보고가 없는 것) **전체**와 적은 필드 기준으로 정확히 같은 목록. 순서 무관 |
+| `claims` | 적은 항목마다 (상품 키, 구매자)의 **가장 최근** 찜의 `status`와 (적었으면) `reason`. 상품 키는 상품이 아직 없어도 된다(보류 찜) |
+| `pending` | 번호별 보류 찜의 구매자, 판정 순위(R-6) 순서대로 정확히 같음. `[]` = 없음 |
+| `sameBuyer` | 묶음마다 모든 키가 같은 구매자로 풀림 |
+| `claimCount` | 생성된 찜 수(상태 무관). 재수신 메시지와 R-4 4번 줄(같은 사람 반복)은 찜을 만들지 않는다 |
+| `cancelRequests` | 처리 대기 중인 시청자 취소 요청 전체와 정확히 같음. 순서 무관 |
+
+**열거값**: 찜 상태 `PENDING`·`CONFIRMED`·`WAITLISTED`·`REJECTED`·`CANCELLED`·`CONFLICT`·`DUPLICATE` / 거절 사유 `BLOCKED`·`UNOPENED`·`NOT_ON_SALE`·`SOLD_OUT`·`EXPIRED`·`WAITLIST_CLEARED`·`BY_HOST`·`RENUMBERED` / 효과 `PRINT_PRODUCT_LABEL`·`PRINT_PACKING_LABEL`·`POST_THANKS`·`VOID_LABEL`·`NOTIFY` / 대상 `LIVE_CHAT`·`VIDEO_COMMENT`.
+
+**구매자 키**: `sms:`로 시작하지 않으면 유튜브 채널 ID, `sms:<ref>`는 그 `ref`의 문자찜이 만든(또는 `buyer`로 지정한) 구매자. 상품 키 `<방송>/<번호>`의 방송은 선언된 방송이어야 한다.

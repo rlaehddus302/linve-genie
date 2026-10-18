@@ -1,0 +1,81 @@
+# 시각 해석 — 자정을 넘긴 방송, 날짜가 다른 방송, 문자 수신 시각의 날짜 (D-022, D-023)
+# 짧은 at("HH:MM:SS")은 그 이벤트 방송의 날짜(KST) 기준, 자정 뒤는 오프셋 포함 ISO로 적는다 (README "시각").
+id: G-ENG-070
+title: 자정을 넘긴 방송 — 보류 찜 유효 시간은 자정을 넘어 이어서 계산하고, 정산은 방송 날짜 하나로 묶는다
+refs: [ORD-06, R-5, R-12, NFR-02, NFR-07]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 심야 }]
+events:
+  - { at: "23:59:30", type: product.register, b: b1, no: 14, name: 라울, price: 5000 }
+  - { at: "23:59:35", type: chat, b: b1, id: m1, ch: UC_B, nick: 김철수, text: "16" }   # 16번 없음 → 보류
+  - { at: "23:59:50", type: chat, b: b1, id: m2, ch: UC_A, nick: 홍길동, text: "15" }   # 15번 없음 → 보류
+  - { type: assert, expect: { pending: { b1/15: [UC_A], b1/16: [UC_B] }, products: { b1/15: { exists: false } } } }
+  # 15번 공개 T=10-19 00:00:10 → 유효 구간 시작 T−30초 = 10-18 23:59:40. m2(23:59:50) ≥ 23:59:40 → 판정 포함 → UC_A 확정
+  - { at: "2026-10-19T00:00:10+09:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  # 16번 공개 T=10-19 00:00:12 → 유효 구간 시작 10-18 23:59:42. m1(23:59:35) < 23:59:42 → 만료
+  - { at: "2026-10-19T00:00:12+09:00", type: product.register, b: b1, no: 16, name: 성미인, price: 8000 }
+  - { at: "2026-10-19T00:00:20+09:00", type: chat, b: b1, id: m3, ch: UC_A, nick: 홍길동, text: "14" }
+expect:
+  products:
+    b1/14: { status: SOLD, winner: UC_A }
+    b1/15: { status: SOLD, winner: UC_A, waitlist: [] }
+    b1/16: { status: OPEN, winner: null }
+  claims:
+    - { product: b1/16, buyer: UC_B, status: REJECTED, reason: EXPIRED }
+  pending: { b1/15: [], b1/16: [] }
+  buyers:
+    UC_A: { items: [b1/14, b1/15], subtotal: 15000 }    # 5,000 + 10,000
+  settlements:
+    # 묶음 날짜 = 방송 날짜(10-18). 자정 뒤 찜도 같은 묶음 → 배송비 한 번: 15,000 + 4,000 = 19,000
+    UC_A@2026-10-18: { subtotal: 15000, shipping: 4000, total: 19000, payment: UNPAID }
+    # 찜 시각 날짜(10-19)로 쪼개면 안 된다 → 10-19 묶음은 품목 없음 → 전부 0
+    UC_A@2026-10-19: { subtotal: 0, shipping: 0, total: 0 }
+---
+id: G-ENG-071
+title: 실제 시각순 — 자정 직전에 받은 문자를 자정 뒤에 입력하면 수신 시각은 전날로 본다 (입력 시각에 가장 가까운 날짜)
+refs: [ORD-08, ORD-09, R-6, R-7, NFR-07]
+settings: { contention.policy: RECEIVED_TIME }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 심야 }]
+events:
+  - { at: "23:59:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "2026-10-19T00:00:30+09:00", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }   # publishedAt = at
+  # received "23:59:40"의 후보: 10-18 23:59:40(입력 1분 50초 전) / 10-19 23:59:40(23시간 58분 뒤) → 가장 가까운 10-18
+  # 10-18 23:59:40 < UC_A 게시 10-19 00:00:30 → 문자가 앞섬. UC_A는 잠금 전(출력·감사·확인·입금 없음) → 자동 역전
+  - { at: "2026-10-19T00:01:30+09:00", type: sms, b: b1, ref: s1, no: 15, received: "23:59:40" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: "sms:s1", waitlist: [UC_A], conflict: false }
+---
+id: G-ENG-072
+title: 실제 시각순 — 휴대폰 시계가 몇 초 빨라 수신 시각이 입력 시각보다 늦어도 전날로 보지 않는다
+refs: [ORD-08, ORD-09, R-6, INV-8]
+settings: { contention.policy: RECEIVED_TIME }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:10:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:10:04", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }   # publishedAt 20:10:04
+  # received "20:10:08"의 후보: 10-18 20:10:08(입력 2초 뒤) / 10-17 20:10:08(약 24시간 전) → 가장 가까운 10-18
+  # 10-18 20:10:08 > UC_A 게시 20:10:04 → UC_A가 앞섬 → 문자는 대기 1순위. ("가장 가까운 과거"로 해석하면 전날이 되어 1등을 빼앗는다 — 금지)
+  - { at: "20:10:06", type: sms, b: b1, ref: s1, no: 15, received: "20:10:08" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: ["sms:s1"], conflict: false }
+---
+id: G-ENG-073
+title: 날짜가 다른 방송은 정산 묶음이 따로(배송비 각각) — 방송이 없는 이벤트는 ISO 시각으로 적는다
+refs: [STL-01, STL-02, STL-07, R-12, D-008]
+broadcasts:
+  - { id: b1, date: 2026-10-18, title: 18일 1부 }
+  - { id: b2, date: 2026-10-19, title: 19일 1부 }
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }   # 10-18 20:00 KST
+  - { at: "20:00:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }
+  # 10-18 묶음: 10,000 + 4,000 = 14,000 전액 입금
+  - { at: "2026-10-18T21:00:00+09:00", type: settlement.payment, buyer: UC_A, date: 2026-10-18, amount: 14000 }
+  - { at: "20:00:00", type: product.register, b: b2, no: 15, name: 라울, price: 5000 }       # b2 날짜 기준 → 10-19 20:00 KST
+  - { at: "20:00:05", type: chat, b: b2, id: n1, ch: UC_A, nick: 홍길동, text: "15" }
+expect:
+  buyers:
+    UC_A: { items: [b1/15, b2/15], subtotal: 15000, byBroadcast: { b1: 10000, b2: 5000 } }
+  settlements:
+    UC_A@2026-10-18: { subtotal: 10000, shipping: 4000, total: 14000, payment: PAID }
+    UC_A@2026-10-19: { subtotal: 5000, shipping: 4000, total: 9000, payment: UNPAID }   # 5,000 + 4,000
