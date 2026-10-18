@@ -334,8 +334,7 @@ describe('AC-S01-17 LOOSE', () => {
         ['예뻐요 15번', { mentions: [15] }],
         ['15번째', { mentions: [15] }],
         ['15,28개', { mentions: [15, 28] }],
-        ['15 1000원이에요', { claims: [15] }], // 경계를 만족하는 부분은 '15'뿐('15 1000'은 '원' 앞). 뒤의 숫자는 보지 않는다(골든 '15번 2개 가능해요?'와 같음)
-        ['15 1000', { mentions: [15] }], // 메시지 끝까지가 주문 부분인데 범위 밖 번호가 섞임
+        ['15 1000', { mentions: [15] }], // 범위 밖 번호가 섞임
       ],
       LOOSE,
     )
@@ -383,6 +382,54 @@ describe('AC-S01-17 LOOSE', () => {
     check([['28 15 예뻐요', { claims: [28] }]], { ...LOOSE, 'claim.multiNumber': 'FIRST' })
   })
 
+  it('범위는 메시지 전체로 본다 — 주문 부분 뒤에 범위 밖 번호가 있어도 주문·취소가 아니다 (R-3 세부 "범위", TD-S01-002)', () => {
+    check(
+      [
+        // 주문 부분('15') 뒤 범위 밖 번호: '원'·'개'가 붙어도 '15 1000'과 같이 언급
+        ['15 1000원이에요', { mentions: [15] }],
+        ['15 1000원', { mentions: [15] }],
+        ['15 2000원 맞죠?', { mentions: [15] }],
+        ['15 0개', { mentions: [15] }],
+        ['15 0원', { mentions: [15] }],
+        ['15번 예뻐요 0번째 사진', { mentions: [15] }],
+        ['15 1,000원이에요', { mentions: [15] }], // 금액 덩어리(같은 결과)
+        ['15 취소 1000번째', { mentions: [15] }], // 취소도 같다
+        ['15 취소할게요 0시에', { mentions: [15] }],
+        // 범위 안 번호만 있으면 그대로 (골든 '15번 2개 가능해요?')
+        ['15번 2개 가능해요?', { claims: [15] }],
+        ['15 28개 주세요', { claims: [15] }],
+        ['15 취소 28', { cancels: [15] }],
+        // 5자리 이상 숫자는 번호가 아니라 범위 판정에 들어가지 않는다(R-3 세부 "번호")
+        ['15 10000원이에요', { claims: [15] }],
+      ],
+      LOOSE,
+    )
+    check(
+      [
+        ['15 예뻐요 51', { mentions: [15] }],
+        ['15 51 취소', { mentions: [15] }],
+        ['15 예뻐요 50', { claims: [15] }],
+      ],
+      { ...LOOSE, 'claim.maxNumber': 50 },
+    )
+  })
+
+  it('속성: LOOSE에서 주문·취소이면 메시지의 1~4자리 숫자 덩어리(금액 덩어리 아님)는 모두 범위 안이다', () => {
+    fc.assert(
+      fc.property(anyText, fc.constantFrom(9, 50, 999), (text, maxNumber) => {
+        const result = parseChat(text, { ...LOOSE, 'claim.maxNumber': maxNumber })
+        if (result.claims.length === 0 && result.cancels.length === 0) return
+        // 금액 덩어리가 있으면 주문이 아니므로, 여기서는 모든 숫자 덩어리가 번호 후보다
+        const normalized = text.replace(/[^\S\uFEFF]+/gu, ' ').replace(/[\uFF10-\uFF19]/gu, (d) => String.fromCharCode(d.charCodeAt(0) - 0xff10 + 0x30))
+        for (const run of normalized.match(/[0-9]+/gu) ?? []) {
+          if (run.length <= 4) expect(Number(run), JSON.stringify(text)).toBeGreaterThanOrEqual(1)
+          if (run.length <= 4) expect(Number(run), JSON.stringify(text)).toBeLessThanOrEqual(maxNumber)
+        }
+      }),
+      { numRuns: 3000 },
+    )
+  })
+
   it('속성: STRICT에서 주문이면 LOOSE에서도 같은 주문', () => {
     fc.assert(
       fc.property(anyText, (text) => {
@@ -406,6 +453,41 @@ describe('AC-S01-18 정규화', () => {
       ['15\u3000찜', { claims: [15] }],
       ['\n\n15\n\n', { claims: [15] }],
     ])
+  })
+
+  it('U+FEFF(폭 없는 비분리 공백)는 공백이 아니다 — 화면의 숫자 하나를 가르지 않는다 (TD-S01-001)', () => {
+    const zwnbsp = String.fromCodePoint(0xfeff)
+    for (const settings of [STRICT, LOOSE, { ...LOOSE, 'claim.maxNumber': 9999 }]) {
+      check(
+        [
+          [`1${zwnbsp}5`, { mentions: [1, 5] }], // 화면엔 '15'. 1번·5번 주문이 아니다
+          [`1${zwnbsp}5번 찜할게요`, { mentions: [1, 5] }],
+          [`1${zwnbsp}5 취소`, { mentions: [1, 5] }],
+          [`12${zwnbsp}34`, { mentions: [12, 34] }],
+          [`15${zwnbsp}`, { mentions: [15] }], // 앞뒤의 U+FEFF도 지우지 않는다(U+200B와 같음)
+          [`${zwnbsp}15`, { mentions: [15] }],
+        ],
+        settings,
+      )
+    }
+    // 공백 사이의 U+FEFF는 구분자가 아니다: STRICT는 주문이 아니고, LOOSE는 공백 앞에서 끝난 맨 앞 부분 '15'만 주문
+    check([[`15 ${zwnbsp} 28`, { mentions: [15, 28] }]], STRICT)
+    check([[`15 ${zwnbsp} 28`, { claims: [15] }]], LOOSE)
+  })
+
+  it('속성: 여러 자리 번호의 숫자 사이에 U+FEFF를 끼우면 어떤 설정에서도 주문·취소가 나오지 않는다', () => {
+    const zwnbsp = String.fromCodePoint(0xfeff)
+    const template = fc.constantFrom((n: string) => n, (n: string) => `${n}번`, (n: string) => `찜 ${n}`, (n: string) => `${n} 주세요`, (n: string) => `${n} 취소`, (n: string) => `${n} 예뻐요`)
+    fc.assert(
+      fc.property(fc.integer({ min: 10, max: 9999 }), fc.nat(), template, chatSettings, (n, at, wrap, settings) => {
+        const digits = String(n)
+        const pos = 1 + (at % (digits.length - 1))
+        const result = parseChat(wrap(`${digits.slice(0, pos)}${zwnbsp}${digits.slice(pos)}`), settings)
+        expect(result.claims).toEqual([])
+        expect(result.cancels).toEqual([])
+      }),
+      { numRuns: 2000 },
+    )
   })
 
   it('속성: 공백을 늘리거나 앞뒤에 붙여도 결과가 같다', () => {

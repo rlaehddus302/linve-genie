@@ -212,18 +212,23 @@ export function parseChat(text: string, settings: SettingsOverride = {}): ChatPa
 
   const s = normalizeText(asText(text))
   const runs = scanDigitRuns(s)
+  // 메시지의 번호 후보: 금액 덩어리가 아닌 1~4자리 숫자 덩어리 (언급·범위 판정 공용)
+  const numberValues = runs.filter((run) => !run.amount && run.end - run.start <= MAX_NUMBER_DIGITS).map((run) => Number(s.slice(run.start, run.end)))
 
-  // 금액 덩어리가 있는 메시지는 주문·취소가 아니다
-  if (!runs.some((run) => run.amount)) {
+  // 금액 덩어리가 있는 메시지는 주문·취소가 아니다.
+  // 범위(R-3 세부): 주문·취소가 될 "메시지에" 범위 밖 번호가 하나라도 있으면 주문·취소가 아니다. LOOSE도 주문 부분 뒤까지 메시지 전체로 본다
+  // (TD-S01-002: '15 1000원이에요'가 '15 1000'과 같이 언급). STRICT는 메시지 전체가 주문 부분이라 결과가 같다.
+  // 주문·취소 부분의 번호는 모두 이 후보 안에 있으므로 부분 번호를 따로 검사하지 않는다.
+  if (!runs.some((run) => run.amount) && numberValues.every(inRange)) {
     const cancel = scanCancel(s)
-    if (cancel !== undefined && pickPart(s, cancel.parts, loose) !== undefined && inRange(cancel.value)) return result([], [cancel.value], [])
+    if (cancel !== undefined && pickPart(s, cancel.parts, loose) !== undefined) return result([], [cancel.value], [])
 
     // LOOSE: '취소'가 들어간 메시지는 주문으로 보지 않는다. STRICT에서는 문법상 주문이 될 수 없다.
     if (!(loose && s.includes('취소'))) {
       const claim = scanClaim(s)
       const part = pickPart(s, claim.parts, loose)
       const numbers = part === undefined ? [] : claim.numbers.slice(0, part.count)
-      if (numbers.length > 0 && numbers.every(inRange)) {
+      if (numbers.length > 0) {
         const unique = uniqueInOrder(numbers)
         if (multi === 'FIRST') return result(unique.slice(0, 1), [], [])
         if (multi !== 'IGNORE' || unique.length === 1) return result(unique, [], [])
@@ -232,9 +237,5 @@ export function parseChat(text: string, settings: SettingsOverride = {}): ChatPa
   }
 
   // 언급: 금액 덩어리가 아닌 1~4자리 숫자 덩어리 중 범위 안의 값
-  const mentions = runs
-    .filter((run) => !run.amount && run.end - run.start <= MAX_NUMBER_DIGITS)
-    .map((run) => Number(s.slice(run.start, run.end)))
-    .filter(inRange)
-  return result([], [], uniqueInOrder(mentions))
+  return result([], [], uniqueInOrder(numberValues.filter(inRange)))
 }
