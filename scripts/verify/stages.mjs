@@ -277,24 +277,64 @@ async function lint() {
   return { status: ok ? 'pass' : 'fail', detail: `${counts} (--max-warnings 0, 설정 ${ESLINT_CONFIG} 하나)${strayNote}` }
 }
 
-async function vitestRun(config, label, mustBeUnder, mustNotBeUnder) {
+/** 실제로 실행된 테스트의 상태. 그 밖(skipped·pending·todo·disabled)은 건너뛴 것이다 */
+const RAN_STATUSES = new Set(['passed', 'failed'])
+
+/**
+ * Vitest를 돌리고 JSON 결과로 다시 확인한다. 설정 파일(vitest*.config.ts)만 바꿔 테스트를 빼는 우회를 막는다 (TD-S00-014).
+ * - under·notUnder: 돈 파일이 단계 대상 폴더 안인지 (AC-S00-12)
+ * - expected: 디스크에서 찾은 대상 파일 전부. 정확히 이 파일들이 돌아야 한다(include·exclude로 빼거나 넓히면 실패)
+ * - 건너뛴 테스트(.skip·.todo·skipIf·.only·testNamePattern)가 하나라도 있으면 실패 (dev-common, AC-S00-11)
+ */
+async function vitestRun(config, label, { under, notUnder = [], expected, configHint = config }) {
   mkdirSync(CACHE, { recursive: true })
   const out = join(CACHE, `${label}.json`)
   rmSync(out, { force: true })
   const result = await exec([bin('vitest'), 'run', '--config', config, '--reporter=default', '--reporter=json', `--outputFile.json=${out}`], { tz: true })
   const json = readJson(out)
   if (!json) return { status: 'fail', detail: `결과 파일이 없다 (Vitest 종료 코드 ${result.code})` }
-  const files = json.testResults.map((r) => rel(r.name))
-  process.stdout.write(`\n${label} 단계가 돌린 테스트 파일 ${files.length}개:\n${files.map((f) => `  ${f}`).join('\n')}\n`)
-  const outside = files.filter((f) => (mustBeUnder && !mustBeUnder.some((p) => f.startsWith(p))) || (mustNotBeUnder && mustNotBeUnder.some((p) => f.startsWith(p))))
-  const counts = `파일 ${files.length} · 테스트 ${json.numTotalTests}`
-  if (outside.length > 0) return { status: 'fail', detail: `${counts} · 대상 밖 파일 ${outside.length}개 (${outside.join(', ')})` }
-  if (result.code !== 0 || !json.success) return { status: 'fail', detail: `${counts} · 실패 ${json.numFailedTests}` }
-  return { status: 'pass', detail: counts }
+  const files = json.testResults.map((r) => rel(r.name)).sort()
+  process.stdout.write(`\n${label} 단계가 돌린 테스트 파일 ${files.length}개:\n${bullet(files)}\n`)
+
+  const expectedSet = new Set(expected)
+  const ranSet = new Set(files)
+  const outside = files.filter((f) => !expectedSet.has(f) || !under.some((p) => f.startsWith(p)) || notUnder.some((p) => f.startsWith(p)))
+  const missing = expected.filter((f) => !ranSet.has(f))
+  const notRun = json.testResults.flatMap((r) =>
+    r.assertionResults.filter((a) => !RAN_STATUSES.has(a.status)).map((a) => `${rel(r.name)} › ${a.fullName ?? a.title} (${a.status})`),
+  )
+  const skipped = Math.max(notRun.length, (json.numPendingTests ?? 0) + (json.numTodoTests ?? 0))
+
+  if (outside.length > 0) process.stdout.write(`✗ ${label} 단계 대상이 아닌 파일 ${outside.length}개를 돌렸다:\n${bullet(outside)}\n`)
+  if (missing.length > 0) {
+    process.stdout.write(`✗ ${label} 단계 대상인데 돌지 않은 테스트 파일 ${missing.length}개 — ${configHint}의 include·exclude를 확인한다:\n${bullet(missing)}\n`)
+  }
+  if (skipped > 0) {
+    process.stdout.write(`✗ 건너뛴 테스트 ${skipped}개 — .skip·.todo·skipIf·.only·이름 필터(testNamePattern)는 쓸 수 없다:\n${bullet(notRun)}\n`)
+  }
+
+  const parts = [`파일 ${files.length}`, `테스트 ${json.numTotalTests}`]
+  if (json.numFailedTests > 0) parts.push(`실패 ${json.numFailedTests}`)
+  if (skipped > 0) parts.push(`건너뜀 ${skipped}`)
+  if (missing.length > 0) parts.push(`돌지 않은 파일 ${missing.length}개 (${missing.join(', ')})`)
+  if (outside.length > 0) parts.push(`대상 밖 파일 ${outside.length}개 (${outside.join(', ')})`)
+  const ok = result.code === 0 && json.success === true && json.numFailedTests === 0 && skipped === 0 && missing.length === 0 && outside.length === 0
+  if (!ok && parts.length === 2) parts.push(`Vitest 종료 코드 ${result.code}`)
+  return { status: ok ? 'pass' : 'fail', detail: parts.join(' · ') }
+}
+
+/** test 단계 대상: `packages/*`·`apps/*` 안의 단위 테스트 파일 전부 (Vitest 기본 이름 규칙 *.test.*·*.spec.*) */
+export function unitTestFiles() {
+  return workspaceFiles((f) => /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(f))
 }
 
 async function test() {
-  return vitestRun('vitest.config.ts', 'test', ['packages/', 'apps/'], ['tests/'])
+  return vitestRun('vitest.config.ts', 'test', {
+    under: ['packages/', 'apps/'],
+    notUnder: ['tests/'],
+    expected: unitTestFiles().map(rel),
+    configHint: '각 패키지 vitest.config.ts',
+  })
 }
 
 async function golden() {
@@ -314,7 +354,7 @@ async function adversarial() {
     process.stdout.write('tests/adversarial/**/*.test.ts 없음\n')
     return { status: 'pass', detail: '적대 테스트 0개' }
   }
-  const result = await vitestRun('vitest.adversarial.config.ts', 'adversarial', ['tests/adversarial/'])
+  const result = await vitestRun('vitest.adversarial.config.ts', 'adversarial', { under: ['tests/adversarial/'], expected: files.map(rel) })
   return { ...result, detail: `적대 테스트 ${result.detail}` }
 }
 
