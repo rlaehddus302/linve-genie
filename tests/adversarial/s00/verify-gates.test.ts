@@ -1,10 +1,10 @@
 // S00 검사 파이프라인(verify 단계) 자체 공격 (AC-S00-03·05·06·11·12·15).
 // 저장소를 임시 폴더에 복사하고 그 안에서 실제 단계 스크립트(scripts/verify/stage.mjs)를 돌린다.
 // 작업 트리·실제 node_modules/.cache는 건드리지 않는다(임시 폴더의 node_modules는 패키지별 링크만 둔 진짜 폴더).
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative, sep } from 'node:path'
+import { delimiter, dirname, join, relative, sep } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { ROOT } from './helpers.ts'
 
@@ -59,6 +59,8 @@ interface StageRun {
 function runStage(dir: string, stage: string): Promise<StageRun> {
   const env: Record<string, string | undefined> = { ...process.env }
   for (const key of Object.keys(env)) if (key.startsWith('VITEST') || key === 'TEST') delete env[key]
+  // `pnpm <단계>`처럼 node_modules/.bin을 PATH 맨 앞에 둔다 (pnpm run이 하는 일과 같다)
+  env['PATH'] = `${join(ROOT, 'node_modules', '.bin')}${delimiter}${env['PATH'] ?? ''}`
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [join('scripts', 'verify', 'stage.mjs'), stage], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'] })
     let output = ''
@@ -100,6 +102,7 @@ describe('TD-S00-013: 하위 폴더의 ESLint 설정 파일 하나로 코어 순
     ['packages/core/eslint.config.mjs (빈 설정)', 'packages/core/eslint.config.mjs', 'export default [{}]\n', CORE_PROBE, '코어는 순수 함수'],
     ['packages/core/src/eslint.config.js (TS 파서만)', 'packages/core/src/eslint.config.js', WEB_LOCAL_CONFIG, CORE_PROBE, '코어는 순수 함수'],
     ['apps/web/eslint.config.js (Vite 템플릿 같은 화면 전용 설정)', 'apps/web/eslint.config.js', WEB_LOCAL_CONFIG, WEB_PROBE, 'NFR-06'],
+    ['packages/core/eslint.config.ts (TS 설정 파일, 회귀)', 'packages/core/eslint.config.ts', 'export default [{}]\n', CORE_PROBE, '코어는 순수 함수'],
   ] as const)('TD-S00-013: %s가 있어도 lint 단계는 실패해야 한다', async (_label, configPath, configText, probe, ruleText) => {
     const dir = repoCopy(LINT_BASE)
     put(dir, configPath, configText)
@@ -140,18 +143,19 @@ const adversarialConfig = (extra: string): string =>
     '',
   ].join('\n')
 
+/** 임시 저장소(실패하는 적대 테스트 1개 + 통과 1개)에서 adversarial 단계를 돌린다. config가 null이면 저장소의 실제 설정 */
+async function adversarialWith(config: string | null): Promise<StageRun> {
+  const dir = repoCopy(['package.json', 'tsconfig.base.json', 'tsconfig.json', 'scripts/verify', ...(config === null ? ['vitest.adversarial.config.ts'] : [])])
+  if (config !== null) put(dir, 'vitest.adversarial.config.ts', config)
+  put(dir, 'tests/adversarial/probe/bug.test.ts', FAILING_TEST)
+  put(dir, 'tests/adversarial/probe/ok.test.ts', PASSING_TEST)
+  return runStage(dir, 'adversarial')
+}
+
 describe('TD-S00-014: vitest.adversarial.config.ts를 고치면 실패하는 적대 테스트를 빼고도 adversarial 단계가 통과한다 (AC-S00-11(b)·12·15)', () => {
   // 개발자는 tests/를 고칠 수 없지만(보호 경로) 루트 vitest.adversarial.config.ts는 고칠 수 있다.
   // adversarial 단계는 실제로 돈 파일이 tests/adversarial 안인지만 보고, tests/adversarial의 모든 *.test.ts가 돌았는지·
   // 건너뛴 테스트가 없는지는 보지 않는다. 그래서 설정 한 줄로 test-domain의 실패 테스트가 게이트에서 빠진다.
-  async function adversarialWith(config: string | null): Promise<StageRun> {
-    const dir = repoCopy(['package.json', 'scripts/verify', ...(config === null ? ['vitest.adversarial.config.ts'] : [])])
-    if (config !== null) put(dir, 'vitest.adversarial.config.ts', config)
-    put(dir, 'tests/adversarial/probe/bug.test.ts', FAILING_TEST)
-    put(dir, 'tests/adversarial/probe/ok.test.ts', PASSING_TEST)
-    return runStage(dir, 'adversarial')
-  }
-
   it('전제: 저장소의 실제 설정으로는 실패하는 적대 테스트 하나 때문에 adversarial 단계가 실패한다', async () => {
     const run = await adversarialWith(null)
     expect(run.code, tail(run)).toBe(1)
@@ -164,6 +168,33 @@ describe('TD-S00-014: vitest.adversarial.config.ts를 고치면 실패하는 적
   ])('TD-S00-014: 설정에서 %s → adversarial 단계는 실패해야 한다', async (_label, extra) => {
     const run = await adversarialWith(adversarialConfig(extra))
     expect(run.code, `설정만 바꿔 실패하는 적대 테스트를 게이트에서 뺐는데 통과했다:\n${tail(run)}`).not.toBe(0)
+  }, 120_000)
+})
+
+// ── TD-S00-018 ───────────────────────────────────────────────────────────
+
+describe('TD-S00-018: vitest.adversarial.config.ts의 타입 검사 전용 모드(typecheck.only)로 실패하는 적대 테스트가 "통과"로 바뀐다 (AC-S00-11(b)·15)', () => {
+  // TD-S00-014 수정은 "돈 파일 집합 = 디스크 파일 집합"과 "건너뛴 테스트 0개"만 본다.
+  // Vitest의 typecheck 모드는 테스트 파일을 실행하지 않고 tsc로 타입만 본 뒤, 타입 오류가 없으면 모든 테스트를 passed로 보고한다.
+  // 그래서 설정에 한 줄을 넣으면 파일 집합·테스트 수·상태가 모두 맞는 채로 expect(1 + 1).toBe(3)이 "통과"한다.
+  const TYPECHECK_ONLY = "typecheck: { enabled: true, only: true, include: ['tests/adversarial/**/*.test.ts'] }"
+  const TYPECHECK_AND_NO_RUN = adversarialConfig("typecheck: { enabled: true, include: ['tests/adversarial/**/*.test.ts'] }").replace(
+    "include: ['tests/adversarial/**/*.test.ts'], typecheck",
+    'include: [], typecheck',
+  )
+
+  it('전제: 두 번째 변형 설정은 실행 include만 비우고 타입 검사 include에 적대 테스트를 둔다', () => {
+    expect(TYPECHECK_AND_NO_RUN).toContain("include: [], typecheck: { enabled: true, include: ['tests/adversarial/**/*.test.ts'] }")
+  })
+
+  it.each([
+    ['typecheck: { enabled, only, include: 적대 테스트 }', adversarialConfig(TYPECHECK_ONLY)],
+    ['typecheck: { enabled, include: 적대 테스트 } + 실행 include 비우기', TYPECHECK_AND_NO_RUN],
+  ])('TD-S00-018: 설정에 %s → adversarial 단계는 실패해야 한다', async (_label, config) => {
+    const run = await adversarialWith(config)
+    // tsc를 못 찾아서 실패한 것이면 이 공격을 확인한 것이 아니다 (pnpm 단계처럼 node_modules/.bin이 PATH에 있어야 한다)
+    expect(run.output, tail(run)).not.toContain('Spawning typechecker failed')
+    expect(run.code, `실패하는 적대 테스트를 실행하지 않고 타입만 보게 바꿨는데 adversarial 단계가 통과했다:\n${tail(run)}`).not.toBe(0)
   }, 120_000)
 })
 
@@ -190,9 +221,8 @@ describe('TD-S00-015: 타입 검사 범위(AC-S00-03) 안의 새 파일이 어�
     expect(run.code, `${path}의 타입 오류를 typecheck 단계가 보지 못했다:\n${tail(run)}`).not.toBe(0)
   }, 120_000)
 
-  it('회귀: 지금 저장소의 범위 안 TS 파일은 모두 어떤 tsconfig 검사 대상에 들어 있다', async () => {
+  it('회귀: 지금 저장소의 범위 안 TS 파일은 모두 어떤 tsconfig 검사 대상에 들어 있다', () => {
     // tsc --listFilesOnly로 각 설정이 실제로 검사하는 파일을 모은다
-    const { spawnSync } = await import('node:child_process')
     const tsc = join(ROOT, 'node_modules', 'typescript', 'bin', 'tsc')
     const configs = ['tsconfig.json', ...['packages', 'apps'].flatMap((base) => readdirSync(join(ROOT, base)).flatMap((name) => readdirSync(join(ROOT, base, name)).filter((f) => /^tsconfig(\..+)?\.json$/.test(f)).map((f) => join(base, name, f))))]
     const included = new Set<string>()
@@ -214,4 +244,95 @@ describe('TD-S00-015: 타입 검사 범위(AC-S00-03) 안의 새 파일이 어�
     expect(inScope.filter((path) => !included.has(path))).toEqual([])
     expect(readFileSync(join(ROOT, 'tsconfig.base.json'), 'utf8')).toContain('"strict": true')
   }, 60_000)
+})
+
+// ── TD-S00-017 ───────────────────────────────────────────────────────────
+
+/** 복사본의 설정 파일 하나를 고친다. 고칠 자리가 없으면(원본이 바뀌었으면) 테스트가 먼저 실패한다 */
+function patch(dir: string, path: string, from: string, to: string): void {
+  const text = readFileSync(join(dir, path), 'utf8')
+  expect(text, `${path}에 '${from}'가 없다 — 테스트의 고칠 자리를 갱신한다`).toContain(from)
+  writeFileSync(join(dir, path), text.replace(from, to))
+}
+
+describe('TD-S00-017: tsconfig에 "noCheck": true 한 줄이면 typecheck 단계가 타입 오류를 하나도 보지 않고 "모두 검사"로 통과한다 (AC-S00-03)', () => {
+  // typecheck 단계는 tsc --showConfig로 strict·noUncheckedIndexedAccess·strict 계열 플래그만 확인한다.
+  // TypeScript 6의 noCheck는 strict를 켠 채로 의미 검사(타입 오류 보고)를 통째로 끈다. tsc는 종료 코드 0을 내고,
+  // 단계 요약은 "범위 안 TS 파일 N개 모두 검사 (strict·noUncheckedIndexedAccess 확인)"이라고 적는다.
+  it('전제: noCheck 없이 packages/core/src와 apps/server/src의 같은 타입 오류는 typecheck 단계를 실패시킨다', async () => {
+    const dir = repoCopy(TYPECHECK_BASE)
+    put(dir, 'packages/core/src/probe.ts', TYPE_ERROR)
+    put(dir, 'apps/server/src/probe.ts', TYPE_ERROR)
+    const run = await runStage(dir, 'typecheck')
+    expect(run.code, tail(run)).toBe(1)
+    expect(run.output).toContain('TS2322')
+  }, 120_000)
+
+  it.each([
+    ['tsconfig.base.json (모든 설정이 상속)', 'tsconfig.base.json', '"strict": true,', '"strict": true,\n    "noCheck": true,', 'packages/core/src/probe.ts'],
+    ['apps/server/tsconfig.json (패키지 설정 하나)', 'apps/server/tsconfig.json', '"types": ["node"]', '"types": ["node"],\n    "noCheck": true', 'apps/server/src/probe.ts'],
+  ])('TD-S00-017: %s에 noCheck → 타입 오류가 있는 범위 안 파일 때문에 typecheck 단계는 실패해야 한다', async (_label, config, from, to, probe) => {
+    const dir = repoCopy(TYPECHECK_BASE)
+    patch(dir, config, from, to)
+    put(dir, probe, TYPE_ERROR)
+    const run = await runStage(dir, 'typecheck')
+    expect(run.code, `${config}의 noCheck 때문에 ${probe}의 타입 오류를 typecheck 단계가 보지 못했다:\n${tail(run)}`).not.toBe(0)
+  }, 120_000)
+})
+
+// ── TD-S00-019 ───────────────────────────────────────────────────────────
+
+describe('TD-S00-019: 범위 안의 선언 파일(.d.ts)은 타입 검사도, 검사 범위 대조도 받지 않아 오타 난 타입이 조용히 any가 된다 (AC-S00-03)', () => {
+  // tsconfig.base.json의 skipLibCheck: true는 node_modules뿐 아니라 저장소 안의 모든 .d.ts의 오류를 숨긴다.
+  // typecheck 단계의 범위 대조(TD-S00-015 수정)도 .d.ts를 "검사하지 않으므로" 뺀다.
+  // 그래서 packages/core/src에 손으로 쓴 타입 선언 파일의 오타(없는 타입 이름)는 오류 없이 any처럼 풀리고,
+  // 그 타입을 쓰는 .ts 파일의 잘못된 값도 통과한다. 지금 범위 안에 .d.ts는 없다(앞으로 생길 파일의 구멍).
+  const CLAIM_TYPES = 'export interface ClaimRow {\n  readonly product: Strnig\n  readonly qty: number\n}\nexport declare function total(rows: readonly ClaimRow[]): numbr\n'
+  const USES_CLAIM_TYPES = "import type { ClaimRow } from './claim-types.d.ts'\n\n// product는 문자열이어야 하는데 숫자를 넣는다\nexport const row: ClaimRow = { product: 15, qty: 1 }\n"
+
+  it('전제: 같은 내용을 .ts 파일에 쓰면 typecheck 단계가 실패한다', async () => {
+    const dir = repoCopy(TYPECHECK_BASE)
+    put(dir, 'packages/core/src/claim-types.ts', CLAIM_TYPES.replace('export declare function total(rows: readonly ClaimRow[]): numbr\n', 'export type Total = numbr\n'))
+    put(dir, 'packages/core/src/probe.ts', USES_CLAIM_TYPES.replace('./claim-types.d.ts', './claim-types.ts'))
+    const run = await runStage(dir, 'typecheck')
+    expect(run.code, tail(run)).toBe(1)
+    expect(run.output).toContain('Strnig')
+  }, 120_000)
+
+  it('TD-S00-019: packages/core/src/claim-types.d.ts의 없는 타입 이름(Strnig·numbr) → typecheck 단계는 실패해야 한다', async () => {
+    const dir = repoCopy(TYPECHECK_BASE)
+    put(dir, 'packages/core/src/claim-types.d.ts', CLAIM_TYPES)
+    put(dir, 'packages/core/src/probe.ts', USES_CLAIM_TYPES)
+    const run = await runStage(dir, 'typecheck')
+    expect(run.code, `범위 안 선언 파일의 타입 오류를 typecheck 단계가 보지 못했다:\n${tail(run)}`).not.toBe(0)
+  }, 120_000)
+})
+
+// ── TD-S00-020 ───────────────────────────────────────────────────────────
+
+describe('TD-S00-020: 검사 단계가 소스로 보는 src/build·src/dist·src/coverage·src/.vite를 git은 무시한다 — 작업 트리에선 verify 통과, 커밋에는 파일이 빠진다 (AC-S00-01·10)', () => {
+  // 라운드 1에서 lint 무시 범위를 저장소 루트와 패키지 바로 아래 결과물 폴더로 좁혔고(소스 안 build 폴더도 검사),
+  // typecheck·test 단계의 대상 목록도 같은 기준이다(stages.mjs PACKAGE_OUTPUT_DIRS). 그런데 .gitignore는
+  // `build/`·`dist/`·`coverage/`·`.vite/`를 깊이와 상관없이 무시한다. 그래서 apps/server/src/build/router.ts 같은 소스는
+  // 작업 트리의 verify(게이트)를 통과하지만 `git add -A`에 들어가지 않고 `git status`에도 보이지 않는다(보호 경로 게이트의
+  // "커밋 안 된 변경" 검사도 못 본다). 깨끗한 체크아웃(AC-S00-01, CI 단일 명령)에서는 그 파일이 없다.
+  const gitIgnored = (path: string): boolean => {
+    const result = spawnSync('git', ['check-ignore', '--no-index', '-q', path], { cwd: ROOT, encoding: 'utf8' })
+    if (result.status !== 0 && result.status !== 1) throw new Error(`git check-ignore 실패: ${result.stderr}`)
+    return result.status === 0
+  }
+
+  it('회귀: 실제 결과물·비밀값 폴더는 계속 git이 무시한다', () => {
+    for (const path of ['apps/web/dist/index.html', 'packages/core/dist/index.js', 'coverage/coverage-summary.json', 'apps/web/.vite/deps/x.js', 'node_modules/x/index.js', 'packages/core/node_modules/x/index.js', '.env', '.env.local']) {
+      expect(gitIgnored(path), path).toBe(true)
+    }
+    expect(gitIgnored('.env.example')).toBe(false)
+  })
+
+  it.each(['packages/core/src/build/plan.ts', 'apps/server/src/build/router.ts', 'apps/web/src/dist/Chat.tsx', 'packages/label/src/coverage/sheet.ts', 'packages/core/src/.vite/x.ts', 'packages/core/test/build/plan.test.ts'])(
+    'TD-S00-020: 검사 단계가 소스로 보는 %s는 git이 무시하면 안 된다',
+    (path) => {
+      expect(gitIgnored(path), `${path}는 lint·typecheck·test 단계 대상인데 .gitignore 때문에 커밋되지 않는다`).toBe(false)
+    },
+  )
 })

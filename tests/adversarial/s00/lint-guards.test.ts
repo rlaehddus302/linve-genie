@@ -70,6 +70,12 @@ describe('코어 순수성 린트 (AC-S00-05) — 회귀', () => {
     expect(pureErrors(await lint('export const f = () => Date.now() + Math.random()\n', 'packages/core/src/__probe__.js')).length).toBe(2)
   })
 
+  it.each(['build', 'dist', 'coverage', '.vite', 'a/build'])('소스 안의 %s 폴더도 순수성 검사를 받는다 (라운드 1 무시 범위 변경의 코어 쪽 회귀)', async (folder) => {
+    const filePath = `packages/core/src/${folder}/__probe__.ts`
+    expect(await eslint.isPathIgnored(filePath), filePath).toBe(false)
+    expect(pureErrors(await lint('export const f = (): number => Date.now()\n', filePath)).length).toBeGreaterThan(0)
+  })
+
   it.each(['packages/core/test/__probe__.ts', 'packages/core/test/golden/__probe__.ts', 'packages/label/src/__probe__.ts', 'apps/server/src/__probe__.ts', 'tests/adversarial/__probe__.test.ts'])(
     '%s에는 적용하지 않는다',
     async (filePath) => {
