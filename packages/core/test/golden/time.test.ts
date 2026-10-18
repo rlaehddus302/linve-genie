@@ -101,6 +101,22 @@ describe('Date 없이 계산한 값이 Date의 UTC 계산과 같다 (속성)', (
     )
   })
 
+  it('formatUtcIso = Date.prototype.toISOString — 0년 미만·10000년 이상은 확장 연도(+010000)', () => {
+    // 9999-12-31T01:00:00-23:00 → UTC 10000-01-01 (적대 테스트 resolveAt 속성의 반례)
+    expect(formatUtcIso(Date.UTC(10000, 0, 1))).toBe('+010000-01-01T00:00:00.000Z')
+    expect(formatUtcIso(Date.UTC(9999, 11, 31, 23, 59, 59, 999))).toBe('9999-12-31T23:59:59.999Z')
+    const yearZero = new Date(0)
+    yearZero.setUTCFullYear(0, 0, 1)
+    expect(formatUtcIso(yearZero.getTime())).toBe('0000-01-01T00:00:00.000Z')
+    expect(formatUtcIso(yearZero.getTime() - 1)).toBe('-000001-12-31T23:59:59.999Z')
+    fc.assert(
+      fc.property(fc.integer({ min: -8.64e15, max: 8.64e15 }), (ms) => {
+        expect(formatUtcIso(ms)).toBe(new Date(ms).toISOString())
+      }),
+      { numRuns: 2000 },
+    )
+  })
+
   it('짧은 at = 방송 날짜 KST 시각 = Date.UTC(...) − 9시간', () => {
     fc.assert(
       fc.property(

@@ -150,7 +150,13 @@ function pad(value: number, width: number): string {
   return String(value).padStart(width, '0')
 }
 
-/** UTC 밀리초 → `YYYY-MM-DDTHH:MM:SS.mmmZ` (Date 없이). */
+/** ECMAScript 날짜 문자열의 연도: 0~9999는 네 자리, 그 밖은 부호와 여섯 자리(확장 연도, `+010000`·`-000001`) */
+function formatYear(year: number): string {
+  if (year >= 0 && year <= 9999) return pad(year, 4)
+  return `${year < 0 ? '-' : '+'}${pad(Math.abs(year), 6)}`
+}
+
+/** UTC 밀리초 → `YYYY-MM-DDTHH:MM:SS.mmmZ` (Date 없이). `Date.prototype.toISOString`과 같은 모양(확장 연도 포함). */
 export function formatUtcIso(utcMs: number): string {
   const days = Math.floor(utcMs / MS_PER_DAY)
   let rest = utcMs - days * MS_PER_DAY
@@ -161,5 +167,5 @@ export function formatUtcIso(utcMs: number): string {
   rest -= minute * MS_PER_MINUTE
   const second = Math.floor(rest / MS_PER_SECOND)
   const ms = rest - second * MS_PER_SECOND
-  return `${pad(year, 4)}-${pad(month, 2)}-${pad(day, 2)}T${pad(hour, 2)}:${pad(minute, 2)}:${pad(second, 2)}.${pad(ms, 3)}Z`
+  return `${formatYear(year)}-${pad(month, 2)}-${pad(day, 2)}T${pad(hour, 2)}:${pad(minute, 2)}:${pad(second, 2)}.${pad(ms, 3)}Z`
 }
