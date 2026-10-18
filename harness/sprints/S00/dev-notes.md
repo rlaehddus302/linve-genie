@@ -45,6 +45,18 @@ README에 문장으로 없는 부분은 판매자에게 안전한 쪽(오타가 
   - 코어 쪽 회귀 테스트 `packages/core/test/unit/purity-lint.test.ts`를 위해 core에 `eslint` 10.13.0(루트와 같은 버전) devDependency를 추가했다.
 - **남의 몫 (TD-S00-004, dev-web).** `apps/web/**` 블록에도 같은 주석 우회가 있다. 같은 방법(`linterOptions: { noInlineConfig: true }`를 웹 블록에 추가)으로 고칠 수 있다. 공용 파일이지만 웹 영역 지적이라 손대지 않았다.
 
+### 수정 라운드 2 (SA-S00-006~008, TD-S00-013·014·015) — 검사 파이프라인 우회
+- **lint (TD-S00-013, SA-S00-006).** lint 단계는 `eslint --config <루트>/eslint.config.mjs . --max-warnings 0`으로 루트 설정 하나를 강제한다. ESLint 10은 `--config`를 받으면 폴더별 `eslint.config.*`를 찾지 않는다(임시 폴더에서 빈 하위 설정·Vite 템플릿 같은 설정을 두고 `Date.now()`·`dangerouslySetInnerHTML`이 다시 잡히는 것을 확인). 그와 별개로 단계 시작 때 `node_modules`·`.git`·`.claude` 밖에서 루트 `eslint.config.mjs` 말고 `eslint.config.{js,mjs,cjs,ts,mts,cts}`·`.eslintrc*`를 찾으면 경로를 보여 주고 실패한다. 화면 쪽에서 Vite 템플릿을 따라 `apps/web/eslint.config.js`를 만들면 이 검사에 걸린다(dev-web 참고).
+- **adversarial·test (TD-S00-014, SA-S00-007).** 두 단계 모두 Vitest JSON 결과를 디스크 파일 목록과 정확히 대조한다.
+  - adversarial: `tests/adversarial/**/*.test.ts` 전부. test: `packages/*`·`apps/*` 안의 `*.test.*`·`*.spec.*` 전부(`node_modules`·패키지 바로 아래 `dist`·`build`·`coverage`·`.vite` 제외, 린트 무시 범위와 같음).
+  - 돌지 않은 파일, 대상이 아닌 파일, 건너뛴 테스트(`skipped`·`pending`·`todo`·`disabled` 상태, 또는 `numPendingTests`+`numTodoTests` > 0)가 있으면 목록과 함께 실패한다. 설정의 `exclude`·`include`·`testNamePattern`, `.only`로 생긴 건너뜀, `skipIf`까지 모두 걸린다.
+  - 건너뛰기는 허용하지 않는다(dev-common ".only/.skip/todo 금지"와 같은 기준, TD-S00-014 제안과 같음). 지금 저장소에 건너뛴 테스트는 없다.
+  - test 단계에도 같은 검사를 넣었다. 그래서 각 패키지 `vitest.config.ts`의 include 밖에 `*.test.ts`를 두면(예: `packages/core/src/x.test.ts`) test 단계가 실패한다. 테스트 파일은 그 패키지 설정의 include 안에 둔다.
+- **typecheck (TD-S00-015, SA-S00-008).** 설정마다 `tsc --listFilesOnly -p`로 실제 검사 대상을 모은다. 범위 안 TS 파일(`packages/*`·`apps/*` 아래 전부, `tests/adversarial/**`, 저장소 루트 `*.ts`; `.d.ts` 계열 제외) 중 어느 설정에도 없는 파일이 있으면 목록과 함께 실패한다. 범위는 package.json 유무와 상관없이 폴더 기준이다.
+  - 포함 범위도 넓혔다: `packages/label/tsconfig.json`에 `test/**/*.ts`, `apps/server/tsconfig.json`과 `apps/web/tsconfig.node.json`은 패키지 루트 `*.ts`, 루트 `tsconfig.json`은 루트 `*.ts`. 지금 검사 대상 파일은 늘지 않았다(같은 파일이 그대로 잡힘).
+  - **남의 영역 수정**: `apps/server/tsconfig.json`(dev-server), `apps/web/tsconfig.node.json`(dev-web)의 include 한 줄씩. 이유: S04의 `drizzle.config.ts` 같은 패키지 루트 도구 설정 파일이 자동으로 타입 검사에 들어가게. 단계 검사만으로도 우회는 막히므로, 다른 설정을 원하면 바꿔도 된다(단, 범위 안 파일은 어떤 tsconfig에든 들어 있어야 한다).
+- 확인: `tests/adversarial/s00/verify-gates.test.ts` 13건 전부 통과(TD-S00-013 3건·014 3건·015 2건 포함), 그리고 실제 작업 트리에 임시 파일을 넣어 test 단계(include 밖 테스트 파일)·typecheck 단계(어느 tsconfig에도 없는 파일)가 실패하는 것을 본 뒤 지웠다.
+
 ## dev-server
 
 ### 만든 것
