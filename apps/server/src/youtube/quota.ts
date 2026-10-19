@@ -3,6 +3,9 @@
 // - 남은 양 = min(예산 − 그 판매자 오늘 사용, 한도 − 프로젝트 오늘 사용), 0 아래로 내려가지 않는다.
 // - 모드: NORMAL · BATCH(남은 양 < 예산의 20%) · PAUSED(남은 양 < 예산의 5%, 또는 오늘 구글이 quotaExceeded를 알렸음). 자정에 다시 계산한다.
 // - 프로젝트 사용량은 모든 판매자의 합이다(구글 할당량은 프로젝트 하나를 함께 쓴다). 표시 API에는 그 숫자를 내지 않는다(SYS-02).
+// - 모드 알림(AC-Y1-97, D-Y1-07): 판매자의 모드가 그 판매자에게 마지막으로 알린 모드와 다르면 이유와 상관없이 알린다(그 판매자의 호출·다른 판매자의 호출·
+//   구글의 초과·태평양 자정·한도 설정 변경). 서버를 다시 시작한 뒤의 첫 판정은 늘 알린다. 유튜브에 연결된 판매자는 호출이 없어도 5초마다 다시 판정한다
+//   (발송함 워커가 바퀴마다 tick을 부른다 — 늦어도 10초 안). 알림은 모드 하나이고 숫자는 넣지 않는다.
 import { and, eq, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
 import { youtubeQuota } from '../db/schema.ts'
@@ -24,6 +27,9 @@ export interface QuotaSettings {
 
 export const DEFAULT_QUOTA: QuotaSettings = { limit: 10_000, sellerBudget: 10_000, costs: DEFAULT_COSTS }
 
+/** 연결된 판매자의 모드를 호출이 없어도 다시 판정하는 간격 (AC-Y1-97 — 바퀴 1초와 더해 10초 안) */
+export const QUOTA_SWEEP_MS = 5000
+
 export interface QuotaView {
   /** 오늘 날짜 (태평양) */
   readonly day: string
@@ -43,14 +49,19 @@ export class QuotaMeter {
   readonly #now: () => number
   /** 모드가 바뀌면 (판매자, 새 모드) */
   readonly #onMode: (sellerId: string, mode: QuotaMode) => void
+  /** 유튜브에 연결된 판매자 (연결됨·다시 연결 필요) */
+  readonly #connected: () => Promise<readonly string[]>
+  /** 판매자에게 마지막으로 알린 모드 (이 서버에서) */
   readonly #modes = new Map<string, QuotaMode>()
   #day: string | null = null
+  #sweptAt = Number.NEGATIVE_INFINITY
 
-  constructor(db: Db, settings: QuotaSettings, now: () => number, onMode: (sellerId: string, mode: QuotaMode) => void) {
+  constructor(db: Db, settings: QuotaSettings, now: () => number, onMode: (sellerId: string, mode: QuotaMode) => void, connected: () => Promise<readonly string[]> = () => Promise.resolve([])) {
     this.#db = db
     this.#settings = settings
     this.#now = now
     this.#onMode = onMode
+    this.#connected = connected
   }
 
   get settings(): QuotaSettings {
@@ -81,11 +92,12 @@ export class QuotaMeter {
     await this.#checkMode(sellerId)
   }
 
+  /** 판정해 마지막으로 알린 모드와 다르면(이 서버의 첫 판정 포함) 알린다 */
   async #checkMode(sellerId: string): Promise<void> {
     const mode = await this.mode(sellerId)
     const before = this.#modes.get(sellerId)
     this.#modes.set(sellerId, mode)
-    if (before !== undefined && before !== mode) this.#onMode(sellerId, mode)
+    if (before !== mode) this.#onMode(sellerId, mode)
   }
 
   /** 그 판매자의 오늘 사용·프로젝트 오늘 사용·오늘 구글 초과 알림 */
@@ -139,13 +151,18 @@ export class QuotaMeter {
     }
   }
 
-  /** 태평양 날짜가 바뀌었으면(자정) 알던 판매자들의 모드를 다시 계산해 바뀐 판매자에게 알린다 (발송함 워커가 바퀴마다 부른다) */
+  /**
+   * 발송함 워커가 바퀴마다 부른다: 태평양 날짜가 바뀌었으면(자정) 또는 5초가 지났으면, 알던 판매자와 유튜브에 연결된 판매자의 모드를 다시 판정해
+   * 바뀐 판매자에게 알린다 — 다른 판매자의 사용·자정·서버 다시 시작으로 바뀐 모드도 그 판매자의 호출 없이 알린다 (AC-Y1-97)
+   */
   async tick(): Promise<void> {
-    const day = pacificDay(this.#now())
-    if (this.#day === day) return
-    const first = this.#day === null
+    const now = this.#now()
+    const day = pacificDay(now)
+    if (this.#day === day && now - this.#sweptAt < QUOTA_SWEEP_MS) return
     this.#day = day
-    if (!first) await this.recheck([...this.#modes.keys()])
+    this.#sweptAt = now
+    const sellers = new Set([...this.#modes.keys(), ...(await this.#connected())])
+    await this.recheck([...sellers])
   }
 
   /** 자정 뒤 모드를 다시 계산해 바뀐 판매자에게 알린다 (워커가 부른다) */

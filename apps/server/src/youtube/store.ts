@@ -1,6 +1,6 @@
 // 유튜브 연결 표의 질의 (방송 잇기·수집기·우리 메시지·알림). 모두 판매자 ID 조건을 건다(SYS-02).
 // 워커가 판매자를 가리지 않고 할 일을 찾는 질의(수집할 것·요약할 것)는 그 행의 판매자 ID를 함께 돌려주고, 이어서 쓰는 질의는 그 판매자 ID를 건다.
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, ne, notInArray, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, lte, ne, notInArray, or, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
 import { broadcasts, events, scopes, youtubeCollectors, youtubeConnections, youtubeLinks, youtubeNotices, youtubeOwnMessages } from '../db/schema.ts'
 
@@ -15,6 +15,8 @@ export interface LinkRow {
   readonly liveChatId: string
   readonly channelId: string
   readonly linkedAt: Date
+  /** 유튜브 방송의 실제 시작 시각 (null = 예정, AC-Y1-94) */
+  readonly startedAt: Date | null
   readonly linkedBy: string | null
   readonly requestId: string | null
   readonly unlinkedAt: Date | null
@@ -31,6 +33,7 @@ const linkColumns = {
   liveChatId: youtubeLinks.liveChatId,
   channelId: youtubeLinks.channelId,
   linkedAt: youtubeLinks.linkedAt,
+  startedAt: youtubeLinks.startedAt,
   linkedBy: youtubeLinks.linkedBy,
   requestId: youtubeLinks.requestId,
   unlinkedAt: youtubeLinks.unlinkedAt,
@@ -89,7 +92,20 @@ export async function openLinksForVideo(db: Db, sellerId: string, videoIds: read
 
 export async function insertLink(
   db: Db,
-  row: { id: string; sellerId: string; scopeId: string; broadcastId: string; videoId: string; liveChatId: string; channelId: string; linkedBy: string; requestId: string | null; now: Date },
+  row: {
+    id: string
+    sellerId: string
+    scopeId: string
+    broadcastId: string
+    videoId: string
+    liveChatId: string
+    channelId: string
+    /** 유튜브 방송의 실제 시작 시각 (예정이면 null) */
+    startedAt: Date | null
+    linkedBy: string
+    requestId: string | null
+    now: Date
+  },
 ): Promise<void> {
   await db.insert(youtubeLinks).values({
     id: row.id,
@@ -100,6 +116,7 @@ export async function insertLink(
     liveChatId: row.liveChatId,
     channelId: row.channelId,
     linkedAt: row.now,
+    startedAt: row.startedAt,
     linkedBy: row.linkedBy,
     requestId: row.requestId,
   })
@@ -121,6 +138,14 @@ export async function unlinkRow(db: Db, sellerId: string, linkId: string, by: st
     .where(and(eq(youtubeLinks.sellerId, sellerId), eq(youtubeLinks.id, linkId), isNull(youtubeLinks.unlinkedAt)))
     .returning({ id: youtubeLinks.id })
   return rows.length > 0
+}
+
+/** 예정이던 유튜브 방송이 시작됐다 (실제 시작 시각, AC-Y1-94). 처음 한 번만 적는다 */
+export async function markLinkStarted(db: Db, sellerId: string, linkId: string, startedAt: Date): Promise<void> {
+  await db
+    .update(youtubeLinks)
+    .set({ startedAt })
+    .where(and(eq(youtubeLinks.sellerId, sellerId), eq(youtubeLinks.id, linkId), isNull(youtubeLinks.startedAt)))
 }
 
 export async function markChatEnded(db: Db, sellerId: string, linkId: string, now: Date): Promise<void> {
@@ -324,21 +349,17 @@ export async function connectionChannel(db: Db, sellerId: string): Promise<{ cha
   return rows[0] ?? null
 }
 
+/** 유튜브에 연결된 판매자 전부 (연결됨·다시 연결 필요 — 할당량 모드를 호출이 없어도 다시 판정한다, AC-Y1-97) */
+export async function connectedSellerIds(db: Db): Promise<string[]> {
+  const rows = await db.select({ sellerId: youtubeConnections.sellerId }).from(youtubeConnections)
+  return rows.map((row) => row.sellerId)
+}
+
 // ── 우리 채널이 쓴 메시지 (게시 확인) ──────────────────────────────────────
+// 게시 확인에서 우리 메시지를 고르는 것(짝짓기)은 outbox-store.ts claimRemote가 발송함 행과 함께 한 트랜잭션에서 한다 (AC-Y1-93)
 
 export async function insertOwnMessage(db: Db, row: { sellerId: string; scopeId: string; liveChatId: string; messageId: string; text: string; publishedAt: Date }): Promise<void> {
   await db.insert(youtubeOwnMessages).values(row).onConflictDoNothing({ target: [youtubeOwnMessages.sellerId, youtubeOwnMessages.messageId] })
-}
-
-/** 그 채팅에 since 뒤에 우리 채널이 쓴, 글이 같은 메시지 */
-export async function findOwnMessage(db: Db, sellerId: string, liveChatId: string, text: string, since: Date): Promise<string | null> {
-  const rows = await db
-    .select({ messageId: youtubeOwnMessages.messageId })
-    .from(youtubeOwnMessages)
-    .where(and(eq(youtubeOwnMessages.sellerId, sellerId), eq(youtubeOwnMessages.liveChatId, liveChatId), eq(youtubeOwnMessages.text, text), gte(youtubeOwnMessages.publishedAt, since)))
-    .orderBy(asc(youtubeOwnMessages.publishedAt))
-    .limit(1)
-  return rows[0]?.messageId ?? null
 }
 
 // ── 지운 메시지·차단 알림 ──────────────────────────────────────────────────

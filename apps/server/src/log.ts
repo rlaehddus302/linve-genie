@@ -46,6 +46,7 @@ export type LogCode =
   | 'COLLECTOR_SAVE_FAILED'
   | 'OUTBOX_POST_FAILED'
   | 'OUTBOX_REPORT_FAILED'
+  | 'OUTBOX_UNCONFIRMED'
   | 'OUTBOX_ERROR'
   | 'SEAL_FAILED'
   | 'SEALED'
@@ -74,6 +75,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   COLLECTOR_SAVE_FAILED: '받은 채팅을 저장하지 못해 이어받기 지점을 남기지 않았어요',
   OUTBOX_POST_FAILED: '감사 메시지를 게시하지 못했어요',
   OUTBOX_REPORT_FAILED: '게시 보고를 기록하지 못해 다시 할게요(다시 게시하지 않음)',
+  OUTBOX_UNCONFIRMED: '감사가 올라갔는지 확인하지 못해 다시 게시하지 않았어요',
   OUTBOX_ERROR: '발송함 처리 중 오류가 생겼어요',
   SEAL_FAILED: '30일 지난 범위를 봉인하지 못해 다음에 다시 해요',
   SEALED: '30일 지난 범위를 봉인했어요',

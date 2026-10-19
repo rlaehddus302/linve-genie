@@ -1,4 +1,5 @@
 -- Y1: 유튜브 연결·방송 잇기·채팅 수집·감사 메시지 발송함·할당량·원문 30일 (AC-Y1-01~62). src/db/schema.ts와 같아야 한다(test/schema.test.ts가 대조한다).
+-- Y1 후속(AC-Y1-94·96, 아직 합치기 전이라 같은 파일에 더함): youtube_links.started_at(예정 방송), outbox.confirm_tries(끝 조회 실패 수).
 -- 이벤트 기록: Y1부터 기록하는 채팅의 본문·이름은 chat_raw에 따로 둔다(raw = true). 어디서 온 채팅인지(chat_source) 남긴다 (AC-Y1-60).
 ALTER TABLE "events" ADD COLUMN "chat_source" text;--> statement-breakpoint
 ALTER TABLE "events" ADD COLUMN "raw" boolean DEFAULT false NOT NULL;--> statement-breakpoint
@@ -29,6 +30,7 @@ ALTER TABLE "outbox" ADD COLUMN "post_text" text;--> statement-breakpoint
 ALTER TABLE "outbox" ADD COLUMN "sent_text" text;--> statement-breakpoint
 ALTER TABLE "outbox" ADD COLUMN "attempt_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "outbox" ADD COLUMN "confirm_until" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "outbox" ADD COLUMN "confirm_tries" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "outbox" ADD COLUMN "remote_id" text;--> statement-breakpoint
 ALTER TABLE "outbox" ADD COLUMN "posted_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "outbox" ADD COLUMN "reported" boolean DEFAULT false NOT NULL;--> statement-breakpoint
@@ -83,6 +85,7 @@ CREATE TABLE "youtube_links" (
 	"live_chat_id" text NOT NULL,
 	"channel_id" text NOT NULL,
 	"linked_at" timestamp with time zone NOT NULL,
+	"started_at" timestamp with time zone,
 	"linked_by" text,
 	"request_id" text,
 	"unlinked_at" timestamp with time zone,

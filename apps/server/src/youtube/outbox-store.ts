@@ -2,9 +2,9 @@
 // 실행기가 행을 고르고 바꾸는 질의는 모두 여기 있고, 모두 `rehearsal = false`를 조건에 고정한다 — 그 값을 바꾸는 매개변수가 없다.
 // 실행기(outbox.ts)는 발송함 표를 이 파일의 함수로만 읽고 쓴다(test/youtube-outbox-guard.test.ts가 코드로 확인한다).
 // 실행기는 감사(POST_THANKS)와 방송 후 요약 댓글(SUMMARY_COMMENT) 행만 다룬다. 라벨 행(PRINT_PRODUCT_LABEL·VOID_LABEL)은 건드리지 않는다(S08).
-import { and, asc, eq, gte, inArray, isNull, lte, or, type SQL } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, isNull, lte, notInArray, or, sql, type SQL } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
-import { outbox, scopes } from '../db/schema.ts'
+import { outbox, scopes, youtubeOwnMessages } from '../db/schema.ts'
 import { SUMMARY_KIND } from './texts.ts'
 
 /** 실행기가 다루는 행의 종류 */
@@ -33,6 +33,8 @@ export interface RunnerRow {
   readonly sentText: string | null
   readonly attemptAt: Date | null
   readonly confirmUntil: Date | null
+  /** 끝 조회가 실패한 수 (AC-Y1-96) */
+  readonly confirmTries: number
   readonly remoteId: string | null
   readonly postedAt: Date | null
   readonly reported: boolean
@@ -62,6 +64,7 @@ const columns = {
   sentText: outbox.sentText,
   attemptAt: outbox.attemptAt,
   confirmUntil: outbox.confirmUntil,
+  confirmTries: outbox.confirmTries,
   remoteId: outbox.remoteId,
   postedAt: outbox.postedAt,
   reported: outbox.reported,
@@ -173,6 +176,7 @@ export interface RowChange {
   readonly sentText?: string | null
   readonly attemptAt?: Date | null
   readonly confirmUntil?: Date | null
+  readonly confirmTries?: number
   readonly remoteId?: string | null
   readonly postedAt?: Date | null
   readonly reported?: boolean
@@ -257,6 +261,130 @@ export async function isOurPost(db: Db, sellerId: string, broadcastId: string, m
     )
     .limit(1)
   return rows.length > 0
+}
+
+// ── 게시 확인 짝짓기 (AC-Y1-93, D-Y1-03) ──────────────────────────────────
+
+/** 게시 확인에서 찾은 우리 채널의 같은 글 (메시지·댓글 ID, 게시 시각 밀리초) */
+export interface RemoteCandidate {
+  readonly id: string
+  readonly publishedAt: number
+}
+
+export type ClaimResult =
+  /** 그 묶음의 행을 SENT로 적었다 (remoteId = 짝지은 메시지) */
+  | { readonly kind: 'claimed'; readonly remoteId: string; readonly ids: readonly number[] }
+  /** 짝지을 메시지가 없다 */
+  | { readonly kind: 'none' }
+  /** 같은 글을 지금 게시하는 중인 다른 묶음이 있다 — 그 응답(메시지 ID)을 본 뒤에 짝짓는다 */
+  | { readonly kind: 'defer' }
+  /** 그 묶음의 행이 이미 다른 상태다 (다른 실행기가 바꿈) */
+  | { readonly kind: 'gone' }
+
+export interface ClaimInput {
+  readonly sellerId: string
+  readonly broadcastId: string
+  /** 같은 채팅(LIVE_CHAT) 또는 같은 영상의 댓글(VIDEO_COMMENT·SUMMARY) */
+  readonly targets: readonly string[]
+  /** 확인하는 글 (그 시도에 보낸 글) */
+  readonly text: string
+  /** 확인하는 묶음의 행 */
+  readonly selfIds: readonly number[]
+  /** 그 행들의 지금 상태 (확인 중이면 SENDING, 다시 시도 직전이면 WAITING) */
+  readonly selfState: 'SENDING' | 'WAITING'
+  /** SENDING이면 그 임대 주인 (내 것일 때만 적는다) */
+  readonly selfOwner?: string
+  /** 실시간 채팅이면 그 채팅 ID — 수집기가 본 우리 메시지(youtube_own_messages)도 후보다 */
+  readonly liveChatId: string | null
+  /** 조회로 찾은 후보 (없으면 빈 목록) */
+  readonly candidates: readonly RemoteCandidate[]
+  /** 시도 시작 − 이만큼부터의 글만 그 시도의 것으로 본다 */
+  readonly slackMs: number
+  readonly now: Date
+}
+
+/**
+ * 게시 확인 짝짓기 (AC-Y1-93, D-Y1-03). 판매자 단위 잠금 안에서 한 트랜잭션으로 한다 — 서버가 둘이어도 한 메시지 ID가 두 묶음의 remote_id가 되지 않는다.
+ * - 이미 다른 묶음의 행에 remote_id로 적힌 메시지는 고르지 않는다.
+ * - 같은 글을 확인하는 묶음(보내는 중, 아직 짝 없음)이 여럿이면 효과 순서(묶음의 가장 이른 행)대로 하나씩, 각 묶음은 자기 시도 시작 − slack 이후의
+ *   아직 남은 가장 이른 메시지(같으면 메시지 ID 순)를 갖는다 — 먼저 난 효과가 먼저 올라간 메시지를 갖는다.
+ * - 같은 글을 지금 게시하는 중(응답을 기다림 — 이유 없음·임대 살아 있음)인 다른 묶음이 있으면 짝짓지 않는다(defer): 그 응답의 메시지 ID가 곧 정해진다.
+ * 짝이 정해지면 그 묶음의 행을 SENT·remote_id로 적는다
+ */
+export async function claimRemote(db: Db, input: ClaimInput): Promise<ClaimResult> {
+  const { sellerId, text, selfIds, now } = input
+  if (selfIds.length === 0) return { kind: 'gone' }
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`livejjim/outbox-remote/${sellerId}`}, 0))`)
+    const self = await tx
+      .select({ id: outbox.id, state: outbox.state, leaseOwner: outbox.leaseOwner, attemptAt: outbox.attemptAt })
+      .from(outbox)
+      .where(and(REAL, eq(outbox.sellerId, sellerId), inArray(outbox.id, [...selfIds])))
+    if (self.length !== selfIds.length || self.some((row) => row.state !== input.selfState || (input.selfOwner !== undefined && row.leaseOwner !== input.selfOwner))) {
+      return { kind: 'gone' }
+    }
+    // 같은 글을 확인하는(보내는 중·아직 짝 없음) 다른 묶음
+    const others = await tx
+      .select({ id: outbox.id, groupId: outbox.groupId, reason: outbox.reason, attemptAt: outbox.attemptAt, leaseUntil: outbox.leaseUntil })
+      .from(outbox)
+      .where(
+        and(
+          REAL,
+          eq(outbox.sellerId, sellerId),
+          eq(outbox.broadcastId, input.broadcastId),
+          inArray(outbox.target, [...input.targets]),
+          eq(outbox.sentText, text),
+          eq(outbox.state, 'SENDING'),
+          isNull(outbox.remoteId),
+          notInArray(outbox.id, [...selfIds]),
+        ),
+      )
+    if (others.some((row) => row.reason === null && row.leaseUntil !== null && row.leaseUntil.getTime() > now.getTime())) return { kind: 'defer' }
+    // 후보: 조회로 찾은 것 + 수집기가 본 우리 메시지
+    const byId = new Map<string, RemoteCandidate>()
+    for (const candidate of input.candidates) byId.set(candidate.id, candidate)
+    if (input.liveChatId !== null) {
+      const own = await tx
+        .select({ id: youtubeOwnMessages.messageId, publishedAt: youtubeOwnMessages.publishedAt })
+        .from(youtubeOwnMessages)
+        .where(and(eq(youtubeOwnMessages.sellerId, sellerId), eq(youtubeOwnMessages.liveChatId, input.liveChatId), eq(youtubeOwnMessages.text, text)))
+      for (const row of own) if (!byId.has(row.id)) byId.set(row.id, { id: row.id, publishedAt: row.publishedAt.getTime() })
+    }
+    if (byId.size === 0) return { kind: 'none' }
+    // 이미 다른 행이 가진 메시지는 뺀다
+    const held = await tx
+      .select({ remoteId: outbox.remoteId })
+      .from(outbox)
+      .where(and(REAL, eq(outbox.sellerId, sellerId), inArray(outbox.remoteId, [...byId.keys()]), notInArray(outbox.id, [...selfIds])))
+    const taken = new Set(held.map((row) => row.remoteId))
+    const free = [...byId.values()].filter((candidate) => !taken.has(candidate.id)).sort((a, b) => a.publishedAt - b.publishedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    // 효과 순서대로 하나씩
+    const groups = new Map<string, { first: number; since: number }>()
+    for (const row of others) {
+      const key = row.groupId ?? `#${String(row.id)}`
+      const since = (row.attemptAt?.getTime() ?? 0) - input.slackMs
+      const group = groups.get(key)
+      groups.set(key, { first: Math.min(group?.first ?? row.id, row.id), since: Math.max(group?.since ?? since, since) })
+    }
+    const selfFirst = Math.min(...selfIds)
+    const selfSince = Math.max(...self.map((row) => (row.attemptAt?.getTime() ?? 0) - input.slackMs))
+    const order = [...groups.values(), { first: selfFirst, since: selfSince, self: true }].sort((a, b) => a.first - b.first)
+    const assigned = new Set<string>()
+    for (const group of order) {
+      const pick = free.find((candidate) => candidate.publishedAt >= group.since && !assigned.has(candidate.id))
+      if ('self' in group) {
+        if (pick === undefined) return { kind: 'none' }
+        const changed = await tx
+          .update(outbox)
+          .set({ state: 'SENT', reason: null, remoteId: pick.id, postedAt: now, nextAt: null, leaseOwner: null, leaseUntil: null, confirmUntil: null, confirmTries: 0, updatedAt: now })
+          .where(and(REAL, eq(outbox.sellerId, sellerId), inArray(outbox.id, [...selfIds]), eq(outbox.state, input.selfState)))
+          .returning({ id: outbox.id })
+        return { kind: 'claimed', remoteId: pick.id, ids: changed.map((row) => row.id) }
+      }
+      if (pick !== undefined) assigned.add(pick.id)
+    }
+    return { kind: 'none' }
+  })
 }
 
 export interface NewSummaryRow {

@@ -20,7 +20,7 @@ import { DEFAULT_RUNTIME_CACHE_MAX, ScopeWriter, type WriterHooks } from './writ
 import type { CollectorHooks } from './youtube/collector.ts'
 import type { OutboxHooks } from './youtube/outbox.ts'
 import { Sealer } from './youtube/seal.ts'
-import { YoutubeSystem, checkYoutubeConfig, type YoutubeConfig } from './youtube/system.ts'
+import { YoutubeSystem, checkYoutubeConfig, type LinkHooks, type YoutubeConfig } from './youtube/system.ts'
 import { realTimer, type Timer } from './youtube/timer.ts'
 
 /** 스냅샷 간격 상한 (AC-S04-28: 일정 이벤트 수, 최대 500) */
@@ -67,6 +67,7 @@ export interface ServerOptions {
   readonly instanceName?: string
   readonly collectorHooks?: CollectorHooks
   readonly outboxHooks?: OutboxHooks
+  readonly linkHooks?: LinkHooks
   readonly collectorTiming?: { readonly leaseMs?: number; readonly renewMs?: number; readonly scanMs?: number }
   readonly sealHooks?: { readonly beforeCommit?: () => void | Promise<void> }
 }
@@ -173,6 +174,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
           ...(options.youtubeFetch === undefined ? {} : { fetch: options.youtubeFetch }),
           ...(options.collectorHooks === undefined ? {} : { collectorHooks: options.collectorHooks }),
           ...(options.outboxHooks === undefined ? {} : { outboxHooks: options.outboxHooks }),
+          ...(options.linkHooks === undefined ? {} : { linkHooks: options.linkHooks }),
           ...(options.collectorTiming === undefined ? {} : { collectorTiming: options.collectorTiming }),
         })
   const sealer = new Sealer({

@@ -187,7 +187,7 @@ describe('AC-Y1-23 이어받기 — 누락·중복 없음', () => {
 })
 
 describe('AC-Y1-24 끊김·오류·다시 시작', () => {
-  it('5xx·속도 제한은 1초부터 두 배씩 다시 시도("다시 연결하는 중"), 받으면 간격 초기화', async () => {
+  it('5xx·속도 제한은 5초부터 두 배씩 다시 시도("다시 연결하는 중"), 받으면 간격 초기화 (AC-Y1-24·94 — 처음엔 1초부터였다)', async () => {
     const w = await world()
     const connected = await connectSeller(w)
     const { b, liveChatId } = await linkedBroadcast(w, connected)
@@ -200,6 +200,11 @@ describe('AC-Y1-24 끊김·오류·다시 시작', () => {
     w.fake.addMessage(liveChatId, { author: 'UCa', name: '가', text: '1' })
     await until(w, async () => (await collector(w, connected.seller.cookie, b.id)).recorded === 1, { step: 500 })
     expect(await collector(w, connected.seller.cookie, b.id)).toMatchObject({ status: 'LIVE', statusMessage: '채팅을 받는 중' })
+    // 스트림 열기 간격: 실패 뒤 5초, 다시 실패 뒤 10초
+    const opens = w.fake.callTimes.filter((call) => call.method === 'liveChatMessages.streamList').map((call) => call.at)
+    expect(opens.length).toBeGreaterThanOrEqual(3)
+    expect((opens[1] as number) - (opens[0] as number)).toBeGreaterThanOrEqual(5000)
+    expect((opens[2] as number) - (opens[1] as number)).toBeGreaterThanOrEqual(10_000)
   })
 
   it('이어받기 지점 거절: 지점 없이 다시 — 기록은 메시지 ID로 중복 없음, "일부를 받지 못했을 수 있어요"', async () => {
@@ -447,7 +452,8 @@ describe('AC-Y1-13·25·28 서버가 둘일 때 다른 서버에서 한 조작',
     expect((await client(other, connected.seller.cookie).post(`/api/broadcasts/${b.id}/youtube/unlink`, {})).status).toBe(200)
     await w.timer.advance(1000)
     w.fake.addMessage(liveChatId, { id: 'after', author: 'UCb', name: '나', text: '15', publishedAt: w.timer.now() })
-    await until(w, () => a.running.length === 0, { step: 1000, max: 200 })
+    // 가짜 서버가 스트림이 닫힌 것을 아는 때는 수집기가 끝난 때보다 조금 늦을 수 있다 (HTTP 연결 닫힘 — 부하가 크면 더)
+    await until(w, () => a.running.length === 0 && (w.fake.openStreams.get(liveChatId) ?? 0) === 0, { step: 1000, max: 200 })
     expect(await chatIds(w)).toEqual(['before'])
     expect(w.fake.openStreams.get(liveChatId) ?? 0).toBe(0)
   })

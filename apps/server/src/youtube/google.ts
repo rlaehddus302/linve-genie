@@ -255,7 +255,15 @@ export class GoogleClient {
    * streamList (AC-Y1-20): 연결을 열고 받은 응답(LiveChatMessageListResponse)을 하나씩 돌려준다. 시간 제한은 없다 — signal로 끊는다.
    * 열 때 한 번 센다(열린 스트림 하나 = 1번). 오류 응답이면 GoogleError, 연결이 끊기면 GoogleError(network)
    */
-  async *stream(input: { sellerId: string; accessToken: string; liveChatId: string; pageToken: string | null; signal: AbortSignal }): AsyncGenerator<Record<string, unknown>> {
+  async *stream(input: {
+    sellerId: string
+    accessToken: string
+    liveChatId: string
+    pageToken: string | null
+    signal: AbortSignal
+    /** 스트림이 열렸다(응답 머리를 받음) — 수집기가 다시 열기 간격을 이 때부터 잰다 (AC-Y1-94) */
+    onOpen?: () => void
+  }): AsyncGenerator<Record<string, unknown>> {
     await this.#options.meter(input.sellerId, 'liveChatMessages.streamList')
     let response: Response
     try {
@@ -280,6 +288,7 @@ export class GoogleClient {
       }
       throw new GoogleError('http', response.status, reasonOf(body))
     }
+    input.onOpen?.()
     if (response.body === null) return
     const splitter = new JsonObjectSplitter()
     const decoder = new TextDecoder()

@@ -2,6 +2,11 @@
 // - 채팅 원천(ChatSource)은 하나의 모양(지점 → 응답 묶음·다음 지점·끝남 신호·오류)이고 구현이 셋이다: streamList(기본) · list 폴링(대체) · 시험용 가짜.
 //   수집 관리자·이어받기·기록 코드는 셋에 똑같다. 실제 어댑터는 가짜 서버에 실제 통신 방식(HTTP·스트림)으로 붙는다.
 // - streamList가 응답을 하나도 받지 못한 채 연속 3번 실패하거나 지원하지 않는다고 하면(404·501·UNIMPLEMENTED) 폴링으로 바꿔 같은 지점부터 이어 간다.
+// - 호출 간격 (AC-Y1-94, D-Y1-04): 한 수집기의 채팅 호출(스트림 열기·폴링) 사이는 늘 2초 이상(401 뒤 새로 고쳐 한 번 더 하는 것만 예외).
+//   폴링은 앞 응답을 받은 뒤 max(pollingIntervalMillis, 2초)(없거나 숫자가 아니면 5초), 스트림은 앞 스트림을 연 때부터 5초 뒤에 다시 연다.
+//   실패가 이어지면(오류 응답·연결 오류·응답 없이 끝난 스트림, 두 방식 모두) 5·10·20·30초, 그 뒤 30초씩 — 응답을 받으면 5초로 되돌린다.
+// - 예정 방송 (AC-Y1-94): 이은 유튜브 방송이 시작 전이면 채팅을 부르지 않고 30초마다 방송 상태만 본다(videos.list, 1단위). 상태 STARTING·NOT_STARTED.
+//   시작하면 그 확인에서 바로 수집을 시작하고, 실제 시작 시각보다 먼저 게시된 메시지는 잇기 전 채팅처럼 기록하지 않는다. 서버를 다시 시작해도 그대로.
 // - 한 응답의 메시지 이벤트가 모두 커밋된 뒤에만 그 응답의 nextPageToken을 이어받기 지점으로 저장한다(누락·중복 없음).
 // - 잇기 전 채팅(지점 없이 받은 첫 응답에서 이은 시각보다 먼저 게시된 것)·끝낸 뒤 채팅(게시 시각 > 끝낸 시각)은 기록하지 않는다. 끝낸 뒤 10분이면 멈춘다.
 // - 우리 채널이 쓴 메시지 중 발송함이 게시한 것은 기록하지 않고 게시 확인에 쓴다. 판매자가 손으로 쓴 것은 owner: true로 기록한다.
@@ -27,6 +32,7 @@ import {
   insertOwnMessage,
   linkById,
   markChatEnded,
+  markLinkStarted,
   recordedChats,
   releaseLease,
   renewLease,
@@ -61,6 +67,8 @@ export const COLLECTOR_REASON_MESSAGES = {
   CHAT_NOT_FOUND: '채팅을 찾을 수 없어요.',
   UNLINKED: '유튜브 방송 연결을 끊었어요.',
   SEALED: '30일이 지나 봉인한 방송이에요.',
+  // 시작하는 중(STARTING)의 이유: 예정 방송이 시작하기를 기다림 (AC-Y1-94)
+  NOT_STARTED: '유튜브 방송이 시작되면 채팅을 받아요.',
 } as const
 export type CollectorReason = keyof typeof COLLECTOR_REASON_MESSAGES
 
@@ -79,10 +87,17 @@ const FINAL_REASONS: ReadonlySet<string> = new Set(['UNLINKED', 'SEALED'])
 
 /** 끝낸 뒤 이만큼 더 받는다 (AC-Y1-25) */
 export const AFTER_END_MS = 10 * 60 * 1000
-const BACKOFF_START_MS = 1000
-const BACKOFF_MAX_MS = 30_000
+/** 채팅 호출 사이 아래 한도 (AC-Y1-94) */
+export const MIN_CALL_GAP_MS = 2000
+/** 같은 수집기가 스트림을 다시 여는 간격 — 앞 스트림을 연 때부터 (AC-Y1-94) */
+export const STREAM_REOPEN_MS = 5000
+/** 실패가 이어질 때 다음 시도까지: 5·10·20·30초, 그 뒤 30초씩 (AC-Y1-24·94) */
+export const FAILURE_BACKOFF_MS: readonly number[] = [5000, 10_000, 20_000, 30_000]
+/** 예정 방송의 상태 확인 간격 (AC-Y1-94) */
+export const UPCOMING_CHECK_MS = 30_000
 /** 응답 없이 연속 이만큼 실패하면 폴링으로 (AC-Y1-20) */
 const STREAM_FAILURES_TO_POLL = 3
+/** 폴링 응답에 간격이 없거나 숫자가 아니면 (AC-Y1-94) */
 const DEFAULT_POLL_MS = 5000
 
 export interface CollectorHooks {
@@ -370,10 +385,21 @@ export class CollectorManager {
     const { timer, log } = this.#options
     const signal = running.controller.signal
     const lease = this.#leaseLoop(start, running)
-    let backoff = BACKOFF_START_MS
     let streamFailures = 0
+    /** 이어진 실패 수 (응답을 받으면 0) */
+    let failures = 0
+    /** 다음 채팅 호출을 할 수 있는 가장 이른 시각 (AC-Y1-94) */
+    let nextCallAt = Number.NEGATIVE_INFINITY
+    const failed = () => {
+      failures += 1
+      const delay = FAILURE_BACKOFF_MS[Math.min(failures, FAILURE_BACKOFF_MS.length) - 1] as number
+      nextCallAt = Math.max(nextCallAt, timer.now() + delay)
+    }
     try {
-      if (start.status !== 'LIVE' && start.status !== 'RETRYING') await this.#setStatus(start, { status: 'STARTING', reason: null, resumeAt: null }, this.#options.owner)
+      // 예정 방송을 기다리던 수집기(STARTING·NOT_STARTED)는 다음 상태 확인 시각을 그대로 둔다 (서버를 다시 시작해도)
+      if (start.status !== 'LIVE' && start.status !== 'RETRYING' && !(start.status === 'STARTING' && start.reason === 'NOT_STARTED')) {
+        await this.#setStatus(start, { status: 'STARTING', reason: null, resumeAt: null }, this.#options.owner)
+      }
       while (!signal.aborted) {
         const ctx = await this.#context(start)
         const verdict = this.#verdict(ctx, timer.now())
@@ -383,6 +409,17 @@ export class CollectorManager {
         }
         const link = ctx.link as LinkRow
         const broadcast = ctx.broadcast as BroadcastRow
+        // 예정 방송: 시작할 때까지 채팅을 부르지 않는다
+        if (link.startedAt === null) {
+          if ((await this.#awaitStart(ctx, link, broadcast, running)) === 'stop') return
+          continue
+        }
+        // 호출 간격 (앞 호출 + 2초, 스트림은 앞 스트림을 연 때 + 5초, 실패가 이어지면 5·10·20·30초)
+        const wait = nextCallAt - timer.now()
+        if (wait > 0) {
+          await this.#pause(ctx, broadcast, running, wait)
+          continue
+        }
         const stopAt = broadcast.endedAt === null ? null : broadcast.endedAt.getTime() + AFTER_END_MS
         const attempt = new AbortController()
         running.attempt = attempt
@@ -400,6 +437,8 @@ export class CollectorManager {
                 }
               })
         let received = 0
+        const callAt = timer.now()
+        nextCallAt = callAt + (ctx.row.mode === 'POLL' ? MIN_CALL_GAP_MS : STREAM_REOPEN_MS)
         try {
           if (ctx.row.mode === 'POLL') {
             const parsed = await this.#options.connections.withToken(ctx.row.sellerId, (token) =>
@@ -412,19 +451,25 @@ export class CollectorManager {
               }),
             )
             received = 1
-            const result = await this.#handle(ctx, link, broadcast, parse(parsed, timer.now()), !ctx.row.firstDone)
-            backoff = BACKOFF_START_MS
+            const receivedAt = timer.now()
+            const result = await this.#handle(ctx, link, broadcast, parse(parsed, receivedAt), !ctx.row.firstDone)
+            failures = 0
+            // 다음 폴링: 앞 응답을 받은 뒤 max(pollingIntervalMillis, 2초) — 간격이 없거나 숫자가 아니면 5초
+            nextCallAt = Math.max(nextCallAt, receivedAt + Math.max(result.pollingMs ?? DEFAULT_POLL_MS, MIN_CALL_GAP_MS))
             if (result.offline) return await this.#chatEnded(ctx.row, link)
-            if (result.recheck) continue
-            await timer.sleep(Math.max(result.pollingMs ?? DEFAULT_POLL_MS, 0), attempt.signal)
+            continue
           } else {
             let first = !ctx.row.firstDone
             await this.#options.connections.withToken(ctx.row.sellerId, async (token) => {
-              for await (const response of this.#options.google.stream({ sellerId: ctx.row.sellerId, accessToken: token, liveChatId: link.liveChatId, pageToken: ctx.row.pageToken, signal: attempt.signal })) {
+              const opened = () => {
+                // 다시 열기는 이 스트림이 열린 때부터 5초 뒤 (AC-Y1-94)
+                nextCallAt = Math.max(nextCallAt, timer.now() + STREAM_REOPEN_MS)
+              }
+              for await (const response of this.#options.google.stream({ sellerId: ctx.row.sellerId, accessToken: token, liveChatId: link.liveChatId, pageToken: ctx.row.pageToken, signal: attempt.signal, onOpen: opened })) {
                 received += 1
                 const result = await this.#handle(ctx, link, broadcast, parse(response, timer.now()), first)
                 first = false
-                backoff = BACKOFF_START_MS
+                failures = 0
                 streamFailures = 0
                 if (result.offline) throw new ChatEnded()
                 if (result.recheck) throw new Recheck()
@@ -435,12 +480,12 @@ export class CollectorManager {
               if (stopFired) return await this.#finish(ctx.row)
               continue
             }
-            // 스트림이 정상으로 끝났다: 받은 게 있으면 바로 다시 열고, 없으면 실패로 센다
+            // 스트림이 정상으로 끝났다: 받은 게 있으면 앞 스트림을 연 때부터 5초 뒤 다시 열고, 없으면 실패로 센다
             if (received === 0) {
               streamFailures += 1
               if (streamFailures >= STREAM_FAILURES_TO_POLL) await this.#toPoll(ctx.row)
-              await this.#retrying(ctx.row, backoff, attempt.signal)
-              backoff = Math.min(backoff * 2, BACKOFF_MAX_MS)
+              failed()
+              await this.#retrying(ctx.row)
             }
           }
         } catch (error) {
@@ -456,17 +501,19 @@ export class CollectorManager {
           const action = await this.#onError(ctx.row, error)
           if (action === 'stop') return
           if (action === 'ended') return await this.#chatEnded(ctx.row, link)
+          // 지점 거절: 지점 없이 다시 연다 (호출 간격은 그대로)
           if (action === 'now') continue
           if (action === 'poll') {
             await this.#toPoll(ctx.row)
+            failed()
             continue
           }
           if (ctx.row.mode === 'STREAM' && received === 0) {
             streamFailures += 1
             if (streamFailures >= STREAM_FAILURES_TO_POLL) await this.#toPoll(ctx.row)
           }
-          await this.#retrying(ctx.row, backoff, signal)
-          backoff = Math.min(backoff * 2, BACKOFF_MAX_MS)
+          failed()
+          await this.#retrying(ctx.row)
         } finally {
           signal.removeEventListener('abort', onOuter)
           if (!attempt.signal.aborted) attempt.abort()
@@ -483,14 +530,91 @@ export class CollectorManager {
     }
   }
 
+  /**
+   * ms만큼 기다린다(채팅 호출 간격·예정 방송 상태 확인). 회차 끝냄·연결 끊기·채널 연결이 바뀌거나(임대를 늘릴 때 알아챈다) 멈추면 바로 깬다.
+   * 끝낸 뒤 10분이 되면 그때 깨어 멈춘다 (부르는 쪽이 다시 계산한다)
+   */
+  async #pause(ctx: Context, broadcast: BroadcastRow, running: Running, ms: number): Promise<void> {
+    const { timer } = this.#options
+    const signal = running.controller.signal
+    const pause = new AbortController()
+    running.attempt = pause
+    running.basis = { endedAt: broadcast.endedAt?.getTime() ?? null, channelId: ctx.connection?.channelId ?? '' }
+    const onOuter = () => pause.abort()
+    signal.addEventListener('abort', onOuter, { once: true })
+    const stopAt = broadcast.endedAt === null ? null : broadcast.endedAt.getTime() + AFTER_END_MS
+    try {
+      await timer.sleep(stopAt === null ? ms : Math.min(ms, Math.max(0, stopAt - timer.now())), pause.signal)
+    } finally {
+      signal.removeEventListener('abort', onOuter)
+      running.attempt = null
+    }
+  }
+
+  /**
+   * 예정 방송 (AC-Y1-94): 채팅을 부르지 않고 30초마다 방송 상태를 본다(videos.list). 처음 확인은 이은 때부터 30초 뒤(잇기가 이미 확인했다).
+   * 진행 중이면 실제 시작 시각(없으면 지금)을 적고 'again'(바로 수집 시작), 아직 예정이면 다음 확인 시각을 적고 'again', 끝났거나 영상이 없으면 'stop'
+   */
+  async #awaitStart(ctx: Context, link: LinkRow, broadcast: BroadcastRow, running: Running): Promise<'again' | 'stop'> {
+    const { timer, owner, db } = this.#options
+    const row = ctx.row
+    const dueAt = row.resumeAt?.getTime() ?? link.linkedAt.getTime() + UPCOMING_CHECK_MS
+    if (row.status !== 'STARTING' || row.reason !== 'NOT_STARTED' || row.resumeAt === null) {
+      await this.#setStatus(row, { status: 'STARTING', reason: 'NOT_STARTED', resumeAt: new Date(dueAt) }, owner)
+    }
+    const wait = dueAt - timer.now()
+    if (wait > 0) {
+      await this.#pause(ctx, broadcast, running, wait)
+      return 'again'
+    }
+    let body: Record<string, unknown>
+    try {
+      body = await this.#options.connections.withToken(row.sellerId, (token) =>
+        this.#options.google.api({ sellerId: row.sellerId, method: 'videos.list', accessToken: token, path: '/videos', query: { part: 'snippet,liveStreamingDetails', id: link.videoId } }),
+      )
+    } catch (error) {
+      const notFound = error instanceof GoogleError && (error.status === 404 || error.reason === 'videoNotFound')
+      if (notFound) {
+        await this.#setStatus(row, { status: 'STOPPED', reason: 'CHAT_NOT_FOUND', resumeAt: null }, owner)
+        return 'stop'
+      }
+      const quotaOrAccess = error instanceof YoutubeAccessError || (error instanceof GoogleError && error.reason === 'quotaExceeded')
+      if (quotaOrAccess && (await this.#onError(row, error)) === 'stop') return 'stop'
+      if (!quotaOrAccess) this.#options.log({ level: 'warn', code: 'COLLECTOR_ERROR', seller: row.sellerId, ...googleFields(error) })
+      await updateCollector(db, row.sellerId, row.linkId, { resumeAt: new Date(timer.now() + UPCOMING_CHECK_MS) }, new Date(timer.now()), owner)
+      return 'again'
+    }
+    const item = ((Array.isArray(body.items) ? body.items : []) as Record<string, unknown>[]).find((candidate) => candidate.id === link.videoId)
+    if (item === undefined) {
+      await this.#setStatus(row, { status: 'STOPPED', reason: 'CHAT_NOT_FOUND', resumeAt: null }, owner)
+      return 'stop'
+    }
+    const content = record(item.snippet).liveBroadcastContent
+    const details = record(item.liveStreamingDetails)
+    const actualStart = Date.parse(text(details.actualStartTime) ?? '')
+    const ended = text(details.actualEndTime) !== null
+    if (!ended && (content === 'live' || (content !== 'upcoming' && Number.isFinite(actualStart)))) {
+      await markLinkStarted(db, row.sellerId, link.id, new Date(Number.isFinite(actualStart) ? actualStart : timer.now()))
+      await this.#setStatus(row, { status: 'STARTING', reason: null, resumeAt: null }, owner)
+      return 'again'
+    }
+    if (!ended && content === 'upcoming') {
+      await updateCollector(db, row.sellerId, row.linkId, { resumeAt: new Date(timer.now() + UPCOMING_CHECK_MS) }, new Date(timer.now()), owner)
+      return 'again'
+    }
+    // 시작하기 전에 끝났다
+    await this.#chatEnded(row, link)
+    return 'stop'
+  }
+
   async #toPoll(row: CollectorRow): Promise<void> {
     await this.#setStatus(row, { mode: 'POLL' }, this.#options.owner)
   }
 
-  async #retrying(row: CollectorRow, waitMs: number, signal: AbortSignal): Promise<void> {
+  /** 다시 연결하는 중 (기다림은 다음 바퀴의 호출 간격으로) */
+  async #retrying(row: CollectorRow): Promise<void> {
     const current = await collectorOf(this.#options.db, row.sellerId, row.linkId)
     if (current !== null && current.status !== 'RETRYING') await this.#setStatus(row, { status: 'RETRYING' }, this.#options.owner)
-    await this.#options.timer.sleep(waitMs, signal)
   }
 
   async #finish(row: CollectorRow): Promise<void> {
@@ -560,7 +684,8 @@ export class CollectorManager {
     if (current === null || current.unlinkedAt !== null) throw new Recheck()
     const fresh = await findBroadcast(db, row.sellerId, row.broadcastId)
     if (fresh === null) throw new Recheck()
-    const linkedAt = link.linkedAt.getTime()
+    // 잇기 전 채팅 거르기의 기준: 이은 시각, 예정이던 방송은 더 늦은 유튜브 실제 시작 시각 (AC-Y1-25·94)
+    const linkedAt = Math.max(link.linkedAt.getTime(), link.startedAt?.getTime() ?? 0)
     const endedAt = fresh.endedAt?.getTime() ?? null
     // 우리 채널이 쓴 메시지: 발송함이 게시했거나 10분 안에 보내려 한 글이면 기록하지 않고 게시 확인에 쓴다 (AC-Y1-26).
     // 잇기 전·끝낸 뒤 거르기보다 먼저 본다 — 끝낸 뒤 올라간 우리 감사도 게시 확인에 쓰여야 두 번 게시하지 않는다 (AC-Y1-36)

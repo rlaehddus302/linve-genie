@@ -220,6 +220,8 @@ export const outbox = pgTable(
     attemptAt: timestamptz('attempt_at'),
     /** 타임아웃 확인을 이 시각까지 한다 */
     confirmUntil: timestamptz('confirm_until'),
+    /** 확인 시간이 끝난 뒤의 조회(끝 조회)가 실패한 수 — 3번이면 확인하지 못함 (AC-Y1-96) */
+    confirmTries: integer('confirm_tries').notNull().default(0),
     /** 게시된 유튜브 메시지·댓글 ID */
     remoteId: text('remote_id'),
     postedAt: timestamptz('posted_at'),
@@ -345,6 +347,8 @@ export const youtubeLinks = pgTable(
     /** 이을 때 연결돼 있던 채널 */
     channelId: text('channel_id').notNull(),
     linkedAt: timestamptz('linked_at').notNull(),
+    /** 유튜브 방송의 실제 시작 시각. null이면 예정(시작 전) — 수집기는 채팅을 부르지 않고 상태만 본다 (AC-Y1-94) */
+    startedAt: timestamptz('started_at'),
     linkedBy: text('linked_by'),
     requestId: text('request_id'),
     unlinkedAt: timestamptz('unlinked_at'),
@@ -389,7 +393,7 @@ export const youtubeCollectors = pgTable(
     skippedBeforeLink: integer('skipped_before_link').notNull().default(0),
     recorded: integer('recorded').notNull().default(0),
     lastMessageAt: timestamptz('last_message_at'),
-    /** 할당량 초과로 멈췄을 때 저절로 이어받는 시각 */
+    /** 할당량 초과로 멈췄을 때 저절로 이어받는 시각. 예정 방송을 기다릴 때(STARTING·NOT_STARTED)는 다음 상태 확인 시각 */
     resumeAt: timestamptz('resume_at'),
     leaseOwner: text('lease_owner'),
     leaseUntil: timestamptz('lease_until'),

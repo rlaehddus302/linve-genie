@@ -1,13 +1,17 @@
 // 감사 메시지 발송함 실행기 (AC-Y1-30~46, R-13, D-Y01·D-Y06~D-Y08·D-Y12).
 // - 행은 outbox-store.ts의 함수로만 고르고 바꾼다(rehearsal = false 고정, RA-S05-002). 감사(POST_THANKS)와 방송 후 요약 댓글만 다룬다.
 // - 처음 볼 때: 효과가 나온 때(행이 생긴 시각) 그 대상의 동의가 없었으면 보내지 못함(NO_CONSENT). 실시간 채팅은 묶음 창(설정, 할당량 묶음 모드면 ≥ 60초)에 넣는다.
-// - 보내기 직전: 기한(실시간 채팅 10분·영상 댓글 24시간·요약 24시간) → 그 범위의 지금 엔진 상태(취소 → 건너뜀, 완료 → 게시됨) → 연결·권한·이은 방송·
-//   채팅 끝남·할당량 → 문구(묶음·200자 분할) → 한 문장으로 SENDING을 잡고(실행기 둘이 같은 행을 잡지 않는다) 게시한다.
+// - 보내기 직전: 기한(실시간 채팅 10분·영상 댓글 24시간·요약 24시간) → 그 범위의 지금 엔진 상태(취소 → 건너뜀, 완료 → 게시됨) → 연결·
+//   그 방송을 이은 채널 = 지금 연결한 채널(아니면 NOT_MY_CHANNEL, D-Y1-02)·권한·이은 방송·채팅 끝남·할당량 → 문구(묶음·200자 분할) →
+//   한 문장으로 SENDING을 잡고(실행기 둘이 같은 행을 잡지 않는다) 게시한다.
 // - 게시가 성공하면 메시지(댓글) ID·시각을 적고 SENT, 그 메시지에 든 효과마다 effect.thanksSent를 조치자 server로 기록한다(요청 번호 = 행에서 정함 — 한 번만).
 //   보고 기록이 실패하면 보고만 다시 한다(다시 게시하지 않는다).
 // - 타임아웃·연결 끊김(응답을 모름)은 바로 다시 보내지 않고 SENDING인 채 확인한다: 그 시도를 시작한 시각 − 5초 뒤 우리 채널이 같은 글을 올렸는지
-//   (수집기가 본 우리 메시지, 수집기가 돌지 않으면 최근 채팅 조회 한 번 — 영상 댓글은 최근 댓글 조회 한 번). 30초 안에 찾으면 SENT, 못 찾으면 실패 한 번.
-//   서버가 SENDING 행을 남긴 채 죽었다 살아나면 그 행은 임대가 지난 뒤 확인부터 한다.
+//   (수집기가 본 우리 메시지는 바퀴마다, 수집기가 LIVE가 아니면 이른 조회 한 번 — 영상·요약 댓글은 최근 댓글 이른 조회 한 번). 찾으면 SENT.
+//   다시 게시(실패 한 번)는 확인 시간(30초)이 끝난 뒤의 성공한 조회(끝 조회)로도 못 찾았을 때만 한다. 조회 실패는 "조회함"이 아니다 —
+//   끝 조회가 3번 실패하면 다시 게시하지 않고 FAILED(UNCONFIRMED), 게시 보고 없음, 판매자가 수동 재전송으로 고른다 (D-Y1-06).
+//   찾은 메시지는 이미 다른 묶음이 가진 것이면 고르지 않고, 같은 글을 확인하는 묶음끼리는 효과 순서대로 짝짓는다 (D-Y1-03, outbox-store claimRemote).
+//   서버가 SENDING 행을 남긴 채 죽었다 살아나면 그 행은 임대가 지난 뒤 확인부터 한다(확인 시간이 이미 지났으면 바로 끝 조회부터).
 // - 다시 시도: 2·4·8·16·32초 뒤 최대 5번, 그래도 안 되면 GAVE_UP. 다시 시도해도 소용없는 오류는 바로 보내지 못함.
 // - 실패·재시도·건너뜀은 엔진 이벤트로 기록하지 않는다(effect.failed 없음, D-Y01).
 import { formatWon, getBroadcast, getBuyer, listClaims, listEffects, listProducts, type EngineEffect, type EngineState } from '@livejjim/core'
@@ -18,6 +22,7 @@ import { YoutubeAccessError, googleFields, type ConsentTarget, type YoutubeConne
 import { batchWindowOf } from './collector.ts'
 import { GoogleError, POST_TIMEOUT_MS, type GoogleClient } from './google.ts'
 import {
+  claimRemote,
   dueRows,
   failWaiting,
   findRow,
@@ -31,11 +36,12 @@ import {
   sendingRows,
   unreportedRows,
   updateRows,
+  type RemoteCandidate,
   type RowChange,
   type RunnerRow,
 } from './outbox-store.ts'
 import type { QuotaMeter } from './quota.ts'
-import { activeLink, findOwnMessage, insertOwnMessage, latestLink, markChatEnded, markSummaryDone, summaryCandidates, type LinkRow } from './store.ts'
+import { activeLink, insertOwnMessage, latestLink, markChatEnded, markSummaryDone, summaryCandidates, type LinkRow } from './store.ts'
 import { SUMMARY_KIND, batchMessages, commentText, liveChatText, summaryComments, type SummaryLine } from './texts.ts'
 import type { Timer } from './timer.ts'
 
@@ -55,11 +61,13 @@ export const OUTBOX_REASON_MESSAGES = {
   // 보내지 못함
   NO_CONSENT: '자동 게시에 동의하기 전의 감사예요.',
   NO_LINK: '이어진 유튜브 방송이 없어요.',
+  NOT_MY_CHANNEL: '지금 연결한 유튜브 채널의 방송이 아니라 보내지 않았어요.',
   CHAT_ENDED: '유튜브 채팅이 끝났어요.',
   NO_PERMISSION: '게시 권한이 없어요.',
   EXPIRED: '너무 늦어 보내지 않았어요.',
   GAVE_UP: '여러 번 보내지 못했어요.',
   REJECTED: '유튜브가 받지 않았어요.',
+  UNCONFIRMED: '올라갔는지 확인하지 못했어요. 유튜브에서 확인하고 없으면 다시 보내 주세요.',
   SEALED: '30일이 지나 보내지 않았어요.',
   // 건너뜀
   CANCELLED: '확정이 풀린 판매라 보내지 않아요.',
@@ -68,9 +76,10 @@ export const OUTBOX_REASON_MESSAGES = {
   RETRY: '다시 보내려고 기다리는 중이에요.',
   RECONNECT: '유튜브 연결을 다시 해 주세요.',
   QUOTA: '오늘 유튜브 사용량이 얼마 남지 않아 기다리는 중이에요.',
-  // 보내는 중 (타임아웃 확인)
+  // 보내는 중 (타임아웃 확인): CONFIRM 이른 조회 전 · CONFIRM_LISTED 이른 조회로 못 찾음 · CONFIRM_LIST_FAILED 이른 조회 실패 — 모두 확인 시간 끝의 조회를 기다린다
   CONFIRM: '올라갔는지 확인하는 중이에요.',
   CONFIRM_LISTED: '올라갔는지 확인하는 중이에요.',
+  CONFIRM_LIST_FAILED: '올라갔는지 확인하는 중이에요.',
 } as const
 export type OutboxReason = keyof typeof OUTBOX_REASON_MESSAGES
 
@@ -90,6 +99,8 @@ export const MAX_RETRIES = 5
 /** 타임아웃 확인 (AC-Y1-36) */
 export const CONFIRM_WINDOW_MS = 30_000
 export const CONFIRM_SLACK_MS = 5000
+/** 확인 시간이 끝난 뒤의 조회가 이만큼 실패하면 확인하지 못함(UNCONFIRMED) — 다시 게시하지 않는다 (AC-Y1-96) */
+export const MAX_CONFIRM_TRIES = 3
 /** 보내는 중 임대 (서버가 죽으면 이 시간이 지난 뒤 확인부터) */
 export const SENDING_LEASE_MS = 60_000
 /** 할당량 묶음 모드의 실시간 채팅 최소 창 (AC-Y1-40·52) */
@@ -453,6 +464,8 @@ export class OutboxRunner {
 
   /**
    * 보낼 수 있는 행만 남긴다. 보낼 수 없는 행은 기다림·보내지 못함으로 바꾼다(모두 막히면 null).
+   * 채널: 그 방송을 이은 채널 ID = 지금 연결한 채널 ID일 때만 — 아니면 모두 NOT_MY_CHANNEL(동의보다 먼저 본다 — 다른 채널의 채팅·영상에는
+   * 어떤 행도 게시하지 않는다, AC-Y1-92·D-Y1-02). 자동 첫 시도·다시 시도·묶음의 메시지마다·영상 댓글·요약 댓글·수동 재전송 뒤의 시도 모두 여기를 지난다.
    * 동의: 수동 재전송이 아니면 지금 그 대상의 동의가 켜져 있고 그 행이 생기기 전에 켠 것이어야 한다 — 확인 중(SENDING)에 동의를 끈 행이
    * 확인 실패 뒤 다시 시도로 돌아와도 게시하지 않는다(AC-Y1-31, D-Y12). 요약 댓글은 영상 댓글 동의를 본다
    */
@@ -475,6 +488,8 @@ export class OutboxRunner {
     }
     const connection = await this.#options.connections.row(sellerId)
     if (connection === null) return fail('NO_CONSENT')
+    const link = await activeLink(this.#options.db, sellerId, first.broadcastId ?? '')
+    if (link !== null && link.channelId !== connection.channelId) return fail('NOT_MY_CHANNEL')
     const consentAt = target === 'LIVE_CHAT' ? connection.consentLiveChatAt : connection.consentVideoCommentAt
     const noConsent = rows.filter((row) => !row.manual && (consentAt === null || consentAt.getTime() > row.createdAt.getTime()))
     if (noConsent.length > 0) {
@@ -484,7 +499,6 @@ export class OutboxRunner {
     }
     if (connection.status !== 'CONNECTED') return wait('RECONNECT')
     if (!connection.canPublish) return fail('NO_PERMISSION')
-    const link = await activeLink(this.#options.db, sellerId, first.broadcastId ?? '')
     if (link === null) return fail('NO_LINK')
     if (target === 'LIVE_CHAT' && link.chatEndedAt !== null) return fail('CHAT_ENDED')
     const mode = await this.#options.quota.mode(sellerId)
@@ -499,14 +513,11 @@ export class OutboxRunner {
     const ids = rows.map((row) => row.id)
     const now = this.#now()
     const groupId = first.groupId ?? `g${String(Math.min(...ids))}`
-    // 지난 시도(5xx 등)의 글이 수집기에 보였으면 다시 보내지 않는다
+    // 지난 시도(5xx·확인 실패 등)의 글이 수집기에 보였으면 다시 보내지 않는다 — 이미 다른 묶음이 가진 메시지는 고르지 않는다 (AC-Y1-36·93).
+    // 같은 글을 지금 게시하는 중인 다른 묶음이 있으면 그 응답을 본 뒤로 미룬다(다음 바퀴)
     if (first.attempts > 0 && first.sentText !== null && first.attemptAt !== null && target === 'LIVE_CHAT') {
-      const seen = await findOwnMessage(this.#options.db, first.sellerId, link.liveChatId, first.sentText, new Date(first.attemptAt.getTime() - CONFIRM_SLACK_MS))
-      if (seen !== null) {
-        const claimed = await this.#update(first, ids, { state: 'SENDING', groupId, leaseOwner: this.#options.owner, leaseUntil: new Date(now.getTime() + SENDING_LEASE_MS) }, { state: 'WAITING' })
-        if (claimed.length === ids.length) await this.#sent(rows, seen)
-        return
-      }
+      const outcome = await this.#claim(rows, link, target, [], 'WAITING')
+      if (outcome !== 'none') return
     }
     const claimed = await this.#update(
       first,
@@ -519,6 +530,7 @@ export class OutboxRunner {
         postText: text,
         attemptAt: now,
         confirmUntil: null,
+        confirmTries: 0,
         nextAt: null,
         leaseOwner: this.#options.owner,
         leaseUntil: new Date(now.getTime() + SENDING_LEASE_MS),
@@ -531,7 +543,7 @@ export class OutboxRunner {
       return
     }
     this.#publishRows(first.sellerId, first.date, ids, 'SENDING', null)
-    const sending = rows.map((row) => ({ ...row, groupId, sentText: text, attemptAt: now, state: 'SENDING' }))
+    const sending = rows.map((row) => ({ ...row, groupId, sentText: text, attemptAt: now, state: 'SENDING', reason: null, confirmTries: 0 }))
     let remoteId: string
     try {
       const body = await this.#options.connections.withToken(first.sellerId, (token) =>
@@ -622,14 +634,14 @@ export class OutboxRunner {
     const attempts = first.attempts + 1
     const now = this.#now()
     if (attempts > MAX_RETRIES) {
-      const changed = await this.#update(first, ids, { state: 'FAILED', reason: 'GAVE_UP', attempts, nextAt: null, leaseOwner: null, leaseUntil: null, confirmUntil: null }, { state: 'SENDING' })
+      const changed = await this.#update(first, ids, { state: 'FAILED', reason: 'GAVE_UP', attempts, nextAt: null, leaseOwner: null, leaseUntil: null, confirmUntil: null, confirmTries: 0 }, { state: 'SENDING' })
       this.#publishRows(first.sellerId, first.date, changed, 'FAILED', 'GAVE_UP')
       return
     }
     const changed = await this.#update(
       first,
       ids,
-      { state: 'WAITING', reason: 'RETRY', attempts, nextAt: new Date(now.getTime() + 2 ** attempts * 1000), leaseOwner: null, leaseUntil: null, confirmUntil: null },
+      { state: 'WAITING', reason: 'RETRY', attempts, nextAt: new Date(now.getTime() + 2 ** attempts * 1000), leaseOwner: null, leaseUntil: null, confirmUntil: null, confirmTries: 0 },
       { state: 'SENDING' },
     )
     this.#publishRows(first.sellerId, first.date, changed, 'WAITING', 'RETRY')
@@ -642,7 +654,7 @@ export class OutboxRunner {
     const changed = await this.#update(
       first,
       ids,
-      { state: 'SENT', reason: null, remoteId, postedAt: this.#now(), nextAt: null, leaseOwner: null, leaseUntil: null, confirmUntil: null },
+      { state: 'SENT', reason: null, remoteId, postedAt: this.#now(), nextAt: null, leaseOwner: null, leaseUntil: null, confirmUntil: null, confirmTries: 0 },
       { state: 'SENDING' },
     )
     this.#publishRows(first.sellerId, first.date, changed, 'SENT', null)
@@ -691,15 +703,16 @@ export class OutboxRunner {
     }
     for (const group of groups.values()) {
       const first = group[0] as RunnerRow
-      const confirming = first.reason === 'CONFIRM' || first.reason === 'CONFIRM_LISTED'
+      const confirming = first.reason === 'CONFIRM' || first.reason === 'CONFIRM_LISTED' || first.reason === 'CONFIRM_LIST_FAILED'
       const leaseLive = first.leaseUntil !== null && first.leaseUntil.getTime() > now.getTime()
       if (!confirming && leaseLive) continue // 다른 실행기가 보내는 중
       if (confirming && leaseLive && first.leaseOwner !== this.#options.owner) continue
       let rowsNow = group
       if (!confirming || first.leaseOwner !== this.#options.owner) {
-        // 서버가 죽은 뒤 남은 행(임대 지남): 확인부터 한다. 임대를 넘겨받는다(한 문장)
+        // 서버가 죽은 뒤 남은 행(임대 지남): 확인부터 한다. 임대를 넘겨받는다(한 문장). 게시 중에 죽은 행의 확인 시간은 그 시도의 타임아웃부터 30초 —
+        // 임대(60초)가 지났으니 이미 끝났다: 바로 끝 조회부터 (AC-Y1-96)
         const until = new Date(now.getTime() + SENDING_LEASE_MS)
-        const confirmUntil = first.confirmUntil ?? new Date(now.getTime() + CONFIRM_WINDOW_MS)
+        const confirmUntil = first.confirmUntil ?? (first.attemptAt === null ? now : new Date(first.attemptAt.getTime() + POST_TIMEOUT_MS + CONFIRM_WINDOW_MS))
         const ids = group.map((row) => row.id)
         const claimed = await this.#update(first, ids, { reason: confirming ? first.reason : 'CONFIRM', confirmUntil, leaseOwner: this.#options.owner, leaseUntil: until }, { state: 'SENDING', ...(first.leaseOwner === null ? {} : { leaseOwner: first.leaseOwner }) })
         if (claimed.length !== ids.length) continue
@@ -715,79 +728,128 @@ export class OutboxRunner {
     }
   }
 
-  /** 그 시도의 글이 올라갔는지 본다. 찾으면 SENT, 확인 시간이 지나면 실패 한 번, 아니면 다음 바퀴에 다시 */
+  /**
+   * 그 시도의 글이 올라갔는지 본다 (AC-Y1-36·93·96). 찾으면 SENT, 아니면 다음 바퀴에 다시.
+   * - 실시간 채팅: 수집기가 본 우리 메시지를 바퀴마다 본다. 수집기가 LIVE가 아니면 확인 시간 안에 이른 조회를 한 번 한다(실패해도 한 번).
+   * - 영상·요약 댓글: 확인 시간 안에 최근 댓글 이른 조회를 한 번 한다.
+   * - 확인 시간이 끝나면 끝 조회: 성공한 조회로 못 찾았을 때만 실패 한 번(다시 시도). 끝 조회 실패는 다음 바퀴에 다시, 3번이면 UNCONFIRMED
+   */
   async #confirm(rows: RunnerRow[], link: LinkRow, target: OutboxTarget): Promise<void> {
     const first = rows[0] as RunnerRow
-    const text = first.sentText
-    const since = first.attemptAt === null ? new Date(0) : new Date(first.attemptAt.getTime() - CONFIRM_SLACK_MS)
     const ids = rows.map((row) => row.id)
-    if (text === null) {
+    if (first.sentText === null) {
       await this.#failAttempt(rows)
       return
     }
-    let found: string | null = null
-    let listed = first.reason !== 'CONFIRM'
+    const owner = this.#options.owner
+    const now = this.#options.timer.now()
+    // 확인이 길어져도(조회 시간 제한·끝 조회 다시 하기) 다른 실행기가 이 행을 넘겨받지 않게 임대를 늘린다
+    const kept = await this.#update(first, ids, { leaseUntil: new Date(now + SENDING_LEASE_MS) }, { state: 'SENDING', leaseOwner: owner })
+    if (kept.length !== ids.length) return
+    // 1. 수집기가 본 우리 메시지 (실시간 채팅, 바퀴마다)
+    if (target === 'LIVE_CHAT' && (await this.#claim(rows, link, target, [], 'SENDING')) !== 'none') return
     const until = first.confirmUntil?.getTime() ?? 0
-    const list = async (lookup: () => Promise<string | null>) => {
-      listed = true
-      const result = await lookup()
-      await this.#update(first, ids, { reason: 'CONFIRM_LISTED' }, { state: 'SENDING' })
-      return result
-    }
-    if (target === 'LIVE_CHAT') {
-      found = await findOwnMessage(this.#options.db, first.sellerId, link.liveChatId, text, since)
-      if (found === null && !listed && !(await this.#options.collectorRunning(first.sellerId, link.id))) found = await list(() => this.#listChat(first, link, text, since))
-      // 확인 시간이 다 됐는데 수집기가 본 우리 메시지에서 못 찾았고 최근 채팅을 아직 보지 않았으면, 실패로 세기 전에 한 번 본다
-      // (수집기가 돌아도 그 글을 받지 못했을 수 있다 — 다시 연결하는 중·스트림이 멈춤. 두 번 게시를 막는다, AC-Y1-36)
-      if (found === null && !listed && this.#options.timer.now() >= until) found = await list(() => this.#listChat(first, link, text, since))
-    } else if (!listed) {
-      found = await list(() => this.#listComments(first, link, text, since))
-    }
-    if (found !== null) {
-      await this.#sent(rows, found)
+    if (now < until) {
+      // 2. 이른 조회 (시도마다 한 번): 수집기가 LIVE가 아닌 실시간 채팅, 영상·요약 댓글
+      if (first.reason !== 'CONFIRM') return
+      if (target === 'LIVE_CHAT' && (await this.#options.collectorRunning(first.sellerId, link.id))) return
+      const lookup = await this.#lookup(first, link, target)
+      await this.#update(first, ids, { reason: lookup === null ? 'CONFIRM_LIST_FAILED' : 'CONFIRM_LISTED' }, { state: 'SENDING', leaseOwner: owner })
+      if (lookup !== null) await this.#claim(rows, link, target, lookup, 'SENDING')
       return
     }
-    if (this.#options.timer.now() >= until) await this.#failAttempt(rows)
+    // 3. 끝 조회 (확인 시간이 끝난 뒤): 성공한 조회로도 못 찾았을 때만 다시 게시한다
+    const lookup = await this.#lookup(first, link, target)
+    if (lookup === null) {
+      const tries = first.confirmTries + 1
+      if (tries < MAX_CONFIRM_TRIES) {
+        await this.#update(first, ids, { confirmTries: tries }, { state: 'SENDING', leaseOwner: owner })
+        return
+      }
+      // 확인하지 못했다: 다시 게시하지 않는다(두 번 게시보다 빠짐이 안전하다). 게시 보고도 하지 않는다 — 판매자가 유튜브를 보고 다시 보낸다
+      const changed = await this.#update(
+        first,
+        ids,
+        { state: 'FAILED', reason: 'UNCONFIRMED', confirmTries: tries, nextAt: null, leaseOwner: null, leaseUntil: null, confirmUntil: null },
+        { state: 'SENDING', leaseOwner: owner },
+      )
+      this.#publishRows(first.sellerId, first.date, changed, 'FAILED', 'UNCONFIRMED')
+      this.#options.log({ level: 'warn', code: 'OUTBOX_UNCONFIRMED', seller: first.sellerId })
+      return
+    }
+    if ((await this.#claim(rows, link, target, lookup, 'SENDING')) === 'none') await this.#failAttempt(rows)
   }
 
-  /** 최근 채팅 조회 한 번 (수집기가 돌지 않을 때) — 우리 채널이 쓴 같은 글 */
-  async #listChat(row: RunnerRow, link: LinkRow, text: string, since: Date): Promise<string | null> {
+  /**
+   * 게시 확인 짝짓기 (AC-Y1-93): 찾은 후보와 수집기가 본 우리 메시지 중 이 묶음의 메시지를 골라 SENT로 적고 게시 보고를 한다.
+   * sent(적음) · none(없음) · defer(같은 글을 게시하는 중인 묶음의 응답을 기다림) · gone(다른 실행기가 바꿈)
+   */
+  async #claim(rows: RunnerRow[], link: LinkRow, target: OutboxTarget, candidates: readonly RemoteCandidate[], state: 'SENDING' | 'WAITING'): Promise<'sent' | 'none' | 'defer' | 'gone'> {
+    this.#check()
+    const first = rows[0] as RunnerRow
+    const result = await claimRemote(this.#options.db, {
+      sellerId: first.sellerId,
+      broadcastId: first.broadcastId ?? link.broadcastId,
+      targets: target === 'LIVE_CHAT' ? ['LIVE_CHAT'] : ['VIDEO_COMMENT', 'SUMMARY'],
+      text: first.sentText ?? '',
+      selfIds: rows.map((row) => row.id),
+      selfState: state,
+      ...(state === 'SENDING' ? { selfOwner: this.#options.owner } : {}),
+      liveChatId: target === 'LIVE_CHAT' ? link.liveChatId : null,
+      candidates,
+      slackMs: CONFIRM_SLACK_MS,
+      now: this.#now(),
+    })
+    if (result.kind !== 'claimed') return result.kind
+    this.#publishRows(first.sellerId, first.date, result.ids, 'SENT', null)
+    await this.#report(rows.filter((row) => result.ids.includes(row.id)))
+    return 'sent'
+  }
+
+  /**
+   * 최근 채팅(실시간 채팅)·최근 댓글(영상·요약 댓글) 조회 한 번 — 우리 채널이 쓴 같은 글 전부(그 시도 시작 − 5초 이후).
+   * 응답을 받아 항목을 끝까지 본 경우만 결과(빈 목록 포함)이고, 조회하지 못하면 null: 네트워크·시간 제한·5xx·429·속도 제한·할당량 초과·권한 없음·
+   * 401 뒤 새로 고침 실패, 다시 연결 필요, 할당량 멈춤이라 부르지 않음 (AC-Y1-96)
+   */
+  async #lookup(row: RunnerRow, link: LinkRow, target: OutboxTarget): Promise<RemoteCandidate[] | null> {
+    const { connections, google, quota, log } = this.#options
+    const text = row.sentText ?? ''
+    const since = row.attemptAt === null ? 0 : row.attemptAt.getTime() - CONFIRM_SLACK_MS
+    if ((await quota.mode(row.sellerId)) === 'PAUSED') return null
+    let body: Record<string, unknown>
     try {
-      const body = await this.#options.connections.withToken(row.sellerId, (token) =>
-        this.#options.google.api({ sellerId: row.sellerId, method: 'liveChatMessages.list', accessToken: token, path: '/liveChat/messages', query: { liveChatId: link.liveChatId, part: 'snippet,authorDetails', maxResults: '2000' }, signal: this.#inflight.signal }),
+      body = await connections.withToken(row.sellerId, (token) =>
+        target === 'LIVE_CHAT'
+          ? google.api({ sellerId: row.sellerId, method: 'liveChatMessages.list', accessToken: token, path: '/liveChat/messages', query: { liveChatId: link.liveChatId, part: 'snippet,authorDetails', maxResults: '2000' }, signal: this.#inflight.signal })
+          : google.api({ sellerId: row.sellerId, method: 'commentThreads.list', accessToken: token, path: '/commentThreads', query: { part: 'snippet', videoId: link.videoId, order: 'time', maxResults: '50' }, signal: this.#inflight.signal }),
       )
-      const items = Array.isArray(body.items) ? (body.items as Record<string, unknown>[]) : []
-      for (const item of items) {
+    } catch (error) {
+      log({ level: 'warn', code: 'YOUTUBE_API_FAILED', seller: row.sellerId, ...googleFields(error) })
+      if (error instanceof GoogleError && error.reason === 'quotaExceeded') await quota.markExceeded(row.sellerId)
+      return null
+    }
+    if (!Array.isArray(body.items)) return null
+    const found: RemoteCandidate[] = []
+    for (const item of body.items as Record<string, unknown>[]) {
+      if (typeof item.id !== 'string') continue
+      let author: unknown
+      let message: unknown
+      let published: number
+      if (target === 'LIVE_CHAT') {
         const snippet = (item.snippet ?? {}) as Record<string, unknown>
-        const author = (item.authorDetails ?? {}) as Record<string, unknown>
-        const message = ((snippet.textMessageDetails ?? {}) as Record<string, unknown>).messageText
-        const published = Date.parse(typeof snippet.publishedAt === 'string' ? snippet.publishedAt : '')
-        if (author.channelId === link.channelId && message === text && published >= since.getTime() && typeof item.id === 'string') return item.id
-      }
-    } catch (error) {
-      this.#options.log({ level: 'warn', code: 'YOUTUBE_API_FAILED', seller: row.sellerId, ...googleFields(error) })
-    }
-    return null
-  }
-
-  /** 최근 댓글 조회 한 번 — 우리 채널이 쓴 같은 글 */
-  async #listComments(row: RunnerRow, link: LinkRow, text: string, since: Date): Promise<string | null> {
-    try {
-      const body = await this.#options.connections.withToken(row.sellerId, (token) =>
-        this.#options.google.api({ sellerId: row.sellerId, method: 'commentThreads.list', accessToken: token, path: '/commentThreads', query: { part: 'snippet', videoId: link.videoId, order: 'time', maxResults: '50' }, signal: this.#inflight.signal }),
-      )
-      const items = Array.isArray(body.items) ? (body.items as Record<string, unknown>[]) : []
-      for (const item of items) {
-        const top = ((((item.snippet ?? {}) as Record<string, unknown>).topLevelComment ?? {}) as Record<string, unknown>)
+        author = ((item.authorDetails ?? {}) as Record<string, unknown>).channelId
+        message = ((snippet.textMessageDetails ?? {}) as Record<string, unknown>).messageText
+        published = Date.parse(typeof snippet.publishedAt === 'string' ? snippet.publishedAt : '')
+      } else {
+        const top = (((item.snippet ?? {}) as Record<string, unknown>).topLevelComment ?? {}) as Record<string, unknown>
         const snippet = (top.snippet ?? {}) as Record<string, unknown>
-        const author = ((snippet.authorChannelId ?? {}) as Record<string, unknown>).value
-        const published = Date.parse(typeof snippet.publishedAt === 'string' ? snippet.publishedAt : '')
-        if (author === link.channelId && snippet.textOriginal === text && published >= since.getTime() && typeof item.id === 'string') return item.id
+        author = ((snippet.authorChannelId ?? {}) as Record<string, unknown>).value
+        message = snippet.textOriginal
+        published = Date.parse(typeof snippet.publishedAt === 'string' ? snippet.publishedAt : '')
       }
-    } catch (error) {
-      this.#options.log({ level: 'warn', code: 'YOUTUBE_API_FAILED', seller: row.sellerId, ...googleFields(error) })
+      if (author === link.channelId && message === text && Number.isFinite(published) && published >= since) found.push({ id: item.id, publishedAt: published })
     }
-    return null
+    return found
   }
 
   // ── 방송 후 요약 댓글 (AC-Y1-46) ──────────────────────────────────────
@@ -871,8 +933,9 @@ export class OutboxRunner {
   }
 
   /**
-   * 수동 재전송 (AC-Y1-38). FAILED 행 하나만, 같은 요청 번호는 한 번만. 그때 엔진 상태를 다시 보고, 동의는 필요 없지만 게시 권한·연결·이은 방송(실시간 채팅이면 열린 채팅)이 있어야 하고
-   * 할당량 멈춤이면 받지 않는다. 받으면 한 건씩(묶지 않고) 다시 시도·타임아웃 규칙을 처음부터 — 기한은 없다
+   * 수동 재전송 (AC-Y1-38). FAILED 행 하나만(확인하지 못함 UNCONFIRMED 포함 — 판매자가 유튜브를 보고 고른다), 같은 요청 번호는 한 번만.
+   * 그때 엔진 상태를 다시 보고, 동의는 필요 없지만 연결·그 방송을 이은 채널 = 지금 연결한 채널(AC-Y1-92)·게시 권한·이은 방송(실시간 채팅이면 열린 채팅)이
+   * 있어야 하고 할당량 멈춤이면 받지 않는다. 받으면 한 건씩(묶지 않고) 다시 시도·타임아웃 규칙을 처음부터 — 기한은 없다
    */
   async resend(
     sellerId: string,
@@ -881,7 +944,12 @@ export class OutboxRunner {
   ): Promise<
     | { kind: 'ok'; row: OutboxRowView }
     | { kind: 'not_found' }
-    | { kind: 'rejected'; code: 'EFFECT_CANCELLED' | 'ALREADY_SENT' | 'RESEND_NOT_ALLOWED' | 'NO_PERMISSION' | 'NOT_LINKED' | 'CHAT_ENDED' | 'YOUTUBE_RECONNECT_NEEDED' | 'QUOTA_PAUSED'; message: string; row?: OutboxRowView }
+    | {
+        kind: 'rejected'
+        code: 'EFFECT_CANCELLED' | 'ALREADY_SENT' | 'RESEND_NOT_ALLOWED' | 'NO_PERMISSION' | 'NOT_LINKED' | 'NOT_MY_CHANNEL' | 'CHAT_ENDED' | 'YOUTUBE_RECONNECT_NEEDED' | 'QUOTA_PAUSED'
+        message: string
+        row?: OutboxRowView
+      }
   > {
     const { db } = this.#options
     const prior = await rowByResendRequest(db, sellerId, requestId)
@@ -910,8 +978,10 @@ export class OutboxRunner {
     }
     const connection = await this.#options.connections.row(sellerId)
     if (connection === null || connection.status !== 'CONNECTED') return { kind: 'rejected', code: 'YOUTUBE_RECONNECT_NEEDED', message: OUTBOX_REASON_MESSAGES.RECONNECT }
-    if (!connection.canPublish) return { kind: 'rejected', code: 'NO_PERMISSION', message: OUTBOX_REASON_MESSAGES.NO_PERMISSION }
     const link = await activeLink(db, sellerId, row.broadcastId ?? '')
+    // 그 방송을 이은 채널 = 지금 연결한 채널일 때만 (AC-Y1-92). 행은 그대로 FAILED
+    if (link !== null && link.channelId !== connection.channelId) return { kind: 'rejected', code: 'NOT_MY_CHANNEL', message: OUTBOX_REASON_MESSAGES.NOT_MY_CHANNEL }
+    if (!connection.canPublish) return { kind: 'rejected', code: 'NO_PERMISSION', message: OUTBOX_REASON_MESSAGES.NO_PERMISSION }
     if (link === null) return { kind: 'rejected', code: 'NOT_LINKED', message: OUTBOX_REASON_MESSAGES.NO_LINK }
     if (target === 'LIVE_CHAT' && link.chatEndedAt !== null) return { kind: 'rejected', code: 'CHAT_ENDED', message: OUTBOX_REASON_MESSAGES.CHAT_ENDED }
     if ((await this.#options.quota.mode(sellerId)) === 'PAUSED') return { kind: 'rejected', code: 'QUOTA_PAUSED', message: RESEND_MESSAGES.QUOTA_PAUSED }
@@ -933,6 +1003,7 @@ export class OutboxRunner {
         sentText: null,
         attemptAt: null,
         confirmUntil: null,
+        confirmTries: 0,
         remoteId: null,
         resendRequestId: requestId,
       },

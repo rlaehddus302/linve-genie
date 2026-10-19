@@ -8,7 +8,7 @@
 // - 채널: 판매자마다 하나, 같은 채널은 한 판매자에만. 다른 채널로 다시 승인하면 받지 않는다(같은 채널이면 토큰만 바꾼다).
 // - 끊기: 구글에 폐기 요청(실패·타임아웃이어도 계속) → 토큰·게시 동의 삭제 → 수집기 멈춤.
 import { createHash, randomBytes } from 'node:crypto'
-import { and, eq, lt, ne } from 'drizzle-orm'
+import { and, eq, isNull, lt, ne } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
 import { youtubeConnections, youtubeOauthStates } from '../db/schema.ts'
 import { errorKind, type LogSink } from '../log.ts'
@@ -240,7 +240,7 @@ export class YoutubeConnections {
     if (channel === null) return 'NO_CHANNEL'
     const result = await this.#save(session.sellerId, channel, tokens, now)
     if (result !== 'connected') return result
-    // 게시 권한을 받으러 온 것이고 받았으면 그 대상의 동의를 켠다 (AC-Y1-31)
+    // 게시 권한을 받으러 온 것이고 받았으면 그 대상의 동의를 켠다 (AC-Y1-31) — 이미 켜져 있으면 켠 시각·계정은 그대로 (AC-Y1-95)
     if (row.purpose === 'publish' && tokens.scopes.includes(PUBLISH_SCOPE) && (row.target === 'LIVE_CHAT' || row.target === 'VIDEO_COMMENT')) {
       await this.#setConsentRow(session.sellerId, row.target, true, row.accountId, now)
     }
@@ -409,13 +409,18 @@ export class YoutubeConnections {
 
   // ── 게시 동의 (AC-Y1-31) ─────────────────────────────────────────────
 
+  /**
+   * 동의를 적는다. 켜기는 꺼져 있던 동의일 때만 켠 시각·계정을 적는다 — 이미 켜진 동의를 다시 켜는 요청(바로 켜기·게시 권한 승인을 거쳐 돌아오기·
+   * 다시 연결)은 시각·계정을 바꾸지 않는다(그 사이 기다리던 감사가 NO_CONSENT로 빠지지 않게, AC-Y1-95·D-Y1-05). 끄면 지운다
+   */
   async #setConsentRow(sellerId: string, target: ConsentTarget, enabled: boolean, accountId: string | null, now: number): Promise<void> {
     const at = enabled ? new Date(now) : null
     const by = enabled ? accountId : null
+    const column = target === 'LIVE_CHAT' ? youtubeConnections.consentLiveChatAt : youtubeConnections.consentVideoCommentAt
     await this.#options.db
       .update(youtubeConnections)
       .set(target === 'LIVE_CHAT' ? { consentLiveChatAt: at, consentLiveChatBy: by, updatedAt: new Date(now) } : { consentVideoCommentAt: at, consentVideoCommentBy: by, updatedAt: new Date(now) })
-      .where(eq(youtubeConnections.sellerId, sellerId))
+      .where(and(eq(youtubeConnections.sellerId, sellerId), ...(enabled ? [isNull(column)] : [])))
   }
 
   /**
@@ -428,8 +433,7 @@ export class YoutubeConnections {
     const now = this.#options.timer.now()
     if (enabled) {
       if (!row.canPublish || row.status !== 'CONNECTED') return { kind: 'authorize', url: await this.start(session, 'publish', target) }
-      const already = target === 'LIVE_CHAT' ? row.consentLiveChatAt : row.consentVideoCommentAt
-      if (already === null) await this.#setConsentRow(session.sellerId, target, true, session.accountId, now)
+      await this.#setConsentRow(session.sellerId, target, true, session.accountId, now)
     } else {
       await this.#setConsentRow(session.sellerId, target, false, null, now)
       await this.#options.onConsentOff(session.sellerId, [target])

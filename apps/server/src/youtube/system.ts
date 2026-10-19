@@ -1,6 +1,8 @@
 // 유튜브 연동 조립 (Y1): 구글 연결·방송 잇기·수집기·발송함·할당량. 설정이 없으면 만들지 않는다(그 서버의 유튜브 API는 503).
 // - 바깥 주소는 설정에서 온다. 운영 설정은 https만 받는다(아니면 서버가 시작하지 않는다, AC-Y1-72). 시험·E2E는 가짜 서버(127.0.0.1) 주소를 쓴다.
 // - 방송 잇기(AC-Y1-10~13): 내 라이브 목록, 주소·영상 ID 읽기, 잇기 조건, 끊기. 잇기는 엔진 이벤트가 아니다 — 누가·언제 이었는지 연결 표에 남긴다(DAT-05).
+//   "그 영상이 끝나지 않은 다른 회차에 이어져 있지 않다" 확인과 넣기는 판매자 단위 잠금 안에서 함께 한다 — 서버가 둘이어도 하나씩(AC-Y1-98, D-Y1-08).
+//   예정(시작 전) 방송을 이으면 시작 시각을 비워 둔다 — 수집기가 시작할 때까지 채팅을 부르지 않는다(AC-Y1-94).
 import { randomBytes } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
@@ -18,6 +20,7 @@ import { DEFAULT_QUOTA, QuotaMeter, type QuotaSettings } from './quota.ts'
 import {
   activeLink,
   collectorOf,
+  connectedSellerIds,
   insertLink,
   linkByRequest,
   openLinksForVideo,
@@ -96,6 +99,11 @@ export interface LinkView {
 
 export type LinkOutcome = { kind: 'ok'; view: LinkView } | { kind: 'not_found' } | { kind: 'rejected'; status: number; code: LinkCode }
 
+export interface LinkHooks {
+  /** 잇기: 조건 확인을 마친 뒤·연결을 넣기 직전 (시험: 기다리게 해 동시에 잇는 요청이 겹치게 한다, AC-Y1-98) */
+  readonly beforeInsert?: (broadcastId: string) => void | Promise<void>
+}
+
 export interface YoutubeSystemOptions {
   readonly db: Db
   readonly masterKey: Buffer
@@ -110,6 +118,7 @@ export interface YoutubeSystemOptions {
   readonly fetch?: typeof fetch
   readonly collectorHooks?: CollectorHooks
   readonly outboxHooks?: OutboxHooks
+  readonly linkHooks?: LinkHooks
   /** 수집기 임대·순회 (시험에서 줄인다) */
   readonly collectorTiming?: { readonly leaseMs?: number; readonly renewMs?: number; readonly scanMs?: number }
 }
@@ -133,10 +142,16 @@ export class YoutubeSystem {
       sellerBudget: config.quota?.sellerBudget ?? config.quota?.limit ?? DEFAULT_QUOTA.sellerBudget,
       costs: { ...DEFAULT_COSTS, ...config.quota?.costs },
     }
-    this.quota = new QuotaMeter(db, settings, () => timer.now(), (sellerId, mode) => {
-      publish(sellerId, { kind: 'quota', mode })
-      this.outbox.notify()
-    })
+    this.quota = new QuotaMeter(
+      db,
+      settings,
+      () => timer.now(),
+      (sellerId, mode) => {
+        publish(sellerId, { kind: 'quota', mode })
+        this.outbox.notify()
+      },
+      () => connectedSellerIds(db),
+    )
     const endpoints = config.endpoints ?? GOOGLE_ENDPOINTS
     this.google = new GoogleClient({
       ...endpoints,
@@ -317,14 +332,24 @@ export class YoutubeSystem {
     const content = snippet.liveBroadcastContent
     const liveChatId = details.activeLiveChatId
     if ((content !== 'live' && content !== 'upcoming') || typeof liveChatId !== 'string' || liveChatId === '') return { kind: 'rejected', status: 409, code: 'NO_LIVE_CHAT' }
-    const others = (await openLinksForVideo(db, sellerId, [videoId])).filter((other) => other.broadcastId !== b)
-    if (others.length > 0) return { kind: 'rejected', status: 409, code: 'VIDEO_IN_USE' }
+    // 유튜브 방송의 실제 시작 시각 — 예정이면 비워 둔다(수집기가 시작을 확인한다, AC-Y1-94)
+    const actualStart = Date.parse(typeof details.actualStartTime === 'string' ? details.actualStartTime : '')
+    const startedAt = content === 'upcoming' ? null : new Date(Number.isFinite(actualStart) ? actualStart : timer.now())
     const scope = await scopeRow(db, sellerId, row.date, false)
     if (scope === null) return { kind: 'not_found' }
     const id = `yl_${randomBytes(12).toString('base64url')}`
+    let refused: LinkCode | null
     try {
-      await db.transaction(async (tx) => {
-        await insertLink(tx, { id, sellerId, scopeId: scope.id, broadcastId: b, videoId, liveChatId, channelId: connection.channel?.id ?? '', linkedBy: session.accountId, requestId, now: new Date(timer.now()) })
+      // 판매자 단위 잠금 안에서 확인과 넣기를 함께 (AC-Y1-98): 같은 영상을 두 회차에 동시에 이어도 하나만. 끝난 회차에 이어 둔 영상은 막지 않는다
+      refused = await db.transaction(async (tx): Promise<LinkCode | null> => {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`livejjim/youtube-link/${sellerId}`}, 0))`)
+        if ((await activeLink(tx, sellerId, b)) !== null) return 'ALREADY_LINKED'
+        if ((await findBroadcast(tx, sellerId, b))?.endedAt != null) return 'BROADCAST_ENDED'
+        const others = (await openLinksForVideo(tx, sellerId, [videoId])).filter((other) => other.broadcastId !== b)
+        if (others.length > 0) return 'VIDEO_IN_USE'
+        await this.#options.linkHooks?.beforeInsert?.(b)
+        await insertLink(tx, { id, sellerId, scopeId: scope.id, broadcastId: b, videoId, liveChatId, channelId: connection.channel?.id ?? '', startedAt, linkedBy: session.accountId, requestId, now: new Date(timer.now()) })
+        return null
       })
     } catch (error) {
       const constraint = uniqueViolation(error)
@@ -335,6 +360,7 @@ export class YoutubeSystem {
       if (constraint === 'youtube_links_active_uq') return { kind: 'rejected', status: 409, code: 'ALREADY_LINKED' }
       throw error
     }
+    if (refused !== null) return { kind: 'rejected', status: 409, code: refused }
     this.collectors.wake()
     const view = await this.#linkView(sellerId, await activeLink(db, sellerId, b))
     this.#options.publish(sellerId, { kind: 'collector', broadcast: b, date: row.date, collector: view.collector })
