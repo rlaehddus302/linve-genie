@@ -496,6 +496,9 @@ function AutoPrintSetting() {
     }
   }, [])
   const change = async (next: boolean) => {
+    const previous = value
+    // 누르면 바로 바뀐 것으로 보인다 — 저장하지 못하면 되돌린다
+    setValue(next)
     setBusy(true)
     setError(null)
     try {
@@ -504,6 +507,7 @@ function AutoPrintSetting() {
       setNote(true)
     } catch (caught) {
       if (!isApiError(caught)) throw caught
+      setValue(previous)
       setError(caught)
     } finally {
       setBusy(false)
