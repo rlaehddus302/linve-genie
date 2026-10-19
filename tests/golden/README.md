@@ -11,7 +11,7 @@
 | `parser/chat.yaml` | 채팅 메시지 → 주문/취소/언급 (R-3) |
 | `parser/amount.yaml` | 한글·숫자 금액 → 원 (빠른 입력·음성 공용), 한글 수사 → 정수 |
 | `parser/quick-input.yaml` | 빠른 입력 한 줄 → 번호·품종·가격 |
-| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13). `08-time.yaml`은 시각 해석(D-022, D-023), `09-host-and-product.yaml`은 방송자 조치·상품 명령 세부(S02, D-039~D-043·D-049). S03 보강: `10-sms.yaml` 문자찜 구매자(D-051), `11-received-time.yaml` 실제 시각순·역전·충돌·메시지 변환(D-052~D-054), `12-product-edit.yaml` 상품 수정·번호 변경(D-055·D-056), `13-merge-settlement.yaml` 구매자 합치기·정산(D-057·D-058). S03b 보강: `14-core-cleanup.yaml` 전화번호 키·문자찜 재전송·메시지 변환·시청자 취소·충돌 중 배정·확정버전 순서·충돌이 풀릴 때 대기 넘침(D-061~D-068). S04 보강: `15-broadcast.yaml` 방송 시작·종료와 방송마다의 설정 스냅샷(D-069·D-070), `16-s04-rules.yaml` 취소 메시지 변환 금지·대기 한도 0의 승계 묻기(D-076·D-077) |
+| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13). `08-time.yaml`은 시각 해석(D-022, D-023), `09-host-and-product.yaml`은 방송자 조치·상품 명령 세부(S02, D-039~D-043·D-049). S03 보강: `10-sms.yaml` 문자찜 구매자(D-051), `11-received-time.yaml` 실제 시각순·역전·충돌·메시지 변환(D-052~D-054), `12-product-edit.yaml` 상품 수정·번호 변경(D-055·D-056), `13-merge-settlement.yaml` 구매자 합치기·정산(D-057·D-058). S03b 보강: `14-core-cleanup.yaml` 전화번호 키·문자찜 재전송·메시지 변환·시청자 취소·충돌 중 배정·확정버전 순서·충돌이 풀릴 때 대기 넘침(D-061~D-068). S04 보강: `15-broadcast.yaml` 방송 시작·종료와 방송마다의 설정 스냅샷(D-069·D-070), `16-s04-rules.yaml` 취소 메시지 변환 금지·대기 한도 0의 승계 묻기(D-076·D-077), S04 마무리 G-ENG-166 전화번호가 아닌 숫자는 받는다(D-079·D-080) |
 | `known-unimplemented.yaml` | **예약 파일.** 알려진 미구현 허용 목록 (D-020). 골든 시나리오가 아니다 |
 
 ## 러너가 읽는 범위 (D-020, D-021)
@@ -143,14 +143,14 @@ expect:
 
 | type | 필수 | 선택 |
 |---|---|---|
-| `broadcast.start` | `b`(빈 문자열이 아닌 방송 ID), `date`(`YYYY-MM-DD`), `title`(문자열) | `settings`(설정 키 → 값. 아래 "설정 키"의 키·값·범위만, DOMAIN_RULES 기본값 위에 덮어쓴다. 없으면 기본값. `settlement.groupBy: MANUAL`은 엔진 미구현이라 쓰지 않는다) (S04, D-070) |
+| `broadcast.start` | `b`(빈 문자열이 아닌 방송 ID), `date`(`YYYY-MM-DD`), `title`(문자열 — 글 칸: 휴대폰 번호가 있으면 읽기 오류, 아래 "판매자가 적는 칸의 휴대폰 번호") | `settings`(설정 키 → 값. 아래 "설정 키"의 키·값·범위만, DOMAIN_RULES 기본값 위에 덮어쓴다. 없으면 기본값. `settlement.groupBy: MANUAL`은 엔진 미구현이라 쓰지 않는다) (S04, D-070) |
 | `broadcast.end` | `b` | (S04, D-070) |
-| `product.register` | `b`, `no`(1 이상), `name`(빈 문자열 가능), `price`(0 이상 정수) | `stock`(1 이상, 기본 1), `status`(`OPEN` 기본 / `READY`) |
+| `product.register` | `b`, `no`(1 이상), `name`(빈 문자열 가능 — 글 칸), `price`(0 이상 정수) | `stock`(1 이상, 기본 1), `status`(`OPEN` 기본 / `READY`) |
 | `product.open` / `product.hold` / `product.close` | `b`, `no` | |
-| `product.update` | `b`, `no` | `name`, `price`, `stock`, `applyTo`(`NEW_ONLY` 기본 / `UNPAID_CLAIMS`) |
+| `product.update` | `b`, `no` | `name`(글 칸), `price`, `stock`, `applyTo`(`NEW_ONLY` 기본 / `UNPAID_CLAIMS`) |
 | `product.renumber` | `b`, `from`, `to` | |
 | `chat` | `b`, `id`(메시지 ID), `ch`(채널 ID), `nick`, `text` | `owner`(불리언, 기본 false), `publishedAt` |
-| `sms` | `b`, `ref`(영문·숫자·`_`·`-` 1~64자. 다시 적으면 재전송 사본, S03b), `no`, `received` | `memo`, `phone`(판매자가 적은 글자 그대로 — 러너가 `phoneKey`·`phoneLast4`로 바꿔 넘긴다, S03b), `buyer`(지정 구매자 키). `ref`·`memo`에서 숫자만 모은 것이 휴대폰 번호 모양(코어 `normalizePhone`의 결과가 있음)이면 읽기 오류 — 엔진에서는 입력 오류다(S04, D-073) |
+| `sms` | `b`, `ref`(영문·숫자·`_`·`-` 1~64자. 다시 적으면 재전송 사본, S03b. 글 칸), `no`, `received` | `memo`(글 칸), `phone`(판매자가 적은 글자 그대로 — 러너가 `phoneKey`·`phoneLast4`로 바꿔 넘긴다, S03b. 번호는 이 칸에만 적는다), `buyer`(지정 구매자 키 — ID 칸). `ref`·`memo`에 휴대폰 번호가 있거나 `buyer`가 휴대폰 번호면 읽기 오류다(아래 "판매자가 적는 칸의 휴대폰 번호", S04 마무리 D-079·D-080 — D-073의 "숫자만 모은 것이 번호 모양" 판단은 쓰지 않는다) |
 | `host.cancel` / `host.reject` / `host.promote` | `b`, `no`, `buyer`, `reason` | |
 | `host.confirm` / `host.approveCancel` / `host.dismissCancel` | `b`, `no`, `buyer` | `reason` |
 | `host.assign` | `b`, `no`, `buyer`, `reason` | `replace`(구매자 키 — 교체할 지금 1등), `replaceTo`(`WAITLIST`/`CANCEL`). 둘은 함께 쓴다(하나만 있으면 읽기 오류. 엔진에서도 입력 오류, D-065) |
@@ -164,10 +164,14 @@ expect:
 | `effect.thanksSent` | `b`, `no`, `buyer` | `target`(`LIVE_CHAT` 기본 / `VIDEO_COMMENT`) |
 | `settlement.shippingOverride` | `buyer`, `date`, `mode`(`PICKUP`/`COMBINED`/`FIXED`/`DEFAULT`) | `amount`(0 이상. `FIXED`일 때 필수, 그 밖에는 쓰지 않는다). `DEFAULT` = 예외 지우기 (S03, D-058) |
 | `settlement.adjust` | `buyer`, `date`, `amount`(정수, 음수 가능), `reason` | |
-| `settlement.payment` | `buyer`, `date`, `amount`(1 이상) | `memo` |
+| `settlement.payment` | `buyer`, `date`, `amount`(1 이상) | `memo`(글 칸 — 휴대폰 번호가 있으면 읽기 오류) |
 | `settlement.refund` | `buyer`, `date`, `amount`(1 이상), `reason` | |
 | `assert` | `expect` | (`at` 없음, `seq` 없음) |
 
+- **판매자가 적는 칸의 휴대폰 번호** (S04 마무리, D-079·D-080 = DOMAIN_RULES R-1 같은 이름의 항목): 골든은 서버가 기록 전 검사(`checkEvent`)를 통과시킨 로그만 적는다. 아래 칸에 휴대폰 번호가 있으면 **읽기 오류**다(엔진에서는 `checkEvent`의 입력 오류. `applyEvent`는 재생 때 이 검사를 하지 않는다 — R-1 "기록 전에만 검사한다"). 판단은 R-1과 같고, 글의 숫자를 전부 모아 번호 모양을 보는 판단은 쓰지 않는다.
+  - **글 칸**: `sms`의 `ref`·`memo`, `settlement.payment`의 `memo`, 모든 사유(`reason` — `host.*`·`buyer.*`·`settlement.adjust`·`settlement.refund`), `broadcast.start`의 `title`, `product.register`·`product.update`의 `name`. 숫자 덩어리(이어 적은 숫자, 전각은 반각) 사이에 구분자(공백·문장 부호·기호·이모지·보이지 않는 글자, 한글 자모 `ㅡ`·`ㅣ`·`ㆍ`)만 있으면 이어진 배열이다. (가) 덩어리 하나가 `01X`(X는 `0`·`1`·`6`·`7`·`8`·`9`)로 시작하는 10~11자리 전체이거나, (나) `01X` 세 자리 덩어리 바로 뒤에 이어진 덩어리들을 붙여 정확히 7~8자리가 되는 곳이 있으면 번호다. 읽기 오류: `"010-1234-5678"`, `"김영희 010 1234 5678"`, `"01012345678"`, `"3시,010,1234,5678"`, `"010-1234-5678 2개"`, `"3시 010ㅡ1234ㅡ5678"`, `"０１０-１２３４-５６７８"`, `ref` `"s01012345678"`. 받는다: `"01/05 3개 25,000원"`, `"01/05 구피 30종 1000원"`, `"1234-5678"`(`010`을 뺀 8자리), `"3시 15번 2개"`, `"101동 1203호"`, `"r-20261018-0001"`, `"+82 10-1234-5678"`(국가 번호 표기) — G-ENG-166.
+  - **ID 칸**: `buyer`(`host.*`·`sms`·`settlement.*` — 효과 보고 `effect.*`의 `buyer`는 빼고: 엔진에는 효과 ID로 넘긴다), `buyer.merge`의 `from`·`into`, `buyer.unmerge`의 `from`, `host.assign`의 `replace`, `host.convertMessage`의 `msg`. 값 전체가 숫자와 구분자(위와 같다)로만 되어 있고 코어 `normalizePhone`의 결과가 있으면 읽기 오류다(`"010-5151-6161"`, `"01051516162"`, `"010 5151 6163"`). 영문 같은 글자가 하나라도 섞인 키(`UC_A`, `sms:s1`, `"UC01012345678abcdEFGH_-"`)는 받는다 — G-ENG-166.
+  - 시청자 쪽 값(`chat`의 `id`·`ch`·`nick`·`text`)과 `phone`은 이 검사를 하지 않는다.
 - R-1의 나머지(`effect.failed`, 포장·배송 상태)는 처음 쓰는 스프린트에서 spec-keeper가 이 표에 추가한다. (`host.assign`·`host.reopen`·`host.dismissCancel`은 S02에서, `broadcast.start`·`broadcast.end`는 S04에서 추가 — D-041~D-043, D-070)
 - **이벤트 안의 구매자 키** (S03, D-057): `buyer.merge`의 `from`·`into`, `buyer.unmerge`의 `from`은 그 키의 구매자 자신(합치기 전)을 가리킨다. 그 밖의 이벤트(`host.*`의 `buyer`·`replace`, `sms`의 `buyer`, `settlement.*`의 `buyer`)도 그 키의 구매자 자신으로 엔진에 넘기고, 엔진이 지금의 구매자(합친 결과)로 풀어 판정·대상 찾기를 한다. `sms:<ref>`는 그 `ref`의 문자찜이 정한 구매자다(지정 구매자, 같은 전화번호로 이어진 구매자, 새 문자 구매자 — DOMAIN_RULES R-11). 키를 구매자 ID로 바꾸는 일은 코어 어댑터가 한다. 이벤트 전체가 아무 일도 없었던 문자찜(모르는 지정 구매자)의 `sms:<ref>`는 풀리지 않는다. 같은 `ref`의 재전송 사본이 있으면 `sms:<ref>`는 그 `ref`의 처음 문자찜으로 정한다(사본은 아무것도 바꾸지 않는다, D-067).
 - 효과 보고(`effect.labelPrinted` / `effect.thanksSent`)는 그 (상품, 구매자[, 대상])의 가장 최근에 나온, 취소되지 않은 해당 효과의 실행 완료로 본다. 상품 키는 효과가 나온 때의 키, 구매자는 지금의 구매자로 풀어 비교한다(S03). 그런 효과가 없으면 러너 오류. 엔진에는 그 효과의 ID로 넘긴다(R-13 "효과 보고" — 바꾸는 일은 코어 어댑터가 한다). 이미 실행 완료된 효과도 "취소되지 않은" 효과이므로 같은 보고를 두 번 적을 수 있다(두 번째는 아무 일도 없어야 한다, INV-11).
