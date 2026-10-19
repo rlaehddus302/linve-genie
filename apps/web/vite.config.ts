@@ -22,6 +22,23 @@ function publicFiles(dir: string): string[] {
   }
 }
 
+/**
+ * 첫 화면이 받지 않는 JS 조각: 진입 조각과 그 정적 import(꼬리까지)에 들지 않고 동적 import로만 닿는 조각.
+ * 콘솔의 음성 코드(@livejjim/voice — "음성 켜기"를 누를 때 동적 import, D-I4-09)가 여기 든다.
+ */
+export function lazyChunks(bundle: Readonly<Record<string, { readonly type: string; readonly isEntry?: boolean; readonly imports?: readonly string[] }>>): Set<string> {
+  const chunks = Object.entries(bundle).filter(([, output]) => output.type === 'chunk')
+  const eager = new Set<string>()
+  const queue = chunks.filter(([, output]) => output.isEntry === true).map(([fileName]) => fileName)
+  while (queue.length > 0) {
+    const fileName = queue.pop() as string
+    if (eager.has(fileName)) continue
+    eager.add(fileName)
+    for (const imported of bundle[fileName]?.imports ?? []) queue.push(imported)
+  }
+  return new Set(chunks.map(([fileName]) => fileName).filter((fileName) => !eager.has(fileName)))
+}
+
 /** 빌드 결과로 /sw.js를 쓴다 */
 function serviceWorker(): Plugin {
   let publicDir = ''
@@ -36,8 +53,11 @@ function serviceWorker(): Plugin {
       if (outDir === undefined) return
       const hash = createHash('sha256')
       const files: string[] = []
+      const lazy = lazyChunks(bundle)
       for (const [fileName, output] of Object.entries(bundle).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
         if (fileName.endsWith('.map') || fileName === 'sw.js') continue
+        // 누를 때만 받는 조각(음성 — D-I4-09)은 앱 껍데기가 아니다: 미리 받아 두지 않는다(누르기 전엔 음성 코드를 받지 않는다)
+        if (lazy.has(fileName)) continue
         files.push(`/${fileName}`)
         hash.update(fileName)
         hash.update(output.type === 'chunk' ? output.code : output.source)

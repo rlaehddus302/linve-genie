@@ -59,6 +59,36 @@ function read(file: string): string {
   return readFileSync(join(outDir, file), 'utf8')
 }
 
+/** 스크립트 하나의 정적 import·re-export 대상 (동적 import(…)는 빼고) — 빌드 결과는 같은 폴더의 상대 경로다 */
+function staticImports(code: string): string[] {
+  const out: string[] = []
+  for (const match of code.matchAll(/\b(?:import|export)\s*(?:[^'"`();]*?\bfrom\s*)?["'`]([^"'`]+)["'`]/g)) {
+    const target = match[1]
+    if (target !== undefined && target.startsWith('./')) out.push(`assets/${target.slice(2)}`)
+  }
+  return out
+}
+
+/** 첫 화면이 받는 스크립트: index.html이 부르는 스크립트(script·modulepreload)와 그 정적 import를 꼬리까지 */
+function eagerScripts(): string[] {
+  const html = read('index.html')
+  const queue = [...html.matchAll(/<(?:script|link)\b[^>]*\b(?:src|href)="\/(assets\/[^"]+\.js)"/g)].map((match) => match[1] as string)
+  const seen = new Set<string>()
+  while (queue.length > 0) {
+    const file = queue.pop() as string
+    if (seen.has(file)) continue
+    seen.add(file)
+    queue.push(...staticImports(read(file)))
+  }
+  return [...seen].sort()
+}
+
+/** 첫 화면이 받지 않는(누를 때 받는) 스크립트 */
+function lazyScripts(): string[] {
+  const eager = new Set(eagerScripts())
+  return builtFiles().filter((file) => /^assets\/.+\.js$/.test(file) && !eager.has(file))
+}
+
 describe('vite build', () => {
   it('성공하고 index.html·스크립트·스타일을 만든다', () => {
     if (!build.ok) expect.fail(`vite build 실패:\n${build.error}`)
@@ -106,8 +136,13 @@ describe('vite build', () => {
     expect(files).toContain('/index.html')
     expect(files).toContain('/manifest.webmanifest')
     expect(files.filter((f) => f.startsWith('/api'))).toEqual([])
-    // 빌드의 해시가 붙은 파일이 모두 들어 있고, 적힌 파일은 모두 있다
-    for (const file of builtFiles().filter((f) => f.startsWith('assets/'))) expect(files).toContain(`/${file}`)
+    // 빌드의 해시가 붙은 파일이 모두 들어 있고(누를 때만 받는 음성 조각은 빼고 — AC-I4-10, D-I4-09), 적힌 파일은 모두 있다
+    const lazy = new Set(lazyScripts())
+    expect(lazy.size).toBeGreaterThan(0)
+    for (const file of builtFiles().filter((f) => f.startsWith('assets/'))) {
+      if (lazy.has(file)) expect(files, file).not.toContain(`/${file}`)
+      else expect(files).toContain(`/${file}`)
+    }
     for (const file of files) expect(existsSync(join(outDir, file.slice(1))), file).toBe(true)
     expect(shell?.version).toMatch(/^[0-9a-f]{16}$/)
   })
@@ -117,6 +152,21 @@ describe('vite build', () => {
     expect(css).not.toMatch(/@font-face|@import/i)
     expect(cssUrls(css).filter(isExternalUrl)).toEqual([])
     expect(css.replace(/\s+/g, '')).toContain('font-size:max(100%,16px)')
+  })
+
+  it('AC-I4-10 (VOC-05, D-I4-09): 첫 화면이 받는 JS(진입 조각과 그 정적 import)에 음성 패키지 코드가 없고, 음성 코드는 따로 받는 조각에 있다', () => {
+    const marker = '음성 인식이 자꾸 끊겨요.' // D-205 문장 (음성 패키지의 오류 문장)
+    const eager = eagerScripts()
+    expect(eager.length).toBeGreaterThan(0)
+    for (const file of eager) expect(read(file), file).not.toContain(marker)
+    // 음성 패키지의 다른 값도 첫 화면에 없다 (기본 품종 사전·인식 언어)
+    for (const file of eager) expect(read(file), file).not.toContain('블루엘프')
+    const lazy = lazyScripts()
+    const voice = lazy.filter((file) => read(file).includes(marker))
+    expect(voice).toHaveLength(1)
+    expect(read(voice[0] as string)).toContain('ko-KR')
+    // 첫 화면 html은 그 조각을 미리 받지 않는다 (modulepreload 없음)
+    expect(read('index.html')).not.toContain(voice[0] as string)
   })
 
   it('운영용 빌드다 (React 개발 모드 코드가 들어가지 않는다)', () => {
