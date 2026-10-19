@@ -11,7 +11,7 @@
 | `parser/chat.yaml` | 채팅 메시지 → 주문/취소/언급 (R-3) |
 | `parser/amount.yaml` | 한글·숫자 금액 → 원 (빠른 입력·음성 공용), 한글 수사 → 정수 |
 | `parser/quick-input.yaml` | 빠른 입력 한 줄 → 번호·품종·가격 |
-| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13). `08-time.yaml`은 시각 해석(D-022, D-023), `09-host-and-product.yaml`은 방송자 조치·상품 명령 세부(S02, D-039~D-043·D-049). S03 보강: `10-sms.yaml` 문자찜 구매자(D-051), `11-received-time.yaml` 실제 시각순·역전·충돌·메시지 변환(D-052~D-054), `12-product-edit.yaml` 상품 수정·번호 변경(D-055·D-056), `13-merge-settlement.yaml` 구매자 합치기·정산(D-057·D-058) |
+| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13). `08-time.yaml`은 시각 해석(D-022, D-023), `09-host-and-product.yaml`은 방송자 조치·상품 명령 세부(S02, D-039~D-043·D-049). S03 보강: `10-sms.yaml` 문자찜 구매자(D-051), `11-received-time.yaml` 실제 시각순·역전·충돌·메시지 변환(D-052~D-054), `12-product-edit.yaml` 상품 수정·번호 변경(D-055·D-056), `13-merge-settlement.yaml` 구매자 합치기·정산(D-057·D-058). S03b 보강: `14-core-cleanup.yaml` 전화번호 키·문자찜 재전송·메시지 변환·시청자 취소·충돌 중 배정·확정버전 순서·충돌이 풀릴 때 대기 넘침(D-061~D-068) |
 | `known-unimplemented.yaml` | **예약 파일.** 알려진 미구현 허용 목록 (D-020). 골든 시나리오가 아니다 |
 
 ## 러너가 읽는 범위 (D-020, D-021)
@@ -99,6 +99,7 @@ expect:
 | `products.<p>.price` / `priceHistory` | 현재 가격 / `[{from, to}]` 이력 |
 | `buyers.<b>.byBroadcast` | 방송별 상품 합계 `{ b1: 20000, ... }` |
 | `buyers.<b>.display` / `nameHistory` | 표시 이름 / 닉네임 이력 |
+| `buyers.<b>.phoneLast4` | 전화번호 뒤 4자리. 숫자 4자리 **문자열**(`"0000"`처럼 따옴표로 — 따옴표 없이 적어 정수가 되면 읽기 오류) 또는 `null` (S03b, D-061) |
 | `sameBuyer` | 같은 구매자로 이어져야 하는 키 묶음 `[[sms:s1, sms:s2]]` |
 | `claimCount` | 생성된 찜 수 (재수신·같은 사람 반복은 찜을 만들지 않음) |
 | `effectCounts` | 효과 종류별 정확한 개수 `{ POST_THANKS: 2 }` |
@@ -111,6 +112,8 @@ expect:
 **규칙**
 - `at`은 `HH:MM:SS[.mmm]` (KST, 방송 날짜 기준). 채팅의 `publishedAt`은 따로 적지 않으면 `at`과 같다.
 - 문자찜: `{ type: sms, b, ref: s1, no: 15, received: "20:01" | "20:01:05", memo?, phone? }` → 구매자 키 `sms:s1`.
+  - `phone`은 판매자가 적은 글자 그대로다. 엔진은 전화번호 원문을 받지 않으므로(DOMAIN_RULES R-1, D-061) 러너(코어 어댑터)가 서버가 할 일을 흉내 내 바꿔 넘긴다: 코어 `normalizePhone`으로 정규화해 휴대폰 번호 모양이 아니면 전화번호 없이, 모양이면 `phoneKey` = 정규화한 번호마다 다르고 같은 번호면 같은 결정적 불투명 키(번호 숫자를 그대로 담지 않는 16~128자 영문·숫자·`_`·`-`, 예: 테스트 전용 비밀 키의 HMAC-SHA256 base64url)와 `phoneLast4` = 정규화한 번호의 뒤 4자리를 넘긴다. `phone`은 엔진에 넘기지 않는다.
+  - 같은 `ref`를 다시 적으면 그 문자찜의 **재전송 사본**이다(채팅 메시지 ID의 재수신처럼, S03b, D-067). 사본은 다른 필드가 달라도 되고, 엔진은 아무 일도 하지 않아야 한다(INV-3·INV-12). 처음 것이 아무 일도 없었던 문자찜(모르는 지정 구매자)이어도 같다.
 - 방송자 조치: `{ type: host.cancel, b, no, buyer, reason }` 같은 식. 이름은 DOMAIN_RULES R-1과 같다.
 - 효과 실행 결과: `{ type: effect.labelPrinted, b, no, buyer }` / `{ type: effect.thanksSent, ... }`.
 - `expect`에 적은 것만 검사한다. 적지 않은 상품·구매자는 검사하지 않는다(단, 불변식은 항상 검사).
@@ -143,10 +146,10 @@ expect:
 | `product.update` | `b`, `no` | `name`, `price`, `stock`, `applyTo`(`NEW_ONLY` 기본 / `UNPAID_CLAIMS`) |
 | `product.renumber` | `b`, `from`, `to` | |
 | `chat` | `b`, `id`(메시지 ID), `ch`(채널 ID), `nick`, `text` | `owner`(불리언, 기본 false), `publishedAt` |
-| `sms` | `b`, `ref`(시나리오 안에서 유일), `no`, `received` | `memo`, `phone`, `buyer`(지정 구매자 키) |
+| `sms` | `b`, `ref`(영문·숫자·`_`·`-` 1~64자. 다시 적으면 재전송 사본, S03b), `no`, `received` | `memo`, `phone`(판매자가 적은 글자 그대로 — 러너가 `phoneKey`·`phoneLast4`로 바꿔 넘긴다, S03b), `buyer`(지정 구매자 키) |
 | `host.cancel` / `host.reject` / `host.promote` | `b`, `no`, `buyer`, `reason` | |
 | `host.confirm` / `host.approveCancel` / `host.dismissCancel` | `b`, `no`, `buyer` | `reason` |
-| `host.assign` | `b`, `no`, `buyer`, `reason` | `replace`(구매자 키 — 교체할 지금 1등), `replaceTo`(`WAITLIST`/`CANCEL`). 둘은 함께 쓴다(하나만 있으면 읽기 오류) |
+| `host.assign` | `b`, `no`, `buyer`, `reason` | `replace`(구매자 키 — 교체할 지금 1등), `replaceTo`(`WAITLIST`/`CANCEL`). 둘은 함께 쓴다(하나만 있으면 읽기 오류. 엔진에서도 입력 오류, D-065) |
 | `host.reopen` | `b`, `no`, `reason` | |
 | `host.resolveConflict` | `b`, `no`, `decision`(`KEEP`/`SWITCH`) | `reason` |
 | `host.convertMessage` | `b`, `msg`(메시지 ID), `no` | `reason` |
@@ -162,7 +165,7 @@ expect:
 | `assert` | `expect` | (`at` 없음, `seq` 없음) |
 
 - R-1의 나머지(`effect.failed`, `broadcast.start`/`end`, 포장·배송 상태)는 처음 쓰는 스프린트에서 spec-keeper가 이 표에 추가한다. (`host.assign`·`host.reopen`·`host.dismissCancel`은 S02에서 추가 — D-041~D-043)
-- **이벤트 안의 구매자 키** (S03, D-057): `buyer.merge`의 `from`·`into`, `buyer.unmerge`의 `from`은 그 키의 구매자 자신(합치기 전)을 가리킨다. 그 밖의 이벤트(`host.*`의 `buyer`·`replace`, `sms`의 `buyer`, `settlement.*`의 `buyer`)도 그 키의 구매자 자신으로 엔진에 넘기고, 엔진이 지금의 구매자(합친 결과)로 풀어 판정·대상 찾기를 한다. `sms:<ref>`는 그 `ref`의 문자찜이 정한 구매자다(지정 구매자, 같은 전화번호로 이어진 구매자, 새 문자 구매자 — DOMAIN_RULES R-11). 키를 구매자 ID로 바꾸는 일은 코어 어댑터가 한다. 이벤트 전체가 아무 일도 없었던 문자찜(모르는 지정 구매자)의 `sms:<ref>`는 풀리지 않는다.
+- **이벤트 안의 구매자 키** (S03, D-057): `buyer.merge`의 `from`·`into`, `buyer.unmerge`의 `from`은 그 키의 구매자 자신(합치기 전)을 가리킨다. 그 밖의 이벤트(`host.*`의 `buyer`·`replace`, `sms`의 `buyer`, `settlement.*`의 `buyer`)도 그 키의 구매자 자신으로 엔진에 넘기고, 엔진이 지금의 구매자(합친 결과)로 풀어 판정·대상 찾기를 한다. `sms:<ref>`는 그 `ref`의 문자찜이 정한 구매자다(지정 구매자, 같은 전화번호로 이어진 구매자, 새 문자 구매자 — DOMAIN_RULES R-11). 키를 구매자 ID로 바꾸는 일은 코어 어댑터가 한다. 이벤트 전체가 아무 일도 없었던 문자찜(모르는 지정 구매자)의 `sms:<ref>`는 풀리지 않는다. 같은 `ref`의 재전송 사본이 있으면 `sms:<ref>`는 그 `ref`의 처음 문자찜으로 정한다(사본은 아무것도 바꾸지 않는다, D-067).
 - 효과 보고(`effect.labelPrinted` / `effect.thanksSent`)는 그 (상품, 구매자[, 대상])의 가장 최근에 나온, 취소되지 않은 해당 효과의 실행 완료로 본다. 상품 키는 효과가 나온 때의 키, 구매자는 지금의 구매자로 풀어 비교한다(S03). 그런 효과가 없으면 러너 오류. 엔진에는 그 효과의 ID로 넘긴다(R-13 "효과 보고" — 바꾸는 일은 코어 어댑터가 한다). 이미 실행 완료된 효과도 "취소되지 않은" 효과이므로 같은 보고를 두 번 적을 수 있다(두 번째는 아무 일도 없어야 한다, INV-11).
 
 ## 설정 키 (형식 계약)
@@ -187,6 +190,7 @@ expect:
 | └ `subtotal` | 확정 찜 가격 스냅샷의 합 |
 | └ `byBroadcast` | 방송별 합계. 확정 찜이 있는 방송 전부와 정확히 같음 |
 | └ `display` / `nameHistory` | 표시 이름 / 닉네임이 바뀔 때마다 쌓인 목록(처음 것 포함, 시간순, 연속 중복 없음) |
+| └ `phoneLast4` | 지금의 구매자 자신의 전화번호 뒤 4자리(숫자 4자리 문자열). 그 구매자를 만든 문자찜의 `phoneLast4`이고, 유튜브 구매자와 전화번호 없이 만든 문자 구매자는 `null` (S03b, D-061) |
 | `settlements.<키>@<날짜>` | (구매자, 날짜) 정산 묶음. 키는 지금의 구매자로 푼다. 품목도 입금·환불 기록도 없는 묶음은 금액 전부 0, `payment: UNPAID`. 품목이 없어도 받은 금액이 있으면 엔진이 그 묶음을 보여 준다(최종 0, 과입금 — DOMAIN_RULES R-12, D-058) |
 | └ `subtotal`·`shipping`·`adjustments`·`total`·`refundDue` | 정수 원. `refundDue`는 `OVERPAID`일 때 차액, 아니면 0 |
 | └ `payment` | `UNPAID`·`PARTIAL`·`PAID`·`OVERPAID` |
@@ -201,4 +205,4 @@ expect:
 
 **열거값**: 찜 상태 `PENDING`·`CONFIRMED`·`WAITLISTED`·`REJECTED`·`CANCELLED`·`CONFLICT`·`DUPLICATE` / 거절 사유 `BLOCKED`·`UNOPENED`·`NOT_ON_SALE`·`SOLD_OUT`·`EXPIRED`·`WAITLIST_CLEARED`·`BY_HOST`·`RENUMBERED` / 효과 `PRINT_PRODUCT_LABEL`·`PRINT_PACKING_LABEL`·`POST_THANKS`·`VOID_LABEL`·`NOTIFY` / 대상 `LIVE_CHAT`·`VIDEO_COMMENT`.
 
-**구매자 키**: `sms:`로 시작하지 않으면 유튜브 채널 ID, `sms:<ref>`는 그 `ref`의 문자찜이 만든(또는 `buyer`로 지정한) 구매자. 상품 키 `<방송>/<번호>`의 방송은 선언된 방송이어야 한다.
+**구매자 키**: `sms:`로 시작하지 않으면 유튜브 채널 ID, `sms:<ref>`는 그 `ref`의 (처음) 문자찜이 만든(또는 `buyer`로 지정한, 같은 전화번호로 이은) 구매자. 상품 키 `<방송>/<번호>`의 방송은 선언된 방송이어야 한다.
