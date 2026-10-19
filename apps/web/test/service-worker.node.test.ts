@@ -14,8 +14,10 @@ class FakeCache implements SwCache {
   async addAll(requests: string[]): Promise<void> {
     for (const url of requests) this.store.set(new URL(url, ORIGIN).pathname, new Response(`저장한 ${url}`))
   }
-  async match(request: Request | string): Promise<Response | undefined> {
+  /** 브라우저 Cache처럼: Vary를 무시하라고 하지 않으면 crossorigin(Origin 머리) 요청은 저장한 것과 맞지 않는다 */
+  async match(request: Request | string, options: { ignoreVary?: boolean } = {}): Promise<Response | undefined> {
     const url = typeof request === 'string' ? new URL(request, ORIGIN) : new URL(request.url)
+    if (options.ignoreVary !== true && typeof request !== 'string') return undefined
     return this.store.get(url.pathname)?.clone()
   }
 }
@@ -92,13 +94,17 @@ describe('서비스 워커', () => {
     expect(network).toBe(0)
   })
 
-  it('껍데기 파일은 저장한 것 먼저', async () => {
+  it('껍데기 파일은 저장한 것 먼저 — crossorigin 요청(Vary: Origin)이어도 주소로 찾아 끊겨도 뜬다', async () => {
+    let online = true
     let network = 0
     const sw = await installed(async () => {
       network++
+      if (!online) throw new TypeError('Failed to fetch')
       return new Response('네트워크')
     })
     expect(await (await fetchEvent(sw.dispatch, `${ORIGIN}/assets/index-abc.js`))?.text()).toBe('저장한 /assets/index-abc.js')
+    online = false
+    expect(await (await fetchEvent(sw.dispatch, `${ORIGIN}/assets/index-abc.css`))?.text()).toBe('저장한 /assets/index-abc.css')
     expect(network).toBe(0)
   })
 
