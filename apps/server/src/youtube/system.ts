@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto'
 import type { Db } from '../db/database.ts'
 import { errorKind, type LogSink } from '../log.ts'
 import type { Service } from '../service.ts'
-import { findBroadcast, scopeSealedAt, type BroadcastRow } from '../store.ts'
+import { findBroadcast, scopeRow, scopeSealedAt, type BroadcastRow } from '../store.ts'
 import { uniqueViolation, type CommittedRecord, type ScopeWriter } from '../writer.ts'
 import { CollectorManager, collectorView, noticeView, type CollectorHooks, type CollectorView, type NoticeView } from './collector.ts'
 import { YoutubeAccessError, YoutubeConnections, googleFields, type ConnectionView, type SessionInfo } from './connect.ts'
@@ -275,8 +275,7 @@ export class YoutubeSystem {
   }
 
   async #sealed(sellerId: string, row: BroadcastRow): Promise<boolean> {
-    const runtime = await this.#options.writer.read(sellerId, row.date, row.rehearsal)
-    return runtime.scopeId !== null && (await scopeSealedAt(this.#options.db, sellerId, runtime.scopeId)) !== null
+    return (await scopeRow(this.#options.db, sellerId, row.date, row.rehearsal))?.sealedAt != null
   }
 
   /**
@@ -316,12 +315,12 @@ export class YoutubeSystem {
     if ((content !== 'live' && content !== 'upcoming') || typeof liveChatId !== 'string' || liveChatId === '') return { kind: 'rejected', status: 409, code: 'NO_LIVE_CHAT' }
     const others = (await openLinksForVideo(db, sellerId, [videoId])).filter((other) => other.broadcastId !== b)
     if (others.length > 0) return { kind: 'rejected', status: 409, code: 'VIDEO_IN_USE' }
-    const runtime = await this.#options.writer.read(sellerId, row.date, false)
-    if (runtime.scopeId === null) return { kind: 'not_found' }
+    const scope = await scopeRow(db, sellerId, row.date, false)
+    if (scope === null) return { kind: 'not_found' }
     const id = `yl_${randomBytes(12).toString('base64url')}`
     try {
       await db.transaction(async (tx) => {
-        await insertLink(tx, { id, sellerId, scopeId: runtime.scopeId as string, broadcastId: b, videoId, liveChatId, channelId: connection.channel?.id ?? '', linkedBy: session.accountId, requestId, now: new Date(timer.now()) })
+        await insertLink(tx, { id, sellerId, scopeId: scope.id, broadcastId: b, videoId, liveChatId, channelId: connection.channel?.id ?? '', linkedBy: session.accountId, requestId, now: new Date(timer.now()) })
       })
     } catch (error) {
       const constraint = uniqueViolation(error)

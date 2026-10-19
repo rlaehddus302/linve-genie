@@ -206,10 +206,9 @@ export function registerYoutubeRoutes(api: Hono<Env>, deps: YoutubeRouteDeps): v
   })
 }
 
-/** 실제 범위 ID (없으면 null) */
+/** 실제 범위 ID (없으면 null) — 범위 상태를 불러오지 않는다(봉인한 범위도) */
 async function scopeIdOf(service: Service, sellerId: string, date: string): Promise<string | null> {
-  const runtime = await service.writer.read(sellerId, date, false)
-  return runtime.scopeId
+  return (await service.sealed(sellerId, date, false))?.scopeId ?? (await service.scopeId(sellerId, date))
 }
 
 export { CALLBACK_MESSAGES }

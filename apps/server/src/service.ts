@@ -709,6 +709,11 @@ export class Service {
     })
   }
 
+  /** 실제 범위 ID (없으면 null) */
+  scopeId(sellerId: string, date: string): Promise<string | null> {
+    return findScopeId(this.#options.db, sellerId, date, false)
+  }
+
   /** 봉인한 범위면 그 장부 정보 (AC-Y1-62) */
   async sealed(sellerId: string, date: string, rehearsal = false): Promise<{ scopeId: string; ledger: string | null } | null> {
     if (rehearsal) return null

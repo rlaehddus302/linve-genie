@@ -178,6 +178,16 @@ export async function findScopeId(db: Db, sellerId: string, date: string, rehear
   return rows[0]?.id ?? null
 }
 
+/** 범위 행 (ID·지금 seq·봉인 시각) — 없으면 null */
+export async function scopeRow(db: Db, sellerId: string, date: string, rehearsal = false): Promise<{ id: string; seq: number; sealedAt: Date | null } | null> {
+  const rows = await db
+    .select({ id: scopes.id, seq: scopes.seq, sealedAt: scopes.sealedAt })
+    .from(scopes)
+    .where(and(eq(scopes.sellerId, sellerId), eq(scopes.date, date), eq(scopes.rehearsal, rehearsal)))
+    .limit(1)
+  return rows[0] ?? null
+}
+
 /** 범위 행을 만든다 (이미 있으면 그대로). 범위 ID를 돌려준다 */
 export async function ensureScope(db: Db, sellerId: string, date: string, rehearsal: boolean, newId: string, now: Date): Promise<string> {
   await db
