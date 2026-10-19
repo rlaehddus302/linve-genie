@@ -137,6 +137,8 @@ export class ConsoleStore {
   #failures = 0
   /** 다음 다시 시도는 전체 조회 (410 뒤 전체 다시 받기가 실패) */
   #needFull = false
+  /** 전체를 다시 받은 뒤 아직 증분을 한 번도 받지 못했다 (그사이 또 410이면 바로 다시 받지 않고 간격을 둔다 — 끝없이 돌지 않게) */
+  #justReloaded = false
   /** SSE가 알려 준 그 범위의 가장 큰 seq */
   #notified = 0
   /** 생성기 상태가 바뀐 횟수 (늦게 온 조회 결과가 새 상태를 덮지 않게) */
@@ -272,6 +274,7 @@ export class ConsoleStore {
     this.#loading = true
     try {
       await this.#loadAll()
+      this.#justReloaded = true
       this.#recovered()
     } catch (error) {
       if (!isApiError(error)) throw error
@@ -427,7 +430,8 @@ export class ConsoleStore {
     } catch (error) {
       if (!isApiError(error)) throw error
       if (error.code === 'RESYNC_REQUIRED') {
-        await this.#reload()
+        if (this.#justReloaded) this.#failed(true)
+        else await this.#reload()
         return
       }
       if (error.status !== 401) this.#failed(false)
@@ -438,6 +442,7 @@ export class ConsoleStore {
       this.#again = true
       return
     }
+    this.#justReloaded = false
     const next = applyChanges(current, changes)
     if (!this.#withMessages || this.broadcastId === null) {
       this.#set({ data: next })

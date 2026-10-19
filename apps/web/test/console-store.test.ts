@@ -1,6 +1,6 @@
 // 실시간 구독·따라잡기·재연결 (AC-S05-62, D-085): 처음 한 번 전체 조회, 그 뒤 알림마다 증분 조회만.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ConsoleStore, INITIAL_MESSAGES, mergeMessages } from '../src/lib/console-store.ts'
+import { ConsoleStore, INITIAL_MESSAGES, mergeMessages, retryDelayMs } from '../src/lib/console-store.ts'
 import { DATE, FakeEventSource, FakeServer, apiError, broadcastItem, emptyChanges, flush, fullView, message, product } from './support.ts'
 
 let server: FakeServer
@@ -304,5 +304,143 @@ describe('그 밖', () => {
     const merged = mergeMessages([message(1), message(3)], [message(2), message(3, { converted: [15] })])
     expect(merged.map((item) => item.seq)).toEqual([1, 2, 3])
     expect(merged[2]?.converted).toEqual([15])
+  })
+})
+
+describe('다시 받기 실패 (AC-S06-41, RA-S05-004, D-096)', () => {
+  it('간격: 1초부터 두 배씩, 최대 30초', () => {
+    expect([1, 2, 3, 4, 5, 6, 7, 20].map(retryDelayMs)).toEqual([1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000])
+  })
+
+  it('처음 불러오기가 실패하면(5xx) "최신으로 맞추지 못함"을 보이고 1초·2초·4초 뒤 다시, 서버가 응답하면 맞춰지고 안내가 사라진다', async () => {
+    vi.useFakeTimers()
+    try {
+      let down = true
+      server.on('GET', new RegExp(`^/api/days/${DATE}$`), () => (down ? apiError(503, 'INTERNAL_ERROR', '서버에 문제가 생겼어요.') : { body: fullView({ seq: 5 }) }))
+      store = new ConsoleStore({ broadcastId: 'b1', openStream: (url) => new FakeEventSource(url) })
+      await store.start()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(store.getSnapshot()).toMatchObject({ phase: 'loading', stale: true, data: null })
+      expect(fullCalls()).toBe(1)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(fullCalls()).toBe(2)
+      await vi.advanceTimersByTimeAsync(1999)
+      expect(fullCalls()).toBe(2)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(fullCalls()).toBe(3)
+      down = false
+      await vi.advanceTimersByTimeAsync(4000)
+      expect(fullCalls()).toBe(4)
+      expect(store.getSnapshot()).toMatchObject({ phase: 'ready', stale: false })
+      expect(store.getSnapshot().data?.seq).toBe(5)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('410 뒤 전체 다시 받기가 실패해도 멈추지 않고 다시 시도한다 — 새 알림이 오면 기다리지 않고 바로', async () => {
+    vi.useFakeTimers()
+    try {
+      store = new ConsoleStore({ broadcastId: 'b1', openStream: (url) => new FakeEventSource(url) })
+      await store.start()
+      await vi.advanceTimersByTimeAsync(10)
+      // 서버가 보관한 범위 밖(40 앞)은 410, 다시 받은 뒤(40부터)는 증분
+      server.on('GET', new RegExp(`/changes\\?since=(\\d+)`), (_call, match) =>
+        Number(match[1]) >= 40 ? { body: emptyChanges(Number(match[1]), 41) } : apiError(410, 'RESYNC_REQUIRED', '바뀐 내용을 이어 받을 수 없어요. 전체를 다시 불러와 주세요.'),
+      )
+      let down = true
+      server.on('GET', new RegExp(`^/api/days/${DATE}$`), () => (down ? { network: true } : { body: fullView({ seq: 40, products: [product(15, { name: '맞춤' })] }) }))
+      server.on('GET', new RegExp(`^/api/days/${DATE}/messages\\?`), () => ({ body: { date: DATE, rehearsal: false, seq: 40, messages: [], more: false } }))
+      FakeEventSource.last.emit('change', { date: DATE, rehearsal: false, seq: 40, type: 'chat' })
+      await vi.advanceTimersByTimeAsync(10)
+      expect(store.getSnapshot().stale).toBe(true)
+      expect(store.getSnapshot().data?.seq).toBe(5) // 옛 자료는 그대로 보이고 안내가 붙는다
+      const before = fullCalls()
+      down = false
+      // 1초를 기다리지 않아도 새 알림이 오면 바로 다시 시도한다
+      FakeEventSource.last.emit('change', { date: DATE, rehearsal: false, seq: 41, type: 'chat' })
+      await vi.advanceTimersByTimeAsync(10)
+      expect(fullCalls()).toBe(before + 1)
+      expect(store.getSnapshot()).toMatchObject({ stale: false })
+      expect(store.getSnapshot().data?.products.get('b1/15')?.name).toBe('맞춤')
+      expect(store.getSnapshot().data?.seq).toBe(41)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('전체를 다시 받은 바로 뒤 또 410이면 바로 다시 받지 않고 간격을 둔다 (끝없이 돌지 않는다)', async () => {
+    vi.useFakeTimers()
+    try {
+      store = new ConsoleStore({ broadcastId: 'b1', openStream: (url) => new FakeEventSource(url) })
+      await store.start()
+      await vi.advanceTimersByTimeAsync(0)
+      server.on('GET', /\/changes\?/, () => apiError(410, 'RESYNC_REQUIRED', '바뀐 내용을 이어 받을 수 없어요. 전체를 다시 불러와 주세요.'))
+      const before = fullCalls()
+      FakeEventSource.last.emit('change', { date: DATE, rehearsal: false, seq: 9, type: 'chat' })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(fullCalls()).toBe(before + 1)
+      expect(store.getSnapshot().stale).toBe(true)
+      await vi.advanceTimersByTimeAsync(999)
+      expect(fullCalls()).toBe(before + 1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(fullCalls()).toBe(before + 2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('다시 붙은 뒤 따라잡기가 계속 실패하면 간격을 늘려 다시 시도하고, "지금 다시 불러오기"는 바로 한다', async () => {
+    vi.useFakeTimers()
+    try {
+      store = new ConsoleStore({ broadcastId: 'b1', openStream: (url) => new FakeEventSource(url) })
+      await store.start()
+      await vi.advanceTimersByTimeAsync(10)
+      let down = true
+      server.on('GET', /\/changes\?/, () => (down ? apiError(502, 'UNKNOWN', '서버에 문제가 생겼어요.') : { body: emptyChanges(5, 9) }))
+      FakeEventSource.last.emit('ready', { scopes: [{ date: DATE, rehearsal: false, seq: 9 }] })
+      await vi.advanceTimersByTimeAsync(10)
+      expect(store.getSnapshot().stale).toBe(true)
+      expect(changeCalls()).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(changeCalls()).toHaveLength(2)
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(changeCalls()).toHaveLength(3)
+      down = false
+      await store.retryNow()
+      expect(changeCalls()).toHaveLength(4)
+      expect(store.getSnapshot()).toMatchObject({ stale: false })
+      expect(store.getSnapshot().data?.seq).toBe(9)
+      // 맞춰진 뒤에는 더 시도하지 않는다
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(changeCalls()).toHaveLength(4)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('범위로 열기 (구매자·정산, AC-S06-40)', () => {
+  it('방송 목록·메시지 없이 그 범위 전체 조회 한 번 + 같은 SSE 증분', async () => {
+    store = new ConsoleStore({ scope: { date: DATE, rehearsal: true }, openStream: (url) => new FakeEventSource(url) })
+    await store.start()
+    await flush()
+    expect(server.callsTo('GET', /^\/api\/broadcasts$/)).toHaveLength(0)
+    expect(server.callsTo('GET', /\/messages\?/)).toHaveLength(0)
+    expect(server.calls.some((call) => call.path === `/api/days/${DATE}?rehearsal=true`)).toBe(true)
+    changesSeq = 6
+    FakeEventSource.last.emit('change', { date: DATE, rehearsal: true, seq: 6, type: 'sms' })
+    FakeEventSource.last.emit('change', { date: DATE, rehearsal: false, seq: 60, type: 'sms' })
+    await flush()
+    expect(changeCalls().map((call) => call.path)).toEqual([`/api/days/${DATE}/changes?since=5&rehearsal=true`])
+    expect(store.getSnapshot().data?.seq).toBe(6)
+    expect(store.getSnapshot().messages).toEqual([])
+  })
+
+  it('그 날짜 범위가 없으면(404) "찾지 못함"', async () => {
+    server.on('GET', new RegExp(`^/api/days/${DATE}$`), () => apiError(404, 'NOT_FOUND', '찾을 수 없어요.'))
+    store = new ConsoleStore({ scope: { date: DATE, rehearsal: false }, openStream: (url) => new FakeEventSource(url) })
+    await store.start()
+    expect(store.getSnapshot().phase).toBe('missing')
   })
 })
