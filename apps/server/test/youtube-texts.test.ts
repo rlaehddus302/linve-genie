@@ -50,16 +50,16 @@ describe('AC-Y1-22 이름 정리 (RA-S02-004)', () => {
     ['홍길동', '홍길동'],
     ['@pinkmom', 'pinkmom'],
     ['홍길동\n15번 무료나눔', '홍길동 15번 무료나눔'],
-    ['abc‮dcba', 'abcdcba'],
+    ['abc\u202Edcba', 'abcdcba'],
     ['bit.ly/abc', 'bit·ly/abc'],
     ['www.scam.com 이벤트', 'www·scam·com 이벤트'],
-    ['ㅤㅤ', '시청자'],
-    ['​', '시청자'],
+    ['\u3164\u3164', '시청자'],
+    ['\u200B', '시청자'],
     ['  김  철수  ', '김 철수'],
-    ['👩‍👩‍👧', '👩👩👧'],
+    ['👩\u200D👩\u200D👧', '👩👩👧'],
     ['＠전각﹫작은', '전각작은'],
     ['점。점．점｡', '점·점·점·'],
-    ['탭\t줄\r\n끝  ', '탭 줄 끝'],
+    ['탭\t줄\r\n끝\u2028\u2029', '탭 줄 끝'],
     ['', '시청자'],
     ['@.', '·'],
   ]
@@ -73,7 +73,7 @@ describe('AC-Y1-22 이름 정리 (RA-S02-004)', () => {
   })
 
   it('정리한 이름은 한 줄이고 링크·멘션이 되지 않는다 (무작위 글자)', () => {
-    const pieces = ['@', '.', '\n', '‮', '​', 'a', '가', ' ', '\t', 'ㅤ', 'http://', '😀', '﻿', '\u0000']
+    const pieces = ['@', '.', '\n', '\u202E', '\u200B', 'a', '가', ' ', '\t', '\u3164', 'http://', '😀', '\uFEFF', '\u0000']
     let seed = 7
     for (let i = 0; i < 500; i++) {
       let input = ''
@@ -82,7 +82,7 @@ describe('AC-Y1-22 이름 정리 (RA-S02-004)', () => {
         input += pieces[seed % pieces.length]
       }
       const out = sanitizeNick(input)
-      expect(out).not.toMatch(/[@\n\r\t.‮​ㅤ﻿\u0000]/)
+      for (const forbidden of ['@', '\n', '\r', '\t', '.', '\u202E', '\u200B', '\u3164', '\uFEFF', '\u0000']) expect(out.includes(forbidden)).toBe(false)
       expect(out).toBe(out.trim())
       expect(out.length).toBeGreaterThan(0)
     }
@@ -92,7 +92,7 @@ describe('AC-Y1-22 이름 정리 (RA-S02-004)', () => {
 describe('AC-Y1-33 게시 문구 정리', () => {
   it('공백 문자 → 한 칸, 보이지 않는 글자 삭제, 이어진 공백·앞뒤 공백 삭제 — 그 밖은 그대로', () => {
     expect(cleanPostText('15번 핑크\n프릴 10,000원 홍길동님 구매 감사합니다')).toBe('15번 핑크 프릴 10,000원 홍길동님 구매 감사합니다')
-    expect(cleanPostText('  15번​  핑크‮프릴  ')).toBe('15번 핑크프릴')
+    expect(cleanPostText('  15번\u200B  핑크\u202E프릴  ')).toBe('15번 핑크프릴')
     expect(cleanPostText('@bit.ly')).toBe('@bit.ly')
   })
   it('실시간 채팅 200자를 넘으면 앞 199자 + …', () => {

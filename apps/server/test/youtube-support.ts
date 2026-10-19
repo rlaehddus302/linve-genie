@@ -43,7 +43,7 @@ export async function youtubeWorld(options: { start?: number; overrides?: Partia
     youtube: config,
     instanceName: 'A',
     collectorTiming: { leaseMs: 20_000, renewMs: 5000, scanMs: 5000 },
-    ...options.overrides,
+    ...(options.overrides as Partial<ServerOptions> & { clock?: FakeClock }),
   })
   return { ...world, fake, timer, config }
 }
@@ -58,7 +58,7 @@ export function sibling(world: YoutubeWorld, name: string, overrides: Partial<Se
     instanceName: name,
     collectorTiming: { leaseMs: 20_000, renewMs: 5000, scanMs: 5000 },
     log: (record) => logs.push(record),
-    ...overrides,
+    ...(overrides as Partial<ServerOptions> & { clock?: FakeClock }),
   })
   return { ...other, logs, fake: world.fake, timer: world.timer, config: world.config }
 }
