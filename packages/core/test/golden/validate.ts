@@ -12,6 +12,11 @@ import {
   EFFECT_KINDS,
   EVENT_SPECS,
   EXPECT_KEYS,
+  MERGE_BLOCK_REASONS,
+  MERGE_DUPLICATE_EXPECT_KEYS,
+  MERGE_DUPLICATE_STATUSES,
+  MERGE_ITEMS_EXPECT_KEYS,
+  MERGE_PREVIEW_EXPECT_KEYS,
   PAYMENT_STATUSES,
   PRODUCT_EXPECT_KEYS,
   PRODUCT_KEY_RE,
@@ -40,6 +45,8 @@ import {
   type ClaimStatus,
   type EffectKind,
   type FieldKind,
+  type MergeBlockReason,
+  type MergeDuplicateStatus,
   type PaymentStatus,
   type ProductStatus,
   type RejectReason,
@@ -104,6 +111,22 @@ export interface BroadcastExpect {
   readonly ended?: boolean
 }
 
+export interface MergeItemsExpect {
+  readonly items?: readonly string[]
+  readonly subtotal?: number
+}
+
+/** `mergePreviews` 항목 (S06b, D-100). from·into는 구매자 키(러너가 구매자 자신으로 푼다), 나머지는 적은 것만 비교 */
+export interface MergePreviewExpect {
+  readonly from: string
+  readonly into: string
+  readonly blocked?: MergeBlockReason | null
+  readonly bothConfirmed?: readonly string[]
+  readonly moving?: MergeItemsExpect
+  readonly after?: MergeItemsExpect | null
+  readonly duplicates?: readonly { readonly product: string; readonly buyer: string; readonly status: MergeDuplicateStatus }[]
+}
+
 export interface Expect {
   readonly broadcasts?: Readonly<Record<string, BroadcastExpect>>
   readonly products?: Readonly<Record<string, ProductExpect>>
@@ -117,6 +140,7 @@ export interface Expect {
   readonly sameBuyer?: readonly (readonly string[])[]
   readonly claimCount?: number
   readonly cancelRequests?: readonly { readonly product: string; readonly buyer: string }[]
+  readonly mergePreviews?: readonly MergePreviewExpect[]
 }
 
 export interface ParserCase {
@@ -278,6 +302,50 @@ function checkEffectEntry(c: Checker, ctx: ScenarioContext, path: readonly PathS
   if (hasValue(value, 'confirmVersion')) c.value([...path, 'confirmVersion'], value.confirmVersion, intAtLeast(1))
 }
 
+/**
+ * `mergePreviews[i].from`·`into` (README `mergePreviews` 비교 규칙): 구매자 키이고 판매자가 적는 ID 칸이다 — 휴대폰 번호면 읽기 오류(notPhoneId).
+ * 엔진이 모르는 구매자도 적을 수 있다: 이벤트에 나온 적 없는 채널, 구매자를 정하지 않은 `sms:<ref>`(모르는 지정 구매자·없는 ref)는 키 그대로 넘긴다.
+ */
+function checkPreviewBuyer(c: Checker, path: readonly PathSegment[], value: unknown): void {
+  if (typeof value !== 'string' || value === '' || value.trim() !== value) {
+    c.fail(path, `구매자 키는 앞뒤 공백 없는 문자열이어야 한다 (값: ${showValue(value)})`)
+    return
+  }
+  c.value(path, value, notPhoneId)
+}
+
+function checkMergeItems(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], value: unknown): void {
+  if (!c.object(path, value)) return
+  c.keys(path, value, MERGE_ITEMS_EXPECT_KEYS, [], '합치기 미리 보기 찜 키')
+  if (hasValue(value, 'items') && c.array([...path, 'items'], value.items)) {
+    value.items.forEach((item, i) => checkProductKey(c, ctx, [...path, 'items', i], item))
+  }
+  if (hasValue(value, 'subtotal')) c.value([...path, 'subtotal'], value.subtotal, intAtLeast(0))
+}
+
+function checkMergePreview(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], value: unknown): void {
+  if (!c.object(path, value)) return
+  c.keys(path, value, MERGE_PREVIEW_EXPECT_KEYS, ['from', 'into'], '합치기 미리 보기 키')
+  if (hasValue(value, 'from')) checkPreviewBuyer(c, [...path, 'from'], value.from)
+  if (hasValue(value, 'into')) checkPreviewBuyer(c, [...path, 'into'], value.into)
+  if (hasValue(value, 'blocked') && value.blocked !== null) c.value([...path, 'blocked'], value.blocked, oneOf(MERGE_BLOCK_REASONS))
+  if (hasValue(value, 'bothConfirmed') && c.array([...path, 'bothConfirmed'], value.bothConfirmed)) {
+    value.bothConfirmed.forEach((item, i) => checkProductKey(c, ctx, [...path, 'bothConfirmed', i], item))
+  }
+  if (hasValue(value, 'moving')) checkMergeItems(c, ctx, [...path, 'moving'], value.moving)
+  if (hasValue(value, 'after') && value.after !== null) checkMergeItems(c, ctx, [...path, 'after'], value.after)
+  if (hasValue(value, 'duplicates') && c.array([...path, 'duplicates'], value.duplicates)) {
+    value.duplicates.forEach((entry, i) => {
+      const ep = [...path, 'duplicates', i]
+      if (!c.object(ep, entry)) return
+      c.keys(ep, entry, MERGE_DUPLICATE_EXPECT_KEYS, MERGE_DUPLICATE_EXPECT_KEYS, '중복 찜 키')
+      if (hasValue(entry, 'product')) checkProductKey(c, ctx, [...ep, 'product'], entry.product)
+      if (hasValue(entry, 'buyer')) checkBuyerKey(c, ctx, [...ep, 'buyer'], entry.buyer)
+      if (hasValue(entry, 'status')) c.value([...ep, 'status'], entry.status, oneOf(MERGE_DUPLICATE_STATUSES))
+    })
+  }
+}
+
 function checkExpect(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], value: unknown): void {
   if (!c.object(path, value)) return
   c.keys(path, value, EXPECT_KEYS, [], 'expect 키')
@@ -435,6 +503,11 @@ function checkExpect(c: Checker, ctx: ScenarioContext, path: readonly PathSegmen
         if (hasValue(entry, 'buyer')) checkBuyerKey(c, ctx, [...ep, 'buyer'], entry.buyer)
       })
     }
+  }
+
+  if (hasValue(value, 'mergePreviews')) {
+    const p = [...path, 'mergePreviews']
+    if (c.array(p, value.mergePreviews)) value.mergePreviews.forEach((entry, i) => checkMergePreview(c, ctx, [...p, i], entry))
   }
 }
 

@@ -1,11 +1,11 @@
 // 골든 러너 본체 (README "러너가 읽는 범위"·"결과 상태", D-020, D-021, NFR-02).
 // 입력은 파일 내용(문자열)과 코어(GoldenCore)뿐이다. 파일 시스템·환경변수·명령행을 보지 않는다.
-import { isNotImplemented } from '@livejjim/core'
+import { NotImplementedError, isNotImplemented } from '@livejjim/core'
 import { EMPTY_ALLOWLIST, readAllowlist, type Allowlist } from './allowlist.ts'
 import { SCENARIO_ID_RE, SUITES, isPlainObject, type SuiteName } from './contract.ts'
-import { compareExpect, compareParserOutput } from './compare.ts'
+import { buyerSelfOf, compareExpect, compareParserOutput } from './compare.ts'
 import { SerializationError, stableSerialize } from './serialize.ts'
-import { snapshotIssues } from './snapshot-check.ts'
+import { mergePreviewIssues, snapshotIssues } from './snapshot-check.ts'
 import type {
   FileSummary,
   GoldenCore,
@@ -15,6 +15,7 @@ import type {
   GoldenSnapshot,
   GoldenTotals,
   ItemResult,
+  MergePreviewView,
   ItemStatus,
   Problem,
   ReadError,
@@ -150,10 +151,34 @@ function runScenarioOnce(engine: GoldenEngineCore, doc: ScenarioDoc): Trace {
     }
     let snapshot: GoldenSnapshot | undefined
     const observe = (at: string | undefined): GoldenSnapshot => (snapshot ??= look(at))
+    /**
+     * expect의 mergePreviews 항목마다 그 시점 상태로 코어 previewMerge를 부른다 (S06b, D-100).
+     * from·into는 구매자 자신으로 풀어 넘긴다(풀리지 않는 키는 그대로). 상태를 바꾸면·결과 형식이 틀리면 러너 오류.
+     * 결과는 결정성 검사(두 번 실행)에 넣는다. 코어에 그 조회가 없으면 미구현.
+     */
+    const previewsFor = (expect: ScenarioDoc['expect'], seen: GoldenSnapshot, at: string): MergePreviewView[] | undefined => {
+      const items = expect.mergePreviews
+      if (items === undefined) return undefined
+      if (items.length > 0 && engine.previewMerge === undefined) throw new NotImplementedError('합치기 미리 보기(previewMerge, S06b)')
+      const views = items.map((item, i) => {
+        const view = (engine.previewMerge as NonNullable<GoldenEngineCore['previewMerge']>).call(engine, state, buyerSelfOf(seen, item.from), buyerSelfOf(seen, item.into))
+        if (stableSerialize(state) !== stateText) {
+          throw new RunnerFailure(`합치기 미리 보기(mergePreviews[${i}])가 넘겨받은 상태를 제자리에서 바꿨다 — 미리 보기는 상태를 바꾸지 않는 조회다 (D-100, RA-S00-001)`, at)
+        }
+        const issues = mergePreviewIssues(view, `mergePreviews[${i}]`)
+        if (issues.length > 0) {
+          throw new RunnerFailure(`합치기 미리 보기 결과 형식 오류 ${issues.length}건: ${issues.slice(0, 5).join(' · ')}${issues.length > 5 ? ' …' : ''}`, at)
+        }
+        return view
+      })
+      steps.push({ where: `${at} mergePreviews`, serialized: stableSerialize(views) })
+      return views
+    }
     const compare = (expect: ScenarioDoc['expect'], at: string | undefined): Problem[] => {
       const seen = observe(at ?? FINAL_EXPECT)
+      const mergePreviews = previewsFor(expect, seen, at ?? FINAL_EXPECT)
       try {
-        return compareExpect(expect, seen, at)
+        return compareExpect(expect, seen, at, mergePreviews === undefined ? {} : { mergePreviews })
       } catch (error) {
         throw new RunnerFailure(`관찰 스냅샷 비교 중 예외 (스냅샷 형식 오류?): ${describeError(error)}`, at)
       }

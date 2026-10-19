@@ -653,15 +653,16 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
   })
 })
 
-describe('실제 tests/golden 전체를 실제 코어로 (AC-S06-95 합계)', () => {
-  it('파일 21 · 파서 379 · 엔진 119 · 통과 498, 나머지 0', () => {
+// S06b: 골든이 늘어서 하는 교체(AC-S06b-50) — 파일 21 · 엔진 119 · 통과 498 → 파일 23 · 엔진 123 · 통과 502 (19·20번 파일, G-ENG-174~177)
+describe('실제 tests/golden 전체를 실제 코어로 (AC-S06b-50 합계)', () => {
+  it('파일 23 · 파서 379 · 엔진 123 · 통과 502, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
-      files: 21,
+      files: 23,
       parserCases: 379,
-      scenarios: 119,
-      pass: 498,
+      scenarios: 123,
+      pass: 502,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,

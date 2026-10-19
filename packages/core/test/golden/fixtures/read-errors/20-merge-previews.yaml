@@ -1,0 +1,30 @@
+# 범주 20: 합치기 미리 보기 검사 키 mergePreviews (S06b, D-100 — README "expect 비교 규칙"의 mergePreviews)
+# - 항목은 맵, from·into 필수(구매자 키 — ID 칸이라 휴대폰 번호면 읽기 오류, 엔진이 모르는 키·없는 ref는 받는다)
+# - 표에 없는 키, 열거값 밖의 blocked·duplicates[].status, 정수가 아닌 subtotal, 선언하지 않은 방송의 상품 키
+# - duplicates[].buyer는 다른 expect 키처럼 시나리오의 구매자 키여야 한다(없는 ref는 읽기 오류)
+id: G-ENG-901
+title: 합치기 미리 보기 형식 오류
+refs: [R-11, D-100]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "안녕" }
+  - type: assert
+    expect:
+      mergePreviews:
+        - 맵이 아닌 항목
+        - { into: UC_A }
+        - { from: UC_A }
+        - { from: UC_A, into: UC_B, note: 메모 }
+        - { from: UC_A, into: UC_B, blocked: MERGED }
+        - { from: "010-5151-6161", into: UC_B }
+        - { from: UC_A, into: "01051516162" }
+        - { from: UC_A, into: UC_B, moving: { items: [], subtotal: 1.5 } }
+        - { from: UC_A, into: UC_B, after: { items: [b9/1], total: 0 } }
+        - { from: UC_A, into: UC_B, duplicates: [{ product: b1/1, buyer: UC_A, status: CONFIRMED }] }
+        - { from: UC_A, into: UC_B, duplicates: [{ product: b1/1, buyer: UC_A }] }
+        - { from: UC_A, into: UC_B, bothConfirmed: b1/1 }
+        - { from: "", into: UC_B }
+        - { from: "sms:zz", into: UC_Z, duplicates: [{ product: b1/1, buyer: "sms:zz", status: PENDING }] }
+        - { from: UC_A, into: UC_B, blocked: null, after: null, bothConfirmed: [], duplicates: [] }
+expect:
+  mergePreviews: { from: UC_A, into: UC_B }

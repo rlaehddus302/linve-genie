@@ -274,6 +274,7 @@ export const EXPECT_KEYS = [
   'claimCount',
   'cancelRequests',
   'broadcasts',
+  'mergePreviews',
 ] as const
 export const PRODUCT_EXPECT_KEYS = ['status', 'winner', 'winners', 'waitlist', 'conflict', 'exists', 'price', 'priceHistory'] as const
 export const BUYER_EXPECT_KEYS = ['items', 'subtotal', 'byBroadcast', 'display', 'nameHistory', 'phoneLast4'] as const
@@ -282,6 +283,19 @@ export const EFFECT_EXPECT_KEYS = ['kind', 'target', 'product', 'buyer', 'text',
 export const CLAIM_EXPECT_KEYS = ['product', 'buyer', 'status', 'reason'] as const
 /** `broadcasts.<b>` (S04, D-070) */
 export const BROADCAST_EXPECT_KEYS = ['date', 'title', 'ended'] as const
+/** `mergePreviews` 항목 (S06b, D-100). from·into는 필수 */
+export const MERGE_PREVIEW_EXPECT_KEYS = ['from', 'into', 'blocked', 'bothConfirmed', 'moving', 'after', 'duplicates'] as const
+/** `mergePreviews[i].moving`·`after` */
+export const MERGE_ITEMS_EXPECT_KEYS = ['items', 'subtotal'] as const
+/** `mergePreviews[i].duplicates[j]` — 셋 다 필수 */
+export const MERGE_DUPLICATE_EXPECT_KEYS = ['product', 'buyer', 'status'] as const
+/** 합치기 막힘 이유, 위에서부터 처음 맞는 것 (README `mergePreviews` 비교 규칙, R-11) */
+export const MERGE_BLOCK_REASONS = ['UNKNOWN_BUYER', 'SAME_BUYER', 'FROM_MERGED', 'CYCLE', 'BOTH_CONFIRMED'] as const
+/** 합치면 DUPLICATE가 될 찜의 지금 상태 — 확정 찜은 중복이 되지 않는다 */
+export const MERGE_DUPLICATE_STATUSES = ['CONFLICT', 'WAITLISTED', 'PENDING'] as const
+
+export type MergeBlockReason = (typeof MERGE_BLOCK_REASONS)[number]
+export type MergeDuplicateStatus = (typeof MERGE_DUPLICATE_STATUSES)[number]
 
 /** 품목이 없는(엔진이 보고하지 않은) 정산 묶음 (README: 금액 전부 0, UNPAID) */
 export const EMPTY_SETTLEMENT = {

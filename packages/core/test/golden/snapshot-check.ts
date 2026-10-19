@@ -5,6 +5,8 @@ import {
   BROADCAST_ID_RE,
   CLAIM_STATUSES,
   EFFECT_KINDS,
+  MERGE_BLOCK_REASONS,
+  MERGE_DUPLICATE_STATUSES,
   PAYMENT_STATUSES,
   PRODUCT_KEY_RE,
   PRODUCT_STATUSES,
@@ -16,6 +18,12 @@ import {
 import { parseDate } from './time.ts'
 
 export const SNAPSHOT_KEYS = ['buyerKeys', 'broadcasts', 'products', 'buyers', 'settlements', 'effects', 'claims', 'pending', 'cancelRequests'] as const
+/** 있어도 되는 최상위 키 (S06b — 구매자 키 → 구매자 자신의 ID) */
+export const OPTIONAL_SNAPSHOT_KEYS = ['buyerSelf'] as const
+/** 합치기 미리 보기 결과의 키 (S06b, D-100) */
+export const MERGE_PREVIEW_VIEW_KEYS = ['blocked', 'bothConfirmed', 'moving', 'after', 'duplicates'] as const
+const MERGE_ITEMS_VIEW_KEYS = ['items', 'subtotal'] as const
+const MERGE_DUPLICATE_VIEW_KEYS = ['product', 'buyer', 'status'] as const
 export const EFFECT_STATUSES = ['PENDING', 'DONE', 'CANCELLED', 'SKIPPED'] as const
 const BROADCAST_VIEW_KEYS = ['date', 'title', 'ended'] as const
 const PRODUCT_VIEW_KEYS = ['status', 'winners', 'waitlist', 'conflict', 'price', 'priceHistory'] as const
@@ -85,12 +93,14 @@ class Issues {
 /** 형식 위반 목록 (`경로: 이유`). 비어 있으면 통과 */
 export function snapshotIssues(snapshot: unknown): string[] {
   const c = new Issues()
-  if (!c.record('스냅샷', snapshot, SNAPSHOT_KEYS)) return c.found
+  if (!c.record('스냅샷', snapshot, [...SNAPSHOT_KEYS, ...OPTIONAL_SNAPSHOT_KEYS], SNAPSHOT_KEYS)) return c.found
   // 빠진 최상위 키는 위에서 한 번만 알린다
-  const has = (key: (typeof SNAPSHOT_KEYS)[number]): boolean => snapshot[key] !== undefined
+  const has = (key: (typeof SNAPSHOT_KEYS)[number] | (typeof OPTIONAL_SNAPSHOT_KEYS)[number]): boolean => snapshot[key] !== undefined
 
-  if (has('buyerKeys') && c.record('buyerKeys', snapshot.buyerKeys)) {
-    for (const [key, id] of Object.entries(snapshot.buyerKeys)) c.str(`buyerKeys.${key}`, id)
+  for (const key of ['buyerKeys', 'buyerSelf'] as const) {
+    if (has(key) && c.record(key, snapshot[key])) {
+      for (const [buyerKey, id] of Object.entries(snapshot[key])) c.str(`${key}.${buyerKey}`, id)
+    }
   }
 
   if (has('broadcasts') && c.record('broadcasts', snapshot.broadcasts)) {
@@ -206,5 +216,36 @@ export function snapshotIssues(snapshot: unknown): string[] {
       c.optional(request, 'buyer', (v) => c.str(`${p}.buyer`, v))
     })
   }
+  return c.found
+}
+
+/** 합치기 미리 보기 결과(S06b, D-100)의 형식 위반 목록. 어기면 러너 오류다 (관찰 스냅샷과 같은 방식) */
+export function mergePreviewIssues(view: unknown, path = 'previewMerge'): string[] {
+  const c = new Issues()
+  if (!c.record(path, view, MERGE_PREVIEW_VIEW_KEYS)) return c.found
+  const items = (p: string, value: unknown): void => {
+    if (!c.record(p, value, MERGE_ITEMS_VIEW_KEYS)) return
+    c.optional(value, 'items', (v) => c.strings(`${p}.items`, v, (ip, key) => c.productKey(ip, key)))
+    c.optional(value, 'subtotal', (v) => c.int(`${p}.subtotal`, v, 0))
+  }
+  // blocked·after의 null(합칠 수 있음·막혀서 없음)은 받는다
+  c.optional(view, 'blocked', (v) => {
+    if (v !== null) c.oneOf(`${path}.blocked`, v, MERGE_BLOCK_REASONS)
+  })
+  c.optional(view, 'bothConfirmed', (v) => c.strings(`${path}.bothConfirmed`, v, (ip, key) => c.productKey(ip, key)))
+  c.optional(view, 'moving', (v) => items(`${path}.moving`, v))
+  c.optional(view, 'after', (v) => {
+    if (v !== null) items(`${path}.after`, v)
+  })
+  c.optional(view, 'duplicates', (v) => {
+    if (!c.array(`${path}.duplicates`, v)) return
+    v.forEach((entry, i) => {
+      const ep = `${path}.duplicates[${String(i)}]`
+      if (!c.record(ep, entry, MERGE_DUPLICATE_VIEW_KEYS)) return
+      c.optional(entry, 'product', (x) => (typeof x === 'string' ? c.productKey(`${ep}.product`, x) : c.str(`${ep}.product`, x)))
+      c.optional(entry, 'buyer', (x) => c.str(`${ep}.buyer`, x))
+      c.optional(entry, 'status', (x) => c.oneOf(`${ep}.status`, x, MERGE_DUPLICATE_STATUSES))
+    })
+  })
   return c.found
 }
