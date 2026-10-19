@@ -148,3 +148,5 @@
 ### 검증
 - `E2E_PORT_OFFSET=100 pnpm verify` (커밋 bf69805 시점): 7단계 모두 통과 — typecheck(설정 11개·TS 파일 286개), lint(오류 0·경고 0), test(파일 89·테스트 2121 — 라벨 7파일·프린터 5파일 포함), golden(파일 21·통과 498, 코어 골든 그대로), adversarial(파일 30·테스트 642), e2e(파일 12·통과 67), coverage(코어 라인 100%·분기 99.65%). TZ=Pacific/Honolulu.
 - 실기기·블루투스·시리얼·인터넷 없이 돈다(가짜 niimbluelib 클라이언트·가짜 프린터·Node 캔버스).
+- 수정 라운드 1 `E2E_PORT_OFFSET=100 pnpm verify` (커밋 7f871f2): 통과 6 · 실패 1 — typecheck(설정 11·TS 289), lint(0·0), test(파일 89·테스트 2136), golden(21·498), e2e(12·67), coverage(라인 100%·분기 99.65%) 통과. adversarial 파일 33·테스트 757 중 실패 1 = `tests/adversarial/s00/golden-runner.test.ts` "환경변수·작업 폴더·시간대·언어 설정을 바꿔도…" 시간 초과(5575ms > 5000ms). P1 적대 시험(`tests/adversarial/p1`, 115개)은 TD-P1-001~003 포함 모두 통과.
+  - 이 시험은 골든 CLI(`packages/core/test/golden/cli.ts`)를 네 번 돌린다. 이때 한 번에 약 2.5초였다(부하 평균 24~26 — 병렬 트랙). P1은 `packages/core`·`tests/golden/core`·`scripts`를 바꾸지 않았고 CLI가 읽는 파일 수(21)도 그대로다. 더 무거울 때 adversarial 단계만 다시 돌리면 S00의 시간 재는 시험 4개(서버 PORT 2·골든 허용 목록 1·골든 CLI 1)가 시간 초과였다 — 모두 P1과 무관하다.
