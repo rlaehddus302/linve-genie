@@ -20,6 +20,8 @@ import { useRoute, type Navigate, type NavigateOptions, type Route } from './lib
 type Session = { readonly state: 'checking' } | { readonly state: 'out'; readonly expired: boolean } | { readonly state: 'in'; readonly me: Me }
 
 export const OFFLINE_MESSAGE = '인터넷 연결이 없어요. 연결되면 다시 불러와요.'
+/** 인터넷이 없을 때 다시 확인하는 간격 */
+const OFFLINE_RETRY_MS = 5000
 
 export function App() {
   const [route, go] = useRoute()
@@ -52,12 +54,16 @@ export function App() {
     return () => onUnauthorized(null)
   }, [check])
 
-  // 인터넷이 끊겨 확인하지 못했으면 연결되는 대로 다시 확인한다
+  // 인터넷이 끊겨 확인하지 못했으면 연결되는 대로 다시 확인한다 (브라우저의 online 알림, 그리고 5초마다)
   useEffect(() => {
     if (checkError === null || !checkError.network) return
     const online = () => void check()
     window.addEventListener('online', online)
-    return () => window.removeEventListener('online', online)
+    const timer = setInterval(online, OFFLINE_RETRY_MS)
+    return () => {
+      window.removeEventListener('online', online)
+      clearInterval(timer)
+    }
   }, [checkError, check])
 
   const logout = useCallback(async () => {
