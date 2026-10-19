@@ -130,5 +130,11 @@
 - `packages/printer/test/`: `contract.test.ts`(B1·가짜 프린터 공통 계약), `b1.test.ts`, `queue.test.ts`(fast-check JSON 왕복·얼린 상태 포함), `runner.test.ts`(30장), `source.test.ts`.
 - 렌더 30장 합계는 이 PC에서 약 0.02초(글꼴 등록 뒤, 기준 6초).
 
+### HG-2(실제 B1)에서 함께 볼 것 (I1 뒤)
+- 블루투스 연결은 `getAvailability()`를 먼저 기다린 뒤 장치 선택 창(`requestDevice`)을 연다(AC-P1-41). 크롬의 사용자 동작 유효 시간 안이라 문제없을 것으로 보지만, 실제 크롬에서 "연결" 한 번 누름으로 선택 창이 뜨는지 확인한다.
+- 시간 초과 20초가 B1 블루투스 한 장 출력에 넉넉한지(30장 연속 출력 때 TIMEOUT이 나지 않는지).
+- 기본 템플릿 위아래 여백(50×20은 2~3점)이 실제 라벨 위치 오차 안에서 잘리지 않는지.
+
 ### 검증
-- (아래 "verify 결과"에 적는다)
+- `E2E_PORT_OFFSET=100 pnpm verify` (커밋 bf69805 시점): 7단계 모두 통과 — typecheck(설정 11개·TS 파일 286개), lint(오류 0·경고 0), test(파일 89·테스트 2121 — 라벨 7파일·프린터 5파일 포함), golden(파일 21·통과 498, 코어 골든 그대로), adversarial(파일 30·테스트 642), e2e(파일 12·통과 67), coverage(코어 라인 100%·분기 99.65%). TZ=Pacific/Honolulu.
+- 실기기·블루투스·시리얼·인터넷 없이 돈다(가짜 niimbluelib 클라이언트·가짜 프린터·Node 캔버스).
