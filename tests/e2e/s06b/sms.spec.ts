@@ -56,6 +56,47 @@ test.describe('문자찜 결과 (AC-S06b-30·31·40)', () => {
     }
   })
 
+  test('AC-S06b-11·30: 응답을 받지 못해 "다시 보내기"(같은 요청 번호)여도 결과·같은 사람 하나 더는 처음과 같다 (G-ENG-176, 찜 하나 더 생기지 않음)', async ({ page }) => {
+    await login(page)
+    const { b, date, title } = await rehearsal(page)
+    await registerApi(page, b, 15, '핑크프릴', 10000)
+    await smsApi(page, { b, no: 15, phone: '010-1111-5678', memo: '김씨' })
+    await smsApi(page, { b, no: 15, phone: '010-2222-5678', memo: '박씨' })
+    await openSms(page, title)
+    const bodies: string[] = []
+    let drop = true
+    await page.route('**/api/events', async (route) => {
+      if (route.request().method() !== 'POST') return await route.continue()
+      const response = await route.fetch() // 서버는 처리한다
+      bodies.push(await response.text())
+      if (drop) {
+        drop = false
+        await route.abort('internetdisconnected') // 화면은 응답을 받지 못한다
+        return
+      }
+      await route.fulfill({ response })
+    })
+    await smsField(page, '번호').fill('15')
+    await smsField(page, '전화번호').fill('010-2222-5678')
+    await page.getByRole('button', { name: '15번에 문자찜 넣기' }).click()
+    // 화면이 같은 요청 번호로 저절로 다시 보내거나, "저장하지 못했어요"(위험)와 "다시 보내기"를 보인다
+    const failed = page.getByRole('alert').filter({ hasText: '저장하지 못했어요' })
+    const result = page.getByRole('region', { name: '넣은 결과' })
+    await expect(failed.or(result.filter({ hasText: '15번 · 이미' }))).toBeVisible()
+    if (await failed.count() > 0) {
+      await expect(failed).toHaveAttribute('data-tone', 'danger')
+      await failed.getByRole('button', { name: '다시 보내기' }).click()
+    }
+    await expect(result).toContainText('15번 · 이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 대기 1번)')
+    await result.getByRole('button', { name: '같은 사람 하나 더' }).click()
+    await expect(page.getByRole('group', { name: '고른 구매자' })).toContainText('문자찜(박씨)')
+    expect(bodies).toHaveLength(2)
+    const [first, second] = bodies.map((x) => JSON.parse(x) as Record<string, unknown>)
+    expect(second!['buyer']).toBe(first!['buyer'])
+    expect(second!['seq']).toBe(first!['seq'])
+    expect((await scopeView(page, date, true)).claims).toHaveLength(2)
+  })
+
   test('결과 색의 뜻: 판매 중 아님·차단은 주의(warning), 판매 완료 상품의 새 찜(대기)은 정보(info), 저장하지 못함은 위험(danger) — 낱말과 함께', async ({ page }) => {
     await login(page)
     const { b, date, title } = await rehearsal(page)

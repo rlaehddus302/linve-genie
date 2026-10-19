@@ -140,4 +140,33 @@ test.describe('이름 표기 (AC-S06b-20)', () => {
     expect(await nameOf(first)).toBe('홍길동 · 끝 5555')
     expect(await nameOf(second)).toBe('홍길동 · 끝 5555 · 2')
   })
+
+  test('TE-S06b-003: 콘솔 충돌 알림 창에도 괄호가 겹친 표기가 없다 — 앞선 찜이 문자 구매자면 "문자찜(김씨) (문자찜, …)"', async ({ page }) => {
+    await login(page)
+    const origin = new URL(page.url()).origin
+    const before = await (await page.request.get('/api/settings')).json() as { settings: Record<string, unknown> }
+    const set = await page.request.patch('/api/settings', { data: { settings: { 'contention.policy': 'RECEIVED_TIME', 'contention.sameMinuteTieBreaker': 'HOST' } }, headers: { Origin: origin } })
+    expect(set.ok(), await set.text()).toBe(true)
+    let b: string
+    const date = uniqueDate()
+    try {
+      b = await openNewBroadcast(page, { date, rehearsal: true, title: uniq('충돌') })
+    } finally {
+      await page.request.patch('/api/settings', { data: { settings: { 'contention.policy': before.settings['contention.policy'] ?? 'ARRIVAL', 'contention.sameMinuteTieBreaker': before.settings['contention.sameMinuteTieBreaker'] ?? 'HOST' } }, headers: { Origin: origin } })
+    }
+    await registerApi(page, b, 16, '라울', 5000)
+    const t = Date.now()
+    await viewerClaim(page, b, '홍길동', '16', uniq('sim_cf_'))
+    const hm = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hourCycle: 'h23', hour: '2-digit', minute: '2-digit' }).format(new Date(t))
+    await smsApi(page, { b, no: 16, memo: '김씨', received: hm }) // 같은 분 → 동률 → HOST → 충돌 (R-7 6, G-ENG-175)
+    await expect.poll(async () => (await scopeView(page, date, true)).claims.some((c) => c.status === 'CONFLICT')).toBe(true)
+    await page.goto(`/broadcasts/${encodeURIComponent(b)}`)
+    await expect(page.getByLabel('빠른 입력')).toBeFocused()
+    await page.keyboard.press('Alt+1') // 첫 알림 열기 (UX-05)
+    const dlg = page.getByRole('dialog', { name: /^충돌 — / })
+    await expect(dlg).toContainText('홍길동')
+    await expect(dlg).toContainText('문자찜(김씨)')
+    const text = await dlg.innerText()
+    expect(text, '괄호가 겹친 이름 표기 (AC-S06b-20)').not.toContain(') (')
+  })
 })
