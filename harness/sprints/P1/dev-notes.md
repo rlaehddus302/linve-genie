@@ -26,7 +26,7 @@
 | 데이터 형식·검사 | `checkProductData`·`checkPackingData` (표 밖 칸 = `INVALID_DATA`, `field`는 경로, 문장은 "라벨에 넣을 수 없는 값이 있어요: 번호") | `ProductLabelData`·`PackingLabelData`·`LabelBuyer`(`{kind:'youtube',name}` 또는 `{kind:'sms'}`) |
 | 렌더 | `renderProductLabel(env, template, data)` → `{ ok, image, layout, text }` · `renderPackingLabels(env, template, data)` → `{ ok, pages: [{ image, layout }], text }` · `renderProductText(env, text)` · `renderPackingText(env, text)` · `renderTestLabel(env, { shopName, date, size? })` | `LabelRenderEnv`·`LabelCanvas2D`·`RenderedLabel`·`LabelLayout`·`LayoutItem`(`id`·`box`·`fontSize`·`method`·`caption`·`suffix`·`value`·`lines`·`valueLines`·`missing`)·`FitMethod` |
 | 템플릿 | `defaultTemplate(kind, size?)` · `validateTemplate(value)` → `{ ok, template, warnings }` / `{ ok:false, error:{ code:'INVALID_TEMPLATE', problems:[{path,message}] }, warnings }` · `templateToJson` · `parseTemplateJson` · `TEMPLATE_MESSAGES` | `LabelTemplate`·`ProductTemplate`·`PackingTemplate`·`TemplateItem`·`TemplateProblem` |
-| 크기 | `LABEL_SIZES`(`50x30`·`50x20`·`50x40`) · `DEFAULT_LABEL_SIZE` · `labelSizeInfo(size)` · `a4Layout(size)` · `a4Cell(size, i)` · `sizeOfBitmap(w, h)` | `LabelSizeId`·`LabelSizeInfo`·`A4Layout`·`A4Cell` |
+| 크기 | `LABEL_SIZES`(`50x30`·`50x20`·`50x40`) · `DEFAULT_LABEL_SIZE` · `isLabelSize(v)` · `labelSizeInfo(size)` · `a4Layout(size)` · `a4Cell(size, i)` (셋 다 목록 밖 크기면 `RangeError` — 받은 값은 `isLabelSize`로 먼저 거른다) · `sizeOfBitmap(w, h)` | `LabelSizeId`·`LabelSizeInfo`·`A4Layout`·`A4Cell` |
 | 내보내기 | `encodeLabelPng(image)` → `{ ok, bytes }` · `createLabelPdf(images)` / `createA4Pdf(images)` → `{ ok, bytes, pages }` (크기가 섞이면 `MIXED_SIZES`) | `PngResult`·`PdfResult` |
 | 미리보기 | `toPreviewRgba(image, scale)` → `{ width, height, data: Uint8ClampedArray }` (화면은 `new ImageData(data, width, height)` → `putImageData`) | `PreviewImage` |
 | 그림 도우미 | `getPixel`·`setPixel`·`createBitmap`·`bitmapsEqual`·`copyBitmap`·`isLabelBitmap`·`oneBitFromRgba`·`countBlack` | `LabelBitmap` |
@@ -53,7 +53,7 @@
 | B1 | `createB1Adapter({ environment?, createClient?, timer?, printTimeoutMs? })` · `createNiimbotAdapter({ profiles, ... })` · `B1_PROFILE` · `ENABLED_PROFILES` · `detectMethods(env)` · `browserEnvironment()` · `encodeForNiimbot` | `PrinterProfile`·`NiimbotClientLike`·`PrinterEnvironment`·`PrinterTimer` |
 | 오류 문장 | `PRINTER_MESSAGES`(L-7 표 그대로) · `RECONNECT_ACTION`(`다시 연결`, 끊김 오류의 `action`) · `CONNECTION_STATE_NAMES` | `PrinterErrorCode` |
 | 가짜 프린터 | `createFakePrinter({ methods?, script?: { n: 'disconnect' \| 'fail' \| { delayMs } }, connectError?, timer?, printTimeoutMs? })` → `printed`·`printCalls`·`simulateDisconnect()`·`setBehavior(n, b)`·`setConnectError(code)` | `FakePrinter`·`FakePrintBehavior` |
-| 대기열(순수) | 위 "만든 것" 목록 · `jobStatusText(job)` · `pauseMessage(state)` · `JOB_STATUS_NAMES` · `PAUSE_MESSAGES` · `REFUSAL_MESSAGES` | `PrintQueueState`(JSON)·`PrintJob`·`NewJob`(`id`·`labelKey`·`kind`·`data`·`contentKey`)·`QueueUpdate`·`LabelHistory`·`PauseReason` |
+| 대기열(순수) | 위 "만든 것" 목록 · `disconnectWhilePrinting(state)`(출력 결과를 기다리는 중 끊김 알림 — 실행기가 쓴다) · `jobStatusText(job)` · `pauseMessage(state)` · `JOB_STATUS_NAMES` · `PAUSE_MESSAGES` · `REFUSAL_MESSAGES` | `PrintQueueState`(JSON)·`PrintJob`·`NewJob`(`id`·`labelKey`·`kind`·`data`·`contentKey`)·`QueueUpdate`·`LabelHistory`·`PauseReason` |
 | 실행기 | `createPrintRunner({ adapter, render, clock, device, density?, initialState?, onChange? })` → `state`·`enqueue`·`reprint`·`cancel`·`voidLabel`·`pause`·`restart`·`idle()`·`dispose()` | `PrintRunner`·`JobRenderer` |
 
 - **시간 초과 기본값**: `DEFAULT_PRINT_TIMEOUT_MS = 20_000`(20초, 출력 시작부터 프린터의 끝 알림까지). `printTimeoutMs`로 바꾼다.
@@ -96,6 +96,7 @@
 - **PNG 압축은 fflate `zlibSync(level 9)`**, PNG 흑백 1비트(0 = 검정이라 라벨 비트를 뒤집어 담는다).
 - **B1 어댑터 연결 오류 짝짓기**: `NotFoundError`(선택 창 닫음)·`AbortError`·`SecurityError`·`NotAllowedError` → `NOT_SELECTED`("다시 연결을 누르고…"), 메시지에 "adapter not available" → `BLUETOOTH_OFF`, 시리얼의 `NetworkError`·`InvalidStateError`(포트 열기 실패) → `PORT_BUSY`, 그 밖(GATT 연결 실패 등) → `DISCONNECTED`("프린터 연결이 끊겼어요." + `다시 연결`). 연결 중에 또 누르면 같은 연결을 기다리고, 연결 중에 연결 끊기를 누르면 붙지 않는다.
 - **출력 중 오류 예외가 끊김 알림보다 먼저 오면**(클라이언트가 이미 끊김) `DISCONNECTED`로 본다. 시간 초과 뒤에도 프린터에 끝냄 알림(`printEnd`)은 보낸다(기다리지 않음).
+- **프린터가 끝났다고 알린 뒤(`waitForFinished`가 끝남 = 라벨이 나옴)에는** 끝냄 알림(`printEnd`)을 기다리는 동안 끊기거나(프린터 쪽·판매자의 연결 끊기) 시간이 다 돼도 출력은 `ok`다. 상태는 끊김이면 끊김 그대로 두고("연결됨"으로 되돌리지 않는다), 그 사이 다시 연결했으면 새 연결의 상태를 건드리지 않는다. 가짜 프린터도 같다(결과가 `done`으로 정해진 뒤 끊기면 기록에 넣고 `ok`, 상태는 끊김). 끝났다고 알리기 전의 끊김은 그대로 `DISCONNECTED`(찍혔는지 모른다 — D-P1-09). (SA-P1-001·002, TD-P1-001·002)
 - **기술 상세(`detail`)**: 원래 예외의 `이름: 메시지`(300자까지), 7자리 이상 이어진 숫자(구분자 포함)는 `***`로 가린다. 라벨 내용은 넣지 않는다.
 - **대기열 시도 횟수(`attempts`)는 실패한 시도 수**다(L-8 3 "시도 횟수 +1"은 오류·끊김으로 끝날 때). 처음 한 번에 출력되면 0.
 - **아직 연결한 적이 없는 빈 대기열은 멈춤이 아니다**(`createPrintQueue()`의 `paused: null`). 실행기는 어댑터 상태로 연결 여부를 알린다 — 끊겨 있으면 멈춤(끊김).
@@ -104,7 +105,8 @@
 - **재출력 거절 이유**: `DUPLICATE_JOB`(이미 있는 작업 ID)·`VOIDED`·`IN_PROGRESS`(그 라벨 키 작업이 대기·출력 중)·`NOT_PRINTED`(그 라벨 키 작업이 없음) + 문장(`REFUSAL_MESSAGES`).
 - **이력은 작업 목록에서 계산한다**(한 번에 하나씩 넣은 순서로 출력하므로 출력한 순서 = 목록 순서). 따로 저장하지 않아 어긋날 일이 없다.
 - **실행기**는 출력 한 장마다 렌더 → `adapter.print` → 결과로 `completeJob`/`failJob`. drain은 다음 마이크로태스크에 시작하고, 도는 중에 다시 불리면 끝난 뒤 한 번 더 돈다(어댑터 알림이 drain 안에서 동기로 와도 겹쳐 돌지 않는다).
-- **테스트 라벨**은 가게 이름이 비면 그 줄을 빼고 그린다. 테두리 두께 2점. 크기를 받으면 그 크기로(기본 50×30).
+- **출력 결과보다 끊김 알림이 먼저 오면**(어댑터는 상태 알림을 결과보다 먼저 낸다) 실행기는 `disconnectWhilePrinting`으로 연결·멈춤(끊김)만 적고 출력 중 작업은 그대로 둔다 — 결과가 `ok`면 출력함(다시 연결돼도 또 찍지 않는다), 실패면 그때 대기 맨 앞으로. 결과를 기다리는 동안 끊김 뒤 다시 연결 알림까지 왔는데 결과가 끊김 실패면, 실패 결과가 적은 "끊김"을 어댑터의 지금 상태(연결됨)로 되돌려 대기열이 끊김으로 굳지 않는다. (SA-P1-003)
+- **테스트 라벨**은 가게 이름이 비면 그 줄을 빼고 그린다. 테두리 두께 2점. 크기를 받으면 그 크기로(기본 50×30 — 크기를 주지 않았을 때만). L-1 목록 밖 크기(`40x30`·`100x100`·글자·`null` 등)는 그림을 만들지 않고 템플릿 검사와 같은 오류(`INVALID_TEMPLATE`, 문제 `size` · "쓸 수 없는 라벨 크기예요. 50×30, 50×20, 50×40 중에서 골라 주세요.")를 돌려준다. `labelSizeInfo`·`a4Layout`·`a4Cell`도 목록 밖 크기는 받지 않는다(`RangeError`). (SA-P1-004, TD-P1-003)
 
 ### 스펙에 올린 것 (disputesWithSpec — 규칙이 정하지 않은 곳, 구현은 아래처럼 해 두었다)
 1. **농도 범위 밖 오류의 코드·문장**: AC-P1-42는 "0·6·소수는 보내지 않고 오류"인데 L-7 표에 이 코드가 없다. `INVALID_DENSITY` · "인쇄 농도는 1~5 사이의 정수로 정해 주세요."로 두었다(표의 11개 코드·문장은 글자 그대로). spec-keeper가 L-7 표에 더하거나 다른 코드로 정해 주면 맞춘다.
@@ -134,6 +136,14 @@
 - 블루투스 연결은 `getAvailability()`를 먼저 기다린 뒤 장치 선택 창(`requestDevice`)을 연다(AC-P1-41). 크롬의 사용자 동작 유효 시간 안이라 문제없을 것으로 보지만, 실제 크롬에서 "연결" 한 번 누름으로 선택 창이 뜨는지 확인한다.
 - 시간 초과 20초가 B1 블루투스 한 장 출력에 넉넉한지(30장 연속 출력 때 TIMEOUT이 나지 않는지).
 - 기본 템플릿 위아래 여백(50×20은 2~3점)이 실제 라벨 위치 오차 안에서 잘리지 않는지.
+
+### 수정 라운드 1 (SA-P1-001~004, GATE-P1-VERIFY)
+- SA-P1-001 B1 어댑터 `niimbot.ts`: 끝났다고 알린 뒤의 끊김·시간 초과·판매자 끊기 → `ok`, 상태 그대로. 시험: 계약 묶음(B1·가짜 공통) "끝났다고 알린 뒤 끊기면…", b1 "끝냄 알림 응답이 시간 안에 오지 않아도…"·"판매자가 연결을 끊어도…"·"끝냄 알림 응답이 실패여도…"·"끝나기 전의 끊김은 여전히 DISCONNECTED".
+- SA-P1-002 가짜 프린터 `fake.ts`: 결과가 정해진 뒤 끊기면 `CONNECTED`로 덮어쓰지 않는다(끊김 횟수로 판단). 시험: 계약 묶음(위와 같은 시험을 가짜 프린터로).
+- SA-P1-003 `queue.ts` `disconnectWhilePrinting` + `runner.ts`. 시험: queue "출력 결과보다 끊김 알림이 먼저…" 3개·속성 시험(AC-P1-57)에 `drop` 단계, runner "출력 결과와 끊김 알림의 순서" 4개(끊김 알림 → ok, 끊김 알림 → 끊김 실패, 끊김 → 다시 연결 → 끊김 실패, 가짜 프린터 끝난 직후 끊김).
+- SA-P1-004 `render.ts`·`sizes.ts`. 시험: render "L-1 목록 밖 크기는…", export "크기 도우미는 L-1 목록 밖 크기를 받지 않는다".
+- 새 시험 중 6개는 고치기 전 소스에서 실패하는 것을 확인했다. 다시 연결 알림이 먼저 오는 시험은 이번 고침의 회귀 방지다(되돌리는 줄을 빼면 실패).
+- GATE (5) `tests/adversarial/s00/golden-runner.test.ts:588` 시간 초과는 P1이 바꾸지 않은 골든 러너 시험이다(병렬 트랙 부하). 아래 검증 결과에 적는다.
 
 ### 검증
 - `E2E_PORT_OFFSET=100 pnpm verify` (커밋 bf69805 시점): 7단계 모두 통과 — typecheck(설정 11개·TS 파일 286개), lint(오류 0·경고 0), test(파일 89·테스트 2121 — 라벨 7파일·프린터 5파일 포함), golden(파일 21·통과 498, 코어 골든 그대로), adversarial(파일 30·테스트 642), e2e(파일 12·통과 67), coverage(코어 라인 100%·분기 99.65%). TZ=Pacific/Honolulu.
