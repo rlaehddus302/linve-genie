@@ -2,7 +2,7 @@
 // 여기 없는 suite·이벤트 종류·필드·설정 키·expect 키·열거값은 읽기 오류다.
 // 새 어휘는 spec-keeper가 README에 먼저 추가하고, 그다음 이 파일을 맞춘다.
 
-import { normalizePhone } from '@livejjim/core'
+import { containsPhoneNumber } from '@livejjim/core'
 import { YamlFloat } from './yaml.ts'
 
 export const SUITES = ['chat', 'amount', 'korean-number', 'quick-input'] as const
@@ -110,11 +110,12 @@ export const intRangeOrNull =
       ? undefined
       : `${min} 이상 ${max} 이하 정수 또는 null이어야 한다 (값: ${show(value)})${floatHint(value)}`
 
-/** 숫자만 모으면 휴대폰 번호 모양인지 = 코어 normalizePhone의 결과가 있는지 (README sms 행, S04, D-073) */
+/**
+ * 휴대폰 번호가 들어 있는지 = 코어 containsPhoneNumber (README sms 행, S04, D-073). 숫자만 모은 것이 번호 모양(normalizePhone의 결과가 있음)이면
+ * 늘 들어 있고, 번호 앞뒤에 다른 숫자가 붙은 것도 들어 있다(RA-S04-001). 엔진의 입력 오류와 같은 함수라 "읽기 오류 = 엔진 입력 오류"가 어긋나지 않는다
+ */
 export const notPhoneShaped: ValueCheck = (value) =>
-  typeof value === 'string' && normalizePhone(value) !== null
-    ? `숫자만 모으면 휴대폰 번호 모양이다 — 번호는 phone에만 적는다 (값: ${show(value)})`
-    : undefined
+  typeof value === 'string' && containsPhoneNumber(value) ? `휴대폰 번호가 들어 있다 — 번호는 phone에만 적는다 (값: ${show(value)})` : undefined
 
 export { show as showValue }
 

@@ -147,13 +147,15 @@ const startArb: fc.Arbitrary<Raw> = fc.record({
   settings: fc.oneof({ weight: 3, arbitrary: startSettingsArb }, { weight: 1, arbitrary: askZeroArb }),
 })
 const endArb: fc.Arbitrary<Raw> = fc.record({ type: fc.constant('end' as const), pick: fc.nat() })
+/** phoneForms의 마지막 형식 번호 (phoneForms는 함수 선언이라 여기서 부를 수 있다) */
+const PHONE_FORM_LAST = phoneForms(0).length - 1
 const badArb: fc.Arbitrary<Raw> = fc.record({
   type: fc.constant('bad' as const),
   kind: fc.constantFrom('extra' as const, 'ref' as const, 'memo' as const),
   base: fc.nat(),
   name: fc.nat(EXTRA_NAMES.length - 1),
   digits: fc.integer({ min: 0, max: 99_999_999 }),
-  form: fc.nat(5),
+  form: fc.nat(PHONE_FORM_LAST),
 })
 
 const no = fc.constantFrom(...NOS)
@@ -427,12 +429,29 @@ function materialize(state: EngineState, scenario: Scenario, entry: Entry, seq: 
   void scenario
 }
 
-/** 번호 8자리 → 여러 형식의 휴대폰 번호 (휴대폰 번호 모양 = normalizePhone의 결과가 있음) */
+/**
+ * 번호 8자리 → 여러 형식의 휴대폰 번호. 앞 6개는 숫자만 모으면 번호 모양(normalizePhone의 결과가 있음),
+ * 뒤 6개는 번호 앞뒤에 다른 숫자가 붙거나 국가 번호로 적은 것(containsPhoneNumber만 잡는다 — RA-S04-001)
+ */
 function phoneForms(digits: number): readonly string[] {
   const d = String(digits).padStart(8, '0')
   const full = `010${d}`
+  const dashed = `010-${d.slice(0, 4)}-${d.slice(4)}`
   const wide = [...full].map((c) => String.fromCharCode(c.charCodeAt(0) - 0x30 + 0xff10)).join('')
-  return [full, `010-${d.slice(0, 4)}-${d.slice(4)}`, `010 ${d.slice(0, 4)} ${d.slice(4)}`, wide, `s${full}`, `김영희 ${full.slice(0, 3)}.${d.slice(0, 4)}.${d.slice(4)}`]
+  return [
+    full,
+    dashed,
+    `010 ${d.slice(0, 4)} ${d.slice(4)}`,
+    wide,
+    `s${full}`,
+    `김영희 ${full.slice(0, 3)}.${d.slice(0, 4)}.${d.slice(4)}`,
+    `3시 ${dashed}`,
+    `${dashed} 2개`,
+    `15번 ${full}`,
+    `+82 10-${d.slice(0, 4)}-${d.slice(4)}`,
+    `r-${dashed}-2`,
+    `0082${full.slice(1)}`,
+  ]
 }
 
 /**
@@ -440,7 +459,7 @@ function phoneForms(digits: number): readonly string[] {
  * 짚어야 하는 필드 이름과 함께 돌려준다
  */
 function badEvent(state: EngineState, raw: Extract<Raw, { type: 'bad' }>, b: string, seq: number, at: number): { readonly event: Record<string, unknown>; readonly field: string } {
-  const phone = phoneForms(raw.digits)[raw.form % 6] as string
+  const phone = phoneForms(raw.digits)[raw.form % (PHONE_FORM_LAST + 1)] as string
   const sms = { seq, at, type: 'sms', b, ref: `x${String(seq)}`, no: 1, received: '20:00' }
   if (raw.kind === 'ref') return { event: { ...sms, ref: phone }, field: 'ref' }
   if (raw.kind === 'memo') return { event: { ...sms, memo: phone }, field: 'memo' }
@@ -1021,7 +1040,7 @@ const mutation = fc.oneof(
   }),
   // S04: 표에 없는 필드(값과 상관없이, undefined여도 — D-073), ref·memo의 휴대폰 번호, 설정 스냅샷 키·값·범위 (D-071)
   fc.record({ kind: fc.constant('named' as const), field: fc.constantFrom(...EXTRA_NAMES, 'seq2', 'B', 'settings'), value: fc.constantFrom<unknown>(undefined, null, '010-1234-5678', { phone: '01012345678' }, 1) }),
-  fc.record({ kind: fc.constant('phone' as const), field: fc.constantFrom('ref', 'memo'), digits: fc.integer({ min: 0, max: 99_999_999 }), form: fc.nat(5) }),
+  fc.record({ kind: fc.constant('phone' as const), field: fc.constantFrom('ref', 'memo'), digits: fc.integer({ min: 0, max: 99_999_999 }), form: fc.nat(PHONE_FORM_LAST) }),
   fc.record({
     kind: fc.constant('setting' as const),
     key: fc.constantFrom('waitlist.max', 'claim.maxNumber', 'claim.preOpenWindowSec', 'shipping.baseFee', 'shipping.freeThreshold', 'thanks.batchWindowSec', 'claim.ignoreOwner', 'cancel.succession', 'settlement.groupBy', 'waitlist.maxx'),
@@ -1073,7 +1092,7 @@ describe('AC-S03-02 검사 함수 = applyEvent의 입력 오류 판정', () => {
     // R-1 표에 있는 필드 이름 (어느 종류에든) — 무작위 이름이 그중 하나면 건너뛴다
     const known = new Set(['type', 'seq', 'at', 'b', 'no', 'name', 'price', 'stock', 'status', 'applyTo', 'from', 'to', 'id', 'ch', 'nick', 'text', 'owner', 'publishedAt', 'ref', 'received', 'memo', 'phoneKey', 'phoneLast4', 'buyer', 'phone', 'reason', 'replace', 'replaceTo', 'decision', 'msg', 'into', 'effectId', 'date', 'mode', 'amount', 'title', 'settings'])
     fc.assert(
-      fc.property(scenarioArb, fc.nat(), fc.string({ minLength: 1, maxLength: 12 }), fc.anything(), fc.integer({ min: 0, max: 99_999_999 }), fc.nat(5), (scenario, pick, name, value, digits, form) => {
+      fc.property(scenarioArb, fc.nat(), fc.string({ minLength: 1, maxLength: 12 }), fc.anything(), fc.integer({ min: 0, max: 99_999_999 }), fc.nat(PHONE_FORM_LAST), (scenario, pick, name, value, digits, form) => {
         const state = runScenario(scenario).states.at(-1) as EngineState
         const valid: Record<string, unknown> = { ...(VALID_EVENTS[pick % VALID_EVENTS.length] as Record<string, unknown>), seq: 999, at: T0 + 10_000_000 }
         const before = json(state)

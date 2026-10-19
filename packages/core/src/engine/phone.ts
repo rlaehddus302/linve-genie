@@ -1,4 +1,4 @@
-// 휴대폰 번호 정규화 (R-11 "문자찜 구매자 정하기", D-051). 서버·화면·골든 러너가 같은 함수를 쓴다(AC-S03-01·11, AC-S03b-01).
+// 휴대폰 번호 정규화 (R-11 "문자찜 구매자 정하기", D-051)와 글 안의 휴대폰 번호 찾기(R-1 입력 오류, D-073). 서버·화면·골든 러너가 같은 함수를 쓴다(AC-S03-01·11, AC-S03b-01, AC-S04-07).
 // 판정 엔진은 전화번호 원문을 받지 않는다(D-061). 서버가 받은 번호를 이 함수로 정규화하고, 결과가 있으면
 //   phoneKey = 판매자마다 고정한 비밀 키의 HMAC(정규화한 번호) — 영문·숫자·`_`·`-` 16~128자(예: HMAC-SHA256 base64url 43자)
 //   phoneLast4 = phoneLast4(정규화한 번호)
@@ -25,6 +25,66 @@ export function normalizePhone(phone: string): string | null {
     // 그 밖의 글자는 모두 지운다 (공백·하이픈·+·괄호·글자)
   }
   return MOBILE_RE.test(digits) ? digits : null
+}
+
+/**
+ * 글 안에서 휴대폰 번호로 볼 숫자열: `01`로 시작하는 10~11자리, 또는 국가 번호로 적은 휴대폰 번호
+ * (`82 10-…`·`82 010-…`, 앞에 국제 전화 `00`이 붙어도). 국가 번호 형태는 구매자를 잇는 데엔 쓰지 않지만(normalizePhone은 null)
+ * 평문으로 남으면 같은 개인정보다.
+ */
+const MOBILE_IN_TEXT_RE = /^(?:01\d{8,9}|(?:00)?820?1\d{8,9})$/
+/** 가장 긴 후보: 00 + 82 + 0 + 1 + 9자리 = 15자리 */
+const MAX_CANDIDATE_DIGITS = 15
+/**
+ * 숫자 덩어리 사이에 이 글자만 있으면 이어 적은 숫자로 본다: 공백(전각 포함), 하이픈·대시·빼기, 점·가운뎃점, 괄호, 빗금, 밑줄, `+`,
+ * 보이지 않는 글자(서식 문자). 그 밖의 글자(한글·영문·`:`·`,` 등)가 끼면 다른 숫자다.
+ */
+const JOINER_RE = /[\s\p{Cf}\-\u2010-\u2015\u2212\uFE58\uFE63\uFF0D.\u00B7\u2024\u30FB\uFF0E\uFF65()\uFF08\uFF09[\]\uFF3B\uFF3D/\uFF0F_\uFF3F+\uFF0B]/u
+
+/**
+ * 글(문자찜 메모·ref) 안에 휴대폰 번호가 들어 있는지 (R-1 입력 오류, DAT-06, D-073 — 평문 번호가 이벤트 로그·표시 이름에 남지 않게).
+ * - 숫자만 모은 것이 휴대폰 번호 모양(normalizePhone의 결과가 있음)이면 true — R-1 문장 그대로.
+ * - 또한 글 안의 숫자 덩어리 중 구분자(JOINER_RE)만 사이에 두고 이어 적은 몇 덩어리를 모은 것이 휴대폰 번호(MOBILE_IN_TEXT_RE)면 true.
+ *   번호 앞뒤에 다른 숫자가 있어도 잡는다: `3시 010-1234-5678`, `010-1234-5678 2개`, `15번 01012345678`, `+82 10-1234-5678`.
+ * - 주소·시각·수량·번호 일부는 false: `3시 15번 2개`, `101동 1203호`, `뒷번호 5678`, `r-20261018-0001`.
+ * 덩어리 경계에서만 자른다 — 한 덩어리 안의 일부(`010123456789`의 앞 11자리)는 번호로 보지 않는다.
+ */
+export function containsPhoneNumber(text: string): boolean {
+  if (typeof text !== 'string') return false
+  if (normalizePhone(text) !== null) return true
+  let chain: string[] = []
+  let run = ''
+  for (const char of text) {
+    const code = char.codePointAt(0) as number
+    if (code >= ZERO && code <= NINE) {
+      run += char
+      continue
+    }
+    if (code >= FULLWIDTH_ZERO && code <= FULLWIDTH_NINE) {
+      run += String.fromCharCode(code - FULLWIDTH_ZERO + ZERO)
+      continue
+    }
+    if (run !== '') chain.push(run)
+    run = ''
+    if (JOINER_RE.test(char)) continue
+    if (chainHasPhone(chain)) return true
+    chain = []
+  }
+  if (run !== '') chain.push(run)
+  return chainHasPhone(chain)
+}
+
+/** 이어 적은 숫자 덩어리들 중 연속한 몇 덩어리를 모은 것이 휴대폰 번호인지 */
+function chainHasPhone(chain: readonly string[]): boolean {
+  for (let start = 0; start < chain.length; start++) {
+    let digits = ''
+    for (let end = start; end < chain.length; end++) {
+      digits += chain[end] as string
+      if (digits.length > MAX_CANDIDATE_DIGITS) break
+      if (MOBILE_IN_TEXT_RE.test(digits)) return true
+    }
+  }
+  return false
 }
 
 /** 정규화한 번호(normalizePhone의 결과)의 뒤 4자리 — 서버가 sms 이벤트의 phoneLast4로 담는다 (ORD-08 AC4, D-061) */

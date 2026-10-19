@@ -365,16 +365,20 @@ const CASES: Readonly<Record<string, { category: string; loaded?: number; errors
     ],
   },
   '18-sms-phone-shaped.yaml': {
-    category: '18. sms ref·memo가 휴대폰 번호 모양 (S04, D-073)',
+    category: '18. sms ref·memo에 휴대폰 번호가 들어 있음 (S04, D-073)',
     errors: [
       {
         doc: 1,
         label: 'G-ENG-901',
         issues: [
-          ['events[2].ref', '휴대폰 번호 모양이다 — 번호는 phone에만 적는다 (값: "01012345678")'],
+          ['events[2].ref', '휴대폰 번호가 들어 있다 — 번호는 phone에만 적는다 (값: "01012345678")'],
           ['events[3].ref', '(값: "s01012345678")'],
           ['events[4].memo', '(값: "김영희 010 1234 5678")'],
           ['events[5].memo', '(값: "０１０-１２３４-５６７８")'],
+          ['events[7].memo', '(값: "3시 010-1234-5678")'],
+          ['events[8].memo', '(값: "010-1234-5678 2개")'],
+          ['events[9].memo', '(값: "+82 10-1234-5678")'],
+          ['events[10].ref', '(값: "r-010-1234-5678-2")'],
         ],
       },
     ],

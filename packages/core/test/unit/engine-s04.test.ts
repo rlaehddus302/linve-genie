@@ -10,6 +10,7 @@ import {
   applyEvent,
   checkEvent,
   checkSettings,
+  containsPhoneNumber,
   getBroadcast,
   getProduct,
   getSettlement,
@@ -25,11 +26,13 @@ import {
   listPending,
   listProducts,
   listSettlements,
+  normalizePhone,
   resolveSettings,
   type EngineEvent,
   type EngineState,
   type SettingsOverride,
 } from '@livejjim/core'
+import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { B1, T0, chat, host, kst, play, register, sms, type EventInput } from './engine-helpers.ts'
 
@@ -442,7 +445,7 @@ describe('AC-S04-07 sms의 ref·memo가 휴대폰 번호 모양이면 입력 오
   const { state } = server([start('b1'), register(15)])
   const smsEvent = (fields: Record<string, unknown>): Record<string, unknown> => ({ type: 'sms', b: 'b1', ref: 's1', no: 15, received: '20:00', ...fields })
 
-  it.each(['01012345678', '010-1234-5678', 's01012345678', '0111234567', 'r_010_1234_5678'])('ref %s → 입력 오류', (ref) => {
+  it.each(['01012345678', '010-1234-5678', 's01012345678', '0111234567', 'r_010_1234_5678', 'r-010-1234-5678-2', 'x15-01012345678'])('ref %s → 입력 오류', (ref) => {
     expectInvalid(state, smsEvent({ ref }), 'ref')
   })
 
@@ -450,13 +453,104 @@ describe('AC-S04-07 sms의 ref·memo가 휴대폰 번호 모양이면 입력 오
     expectInvalid(state, smsEvent({ memo }), 'memo')
   })
 
-  it('받는 예: ref 1234567·s1·r-20261018-0001, memo 김영희 이모·3시 15번 2개·101동 1203호·국가 번호·번호 일부', () => {
+  // RA-S04-001·SA-S04-003·TD-S04-003: 번호 앞뒤에 다른 숫자가 붙으면 숫자를 모두 모은 것은 12자리 이상이라 번호 모양이 아니다.
+  // 그래도 평문 번호가 이벤트 로그·표시 이름(문자찜(…))에 남으므로 번호 덩어리를 찾아 입력 오류로 한다 (DAT-06, D-073)
+  it.each([
+    '3시 010-1234-5678',
+    '010-1234-5678 2개',
+    '15번 01012345678',
+    '김영희 3시 15번 010 1234 5678 2개',
+    '2개 ０１０-１２３４-５６７８',
+    '010\u200b1234\u200b5678 1개',
+    '+82 10-1234-5678',
+    '+82-010-1234-5678',
+    '0082 10 1234 5678',
+    '011-123-4567 3시',
+  ])('memo %s (번호에 다른 숫자가 붙음·국가 번호) → 입력 오류', (memo) => {
+    expectInvalid(state, smsEvent({ memo }), 'memo')
+  })
+
+  it('받는 예: ref 1234567·s1·r-20261018-0001, memo 김영희 이모·3시 15번 2개·101동 1203호·날짜·시각·번호 일부·집 전화', () => {
     for (const ref of ['1234567', 's1', 'r-20261018-0001']) expect(checkEvent(state, { seq: 9, at: T0, ...smsEvent({ ref }) }), ref).toEqual([])
-    for (const memo of ['김영희 이모', '3시 15번 2개', '101동 1203호', '+82 10-1234-5678', '뒷번호 5678', '']) expect(checkEvent(state, { seq: 9, at: T0, ...smsEvent({ memo }) }), memo).toEqual([])
+    for (const memo of ['김영희 이모', '3시 15번 2개', '101동 1203호', '101동 1203호 3시 15번', '10/18 15번 2개', '2026-10-18 01:30 받음', '뒷번호 5678', '010-1234', '02-123-4567', '']) {
+      expect(checkEvent(state, { seq: 9, at: T0, ...smsEvent({ memo }) }), memo).toEqual([])
+    }
   })
 
   it('번호 모양 검사는 sms의 ref·memo만 본다 — 입금 메모는 그대로 받는다 (D-073 범위)', () => {
     expect(checkEvent(state, { seq: 9, at: T0, type: 'settlement.payment', buyer: 'A', date: '2026-10-18', amount: 1, memo: '010-1234-5678' })).toEqual([])
+  })
+})
+
+describe('containsPhoneNumber — 글 안의 휴대폰 번호 (AC-S04-07, D-073, RA-S04-001)', () => {
+  it.each([
+    ['010-1234-5678', true],
+    ['3시 010-1234-5678', true],
+    ['010-1234-5678 2개', true],
+    ['010-1234-5678/2개', true],
+    ['15번 01012345678', true],
+    ['(010) 1234 5678 김영희', true],
+    ['010 － 1234 － 5678', true],
+    ['２개 ０１０ １２３４ ５６７８', true],
+    ['+82 10-1234-5678', true],
+    ['+82 010 1234 5678', true],
+    ['+821012345678', true],
+    ['0082-10-1234-5678', true],
+    ['김영희010가1234나5678', true], // 숫자만 모으면 번호 모양 (R-1 문장 그대로)
+    ['3시 15번 2개', false],
+    ['101동 1203호', false],
+    ['101동 1203호 3시 15번', false],
+    ['2026-10-18 01:30', false],
+    ['10/18 15번 2개', false],
+    ['뒷번호 5678', false],
+    ['010-1234', false],
+    ['02-123-4567', false],
+    ['10-1234-5678', false],
+    ['1982 10 1234 5678', false],
+    ['010123456789', false], // 한 덩어리 12자리는 번호로 자르지 않는다
+    ['٠١٠١٢٣٤٥٦٧٨', false], // 아라비아 숫자는 normalizePhone처럼 숫자로 보지 않는다
+    ['', false],
+  ])('%s → %s', (text, expected) => {
+    expect(containsPhoneNumber(text)).toBe(expected)
+  })
+
+  it('문자열이 아니면 false', () => {
+    for (const value of [null, undefined, 1012345678, ['010-1234-5678'], { memo: '010-1234-5678' }]) expect(containsPhoneNumber(value as unknown as string)).toBe(false)
+  })
+
+  const NOT_DIGIT = fc.constantFrom(' ', '-', '.', '/', '(', ')', '+', '_', '번', '시', '개', 'a', ':', ',', '\u3000', '\u200b')
+  const anyText = fc.array(fc.oneof(fc.constantFrom(...'0123456789'), NOT_DIGIT, fc.constantFrom('김', '영', '희', '０', '８')), { maxLength: 16 }).map((chars) => chars.join(''))
+
+  it('속성: 휴대폰 번호(여러 형식) 앞뒤에 아무 글이 붙어도, 숫자가 아닌 글자로 띄우면 true', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 0, max: 99_999_999 }), fc.nat(4), anyText, NOT_DIGIT, NOT_DIGIT, anyText, (digits, form, before, left, right, after) => {
+        const d = String(digits).padStart(8, '0')
+        const phone = [`010${d}`, `010-${d.slice(0, 4)}-${d.slice(4)}`, `010 ${d.slice(0, 4)} ${d.slice(4)}`, `+82 10-${d.slice(0, 4)}-${d.slice(4)}`, `(010)${d.slice(0, 4)}.${d.slice(4)}`][form] as string
+        const text = `${before}${left}${phone}${right}${after}`
+        expect(containsPhoneNumber(text), text).toBe(true)
+      }),
+      { numRuns: 500 },
+    )
+  })
+
+  it('속성: 숫자만 모은 것이 번호 모양이면(normalizePhone) 늘 true — R-1 문장보다 좁지 않다', () => {
+    fc.assert(
+      fc.property(anyText, (text) => {
+        if (normalizePhone(text) !== null) expect(containsPhoneNumber(text), text).toBe(true)
+      }),
+      { numRuns: 1000 },
+    )
+  })
+
+  it('속성: 0·8로 시작하는 숫자 덩어리가 없으면 false (번호는 01·00·82로 시작한다)', () => {
+    const run = fc.integer({ min: 1, max: 7 }).chain((first) => fc.array(fc.constantFrom(...'0123456789'), { maxLength: 5 }).map((rest) => `${String(first === 7 ? 9 : first)}${rest.join('')}`))
+    fc.assert(
+      fc.property(fc.array(fc.tuple(run, NOT_DIGIT), { maxLength: 8 }), (parts) => {
+        const text = parts.map(([r, sep]) => `${r}${sep}`).join('')
+        expect(containsPhoneNumber(text), text).toBe(false)
+      }),
+      { numRuns: 500 },
+    )
   })
 })
 

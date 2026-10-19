@@ -1,5 +1,6 @@
-# 범주 18: sms의 ref·memo에서 숫자만 모은 것이 휴대폰 번호 모양(코어 normalizePhone의 결과가 있음) — 번호는 phone에만 (S04, D-073)
-# 휴대폰 번호 모양이 아닌 숫자(주소·시각·번호 일부)는 받는다
+# 범주 18: sms의 ref·memo에 휴대폰 번호가 들어 있음(코어 containsPhoneNumber — 숫자만 모은 것이 번호 모양이거나,
+# 번호 앞뒤에 다른 숫자가 붙은 번호 덩어리·국가 번호) — 번호는 phone에만 (S04, D-073, RA-S04-001)
+# 휴대폰 번호 모양이 아닌 숫자(주소·시각·날짜·번호 일부)는 받는다
 id: G-ENG-901
 title: ref·memo에 휴대폰 번호
 refs: [R-1, R-11]
@@ -12,4 +13,9 @@ events:
   - { at: "20:00:04", type: sms, b: b1, ref: s4, no: 15, received: "20:00", memo: "김영희 010 1234 5678" }
   - { at: "20:00:05", type: sms, b: b1, ref: s5, no: 15, received: "20:00", memo: "０１０-１２３４-５６７８" }
   - { at: "20:00:06", type: sms, b: b1, ref: s6, no: 15, received: "20:00", memo: "이모", phone: "010-1234-5678" }
+  - { at: "20:00:07", type: sms, b: b1, ref: s7, no: 15, received: "20:00", memo: "3시 010-1234-5678" }
+  - { at: "20:00:08", type: sms, b: b1, ref: s8, no: 15, received: "20:00", memo: "010-1234-5678 2개" }
+  - { at: "20:00:09", type: sms, b: b1, ref: s9, no: 15, received: "20:00", memo: "+82 10-1234-5678" }
+  - { at: "20:00:10", type: sms, b: b1, ref: "r-010-1234-5678-2", no: 15, received: "20:00" }
+  - { at: "20:00:11", type: sms, b: b1, ref: "r-20261018-0001", no: 15, received: "20:00", memo: "10/18 15번 2개" }
 expect: {}

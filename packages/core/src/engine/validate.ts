@@ -1,7 +1,7 @@
 // 이벤트 형식 검사 (R-1 "입력 오류와 맞지 않는 명령", D-050, AC-S03-02, AC-S04-01·06·07).
 // - 입력 오류: 표에 없는 종류, 필수 필드가 없거나 값의 형식이 틀림, 함께 와야 하는 필드가 한쪽만 옴(D-065, D-061),
 //   sms에 전화번호 원문 필드 phone이 있음(D-061), 표에 없는 필드(모든 종류, 값과 상관없이 — D-073),
-//   sms의 ref·memo가 휴대폰 번호 모양(normalizePhone의 결과가 있음, D-073), 방송 날짜·설정 스냅샷의 형식·범위(D-071),
+//   sms의 ref·memo에 휴대폰 번호가 들어 있음(containsPhoneNumber — 숫자만 모은 것이 번호 모양이거나 번호 덩어리가 있음, D-073), 방송 날짜·설정 스냅샷의 형식·범위(D-071),
 //   선언하지 않은 방송, seq·at이 수가 아님, 이벤트가 객체가 아님.
 //   applyEvent는 상태를 바꾸지 않고 InvalidEventError를 던진다. 서버는 기록하기 전에 checkEvent로 거른다(D-072).
 // - 맞지 않는 명령(형식은 맞지만 지금 상태에 맞지 않음)은 입력 오류가 아니다. 엔진이 아무것도 바꾸지 않는다(D-039).
@@ -9,7 +9,7 @@
 // - 상태 형식이 지금 코어와 다르면 문제 목록 대신 StateFormatError를 던진다(D-072).
 import { checkSettings } from '../settings.ts'
 import { ownGet } from './draft.ts'
-import { normalizePhone } from './phone.ts'
+import { containsPhoneNumber } from './phone.ts'
 import { assertStateFormat } from './state-format.ts'
 import { isValidDate, isValidReceivedTime } from './time.ts'
 import type { EngineState, EventProblem } from './types.ts'
@@ -60,13 +60,16 @@ const channel: Check = (v) => id(v) ?? ((v as string).startsWith('sms:') ? "채�
 const SMS_REF_RE = /^[A-Za-z0-9_-]{1,64}$/
 const PHONE_KEY_RE = /^[A-Za-z0-9_-]{16,128}$/
 const PHONE_LAST4_RE = /^[0-9]{4}$/
-/** ref·memo에서 숫자만 모은 것이 휴대폰 번호 모양이면 입력 오류 — 번호는 전화번호 칸으로 (D-073) */
-const PHONE_SHAPED = '숫자만 모으면 휴대폰 번호 모양이다 — 전화번호는 전화번호 칸(phoneKey·phoneLast4)으로만 넣는다 (D-073)'
+/**
+ * ref·memo에 휴대폰 번호가 들어 있으면 입력 오류 — 번호는 전화번호 칸으로 (R-1, D-073, DAT-06).
+ * 숫자만 모은 것이 번호 모양인 경우(R-1 문장)에 더해, 번호 앞뒤에 다른 숫자가 붙은 경우(`3시 010-1234-5678`)도 잡는다 (RA-S04-001, containsPhoneNumber)
+ */
+const PHONE_SHAPED = '휴대폰 번호가 들어 있다 — 전화번호는 전화번호 칸(phoneKey·phoneLast4)으로만 넣는다 (D-073)'
 const smsRef: Check = (v) => {
   if (typeof v !== 'string' || !SMS_REF_RE.test(v)) return "문자찜 ref는 영문·숫자·'_'·'-'로 된 1~64자여야 한다"
-  return normalizePhone(v) === null ? null : PHONE_SHAPED
+  return containsPhoneNumber(v) ? PHONE_SHAPED : null
 }
-const memo: Check = (v) => text(v) ?? (normalizePhone(v as string) === null ? null : PHONE_SHAPED)
+const memo: Check = (v) => text(v) ?? (containsPhoneNumber(v as string) ? PHONE_SHAPED : null)
 const phoneKey: Check = (v) => (typeof v === 'string' && PHONE_KEY_RE.test(v) ? null : "전화번호 키는 영문·숫자·'_'·'-'로 된 16~128자여야 한다")
 const phoneLast4: Check = (v) => (typeof v === 'string' && PHONE_LAST4_RE.test(v) ? null : '전화번호 뒤 4자리는 숫자 4자리 문자열이어야 한다')
 const oneOf =
