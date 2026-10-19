@@ -167,7 +167,6 @@ describe('AC-S02-03 맞지 않는 명령은 아무것도 바꾸지 않는다', (
     ['READY 상품 배정', { type: 'host.assign', b: 'b1', no: 16, buyer: 'A', reason: 'r' }],
     ['모르는 구매자 배정', { type: 'host.assign', b: 'b1', no: 15, buyer: 'Z', reason: 'r', replace: 'A', replaceTo: 'CANCEL' }],
     ['1등이 아닌 사람 교체', { type: 'host.assign', b: 'b1', no: 15, buyer: 'C', reason: 'r', replace: 'B', replaceTo: 'CANCEL' }],
-    ['교체 대상만 적은 배정', { type: 'host.assign', b: 'b1', no: 15, buyer: 'C', reason: 'r', replace: 'A' }],
     ['이미 1등에게 배정', { type: 'host.assign', b: 'b1', no: 15, buyer: 'A', reason: 'r', replace: 'A', replaceTo: 'WAITLIST' }],
     ['요청 없는 승인', { type: 'host.approveCancel', b: 'b1', no: 15, buyer: 'A' }],
     ['요청 없는 거절', { type: 'host.dismissCancel', b: 'b1', no: 15, buyer: 'B' }],
@@ -212,6 +211,9 @@ describe('AC-S03-02 입력 오류는 조용히 무시하지 않는다 (S02의 �
     ['owner가 문자열', { type: 'chat', b: 'b1', id: 'x4', ch: 'D', nick: 'd', text: '15', owner: 'yes' }, 'owner'],
     ['publishedAt이 문자열', { type: 'chat', b: 'b1', id: 'x5', ch: 'D', nick: 'd', text: '15', publishedAt: '20:00' }, 'publishedAt'],
     ['교체 방법 오타', { type: 'host.assign', b: 'b1', no: 15, buyer: 'C', reason: 'r', replace: 'A', replaceTo: 'DROP' }, 'replaceTo'],
+    // S02·S03에서 맞지 않는 명령(아무 일도 없음)이던 "교체 대상만 적은 배정"은 D-065로 입력 오류가 됐다 (AC-S03b-23·93)
+    ['교체 대상만 적은 배정', { type: 'host.assign', b: 'b1', no: 15, buyer: 'C', reason: 'r', replace: 'A' }, 'replaceTo'],
+    ['교체 방법만 적은 배정', { type: 'host.assign', b: 'b1', no: 15, buyer: 'C', reason: 'r', replaceTo: 'WAITLIST' }, 'replace'],
     ['구매자 없는 차단', { type: 'host.blockBuyer', reason: 'r' }, 'buyer'],
     ['효과 ID 없음', { type: 'effect.thanksSent' }, 'effectId'],
     ['모르는 이벤트 종류', { type: 'chat.message', b: 'b1', id: 'x6', ch: 'D', nick: 'd', text: '15' }, 'type'],

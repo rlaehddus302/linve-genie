@@ -10,6 +10,7 @@ import {
   listPending,
   rankKey,
   type EngineEvent,
+  type EngineState,
   type RankMaterial,
   type SaleSettings,
 } from '@livejjim/core'
@@ -209,16 +210,47 @@ describe('AC-S03-24 충돌', () => {
     if (event.type !== 'product.renumber') expect(now?.winners).toEqual(['A'])
   })
 
-  it('시청자 취소: 충돌 찜엔 잠금이 없어 AUTO면 바로 취소, REQUEST면 요청을 거쳐 승인으로 취소', () => {
+  // S03에서는 합친 문자 구매자(sms:s1)의 충돌 찜을 채널 C의 채팅으로 취소했다. D-063(시청자 채팅 취소는 그 채널 자신의 찜에만)으로 교체 (AC-S03b-21·93)
+  it('시청자 취소: 그 채널 자신의 충돌 찜(C를 지정한 문자찜)엔 잠금이 없어 AUTO면 바로 취소, REQUEST면 요청을 거쳐 승인으로 취소', () => {
+    const own = (settings: Record<string, unknown>, extra: EventInput[]) =>
+      play(
+        [
+          register(15, { at: kst(20) }),
+          chat('A', '15', { at: kst(20, 0, 10) }),
+          { type: 'host.confirm', b: 'b1', no: 15, buyer: 'A', at: kst(20, 0, 11) } as EventInput,
+          chat('C', '안녕', { at: kst(20, 0, 12) }),
+          sms('s1', 15, '20:00:05', { at: kst(20, 0, 20), buyer: 'C' }),
+          chat('C', '15 취소', { at: kst(20, 0, 40) }),
+          ...extra,
+        ],
+        { ...RECEIVED_TIME, ...settings },
+      )
+    expect(product(own({}, []).state)?.conflictBuyer).toBe('C')
+    const auto = own({ 'cancel.buyerChat': 'AUTO' }, [])
+    expect(status(auto.state, 'C')?.status).toBe('CANCELLED')
+    expect(product(auto.state)).toMatchObject({ winners: ['A'], conflict: false })
+    const request = own({}, [])
+    expect(listCancelRequests(request.state).map((r) => [r.buyer, r.currentBuyer])).toEqual([['C', 'C']])
+    const approved = own({}, [{ type: 'host.approveCancel', b: 'b1', no: 15, buyer: 'C' } as EventInput])
+    expect(status(approved.state, 'C')?.status).toBe('CANCELLED')
+    expect(product(approved.state)?.conflict).toBe(false)
+  })
+
+  it('시청자 취소: 채널에 합친 문자 구매자의 충돌 찜은 AUTO·REQUEST 모두 무시한다 — 방송자 조치는 지금의 구매자로 찾는다 (D-063)', () => {
     const merged = (settings: Record<string, unknown>, extra: EventInput[]) =>
       locked([chat('C', '안녕', { at: kst(20, 0, 30) }), { type: 'buyer.merge', from: 'C', into: 'sms:s1', reason: '같은 사람' } as EventInput, chat('C', '15 취소', { at: kst(20, 0, 40) }), ...extra], settings)
-    const auto = merged({ 'cancel.buyerChat': 'AUTO' }, [])
-    expect(status(auto.state, 'sms:s1')?.status).toBe('CANCELLED')
-    const request = merged({}, [])
-    expect(listCancelRequests(request.state).map((r) => [r.buyer, r.currentBuyer])).toEqual([['sms:s1', 'sms:s1']])
-    const approved = merged({}, [{ type: 'host.approveCancel', b: 'b1', no: 15, buyer: 'C' } as EventInput])
-    expect(status(approved.state, 'sms:s1')?.status).toBe('CANCELLED')
-    expect(product(approved.state)?.conflict).toBe(false)
+    for (const settings of [{ 'cancel.buyerChat': 'AUTO' }, {}]) {
+      const { states, emitted } = merged(settings, [])
+      const [before, after] = [states[6], states[7]] as [EngineState, EngineState]
+      // 채팅은 받은 메시지로 기록될 뿐, 찜·요청·상품은 그대로이고 효과도 없다
+      expect(listClaims(after)).toEqual(listClaims(before))
+      expect(listCancelRequests(after)).toEqual([])
+      expect(product(after)).toEqual(product(before))
+      expect(emitted[6]).toEqual([])
+    }
+    const byHost = merged({}, [hostEvent('host.cancel', 15, 'C')])
+    expect(status(byHost.state, 'sms:s1')?.status).toBe('CANCELLED')
+    expect(product(byHost.state)?.conflict).toBe(false)
   })
 
   it.each([

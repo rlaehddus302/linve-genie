@@ -5,6 +5,7 @@
 // 시간 비율은 같은 크기를 몇 번 돌린 가장 짧은 시간으로 잰다(쓰레기 수집·다른 작업이 끼어든 한 번에 흔들리지 않게).
 import { applyEvent, checkInvariants, initEngine, listClaims, listProducts, type EngineEvent, type EngineState, type SettingsOverride } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
+import { smsPhoneFields } from '../golden/phone-key.ts'
 import { B1, T0 } from './engine-helpers.ts'
 
 /** 결정적인 의사 난수 (테스트 데이터용 선형 합동 생성기) */
@@ -144,7 +145,8 @@ function buildLog(scale = 1): EngineEvent[] {
         ref: `s${String(r)}`,
         no: no(),
         received: seconds ? `${hh}:${mm}:${ss}` : `${hh}:${mm}`,
-        ...(roll2 === 0 ? { phone: `010-${String(1000 + pick(300 * scale))}-0000` } : {}),
+        // 전화번호는 서버처럼 키로 바꿔 넣는다 (D-061 — 로그를 만들 때 바꾸므로 잰 시간에 HMAC은 들어가지 않는다)
+        ...(roll2 === 0 ? smsPhoneFields(`010-${String(1000 + pick(300 * scale))}-0000`) : {}),
         ...(roll2 === 1 ? { memo: '이모' } : {}),
         ...(roll2 === 2 && sent.length > 0 ? { buyer: (sent[pick(sent.length)] as { ch: string }).ch } : {}),
       })

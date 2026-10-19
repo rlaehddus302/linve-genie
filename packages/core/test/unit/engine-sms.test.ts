@@ -110,14 +110,25 @@ describe('AC-S03-11 문자찜 구매자 정하기', () => {
     ])
   })
 
-  it('엔진이 모르는 지정 구매자 → 이벤트 전체가 아무 일도 없다 (ref도 받지 않는다 — 고쳐 보내면 받는다)', () => {
+  // S03의 "ref도 받지 않는다 — 고쳐 보내면 받는다"는 D-067(ref는 처음 받을 때 기록)로 바뀌어 교체했다 (AC-S03b-10·93)
+  it('엔진이 모르는 지정 구매자 → 찜·구매자·메모 반영은 없고 ref만 기록한다. 그 ref를 고쳐 보내도(구매자를 알게 된 뒤에도) 아무 일도 없다 — 고친 입력은 새 ref로', () => {
     const { state } = play([register(1), chat('UC_A', '안녕')])
     const unknown = applyEvent(state, { seq: 10, at: T0 + 10_000, ...sms('s1', 1, '20:00', { buyer: 'UC_Z', memo: '메모', phone: '010-1234-5678' }) } as EngineEvent)
-    expect(unknown.state).toBe(state)
     expect(unknown.effects).toEqual([])
+    expect(listClaims(unknown.state)).toEqual([])
+    expect(listBuyers(unknown.state)).toEqual(listBuyers(state))
     expect(buyerOfRef(unknown.state, 's1')).toBeNull()
-    const fixed = applyEvent(state, { seq: 11, at: T0 + 11_000, ...sms('s1', 1, '20:00', { buyer: 'UC_A' }) } as EngineEvent).state
-    expect(getProduct(fixed, 'b1', 1)?.winners).toEqual(['UC_A'])
+    expect(unknown.state.refs.size).toBe(1)
+    // 전화번호 키도 기록하지 않는다 (지정 구매자면 보지 않는다)
+    expect(unknown.state.phoneKeys.size).toBe(0)
+    const fixed = applyEvent(unknown.state, { seq: 11, at: T0 + 11_000, ...sms('s1', 1, '20:00', { buyer: 'UC_A' }) } as EngineEvent)
+    expect(fixed.state).toBe(unknown.state)
+    expect(fixed.effects).toEqual([])
+    // UC_Z를 알게 된 뒤의 사본도 아무 일도 없다
+    const known = applyEvent(unknown.state, { seq: 12, at: T0 + 12_000, ...chat('UC_Z', '안녕') } as EngineEvent).state
+    expect(applyEvent(known, { seq: 13, at: T0 + 13_000, ...sms('s1', 1, '20:00', { buyer: 'UC_Z' }) } as EngineEvent).state).toBe(known)
+    const renewed = applyEvent(unknown.state, { seq: 14, at: T0 + 14_000, ...sms('s1b', 1, '20:00', { buyer: 'UC_A' }) } as EngineEvent).state
+    expect(getProduct(renewed, 'b1', 1)?.winners).toEqual(['UC_A'])
   })
 
   it('이미 받은 ref가 다시 오면 아무 일도 없다 — 내용(번호·지정 구매자·전화번호·메모·수신 시각)을 바꿔도', () => {

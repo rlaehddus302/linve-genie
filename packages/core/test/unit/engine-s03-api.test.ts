@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import * as core from '@livejjim/core'
 import { applyEvent, checkEvent, initEngine, listClaims, listEffects, listSettlements, type EngineEvent, type EngineState } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
+import { smsPhoneFields } from '../golden/phone-key.ts'
 import { B1, T0, chat, kst, play, register, sms, type EventInput } from './engine-helpers.ts'
 
 function deepFreeze<T>(value: T): T {
@@ -42,8 +43,8 @@ describe('AC-S03-01 엔진 API 확장', () => {
     let state = initEngine({ broadcasts: [B1], settings: { 'contention.policy': 'RECEIVED_TIME' } })
     const events: EngineEvent[] = [
       { seq: 1, at: 0, type: 'product.register', b: 'b1', no: 15, name: '핑크프릴', price: 10000 },
-      { seq: 2, at: 1, type: 'chat', b: 'b1', id: 'm1', ch: 'UC_A', nick: '홍길동', text: '15번이요' },
-      { seq: 3, at: 2, type: 'sms', b: 'b1', ref: 's1', no: 15, received: '09:00', memo: '이모', phone: '010-1234-5678' },
+      { seq: 2, at: 1, type: 'chat', b: 'b1', id: 'm1', ch: 'UC_A', nick: '홍길동', text: '15번 예뻐요' },
+      { seq: 3, at: 2, type: 'sms', b: 'b1', ref: 's1', no: 15, received: '09:00', memo: '이모', ...smsPhoneFields('010-1234-5678') },
       { seq: 4, at: 3, type: 'host.convertMessage', b: 'b1', msg: 'm1', no: 15 },
       { seq: 5, at: 4, type: 'host.resolveConflict', b: 'b1', no: 15, decision: 'KEEP' },
       { seq: 6, at: 5, type: 'product.update', b: 'b1', no: 15, price: 12000, stock: 2, applyTo: 'UNPAID_CLAIMS' },
@@ -152,8 +153,9 @@ describe('AC-S03-04 맞지 않는 명령은 아무것도 바꾸지 않는다 (S0
     { type: 'settlement.refund', buyer: 'E', date: '2026-10-18', amount: 1000, reason: 'r' },
   ])
   const commands: readonly (readonly [string, Record<string, unknown>])[] = [
-    ['모르는 지정 구매자의 문자찜', { type: 'sms', b: 'b1', ref: 's9', no: 15, received: '20:00', buyer: 'ZZ' }],
+    // "모르는 지정 구매자의 문자찜"은 D-067로 ref를 기록하게 되어(상태가 바뀐다) 이 표에서 뺐다 — engine-sms·engine-s03b 테스트가 본다 (AC-S03b-93)
     ['이미 받은 ref의 문자찜', { type: 'sms', b: 'b1', ref: 's1', no: 15, received: '20:00', memo: '다른 메모' }],
+    ['이미 받은 ref의 문자찜 (지정 구매자·전화번호 키를 바꿔)', { type: 'sms', b: 'b1', ref: 's1', no: 16, received: '19:00:01', buyer: 'A', ...smsPhoneFields('010-1234-5678') }],
     ['없는 상품의 수정', { type: 'product.update', b: 'b1', no: 99, price: 1 }],
     ['재고를 확정 수보다 작게 (품종·가격 포함)', { type: 'product.update', b: 'b1', no: 16, stock: 1, name: '라울', price: 1 }],
     ['같은 값만 적은 수정', { type: 'product.update', b: 'b1', no: 15, name: '핑크프릴', price: 10000, stock: 1, applyTo: 'UNPAID_CLAIMS' }],
@@ -167,6 +169,8 @@ describe('AC-S03-04 맞지 않는 명령은 아무것도 바꾸지 않는다 (S0
     ['무시한 방송자 메시지의 변환', { type: 'host.convertMessage', b: 'b1', msg: 'mo', no: 16 }],
     ['이미 그 번호의 찜을 만든 메시지의 변환', { type: 'host.convertMessage', b: 'b1', msg: 'ma', no: 15 }],
     ['같은 사람 반복이 되는 변환', { type: 'host.convertMessage', b: 'b1', msg: 'ma', no: 15 }],
+    ['주문이었던 메시지를 다른 번호로 변환 (D-062)', { type: 'host.convertMessage', b: 'b1', msg: 'ma', no: 16 }],
+    ['주문이었던 메시지를 상품 없는 번호로 변환 (D-062)', { type: 'host.convertMessage', b: 'b1', msg: 'ma', no: 30 }],
     ['모르는 구매자 합치기', { type: 'buyer.merge', from: 'ZZ', into: 'A', reason: 'r' }],
     ['모르는 구매자에게 합치기', { type: 'buyer.merge', from: 'A', into: 'ZZ', reason: 'r' }],
     ['자기 자신과 합치기', { type: 'buyer.merge', from: 'A', into: 'A', reason: 'r' }],

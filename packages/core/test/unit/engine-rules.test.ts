@@ -1,5 +1,5 @@
 // 판정 규칙 세부 (AC-S02-10~62). 골든이 고정한 것 밖의 경계와 조합을 규칙 문장대로 확인한다.
-import { getProduct, listCancelRequests, listClaims, listEffects, listPending, type EngineState } from '@livejjim/core'
+import { InvalidEventError, applyEvent, getProduct, listCancelRequests, listClaims, listEffects, listPending, type EngineEvent, type EngineState } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
 import { B1, B2, T0, chat, host, play, register, type EventInput } from './engine-helpers.ts'
 
@@ -272,13 +272,16 @@ describe('수동 조치 (AC-S02-60~62)', () => {
     ])
   })
 
-  it('assign: 차단된 구매자에게도 배정할 수 있다(방송자의 명시적 조치), 보류 중인 번호·replace만 적은 조치는 아무 일도 없다', () => {
+  // "replace만 적은 조치는 아무 일도 없다"는 D-065(한쪽만은 입력 오류)로 바뀌어 교체했다 (AC-S03b-23·93)
+  it('assign: 차단된 구매자에게도 배정할 수 있다(방송자의 명시적 조치), 보류 중인 번호는 아무 일도 없다, replace·replaceTo 한쪽만은 입력 오류', () => {
     const blocked = play([register(15), chat('X', '안녕'), { type: 'host.blockBuyer', buyer: 'X', reason: 'r' }, { type: 'host.assign', b: 'b1', no: 15, buyer: 'X', reason: 'r' }])
     expect(product(blocked.state, 15)?.winners).toEqual(['X'])
     const pending = play([chat('A', '15'), { type: 'host.assign', b: 'b1', no: 15, buyer: 'A', reason: 'r' }])
     expect(pending.states[2]).toBe(pending.states[1])
-    const half = play([register(15), chat('A', '15'), chat('X', '안녕'), { type: 'host.assign', b: 'b1', no: 15, buyer: 'X', reason: 'r', replace: 'A' } as EventInput])
-    expect(half.states[4]).toBe(half.states[3])
+    const base = play([register(15), chat('A', '15'), chat('X', '안녕')]).state
+    for (const half of [{ replace: 'A' }, { replaceTo: 'WAITLIST' }, { replaceTo: 'CANCEL' }]) {
+      expect(() => applyEvent(base, { type: 'host.assign', b: 'b1', no: 15, buyer: 'X', reason: 'r', ...half, seq: 9, at: T0 + 9000 } as EngineEvent)).toThrow(InvalidEventError)
+    }
   })
 
   describe('차단 중인 구매자의 찜은 대기에 들어가지 않는다 (D-049, TD-S02-001)', () => {
