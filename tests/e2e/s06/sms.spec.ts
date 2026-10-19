@@ -298,6 +298,28 @@ test.describe('문자찜 입력', () => {
     await expect(recent.getByRole('listitem').first()).toContainText('1등')
   })
 
+  test('AC-S06-14: 인터넷이 끊긴 채 보내기 → 안내 → 연결 뒤 다시 보내기 → 한 번만 기록, 보류 찜도 결과 카드에서 취소', async ({ page, context }) => {
+    await login(page)
+    const title = uniq('끊김')
+    const { date } = await rehearsalWithTitle(page, title)
+    await openSms(page, title)
+    await smsField(page, '번호').fill('77')
+    await smsField(page, '메모').fill('오프')
+    await context.setOffline(true)
+    await page.getByRole('button', { name: '77번에 문자찜 넣기' }).click()
+    await expect(page.getByText(/저장하지 못했어요/)).toBeVisible({ timeout: 30_000 })
+    await expect(smsField(page, '번호')).toHaveValue('77')
+    await context.setOffline(false)
+    await page.getByRole('button', { name: '다시 보내기' }).click()
+    const result = page.getByRole('region', { name: '넣은 결과' })
+    await expect(result).toContainText('77번 · 문자찜(오프) · 보류')
+    expect((await history(page, date, true)).filter((e) => e.type === 'sms')).toHaveLength(1)
+    await result.getByRole('button', { name: '찜 취소하기' }).click()
+    await page.keyboard.press('1')
+    await page.keyboard.press('Enter')
+    await expect(result).toContainText('취소됨', { timeout: 15_000 })
+  })
+
   test('AC-S06-14: 아직 없는 번호 → 보류 → 다른 기기에서 등록하면 결과·최근 목록이 1등으로', async ({ page }) => {
     await login(page)
     const title = uniq('보류')

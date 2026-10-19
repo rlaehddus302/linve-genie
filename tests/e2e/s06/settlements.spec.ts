@@ -1,7 +1,7 @@
 // 정산 화면 (AC-S06-30~36, STL-01·02·03·07·09, R-12, D-092, G-ENG-172·173) — test-e2e.
 // 기본 설정: 배송비 4,000원, 무료 기준 없음. 금액은 손으로 계산한다.
 import { test, expect, type Page } from '@playwright/test'
-import { history, login, openNewBroadcast, registerApi, scopeView, uniqueDate, viewerClaim } from './support.ts'
+import { history, login, openNewBroadcast, postJson, registerApi, scopeView, todayKst, uniqueDate, viewerClaim, writeEvent } from './support.ts'
 
 async function setupDay(page: Page): Promise<{ b: string; date: string; a: string; bb: string }> {
   const date = uniqueDate()
@@ -134,5 +134,32 @@ test.describe('정산', () => {
     expect(adjusts[0]!.fields['amount']).toBe(-1000)
     const text = await page.locator('main').innerText()
     expect(text).not.toMatch(/UNPAID|PICKUP|PAID|sms:|undefined|NaN|null/)
+  })
+
+  test('AC-S06-31 (R-12): 입금 뒤 찜이 취소되면 "취소되어 품목이 없어요", 최종 0원, 과입금(환불 필요 = 받은 금액)', async ({ page }) => {
+    await login(page)
+    const { b, date, a } = await setupDay(page)
+    const scope = { date, rehearsal: true }
+    expect((await writeEvent(page, { type: 'settlement.payment', buyer: a, date, amount: 14000 }, scope)).status).toBeLessThan(300)
+    expect((await writeEvent(page, { type: 'host.cancel', b, no: 15, buyer: a, reason: '시청자 요청' })).status).toBeLessThan(300)
+    await page.goto(`/settlements?date=${date}&rehearsal=true&buyer=${encodeURIComponent(a)}`)
+    const detail = page.getByRole('region', { name: '정산 자세히' })
+    await expect(detail.getByRole('region', { name: '품목' })).toContainText('취소되어 품목이 없어요')
+    await expect(detail.getByRole('region', { name: '금액' })).toContainText('= 최종 0원')
+    await expect(detail).toContainText('과입금(환불 필요 14,000원)')
+  })
+
+  test('AC-S06-20·30: 날짜를 고르지 않으면 오늘(KST)의 실제 범위가 기본', async ({ page }) => {
+    await login(page)
+    const today = todayKst()
+    const res = await postJson(page, '/api/broadcasts', { requestId: crypto.randomUUID(), date: today, rehearsal: false, title: `오늘${String(Math.floor(Math.random() * 1e5))}` })
+    expect(res.status).toBeLessThan(300)
+    const list = await (await page.request.get('/api/broadcasts')).json() as { broadcasts: { id: string; date: string; rehearsal: boolean; ended: boolean }[] }
+    for (const x of list.broadcasts.filter((y) => y.date === today && !y.rehearsal && !y.ended)) await postJson(page, `/api/broadcasts/${x.id}/end`, { requestId: crypto.randomUUID() })
+    await page.goto('/buyers')
+    await expect(page).toHaveURL(new RegExp(`/buyers\\?date=${today}$`))
+    await page.goto('/settlements')
+    await expect(page).toHaveURL(new RegExp(`/settlements\\?date=${today}$`))
+    await expect(page.getByText('리허설 — 실제 정산이 아니에요')).toHaveCount(0)
   })
 })

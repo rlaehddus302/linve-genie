@@ -22,16 +22,26 @@ export async function smsApi(page: Page, event: { b: string; no: number; receive
   return res.body
 }
 
-/** 문자찜 입력 화면을 열고 제목으로 방송을 고른다 */
+/** 문자찜 입력 화면을 열고 제목으로 방송을 고른다 (그 방송 범위의 전체 조회가 끝나 입력 칸이 준비될 때까지) */
 export async function openSms(page: Page, title: string): Promise<void> {
+  if (!page.url().startsWith('http')) await page.goto('/')
+  const list = await (await page.request.get('/api/broadcasts')).json() as { broadcasts: { title: string; date: string; rehearsal: boolean }[] }
+  const target = list.broadcasts.find((x) => x.title === title)
+  if (target === undefined) throw new Error(`방송 ${title} 없음`)
   await page.goto('/sms')
   const region = page.getByRole('region', { name: '고른 방송' })
   await region.getByRole('button', { name: /^방송 (바꾸기|고르기)$/ }).click()
   const dlg = page.getByRole('dialog', { name: '방송 고르기' })
+  const loaded = page.waitForResponse((r) => {
+    const url = new URL(r.url())
+    return url.pathname === `/api/days/${target.date}` && (url.searchParams.get('rehearsal') === 'true') === target.rehearsal && r.ok()
+  })
   await dlg.getByRole('button', { name: new RegExp(`^${title} ·`) }).click()
   await expect(dlg).toHaveCount(0)
+  await loaded
   await expect(region).toContainText(title)
   await expect(page.getByRole('region', { name: '최근 넣은 문자찜' })).toBeVisible()
+  await expect(smsField(page, '번호')).toBeFocused()
 }
 
 export function smsField(page: Page, name: '번호' | '받은 시각' | '전화번호' | '메모' | '구매자 고르기') {
