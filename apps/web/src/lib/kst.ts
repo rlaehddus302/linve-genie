@@ -86,3 +86,9 @@ export function kstShort(value: string | number): string {
   const p = parts(shortFormat, ms)
   return `${String(Number(p.month ?? '0'))}/${String(Number(p.day ?? '0'))} ${p.hour ?? '00'}:${p.minute ?? '00'}`
 }
+
+/** UTC 시각 → KST `HH:MM` (출력 이력 "20:01 휴대폰") */
+export function kstHm(value: string | number): string {
+  const time = kstTime(value)
+  return time === '' ? '' : time.slice(0, 5)
+}
