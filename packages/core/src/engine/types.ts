@@ -734,6 +734,30 @@ export interface CancelRequestInfo {
   readonly seq: number
 }
 
+/** 받은 채팅 메시지 조회 (listMessages, D-086) — 본문·닉네임은 없다 */
+export interface MessageInfo {
+  /** 방송 ID */
+  readonly broadcast: string
+  /** 메시지 ID */
+  readonly id: string
+  /** 채널 ID */
+  readonly channel: string
+  /** 받은 이벤트의 seq */
+  readonly seq: number
+  /** 받은 시각 (그 이벤트의 at, UTC 밀리초) */
+  readonly at: number
+  /** 게시 시각 (UTC 밀리초 — 이벤트에 없었으면 at) */
+  readonly publishedAt: number
+  /** 무시한 방송자 메시지 (claim.ignoreOwner) */
+  readonly ignored: boolean
+  /** 주문이었던 메시지 (D-062) */
+  readonly order: boolean
+  /** 취소였던 메시지 (D-076) */
+  readonly cancel: boolean
+  /** 찜으로 바꾼 번호, 바꾼 순서 */
+  readonly converted: readonly number[]
+}
+
 export interface SmsRefInfo {
   readonly ref: string
   /** 그 문자찜이 정한 구매자 자신 */

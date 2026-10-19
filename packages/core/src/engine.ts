@@ -26,6 +26,8 @@ export {
   listCancelRequests,
   activeClaimId,
   productStatus,
+  listBlocked,
+  listMessages,
 } from './engine/views.ts'
 export type * from './engine/types.ts'
 export type { PMap } from './engine/pmap.ts'

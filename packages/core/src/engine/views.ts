@@ -18,6 +18,7 @@ import type {
   ClaimRecord,
   EffectInfo,
   EngineState,
+  MessageInfo,
   PendingInfo,
   PriceChange,
   PriceChangeInfo,
@@ -370,3 +371,40 @@ export function activeClaimId(state: EngineState, broadcast: string, no: number,
   return (slot === undefined ? undefined : pget(slot.active, reader(state).root(buyer))) ?? null
 }
 
+
+// ── 차단·메시지 (D-086, dev-server가 더한 순수 조회 — 상태를 읽기만 한다) ──────────────
+
+const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
+
+/**
+ * 차단 중인 구매자 ID 전부, ID 사전 순(UTF-16 코드 단위). 구매자로 기록된 적 없는 미리 차단한 채널도 들어간다 (R-9, D-086).
+ * 서버 차단 이어받기(AC-S05-80)가 영속 맵 내부를 읽지 않고 이 함수만 쓴다
+ */
+export function listBlocked(state: EngineState): string[] {
+  // 풀면 맵에서 지운다(값은 늘 true) — 키가 곧 차단 중인 ID다
+  return pkeys(state.blocked).sort(byCodeUnit)
+}
+
+/**
+ * 받은 채팅 메시지 전부, seq 순 (R-4, R-7 4, D-062, D-076, D-086). 본문·닉네임은 상태에 없다(서버가 이벤트 기록에서 붙인다).
+ * 주문·취소·무시는 받을 때 엔진이 정한 값이고, 바꾼 번호는 그 메시지를 찜으로 바꾼 번호(바꾼 순서)다
+ */
+export function listMessages(state: EngineState): MessageInfo[] {
+  const out: MessageInfo[] = []
+  for (const [key, message] of pentries(state.messages)) {
+    const [broadcast, id] = JSON.parse(key) as [string, string]
+    out.push({
+      broadcast,
+      id,
+      channel: message.ch,
+      seq: message.seq,
+      at: message.at,
+      publishedAt: message.publishedAt,
+      ignored: message.ignored,
+      order: message.order,
+      cancel: message.cancel,
+      converted: [...message.converted],
+    })
+  }
+  return out.sort((a, b) => a.seq - b.seq)
+}
