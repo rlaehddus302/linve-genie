@@ -178,7 +178,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         return numbers
       },
       fetchHistory: () => fetchPastNames({ date: broadcast.date, rehearsal: broadcast.rehearsal }),
-      dialogOpen: () => dialogCount.current > 0 || document.querySelector('[role="dialog"]') !== null,
+      dialogOpen: () => dialogCount.current > 0 || anyDialogOpen(),
       readConsent,
       writeConsent,
       readSettings,
