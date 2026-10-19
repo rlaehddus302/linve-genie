@@ -191,7 +191,8 @@ test('AC-S05-34: 직접 배정 — 빈 자리 없으면 교체할 1등과 대기
   await dlg.getByText('셋째').last().click()
   await dlg.getByRole('radio', { name: '대기로' }).check()
   await dlg.getByLabel('사유').fill('번호 착오')
-  await dlg.getByRole('button', { name: /배정/ }).last().click()
+  // AC-S06-60: 교체가 있는 직접 배정의 보내기 버튼은 "1등 바꾸기"
+  await dlg.getByRole('button', { name: '1등 바꾸기' }).click()
   await expect(boardItem(page, 15)).toContainText('셋째', { timeout: 15_000 })
   await expect(boardItem(page, 15)).toContainText(/대기 1/)
   const assigns = (await history(page, date, true)).filter((e) => e.type === 'host.assign')

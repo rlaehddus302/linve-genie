@@ -15,7 +15,9 @@ test('리허설 끝까지: 생성기 1,000건 + 상품 30개 + 화면 조치 →
   const panel = page.getByRole('region', { name: '리허설 조작판' })
   await panel.getByLabel('총 개수').fill('1000')
   await panel.getByLabel('초당 속도').fill('4') // E2E 속도 20배 → 초당 80건, 약 12초
-  await panel.getByLabel('시드(선택)').fill('42')
+  // AC-S06-66(013): '시드' 낱말 대신 "더 보기" 안의 "채팅 순서 번호"
+  await panel.getByText('더 보기').click()
+  await panel.getByLabel('채팅 순서 번호').fill('42')
   await panel.getByRole('button', { name: '가짜 채팅 시작' }).click()
   const status = panel.getByRole('status', { name: '가짜 채팅 상태' })
   await expect(status).toContainText(/실행 중|보내는 중|\d+ \/ 1,?000/)
