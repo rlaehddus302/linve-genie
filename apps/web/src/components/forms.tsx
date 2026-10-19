@@ -147,9 +147,9 @@ export function AmountField({ label, value, onChange, range, serverMessage = nul
             aria-describedby={message === null ? `${id}-read` : `${id}-read ${id}-error`}
             onChange={(event) => onChange(event.target.value)}
           />
-          <output id={`${id}-read`} className="amount-read" aria-live="polite">
+          <span id={`${id}-read`} className="amount-read" aria-live="polite">
             {read.kind === 'ok' ? read.words : ''}
-          </output>
+          </span>
         </span>
       </div>
       <FieldNote id={`${id}-error`} message={message} />
