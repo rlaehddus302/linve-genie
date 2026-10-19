@@ -371,10 +371,10 @@ export function activeClaimId(state: EngineState, broadcast: string, no: number,
   return (slot === undefined ? undefined : pget(slot.active, reader(state).root(buyer))) ?? null
 }
 
-
 // ── 차단·메시지 (D-086, dev-server가 더한 순수 조회 — 상태를 읽기만 한다) ──────────────
 
-const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
+/** 코드 단위 사전 순 (맵의 키는 겹치지 않으므로 같은 경우가 없다) */
+const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : 1)
 
 /**
  * 차단 중인 구매자 ID 전부, ID 사전 순(UTF-16 코드 단위). 구매자로 기록된 적 없는 미리 차단한 채널도 들어간다 (R-9, D-086).
