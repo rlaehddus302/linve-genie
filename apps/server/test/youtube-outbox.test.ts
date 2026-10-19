@@ -562,6 +562,10 @@ describe('AC-Y1-39 실행기 둘·조회·실시간 알림', () => {
       messageId: w.fake.posted[0]?.id,
       manual: false,
       groupWith: [],
+      // I3 (AC-I3-36): 판매자 게시됨 확인·알림에서 뺌 표시
+      confirmedBySeller: false,
+      dismissed: false,
+      dismissedAt: null,
     })
   })
 })

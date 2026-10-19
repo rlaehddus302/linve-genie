@@ -2,7 +2,7 @@
 // 워커가 판매자를 가리지 않고 할 일을 찾는 질의(수집할 것·요약할 것)는 그 행의 판매자 ID를 함께 돌려주고, 이어서 쓰는 질의는 그 판매자 ID를 건다.
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, lte, ne, notInArray, or, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
-import { broadcasts, events, scopes, youtubeCollectors, youtubeConnections, youtubeLinks, youtubeNotices, youtubeOwnMessages } from '../db/schema.ts'
+import { broadcasts, events, outbox, scopes, youtubeCollectors, youtubeConnections, youtubeLinks, youtubeNotices, youtubeOwnMessages } from '../db/schema.ts'
 
 // ── 방송 잇기 ────────────────────────────────────────────────────────────
 
@@ -436,4 +436,17 @@ export function scopeNotices(db: Db, sellerId: string, scopeId: string): Promise
     .from(youtubeNotices)
     .where(and(eq(youtubeNotices.sellerId, sellerId), eq(youtubeNotices.scopeId, scopeId)))
     .orderBy(asc(youtubeNotices.id))
+}
+
+/**
+ * 판매자의 발송함 행(감사·요약 댓글)이 리허설 범위의 것인지 — 판매자 조작(게시됨 확인·알림에서 빼기)의 409 판단용, 행 내용은 돌려주지 않는다.
+ * 실행기는 쓰지 않는다(실행기의 질의는 outbox-store.ts — 늘 실제 범위만). 없으면 null
+ */
+export async function outboxRowRehearsal(db: Db, sellerId: string, id: number): Promise<boolean | null> {
+  const rows = await db
+    .select({ rehearsal: outbox.rehearsal })
+    .from(outbox)
+    .where(and(eq(outbox.sellerId, sellerId), eq(outbox.id, id), inArray(outbox.kind, ['POST_THANKS', 'SUMMARY_COMMENT'])))
+    .limit(1)
+  return rows[0]?.rehearsal ?? null
 }

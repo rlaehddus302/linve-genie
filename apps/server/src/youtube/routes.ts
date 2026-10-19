@@ -12,6 +12,7 @@ import { unknownFieldProblems } from '../messages.ts'
 import { ASSISTANT_FORBIDDEN_MESSAGE } from '../roles.ts'
 import type { Service } from '../service.ts'
 import { CALLBACK_MESSAGES, NOT_CONNECTED_MESSAGE, type CallbackResult } from './connect.ts'
+import { SELLER_OUTBOX_MESSAGES } from './outbox.ts'
 import type { Sealer } from './seal.ts'
 import { LINK_MESSAGES, type LinkOutcome, type YoutubeSystem } from './system.ts'
 import { parseVideoId } from './texts.ts'
@@ -190,6 +191,45 @@ export function registerYoutubeRoutes(api: Hono<Env>, deps: YoutubeRouteDeps): v
       if (result.code === 'NO_PERMISSION') extraBody.authorizeUrl = await youtube.connections.publishAuthorizeUrl(info(c))
       return apiError(409, result.code, result.message, [], extraBody)
     }
+    return c.json({ row: result.row })
+  })
+
+  // ── 게시됨 확인·알림에서 빼기 (AC-I3-36 — 판매자 계정만, 보조자는 api.ts 허용 목록에서 403) ──────
+  /** 판매자 조작 앞 확인: 행 번호·리허설(409)·봉인(409). 통과하면 null */
+  const rowGate = async (c: Context<Env>): Promise<{ id: number } | Response> => {
+    if (youtube === null) return notConfigured()
+    const raw = c.req.param('id') ?? ''
+    if (!/^\d{1,15}$/.test(raw)) return notFound()
+    const id = Number(raw)
+    const rehearsal = await youtube.outboxRowRehearsal(sellerOf(c), id)
+    if (rehearsal === null) return notFound()
+    if (rehearsal) return apiError(409, 'REHEARSAL_OUTBOX', SELLER_OUTBOX_MESSAGES.REHEARSAL_OUTBOX)
+    const sealedRow = await youtube.outboxSealed(sellerOf(c), id)
+    if (sealedRow === 'not_found') return notFound()
+    if (sealedRow) return apiError(409, 'SEALED', LINK_MESSAGES.SEALED)
+    return { id }
+  }
+  api.post('/outbox/:id/confirm-posted', async (c) => {
+    const input = body(c)
+    const requestId = requestIdOf(input)
+    if (requestId === null) return invalidRequestId()
+    const extra = onlyKeys(input, ['requestId'])
+    if (extra !== null) return extra
+    const gate = await rowGate(c)
+    if (gate instanceof Response) return gate
+    const result = await (youtube as YoutubeSystem).outbox.confirmPosted(sellerOf(c), gate.id, session(c).accountId, requestId)
+    if (result.kind === 'not_found') return notFound()
+    if (result.kind === 'rejected') return apiError(409, result.code, result.message)
+    return c.json({ rows: result.rows })
+  })
+  api.post('/outbox/:id/dismiss', async (c) => {
+    const extra = onlyKeys(body(c), [])
+    if (extra !== null) return extra
+    const gate = await rowGate(c)
+    if (gate instanceof Response) return gate
+    const result = await (youtube as YoutubeSystem).outbox.dismiss(sellerOf(c), gate.id, session(c).accountId)
+    if (result.kind === 'not_found') return notFound()
+    if (result.kind === 'rejected') return apiError(409, result.code, result.message)
     return c.json({ row: result.row })
   })
 

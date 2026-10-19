@@ -42,6 +42,10 @@ export interface RunnerRow {
   readonly leaseOwner: string | null
   readonly leaseUntil: Date | null
   readonly createdAt: Date
+  /** 판매자가 "유튜브에 올라가 있어요"로 게시됨을 적은 계정 (게시 보고의 조치자, AC-I3-36) */
+  readonly confirmedBy: string | null
+  /** 알림에서 뺀 시각 (AC-I3-36) */
+  readonly dismissedAt: Date | null
 }
 
 const columns = {
@@ -72,6 +76,8 @@ const columns = {
   leaseOwner: outbox.leaseOwner,
   leaseUntil: outbox.leaseUntil,
   createdAt: outbox.createdAt,
+  confirmedBy: outbox.confirmedBy,
+  dismissedAt: outbox.dismissedAt,
 }
 
 const select = (db: Db) =>
@@ -133,6 +139,64 @@ export async function rowByResendRequest(db: Db, sellerId: string, requestId: st
   return rows[0] ?? null
 }
 
+/** 이 요청 번호로 게시됨을 적은 행 (AC-I3-36 — 같은 요청 번호는 한 번만) */
+export async function rowByConfirmRequest(db: Db, sellerId: string, requestId: string): Promise<RunnerRow | null> {
+  const rows = await select(db)
+    .where(and(REAL, eq(outbox.sellerId, sellerId), eq(outbox.confirmRequestId, requestId)))
+    .limit(1)
+  return rows[0] ?? null
+}
+
+/**
+ * 게시됨 확인 (AC-I3-36, D-I3-05): FAILED(UNCONFIRMED)인 그 행과 같은 메시지(묶음)의 FAILED(UNCONFIRMED) 행을 모두 한 문장으로 SENT로 바꾼다 —
+ * 메시지 ID 없음, 보낸 시각 = 확인한 시각, 조치자 계정을 적고 게시 보고는 아직(reported = false — 실행기의 보고도 그 계정으로 쓴다).
+ * 그 행이 FAILED(UNCONFIRMED)가 아니면(보내는 중·이미 게시됨 등) not_allowed. 누른 행에 요청 번호를 적는다
+ */
+export async function confirmPostedRows(
+  db: Db,
+  sellerId: string,
+  id: number,
+  accountId: string,
+  requestId: string,
+  now: Date,
+): Promise<{ kind: 'ok'; ids: number[] } | { kind: 'not_allowed' } | { kind: 'not_found' }> {
+  return db.transaction(async (tx) => {
+    const target = await select(tx)
+      .where(and(REAL, eq(outbox.sellerId, sellerId), eq(outbox.id, id)))
+      .for('update')
+      .limit(1)
+    const row = target[0]
+    if (row === undefined) return { kind: 'not_found' }
+    if (row.state !== 'FAILED' || row.reason !== 'UNCONFIRMED') return { kind: 'not_allowed' }
+    const members = row.groupId === null ? [eq(outbox.id, id)] : [or(eq(outbox.id, id), eq(outbox.groupId, row.groupId)) as SQL]
+    const changed = await tx
+      .update(outbox)
+      .set({ state: 'SENT', reason: null, remoteId: null, postedAt: now, nextAt: null, leaseOwner: null, leaseUntil: null, confirmUntil: null, confirmTries: 0, reported: false, confirmedBy: accountId, updatedAt: now })
+      .where(and(REAL, eq(outbox.sellerId, sellerId), ...members, eq(outbox.state, 'FAILED'), eq(outbox.reason, 'UNCONFIRMED')))
+      .returning({ id: outbox.id })
+    await tx
+      .update(outbox)
+      .set({ confirmRequestId: requestId })
+      .where(and(REAL, eq(outbox.sellerId, sellerId), eq(outbox.id, id)))
+    return { kind: 'ok', ids: changed.map((item) => item.id).sort((a, b) => a - b) }
+  })
+}
+
+/**
+ * 알림에서 빼기 (AC-I3-36): FAILED 행만. 상태·이유는 그대로이고 처음 뺀 시각·계정을 남긴다(다시 빼도 같은 결과). FAILED가 아니면 not_allowed
+ */
+export async function dismissRow(db: Db, sellerId: string, id: number, accountId: string, now: Date): Promise<{ kind: 'ok'; row: RunnerRow } | { kind: 'not_allowed' } | { kind: 'not_found' }> {
+  const changed = await db
+    .update(outbox)
+    .set({ dismissedAt: sql`coalesce(${outbox.dismissedAt}, ${now.toISOString()}::timestamptz)`, dismissedBy: sql`coalesce(${outbox.dismissedBy}, ${accountId})`, updatedAt: now })
+    .where(and(REAL, eq(outbox.sellerId, sellerId), eq(outbox.id, id), eq(outbox.state, 'FAILED')))
+    .returning({ id: outbox.id })
+  const row = await findRow(db, sellerId, id)
+  if (row === null) return { kind: 'not_found' }
+  if (changed.length === 0) return { kind: 'not_allowed' }
+  return { kind: 'ok', row }
+}
+
 /** 날짜(실제 범위)의 행 목록 (발송함 조회, AC-Y1-39) */
 export function scopeRows(db: Db, sellerId: string, scopeId: string): Promise<RunnerRow[]> {
   return select(db)
@@ -184,6 +248,8 @@ export interface RowChange {
   readonly resendRequestId?: string | null
   readonly leaseOwner?: string | null
   readonly leaseUntil?: Date | null
+  readonly dismissedAt?: Date | null
+  readonly dismissedBy?: string | null
 }
 
 /**

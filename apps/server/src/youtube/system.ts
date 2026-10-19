@@ -24,6 +24,7 @@ import {
   insertLink,
   linkByRequest,
   openLinksForVideo,
+  outboxRowRehearsal,
   recordedChats,
   scopeNotices,
   unlinkRow,
@@ -411,6 +412,11 @@ export class YoutubeSystem {
     const row = await findRow(this.#options.db, sellerId, rowId)
     if (row === null) return 'not_found'
     return (await scopeSealedAt(this.#options.db, sellerId, row.scopeId)) !== null
+  }
+
+  /** 발송함 행이 리허설 범위의 것인지 (게시됨 확인·알림에서 빼기의 409, AC-I3-36). 그 판매자의 행이 없으면 null */
+  outboxRowRehearsal(sellerId: string, rowId: number): Promise<boolean | null> {
+    return outboxRowRehearsal(this.#options.db, sellerId, rowId)
   }
 
   /** 그 날짜(범위)의 지운 메시지·차단 알림 */

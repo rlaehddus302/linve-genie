@@ -17,12 +17,14 @@
 import { formatWon, getBroadcast, getBuyer, listClaims, listEffects, listProducts, type EngineEffect, type EngineState } from '@livejjim/core'
 import type { Db } from '../db/database.ts'
 import { errorKind, type LogSink } from '../log.ts'
-import type { ScopeWriter } from '../writer.ts'
+import type { Actor, ScopeWriter } from '../writer.ts'
 import { YoutubeAccessError, googleFields, type ConsentTarget, type YoutubeConnections } from './connect.ts'
 import { batchWindowOf } from './collector.ts'
 import { GoogleError, POST_TIMEOUT_MS, type GoogleClient } from './google.ts'
 import {
   claimRemote,
+  confirmPostedRows,
+  dismissRow,
   dueRows,
   failWaiting,
   findRow,
@@ -30,6 +32,7 @@ import {
   insertSummaryRows,
   newThanksRows,
   openWindowAt,
+  rowByConfirmRequest,
   rowByResendRequest,
   scopeDates,
   scopeRows,
@@ -151,6 +154,11 @@ export interface OutboxRowView {
   readonly manual: boolean
   /** 같은 메시지로 함께 보낸(보낼) 다른 행 */
   readonly groupWith: readonly number[]
+  /** 판매자가 "유튜브에 올라가 있어요"로 게시됨을 적은 행 (메시지 ID 없음, AC-I3-36) */
+  readonly confirmedBySeller: boolean
+  /** 알림에서 뺀 행 (알림 띠 "감사 실패"에서 세지 않는다, AC-I3-36) */
+  readonly dismissed: boolean
+  readonly dismissedAt: string | null
 }
 
 class Killed extends Error {
@@ -197,8 +205,18 @@ export function outboxRowView(row: RunnerRow, all: readonly RunnerRow[] = []): O
     messageId: row.remoteId,
     manual: row.manual,
     groupWith: row.groupId === null ? [] : all.filter((other) => other.groupId === row.groupId && other.id !== row.id).map((other) => other.id),
+    confirmedBySeller: row.confirmedBy !== null,
+    dismissed: row.dismissedAt !== null,
+    dismissedAt: row.dismissedAt?.toISOString() ?? null,
   }
 }
+
+/** 게시됨 확인·알림에서 빼기 문장 (AC-I3-36) */
+export const SELLER_OUTBOX_MESSAGES = {
+  CONFIRM_NOT_ALLOWED: '확인하지 못한 감사만 올라가 있다고 적을 수 있어요.',
+  DISMISS_NOT_ALLOWED: '보내지 못한 감사만 알림에서 뺄 수 있어요.',
+  REHEARSAL_OUTBOX: '리허설 감사 메시지는 유튜브에 올리지 않아요.',
+} as const
 
 export class OutboxRunner {
   readonly #options: OutboxOptions
@@ -668,13 +686,15 @@ export class OutboxRunner {
       if (row.kind !== 'POST_THANKS') continue
       this.#check()
       const requestId = `ytsent-${String(row.id)}`
+      // 판매자가 "유튜브에 올라가 있어요"로 적은 행은 그 계정이 조치자다 (AC-I3-36·DAT-05) — 요청 번호는 같아 누가 먼저 써도 한 번만
+      const actor: Actor = row.confirmedBy === null ? { kind: 'server' } : { kind: 'account', accountId: row.confirmedBy }
       const outcome = await this.#options.writer.write({
         sellerId: row.sellerId,
         date: row.date,
         rehearsal: false,
         createScope: false,
         requestId,
-        build: () => [{ fields: { type: 'effect.thanksSent', effectId: row.effectId }, actor: { kind: 'server' }, requestId }],
+        build: () => [{ fields: { type: 'effect.thanksSent', effectId: row.effectId }, actor, requestId }],
       })
       // 기록됐거나(같은 요청 번호면 처음 것) 더 쓸 수 없는 범위(봉인)면 보고를 마친다. 저장 실패면 다음 바퀴에 보고만 다시
       if (outcome.kind === 'ok' || outcome.kind === 'duplicate' || outcome.kind === 'empty' || (outcome.kind === 'rejected' && outcome.rejection.code === 'SEALED')) {
@@ -1006,6 +1026,9 @@ export class OutboxRunner {
         confirmTries: 0,
         remoteId: null,
         resendRequestId: requestId,
+        // 다시 보내면 "알림에서 뺌"은 뜻이 없다 — 또 실패하면 새 실패로 알린다 (AC-I3-36)
+        dismissedAt: null,
+        dismissedBy: null,
       },
       now,
       { state: 'FAILED' },
@@ -1015,6 +1038,51 @@ export class OutboxRunner {
     this.notify()
     const fresh = await findRow(db, sellerId, row.id)
     return { kind: 'ok', row: outboxRowView(fresh ?? row) }
+  }
+
+  /**
+   * 게시됨 확인 (AC-I3-36, D-I3-05): 판매자가 유튜브에서 본 확인하지 못한 감사(FAILED(UNCONFIRMED))를 그 메시지의 행 모두 SENT로 적고
+   * 효과마다 게시 보고(effect.thanksSent, 조치자 = 그 계정)를 기록한다 — 공개 감사가 나간 확정은 잠긴다(R-7 3). 확정이 이미 풀린 효과도 보고는 한다
+   * (엔진이 잠금 없이 실행 완료로 둔다 — R-13 늦은 보고). 같은 요청 번호는 처음 결과. 다시 게시하지 않는다
+   */
+  async confirmPosted(
+    sellerId: string,
+    rowId: number,
+    accountId: string,
+    requestId: string,
+  ): Promise<{ kind: 'ok'; rows: OutboxRowView[] } | { kind: 'not_found' } | { kind: 'rejected'; code: 'CONFIRM_NOT_ALLOWED'; message: string }> {
+    const { db } = this.#options
+    const prior = await rowByConfirmRequest(db, sellerId, requestId)
+    if (prior !== null) {
+      if (prior.id !== rowId) return { kind: 'rejected', code: 'CONFIRM_NOT_ALLOWED', message: SELLER_OUTBOX_MESSAGES.CONFIRM_NOT_ALLOWED }
+      return { kind: 'ok', rows: await this.#groupViews(sellerId, prior) }
+    }
+    const result = await confirmPostedRows(db, sellerId, rowId, accountId, requestId, this.#now())
+    if (result.kind === 'not_found') return { kind: 'not_found' }
+    if (result.kind === 'not_allowed') return { kind: 'rejected', code: 'CONFIRM_NOT_ALLOWED', message: SELLER_OUTBOX_MESSAGES.CONFIRM_NOT_ALLOWED }
+    const row = await findRow(db, sellerId, rowId)
+    if (row === null) return { kind: 'not_found' }
+    this.#publishRows(sellerId, row.date, result.ids, 'SENT', null)
+    const members = (await this.#groupViews(sellerId, row)).filter((view) => result.ids.includes(view.id))
+    // 게시 보고 (실행기의 보고와 같은 요청 번호 — 한 번만). 저장하지 못하면 실행기가 다음 바퀴에 같은 계정으로 다시 한다
+    const runnerRows = (await Promise.all(result.ids.map((id) => findRow(db, sellerId, id)))).filter((item): item is RunnerRow => item !== null)
+    await this.#report(runnerRows)
+    return { kind: 'ok', rows: members.length > 0 ? members : await this.#groupViews(sellerId, row) }
+  }
+
+  /** 알림에서 빼기 (AC-I3-36): FAILED 행만 — 상태·이유는 그대로, 다시 보내기는 그대로 된다 */
+  async dismiss(sellerId: string, rowId: number, accountId: string): Promise<{ kind: 'ok'; row: OutboxRowView } | { kind: 'not_found' } | { kind: 'rejected'; code: 'DISMISS_NOT_ALLOWED'; message: string }> {
+    const result = await dismissRow(this.#options.db, sellerId, rowId, accountId, this.#now())
+    if (result.kind === 'not_found') return { kind: 'not_found' }
+    if (result.kind === 'not_allowed') return { kind: 'rejected', code: 'DISMISS_NOT_ALLOWED', message: SELLER_OUTBOX_MESSAGES.DISMISS_NOT_ALLOWED }
+    this.#options.publish(sellerId, { kind: 'outbox', date: result.row.date, ids: [rowId], state: result.row.state ?? 'FAILED', reason: result.row.reason, dismissed: true })
+    return { kind: 'ok', row: outboxRowView(result.row) }
+  }
+
+  /** 그 행의 묶음 행들의 보기 (묶음이 없으면 그 행만) */
+  async #groupViews(sellerId: string, row: RunnerRow): Promise<OutboxRowView[]> {
+    const rows = row.groupId === null ? [row] : await groupRows(this.#options.db, sellerId, row.groupId)
+    return rows.map((item) => outboxRowView(item, rows))
   }
 
   /** 그 행이 속한 묶음의 행들 (시험·조회) */
