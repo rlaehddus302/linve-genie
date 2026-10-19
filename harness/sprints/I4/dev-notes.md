@@ -14,6 +14,7 @@
    - `apps/web/src`에서 `@livejjim/voice`의 값은 **한 파일**에서 **동적 `import('@livejjim/voice')`**로만 부른다(글자 그대로 `'@livejjim/voice'` — 하위 경로·상대 경로 안 됨).
    - 다른 파일은 `import type { … } from '@livejjim/voice'`(문장 전체가 type)와 타입 위치의 `typeof import('@livejjim/voice')`만 된다.
    - 안 되는 것: 정적 값 import, `import '@livejjim/voice'`, **`import { type X } from '@livejjim/voice'`**(verbatimModuleSyntax에선 빈 import로 남아 모듈을 불러온다 — `import type`으로 쓴다), `export … from '@livejjim/voice'`(type 포함), `require`, `packages/voice` 경로, 모듈 이름을 글자로 들고 다니기(`const m = '@livejjim/voice'`).
+   - 주의: 저장소 ESLint의 `consistent-type-imports`(fixStyle inline)는 `--fix` 때 타입만 쓰는 import를 `import { type X } from …`로 고친다 — `@livejjim/voice`에는 손으로 `import type { X } from '@livejjim/voice'`를 쓴다(린트도 통과한다).
    - 검사는 TypeScript 구문 트리로 한다(주석 속 낱말은 괜찮다). 화면 안의 `voice` 폴더(`../voice/…`)는 음성 패키지가 아니므로 된다.
    - **지금(dev-device 커밋 시점) "동적 import는 정확히 한 파일" 시험 하나가 실패한다** — dev-web이 콘솔에 음성을 이으면 통과한다(남의 몫, 의도한 상태).
 4. **정확도 측정 스크립트 (AC-I4-03, D-I4-08)** — 아래 "측정 스크립트" 참고.
