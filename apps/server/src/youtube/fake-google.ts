@@ -2,9 +2,10 @@
 // - OAuth: 승인 화면 대신 바로 돌려보내기(허락·거절), 토큰(코드 교환 — PKCE S256 검사), 새로 고침, 폐기.
 // - Data API: channels.list · liveBroadcasts.list · videos.list · liveChatMessages.list·insert·streamList · commentThreads.list·insert.
 //   응답 모양은 실제 API 문서의 필드 이름을 쓴다(snippet·authorDetails·textMessageDetails·nextPageToken·pollingIntervalMillis·offlineAt …).
-// - 시험 조작: 채널·브랜드 채널·방송(진행 중·예정·끝남, 채팅 꺼짐) 만들기, 시청자 메시지·슈퍼챗·멤버십 축하·삭제·차단 넣기, 채팅 끝내기,
+// - 시험 조작: 채널·브랜드 채널·방송(진행 중·예정·끝남, 채팅 꺼짐) 만들기, 예정 방송 시작하기, 시청자 메시지·슈퍼챗·멤버십 축하·삭제·차단 넣기, 채팅 끝내기,
 //   오류 넣기(5xx·429·rateLimitExceeded·quotaExceeded·응답 없음·게시는 받고 응답 없음·스트림 중간 끊김·pageTokenInvalid·invalid_grant·liveChatEnded),
-//   게시된 메시지·댓글·호출 횟수 보기. 우리 채널이 게시한 메시지는 그 채팅에 작성자 = 우리 채널로 다시 나온다(AC-Y1-26).
+//   스트림이 응답 하나만 주고 닫히기(streamOnce), 게시한 글을 조회(list)에 늦게 보이기(postsHiddenForMs),
+//   게시된 메시지·댓글·호출 횟수·호출 시각 보기. 우리 채널이 게시한 메시지는 그 채팅에 작성자 = 우리 채널로 다시 나온다(AC-Y1-26).
 // - 같은 프로세스의 시험은 메서드로, 다른 프로세스(E2E·화면 시험)는 /_fake/* JSON 경로로 조작한다(dev-notes "화면(I3)에게").
 import { createHash, randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
@@ -223,6 +224,15 @@ export class FakeGoogle {
   revoked = 0
   /** 지금 열린 스트림 수 (채팅 ID별) */
   readonly openStreams = new Map<string, number>()
+  /** 받은 Data API 호출의 종류·시각 (가짜 시계 — 호출 간격 시험, AC-Y1-94) */
+  readonly callTimes: { readonly method: FakeMethod; readonly at: number }[] = []
+  /** 스트림이 응답 하나(메시지가 없으면 빈 응답)를 주고 바로 정상으로 닫힌다 (AC-Y1-94) */
+  streamOnce = false
+  /** 우리가 게시한 메시지·댓글을 조회(liveChatMessages.list·commentThreads.list)에 이만큼 늦게 보인다 (밀리초, AC-Y1-96).
+   * 폴링 수집기도 list를 쓰므로 그사이 폴링한 수집기는 그 글을 받지 못한다 — 수집기 없는 게시 확인 시험에만 쓴다 */
+  postsHiddenForMs = 0
+  readonly #insertedAt = new Map<string, number>()
+  readonly #holds = new Map<FakeMethod, { readonly count: number; readonly waiting: (() => void)[] }>()
 
   private constructor(options: FakeOptions) {
     this.clientId = options.clientId ?? 'fake-client-id'
@@ -334,6 +344,15 @@ export class FakeGoogle {
     this.#events.emit(`chat:${liveChatId}`)
   }
 
+  /** 예정 방송을 시작한다 (진행 중, 실제 시작 시각 = at 또는 지금) — AC-Y1-94 */
+  startBroadcast(videoId: string, at?: number): FakeBroadcast {
+    const broadcast = this.#broadcasts.get(videoId)
+    if (broadcast === undefined) throw new Error('없는 방송')
+    broadcast.status = 'live'
+    broadcast.actualStartTime = new Date(at ?? this.#now()).toISOString()
+    return broadcast
+  }
+
   #chat(liveChatId: string): Chat {
     const chat = this.#chats.get(liveChatId)
     if (chat === undefined) throw new Error('없는 채팅')
@@ -437,6 +456,11 @@ export class FakeGoogle {
     this.#faults.set(method, list)
   }
 
+  /** 그 메서드의 다음 count번 호출을 모두 도착할 때까지 붙잡았다가 함께 처리한다 (동시 요청 경합 시험, AC-Y1-98) */
+  hold(method: FakeMethod, count: number): void {
+    this.#holds.set(method, { count, waiting: [] })
+  }
+
   /** 열린 스트림을 모두 끊는다 (네트워크 끊김) */
   dropStreams(): void {
     this.#events.emit('drop')
@@ -493,6 +517,13 @@ export class FakeGoogle {
 
   #count(method: FakeMethod): void {
     this.#calls.set(method, (this.#calls.get(method) ?? 0) + 1)
+    this.callTimes.push({ method, at: this.#now() })
+  }
+
+  /** 조회(list)에 아직 보이지 않는 우리 게시물 (postsHiddenForMs) */
+  #hidden(id: string): boolean {
+    const at = this.#insertedAt.get(id)
+    return at !== undefined && this.#now() < at + this.postsHiddenForMs
   }
 
   #fault(method: FakeMethod): FakeFault | undefined {
@@ -544,6 +575,15 @@ export class FakeGoogle {
     )[route]
     if (method === undefined) return googleError(res, 404, 'notFound')
     this.#count(method)
+    const hold = this.#holds.get(method)
+    if (hold !== undefined) {
+      await new Promise<void>((resolve) => {
+        hold.waiting.push(resolve)
+        if (hold.waiting.length < hold.count) return
+        this.#holds.delete(method)
+        for (const release of hold.waiting) release()
+      })
+    }
     const fault = this.#fault(method)
     const token = this.#bearer(req)
     if (fault !== undefined && 'kind' in fault && fault.kind !== 'acceptHang' && fault.kind !== 'cut') {
@@ -762,7 +802,7 @@ export class FakeGoogle {
       nextPageToken: `p${String(page.next)}`,
       ...(chat.endedAt !== null && page.next >= chat.messages.length ? { offlineAt: chat.endedAt } : {}),
       pageInfo: { totalResults: page.items.length, resultsPerPage: this.pageSize },
-      items: page.items,
+      items: page.items.filter((item) => !this.#hidden(String(item.id))),
     })
   }
 
@@ -823,6 +863,7 @@ export class FakeGoogle {
             this.#endedSent.add(`${chat.id}|${String(position)}`)
             break
           }
+          if (this.streamOnce) break
           // 다음 묶음에서 끊을 수 있게 (시험이 스트림 도중 fail('…streamList', {kind:'cut'})을 넣으면)
           const next = this.#faults.get('liveChatMessages.streamList')?.[0]
           if (next !== undefined && 'kind' in next && next.kind === 'cut') {
@@ -835,6 +876,11 @@ export class FakeGoogle {
         if (chat.endedAt !== null) {
           res.write(`${first ? '' : ',\n'}${JSON.stringify({ kind: 'youtube#liveChatMessageListResponse', nextPageToken: `p${String(position)}`, offlineAt: chat.endedAt, items: [] })}`)
           this.#endedSent.add(`${chat.id}|${String(position)}`)
+          break
+        }
+        if (this.streamOnce) {
+          // 응답 하나만: 새 메시지가 없으면 빈 응답을 주고 닫는다
+          res.write(`${first ? '' : ',\n'}${JSON.stringify({ kind: 'youtube#liveChatMessageListResponse', nextPageToken: `p${String(position)}`, items: [] })}`)
           break
         }
         await new Promise<void>((resolve) => wake.once('wake', () => resolve()))
@@ -860,6 +906,7 @@ export class FakeGoogle {
     const channel = token.channel ?? ''
     const messageId = this.addMessage(chat.id, { author: channel, name: this.#channels.get(channel)?.title ?? '채널', text, owner: channel === chat.channelId })
     this.posted.push({ liveChatId: chat.id, id: messageId, text, authorChannelId: channel })
+    this.#insertedAt.set(messageId, this.#now())
     if (fault !== undefined && 'kind' in fault && fault.kind === 'acceptHang') {
       this.#events.once('close', () => res.destroy())
       return
@@ -871,7 +918,7 @@ export class FakeGoogle {
   #commentsList(res: ServerResponse, url: URL): void {
     const videoId = url.searchParams.get('videoId') ?? ''
     const items = this.comments
-      .filter((comment) => comment.videoId === videoId)
+      .filter((comment) => comment.videoId === videoId && !this.#hidden(comment.id))
       .slice()
       .reverse()
       .slice(0, 100)
@@ -899,6 +946,7 @@ export class FakeGoogle {
     if (text === '' || [...text].length > 10_000) return googleError(res, 400, 'invalidCommentMetadata', 'youtube.commentThread')
     const comment: FakeComment = { id: id('cmt_', 12), videoId, authorChannelId: token.channel ?? '', text, publishedAt: new Date(this.#now()).toISOString() }
     this.comments.push(comment)
+    this.#insertedAt.set(comment.id, this.#now())
     if (fault !== undefined && 'kind' in fault && fault.kind === 'acceptHang') {
       this.#events.once('close', () => res.destroy())
       return
@@ -956,6 +1004,13 @@ export class FakeGoogle {
           })
         case 'POST /_fake/end-chat':
           this.endChat(text('liveChatId') ?? '')
+          return json(res, 200, { ok: true })
+        case 'POST /_fake/start-broadcast':
+          return json(res, 200, this.startBroadcast(text('videoId') ?? ''))
+        case 'POST /_fake/options':
+          if (typeof input.pollingIntervalMillis === 'number') this.pollingIntervalMillis = input.pollingIntervalMillis
+          if (typeof input.streamOnce === 'boolean') this.streamOnce = input.streamOnce
+          if (typeof input.postsHiddenForMs === 'number') this.postsHiddenForMs = input.postsHiddenForMs
           return json(res, 200, { ok: true })
         case 'POST /_fake/fail': {
           const fault = input.fault as FakeFault
