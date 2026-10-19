@@ -82,7 +82,7 @@ describe('AC-S03-05 상태가 커져도 이벤트당 비용이 늘지 않는다'
     ] as const) {
       expect(checkInvariants(large), name).toEqual([])
       // 한 번은 1ms 안팎이라 기계 부하에 따라 비율이 크게 흔들린다(병렬 트랙 중 0.9ms → 8.2ms). 작은 상태 한 번 측정이
-      // 30ms 이상이 되도록 같은 횟수를 반복해 재고 비율을 본다 — 기준(4배 크기에서 8배 이하, 통째 복사면 16배)은 그대로다 (D-098).
+      // 30ms 이상이 되도록 같은 횟수를 반복해 재고 비율을 본다 — 기준(4배 크기에서 8배 이하, 통째 복사면 16배)은 그대로다 (D-901).
       const once = fastest(3, () => checkInvariants(small))
       const reps = Math.max(1, Math.ceil(30 / Math.max(once, 0.01)))
       const repeated = (state: EngineState) => () => {
