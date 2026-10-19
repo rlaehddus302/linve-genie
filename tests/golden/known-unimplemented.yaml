@@ -18,6 +18,8 @@
 # S04: 새 골든 G-ENG-160~162(15-broadcast.yaml — 방송 시작·종료, 방송마다의 설정 스냅샷, D-069·D-070)와 G-ENG-163~165(16-s04-rules.yaml —
 #      취소 메시지 변환 금지·대기 한도 0의 승계 묻기, D-076·D-077)는 모두 S04 범위라 넣지 않았다. 허용 목록은 계속 비어 있다 —
 #      남기면 미구현이 통과로 숨는다. broadcast.start·broadcast.end는 S04부터 미구현(NotImplementedError)이 아니다.
-sprint: S04
+# S05: 새 골든 G-ENG-167·168(17-s05-console.yaml — 등록 되돌리기·5초 뒤 보낸 방송자 조치, D-083)은 S05 범위이고 새 엔진 규칙이 없어
+#      지금 코어로 통과한다. 넣지 않았다. 허용 목록은 계속 비어 있다 — 남기면 미구현이 통과로 숨는다. (S05는 dev-core가 없다.)
+sprint: S05
 suites: []
 scenarios: []
