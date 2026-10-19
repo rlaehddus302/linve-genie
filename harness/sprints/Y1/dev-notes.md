@@ -39,6 +39,8 @@ S04~S06 계약은 그대로이고 아래가 더해진다. 모든 경로는 세�
 - 멈춘 이유 `reason`: `RECONNECT` "유튜브 연결을 다시 해 주세요." · `NOT_CONNECTED` "유튜브 연결이 끊겨 수집을 멈췄어요." · `NOT_MY_CHANNEL` "내 채널의 방송이 아니에요." · `QUOTA` "오늘 유튜브 사용량을 다 썼어요."(태평양 자정 뒤 저절로) · `CHAT_DISABLED` "채팅이 꺼져 있어요." · `FORBIDDEN` "채팅을 읽을 권한이 없어요." · `CHAT_NOT_FOUND` "채팅을 찾을 수 없어요." · `UNLINKED` "유튜브 방송 연결을 끊었어요." · `SEALED` "30일이 지나 봉인한 방송이에요."
 - `RECONNECT`·`NOT_CONNECTED`·`NOT_MY_CHANNEL`·`QUOTA`는 조건이 풀리면 저절로 이어받는다. `CHAT_DISABLED`·`FORBIDDEN`·`CHAT_NOT_FOUND`는 판매자가 다시 시작(`restartable: true`).
 - `gap: true`면 `gapMessage` "끊긴 동안의 채팅 일부를 받지 못했을 수 있어요." `skippedBeforeLink` = 잇기 전에 게시돼 기록하지 않은 수. `recorded` = 그 방송에 기록된 유튜브 채팅 수.
+- **예정 방송**(AC-Y1-94, 후속): 이을 때 시작 전이던 유튜브 방송은 `status: 'STARTING'`, `reason: 'NOT_STARTED'`, `reasonMessage` "유튜브 방송이 시작되면 채팅을 받아요."(`statusMessage`는 "시작하는 중"). 서버가 30초마다 방송 상태만 보고, 시작하면 그때 수집을 시작한다(`LIVE`). 실제 시작 시각 전에 게시된 대기실 채팅은 기록하지 않고 `skippedBeforeLink`에 센다. 시작 전에 끝나면 `CHAT_ENDED`, 영상이 없으면 `STOPPED`·`CHAT_NOT_FOUND`.
+- 수집 호출 간격(AC-Y1-94, 후속): 오류가 이어지면 "다시 연결하는 중"(`RETRYING`)이 5·10·20·30초 간격으로 다시 시도한다(전에는 1초부터). 화면이 따로 할 일은 없다.
 
 #### 4. 발송함 (AC-Y1-32·38·39)
 | 요청 | 응답 |
@@ -48,8 +50,8 @@ S04~S06 계약은 그대로이고 아래가 더해진다. 모든 경로는 세�
 
 - `OutboxRowView` = `{ id, target: 'LIVE_CHAT'｜'VIDEO_COMMENT'｜'SUMMARY', broadcast, product, buyer, text(게시할 글), state, stateMessage, reason, reasonMessage, attempts, nextAt, postedAt, messageId, manual, groupWith: [같은 메시지의 다른 행 ID] }`
 - `state`: `WAITING` 기다림 · `SENDING` 보내는 중 · `SENT` 게시됨 · `SKIPPED` 건너뜀 · `FAILED` 보내지 못함.
-- `reason`과 `reasonMessage`(`OUTBOX_REASON_MESSAGES`): 보내지 못함 — `NO_CONSENT` "자동 게시에 동의하기 전의 감사예요." · `NO_LINK` "이어진 유튜브 방송이 없어요." · `CHAT_ENDED` "유튜브 채팅이 끝났어요." · `NO_PERMISSION` "게시 권한이 없어요." · `EXPIRED` "너무 늦어 보내지 않았어요." · `GAVE_UP` "여러 번 보내지 못했어요." · `REJECTED` "유튜브가 받지 않았어요." · `SEALED` "30일이 지나 보내지 않았어요." / 건너뜀 — `CANCELLED` "확정이 풀린 판매라 보내지 않아요." / 기다림 — `WINDOW` "묶어서 보내려고 기다리는 중이에요." · `RETRY` "다시 보내려고 기다리는 중이에요." · `RECONNECT` "유튜브 연결을 다시 해 주세요." · `QUOTA` "오늘 유튜브 사용량이 얼마 남지 않아 기다리는 중이에요." / 보내는 중 — `CONFIRM`·`CONFIRM_LISTED` "올라갔는지 확인하는 중이에요."
-- 재전송 409 코드: `RESEND_NOT_ALLOWED` "다시 보낼 수 없는 감사예요."(FAILED가 아님) · `EFFECT_CANCELLED` "확정이 풀린 판매라 보내지 않아요."(행은 SKIPPED가 된다) · `ALREADY_SENT` "이미 게시된 감사예요." · `NO_PERMISSION` "게시 권한이 없어요." + `authorizeUrl`(게시 권한을 받으러 최상위 이동) · `NOT_LINKED` · `CHAT_ENDED` · `YOUTUBE_RECONNECT_NEEDED` "유튜브 연결을 다시 해 주세요." · `QUOTA_PAUSED` "오늘 유튜브 사용량이 얼마 남지 않아 채팅 수집에 남겨 둬요." · `SEALED`. 남의·없는 행 404. 요청 번호 필수(400 `INVALID_REQUEST_ID`).
+- `reason`과 `reasonMessage`(`OUTBOX_REASON_MESSAGES`): 보내지 못함 — `NO_CONSENT` "자동 게시에 동의하기 전의 감사예요." · `NO_LINK` "이어진 유튜브 방송이 없어요." · `NOT_MY_CHANNEL` "지금 연결한 유튜브 채널의 방송이 아니라 보내지 않았어요."(후속 AC-Y1-92) · `UNCONFIRMED` "올라갔는지 확인하지 못했어요. 유튜브에서 확인하고 없으면 다시 보내 주세요."(후속 AC-Y1-96 — 재전송 버튼 옆에 "이미 올라갔을 수 있어요" 안내, D-Y1-06) · `CHAT_ENDED` "유튜브 채팅이 끝났어요." · `NO_PERMISSION` "게시 권한이 없어요." · `EXPIRED` "너무 늦어 보내지 않았어요." · `GAVE_UP` "여러 번 보내지 못했어요." · `REJECTED` "유튜브가 받지 않았어요." · `SEALED` "30일이 지나 보내지 않았어요." / 건너뜀 — `CANCELLED` "확정이 풀린 판매라 보내지 않아요." / 기다림 — `WINDOW` "묶어서 보내려고 기다리는 중이에요." · `RETRY` "다시 보내려고 기다리는 중이에요." · `RECONNECT` "유튜브 연결을 다시 해 주세요." · `QUOTA` "오늘 유튜브 사용량이 얼마 남지 않아 기다리는 중이에요." / 보내는 중 — `CONFIRM`·`CONFIRM_LISTED`·`CONFIRM_LIST_FAILED`(후속) "올라갔는지 확인하는 중이에요."
+- 재전송 409 코드: `RESEND_NOT_ALLOWED` "다시 보낼 수 없는 감사예요."(FAILED가 아님) · `EFFECT_CANCELLED` "확정이 풀린 판매라 보내지 않아요."(행은 SKIPPED가 된다) · `ALREADY_SENT` "이미 게시된 감사예요." · `NOT_MY_CHANNEL` "지금 연결한 유튜브 채널의 방송이 아니라 보내지 않았어요."(후속 — 행은 그대로 FAILED, 그 방송을 이은 채널로 다시 연결하면 보낼 수 있다) · `NO_PERMISSION` "게시 권한이 없어요." + `authorizeUrl`(게시 권한을 받으러 최상위 이동) · `NOT_LINKED` · `CHAT_ENDED` · `YOUTUBE_RECONNECT_NEEDED` "유튜브 연결을 다시 해 주세요." · `QUOTA_PAUSED` "오늘 유튜브 사용량이 얼마 남지 않아 채팅 수집에 남겨 둬요." · `SEALED`. 남의·없는 행 404. 요청 번호 필수(400 `INVALID_REQUEST_ID`).
 - 화면의 "감사 실패" 알림 띠는 `state: 'FAILED'` 행을 보인다(SPEC §7 화면 2).
 
 #### 5. 지운 메시지·차단 알림, 할당량, 봉인 (AC-Y1-27·53·62)
@@ -63,7 +65,7 @@ S04~S06 계약은 그대로이고 아래가 더해진다. 모든 경로는 세�
 - `{ kind: 'connection', connection }` — 연결 상태·권한·동의가 바뀜
 - `{ kind: 'collector', broadcast, date, collector }` — 수집 상태가 바뀜(상태·이유·방식·gap)
 - `{ kind: 'outbox', date, ids, state, reason }` — 발송함 행 상태가 바뀜(화면은 목록을 다시 받는다). 요약 댓글을 만들면 `{ kind: 'outbox', date, summary: <회차 ID> }`
-- `{ kind: 'quota', mode }` — 할당량 모드가 바뀜
+- `{ kind: 'quota', mode }` — 할당량 모드가 바뀜(후속 AC-Y1-97: 이유와 상관없이 — 다른 판매자의 사용·태평양 자정 포함, 늦어도 10초 안. 서버를 다시 시작한 뒤 첫 판정은 바뀌지 않았어도 온다 — 화면은 받은 값으로 덮어쓴다)
 - `{ kind: 'notice', date, notice }` — 지운 메시지·차단 알림이 새로 생김
 - `{ kind: 'sealed', date }` — 그 날짜를 봉인함
 
@@ -83,6 +85,8 @@ S04~S06 계약은 그대로이고 아래가 더해진다. 모든 경로는 세�
   - `POST /_fake/broadcasts { channelId, title?, status: 'live'｜'upcoming'｜'complete', chat?: false }` → `{ videoId, liveChatId, … }`
   - `POST /_fake/messages { liveChatId, author, name, text?, type?, userComment?, publishedAt? }` → `{ id }` (`type`: textMessageEvent·superChatEvent·memberMilestoneChatEvent·superStickerEvent·newSponsorEvent …)
   - `POST /_fake/delete { liveChatId, messageId }` · `POST /_fake/ban { liveChatId, channelId, name, seconds? }` · `POST /_fake/end-chat { liveChatId }`
+  - `POST /_fake/start-broadcast { videoId }` — 예정 방송을 시작한다(진행 중, 실제 시작 시각 = 지금. 후속 AC-Y1-94)
+  - `POST /_fake/options { pollingIntervalMillis?, streamOnce?, postsHiddenForMs? }` — 폴링 간격 · 스트림이 응답 하나만 주고 닫히기 · 우리가 게시한 글을 조회(list)에 늦게 보이기(밀리초, 폴링 수집기도 그 글을 놓친다 — 게시 확인 시험용)
   - `POST /_fake/fail { method, fault, times? }` — `method`: `liveChatMessages.streamList`·`liveChatMessages.list`·`liveChatMessages.insert`·`commentThreads.insert`·`liveBroadcasts.list`·`videos.list`·`channels.list`·`oauth.token`·`oauth.refresh`·`oauth.revoke` … / `fault`: `{ status, reason? }`(예 `{ status: 403, reason: 'quotaExceeded' }`·`{ status: 400, reason: 'invalid_grant' }`) · `{ kind: 'hang' }`(응답 없음) · `{ kind: 'acceptHang' }`(게시는 받고 응답 없음) · `{ kind: 'cut' }`(스트림 묶음 중간 끊김) · `{ kind: 'reset' }`
   - `POST /_fake/clear-faults` · `POST /_fake/revoke-all`(사용자가 권한을 거둠) · `POST /_fake/drop-streams`(네트워크 끊김)
   - `GET /_fake/state[?liveChatId=]` → `{ posted: [{ liveChatId, id, text, authorChannelId }], comments: [...], calls: { 메서드: 횟수 }, messages? }`
@@ -99,7 +103,8 @@ const server = createServer({ database, masterKey, appOrigin, clock: timer, time
 installGoogleBlock()   // 실제 구글 주소로 나가는 요청을 막는다 (blockedRequests.count)
 ```
 - 워커는 시험이 돌린다: `server.youtube.collectors.start()`(또는 `.scan()`) · `server.youtube.outbox.runOnce()` · `server.sealer.runOnce()`. 시계는 `timer.advance(ms)`/`timer.set(ms)`(그 사이 `sleep`이 시각 순으로 풀린다). 서버가 죽은 흉내: `collectors.kill()`·`outbox.kill()`(임대를 놓지 않는다). 같은 DB로 서버를 하나 더 만들 때 `instanceName`을 다르게.
-- 주입점: `collectorHooks.beforeSaveToken`(묶음 기록 뒤·지점 저장 전), `outboxHooks.afterPost`(게시 응답 뒤·SENT 적기 전), `sealHooks.beforeCommit`, 기존 `hooks.beforeCommit`(게시 보고 기록 실패).
+- 주입점: `collectorHooks.beforeSaveToken`(묶음 기록 뒤·지점 저장 전), `outboxHooks.afterPost`(게시 응답 뒤·SENT 적기 전), `sealHooks.beforeCommit`, 기존 `hooks.beforeCommit`(게시 보고 기록 실패), `linkHooks.beforeInsert`(후속 — 잇기의 확인 뒤·넣기 전, 판매자 잠금 안: 기다리게 하면 동시 잇기가 겹친다).
+- 가짜 서버 조작(후속): `fake.startBroadcast(videoId, at?)` · `fake.streamOnce = true` · `fake.postsHiddenForMs = ms` · `fake.hold(method, n)`(그 메서드의 다음 n번 호출을 모두 도착할 때까지 붙잡았다 함께 처리 — 동시 요청) · `fake.callTimes`(받은 호출의 종류·가짜 시계 시각 — 호출 간격 확인).
 - 승인 흐름: `POST /api/youtube/connection/start` → `fetch(authorizeUrl, { redirect: 'manual' })`의 `Location` 쿼리를 `GET /api/youtube/oauth/callback<쿼리>`(세션 쿠키)로.
 - 서버 시험의 도우미는 `apps/server/test/youtube-support.ts`(같은 모양).
 
@@ -139,10 +144,13 @@ installGoogleBlock()   // 실제 구글 주소로 나가는 요청을 막는다 
 | 마이그레이션 명령 뒤 표 수 9 (`commands.test.ts`) | 17 (스키마 표 목록과 같다는 검사는 그대로) | Y1 표 |
 | 손상 값 시험 `sealed.slice(0, -2) + 'AA'` (`secrets.test.ts`) | 끝이 이미 `AA`면 `BA` — 256번에 한 번 꼴로 바꾼 것이 없어 실패하던 것을 고정 | 시험 안정화(검사 내용 같음) |
 | 골든 합계 (`packages/core/test/golden/core-adapter.test.ts`) | 파일 22 · 파서 385 · 엔진 121 · 통과 506 | AC-Y1-90 |
+| (후속) `youtube-collector` "5xx·속도 제한은 1초부터 두 배씩" | "5초부터 두 배씩" + 스트림 열기 간격 5초·10초 이상을 새로 확인 | AC-Y1-24 교체(D-Y1-04·AC-Y1-94) — 기대를 더 엄격히 |
+| (후속) `youtube-collector` "B가 회차의 유튜브 연결을 끊으면 … 스트림 0" | 수집기가 멈춘 뒤 가짜 서버가 HTTP 닫힘을 알아챌 때까지 기다리고 같은 것을 확인(옆 시험 "연결 자체를 끊으면"과 같은 방식) | 부하에서 가짜 서버의 닫힘 감지가 늦어 흔들림 — 기대값 그대로 |
+| (후속) 발송함 타임아웃 확인 — 기존 `youtube-outbox` AC-Y1-36 (가)~(마) | 시험은 그대로 통과. 동작은 "확인 시간 끝의 성공한 조회로도 못 찾았을 때만 다시 게시"로 엄격해짐 | AC-Y1-36 → AC-Y1-96 (D-Y1-06) |
 
 적대 시험(`tests/adversarial/**`)은 손대지 않았다. DB의 채팅 본문(`events.body`의 `text`·`nick`)을 직접 읽는 적대 시험은 지금 없다(찾아봄) — 앞으로 쓸 때는 `chat_raw`를 합쳐야 한다.
 
-### 시험 (내 영역, `apps/server/test/youtube-*.test.ts` 9개 파일 · 137개)
+### 시험 (내 영역, `apps/server/test/youtube-*.test.ts` 10개 파일 · 172개 — 후속에서 `youtube-followup` 24개 더함)
 - `youtube-texts` 주소 읽기 표·이름 정리 표(무작위 500)·게시 문구·묶음 분할·요약·태평양 날짜(한 해 내내 Intl과 같음)·KST 봉인 시각·스트림 나누기·주입 시계
 - `youtube-connect` AC-01~06 (state 만료·재사용·다른 세션·동시 두 번, PKCE, 토큰 DB 전체 검색 0건, 마스터 키 바뀜, 새로 고침 1번, 401, invalid_grant → 수집기 멈춤 → 같은 채널 다시 연결 → 이어서 수집, SSE, 끊기)
 - `youtube-link` AC-10~13 · `youtube-collector` AC-20~29 (2,000건·끊김 5번·지점 저장 직전 죽음 → 다른 서버가 이어받음, 1만 건·재생 = 상태) · `youtube-outbox` AC-30~46 · `youtube-quota` AC-50~53 · `youtube-seal` AC-60~62 · `youtube-security` AC-70~72 · `youtube-fake` AC-80·81(실제 HTTP로 연결 → 잇기 → 채팅 → 판정 → 감사 게시)
@@ -172,6 +180,33 @@ installGoogleBlock()   // 실제 구글 주소로 나가는 요청을 막는다 
 - **고침** (`collector.ts` `#stillCollecting`, AC-Y1-06·28): 기록 트랜잭션(범위 락) 안에서 ① 그 회차에 지금 이어진 연결이 이 수집기의 것이고 ② 유튜브 연결이 있고 `CONNECTED`이며 ③ 이은 방송의 채널과 같을 때만 기록한다 — `#verdict`와 같은 기준. 거절이면 `unlinked` → 다시 계산 → `STOPPED(NOT_CONNECTED / RECONNECT / NOT_MY_CHANNEL)`. 지점을 저장하지 않으므로 같은 채널로 다시 연결하면 그 지점부터 이어서 받는다(AC-Y1-06 "같은 채널로 다시 연결하면 이어서 수집").
 - 경계: 끊기 커밋 전에 연결을 읽은 기록 트랜잭션(끊기 전에 받은 응답)은 기록될 수 있다 — 끊은 뒤 받은 응답은 모두 거절된다. 연결 행에 공유 락은 걸지 않았다(끊기·토큰 새로 고침이 기록 트랜잭션을 기다리지 않게).
 - **시험 추가**: `youtube-collector` "B가 판매자의 유튜브 연결 자체를 끊으면 … 끊은 뒤 채팅 기록 없음 · STOPPED(NOT_CONNECTED) · 스트림 0" — 고치기 전 코드에서 실패 확인. 적대 `round1-attacks` TD-Y1-006도 고치기 전 실패 → 고친 뒤 통과.
+
+### 후속 — Y1 감사 minor 정리 (RA-Y1-003~008, SA-Y1-006 → D-Y1-02~D-Y1-08, AC-Y1-92~98)
+판정·정산 규칙·골든은 그대로다. 모두 `apps/server` 안이다. 재현 시험은 `apps/server/test/youtube-followup.test.ts`(24개) — 고치기 전 코드에서 21개가 실패했다. 나머지 3개는 회귀 막이다: AC-Y1-93 (나)는 "시도 시작 − 5초" 기준 덕에 원래 통과했고, AC-Y1-95 대조 시험은 원래 동작 그대로다. AC-Y1-98은 아래 주입점을 넣은 뒤 고치기 전 코드에서 `[200, 200]`으로 실패하는 것을 확인했다.
+
+| ID | 응답 | 무엇을 어떻게 | 시험 |
+|---|---|---|---|
+| RA-Y1-003 | FIXED | `outbox.ts #gate`가 연결을 읽자마자 **그 방송을 이은 채널 ID = 지금 연결한 채널 ID**인지 본다(동의보다 먼저). 다르면 그 행들(묶음이면 함께)을 `FAILED(NOT_MY_CHANNEL)`로 바꾸고 SSE로 알린다. 자동 첫 시도·다시 시도·묶음의 메시지마다·영상 댓글·요약 댓글·수동 재전송 뒤의 시도가 모두 `#gate`를 지난다. 수동 재전송 요청도 같은 조건이면 409 `NOT_MY_CHANNEL`(행은 그대로 FAILED). 확인 중(SENDING)이던 행은 확인을 마치고(원래 채널의 글을 찾는다) 다시 시도 때 걸린다. | AC-Y1-92 두 개: 채널 C로 바꾼 뒤 새 판매의 감사·영상 댓글 게시 0, 재전송 거절, A로 다시 연결하면 재전송으로 A에 1번 / 확인 중 채널이 바뀐 감사·요약 댓글 게시 0 |
+| RA-Y1-004 | FIXED | 짝짓기를 `outbox-store.ts claimRemote` 하나로 모았다. 판매자 단위 어드바이저리 잠금 안의 한 트랜잭션에서 ① 이미 **다른 행이 `remote_id`로 가진 메시지는 뺀다** ② 같은 글을 확인하는(보내는 중·짝 없음) 묶음들을 **효과 순서**(묶음의 가장 이른 행 ID)로 세우고, 각자 자기 시도 시작 − 5초 이후의 남은 가장 이른 메시지(같은 시각이면 메시지 ID 순)를 갖는다 ③ 같은 글을 **지금 게시하는 중**(이유 없음·임대 살아 있음)인 다른 묶음이 있으면 짝짓지 않고 다음 바퀴로 미룬다(그 응답이 곧 메시지 ID를 정한다) ④ 짝이 정해지면 같은 트랜잭션에서 SENT·`remote_id`를 적는다. 후보 = 조회로 찾은 것 + 수집기가 본 우리 메시지. 수집기 표 확인·이른 조회·끝 조회·다시 시도 직전 확인이 모두 이것을 쓴다(`findOwnMessage`는 없앴다). | AC-Y1-93 (가)~(라) — (다)는 실행기 둘 |
+| RA-Y1-005 | FIXED | `collector.ts`에 다음 채팅 호출 시각 `nextCallAt`을 둔다. 폴링은 응답을 받은 뒤 max(`pollingIntervalMillis`, 2초)(없으면 5초) 뒤. 스트림은 **열린 때**(`google.stream`의 `onOpen` — 응답 머리를 받은 때)부터 5초 뒤에 다시 연다. 실패(오류 응답·연결 오류·응답 없이 끝난 스트림)가 이어지면 5·10·20·30·30…초(스트림에서 폴링으로 바뀌어도 이어 센다)이고, 응답을 받으면 처음부터 센다. 401 뒤 한 번 더는 그대로다(`withToken`). **예정 방송**: 잇기가 `youtube_links.started_at`을 적는다(진행 중이면 `actualStartTime` 또는 지금, 예정이면 null). 수집기는 null이면 채팅을 부르지 않고 `STARTING`·`NOT_STARTED`로 30초마다 `videos.list`를 부른다(첫 확인은 이은 때 + 30초 — 잇기가 이미 한 번 봤다). 다음 확인 시각은 `youtube_collectors.resume_at`에 둬서 서버를 다시 시작해도 이어진다. 진행 중이면 시작 시각을 적고 그 바퀴에서 바로 스트림을 연다. 잇기 전 거르기 기준은 max(이은 시각, 실제 시작 시각)이다. 시작 전에 끝났으면 `CHAT_ENDED`, 영상이 없으면(빈 목록·404) `STOPPED(CHAT_NOT_FOUND)`. | AC-Y1-94 (가) 간격 0 폴링 · (나) 응답 하나 주고 닫히는 스트림 · (다) 5xx 간격 5·10·20·30·30·30 · (라)(마) 예정 방송 10분·서버 다시 시작·시작 뒤 30초·대기실 채팅 건너뜀 · 시작 전 끝남·영상 없음 |
+| RA-Y1-006 | FIXED | `system.ts link`: 유튜브 확인(`videos.list`) 뒤 **판매자 단위 어드바이저리 잠금 트랜잭션** 안에서 "이 회차에 이미 이어짐 · 회차 끝남 · 그 영상이 끝나지 않은 다른 회차에 이어짐"을 다시 보고 넣는다. 끝난 회차에 이어 둔 영상은 막지 않는다. | AC-Y1-98: 서버 둘 × 20번(가짜 서버 `hold('videos.list', 2)`로 두 확인 응답을 함께 돌려주고 `linkHooks.beforeInsert`에서 20ms 쉰다) → 매번 200 하나·409 `VIDEO_IN_USE` 하나, 끝낸 뒤 같은 영상 다시 잇기 됨 |
+| RA-Y1-007 | FIXED | `connect.ts #setConsentRow`: 켜기는 그 칸이 비어 있을 때만 적는다(`where … is null`, 한 문장). 바로 켜기·게시 권한 승인 뒤 돌아오기(다시 연결 필요 중 포함)·다시 연결 모두 같다. 끄면 지우고, 그 뒤 다시 켜면 새 시각이다. | AC-Y1-95 두 개 |
+| RA-Y1-008 | FIXED | `outbox.ts #confirm`을 다시 썼다. 조회(`#lookup`)는 응답을 받아 항목을 끝까지 본 경우만 결과다. 실패(네트워크·시간 제한·5xx·429·할당량 초과(멈춤 표시도 함)·권한·401 뒤 새로 고침 실패·다시 연결 필요·할당량 멈춤이라 부르지 않음)는 null이다. 이른 조회는 시도마다 한 번이다(성공이면 `CONFIRM_LISTED`, 실패면 `CONFIRM_LIST_FAILED` — 둘 다 끝 조회를 기다린다). **다시 게시(실패 한 번)는 확인 시간이 끝난 뒤 성공한 조회로도 못 찾았을 때만 한다.** 끝 조회 실패는 `outbox.confirm_tries`에 세고 다음 바퀴에 다시 한다. 3번이면 `FAILED(UNCONFIRMED)`이고 게시 보고 없음, 자동으로 다시 보내지 않음, 수동 재전송은 된다. 수집기 표는 바퀴마다 본다. 확인하는 동안 바퀴마다 보내는 중 임대를 늘린다. 게시 중에 죽은 서버의 행은 확인 시간 = 시도 + 10초 + 30초(이미 지남)로 두어 바로 끝 조회부터 한다. **고치다 찾은 것**: `#confirmAll`이 `CONFIRM`·`CONFIRM_LISTED`만 확인 중으로 봐서, 새 이유의 행이 임대가 끝날 때까지 멈춰 있었다 — `CONFIRM_LIST_FAILED`도 넣었다. | AC-Y1-96 (가)~(바), (나)는 5xx·quotaExceeded 둘 |
+| SA-Y1-006 | FIXED | `quota.ts`: 판정이 그 판매자에게 마지막으로 알린 모드와 다르면 알린다(이 서버의 첫 판정 포함). `tick`(발송함 바퀴마다)이 태평양 날짜가 바뀌었거나 5초가 지났으면 알던 판매자와 유튜브에 연결된 판매자(`connectedSellerIds`)를 다시 판정한다. 다른 판매자의 사용·자정·서버 다시 시작·한도 설정 변경이 모두 그 판매자의 호출 없이 10초 안에 알려진다. 알림은 `{ kind: 'quota', mode }` 그대로다(숫자 없음). | AC-Y1-97 (가)~(다) |
+
+- **스키마**: 아직 합치기 전인 이 트랙의 `0003_y1_youtube.sql`에 칸 둘을 더했다(`youtube_links.started_at`, `outbox.confirm_tries`). 새 번호(0004)를 만들면 병렬 트랙(i1의 `0003_i1_print.sql` 등)과 번호가 더 엉킨다. 합칠 때 번호는 오케스트레이터 몫이다. `schema.test.ts`(마이그레이션 = 스키마)는 통과한다.
+- **규칙 문장 안에서의 구현 선택**
+  1. 발송함의 채널 확인은 동의 확인보다 먼저 한다. 채널을 바꾸려면 끊어야 하고 끊으면 동의도 꺼지므로, 확인 중이던 감사가 다시 시도로 돌아올 때 동의 검사가 먼저면 이유가 `NO_CONSENT`로 보인다. AC-Y1-92 "다시 시도 대기 중에 채널이 바뀐 행도 NOT_MY_CHANNEL"에 맞췄다. 재전송도 채널을 권한보다 먼저 본다(권한을 받아도 소용없다).
+  2. 이른 조회가 실패해도 확인 시간 안에 다시 하지 않는다(할당량). 결정은 끝 조회가 한다.
+  3. 짝짓기는 같은 글을 게시하는 중인 묶음이 있으면 미룬다. 그 묶음의 응답 ID를 다른 묶음이 먼저 가져가지 않게 하려는 것이다.
+  4. 예정 방송의 첫 확인은 이은 때 + 30초다(잇기가 방금 확인했다). 그래서 10분에 `videos.list`는 21번 이하다(잇기 1 + 20).
+  5. `videos.list`의 404·`videoNotFound`도 빈 목록과 같이 "채팅을 찾을 수 없어요."로 둔다.
+- **부하에 흔들리지 않게**: 새 시험은 아래 한도(간격 ≥ 2·5초 등)는 정확히 보고, 위로는 시험 시계가 처리 중에 더 간 만큼만 넉넉히 둔다. 할당량 알림 시험은 실행기 바퀴를 시계를 움직이지 않고 돌린다. 유튜브 시험 프로젝트를 셋 동시에 두 번(6번) 돌려 모두 통과했다.
+- **disputesWithSpec**: 없음.
+- **verify (후속 끝, `E2E_PORT_OFFSET=300 pnpm verify`, 커밋 2165153)**: typecheck · lint · test(파일 88 · 2040) · golden(파일 22 · 통과 506) · adversarial(파일 36 · 660) **통과**. e2e(통과 66 · 실패 1)와 coverage(실패)는 **시간 측정 시험만** 실패했다 — 같은 컴퓨터에서 다른 작업 폴더(i1·i4·메인)의 verify·Playwright가 함께 돌았다(부하 평균 15).
+  - e2e `tests/e2e/s05/fill.spec.ts` AC-S05-64 p99 1086ms(기준 1000ms) → 그 프로젝트(`chromium-fill`)만 다시 돌리니 **통과, p99 187ms**.
+  - coverage 단계의 코어 `engine-timing.test.ts` AC-S03-05 비율 24.6(기준 8)·`engine-properties-s03.test.ts` 속성 시험 3개 5초 시간 초과 → 두 파일만 다시 돌리니 **21/21 통과**. coverage 단계만 다시 돌리니 **통과 — 라인 100% · 분기 99.65%**.
+  - 셋 다 Y1이 바꾸지 않은 파일이다(코어·S05 화면). 시간 시험을 병렬 트랙과 겹치지 않게 돌리는 것은 오케스트레이터 몫(SA-Y1-009·010과 같은 계열).
 
 ### 남은 것·사용자 몫
 - 화면 전부(I3): 위 계약으로. Playwright 설정에 `--youtube fake --youtube-port` 넣기도 I3/dev-web 몫.
