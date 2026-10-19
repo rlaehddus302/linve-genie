@@ -26,6 +26,10 @@ export type ErrorCode =
   | 'STATE_FORMAT'
   | 'SAVE_FAILED'
   | 'PROCESSING_FAILED'
+  // S05 API (AC-S05-51·61)
+  | 'BROADCAST_ENDED'
+  | 'GENERATOR_RUNNING'
+  | 'RESYNC_REQUIRED'
 
 export interface ErrorBody {
   readonly error: {

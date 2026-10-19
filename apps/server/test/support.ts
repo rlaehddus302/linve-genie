@@ -135,16 +135,69 @@ let requestCounter = 0
 export const rid = (prefix = 'req') => `${prefix}-${String(++requestCounter)}`
 
 /** 방송 만들기 (성공을 기대한다) */
-export async function createBroadcast(world: TestServer, seller: Seller, input: { date?: string; title?: string } = {}): Promise<{ id: string; date: string; seq: number }> {
+export async function createBroadcast(
+  world: TestServer,
+  seller: Seller,
+  input: { date?: string; title?: string; rehearsal?: boolean } = {},
+): Promise<{ id: string; date: string; seq: number; rehearsal: boolean }> {
   const response = await client(world, seller.cookie).post('/api/broadcasts', { requestId: rid('bc'), ...input })
   expect(response.status, response.text).toBe(200)
-  const broadcast = response.body.broadcast as { id: string; date: string }
-  return { id: broadcast.id, date: broadcast.date, seq: response.body.seq as number }
+  const broadcast = response.body.broadcast as { id: string; date: string; rehearsal: boolean }
+  return { id: broadcast.id, date: broadcast.date, seq: response.body.seq as number, rehearsal: broadcast.rehearsal }
+}
+
+/** 기다리지 않는 생성기 타이머: 예약한 일을 다음 매크로 작업에서 바로 돌린다 (시험이 실제 시간을 기다리지 않는다) */
+export const immediateTimer = {
+  schedule(_ms: number, fn: () => void): () => void {
+    const handle = setImmediate(fn)
+    return () => clearImmediate(handle)
+  },
+}
+
+/** 손으로 돌리는 생성기 타이머: 예약한 일을 모아 두고 runNext()로 하나씩 돌린다 */
+export function manualTimer() {
+  const queue: { ms: number; fn: () => void; cancelled: boolean }[] = []
+  return {
+    schedule(ms: number, fn: () => void): () => void {
+      const job = { ms, fn, cancelled: false }
+      queue.push(job)
+      return () => {
+        job.cancelled = true
+      }
+    },
+    /** 예약된(취소되지 않은) 일 수 */
+    get pending(): number {
+      return queue.filter((job) => !job.cancelled).length
+    },
+    /** 마지막으로 예약된 지연 (밀리초) */
+    get lastDelay(): number | null {
+      return queue.at(-1)?.ms ?? null
+    },
+    runNext(): boolean {
+      for (;;) {
+        const job = queue.shift()
+        if (job === undefined) return false
+        if (job.cancelled) continue
+        job.fn()
+        return true
+      }
+    },
+  }
+}
+
+/** 조건이 맞을 때까지 기다린다 (실제 시간 상한) */
+export async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 20_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!(await predicate())) {
+    if (Date.now() > deadline) throw new Error('조건을 기다리다 시간이 지났다')
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
 }
 
 /** 이벤트 쓰기 */
-export async function writeEvent(world: TestServer, seller: Seller, event: Record<string, unknown>, date?: string): Promise<JsonResponse> {
-  return client(world, seller.cookie).post(`/api/events${date === undefined ? '' : `?date=${date}`}`, { requestId: rid('ev'), ...event })
+export async function writeEvent(world: TestServer, seller: Seller, event: Record<string, unknown>, date?: string, rehearsal?: boolean): Promise<JsonResponse> {
+  const query = [...(date === undefined ? [] : [`date=${date}`]), ...(rehearsal === undefined ? [] : [`rehearsal=${String(rehearsal)}`])]
+  return client(world, seller.cookie).post(`/api/events${query.length === 0 ? '' : `?${query.join('&')}`}`, { requestId: rid('ev'), ...event })
 }
 
 export async function expectOk(promise: Promise<JsonResponse>): Promise<JsonResponse> {

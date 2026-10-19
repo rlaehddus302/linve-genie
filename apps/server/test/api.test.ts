@@ -115,11 +115,11 @@ describe('AC-S04-51 이벤트 쓰기 API', () => {
     const b = await createBroadcast(world, seller)
     await expectOk(writeEvent(world, seller, { type: 'product.register', b: b.id, no: 1, name: 'a', price: 1000 }))
     const sms = await expectOk(writeEvent(world, seller, { type: 'sms', b: b.id, no: 1, received: '11:59' }))
-    expect(sms.body).toEqual({ date: b.date, seq: 3, type: 'sms', changed: true, effects: ['c1:PRINT_PRODUCT_LABEL:-:1', 'c1:POST_THANKS:LIVE_CHAT:1'], phoneLast4: null })
+    expect(sms.body).toEqual({ date: b.date, rehearsal: false, seq: 3, type: 'sms', changed: true, effects: ['c1:PRINT_PRODUCT_LABEL:-:1', 'c1:POST_THANKS:LIVE_CHAT:1'], phoneLast4: null })
     const outboxIds = (await world.database.pglite?.query<{ effect_id: string }>(`select effect_id from outbox where seq = 3 order by id`))?.rows.map((row) => row.effect_id)
     expect(outboxIds).toEqual(sms.body.effects)
     const noop = await expectOk(writeEvent(world, seller, { type: 'host.cancel', b: b.id, no: 99, buyer: 'UC1', reason: '없는 상품' }))
-    expect(noop.body).toEqual({ date: b.date, seq: 4, type: 'host.cancel', changed: false, effects: [] })
+    expect(noop.body).toEqual({ date: b.date, rehearsal: false, seq: 4, type: 'host.cancel', changed: false, effects: [] })
     expect(await countRows(world.database, 'events')).toBe(4)
   })
 
@@ -142,8 +142,8 @@ describe('AC-S04-51 이벤트 쓰기 API', () => {
     await expectOk(writeEvent(world, seller, { type: 'settlement.payment', buyer: 'UC1', date: '2026-10-18', amount: 1000, memo: '입금자 김영희' }, '2026-10-18'))
     expect((await client(world, seller.cookie).get('/api/days')).body).toEqual({
       days: [
-        { date: '2026-10-18', seq: 4 },
-        { date: '2026-10-19', seq: 1 },
+        { date: '2026-10-18', rehearsal: false, seq: 4 },
+        { date: '2026-10-19', rehearsal: false, seq: 1 },
       ],
     })
     void b19
@@ -201,9 +201,9 @@ describe('AC-S04-52 조회·이력 API', () => {
     const b19b = await createBroadcast(world, seller, { date: '2026-10-19' })
     expect((await client(world, seller.cookie).get('/api/broadcasts')).body).toEqual({
       broadcasts: [
-        { id: b19a.id, date: '2026-10-19', title: '1부', ended: false, endedAt: null },
-        { id: b19b.id, date: '2026-10-19', title: '2부', ended: false, endedAt: null },
-        { id: b20.id, date: '2026-10-20', title: '둘째 날', ended: false, endedAt: null },
+        { id: b19a.id, date: '2026-10-19', title: '1부', rehearsal: false, ended: false, endedAt: null },
+        { id: b19b.id, date: '2026-10-19', title: '2부', rehearsal: false, ended: false, endedAt: null },
+        { id: b20.id, date: '2026-10-20', title: '둘째 날', rehearsal: false, ended: false, endedAt: null },
       ],
     })
   })
@@ -222,6 +222,7 @@ describe('AC-S04-52 조회·이력 API', () => {
     expect(view.body).toEqual(
       withIsoTimes({
         date: b.date,
+        rehearsal: false,
         seq: 6,
         broadcasts: listBroadcasts(state),
         products: listProducts(state),
@@ -255,6 +256,7 @@ describe('AC-S04-52 조회·이력 API', () => {
     const all = await api.get('/api/days/2026-10-19/history')
     expect(all.body).toEqual({
       date: '2026-10-19',
+      rehearsal: false,
       events: [
         {
           seq: 1,
@@ -290,7 +292,7 @@ describe('AC-S04-52 조회·이력 API', () => {
     })
     const page = await api.get('/api/days/2026-10-19/history?after=1&limit=1')
     expect((page.body.events as { seq: number }[]).map((event) => event.seq)).toEqual([2])
-    expect((await api.get('/api/days/2026-10-19/history?after=3')).body).toEqual({ date: '2026-10-19', events: [] })
+    expect((await api.get('/api/days/2026-10-19/history?after=3')).body).toEqual({ date: '2026-10-19', rehearsal: false, events: [] })
     expect((await api.get('/api/days/2026-10-18/history')).body.events).toHaveLength(3)
     expect(((await api.get('/api/days/2026-10-18/history')).body.events as { actor: { kind: string } }[])[1]?.actor).toEqual({ kind: 'collector', loginId: null })
     for (const query of ['after=-1', 'limit=0', 'after=abc', 'limit=99999']) expect((await api.get(`/api/days/2026-10-19/history?${query}`)).status, query).toBe(400)

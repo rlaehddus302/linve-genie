@@ -1,7 +1,7 @@
 // 저장소 계층 (SYS-02). 판매자 데이터를 읽고 쓰는 질의는 모두 여기 있고, 모두 판매자 ID 조건을 건다.
 // (범위 ID로 찾는 질의도 판매자 ID를 함께 건다 — 범위 ID를 잘못 넘겨도 다른 판매자 행이 섞이지 않게.)
 // 트랜잭션 안에서는 트랜잭션 객체(tx)를 넘긴다(PGlite는 연결이 하나라 트랜잭션 밖 객체를 쓰면 기다리다 멈춘다).
-import { and, asc, desc, eq, exists, gt, inArray, isNull, lt, lte, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNull, like, lt, lte, or, sql } from 'drizzle-orm'
 import type { Db } from './db/database.ts'
 import { accounts, broadcasts, events, loginLimits, outbox, scopes, sellers, sessions, snapshots } from './db/schema.ts'
 
@@ -167,62 +167,74 @@ export async function deleteSession(db: Db, session: Pick<SessionRow, 'tokenHash
 }
 
 // ── 범위·방송 ────────────────────────────────────────────────────────────
+// 범위 = (판매자, 날짜, 리허설인지) (D-069, D-081). 리허설을 적지 않은 조회는 실제 범위다.
 
-export async function findScopeId(db: Db, sellerId: string, date: string): Promise<string | null> {
+export async function findScopeId(db: Db, sellerId: string, date: string, rehearsal = false): Promise<string | null> {
   const rows = await db
     .select({ id: scopes.id })
     .from(scopes)
-    .where(and(eq(scopes.sellerId, sellerId), eq(scopes.date, date)))
+    .where(and(eq(scopes.sellerId, sellerId), eq(scopes.date, date), eq(scopes.rehearsal, rehearsal)))
     .limit(1)
   return rows[0]?.id ?? null
 }
 
 /** 범위 행을 만든다 (이미 있으면 그대로). 범위 ID를 돌려준다 */
-export async function ensureScope(db: Db, sellerId: string, date: string, newId: string, now: Date): Promise<string> {
-  await db.insert(scopes).values({ id: newId, sellerId, date, createdAt: now }).onConflictDoNothing({ target: [scopes.sellerId, scopes.date] })
-  const id = await findScopeId(db, sellerId, date)
+export async function ensureScope(db: Db, sellerId: string, date: string, rehearsal: boolean, newId: string, now: Date): Promise<string> {
+  await db
+    .insert(scopes)
+    .values({ id: newId, sellerId, date, rehearsal, createdAt: now })
+    .onConflictDoNothing({ target: [scopes.sellerId, scopes.date, scopes.rehearsal] })
+  const id = await findScopeId(db, sellerId, date, rehearsal)
   if (id === null) throw new Error('범위를 만들지 못했다')
   return id
 }
 
-/** 그 날짜보다 이른 날짜 중 가장 늦은, 이벤트가 있는 범위 (차단 이어받기, AC-S04-27) */
+/** 범위의 지금 seq를 적는다 (이벤트를 커밋하는 같은 트랜잭션 안에서, AC-S05-60) */
+export async function setScopeSeq(db: Db, sellerId: string, scopeId: string, seq: number): Promise<void> {
+  await db
+    .update(scopes)
+    .set({ seq })
+    .where(and(eq(scopes.sellerId, sellerId), eq(scopes.id, scopeId)))
+}
+
+/**
+ * 그 날짜보다 이른 날짜 중 가장 늦은, 이벤트가 있는 **실제** 범위 (차단 이어받기, AC-S04-27).
+ * 리허설 범위는 넘겨주지 않는다 (D-081, AC-S05-50)
+ */
 export async function previousScopeDate(db: Db, sellerId: string, date: string): Promise<string | null> {
   const rows = await db
     .select({ date: scopes.date })
     .from(scopes)
-    .where(
-      and(
-        eq(scopes.sellerId, sellerId),
-        lt(scopes.date, date),
-        exists(
-          db
-            .select({ one: sql`1` })
-            .from(events)
-            .where(and(eq(events.scopeId, scopes.id), eq(events.sellerId, sellerId))),
-        ),
-      ),
-    )
+    .where(and(eq(scopes.sellerId, sellerId), eq(scopes.rehearsal, false), lt(scopes.date, date), gt(scopes.seq, 0)))
     .orderBy(desc(scopes.date))
     .limit(1)
   return rows[0]?.date ?? null
 }
 
-/** 판매자의 범위별 지금 seq (이벤트가 있는 범위만, 날짜 순) */
-export async function scopeSeqs(db: Db, sellerId: string): Promise<{ date: string; seq: number }[]> {
-  const rows = await db
-    .select({ date: scopes.date, seq: sql<number>`max(${events.seq})`.mapWith(Number) })
+export interface ScopeSeqRow {
+  readonly date: string
+  readonly rehearsal: boolean
+  readonly seq: number
+}
+
+/**
+ * 판매자의 범위별 지금 seq (이벤트가 있는 범위만, 날짜·실제 먼저 순). 범위 행의 seq 칸을 읽는다 — 이벤트 표를 모으지 않는다 (AC-S05-60).
+ * rehearsal을 주면 그쪽 범위만
+ */
+export async function scopeSeqs(db: Db, sellerId: string, rehearsal?: boolean): Promise<ScopeSeqRow[]> {
+  return db
+    .select({ date: scopes.date, rehearsal: scopes.rehearsal, seq: scopes.seq })
     .from(scopes)
-    .innerJoin(events, and(eq(events.scopeId, scopes.id), eq(events.sellerId, sellerId)))
-    .where(eq(scopes.sellerId, sellerId))
-    .groupBy(scopes.date)
-    .orderBy(asc(scopes.date))
-  return rows
+    .where(and(eq(scopes.sellerId, sellerId), gt(scopes.seq, 0), rehearsal === undefined ? undefined : eq(scopes.rehearsal, rehearsal)))
+    .orderBy(asc(scopes.date), asc(scopes.rehearsal))
 }
 
 export interface BroadcastRow {
   readonly id: string
   readonly scopeId: string
   readonly date: string
+  /** 그 방송의 범위가 리허설 범위인지 (방송을 만들 때 정하고 바뀌지 않는다, D-081) */
+  readonly rehearsal: boolean
   readonly title: string
   readonly startSeq: number
   readonly endedAt: Date | null
@@ -232,6 +244,7 @@ const broadcastColumns = {
   id: broadcasts.id,
   scopeId: broadcasts.scopeId,
   date: broadcasts.date,
+  rehearsal: scopes.rehearsal,
   title: broadcasts.title,
   startSeq: broadcasts.startSeq,
   endedAt: broadcasts.endedAt,
@@ -241,13 +254,19 @@ export async function findBroadcast(db: Db, sellerId: string, broadcastId: strin
   const rows = await db
     .select(broadcastColumns)
     .from(broadcasts)
+    .innerJoin(scopes, and(eq(scopes.id, broadcasts.scopeId), eq(scopes.sellerId, sellerId)))
     .where(and(eq(broadcasts.sellerId, sellerId), eq(broadcasts.id, broadcastId)))
     .limit(1)
   return rows[0] ?? null
 }
 
 export async function listBroadcastRows(db: Db, sellerId: string): Promise<BroadcastRow[]> {
-  return db.select(broadcastColumns).from(broadcasts).where(eq(broadcasts.sellerId, sellerId)).orderBy(asc(broadcasts.date), asc(broadcasts.startSeq))
+  return db
+    .select(broadcastColumns)
+    .from(broadcasts)
+    .innerJoin(scopes, and(eq(scopes.id, broadcasts.scopeId), eq(scopes.sellerId, sellerId)))
+    .where(eq(broadcasts.sellerId, sellerId))
+    .orderBy(asc(broadcasts.date), asc(scopes.rehearsal), asc(broadcasts.startSeq))
 }
 
 export async function insertBroadcast(
@@ -306,13 +325,14 @@ export async function eventAtSeq(db: Db, sellerId: string, scopeId: string, seq:
 
 export interface RequestRecord extends EventRow {
   readonly date: string
+  readonly rehearsal: boolean
   readonly scopeId: string
 }
 
 /** 요청 번호로 기록한 이벤트 (처음 결과를 다시 돌려줄 때) */
 export async function eventByRequestId(db: Db, sellerId: string, requestId: string): Promise<RequestRecord | null> {
   const rows = await db
-    .select({ ...eventColumns, date: scopes.date, scopeId: events.scopeId })
+    .select({ ...eventColumns, date: scopes.date, rehearsal: scopes.rehearsal, scopeId: events.scopeId })
     .from(events)
     .innerJoin(scopes, and(eq(scopes.id, events.scopeId), eq(scopes.sellerId, sellerId)))
     .where(and(eq(events.sellerId, sellerId), eq(events.requestId, requestId)))
@@ -369,6 +389,8 @@ export interface NewOutboxRow {
   readonly seq: number
   readonly kind: string
   readonly body: string
+  /** 리허설 범위의 효과 (실행하지 않는다, D-081) */
+  readonly rehearsal: boolean
   readonly createdAt: Date
 }
 
@@ -422,21 +444,92 @@ export interface HistoryRow {
   readonly failed: boolean
 }
 
+const historyColumns = {
+  seq: events.seq,
+  type: events.type,
+  body: events.body,
+  receivedAt: events.receivedAt,
+  actor: events.actor,
+  loginId: accounts.loginId,
+  failed: events.failed,
+}
+
 /** 이력 조회: 범위의 이벤트, seq 순, after 뒤부터 limit개 (조치자 계정 아이디와 함께) */
 export async function historyRows(db: Db, sellerId: string, scopeId: string, after: number, limit: number): Promise<HistoryRow[]> {
   return db
-    .select({
-      seq: events.seq,
-      type: events.type,
-      body: events.body,
-      receivedAt: events.receivedAt,
-      actor: events.actor,
-      loginId: accounts.loginId,
-      failed: events.failed,
-    })
+    .select(historyColumns)
     .from(events)
     .leftJoin(accounts, and(eq(accounts.id, events.accountId), eq(accounts.sellerId, sellerId)))
     .where(and(eq(events.sellerId, sellerId), eq(events.scopeId, scopeId), gt(events.seq, after)))
     .orderBy(asc(events.seq))
     .limit(limit)
+}
+
+/** 상품 명령·방송자 조치(product.*·host.*)만, seq 순, after 뒤부터 limit개 — 상품별 조치 기록을 거를 때 차례로 읽는다 (AC-S05-35) */
+export async function actionRows(db: Db, sellerId: string, scopeId: string, after: number, limit: number): Promise<HistoryRow[]> {
+  return db
+    .select(historyColumns)
+    .from(events)
+    .leftJoin(accounts, and(eq(accounts.id, events.accountId), eq(accounts.sellerId, sellerId)))
+    .where(
+      and(
+        eq(events.sellerId, sellerId),
+        eq(events.scopeId, scopeId),
+        gt(events.seq, after),
+        or(like(events.type, 'product.%'), like(events.type, 'host.%')),
+      ),
+    )
+    .orderBy(asc(events.seq))
+    .limit(limit)
+}
+
+// ── 채팅 메시지 이어 받기 (AC-S05-20) ─────────────────────────────────────
+
+export interface ChatRow {
+  readonly seq: number
+  readonly body: string
+  readonly failed: boolean
+}
+
+/**
+ * 범위의 채팅 이벤트 (방송을 주면 그 방송만). after를 주면 그 뒤 limit개(오름차순), before를 주면 그 앞의 가장 최근 limit개,
+ * 둘 다 없으면 가장 최근 limit개 — 돌려주는 순서는 늘 seq 오름차순이다. limit보다 하나 더 읽어 더 있는지 알린다
+ */
+export async function chatRows(
+  db: Db,
+  sellerId: string,
+  scopeId: string,
+  options: { readonly b?: string; readonly after?: number; readonly before?: number; readonly limit: number },
+): Promise<{ rows: ChatRow[]; more: boolean }> {
+  const conditions = [eq(events.sellerId, sellerId), eq(events.scopeId, scopeId), eq(events.type, 'chat')]
+  if (options.b !== undefined) conditions.push(eq(events.chatBroadcast, options.b))
+  if (options.after !== undefined) conditions.push(gt(events.seq, options.after))
+  if (options.before !== undefined) conditions.push(lt(events.seq, options.before))
+  const ascending = options.after !== undefined
+  const rows = await db
+    .select({ seq: events.seq, body: events.body, failed: events.failed })
+    .from(events)
+    .where(and(...conditions))
+    .orderBy(ascending ? asc(events.seq) : desc(events.seq))
+    .limit(options.limit + 1)
+  const more = rows.length > options.limit
+  const kept = rows.slice(0, options.limit)
+  return { rows: ascending ? kept : kept.reverse(), more }
+}
+
+/** 그 메시지들의 채팅 이벤트 (방송, 메시지 ID로 — 바뀐 메시지를 다시 보낼 때) */
+export async function chatRowsByIds(db: Db, sellerId: string, scopeId: string, keys: readonly { readonly b: string; readonly id: string }[]): Promise<ChatRow[]> {
+  if (keys.length === 0) return []
+  return db
+    .select({ seq: events.seq, body: events.body, failed: events.failed })
+    .from(events)
+    .where(
+      and(
+        eq(events.sellerId, sellerId),
+        eq(events.scopeId, scopeId),
+        eq(events.type, 'chat'),
+        or(...keys.map((key) => and(eq(events.chatBroadcast, key.b), eq(events.chatMessageId, key.id)))),
+      ),
+    )
+    .orderBy(asc(events.seq))
 }

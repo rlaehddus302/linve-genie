@@ -101,6 +101,7 @@ describe('AC-S04-27 차단 이어받기', () => {
       world.server.writer.write({
         sellerId: seller.sellerId,
         date: b.date,
+        rehearsal: false,
         createScope: false,
         requestId,
         build: () => [

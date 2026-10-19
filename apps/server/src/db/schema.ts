@@ -76,7 +76,7 @@ export const sessions = pgTable(
   (t) => [index('sessions_account_idx').on(t.accountId), index('sessions_seller_idx').on(t.sellerId)],
 )
 
-/** 엔진 범위 = (판매자, 방송 날짜) (R-0 6, D-069) */
+/** 엔진 범위 = (판매자, 방송 날짜, 리허설인지) (R-0 6, D-069, D-081) */
 export const scopes = pgTable(
   'scopes',
   {
@@ -86,9 +86,16 @@ export const scopes = pgTable(
       .references(() => sellers.id),
     /** 방송 날짜 YYYY-MM-DD (KST) */
     date: text('date').notNull(),
+    /** 리허설 범위인지 (D-081). 같은 날 실제 범위와 판정·정산·seq·이력·발송함이 따로다. 바뀌지 않는다 */
+    rehearsal: boolean('rehearsal').notNull().default(false),
+    /**
+     * 그 범위의 마지막 이벤트 seq (D-085, AC-S05-60). 이벤트를 커밋하는 같은 트랜잭션에서 고친다(실패 표시 이벤트 포함).
+     * SSE ready·범위 목록은 이 값을 읽는다(이벤트 표 집계 없음). 재생 검사 명령이 이벤트 기록의 마지막 seq와 대조한다
+     */
+    seq: integer('seq').notNull().default(0),
     createdAt: timestamptz('created_at').notNull(),
   },
-  (t) => [unique('scopes_seller_date_uq').on(t.sellerId, t.date)],
+  (t) => [unique('scopes_seller_date_rehearsal_uq').on(t.sellerId, t.date, t.rehearsal)],
 )
 
 /** 방송 목록 (방송 ID → 범위). broadcast.start·broadcast.end 이벤트와 같은 트랜잭션에서 쓴다 */
@@ -153,10 +160,12 @@ export const events = pgTable(
     unique('events_request_uq').on(t.sellerId, t.requestId),
     unique('events_chat_uq').on(t.sellerId, t.chatBroadcast, t.chatMessageId),
     unique('events_sms_ref_uq').on(t.sellerId, t.smsRef),
+    /** 채팅 이어 받기 (방송별 seq 뒤·앞, AC-S05-20) */
+    index('events_chat_seq_idx').on(t.scopeId, t.chatBroadcast, t.seq),
   ],
 )
 
-/** 발송함 (R-13, AC-S04-30): 엔진이 낸 효과마다 한 줄. 실행·재시도는 S08·S11 */
+/** 발송함 (R-13, AC-S04-30): 엔진이 낸 효과마다 한 줄. 실행·재시도는 S08·S11. 리허설 범위의 행은 rehearsal = true — 실행기가 실행하지 않는다 (D-081) */
 export const outbox = pgTable(
   'outbox',
   {
@@ -173,6 +182,8 @@ export const outbox = pgTable(
     kind: text('kind').notNull(),
     /** 엔진 효과 그대로의 JSON 문자열 */
     body: text('body').notNull(),
+    /** 리허설 범위의 효과 (실행하지 않는다 — 유튜브 게시·라벨 자동 출력 없음, D-081) */
+    rehearsal: boolean('rehearsal').notNull().default(false),
     createdAt: timestamptz('created_at').notNull(),
   },
   (t) => [unique('outbox_effect_uq').on(t.sellerId, t.scopeId, t.effectId), index('outbox_scope_seq_idx').on(t.scopeId, t.seq)],
@@ -202,5 +213,6 @@ export const snapshots = pgTable(
 
 export const schema = { sellers, accounts, loginLimits, sessions, scopes, broadcasts, events, outbox, snapshots }
 
-/** 범위 직렬 처리용 어드바이저리 락 키 (범위 = 판매자·날짜, 범위 행이 생기기 전에도 같은 키) */
-export const scopeLockKey = (sellerId: string, date: string) => sql`hashtextextended(${`${sellerId}/${date}`}, 0)`
+/** 범위 직렬 처리용 어드바이저리 락 키 (범위 = 판매자·날짜·리허설인지, 범위 행이 생기기 전에도 같은 키). 실제 범위는 S04와 같은 키 */
+export const scopeLockKey = (sellerId: string, date: string, rehearsal: boolean) =>
+  sql`hashtextextended(${rehearsal ? `${sellerId}/${date}/rehearsal` : `${sellerId}/${date}`}, 0)`

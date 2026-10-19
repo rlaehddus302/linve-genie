@@ -3,6 +3,8 @@
 //   (1) 저장된 스냅샷 전부와 그 seq에서의 재생 상태(확인 필요 목록 포함), (2) 발송함의 효과 전부와 재생이 낸 효과(ID·내용·seq),
 //   (3) 마지막 상태의 checkInvariants, (4) seq 빈틈, (5) 실패 표시 입력 수(보고만).
 // 더해서 이벤트 행의 요약값(digest)으로 기록이 바뀌었는지 보고, 표시 없는 재생 오류도 불일치로 본다.
+// S05: 범위 행의 지금 seq(D-085)가 이벤트 기록의 마지막 seq와 같은지 대조한다(다르면 '범위 seq' 불일치 — 마지막 이벤트가 사라진 것도 잡는다).
+// 리허설 범위(D-081)도 똑같이 검사한다.
 // 결과는 범위마다 한 줄이고, 이벤트 내용·개인정보는 넣지 않는다(범위·seq·부분 이름·개수만).
 import { STATE_FORMAT, applyEvent, checkInvariants, type EngineEvent, type EngineState } from '@livejjim/core'
 import { and, asc, eq } from 'drizzle-orm'
@@ -11,11 +13,13 @@ import { events, outbox, scopes, snapshots } from './db/schema.ts'
 import { FAILED_INPUT_MESSAGE, REPLAY_SKIPPED_MESSAGE, emptyState, type AttentionItem } from './runtime.ts'
 import { eventDigest } from './writer.ts'
 
-export type CheckPart = 'seq' | '이벤트' | '재생 오류' | '스냅샷' | '발송함' | '불변식'
+export type CheckPart = 'seq' | '범위 seq' | '이벤트' | '재생 오류' | '스냅샷' | '발송함' | '불변식'
 
 export interface ScopeCheck {
   readonly sellerId: string
   readonly date: string
+  /** 리허설 범위인지 */
+  readonly rehearsal: boolean
   readonly ok: boolean
   readonly events: number
   readonly snapshots: number
@@ -30,9 +34,11 @@ export interface ScopeCheck {
 export interface CheckFilter {
   readonly sellerId?: string
   readonly date?: string
+  /** 주면 그쪽 범위만 (주지 않으면 실제·리허설 모두) */
+  readonly rehearsal?: boolean
 }
 
-const PART_ORDER: readonly CheckPart[] = ['seq', '이벤트', '재생 오류', '스냅샷', '발송함', '불변식']
+const PART_ORDER: readonly CheckPart[] = ['seq', '범위 seq', '이벤트', '재생 오류', '스냅샷', '발송함', '불변식']
 
 /** 키를 정렬한 JSON (객체 키 순서와 상관없이 같은 값이면 같은 문자열) */
 export function canonicalJson(value: unknown): string {
@@ -53,17 +59,18 @@ export async function checkReplay(db: Db, filter: CheckFilter = {}): Promise<Sco
   const conditions = []
   if (filter.sellerId !== undefined) conditions.push(eq(scopes.sellerId, filter.sellerId))
   if (filter.date !== undefined) conditions.push(eq(scopes.date, filter.date))
+  if (filter.rehearsal !== undefined) conditions.push(eq(scopes.rehearsal, filter.rehearsal))
   const scopeRows = await db
-    .select({ id: scopes.id, sellerId: scopes.sellerId, date: scopes.date })
+    .select({ id: scopes.id, sellerId: scopes.sellerId, date: scopes.date, rehearsal: scopes.rehearsal, seq: scopes.seq })
     .from(scopes)
     .where(conditions.length === 0 ? undefined : and(...conditions))
-    .orderBy(asc(scopes.sellerId), asc(scopes.date))
+    .orderBy(asc(scopes.sellerId), asc(scopes.date), asc(scopes.rehearsal))
   const results: ScopeCheck[] = []
   for (const scope of scopeRows) results.push(await checkScope(db, scope))
   return results
 }
 
-async function checkScope(db: Db, scope: { id: string; sellerId: string; date: string }): Promise<ScopeCheck> {
+async function checkScope(db: Db, scope: { id: string; sellerId: string; date: string; rehearsal: boolean; seq: number }): Promise<ScopeCheck> {
   const where = (table: typeof events | typeof outbox | typeof snapshots) => and(eq(table.sellerId, scope.sellerId), eq(table.scopeId, scope.id))
   const eventRows = await db
     .select({ seq: events.seq, type: events.type, body: events.body, failed: events.failed, digest: events.digest })
@@ -126,6 +133,8 @@ async function checkScope(db: Db, scope: { id: string; sellerId: string; date: s
   }
   const lastSeq = eventRows.at(-1)?.seq ?? 0
   for (const snapshot of current.slice(nextSnapshot)) diff(snapshot.seq, '스냅샷')
+  // 범위 행의 지금 seq = 이벤트 기록의 마지막 seq (AC-S05-60)
+  if (scope.seq !== lastSeq) diff(Math.min(scope.seq, lastSeq) + 1, '범위 seq')
 
   // (2) 발송함
   const stored = new Map(outboxRows.map((row) => [row.effectId, row]))
@@ -149,6 +158,7 @@ async function checkScope(db: Db, scope: { id: string; sellerId: string; date: s
   return {
     sellerId: scope.sellerId,
     date: scope.date,
+    rehearsal: scope.rehearsal,
     ok: first === null,
     events: eventRows.length,
     snapshots: current.length,
@@ -164,5 +174,5 @@ export function formatCheck(check: ScopeCheck): string {
   const counts = `이벤트 ${String(check.events)} · 스냅샷 ${String(check.snapshots)} · 발송함 ${String(check.outbox)} · 실패 표시 ${String(check.failedMarked)}`
   const other = check.otherFormatSnapshots > 0 ? ` · 형식이 다른 스냅샷 ${String(check.otherFormatSnapshots)}(대조 안 함)` : ''
   const verdict = check.firstDiff === null ? '일치' : `불일치 — 처음 다른 곳: seq ${String(check.firstDiff.seq)} (${check.firstDiff.part})`
-  return `판매자 ${check.sellerId} · ${check.date} · ${verdict} (${counts}${other})`
+  return `판매자 ${check.sellerId} · ${check.date}${check.rehearsal ? ' 리허설' : ''} · ${verdict} (${counts}${other})`
 }

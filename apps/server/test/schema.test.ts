@@ -104,7 +104,7 @@ describe('판매자 ID와 유일 제약 (SYS-02, AC-S04-20·25)', () => {
     expect(byName.get('events_chat_uq')).toBe('seller_id,chat_broadcast,chat_message_id')
     expect(byName.get('events_sms_ref_uq')).toBe('seller_id,sms_ref')
     expect(byName.get('outbox_effect_uq')).toBe('seller_id,scope_id,effect_id')
-    expect(byName.get('scopes_seller_date_uq')).toBe('seller_id,date')
+    expect(byName.get('scopes_seller_date_rehearsal_uq')).toBe('seller_id,date,rehearsal')
   })
 
   it('앱 검사를 거치지 않은 중복 행도 DB가 막는다', async () => {

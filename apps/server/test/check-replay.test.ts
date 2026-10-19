@@ -66,7 +66,10 @@ describe('AC-S04-29 재생 무결성 검사', () => {
     ['이벤트 본문', `update events set body = replace(body, '"text":"1"', '"text":"2"') where seq = 5`, '이벤트'],
     ['이벤트 실패 표시', `update events set failed = true where seq = 4`, '이벤트'],
     ['이벤트 지우기(seq 빈틈)', `delete from events where seq = 6`, 'seq'],
-    ['마지막 이벤트 지우기', `delete from events where seq = 8`, '발송함'],
+    // S05: 범위 행의 지금 seq(8)와 기록의 마지막 seq(7)가 달라 잡힌다 — S04의 "마지막 이벤트를 지우면 모를 수 있음" 한계를 닫는다 (AC-S05-60)
+    ['마지막 이벤트 지우기', `delete from events where seq = 8`, '범위 seq'],
+    ['범위 행의 seq만 바꾸기', `update scopes set seq = seq + 1`, '범위 seq'],
+    ['범위 행의 seq를 줄이기', `update scopes set seq = seq - 2`, '범위 seq'],
   ]
   for (const [label, sql, part] of tamper) {
     it(`행 하나를 바꿔 두면(${label}) 그 범위가 불일치로 보고된다 — 처음 다른 seq와 부분`, async () => {

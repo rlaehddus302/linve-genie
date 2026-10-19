@@ -1,9 +1,10 @@
 // 기록 경로 (DAT-02, NFR-03, D-072, AC-S04-21~26·30).
-// 1. 범위(판매자, 날짜)마다 한 줄로 처리한다: 프로세스 안에서는 범위별 대기열, DB에서는 트랜잭션 안의 어드바이저리 락.
+// 1. 범위(판매자, 날짜, 리허설인지)마다 한 줄로 처리한다: 프로세스 안에서는 범위별 대기열, DB에서는 트랜잭션 안의 어드바이저리 락.
 // 2. 트랜잭션 안에서 다른 인스턴스가 쓴 이벤트를 먼저 따라잡고, 요청 번호·채팅 ID 중복을 확인한다.
 // 3. 이벤트를 메모리에서 미리 계산한다(엔진은 순수 함수): 입력 오류·미구현·상태 형식 오류는 기록하지 않고 거절한다.
 //    엔진이 예상하지 못한 오류를 내면 그 입력은 실패 표시로 기록하고 상태는 그 전 그대로 둔다.
-// 4. 이벤트 행과 그 효과(발송함 행)를 한 트랜잭션으로 커밋한다. 커밋된 뒤에야 메모리 상태 교체·실시간 알림·성공 응답이 나간다.
+// 4. 이벤트 행과 그 효과(발송함 행)와 범위의 지금 seq(D-085)를 한 트랜잭션으로 커밋한다. 커밋된 뒤에야 메모리 상태 교체·실시간 알림·성공 응답이 나간다.
+//    리허설 범위의 발송함 행은 리허설 표시를 단다(D-081).
 // 5. (범위, seq) 유일 제약에 걸리면(다른 인스턴스가 먼저 씀) 최신 로그를 읽고 다시 계산한다.
 import { STATE_FORMAT, checkEvent, isInvalidEvent, isNotImplemented, isStateFormatError, type EngineEffect, type EngineEvent, type EngineState } from '@livejjim/core'
 import { sql } from 'drizzle-orm'
@@ -13,7 +14,7 @@ import type { ErrorCode, FieldProblem } from './errors.ts'
 import type { IdSource } from './ids.ts'
 import { errorKind, type LogSink } from './log.ts'
 import { easyProblems } from './messages.ts'
-import { FAILED_INPUT_MESSAGE, catchUp, loadRuntime, type EngineAdapter, type ScopeRuntime } from './runtime.ts'
+import { DEFAULT_CHANGES_WINDOW, FAILED_INPUT_MESSAGE, catchUp, loadRuntime, recordPoint, touchedMessage, type EngineAdapter, type ScopeRuntime } from './runtime.ts'
 import { sha256Hex } from './secrets.ts'
 import {
   chatEventSeq,
@@ -23,6 +24,7 @@ import {
   insertEvents,
   insertOutbox,
   insertSnapshot,
+  setScopeSeq,
   type NewEventRow,
   type NewOutboxRow,
   type RequestRecord,
@@ -68,6 +70,8 @@ export interface BuildContext {
 export interface WriteJob {
   readonly sellerId: string
   readonly date: string
+  /** 리허설 범위에 쓰는지 (D-081). 방송이 있는 이벤트는 그 방송의 범위를 따른다 */
+  readonly rehearsal: boolean
   /** 범위가 없으면(이벤트 0개) 404 대신 만든다 (방송 만들기) */
   readonly createScope: boolean
   readonly requestId: string | null
@@ -78,6 +82,11 @@ export interface WriteJob {
   readonly build: (ctx: BuildContext, prepared: unknown) => readonly Draft[] | Rejection
   /** 같은 트랜잭션에서 더 쓸 것 (방송 목록) */
   readonly afterInsert?: (tx: Db, scopeId: string, records: readonly CommittedRecord[], now: Date) => Promise<void>
+}
+
+/** 범위 키 (판매자, 날짜, 리허설인지) */
+export function scopeKey(sellerId: string, date: string, rehearsal: boolean): string {
+  return JSON.stringify([sellerId, date, rehearsal])
 }
 
 export interface CommittedRecord {
@@ -92,6 +101,8 @@ export interface CommittedRecord {
 /** 요청의 결과 (처음 결과를 같은 요청 번호로 다시 돌려줄 때도 같은 모양) */
 export interface WriteResult {
   readonly date: string
+  /** 리허설 범위의 기록인지 */
+  readonly rehearsal: boolean
   readonly seq: number
   readonly type: string
   readonly changed: boolean
@@ -119,7 +130,7 @@ export interface WriterHooks {
 }
 
 export interface CommitListener {
-  (sellerId: string, date: string, records: readonly CommittedRecord[]): void
+  (sellerId: string, date: string, rehearsal: boolean, records: readonly CommittedRecord[]): void
 }
 
 export interface WriterOptions {
@@ -134,6 +145,8 @@ export interface WriterOptions {
   readonly onCommit: CommitListener
   /** 메모리에 두는 범위 상태 수 상한 (기본 DEFAULT_RUNTIME_CACHE_MAX) */
   readonly runtimeCacheMax?: number
+  /** 증분 조회 기준점 창 크기 (기본 DEFAULT_CHANGES_WINDOW) */
+  readonly changesWindow?: number
 }
 
 const MAX_SEQ_RETRIES = 5
@@ -142,6 +155,16 @@ const MAX_SEQ_RETRIES = 5
  * 버린 범위는 다음에 쓰거나 읽을 때 스냅샷 + 뒤 이벤트로 다시 불러온다(결과는 같다). 방송 중인 범위는 계속 쓰이므로 남는다.
  */
 export const DEFAULT_RUNTIME_CACHE_MAX = 128
+
+interface Committed {
+  readonly records: CommittedRecord[]
+  /** 이벤트마다 적용한 뒤의 상태 (records와 같은 순서) */
+  readonly states: EngineState[]
+  readonly state: EngineState
+  readonly seq: number
+  readonly lastAt: number
+  readonly scopeId: string
+}
 
 class Abort {
   readonly outcome: WriteOutcome
@@ -169,10 +192,10 @@ export function eventDigest(scopeId: string, seq: number, type: string, body: st
   return sha256Hex(JSON.stringify([scopeId, seq, type, body, failed]))
 }
 
-/** 범위(판매자, 날짜)마다 한 줄로 처리하는 기록기 */
+/** 범위(판매자, 날짜, 리허설인지)마다 한 줄로 처리하는 기록기 */
 export class ScopeWriter {
   readonly #options: WriterOptions
-  /** 범위 상태 (키 = [판매자, 날짜]). 넣은 순서 = 마지막으로 쓴 순서 (앞이 가장 오래 안 쓴 것). 범위 행이 있는 것만 둔다 */
+  /** 범위 상태 (키 = scopeKey). 넣은 순서 = 마지막으로 쓴 순서 (앞이 가장 오래 안 쓴 것). 범위 행이 있는 것만 둔다 */
   readonly #runtimes = new Map<string, ScopeRuntime>()
   readonly #queues = new Map<string, Promise<unknown>>()
 
@@ -186,8 +209,8 @@ export class ScopeWriter {
   }
 
   /** 범위마다 한 줄: 같은 범위의 작업은 앞 작업이 끝난 뒤 시작한다 */
-  serial<T>(sellerId: string, date: string, task: () => Promise<T>): Promise<T> {
-    const key = JSON.stringify([sellerId, date])
+  serial<T>(sellerId: string, date: string, rehearsal: boolean, task: () => Promise<T>): Promise<T> {
+    const key = scopeKey(sellerId, date, rehearsal)
     const previous = this.#queues.get(key) ?? Promise.resolve()
     const run = previous.then(task, task)
     const settled = run.then(
@@ -205,14 +228,15 @@ export class ScopeWriter {
    * 범위 상태 (처음이면 DB에서 불러온다). serial 안에서 쓴다 — 같은 범위를 동시에 불러오지 않는다.
    * 범위 행이 없으면(이벤트 0개) 빈 상태를 돌려주되 메모리에 두지 않는다: 없는 날짜를 아무리 조회해도 쌓이지 않는다(RA-S04-002).
    */
-  async runtime(sellerId: string, date: string): Promise<ScopeRuntime> {
-    const key = JSON.stringify([sellerId, date])
+  async runtime(sellerId: string, date: string, rehearsal = false): Promise<ScopeRuntime> {
+    const key = scopeKey(sellerId, date, rehearsal)
     const cached = this.#runtimes.get(key)
     if (cached !== undefined) {
       this.#touch(key, cached)
       return cached
     }
-    const runtime = await loadRuntime(this.#options.db, sellerId, date, this.#options.engine, this.#options.log)
+    const window = this.#options.changesWindow ?? DEFAULT_CHANGES_WINDOW
+    const runtime = await loadRuntime(this.#options.db, sellerId, date, rehearsal, this.#options.engine, this.#options.log, window)
     this.#keep(runtime)
     return runtime
   }
@@ -220,7 +244,7 @@ export class ScopeWriter {
   /** 범위 행이 있는 상태만 메모리에 둔다. 상한을 넘으면 가장 오래 안 쓴, 처리 중이 아닌 범위부터 버린다 */
   #keep(runtime: ScopeRuntime): void {
     if (runtime.scopeId === null) return
-    const key = JSON.stringify([runtime.sellerId, runtime.date])
+    const key = scopeKey(runtime.sellerId, runtime.date, runtime.rehearsal)
     this.#touch(key, runtime)
     const max = this.#options.runtimeCacheMax ?? DEFAULT_RUNTIME_CACHE_MAX
     if (this.#runtimes.size <= max) return
@@ -237,14 +261,14 @@ export class ScopeWriter {
   }
 
   /** 메모리 상태를 버린다 (다음에 DB에서 다시 불러온다) */
-  forget(sellerId: string, date: string): void {
-    this.#runtimes.delete(JSON.stringify([sellerId, date]))
+  forget(sellerId: string, date: string, rehearsal = false): void {
+    this.#runtimes.delete(scopeKey(sellerId, date, rehearsal))
   }
 
-  /** 최신 로그까지 따라잡은 범위 상태 (조회용) */
-  read(sellerId: string, date: string): Promise<ScopeRuntime> {
-    return this.serial(sellerId, date, async () => {
-      const runtime = await this.runtime(sellerId, date)
+  /** 최신 로그까지 따라잡은 범위 상태 (조회용). 리허설을 적지 않으면 실제 범위다 */
+  read(sellerId: string, date: string, rehearsal = false): Promise<ScopeRuntime> {
+    return this.serial(sellerId, date, rehearsal, async () => {
+      const runtime = await this.runtime(sellerId, date, rehearsal)
       await catchUp(this.#options.db, runtime, this.#options.engine, this.#options.log)
       // 다른 인스턴스가 그사이 범위를 만들었으면 이제 메모리에 둔다
       this.#keep(runtime)
@@ -253,7 +277,7 @@ export class ScopeWriter {
   }
 
   write(job: WriteJob): Promise<WriteOutcome> {
-    return this.serial(job.sellerId, job.date, () => this.#write(job))
+    return this.serial(job.sellerId, job.date, job.rehearsal, () => this.#write(job))
   }
 
   async #write(job: WriteJob): Promise<WriteOutcome> {
@@ -261,19 +285,19 @@ export class ScopeWriter {
     for (let attempt = 0; attempt < MAX_SEQ_RETRIES; attempt++) {
       let runtime: ScopeRuntime
       try {
-        runtime = await this.runtime(job.sellerId, job.date)
+        runtime = await this.runtime(job.sellerId, job.date, job.rehearsal)
         await catchUp(db, runtime, engine, log)
       } catch (error) {
-        this.forget(job.sellerId, job.date)
+        this.forget(job.sellerId, job.date, job.rehearsal)
         log({ level: 'error', code: 'SAVE_FAILED', date: job.date, errorKind: errorKind(error) })
         return { kind: 'save_failed' }
       }
       if (!job.createScope && runtime.seq === 0) return { kind: 'not_found' }
       const prepared = runtime.seq === 0 && job.prepare !== undefined ? await job.prepare() : undefined
-      let committed: { records: CommittedRecord[]; state: EngineState; seq: number; lastAt: number; scopeId: string }
+      let committed: Committed
       try {
         committed = await db.transaction(async (tx) => {
-          await tx.execute(sql`select pg_advisory_xact_lock(${scopeLockKey(job.sellerId, job.date)})`)
+          await tx.execute(sql`select pg_advisory_xact_lock(${scopeLockKey(job.sellerId, job.date, job.rehearsal)})`)
           await catchUp(tx, runtime, engine, log)
           if (!job.createScope && runtime.seq === 0) throw new Abort({ kind: 'not_found' })
           if (job.requestId !== null) {
@@ -286,16 +310,18 @@ export class ScopeWriter {
           const computed = this.#compute(job, runtime, prepared)
           if ('rejection' in computed) throw new Abort({ kind: 'rejected', rejection: computed.rejection })
           const now = new Date(this.#options.clock.now())
-          const scopeId = runtime.scopeId ?? (await ensureScope(tx, job.sellerId, job.date, this.#options.ids.scope(), now))
+          const scopeId = runtime.scopeId ?? (await ensureScope(tx, job.sellerId, job.date, job.rehearsal, this.#options.ids.scope(), now))
           await insertEvents(tx, computed.records.map((record, index) => eventRow(job, scopeId, record, computed.drafts[index] as Draft, now)))
-          await insertOutbox(tx, computed.records.flatMap((record) => outboxRows(job.sellerId, scopeId, record, now)))
+          await insertOutbox(tx, computed.records.flatMap((record) => outboxRows(job, scopeId, record, now)))
+          // 범위의 지금 seq — 실패 표시 이벤트도 seq를 쓴다 (AC-S05-60)
+          await setScopeSeq(tx, job.sellerId, scopeId, computed.seq)
           await job.afterInsert?.(tx, scopeId, computed.records, now)
           await this.#options.hooks.beforeCommit?.(computed.records)
-          return { records: computed.records, state: computed.state, seq: computed.seq, lastAt: computed.lastAt, scopeId }
+          return { records: computed.records, states: computed.states, state: computed.state, seq: computed.seq, lastAt: computed.lastAt, scopeId }
         })
       } catch (error) {
         if (error instanceof Abort) {
-          if (error.outcome.kind === 'rejected' && error.outcome.rejection.code === 'STATE_FORMAT') this.forget(job.sellerId, job.date)
+          if (error.outcome.kind === 'rejected' && error.outcome.rejection.code === 'STATE_FORMAT') this.forget(job.sellerId, job.date, job.rehearsal)
           return error.outcome
         }
         const constraint = uniqueViolation(error)
@@ -319,7 +345,7 @@ export class ScopeWriter {
     job: WriteJob,
     runtime: ScopeRuntime,
     prepared: unknown,
-  ): { records: CommittedRecord[]; drafts: readonly Draft[]; state: EngineState; seq: number; lastAt: number } | { rejection: Rejection } {
+  ): { records: CommittedRecord[]; states: EngineState[]; drafts: readonly Draft[]; state: EngineState; seq: number; lastAt: number } | { rejection: Rejection } {
     const { engine, log, clock } = this.#options
     const firstAt = Math.max(clock.now(), runtime.lastAt)
     const drafts = job.build({ state: runtime.state, isNewScope: runtime.seq === 0, at: firstAt }, prepared)
@@ -328,6 +354,7 @@ export class ScopeWriter {
     let seq = runtime.seq
     let lastAt = runtime.lastAt
     const records: CommittedRecord[] = []
+    const states: EngineState[] = []
     const kept: Draft[] = []
     for (const draft of drafts as readonly Draft[]) {
       const at = Math.max(clock.now(), lastAt, firstAt)
@@ -355,6 +382,7 @@ export class ScopeWriter {
         const result = engine.applyEvent(state, event)
         records.push({ event, seq, type: event.type, changed: result.state !== state, failed: false, effects: result.effects })
         state = result.state
+        states.push(state)
       } catch (error) {
         if (isInvalidEvent(error)) return { rejection: invalid(easyProblems(error.problems, event as unknown as Record<string, unknown>)) }
         if (isNotImplemented(error)) return { rejection: { status: 422, code: 'NOT_SUPPORTED', message: '아직 지원하지 않는 기능이에요.', problems: [] } }
@@ -362,16 +390,13 @@ export class ScopeWriter {
         // 엔진이 예상하지 못한 오류: 실패 표시로 기록하고 상태는 그 전 그대로 (AC-S04-24)
         log({ level: 'error', code: 'ENGINE_FAILED', date: job.date, seq, errorKind: errorKind(error) })
         records.push({ event, seq, type: event.type, changed: false, failed: true, effects: [] })
+        states.push(state)
       }
     }
-    return { records, drafts: kept, state, seq, lastAt }
+    return { records, states, drafts: kept, state, seq, lastAt }
   }
 
-  async #afterCommit(
-    job: WriteJob,
-    runtime: ScopeRuntime,
-    committed: { records: CommittedRecord[]; state: EngineState; seq: number; lastAt: number; scopeId: string },
-  ): Promise<WriteOutcome> {
+  async #afterCommit(job: WriteJob, runtime: ScopeRuntime, committed: Committed): Promise<WriteOutcome> {
     const { hooks, onCommit, log } = this.#options
     try {
       await hooks.afterCommit?.(committed.records)
@@ -380,6 +405,13 @@ export class ScopeWriter {
       log({ level: 'error', code: 'REQUEST_FAILED', date: job.date, seq: committed.seq, errorKind: errorKind(error) })
       throw error
     }
+    // 이벤트마다 기준점을 남긴다 (증분 조회, D-085)
+    committed.records.forEach((record, index) => {
+      runtime.state = committed.states[index] as EngineState
+      runtime.seq = record.seq
+      if (record.failed) runtime.attention = [...runtime.attention, { seq: record.seq, message: FAILED_INPUT_MESSAGE }]
+      recordPoint(runtime, record.failed ? null : touchedMessage(record.event))
+    })
     runtime.state = committed.state
     runtime.seq = committed.seq
     runtime.lastAt = committed.lastAt
@@ -387,11 +419,8 @@ export class ScopeWriter {
     runtime.sinceSnapshot += committed.records.length
     // 이 기록으로 범위가 생겼으면(방송 만들기) 이제 메모리에 둔다
     this.#keep(runtime)
-    for (const record of committed.records) {
-      if (record.failed) runtime.attention = [...runtime.attention, { seq: record.seq, message: FAILED_INPUT_MESSAGE }]
-    }
     try {
-      onCommit(job.sellerId, job.date, committed.records)
+      onCommit(job.sellerId, job.date, job.rehearsal, committed.records)
     } catch (error) {
       log({ level: 'warn', code: 'STREAM_FAILED', date: job.date, errorKind: errorKind(error) })
     }
@@ -404,6 +433,7 @@ export class ScopeWriter {
       records: committed.records,
       result: {
         date: job.date,
+        rehearsal: job.rehearsal,
         seq: first.seq,
         type: first.type,
         changed: first.changed,
@@ -469,14 +499,15 @@ function eventRow(job: WriteJob, scopeId: string, record: CommittedRecord, draft
   }
 }
 
-function outboxRows(sellerId: string, scopeId: string, record: CommittedRecord, now: Date): NewOutboxRow[] {
+function outboxRows(job: WriteJob, scopeId: string, record: CommittedRecord, now: Date): NewOutboxRow[] {
   return record.effects.map((effect) => ({
-    sellerId,
+    sellerId: job.sellerId,
     scopeId,
     effectId: effect.id,
     seq: record.seq,
     kind: effect.kind,
     body: JSON.stringify(effect),
+    rehearsal: job.rehearsal,
     createdAt: now,
   }))
 }
@@ -485,6 +516,7 @@ function outboxRows(sellerId: string, scopeId: string, record: CommittedRecord, 
 export async function resultOf(db: Db, sellerId: string, record: RequestRecord): Promise<WriteResult> {
   return {
     date: record.date,
+    rehearsal: record.rehearsal,
     seq: record.seq,
     type: record.type,
     changed: record.changed,

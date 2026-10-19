@@ -44,13 +44,13 @@ describe('AC-S04-60 실시간 푸시', () => {
     const reader = await connect(w, seller.cookie)
     await reader.until(() => reader.events.length >= 1)
     expect(reader.events[0]).toMatchObject({ event: 'ready', id: null })
-    expect(JSON.parse(reader.events[0]?.data ?? '{}')).toEqual({ scopes: [{ date: '2026-10-18', seq: 2 }] })
+    expect(JSON.parse(reader.events[0]?.data ?? '{}')).toEqual({ scopes: [{ date: '2026-10-18', rehearsal: false, seq: 2 }] })
     const b19 = await createBroadcast(w, seller, { date: '2026-10-19' })
     await w.server.ingestChat(seller.sellerId, { b: b19.id, id: 'm1', ch: 'UC1', nick: 'n', text: '안녕' })
     await reader.until(() => changes(reader).length >= 2)
     expect(changes(reader)).toEqual([
-      { id: '1', date: '2026-10-19', seq: 1, type: 'broadcast.start' },
-      { id: '2', date: '2026-10-19', seq: 2, type: 'chat' },
+      { id: '1', date: '2026-10-19', rehearsal: false, seq: 1, type: 'broadcast.start' },
+      { id: '2', date: '2026-10-19', rehearsal: false, seq: 2, type: 'chat' },
     ])
   })
 
@@ -94,8 +94,8 @@ describe('AC-S04-60 실시간 푸시', () => {
     await reader.until(() => changes(reader).length >= 2)
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(changes(reader)).toEqual([
-      { id: '1', date: b.date, seq: 2, type: 'product.register' },
-      { id: '2', date: b.date, seq: 3, type: 'chat' },
+      { id: '1', date: b.date, rehearsal: false, seq: 2, type: 'product.register' },
+      { id: '2', date: b.date, rehearsal: false, seq: 3, type: 'chat' },
     ])
   })
 

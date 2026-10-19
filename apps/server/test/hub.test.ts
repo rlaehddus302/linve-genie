@@ -48,7 +48,7 @@ function read(response: Response) {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
 const changes = (reader: ReturnType<typeof sseReader>) => reader.events.filter((event) => event.event === 'change').map((event) => ({ id: event.id, ...(JSON.parse(event.data) as StreamNotice) }))
-const notice = (date: string, seq: number, type = 'chat'): StreamNotice => ({ date, seq, type })
+const notice = (date: string, seq: number, type = 'chat', rehearsal = false): StreamNotice => ({ date, rehearsal, seq, type })
 
 describe('SSE 연결 순서 (RA-S04-003·SA-S04-005)', () => {
   it('seq를 읽는 동안 커밋된 변경도 ready 뒤에 보낸다 — ready에 이미 들어 있는 변경(그 날짜 seq 이하)은 거른다', async () => {
@@ -61,7 +61,7 @@ describe('SSE 연결 순서 (RA-S04-003·SA-S04-005)', () => {
     hub.publish('s1', [notice('2026-10-18', 5)])
     hub.publish('s1', [notice('2026-10-18', 6), notice('2026-10-19', 1, 'broadcast.start')])
     hub.publish('s2', [notice('2026-10-18', 9)]) // 다른 판매자
-    scopes.resolve([{ date: '2026-10-18', seq: 5 }])
+    scopes.resolve([{ date: '2026-10-18', rehearsal: false, seq: 5 }])
     const reader = read(await opening)
     expect(hub.pendingSize).toBe(0)
     expect(hub.size).toBe(1)
@@ -69,36 +69,36 @@ describe('SSE 연결 순서 (RA-S04-003·SA-S04-005)', () => {
     await reader.until(() => changes(reader).length >= 3)
     await settle()
     expect(reader.events[0]).toMatchObject({ event: 'ready', id: null })
-    expect(JSON.parse(reader.events[0]?.data ?? '{}')).toEqual({ scopes: [{ date: '2026-10-18', seq: 5 }] })
+    expect(JSON.parse(reader.events[0]?.data ?? '{}')).toEqual({ scopes: [{ date: '2026-10-18', rehearsal: false, seq: 5 }] })
     expect(changes(reader)).toEqual([
-      { id: '1', date: '2026-10-18', seq: 6, type: 'chat' },
-      { id: '2', date: '2026-10-19', seq: 1, type: 'broadcast.start' },
-      { id: '3', date: '2026-10-18', seq: 7, type: 'chat' },
+      { id: '1', date: '2026-10-18', rehearsal: false, seq: 6, type: 'chat' },
+      { id: '2', date: '2026-10-19', rehearsal: false, seq: 1, type: 'broadcast.start' },
+      { id: '3', date: '2026-10-18', rehearsal: false, seq: 7, type: 'chat' },
     ])
   })
 
   it('연결 뒤 늦게 도착한 알림이라도 ready seq 이하면 보내지 않는다 (같은 변경이 ready와 change로 두 번 오지 않는다)', async () => {
     const hub = newHub()
-    const reader = read(await hub.open('s1', 'h1', () => Promise.resolve([{ date: '2026-10-18', seq: 12 }])))
+    const reader = read(await hub.open('s1', 'h1', () => Promise.resolve([{ date: '2026-10-18', rehearsal: false, seq: 12 }])))
     // 커밋 → seq 읽기(12가 보임) → 연결 → 그 커밋의 알림이 이제 도착
     hub.publish('s1', [notice('2026-10-18', 11), notice('2026-10-18', 12)])
     hub.publish('s1', [notice('2026-10-18', 13)])
     await reader.until(() => changes(reader).length >= 1)
     await settle()
-    expect(changes(reader)).toEqual([{ id: '1', date: '2026-10-18', seq: 13, type: 'chat' }])
+    expect(changes(reader)).toEqual([{ id: '1', date: '2026-10-18', rehearsal: false, seq: 13, type: 'chat' }])
   })
 
   it('예전 순서(seq를 먼저 읽고 등록)였다면 놓쳤을 변경: 읽기와 등록 사이 커밋을 받는다', async () => {
     const hub = newHub()
     // 읽기 함수 안에서(= 읽은 직후, 응답을 만들기 전) 커밋 알림이 온다
     const response = await hub.open('s1', 'h1', () => {
-      const scopes = [{ date: '2026-10-18', seq: 3 }]
+      const scopes = [{ date: '2026-10-18', rehearsal: false, seq: 3 }]
       queueMicrotask(() => hub.publish('s1', [notice('2026-10-18', 4, 'product.register')]))
       return Promise.resolve(scopes)
     })
     const reader = read(response)
     await reader.until(() => changes(reader).length >= 1)
-    expect(changes(reader)).toEqual([{ id: '1', date: '2026-10-18', seq: 4, type: 'product.register' }])
+    expect(changes(reader)).toEqual([{ id: '1', date: '2026-10-18', rehearsal: false, seq: 4, type: 'product.register' }])
   })
 
   it('seq 읽기가 실패하면 등록을 지우고 오류를 그대로 던진다 (모아 둔 알림도 버린다)', async () => {

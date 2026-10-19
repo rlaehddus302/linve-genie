@@ -88,7 +88,7 @@ describe('AC-S04-21 방송 만들기·끝내기와 엔진 범위', () => {
     const again = await expectOk(api.post(`/api/broadcasts/${b.id}/end`, { requestId: rid() }))
     expect(again.body).toMatchObject({ seq: 3, type: 'broadcast.end', changed: false })
     const list = await api.get('/api/broadcasts')
-    expect(list.body.broadcasts).toEqual([{ id: b.id, date: b.date, title: '1부', ended: true, endedAt: new Date(T0 + 60_000).toISOString() }])
+    expect(list.body.broadcasts).toEqual([{ id: b.id, date: b.date, title: '1부', rehearsal: false, ended: true, endedAt: new Date(T0 + 60_000).toISOString() }])
     const view = await api.get(`/api/days/${b.date}`)
     expect((view.body.broadcasts as { ended: boolean; endedAt: string }[])[0]).toMatchObject({ ended: true, endedAt: new Date(T0 + 60_000).toISOString() })
   })
@@ -251,7 +251,7 @@ describe('AC-S04-23 저장이 끝나기 전엔 결과가 나가지 않는다', (
     fail = false
     const retried = await expectOk(client(world, seller.cookie).post('/api/events', body))
     expect(retried.body).toMatchObject({ seq: 2, changed: true })
-    expect(notices).toEqual([{ date: b.date, seq: 2, type: 'product.register' }])
+    expect(notices).toEqual([{ date: b.date, rehearsal: false, seq: 2, type: 'product.register' }])
   })
 
   it('커밋 직후 응답 전에 멈춰도(새 인스턴스를 같은 DB로) 그 입력의 결과가 남아 있다', async () => {
