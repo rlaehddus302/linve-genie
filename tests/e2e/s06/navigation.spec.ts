@@ -49,7 +49,7 @@ test.describe('메뉴·떠나기', () => {
     expect((await history(page, date, true)).filter((e) => e.type === 'host.cancel')).toHaveLength(0)
   })
 
-  test('TE-S06-003: 구매자 화면 안에서 이동("구매자 목록으로")해 "보내지 않고 떠나기"를 골라도 대기 중이던 차단이 보내진다', async ({ page }) => {
+  test('TE-S06-003 회귀: 구매자 화면 안에서 이동("구매자 목록으로")해 "보내지 않고 떠나기"를 고르면 대기 중이던 차단을 보내지 않는다', async ({ page }) => {
     // AC-S06-01·22, D-083: "떠나면 보내지 않아요"라고 묻고 판매자가 "보내지 않고 떠나기"를 골랐다면 그 조치는 보내지지 않아야 한다.
     // 구매자 자세히 → 목록은 같은 화면(BuyersPage) 안의 이동이라 대기열이 그대로 살아 있어 2초(E2E) 뒤 차단이 기록된다.
     await login(page)

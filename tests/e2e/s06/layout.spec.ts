@@ -64,7 +64,7 @@ test.describe('고정 영역·밀도·명암', () => {
     void writeEvent
   })
 
-  test('AC-S06-62 · TE-S06-004: 1440×900 리허설 콘솔에서 흔한 길이의 언급 메시지 20개 중 8개 이상이 채팅 칸에 보인다(지금 두 줄로 접혀 6~7개)', async ({ page }) => {
+  test('AC-S06-62 · TE-S06-004: 1440×900 리허설 콘솔에서 흔한 길이의 언급 메시지 20개 중 8개 이상이 채팅 칸에 보인다(회귀 — 라운드 0에는 두 줄로 접혀 6~7개)', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await login(page)
     const date = uniqueDate()
