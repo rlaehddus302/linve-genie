@@ -12,12 +12,32 @@ export type ErrorCode =
   | 'HEADERS_TOO_LARGE'
   | 'REQUEST_ERROR'
   | 'INTERNAL_ERROR'
+  // S04 API (AC-S04-22·31·40·41·50·51)
+  | 'INVALID_INPUT'
+  | 'UNKNOWN_FIELD'
+  | 'INVALID_REQUEST_ID'
+  | 'NOT_JSON'
+  | 'UNAUTHORIZED'
+  | 'LOGIN_FAILED'
+  | 'LOGIN_LOCKED'
+  | 'FORBIDDEN_ORIGIN'
+  | 'NOT_SUPPORTED'
+  | 'BUYER_NOT_FOUND'
+  | 'STATE_FORMAT'
+  | 'SAVE_FAILED'
+  | 'PROCESSING_FAILED'
 
 export interface ErrorBody {
   readonly error: {
     readonly code: ErrorCode
     readonly message: string
   }
+}
+
+/** 입력 문제 하나: 필드 이름(알 수 없거나 되돌려 보내면 안 되는 이름이면 null)과 쉬운 한국어 문장. 받은 값은 담지 않는다 */
+export interface FieldProblem {
+  readonly field: string | null
+  readonly message: string
 }
 
 export interface DescribedError {
@@ -59,4 +79,23 @@ export function errorResponse(status: number, extraHeaders: Readonly<Record<stri
   const headers = new Headers(extraHeaders)
   headers.set('Content-Type', JSON_CONTENT_TYPE)
   return new Response(JSON.stringify(described.body), { status: described.status, headers })
+}
+
+/**
+ * API 오류 응답 (S04). 본문: `{"error":{"code","message","problems"?}, ...extra}`.
+ * 받은 값은 되돌려 보내지 않는다(문제에는 필드 이름과 서버가 정한 문장만). 개인 데이터가 섞일 수 있어 캐시하지 않는다.
+ */
+export function apiError(
+  status: number,
+  code: ErrorCode,
+  message: string,
+  problems: readonly FieldProblem[] = [],
+  extra: Readonly<Record<string, unknown>> = {},
+  extraHeaders: Readonly<Record<string, string>> = {},
+): Response {
+  const error = problems.length === 0 ? { code, message } : { code, message, problems }
+  const headers = new Headers(extraHeaders)
+  headers.set('Content-Type', JSON_CONTENT_TYPE)
+  headers.set('Cache-Control', 'no-store')
+  return new Response(JSON.stringify({ ...extra, error }), { status, headers })
 }

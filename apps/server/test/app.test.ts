@@ -222,15 +222,22 @@ describe('처리 중 오류 (AC-S00-41)', () => {
     expectJsonError(await shapeOf(await app.request('/boom-value')), 500, 'INTERNAL_ERROR')
   })
 
-  it('기본 기록 함수는 표준 오류 출력(console.error)에 남긴다', async () => {
+  // S04 교체 (D-073, AC-S04-34): 기본 기록은 표준 오류 출력에 남기되, 오류 객체(메시지·스택)는 넘기지 않고 종류 이름만 남긴다.
+  // 메시지에는 요청 값·DB 질의 인자(전화번호 키·메모 등)가 들어 있을 수 있다. 약화가 아니라 더 엄격한 기대다.
+  it('기본 기록 함수는 표준 오류 출력(console.error)에 남기고, 오류 메시지·스택은 남기지 않는다', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const app = createApp()
-    const thrown = new Error(SECRET)
+    const thrown = new TypeError(SECRET)
     app.get('/boom', () => {
       throw thrown
     })
     expectJsonError(await shapeOf(await app.request('/boom')), 500, 'INTERNAL_ERROR')
     expect(consoleError).toHaveBeenCalledTimes(1)
-    expect(consoleError.mock.calls[0]).toContain(thrown)
+    const args = consoleError.mock.calls[0] ?? []
+    expect(args).not.toContain(thrown)
+    const line = args.map(String).join(' ')
+    expect(line).toContain('TypeError')
+    expect(line).not.toContain('1234')
+    expect(line).not.toContain('/Users/')
   })
 })
