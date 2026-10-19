@@ -653,15 +653,17 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
   })
 })
 
-describe('실제 tests/golden 전체를 실제 코어로 (AC-S06-95 합계)', () => {
-  it('파일 21 · 파서 379 · 엔진 119 · 통과 498, 나머지 0', () => {
+// P2(AC-P2-90): 골든이 늘어 합계를 바꿨다(교체 — 약화 아님). 파일 21 → 23(parser/voice-extract.yaml, engine/19-p2-documents.yaml),
+// 파서 379 → 448(voice-extract 69사례, 실제 추출기 packages/voice), 엔진 119 → 121(G-ENG-201·202), 통과 498 → 569.
+describe('실제 tests/golden 전체를 실제 코어로 (AC-P2-90 합계, AC-S06-95에서 교체)', () => {
+  it('파일 23 · 파서 448 · 엔진 121 · 통과 569, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
-      files: 21,
-      parserCases: 379,
-      scenarios: 119,
-      pass: 498,
+      files: 23,
+      parserCases: 448,
+      scenarios: 121,
+      pass: 569,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,
