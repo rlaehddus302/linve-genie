@@ -170,3 +170,7 @@ S04·S05 계약(`harness/sprints/S04/dev-notes.md` "웹(S05)에게", `harness/sp
 - SA-S06-005: AC-S06-40 휴대폰 합치기 → PC 구매자 목록 1초(5번), AC-S06-20 `@fill` 구매자·정산 목록 그리기 시간, AC-S06-82 E2E(page.route 503 SAVE_FAILED·500 PROCESSING_FAILED·401).
 - RA-S06-001: 브라우저 뒤로 가기(`page.goBack()`) → "다른 화면으로 갈까요?" → "보내지 않고 떠나기"면 보내지 않음 / "닫기"면 주소가 돌아오고 대기 뒤 보냄. 새로고침은 Playwright가 beforeunload를 저절로 받아들인다(`page.on('dialog')`로 `beforeunload` 종류가 뜨는지 볼 수 있다).
 - UX-S06-001: 떠나기 창을 연 채 대기 시간(E2E 2초)보다 오래 기다려도 이력에 조치가 없고, 띠의 남은 시간이 그대로다.
+
+### 검증 (dev-web 수정 라운드 1 끝, `CI=1 pnpm verify`, TZ=Pacific/Honolulu)
+- typecheck 통과(설정 8 · TS 290) · lint 통과(오류 0 · 경고 0) · test 통과(파일 90 · 2,045) · golden 통과(파일 21 · 파서 379 · 엔진 119 · 통과 498, 그 밖 0) · adversarial 통과(파일 30 · 642) · e2e 통과(파일 21 · 114 통과, 실패·재시도 없음 — TE-S06-001~004 포함) · coverage 통과(코어 라인 100% · 분기 99.65%).
+- 앞선 한 번의 전체 실행에서 adversarial `tests/adversarial/s00/golden-runner.test.ts` "환경변수·작업 폴더·시간대·언어 설정을 바꿔도 출력과 종료 코드가 같다"가 5초 제한에 걸렸다(7.7초 — CLI를 여러 번 띄우는 시험, 기계가 바빴다). 단계만 다시 돌리면 통과했고, 위 전체 실행도 통과. 코어·골든 러너는 손대지 않았다.
