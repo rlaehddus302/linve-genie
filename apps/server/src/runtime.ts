@@ -7,6 +7,7 @@ import { STATE_FORMAT, checkInvariants, initEngine, type ApplyResult, type Engin
 import type { Db } from './db/database.ts'
 import { errorKind, type LogSink } from './log.ts'
 import { eventAtSeq, eventsAfter, findScopeId, latestSnapshot, type EventRow } from './store.ts'
+import { newViewCaches, type ViewCaches } from './views.ts'
 
 /** 엔진 호출 (시험에서 감싸 예외를 주입한다). 쓰기와 재생 모두 이 함수를 쓴다 */
 export interface EngineAdapter {
@@ -53,6 +54,8 @@ export interface ScopeRuntime {
   points: StatePoint[]
   /** 기준점 창 크기 */
   readonly window: number
+  /** 이 범위의 보기 계산 캐시 (범위마다 따로 — 이 상태가 메모리에서 내려가면 함께 사라진다, AC-S06-72) */
+  readonly views: ViewCaches
 }
 
 export function emptyState(): EngineState {
@@ -73,6 +76,7 @@ export function emptyRuntime(sellerId: string, date: string, rehearsal = false, 
     sinceSnapshot: 0,
     points: [{ seq: 0, state, attention: 0, message: null }],
     window,
+    views: newViewCaches(),
   }
 }
 

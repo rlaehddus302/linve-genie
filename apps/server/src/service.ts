@@ -36,6 +36,7 @@ import {
   type GeneratorTimer,
 } from './generator.ts'
 import type { IdSource } from './ids.ts'
+import type { ScopeRuntime } from './runtime.ts'
 import { fieldMessage, safeFieldName, unknownFieldProblems } from './messages.ts'
 import { openSellerKey, phoneKeyOf } from './secrets.ts'
 import {
@@ -638,7 +639,7 @@ export class Service {
     const { seq, state, scopeId } = runtime
     const fresh = since === seq ? { rows: [], more: false } : await chatRows(db, sellerId, scopeId, { after: since, before: seq + 1, limit: CHANGES_MESSAGES_LIMIT })
     const touched = touchedMessages.length === 0 ? [] : (await chatRowsByIds(db, sellerId, scopeId, touchedMessages)).filter((row) => row.seq <= since)
-    return { ...rest, messages: this.#messageItems(state, [...touched, ...fresh.rows]), messagesMore: fresh.more }
+    return { ...rest, messages: this.#messageItems(runtime, state, [...touched, ...fresh.rows]), messagesMore: fresh.more }
   }
 
   /**
@@ -666,12 +667,12 @@ export class Service {
       before,
       limit: query.limit,
     })
-    return { date, rehearsal, seq, messages: this.#messageItems(state, rows), more }
+    return { date, rehearsal, seq, messages: this.#messageItems(runtime, state, rows), more }
   }
 
   /** 채팅 이벤트 행 → 메시지 항목 (주문·취소·무시·바꾼 번호는 엔진 기록, 언급은 그 방송 설정의 parseChat) */
-  #messageItems(state: ScopeStateLike, rows: readonly ChatRow[]): MessageItem[] {
-    const lookup: MessageLookup = messageLookup(state)
+  #messageItems(runtime: ScopeRuntime, state: ScopeStateLike, rows: readonly ChatRow[]): MessageItem[] {
+    const lookup: MessageLookup = messageLookup(runtime, state)
     const settingsOf = new Map<string, SaleSettings | null>()
     const settings = (b: string): SaleSettings | null => {
       let found = settingsOf.get(b)
@@ -756,7 +757,7 @@ export class Service {
   }
 }
 
-type ScopeStateLike = Parameters<typeof messageLookup>[0]
+type ScopeStateLike = Parameters<typeof messageLookup>[1]
 
 /** 그 방송·번호를 대상으로 한 이벤트인지 (번호 변경은 이전·새 번호 모두) */
 function targetsProduct(event: Record<string, unknown>, product: ProductFilter): boolean {

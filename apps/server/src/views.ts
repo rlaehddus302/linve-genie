@@ -2,7 +2,8 @@
 // - 값은 모두 코어 조회 함수의 결과다(시각 필드만 ISO). 서버는 판정을 다시 하지 않는다.
 // - 증분 조회는 두 seq의 상태를 같은 조회 함수로 보고 항목마다 키로 비교한다: "그 seq의 전체 조회 + 증분 = 지금의 전체 조회"가
 //   만드는 방식 그대로 성립한다(규칙마다 무엇이 바뀌는지 따로 계산하지 않는다). 값이 같은 항목은 넣지 않는다.
-// - 상태 하나의 조회 결과(항목·JSON)는 작은 캐시에 둔다: 지금 상태와 바로 앞 상태를 여러 화면이 같이 쓴다.
+// - 상태 하나의 조회 결과(항목·JSON)는 그 범위 실행 상태의 작은 캐시(범위마다 최근 상태 8개)에 둔다: 지금 상태와 바로 앞 상태를 여러 화면이 같이 쓴다.
+//   판매자·범위가 함께 쓰는 캐시는 없다 — 한 판매자의 조회가 다른 판매자의 캐시 항목을 밀어내지 않는다(AC-S06-72, D-096).
 import {
   listBroadcasts,
   listBuyers,
@@ -18,6 +19,7 @@ import {
   type MessageInfo,
 } from '@livejjim/core'
 import type { AttentionItem, ScopeRuntime } from './runtime.ts'
+import { StateCache } from './state-cache.ts'
 import { withIsoTimes } from './time.ts'
 
 /** 범위 조회의 항목 목록과 항목 키 (증분 조회는 이 키로 덮고 지운다) */
@@ -45,7 +47,7 @@ interface Entry {
   readonly json: string
 }
 
-type ViewIndex = Readonly<Record<ViewList, ReadonlyMap<string, Entry>>>
+export type ViewIndex = Readonly<Record<ViewList, ReadonlyMap<string, Entry>>>
 
 function listsOf(state: EngineState): Record<ViewList, readonly unknown[]> {
   return {
@@ -74,32 +76,21 @@ function buildIndex(state: EngineState): ViewIndex {
   return index
 }
 
-/** 상태(불변 객체) → 계산한 값. 가장 최근에 쓴 몇 개만 둔다 */
-class StateCache<T> {
-  readonly #max: number
-  readonly #entries = new Map<EngineState, T>()
-  constructor(max: number) {
-    this.#max = max
-  }
-  get(state: EngineState, make: (state: EngineState) => T): T {
-    const hit = this.#entries.get(state)
-    if (hit !== undefined) {
-      this.#entries.delete(state)
-      this.#entries.set(state, hit)
-      return hit
-    }
-    const value = make(state)
-    this.#entries.set(state, value)
-    while (this.#entries.size > this.#max) {
-      const oldest = this.#entries.keys().next().value as EngineState
-      this.#entries.delete(oldest)
-    }
-    return value
-  }
+/** 범위마다 두는 보기 계산 캐시 크기 (최근 상태 수) */
+export const VIEW_INDEX_CACHE_MAX = 8
+export const MESSAGE_LOOKUP_CACHE_MAX = 4
+
+/** 범위 실행 상태 하나의 보기 계산 캐시 (ScopeRuntime.views) */
+export interface ViewCaches {
+  /** 범위 조회·증분 조회의 항목 색인 */
+  readonly index: StateCache<ViewIndex>
+  /** 메시지 조회·증분 조회의 메시지 기록 */
+  readonly messages: StateCache<MessageLookup>
 }
 
-const indexCache = new StateCache<ViewIndex>(8)
-const messageCache = new StateCache<MessageLookup>(4)
+export function newViewCaches(): ViewCaches {
+  return { index: new StateCache<ViewIndex>(VIEW_INDEX_CACHE_MAX), messages: new StateCache<MessageLookup>(MESSAGE_LOOKUP_CACHE_MAX) }
+}
 
 /** 범위 전체 조회 (GET /api/days/:date) */
 export interface FullView {
@@ -118,7 +109,7 @@ export interface FullView {
 }
 
 export function fullView(runtime: ScopeRuntime): FullView {
-  const index = indexCache.get(runtime.state, buildIndex)
+  const index = runtime.views.index.get(runtime.state, buildIndex)
   const items = (name: ViewList): Item[] => [...index[name].values()].map((entry) => entry.item)
   return {
     date: runtime.date,
@@ -183,8 +174,8 @@ export function changeSet(runtime: ScopeRuntime, since: number): ChangeSet | nul
   if (first === undefined) return null
   const point = runtime.points[since - first.seq]
   if (point === undefined || point.seq !== since) return null
-  const before = indexCache.get(point.state, buildIndex)
-  const now = indexCache.get(runtime.state, buildIndex)
+  const before = runtime.views.index.get(point.state, buildIndex)
+  const now = runtime.views.index.get(runtime.state, buildIndex)
   const upserts = {} as Record<ViewList, Item[]>
   const removed = {} as Record<ViewList, string[]>
   for (const name of VIEW_LISTS) {
@@ -242,6 +233,7 @@ function buildMessageLookup(state: EngineState): MessageLookup {
   return { byKey, claimsBySeq }
 }
 
-export function messageLookup(state: EngineState): MessageLookup {
-  return messageCache.get(state, buildMessageLookup)
+/** 그 범위 실행 상태의 캐시로 상태 하나의 메시지 기록을 본다 (state는 그 범위의 지금 상태나 조회가 잡아 둔 상태) */
+export function messageLookup(runtime: Pick<ScopeRuntime, 'views'>, state: EngineState): MessageLookup {
+  return runtime.views.messages.get(state, buildMessageLookup)
 }
