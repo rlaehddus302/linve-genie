@@ -241,7 +241,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     return { claims, products }
   }, [items])
 
-  const names = useMemo(() => new BuyerNames(data.buyers), [data.buyers])
+  const names = useMemo(() => new BuyerNames(data.buyers, data.claims), [data.buyers, data.claims])
   const settingsOf = useCallback((id: string) => latest.current.data.broadcasts.get(id)?.settings ?? null, [])
 
   const api: ConsoleApi = useMemo(
@@ -655,6 +655,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
                 onGenerator={(status) => store.setGenerator(status)}
                 onWritten={(result) => void store.sync(result.seq)}
                 onOpenBroadcast={(id) => navigate({ name: 'console', id })}
+                primary={fix === null && asks.length === 0}
               />
             ) : null}
             <CurrentProduct product={current} onOpen={(key) => openDialog({ kind: 'product', key })} />

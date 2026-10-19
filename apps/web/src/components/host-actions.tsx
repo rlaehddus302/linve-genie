@@ -109,7 +109,7 @@ export function useHostActions({ store, data, queue, date, rehearsal, b, ended }
     return { claims, products }
   }, [items])
 
-  const names = useMemo(() => new BuyerNames(data.buyers), [data.buyers])
+  const names = useMemo(() => new BuyerNames(data.buyers, data.claims), [data.buyers, data.claims])
   const settingsOf = useCallback((id: string) => data.broadcasts.get(id)?.settings ?? null, [data.broadcasts])
 
   const api: ConsoleApi = useMemo(

@@ -1,5 +1,6 @@
 // 범위 조회 결과에서 화면에 보일 값 고르기 (AC-S05-14·21·30). 판정은 하지 않는다 — 코어 조회 함수 결과를 고르고 낱말로 바꾸기만 한다.
 import type { Buyer, Claim, Product } from '../api/types.ts'
+import { kstTime } from './kst.ts'
 import type { ScopeData } from './scope-data.ts'
 import { LABEL_WORD, claimStatusWord } from './words.ts'
 
@@ -29,43 +30,97 @@ export function latestProduct(data: ScopeData, b: string): Product | undefined {
   return best
 }
 
+/** 이름 앞뒤를 잇는 글자 (D-098) — 괄호를 더하지 않는다 */
+export const NAME_JOIN = ' · '
+
+/** 알 수 없는 구매자 */
+export const UNKNOWN_BUYER_NAME = '알 수 없는 구매자'
+
 /**
- * 구매자 표시 이름 (BUY-01 AC2): 엔진 표시 이름 그대로, 같은 표시 이름이 둘 이상이면 채널 ID 끝 4자리를 함께
- * (문자 구매자는 전화번호 뒤 4자리가 있으면 그것).
+ * 그 문자 구매자 자신을 만든 문자찜의 받은 시각 "20:01:05" (분까지 적었으면 "20:01", KST).
+ * 새 문자 구매자는 그 문자찜이 늘 찜 하나를 만든다 — 그 구매자 자신의 찜 중 가장 앞 seq의 문자찜이다.
  */
-export class BuyerNames {
-  readonly #buyers: ReadonlyMap<string, Buyer>
-  readonly #counts = new Map<string, number>()
-  /** 전화번호 없는 문자 구매자의 차례 (구분 글자 — 문자 구매자 ID는 보이지 않는다, AC-S06-80) */
-  readonly #smsOrder = new Map<string, number>()
-  constructor(buyers: ReadonlyMap<string, Buyer>) {
-    this.#buyers = buyers
-    for (const buyer of buyers.values()) {
-      if (buyer.kind === 'sms' && buyer.phoneLast4 === null) this.#smsOrder.set(buyer.id, this.#smsOrder.size + 1)
-      if (buyer.mergedInto !== null) continue
-      this.#counts.set(buyer.display, (this.#counts.get(buyer.display) ?? 0) + 1)
-    }
+function smsCreatedTimes(buyers: ReadonlyMap<string, Buyer>, claims: ReadonlyMap<string, Claim>, wanted: ReadonlySet<string>): Map<string, string> {
+  const first = new Map<string, Claim>()
+  if (wanted.size === 0) return new Map()
+  for (const claim of claims.values()) {
+    if (claim.origin !== 'sms' || !wanted.has(claim.buyer)) continue
+    const seen = first.get(claim.buyer)
+    if (seen === undefined || claim.seq < seen.seq) first.set(claim.buyer, claim)
   }
-
-  /** 구매자 ID → 표시 이름 */
-  name(id: string): string {
-    const buyer = this.#buyers.get(id)
-    if (buyer === undefined) return '알 수 없는 구매자'
-    if ((this.#counts.get(buyer.display) ?? 0) < 2) return buyer.display
-    if (buyer.kind === 'sms' && buyer.phoneLast4 === null) return `${buyer.display} (${String(this.#smsOrder.get(buyer.id) ?? 0)}번째 문자)`
-    return `${buyer.display} (끝 ${tail(buyer)})`
+  const out = new Map<string, string>()
+  for (const id of wanted) {
+    const claim = first.get(id)
+    if (claim !== undefined && buyers.has(id)) out.set(id, receivedClock(claim))
   }
-
-  /** 같은 표시 이름이 있어 구분 글자가 붙는지 */
-  isDuplicate(id: string): boolean {
-    const buyer = this.#buyers.get(id)
-    return buyer !== undefined && (this.#counts.get(buyer.display) ?? 0) >= 2
-  }
+  return out
 }
 
-function tail(buyer: Buyer): string {
-  if (buyer.kind === 'sms') return buyer.phoneLast4 ?? ''
-  return buyer.id.slice(-4)
+/** 찜의 받은 시각(시각만): 분까지 적었으면 "20:01", 아니면 "20:01:05" (KST) */
+export function receivedClock(claim: Pick<Claim, 'rankTime' | 'rankMinute'>): string {
+  const time = kstTime(claim.rankTime)
+  return claim.rankMinute ? time.slice(0, 5) : time
+}
+
+/** 구분 글자 하나 (D-098): 유튜브 "끝 1234", 뒤 4자리가 있는 문자 구매자 "뒤 4자리 5678", 전화번호 없는 문자 구매자 "문자 20:01:05" */
+function tagOf(buyer: Buyer, smsTimes: ReadonlyMap<string, string>): string {
+  if (buyer.kind === 'youtube') return `끝 ${buyer.id.slice(-4)}`
+  if (buyer.phoneLast4 !== null) return `뒤 4자리 ${buyer.phoneLast4}`
+  const time = smsTimes.get(buyer.id)
+  return time === undefined ? '문자' : `문자 ${time}`
+}
+
+/**
+ * 구매자 이름 표기 하나 (BUY-01 AC2, AC-S06b-20, D-098) — 모든 화면이 이 이름을 쓴다.
+ * - 그 범위의 지금의 구매자 중 같은 표시 이름이 하나뿐이면 표시 이름 그대로.
+ * - 둘 이상이면 `표시 이름 · 구분 글자`(유튜브 "끝 1234", 문자 "뒤 4자리 5678", 전화번호 없는 문자 "문자 20:01:05").
+ *   합쳐진 구매자도 같은 규칙이고 "같은 이름 수"는 지금의 구매자 기준.
+ * - 그래도 같은 표기가 둘 이상이면 생긴 순서(범위 조회의 구매자 순서 = 처음 기록된 순서)로 둘째부터 " · 2", " · 3".
+ * 문자 구매자 ID·전화번호 원문은 넣지 않는다(AC-S06-80·81).
+ */
+export function buyerLabels(buyers: ReadonlyMap<string, Buyer>, claims: ReadonlyMap<string, Claim>): Map<string, string> {
+  const counts = new Map<string, number>()
+  for (const buyer of buyers.values()) if (buyer.mergedInto === null) counts.set(buyer.display, (counts.get(buyer.display) ?? 0) + 1)
+  const tagged = (buyer: Buyer) => (counts.get(buyer.display) ?? 0) >= 2
+  const wanted = new Set<string>()
+  for (const buyer of buyers.values()) if (buyer.kind === 'sms' && buyer.phoneLast4 === null && tagged(buyer)) wanted.add(buyer.id)
+  const smsTimes = smsCreatedTimes(buyers, claims, wanted)
+  const labels = new Map<string, string>()
+  const used = new Map<string, number>()
+  for (const buyer of buyers.values()) {
+    if (!tagged(buyer)) {
+      labels.set(buyer.id, buyer.display)
+      continue
+    }
+    const base = `${buyer.display}${NAME_JOIN}${tagOf(buyer, smsTimes)}`
+    const n = (used.get(base) ?? 0) + 1
+    used.set(base, n)
+    labels.set(buyer.id, n === 1 ? base : `${base}${NAME_JOIN}${String(n)}`)
+  }
+  return labels
+}
+
+/** 구매자 이름 표기 (buyerLabels)를 ID로 찾는다 */
+export class BuyerNames {
+  readonly #labels: ReadonlyMap<string, string>
+  readonly #counts = new Map<string, number>()
+  readonly #buyers: ReadonlyMap<string, Buyer>
+  constructor(buyers: ReadonlyMap<string, Buyer>, claims: ReadonlyMap<string, Claim>) {
+    this.#buyers = buyers
+    this.#labels = buyerLabels(buyers, claims)
+    for (const buyer of buyers.values()) if (buyer.mergedInto === null) this.#counts.set(buyer.display, (this.#counts.get(buyer.display) ?? 0) + 1)
+  }
+
+  /** 구매자 ID → 이름 */
+  name(id: string): string {
+    return this.#labels.get(id) ?? UNKNOWN_BUYER_NAME
+  }
+
+  /** 그날 지금의 구매자 중 같은 표시 이름의 수 (목록의 "같은 닉네임 n명") */
+  sameNameCount(id: string): number {
+    const buyer = this.#buyers.get(id)
+    return buyer === undefined ? 0 : (this.#counts.get(buyer.display) ?? 0)
+  }
 }
 
 /** 대기 순번 (1부터, 대기 찜이 아니면 null) */
