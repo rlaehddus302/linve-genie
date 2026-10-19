@@ -1,8 +1,10 @@
-// 라벨 패키지 (S07). S00은 빈 진입점만 있다. test/는 test 단계가 실행하므로 타입 검사에도 넣는다 (AC-S00-03).
+// 라벨 렌더 경로 (브라우저와 Node가 같은 소스). Node 타입 없이 검사한다 — node: 모듈·fs·path를 쓰면 타입 오류다 (AC-P1-10).
+// Node 전용 진입점(src/node.ts)과 시험은 tsconfig.test.json이 Node 타입으로 검사한다.
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2024", "DOM"]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/node.ts"]
 }
