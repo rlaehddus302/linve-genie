@@ -2,6 +2,7 @@
 // 재고 늘림 확정버전 순서, 충돌이 자리가 비어 풀릴 때의 넘침 정리. 골든(14-core-cleanup)이 고정한 것 밖의 경계와 경로를 규칙 문장대로 본다.
 import {
   InvalidEventError,
+  STATE_FORMAT,
   applyEvent,
   buyerOfRef,
   checkEvent,
@@ -173,7 +174,8 @@ describe('AC-S03b-03 엔진 상태·효과에 전화번호가 없다', () => {
       register(1),
       register(2),
       chat('UC_H', '안녕'),
-      ...formats.map((phone, i) => sms(`s${String(i)}`, 1 + (i % 2), '20:00', { phone, memo: i === 0 ? '김영희 010-1234-5678' : '이모' })),
+      // 메모에 휴대폰 번호를 적는 것은 S04부터 입력 오류다(D-073, engine-s04.test.ts) — 메모는 이름만
+      ...formats.map((phone, i) => sms(`s${String(i)}`, 1 + (i % 2), '20:00', { phone, memo: i === 0 ? '김영희' : '이모' })),
       sms('h1', 2, '20:00', { buyer: 'UC_H', phone: '010-9999-0000' }),
       merge('sms:s0', 'UC_H'),
       { type: 'buyer.unmerge', from: 'sms:s0', reason: '잘못' },
@@ -182,10 +184,11 @@ describe('AC-S03b-03 엔진 상태·효과에 전화번호가 없다', () => {
     { 'thanks.videoComment': 'PER_SALE' },
   )
 
-  it('상태(직렬화) 어디에도 입력 번호 원문·정규화한 번호가 없다 (메모에 적은 것은 메모 처리 범위 밖이라 빼고 본다)', () => {
-    const text = JSON.stringify(state).replaceAll('김영희 010-1234-5678', '<메모>')
+  // S04: 메모의 번호는 입력 오류로 막혀(D-073) 메모를 빼고 볼 필요가 없어졌다. 상태 형식 번호는 S04에서 4로 올랐다(D-072)
+  it('상태(직렬화) 어디에도 입력 번호 원문·정규화한 번호가 없다', () => {
+    const text = JSON.stringify(state)
     for (const number of ['01012345678', '010-1234-5678', '12345678', '1234-5678', '1234 5678', '１２３４', '01099990000', '99990000', '9999-0000']) expect(text).not.toContain(number)
-    expect(state.format).toBe(3)
+    expect(state.format).toBe(STATE_FORMAT)
   })
 
   it('효과(필드 전부)·효과 ID·찜 ID·구매자 ID에 전화번호 키·뒤 4자리·메모가 없고, 감사 문구는 R-13 공식 그대로(문자찜)', () => {

@@ -1,5 +1,5 @@
 // checkInvariants (AC-S02-01·91): 망가진 상태마다 해당 불변식 위반을 실제로 알리는지 확인한다.
-import { CorruptStateError, applyEvent, checkInvariants, type BuyerRecord, type ClaimRecord, type EngineEvent, type EngineState, type SlotRecord } from '@livejjim/core'
+import { CorruptStateError, applyEvent, checkInvariants, type BuyerRecord, type ClaimRecord, type EngineEvent, type EngineState, type SaleSettings, type SlotRecord } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
 import { emptyPMap, pdelete, pget, pset } from '../../src/engine/pmap.ts'
 import { chat, play, register } from './engine-helpers.ts'
@@ -12,6 +12,11 @@ const claim = (state: EngineState, id: string): ClaimRecord => pget(state.claims
 const withSlot = (state: EngineState, key: string, change: Partial<SlotRecord>): EngineState => ({ ...state, slots: pset(state.slots, key, { ...slot(state, key), ...change }) })
 const withClaim = (state: EngineState, id: string, change: Partial<ClaimRecord>): EngineState => ({ ...state, claims: pset(state.claims, id, { ...claim(state, id), ...change }) })
 const ids = (state: EngineState) => checkInvariants(state).map((v) => v.id)
+/** 방송 b1의 설정 스냅샷 일부를 바꾼 상태 (S04: 설정은 방송마다, D-070) */
+const withSettings = (state: EngineState, change: Partial<SaleSettings>): EngineState => ({
+  ...state,
+  broadcasts: state.broadcasts.map((broadcast) => (broadcast.id === 'b1' ? { ...broadcast, settings: { ...broadcast.settings, ...change } } : broadcast)),
+})
 
 describe('checkInvariants', () => {
   it('엔진이 만든 상태에는 위반이 없다', () => {
@@ -160,7 +165,7 @@ describe('손상된 상태로 판정을 이어 가지 않는다 (S03 경로)', (
     const broken = withClaim(VALID, 'c1', { b: 'b9' })
     expect(() => apply(broken, { type: 'settlement.refund', buyer: 'A', date: '2026-10-18', amount: 1, reason: 'r' })).not.toThrow()
     expect(() => apply(broken, { type: 'chat', b: 'b1', id: 'zz', ch: 'A', nick: 'A', text: '15 취소' })).not.toThrow()
-    const auto = { ...broken, settings: { ...broken.settings, 'cancel.buyerChat': 'AUTO' as const } }
+    const auto = withSettings(broken, { 'cancel.buyerChat': 'AUTO' })
     expect(() => apply(auto, { type: 'chat', b: 'b1', id: 'zz', ch: 'A', nick: 'A', text: '15 취소' })).toThrow(CorruptStateError)
   })
 
@@ -169,7 +174,7 @@ describe('손상된 상태로 판정을 이어 가지 않는다 (S03 경로)', (
     expect(() => apply(pending, { type: 'product.register', b: 'b1', no: 16, name: 'x', price: 1 })).toThrow('보류 찜 c99가 없다')
     const waiting = withSlot(VALID, 'b1/15', { waitlist: ['c2', 'c99'] })
     expect(() => apply(waiting, { type: 'chat', b: 'b1', id: 'zz', ch: 'E', nick: 'e', text: '15' })).toThrow('대기 찜 c99가 없다')
-    const received = { ...VALID, settings: { ...VALID.settings, 'contention.policy': 'RECEIVED_TIME' as const } }
+    const received = withSettings(VALID, { 'contention.policy': 'RECEIVED_TIME' })
     expect(() => apply(withSlot(received, 'b1/15', { winners: ['c99'] }), { type: 'chat', b: 'b1', id: 'zz', ch: 'E', nick: 'e', text: '15' })).toThrow('확정 찜 c99가 없다')
     const noProduct = withSlot(received, 'b1/15', { winners: [], product: { ...(slot(VALID, 'b1/15').product as NonNullable<SlotRecord['product']>), stock: 0 } })
     expect(() => apply(noProduct, { type: 'chat', b: 'b1', id: 'zz', ch: 'E', nick: 'e', text: '15' })).toThrow('자리가 찼는데 확정 찜이 없다')

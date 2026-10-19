@@ -36,7 +36,9 @@ describe('AC-S03-01 엔진 API 확장', () => {
     }
     expect(new core.InvalidEventError('sms', [{ field: 'no', message: 'x' }])).toBeInstanceOf(Error)
     expect(core.EVENT_TYPES).toEqual(expect.arrayContaining(['sms', 'product.update', 'product.renumber', 'host.convertMessage', 'host.resolveConflict', 'buyer.merge', 'buyer.unmerge', 'settlement.shippingOverride', 'settlement.adjust', 'settlement.payment', 'settlement.refund']))
-    expect(core.EVENT_TYPES).not.toContain('broadcast.start')
+    // S04(D-070): 방송 시작·종료를 처리한다. 처음 쓰는 스프린트가 따로 남은 종류(effect.failed)는 빠진다
+    expect(core.EVENT_TYPES).toEqual(expect.arrayContaining(['broadcast.start', 'broadcast.end']))
+    expect(core.EVENT_TYPES).not.toContain('effect.failed')
   })
 
   it('S03 이벤트·RECEIVED_TIME에서 미구현을 알리지 않는다', () => {

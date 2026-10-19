@@ -155,6 +155,8 @@ function buildLog(scale = 1): EngineEvent[] {
       const type = kinds[hosts++ % kinds.length] as (typeof kinds)[number]
       if (type === 'host.blockBuyer') push({ type, buyer: channel(), reason: '장난' })
       else if (type === 'product.hold' || type === 'product.open') push({ type, b: 'b1', no: no() })
+      // host.reopen에는 구매자 필드가 없다 — 표에 없는 필드는 S04부터 입력 오류다 (D-073)
+      else if (type === 'host.reopen') push({ type, b: 'b1', no: no(), reason: '사유' })
       else push({ type, b: 'b1', no: no(), buyer: channel(), reason: '사유' })
     }
     // 상품 수정 50, 정산 기록 100, 합치기·떼어 내기 20, 번호 변경 10 (스케일만큼)

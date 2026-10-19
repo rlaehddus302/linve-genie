@@ -7,6 +7,7 @@ import {
   NotImplementedError,
   applyEvent,
   checkEvent,
+  getBroadcast,
   initEngine,
   isInvalidEvent,
   isNotImplemented,
@@ -292,12 +293,9 @@ describe('AC-S03-02 입력 오류는 조용히 무시하지 않는다 (S02의 �
   })
 })
 
-describe('AC-S03-01 미구현이 남는 곳은 broadcast.*·effect.failed·settlement.groupBy=MANUAL뿐이다', () => {
-  it.each([
-    ['broadcast.start', 'S04'],
-    ['broadcast.end', 'S04'],
-    ['effect.failed', 'S11'],
-  ] as const)('R-1의 나중 스프린트 이벤트 %s는 조용히 무시하지 않고 미구현을 알린다 (%s)', (type, sprint) => {
+// S04(D-070): broadcast.start·broadcast.end는 미구현이 아니다 — 동작은 engine-s04.test.ts (AC-S04-01·04). 남은 미구현은 effect.failed·MANUAL
+describe('AC-S03-01 미구현이 남는 곳은 effect.failed·settlement.groupBy=MANUAL뿐이다', () => {
+  it.each([['effect.failed', 'S11']] as const)('R-1의 나중 스프린트 이벤트 %s는 조용히 무시하지 않고 미구현을 알린다 (%s)', (type, sprint) => {
     const { state } = play([register(15)])
     expect(checkEvent(state, { seq: 2, at: T0 + 2000, type })).toEqual([])
     expect(() => applyEvent(state, { seq: 2, at: T0 + 2000, type } as unknown as EngineEvent)).toThrow(sprint)
@@ -311,18 +309,21 @@ describe('AC-S03-01 미구현이 남는 곳은 broadcast.*·effect.failed·settl
   it('contention.policy=RECEIVED_TIME과 동률 처리 셋은 엔진을 시작한다', () => {
     for (const tie of ['YOUTUBE', 'SMS', 'HOST'] as const) {
       const state = initEngine({ broadcasts: [B1], settings: { 'contention.policy': 'RECEIVED_TIME', 'contention.sameMinuteTieBreaker': tie } })
-      expect(state.settings['contention.policy']).toBe('RECEIVED_TIME')
+      expect(getBroadcast(state, 'b1')?.settings).toMatchObject({ 'contention.policy': 'RECEIVED_TIME', 'contention.sameMinuteTieBreaker': tie })
     }
   })
 })
 
 describe('initEngine', () => {
-  it('설정은 DOMAIN_RULES 기본값 위에 덮어쓴다 (넘긴 객체는 바꾸지 않는다)', () => {
+  // S04(D-070): 시작 설정은 상태의 한 칸이 아니라 시작 때 선언한 방송마다의 스냅샷이다
+  it('설정은 DOMAIN_RULES 기본값 위에 덮어써 시작 때 선언한 방송마다 스냅샷으로 둔다 (넘긴 객체는 바꾸지 않는다)', () => {
     const settings = { 'waitlist.max': 2 }
-    const state = initEngine({ broadcasts: [B1], settings })
-    expect(state.settings).toEqual({ ...DEFAULT_SETTINGS, 'waitlist.max': 2 })
+    const state = initEngine({ broadcasts: [B1, { id: 'b2', date: '2026-10-19', title: '2부' }], settings })
+    expect(state.broadcasts).toEqual([
+      { ...B1, settings: { ...DEFAULT_SETTINGS, 'waitlist.max': 2 }, endedAt: null },
+      { id: 'b2', date: '2026-10-19', title: '2부', settings: { ...DEFAULT_SETTINGS, 'waitlist.max': 2 }, endedAt: null },
+    ])
     expect(settings).toEqual({ 'waitlist.max': 2 })
-    expect(state.broadcasts).toEqual([B1])
   })
 
   it('방송 ID가 비었거나 겹치면 TypeError', () => {
