@@ -1,6 +1,8 @@
 // AC-S04-25 같은 입력은 한 번만(외부 ID 유일 제약), AC-S04-26 범위별 직렬 처리와 동시 입력
 import { applyEvent, checkInvariants, getProduct, getSettlement, initEngine, type EngineEvent, type EngineState } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
+import { sql } from 'drizzle-orm'
+import { uniqueViolation } from '../src/writer.ts'
 import { addSeller, client, countRows, createBroadcast, expectOk, newWorld, rid, startServer, writeEvent, type TestServer } from './support.ts'
 
 async function replay(world: TestServer, date: string): Promise<{ state: EngineState; seqs: number[] }> {
@@ -82,6 +84,39 @@ describe('AC-S04-25 같은 요청 번호는 한 번만', () => {
     expect(await world.server.ingestChat(seller.sellerId, chat)).toEqual({ status: 'duplicate' })
     expect((await world.server.writer.read(seller.sellerId, b.date)).state).toBe(state)
     expect(await countRows(world.database, 'events')).toBe(3)
+  })
+
+  it('같은 요청 번호를 서로 다른 범위로 동시에 보내도 이벤트 행은 하나, 두 응답은 처음 결과', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b18 = await createBroadcast(world, seller, { date: '2026-10-18' })
+    const b19 = await createBroadcast(world, seller, { date: '2026-10-19' })
+    const api = client(world, seller.cookie)
+    const [first, second] = await Promise.all([
+      api.post('/api/events', { requestId: 'cross-1', type: 'product.register', b: b18.id, no: 1, name: 'a', price: 1 }),
+      api.post('/api/events', { requestId: 'cross-1', type: 'product.register', b: b19.id, no: 1, name: 'b', price: 1 }),
+    ])
+    expect(first?.status).toBe(200)
+    expect(second?.body).toEqual(first?.body)
+    expect(await countRows(world.database, 'events')).toBe(3)
+  })
+
+  it('DB 유일 제약 위반을 제약 이름으로 알아본다 (PGlite·postgres 드라이버 오류 모양)', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    await createBroadcast(world, seller)
+    let thrown: unknown = null
+    try {
+      await world.database.db.execute(sql`insert into events (seller_id, scope_id, seq, type, body, at, received_at, actor, changed, digest) select seller_id, scope_id, 1, 'x', '{}', 0, now(), 'server', true, 'd' from events limit 1`)
+    } catch (error) {
+      thrown = error
+    }
+    expect(uniqueViolation(thrown)).toBe('events_scope_seq_uq')
+    expect(uniqueViolation({ code: '23505', constraint_name: 'events_request_uq' })).toBe('events_request_uq')
+    expect(uniqueViolation(new Error('x', { cause: { code: '23505', constraint: 'events_chat_uq' } }))).toBe('events_chat_uq')
+    expect(uniqueViolation(new Error('다른 오류'))).toBeNull()
+    expect(uniqueViolation({ code: '23503' })).toBeNull()
+    expect(uniqueViolation(null)).toBeNull()
   })
 
   it('이벤트를 남기는 쓰기 요청마다 요청 번호가 필수 (없거나 형식이 틀리면 400, 기록 없음)', async () => {
