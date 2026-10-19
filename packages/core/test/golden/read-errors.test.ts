@@ -74,14 +74,8 @@ const CASES: Readonly<Record<string, { category: string; loaded?: number; errors
       { doc: 2, label: 'G-ENG-01', issues: [['id', '시나리오 ID 형식 오류']] },
       { doc: 3, label: 'G-ENG-903', issues: [['note', "모르는 키 'note'"]] },
       { doc: 5, label: 'G-ENG-904', issues: [['id', '시나리오 ID 중복 (처음: fixtures/03-scenario-keys.yaml 문서 4)']] },
-      {
-        doc: 6,
-        label: 'G-ENG-906',
-        issues: [
-          ['refs', '1개 이상'],
-          ['broadcasts', '1개 이상'],
-        ],
-      },
+      // S04(D-070): broadcasts는 빈 목록도 된다(서버처럼 broadcast.start로 선언) — 계약 변경으로 'broadcasts 1개 이상' 지적을 뺐다(약화 아님)
+      { doc: 6, label: 'G-ENG-906', issues: [['refs', '1개 이상']] },
     ],
   },
   '04-event-type.yaml': {
@@ -222,9 +216,24 @@ const CASES: Readonly<Record<string, { category: string; loaded?: number; errors
     errors: [
       { doc: 1, label: 'G-ENG-901', issues: [['settings.waitlist.maxx', "모르는 설정 키 'waitlist.maxx'"]] },
       { doc: 2, label: 'G-ENG-902', issues: [['settings.cancel.buyerChat', 'OFF / REQUEST / AUTO 중 하나']] },
-      { doc: 3, label: 'G-ENG-903', issues: [['settings.shipping.freeThreshold', '0 이상 정수 또는 null']] },
+      // S04(D-071): 무료배송 기준에도 상한이 생겨 문구가 바뀌었다
+      { doc: 3, label: 'G-ENG-903', issues: [['settings.shipping.freeThreshold', '0 이상 100000000 이하 정수 또는 null']] },
       { doc: 4, label: 'G-ENG-904', issues: [['settings.claim.ignoreOwner', 'true 또는 false']] },
       { doc: 5, label: 'chat', issues: [['settings.parseMode', 'STRICT / LOOSE 중 하나']] },
+      // S04(D-071): 설정값 범위 — 최댓값 + 1, 최솟값 - 1, 정수가 아닌 수
+      {
+        doc: 6,
+        label: 'G-ENG-905',
+        issues: [
+          ['settings.claim.maxNumber', '1 이상 9999 이하 정수여야 한다 (값: 10000)'],
+          ['settings.claim.preOpenWindowSec', '0 이상 300 이하 정수여야 한다 (값: 301)'],
+          ['settings.waitlist.max', '0 이상 100 이하 정수여야 한다 (값: -1)'],
+          ['settings.shipping.baseFee', '0 이상 1000000 이하 정수여야 한다 (값: 1000001)'],
+          ['settings.shipping.freeThreshold', '0 이상 100000000 이하 정수 또는 null이어야 한다 (값: 100000001)'],
+          ['settings.thanks.batchWindowSec', '0 이상 600 이하 정수여야 한다 (값: 0.5 (YAML 실수 표기))'],
+        ],
+      },
+      { doc: 7, label: 'chat', issues: [['settings.maxNumber', '1 이상 9999 이하 정수여야 한다 (값: 0)']] },
     ],
   },
   '12-expect-keys.yaml': {
@@ -314,14 +323,70 @@ const CASES: Readonly<Record<string, { category: string; loaded?: number; errors
       },
     ],
   },
+  '17-broadcast.yaml': {
+    category: '17. 방송 시작·종료 — 선언 전 방송 사용(이벤트·중간 검사), broadcast.start 필드·설정 범위, broadcasts.<b> 키 (S04)',
+    errors: [
+      {
+        doc: 1,
+        label: 'G-ENG-901',
+        issues: [
+          ['events[0].b', '선언하지 않은 방송 "b2"'],
+          ['events[1].b', '선언하지 않은 방송 "b2"'],
+          ['events[2].expect.broadcasts.b2', "선언하지 않은 방송 'b2'"],
+          ['events[2].expect.products.b2/15', "선언하지 않은 방송 'b2'"],
+        ],
+      },
+      {
+        doc: 2,
+        label: 'G-ENG-902',
+        issues: [
+          ['events[0].b', '방송 ID는 공백'],
+          ['events[1].date', '날짜 형식 오류 "2026-10-32"'],
+          ['events[2]', "필수 필드 'title'가 없다"],
+          ['events[3].settings.waitlist.maxx', "모르는 설정 키 'waitlist.maxx'"],
+          ['events[3].settings.waitlist.max', '0 이상 100 이하 정수여야 한다 (값: 101)'],
+          ['events[3].settings.shipping.freeThreshold', '0 이상 100000000 이하 정수 또는 null이어야 한다 (값: -1)'],
+          ['events[3].settings.claim.parseMode', 'STRICT / LOOSE 중 하나'],
+          ['events[4].settings', '맵이어야 한다'],
+          ['events[5].at2', "모르는 필드 'at2'"],
+        ],
+      },
+      {
+        doc: 3,
+        label: 'G-ENG-903',
+        issues: [
+          ['expect.broadcasts.b1.endd', "모르는 방송 expect 키 'endd'"],
+          ['expect.broadcasts.b1.date', '날짜 형식 오류 "2026-1-1"'],
+          ['expect.broadcasts.b1.title', '문자열이어야 한다 (값: 1)'],
+          ['expect.broadcasts.b1.ended', 'true 또는 false여야 한다 (값: "아니오")'],
+          ['expect.broadcasts.b9', "선언하지 않은 방송 'b9'"],
+        ],
+      },
+    ],
+  },
+  '18-sms-phone-shaped.yaml': {
+    category: '18. sms ref·memo가 휴대폰 번호 모양 (S04, D-073)',
+    errors: [
+      {
+        doc: 1,
+        label: 'G-ENG-901',
+        issues: [
+          ['events[2].ref', '휴대폰 번호 모양이다 — 번호는 phone에만 적는다 (값: "01012345678")'],
+          ['events[3].ref', '(값: "s01012345678")'],
+          ['events[4].memo', '(값: "김영희 010 1234 5678")'],
+          ['events[5].memo', '(값: "０１０-１２３４-５６７８")'],
+        ],
+      },
+    ],
+  },
 }
 
 describe('형식 계약 위반 = 읽기 오류 (AC-S00-22)', () => {
-  it('fixtures/read-errors의 모든 파일에 기대값이 있다 (범주 1~16)', () => {
+  it('fixtures/read-errors의 모든 파일에 기대값이 있다 (범주 1~18)', () => {
     const files = readdirSync(DIR).filter((f) => f.endsWith('.yaml'))
     expect(files.sort()).toEqual(Object.keys(CASES).sort())
     const categories = new Set(Object.values(CASES).map((c) => Number(c.category.split('.')[0])))
-    expect([...categories].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
+    expect([...categories].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18])
   })
 
   for (const [file, { category, loaded = 0, errors }] of Object.entries(CASES)) {
@@ -364,7 +429,7 @@ describe('형식 계약 위반 = 읽기 오류 (AC-S00-22)', () => {
       ...Object.keys(CASES).map((file) => ({ path: `fixtures/${file}`, text: read(file) })),
       { path: 'fixtures/zz-good.yaml', text: good },
     ]
-    const report = run(files, { fake: { snapshot: () => ({ buyerKeys: {}, products: {}, buyers: {}, settlements: {}, effects: [], claims: [], pending: {}, cancelRequests: [] }) } })
+    const report = run(files, { fake: { snapshot: () => ({ buyerKeys: {}, broadcasts: {}, products: {}, buyers: {}, settlements: {}, effects: [], claims: [], pending: {}, cancelRequests: [] }) } })
     const expectedErrors = Object.values(CASES).reduce((sum, c) => sum + c.errors.length, 0)
     expect(report.totals.readError).toBe(expectedErrors)
     // 03의 정상 문서(G-ENG-904)·09의 정상 문서(G-ENG-902)·좋은 파일이 모두 실행된다

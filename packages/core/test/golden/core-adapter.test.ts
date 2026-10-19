@@ -5,6 +5,7 @@ import {
   activeClaimId,
   applyEvent,
   buyerOfRef,
+  getBroadcast,
   getBuyer,
   listBuyers,
   listClaims,
@@ -257,9 +258,10 @@ describe('invariants 훅 — 매 이벤트 뒤 checkInvariants, 위반은 불일
     expect(report.items[0]?.status).toBe('pass')
   })
 
-  it('처음 쓰는 스프린트가 따로 있는 이벤트는 어댑터를 거쳐 엔진의 미구현으로 멈춘다', () => {
+  // S04(D-070): broadcast.start·broadcast.end는 이제 처리한다 — 처음 쓰는 스프린트가 따로 남은 종류는 effect.failed(S11)
+  it('처음 쓰는 스프린트가 따로 있는 이벤트(effect.failed)는 어댑터를 거쳐 엔진의 미구현으로 멈춘다', () => {
     const state = play([])
-    expect(() => realCore.engine.apply(state, golden({ type: 'broadcast.start' }))).toThrow(NotImplementedError)
+    expect(() => realCore.engine.apply(state, golden({ type: 'effect.failed' }))).toThrow(NotImplementedError)
   })
 })
 
@@ -452,11 +454,13 @@ describe('S03b 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어
       const result = applyEvent(state, event)
       if (event.type !== 'chat') return result
       let next = result.state
-      for (const no of parseChat(event.text, next.settings).cancels) {
+      // 설정은 그 방송의 스냅샷 (S04: 상태의 시작 설정 칸이 없어졌다, D-070)
+      const settings = getBroadcast(next, event.b)?.settings
+      for (const no of parseChat(event.text, settings).cancels) {
         const id = activeClaimId(next, event.b, no, event.ch)
         const claim = id === null ? undefined : listClaims(next).find((c) => c.id === id)
         if (claim === undefined || claim.buyer === event.ch) continue
-        if (next.settings['cancel.buyerChat'] === 'AUTO' && !claim.locked) {
+        if (settings?.['cancel.buyerChat'] === 'AUTO' && !claim.locked) {
           next = applyEvent(next, { type: 'host.cancel', b: event.b, no, buyer: claim.buyer, reason: '채팅 취소', seq: event.seq, at: event.at }).state
         } else {
           const record = pget(next.claims, claim.id)
@@ -514,15 +518,150 @@ describe('S03b 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어
   })
 })
 
-describe('실제 tests/golden 전체를 실제 코어로 (AC-S03b-90 합계)', () => {
-  it('파일 17 · 파서 379 · 엔진 105 · 통과 484, 나머지 0', () => {
+describe('S04 어댑터 (AC-S04-91): broadcast.start·broadcast.end를 그대로 넘기고, 관찰에 방송(날짜·제목·끝남)을 넣는다', () => {
+  const B = { id: 'b1', date: '2026-10-18', title: '1부' }
+
+  it('broadcast.start·broadcast.end는 바꾸지 않고 그대로 넘긴다 (사본도)', () => {
+    const empty = realCore.engine.start({ broadcasts: [], settings: {} }) as EngineState
+    const start = golden({ type: 'broadcast.start', b: 'b1', date: '2026-10-18', title: '1부', settings: { 'waitlist.max': 0 } }, 1)
+    expect(toEngineEvent(empty, start)).toBe(start)
+    const started = realCore.engine.apply(empty, start).state as EngineState
+    const copy = golden({ type: 'broadcast.start', b: 'b1', date: '2026-10-19', title: '바뀐 제목' }, 2)
+    expect(toEngineEvent(started, copy)).toBe(copy)
+    expect(realCore.engine.apply(started, copy).state).toBe(started)
+    const end = golden({ type: 'broadcast.end', b: 'b1' }, 3)
+    expect(toEngineEvent(started, end)).toBe(end)
+  })
+
+  it('관찰 스냅샷의 방송 = 조회 함수(listBroadcasts)의 날짜·제목·끝남', () => {
+    const empty = realCore.engine.start({ broadcasts: [B], settings: {} }) as EngineState
+    let state = realCore.engine.apply(empty, golden({ type: 'broadcast.start', b: 'b2', date: '2026-10-19', title: '2부' }, 1)).state as EngineState
+    state = realCore.engine.apply(state, golden({ type: 'broadcast.end', b: 'b1' }, 2)).state as EngineState
+    const snapshot = toSnapshot(state)
+    expect(snapshot.broadcasts).toEqual({ b1: { date: '2026-10-18', title: '1부', ended: true }, b2: { date: '2026-10-19', title: '2부', ended: false } })
+    expect(snapshotIssues(snapshot)).toEqual([])
+  })
+
+  it('러너: broadcasts: []에서 broadcast.start로 선언 — 짧은 at은 그 이벤트의 date 기준(사본도), 선언 뒤의 이벤트·검사는 그 방송을 쓴다', () => {
+    const report = run(
+      scenario({
+        broadcasts: [],
+        events: [
+          { at: '19:00:00', type: 'broadcast.start', b: 'b1', date: '2026-10-19', title: '1부' },
+          { at: '20:00:00', type: 'product.register', b: 'b1', no: 15, name: '핑크프릴', price: 10000 },
+          // 사본: 짧은 at은 사본의 date(10/19) 기준 — 10/18 기준이면 at 역행으로 읽기 오류다
+          { at: '20:00:01', type: 'broadcast.start', b: 'b1', date: '2026-10-19', title: '사본' },
+          { at: '20:00:02', type: 'chat', b: 'b1', id: 'm1', ch: 'UC_A', nick: '홍길동', text: '15' },
+          { type: 'assert', expect: { broadcasts: { b1: { title: '1부', ended: false } }, products: { 'b1/15': { winner: 'UC_A' } } } },
+          { at: '20:00:03', type: 'broadcast.end', b: 'b1' },
+          // 방송 날짜가 하나뿐이라 방송 없는 이벤트도 짧은 at (그 날짜 = broadcast.start의 date)
+          { at: '20:00:04', type: 'settlement.payment', buyer: 'UC_A', date: '2026-10-19', amount: 14000 },
+        ],
+        expect: { broadcasts: { b1: { date: '2026-10-19', title: '1부', ended: true } }, settlements: { 'UC_A@2026-10-19': { total: 14000, payment: 'PAID' } } },
+      }),
+      { core: realCore },
+    )
+    expect(report.readErrors).toEqual([])
+    expect(report.items[0]?.status).toBe('pass')
+  })
+
+  it('러너: 시작 때 선언한 방송만 엔진 시작 목록으로 넘기고, broadcast.start의 방송은 이벤트로 넘긴다', () => {
+    const starts: unknown[] = []
+    const core: GoldenCore = { ...realCore, engine: { ...realCore.engine, start: (setup) => (starts.push(setup), realCore.engine.start(setup)) } }
+    const report = run(scenario({ events: [{ at: '20:00:00', type: 'broadcast.start', b: 'b2', date: '2026-10-18', title: '2부' }], expect: { broadcasts: { b2: { ended: false } } } }), { core })
+    expect(report.items[0]?.status).toBe('pass')
+    expect(starts[0]).toEqual({ broadcasts: [B], settings: {} })
+  })
+})
+
+describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어에서 실제로 실패한다 (AC-S04-91)', () => {
+  const read = (name: string): string => readFileSync(fileURLToPath(new URL(`../../../../tests/golden/engine/${name}`, import.meta.url)), 'utf8')
+  const files = [
+    { path: 'engine/15.yaml', text: read('15-broadcast.yaml') },
+    { path: 'engine/16.yaml', text: read('16-s04-rules.yaml') },
+  ]
+  /** 통과하지 못한 시나리오 — 불일치가 아니면(러너 오류 등) 상태를 붙여 드러낸다 */
+  const failing = (core: GoldenCore): string[] =>
+    run(files, { core })
+      .items.filter((item) => item.status !== 'pass')
+      .map((item) => `${item.kind === 'scenario' ? item.id : ''}${item.status === 'mismatch' ? '' : `:${item.status}`}`)
+  const engineCore = (apply: (state: EngineState, event: EngineEvent) => { state: EngineState; effects: readonly unknown[] }): GoldenCore => ({
+    ...realCore,
+    engine: { ...realCore.engine, apply: (state, event) => apply(state as EngineState, toEngineEvent(state as EngineState, event)) },
+  })
+  const declared = (state: EngineState, b: string): boolean => state.broadcasts.some((broadcast) => broadcast.id === b)
+
+  it('실제 코어는 15·16의 6개 시나리오를 모두 통과한다', () => {
+    expect(failing(realCore)).toEqual([])
+  })
+
+  it('사본을 받아 설정·제목을 바꾸는 코어 → G-ENG-160 불일치 (사본이 있는 G-ENG-162도)', () => {
+    const core = engineCore((state, event) => {
+      if (event.type !== 'broadcast.start' || !declared(state, event.b)) return applyEvent(state, event)
+      const replaced = state.broadcasts.map((broadcast) =>
+        broadcast.id === event.b ? { ...broadcast, title: event.title, date: event.date, settings: { ...broadcast.settings, ...event.settings } } : broadcast,
+      )
+      return { state: { ...state, broadcasts: replaced }, effects: [] }
+    })
+    expect(failing(core)).toEqual(['G-ENG-160', 'G-ENG-162'])
+  })
+
+  it('모든 방송을 시작 설정으로 판정하는 코어 → G-ENG-160 불일치 (방송마다 경합 정책이 다른 G-ENG-161도)', () => {
+    const core = engineCore((state, event) => {
+      if (event.type !== 'broadcast.start' || declared(state, event.b)) return applyEvent(state, event)
+      const { settings: _own, ...rest } = event
+      return applyEvent(state, { ...rest, settings: state.broadcasts[0]?.settings ?? {} })
+    })
+    expect(failing(core)).toEqual(['G-ENG-160', 'G-ENG-161'])
+  })
+
+  it('정산 설정을 그날 가장 나중 방송으로 정하는 코어 → G-ENG-160 불일치', () => {
+    const core: GoldenCore = { ...realCore, engine: { ...realCore.engine, observe: (state) => toSnapshot({ ...(state as EngineState), broadcasts: [...(state as EngineState).broadcasts].reverse() }) } }
+    expect(failing(core)).toEqual(['G-ENG-160'])
+  })
+
+  it('끝난 방송의 문자찜·채팅을 거절하는 코어 → G-ENG-162 불일치', () => {
+    const core = engineCore((state, event) => {
+      if ((event.type === 'chat' || event.type === 'sms') && getBroadcast(state, event.b)?.ended === true) return { state, effects: [] }
+      return applyEvent(state, event)
+    })
+    expect(failing(core)).toEqual(['G-ENG-162'])
+  })
+
+  it('취소 메시지를 변환하는 코어(S03b) → G-ENG-163 불일치', () => {
+    const core = engineCore((state, event) => {
+      if (event.type !== 'host.convertMessage') return applyEvent(state, event)
+      const key = JSON.stringify([event.b, event.msg])
+      const message = pget(state.messages, key)
+      if (message === undefined) return applyEvent(state, event)
+      return applyEvent({ ...state, messages: pset(state.messages, key, { ...message, cancel: false }) }, event)
+    })
+    expect(failing(core)).toEqual(['G-ENG-163'])
+  })
+
+  it('ASK·대기 한도 0에서 풀린 충돌 찜을 품절시키는 코어(S03b) → G-ENG-164 불일치', () => {
+    // 1등 자리를 비우기 전에 KEEP을 먼저 적용 = 대기 한도 0이라 충돌 찜이 넣자마자 품절 (S03b의 결과와 같다)
+    const core = engineCore((state, event) => {
+      if (event.type !== 'host.cancel' && event.type !== 'host.reject') return applyEvent(state, event)
+      const settings = getBroadcast(state, event.b)?.settings
+      const slot = pget(state.slots, `${event.b}/${String(event.no)}`)
+      if (settings?.['cancel.succession'] !== 'ASK' || settings['waitlist.max'] !== 0 || slot === undefined || slot.conflict === null) return applyEvent(state, event)
+      const kept = applyEvent(state, { type: 'host.resolveConflict', b: event.b, no: event.no, decision: 'KEEP', seq: event.seq, at: event.at }).state
+      return applyEvent(kept, event)
+    })
+    expect(failing(core)).toEqual(['G-ENG-164'])
+  })
+})
+
+describe('실제 tests/golden 전체를 실제 코어로 (AC-S04-90 합계)', () => {
+  it('파일 19 · 파서 379 · 엔진 111 · 통과 490, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
-      files: 17,
+      files: 19,
       parserCases: 379,
-      scenarios: 105,
-      pass: 484,
+      scenarios: 111,
+      pass: 490,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,

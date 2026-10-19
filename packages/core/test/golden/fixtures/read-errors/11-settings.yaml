@@ -35,3 +35,16 @@ suite: chat
 settings: { parseMode: strict }
 cases:
   - { in: "15", out: { claims: [15] } }
+---
+id: G-ENG-905
+title: 설정값 범위 밖 (S04, D-071) — 최댓값 + 1, 최솟값 - 1, 정수가 아닌 수
+refs: [D-071]
+settings: { claim.maxNumber: 10000, claim.preOpenWindowSec: 301, waitlist.max: -1, shipping.baseFee: 1000001, shipping.freeThreshold: 100000001, thanks.batchWindowSec: 0.5 }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events: []
+expect: {}
+---
+suite: chat
+settings: { maxNumber: 0 }
+cases:
+  - { in: "15", out: { claims: [15] } }

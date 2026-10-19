@@ -15,6 +15,8 @@ const EVENTS = [
 const SNAP: GoldenSnapshot = {
   // sms:s1은 UC_H로 합쳐졌다. sms:s2는 풀리지만 구매자 기록이 없다.
   buyerKeys: { UC_A: 'UC_A', UC_B: 'UC_B', UC_C: 'UC_C', UC_H: 'UC_H', 'sms:s1': 'UC_H', 'sms:s2': 'sms:s2' },
+  // b2는 끝났다 (S04)
+  broadcasts: { b1: { date: '2026-10-18', title: '1부', ended: false }, b2: { date: '2026-10-19', title: '2부', ended: true } },
   products: {
     'b1/15': { status: 'SOLD', winners: ['UC_A'], waitlist: ['UC_B', 'UC_C'], conflict: false, price: 12000, priceHistory: [{ from: 10000, to: 12000 }] },
     'b1/16': { status: 'SOLD', winners: ['UC_A', 'UC_B'], waitlist: [], conflict: true, price: 3000, priceHistory: [] },
@@ -200,6 +202,15 @@ const CASES: readonly Case[] = [
   ['cancelRequests 하나 빠짐', { cancelRequests: [{ product: 'b1/15', buyer: 'UC_A' }] }, ['cancelRequests']],
   ['cancelRequests 하나 더', { cancelRequests: [{ product: 'b1/15', buyer: 'UC_A' }, { product: 'b1/16', buyer: 'UC_B' }, { product: 'b1/17', buyer: 'UC_C' }] }, ['cancelRequests']],
   ['cancelRequests [] 인데 요청 있음', { cancelRequests: [] }, ['cancelRequests']],
+
+  // broadcasts.<b> (S04, D-070): 적은 필드만 — date·title = 처음 선언한 값, ended = broadcast.end를 받았는지
+  ['broadcasts 같음', { broadcasts: { b1: { date: '2026-10-18', title: '1부', ended: false }, b2: { date: '2026-10-19', title: '2부', ended: true } } }, null],
+  ['broadcasts 적은 필드만 비교', { broadcasts: { b2: { ended: true } } }, null],
+  ['broadcasts 빈 expect는 통과', { broadcasts: { b1: {} } }, null],
+  ['broadcasts date 다름', { broadcasts: { b1: { date: '2026-10-19' } } }, ['broadcasts.b1.date']],
+  ['broadcasts title 다름 (사본의 제목을 기대)', { broadcasts: { b1: { title: '1부 다시' } } }, ['broadcasts.b1.title']],
+  ['broadcasts ended 다름 (끝난 방송)', { broadcasts: { b2: { ended: false } } }, ['broadcasts.b2.ended']],
+  ['broadcasts ended 다름 (끝나지 않은 방송)', { broadcasts: { b1: { ended: true } } }, ['broadcasts.b1.ended']],
 ]
 
 describe('expect 비교 규칙 — 키마다 맞으면 통과, 하나 바꾸면 불일치 (AC-S00-25)', () => {
@@ -216,6 +227,12 @@ describe('expect 비교 규칙 — 키마다 맞으면 통과, 하나 바꾸면 
         expect(problem).toHaveProperty('actual')
       }
     }
+  })
+
+  it('broadcasts: 관찰 스냅샷에 그 방송이 없으면 불일치', () => {
+    const item = runExpect({ broadcasts: { b2: { ended: true } } }, { ...SNAP, broadcasts: { b1: SNAP.broadcasts.b1 as NonNullable<(typeof SNAP.broadcasts)['b1']> } })
+    expect(item.status).toBe('mismatch')
+    expect(item.problems).toEqual([{ path: 'broadcasts.b2', expected: { ended: true }, actual: undefined, message: '그 방송이 없다' }])
   })
 
   it('적지 않은 상품·구매자는 검사하지 않는다', () => {

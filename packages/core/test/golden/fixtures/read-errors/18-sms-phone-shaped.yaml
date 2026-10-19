@@ -1,0 +1,15 @@
+# 범주 18: sms의 ref·memo에서 숫자만 모은 것이 휴대폰 번호 모양(코어 normalizePhone의 결과가 있음) — 번호는 phone에만 (S04, D-073)
+# 휴대폰 번호 모양이 아닌 숫자(주소·시각·번호 일부)는 받는다
+id: G-ENG-901
+title: ref·memo에 휴대폰 번호
+refs: [R-1, R-11]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: sms, b: b1, ref: s1, no: 15, received: "20:00", memo: "101동 1203호 3시 15번" }
+  - { at: "20:00:02", type: sms, b: b1, ref: "01012345678", no: 15, received: "20:00" }
+  - { at: "20:00:03", type: sms, b: b1, ref: "s01012345678", no: 15, received: "20:00" }
+  - { at: "20:00:04", type: sms, b: b1, ref: s4, no: 15, received: "20:00", memo: "김영희 010 1234 5678" }
+  - { at: "20:00:05", type: sms, b: b1, ref: s5, no: 15, received: "20:00", memo: "０１０-１２３４-５６７８" }
+  - { at: "20:00:06", type: sms, b: b1, ref: s6, no: 15, received: "20:00", memo: "이모", phone: "010-1234-5678" }
+expect: {}

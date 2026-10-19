@@ -35,7 +35,7 @@ events: []
 expect: {}
 ---
 id: G-ENG-906
-title: refs·broadcasts가 비었다
+title: refs가 비었다 (broadcasts는 S04부터 빈 목록도 된다 — 서버처럼 broadcast.start로 선언한다)
 refs: []
 broadcasts: []
 events: []

@@ -375,7 +375,9 @@ describe('러너 오류', () => {
     const item = run(scenario({ expect: { claimCount: 0 } }), { core }).items[0]
     expect(item?.status).toBe('runner-error')
     expect(item?.problems[0]).toMatchObject({ where: '시작 상태' })
-    expect(item?.problems[0]?.message).toContain('관찰 스냅샷 형식 오류 7건')
+    // S04: 관찰 스냅샷에 방송(broadcasts)이 더해져 빠진 최상위 키가 8개다
+    expect(item?.problems[0]?.message).toContain('관찰 스냅샷 형식 오류 8건')
+    expect(item?.problems[0]?.message).toContain("스냅샷: 'broadcasts'가 없다")
     expect(item?.problems[0]?.message).toContain("스냅샷: 'products'가 없다")
   })
 

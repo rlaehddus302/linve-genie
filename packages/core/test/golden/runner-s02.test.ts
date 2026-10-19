@@ -134,8 +134,10 @@ describe('TD-S00-010: 관찰 스냅샷 형식·열거값 검사 — 어기면 �
   const product = { status: 'SOLD', winners: ['UC_A'], waitlist: [], conflict: false, price: 10000, priceHistory: [] }
   const buyer = { display: '홍길동', nameHistory: ['홍길동'], items: ['b1/15'], subtotal: 10000, byBroadcast: { b1: 10000 }, phoneLast4: null }
   const settlement = { subtotal: 10000, shipping: 4000, adjustments: -1000, total: 13000, refundDue: 0, payment: 'UNPAID' }
+  const broadcast = { date: '2026-10-18', title: '1부', ended: false }
   const valid = emptySnapshot({
     buyerKeys: { UC_A: 'UC_A' },
+    broadcasts: { b1: broadcast },
     products: { 'b1/15': product } as GoldenSnapshot['products'],
     buyers: { UC_A: buyer },
     settlements: { 'UC_A@2026-10-18': settlement } as GoldenSnapshot['settlements'],
@@ -180,6 +182,14 @@ describe('TD-S00-010: 관찰 스냅샷 형식·열거값 검사 — 어기면 �
     ['취소 요청 형식', (s) => (s.cancelRequests = [{ product: 'b1/15' }]), "'buyer'가 없다"],
     ['구매자 키 값이 문자열이 아님', (s) => (s.buyerKeys = { UC_A: 1 }), 'buyerKeys.UC_A'],
     ['목록 자리에 맵', (s) => (s.effects = {}), 'effects: 목록이어야 한다'],
+    // S04: 방송 관찰 (date·title·ended)
+    ['방송 빠짐', (s) => delete s.broadcasts, "스냅샷: 'broadcasts'가 없다"],
+    ['방송 끝남이 불리언이 아님', (s) => ((s.broadcasts as Record<string, unknown>).b1 = { ...broadcast, ended: 'no' }), 'broadcasts.b1.ended'],
+    ['방송 날짜 형식', (s) => ((s.broadcasts as Record<string, unknown>).b1 = { ...broadcast, date: '2026-10-18T00:00' }), 'broadcasts.b1.date'],
+    ['방송 제목이 문자열이 아님', (s) => ((s.broadcasts as Record<string, unknown>).b1 = { ...broadcast, title: 1 }), 'broadcasts.b1.title'],
+    ['방송 필드 빠짐', (s) => ((s.broadcasts as Record<string, unknown>).b1 = { date: '2026-10-18', title: '1부' }), "'ended'가 없다"],
+    ['방송 모르는 키', (s) => ((s.broadcasts as Record<string, unknown>).b1 = { ...broadcast, settings: {} }), 'broadcasts.b1.settings: 모르는 키'],
+    ['방송 ID 형식', (s) => ((s.broadcasts as Record<string, unknown>)['b 1'] = broadcast), 'broadcasts.b 1: 방송 ID 형식 오류'],
   ]
 
   it.each(broken)('%s → 러너 오류', (_name, mutate, message) => {

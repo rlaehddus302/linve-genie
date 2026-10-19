@@ -1,0 +1,40 @@
+# 범주 17: 방송 시작·종료와 방송 관찰 키 (S04, D-070)
+# - b는 선언한 뒤에만 쓴다(broadcasts 목록이나 앞선 broadcast.start). 선언 전에 쓰면 읽기 오류 — 이벤트·중간 검사 모두
+# - broadcast.start의 필드·설정(키·값·설정값 범위), broadcasts.<b>는 선언된 방송만·date·title·ended만
+id: G-ENG-901
+title: 선언하기 전에 방송을 쓴다
+refs: [R-1]
+broadcasts: []
+events:
+  - { at: "20:00:00", type: product.register, b: b2, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: broadcast.end, b: b2 }
+  - { type: assert, expect: { broadcasts: { b2: { ended: false } }, products: { b2/15: { status: OPEN } } } }
+  - { at: "20:00:02", type: broadcast.start, b: b2, date: 2026-10-18, title: 2부 }
+  - { at: "20:00:03", type: product.register, b: b2, no: 15, name: 핑크프릴, price: 10000 }
+  - { type: assert, expect: { broadcasts: { b2: { ended: false } }, products: { b2/15: { status: OPEN } } } }
+expect:
+  broadcasts:
+    b2: { date: 2026-10-18, title: 2부, ended: false }
+---
+id: G-ENG-902
+title: broadcast.start 필드·설정 오류
+refs: [R-1, D-071]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: broadcast.start, b: "b 2", date: 2026-10-18, title: 2부 }
+  - { at: "20:00:01", type: broadcast.start, b: b3, date: 2026-10-32, title: 3부 }
+  - { at: "20:00:02", type: broadcast.start, b: b4, date: 2026-10-18 }
+  - { at: "20:00:03", type: broadcast.start, b: b5, date: 2026-10-18, title: 5부, settings: { waitlist.maxx: 1, waitlist.max: 101, shipping.freeThreshold: -1, claim.parseMode: loose } }
+  - { at: "20:00:04", type: broadcast.start, b: b6, date: 2026-10-18, title: 6부, settings: [] }
+  - { at: "20:00:05", type: broadcast.end, b: b1, at2: x }
+expect: {}
+---
+id: G-ENG-903
+title: broadcasts 관찰 키 오류
+refs: [R-1]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events: []
+expect:
+  broadcasts:
+    b1: { endd: true, date: 2026-1-1, title: 1, ended: "아니오" }
+    b9: { ended: false }
