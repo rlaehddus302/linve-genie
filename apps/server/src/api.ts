@@ -317,6 +317,17 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     const events = await service.history(sellerOf(c), date, Number(after), Math.min(Number(limit), HISTORY_LIMIT_MAX), rehearsal.value ?? false, product)
     return events === null ? notFound() : c.json({ date, rehearsal: rehearsal.value ?? false, events })
   })
+  // 합치기 미리 보기 (AC-S06b-10, D-100): 그 범위의 지금 상태로 코어 previewMerge. 다른 판매자·없는 범위는 날짜 조회와 같은 404, 아무것도 기록하지 않는다
+  api.get('/days/:date/merge-preview', async (c) => {
+    const date = c.req.param('date')
+    if (!isValidDate(date)) return notFound()
+    const rehearsal = rehearsalOf(c)
+    if (!rehearsal.ok) return rehearsal.response
+    const input = Service.mergePreviewInput(c.req.query('from'), c.req.query('into'))
+    if (!input.ok) return apiError(input.rejection.status, input.rejection.code, input.rejection.message, input.rejection.problems)
+    const view = await service.mergePreview(sellerOf(c), date, rehearsal.value ?? false, input.from, input.into)
+    return view === null ? notFound() : c.json(view)
+  })
   // 증분 조회 (AC-S05-61, D-085): since 뒤로 바뀐 것. 줄 수 없는 since면 410 RESYNC_REQUIRED("전체를 다시 받으세요")
   api.get('/days/:date/changes', async (c) => {
     const date = c.req.param('date')

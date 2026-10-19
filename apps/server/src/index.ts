@@ -2,6 +2,7 @@
 // S04: PGlite로 DB를 열고(openPglite) createServer(...).app.request(...)로 /api를 부른다. 계정은 createSellerAccount로 만든다.
 // S05: 리허설 범위·가짜 채팅 생성기(ChatGenerators·ChatMaker), 증분 조회, E2E 기동(startE2eServer·fillScope).
 // S06: 상품 ID 조치 기록(productOwners), 범위별 보기 캐시(StateCache·newViewCaches), 생성기 판매자당 하나(GENERATOR_RECORDS_MAX), E2E 127.0.0.1(E2E_HOST).
+// S06b: 합치기 미리 보기 조회(MergePreviewView), 문자찜 응답 buyer.
 export { createApp, defaultLogError, type AppOptions, type ErrorLogger } from './app.ts'
 export { DEFAULT_PORT, readAppOrigin, readDatabaseSetting, readPort, type DatabaseSetting, type OriginSetting, type PortSetting } from './config.ts'
 export {
@@ -36,6 +37,7 @@ export {
   CHANGES_MESSAGES_LIMIT,
   FAKE_CHANNEL_RE,
   INHERITED_BLOCK_REASON,
+  MERGE_PREVIEW_ID_MAX,
   MESSAGES_LIMIT_DEFAULT,
   MESSAGES_LIMIT_MAX,
   Service,
@@ -44,6 +46,7 @@ export {
   type ChangesView,
   type ChatIngestOutcome,
   type HistoryItem,
+  type MergePreviewView,
   type ProductFilter,
   type ProductIdFilter,
   type MessageItem,

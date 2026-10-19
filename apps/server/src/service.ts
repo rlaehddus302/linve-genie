@@ -15,7 +15,9 @@ import {
   normalizePhone,
   parseChat,
   phoneLast4,
+  previewMerge,
   resolveSettings,
+  type MergePreview,
   type SaleSettings,
 } from '@livejjim/core'
 import { randomBytes } from 'node:crypto'
@@ -39,7 +41,7 @@ import {
 } from './generator.ts'
 import type { IdSource } from './ids.ts'
 import type { ScopeRuntime } from './runtime.ts'
-import { fieldMessage, safeFieldName, unknownFieldProblems } from './messages.ts'
+import { fieldMessage, phoneIdProblem, safeFieldName, unknownFieldProblems } from './messages.ts'
 import { productOwners } from './product-history.ts'
 import { openSellerKey, phoneKeyOf } from './secrets.ts'
 import {
@@ -79,6 +81,8 @@ export const VIEWER_NICK_MAX = 30
 export const VIEWER_TEXT_MAX = 200
 /** 가짜 채널 ID (실제 유튜브 채널 ID `UC…` 24자와 겹치지 않는다, D-082) */
 export const FAKE_CHANNEL_RE = /^sim_[A-Za-z0-9_-]{1,40}$/
+/** 합치기 미리 보기의 구매자 ID 길이 상한 (AC-S06b-10, 글자 수 = 코드 포인트) */
+export const MERGE_PREVIEW_ID_MAX = 128
 
 export interface ServiceOptions {
   readonly db: Db
@@ -102,6 +106,14 @@ export type ChatIngestOutcome =
   | { readonly status: 'save_failed' }
 
 export type ScopeView = FullView
+
+/** 합치기 미리 보기 (GET /api/days/:date/merge-preview, AC-S06b-10) — preview는 응답 seq까지 적용한 상태의 코어 previewMerge 결과 그대로 */
+export interface MergePreviewView {
+  readonly date: string
+  readonly rehearsal: boolean
+  readonly seq: number
+  readonly preview: MergePreview
+}
 
 /** 채팅 메시지 한 건 (AC-S05-20) */
 export interface MessageItem {
@@ -655,6 +667,32 @@ export class Service {
     const runtime = await this.#options.writer.read(sellerId, date, rehearsal)
     if (runtime.seq === 0) return null
     return fullView(runtime)
+  }
+
+  /** 합치기 미리 보기 검색값 검사 (구매자 ID 두 개 — 형식만 본다. 범위에 없는 ID는 코어가 UNKNOWN_BUYER로 답한다) */
+  static mergePreviewInput(from: string | undefined, into: string | undefined): { ok: true; from: string; into: string } | { ok: false; rejection: Rejection } {
+    const problems: FieldProblem[] = []
+    const check = (field: 'from' | 'into', value: string | undefined, message: string): void => {
+      if (value === undefined || value === '' || charCount(value) > MERGE_PREVIEW_ID_MAX || hasControlChar(value)) problems.push({ field, message })
+      // 휴대폰 번호처럼 보이는 ID는 D-079 ⑥ 문장 (값은 되돌려 보내지 않는다)
+      else if (looksLikePhoneId(value)) problems.push(phoneIdProblem(field))
+    }
+    check('from', from, '옮길 구매자를 골라 주세요.')
+    check('into', into, fieldMessage('into'))
+    if (problems.length > 0 || from === undefined || into === undefined) return { ok: false, rejection: invalidInput(problems) }
+    return { ok: true, from, into }
+  }
+
+  /**
+   * 합치기 미리 보기 (AC-S06b-10, D-100): 그 범위의 지금 상태로 코어 previewMerge를 부른 결과 그대로와 그 상태의 seq.
+   * 없는 범위(다른 판매자의 범위 포함)면 null(404). 아무것도 기록하지 않는다
+   */
+  async mergePreview(sellerId: string, date: string, rehearsal: boolean, from: string, into: string): Promise<MergePreviewView | null> {
+    const runtime = await this.#options.writer.read(sellerId, date, rehearsal)
+    // runtime은 쓰기와 같이 쓰는 객체다 — seq와 상태를 함께 잡아 그 상태로 계산한다(previewMerge는 동기라 그 사이 바뀌지 않는다)
+    const { seq, state } = runtime
+    if (seq === 0) return null
+    return { date, rehearsal, seq, preview: previewMerge(state, from, into) }
   }
 
   /**
