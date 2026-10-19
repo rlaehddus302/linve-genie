@@ -1,5 +1,5 @@
 // AC-P2-30~33 판매대장 행·엑셀 파일 (STL-06, D-208). 골든 G-ENG-201·202의 이벤트를 실제 코어로 재생해 맞댄다.
-import { getSettlement, listBuyers, listClaims, listProducts, type EngineState } from '@livejjim/core'
+import { getBuyer, getSettlement, listBuyers, listClaims, listProducts, type EngineState } from '@livejjim/core'
 import fc from 'fast-check'
 import { strFromU8, unzipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
@@ -116,31 +116,59 @@ describe('AC-P2-31 기간·방송 고르기, 여러 범위, 리허설', () => {
   })
 })
 
+/**
+ * 무작위 이벤트 열 → 대장과 코어 맞대기. 확정 찜마다 대장 행 하나를 짝짓는다:
+ * 방송 날짜·번호·가격·구매자(지금 표시 이름·끝자리)·찜 시각(R-6 실제 시각의 KST 글)이 같은 행 중 아직 짝이 없는 것.
+ * (재고 2에 두 구매자가 같은 가격으로 확정되어도 남의 행을 고르지 않는다)
+ */
+function checkLedgerAgainstCore(events: readonly EventInput[]): void {
+  const state = playLoosely(events)
+  const rows = rowsOf({ scopes: [live(state)], from: '2026-10-01', to: '2026-10-31' })
+  const confirmedRows = rows.filter((row) => row.status === '1등')
+  const confirmed = listClaims(state).filter((claim) => claim.status === 'CONFIRMED')
+  expect(confirmedRows).toHaveLength(confirmed.length)
+  const subtotals = listBuyers(state)
+    .filter((buyer) => buyer.current === buyer.id)
+    .reduce((sum, buyer) => sum + buyer.subtotal, 0)
+  expect(confirmedRows.reduce((sum, row) => sum + row.price, 0)).toBe(subtotals)
+  const unsold = listProducts(state).filter((product) => product.winners.length === 0)
+  expect(rows.filter((row) => row.status !== '1등')).toHaveLength(unsold.length)
+  expect(rows).toHaveLength(confirmed.length + unsold.length)
+  const unmatched = [...confirmedRows]
+  for (const claim of confirmed) {
+    const date = claim.broadcast === 'b1' ? '2026-10-18' : '2026-10-19'
+    const buyer = getBuyer(state, claim.currentBuyer)
+    const display = buyer?.phoneLast4 === null || buyer?.phoneLast4 === undefined ? (buyer?.display ?? '') : `${buyer.display} / 끝자리 ${buyer.phoneLast4}`
+    const claimedAt = formatKstLedgerTime(claim.rankTime, claim.rankMinute)
+    const at = unmatched.findIndex((r) => r.date === date && r.no === claim.no && r.price === claim.price && r.buyer === display && r.claimedAt === claimedAt)
+    expect(at, `찜 ${claim.id}(${claim.currentBuyer}, ${String(claim.no)}번)의 행`).toBeGreaterThanOrEqual(0)
+    const [row] = unmatched.splice(at, 1)
+    expect(row?.payment, `찜 ${claim.id}(${claim.currentBuyer})의 입금`).toBe(PAYMENT_WORDS[getSettlement(state, claim.currentBuyer, date).payment])
+  }
+  expect(unmatched).toEqual([])
+}
+
 describe('AC-P2-33 대장의 금액·상태는 코어 그대로', () => {
   it('속성: 무작위 이벤트 열 → 확정 행 수 = 확정 찜 수, 확정 행 가격 합 = 모든 구매자 상품 합계의 합, 확정 없는 상품마다 한 행, 입금 = getSettlement', () => {
     fc.assert(
       fc.property(randomEvents(), (events) => {
-        const state = playLoosely(events)
-        const rows = rowsOf({ scopes: [live(state)], from: '2026-10-01', to: '2026-10-31' })
-        const confirmedRows = rows.filter((row) => row.status === '1등')
-        const confirmed = listClaims(state).filter((claim) => claim.status === 'CONFIRMED')
-        expect(confirmedRows).toHaveLength(confirmed.length)
-        const subtotals = listBuyers(state)
-          .filter((buyer) => buyer.current === buyer.id)
-          .reduce((sum, buyer) => sum + buyer.subtotal, 0)
-        expect(confirmedRows.reduce((sum, row) => sum + row.price, 0)).toBe(subtotals)
-        const unsold = listProducts(state).filter((product) => product.winners.length === 0)
-        expect(rows.filter((row) => row.status !== '1등')).toHaveLength(unsold.length)
-        expect(rows).toHaveLength(confirmed.length + unsold.length)
-        for (const claim of confirmed) {
-          const date = claim.broadcast === 'b1' ? '2026-10-18' : '2026-10-19'
-          const row = confirmedRows.find((r) => r.date === date && r.no === claim.no && r.claimedAt !== '' && r.price === claim.price)
-          expect(row).toBeDefined()
-          expect(row?.payment).toBe(PAYMENT_WORDS[getSettlement(state, claim.currentBuyer, date).payment])
-        }
+        checkLedgerAgainstCore(events)
       }),
       { numRuns: 120 },
     )
+  })
+
+  it('회귀(seed 1300622960): 재고 2·같은 가격에 두 구매자 확정, 한 사람만 입금 → 행마다 그 구매자의 입금 상태', () => {
+    const events: EventInput[] = [
+      { type: 'chat', b: 'b2', id: 'c1', ch: 'UC_2', nick: '꽃님', text: '1' },
+      { type: 'chat', b: 'b2', id: 'c2', ch: 'UC_1', nick: '홍길동', text: '1' },
+      { type: 'product.register', b: 'b2', no: 1, name: '핑크프릴', price: 0, stock: 2 },
+      { type: 'settlement.payment', buyer: 'UC_1', date: '2026-10-19', amount: 1000 },
+      { type: 'chat', b: 'b1', id: 'c3', ch: 'UC_1', nick: '홍길동', text: '1' },
+    ]
+    checkLedgerAgainstCore(events)
+    const rows = rowsOf({ scopes: [live(playLoosely(events))], from: '2026-10-01', to: '2026-10-31' }).filter((row) => row.status === '1등')
+    expect(rows.map((row) => `${row.buyer} ${row.payment}`)).toEqual(['꽃님 미입금', '홍길동 부분 입금'])
   })
 })
 
