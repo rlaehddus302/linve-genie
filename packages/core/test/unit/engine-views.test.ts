@@ -60,14 +60,14 @@ describe('상품·찜·보류 조회', () => {
   })
 
   it('취소 요청·활성 찜 ID', () => {
-    expect(listCancelRequests(state)).toEqual([{ product: 'b1/15', buyer: 'B', claim: 'c3', seq: 9 }])
+    expect(listCancelRequests(state)).toEqual([{ product: 'b1/15', buyer: 'B', currentBuyer: 'B', claim: 'c3', seq: 9 }])
     expect(activeClaimId(state, 'b1', 15, 'B')).toBe('c3')
     expect(activeClaimId(state, 'b1', 15, 'Z')).toBeNull()
     expect(activeClaimId(state, 'b1', 77, 'B')).toBeNull()
   })
 
   it('표시 상태', () => {
-    const product = { name: 'x', price: 1, stock: 2, priceHistory: [] }
+    const product = { stock: 2 }
     expect(productStatus({ ...product, phase: 'SELLING' }, 1)).toBe('OPEN')
     expect(productStatus({ ...product, phase: 'SELLING' }, 2)).toBe('SOLD')
     expect(productStatus({ ...product, phase: 'HOLD' }, 2)).toBe('HOLD')
@@ -94,8 +94,13 @@ describe('구매자 보기 (AC-S02-80)', () => {
     )
     expect(getBuyer(state, 'A')).toEqual({
       id: 'A',
+      kind: 'youtube',
+      current: 'A',
+      mergedInto: null,
+      merged: [],
       display: '가나',
       nameHistory: ['가', '가나'],
+      phoneLast4: null,
       items: ['b1/1', 'n1/1'],
       subtotal: 25000,
       byBroadcast: { b1: 20000, n1: 5000 },
@@ -118,10 +123,13 @@ describe('기본 정산 묶음 (AC-S02-81)', () => {
       items: ['b1/1', 'b1/2'],
       subtotal: 29999,
       shipping: 0,
+      shippingOverride: null,
       adjustments: 0,
       total: 29999,
+      received: 0,
       refundDue: 0,
       payment: 'UNPAID',
+      records: [],
     })
     const short = play(events, { 'shipping.freeThreshold': 30000, 'shipping.baseFee': 3500 }, [B1, B0919]).state
     expect(getSettlement(short, 'A', '2026-10-18')).toMatchObject({ subtotal: 29999, shipping: 3500, total: 33499 })

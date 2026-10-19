@@ -1,9 +1,23 @@
-// 이벤트 하나를 처리하는 동안 쓰는 작업 사본 (AC-S02-02).
-// - 넘겨받은 상태는 절대 바꾸지 않는다. 고칠 레코드는 처음 쓸 때 얕게 복사하고(배열·기록은 새로),
-//   끝에 바뀐 레코드만 영속 맵에 넣어 새 상태를 만든다. 바뀐 것이 없으면 넘겨받은 상태를 그대로 돌려준다.
+// 이벤트 하나를 처리하는 동안 쓰는 작업 사본 (AC-S02-02, AC-S03-05).
+// - 넘겨받은 상태는 절대 바꾸지 않는다. 고칠 레코드는 처음 쓸 때 얕게 복사하고, 끝에 바뀐 레코드만 영속 맵에 넣어 새 상태를 만든다.
+//   바뀐 것이 없으면 넘겨받은 상태를 그대로 돌려준다.
+// - 커질 수 있는 모음(번호의 보류 찜·활성 표시, 구매자의 찜)은 레코드 안에서도 영속 맵이라 복사할 때 통째로 복사하지 않는다.
+//   통째로 복사하는 배열은 설정으로 크기가 정해지는 것(확정 ≤ 재고, 대기 ≤ 대기 한도)과 작은 이력뿐이다.
 // - 깊게 얼린 상태를 넘겨도 읽기만 하므로 예외가 나지 않는다.
-import { pdelete, pget, phas, pset } from './pmap.ts'
-import type { BuyerRecord, ClaimRecord, EffectRecord, EngineEffect, EngineState, ProductRecord, SlotRecord } from './types.ts'
+import { emptyPMap, pdelete, pget, phas, pkeys, pset, type PMap } from './pmap.ts'
+import type {
+  BuyerRecord,
+  ClaimRecord,
+  EffectRecord,
+  EngineEffect,
+  EngineState,
+  LedgerRecord,
+  MessageRecord,
+  PriceChange,
+  ProductRecord,
+  SettlementEntry,
+  SlotRecord,
+} from './types.ts'
 
 export interface SlotDraft {
   key: string
@@ -12,31 +26,39 @@ export interface SlotDraft {
   product: ProductRecord | null
   winners: string[]
   waitlist: string[]
-  pending: string[]
-  active: Record<string, string>
+  pending: PMap<true>
+  active: PMap<string>
   awaiting: boolean
+  conflict: string | null
   version: number
 }
 
-export interface ClaimDraft extends Omit<ClaimRecord, 'status' | 'reason' | 'price' | 'version' | 'locked' | 'request' | 'effects'> {
-  status: ClaimRecord['status']
-  reason: ClaimRecord['reason']
-  price: ClaimRecord['price']
-  version: ClaimRecord['version']
-  locked: boolean
-  request: number | null
+type Mutable<T> = { -readonly [K in keyof T]: T[K] }
+
+export interface ClaimDraft extends Omit<Mutable<ClaimRecord>, 'effects' | 'priceHistory'> {
   effects: string[]
+  priceHistory: PriceChange[]
 }
 
-export interface BuyerDraft extends Omit<BuyerRecord, 'display' | 'names' | 'claims' | 'subtotal'> {
-  display: string
+export interface BuyerDraft extends Omit<Mutable<BuyerRecord>, 'id' | 'n' | 'kind' | 'names' | 'children' | 'dates'> {
+  readonly id: string
+  readonly n: number
+  readonly kind: BuyerRecord['kind']
   names: string[]
-  claims: string[]
-  subtotal: number
+  children: string[]
+  dates: string[]
 }
 
 export interface EffectDraft extends Omit<EffectRecord, 'status'> {
   status: EffectRecord['status']
+}
+
+export interface MessageDraft extends Omit<MessageRecord, 'claimed'> {
+  claimed: number[]
+}
+
+export interface LedgerDraft extends Omit<LedgerRecord, 'entries'> {
+  entries: SettlementEntry[]
 }
 
 /**
@@ -50,7 +72,7 @@ export class CorruptStateError extends Error {
   }
 }
 
-/** 신뢰할 수 없는 문자열 키(`__proto__` 등)도 자기 속성으로만 읽고 쓴다 */
+/** 신뢰할 수 없는 문자열 키(`__proto__` 등)도 자기 속성으로만 읽는다 */
 export function ownGet<T>(record: Readonly<Record<string, T>>, key: string): T | undefined {
   return Object.hasOwn(record, key) ? record[key] : undefined
 }
@@ -67,15 +89,31 @@ export function messageKey(b: string, id: string): string {
   return JSON.stringify([b, id])
 }
 
+export function ledgerKey(buyer: string, date: string): string {
+  return JSON.stringify([buyer, date])
+}
+
+/** 찜 ID `c{n}`의 생성 순서 */
+export function claimNumber(id: string): number {
+  return Number(id.slice(1))
+}
+
+/** 합치기 연결이 이보다 깊으면 고리(손상된 상태)로 본다 */
+const MAX_DEPTH = 100_000
+
 export class Draft {
   readonly base: EngineState
   private readonly slots = new Map<string, SlotDraft>()
   private readonly claims = new Map<string, ClaimDraft>()
   private readonly buyers = new Map<string, BuyerDraft>()
   private readonly effects = new Map<string, EffectDraft>()
-  private readonly messages: string[] = []
+  private readonly messages = new Map<string, MessageDraft>()
+  private readonly ledger = new Map<string, LedgerDraft>()
+  private readonly refs = new Map<string, string>()
+  private readonly phones = new Map<string, string>()
+  private readonly productKeys = new Map<string, string>()
   private readonly blockedChanges = new Map<string, boolean>()
-  private readonly counters: { claims: number; effects: number; buyers: number }
+  private readonly counters: { claims: number; effects: number; buyers: number; products: number }
   readonly emitted: EngineEffect[] = []
   /** 처리 중인 이벤트의 seq·at */
   readonly seq: number
@@ -94,15 +132,15 @@ export class Draft {
 
   // ── 읽기 (복사 없음) ────────────────────────────────────────────────────
 
-  readSlot(key: string): SlotRecord | undefined {
+  readSlot(key: string): SlotRecord | SlotDraft | undefined {
     return this.slots.get(key) ?? pget(this.base.slots, key)
   }
 
-  readClaim(id: string): ClaimRecord | undefined {
+  readClaim(id: string): ClaimRecord | ClaimDraft | undefined {
     return this.claims.get(id) ?? pget(this.base.claims, id)
   }
 
-  readBuyer(id: string): BuyerRecord | undefined {
+  readBuyer(id: string): BuyerRecord | BuyerDraft | undefined {
     return this.buyers.get(id) ?? pget(this.base.buyers, id)
   }
 
@@ -110,12 +148,56 @@ export class Draft {
     return this.effects.get(id) ?? pget(this.base.effects, id)
   }
 
-  hasMessage(key: string): boolean {
-    return this.messages.includes(key) || phas(this.base.messages, key)
+  readMessage(key: string): MessageRecord | MessageDraft | undefined {
+    return this.messages.get(key) ?? pget(this.base.messages, key)
+  }
+
+  readLedger(buyer: string, date: string): LedgerRecord | LedgerDraft | undefined {
+    const key = ledgerKey(buyer, date)
+    return this.ledger.get(key) ?? pget(this.base.ledger, key)
+  }
+
+  readRef(ref: string): string | undefined {
+    return this.refs.get(ref) ?? pget(this.base.refs, ref)
+  }
+
+  readPhone(phone: string): string | undefined {
+    return this.phones.get(phone) ?? pget(this.base.phones, phone)
   }
 
   isBlocked(buyer: string): boolean {
     return this.blockedChanges.get(buyer) ?? phas(this.base.blocked, buyer)
+  }
+
+  /** 지금의 구매자 = 합치기 연결을 끝까지 따라간 구매자 (모르는 구매자면 그 ID 그대로) */
+  root(id: string): string {
+    let current = id
+    for (let depth = 0; depth < MAX_DEPTH; depth++) {
+      const parent = this.readBuyer(current)?.parent ?? null
+      if (parent === null) return current
+      current = parent
+    }
+    throw new CorruptStateError(`구매자 ${id}의 합치기 연결이 고리다`)
+  }
+
+  /** 그 구매자와 그 아래에 합쳐진 구매자 전부 (자신 먼저, 합친 순서로 깊이 우선) */
+  members(id: string): string[] {
+    const out: string[] = []
+    const stack = [id]
+    while (stack.length > 0) {
+      const current = stack.pop() as string
+      out.push(current)
+      if (out.length > MAX_DEPTH) throw new CorruptStateError(`구매자 ${id}의 합치기 연결이 고리다`)
+      const children = this.readBuyer(current)?.children ?? []
+      for (let i = children.length - 1; i >= 0; i--) stack.push(children[i] as string)
+    }
+    return out
+  }
+
+  /** 구매자 자신의 찜 ID, 생성 순서 */
+  claimIdsOf(buyer: string): string[] {
+    const record = this.readBuyer(buyer)
+    return record === undefined ? [] : pkeys(record.claims).sort((a, b) => claimNumber(a) - claimNumber(b))
   }
 
   // ── 쓰기 (처음 쓸 때 복사) ──────────────────────────────────────────────
@@ -128,8 +210,8 @@ export class Draft {
     const base = pget(this.base.slots, key)
     const created: SlotDraft =
       base === undefined
-        ? { key, b, no, product: null, winners: [], waitlist: [], pending: [], active: {}, awaiting: false, version: 0 }
-        : { ...base, winners: [...base.winners], waitlist: [...base.waitlist], pending: [...base.pending], active: { ...base.active } }
+        ? { key, b, no, product: null, winners: [], waitlist: [], pending: emptyPMap(), active: emptyPMap(), awaiting: false, conflict: null, version: 0 }
+        : { ...base, winners: [...base.winners], waitlist: [...base.waitlist] }
     this.slots.set(key, created)
     return created
   }
@@ -140,7 +222,7 @@ export class Draft {
     if (draft !== undefined) return draft
     const base = pget(this.base.claims, id)
     if (base === undefined) throw new CorruptStateError(`찜 ${id}가 없다`)
-    const created: ClaimDraft = { ...base, effects: [...base.effects] }
+    const created: ClaimDraft = { ...base, effects: [...base.effects], priceHistory: [...base.priceHistory] }
     this.claims.set(id, created)
     return created
   }
@@ -149,7 +231,8 @@ export class Draft {
     const n = ++this.counters.claims
     const created: ClaimDraft = { id: `c${String(n)}`, n, ...fields }
     this.claims.set(created.id, created)
-    this.knownBuyer(fields.buyer).claims.push(created.id)
+    const owner = this.knownBuyer(fields.buyer)
+    owner.claims = pset(owner.claims, created.id, true)
     return created
   }
 
@@ -159,7 +242,7 @@ export class Draft {
     if (draft !== undefined) return draft
     const base = pget(this.base.buyers, id)
     if (base === undefined) return undefined
-    const created: BuyerDraft = { ...base, names: [...base.names], claims: [...base.claims] }
+    const created: BuyerDraft = { ...base, names: [...base.names], children: [...base.children], dates: [...base.dates] }
     this.buyers.set(id, created)
     return created
   }
@@ -171,8 +254,20 @@ export class Draft {
     return draft
   }
 
-  newBuyer(id: string, nick: string): BuyerDraft {
-    const created: BuyerDraft = { id, n: ++this.counters.buyers, display: nick, names: [nick], claims: [], subtotal: 0 }
+  newBuyer(id: string, kind: BuyerRecord['kind'], display: string, phone: string | null): BuyerDraft {
+    const created: BuyerDraft = {
+      id,
+      n: ++this.counters.buyers,
+      kind,
+      display,
+      names: [display],
+      phone,
+      parent: null,
+      children: [],
+      claims: emptyPMap(),
+      dates: [],
+      subtotal: 0,
+    }
     this.buyers.set(id, created)
     return created
   }
@@ -204,8 +299,46 @@ export class Draft {
     return created
   }
 
-  addMessage(key: string): void {
-    this.messages.push(key)
+  /** 받은 메시지의 작업 사본 */
+  message(key: string): MessageDraft | undefined {
+    const draft = this.messages.get(key)
+    if (draft !== undefined) return draft
+    const base = pget(this.base.messages, key)
+    if (base === undefined) return undefined
+    const created: MessageDraft = { ...base, claimed: [...base.claimed] }
+    this.messages.set(key, created)
+    return created
+  }
+
+  newMessage(key: string, fields: MessageDraft): void {
+    this.messages.set(key, fields)
+  }
+
+  /** (구매자 자신, 날짜) 정산 기록의 작업 사본. 없으면 만든다 */
+  ledgerOf(buyer: string, date: string): LedgerDraft {
+    const key = ledgerKey(buyer, date)
+    const draft = this.ledger.get(key)
+    if (draft !== undefined) return draft
+    const base = pget(this.base.ledger, key)
+    const created: LedgerDraft = base === undefined ? { buyer, date, entries: [] } : { ...base, entries: [...base.entries] }
+    this.ledger.set(key, created)
+    return created
+  }
+
+  setRef(ref: string, buyer: string): void {
+    this.refs.set(ref, buyer)
+  }
+
+  setPhone(phone: string, buyer: string): void {
+    this.phones.set(phone, buyer)
+  }
+
+  newProductId(): string {
+    return `p${String(++this.counters.products)}`
+  }
+
+  setProductKey(pid: string, key: string): void {
+    this.productKeys.set(pid, key)
   }
 
   setBlocked(buyer: string, blocked: boolean): void {
@@ -216,17 +349,30 @@ export class Draft {
 
   commit(): { state: EngineState; effects: EngineEffect[] } {
     const base = this.base
-    const changed = this.slots.size + this.claims.size + this.buyers.size + this.effects.size + this.messages.length + this.blockedChanges.size > 0
-    if (!changed) return { state: base, effects: [] }
-    let { slots, claims, buyers, effects, messages, blocked } = base
-    for (const [key, value] of this.slots) slots = pset(slots, key, value)
-    for (const [key, value] of this.claims) claims = pset(claims, key, value)
-    for (const [key, value] of this.buyers) buyers = pset(buyers, key, value)
-    for (const [key, value] of this.effects) effects = pset(effects, key, value)
-    for (const key of this.messages) messages = pset(messages, key, true)
+    const tables = [this.slots, this.claims, this.buyers, this.effects, this.messages, this.ledger, this.refs, this.phones, this.productKeys, this.blockedChanges]
+    if (tables.every((table) => table.size === 0)) return { state: base, effects: [] }
+    const put = <V>(map: PMap<V>, changes: ReadonlyMap<string, V>): PMap<V> => {
+      let out = map
+      for (const [key, value] of changes) out = pset(out, key, value)
+      return out
+    }
+    let blocked = base.blocked
     for (const [key, value] of this.blockedChanges) blocked = value ? pset(blocked, key, true) : pdelete(blocked, key)
     return {
-      state: { ...base, counters: { ...this.counters }, messages, buyers, blocked, slots, claims, effects },
+      state: {
+        ...base,
+        counters: { ...this.counters },
+        messages: put<MessageRecord>(base.messages, this.messages),
+        refs: put(base.refs, this.refs),
+        phones: put(base.phones, this.phones),
+        buyers: put<BuyerRecord>(base.buyers, this.buyers),
+        blocked,
+        slots: put<SlotRecord>(base.slots, this.slots),
+        products: put(base.products, this.productKeys),
+        claims: put<ClaimRecord>(base.claims, this.claims),
+        effects: put<EffectRecord>(base.effects, this.effects),
+        ledger: put<LedgerRecord>(base.ledger, this.ledger),
+      },
       effects: this.emitted,
     }
   }

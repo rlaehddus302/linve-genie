@@ -389,13 +389,9 @@ describe('AC-S02-93 불변식 속성 (무작위 S02 로그)', () => {
 
 // ── AC-S02-03: 맞지 않는 명령 ────────────────────────────────────────────
 
-/** 지금 상태에서 아무것도 바꾸지 않아야 하는 명령들 (구조적으로 틀린 것 + 상태에 비춰 조건이 안 맞는 것) */
+/** 지금 상태에서 아무것도 바꾸지 않아야 하는 명령들 (형식은 맞지만 상태에 비춰 조건이 안 맞는 것. 형식 오류는 AC-S03-02 입력 오류) */
 function invalidCommands(scenario: Scenario, state: EngineState): EventInput[] {
   const out: EventInput[] = [
-    { type: 'chat', b: 'b9', id: 'zz', ch: 'A', nick: '가', text: '1' },
-    { type: 'product.register', b: 'b9', no: 1, name: 'x', price: 1 },
-    { type: 'product.register', b: 'b1', no: 0, name: 'x', price: 1 },
-    { type: 'product.register', b: 'b1', no: 9, name: 'x', price: -5 },
     { type: 'product.open', b: 'b1', no: 999 },
     { type: 'product.hold', b: 'b1', no: 999 },
     { type: 'product.close', b: 'b1', no: 999 },
@@ -409,8 +405,6 @@ function invalidCommands(scenario: Scenario, state: EngineState): EventInput[] {
     { type: 'host.reopen', b: 'b1', no: 999, reason: 'r' },
     { type: 'host.unblockBuyer', buyer: 'NOBODY', reason: 'r' },
     { type: 'effect.labelPrinted', effectId: 'c999:PRINT_PRODUCT_LABEL:-:1' },
-    { type: 'effect.thanksSent', effectId: '' } as EventInput,
-    { type: 'nonsense' } as unknown as EventInput,
   ]
   for (const product of listProducts(state)) {
     const at = { b: product.broadcast, no: product.no }

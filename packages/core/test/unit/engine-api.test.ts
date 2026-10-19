@@ -3,9 +3,12 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import {
   DEFAULT_SETTINGS,
+  InvalidEventError,
   NotImplementedError,
   applyEvent,
+  checkEvent,
   initEngine,
+  isInvalidEvent,
   isNotImplemented,
   listClaims,
   listEffects,
@@ -148,25 +151,10 @@ describe('AC-S02-02 순수·결정성·직렬화', () => {
   })
 })
 
-describe('AC-S02-03 맞지 않는 명령·형식이 틀린 이벤트는 아무것도 바꾸지 않는다', () => {
+describe('AC-S02-03 맞지 않는 명령은 아무것도 바꾸지 않는다', () => {
   const base: readonly EventInput[] = [register(15), register(16, { status: 'READY' }), chat('A', '15'), chat('B', '15'), chat('C', '16')]
   const invalid: readonly (readonly [string, unknown])[] = [
-    ['선언하지 않은 방송의 채팅', { type: 'chat', b: 'b9', id: 'x1', ch: 'D', nick: 'd', text: '15' }],
-    ['선언하지 않은 방송의 상품 등록', { type: 'product.register', b: 'b9', no: 1, name: 'x', price: 1 }],
-    ['번호 0', { type: 'product.register', b: 'b1', no: 0, name: 'x', price: 1 }],
-    ['번호가 문자열', { type: 'product.register', b: 'b1', no: '20', name: 'x', price: 1 }],
-    ['가격 음수', { type: 'product.register', b: 'b1', no: 20, name: 'x', price: -1 }],
-    ['가격 소수', { type: 'product.register', b: 'b1', no: 20, name: 'x', price: 1.5 }],
-    ['재고 0', { type: 'product.register', b: 'b1', no: 20, name: 'x', price: 1, stock: 0 }],
-    ['모르는 상태', { type: 'product.register', b: 'b1', no: 20, name: 'x', price: 1, status: 'SOLD' }],
-    ['품종 없음', { type: 'product.register', b: 'b1', no: 20, price: 1 }],
     ['같은 번호 재등록', { type: 'product.register', b: 'b1', no: 15, name: '라울', price: 5000 }],
-    ['방송 없음', { type: 'product.open', no: 16 }],
-    ['메시지 ID 빈 문자열', { type: 'chat', b: 'b1', id: '', ch: 'D', nick: 'd', text: '15' }],
-    ['채널 ID 없음', { type: 'chat', b: 'b1', id: 'x2', nick: 'd', text: '15' }],
-    ['닉네임이 수', { type: 'chat', b: 'b1', id: 'x3', ch: 'D', nick: 1, text: '15' }],
-    ['owner가 문자열', { type: 'chat', b: 'b1', id: 'x4', ch: 'D', nick: 'd', text: '15', owner: 'yes' }],
-    ['publishedAt이 문자열', { type: 'chat', b: 'b1', id: 'x5', ch: 'D', nick: 'd', text: '15', publishedAt: '20:00' }],
     ['활성 찜 없는 취소', host('host.cancel', 15, 'Z')],
     ['활성 찜 없는 무효', host('host.reject', 16, 'A')],
     ['빈 자리 없는 수동 승계', host('host.promote', 15, 'B')],
@@ -179,41 +167,20 @@ describe('AC-S02-03 맞지 않는 명령·형식이 틀린 이벤트는 아무�
     ['READY 상품 배정', { type: 'host.assign', b: 'b1', no: 16, buyer: 'A', reason: 'r' }],
     ['모르는 구매자 배정', { type: 'host.assign', b: 'b1', no: 15, buyer: 'Z', reason: 'r', replace: 'A', replaceTo: 'CANCEL' }],
     ['1등이 아닌 사람 교체', { type: 'host.assign', b: 'b1', no: 15, buyer: 'C', reason: 'r', replace: 'B', replaceTo: 'CANCEL' }],
-    ['교체 방법 오타', { type: 'host.assign', b: 'b1', no: 15, buyer: 'C', reason: 'r', replace: 'A', replaceTo: 'DROP' }],
+    ['교체 대상만 적은 배정', { type: 'host.assign', b: 'b1', no: 15, buyer: 'C', reason: 'r', replace: 'A' }],
     ['이미 1등에게 배정', { type: 'host.assign', b: 'b1', no: 15, buyer: 'A', reason: 'r', replace: 'A', replaceTo: 'WAITLIST' }],
     ['요청 없는 승인', { type: 'host.approveCancel', b: 'b1', no: 15, buyer: 'A' }],
     ['요청 없는 거절', { type: 'host.dismissCancel', b: 'b1', no: 15, buyer: 'B' }],
     ['차단 안 된 사람 해제', { type: 'host.unblockBuyer', buyer: 'A', reason: 'r' }],
-    ['구매자 없는 차단', { type: 'host.blockBuyer', reason: 'r' }],
     ['모르는 효과 ID', { type: 'effect.labelPrinted', effectId: 'c9:PRINT_PRODUCT_LABEL:-:1' }],
-    ['효과 ID 없음', { type: 'effect.thanksSent' }],
-    ['모르는 이벤트 종류', { type: 'chat.message', b: 'b1', id: 'x6', ch: 'D', nick: 'd', text: '15' }],
-    ['종류 없음', { b: 'b1' }],
-    ['종류가 문자열이 아님', { type: 7 }],
-    ['__proto__ 종류', { type: '__proto__' }],
   ]
 
   it.each(invalid)('%s → 같은 상태 객체, 효과 없음', (_name, event) => {
     const { state } = play(base)
+    expect(checkEvent(state, { seq: 99, at: T0 + 99_000, ...(event as object) })).toEqual([])
     const result = applyEvent(state, { seq: 99, at: T0 + 99_000, ...(event as object) } as EngineEvent)
     expect(result.state).toBe(state)
     expect(result.effects).toEqual([])
-  })
-
-  it('seq·at이 틀린 이벤트, 이벤트가 객체가 아니면 아무것도 바꾸지 않는다', () => {
-    const { state } = play(base)
-    const chatD = { type: 'chat', b: 'b1', id: 'x7', ch: 'D', nick: 'd', text: '15' }
-    for (const event of [
-      { ...chatD, seq: 1.5, at: T0 },
-      { ...chatD, at: T0 },
-      { ...chatD, seq: 100, at: Number.NaN },
-      { ...chatD, seq: 100, at: '20:00' },
-      null,
-      'chat',
-      42,
-    ]) {
-      expect(applyEvent(state, event as unknown as EngineEvent).state).toBe(state)
-    }
   })
 
   it('조치 하나로 효과·관찰 값이 바뀌지 않는다 — 신뢰할 수 없는 키(__proto__)도 안전하게 다룬다', () => {
@@ -226,47 +193,92 @@ describe('AC-S02-03 맞지 않는 명령·형식이 틀린 이벤트는 아무�
   })
 })
 
-describe('AC-S02-04 S03 기능은 미구현을 알린다 (조용히 무시하지 않는다)', () => {
-  const deferred = [
-    { type: 'sms', b: 'b1', ref: 's1', no: 15, received: '20:00' },
-    { type: 'product.update', b: 'b1', no: 15, price: 12000 },
-    { type: 'product.renumber', b: 'b1', from: 15, to: 51 },
-    { type: 'host.convertMessage', b: 'b1', msg: 'm1', no: 15 },
-    { type: 'host.resolveConflict', b: 'b1', no: 15, decision: 'KEEP' },
-    { type: 'buyer.merge', from: 'A', into: 'B', reason: 'r' },
-    { type: 'buyer.unmerge', from: 'A', reason: 'r' },
-    { type: 'settlement.shippingOverride', buyer: 'A', date: '2026-10-18', mode: 'PICKUP' },
-    { type: 'settlement.adjust', buyer: 'A', date: '2026-10-18', amount: -1000, reason: 'r' },
-    { type: 'settlement.payment', buyer: 'A', date: '2026-10-18', amount: 1000 },
-    { type: 'settlement.refund', buyer: 'A', date: '2026-10-18', amount: 1000, reason: 'r' },
+describe('AC-S03-02 입력 오류는 조용히 무시하지 않는다 (S02의 형식 오류 항목을 스펙 변경 D-050에 따라 옮겼다)', () => {
+  const base: readonly EventInput[] = [register(15), register(16, { status: 'READY' }), chat('A', '15'), chat('B', '15'), chat('C', '16')]
+  const malformed: readonly (readonly [string, unknown, string | null])[] = [
+    ['선언하지 않은 방송의 채팅', { type: 'chat', b: 'b9', id: 'x1', ch: 'D', nick: 'd', text: '15' }, 'b'],
+    ['선언하지 않은 방송의 상품 등록', { type: 'product.register', b: 'b9', no: 1, name: 'x', price: 1 }, 'b'],
+    ['번호 0', { type: 'product.register', b: 'b1', no: 0, name: 'x', price: 1 }, 'no'],
+    ['번호가 문자열', { type: 'product.register', b: 'b1', no: '20', name: 'x', price: 1 }, 'no'],
+    ['가격 음수', { type: 'product.register', b: 'b1', no: 20, name: 'x', price: -1 }, 'price'],
+    ['가격 소수', { type: 'product.register', b: 'b1', no: 20, name: 'x', price: 1.5 }, 'price'],
+    ['재고 0', { type: 'product.register', b: 'b1', no: 20, name: 'x', price: 1, stock: 0 }, 'stock'],
+    ['모르는 상태', { type: 'product.register', b: 'b1', no: 20, name: 'x', price: 1, status: 'SOLD' }, 'status'],
+    ['품종 없음', { type: 'product.register', b: 'b1', no: 20, price: 1 }, 'name'],
+    ['방송 없음', { type: 'product.open', no: 16 }, 'b'],
+    ['메시지 ID 빈 문자열', { type: 'chat', b: 'b1', id: '', ch: 'D', nick: 'd', text: '15' }, 'id'],
+    ['채널 ID 없음', { type: 'chat', b: 'b1', id: 'x2', nick: 'd', text: '15' }, 'ch'],
+    ['닉네임이 수', { type: 'chat', b: 'b1', id: 'x3', ch: 'D', nick: 1, text: '15' }, 'nick'],
+    ['owner가 문자열', { type: 'chat', b: 'b1', id: 'x4', ch: 'D', nick: 'd', text: '15', owner: 'yes' }, 'owner'],
+    ['publishedAt이 문자열', { type: 'chat', b: 'b1', id: 'x5', ch: 'D', nick: 'd', text: '15', publishedAt: '20:00' }, 'publishedAt'],
+    ['교체 방법 오타', { type: 'host.assign', b: 'b1', no: 15, buyer: 'C', reason: 'r', replace: 'A', replaceTo: 'DROP' }, 'replaceTo'],
+    ['구매자 없는 차단', { type: 'host.blockBuyer', reason: 'r' }, 'buyer'],
+    ['효과 ID 없음', { type: 'effect.thanksSent' }, 'effectId'],
+    ['모르는 이벤트 종류', { type: 'chat.message', b: 'b1', id: 'x6', ch: 'D', nick: 'd', text: '15' }, 'type'],
+    ['종류 없음', { b: 'b1' }, 'type'],
+    ['종류가 문자열이 아님', { type: 7 }, 'type'],
+    ['__proto__ 종류', { type: '__proto__' }, 'type'],
   ]
 
-  it.each(deferred.map((event) => [event.type, event] as const))('%s → NotImplementedError', (_type, event) => {
-    const { state } = play([register(15), chat('A', '15', { id: 'm1' })])
+  it.each(malformed)('%s → 입력 오류(NotImplementedError 아님), 상태 그대로, 검사 함수도 같은 필드를 짚는다', (_name, event, field) => {
+    const { state } = play(base)
+    const before = JSON.stringify(state)
+    const full = { seq: 99, at: T0 + 99_000, ...(event as object) }
     let thrown: unknown
     try {
-      applyEvent(state, { seq: 3, at: T0 + 3000, ...event } as unknown as EngineEvent)
+      applyEvent(state, full as EngineEvent)
     } catch (error) {
       thrown = error
     }
-    expect(isNotImplemented(thrown)).toBe(true)
-    expect((thrown as NotImplementedError).feature).toContain('S03')
+    expect(isInvalidEvent(thrown)).toBe(true)
+    expect(isNotImplemented(thrown)).toBe(false)
+    expect(thrown).toBeInstanceOf(InvalidEventError)
+    expect((thrown as InvalidEventError).problems.map((p) => p.field)).toContain(field)
+    expect(checkEvent(state, full).map((p) => p.field)).toEqual((thrown as InvalidEventError).problems.map((p) => p.field))
+    expect(JSON.stringify(state)).toBe(before)
   })
 
+  it('seq·at이 틀린 이벤트, 이벤트가 객체가 아니면 입력 오류', () => {
+    const { state } = play(base)
+    const chatD = { type: 'chat', b: 'b1', id: 'x7', ch: 'D', nick: 'd', text: '15' }
+    for (const event of [
+      { ...chatD, seq: 1.5, at: T0 },
+      { ...chatD, at: T0 },
+      { ...chatD, seq: '1', at: T0 },
+      { ...chatD, seq: 100, at: Number.NaN },
+      { ...chatD, seq: 100, at: '20:00' },
+      null,
+      'chat',
+      42,
+      [chatD],
+    ]) {
+      expect(() => applyEvent(state, event as unknown as EngineEvent)).toThrow(InvalidEventError)
+      expect(checkEvent(state, event).length).toBeGreaterThan(0)
+    }
+  })
+})
+
+describe('AC-S03-01 미구현이 남는 곳은 broadcast.*·effect.failed·settlement.groupBy=MANUAL뿐이다', () => {
   it.each([
     ['broadcast.start', 'S04'],
     ['broadcast.end', 'S04'],
     ['effect.failed', 'S11'],
-  ] as const)('R-1의 나중 스프린트 이벤트 %s도 조용히 무시하지 않고 미구현을 알린다 (%s)', (type, sprint) => {
+  ] as const)('R-1의 나중 스프린트 이벤트 %s는 조용히 무시하지 않고 미구현을 알린다 (%s)', (type, sprint) => {
     const { state } = play([register(15)])
+    expect(checkEvent(state, { seq: 2, at: T0 + 2000, type })).toEqual([])
     expect(() => applyEvent(state, { seq: 2, at: T0 + 2000, type } as unknown as EngineEvent)).toThrow(sprint)
+    expect(() => applyEvent(state, { seq: 2, at: T0 + 2000, type } as unknown as EngineEvent)).toThrow(NotImplementedError)
   })
 
-  it.each([
-    ['contention.policy=RECEIVED_TIME', { 'contention.policy': 'RECEIVED_TIME' }],
-    ['settlement.groupBy=MANUAL', { 'settlement.groupBy': 'MANUAL' }],
-  ] as const)('설정 %s → initEngine이 NotImplementedError', (_name, settings) => {
-    expect(() => initEngine({ broadcasts: [B1], settings })).toThrow(NotImplementedError)
+  it('settlement.groupBy=MANUAL → initEngine이 NotImplementedError (D-059)', () => {
+    expect(() => initEngine({ broadcasts: [B1], settings: { 'settlement.groupBy': 'MANUAL' } })).toThrow(NotImplementedError)
+  })
+
+  it('contention.policy=RECEIVED_TIME과 동률 처리 셋은 엔진을 시작한다', () => {
+    for (const tie of ['YOUTUBE', 'SMS', 'HOST'] as const) {
+      const state = initEngine({ broadcasts: [B1], settings: { 'contention.policy': 'RECEIVED_TIME', 'contention.sameMinuteTieBreaker': tie } })
+      expect(state.settings['contention.policy']).toBe('RECEIVED_TIME')
+    }
   })
 })
 

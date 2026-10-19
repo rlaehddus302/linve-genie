@@ -83,3 +83,14 @@ export function pvalues<V>(map: PMap<V>): V[] {
   }
   return out
 }
+
+/** 모든 키 (트라이 순서, pvalues와 같은 순서) */
+export function pkeys<V>(map: PMap<V>): string[] {
+  const out: string[] = []
+  for (const branch of Object.values(map.root)) {
+    for (const leaf of Object.values(branch)) {
+      for (const key of Object.keys(leaf)) out.push(key)
+    }
+  }
+  return out
+}

@@ -1,0 +1,157 @@
+// 이벤트 형식 검사 (R-1 "입력 오류와 맞지 않는 명령", D-050, AC-S03-02).
+// - 입력 오류: 표에 없는 종류, 필수 필드가 없거나 값의 형식이 틀림, 선언하지 않은 방송, seq·at이 수가 아님, 이벤트가 객체가 아님.
+//   applyEvent는 상태를 바꾸지 않고 InvalidEventError를 던진다. 서버는 기록하기 전에 checkEvent로 거른다(S04).
+// - 맞지 않는 명령(형식은 맞지만 지금 상태에 맞지 않음)은 입력 오류가 아니다. 엔진이 아무것도 바꾸지 않는다(D-039).
+// - 처음 쓰는 스프린트가 따로 있는 종류(broadcast.start·end → S04, effect.failed → S11)는 NotImplementedError로 알린다.
+import { ownGet } from './draft.ts'
+import { isValidDate, isValidReceivedTime } from './time.ts'
+import type { EngineState, EventProblem } from './types.ts'
+
+/** 입력 오류 (NotImplementedError와 구별되는 오류 하나, D-050). 판별은 isInvalidEvent로 한다 */
+export class InvalidEventError extends Error {
+  /** 이벤트 종류 (알아볼 수 없으면 null) */
+  readonly eventType: string | null
+  readonly problems: readonly EventProblem[]
+
+  constructor(eventType: string | null, problems: readonly EventProblem[]) {
+    const shown = problems.map((p) => (p.field === null ? p.message : `${p.field}: ${p.message}`)).join(' · ')
+    super(`입력 오류${eventType === null ? '' : ` (${eventType})`}: ${shown}`)
+    this.name = 'InvalidEventError'
+    this.eventType = eventType
+    this.problems = problems
+  }
+}
+
+export function isInvalidEvent(error: unknown): error is InvalidEventError {
+  return error instanceof InvalidEventError
+}
+
+/** 처음 쓰는 스프린트가 따로 있는 R-1 이벤트 → 보고용 기능 이름 */
+export const DEFERRED_EVENTS: Readonly<Record<string, string>> = {
+  'broadcast.start': '방송 시작(broadcast.start, R-1) — S04',
+  'broadcast.end': '방송 종료(broadcast.end, R-1) — S04',
+  'effect.failed': '효과 실패 보고(effect.failed, R-13) — S11',
+}
+
+/** 값 검사: 통과면 null, 아니면 이유 */
+type Check = (value: unknown) => string | null
+
+const isInt = (value: unknown, min: number): boolean => typeof value === 'number' && Number.isSafeInteger(value) && value >= min
+
+const id: Check = (v) => (typeof v === 'string' && v !== '' ? null : '빈 문자열이 아닌 문자열이어야 한다')
+const text: Check = (v) => (typeof v === 'string' ? null : '문자열이어야 한다')
+const reason: Check = (v) => (typeof v === 'string' && v.trim() !== '' ? null : '사유는 빈 문자열이 아닌 문자열이어야 한다')
+const no: Check = (v) => (isInt(v, 1) ? null : '1 이상 정수여야 한다')
+const money: Check = (v) => (isInt(v, 0) ? null : '0 이상 정수(원)여야 한다')
+const positive: Check = (v) => (isInt(v, 1) ? null : '1 이상 정수(원)여야 한다')
+const signed: Check = (v) => (typeof v === 'number' && Number.isSafeInteger(v) ? null : '정수(원)여야 한다')
+const stock: Check = (v) => (isInt(v, 1) ? null : '재고는 1 이상 정수여야 한다')
+const bool: Check = (v) => (typeof v === 'boolean' ? null : 'true 또는 false여야 한다')
+const time: Check = (v) => (typeof v === 'number' && Number.isFinite(v) ? null : '유한한 수(UTC 밀리초)여야 한다')
+const received: Check = (v) => (isValidReceivedTime(v) ? null : '수신 시각은 HH:MM 또는 HH:MM:SS(00:00~23:59:59)여야 한다')
+const date: Check = (v) => (isValidDate(v) ? null : '날짜는 실제 있는 YYYY-MM-DD여야 한다')
+const channel: Check = (v) => id(v) ?? ((v as string).startsWith('sms:') ? "채널 ID는 'sms:'로 시작할 수 없다 (문자 구매자 ID 자리)" : null)
+const oneOf =
+  (...choices: readonly string[]): Check =>
+  (v) =>
+    typeof v === 'string' && choices.includes(v) ? null : `${choices.join(' / ')} 중 하나여야 한다`
+
+/** 방송 필드: 선언한 방송만 (state가 필요해 따로 검사한다) */
+const BROADCAST = 'b'
+
+interface Spec {
+  readonly required: Readonly<Record<string, Check>>
+  readonly optional?: Readonly<Record<string, Check>>
+  /** 필드끼리의 조건 */
+  readonly extra?: (event: Readonly<Record<string, unknown>>) => EventProblem | null
+}
+
+const BY_PRODUCT = { [BROADCAST]: id, no }
+const BY_CLAIM = { [BROADCAST]: id, no, buyer: id }
+const HOST_REASON = { ...BY_CLAIM, reason }
+const LEDGER = { buyer: id, date }
+
+/** R-1 이벤트 표 = tests/golden/README "이벤트 종류와 필드" (효과 보고만 효과 ID) */
+const SPECS: Readonly<Record<string, Spec>> = {
+  'product.register': { required: { ...BY_PRODUCT, name: text, price: money }, optional: { stock, status: oneOf('OPEN', 'READY') } },
+  'product.open': { required: BY_PRODUCT },
+  'product.hold': { required: BY_PRODUCT },
+  'product.close': { required: BY_PRODUCT },
+  'product.update': { required: BY_PRODUCT, optional: { name: text, price: money, stock, applyTo: oneOf('NEW_ONLY', 'UNPAID_CLAIMS') } },
+  'product.renumber': { required: { [BROADCAST]: id, from: no, to: no } },
+  chat: { required: { [BROADCAST]: id, id, ch: channel, nick: text, text }, optional: { owner: bool, publishedAt: time } },
+  sms: { required: { [BROADCAST]: id, ref: id, no, received }, optional: { memo: text, phone: text, buyer: id } },
+  'host.cancel': { required: HOST_REASON },
+  'host.reject': { required: HOST_REASON },
+  'host.promote': { required: HOST_REASON },
+  'host.confirm': { required: BY_CLAIM, optional: { reason } },
+  'host.approveCancel': { required: BY_CLAIM, optional: { reason } },
+  'host.dismissCancel': { required: BY_CLAIM, optional: { reason } },
+  'host.assign': { required: HOST_REASON, optional: { replace: id, replaceTo: oneOf('WAITLIST', 'CANCEL') } },
+  'host.reopen': { required: { ...BY_PRODUCT, reason } },
+  'host.resolveConflict': { required: { ...BY_PRODUCT, decision: oneOf('KEEP', 'SWITCH') }, optional: { reason } },
+  'host.convertMessage': { required: { [BROADCAST]: id, msg: id, no }, optional: { reason } },
+  'host.blockBuyer': { required: { buyer: id, reason } },
+  'host.unblockBuyer': { required: { buyer: id, reason } },
+  'buyer.merge': { required: { from: id, into: id, reason } },
+  'buyer.unmerge': { required: { from: id, reason } },
+  'effect.labelPrinted': { required: { effectId: id } },
+  'effect.thanksSent': { required: { effectId: id } },
+  'settlement.shippingOverride': {
+    required: { ...LEDGER, mode: oneOf('PICKUP', 'COMBINED', 'FIXED', 'DEFAULT') },
+    optional: { amount: money },
+    extra: (e) => {
+      if (e.mode === 'FIXED' && e.amount === undefined) return { field: 'amount', message: '금액 지정(FIXED)에는 금액이 필요하다' }
+      if (e.mode !== 'FIXED' && e.amount !== undefined) return { field: 'amount', message: '금액은 금액 지정(FIXED)일 때만 쓴다' }
+      return null
+    },
+  },
+  'settlement.adjust': { required: { ...LEDGER, amount: signed, reason } },
+  'settlement.payment': { required: { ...LEDGER, amount: positive }, optional: { memo: text } },
+  'settlement.refund': { required: { ...LEDGER, amount: positive, reason } },
+}
+
+/** 엔진이 처리하는 이벤트 종류 (처음 쓰는 스프린트가 따로 있는 종류는 뺀다) */
+export const EVENT_TYPES: readonly string[] = Object.keys(SPECS)
+
+/**
+ * 이벤트 형식 검사. 문제가 없으면 빈 목록.
+ * 같은 상태·이벤트에 대해 applyEvent가 입력 오류(InvalidEventError)를 던질 때만, 그리고 그때는 언제나 문제를 돌려준다.
+ * 형식은 맞지만 지금 상태에 맞지 않는 명령(없는 상품·찜·메시지 등)은 문제가 아니다.
+ */
+export function checkEvent(state: EngineState, event: unknown): EventProblem[] {
+  if (typeof event !== 'object' || event === null || Array.isArray(event)) return [{ field: null, message: '이벤트는 객체여야 한다' }]
+  const record = event as Readonly<Record<string, unknown>>
+  const type = record.type
+  if (typeof type !== 'string') return [{ field: 'type', message: '이벤트 종류(type)가 없다' }]
+  const deferred = ownGet(DEFERRED_EVENTS, type) !== undefined
+  const spec = ownGet(SPECS, type)
+  if (spec === undefined && !deferred) return [{ field: 'type', message: `모르는 이벤트 종류 '${type}'` }]
+  const problems: EventProblem[] = []
+  if (typeof record.seq !== 'number' || !Number.isSafeInteger(record.seq)) problems.push({ field: 'seq', message: 'seq는 정수여야 한다' })
+  const atProblem = time(record.at)
+  if (atProblem !== null) problems.push({ field: 'at', message: atProblem })
+  // 처음 쓰는 스프린트가 따로 있는 종류는 필드를 아직 정하지 않았다 (applyEvent가 NotImplementedError로 알린다)
+  if (spec === undefined) return problems
+  for (const [field, check] of Object.entries(spec.required)) {
+    const value = record[field]
+    if (value === undefined) {
+      problems.push({ field, message: '필수 필드가 없다' })
+      continue
+    }
+    const problem = check(value)
+    if (problem !== null) problems.push({ field, message: problem })
+    else if (field === BROADCAST && !state.broadcasts.some((broadcast) => broadcast.id === value)) {
+      problems.push({ field, message: `선언하지 않은 방송 '${value as string}'` })
+    }
+  }
+  for (const [field, check] of Object.entries(spec.optional ?? {})) {
+    const value = record[field]
+    if (value === undefined) continue
+    const problem = check(value)
+    if (problem !== null) problems.push({ field, message: problem })
+  }
+  const extra = problems.length === 0 ? (spec.extra?.(record) ?? null) : null
+  if (extra !== null) problems.push(extra)
+  return problems
+}

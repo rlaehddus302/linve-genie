@@ -1,7 +1,7 @@
 // checkInvariants (AC-S02-01·91): 망가진 상태마다 해당 불변식 위반을 실제로 알리는지 확인한다.
 import { CorruptStateError, applyEvent, checkInvariants, type BuyerRecord, type ClaimRecord, type EngineEvent, type EngineState, type SlotRecord } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
-import { pget, pset } from '../../src/engine/pmap.ts'
+import { emptyPMap, pget, pset } from '../../src/engine/pmap.ts'
 import { chat, play, register } from './engine-helpers.ts'
 
 // 15번: A 확정(c1), B 대기(c2), C 대기(c3). 16번: D 보류(c4)
@@ -36,8 +36,8 @@ describe('checkInvariants', () => {
   it('INV-2: 한 구매자에게 활성 찜이 둘, 보류 목록·활성 표시가 찜 상태와 다르다', () => {
     const twice = withClaim(VALID, 'c3', { buyer: 'B' })
     expect(checkInvariants(twice).map((v) => v.message)).toContain('상품 b1/15: 한 구매자에게 활성 찜이 둘 이상이다')
-    expect(checkInvariants(withSlot(VALID, 'b1/16', { pending: [] })).map((v) => v.message)).toContain('상품 b1/16: 보류 목록과 보류 상태인 찜이 다르다')
-    expect(checkInvariants(withSlot(VALID, 'b1/15', { active: {} })).map((v) => v.message)).toContain('상품 b1/15: 활성 찜 표시가 찜 상태와 다르다')
+    expect(checkInvariants(withSlot(VALID, 'b1/16', { pending: emptyPMap() })).map((v) => v.message)).toContain('상품 b1/16: 보류 목록과 보류 상태인 찜이 다르다')
+    expect(checkInvariants(withSlot(VALID, 'b1/15', { active: emptyPMap() })).map((v) => v.message)).toContain('상품 b1/15: 활성 찜 표시가 찜 상태와 다르다')
     const orphan = withClaim(VALID, 'c4', { key: 'b1/77' })
     expect(checkInvariants(orphan).map((v) => v.message)).toContain('찜 c4: 번호 b1/77 기록 없이 활성이다')
   })
@@ -92,7 +92,7 @@ describe('손상된 상태로 판정을 이어 가지 않는다 (CorruptStateErr
   it('같은 구매자의 보류 찜이 한 번호에 둘이면 공개할 때 멈춘다', () => {
     // 16번: D 보류(c4). 같은 D의 두 번째 보류 찜을 억지로 끼워 넣는다
     const second = { ...claim(VALID, 'c4'), id: 'c9', n: 9 }
-    const broken = withSlot({ ...VALID, claims: pset(VALID.claims, 'c9', second) }, 'b1/16', { pending: ['c4', 'c9'] })
+    const broken = withSlot({ ...VALID, claims: pset(VALID.claims, 'c9', second) }, 'b1/16', { pending: pset(pset(emptyPMap<true>(), 'c4', true), 'c9', true) })
     expect(() => apply(broken, { type: 'product.register', b: 'b1', no: 16, name: 'x', price: 1 })).toThrow(CorruptStateError)
   })
 })
