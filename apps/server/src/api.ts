@@ -1,5 +1,5 @@
-// /api 경로 (AC-S04-40·41·42·50~52·60, AC-S05-20·35·50~52·60·61·91). 계약은 harness/sprints/S04/dev-notes.md "dev-server > 웹(S05)에게"와
-// harness/sprints/S05/dev-notes.md "dev-server > 화면(dev-web)에게"에 적었다.
+// /api 경로 (AC-S04-40·41·42·50~52·60, AC-S05-20·35·50~52·60·61·91, AC-S06-70·71). 계약은 harness/sprints/S04/dev-notes.md "dev-server > 웹(S05)에게"와
+// harness/sprints/S05/dev-notes.md "dev-server > 화면(dev-web)에게", harness/sprints/S06/dev-notes.md "바뀐 계약"에 적었다.
 // - 범위 = (날짜, 리허설인지). 날짜로 범위를 고르는 경로는 ?rehearsal=true를 적어야 리허설 범위이고, 적지 않으면 실제 범위다 (D-081).
 // - 상태를 바꾸는 요청(POST·PUT·PATCH·DELETE): Origin이 설정한 앱 주소와 같아야 하고(403), 본문은 JSON 객체만(415·400), 64KB 이하(413).
 // - 로그인·헬스체크 밖은 세션이 필요하다(401). 다른 판매자의 자원은 404(있는지 알리지 않는다).
@@ -72,6 +72,8 @@ function rehearsalOf(c: Context): { ok: true; value: boolean | undefined } | { o
 }
 
 const NUMBER_RE = /^\d{1,9}$/
+/** 상품 ID (코어 listProducts의 id — 영문·숫자·'_'·'-' 1~64자) */
+const PRODUCT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 
 function outcomeResponse(c: Context, outcome: WriteOutcome): Response {
   switch (outcome.kind) {
@@ -295,13 +297,19 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (!NUMBER_RE.test(after) || !/^\d{1,4}$/.test(limit) || Number(limit) < 1) {
       return apiError(400, 'INVALID_INPUT', '조회 범위를 확인해 주세요.', [{ field: 'after', message: '시작 번호는 0 이상, 개수는 1 이상의 정수로 적어 주세요.' }])
     }
-    // 상품별 조치 기록 (AC-S05-35): b와 no를 함께
+    // 상품별 조치 기록: 상품 ID(AC-S06-70 — 상품 기준) 또는 방송과 번호를 함께(AC-S05-35 — 번호 기준). 둘을 함께 적지 않는다
     const b = c.req.query('b')
     const no = c.req.query('no')
+    const productId = c.req.query('product')
+    if (productId !== undefined && (b !== undefined || no !== undefined || !PRODUCT_ID_RE.test(productId))) {
+      return apiError(400, 'INVALID_INPUT', '조회 범위를 확인해 주세요.', [
+        { field: 'product', message: '상품은 상품 ID(product) 하나로만 고르고, 방송(b)·번호(no)와 함께 적지 않아요.' },
+      ])
+    }
     if ((b === undefined) !== (no === undefined) || (b !== undefined && b === '') || (no !== undefined && (!NUMBER_RE.test(no) || Number(no) < 1))) {
       return apiError(400, 'INVALID_INPUT', '조회 범위를 확인해 주세요.', [{ field: 'no', message: '상품을 고를 때는 방송(b)과 1 이상의 번호(no)를 함께 적어 주세요.' }])
     }
-    const product = b === undefined || no === undefined ? undefined : { b, no: Number(no) }
+    const product = productId !== undefined ? { product: productId } : b === undefined || no === undefined ? undefined : { b, no: Number(no) }
     const events = await service.history(sellerOf(c), date, Number(after), Math.min(Number(limit), HISTORY_LIMIT_MAX), rehearsal.value ?? false, product)
     return events === null ? notFound() : c.json({ date, rehearsal: rehearsal.value ?? false, events })
   })

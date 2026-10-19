@@ -441,6 +441,8 @@ export interface HistoryRow {
   readonly receivedAt: Date
   readonly actor: string
   readonly loginId: string | null
+  /** 엔진이 상태를 바꿨는지 (기록할 때의 결과) */
+  readonly changed: boolean
   readonly failed: boolean
 }
 
@@ -451,6 +453,7 @@ const historyColumns = {
   receivedAt: events.receivedAt,
   actor: events.actor,
   loginId: accounts.loginId,
+  changed: events.changed,
   failed: events.failed,
 }
 
@@ -465,8 +468,11 @@ export async function historyRows(db: Db, sellerId: string, scopeId: string, aft
     .limit(limit)
 }
 
-/** 상품 명령·방송자 조치(product.*·host.*)만, seq 순, after 뒤부터 limit개 — 상품별 조치 기록을 거를 때 차례로 읽는다 (AC-S05-35) */
-export async function actionRows(db: Db, sellerId: string, scopeId: string, after: number, limit: number): Promise<HistoryRow[]> {
+/**
+ * 상품 명령·방송자 조치(product.*·host.*)만, seq 순, after 뒤부터 limit개 — 상품별 조치 기록을 거를 때 차례로 읽는다 (AC-S05-35, AC-S06-70).
+ * upTo를 주면 그 seq까지만(조회가 잡아 둔 범위 상태의 seq)
+ */
+export async function actionRows(db: Db, sellerId: string, scopeId: string, after: number, limit: number, upTo?: number): Promise<HistoryRow[]> {
   return db
     .select(historyColumns)
     .from(events)
@@ -476,6 +482,7 @@ export async function actionRows(db: Db, sellerId: string, scopeId: string, afte
         eq(events.sellerId, sellerId),
         eq(events.scopeId, scopeId),
         gt(events.seq, after),
+        ...(upTo === undefined ? [] : [lte(events.seq, upTo)]),
         or(like(events.type, 'product.%'), like(events.type, 'host.%')),
       ),
     )

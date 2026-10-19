@@ -9,6 +9,7 @@ import {
   isValidDate,
   listBlocked,
   listBroadcasts,
+  listProducts,
   looksLikePhoneId,
   normalizePhone,
   parseChat,
@@ -38,6 +39,7 @@ import {
 import type { IdSource } from './ids.ts'
 import type { ScopeRuntime } from './runtime.ts'
 import { fieldMessage, safeFieldName, unknownFieldProblems } from './messages.ts'
+import { productOwners } from './product-history.ts'
 import { openSellerKey, phoneKeyOf } from './secrets.ts'
 import {
   actionRows,
@@ -151,10 +153,15 @@ export interface ChangesView extends Omit<ChangeSet, 'touchedMessages'> {
   readonly messagesMore: boolean
 }
 
-/** 상품별 조치 기록 거르기 (AC-S05-35) */
+/** 상품별 조치 기록 거르기: 방송·번호 (AC-S05-35 — 번호 기준) */
 export interface ProductFilter {
   readonly b: string
   readonly no: number
+}
+
+/** 상품별 조치 기록 거르기: 상품 ID (AC-S06-70, D-095 — 상품 기준, 번호를 바꿔도 같다) */
+export interface ProductIdFilter {
+  readonly product: string
 }
 
 export interface HistoryItem {
@@ -712,16 +719,59 @@ export class Service {
   }
 
   /**
-   * 이력 조회: seq 순, after 뒤부터 limit개. 전화번호 키는 빼고 낸다. 없는 범위면 null.
-   * product를 주면 그 방송·번호를 대상으로 한 product.*·host.* 이벤트만(번호 변경은 이전·새 번호 모두, AC-S05-35)
+   * 상품 ID로 거른 조치 행 (AC-S06-70). 범위 상태를 먼저 잡고(그 seq까지만 본다), after 뒤의 product.*·host.* 행을 모두 읽어
+   * 코어 listProducts의 지금 번호에서 뒤로 되짚으며 행마다 그때 그 번호의 상품을 정한다(productOwners)
    */
-  async history(sellerId: string, date: string, after: number, limit: number, rehearsal = false, product?: ProductFilter): Promise<HistoryItem[] | null> {
+  async #productIdRows(sellerId: string, date: string, rehearsal: boolean, productId: string, after: number, limit: number): Promise<HistoryRow[]> {
+    const runtime = await this.#options.writer.read(sellerId, date, rehearsal)
+    // runtime은 쓰기와 같이 쓰는 객체다 — 지금 값을 잡아 두고 행도 그 seq까지만 읽는다
+    const { state, seq, scopeId } = runtime
+    if (scopeId === null) return []
+    const current = listProducts(state)
+    if (!current.some((item) => item.id === productId)) return []
+    const all: HistoryRow[] = []
+    for (let cursor = after; ; ) {
+      const batch = await actionRows(this.#options.db, sellerId, scopeId, cursor, ACTION_BATCH, seq)
+      all.push(...batch)
+      if (batch.length < ACTION_BATCH) break
+      cursor = (batch.at(-1) as HistoryRow).seq
+    }
+    const owners = productOwners(
+      all.map((row) => ({ type: row.type, event: JSON.parse(row.body) as Record<string, unknown>, changed: row.changed, failed: row.failed })),
+      current,
+    )
+    const rows: HistoryRow[] = []
+    for (const [index, row] of all.entries()) {
+      if (owners[index] !== productId) continue
+      rows.push(row)
+      if (rows.length >= limit) break
+    }
+    return rows
+  }
+
+  /**
+   * 이력 조회: seq 순, after 뒤부터 limit개. 전화번호 키는 빼고 낸다. 없는 범위면 null.
+   * 거르기:
+   * - { b, no }: 그 방송·번호를 대상으로 한 product.*·host.* 이벤트만(번호 변경은 이전·새 번호 모두, AC-S05-35)
+   * - { product }: 그 상품(ID)을 대상으로 한 product.*·host.* 이벤트만 — 이벤트마다 그때 그 번호에 있던 상품으로 돌린다(AC-S06-70, D-095).
+   *   그 범위에 없는 상품 ID면 빈 목록(있는지 알리지 않는다)
+   */
+  async history(
+    sellerId: string,
+    date: string,
+    after: number,
+    limit: number,
+    rehearsal = false,
+    product?: ProductFilter | ProductIdFilter,
+  ): Promise<HistoryItem[] | null> {
     const scopeId = await findScopeId(this.#options.db, sellerId, date, rehearsal)
     if (scopeId === null) return null
     let rows: HistoryRow[]
     if (product === undefined) {
       rows = await historyRows(this.#options.db, sellerId, scopeId, after, limit)
       if (rows.length === 0 && after === 0) return null
+    } else if ('product' in product) {
+      rows = await this.#productIdRows(sellerId, date, rehearsal, product.product, after, limit)
     } else {
       rows = []
       // 조치 이벤트를 차례로 읽으며 그 상품을 대상으로 한 것만 모은다 (본문은 JSON 문자열이라 DB에서 거르지 않는다)
@@ -758,6 +808,9 @@ export class Service {
 }
 
 type ScopeStateLike = Parameters<typeof messageLookup>[1]
+
+/** 상품 ID 거르기에서 한 번에 읽는 조치 행 수 */
+const ACTION_BATCH = 1000
 
 /** 그 방송·번호를 대상으로 한 이벤트인지 (번호 변경은 이전·새 번호 모두) */
 function targetsProduct(event: Record<string, unknown>, product: ProductFilter): boolean {
