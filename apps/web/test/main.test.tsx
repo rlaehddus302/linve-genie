@@ -1,18 +1,20 @@
-// 진입점 (AC-S00-50): index.html의 본문에 main.tsx가 첫 화면을 붙이고, 그동안 서버를 부르지 않는다.
+// 진입점 (AC-S00-50 → AC-S05-01): index.html의 #root에 앱이 붙고, 처음 하는 일은 로그인 확인(GET /api/me) 하나다.
+// 로그인하지 않았으면 로그인 화면이 뜬다. 외부 리소스·다른 서버 호출은 없다.
 import { act, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import indexHtml from '../index.html?raw'
+import { FakeServer, apiError } from './support.ts'
 
 afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-it('index.html의 #root에 첫 화면이 뜬다', async () => {
-  const fetch = vi.fn()
+it('index.html의 #root에 앱이 뜨고, 로그인하지 않았으면 로그인 화면', async () => {
+  const server = new FakeServer().on('GET', /^\/api\/me$/, () => apiError(401, 'UNAUTHORIZED', '로그인이 필요해요.'))
   const XMLHttpRequest = vi.fn()
   const WebSocket = vi.fn()
   const EventSource = vi.fn()
-  vi.stubGlobal('fetch', fetch)
+  vi.stubGlobal('fetch', server.fetch)
   vi.stubGlobal('XMLHttpRequest', XMLHttpRequest)
   vi.stubGlobal('WebSocket', WebSocket)
   vi.stubGlobal('EventSource', EventSource)
@@ -28,11 +30,14 @@ it('index.html의 #root에 첫 화면이 뜬다', async () => {
 
   const root = document.getElementById('root')
   expect(root).not.toBeNull()
-  const heading = await screen.findByRole('heading', { level: 1, name: '라이브찜' })
-  expect(root?.contains(heading)).toBe(true)
-  expect(screen.getByText('준비 중이에요.')).toBeDefined()
+  const button = await screen.findByRole('button', { name: '로그인' })
+  expect(root?.contains(button)).toBe(true)
+  expect(screen.getByRole('heading', { level: 1, name: '라이브찜' })).toBeDefined()
 
-  expect(fetch).not.toHaveBeenCalled()
+  // 같은 출처의 로그인 확인만 부른다 (개발 모드 StrictMode는 처음 확인을 두 번 할 수 있다)
+  expect(server.calls.length).toBeGreaterThan(0)
+  expect(new Set(server.calls.map((call) => `${call.method} ${call.path}`))).toEqual(new Set(['GET /api/me']))
+  expect(server.calls.every((call) => call.credentials === 'include')).toBe(true)
   expect(XMLHttpRequest).not.toHaveBeenCalled()
   expect(WebSocket).not.toHaveBeenCalled()
   expect(EventSource).not.toHaveBeenCalled()

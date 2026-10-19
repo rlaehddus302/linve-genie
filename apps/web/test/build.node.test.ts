@@ -94,7 +94,9 @@ describe('vite build', () => {
 
   it('운영용 빌드다 (React 개발 모드 코드가 들어가지 않는다)', () => {
     const js = builtFiles().filter((f) => f.endsWith('.js')).map(read).join('\n')
-    expect(js).toContain('준비 중이에요.')
+    // S05 화면(로그인·콘솔)이 들어 있다 (S00의 "준비 중이에요." 첫 화면을 바꿨다)
+    expect(js).toContain('로그인이 풀렸어요. 다시 로그인해 주세요.')
+    expect(js).toContain('리허설 중 — 실제 판매가 아니에요')
     expect(js).not.toContain('react-dom.development')
     expect(js).not.toContain('__REACT_DEVTOOLS_GLOBAL_HOOK__ is not')
   })
