@@ -1,7 +1,7 @@
 // 화면 낱말(AC-S05-70, D-088)과 한국 시각 표시(NFR-07, AC-S05-92). 시험은 TZ=Pacific/Honolulu에서 돈다(verify test 단계).
 import { formatWon } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
-import { dateWords, kstDate, kstTime, kstToday } from '../src/lib/kst.ts'
+import { broadcastWords, dateLong, dateWords, dateYear, kstDate, kstStamp, kstTime, kstToday } from '../src/lib/kst.ts'
 import {
   ALERT_WORD,
   CHAT_WORD,
@@ -116,5 +116,25 @@ describe('KST 시각 (Asia/Seoul 명시, 실행 환경 시간대와 무관)', ()
 
   it('날짜 낱말', () => {
     expect(dateWords('2026-10-09')).toBe('10월 9일')
+  })
+})
+
+describe('날짜는 연도·요일까지, 받은 시각은 날짜와 함께 (AC-S06b-22·31, D-101·D-102) — TZ=Pacific/Honolulu에서도 같은 글자', () => {
+  it('"2026년 10월 18일(일)" — 해를 넘긴 같은 날짜도 다른 글자', () => {
+    expect(dateLong('2026-10-18')).toBe('2026년 10월 18일(일)')
+    expect(dateLong('2025-10-18')).toBe('2025년 10월 18일(토)')
+    expect(dateLong('2026-01-05')).toBe('2026년 1월 5일(월)')
+    expect(dateYear('2026-10-18')).toBe('2026년 10월 18일')
+    expect(broadcastWords('1부', '2026-10-18')).toBe('1부 · 2026년 10월 18일(일)')
+    expect(dateLong('잘못')).toBe('잘못')
+  })
+
+  it('받은 시각 "10/18 20:01:05", 분까지면 "10/18 20:01" (KST, 실행 환경 시간대와 상관없다)', () => {
+    expect(kstStamp('2026-10-18T11:01:05.000Z')).toBe('10/18 20:01:05')
+    expect(kstStamp('2026-10-18T11:01:00.000Z', true)).toBe('10/18 20:01')
+    // KST 자정 직전 = UTC 14:59 — 날짜는 KST로
+    expect(kstStamp('2026-10-17T14:59:00.000Z', true)).toBe('10/17 23:59')
+    expect(kstStamp('2026-01-04T15:00:01.000Z')).toBe('1/5 00:00:01')
+    expect(kstStamp('읽을 수 없음')).toBe('')
   })
 })

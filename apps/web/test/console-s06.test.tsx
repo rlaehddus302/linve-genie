@@ -180,6 +180,41 @@ describe('끝난 방송·알림 띠·조치 기록 (AC-S06-61·66·70)', () => {
   })
 })
 
+describe('휴대폰 조치 기록 (AC-S06b-41, D-102)', () => {
+  const events = [
+    { seq: 3, type: 'host.cancel', at: '2026-10-19T11:01:05.000Z', receivedAt: '2026-10-19T11:01:05.000Z', actor: { kind: 'account', loginId: 'shop1' }, reason: '시청자가 다시 연락해서 다른 번호로 바꿔 달라고 함', fields: { b: 'b1', no: 15, buyer: 'UC_hong1234' }, failed: false },
+    { seq: 4, type: 'product.renumber', at: '2026-10-19T11:02:00.000Z', receivedAt: '2026-10-19T11:02:00.000Z', actor: { kind: 'account', loginId: 'shop1' }, reason: null, fields: { b: 'b1', from: 15, to: 16 }, failed: false },
+  ]
+
+  async function openDetail() {
+    setup([register(15, '핑크프릴', 10000), chat('m1', 'UC_hong1234', '홍길동', '15')])
+    engine.server.on('GET', /\/history\?/, () => ({ body: { date: DATE, rehearsal: false, events } }))
+    const { quick } = await openConsole()
+    enter(quick, '15')
+    const detail = await screen.findByRole('dialog', { name: '15번 자세히' })
+    const log = within(detail).getByRole('region', { name: '조치 기록' })
+    await waitFor(() => expect(log.textContent).toContain('번호 변경 15번 → 16번'))
+    return log
+  }
+
+  it('48rem 미만: 표가 아니라 기록마다 한 묶음(시각 · 조치 · 대상 · 사유 · 조치자)', async () => {
+    const log = await openDetail()
+    expect(within(log).queryByRole('table')).toBeNull()
+    const items = within(log).getAllByRole('listitem')
+    expect(items.map((item) => [...item.children].map((child) => child.textContent))).toEqual([
+      ['20:01:05', '취소', '홍길동', '시청자가 다시 연락해서 다른 번호로 바꿔 달라고 함', 'shop1'],
+      ['20:02:00', '번호 변경 15번 → 16번', 'shop1'],
+    ])
+  })
+
+  it('48rem 이상: 지금의 표 그대로', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(min-width: 48rem)', media: query, addEventListener: () => {}, removeEventListener: () => {} }))
+    const log = await openDetail()
+    expect(within(log).getAllByRole('row')).toHaveLength(3)
+    expect(within(log).queryByRole('list')).toBeNull()
+  })
+})
+
 describe('다시 받기 실패 안내 (AC-S06-41)', () => {
   it('처음 불러오기가 실패하면 고정 영역에 안내와 "지금 다시 불러오기" — 누르면 바로 다시, 맞춰지면 안내가 사라진다', async () => {
     setup([register(15, '핑크프릴', 10000)])
@@ -269,7 +304,7 @@ describe('앱: 떠나기 전 확인·인터넷 없음 (AC-S06-01, D-083, D-093)'
 
   const cancels = () => engine.posts.filter((post) => post.type === 'host.cancel')
 
-  it('UX-S06-001: 창이 열린 동안은 대기 시계가 멈춰 보내지 않는다 — "닫기"면 남은 시간부터 다시 흘러 그 뒤에 보낸다', async () => {
+  it('UX-S06-001: 창이 열린 동안은 대기 시계가 멈춰 보내지 않는다 — "닫기"면 대기 시간 전체를 다시 기다린 뒤에 보낸다 (D-103)', async () => {
     await waitingCancel(400)
     fireEvent.click(within(screen.getByRole('navigation', { name: '메뉴' })).getByRole('link', { name: '정산' }))
     const ask = await screen.findByRole('dialog', { name: '다른 화면으로 갈까요?' })
@@ -327,6 +362,93 @@ describe('앱: 떠나기 전 확인·인터넷 없음 (AC-S06-01, D-083, D-093)'
     const second = new Event('beforeunload', { cancelable: true })
     window.dispatchEvent(second)
     expect(second.defaultPrevented).toBe(false)
+  })
+
+  it('AC-S06b-43: 새로고침·탭 닫기의 beforeunload는 preventDefault와 returnValue를 함께 한다', async () => {
+    await waitingCancel(400)
+    const event = new Event('beforeunload', { cancelable: true })
+    let returned: unknown = ''
+    Object.defineProperty(event, 'returnValue', {
+      get: () => returned,
+      set: (value: unknown) => {
+        returned = value
+      },
+    })
+    window.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
+    expect(typeof returned === 'string' && returned !== '').toBe(true)
+  })
+
+  /** 앱 안에서 뒤로 갈 기록이 없는 처음 연 화면(새 탭·홈 화면 앱의 첫 화면)으로 콘솔을 열고 찜 취소를 기다리게 한다 */
+  async function firstEntryCancel(delayMs: number) {
+    setup([register(15, '핑크프릴', 10000), chat('m1', 'UC_hong1234', '홍길동', '15')], { delayMs })
+    window.history.replaceState(null, '', '/broadcasts/b1')
+    const length = window.history.length
+    render(<App />)
+    const quick = (await screen.findByLabelText('빠른 입력')) as HTMLInputElement
+    await flush(10)
+    expect(window.history.length).toBe(length)
+    enter(quick, '15')
+    const detail = await screen.findByRole('dialog', { name: '15번 자세히' })
+    fireEvent.click(within(detail).getByRole('button', { name: '찜 취소하기' }))
+    const reason = await screen.findByRole('dialog', { name: '15번 홍길동 취소' })
+    fireEvent.click(within(reason).getByRole('button', { name: '2 장난 찜' }))
+    fireEvent.click(within(reason).getByRole('button', { name: '찜 취소하기' }))
+    await screen.findByText(/뒤 보내요: 15번 홍길동 취소/)
+    return length
+  }
+
+  it('AC-S06b-43: 처음 연 화면에 보내기 전인 조치가 생기면 같은 주소의 기록을 하나 더 쌓아, 뒤로 가기가 앱을 떠나지 않고 묻는다 — "닫기"면 다시 쌓고 대기 뒤 보낸다', async () => {
+    const length = await firstEntryCancel(400)
+    // 같은 주소의 기록 하나 (조치가 여럿이어도 하나)
+    expect(window.history.length).toBe(length + 1)
+    expect(window.location.pathname).toBe('/broadcasts/b1')
+    act(() => {
+      window.history.back()
+    })
+    const ask = await screen.findByRole('dialog', { name: '다른 화면으로 갈까요?' })
+    expect(ask.textContent).toContain('보내기 전인 조치가 있어요. 떠나면 보내지 않아요.')
+    expect(window.location.pathname).toBe('/broadcasts/b1')
+    expect(screen.getByLabelText('빠른 입력')).toBeDefined()
+    fireEvent.click(within(ask).getByRole('button', { name: '닫기' }))
+    // 다음 뒤로 가기도 묻도록 기록을 다시 쌓는다
+    expect((window.history.state as { livejjimGuard?: boolean } | null)?.livejjimGuard).toBe(true)
+    await waitFor(() => expect(cancels()).toHaveLength(1))
+  })
+
+  it('AC-S06b-43: 처음 연 화면의 뒤로 가기에서 "보내지 않고 떠나기"면 보내지 않고 앱 밖(이전 기록)으로 간다', async () => {
+    await firstEntryCancel(300)
+    act(() => {
+      window.history.back()
+    })
+    const ask = await screen.findByRole('dialog', { name: '다른 화면으로 갈까요?' })
+    const back = vi.spyOn(window.history, 'back').mockImplementation(() => {})
+    fireEvent.click(within(ask).getByRole('button', { name: '보내지 않고 떠나기' }))
+    expect(back).toHaveBeenCalledTimes(1)
+    back.mockRestore()
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    expect(cancels()).toHaveLength(0)
+  })
+
+  it('AC-S06b-43: 앱 안에서 뒤로 갈 기록이 있으면 기록을 더 쌓지 않는다 (지금처럼 앱 안의 뒤로 가기가 묻는다)', async () => {
+    setup([register(15, '핑크프릴', 10000), chat('m1', 'UC_hong1234', '홍길동', '15')], { delayMs: 400 })
+    window.history.replaceState(null, '', '/')
+    render(<App />)
+    await screen.findByRole('heading', { name: '방송 목록' })
+    await flush(10)
+    fireEvent.click(within(screen.getByRole('list', { name: '방송' })).getByRole('link', { name: /1부/ }))
+    const quick = (await screen.findByLabelText('빠른 입력')) as HTMLInputElement
+    await flush(10)
+    const length = window.history.length
+    enter(quick, '15')
+    const detail = await screen.findByRole('dialog', { name: '15번 자세히' })
+    fireEvent.click(within(detail).getByRole('button', { name: '찜 취소하기' }))
+    const reason = await screen.findByRole('dialog', { name: '15번 홍길동 취소' })
+    fireEvent.click(within(reason).getByRole('button', { name: '2 장난 찜' }))
+    fireEvent.click(within(reason).getByRole('button', { name: '찜 취소하기' }))
+    await screen.findByText(/뒤 보내요: 15번 홍길동 취소/)
+    expect(window.history.length).toBe(length)
+    expect((window.history.state as { livejjimGuard?: boolean } | null)?.livejjimGuard).not.toBe(true)
   })
 
   it('TE-S06-003: 같은 화면 안의 이동(구매자 자세히 → 목록)에서 "보내지 않고 떠나기"면 기다리던 차단을 보내지 않고, 그 뒤 새 조치도 다시 묻는다', async () => {

@@ -1,9 +1,10 @@
 // 날짜 고르기 (AC-S06-20·30, D-069·D-081·D-090): 실제 범위 날짜(GET /api/days)와 리허설 범위 날짜(?rehearsal=true, "리허설" 글자).
 // 기본은 오늘(KST)의 실제 범위, 없으면 가장 최근 실제 범위. 둘 다 없으면 고른 날짜가 없다("아직 판매 기록이 없어요.").
 // 고른 날짜·리허설은 주소 검색값이다(새로고침·북마크해도 같은 화면) — 기본 날짜도 주소에 적는다(기록을 남기지 않고).
+// 날짜는 늘 연도와 요일까지 "2026년 10월 18일(일)", 리허설은 그 뒤에 "리허설" (AC-S06b-22, D-101).
 import { useEffect, useId, useState } from 'react'
 import { get, isApiError, type ApiError } from '../api/client.ts'
-import { dateWords, kstToday } from '../lib/kst.ts'
+import { dateLong, kstToday } from '../lib/kst.ts'
 import type { Navigate, ScopeRoute } from '../lib/router.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 
@@ -60,7 +61,7 @@ export function useScopeChoice(route: ScopeRoute, navigate: Navigate): { readonl
 const keyOf = (day: DayOption) => `${day.date}|${day.rehearsal ? 'r' : ''}`
 
 export function dayWords(day: DayOption): string {
-  return `${dateWords(day.date)}${day.rehearsal ? ' 리허설' : ''}`
+  return `${dateLong(day.date)}${day.rehearsal ? ' 리허설' : ''}`
 }
 
 export interface ScopePickerProps {

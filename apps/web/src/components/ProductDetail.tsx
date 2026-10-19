@@ -6,6 +6,7 @@ import { get, isApiError, newRequestId, withQuery, type ApiError } from '../api/
 import type { Claim, HistoryItem, Product } from '../api/types.ts'
 import { claimWord, formatWon } from '../lib/derive.ts'
 import { kstTime } from '../lib/kst.ts'
+import { useWide } from '../lib/use-wide.ts'
 import { ORIGIN_WORD, PRODUCT_STATUS_WORD, actionWord, actorWord } from '../lib/words.ts'
 import { openBlockAction, openClaimAction } from './actions.ts'
 import { productLabel, useConsoleApi } from './console-context.ts'
@@ -155,7 +156,11 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
             1등·대기 찜을 먼저 정리해 주세요.
           </p>
         ) : null}
-        {product.conflict ? <p className="warning">충돌부터 정해 주세요.</p> : null}
+        {product.conflict ? (
+          <p className="warning" data-tone="warning">
+            충돌부터 정해 주세요.
+          </p>
+        ) : null}
         {!selling && !product.conflict ? <p className="hint">직접 배정은 판매 중일 때만 할 수 있어요.</p> : null}
         {busy ? <p role="status">보내는 중…</p> : null}
         {error !== null ? <ErrorNote error={error} {...(failed === null ? {} : { onRetry: () => void run(failed.event, failed.requestId) })} /> : null}
@@ -319,9 +324,11 @@ function ClaimRow({ claim, product }: { readonly claim: Claim; readonly product:
 /**
  * 조치 기록 (AC-S05-35, AC-S06-70, D-095): 그 상품 기록(상품 ID — 번호를 바꿔도 같다)을 대상으로 한 조치. 시각·조치 낱말·대상 구매자·사유·조치자.
  * 번호 변경은 "번호 변경 15번 → 16번". 맞지 않아 아무 일도 없었던 조치도 보인다.
+ * PC(48rem 이상)는 표, 휴대폰은 표 대신 기록마다 한 묶음(시각 · 조치 · 대상 · 사유 · 조치자) — 좁은 표 칸에서 낱말이 한 글자씩 꺾이지 않게 (AC-S06b-41, D-102).
  */
 function ActionHistory({ product, claims }: { readonly product: Product; readonly claims: readonly Claim[] }) {
   const api = useConsoleApi()
+  const wide = useWide()
   const [items, setItems] = useState<HistoryItem[] | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
   // 상품이나 그 찜이 바뀌면 다시 받는다 (채팅만 오가는 동안은 받지 않는다)
@@ -349,7 +356,23 @@ function ActionHistory({ product, claims }: { readonly product: Product; readonl
       {error !== null ? <ErrorNote error={error} /> : null}
       {items === null && error === null ? <p>불러오는 중…</p> : null}
       {items !== null && items.length === 0 ? <p>아직 조치가 없어요.</p> : null}
-      {items !== null && items.length > 0 ? (
+      {items !== null && items.length > 0 && !wide ? (
+        <ol className="plain-list history-list">
+          {items.map((item) => {
+            const target = typeof item.fields.buyer === 'string' ? api.names.name(item.fields.buyer) : ''
+            return (
+              <li key={item.seq} className="history-entry">
+                <span className="history-time">{kstTime(item.at)}</span>
+                <span className="history-word">{actionWord(item.type, item.fields)}</span>
+                {target !== '' ? <span className="history-word">{target}</span> : null}
+                {item.reason !== null ? <span className="history-word">{item.reason}</span> : null}
+                <span className="history-word">{actorWord(item.actor)}</span>
+              </li>
+            )
+          })}
+        </ol>
+      ) : null}
+      {items !== null && items.length > 0 && wide ? (
         <table className="history">
           <thead>
             <tr>
