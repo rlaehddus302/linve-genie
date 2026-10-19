@@ -214,8 +214,10 @@ export function openCardCount(cards: readonly SuggestionCard[]): number {
 }
 
 /**
- * 새 카드를 맨 앞에 넣는다. 열린 카드가 3장을 넘으면 손대지 않은 가장 오래된(목록에서 가장 뒤) 열린 카드부터 닫는다.
- * 손댄 카드는 닫지 않는다(모두 손댔으면 4장 이상도 된다). 방금 넣은 카드는 닫지 않는다 — 방송자가 막 한 말이 보이지도 않고 사라지지 않게.
+ * 새 카드를 맨 앞에 넣는다. 열린 카드가 3장을 넘으면 손대지 않은 가장 오래된(목록에서 가장 뒤) 열린 카드부터 닫는다(D-204).
+ * 3장 규칙의 예외(D-I4-02, SPEC VOC-04): 새 카드는 언제나 열린 채로 들어가고(방송자가 막 한 말이 보이지도 않고 사라지지 않게),
+ * 손댄 열린 카드는 닫지 않는다(방송자가 고치던 값을 잃지 않게). 그래서 결과의 열린 카드 수 ≤ max(3, 손댄 열린 카드 수 + 1) —
+ * 말만으로는 늘지 않고 방송자가 손댄 만큼만 늘어난다.
  */
 export function addCard(cards: readonly SuggestionCard[], card: SuggestionCard): SuggestionCard[] {
   const next = [card, ...cards]

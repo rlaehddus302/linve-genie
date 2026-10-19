@@ -280,3 +280,94 @@ describe('AC-P2-12 열린 카드 3장', () => {
     expect(cards.map((c) => c.status)).toEqual(['OPEN', 'OPEN'])
   })
 })
+
+// ── I4 ─────────────────────────────────────────────────────────────────────
+
+describe('AC-I4-02 열린 카드 3장 예외 (D-I4-02, SPEC VOC-04) — 새 카드·손댄 카드는 닫지 않는다', () => {
+  const at = (id: string, minutes: number): SuggestionCard => card(HIGH, { id, createdAt: T0 + minutes * 60_000 })
+  const touchedOpen = (cards: readonly SuggestionCard[]): number => cards.filter((c) => c.status === 'OPEN' && c.touched).length
+
+  it('손댄 카드 3장 + 새 카드 → 4장, 이어서 새 카드 → 4장이고 앞의 손대지 않은 새 카드가 닫힌다', () => {
+    let cards = [touchCard(at('c', 2)), touchCard(at('b', 1)), touchCard(at('a', 0))]
+    cards = addCard(cards, at('d', 3))
+    expect(cards.map((c) => `${c.id}:${c.status}`)).toEqual(['d:OPEN', 'c:OPEN', 'b:OPEN', 'a:OPEN'])
+    expect(openCardCount(cards)).toBe(4)
+    cards = addCard(cards, at('e', 4))
+    expect(cards.map((c) => `${c.id}:${c.status}`)).toEqual(['e:OPEN', 'd:CLOSED', 'c:OPEN', 'b:OPEN', 'a:OPEN'])
+    expect(openCardCount(cards)).toBe(4)
+    // 상한: max(3, 손댄 열린 카드 수 + 1)
+    expect(openCardCount(cards)).toBeLessThanOrEqual(Math.max(MAX_OPEN_CARDS, touchedOpen(cards) + 1))
+  })
+
+  it('손댄 카드는 가장 오래되어도 닫히지 않고, 손대지 않은 카드는 오래된 것부터 닫힌다', () => {
+    let cards = [at('c', 2), at('b', 1), touchCard(at('a', 0))]
+    cards = addCard(cards, at('d', 3))
+    expect(cards.map((c) => `${c.id}:${c.status}`)).toEqual(['d:OPEN', 'c:OPEN', 'b:CLOSED', 'a:OPEN'])
+    cards = addCard(cards, at('e', 4))
+    expect(cards.map((c) => `${c.id}:${c.status}`)).toEqual(['e:OPEN', 'd:OPEN', 'c:CLOSED', 'b:CLOSED', 'a:OPEN'])
+  })
+
+  it('addCard 함수 설명이 D-I4-02를 가리킨다', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const source = await readFile(new URL('../src/card.ts', import.meta.url), 'utf8')
+    const doc = source.slice(0, source.indexOf('export function addCard'))
+    expect(doc.slice(doc.lastIndexOf('/**'))).toContain('D-I4-02')
+  })
+
+  type Op =
+    | { readonly kind: 'add'; readonly extraction: VoiceExtraction }
+    | { readonly kind: 'touch' | 'confirm' | 'close' | 'edit'; readonly pick: number }
+
+  const extraction = fc.constantFrom<VoiceExtraction>(HIGH, LOW, { no: null, name: '라울', price: 5000, confidence: 'LOW' }, { no: 7, name: null, price: null, confidence: 'LOW' })
+  const op: fc.Arbitrary<Op> = fc.oneof(
+    { weight: 3, arbitrary: extraction.map((value): Op => ({ kind: 'add', extraction: value })) },
+    fc.record({ kind: fc.constantFrom('touch', 'confirm', 'close', 'edit'), pick: fc.nat({ max: 20 }) }) as fc.Arbitrary<Op>,
+  )
+
+  it('속성: 만들기·손대기·고치기·확정·닫기·넣기를 임의 순서로 → 열린 카드 ≤ max(3, 손댄 열린 카드 + 1), 손댄 카드는 넣기로 닫히지 않음, 넣은 카드는 열림', () => {
+    fc.assert(
+      fc.property(fc.array(op, { maxLength: 40 }), fc.boolean(), (ops, autoOn) => {
+        let cards: SuggestionCard[] = []
+        let made = 0
+        for (const step of ops) {
+          if (step.kind === 'add') {
+            const next = createCard({ id: `k${String(made)}`, extraction: step.extraction, text: '문장', createdAt: T0 + made * 1000, settings: autoOn ? ON : {} })
+            made++
+            if (next === null) continue
+            const before = cards
+            cards = addCard(cards, next)
+            // 넣은 카드는 맨 앞이고 열려 있다
+            expect(cards[0]).toEqual(next)
+            expect(cards[0]?.status).toBe('OPEN')
+            expect(cards.length).toBe(before.length + 1)
+            // 손댄 열린 카드는 넣기로 닫히지 않는다, 닫힌 카드는 손대지 않은 열린 카드였다
+            before.forEach((old, i) => {
+              const now = cards[i + 1] as SuggestionCard
+              expect(now.id).toBe(old.id)
+              if (old.status === 'OPEN' && old.touched) expect(now.status).toBe('OPEN')
+              if (old.status !== 'OPEN') expect(now).toEqual(old)
+              if (now.status !== old.status) expect(old.touched).toBe(false)
+            })
+            // 닫은 것은 3장을 넘을 때만 — 넣은 뒤 열린 카드가 3장 이하면 넘치지 않았다는 뜻이고, 넘쳤다면 손대지 않은 카드가 남지 않는다(새 카드 빼고)
+            const open = cards.filter((c) => c.status === 'OPEN')
+            if (open.length > MAX_OPEN_CARDS) expect(open.slice(1).every((c) => c.touched)).toBe(true)
+          } else {
+            const target = cards[step.pick % Math.max(cards.length, 1)]
+            if (target === undefined) continue
+            const changed =
+              step.kind === 'touch'
+                ? touchCard(target)
+                : step.kind === 'close'
+                  ? closeCard(target)
+                  : step.kind === 'edit'
+                    ? editCard(target, { name: '라울' }).card
+                    : confirmCard(target, { existingNumbers: [] }).card
+            cards = replaceCard(cards, changed)
+          }
+          expect(openCardCount(cards)).toBeLessThanOrEqual(Math.max(MAX_OPEN_CARDS, touchedOpen(cards) + 1))
+        }
+      }),
+      { numRuns: 400 },
+    )
+  })
+})
