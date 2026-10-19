@@ -74,3 +74,8 @@ S04·S05 계약(`harness/sprints/S04/dev-notes.md` "웹(S05)에게", `harness/sp
 - 생성기는 판매자마다 하나다: 한 시험이 시작한 생성기는 다 보내거나(`running: false`) 멈추거나(`POST .../rehearsal/generator/stop`) 그 방송을 끝낸 뒤에 다음 시험이 다른 리허설 방송에서 시작할 수 있다(같은 서버를 함께 쓰므로). S05 E2E는 모두 끝까지 기다리거나 방송을 끝내므로 그대로다.
 - **1단계 끝까지 재생 (AC-S06-90)**: S05 방법(`harness/sprints/S05/dev-notes.md` "이력으로 코어 재생하기") 그대로에 문자찜 `phoneKey`만 채운다 — 이력 `sms` 이벤트의 `fields.phoneLast4`가 있으면 `phoneKey`를 시험이 넣은 번호마다 같은 값(예 `test-<뒤 4자리>`)으로 넣는다(시험의 번호는 뒤 4자리가 서로 다르게). 문자 구매자 ID는 `sms:<ref>`라(ref는 이력에 있다) 재생 결과의 구매자 ID가 서버와 같다.
 - 상품 기준 조치 기록 확인은 `history?product=<id>`.
+
+### 검증 (dev-server 끝)
+- `pnpm verify` 7단계 모두 통과: typecheck(설정 8 · TS 250) · lint(오류 0 · 경고 0) · test(파일 78 · 1,865) · golden(파일 21 · 파서 379 · 엔진 119 · 통과 498, 그 밖 0) · adversarial(파일 30 · 642) · e2e(파일 12 · 67 통과, 실패·건너뜀·재시도 없음 — 서버가 127.0.0.1에서만 열린 채로 S05 E2E 그대로 통과) · coverage(코어 라인 100% · 분기 99.65%). `TZ=Pacific/Honolulu`.
+- 그 뒤 프로그램 API 내보내기만 더한 커밋에서 typecheck·lint·test를 다시 돌려 통과.
+- 남의 몫으로 남은 실패 없음. 화면(dev-web) 몫: AC-S06-70 [web](상품 자세히가 `?product=`를 쓰기), AC-S06-71 [web](409 문장), AC-S06-73 [web](`apps/web/e2e/serve.ts`·`playwright.config.ts`를 127.0.0.1로).
