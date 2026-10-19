@@ -1,0 +1,148 @@
+# I1 보강 — 라벨·출력 화면 통합이 기대는 엔진 동작 (LBL-08·09·11, R-7 3, R-10, R-11, R-13, LABEL_RULES L-9·L-10, D-I1-02·D-I1-04).
+# 새 엔진 규칙은 없다(I1은 dev-core가 없다). 서버 출력 대기열이 효과를 작업으로 바꿀 때 기대는 것을 고정한다:
+#   - 라벨 키 = (찜, 확정버전). 자동 출력 작업 ID = PRINT_PRODUCT_LABEL 효과 ID. VOID_LABEL은 같은 (찜, 확정버전)을 가리킨다.
+#   - 출력 보고(effect.labelPrinted)는 잠금을 건다 — 서버가 출력 기기의 "출력함"을 엔진에 보고해야 하는 까닭.
+#   - 품종·가격 스냅샷이 바뀌어도 엔진은 효과를 내지 않는다 — 재출력은 판매자가 고르고, "재출력 필요"는 서버가 내용 키로 정한다(L-10).
+#   - 자동 출력은 방송마다의 설정 스냅샷. 끈 방송은 라벨 효과도 폐기 효과도 없다 — 손으로 출력한 라벨의 폐기는 서버가 상태로 정한다(D-I1-02).
+#   - 엔진은 포장 라벨 효과(PRINT_PACKING_LABEL)를 내지 않는다 — 포장 라벨은 판매자 요청으로 서버 대기열이 만든다(D-I1-02).
+#   - 합치기는 장부 정리라 라벨을 폐기하지 않는다. 포장 라벨은 지금의 구매자(합친 결과)의 묶음이다(L-9).
+# 기대값은 손으로 계산했다. 계산은 줄마다 주석.
+id: G-ENG-301
+title: 라벨 키는 (찜, 확정버전) — 출력 보고는 잠금, 품종·가격 스냅샷 변경은 효과 없음, 잠긴 1등의 취소 요청 승인 → 그 확정버전 라벨 폐기 + 승계자 새 라벨
+refs: [LBL-09, LBL-11, ORD-07, R-7, R-8, R-10, R-13, D-044, D-055, D-I1-02, D-I1-04]
+settings: { cancel.buyerChat: AUTO }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }     # A 확정(1): 라벨 A1(효과 ID `<A의 찜 ID>:PRINT_PRODUCT_LABEL:-:1` = 자동 출력 작업 ID), 감사 A1
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }     # 대기 [B]
+  - type: assert
+    expect:
+      pendingEffects:
+        - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+        - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+  - { at: "20:00:05", type: effect.labelPrinted, b: b1, no: 15, buyer: UC_A }            # 출력 기기가 A1을 출력함 → 서버가 보고 → 실행 완료, A 잠금
+  - { at: "20:00:06", type: product.update, b: b1, no: 15, name: 핑크프릴 금 }             # 품종 변경: 효과 없음 (재출력은 판매자가 고른다)
+  - { at: "20:00:07", type: product.update, b: b1, no: 15, price: 12000, applyTo: UNPAID_CLAIMS }  # A 묶음 받은 금액 0 → A 스냅샷 10,000 → 12,000. B는 대기라 스냅샷 없음. 효과 없음
+  - type: assert
+    expect:
+      buyers:
+        UC_A: { items: [b1/15], subtotal: 12000 }
+      effectCounts: { PRINT_PRODUCT_LABEL: 1, POST_THANKS: 1, VOID_LABEL: 0 }
+      pendingEffects:                                                                       # 라벨 A1은 실행 완료 → 실행 대상에서 빠짐
+        - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+  - { at: "20:01:00", type: chat, b: b1, id: m3, ch: UC_A, nick: 홍길동, text: "15 취소" }  # AUTO여도 잠긴 1등 → 바로 취소하지 않고 요청 (R-8, D-043)
+  - type: assert
+    expect:
+      products: { b1/15: { winner: UC_A, waitlist: [UC_B] } }
+      cancelRequests: [{ product: b1/15, buyer: UC_A }]
+  # 승인 → A 취소: 감사 A1(미실행) 취소, 라벨 A1(출력됨) → VOID_LABEL(A, 확정버전 1, 상품 키 b1/15).
+  # 자동 승계 → B 확정(2): 가격 스냅샷 = 지금 상품 가격 12,000, 품종 = 핑크프릴 금 → 라벨 B2, 감사 B2
+  - { at: "20:01:10", type: host.approveCancel, b: b1, no: 15, buyer: UC_A }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_B, waitlist: [], price: 12000 }
+  claims:
+    - { product: b1/15, buyer: UC_A, status: CANCELLED }
+    - { product: b1/15, buyer: UC_B, status: CONFIRMED }
+  buyers:
+    UC_A: { items: [], subtotal: 0 }
+    UC_B: { items: [b1/15], subtotal: 12000 }
+  cancelRequests: []
+  effects:
+    - { kind: VOID_LABEL, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_B, confirmVersion: 2 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_B, text: "15번 핑크프릴 금 12,000원 김철수님 구매 감사합니다", confirmVersion: 2 }
+  effectCounts: { PRINT_PRODUCT_LABEL: 2, POST_THANKS: 2, VOID_LABEL: 1, PRINT_PACKING_LABEL: 0 }   # 라벨 A1·B2, 감사 A1·B2, 폐기 A1
+  pendingEffects:                                                                           # 폐기 A1은 엔진 보고가 없어 계속 실행 대상(D-I1-02)
+    - { kind: VOID_LABEL, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_B, confirmVersion: 2 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_B, confirmVersion: 2 }
+---
+id: G-ENG-302
+title: 재고 2 — 1등마다 라벨 키가 따로다. 두 라벨 모두 출력된 뒤 한 사람만 취소하면 그 사람 라벨만 폐기되고 대기자에게 새 확정버전 라벨
+refs: [LBL-09, PRD-02, ORD-07, R-8, R-13, D-044, D-I1-02]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000, stock: 2 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }     # A 확정(1): 라벨 A1·감사 A1
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }     # B 확정(2): 라벨 B2·감사 B2
+  - { at: "20:00:03", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15" }     # 대기 [C]
+  - { at: "20:00:04", type: effect.labelPrinted, b: b1, no: 15, buyer: UC_A }            # 라벨 A1 출력함(잠금)
+  - { at: "20:00:05", type: effect.labelPrinted, b: b1, no: 15, buyer: UC_B }            # 라벨 B2 출력함(잠금)
+  # A 취소 → 감사 A1 취소, 라벨 A1 → VOID_LABEL(A, 1). B의 라벨 B2는 그대로(폐기 없음).
+  # 자동 승계: 대기 1순위 C 확정(3): 라벨 C3·감사 C3
+  - { at: "20:01:00", type: host.cancel, b: b1, no: 15, buyer: UC_A, reason: 구매자 요청 }
+expect:
+  products:
+    b1/15: { status: SOLD, winners: [UC_B, UC_C], waitlist: [] }
+  claims:
+    - { product: b1/15, buyer: UC_A, status: CANCELLED }
+  effects:
+    - { kind: VOID_LABEL, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_C, confirmVersion: 3 }
+  effectCounts: { PRINT_PRODUCT_LABEL: 3, POST_THANKS: 3, VOID_LABEL: 1 }   # 라벨 A1·B2·C3, 감사 A1·B2·C3, 폐기 A1만
+  pendingEffects:                                                            # 라벨 B2는 실행 완료, 감사 B2는 아직
+    - { kind: VOID_LABEL, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_B, confirmVersion: 2 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_C, confirmVersion: 3 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_C, confirmVersion: 3 }
+---
+id: G-ENG-303
+title: 자동 출력은 방송마다의 설정 스냅샷 — 같은 날 자동 출력을 끈 2부는 확정·승계해도 라벨 효과도 폐기 효과도 없다. 엔진은 포장 라벨 효과를 내지 않는다
+refs: [LBL-09, LBL-02, R-0, R-1, R-13, D-044, D-070, D-I1-02]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]   # 시작 설정 = 기본값 (print.autoOnConfirm: 예)
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }      # 1부 A 확정(1): 라벨 A1·감사 A1
+  - { at: "21:00:00", type: broadcast.start, b: b2, date: 2026-10-18, title: 2부, settings: { print.autoOnConfirm: false } }
+  - { at: "21:00:01", type: product.register, b: b2, no: 15, name: 라울, price: 5000 }       # 같은 번호도 방송이 다르면 다른 상품 (R-0 5)
+  - { at: "21:00:02", type: chat, b: b2, id: m2, ch: UC_A, nick: 홍길동, text: "15" }      # 2부 A 확정(1): 감사만 (자동 출력 끔)
+  - { at: "21:00:03", type: chat, b: b2, id: m3, ch: UC_B, nick: 김철수, text: "15" }      # 2부 대기 [B]
+  # 2부 A 취소 → 감사 A1(2부, 미실행) 취소, 라벨 효과가 없으니 폐기도 없음. 자동 승계: B 확정(2): 감사만
+  - { at: "21:01:00", type: host.cancel, b: b2, no: 15, buyer: UC_A, reason: 구매자 요청 }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A }
+    b2/15: { status: SOLD, winner: UC_B, waitlist: [] }
+  buyers:
+    UC_A: { items: [b1/15], subtotal: 10000, byBroadcast: { b1: 10000 } }
+    UC_B: { items: [b2/15], subtotal: 5000, byBroadcast: { b2: 5000 } }
+  settlements:                                                                 # 같은 날 1·2부는 한 묶음(R-12). 포장 라벨은 이 묶음에서 만든다(L-9)
+    UC_A@2026-10-18: { subtotal: 10000, shipping: 4000, total: 14000, payment: UNPAID }
+    UC_B@2026-10-18: { subtotal: 5000, shipping: 4000, total: 9000, payment: UNPAID }
+  effectCounts: { PRINT_PRODUCT_LABEL: 1, PRINT_PACKING_LABEL: 0, VOID_LABEL: 0, POST_THANKS: 3 }   # 라벨: 1부 A1뿐. 감사: 1부 A1, 2부 A1·B2
+  pendingEffects:
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b2/15, buyer: UC_B, confirmVersion: 2 }
+---
+id: G-ENG-304
+title: 합치기는 출력된 라벨을 폐기하지 않는다 — 문자 구매자를 유튜브 시청자에 합치면 두 라벨 그대로, 묶음은 하나(포장 라벨은 지금의 구매자 이름), 나간 감사 문구의 이름은 그대로
+refs: [LBL-02, LBL-09, BUY-03, R-11, R-12, R-13, D-057, D-P1-05, D-P1-10, D-I1-02]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:05", type: sms, b: b1, ref: s1, no: 15, received: "20:00:02", memo: 김영희 이모 }   # 문자 구매자 sms:s1 15번 확정(1): 라벨·감사("문자찜")
+  - { at: "20:00:06", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "16" }              # A 16번 확정(1): 라벨·감사
+  - { at: "20:00:07", type: effect.labelPrinted, b: b1, no: 15, buyer: "sms:s1" }                  # 15번 라벨 출력함
+  - { at: "20:00:08", type: effect.labelPrinted, b: b1, no: 16, buyer: UC_A }                      # 16번 라벨 출력함
+  # 같은 사람 → sms:s1을 UC_A에 합친다. 두 사람 모두 1등인 상품이 없으니 합쳐진다. 확정은 그대로 → 효과 없음, 폐기 없음
+  - { at: "20:10:00", type: buyer.merge, from: "sms:s1", into: UC_A, reason: 같은 사람 }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A }          # 구매자는 지금의 구매자로 푼다
+    b1/16: { status: SOLD, winner: UC_A }
+  sameBuyer: [[UC_A, "sms:s1"]]
+  buyers:
+    UC_A: { items: [b1/15, b1/16], subtotal: 15000, display: 홍길동 }   # 포장 라벨의 구매자 = 지금의 구매자 표시 이름(L-9)
+  settlements:
+    UC_A@2026-10-18: { subtotal: 15000, shipping: 4000, total: 19000, payment: UNPAID }   # 묶음 하나, 배송비 한 번
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:s1", text: "15번 핑크프릴 10,000원 문자찜님 구매 감사합니다", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/16, buyer: UC_A, text: "16번 라울 5,000원 홍길동님 구매 감사합니다", confirmVersion: 1 }
+  effectCounts: { PRINT_PRODUCT_LABEL: 2, VOID_LABEL: 0, POST_THANKS: 2, PRINT_PACKING_LABEL: 0 }
+  pendingEffects:                                                     # 라벨 둘은 실행 완료. 감사 둘은 아직
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:s1", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/16, buyer: UC_A, confirmVersion: 1 }
