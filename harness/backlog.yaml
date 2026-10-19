@@ -95,7 +95,8 @@ sprints:
       - "RA-S03b-003: 승계=ASK + 대기 한도 0에서 자리가 비어 풀린 충돌 찜이 품절되고 묻지 않는 문제 — spec-keeper가 단순 규칙으로 결정"
       - "SA-S03b-001: 취소만 있는 메시지('15 취소')는 찜으로 변환하지 않는다 (D-062 취지), 테스트로 고정"
     specIds: [DAT-01, DAT-02, DAT-05, DAT-06, SYS-01, SYS-02, NFR-01, NFR-03, NFR-06, NFR-07]
-    status: fail
+    status: done
+    note: 워크플로 FAIL(전화번호 검사 범위) → D-079로 단순화 후 수정 패스(spec→test→core→server), verify 6단계 통과·실서버 스모크(로그인→방송→상품→문자찜→정산, DB에 번호 평문 없음) 오케스트레이터 확인
 
   - id: S05
     phase: 1
@@ -105,6 +106,10 @@ sprints:
     goal: >
       방송 만들기, 빠른 입력, 상품 보드, 채팅 패널(주문 강조·메시지→찜 변환), 알림 띠(충돌·보류·취소 요청),
       되돌리기, 단축키. 가짜 채팅 생성기로 방송 리허설.
+    carryOver:
+      - "RA-S04-007·RA-S04-008: 화면 반영 1초를 알림 도착이 아니라 화면 갱신까지로 재고, 알림마다 전체 조회·판매자 전체 집계를 다시 하지 않도록(증분 조회)"
+      - "RA-S04-006: 차단 이어받기가 코어 내부 구조를 직접 훑지 않도록 코어에 조회 함수 제공"
+      - "채팅 입력은 수집기 경로(actor collector)로만 들어온다 — 리허설 시뮬레이터가 이 경로를 쓴다"
     specIds: [YT-09, UX-01, UX-03, UX-05, UX-06, ORD-10, ORD-12]
     uxReview: true
     status: todo
@@ -188,6 +193,8 @@ sprints:
     devs: [server, web]
     tests: [e2e]
     goal: 시작 마법사(가게→규칙→프린터→유튜브→리허설), 배포 설정, 개인정보처리방침·이용약관 초안 페이지, 모니터링, 백업 스케줄.
+    carryOver:
+      - "RA-S04-004: 로그인 경로 IP·전체 속도 제한(scrypt 비용 남용 방지)"
     specIds: [UX-02, SYS-04]
     uxReview: true
     status: todo

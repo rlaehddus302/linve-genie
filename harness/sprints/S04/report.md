@@ -124,3 +124,25 @@ S04를 다시 열어 짧은 수정 스프린트(S04 재실행 또는 S04b)로 �
 2. **dev-core**: `looksLikePhoneId`·`containsPhoneRun` 내보내기, `buyerRef` 검사를 buyer·from·into·replace·msg에 적용, 글 칸은 containsPhoneRun으로 교체, 골든 contract.ts·픽스처 19 정리, `listBlocked` 공개, settings.ts 문구 수정.
 3. **dev-server**: messages.ts에 ID 칸 안내 문장, 이어받기에서 번호 모양 ID 제외 + listBlocked 사용, SSE 등록 순서 수정(RA-S04-003).
 4. S05 전에 RA-S04-007(채팅 1만 범위 재조회 p99)을 재서 ETag·부분 조회 필요 여부를 정한다. RA-S04-004·008은 S12 전까지 처리.
+
+---
+
+## 오케스트레이터 후속 조치 (2026-10-19)
+
+워크플로 결과는 FAIL이었다. 남은 blocker·major 5건은 모두 전화번호 검사 범위 문제다. 숫자 모으기 판단을 글 칸 전체로 넓히자 번호 없는 방송 제목이 거절됐고(SA-S04-007), 거꾸로 ID 칸은 검사가 없어 평문 번호가 로그에 남았다(SA-S04-006).
+
+- 결정: **D-079**(오케스트레이터)로 단순화. 실제 번호 표기만 보는 덩어리 판단 하나를 쓰고, ID 칸은 번호 모양 값만 막고, 재생 때는 다시 검사하지 않는다. 세부는 spec-keeper가 D-080으로 정했다.
+- 수정 패스(s04-fixup 워크플로): spec-keeper → test-domain → dev-core → dev-server. SSE 연결 순서 버그(RA-S04-003·SA-S04-005)와 영어 문구(SA-S04-004)도 함께 고쳤다.
+- 오케스트레이터 확인
+  - `pnpm verify` 6단계 통과: typecheck 174, test 1638, golden 491/491, adversarial 631, coverage 100/99.65.
+  - 보호 경로 게이트 통과.
+  - 실제 서버 스모크: PGlite 파일 DB, 마이그레이션, 계정 생성, 로그인 순으로 돌렸다.
+    - 방송 '01/05 구피 30종 1000원' 생성이 통과했다.
+    - 상품 15번을 등록한 뒤 문자찜 2건을 넣으니 1등과 대기로 나뉘었다.
+    - 같은 요청 번호를 다시 보내면 첫 결과가 돌아온다.
+    - 정산은 14,000원(UNPAID)이고, 라벨·감사 효과는 PENDING이다.
+    - DB 파일에 전화번호 평문이 없다.
+- 이관
+  - RA-S04-006·007·008 → S05
+  - RA-S04-004(로그인 속도 제한) → S12
+  - D-080 번호 판단 범위 → 사용자 확인 목록
