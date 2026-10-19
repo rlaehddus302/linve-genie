@@ -1,5 +1,5 @@
-// /api 경로 (AC-S04-40·41·42·50~52·60, AC-S05-20·35·50~52·60·61·91, AC-S06-70·71). 계약은 harness/sprints/S04/dev-notes.md "dev-server > 웹(S05)에게"와
-// harness/sprints/S05/dev-notes.md "dev-server > 화면(dev-web)에게", harness/sprints/S06/dev-notes.md "바뀐 계약"에 적었다.
+// /api 경로 (AC-S04-40·41·42·50~52·60, AC-S05-20·35·50~52·60·61·91, AC-S06-70·71, AC-S06b-10·11). 계약은 harness/sprints/S04/dev-notes.md "dev-server > 웹(S05)에게"와
+// harness/sprints/S05/dev-notes.md "dev-server > 화면(dev-web)에게", harness/sprints/S06/dev-notes.md·harness/sprints/S06b/dev-notes.md "바뀐 계약"에 적었다.
 // - 범위 = (날짜, 리허설인지). 날짜로 범위를 고르는 경로는 ?rehearsal=true를 적어야 리허설 범위이고, 적지 않으면 실제 범위다 (D-081).
 // - 상태를 바꾸는 요청(POST·PUT·PATCH·DELETE): Origin이 설정한 앱 주소와 같아야 하고(403), 본문은 JSON 객체만(415·400), 64KB 이하(413).
 // - 로그인·헬스체크 밖은 세션이 필요하다(401). 다른 판매자의 자원은 404(있는지 알리지 않는다).
@@ -57,7 +57,11 @@ function resultBody(result: WriteResult): Record<string, unknown> {
   }
   const event = result.event
   if (result.type === 'broadcast.start') body.broadcast = { id: event.b, date: event.date, title: event.title, rehearsal: result.rehearsal }
-  if (result.type === 'sms') body.phoneLast4 = typeof event.phoneLast4 === 'string' ? event.phoneLast4 : null
+  if (result.type === 'sms') {
+    body.phoneLast4 = typeof event.phoneLast4 === 'string' ? event.phoneLast4 : null
+    // 그 문자찜이 정한 구매자 자신 (AC-S06b-11, D-099 — 처음 응답과 재전송 응답이 같다)
+    body.buyer = result.smsBuyer ?? null
+  }
   // 시청자로 보내기 (서버가 만든 메시지 ID와 쓴 가짜 채널)
   if (result.type === 'chat') body.message = { id: event.id, channel: event.ch }
   return body

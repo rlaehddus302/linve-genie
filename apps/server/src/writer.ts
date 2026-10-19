@@ -110,10 +110,18 @@ export interface WriteResult {
   readonly effects: readonly string[]
   /** 기록한 엔진 이벤트 (응답을 만들 때 읽는다 — 응답에 그대로 내보내지 않는다) */
   readonly event: Readonly<Record<string, unknown>>
+  /** 문자찜이 정한 구매자 자신 (sms만, 서비스가 채운다 — 응답 buyer, AC-S06b-11, D-099). 정하지 못했으면 null */
+  readonly smsBuyer?: string | null
 }
 
 export type WriteOutcome =
-  | { readonly kind: 'ok'; readonly result: WriteResult; readonly records: readonly CommittedRecord[] }
+  | {
+      readonly kind: 'ok'
+      readonly result: WriteResult
+      readonly records: readonly CommittedRecord[]
+      /** 이벤트마다 적용한 뒤의 범위 상태 (records와 같은 순서) */
+      readonly states: readonly EngineState[]
+    }
   | { readonly kind: 'duplicate'; readonly result: WriteResult | null }
   | { readonly kind: 'rejected'; readonly rejection: Rejection }
   | { readonly kind: 'not_found' }
@@ -431,6 +439,7 @@ export class ScopeWriter {
     return {
       kind: 'ok',
       records: committed.records,
+      states: committed.states,
       result: {
         date: job.date,
         rehearsal: job.rehearsal,

@@ -2,6 +2,7 @@
 // 범위 = (판매자, 날짜, 리허설인지) (D-081). 날짜로 범위를 고르는 조회·쓰기는 리허설을 명시해야 리허설 범위이고, 적지 않으면 실제 범위다.
 // 방송이 있는 입력은 그 방송의 범위로 간다.
 import {
+  buyerOfRef,
   checkSettings,
   containsPhoneRun,
   getBroadcast,
@@ -261,7 +262,20 @@ export class Service {
   /** 그 요청 번호로 이미 기록한 결과 (없으면 null). 같은 요청 번호면 내용이 달라도 처음 결과를 돌려준다 */
   async priorResult(sellerId: string, requestId: string): Promise<WriteResult | null> {
     const record = await eventByRequestId(this.#options.db, sellerId, requestId)
-    return record === null ? null : resultOf(this.#options.db, sellerId, record)
+    return record === null ? null : this.#withSmsBuyer(sellerId, await resultOf(this.#options.db, sellerId, record))
+  }
+
+  /**
+   * 다시 돌려주는 문자찜 결과에 그 문자찜이 정한 구매자를 붙인다 (재전송 응답의 buyer, AC-S06b-11, D-099).
+   * 문자찜 ref → 구매자는 그 ref를 처음 받을 때 한 번만 기록되고 바뀌지 않는다(R-11, D-067 — 같은 ref가 다시 오면 아무 일도 없다).
+   * 그래서 그 범위의 지금 상태에서 읽어도 처음 응답(그 이벤트를 적용한 뒤 상태)과 같은 값이다. 문자찜이 아니거나 실패 표시면 그대로
+   */
+  async #withSmsBuyer(sellerId: string, result: WriteResult): Promise<WriteResult> {
+    if (result.type !== 'sms' || result.failed) return result
+    const ref = result.event.ref
+    if (typeof ref !== 'string') return { ...result, smsBuyer: null }
+    const runtime = await this.#options.writer.read(sellerId, result.date, result.rehearsal)
+    return { ...result, smsBuyer: buyerOfRef(runtime.state, ref) }
   }
 
   // ── 방송 만들기·끝내기 (AC-S04-21·27) ─────────────────────────────────
@@ -448,7 +462,20 @@ export class Service {
         },
       ],
     })
-    return { kind: 'phone', outcome, phoneLast4: normalized === null ? null : phoneLast4(normalized) }
+    return { kind: 'phone', outcome: await this.#smsOutcome(sellerId, outcome, ref), phoneLast4: normalized === null ? null : phoneLast4(normalized) }
+  }
+
+  /**
+   * 문자찜 쓰기 결과에 그 문자찜이 정한 구매자를 붙인다 (응답 buyer, AC-S06b-11, D-099).
+   * 기록했으면 그 이벤트를 적용한 뒤 상태의 코어 buyerOfRef(ref), 같은 요청 번호의 처음 결과면 그 결과의 ref로 같은 값을 읽는다
+   */
+  async #smsOutcome(sellerId: string, outcome: WriteOutcome, ref: string): Promise<WriteOutcome> {
+    if (outcome.kind === 'ok') {
+      const after = outcome.states[0]
+      return { ...outcome, result: { ...outcome.result, smsBuyer: after === undefined ? null : buyerOfRef(after, ref) } }
+    }
+    if (outcome.kind === 'duplicate' && outcome.result !== null) return { kind: 'duplicate', result: await this.#withSmsBuyer(sellerId, outcome.result) }
+    return outcome
   }
 
   /** 문자찜 ref (영문만이라 휴대폰 번호가 들어갈 수 없다. 바꿔 끼운 ID 생성기가 숫자를 섞어도 번호가 들어 있으면 — 코어 입력 오류와 같은 판단 containsPhoneRun — 다시 만든다) */
