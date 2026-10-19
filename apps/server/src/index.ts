@@ -2,7 +2,7 @@
 // S04: PGlite로 DB를 열고(openPglite) createServer(...).app.request(...)로 /api를 부른다. 계정은 createSellerAccount로 만든다.
 // S05: 리허설 범위·가짜 채팅 생성기(ChatGenerators·ChatMaker), 증분 조회, E2E 기동(startE2eServer·fillScope).
 // S06: 상품 ID 조치 기록(productOwners), 범위별 보기 캐시(StateCache·newViewCaches), 생성기 판매자당 하나(GENERATOR_RECORDS_MAX), E2E 127.0.0.1(E2E_HOST).
-// S06b: 합치기 미리 보기 조회(MergePreviewView), 문자찜 응답 buyer.
+// S06b: 합치기 미리 보기 조회(MergePreviewView), 문자찜 응답 buyer, 보기 캐시 상한(ViewCacheBudget — 판매자마다 4·서버 전체 32·10분).
 export { createApp, defaultLogError, type AppOptions, type ErrorLogger } from './app.ts'
 export { DEFAULT_PORT, readAppOrigin, readDatabaseSetting, readPort, type DatabaseSetting, type OriginSetting, type PortSetting } from './config.ts'
 export {
@@ -83,6 +83,7 @@ export {
   MESSAGE_LOOKUP_CACHE_MAX,
   VIEW_INDEX_CACHE_MAX,
   VIEW_LISTS,
+  clearViewCaches,
   newViewCaches,
   type ChangeSet,
   type FullView,
@@ -91,6 +92,14 @@ export {
   type ViewList,
 } from './views.ts'
 export { StateCache } from './state-cache.ts'
+export {
+  VIEW_CACHE_IDLE_MS,
+  VIEW_CACHE_SCOPES_MAX,
+  VIEW_CACHE_SCOPES_PER_SELLER,
+  ViewCacheBudget,
+  type ViewCacheBudgetOptions,
+  type ViewScope,
+} from './view-budget.ts'
 export { productOwners, type ActionRow, type CurrentProduct } from './product-history.ts'
 export { E2E_ACCOUNT_FILE, E2E_HOST, fillScope, readE2eAccount, startE2eServer, type E2eAccount, type E2eOptions, type E2eServer, type FillOptions, type FillResult } from './e2e.ts'
 export { generateMasterKey, phoneKeyOf, readMasterKey, DEFAULT_PASSWORD_COST, type PasswordCost } from './secrets.ts'

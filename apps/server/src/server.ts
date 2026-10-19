@@ -16,6 +16,7 @@ import type { GeneratorTimer } from './generator.ts'
 import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
 import { systemClock, type Clock } from './time.ts'
+import { ViewCacheBudget } from './view-budget.ts'
 import { DEFAULT_RUNTIME_CACHE_MAX, ScopeWriter, type WriterHooks } from './writer.ts'
 
 /** 스냅샷 간격 상한 (AC-S04-28: 일정 이벤트 수, 최대 500) */
@@ -60,6 +61,8 @@ export interface LivejjimServer {
   readonly writer: ScopeWriter
   readonly hub: StreamHub
   readonly auth: Auth
+  /** 보기 캐시 상한 (판매자마다 4·서버 전체 32·10분, AC-S06b-12 — 시험·점검용) */
+  readonly viewCaches: ViewCacheBudget
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
   /** 실시간 연결을 닫고 리허설 생성기·타이머를 멈춘다 (DB는 닫지 않는다) */
@@ -100,6 +103,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const engine: EngineAdapter = options.engine ?? { applyEvent }
   const auth = new Auth({ db, clock, limitSecret: loginLimitSecret(masterKey), log, ...(options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost }) })
   const hub = new StreamHub({ heartbeatMs, sessionAlive: (hash) => auth.alive(hash) })
+  const viewCaches = new ViewCacheBudget({ now: () => clock.now() })
   const writer = new ScopeWriter({
     db,
     engine,
@@ -110,7 +114,12 @@ export function createServer(options: ServerOptions): LivejjimServer {
     snapshotEvery,
     runtimeCacheMax,
     changesWindow,
-    onCommit: (sellerId, date, rehearsal, records) => hub.publish(sellerId, records.map((record) => ({ date, rehearsal, seq: record.seq, type: record.type }))),
+    onCommit: (sellerId, date, rehearsal, records) => {
+      hub.publish(sellerId, records.map((record) => ({ date, rehearsal, seq: record.seq, type: record.type })))
+      // 마지막 조회 뒤 10분이 지난 범위의 보기 캐시를 비운다 (커밋 뒤 — 항목이 많아야 33개, AC-S06b-12)
+      viewCaches.sweep()
+    },
+    onDrop: (runtime) => viewCaches.release(runtime),
   })
   const service = new Service({
     db,
@@ -118,6 +127,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     masterKey,
     clock,
     ids,
+    viewCaches,
     generatorSpeed,
     onGenerator: (sellerId, payload) => hub.publishGenerator(sellerId, payload),
     ...(options.generatorTimer === undefined ? {} : { generatorTimer: options.generatorTimer }),
@@ -132,6 +142,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     writer,
     hub,
     auth,
+    viewCaches,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     close: () => {
       service.generators.closeAll()

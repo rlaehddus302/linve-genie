@@ -64,6 +64,7 @@ import {
   type ScopeSeqRow,
 } from './store.ts'
 import { iso, kstDate, kstTime, type Clock } from './time.ts'
+import type { ViewCacheBudget } from './view-budget.ts'
 import { changeSet, fullView, messageLookup, type ChangeSet, type FullView, type MessageLookup } from './views.ts'
 import { resultOf, type Actor, type Draft, type Rejection, type ScopeWriter, type WriteOutcome, type WriteResult } from './writer.ts'
 
@@ -90,6 +91,8 @@ export interface ServiceOptions {
   readonly masterKey: Buffer
   readonly clock: Clock
   readonly ids: IdSource
+  /** 보기 캐시 상한 (판매자마다 4·서버 전체 32·10분, AC-S06b-12) — 보기 캐시를 쓰는 조회마다 알린다 */
+  readonly viewCaches: ViewCacheBudget
   /** 리허설 생성기 타이머 (기본 실제 타이머) */
   readonly generatorTimer?: GeneratorTimer
   /** 리허설 생성기 시험 속도 (타이머 간격을 나누는 값, 기본 1) */
@@ -666,6 +669,7 @@ export class Service {
   async scopeView(sellerId: string, date: string, rehearsal = false): Promise<ScopeView | null> {
     const runtime = await this.#options.writer.read(sellerId, date, rehearsal)
     if (runtime.seq === 0) return null
+    this.#options.viewCaches.use(runtime)
     return fullView(runtime)
   }
 
@@ -703,6 +707,7 @@ export class Service {
   async changes(sellerId: string, date: string, rehearsal: boolean, since: number): Promise<ChangesView | 'resync' | null> {
     const runtime = await this.#options.writer.read(sellerId, date, rehearsal)
     if (runtime.seq === 0 || runtime.scopeId === null) return null
+    this.#options.viewCaches.use(runtime)
     const set = changeSet(runtime, since)
     if (set === null) return 'resync'
     const { touchedMessages, ...rest } = set
@@ -744,6 +749,8 @@ export class Service {
 
   /** 채팅 이벤트 행 → 메시지 항목 (주문·취소·무시·바꾼 번호는 엔진 기록, 언급은 그 방송 설정의 parseChat) */
   #messageItems(runtime: ScopeRuntime, state: ScopeStateLike, rows: readonly ChatRow[]): MessageItem[] {
+    // 채팅 행을 기다리는 사이 다른 조회가 이 범위의 캐시를 비웠을 수 있다 — 쓰기 직전에 다시 알린다
+    this.#options.viewCaches.use(runtime)
     const lookup: MessageLookup = messageLookup(runtime, state)
     const settingsOf = new Map<string, SaleSettings | null>()
     const settings = (b: string): SaleSettings | null => {

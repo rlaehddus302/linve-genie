@@ -155,6 +155,8 @@ export interface WriterOptions {
   readonly runtimeCacheMax?: number
   /** 증분 조회 기준점 창 크기 (기본 DEFAULT_CHANGES_WINDOW) */
   readonly changesWindow?: number
+  /** 범위 상태를 메모리에서 내렸을 때 (상한·forget — 보기 캐시 상한이 그 범위의 캐시를 비운다, AC-S06b-12) */
+  readonly onDrop?: (runtime: ScopeRuntime) => void
 }
 
 const MAX_SEQ_RETRIES = 5
@@ -256,10 +258,15 @@ export class ScopeWriter {
     this.#touch(key, runtime)
     const max = this.#options.runtimeCacheMax ?? DEFAULT_RUNTIME_CACHE_MAX
     if (this.#runtimes.size <= max) return
-    for (const candidate of this.#runtimes.keys()) {
+    for (const [candidate, dropped] of this.#runtimes) {
       if (this.#runtimes.size <= max) break
-      if (candidate !== key && !this.#queues.has(candidate)) this.#runtimes.delete(candidate)
+      if (candidate !== key && !this.#queues.has(candidate)) this.#drop(candidate, dropped)
     }
+  }
+
+  #drop(key: string, runtime: ScopeRuntime): void {
+    this.#runtimes.delete(key)
+    this.#options.onDrop?.(runtime)
   }
 
   /** 마지막으로 쓴 것으로 옮긴다 */
@@ -270,7 +277,9 @@ export class ScopeWriter {
 
   /** 메모리 상태를 버린다 (다음에 DB에서 다시 불러온다) */
   forget(sellerId: string, date: string, rehearsal = false): void {
-    this.#runtimes.delete(scopeKey(sellerId, date, rehearsal))
+    const key = scopeKey(sellerId, date, rehearsal)
+    const runtime = this.#runtimes.get(key)
+    if (runtime !== undefined) this.#drop(key, runtime)
   }
 
   /** 최신 로그까지 따라잡은 범위 상태 (조회용). 리허설을 적지 않으면 실제 범위다 */
