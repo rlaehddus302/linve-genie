@@ -1,12 +1,17 @@
-// 서버 기동 (AC-S00-42): pnpm --filter @livejjim/server start
+// 서버 기동 (AC-S00-42, AC-S04-20·32): pnpm --filter @livejjim/server start
 // - PORT(기본 3000)에서 대기한다. 저장소 루트의 .env가 있으면 읽는다(이미 있는 환경변수가 우선).
+// - DB 연결 설정(DATABASE_URL 또는 개발용 LIVEJJIM_PGLITE_DIR)·서버 마스터 키(LIVEJJIM_MASTER_KEY)·화면 앱 주소(LIVEJJIM_APP_ORIGIN)가
+//   없거나 틀리면 쉬운 문장으로 알리고 시작하지 않는다(값은 출력하지 않는다). 메모리 DB로 조용히 바꾸지 않는다.
+// - 시작할 때 마이그레이션을 적용한다.
 // - 기동 로그에 환경변수 값을 찍지 않는다.
 // - Ctrl+C(SIGINT)·SIGTERM이면 새 연결을 받지 않고 진행 중인 요청을 마친 뒤 종료 코드 0으로 끝난다.
 //   한 번 더 누르면 바로 끝낸다.
 import { existsSync } from 'node:fs'
-import { createApp } from './app.ts'
-import { DEFAULT_PORT, readPort } from './config.ts'
+import { DEFAULT_PORT, readAppOrigin, readDatabaseSetting, readPort } from './config.ts'
 import { createNodeServer } from './node-server.ts'
+import { openDatabaseFromEnv } from './commands/shared.ts'
+import { readMasterKey } from './secrets.ts'
+import { createServer } from './server.ts'
 
 /** 종료를 요청한 뒤 남은 연결을 강제로 끊기까지 기다리는 시간 */
 const FORCE_CLOSE_AFTER_MS = 5000
@@ -23,8 +28,29 @@ if (!setting.ok) {
   complain(`시작하지 못했어요. ${setting.message}`)
   process.exit(1)
 }
+const masterKey = readMasterKey(process.env['LIVEJJIM_MASTER_KEY'])
+if (!masterKey.ok) {
+  complain(`시작하지 못했어요. ${masterKey.message}`)
+  process.exit(1)
+}
+const origin = readAppOrigin(process.env)
+if (!origin.ok) {
+  complain(`시작하지 못했어요. ${origin.message}`)
+  process.exit(1)
+}
+const databaseSetting = readDatabaseSetting(process.env)
+if (!databaseSetting.ok) {
+  complain(`시작하지 못했어요. ${databaseSetting.message}`)
+  process.exit(1)
+}
+const database = await openDatabaseFromEnv({ migrate: true })
+if (database === null) {
+  complain('시작하지 못했어요.')
+  process.exit(1)
+}
 
-const server = createNodeServer({ app: createApp() })
+const livejjim = createServer({ database, masterKey: masterKey.key, appOrigin: origin.origin })
+const server = createNodeServer({ app: livejjim.app })
 
 // PORT 환경변수 값은 로그에 찍지 않는다. 기본값일 때만 번호를 보여 준다.
 const where = setting.fromEnv ? 'PORT 환경변수로 지정한 포트' : `기본 포트 ${DEFAULT_PORT}`
@@ -49,7 +75,9 @@ function stop(): void {
   }
   stopping = true
   say('끄는 중이에요. 진행 중인 요청을 마무리하고 있어요.')
+  livejjim.close()
   server.close((error) => {
+    void database?.close()
     if (error) {
       complain('서버가 이미 멈춰 있었어요.')
       process.exitCode = 1
