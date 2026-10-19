@@ -1,5 +1,6 @@
-// 라이브 콘솔 (SPEC §7 화면 2, AC-S05-02·10~15·21·22·30~35·40~42·54·62·63).
+// 라이브 콘솔 (SPEC §7 화면 2, AC-S05-02·10~15·21·22·30~35·40~42·54·62·63, AC-I1-30~34·36).
 // 빠른 입력·알림 띠는 위쪽에 늘 보인다. 현재 상품·상품 보드·채팅(·리허설 조작판)은 폭에 맞춰 나란히 또는 아래로.
+// 라벨 상태는 서버의 출력 기록(라벨 키마다)으로 보인다 — 리허설은 라벨이 없다. Alt+P(⌥P)는 현재 상품의 1등 라벨 다시 출력 창.
 import type { SaleSettings } from '@livejjim/core'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
@@ -15,12 +16,15 @@ import { useScopeStore } from '../lib/use-store.ts'
 import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
 import { AssignDialog, ConfirmDialog, ConvertDialog, EditDialog, ReasonDialog } from './ActionDialogs.tsx'
 import { AttentionDialog, CancelRequestDialog, ConflictDialog, PendingDialog, SuccessionDialog } from './AlertDialogs.tsx'
-import { AlertStrip, firstAlert, type AlertKind } from './AlertStrip.tsx'
+import { AlertStrip, firstAlert, type AlertKind, type PrintAlerts } from './AlertStrip.tsx'
 import { ChatPanel } from './ChatPanel.tsx'
-import { ConsoleContext, useConsoleApi, type ConsoleApi, type Dialog, type HostActionInput } from './console-context.ts'
+import { ConsoleContext, consoleLabels, productLabel, useConsoleApi, type ConsoleApi, type Dialog, type HostActionInput } from './console-context.ts'
 import { ErrorNote } from './ErrorNote.tsx'
+import { ReprintDialog } from './LabelParts.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
 import { ProductBoard, CurrentProduct } from './ProductBoard.tsx'
+import { usePrintState, useScopeLabels } from './print-context.tsx'
+import { DiscardDialog, PrintPauseDialog } from './PrintParts.tsx'
 import { ProductDetail } from './ProductDetail.tsx'
 import { QuickInput, type EditAsk, type FixState, type Registration } from './QuickInput.tsx'
 import { RehearsalPanel } from './RehearsalPanel.tsx'
@@ -243,6 +247,14 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
 
   const names = useMemo(() => new BuyerNames(data.buyers), [data.buyers])
   const settingsOf = useCallback((id: string) => latest.current.data.broadcasts.get(id)?.settings ?? null, [])
+  // 라벨 상태는 서버의 출력 기록 (리허설 범위는 라벨이 없다 — 조회하지 않는다, D-I1-08)
+  const labelState = useScopeLabels(broadcast.rehearsal ? null : broadcast.date)
+  const labels = labelState.labels
+  const print = usePrintState()
+  const queueSummary = print.overview?.queue ?? null
+  const printAlerts: PrintAlerts = useMemo(() => ({ pause: queueSummary?.pause?.message ?? null, discard: queueSummary?.discard ?? 0 }), [queueSummary])
+  const printAlertsRef = useRef(printAlerts)
+  printAlertsRef.current = printAlerts
 
   const api: ConsoleApi = useMemo(
     () => ({
@@ -252,6 +264,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       ended,
       data,
       names,
+      labels,
       waiting,
       delayMs: queue.delayMs,
       settingsOf,
@@ -263,7 +276,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       fillQuick,
       select: setSelected,
     }),
-    [b, broadcast.date, broadcast.rehearsal, ended, data, names, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command, fillQuick],
+    [b, broadcast.date, broadcast.rehearsal, ended, data, names, labels, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command, fillQuick],
   )
 
   // ── 빠른 입력 (AC-S05-10~13, D-084) ──────────────────────────────────
@@ -522,8 +535,14 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       }
       if (event.altKey && !mod && (event.code === 'Digit1' || event.key === '1')) {
         event.preventDefault()
-        const kind = firstAlert(alertCounts(latest.current.data))
+        const kind = firstAlert(alertCounts(latest.current.data), printAlertsRef.current)
         if (kind !== null) openAlert(kind)
+        return
+      }
+      // Alt+P(⌥P): 현재 상품의 1등 라벨 다시 출력 — 빠른 입력칸에 글자(π 등)가 들어가지 않는다 (AC-I1-33)
+      if (event.altKey && !mod && !event.shiftKey && (event.code === 'KeyP' || event.key === 'p' || event.key === 'P' || event.key === 'π')) {
+        event.preventDefault()
+        setDialogs([{ kind: 'reprint', product: currentKey.current }])
         return
       }
       if (event.key === 'Escape') {
@@ -561,6 +580,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   }, [b, closeAll, openDialog, store])
 
   const current = (selected === null ? undefined : data.products.get(selected)) ?? latestProduct(data, b)
+  const currentKey = useRef<string | null>(null)
+  currentKey.current = current?.key ?? null
 
   const messagesById = useMemo(() => new Map(snapshot.messages.map((message) => [message.id, message])), [snapshot.messages])
 
@@ -626,7 +647,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         {endError !== null ? <ErrorNote error={endError} /> : null}
         <div className="console-sticky">
           <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
-          <AlertStrip counts={counts} onOpen={openAlert} expanded={alertsOpen} onToggle={() => setAlertsOpen((open) => !open)} />
+          <AlertStrip counts={counts} print={printAlerts} onOpen={openAlert} expanded={alertsOpen} onToggle={() => setAlertsOpen((open) => !open)} />
           <QuickInput
             value={quickText}
             onChange={setQuickText}
@@ -673,7 +694,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
             convertNotes={convertNotes}
           />
         </div>
-        <p className="shortcuts">단축키: Enter 등록·찾기 · Esc 창 닫기 · Ctrl+Z(⌘Z) 되돌리기 · Alt+1(⌥1) 첫 알림 열기 · 1·2·3 창 안의 선택</p>
+        <p className="shortcuts">단축키: Enter 등록·찾기 · Esc 창 닫기 · Ctrl+Z(⌘Z) 되돌리기 · Alt+1(⌥1) 첫 알림 열기 · Alt+P(⌥P) 라벨 다시 출력 · 1·2·3 창 안의 선택</p>
       </main>
       {topDialog !== undefined ? (
         <DialogView
@@ -740,7 +761,32 @@ function DialogView({ dialog, messageOf, onClose, onEditDone, onEditUnchanged }:
       return <ConvertDialog message={messageOf(dialog.messageId)} onClose={onClose} />
     case 'confirm':
       return <ConfirmDialog spec={dialog.spec} onClose={onClose} />
+    case 'printPause':
+      return <PrintPauseDialog onClose={onClose} />
+    case 'discard':
+      return <DiscardDialog onClose={onClose} />
+    case 'reprint':
+      return <ReprintHost productKey={dialog.product} onClose={onClose} />
   }
+}
+
+/** Alt+P 창 (AC-I1-33): 현재 상품의 1등 라벨 */
+function ReprintHost({ productKey: key, onClose }: { readonly productKey: string | null; readonly onClose: () => void }) {
+  const api = useConsoleApi()
+  const product = key === null ? undefined : api.data.products.get(key)
+  const winners = product === undefined ? [] : product.winnerClaims.map((id) => api.data.claims.get(id)).filter((claim) => claim !== undefined)
+  return (
+    <ReprintDialog
+      product={product}
+      winners={winners}
+      labels={consoleLabels(api)}
+      rehearsal={api.rehearsal}
+      date={api.date}
+      title={product === undefined ? '' : productLabel(api, product.broadcast, product.no)}
+      nameOf={(claim) => api.names.name(claim.currentBuyer)}
+      onClose={onClose}
+    />
+  )
 }
 
 function ProductDetailHost({ productKey: key, onClose }: { readonly productKey: string; readonly onClose: () => void }) {

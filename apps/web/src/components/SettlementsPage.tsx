@@ -2,6 +2,7 @@
 // - 날짜 하나(구매자 화면과 같은 고르기)의 묶음 목록(코어 listSettlements — 그날의 지금의 구매자마다)과 위 요약, 상태 거르기·이름 찾기.
 // - 자세히: 방송별 품목·합계, 계산 줄, 받은 금액·남은 금액·환불 필요, 기록 목록, 입력 넷(입금·배송비·할인/추가·환불) — 모두 확인 뒤 바로 보낸다.
 // - 금액 칸은 원 단위(AC-S06-36). 입금 날짜는 적은 때로 남는다(실제 입금일은 메모).
+// - 자세히의 포장 라벨(AC-I1-35): 쪽마다 미리 보기·출력·그림 파일·PDF·재출력 필요. 리허설 범위는 라벨이 없다(AC-I1-36).
 import { containsPhoneRun, formatWon, type PaymentStatus } from '@livejjim/core'
 import { useMemo, useRef, useState } from 'react'
 import { isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
@@ -18,6 +19,7 @@ import { filterSettlements, previewWith, remainingOf, sortSettlements, summarize
 import { useScopeStore } from '../lib/use-store.ts'
 import { PAYMENT_WORD, SHIPPING_WORD, paymentWord, recordKindWord, signedWon } from '../lib/words.ts'
 import { ErrorNote } from './ErrorNote.tsx'
+import { PackingLabels } from './LabelParts.tsx'
 import { AmountField, FieldNote, WriteError, serverProblem, useSender } from './forms.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
 import { Modal } from './Modal.tsx'
@@ -284,6 +286,8 @@ function SettlementDetail({ data, names, settlement, command, onBack }: DetailPr
           받은 금액 {formatWon(settlement.received)} · 남은 금액 {formatWon(remaining)} · 환불 필요 {formatWon(settlement.refundDue)}
         </p>
       </section>
+
+      <PackingLabels date={settlement.date} buyer={settlement.buyer} rehearsal={data.rehearsal} />
 
       <div className="row" role="group" aria-label="정산 입력">
         <button type="button" className="button button-primary" onClick={() => setInput('payment')}>

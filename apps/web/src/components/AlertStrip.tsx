@@ -1,33 +1,48 @@
-// 알림 띠 (AC-S05-30, AC-S06-61, D-088): 충돌 · 취소 요청 · 승계 결정 필요 · 보류 찜 · 확인 필요. 0인 항목은 숨기고, 모두 0이면 "알림 없음".
+// 알림 띠 (AC-S05-30, AC-S06-61, AC-I1-32, D-088·D-I1-08): 충돌 · 취소 요청 · 승계 결정 필요 · 출력 멈춤(까닭 문장) · 버릴 라벨 · 보류 찜 · 확인 필요.
+// 0인 항목은 숨기고, 모두 0이면 "알림 없음". 출력 멈춤·버릴 라벨은 판매자의 출력 기록(모든 기기 같음)이다.
 // 휴대폰에서는 한 줄로 접히고("알림 5 펼치기") 펼친 동안만 늘어난다. 접은 동안에도 알림 항목은 그대로 있다(한 줄에 들어가는 것만 보인다) —
 // 펼치기 버튼은 "알림" 영역 밖에 둔다(영역의 글자는 PC와 같다).
 import type { AlertCounts } from '../lib/derive.ts'
+import { PRINT_ALERT_WORD } from '../lib/print-words.ts'
 import { ALERT_WORD } from '../lib/words.ts'
 
-export type AlertKind = 'conflict' | 'cancelRequests' | 'succession' | 'pending' | 'attention'
+export type AlertKind = 'conflict' | 'cancelRequests' | 'succession' | 'printPause' | 'discard' | 'pending' | 'attention'
 
-/** Alt+1이 여는 순서 (D-087): 충돌 → 취소 요청 → 승계 결정 필요 → 확인 필요 */
-export function firstAlert(counts: AlertCounts): AlertKind | null {
+/** 출력 알림 (판매자의 출력 기록): 멈춘 까닭 문장(멈추지 않았으면 null)·버릴 라벨 장 수 */
+export interface PrintAlerts {
+  readonly pause: string | null
+  readonly discard: number
+}
+
+const NO_PRINT_ALERTS: PrintAlerts = { pause: null, discard: 0 }
+
+/** Alt+1이 여는 순서 (D-087·D-I1-08): 충돌 → 취소 요청 → 승계 결정 필요 → 출력 멈춤 → 버릴 라벨 → 확인 필요 */
+export function firstAlert(counts: AlertCounts, print: PrintAlerts = NO_PRINT_ALERTS): AlertKind | null {
   if (counts.conflict > 0) return 'conflict'
   if (counts.cancelRequest > 0) return 'cancelRequests'
   if (counts.succession > 0) return 'succession'
+  if (print.pause !== null) return 'printPause'
+  if (print.discard > 0) return 'discard'
   if (counts.attention > 0) return 'attention'
   return null
 }
 
 export interface AlertStripProps {
   readonly counts: AlertCounts
+  readonly print?: PrintAlerts
   readonly onOpen: (kind: AlertKind) => void
   /** 휴대폰에서 펼쳤는가 */
   readonly expanded?: boolean
   readonly onToggle?: () => void
 }
 
-export function AlertStrip({ counts, onOpen, expanded = false, onToggle }: AlertStripProps) {
-  const items: { kind: AlertKind; word: string; count: number }[] = [
+export function AlertStrip({ counts, print = NO_PRINT_ALERTS, onOpen, expanded = false, onToggle }: AlertStripProps) {
+  const items: { kind: AlertKind; word: string; count: number; text?: string }[] = [
     { kind: 'conflict', word: ALERT_WORD.conflict, count: counts.conflict },
     { kind: 'cancelRequests', word: ALERT_WORD.cancelRequest, count: counts.cancelRequest },
     { kind: 'succession', word: ALERT_WORD.succession, count: counts.succession },
+    { kind: 'printPause', word: PRINT_ALERT_WORD.paused, count: print.pause === null ? 0 : 1, text: `${PRINT_ALERT_WORD.paused} · ${print.pause ?? ''}` },
+    { kind: 'discard', word: PRINT_ALERT_WORD.discard, count: print.discard },
     { kind: 'pending', word: ALERT_WORD.pending, count: counts.pending },
     { kind: 'attention', word: ALERT_WORD.attention, count: counts.attention },
   ]
@@ -43,7 +58,7 @@ export function AlertStrip({ counts, onOpen, expanded = false, onToggle }: Alert
             {shown.map((item) => (
               <li key={item.kind}>
                 <button type="button" className={item.kind === 'pending' ? 'button alert-item alert-soft' : 'button alert-item'} onClick={() => onOpen(item.kind)}>
-                  {item.word} {item.count}
+                  {item.text ?? `${item.word} ${String(item.count)}`}
                 </button>
               </li>
             ))}

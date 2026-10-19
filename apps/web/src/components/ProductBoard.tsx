@@ -1,9 +1,11 @@
-// 현재 상품·상품 보드 (AC-S05-14, SPEC §7 화면 2, PRD-04, D-088). 값은 서버 조회(코어 조회 함수 결과) 그대로이고 낱말로만 바꾼다.
+// 현재 상품·상품 보드 (AC-S05-14, SPEC §7 화면 2, PRD-04, D-088, AC-I1-30). 값은 서버 조회(코어 조회 함수 결과) 그대로이고 낱말로만 바꾼다.
+// 라벨 상태 낱말은 서버의 출력 기록(라벨 키마다 — 라벨 대기·출력 중·라벨 출력됨·재출력 필요·출력 안 함)이다. 리허설은 보이지 않는다.
 import { memo, useMemo } from 'react'
 import type { Product } from '../api/types.ts'
-import { boardProducts, cancelRequestCount, formatWon, labelWords } from '../lib/derive.ts'
+import { boardProducts, cancelRequestCount, formatWon } from '../lib/derive.ts'
 import { ALERT_WORD, PRODUCT_STATUS_WORD } from '../lib/words.ts'
-import { useConsoleApi } from './console-context.ts'
+import { consoleLabels, useConsoleApi } from './console-context.ts'
+import { boardLabelWords } from './LabelParts.tsx'
 
 /** 1등 표시 이름 (재고 2 이상이면 여럿). 없으면 "아직 없음" */
 function useWinnerNames(product: Product): string {
@@ -78,7 +80,7 @@ const BoardItem = memo(function BoardItem({ product, onOpen }: { readonly produc
   const api = useConsoleApi()
   const winners = useWinnerNames(product)
   const requests = cancelRequestCount(api.data, product)
-  const labels = labelWords(api.data, product)
+  const labels = boardLabelWords(consoleLabels(api), api.data.claims, product)
   const waiting = api.waiting.products.has(product.key)
   return (
     <li>
@@ -93,7 +95,7 @@ const BoardItem = memo(function BoardItem({ product, onOpen }: { readonly produc
         {requests > 0 ? <span className="tag tag-alert">{ALERT_WORD.cancelRequest}</span> : null}
         {product.awaitingSuccession ? <span className="tag tag-alert">{ALERT_WORD.succession}</span> : null}
         {labels.map((word) => (
-          <span key={word} className="tag">
+          <span key={word} className={word === '재출력 필요' ? 'tag tag-alert' : 'tag'}>
             {word}
           </span>
         ))}
