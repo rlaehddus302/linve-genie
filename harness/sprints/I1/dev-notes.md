@@ -187,3 +187,10 @@ LabelView = LabelRef & {
 
 ### 시험 (내 영역)
 - `test/print-store.test.ts`(rev·덮기·모으기·다시 받기·라벨 상태·조용한 기록), `test/printer-station.test.ts`(받기·찍기·결과·끊김·다시 연결·라벨 오류·닫혔던 시도·테스트 인쇄·농도·손잡이·바꾸기), `test/labels-page.test.tsx`(메뉴·상태·연결 방법·미지원·멈춤 띠·다른 기기·버릴 라벨·자동 출력·영어 없음), `test/console-labels.test.tsx`(보드 낱말·실시간 연결 하나·리허설·Alt+P·알림 띠·Alt+1 순서), `test/stream-words.test.ts`, `test/label-render.node.test.ts`(미리 보기 = 출력 그림·최악값 검사·파일 이름, Node 캔버스).
+
+### 검증 (dev-web, 커밋 d136633 위)
+- `E2E_PORT_OFFSET=500 pnpm verify`: 7단계 모두 통과 — typecheck(설정 11·TS 360) · lint(0·0) · test(파일 109·테스트 2393) · golden(파일 22·파서 379·엔진 123·통과 502·나머지 0) · adversarial(파일 33·테스트 757) · e2e(파일 22·통과 133, 12.6분) · coverage(코어 라인 100%·분기 99.65%). I1 E2E·적대 시험은 아직 없다(테스터 몫).
+- 손 점검(시험용 프린터, E2E 서버 + 화면 미리 보기, 크로미움): 두 기기 30장 중 12번째 끊김 → 휴대폰 "다시 연결" → 시험용 프린터가 받은 그림 정확히 30장·`effect.labelPrinted` 30개·PC 보드 30개 "라벨 출력됨". 승계 → 새 1등 라벨 자동 출력·"버릴 라벨 1"(Alt+1 → 1 = 버렸어요), 품종 고침 → "재출력 필요" → Alt+P → 1 → "라벨 출력됨"(2번 출력), 출력 중(지연) 1등 취소 → 나온 뒤 버릴 라벨. 출력 기기 없이 1등 3개 → 새 출력 기기 쌓인 라벨 안내 → 출력 시작 → 3장, 휴대폰 → PC 바꾸기(확인 창) → PC가 이어서. 자동 출력 끔 → 새 방송 대기 0 → 상품 자세히 "라벨 출력" 1장 → 취소하면 버릴 라벨. 리허설 대기 0·자세히/포장 라벨 자리 문장. 375×812 라벨 화면·콘솔 자세히·정산 자세히 가로 스크롤 없음·44px·16px·칸 이름.
+
+### test-e2e에게 — 시험끼리 출력 기록이 섞이지 않게
+- 출력 기록은 **판매자 단위**(시험 계정 하나를 모든 E2E가 함께 쓴다)이고 Playwright는 파일 이름 순으로 돈다 — `tests/e2e/i1/**`이 `s05`·`s06`보다 먼저 돈다. I1 시험이 출력 기기·멈춤·버릴 라벨·대기를 남기면 뒤 시험의 콘솔 알림 띠에 "출력 멈춤 · …"·"버릴 라벨 N"이 보이고 Alt+1이 그 창을 먼저 연다(기존 S05·S06 시험이 "알림 없음"·Alt+1 순서를 본다). 시험 끝에 정리해 주세요: `POST /api/print/device/release {}` → `POST /api/print/jobs/cancel-all {confirm:true}` → `GET /api/print`의 `discard`마다 `POST /api/print/jobs/discard {date,id}` → 멈춰 있으면 `POST /api/print/restart {}`(끊김 멈춤은 출력 기기를 비우면 풀린다), 자동 출력을 껐으면 `PATCH /api/settings {settings:{'print.autoOnConfirm':true}}`.
