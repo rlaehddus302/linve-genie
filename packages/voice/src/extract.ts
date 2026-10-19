@@ -1,4 +1,4 @@
-// 음성 문장 추출 (VOC-02·VOC-03, DOMAIN_RULES R-17, D-202·D-203). 사례: tests/golden/parser/voice-extract.yaml.
+// 음성 문장 추출 (VOC-02·VOC-03, DOMAIN_RULES R-17, D-202·D-203, 끊어 말한 번호 D-I4-01). 사례: tests/golden/parser/voice-extract.yaml.
 // 방송자가 말한 문장 하나 → 정확히 { no, name, price, confidence }. 애매하면 그 칸을 비운다(null).
 // 순수 함수: 같은 입력이면 같은 결과, 넘긴 사전·설정을 바꾸지 않고, 시계·난수·네트워크를 쓰지 않으며, 어떤 입력에도 예외를 던지지 않는다.
 // 정규화(R-3)·금액(R-14)·수사(R-15)는 코어 함수를 그대로 다시 쓴다 — 코어와 결과가 갈라지지 않게.
@@ -125,21 +125,36 @@ interface NumberMarkers {
   readonly tokens: ReadonlySet<number>
   /** 번호 표시 값 (나온 것 전부) */
   readonly values: readonly number[]
+  /** 끊어 말한 번호가 하나라도 있는가 (R-17 3, D-I4-01) */
+  readonly split: boolean
+}
+
+/**
+ * 끊어 말한 번호 (R-17 3, D-I4-01, TD-P2-002): 번호 표시의 X 바로 앞 토큰(그대로 — 끝말을 떼지 않는다)을 X 앞에 공백 없이 붙인 글이
+ * R-15로 읽히면 번호를 끊어 말했거나 인식이 번호를 갈랐을 수 있다(`1 5번` → `15`, `십 오번` → `십오`, `이 십 번` → `이십`, `백 오번` → `백오`).
+ * 앞 토큰이 없거나 붙인 글이 수가 아니면 해당 없다(`이 15번` → `이15`, `네 15번` → `네15`).
+ */
+function isSplitNumber(previous: string | undefined, x: string): boolean {
+  return previous !== undefined && parseKoreanNumber(previous + x) !== null
 }
 
 function findNumberMarkers(tokens: readonly string[], forms: readonly (readonly string[])[]): NumberMarkers {
   const marked = new Set<number>()
   const values: number[] = []
+  let split = false
   tokens.forEach((token, i) => {
-    // 붙여 씀: 읽는 모양 하나가 `X번`
+    const previous = i > 0 ? tokens[i - 1] : undefined
+    // 붙여 씀: 읽는 모양 하나가 `X번` (앞 토큰 = 표시 토큰의 앞 토큰)
     for (const form of forms[i] ?? []) {
       if (form.length < 2 || !form.endsWith(BEON)) continue
-      const value = numberValue(form.slice(0, -BEON.length))
+      const x = form.slice(0, -BEON.length)
+      const value = numberValue(x)
       if (value === null) continue
       marked.add(i)
       values.push(value)
+      if (isSplitNumber(previous, x)) split = true
     }
-    // 띄어 씀: 토큰 X(그대로) 바로 다음 토큰의 읽는 모양 하나가 `번`
+    // 띄어 씀: 토큰 X(그대로) 바로 다음 토큰의 읽는 모양 하나가 `번` (앞 토큰 = X 토큰의 앞 토큰)
     const next = forms[i + 1]
     if (next !== undefined && next.includes(BEON)) {
       const value = numberValue(token)
@@ -147,10 +162,11 @@ function findNumberMarkers(tokens: readonly string[], forms: readonly (readonly 
         marked.add(i)
         marked.add(i + 1)
         values.push(value)
+        if (isSplitNumber(previous, token)) split = true
       }
     }
   })
-  return { tokens: marked, values }
+  return { tokens: marked, values, split }
 }
 
 // ── 4. 가격 ──────────────────────────────────────────────────────────────
@@ -309,8 +325,9 @@ function resolveDictionary(options: unknown): VarietyDictionary {
 
 /**
  * 문장 하나 → { no, name, price, confidence } (R-17).
- * - no: 번호 표시(`X번`·`X 번`, X = 숫자 1~4자리 또는 한자어 수사, `이` 제외) 값이 모두 같고 1..maxNumber 안이면 그 값
- * - price: 원 단위로 읽은 말 금액 묶음 값이 모두 같고 금액 조각이 없으면 그 값 (100원 이상, `원`이나 한글 수·단위가 있는 글)
+ * - no: 번호 표시(`X번`·`X 번`, X = 숫자 1~4자리 또는 한자어 수사, `이` 제외) 값이 모두 같고 1..maxNumber 안이고 끊어 말한 번호가 없으면 그 값
+ * - price: 원 단위로 읽은 말 금액 묶음 값이 모두 같고 금액 조각·끊어 말한 번호가 없으면 그 값 (100원 이상, `원`이나 한글 수·단위가 있는 글)
+ * - 끊어 말한 번호(D-I4-01): 번호 표시의 X 바로 앞 토큰 + X가 R-15로 읽히는 표시가 하나라도 있으면 no·price 모두 null
  * - name: 사전에서 자모 유사도 0.8 이상으로 가장 가까운 이름(여럿이면 나머지를 모두 품는 이름) — 사전에 없는 말은 넣지 않는다
  * - confidence: 셋이 모두 있고 품종이 사전 이름과 공백만 다르면 HIGH
  */
@@ -325,14 +342,17 @@ export function extractVoice(text: unknown, options: ExtractOptions = {}): Voice
   const isMarker = (i: number): boolean => markers.tokens.has(i)
   const distinctNumbers = new Set(markers.values)
   const onlyNumber = distinctNumbers.size === 1 ? (markers.values[0] as number) : null
-  const no = onlyNumber !== null && onlyNumber >= 1 && onlyNumber <= maxNumber ? onlyNumber : null
+  // 끊어 말한 번호가 있으면 번호·가격을 모두 비운다 — 앞 조각이 가격으로도 읽힐 수 있다(`백 오번`의 `백` = 100원, D-I4-01)
+  const no = !markers.split && onlyNumber !== null && onlyNumber >= 1 && onlyNumber <= maxNumber ? onlyNumber : null
 
-  const price = findPrice(tokens, forms, isMarker)
+  const bundles = findPrice(tokens, forms, isMarker)
+  const price = markers.split ? null : bundles.price
+  // 가격을 비워도 묶음 토큰은 품종 창에서 뺀다 (R-17 4·5)
   const variety = findVariety(
-    windowTexts(tokens, forms, (i) => isMarker(i) || price.tokens.has(i)),
+    windowTexts(tokens, forms, (i) => isMarker(i) || bundles.tokens.has(i)),
     dictionary,
   )
 
-  const confidence: Confidence = no !== null && price.price !== null && variety.name !== null && variety.exact ? 'HIGH' : 'LOW'
-  return { no, name: variety.name, price: price.price, confidence }
+  const confidence: Confidence = no !== null && price !== null && variety.name !== null && variety.exact ? 'HIGH' : 'LOW'
+  return { no, name: variety.name, price, confidence }
 }

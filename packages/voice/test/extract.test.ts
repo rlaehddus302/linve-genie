@@ -302,3 +302,121 @@ describe('AC-P2-05 신뢰도 (R-17 6)', () => {
     )
   })
 })
+
+// ── I4 ─────────────────────────────────────────────────────────────────────
+// AC-I4-01 끊어 말한 번호 (R-17 3·4, D-I4-01, TD-P2-002). 골든(voice-extract.yaml 마지막 문서 12사례)은 골든 러너가 돌린다.
+
+/** 규칙 문장(R-17 3)을 그대로 옮긴 판단 — 시험 쪽의 독립 구현. 번호 표시의 X마다 바로 앞 토큰(그대로) + X가 R-15로 읽히는가 */
+function hasSplitMarker(text: string): boolean {
+  const tokens = tokenize(text) ?? []
+  const isX = (value: string): boolean => value !== '이' && (/^[0-9]{1,4}$/.test(value) || /^[일이삼사오육칠팔구십백천]+$/.test(value)) && parseKoreanNumber(value) !== null
+  return tokens.some((token, i) => {
+    const xs = readingForms(token)
+      .filter((form) => form.length >= 2 && form.endsWith('번'))
+      .map((form) => form.slice(0, -1))
+    const next = tokens[i + 1]
+    if (next !== undefined && readingForms(next).includes('번')) xs.push(token)
+    const previous = tokens[i - 1]
+    return previous !== undefined && xs.some((value) => isX(value) && parseKoreanNumber(previous + value) !== null)
+  })
+}
+
+describe('AC-I4-01 끊어 말한 번호 (R-17 3·4, D-I4-01)', () => {
+  const GOLDEN_DICT = ['핑크프릴', '라울', '블루엘프']
+  const g = (text: string): VoiceExtraction => extractVoice(text, { dictionary: GOLDEN_DICT, maxNumber: 999 })
+
+  it.each([
+    ['1 5번 핑크프릴 만오천 원', '핑크프릴'],
+    ['1, 5번 라울 만원', '라울'],
+    ['1 5 번 라울 만원', '라울'],
+    ['십 오번 라울 오천 원', '라울'],
+    ['이 십 번 블루엘프 칠천 원', '블루엘프'],
+    ['이 십오번 핑크프릴 만원', '핑크프릴'],
+    ['백 오번 라울', '라울'],
+    ['2 15번 핑크프릴 만원', '핑크프릴'],
+    ['백 이십 삼번 라울 만원', '라울'],
+    ['15번 1 5번 핑크프릴 만원', '핑크프릴'],
+  ])('%s → 번호·가격 비움, 품종 %s, LOW', (text, name) => {
+    expect(g(text)).toEqual(out({ name }))
+    expect(hasSplitMarker(text)).toBe(true)
+  })
+
+  it.each([
+    ['이 15번 핑크프릴 만원', { no: 15, name: '핑크프릴', price: 10000, confidence: 'HIGH' }],
+    ['네 15번 라울 오천 원', { no: 15, name: '라울', price: 5000, confidence: 'HIGH' }],
+  ] as const)('앞 토큰을 붙인 글이 수가 아니면 해당 없다: %s', (text, want) => {
+    expect(g(text)).toEqual(want)
+    expect(hasSplitMarker(text)).toBe(false)
+  })
+
+  it('정규화·끝 문장 부호를 지운 토큰으로 본다: 전각 숫자, `1.`·`1~`', () => {
+    for (const text of ['１ ５번 라울 만원', '1. 5번 라울 만원', '1~ 5번 라울 만원', '1?! 5 번 라울 만원']) expect(g(text)).toEqual(out({ name: '라울' }))
+  })
+
+  it('앞 토큰은 끝말을 떼지 않는다 — `십이요 오번`은 `십이요오`(수 아님)라 5번 그대로', () => {
+    expect(g('십이요 오번 라울 만원')).toEqual({ no: 5, name: '라울', price: 10000, confidence: 'HIGH' })
+  })
+
+  it('번호 표시가 아닌 X(고유어·`이`)에는 판단이 서지 않는다', () => {
+    // `다섯번`은 번호 표시가 아니다 — 번호가 없을 뿐 가격은 그대로
+    expect(g('스물 다섯번 라울 만원')).toEqual(out({ name: '라울', price: 10000 }))
+    // `이번`은 표시가 아니다
+    expect(g('십 이번 라울 만원')).toEqual(out({ name: '라울', price: 10000 }))
+  })
+
+  it('붙인 글이 R-15 범위(4자리)를 넘으면 해당 없다: `1 2345번` → 12345는 R-15 실패, 2345번 그대로', () => {
+    expect(extractVoice('1 2345번 라울 만원', { dictionary: GOLDEN_DICT, maxNumber: 9999 })).toEqual({ no: 2345, name: '라울', price: 10000, confidence: 'HIGH' })
+    expect(hasSplitMarker('1 2345번 라울 만원')).toBe(false)
+  })
+
+  it('끊어 말한 표시가 뒤에 와도, 같은 번호를 되풀이해도 비운다', () => {
+    expect(g('15번 라울 만원 1 5번')).toEqual(out({ name: '라울' }))
+    expect(g('1 5번 1 5번 라울 만원')).toEqual(out({ name: '라울' }))
+  })
+
+  it('가격을 비워도 묶음 토큰은 품종 창에서 빠진다 — `오천`이 품종 창에 남아 다른 이름에 맞지 않는다', () => {
+    // 사전에 '오천라울'이 있어도 '오천 원' 묶음 토큰은 창에서 빠지므로 '라울'
+    expect(extractVoice('1 5번 오천 원 라울', { dictionary: ['라울', '오천원라울'] })).toEqual(out({ name: '라울' }))
+  })
+
+  const sentence = fc
+    .array(
+      fc.oneof(
+        fc.constantFrom('1', '5', '15', '5번', '15번', '십', '오번', '이', '십오번', '십 번', '백', '이십', '삼번', '번', '네', '이번', '한', '자', '오', '천', '구',
+          '1,', '십.', '１', '５번', '오번이요', '번에', '라울', '핑크프릴', '블루엘프', '만원', '오천', '원', '만오천', '칠천 원', '2345번'),
+        fc.string({ maxLength: 3 }),
+      ),
+      { maxLength: 10 },
+    )
+    .map((tokens) => tokens.join(' '))
+
+  it('속성: 끊어 말한 표시가 있으면 번호·가격 null이고 LOW, HIGH인 결과의 문장엔 끊어 말한 표시가 없다', () => {
+    fc.assert(
+      fc.property(sentence, fc.integer({ min: 1, max: 9999 }), (text, maxNumber) => {
+        const result = extractVoice(text, { dictionary: GOLDEN_DICT, maxNumber })
+        if (hasSplitMarker(text)) {
+          expect(result.no).toBe(null)
+          expect(result.price).toBe(null)
+          expect(result.confidence).toBe('LOW')
+        }
+        if (result.confidence === 'HIGH') expect(hasSplitMarker(text)).toBe(false)
+      }),
+      { numRuns: 1000 },
+    )
+  })
+
+  it('속성: 앞 조각 + 번호 표시를 넣은 문장은 어디에 넣어도 번호·가격을 비운다 — 품종은 그대로 고른다', () => {
+    const piece = fc.oneof(
+      fc.tuple(fc.integer({ min: 1, max: 9 }), fc.integer({ min: 1, max: 99 })).map(([a, b]) => [String(a), `${String(b)}번`] as const),
+      fc.constantFrom(['십', '오번'], ['이', '십 번'], ['백', '오번'], ['이', '십오번'], ['구', '십구번'], ['천', '오 번']) as fc.Arbitrary<readonly [string, string]>,
+    )
+    fc.assert(
+      fc.property(piece, fc.constantFrom('핑크프릴', '라울', '블루엘프'), fc.constantFrom('만원', '오천 원', '15,000원'), fc.boolean(), ([head, marker], name, price, markerFirst) => {
+        const text = markerFirst ? `${head} ${marker} ${name} ${price}` : `${name} ${price} ${head} ${marker}`
+        fc.pre(parseKoreanNumber(head + marker.replace(/ ?번$/, '')) !== null)
+        expect(extractVoice(text, { dictionary: GOLDEN_DICT })).toEqual(out({ name }))
+      }),
+      { numRuns: 300 },
+    )
+  })
+})
