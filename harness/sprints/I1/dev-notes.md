@@ -133,3 +133,8 @@ LabelView = LabelRef & {
 - 서버 직접 부르기: `newWorld()`·`addSeller()`(`apps/server/test/support.ts`)와 `world.server.print`(`PrintService`) — `overview`·`labels`·`claim`·`result`·`registerDevice`·`settled()`(알림이 다 나갈 때까지). 함수: `createAutoJobs`·`autoLabelEffects`(`@livejjim/server`에서도 내보낸다). 엔진 보고 수는 `select body from events where type = 'effect.labelPrinted'`.
 - 시험 훅: `createServer({ hooks: { beforeCommit } })`의 `beforeCommit(records)`가 던지면 그 기록 전체(이벤트·발송함·작업·폐기·출력함)가 롤백된다 — 출력함 + 보고 트랜잭션은 records에 `effect.labelPrinted`가 있다.
 - E2E 서버의 시험 모드는 기본 켜짐(`--test-printer no`로 끈다).
+
+### 검증 (dev-server, 커밋 3522ab4)
+- `E2E_PORT_OFFSET=500 pnpm verify`: typecheck(설정 11·TS 338) · lint(0·0) · test(파일 103·테스트 2343) · golden(파일 22·파서 379·엔진 123·통과 502·나머지 0) · adversarial(파일 33·테스트 757) · coverage(코어 라인 100%·분기 99.65%) 통과, **e2e 실패 2**(통과 131): `s05/attacks-r2.spec.ts:70`(보드에 62번이 10초 안에 안 보임)·`s06/phase1.spec.ts:63`(리허설 범위 구매자 목록). 그때 부하 평균 9 안팎(다른 작업 폴더 verify와 겹침), e2e 단계 825초.
+  - 두 시험만 다시 돌리면 7개 모두 통과(2.5분), 이어서 `E2E_PORT_OFFSET=500 pnpm e2e` 단계만 다시 돌리면 **파일 22 · 통과 133**(12.6분). 두 시험은 I1 서버 변경이 닿지 않는 길이다(리허설 범위는 출력 훅이 바로 돌아가고, 상품 등록은 효과가 없다) — 부하 때문의 흔들림으로 본다.
+- I1 E2E(`tests/e2e/i1/**`)·적대(`tests/adversarial/i1/**`)는 아직 없다(테스터 몫).
