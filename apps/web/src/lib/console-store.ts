@@ -1,7 +1,7 @@
 // 라이브 콘솔의 서버 자료 (AC-S05-14·21·30·54·62, D-075, D-085).
 // - 처음: 방송 목록에서 그 방송(날짜·리허설인지)을 찾고, 그 범위 전체 조회 한 번 + 그 방송의 최근 메시지만.
 // - 그 뒤: SSE `change`(보는 범위, 아는 seq보다 큼)마다 증분 조회 한 번(진행 중이면 모아서 끝난 뒤 한 번 더). 알림마다 전체 조회를 하지 않는다.
-// - 끊기면 "다시 연결하는 중"을 보이고 다시 붙는다. 다시 붙으면 `ready`의 seq로 놓친 변경을 증분으로 받는다.
+// - 끊기면 "다시 연결하는 중"을 보이고 다시 붙는다. 다시 붙으면 `ready`의 seq로 놓친 변경을 증분으로 받고, 리허설이면 생성기 상태도 다시 받는다.
 //   서버가 "전체를 다시 받으세요"(410 RESYNC_REQUIRED)면 전체를 다시 받는다.
 import { get, isApiError, withQuery, type ApiError } from '../api/client.ts'
 import type { BroadcastItem, Changes, ChatMessage, FullView, GeneratorStatus, MessagesView, ScopeSeq } from '../api/types.ts'
@@ -15,6 +15,8 @@ export const OLDER_MESSAGES = 100
 export const MAX_MESSAGES = 1500
 /** SSE가 아주 닫혔을 때 다시 붙기까지 */
 const RECONNECT_MS = 2000
+/** 처음 열 때 메시지 조회가 전체 조회보다 앞선 seq였으면 최근 메시지를 다시 받는 횟수 */
+const MESSAGES_RELOAD_TRIES = 3
 
 export type Connection = 'connecting' | 'open' | 'lost'
 
@@ -96,6 +98,8 @@ export class ConsoleStore {
   #again = false
   /** SSE가 알려 준 그 범위의 가장 큰 seq */
   #notified = 0
+  /** 생성기 상태가 바뀐 횟수 (늦게 온 조회 결과가 새 상태를 덮지 않게) */
+  #generatorVersion = 0
 
   constructor(options: ConsoleStoreOptions) {
     this.broadcastId = options.broadcastId
@@ -181,23 +185,32 @@ export class ConsoleStore {
 
   /** 전체 조회 + 최근 메시지 (처음·RESYNC_REQUIRED) */
   async #loadAll(): Promise<void> {
-    const [view, messages] = await Promise.all([
-      get<FullView>(this.#path('')),
-      get<MessagesView>(this.#path('/messages', { b: this.broadcastId, limit: INITIAL_MESSAGES })),
-    ])
+    const latest = () => get<MessagesView>(this.#path('/messages', { b: this.broadcastId, limit: INITIAL_MESSAGES }))
+    const [view, first] = await Promise.all([get<FullView>(this.#path('')), latest()])
     const data = fromFull(view)
+    // 메시지 조회가 전체 조회보다 앞선 seq에서 끝났으면(그사이 채팅이 들어왔다) 그 사이의 채팅·바뀐 기록은 증분(전체 조회 seq 뒤)으로도
+    // "이전 메시지 보기"(가장 오래된 메시지 앞)로도 받을 수 없다 — 전체 조회를 받은 뒤 최근 메시지를 다시 받는다(그 조회의 seq ≥ 전체 조회 seq)
+    let messages = first
+    for (let tries = 0; messages.seq < data.seq && tries < MESSAGES_RELOAD_TRIES && !this.#stopped; tries++) messages = await latest()
     this.#set({ phase: 'ready', error: null, data, messages: messages.messages, olderMessages: messages.more })
-    // 전체 조회와 메시지 조회 사이에 들어온 것, 알림으로 알고 있는 것은 증분으로
+    // 메시지 조회가 본 그 뒤의 변경, 알림으로 알고 있는 것은 증분으로
     if (messages.seq > data.seq || this.#notified > data.seq) void this.catchUp()
   }
 
+  /** 리허설 생성기 상태. 조회하는 사이 generator 알림·시작·멈춤 응답이 오면 그쪽이 더 새것이라 조회 결과를 버린다 */
   async #loadGenerator(): Promise<void> {
+    const version = ++this.#generatorVersion
     try {
       const { generator } = await get<{ generator: GeneratorStatus }>(`/api/broadcasts/${this.broadcastId}/rehearsal/generator`)
-      this.#set({ generator })
+      if (version === this.#generatorVersion) this.#set({ generator })
     } catch {
-      // 상태는 다음 generator 알림으로 다시 온다
+      // 상태는 다음 generator 알림이나 다시 붙을 때(ready) 다시 온다
     }
+  }
+
+  #setGenerator(generator: GeneratorStatus): void {
+    this.#generatorVersion++
+    this.#set({ generator })
   }
 
   #connect(): void {
@@ -210,6 +223,8 @@ export class ConsoleStore {
       const data = parseData<{ scopes: ScopeSeq[] }>(event)
       this.#set({ connection: 'open' })
       const scope = this.#scope
+      // 생성기 상태는 seq 없는 알림으로만 오므로, 끊긴 사이의 시작·멈춤·다 보냄은 다시 붙을 때 조회로 받는다
+      if (scope?.rehearsal === true) void this.#loadGenerator()
       const mine = data?.scopes.find((item) => scope !== null && item.date === scope.date && item.rehearsal === scope.rehearsal)
       if (mine !== undefined) this.#notify(mine.seq)
     })
@@ -221,7 +236,7 @@ export class ConsoleStore {
     })
     stream.addEventListener('generator', (event) => {
       const data = parseData<GeneratorStatus & { b: string }>(event)
-      if (data !== null && data.b === this.broadcastId) this.#set({ generator: data })
+      if (data !== null && data.b === this.broadcastId) this.#setGenerator(data)
     })
     stream.onerror = () => {
       if (this.#stopped || this.#stream !== stream) return
@@ -352,6 +367,6 @@ export class ConsoleStore {
 
   /** 생성기 상태 (시작·멈춤 응답) */
   setGenerator(generator: GeneratorStatus): void {
-    this.#set({ generator })
+    this.#setGenerator(generator)
   }
 }

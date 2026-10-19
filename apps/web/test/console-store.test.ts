@@ -55,6 +55,35 @@ describe('처음 열 때', () => {
     expect(server.calls.some((call) => call.path.startsWith(`/api/days/${DATE}/messages?b=r1&limit=`) && call.path.endsWith('rehearsal=true'))).toBe(true)
   })
 
+  it('메시지 조회가 전체 조회보다 앞선 seq에서 끝났으면(그사이 채팅이 들어옴) 최근 메시지를 다시 받아 빈틈이 없다 (TD-S05-001)', async () => {
+    let calls = 0
+    server.on('GET', new RegExp(`^/api/days/${DATE}/messages\\?`), () => {
+      calls++
+      return calls === 1
+        ? { body: { date: DATE, rehearsal: false, seq: 3, messages: [message(2), message(3)], more: false } }
+        : { body: { date: DATE, rehearsal: false, seq: 5, messages: [message(2), message(3), message(4), message(5)], more: false } }
+    })
+    const s = await started()
+    expect(calls).toBe(2)
+    expect(s.getSnapshot().data?.seq).toBe(5)
+    expect(s.getSnapshot().messages.map((item) => item.seq)).toEqual([2, 3, 4, 5])
+    // 그 뒤 증분은 since=5부터 — 4·5는 이미 있다
+    changesSeq = 6
+    FakeEventSource.last.emit('change', { date: DATE, rehearsal: false, seq: 6, type: 'chat' })
+    await flush()
+    expect(s.getSnapshot().messages.map((item) => item.seq)).toEqual([2, 3, 4, 5, 6])
+  })
+
+  it('메시지 조회가 전체 조회보다 늦은 seq면 다시 받지 않고 그 뒤를 증분으로 (메시지는 id로 덮는다)', async () => {
+    server.on('GET', new RegExp(`^/api/days/${DATE}/messages\\?`), () => ({ body: { date: DATE, rehearsal: false, seq: 6, messages: [message(4), message(6, { id: 'n6' })], more: false } }))
+    changesSeq = 6
+    const s = await started()
+    expect(server.callsTo('GET', /\/messages\?/)).toHaveLength(1)
+    expect(changeCalls().map((call) => call.path)).toEqual([`/api/days/${DATE}/changes?since=5`])
+    expect(s.getSnapshot().data?.seq).toBe(6)
+    expect(s.getSnapshot().messages.map((item) => item.id)).toEqual(['m4', 'n6'])
+  })
+
   it('없는 방송이면 "찾지 못함"', async () => {
     const s = await started('없는방송')
     expect(s.getSnapshot().phase).toBe('missing')
@@ -229,6 +258,46 @@ describe('그 밖', () => {
     expect(s.getSnapshot().generator).toBeNull()
     FakeEventSource.last.emit('generator', { date: DATE, rehearsal: true, b: 'r1', running: true, sent: 3, total: 10, perSecond: 1, seed: 1, duplicates: 0, failed: 0, stopReason: null })
     expect(s.getSnapshot().generator?.sent).toBe(3)
+  })
+
+  it('다시 붙으면(ready) 리허설 생성기 상태를 다시 받는다 — 끊긴 사이에 멈춘 생성기가 "실행 중"으로 남지 않는다 (TD-S05-002)', async () => {
+    const status = (patch: Record<string, unknown>) => ({ b: 'r1', running: true, sent: 1, total: 2, perSecond: 1, seed: 7, duplicates: 0, failed: 0, stopReason: null, ...patch })
+    let current = status({})
+    server.on('GET', /^\/api\/broadcasts\/r1\/rehearsal\/generator$/, () => ({ body: { generator: current } }))
+    const s = await started('r1')
+    expect(s.getSnapshot().generator?.running).toBe(true)
+    FakeEventSource.last.fail()
+    current = status({ running: false, sent: 2, stopReason: 'completed' })
+    FakeEventSource.last.emit('ready', { scopes: [{ date: DATE, rehearsal: true, seq: 5 }] })
+    await flush()
+    expect(s.getSnapshot().generator).toMatchObject({ running: false, sent: 2, stopReason: 'completed' })
+    // 실제 방송은 생성기를 묻지 않는다
+    store?.stop()
+    server.calls.length = 0
+    const real = await started('b1')
+    FakeEventSource.last.emit('ready', { scopes: [{ date: DATE, rehearsal: false, seq: 5 }] })
+    await flush()
+    expect(server.callsTo('GET', /rehearsal\/generator/)).toHaveLength(0)
+    expect(real.getSnapshot().generator).toBeNull()
+  })
+
+  it('생성기 상태 조회 중에 온 generator 알림이 더 새것이다 (늦게 온 조회 결과가 덮지 않는다)', async () => {
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let hold = false
+    server.on('GET', /^\/api\/broadcasts\/r1\/rehearsal\/generator$/, async () => {
+      if (hold) await gate
+      return { body: { generator: { b: 'r1', running: true, sent: 1, total: 2, perSecond: 1, seed: 7, duplicates: 0, failed: 0, stopReason: null } } }
+    })
+    const s = await started('r1')
+    hold = true
+    FakeEventSource.last.emit('ready', { scopes: [{ date: DATE, rehearsal: true, seq: 5 }] })
+    FakeEventSource.last.emit('generator', { date: DATE, rehearsal: true, b: 'r1', running: false, sent: 2, total: 2, perSecond: 1, seed: 7, duplicates: 0, failed: 0, stopReason: 'stopped' })
+    release()
+    await flush()
+    expect(s.getSnapshot().generator).toMatchObject({ running: false, stopReason: 'stopped' })
   })
 
   it('메시지 합치기: id로 덮고 seq 순', () => {
