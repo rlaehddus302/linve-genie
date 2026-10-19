@@ -1,10 +1,11 @@
-// AC-S03-92 불변식 속성 테스트 (S03 이벤트 포함), AC-S03-02 검사 함수 = applyEvent 판정, AC-S03-03 순수·결정성,
+// AC-S03-92·AC-S03b-92 불변식 속성 테스트 (S03 이벤트 포함), AC-S03-02 검사 함수 = applyEvent 판정, AC-S03-03 순수·결정성,
 // AC-S03-04 맞지 않는 명령, AC-S03-21 대기 순서, AC-S03-41 합치기 왕복, AC-S03-60 확정버전·효과 ID.
 // fast-check가 S02 생성기에 문자찜·상품 수정·번호 변경·메시지 변환·충돌 결정·합치기·정산 기록과 설정(정책 둘 × 동률 처리 셋)을 더한 로그를 만든다.
+// S03b: 문자찜은 서버처럼 키로 바꿔 넣고(같은 번호의 여러 형식, 뒤 4자리만 같은 다른 번호), 모르는 지정 구매자였다가 알게 되는 문자찜과 사본,
+// 합친 뒤의 시청자 채팅 취소, 충돌 중 host.assign, 주문 메시지·언급 메시지의 변환, 대기 한도 0·1에서의 충돌·1등 취소·재고 늘림을 더한다.
 // 실패하면 가장 짧은 로그로 줄여 시드와 함께 보여 준다. 재현: 실패 메시지의 seed·path를 fc.assert 옵션에 넣는다.
 import {
   applyEvent,
-  buyerOfRef,
   checkEvent,
   checkInvariants,
   compareRank,
@@ -18,6 +19,8 @@ import {
   listProducts,
   listSettlements,
   listSmsRefs,
+  activeClaimId,
+  parseChat,
   type BroadcastInfo,
   type ClaimInfo,
   type EngineEvent,
@@ -26,15 +29,22 @@ import {
 } from '@livejjim/core'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
+import { pentries, pget } from '../../src/engine/pmap.ts'
+import { smsPhoneFields } from '../golden/phone-key.ts'
 import { B1, B2, T0 } from './engine-helpers.ts'
 
 const B0919: BroadcastInfo = { id: 'n1', date: '2026-10-19', title: '19일' }
 const CHANNELS = ['A', 'B', 'C', 'D', 'OWNER'] as const
 const NOS = [1, 2, 3] as const
-const PHONES = ['010-1111-2222', '01011112222', '０１０-３３３３-４４４４', '5678', '+82 10-1111-2222'] as const
+/** 같은 번호의 여러 형식, 뒤 4자리만 같은 다른 번호(010-7777-2222), 휴대폰 번호 모양이 아닌 값 */
+const PHONES = ['010-1111-2222', '01011112222', '０１０-３３３３-４４４４', '5678', '+82 10-1111-2222', '010-7777-2222', '(010) 3333 4444'] as const
 const MEMOS = ['길동 이모', '  ', '김영희'] as const
 /** 효과·찜 ID·조회 결과(뒤 4자리 밖)에 나오면 안 되는 글자 */
-const SECRETS = ['11112222', '1111-2222', '33334444', '길동 이모', '김영희'] as const
+const SECRETS = ['11112222', '1111-2222', '33334444', '77772222', '길동 이모', '김영희'] as const
+/** 엔진 상태(직렬화)에 있으면 안 되는 입력 번호 원문·정규화한 번호 (AC-S03b-03) */
+const NUMBERS = ['010-1111-2222', '01011112222', '1111-2222', '11112222', '３３３３', '01033334444', '33334444', '3333 4444', '010-7777-2222', '01077772222', '77772222'] as const
+/** 효과·효과 ID·찜 ID·구매자 ID·조회 결과에 있으면 안 되는 전화번호 키 */
+const PHONE_KEYS = [...new Set(PHONES.map((phone) => smsPhoneFields(phone).phoneKey).filter((key): key is string => key !== undefined))]
 const KST = 9 * 3_600_000
 
 type Raw =
@@ -51,6 +61,10 @@ type Raw =
   | { readonly type: 'merge'; readonly from: number; readonly into: number }
   | { readonly type: 'unmerge'; readonly from: number }
   | { readonly type: 'ledger'; readonly kind: 'payment' | 'refund' | 'adjust' | 'shipping'; readonly buyer: number; readonly amount: number; readonly mode: number; readonly day: number }
+  // 충돌을 자주 만드는 원료 (S03b): 1등 잠금, 수신 시각이 앞선 문자찜, 충돌 중인 상품의 1등 자리 비우기
+  | { readonly type: 'lock'; readonly no: number; readonly pick: number }
+  | { readonly type: 'early'; readonly no: number; readonly ref: number; readonly designate: number }
+  | { readonly type: 'vacate'; readonly how: 'host.cancel' | 'host.reject' | 'chat' | 'approve' | 'stock'; readonly pick: number }
 
 interface Entry {
   readonly raw: Raw
@@ -102,14 +116,31 @@ const rawArb: fc.Arbitrary<Raw> = fc.oneof(
       seconds: fc.boolean(),
       phone: fc.integer({ min: -1, max: PHONES.length - 1 }),
       memo: fc.integer({ min: -1, max: MEMOS.length - 1 }),
-      designate: fc.integer({ min: -3, max: 6 }),
+      // 0~5: 아는 구매자, 6: 늘 모르는 구매자, 7·8: 아직 채팅하지 않았을 수 있는 채널(D·OWNER) — 모르는 지정 구매자였다가 알게 된다
+      designate: fc.integer({ min: -3, max: 8 }),
     }),
   },
   {
     weight: 7,
     arbitrary: fc.record({
       type: fc.constant('pick' as const),
-      action: fc.constantFrom('host.cancel', 'host.cancel', 'host.reject', 'host.promote', 'host.confirm', 'host.approveCancel', 'host.dismissCancel', 'host.blockBuyer', 'host.unblockBuyer', 'cancelChat', 'assignTo', 'replace', 'host.reopen'),
+      action: fc.constantFrom(
+        'host.cancel',
+        'host.cancel',
+        'host.reject',
+        'host.promote',
+        'host.confirm',
+        'host.approveCancel',
+        'host.dismissCancel',
+        'host.blockBuyer',
+        'host.unblockBuyer',
+        'cancelChat',
+        'cancelChatMerged',
+        'assignTo',
+        'replace',
+        'assignConflict',
+        'host.reopen',
+      ),
       pick: fc.nat(),
       other: fc.nat(),
       to: fc.constantFrom('WAITLIST' as const, 'CANCEL' as const),
@@ -145,12 +176,12 @@ const rawArb: fc.Arbitrary<Raw> = fc.oneof(
   },
 )
 
-function makeScenarioArb(settings: fc.Arbitrary<SettingsOverride>): fc.Arbitrary<Scenario> {
+function makeScenarioArb(settings: fc.Arbitrary<SettingsOverride>, raws: fc.Arbitrary<Raw> = rawArb): fc.Arbitrary<Scenario> {
   return fc.tuple(fc.constantFrom<readonly BroadcastInfo[]>([B1], [B1], [B1, B2], [B1, B0919]), settings).chain(([broadcasts, chosen]) =>
     fc
       .tuple(
         fc.array(fc.record({ type: fc.constant('register' as const), no, stock: fc.constantFrom(1, 1, 2), price: fc.constantFrom(5000, 10000), ready: fc.constantFrom(false, false, true) }), { minLength: 2, maxLength: 4 }),
-        fc.array(fc.record({ raw: rawArb, dt: fc.oneof({ weight: 4, arbitrary: fc.integer({ min: 0, max: 4000 }) }, { weight: 1, arbitrary: fc.integer({ min: 0, max: 50_000 }) }) }), { minLength: 1, maxLength: 60, size: 'max' }),
+        fc.array(fc.record({ raw: raws, dt: fc.oneof({ weight: 4, arbitrary: fc.integer({ min: 0, max: 4000 }) }, { weight: 1, arbitrary: fc.integer({ min: 0, max: 50_000 }) }) }), { minLength: 1, maxLength: 60, size: 'max' }),
       )
       .map(([prefix, rest]) => ({ broadcasts, settings: chosen, entries: [...prefix.map((raw) => ({ raw, dt: 0 })), ...rest] })),
   )
@@ -158,6 +189,25 @@ function makeScenarioArb(settings: fc.Arbitrary<SettingsOverride>): fc.Arbitrary
 
 const scenarioArb = makeScenarioArb(settingsArb)
 const receivedArb = makeScenarioArb(settingsArb.map((s) => ({ ...s, 'contention.policy': 'RECEIVED_TIME' as const, 'waitlist.max': Math.max(1, s['waitlist.max'] ?? 1) })))
+/**
+ * 충돌이 잦고 대기가 금방 차는 로그 (AC-S03b-92): 대기 한도 0~2, 실제 시각순 위주. 1등 잠금·수신 시각이 앞선 문자찜으로 충돌을 만들고,
+ * 충돌 중인 상품에 1등 취소·무효·시청자 취소·취소 승인·재고 늘림·직접 배정을 넣는다 (D-064, D-068)
+ */
+const conflictRawArb: fc.Arbitrary<Raw> = fc.oneof(
+  { weight: 5, arbitrary: rawArb },
+  {
+    weight: 3,
+    arbitrary: fc.record({ type: fc.constant('chat' as const), msg: fc.integer({ min: 31, max: 60 }), ch: fc.nat(CHANNELS.length - 2), text: no.map(String), published: fc.integer({ min: -5000, max: 0 }), owner: fc.constant(false), nick: fc.constant(0) }),
+  },
+  { weight: 3, arbitrary: fc.record({ type: fc.constant('lock' as const), no, pick: fc.nat() }) },
+  { weight: 3, arbitrary: fc.record({ type: fc.constant('early' as const), no, ref: fc.integer({ min: 1, max: 40 }), designate: fc.integer({ min: -4, max: 8 }) }) },
+  { weight: 2, arbitrary: fc.record({ type: fc.constant('vacate' as const), how: fc.constantFrom('host.cancel' as const, 'host.reject' as const, 'chat' as const, 'approve' as const, 'stock' as const), pick: fc.nat() }) },
+  { weight: 1, arbitrary: fc.record({ type: fc.constant('pick' as const), action: fc.constant('assignConflict'), pick: fc.nat(), other: fc.nat(), to: fc.constantFrom('WAITLIST' as const, 'CANCEL' as const) }) },
+)
+const tightArb = makeScenarioArb(
+  settingsArb.chain((s) => fc.record({ max: fc.constantFrom(0, 1, 2), policy: fc.constantFrom('RECEIVED_TIME', 'RECEIVED_TIME', 'ARRIVAL') }).map(({ max, policy }) => ({ ...s, 'waitlist.max': max, 'contention.policy': policy }))),
+  conflictRawArb,
+)
 
 // ── 원료 → 이벤트 ────────────────────────────────────────────────────────
 
@@ -194,9 +244,10 @@ function materialize(state: EngineState, scenario: Scenario, raw: Raw, seq: numb
         ref: `s${String(raw.ref)}`,
         no: raw.no,
         received: kstClock(at + raw.received, raw.seconds),
-        ...(raw.phone < 0 ? {} : { phone: PHONES[raw.phone] as string }),
+        // 전화번호는 서버처럼 정규화·키로 바꿔 넣는다 (D-061)
+        ...(raw.phone < 0 ? {} : smsPhoneFields(PHONES[raw.phone] as string)),
         ...(raw.memo < 0 ? {} : { memo: MEMOS[raw.memo] as string }),
-        ...(raw.designate < 0 ? {} : { buyer: raw.designate === 6 ? 'ZZ' : buyerAt(raw.designate) }),
+        ...(raw.designate < 0 ? {} : { buyer: raw.designate === 6 ? 'ZZ' : raw.designate >= 7 ? (CHANNELS[raw.designate - 4] as string) : buyerAt(raw.designate) }),
       }
     case 'pick':
       return resolvePick(state, raw, base, b)
@@ -236,6 +287,42 @@ function materialize(state: EngineState, scenario: Scenario, raw: Raw, seq: numb
       const mode = (['PICKUP', 'COMBINED', 'FIXED', 'DEFAULT'] as const)[raw.mode] as 'PICKUP' | 'COMBINED' | 'FIXED' | 'DEFAULT'
       return { ...base, type: 'settlement.shippingOverride', buyer, date, mode, ...(mode === 'FIXED' ? { amount: 3000 } : {}) }
     }
+    case 'lock': {
+      // 1등이 있는 상품의 1등 하나를 잠근다
+      const sold = listProducts(state).filter((p) => p.winners.length > 0)
+      const product = sold[raw.pick % Math.max(1, sold.length)]
+      if (product === undefined) return { ...base, type: 'host.confirm', b: bIds[0] as string, no: raw.no, buyer: 'NOBODY' }
+      return { ...base, type: 'host.confirm', b: product.broadcast, no: product.no, buyer: product.winners[raw.pick % product.winners.length] as string }
+    }
+    case 'early': {
+      // 자리가 다 찬 상품(없으면 그 번호)의 지금 1등들보다 수신 시각이 앞선 문자찜 — 1등이 잠겨 있으면 충돌, 아니면 자동 역전 (실제 시각순)
+      const full = listProducts(state).filter((p) => p.broadcast === bIds[0] && p.status === 'SOLD')
+      const product = full[raw.ref % Math.max(1, full.length)] ?? listProducts(state).find((p) => p.broadcast === bIds[0] && p.no === raw.no)
+      const times = listClaims(state).filter((c) => product?.winnerClaims.includes(c.id) === true).map((c) => c.rankTime)
+      const earliest = times.length === 0 ? at - 120_000 : Math.min(...times)
+      return {
+        ...base,
+        type: 'sms',
+        b: bIds[0] as string,
+        ref: `e${String(raw.ref)}`,
+        no: product?.no ?? raw.no,
+        received: kstClock(earliest - 60_000 - (raw.ref % 3) * 1000, true),
+        ...(raw.designate < 0 ? {} : { buyer: raw.designate === 6 ? 'ZZ' : raw.designate >= 7 ? (CHANNELS[raw.designate - 4] as string) : buyerAt(raw.designate) }),
+      }
+    }
+    case 'vacate': {
+      const products = listProducts(state).filter((p) => p.winners.length > 0)
+      const conflicted = products.filter((p) => p.conflict)
+      const pool = conflicted.length > 0 ? conflicted : products
+      const product = pool[raw.pick % Math.max(1, pool.length)]
+      if (product === undefined) return { ...base, type: 'host.reopen', b: bIds[0] as string, no: 1, reason: '사유' }
+      const at = { b: product.broadcast, no: product.no }
+      const claim = listClaims(state).find((c) => c.id === product.winnerClaims[raw.pick % product.winnerClaims.length]) as ClaimInfo
+      if (raw.how === 'stock') return { ...base, type: 'product.update', ...at, stock: product.stock + 1 + (raw.pick % 2) }
+      if (raw.how === 'approve') return { ...base, type: 'host.approveCancel', ...at, buyer: claim.buyer }
+      if (raw.how === 'chat' && !claim.buyer.startsWith('sms:')) return { ...base, type: 'chat', b: at.b, id: `v${String(seq)}`, ch: claim.buyer, nick: '가', text: `${String(at.no)} 취소` }
+      return { ...base, type: raw.how === 'host.reject' ? 'host.reject' : 'host.cancel', ...at, buyer: claim.buyer, reason: '사유' }
+    }
   }
 }
 
@@ -251,8 +338,26 @@ function resolvePick(state: EngineState, raw: Extract<Raw, { type: 'pick' }>, ba
   switch (raw.action) {
     case 'cancelChat':
       return { ...base, type: 'chat', b: target.broadcast, id: `p${String(base.seq)}`, ch: target.buyer.startsWith('sms:') ? 'A' : target.buyer, nick: '가', text: `${String(target.no)} 취소` }
+    case 'cancelChatMerged': {
+      // 그 찜의 지금의 구매자 묶음 안의 다른 유튜브 채널이 채팅으로 취소 (합친 다른 구매자의 찜 — D-063)
+      const members = listBuyers(state).filter((b) => b.current === target.currentBuyer && b.kind === 'youtube' && b.id !== target.buyer)
+      const ch = members[raw.other % Math.max(1, members.length)]?.id ?? 'A'
+      return { ...base, type: 'chat', b: target.broadcast, id: `p${String(base.seq)}`, ch, nick: '가', text: `${String(target.no)} 취소` }
+    }
     case 'assignTo':
       return { ...base, type: 'host.assign', ...where, buyer: other, reason: '사유' }
+    case 'assignConflict': {
+      // 충돌 중인 상품에 직접 배정 (교체 있음·없음, 대기·충돌 찜의 구매자에게도 — D-064)
+      const conflicted = listProducts(state).filter((p) => p.conflict)
+      const product = conflicted[raw.pick % Math.max(1, conflicted.length)]
+      if (product === undefined) return { ...base, type: 'host.assign', ...where, buyer: other, reason: '사유' }
+      const candidates = [...buyers, ...product.waitlist, ...(product.conflictBuyer === null ? [] : [product.conflictBuyer])]
+      const buyer = candidates[raw.other % candidates.length] as string
+      const at = { b: product.broadcast, no: product.no }
+      return raw.other % 3 === 0
+        ? { ...base, type: 'host.assign', ...at, buyer, reason: '사유' }
+        : { ...base, type: 'host.assign', ...at, buyer, reason: '사유', replace: product.winners[raw.pick % product.winners.length] as string, replaceTo: raw.to }
+    }
     case 'replace': {
       const winner = confirmed.find((c) => c.product === target.product)
       return { ...base, type: 'host.assign', ...where, buyer: other, reason: '사유', replace: winner?.buyer ?? target.buyer, replaceTo: raw.to }
@@ -335,6 +440,8 @@ function checkStep(scenario: Scenario, prev: EngineState, event: EngineEvent, ne
     if (host) continue
     if (event.type === 'chat' && claim.status === 'CANCELLED') {
       expect(scenario.settings['cancel.buyerChat'], `${where}: 채팅이 확정을 풀었다`).toBe('AUTO')
+      // 시청자 채팅 취소는 그 채널 자신의 찜에만 (D-063)
+      expect(claim.buyer, `${where}: 채널 ${event.ch}가 다른 구매자의 찜 ${claim.id}을 채팅으로 취소했다`).toBe(event.ch)
       continue
     }
     // 그 밖은 RECEIVED_TIME의 자동 역전뿐 (합치기·상품 수정·정산 기록은 확정을 풀지 않는다, INV-8)
@@ -360,12 +467,18 @@ function checkStep(scenario: Scenario, prev: EngineState, event: EngineEvent, ne
     const newlyConfirmed = claim.status === 'CONFIRMED' && (was?.status !== 'CONFIRMED' || was.confirmVersion !== claim.confirmVersion)
     if (newlyConfirmed) confirmedNow.set(claim.productId as string, [...(confirmedNow.get(claim.productId as string) ?? []), claim])
   }
+  const prevWaitlist = new Map(listProducts(prev).flatMap((p) => p.waitlistClaims.map((id, i) => [id, i] as const)))
   for (const [pid, list] of confirmedNow) {
     const byVersion = [...list].sort((a, b) => (a.confirmVersion as number) - (b.confirmVersion as number))
     for (let i = 1; i < byVersion.length; i++) {
       if (event.type === 'product.register' || event.type === 'product.open' || event.type === 'product.renumber') {
         expect(compareRank(material(byVersion[i - 1] as ClaimInfo), material(byVersion[i] as ClaimInfo), next.settings), `${where}: 공개 순간 확정 순서`).toBeLessThan(0)
       }
+    }
+    // 재고 늘림은 대기 순번 순서로 확정하고 확정버전도 그 순서 (D-066): 이전 대기열에 있던 찜끼리는 이전 대기 순번 순
+    if (event.type === 'product.update') {
+      const fromWaitlist = byVersion.filter((c) => prevWaitlist.has(c.id)).map((c) => prevWaitlist.get(c.id) as number)
+      expect(fromWaitlist, `${where}: 재고 늘림 확정 순서`).toEqual([...fromWaitlist].sort((a, b) => a - b))
     }
     history.versions.set(pid, [...(history.versions.get(pid) ?? []), ...byVersion.map((c) => c.confirmVersion as number)])
   }
@@ -385,11 +498,46 @@ function checkStep(scenario: Scenario, prev: EngineState, event: EngineEvent, ne
   for (const effect of nextEffects) if (prevStatus.get(effect.id) === 'DONE') expect(effect.status).toBe('DONE')
   expect(nextEffects.filter((e) => e.status === 'DONE' && prevStatus.get(e.id) !== 'DONE').length).toBeLessThanOrEqual(event.type.startsWith('effect.') ? 1 : 0)
 
-  // 개인정보: 효과·찜 ID·조회 결과에 메모·전체 전화번호가 없다 (AC-S03-12)
-  const published = json([nextEffects, after.map((c) => c.id)])
-  for (const secret of SECRETS) expect(published.includes(secret), `${where}: 효과에 ${secret}`).toBe(false)
-  const views = json([listBuyers(next).map(({ display: _d, nameHistory: _n, ...rest }) => rest), after, listProducts(next), listSettlements(next)])
-  for (const secret of ['11112222', '33334444']) expect(views.includes(secret), `${where}: 조회 결과에 전체 번호`).toBe(false)
+  // 개인정보: 효과·찜 ID·구매자 ID·조회 결과에 메모·전체 전화번호·전화번호 키가 없다 (AC-S03-12, AC-S03b-03)
+  const nextBuyers = listBuyers(next)
+  const published = json([nextEffects, emitted, after.map((c) => c.id), nextBuyers.map((b) => b.id)])
+  for (const secret of [...SECRETS, ...PHONE_KEYS]) expect(published.includes(secret), `${where}: 효과·ID에 ${secret}`).toBe(false)
+  const views = json([nextBuyers.map(({ display: _d, nameHistory: _n, ...rest }) => rest), after, listProducts(next), listSettlements(next), listSmsRefs(next)])
+  for (const secret of ['11112222', '33334444', '77772222', ...PHONE_KEYS]) expect(views.includes(secret), `${where}: 조회 결과에 전체 번호·키`).toBe(false)
+  for (const buyer of nextBuyers) if (buyer.phoneLast4 !== null) expect(buyer.phoneLast4, `${where}: 뒤 4자리`).toMatch(/^[0-9]{4}$/)
+  // 엔진 상태(직렬화)에 입력한 번호 원문·정규화한 번호가 없다 (AC-S03b-03)
+  const stateText = json(next)
+  for (const number of NUMBERS) expect(stateText.includes(number), `${where}: 상태에 ${number}`).toBe(false)
+
+  // 대기 수 ≤ 대기 한도 (매 이벤트 뒤, AC-S03b-92)
+  const limit = Math.max(0, scenario.settings['waitlist.max'] ?? 5)
+  for (const product of listProducts(next)) expect(product.waitlist.length, `${where}: ${product.key} 대기 한도`).toBeLessThanOrEqual(limit)
+
+  // 승계 AUTO에서 1등 자리를 비우는 이벤트, 재고 늘림은 새 REJECTED(SOLD_OUT)을 만들지 않는다 (D-068)
+  const soldOut = after.filter((c) => c.status === 'REJECTED' && c.reason === 'SOLD_OUT' && before.has(c.id) && !(before.get(c.id)?.status === 'REJECTED'))
+  const cancelOnly = event.type === 'chat' && parseChat(event.text, next.settings).claims.length === 0
+  const vacating = event.type === 'host.cancel' || event.type === 'host.reject' || event.type === 'host.approveCancel' || cancelOnly
+  if (event.type === 'product.update' || (vacating && scenario.settings['cancel.succession'] === 'AUTO')) {
+    expect(soldOut.map((c) => c.id), `${where}: 자리를 비우는 이벤트가 품절을 만들었다`).toEqual([])
+  }
+
+  // 아무것도 바꾸지 않는 조치 (AC-S03b-92): 주문이었던 메시지의 변환, 충돌 중 host.assign
+  if (event.type === 'host.convertMessage' && pget(prev.messages, JSON.stringify([event.b, event.msg]))?.order === true) {
+    expect(next, `${where}: 주문이었던 메시지를 변환했다 (D-062)`).toBe(prev)
+  }
+  if (event.type === 'host.assign' && pget(prev.slots, `${event.b}/${String(event.no)}`)?.conflict != null) {
+    expect(next, `${where}: 충돌 중에 배정했다 (D-064)`).toBe(prev)
+  }
+  // 합친 다른 구매자의 찜에 대한 시청자 채팅 취소는 찜·요청·상품·효과를 바꾸지 않는다 (D-063)
+  if (cancelOnly) {
+    const targets = parseChat(event.text, next.settings).cancels.map((n) => activeClaimId(prev, event.b, n, event.ch))
+    const ownTarget = targets.some((id) => id !== null && before.get(id)?.buyer === event.ch)
+    if (!ownTarget) {
+      expect(json([after, listCancelRequests(next), listProducts(next), emitted]), `${where}: 다른 구매자의 찜을 채팅으로 바꿨다`).toBe(
+        json([listClaims(prev), listCancelRequests(prev), listProducts(prev), []]),
+      )
+    }
+  }
 }
 
 function checkRun(scenario: Scenario): Run {
@@ -417,6 +565,15 @@ describe('AC-S03-92 불변식 속성 (S03 이벤트·설정을 섞은 무작위 
         checkRun(scenario)
       }),
       PARAMS,
+    )
+  })
+
+  it('같은 검사, 충돌이 잦고 대기 한도 0~2인 로그 (꽉 찬 대기에서 충돌 중 1등 취소·무효·시청자 취소·승인·재고 늘림·배정, 승계 셋 — D-064·D-068)', () => {
+    fc.assert(
+      fc.property(tightArb, (scenario) => {
+        checkRun(scenario)
+      }),
+      { numRuns: 300 },
     )
   })
 
@@ -458,8 +615,7 @@ describe('AC-S03-92 불변식 속성 (S03 이벤트·설정을 섞은 무작위 
           const i = indexes[pick % indexes.length] as number
           const source = (scenario.entries[i] as Entry).raw
           const original = runScenario(scenario)
-          // 첫 문자찜이 받아들여졌을 때만 사본이다 (모르는 지정 구매자의 문자찜은 이벤트 전체가 아무 일도 없어 ref도 받지 않는다)
-          if (source.type === 'sms' && buyerOfRef(original.states[i + 1] as EngineState, `s${String(source.ref)}`) === null) return
+          // ref는 처음 받을 때 기록한다 — 모르는 지정 구매자라 구매자를 정하지 않은 문자찜의 사본도 아무 일도 없다 (D-067, S03의 건너뛰기를 없앴다)
           const entries = [...scenario.entries]
           const positions = copies.map(([n, variant, shift]) => ({ at: i + 1 + (n % (scenario.entries.length - i)), variant, shift })).sort((a, b) => b.at - a.at)
           for (const { at, variant, shift } of positions) {
@@ -467,7 +623,7 @@ describe('AC-S03-92 불변식 속성 (S03 이벤트·설정을 섞은 무작위 
               source.type === 'chat'
                 ? { ...source, text: ['15', '1 취소', '안녕', '2'][variant % 4] as string, nick: variant % 3, published: source.published + shift }
                 : source.type === 'sms'
-                  ? { ...source, no: NOS[variant % 3] as number, memo: (variant % 4) - 1, phone: (variant % 6) - 1, received: source.received + shift, designate: (variant % 5) - 1 }
+                  ? { ...source, no: NOS[variant % 3] as number, memo: (variant % 4) - 1, phone: (variant % (PHONES.length + 1)) - 1, received: source.received + shift, designate: (variant % 10) - 1 }
                   : source
             entries.splice(at, 0, { raw, dt: 0 })
           }
@@ -528,6 +684,21 @@ function invalidS03Commands(state: EngineState): Record<string, unknown>[] {
     { type: 'settlement.shippingOverride', buyer: 'NOBODY', date: '2026-10-18', mode: 'PICKUP' },
   ]
   for (const { ref } of listSmsRefs(state)) out.push({ type: 'sms', b: 'b1', ref, no: 2, received: '19:00', memo: '다른 메모' })
+  // 구매자를 정하지 않은 ref의 사본(그 사이 구매자를 알게 됐어도), 주문이었던 메시지의 변환, 충돌 중 배정 (D-062·D-064·D-067)
+  for (const [ref, buyer] of pentries(state.refs)) if (buyer === null) out.push({ type: 'sms', b: 'b1', ref, no: 1, received: '20:00', buyer: 'A' })
+  for (const [key, message] of pentries(state.messages)) {
+    if (!message.order) continue
+    const [b, msg] = JSON.parse(key) as [string, string]
+    for (const n of NOS) out.push({ type: 'host.convertMessage', b, msg, no: n })
+  }
+  for (const product of listProducts(state)) {
+    if (!product.conflict) continue
+    const at = { b: product.broadcast, no: product.no }
+    for (const buyer of listBuyers(state)) {
+      out.push({ type: 'host.assign', ...at, buyer: buyer.id, reason: 'r' })
+      for (const winner of product.winners) out.push({ type: 'host.assign', ...at, buyer: buyer.id, reason: 'r', replace: winner, replaceTo: 'WAITLIST' })
+    }
+  }
   for (const product of listProducts(state)) {
     const at = { b: product.broadcast, no: product.no }
     out.push({ type: 'product.update', ...at, stock: Math.max(1, product.winners.length) - (product.winners.length > 1 ? 1 : 0) === product.winners.length ? product.stock : Math.max(1, product.winners.length - 1), name: '다른' })
@@ -577,7 +748,8 @@ const VALID_EVENTS: readonly Record<string, unknown>[] = [
   { type: 'product.update', b: 'b1', no: 1, name: 'y', price: 0, stock: 3, applyTo: 'UNPAID_CLAIMS' },
   { type: 'product.renumber', b: 'b1', from: 1, to: 9 },
   { type: 'chat', b: 'b1', id: 'zz', ch: 'E', nick: 'e', text: '1', owner: false, publishedAt: T0 },
-  { type: 'sms', b: 'b1', ref: 'r9', no: 1, received: '20:01:05', memo: 'm', phone: '010', buyer: 'A' },
+  { type: 'sms', b: 'b1', ref: 'r9', no: 1, received: '20:01:05', memo: 'm', phoneKey: 'k'.repeat(16), phoneLast4: '0000', buyer: 'A' },
+  { type: 'sms', b: 'b1', ref: 'Ab_9-x', no: 2, received: '20:01', ...smsPhoneFields('010-1234-5678') },
   { type: 'host.cancel', b: 'b1', no: 1, buyer: 'A', reason: '사유' },
   { type: 'host.confirm', b: 'b1', no: 1, buyer: 'A', reason: '사유' },
   { type: 'host.assign', b: 'b1', no: 1, buyer: 'A', reason: '사유', replace: 'B', replaceTo: 'WAITLIST' },
@@ -605,6 +777,12 @@ const mutation = fc.oneof(
   }),
   fc.record({ kind: fc.constant('type' as const), value: fc.constantFrom('sms.claim', 'settlement.paid', 'chat.message', '__proto__', 'SMS', 'broadcast.start', 'effect.failed', 'host.convert') }),
   fc.record({ kind: fc.constant('extra' as const), value: fc.constantFrom<unknown>('anything', 1) }),
+  // S03b: 문자찜 ref·전화번호 키·뒤 4자리 형식, 전화번호 원문 필드, 한쪽만 있는 짝 (D-061, D-065)
+  fc.record({
+    kind: fc.constant('sms' as const),
+    field: fc.constantFrom('ref', 'phoneKey', 'phoneLast4', 'phone', 'replace', 'replaceTo'),
+    value: fc.constantFrom<unknown>(undefined, '', 'a'.repeat(15), 'a'.repeat(16), 'a'.repeat(128), 'a'.repeat(129), 'a+b='.repeat(5), '010-1234-5678', '01012345678', '5678', '567', '56789', '５６７８', '12a4', 5678, '김영희', 's:1', 'a'.repeat(64), 'a'.repeat(65), 'WAITLIST', 'B'),
+  }),
 )
 
 describe('AC-S03-02 검사 함수 = applyEvent의 입력 오류 판정', () => {
@@ -620,6 +798,7 @@ describe('AC-S03-02 검사 함수 = applyEvent의 입력 오류 판정', () => {
             event = rest
           } else if (m.kind === 'set') event = { ...event, [fields[m.field % fields.length] as string]: m.value }
           else if (m.kind === 'type') event = { ...event, type: m.value }
+          else if (m.kind === 'sms') event = { ...event, [m.field]: m.value }
           else event = { ...event, extraField: m.value }
         }
         const before = json(state)
