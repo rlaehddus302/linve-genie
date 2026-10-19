@@ -136,6 +136,28 @@ const rawHtmlSyntax = [
   { selector: "CallExpression > MemberExpression.callee[object.name='document'][property.name=/^(write|writeln)$/]", message: RAW_HTML_DOM },
 ]
 
+/**
+ * 앱 소스의 테스트 전용 코드 금지 (AC-S04-32, D-061, D-073, RA-S03b-001).
+ * `@livejjim/core/golden`(골든 러너 도우미: 시험용 전화번호 HMAC 키 TEST_PHONE_SECRET·smsPhoneFields)은 테스트 전용이다.
+ * apps/<앱>/src(시험 제외)에서 정적·별칭·다시 내보내기·동적 import·require와 코어 test 폴더 직접 경로, 키 이름 TEST_PHONE_SECRET을 막는다.
+ */
+const TEST_ONLY = '앱 소스에서 테스트 전용 코드를 쓰지 않는다(AC-S04-32, D-073): @livejjim/core/golden·packages/core/test·TEST_PHONE_SECRET은 시험에서만 쓴다.'
+// 선택자 안 정규식은 '/'를 쓸 수 없어(esquery) '\x2F'로 적는다
+const TEST_ONLY_MODULE = String.raw`^@livejjim\x2Fcore\x2F(golden|test)(\x2F|$)|(^|\x2F)packages\x2Fcore\x2Ftest(\x2F|$)|(^|\x2F)core\x2Ftest\x2Fgolden(\x2F|$)`
+const TEST_ONLY_MODULE_PART = String.raw`@livejjim\x2Fcore\x2F(golden|test)|packages\x2Fcore\x2Ftest|core\x2Ftest\x2Fgolden`
+const testOnlyImports = {
+  paths: [{ name: '@livejjim/core/golden', message: TEST_ONLY }],
+  patterns: [{ regex: TEST_ONLY_MODULE, message: TEST_ONLY }],
+}
+const testOnlySyntax = [
+  { selector: `ImportExpression > Literal[value=/${TEST_ONLY_MODULE}/]`, message: TEST_ONLY },
+  { selector: `ImportExpression > TemplateLiteral > TemplateElement[value.cooked=/${TEST_ONLY_MODULE_PART}/]`, message: TEST_ONLY },
+  { selector: `CallExpression[callee.name='require'] > Literal[value=/${TEST_ONLY_MODULE}/]`, message: TEST_ONLY },
+  { selector: "Identifier[name='TEST_PHONE_SECRET']", message: TEST_ONLY },
+  { selector: 'Literal[value=/TEST_PHONE_SECRET/]', message: TEST_ONLY },
+  { selector: 'TemplateElement[value.cooked=/TEST_PHONE_SECRET/]', message: TEST_ONLY },
+]
+
 export default defineConfig(
   globalIgnores([
     '**/node_modules/',
@@ -209,6 +231,17 @@ export default defineConfig(
     },
   },
 
+  // 앱 소스의 테스트 전용 코드 금지 (AC-S04-32). 시험(apps/*/test)에는 적용하지 않는다.
+  {
+    files: ['apps/*/src/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'],
+    linterOptions: { noInlineConfig: true, reportUnusedDisableDirectives: 'error' },
+    rules: {
+      'no-restricted-imports': 'off',
+      '@typescript-eslint/no-restricted-imports': ['error', testOnlyImports],
+      'no-restricted-syntax': ['error', ...testOnlySyntax],
+    },
+  },
+
   // 웹 화면 XSS 방지 (AC-S00-06, NFR-06). apps/web 전체(src·test·설정)에 적용한다.
   {
     files: ['apps/web/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'],
@@ -220,6 +253,14 @@ export default defineConfig(
       'no-eval': 'error',
       'no-implied-eval': 'error',
       'no-new-func': 'error',
+    },
+  },
+
+  // 웹 소스: 위 두 블록의 no-restricted-syntax를 합친다 (같은 규칙은 뒤 블록이 덮어쓴다)
+  {
+    files: ['apps/web/src/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'],
+    rules: {
+      'no-restricted-syntax': ['error', ...rawHtmlSyntax, ...testOnlySyntax],
     },
   },
 )
