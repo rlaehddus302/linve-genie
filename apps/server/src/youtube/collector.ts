@@ -26,6 +26,7 @@ import {
   insertOwnMessage,
   linkById,
   markChatEnded,
+  recordedChats,
   releaseLease,
   renewLease,
   updateCollector,
@@ -272,7 +273,8 @@ export class CollectorManager {
     const current = await collectorOf(this.#options.db, row.sellerId, row.linkId)
     const broadcast = await findBroadcast(this.#options.db, row.sellerId, row.broadcastId)
     if (current === null) return
-    this.#options.publish(row.sellerId, { kind: 'collector', broadcast: row.broadcastId, ...(broadcast === null ? {} : { date: broadcast.date }), collector: collectorView(current) })
+    const recorded = await recordedChats(this.#options.db, row.sellerId, row.broadcastId)
+    this.#options.publish(row.sellerId, { kind: 'collector', broadcast: row.broadcastId, ...(broadcast === null ? {} : { date: broadcast.date }), collector: collectorView(current, recorded) })
   }
 
   /** 돌 수집기를 찾아 임대를 잡고 돌린다 */
@@ -708,7 +710,8 @@ export interface CollectorView {
   readonly restartable: boolean
 }
 
-export function collectorView(row: CollectorRow): CollectorView {
+/** 수집 상태 (recorded = 그 방송에 기록된 유튜브 채팅 수 — 주면 그 값, 아니면 수집기 칸) */
+export function collectorView(row: CollectorRow, recorded?: number): CollectorView {
   const status = row.status as CollectorStatus
   const reason = row.reason
   return {
@@ -718,7 +721,7 @@ export function collectorView(row: CollectorRow): CollectorView {
     reasonMessage: reason !== null && reason in COLLECTOR_REASON_MESSAGES ? COLLECTOR_REASON_MESSAGES[reason as CollectorReason] : null,
     mode: row.mode,
     lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
-    recorded: row.recorded,
+    recorded: recorded ?? row.recorded,
     skippedBeforeLink: row.skippedBeforeLink,
     gap: row.gap,
     gapMessage: row.gap ? GAP_MESSAGE : null,

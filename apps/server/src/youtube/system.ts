@@ -19,6 +19,7 @@ import {
   insertLink,
   linkByRequest,
   openLinksForVideo,
+  recordedChats,
   scopeNotices,
   unlinkRow,
   updateCollector,
@@ -263,7 +264,7 @@ export class YoutubeSystem {
     const collector = await collectorOf(this.#options.db, sellerId, link.id)
     return {
       link: { videoId: link.videoId, channelId: link.channelId, linkedAt: link.linkedAt.toISOString(), chatEnded: link.chatEndedAt !== null },
-      collector: collector === null ? null : collectorView(collector),
+      collector: collector === null ? null : collectorView(collector, await recordedChats(this.#options.db, sellerId, link.broadcastId)),
     }
   }
 

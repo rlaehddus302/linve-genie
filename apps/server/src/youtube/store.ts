@@ -2,7 +2,7 @@
 // 워커가 판매자를 가리지 않고 할 일을 찾는 질의(수집할 것·요약할 것)는 그 행의 판매자 ID를 함께 돌려주고, 이어서 쓰는 질의는 그 판매자 ID를 건다.
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
-import { broadcasts, scopes, youtubeCollectors, youtubeConnections, youtubeLinks, youtubeNotices, youtubeOwnMessages } from '../db/schema.ts'
+import { broadcasts, events, scopes, youtubeCollectors, youtubeConnections, youtubeLinks, youtubeNotices, youtubeOwnMessages } from '../db/schema.ts'
 
 // ── 방송 잇기 ────────────────────────────────────────────────────────────
 
@@ -293,6 +293,15 @@ export async function updateCollector(
     .where(and(eq(youtubeCollectors.sellerId, sellerId), eq(youtubeCollectors.linkId, linkId), ...(owner === undefined ? [] : [eq(youtubeCollectors.leaseOwner, owner)])))
     .returning({ linkId: youtubeCollectors.linkId })
   return rows.length > 0
+}
+
+/** 그 방송에 기록된 유튜브 채팅 수 (수집 상태의 기록한 메시지 수 — 죽었다 살아나도 정확하다) */
+export async function recordedChats(db: Db, sellerId: string, broadcastId: string): Promise<number> {
+  const rows = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(events)
+    .where(and(eq(events.sellerId, sellerId), eq(events.chatBroadcast, broadcastId), eq(events.chatSource, 'youtube')))
+  return Number(rows[0]?.n ?? 0)
 }
 
 /** 지금 연결 (수집기·발송함이 채널을 확인한다) */
