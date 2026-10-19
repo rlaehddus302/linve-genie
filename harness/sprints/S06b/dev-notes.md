@@ -64,3 +64,30 @@ interface MergePreview {
 - `pnpm golden`: 파일 23 · 파서 사례 379 · 엔진 시나리오 123 · 통과 502 · 불일치 0 · 미구현(허용) 0 · 미구현(불허) 0 · 읽기 오류 0 · 결정성 위반 0 · 러너 오류 0.
 - `pnpm coverage`: `packages/core/src` 라인 100% · 분기 99.66%.
 - 기계 부하가 큰 동안(load average 24~41) 코어의 시간 비교 시험(`engine-timing.test.ts`의 "8배를 넘지 않는다")과 무거운 속성 시험이 5초 제한·비율을 넘는 일이 있었다. 따로 돌리면 통과한다(이번 변경과 관계없는 경로 — checkInvariants·보류 찜). 적대 시험 `tests/adversarial/s00/golden-runner.test.ts`의 CLI 여러 번 띄우기도 부하에서 5초를 넘는다 — AC-S06b-51(test-domain 몫).
+
+## dev-server
+
+### 바뀐 계약 (화면·E2E·적대 시험이 먼저 알아야 할 것)
+
+#### 1. 합치기 미리 보기 조회 (AC-S06b-10, D-100) — 새 경로
+`GET /api/days/:date/merge-preview?from=<구매자 ID>&into=<구매자 ID>[&rehearsal=true]`
+- 200 `{ date, rehearsal, seq, preview }`
+  - `seq`: 그 범위의 지금 seq(응답을 만들 때 따라잡은 마지막 seq). `preview`는 바로 그 seq까지 적용한 상태로 코어 `previewMerge(state, from, into)`를 부른 결과 그대로(위 dev-core "공개 모양" — `from`·`into`·`blocked`·`target`·`bothConfirmed`·`moving{buyers,items,subtotal}`·`after`·`duplicates[{claim,product,buyer,status,keep}]`). 서버는 값을 바꾸지도 거르지도 않는다(시각 필드가 없어 ISO 변환도 없다).
+  - 범위에 없는 구매자(`__proto__` 같은 문자열 포함)는 `preview.blocked = "UNKNOWN_BUYER"`(200).
+- 400 `INVALID_INPUT` — `from`·`into` 각각: 없음·빈 값·128자 넘음·제어 문자 → `problems: [{ field: 'from' | 'into', message }]`(둘 다 틀리면 둘 다). 휴대폰 번호처럼 보이는 ID(코어 `looksLikePhoneId`)면 `message`는 D-079 ⑥ 문장("전화번호처럼 보이는 숫자(010-…)가 있어요. 빼고 적어 주세요.")이고 `hint`("전화번호 대신 구매자를 골라 주세요." / into는 "전화번호 대신 합칠 구매자를 골라 주세요.")가 붙는다. 받은 값은 응답·로그 어디에도 없다.
+  - 잘못된 `rehearsal`은 다른 날짜 조회와 같은 400(`field: 'rehearsal'`).
+- 404 `NOT_FOUND` — 날짜 형식이 틀림·없는 범위·다른 판매자의 범위(그 날짜 조회 `GET /api/days/:date`와 같은 응답, 있는지 알리지 않는다). 검사 순서: 날짜(404) → `rehearsal`(400) → `from`·`into`(400) → 범위(404).
+- 401 로그인 필요. `Cache-Control: no-store`. 아무것도 기록하지 않는다(이벤트·발송함·범위 seq 그대로).
+
+#### 2. 문자찜 쓰기 응답의 `buyer` (AC-S06b-11, D-099)
+`POST /api/events`의 `type: "sms"` 성공 응답(200)에 `buyer`를 더한다. 키 전부: `date`·`rehearsal`·`seq`·`type`·`changed`·`effects`·`phoneLast4`·`buyer`.
+- `buyer` = 그 문자찜이 정한 구매자 자신의 ID = 코어 `buyerOfRef(그 이벤트를 적용한 뒤 상태, ref)` — 지정 구매자(`buyer`로 고른 유튜브 채널 ID·문자 구매자 ID), 전화번호 키로 이은 문자 구매자(`sms:<처음 문자찜의 ref>`), 새 문자 구매자(`sms:<이 문자찜의 ref>`). 정하지 못했으면 `null`.
+  - 찜이 생기지 않았어도(이미 찜한 구매자 — R-4 4번 줄) 그 구매자다. 지금의 구매자가 아니라 구매자 자신이다(합쳐져 있으면 화면이 범위 조회의 `buyers[].current`로 지금의 구매자를 찾는다).
+- 같은 요청 번호의 재전송(처음 결과를 다시 돌려주는 200)도 처음과 같은 `buyer`다. 문자찜 ref → 구매자는 처음 받을 때 한 번만 기록되고 바뀌지 않으므로(R-11, D-067 — 같은 ref는 다시 오면 아무 일도 없다) 재전송 응답은 그 범위의 지금 상태에서 같은 값을 읽는다.
+- 전화번호·메모는 담지 않는다(문자 구매자 ID = `sms:<서버가 만든 ref — 영문 소문자만>`).
+- 다른 종류의 응답은 그대로(`buyer` 없음). 실패(500 `PROCESSING_FAILED`)·거절 응답도 그대로.
+
+#### 3. 보기 캐시 상한 (AC-S06b-12, D-104) — 응답은 그대로
+- 범위마다의 캐시(색인 8·메시지 4)는 그대로. 보기 캐시를 가진 범위: 판매자마다 가장 최근에 조회한 **4개**, 서버 전체 **32개**, 마지막 조회 뒤 **10분**이 지나면 비운다. 범위 실행 상태(writer 128개) 규칙은 그대로.
+- "조회" = 범위 조회(`GET /api/days/:date`)·증분 조회(`/changes`)·메시지 조회(`/messages`) — 보기 캐시를 쓰는 조회. 정리는 그 조회 때와 쓰기 커밋 뒤(서버 시계 기준)에 한다. 타이머는 없다.
+- 시험용으로 `LivejjimServer.viewCaches`(`ViewCacheBudget`)를 낸다: `size`(캐시를 가진 범위 수), `countOf(sellerId)`, `has(sellerId, date, rehearsal)`. 비운 범위의 `runtime.views.index.size`는 0이고 `builds`(계산 횟수)는 그대로 이어 센다.
