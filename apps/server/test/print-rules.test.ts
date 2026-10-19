@@ -6,7 +6,7 @@ import { autoLabelEffects, createAutoJobs } from '../src/print-store.ts'
 import { productionServerOptions } from '../src/production.ts'
 import { createServer } from '../src/server.ts'
 import { DAY, DEVICE_A, DEVICE_B, becomeDevice, chat, labelReports, printApi, register, settled } from './print-support.ts'
-import { addSeller, client, createBroadcast, expectOk, newWorld, openTestDb, rid, sseReader, startServer, writeEvent, type Seller, type TestServer } from './support.ts'
+import { addSeller, client, createBroadcast, dumpAllTables, expectOk, newWorld, openTestDb, rid, sseReader, startServer, writeEvent, type Seller, type TestServer } from './support.ts'
 import { generateMasterKey } from '../src/secrets.ts'
 
 const open: { cancel: () => Promise<void> }[] = []
@@ -233,6 +233,38 @@ describe('AC-I1-01 격리·재시작', () => {
     expect((await q.api.get(`/api/print/labels?date=${DAY}`)).status).toBe(404)
     expect((await p.overview()).jobs[0]?.status).toBe('PRINTING')
     expect(await p.done(DEVICE_A, held.job?.attempt ?? '')).toBe(true)
+  })
+
+  it('출력 기기가 아닌 기기의 받기·연결 알림, 다른 판매자의 조치는 DB를 하나도 바꾸지 않는다 (AC-I1-06)', async () => {
+    const world = await newWorld()
+    const mine = await addSeller(world)
+    const other = await addSeller(world)
+    const b = await createBroadcast(world, mine, { date: DAY })
+    await sale(world, mine, b.id, 15, 'UC_A', '홍길동')
+    await becomeDevice(world, mine)
+    const p = printApi(world, mine)
+    const q = printApi(world, other)
+    const before = await dumpAllTables(world.database)
+    expect((await p.claimRaw(DEVICE_B)).body).toEqual({ error: { code: 'PRINT_NOT_DEVICE', message: '이 기기는 출력 기기가 아니에요.' } })
+    expect((await p.state(DEVICE_B, false)).status).toBe(409)
+    expect((await q.claimRaw(DEVICE_A)).status).toBe(409)
+    expect((await q.state(DEVICE_A, true)).status).toBe(409)
+    await expectOk(q.release())
+    await expectOk(q.restart())
+    expect((await q.cancelAll()).body).toMatchObject({ cancelled: 0 })
+    await settled(world)
+    const after = await dumpAllTables(world.database)
+    // 다른 판매자의 모두 빼기는 그 판매자의 대기열 줄만 만들 수 있다 — 내 기록은 그대로
+    const strip = (dump: string) =>
+      dump
+        .split('\n')
+        .map((line) => {
+          if (!line.startsWith('print_queues:')) return line
+          const rows = JSON.parse(line.slice('print_queues:'.length)) as { seller_id: string }[]
+          return `print_queues:${JSON.stringify(rows.filter((row) => row.seller_id === mine.sellerId))}`
+        })
+        .join('\n')
+    expect(strip(after)).toEqual(strip(before))
   })
 
   it('서버를 다시 켜도 작업·시도·멈춤·출력 기기·템플릿이 그대로다', async () => {

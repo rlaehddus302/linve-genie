@@ -751,6 +751,8 @@ export class PrintService {
 
   /** 출력 기기가 알린 프린터 연결 상태 (끊김 → 멈춤(끊김), 다시 연결 → 끊김 멈춤만 풀린다, L-8 3) */
   async deviceState(sellerId: string, deviceId: string, connected: boolean): Promise<ActionOutcome<{ queue: QueueSummary }>> {
+    // 출력 기기가 아니면 아무것도 쓰지 않는다 (대기열 줄도 만들지 않는다)
+    if ((await readQueue(this.#db, sellerId))?.deviceId !== deviceId) return rejected(409, 'PRINT_NOT_DEVICE', PRINT_MESSAGES.notDevice)
     const now = this.#now()
     const ok = await this.#db.transaction(async (tx) => {
       const queue = await lockQueue(tx, sellerId, now)
@@ -768,6 +770,7 @@ export class PrintService {
 
   /** 출력 그만하기 (L-11 10): 출력 중 작업이 없으면 바로, 있으면 그 결과가 정해진 뒤 출력 기기를 비운다 */
   async releaseDevice(sellerId: string): Promise<{ queue: QueueSummary }> {
+    if ((await readQueue(this.#db, sellerId))?.deviceId == null) return { queue: await this.summary(sellerId) }
     const now = this.#now()
     await this.#db.transaction(async (tx) => {
       const queue = await lockQueue(tx, sellerId, now)
@@ -799,6 +802,7 @@ export class PrintService {
    * 출력 기기의 프린터가 끊겨 있으면 끊김 멈춤으로 바뀐다
    */
   async restart(sellerId: string): Promise<ActionOutcome<{ queue: QueueSummary }>> {
+    if ((await readQueue(this.#db, sellerId))?.paused == null) return { kind: 'ok', value: { queue: await this.summary(sellerId) } }
     const now = this.#now()
     const blocked = await this.#db.transaction(async (tx) => {
       const queue = await lockQueue(tx, sellerId, now)
@@ -820,6 +824,8 @@ export class PrintService {
    * 대기 맨 앞 작업의 라벨 키 찜이 그 확정버전의 1등이 아니면 폐기하고 다음 작업을 본다. 상품 라벨 데이터는 지금 상태로 만든다(구매자만 고정)
    */
   async claim(sellerId: string, deviceId: string): Promise<ClaimOutcome> {
+    // 출력 기기가 아니면 아무것도 쓰지 않는다 (대기열 줄도 만들지 않는다, AC-I1-06)
+    if ((await readQueue(this.#db, sellerId))?.deviceId !== deviceId) return { kind: 'not_device' }
     for (let round = 0; round < CLAIM_ROUNDS; round++) {
       const peek = await headWaitingJob(this.#db, sellerId)
       let ctx: StateContext | null = null
