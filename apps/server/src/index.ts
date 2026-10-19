@@ -1,6 +1,7 @@
 // @livejjim/server 프로그램 API. 테스트(단위·적대)는 여기서 가져와 포트 없이 요청한다.
 // S04: PGlite로 DB를 열고(openPglite) createServer(...).app.request(...)로 /api를 부른다. 계정은 createSellerAccount로 만든다.
 // S05: 리허설 범위·가짜 채팅 생성기(ChatGenerators·ChatMaker), 증분 조회, E2E 기동(startE2eServer·fillScope).
+// S06: 상품 ID 조치 기록(productOwners), 범위별 보기 캐시(StateCache·newViewCaches), 생성기 판매자당 하나(GENERATOR_RECORDS_MAX), E2E 127.0.0.1(E2E_HOST).
 export { createApp, defaultLogError, type AppOptions, type ErrorLogger } from './app.ts'
 export { DEFAULT_PORT, readAppOrigin, readDatabaseSetting, readPort, type DatabaseSetting, type OriginSetting, type PortSetting } from './config.ts'
 export {
@@ -43,6 +44,8 @@ export {
   type ChangesView,
   type ChatIngestOutcome,
   type HistoryItem,
+  type ProductFilter,
+  type ProductIdFilter,
   type MessageItem,
   type MessagesView,
   type ScopeView,
@@ -57,6 +60,7 @@ export {
   GENERATOR_RATE_DEFAULT,
   GENERATOR_RATE_MAX,
   GENERATOR_RATE_MIN,
+  GENERATOR_RECORDS_MAX,
   GENERATOR_SEED_MAX,
   GENERATOR_TOTAL_DEFAULT,
   GENERATOR_TOTAL_MAX,
@@ -65,14 +69,27 @@ export {
   generatorView,
   realTimer,
   type GeneratedChat,
+  type GeneratorStart,
   type GeneratorStatus,
   type GeneratorTimer,
   type GeneratorView,
   type MessageKind,
   type StopReason,
 } from './generator.ts'
-export { VIEW_LISTS, type ChangeSet, type FullView, type SettlementKey, type ViewList } from './views.ts'
-export { E2E_ACCOUNT_FILE, fillScope, readE2eAccount, startE2eServer, type E2eAccount, type E2eOptions, type E2eServer, type FillOptions, type FillResult } from './e2e.ts'
+export {
+  MESSAGE_LOOKUP_CACHE_MAX,
+  VIEW_INDEX_CACHE_MAX,
+  VIEW_LISTS,
+  newViewCaches,
+  type ChangeSet,
+  type FullView,
+  type SettlementKey,
+  type ViewCaches,
+  type ViewList,
+} from './views.ts'
+export { StateCache } from './state-cache.ts'
+export { productOwners, type ActionRow, type CurrentProduct } from './product-history.ts'
+export { E2E_ACCOUNT_FILE, E2E_HOST, fillScope, readE2eAccount, startE2eServer, type E2eAccount, type E2eOptions, type E2eServer, type FillOptions, type FillResult } from './e2e.ts'
 export { generateMasterKey, phoneKeyOf, readMasterKey, DEFAULT_PASSWORD_COST, type PasswordCost } from './secrets.ts'
 export { randomIds, type IdSource } from './ids.ts'
 export { formatLog, stderrLog, type LogCode, type LogRecord, type LogSink } from './log.ts'
