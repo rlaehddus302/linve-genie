@@ -9,6 +9,8 @@ export default defineProject({
     name: 'server',
     environment: 'node',
     include: ['test/**/*.test.ts'],
+    // 실제 구글로 나가는 요청을 막는다 (AC-Y1-72)
+    setupFiles: ['test/setup-network-guard.ts'],
     sequence: { groupOrder: 1 },
     // PGlite를 여는 시험이 많아 기본 5초보다 넉넉히 둔다 (지연 시험은 자체 시간 제한)
     testTimeout: 30_000,

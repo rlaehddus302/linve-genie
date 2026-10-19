@@ -437,6 +437,11 @@ export class FakeGoogle {
     this.#faults.set(method, list)
   }
 
+  /** 열린 스트림을 모두 끊는다 (네트워크 끊김) */
+  dropStreams(): void {
+    this.#events.emit('drop')
+  }
+
   /** 넣어 둔 오류를 모두 지운다 */
   clearFaults(): void {
     this.#faults.clear()
@@ -781,6 +786,11 @@ export class FakeGoogle {
       notify()
     }
     this.#events.once('close', onClose)
+    const onDrop = () => {
+      req.socket.destroy()
+      onClose()
+    }
+    this.#events.once('drop', onDrop)
     req.on('close', onClose)
     res.on('close', onClose)
     let cut = fault !== undefined && 'kind' in fault && fault.kind === 'cut'
@@ -833,6 +843,7 @@ export class FakeGoogle {
     } finally {
       this.#events.off(`chat:${chat.id}`, notify)
       this.#events.off('close', onClose)
+      this.#events.off('drop', onDrop)
       this.openStreams.set(chat.id, (this.openStreams.get(chat.id) ?? 1) - 1)
     }
   }
@@ -953,6 +964,9 @@ export class FakeGoogle {
         }
         case 'POST /_fake/clear-faults':
           this.clearFaults()
+          return json(res, 200, { ok: true })
+        case 'POST /_fake/drop-streams':
+          this.dropStreams()
           return json(res, 200, { ok: true })
         case 'POST /_fake/revoke-all':
           this.revokeAll()

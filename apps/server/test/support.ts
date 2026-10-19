@@ -127,6 +127,8 @@ export function client(world: TestServer, cookie: string | null) {
       toJson(await world.server.app.request(path, { method: 'POST', headers: headers({ Origin: ORIGIN, 'Content-Type': 'application/json' }), body: JSON.stringify(body) })),
     patch: async (path: string, body: unknown) =>
       toJson(await world.server.app.request(path, { method: 'PATCH', headers: headers({ Origin: ORIGIN, 'Content-Type': 'application/json' }), body: JSON.stringify(body) })),
+    put: async (path: string, body: unknown) =>
+      toJson(await world.server.app.request(path, { method: 'PUT', headers: headers({ Origin: ORIGIN, 'Content-Type': 'application/json' }), body: JSON.stringify(body) })),
     raw: (path: string, init: RequestInit) => world.server.app.request(path, { ...init, headers: { ...headers(), ...(init.headers as Record<string, string> | undefined) } }),
   }
 }
