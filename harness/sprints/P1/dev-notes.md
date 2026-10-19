@@ -150,3 +150,12 @@
 - 실기기·블루투스·시리얼·인터넷 없이 돈다(가짜 niimbluelib 클라이언트·가짜 프린터·Node 캔버스).
 - 수정 라운드 1 `E2E_PORT_OFFSET=100 pnpm verify` (커밋 7f871f2): 통과 6 · 실패 1 — typecheck(설정 11·TS 289), lint(0·0), test(파일 89·테스트 2136), golden(21·498), e2e(12·67), coverage(라인 100%·분기 99.65%) 통과. adversarial 파일 33·테스트 757 중 실패 1 = `tests/adversarial/s00/golden-runner.test.ts` "환경변수·작업 폴더·시간대·언어 설정을 바꿔도…" 시간 초과(5575ms > 5000ms). P1 적대 시험(`tests/adversarial/p1`, 115개)은 TD-P1-001~003 포함 모두 통과.
   - 이 시험은 골든 CLI(`packages/core/test/golden/cli.ts`)를 네 번 돌린다. 이때 한 번에 약 2.5초였다(부하 평균 24~26 — 병렬 트랙). P1은 `packages/core`·`tests/golden/core`·`scripts`를 바꾸지 않았고 CLI가 읽는 파일 수(21)도 그대로다. 더 무거울 때 adversarial 단계만 다시 돌리면 S00의 시간 재는 시험 4개(서버 PORT 2·골든 허용 목록 1·골든 CLI 1)가 시간 초과였다 — 모두 P1과 무관하다.
+
+### 수정 라운드 2 (GATE-P1-VERIFY)
+- 지적 그대로 P1 소스는 고치지 않았다. 실패 7건(server schema·changes·chat-messages, core engine-properties-s03·engine-timing, s00 golden-runner 2건)은 모두 P1 diff 밖 파일의 시간 제한·시간 비율 단언이다. P1 diff는 `packages/label`·`packages/printer`·`tests/adversarial/p1`·`tests/golden/label`·문서, 그리고 루트 `package.json` devDependencies 두 줄·lockfile·`tests/golden/known-unimplemented.yaml` 주석뿐이다(`apps/*`·`packages/core`·`scripts`·`vitest*.ts`·`tests/adversarial/s00`은 그대로).
+- P1 시험이 같은 test 단계(한 vitest 프로세스, 프로젝트 병렬) 안에서 server·core 시간 시험의 부하를 키우는지 따로 쟀다. 라벨·프린터 단위 시험 11파일·271개는 1.3초(실제)·CPU 4.0초, P1 적대 3파일·115개는 1.2초·CPU 1.8초였다. test 단계 전체(39초)에 견주어 무시할 만하다.
+- 다른 작업 폴더의 verify가 끝나기를 기다렸다가(부하 평균 2.1) 돌렸다. 아래 검증 결과를 보라.
+
+### 검증 (수정 라운드 2)
+- `E2E_PORT_OFFSET=100 pnpm verify` (커밋 495696f, 소스는 라운드 1과 같다): **7단계 모두 통과** — typecheck(설정 11·TS 289), lint(0·0), test(파일 89·테스트 2136, 39.4초), golden(21·498), adversarial(파일 33·테스트 757, 120.1초), e2e(12·67), coverage(라인 100%·분기 99.65%). TZ=Pacific/Honolulu.
+- 시작할 때 부하 평균은 2.4였다. test·adversarial 단계(04:36~04:40)에는 이 verify만 돌았고, 이 verify 스스로 부하를 22까지 올렸다(adversarial이 임시 복사본에서 단계를 다시 돌린다). e2e 단계 중(04:40~)에는 다른 작업 폴더 verify 하나가 함께 돌았지만 통과했다. 지난 라운드의 실패는 verify 여러 개가 겹쳐 부하 15~26일 때만 났다.
