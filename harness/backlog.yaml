@@ -80,7 +80,7 @@ sprints:
   - id: S04
     phase: 1
     title: 저장소·API·실시간 동기화
-    devs: [server]
+    devs: [core, server]
     tests: [domain]
     goal: >
       PostgreSQL(Drizzle) 스키마, 이벤트 저장(입력 우선 기록, 외부 ID 유일 제약), 방송별 직렬 처리,
@@ -89,6 +89,11 @@ sprints:
     carryOver:
       - outbox·효과 중복 제거 키 = (판매자, 방송/엔진 범위, 효과 ID) — 효과 ID는 엔진 상태 안에서만 유일 (RA-S02-003)
       - 엔진이 지원하지 않는 이벤트 종류는 로그에 쓰지 않고, 재생 중 오류를 만나면 경보 후 마지막 정상 상태로 (RA-S02-005)
+      - "SA-S03b-002 / RA-S03b-002: 서버는 sms 엔진 이벤트를 허용 필드(b, ref, no, received, memo, phoneKey, phoneLast4, buyer)만으로 새로 만들어 기록하고 받은 원본 요청은 로그에 쓰지 않는다. 코어 checkEvent도 sms는 허용 목록으로(모르는 필드 = 입력 오류), 숫자로만 된 휴대폰 번호 모양 ref는 입력 오류"
+      - "RA-S03b-001: apps/**/src(테스트 제외)에서 @livejjim/core/golden import 금지 린트 + 서버 코드에 TEST_PHONE_SECRET 금지. 서버 phoneKey는 판매자별 비밀 키로 서버에서 HMAC (D-061)"
+      - "RA-S03b-004: applyEvent·checkEvent 입구에서 state.format 확인, 다르면 명확한 오류. 스냅샷 읽기 때 형식 확인"
+      - "RA-S03b-003: 승계=ASK + 대기 한도 0에서 자리가 비어 풀린 충돌 찜이 품절되고 묻지 않는 문제 — spec-keeper가 단순 규칙으로 결정"
+      - "SA-S03b-001: 취소만 있는 메시지('15 취소')는 찜으로 변환하지 않는다 (D-062 취지), 테스트로 고정"
     specIds: [DAT-01, DAT-02, DAT-05, DAT-06, SYS-01, SYS-02, NFR-01, NFR-03, NFR-06, NFR-07]
     status: todo
 
