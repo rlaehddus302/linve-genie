@@ -905,7 +905,8 @@ function materialize(raw: Raw, model: Model, sent: readonly string[], i: number)
       if (c % 4 !== 0) Object.assign(f, serverPhone(PHONES[c % PHONES.length] as string))
       if (c % 11 === 5 && f.phoneKey !== undefined) f.phoneLast4 = '0000'
       if (d % 4 !== 0) f.memo = MEMOS[d % MEMOS.length]
-      if (d % 5 === 0) f.buyer = who(c)
+      // 지정 구매자: 아는 구매자, 또는 아직 채팅하지 않았을 수 있는 채널(첫 수신 때 모르는 지정 구매자였다가 나중에 알려짐, D-067)
+      if (d % 5 === 0) f.buyer = c % 3 === 0 ? (CH[c % 4] as string) : who(c)
       return f as Ev
     }
     case 'host':
