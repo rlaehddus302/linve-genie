@@ -358,7 +358,6 @@ export class OutboxRunner {
       list.push(row)
       units.set(key, list)
     }
-    const states = new Map<string, EngineState>()
     // 같은 방송·대상의 메시지는 효과가 나온 순서대로 하나씩(채팅에 순서대로 보이게), 서로 다른 방송·대상끼리는 함께
     const lanes = new Map<string, RunnerRow[][]>()
     for (const unit of units.values()) {
@@ -370,7 +369,7 @@ export class OutboxRunner {
       [...lanes.values()].map(async (list) => {
         for (const unit of list.sort((a, b) => Math.min(...a.map((row) => row.id)) - Math.min(...b.map((row) => row.id)))) {
           try {
-            await this.#sendUnit(unit, states)
+            await this.#sendUnit(unit)
           } catch (error) {
             if (error instanceof Killed || this.#killed) return
             this.#options.log({ level: 'error', code: 'OUTBOX_ERROR', seller: unit[0]?.sellerId ?? '', errorKind: errorKind(error) })
@@ -380,8 +379,12 @@ export class OutboxRunner {
     )
   }
 
-  /** 행 묶음 하나(같은 방송의 창, 또는 한 메시지)를 확인하고 보낸다 */
-  async #sendUnit(unit: RunnerRow[], states: Map<string, EngineState>): Promise<void> {
+  /**
+   * 행 묶음 하나(같은 방송의 창, 또는 한 메시지)를 확인하고 보낸다. 메시지(200자 분할 포함)를 하나 보낼 때마다 그 직전에
+   * 그 범위의 지금 엔진 상태와 연결·동의·이은 방송·할당량을 다시 본다 — 앞 메시지가 응답 없이 10초 걸리는 동안 취소된 판매·꺼진 동의를 놓치지 않는다
+   * (R-13 "실행 직전", AC-Y1-32·42, D-Y12)
+   */
+  async #sendUnit(unit: RunnerRow[]): Promise<void> {
     const first = unit[0] as RunnerRow
     const { sellerId, date } = first
     const now = this.#now()
@@ -394,28 +397,36 @@ export class OutboxRunner {
       this.#publishRows(sellerId, date, ids, 'FAILED', 'EXPIRED')
       rows = rows.filter((row) => !expired.includes(row))
     }
-    if (rows.length === 0) return
-    // 2. 지금 엔진 상태 (R-13 실행 직전): 취소 → 건너뜀, 완료 → 게시됨
-    if (first.kind === 'POST_THANKS') {
-      rows = await this.#engineCheck(rows, await this.#state(states, sellerId, date))
-      if (rows.length === 0) return
-    }
-    // 3. 연결·권한·이은 방송·채팅·할당량
-    const blocked = await this.#gate(rows, target)
-    if (blocked) return
-    const link = (await activeLink(this.#options.db, sellerId, rows[0]?.broadcastId ?? '')) as LinkRow
-    // 4. 문구와 메시지
-    if (target === 'LIVE_CHAT') {
-      const messages = batchMessages(rows.map((row) => ({ id: row.id, text: effectOf(row)?.text ?? row.postText ?? '' })))
-      for (const message of messages) {
-        const members = rows.filter((row) => message.ids.includes(row.id))
-        await this.#attempt(members, message.text, link, target)
+    while (rows.length > 0) {
+      this.#check()
+      // 2. 지금 엔진 상태 (R-13 실행 직전 — 메시지마다 새로 읽는다): 취소 → 건너뜀, 완료 → 게시됨
+      if (first.kind === 'POST_THANKS') {
+        rows = await this.#engineCheck(rows, (await this.#options.writer.read(sellerId, date, false)).state)
+        if (rows.length === 0) return
       }
-      return
+      // 3. 연결·동의·권한·이은 방송·채팅·할당량
+      const open = await this.#gate(rows, target)
+      if (open === null || open.length === 0) return
+      rows = open
+      const link = await activeLink(this.#options.db, sellerId, rows[0]?.broadcastId ?? '')
+      if (link === null) return
+      // 4. 문구와 메시지 — 남은 항목으로 다시 만들고(AC-Y1-42) 첫 메시지 하나만 보낸다. 나머지는 위의 직전 확인부터 다시
+      let members: RunnerRow[]
+      let text: string
+      if (target === 'LIVE_CHAT') {
+        const [message] = batchMessages(rows.map((row) => ({ id: row.id, text: effectOf(row)?.text ?? row.postText ?? '' })))
+        if (message === undefined) return
+        members = rows.filter((row) => message.ids.includes(row.id))
+        if (members.length === 0) return
+        text = message.text
+      } else {
+        const head = rows[0] as RunnerRow
+        members = [head]
+        text = target === 'SUMMARY' ? (head.postText ?? '') : commentText(effectOf(head)?.text ?? head.postText ?? '')
+      }
+      await this.#attempt(members, text, link, target)
+      rows = rows.filter((row) => !members.includes(row))
     }
-    const text = target === 'SUMMARY' ? (first.postText ?? '') : commentText(effectOf(first)?.text ?? first.postText ?? '')
-    await this.#attempt(rows.slice(0, 1), text, link, target)
-    for (const rest of rows.slice(1)) await this.#attempt([rest], target === 'SUMMARY' ? (rest.postText ?? '') : commentText(effectOf(rest)?.text ?? ''), link, target)
   }
 
   /** 엔진 상태로 거른다: 취소된 효과는 SKIPPED, 이미 완료면 SENT(게시 없음). 남은 행 */
@@ -424,35 +435,53 @@ export class OutboxRunner {
     const cancelled = rows.filter((row) => statuses.get(row.effectId) === 'CANCELLED')
     const done = rows.filter((row) => statuses.get(row.effectId) === 'DONE')
     const first = rows[0] as RunnerRow
+    // 기다리는 행만 바꾼다 (다른 실행기가 그사이 잡은 행은 건드리지 않고 이번엔 넘긴다)
+    let taken: number[] = []
     if (cancelled.length > 0) {
-      const ids = await this.#update(first, cancelled.map((row) => row.id), { state: 'SKIPPED', reason: 'CANCELLED', nextAt: null, groupId: null })
+      const ids = await this.#update(first, cancelled.map((row) => row.id), { state: 'SKIPPED', reason: 'CANCELLED', nextAt: null, groupId: null }, { state: 'WAITING' })
       this.#publishRows(first.sellerId, first.date, ids, 'SKIPPED', 'CANCELLED')
+      taken = [...taken, ...cancelled.map((row) => row.id).filter((id) => !ids.includes(id))]
     }
     if (done.length > 0) {
-      const ids = await this.#update(first, done.map((row) => row.id), { state: 'SENT', reason: null, nextAt: null, reported: true, groupId: null })
+      const ids = await this.#update(first, done.map((row) => row.id), { state: 'SENT', reason: null, nextAt: null, reported: true, groupId: null }, { state: 'WAITING' })
       this.#publishRows(first.sellerId, first.date, ids, 'SENT', null)
+      taken = [...taken, ...done.map((row) => row.id).filter((id) => !ids.includes(id))]
     }
+    if (taken.length > 0) return []
     return rows.filter((row) => !cancelled.includes(row) && !done.includes(row))
   }
 
-  /** 보낼 수 없으면 행을 기다림·보내지 못함으로 바꾸고 true */
-  async #gate(rows: RunnerRow[], target: OutboxTarget): Promise<boolean> {
+  /**
+   * 보낼 수 있는 행만 남긴다. 보낼 수 없는 행은 기다림·보내지 못함으로 바꾼다(모두 막히면 null).
+   * 동의: 수동 재전송이 아니면 지금 그 대상의 동의가 켜져 있고 그 행이 생기기 전에 켠 것이어야 한다 — 확인 중(SENDING)에 동의를 끈 행이
+   * 확인 실패 뒤 다시 시도로 돌아와도 게시하지 않는다(AC-Y1-31, D-Y12). 요약 댓글은 영상 댓글 동의를 본다
+   */
+  async #gate(rows: RunnerRow[], target: OutboxTarget): Promise<RunnerRow[] | null> {
     const first = rows[0] as RunnerRow
     const { sellerId, date } = first
-    const ids = rows.map((row) => row.id)
     const now = this.#now()
-    const fail = async (reason: OutboxReason) => {
-      const changed = await this.#update(first, ids, { state: 'FAILED', reason, nextAt: null }, { state: 'WAITING' })
+    const failRows = async (list: readonly RunnerRow[], reason: OutboxReason) => {
+      const changed = await this.#update(first, list.map((row) => row.id), { state: 'FAILED', reason, nextAt: null }, { state: 'WAITING' })
       this.#publishRows(sellerId, date, changed, 'FAILED', reason)
-      return true
+    }
+    const fail = async (reason: OutboxReason) => {
+      await failRows(rows, reason)
+      return null
     }
     const wait = async (reason: OutboxReason) => {
-      const changed = await this.#update(first, ids, { reason, nextAt: new Date(now.getTime() + RECHECK_MS) }, { state: 'WAITING' })
+      const changed = await this.#update(first, rows.map((row) => row.id), { reason, nextAt: new Date(now.getTime() + RECHECK_MS) }, { state: 'WAITING' })
       if (rows.some((row) => row.reason !== reason)) this.#publishRows(sellerId, date, changed, 'WAITING', reason)
-      return true
+      return null
     }
     const connection = await this.#options.connections.row(sellerId)
     if (connection === null) return fail('NO_CONSENT')
+    const consentAt = target === 'LIVE_CHAT' ? connection.consentLiveChatAt : connection.consentVideoCommentAt
+    const noConsent = rows.filter((row) => !row.manual && (consentAt === null || consentAt.getTime() > row.createdAt.getTime()))
+    if (noConsent.length > 0) {
+      await failRows(noConsent, 'NO_CONSENT')
+      rows = rows.filter((row) => !noConsent.includes(row))
+      if (rows.length === 0) return null
+    }
     if (connection.status !== 'CONNECTED') return wait('RECONNECT')
     if (!connection.canPublish) return fail('NO_PERMISSION')
     const link = await activeLink(this.#options.db, sellerId, first.broadcastId ?? '')
@@ -461,7 +490,7 @@ export class OutboxRunner {
     const mode = await this.#options.quota.mode(sellerId)
     if (mode === 'PAUSED') return wait('QUOTA')
     if (mode === 'BATCH' && target !== 'LIVE_CHAT' && rows.some((row) => !row.manual)) return wait('QUOTA')
-    return false
+    return rows
   }
 
   /** 한 메시지 시도: SENDING을 잡고 → (지난 시도의 글이 올라가 있으면 SENT) → 게시 */
@@ -697,21 +726,27 @@ export class OutboxRunner {
       return
     }
     let found: string | null = null
+    let listed = first.reason !== 'CONFIRM'
+    const until = first.confirmUntil?.getTime() ?? 0
+    const list = async (lookup: () => Promise<string | null>) => {
+      listed = true
+      const result = await lookup()
+      await this.#update(first, ids, { reason: 'CONFIRM_LISTED' }, { state: 'SENDING' })
+      return result
+    }
     if (target === 'LIVE_CHAT') {
       found = await findOwnMessage(this.#options.db, first.sellerId, link.liveChatId, text, since)
-      if (found === null && first.reason === 'CONFIRM' && !(await this.#options.collectorRunning(first.sellerId, link.id))) {
-        found = await this.#listChat(first, link, text, since)
-        await this.#update(first, ids, { reason: 'CONFIRM_LISTED' }, { state: 'SENDING' })
-      }
-    } else if (first.reason === 'CONFIRM') {
-      found = await this.#listComments(first, link, text, since)
-      await this.#update(first, ids, { reason: 'CONFIRM_LISTED' }, { state: 'SENDING' })
+      if (found === null && !listed && !(await this.#options.collectorRunning(first.sellerId, link.id))) found = await list(() => this.#listChat(first, link, text, since))
+      // 확인 시간이 다 됐는데 수집기가 본 우리 메시지에서 못 찾았고 최근 채팅을 아직 보지 않았으면, 실패로 세기 전에 한 번 본다
+      // (수집기가 돌아도 그 글을 받지 못했을 수 있다 — 다시 연결하는 중·스트림이 멈춤. 두 번 게시를 막는다, AC-Y1-36)
+      if (found === null && !listed && this.#options.timer.now() >= until) found = await list(() => this.#listChat(first, link, text, since))
+    } else if (!listed) {
+      found = await list(() => this.#listComments(first, link, text, since))
     }
     if (found !== null) {
       await this.#sent(rows, found)
       return
     }
-    const until = first.confirmUntil?.getTime() ?? 0
     if (this.#options.timer.now() >= until) await this.#failAttempt(rows)
   }
 

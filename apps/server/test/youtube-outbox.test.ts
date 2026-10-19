@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { getProduct, listEffects } from '@livejjim/core'
 import { afterEach, describe, expect, it } from 'vitest'
 import { client, createBroadcast, expectOk, writeEvent } from './support.ts'
-import { approve, callback, connectSeller, drive, linkedBroadcast, sibling, youtubeWorld, type Connected, type YoutubeWorld } from './youtube-support.ts'
+import { approve, callback, connectSeller, drive, linkedBroadcast, sibling, until, youtubeWorld, type Connected, type YoutubeWorld } from './youtube-support.ts'
 
 const worlds: YoutubeWorld[] = []
 const extras: { server: { close(): void; stop(): Promise<void> } }[] = []
@@ -737,5 +737,97 @@ describe('AC-Y1-46 방송 후 요약', () => {
     expect((await client(w, connected.seller.cookie).post(`/api/outbox/${String(row?.id)}/resend`, { requestId: 'sum-1' })).status).toBe(200)
     await run(w)
     expect(w.fake.comments.map((comment) => comment.text)).toEqual(['구매 감사합니다\n15번 핑크프릴 10,000원 홍길동님'])
+  })
+})
+
+describe('AC-Y1-32·42 직전 확인은 메시지마다 (R-13 실행 직전)', () => {
+  it('200자로 나뉜 메시지: 앞 메시지가 응답 없이 10초 걸리는 동안 취소된 판매는 뒤 메시지에서 빠진다(SKIPPED, 게시 없음)', async () => {
+    const w = await world({ start: EIGHT_PM })
+    const connected = await connectSeller(w, { publish: 'LIVE_CHAT' })
+    const { b } = await linkedBroadcast(w, connected, { settings: { ...NO_LABEL, 'thanks.batchWindowSec': 10 } })
+    // 항목 하나가 100자쯤 — 둘이면 200자를 넘어 메시지 둘로 나뉜다
+    await product(w, connected, b.id, 15, `${'가'.repeat(80)}일`, 10000)
+    await product(w, connected, b.id, 16, `${'가'.repeat(80)}이`, 5000)
+    await chat(w, connected, b.id, 'c1', 'UCa', '홍길동', '15')
+    await chat(w, connected, b.id, 'c2', 'UCb', '김철수', '16')
+    await runner(w).runOnce()
+    await w.timer.advance(10_000)
+    w.fake.fail('liveChatMessages.insert', { kind: 'hang' })
+    const running = runner(w).runOnce()
+    await until(w, () => w.fake.calls('liveChatMessages.insert') >= 1)
+    await expectOk(writeEvent(w, connected.seller, { type: 'host.cancel', b: b.id, no: 16, buyer: 'UCb', reason: '취소' }))
+    await drive(w, running)
+    expect(w.fake.posted.some((post) => post.text.includes('김철수'))).toBe(false)
+    expect((await rows(w, connected, b.date)).find((row) => row.buyer === 'UCb')).toMatchObject({ state: 'SKIPPED', reason: 'CANCELLED' })
+  })
+})
+
+describe('AC-Y1-31 동의를 끈 뒤에는 확인 중이던 행도 다시 보내지 않는다 (D-Y12)', () => {
+  it('확인 중(SENDING)에 동의를 끄면 확인 실패 뒤 NO_CONSENT — 곧바로 다시 켜도 그 전에 생긴 행은 보내지 않는다', async () => {
+    const w = await world()
+    const connected = await connectSeller(w, { publish: 'LIVE_CHAT' })
+    const { b } = await linkedBroadcast(w, connected, { settings: { ...NO_LABEL, 'thanks.batchWindowSec': 0 } })
+    await product(w, connected, b.id, 15, '핑크프릴', 10000)
+    await chat(w, connected, b.id, 'c1', 'UCa', '가', '15')
+    w.fake.fail('liveChatMessages.insert', { kind: 'hang' })
+    await run(w)
+    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'SENDING' })
+    const api = client(w, connected.seller.cookie)
+    expect((await api.put('/api/youtube/consent', { target: 'LIVE_CHAT', enabled: false })).status).toBe(200)
+    await w.timer.advance(1000)
+    expect((await api.put('/api/youtube/consent', { target: 'LIVE_CHAT', enabled: true })).status).toBe(200)
+    for (let i = 0; i < 30; i++) {
+      await w.timer.advance(2000)
+      await run(w)
+    }
+    expect(w.fake.posted).toEqual([])
+    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'FAILED', reason: 'NO_CONSENT' })
+  })
+})
+
+describe('AC-Y1-36 타임아웃 확인 — 수집기가 돌아도 두 번 게시 없음', () => {
+  it('(라) 회차를 끝낸 직후 올라간 감사가 응답 없이 끝나도(수집기는 끝낸 뒤 10분 동안 도는 중) 수집기가 본 우리 메시지로 확인해 게시 1번', async () => {
+    const w = await world()
+    const connected = await connectSeller(w, { publish: 'LIVE_CHAT' })
+    const { b, liveChatId } = await linkedBroadcast(w, connected, { settings: { ...NO_LABEL, 'thanks.batchWindowSec': 0 } })
+    await product(w, connected, b.id, 15, '핑크프릴', 10000)
+    const youtube = w.server.youtube
+    if (youtube === null) throw new Error('유튜브가 없다')
+    youtube.collectors.start()
+    w.fake.addMessage(liveChatId, { author: 'UCa', name: '가', text: '15', publishedAt: w.timer.now() + 1 })
+    await until(w, async () => (await rows(w, connected, b.date)).length === 1, { step: 100 })
+    await w.timer.advance(1000)
+    expect((await client(w, connected.seller.cookie).post(`/api/broadcasts/${b.id}/end`, { requestId: 'end-own' })).status).toBe(200)
+    await w.timer.advance(1000)
+    w.fake.fail('liveChatMessages.insert', { kind: 'acceptHang' })
+    for (let i = 0; i < 40 && (await rows(w, connected, b.date))[0]?.state !== 'SENT'; i++) {
+      await run(w)
+      await w.timer.advance(1000)
+    }
+    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'SENT' })
+    expect(w.fake.messages(liveChatId).filter((message) => message.text === '15번 핑크프릴 10,000원 가님 구매 감사합니다')).toHaveLength(1)
+    // 끝낸 뒤 올라간 우리 글도 우리 메시지 기록에 들어가 확인에 쓰였다 (최근 채팅 조회 없음), 기록(chat)은 하지 않았다
+    expect(w.fake.calls('liveChatMessages.list')).toBe(0)
+    expect((await w.database.pglite?.query<{ n: number }>(`select count(*)::int as n from youtube_own_messages`))?.rows[0]?.n).toBe(1)
+    expect((await eventTypes(w)).filter((type) => type === 'chat')).toHaveLength(1)
+    await youtube.collectors.stop()
+  })
+
+  it('(마) 수집기가 도는 것으로 보여도 확인 시간 안에 우리 글을 못 받았으면, 실패로 세기 전에 최근 채팅을 한 번 본다(게시 1번)', async () => {
+    const w = await world()
+    const connected = await connectSeller(w, { publish: 'LIVE_CHAT' })
+    const { b, liveChatId } = await linkedBroadcast(w, connected, { settings: { ...NO_LABEL, 'thanks.batchWindowSec': 0 } })
+    await product(w, connected, b.id, 15, '핑크프릴', 10000)
+    await chat(w, connected, b.id, 'c1', 'UCa', '가', '15')
+    // 다른 서버의 수집기가 채팅을 받는 중인 것처럼 (임대 있음) — 그런데 우리 글은 전하지 않는다(스트림이 멈춤)
+    await w.database.pglite?.query(`update youtube_collectors set status = 'LIVE', lease_owner = 'Z', lease_until = $1`, [new Date(w.timer.now() + 3_600_000).toISOString()])
+    w.fake.fail('liveChatMessages.insert', { kind: 'acceptHang' })
+    for (let i = 0; i < 40 && (await rows(w, connected, b.date))[0]?.state !== 'SENT'; i++) {
+      await run(w)
+      await w.timer.advance(2000)
+    }
+    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'SENT', attempts: 0 })
+    expect(w.fake.messages(liveChatId).filter((message) => message.text === '15번 핑크프릴 10,000원 가님 구매 감사합니다')).toHaveLength(1)
+    expect(w.fake.calls('liveChatMessages.list')).toBe(1)
   })
 })
