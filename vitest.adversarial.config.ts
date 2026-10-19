@@ -11,5 +11,9 @@ export default defineConfig({
     name: 'adversarial',
     root: import.meta.dirname,
     include: ['tests/adversarial/**/*.test.ts'],
+    // 적대 시험은 자식 프로세스(골든 CLI·임시 저장소 typecheck 등)를 띄우는 것이 많아 기계 부하에 따라 느려진다.
+    // 지키려는 것은 결정성·정답이지 걸린 시간이 아니므로 기본 5초 대신 넉넉히 둔다 (SA-P1-005, SA-S06-009, D-098).
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
   },
 })
