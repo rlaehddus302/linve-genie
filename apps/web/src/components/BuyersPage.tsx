@@ -538,14 +538,17 @@ function MergeDialog({
       <button type="button" className="button" onClick={() => setInto(fromId)}>
         방향 바꾸기
       </button>
-      <ul className="plain-list stack-tight" aria-label="합치면">
-        <li>
-          옮겨 갈 확정 찜 {plan.movingCount}개 · {formatWon(plan.movingTotal)}
-        </li>
-        <li>합친 뒤 합계 {formatWon(plan.afterTotal)}</li>
-        <li>정산 묶음이 하나가 되어 배송비가 한 번 붙어요</li>
-        <li>합친 뒤 표시 이름은 {targetName}이고, 공개 감사 문구의 이름은 바뀌지 않아요.</li>
-      </ul>
+      {/* 막히면 합치기가 일어나지 않으므로 합친 뒤의 금액·이름을 보이지 않는다 (이미 합쳐진 금액을 두 번 세지 않게, TE-S06-002) */}
+      {plan.afterTotal !== null ? (
+        <ul className="plain-list stack-tight" aria-label="합치면">
+          <li>
+            옮겨 갈 확정 찜 {plan.movingCount}개 · {formatWon(plan.movingTotal)}
+          </li>
+          <li>합친 뒤 합계 {formatWon(plan.afterTotal)}</li>
+          <li>정산 묶음이 하나가 되어 배송비가 한 번 붙어요</li>
+          <li>합친 뒤 표시 이름은 {targetName}이고, 공개 감사 문구의 이름은 바뀌지 않아요.</li>
+        </ul>
+      ) : null}
       {plan.duplicates.length > 0 ? (
         <div className="warning stack-tight" role="note">
           {plan.duplicates.map((line) => (

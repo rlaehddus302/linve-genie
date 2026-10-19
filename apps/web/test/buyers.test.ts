@@ -126,6 +126,7 @@ describe('합치기 미리 보기 (AC-S06-23, D-091) = 실제 엔진 결과', ()
     const data = fromFull(viewOf(state, seq))
     const plan = planMerge(data, new BuyerNames(data.buyers), 'sms:r1', 'UC_hong1234', label)
     expect(plan?.blocks).toEqual([{ kind: 'bothWinners', products: [{ product: 'b1/30', broadcast: 'b1', no: 30, text: '30번에 두 사람 모두 1등이에요. 먼저 한 사람의 찜을 취소해 주세요.' }] }])
+    expect(plan?.afterTotal).toBeNull()
     expect(run([...BASE, ...events, { type: 'buyer.merge', from: 'sms:r1', into: 'UC_hong1234', reason: '같은 사람' }]).changed).toBe(false)
   })
 
@@ -137,6 +138,32 @@ describe('합치기 미리 보기 (AC-S06-23, D-091) = 실제 엔진 결과', ()
     expect(run([...merged, { type: 'buyer.merge', from: 'sms:r3', into: 'UC_hong1234', reason: 'x' }]).changed).toBe(false)
     expect(planMerge(data, names, 'UC_kim5555', 'sms:r3', label)?.blocks).toEqual([{ kind: 'cycle', text: '문자찜은 이미 김철수에 합쳐져 있어요.' }])
     expect(run([...merged, { type: 'buyer.merge', from: 'UC_kim5555', into: 'sms:r3', reason: 'x' }]).changed).toBe(false)
+  })
+
+  it('TE-S06-002: 막히면 합친 뒤 합계가 없다 — 이미 남는 쪽에 합쳐진 구매자(합친 금액을 두 번 세지 않는다)·고리·같은 구매자', () => {
+    // 김철수에 문자 구매자(sms:r1, 16번 1등 20,000원)를 합쳐 둔 상태: 김철수 합계에 r1의 금액이 이미 들어 있다
+    const merged = [...BASE, { type: 'buyer.merge', from: 'sms:r1', into: 'UC_kim5555', reason: '같은 사람' }]
+    const data = dataOf(merged)
+    const names = new BuyerNames(data.buyers)
+    const kim = data.buyers.get('UC_kim5555') as Buyer
+    expect([kim.subtotal, data.buyers.get('sms:r1')?.subtotal]).toEqual([25000, 20000])
+    // 김철수 자세히에서 r1을 고름(남는 쪽 = 김철수): 막힘, 합친 뒤 합계 없음 (예전: 25,000 + 20,000 = 45,000으로 보임)
+    const fromMerged = planMerge(data, names, 'sms:r1', 'UC_kim5555', label)
+    expect(fromMerged?.blocks.map((block) => block.kind)).toEqual(['fromMerged'])
+    expect(fromMerged?.afterTotal).toBeNull()
+    expect(run([...merged, { type: 'buyer.merge', from: 'sms:r1', into: 'UC_kim5555', reason: 'x' }]).changed).toBe(false)
+    // 방향을 바꾸면 고리 — 남는 쪽(r1의 지금의 구매자)이 곧 김철수
+    const cycle = planMerge(data, names, 'UC_kim5555', 'sms:r1', label)
+    expect(cycle?.blocks.map((block) => block.kind)).toEqual(['cycle'])
+    expect(cycle?.afterTotal).toBeNull()
+    expect(planMerge(data, names, 'UC_kim5555', 'UC_kim5555', label)?.afterTotal).toBeNull()
+    // 막히지 않으면 엔진의 합친 뒤 합계와 같다
+    const open = planMerge(data, names, 'UC_hong1234', 'UC_kim5555', label)
+    expect(open?.blocks).toEqual([])
+    expect(open?.afterTotal).toBe(25000 + 10000)
+    const after = run([...merged, { type: 'buyer.merge', from: 'UC_hong1234', into: 'UC_kim5555', reason: '같은 사람' }])
+    expect(after.changed).toBe(true)
+    expect(fromFull(viewOf(after.state, after.seq)).buyers.get('UC_kim5555')?.subtotal).toBe(open?.afterTotal)
   })
 
   it('은/는', () => {

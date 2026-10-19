@@ -147,7 +147,11 @@ export interface MergePlan {
   readonly target: Buyer
   readonly movingCount: number
   readonly movingTotal: number
-  readonly afterTotal: number
+  /**
+   * 합친 뒤 합계. 막히면 null — 합치기가 일어나지 않는다. 특히 옮겨 갈 구매자가 이미 합쳐져 있거나(그 금액이 벌써 남는 쪽 합계에 들어 있을 수 있다)
+   * 고리면(남는 쪽이 곧 옮겨 갈 구매자) 두 합계를 더하면 같은 금액을 두 번 센다 (TE-S06-002)
+   */
+  readonly afterTotal: number | null
   readonly duplicates: readonly DuplicateLine[]
   readonly blocks: readonly MergeBlock[]
 }
@@ -211,7 +215,7 @@ export function planMerge(data: ScopeData, names: BuyerNames, fromId: string, in
     target,
     movingCount: from.items.length,
     movingTotal: from.subtotal,
-    afterTotal: target.subtotal + from.subtotal,
+    afterTotal: blocks.length > 0 ? null : target.subtotal + from.subtotal,
     duplicates: duplicates.sort((a, b) => a.no - b.no),
     blocks,
   }

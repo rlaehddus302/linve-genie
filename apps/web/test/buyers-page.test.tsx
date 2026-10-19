@@ -174,6 +174,23 @@ describe('합치기·떼어 내기 (AC-S06-23·24, G-ENG-171·172)', () => {
     expect(await screen.findByText('합쳤어요')).toBeDefined()
   })
 
+  it('TE-S06-002: 막힌 합치기(이미 남는 쪽에 합쳐진 구매자 / 고리)는 막는 문장만 — 합친 뒤 합계를 보이지 않는다(합친 금액을 두 번 세지 않는다)', async () => {
+    await open([...BASE, { type: 'buyer.merge', from: 'sms:r1', into: 'UC_hong1234', reason: '같은 사람' }])
+    fireEvent.click(within(list()).getByRole('link', { name: /홍길동/ }))
+    await flush()
+    fireEvent.click(screen.getByRole('button', { name: '다른 구매자와 합치기' }))
+    fireEvent.change(screen.getByLabelText('합칠 구매자 찾기'), { target: { value: '김씨' } })
+    fireEvent.click(within(screen.getByRole('list', { name: '합칠 구매자' })).getAllByRole('button')[0] as HTMLElement)
+    const dialog = await screen.findByRole('dialog', { name: '구매자 합치기' })
+    expect(dialog.textContent).toContain('문자찜(김씨)는 이미 홍길동에 합쳐져 있어요. 먼저 떼어 내 주세요.')
+    expect(dialog.textContent).not.toContain('합친 뒤 합계')
+    expect(within(dialog).queryByRole('list', { name: '합치면' })).toBeNull()
+    expect((within(dialog).getByRole('button', { name: '합치기' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(within(dialog).getByRole('button', { name: '방향 바꾸기' }))
+    expect(dialog.textContent).toContain('문자찜(김씨)는 이미 홍길동에 합쳐져 있어요.')
+    expect(dialog.textContent).not.toContain('합친 뒤 합계')
+  })
+
   it('떼어 내기: 확인 문장·사유 → 바로 buyer.unmerge. 엔진이 받지 않으면(합친 동안 적은 환불) 그 문장', async () => {
     await open([
       ...BASE,
