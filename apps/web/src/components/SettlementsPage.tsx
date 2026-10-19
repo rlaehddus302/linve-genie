@@ -150,7 +150,7 @@ function SettlementList({ data, names, onOpen }: { readonly data: ScopeData; rea
   const statusLine = (['UNPAID', 'PARTIAL', 'PAID', 'OVERPAID'] as const satisfies readonly PaymentStatus[]).map((status) => `${PAYMENT_WORD[status]} ${String(summary.byStatus[status])}`).join(' · ')
   return (
     <section className="stack" aria-label="정산 목록">
-      <section className="card stack-tight" aria-label="정산 요약">
+      <section className="card stack-tight settlement-summary" aria-label="정산 요약">
         <p>
           묶음 {summary.count}개 · {statusLine}
         </p>
