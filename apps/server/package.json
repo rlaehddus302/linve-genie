@@ -10,7 +10,8 @@
     "start": "node src/main.ts",
     "migrate": "node src/commands/migrate.ts",
     "create-account": "node src/commands/create-account.ts",
-    "check-replay": "node src/commands/check-replay.ts"
+    "check-replay": "node src/commands/check-replay.ts",
+    "e2e": "node src/commands/e2e-server.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "0.5.8",
