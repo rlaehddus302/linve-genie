@@ -43,6 +43,8 @@ export interface StationSnapshot {
   readonly density: number
   /** 이 기기가 지금 찍고 있는 대기열 작업 */
   readonly job: { readonly id: string; readonly date: string } | null
+  /** 대기열 작업을 받는 중이거나 찍는 중 (테스트 인쇄를 막는다 — 프린터에 두 장을 겹쳐 보내지 않는다) */
+  readonly busy: boolean
   readonly testing: boolean
   /** 테스트 인쇄가 나왔다 ("또렷하게 보이나요?"를 묻는다) */
   readonly testPrinted: boolean
@@ -152,6 +154,7 @@ export class PrinterStation {
       connectError: null,
       density: savedDensity(),
       job: null,
+      busy: false,
       testing: false,
       testPrinted: false,
       testError: null,
@@ -403,16 +406,25 @@ export class PrinterStation {
         }
         if (!this.#canClaim()) continue
         let claimed: { job: ClaimedJob | null }
+        this.#set({ busy: true })
         try {
           claimed = await post<{ job: ClaimedJob | null }>('/api/print/claim', { deviceId: this.#options.deviceId })
         } catch (error) {
+          this.#set({ busy: false })
           if (!isApiError(error)) throw error
           if (error.code === 'PRINT_NOT_DEVICE') void this.#options.store.reload()
           else if (error.transient) this.#retryLater()
           break
         }
-        if (claimed.job === null) continue
-        await this.#printJob(claimed.job)
+        if (claimed.job === null) {
+          this.#set({ busy: false })
+          continue
+        }
+        try {
+          await this.#printJob(claimed.job)
+        } finally {
+          this.#set({ busy: false })
+        }
         // 한 장 끝: 다음 장을 본다
         this.#again = true
       } while (this.#again && !this.#stopped)
@@ -440,7 +452,11 @@ export class PrinterStation {
         this.#set({ lastError: rendered.error.message })
       } else {
         const adapter = this.#adapter
-        const result = adapter === null ? { ok: false as const, error: { code: 'NOT_CONNECTED' as const, message: PRINTER_MESSAGES.NOT_CONNECTED } } : await adapter.print(rendered.image, { density: this.#snapshot.density })
+        // 받는 사이 프린터가 끊겼으면 끊김이다 (그 장은 대기 맨 앞 — 다시 연결하면 이어서)
+        const result =
+          adapter === null || adapter.state === 'DISCONNECTED'
+            ? { ok: false as const, error: { code: 'DISCONNECTED' as const, message: PRINTER_MESSAGES.DISCONNECTED } }
+            : await adapter.print(rendered.image, { density: this.#snapshot.density })
         if (result.ok) {
           body = { ok: true }
           this.#set({ lastError: null })
@@ -482,7 +498,7 @@ export class PrinterStation {
   /** 테스트 인쇄. 그 기기가 대기열 작업을 찍는 중이면 하지 않는다 */
   async testPrint(input: { shopName: string; size: ClaimedJob['template']['size'] }): Promise<void> {
     const adapter = this.#adapter
-    if (adapter === null || adapter.state !== 'CONNECTED' || this.#snapshot.job !== null || this.#snapshot.testing) return
+    if (adapter === null || adapter.state !== 'CONNECTED' || this.#snapshot.busy || this.#snapshot.job !== null || this.#snapshot.testing) return
     this.#set({ testing: true, testPrinted: false, testError: null })
     try {
       const rendered = await this.#options.renderTest({ shopName: input.shopName, date: this.#options.today(), size: input.size })

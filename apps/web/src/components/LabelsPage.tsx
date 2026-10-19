@@ -206,7 +206,7 @@ function ConnectedPrinter() {
   const [answer, setAnswer] = useState<'yes' | 'no' | null>(null)
   const densityId = useId()
   if (api === null || station === null) return null
-  const busy = station.job !== null || station.connection === 'PRINTING'
+  const busy = station.busy || station.job !== null || station.connection === 'PRINTING'
   const product = print.templates?.product.template
   const test = () => {
     setAnswer(null)
