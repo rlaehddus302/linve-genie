@@ -1,4 +1,4 @@
-// S03 적대 테스트 (test-domain): 규칙 문장(DOMAIN_RULES v0.1.7)만 보고 따로 만든 참조 모델과 실제 엔진을 무작위 로그로 대조한다.
+// S03 적대 테스트 (test-domain): 규칙 문장(DOMAIN_RULES v0.1.8 — S03b D-061~D-068 반영)만 보고 따로 만든 참조 모델과 실제 엔진을 무작위 로그로 대조한다.
 // - 범위: 기본 정책 ARRIVAL에서 S03 이벤트 전부 — 문자찜(구매자 정하기·표시 이름·ref 재전송), 상품 수정(원자성·UNPAID_CLAIMS·재고 늘림·재출력 필요),
 //   번호 변경, 메시지 변환(ARRIVAL에서도 앞서면 충돌), 충돌 결정, 구매자 합치기·떼어 내기, 정산 기록 넷(입금 잠금 포함).
 //   RECEIVED_TIME 정렬 키는 S03 속성 테스트·골든이 따로 본다.
@@ -20,6 +20,7 @@ import {
   type EngineState,
   type SettingsOverride,
 } from '@livejjim/core'
+import { testPhoneKey } from '@livejjim/core/golden'
 import { apply, B1, T0, type Ev } from './helpers.ts'
 
 type Status = 'CONFIRMED' | 'WAITLISTED' | 'PENDING' | 'CONFLICT' | 'REJECTED' | 'CANCELLED' | 'DUPLICATE'
@@ -74,7 +75,8 @@ interface MBuyer {
   kind: 'youtube' | 'sms'
   display: string
   names: string[]
-  phone: string | null
+  /** 뒤 4자리 (전화번호 키로 만든 문자 구매자만) */
+  last4: string | null
   parent: string | null
   children: string[]
 }
@@ -108,7 +110,7 @@ function receivedAt(text: string, at: number): { time: number; minute: boolean }
   return { time: best, minute: sec === undefined }
 }
 
-/** 규칙 문장대로의 휴대폰 번호 (R-11): 숫자만(전각 → 반각), 01로 시작하는 10~11자리 */
+/** 규칙 문장대로의 휴대폰 번호 (R-11): 숫자만(전각 → 반각), 01로 시작하는 10~11자리. 서버 흉내(생성기)가 쓴다 */
 function phoneOf(text: string): string | null {
   const digits = [...text]
     .map((ch) => {
@@ -119,6 +121,12 @@ function phoneOf(text: string): string | null {
     })
     .join('')
   return /^01\d{8,9}$/.test(digits) ? digits : null
+}
+
+/** 서버 흉내 (R-1 "문자찜 ref와 전화번호"): 정규화 → 테스트 키·뒤 4자리. 번호 숫자를 담지 않는 결정적 키 */
+function serverPhone(text: string): Record<string, string> {
+  const n = phoneOf(text)
+  return n === null ? {} : { phoneKey: testPhoneKey(n), phoneLast4: n.slice(-4) }
 }
 
 type Decision = 'none' | 'pending' | 'confirm' | 'waitlist' | 'contend' | { reject: string }
@@ -132,7 +140,7 @@ class Model {
   phones = new Map<string, string>()
   refs = new Set<string>()
   blocked = new Set<string>()
-  messages = new Map<string, { ch: string; seq: number; at: number; published: number; ignored: boolean; claimed: Set<number> }>()
+  messages = new Map<string, { ch: string; seq: number; at: number; published: number; ignored: boolean; order: boolean; claimed: Set<number> }>()
   ledger: MEntry[] = []
   products = 0
   seq = 0
@@ -230,8 +238,8 @@ class Model {
     while (s.waitlist.length > Math.max(0, this.set['waitlist.max'])) this.end(s.waitlist.pop() as MClaim, no, 'REJECTED', 'SOLD_OUT')
   }
 
-  /** 대기에 넣는 자리 (R-4): 자기보다 앞서는 대기자 중 가장 뒤 바로 뒤, 없으면 1순위. 넘치면 맨 끝 품절 */
-  queue(c: MClaim, s: MSlot, no: number): void {
+  /** 대기에 넣는 자리 (R-4): 자기보다 앞서는 대기자 중 가장 뒤 바로 뒤, 없으면 1순위. 넘치면 맨 끝 품절 (trim=false: 자리가 비어 풀린 충돌 찜 — 정리는 승계·재고 뒤, D-068) */
+  queue(c: MClaim, s: MSlot, no: number, trim = true): void {
     let at = 0
     for (let i = s.waitlist.length - 1; i >= 0; i--) {
       if (this.ahead(s.waitlist[i] as MClaim, c)) {
@@ -242,7 +250,7 @@ class Model {
     this.attach(c, no)
     Object.assign(c, { status: 'WAITLISTED', reason: null })
     s.waitlist.splice(at, 0, c)
-    this.trim(s, no)
+    if (trim) this.trim(s, no)
   }
 
   /** 밀려난 1등: 대기 1순위(차단 중이면 BLOCKED), 넘치면 맨 끝 품절 */
@@ -351,12 +359,12 @@ class Model {
     s.awaiting = false
   }
 
-  /** 충돌이 먼저 풀린다 (R-7 7): c를 대기 자리에 */
-  unconflict(s: MSlot, no: number): void {
+  /** 충돌이 먼저 풀린다 (R-7 7): c를 대기 자리에 (trim=false면 넘침 정리는 부르는 쪽이 승계·재고 뒤에, D-068) */
+  unconflict(s: MSlot, no: number, trim = true): void {
     const c = s.conflict
     if (!c) return
     s.conflict = null
-    this.queue(c, s, no)
+    this.queue(c, s, no, trim)
   }
 
   release(c: MClaim, no: number, status: 'REJECTED' | 'CANCELLED', reason: string | null): void {
@@ -366,13 +374,14 @@ class Model {
     else this.detach(c, s)
     this.end(c, no, status, reason)
     if (was === 'CONFIRMED' && s.product) {
-      this.unconflict(s, no)
+      this.unconflict(s, no, false)
       if (s.waitlist.length > 0) {
         const mode = this.set['cancel.succession']
         if (mode === 'REOPEN') this.clear(s, no)
         else if (mode === 'ASK') s.awaiting = true
         else this.confirm(s.waitlist.shift() as MClaim, s, no)
       }
+      this.trim(s, no)
     }
     this.settle(s)
   }
@@ -408,8 +417,8 @@ class Model {
     return c
   }
 
-  newBuyer(id: string, kind: 'youtube' | 'sms', display: string, phone: string | null): void {
-    this.buyers.set(id, { kind, display, names: [display], phone, parent: null, children: [] })
+  newBuyer(id: string, kind: 'youtube' | 'sms', display: string, last4: string | null): void {
+    this.buyers.set(id, { kind, display, names: [display], last4, parent: null, children: [] })
   }
 
   rename(id: string, display: string): void {
@@ -474,8 +483,9 @@ class Model {
           const added = stock - p.stock
           p.stock = stock
           if (added > 0) {
-            this.unconflict(s, no)
+            this.unconflict(s, no, false)
             for (let i = 0; i < added && s.waitlist.length > 0; i++) this.confirm(s.waitlist.shift() as MClaim, s, no)
+            this.trim(s, no)
           }
         }
         this.settle(s)
@@ -509,19 +519,21 @@ class Model {
         const ch = e.ch as string
         const ignored = e.owner === true && this.set['claim.ignoreOwner']
         const published = (e.publishedAt as number | undefined) ?? at
-        const message = { ch, seq, at, published, ignored, claimed: new Set<number>() }
+        const parsed = parseChat(e.text as string, this.set)
+        // 주문이었던 메시지 (R-7 4, D-062): 받을 때 R-3이 주문 번호를 하나라도 읽었으면
+        const message = { ch, seq, at, published, ignored, order: parsed.claims.length > 0, claimed: new Set<number>() }
         this.messages.set(id, message)
         if (ignored) return
         const nick = e.nick as string
         if (!this.buyers.has(ch)) this.newBuyer(ch, 'youtube', nick, null)
         else this.rename(ch, nick)
-        const parsed = parseChat(e.text as string, this.set)
-        for (const n of parsed.claims) if (this.make(n, ch, 'chat', seq, at, published)) message.claimed.add(n)
+        for (const n of parsed.claims) this.make(n, ch, 'chat', seq, at, published)
         for (const n of parsed.cancels) {
           const mode = this.set['cancel.buyerChat']
           if (mode === 'OFF') continue
           const c = this.activeOf(n, ch)
-          if (!c) continue
+          // 대상 찾기 (R-8, D-063): 그 채널 자신의 찜만
+          if (!c || c.buyer !== ch) continue
           if (mode === 'AUTO' && !this.isLocked(c)) this.release(c, n, 'CANCELLED', null)
           else if (c.request === null) c.request = seq
         }
@@ -530,6 +542,8 @@ class Model {
       case 'sms': {
         const ref = e.ref as string
         if (this.refs.has(ref)) return
+        // ref는 처음 받을 때 기록한다 — 모르는 지정 구매자여도 (R-11, D-067)
+        this.refs.add(ref)
         const memo = typeof e.memo === 'string' ? e.memo.trim() : ''
         const display = memo === '' ? null : `문자찜(${memo})`
         let who: string
@@ -537,16 +551,15 @@ class Model {
           if (!this.buyers.has(buyer)) return
           who = buyer
         } else {
-          const phone = typeof e.phone === 'string' ? phoneOf(e.phone) : null
-          const linked = phone === null ? undefined : this.phones.get(phone)
+          const key = typeof e.phoneKey === 'string' ? e.phoneKey : null
+          const linked = key === null ? undefined : this.phones.get(key)
           if (linked !== undefined) who = linked
           else {
             who = `sms:${ref}`
-            this.newBuyer(who, 'sms', display ?? '문자찜', phone)
-            if (phone !== null) this.phones.set(phone, who)
+            this.newBuyer(who, 'sms', display ?? '문자찜', key === null ? null : (e.phoneLast4 as string))
+            if (key !== null) this.phones.set(key, who)
           }
         }
-        this.refs.add(ref)
         if (display !== null && this.buyers.get(who)?.kind === 'sms') this.rename(who, display)
         const r = receivedAt(e.received as string, at)
         this.make(no, who, 'sms', seq, at, r.time, r.minute)
@@ -588,10 +601,10 @@ class Model {
       case 'host.assign': {
         const s = this.slots.get(no)
         const p = s?.product
-        if (!s || !p || p.phase !== 'SELLING' || !this.buyers.has(buyer)) return
+        // 충돌 중인 상품에는 직접 배정이 없다 (R-7 7, R-9, D-064)
+        if (!s || !p || p.phase !== 'SELLING' || s.conflict !== null || !this.buyers.has(buyer)) return
         const replace = e.replace as string | undefined
         const to = e.replaceTo as string | undefined
-        if ((replace === undefined) !== (to === undefined)) return
         const own = this.activeOf(no, buyer)
         if (own && own.status !== 'WAITLISTED') return
         let target: MClaim | undefined
@@ -631,7 +644,7 @@ class Model {
       }
       case 'host.convertMessage': {
         const m = this.messages.get(e.msg as string)
-        if (!m || m.ignored || m.claimed.has(no)) return
+        if (!m || m.ignored || m.order || m.claimed.has(no)) return
         if (this.make(no, m.ch, 'convert', m.seq, m.at, m.published)) m.claimed.add(no)
         return
       }
@@ -774,7 +787,7 @@ class Model {
       .map((c) => [this.currentNo(c), c.buyer])
     const buyers = [...this.buyers.entries()].map(([id, b]) => {
       const members = new Set(this.members(id))
-      return [id, b.kind, b.display, b.names, this.root(id), this.claims.filter((c) => members.has(c.buyer) && c.status === 'CONFIRMED').reduce((sum, c) => sum + (c.price ?? 0), 0), b.phone === null ? null : b.phone.slice(-4)]
+      return [id, b.kind, b.display, b.names, this.root(id), this.claims.filter((c) => members.has(c.buyer) && c.status === 'CONFIRMED').reduce((sum, c) => sum + (c.price ?? 0), 0), b.last4]
     })
     // 정산 묶음 (R-12): 품목이나 기록이 있는 (지금의 구매자, 날짜)
     const keys = new Set<string>()
@@ -888,7 +901,9 @@ function materialize(raw: Raw, model: Model, sent: readonly string[], i: number)
     }
     case 'sms': {
       const f: Record<string, unknown> = { type: 'sms', b: 'b1', ref: `r${String(b % 12)}`, no, received: clockOf(T0 + i * 1000 - (a % 13) * 7000, c % 3 === 0) }
-      if (c % 4 !== 0) f.phone = PHONES[c % PHONES.length]
+      // 서버 흉내: 번호 원문은 엔진에 넣지 않는다. 가끔 같은 키에 다른 뒤 4자리(서버 버그·번호 변경이 아니라 R-11 2 "바꾸지 않는다" 확인용)
+      if (c % 4 !== 0) Object.assign(f, serverPhone(PHONES[c % PHONES.length] as string))
+      if (c % 11 === 5 && f.phoneKey !== undefined) f.phoneLast4 = '0000'
       if (d % 4 !== 0) f.memo = MEMOS[d % MEMOS.length]
       if (d % 5 === 0) f.buyer = who(c)
       return f as Ev

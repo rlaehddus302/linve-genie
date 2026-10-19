@@ -6,6 +6,7 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import {
+  InvalidEventError,
   formatThanksText,
   initEngine,
   listBuyers,
@@ -473,6 +474,13 @@ describe('S02 참조 모델 대조', () => {
           if (event.type === 'chat') sent.push(event.id as string)
           log.push(event)
           const at = T0 + i * 1000
+          // S03b (D-065): replace·replaceTo 한쪽만은 입력 오류 — 상태는 그대로이고 모델도 아무 일도 없다
+          if (event.type === 'host.assign' && (event.replace === undefined) !== (event.replaceTo === undefined)) {
+            const before = state
+            expect(() => apply(state, event, i + 1, at), JSON.stringify(event)).toThrow(InvalidEventError)
+            expect(state).toBe(before)
+            return
+          }
           state = apply(state, event, i + 1, at).state
           model.apply(event as Ev & Record<string, never>, i + 1, at)
           expect(engineView(state), `이벤트 ${String(i + 1)}: ${JSON.stringify(event)}\n설정 ${JSON.stringify(settings)}\n로그 ${JSON.stringify(log)}`).toEqual(model.view())

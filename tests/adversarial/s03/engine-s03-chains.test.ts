@@ -26,6 +26,7 @@ import {
   resolve,
   RECEIVED_TIME,
   sms,
+  smsPhoneFields,
   thanksSent,
   unmerge,
   update,
@@ -200,7 +201,7 @@ describe('처리 비용 (AC-S03-05, NFR-01 예산 300ms)', () => {
     let state = initEngine({ broadcasts: [B1], settings: { 'claim.preOpenWindowSec': 100_000 } })
     let seq = 0
     const step = (event: Record<string, unknown>): number => time(() => (state = applyEvent(state, { seq: ++seq, at: T0 + seq * 10, ...event } as unknown as EngineEvent).state))
-    for (let i = 0; i < 2000; i++) step(i % 2 === 0 ? { type: 'chat', b: 'b1', id: `m${String(i)}`, ch: `U${String(i)}`, nick: 'n', text: '15' } : { type: 'sms', b: 'b1', ref: `r${String(i)}`, no: 15, received: '20:00', phone: `010${String(10_000_000 + i)}` })
+    for (let i = 0; i < 2000; i++) step(i % 2 === 0 ? { type: 'chat', b: 'b1', id: `m${String(i)}`, ch: `U${String(i)}`, nick: 'n', text: '15' } : { type: 'sms', b: 'b1', ref: `r${String(i)}`, no: 15, received: '20:00', ...smsPhoneFields(`010${String(10_000_000 + i)}`) })
     expect(step({ type: 'host.blockBuyer', buyer: 'U2', reason: '사유' })).toBeLessThan(300)
     expect(step({ type: 'host.cancel', b: 'b1', no: 15, buyer: 'U4', reason: '사유' })).toBeLessThan(300)
     expect(step({ type: 'product.register', b: 'b1', no: 15, name: '핑크프릴', price: 10000, stock: 3 })).toBeLessThan(300)
@@ -215,7 +216,7 @@ describe('처리 비용 (AC-S03-05, NFR-01 예산 300ms)', () => {
     step({ type: 'chat', b: 'b1', id: 'hello', ch: 'A', nick: 'a', text: '안녕' })
     for (let i = 1; i <= 2000; i++) {
       step({ type: 'product.register', b: 'b1', no: i, name: '', price: 1000 })
-      step({ type: 'sms', b: 'b1', ref: `r${String(i)}`, no: i, received: '20:00', phone: '010-1234-5678' })
+      step({ type: 'sms', b: 'b1', ref: `r${String(i)}`, no: i, received: '20:00', ...smsPhoneFields('010-1234-5678') })
     }
     expect(step({ type: 'buyer.merge', from: 'sms:r1', into: 'A', reason: '사유' })).toBeLessThan(300)
     expect(step({ type: 'host.blockBuyer', buyer: 'sms:r1', reason: '사유' })).toBeLessThan(300)
