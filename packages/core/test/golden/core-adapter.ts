@@ -4,6 +4,7 @@
 // - 이벤트의 구매자 키(buyer·replace·from·into)는 그 키의 구매자 자신의 ID로 바꿔 넘긴다(`sms:<ref>` → 그 ref의 처음 문자찜이 정한 구매자, README "이벤트 안의 구매자 키").
 // - 문자찜의 phone(판매자가 적은 글자 그대로)은 서버처럼 phoneKey·phoneLast4로 바꿔 넘기고 phone은 넘기지 않는다(README "규칙", D-061, phone-key.ts).
 // - 관찰 스냅샷의 구매자는 지금의 구매자다. buyerKeys = 키 → 지금의 구매자.
+// - broadcast.start·broadcast.end는 그대로 넘기고(사본도), 관찰 스냅샷의 방송은 listBroadcasts의 날짜·제목·끝남이다(S04, AC-S04-91).
 // - 효과 보고 이벤트의 (상품, 구매자[, 대상]) → 효과 ID 연결은 README 규칙("가장 최근에 나온, 취소되지 않은 해당 효과",
 //   상품 키는 효과가 나온 때의 것, 구매자는 지금의 구매자로 비교)대로 조회 함수로 찾는다.
 import {
