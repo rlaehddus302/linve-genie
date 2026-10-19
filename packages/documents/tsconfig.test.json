@@ -1,0 +1,9 @@
+// 문서 패키지 시험·도구 설정. 시험에서만 Node 타입을 쓴다(글꼴 파일 읽기, 골든 파일 재생).
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM"],
+    "types": ["node"]
+  },
+  "include": ["*.ts", "src/**/*.ts", "test/**/*.ts"]
+}

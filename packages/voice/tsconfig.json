@@ -1,0 +1,8 @@
+// 음성 패키지 소스 (P2). 브라우저와 Node 둘 다에서 돈다 — Node 타입 없이(types: []) 검사해 node:* import를 막는다. DOM은 기능 감지용 타입만 쓴다.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM"]
+  },
+  "include": ["src/**/*.ts"]
+}
