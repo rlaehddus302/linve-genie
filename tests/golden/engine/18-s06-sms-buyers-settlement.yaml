@@ -1,0 +1,188 @@
+# S06 보강 — 문자찜 입력(휴대폰)·구매자·정산 화면이 기대는 엔진 동작 (DOMAIN_RULES R-1, R-4, R-6, R-7, R-8, R-11, R-12, R-13, D-023, D-051~D-053, D-057, D-058, D-089~D-093). 기대값 계산은 각 줄 주석.
+# 새 규칙은 없다(S06은 dev-core가 없다). 화면의 흐름(문자찜 입력 기본값, 합치기 미리 알림, 입금 바로잡기, 배송비 예외·조정)이 기대는 기존 규칙을
+# 그 흐름 그대로 고정한다.
+# - 문자찜 입력 화면에서 수신 시각을 비우면 서버가 그 입력의 도착 시각(KST)을 초까지 "HH:MM:SS"로 채운다(D-089). 골든은 서버가 채운 값을 적는다.
+# - 합치기·떼어 내기·정산 기록은 방송자 조치(host.*)가 아니라 5초 대기 없이 확인 뒤 바로 보낸다(D-091·D-092). 엔진이 받지 않는 경우(아무 일도 없음)를
+#   화면이 먼저 알린다 — 그 경우를 여기 고정한다.
+# 기본 설정: 접수순(ARRIVAL), 대기 한도 5, 자동 승계, 기본 배송비 4,000, 무료 기준 없음, 확정마다 라벨 1 + 감사 1.
+id: G-ENG-169
+title: 문자찜 입력 — 수신 시각을 비우면 서버가 입력(도착) 시각을 초까지 채운다. 실제 시각순에서도 먼저 온 유튜브 찜을 앞서지 않고 충돌도 만들지 않는다. 분까지만 적으면 같은 분의 유튜브 찜과 동률이라 충돌(방송자 결정)
+refs: [ORD-08, ORD-09, ORD-10, R-6, R-7, D-023, D-052, D-089]
+settings: { contention.policy: RECEIVED_TIME, contention.sameMinuteTieBreaker: HOST }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:00", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:20", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }      # A 15번 1등 (게시 시각 = 20:00:20, 정확한 시각)
+  - { at: "20:00:25", type: chat, b: b1, id: m2, ch: UC_B, nick: 영희, text: "16" }       # B 16번 1등 (게시 시각 = 20:00:25)
+  # 수신 시각을 비운 문자찜: 서버가 도착 시각 20:00:30을 "20:00:30"(초까지)으로 채운다 → 정확한 시각 20:00:30.
+  # 키 비교 (T, r, seq): A (20:00:20, 1, 3) < s1 (20:00:30, 1, 5) → A가 앞선다. 동률 아님(정확한 시각끼리) → R-4 7번 줄 → 대기 1순위
+  - { at: "20:00:30", type: sms, b: b1, ref: s1, no: 15, received: "20:00:30" }
+  # 판매자가 분까지만 적음 "20:00" → 구간 [20:00:00, 20:01:00). B의 20:00:25가 구간 안 → 동률 → HOST →
+  # 1등 자리를 다투므로 잠금과 상관없이 충돌 (R-6 동률, R-7 6). B는 1등 그대로, s2는 CONFLICT
+  - { at: "20:00:50", type: sms, b: b1, ref: s2, no: 16, received: "20:00" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: ["sms:s1"], conflict: false }
+    b1/16: { status: SOLD, winner: UC_B, waitlist: [], conflict: true }
+  claims:
+    - { product: b1/15, buyer: "sms:s1", status: WAITLISTED }
+    - { product: b1/16, buyer: "sms:s2", status: CONFLICT }
+  # 확정 = A(15)·B(16) 둘 → 라벨 2 + 감사 2. 대기·충돌 찜은 효과를 내지 않는다. 확정이 풀린 찜 없음 → 폐기 0
+  effectCounts: { POST_THANKS: 2, PRINT_PRODUCT_LABEL: 2, VOID_LABEL: 0 }
+---
+id: G-ENG-170
+title: 문자찜 입력 — 구매자를 고른 문자찜(그 구매자가 이미 찜한 상품은 새 찜 없음, 문자로 생긴 찜의 감사 문구는 "문자찜", 메모는 유튜브 이름을 바꾸지 않음), 끝난 방송에 늦게 넣은 문자찜도 평소대로, 같은 휴대폰 번호는 형식이 달라도 한 구매자
+refs: [ORD-08, BUY-02, BUY-04, R-1, R-4, R-11, R-13, D-051, D-057, D-061, D-070, D-090]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:02", type: product.register, b: b1, no: 17, name: 성미인, price: 8000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }                                   # A 15번 1등 (찜 1)
+  # 구매자를 A로 고른 문자찜: A가 15번에 이미 1등(활성 찜) → R-4 4번 줄 → 새 찜 없음. 지정 구매자가 유튜브라 메모는 표시 이름을 바꾸지 않는다(R-11)
+  - { at: "20:00:20", type: sms, b: b1, ref: s1, no: 15, received: "20:00:15", buyer: UC_A, memo: 홍길동 문자 }
+  # 구매자를 A로 고른 문자찜 16번: 확정 0 < 재고 1 → A 16번 1등 (찜 2). sms로 생긴 찜 → 감사 문구 이름은 "문자찜"(R-13, D-057)
+  - { at: "20:00:30", type: sms, b: b1, ref: s2, no: 16, received: "20:00:25", buyer: UC_A, memo: 추가 주문 }
+  - { type: assert, expect: { claimCount: 2, buyers: { UC_A: { items: [b1/15, b1/16], subtotal: 15000, display: 홍길동, nameHistory: [홍길동] } } } }
+  - { at: "21:00:00", type: broadcast.end, b: b1 }
+  # 끝난 방송이어도 판정·정산은 평소대로(R-1 "방송 시작·종료"). 전화번호 → 새 문자 구매자 X(뒤 4자리 3333), 17번 1등 (찜 3)
+  - { at: "21:05:00", type: sms, b: b1, ref: s3, no: 17, received: "20:59", phone: "010-2222-3333" }
+  # 형식이 다른 같은 번호 → 같은 키 → X. 15번은 A가 1등 → X 대기 1순위 (찜 4)
+  - { at: "21:06:00", type: sms, b: b1, ref: s4, no: 15, received: "21:00", phone: "01022223333" }
+expect:
+  claimCount: 4
+  broadcasts:
+    b1: { ended: true }
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: ["sms:s3"] }
+    b1/16: { status: SOLD, winner: UC_A }
+    b1/17: { status: SOLD, winner: "sms:s3" }
+  buyers:
+    UC_A: { items: [b1/15, b1/16], subtotal: 15000, display: 홍길동, nameHistory: [홍길동] }       # 10,000 + 5,000
+    "sms:s3": { items: [b1/17], subtotal: 8000, display: 문자찜, phoneLast4: "3333" }              # 메모 없음 → "문자찜"
+  sameBuyer: [["sms:s3", "sms:s4"]]
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, text: "15번 핑크프릴 10,000원 홍길동님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/16, buyer: UC_A, text: "16번 라울 5,000원 문자찜님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/17, buyer: "sms:s3", text: "17번 성미인 8,000원 문자찜님 구매 감사합니다" }
+  effectCounts: { POST_THANKS: 3, PRINT_PRODUCT_LABEL: 3 }                                          # 확정 3 (A 15·16, X 17)
+  settlements:
+    UC_A@2026-10-18: { subtotal: 15000, shipping: 4000, total: 19000, payment: UNPAID }            # 15,000 + 4,000
+    "sms:s3@2026-10-18": { subtotal: 8000, shipping: 4000, total: 12000, payment: UNPAID }         # 8,000 + 4,000
+---
+id: G-ENG-171
+title: 합치기 화면 흐름 — 두 사람이 같은 상품에 모두 1등이면 합치기는 아무 일도 없다(화면이 먼저 알린다). 한쪽 찜을 취소한 뒤 합치면 되고, 같은 상품의 대기 찜은 앞선 쪽만 남는다(중복). 떼어 내도 중복은 돌아오지 않는다
+refs: [BUY-03, BUY-04, STL-01, R-8, R-11, R-12, D-057, D-091]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:02", type: product.register, b: b1, no: 18, name: 블루버드, price: 6000, stock: 2 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15 18" }                                   # A 15번 1등, 18번 1등(재고 2 중 1)
+  - { at: "20:00:12", type: chat, b: b1, id: m2, ch: UC_B, nick: 영희, text: "16" }                                        # B 16번 1등
+  - { at: "20:00:20", type: sms, b: b1, ref: s1, no: 18, received: "20:00:15", phone: "010-1111-2222", memo: 김씨 }       # X 18번 1등(재고 2 중 2) → 18번 판매 완료
+  - { at: "20:00:21", type: sms, b: b1, ref: s2, no: 16, received: "20:00:16", phone: "01011112222", memo: 김씨 }         # 같은 번호 → X. 16번 대기 1순위
+  - { at: "20:00:22", type: chat, b: b1, id: m3, ch: UC_A, nick: 홍길동, text: "16" }                                     # A 16번 대기 2순위
+  # X → A 합치기: 18번에 A·X 모두 1등 → 확정 찜이 둘이 되는 상품이 있어 합치기 전체가 아무 일도 없다 (R-11)
+  - { at: "21:00:00", type: buyer.merge, from: "sms:s1", into: UC_A, reason: 같은 사람 }
+  - type: assert
+    expect:
+      products: { b1/16: { winner: UC_B, waitlist: ["sms:s1", UC_A] }, b1/18: { status: SOLD, winners: [UC_A, "sms:s1"] } }
+      buyers:
+        UC_A: { items: [b1/15, b1/18], subtotal: 16000 }                                  # 10,000 + 6,000
+        "sms:s1": { items: [b1/18], subtotal: 6000, display: 문자찜(김씨) }
+      sameBuyer: [["sms:s1", "sms:s2"]]
+  # 방송자가 X의 18번 1등을 취소(사유) → 자리 하나 빔, 18번 대기 없음 → 자동 승계할 사람 없음 → 판매 중(1등 A 하나)
+  - { at: "21:01:00", type: host.cancel, b: b1, no: 18, buyer: "sms:s1", reason: 같은 사람 중복 }
+  # 다시 합치기 → 된다. 16번: X 대기 1순위·A 대기 2순위가 같은 구매자 → 앞선 1순위(X의 찜)만 남고 A의 찜은 중복(대기 순번 당겨짐)
+  - { at: "21:02:00", type: buyer.merge, from: "sms:s1", into: UC_A, reason: 같은 사람 }
+  - type: assert
+    expect:
+      products: { b1/16: { winner: UC_B, waitlist: [UC_A] }, b1/18: { status: OPEN, winners: [UC_A] } }
+      buyers: { UC_A: { items: [b1/15, b1/18], subtotal: 16000, display: 홍길동 } }           # X의 18번은 취소됨 → 합계 그대로 16,000
+      sameBuyer: [[UC_A, "sms:s1", "sms:s2"]]
+      settlements: { UC_A@2026-10-18: { subtotal: 16000, shipping: 4000, total: 20000, payment: UNPAID } }   # 배송비 한 번
+  # 떼어 냄: X는 따로. 중복이 된 A의 16번 찜은 돌아오지 않는다 → 16번 대기는 X 하나
+  - { at: "21:10:00", type: buyer.unmerge, from: "sms:s1", reason: 잘못 합침 }
+expect:
+  products:
+    b1/16: { winner: UC_B, waitlist: ["sms:s1"] }
+    b1/18: { status: OPEN, winners: [UC_A] }
+  claims:
+    - { product: b1/16, buyer: UC_A, status: DUPLICATE }
+    - { product: b1/18, buyer: "sms:s1", status: CANCELLED }
+  buyers:
+    UC_A: { items: [b1/15, b1/18], subtotal: 16000 }
+    "sms:s1": { items: [], subtotal: 0, display: 문자찜(김씨), phoneLast4: "2222" }
+  sameBuyer: [["sms:s1", "sms:s2"]]
+  settlements:
+    UC_A@2026-10-18: { subtotal: 16000, shipping: 4000, total: 20000, payment: UNPAID }
+  # 확정 4번(A 15·18, B 16, X 18) → 라벨 4 + 감사 4. X의 18번 취소: 출력 보고 없음 → 폐기 라벨 없음. 합치기는 효과를 내지 않는다
+  effectCounts: { POST_THANKS: 4, PRINT_PRODUCT_LABEL: 4, VOID_LABEL: 0 }
+---
+id: G-ENG-172
+title: 입금 화면 흐름 — 입금액을 잘못 적으면 과입금(환불 필요)으로 보이고 환불 기록으로 바로잡는다. 받은 금액보다 큰 환불은 아무 일도 없다. 합친 동안 적은 환불 때문에 떼어 내면 한쪽 받은 금액이 0보다 작아지면 떼어 내기는 아무 일도 없다
+refs: [STL-07, STL-09, BUY-03, R-11, R-12, INV-6, D-057, D-058, D-092]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }       # A 10,000 + 배송비 4,000 = 14,000
+  - { at: "20:00:20", type: sms, b: b1, ref: s1, no: 16, received: "20:00:18" }             # X 5,000 + 4,000 = 9,000
+  # 14,000을 140,000으로 잘못 적음 → 받은 140,000 > 최종 14,000 → 과입금, 환불 필요 = 126,000
+  - { at: "21:00:00", type: settlement.payment, buyer: UC_A, date: 2026-10-18, amount: 140000, memo: "10/18 국민" }
+  - { type: assert, expect: { settlements: { UC_A@2026-10-18: { total: 14000, refundDue: 126000, payment: OVERPAID } } } }
+  # 바로잡기: 환불 126,000 → 받은 140,000 − 126,000 = 14,000 = 최종 → 입금 완료
+  - { at: "21:00:30", type: settlement.refund, buyer: UC_A, date: 2026-10-18, amount: 126000, reason: 입금액 잘못 적음 }
+  # 받은 14,000보다 큰 환불 20,000 → 아무 일도 없음 (기록되지 않는다)
+  - { at: "21:00:40", type: settlement.refund, buyer: UC_A, date: 2026-10-18, amount: 20000, reason: 착오 }
+  - { type: assert, expect: { settlements: { UC_A@2026-10-18: { total: 14000, refundDue: 0, payment: PAID } } } }
+  # X → A 합치기: 상품 15,000 + 배송비 한 번 4,000 = 19,000, 받은 14,000 → 부분 입금
+  - { at: "21:01:00", type: buyer.merge, from: "sms:s1", into: UC_A, reason: 같은 사람 }
+  - { type: assert, expect: { settlements: { UC_A@2026-10-18: { subtotal: 15000, shipping: 4000, total: 19000, refundDue: 0, payment: PARTIAL } } } }
+  # 10,000 입금 → 받은 24,000 → 과입금 5,000
+  - { at: "21:02:00", type: settlement.payment, buyer: UC_A, date: 2026-10-18, amount: 10000 }
+  - { type: assert, expect: { settlements: { UC_A@2026-10-18: { total: 19000, refundDue: 5000, payment: OVERPAID } } } }
+  # 그 환불을 X(sms:s1) 이름으로 적음 → 기록은 X 자신에 붙고, 묶음 받은 금액 24,000 ≥ 5,000이라 받는다 → 받은 19,000 → 입금 완료
+  - { at: "21:02:30", type: settlement.refund, buyer: "sms:s1", date: 2026-10-18, amount: 5000, reason: 더 받은 돈 돌려줌 }
+  - { type: assert, expect: { settlements: { UC_A@2026-10-18: { total: 19000, refundDue: 0, payment: PAID } } } }
+  # 떼어 내면: A 기록 = 입금 140,000 + 10,000 − 환불 126,000 = 24,000, X 기록 = 0 − 5,000 = −5,000 < 0 → 떼어 내기는 아무 일도 없다 (R-11)
+  - { at: "21:10:00", type: buyer.unmerge, from: "sms:s1", reason: 따로 배송 }
+expect:
+  sameBuyer: [[UC_A, "sms:s1"]]
+  buyers:
+    UC_A: { items: [b1/15, b1/16], subtotal: 15000 }
+  settlements:
+    UC_A@2026-10-18: { subtotal: 15000, shipping: 4000, adjustments: 0, total: 19000, refundDue: 0, payment: PAID }
+---
+id: G-ENG-173
+title: 정산 화면 흐름 — 같은 날 1·2부는 한 묶음(방송별 합계, 닉네임이 바뀌어도 한 사람), 배송비 예외 바꾸기(직접 수령 → 금액 지정 → 예외 지우기), 할인·추가 조정, 무료 기준은 상품 합계로만 본다
+refs: [STL-01, STL-02, STL-03, BUY-01, BUY-04, R-11, R-12, D-058, D-092]
+settings: { shipping.baseFee: 4000, shipping.freeThreshold: 50000 }
+broadcasts:
+  - { id: b1, date: 2026-10-18, title: 1부 }
+  - { id: b2, date: 2026-10-18, title: 2부 }
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 20000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }          # 1부 A 20,000
+  - { at: "21:00:00", type: product.register, b: b2, no: 1, name: 금황성, price: 10000 }
+  - { at: "21:00:10", type: chat, b: b2, id: m2, ch: UC_A, nick: 길동이, text: "1" }           # 2부 같은 채널(닉네임 바뀜) 10,000
+  # 20,000 + 10,000 = 30,000 < 무료 기준 50,000 → 배송비 4,000 → 34,000
+  - { type: assert, expect: { settlements: { UC_A@2026-10-18: { subtotal: 30000, shipping: 4000, adjustments: 0, total: 34000 } } } }
+  - { at: "22:00:00", type: settlement.shippingOverride, buyer: UC_A, date: 2026-10-18, mode: PICKUP }                  # 직접 수령 0 → 30,000
+  - { type: assert, expect: { settlements: { UC_A@2026-10-18: { shipping: 0, total: 30000 } } } }
+  - { at: "22:00:10", type: settlement.shippingOverride, buyer: UC_A, date: 2026-10-18, mode: FIXED, amount: 7000 }     # 가장 나중 예외 = 금액 지정 7,000 → 37,000
+  - { at: "22:00:20", type: settlement.adjust, buyer: UC_A, date: 2026-10-18, amount: -3000, reason: 단골 할인 }         # → 34,000
+  - { at: "22:00:30", type: settlement.adjust, buyer: UC_A, date: 2026-10-18, amount: 2000, reason: 포장 추가 }          # 조정 합 −1,000 → 30,000 + 7,000 − 1,000 = 36,000
+  - { type: assert, expect: { settlements: { UC_A@2026-10-18: { shipping: 7000, adjustments: -1000, total: 36000 } } } }
+  - { at: "22:00:40", type: settlement.shippingOverride, buyer: UC_A, date: 2026-10-18, mode: DEFAULT }                 # 예외 지우기 → 30,000 < 50,000 → 4,000 → 33,000
+  - { type: assert, expect: { settlements: { UC_A@2026-10-18: { shipping: 4000, adjustments: -1000, total: 33000 } } } }
+  # 2부에서 하나 더 20,000: 상품 합계 50,000 ≥ 50,000 → 무료 (조정 −1,000은 기준에 넣지 않는다) → 50,000 + 0 − 1,000 = 49,000
+  - { at: "22:10:00", type: product.register, b: b2, no: 2, name: 라일락, price: 20000 }
+  - { at: "22:10:10", type: chat, b: b2, id: m3, ch: UC_A, nick: 길동이, text: "2" }
+expect:
+  buyers:
+    UC_A: { items: [b1/15, b2/1, b2/2], subtotal: 50000, byBroadcast: { b1: 20000, b2: 30000 }, display: 길동이, nameHistory: [홍길동, 길동이] }
+  settlements:
+    UC_A@2026-10-18: { subtotal: 50000, shipping: 0, adjustments: -1000, total: 49000, refundDue: 0, payment: UNPAID }
