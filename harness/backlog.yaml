@@ -145,7 +145,8 @@ sprints:
       긴 품종명 자동 축소/줄바꿈, 상품·포장 라벨, PNG 저장, 라벨 크기 PDF, A4 모아찍기 PDF.
     specIds: [LBL-01, LBL-02, LBL-03, LBL-04, LBL-05, LBL-07]
     uxReview: true
-    status: todo
+    status: superseded
+    note: 병렬 트랙 재편(D-097) — 패키지는 P1·P2, 유튜브 서버는 Y1, 화면 통합은 I1~I4
 
   - id: S08
     phase: 2
@@ -160,7 +161,8 @@ sprints:
       - "RA-S05-002: 리허설 효과는 실제 출력·게시 실행기가 절대 집어 가지 않게 — store에 rehearsal=false로 고정한 조회 함수만 실행기가 쓰고, 리허설 행이 나오지 않는 시험으로 고정"
     specIds: [LBL-06, LBL-08, LBL-09, LBL-10, LBL-11, LBL-12]
     humanGate: HG-2
-    status: todo
+    status: superseded
+    note: 병렬 트랙 재편(D-097) — 패키지는 P1·P2, 유튜브 서버는 Y1, 화면 통합은 I1~I4
 
   - id: S09
     phase: 2
@@ -170,7 +172,8 @@ sprints:
     goal: 구매 내역 확인서 PDF(법정 증빙 아님 고지), 엑셀 판매대장, 포장 모드(체크리스트→포장 라벨→완료), 일일 백업·복구·전체 내보내기.
     specIds: [STL-04, STL-05, STL-06, STL-08, STL-10, DAT-03, DAT-04, BUY-05, PRD-05]
     uxReview: true
-    status: todo
+    status: superseded
+    note: 병렬 트랙 재편(D-097) — 패키지는 P1·P2, 유튜브 서버는 Y1, 화면 통합은 I1~I4
 
   # ─────────── 3단계: 유튜브 연동 ───────────
   - id: S10
@@ -182,7 +185,8 @@ sprints:
       구글 OAuth(최소 권한), 내 라이브 목록에서 선택/URL 붙여넣기, liveChatMessages.streamList(gRPC) 수집,
       끊김 시 nextPageToken 이어받기, 폴링 대체 경로, 할당량 계산·표시. 수집기는 어댑터 + 가짜 채팅 서버로 테스트.
     specIds: [YT-01, YT-02, YT-03, YT-08]
-    status: todo
+    status: superseded
+    note: 병렬 트랙 재편(D-097) — 패키지는 P1·P2, 유튜브 서버는 Y1, 화면 통합은 I1~I4
 
   - id: S11
     phase: 3
@@ -197,7 +201,8 @@ sprints:
       - "RA-S05-002: 리허설 효과는 실제 출력·게시 실행기가 절대 집어 가지 않게 — store에 rehearsal=false로 고정한 조회 함수만 실행기가 쓰고, 리허설 행이 나오지 않는 시험으로 고정"
     specIds: [YT-04, YT-05, YT-06, YT-07]
     humanGate: HG-3
-    status: todo
+    status: superseded
+    note: 병렬 트랙 재편(D-097) — 패키지는 P1·P2, 유튜브 서버는 Y1, 화면 통합은 I1~I4
 
   - id: S12
     phase: 3
@@ -209,7 +214,8 @@ sprints:
       - "RA-S04-004: 로그인 경로 IP·전체 속도 제한(scrypt 비용 남용 방지)"
     specIds: [UX-02, SYS-04]
     uxReview: true
-    status: todo
+    status: superseded
+    note: 병렬 트랙 재편(D-097) — 패키지는 P1·P2, 유튜브 서버는 Y1, 화면 통합은 I1~I4
 
   # ─────────── 4단계: 음성·고급 ───────────
   - id: S13
@@ -222,6 +228,98 @@ sprints:
       제안 카드(Enter 확정·바로 수정·신뢰도 높으면 자동 확정 옵션), 녹음 샘플 기반 정확도 측정 스크립트.
     specIds: [VOC-01, VOC-02, VOC-03, VOC-04, VOC-05, PRD-06]
     humanGate: HG-4
+    status: superseded
+    note: 병렬 트랙 재편(D-097) — 패키지는 P1·P2, 유튜브 서버는 Y1, 화면 통합은 I1~I4
+
+  # ─────────── 2~4단계 재편 (D-097): 병렬 트랙 + 화면 통합 ───────────
+  - id: P1
+    phase: 2
+    title: 라벨·프린터 패키지 (병렬 트랙 worktree p1, 브랜치 track/p1-label-printer)
+    devs: [device]
+    tests: [domain]
+    specIds: [LBL-01, LBL-02, LBL-03, LBL-04, LBL-05, LBL-06, LBL-07, LBL-08, LBL-11, LBL-12]
+    status: doing
+  - id: P2
+    phase: 2
+    title: 문서·음성 패키지 (병렬 트랙 worktree p2, 브랜치 track/p2-docs-voice)
+    devs: [device]
+    tests: [domain]
+    specIds: [STL-04, STL-05, STL-06, VOC-01, VOC-02, VOC-03, VOC-05]
+    status: doing
+  - id: Y1
+    phase: 3
+    title: 유튜브 서버 — 계정 연결·채팅 수집·감사 메시지 발송함 (병렬 트랙 worktree y1, 브랜치 track/y1-youtube-server)
+    devs: [server]
+    tests: [domain]
+    specIds: [YT-01, YT-02, YT-03, YT-04, YT-05, YT-06, YT-07, YT-08]
+    status: doing
+
+  - id: I1
+    phase: 2
+    title: 라벨·출력 화면 통합 (P1 합친 뒤)
+    dependsOn: [P1]
+    devs: [server, web]
+    tests: [domain, e2e]
+    uxReview: true
+    humanGate: HG-2
+    goal: >
+      라벨 템플릿 편집·미리보기(가게 이름·가격 표기·항목·글자 크기), 프린터 연결 마법사·테스트 인쇄(Web Bluetooth/Serial,
+      미지원 브라우저 안내·PNG 대체), 서버 기록 출력 대기열(PRINT_PRODUCT_LABEL·VOID_LABEL 효과 → 출력 작업, 기기별 기록, 성공/실패),
+      1등 확정 시 자동 출력·승계 시 새 라벨·폐기 표시, 끊김 복구(멈춤·재연결·이어 출력), 재출력·출력 이력·"재출력 필요",
+      프린트 스테이션(다른 기기 작업 받아 출력), 라벨 PNG 저장/공유·PDF. 실기기 없이 가짜 프린터로 E2E.
+    carryOver:
+      - "RA-S05-002: 리허설 효과는 실제 출력 실행기가 절대 집어 가지 않게 — rehearsal=false 고정 조회만 쓰고 시험으로 고정"
+    specIds: [LBL-01, LBL-02, LBL-03, LBL-04, LBL-05, LBL-06, LBL-07, LBL-08, LBL-09, LBL-10, LBL-11, LBL-12, UX-02]
+    status: todo
+
+  - id: I2
+    phase: 2
+    title: 정산 마무리 — 명세서·엑셀·포장 모드·백업 + S06 화면 다듬기 (P1·P2 합친 뒤)
+    dependsOn: [P1, P2]
+    devs: [server, web]
+    tests: [domain, e2e]
+    uxReview: true
+    goal: >
+      구매 내역 확인서 PDF 내려받기·전원 일괄·휴대폰 이미지 공유, 엑셀 판매대장 내보내기(기간·방송 선택),
+      포장 모드(구매자별 체크리스트 → 포장 라벨 출력 → 포장 완료 → 배송 완료·송장번호), 과거 구매 내역,
+      방송 전 상품 목록 가져오기(엑셀·CSV 붙여넣기 → READY 상품), 일일 자동 백업·복구·판매자 단위 전체 내보내기/가져오기.
+    carryOver:
+      - "S06 화면 지적: UX-S06-004(구매자 목록 이름 표기 통일), UX-S06-005(정산 창에 누구 묶음인지), UX-S06-006(미리 보기에 과입금·환불 필요 변화), UX-S06-007(결과 색이 뜻과 반대), UX-S06-008~013(nit), SA-S06-006(PC 정산·구매자 목록은 표), SA-S06-007(입금 상한 스펙에 확정), SA-S06-008(뒤 4자리 같은 두 문자 구매자 — 쓰기 응답에 정한 구매자 ID), TE-S06-005(날짜 고르기에 연도)"
+      - "RA-S06-002: 범위별 보기 캐시 전체 상한(LRU)·안 쓰는 범위 캐시 비우기"
+      - "RA-S06-003: 합치기 미리 보기를 코어 순수 조회 previewMerge로 (화면의 규칙 복제 제거)"
+      - "RA-S06-004·005: 떠나기 창을 오래 연 뒤 닫기 시 상태 재확인, 모바일 PWA 첫 기록 뒤로 가기 처리"
+      - "SA-S06-009: 5초 제한에 가까운 적대 시험의 부하 여유"
+    specIds: [STL-04, STL-05, STL-06, STL-08, STL-10, DAT-03, DAT-04, BUY-05, PRD-05]
+    status: todo
+
+  - id: I3
+    phase: 3
+    title: 유튜브 화면 + 시작 마법사 + 배포 (Y1 합친 뒤)
+    dependsOn: [Y1]
+    devs: [server, web]
+    tests: [e2e]
+    uxReview: true
+    humanGate: HG-3
+    goal: >
+      유튜브 계정 연결 화면(권한 설명·연결 해제), 방송 선택(내 라이브 목록·주소 붙여넣기), 감사 메시지 설정(실시간 채팅·영상 댓글·묶음·
+      자동 게시 동의), 할당량 표시·묶음 자동 전환 안내, 발송 실패 목록·다시 보내기, 시작 마법사(가게 → 판매 규칙 → 프린터 → 유튜브 → 리허설),
+      배포 준비(컨테이너 이미지, 환경변수 문서, 마이그레이션·계정 생성 절차, 백업 스케줄), 개인정보처리방침·이용약관 초안 페이지, 운영 모니터링.
+    carryOver:
+      - "RA-S04-004: 로그인 경로 IP·전체 속도 제한(scrypt 비용 남용 방지)"
+    specIds: [YT-01, YT-02, YT-03, YT-04, YT-05, YT-06, YT-07, YT-08, YT-09, UX-02, SYS-04]
+    status: todo
+
+  - id: I4
+    phase: 4
+    title: 음성 등록 화면 (P2 합친 뒤)
+    dependsOn: [P2]
+    devs: [device, web]
+    tests: [e2e]
+    humanGate: HG-4
+    goal: >
+      마이크 켜기(권한 안내·음성 외부 전송 고지), 실시간 인식 문장 표시, 제안 카드(Enter 확정·바로 수정·신뢰도 높으면 자동 확정 옵션),
+      품종 사전(판매 이력) 연동, 음성 끄기(끄면 모든 기능 그대로), 녹음 샘플 정확도 측정 스크립트(실제 음성 측정은 사용자 몫).
+    specIds: [VOC-01, VOC-02, VOC-03, VOC-04, VOC-05, PRD-06]
     status: todo
 
 techDebt:
