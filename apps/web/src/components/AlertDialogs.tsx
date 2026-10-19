@@ -73,13 +73,14 @@ export function ConflictDialog({ onClose }: { readonly onClose: () => void }) {
     >
       {products.length > 1 ? <p className="hint">충돌 {products.length}개 중 첫 번째예요.</p> : null}
       <p>늦게 확인된 앞선 찜이 있어요. 1등을 그대로 둘지 바꿀지 골라 주세요.</p>
+      {/* 이름 뒤에 괄호를 더하지 않는다 — 이름 자체의 "문자찜(김씨)" 괄호와 겹치지 않게 " · "로 잇는다 (AC-S06b-20, D-098) */}
       <dl className="facts">
         <div>
           <dt>지금 1등</dt>
           <dd>
             {winners.length === 0
               ? '아직 없음'
-              : winners.map((claim) => `${api.names.name(claim.currentBuyer)} (${ORIGIN_WORD[claim.origin]})`).join(', ')}
+              : winners.map((claim) => `${api.names.name(claim.currentBuyer)} · ${ORIGIN_WORD[claim.origin]}`).join(', ')}
           </dd>
         </div>
         <div>
@@ -87,7 +88,7 @@ export function ConflictDialog({ onClose }: { readonly onClose: () => void }) {
           <dd>
             {challenger === undefined
               ? '알 수 없음'
-              : `${api.names.name(challenger.currentBuyer)} (${ORIGIN_WORD[challenger.origin]}, ${kstTime(challenger.rankTime)}${challenger.rankMinute ? ' 무렵' : ''})`}
+              : `${api.names.name(challenger.currentBuyer)} · ${ORIGIN_WORD[challenger.origin]} · ${kstTime(challenger.rankTime)}${challenger.rankMinute ? ' 무렵' : ''}`}
           </dd>
         </div>
       </dl>

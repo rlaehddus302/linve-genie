@@ -252,7 +252,7 @@ describe('되돌리기·단축키 (AC-S05-40·41·42)', () => {
     fireEvent.keyDown(quick, { key: '1', code: 'Digit1', altKey: true })
     const dialog = await screen.findByRole('dialog')
     expect(dialog.textContent).toContain('늦게 확인된 앞선 찜이 있어요. 1등을 그대로 둘지 바꿀지 골라 주세요.')
-    expect(dialog.textContent).toContain('홍길동 (채팅)')
+    expect(dialog.textContent).toContain('홍길동 · 채팅')
     await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: '닫기' })))
     fireEvent.keyDown(document.activeElement as Element, { key: '1' })
     expect(await screen.findByText(/뒤 보내요: 15번 충돌 그대로 유지/)).toBeDefined()
@@ -271,6 +271,23 @@ describe('되돌리기·단축키 (AC-S05-40·41·42)', () => {
     expect(model.events).toHaveLength(0)
     await waitFor(() => expect(model.events).toHaveLength(1))
     expect(model.events[0]).toMatchObject({ type: 'host.resolveConflict', b: 'b1', no: 15, decision: 'SWITCH' })
+  })
+
+  it('충돌 창은 이름 뒤에 괄호를 더하지 않는다 — 앞선 찜이 "문자찜(김씨)"여도 괄호가 겹치지 않음 (AC-S06b-20, TE-S06b-003)', async () => {
+    setupServer()
+    model.products.set('b1/15', product(15, { conflict: true, conflictClaim: 'k2', conflictBuyer: 's1', winners: ['c1'], winnerClaims: ['k1'] }))
+    model.buyers = [
+      { id: 'c1', display: '홍길동' },
+      { id: 's1', display: '문자찜(김씨)' },
+    ]
+    model.claims = [claim('k1', 'c1', 'CONFIRMED'), { ...claim('k2', 's1', 'CONFLICT'), origin: 'sms', rankMinute: true }]
+    const { quick } = await openConsole()
+    fireEvent.keyDown(quick, { key: '1', code: 'Digit1', altKey: true })
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog.textContent).toContain('홍길동 · 채팅')
+    expect(dialog.textContent).toContain('문자찜(김씨) · 문자찜 · 10:00')
+    expect(dialog.textContent).toContain('무렵')
+    expect(dialog.textContent).not.toContain(') (')
   })
 
   it('충돌 중인 상품은 직접 배정·교체를 누를 수 없고 "충돌부터 정해 주세요."', async () => {
