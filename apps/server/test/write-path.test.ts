@@ -15,6 +15,8 @@ import {
   rid,
   startServer,
   writeEvent,
+  MERGED_BODY,
+  RAW_JOIN,
   type TestServer,
 } from './support.ts'
 
@@ -23,7 +25,7 @@ async function replayFromDb(world: TestServer, date: string): Promise<{ state: E
   const pg = world.database.pglite
   if (pg === null) throw new Error('PGlite가 아니다')
   const result = await pg.query<{ seq: number; type: string; body: string; failed: boolean }>(
-    `select e.seq, e.type, e.body, e.failed from events e join scopes s on s.id = e.scope_id where s.date = $1 order by e.seq`,
+    `select e.seq, e.type, ${MERGED_BODY} as body, e.failed from events e ${RAW_JOIN} join scopes s on s.id = e.scope_id where s.date = $1 order by e.seq`,
     [date],
   )
   let state = initEngine({ broadcasts: [], settings: {} })
@@ -370,8 +372,8 @@ describe('AC-S04-30 발송함', () => {
     expect(rows?.rows.every((row) => row.seq === 3)).toBe(true)
     // 내용 = 엔진 효과 (같은 로그를 코어로 재생해 낸 효과)
     const replayed = applyEvent(
-      applyEvent(applyEvent(initEngine({ broadcasts: [], settings: {} }), JSON.parse((await world.database.pglite?.query<{ body: string }>(`select body from events where seq = 1`))?.rows[0]?.body ?? '') as EngineEvent).state, JSON.parse((await world.database.pglite?.query<{ body: string }>(`select body from events where seq = 2`))?.rows[0]?.body ?? '') as EngineEvent).state,
-      JSON.parse((await world.database.pglite?.query<{ body: string }>(`select body from events where seq = 3`))?.rows[0]?.body ?? '') as EngineEvent,
+      applyEvent(applyEvent(initEngine({ broadcasts: [], settings: {} }), JSON.parse((await world.database.pglite?.query<{ body: string }>(`select ${MERGED_BODY} as body from events e ${RAW_JOIN} where e.seq = 1`))?.rows[0]?.body ?? '') as EngineEvent).state, JSON.parse((await world.database.pglite?.query<{ body: string }>(`select ${MERGED_BODY} as body from events e ${RAW_JOIN} where e.seq = 2`))?.rows[0]?.body ?? '') as EngineEvent).state,
+      JSON.parse((await world.database.pglite?.query<{ body: string }>(`select ${MERGED_BODY} as body from events e ${RAW_JOIN} where e.seq = 3`))?.rows[0]?.body ?? '') as EngineEvent,
     )
     expect(rows?.rows.map((row) => JSON.parse(row.body) as unknown)).toEqual(replayed.effects)
     expect(state).toEqual(replayed.state)

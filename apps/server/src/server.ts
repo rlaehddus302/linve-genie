@@ -17,6 +17,11 @@ import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
 import { systemClock, type Clock } from './time.ts'
 import { DEFAULT_RUNTIME_CACHE_MAX, ScopeWriter, type WriterHooks } from './writer.ts'
+import type { CollectorHooks } from './youtube/collector.ts'
+import type { OutboxHooks } from './youtube/outbox.ts'
+import { Sealer } from './youtube/seal.ts'
+import { YoutubeSystem, checkYoutubeConfig, type YoutubeConfig } from './youtube/system.ts'
+import { realTimer, type Timer } from './youtube/timer.ts'
 
 /** 스냅샷 간격 상한 (AC-S04-28: 일정 이벤트 수, 최대 500) */
 export const MAX_SNAPSHOT_EVERY = 500
@@ -52,6 +57,18 @@ export interface ServerOptions {
   readonly generatorSpeed?: number
   /** 화면이 방송자 조치를 보내기 전에 기다리는 시간 (0~5000밀리초, 기본 5000 — E2E 기동만 줄인다, D-083) */
   readonly hostActionDelayMs?: number
+  /** 유튜브 연동 설정 (Y1). 없으면 유튜브 API는 503 YOUTUBE_NOT_CONFIGURED */
+  readonly youtube?: YoutubeConfig
+  /** 워커의 시계·기다리기 (기본 clock + 실제 setTimeout — 시험은 ManualTimer) */
+  readonly timer?: Timer
+  /** 유튜브 HTTP (기본 전역 fetch) */
+  readonly youtubeFetch?: typeof fetch
+  /** 이 서버(인스턴스) 이름 — 수집기·발송함 임대 주인 (시험에서 둘을 띄울 때) */
+  readonly instanceName?: string
+  readonly collectorHooks?: CollectorHooks
+  readonly outboxHooks?: OutboxHooks
+  readonly collectorTiming?: { readonly leaseMs?: number; readonly renewMs?: number; readonly scanMs?: number }
+  readonly sealHooks?: { readonly beforeCommit?: () => void | Promise<void> }
 }
 
 export interface LivejjimServer {
@@ -62,7 +79,15 @@ export interface LivejjimServer {
   readonly auth: Auth
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
-  /** 실시간 연결을 닫고 리허설 생성기·타이머를 멈춘다 (DB는 닫지 않는다) */
+  /** 유튜브 연동 (설정이 있을 때만) */
+  readonly youtube: YoutubeSystem | null
+  /** 30일 봉인 작업 (AC-Y1-61) */
+  readonly sealer: Sealer
+  /** 워커를 돌린다: 유튜브 수집기·발송함, 봉인 작업 (서버 시작 때) */
+  start(): void
+  /** 워커를 멈춘다 (임대를 놓는다) */
+  stop(): Promise<void>
+  /** 실시간 연결을 닫고 리허설 생성기·타이머·워커를 멈춘다 (DB는 닫지 않는다) */
   close(): void
 }
 
@@ -93,8 +118,14 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const hostActionDelayMs = options.hostActionDelayMs ?? HOST_ACTION_DELAY_MS
   if (!Number.isSafeInteger(hostActionDelayMs) || hostActionDelayMs < 0 || hostActionDelayMs > HOST_ACTION_DELAY_MS) throw new TypeError('방송자 조치 대기 시간은 0~5000밀리초여야 해요.')
 
+  if (options.youtube !== undefined) {
+    const problem = checkYoutubeConfig(options.youtube)
+    if (problem !== null) throw new TypeError(problem)
+  }
+
   const db = options.database.db
   const clock = options.clock ?? systemClock
+  const timer = options.timer ?? realTimer(clock)
   const ids: IdSource = { ...randomIds, ...options.ids }
   const log = safeSink(options.log ?? stderrLog)
   const engine: EngineAdapter = options.engine ?? { applyEvent }
@@ -110,7 +141,10 @@ export function createServer(options: ServerOptions): LivejjimServer {
     snapshotEvery,
     runtimeCacheMax,
     changesWindow,
-    onCommit: (sellerId, date, rehearsal, records) => hub.publish(sellerId, records.map((record) => ({ date, rehearsal, seq: record.seq, type: record.type }))),
+    onCommit: (sellerId, date, rehearsal, records) => {
+      hub.publish(sellerId, records.map((record) => ({ date, rehearsal, seq: record.seq, type: record.type })))
+      youtube?.onCommit(sellerId, rehearsal, records)
+    },
   })
   const service = new Service({
     db,
@@ -122,20 +156,58 @@ export function createServer(options: ServerOptions): LivejjimServer {
     onGenerator: (sellerId, payload) => hub.publishGenerator(sellerId, payload),
     ...(options.generatorTimer === undefined ? {} : { generatorTimer: options.generatorTimer }),
   })
+  const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)
+  const youtube: YoutubeSystem | null =
+    options.youtube === undefined
+      ? null
+      : new YoutubeSystem({
+          db,
+          masterKey,
+          timer,
+          log,
+          writer,
+          service,
+          config: options.youtube,
+          publish: publishYoutube,
+          ...(options.instanceName === undefined ? {} : { owner: options.instanceName }),
+          ...(options.youtubeFetch === undefined ? {} : { fetch: options.youtubeFetch }),
+          ...(options.collectorHooks === undefined ? {} : { collectorHooks: options.collectorHooks }),
+          ...(options.outboxHooks === undefined ? {} : { outboxHooks: options.outboxHooks }),
+          ...(options.collectorTiming === undefined ? {} : { collectorTiming: options.collectorTiming }),
+        })
+  const sealer = new Sealer({
+    db,
+    writer,
+    timer,
+    log,
+    onSealed: (sellerId, date) => publishYoutube(sellerId, { kind: 'sealed', date }),
+    ...(options.sealHooks === undefined ? {} : { hooks: options.sealHooks }),
+  })
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
-    api: { service, auth, hub, appOrigin: options.appOrigin, clientConfig: { hostActionDelayMs } },
+    api: { service, auth, hub, appOrigin: options.appOrigin, clientConfig: { hostActionDelayMs }, youtube, sealer },
   })
+  const stop = async () => {
+    await Promise.all([youtube?.stop(), sealer.stop()])
+  }
   return {
     app,
     service,
     writer,
     hub,
     auth,
+    youtube,
+    sealer,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
+    start: () => {
+      youtube?.start()
+      sealer.start()
+    },
+    stop,
     close: () => {
       service.generators.closeAll()
       hub.closeAll()
+      void stop()
     },
   }
 }

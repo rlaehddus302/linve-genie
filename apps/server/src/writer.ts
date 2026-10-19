@@ -18,13 +18,18 @@ import { DEFAULT_CHANGES_WINDOW, FAILED_INPUT_MESSAGE, catchUp, loadRuntime, rec
 import { sha256Hex } from './secrets.ts'
 import {
   chatEventSeq,
+  existingChatIds,
   effectIdsAt,
   ensureScope,
   eventByRequestId,
+  insertChatRaw,
   insertEvents,
   insertOutbox,
   insertSnapshot,
+  markYoutubeChat,
+  scopeSealedAt,
   setScopeSeq,
+  type ChatRawRow,
   type NewEventRow,
   type NewOutboxRow,
   type RequestRecord,
@@ -33,6 +38,12 @@ import type { Clock } from './time.ts'
 
 /** 누가 보낸 입력인지 (DAT-05) */
 export type Actor = { readonly kind: 'account'; readonly accountId: string } | { readonly kind: 'server' } | { readonly kind: 'collector' }
+
+/** 채팅이 어디서 왔는지 (AC-Y1-60): 유튜브 수집기 · 리허설(생성기·시청자로 보내기) · 그 밖(시험 채우기 등) */
+export type ChatSource = 'youtube' | 'rehearsal' | 'other'
+
+/** 봉인한 범위에 쓰려 할 때 (AC-Y1-62) */
+export const SEALED_MESSAGE = '30일이 지난 방송 기록은 봉인되어 고칠 수 없어요.'
 
 /** 기록하지 않고 돌려보내는 이유 (4xx) */
 export interface Rejection {
@@ -57,6 +68,8 @@ export interface Draft {
    * 거른 이벤트는 seq를 쓰지 않는다(뒤 이벤트가 그 seq를 받는다)
    */
   readonly skipIfInvalid?: boolean
+  /** 채팅이 어디서 왔는지 (채팅만, 기본 other). 본문·이름은 이벤트 기록 본문과 따로 둔다 (AC-Y1-60) */
+  readonly source?: ChatSource
 }
 
 export interface BuildContext {
@@ -65,6 +78,8 @@ export interface BuildContext {
   readonly isNewScope: boolean
   /** 첫 이벤트가 받을 at (서버 시계, 범위 안에서 줄지 않음) */
   readonly at: number
+  /** chatBatch로 넘긴 메시지 중 이미 기록된 메시지 ID (트랜잭션 안에서 읽은 것) */
+  readonly existingChats: ReadonlySet<string>
 }
 
 export interface WriteJob {
@@ -76,6 +91,8 @@ export interface WriteJob {
   readonly createScope: boolean
   readonly requestId: string | null
   readonly chat?: { readonly b: string; readonly id: string }
+  /** 여러 채팅을 한 번에 쓸 때 (유튜브 수집기의 한 응답): 이미 기록된 메시지 ID를 트랜잭션 안에서 읽어 build에 넘긴다 */
+  readonly chatBatch?: { readonly b: string; readonly ids: readonly string[] }
   /** 트랜잭션 전에 미리 읽을 것 (차단 이어받기 목록). 범위가 새로울 때만 부른다 */
   readonly prepare?: () => Promise<unknown>
   /** 쓸 이벤트들. 첫 이벤트가 요청의 결과(요청 번호)다 */
@@ -118,6 +135,8 @@ export type WriteOutcome =
   | { readonly kind: 'rejected'; readonly rejection: Rejection }
   | { readonly kind: 'not_found' }
   | { readonly kind: 'save_failed' }
+  /** 아무것도 쓰지 않았다 (chatBatch의 메시지가 모두 이미 기록됨) */
+  | { readonly kind: 'empty' }
 
 /** 시험용 주입점 */
 export interface WriterHooks {
@@ -188,8 +207,12 @@ export function uniqueViolation(error: unknown): string | null {
   return null
 }
 
-export function eventDigest(scopeId: string, seq: number, type: string, body: string, failed: boolean): string {
-  return sha256Hex(JSON.stringify([scopeId, seq, type, body, failed]))
+/**
+ * 기록 요약값. 본문·이름을 따로 둔 채팅(AC-Y1-60)은 그 둘도 함께 묶는다 — 따로 둔 값을 고치면 재생 검사가 그 seq를 잡는다
+ */
+export function eventDigest(scopeId: string, seq: number, type: string, body: string, failed: boolean, raw?: { readonly nick: string; readonly text: string } | null): string {
+  if (raw === undefined || raw === null) return sha256Hex(JSON.stringify([scopeId, seq, type, body, failed]))
+  return sha256Hex(JSON.stringify([scopeId, seq, type, body, failed, raw.nick, raw.text]))
 }
 
 /** 범위(판매자, 날짜, 리허설인지)마다 한 줄로 처리하는 기록기 */
@@ -304,14 +327,29 @@ export class ScopeWriter {
             const existing = await eventByRequestId(tx, job.sellerId, job.requestId)
             if (existing !== null) throw new Abort({ kind: 'duplicate', result: await resultOf(tx, job.sellerId, existing) })
           }
+          // 봉인한 범위는 읽기만 된다 (AC-Y1-62). 봉인 작업도 같은 락을 잡는다
+          if (runtime.scopeId !== null && (await scopeSealedAt(tx, job.sellerId, runtime.scopeId)) !== null) {
+            throw new Abort({ kind: 'rejected', rejection: { status: 409, code: 'SEALED', message: SEALED_MESSAGE, problems: [] } })
+          }
           if (job.chat !== undefined && (await chatEventSeq(tx, job.sellerId, job.chat.b, job.chat.id)) !== null) {
             throw new Abort({ kind: 'duplicate', result: null })
           }
-          const computed = this.#compute(job, runtime, prepared)
+          const existingChats = job.chatBatch === undefined ? new Set<string>() : await existingChatIds(tx, job.sellerId, job.chatBatch.b, job.chatBatch.ids)
+          const computed = this.#compute(job, runtime, prepared, existingChats)
           if ('rejection' in computed) throw new Abort({ kind: 'rejected', rejection: computed.rejection })
+          if (computed.records.length === 0) throw new Abort({ kind: 'empty' })
           const now = new Date(this.#options.clock.now())
           const scopeId = runtime.scopeId ?? (await ensureScope(tx, job.sellerId, job.date, job.rehearsal, this.#options.ids.scope(), now))
-          await insertEvents(tx, computed.records.map((record, index) => eventRow(job, scopeId, record, computed.drafts[index] as Draft, now)))
+          const rows = computed.records.map((record, index) => eventRow(job, scopeId, record, computed.drafts[index] as Draft, now))
+          await insertEvents(
+            tx,
+            rows.map((row) => row.event),
+          )
+          await insertChatRaw(
+            tx,
+            rows.flatMap((row) => (row.raw === null ? [] : [row.raw])),
+          )
+          if (!job.rehearsal && rows.some((row) => row.event.chatSource === 'youtube')) await markYoutubeChat(tx, job.sellerId, scopeId)
           await insertOutbox(tx, computed.records.flatMap((record) => outboxRows(job, scopeId, record, now)))
           // 범위의 지금 seq — 실패 표시 이벤트도 seq를 쓴다 (AC-S05-60)
           await setScopeSeq(tx, job.sellerId, scopeId, computed.seq)
@@ -345,10 +383,11 @@ export class ScopeWriter {
     job: WriteJob,
     runtime: ScopeRuntime,
     prepared: unknown,
+    existingChats: ReadonlySet<string>,
   ): { records: CommittedRecord[]; states: EngineState[]; drafts: readonly Draft[]; state: EngineState; seq: number; lastAt: number } | { rejection: Rejection } {
     const { engine, log, clock } = this.#options
     const firstAt = Math.max(clock.now(), runtime.lastAt)
-    const drafts = job.build({ state: runtime.state, isNewScope: runtime.seq === 0, at: firstAt }, prepared)
+    const drafts = job.build({ state: runtime.state, isNewScope: runtime.seq === 0, at: firstAt, existingChats }, prepared)
     if (!Array.isArray(drafts)) return { rejection: drafts as Rejection }
     let state = runtime.state
     let seq = runtime.seq
@@ -477,25 +516,42 @@ function stateFormatRejection(): Rejection {
   return { status: 409, code: 'STATE_FORMAT', message: '저장된 상태를 다시 불러오는 중이에요. 잠시 뒤 다시 시도해 주세요.', problems: [] }
 }
 
-function eventRow(job: WriteJob, scopeId: string, record: CommittedRecord, draft: Draft, now: Date): NewEventRow {
-  const body = JSON.stringify(record.event)
+/** 채팅 이벤트의 본문·이름을 떼어 낸다 (AC-Y1-60). 둘 다 글자일 때만 — 아니면 그대로 둔다 */
+export function splitChatRaw(event: Readonly<Record<string, unknown>>): { body: Record<string, unknown>; raw: { nick: string; text: string } } | null {
+  if (event.type !== 'chat' || typeof event.nick !== 'string' || typeof event.text !== 'string') return null
+  const body: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(event)) {
+    if (key === 'nick' || key === 'text') continue
+    Object.defineProperty(body, key, { value, enumerable: true, writable: true, configurable: true })
+  }
+  return { body, raw: { nick: event.nick, text: event.text } }
+}
+
+function eventRow(job: WriteJob, scopeId: string, record: CommittedRecord, draft: Draft, now: Date): { event: NewEventRow; raw: ChatRawRow | null } {
+  const split = splitChatRaw(record.event as unknown as Record<string, unknown>)
+  const body = JSON.stringify(split === null ? record.event : split.body)
   return {
-    sellerId: job.sellerId,
-    scopeId,
-    seq: record.seq,
-    type: record.type,
-    body,
-    at: record.event.at,
-    receivedAt: now,
-    actor: draft.actor.kind,
-    accountId: draft.actor.kind === 'account' ? draft.actor.accountId : null,
-    requestId: draft.requestId ?? null,
-    chatBroadcast: draft.chat?.b ?? null,
-    chatMessageId: draft.chat?.id ?? null,
-    smsRef: draft.smsRef ?? null,
-    changed: record.changed,
-    failed: record.failed,
-    digest: eventDigest(scopeId, record.seq, record.type, body, record.failed),
+    event: {
+      sellerId: job.sellerId,
+      scopeId,
+      seq: record.seq,
+      type: record.type,
+      body,
+      at: record.event.at,
+      receivedAt: now,
+      actor: draft.actor.kind,
+      accountId: draft.actor.kind === 'account' ? draft.actor.accountId : null,
+      requestId: draft.requestId ?? null,
+      chatBroadcast: draft.chat?.b ?? null,
+      chatMessageId: draft.chat?.id ?? null,
+      smsRef: draft.smsRef ?? null,
+      changed: record.changed,
+      failed: record.failed,
+      digest: eventDigest(scopeId, record.seq, record.type, body, record.failed, split?.raw ?? null),
+      chatSource: record.type === 'chat' ? (draft.source ?? 'other') : null,
+      raw: split !== null,
+    },
+    raw: split === null ? null : { sellerId: job.sellerId, scopeId, seq: record.seq, nick: split.raw.nick, text: split.raw.text },
   }
 }
 
