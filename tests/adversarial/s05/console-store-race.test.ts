@@ -102,3 +102,88 @@ describe('TD-S05-001 콘솔을 여는 중에 들어온 채팅이 채팅 패널�
     expect(snapshot.messages.map((m) => m.id)).toEqual(server.messages.map((m) => m.id))
   }, 60_000)
 })
+
+/** 손으로 부르는 SSE: 시험이 ready를 보내고, 끊김(닫힘)을 흉내 낸다. generator 알림은 보내지 않는다(끊긴 사이) */
+class ManualStream {
+  static all: ManualStream[] = []
+  readyState = 0
+  onopen: ((event: unknown) => void) | null = null
+  onerror: ((event: unknown) => void) | null = null
+  readonly listeners = new Map<string, ((event: { data: string }) => void)[]>()
+  constructor() {
+    ManualStream.all.push(this)
+  }
+  addEventListener(type: string, listener: (event: { data: string }) => void): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener])
+  }
+  emit(type: string, data: unknown): void {
+    this.readyState = 1
+    for (const listener of this.listeners.get(type) ?? []) listener({ data: JSON.stringify(data) })
+  }
+  drop(): void {
+    this.readyState = 2
+    this.onerror?.({})
+  }
+  close(): void {
+    this.readyState = 2
+  }
+}
+
+const settle = async () => {
+  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve))
+}
+
+describe('TD-S05-002 끊긴 사이에 멈춘 리허설 생성기가 다시 붙은 뒤에도 "실행 중"으로 남는다 (AC-S05-54·62)', () => {
+  it('생성기가 도는 중에 연결이 끊기고 그사이 다 보내 멈추면, 다시 붙은 뒤 조작판 상태는 멈춤(다 보냈어요)이다', async () => {
+    const jobs: (() => void)[] = []
+    const timer = { schedule: (_ms: number, fn: () => void) => (jobs.push(fn), () => undefined) }
+    h = await harness({ generatorTimer: timer })
+    const a = await h.account('race2')
+    const s = h.server
+    const created = await (
+      await s.app.request('/api/broadcasts', {
+        method: 'POST',
+        headers: { Cookie: a.cookie, Origin: 'https://app.test', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requestId: 'rh1', date: DAY, rehearsal: true }),
+      })
+    ).json() as { broadcast: { id: string } }
+    const b = created.broadcast.id
+    const start = await s.app.request(`/api/broadcasts/${b}/rehearsal/generator/start`, {
+      method: 'POST',
+      headers: { Cookie: a.cookie, Origin: 'https://app.test', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ total: 2, perSecond: 1, seed: 7 }),
+    })
+    expect(start.status).toBe(200)
+
+    routeFetch(() => s, a.cookie, () => null, () => undefined)
+    const reconnects: (() => void)[] = []
+    const storeTimer = { set: (fn: () => void) => (reconnects.push(fn), reconnects.length), clear: () => undefined }
+    ManualStream.all = []
+    const { ConsoleStore } = (await import(/* @vite-ignore */ STORE_MODULE)) as { ConsoleStore: StoreCtor }
+    store = new ConsoleStore({ broadcastId: b, openStream: () => new ManualStream(), timer: storeTimer })
+    await store.start()
+    await settle()
+    const generatorOf = () => (store?.getSnapshot() as unknown as { generator: { running: boolean; sent: number; stopReason: string | null } | null }).generator
+    expect(generatorOf()?.running).toBe(true)
+
+    // 연결이 아주 끊긴다(브라우저가 다시 붙지 않는 닫힘) — 그사이 생성기가 2건을 다 보내고 멈춘다
+    ;(ManualStream.all.at(-1) as ManualStream).drop()
+    while (jobs.length > 0) {
+      ;(jobs.shift() as () => void)()
+      await settle()
+    }
+    const server = await (await s.app.request(`/api/broadcasts/${b}/rehearsal/generator`, { headers: { Cookie: a.cookie } })).json() as { generator: { running: boolean; stopReason: string } }
+    expect(server.generator).toMatchObject({ running: false, stopReason: 'completed' })
+
+    // 다시 붙는다: 세션 확인 → 새 연결 → ready
+    while (reconnects.length > 0) {
+      ;(reconnects.shift() as () => void)()
+      await settle()
+    }
+    const days = await (await s.app.request('/api/days?rehearsal=true', { headers: { Cookie: a.cookie } })).json() as { days: unknown[] }
+    ;(ManualStream.all.at(-1) as ManualStream).emit('ready', { scopes: days.days })
+    await settle()
+    expect(store.getSnapshot().data?.seq).toBe((days.days[0] as { seq: number }).seq)
+    expect(generatorOf()).toMatchObject({ running: false, stopReason: 'completed', sent: 2 })
+  }, 60_000)
+})
