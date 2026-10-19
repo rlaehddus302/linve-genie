@@ -1,4 +1,4 @@
-// E2E용 서버 기동 명령 (AC-S05-91): pnpm --filter @livejjim/server e2e [--port 3100] [--origin http://localhost:5173] [--fill yes]
+// E2E용 서버 기동 명령 (AC-S05-91): pnpm --filter @livejjim/server e2e [--port 3100 (0이면 빈 포트)] [--origin http://localhost:5173] [--fill yes]
 //   [--fill-products 500] [--fill-chats 10000] [--host-delay-ms 5000] [--chat-speed 1]
 // - 메모리 PGlite + 마이그레이션, 그 자리에서 만든 시험용 마스터 키, 시험용 판매자 계정(apps/server/e2e/account.json). 끄면 데이터는 사라진다.
 // - --fill yes: 상품 500·채팅 1만 건을 채운 실제 범위(오늘, KST) — 화면 반영 1초 시험(AC-S05-64)용. 채우기가 끝난 뒤에 포트를 연다.
@@ -25,7 +25,7 @@ const intArg = (name: string, min: number, max: number): number | undefined | nu
   return Number.isInteger(value) && value >= min && value <= max ? value : null
 }
 
-const portArg = intArg('port', 1, 65_535)
+const portArg = intArg('port', 0, 65_535)
 const envPort = readPort(process.env)
 const port = portArg ?? (envPort.ok && envPort.fromEnv ? envPort.port : DEFAULT_E2E_PORT)
 const originEnv = readAppOrigin(process.env)
@@ -37,7 +37,7 @@ const hostDelay = intArg('host-delay-ms', 0, 5000)
 const chatSpeed = intArg('chat-speed', 1, 1000)
 
 if (portArg === null || products === null || chats === null || hostDelay === null || chatSpeed === null || (fillFlag !== undefined && fillFlag !== 'yes' && fillFlag !== 'no')) {
-  complain('인자를 확인해 주세요. --port 1~65535, --fill yes|no, --fill-products 1~999, --fill-chats 0~100000, --host-delay-ms 0~5000, --chat-speed 1~1000')
+  complain('인자를 확인해 주세요. --port 0~65535, --fill yes|no, --fill-products 1~999, --fill-chats 0~100000, --host-delay-ms 0~5000, --chat-speed 1~1000')
   process.exit(2)
 }
 if (!/^https?:\/\/[^/\s]+$/.test(origin)) {
@@ -62,9 +62,11 @@ e2e.http.on('error', (error: Error & { code?: string }) => {
 })
 
 e2e.http.listen(port, () => {
+  const address = e2e.http.address()
+  const actual = typeof address === 'object' && address !== null ? address.port : port
   const filled = e2e.fill === null ? '채우기 없음' : `채운 범위 ${e2e.fill.date} · 상품 ${String(e2e.fill.products)} · 채팅 ${String(e2e.fill.chats)}`
   say(
-    `E2E 서버를 시작했어요. http://localhost:${String(port)} · 화면 주소 ${origin} · 시험 계정 ${e2e.account.loginId} · ${filled} · ` +
+    `E2E 서버를 시작했어요. http://localhost:${String(actual)} · 화면 주소 ${origin} · 시험 계정 ${e2e.account.loginId} · ${filled} · ` +
       `방송자 조치 대기 ${String(hostDelay ?? 5000)}ms · 준비 ${String(Date.now() - started)}ms`,
   )
 })

@@ -249,3 +249,15 @@ describe('AC-S04-28 재시작·스냅샷·형식', () => {
     expect(applied).toBe(13)
   })
 })
+
+describe('AC-S05-80 차단 이어받기는 코어 조회 함수로 (RA-S04-006, D-086)', () => {
+  it('서버 소스는 코어 영속 맵 내부(state.blocked.root 등)를 읽지 않고 listBlocked를 쓴다', async () => {
+    const { readdirSync, readFileSync } = await import('node:fs')
+    const dir = new URL('../src/', import.meta.url)
+    const files = readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((file) => file.endsWith('.ts'))
+    expect(files.length).toBeGreaterThan(10)
+    const sources = files.map((file) => [file, readFileSync(new URL(file, dir), 'utf8')] as const)
+    for (const [file, text] of sources) expect(text, file).not.toMatch(/blocked\.root|\.root\)|state\.blocked/)
+    expect(sources.find(([file]) => file === 'service.ts')?.[1]).toMatch(/listBlocked\(state\)/)
+  })
+})
