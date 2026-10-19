@@ -6,7 +6,7 @@
 import { applyEvent, listClaims, listMessages, parseChat, type SettingsOverride } from '@livejjim/core'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { addSeller, client, createBroadcast, expectOk, newWorld, rid, writeEvent, type Seller, type TestServer } from './support.ts'
+import { addSeller, client, createBroadcast, expectOk, newWorld, writeEvent, type Seller, type TestServer } from './support.ts'
 
 const DAY = '2026-10-19'
 
