@@ -965,6 +965,8 @@ describe('AC-S03-04 무작위 상태에 맞지 않는 S03 명령 → 새 효과 
         const result = applyEvent(state, event)
         expect(result.effects, json(command)).toEqual([])
         expect(json(observe(result.state)), json(command)).toBe(json(observe(state)))
+        // 서버의 changed = (돌려받은 상태 !== 넘긴 상태) — 맞지 않는 명령은 같은 상태 객체를 돌려준다 (문자찜은 ref를 처음 받을 때 기록하므로 뺀다, D-067)
+        if (command.type !== 'sms') expect(result.state, `같은 상태 객체여야 한다: ${json(command)}`).toBe(state)
       }),
       PARAMS,
     )
