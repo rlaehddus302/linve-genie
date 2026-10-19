@@ -9,6 +9,7 @@
 import { LOGIN_ID_RE, PASSWORD_MAX, createAssistant, normalizeLoginId, type CreateAssistantResult } from './accounts.ts'
 import type { Db } from './db/database.ts'
 import { errorKind, type LogSink } from './log.ts'
+import { IpLimiter, VerifyGate, ipKey, type LoginLimitOptions } from './login-limit.ts'
 import { DEFAULT_PASSWORD_COST, hashPassword, loginLimitKey, newSessionToken, tokenHash, verifyPassword, type PasswordCost } from './secrets.ts'
 import {
   claimLoginAttempt,
@@ -39,6 +40,10 @@ export type LoginOutcome =
   | { readonly kind: 'ok'; readonly token: string; readonly sellerId: string; readonly loginId: string }
   | { readonly kind: 'failed' }
   | { readonly kind: 'locked' }
+  /** 같은 IP의 시도가 너무 많다 (AC-I3-66) */
+  | { readonly kind: 'rate_limited' }
+  /** 서버 전체 비밀번호 확인이 몰렸다 (AC-I3-67) */
+  | { readonly kind: 'busy' }
 
 export interface AuthOptions {
   readonly db: Db
@@ -51,6 +56,10 @@ export interface AuthOptions {
   readonly limitKeep?: number
   /** 정리 간격 (시험에서 줄인다): 로그인 시도 이만큼마다 */
   readonly pruneEvery?: number
+  /** 로그인 경로 속도 제한 (IP·전체 동시 한도, 시험에서 줄인다 — AC-I3-66·67) */
+  readonly loginLimits?: LoginLimitOptions
+  /** 비밀번호 확인 함수 (시험이 호출 수·동시 수를 잰다 — 기본 scrypt 확인) */
+  readonly verify?: (password: string, stored: string) => Promise<boolean>
 }
 
 export interface SessionContext extends SessionRow {
@@ -67,15 +76,47 @@ export const CLEAR_SESSION_COOKIE = `${SESSION_COOKIE}=; Path=/; HttpOnly; Secur
 export class Auth {
   readonly #options: AuthOptions
   readonly #dummyHash: Promise<string>
+  readonly #ips: IpLimiter
+  readonly #gate: VerifyGate
+  readonly #verify: (password: string, stored: string) => Promise<boolean>
   #attempts = 0
+  /** 서버 시작 뒤 로그인 제한으로 거절한 수 (운영 상태, AC-I3-81) */
+  readonly #rejected = { ip: 0, busy: 0 }
 
   constructor(options: AuthOptions) {
     this.#options = options
     this.#dummyHash = hashPassword(newSessionToken(), options.passwordCost ?? DEFAULT_PASSWORD_COST)
     this.#dummyHash.catch(() => {})
+    this.#ips = new IpLimiter(options.clock, options.loginLimits)
+    this.#gate = new VerifyGate(options.loginLimits)
+    this.#verify = options.verify ?? verifyPassword
   }
 
-  async login(rawLoginId: string, password: string): Promise<LoginOutcome> {
+  /** 로그인 제한으로 거절한 수 (IP 한도·전체 동시 한도) */
+  get loginRejections(): { readonly ip: number; readonly busy: number } {
+    return { ...this.#rejected }
+  }
+
+  /**
+   * 로그인. 순서: IP 한도 → 전체 동시 한도 → 아이디 잠금 → 비밀번호 확인 (D-I3-12). address = 로그인 시도를 센 주소(연결 주소 또는 믿는 프록시가 알린 주소, 모르면 null)
+   */
+  async login(rawLoginId: string, password: string, address: string | null = null): Promise<LoginOutcome> {
+    if (!this.#ips.take(address === null ? null : ipKey(address))) {
+      this.#rejected.ip += 1
+      return { kind: 'rate_limited' }
+    }
+    if (!(await this.#gate.acquire())) {
+      this.#rejected.busy += 1
+      return { kind: 'busy' }
+    }
+    try {
+      return await this.#login(rawLoginId, password)
+    } finally {
+      this.#gate.release()
+    }
+  }
+
+  async #login(rawLoginId: string, password: string): Promise<LoginOutcome> {
     const { db, clock } = this.#options
     const now = clock.now()
     const loginId = normalizeLoginId(rawLoginId)
@@ -88,10 +129,10 @@ export class Auth {
     const account = LOGIN_ID_RE.test(loginId) ? await findAccountByLogin(db, loginId) : null
     // 3. 계정이 없거나 비밀번호가 상한을 넘으면 같은 비용의 가짜 확인만 하고 실패다 (실패 수는 1에서 이미 셌다)
     if (account === null || password.length > PASSWORD_MAX) {
-      await verifyPassword(password.slice(0, PASSWORD_MAX), await this.#dummyHash)
+      await this.#verify(password.slice(0, PASSWORD_MAX), await this.#dummyHash)
       return { kind: 'failed' }
     }
-    if (!(await verifyPassword(password, account.passwordHash))) return { kind: 'failed' }
+    if (!(await this.#verify(password, account.passwordHash))) return { kind: 'failed' }
     // 4. 맞았다: 연속 실패 수를 0으로 (이 시도 뒤에 잡힌, 아직 확인 중인 시도만 남는다)
     await releaseLoginAttempt(db, key, attempt)
     const token = newSessionToken()

@@ -11,6 +11,7 @@ import { StreamHub } from './hub.ts'
 import { randomIds, type IdSource } from './ids.ts'
 import { errorKind, safeSink, stderrLog, type LogSink } from './log.ts'
 import type { EngineAdapter } from './runtime.ts'
+import type { LoginLimitOptions } from './login-limit.ts'
 import { loginLimitSecret, readMasterKey, type PasswordCost } from './secrets.ts'
 import type { GeneratorTimer } from './generator.ts'
 import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
@@ -70,6 +71,12 @@ export interface ServerOptions {
   readonly linkHooks?: LinkHooks
   readonly collectorTiming?: { readonly leaseMs?: number; readonly renewMs?: number; readonly scanMs?: number }
   readonly sealHooks?: { readonly beforeCommit?: () => void | Promise<void> }
+  /** 믿는 앞단 프록시 수 (0~5, 기본 0 — LIVEJJIM_TRUSTED_PROXIES, AC-I3-66) */
+  readonly trustedProxies?: number
+  /** 로그인 경로 속도 제한 (시험에서 줄인다 — 운영은 기본값, AC-I3-66·67) */
+  readonly loginLimits?: LoginLimitOptions
+  /** 비밀번호 확인 함수 (시험이 호출 수·동시 수를 잰다) */
+  readonly passwordVerifier?: (password: string, stored: string) => Promise<boolean>
 }
 
 export interface LivejjimServer {
@@ -130,7 +137,17 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const ids: IdSource = { ...randomIds, ...options.ids }
   const log = safeSink(options.log ?? stderrLog)
   const engine: EngineAdapter = options.engine ?? { applyEvent }
-  const auth = new Auth({ db, clock, limitSecret: loginLimitSecret(masterKey), log, ...(options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost }) })
+  const trustedProxies = options.trustedProxies ?? 0
+  if (!Number.isSafeInteger(trustedProxies) || trustedProxies < 0 || trustedProxies > 5) throw new TypeError('믿는 프록시 수는 0~5여야 해요.')
+  const auth = new Auth({
+    db,
+    clock,
+    limitSecret: loginLimitSecret(masterKey),
+    log,
+    ...(options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost }),
+    ...(options.loginLimits === undefined ? {} : { loginLimits: options.loginLimits }),
+    ...(options.passwordVerifier === undefined ? {} : { verify: options.passwordVerifier }),
+  })
   const hub = new StreamHub({ heartbeatMs, sessionAlive: (hash) => auth.alive(hash) })
   const writer = new ScopeWriter({
     db,
@@ -187,7 +204,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   })
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
-    api: { service, auth, hub, appOrigin: options.appOrigin, clientConfig: { hostActionDelayMs }, youtube, sealer },
+    api: { service, auth, hub, appOrigin: options.appOrigin, clientConfig: { hostActionDelayMs }, youtube, sealer, trustedProxies },
   })
   const stop = async () => {
     await Promise.all([youtube?.stop(), sealer.stop()])

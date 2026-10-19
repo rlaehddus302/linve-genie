@@ -14,6 +14,7 @@ import { REQUEST_ID_RE, isPlainObject, own, ownKeys } from './api-fields.ts'
 import { CLEAR_SESSION_COOKIE, SESSION_COOKIE, sessionCookie, type Auth, type SessionContext } from './auth.ts'
 import { apiError, JSON_CONTENT_TYPE } from './errors.ts'
 import type { StreamHub } from './hub.ts'
+import { LOGIN_BUSY_MESSAGE, LOGIN_RATE_LIMITED_MESSAGE, clientAddress } from './login-limit.ts'
 import { unknownFieldProblems } from './messages.ts'
 import { ASSISTANT_EVENT_TYPES, ASSISTANT_FORBIDDEN_MESSAGE, assistantMayCall } from './roles.ts'
 import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.ts'
@@ -37,6 +38,15 @@ export interface ApiDeps {
   /** 유튜브 연동 (Y1, 설정이 없으면 null — 그 API는 503) */
   readonly youtube?: YoutubeSystem | null
   readonly sealer?: Sealer | null
+  /** 믿는 앞단 프록시 수 (0~5, 기본 0 — X-Forwarded-For를 보지 않는다, AC-I3-66) */
+  readonly trustedProxies?: number
+}
+
+/** TCP 연결 주소 (@hono/node-server가 넘기는 요청 정보). 프로세스 안 요청(시험의 app.request)은 env로 넣을 수 있고, 없으면 null */
+export function connectionAddress(c: Context): string | null {
+  const env = c.env as { incoming?: { socket?: { remoteAddress?: unknown } }; server?: { incoming?: { socket?: { remoteAddress?: unknown } } } } | undefined
+  const address = env?.incoming?.socket?.remoteAddress ?? env?.server?.incoming?.socket?.remoteAddress
+  return typeof address === 'string' && address !== '' ? address : null
 }
 
 export type Env = { Variables: { body: Record<string, unknown> | null; session: SessionContext } }
@@ -184,7 +194,11 @@ export function createApi(deps: ApiDeps): Hono<Env> {
         ...(typeof password === 'string' ? [] : [{ field: 'password', message: '비밀번호를 적어 주세요.' }]),
       ])
     }
-    const outcome = await auth.login(loginId, password)
+    // 로그인 시도를 센 주소: 연결 주소(믿는 프록시가 있으면 X-Forwarded-For의 오른쪽에서 n번째) — 로그·응답에 남기지 않는다
+    const address = clientAddress(connectionAddress(c), c.req.header('x-forwarded-for'), deps.trustedProxies ?? 0)
+    const outcome = await auth.login(loginId, password, address)
+    if (outcome.kind === 'rate_limited') return apiError(429, 'LOGIN_RATE_LIMITED', LOGIN_RATE_LIMITED_MESSAGE)
+    if (outcome.kind === 'busy') return apiError(429, 'LOGIN_BUSY', LOGIN_BUSY_MESSAGE)
     if (outcome.kind === 'locked') return apiError(429, 'LOGIN_LOCKED', '로그인을 여러 번 틀려서 잠시 막아 두었어요. 15분 뒤에 다시 해 주세요.')
     if (outcome.kind === 'failed') return apiError(401, 'LOGIN_FAILED', '아이디나 비밀번호가 맞지 않아요.')
     const session = await auth.session(outcome.token)
