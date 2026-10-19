@@ -93,6 +93,11 @@ export interface WriteJob {
   readonly chat?: { readonly b: string; readonly id: string }
   /** 여러 채팅을 한 번에 쓸 때 (유튜브 수집기의 한 응답): 이미 기록된 메시지 ID를 트랜잭션 안에서 읽어 build에 넘긴다 */
   readonly chatBatch?: { readonly b: string; readonly ids: readonly string[] }
+  /**
+   * 범위 락을 잡은 트랜잭션 안에서 쓰기 전에 더 확인할 것 (유튜브 수집기: 그 연결이 아직 이어져 있는지 — 다른 서버가 끊었으면 쓰지 않는다).
+   * 거절이면 아무것도 쓰지 않는다
+   */
+  readonly guard?: (tx: Db) => Promise<Rejection | null>
   /** 트랜잭션 전에 미리 읽을 것 (차단 이어받기 목록). 범위가 새로울 때만 부른다 */
   readonly prepare?: () => Promise<unknown>
   /** 쓸 이벤트들. 첫 이벤트가 요청의 결과(요청 번호)다 */
@@ -330,6 +335,10 @@ export class ScopeWriter {
           // 봉인한 범위는 읽기만 된다 (AC-Y1-62). 봉인 작업도 같은 락을 잡는다
           if (runtime.scopeId !== null && (await scopeSealedAt(tx, job.sellerId, runtime.scopeId)) !== null) {
             throw new Abort({ kind: 'rejected', rejection: { status: 409, code: 'SEALED', message: SEALED_MESSAGE, problems: [] } })
+          }
+          if (job.guard !== undefined) {
+            const refused = await job.guard(tx)
+            if (refused !== null) throw new Abort({ kind: 'rejected', rejection: refused })
           }
           if (job.chat !== undefined && (await chatEventSeq(tx, job.sellerId, job.chat.b, job.chat.id)) !== null) {
             throw new Abort({ kind: 'duplicate', result: null })

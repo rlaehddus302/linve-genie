@@ -412,3 +412,91 @@ describe('AC-Y1-29 많은 채팅 (NFR-04)', () => {
     expect(server).toEqual(await replayDb(w, b.date))
   }, 180_000)
 })
+
+describe('AC-Y1-13·25·28 서버가 둘일 때 다른 서버에서 한 조작', () => {
+  it('수집기가 A에서 도는데 B가 회차를 끝내면: 메시지가 더 오지 않는 조용한 스트림이어도 A가 알아채 끝낸 뒤 10분에 멈춘다(스트림 0)', async () => {
+    const w = await world()
+    const connected = await connectSeller(w)
+    const { b, liveChatId } = await linkedBroadcast(w, connected)
+    w.server.youtube?.collectors.start()
+    w.fake.addMessage(liveChatId, { id: 'before', author: 'UCa', name: '가', text: '안녕', publishedAt: w.timer.now() + 1 })
+    await until(w, async () => (await chatIds(w)).length === 1, { step: 100 })
+    const other = sibling(w, 'B')
+    extras.push(other)
+    expect((await client(other, connected.seller.cookie).post(`/api/broadcasts/${b.id}/end`, { requestId: 'end-b' })).status).toBe(200)
+    const endedAt = w.timer.now()
+    // B의 끝내기를 A가 같은 서버 알림 없이 알아챈다 (임대를 늘릴 때) — 그 뒤 메시지가 하나도 오지 않는다
+    await until(w, async () => (await collector(w, connected.seller.cookie, b.id)).status === 'FINISHED', { step: 10_000, max: 200 })
+    expect(w.timer.now() - endedAt).toBeGreaterThanOrEqual(10 * 60 * 1000)
+    expect(w.timer.now() - endedAt).toBeLessThanOrEqual(10 * 60 * 1000 + 30_000)
+    expect(await chatIds(w)).toEqual(['before'])
+    expect(w.fake.openStreams.get(liveChatId) ?? 0).toBe(0)
+  })
+
+  it('수집기가 A에서 도는데 B가 회차의 유튜브 연결을 끊으면: A가 멈추고(스트림 0) 끊은 뒤 채팅은 그 회차에 기록되지 않는다', async () => {
+    const w = await world()
+    const connected = await connectSeller(w)
+    const { b, liveChatId } = await linkedBroadcast(w, connected)
+    const a = w.server.youtube?.collectors
+    if (a === undefined) throw new Error('유튜브가 없다')
+    a.start()
+    w.fake.addMessage(liveChatId, { id: 'before', author: 'UCa', name: '가', text: '안녕', publishedAt: w.timer.now() + 1 })
+    await until(w, async () => (await chatIds(w)).length === 1, { step: 100 })
+    const other = sibling(w, 'B')
+    extras.push(other)
+    expect((await client(other, connected.seller.cookie).post(`/api/broadcasts/${b.id}/youtube/unlink`, {})).status).toBe(200)
+    await w.timer.advance(1000)
+    w.fake.addMessage(liveChatId, { id: 'after', author: 'UCb', name: '나', text: '15', publishedAt: w.timer.now() })
+    await until(w, () => a.running.length === 0, { step: 1000, max: 200 })
+    expect(await chatIds(w)).toEqual(['before'])
+    expect(w.fake.openStreams.get(liveChatId) ?? 0).toBe(0)
+  })
+
+  it('기록 직전 범위 락 안에서도 거른다: 끝낸 뒤 게시된 메시지·끊은 연결의 묶음은 기록하지 않는다', async () => {
+    const w = await world()
+    const connected = await connectSeller(w)
+    const { b } = await linkedBroadcast(w, connected)
+    const sellerId = connected.seller.sellerId
+    const service = w.server.service
+    expect((await client(w, connected.seller.cookie).post(`/api/broadcasts/${b.id}/end`, { requestId: 'end-tx' })).status).toBe(200)
+    const endedAt = w.timer.now()
+    const outcome = await service.ingestYoutubeBatch(sellerId, b.id, [
+      { id: 'm-before', ch: 'UCa', nick: '가', text: '안녕', publishedAt: endedAt - 1 },
+      { id: 'm-after', ch: 'UCb', nick: '나', text: '15', publishedAt: endedAt + 1 },
+    ])
+    expect(outcome).toEqual({ status: 'ok', recorded: 1 })
+    expect(await chatIds(w)).toEqual(['m-before'])
+    expect(await service.ingestYoutubeBatch(sellerId, b.id, [{ id: 'm-guard', ch: 'UCc', nick: '다', text: '안녕', publishedAt: endedAt - 1 }], () => Promise.resolve(false))).toEqual({ status: 'unlinked' })
+    expect(await chatIds(w)).toEqual(['m-before'])
+  })
+})
+
+describe('AC-Y1-12·28 수집 후보 — 끝난 수집기는 다시 훑지 않는다', () => {
+  it('봉인·끊음·손으로 다시 시작해야 하는 멈춤은 후보에서 빠지고, 다시 시작하면 돌아온다. 저절로 이어받을 멈춤(다시 연결 필요)은 후보', async () => {
+    const w = await world()
+    const connected = await connectSeller(w)
+    const { b } = await linkedBroadcast(w, connected)
+    const { collectorCandidates } = await import('../src/youtube/store.ts')
+    const db = w.database.db
+    const candidates = async () => (await collectorCandidates(db, 'A', new Date(w.timer.now()))).length
+    const setStatus = (status: string, reason: string | null) => w.database.pglite?.query(`update youtube_collectors set status = $1, reason = $2, lease_owner = null, lease_until = null`, [status, reason])
+    expect(await candidates()).toBe(1)
+    for (const reason of ['SEALED', 'CHAT_DISABLED', 'FORBIDDEN', 'CHAT_NOT_FOUND', 'UNLINKED']) {
+      await setStatus('STOPPED', reason)
+      expect(await candidates(), reason).toBe(0)
+    }
+    for (const status of ['FINISHED', 'CHAT_ENDED']) {
+      await setStatus(status, null)
+      expect(await candidates(), status).toBe(0)
+    }
+    for (const reason of ['RECONNECT', 'NOT_CONNECTED', 'NOT_MY_CHANNEL', 'QUOTA']) {
+      await setStatus('STOPPED', reason)
+      expect(await candidates(), reason).toBe(1)
+    }
+    // 손으로 다시 시작 → 후보로 돌아온다
+    await setStatus('STOPPED', 'FORBIDDEN')
+    expect(await candidates()).toBe(0)
+    expect((await client(w, connected.seller.cookie).post(`/api/broadcasts/${b.id}/youtube/collector/restart`, {})).status).toBe(200)
+    expect(await candidates()).toBe(1)
+  })
+})

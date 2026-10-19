@@ -1,6 +1,6 @@
 // 유튜브 연결 표의 질의 (방송 잇기·수집기·우리 메시지·알림). 모두 판매자 ID 조건을 건다(SYS-02).
 // 워커가 판매자를 가리지 않고 할 일을 찾는 질의(수집할 것·요약할 것)는 그 행의 판매자 ID를 함께 돌려주고, 이어서 쓰는 질의는 그 판매자 ID를 건다.
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, ne, notInArray, or, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
 import { broadcasts, events, scopes, youtubeCollectors, youtubeConnections, youtubeLinks, youtubeNotices, youtubeOwnMessages } from '../db/schema.ts'
 
@@ -210,7 +210,16 @@ export function sellerCollectors(db: Db, sellerId: string): Promise<CollectorRow
   return db.select(collectorColumns).from(youtubeCollectors).where(eq(youtubeCollectors.sellerId, sellerId))
 }
 
-/** 돌 수 있는 수집기 후보: 끊지 않은 연결, 끝나지 않은 상태, 임대가 비었거나 지났거나 내 것 */
+/**
+ * 저절로 다시 돌지 않는 멈춤 이유: 다시 시작할 수 없음(끊음·봉인)·판매자가 손으로 다시 시작해야 함(채팅 꺼짐·권한 없음·채팅 없음).
+ * 다시 시작은 상태를 STARTING으로 바꾸므로 그때 후보로 돌아온다
+ */
+export const STOPPED_FOR_GOOD: readonly string[] = ['UNLINKED', 'SEALED', 'CHAT_DISABLED', 'FORBIDDEN', 'CHAT_NOT_FOUND']
+
+/**
+ * 돌 수 있는 수집기 후보: 끊지 않은 연결, 끝나지 않은 상태(끝남·채팅 끝남·위의 이유로 멈춤 제외), 임대가 비었거나 지났거나 내 것.
+ * 끝난 수집기는 후보에서 빠지므로 과거 방송이 쌓여도 5초마다 훑는 양이 늘지 않는다 (AC-Y1-12·28)
+ */
 export async function collectorCandidates(db: Db, owner: string, now: Date): Promise<CollectorRow[]> {
   return db
     .select(collectorColumns)
@@ -219,6 +228,7 @@ export async function collectorCandidates(db: Db, owner: string, now: Date): Pro
     .where(
       and(
         inArray(youtubeCollectors.status, ['STARTING', 'LIVE', 'RETRYING', 'STOPPED']),
+        or(ne(youtubeCollectors.status, 'STOPPED'), isNull(youtubeCollectors.reason), notInArray(youtubeCollectors.reason, [...STOPPED_FOR_GOOD])),
         or(isNull(youtubeCollectors.leaseUntil), lt(youtubeCollectors.leaseUntil, now), eq(youtubeCollectors.leaseOwner, owner)),
       ),
     )

@@ -19,6 +19,7 @@ import { GoogleError, type GoogleClient } from './google.ts'
 import type { QuotaMeter } from './quota.ts'
 import {
   acquireLease,
+  activeLink,
   collectorCandidates,
   collectorOf,
   connectionChannel,
@@ -130,6 +131,8 @@ interface Running {
   readonly controller: AbortController
   /** 지금 시도(스트림 하나·폴링 한 번)만 끊는다 — 다시 계산(방송 끝남 등) */
   attempt: AbortController | null
+  /** 지금 시도를 시작할 때 본 회차 끝낸 시각·채널 (임대를 늘릴 때 DB와 다르면 시도를 끊고 다시 계산한다 — 다른 서버에서 한 조작) */
+  basis: { readonly endedAt: number | null; readonly channelId: string } | null
   done: Promise<void>
   killed: boolean
 }
@@ -138,6 +141,14 @@ class StopRun extends Error {
   constructor() {
     super('stop')
     this.name = 'StopRun'
+  }
+}
+
+/** 회차를 끝냈거나 연결을 끊었다(다른 서버에서 했을 수 있다) — 지금 시도를 끊고 상태를 다시 계산한다 */
+class Recheck extends Error {
+  constructor() {
+    super('recheck')
+    this.name = 'Recheck'
   }
 }
 
@@ -301,7 +312,7 @@ export class CollectorManager {
   }
 
   #launch(row: CollectorRow): void {
-    const running: Running = { sellerId: row.sellerId, broadcastId: row.broadcastId, controller: new AbortController(), attempt: null, done: Promise.resolve(), killed: false }
+    const running: Running = { sellerId: row.sellerId, broadcastId: row.broadcastId, controller: new AbortController(), attempt: null, basis: null, done: Promise.resolve(), killed: false }
     this.#running.set(row.linkId, running)
     running.done = this.#run(row, running)
       .catch((error: unknown) => {
@@ -312,7 +323,11 @@ export class CollectorManager {
       })
   }
 
-  /** 임대를 늘린다. 잃으면 그 수집기를 멈춘다 */
+  /**
+   * 임대를 늘린다. 잃으면 그 수집기를 멈춘다. 늘릴 때마다 회차 끝냄·연결 끊기·채널 연결 상태를 DB에서 다시 보고, 지금 시도를 시작할 때와 다르면
+   * 그 시도를 끊어 다시 계산하게 한다 — 그 조작을 다른 서버가 받았어도(같은 서버의 알림이 없어도) 끝낸 뒤 10분에 멈추고 끊은 뒤엔 멈춘다
+   * (AC-Y1-13·25·28, 메시지가 오지 않는 조용한 스트림 포함)
+   */
   async #leaseLoop(row: CollectorRow, running: Running): Promise<void> {
     const { db, timer, owner } = this.#options
     const signal = running.controller.signal
@@ -328,8 +343,27 @@ export class CollectorManager {
       if (!kept) {
         running.killed = true // 다른 서버가 이어받았다 — 상태를 건드리지 않는다
         running.controller.abort()
+        break
+      }
+      try {
+        if (await this.#changedSince(row, running)) running.attempt?.abort()
+      } catch {
+        // DB가 잠깐 안 되면 다음에 다시
       }
     }
+  }
+
+  /** 지금 시도를 시작한 뒤 회차 끝냄·연결 끊기·채널 연결 상태가 바뀌었는지 */
+  async #changedSince(row: CollectorRow, running: Running): Promise<boolean> {
+    const basis = running.basis
+    if (basis === null || running.attempt === null) return false
+    const { db } = this.#options
+    const link = await linkById(db, row.sellerId, row.linkId)
+    if (link === null || link.unlinkedAt !== null) return true
+    const broadcast = await findBroadcast(db, row.sellerId, row.broadcastId)
+    if (broadcast === null || (broadcast.endedAt?.getTime() ?? null) !== basis.endedAt) return true
+    const connection = await connectionChannel(db, row.sellerId)
+    return connection === null || connection.status !== 'CONNECTED' || connection.channelId !== basis.channelId
   }
 
   async #run(start: CollectorRow, running: Running): Promise<void> {
@@ -352,6 +386,7 @@ export class CollectorManager {
         const stopAt = broadcast.endedAt === null ? null : broadcast.endedAt.getTime() + AFTER_END_MS
         const attempt = new AbortController()
         running.attempt = attempt
+        running.basis = { endedAt: broadcast.endedAt?.getTime() ?? null, channelId: ctx.connection?.channelId ?? '' }
         const onOuter = () => attempt.abort()
         signal.addEventListener('abort', onOuter, { once: true })
         let stopFired = false
@@ -380,6 +415,7 @@ export class CollectorManager {
             const result = await this.#handle(ctx, link, broadcast, parse(parsed, timer.now()), !ctx.row.firstDone)
             backoff = BACKOFF_START_MS
             if (result.offline) return await this.#chatEnded(ctx.row, link)
+            if (result.recheck) continue
             await timer.sleep(Math.max(result.pollingMs ?? DEFAULT_POLL_MS, 0), attempt.signal)
           } else {
             let first = !ctx.row.firstDone
@@ -391,6 +427,7 @@ export class CollectorManager {
                 backoff = BACKOFF_START_MS
                 streamFailures = 0
                 if (result.offline) throw new ChatEnded()
+                if (result.recheck) throw new Recheck()
                 // 다음 응답의 지점은 방금 저장한 지점 (스트림 안에서는 서버가 이어서 보낸다)
               }
             })
@@ -409,6 +446,7 @@ export class CollectorManager {
         } catch (error) {
           if (error instanceof ChatEnded) return await this.#chatEnded(ctx.row, link)
           if (signal.aborted) return
+          if (error instanceof Recheck) continue
           if (attempt.signal.aborted && stopFired) return await this.#finish(ctx.row)
           if (attempt.signal.aborted && !(error instanceof SaveFailed)) continue
           if (error instanceof StopRun) {
@@ -509,30 +547,39 @@ export class CollectorManager {
     return 'retry'
   }
 
-  /** 응답 하나를 처리한다: 기록 → 알림·우리 메시지 → (시험 주입점) → 지점 저장 */
-  async #handle(ctx: Context, link: LinkRow, broadcast: BroadcastRow, parsed: Parsed, firstResponse: boolean): Promise<{ offline: boolean; pollingMs: number | null }> {
+  /**
+   * 응답 하나를 처리한다: 우리 메시지 → 기록 → 알림 → (시험 주입점) → 지점 저장.
+   * 회차 끝낸 시각·연결 끊기는 응답마다 DB에서 다시 읽는다(다른 서버에서 했을 수 있다). 기록은 범위 락 안에서 한 번 더 거른다(ingestYoutubeBatch).
+   * 끝낸 시각이 이 시도를 시작할 때와 다르면 recheck — 시도를 끊고 끝낸 뒤 10분 멈춤을 다시 잡는다
+   */
+  async #handle(ctx: Context, link: LinkRow, broadcast: BroadcastRow, parsed: Parsed, firstResponse: boolean): Promise<{ offline: boolean; pollingMs: number | null; recheck: boolean }> {
     const { db, timer, service, owner } = this.#options
     const row = ctx.row
+    const current = await linkById(db, row.sellerId, row.linkId)
+    if (current === null || current.unlinkedAt !== null) throw new Recheck()
+    const fresh = await findBroadcast(db, row.sellerId, row.broadcastId)
+    if (fresh === null) throw new Recheck()
     const linkedAt = link.linkedAt.getTime()
-    const endedAt = broadcast.endedAt?.getTime() ?? null
-    let skipped = 0
-    const chats: { id: string; ch: string; nick: string; text: string; owner: boolean; publishedAt: number }[] = []
+    const endedAt = fresh.endedAt?.getTime() ?? null
+    // 우리 채널이 쓴 메시지: 발송함이 게시했거나 10분 안에 보내려 한 글이면 기록하지 않고 게시 확인에 쓴다 (AC-Y1-26).
+    // 잇기 전·끝낸 뒤 거르기보다 먼저 본다 — 끝낸 뒤 올라간 우리 감사도 게시 확인에 쓰여야 두 번 게시하지 않는다 (AC-Y1-36)
+    const own: Parsed['own'] = []
+    const viewers: Parsed['chats'] = []
     for (const chat of parsed.chats) {
+      if (chat.ch === link.channelId && (await this.#options.ourPost(row.sellerId, link.broadcastId, chat.id, chat.text))) {
+        own.push({ id: chat.id, text: chat.text, publishedAt: chat.publishedAt })
+        continue
+      }
+      viewers.push(chat)
+    }
+    let skipped = 0
+    const recordable: Parsed['chats'] = []
+    for (const chat of viewers) {
       if (firstResponse && chat.publishedAt < linkedAt) {
         skipped += 1
         continue
       }
       if (endedAt !== null && chat.publishedAt > endedAt) continue
-      chats.push(chat)
-    }
-    // 우리 채널이 쓴 메시지: 발송함이 게시했거나 10분 안에 보내려 한 글이면 기록하지 않고 게시 확인에 쓴다
-    const own: Parsed['own'] = []
-    const recordable: typeof chats = []
-    for (const chat of chats) {
-      if (chat.ch === link.channelId && (await this.#options.ourPost(row.sellerId, link.broadcastId, chat.id, chat.text))) {
-        own.push({ id: chat.id, text: chat.text, publishedAt: chat.publishedAt })
-        continue
-      }
       recordable.push(chat)
     }
     for (const message of [...parsed.own, ...own]) {
@@ -542,8 +589,10 @@ export class CollectorManager {
       row.sellerId,
       link.broadcastId,
       recordable.map((chat) => ({ id: chat.id, ch: chat.ch, nick: chat.nick, text: chat.text, publishedAt: chat.publishedAt, ...(chat.owner ? { owner: true } : {}) })),
+      async (tx) => (await activeLink(tx, row.sellerId, link.broadcastId))?.id === row.linkId,
     )
     if (outcome.status === 'sealed') throw new StopRun()
+    if (outcome.status === 'unlinked') throw new Recheck()
     if (outcome.status !== 'ok') throw new SaveFailed()
     await this.#notices(row, link, broadcast, parsed)
     await this.#options.hooks?.beforeSaveToken?.(row.linkId)
@@ -569,7 +618,7 @@ export class CollectorManager {
     // 다음 응답이 이 지점을 이어받는다 (같은 시도 안)
     ctx.row = { ...row, pageToken: parsed.next ?? row.pageToken, firstDone: true, status: 'LIVE', reason: null }
     if (row.status !== 'LIVE' || row.reason !== null) await this.#publish(row)
-    return { offline: parsed.offline, pollingMs: parsed.pollingMs }
+    return { offline: parsed.offline, pollingMs: parsed.pollingMs, recheck: endedAt !== (broadcast.endedAt?.getTime() ?? null) }
   }
 
   /** 지운 메시지·차단 알림 (엔진은 그대로, AC-Y1-27) */

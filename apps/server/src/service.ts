@@ -121,6 +121,8 @@ export type ChatBatchOutcome =
   | { readonly status: 'ok'; readonly recorded: number }
   | { readonly status: 'not_found' }
   | { readonly status: 'sealed' }
+  /** guard가 거절했다 (그 연결을 그사이 끊음) */
+  | { readonly status: 'unlinked' }
   | { readonly status: 'save_failed' }
 
 /** 채팅 메시지 한 건 (AC-S05-20) */
@@ -537,7 +539,11 @@ export class Service {
    * 유튜브 수집기의 한 응답을 한 번에 기록한다 (AC-Y1-21·23). 실제 방송만. 이미 기록된 메시지 ID·응답 안에서 겹친 ID는 빼고,
    * 엔진 입력 검사를 통과하지 못한 채팅은 그것만 기록하지 않는다. 모두 커밋되면 ok(기록한 수) — 그 뒤에야 수집기가 이어받기 지점을 저장한다
    */
-  async ingestYoutubeBatch(sellerId: string, b: string, chats: readonly CollectedChat[]): Promise<ChatBatchOutcome> {
+  /**
+   * 유튜브 수집기의 한 응답 (AC-Y1-21·25). 범위 락 안의 지금 상태로 거른다: 회차를 끝냈으면(어느 서버에서든) 게시 시각이 끝낸 시각보다 늦은 메시지는
+   * 기록하지 않는다. guard는 같은 트랜잭션에서 그 연결이 아직 이어져 있는지 본다(거절이면 unlinked)
+   */
+  async ingestYoutubeBatch(sellerId: string, b: string, chats: readonly CollectedChat[], guard?: (tx: Db) => Promise<boolean>): Promise<ChatBatchOutcome> {
     const row = await findBroadcast(this.#options.db, sellerId, b)
     if (row === null || row.rehearsal) return { status: 'not_found' }
     if (chats.length === 0) return { status: 'ok', recorded: 0 }
@@ -548,11 +554,14 @@ export class Service {
       createScope: false,
       requestId: null,
       chatBatch: { b, ids: chats.map((chat) => chat.id) },
+      ...(guard === undefined ? {} : { guard: async (tx: Db) => ((await guard(tx)) ? null : rejection(409, 'NOT_LINKED', '이어진 유튜브 방송이 없어요.')) }),
       build: (ctx) => {
         const seen = new Set(ctx.existingChats)
         const drafts: Draft[] = []
+        const endedAt = getBroadcast(ctx.state, b)?.endedAt ?? null
         for (const chat of chats) {
           if (seen.has(chat.id)) continue
+          if (endedAt !== null && chat.publishedAt !== undefined && chat.publishedAt > endedAt) continue
           seen.add(chat.id)
           const fields: Record<string, unknown> = { type: 'chat', b, id: chat.id, ch: chat.ch, nick: sanitizeNick(chat.nick), text: chat.text }
           if (chat.owner === true) fields.owner = true
@@ -570,7 +579,7 @@ export class Service {
       case 'not_found':
         return { status: 'not_found' }
       case 'rejected':
-        return outcome.rejection.code === 'SEALED' ? { status: 'sealed' } : { status: 'save_failed' }
+        return outcome.rejection.code === 'SEALED' ? { status: 'sealed' } : outcome.rejection.code === 'NOT_LINKED' ? { status: 'unlinked' } : { status: 'save_failed' }
       case 'duplicate':
         // 다른 쪽이 그사이 같은 메시지를 기록했다(락 밖 경합) — 지점을 저장하지 않고 다시 받는다(그때는 이미 기록된 것으로 빠진다)
         return { status: 'save_failed' }

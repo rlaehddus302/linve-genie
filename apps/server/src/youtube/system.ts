@@ -2,7 +2,9 @@
 // - 바깥 주소는 설정에서 온다. 운영 설정은 https만 받는다(아니면 서버가 시작하지 않는다, AC-Y1-72). 시험·E2E는 가짜 서버(127.0.0.1) 주소를 쓴다.
 // - 방송 잇기(AC-Y1-10~13): 내 라이브 목록, 주소·영상 ID 읽기, 잇기 조건, 끊기. 잇기는 엔진 이벤트가 아니다 — 누가·언제 이었는지 연결 표에 남긴다(DAT-05).
 import { randomBytes } from 'node:crypto'
+import { sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
+import { scopeLockKey } from '../db/schema.ts'
 import { errorKind, type LogSink } from '../log.ts'
 import type { Service } from '../service.ts'
 import { findBroadcast, scopeRow, scopeSealedAt, type BroadcastRow } from '../store.ts'
@@ -169,9 +171,10 @@ export class YoutubeSystem {
       writer: options.writer,
       owner,
       publish,
+      // 채팅을 받는 중(LIVE)일 때만 — 시작하는 중·다시 연결하는 중이면 우리 글을 받지 못했을 수 있어 최근 채팅을 본다
       collectorRunning: async (sellerId, linkId) => {
         const row = await collectorOf(db, sellerId, linkId)
-        return row !== null && row.leaseUntil !== null && row.leaseUntil.getTime() > timer.now() && (row.status === 'LIVE' || row.status === 'STARTING' || row.status === 'RETRYING')
+        return row !== null && row.leaseUntil !== null && row.leaseUntil.getTime() > timer.now() && row.status === 'LIVE'
       },
       ...(options.outboxHooks === undefined ? {} : { hooks: options.outboxHooks }),
     })
@@ -348,7 +351,12 @@ export class YoutubeSystem {
     const link = await activeLink(db, sellerId, b)
     if (link === null) return { kind: 'rejected', status: 409, code: 'NOT_LINKED' }
     const now = new Date(timer.now())
-    if (await unlinkRow(db, sellerId, link.id, session.accountId, now)) {
+    // 범위 락을 잡고 끊는다 — 어느 서버의 수집기든 그 회차에 채팅을 기록하는 트랜잭션(같은 락, 연결이 이어져 있는지 확인)과 겹치지 않는다
+    const unlinked = await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(${scopeLockKey(sellerId, row.date, false)})`)
+      return unlinkRow(tx, sellerId, link.id, session.accountId, now)
+    })
+    if (unlinked) {
       await updateCollector(db, sellerId, link.id, { status: 'STOPPED', reason: 'UNLINKED' }, now)
       this.collectors.refresh(sellerId, b)
       await this.outbox.unlinked(sellerId, b)
