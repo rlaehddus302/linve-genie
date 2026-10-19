@@ -23,6 +23,7 @@
 | 시험 | 전 | 후 | 이유 |
 |---|---|---|---|
 | `packages/core/test/golden/core-adapter.test.ts` "실제 tests/golden 전체를 실제 코어로" | 파일 23 · 파서 448 · 엔진 121 · 통과 569 (AC-P2-90) | 파일 23 · 파서 **460** · 엔진 121 · 통과 **581** (AC-I4-95) | 골든이 12사례 늘었다(voice-extract 끊어 말한 번호). 코어 영역 최소 변경 — 숫자 두 개·시험 이름·주석만 바꿨다 |
+| `packages/core/test/golden/voice-extract.test.ts` "실제 추출기로 voice-extract N사례가 모두 통과" (AC-P2-08) | 69사례 | **81**사례 | 같은 이유(골든 12사례 추가). 실제 골든 파일의 사례 수를 고정한 시험이라 core-adapter 합계와 같은 성격이다 — 숫자·시험 이름만 바꿨다. 수용 기준 AC-I4-95는 core-adapter 합계만 적었고 이 시험은 빠져 있었다(이것을 바꾸지 않으면 골든을 맞게 구현해도 `pnpm test`가 실패한다). 러너 계약·비교 규칙·다른 러너 시험은 그대로 |
 | `packages/voice/test/boundaries.test.ts` "apps 안에 @livejjim/voice 참조가 없다" (AC-P2-15) | `apps/**` 전체에 글자로도 참조 없음 | `apps/web/src`: 값은 한 파일의 동적 `import('@livejjim/voice')`로만, 그 밖엔 `import type`·타입 위치 `import()`만(구문 트리로 검사, 검사기 자체 시험 포함). `apps/web` 밖의 앱(서버)·`packages/core/src`·`packages/label`·`packages/documents`는 전과 같이 글자로도 참조 없음 | AC-I4-04·D-I4-09: I4는 콘솔이 음성을 켤 때 불러온다. 코드가 첫 화면 조각에 들어가는 길(정적 import·`import { type X }`·re-export·경로 우회)은 모두 막는다 |
 
 - `packages/voice/package.json` devDependencies에 `typescript` 6.0.3(루트와 같은 버전)을 더했다 — 경계 시험이 구문 트리를 쓴다. `pnpm-lock.yaml`은 그 importer 줄만 바뀐다.
