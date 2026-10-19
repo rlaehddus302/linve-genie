@@ -599,6 +599,16 @@ p {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
 }
 
+/* 칸이 자기 열 폭에 맞춰 줄어든다 (좁은 열에서 옆 칸·카드 밖으로 넘치지 않게) */
+.fix-fields > .field {
+  min-width: 0;
+}
+
+.fix-fields .input {
+  inline-size: 100%;
+  min-width: 0;
+}
+
 .undo-bar ul {
   display: flex;
   flex-wrap: wrap;
@@ -1180,6 +1190,13 @@ html:has(.sms-submit-bar) {
   .chat-row > .chat-convert {
     min-height: 2.25rem;
     padding: 0.125rem 0.625rem;
+  }
+}
+
+/* 넓은 PC: 채팅 칸을 넓혀 흔한 길이의 언급이 "찜으로 바꾸기"와 한 줄에 들어가게 — 1440×900에서 8개 이상 (AC-S06-62, UX-S05-005) */
+@media (min-width: 75rem) {
+  .console-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.5fr);
   }
 }
 
