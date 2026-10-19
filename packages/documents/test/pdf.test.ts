@@ -140,6 +140,42 @@ describe('AC-P2-23 한 명 PDF', () => {
     expect(order).toEqual(Array.from({ length: 60 }, (_, i) => i + 1))
   })
 
+  it('상품 1~130줄 전부 — 마지막 쪽에 상품 합계·최종 결제 금액이 한 번, 입금 계좌도 그 쪽에 (계좌만 넘어간 쪽이 없다)', () => {
+    const lastPageProblems = (shop: typeof SHOP | null): number[] => {
+      const bad: number[] = []
+      for (let lines = 1; lines <= 130; lines++) {
+        const result = buildReceipt({ state: manyLines(lines, () => ({ price: 1000 })), buyer: 'UC_A', date: '2026-10-18', shop, rehearsal: false, createdAt: CREATED })
+        if (!result.ok) throw new Error(result.error.message)
+        const layout = layoutReceipt(result.receipt, font, 'pdf')
+        const pages = layout.pages.map((page) => layoutTexts({ mode: 'pdf', pages: [page] }, ['content']))
+        const last = pages.at(-1) ?? []
+        const totals = pages.flat().filter((text) => text === '최종 결제 금액' || text === '상품 합계')
+        const accountOk = shop === null ? !pages.flat().includes('입금 계좌') : last.includes('입금 계좌') && last.includes('입금자명은 닉네임으로 적어 주세요')
+        if (!last.includes('최종 결제 금액') || !last.includes('상품 합계') || totals.length !== 2 || !accountOk) bad.push(lines)
+        if (overlapProblems(layout).length > 0) bad.push(-lines)
+      }
+      return bad
+    }
+    expect(lastPageProblems(SHOP), '계좌 있음').toEqual([])
+    expect(lastPageProblems(null), '계좌 없음').toEqual([])
+  })
+
+  it('입금 안내 문장이 한 쪽보다 길어도 마지막 쪽에 최종 결제 금액, 글자는 빠지지 않고 이미지와 같은 순서', () => {
+    const longNote = Array.from({ length: 900 }, (_, i) => `안내${String(i)}`).join(' ')
+    for (const lines of [1, 28, 60]) {
+      const result = buildReceipt({ state: manyLines(lines), buyer: 'UC_A', date: '2026-10-18', shop: { ...SHOP, accountNote: longNote }, rehearsal: false, createdAt: CREATED })
+      if (!result.ok) throw new Error(result.error.message)
+      const pdf = layoutReceipt(result.receipt, font, 'pdf')
+      const last = layoutTexts({ mode: 'pdf', pages: [pdf.pages.at(-1) as ReceiptLayout['pages'][number]] }, ['content'])
+      expect(last, `${String(lines)}줄`).toContain('최종 결제 금액')
+      const content = layoutTexts(pdf, ['content'])
+      expect(content.filter((text) => text === '최종 결제 금액'), `${String(lines)}줄`).toHaveLength(1)
+      expect(content.join(' ')).toContain('안내899')
+      expect(overlapProblems(pdf)).toEqual([])
+      expect(layoutTexts(layoutReceipt(result.receipt, font, 'image'), ['content'])).toEqual(content)
+    }
+  })
+
   it('같은 확인서·글꼴이면 같은 PDF (시계를 읽지 않는다)', async () => {
     const data = receipt(G201, 'UC_A')
     expect(await renderReceiptPdf(data, font)).toEqual(await renderReceiptPdf(data, fontBytes()))

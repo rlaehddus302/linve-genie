@@ -108,7 +108,13 @@ interface RuleRow {
   readonly kind: 'rule'
 }
 
-type FlowRow = Row | RuleRow
+/** 같은 블록 안의 띄움 (쪽 맨 위에 오면 없앤다) */
+interface SpaceRow {
+  readonly kind: 'space'
+  readonly height: number
+}
+
+type FlowRow = Row | RuleRow | SpaceRow
 
 interface Block {
   readonly rows: readonly FlowRow[]
@@ -123,6 +129,7 @@ const RULE_ROW_HEIGHT = 8
 
 function rowHeight(row: FlowRow): number {
   if (row.kind === 'rule') return RULE_ROW_HEIGHT
+  if (row.kind === 'space') return row.height
   return Math.max(...row.cells.map((cell) => Math.max(1, cell.lines.length) * lineHeight(cell.size)))
 }
 
@@ -152,7 +159,8 @@ const SUMMARY_LABEL_X = CONTENT_WIDTH - 300
 const SUMMARY_LABEL_WIDTH = 180
 const SUMMARY_VALUE_WIDTH = 112
 
-function receiptBlocks(receipt: ReceiptData, font: DocumentFont): Block[] {
+/** pageBodyHeight = PDF 한 쪽 몸통 높이 (PDF·이미지가 같은 블록 = 같은 글자 순서를 쓰도록 둘 다 PDF 기준으로 정한다) */
+function receiptBlocks(receipt: ReceiptData, font: DocumentFont, pageBodyHeight: number): Block[] {
   const clean = (text: string): string => font.sanitize(text).split(' ').filter((part) => part !== '').join(' ')
   const cell = (x: number, width: number, text: string, size: number = SIZE.body, align: 'left' | 'right' = 'left'): Cell => ({
     x,
@@ -202,29 +210,35 @@ function receiptBlocks(receipt: ReceiptData, font: DocumentFont): Block[] {
     summary.push({ kind: 'cells', cells: [cell(SUMMARY_LABEL_X, SUMMARY_LABEL_WIDTH, row.label, size), cell(CONTENT_WIDTH - SUMMARY_VALUE_WIDTH, SUMMARY_VALUE_WIDTH, row.text, size, 'right')] })
   }
 
+  const account: FlowRow[] = []
+  if (receipt.account !== null) {
+    const accountText = clean(receipt.account.text)
+    if (accountText !== '') {
+      account.push(infoRow('입금 계좌', accountText))
+      const note = receipt.account.note === null ? '' : clean(receipt.account.note)
+      if (note !== '') account.push({ kind: 'cells', cells: [cell(INFO_VALUE_X, CONTENT_WIDTH - INFO_VALUE_X, note)] })
+    }
+  }
+
   const blocks: Block[] = [
     { rows: head, spaceBefore: 0, keepTogether: true },
     { rows: info, spaceBefore: 10, keepTogether: true },
     // 표 머리와 첫 줄은 같은 쪽에 (머리만 쪽 끝에 남지 않게)
     { rows: [...tableHead, ...lineRows.slice(0, 1)], spaceBefore: 10, keepTogether: true },
     ...lineRows.slice(1).map((row): Block => ({ rows: [row], spaceBefore: 0, keepTogether: true })),
-    { rows: summary, spaceBefore: 4, keepTogether: true },
   ]
-  if (receipt.account !== null) {
-    const accountText = clean(receipt.account.text)
-    if (accountText !== '') {
-      const rows: FlowRow[] = [infoRow('입금 계좌', accountText)]
-      const note = receipt.account.note === null ? '' : clean(receipt.account.note)
-      if (note !== '') rows.push({ kind: 'cells', cells: [cell(INFO_VALUE_X, CONTENT_WIDTH - INFO_VALUE_X, note)] })
-      blocks.push({ rows, spaceBefore: 14, keepTogether: true })
-    }
-  }
+  // 금액 블록과 입금 계좌는 한 블록이다 — 계좌만 다음 쪽으로 넘어가 마지막 쪽에 합계·최종 금액이 없는 일이 없게 (AC-P2-23).
+  // 계좌 안내가 아주 길어 둘을 합치면 한 쪽보다 크면, 계좌를 먼저 두고 금액 블록을 맨 끝에 둔다(금액 블록 하나는 늘 한 쪽에 들어간다).
+  const closing: FlowRow[] = account.length === 0 ? summary : [...summary, { kind: 'space', height: 14 }, ...account]
+  if (closing.reduce((sum, row) => sum + rowHeight(row), 0) <= pageBodyHeight) blocks.push({ rows: closing, spaceBefore: 4, keepTogether: true })
+  else blocks.push({ rows: account, spaceBefore: 14, keepTogether: true }, { rows: summary, spaceBefore: 4, keepTogether: true })
   return blocks
 }
 
 // ── 놓기 ─────────────────────────────────────────────────────────────────
 
 function placeRow(row: FlowRow, top: number, font: DocumentFont, items: LayoutItem[]): void {
+  if (row.kind === 'space') return
   if (row.kind === 'rule') {
     items.push({ kind: 'rule', x: MARGIN_X, y: top + (RULE_ROW_HEIGHT - RULE) / 2, width: CONTENT_WIDTH, height: RULE })
     return
@@ -267,9 +281,12 @@ function placeFooter(font: DocumentFont, notice: readonly string[], pageNumber: 
  * - image: 같은 폭의 한 장. 높이는 내용만큼, 맨 아래 고지 한 번.
  */
 export function layoutReceipt(receipt: ReceiptData, font: DocumentFont, mode: 'pdf' | 'image'): ReceiptLayout {
-  const blocks = receiptBlocks(receipt, font)
   const notice = footerLines(font, receipt.notice)
   const footerHeight = (notice.length + (mode === 'pdf' ? 1 : 0)) * lineHeight(SIZE.small)
+  // PDF 한 쪽의 몸통: 위 여백 ~ (고지 + 쪽 번호 + 띄움) 위
+  const bodyBottom = PAGE_HEIGHT - MARGIN_BOTTOM - (notice.length + 1) * lineHeight(SIZE.small) - 12
+  const bodyHeight = bodyBottom - MARGIN_TOP
+  const blocks = receiptBlocks(receipt, font, bodyHeight)
 
   if (mode === 'image') {
     const items: LayoutItem[] = []
@@ -286,8 +303,6 @@ export function layoutReceipt(receipt: ReceiptData, font: DocumentFont, mode: 'p
     return { mode, pages: [{ width: PAGE_WIDTH, height: y + footerHeight + MARGIN_BOTTOM, items }] }
   }
 
-  const bodyBottom = PAGE_HEIGHT - MARGIN_BOTTOM - footerHeight - 12
-  const bodyHeight = bodyBottom - MARGIN_TOP
   const pages: LayoutItem[][] = [[]]
   let y = MARGIN_TOP
   let pageHasContent = false
@@ -305,8 +320,8 @@ export function layoutReceipt(receipt: ReceiptData, font: DocumentFont, mode: 'p
     for (const row of rows) {
       const h = rowHeight(row)
       if (pageHasContent && y + h > bodyBottom) newPage()
-      // 쪽 맨 위의 줄 긋기는 그리지 않는다
-      if (!(row.kind === 'rule' && !pageHasContent && pages.length > 1)) {
+      // 쪽 맨 위의 줄 긋기·띄움은 그리지 않는다
+      if (!(row.kind !== 'cells' && !pageHasContent && pages.length > 1)) {
         placeRow(row, y, font, pages[pages.length - 1] as LayoutItem[])
         y += h
         pageHasContent = true
