@@ -146,6 +146,23 @@ describe('빠른 입력 (AC-S05-10·11·12)', () => {
     expect(new Set(model.events.map((event) => event.requestId)).size).toBe(5)
   })
 
+  it('등록 응답 전에 친 "15"(찾기)는 앞 등록이 끝난 뒤 판단해 그 상품 자세히를 연다', async () => {
+    setupServer()
+    let release: () => void = () => {}
+    model.gate = new Promise((resolve) => {
+      release = resolve
+    })
+    const { quick } = await openConsole()
+    enter(quick, '15 핑크프릴 10000')
+    enter(quick, '15')
+    await flush()
+    expect(screen.queryByText('가격을 알아보지 못했어요. 가격 칸에 적어 주세요.')).toBeNull()
+    model.gate = null
+    release()
+    expect(await screen.findByRole('dialog', { name: '15번 자세히' })).toBeDefined()
+    expect(model.events).toHaveLength(1)
+  })
+
   it('가격이 없으면 등록하지 않고 고치기 칸을 열어 가격 칸에 커서, Esc면 빠른 입력칸으로', async () => {
     setupServer()
     const { quick } = await openConsole()

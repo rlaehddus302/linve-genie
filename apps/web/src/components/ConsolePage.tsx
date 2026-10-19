@@ -156,6 +156,8 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
   const [quickError, setQuickError] = useState<ApiError | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [dialogs, setDialogs] = useState<Dialog[]>([])
+  const dialogCount = useRef(0)
+  dialogCount.current = dialogs.length
   const [endError, setEndError] = useState<ApiError | null>(null)
   const chain = useRef<Promise<void>>(Promise.resolve())
   const regId = useRef(1)
@@ -372,7 +374,8 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
         case 'register':
           if (fromFix) setFix(null)
           enqueueRegistration(line, decision.no, decision.name, decision.price, fromFix)
-          if (!fromFix) quickRef.current?.select()
+          // 칸의 글자를 골라 둔다: 다음 줄을 바로 치면 그 글자가 바뀌고, 응답이 오면 같은 줄일 때만 비운다
+          if (!fromFix && quickRef.current?.value === line) quickRef.current.select()
           else focusQuick()
           return
         case 'edit':
@@ -404,7 +407,13 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
     (line: string) => {
       if (settings === null) return
       setQuickError(null)
-      handleDecision(decideQuickInput(line, quickSettings(settings), findProduct), line, false)
+      if (regRequests.current.size === 0) {
+        handleDecision(decideQuickInput(line, quickSettings(settings), findProduct), line, false)
+        return
+      }
+      // 앞 줄의 등록이 아직 끝나지 않았다: 그 뒤에 판단한다 — "15 …" 바로 뒤의 "15"(찾기)·"15 …"(고치기)가 앞 등록을 본다
+      const snapshotSettings = quickSettings(settings)
+      chain.current = chain.current.then(() => handleDecision(decideQuickInput(line, snapshotSettings, findProduct), line, false))
     },
     [findProduct, handleDecision, settings],
   )
@@ -442,13 +451,18 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
         return
       }
       if (event.key === 'Escape') {
+        // 창 안에 포커스가 없을 때도 Esc는 위의 창을 닫는다
+        if (dialogCount.current > 0) {
+          closeTop()
+          return
+        }
         setFix(null)
         quickRef.current?.focus()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [openAlert, queue])
+  }, [closeTop, openAlert, queue])
 
   // ── 방송 끝내기 (AC-S05-02) ───────────────────────────────────────────
 

@@ -35,6 +35,12 @@ export function Modal({ title, onClose, initialFocus, children, actions, closeLa
     // 처음 한 번만 (내용이 바뀔 때마다 포커스를 옮기지 않는다)
   }, [])
 
+  // 누른 버튼이 사라지거나(상태가 바뀌어 다른 버튼으로) 잠기면 포커스가 창 밖으로 빠진다 — 창의 "닫기"로 되돌린다(키보드만으로 계속 쓰게)
+  useEffect(() => {
+    const element = panel.current
+    if (element !== null && !element.contains(document.activeElement)) closeButton.current?.focus()
+  })
+
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') {
       event.preventDefault()
