@@ -7,6 +7,8 @@ import { openSellerKey, phoneKeyOf } from '../src/secrets.ts'
 import { FAST_COST, ORIGIN, addSeller, client, countRows, createBroadcast, dumpAllTables, expectOk, newWorld, rid, startServer, writeEvent } from './support.ts'
 
 const PHONE_FORMS = ['010-1234-5678', '01012345678', '010 1234 5678', '０１０-１２３４-５６７８', '(010) 1234-5678']
+/** 판매자가 적는 칸(글 칸·ID 칸)의 휴대폰 번호 거절 문장 (R-1, D-079 ⑥, AC-S04-22) */
+const PHONE_MESSAGE = '전화번호처럼 보이는 숫자(010-…)가 있어요. 빼고 적어 주세요.'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -111,7 +113,7 @@ describe('AC-S04-31 문자찜 입력 경로', () => {
     expect(await countRows(world.database, 'events')).toBe(2)
   })
 
-  it('번호 앞뒤에 다른 숫자가 붙은 메모·국가 번호 메모도 거절하고 전화번호 칸으로 안내한다 — 평문 번호가 로그·표시 이름에 남지 않는다 (RA-S04-001)', async () => {
+  it('번호 앞뒤에 다른 숫자가 붙은 메모·국가 번호 메모도 D-079 ⑥ 문장으로 거절하고 전화번호 칸을 덧붙여 안내한다 — 평문 번호가 로그·표시 이름에 남지 않는다 (RA-S04-001)', async () => {
     const world = await newWorld({ snapshotEvery: 2 })
     const seller = await addSeller(world)
     const b = await createBroadcast(world, seller)
@@ -121,7 +123,9 @@ describe('AC-S04-31 문자찜 입력 경로', () => {
     for (const memo of ['3시 010-8642-5678', '010-8642-5678 2개', '15번 01086425678', '+82 010-8642-5678']) {
       const response = await writeEvent(world, seller, { type: 'sms', b: b.id, no: 1, memo, phone: '010-9999-8888' })
       expect(response.status, memo).toBe(400)
-      expect(response.body, memo).toMatchObject({ error: { code: 'INVALID_INPUT', problems: [{ field: 'memo', message: '전화번호는 여기에 적을 수 없어요. 전화번호 칸에 적어 주세요.' }] } })
+      expect(response.body, memo).toEqual({
+        error: { code: 'INVALID_INPUT', message: '입력한 내용을 확인해 주세요.', problems: [{ field: 'memo', message: PHONE_MESSAGE, hint: '전화번호는 전화번호 칸에 적어 주세요.' }] },
+      })
       expect(response.text, memo).not.toContain('8642-5678')
     }
     expect(await countRows(world.database, 'events')).toBe(before)
@@ -130,13 +134,12 @@ describe('AC-S04-31 문자찜 입력 경로', () => {
     for (const needle of ['8642-5678', '86425678', '01086425678']) expect(dump, needle).not.toContain(needle)
   })
 
-  it('입금 메모·사유·방송 제목·상품 이름에 휴대폰 번호가 있어도 거절하고 번호를 빼라고 안내한다 — 기록·DB에 없다 (RA-S04-009·TD-S04-003, DAT-06)', async () => {
+  it('입금 메모·사유·방송 제목·상품 이름에 휴대폰 번호가 있어도 D-079 ⑥ 문장으로 거절한다(덧붙이는 안내 없음) — 기록·DB에 없다 (RA-S04-009·TD-S04-003, DAT-06)', async () => {
     const world = await newWorld({ snapshotEvery: 2 })
     const seller = await addSeller(world)
     const b = await createBroadcast(world, seller)
     await expectOk(writeEvent(world, seller, { type: 'product.register', b: b.id, no: 1, name: 'a', price: 1000 }))
     const before = await countRows(world.database, 'events')
-    const PHONE_MESSAGE = '전화번호는 적을 수 없어요. 전화번호를 빼고 적어 주세요.'
     const rejected: readonly (readonly [Record<string, unknown>, string])[] = [
       [{ type: 'settlement.payment', buyer: 'UC-A', date: b.date, amount: 1000, memo: '홍길동 010-8642-5678' }, 'memo'],
       [{ type: 'settlement.refund', buyer: 'UC-A', date: b.date, amount: 1000, reason: '3시 010ㅡ8642ㅡ5678 환불' }, 'reason'],
@@ -146,16 +149,47 @@ describe('AC-S04-31 문자찜 입력 경로', () => {
     for (const [event, field] of rejected) {
       const response = await writeEvent(world, seller, event, event.b === undefined ? b.date : undefined)
       expect(response.status, JSON.stringify(event)).toBe(400)
-      expect(response.body, JSON.stringify(event)).toMatchObject({ error: { code: 'INVALID_INPUT', problems: [{ field, message: PHONE_MESSAGE }] } })
+      expect(response.body, JSON.stringify(event)).toEqual({ error: { code: 'INVALID_INPUT', message: '입력한 내용을 확인해 주세요.', problems: [{ field, message: PHONE_MESSAGE }] } })
       expect(response.text).not.toContain('8642')
     }
     const title = await client(world, seller.cookie).post('/api/broadcasts', { requestId: rid('bc'), title: '문자 주문 010~8642~5678' })
     expect(title.status).toBe(400)
-    expect(title.body).toMatchObject({ error: { code: 'INVALID_INPUT', problems: [{ field: 'title', message: PHONE_MESSAGE }] } })
+    expect(title.body).toEqual({ error: { code: 'INVALID_INPUT', message: '입력한 내용을 확인해 주세요.', problems: [{ field: 'title', message: PHONE_MESSAGE }] } })
     expect(await countRows(world.database, 'events')).toBe(before)
     await expectOk(writeEvent(world, seller, { type: 'settlement.payment', buyer: 'UC-A', date: b.date, amount: 1000, memo: '홍길동 10,000원 3시' }, b.date))
     const dump = await dumpAllTables(world.database)
     for (const needle of ['8642', '86425678']) expect(dump, needle).not.toContain(needle)
+  })
+
+  it('구매자·메시지 ID 칸에 휴대폰 번호를 적으면 D-079 ⑥ 문장 + 번호 대신 고를 것을 안내하고 기록하지 않는다 — DB에 없다 (SA-S04-006·TD-S04-004)', async () => {
+    const world = await newWorld({ snapshotEvery: 2 })
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller)
+    await expectOk(writeEvent(world, seller, { type: 'product.register', b: b.id, no: 1, name: 'a', price: 1000 }))
+    await world.server.ingestChat(seller.sellerId, { b: b.id, id: 'm1', ch: 'UC1', nick: 'n', text: '1' })
+    const before = await countRows(world.database, 'events')
+    const PICK_BUYER = '전화번호 대신 구매자를 골라 주세요.'
+    const rejected: readonly (readonly [Record<string, unknown>, string, string])[] = [
+      [{ type: 'host.blockBuyer', buyer: '010-7531-0001', reason: '노쇼' }, 'buyer', PICK_BUYER],
+      [{ type: 'settlement.payment', buyer: '01075310002', date: b.date, amount: 1000 }, 'buyer', PICK_BUYER],
+      [{ type: 'buyer.merge', from: '010 7531 0003', into: 'UC1', reason: '같은 사람' }, 'from', PICK_BUYER],
+      [{ type: 'buyer.merge', from: 'UC1', into: '010.7531.0004', reason: '같은 사람' }, 'into', '전화번호 대신 합칠 구매자를 골라 주세요.'],
+      [{ type: 'buyer.unmerge', from: '(010)7531-0005', reason: '다른 사람' }, 'from', PICK_BUYER],
+      [{ type: 'host.assign', b: b.id, no: 1, buyer: 'UC1', replace: '010-7531-0006', replaceTo: 'WAITLIST', reason: '전화 주문' }, 'replace', '전화번호 대신 교체할 1등을 골라 주세요.'],
+      [{ type: 'host.convertMessage', b: b.id, msg: '010-7531-0007', no: 1 }, 'msg', '전화번호 대신 메시지를 골라 주세요.'],
+      [{ type: 'sms', b: b.id, no: 1, buyer: '010-7531-0008' }, 'buyer', PICK_BUYER],
+    ]
+    for (const [event, field, hint] of rejected) {
+      const response = await writeEvent(world, seller, event, event.b === undefined ? b.date : undefined)
+      expect(response.status, JSON.stringify(event)).toBe(400)
+      expect(response.body, JSON.stringify(event)).toEqual({ error: { code: 'INVALID_INPUT', message: '입력한 내용을 확인해 주세요.', problems: [{ field, message: PHONE_MESSAGE, hint }] } })
+      expect(response.text).not.toContain('7531')
+    }
+    expect(await countRows(world.database, 'events')).toBe(before)
+    // 영문이 섞인 ID는 숫자가 많아도 받는다 (D-079 ④)
+    await expectOk(writeEvent(world, seller, { type: 'host.blockBuyer', buyer: 'UC01099990009abc', reason: '노쇼' }, b.date))
+    const dump = await dumpAllTables(world.database)
+    for (const needle of ['7531-000', '7531000', '7531 000', '7531.000']) expect(dump, needle).not.toContain(needle)
   })
 
   it('서버가 만든 ref에는 숫자가 없다 — 바꿔 끼운 생성기가 번호 모양을 내도 다시 만든다', async () => {

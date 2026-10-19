@@ -34,10 +34,14 @@ export interface ErrorBody {
   }
 }
 
-/** 입력 문제 하나: 필드 이름(알 수 없거나 되돌려 보내면 안 되는 이름이면 null)과 쉬운 한국어 문장. 받은 값은 담지 않는다 */
+/**
+ * 입력 문제 하나: 필드 이름(알 수 없거나 되돌려 보내면 안 되는 이름이면 null)과 쉬운 한국어 문장. 받은 값은 담지 않는다.
+ * hint는 있을 때만 — message 뒤에 덧붙여 보여 줄 다음 할 일(예: 구매자 칸의 휴대폰 번호 → "전화번호 대신 구매자를 골라 주세요.")
+ */
 export interface FieldProblem {
   readonly field: string | null
   readonly message: string
+  readonly hint?: string
 }
 
 export interface DescribedError {

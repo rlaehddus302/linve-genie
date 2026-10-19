@@ -169,14 +169,20 @@ describe('AC-S04-22 기록 전에 거른다', () => {
     expect(await memoryState(world, seller.sellerId, b.date)).toBe(state)
   })
 
-  it('입력 오류 응답은 필드 이름과 쉬운 문장을 담는다 (메모의 번호는 전화번호 칸으로 안내)', async () => {
+  it('입력 오류 응답은 필드 이름과 쉬운 문장을 담는다 (메모의 번호는 D-079 ⑥ 문장 + 전화번호 칸 안내)', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)
     const b = await createBroadcast(world, seller)
     const price = await writeEvent(world, seller, { type: 'product.register', b: b.id, no: 1, name: 'a', price: 1.5 })
     expect(price.body).toEqual({ error: { code: 'INVALID_INPUT', message: '입력한 내용을 확인해 주세요.', problems: [{ field: 'price', message: '가격은 0 이상의 정수(원)로 적어 주세요.' }] } })
     const memo = await writeEvent(world, seller, { type: 'sms', b: b.id, no: 1, memo: '김영희 010 1234 5678' })
-    expect(memo.body).toMatchObject({ error: { problems: [{ field: 'memo', message: '전화번호는 여기에 적을 수 없어요. 전화번호 칸에 적어 주세요.' }] } })
+    expect(memo.body).toEqual({
+      error: {
+        code: 'INVALID_INPUT',
+        message: '입력한 내용을 확인해 주세요.',
+        problems: [{ field: 'memo', message: '전화번호처럼 보이는 숫자(010-…)가 있어요. 빼고 적어 주세요.', hint: '전화번호는 전화번호 칸에 적어 주세요.' }],
+      },
+    })
   })
 
   it('미구현 설정(MANUAL)이 판매자 설정에 있으면 방송 만들기를 기록하지 않는다', async () => {
