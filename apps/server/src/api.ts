@@ -86,7 +86,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (!STATE_CHANGING.has(c.req.method)) return next()
     if (c.req.header('origin') !== deps.appOrigin) return apiError(403, 'FORBIDDEN_ORIGIN', '허용하지 않은 곳에서 온 요청이에요.')
     const contentType = (c.req.header('content-type') ?? '').split(';')[0]?.trim().toLowerCase()
-    if (contentType !== JSON_CONTENT_TYPE) return apiError(415, 'NOT_JSON', 'JSON 형식으로 보내 주세요.')
+    if (contentType !== JSON_CONTENT_TYPE) return apiError(415, 'NOT_JSON', '보낸 내용의 형식이 올바르지 않아요.')
     return next()
   })
   api.use(
@@ -101,9 +101,9 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     try {
       parsed = JSON.parse(await c.req.text())
     } catch {
-      return apiError(400, 'NOT_JSON', 'JSON 형식으로 보내 주세요.')
+      return apiError(400, 'NOT_JSON', '보낸 내용의 형식이 올바르지 않아요.')
     }
-    if (!isPlainObject(parsed)) return apiError(400, 'NOT_JSON', 'JSON 객체로 보내 주세요.')
+    if (!isPlainObject(parsed)) return apiError(400, 'NOT_JSON', '보낸 내용의 형식이 올바르지 않아요.')
     c.set('body', parsed)
     return next()
   })
@@ -225,7 +225,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     const after = c.req.query('after') ?? '0'
     const limit = c.req.query('limit') ?? '100'
     if (!/^\d{1,9}$/.test(after) || !/^\d{1,4}$/.test(limit) || Number(limit) < 1) {
-      return apiError(400, 'INVALID_INPUT', '조회 범위를 확인해 주세요.', [{ field: 'after', message: 'after는 0 이상, limit는 1 이상의 정수예요.' }])
+      return apiError(400, 'INVALID_INPUT', '조회 범위를 확인해 주세요.', [{ field: 'after', message: '시작 번호는 0 이상, 개수는 1 이상의 정수로 적어 주세요.' }])
     }
     const events = await service.history(sellerOf(c), date, Number(after), Math.min(Number(limit), HISTORY_LIMIT_MAX))
     return events === null ? notFound() : c.json({ date, events })

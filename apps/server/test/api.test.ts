@@ -312,3 +312,47 @@ describe('AC-S04-52 조회·이력 API', () => {
     }
   })
 })
+
+describe('오류 문장은 쉬운 한국어 (UX-01·03, AC-S04-22)', () => {
+  it('API 오류 응답의 문장·문제 문장에 영어가 없다 (설정 문제는 코어 checkSettings 문장 그대로)', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller)
+    const api = client(world, seller.cookie)
+    const anonymous = client(world, null)
+    const raw = async (body: string, contentType = 'application/json') => {
+      const response = await api.raw('/api/events', { method: 'POST', headers: { Origin: 'https://app.livejjim.test', 'Content-Type': contentType }, body })
+      return { status: response.status, body: (await response.json()) as Record<string, unknown> }
+    }
+    const responses = [
+      await anonymous.get('/api/me'),
+      await api.get('/api/days/2026-01-01'),
+      await api.post('/api/events', {}),
+      await api.post('/api/events', { requestId: rid(), type: 'nope' }),
+      await api.post('/api/events', { requestId: rid(), type: 'product.register', b: b.id, no: -1, name: 3, price: 'x', stock: 0, status: 'X' }),
+      await api.post('/api/events', { requestId: rid(), type: 'product.register', b: b.id, no: 1, name: 'a', price: 1, extra: 1 }),
+      await api.post('/api/events', { requestId: rid(), type: 'sms', b: b.id, no: 1, received: '25:00', memo: '010-1234-5678', phone: 5, buyer: '' }),
+      await api.post('/api/events', { requestId: rid(), type: 'sms', b: b.id, no: 1, buyer: 'UCX' }),
+      await api.post('/api/events', { requestId: rid(), type: 'host.assign', b: b.id, no: 1, buyer: 'UC1', reason: 'r', replace: 'UC2' }),
+      await api.post('/api/events', { requestId: rid(), type: 'settlement.shippingOverride', buyer: 'UC1', date: b.date, mode: 'FIXED' }),
+      await api.post(`/api/events?date=${b.date}`, { requestId: rid(), type: 'settlement.shippingOverride', buyer: 'UC1', date: b.date, mode: 'FIXED' }),
+      await api.post(`/api/events?date=${b.date}`, { requestId: rid(), type: 'settlement.payment', buyer: 'UC1', date: '2026-01-01', amount: 0 }),
+      await api.post('/api/broadcasts', { requestId: rid(), date: 'x', title: '' }),
+      await api.get(`/api/days/${b.date}/history?after=x`),
+      await raw('{"x":'),
+      await raw('{}', 'text/plain'),
+      await raw('[1]'),
+      await client(world, null).post('/api/login', { loginId: 'zz', password: 'yy-yy-yy-yy' }),
+    ]
+    for (const { status, body } of responses) {
+      const error = (body as { error?: { message?: string; problems?: { field: string | null; message: string }[] } }).error
+      expect(status).toBeGreaterThanOrEqual(400)
+      expect(error?.message, JSON.stringify(body)).toMatch(/[가-힣]/)
+      expect(error?.message, JSON.stringify(body)).not.toMatch(/[A-Za-z]/)
+      for (const problem of error?.problems ?? []) {
+        expect(problem.message, JSON.stringify(problem)).toMatch(/[가-힣]/)
+        expect(problem.message, JSON.stringify(problem)).not.toMatch(/[A-Za-z]/)
+      }
+    }
+  })
+})

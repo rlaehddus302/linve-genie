@@ -137,7 +137,7 @@ export class Service {
 
   /** 설정 일부 바꾸기. 코어 checkSettings로 검사하고, MANUAL은 아직 지원하지 않는다. 바꾼 설정은 다음에 만드는 방송부터 들어간다 */
   async updateSettings(sellerId: string, body: unknown): Promise<{ ok: true; settings: SaleSettings } | { ok: false; rejection: Rejection }> {
-    if (!isPlainObject(body)) return { ok: false, rejection: rejection(400, 'NOT_JSON', 'JSON 객체로 보내 주세요.') }
+    if (!isPlainObject(body)) return { ok: false, rejection: rejection(400, 'NOT_JSON', '보낸 내용의 형식이 올바르지 않아요.') }
     const extra = ownKeys(body).filter((key) => key !== 'settings')
     if (extra.length > 0) return { ok: false, rejection: rejection(400, 'UNKNOWN_FIELD', '받을 수 없는 항목이 있어요.', unknownFieldProblems(extra)) }
     const changes = own(body, 'settings')
