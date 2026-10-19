@@ -71,6 +71,13 @@ describe('AC-S06b-01 막히는 다섯 경우 — 위에서부터 처음 맞는 �
     expectSameAsMerge(state, preview)
   })
 
+  it('신뢰할 수 없는 문자열 ID(__proto__·constructor·빈 값)도 모르는 구매자다', () => {
+    for (const id of ['__proto__', 'constructor', 'toString', '', 'sms:']) {
+      expect(previewMerge(state, id, 'A')).toMatchObject({ blocked: 'UNKNOWN_BUYER', target: 'A', moving: { buyers: [], items: [], subtotal: 0 } })
+      expect(previewMerge(state, 'A', id)).toMatchObject({ blocked: 'UNKNOWN_BUYER', target: null })
+    }
+  })
+
   it('모르는 from은 옮길 것이 없다. 아는 from은 막혀도 옮길 쪽을 보인다', () => {
     expect(previewMerge(state, 'Z', 'A').moving).toEqual({ buyers: [], items: [], subtotal: 0 })
     expect(previewMerge(state, 'A', 'B').moving).toEqual({ buyers: ['A'], items: ['b1/1'], subtotal: 10000 })
