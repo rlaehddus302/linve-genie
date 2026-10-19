@@ -152,6 +152,40 @@ describe('끊김·다시 붙기', () => {
     expect(s.getSnapshot().data?.seq).toBe(12)
   })
 
+  it('브라우저가 오프라인이면 끊긴 것으로 보이고, 다시 온라인이면 새로 연결해 ready로 따라잡는다', async () => {
+    const s = await started()
+    FakeEventSource.last.emit('ready', { scopes: [{ date: DATE, rehearsal: false, seq: 5 }] })
+    window.dispatchEvent(new Event('offline'))
+    expect(s.getSnapshot().connection).toBe('lost')
+    expect(FakeEventSource.instances[0]?.closed).toBe(true)
+    window.dispatchEvent(new Event('online'))
+    expect(FakeEventSource.instances).toHaveLength(2)
+    expect(s.getSnapshot().connection).toBe('lost')
+    changesSeq = 9
+    FakeEventSource.last.emit('ready', { scopes: [{ date: DATE, rehearsal: false, seq: 9 }] })
+    await flush()
+    expect(s.getSnapshot().connection).toBe('open')
+    expect(s.getSnapshot().data?.seq).toBe(9)
+  })
+
+  it('따라잡기가 네트워크 오류면 조금 뒤 다시 한다', async () => {
+    vi.useFakeTimers()
+    try {
+      store = new ConsoleStore({ broadcastId: 'b1', openStream: (url) => new FakeEventSource(url) })
+      await store.start()
+      let down = true
+      server.on('GET', /\/changes\?/, () => (down ? { network: true } : { body: emptyChanges(5, 7) }))
+      FakeEventSource.last.emit('change', { date: DATE, rehearsal: false, seq: 7, type: 'chat' })
+      await vi.advanceTimersByTimeAsync(10)
+      expect(store.getSnapshot().data?.seq).toBe(5)
+      down = false
+      await vi.advanceTimersByTimeAsync(2500)
+      expect(store.getSnapshot().data?.seq).toBe(7)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('브라우저가 다시 붙지 않는 닫힘이면 세션을 확인하고 새 연결을 연다', async () => {
     vi.useFakeTimers()
     try {

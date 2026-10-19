@@ -209,7 +209,7 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
     [broadcast.date, broadcast.rehearsal, store],
   )
 
-  const command = useCallback((event: Readonly<Record<string, unknown>>) => write(newRequestId(), event), [write])
+  const command = useCallback((event: Readonly<Record<string, unknown>>, requestId?: string) => write(requestId ?? newRequestId(), event), [write])
 
   const queueHost = useCallback(
     (input: HostActionInput) => {

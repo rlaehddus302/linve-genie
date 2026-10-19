@@ -2,7 +2,7 @@
 // - 번호·품종·가격·재고·상태, 1등(들), 대기 목록, 그 번호의 보류·충돌 찜, 취소 요청, 가격·품종 변경 이력, 조치 기록.
 // - 상품 명령(일시 중지·다시 판매·공개·판매 종료·고치기)은 바로 보낸다. 찜 조치(host.*)는 5초 뒤에 보낸다.
 import { useEffect, useMemo, useState } from 'react'
-import { get, isApiError, withQuery, type ApiError } from '../api/client.ts'
+import { get, isApiError, newRequestId, withQuery, type ApiError } from '../api/client.ts'
 import type { Claim, HistoryItem, Product } from '../api/types.ts'
 import { claimWord, formatWon } from '../lib/derive.ts'
 import { kstTime } from '../lib/kst.ts'
@@ -42,15 +42,20 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
   const ended = claims.filter((claim) => claim.status === 'CANCELLED' || claim.status === 'REJECTED' || claim.status === 'DUPLICATE').sort((a, b) => b.seq - a.seq)
   const requests = [...api.data.cancelRequests.values()].filter((request) => request.product === product.key)
 
-  const run = async (event: Readonly<Record<string, unknown>>) => {
+  /** 실패한 명령 (잠시 뒤 다시 시도하면 되는 실패면 같은 요청 번호로 "다시 보내기") */
+  const [failed, setFailed] = useState<{ event: Readonly<Record<string, unknown>>; requestId: string } | null>(null)
+
+  const run = async (event: Readonly<Record<string, unknown>>, requestId: string = newRequestId()) => {
     if (busy) return
     setBusy(true)
     setError(null)
+    setFailed(null)
     try {
-      await api.command(event)
+      await api.command(event, requestId)
     } catch (caught) {
       if (!isApiError(caught)) throw caught
       setError(caught)
+      if (caught.transient) setFailed({ event, requestId })
     } finally {
       setBusy(false)
     }
@@ -148,7 +153,7 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
         {product.conflict ? <p className="warning">충돌부터 정해 주세요.</p> : null}
         {!selling && !product.conflict ? <p className="hint">직접 배정은 판매 중일 때만 할 수 있어요.</p> : null}
         {busy ? <p role="status">보내는 중…</p> : null}
-        {error !== null ? <ErrorNote error={error} /> : null}
+        {error !== null ? <ErrorNote error={error} {...(failed === null ? {} : { onRetry: () => void run(failed.event, failed.requestId) })} /> : null}
       </section>
 
       <ClaimSection title="1등" claims={winners} product={product} />

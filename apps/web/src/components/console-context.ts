@@ -81,8 +81,11 @@ export interface ConsoleApi {
   closeTop(): void
   closeAll(): void
   queueHost(input: HostActionInput): void
-  /** 바로 보내는 쓰기 (상품 명령) — 같은 요청 번호로 재시도, 응답 seq까지 따라잡은 뒤 돌아온다 */
-  command(event: Readonly<Record<string, unknown>>): Promise<WriteResult>
+  /**
+   * 바로 보내는 쓰기 (상품 명령) — 같은 요청 번호로 재시도, 응답 seq까지 따라잡은 뒤 돌아온다.
+   * requestId를 주면 그 번호로 보낸다(실패 뒤 "다시 보내기")
+   */
+  command(event: Readonly<Record<string, unknown>>, requestId?: string): Promise<WriteResult>
   /** 빠른 입력칸에 글자를 넣고 포커스 */
   fillQuick(text: string): void
   /** 현재 상품을 바꾼다 */

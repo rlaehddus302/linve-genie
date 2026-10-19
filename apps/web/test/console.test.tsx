@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatMessage, Claim, Product } from '../src/api/types.ts'
 import { onUnauthorized } from '../src/api/client.ts'
 import { ConsolePage } from '../src/components/ConsolePage.tsx'
-import { DATE, FakeEventSource, FakeServer, broadcastItem, broadcastView, emptyChanges, flush, fullView, message, product } from './support.ts'
+import { DATE, FakeEventSource, FakeServer, broadcastItem, emptyChanges, flush, fullView, message, product } from './support.ts'
 
 /** 아주 작은 가짜 범위: 상품·찜·메시지를 들고 seq를 올린다 */
 class Model {

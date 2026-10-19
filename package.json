@@ -19,6 +19,7 @@
     "@eslint/js": "10.0.1",
     "@livejjim/core": "workspace:*",
     "@livejjim/server": "workspace:*",
+    "@playwright/test": "1.62.1",
     "@types/node": "24.19.2",
     "@vitest/coverage-v8": "5.0.5",
     "eslint": "10.13.0",

@@ -89,6 +89,8 @@ export class ConsoleStore {
   #snapshot: ConsoleSnapshot = EMPTY
   #stream: EventSourceLike | null = null
   #reconnect: unknown = undefined
+  #retry: unknown = undefined
+  #unwatch: (() => void) | null = null
   #stopped = false
   #catching = false
   #again = false
@@ -137,6 +139,7 @@ export class ConsoleStore {
       await this.#loadAll()
       if (this.#stopped) return
       this.#connect()
+      this.#watchNetwork()
       if (broadcast.rehearsal) void this.#loadGenerator()
     } catch (error) {
       if (isApiError(error)) this.#set({ phase: 'error', error })
@@ -149,7 +152,31 @@ export class ConsoleStore {
     this.#stream?.close()
     this.#stream = null
     if (this.#reconnect !== undefined) this.#timer.clear(this.#reconnect)
+    if (this.#retry !== undefined) this.#timer.clear(this.#retry)
+    this.#unwatch?.()
     this.#listeners.clear()
+  }
+
+  /**
+   * 브라우저가 오프라인이 되면 연결이 끊긴 것으로 보이고(열린 연결이 남아 있어도 받지 못할 수 있다),
+   * 다시 온라인이 되면 새로 연결해 ready의 seq로 놓친 변경을 받는다.
+   */
+  #watchNetwork(): void {
+    if (typeof window === 'undefined' || this.#unwatch !== null) return
+    const offline = () => {
+      this.#stream?.close()
+      this.#stream = null
+      this.#set({ connection: 'lost' })
+    }
+    const online = () => {
+      if (!this.#stopped) this.#connect()
+    }
+    window.addEventListener('offline', offline)
+    window.addEventListener('online', online)
+    this.#unwatch = () => {
+      window.removeEventListener('offline', offline)
+      window.removeEventListener('online', online)
+    }
   }
 
   /** 전체 조회 + 최근 메시지 (처음·RESYNC_REQUIRED) */
@@ -252,7 +279,13 @@ export class ConsoleStore {
         await this.#loadAll()
         return
       }
-      // 네트워크가 끊겼으면 다시 붙을 때(ready) 따라잡는다
+      // 네트워크가 끊겼으면 조금 뒤 다시 (다시 붙을 때의 ready로도 따라잡는다)
+      if (this.#retry === undefined && !this.#stopped) {
+        this.#retry = this.#timer.set(() => {
+          this.#retry = undefined
+          void this.catchUp()
+        }, RECONNECT_MS)
+      }
       return
     }
     const current = this.#snapshot.data
