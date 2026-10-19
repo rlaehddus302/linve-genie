@@ -232,6 +232,8 @@ export function compareExpect(expect: Expect, snapshot: GoldenSnapshot, where?: 
           if (want.nameHistory !== undefined && !deepEqual(want.nameHistory, buyer.nameHistory)) {
             push({ path: `${base}.nameHistory`, expected: want.nameHistory, actual: buyer.nameHistory })
           }
+          // 지금의 구매자 자신의 뒤 4자리 (README 비교 규칙, D-061)
+          if (want.phoneLast4 !== undefined && want.phoneLast4 !== buyer.phoneLast4) push({ path: `${base}.phoneLast4`, expected: want.phoneLast4, actual: buyer.phoneLast4 })
         }
         break
       }

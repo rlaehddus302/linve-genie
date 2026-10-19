@@ -1,0 +1,18 @@
+# 범주 10: sms ref 형식 위반 — 영문·숫자·_·-로 된 1~64자 (S03b, D-061)
+# 같은 ref를 다시 적는 것은 재전송 사본이라 읽기 오류가 아니다 (D-067 — S03까지의 "ref 중복" 픽스처를 계약 변경으로 교체)
+id: G-ENG-901
+title: 문자찜 ref 형식
+refs: [R-1, R-11]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: sms, b: b1, ref: s1, no: 15, received: "20:00" }
+  - { at: "20:00:02", type: sms, b: b1, ref: s1, no: 15, received: "20:01", memo: 다른 메모 }
+  - { at: "20:00:03", type: sms, b: b1, ref: "", no: 15, received: "20:00" }
+  - { at: "20:00:04", type: sms, b: b1, ref: 김영희, no: 15, received: "20:00" }
+  - { at: "20:00:05", type: sms, b: b1, ref: "s 1", no: 15, received: "20:00" }
+  - { at: "20:00:06", type: sms, b: b1, ref: "s:1", no: 15, received: "20:00" }
+  - { at: "20:00:07", type: sms, b: b1, ref: "010-1234-5678 ", no: 15, received: "20:00" }
+  - { at: "20:00:08", type: sms, b: b1, ref: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, no: 15, received: "20:00" }
+  - { at: "20:00:09", type: sms, b: b1, ref: 15, no: 15, received: "20:00" }
+expect: {}

@@ -21,6 +21,7 @@ import {
   SETTING_CHECKS,
   SETTLEMENT_EXPECT_KEYS,
   SMS_PREFIX,
+  SMS_REF_RE,
   SUITES,
   SUITE_SETTINGS,
   TARGETS,
@@ -30,6 +31,7 @@ import {
   isPlainObject,
   nonEmptyStr,
   oneOf,
+  phoneLast4OrNull,
   showValue,
   str,
   type ClaimStatus,
@@ -65,6 +67,7 @@ export interface BuyerExpect {
   readonly byBroadcast?: Readonly<Record<string, number>>
   readonly display?: string
   readonly nameHistory?: readonly string[]
+  readonly phoneLast4?: string | null
 }
 
 export interface SettlementExpect {
@@ -315,6 +318,7 @@ function checkExpect(c: Checker, ctx: ScenarioContext, path: readonly PathSegmen
         if (hasValue(buyer, 'nameHistory') && c.array([...kp, 'nameHistory'], buyer.nameHistory)) {
           buyer.nameHistory.forEach((name, i) => c.value([...kp, 'nameHistory', i], name, str))
         }
+        if (hasValue(buyer, 'phoneLast4')) c.value([...kp, 'phoneLast4'], buyer.phoneLast4, phoneLast4OrNull)
       }
     }
   }
@@ -542,14 +546,7 @@ function collectContext(c: Checker, raw: Record<string, unknown>): ScenarioConte
   return { broadcasts, smsRefs, messageIds, singleDate }
 }
 
-function checkField(
-  c: Checker,
-  ctx: ScenarioContext,
-  path: readonly PathSegment[],
-  kind: FieldKind,
-  value: unknown,
-  seenSmsRefs: Set<string>,
-): void {
+function checkField(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], kind: FieldKind, value: unknown): void {
   switch (kind.kind) {
     case 'broadcast':
       if (typeof value !== 'string' || !ctx.broadcasts.has(value)) c.fail(path, `선언하지 않은 방송 ${showValue(value)}`)
@@ -566,9 +563,10 @@ function checkField(
       if (typeof value !== 'string' || !ctx.messageIds.has(value)) c.fail(path, `시나리오에 없는 채팅 메시지 ID ${showValue(value)}`)
       return
     case 'smsRef':
-      if (!c.value(path, value, nonEmptyStr)) return
-      if (seenSmsRefs.has(value as string)) c.fail(path, `문자찜 ref '${String(value)}' 중복`)
-      seenSmsRefs.add(value as string)
+      // 같은 ref를 다시 적으면 재전송 사본이다 (README sms 행, D-067) — 중복은 읽기 오류가 아니다
+      c.value(path, value, (v) =>
+        typeof v === 'string' && SMS_REF_RE.test(v) ? undefined : `문자찜 ref는 영문·숫자·'_'·'-'로 된 1~64자여야 한다 (값: ${showValue(v)})`,
+      )
       return
     case 'date':
       if (typeof value !== 'string' || !parseDate(value)) c.fail(path, `날짜 형식 오류 ${showValue(value)} (YYYY-MM-DD)`)
@@ -598,7 +596,6 @@ function validateScenario(raw: Record<string, unknown>): ValidationResult {
   const ctx = collectContext(c, raw)
 
   const steps: ScenarioStep[] = []
-  const seenSmsRefs = new Set<string>()
   let seq = 0
   let previousAt: { utcMs: number; index: number } | undefined
   if (hasValue(raw, 'events') && c.array(['events'], raw.events)) {
@@ -620,7 +617,7 @@ function validateScenario(raw: Record<string, unknown>): ValidationResult {
       const allowed = ['at', 'type', ...Object.keys(spec.required), ...Object.keys(spec.optional)]
       c.keys(p, entry, allowed, ['at', ...Object.keys(spec.required)], '필드')
       for (const [field, kind] of [...Object.entries(spec.required), ...Object.entries(spec.optional)]) {
-        if (hasValue(entry, field)) checkField(c, ctx, [...p, field], kind, entry[field], seenSmsRefs)
+        if (hasValue(entry, field)) checkField(c, ctx, [...p, field], kind, entry[field])
       }
       if (type === 'settlement.shippingOverride') {
         if (entry.mode === 'FIXED' && !hasValue(entry, 'amount')) c.fail(p, `mode FIXED에는 amount가 필요하다`)

@@ -1,5 +1,6 @@
 // 엔진 단위·속성 테스트 도구 (테스트 파일 아님).
 import { applyEvent, initEngine, type DeferredEvent, type EngineEffect, type EngineEvent, type EngineState, type SettingsOverride } from '@livejjim/core'
+import { smsPhoneFields } from '../golden/phone-key.ts'
 
 /** seq·at을 뺀 S02 이벤트 (play가 채운다). S03 이벤트는 테스트에서 따로 만든다 */
 type WithoutClock<E> = E extends unknown ? Omit<E, 'seq' | 'at'> : never
@@ -60,14 +61,18 @@ export const host = (type: 'host.cancel' | 'host.reject' | 'host.promote', no: n
 /** 2026-10-18(방송 날짜)의 KST 시각 → UTC 밀리초. 24시 넘으면 다음 날 */
 export const kst = (hour: number, minute = 0, second = 0, ms = 0): number => Date.UTC(2026, 9, 18, hour - 9, minute, second, ms)
 
-/** 문자찜 한 건 */
-export const sms = (ref: string, no: number, received: string, fields: Partial<{ memo: string; phone: string; buyer: string; b: string; at: number }> = {}): EventInput => ({
-  type: 'sms',
-  b: 'b1',
-  ref,
-  no,
-  received,
-  ...fields,
-})
+/**
+ * 문자찜 한 건. phone(판매자가 적은 글자 그대로)은 서버처럼 phoneKey·phoneLast4로 바꿔 넣는다 — 엔진은 전화번호 원문을 받지 않는다
+ * (D-061, 서버 흉내는 골든 어댑터와 같은 phone-key.ts). phoneKey·phoneLast4를 직접 적으면 그 값을 쓴다
+ */
+export const sms = (
+  ref: string,
+  no: number,
+  received: string,
+  fields: Partial<{ memo: string; phone: string; phoneKey: string; phoneLast4: string; buyer: string; b: string; at: number }> = {},
+): EventInput => {
+  const { phone, ...rest } = fields
+  return { type: 'sms', b: 'b1', ref, no, received, ...smsPhoneFields(phone), ...rest }
+}
 
 export const RECEIVED_TIME = { 'contention.policy': 'RECEIVED_TIME' } as const

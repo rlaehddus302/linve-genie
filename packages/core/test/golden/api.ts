@@ -5,6 +5,7 @@ export { runGoldenSources, type GoldenSource, type RunGoldenSourcesOptions } fro
 export { runGoldenDir, listGoldenFiles, type RunGoldenDirOptions } from './fs-runner.ts'
 export { formatReport, formatTotals, itemLocation, itemStatusLabel } from './report.ts'
 export { realCore } from './core-adapter.ts'
+export { smsPhoneFields, testPhoneKey, TEST_PHONE_SECRET, type SmsPhoneFields } from './phone-key.ts'
 export { createFakeCore, emptySnapshot, type FakeCoreOptions } from './fake-core.ts'
 export { parseGoldenYaml, type YamlDocument, type YamlParseResult } from './yaml.ts'
 export { validateDocument, formatPath, type Expect, type ScenarioDoc, type ParserSuiteDoc, type ValidationResult } from './validate.ts'

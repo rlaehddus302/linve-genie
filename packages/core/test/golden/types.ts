@@ -85,6 +85,8 @@ export interface BuyerView {
   readonly items: readonly string[]
   readonly subtotal: number
   readonly byBroadcast: Readonly<Record<string, number>>
+  /** 이 구매자 자신의 전화번호 뒤 4자리 (숫자 4자리 문자열, 없으면 null — S03b, D-061) */
+  readonly phoneLast4: string | null
 }
 
 export interface SettlementView {

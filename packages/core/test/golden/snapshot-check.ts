@@ -18,7 +18,7 @@ import { parseDate } from './time.ts'
 export const SNAPSHOT_KEYS = ['buyerKeys', 'products', 'buyers', 'settlements', 'effects', 'claims', 'pending', 'cancelRequests'] as const
 export const EFFECT_STATUSES = ['PENDING', 'DONE', 'CANCELLED', 'SKIPPED'] as const
 const PRODUCT_VIEW_KEYS = ['status', 'winners', 'waitlist', 'conflict', 'price', 'priceHistory'] as const
-const BUYER_VIEW_KEYS = ['display', 'nameHistory', 'items', 'subtotal', 'byBroadcast'] as const
+const BUYER_VIEW_KEYS = ['display', 'nameHistory', 'items', 'subtotal', 'byBroadcast', 'phoneLast4'] as const
 const SETTLEMENT_VIEW_KEYS = ['subtotal', 'shipping', 'adjustments', 'total', 'refundDue', 'payment'] as const
 const EFFECT_VIEW_KEYS = ['kind', 'status', 'target', 'product', 'buyer', 'text', 'confirmVersion'] as const
 const CLAIM_VIEW_KEYS = ['product', 'buyer', 'status', 'reason'] as const
@@ -124,6 +124,9 @@ export function snapshotIssues(snapshot: unknown): string[] {
       c.optional(buyer, 'nameHistory', (v) => c.strings(`${p}.nameHistory`, v))
       c.optional(buyer, 'items', (v) => c.strings(`${p}.items`, v, (ip, key) => c.productKey(ip, key)))
       c.optional(buyer, 'subtotal', (v) => c.int(`${p}.subtotal`, v, 0))
+      c.optional(buyer, 'phoneLast4', (v) => {
+        if (v !== null && (typeof v !== 'string' || !/^[0-9]{4}$/.test(v))) c.fail(`${p}.phoneLast4`, `숫자 4자리 문자열 또는 null이어야 한다 (값: ${showValue(v)})`)
+      })
       c.optional(buyer, 'byBroadcast', (v) => {
         if (!c.record(`${p}.byBroadcast`, v)) return
         for (const [b, amount] of Object.entries(v)) {

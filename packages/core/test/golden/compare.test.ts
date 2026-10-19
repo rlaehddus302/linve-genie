@@ -21,8 +21,8 @@ const SNAP: GoldenSnapshot = {
     'b1/17': { status: 'OPEN', winners: [], waitlist: [], conflict: false, price: 5000, priceHistory: [] },
   },
   buyers: {
-    UC_A: { display: '길동이', nameHistory: ['홍길동', '길동이'], items: ['b1/15', 'b1/16'], subtotal: 15000, byBroadcast: { b1: 15000 } },
-    UC_H: { display: '문자찜', nameHistory: [], items: ['b2/1'], subtotal: 7000, byBroadcast: { b2: 7000 } },
+    UC_A: { display: '길동이', nameHistory: ['홍길동', '길동이'], items: ['b1/15', 'b1/16'], subtotal: 15000, byBroadcast: { b1: 15000 }, phoneLast4: null },
+    UC_H: { display: '문자찜', nameHistory: [], items: ['b2/1'], subtotal: 7000, byBroadcast: { b2: 7000 }, phoneLast4: '0000' },
   },
   settlements: {
     'UC_A@2026-10-18': { subtotal: 15000, shipping: 4000, adjustments: -1000, total: 18000, refundDue: 0, payment: 'PARTIAL' },
@@ -119,6 +119,13 @@ const CASES: readonly Case[] = [
   ['display 다름', BUY('UC_A', { display: '홍길동' }), ['buyers.UC_A.display']],
   ['nameHistory 같음', BUY('UC_A', { nameHistory: ['홍길동', '길동이'] }), null],
   ['nameHistory 순서 다름', BUY('UC_A', { nameHistory: ['길동이', '홍길동'] }), ['buyers.UC_A.nameHistory']],
+  // phoneLast4 (S03b, D-061): 지금의 구매자 자신의 뒤 4자리, 숫자 4자리 문자열 또는 null
+  ['phoneLast4 null 같음', BUY('UC_A', { phoneLast4: null }), null],
+  ['phoneLast4 null인데 값을 기대', BUY('UC_A', { phoneLast4: '0000' }), ['buyers.UC_A.phoneLast4']],
+  ['phoneLast4 같음 ("0000" — 앞자리 0 유지)', BUY('UC_H', { phoneLast4: '0000' }), null],
+  ['phoneLast4 다름', BUY('UC_H', { phoneLast4: '0001' }), ['buyers.UC_H.phoneLast4']],
+  ['phoneLast4 값이 있는데 null을 기대', BUY('UC_H', { phoneLast4: null }), ['buyers.UC_H.phoneLast4']],
+  ['phoneLast4 — 합친 키는 지금의 구매자 자신의 값', BUY('sms:s1', { phoneLast4: '0000' }), null],
   ['구매자 키 풀기 — 합친 구매자', BUY('sms:s1', { items: ['b2/1'], subtotal: 7000 }), null],
   ['구매자 키 풀기 — 합친 구매자 값 다름', BUY('sms:s1', { subtotal: 0 }), ['buyers.sms:s1.subtotal']],
   ['풀 수 없는 구매자 키', BUY('UC_Z', { subtotal: 0 }), ['buyers.UC_Z']],

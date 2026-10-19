@@ -1,0 +1,24 @@
+# 범주 16: 구매자 뒤 4자리(buyers.<키>.phoneLast4)는 숫자 4자리 문자열 또는 null (S03b, D-061)
+# 따옴표 없이 적어 정수가 되면(5678, 0000 → 0) 읽기 오류다
+id: G-ENG-901
+title: 뒤 4자리를 정수로
+refs: [R-11]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: sms, b: b1, ref: s1, no: 15, received: "20:00", phone: "010-1234-5678" }
+  - { type: assert, expect: { buyers: { "sms:s1": { phoneLast4: 5678 } } } }
+expect: {}
+---
+id: G-ENG-902
+title: 앞자리 0을 따옴표 없이, 4자리가 아닌 문자열, 전각 숫자
+refs: [R-11]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: sms, b: b1, ref: s1, no: 15, received: "20:00", phone: "010-9999-0000" }
+  - { at: "20:00:01", type: sms, b: b1, ref: s2, no: 15, received: "20:00", phone: "010-1234-5678" }
+  - { at: "20:00:02", type: sms, b: b1, ref: s3, no: 15, received: "20:00", phone: "010-1234-5678" }
+expect:
+  buyers:
+    "sms:s1": { phoneLast4: 0000 }
+    "sms:s2": { phoneLast4: "567" }
+    "sms:s3": { phoneLast4: "５６７８" }

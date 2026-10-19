@@ -132,7 +132,7 @@ describe('TD-S00-010: 관찰 스냅샷 형식·열거값 검사 — 어기면 �
   })
 
   const product = { status: 'SOLD', winners: ['UC_A'], waitlist: [], conflict: false, price: 10000, priceHistory: [] }
-  const buyer = { display: '홍길동', nameHistory: ['홍길동'], items: ['b1/15'], subtotal: 10000, byBroadcast: { b1: 10000 } }
+  const buyer = { display: '홍길동', nameHistory: ['홍길동'], items: ['b1/15'], subtotal: 10000, byBroadcast: { b1: 10000 }, phoneLast4: null }
   const settlement = { subtotal: 10000, shipping: 4000, adjustments: -1000, total: 13000, refundDue: 0, payment: 'UNPAID' }
   const valid = emptySnapshot({
     buyerKeys: { UC_A: 'UC_A' },
@@ -162,6 +162,9 @@ describe('TD-S00-010: 관찰 스냅샷 형식·열거값 검사 — 어기면 �
     ['구매자 합계 실수', (s) => ((s.buyers as Record<string, unknown>).UC_A = { ...buyer, subtotal: 1.5 }), 'buyers.UC_A.subtotal'],
     ['구매자 품목 상품 키 형식', (s) => ((s.buyers as Record<string, unknown>).UC_A = { ...buyer, items: ['15'] }), "상품 키 형식 오류 '15'"],
     ['방송별 합계 음수', (s) => ((s.buyers as Record<string, unknown>).UC_A = { ...buyer, byBroadcast: { b1: -1 } }), 'buyers.UC_A.byBroadcast.b1'],
+    ['뒤 4자리 빠짐 (S03b)', (s) => ((s.buyers as Record<string, unknown>).UC_A = { ...buyer, phoneLast4: undefined }), "'phoneLast4'가 없다"],
+    ['뒤 4자리가 정수', (s) => ((s.buyers as Record<string, unknown>).UC_A = { ...buyer, phoneLast4: 5678 }), 'buyers.UC_A.phoneLast4'],
+    ['뒤 4자리가 전화번호 전체', (s) => ((s.buyers as Record<string, unknown>).UC_A = { ...buyer, phoneLast4: '01012345678' }), 'buyers.UC_A.phoneLast4'],
     ['정산 키 형식', (s) => ((s.settlements as Record<string, unknown>).UC_A = settlement), "정산 키 형식 오류 'UC_A'"],
     ['정산 입금 상태 열거값', (s) => ((s.settlements as Record<string, unknown>)['UC_A@2026-10-18'] = { ...settlement, payment: 'DONE' }), 'payment'],
     ['정산 최종 금액 음수', (s) => ((s.settlements as Record<string, unknown>)['UC_A@2026-10-18'] = { ...settlement, total: -1 }), '.total'],

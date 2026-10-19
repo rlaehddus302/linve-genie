@@ -2,19 +2,29 @@
 // 효과 보고는 README 규칙("가장 최근에 나온, 취소되지 않은 해당 효과")으로 효과 ID를 찾아 엔진에 넘긴다.
 import {
   NotImplementedError,
+  activeClaimId,
   applyEvent,
+  buyerOfRef,
+  getBuyer,
   listBuyers,
+  listClaims,
   listEffects,
   listSettlements,
+  listSmsRefs,
+  normalizePhone,
+  parseChat,
+  type EngineEvent,
   type EngineState,
+  type SmsEvent,
 } from '@livejjim/core'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { runGoldenDir } from './fs-runner.ts'
-import { pget, pset } from '../../src/engine/pmap.ts'
-import { play as playEvents, type EventInput } from '../unit/engine-helpers.ts'
+import { pdelete, pget, pset } from '../../src/engine/pmap.ts'
+import { play as playEvents, sms, type EventInput } from '../unit/engine-helpers.ts'
 import { realCore, reportTarget, toEngineEvent, toSnapshot } from './core-adapter.ts'
+import { smsPhoneFields, testPhoneKey } from './phone-key.ts'
 import { snapshotIssues } from './snapshot-check.ts'
 import { run, scenario } from './test-helpers.ts'
 import type { GoldenCore, GoldenEvent } from './types.ts'
@@ -51,8 +61,8 @@ describe('observe — 조회 함수 결과를 이름·모양만 바꿔 옮긴다
       'b1/15': { status: 'SOLD', winners: ['UC_A'], waitlist: ['UC_B'], conflict: false, price: 10000, priceHistory: [] },
       'b1/16': { status: 'READY', winners: [], waitlist: [], conflict: false, price: 800, priceHistory: [] },
     })
-    expect(snapshot.buyers.UC_B).toEqual({ display: '철수', nameHistory: ['김철수', '철수'], items: [], subtotal: 0, byBroadcast: {} })
-    expect(snapshot.buyers.UC_A).toEqual({ display: '홍길동', nameHistory: ['홍길동'], items: ['b1/15'], subtotal: 10000, byBroadcast: { b1: 10000 } })
+    expect(snapshot.buyers.UC_B).toEqual({ display: '철수', nameHistory: ['김철수', '철수'], items: [], subtotal: 0, byBroadcast: {}, phoneLast4: null })
+    expect(snapshot.buyers.UC_A).toEqual({ display: '홍길동', nameHistory: ['홍길동'], items: ['b1/15'], subtotal: 10000, byBroadcast: { b1: 10000 }, phoneLast4: null })
     expect(snapshot.settlements).toEqual({ 'UC_A@2026-10-18': { subtotal: 10000, shipping: 4000, adjustments: 0, total: 14000, refundDue: 0, payment: 'UNPAID' } })
     expect(snapshot.claims).toEqual([
       { product: 'b1/15', buyer: 'UC_A', status: 'CONFIRMED' },
@@ -133,14 +143,14 @@ describe('S03 어댑터 (AC-S03-91): 이벤트 키 → 구매자 자신, 관찰 
   const state = play([
     { type: 'product.register', b: 'b1', no: 15, name: '핑크프릴', price: 10000 },
     { type: 'product.register', b: 'b1', no: 51, name: '라울', price: 5000 },
-    { type: 'sms', b: 'b1', ref: 's1', no: 15, received: '20:00', phone: '010-1234-5678', memo: '이모' },
-    { type: 'sms', b: 'b1', ref: 's2', no: 51, received: '20:00', phone: '01012345678' },
+    sms('s1', 15, '20:00', { phone: '010-1234-5678', memo: '이모' }),
+    sms('s2', 51, '20:00', { phone: '01012345678' }),
     { type: 'chat', b: 'b1', id: 'm1', ch: 'UC_H', nick: '홍길동', text: '안녕' },
     { type: 'chat', b: 'b1', id: 'm2', ch: 'UC_P', nick: '박', text: '16' },
     { type: 'settlement.payment', buyer: 'UC_P', date: '2026-10-18', amount: 3000 },
     { type: 'buyer.merge', from: 'sms:s1', into: 'UC_H', reason: '같은 사람' },
     { type: 'product.renumber', b: 'b1', from: 51, to: 50 },
-    { type: 'sms', b: 'b1', ref: 's3', no: 15, received: '20:00', buyer: 'UC_Z' },
+    sms('s3', 15, '20:00', { buyer: 'UC_Z' }),
   ])
   const snapshot = toSnapshot(state)
 
@@ -180,7 +190,7 @@ describe('S03 어댑터 (AC-S03-91): 이벤트 키 → 구매자 자신, 관찰 
 
   it('구매자·정산은 지금의 구매자 기준이고, 품목 없이 받은 금액만 있는 묶음도 엔진 조회 결과대로 옮긴다', () => {
     expect(snapshot.buyers.UC_H).toMatchObject({ items: ['b1/15'], subtotal: 10000, display: '홍길동' })
-    expect(snapshot.buyers['sms:s1']).toMatchObject({ display: '문자찜(이모)', items: ['b1/15'] })
+    expect(snapshot.buyers['sms:s1']).toMatchObject({ display: '문자찜(이모)', items: ['b1/15'], phoneLast4: '5678' })
     expect(snapshot.settlements).toEqual({
       'UC_H@2026-10-18': { subtotal: 10000, shipping: 4000, adjustments: 0, total: 14000, refundDue: 0, payment: 'UNPAID' },
       'UC_P@2026-10-18': { subtotal: 0, shipping: 0, adjustments: 0, total: 0, refundDue: 3000, payment: 'OVERPAID' },
@@ -290,15 +300,229 @@ describe('S03 골든: 러너는 틀린 기대값·틀린 코어에서 실제로 
   })
 })
 
-describe('실제 tests/golden 전체를 실제 코어로 (AC-S03-90 합계)', () => {
-  it('파일 16 · 파서 379 · 엔진 95 · 통과 474, 나머지 0', () => {
+describe('S03b 어댑터 (AC-S03b-04·11·91): 서버 흉내 — phone → phoneKey·phoneLast4, ref 재전송 사본, 뒤 4자리 관찰', () => {
+  const smsEvent = (fields: Record<string, unknown>, seq = 5): GoldenEvent => golden({ type: 'sms', b: 'b1', ref: 's1', no: 15, received: '20:00', ...fields }, seq)
+  const empty = play([])
+
+  it('phone은 엔진에 넘기지 않고, 휴대폰 번호 모양이면 phoneKey(테스트 전용 HMAC-SHA256 base64url)·phoneLast4를 넘긴다', () => {
+    const mapped = toEngineEvent(empty, smsEvent({ phone: '010-1234-5678', memo: '이모' })) as SmsEvent
+    expect(mapped).not.toHaveProperty('phone')
+    expect(mapped).toEqual({ seq: 5, at: 2_000_000, type: 'sms', b: 'b1', ref: 's1', no: 15, received: '20:00', memo: '이모', phoneKey: testPhoneKey('01012345678'), phoneLast4: '5678' })
+    expect(mapped.phoneKey).toMatch(/^[A-Za-z0-9_-]{16,128}$/)
+    expect(mapped.phoneKey).toHaveLength(43)
+    // 번호 숫자를 그대로 담지 않는다
+    expect(mapped.phoneKey).not.toContain('01012345678')
+    expect(mapped.phoneKey).not.toContain('12345678')
+  })
+
+  it('형식이 달라도 같은 번호면 같은 키, 다른 번호면 다른 키 (뒤 4자리만 같아도 다르다). 키는 결정적이다', () => {
+    const keyOf = (phone: string): unknown => (toEngineEvent(empty, smsEvent({ phone })) as SmsEvent).phoneKey
+    const same = ['010-1234-5678', '(010) 1234-5678', '01012345678', '０１０-１２３４-５６７８', ' 010 1234 5678 ']
+    expect(new Set(same.map(keyOf)).size).toBe(1)
+    expect(keyOf('010-7777-5678')).not.toBe(keyOf('010-1234-5678'))
+    expect(keyOf('010-1234-5679')).not.toBe(keyOf('010-1234-5678'))
+    expect(keyOf('011-234-5678')).toBe(testPhoneKey('0112345678'))
+    expect(smsPhoneFields('010-1234-5678')).toEqual(smsPhoneFields('01012345678'))
+  })
+
+  it('휴대폰 번호 모양이 아니면(일부만·국가 번호·빈 값) 전화번호 없이 넘긴다', () => {
+    for (const phone of ['5678', '+82 10-1234-5678', '', '010-1234', '02-123-4567', '전화 없음']) {
+      expect(normalizePhone(phone)).toBeNull()
+      const mapped = toEngineEvent(empty, smsEvent({ phone }))
+      expect(mapped).not.toHaveProperty('phone')
+      expect(mapped).not.toHaveProperty('phoneKey')
+      expect(mapped).not.toHaveProperty('phoneLast4')
+    }
+    // phone이 없는 문자찜도 새 객체로 넘긴다(필드는 그대로)
+    const plain = smsEvent({})
+    expect(toEngineEvent(empty, plain)).toEqual(plain)
+  })
+
+  it('지정 구매자가 있어도 서버처럼 키를 만들어 넘긴다 (엔진이 보지 않는다), 지정 구매자 키는 구매자 자신으로', () => {
+    const state = play([sms('s0', 15, '20:00', { phone: '010-1111-2222' })])
+    const mapped = toEngineEvent(state, smsEvent({ ref: 's9', buyer: 'sms:s0', phone: '010-3333-4444' })) as SmsEvent
+    expect(mapped).toMatchObject({ buyer: 'sms:s0', phoneLast4: '4444', phoneKey: testPhoneKey('01033334444') })
+  })
+
+  it('G-ENG-150을 돌린 뒤 상태·효과·관찰 어디에도 입력한 번호(정규화한 번호)가 없다', () => {
+    const report = run([{ path: 'engine/14.yaml', text: readFileSync(fileURLToPath(new URL('../../../../tests/golden/engine/14-core-cleanup.yaml', import.meta.url)), 'utf8').split('\n---\n')[0] as string }], {
+      core: realCore,
+    })
+    expect(report.items[0]?.status).toBe('pass')
+    let state = realCore.engine.start({ broadcasts: [{ id: 'b1', date: '2026-10-18', title: '1부' }], settings: {} }) as EngineState
+    const effects: unknown[] = []
+    const events: Record<string, unknown>[] = [
+      { type: 'product.register', b: 'b1', no: 1, name: '금황성', price: 10000 },
+      { type: 'product.register', b: 'b1', no: 2, name: '라울', price: 5000 },
+      { type: 'chat', b: 'b1', id: 'm1', ch: 'UC_H', nick: '홍길동', text: '안녕하세요' },
+      { type: 'sms', b: 'b1', ref: 's1', no: 1, received: '20:00:09', phone: '010-1234-5678' },
+      { type: 'sms', b: 'b1', ref: 's2', no: 2, received: '20:00', phone: '(010) 1234-5678' },
+      { type: 'sms', b: 'b1', ref: 's4', no: 1, received: '20:00:12', buyer: 'UC_H', phone: '010-9999-0000' },
+      { type: 'sms', b: 'b1', ref: 's5', no: 2, received: '20:00:13', phone: '010-9999-0000' },
+      { type: 'sms', b: 'b1', ref: 's7', no: 1, received: '20:00:15', phone: '010-7777-5678' },
+    ]
+    events.forEach((fields, i) => {
+      const result = realCore.engine.apply(state, golden(fields, i + 1))
+      state = result.state as EngineState
+      effects.push(...result.effects)
+    })
+    const dump = JSON.stringify([state, effects, toSnapshot(state), listClaims(state), listBuyers(state), listEffects(state), listSmsRefs(state)])
+    for (const number of ['01012345678', '01099990000', '01077775678', '010-1234-5678', '1234-5678', '9999-0000', '7777-5678']) expect(dump).not.toContain(number)
+    expect(toSnapshot(state).buyers['sms:s1']?.phoneLast4).toBe('5678')
+    expect(toSnapshot(state).buyers.UC_H?.phoneLast4).toBeNull()
+  })
+
+  it('ref 재전송 사본: sms:<ref>는 그 ref의 처음 문자찜으로 정하고, 구매자를 정하지 않은 ref는 풀지 않는다', () => {
+    // s1: 모르는 지정 구매자 UC_A → ref만 기록. A가 알려진 뒤 s1 사본 → 아무 일도 없다. s2: 새 문자 구매자, s2 사본(다른 번호)
+    const state = play([
+      { type: 'product.register', b: 'b1', no: 15, name: '핑크프릴', price: 10000 },
+      sms('s1', 15, '20:00', { buyer: 'UC_A' }),
+      { type: 'chat', b: 'b1', id: 'm1', ch: 'UC_A', nick: '홍길동', text: '안녕' },
+      sms('s1', 15, '20:00', { buyer: 'UC_A' }),
+      sms('s2', 15, '20:00', { phone: '010-1234-5678' }),
+      sms('s2', 15, '20:00', { phone: '010-9999-0000', memo: '사본' }),
+    ])
+    expect(buyerOfRef(state, 's1')).toBeNull()
+    expect(buyerOfRef(state, 's2')).toBe('sms:s2')
+    expect(toEngineEvent(state, golden({ type: 'host.blockBuyer', buyer: 'sms:s1', reason: 'r' }))).toMatchObject({ buyer: 'sms:s1' })
+    expect(toEngineEvent(state, golden({ type: 'host.cancel', b: 'b1', no: 15, buyer: 'sms:s2', reason: 'r' }))).toMatchObject({ buyer: 'sms:s2' })
+    const snapshot = toSnapshot(state)
+    expect(snapshot.buyerKeys).toEqual({ UC_A: 'UC_A', 'sms:s2': 'sms:s2' })
+    expect(snapshot.buyers['sms:s2']).toMatchObject({ phoneLast4: '5678', display: '문자찜' })
+    expect(listClaims(state)).toHaveLength(1)
+    expect(snapshotIssues(snapshot)).toEqual([])
+  })
+})
+
+describe('S03b 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어에서 실제로 실패한다 (AC-S03b-91)', () => {
+  const text = readFileSync(fileURLToPath(new URL('../../../../tests/golden/engine/14-core-cleanup.yaml', import.meta.url)), 'utf8')
+  const mismatched = (core: GoldenCore): string[] =>
+    run([{ path: 'engine/14.yaml', text }], { core }).items.filter((item) => item.status !== 'pass').map((item) => (item.kind === 'scenario' ? item.id : ''))
+  /** 어댑터로 바꾼 엔진 이벤트에 손을 대는 코어 */
+  const engineCore = (apply: (state: EngineState, event: EngineEvent) => { state: EngineState; effects: readonly unknown[] }): GoldenCore => ({
+    ...realCore,
+    engine: { ...realCore.engine, apply: (state, event) => apply(state as EngineState, toEngineEvent(state as EngineState, event)) },
+  })
+  const withState = (state: EngineState, patch: Partial<EngineState>): EngineState => ({ ...state, ...patch })
+
+  it('실제 코어는 14-core-cleanup의 10개 시나리오를 모두 통과한다', () => {
+    expect(mismatched(realCore)).toEqual([])
+  })
+
+  it('뒤 4자리로 잇는 코어 → G-ENG-150 불일치', () => {
+    const core = engineCore((state, event) => {
+      if (event.type !== 'sms' || event.phoneLast4 === undefined) return applyEvent(state, event)
+      return applyEvent(state, { ...event, phoneKey: `last4-only-key-${event.phoneLast4}` })
+    })
+    expect(mismatched(core)).toEqual(['G-ENG-150'])
+  })
+
+  it('지정 구매자의 전화번호 키를 기록하는 코어 → G-ENG-150 불일치', () => {
+    const core = engineCore((state, event) => {
+      const result = applyEvent(state, event)
+      if (event.type !== 'sms' || event.buyer === undefined || event.phoneKey === undefined || buyerOfRef(result.state, event.ref) === null) return result
+      if (pget(result.state.phoneKeys, event.phoneKey) !== undefined) return result
+      return { ...result, state: withState(result.state, { phoneKeys: pset(result.state.phoneKeys, event.phoneKey, event.buyer) }) }
+    })
+    expect(mismatched(core)).toEqual(['G-ENG-150'])
+  })
+
+  it('모르는 지정 구매자의 ref를 기록하지 않는 코어(S03) → G-ENG-151 불일치', () => {
+    const core = engineCore((state, event) => {
+      const result = applyEvent(state, event)
+      if (event.type !== 'sms' || pget(result.state.refs, event.ref) !== null) return result
+      return { ...result, state: withState(result.state, { refs: pdelete(result.state.refs, event.ref) }) }
+    })
+    expect(mismatched(core)).toEqual(['G-ENG-151'])
+  })
+
+  it('주문이었던 메시지를 변환하는 코어 → G-ENG-152 불일치', () => {
+    const core = engineCore((state, event) => {
+      if (event.type !== 'host.convertMessage') return applyEvent(state, event)
+      const key = JSON.stringify([event.b, event.msg])
+      const message = pget(state.messages, key)
+      if (message === undefined) return applyEvent(state, event)
+      return applyEvent(withState(state, { messages: pset(state.messages, key, { ...message, order: false }) }), event)
+    })
+    expect(mismatched(core)).toEqual(['G-ENG-152'])
+  })
+
+  it('시청자 채팅 취소를 지금의 구매자로 찾는 코어(S03) → G-ENG-153·154 불일치', () => {
+    const core = engineCore((state, event) => {
+      const result = applyEvent(state, event)
+      if (event.type !== 'chat') return result
+      let next = result.state
+      for (const no of parseChat(event.text, next.settings).cancels) {
+        const id = activeClaimId(next, event.b, no, event.ch)
+        const claim = id === null ? undefined : listClaims(next).find((c) => c.id === id)
+        if (claim === undefined || claim.buyer === event.ch) continue
+        if (next.settings['cancel.buyerChat'] === 'AUTO' && !claim.locked) {
+          next = applyEvent(next, { type: 'host.cancel', b: event.b, no, buyer: claim.buyer, reason: '채팅 취소', seq: event.seq, at: event.at }).state
+        } else {
+          const record = pget(next.claims, claim.id)
+          if (record !== undefined && record.request === null) next = withState(next, { claims: pset(next.claims, claim.id, { ...record, request: event.seq }) })
+        }
+      }
+      return { state: next, effects: result.effects }
+    })
+    expect(mismatched(core)).toEqual(['G-ENG-153', 'G-ENG-154'])
+  })
+
+  it('충돌 중 배정을 받는 코어(S03) → G-ENG-155 불일치', () => {
+    const core = engineCore((state, event) => {
+      if (event.type !== 'host.assign') return applyEvent(state, event)
+      const key = `${event.b}/${String(event.no)}`
+      const slot = pget(state.slots, key)
+      if (slot === undefined || slot.conflict === null) return applyEvent(state, event)
+      const result = applyEvent(withState(state, { slots: pset(state.slots, key, { ...slot, conflict: null }) }), event)
+      const after = pget(result.state.slots, key)
+      if (after === undefined || pget(result.state.claims, slot.conflict)?.status !== 'CONFLICT') return result
+      return { ...result, state: withState(result.state, { slots: pset(result.state.slots, key, { ...after, conflict: slot.conflict }) }) }
+    })
+    expect(mismatched(core)).toEqual(['G-ENG-155'])
+  })
+
+  it('충돌이 자리가 비어 풀릴 때 넘침을 먼저 정리하는 코어(S03) → G-ENG-157 불일치', () => {
+    // 1등 취소·재고 늘림 전에 KEEP을 먼저 적용 = c를 넣자마자 넘침 정리 (S03 순서)
+    const core = engineCore((state, event) => {
+      const target =
+        ((event.type === 'host.cancel' || event.type === 'host.reject') && activeClaimId(state, event.b, event.no, event.buyer) !== null) ||
+        (event.type === 'product.update' && event.stock !== undefined)
+          ? { b: event.b, no: event.no }
+          : undefined
+      const slot = target === undefined ? undefined : pget(state.slots, `${target.b}/${String(target.no)}`)
+      if (target === undefined || slot === undefined || slot.conflict === null) return applyEvent(state, event)
+      const kept = applyEvent(state, { type: 'host.resolveConflict', ...target, decision: 'KEEP', seq: event.seq, at: event.at }).state
+      return applyEvent(kept, event)
+    })
+    expect(mismatched(core)).toEqual(['G-ENG-157'])
+  })
+
+  it('구매자 보기의 뒤 4자리를 지우는 어댑터 → G-ENG-150·151 불일치', () => {
+    const core: GoldenCore = {
+      ...realCore,
+      engine: {
+        ...realCore.engine,
+        observe: (state) => {
+          const snapshot = toSnapshot(state as EngineState)
+          return { ...snapshot, buyers: Object.fromEntries(Object.entries(snapshot.buyers).map(([id, view]) => [id, { ...view, phoneLast4: null }])) }
+        },
+      },
+    }
+    expect(mismatched(core)).toEqual(['G-ENG-150', 'G-ENG-151'])
+    expect(getBuyer(play([sms('s1', 1, '20:00', { phone: '010-1234-5678' })]), 'sms:s1')?.phoneLast4).toBe('5678')
+  })
+})
+
+describe('실제 tests/golden 전체를 실제 코어로 (AC-S03b-90 합계)', () => {
+  it('파일 17 · 파서 379 · 엔진 105 · 통과 484, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
-      files: 16,
+      files: 17,
       parserCases: 379,
-      scenarios: 95,
-      pass: 474,
+      scenarios: 105,
+      pass: 484,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,

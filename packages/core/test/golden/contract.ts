@@ -87,6 +87,12 @@ export const oneOf =
       ? undefined
       : `${choices.join(' / ')} 중 하나여야 한다 (값: ${show(value)})`
 
+/** 구매자 전화번호 뒤 4자리: 숫자 4자리 문자열 또는 null. 따옴표 없이 적어 정수가 된 값은 읽기 오류 (README 추가 검사 키, D-061) */
+export const phoneLast4OrNull: ValueCheck = (value) =>
+  value === null || (typeof value === 'string' && /^[0-9]{4}$/.test(value))
+    ? undefined
+    : `숫자 4자리 문자열(따옴표로 적는다, 예: "0000") 또는 null이어야 한다 (값: ${show(value)})`
+
 export const intOrNull =
   (min: number): ValueCheck =>
   (value) =>
@@ -225,7 +231,7 @@ export const EXPECT_KEYS = [
   'cancelRequests',
 ] as const
 export const PRODUCT_EXPECT_KEYS = ['status', 'winner', 'winners', 'waitlist', 'conflict', 'exists', 'price', 'priceHistory'] as const
-export const BUYER_EXPECT_KEYS = ['items', 'subtotal', 'byBroadcast', 'display', 'nameHistory'] as const
+export const BUYER_EXPECT_KEYS = ['items', 'subtotal', 'byBroadcast', 'display', 'nameHistory', 'phoneLast4'] as const
 export const SETTLEMENT_EXPECT_KEYS = ['subtotal', 'shipping', 'adjustments', 'total', 'refundDue', 'payment'] as const
 export const EFFECT_EXPECT_KEYS = ['kind', 'target', 'product', 'buyer', 'text', 'confirmVersion'] as const
 export const CLAIM_EXPECT_KEYS = ['product', 'buyer', 'status', 'reason'] as const
@@ -244,5 +250,7 @@ export const SCENARIO_ID_RE = /^G-ENG-\d{3}$/
 export const BROADCAST_ID_RE = /^[^\s/@]+$/
 export const PRODUCT_KEY_RE = /^([^\s/@]+)\/([1-9]\d*)$/
 export const SMS_PREFIX = 'sms:'
+/** 문자찜 ref 형식: 영문·숫자·`_`·`-`로 된 1~64자 (README sms 행, DOMAIN_RULES R-1, D-061). 같은 ref를 다시 적으면 재전송 사본(D-067) */
+export const SMS_REF_RE = /^[A-Za-z0-9_-]{1,64}$/
 /** 허용 목록 예약 파일 이름 (골든 폴더 바로 아래) */
 export const ALLOWLIST_FILE = 'known-unimplemented.yaml'

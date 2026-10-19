@@ -198,9 +198,24 @@ const CASES: Readonly<Record<string, { category: string; loaded?: number; errors
     loaded: 1,
     errors: [{ doc: 1, label: 'G-ENG-901', issues: [['events[1].at', '날짜가 다른 방송이 섞인 시나리오에서 방송(b) 없는 이벤트의 짧은 at']] }],
   },
-  '10-sms-ref-duplicate.yaml': {
-    category: '10. sms ref 중복',
-    errors: [{ doc: 1, label: 'G-ENG-901', issues: [['events[2].ref', "문자찜 ref 's1' 중복"]] }],
+  // S03b(D-067): 같은 ref는 재전송 사본이라 읽기 오류가 아니다 — "ref 중복" 픽스처를 계약 변경으로 "ref 형식"으로 교체했다(약화 아님)
+  '10-sms-ref-format.yaml': {
+    category: '10. sms ref 형식 위반 (영문·숫자·_·- 1~64자)',
+    errors: [
+      {
+        doc: 1,
+        label: 'G-ENG-901',
+        issues: [
+          ['events[3].ref', '(값: "")'],
+          ['events[4].ref', '(값: "김영희")'],
+          ['events[5].ref', '(값: "s 1")'],
+          ['events[6].ref', '(값: "s:1")'],
+          ['events[7].ref', '(값: "010-1234-5678 ")'],
+          ['events[8].ref', '1~64자'],
+          ['events[9].ref', '(값: 15)'],
+        ],
+      },
+    ],
   },
   '11-settings.yaml': {
     category: '11. 모르는 설정 키나 값',
@@ -284,14 +299,29 @@ const CASES: Readonly<Record<string, { category: string; loaded?: number; errors
     category: '15. YAML 문법 오류 (core schema 밖의 태그)',
     errors: [{ issues: [[undefined, '명시적 태그']] }],
   },
+  '16-buyer-phone-last4.yaml': {
+    category: '16. 구매자 뒤 4자리(phoneLast4)가 숫자 4자리 문자열·null이 아님 (S03b)',
+    errors: [
+      { doc: 1, label: 'G-ENG-901', issues: [['events[1].expect.buyers.sms:s1.phoneLast4', '(값: 5678)']] },
+      {
+        doc: 2,
+        label: 'G-ENG-902',
+        issues: [
+          ['expect.buyers.sms:s1.phoneLast4', '(값: 0)'],
+          ['expect.buyers.sms:s2.phoneLast4', '(값: "567")'],
+          ['expect.buyers.sms:s3.phoneLast4', '(값: "５６７８")'],
+        ],
+      },
+    ],
+  },
 }
 
 describe('형식 계약 위반 = 읽기 오류 (AC-S00-22)', () => {
-  it('fixtures/read-errors의 모든 파일에 기대값이 있다 (범주 1~15)', () => {
+  it('fixtures/read-errors의 모든 파일에 기대값이 있다 (범주 1~16)', () => {
     const files = readdirSync(DIR).filter((f) => f.endsWith('.yaml'))
     expect(files.sort()).toEqual(Object.keys(CASES).sort())
     const categories = new Set(Object.values(CASES).map((c) => Number(c.category.split('.')[0])))
-    expect([...categories].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+    expect([...categories].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
   })
 
   for (const [file, { category, loaded = 0, errors }] of Object.entries(CASES)) {
