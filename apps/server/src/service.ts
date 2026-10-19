@@ -1,34 +1,47 @@
-// 판매자 작업 (AC-S04-21·27·31·33·50~52). 판정은 모두 packages/core가 한다 — 여기서는 이벤트를 만들고 기록 경로에 넘기고 조회 함수를 부른다.
+// 판매자 작업 (AC-S04-21·27·31·33·50~52, AC-S05-20·35·50~52·60·61·80). 판정은 모두 packages/core가 한다 — 여기서는 이벤트를 만들고 기록 경로에 넘기고 조회 함수를 부른다.
+// 범위 = (판매자, 날짜, 리허설인지) (D-081). 날짜로 범위를 고르는 조회·쓰기는 리허설을 명시해야 리허설 범위이고, 적지 않으면 실제 범위다.
+// 방송이 있는 입력은 그 방송의 범위로 간다.
 import {
   checkSettings,
   containsPhoneRun,
+  getBroadcast,
   getBuyer,
   isValidDate,
+  listBlocked,
   listBroadcasts,
-  listBuyers,
-  listCancelRequests,
-  listClaims,
-  listEffects,
-  listPending,
-  listProducts,
-  listSettlements,
   looksLikePhoneId,
   normalizePhone,
+  parseChat,
   phoneLast4,
   resolveSettings,
-  type EngineState,
   type SaleSettings,
 } from '@livejjim/core'
+import { randomBytes } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { API_EVENTS, CHAT_FIELDS, hasControlChar, isPlainObject, own, ownKeys } from './api-fields.ts'
 import type { Db } from './db/database.ts'
 import { sellers } from './db/schema.ts'
 import type { FieldProblem } from './errors.ts'
+import {
+  ChatGenerators,
+  GENERATOR_RATE_DEFAULT,
+  GENERATOR_RATE_MAX,
+  GENERATOR_RATE_MIN,
+  GENERATOR_SEED_MAX,
+  GENERATOR_TOTAL_DEFAULT,
+  GENERATOR_TOTAL_MAX,
+  GENERATOR_TOTAL_MIN,
+  realTimer,
+  type GeneratorStatus,
+  type GeneratorTimer,
+} from './generator.ts'
 import type { IdSource } from './ids.ts'
 import { fieldMessage, safeFieldName, unknownFieldProblems } from './messages.ts'
-import type { AttentionItem } from './runtime.ts'
 import { openSellerKey, phoneKeyOf } from './secrets.ts'
 import {
+  actionRows,
+  chatRows,
+  chatRowsByIds,
   eventByRequestId,
   findBroadcast,
   findScopeId,
@@ -39,14 +52,27 @@ import {
   markBroadcastEnded,
   previousScopeDate,
   scopeSeqs,
+  type BroadcastRow,
+  type ChatRow,
+  type HistoryRow,
+  type ScopeSeqRow,
 } from './store.ts'
-import { iso, kstDate, kstTime, withIsoTimes, type Clock } from './time.ts'
+import { iso, kstDate, kstTime, type Clock } from './time.ts'
+import { changeSet, fullView, messageLookup, type ChangeSet, type FullView, type MessageLookup } from './views.ts'
 import { resultOf, type Actor, type Draft, type Rejection, type ScopeWriter, type WriteOutcome, type WriteResult } from './writer.ts'
 
 /** 차단 이어받기 사유 (AC-S04-27) */
 export const INHERITED_BLOCK_REASON = '이전 방송에서 차단한 시청자'
 
 const TITLE_MAX = 100
+/** 메시지 조회 개수 기본·상한 (AC-S05-20 — 그날 메시지 전체를 한 번에 주는 길은 없다) */
+export const MESSAGES_LIMIT_DEFAULT = 100
+export const MESSAGES_LIMIT_MAX = 500
+/** 시청자로 보내기 닉네임·본문 길이 (AC-S05-52, 글자 수 = 코드 포인트) */
+export const VIEWER_NICK_MAX = 30
+export const VIEWER_TEXT_MAX = 200
+/** 가짜 채널 ID (실제 유튜브 채널 ID `UC…` 24자와 겹치지 않는다, D-082) */
+export const FAKE_CHANNEL_RE = /^sim_[A-Za-z0-9_-]{1,40}$/
 
 export interface ServiceOptions {
   readonly db: Db
@@ -54,6 +80,12 @@ export interface ServiceOptions {
   readonly masterKey: Buffer
   readonly clock: Clock
   readonly ids: IdSource
+  /** 리허설 생성기 타이머 (기본 실제 타이머) */
+  readonly generatorTimer?: GeneratorTimer
+  /** 리허설 생성기 시험 속도 (타이머 간격을 나누는 값, 기본 1) */
+  readonly generatorSpeed?: number
+  /** 리허설 생성기 상태가 바뀔 때 (SSE generator 알림) */
+  readonly onGenerator?: (sellerId: string, payload: Readonly<Record<string, unknown>>) => void
 }
 
 export type ChatIngestOutcome =
@@ -63,18 +95,58 @@ export type ChatIngestOutcome =
   | { readonly status: 'not_found' }
   | { readonly status: 'save_failed' }
 
-export interface ScopeView {
-  readonly date: string
+export type ScopeView = FullView
+
+/** 채팅 메시지 한 건 (AC-S05-20) */
+export interface MessageItem {
+  readonly id: string
+  readonly broadcast: string
+  readonly channel: string
+  readonly nick: string
+  readonly text: string
+  /** 방송자 본인 메시지 (owner) */
+  readonly owner: boolean
   readonly seq: number
-  readonly broadcasts: unknown
-  readonly products: unknown
-  readonly claims: unknown
-  readonly pending: unknown
-  readonly buyers: unknown
-  readonly settlements: unknown
-  readonly effects: unknown
-  readonly cancelRequests: unknown
-  readonly attention: readonly AttentionItem[]
+  /** 서버 도착 시각 (UTC ISO) */
+  readonly at: string
+  /** 게시 시각 (UTC ISO — 없었으면 도착 시각) */
+  readonly publishedAt: string
+  /** 무시한 방송자 메시지 / 주문이었던 메시지 / 취소였던 메시지 (엔진 기록, listMessages) */
+  readonly ignored: boolean
+  readonly order: boolean
+  readonly cancel: boolean
+  /** 주문 번호·취소 번호 (주문·취소였던 메시지만 — 그 방송 설정의 parseChat) */
+  readonly orders: readonly number[]
+  readonly cancels: readonly number[]
+  /** 언급 번호 (그 방송 설정의 parseChat mentions) */
+  readonly mentions: readonly number[]
+  /** 찜으로 바꾼 번호 (엔진 기록) */
+  readonly converted: readonly number[]
+  /** 그 메시지로 생긴 찜 ID (채팅 찜·메시지 변환 찜), 생성 순서 */
+  readonly claims: readonly string[]
+  /** 엔진이 처리하지 못한 입력 (확인 필요) */
+  readonly failed: boolean
+}
+
+export interface MessagesView {
+  readonly date: string
+  readonly rehearsal: boolean
+  /** 이 조회가 본 범위의 지금 seq */
+  readonly seq: number
+  readonly messages: readonly MessageItem[]
+  /** 그쪽으로 더 있는지 (after면 뒤로, 아니면 앞으로) */
+  readonly more: boolean
+}
+
+export interface ChangesView extends Omit<ChangeSet, 'touchedMessages'> {
+  /** since 뒤에 기록이 바뀐 이미 받은 메시지 (메시지 변환으로 바꾼 번호·찜이 늘었다) — 메시지 ID로 덮는다 */
+  readonly messages: readonly MessageItem[]
+}
+
+/** 상품별 조치 기록 거르기 (AC-S05-35) */
+export interface ProductFilter {
+  readonly b: string
+  readonly no: number
 }
 
 export interface HistoryItem {
@@ -91,23 +163,29 @@ export interface HistoryItem {
 const rejection = (status: number, code: Rejection['code'], message: string, problems: readonly FieldProblem[] = []): Rejection => ({ status, code, message, problems })
 const invalidInput = (problems: readonly FieldProblem[]): Rejection => rejection(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', problems)
 
-/** 엔진 상태의 차단 목록 (구매자로 기록되지 않은 채널 차단도 포함). 영속 맵의 잎을 훑는다 */
-function blockedIds(state: EngineState): string[] {
-  const ids: string[] = []
-  for (const branch of Object.values(state.blocked.root)) {
-    for (const twig of Object.values(branch)) {
-      for (const leaf of Object.values(twig)) for (const [id, value] of leaf) if (value === true) ids.push(id)
-    }
-  }
-  return ids.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
-}
+const notFound = { kind: 'not_found' } as const
+/** 코드 포인트 수 (이모지 하나 = 1) */
+const charCount = (value: string): number => [...value].length
 
 export class Service {
   readonly #options: ServiceOptions
   readonly #sellerKeys = new Map<string, Buffer>()
+  /** 리허설 가짜 채팅 생성기 (D-082) */
+  readonly generators: ChatGenerators
 
   constructor(options: ServiceOptions) {
     this.#options = options
+    this.generators = new ChatGenerators({
+      timer: options.generatorTimer ?? realTimer,
+      now: () => options.clock.now(),
+      read: async (sellerId, date) => {
+        const runtime = await options.writer.read(sellerId, date, true)
+        return { state: runtime.state, seq: runtime.seq }
+      },
+      ingest: async (sellerId, chat) => (await this.ingestChat(sellerId, chat)).status,
+      publish: (sellerId, date, status) => options.onGenerator?.(sellerId, { date, rehearsal: true, ...status }),
+      ...(options.generatorSpeed === undefined ? {} : { speed: options.generatorSpeed }),
+    })
   }
 
   get writer(): ScopeWriter {
@@ -173,27 +251,34 @@ export class Service {
 
   // ── 방송 만들기·끝내기 (AC-S04-21·27) ─────────────────────────────────
 
-  async createBroadcast(sellerId: string, actor: Actor, requestId: string, input: { date?: string; title?: string }): Promise<WriteOutcome> {
+  async createBroadcast(sellerId: string, actor: Actor, requestId: string, input: { date?: string; title?: string; rehearsal?: boolean }): Promise<WriteOutcome> {
     const { writer, db, ids } = this.#options
     const date = input.date ?? kstDate(this.#options.clock.now())
+    const rehearsal = input.rehearsal === true
     const settings = resolveSettings(await this.#settingsOverride(db, sellerId))
     const b = ids.broadcast()
     return writer.write({
       sellerId,
       date,
+      rehearsal,
       createScope: true,
       requestId,
-      prepare: async () => {
-        const previous = await previousScopeDate(db, sellerId, date)
-        if (previous === null) return []
-        const state = (await writer.read(sellerId, previous)).state
-        // 문자 구매자는 날짜를 넘지 않고, 휴대폰 번호인 ID(D-079 전 로그에 남은 값)는 새 범위에 다시 쓰지 않는다 (AC-S04-27, TD-S04-004)
-        return blockedIds(state).filter((id) => !id.startsWith('sms:') && !looksLikePhoneId(id))
-      },
+      // 차단 이어받기는 실제 범위에서 실제 범위로만 (리허설 범위는 이어받지도 넘겨주지도 않는다, D-081)
+      ...(rehearsal
+        ? {}
+        : {
+            prepare: async () => {
+              const previous = await previousScopeDate(db, sellerId, date)
+              if (previous === null) return []
+              const state = (await writer.read(sellerId, previous, false)).state
+              // 코어 조회 함수만 쓴다 (D-086). 문자 구매자는 날짜를 넘지 않고, 휴대폰 번호인 ID(D-079 전 로그에 남은 값)는 새 범위에 다시 쓰지 않는다 (AC-S04-27, TD-S04-004)
+              return listBlocked(state).filter((id) => !id.startsWith('sms:') && !looksLikePhoneId(id))
+            },
+          }),
       build: (ctx, prepared) => {
         const title = input.title ?? `${String(listBroadcasts(ctx.state).length + 1)}부`
         const drafts: Draft[] = [{ fields: { type: 'broadcast.start', b, date, title, settings: { ...settings } }, actor, requestId }]
-        if (ctx.isNewScope) {
+        if (ctx.isNewScope && !rehearsal) {
           for (const buyer of (prepared as string[] | undefined) ?? []) {
             // 이어받는 차단도 checkEvent를 통과해야 기록한다 — 통과하지 못하면 그 차단만 빼고 방송은 만든다
             drafts.push({ fields: { type: 'host.blockBuyer', buyer, reason: INHERITED_BLOCK_REASON }, actor: { kind: 'server' }, skipIfInvalid: true })
@@ -210,25 +295,35 @@ export class Service {
     })
   }
 
-  /** 방송 만들기 요청 본문 검사 (날짜·제목) */
-  static broadcastInput(body: Record<string, unknown>): { ok: true; date?: string; title?: string } | { ok: false; rejection: Rejection } {
+  /** 방송 만들기 요청 본문 검사 (날짜·제목·리허설인지) */
+  static broadcastInput(body: Record<string, unknown>): { ok: true; date?: string; title?: string; rehearsal?: boolean } | { ok: false; rejection: Rejection } {
     const problems: FieldProblem[] = []
     const date = own(body, 'date')
     const title = own(body, 'title')
+    const rehearsal = own(body, 'rehearsal')
     if (date !== undefined && !isValidDate(date)) problems.push({ field: 'date', message: fieldMessage('date') })
     if (title !== undefined && (typeof title !== 'string' || title.trim() === '' || title.length > TITLE_MAX || hasControlChar(title))) {
       problems.push({ field: 'title', message: `제목은 ${String(TITLE_MAX)}자 이하의 글자로 적어 주세요.` })
     }
+    if (rehearsal !== undefined && typeof rehearsal !== 'boolean') problems.push({ field: 'rehearsal', message: '리허설인지는 예나 아니오로만 정할 수 있어요.' })
     if (problems.length > 0) return { ok: false, rejection: invalidInput(problems) }
-    return { ok: true, ...(date === undefined ? {} : { date: date as string }), ...(title === undefined ? {} : { title: (title as string).trim() }) }
+    return {
+      ok: true,
+      ...(date === undefined ? {} : { date: date as string }),
+      ...(title === undefined ? {} : { title: (title as string).trim() }),
+      ...(rehearsal === undefined ? {} : { rehearsal: rehearsal as boolean }),
+    }
   }
 
   async endBroadcast(sellerId: string, actor: Actor, requestId: string, broadcastId: string): Promise<WriteOutcome> {
     const row = await findBroadcast(this.#options.db, sellerId, broadcastId)
     if (row === null) return { kind: 'not_found' }
+    // 리허설 생성기는 끝내기를 기록하기 전에 멈춘다 — 보내던 메시지가 끝나기를 기다린 뒤 (끝낸 방송에 생성기가 더 쓰지 않는다, D-082)
+    if (row.rehearsal) await this.generators.stop(sellerId, broadcastId, 'ended')
     return this.#options.writer.write({
       sellerId,
       date: row.date,
+      rehearsal: row.rehearsal,
       createScope: false,
       requestId,
       build: () => [{ fields: { type: 'broadcast.end', b: broadcastId }, actor, requestId }],
@@ -251,6 +346,7 @@ export class Service {
     requestId: string,
     body: Record<string, unknown>,
     queryDate: string | undefined,
+    queryRehearsal?: boolean,
   ): Promise<WriteOutcome | { kind: 'phone'; outcome: WriteOutcome; phoneLast4: string | null }> {
     const type = own(body, 'type')
     const spec = typeof type === 'string' && Object.hasOwn(API_EVENTS, type) ? API_EVENTS[type] : undefined
@@ -264,28 +360,33 @@ export class Service {
       if (value !== undefined && field !== 'phone') Object.defineProperty(fields, field, { value, enumerable: true, writable: true, configurable: true })
     }
 
-    // 범위 정하기: 방송이 있는 종류는 그 방송의 날짜, 없는 종류는 요청에 적은 날짜 (D-069)
+    // 범위 정하기: 방송이 있는 종류는 그 방송의 범위(날짜·리허설인지), 없는 종류는 요청에 적은 날짜와 리허설인지(적지 않으면 실제) (D-069, D-081)
     let date: string
+    let rehearsal: boolean
     if (spec.broadcast) {
       if (queryDate !== undefined) return { kind: 'rejected', rejection: invalidInput([{ field: 'date', message: '방송이 있는 입력에는 날짜를 따로 적지 않아요.' }]) }
+      if (queryRehearsal !== undefined) return { kind: 'rejected', rejection: invalidInput([{ field: 'rehearsal', message: '방송이 있는 입력에는 리허설인지를 따로 적지 않아요.' }]) }
       const b = own(body, 'b')
       if (typeof b !== 'string' || b === '') return { kind: 'rejected', rejection: invalidInput([{ field: 'b', message: fieldMessage('b') }]) }
       const row = await findBroadcast(this.#options.db, sellerId, b)
       if (row === null) return { kind: 'not_found' }
       date = row.date
+      rehearsal = row.rehearsal
     } else {
       if (queryDate === undefined || !isValidDate(queryDate)) return { kind: 'rejected', rejection: invalidInput([{ field: 'date', message: "어느 날짜의 입력인지 '2026-10-18'처럼 적어 주세요." }]) }
       date = queryDate
+      rehearsal = queryRehearsal === true
       const eventDate = own(body, 'date')
       if (type.startsWith('settlement.') && isValidDate(eventDate) && eventDate !== date) {
         return { kind: 'rejected', rejection: invalidInput([{ field: 'date', message: '고른 날짜와 같은 날짜만 적을 수 있어요.' }]) }
       }
     }
 
-    if (type === 'sms') return this.#writeSms(sellerId, actor, requestId, date, body, fields)
+    if (type === 'sms') return this.#writeSms(sellerId, actor, requestId, date, rehearsal, body, fields)
     return this.#options.writer.write({
       sellerId,
       date,
+      rehearsal,
       createScope: false,
       requestId,
       build: () => [{ fields, actor, requestId }],
@@ -298,6 +399,7 @@ export class Service {
     actor: Actor,
     requestId: string,
     date: string,
+    rehearsal: boolean,
     body: Record<string, unknown>,
     fields: Record<string, unknown>,
   ): Promise<WriteOutcome | { kind: 'phone'; outcome: WriteOutcome; phoneLast4: string | null }> {
@@ -309,6 +411,7 @@ export class Service {
     const outcome = await this.#options.writer.write({
       sellerId,
       date,
+      rehearsal,
       createScope: false,
       requestId,
       build: (ctx) => [
@@ -340,13 +443,21 @@ export class Service {
     throw new Error('문자찜 ref를 만들지 못했다')
   }
 
-  // ── 채팅 수집 함수 (AC-S04-33) ────────────────────────────────────────
+  // ── 채팅 수집 함수 (AC-S04-33, AC-S05-51·52) ─────────────────────────
 
   /**
-   * 채팅 한 건을 받는다 (S05 리허설·S10 수집기가 쓴다 — 브라우저 API는 없다). 허용 필드로 새 엔진 이벤트를 만들어 같은 기록 경로를 탄다.
-   * 같은 (판매자, 방송, 메시지 ID)는 한 번만 기록한다. 조치자는 수집기다.
+   * 채팅 한 건을 받는다 (S05 리허설 생성기·시청자로 보내기, S10 수집기가 쓴다 — 화면 이벤트 쓰기 API는 chat을 받지 않는다).
+   * 허용 필드로 새 엔진 이벤트를 만들어 같은 기록 경로를 탄다. 같은 (판매자, 방송, 메시지 ID)는 한 번만 기록한다. 조치자는 수집기다.
+   * 그 방송의 범위(실제·리허설)로 간다
    */
   async ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome> {
+    const checked = await this.#chatInput(sellerId, input)
+    if ('status' in checked) return checked
+    return ingestOutcome(await this.#recordChat(sellerId, checked.row, checked.fields, null))
+  }
+
+  /** 수집 함수 입력 검사 (필드·방송) */
+  async #chatInput(sellerId: string, input: unknown): Promise<ChatIngestOutcome | { row: BroadcastRow; fields: Record<string, unknown> }> {
     if (!isPlainObject(input)) return { status: 'rejected', problems: [{ field: null, message: '채팅은 객체여야 해요.' }] }
     const unknown = ownKeys(input).filter((key) => !CHAT_FIELDS.includes(key))
     if (unknown.length > 0) return { status: 'rejected', problems: unknownFieldProblems(unknown) }
@@ -361,65 +472,246 @@ export class Service {
       const value = own(input, field)
       if (value !== undefined) fields[field] = value
     }
-    const outcome = await this.#options.writer.write({
+    return { row, fields }
+  }
+
+  /** 채팅 이벤트 기록 (조치자 수집기). 요청 번호가 있으면(시청자로 보내기) 그 요청 번호로도 한 번만 */
+  #recordChat(sellerId: string, row: BroadcastRow, fields: Record<string, unknown>, requestId: string | null): Promise<WriteOutcome> {
+    const chat = { b: row.id, id: fields.id as string }
+    return this.#options.writer.write({
       sellerId,
       date: row.date,
+      rehearsal: row.rehearsal,
       createScope: false,
-      requestId: null,
-      chat: { b, id },
-      build: () => [{ fields, actor: { kind: 'collector' }, chat: { b, id } }],
+      requestId,
+      chat,
+      build: () => [{ fields, actor: { kind: 'collector' }, chat, ...(requestId === null ? {} : { requestId }) }],
     })
-    switch (outcome.kind) {
-      case 'ok':
-        return { status: 'recorded', date: outcome.result.date, seq: outcome.result.seq, changed: outcome.result.changed, failed: outcome.result.failed, effects: outcome.result.effects }
-      case 'duplicate':
-        return { status: 'duplicate' }
-      case 'rejected':
-        return { status: 'rejected', problems: outcome.rejection.problems }
-      case 'not_found':
-        return { status: 'not_found' }
-      case 'save_failed':
-        return { status: 'save_failed' }
+  }
+
+  // ── 리허설: 시청자로 보내기·가짜 채팅 생성기 (AC-S05-51·52, D-082) ────────
+
+  /** 판매자의 리허설 방송 (실제 방송·다른 판매자·없는 방송이면 null — 404, 아무것도 기록하지 않는다) */
+  async #rehearsalBroadcast(sellerId: string, b: string): Promise<BroadcastRow | null> {
+    const row = await findBroadcast(this.#options.db, sellerId, b)
+    return row !== null && row.rehearsal ? row : null
+  }
+
+  /** 시청자로 보내기 요청 검사: { nick, text, channel? } (요청 번호는 API가 확인했다) */
+  static viewerChatInput(body: Record<string, unknown>): { ok: true; nick: string; text: string; channel?: string } | { ok: false; rejection: Rejection } {
+    const extra = ownKeys(body).filter((key) => !['requestId', 'nick', 'text', 'channel'].includes(key))
+    if (extra.length > 0) return { ok: false, rejection: rejection(400, 'UNKNOWN_FIELD', '받을 수 없는 항목이 있어요.', unknownFieldProblems(extra)) }
+    const nick = own(body, 'nick')
+    const text = own(body, 'text')
+    const channel = own(body, 'channel')
+    const problems: FieldProblem[] = []
+    if (typeof nick !== 'string' || nick.trim() === '' || charCount(nick) > VIEWER_NICK_MAX || hasControlChar(nick)) {
+      problems.push({ field: 'nick', message: `닉네임은 1~${String(VIEWER_NICK_MAX)}자로 적어 주세요.` })
     }
+    if (typeof text !== 'string' || text.trim() === '' || charCount(text) > VIEWER_TEXT_MAX) problems.push({ field: 'text', message: `채팅은 1~${String(VIEWER_TEXT_MAX)}자로 적어 주세요.` })
+    if (channel !== undefined && (typeof channel !== 'string' || (channel !== 'new' && !FAKE_CHANNEL_RE.test(channel)))) {
+      problems.push({ field: 'channel', message: "채널은 가짜 채널(sim_로 시작)이나 'new'로 골라 주세요." })
+    }
+    if (problems.length > 0) return { ok: false, rejection: invalidInput(problems) }
+    return { ok: true, nick: nick as string, text: text as string, ...(channel === undefined ? {} : { channel: channel as string }) }
   }
 
-  // ── 조회 (AC-S04-52) ──────────────────────────────────────────────────
+  /**
+   * 리허설 방송에 가짜 시청자로 한 줄 보내기 (AC-S05-52). 메시지 ID는 서버가 만들고 수집 함수 경로로 기록한다(조치자 collector).
+   * 채널: 생성기가 쓴 가짜 채널·다른 가짜 채널(sim_…)이면 그대로, 'new'면 새 가짜 채널, 없으면 닉네임마다 같은 가짜 채널.
+   * 본문·닉네임은 시청자 쪽 값이라 휴대폰 번호 검사를 하지 않는다(R-1). 같은 요청 번호는 한 번만 기록한다
+   */
+  async viewerChat(sellerId: string, b: string, requestId: string, input: { nick: string; text: string; channel?: string }): Promise<WriteOutcome> {
+    const row = await this.#rehearsalBroadcast(sellerId, b)
+    if (row === null) return notFound
+    const channel = input.channel === undefined ? viewerChannel(input.nick) : input.channel === 'new' ? `sim_v_${randomBytes(9).toString('base64url')}` : input.channel
+    const fields = { type: 'chat', b, id: `simv-${randomBytes(12).toString('base64url')}`, ch: channel, nick: input.nick, text: input.text }
+    return this.#recordChat(sellerId, row, fields, requestId)
+  }
 
-  async broadcasts(sellerId: string): Promise<{ id: string; date: string; title: string; ended: boolean; endedAt: string | null }[]> {
+  /** 생성기 시작 요청 검사: { requestId?, total?, perSecond?, seed? } */
+  static generatorInput(body: Record<string, unknown>): { ok: true; total: number; perSecond: number; seed: number | null; requestId: string | null } | { ok: false; rejection: Rejection } {
+    const extra = ownKeys(body).filter((key) => !['requestId', 'total', 'perSecond', 'seed'].includes(key))
+    if (extra.length > 0) return { ok: false, rejection: rejection(400, 'UNKNOWN_FIELD', '받을 수 없는 항목이 있어요.', unknownFieldProblems(extra)) }
+    const total = own(body, 'total') ?? GENERATOR_TOTAL_DEFAULT
+    const perSecond = own(body, 'perSecond') ?? GENERATOR_RATE_DEFAULT
+    const seed = own(body, 'seed')
+    const requestId = own(body, 'requestId')
+    const isInt = (value: unknown, min: number, max: number) => typeof value === 'number' && Number.isSafeInteger(value) && value >= min && value <= max
+    const problems: FieldProblem[] = []
+    if (!isInt(total, GENERATOR_TOTAL_MIN, GENERATOR_TOTAL_MAX)) problems.push({ field: 'total', message: '총 개수는 1부터 10,000까지의 정수로 적어 주세요.' })
+    if (!isInt(perSecond, GENERATOR_RATE_MIN, GENERATOR_RATE_MAX)) problems.push({ field: 'perSecond', message: '초당 개수는 1부터 50까지의 정수로 적어 주세요.' })
+    if (seed !== undefined && seed !== null && !isInt(seed, 0, GENERATOR_SEED_MAX)) problems.push({ field: 'seed', message: '시드는 0부터 2,147,483,647까지의 정수로 적어 주세요.' })
+    if (requestId !== undefined && (typeof requestId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(requestId))) {
+      problems.push({ field: 'requestId', message: "요청 번호는 영문·숫자·'_'·'-'로 된 1~64자여야 해요." })
+    }
+    if (problems.length > 0) return { ok: false, rejection: invalidInput(problems) }
+    return { ok: true, total: total as number, perSecond: perSecond as number, seed: typeof seed === 'number' ? seed : null, requestId: typeof requestId === 'string' ? requestId : null }
+  }
+
+  /**
+   * 생성기 시작 (AC-S05-51). 실제 방송·다른 판매자·없는 방송은 404, 끝난 방송·이미 도는 생성기는 409.
+   * 같은 요청 번호로 다시 보낸 시작은 그 생성기 상태(200)다
+   */
+  async startGenerator(
+    sellerId: string,
+    b: string,
+    input: { total: number; perSecond: number; seed: number | null; requestId: string | null },
+  ): Promise<{ kind: 'ok'; status: GeneratorStatus } | { kind: 'not_found' } | { kind: 'rejected'; rejection: Rejection }> {
+    const row = await this.#rehearsalBroadcast(sellerId, b)
+    if (row === null) return notFound
+    if (row.endedAt !== null) return { kind: 'rejected', rejection: rejection(409, 'BROADCAST_ENDED', '끝난 방송이라 가짜 채팅을 보낼 수 없어요.') }
+    const seed = input.seed ?? randomBytes(4).readUInt32BE(0) % (GENERATOR_SEED_MAX + 1)
+    const started = await this.generators.start(sellerId, b, row.date, { total: input.total, perSecond: input.perSecond, seed }, input.requestId)
+    if (started.kind === 'running' && !started.same) {
+      return { kind: 'rejected', rejection: rejection(409, 'GENERATOR_RUNNING', '이미 가짜 채팅을 보내는 중이에요. 멈춘 뒤 다시 시작해 주세요.') }
+    }
+    return { kind: 'ok', status: started.status }
+  }
+
+  async stopGenerator(sellerId: string, b: string): Promise<GeneratorStatus | null> {
+    if ((await this.#rehearsalBroadcast(sellerId, b)) === null) return null
+    return this.generators.stop(sellerId, b, 'stopped')
+  }
+
+  async generatorStatus(sellerId: string, b: string): Promise<GeneratorStatus | null> {
+    if ((await this.#rehearsalBroadcast(sellerId, b)) === null) return null
+    return this.generators.status(sellerId, b)
+  }
+
+  // ── 조회 (AC-S04-52, AC-S05-20·35·50·60·61) ───────────────────────────
+
+  async broadcasts(sellerId: string): Promise<{ id: string; date: string; title: string; rehearsal: boolean; ended: boolean; endedAt: string | null }[]> {
     const rows = await listBroadcastRows(this.#options.db, sellerId)
-    return rows.map((row) => ({ id: row.id, date: row.date, title: row.title, ended: row.endedAt !== null, endedAt: row.endedAt === null ? null : row.endedAt.toISOString() }))
+    return rows.map((row) => ({
+      id: row.id,
+      date: row.date,
+      title: row.title,
+      rehearsal: row.rehearsal,
+      ended: row.endedAt !== null,
+      endedAt: row.endedAt === null ? null : row.endedAt.toISOString(),
+    }))
   }
 
-  scopes(sellerId: string): Promise<{ date: string; seq: number }[]> {
-    return scopeSeqs(this.#options.db, sellerId)
+  /** 범위별 지금 seq (범위 행의 seq 칸 — 이벤트 표를 모으지 않는다). rehearsal을 주면 그쪽 범위만 */
+  scopes(sellerId: string, rehearsal?: boolean): Promise<ScopeSeqRow[]> {
+    return scopeSeqs(this.#options.db, sellerId, rehearsal)
   }
 
-  /** 범위(날짜) 조회. 값은 코어 조회 함수의 결과(시각은 ISO). 없는 범위면 null */
-  async scopeView(sellerId: string, date: string): Promise<ScopeView | null> {
-    const runtime = await this.#options.writer.read(sellerId, date)
+  /** 범위 조회. 값은 코어 조회 함수의 결과(시각은 ISO). 없는 범위면 null */
+  async scopeView(sellerId: string, date: string, rehearsal = false): Promise<ScopeView | null> {
+    const runtime = await this.#options.writer.read(sellerId, date, rehearsal)
     if (runtime.seq === 0) return null
-    const state = runtime.state
-    return withIsoTimes({
-      date,
-      seq: runtime.seq,
-      broadcasts: listBroadcasts(state),
-      products: listProducts(state),
-      claims: listClaims(state),
-      pending: listPending(state),
-      buyers: listBuyers(state),
-      settlements: listSettlements(state),
-      effects: listEffects(state),
-      cancelRequests: listCancelRequests(state),
-      attention: [...runtime.attention],
+    return fullView(runtime)
+  }
+
+  /**
+   * 증분 조회 (AC-S05-61, D-085): since 뒤로 값이 달라진 항목과 사라진 키, 기록이 바뀐 이미 받은 메시지.
+   * 없는 범위면 null(404), since가 지금보다 크거나 서버가 둔 기준점 밖이면 'resync'
+   */
+  async changes(sellerId: string, date: string, rehearsal: boolean, since: number): Promise<ChangesView | 'resync' | null> {
+    const runtime = await this.#options.writer.read(sellerId, date, rehearsal)
+    if (runtime.seq === 0 || runtime.scopeId === null) return null
+    const set = changeSet(runtime, since)
+    if (set === null) return 'resync'
+    const { touchedMessages, ...rest } = set
+    let messages: MessageItem[] = []
+    if (touchedMessages.length > 0) {
+      const rows = await chatRowsByIds(this.#options.db, sellerId, runtime.scopeId, touchedMessages)
+      messages = this.#messageItems(runtime.state, rows.filter((row) => row.seq <= runtime.seq))
+    }
+    return { ...rest, messages }
+  }
+
+  /**
+   * 채팅 메시지 이어 받기 (AC-S05-20). b를 주면 그 방송만(그 범위의 방송이 아니면 null — 리허설 방송은 리허설을 명시해야 보인다).
+   * after: 그 seq 뒤 limit개 / before: 그 seq 앞의 가장 최근 limit개 / 둘 다 없으면 가장 최근 limit개. 늘 seq 오름차순.
+   * 조회가 본 범위 상태(seq)까지의 메시지만 준다
+   */
+  async messages(
+    sellerId: string,
+    date: string,
+    rehearsal: boolean,
+    query: { readonly b?: string; readonly after?: number; readonly before?: number; readonly limit: number },
+  ): Promise<MessagesView | null> {
+    const runtime = await this.#options.writer.read(sellerId, date, rehearsal)
+    if (runtime.seq === 0 || runtime.scopeId === null) return null
+    if (query.b !== undefined && getBroadcast(runtime.state, query.b) === null) return null
+    const before = Math.min(query.before ?? runtime.seq + 1, runtime.seq + 1)
+    const { rows, more } = await chatRows(this.#options.db, sellerId, runtime.scopeId, {
+      ...(query.b === undefined ? {} : { b: query.b }),
+      ...(query.after === undefined ? {} : { after: query.after }),
+      before,
+      limit: query.limit,
+    })
+    return { date, rehearsal, seq: runtime.seq, messages: this.#messageItems(runtime.state, rows), more }
+  }
+
+  /** 채팅 이벤트 행 → 메시지 항목 (주문·취소·무시·바꾼 번호는 엔진 기록, 언급은 그 방송 설정의 parseChat) */
+  #messageItems(state: ScopeStateLike, rows: readonly ChatRow[]): MessageItem[] {
+    const lookup: MessageLookup = messageLookup(state)
+    const settingsOf = new Map<string, SaleSettings | null>()
+    const settings = (b: string): SaleSettings | null => {
+      let found = settingsOf.get(b)
+      if (found === undefined) {
+        found = getBroadcast(state, b)?.settings ?? null
+        settingsOf.set(b, found)
+      }
+      return found
+    }
+    return rows.map((row) => {
+      const event = JSON.parse(row.body) as { b: string; id: string; ch: string; nick: string; text: string; owner?: boolean; at: number; publishedAt?: number }
+      const info = row.failed ? undefined : lookup.byKey.get(JSON.stringify([event.b, event.id]))
+      const parsed = settings(event.b) === null ? null : parseChat(event.text, settings(event.b) as SaleSettings)
+      const order = info?.order ?? false
+      const cancel = info?.cancel ?? false
+      return {
+        id: event.id,
+        broadcast: event.b,
+        channel: event.ch,
+        nick: event.nick,
+        text: event.text,
+        owner: event.owner === true,
+        seq: row.seq,
+        at: iso(event.at),
+        publishedAt: iso(info?.publishedAt ?? event.publishedAt ?? event.at),
+        ignored: info?.ignored ?? false,
+        order,
+        cancel,
+        orders: order && parsed !== null ? parsed.claims : [],
+        cancels: cancel && parsed !== null ? parsed.cancels : [],
+        mentions: parsed?.mentions ?? [],
+        converted: info === undefined ? [] : [...info.converted],
+        claims: info === undefined ? [] : [...(lookup.claimsBySeq.get(row.seq) ?? [])],
+        failed: row.failed,
+      }
     })
   }
 
-  /** 이력 조회: seq 순, after 뒤부터 limit개. 전화번호 키는 빼고 낸다. 없는 범위면 null */
-  async history(sellerId: string, date: string, after: number, limit: number): Promise<HistoryItem[] | null> {
-    const scopeId = await findScopeId(this.#options.db, sellerId, date)
+  /**
+   * 이력 조회: seq 순, after 뒤부터 limit개. 전화번호 키는 빼고 낸다. 없는 범위면 null.
+   * product를 주면 그 방송·번호를 대상으로 한 product.*·host.* 이벤트만(번호 변경은 이전·새 번호 모두, AC-S05-35)
+   */
+  async history(sellerId: string, date: string, after: number, limit: number, rehearsal = false, product?: ProductFilter): Promise<HistoryItem[] | null> {
+    const scopeId = await findScopeId(this.#options.db, sellerId, date, rehearsal)
     if (scopeId === null) return null
-    const rows = await historyRows(this.#options.db, sellerId, scopeId, after, limit)
-    if (rows.length === 0 && after === 0) return null
+    let rows: HistoryRow[]
+    if (product === undefined) {
+      rows = await historyRows(this.#options.db, sellerId, scopeId, after, limit)
+      if (rows.length === 0 && after === 0) return null
+    } else {
+      rows = []
+      // 조치 이벤트를 차례로 읽으며 그 상품을 대상으로 한 것만 모은다 (본문은 JSON 문자열이라 DB에서 거르지 않는다)
+      for (let cursor = after; rows.length < limit; ) {
+        const batch = await actionRows(this.#options.db, sellerId, scopeId, cursor, 1000)
+        for (const row of batch) {
+          if (targetsProduct(JSON.parse(row.body) as Record<string, unknown>, product)) rows.push(row)
+          if (rows.length >= limit) break
+        }
+        if (batch.length < 1000) break
+        cursor = (batch.at(-1) as HistoryRow).seq
+      }
+    }
     return rows.map((row) => {
       const event = JSON.parse(row.body) as Record<string, unknown>
       const fields: Record<string, unknown> = {}
@@ -439,5 +731,39 @@ export class Service {
         failed: row.failed,
       }
     })
+  }
+}
+
+type ScopeStateLike = Parameters<typeof messageLookup>[0]
+
+/** 그 방송·번호를 대상으로 한 이벤트인지 (번호 변경은 이전·새 번호 모두) */
+function targetsProduct(event: Record<string, unknown>, product: ProductFilter): boolean {
+  if (event.b !== product.b) return false
+  if (event.type === 'product.renumber') return event.from === product.no || event.to === product.no
+  return event.no === product.no
+}
+
+/** 닉네임마다 같은 가짜 채널 (FNV-1a — 숫자 덩어리가 짧아 번호 모양이 될 수 없다) */
+function viewerChannel(nick: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < nick.length; i++) {
+    h ^= nick.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return `sim_n_${(h >>> 0).toString(36)}`
+}
+
+function ingestOutcome(outcome: WriteOutcome): ChatIngestOutcome {
+  switch (outcome.kind) {
+    case 'ok':
+      return { status: 'recorded', date: outcome.result.date, seq: outcome.result.seq, changed: outcome.result.changed, failed: outcome.result.failed, effects: outcome.result.effects }
+    case 'duplicate':
+      return { status: 'duplicate' }
+    case 'rejected':
+      return { status: 'rejected', problems: outcome.rejection.problems }
+    case 'not_found':
+      return { status: 'not_found' }
+    case 'save_failed':
+      return { status: 'save_failed' }
   }
 }

@@ -1,4 +1,6 @@
-// /api 경로 (AC-S04-40·41·42·50~52·60). 계약은 harness/sprints/S04/dev-notes.md "dev-server > 웹(S05)에게"에 적었다.
+// /api 경로 (AC-S04-40·41·42·50~52·60, AC-S05-20·35·50~52·60·61·91). 계약은 harness/sprints/S04/dev-notes.md "dev-server > 웹(S05)에게"와
+// harness/sprints/S05/dev-notes.md "dev-server > 화면(dev-web)에게"에 적었다.
+// - 범위 = (날짜, 리허설인지). 날짜로 범위를 고르는 경로는 ?rehearsal=true를 적어야 리허설 범위이고, 적지 않으면 실제 범위다 (D-081).
 // - 상태를 바꾸는 요청(POST·PUT·PATCH·DELETE): Origin이 설정한 앱 주소와 같아야 하고(403), 본문은 JSON 객체만(415·400), 64KB 이하(413).
 // - 로그인·헬스체크 밖은 세션이 필요하다(401). 다른 판매자의 자원은 404(있는지 알리지 않는다).
 // - 다른 출처를 허용하는 CORS 헤더를 내지 않는다. 모든 응답은 Cache-Control: no-store.
@@ -12,7 +14,7 @@ import { CLEAR_SESSION_COOKIE, SESSION_COOKIE, sessionCookie, type Auth, type Se
 import { apiError, JSON_CONTENT_TYPE } from './errors.ts'
 import type { StreamHub } from './hub.ts'
 import { unknownFieldProblems } from './messages.ts'
-import { Service } from './service.ts'
+import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.ts'
 import type { Actor, WriteOutcome, WriteResult } from './writer.ts'
 
 /** 요청 본문 상한 (AC-S04-34) */
@@ -25,6 +27,8 @@ export interface ApiDeps {
   readonly hub: StreamHub
   /** 화면 앱 주소 (Origin 검사, 예: https://app.livejjim.kr) */
   readonly appOrigin: string
+  /** 화면 설정 (방송자 조치 대기 시간 — 운영 5000, E2E 기동만 줄인다) */
+  readonly clientConfig?: { readonly hostActionDelayMs: number }
 }
 
 type Env = { Variables: { body: Record<string, unknown> | null; session: SessionContext } }
@@ -43,12 +47,31 @@ function json(c: Context, body: unknown, status: 200 = 200): Response {
 
 /** 쓰기 결과 → 응답 본문 */
 function resultBody(result: WriteResult): Record<string, unknown> {
-  const body: Record<string, unknown> = { date: result.date, seq: result.seq, type: result.type, changed: result.changed, effects: [...result.effects] }
+  const body: Record<string, unknown> = {
+    date: result.date,
+    rehearsal: result.rehearsal,
+    seq: result.seq,
+    type: result.type,
+    changed: result.changed,
+    effects: [...result.effects],
+  }
   const event = result.event
-  if (result.type === 'broadcast.start') body.broadcast = { id: event.b, date: event.date, title: event.title }
+  if (result.type === 'broadcast.start') body.broadcast = { id: event.b, date: event.date, title: event.title, rehearsal: result.rehearsal }
   if (result.type === 'sms') body.phoneLast4 = typeof event.phoneLast4 === 'string' ? event.phoneLast4 : null
+  // 시청자로 보내기 (서버가 만든 메시지 ID와 쓴 가짜 채널)
+  if (result.type === 'chat') body.message = { id: event.id, channel: event.ch }
   return body
 }
+
+/** ?rehearsal= 읽기: 없으면 undefined(실제), 'true'·'false'만 받는다 */
+function rehearsalOf(c: Context): { ok: true; value: boolean | undefined } | { ok: false; response: Response } {
+  const raw = c.req.query('rehearsal')
+  if (raw === undefined) return { ok: true, value: undefined }
+  if (raw === 'true' || raw === 'false') return { ok: true, value: raw === 'true' }
+  return { ok: false, response: apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'rehearsal', message: "리허설 범위는 rehearsal=true, 실제 범위는 적지 않거나 rehearsal=false로 적어 주세요." }]) }
+}
+
+const NUMBER_RE = /^\d{1,9}$/
 
 function outcomeResponse(c: Context, outcome: WriteOutcome): Response {
   switch (outcome.kind) {
@@ -166,6 +189,9 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     return c.json({ seller: { name: session.sellerName }, loginId: session.loginId })
   })
 
+  // 화면 설정 (방송자 조치 대기 시간, D-083 — 운영 5000밀리초)
+  api.get('/client-config', (c) => c.json({ hostActionDelayMs: deps.clientConfig?.hostActionDelayMs ?? 5000 }))
+
   // ── 설정 (AC-S04-50) ──────────────────────────────────────────────────
   api.get('/settings', async (c) => c.json({ settings: await service.settings(sellerOf(c)) }))
   api.patch('/settings', async (c) => {
@@ -182,7 +208,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (requestId === null) return invalidRequestId()
     const prior = await service.priorResult(sellerOf(c), requestId)
     if (prior !== null) return outcomeResponse(c, { kind: 'duplicate', result: prior })
-    const extra = onlyKeys(input, ['requestId', 'date', 'title'])
+    const extra = onlyKeys(input, ['requestId', 'date', 'title', 'rehearsal'])
     if (extra !== null) return extra
     const parsed = Service.broadcastInput(input)
     if (!parsed.ok) return apiError(parsed.rejection.status, parsed.rejection.code, parsed.rejection.message, parsed.rejection.problems)
@@ -207,28 +233,122 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     // 같은 요청 번호로 이미 기록했으면(내용이 달라도) 처음 결과 (AC-S04-25). 동시에 온 경우는 기록 경로가 트랜잭션 안에서 다시 확인한다
     const prior = await service.priorResult(sellerOf(c), requestId)
     if (prior !== null) return outcomeResponse(c, { kind: 'duplicate', result: prior })
-    const outcome = await service.writeEvent(sellerOf(c), actorOf(c), requestId, input, c.req.query('date'))
+    const rehearsal = rehearsalOf(c)
+    if (!rehearsal.ok) return rehearsal.response
+    const outcome = await service.writeEvent(sellerOf(c), actorOf(c), requestId, input, c.req.query('date'), rehearsal.value)
     return outcomeResponse(c, outcome.kind === 'phone' ? outcome.outcome : outcome)
   })
 
+  // ── 리허설: 시청자로 보내기·가짜 채팅 생성기 (AC-S05-51·52) ─────────────
+  // 실제 방송·다른 판매자의 방송·없는 방송이면 404이고 아무것도 기록하지 않는다
+  api.post('/broadcasts/:id/rehearsal/chat', async (c) => {
+    const input = body(c)
+    const requestId = requestIdOf(input)
+    if (requestId === null) return invalidRequestId()
+    const prior = await service.priorResult(sellerOf(c), requestId)
+    if (prior !== null) return outcomeResponse(c, { kind: 'duplicate', result: prior })
+    const parsed = Service.viewerChatInput(input)
+    if (!parsed.ok) return apiError(parsed.rejection.status, parsed.rejection.code, parsed.rejection.message, parsed.rejection.problems)
+    return outcomeResponse(c, await service.viewerChat(sellerOf(c), c.req.param('id'), requestId, parsed))
+  })
+  api.get('/broadcasts/:id/rehearsal/generator', async (c) => {
+    const status = await service.generatorStatus(sellerOf(c), c.req.param('id'))
+    return status === null ? notFound() : c.json({ generator: status })
+  })
+  api.post('/broadcasts/:id/rehearsal/generator/start', async (c) => {
+    const parsed = Service.generatorInput(body(c))
+    if (!parsed.ok) return apiError(parsed.rejection.status, parsed.rejection.code, parsed.rejection.message, parsed.rejection.problems)
+    const started = await service.startGenerator(sellerOf(c), c.req.param('id'), parsed)
+    if (started.kind === 'not_found') return notFound()
+    if (started.kind === 'rejected') return apiError(started.rejection.status, started.rejection.code, started.rejection.message, started.rejection.problems)
+    return c.json({ generator: started.status })
+  })
+  api.post('/broadcasts/:id/rehearsal/generator/stop', async (c) => {
+    const extra = onlyKeys(body(c), [])
+    if (extra !== null) return extra
+    const status = await service.stopGenerator(sellerOf(c), c.req.param('id'))
+    return status === null ? notFound() : c.json({ generator: status })
+  })
+
   // ── 조회 (AC-S04-52) ──────────────────────────────────────────────────
-  api.get('/days', async (c) => c.json({ days: await service.scopes(sellerOf(c)) }))
+  // 범위 목록: 적지 않으면 실제 범위만, ?rehearsal=true면 리허설 범위만 (범위 행의 seq — 이벤트 표를 모으지 않는다, AC-S05-60)
+  api.get('/days', async (c) => {
+    const rehearsal = rehearsalOf(c)
+    if (!rehearsal.ok) return rehearsal.response
+    return c.json({ days: await service.scopes(sellerOf(c), rehearsal.value ?? false) })
+  })
   api.get('/days/:date', async (c) => {
     const date = c.req.param('date')
     if (!isValidDate(date)) return notFound()
-    const view = await service.scopeView(sellerOf(c), date)
+    const rehearsal = rehearsalOf(c)
+    if (!rehearsal.ok) return rehearsal.response
+    const view = await service.scopeView(sellerOf(c), date, rehearsal.value ?? false)
     return view === null ? notFound() : c.json(view)
   })
   api.get('/days/:date/history', async (c) => {
     const date = c.req.param('date')
     if (!isValidDate(date)) return notFound()
+    const rehearsal = rehearsalOf(c)
+    if (!rehearsal.ok) return rehearsal.response
     const after = c.req.query('after') ?? '0'
     const limit = c.req.query('limit') ?? '100'
-    if (!/^\d{1,9}$/.test(after) || !/^\d{1,4}$/.test(limit) || Number(limit) < 1) {
+    if (!NUMBER_RE.test(after) || !/^\d{1,4}$/.test(limit) || Number(limit) < 1) {
       return apiError(400, 'INVALID_INPUT', '조회 범위를 확인해 주세요.', [{ field: 'after', message: '시작 번호는 0 이상, 개수는 1 이상의 정수로 적어 주세요.' }])
     }
-    const events = await service.history(sellerOf(c), date, Number(after), Math.min(Number(limit), HISTORY_LIMIT_MAX))
-    return events === null ? notFound() : c.json({ date, events })
+    // 상품별 조치 기록 (AC-S05-35): b와 no를 함께
+    const b = c.req.query('b')
+    const no = c.req.query('no')
+    if ((b === undefined) !== (no === undefined) || (b !== undefined && b === '') || (no !== undefined && (!NUMBER_RE.test(no) || Number(no) < 1))) {
+      return apiError(400, 'INVALID_INPUT', '조회 범위를 확인해 주세요.', [{ field: 'no', message: '상품을 고를 때는 방송(b)과 1 이상의 번호(no)를 함께 적어 주세요.' }])
+    }
+    const product = b === undefined || no === undefined ? undefined : { b, no: Number(no) }
+    const events = await service.history(sellerOf(c), date, Number(after), Math.min(Number(limit), HISTORY_LIMIT_MAX), rehearsal.value ?? false, product)
+    return events === null ? notFound() : c.json({ date, rehearsal: rehearsal.value ?? false, events })
+  })
+  // 증분 조회 (AC-S05-61, D-085): since 뒤로 바뀐 것. 줄 수 없는 since면 410 RESYNC_REQUIRED("전체를 다시 받으세요")
+  api.get('/days/:date/changes', async (c) => {
+    const date = c.req.param('date')
+    if (!isValidDate(date)) return notFound()
+    const rehearsal = rehearsalOf(c)
+    if (!rehearsal.ok) return rehearsal.response
+    const since = c.req.query('since')
+    if (since === undefined || !NUMBER_RE.test(since)) {
+      return apiError(400, 'INVALID_INPUT', '조회 범위를 확인해 주세요.', [{ field: 'since', message: '알고 있는 번호(since)를 0 이상의 정수로 적어 주세요.' }])
+    }
+    const changes = await service.changes(sellerOf(c), date, rehearsal.value ?? false, Number(since))
+    if (changes === null) return notFound()
+    if (changes === 'resync') return apiError(410, 'RESYNC_REQUIRED', '바뀐 내용을 이어 받을 수 없어요. 전체를 다시 불러와 주세요.')
+    return c.json(changes)
+  })
+  // 채팅 메시지 이어 받기 (AC-S05-20): after 뒤 / before 앞 / 둘 다 없으면 가장 최근. 개수 1~500(기본 100)
+  api.get('/days/:date/messages', async (c) => {
+    const date = c.req.param('date')
+    if (!isValidDate(date)) return notFound()
+    const rehearsal = rehearsalOf(c)
+    if (!rehearsal.ok) return rehearsal.response
+    const after = c.req.query('after')
+    const before = c.req.query('before')
+    const limit = c.req.query('limit') ?? String(MESSAGES_LIMIT_DEFAULT)
+    const b = c.req.query('b')
+    if (
+      (after !== undefined && !NUMBER_RE.test(after)) ||
+      (before !== undefined && !NUMBER_RE.test(before)) ||
+      (after !== undefined && before !== undefined) ||
+      !/^\d{1,4}$/.test(limit) ||
+      Number(limit) < 1 ||
+      b === ''
+    ) {
+      return apiError(400, 'INVALID_INPUT', '조회 범위를 확인해 주세요.', [
+        { field: 'after', message: 'after(뒤) 또는 before(앞) 중 하나를 0 이상의 정수로, 개수(limit)는 1 이상으로 적어 주세요.' },
+      ])
+    }
+    const view = await service.messages(sellerOf(c), date, rehearsal.value ?? false, {
+      ...(b === undefined ? {} : { b }),
+      ...(after === undefined ? {} : { after: Number(after) }),
+      ...(before === undefined ? {} : { before: Number(before) }),
+      limit: Math.min(Number(limit), MESSAGES_LIMIT_MAX),
+    })
+    return view === null ? notFound() : c.json(view)
   })
 
   // ── 실시간 (AC-S04-60) ────────────────────────────────────────────────
