@@ -23,5 +23,22 @@ export {
   type ShippingNote,
   type ShopSettings,
 } from './receipt.ts'
+export { DocumentFont, loadDocumentFont, type GlyphLike } from './font.ts'
+export {
+  CONTENT_WIDTH,
+  PAGE_HEIGHT,
+  PAGE_WIDTH,
+  layoutReceipt,
+  layoutTexts,
+  wrapText,
+  type LayoutItem,
+  type LayoutPage,
+  type LayoutRule,
+  type LayoutText,
+  type ReceiptLayout,
+  type TextRole,
+} from './layout.ts'
+export { asDocumentFont, renderBatchPdf, renderReceiptPdf, renderReceiptsPdf, type BatchPdfResult, type FontSource } from './pdf.ts'
+export { IMAGE_WIDTH_PX, encodeGrayPng, rasterizePage, renderReceiptPng } from './png.ts'
 export { compareCodePoints, stripInvisible } from './text.ts'
 export { formatKoreanDate, formatKstDateTime } from './kst.ts'
