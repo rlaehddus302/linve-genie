@@ -173,7 +173,11 @@ function CancelRequestBody({ request, count, onClose }: { readonly request: Canc
           <dd>{time ?? '불러오는 중…'}</dd>
         </div>
       </dl>
-      {note !== null ? <p className="warning">{note}</p> : null}
+      {note !== null ? (
+        <p className="warning" data-tone="warning">
+          {note}
+        </p>
+      ) : null}
     </Modal>
   )
 }

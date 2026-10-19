@@ -87,7 +87,8 @@ export function HomePage({ navigate }: HomePageProps) {
       <main className="page">
         <h1>방송 목록</h1>
         <div className="row">
-          <button type="button" className="button button-primary" aria-expanded={formOpen} onClick={() => setFormOpen((open) => !open)}>
+          {/* 주 버튼은 하나 (D-101): 새 방송 칸이 열리면 그 칸의 "이 방송 시작하기"가 주 버튼 */}
+          <button type="button" className={formOpen ? 'button' : 'button button-primary'} aria-expanded={formOpen} onClick={() => setFormOpen((open) => !open)}>
             새 방송 시작
           </button>
           <button type="button" className="button" disabled={busy} onClick={() => void create({ rehearsal: true })}>

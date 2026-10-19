@@ -8,12 +8,12 @@ export function LiveNotices({ snapshot, onRetry }: { readonly snapshot: Pick<Con
   return (
     <>
       {snapshot.connection === 'lost' ? (
-        <p className="connection-banner" role="alert">
+        <p className="connection-banner" role="alert" data-tone="danger">
           {CONNECTION_LOST}
         </p>
       ) : null}
       {snapshot.stale ? (
-        <div className="connection-banner stale-banner" role="alert">
+        <div className="connection-banner stale-banner" role="alert" data-tone="danger">
           <span>{STALE_MESSAGE}</span>
           <button type="button" className="button" onClick={onRetry}>
             지금 다시 불러오기

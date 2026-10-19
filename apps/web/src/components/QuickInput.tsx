@@ -142,7 +142,7 @@ export function QuickInput(props: QuickInputProps) {
       ) : null}
       {props.error !== null ? <ErrorNote error={props.error} /> : null}
       {failed.map((item) => (
-        <div key={item.id} className="error-note" role="alert">
+        <div key={item.id} className="error-note" role="alert" data-tone="danger">
           <p>
             {SAVE_FAILED_LINE}: {item.line}
           </p>
@@ -154,7 +154,9 @@ export function QuickInput(props: QuickInputProps) {
       ))}
       {props.asks.length > 0 ? (
         <ul className="plain-list stack-tight" aria-label="고칠까요?">
-          {props.asks.map((ask) => {
+          {props.asks.map((ask, index) => {
+            // 화면의 주 버튼은 많아야 하나 (D-101): 고치기 칸이 없을 때 맨 앞 물음의 버튼만
+            const askClass = fix === null && index === 0 ? 'button button-primary' : 'button'
             // 그 번호의 지금 상품과 다시 본다 (AC-S06-67, D-095)
             const current = api.data.products.get(productKey(api.b, ask.no))
             if (current === undefined) {
@@ -164,7 +166,7 @@ export function QuickInput(props: QuickInputProps) {
                     {ask.no}번은 지금 없어요. 이 줄로 새로 등록할까요? 친 줄: {ask.line}
                   </span>
                   <span className="row">
-                    <button type="button" className="button button-primary" aria-label={`${ask.line} 등록하기`} onClick={() => props.onAskRegister(ask.id)}>
+                    <button type="button" className={askClass} aria-label={`${ask.line} 등록하기`} onClick={() => props.onAskRegister(ask.id)}>
                       등록하기
                     </button>
                     <button type="button" className="button" aria-label={`${ask.line} 지우기`} onClick={() => props.onAskDismiss(ask.id)}>
@@ -180,7 +182,7 @@ export function QuickInput(props: QuickInputProps) {
                   {editQuestion(ask.no, current.status === 'CLOSED')} 친 줄: {ask.line}
                 </span>
                 <span className="row">
-                  <button type="button" className="button button-primary" aria-label={`${ask.line} 고치기`} onClick={() => props.onAsk(ask.id)}>
+                  <button type="button" className={askClass} aria-label={`${ask.line} 고치기`} onClick={() => props.onAsk(ask.id)}>
                     고치기
                   </button>
                   <button type="button" className="button" aria-label={`${ask.line} 그대로 두기`} onClick={() => props.onAskDismiss(ask.id)}>

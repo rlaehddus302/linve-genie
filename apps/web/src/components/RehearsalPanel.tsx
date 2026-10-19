@@ -16,9 +16,11 @@ export interface RehearsalPanelProps {
   readonly onWritten: (result: WriteResult) => void
   /** 다른 리허설 방송으로 가기 (생성기가 그 방송에서 돌고 있을 때) */
   readonly onOpenBroadcast?: (id: string) => void
+  /** "가짜 채팅 시작"이 화면의 주 버튼인가 (빠른 입력의 고치기 칸·물음이 있으면 그쪽이 주 버튼, D-101) */
+  readonly primary?: boolean
 }
 
-export function RehearsalPanel({ broadcastId, generator, onGenerator, onWritten, onOpenBroadcast }: RehearsalPanelProps) {
+export function RehearsalPanel({ broadcastId, generator, onGenerator, onWritten, onOpenBroadcast, primary = true }: RehearsalPanelProps) {
   const [total, setTotal] = useState('300')
   const [perSecond, setPerSecond] = useState('1')
   const [seed, setSeed] = useState('')
@@ -118,7 +120,7 @@ export function RehearsalPanel({ broadcastId, generator, onGenerator, onWritten,
         <FieldError error={genError} field="perSecond" />
         <FieldError error={genError} field="seed" />
         <div className="row">
-          <button type="submit" className="button button-primary" disabled={genBusy || running}>
+          <button type="submit" className={primary ? 'button button-primary' : 'button'} disabled={genBusy || running}>
             가짜 채팅 시작
           </button>
           <button type="button" className="button" disabled={genBusy || !running} onClick={() => void stop()}>

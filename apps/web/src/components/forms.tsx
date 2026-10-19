@@ -65,7 +65,7 @@ export function useSender(command: (event: Readonly<Record<string, unknown>>, re
 export function WriteError({ error, onRetry, omitFields = [] }: { readonly error: ApiError; readonly onRetry?: () => void; readonly omitFields?: readonly string[] }) {
   if (error.retryable) {
     return (
-      <div className="error-note" role="alert">
+      <div className="error-note" role="alert" data-tone="danger">
         <p>저장하지 못했어요. {error.network ? '인터넷 연결을 확인하고 ' : ''}"다시 보내기"를 눌러 주세요.</p>
         {onRetry !== undefined ? (
           <button type="button" className="button" onClick={onRetry}>
@@ -83,7 +83,7 @@ export function WriteError({ error, onRetry, omitFields = [] }: { readonly error
   }
   if (error.code === 'PROCESSING_FAILED') {
     return (
-      <div className="error-note" role="alert">
+      <div className="error-note" role="alert" data-tone="danger">
         <p>확인 필요: {error.message}</p>
         <details className="details">
           <summary>자세히</summary>

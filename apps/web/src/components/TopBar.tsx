@@ -65,7 +65,7 @@ function InstallButton() {
   if (!hint.canInstall) return null
   return (
     <span className="install row">
-      <button type="button" className="button button-primary" onClick={() => void hint.install()}>
+      <button type="button" className="button" onClick={() => void hint.install()}>
         앱으로 설치
       </button>
       <button type="button" className="button" aria-label="앱 설치 안내 닫기" onClick={hint.dismiss}>

@@ -38,7 +38,11 @@ export function ReasonDialog({ spec, onClose }: { readonly spec: ReasonSpec; rea
         </button>
       }
     >
-      {spec.warning !== undefined ? <p className="warning">{spec.warning}</p> : null}
+      {spec.warning !== undefined ? (
+        <p className="warning" data-tone="warning">
+          {spec.warning}
+        </p>
+      ) : null}
       <ReasonField
         value={reason}
         onChange={(value) => {
@@ -250,7 +254,7 @@ export function AssignDialog({ spec, onClose }: { readonly spec: AssignSpec; rea
       }
     >
       {product.conflict ? (
-        <p className="warning" role="alert">
+        <p className="warning" role="alert" data-tone="warning">
           충돌부터 정해 주세요.
         </p>
       ) : (
