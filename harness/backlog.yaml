@@ -224,6 +224,24 @@ sprints:
     humanGate: HG-4
     status: todo
 
+  - id: P1
+    phase: 2
+    title: 라벨·프린터 패키지 (병렬 트랙, 화면·서버 통합은 I1)
+    devs: [device]
+    tests: [domain]
+    goal: >
+      packages/label — 라벨 템플릿 → 캔버스 렌더(브라우저와 Node 테스트 모두 같은 렌더 함수, Node는 @napi-rs/canvas 등),
+      한글 글꼴 내장(Pretendard 또는 Noto Sans KR, OFL), 203dpi·50×30mm=384×240px·1비트 변환,
+      판매자 샘플 형식 기본 템플릿(가게 이름 머리글, 번호·가격("8 천원"/"8,000원")·품종·닉네임·날짜 YY.MM.DD),
+      긴 품종명 자동 축소 → 최소 크기 아래면 두 줄, 상품 라벨·포장 라벨(번호 많으면 1/2·2/2 분할),
+      항목 켜기/끄기·글자 크기·위치 조정 모델, PNG 내보내기, 라벨 크기 PDF, A4 모아찍기 PDF.
+      packages/printer — PrinterAdapter 인터페이스, B1 어댑터(@mmote/niimbluelib 고정 버전, Web Bluetooth 기본·Web Serial 보조,
+      B1 인쇄 방식·농도 3·마지막 줄 미출력 대응 높이 +1행, 기능 감지·미지원 안내), 연결 상태·끊김 오류 모델,
+      가짜 프린터(받은 비트맵 기록), 출력 작업 큐 순수 로직(순서·재시도·재출력 횟수·폐기 표시).
+      화면·서버 연결은 하지 않는다(I1). 실기기 없이 모든 테스트가 돈다.
+    specIds: [LBL-01, LBL-02, LBL-03, LBL-04, LBL-05, LBL-06, LBL-07, LBL-08, LBL-11, LBL-12]
+    status: todo
+
 techDebt:
   - "RA-S00-001: 골든 러너가 엔진의 입력 state 제자리 수정을 잡지 못함"
   - "RA-S00-002: golden 어댑터 observe가 항상 미구현이라 S02에서 G-ENG-* 허용으로 조용히 통과 가능"
