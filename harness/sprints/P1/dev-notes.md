@@ -73,7 +73,7 @@
 - 대기열 상태는 `JSON.stringify` 그대로 저장한다(`format: 1`). 저장해 둔 상태에 출력 중 작업이 있으면(앱이 출력 중에 닫힘) 실행기가 대기 맨 앞으로 되돌린다(시도 +1, 마지막 오류 `DISCONNECTED`).
 
 ### test-domain에게 (AC-P1-70~72, `tests/adversarial/p1/`)
-- 라벨: `import { … } from '@livejjim/label'`, 렌더 환경은 `import { createNodeRenderEnv } from '@livejjim/label/node'`. 루트 `package.json`의 devDependencies에 `@livejjim/label`·`@livejjim/printer`가 없으니(코어·서버만 있다) 적대 시험에서 쓰려면 루트에 `"@livejjim/label": "workspace:*"`, `"@livejjim/printer": "workspace:*"`를 더해야 한다(루트 공용 파일 — 누구나 고칠 수 있다). 아니면 상대 경로 `../../../packages/label/src/index.ts`.
+- 라벨: `import { … } from '@livejjim/label'`, 렌더 환경은 `import { createNodeRenderEnv } from '@livejjim/label/node'`, 프린터는 `'@livejjim/printer'`. 루트 `package.json` devDependencies에 두 패키지(`workspace:*`)를 더해 두었다. 루트 tsconfig(DOM 없음)로 두 패키지 진입점이 타입 검사를 통과하는 것도 확인했다.
 - 배치 검사 도우미 예: `packages/label/test/helpers.ts`(`expectCleanLayout`·`strayInk`·`expectLayoutMatchesText`).
 - PDF 다시 읽기: `pdf-lib`(label의 devDependency), 이미지 스트림은 `/Filter /FlateDecode`·`/BitsPerComponent 1`·`/Decode [1 0]`, 내용은 `fflate.unzlibSync`로 풀면 라벨 그림 바이트 그대로다. 자르는 선은 내용 스트림의 `re S`.
 - 프린터: 가짜 niimbluelib 클라이언트 예 `packages/printer/test/fakes.ts`(`FakeNiimbotClient`·`ManualTimer`·`decodeEncoded`).
