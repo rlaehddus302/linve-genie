@@ -192,6 +192,22 @@ describe('AC-P2-13 Web Speech 어댑터', () => {
     expect(t.errors.map((e) => e.kind)).toEqual(['KEEPS_STOPPING'])
   })
 
+  it('시계가 NaN이거나 뒤로 가도 6번째에서 멈춘다 (고장 난 시계로 무한 재시작 없음)', () => {
+    for (const clock of [() => Number.NaN, (() => {
+      let t = 1_000_000
+      return () => (t -= 100_000)
+    })()]) {
+      FakeRecognition.instances = []
+      const engine = createWebSpeechEngine({ now: clock, scope: { SpeechRecognition: FakeRecognition } })
+      const errors: string[] = []
+      engine.onError((e) => errors.push(e.kind))
+      engine.start()
+      for (let i = 0; i < 10; i++) FakeRecognition.instances.at(-1)?.end()
+      expect(FakeRecognition.instances).toHaveLength(6)
+      expect(errors).toEqual(['KEEPS_STOPPING'])
+    }
+  })
+
   it('빈 최종 결과는 센 것을 비우지 않는다', () => {
     const t = webSetup()
     t.engine.start()

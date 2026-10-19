@@ -72,7 +72,8 @@ export class RestartLimiter {
   /** 저절로 끝남을 기록한다. 다시 시작해도 되면 true */
   recordEnd(): boolean {
     const at = this.now()
-    this.ends = this.ends.filter((end) => at - end < RESTART_WINDOW_MS)
+    // 시계가 이상하면(NaN·뒤로 감) 지난 끝을 버리지 않는다 — 고장 난 시계로 무한히 다시 시작하지 않게
+    this.ends = this.ends.filter((end) => !(at - end >= RESTART_WINDOW_MS))
     this.ends.push(at)
     return this.ends.length < MAX_AUTO_ENDS
   }

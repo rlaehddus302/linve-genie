@@ -83,6 +83,14 @@ describe('AC-P2-25 휴대폰 공유 이미지', () => {
     expect(renderReceiptPng(data, font)).toEqual(png)
   })
 
+  it('개인정보: 이미지에 그리는 글자에 전화번호 전체·ref·구매자 ID·채널 ID·조정 사유가 없다 (AC-P2-27)', () => {
+    for (const buyer of ['UC_A', 'sms:s1']) {
+      const text = layoutTexts(layoutReceipt(receipt(G201, buyer), font, 'image')).join(' ')
+      for (const secret of ['010-1234-5678', '01012345678', 'sms:', 'UC_', '단골 할인']) expect(text).not.toContain(secret)
+    }
+    expect(layoutTexts(layoutReceipt(receipt(G201, 'sms:s1'), font, 'image'))).toContain('5678')
+  })
+
   it('그릴 수 없는 글자는 빼고 그린다 (🌵다육맘 → 다육맘)', () => {
     const emoji = receipt(play(sale(1, 'UC_A', '🌵다육맘\n')), 'UC_A')
     const texts = layoutTexts(layoutReceipt(emoji, font, 'image'))
