@@ -2,13 +2,14 @@
 // 일부러 틀린 추출기(고유어 번호·천원 단위·사전 밖 말·음절 유사도)가 실제 골든에서 각각 불일치로 실패하는지 본다.
 // 코어 영역 시험 코드다(dev-device가 최소로 더함 — harness/sprints/P2/dev-notes.md). 코어 src는 음성 패키지에 기대지 않는다.
 import { NotImplementedError, parseAmount, parseKoreanNumber, type SettingsOverride } from '@livejjim/core'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { prepareDictionary } from '../../../voice/src/dictionary.ts'
 import { extractVoice, readingForms, type VoiceExtraction } from '../../../voice/src/extract.ts'
 import { realCore } from './core-adapter.ts'
 import { createFakeCore } from './fake-core.ts'
-import { runGoldenDir } from './fs-runner.ts'
+import { runGoldenSources } from './runner.ts'
 import { run, suiteDoc } from './test-helpers.ts'
 import type { GoldenCore, ParserItemResult } from './types.ts'
 
@@ -19,12 +20,19 @@ type Extractor = (text: string, settings: SettingsOverride, dictionary: readonly
 const real: Extractor = (text, settings, dictionary) => extractVoice(text, { maxNumber: settings['claim.maxNumber'], dictionary })
 const withExtractor = (voiceExtract: Extractor): GoldenCore => ({ ...realCore, parser: { ...realCore.parser, voiceExtract } })
 
-/** 실제 골든을 돌려 voice-extract 사례 결과만 모은다 (다른 suite·시나리오는 그대로 통과해야 한다) */
-function voiceItems(core: GoldenCore): { readonly items: ParserItemResult[]; readonly othersOk: boolean } {
-  const report = runGoldenDir({ goldenDir: GOLDEN_DIR, core, allowlistPath: null, displayRoot: GOLDEN_DIR })
+/**
+ * 실제 골든의 voice-extract 파일만 돌린다 (다른 suite·시나리오는 voiceExtract를 부르지 않는다 — 전체 골든 합계는 core-adapter.test.ts가 본다).
+ * 같은 프로젝트의 시간 재는 시험(engine-timing)과 겹쳐 돌므로 전체 골든을 되풀이해 돌리지 않는다.
+ */
+function voiceItems(core: GoldenCore): { readonly items: ParserItemResult[]; readonly readErrors: number } {
+  const report = runGoldenSources({
+    files: [{ path: VOICE_FILE, text: readFileSync(`${GOLDEN_DIR}/${VOICE_FILE}`, 'utf8') }],
+    allowlist: { path: 'known-unimplemented.yaml', text: null },
+    core,
+    goldenLabel: 'tests/golden',
+  })
   const items = report.items.filter((item): item is ParserItemResult => item.kind === 'parser' && item.suite === 'voice-extract')
-  const others = report.items.filter((item) => !(item.kind === 'parser' && item.suite === 'voice-extract'))
-  return { items, othersOk: others.every((item) => item.status === 'pass') && report.readErrors.length === 0 }
+  return { items, readErrors: report.readErrors.length }
 }
 
 const mismatches = (core: GoldenCore): string[] =>
@@ -34,10 +42,10 @@ const mismatches = (core: GoldenCore): string[] =>
 
 describe('AC-P2-08 러너가 voice-extract를 안다', () => {
   it('실제 추출기로 voice-extract 69사례가 모두 통과하고 파일은 parser/voice-extract.yaml', () => {
-    const { items, othersOk } = voiceItems(realCore)
+    const { items, readErrors } = voiceItems(realCore)
+    expect(readErrors).toBe(0)
     expect(items).toHaveLength(69)
     expect(items.every((item) => item.status === 'pass' && item.file === VOICE_FILE)).toBe(true)
-    expect(othersOk).toBe(true)
   })
 
   it('러너는 사례마다 maxNumber 설정과 사전 사본을 넘긴다 — 추출기가 사전을 바꿔도 다음 사례에 번지지 않는다', () => {
@@ -201,8 +209,6 @@ describe('AC-P2-08 일부러 틀린 추출기는 골든에서 불일치로 실�
     const failures = mismatches(withExtractor(extractor))
     expect(failures.length).toBeGreaterThan(0)
     for (const failure of expectedFailures) expect(failures).toContain(failure)
-    // 다른 suite·시나리오에는 영향이 없다 (실패는 voice-extract에서만)
-    expect(voiceItems(withExtractor(extractor)).othersOk).toBe(true)
   })
 
   it('실제 추출기는 불일치가 없다', () => {
