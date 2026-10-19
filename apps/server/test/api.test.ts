@@ -44,7 +44,7 @@ describe('AC-S04-50 판매 규칙 설정 읽기·바꾸기', () => {
           { field: 'settings.waitlist.max', message: '0부터 100까지의 정수로 적어 주세요' },
           { field: 'settings.claim.parseMode', message: '고를 수 있는 값이 아니에요' },
           { field: 'settings.shipping.baseFee', message: '0부터 1,000,000까지의 정수로 적어 주세요' },
-          { field: 'settings.claim.ignoreOwner', message: '예(true)나 아니오(false)로만 정할 수 있어요' },
+          { field: 'settings.claim.ignoreOwner', message: '예나 아니오로만 정할 수 있어요' },
         ],
       },
     })

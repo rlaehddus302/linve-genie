@@ -127,7 +127,7 @@ function ruleProblem(rule: SettingRule, value: unknown): string | null {
     case 'choice':
       return typeof value === 'string' && rule.choices.includes(value) ? null : '고를 수 있는 값이 아니에요'
     case 'yesNo':
-      return typeof value === 'boolean' ? null : '예(true)나 아니오(false)로만 정할 수 있어요'
+      return typeof value === 'boolean' ? null : '예나 아니오로만 정할 수 있어요'
     case 'int': {
       if (rule.nullable && value === null) return null
       if (typeof value === 'number' && Number.isSafeInteger(value) && value >= rule.min && value <= rule.max) return null
@@ -139,7 +139,7 @@ function ruleProblem(rule: SettingRule, value: unknown): string | null {
 
 /**
  * 설정 덮어쓰기 객체를 검사한다 (D-071). 문제가 없으면 빈 목록.
- * - 문제: 객체가 아님(배열·null 포함), 모르는 키, 선택지 밖 값, true·false가 아닌 예/아니오 값, 정수가 아니거나 범위 밖인 수(`1.5`·`NaN`·`"5"` 포함).
+ * - 문제: 객체가 아님(배열·null 포함), 모르는 키, 선택지 밖 값, true·false가 아닌 예/아니오 값(문장은 '예나 아니오' — 판매자에게 그대로 보이므로 영어 값 이름을 쓰지 않는다, SA-S04-004), 정수가 아니거나 범위 밖인 수(`1.5`·`NaN`·`"5"` 포함).
  *   값이 `undefined`인 키도 문제다(값이 없다).
  * - `settlement.groupBy: MANUAL`은 문제가 아니다 — 엔진이 미구현(NotImplementedError)으로 알린다(D-059).
  * - 엔진의 broadcast.start 설정 검사, initEngine 시작 설정 검사, 서버의 설정 저장이 이 함수 하나로 같은 판정을 한다.

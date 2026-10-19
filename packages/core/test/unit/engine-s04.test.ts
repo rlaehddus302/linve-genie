@@ -368,9 +368,16 @@ describe('AC-S04-05 설정값 검사 함수 (checkSettings)', () => {
     expect(checkSettings({ 'waitlist.maxx': 1, 'claim.parseMode': 'loose', 'claim.ignoreOwner': 'yes', 'print.autoOnConfirm': 1, 'cancel.succession': 'ASK' })).toEqual([
       { key: 'waitlist.maxx', message: '모르는 설정이에요' },
       { key: 'claim.parseMode', message: '고를 수 있는 값이 아니에요' },
-      { key: 'claim.ignoreOwner', message: '예(true)나 아니오(false)로만 정할 수 있어요' },
-      { key: 'print.autoOnConfirm', message: '예(true)나 아니오(false)로만 정할 수 있어요' },
+      { key: 'claim.ignoreOwner', message: '예나 아니오로만 정할 수 있어요' },
+      { key: 'print.autoOnConfirm', message: '예나 아니오로만 정할 수 있어요' },
     ])
+  })
+
+  it('문제 문장에는 영어(true·false 같은 값 이름)가 없다 — 서버가 판매자에게 그대로 보여 준다 (SA-S04-004)', () => {
+    const bad = { 'waitlist.maxx': 1, 'claim.parseMode': 'loose', 'claim.ignoreOwner': 'yes', 'thanks.liveChat': null, 'print.autoOnConfirm': 1, 'claim.maxNumber': 0, 'shipping.freeThreshold': -1 }
+    const messages = [...checkSettings(bad), ...checkSettings(null), ...checkSettings([])].map((p) => p.message)
+    expect(messages).toHaveLength(9)
+    for (const message of messages) expect(message, message).not.toMatch(/[A-Za-z]/)
   })
 
   it('자기 속성을 모두 본다 — 열거되지 않는 속성, 기호 키, __proto__ 키. 상속된 속성은 보지 않는다', () => {
