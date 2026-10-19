@@ -17,6 +17,11 @@ const RETRY_START_MS = 1000
 const RETRY_MAX_MS = 30_000
 /** 판이 뛰었을 때·범위 기록이 바뀌었을 때 다시 받기까지 (알림이 몰려도 한 번) */
 const RELOAD_DELAY_MS = 250
+/**
+ * 라벨 상태(재출력 필요)를 바꾸지 않는 기록 종류 — 채팅·문자찜은 품종·가격을 바꾸지 않고, 그 기록으로 1등이 바뀌면 작업·폐기가 print 알림으로 온다.
+ * 방송 중 채팅마다 라벨 상태를 다시 받지 않게 한다(포장 라벨은 묶음이 바뀌므로 모든 기록에 다시 받는다)
+ */
+const LABEL_QUIET_TYPES: ReadonlySet<string> = new Set(['chat', 'sms', 'effect.labelPrinted'])
 /** 닫힌 실시간 연결을 다시 열기까지 */
 const RECONNECT_MS = 2000
 
@@ -201,9 +206,9 @@ export class PrintStore {
     })
     stream.addEventListener('change', (event) => {
       if (this.#stream !== stream) return
-      const data = parse(event) as ScopeSeq | null
+      const data = parse(event) as (ScopeSeq & { type?: string }) | null
       if (data === null || data.rehearsal) return
-      this.#onScopeChange(data.date)
+      this.#onScopeChange(data.date, typeof data.type === 'string' ? data.type : '')
     })
     stream.onerror = () => {
       if (this.#stream !== stream) return
@@ -426,9 +431,9 @@ export class PrintStore {
     }
   }
 
-  #onScopeChange(date: string): void {
+  #onScopeChange(date: string, type: string): void {
     const labels = this.#labels.get(date)
-    if (labels !== undefined) this.#scheduleWatched(labels, () => this.#loadLabels(date))
+    if (labels !== undefined && !LABEL_QUIET_TYPES.has(type)) this.#scheduleWatched(labels, () => this.#loadLabels(date))
     for (const entry of this.#packing.values()) if (entry.date === date) this.#scheduleWatched(entry, () => this.#loadPacking(entry.date, entry.buyer))
   }
 

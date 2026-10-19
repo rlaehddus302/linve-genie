@@ -119,7 +119,7 @@ describe('실시간 (AC-I1-15)', () => {
 })
 
 describe('라벨 상태 (AC-I1-12·30)', () => {
-  it('보는 날짜만 받고, 알림의 라벨 키는 덮고, 그 날짜(실제 범위)의 change면 다시 받는다 — 리허설 change는 무시', async () => {
+  it('보는 날짜만 받고, 알림의 라벨 키는 덮고, 그 날짜(실제 범위)의 change면 다시 받는다 — 리허설·채팅·문자찜 change는 무시', async () => {
     const s = await started()
     const seen = vi.fn()
     const stop = s.watchLabels(DATE, seen)
@@ -130,6 +130,11 @@ describe('라벨 상태 (AC-I1-12·30)', () => {
     const labelCalls = () => server.callsTo('GET', /^\/api\/print\/labels/).length
     expect(labelCalls()).toBe(1)
     FakeEventSource.last.emit('change', { date: DATE, rehearsal: true, seq: 9, type: 'product.update' })
+    // 채팅·문자찜은 품종·가격을 바꾸지 않는다 (1등이 바뀌면 작업·폐기가 print 알림으로 온다)
+    FakeEventSource.last.emit('change', { date: DATE, rehearsal: false, seq: 8, type: 'chat' })
+    FakeEventSource.last.emit('change', { date: DATE, rehearsal: false, seq: 8, type: 'sms' })
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(labelCalls()).toBe(1)
     FakeEventSource.last.emit('change', { date: DATE, rehearsal: false, seq: 9, type: 'product.update' })
     FakeEventSource.last.emit('change', { date: DATE, rehearsal: false, seq: 10, type: 'product.update' })
     await vi.waitFor(() => expect(labelCalls()).toBe(2), { timeout: 2000 })

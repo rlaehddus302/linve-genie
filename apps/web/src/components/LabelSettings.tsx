@@ -310,7 +310,10 @@ function TemplateEditor({ kind }: { readonly kind: Kind }) {
                 <li key={id} className="item-row">
                   <label className="choice">
                     <input type="checkbox" checked={item.visible} disabled={isLocked} onChange={(event) => setItem(id, { visible: event.target.checked })} aria-describedby={isLocked ? `${kind}-${id}-locked` : undefined} />
-                    <span>{name}</span>
+                    <span>
+                      {name}
+                      <span className="sr-only"> 켜기</span>
+                    </span>
                   </label>
                   {isLocked ? (
                     <span className="hint" id={`${kind}-${id}-locked`}>

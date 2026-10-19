@@ -17,7 +17,7 @@ import { ErrorNote } from './ErrorNote.tsx'
 import { LabelSettings } from './LabelSettings.tsx'
 import { Modal } from './Modal.tsx'
 import { DiscardList, PausePanel, QueueList, usePrintAction } from './PrintParts.tsx'
-import { usePrintApi, usePrintState, useScopeLabels, useStationState } from './print-context.tsx'
+import { FONT_ERROR, usePrintApi, usePrintState, useScopeLabels, useStationState } from './print-context.tsx'
 
 /** 연결 방법 단추 글 (AC-I1-21) */
 export const METHOD_WORD: Readonly<Record<PrinterMethod, string>> = {
@@ -584,8 +584,8 @@ function ExportSection() {
     setMessage(null)
     try {
       setMessage(await work())
-    } catch {
-      setMessage('라벨 글꼴을 불러오지 못했어요. 새로고침한 뒤 다시 해 주세요.')
+    } catch (error) {
+      setMessage(isApiError(error) ? error.message : FONT_ERROR)
     } finally {
       setBusy(false)
     }
@@ -595,8 +595,12 @@ function ExportSection() {
     run(async () => {
       if (chosen === null || product === undefined) return null
       const env = await labelEnv()
+      // 지금 1등을 새로 받는다 (채팅으로 생긴 1등은 라벨 상태 알림이 없을 수 있다)
+      const fresh = await get<{ labels: LabelView[] }>(`/api/print/labels?date=${chosen.date}`)
+      const list = fresh.labels.filter((label) => label.kind === 'product' && label.broadcast === chosen.id && label.winner && !label.voided && label.data !== null).sort((a, b) => (a.no ?? 0) - (b.no ?? 0))
+      if (list.length === 0) return '1등 라벨이 없어요.'
       const images: LabelBitmap[] = []
-      for (const label of winners) {
+      for (const label of list) {
         const rendered = renderProduct(env, product, label.data as Parameters<typeof renderProduct>[2])
         if (!rendered.ok) return labelErrorMessage(rendered.error)
         images.push(rendered.image)

@@ -1099,6 +1099,18 @@ html:has(.sms-submit-bar) {
 
 /* ── 라벨·출력 (I1, AC-I1-20~27·30~35·62) ─────────────────── */
 
+/* 화면 읽기 프로그램에만 읽히는 글 (칸 이름을 구분 — "가게 이름 켜기") */
+.sr-only {
+  position: absolute;
+  max-width: 1px;
+  max-height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  border: 0;
+}
+
 /* 프린터 상태 (모든 화면 위, AC-I1-34): 글자로 — 누르면 라벨 화면 */
 .printer-status {
   display: inline-flex;
