@@ -160,6 +160,8 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
   dialogCount.current = dialogs.length
   const [endError, setEndError] = useState<ApiError | null>(null)
   const chain = useRef<Promise<void>>(Promise.resolve())
+  /** 앞 등록 응답을 기다리며 판단을 미룬 줄 수 */
+  const waitingLines = useRef(0)
   const regId = useRef(1)
   const regRequests = useRef(new Map<number, { requestId: string; line: string; no: number; name: string; price: number; fromFix: boolean }>())
   const [now, setNow] = useState(() => Date.now())
@@ -176,7 +178,11 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
     return () => clearInterval(handle)
   }, [pendingOpen])
 
-  const findProduct = useCallback((no: number): Product | undefined => latest.current.data.products.get(productKey(b, no)), [b])
+  // 저장소의 지금 자료로 찾는다 — 앞 등록 응답 뒤에 판단하는 줄이 화면이 다시 그려지기 전에도 그 등록을 본다
+  const findProduct = useCallback(
+    (no: number): Product | undefined => (store.getSnapshot().data ?? latest.current.data).products.get(productKey(b, no)),
+    [b, store],
+  )
 
   const focusQuick = useCallback(() => {
     // 창이 닫힌 다음 그리기에서 포커스를 옮긴다. 그사이 판매자가 다른 칸으로 옮겼으면(고치기 칸 등) 빼앗지 않는다
@@ -199,22 +205,44 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
     focusQuick()
   }, [focusQuick])
 
+  /** 서버가 처리하지 못한 입력(500 PROCESSING_FAILED)은 "확인 필요"에 남았다 — 알림을 기다리지 않고 바로 따라잡아 알림 띠에 보인다 (AC-S05-71) */
+  const followFailure = useCallback(
+    (error: unknown) => {
+      if (isApiError(error) && error.code === 'PROCESSING_FAILED') void store.catchUp()
+    },
+    [store],
+  )
+
   /** 쓰기 하나: 같은 요청 번호로 재시도 → 응답 seq까지 따라잡기 */
   const write = useCallback(
     async (requestId: string, event: Readonly<Record<string, unknown>>): Promise<WriteResult> => {
       const scoped = typeof event.b !== 'string'
       const path = withQuery('/api/events', scoped ? { date: broadcast.date, rehearsal: broadcast.rehearsal } : {})
-      const result = await withRetry(() => post<WriteResult>(path, { requestId, ...event }))
+      let result: WriteResult
+      try {
+        result = await withRetry(() => post<WriteResult>(path, { requestId, ...event }))
+      } catch (error) {
+        followFailure(error)
+        throw error
+      }
       await store.sync(result.seq)
       return result
     },
-    [broadcast.date, broadcast.rehearsal, store],
+    [broadcast.date, broadcast.rehearsal, followFailure, store],
   )
 
   const command = useCallback((event: Readonly<Record<string, unknown>>, requestId?: string) => write(requestId ?? newRequestId(), event), [write])
 
+  /** 판매자가 글 칸에 무언가 치는 중인가 (빠른 입력칸은 글자가 있을 때만 — 비어 있으면 기다리는 중이다) */
+  const typing = useCallback((): boolean => {
+    const active = document.activeElement
+    if (!isTextField(active)) return false
+    return active !== quickRef.current || active.value !== ''
+  }, [])
+
   const queueHost = useCallback(
     (input: HostActionInput) => {
+      const reopen = input.reopen
       queue.add({
         label: input.label,
         ...(input.message === undefined ? {} : { meta: input.message }),
@@ -229,12 +257,18 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
           void store.sync(result.seq)
           input.onResult?.(result)
         },
-        onError: (error) => {
-          if (input.reopen !== undefined && error.status === 400 && error.problems.length > 0) input.reopen(error)
+        ...(reopen === undefined
+          ? {}
+          : { reopen: { label: reopen.label, accepts: (error: ApiError) => error.status === 400 && error.problems.length > 0, open: reopen.open } }),
+        onError: (error, failed) => {
+          followFailure(error)
+          // 서버가 입력을 거절했다(사유의 휴대폰 번호 등): 창을 다시 열어 고치게 한다(AC-S05-34). 조치는 5초 뒤에 보내므로 거절도 늦게 온다 —
+          // 그사이 판매자가 다음 상품을 치고 있으면 창을 띄워 글자를 빼앗지 않고 되돌리기 띠의 "사유 고치기"로 둔다(UX-S05-002)
+          if (failed.reopenLabel !== null && !typing()) queue.reopen(failed.id)
         },
       })
     },
-    [queue, store, broadcast.date, broadcast.rehearsal],
+    [queue, store, broadcast.date, broadcast.rehearsal, followFailure, typing],
   )
 
   const fillQuick = useCallback(
@@ -349,14 +383,19 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
     [b, clearLine, findProduct, openDialog, queue, undoRegistration, write],
   )
 
+  const startRegistration = useCallback((line: string, no: number, name: string, price: number, fromFix: boolean): number => {
+    const id = regId.current++
+    regRequests.current.set(id, { requestId: newRequestId(), line, no, name, price, fromFix })
+    setRegistrations((list) => [...list, { id, line, no, status: 'sending', error: null }])
+    return id
+  }, [])
+
   const enqueueRegistration = useCallback(
     (line: string, no: number, name: string, price: number, fromFix: boolean) => {
-      const id = regId.current++
-      regRequests.current.set(id, { requestId: newRequestId(), line, no, name, price, fromFix })
-      setRegistrations((list) => [...list, { id, line, no, status: 'sending', error: null }])
+      const id = startRegistration(line, no, name, price, fromFix)
       chain.current = chain.current.then(() => runRegistration(id, true))
     },
-    [runRegistration],
+    [runRegistration, startRegistration],
   )
 
   const retryRegistration = useCallback(
@@ -366,28 +405,48 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
     [runRegistration],
   )
 
+  /** 판매자가 그 줄 뒤에 다른 줄을 치기 시작했나 (앞 등록 응답을 기다린 줄의 판단이 늦게 날 때) */
+  const typedNext = useCallback((line: string): boolean => {
+    const input = quickRef.current
+    return input !== null && input.value !== '' && input.value !== line && document.activeElement === input
+  }, [])
+
+  /**
+   * 한 줄의 판단을 실행한다. inChain = 앞 등록 응답을 기다렸다가 차례 안에서 판단한 줄 — 등록은 그 자리에서 보내고 끝날 때까지
+   * 차례를 잡는다(뒤 줄의 판단이 이 등록을 본다: "15 …" 다음의 "15"는 찾기).
+   */
   const handleDecision = useCallback(
-    (decision: QuickDecision, line: string, fromFix: boolean) => {
+    (decision: QuickDecision, line: string, fromFix: boolean, inChain = false): Promise<void> | undefined => {
       switch (decision.kind) {
         case 'none':
-          return
-        case 'register':
+          return undefined
+        case 'register': {
           if (fromFix) setFix(null)
-          enqueueRegistration(line, decision.no, decision.name, decision.price, fromFix)
-          // 칸의 글자를 골라 둔다: 다음 줄을 바로 치면 그 글자가 바뀌고, 응답이 오면 같은 줄일 때만 비운다
-          if (!fromFix && quickRef.current?.value === line) quickRef.current.select()
-          else focusQuick()
-          return
+          focusQuick()
+          if (!inChain) {
+            enqueueRegistration(line, decision.no, decision.name, decision.price, fromFix)
+            return undefined
+          }
+          const id = startRegistration(line, decision.no, decision.name, decision.price, fromFix)
+          return runRegistration(id, true)
+        }
         case 'edit':
           if (fromFix) setFix(null)
           openDialog({ kind: 'edit', product: decision.product.key, name: decision.name, price: decision.price, line })
-          return
-        case 'open':
+          return undefined
+        case 'open': {
           setFix(null)
           setSelected(decision.product.key)
+          // 늦게 판단한 찾기인데 판매자가 벌써 다음 줄을 치고 있으면 창을 띄워 글자를 빼앗지 않는다(현재 상품으로 보인다)
+          if (inChain && typedNext(line)) return undefined
+          // 찾은 번호는 칸에서 지운다 — 창을 닫고 다음 줄을 치면 그 번호 뒤에 붙어 엉뚱한 번호로 등록되지 않게 (UX-S05-001)
+          clearLine(line)
           openDialog({ kind: 'product', key: decision.product.key })
-          return
-        case 'fix':
+          return undefined
+        }
+        case 'fix': {
+          // 늦게 판단한 오류인데 판매자가 벌써 다음 줄을 치고 있으면 고치기 칸만 열고 커서는 옮기지 않는다(치던 글자가 가격 칸으로 가지 않게)
+          const grab = !(inChain && typedNext(line))
           setFix((current) => ({
             no: decision.no === null ? (fromFix && current !== null ? current.no : '') : String(decision.no),
             name: decision.name ?? (fromFix && current !== null ? current.name : ''),
@@ -396,31 +455,40 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
             message: decision.message,
             line: fromFix && current !== null ? current.line : line,
             version: (current?.version ?? 0) + 1,
+            grab,
           }))
-          return
+          return undefined
+        }
       }
     },
-    [enqueueRegistration, focusQuick, openDialog],
+    [clearLine, enqueueRegistration, focusQuick, openDialog, runRegistration, startRegistration, typedNext],
   )
 
   const onEnter = useCallback(
     (line: string) => {
       if (settings === null) return
       setQuickError(null)
-      if (regRequests.current.size === 0) {
-        handleDecision(decideQuickInput(line, quickSettings(settings), findProduct), line, false)
+      // 칸의 글자를 골라 둔다: 다음 줄을 바로 치면 그 글자가 바뀌고 뒤에 이어 붙지 않는다(응답이 늦어도, TE-S05-001). 판단은 친 줄로 한다
+      const input = quickRef.current
+      if (input !== null && input.value === line) input.select()
+      const snapshotSettings = quickSettings(settings)
+      if (regRequests.current.size === 0 && waitingLines.current === 0) {
+        void handleDecision(decideQuickInput(line, snapshotSettings, findProduct), line, false)
         return
       }
-      // 앞 줄의 등록이 아직 끝나지 않았다: 그 뒤에 판단한다 — "15 …" 바로 뒤의 "15"(찾기)·"15 …"(고치기)가 앞 등록을 본다
-      const snapshotSettings = quickSettings(settings)
-      chain.current = chain.current.then(() => handleDecision(decideQuickInput(line, snapshotSettings, findProduct), line, false))
+      // 앞 줄의 등록이 아직 끝나지 않았다: 그 뒤에 차례대로 판단한다 — "15 …" 바로 뒤의 "15"(찾기)·"15 …"(고치기)가 앞 등록을 본다
+      waitingLines.current++
+      chain.current = chain.current.then(() => {
+        waitingLines.current--
+        return handleDecision(decideQuickInput(line, snapshotSettings, findProduct), line, false, true)
+      })
     },
     [findProduct, handleDecision, settings],
   )
 
   const onFixSubmit = useCallback(() => {
     if (settings === null || fix === null) return
-    handleDecision(decideFixForm(fix, quickSettings(settings), findProduct), fix.line, true)
+    void handleDecision(decideFixForm(fix, quickSettings(settings), findProduct), fix.line, true)
   }, [findProduct, fix, handleDecision, settings])
 
   const closeFix = useCallback(() => {

@@ -18,6 +18,8 @@ export interface FixState {
   readonly line: string
   /** 칸을 열거나 다시 오류가 날 때마다 바뀐다 (커서를 다시 보낸다) */
   readonly version: number
+  /** 커서를 고칠 칸으로 옮기는가 (늦게 판단한 줄인데 판매자가 다음 줄을 치는 중이면 옮기지 않는다) */
+  readonly grab: boolean
 }
 
 export interface Registration {
@@ -52,7 +54,7 @@ export function QuickInput(props: QuickInputProps) {
   }
 
   useEffect(() => {
-    if (fix === null) return
+    if (fix === null || !fix.grab) return
     const field = fixRefs[fix.focus].current
     field?.focus()
     field?.select()
