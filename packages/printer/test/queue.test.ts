@@ -1,7 +1,7 @@
 // 출력 대기열 순수 로직 (AC-P1-50~55·57, L-8·L-10).
 import { labelContentKey } from '@livejjim/label'
 import fc from 'fast-check'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   JOB_STATUS_NAMES,
   PAUSE_MESSAGES,
@@ -379,5 +379,29 @@ describe('순수·직렬화 (AC-P1-57)', () => {
     expect(back).toEqual(s)
     expect(labelHistory(back, 'L1')).toEqual(labelHistory(s, 'L1'))
     expect(s.format).toBe(1)
+  })
+})
+
+describe('대기열은 시계·난수를 읽지 않는다 (AC-P1-15)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('Date.now·Math.random을 던지게 해도 같은 결과', () => {
+    const run = (): PrintQueueState => {
+      const [started, j] = start(add(createPrintQueue(true), job('J1', 'L1'), job('J2', 'L2')))
+      let s = completeJob(started, j.id, { at: 5, device: 'PC' })
+      s = failJob(startNextJob(s).state, 'J2', 'PRINT_FAILED')
+      s = voidLabel(resumeQueue(s), 'L2')
+      return reprintLabel(s, job('J1b', 'L1'), 9).state
+    }
+    const before = run()
+    vi.spyOn(Date, 'now').mockImplementation(() => {
+      throw new Error('Date.now')
+    })
+    vi.spyOn(Math, 'random').mockImplementation(() => {
+      throw new Error('Math.random')
+    })
+    expect(run()).toEqual(before)
   })
 })
