@@ -202,7 +202,7 @@ export const EVENT_SPECS: Readonly<Record<string, EventSpec>> = {
   'effect.labelPrinted': spec({ b: F.b, no: F.no, buyer: F.buyer }),
   'effect.thanksSent': spec({ b: F.b, no: F.no, buyer: F.buyer }, { target: F.v(oneOf(TARGETS)) }),
   'settlement.shippingOverride': spec(
-    { buyer: F.buyer, date: F.date, mode: F.v(oneOf(['PICKUP', 'COMBINED', 'FIXED'])) },
+    { buyer: F.buyer, date: F.date, mode: F.v(oneOf(['PICKUP', 'COMBINED', 'FIXED', 'DEFAULT'])) },
     { amount: F.v(intAtLeast(0)) },
   ),
   'settlement.adjust': spec({ buyer: F.buyer, date: F.date, amount: F.v(anyInt), reason: F.reason }),

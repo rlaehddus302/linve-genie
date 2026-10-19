@@ -1,0 +1,10 @@
+# 범주 5 (S03 어휘): settlement.shippingOverride의 mode DEFAULT(예외 지우기, D-058)는 amount를 쓰지 않는다
+id: G-ENG-901
+title: 배송비 예외 지우기 (S03)
+refs: [R-12]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: settlement.shippingOverride, buyer: UC_A, date: 2026-10-18, mode: DEFAULT }
+  - { at: "20:00:01", type: settlement.shippingOverride, buyer: UC_A, date: 2026-10-18, mode: DEFAULT, amount: 0 }
+  - { at: "20:00:02", type: settlement.shippingOverride, buyer: UC_A, date: 2026-10-18, mode: RESET }
+expect: {}

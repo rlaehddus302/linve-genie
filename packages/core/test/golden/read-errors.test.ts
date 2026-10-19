@@ -140,6 +140,19 @@ const CASES: Readonly<Record<string, { category: string; loaded?: number; errors
       },
     ],
   },
+  '05-event-fields-settlement.yaml': {
+    category: '5. (S03 어휘) settlement.shippingOverride mode DEFAULT에 amount',
+    errors: [
+      {
+        doc: 1,
+        label: 'G-ENG-901',
+        issues: [
+          ['events[1].amount', 'amount는 mode FIXED일 때만'],
+          ['events[2].mode', 'PICKUP / COMBINED / FIXED / DEFAULT 중 하나'],
+        ],
+      },
+    ],
+  },
   '06-undeclared-broadcast.yaml': {
     category: '6. 선언하지 않은 방송',
     errors: [
