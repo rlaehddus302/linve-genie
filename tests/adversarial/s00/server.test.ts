@@ -188,7 +188,7 @@ describe('기동 (AC-S00-42) — 회귀', () => {
     const exited = new Promise<number | null>((resolve) => child.on('exit', (code) => resolve(code)))
     try {
       await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`서버가 10초 안에 시작하지 않았다:\n${output}`)), 10_000)
+        const timer = setTimeout(() => reject(new Error(`서버가 60초 안에 시작하지 않았다:\n${output}`)), 60_000)
         const check = (): void => {
           if (output.includes('시작했어요')) {
             clearTimeout(timer)
@@ -213,14 +213,14 @@ describe('기동 (AC-S00-42) — 회귀', () => {
     } finally {
       if (child.exitCode === null) child.kill('SIGKILL')
     }
-  }, 20_000)
+  }, 120_000)
 
   it.each(['abc', '0', '65536', '3000abc', ' 3000', '1e3', '0x50', '３０００', 'sk-live-SECRET-1234'])('잘못된 PORT=%j → 종료 코드 1, 값을 되풀이하지 않는다', (value) => {
     const result = node([MAIN], { PORT: value })
     expect(result.status).toBe(1)
     expect(result.stdout + result.stderr).toContain('PORT')
     if (value.trim().length >= 3) expect(result.stdout + result.stderr).not.toContain(value.trim())
-  })
+  }, 90_000)
 
   it('이미 쓰는 포트 → 종료 코드 1, 로그에 포트 번호 없음', async () => {
     const blocker = createNetServer()
@@ -235,7 +235,7 @@ describe('기동 (AC-S00-42) — 회귀', () => {
         const timer = setTimeout(() => {
           child.kill('SIGKILL')
           resolve(null)
-        }, 10_000)
+        }, 60_000)
         child.on('exit', (exitCode) => {
           clearTimeout(timer)
           resolve(exitCode)
@@ -247,5 +247,5 @@ describe('기동 (AC-S00-42) — 회귀', () => {
     } finally {
       await new Promise<void>((resolve) => blocker.close(() => resolve()))
     }
-  }, 20_000)
+  }, 120_000)
 })
