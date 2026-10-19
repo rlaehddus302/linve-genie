@@ -12,12 +12,12 @@
   "dependencies": {
     "@livejjim/core": "workspace:*",
     "@napi-rs/canvas": "1.0.11",
-    "fflate": "0.8.3",
-    "pdf-lib": "1.17.1"
+    "fflate": "0.8.3"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
     "fast-check": "4.10.2",
+    "pdf-lib": "1.17.1",
     "vitest": "5.0.5"
   }
 }
