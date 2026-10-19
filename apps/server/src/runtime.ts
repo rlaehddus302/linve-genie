@@ -1,0 +1,121 @@
+// 범위 상태 (메모리 프로젝션, D-072). 범위 = (판매자, 방송 날짜) (D-069).
+// - 범위를 처음 읽을 때 형식이 같은 마지막 스냅샷과 그 뒤 이벤트를 재생한다. 스냅샷 형식이 다르거나 읽을 수 없으면 처음부터 재생한다(AC-S04-28).
+// - 재생은 실패 표시된 입력을 건너뛴다. 표시가 없는데 엔진이 오류를 내는 입력도 건너뛰고 경보하며 계속 재생한다(AC-S04-24).
+// - 상태는 커밋된 이벤트로만 바뀐다. 다른 인스턴스가 쓴 이벤트는 다음에 읽거나 쓸 때 따라잡는다(catch-up).
+import { STATE_FORMAT, checkInvariants, initEngine, type ApplyResult, type EngineEvent, type EngineState } from '@livejjim/core'
+import type { Db } from './db/database.ts'
+import { errorKind, type LogSink } from './log.ts'
+import { eventAtSeq, eventsAfter, findScopeId, latestSnapshot, type EventRow } from './store.ts'
+
+/** 엔진 호출 (시험에서 감싸 예외를 주입한다). 쓰기와 재생 모두 이 함수를 쓴다 */
+export interface EngineAdapter {
+  applyEvent(state: EngineState, event: EngineEvent): ApplyResult
+}
+
+/** 범위 조회의 "확인 필요" 항목 (AC-S04-24) */
+export interface AttentionItem {
+  readonly seq: number
+  readonly message: string
+}
+
+export const FAILED_INPUT_MESSAGE = '처리하지 못한 입력이에요. 확인이 필요해요.'
+export const REPLAY_SKIPPED_MESSAGE = '다시 불러올 때 처리하지 못해 건너뛴 입력이에요. 확인이 필요해요.'
+
+export interface ScopeRuntime {
+  readonly sellerId: string
+  readonly date: string
+  scopeId: string | null
+  state: EngineState
+  /** 마지막으로 반영한 이벤트의 seq (이벤트가 없으면 0) */
+  seq: number
+  /** 마지막 이벤트의 at (범위 안에서 at이 줄지 않게) */
+  lastAt: number
+  attention: AttentionItem[]
+  /** 마지막 스냅샷(또는 처음) 뒤로 반영한 이벤트 수 */
+  sinceSnapshot: number
+}
+
+export function emptyState(): EngineState {
+  return initEngine({ broadcasts: [], settings: {} })
+}
+
+export function emptyRuntime(sellerId: string, date: string): ScopeRuntime {
+  return { sellerId, date, scopeId: null, state: emptyState(), seq: 0, lastAt: 0, attention: [], sinceSnapshot: 0 }
+}
+
+/** 기록된 이벤트 하나를 재생한다 (실패 표시는 건너뛴다). 상태·확인 필요·seq를 바꾼다 */
+export function replayRow(runtime: ScopeRuntime, row: EventRow, engine: EngineAdapter, log: LogSink): void {
+  if (row.failed) {
+    runtime.attention = [...runtime.attention, { seq: row.seq, message: FAILED_INPUT_MESSAGE }]
+  } else {
+    try {
+      runtime.state = engine.applyEvent(runtime.state, JSON.parse(row.body) as EngineEvent).state
+    } catch (error) {
+      log({ level: 'error', code: 'REPLAY_SKIPPED', date: runtime.date, seq: row.seq, errorKind: errorKind(error) })
+      runtime.attention = [...runtime.attention, { seq: row.seq, message: REPLAY_SKIPPED_MESSAGE }]
+    }
+  }
+  runtime.seq = row.seq
+  runtime.lastAt = Math.max(runtime.lastAt, row.at)
+  runtime.sinceSnapshot += 1
+}
+
+function parseAttention(text: string): AttentionItem[] | null {
+  const value: unknown = JSON.parse(text)
+  if (!Array.isArray(value)) return null
+  const items: AttentionItem[] = []
+  for (const item of value as unknown[]) {
+    if (typeof item !== 'object' || item === null) return null
+    const { seq, message } = item as Record<string, unknown>
+    if (typeof seq !== 'number' || !Number.isSafeInteger(seq) || typeof message !== 'string') return null
+    items.push({ seq, message })
+  }
+  return items
+}
+
+/** 스냅샷을 쓸 수 있으면 그 상태, 아니면 null (형식·JSON·불변식·확인 필요 목록) */
+function usableSnapshot(text: string, attentionText: string): { state: EngineState; attention: AttentionItem[] } | null {
+  try {
+    const state = JSON.parse(text) as EngineState
+    if (typeof state !== 'object' || state === null || state.format !== STATE_FORMAT) return null
+    if (checkInvariants(state).length > 0) return null
+    const attention = parseAttention(attentionText)
+    return attention === null ? null : { state, attention }
+  } catch {
+    return null
+  }
+}
+
+/** DB에서 범위 상태를 처음 만든다 (형식이 같은 마지막 스냅샷 + 뒤 이벤트, 쓸 수 없으면 처음부터) */
+export async function loadRuntime(db: Db, sellerId: string, date: string, engine: EngineAdapter, log: LogSink): Promise<ScopeRuntime> {
+  const runtime = emptyRuntime(sellerId, date)
+  const scopeId = await findScopeId(db, sellerId, date)
+  if (scopeId === null) return runtime
+  runtime.scopeId = scopeId
+  const snapshot = await latestSnapshot(db, sellerId, scopeId, STATE_FORMAT)
+  if (snapshot !== null) {
+    const usable = usableSnapshot(snapshot.state, snapshot.attention)
+    // 스냅샷 seq의 이벤트가 로그에 있어야 쓴다(로그보다 앞선 스냅샷은 쓰지 않는다). 마지막 at도 그 이벤트에서 읽는다
+    const last = usable === null ? null : await eventAtSeq(db, sellerId, scopeId, snapshot.seq)
+    if (usable !== null && last !== null) {
+      runtime.state = usable.state
+      runtime.attention = usable.attention
+      runtime.seq = snapshot.seq
+      runtime.lastAt = last.at
+    } else {
+      log({ level: 'warn', code: 'SNAPSHOT_UNUSABLE', date, seq: snapshot.seq })
+    }
+  }
+  for (const row of await eventsAfter(db, sellerId, scopeId, runtime.seq)) replayRow(runtime, row, engine, log)
+  runtime.sinceSnapshot = 0
+  return runtime
+}
+
+/** 다른 인스턴스가 쓴 이벤트를 따라잡는다 (범위 행이 새로 생겼으면 그것도) */
+export async function catchUp(db: Db, runtime: ScopeRuntime, engine: EngineAdapter, log: LogSink): Promise<void> {
+  if (runtime.scopeId === null) {
+    runtime.scopeId = await findScopeId(db, runtime.sellerId, runtime.date)
+    if (runtime.scopeId === null) return
+  }
+  for (const row of await eventsAfter(db, runtime.sellerId, runtime.scopeId, runtime.seq)) replayRow(runtime, row, engine, log)
+}
