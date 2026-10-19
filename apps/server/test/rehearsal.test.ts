@@ -32,12 +32,12 @@ describe('AC-S05-50 리허설 방송 만들기', () => {
     const rehearsal = await createBroadcast(world, seller, { date: DAY, rehearsal: true })
     expect(real.rehearsal).toBe(false)
     expect(rehearsal.rehearsal).toBe(true)
-    // 범위가 따로라 둘 다 그 범위의 seq 1이고 기본 제목도 각각 1부
+    // 범위가 따로라 둘 다 그 범위의 seq 1이고, 기본 제목은 실제 "1부"·리허설 "리허설 1" (AC-S06-66 014 — 각자 자기 범위의 방송만 센다)
     expect([real.seq, rehearsal.seq]).toEqual([1, 1])
     const list = (await api.get('/api/broadcasts')).body.broadcasts as { id: string; title: string; rehearsal: boolean }[]
     expect(list.map((item) => [item.id, item.title, item.rehearsal])).toEqual([
       [real.id, '1부', false],
-      [rehearsal.id, '1부', true],
+      [rehearsal.id, '리허설 1', true],
     ])
     const bad = await api.post('/api/broadcasts', { requestId: rid(), date: DAY, rehearsal: 'yes' })
     expect(bad.status).toBe(400)
@@ -48,6 +48,27 @@ describe('AC-S05-50 리허설 방송 만들기', () => {
     const again = await expectOk(api.post('/api/broadcasts', { ...body, rehearsal: false }))
     expect(again.body).toEqual(first.body)
     expect(first.body).toMatchObject({ rehearsal: true, broadcast: { rehearsal: true } })
+  })
+
+  it('AC-S06-66 기본 제목: 리허설 방송은 "리허설 N"(그 날짜의 리허설 방송 수 + 1), 실제 방송 "N부"는 실제 방송만 센다. 적은 제목은 그대로', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const api = client(world, seller.cookie)
+    const r1 = await createBroadcast(world, seller, { date: DAY, rehearsal: true })
+    const r2 = await createBroadcast(world, seller, { date: DAY, rehearsal: true })
+    const real1 = await createBroadcast(world, seller, { date: DAY })
+    const named = await createBroadcast(world, seller, { date: DAY, rehearsal: true, title: '연습' })
+    const r4 = await createBroadcast(world, seller, { date: DAY, rehearsal: true })
+    const real2 = await createBroadcast(world, seller, { date: DAY })
+    // 다른 날짜의 리허설은 따로 센다
+    const other = await createBroadcast(world, seller, { date: '2026-10-20', rehearsal: true })
+    const titles = new Map(((await api.get('/api/broadcasts')).body.broadcasts as { id: string; title: string }[]).map((item) => [item.id, item.title]))
+    expect([r1, r2, named, r4].map((b) => titles.get(b.id))).toEqual(['리허설 1', '리허설 2', '연습', '리허설 4'])
+    expect([real1, real2].map((b) => titles.get(b.id))).toEqual(['1부', '2부'])
+    expect(titles.get(other.id)).toBe('리허설 1')
+    // 방송 만들기 응답의 제목도 같다
+    const created = await expectOk(api.post('/api/broadcasts', { requestId: rid(), date: DAY, rehearsal: true }))
+    expect(created.body).toMatchObject({ broadcast: { title: '리허설 5', rehearsal: true } })
   })
 
   it('기존 범위·발송함은 모두 실제(마이그레이션 기본값)이고, 범위 행의 유일 키는 (판매자, 날짜, 리허설)이다', async () => {

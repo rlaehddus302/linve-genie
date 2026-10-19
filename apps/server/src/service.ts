@@ -283,7 +283,9 @@ export class Service {
             },
           }),
       build: (ctx, prepared) => {
-        const title = input.title ?? `${String(listBroadcasts(ctx.state).length + 1)}부`
+        // 기본 제목: 그 범위(날짜·리허설인지)의 방송 수 + 1 — 실제 방송 "N부", 리허설 방송 "리허설 N" (AC-S06-66 014, D-094). 범위가 따로라 서로 세지 않는다
+        const n = String(listBroadcasts(ctx.state).length + 1)
+        const title = input.title ?? (rehearsal ? `리허설 ${n}` : `${n}부`)
         const drafts: Draft[] = [{ fields: { type: 'broadcast.start', b, date, title, settings: { ...settings } }, actor, requestId }]
         if (ctx.isNewScope && !rehearsal) {
           for (const buyer of (prepared as string[] | undefined) ?? []) {
