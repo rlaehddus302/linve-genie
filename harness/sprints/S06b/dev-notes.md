@@ -60,6 +60,7 @@ interface MergePreview {
 - `packages/core/test/golden/read-errors.test.ts` "모든 파일에 기대값이 있다": 범주 1~19 → 1~20(새 픽스처 20번을 더했다).
 
 ### 확인한 것
+- `pnpm verify`(dev-core 끝, 커밋 6568152 기준): 7단계 모두 통과 — typecheck(설정 8개·TS 파일 294개) · lint 오류 0 · test 파일 92·테스트 2121 · golden 아래 합계 · adversarial 파일 30·테스트 642 · e2e 파일 22·통과 133 · coverage 라인 100%·분기 99.66%.
 - `pnpm golden`: 파일 23 · 파서 사례 379 · 엔진 시나리오 123 · 통과 502 · 불일치 0 · 미구현(허용) 0 · 미구현(불허) 0 · 읽기 오류 0 · 결정성 위반 0 · 러너 오류 0.
 - `pnpm coverage`: `packages/core/src` 라인 100% · 분기 99.66%.
 - 기계 부하가 큰 동안(load average 24~41) 코어의 시간 비교 시험(`engine-timing.test.ts`의 "8배를 넘지 않는다")과 무거운 속성 시험이 5초 제한·비율을 넘는 일이 있었다. 따로 돌리면 통과한다(이번 변경과 관계없는 경로 — checkInvariants·보류 찜). 적대 시험 `tests/adversarial/s00/golden-runner.test.ts`의 CLI 여러 번 띄우기도 부하에서 5초를 넘는다 — AC-S06b-51(test-domain 몫).
