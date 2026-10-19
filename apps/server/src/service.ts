@@ -1,6 +1,7 @@
 // 판매자 작업 (AC-S04-21·27·31·33·50~52). 판정은 모두 packages/core가 한다 — 여기서는 이벤트를 만들고 기록 경로에 넘기고 조회 함수를 부른다.
 import {
   checkSettings,
+  containsPhoneNumber,
   getBuyer,
   isValidDate,
   listBroadcasts,
@@ -327,11 +328,11 @@ export class Service {
     return { kind: 'phone', outcome, phoneLast4: normalized === null ? null : phoneLast4(normalized) }
   }
 
-  /** 문자찜 ref (영문만이라 휴대폰 번호 모양이 될 수 없다. 바꿔 끼운 ID 생성기가 숫자를 섞어도 번호 모양이면 다시 만든다) */
+  /** 문자찜 ref (영문만이라 휴대폰 번호가 들어갈 수 없다. 바꿔 끼운 ID 생성기가 숫자를 섞어도 번호가 들어 있으면 — 코어 입력 오류와 같은 판단 — 다시 만든다) */
   #smsRef(): string {
     for (let i = 0; i < 10; i++) {
       const ref = this.#options.ids.smsRef()
-      if (/^[A-Za-z0-9_-]{1,64}$/.test(ref) && normalizePhone(ref) === null) return ref
+      if (/^[A-Za-z0-9_-]{1,64}$/.test(ref) && !containsPhoneNumber(ref)) return ref
     }
     throw new Error('문자찜 ref를 만들지 못했다')
   }

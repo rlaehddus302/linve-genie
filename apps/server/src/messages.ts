@@ -1,6 +1,6 @@
 // 입력 문제를 화면에 보여 줄 쉬운 한국어로 바꾼다 (AC-S04-22, UX-03).
 // 코어 checkEvent의 문장은 개발 문장이고 받은 값이 들어 있을 수 있어 그대로 내보내지 않는다. 필드 이름만 쓰고 문장은 여기서 정한다.
-import { normalizePhone, type EventProblem } from '@livejjim/core'
+import { containsPhoneNumber, type EventProblem } from '@livejjim/core'
 import type { FieldProblem } from './errors.ts'
 
 const FIELD_MESSAGES: Readonly<Record<string, string>> = {
@@ -39,13 +39,13 @@ const DEFAULT_MESSAGE = '값을 확인해 주세요.'
 const SAFE_FIELD = /^[A-Za-z][A-Za-z0-9_]{0,40}(?:\.[A-Za-z][A-Za-z0-9_]{0,40}){0,2}$/
 
 export function safeFieldName(name: string): string | null {
-  return SAFE_FIELD.test(name) && normalizePhone(name) === null ? name : null
+  return SAFE_FIELD.test(name) && !containsPhoneNumber(name) ? name : null
 }
 
-/** 필드 하나의 쉬운 문장. 값이 휴대폰 번호 모양인 글자 칸이면 전화번호 칸으로 안내한다 */
+/** 필드 하나의 쉬운 문장. 글자 칸에 휴대폰 번호가 들어 있으면(코어 입력 오류와 같은 판단 — containsPhoneNumber) 전화번호 칸으로 안내한다 */
 export function fieldMessage(field: string | null, value?: unknown): string {
   if (field === null) return DEFAULT_MESSAGE
-  if (typeof value === 'string' && normalizePhone(value) !== null && (field === 'memo' || field === 'ref')) return PHONE_IN_TEXT
+  if (typeof value === 'string' && containsPhoneNumber(value) && (field === 'memo' || field === 'ref')) return PHONE_IN_TEXT
   return FIELD_MESSAGES[field] ?? DEFAULT_MESSAGE
 }
 

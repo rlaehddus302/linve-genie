@@ -111,8 +111,26 @@ describe('AC-S04-31 문자찜 입력 경로', () => {
     expect(await countRows(world.database, 'events')).toBe(2)
   })
 
+  it('번호 앞뒤에 다른 숫자가 붙은 메모·국가 번호 메모도 거절하고 전화번호 칸으로 안내한다 — 평문 번호가 로그·표시 이름에 남지 않는다 (RA-S04-001)', async () => {
+    const world = await newWorld({ snapshotEvery: 2 })
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller)
+    await expectOk(writeEvent(world, seller, { type: 'product.register', b: b.id, no: 1, name: 'a', price: 1000 }))
+    const before = await countRows(world.database, 'events')
+    for (const memo of ['3시 010-8642-5678', '010-8642-5678 2개', '15번 01086425678', '+82 10-8642-5678']) {
+      const response = await writeEvent(world, seller, { type: 'sms', b: b.id, no: 1, memo, phone: '010-9999-8888' })
+      expect(response.status, memo).toBe(400)
+      expect(response.body, memo).toMatchObject({ error: { code: 'INVALID_INPUT', problems: [{ field: 'memo', message: '전화번호는 여기에 적을 수 없어요. 전화번호 칸에 적어 주세요.' }] } })
+      expect(response.text, memo).not.toContain('8642-5678')
+    }
+    expect(await countRows(world.database, 'events')).toBe(before)
+    await expectOk(writeEvent(world, seller, { type: 'sms', b: b.id, no: 1, memo: '3시 15번 2개' }))
+    const dump = await dumpAllTables(world.database)
+    for (const needle of ['8642-5678', '86425678', '01086425678']) expect(dump, needle).not.toContain(needle)
+  })
+
   it('서버가 만든 ref에는 숫자가 없다 — 바꿔 끼운 생성기가 번호 모양을 내도 다시 만든다', async () => {
-    const refs = ['01012345678', 's01012345678', 'safe-ref']
+    const refs = ['01012345678', 's01012345678', 'r-010-1234-5678-2', 'safe-ref']
     const world = await newWorld({ ids: { smsRef: () => refs.shift() ?? 'fallback' } })
     const seller = await addSeller(world)
     const b = await createBroadcast(world, seller)
