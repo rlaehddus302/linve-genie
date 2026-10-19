@@ -91,11 +91,7 @@ export function SmsPage({ navigate }: { readonly navigate: Navigate }) {
         </button>
       </section>
       {listError !== null ? <ErrorNote error={listError} onRetry={() => void load(true)} retryLabel="다시 불러오기" /> : null}
-      {item?.rehearsal === true ? (
-        <p className="rehearsal-banner" role="note">
-          {REHEARSAL_WARNING}
-        </p>
-      ) : null}
+      {item?.rehearsal === true && (store === null || queue === null || snapshot.data === null) ? <RehearsalWarning /> : null}
       {selected === null || item === null || item === undefined ? (
         <SmsForm key="none" disabled focusSignal={focusSignal} />
       ) : store !== null && queue !== null && snapshot.data !== null ? (
@@ -123,6 +119,15 @@ export function SmsPage({ navigate }: { readonly navigate: Navigate }) {
         />
       ) : null}
     </main>
+  )
+}
+
+/** 리허설 방송을 고르면 늘 보인다 (AC-S06-10) */
+function RehearsalWarning() {
+  return (
+    <p className="rehearsal-banner" role="note">
+      {REHEARSAL_WARNING}
+    </p>
   )
 }
 
@@ -190,7 +195,9 @@ function ReadySms({ b, item, store, snapshot, data, queue, focusSignal }: ReadyS
   const host = useHostActions({ store, data, queue, date: item.date, rehearsal: item.rehearsal, b, ended })
   return (
     <>
+      {/* 리허설 경고·끊김 안내·되돌리기 띠는 위에 붙어 있어 내려도 보인다 */}
       <div className="page-sticky">
+        {item.rehearsal ? <RehearsalWarning /> : null}
         <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
         <UndoBar items={host.items} queue={queue} />
       </div>
