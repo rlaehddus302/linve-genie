@@ -11,6 +11,8 @@ export interface GoldenParserCore {
   amount(text: string, settings: SettingsOverride): unknown
   koreanNumber(text: string): unknown
   quickInput(text: string, settings: SettingsOverride): unknown
+  /** 음성 문장 추출 (P2, D-209 — 추출기는 packages/voice에 있고 어댑터가 부른다). dictionary는 suite의 품종 사전(사본) */
+  voiceExtract(text: string, settings: SettingsOverride, dictionary: readonly string[]): unknown
 }
 
 export interface GoldenBroadcast {

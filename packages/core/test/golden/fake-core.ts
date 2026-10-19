@@ -10,6 +10,7 @@ export interface FakeCoreOptions {
     readonly amount?: (text: string, settings: SettingsOverride) => unknown
     readonly koreanNumber?: (text: string) => unknown
     readonly quickInput?: (text: string, settings: SettingsOverride) => unknown
+    readonly voiceExtract?: (text: string, settings: SettingsOverride, dictionary: readonly string[]) => unknown
   }
   /** 고정 스냅샷, 또는 지금까지 적용한 이벤트로 스냅샷을 만드는 함수 */
   readonly snapshot?: GoldenSnapshot | ((events: readonly GoldenEvent[]) => GoldenSnapshot)
@@ -55,6 +56,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): GoldenCore {
       amount: options.parser?.amount ?? notImplemented('가짜 amount'),
       koreanNumber: options.parser?.koreanNumber ?? notImplemented('가짜 korean-number'),
       quickInput: options.parser?.quickInput ?? notImplemented('가짜 quick-input'),
+      voiceExtract: options.parser?.voiceExtract ?? notImplemented('가짜 voice-extract'),
     },
     engine: { ...baseEngine, ...options.engine },
   }

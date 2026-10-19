@@ -414,14 +414,38 @@ const CASES: Readonly<Record<string, { category: string; loaded?: number; errors
       },
     ],
   },
+  '20-voice-extract.yaml': {
+    // P2 (D-209): 러너가 voice-extract suite를 안다 — 형식 계약 밖은 읽기 오류
+    category: '20. voice-extract settings·out 형식 위반 (모르는 키, confidence 빠짐, price 100 미만, 빈 품종, 목록이 아닌 사전)',
+    errors: [
+      {
+        doc: 1,
+        label: 'voice-extract',
+        issues: [
+          ['settings.dictionary', '문자열 목록이어야 한다'],
+          ['settings.maxNumber', '1 이상 9999 이하 정수'],
+          ['settings.unit', "suite 'voice-extract'에 없는 설정 키 'unit'"],
+          ['cases[0].out.note', "모르는 voice-extract out 키 'note'"],
+          ['cases[1].out', "필수 voice-extract out 키 'confidence'"],
+          ['cases[2].out.price', '100 이상 정수'],
+          ['cases[3].out.name', '빈 문자열이 아닌 문자열'],
+          ['cases[4].out.no', '1 이상 정수'],
+          ['cases[4].out.confidence', 'HIGH / LOW 중 하나'],
+          ['cases[5].out', '맵이어야 한다'],
+        ],
+      },
+      { doc: 2, label: 'voice-extract', issues: [['settings.dictionary', '문자열 목록이어야 한다']] },
+      { doc: 3, label: 'voice-extract', issues: [['settings.maxNumber', '1 이상 9999 이하 정수']] },
+    ],
+  },
 }
 
 describe('형식 계약 위반 = 읽기 오류 (AC-S00-22)', () => {
-  it('fixtures/read-errors의 모든 파일에 기대값이 있다 (범주 1~19)', () => {
+  it('fixtures/read-errors의 모든 파일에 기대값이 있다 (범주 1~20 — P2에서 20 voice-extract를 더했다)', () => {
     const files = readdirSync(DIR).filter((f) => f.endsWith('.yaml'))
     expect(files.sort()).toEqual(Object.keys(CASES).sort())
     const categories = new Set(Object.values(CASES).map((c) => Number(c.category.split('.')[0])))
-    expect([...categories].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19])
+    expect([...categories].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
   })
 
   for (const [file, { category, loaded = 0, errors }] of Object.entries(CASES)) {

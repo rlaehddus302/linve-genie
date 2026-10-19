@@ -26,6 +26,9 @@ import {
   SUITES,
   SUITE_SETTINGS,
   TARGETS,
+  VOICE_CONFIDENCES,
+  VOICE_DICTIONARY_KEY,
+  VOICE_EXTRACT_KEYS,
   anyInt,
   bool,
   intAtLeast,
@@ -131,6 +134,8 @@ export interface ParserSuiteDoc {
   readonly suite: SuiteName
   /** DOMAIN_RULES 키(점 표기)로 바꾼 설정 */
   readonly settings: SettingsOverride
+  /** voice-extract의 품종 사전 (settings.dictionary, 생략하면 빈 목록). 다른 suite에는 없다 (P2, D-209) */
+  readonly dictionary?: readonly string[]
   readonly cases: readonly ParserCase[]
 }
 
@@ -499,7 +504,23 @@ function checkSuiteOut(c: Checker, suite: SuiteName, path: readonly PathSegment[
       }
       return
     }
+    case 'voice-extract': {
+      // README: 키는 no·name·price·confidence만, confidence 필수. no·name·price는 적지 않거나 null이면 null
+      if (!c.object(path, out)) return
+      c.keys(path, out, VOICE_EXTRACT_KEYS, ['confidence'], 'voice-extract out 키')
+      if (hasValue(out, 'no') && out.no !== null) c.value([...path, 'no'], out.no, intAtLeast(1))
+      if (hasValue(out, 'name') && out.name !== null) c.value([...path, 'name'], out.name, nonEmptyStr)
+      if (hasValue(out, 'price') && out.price !== null) c.value([...path, 'price'], out.price, intAtLeast(100))
+      if (hasValue(out, 'confidence')) c.value([...path, 'confidence'], out.confidence, oneOf(VOICE_CONFIDENCES))
+      return
+    }
   }
+}
+
+/** 문자열 목록 (voice-extract 품종 사전) */
+const stringList: ValueCheck = (value) => {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) return `문자열 목록이어야 한다 (값: ${showValue(value)})`
+  return undefined
 }
 
 function validateSuite(raw: Record<string, unknown>): ValidationResult {
@@ -514,8 +535,13 @@ function validateSuite(raw: Record<string, unknown>): ValidationResult {
   const suite = suiteValue as SuiteName
   const mapping = SUITE_SETTINGS[suite]
   const settings: Record<string, unknown> = {}
+  let dictionary: readonly string[] | undefined = suite === 'voice-extract' ? [] : undefined
   if (hasValue(raw, 'settings') && c.object(['settings'], raw.settings)) {
     for (const [key, setting] of Object.entries(raw.settings)) {
+      if (suite === 'voice-extract' && key === VOICE_DICTIONARY_KEY) {
+        if (c.value(['settings', key], setting, stringList)) dictionary = Object.freeze([...(setting as string[])])
+        continue
+      }
       const domainKey = Object.hasOwn(mapping, key) ? mapping[key] : undefined
       const check = domainKey === undefined ? undefined : SETTING_CHECKS[domainKey]
       if (domainKey === undefined || check === undefined) {
@@ -537,7 +563,7 @@ function validateSuite(raw: Record<string, unknown>): ValidationResult {
     })
   }
   if (c.issues.length > 0) return { ok: false, label: suite, issues: c.issues }
-  return { ok: true, doc: { kind: 'suite', suite, settings: settings as SettingsOverride, cases } }
+  return { ok: true, doc: { kind: 'suite', suite, settings: settings as SettingsOverride, ...(dictionary === undefined ? {} : { dictionary }), cases } }
 }
 
 // ── 엔진 시나리오 ────────────────────────────────────────────────────────

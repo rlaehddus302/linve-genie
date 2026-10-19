@@ -57,7 +57,13 @@ function describeError(error: unknown): string {
 
 // ── 파서 사례 ────────────────────────────────────────────────────────────
 
-function runParserCase(core: GoldenCore, suite: SuiteName, settings: object, testCase: ParserCase): { status: ItemStatus; problems: Problem[] } {
+function runParserCase(
+  core: GoldenCore,
+  suite: SuiteName,
+  settings: object,
+  testCase: ParserCase,
+  dictionary: readonly string[] = [],
+): { status: ItemStatus; problems: Problem[] } {
   let actual: unknown
   try {
     const copy = { ...settings }
@@ -73,6 +79,10 @@ function runParserCase(core: GoldenCore, suite: SuiteName, settings: object, tes
         break
       case 'quick-input':
         actual = core.parser.quickInput(testCase.input, copy)
+        break
+      case 'voice-extract':
+        // 사전은 사례마다 사본을 넘긴다 — 추출기가 바꿔도 다음 사례에 번지지 않게
+        actual = core.parser.voiceExtract(testCase.input, copy, [...dictionary])
         break
     }
   } catch (error) {
@@ -394,7 +404,7 @@ export function runGoldenSources(options: RunGoldenSourcesOptions): GoldenReport
     if (doc.kind === 'suite') {
       const listed = allowlist.suites.has(doc.suite)
       for (const testCase of doc.cases) {
-        const { status, problems } = runParserCase(options.core, doc.suite, doc.settings, testCase)
+        const { status, problems } = runParserCase(options.core, doc.suite, doc.settings, testCase, doc.dictionary)
         items.push({
           kind: 'parser',
           file: entry.file,
