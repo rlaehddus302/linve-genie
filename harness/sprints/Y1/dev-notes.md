@@ -147,6 +147,11 @@ installGoogleBlock()   // 실제 구글 주소로 나가는 요청을 막는다 
 - `youtube-connect` AC-01~06 (state 만료·재사용·다른 세션·동시 두 번, PKCE, 토큰 DB 전체 검색 0건, 마스터 키 바뀜, 새로 고침 1번, 401, invalid_grant → 수집기 멈춤 → 같은 채널 다시 연결 → 이어서 수집, SSE, 끊기)
 - `youtube-link` AC-10~13 · `youtube-collector` AC-20~29 (2,000건·끊김 5번·지점 저장 직전 죽음 → 다른 서버가 이어받음, 1만 건·재생 = 상태) · `youtube-outbox` AC-30~46 · `youtube-quota` AC-50~53 · `youtube-seal` AC-60~62 · `youtube-security` AC-70~72 · `youtube-fake` AC-80·81(실제 HTTP로 연결 → 잇기 → 채팅 → 판정 → 감사 게시)
 - 모든 서버 시험은 `TZ=Pacific/Honolulu`에서 돌고, 실제 구글 주소로 나가는 요청이 생기면 그 파일이 실패한다.
+- **유튜브 시험은 서버 시험 뒤에 따로 돈다**: `apps/server/vitest.config.ts`가 프로젝트 둘(`server` groupOrder 1 · `server-youtube` groupOrder 2)을 낸다. 유튜브 시험(1만 건 수집 등)이 서버의 지연 측정 시험(`changes.test.ts` 증분 조회 p99 300ms)과 같은 시간에 돌면 흔들려서다(S04의 groupOrder와 같은 방식). 대상 파일은 그대로 모두 돈다.
+
+### verify
+- `E2E_PORT_OFFSET=300 pnpm verify` (작업 폴더 `livejjim-wt/y1`, 마지막 커밋 기준): **7단계 모두 통과** — typecheck · lint · test(파일 87 · 2005) · golden(파일 22 · 파서 385 · 엔진 121 · 통과 506) · adversarial(30 · 642) · e2e(12 · 67) · coverage(라인 100% · 분기 99.65%).
+- 그 전 실행에서는 다른 병렬 트랙의 검증이 함께 돌아(부하 평균 12~55) 시간에 민감한 시험이 흔들렸다: 서버 `changes.test.ts` 증분 조회 p99(300ms 기준에 224~350ms), 적대 `s00/golden-runner.test.ts` "CLI 우회 없음"(5초 시간 제한), 코어 속성 시험 시간 초과. 따로 돌리면 모두 통과했다. 또 한 번은 coverage 단계가 다른 작업 폴더(`livejjim-wt/p2`)를 루트로 돌아 요약이 섞였다 — 같은 컴퓨터에서 작업 폴더 여럿이 동시에 verify를 돌릴 때의 일로 보인다(오케스트레이터 확인 요청).
 
 ### 남은 것·사용자 몫
 - 화면 전부(I3): 위 계약으로. Playwright 설정에 `--youtube fake --youtube-port` 넣기도 I3/dev-web 몫.
