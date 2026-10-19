@@ -8,6 +8,7 @@ import {
   cancelJob,
   completeJob,
   createPrintQueue,
+  disconnectWhilePrinting,
   enqueueJob,
   failJob,
   jobStatusText,
@@ -133,6 +134,47 @@ describe('멈춤과 이어서 — 라벨이 사라지지 않는다 (AC-P1-51)', 
     expect(statusOf(s, 'J1')).toMatchObject({ status: 'WAITING', attempts: 1 })
     s = setConnection(s, true)
     expect(startNextJob(s).job?.id).toBe('J1')
+  })
+
+  it('출력 결과보다 끊김 알림이 먼저 왔다(실행기용): 연결·멈춤(끊김)만 기록하고 출력 중 작업은 그대로 — 결과가 ok면 출력함, 다시 찍지 않는다', () => {
+    let s = add(createPrintQueue(true), job('J1', 'L1'), job('J2', 'L2'))
+    ;[s] = start(s)
+    s = disconnectWhilePrinting(deepFreeze(s))
+    expect(s).toMatchObject({ connected: false, paused: 'DISCONNECTED' })
+    expect(pauseMessage(s)).toBe('프린터 연결이 끊겼어요.')
+    expect(statusOf(s, 'J1')).toMatchObject({ status: 'PRINTING', attempts: 0, lastError: null })
+    // 같은 알림이 또 와도 아무 일도 없다
+    expect(disconnectWhilePrinting(s)).toBe(s)
+    // 프린터가 끝났다고 알렸다(ok) → 출력함. 끊긴 동안 다음 작업은 시작하지 않는다
+    s = completeJob(s, 'J1', { at: 3, device: 'PC' })
+    expect(statusOf(s, 'J1')).toMatchObject({ status: 'DONE', attempts: 0, printedAt: 3 })
+    expect(startNextJob(s).job).toBeNull()
+    // 다시 연결되면 J2부터 — J1은 다시 찍지 않는다
+    s = setConnection(s, true)
+    expect(s.paused).toBeNull()
+    const r = startNextJob(s)
+    expect(r.job?.id).toBe('J2')
+    expect(labelHistory(r.state, 'L1').count).toBe(1)
+  })
+
+  it('끊김 알림이 먼저 오고 결과가 끊김 실패면 그때 대기 맨 앞으로(시도 1) — 끝나기 전 끊김은 찍혔는지 모른다(D-P1-09)', () => {
+    let s = add(createPrintQueue(true), job('J1', 'L1'), job('J2', 'L2'))
+    ;[s] = start(s)
+    s = failJob(disconnectWhilePrinting(s), 'J1', 'DISCONNECTED')
+    expect(s).toMatchObject({ connected: false, paused: 'DISCONNECTED' })
+    expect(statusOf(s, 'J1')).toMatchObject({ status: 'WAITING', attempts: 1, lastError: 'DISCONNECTED' })
+    expect(waitingOrder(s)).toEqual(['J1', 'J2'])
+    expect(startNextJob(setConnection(s, true)).job?.id).toBe('J1')
+  })
+
+  it('판매자·프린터 오류 멈춤은 출력 중 끊김 알림에도 그대로 (다시 시작으로만)', () => {
+    let s = add(createPrintQueue(true), job('J1', 'L1'))
+    ;[s] = start(s)
+    s = disconnectWhilePrinting(pauseQueue(s))
+    expect(s).toMatchObject({ connected: false, paused: 'SELLER' })
+    expect(statusOf(s, 'J1')?.status).toBe('PRINTING')
+    s = setConnection(completeJob(s, 'J1', { at: 1, device: 'PC' }), true)
+    expect(s.paused).toBe('SELLER')
   })
 
   it('연결된 채로 J2가 PRINT_FAILED → 멈춤(프린터 오류), 저절로 다시 출력하지 않는다, 다시 시작하면 J2부터', () => {
@@ -305,6 +347,7 @@ describe('순수·직렬화 (AC-P1-57)', () => {
     | { t: 'done' }
     | { t: 'fail'; code: string }
     | { t: 'conn'; on: boolean }
+    | { t: 'drop' }
     | { t: 'pause' }
     | { t: 'resume' }
     | { t: 'void'; l: number }
@@ -317,6 +360,7 @@ describe('순수·직렬화 (AC-P1-57)', () => {
     fc.constant({ t: 'done' as const }),
     fc.record({ t: fc.constant('fail' as const), code: fc.constantFrom('PRINT_FAILED', 'DISCONNECTED', 'TIMEOUT', 'NOT_CONNECTED') }),
     fc.record({ t: fc.constant('conn' as const), on: fc.boolean() }),
+    fc.constant({ t: 'drop' as const }),
     fc.constant({ t: 'pause' as const }),
     fc.constant({ t: 'resume' as const }),
     fc.record({ t: fc.constant('void' as const), l: fc.nat(6) }),
@@ -340,6 +384,8 @@ describe('순수·직렬화 (AC-P1-57)', () => {
       }
       case 'conn':
         return setConnection(s, op.on)
+      case 'drop':
+        return disconnectWhilePrinting(s)
       case 'pause':
         return pauseQueue(s)
       case 'resume':

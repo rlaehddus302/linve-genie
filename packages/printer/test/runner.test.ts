@@ -1,9 +1,11 @@
 // 실행기 + 가짜 프린터 — 30장 연속 (AC-P1-56, SPEC §8 2단계 "상품 라벨 30장 연속 출력", LBL-06 AC2·LBL-08).
-import { bitmapsEqual, defaultTemplate, labelContentKey, renderProductLabel, type ProductLabelData } from '@livejjim/label'
+import { bitmapsEqual, createBitmap, defaultTemplate, labelContentKey, renderProductLabel, type LabelBitmap, type ProductLabelData } from '@livejjim/label'
 import { createNodeRenderEnv } from '@livejjim/label/node'
 import { describe, expect, it } from 'vitest'
+import { B1_PROFILE, StateBox, type ConnectionMethod, type ConnectionState, type PrinterAdapter } from '../src/adapter.ts'
+import { OK, fail, type PrinterResult } from '../src/errors.ts'
 import { createFakePrinter, createPrintRunner, createPrintQueue, enqueueJob, startNextJob, type JobRenderer, type NewJob } from '../src/index.ts'
-import { flush } from './fakes.ts'
+import { ManualTimer, flush } from './fakes.ts'
 
 const env = createNodeRenderEnv()
 const template = { ...defaultTemplate('product'), shopName: '다육농장' }
@@ -128,5 +130,166 @@ describe('실행기 + 가짜 프린터 (AC-P1-56)', () => {
     await runner.idle()
     expect(runner.state.jobs[0]).toMatchObject({ status: 'DONE', attempts: 1, lastError: 'DISCONNECTED' })
     expect(printer.printed).toHaveLength(1)
+  })
+})
+
+/** 알림과 결과의 순서를 손으로 정하는 어댑터 — print는 finish(결과)를 부를 때 끝난다 */
+class ScriptedAdapter implements PrinterAdapter {
+  readonly box = new StateBox()
+  readonly profile = B1_PROFILE
+  /** 끝까지 출력한 그림 (받은 순서) */
+  readonly printed: LabelBitmap[] = []
+  private pending: { image: LabelBitmap; resolve: (r: PrinterResult) => void } | undefined
+
+  get state(): ConnectionState {
+    return this.box.state
+  }
+  onStateChange(listener: (state: ConnectionState) => void): () => void {
+    return this.box.listen(listener)
+  }
+  availableMethods(): ConnectionMethod[] {
+    return ['bluetooth']
+  }
+  async connect(): Promise<PrinterResult> {
+    this.box.set('CONNECTED')
+    return OK
+  }
+  async disconnect(): Promise<void> {
+    this.box.set('DISCONNECTED')
+  }
+  print(image: LabelBitmap): Promise<PrinterResult> {
+    if (this.box.state !== 'CONNECTED') return Promise.resolve(fail('NOT_CONNECTED'))
+    this.box.set('PRINTING')
+    return new Promise((resolve) => {
+      this.pending = { image, resolve }
+    })
+  }
+  get printing(): boolean {
+    return this.pending !== undefined
+  }
+  /** 출력 결과를 낸다 (ok면 기록). 상태는 출력 중일 때만 연결됨으로 되돌린다 */
+  finish(result: PrinterResult): void {
+    const p = this.pending
+    if (!p) throw new Error('출력 중이 아니다')
+    this.pending = undefined
+    if (result.ok) this.printed.push(p.image)
+    if (this.box.state === 'PRINTING') this.box.set('CONNECTED')
+    p.resolve(result)
+  }
+}
+
+describe('실행기 — 출력 결과와 끊김 알림의 순서 (SA-P1-003, L-8 1·3, D-P1-09)', () => {
+  const images = new Map<string, LabelBitmap>()
+  const tiny: JobRenderer = (job) => {
+    let image = images.get(job.id)
+    if (!image) {
+      image = createBitmap(8, 8)
+      images.set(job.id, image)
+    }
+    return { ok: true, image }
+  }
+  const idOf = (image: LabelBitmap): string => [...images].find(([, img]) => img === image)?.[0] ?? '?'
+  const simple = (id: string): NewJob => ({ id, labelKey: `L-${id}`, kind: 'product', data: {}, contentKey: id })
+
+  it('끊김 알림이 먼저 오고 결과가 ok(프린터가 끝났다고 알림)면 출력함 — 다시 연결해도 같은 라벨을 또 찍지 않는다', async () => {
+    const adapter = new ScriptedAdapter()
+    await adapter.connect()
+    const runner = createPrintRunner({ adapter, render: tiny, clock: () => 5, device: 'PC' })
+    runner.enqueue(simple('A1'))
+    runner.enqueue(simple('A2'))
+    await flush()
+    expect(adapter.printing).toBe(true)
+    adapter.box.set('DISCONNECTED') // 끊김 알림이 결과보다 먼저
+    expect(runner.state).toMatchObject({ connected: false, paused: 'DISCONNECTED' })
+    expect(runner.state.jobs[0]).toMatchObject({ id: 'A1', status: 'PRINTING', attempts: 0 })
+    adapter.finish(OK)
+    await runner.idle()
+    await flush()
+    expect(runner.state.jobs.map((j) => [j.id, j.status, j.attempts])).toEqual([
+      ['A1', 'DONE', 0],
+      ['A2', 'WAITING', 0],
+    ])
+    expect(runner.state.jobs[0]).toMatchObject({ printedAt: 5, device: 'PC' })
+    expect(runner.state.paused).toBe('DISCONNECTED')
+    expect(adapter.printing).toBe(false)
+    await adapter.connect()
+    await flush()
+    adapter.finish(OK)
+    await runner.idle()
+    expect(adapter.printed.map(idOf)).toEqual(['A1', 'A2'])
+    expect(runner.state.jobs.map((j) => j.status)).toEqual(['DONE', 'DONE'])
+  })
+
+  it('끊김 알림이 먼저 오고 결과가 끊김 실패면 그 작업은 대기 맨 앞(시도 1), 다시 연결되면 그 작업부터', async () => {
+    const adapter = new ScriptedAdapter()
+    await adapter.connect()
+    const runner = createPrintRunner({ adapter, render: tiny, clock: () => 1, device: 'PC' })
+    runner.enqueue(simple('B1'))
+    runner.enqueue(simple('B2'))
+    await flush()
+    adapter.box.set('DISCONNECTED')
+    adapter.finish(fail('DISCONNECTED'))
+    await runner.idle()
+    expect(runner.state.jobs[0]).toMatchObject({ id: 'B1', status: 'WAITING', attempts: 1, lastError: 'DISCONNECTED' })
+    expect(runner.state.paused).toBe('DISCONNECTED')
+    await adapter.connect()
+    await flush()
+    adapter.finish(OK)
+    await flush()
+    adapter.finish(OK)
+    await runner.idle()
+    expect(adapter.printed.map(idOf)).toEqual(['B1', 'B2'])
+  })
+
+  it('끊김 → 다시 연결 알림이 끊김 실패 결과보다 먼저 와도 대기열이 끊김으로 굳지 않고 그 작업부터 이어서 출력한다', async () => {
+    const adapter = new ScriptedAdapter()
+    await adapter.connect()
+    const runner = createPrintRunner({ adapter, render: tiny, clock: () => 1, device: 'PC' })
+    runner.enqueue(simple('C1'))
+    runner.enqueue(simple('C2'))
+    await flush()
+    adapter.box.set('DISCONNECTED')
+    adapter.box.set('CONNECTED') // 다시 연결됨 — 앞 출력의 결과는 아직
+    adapter.finish(fail('DISCONNECTED'))
+    await flush()
+    expect(runner.state).toMatchObject({ connected: true, paused: null })
+    expect(runner.state.jobs[0]).toMatchObject({ id: 'C1', status: 'PRINTING', attempts: 1, lastError: 'DISCONNECTED' })
+    adapter.finish(OK)
+    await flush()
+    adapter.finish(OK)
+    await runner.idle()
+    expect(adapter.printed.map(idOf)).toEqual(['C1', 'C2'])
+    expect(runner.state.jobs.map((j) => j.status)).toEqual(['DONE', 'DONE'])
+  })
+
+  it('가짜 프린터: 프린터가 끝났다고 알린 바로 그때(결과를 돌려주기 전) 끊겨도 같은 라벨이 기록에 두 번 남지 않는다', async () => {
+    const timer = new ManualTimer()
+    const printer = createFakePrinter({ timer, script: { 1: { delayMs: 10 } } })
+    const runner = createPrintRunner({ adapter: printer, render, clock: () => 2, device: 'PC' })
+    await printer.connect('bluetooth')
+    for (let i = 1; i <= 3; i++) runner.enqueue(productJob(i))
+    await flush()
+    expect(printer.state).toBe('PRINTING')
+    timer.fireNext(() => printer.simulateDisconnect())
+    await runner.idle()
+    await flush()
+    expect(printer.state).toBe('DISCONNECTED')
+    expect(printer.printed).toHaveLength(1)
+    expect(runner.state.jobs.map((j) => [j.status, j.attempts])).toEqual([
+      ['DONE', 0],
+      ['WAITING', 0],
+      ['WAITING', 0],
+    ])
+    expect(runner.state.paused).toBe('DISCONNECTED')
+    await printer.connect('bluetooth')
+    await runner.idle()
+    await flush()
+    expect(printer.printed).toHaveLength(3)
+    runner.state.jobs.forEach((job, i) => {
+      const expected = render(job)
+      if (!expected.ok) throw new Error('렌더 실패')
+      expect(bitmapsEqual(printer.printed[i]?.image as LabelBitmap, expected.image), job.id).toBe(true)
+    })
+    expect(runner.state.jobs.map((j) => j.status)).toEqual(['DONE', 'DONE', 'DONE'])
   })
 })

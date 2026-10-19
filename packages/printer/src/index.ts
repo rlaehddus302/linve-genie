@@ -50,6 +50,7 @@ export {
   cancelJob,
   completeJob,
   createPrintQueue,
+  disconnectWhilePrinting,
   enqueueJob,
   failJob,
   jobStatusText,

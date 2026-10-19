@@ -194,6 +194,18 @@ export function setConnection(state: PrintQueueState, connected: boolean): Print
   return { ...state, connected: false, paused, jobs }
 }
 
+/**
+ * 출력 결과를 기다리는 동안 끊김 알림이 먼저 왔다 (실행기용 — 어댑터가 출력 결과보다 상태 알림을 먼저 낼 수 있다).
+ * 연결 끊김·멈춤(끊김)만 기록하고 출력 중 작업은 그대로 둔다. 그 출력의 결과가 정한다:
+ * 프린터가 끝났다고 알렸으면(라벨이 나옴) completeJob, 끝나기 전에 끊겼으면 failJob이 대기 맨 앞으로 되돌린다.
+ * 그래서 이미 나온 라벨을 다시 연결한 뒤 또 찍지 않는다(L-8 1, D-P1-09 — 두 장을 받아들이는 것은 찍혔는지 모를 때뿐).
+ */
+export function disconnectWhilePrinting(state: PrintQueueState): PrintQueueState {
+  const paused = manualPause(state.paused) ? state.paused : 'DISCONNECTED'
+  if (!state.connected && paused === state.paused) return state
+  return { ...state, connected: false, paused }
+}
+
 /** 판매자가 멈춘다 ("출력을 멈췄어요."). 출력 중인 한 장은 끝까지 나오고 다음 장을 시작하지 않는다 */
 export function pauseQueue(state: PrintQueueState): PrintQueueState {
   if (state.paused === 'SELLER' || state.paused === 'PRINTER_ERROR' || state.paused === 'LABEL_ERROR') return state

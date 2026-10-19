@@ -6,6 +6,7 @@ import {
   cancelJob,
   completeJob,
   createPrintQueue,
+  disconnectWhilePrinting,
   enqueueJob,
   failJob,
   pauseQueue,
@@ -63,6 +64,11 @@ export function createPrintRunner(options: PrintRunnerOptions): PrintRunner {
   if (state.jobs.some((job) => job.status === 'PRINTING')) state = setConnection(state, false)
   state = setConnection(state, isConnected(adapter))
   let running: Promise<void> | undefined
+  /**
+   * 이 실행기가 시작해 결과를 아직 받지 않은 출력. 있으면 끊김 알림이 그 작업을 되돌리지 않는다(결과가 정한다).
+   * dropped: 그 사이 끊김 알림을 받았는지, connected: 그 사이 받은 마지막 연결 알림
+   */
+  let flight: { dropped: boolean; connected: boolean } | undefined
 
   const commit = (next: PrintQueueState): void => {
     if (next === state) return
@@ -75,21 +81,33 @@ export function createPrintRunner(options: PrintRunnerOptions): PrintRunner {
       const started = startNextJob(state)
       if (!started.job) return
       const job = started.job
-      commit(started.state)
-      let rendered: ReturnType<JobRenderer>
+      const thisFlight = { dropped: false, connected: true }
+      flight = thisFlight
       try {
-        rendered = render(job)
-      } catch {
-        rendered = { ok: false, error: { code: 'INVALID_DATA' } }
+        commit(started.state)
+        let rendered: ReturnType<JobRenderer>
+        try {
+          rendered = render(job)
+        } catch {
+          rendered = { ok: false, error: { code: 'INVALID_DATA' } }
+        }
+        if (!rendered.ok) {
+          commit(failJob(state, job.id, rendered.error.code))
+          return
+        }
+        // 어댑터는 실패를 결과로 알린다. 그래도 예외가 나오면 프린터 오류로 멈춘다(작업은 대기 맨 앞에 남는다)
+        const result = await adapter.print(rendered.image, options.density === undefined ? {} : { density: options.density }).catch(() => ({ ok: false as const, error: { code: 'PRINT_FAILED' } }))
+        // 결과보다 끊김 알림이 먼저 왔어도 작업은 아직 출력 중이다: 프린터가 끝났다고 알렸으면(ok) 출력함, 아니면 대기 맨 앞으로
+        if (result.ok) {
+          commit(completeJob(state, job.id, { at: clock(), device }))
+        } else {
+          commit(failJob(state, job.id, result.error.code))
+          // 끊김 결과보다 다시 연결 알림이 먼저 왔다 — 실패 결과가 끊김으로 적었어도 프린터는 다시 연결돼 있다
+          if (thisFlight.dropped && thisFlight.connected) commit(setConnection(state, true))
+        }
+      } finally {
+        flight = undefined
       }
-      if (!rendered.ok) {
-        commit(failJob(state, job.id, rendered.error.code))
-        return
-      }
-      // 어댑터는 실패를 결과로 알린다. 그래도 예외가 나오면 프린터 오류로 멈춘다(작업은 대기 맨 앞에 남는다)
-      const result = await adapter.print(rendered.image, options.density === undefined ? {} : { density: options.density }).catch(() => ({ ok: false as const, error: { code: 'PRINT_FAILED' } }))
-      if (result.ok) commit(completeJob(state, job.id, { at: clock(), device }))
-      else commit(failJob(state, job.id, result.error.code))
     }
   }
 
@@ -113,7 +131,13 @@ export function createPrintRunner(options: PrintRunnerOptions): PrintRunner {
 
   const unlisten = adapter.onStateChange((s) => {
     if (s === 'CONNECTING') return
-    commit(setConnection(state, s === 'CONNECTED' || s === 'PRINTING'))
+    const connected = s === 'CONNECTED' || s === 'PRINTING'
+    if (flight) {
+      if (!connected) flight.dropped = true
+      flight.connected = connected
+    }
+    // 출력 결과를 기다리는 중의 끊김은 연결·멈춤만 기록한다(작업은 결과가 정한다 — 끝난 라벨을 다시 찍지 않게)
+    commit(!connected && flight ? disconnectWhilePrinting(state) : setConnection(state, connected))
     pump()
   })
 
