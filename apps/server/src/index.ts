@@ -2,6 +2,7 @@
 // S04: PGlite로 DB를 열고(openPglite) createServer(...).app.request(...)로 /api를 부른다. 계정은 createSellerAccount로 만든다.
 // S05: 리허설 범위·가짜 채팅 생성기(ChatGenerators·ChatMaker), 증분 조회, E2E 기동(startE2eServer·fillScope).
 // S06: 상품 ID 조치 기록(productOwners), 범위별 보기 캐시(StateCache·newViewCaches), 생성기 판매자당 하나(GENERATOR_RECORDS_MAX), E2E 127.0.0.1(E2E_HOST).
+// I1: 서버 출력 기록(PrintService·createAutoJobs·autoLabelEffects), 라벨 데이터(L-9), 운영 설정 조립(productionServerOptions — 시험 모드 신호 없음).
 export { createApp, defaultLogError, type AppOptions, type ErrorLogger } from './app.ts'
 export { DEFAULT_PORT, readAppOrigin, readDatabaseSetting, readPort, type DatabaseSetting, type OriginSetting, type PortSetting } from './config.ts'
 export {
@@ -52,7 +53,19 @@ export {
 } from './service.ts'
 export { StreamHub, type GeneratorNotice, type ScopeSeq, type StreamNotice } from './hub.ts'
 export { DEFAULT_CHANGES_WINDOW, FAILED_INPUT_MESSAGE, REPLAY_SKIPPED_MESSAGE, type AttentionItem, type EngineAdapter, type ScopeRuntime, type StatePoint } from './runtime.ts'
-export { ScopeWriter, eventDigest, scopeKey, type Actor, type CommittedRecord, type WriteOutcome, type WriteResult, type WriterHooks } from './writer.ts'
+export {
+  ScopeWriter,
+  WriteAbort,
+  eventDigest,
+  scopeKey,
+  type Actor,
+  type CommittedRecord,
+  type TxHook,
+  type TxHookContext,
+  type WriteOutcome,
+  type WriteResult,
+  type WriterHooks,
+} from './writer.ts'
 // S05 리허설·증분 조회·E2E 기동
 export {
   ChatGenerators,
@@ -77,6 +90,8 @@ export {
   type StopReason,
 } from './generator.ts'
 export {
+  CLAIM_INDEX_CACHE_MAX,
+  claimIndex,
   MESSAGE_LOOKUP_CACHE_MAX,
   VIEW_INDEX_CACHE_MAX,
   VIEW_LISTS,
@@ -94,3 +109,45 @@ export { generateMasterKey, phoneKeyOf, readMasterKey, DEFAULT_PASSWORD_COST, ty
 export { randomIds, type IdSource } from './ids.ts'
 export { formatLog, stderrLog, type LogCode, type LogRecord, type LogSink } from './log.ts'
 export { iso, kstDate, kstTime, systemClock, withIsoTimes, type Clock } from './time.ts'
+// I1 출력 기록
+export {
+  DEVICE_ID_RE,
+  DEVICE_NAME_MAX,
+  LABEL_ERROR_CODES,
+  PAUSE_MESSAGES,
+  PRINTER_ERROR_CODES,
+  PRINT_MESSAGES,
+  PrintService,
+  SHOP_NAME_MAX,
+  TEMPLATE_MAX_BYTES,
+  cleanDeviceName,
+  isKnownErrorCode,
+  jobWord,
+  pauseForError,
+  type ActionOutcome,
+  type ClaimOutcome,
+  type ClaimedJob,
+  type JobView,
+  type LabelRef,
+  type LabelState,
+  type LabelView,
+  type PrintOptions,
+  type QueueSummary,
+  type ResultInput,
+} from './print.ts'
+export {
+  autoLabelEffects,
+  createAutoJobs,
+  lockQueue,
+  readQueue,
+  type JobReason,
+  type JobRow,
+  type JobStatus,
+  type LabelEffectBody,
+  type LabelEffectRow,
+  type LabelRow,
+  type PauseReason,
+  type QueueRow,
+} from './print-store.ts'
+export { buildClaimIndex, contentKeyOf, currentLabelBuyer, isWinnerOf, packingLabelData, productLabelBuyer, productLabelData, type ClaimIndex } from './label-data.ts'
+export { productionServerOptions, type ProductionOptions } from './production.ts'
