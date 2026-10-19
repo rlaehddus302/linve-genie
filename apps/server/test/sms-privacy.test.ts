@@ -129,6 +129,34 @@ describe('AC-S04-31 문자찜 입력 경로', () => {
     for (const needle of ['8642-5678', '86425678', '01086425678']) expect(dump, needle).not.toContain(needle)
   })
 
+  it('입금 메모·사유·방송 제목·상품 이름에 휴대폰 번호가 있어도 거절하고 번호를 빼라고 안내한다 — 기록·DB에 없다 (RA-S04-009·TD-S04-003, DAT-06)', async () => {
+    const world = await newWorld({ snapshotEvery: 2 })
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller)
+    await expectOk(writeEvent(world, seller, { type: 'product.register', b: b.id, no: 1, name: 'a', price: 1000 }))
+    const before = await countRows(world.database, 'events')
+    const PHONE_MESSAGE = '전화번호는 적을 수 없어요. 전화번호를 빼고 적어 주세요.'
+    const rejected: readonly (readonly [Record<string, unknown>, string])[] = [
+      [{ type: 'settlement.payment', buyer: 'UC-A', date: b.date, amount: 1000, memo: '홍길동 010-8642-5678' }, 'memo'],
+      [{ type: 'settlement.refund', buyer: 'UC-A', date: b.date, amount: 1000, reason: '3시 010ㅡ8642ㅡ5678 환불' }, 'reason'],
+      [{ type: 'host.blockBuyer', buyer: 'UC-A', reason: '010,8642,5678 노쇼' }, 'reason'],
+      [{ type: 'product.register', b: b.id, no: 2, name: '니트 010-8642-5678', price: 1000 }, 'name'],
+    ]
+    for (const [event, field] of rejected) {
+      const response = await writeEvent(world, seller, event, event.b === undefined ? b.date : undefined)
+      expect(response.status, JSON.stringify(event)).toBe(400)
+      expect(response.body, JSON.stringify(event)).toMatchObject({ error: { code: 'INVALID_INPUT', problems: [{ field, message: PHONE_MESSAGE }] } })
+      expect(response.text).not.toContain('8642')
+    }
+    const title = await client(world, seller.cookie).post('/api/broadcasts', { requestId: rid('bc'), title: '문자 주문 010~8642~5678' })
+    expect(title.status).toBe(400)
+    expect(title.body).toMatchObject({ error: { code: 'INVALID_INPUT', problems: [{ field: 'title', message: PHONE_MESSAGE }] } })
+    expect(await countRows(world.database, 'events')).toBe(before)
+    await expectOk(writeEvent(world, seller, { type: 'settlement.payment', buyer: 'UC-A', date: b.date, amount: 1000, memo: '홍길동 10,000원 3시' }, b.date))
+    const dump = await dumpAllTables(world.database)
+    for (const needle of ['8642', '86425678']) expect(dump, needle).not.toContain(needle)
+  })
+
   it('서버가 만든 ref에는 숫자가 없다 — 바꿔 끼운 생성기가 번호 모양을 내도 다시 만든다', async () => {
     const refs = ['01012345678', 's01012345678', 'r-010-1234-5678-2', 'safe-ref']
     const world = await newWorld({ ids: { smsRef: () => refs.shift() ?? 'fallback' } })

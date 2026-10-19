@@ -32,7 +32,12 @@ const FIELD_MESSAGES: Readonly<Record<string, string>> = {
   requestId: "요청 번호는 영문·숫자·'_'·'-'로 된 1~64자여야 해요.",
 }
 
-const PHONE_IN_TEXT = '전화번호는 여기에 적을 수 없어요. 전화번호 칸에 적어 주세요.'
+/** 문자찜 메모·ref의 휴대폰 번호 — 전화번호 칸이 있는 화면 */
+const PHONE_IN_SMS_TEXT = '전화번호는 여기에 적을 수 없어요. 전화번호 칸에 적어 주세요.'
+/** 그 밖의 판매자 글 칸(입금 메모·사유·방송 제목·상품 이름)의 휴대폰 번호 — 전화번호 칸이 없는 화면 */
+const PHONE_IN_TEXT = '전화번호는 적을 수 없어요. 전화번호를 빼고 적어 주세요.'
+/** 코어가 휴대폰 번호를 입력 오류로 거르는 판매자 글 칸 (containsPhoneNumber, D-073·DAT-06) */
+const TEXT_FIELDS: ReadonlySet<string> = new Set(['memo', 'ref', 'reason', 'title', 'name'])
 const DEFAULT_MESSAGE = '값을 확인해 주세요.'
 
 /** 화면에 돌려줘도 되는 필드 이름인지 (받은 키가 번호·긴 글자이면 이름도 되돌려 보내지 않는다) */
@@ -42,10 +47,13 @@ export function safeFieldName(name: string): string | null {
   return SAFE_FIELD.test(name) && !containsPhoneNumber(name) ? name : null
 }
 
-/** 필드 하나의 쉬운 문장. 글자 칸에 휴대폰 번호가 들어 있으면(코어 입력 오류와 같은 판단 — containsPhoneNumber) 전화번호 칸으로 안내한다 */
-export function fieldMessage(field: string | null, value?: unknown): string {
+/**
+ * 필드 하나의 쉬운 문장. 판매자 글 칸에 휴대폰 번호가 들어 있으면(코어 입력 오류와 같은 판단 — containsPhoneNumber)
+ * 문자찜(type 'sms')은 전화번호 칸으로, 그 밖의 칸은 번호를 빼고 적도록 안내한다
+ */
+export function fieldMessage(field: string | null, value?: unknown, type?: unknown): string {
   if (field === null) return DEFAULT_MESSAGE
-  if (typeof value === 'string' && containsPhoneNumber(value) && (field === 'memo' || field === 'ref')) return PHONE_IN_TEXT
+  if (typeof value === 'string' && TEXT_FIELDS.has(field) && containsPhoneNumber(value)) return type === 'sms' || field === 'ref' ? PHONE_IN_SMS_TEXT : PHONE_IN_TEXT
   return FIELD_MESSAGES[field] ?? DEFAULT_MESSAGE
 }
 
@@ -62,7 +70,7 @@ export function easyProblems(problems: readonly EventProblem[], event: Readonly<
       out.push({ field, message: FIELD_MESSAGES.settings ?? DEFAULT_MESSAGE })
       continue
     }
-    out.push({ field, message: fieldMessage(field, field === null ? undefined : event[field]) })
+    out.push({ field, message: fieldMessage(field, field === null ? undefined : event[field], event.type) })
   }
   return out
 }
