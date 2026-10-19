@@ -1,6 +1,7 @@
 // E2E용 서버 기동 (AC-S05-91, AC-S05-64, AC-S06-73). 실제 비밀값·네트워크·도커가 필요 없다. 127.0.0.1에서만 연다.
 // - 메모리 PGlite + 마이그레이션, 그 자리에서 만든 시험용 마스터 키, 시험용 판매자 계정 하나(apps/server/e2e/account.json의 시험 값).
 // - 선택: 상품 500·채팅 1만 건을 채운 실제 범위(오늘, KST), 화면의 방송자 조치 대기 시간 줄이기 신호(GET /api/client-config), 리허설 생성기 시험 속도.
+// - 시험 모드 신호(GET /api/client-config testPrinter — 화면이 시험용 프린터를 켠다, I1 L-11 15): E2E 기동은 기본으로 켠다(testPrinter: false로 끌 수 있다).
 // - 채우기는 기록 경로(ScopeWriter)를 그대로 탄다: 상품은 product.register(조치자 서버), 채팅은 가짜 채팅 생성기의 메시지(조치자 수집기).
 import { readFileSync } from 'node:fs'
 import type { Server } from 'node:http'
@@ -110,6 +111,8 @@ export interface E2eOptions {
   readonly generatorSpeed?: number
   /** 시험 안에서 빠르게 (비밀번호 해시 비용) */
   readonly passwordCost?: PasswordCost
+  /** 시험 모드 신호 — 화면이 시험용 프린터를 켠다 (기본 true. 운영 기동에는 없다, AC-I1-16·50) */
+  readonly testPrinter?: boolean
 }
 
 /** E2E 서버가 듣는 주소: 이 컴퓨터 안(IPv4 루프백)에서만 (AC-S06-73, D-096 — 모든 인터페이스 0.0.0.0·::이 아니다) */
@@ -139,6 +142,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     ...(options.hostActionDelayMs === undefined ? {} : { hostActionDelayMs: options.hostActionDelayMs }),
     ...(options.generatorSpeed === undefined ? {} : { generatorSpeed: options.generatorSpeed }),
     ...(options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost }),
+    testPrinter: options.testPrinter ?? true,
   })
   const account = readE2eAccount()
   const created = await createSellerAccount(database.db, Buffer.from(masterKey, 'base64'), account, options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost })
