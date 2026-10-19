@@ -3,7 +3,7 @@
 import { useEffect, useRef, type KeyboardEvent, type RefObject } from 'react'
 import type { ApiError } from '../api/client.ts'
 import { productKey } from '../lib/derive.ts'
-import { previewNumber, type FixField } from '../lib/quick.ts'
+import { previewNumber, quickSettings, type FixField } from '../lib/quick.ts'
 import { useConsoleApi } from './console-context.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { ProductSummary } from './ProductBoard.tsx'
@@ -58,7 +58,9 @@ export function QuickInput(props: QuickInputProps) {
     field?.select()
   }, [fix?.version])
 
-  const no = previewNumber(value)
+  // 번호 읽기는 등록과 같은 코어 해석(그 방송 스냅샷의 번호 최대·가격 단위)
+  const settings = api.settingsOf(api.b)
+  const no = settings === null ? previewNumber(value) : previewNumber(value, quickSettings(settings))
   const preview = no === null ? undefined : api.data.products.get(productKey(api.b, no))
   const sending = props.registrations.some((item) => item.status !== 'failed')
   const failed = props.registrations.filter((item) => item.status === 'failed')

@@ -1,6 +1,6 @@
 // 빠른 입력칸 한 줄의 뜻 (PRD-01, PRD-03 AC3, R-16, D-084, AC-S05-10~13).
 // 해석은 코어 parseQuickInput·parseAmount에 그 방송 스냅샷의 price.unit·claim.maxNumber를 넣은 결과다(화면이 따로 해석하지 않는다).
-import { parseAmount, parseQuickInput, type QuickInputError, type SaleSettings } from '@livejjim/core'
+import { DEFAULT_SETTINGS, parseAmount, parseQuickInput, type QuickInputError, type SaleSettings } from '@livejjim/core'
 import type { Product } from '../api/types.ts'
 
 export interface QuickSettings {
@@ -11,6 +11,9 @@ export interface QuickSettings {
 export function quickSettings(settings: SaleSettings): QuickSettings {
   return { 'price.unit': settings['price.unit'], 'claim.maxNumber': settings['claim.maxNumber'] }
 }
+
+/** 방송 설정을 아직 모를 때 (코어 기본값) */
+const DEFAULT_QUICK: QuickSettings = quickSettings(DEFAULT_SETTINGS)
 
 /** 고치기 칸의 커서 (AC-S05-11 표) */
 export type FixField = 'no' | 'name' | 'price'
@@ -75,17 +78,28 @@ export function decideQuickInput(text: string, settings: QuickSettings, findProd
   return { kind: 'register', no: parsed.no, name: parsed.name, price: parsed.price }
 }
 
-/** 고치기 칸(번호·품종·가격) → 할 일. 가격은 빠른 입력과 같은 금액 해석(코어 parseAmount) */
+/**
+ * 번호 칸 글자 → 번호 (코어 parseQuickInput이 줄의 첫 토큰을 읽는 것과 같다 — 전각 숫자·"15번"·"15 번").
+ * 번호 하나만 적힌 칸이면 그 번호, 비면 'empty', 번호 하나가 아니거나 범위 밖이면 null.
+ */
+function readNumberField(text: string, settings: QuickSettings): number | 'empty' | null {
+  const parsed = parseQuickInput(text, settings)
+  if (!('error' in parsed)) return null
+  if (parsed.error === 'EMPTY') return 'empty'
+  // 번호 뒤에 아무것도 없을 때만 (번호 칸에 품종·가격이 섞이면 번호로 보지 않는다)
+  return parsed.error === 'PRICE_MISSING' && parsed.no !== undefined && parsed.name === '' ? parsed.no : null
+}
+
+/** 고치기 칸(번호·품종·가격) → 할 일. 번호는 빠른 입력과 같은 번호 해석, 가격은 같은 금액 해석(코어 parseQuickInput·parseAmount) */
 export function decideFixForm(
   input: { readonly no: string; readonly name: string; readonly price: string },
   settings: QuickSettings,
   findProduct: (no: number) => Product | undefined,
 ): QuickDecision {
-  const noText = input.no.trim().replace(/번$/, '').trim()
   const name = input.name.trim()
-  if (noText === '') return fix('NUMBER_MISSING', settings, null, name)
-  const no = /^\d{1,4}$/.test(noText) ? Number(noText) : Number.NaN
-  if (!Number.isInteger(no) || no < 1 || no > settings['claim.maxNumber']) return fix('NUMBER_INVALID', settings, null, name)
+  const no = readNumberField(input.no, settings)
+  if (no === 'empty') return fix('NUMBER_MISSING', settings, null, name)
+  if (no === null) return fix('NUMBER_INVALID', settings, null, name)
   const price = parseAmount(input.price, settings)
   if (price === null) return fix('PRICE_MISSING', settings, no, name)
   if (price < 100) return fix('PRICE_TOO_LOW', settings, no, name)
@@ -94,12 +108,13 @@ export function decideFixForm(
   return { kind: 'register', no, name, price }
 }
 
-/** 치는 동안 첫 토큰의 번호 (번호 찾기 미리 보기, PRD-03 AC3). 번호 모양이 아니면 null */
-export function previewNumber(text: string): number | null {
-  const m = /^\s*(\d{1,4})\s*(?:번)?(?=$|[\s/])/.exec(text)
-  if (!m) return null
-  const no = Number(m[1])
-  return no >= 1 ? no : null
+/**
+ * 치는 동안 첫 토큰의 번호 (번호 찾기 미리 보기, PRD-03 AC3). 코어 parseQuickInput이 그 줄에서 읽은 번호다
+ * (성공·가격 오류 모두 번호가 있다). 번호를 읽지 못한 줄이면 null.
+ */
+export function previewNumber(text: string, settings: QuickSettings = DEFAULT_QUICK): number | null {
+  const parsed = parseQuickInput(text, settings)
+  return parsed.no ?? null
 }
 
 /**

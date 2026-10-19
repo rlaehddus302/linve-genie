@@ -101,4 +101,26 @@ describe('번호 찾기·같은 번호 (AC-S05-12·13)', () => {
     expect(previewNumber('15핑크')).toBeNull()
     expect(previewNumber('0')).toBeNull()
   })
+
+  it('미리 보기 번호 = 코어 parseQuickInput이 읽은 번호 (전각 숫자·그 방송의 번호 최대, 화면이 따로 읽지 않는다)', () => {
+    const lines = ['15', '１５ 핑크프릴 10000', '１５번 핑', '15 번', '15/핑크/1만', '15 핑크 50원', '1000 핑크', '999', '0015', '15핑크', '', '  ', '핑크 15', '#15', '15.5 핑크']
+    for (const line of lines) {
+      const core = parseQuickInput(line, settings)
+      expect(previewNumber(line, settings), line).toBe(core.no ?? null)
+    }
+    expect(previewNumber('１５ 핑크프릴 10000')).toBe(15)
+    const small = quickSettings({ ...DEFAULT_SETTINGS, 'claim.maxNumber': 50 })
+    expect(previewNumber('60 핑크', small)).toBeNull()
+    expect(previewNumber('50 핑크', small)).toBe(50)
+  })
+
+  it('고치기 칸의 번호 = 빠른 입력과 같은 번호 해석 (전각 숫자·"15 번"), 번호 하나가 아니면 범위 안내', () => {
+    expect(decideFixForm({ no: '１５', name: '핑크', price: '1만' }, settings, none)).toEqual({ kind: 'register', no: 15, name: '핑크', price: 10000 })
+    expect(decideFixForm({ no: ' 15 번 ', name: '핑크', price: '1만' }, settings, none)).toMatchObject({ kind: 'register', no: 15 })
+    expect(decideFixForm({ no: '１５', name: '핑크', price: '1만' }, settings, find)).toMatchObject({ kind: 'edit', product: p15, no: 15 })
+    for (const no of ['15 핑크', '15 1만', '핑크', '1000', '15핑크', '-3']) {
+      expect(decideFixForm({ no, name: '핑크', price: '1만' }, settings, none), no).toMatchObject({ kind: 'fix', error: 'NUMBER_INVALID', focus: 'no' })
+    }
+    expect(decideFixForm({ no: '  ', name: '핑크', price: '1만' }, settings, none)).toMatchObject({ kind: 'fix', error: 'NUMBER_MISSING', focus: 'no' })
+  })
 })
