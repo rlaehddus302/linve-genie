@@ -53,3 +53,64 @@ export function readAppOrigin(env: Readonly<Record<string, string | undefined>>)
   if (!/^https?:\/\/[^/\s]+$/.test(origin)) return { ok: false, message: '화면 앱 주소(LIVEJJIM_APP_ORIGIN)는 https://example.com 처럼 경로 없이 적어 주세요.' }
   return { ok: true, origin }
 }
+
+// ── Y1: 유튜브 연동 (AC-Y1-72, D-Y02·D-Y13) ───────────────────────────────
+
+export interface YoutubeEnvSetting {
+  readonly clientId: string
+  readonly clientSecret: string
+  readonly redirectUri: string
+  readonly returnUrl: string
+  readonly endpoints: { readonly authUrl: string; readonly tokenUrl: string; readonly revokeUrl: string; readonly apiBase: string }
+  readonly quota: { readonly limit?: number; readonly sellerBudget?: number }
+}
+
+export type YoutubeSetting = { readonly ok: true; readonly youtube: YoutubeEnvSetting | null } | { readonly ok: false; readonly message: string }
+
+/**
+ * 유튜브 연동 설정. LIVEJJIM_GOOGLE_CLIENT_ID가 없으면 연동하지 않는다(그 서버의 유튜브 API는 503).
+ * 있으면 비밀·돌아오는 주소가 필요하고, 모든 바깥 주소는 https://만 받는다(아니면 시작하지 않는다). 값은 문장에 넣지 않는다
+ */
+export function readYoutubeSetting(env: Readonly<Record<string, string | undefined>>, appOrigin: string): YoutubeSetting {
+  const get = (key: string) => env[key]?.trim() ?? ''
+  const clientId = get('LIVEJJIM_GOOGLE_CLIENT_ID')
+  if (clientId === '') return { ok: true, youtube: null }
+  const clientSecret = get('LIVEJJIM_GOOGLE_CLIENT_SECRET')
+  const redirectUri = get('LIVEJJIM_GOOGLE_REDIRECT_URI')
+  if (clientSecret === '' || redirectUri === '') return { ok: false, message: '유튜브 연동에는 LIVEJJIM_GOOGLE_CLIENT_SECRET과 LIVEJJIM_GOOGLE_REDIRECT_URI가 필요해요.' }
+  const returnUrl = get('LIVEJJIM_YOUTUBE_RETURN_URL') || `${appOrigin}/settings/youtube`
+  const endpoints = {
+    authUrl: get('LIVEJJIM_GOOGLE_AUTH_URL') || 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenUrl: get('LIVEJJIM_GOOGLE_TOKEN_URL') || 'https://oauth2.googleapis.com/token',
+    revokeUrl: get('LIVEJJIM_GOOGLE_REVOKE_URL') || 'https://oauth2.googleapis.com/revoke',
+    apiBase: get('LIVEJJIM_YOUTUBE_API_URL') || 'https://www.googleapis.com/youtube/v3',
+  }
+  for (const url of [redirectUri, returnUrl, ...Object.values(endpoints)]) {
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      return { ok: false, message: '유튜브 연동 주소 설정을 확인해 주세요.' }
+    }
+    if (parsed.protocol !== 'https:') return { ok: false, message: '유튜브 연동 주소는 https://로만 적을 수 있어요.' }
+  }
+  const number = (key: string): number | undefined | null => {
+    const raw = get(key)
+    if (raw === '') return undefined
+    return /^\d{1,9}$/.test(raw) && Number(raw) > 0 ? Number(raw) : null
+  }
+  const limit = number('LIVEJJIM_YOUTUBE_QUOTA_LIMIT')
+  const sellerBudget = number('LIVEJJIM_YOUTUBE_SELLER_BUDGET')
+  if (limit === null || sellerBudget === null) return { ok: false, message: '유튜브 할당량 설정은 1 이상의 정수로 적어 주세요.' }
+  return {
+    ok: true,
+    youtube: {
+      clientId,
+      clientSecret,
+      redirectUri,
+      returnUrl,
+      endpoints,
+      quota: { ...(limit === undefined ? {} : { limit }), ...(sellerBudget === undefined ? {} : { sellerBudget }) },
+    },
+  }
+}

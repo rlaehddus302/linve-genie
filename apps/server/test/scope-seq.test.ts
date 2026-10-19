@@ -91,7 +91,8 @@ describe('AC-S05-60 범위 행의 지금 seq', () => {
     await createBroadcast(world, seller, { date: DAY })
     // 범위 행의 값만 바꿔 두면 목록·ready가 그 값을 보인다 = 이벤트 표에서 다시 세지 않는다
     await world.database.pglite?.exec(`update scopes set seq = 77`)
-    expect((await client(world, seller.cookie).get('/api/days')).body).toEqual({ days: [{ date: DAY, rehearsal: false, seq: 77 }] })
+    // Y1: 범위 목록에 봉인 예정 시각·봉인 여부가 붙는다 (AC-Y1-62) — SSE ready는 그대로
+    expect((await client(world, seller.cookie).get('/api/days')).body).toEqual({ days: [{ date: DAY, rehearsal: false, seq: 77, sealAt: null, sealed: false }] })
     const reader = sseReader(await client(world, seller.cookie).raw('/api/stream', {}))
     try {
       await reader.until(() => reader.events.length >= 1)

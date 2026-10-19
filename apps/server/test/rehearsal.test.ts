@@ -132,9 +132,11 @@ describe('AC-S05-50 범위 고르기', () => {
     expect((rehearsalView.buyers as { id: string }[]).map((b) => b.id)).toEqual(['sim_c1'])
     expect((realView.settlements as { buyer: string }[]).map((s) => s.buyer)).toEqual(['UCreal'])
     // 범위 목록: 적지 않으면 실제 범위만, rehearsal=true면 리허설 범위만
-    expect((await api.get('/api/days')).body).toEqual({ days: [{ date: DAY, rehearsal: false, seq: 3 }] })
-    expect((await api.get('/api/days?rehearsal=true')).body).toEqual({ days: [{ date: DAY, rehearsal: true, seq: 3 }] })
-    expect((await api.get('/api/days?rehearsal=false')).body).toEqual({ days: [{ date: DAY, rehearsal: false, seq: 3 }] })
+    // Y1: 범위마다 봉인 예정 시각·봉인 여부 (AC-Y1-62) — 유튜브 채팅이 있는 실제 범위만 sealAt, 리허설은 늘 없다
+    const sealAt = new Date(Date.UTC(2026, 10, 17, 15)).toISOString()
+    expect((await api.get('/api/days')).body).toEqual({ days: [{ date: DAY, rehearsal: false, seq: 3, sealAt, sealed: false }] })
+    expect((await api.get('/api/days?rehearsal=true')).body).toEqual({ days: [{ date: DAY, rehearsal: true, seq: 3, sealAt: null, sealed: false }] })
+    expect((await api.get('/api/days?rehearsal=false')).body).toEqual({ days: [{ date: DAY, rehearsal: false, seq: 3, sealAt, sealed: false }] })
     // 메모리 상태도 따로 (리허설을 적지 않은 read는 실제 범위)
     const realState = (await world.server.writer.read(seller.sellerId, DAY)).state
     const rehearsalState = (await world.server.writer.read(seller.sellerId, DAY, true)).state
@@ -270,7 +272,8 @@ describe('AC-S05-50 실시간 알림·재생 검사', () => {
       [DAY, true, true, 3],
     ])
     expect(await checkReplay(world.database.db, { rehearsal: true })).toHaveLength(1)
-    await world.database.pglite?.exec(`update events set body = replace(body, '"text":"1"', '"text":"2"') where type = 'chat'`)
+    // Y1: 채팅 본문은 따로 둔다(chat_raw, AC-Y1-60) — 따로 둔 본문을 고쳐도 그 범위가 불일치로 보고된다
+    await world.database.pglite?.exec(`update chat_raw set text = '2' where text = '1'`)
     const [, broken] = await checkReplay(world.database.db)
     expect(broken).toMatchObject({ rehearsal: true, ok: false, firstDiff: { part: '이벤트' } })
   })

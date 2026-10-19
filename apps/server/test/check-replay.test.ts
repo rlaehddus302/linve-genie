@@ -63,7 +63,11 @@ describe('AC-S04-29 재생 무결성 검사', () => {
     ['발송함 내용', `update outbox set body = replace(body, '"confirmVersion":1', '"confirmVersion":9') where effect_id like '%PRINT%' and seq = 3`, '발송함'],
     ['발송함 행 지우기', `delete from outbox where seq = 3 and effect_id like '%THANKS%'`, '발송함'],
     ['발송함 행 더하기', `insert into outbox (seller_id, scope_id, effect_id, seq, kind, body, created_at) select seller_id, scope_id, 'c9:VOID_LABEL:-:1', 5, 'VOID_LABEL', '{}', now() from outbox limit 1`, '발송함'],
-    ['이벤트 본문', `update events set body = replace(body, '"text":"1"', '"text":"2"') where seq = 5`, '이벤트'],
+    // Y1: 채팅의 본문·이름은 따로 둔다(chat_raw, AC-Y1-60). 이벤트 본문·따로 둔 본문·이름 어느 것을 고쳐도(지워도) 그 seq가 잡힌다
+    ['이벤트 본문', `update events set body = replace(body, '"ch":"UC', '"ch":"XC') where seq = 5`, '이벤트'],
+    ['따로 둔 채팅 본문', `update chat_raw set text = '2' where seq = 5`, '이벤트'],
+    ['따로 둔 채팅 이름', `update chat_raw set nick = nick || 'x' where seq = 5`, '이벤트'],
+    ['따로 둔 채팅 지우기', `delete from chat_raw where seq = 5`, '이벤트'],
     ['이벤트 실패 표시', `update events set failed = true where seq = 4`, '이벤트'],
     ['이벤트 지우기(seq 빈틈)', `delete from events where seq = 6`, 'seq'],
     // S05: 범위 행의 지금 seq(8)와 기록의 마지막 seq(7)가 달라 잡힌다 — S04의 "마지막 이벤트를 지우면 모를 수 있음" 한계를 닫는다 (AC-S05-60)
@@ -101,9 +105,10 @@ describe('AC-S04-29 재생 무결성 검사', () => {
     // 기록 당시엔 받았지만 지금 코어는 거절하는 이벤트를 흉내: 본문을 바꾸고 요약값도 맞춰 둔다
     const { eventDigest } = await import('../src/writer.ts')
     const pg = world.database.pglite
-    const row = (await pg?.query<{ scope_id: string; body: string }>(`select scope_id, body from events where seq = 5`))?.rows[0]
-    const body = (row?.body ?? '').replace('"text":"1"', '"text":1')
-    await pg?.query(`update events set body = $1, digest = $2 where seq = 5`, [body, eventDigest(row?.scope_id ?? '', 5, 'chat', body, false)])
+    // Y1: 채팅 본문·이름은 따로 둔다(AC-Y1-60) — 이벤트 본문의 채널을 숫자로 바꾸고 요약값을 따로 둔 값까지 묶어 맞춰 둔다
+    const row = (await pg?.query<{ scope_id: string; body: string; nick: string; text: string }>(`select e.scope_id, e.body, r.nick, r.text from events e join chat_raw r on r.scope_id = e.scope_id and r.seq = e.seq where e.seq = 5`))?.rows[0]
+    const body = (row?.body ?? '').replace(/"ch":"[^"]*"/, '"ch":1')
+    await pg?.query(`update events set body = $1, digest = $2 where seq = 5`, [body, eventDigest(row?.scope_id ?? '', 5, 'chat', body, false, { nick: row?.nick ?? '', text: row?.text ?? '' })])
     const [result] = await checkReplay(world.database.db)
     expect(result?.firstDiff).toEqual({ seq: 5, part: '재생 오류' })
   })

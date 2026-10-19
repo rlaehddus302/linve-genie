@@ -45,9 +45,9 @@ interface Pending {
   closed: boolean
 }
 
-/** 리허설 생성기 상태 알림 (event: generator) */
+/** 리허설 생성기 상태 알림 (event: generator) · 유튜브 알림 (event: youtube — 연결·수집·발송함·할당량·삭제·차단, AC-Y1-05·27·28·39·52) */
 export interface GeneratorNotice {
-  readonly kind: 'generator'
+  readonly kind: 'generator' | 'youtube'
   readonly data: Readonly<Record<string, unknown>>
 }
 
@@ -139,7 +139,15 @@ export class StreamHub {
 
   /** 리허설 생성기 상태 알림 (그 판매자의 연결 전부) */
   publishGenerator(sellerId: string, data: Readonly<Record<string, unknown>>): void {
-    const notice: GeneratorNotice = { kind: 'generator', data }
+    this.#publishNamed(sellerId, { kind: 'generator', data })
+  }
+
+  /** 유튜브 알림 (그 판매자의 연결 전부, event: youtube). data.kind = connection · collector · outbox · quota · notice */
+  publishYoutube(sellerId: string, data: Readonly<Record<string, unknown>>): void {
+    this.#publishNamed(sellerId, { kind: 'youtube', data })
+  }
+
+  #publishNamed(sellerId: string, notice: GeneratorNotice): void {
     for (const pending of this.#pending) if (pending.sellerId === sellerId) pending.notices.push(notice)
     for (const connection of [...this.#connections]) if (connection.sellerId === sellerId) this.#send(connection, notice)
   }
@@ -147,7 +155,7 @@ export class StreamHub {
   /** 알림 하나. ready에 이미 반영된 변경(그 범위의 ready seq 이하)은 보내지 않는다 */
   #send(connection: Connection, notice: StreamNotice | GeneratorNotice): void {
     if (isGenerator(notice)) {
-      this.#write(connection, `event: generator\ndata: ${JSON.stringify(notice.data)}\n\n`)
+      this.#write(connection, `event: ${notice.kind}\ndata: ${JSON.stringify(notice.data)}\n\n`)
       return
     }
     const seen = connection.baseline.get(scopeOf(notice))

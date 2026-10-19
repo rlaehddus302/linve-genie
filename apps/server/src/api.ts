@@ -16,6 +16,9 @@ import type { StreamHub } from './hub.ts'
 import { unknownFieldProblems } from './messages.ts'
 import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.ts'
 import type { Actor, WriteOutcome, WriteResult } from './writer.ts'
+import { CALLBACK_PATH, registerYoutubeRoutes } from './youtube/routes.ts'
+import type { Sealer } from './youtube/seal.ts'
+import type { YoutubeSystem } from './youtube/system.ts'
 
 /** 요청 본문 상한 (AC-S04-34) */
 export const BODY_LIMIT_BYTES = 64 * 1024
@@ -29,12 +32,16 @@ export interface ApiDeps {
   readonly appOrigin: string
   /** 화면 설정 (방송자 조치 대기 시간 — 운영 5000, E2E 기동만 줄인다) */
   readonly clientConfig?: { readonly hostActionDelayMs: number }
+  /** 유튜브 연동 (Y1, 설정이 없으면 null — 그 API는 503) */
+  readonly youtube?: YoutubeSystem | null
+  readonly sealer?: Sealer | null
 }
 
-type Env = { Variables: { body: Record<string, unknown> | null; session: SessionContext } }
+export type Env = { Variables: { body: Record<string, unknown> | null; session: SessionContext } }
 
 const STATE_CHANGING = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
-const PUBLIC_PATHS = new Set(['POST /api/login', 'GET /api/health', 'HEAD /api/health'])
+/** 세션을 강제하지 않는 경로. 유튜브 돌아오는 주소는 세션 쿠키와 state로 판매자를 정하고, 없으면 화면으로 돌려보낸다(AC-Y1-02) */
+const PUBLIC_PATHS = new Set(['POST /api/login', 'GET /api/health', 'HEAD /api/health', `GET ${CALLBACK_PATH}`])
 
 const notFound = () => apiError(404, 'NOT_FOUND', '찾을 수 없어요.')
 const unauthorized = () => apiError(401, 'UNAUTHORIZED', '로그인이 필요해요.')
@@ -92,6 +99,8 @@ function outcomeResponse(c: Context, outcome: WriteOutcome): Response {
       return notFound()
     case 'save_failed':
       return apiError(500, 'SAVE_FAILED', '저장하지 못했어요. 다시 시도해 주세요.')
+    case 'empty':
+      return apiError(409, 'REQUEST_ERROR', '이미 받은 입력이에요.')
   }
 }
 
@@ -277,7 +286,8 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   api.get('/days', async (c) => {
     const rehearsal = rehearsalOf(c)
     if (!rehearsal.ok) return rehearsal.response
-    return c.json({ days: await service.scopes(sellerOf(c), rehearsal.value ?? false) })
+    // 범위마다 봉인 예정 시각(sealAt)·봉인 여부 (AC-Y1-62)
+    return c.json({ days: await service.days(sellerOf(c), rehearsal.value ?? false) })
   })
   api.get('/days/:date', async (c) => {
     const date = c.req.param('date')
@@ -365,6 +375,9 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     // 연결을 먼저 등록한 뒤 범위별 seq를 읽는다 — 그 사이 커밋된 변경도 알림으로 받는다 (RA-S04-003)
     return hub.open(session.sellerId, session.tokenHash, () => service.scopes(session.sellerId))
   })
+
+  // ── 유튜브 (Y1) ──────────────────────────────────────────────────────
+  registerYoutubeRoutes(api, { service, auth, youtube: deps.youtube ?? null, sealer: deps.sealer ?? null })
 
   api.notFound(() => notFound())
   return api
