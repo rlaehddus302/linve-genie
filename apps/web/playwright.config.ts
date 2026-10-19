@@ -10,6 +10,11 @@
 // - 포트가 겹치면 E2E_PORT_OFFSET(예: 100)으로 모두 옮긴다.
 // - 시험 계정: apps/server/e2e/account.json (loginId e2e-shop / password e2e-pass-1234, 가게 이름 "시험 가게").
 // - 서버는 메모리 DB라 실행마다 비어 있다(채움 묶음 제외). 같은 실행 안의 시험은 한 서버를 함께 쓴다.
+// - 서버·화면 모두 127.0.0.1에서만 연다(AC-S06-73, D-096 — 모든 인터페이스가 아니다). 헬스체크·화면의 /api 프록시 대상도 127.0.0.1이다.
+//   브라우저 주소(baseURL)는 http://localhost:<포트>로 둔다 — 크로미움이 localhost를 127.0.0.1로 잇는다. 세션 쿠키가 Secure라
+//   Playwright의 page.request(시험이 API를 직접 부르는 길)는 http에서 localhost에만 그 쿠키를 보낸다(127.0.0.1이면 401).
+//   서버 --origin은 브라우저 주소와 똑같이 http://localhost:<화면 포트>.
+// - 서비스 워커(PWA)는 막지 않는다 — /api/는 가로채지 않으므로 page.route가 그대로 쓰인다(AC-S06-51).
 import { fileURLToPath } from 'node:url'
 import { defineConfig, devices } from '@playwright/test'
 
@@ -17,6 +22,12 @@ const offset = Number(process.env['E2E_PORT_OFFSET'] ?? '0')
 const hostDelay = process.env['E2E_HOST_DELAY_MS'] ?? '2000'
 const chatSpeed = process.env['E2E_CHAT_SPEED'] ?? '20'
 const reuse = process.env['CI'] === undefined
+/** E2E 서버·화면이 듣는 주소 (모든 인터페이스가 아니다) */
+export const E2E_HOST = '127.0.0.1'
+/** 듣는 주소 (헬스체크·프록시 대상) */
+const listen = (port: number) => `http://${E2E_HOST}:${String(port)}`
+/** 브라우저가 여는 주소 (= 서버 --origin) */
+const browserOrigin = (port: number) => `http://localhost:${String(port)}`
 
 interface Stack {
   readonly name: string
@@ -53,21 +64,21 @@ export default defineConfig({
   },
   projects: STACKS.map((stack) => ({
     name: stack.name,
-    use: { baseURL: `http://localhost:${String(stack.web)}` },
+    use: { baseURL: browserOrigin(stack.web) },
     ...(stack.grep === undefined ? {} : { grep: stack.grep }),
     ...(stack.grepInvert === undefined ? {} : { grepInvert: stack.grepInvert }),
   })),
   webServer: STACKS.flatMap((stack) => [
     {
-      command: `pnpm --filter @livejjim/server e2e --port ${String(stack.api)} --origin http://localhost:${String(stack.web)} ${stack.serverArgs}`,
-      url: `http://localhost:${String(stack.api)}/api/health`,
+      command: `pnpm --filter @livejjim/server e2e --port ${String(stack.api)} --origin ${browserOrigin(stack.web)} ${stack.serverArgs}`,
+      url: `${listen(stack.api)}/api/health`,
       reuseExistingServer: reuse,
       timeout: 120_000,
       stdout: 'pipe' as const,
     },
     {
-      command: `node e2e/serve.ts --port ${String(stack.web)} --api http://localhost:${String(stack.api)}`,
-      url: `http://localhost:${String(stack.web)}`,
+      command: `node e2e/serve.ts --port ${String(stack.web)} --api ${listen(stack.api)}`,
+      url: listen(stack.web),
       reuseExistingServer: reuse,
       timeout: 120_000,
       stdout: 'pipe' as const,
