@@ -10,7 +10,7 @@ import { StreamHub } from './hub.ts'
 import { randomIds, type IdSource } from './ids.ts'
 import { errorKind, safeSink, stderrLog, type LogSink } from './log.ts'
 import type { EngineAdapter } from './runtime.ts'
-import { readMasterKey, type PasswordCost } from './secrets.ts'
+import { loginLimitSecret, readMasterKey, type PasswordCost } from './secrets.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
 import { systemClock, type Clock } from './time.ts'
 import { ScopeWriter, type WriterHooks } from './writer.ts'
@@ -75,7 +75,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const ids: IdSource = { ...randomIds, ...options.ids }
   const log = safeSink(options.log ?? stderrLog)
   const engine: EngineAdapter = options.engine ?? { applyEvent }
-  const auth = new Auth({ db, clock, ...(options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost }) })
+  const auth = new Auth({ db, clock, limitSecret: loginLimitSecret(masterKey), log, ...(options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost }) })
   const hub = new StreamHub({ heartbeatMs, sessionAlive: (hash) => auth.alive(hash) })
   const writer = new ScopeWriter({
     db,

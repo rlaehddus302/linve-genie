@@ -1,9 +1,9 @@
 // 저장소 계층 (SYS-02). 판매자 데이터를 읽고 쓰는 질의는 모두 여기 있고, 모두 판매자 ID 조건을 건다.
 // (범위 ID로 찾는 질의도 판매자 ID를 함께 건다 — 범위 ID를 잘못 넘겨도 다른 판매자 행이 섞이지 않게.)
 // 트랜잭션 안에서는 트랜잭션 객체(tx)를 넘긴다(PGlite는 연결이 하나라 트랜잭션 밖 객체를 쓰면 기다리다 멈춘다).
-import { and, asc, desc, eq, exists, gt, lt, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, exists, gt, inArray, isNull, lt, lte, sql } from 'drizzle-orm'
 import type { Db } from './db/database.ts'
-import { accounts, broadcasts, events, outbox, scopes, sellers, sessions, snapshots } from './db/schema.ts'
+import { accounts, broadcasts, events, loginLimits, outbox, scopes, sellers, sessions, snapshots } from './db/schema.ts'
 
 // ── 판매자·계정·세션 ─────────────────────────────────────────────────────
 
@@ -32,8 +32,6 @@ export interface AccountRow {
   readonly sellerId: string
   readonly loginId: string
   readonly passwordHash: string
-  readonly failedLogins: number
-  readonly lockedUntil: Date | null
 }
 
 /** 로그인 아이디로 계정 찾기 (로그인 전이라 판매자를 모른다 — 아이디는 전체에서 유일하다) */
@@ -44,8 +42,6 @@ export async function findAccountByLogin(db: Db, loginId: string): Promise<Accou
       sellerId: accounts.sellerId,
       loginId: accounts.loginId,
       passwordHash: accounts.passwordHash,
-      failedLogins: accounts.failedLogins,
-      lockedUntil: accounts.lockedUntil,
     })
     .from(accounts)
     .where(eq(accounts.loginId, loginId))
@@ -53,11 +49,69 @@ export async function findAccountByLogin(db: Db, loginId: string): Promise<Accou
   return rows[0] ?? null
 }
 
-export async function setLoginFailures(db: Db, account: Pick<AccountRow, 'id' | 'sellerId'>, failedLogins: number, lockedUntil: Date | null): Promise<void> {
+// ── 로그인 시도 수 (판매자 데이터 아님 — 있는 아이디·없는 아이디를 같은 질의로 센다, D-074) ──────────
+
+/**
+ * 비밀번호를 확인하기 전에 시도 자리 하나를 원자적으로 잡는다 (한 문장 — 동시에 온 요청도 한 줄로 센다).
+ * 잠겨 있으면 null. 잡았으면 그 시도의 번호(1부터, 확인 중인 시도 포함)를 돌려준다.
+ * 잠금이 지난 행은 1부터 다시 센다. 번호가 limit에 닿으면 그 자리에서 lockUntil까지 잠근다(맞는 비밀번호였으면 releaseLoginAttempt가 푼다).
+ */
+export async function claimLoginAttempt(db: Db, key: string, now: Date, lockUntil: Date, limit: number): Promise<number | null> {
+  const nowText = now.toISOString()
+  const next = sql`CASE WHEN ${loginLimits.lockedUntil} IS NOT NULL THEN 1 ELSE ${loginLimits.failures} + 1 END`
+  const rows = await db
+    .insert(loginLimits)
+    .values({ key, failures: 1, lockedUntil: limit <= 1 ? lockUntil : null, updatedAt: now })
+    .onConflictDoUpdate({
+      target: loginLimits.key,
+      set: {
+        failures: next,
+        lockedUntil: sql`CASE WHEN ${next} >= ${limit} THEN ${lockUntil.toISOString()}::timestamptz ELSE NULL END`,
+        updatedAt: now,
+      },
+      // 잠금 중이면 바꾸지 않는다(행이 돌아오지 않는다 → 잠김). 실패 수도 잠금이 풀린 뒤에야 1부터 다시 센다
+      setWhere: sql`${loginLimits.lockedUntil} IS NULL OR ${loginLimits.lockedUntil} <= ${nowText}::timestamptz`,
+    })
+    .returning({ failures: loginLimits.failures })
+  return rows[0]?.failures ?? null
+}
+
+/**
+ * 맞는 비밀번호: 이 시도와 그 앞의 실패를 지운다. 이 시도 뒤에 잡힌(아직 확인 중인) 시도만 남는다 — 차례대로 왔다면 0.
+ * 남은 수는 한도보다 작으므로(한도에 닿은 뒤로는 자리를 잡을 수 없다) 잠금도 푼다.
+ */
+export async function releaseLoginAttempt(db: Db, key: string, attempt: number): Promise<void> {
+  const deleted = await db
+    .delete(loginLimits)
+    .where(and(eq(loginLimits.key, key), lte(loginLimits.failures, attempt)))
+    .returning({ key: loginLimits.key })
+  if (deleted.length > 0) return
   await db
-    .update(accounts)
-    .set({ failedLogins, lockedUntil })
-    .where(and(eq(accounts.id, account.id), eq(accounts.sellerId, account.sellerId)))
+    .update(loginLimits)
+    .set({ failures: sql`GREATEST(${loginLimits.failures} - ${attempt}, 0)`, lockedUntil: null })
+    .where(eq(loginLimits.key, key))
+}
+
+/**
+ * 시도 수 표 정리. 있는 아이디·없는 아이디를 가리지 않고 같은 규칙이다(정리로 아이디가 있는지 갈리지 않는다).
+ * 1. 잠금이 지난 행·0인 행: 없는 것과 같다(다음 시도가 1부터 센다).
+ * 2. 잠기지 않은 행이 keep개를 넘으면 마지막 시도가 오래된 것부터 지운다. 잠긴 행은 잠금이 끝날 때까지 지우지 않는다.
+ * 지운 행 수를 돌려준다.
+ */
+export async function pruneLoginLimits(db: Db, now: Date, keep: number): Promise<number> {
+  const nowText = now.toISOString()
+  const spent = await db
+    .delete(loginLimits)
+    .where(sql`${loginLimits.lockedUntil} <= ${nowText}::timestamptz OR (${loginLimits.lockedUntil} IS NULL AND ${loginLimits.failures} <= 0)`)
+    .returning({ key: loginLimits.key })
+  const stale = db
+    .select({ key: loginLimits.key })
+    .from(loginLimits)
+    .where(isNull(loginLimits.lockedUntil))
+    .orderBy(desc(loginLimits.updatedAt), desc(loginLimits.key))
+    .offset(keep)
+  const old = await db.delete(loginLimits).where(inArray(loginLimits.key, stale)).returning({ key: loginLimits.key })
+  return spent.length + old.length
 }
 
 export interface SessionRow {

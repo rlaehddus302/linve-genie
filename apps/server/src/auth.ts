@@ -1,14 +1,26 @@
 // 로그인·세션 (SYS-01, D-074, AC-S04-40).
 // - 아이디 없음과 비밀번호 틀림은 같은 상태 코드·같은 본문이다. 없는 아이디도 같은 비용의 해시 확인을 거쳐 시간 차이를 줄인다.
 // - 같은 아이디로 연속 10번 틀리면 15분 동안 그 아이디의 로그인을 받지 않는다(맞는 비밀번호도). 이미 로그인한 세션은 그대로 쓴다.
-//   없는 아이디도 같은 규칙으로 센다(메모리) — 잠금 여부로 아이디가 있는지 알아낼 수 없게.
+//   시도 수는 비밀번호를 확인하기 **전에** 한 문장으로 먼저 올린다(SA-S04-001). 확인과 기록 사이가 비어 있으면
+//   동시에 보낸 요청이 모두 잠금 확인을 통과해 한도를 넘어 비밀번호를 확인받는다.
+//   있는 아이디와 없는 아이디를 같은 표(login_limits)·같은 순서로 센다(SA-S04-002) — 비밀번호 길이·서버 재시작·
+//   인스턴스·표 정리 어느 쪽으로도 잠금 응답이 갈리지 않아 아이디가 있는지 알 수 없다.
 // - 세션: 무작위 토큰(쿠키), 서버엔 해시만. 30일, 쓰는 동안 연장. 로그아웃하면 서버에서 지운다.
-import { eq, sql } from 'drizzle-orm'
 import { LOGIN_ID_RE, PASSWORD_MAX, normalizeLoginId } from './accounts.ts'
 import type { Db } from './db/database.ts'
-import { accounts } from './db/schema.ts'
-import { DEFAULT_PASSWORD_COST, hashPassword, newSessionToken, sha256Hex, tokenHash, verifyPassword, type PasswordCost } from './secrets.ts'
-import { deleteSession, extendSession, findAccountByLogin, findSession, insertSession, setLoginFailures, type SessionRow } from './store.ts'
+import { errorKind, type LogSink } from './log.ts'
+import { DEFAULT_PASSWORD_COST, hashPassword, loginLimitKey, newSessionToken, tokenHash, verifyPassword, type PasswordCost } from './secrets.ts'
+import {
+  claimLoginAttempt,
+  deleteSession,
+  extendSession,
+  findAccountByLogin,
+  findSession,
+  insertSession,
+  pruneLoginLimits,
+  releaseLoginAttempt,
+  type SessionRow,
+} from './store.ts'
 import type { Clock } from './time.ts'
 
 export const SESSION_COOKIE = 'lj_session'
@@ -17,7 +29,10 @@ export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
 export const SESSION_EXTEND_AFTER_MS = 10 * 60 * 1000
 export const LOCK_AFTER_FAILURES = 10
 export const LOCK_MS = 15 * 60 * 1000
-const UNKNOWN_TRACK_MAX = 10_000
+/** 잠기지 않은 시도 수 행을 이만큼까지 둔다 (넘으면 마지막 시도가 오래된 것부터 정리 — 잠긴 행은 잠금이 끝날 때까지 둔다) */
+export const LOGIN_LIMIT_KEEP = 100_000
+/** 로그인 시도 이만큼마다 한 번 시도 수 표를 정리한다 */
+export const LOGIN_PRUNE_EVERY = 500
 
 export type LoginOutcome =
   | { readonly kind: 'ok'; readonly token: string; readonly sellerId: string; readonly loginId: string }
@@ -27,7 +42,14 @@ export type LoginOutcome =
 export interface AuthOptions {
   readonly db: Db
   readonly clock: Clock
+  /** 시도 수 표의 키를 만드는 비밀 키 (loginLimitSecret(마스터 키)) */
+  readonly limitSecret: Buffer
   readonly passwordCost?: PasswordCost
+  readonly log?: LogSink
+  /** 정리 기준 (시험에서 줄인다): 잠기지 않은 행을 이만큼까지 둔다 */
+  readonly limitKeep?: number
+  /** 정리 간격 (시험에서 줄인다): 로그인 시도 이만큼마다 */
+  readonly pruneEvery?: number
 }
 
 export interface SessionContext extends SessionRow {
@@ -44,8 +66,7 @@ export const CLEAR_SESSION_COOKIE = `${SESSION_COOKIE}=; Path=/; HttpOnly; Secur
 export class Auth {
   readonly #options: AuthOptions
   readonly #dummyHash: Promise<string>
-  /** 없는 아이디의 연속 실패 (아이디 해시 → 실패 수·잠금 시각) */
-  readonly #unknown = new Map<string, { failures: number; lockedUntil: number }>()
+  #attempts = 0
 
   constructor(options: AuthOptions) {
     this.#options = options
@@ -57,40 +78,35 @@ export class Auth {
     const { db, clock } = this.#options
     const now = clock.now()
     const loginId = normalizeLoginId(rawLoginId)
-    const account = LOGIN_ID_RE.test(loginId) && password.length <= PASSWORD_MAX ? await findAccountByLogin(db, loginId) : null
-    if (account === null) {
-      const key = sha256Hex(loginId)
-      const tracked = this.#unknown.get(key)
-      if (tracked !== undefined && tracked.lockedUntil > now) return { kind: 'locked' }
+    const key = loginLimitKey(this.#options.limitSecret, loginId)
+    await this.#maybePrune(now)
+    // 1. 비밀번호를 확인하기 전에 시도 자리를 잡는다. 잠겨 있으면(확인 중인 시도까지 10번) 확인하지 않는다
+    const attempt = await claimLoginAttempt(db, key, new Date(now), new Date(now + LOCK_MS), LOCK_AFTER_FAILURES)
+    if (attempt === null) return { kind: 'locked' }
+    // 2. 계정은 비밀번호 길이와 상관없이 아이디로 찾는다. 형식이 틀린 아이디의 계정은 있을 수 없다
+    const account = LOGIN_ID_RE.test(loginId) ? await findAccountByLogin(db, loginId) : null
+    // 3. 계정이 없거나 비밀번호가 상한을 넘으면 같은 비용의 가짜 확인만 하고 실패다 (실패 수는 1에서 이미 셌다)
+    if (account === null || password.length > PASSWORD_MAX) {
       await verifyPassword(password.slice(0, PASSWORD_MAX), await this.#dummyHash)
-      this.#countUnknown(key, tracked, now)
       return { kind: 'failed' }
     }
-    if (account.lockedUntil !== null && account.lockedUntil.getTime() > now) return { kind: 'locked' }
-    if (!(await verifyPassword(password, account.passwordHash))) {
-      const lockUntil = new Date(now + LOCK_MS).toISOString()
-      await db
-        .update(accounts)
-        .set({
-          failedLogins: sql`CASE WHEN ${accounts.failedLogins} + 1 >= ${LOCK_AFTER_FAILURES} THEN 0 ELSE ${accounts.failedLogins} + 1 END`,
-          lockedUntil: sql`CASE WHEN ${accounts.failedLogins} + 1 >= ${LOCK_AFTER_FAILURES} THEN ${lockUntil}::timestamptz ELSE ${accounts.lockedUntil} END`,
-        })
-        .where(eq(accounts.id, account.id))
-      return { kind: 'failed' }
-    }
-    if (account.failedLogins !== 0 || account.lockedUntil !== null) await setLoginFailures(db, account, 0, null)
+    if (!(await verifyPassword(password, account.passwordHash))) return { kind: 'failed' }
+    // 4. 맞았다: 연속 실패 수를 0으로 (이 시도 뒤에 잡힌, 아직 확인 중인 시도만 남는다)
+    await releaseLoginAttempt(db, key, attempt)
     const token = newSessionToken()
     await insertSession(db, { tokenHash: tokenHash(token), sellerId: account.sellerId, accountId: account.id, now: new Date(now), expiresAt: new Date(now + SESSION_TTL_MS) })
     return { kind: 'ok', token, sellerId: account.sellerId, loginId: account.loginId }
   }
 
-  #countUnknown(key: string, tracked: { failures: number; lockedUntil: number } | undefined, now: number): void {
-    const failures = (tracked === undefined || (tracked.lockedUntil !== 0 && tracked.lockedUntil <= now) ? 0 : tracked.failures) + 1
-    if (!this.#unknown.has(key) && this.#unknown.size >= UNKNOWN_TRACK_MAX) {
-      const oldest = this.#unknown.keys().next()
-      if (oldest.done !== true) this.#unknown.delete(oldest.value)
+  /** 시도 수 표가 끝없이 자라지 않게 가끔 정리한다. 정리하지 못해도 로그인은 계속한다 */
+  async #maybePrune(now: number): Promise<void> {
+    this.#attempts += 1
+    if (this.#attempts % (this.#options.pruneEvery ?? LOGIN_PRUNE_EVERY) !== 0) return
+    try {
+      await pruneLoginLimits(this.#options.db, new Date(now), this.#options.limitKeep ?? LOGIN_LIMIT_KEEP)
+    } catch (error) {
+      this.#options.log?.({ level: 'warn', code: 'LOGIN_PRUNE_FAILED', errorKind: errorKind(error) })
     }
-    this.#unknown.set(key, failures >= LOCK_AFTER_FAILURES ? { failures: 0, lockedUntil: now + LOCK_MS } : { failures, lockedUntil: 0 })
   }
 
   /** 쿠키의 토큰으로 세션 찾기 (만료·위조면 null). 쓰는 동안 만료 시각을 늘린다 */

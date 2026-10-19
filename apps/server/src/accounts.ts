@@ -52,7 +52,7 @@ export async function createSellerAccount(db: Db, masterKey: Buffer, input: NewA
   const passwordHash = await hashPassword(input.password, options.passwordCost ?? DEFAULT_PASSWORD_COST)
   await db.transaction(async (tx) => {
     await tx.insert(sellers).values({ id: sellerId, name: shopName, phoneKeyEnc: newSealedSellerKey(masterKey, sellerId), settings: '{}', createdAt: now })
-    await tx.insert(accounts).values({ id: accountId, sellerId, loginId, passwordHash, failedLogins: 0, lockedUntil: null, createdAt: now })
+    await tx.insert(accounts).values({ id: accountId, sellerId, loginId, passwordHash, createdAt: now })
   })
   return { ok: true, sellerId, accountId, loginId }
 }

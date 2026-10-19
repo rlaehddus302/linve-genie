@@ -62,9 +62,11 @@ describe('마이그레이션 = Drizzle 스키마 (AC-S04-20)', () => {
   })
 
   it('같은 DB에 다시 열어도(마이그레이션 두 번) 그대로다', async () => {
+    const journal = JSON.parse(readFileSync(join(MIGRATIONS_FOLDER, 'meta', '_journal.json'), 'utf8')) as { entries: unknown[] }
     const again = await openPglite(pg)
     const count = await pg.query<{ n: number }>(`select count(*)::int as n from drizzle.__drizzle_migrations`)
-    expect(count.rows[0]?.n).toBe(1)
+    // 마이그레이션 파일마다 한 번씩만 적용된다 (두 번 열어도 늘지 않는다)
+    expect(count.rows[0]?.n).toBe(journal.entries.length)
     expect(again.db).toBeDefined()
   })
 })
@@ -75,8 +77,17 @@ describe('판매자 ID와 유일 제약 (SYS-02, AC-S04-20·25)', () => {
       const config = getTableConfig(table)
       const names = config.columns.map((column) => column.name)
       if (config.name === 'sellers') expect(names).toContain('id')
+      else if (config.name === 'login_limits') continue // 아래 시험: 판매자 데이터가 아니다
       else expect(names, config.name).toContain('seller_id')
     }
+  })
+
+  it('판매자 ID가 없는 테이블은 로그인 시도 수 하나뿐이고, 아이디 키·실패 수·잠금 시각·마지막 시도 시각만 둔다 (SA-S04-002)', () => {
+    // 로그인 전이라 판매자를 모르고 없는 아이디도 센다 — 있는 아이디와 같은 표에 두어야 잠금으로 아이디가 있는지 갈리지 않는다
+    const withoutSeller = tables.map((table) => getTableConfig(table)).filter((config) => config.name !== 'sellers' && !config.columns.some((column) => column.name === 'seller_id'))
+    expect(withoutSeller.map((config) => config.name)).toEqual(['login_limits'])
+    expect(withoutSeller[0]?.columns.map((column) => column.name)).toEqual(['key', 'failures', 'locked_until', 'updated_at'])
+    expect(withoutSeller[0]?.foreignKeys).toEqual([])
   })
 
   it('요청 번호·채팅 ID·문자찜 ref·(범위, seq)·발송함 효과 ID에 DB 유일 제약이 있다', async () => {

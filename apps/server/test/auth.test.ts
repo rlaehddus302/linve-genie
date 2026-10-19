@@ -1,8 +1,12 @@
 // AC-S04-40 로그인·세션, AC-S04-41 요청 보호(CSRF·CORS), AC-S04-42 판매자 격리
+import type { PGlite } from '@electric-sql/pglite'
 import { describe, expect, it } from 'vitest'
 import { createSellerAccount } from '../src/accounts.ts'
-import { LOCK_MS, SESSION_EXTEND_AFTER_MS, SESSION_TTL_MS } from '../src/auth.ts'
-import { FAST_COST, ORIGIN, addSeller, client, countRows, createBroadcast, expectOk, login, newWorld, rid, writeEvent, type TestServer } from './support.ts'
+import { Auth, LOCK_AFTER_FAILURES, LOCK_MS, SESSION_EXTEND_AFTER_MS, SESSION_TTL_MS } from '../src/auth.ts'
+import type { Db } from '../src/db/database.ts'
+import type { LogRecord } from '../src/log.ts'
+import { loginLimitKey, loginLimitSecret } from '../src/secrets.ts'
+import { FAST_COST, ORIGIN, addSeller, client, countRows, createBroadcast, dumpAllTables, expectOk, fakeClock, login, newWorld, rid, startServer, writeEvent, type TestServer } from './support.ts'
 
 const loginRequest = (world: TestServer, loginId: string, password: string) =>
   world.server.app.request('/api/login', { method: 'POST', headers: { Origin: ORIGIN, 'Content-Type': 'application/json' }, body: JSON.stringify({ loginId, password }) })
@@ -143,6 +147,163 @@ describe('AC-S04-40 로그인·세션', () => {
     expect((await post({ loginId: 'a' })).status).toBe(400)
     expect((await post({ loginId: 1, password: 'x' })).status).toBe(400)
     expect((await post({ loginId: 'a', password: 'b', remember: true })).status).toBe(400)
+  })
+})
+
+describe('AC-S04-40 로그인 잠금 — 동시 요청·긴 비밀번호·재시작·정리 (SA-S04-001·002)', () => {
+  const statuses = async (world: TestServer, loginId: string, passwords: readonly string[]) =>
+    (await Promise.all(passwords.map((password) => loginRequest(world, loginId, password)))).map((response) => response.status)
+  const limitRows = async (world: TestServer) =>
+    ((await (world.database.pglite as PGlite).query<{ key: string; failures: number; locked_until: Date | null }>(`select key, failures, locked_until from login_limits order by key`)).rows)
+
+  it('틀린 비밀번호 30개를 한꺼번에 보내도 비밀번호는 10번까지만 확인하고 나머지는 429다 (있는 아이디·없는 아이디 같게)', async () => {
+    const world = await newWorld()
+    await addSeller(world, 'burstshop', 'pass-word-11')
+    for (const loginId of ['burstshop', 'burstghost']) {
+      const result = await statuses(world, loginId, Array.from({ length: 30 }, (_, i) => `guess-${String(i)}-pw`))
+      expect(result.filter((status) => status === 401), loginId).toHaveLength(LOCK_AFTER_FAILURES)
+      expect(result.filter((status) => status === 429), loginId).toHaveLength(30 - LOCK_AFTER_FAILURES)
+      // 잠긴 뒤엔 맞는 비밀번호도 429
+      expect((await loginRequest(world, loginId, 'pass-word-11')).status, loginId).toBe(429)
+    }
+  })
+
+  it('한꺼번에 보낸 틀린 15개 뒤의 맞는 비밀번호는 429, 틀린 5개 뒤의 맞는 비밀번호는 200이고 그 뒤 실패 수는 확인 중이던 것만 남는다', async () => {
+    const world = await newWorld()
+    await addSeller(world, 'mixshop', 'pass-word-11')
+    const late = await statuses(world, 'mixshop', [...Array.from({ length: 15 }, (_, i) => `guess-${String(i)}-pw`), 'pass-word-11'])
+    expect(late.at(-1)).toBe(429)
+    world.clock.advance(LOCK_MS)
+    const early = await statuses(world, 'mixshop', [...Array.from({ length: 5 }, (_, i) => `guess-${String(i)}-pw`), 'pass-word-11'])
+    expect(early).toEqual([401, 401, 401, 401, 401, 200])
+    // 차례대로 온 시도라 성공 뒤 남은 실패 수는 0 (행이 없다) — 다시 10번 틀려야 잠긴다
+    expect(await limitRows(world)).toEqual([])
+    for (let i = 0; i < LOCK_AFTER_FAILURES - 1; i++) expect((await loginRequest(world, 'mixshop', 'nope-nope')).status).toBe(401)
+    expect((await loginRequest(world, 'mixshop', 'pass-word-11')).status).toBe(200)
+  })
+
+  it('맞는 비밀번호보다 먼저 잡힌 실패는 지워지고, 뒤에 잡힌 실패는 남는다 (차례대로 온 것과 같은 결과)', async () => {
+    const world = await newWorld()
+    await addSeller(world, 'ordershop', 'pass-word-11')
+    // 틀림 3 · 맞음 · 틀림 4 를 한꺼번에: 차례대로였다면 성공 뒤 연속 실패는 4
+    const result = await statuses(world, 'ordershop', ['w1-w1-w1', 'w2-w2-w2', 'w3-w3-w3', 'pass-word-11', 'w4-w4-w4', 'w5-w5-w5', 'w6-w6-w6', 'w7-w7-w7'])
+    expect(result).toEqual([401, 401, 401, 200, 401, 401, 401, 401])
+    const rows = await limitRows(world)
+    expect(rows.map((row) => [row.failures, row.locked_until])).toEqual([[4, null]])
+    // 6번 더 틀리면 연속 10번 → 잠김
+    for (let i = 0; i < 6; i++) expect((await loginRequest(world, 'ordershop', 'nope-nope')).status).toBe(401)
+    expect((await loginRequest(world, 'ordershop', 'pass-word-11')).status).toBe(429)
+  })
+
+  it('200자를 넘는 비밀번호도 있는 아이디의 실패로 센다 — 있는 아이디와 없는 아이디의 응답이 매번 같다', async () => {
+    const world = await newWorld()
+    await addSeller(world, 'longshop', 'pass-word-11')
+    const sequence = [...Array.from({ length: 9 }, () => 'x'.repeat(201)), 'y'.repeat(5000), 'wrong-password', 'pass-word-11']
+    const seen: Record<string, number[]> = { longshop: [], longghost: [] }
+    for (const password of sequence) {
+      for (const loginId of ['longshop', 'longghost']) {
+        const response = await loginRequest(world, loginId, password)
+        seen[loginId]?.push(response.status)
+      }
+    }
+    expect(seen.longshop).toEqual([...Array.from({ length: 10 }, () => 401), 429, 429])
+    expect(seen.longghost).toEqual(seen.longshop)
+    // 잠금이 끝나면 맞는 비밀번호로 들어간다
+    world.clock.advance(LOCK_MS)
+    expect((await loginRequest(world, 'longshop', 'pass-word-11')).status).toBe(200)
+  })
+
+  it('잠금은 DB에 있어 서버를 다시 띄워도(다른 인스턴스) 있는 아이디·없는 아이디 모두 그대로다', async () => {
+    const world = await newWorld()
+    await addSeller(world, 'restartshop', 'pass-word-11')
+    for (const loginId of ['restartshop', 'restartghost']) {
+      for (let i = 0; i < LOCK_AFTER_FAILURES; i++) expect((await loginRequest(world, loginId, 'nope-nope')).status).toBe(401)
+    }
+    const again = startServer(world.database, world.masterKey, { clock: world.clock })
+    for (const loginId of ['restartshop', 'restartghost']) expect((await loginRequest(again, loginId, 'pass-word-11')).status, loginId).toBe(429)
+    // 9번 틀린 상태도 이어진다
+    world.clock.advance(LOCK_MS)
+    for (const loginId of ['restartshop', 'restartghost']) {
+      for (let i = 0; i < LOCK_AFTER_FAILURES - 1; i++) expect((await loginRequest(world, loginId, 'nope-nope')).status).toBe(401)
+    }
+    const third = startServer(world.database, world.masterKey, { clock: world.clock })
+    for (const loginId of ['restartshop', 'restartghost']) {
+      expect((await loginRequest(third, loginId, 'nope-nope')).status, loginId).toBe(401)
+      expect((await loginRequest(third, loginId, 'pass-word-11')).status, loginId).toBe(429)
+    }
+  })
+
+  it('잠긴 동안의 시도는 실패 수를 바꾸지 않고, 잠금이 끝난 뒤 처음 시도부터 1로 다시 센다', async () => {
+    const world = await newWorld()
+    await addSeller(world, 'windowshop', 'pass-word-11')
+    for (let i = 0; i < LOCK_AFTER_FAILURES; i++) await loginRequest(world, 'windowshop', 'nope-nope')
+    const lockedRow = await limitRows(world)
+    for (let i = 0; i < 5; i++) expect((await loginRequest(world, 'windowshop', 'nope-nope')).status).toBe(429)
+    expect(await limitRows(world)).toEqual(lockedRow)
+    expect(lockedRow[0]?.locked_until?.getTime()).toBe(world.clock.now() + LOCK_MS)
+    world.clock.advance(LOCK_MS)
+    expect((await loginRequest(world, 'windowshop', 'nope-nope')).status).toBe(401)
+    expect((await limitRows(world)).map((row) => [row.failures, row.locked_until])).toEqual([[1, null]])
+  })
+
+  it('시도 수 표에는 아이디 원문이 없다 — 마스터 키에서 나눈 키의 HMAC만 (아이디 칸에 전화번호를 적어도)', async () => {
+    const world = await newWorld()
+    for (const loginId of ['010-2468-1357', 'PlainShop']) await loginRequest(world, loginId, 'nope-nope')
+    const dump = await dumpAllTables(world.database)
+    for (const needle of ['010-2468-1357', '01024681357', '2468', 'plainshop', 'PlainShop']) expect(dump, needle).not.toContain(needle)
+    const secret = loginLimitSecret(Buffer.from(world.masterKey, 'base64'))
+    expect((await limitRows(world)).map((row) => row.key).sort()).toEqual([loginLimitKey(secret, '010-2468-1357'), loginLimitKey(secret, 'plainshop')].sort())
+    // 다른 마스터 키면 다른 키 (DB만으로 아이디를 맞춰 볼 수 없다)
+    expect(loginLimitKey(loginLimitSecret(Buffer.alloc(32, 7)), 'plainshop')).not.toBe(loginLimitKey(secret, 'plainshop'))
+  })
+
+  it('정리: 잠기지 않은 행이 많으면 오래된 것부터 지우되 잠긴 행은 잠금이 끝날 때까지 두고, 있는 아이디·없는 아이디를 가리지 않는다', async () => {
+    const world = await newWorld()
+    const masterKey = Buffer.from(world.masterKey, 'base64')
+    await createSellerAccount(world.database.db, masterKey, { shopName: 'x', loginId: 'pruneshop', password: 'pass-word-11' }, { passwordCost: FAST_COST })
+    const clock = fakeClock(world.clock.now())
+    const auth = new Auth({ db: world.database.db, clock, limitSecret: loginLimitSecret(masterKey), passwordCost: FAST_COST, pruneEvery: 1, limitKeep: 2 })
+    for (let i = 0; i < LOCK_AFTER_FAILURES; i++) expect((await auth.login('lockedghost', 'nope-nope')).kind).toBe('failed')
+    clock.advance(1000)
+    for (const loginId of ['pruneshop', 'pruneghost']) {
+      expect((await auth.login(loginId, 'nope-nope')).kind).toBe('failed')
+      clock.advance(1000)
+    }
+    // 새 아이디 둘이 더 오면 잠기지 않은 행은 최근 2개만 남는다: pruneshop·pruneghost의 실패 1번이 함께 잊힌다
+    for (const loginId of ['newer-a', 'newer-b', 'newer-c']) {
+      await auth.login(loginId, 'nope-nope')
+      clock.advance(1000)
+    }
+    const secret = loginLimitSecret(masterKey)
+    const keys = new Set((await limitRows(world)).map((row) => row.key))
+    expect(keys.has(loginLimitKey(secret, 'lockedghost'))).toBe(true)
+    expect(keys.has(loginLimitKey(secret, 'pruneshop'))).toBe(keys.has(loginLimitKey(secret, 'pruneghost')))
+    expect(keys.has(loginLimitKey(secret, 'pruneshop'))).toBe(false)
+    expect((await auth.login('lockedghost', 'nope-nope')).kind).toBe('locked')
+    // 잠금이 끝난 행은 정리 때 지운다 (없는 것과 같다 — 다음 시도가 1부터)
+    clock.advance(LOCK_MS)
+    await auth.login('newer-c', 'nope-nope')
+    expect(new Set((await limitRows(world)).map((row) => row.key)).has(loginLimitKey(secret, 'lockedghost'))).toBe(false)
+    expect((await auth.login('lockedghost', 'nope-nope')).kind).toBe('failed')
+  })
+
+  it('정리하지 못해도 로그인은 계속하고 종류만 기록한다', async () => {
+    const world = await newWorld()
+    const logs: LogRecord[] = []
+    const failingDelete = new Proxy(world.database.db, {
+      get(target, property) {
+        if (property === 'delete') {
+          return () => {
+            throw new RangeError('정리 실패 주입')
+          }
+        }
+        const value = Reflect.get(target, property) as unknown
+        return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value
+      },
+    }) as Db
+    const auth = new Auth({ db: failingDelete, clock: world.clock, limitSecret: loginLimitSecret(Buffer.from(world.masterKey, 'base64')), passwordCost: FAST_COST, pruneEvery: 1, log: (record) => logs.push(record) })
+    expect((await auth.login('someone', 'nope-nope')).kind).toBe('failed')
+    expect(logs).toEqual([{ level: 'warn', code: 'LOGIN_PRUNE_FAILED', errorKind: 'RangeError' }])
   })
 })
 

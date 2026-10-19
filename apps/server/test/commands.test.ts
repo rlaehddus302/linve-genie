@@ -6,7 +6,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
+import { getTableConfig } from 'drizzle-orm/pg-core'
 import { openPglite } from '../src/db/database.ts'
+import { schema } from '../src/db/schema.ts'
 import { generateMasterKey } from '../src/secrets.ts'
 import { login, startServer } from './support.ts'
 
@@ -77,9 +79,11 @@ describe('마이그레이션 명령 (AC-S04-20)', () => {
     expect(ok.code, ok.out).toBe(0)
     expect(ok.out).toContain('마이그레이션을 적용했어요.')
     const database = await openPglite(dir, { migrate: false })
-    const tables = await database.pglite?.query<{ n: number }>(`select count(*)::int as n from information_schema.tables where table_schema = 'public'`)
+    const tables = await database.pglite?.query<{ table_name: string }>(`select table_name from information_schema.tables where table_schema = 'public'`)
     await database.close()
-    expect(tables?.rows[0]?.n).toBe(8)
+    // 스키마의 테이블이 모두 생겼다 (판매자·계정·로그인 시도 수·세션·범위·방송·이벤트·발송함·스냅샷)
+    expect(tables?.rows.map((row) => row.table_name).sort()).toEqual(Object.values(schema).map((table) => getTableConfig(table).name).sort())
+    expect(tables?.rows).toHaveLength(9)
     const none = await run(script('commands/migrate.ts'), [], {})
     expect(none.code).toBe(1)
     expect(none.out).toContain('데이터베이스 연결 설정이 없어요')

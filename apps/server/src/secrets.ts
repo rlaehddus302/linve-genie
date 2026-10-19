@@ -2,6 +2,7 @@
 // - 서버 마스터 키(환경 변수, 32바이트): 판매자 전화번호 키를 AES-256-GCM으로 암호화한다.
 // - 판매자 전화번호 키(판매자마다 무작위 32바이트): phoneKey = HMAC-SHA256(판매자 키, 정규화한 번호)의 base64url.
 // - 비밀번호: scrypt 해시만 저장한다. 세션 토큰: 무작위 32바이트, 서버엔 SHA-256 해시만.
+// - 로그인 시도 수 표의 키: 마스터 키에서 나눈 키로 만든 아이디 HMAC (아이디 원문은 DB에 없다).
 // 오류 메시지에 비밀값·입력값을 넣지 않는다.
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, scrypt, timingSafeEqual, type ScryptOptions } from 'node:crypto'
 
@@ -72,6 +73,20 @@ export class SecretError extends Error {
 /** phoneKey = HMAC-SHA256(판매자 키, 정규화한 번호)의 base64url (43자, D-061·D-073) */
 export function phoneKeyOf(sellerKey: Buffer, normalizedPhone: string): string {
   return createHmac('sha256', sellerKey).update(normalizedPhone, 'utf8').digest('base64url')
+}
+
+// ── 로그인 시도 수의 아이디 키 ─────────────────────────────────────────────
+
+const LOGIN_LIMIT_INFO = 'livejjim/login-limit-key/v1'
+
+/** 로그인 시도 수 표의 키를 만드는 비밀 키 (마스터 키에서 나눈다 — 인스턴스·재시작마다 같다) */
+export function loginLimitSecret(masterKey: Buffer): Buffer {
+  return createHmac('sha256', masterKey).update(LOGIN_LIMIT_INFO, 'utf8').digest()
+}
+
+/** 로그인 시도 수 표의 키 = HMAC-SHA256(나눈 키, 정규화한 아이디)의 base64url. 아이디 칸에 전화번호를 적어도 DB에서 되돌릴 수 없다 */
+export function loginLimitKey(secret: Buffer, normalizedLoginId: string): string {
+  return createHmac('sha256', secret).update(normalizedLoginId, 'utf8').digest('base64url')
 }
 
 // ── 비밀번호 (scrypt) ──────────────────────────────────────────────────────

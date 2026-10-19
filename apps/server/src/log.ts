@@ -27,6 +27,7 @@ export type LogCode =
   | 'REQUEST_FAILED'
   | 'STATE_FORMAT'
   | 'STREAM_FAILED'
+  | 'LOGIN_PRUNE_FAILED'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -39,6 +40,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   REQUEST_FAILED: '요청 처리 중 오류가 생겼어요',
   STATE_FORMAT: '상태 형식이 달라 다시 불러와요',
   STREAM_FAILED: '실시간 연결에 보내지 못했어요',
+  LOGIN_PRUNE_FAILED: '로그인 시도 기록을 정리하지 못했어요(로그인은 계속함)',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */

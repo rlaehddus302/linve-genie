@@ -21,7 +21,7 @@ export const sellers = pgTable('sellers', {
   createdAt: timestamptz('created_at').notNull(),
 })
 
-/** 로그인 계정 (D-074). 비밀번호는 scrypt 해시만 둔다 */
+/** 로그인 계정 (D-074). 비밀번호는 scrypt 해시만 둔다. 연속 실패·잠금은 login_limits에 둔다 */
 export const accounts = pgTable(
   'accounts',
   {
@@ -31,13 +31,30 @@ export const accounts = pgTable(
       .references(() => sellers.id),
     loginId: text('login_id').notNull(),
     passwordHash: text('password_hash').notNull(),
-    /** 연속으로 틀린 횟수 (성공하면 0) */
-    failedLogins: integer('failed_logins').notNull().default(0),
-    /** 이 시각까지 로그인을 받지 않는다 */
-    lockedUntil: timestamptz('locked_until'),
     createdAt: timestamptz('created_at').notNull(),
   },
   (t) => [unique('accounts_login_id_uq').on(t.loginId), index('accounts_seller_idx').on(t.sellerId)],
+)
+
+/**
+ * 로그인 시도 수 (D-074 "같은 아이디로 연속 10번 틀리면 15분 동안 받지 않는다", SA-S04-001·002).
+ * - 있는 아이디와 없는 아이디를 같은 표·같은 질의로 센다: 잠금 응답·서버 재시작·인스턴스·정리 어느 쪽으로도 아이디가 있는지 갈리지 않게.
+ * - 판매자 데이터가 아니다(로그인 전이라 판매자를 모르고, 없는 아이디도 들어간다). 그래서 seller_id가 없다.
+ * - 아이디 원문은 두지 않는다. key = HMAC-SHA256(마스터 키에서 나눈 키, 정규화한 아이디)의 base64url.
+ * - failures는 비밀번호를 확인하기 전에 먼저 올린다(확인 중인 시도도 센다). 10에 닿으면 그 자리에서 locked_until을 건다.
+ */
+export const loginLimits = pgTable(
+  'login_limits',
+  {
+    key: text('key').primaryKey(),
+    /** 연속 실패 수 (확인 중인 시도 포함) */
+    failures: integer('failures').notNull(),
+    /** 이 시각까지 로그인을 받지 않는다 (지나면 다음 시도가 1부터 다시 센다) */
+    lockedUntil: timestamptz('locked_until'),
+    /** 마지막 시도 시각 (정리할 때 오래된 것부터) */
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [index('login_limits_updated_idx').on(t.updatedAt)],
 )
 
 /** 로그인 세션. 토큰 원문은 두지 않고 SHA-256 해시만 둔다 */
@@ -183,7 +200,7 @@ export const snapshots = pgTable(
   (t) => [unique('snapshots_scope_seq_uq').on(t.scopeId, t.seq)],
 )
 
-export const schema = { sellers, accounts, sessions, scopes, broadcasts, events, outbox, snapshots }
+export const schema = { sellers, accounts, loginLimits, sessions, scopes, broadcasts, events, outbox, snapshots }
 
 /** 범위 직렬 처리용 어드바이저리 락 키 (범위 = 판매자·날짜, 범위 행이 생기기 전에도 같은 키) */
 export const scopeLockKey = (sellerId: string, date: string) => sql`hashtextextended(${`${sellerId}/${date}`}, 0)`
