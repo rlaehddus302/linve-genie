@@ -2,7 +2,7 @@
 //   `/` 방송 목록(홈) · `/broadcasts/<방송 ID>` 그 방송의 콘솔 · `/sms` 문자찜 입력
 //   `/buyers` 구매자 · `/settlements` 정산 — 고른 날짜·리허설·구매자는 검색값(`?date=2026-10-18&rehearsal=true&buyer=UC_A`)
 // 전화번호·메모·사유는 주소에 넣지 않는다(AC-S06-81). 새로고침·북마크해도 같은 화면이다.
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 export type ScopeRouteName = 'buyers' | 'settlements'
 
@@ -91,12 +91,24 @@ export interface NavigateOptions {
 
 export type Navigate = (route: Route, options?: NavigateOptions) => void
 
+/**
+ * 브라우저 뒤로·앞으로 가기(popstate)를 막을지: 참이면 화면을 바꾸지 않는다(주소는 이미 바뀐 채 — 앱이 떠날지 묻고,
+ * "닫기"면 보던 주소를 다시 적고, "보내지 않고 떠나기"면 그 주소로 바꾼다, AC-S06-01·D-083)
+ */
+export type PopBlocker = (next: Route) => boolean
+
 const currentRoute = (): Route => parseRoute(window.location.pathname, window.location.search)
 
-export function useRoute(): readonly [Route, Navigate] {
+export function useRoute(blocker?: PopBlocker): readonly [Route, Navigate] {
   const [route, setRoute] = useState<Route>(currentRoute)
+  const block = useRef(blocker)
+  block.current = blocker
   useEffect(() => {
-    const onPop = () => setRoute(currentRoute())
+    const onPop = () => {
+      const next = currentRoute()
+      if (block.current?.(next) === true) return
+      setRoute(next)
+    }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])

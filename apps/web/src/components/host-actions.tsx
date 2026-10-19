@@ -40,7 +40,7 @@ export function useHostActions({ store, data, queue, date, rehearsal, b, ended }
   const items = useSyncExternalStore(queue.subscribe, queue.getSnapshot) ?? NO_ITEMS
   const [dialogs, setDialogs] = useState<Dialog[]>([])
 
-  useLeaveGuard(useCallback(() => queue.waitingCount > 0, [queue]))
+  useLeaveGuard(queue)
 
   const openDialog = useCallback((dialog: Dialog) => setDialogs((stack) => [...stack, dialog]), [])
   const closeTop = useCallback(() => setDialogs((stack) => stack.slice(0, -1)), [])

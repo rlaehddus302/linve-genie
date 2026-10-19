@@ -7,7 +7,7 @@ import { ConsolePage } from '../src/components/ConsolePage.tsx'
 import { RehearsalPanel } from '../src/components/RehearsalPanel.tsx'
 import { chat, register, viewOf } from './engine.ts'
 import { EngineServer } from './engine-server.ts'
-import { FakeEventSource, apiError, flush } from './support.ts'
+import { DATE, FakeEventSource, apiError, flush } from './support.ts'
 
 let engine: EngineServer
 
@@ -248,6 +248,118 @@ describe('앱: 떠나기 전 확인·인터넷 없음 (AC-S06-01, D-083, D-093)'
     // 대기 시간(0.4초)이 다 지나도 보내지 않는다
     await new Promise((resolve) => setTimeout(resolve, 700))
     expect(engine.posts.filter((post) => post.type === 'host.cancel')).toHaveLength(0)
+  })
+
+  /** 콘솔에서 15번 1등 찜 취소를 기다리게 한다 */
+  async function waitingCancel(delayMs: number) {
+    setup([register(15, '핑크프릴', 10000), chat('m1', 'UC_hong1234', '홍길동', '15')], { delayMs })
+    window.history.replaceState(null, '', '/')
+    window.history.pushState(null, '', '/broadcasts/b1')
+    render(<App />)
+    const quick = (await screen.findByLabelText('빠른 입력')) as HTMLInputElement
+    await flush(10)
+    enter(quick, '15')
+    const detail = await screen.findByRole('dialog', { name: '15번 자세히' })
+    fireEvent.click(within(detail).getByRole('button', { name: '찜 취소하기' }))
+    const reason = await screen.findByRole('dialog', { name: '15번 홍길동 취소' })
+    fireEvent.click(within(reason).getByRole('button', { name: '2 장난 찜' }))
+    fireEvent.click(within(reason).getByRole('button', { name: '찜 취소하기' }))
+    await screen.findByText(/뒤 보내요: 15번 홍길동 취소/)
+  }
+
+  const cancels = () => engine.posts.filter((post) => post.type === 'host.cancel')
+
+  it('UX-S06-001: 창이 열린 동안은 대기 시계가 멈춰 보내지 않는다 — "닫기"면 남은 시간부터 다시 흘러 그 뒤에 보낸다', async () => {
+    await waitingCancel(400)
+    fireEvent.click(within(screen.getByRole('navigation', { name: '메뉴' })).getByRole('link', { name: '정산' }))
+    const ask = await screen.findByRole('dialog', { name: '다른 화면으로 갈까요?' })
+    // 대기 시간(0.4초)의 몇 배를 기다려도 창은 그대로이고 아무것도 보내지 않았다
+    await new Promise((resolve) => setTimeout(resolve, 900))
+    expect(cancels()).toHaveLength(0)
+    expect(ask.textContent).toContain('보내기 전인 조치가 있어요. 떠나면 보내지 않아요.')
+    expect(screen.getByRole('region', { name: '보내기 전 조치' }).textContent).toContain('뒤 보내요: 15번 홍길동 취소')
+    fireEvent.click(within(ask).getByRole('button', { name: '닫기' }))
+    expect(window.location.pathname).toBe('/broadcasts/b1')
+    await waitFor(() => expect(cancels()).toHaveLength(1))
+    expect(await screen.findByText('보냈어요: 15번 홍길동 취소')).toBeDefined()
+  })
+
+  it('UX-S06-001: 창을 연 채 대기 시간이 지나도 "보내지 않고 떠나기"면 보내지 않는다', async () => {
+    await waitingCancel(300)
+    fireEvent.click(within(screen.getByRole('navigation', { name: '메뉴' })).getByRole('link', { name: '정산' }))
+    const ask = await screen.findByRole('dialog', { name: '다른 화면으로 갈까요?' })
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    fireEvent.click(within(ask).getByRole('button', { name: '보내지 않고 떠나기' }))
+    await waitFor(() => expect(window.location.pathname).toBe('/settlements'))
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    expect(cancels()).toHaveLength(0)
+  })
+
+  it('RA-S06-001: 브라우저 뒤로 가기도 묻는다 — "닫기"면 보던 주소로 돌아와 머물고, "보내지 않고 떠나기"면 그 주소로 가며 보내지 않는다', async () => {
+    await waitingCancel(400)
+    act(() => {
+      window.history.back()
+    })
+    let ask = await screen.findByRole('dialog', { name: '다른 화면으로 갈까요?' })
+    expect(ask.textContent).toContain('보내기 전인 조치가 있어요. 떠나면 보내지 않아요.')
+    // 화면은 콘솔 그대로
+    expect(screen.getByLabelText('빠른 입력')).toBeDefined()
+    fireEvent.click(within(ask).getByRole('button', { name: '닫기' }))
+    expect(window.location.pathname).toBe('/broadcasts/b1')
+    expect(screen.getByLabelText('빠른 입력')).toBeDefined()
+    act(() => {
+      window.history.back()
+    })
+    ask = await screen.findByRole('dialog', { name: '다른 화면으로 갈까요?' })
+    fireEvent.click(within(ask).getByRole('button', { name: '보내지 않고 떠나기' }))
+    await waitFor(() => expect(window.location.pathname).toBe('/'))
+    expect(await screen.findByRole('heading', { name: '방송 목록' })).toBeDefined()
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    expect(cancels()).toHaveLength(0)
+  })
+
+  it('RA-S06-001: 기다리는 조치가 있으면 새로고침·탭 닫기 때 브라우저가 묻는다(beforeunload), 없으면 묻지 않는다', async () => {
+    await waitingCancel(400)
+    const first = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(first)
+    expect(first.defaultPrevented).toBe(true)
+    await waitFor(() => expect(cancels()).toHaveLength(1))
+    const second = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(second)
+    expect(second.defaultPrevented).toBe(false)
+  })
+
+  it('TE-S06-003: 같은 화면 안의 이동(구매자 자세히 → 목록)에서 "보내지 않고 떠나기"면 기다리던 차단을 보내지 않고, 그 뒤 새 조치도 다시 묻는다', async () => {
+    setup([register(15, '핑크프릴', 10000), register(16, '청보석', 20000), chat('m1', 'UC_bad6161', '나쁜손', '15'), chat('m2', 'UC_kim5555', '김철수', '16')], { delayMs: 300 })
+    window.history.replaceState(null, '', `/buyers?date=${DATE}&buyer=UC_bad6161`)
+    render(<App />)
+    const detail = await screen.findByRole('region', { name: '구매자 자세히' })
+    await flush(10)
+    const block = async (region: HTMLElement) => {
+      fireEvent.click(within(region).getByRole('button', { name: '차단하기' }))
+      const reason = (await screen.findAllByRole('dialog')).at(-1) as HTMLElement
+      fireEvent.click(within(reason).getAllByRole('button').find((button) => /^1 /.test(button.textContent ?? '')) as HTMLElement)
+      fireEvent.click(within(reason).getByRole('button', { name: '차단하기' }))
+      await screen.findByText(/뒤 보내요: .*차단/)
+    }
+    await block(detail)
+    fireEvent.click(within(detail).getByRole('button', { name: '구매자 목록으로' }))
+    let ask = await screen.findByRole('dialog', { name: '다른 화면으로 갈까요?' })
+    fireEvent.click(within(ask).getByRole('button', { name: '보내지 않고 떠나기' }))
+    expect(await screen.findByRole('region', { name: '구매자 목록' })).toBeDefined()
+    expect(window.location.search).not.toContain('buyer=')
+    expect(await screen.findByText(/보내지 않았어요: .*차단/)).toBeDefined()
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    expect(engine.posts.filter((post) => post.type === 'host.blockBuyer')).toHaveLength(0)
+    // 같은 화면에 남았으므로 다음 조치도 떠나기 전에 묻는다 (확인이 사라지지 않는다)
+    fireEvent.click(within(screen.getByRole('list', { name: '구매자' })).getByRole('link', { name: /김철수/ }))
+    const other = await screen.findByRole('region', { name: '구매자 자세히' })
+    await block(other)
+    fireEvent.click(within(screen.getByRole('navigation', { name: '메뉴' })).getByRole('link', { name: '정산' }))
+    ask = await screen.findByRole('dialog', { name: '다른 화면으로 갈까요?' })
+    fireEvent.click(within(ask).getByRole('button', { name: '닫기' }))
+    await waitFor(() => expect(engine.posts.filter((post) => post.type === 'host.blockBuyer')).toHaveLength(1))
+    expect(engine.posts.find((post) => post.type === 'host.blockBuyer')).toMatchObject({ buyer: 'UC_kim5555' })
   })
 
   it('대기 중인 조치가 없으면 묻지 않고 간다', async () => {

@@ -117,7 +117,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   const [alertsOpen, setAlertsOpen] = useState(false)
 
   // 5초 대기 중인 방송자 조치가 있으면 다른 화면으로 가기 전에 묻는다 (AC-S06-01, D-083)
-  useLeaveGuard(useCallback(() => queue.waitingCount > 0, [queue]))
+  useLeaveGuard(queue)
 
   useEffect(() => {
     quickRef.current?.focus()

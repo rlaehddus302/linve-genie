@@ -1,6 +1,8 @@
 // 되돌리기 (UX-06, D-083, AC-S05-40·41·42).
 // - 방송자 조치(host.* 12종): 누를 때 요청 번호를 만들고, 정한 시간(운영 5초) 뒤에 보낸다. 그 안에 되돌리면 보내지 않는다.
 //   여러 개면 각자 자기 시간 뒤에 누른 순서대로 보낸다. 화면을 닫거나 로그인이 풀리면(cancelAll) 기다리던 조치는 보내지 않는다.
+// - 떠날지 묻는 동안(pause)은 기다리는 조치의 시계를 멈춘다 — 판매자가 고르기 전에 보내지 않는다. 닫으면(resume) 남은 시간부터 다시 흐르고,
+//   "보내지 않고 떠나기"(discardWaiting)면 기다리던 조치를 모두 보내지 않는다(같은 화면 안의 이동이어도) (D-083, AC-S06-01).
 // - 상품 등록: 바로 기록하고, 5초 동안 "되돌리기"(판매 종료)를 보인다 — 되돌리는 일은 화면이 넘긴 함수가 한다.
 // - Ctrl+Z는 가장 최근의 되돌릴 수 있는 것(기다리는 조치 또는 5초 안의 등록)을 되돌린다.
 // 시계·타이머는 주입할 수 있다(화면 단위 시험의 가짜 시계).
@@ -51,6 +53,8 @@ export interface ActionItem extends ItemBase {
   readonly meta: string | null
   /** 서버가 입력을 거절해 창을 다시 열어 고칠 수 있으면 그 버튼 글자("사유 고치기"), 아니면 null */
   readonly reopenLabel: string | null
+  /** 시계가 멈춘 동안(떠날지 묻는 중) 남은 시간(밀리초), 흐르는 중이면 null */
+  readonly pausedLeft: number | null
 }
 
 /** 바로 기록한 등록의 되돌리기 */
@@ -132,6 +136,8 @@ export class UndoQueue {
   #nextId = 1
   #chain: Promise<void> = Promise.resolve()
   #disposed = false
+  /** 떠날지 묻는 중이라 기다리는 조치의 시계가 멈춰 있다 */
+  #paused = false
 
   constructor(options: UndoQueueOptions = {}) {
     this.delayMs = options.delayMs ?? HOST_ACTION_DELAY_MS
@@ -189,10 +195,11 @@ export class UndoQueue {
       products: input.products ?? [],
       meta: input.meta ?? null,
       reopenLabel: null,
+      pausedLeft: this.#paused ? this.delayMs : null,
     }
     const entry: Internal = { item, timer: undefined, input }
     this.#items.set(item.id, entry)
-    entry.timer = this.#timer.set(() => this.#fire(item.id), this.delayMs)
+    if (!this.#paused) entry.timer = this.#timer.set(() => this.#fire(item.id), this.delayMs)
     this.#emit()
     return item
   }
@@ -339,6 +346,64 @@ export class UndoQueue {
     if (entry.timer !== undefined) this.#timer.clear(entry.timer)
     this.#items.delete(id)
     this.#emit()
+  }
+
+  /**
+   * 떠날지 묻는 동안 기다리는 조치의 시계를 멈춘다 — 그동안은 보내지 않는다(판매자가 "보내지 않고 떠나기"를 고를 수 있게, D-083).
+   * 등록 되돌리기(이미 기록됨)는 멈추지 않는다.
+   */
+  pause(): void {
+    if (this.#paused || this.#disposed) return
+    this.#paused = true
+    const now = this.#now()
+    for (const entry of this.#items.values()) {
+      const item = entry.item
+      if (item.kind !== 'action' || item.status !== 'waiting') continue
+      if (entry.timer !== undefined) this.#timer.clear(entry.timer)
+      entry.timer = undefined
+      entry.item = { ...item, pausedLeft: Math.max(0, item.deadline - now) }
+    }
+    this.#emit()
+  }
+
+  /** 묻기를 닫았다: 멈췄던 조치가 남은 시간부터 다시 흐른다 */
+  resume(): void {
+    if (!this.#paused) return
+    this.#paused = false
+    if (this.#disposed) return
+    const now = this.#now()
+    for (const entry of this.#items.values()) {
+      const item = entry.item
+      if (item.kind !== 'action' || item.pausedLeft === null) continue
+      const left = item.pausedLeft
+      entry.item = { ...item, deadline: now + left, pausedLeft: null }
+      if (item.status === 'waiting') entry.timer = this.#timer.set(() => this.#fire(item.id), left)
+    }
+    this.#emit()
+  }
+
+  /** 떠날지 묻는 중인가 */
+  get paused(): boolean {
+    return this.#paused
+  }
+
+  /**
+   * "보내지 않고 떠나기": 기다리던 조치를 모두 보내지 않는다(띠에는 "보내지 않았어요"). 목록은 계속 쓴다 — 같은 화면 안의 이동이면 화면이 내려가지 않는다.
+   * 보내지 않은 조치 수
+   */
+  discardWaiting(): number {
+    let count = 0
+    for (const entry of [...this.#items.values()]) {
+      const item = entry.item
+      if (item.kind !== 'action' || item.status !== 'waiting') continue
+      if (entry.timer !== undefined) this.#timer.clear(entry.timer)
+      entry.timer = undefined
+      entry.item = { ...item, pausedLeft: null }
+      if (this.undo(item.id)) count++
+    }
+    this.#paused = false
+    this.#emit()
+    return count
   }
 
   /** 기다리는 조치 수 */

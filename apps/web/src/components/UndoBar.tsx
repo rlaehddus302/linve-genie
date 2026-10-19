@@ -23,7 +23,7 @@ function useNow(active: boolean): number {
 }
 
 export function UndoBar({ items, queue }: { readonly items: readonly UndoItem[]; readonly queue: UndoQueue }) {
-  const active = items.some((item) => (item.kind === 'action' && item.status === 'waiting') || (item.kind === 'registration' && item.status === 'open'))
+  const active = items.some((item) => (item.kind === 'action' && item.status === 'waiting' && item.pausedLeft === null) || (item.kind === 'registration' && item.status === 'open'))
   const now = useNow(active)
   if (items.length === 0) return null
   return (
@@ -40,7 +40,8 @@ export function UndoBar({ items, queue }: { readonly items: readonly UndoItem[];
 }
 
 function UndoLine({ item, queue, now }: { readonly item: UndoItem; readonly queue: UndoQueue; readonly now: number }) {
-  const left = Math.max(0, Math.ceil((item.deadline - now) / 1000))
+  // 떠날지 묻는 동안은 시계가 멈춰 있다 (남은 시간 그대로)
+  const left = Math.max(0, Math.ceil((item.kind === 'action' && item.pausedLeft !== null ? item.pausedLeft : item.deadline - now) / 1000))
   if (item.kind === 'registration') {
     switch (item.status) {
       case 'open':
