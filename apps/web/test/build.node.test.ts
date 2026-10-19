@@ -80,9 +80,36 @@ describe('vite build', () => {
     expect(urls.length).toBeGreaterThan(1)
     expect(urls.filter(isExternalUrl)).toEqual([])
     for (const url of urls.filter((u) => !u.startsWith('data:'))) {
-      expect(url, url).toMatch(/^\/assets\//)
+      // 해시가 붙은 정적 파일 또는 PWA 파일(매니페스트·아이콘 — public 폴더, AC-S06-50)
+      expect(url, url).toMatch(/^\/(assets\/|icons\/[a-z0-9-]+\.png$|manifest\.webmanifest$)/)
       expect(existsSync(join(outDir, url.slice(1))), url).toBe(true)
     }
+  })
+
+  it('PWA (AC-S06-50·51): 매니페스트·아이콘 크기, /sw.js가 그 빌드의 앱 껍데기만 저장하고 /api/는 없다', () => {
+    const manifest = JSON.parse(read('manifest.webmanifest')) as Record<string, unknown> & { icons: { src: string; sizes: string; type: string; purpose: string }[] }
+    expect(manifest).toMatchObject({ name: '라이브찜', short_name: '라이브찜', lang: 'ko', start_url: '/', scope: '/', display: 'standalone' })
+    expect(typeof manifest['background_color']).toBe('string')
+    expect(typeof manifest['theme_color']).toBe('string')
+    const icons = manifest.icons.map((icon) => `${icon.sizes} ${icon.purpose} ${icon.type}`).sort()
+    expect(icons).toEqual(['192x192 any image/png', '512x512 any image/png', '512x512 maskable image/png'])
+    // 아이콘 파일은 적힌 크기 그대로다 (PNG 머리의 폭·높이)
+    for (const icon of [...manifest.icons, { src: '/icons/apple-touch-icon.png', sizes: '180x180' }]) {
+      const png = readFileSync(join(outDir, icon.src.slice(1)))
+      expect(png.subarray(1, 4).toString('latin1'), icon.src).toBe('PNG')
+      expect(`${String(png.readUInt32BE(16))}x${String(png.readUInt32BE(20))}`, icon.src).toBe(icon.sizes)
+    }
+    const sw = read('sw.js')
+    const shell = JSON.parse(/\(self, (\{.*\})\);/.exec(sw)?.[1] ?? 'null') as { version: string; files: string[] } | null
+    expect(shell).not.toBeNull()
+    const files = shell?.files ?? []
+    expect(files).toContain('/index.html')
+    expect(files).toContain('/manifest.webmanifest')
+    expect(files.filter((f) => f.startsWith('/api'))).toEqual([])
+    // 빌드의 해시가 붙은 파일이 모두 들어 있고, 적힌 파일은 모두 있다
+    for (const file of builtFiles().filter((f) => f.startsWith('assets/'))) expect(files).toContain(`/${file}`)
+    for (const file of files) expect(existsSync(join(outDir, file.slice(1))), file).toBe(true)
+    expect(shell?.version).toMatch(/^[0-9a-f]{16}$/)
   })
 
   it('빌드한 스타일에 외부 글꼴·외부 주소가 없고 기본 글자 16px 이상이 남아 있다', () => {

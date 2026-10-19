@@ -4,5 +4,5 @@
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["*.ts", "e2e/**/*.ts", "test/**/*.node.test.ts", "test/urls.ts"]
+  "include": ["*.ts", "e2e/**/*.ts", "pwa/**/*.ts", "test/**/*.node.test.ts", "test/urls.ts"]
 }

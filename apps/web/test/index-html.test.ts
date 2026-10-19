@@ -48,12 +48,19 @@ describe('index.html', () => {
         else urls.push(value.trim())
       }
     }
-    expect(urls).toEqual(['data:,', '/src/main.tsx'])
+    // PWA(AC-S06-50): 아이콘·애플 터치 아이콘·매니페스트는 같은 출처의 public 파일이다 (S05의 빈 아이콘 'data:,'를 바꿨다)
+    expect(urls).toEqual(['/icons/icon-192.png', '/icons/apple-touch-icon.png', '/manifest.webmanifest', '/src/main.tsx'])
     expect(urls.filter(isExternalUrl)).toEqual([])
     // 빌드 결과 검사(build.node.test.ts)가 쓰는 문자열 추출도 같은 결과를 내야 한다
     expect(urlAttributes(indexHtml)).toEqual(urls)
     expect(page.querySelector('base')).toBeNull()
     for (const style of page.querySelectorAll('style')) expect(cssUrls(style.textContent ?? '')).toEqual([])
+  })
+
+  it('PWA (AC-S06-50): 매니페스트 링크·theme-color·애플 터치 아이콘(180×180)', () => {
+    expect(page.querySelector('link[rel="manifest"]')?.getAttribute('href')).toBe('/manifest.webmanifest')
+    expect(page.querySelector('meta[name="theme-color"]')?.getAttribute('content')).toMatch(/^#[0-9a-f]{6}$/i)
+    expect(page.querySelector('link[rel="apple-touch-icon"]')?.getAttribute('href')).toBe('/icons/apple-touch-icon.png')
   })
 
   it('보이는 글자에 영어(로마자)가 없다', () => {
