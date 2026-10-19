@@ -5,7 +5,8 @@
 // - --host-delay-ms: 화면이 방송자 조치를 보내기 전에 기다리는 시간(GET /api/client-config, 운영 값 5000). E2E에서만 줄인다.
 // - --chat-speed: 리허설 가짜 채팅 생성기의 간격을 이 값으로 나눈다(시험 속도, 운영 1).
 // - 환경변수 PORT·LIVEJJIM_APP_ORIGIN도 읽는다(인자가 우선). .env는 읽지 않는다(실제 비밀값이 필요 없다).
-// 포트를 연 뒤 "E2E 서버를 시작했어요" 한 줄을 표준 출력에 쓴다. 비밀번호·마스터 키는 출력하지 않는다.
+// - 127.0.0.1에서만 연다(모든 인터페이스가 아니다, AC-S06-73). 헬스체크·프록시는 http://127.0.0.1:<포트>로.
+// 포트를 연 뒤 "E2E 서버를 시작했어요. http://127.0.0.1:<포트> · …" 한 줄을 표준 출력에 쓴다. 비밀번호·마스터 키는 출력하지 않는다.
 import { readAppOrigin, readPort } from '../config.ts'
 import { startE2eServer, type FillOptions } from '../e2e.ts'
 import { complain, parseArgs, say } from './shared.ts'
@@ -56,20 +57,24 @@ const e2e = await startE2eServer({
   ...(chatSpeed === undefined ? {} : { generatorSpeed: chatSpeed }),
 })
 
-e2e.http.on('error', (error: Error & { code?: string }) => {
-  complain(error.code === 'EADDRINUSE' ? `시작하지 못했어요. 포트 ${String(port)}를 이미 쓰고 있어요. --port로 다른 포트를 골라 주세요.` : '시작하지 못했어요.')
-  void e2e.close().finally(() => process.exit(1))
-})
-
-e2e.http.listen(port, () => {
-  const address = e2e.http.address()
-  const actual = typeof address === 'object' && address !== null ? address.port : port
+// 127.0.0.1에서만 연다 (AC-S06-73, D-096 — 같은 네트워크의 다른 기기가 시험 계정·시험 데이터에 닿지 않게)
+try {
+  const opened = await e2e.listen(port)
   const filled = e2e.fill === null ? '채우기 없음' : `채운 범위 ${e2e.fill.date} · 상품 ${String(e2e.fill.products)} · 채팅 ${String(e2e.fill.chats)}`
   say(
-    `E2E 서버를 시작했어요. http://localhost:${String(actual)} · 화면 주소 ${origin} · 시험 계정 ${e2e.account.loginId} · ${filled} · ` +
+    `E2E 서버를 시작했어요. http://${opened.host}:${String(opened.port)} · 화면 주소 ${origin} · 시험 계정 ${e2e.account.loginId} · ${filled} · ` +
       `방송자 조치 대기 ${String(hostDelay ?? 5000)}ms · 준비 ${String(Date.now() - started)}ms`,
   )
-})
+  e2e.http.on('error', () => {
+    complain('서버에 문제가 생겨 멈췄어요.')
+    void e2e.close().finally(() => process.exit(1))
+  })
+} catch (error) {
+  const code = (error as { code?: unknown }).code
+  complain(code === 'EADDRINUSE' ? `시작하지 못했어요. 포트 ${String(port)}를 이미 쓰고 있어요. --port로 다른 포트를 골라 주세요.` : '시작하지 못했어요.')
+  await e2e.close().catch(() => {})
+  process.exit(1)
+}
 
 let stopping = false
 function stop(): void {

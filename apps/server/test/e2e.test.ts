@@ -2,9 +2,11 @@
 // 방송자 조치 대기 시간 줄이기 신호(GET /api/client-config — 운영 값 5000). 실제 비밀값·네트워크가 필요 없다.
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { connect } from 'node:net'
+import { networkInterfaces } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { E2E_ACCOUNT_FILE, readE2eAccount, startE2eServer } from '../src/e2e.ts'
+import { E2E_ACCOUNT_FILE, E2E_HOST, readE2eAccount, startE2eServer } from '../src/e2e.ts'
 import { HOST_ACTION_DELAY_MS } from '../src/server.ts'
 import { FAST_COST, addSeller, client, newWorld } from './support.ts'
 
@@ -57,6 +59,60 @@ describe('AC-S05-91 E2E 서버 기동 (프로그램)', () => {
   })
 })
 
+describe('AC-S06-73 E2E 서버는 127.0.0.1에서만 연다 (RA-S05-006, D-096)', () => {
+  /** 그 주소·포트로 TCP 연결이 되는지 */
+  const reachable = (host: string, port: number) =>
+    new Promise<boolean>((resolve) => {
+      const socket = connect({ host, port })
+      socket.once('connect', () => {
+        socket.destroy()
+        resolve(true)
+      })
+      socket.once('error', () => resolve(false))
+    })
+
+  it('듣는 주소는 127.0.0.1(IPv4 루프백) — 모든 인터페이스(0.0.0.0·::)가 아니고, 이 컴퓨터의 다른 주소로는 닿지 않는다', async () => {
+    expect(E2E_HOST).toBe('127.0.0.1')
+    const e2e = await startE2eServer({ passwordCost: FAST_COST })
+    try {
+      const opened = await e2e.listen(0)
+      expect(opened.host).toBe('127.0.0.1')
+      const address = e2e.http.address()
+      expect(typeof address === 'object' && address !== null ? [address.address, address.family] : address).toEqual(['127.0.0.1', 'IPv4'])
+      const health = await fetch(`http://127.0.0.1:${String(opened.port)}/api/health`)
+      expect(health.status).toBe(200)
+      // 루프백이 아닌 이 컴퓨터의 주소(있으면)와 IPv6 루프백으로는 연결되지 않는다
+      const others = Object.values(networkInterfaces())
+        .flat()
+        .filter((info) => info !== undefined && !info.internal && info.family === 'IPv4')
+        .map((info) => (info as { address: string }).address)
+      for (const host of [...others.slice(0, 3), '::1']) expect(await reachable(host, opened.port), host).toBe(false)
+    } finally {
+      await e2e.close()
+    }
+  }, 60_000)
+
+  it('이미 쓰는 포트면 그 오류로 실패한다(열지 않는다)', async () => {
+    const first = await startE2eServer({ passwordCost: FAST_COST })
+    const second = await startE2eServer({ passwordCost: FAST_COST })
+    try {
+      const opened = await first.listen(0)
+      await expect(second.listen(opened.port)).rejects.toMatchObject({ code: 'EADDRINUSE' })
+      expect(second.http.listening).toBe(false)
+    } finally {
+      await first.close()
+      await second.close()
+    }
+  }, 60_000)
+
+  it('코드 검사: 기동 명령은 E2E 서버의 listen(127.0.0.1)으로만 포트를 연다', () => {
+    const source = readFileSync(new URL('../src/commands/e2e-server.ts', import.meta.url), 'utf8')
+    expect(source).toContain('e2e.listen(port)')
+    expect(source).not.toMatch(/\.http\.listen\(/)
+    expect(source).not.toMatch(/0\.0\.0\.0|'::'/)
+  })
+})
+
 describe('AC-S05-91 E2E 서버 기동 명령', () => {
   const script = fileURLToPath(new URL('../src/commands/e2e-server.ts', import.meta.url))
 
@@ -74,7 +130,8 @@ describe('AC-S05-91 E2E 서버 기동 명령', () => {
         if (Date.now() > deadline || child.exitCode !== null) throw new Error(`시작하지 않았다: ${out}`)
         await new Promise((resolve) => setTimeout(resolve, 50))
       }
-      const port = Number(/http:\/\/localhost:(\d+)/.exec(out)?.[1])
+      // 127.0.0.1에서만 연다 (AC-S06-73)
+      const port = Number(/http:\/\/127\.0\.0\.1:(\d+)/.exec(out)?.[1])
       expect(port).toBeGreaterThan(0)
       expect(out).toContain('채운 범위')
       expect(out).toContain('방송자 조치 대기 200ms')

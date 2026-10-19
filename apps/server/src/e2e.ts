@@ -1,4 +1,4 @@
-// E2E용 서버 기동 (AC-S05-91, AC-S05-64). 실제 비밀값·네트워크·도커가 필요 없다.
+// E2E용 서버 기동 (AC-S05-91, AC-S05-64, AC-S06-73). 실제 비밀값·네트워크·도커가 필요 없다. 127.0.0.1에서만 연다.
 // - 메모리 PGlite + 마이그레이션, 그 자리에서 만든 시험용 마스터 키, 시험용 판매자 계정 하나(apps/server/e2e/account.json의 시험 값).
 // - 선택: 상품 500·채팅 1만 건을 채운 실제 범위(오늘, KST), 화면의 방송자 조치 대기 시간 줄이기 신호(GET /api/client-config), 리허설 생성기 시험 속도.
 // - 채우기는 기록 경로(ScopeWriter)를 그대로 탄다: 상품은 product.register(조치자 서버), 채팅은 가짜 채팅 생성기의 메시지(조치자 수집기).
@@ -112,14 +112,19 @@ export interface E2eOptions {
   readonly passwordCost?: PasswordCost
 }
 
+/** E2E 서버가 듣는 주소: 이 컴퓨터 안(IPv4 루프백)에서만 (AC-S06-73, D-096 — 모든 인터페이스 0.0.0.0·::이 아니다) */
+export const E2E_HOST = '127.0.0.1'
+
 export interface E2eServer {
   readonly server: LivejjimServer
   readonly database: Database
   readonly account: E2eAccount
   readonly sellerId: string
   readonly fill: FillResult | null
-  /** Node HTTP 서버 (listen은 부르는 쪽이 한다) */
+  /** Node HTTP 서버 (열기는 listen으로) */
   readonly http: Server
+  /** E2E_HOST(127.0.0.1)의 그 포트에서 연다 (0이면 빈 포트). 연 주소·포트를 돌려준다. 열지 못하면(포트를 이미 씀 등) 그 오류로 실패한다 */
+  listen(port: number): Promise<{ readonly host: string; readonly port: number }>
   close(): Promise<void>
 }
 
@@ -147,6 +152,17 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     sellerId: created.sellerId,
     fill,
     http,
+    listen: (port) =>
+      new Promise((resolve, reject) => {
+        const failed = (error: Error) => reject(error)
+        http.once('error', failed)
+        http.listen(port, E2E_HOST, () => {
+          http.off('error', failed)
+          const address = http.address()
+          if (typeof address !== 'object' || address === null) reject(new Error('듣는 주소를 알 수 없다'))
+          else resolve({ host: address.address, port: address.port })
+        })
+      }),
     close: async () => {
       server.close()
       http.closeAllConnections()
