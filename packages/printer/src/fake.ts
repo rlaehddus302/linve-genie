@@ -61,8 +61,11 @@ export function createFakePrinter(options: FakePrinterOptions = {}): FakePrinter
   const printed: FakePrintRecord[] = []
   let calls = 0
   let interrupt: (() => void) | undefined
+  /** 끊길 때마다 늘린다 — 출력 결과가 정해진 뒤 끊겼는지(B1 어댑터의 `client !== current`와 같은 판단) */
+  let session = 0
 
   const disconnectNow = (): void => {
+    session++
     interrupt?.()
     box.set('DISCONNECTED')
   }
@@ -122,6 +125,7 @@ export function createFakePrinter(options: FakePrinterOptions = {}): FakePrinter
       const copy = copyBitmap(image)
       calls++
       const behavior = script.get(calls)
+      const started = session
       box.set('PRINTING')
       type Outcome = 'done' | 'disconnected' | 'failed' | 'timeout'
       const handles: unknown[] = []
@@ -142,15 +146,21 @@ export function createFakePrinter(options: FakePrinterOptions = {}): FakePrinter
       })
       interrupt = undefined
       for (const h of handles) timer.clearTimeout(h)
-      if (outcome === 'disconnected') {
-        box.set('DISCONNECTED')
+      /** 결과가 정해진 뒤 돌려주기 전에 끊겼다(그 사이 다시 연결했을 수도 있다) */
+      const dropped = session !== started
+      if (outcome === 'done') {
+        // 프린터가 끝났다고 알렸다 — 그 뒤 끊겨도 라벨은 나왔으니 기록하고 ok. 상태는 끊김(또는 새 연결) 그대로 둔다
+        printed.push({ image: copy, density })
+        if (!dropped) box.set('CONNECTED')
+        return OK
+      }
+      if (outcome === 'disconnected' || dropped) {
+        if (!dropped) box.set('DISCONNECTED')
         return fail('DISCONNECTED')
       }
       box.set('CONNECTED')
       if (outcome === 'failed') return fail('PRINT_FAILED')
-      if (outcome === 'timeout') return fail('TIMEOUT')
-      printed.push({ image: copy, density })
-      return OK
+      return fail('TIMEOUT')
     },
   }
 }

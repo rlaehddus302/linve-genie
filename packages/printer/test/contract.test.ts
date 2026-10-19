@@ -13,8 +13,11 @@ interface Harness {
   readonly timer: ManualTimer
   /** 프린터가 받은 그림 (끝까지 출력한 것, 받은 순서) */
   printed(): LabelBitmap[]
-  /** 다음 출력이 끝났다는 알림을 늦춘다 — finish()로 끝낸다 (가짜 프린터는 ms만큼의 지연) */
-  holdNextPrint(ms?: number): { finish(): Promise<void> }
+  /**
+   * 다음 출력이 끝났다는 알림을 늦춘다 — finish()로 끝낸다 (가짜 프린터는 ms만큼의 지연).
+   * finishThenDisconnect(): 프린터가 끝났다고 알린 직후, 출력 결과를 돌려주기 전에 끊긴다
+   */
+  holdNextPrint(ms?: number): { finish(): Promise<void>; finishThenDisconnect(): Promise<void> }
   /** 프린터 쪽에서 끊긴다 */
   disconnectNow(): void
   /** 다음 출력에서 프린터 오류 */
@@ -59,6 +62,15 @@ function b1Harness(): Harness {
           client.autoFinish = true
           await flush()
         },
+        finishThenDisconnect: async () => {
+          // 끝냄 알림(printEnd)의 응답이 오기 전에 블루투스가 끊긴다
+          client.holdEnd = true
+          client.tasks.at(-1)?.finish()
+          client.autoFinish = true
+          await flush()
+          client.emitDisconnect()
+          await flush()
+        },
       }
     },
     disconnectNow: () => last().emitDisconnect(),
@@ -77,7 +89,14 @@ function fakeHarness(): Harness {
     printed: () => printer.printed.map((r) => r.image),
     holdNextPrint: (ms = 1000) => {
       printer.setBehavior(printer.printCalls + 1, { delayMs: ms })
-      return { finish: () => timer.advance(ms) }
+      return {
+        finish: () => timer.advance(ms),
+        finishThenDisconnect: async () => {
+          // 지연이 끝나 결과가 'done'으로 정해진 바로 그때(돌려주기 전에) 끊긴다
+          timer.fireNext(() => printer.simulateDisconnect())
+          await flush()
+        },
+      }
     },
     disconnectNow: () => printer.simulateDisconnect(),
     failNextPrint: () => printer.setBehavior(printer.printCalls + 1, 'fail'),
@@ -131,6 +150,34 @@ for (const [name, make] of [
       expect(seen).toEqual(['PRINTING', 'CONNECTED'])
       expect(h.printed()).toHaveLength(1)
       expect(Array.from(h.printed()[0]?.data ?? [])).toEqual(Array.from(image.data))
+    })
+
+    it('프린터가 끝났다고 알린 뒤(결과를 돌려주기 전) 끊기면 그 출력은 끝난 것(ok·기록에 있다), 상태는 끊김 그대로 (TD-P1-001·002)', async () => {
+      const h = make()
+      await h.adapter.connect('bluetooth')
+      const seen: ConnectionState[] = []
+      h.adapter.onStateChange((s) => seen.push(s))
+      const hold = h.holdNextPrint()
+      const image = sampleImage(4)
+      const pending = h.adapter.print(image)
+      await flush()
+      expect(h.adapter.state).toBe('PRINTING')
+      await hold.finishThenDisconnect()
+      const r = await pending
+      expect(r).toEqual({ ok: true })
+      // 끊긴 프린터를 "연결됨"으로 되돌리지 않는다
+      expect(h.adapter.state).toBe('DISCONNECTED')
+      expect(seen).toEqual(['PRINTING', 'DISCONNECTED'])
+      expect(h.printed()).toHaveLength(1)
+      expect(Array.from(h.printed()[0]?.data ?? [])).toEqual(Array.from(image.data))
+      expect(h.timer.pending).toBe(0)
+      // 연결 전 출력은 여전히 NOT_CONNECTED, 다시 연결하면 다음 출력
+      const before = await h.adapter.print(sampleImage())
+      expect(!before.ok && before.error.code).toBe('NOT_CONNECTED')
+      expect((await h.adapter.connect('bluetooth')).ok).toBe(true)
+      expect((await h.adapter.print(sampleImage(5))).ok).toBe(true)
+      expect(h.adapter.state).toBe('CONNECTED')
+      expect(h.printed()).toHaveLength(2)
     })
 
     it('출력 중에 또 출력하면 BUSY', async () => {

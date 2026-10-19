@@ -23,6 +23,16 @@ export class ManualTimer implements PrinterTimer {
     return this.tasks.length
   }
 
+  /** 가장 이른 타이머 하나를 바로 돌리고, 마이크로태스크를 비우지 않은 채 then을 부른다 (결과가 정해진 직후를 흉내) */
+  fireNext(then?: () => void): void {
+    const due = [...this.tasks].sort((a, b) => a.at - b.at || a.id - b.id)[0]
+    if (!due) throw new Error('돌릴 타이머가 없다')
+    this.tasks = this.tasks.filter((t) => t !== due)
+    this.now = due.at
+    due.fn()
+    then?.()
+  }
+
   async advance(ms: number): Promise<void> {
     const target = this.now + ms
     for (;;) {
@@ -97,9 +107,15 @@ export class FakeTask implements NiimbotPrintTaskLike {
     return this.finished.promise
   }
 
-  async printEnd(): Promise<boolean> {
+  /** 끝냄 알림의 응답을 붙잡아 두었으면 그 응답을 낸다 */
+  releaseEnd: ((ok: boolean) => void) | undefined
+
+  printEnd(): Promise<boolean> {
     this.ended++
-    return true
+    if (!this.client.holdEnd) return Promise.resolve(true)
+    return new Promise<boolean>((resolve) => {
+      this.releaseEnd = resolve
+    })
   }
 }
 
@@ -109,6 +125,8 @@ export class FakeNiimbotClient implements NiimbotClientLike {
   model: string | undefined = 'B1'
   connectError: unknown
   autoFinish = true
+  /** 끝냄 알림(printEnd)의 응답을 붙잡아 둔다 — 프린터가 끝났다고 알린 뒤 응답 전에 끊기는 경우 */
+  holdEnd = false
   failOn: 'init' | 'page' | undefined
   disconnectCalls = 0
   readonly tasks: FakeTask[] = []

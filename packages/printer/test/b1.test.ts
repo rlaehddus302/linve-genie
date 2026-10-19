@@ -315,6 +315,63 @@ describe('끊김·오류·시간 초과 (AC-P1-43)', () => {
     expect(adapter.state).toBe('DISCONNECTED')
   })
 
+  it('프린터가 끝났다고 알린 뒤 끝냄 알림(printEnd) 응답이 시간 안에 오지 않아도 출력은 끝난 것 — TIMEOUT이 아니다 (TD-P1-001)', async () => {
+    const timer = new ManualTimer()
+    const client = new FakeNiimbotClient()
+    const adapter = createB1Adapter({ environment: () => BOTH, createClient: () => client, timer })
+    await adapter.connect('bluetooth')
+    client.holdEnd = true
+    let settled = false
+    const pending = adapter.print(sampleImage()).then((r) => {
+      settled = true
+      return r
+    })
+    await flush()
+    expect(client.tasks[0]?.done).toBe(true)
+    expect(settled).toBe(false) // 끝냄 알림을 기다린다
+    await timer.advance(20_000)
+    expect(await pending).toEqual({ ok: true })
+    expect(adapter.state).toBe('CONNECTED')
+    expect(client.tasks[0]?.ended).toBe(1) // 끝냄 알림을 다시 보내지 않는다
+    expect(timer.pending).toBe(0)
+  })
+
+  it('프린터가 끝났다고 알린 뒤 판매자가 연결을 끊어도 그 출력은 끝난 것, 상태는 끊김 (TD-P1-001)', async () => {
+    const { adapter, client } = setup()
+    await adapter.connect('bluetooth')
+    client.holdEnd = true
+    const pending = adapter.print(sampleImage())
+    await flush()
+    expect(client.tasks[0]?.done).toBe(true)
+    await adapter.disconnect()
+    expect(await pending).toEqual({ ok: true })
+    expect(adapter.state).toBe('DISCONNECTED')
+  })
+
+  it('끝냄 알림 응답이 실패여도(false) 프린터가 끝났다고 알렸으면 출력은 끝난 것', async () => {
+    const { adapter, client } = setup()
+    await adapter.connect('bluetooth')
+    client.holdEnd = true
+    const pending = adapter.print(sampleImage())
+    await flush()
+    client.tasks[0]?.releaseEnd?.(false)
+    expect(await pending).toEqual({ ok: true })
+    expect(adapter.state).toBe('CONNECTED')
+  })
+
+  it('프린터가 끝났다고 알리기 전의 끊김은 여전히 DISCONNECTED (찍혔는지 알 수 없다 — D-P1-09)', async () => {
+    const { adapter, client } = setup()
+    await adapter.connect('bluetooth')
+    client.autoFinish = false
+    const pending = adapter.print(sampleImage())
+    await flush()
+    expect(client.tasks[0]?.done).toBe(false)
+    client.emitDisconnect()
+    const r = await pending
+    expect(!r.ok && r.error.code).toBe('DISCONNECTED')
+    expect(adapter.state).toBe('DISCONNECTED')
+  })
+
   it('시간 초과 기본값은 20초', async () => {
     const timer = new ManualTimer()
     const client = new FakeNiimbotClient()

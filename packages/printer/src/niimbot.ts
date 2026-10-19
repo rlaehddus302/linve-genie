@@ -214,9 +214,11 @@ export function createNiimbotAdapter(options: NiimbotAdapterOptions = {}): Print
       const task = current.protocol.newPrintTask(profile.printTask, { density, labelType: LabelType.WithGaps, totalPages: 1 })
       type Outcome = { kind: 'done' } | { kind: 'error'; error: unknown } | { kind: 'disconnected' } | { kind: 'timeout' }
       let handle: unknown
+      /** 프린터가 끝났다고 알렸는지 (라벨이 나왔다) — 그 뒤의 끊김·시간 초과·끝냄 알림 실패는 출력 실패가 아니다 */
+      let finished = false
       const outcome = await new Promise<Outcome>((resolve) => {
-        interruptPrint = () => resolve({ kind: 'disconnected' })
-        handle = timer.setTimeout(() => resolve({ kind: 'timeout' }), timeoutMs)
+        interruptPrint = () => resolve(finished ? { kind: 'done' } : { kind: 'disconnected' })
+        handle = timer.setTimeout(() => resolve(finished ? { kind: 'done' } : { kind: 'timeout' }), timeoutMs)
         void (async () => {
           try {
             await task.printInit()
@@ -226,6 +228,7 @@ export function createNiimbotAdapter(options: NiimbotAdapterOptions = {}): Print
             void task.printEnd().catch(() => false)
             throw error
           }
+          finished = true
           // 끝냄 알림 — 라벨은 이미 나왔으니 이 알림의 실패는 출력 실패로 보지 않는다
           await task.printEnd().catch(() => false)
         })().then(
@@ -235,6 +238,12 @@ export function createNiimbotAdapter(options: NiimbotAdapterOptions = {}): Print
       })
       interruptPrint = undefined
       timer.clearTimeout(handle)
+      if (outcome.kind === 'done') {
+        // 끝냄 알림을 기다리는 동안 끊겼으면(또는 판매자가 끊었으면) 상태는 끊김 그대로 두고 출력은 끝난 것으로 알린다.
+        // 그 사이 다시 연결했으면 새 연결의 상태도 건드리지 않는다
+        if (client === current) box.set('CONNECTED')
+        return OK
+      }
       if (outcome.kind === 'disconnected' || client !== current) return fail('DISCONNECTED')
       if (outcome.kind === 'error' && !current.isConnected()) {
         // 끊김 알림보다 예외가 먼저 왔다 — 끊김으로 본다
@@ -246,8 +255,7 @@ export function createNiimbotAdapter(options: NiimbotAdapterOptions = {}): Print
         void task.printEnd().catch(() => false)
         return fail('TIMEOUT')
       }
-      if (outcome.kind === 'error') return fail('PRINT_FAILED', outcome.error)
-      return OK
+      return fail('PRINT_FAILED', outcome.error)
     },
   }
   return adapter
