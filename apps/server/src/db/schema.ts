@@ -19,9 +19,17 @@ export const sellers = pgTable('sellers', {
   /** 판매 규칙 설정 덮어쓰기(JSON 객체 문자열). 빠진 키는 DOMAIN_RULES 기본값 */
   settings: text('settings').notNull().default('{}'),
   createdAt: timestamptz('created_at').notNull(),
+  /** 시작 마법사 상태 (UX-02, AC-I3-50): NEW 처음 · IN_PROGRESS 진행 중 · DONE 마침 · DISMISSED 닫음 */
+  wizardStatus: text('wizard_status').notNull().default('NEW'),
+  /** 진행 중인 단계 1~5 (IN_PROGRESS일 때만) */
+  wizardStep: integer('wizard_step'),
 })
 
-/** 로그인 계정 (D-074). 비밀번호는 scrypt 해시만 둔다. 연속 실패·잠금은 login_limits에 둔다 */
+/**
+ * 로그인 계정 (D-074). 비밀번호는 scrypt 해시만 둔다. 연속 실패·잠금은 login_limits에 둔다.
+ * 역할 (SYS-04, D-I3-11): SELLER 판매자 · ASSISTANT 보조자(판매자가 만든다 — 문자찜 입력만). 보조자를 지우면 행은 남기고 지운 시각만 적는다
+ * (이벤트의 조치자가 이 행을 가리킨다, 같은 아이디를 다시 만들지 않는다). 지운 계정은 로그인·세션이 되지 않는다
+ */
 export const accounts = pgTable(
   'accounts',
   {
@@ -32,6 +40,12 @@ export const accounts = pgTable(
     loginId: text('login_id').notNull(),
     passwordHash: text('password_hash').notNull(),
     createdAt: timestamptz('created_at').notNull(),
+    /** SELLER · ASSISTANT */
+    role: text('role').notNull().default('SELLER'),
+    /** 보조자 이름 (판매자가 적은 메모, 1~20자). 판매자 계정은 null */
+    name: text('name'),
+    /** 지운 시각 (보조자) */
+    deletedAt: timestamptz('deleted_at'),
   },
   (t) => [unique('accounts_login_id_uq').on(t.loginId), index('accounts_seller_idx').on(t.sellerId)],
 )
@@ -233,11 +247,20 @@ export const outbox = pgTable(
     leaseOwner: text('lease_owner'),
     leaseUntil: timestamptz('lease_until'),
     updatedAt: timestamptz('updated_at'),
+    // ── I3 발송함 정리 (AC-I3-36) ──
+    /** 판매자가 "유튜브에 올라가 있어요"로 게시됨을 적은 계정 (그 행의 게시 보고 조치자) */
+    confirmedBy: text('confirmed_by'),
+    /** 게시됨 확인 요청 번호 (누른 행에만 — 같은 요청 번호는 한 번만) */
+    confirmRequestId: text('confirm_request_id'),
+    /** 알림에서 뺀 시각·계정 (상태·이유는 그대로, 다시 보내면 지운다) */
+    dismissedAt: timestamptz('dismissed_at'),
+    dismissedBy: text('dismissed_by'),
   },
   (t) => [
     unique('outbox_effect_uq').on(t.sellerId, t.scopeId, t.effectId),
     index('outbox_scope_seq_idx').on(t.scopeId, t.seq),
     unique('outbox_resend_request_uq').on(t.sellerId, t.resendRequestId),
+    unique('outbox_confirm_request_uq').on(t.sellerId, t.confirmRequestId),
     index('outbox_runner_idx').on(t.rehearsal, t.state, t.nextAt),
     index('outbox_group_idx').on(t.sellerId, t.groupId),
   ],
