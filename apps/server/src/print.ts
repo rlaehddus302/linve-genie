@@ -6,7 +6,7 @@
 // - 판정은 하지 않는다. 엔진 상태는 코어 조회 함수로만 읽는다(label-data.ts).
 // - 로그에 라벨 데이터·닉네임·품종·기기 이름·가게 이름·템플릿·요청 본문을 남기지 않는다(L-11 16).
 import { randomBytes } from 'node:crypto'
-import { currentBuyerOf, getProduct, listBroadcasts, listEffects, listProducts, type EngineState } from '@livejjim/core'
+import { containsPhoneRun, currentBuyerOf, getProduct, listBroadcasts, listEffects, listProducts, type EngineState } from '@livejjim/core'
 import {
   computePackingText,
   defaultTemplate,
@@ -1377,11 +1377,11 @@ function clearDevice(paused: PauseReason | null): QueuePatch {
 
 const PATH_SEGMENT = /^[A-Za-z][A-Za-z0-9_]{0,40}$/
 
-/** 템플릿 문제의 칸 이름 (받은 키는 영문 칸 이름일 때만 되돌린다 — 숫자·긴 글자 키는 'template') */
+/** 템플릿 문제의 칸 이름 (받은 키는 영문 칸 이름일 때만 되돌린다 — 번호가 든 키·긴 글자 키는 'template') */
 function templateField(path: string): string {
   if (path === '') return 'template'
   const segments = path.split('.')
-  return segments.length <= 5 && segments.every((segment) => PATH_SEGMENT.test(segment)) ? `template.${path}` : 'template'
+  return segments.length <= 5 && segments.every((segment) => PATH_SEGMENT.test(segment)) && !containsPhoneRun(path) ? `template.${path}` : 'template'
 }
 
 const LOWER = 'abcdefghijklmnopqrstuvwxyz'

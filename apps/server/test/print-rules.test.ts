@@ -479,6 +479,9 @@ describe('AC-I1-14 템플릿 저장', () => {
     expect(unknownKey.body).toMatchObject({ error: { problems: [{ field: 'template.extra' }] } })
     const unsafeKey = await p.put('/api/print/templates/product', { template: { ...base, '01012345678': 1 }, version: 1 })
     expect(unsafeKey.text).not.toContain('01012345678')
+    const phoneKey = await p.put('/api/print/templates/product', { template: { ...base, a01012345678: 1 }, version: 1 })
+    expect(phoneKey.text).not.toContain('01012345678')
+    expect(phoneKey.body).toMatchObject({ error: { problems: [{ field: 'template' }] } })
   })
 })
 
