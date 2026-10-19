@@ -198,6 +198,37 @@
   - 서버 안내 문장(UX): 문자찜 메모·`ref`는 "전화번호 칸에 적어 주세요", 그 밖의 칸은 "전화번호를 빼고 적어 주세요".
 - **수정 라운드 2 뒤 `pnpm verify`: 통과(통과 6 · 실패 0)** — typecheck(설정 7 · TS 171) · lint(오류 0 · 경고 0) · test(파일 57 · 테스트 1549) · golden(19 · 379 · 111 · 490, 그 밖 0) · adversarial(파일 23 · 테스트 609, 실패 0) · coverage(라인 100% · 분기 99.65%).
 
+### S04 마무리 — 전화번호 검사 단순화 (D-079 오케스트레이터 결정, D-080 세부 · SA-S04-006·007·003, TD-S04-004)
+D-079가 D-073의 번호 판단과 수정 라운드 1·2의 `containsPhoneNumber`(숫자 모으기 + 덩어리 + 번호 배열)를 대신한다. 위 두 라운드의 판단 설명은 기록으로만 남긴다.
+
+| 지적 | 응답 | 한 것 | 확인한 시험 |
+|---|---|---|---|
+| SA-S04-006 (blocker) ID 칸 검사 없음 — 번호가 로그·스냅샷·차단 목록에 평문 | 고침(코어) | ID 칸(`host.*`·`sms`·`settlement.*`의 `buyer`, `buyer.merge`의 `from`·`into`, `buyer.unmerge`의 `from`, `host.assign`의 `replace`, `host.convertMessage`의 `msg`)에 `looksLikePhoneId` — 값 전체가 숫자·구분자뿐이고 `normalizePhone` 결과가 있을 때만. 채팅 `id`·`ch`·`nick`·`text`에는 없다 | `engine-s04` "ID 칸" 15칸 × 거절 7·받는 예 10, `looksLikePhoneId` 표·속성 2(영문 섞이면 늘 거짓 — 고정 시드 1000회, 숫자·구분자만이면 `normalizePhone`과 같다). 적대 `phone-in-fields` 코어 부분 통과 |
+| TD-S04-004 (major) 같은 원인 + 이어받기가 매일 번짐 | 코어 몫 고침 · 이어받기는 dev-server 몫 | 코어가 기록 전에 거른다. 이어받기 걸러내기(AC-S04-27)는 아래 "dev-server에게" | 적대 TD-S04-004 3건 중 코어 판단 부분 통과, 서버 2건 남음(아래) |
+| SA-S04-007 (major) 숫자 모으기가 '01/05 3개 25,000원' 같은 글을 거절(방송 제목이면 방송 시작 불가) | 고침 | 글 칸 판단을 `containsPhoneRun` 하나로: 덩어리·배열만 보고 숫자 모으기는 어디에도 쓰지 않는다(D-079 ①) | `engine-s04` 글 칸 14칸 × 받는 예 11("01/05 …" 셋·`1234-5678`·`+82 10-…` 포함), "'01/05 구피 30종 1000원' 방송 제목으로 방송이 시작된다", G-ENG-166 통과(골든 491) |
+| SA-S04-003 (major) 문장과 구현이 다름 | 고침(spec-keeper가 R-1·README·AC를 먼저 고정 — 5ac24a3) | 구현·러너 계약·픽스처를 R-1 "판매자가 적는 칸의 휴대폰 번호" 문장대로 맞췄다. 문장 밖으로 넓히지 않았다 | `containsPhoneRun` 표(70여 줄)와 정규식으로 다시 적은 기준(`phoneRunOracle`)의 차등 속성 3000회 |
+
+- **코어 `phone.ts`** (공개 API에 더함)
+  - `containsPhoneRun(글)`: 숫자 덩어리(전각은 반각) 사이에 구분자만 있으면 이어진 배열. 구분자 = 글자(`\p{L}`)·숫자(`\p{N}`)가 아닌 모든 글자 + 자모 `ㅡ`(U+3161·U+1173·U+FFDA)·`ㅣ`(U+3163·U+1175·U+FFDC)·`ㆍ`(U+318D·U+119E). (가) 덩어리 하나가 `01[016789]` + 7~8자리 전체이거나 (나) `01X` 세 자리 덩어리 뒤 덩어리들을 붙여 정확히 7·8자리가 되는 곳이 있으면 참.
+  - `looksLikePhoneId(값)`: 모든 글자가 숫자(반각·전각)이거나 위 구분자이고 `normalizePhone(값) !== null`.
+  - `containsPhoneNumber`는 `containsPhoneRun`과 **같은 함수**(별칭, `@deprecated`)로 남겼다 — 서버가 아직 이 이름을 쓴다(AC-S04-07 "남기면 같은 판단").
+- **`checkEvent` / `applyEvent` 나누기** (`validate.ts`·`reducer.ts`): 같은 검사기 `inspect`를 쓰고, 판매자가 적는 칸의 검사기(`sellerTyped`)에 번호 판단을 붙여 둔다. `checkEvent` = 구조 문제 + 번호 문제(구조 검사를 통과한 칸만, 구조 문제 뒤), `checkShape`(모듈 안, 공개 아님) = 구조 문제만 — `applyEvent`는 `checkShape`로만 던진다. 재생은 번호 판단을 아예 하지 않는다(D-079 ⑤). 그 밖의 입력 오류는 둘이 같다(속성 시험).
+- **`EventProblem.code?: 'PHONE_NUMBER'`** (`types.ts`): 번호 문제에만 붙는다. 코어 문제 문장에는 받은 값을 넣지 않는다.
+- **골든 러너** (AC-S04-91): `contract.ts`의 `notPhoneShaped`·`noPhoneInText`를 `containsPhoneRun`으로, 새 `notPhoneId`(`looksLikePhoneId`)를 `FieldKind` `buyer`(`sellerTyped: true` — 효과 보고의 `buyer`는 `effectBuyer`로 빼고)와 `message`(`msg`)에 붙였다(`validate.ts`). 채팅 `id`·`ch`·`nick`·`text`와 `phone`은 보지 않는다.
+  - 픽스처 18: `memo: "+82 10-1234-5678"`을 받는 줄로(국가 번호 표기, D-080 — 반대 기대라 고침), 받는 줄 `01/05 3개 25,000원`·`01/05 구피 30종 1000원`·`1234-5678`·영문 섞인 지정 구매자, 거절 줄 `3시,010,1234,5678`·지정 구매자 `010-5151-6161`을 더했다.
+  - 픽스처 19: 환불 사유 `+82 10-1234-5678 환불`을 받는 줄로, 받는 줄 셋·거절 `010ㆍ1234ㆍ5678`을 더하고 둘째 문서 G-ENG-906(ID 칸: `host.blockBuyer`·`settlement.payment`의 `buyer`, `buyer.merge`의 `from`·`into`, `host.assign`의 `replace`, `host.convertMessage`의 `msg`, `buyer.unmerge`의 `from` 거절 7, 영문 섞인 키·`1234-5678`·`+82 10-…` 받음)를 더했다. 범주 수는 19 그대로.
+  - 실제 골든 합계 시험 `엔진 111 · 통과 490` → `112 · 491`(G-ENG-166).
+- **바뀐 규칙에 맞춘 내 시험 교체 (AC-S04-93, 약화 아님)**
+  - `engine-s04`: `expectInvalid`로 "applyEvent가 번호를 던진다"고 기대한 ref·memo·글 칸 시험 → `expectPhoneRejected`(checkEvent만 `code: 'PHONE_NUMBER'`, applyEvent는 처리, 상태 그대로). `containsPhoneNumber` 표 → `containsPhoneRun` 표: `+82 10-1234-5678`·`+821012345678`·`0082-10-1234-5678`(국가 번호 표기)·`김영희010가1234나5678`(숫자 모으기)·`3시 010ー1234ー5678`(아래) 참 → 거짓. 속성 "숫자만 모은 것이 번호 모양이면 늘 true"는 D-079 ①과 반대라 정규식 기준과의 차등 속성으로 바꿨다. 받는 예에 있던 `+82 10-…` 거절 기대(수정 라운드 1에서 옮긴 것)를 받는 예로 되돌렸다.
+  - `engine-properties-s03`: 번호 형식 생성기에서 `+82 10-…`·`0082…`를 빼고 `+82 010-…`·`3시,010,…`·`010ㆍ…`·`010 ` + 8자리를 더했다. 기록되지 않는 이벤트 중 번호 칸(ref·memo·글 칸·ID 칸)은 checkEvent만 거절하고 applyEvent는 처리(결과는 버림), 표에 없는 필드는 그대로 둘 다 거절. 기록하는 모든 이벤트가 checkEvent를 통과하는지 새로 본다. 채널 하나를 `UC01012345678abcdEFGH_-`(영문 섞인 숫자 많은 ID)로, 방송 제목·상품 이름·입금 메모·사유에 날짜·금액 글을 섞어 기록되게 했다. AC-S03-02 속성은 "구조 문제가 있을 때만 applyEvent가 던지고 그 문제 목록이 같다, 번호 문제는 판매자 칸에만"으로.
+- **서버 시험을 고친 것(dev-server 영역, 최소)**: `apps/server/test/sms-privacy.test.ts` RA-S04-001 시험의 거절 메모 `+82 10-8642-5678` → `+82 010-8642-5678`. 국가 번호 표기는 D-080으로 번호가 아니어서 코어 판단으로는 받는다(서버가 따로 판단하면 AC-S04-22 위반). 같은 시험의 뜻(국가 번호를 붙인 번호도 거절)은 `010` 덩어리가 있는 표기로 남겼다.
+- **spec-keeper에게 (확인)**: `ー`(U+30FC 가나 장음)·`ｰ`(U+FF70)는 유니코드 글자(Lm)라 D-080 구분자 정의대로 배열을 끊는다(`3시 010ー1234ー5678`은 번호 아님). 수정 라운드 2에서는 구분자였다. 구분자로 넣으려면 R-1 자모 목록에 더해 주기 바란다.
+
+### dev-server에게 — S04 마무리 남은 서버 몫 (지금 `pnpm verify`의 실패 3건 전부)
+1. **거절 문장 (AC-S04-22, D-079 ⑥)** — `apps/server/src/messages.ts`: 판매자가 적는 칸의 번호 문제는 코어 `checkEvent` 결과의 `problem.code === 'PHONE_NUMBER'`로만 고르고(값을 다시 판단하지 않는다), 글 칸·ID 칸 모두 "전화번호처럼 보이는 숫자(010-…)가 있어요. 빼고 적어 주세요."로. 지금은 `TEXT_FIELDS`+`containsPhoneNumber(value)`로 따로 판단하고 옛 문장을 쓴다 — ID 칸은 "구매자를 골라 주세요." 등이 나간다. (적대 `TD-S04-003 회귀 … D-079 ⑥ 문장`, `TD-S04-004 … ID 칸에 번호를 넣은 요청은 400(그 필드 이름과 D-079 ⑥ 문장)` 실패.) 서버 시험 `sms-privacy`의 옛 문장 기대도 같이 바꿔야 한다.
+2. **차단 이어받기 (AC-S04-27)** — `apps/server/src/service.ts:189` `blockedIds(state).filter((id) => !id.startsWith('sms:'))`에 `!looksLikePhoneId(id)`를 더한다. **지금은 더 나쁘다**: 이전 범위에 번호 모양 ID 차단이 남아 있으면 이어받는 `host.blockBuyer`가 코어 `checkEvent`에서 거절되어 **다음 날 첫 방송 만들기 자체가 400**으로 실패한다(적대 `D-079 전 로그에 번호 모양 ID로 남은 차단은…` 실패 원인). 이어받는 이벤트도 `checkEvent`를 통과한 것만 기록한다.
+3. `containsPhoneNumber`(별칭) → `containsPhoneRun`으로 이름을 바꿔 쓰면 된다(`messages.ts`의 `safeFieldName`, `service.ts:335` ref 생성기). 판단은 이미 같다.
+
 ---
 
 ## dev-server
