@@ -549,7 +549,8 @@ export class CollectorManager {
 
   /**
    * 응답 하나를 처리한다: 우리 메시지 → 기록 → 알림 → (시험 주입점) → 지점 저장.
-   * 회차 끝낸 시각·연결 끊기는 응답마다 DB에서 다시 읽는다(다른 서버에서 했을 수 있다). 기록은 범위 락 안에서 한 번 더 거른다(ingestYoutubeBatch).
+   * 회차 끝낸 시각·연결 끊기는 응답마다 DB에서 다시 읽는다(다른 서버에서 했을 수 있다). 기록은 범위 락 안에서 한 번 더 거른다
+   * (ingestYoutubeBatch — 끝낸 시각, #stillCollecting — 회차 잇기·유튜브 연결 상태).
    * 끝낸 시각이 이 시도를 시작할 때와 다르면 recheck — 시도를 끊고 끝낸 뒤 10분 멈춤을 다시 잡는다
    */
   async #handle(ctx: Context, link: LinkRow, broadcast: BroadcastRow, parsed: Parsed, firstResponse: boolean): Promise<{ offline: boolean; pollingMs: number | null; recheck: boolean }> {
@@ -589,7 +590,7 @@ export class CollectorManager {
       row.sellerId,
       link.broadcastId,
       recordable.map((chat) => ({ id: chat.id, ch: chat.ch, nick: chat.nick, text: chat.text, publishedAt: chat.publishedAt, ...(chat.owner ? { owner: true } : {}) })),
-      async (tx) => (await activeLink(tx, row.sellerId, link.broadcastId))?.id === row.linkId,
+      async (tx) => await this.#stillCollecting(tx, row, link),
     )
     if (outcome.status === 'sealed') throw new StopRun()
     if (outcome.status === 'unlinked') throw new Recheck()
@@ -619,6 +620,17 @@ export class CollectorManager {
     ctx.row = { ...row, pageToken: parsed.next ?? row.pageToken, firstDone: true, status: 'LIVE', reason: null }
     if (row.status !== 'LIVE' || row.reason !== null) await this.#publish(row)
     return { offline: parsed.offline, pollingMs: parsed.pollingMs, recheck: endedAt !== (broadcast.endedAt?.getTime() ?? null) }
+  }
+
+  /**
+   * 기록 트랜잭션(범위 락) 안에서 이 수집기가 아직 기록해도 되는지: 그 회차에 지금 이어진 연결이 이 수집기의 것이고,
+   * 유튜브 연결이 있고 CONNECTED이며 이은 방송의 채널과 같다(#verdict와 같은 기준). 연결 끊기·다시 연결 필요·다른 채널 연결을
+   * 다른 서버가 받았어도(이 서버에 알림이 없어도) 그 뒤 응답은 기록하지 않는다 (AC-Y1-06·28). 거절이면 다시 계산해 멈춘다
+   */
+  async #stillCollecting(tx: Db, row: CollectorRow, link: LinkRow): Promise<boolean> {
+    if ((await activeLink(tx, row.sellerId, link.broadcastId))?.id !== row.linkId) return false
+    const connection = await connectionChannel(tx, row.sellerId)
+    return connection !== null && connection.status === 'CONNECTED' && connection.channelId === link.channelId
   }
 
   /** 지운 메시지·차단 알림 (엔진은 그대로, AC-Y1-27) */

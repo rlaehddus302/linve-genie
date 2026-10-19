@@ -452,6 +452,27 @@ describe('AC-Y1-13·25·28 서버가 둘일 때 다른 서버에서 한 조작',
     expect(w.fake.openStreams.get(liveChatId) ?? 0).toBe(0)
   })
 
+  it('수집기가 A에서 도는데 B가 판매자의 유튜브 연결 자체를 끊으면: 끊은 뒤 채팅은 기록되지 않고 A는 "연결 안 됨"으로 멈춘다(스트림 0)', async () => {
+    const w = await world()
+    const connected = await connectSeller(w)
+    const { b, liveChatId } = await linkedBroadcast(w, connected)
+    const a = w.server.youtube?.collectors
+    if (a === undefined) throw new Error('유튜브가 없다')
+    a.start()
+    w.fake.addMessage(liveChatId, { id: 'before', author: 'UCa', name: '가', text: '안녕', publishedAt: w.timer.now() + 1 })
+    await until(w, async () => (await chatIds(w)).length === 1, { step: 100 })
+    const other = sibling(w, 'B')
+    extras.push(other)
+    expect((await client(other, connected.seller.cookie).post('/api/youtube/connection/disconnect', {})).status).toBe(200)
+    await w.timer.advance(1000)
+    // 임대를 늘리기(5초) 전에 스트림이 바로 넘겨도 기록 트랜잭션 안에서 연결 상태로 거른다
+    w.fake.addMessage(liveChatId, { id: 'after', author: 'UCb', name: '나', text: '15', publishedAt: w.timer.now() })
+    // 가짜 서버가 스트림이 닫힌 것을 아는 때는 수집기가 끝난 때보다 조금 늦을 수 있다 (HTTP 연결 닫힘)
+    await until(w, () => a.running.length === 0 && (w.fake.openStreams.get(liveChatId) ?? 0) === 0, { step: 500, max: 200 })
+    expect(await chatIds(w)).toEqual(['before'])
+    expect(await collector(w, connected.seller.cookie, b.id)).toMatchObject({ status: 'STOPPED', reason: 'NOT_CONNECTED' })
+  })
+
   it('기록 직전 범위 락 안에서도 거른다: 끝낸 뒤 게시된 메시지·끊은 연결의 묶음은 기록하지 않는다', async () => {
     const w = await world()
     const connected = await connectSeller(w)
