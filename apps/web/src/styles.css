@@ -1238,9 +1238,20 @@ html:has(.sms-submit-bar) {
   user-select: text;
 }
 
-/* PC: 카드 칸이 넘치면 그 안에서 스크롤 — 고정 영역이 더 늘지 않는다 */
-.console-sticky-voice .voice-cards {
-  max-height: max(8rem, calc(50vh - 19rem));
+/* PC: 음성 칸 높이에 상한을 두고 카드가 넘치면 카드 칸 안에서 스크롤 — 고정 영역이 화면 높이 절반을 넘지 않는다 */
+.console-sticky-voice .voice {
+  display: flex;
+  flex-direction: column;
+  max-height: max(10rem, calc(50vh - 13rem));
+}
+
+.console-sticky-voice .voice > * {
+  flex: none;
+}
+
+.console-sticky-voice .voice > .voice-cards {
+  flex: 0 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -1256,8 +1267,9 @@ html:has(.sms-submit-bar) {
     grid-column: 1 / -1;
   }
 
-  .console-sticky-voice .voice-cards {
-    max-height: min(20rem, calc(50vh - 7rem));
+  /* 두 칸: 음성 칸만으로 화면 높이 절반 - 고정 영역 위아래 여백 */
+  .console-sticky-voice .voice {
+    max-height: calc(50vh - 1.5rem);
   }
 }
 
