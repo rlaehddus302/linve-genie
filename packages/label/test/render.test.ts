@@ -406,6 +406,20 @@ describe('테스트 라벨 (AC-P1-17)', () => {
     expect(r.ok && r.layout.items.map((i) => i.id)).toEqual(['title', 'check', 'digits', 'date'])
     expect(renderTestLabel(env, { shopName: 'a', date: '2026-02-30' }).ok).toBe(false)
   })
+
+  it('L-1 목록 밖 크기는 그림을 만들지 않고 템플릿 검사와 같은 크기 오류를 돌려준다(던지지 않는다) — TD-P1-003', () => {
+    const made: [number, number][] = []
+    const watched = { ...env, createContext: (w: number, h: number) => (made.push([w, h]), env.createContext(w, h)) }
+    for (const size of ['40x30', '100x100', '50x30 ', '50X30', 'abc', '', 0, null, {}] as unknown[]) {
+      const r = renderTestLabel(watched, { shopName: '다육농장', date: '2026-10-20', size: size as (typeof LABEL_SIZES)[number] })
+      expect(r.ok, String(size)).toBe(false)
+      if (r.ok) continue
+      expect(r.error.code).toBe('INVALID_TEMPLATE')
+      expect(r.error.message).toBe('라벨 설정에 고칠 곳이 있어요.')
+      expect(r.error.problems).toEqual([{ path: 'size', message: '쓸 수 없는 라벨 크기예요. 50×30, 50×20, 50×40 중에서 골라 주세요.' }])
+    }
+    expect(made).toEqual([])
+  })
 })
 
 describe('조정이 그림에 그대로 나온다 (AC-P1-21)', () => {

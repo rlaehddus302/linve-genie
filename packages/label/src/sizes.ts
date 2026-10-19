@@ -23,10 +23,15 @@ export function isLabelSize(value: unknown): value is LabelSizeId {
   return typeof value === 'string' && (LABEL_SIZES as readonly string[]).includes(value)
 }
 
+/**
+ * 크기의 mm·점. L-1 목록 밖의 크기는 받지 않는다(RangeError — 부르는 쪽이 isLabelSize·템플릿 검사로 먼저 거른다).
+ * 아무 `NxM` 글이나 받으면 목록 밖 크기의 그림·A4 배치가 만들어진다.
+ */
 export function labelSizeInfo(size: LabelSizeId): LabelSizeInfo {
-  const m = /^(\d+)x(\d+)$/.exec(size)
-  const widthMm = Number(m?.[1])
-  const heightMm = Number(m?.[2])
+  if (!isLabelSize(size)) throw new RangeError('라벨 크기는 L-1 목록 안이어야 한다')
+  const [w, h] = size.split('x')
+  const widthMm = Number(w)
+  const heightMm = Number(h)
   return {
     id: size,
     widthMm,

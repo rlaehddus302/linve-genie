@@ -15,6 +15,7 @@ import {
   defaultTemplate,
   encodeLabelPng,
   getPixel,
+  labelSizeInfo,
   oneBitFromRgba,
   renderProductLabel,
   setPixel,
@@ -228,6 +229,19 @@ describe('A4 모아찍기 PDF (AC-P1-32)', () => {
         expect(cell.leftMm + cell.widthMm).toBeLessThanOrEqual(200)
         expect(cell.topMm + cell.heightMm).toBeLessThanOrEqual(287)
       }
+    }
+  })
+
+  it('크기 도우미는 L-1 목록 밖 크기를 받지 않는다(목록 밖 크기의 그림·칸을 만들지 않게) — TD-P1-003', () => {
+    expect(LABEL_SIZES.map((size) => [labelSizeInfo(size).widthDots, labelSizeInfo(size).heightDots])).toEqual([
+      [384, 240],
+      [384, 160],
+      [384, 320],
+    ])
+    for (const size of ['40x30', '100x100', 'abc', ''] as unknown as LabelSizeId[]) {
+      expect(() => labelSizeInfo(size), size).toThrow(RangeError)
+      expect(() => a4Layout(size), size).toThrow(RangeError)
+      expect(() => a4Cell(size, 0), size).toThrow(RangeError)
     }
   })
 

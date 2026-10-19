@@ -4,10 +4,10 @@
 // (캔버스는 없는 글자를 시스템 글꼴로 대신 그리기 때문이다). 시각·난수·실행 환경 언어를 쓰지 않는다.
 import { oneBitFromRgba, type LabelBitmap } from './bitmap.ts'
 import type { PackingPage, PackingText, ProductText } from './compute.ts'
-import { doesNotFitError, type LabelError } from './errors.ts'
+import { LABEL_MESSAGES, doesNotFitError, type LabelError } from './errors.ts'
 import type { LabelFont } from './font.ts'
-import { labelSizeInfo, type LabelSizeId } from './sizes.ts'
-import type { TemplateItem } from './template.ts'
+import { DEFAULT_LABEL_SIZE, isLabelSize, labelSizeInfo, type LabelSizeId } from './sizes.ts'
+import { TEMPLATE_MESSAGES, type TemplateItem } from './template.ts'
 import { formatLabelDate, isCalendarDate, splitGraphemes, trimLabelText } from './text.ts'
 
 /** 캔버스 2D 문맥에서 이 패키지가 쓰는 부분 (브라우저 캔버스·OffscreenCanvas·Node 캔버스 모두 맞는다) */
@@ -598,7 +598,11 @@ export function renderTestLabel(env: LabelRenderEnv, input: TestLabelInput): Ren
   if (typeof input.date !== 'string' || !isCalendarDate(input.date)) {
     return { ok: false, error: { code: 'INVALID_DATA', message: '라벨에 넣을 수 없는 값이 있어요: 날짜', field: 'date' } }
   }
-  const size = input.size ?? '50x30'
+  const size: unknown = input.size === undefined ? DEFAULT_LABEL_SIZE : input.size
+  // L-1 목록 밖의 크기는 쓰지 않는다 — 템플릿 검사와 같은 오류·문장으로 알린다(그림을 만들지 않고, 던지지 않는다)
+  if (!isLabelSize(size)) {
+    return { ok: false, error: { code: 'INVALID_TEMPLATE', message: LABEL_MESSAGES.invalidTemplate, problems: [{ path: 'size', message: TEMPLATE_MESSAGES.size }] } }
+  }
   const { widthDots: width, heightDots: height } = labelSizeInfo(size)
   const shop = trimLabelText(typeof input.shopName === 'string' ? input.shopName : '')
   const rows: { id: string; value: string; mode: Mode }[] = [
