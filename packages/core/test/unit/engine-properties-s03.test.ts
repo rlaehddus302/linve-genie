@@ -3,6 +3,9 @@
 // fast-check가 S02 생성기에 문자찜·상품 수정·번호 변경·메시지 변환·충돌 결정·합치기·정산 기록과 설정(정책 둘 × 동률 처리 셋)을 더한 로그를 만든다.
 // S03b: 문자찜은 서버처럼 키로 바꿔 넣고(같은 번호의 여러 형식, 뒤 4자리만 같은 다른 번호), 모르는 지정 구매자였다가 알게 되는 문자찜과 사본,
 // 합친 뒤의 시청자 채팅 취소, 충돌 중 host.assign, 주문 메시지·언급 메시지의 변환, 대기 한도 0·1에서의 충돌·1등 취소·재고 늘림을 더한다.
+// S04(AC-S04-92): 로그 중간의 broadcast.start(새 방송 — 여러 날짜, 범위 안 무작위 설정, 이미 선언한 방송의 사본), 아무 위치의 broadcast.end와 그 뒤 입력,
+// 승계 ASK·대기 한도 0 방송, 취소 메시지와 그 변환, 표에 없는 필드를 붙인 이벤트, 번호 모양 ref·memo를 더한다. 빈 엔진에서 broadcast.start로 시작하는 로그도 만든다.
+// 이벤트는 선언된 방송 중 하나로 가고(entry.bsel), 판정 검사는 그 찜·상품이 속한 방송의 설정으로 한다(D-070).
 // 실패하면 가장 짧은 로그로 줄여 시드와 함께 보여 준다. 재현: 실패 메시지의 seed·path를 fc.assert 옵션에 넣는다.
 import {
   applyEvent,
@@ -20,11 +23,17 @@ import {
   listSettlements,
   listSmsRefs,
   activeClaimId,
+  InvalidEventError,
+  isNotImplemented,
+  getBroadcast,
+  listBroadcasts,
   parseChat,
+  resolveSettings,
   type BroadcastInfo,
   type ClaimInfo,
   type EngineEvent,
   type EngineState,
+  type SaleSettings,
   type SettingsOverride,
 } from '@livejjim/core'
 import fc from 'fast-check'
@@ -46,6 +55,11 @@ const NUMBERS = ['010-1111-2222', '01011112222', '1111-2222', '11112222', '３�
 /** 효과·효과 ID·찜 ID·구매자 ID·조회 결과에 있으면 안 되는 전화번호 키 */
 const PHONE_KEYS = [...new Set(PHONES.map((phone) => smsPhoneFields(phone).phoneKey).filter((key): key is string => key !== undefined))]
 const KST = 9 * 3_600_000
+/** broadcast.start가 쓰는 방송 ID와 날짜 (시작 목록의 B1·B2·B0919와 겹친다 — 겹치면 사본) */
+const START_IDS = ['b1', 'b2', 'n1', 's4'] as const
+const START_DATES = ['2026-10-18', '2026-10-19'] as const
+/** 표에 없는 필드 이름 (D-073): 번호를 다른 이름으로 밀어 넣는 변형 */
+const EXTRA_NAMES = ['Phone', 'phoneNumber', 'phone_number', 'tel', 'contact', 'meta', 'extra', 'note', 'phone', 'memo', '__proto__'] as const
 
 type Raw =
   | { readonly type: 'register'; readonly no: number; readonly stock: number; readonly price: number; readonly ready: boolean }
@@ -65,10 +79,18 @@ type Raw =
   | { readonly type: 'lock'; readonly no: number; readonly pick: number }
   | { readonly type: 'early'; readonly no: number; readonly ref: number; readonly designate: number }
   | { readonly type: 'vacate'; readonly how: 'host.cancel' | 'host.reject' | 'chat' | 'approve' | 'stock'; readonly pick: number }
+  // S04: 방송 시작(새 방송 또는 이미 선언한 방송의 사본)·종료, 입력 오류여야 하는 이벤트(기록되지 않는다)
+  | { readonly type: 'start'; readonly slot: number; readonly day: number; readonly title: number; readonly settings: SettingsOverride }
+  | { readonly type: 'end'; readonly pick: number }
+  | { readonly type: 'bad'; readonly kind: 'extra' | 'ref' | 'memo'; readonly base: number; readonly name: number; readonly digits: number; readonly form: number }
 
 interface Entry {
   readonly raw: Raw
   readonly dt: number
+  /** 방송이 필요한 이벤트가 갈 방송: 선언된 방송 중 bsel번째 (선언 순서) */
+  readonly bsel: number
+  /** 방송을 직접 정한다 (사본을 끼워 넣을 때 원본과 같은 방송으로) */
+  readonly b?: string
 }
 interface Scenario {
   readonly broadcasts: readonly BroadcastInfo[]
@@ -88,6 +110,50 @@ const settingsArb: fc.Arbitrary<SettingsOverride> = fc.record({
   'thanks.liveChat': fc.boolean(),
   'thanks.videoComment': fc.constantFrom('OFF', 'PER_SALE'),
   'shipping.freeThreshold': fc.constantFrom(null, 15000),
+})
+
+/** broadcast.start의 설정: 설정값 범위 안의 무작위 값, 키도 무작위로 고른다 (D-071) */
+const startSettingsArb: fc.Arbitrary<SettingsOverride> = fc.record(
+  {
+    'claim.parseMode': fc.constantFrom('STRICT', 'LOOSE'),
+    'claim.multiNumber': fc.constantFrom('ALL', 'FIRST', 'IGNORE'),
+    'claim.maxNumber': fc.oneof(fc.constant(999), fc.integer({ min: 1, max: 9999 })),
+    'claim.ignoreOwner': fc.boolean(),
+    'claim.preOpenWindowSec': fc.integer({ min: 0, max: 300 }),
+    'waitlist.max': fc.oneof({ weight: 5, arbitrary: fc.integer({ min: 0, max: 3 }) }, { weight: 1, arbitrary: fc.integer({ min: 0, max: 100 }) }),
+    'cancel.buyerChat': fc.constantFrom('OFF', 'REQUEST', 'AUTO'),
+    'cancel.succession': fc.constantFrom('AUTO', 'ASK', 'REOPEN'),
+    'contention.policy': fc.constantFrom('ARRIVAL', 'RECEIVED_TIME'),
+    'contention.sameMinuteTieBreaker': fc.constantFrom('YOUTUBE', 'SMS', 'HOST'),
+    'price.unit': fc.constantFrom('WON', 'THOUSAND'),
+    'shipping.baseFee': fc.integer({ min: 0, max: 1_000_000 }),
+    'shipping.freeThreshold': fc.oneof(fc.constant(null), fc.integer({ min: 0, max: 100_000_000 })),
+    'settlement.groupBy': fc.constant('DATE'),
+    'print.autoOnConfirm': fc.boolean(),
+    'thanks.liveChat': fc.boolean(),
+    'thanks.videoComment': fc.constantFrom('OFF', 'PER_SALE', 'SUMMARY'),
+    'thanks.batchWindowSec': fc.integer({ min: 0, max: 600 }),
+  },
+  { requiredKeys: [] },
+)
+/** 승계 ASK·대기 한도 0 방송 (D-077) */
+const askZeroArb: fc.Arbitrary<SettingsOverride> = startSettingsArb.map((s) => ({ ...s, 'cancel.succession': 'ASK', 'waitlist.max': 0 }))
+
+const startArb: fc.Arbitrary<Raw> = fc.record({
+  type: fc.constant('start' as const),
+  slot: fc.nat(START_IDS.length - 1),
+  day: fc.nat(START_DATES.length - 1),
+  title: fc.nat(3),
+  settings: fc.oneof({ weight: 3, arbitrary: startSettingsArb }, { weight: 1, arbitrary: askZeroArb }),
+})
+const endArb: fc.Arbitrary<Raw> = fc.record({ type: fc.constant('end' as const), pick: fc.nat() })
+const badArb: fc.Arbitrary<Raw> = fc.record({
+  type: fc.constant('bad' as const),
+  kind: fc.constantFrom('extra' as const, 'ref' as const, 'memo' as const),
+  base: fc.nat(),
+  name: fc.nat(EXTRA_NAMES.length - 1),
+  digits: fc.integer({ min: 0, max: 99_999_999 }),
+  form: fc.nat(5),
 })
 
 const no = fc.constantFrom(...NOS)
@@ -174,16 +240,30 @@ const rawArb: fc.Arbitrary<Raw> = fc.oneof(
       day: fc.nat(1),
     }),
   },
+  // S04 (AC-S04-92)
+  { weight: 2, arbitrary: startArb },
+  { weight: 1, arbitrary: endArb },
+  { weight: 1, arbitrary: badArb },
 )
 
+/** 방송 고르기: 대부분 첫 방송, 가끔 다른 방송 */
+const bselArb = fc.oneof({ weight: 3, arbitrary: fc.constant(0) }, { weight: 2, arbitrary: fc.nat(5) })
+
 function makeScenarioArb(settings: fc.Arbitrary<SettingsOverride>, raws: fc.Arbitrary<Raw> = rawArb): fc.Arbitrary<Scenario> {
-  return fc.tuple(fc.constantFrom<readonly BroadcastInfo[]>([B1], [B1], [B1, B2], [B1, B0919]), settings).chain(([broadcasts, chosen]) =>
+  // 빈 목록 = 서버처럼 빈 엔진에서 broadcast.start(b1)로 시작한다 (그 방송의 설정 = 시나리오 설정)
+  return fc.tuple(fc.constantFrom<readonly BroadcastInfo[]>([B1], [B1], [B1, B2], [B1, B0919], [], []), settings).chain(([broadcasts, chosen]) =>
     fc
       .tuple(
         fc.array(fc.record({ type: fc.constant('register' as const), no, stock: fc.constantFrom(1, 1, 2), price: fc.constantFrom(5000, 10000), ready: fc.constantFrom(false, false, true) }), { minLength: 2, maxLength: 4 }),
-        fc.array(fc.record({ raw: raws, dt: fc.oneof({ weight: 4, arbitrary: fc.integer({ min: 0, max: 4000 }) }, { weight: 1, arbitrary: fc.integer({ min: 0, max: 50_000 }) }) }), { minLength: 1, maxLength: 60, size: 'max' }),
+        fc.array(
+          fc.record({ raw: raws, dt: fc.oneof({ weight: 4, arbitrary: fc.integer({ min: 0, max: 4000 }) }, { weight: 1, arbitrary: fc.integer({ min: 0, max: 50_000 }) }), bsel: bselArb }),
+          { minLength: 1, maxLength: 60, size: 'max' },
+        ),
       )
-      .map(([prefix, rest]) => ({ broadcasts, settings: chosen, entries: [...prefix.map((raw) => ({ raw, dt: 0 })), ...rest] })),
+      .map(([prefix, rest]) => {
+        const opening: Entry[] = broadcasts.length > 0 ? [] : [{ raw: { type: 'start', slot: 0, day: 0, title: 0, settings: chosen }, dt: 0, bsel: 0 }]
+        return { broadcasts, settings: broadcasts.length > 0 ? chosen : {}, entries: [...opening, ...prefix.map((raw) => ({ raw, dt: 0, bsel: 0 })), ...rest] }
+      }),
   )
 }
 
@@ -203,6 +283,8 @@ const conflictRawArb: fc.Arbitrary<Raw> = fc.oneof(
   { weight: 3, arbitrary: fc.record({ type: fc.constant('early' as const), no, ref: fc.integer({ min: 1, max: 40 }), designate: fc.integer({ min: -4, max: 8 }) }) },
   { weight: 2, arbitrary: fc.record({ type: fc.constant('vacate' as const), how: fc.constantFrom('host.cancel' as const, 'host.reject' as const, 'chat' as const, 'approve' as const, 'stock' as const), pick: fc.nat() }) },
   { weight: 1, arbitrary: fc.record({ type: fc.constant('pick' as const), action: fc.constant('assignConflict'), pick: fc.nat(), other: fc.nat(), to: fc.constantFrom('WAITLIST' as const, 'CANCEL' as const) }) },
+  // 승계 ASK·대기 한도 0 방송을 자주 선언한다 (D-077)
+  { weight: 1, arbitrary: fc.record({ type: fc.constant('start' as const), slot: fc.nat(START_IDS.length - 1), day: fc.nat(1), title: fc.constant(0), settings: askZeroArb }) },
 )
 const tightArb = makeScenarioArb(
   settingsArb.chain((s) => fc.record({ max: fc.constantFrom(0, 1, 2), policy: fc.constantFrom('RECEIVED_TIME', 'RECEIVED_TIME', 'ARRIVAL') }).map(({ max, policy }) => ({ ...s, 'waitlist.max': max, 'contention.policy': policy }))),
@@ -221,9 +303,18 @@ function kstClock(ms: number, seconds: boolean): string {
   return seconds ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(h)}:${pad(m)}`
 }
 
-function materialize(state: EngineState, scenario: Scenario, raw: Raw, seq: number, at: number): EngineEvent {
-  const bIds = scenario.broadcasts.map((b) => b.id)
-  const b = bIds[seq % bIds.length] as string
+/** 그 방송의 설정 스냅샷 */
+const settingsOf = (state: EngineState, b: string): SaleSettings => (getBroadcast(state, b) as NonNullable<ReturnType<typeof getBroadcast>>).settings
+
+/** 엔트리가 갈 방송: 정해 둔 방송, 아니면 선언된 방송 중 bsel번째 */
+const broadcastFor = (state: EngineState, entry: Entry): string => entry.b ?? state.broadcasts[entry.bsel % Math.max(1, state.broadcasts.length)]?.id ?? START_IDS[0]
+
+function materialize(state: EngineState, scenario: Scenario, entry: Entry, seq: number, at: number): EngineEvent {
+  const raw = entry.raw
+  const target = broadcastFor(state, entry)
+  // bIds[0] = 이 엔트리의 방송 (S03까지는 첫 방송 하나였다)
+  const bIds = [target, ...state.broadcasts.map((broadcast) => broadcast.id)]
+  const b = target
   const base = { seq, at }
   const buyers = listBuyers(state).map((x) => x.id)
   const buyerAt = (n: number): string => (buyers.length === 0 ? 'NOBODY' : (buyers[n % buyers.length] as string))
@@ -279,7 +370,7 @@ function materialize(state: EngineState, scenario: Scenario, raw: Raw, seq: numb
     case 'unmerge':
       return { ...base, type: 'buyer.unmerge', from: buyerAt(raw.from), reason: '잘못' }
     case 'ledger': {
-      const date = (scenario.broadcasts[raw.day % scenario.broadcasts.length] as BroadcastInfo).date
+      const date = (state.broadcasts[raw.day % state.broadcasts.length] as BroadcastInfo).date
       const buyer = buyerAt(raw.buyer)
       if (raw.kind === 'payment') return { ...base, type: 'settlement.payment', buyer, date, amount: raw.amount }
       if (raw.kind === 'refund') return { ...base, type: 'settlement.refund', buyer, date, amount: raw.amount, reason: '환불' }
@@ -323,7 +414,52 @@ function materialize(state: EngineState, scenario: Scenario, raw: Raw, seq: numb
       if (raw.how === 'chat' && !claim.buyer.startsWith('sms:')) return { ...base, type: 'chat', b: at.b, id: `v${String(seq)}`, ch: claim.buyer, nick: '가', text: `${String(at.no)} 취소` }
       return { ...base, type: raw.how === 'host.reject' ? 'host.reject' : 'host.cancel', ...at, buyer: claim.buyer, reason: '사유' }
     }
+    case 'start': {
+      // 새 방송이면 선언, 이미 선언한 방송이면 사본(날짜·제목·설정이 달라도 아무 일도 없어야 한다)
+      const id = START_IDS[raw.slot] as string
+      return { ...base, type: 'broadcast.start', b: id, date: START_DATES[raw.day] as string, title: `${String(raw.title + 1)}부`, settings: raw.settings }
+    }
+    case 'end':
+      return { ...base, type: 'broadcast.end', b: (state.broadcasts[raw.pick % state.broadcasts.length] as BroadcastInfo).id }
+    case 'bad':
+      throw new Error('입력 오류 원료는 badEvent로 만든다')
   }
+  void scenario
+}
+
+/** 번호 8자리 → 여러 형식의 휴대폰 번호 (휴대폰 번호 모양 = normalizePhone의 결과가 있음) */
+function phoneForms(digits: number): readonly string[] {
+  const d = String(digits).padStart(8, '0')
+  const full = `010${d}`
+  const wide = [...full].map((c) => String.fromCharCode(c.charCodeAt(0) - 0x30 + 0xff10)).join('')
+  return [full, `010-${d.slice(0, 4)}-${d.slice(4)}`, `010 ${d.slice(0, 4)} ${d.slice(4)}`, wide, `s${full}`, `김영희 ${full.slice(0, 3)}.${d.slice(0, 4)}.${d.slice(4)}`]
+}
+
+/**
+ * 입력 오류여야 하는 이벤트 (AC-S04-06·07): 유효한 이벤트에 표에 없는 필드를 붙이거나, sms의 ref·memo에 휴대폰 번호를 넣는다.
+ * 짚어야 하는 필드 이름과 함께 돌려준다
+ */
+function badEvent(state: EngineState, raw: Extract<Raw, { type: 'bad' }>, b: string, seq: number, at: number): { readonly event: Record<string, unknown>; readonly field: string } {
+  const phone = phoneForms(raw.digits)[raw.form % 6] as string
+  const sms = { seq, at, type: 'sms', b, ref: `x${String(seq)}`, no: 1, received: '20:00' }
+  if (raw.kind === 'ref') return { event: { ...sms, ref: phone }, field: 'ref' }
+  if (raw.kind === 'memo') return { event: { ...sms, memo: phone }, field: 'memo' }
+  const bases: readonly Record<string, unknown>[] = [
+    { seq, at, type: 'chat', b, id: `bad${String(seq)}`, ch: 'A', nick: '가', text: '1' },
+    sms,
+    { seq, at, type: 'host.cancel', b, no: 1, buyer: 'A', reason: '사유' },
+    { seq, at, type: 'settlement.payment', buyer: 'A', date: (state.broadcasts[0] as BroadcastInfo).date, amount: 1000 },
+    { seq, at, type: 'product.register', b, no: 9, name: 'x', price: 1000 },
+    { seq, at, type: 'broadcast.start', b: 'z9', date: '2026-10-20', title: '새 방송' },
+    { seq, at, type: 'broadcast.end', b },
+  ]
+  const event = { ...(bases[raw.base % bases.length] as Record<string, unknown>) }
+  // 입금의 memo(입금 메모)는 표에 있는 필드다 — 번호 모양 검사는 sms의 ref·memo만이라(D-073) 다른 이름으로 바꾼다
+  const name = EXTRA_NAMES[raw.name] === 'memo' && event.type === 'settlement.payment' ? 'note' : (EXTRA_NAMES[raw.name] as string)
+  // sms의 memo는 표에 있는 필드라 번호 모양이어야 입력 오류다 — 그 밖의 이름은 값과 상관없이 입력 오류
+  const value = name === 'meta' ? { phone } : phone
+  Object.defineProperty(event, name, { value, enumerable: true, writable: true, configurable: true })
+  return { event, field: name }
 }
 
 function resolvePick(state: EngineState, raw: Extract<Raw, { type: 'pick' }>, base: { seq: number; at: number }, fallbackB: string): EngineEvent {
@@ -380,6 +516,8 @@ interface Run {
   readonly states: EngineState[]
   readonly events: EngineEvent[]
   readonly emitted: (readonly string[])[]
+  /** 엔트리 번호 → 기록된 이벤트 번호 (입력 오류라 기록되지 않은 엔트리는 -1) */
+  readonly eventOf: number[]
 }
 
 function runScenario(scenario: Scenario): Run {
@@ -387,20 +525,40 @@ function runScenario(scenario: Scenario): Run {
   const states = [state]
   const events: EngineEvent[] = []
   const emitted: (readonly string[])[] = []
+  const eventOf: number[] = []
   let at = T0
-  scenario.entries.forEach((entry, i) => {
+  let seq = 0
+  scenario.entries.forEach((entry) => {
     at += entry.dt
-    const event = materialize(state, scenario, entry.raw, i + 1, at)
+    if (entry.raw.type === 'bad') {
+      // 입력 오류: 검사 함수가 그 필드를 짚고, applyEvent는 상태를 바꾸지 않고 입력 오류를 던진다. 서버는 기록하지 않으므로 seq도 쓰지 않는다
+      const { event, field } = badEvent(state, entry.raw, broadcastFor(state, entry), seq + 1, at)
+      const before = json(state)
+      expect(checkEvent(state, event).map((p) => p.field), json(event)).toContain(field)
+      let thrown: unknown
+      try {
+        applyEvent(state, event as unknown as EngineEvent)
+      } catch (error) {
+        thrown = error
+      }
+      expect(isInvalidEvent(thrown), json(event)).toBe(true)
+      expect(json(state)).toBe(before)
+      eventOf.push(-1)
+      return
+    }
+    seq += 1
+    const event = materialize(state, scenario, entry, seq, at)
     const result = applyEvent(state, event)
     state = result.state
     states.push(state)
+    eventOf.push(events.length)
     events.push(event)
     emitted.push(result.effects.map((e) => e.id))
   })
-  return { states, events, emitted }
+  return { states, events, emitted, eventOf }
 }
 
-/** 관찰 값 (seq에서 나온 값은 뺀다: 찜의 seq, 취소 요청의 seq, 정산 기록의 seq) */
+/** 관찰 값 (seq에서 나온 값은 뺀다: 찜의 seq, 취소 요청의 seq, 정산 기록의 seq). 방송 조회는 observeBroadcasts */
 function observe(state: EngineState): unknown {
   return {
     products: listProducts(state),
@@ -430,16 +588,16 @@ function checkStep(scenario: Scenario, prev: EngineState, event: EngineEvent, ne
 
   const before = byId(listClaims(prev))
   const after = listClaims(next)
-  const policy = scenario.settings['contention.policy']
-  // INV-8·INV-10: 확정이 풀리는 길
+  // INV-8·INV-10: 확정이 풀리는 길 (설정은 그 찜의 방송 스냅샷, D-070)
   const released = after.filter((c) => before.get(c.id)?.status === 'CONFIRMED' && c.status !== 'CONFIRMED')
   for (const claim of released) {
     const was = before.get(claim.id) as ClaimInfo
     const host = HOST_RELEASE.has(event.type)
+    const policy = settingsOf(prev, claim.broadcast)['contention.policy']
     if (was.locked) expect(host, `${where}: 잠긴 확정 찜 ${claim.id}이 방송자 조치 없이 풀렸다 (INV-10)`).toBe(true)
     if (host) continue
     if (event.type === 'chat' && claim.status === 'CANCELLED') {
-      expect(scenario.settings['cancel.buyerChat'], `${where}: 채팅이 확정을 풀었다`).toBe('AUTO')
+      expect(settingsOf(prev, event.b)['cancel.buyerChat'], `${where}: 채팅이 확정을 풀었다`).toBe('AUTO')
       // 시청자 채팅 취소는 그 채널 자신의 찜에만 (D-063)
       expect(claim.buyer, `${where}: 채널 ${event.ch}가 다른 구매자의 찜 ${claim.id}을 채팅으로 취소했다`).toBe(event.ch)
       continue
@@ -455,7 +613,7 @@ function checkStep(scenario: Scenario, prev: EngineState, event: EngineEvent, ne
   for (const product of listProducts(next)) {
     const fresh = product.waitlistClaims.filter((id) => !history.everConfirmed.has(id)).map((id) => claims.get(id) as ClaimInfo)
     for (let i = 1; i < fresh.length; i++) {
-      expect(compareRank(material(fresh[i - 1] as ClaimInfo), material(fresh[i] as ClaimInfo), next.settings), `${where}: ${product.key} 대기 순서`).toBeLessThan(0)
+      expect(compareRank(material(fresh[i - 1] as ClaimInfo), material(fresh[i] as ClaimInfo), settingsOf(next, product.broadcast)), `${where}: ${product.key} 대기 순서`).toBeLessThan(0)
     }
   }
 
@@ -472,7 +630,7 @@ function checkStep(scenario: Scenario, prev: EngineState, event: EngineEvent, ne
     const byVersion = [...list].sort((a, b) => (a.confirmVersion as number) - (b.confirmVersion as number))
     for (let i = 1; i < byVersion.length; i++) {
       if (event.type === 'product.register' || event.type === 'product.open' || event.type === 'product.renumber') {
-        expect(compareRank(material(byVersion[i - 1] as ClaimInfo), material(byVersion[i] as ClaimInfo), next.settings), `${where}: 공개 순간 확정 순서`).toBeLessThan(0)
+        expect(compareRank(material(byVersion[i - 1] as ClaimInfo), material(byVersion[i] as ClaimInfo), settingsOf(next, (byVersion[i] as ClaimInfo).broadcast)), `${where}: 공개 순간 확정 순서`).toBeLessThan(0)
       }
     }
     // 재고 늘림은 대기 순번 순서로 확정하고 확정버전도 그 순서 (D-066): 이전 대기열에 있던 찜끼리는 이전 대기 순번 순
@@ -509,28 +667,51 @@ function checkStep(scenario: Scenario, prev: EngineState, event: EngineEvent, ne
   const stateText = json(next)
   for (const number of NUMBERS) expect(stateText.includes(number), `${where}: 상태에 ${number}`).toBe(false)
 
-  // 대기 수 ≤ 대기 한도 (매 이벤트 뒤, AC-S03b-92)
-  const limit = Math.max(0, scenario.settings['waitlist.max'] ?? 5)
-  for (const product of listProducts(next)) expect(product.waitlist.length, `${where}: ${product.key} 대기 한도`).toBeLessThanOrEqual(limit)
+  // 대기 수 ≤ 그 상품 방송의 대기 한도 (매 이벤트 뒤, AC-S03b-92·AC-S04-92). 대기 한도 0 방송에는 "승계 결정 필요"가 없다 (D-077)
+  for (const product of listProducts(next)) {
+    const settings = settingsOf(next, product.broadcast)
+    expect(product.waitlist.length, `${where}: ${product.key} 대기 한도`).toBeLessThanOrEqual(settings['waitlist.max'])
+    if (settings['waitlist.max'] === 0) expect(product.awaitingSuccession, `${where}: ${product.key} 대기 한도 0인데 승계 결정 필요`).toBe(false)
+  }
 
-  // 승계 AUTO에서 1등 자리를 비우는 이벤트, 재고 늘림은 새 REJECTED(SOLD_OUT)을 만들지 않는다 (D-068)
+  // 1등 자리를 비우는 이벤트는 승계 AUTO(그리고 대기 한도 0의 ASK, D-077)에서, 재고 늘림은 늘 새 REJECTED(SOLD_OUT)을 만들지 않는다 (D-068)
   const soldOut = after.filter((c) => c.status === 'REJECTED' && c.reason === 'SOLD_OUT' && before.has(c.id) && !(before.get(c.id)?.status === 'REJECTED'))
-  const cancelOnly = event.type === 'chat' && parseChat(event.text, next.settings).claims.length === 0
+  const cancelOnly = event.type === 'chat' && parseChat(event.text, settingsOf(next, event.b)).claims.length === 0
   const vacating = event.type === 'host.cancel' || event.type === 'host.reject' || event.type === 'host.approveCancel' || cancelOnly
-  if (event.type === 'product.update' || (vacating && scenario.settings['cancel.succession'] === 'AUTO')) {
+  const succession = vacating ? settingsOf(prev, event.b) : undefined
+  const autoLike = succession !== undefined && (succession['cancel.succession'] === 'AUTO' || (succession['cancel.succession'] === 'ASK' && succession['waitlist.max'] === 0))
+  if (event.type === 'product.update' || autoLike) {
     expect(soldOut.map((c) => c.id), `${where}: 자리를 비우는 이벤트가 품절을 만들었다`).toEqual([])
   }
 
-  // 아무것도 바꾸지 않는 조치 (AC-S03b-92): 주문이었던 메시지의 변환, 충돌 중 host.assign
-  if (event.type === 'host.convertMessage' && pget(prev.messages, JSON.stringify([event.b, event.msg]))?.order === true) {
-    expect(next, `${where}: 주문이었던 메시지를 변환했다 (D-062)`).toBe(prev)
+  // 아무것도 바꾸지 않는 조치 (AC-S03b-92·AC-S04-92): 주문·취소였던 메시지의 변환, 충돌 중 host.assign, 방송 시작 사본, 이미 끝난 방송의 종료
+  const message = event.type === 'host.convertMessage' ? pget(prev.messages, JSON.stringify([event.b, event.msg])) : undefined
+  if (message?.order === true) expect(next, `${where}: 주문이었던 메시지를 변환했다 (D-062)`).toBe(prev)
+  if (message?.cancel === true) expect(next, `${where}: 취소였던 메시지를 변환했다 (D-076)`).toBe(prev)
+  if (event.type === 'broadcast.start') {
+    const existing = getBroadcast(prev, event.b)
+    if (existing !== null) expect(next, `${where}: 이미 선언한 방송의 broadcast.start가 상태를 바꿨다 (D-070)`).toBe(prev)
+    else {
+      // 새 방송: 선언 순서 끝에 더해지고 스냅샷은 기본값 위에 그 이벤트의 설정, 나머지 조회는 그대로
+      expect(listBroadcasts(next), where).toEqual([...listBroadcasts(prev), { id: event.b, date: event.date, title: event.title, ended: false, endedAt: null, settings: resolveSettings(event.settings) }])
+      expect(json(observe(next)), where).toBe(json(observe(prev)))
+    }
+  }
+  if (event.type === 'broadcast.end') {
+    if (getBroadcast(prev, event.b)?.ended === true) expect(next, `${where}: 이미 끝난 방송의 broadcast.end가 상태를 바꿨다`).toBe(prev)
+    else {
+      // 끝난 기록만: 그 방송의 끝남·끝난 시각 밖의 조회는 그대로, 효과 없음
+      expect(getBroadcast(next, event.b), where).toMatchObject({ ended: true, endedAt: event.at })
+      expect(json(observe(next)), where).toBe(json(observe(prev)))
+      expect(emitted, where).toEqual([])
+    }
   }
   if (event.type === 'host.assign' && pget(prev.slots, `${event.b}/${String(event.no)}`)?.conflict != null) {
     expect(next, `${where}: 충돌 중에 배정했다 (D-064)`).toBe(prev)
   }
   // 합친 다른 구매자의 찜에 대한 시청자 채팅 취소는 찜·요청·상품·효과를 바꾸지 않는다 (D-063)
   if (cancelOnly) {
-    const targets = parseChat(event.text, next.settings).cancels.map((n) => activeClaimId(prev, event.b, n, event.ch))
+    const targets = parseChat(event.text, settingsOf(next, event.b)).cancels.map((n) => activeClaimId(prev, event.b, n, event.ch))
     const ownTarget = targets.some((id) => id !== null && before.get(id)?.buyer === event.ch)
     if (!ownTarget) {
       expect(json([after, listCancelRequests(next), listProducts(next), emitted]), `${where}: 다른 구매자의 찜을 채팅으로 바꿨다`).toBe(
@@ -602,9 +783,9 @@ describe('AC-S03-92 불변식 속성 (S03 이벤트·설정을 섞은 무작위 
     )
   })
 
-  const copyable = (scenario: Scenario): number[] => scenario.entries.flatMap((entry, i) => (entry.raw.type === 'chat' || entry.raw.type === 'sms' ? [i] : []))
+  const copyable = (scenario: Scenario): number[] => scenario.entries.flatMap((entry, i) => (entry.raw.type === 'chat' || entry.raw.type === 'sms' || entry.raw.type === 'start' ? [i] : []))
 
-  it('INV-3·INV-12: 채팅·문자찜(같은 ref)의 사본을 첫 수신 뒤 아무 위치에(내용을 바꿔) 끼워 넣어도 관찰 값이 같다', () => {
+  it('INV-3·INV-12: 채팅·문자찜(같은 ref)·방송 시작(같은 방송 ID)의 사본을 첫 수신 뒤 아무 위치에(내용을 바꿔) 끼워 넣어도 관찰 값이 같다', () => {
     fc.assert(
       fc.property(
         scenarioArb.filter((s) => copyable(s).length > 0),
@@ -615,6 +796,8 @@ describe('AC-S03-92 불변식 속성 (S03 이벤트·설정을 섞은 무작위 
           const i = indexes[pick % indexes.length] as number
           const source = (scenario.entries[i] as Entry).raw
           const original = runScenario(scenario)
+          // 사본은 원본과 같은 방송으로 (채팅 메시지 ID는 방송 안에서 유일하다)
+          const sourceEvent = original.events[original.eventOf[i] as number] as EngineEvent & { readonly b?: string }
           // ref는 처음 받을 때 기록한다 — 모르는 지정 구매자라 구매자를 정하지 않은 문자찜의 사본도 아무 일도 없다 (D-067, S03의 건너뛰기를 없앴다)
           const entries = [...scenario.entries]
           const positions = copies.map(([n, variant, shift]) => ({ at: i + 1 + (n % (scenario.entries.length - i)), variant, shift })).sort((a, b) => b.at - a.at)
@@ -624,14 +807,56 @@ describe('AC-S03-92 불변식 속성 (S03 이벤트·설정을 섞은 무작위 
                 ? { ...source, text: ['15', '1 취소', '안녕', '2'][variant % 4] as string, nick: variant % 3, published: source.published + shift }
                 : source.type === 'sms'
                   ? { ...source, no: NOS[variant % 3] as number, memo: (variant % 4) - 1, phone: (variant % (PHONES.length + 1)) - 1, received: source.received + shift, designate: (variant % 10) - 1 }
-                  : source
-            entries.splice(at, 0, { raw, dt: 0 })
+                  : source.type === 'start'
+                    ? { ...source, day: variant % 2, title: variant % 4, settings: { 'waitlist.max': variant % 3, 'claim.parseMode': variant % 2 === 0 ? 'LOOSE' : 'STRICT', 'shipping.baseFee': variant % 100_000 } }
+                    : source
+            entries.splice(at, 0, { raw, dt: 0, bsel: 0, ...(sourceEvent.b === undefined ? {} : { b: sourceEvent.b }) })
           }
           const withCopies = runScenario({ ...scenario, entries })
           expect(json(observe(withCopies.states.at(-1) as EngineState))).toBe(json(observe(original.states.at(-1) as EngineState)))
+          expect(listBroadcasts(withCopies.states.at(-1) as EngineState)).toEqual(listBroadcasts(original.states.at(-1) as EngineState))
         },
       ),
       PARAMS,
+    )
+  })
+})
+
+// ── AC-S04-92: 로그 전체 ─────────────────────────────────────────────────
+
+describe('AC-S04-92 로그 전체 속성 (방송 시작·종료)', () => {
+  it('INV-4: broadcast.start로 시작한 로그(빈 엔진)를 처음부터 재생한 상태 = 이벤트마다 이어 온 상태, 같은 로그면 매번 같다', () => {
+    fc.assert(
+      fc.property(
+        scenarioArb.filter((s) => s.broadcasts.length === 0),
+        (scenario) => {
+          const run = runScenario(scenario)
+          expect(run.events[0]?.type).toBe('broadcast.start')
+          // 서버의 재생: initEngine({ broadcasts: [], settings: {} })부터 기록된 이벤트 그대로
+          let replayed = initEngine({ broadcasts: [], settings: {} })
+          for (const event of JSON.parse(json(run.events)) as EngineEvent[]) replayed = applyEvent(replayed, event).state
+          expect(json(replayed)).toBe(json(run.states.at(-1)))
+          expect(json(runScenario(scenario).states.at(-1))).toBe(json(replayed))
+        },
+      ),
+      { numRuns: 150 },
+    )
+  })
+
+  it('broadcast.end를 모두 뺀 로그와 방송 조회 밖의 조회 결과가 같다 (끝난 기록은 판정·정산·효과를 바꾸지 않는다)', () => {
+    fc.assert(
+      fc.property(
+        scenarioArb.filter((s) => s.entries.some((entry) => entry.raw.type === 'end')),
+        (scenario) => {
+          const run = runScenario(scenario)
+          let state = initEngine({ broadcasts: scenario.broadcasts, settings: scenario.settings })
+          for (const event of run.events) if (event.type !== 'broadcast.end') state = applyEvent(state, event).state
+          const full = run.states.at(-1) as EngineState
+          expect(json(observe(state))).toBe(json(observe(full)))
+          expect(listBroadcasts(state).map(({ ended: _e, endedAt: _a, ...rest }) => rest)).toEqual(listBroadcasts(full).map(({ ended: _e, endedAt: _a, ...rest }) => rest))
+        },
+      ),
+      { numRuns: 150 },
     )
   })
 })
@@ -686,8 +911,14 @@ function invalidS03Commands(state: EngineState): Record<string, unknown>[] {
   for (const { ref } of listSmsRefs(state)) out.push({ type: 'sms', b: 'b1', ref, no: 2, received: '19:00', memo: '다른 메모' })
   // 구매자를 정하지 않은 ref의 사본(그 사이 구매자를 알게 됐어도), 주문이었던 메시지의 변환, 충돌 중 배정 (D-062·D-064·D-067)
   for (const [ref, buyer] of pentries(state.refs)) if (buyer === null) out.push({ type: 'sms', b: 'b1', ref, no: 1, received: '20:00', buyer: 'A' })
+  // 취소였던 메시지도 어느 번호로도 바꾸지 않는다 (D-076). 이미 선언한 방송의 broadcast.start, 이미 끝난 방송의 broadcast.end (D-070)
+  for (const broadcast of listBroadcasts(state)) {
+    out.push({ type: 'broadcast.start', b: broadcast.id, date: '2026-10-20', title: '다른 제목', settings: { 'waitlist.max': 0, 'claim.parseMode': 'LOOSE' } })
+    out.push({ type: 'broadcast.start', b: broadcast.id, date: broadcast.date, title: broadcast.title })
+    if (broadcast.ended) out.push({ type: 'broadcast.end', b: broadcast.id })
+  }
   for (const [key, message] of pentries(state.messages)) {
-    if (!message.order) continue
+    if (!message.order && !message.cancel) continue
     const [b, msg] = JSON.parse(key) as [string, string]
     for (const n of NOS) out.push({ type: 'host.convertMessage', b, msg, no: n })
   }
@@ -743,6 +974,9 @@ describe('AC-S03-04 무작위 상태에 맞지 않는 S03 명령 → 새 효과 
 // ── AC-S03-02: 검사 함수와 applyEvent의 판정이 같다 ──────────────────────
 
 const VALID_EVENTS: readonly Record<string, unknown>[] = [
+  { type: 'broadcast.start', b: 'b7', date: '2026-10-20', title: '7부', settings: { 'waitlist.max': 2, 'shipping.freeThreshold': null, 'claim.maxNumber': 9999 } },
+  { type: 'broadcast.start', b: 'b1', date: '2026-10-18', title: '' },
+  { type: 'broadcast.end', b: 'b1' },
   { type: 'product.register', b: 'b1', no: 5, name: 'x', price: 1000, stock: 2, status: 'READY' },
   { type: 'product.open', b: 'b1', no: 5 },
   { type: 'product.update', b: 'b1', no: 1, name: 'y', price: 0, stock: 3, applyTo: 'UNPAID_CLAIMS' },
@@ -783,6 +1017,14 @@ const mutation = fc.oneof(
     field: fc.constantFrom('ref', 'phoneKey', 'phoneLast4', 'phone', 'replace', 'replaceTo'),
     value: fc.constantFrom<unknown>(undefined, '', 'a'.repeat(15), 'a'.repeat(16), 'a'.repeat(128), 'a'.repeat(129), 'a+b='.repeat(5), '010-1234-5678', '01012345678', '5678', '567', '56789', '５６７８', '12a4', 5678, '김영희', 's:1', 'a'.repeat(64), 'a'.repeat(65), 'WAITLIST', 'B'),
   }),
+  // S04: 표에 없는 필드(값과 상관없이, undefined여도 — D-073), ref·memo의 휴대폰 번호, 설정 스냅샷 키·값·범위 (D-071)
+  fc.record({ kind: fc.constant('named' as const), field: fc.constantFrom(...EXTRA_NAMES, 'seq2', 'B', 'settings'), value: fc.constantFrom<unknown>(undefined, null, '010-1234-5678', { phone: '01012345678' }, 1) }),
+  fc.record({ kind: fc.constant('phone' as const), field: fc.constantFrom('ref', 'memo'), digits: fc.integer({ min: 0, max: 99_999_999 }), form: fc.nat(5) }),
+  fc.record({
+    kind: fc.constant('setting' as const),
+    key: fc.constantFrom('waitlist.max', 'claim.maxNumber', 'claim.preOpenWindowSec', 'shipping.baseFee', 'shipping.freeThreshold', 'thanks.batchWindowSec', 'claim.ignoreOwner', 'cancel.succession', 'settlement.groupBy', 'waitlist.maxx'),
+    value: fc.constantFrom<unknown>(0, -1, 1, 100, 101, 300, 301, 600, 601, 9999, 10_000, 1_000_000, 1_000_001, 100_000_000, 100_000_001, 1.5, Number.NaN, '5', null, true, 'ASK', 'MANUAL', 'DATE', undefined),
+  }),
 )
 
 describe('AC-S03-02 검사 함수 = applyEvent의 입력 오류 판정', () => {
@@ -799,7 +1041,14 @@ describe('AC-S03-02 검사 함수 = applyEvent의 입력 오류 판정', () => {
           } else if (m.kind === 'set') event = { ...event, [fields[m.field % fields.length] as string]: m.value }
           else if (m.kind === 'type') event = { ...event, type: m.value }
           else if (m.kind === 'sms') event = { ...event, [m.field]: m.value }
-          else event = { ...event, extraField: m.value }
+          else if (m.kind === 'named') {
+            event = { ...event }
+            Object.defineProperty(event, m.field, { value: m.value, enumerable: true, writable: true, configurable: true })
+          } else if (m.kind === 'phone') event = { ...event, [m.field]: phoneForms(m.digits)[m.form] }
+          else if (m.kind === 'setting') {
+            const current = event.settings
+            event = { ...event, settings: { ...(typeof current === 'object' && current !== null ? current : {}), [m.key]: m.value } }
+          } else event = { ...event, extraField: m.value }
         }
         const before = json(state)
         const problems = checkEvent(state, event)
@@ -811,8 +1060,36 @@ describe('AC-S03-02 검사 함수 = applyEvent의 입력 오류 판정', () => {
         }
         expect(isInvalidEvent(thrown), json(event)).toBe(problems.length > 0)
         if (problems.length > 0) expect(json(state)).toBe(before)
+        // 입력 오류도 미구현도 아니면 예외가 없다 (미구현은 effect.failed와 MANUAL 설정뿐)
+        if (problems.length === 0 && thrown !== undefined) expect(isNotImplemented(thrown), `${json(event)}: ${String(thrown)}`).toBe(true)
       }),
       { numRuns: 400 },
+    )
+  })
+
+  it('속성 (S04): 유효한 이벤트에 임의 이름의 필드를 더하면 입력 오류이고 checkEvent가 그 필드를 짚는다, ref·memo의 휴대폰 번호(여러 형식)도 입력 오류 (AC-S04-06·07)', () => {
+    // R-1 표에 있는 필드 이름 (어느 종류에든) — 무작위 이름이 그중 하나면 건너뛴다
+    const known = new Set(['type', 'seq', 'at', 'b', 'no', 'name', 'price', 'stock', 'status', 'applyTo', 'from', 'to', 'id', 'ch', 'nick', 'text', 'owner', 'publishedAt', 'ref', 'received', 'memo', 'phoneKey', 'phoneLast4', 'buyer', 'phone', 'reason', 'replace', 'replaceTo', 'decision', 'msg', 'into', 'effectId', 'date', 'mode', 'amount', 'title', 'settings'])
+    fc.assert(
+      fc.property(scenarioArb, fc.nat(), fc.string({ minLength: 1, maxLength: 12 }), fc.anything(), fc.integer({ min: 0, max: 99_999_999 }), fc.nat(5), (scenario, pick, name, value, digits, form) => {
+        const state = runScenario(scenario).states.at(-1) as EngineState
+        const valid: Record<string, unknown> = { ...(VALID_EVENTS[pick % VALID_EVENTS.length] as Record<string, unknown>), seq: 999, at: T0 + 10_000_000 }
+        const before = json(state)
+        if (!known.has(name)) {
+          const event = { ...valid }
+          Object.defineProperty(event, name, { value, enumerable: true, writable: true, configurable: true })
+          expect(checkEvent(state, event).map((p) => p.field), name).toContain(name)
+          expect(() => applyEvent(state, event as unknown as EngineEvent)).toThrow(InvalidEventError)
+        }
+        const phone = phoneForms(digits)[form] as string
+        for (const field of ['ref', 'memo'] as const) {
+          const sms = { seq: 999, at: T0 + 10_000_000, type: 'sms', b: 'b1', ref: 'r9', no: 1, received: '20:00', [field]: phone }
+          expect(checkEvent(state, sms).map((p) => p.field), `${field}: ${phone}`).toContain(field)
+          expect(() => applyEvent(state, sms as unknown as EngineEvent)).toThrow(InvalidEventError)
+        }
+        expect(json(state)).toBe(before)
+      }),
+      { numRuns: 300 },
     )
   })
 
