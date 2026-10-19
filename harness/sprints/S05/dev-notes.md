@@ -153,3 +153,7 @@ S04 계약(`harness/sprints/S04/dev-notes.md` "웹(S05)에게")은 그대로이�
 ### 남의 몫 (test-domain·dev-web)
 - 계약이 바뀌어 고쳐야 할 기존 적대 시험은 없었다(S04 적대 시험 81개가 그대로 통과 — `s04/**`, `s00/server.test.ts`).
 - E2E 단계를 `pnpm verify`에 넣는 일은 오케스트레이터 몫(D-027). E2E 서버 명령은 위에 있다.
+
+### 검증 (dev-server 끝, `pnpm verify`)
+- 통과 (통과 6 · 실패 0 · 건너뜀 0): typecheck(설정 7 · TS 185) · lint(오류 0 · 경고 0) · test(파일 66 · 테스트 1708) · golden(파일 20 · 파서 379 · 엔진 114 · 통과 493, 그 밖 0) · adversarial(파일 24 · 테스트 631, 실패 0) · coverage(코어 라인 100% · 분기 99.65%).
+- 보호 경로 게이트(`node scripts/harness/check-protected.mjs 5a8f7ea`) 통과. 화면(dev-web) 몫은 아직 없다(웹 시험·Playwright는 다음 차례).
