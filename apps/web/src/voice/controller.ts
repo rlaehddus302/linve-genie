@@ -7,7 +7,7 @@
 import { formatWon } from '@livejjim/core'
 import type { CardRegistration, SpeechEngine, SpeechError, SpeechResult, SpeechState, SuggestionCard, VarietyDictionary, VoiceSettings } from '@livejjim/voice'
 import { editQuestion } from '../lib/quick.ts'
-import { decideAutoConfirm, decideVoiceEnter, historyNames, nextFront, nextWake, parseSecondsText, pushHeard, type FrontMark, type HeardLine } from '../lib/voice.ts'
+import { decideAutoConfirm, decideVoiceEnter, enterReady, historyNames, nextFront, nextWake, parseSecondsText, pushHeard, type FrontMark, type HeardLine } from '../lib/voice.ts'
 import type { VoiceModule } from './load.ts'
 
 export type VoicePhase = 'off' | 'loading' | 'consent' | 'on'
@@ -216,6 +216,7 @@ export class VoiceController {
     if (phase === 'off') return
     this.#becomeOff()
     this.#engine?.stop()
+    this.#host.focusQuick()
   }
 
   /** 콘솔을 떠날 때: 인식을 멈추고 기다림을 모두 버린다 */
@@ -249,6 +250,8 @@ export class VoiceController {
     this.#set({ phase: 'on', error: null, interim: null, stateLabel: this.#label('LISTENING') })
     engine.start()
     if (this.#phase() === 'on') this.#loadHistory()
+    // 누른 버튼("음성 켜기")이 사라졌다 — 말하고 바로 Enter를 칠 수 있게 빠른 입력칸으로
+    this.#host.focusQuick()
   }
 
   #becomeOff(): void {
@@ -505,7 +508,9 @@ export class VoiceController {
   refresh(): void {
     if (this.#disposed) return
     const deferred = this.#autoConfirm()
-    this.#set({}, deferred)
+    // 맨 앞 카드의 "Enter 등록"이 보이면 "새 카드가 방금 나왔어요…"는 할 일을 다 했다
+    const tooSoon = this.#snapshot.tooSoon && !enterReady(this.#snapshot.front, this.#host.now())
+    this.#set({ tooSoon }, deferred)
   }
 
   /** 기다림이 끝난 카드를 하나 등록한다. 창이 열려 미뤘으면 true */

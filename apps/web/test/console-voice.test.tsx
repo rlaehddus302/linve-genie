@@ -112,6 +112,8 @@ describe('켜기 전·안내 창 (AC-I4-10·11)', () => {
     await openConsole()
     await turnOnVoice()
     expect(FakeRecognition.all).toHaveLength(1)
+    // 누른 버튼이 사라졌다 — 빠른 입력칸으로
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('빠른 입력')))
     expect(window.localStorage.getItem(VOICE_CONSENT_KEY)).not.toBeNull()
     expect(screen.getByText('음성은 인식을 위해 구글로 보내져요.')).toBeDefined()
     await waitFor(() => expect(engine.server.callsTo('GET', /^\/api\/days$/)).toHaveLength(1))
@@ -185,6 +187,7 @@ describe('자막·카드·Enter 등록 (AC-I4-13·20·21)', () => {
     expect(within(front).queryByText('Enter 등록')).toBeNull()
     await sleep(1050)
     expect(within(front).getByText('Enter 등록')).toBeDefined()
+    expect(screen.queryByText('새 카드가 방금 나왔어요. 확인하고 다시 Enter를 눌러 주세요.')).toBeNull()
     expect(within(screen.getByRole('listitem', { name: '15번 핑크프릴 15,000원 카드' })).queryByText('Enter 등록')).toBeNull()
     pressEnter(quick)
     await waitFor(() => expect(registers()).toEqual([[16, '라울', 10000]]))
