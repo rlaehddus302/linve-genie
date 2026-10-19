@@ -9,7 +9,15 @@ import type { ScopeData } from '../lib/scope-data.ts'
 /** 열린 창 (위에 쌓인다) */
 export type Dialog =
   | { readonly kind: 'product'; readonly key: string }
-  | { readonly kind: 'edit'; readonly product: string; readonly name: string; readonly price: number; readonly line: string | null }
+  | {
+      readonly kind: 'edit'
+      readonly product: string
+      readonly name: string
+      readonly price: number
+      readonly line: string | null
+      /** 빠른 입력칸 아래에 남겨 둔 "고칠까요?"에서 열었으면 그 번호 — 예로 마치면 지운다, 아니요면 남는다 */
+      readonly ask?: number
+    }
   | { readonly kind: 'conflict' }
   | { readonly kind: 'cancelRequests' }
   | { readonly kind: 'succession' }

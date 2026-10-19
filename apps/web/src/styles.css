@@ -479,6 +479,18 @@ p {
   background-color: #e8f0fe;
 }
 
+.quick-ask {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.25rem 0.75rem;
+  border: 2px solid #6b4e00;
+  border-radius: 0.5rem;
+  background-color: #fef7e0;
+  color: #2b1f00;
+}
+
 .summary {
   display: flex;
   flex-wrap: wrap;

@@ -5,7 +5,7 @@ import { useMemo, useRef, useState } from 'react'
 import { isApiError, type ApiError } from '../api/client.ts'
 import type { Buyer, ChatMessage, Product } from '../api/types.ts'
 import { formatWon, productKey } from '../lib/derive.ts'
-import { changedFields } from '../lib/quick.ts'
+import { changedFields, editQuestion } from '../lib/quick.ts'
 import { PRODUCT_STATUS_WORD } from '../lib/words.ts'
 import { useConsoleApi, type AssignSpec, type ConfirmSpec, type ReasonSpec } from './console-context.ts'
 import { ErrorNote, FieldError } from './ErrorNote.tsx'
@@ -359,7 +359,7 @@ export function EditDialog({ productKey: key, name, price, line, onClose, onDone
     )
   }
   const closed = product.status === 'CLOSED'
-  const question = closed ? `${String(product.no)}번은 판매 종료된 상품이에요. 새 값으로 고쳐서 다시 팔까요?` : `${String(product.no)}번이 이미 있어요. 고칠까요?`
+  const question = editQuestion(product.no, closed)
 
   const send = async (changes: { name?: string; price?: number }, applyTo: 'NEW_ONLY' | 'UNPAID_CLAIMS' | null) => {
     if (busy) return

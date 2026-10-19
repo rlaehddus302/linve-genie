@@ -3,7 +3,7 @@
 import { useEffect, useRef, type KeyboardEvent, type RefObject } from 'react'
 import type { ApiError } from '../api/client.ts'
 import { productKey } from '../lib/derive.ts'
-import { previewNumber, quickSettings, type FixField } from '../lib/quick.ts'
+import { editQuestion, previewNumber, quickSettings, type FixField } from '../lib/quick.ts'
 import { useConsoleApi } from './console-context.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { ProductSummary } from './ProductBoard.tsx'
@@ -30,6 +30,21 @@ export interface Registration {
   readonly error: ApiError | null
 }
 
+/**
+ * 늦게 판단한 같은 번호 줄(AC-S05-13): 앞 등록 응답을 기다리는 동안 판매자가 다음 줄을 치기 시작했으면 "고칠까요?" 창을 띄워
+ * 글자를 빼앗지 않고 칸 아래에 남긴다 — 판매자가 "고치기"를 누를 때 그 창을 연다 (TE-S05-002)
+ */
+export interface EditAsk {
+  readonly id: number
+  /** 친 줄 */
+  readonly line: string
+  readonly no: number
+  /** 상품 키 */
+  readonly product: string
+  readonly name: string
+  readonly price: number
+}
+
 export interface QuickInputProps {
   readonly value: string
   readonly onChange: (value: string) => void
@@ -41,6 +56,12 @@ export interface QuickInputProps {
   readonly onFixClose: () => void
   readonly registrations: readonly Registration[]
   readonly onRetry: (id: number) => void
+  /** 늦게 판단해 창을 띄우지 않은 "고칠까요?" */
+  readonly asks: readonly EditAsk[]
+  /** "고치기": 그 줄의 "고칠까요?" 창을 연다 */
+  readonly onAsk: (id: number) => void
+  /** "그대로 두기": 아무것도 보내지 않고 지운다 */
+  readonly onAskDismiss: (id: number) => void
   readonly error: ApiError | null
 }
 
@@ -129,6 +150,25 @@ export function QuickInput(props: QuickInputProps) {
           </button>
         </div>
       ))}
+      {props.asks.length > 0 ? (
+        <ul className="plain-list stack-tight" aria-label="고칠까요?">
+          {props.asks.map((ask) => (
+            <li key={ask.id} className="quick-ask">
+              <span role="status">
+                {editQuestion(ask.no, api.data.products.get(ask.product)?.status === 'CLOSED')} 친 줄: {ask.line}
+              </span>
+              <span className="row">
+                <button type="button" className="button button-primary" aria-label={`${ask.line} 고치기`} onClick={() => props.onAsk(ask.id)}>
+                  고치기
+                </button>
+                <button type="button" className="button" aria-label={`${ask.line} 그대로 두기`} onClick={() => props.onAskDismiss(ask.id)}>
+                  그대로 두기
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {fix !== null ? (
         <fieldset className="fix" aria-label="고치기 칸">
           <legend>고치기 — Enter 등록 · Esc 닫기</legend>

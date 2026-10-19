@@ -18,7 +18,7 @@ import { ConsoleContext, useConsoleApi, type ConsoleApi, type Dialog, type HostA
 import { ErrorNote } from './ErrorNote.tsx'
 import { ProductBoard, CurrentProduct } from './ProductBoard.tsx'
 import { ProductDetail } from './ProductDetail.tsx'
-import { QuickInput, type FixState, type Registration } from './QuickInput.tsx'
+import { QuickInput, type EditAsk, type FixState, type Registration } from './QuickInput.tsx'
 import { RehearsalPanel } from './RehearsalPanel.tsx'
 import { TopBar } from './TopBar.tsx'
 import { NOT_APPLIED_MESSAGE, UndoBar, secondsWord } from './UndoBar.tsx'
@@ -153,6 +153,8 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
   quickTextRef.current = quickText
   const [fix, setFix] = useState<FixState | null>(null)
   const [registrations, setRegistrations] = useState<Registration[]>([])
+  const [asks, setAsks] = useState<EditAsk[]>([])
+  const askId = useRef(1)
   const [quickError, setQuickError] = useState<ApiError | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [dialogs, setDialogs] = useState<Dialog[]>([])
@@ -327,6 +329,50 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
     if (line !== null && quickTextRef.current === line) setQuickText('')
   }, [])
 
+  /** 판매자가 그 줄 뒤에 다른 줄을 치기 시작했나 (앞 등록 응답을 기다린 줄의 판단이 늦게 날 때) */
+  const typedNext = useCallback((line: string): boolean => {
+    const input = quickRef.current
+    return input !== null && input.value !== '' && input.value !== line && document.activeElement === input
+  }, [])
+
+  /**
+   * 같은 번호 줄의 "고칠까요?" (AC-S05-13). 판단이 늦게 났고(앞 등록 응답을 기다린 줄이거나, 보낸 뒤에야 같은 번호가 있는 걸 앎) 판매자가
+   * 벌써 다음 줄을 치고 있으면 창을 띄워 글자·Enter를 빼앗지 않고 칸 아래 "고칠까요?"에 남긴다 — 누르면 그 창을 연다(TE-S05-002, AC-S05-10·42).
+   * Enter 바로 뒤의 판단은 칸 글자가 그 줄 그대로라 늘 창을 연다
+   */
+  const askEdit = useCallback(
+    (product: Product, name: string, price: number, line: string) => {
+      if (typedNext(line)) {
+        setAsks((list) => [...list, { id: askId.current++, line, no: product.no, product: product.key, name, price }])
+        return
+      }
+      openDialog({ kind: 'edit', product: product.key, name, price, line })
+    },
+    [openDialog, typedNext],
+  )
+
+  const removeAsk = useCallback((id: number | undefined) => {
+    if (id !== undefined) setAsks((list) => list.filter((ask) => ask.id !== id))
+  }, [])
+
+  const openAsk = useCallback(
+    (id: number) => {
+      const ask = asks.find((item) => item.id === id)
+      if (ask === undefined) return
+      const base = { kind: 'edit', product: ask.product, name: ask.name, price: ask.price, line: ask.line } as const
+      // 칸이 비었으면 친 줄을 칸으로 옮긴다 — 바로 물었을 때와 같이 아니요면 칸에 그대로 남는다(AC-S05-13).
+      // 다른 줄을 치는 중이면 그 글자를 두고, 아니요면 "고칠까요?"를 남겨 친 줄을 잃지 않는다
+      if (quickTextRef.current === '') {
+        setQuickText(ask.line)
+        removeAsk(id)
+        openDialog(base)
+        return
+      }
+      openDialog({ ...base, ask: id })
+    },
+    [asks, openDialog, removeAsk],
+  )
+
   const undoRegistration = useCallback(
     async (no: number): Promise<'undone' | 'blocked'> => {
       const product = findProduct(no)
@@ -350,7 +396,7 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
         const existing = findProduct(request.no)
         if (existing !== undefined) {
           remove()
-          openDialog({ kind: 'edit', product: existing.key, name: request.name, price: request.price, line: request.line })
+          askEdit(existing, request.name, request.price, request.line)
           return
         }
       }
@@ -362,7 +408,7 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
         if (!result.changed) {
           // 그사이 다른 곳에서 같은 번호가 생겼다: 등록되지 않았으니 묻는다
           const existing = findProduct(request.no)
-          if (existing !== undefined) openDialog({ kind: 'edit', product: existing.key, name: request.name, price: request.price, line: request.line })
+          if (existing !== undefined) askEdit(existing, request.name, request.price, request.line)
           return
         }
         clearLine(request.line)
@@ -380,7 +426,7 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
         }
       }
     },
-    [b, clearLine, findProduct, openDialog, queue, undoRegistration, write],
+    [askEdit, b, clearLine, findProduct, queue, undoRegistration, write],
   )
 
   const startRegistration = useCallback((line: string, no: number, name: string, price: number, fromFix: boolean): number => {
@@ -405,12 +451,6 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
     [runRegistration],
   )
 
-  /** 판매자가 그 줄 뒤에 다른 줄을 치기 시작했나 (앞 등록 응답을 기다린 줄의 판단이 늦게 날 때) */
-  const typedNext = useCallback((line: string): boolean => {
-    const input = quickRef.current
-    return input !== null && input.value !== '' && input.value !== line && document.activeElement === input
-  }, [])
-
   /**
    * 한 줄의 판단을 실행한다. inChain = 앞 등록 응답을 기다렸다가 차례 안에서 판단한 줄 — 등록은 그 자리에서 보내고 끝날 때까지
    * 차례를 잡는다(뒤 줄의 판단이 이 등록을 본다: "15 …" 다음의 "15"는 찾기).
@@ -432,7 +472,7 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
         }
         case 'edit':
           if (fromFix) setFix(null)
-          openDialog({ kind: 'edit', product: decision.product.key, name: decision.name, price: decision.price, line })
+          askEdit(decision.product, decision.name, decision.price, line)
           return undefined
         case 'open': {
           setFix(null)
@@ -461,7 +501,7 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
         }
       }
     },
-    [clearLine, enqueueRegistration, focusQuick, openDialog, runRegistration, startRegistration, typedNext],
+    [askEdit, clearLine, enqueueRegistration, focusQuick, openDialog, runRegistration, startRegistration, typedNext],
   )
 
   const onEnter = useCallback(
@@ -623,6 +663,9 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
             onFixClose={closeFix}
             registrations={registrations}
             onRetry={retryRegistration}
+            asks={asks}
+            onAsk={openAsk}
+            onAskDismiss={removeAsk}
             error={quickError}
           />
           <UndoBar items={items} queue={queue} />
@@ -660,12 +703,14 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
           now={now}
           messageOf={(id) => messagesById.get(id)}
           onClose={closeTop}
-          onEditDone={(product, line) => {
+          onEditDone={(product, line, ask) => {
             clearLine(line)
+            removeAsk(ask)
             setSelected(product.key)
             closeAll()
           }}
-          onEditUnchanged={(product) => {
+          onEditUnchanged={(product, ask) => {
+            removeAsk(ask)
             setSelected(product.key)
             setDialogs([{ kind: 'product', key: product.key }])
           }}
@@ -680,8 +725,8 @@ interface DialogViewProps {
   readonly now: number
   readonly messageOf: (id: string) => ChatMessage | undefined
   readonly onClose: () => void
-  readonly onEditDone: (product: Product, line: string | null) => void
-  readonly onEditUnchanged: (product: Product) => void
+  readonly onEditDone: (product: Product, line: string | null, ask: number | undefined) => void
+  readonly onEditUnchanged: (product: Product, ask: number | undefined) => void
 }
 
 function DialogView({ dialog, now, messageOf, onClose, onEditDone, onEditUnchanged }: DialogViewProps) {
@@ -696,8 +741,8 @@ function DialogView({ dialog, now, messageOf, onClose, onEditDone, onEditUnchang
           price={dialog.price}
           line={dialog.line}
           onClose={onClose}
-          onDone={(product) => onEditDone(product, dialog.line)}
-          onUnchanged={onEditUnchanged}
+          onDone={(product) => onEditDone(product, dialog.line, dialog.ask)}
+          onUnchanged={(product) => onEditUnchanged(product, dialog.ask)}
         />
       )
     case 'conflict':

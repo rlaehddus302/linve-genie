@@ -127,3 +127,8 @@ export function changedFields(product: Product, name: string, price: number): { 
     ...(price !== product.price ? { price } : {}),
   }
 }
+
+/** 같은 번호를 다시 쳤을 때의 물음 (AC-S05-13): 판매 종료된 상품이면 다시 팔지를 묻는다 */
+export function editQuestion(no: number, closed: boolean): string {
+  return closed ? `${String(no)}번은 판매 종료된 상품이에요. 새 값으로 고쳐서 다시 팔까요?` : `${String(no)}번이 이미 있어요. 고칠까요?`
+}
