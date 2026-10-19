@@ -60,8 +60,10 @@ export interface QuickInputProps {
   readonly asks: readonly EditAsk[]
   /** "고치기": 그 줄의 "고칠까요?" 창을 연다 */
   readonly onAsk: (id: number) => void
-  /** "그대로 두기": 아무것도 보내지 않고 지운다 */
+  /** "그대로 두기"·"지우기": 아무것도 보내지 않고 지운다 */
   readonly onAskDismiss: (id: number) => void
+  /** "등록하기": 그 번호에 상품이 없어졌을 때 친 줄로 등록한다 (AC-S06-67) */
+  readonly onAskRegister: (id: number) => void
   readonly error: ApiError | null
 }
 
@@ -130,7 +132,7 @@ export function QuickInput(props: QuickInputProps) {
           </span>
         ) : null}
       </div>
-      <p id="quick-help" className="hint">
+      <p id="quick-help" className="hint quick-help">
         번호 품종 가격을 적고 Enter. 번호만 적으면 그 상품을 찾아요.
       </p>
       {preview !== undefined ? (
@@ -152,21 +154,42 @@ export function QuickInput(props: QuickInputProps) {
       ))}
       {props.asks.length > 0 ? (
         <ul className="plain-list stack-tight" aria-label="고칠까요?">
-          {props.asks.map((ask) => (
-            <li key={ask.id} className="quick-ask">
-              <span role="status">
-                {editQuestion(ask.no, api.data.products.get(ask.product)?.status === 'CLOSED')} 친 줄: {ask.line}
-              </span>
-              <span className="row">
-                <button type="button" className="button button-primary" aria-label={`${ask.line} 고치기`} onClick={() => props.onAsk(ask.id)}>
-                  고치기
-                </button>
-                <button type="button" className="button" aria-label={`${ask.line} 그대로 두기`} onClick={() => props.onAskDismiss(ask.id)}>
-                  그대로 두기
-                </button>
-              </span>
-            </li>
-          ))}
+          {props.asks.map((ask) => {
+            // 그 번호의 지금 상품과 다시 본다 (AC-S06-67, D-095)
+            const current = api.data.products.get(productKey(api.b, ask.no))
+            if (current === undefined) {
+              return (
+                <li key={ask.id} className="quick-ask">
+                  <span role="status">
+                    {ask.no}번은 지금 없어요. 이 줄로 새로 등록할까요? 친 줄: {ask.line}
+                  </span>
+                  <span className="row">
+                    <button type="button" className="button button-primary" aria-label={`${ask.line} 등록하기`} onClick={() => props.onAskRegister(ask.id)}>
+                      등록하기
+                    </button>
+                    <button type="button" className="button" aria-label={`${ask.line} 지우기`} onClick={() => props.onAskDismiss(ask.id)}>
+                      지우기
+                    </button>
+                  </span>
+                </li>
+              )
+            }
+            return (
+              <li key={ask.id} className="quick-ask">
+                <span role="status">
+                  {editQuestion(ask.no, current.status === 'CLOSED')} 친 줄: {ask.line}
+                </span>
+                <span className="row">
+                  <button type="button" className="button button-primary" aria-label={`${ask.line} 고치기`} onClick={() => props.onAsk(ask.id)}>
+                    고치기
+                  </button>
+                  <button type="button" className="button" aria-label={`${ask.line} 그대로 두기`} onClick={() => props.onAskDismiss(ask.id)}>
+                    그대로 두기
+                  </button>
+                </span>
+              </li>
+            )
+          })}
         </ul>
       ) : null}
       {fix !== null ? (

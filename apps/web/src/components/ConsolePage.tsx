@@ -1,123 +1,72 @@
 // 라이브 콘솔 (SPEC §7 화면 2, AC-S05-02·10~15·21·22·30~35·40~42·54·62·63).
 // 빠른 입력·알림 띠는 위쪽에 늘 보인다. 현재 상품·상품 보드·채팅(·리허설 조작판)은 폭에 맞춰 나란히 또는 아래로.
 import type { SaleSettings } from '@livejjim/core'
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { get, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import type { ChatMessage, Product, WriteResult } from '../api/types.ts'
-import { ConsoleStore, type ConsoleSnapshot } from '../lib/console-store.ts'
+import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
 import { BuyerNames, alertCounts, latestProduct, productKey } from '../lib/derive.ts'
+import { useUndoQueue } from '../lib/host-delay.ts'
 import { dateWords } from '../lib/kst.ts'
-import { decideFixForm, decideQuickInput, quickSettings, type QuickDecision } from '../lib/quick.ts'
-import type { Route } from '../lib/router.ts'
-import { HOST_ACTION_DELAY_MS, UndoQueue, type UndoItem } from '../lib/undo-queue.ts'
+import { useLeaveGuard } from '../lib/leave-guard.ts'
+import { changedFields, decideFixForm, decideQuickInput, quickSettings, type QuickDecision } from '../lib/quick.ts'
+import { routePath, type Navigate } from '../lib/router.ts'
+import { useScopeStore } from '../lib/use-store.ts'
+import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
 import { AssignDialog, ConfirmDialog, ConvertDialog, EditDialog, ReasonDialog } from './ActionDialogs.tsx'
 import { AttentionDialog, CancelRequestDialog, ConflictDialog, PendingDialog, SuccessionDialog } from './AlertDialogs.tsx'
 import { AlertStrip, firstAlert, type AlertKind } from './AlertStrip.tsx'
 import { ChatPanel } from './ChatPanel.tsx'
 import { ConsoleContext, useConsoleApi, type ConsoleApi, type Dialog, type HostActionInput } from './console-context.ts'
 import { ErrorNote } from './ErrorNote.tsx'
+import { LiveNotices } from './LiveNotices.tsx'
 import { ProductBoard, CurrentProduct } from './ProductBoard.tsx'
 import { ProductDetail } from './ProductDetail.tsx'
 import { QuickInput, type EditAsk, type FixState, type Registration } from './QuickInput.tsx'
 import { RehearsalPanel } from './RehearsalPanel.tsx'
-import { TopBar } from './TopBar.tsx'
 import { NOT_APPLIED_MESSAGE, UndoBar, secondsWord } from './UndoBar.tsx'
 
 export interface ConsolePageProps {
   readonly broadcastId: string
-  readonly shopName: string
-  readonly onLogout: () => void
-  readonly navigate: (route: Route) => void
+  /** 앞 버전 호환 (위 줄은 앱이 그린다) */
+  readonly shopName?: string
+  readonly onLogout?: () => void
+  readonly navigate: Navigate
 }
 
-const noop = () => () => {}
-const LOADING: ConsoleSnapshot = {
-  phase: 'loading',
-  error: null,
-  broadcast: null,
-  data: null,
-  messages: [],
-  olderMessages: false,
-  loadingOlder: false,
-  connection: 'connecting',
-  generator: null,
-}
 const NO_ITEMS: readonly UndoItem[] = []
 
-/** 방송자 조치 대기 시간 (서버 /api/client-config, 운영 5000) */
-function useHostDelay(): number | null {
-  const [delay, setDelay] = useState<number | null>(null)
-  useEffect(() => {
-    let alive = true
-    get<{ hostActionDelayMs: number }>('/api/client-config').then(
-      (config) => {
-        if (alive) setDelay(Number.isFinite(config.hostActionDelayMs) && config.hostActionDelayMs >= 0 ? config.hostActionDelayMs : HOST_ACTION_DELAY_MS)
-      },
-      () => {
-        if (alive) setDelay(HOST_ACTION_DELAY_MS)
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [])
-  return delay
-}
-
 export function ConsolePage(props: ConsolePageProps) {
-  const [store, setStore] = useState<ConsoleStore | null>(null)
-  useEffect(() => {
-    const next = new ConsoleStore({ broadcastId: props.broadcastId })
-    setStore(next)
-    void next.start()
-    return () => next.stop()
-  }, [props.broadcastId])
-  const snapshot = useSyncExternalStore(store?.subscribe ?? noop, store?.getSnapshot ?? (() => LOADING))
-  const delay = useHostDelay()
+  const { store, snapshot } = useScopeStore(props.broadcastId, () => ({ broadcastId: props.broadcastId }))
+  const queue = useUndoQueue()
 
-  const [queue, setQueue] = useState<UndoQueue | null>(null)
-  useEffect(() => {
-    if (delay === null) return
-    const next = new UndoQueue({ delayMs: delay })
-    setQueue(next)
-    // 화면을 닫거나(새로고침·로그아웃·세션 만료로 콘솔이 내려감) 하면 기다리던 조치는 보내지 않는다 (D-083)
-    return () => next.cancelAll()
-  }, [delay])
-
-  const top = <TopBar shopName={props.shopName} onLogout={props.onLogout} navigate={props.navigate} />
   if (snapshot.phase === 'missing') {
     return (
-      <>
-        {top}
-        <main className="page">
-          <h1>방송을 찾지 못했어요</h1>
-          <p>방송 목록에서 다시 골라 주세요.</p>
-        </main>
-      </>
+      <main className="page">
+        <h1>방송을 찾지 못했어요</h1>
+        <p>방송 목록에서 다시 골라 주세요.</p>
+      </main>
     )
   }
   if (snapshot.phase === 'error' && snapshot.error !== null) {
     return (
-      <>
-        {top}
-        <main className="page">
-          <h1>콘솔을 열지 못했어요</h1>
-          <ErrorNote error={snapshot.error} onRetry={() => window.location.reload()} retryLabel="다시 열기" />
-        </main>
-      </>
+      <main className="page">
+        <h1>콘솔을 열지 못했어요</h1>
+        <ErrorNote error={snapshot.error} onRetry={() => window.location.reload()} retryLabel="다시 열기" />
+      </main>
     )
   }
   if (store === null || queue === null || snapshot.data === null || snapshot.broadcast === null) {
     return (
-      <>
-        {top}
-        <main className="page">
-          <p role="status">불러오는 중…</p>
-        </main>
-      </>
+      <main className="page">
+        <div className="page-sticky">
+          <LiveNotices snapshot={snapshot} onRetry={() => void store?.retryNow()} />
+        </div>
+        <p role="status">불러오는 중…</p>
+      </main>
     )
   }
-  return <Console {...props} store={store} snapshot={snapshot as ReadySnapshot} queue={queue} top={top} />
+  return <Console {...props} store={store} snapshot={snapshot as ReadySnapshot} queue={queue} />
 }
 
 type ReadySnapshot = ConsoleSnapshot & { readonly data: NonNullable<ConsoleSnapshot['data']>; readonly broadcast: NonNullable<ConsoleSnapshot['broadcast']> }
@@ -126,7 +75,6 @@ interface ConsoleProps extends ConsolePageProps {
   readonly store: ConsoleStore
   readonly snapshot: ReadySnapshot
   readonly queue: UndoQueue
-  readonly top: ReactNode
 }
 
 function isTextField(element: Element | null): element is HTMLInputElement | HTMLTextAreaElement {
@@ -134,7 +82,7 @@ function isTextField(element: Element | null): element is HTMLInputElement | HTM
   return element instanceof HTMLInputElement && !['button', 'checkbox', 'radio', 'submit', 'reset'].includes(element.type)
 }
 
-function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
+function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps) {
   const { data, broadcast } = snapshot
   const b = broadcastId
   const view = data.broadcasts.get(b)
@@ -166,19 +114,14 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
   const waitingLines = useRef(0)
   const regId = useRef(1)
   const regRequests = useRef(new Map<number, { requestId: string; line: string; no: number; name: string; price: number; fromFix: boolean }>())
-  const [now, setNow] = useState(() => Date.now())
+  const [alertsOpen, setAlertsOpen] = useState(false)
+
+  // 5초 대기 중인 방송자 조치가 있으면 다른 화면으로 가기 전에 묻는다 (AC-S06-01, D-083)
+  useLeaveGuard(useCallback(() => queue.waitingCount > 0, [queue]))
 
   useEffect(() => {
     quickRef.current?.focus()
   }, [])
-
-  // 보류 찜 경과 시간을 위해 1초마다 (보류 창이 열려 있을 때만)
-  const pendingOpen = dialogs.some((dialog) => dialog.kind === 'pending')
-  useEffect(() => {
-    if (!pendingOpen) return
-    const handle = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(handle)
-  }, [pendingOpen])
 
   // 저장소의 지금 자료로 찾는다 — 앞 등록 응답 뒤에 판단하는 줄이 화면이 다시 그려지기 전에도 그 등록을 본다
   const findProduct = useCallback(
@@ -359,7 +302,10 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
     (id: number) => {
       const ask = asks.find((item) => item.id === id)
       if (ask === undefined) return
-      const base = { kind: 'edit', product: ask.product, name: ask.name, price: ask.price, line: ask.line } as const
+      // 그 번호의 지금 상품과 비교한다 (번호 변경 뒤에도 — AC-S06-67)
+      const current = findProduct(ask.no)
+      if (current === undefined) return
+      const base = { kind: 'edit', product: current.key, name: ask.name, price: ask.price, line: ask.line } as const
       // 칸이 비었으면 친 줄을 칸으로 옮긴다 — 바로 물었을 때와 같이 아니요면 칸에 그대로 남는다(AC-S05-13).
       // 다른 줄을 치는 중이면 그 글자를 두고, 아니요면 "고칠까요?"를 남겨 친 줄을 잃지 않는다
       if (quickTextRef.current === '') {
@@ -370,7 +316,7 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
       }
       openDialog({ ...base, ask: id })
     },
-    [asks, openDialog, removeAsk],
+    [asks, findProduct, openDialog, removeAsk],
   )
 
   const undoRegistration = useCallback(
@@ -451,6 +397,28 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
     [runRegistration],
   )
 
+  /** 남겨 둔 "고칠까요?"의 번호에 상품이 없어졌으면 "이 줄로 새로 등록할까요?" → 등록하기 (AC-S06-67) */
+  const registerAsk = useCallback(
+    (id: number) => {
+      const ask = asks.find((item) => item.id === id)
+      if (ask === undefined) return
+      removeAsk(id)
+      enqueueRegistration(ask.line, ask.no, ask.name, ask.price, false)
+    },
+    [asks, enqueueRegistration, removeAsk],
+  )
+
+  // 상태가 바뀌면 남겨 둔 "고칠까요?"를 그 번호의 지금 상품과 다시 본다: 친 값과 다른 값이 없으면 지운다 (AC-S06-67, D-095)
+  useEffect(() => {
+    setAsks((list) => {
+      const next = list.filter((ask) => {
+        const current = data.products.get(productKey(b, ask.no))
+        return current === undefined || current.status === 'CLOSED' || Object.keys(changedFields(current, ask.name, ask.price)).length > 0
+      })
+      return next.length === list.length ? list : next
+    })
+  }, [data.products, b, asks.length])
+
   /**
    * 한 줄의 판단을 실행한다. inChain = 앞 등록 응답을 기다렸다가 차례 안에서 판단한 줄 — 등록은 그 자리에서 보내고 끝날 때까지
    * 차례를 잡는다(뒤 줄의 판단이 이 등록을 본다: "15 …" 다음의 "15"는 찾기).
@@ -488,9 +456,9 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
           // 늦게 판단한 오류인데 판매자가 벌써 다음 줄을 치고 있으면 고치기 칸만 열고 커서는 옮기지 않는다(치던 글자가 가격 칸으로 가지 않게)
           const grab = !(inChain && typedNext(line))
           setFix((current) => ({
-            no: decision.no === null ? (fromFix && current !== null ? current.no : '') : String(decision.no),
+            no: decision.no === null ? (decision.noText ?? (fromFix && current !== null ? current.no : '')) : String(decision.no),
             name: decision.name ?? (fromFix && current !== null ? current.name : ''),
-            price: fromFix && current !== null ? current.price : '',
+            price: decision.priceText ?? (fromFix && current !== null ? current.price : ''),
             focus: decision.focus,
             message: decision.message,
             line: fromFix && current !== null ? current.line : line,
@@ -622,16 +590,10 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
 
   return (
     <ConsoleContext.Provider value={api}>
-      {top}
-      <div className={broadcast.rehearsal ? 'console console-rehearsal' : 'console'}>
+      <main className={broadcast.rehearsal ? 'console console-rehearsal' : 'console'}>
         {broadcast.rehearsal ? (
           <p className="rehearsal-banner" role="note">
             리허설 중 — 실제 판매가 아니에요
-          </p>
-        ) : null}
-        {snapshot.connection === 'lost' ? (
-          <p className="connection-banner" role="alert">
-            실시간 연결이 끊겼어요. 다시 연결하는 중이에요.
           </p>
         ) : null}
         <div className="console-head">
@@ -639,19 +601,32 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
             {title} <span className="console-date">{dateWords(broadcast.date)}</span>
             {broadcast.rehearsal ? <span className="tag tag-rehearsal">리허설</span> : null}
           </h1>
-          {ended ? (
-            <p className="ended-banner" role="status">
-              끝난 방송이에요
-            </p>
-          ) : (
-            <button type="button" className="button" onClick={endBroadcast}>
-              방송 끝내기
-            </button>
-          )}
+          <div className="row">
+            <a
+              className="button"
+              href={routePath({ name: 'home' })}
+              onClick={(event) => {
+                event.preventDefault()
+                navigate({ name: 'home' })
+              }}
+            >
+              방송 목록
+            </a>
+            {ended ? (
+              <p className="ended-note" role="status">
+                끝난 방송이에요
+              </p>
+            ) : (
+              <button type="button" className="button" onClick={endBroadcast}>
+                방송 끝내기
+              </button>
+            )}
+          </div>
         </div>
         {endError !== null ? <ErrorNote error={endError} /> : null}
         <div className="console-sticky">
-          <AlertStrip counts={counts} onOpen={openAlert} />
+          <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
+          <AlertStrip counts={counts} onOpen={openAlert} expanded={alertsOpen} onToggle={() => setAlertsOpen((open) => !open)} />
           <QuickInput
             value={quickText}
             onChange={setQuickText}
@@ -666,12 +641,24 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
             asks={asks}
             onAsk={openAsk}
             onAskDismiss={removeAsk}
+            onAskRegister={registerAsk}
             error={quickError}
           />
           <UndoBar items={items} queue={queue} />
         </div>
         <div className="console-grid">
-          <CurrentProduct product={current} onOpen={(key) => openDialog({ kind: 'product', key })} />
+          <div className="console-side">
+            {broadcast.rehearsal ? (
+              <RehearsalPanel
+                broadcastId={b}
+                generator={snapshot.generator}
+                onGenerator={(status) => store.setGenerator(status)}
+                onWritten={(result) => void store.sync(result.seq)}
+                onOpenBroadcast={(id) => navigate({ name: 'console', id })}
+              />
+            ) : null}
+            <CurrentProduct product={current} onOpen={(key) => openDialog({ kind: 'product', key })} />
+          </div>
           <ProductBoard
             onOpen={(key) => {
               setSelected(key)
@@ -685,22 +672,13 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
             onLoadOlder={() => void store.loadOlder()}
             convertNotes={convertNotes}
           />
-          {broadcast.rehearsal ? (
-            <RehearsalPanel
-              broadcastId={b}
-              generator={snapshot.generator}
-              onGenerator={(status) => store.setGenerator(status)}
-              onWritten={(result) => void store.sync(result.seq)}
-            />
-          ) : null}
         </div>
         <p className="shortcuts">단축키: Enter 등록·찾기 · Esc 창 닫기 · Ctrl+Z(⌘Z) 되돌리기 · Alt+1(⌥1) 첫 알림 열기 · 1·2·3 창 안의 선택</p>
-      </div>
+      </main>
       {topDialog !== undefined ? (
         <DialogView
           key={dialogs.length}
           dialog={topDialog}
-          now={now}
           messageOf={(id) => messagesById.get(id)}
           onClose={closeTop}
           onEditDone={(product, line, ask) => {
@@ -722,14 +700,13 @@ function Console({ store, snapshot, queue, top, broadcastId }: ConsoleProps) {
 
 interface DialogViewProps {
   readonly dialog: Dialog
-  readonly now: number
   readonly messageOf: (id: string) => ChatMessage | undefined
   readonly onClose: () => void
   readonly onEditDone: (product: Product, line: string | null, ask: number | undefined) => void
   readonly onEditUnchanged: (product: Product, ask: number | undefined) => void
 }
 
-function DialogView({ dialog, now, messageOf, onClose, onEditDone, onEditUnchanged }: DialogViewProps) {
+function DialogView({ dialog, messageOf, onClose, onEditDone, onEditUnchanged }: DialogViewProps) {
   switch (dialog.kind) {
     case 'product':
       return <ProductDetailHost productKey={dialog.key} onClose={onClose} />
@@ -752,7 +729,7 @@ function DialogView({ dialog, now, messageOf, onClose, onEditDone, onEditUnchang
     case 'succession':
       return <SuccessionDialog onClose={onClose} />
     case 'pending':
-      return <PendingDialog onClose={onClose} now={now} />
+      return <PendingDialog onClose={onClose} />
     case 'attention':
       return <AttentionDialog onClose={onClose} />
     case 'reason':

@@ -148,7 +148,8 @@ const ChatRow = memo(function ChatRow({ message, claimText, note, onConvert }: C
   if (message.owner) classes.push('chat-owner')
   return (
     <li className={classes.join(' ')}>
-      <p className="chat-head">
+      {/* 시각·닉네임·표시·본문을 한 줄로 이어 쓴다 — 채팅 칸에 메시지가 더 많이 보이게 (AC-S06-62) */}
+      <p className="chat-line">
         <time dateTime={message.publishedAt}>{kstTime(message.publishedAt)}</time> <strong className="chat-nick">{message.nick}</strong>
         {message.owner ? <span className="tag tag-owner">{CHAT_WORD.owner}</span> : null}
         {message.order ? (
@@ -162,9 +163,9 @@ const ChatRow = memo(function ChatRow({ message, claimText, note, onConvert }: C
           </span>
         ) : null}
         {mentioned ? <span className="tag tag-mention">{CHAT_WORD.mention}</span> : null}
-        {message.failed ? <span className="tag tag-alert">확인 필요</span> : null}
+        {message.failed ? <span className="tag tag-alert">확인 필요</span> : null}{' '}
+        <span className="chat-text">{highlightMentions(message.text, message.mentions)}</span>
       </p>
-      <p className="chat-text">{highlightMentions(message.text, message.mentions)}</p>
       {claimWords.length > 0 || note !== undefined ? (
         <p className="chat-claims">
           {claimWords.map((word, index) => (
@@ -176,7 +177,7 @@ const ChatRow = memo(function ChatRow({ message, claimText, note, onConvert }: C
         </p>
       ) : null}
       {canConvert(message) ? (
-        <button type="button" className="button button-small" onClick={() => onConvert(message.id)}>
+        <button type="button" className="button button-small chat-convert" onClick={() => onConvert(message.id)}>
           찜으로 바꾸기
         </button>
       ) : null}

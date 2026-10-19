@@ -17,13 +17,23 @@ export class ApiError extends Error {
   readonly problems: readonly ApiProblem[]
   /** 서버에 닿지 못했다(오프라인·연결 끊김) */
   readonly network: boolean
-  constructor(input: { status: number; code: string; message: string; problems?: readonly ApiProblem[]; network?: boolean }) {
+  /** 오류 본문의 error 밖 값 (예: 생성기 409의 돌고 있는 방송 ID `broadcast`) */
+  readonly details: Readonly<Record<string, unknown>>
+  constructor(input: {
+    status: number
+    code: string
+    message: string
+    problems?: readonly ApiProblem[]
+    network?: boolean
+    details?: Readonly<Record<string, unknown>>
+  }) {
     super(input.message)
     this.name = 'ApiError'
     this.status = input.status
     this.code = input.code
     this.problems = input.problems ?? []
     this.network = input.network ?? false
+    this.details = input.details ?? {}
   }
 
   /** 같은 요청 번호로 자동으로 다시 보내도 되는 실패 (기록되지 않았다) */
@@ -75,11 +85,14 @@ function problemsOf(value: unknown): ApiProblem[] {
 /** 서버 오류 본문 → ApiError */
 export function errorFromBody(status: number, body: unknown): ApiError {
   const error = isRecord(body) && isRecord(body.error) ? body.error : null
+  const details: Record<string, unknown> = {}
+  if (isRecord(body)) for (const [key, value] of Object.entries(body)) if (key !== 'error') details[key] = value
   return new ApiError({
     status,
     code: error !== null && typeof error.code === 'string' ? error.code : 'UNKNOWN',
     message: error !== null && typeof error.message === 'string' ? error.message : UNKNOWN_MESSAGE,
     problems: error === null ? [] : problemsOf(error.problems),
+    details,
   })
 }
 

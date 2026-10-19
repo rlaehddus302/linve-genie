@@ -213,7 +213,7 @@ export function SuccessionDialog({ onClose }: { readonly onClose: () => void }) 
                 onClick={() =>
                   openReasonAction(api, {
                     title: `${label} ${name} 1등으로`,
-                    submitLabel: '1등으로',
+                    submitLabel: '1등으로 올리기',
                     label: `${label} ${name} 1등으로`,
                     claims: [claim.id],
                     products: [product.key],
@@ -237,8 +237,20 @@ export function SuccessionDialog({ onClose }: { readonly onClose: () => void }) 
 
 // ── 보류 찜 (AC-S05-30, ORD-06 AC2, R-5) ────────────────────────────────
 
-export function PendingDialog({ onClose, now }: { readonly onClose: () => void; readonly now: number }) {
+/** 보류 찜 창의 시계: 연 순간의 지금 시각으로 시작해 1초마다 (AC-S06-66 010 — 첫 그림부터 경과 초가 맞다) */
+function useClock(fixed: number | undefined): number {
+  const [now, setNow] = useState(() => fixed ?? Date.now())
+  useEffect(() => {
+    if (fixed !== undefined) return
+    const handle = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(handle)
+  }, [fixed])
+  return fixed ?? now
+}
+
+export function PendingDialog({ onClose, now: fixedNow }: { readonly onClose: () => void; readonly now?: number }) {
   const api = useConsoleApi()
+  const now = useClock(fixedNow)
   const groups = orphanPending(api.data)
   const expired = [...api.data.claims.values()]
     .filter((claim) => claim.status === 'REJECTED' && claim.reason === 'EXPIRED')

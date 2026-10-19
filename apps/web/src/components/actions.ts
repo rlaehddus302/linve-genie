@@ -38,13 +38,21 @@ export function openReasonAction(api: ConsoleApi, input: ReasonActionInput, init
   })
 }
 
+/** 찜 조치의 낱말: 되돌리기 띠·창 제목의 낱말과 보내기 버튼의 동사 (AC-S06-60) */
+export const CLAIM_ACTION_WORDS = {
+  'host.cancel': { word: '취소', verb: '찜 취소하기' },
+  'host.reject': { word: '무효', verb: '무효로 하기' },
+  'host.promote': { word: '1등으로', verb: '1등으로 올리기' },
+} as const
+
 /** 찜 하나에 대한 사유 필수 조치: 취소(host.cancel) · 무효(host.reject) · 1등으로(host.promote) */
-export function openClaimAction(api: ConsoleApi, claim: Claim, type: 'host.cancel' | 'host.reject' | 'host.promote', word: string): void {
+export function openClaimAction(api: ConsoleApi, claim: Claim, type: 'host.cancel' | 'host.reject' | 'host.promote'): void {
+  const { word, verb } = CLAIM_ACTION_WORDS[type]
   const name = api.names.name(claim.currentBuyer)
   const label = `${productLabel(api, claim.broadcast, claim.no)} ${name} ${word}`
   openReasonAction(api, {
     title: label,
-    submitLabel: word,
+    submitLabel: verb,
     label,
     claims: [claim.id],
     products: [claim.product],
@@ -64,7 +72,7 @@ export function openBlockAction(api: ConsoleApi, buyer: string, block: boolean):
   const word = block ? '차단' : '차단 풀기'
   openReasonAction(api, {
     title: `${name} ${word}`,
-    submitLabel: word,
+    submitLabel: block ? '차단하기' : '차단 풀기',
     ...(block ? { warning: blockWarning(api.rehearsal) } : {}),
     label: `${name} ${word}`,
     build: (reason) => ({ type: block ? 'host.blockBuyer' : 'host.unblockBuyer', buyer, reason }),
@@ -76,7 +84,7 @@ export function openReopenAction(api: ConsoleApi, product: Product): void {
   const label = `${productLabel(api, product.broadcast, product.no)} 다시 판매(대기자 정리)`
   openReasonAction(api, {
     title: label,
-    submitLabel: '다시 판매',
+    submitLabel: '다시 판매하기',
     warning: `대기자 ${String(product.waitlist.length)}명이 모두 정리돼요`,
     label,
     products: [product.key],

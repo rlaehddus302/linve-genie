@@ -117,15 +117,15 @@ p {
   gap: 0.25rem;
 }
 
-.button:hover {
+.button:hover:not(:disabled) {
   background-color: #e3e5e8;
 }
 
-.button:disabled {
-  cursor: not-allowed;
-  color: #3c4043;
-  background-color: #e8eaed;
-  border-color: #9aa0a6;
+.button[aria-pressed='true'] {
+  color: #041e49;
+  background-color: #d3e3fd;
+  border-color: #0b57d0;
+  font-weight: 700;
 }
 
 .button-primary {
@@ -134,7 +134,7 @@ p {
   border-color: #0b57d0;
 }
 
-.button-primary:hover {
+.button-primary:hover:not(:disabled) {
   background-color: #0842a0;
 }
 
@@ -144,12 +144,21 @@ p {
   border-color: #b3261e;
 }
 
-.button-danger:hover {
+.button-danger:hover:not(:disabled) {
   background-color: #8c1d18;
 }
 
 .button-small {
   font-size: 1rem;
+}
+
+/* 잠긴 버튼: 마우스를 올려도 모양(배경·글자·테두리)이 바뀌지 않는다, 명암비 3:1 이상 (AC-S06-64). 변형(주·위험) 뒤에 둔다 */
+.button:disabled,
+.button:disabled:hover {
+  cursor: not-allowed;
+  color: #3c4043;
+  background-color: #e8eaed;
+  border-color: #9aa0a6;
 }
 
 .tag {
@@ -315,6 +324,66 @@ p {
   gap: 0.5rem;
 }
 
+/* 메뉴 (AC-S06-01): PC는 위 줄 안, 휴대폰은 아래 고정 막대 */
+.menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.menu-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0.375rem 0.875rem;
+  border: 2px solid transparent;
+  border-radius: 0.5rem;
+  color: #1a1a1a;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+}
+
+.menu-link:hover {
+  border-color: #0b57d0;
+}
+
+.menu-link[aria-current='page'] {
+  color: #ffffff;
+  background-color: #0b57d0;
+  border-color: #0b57d0;
+}
+
+.update-banner,
+.install-hint {
+  padding: 0.5rem 1rem;
+  border-bottom: 2px solid #8a6100;
+  background-color: #fef7e0;
+  color: #3d2b00;
+}
+
+.page-wide {
+  max-width: 72rem;
+}
+
+/* 새 화면 위 고정 영역: 끊김·"최신으로 맞추지 못함"·되돌리기 띠 (AC-S06-41·61) */
+.page-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: grid;
+  gap: 0.5rem;
+  background-color: #ffffff;
+}
+
+.stale-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 .broadcast-list {
   list-style: none;
   margin: 1.5rem 0 0;
@@ -372,12 +441,10 @@ p {
   font-weight: 700;
 }
 
-.ended-banner {
-  padding: 0.25rem 0.75rem;
-  border: 2px solid #5f6368;
-  border-radius: 0.5rem;
-  background-color: #f1f3f4;
+/* "끝난 방송이에요"는 버튼이 아닌 상태 글자다 (AC-S06-66 011): 테두리·그림자 없음 */
+.ended-note {
   font-weight: 700;
+  color: #3c4043;
 }
 
 .console-head {
@@ -541,6 +608,13 @@ p {
   align-items: start;
 }
 
+/* 첫 칸: (리허설 조작판) + 현재 상품 — 리허설 시작 버튼이 PC 첫 화면 안에 (AC-S06-66 013) */
+.console-side {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
 .section-title {
   font-size: 1.25rem;
   margin-bottom: 0.5rem;
@@ -618,16 +692,29 @@ p {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 0.375rem;
-  max-height: 60vh;
+  gap: 0.125rem;
+  max-height: max(20rem, calc(100vh - 20rem));
   overflow-y: auto;
 }
 
+/* 메시지 한 줄: 시각·닉네임·표시·본문을 이어 쓰고 "찜으로 바꾸기"는 오른쪽 (AC-S06-62) */
 .chat-row {
   display: grid;
-  gap: 0.25rem;
-  padding: 0.375rem 0.5rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 0.5rem;
+  row-gap: 0.125rem;
+  align-items: start;
+  padding: 0.25rem 0.5rem;
   border-left: 4px solid #c4c7c5;
+}
+
+.chat-row > p {
+  grid-column: 1;
+}
+
+.chat-row > .chat-convert {
+  grid-column: 2;
+  grid-row: 1 / span 2;
 }
 
 .chat-order {
@@ -648,19 +735,12 @@ p {
   border-left-color: #5b2a86;
 }
 
-.chat-head {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 0.5rem;
-  align-items: center;
+.chat-line .tag {
+  margin-left: 0.25rem;
 }
 
 .chat-text {
   white-space: break-spaces;
-}
-
-.chat-row > .button {
-  justify-self: start;
 }
 
 .chat-claims {
@@ -777,8 +857,21 @@ p {
 .compare,
 .history {
   inline-size: 100%;
-  table-layout: fixed;
   border-collapse: collapse;
+}
+
+.compare {
+  table-layout: fixed;
+}
+
+/* 조치 기록의 시각은 잘리지 않는다 (AC-S06-66 012): 칸 폭을 글자에 맞추고 시각은 끊지 않는다 */
+.history {
+  table-layout: auto;
+}
+
+.history .history-time {
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .compare th,
@@ -793,4 +886,239 @@ p {
 
 .history-wrap {
   overflow-x: auto;
+}
+
+/* ── 새 화면 (문자찜 입력·구매자·정산) ─────────────────────── */
+
+.choice-button {
+  font-size: 1rem;
+  inline-size: 100%;
+  min-height: 2.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid #c4c7c5;
+  border-radius: 0.5rem;
+  background-color: #ffffff;
+  color: #1a1a1a;
+  text-align: left;
+  cursor: pointer;
+}
+
+.choice-button:hover,
+.choice-button[aria-pressed='true'] {
+  border-color: #0b57d0;
+}
+
+.list-link {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid #c4c7c5;
+  border-radius: 0.5rem;
+  color: #1a1a1a;
+  text-decoration: none;
+}
+
+.list-link:hover {
+  border-color: #0b57d0;
+}
+
+.buyer-name {
+  font-size: 1.125rem;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: end;
+}
+
+.scope-row {
+  align-items: end;
+}
+
+.summary-line,
+.total-line {
+  font-weight: 700;
+}
+
+.back-button {
+  justify-self: start;
+}
+
+.sms-broadcast {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sms-broadcast-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 1.5rem;
+}
+
+.sms-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.sms-number {
+  font-size: 1.5rem;
+}
+
+.sms-preview {
+  padding: 0.25rem 0.75rem;
+  border-left: 4px solid #0b57d0;
+  background-color: #e8f0fe;
+}
+
+.sms-result {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border: 2px solid #137333;
+  border-radius: 0.5rem;
+  background-color: #e6f4ea;
+  color: #0d3b1e;
+}
+
+.amount-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.amount-read {
+  font-weight: 700;
+}
+
+.settlement-grid {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+}
+
+.settlement-card {
+  align-items: flex-start;
+  block-size: 100%;
+}
+
+.choice-list-plain {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.merge-direction {
+  font-size: 1.125rem;
+}
+
+.pay-UNPAID {
+  background-color: #fce8e6;
+  border-color: #a50e0e;
+  color: #a50e0e;
+}
+
+.pay-PARTIAL {
+  background-color: #fef7e0;
+  border-color: #6b4e00;
+  color: #6b4e00;
+}
+
+.pay-PAID {
+  background-color: #e6f4ea;
+  border-color: #137333;
+  color: #0d652d;
+}
+
+.pay-OVERPAID {
+  background-color: #f3e8fd;
+  border-color: #5b2a86;
+  color: #5b2a86;
+}
+
+/* ── 휴대폰 (375px 기준, AC-S06-02·61) ───────────────────── */
+
+@media (max-width: 47.99rem) {
+  body {
+    padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+  }
+
+  .menu {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 15;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.25rem;
+    padding: 0.25rem 0.25rem calc(0.25rem + env(safe-area-inset-bottom));
+    border-top: 1px solid #c4c7c5;
+    background-color: #f8f9fa;
+  }
+
+  .menu-link {
+    padding: 0.25rem;
+  }
+
+  .console {
+    padding-top: 0.5rem;
+  }
+
+  .console-sticky {
+    padding: 0.375rem 0;
+    gap: 0.375rem;
+  }
+
+  .quick-help {
+    display: none;
+  }
+
+  /* 알림 띠는 한 줄로 접힌다 — 펼친 동안만 늘어난다 */
+  .alert-bar {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+  }
+
+  .alert-bar .alerts {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-height: 2.75rem;
+    overflow: hidden;
+  }
+
+  .alert-bar-open .alerts {
+    max-height: none;
+  }
+
+  .undo-item {
+    padding: 0.125rem 0.5rem;
+    gap: 0.25rem 0.5rem;
+  }
+}
+
+@media (min-width: 48rem) {
+  .alert-toggle {
+    display: none;
+  }
+
+  /* PC 채팅 칸: 버튼을 낮춰 메시지가 한 번에 더 많이 보이게 (휴대폰은 44px 그대로) */
+  .chat-row > .chat-convert {
+    min-height: 2.25rem;
+    padding: 0.125rem 0.625rem;
+  }
 }

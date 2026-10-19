@@ -1,8 +1,11 @@
-// 리허설 조작판 (AC-S05-54, YT-09, D-082): 가짜 채팅 생성기 시작·멈춤·상태, "시청자로 보내기".
+// 리허설 조작판 (AC-S05-54, AC-S06-66 013·71, YT-09, D-082·D-096): 가짜 채팅 생성기 시작·멈춤·상태, "시청자로 보내기".
+// 시작 버튼은 PC 첫 화면 안에 보이게 칸을 줄였다: "채팅 순서 번호"(같은 번호면 같은 채팅이 같은 순서로)는 "더 보기" 안에.
+// 다른 리허설 방송에서 생성기가 돌면(409) 서버 문장과 그 방송으로 가는 길을 보인다.
 // 생성기와 시청자 채팅은 서버가 수집기 경로로 기록한다 — 화면은 채팅을 직접 쓰지 않는다. 실제 방송 콘솔에는 이 판이 없다.
 import { useRef, useState, type FormEvent } from 'react'
 import { isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
 import type { GeneratorStatus, WriteResult } from '../api/types.ts'
+import { routePath } from '../lib/router.ts'
 import { stopReasonWord } from '../lib/words.ts'
 import { ErrorNote, FieldError } from './ErrorNote.tsx'
 
@@ -11,9 +14,11 @@ export interface RehearsalPanelProps {
   readonly generator: GeneratorStatus | null
   readonly onGenerator: (status: GeneratorStatus) => void
   readonly onWritten: (result: WriteResult) => void
+  /** 다른 리허설 방송으로 가기 (생성기가 그 방송에서 돌고 있을 때) */
+  readonly onOpenBroadcast?: (id: string) => void
 }
 
-export function RehearsalPanel({ broadcastId, generator, onGenerator, onWritten }: RehearsalPanelProps) {
+export function RehearsalPanel({ broadcastId, generator, onGenerator, onWritten, onOpenBroadcast }: RehearsalPanelProps) {
   const [total, setTotal] = useState('300')
   const [perSecond, setPerSecond] = useState('1')
   const [seed, setSeed] = useState('')
@@ -98,11 +103,17 @@ export function RehearsalPanel({ broadcastId, generator, onGenerator, onWritten 
             <span>초당 속도</span>
             <input className="input" inputMode="numeric" value={perSecond} onChange={(event) => setPerSecond(event.target.value)} />
           </label>
-          <label className="field">
-            <span>시드(선택)</span>
-            <input className="input" inputMode="numeric" value={seed} onChange={(event) => setSeed(event.target.value)} />
-          </label>
         </div>
+        <details className="details">
+          <summary>더 보기</summary>
+          <label className="field">
+            <span>채팅 순서 번호</span>
+            <input className="input" inputMode="numeric" value={seed} aria-describedby="seed-help" onChange={(event) => setSeed(event.target.value)} />
+          </label>
+          <p id="seed-help" className="hint">
+            같은 번호면 같은 채팅이 같은 순서로 나와요. 비워 두면 그때마다 달라요.
+          </p>
+        </details>
         <FieldError error={genError} field="total" />
         <FieldError error={genError} field="perSecond" />
         <FieldError error={genError} field="seed" />
@@ -118,10 +129,24 @@ export function RehearsalPanel({ broadcastId, generator, onGenerator, onWritten 
           {generator === null || (!generator.running && generator.total === 0)
             ? '가짜 채팅을 아직 시작하지 않았어요.'
             : `보낸 수 ${String(generator.sent)} / ${String(generator.total)} · ${running ? '보내는 중' : stopReasonWord(generator.stopReason)}${
-                generator.seed === null ? '' : ` · 시드 ${String(generator.seed)}`
+                generator.seed === null ? '' : ` · 채팅 순서 번호 ${String(generator.seed)}`
               }${generator.failed > 0 ? ` · 저장 못 함 ${String(generator.failed)}` : ''}`}
         </p>
         {genError !== null ? <ErrorNote error={genError} omitFields={['total', 'perSecond', 'seed']} /> : null}
+        {genError !== null && genError.code === 'GENERATOR_RUNNING_ELSEWHERE' && typeof genError.details.broadcast === 'string' ? (
+          <a
+            className="button"
+            href={routePath({ name: 'console', id: genError.details.broadcast })}
+            onClick={(event) => {
+              const id = genError.details.broadcast
+              if (onOpenBroadcast === undefined || typeof id !== 'string') return
+              event.preventDefault()
+              onOpenBroadcast(id)
+            }}
+          >
+            가짜 채팅이 도는 방송으로 가기
+          </a>
+        ) : null}
       </form>
       <form className="stack-tight" onSubmit={(event) => void send(event)} aria-label="시청자로 보내기">
         <h3 className="sub-title">시청자로 보내기</h3>

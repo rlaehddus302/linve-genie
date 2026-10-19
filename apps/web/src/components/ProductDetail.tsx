@@ -91,6 +91,11 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
         </div>
       </dl>
 
+      {/* 찜이 먼저: 창의 "닫기"(처음 포커스)에서 Tab 한 번이면 1등 찜의 "찜 취소하기" (AC-S06-63) */}
+      <ClaimSection title="1등" claims={winners} product={product} />
+      <ClaimSection title="대기" claims={waitlist} product={product} />
+      <ClaimSection title="보류·충돌 찜" claims={open} product={product} />
+
       <section aria-label="상품 명령" className="stack-tight">
         <h3 className="sub-title">상품 명령</h3>
         <div className="row">
@@ -121,7 +126,7 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
                   spec: {
                     title: '판매 종료',
                     message: `${String(product.no)}번을 판매 종료할까요? 새 찜을 받지 않아요.`,
-                    confirmLabel: '판매 종료',
+                    confirmLabel: '판매 종료하기',
                     onConfirm: async () => {
                       await api.command({ type: 'product.close', ...base })
                       api.closeTop()
@@ -155,10 +160,6 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
         {busy ? <p role="status">보내는 중…</p> : null}
         {error !== null ? <ErrorNote error={error} {...(failed === null ? {} : { onRetry: () => void run(failed.event, failed.requestId) })} /> : null}
       </section>
-
-      <ClaimSection title="1등" claims={winners} product={product} />
-      <ClaimSection title="대기" claims={waitlist} product={product} />
-      <ClaimSection title="보류·충돌 찜" claims={open} product={product} />
 
       {requests.length > 0 ? (
         <section className="stack-tight" aria-label="취소 요청">
@@ -256,11 +257,11 @@ function ClaimRow({ claim, product }: { readonly claim: Claim; readonly product:
       <div className="row">
         {claim.status === 'CONFIRMED' || claim.status === 'WAITLISTED' || claim.status === 'PENDING' || claim.status === 'CONFLICT' ? (
           <>
-            <button type="button" className="button button-small" onClick={() => openClaimAction(api, claim, 'host.cancel', '취소')}>
-              취소
+            <button type="button" className="button button-small" onClick={() => openClaimAction(api, claim, 'host.cancel')}>
+              찜 취소하기
             </button>
-            <button type="button" className="button button-small" onClick={() => openClaimAction(api, claim, 'host.reject', '무효')}>
-              무효
+            <button type="button" className="button button-small" onClick={() => openClaimAction(api, claim, 'host.reject')}>
+              무효로 하기
             </button>
           </>
         ) : null}
@@ -295,10 +296,10 @@ function ClaimRow({ claim, product }: { readonly claim: Claim; readonly product:
             onClick={() =>
               full
                 ? api.openDialog({ kind: 'assign', spec: { product: product.key, buyer: claim.currentBuyer } })
-                : openClaimAction(api, claim, 'host.promote', '1등으로')
+                : openClaimAction(api, claim, 'host.promote')
             }
           >
-            1등으로
+            1등으로 올리기
           </button>
         ) : null}
         {claim.status === 'CONFLICT' ? (
@@ -307,7 +308,7 @@ function ClaimRow({ claim, product }: { readonly claim: Claim; readonly product:
           </button>
         ) : null}
         <button type="button" className="button button-small" onClick={() => openBlockAction(api, claim.buyer, !blocked)}>
-          {blocked ? '차단 풀기' : '차단'}
+          {blocked ? '차단 풀기' : '차단하기'}
         </button>
       </div>
       {claim.status === 'CONFIRMED' && product.conflict ? <p className="hint">충돌부터 정해 주세요.</p> : null}
@@ -315,7 +316,10 @@ function ClaimRow({ claim, product }: { readonly claim: Claim; readonly product:
   )
 }
 
-/** 조치 기록 (AC-S05-35): 시각·조치 낱말·대상 구매자·사유·조치자. 맞지 않아 아무 일도 없었던 조치도 보인다 */
+/**
+ * 조치 기록 (AC-S05-35, AC-S06-70, D-095): 그 상품 기록(상품 ID — 번호를 바꿔도 같다)을 대상으로 한 조치. 시각·조치 낱말·대상 구매자·사유·조치자.
+ * 번호 변경은 "번호 변경 15번 → 16번". 맞지 않아 아무 일도 없었던 조치도 보인다.
+ */
 function ActionHistory({ product, claims }: { readonly product: Product; readonly claims: readonly Claim[] }) {
   const api = useConsoleApi()
   const [items, setItems] = useState<HistoryItem[] | null>(null)
@@ -324,7 +328,7 @@ function ActionHistory({ product, claims }: { readonly product: Product; readonl
   const signature = `${JSON.stringify(product)}|${claims.map((claim) => `${claim.id}:${claim.status}:${claim.cancelRequested ? 1 : 0}`).join(',')}`
   useEffect(() => {
     let alive = true
-    get<{ events: HistoryItem[] }>(withQuery(`/api/days/${api.date}/history`, { after: 0, limit: 500, b: product.broadcast, no: product.no, rehearsal: api.rehearsal })).then(
+    get<{ events: HistoryItem[] }>(withQuery(`/api/days/${api.date}/history`, { after: 0, limit: 500, product: product.id, rehearsal: api.rehearsal })).then(
       (result) => {
         if (alive) {
           setItems(result.events)
@@ -359,7 +363,7 @@ function ActionHistory({ product, claims }: { readonly product: Product; readonl
           <tbody>
             {items.map((item) => (
               <tr key={item.seq}>
-                <td>{kstTime(item.at)}</td>
+                <td className="history-time">{kstTime(item.at)}</td>
                 <td>{actionWord(item.type, item.fields)}</td>
                 <td>{typeof item.fields.buyer === 'string' ? api.names.name(item.fields.buyer) : ''}</td>
                 <td>{item.reason ?? ''}</td>

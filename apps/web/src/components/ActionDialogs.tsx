@@ -18,6 +18,7 @@ export function ReasonDialog({ spec, onClose }: { readonly spec: ReasonSpec; rea
   const [reason, setReason] = useState(spec.initialReason ?? '')
   const [empty, setEmpty] = useState(false)
   const field = useRef<HTMLInputElement>(null)
+  const submitButton = useRef<HTMLButtonElement>(null)
   const submit = () => {
     const value = reason.trim()
     if (value === '') {
@@ -32,7 +33,7 @@ export function ReasonDialog({ spec, onClose }: { readonly spec: ReasonSpec; rea
       title={spec.title}
       onClose={onClose}
       actions={
-        <button type="button" className="button button-danger" onClick={submit}>
+        <button ref={submitButton} type="button" className="button button-danger" onClick={submit}>
           {spec.submitLabel}
         </button>
       }
@@ -44,6 +45,7 @@ export function ReasonDialog({ spec, onClose }: { readonly spec: ReasonSpec; rea
           setReason(value)
           setEmpty(false)
         }}
+        onPicked={() => submitButton.current?.focus()}
         empty={empty}
         error={spec.error}
         inputRef={field}
@@ -75,7 +77,6 @@ export function ConfirmDialog({ spec, onClose }: { readonly spec: ConfirmSpec; r
     <Modal
       title={spec.title}
       onClose={onClose}
-      closeLabel="아니요"
       actions={
         <button type="button" className="button button-danger" disabled={busy} onClick={() => void confirm()}>
           {busy ? '보내는 중…' : spec.confirmLabel}
@@ -182,6 +183,7 @@ export function AssignDialog({ spec, onClose }: { readonly spec: AssignSpec; rea
   const [empty, setEmpty] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const reasonField = useRef<HTMLInputElement>(null)
+  const submitButton = useRef<HTMLButtonElement>(null)
 
   const candidates = useMemo(() => {
     const out: Buyer[] = []
@@ -241,8 +243,8 @@ export function AssignDialog({ spec, onClose }: { readonly spec: AssignSpec; rea
       wide
       actions={
         product.conflict ? null : (
-          <button type="button" className="button button-danger" onClick={submit}>
-            배정
+          <button ref={submitButton} type="button" className="button button-danger" onClick={submit}>
+            {needsReplace ? '1등 바꾸기' : '1등으로 정하기'}
           </button>
         )
       }
@@ -306,6 +308,7 @@ export function AssignDialog({ spec, onClose }: { readonly spec: AssignSpec; rea
               setReason(value)
               setEmpty(false)
             }}
+            onPicked={() => submitButton.current?.focus()}
             empty={empty}
             error={spec.error}
             inputRef={reasonField}
