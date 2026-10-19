@@ -5,7 +5,7 @@ import { onUnauthorized } from '../src/api/client.ts'
 import { SmsPage } from '../src/components/SmsPage.tsx'
 import { chat, register, sms } from './engine.ts'
 import { EngineServer, PHONE_SENTENCE } from './engine-server.ts'
-import { FakeEventSource, apiError, flush } from './support.ts'
+import { DATE, FakeEventSource, apiError, flush } from './support.ts'
 
 let engine: EngineServer
 
@@ -56,6 +56,7 @@ describe('방송 고르기 (AC-S06-10)', () => {
     const dialog = await screen.findByRole('dialog', { name: '방송 고르기' })
     const choices = within(dialog).getAllByRole('button').filter((button) => button.textContent?.includes('부'))
     expect(choices.map((button) => button.textContent)).toEqual(['2부 · 2026년 10월 19일(월)끝남', '1부 · 2026년 10월 19일(월)끝남'])
+    expect(choices.map((button) => button.getAttribute('aria-pressed'))).toEqual(['false', 'false'])
     fireEvent.click(choices[1] as HTMLElement)
     await flush(10)
     expect(screen.getByRole('region', { name: '고른 방송' }).textContent).toContain('1부 · 2026년 10월 19일(월)')
@@ -165,7 +166,9 @@ describe('보내기·결과·같은 사람 하나 더 (AC-S06-14·81)', () => {
     expect(engine.posts[0]).not.toHaveProperty('received')
     expect(typeof engine.posts[0]?.requestId).toBe('string')
     const result = await screen.findByRole('region', { name: '넣은 결과' })
-    await waitFor(() => expect(result.textContent).toContain('15번 · 문자찜(김씨) · 대기 1번 · 받은 시각 10:00:00'))
+    // 받은 시각은 날짜와 함께 (AC-S06b-31), 대기는 보통 색 (AC-S06b-40)
+    await waitFor(() => expect(result.textContent).toContain('15번 · 문자찜(김씨) · 대기 1번 · 받은 시각 10/19 10:00:00'))
+    expect(result.getAttribute('data-tone')).toBe('info')
     expect(result.textContent).toContain('뒤 4자리 5678')
     expect([numberField().value, field('받은 시각').value, field('전화번호').value, field('메모').value]).toEqual(['', '', '', ''])
     expect(document.activeElement).toBe(numberField())
@@ -181,6 +184,7 @@ describe('보내기·결과·같은 사람 하나 더 (AC-S06-14·81)', () => {
     expect(engine.posts[1]).toMatchObject({ type: 'sms', b: 'b2', no: 16, buyer: 'sms:r1' })
     expect(engine.posts[1]).not.toHaveProperty('phone')
     await waitFor(() => expect(screen.getByRole('region', { name: '넣은 결과' }).textContent).toContain('16번 · 문자찜(김씨) · 1등'))
+    expect(screen.getByRole('region', { name: '넣은 결과' }).getAttribute('data-tone')).toBe('success')
   })
 
   it('지정 구매자가 이미 찜한 상품이면 "이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 1등)"', async () => {
@@ -192,6 +196,7 @@ describe('보내기·결과·같은 사람 하나 더 (AC-S06-14·81)', () => {
     fireEvent.submit(numberField().form as HTMLFormElement)
     await flush(20)
     await waitFor(() => expect(screen.getByRole('region', { name: '넣은 결과' }).textContent).toContain('이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 1등)'))
+    expect(screen.getByRole('region', { name: '넣은 결과' }).getAttribute('data-tone')).toBe('warning')
   })
 
   it('TE-S06-001: 같은 전화번호로 같은 번호를 다시 넣으면(전화번호로 이은 구매자가 이미 찜) "이미 찜한 구매자라…(지금 1등)", 같은 사람 하나 더는 그 문자 구매자', async () => {
@@ -243,20 +248,65 @@ describe('보내기·결과·같은 사람 하나 더 (AC-S06-14·81)', () => {
     expect(engine.posts.at(-1)).toMatchObject({ type: 'sms', no: 15, buyer: 'sms:x1' })
   })
 
-  it('뒤 4자리만 같은 다른 번호 둘이 모두 그 번호에 찜이 있으면 누구인지 정하지 않는다 — 일반 문장, 같은 사람 하나 더 없음', async () => {
+  it('G-ENG-176 (SA-S06-008): 뒤 4자리만 같은 X·Y가 15번 1등·대기 → Y 번호로 15번 → 응답의 buyer(Y)로 "이미 찜한 구매자라…(지금 대기 1번)", 같은 사람 하나 더 = Y', async () => {
     setup([
       register(15, '핑크프릴', 10000, 'b2'),
-      sms('x1', 15, { phoneKey: 'phonekey-01022223333', phoneLast4: '3333' }, 'b2'),
-      sms('x2', 15, { phoneKey: 'phonekey-01099993333', phoneLast4: '3333' }, 'b2'),
+      register(16, '청보석', 20000, 'b2'),
+      sms('x1', 15, { phoneKey: 'phonekey-01011115678', phoneLast4: '5678', memo: '이씨' }, 'b2'),
+      sms('y1', 15, { phoneKey: 'phonekey-01022225678', phoneLast4: '5678', memo: '박씨' }, 'b2'),
     ])
     await open()
     type(numberField(), '15')
-    type(field('전화번호'), '010-2222-3333')
+    type(field('전화번호'), '010-2222-5678')
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    await flush(20)
+    const result = await screen.findByRole('region', { name: '넣은 결과' })
+    await waitFor(() => expect(result.textContent).toContain('15번 · 이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 대기 1번)'))
+    expect(result.getAttribute('data-tone')).toBe('warning')
+    fireEvent.click(within(result).getByRole('button', { name: '같은 사람 하나 더' }))
+    expect(screen.getByRole('group', { name: '고른 구매자' }).textContent).toContain('문자찜(박씨)')
+    type(numberField(), '16')
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    await flush(20)
+    expect(engine.posts.at(-1)).toMatchObject({ type: 'sms', no: 16, buyer: 'sms:y1' })
+  })
+
+  it('응답의 buyer가 null(정하지 못함)이면 "새 찜이 생기지 않았어요. 지금 상태를 확인해 주세요."이고 같은 사람 하나 더가 없다', async () => {
+    setup([register(15, '핑크프릴', 10000, 'b2'), chat('m1', 'UC_hong1234', '홍길동', '15', 'b2')])
+    await open()
+    // 서버 응답에 정한 구매자가 없다 (모르는 지정 구매자 등)
+    engine.server.on('POST', /^\/api\/events/, async (call) => {
+      engine.posts.push(call.body ?? {})
+      return { body: { date: DATE, rehearsal: false, seq: engine.seq, type: 'sms', changed: false, effects: [], phoneLast4: null, buyer: null } }
+    })
+    type(numberField(), '15')
     fireEvent.submit(numberField().form as HTMLFormElement)
     await flush(20)
     const result = await screen.findByRole('region', { name: '넣은 결과' })
     await waitFor(() => expect(result.textContent).toContain('15번 · 새 찜이 생기지 않았어요. 지금 상태를 확인해 주세요.'))
+    expect(result.getAttribute('data-tone')).toBe('warning')
     expect(within(result).queryByRole('button', { name: '같은 사람 하나 더' })).toBeNull()
+  })
+
+  it('AC-S06b-31: 최근 문자찜의 받은 시각은 날짜와 함께 — 엔진이 R-6으로 정한 날(오전 10시에 넣은 "23:59"는 전날), 분까지면 "10/18 23:59"', async () => {
+    setup([register(15, '핑크프릴', 10000, 'b2'), sms('x1', 15, { received: '23:59' }, 'b2'), sms('x2', 15, { received: '09:58:07' }, 'b2')])
+    await open()
+    const recent = screen.getByRole('region', { name: '최근 넣은 문자찜' })
+    const rows = within(recent).getAllByRole('listitem').map((row) => row.textContent ?? '')
+    expect(rows[0]).toContain('10/19 09:58:07')
+    expect(rows[1]).toContain('10/18 23:59 ·')
+  })
+
+  it('AC-S06b-32: 방송 고르기 창의 고른 방송은 "✓ 고름" 글자와 aria-pressed — 고르지 않은 항목에는 없다', async () => {
+    setup()
+    await open()
+    fireEvent.click(screen.getByRole('button', { name: '방송 바꾸기' }))
+    const dialog = await screen.findByRole('dialog', { name: '방송 고르기' })
+    const choices = within(dialog).getAllByRole('button').filter((button) => button.textContent?.includes('부'))
+    expect(choices.map((button) => [button.getAttribute('aria-pressed'), button.textContent?.includes('✓ 고름')])).toEqual([
+      ['true', true],
+      ['false', false],
+    ])
   })
 
   it('AC-S06-82: 서버가 메모를 거절하면 그 문장을 메모 칸 아래에 — 칸은 그대로', async () => {
