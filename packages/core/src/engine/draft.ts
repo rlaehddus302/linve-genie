@@ -53,8 +53,8 @@ export interface EffectDraft extends Omit<EffectRecord, 'status'> {
   status: EffectRecord['status']
 }
 
-export interface MessageDraft extends Omit<MessageRecord, 'claimed'> {
-  claimed: number[]
+export interface MessageDraft extends Omit<MessageRecord, 'converted'> {
+  converted: number[]
 }
 
 export interface LedgerDraft extends Omit<LedgerRecord, 'entries'> {
@@ -119,8 +119,8 @@ export class Draft {
   private readonly effects = new Map<string, EffectDraft>()
   private readonly messages = new Map<string, MessageDraft>()
   private readonly ledger = new Map<string, LedgerDraft>()
-  private readonly refs = new Map<string, string>()
-  private readonly phones = new Map<string, string>()
+  private readonly refs = new Map<string, string | null>()
+  private readonly phoneKeys = new Map<string, string>()
   private readonly productKeys = new Map<string, string>()
   private readonly blockedChanges = new Map<string, boolean>()
   private readonly counters: { claims: number; effects: number; buyers: number; products: number }
@@ -167,12 +167,14 @@ export class Draft {
     return this.ledger.get(key) ?? pget(this.base.ledger, key)
   }
 
-  readRef(ref: string): string | undefined {
-    return this.refs.get(ref) ?? pget(this.base.refs, ref)
+  /** 받은 ref면 그 문자찜이 정한 구매자(정하지 않았으면 null), 받지 않은 ref면 undefined */
+  readRef(ref: string): string | null | undefined {
+    return this.refs.has(ref) ? this.refs.get(ref) : pget(this.base.refs, ref)
   }
 
-  readPhone(phone: string): string | undefined {
-    return this.phones.get(phone) ?? pget(this.base.phones, phone)
+  /** 그 전화번호 키로 만든 문자 구매자 */
+  readPhoneKey(key: string): string | undefined {
+    return this.phoneKeys.get(key) ?? pget(this.base.phoneKeys, key)
   }
 
   isBlocked(buyer: string): boolean {
@@ -250,14 +252,14 @@ export class Draft {
     })
   }
 
-  newBuyer(id: string, kind: BuyerRecord['kind'], display: string, phone: string | null): BuyerDraft {
+  newBuyer(id: string, kind: BuyerRecord['kind'], display: string, phoneLast4: string | null): BuyerDraft {
     const created: BuyerDraft = {
       id,
       n: ++this.counters.buyers,
       kind,
       display,
       names: [display],
-      phone,
+      phoneLast4,
       parent: null,
       children: [],
       claims: emptyPMap(),
@@ -295,7 +297,7 @@ export class Draft {
   message(key: string): MessageDraft {
     return draftIn(this.messages, key, () => {
       const base = pget(this.base.messages, key) as MessageRecord
-      return { ...base, claimed: [...base.claimed] }
+      return { ...base, converted: [...base.converted] }
     })
   }
 
@@ -312,12 +314,12 @@ export class Draft {
     })
   }
 
-  setRef(ref: string, buyer: string): void {
+  setRef(ref: string, buyer: string | null): void {
     this.refs.set(ref, buyer)
   }
 
-  setPhone(phone: string, buyer: string): void {
-    this.phones.set(phone, buyer)
+  setPhoneKey(key: string, buyer: string): void {
+    this.phoneKeys.set(key, buyer)
   }
 
   newProductId(): string {
@@ -336,7 +338,7 @@ export class Draft {
 
   commit(): { state: EngineState; effects: EngineEffect[] } {
     const base = this.base
-    const tables = [this.slots, this.claims, this.buyers, this.effects, this.messages, this.ledger, this.refs, this.phones, this.productKeys, this.blockedChanges]
+    const tables = [this.slots, this.claims, this.buyers, this.effects, this.messages, this.ledger, this.refs, this.phoneKeys, this.productKeys, this.blockedChanges]
     if (tables.every((table) => table.size === 0)) return { state: base, effects: [] }
     const put = <V>(map: PMap<V>, changes: ReadonlyMap<string, V>): PMap<V> => {
       let out = map
@@ -351,7 +353,7 @@ export class Draft {
         counters: { ...this.counters },
         messages: put<MessageRecord>(base.messages, this.messages),
         refs: put(base.refs, this.refs),
-        phones: put(base.phones, this.phones),
+        phoneKeys: put(base.phoneKeys, this.phoneKeys),
         buyers: put<BuyerRecord>(base.buyers, this.buyers),
         blocked,
         slots: put<SlotRecord>(base.slots, this.slots),

@@ -1,11 +1,10 @@
 // 조회 함수 (AC-S02-01, AC-S03-01). 상태에서 상품·찜·보류·구매자·정산·효과·취소 요청을 보여 준다.
 // - 구매자는 지금의 구매자(합친 결과) 기준이다: 상품의 1등·대기, 보류, 정산 묶음. 찜·효과·요청은 자신과 지금의 구매자를 함께 보인다.
 // - 정렬은 항상 명시적인 키로 한다: 방송 선언 순서·번호, 찜·효과·구매자의 생성 순서(n), 판정 순위.
-// - 개인정보: 전화번호는 뒤 4자리만 보인다(R-11, ORD-08 AC4).
+// - 개인정보: 엔진에는 전화번호 원문이 없다. 구매자의 전화번호 정보는 뒤 4자리뿐이고, 전화번호 키는 보이지 않는다(R-11, ORD-08 AC4, D-061).
 import { Draft, ownSet } from './draft.ts'
 import { groupEntries, settle } from './ledger.ts'
-import { phoneLast4 } from './phone.ts'
-import { pget, pkeys, pvalues } from './pmap.ts'
+import { pentries, pget, pkeys, pvalues } from './pmap.ts'
 import { isActive, isLocked, sortedPending } from './rules.ts'
 import type {
   BuyerInfo,
@@ -173,7 +172,7 @@ function buyerInfo(state: EngineState, r: Draft, buyer: BuyerRecord): BuyerInfo 
     merged: members.slice(1),
     display: buyer.display,
     nameHistory: buyer.names,
-    phoneLast4: buyer.phone === null ? null : phoneLast4(buyer.phone),
+    phoneLast4: buyer.phoneLast4,
     items: items.map((claim) => claimKey(state, claim)),
     subtotal: items.reduce((sum, claim) => sum + (claim.price as number), 0),
     byBroadcast,
@@ -200,20 +199,17 @@ export function currentBuyerOf(state: EngineState, id: string): string | null {
   return pget(state.buyers, id) === undefined ? null : reader(state).root(id)
 }
 
-/** 문자찜 ref → 그 문자찜이 정한 구매자 자신 (받지 않은 ref, 아무 일도 없었던 문자찜이면 null) */
+/** 문자찜 ref → 그 ref의 처음 문자찜이 정한 구매자 자신 (받지 않은 ref, 구매자를 정하지 않은 문자찜(모르는 지정 구매자)이면 null) */
 export function buyerOfRef(state: EngineState, ref: string): string | null {
   return pget(state.refs, ref) ?? null
 }
 
-/** 받은 문자찜 ref 전부 (ref 사전 순) */
+/** 구매자를 정한 문자찜 ref 전부 (ref 사전 순). 받았지만 구매자를 정하지 않은 ref(모르는 지정 구매자, D-067)는 넣지 않는다 */
 export function listSmsRefs(state: EngineState): SmsRefInfo[] {
   const r = reader(state)
-  return pkeys(state.refs)
-    .sort((a, b) => (a < b ? -1 : 1))
-    .map((ref) => {
-      const buyer = pget(state.refs, ref) as string
-      return { ref, buyer, currentBuyer: r.root(buyer) }
-    })
+  const out: SmsRefInfo[] = []
+  for (const [ref, buyer] of pentries(state.refs)) if (buyer !== null) out.push({ ref, buyer, currentBuyer: r.root(buyer) })
+  return out.sort((a, b) => (a.ref < b.ref ? -1 : 1))
 }
 
 // ── 정산 (R-12) ──────────────────────────────────────────────────────────

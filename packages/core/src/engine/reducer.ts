@@ -8,7 +8,6 @@ import { parseChat } from '../parse/chat.ts'
 import { resolveSettings } from '../settings.ts'
 import { CorruptStateError, Draft, claimNumber, messageKey, ownGet, slotKey, type ClaimDraft, type SlotDraft } from './draft.ts'
 import { receivedOf, receivedOfMembers } from './ledger.ts'
-import { normalizePhone } from './phone.ts'
 import { emptyPMap, pdelete, pget, pkeys, pset } from './pmap.ts'
 import {
   SMS_NAME,
@@ -27,6 +26,7 @@ import {
   labelPrinted,
   openPending,
   release,
+  releaseConflict,
   resolveKeep,
   resolveSwitch,
   settleAwaiting,
@@ -85,13 +85,13 @@ export function initEngine(setup: EngineSetup): EngineState {
     return { id, date, title }
   })
   return {
-    format: 2,
+    format: 3,
     broadcasts,
     settings,
     counters: { claims: 0, effects: 0, buyers: 0, products: 0 },
     messages: emptyPMap(),
     refs: emptyPMap(),
-    phones: emptyPMap(),
+    phoneKeys: emptyPMap(),
     buyers: emptyPMap(),
     blocked: emptyPMap(),
     slots: emptyPMap(),
@@ -238,10 +238,12 @@ function update(d: Draft, e: ProductUpdateEvent): void {
   if (stock !== undefined) {
     const added = stock - product.stock
     slot.product = { ...slot.product, stock }
-    // 늘린 수만큼 대기 1순위부터 확정 (충돌이 있으면 먼저 풀린다). 승계 결정 필요 자리는 방송자 결정으로 남긴다
+    // 늘린 수만큼 대기 1순위부터 대기 순번 순서로 확정(확정버전도 이 순서, D-066). 충돌이 있으면 먼저 풀리고 넘침 정리는 확정한 뒤에 한다(D-068).
+    // 승계 결정 필요 자리는 방송자 결정으로 남긴다
     if (added > 0) {
-      resolveKeep(d, slot)
+      releaseConflict(d, slot)
       for (let i = 0; i < added && slot.waitlist.length > 0; i++) confirm(d, d.claim(slot.waitlist.shift() as string), slot, slot.product)
+      trimWaitlist(d, slot)
     }
   }
   settleAwaiting(slot)
@@ -287,8 +289,15 @@ function chat(d: Draft, e: ChatEvent): void {
   if (d.readMessage(key) !== undefined) return
   // ② 방송자 본인 메시지 + claim.ignoreOwner (받은 메시지로는 기록한다 — 재수신·변환 판단)
   const ignored = e.owner === true && d.settings['claim.ignoreOwner']
-  d.newMessage(key, { ch: e.ch, seq: d.seq, at: d.at, publishedAt: e.publishedAt ?? d.at, ignored, claimed: [] })
-  if (ignored) return
+  const published = e.publishedAt ?? d.at
+  const message = { ch: e.ch, seq: d.seq, at: d.at, publishedAt: published, ignored, order: false, converted: [] }
+  if (ignored) {
+    d.newMessage(key, message)
+    return
+  }
+  // 그 방송 설정으로 R-3. 주문 번호를 하나라도 읽었으면 "주문이었던 메시지" — 받을 때의 해석으로 정하고 나중에 다시 읽지 않는다 (D-062)
+  const parsed = parseChat(e.text, d.settings)
+  d.newMessage(key, { ...message, order: parsed.claims.length > 0 })
   // ③ 구매자 기록·닉네임 갱신 (R-11, 주문이 아닌 메시지도)
   const known = d.readBuyer(e.ch)
   if (known === undefined) d.newBuyer(e.ch, 'youtube', e.nick, null)
@@ -297,22 +306,22 @@ function chat(d: Draft, e: ChatEvent): void {
     buyer.display = e.nick
     buyer.names.push(e.nick)
   }
-  // ④ 그 방송 설정으로 R-3 → 주문 번호마다 나온 순서대로 R-4, 취소는 R-8, 언급은 아무것도 바꾸지 않는다
-  const parsed = parseChat(e.text, d.settings)
-  const published = e.publishedAt ?? d.at
+  // ④ 주문 번호마다 나온 순서대로 R-4, 취소는 R-8, 언급은 아무것도 바꾸지 않는다
   for (const no of parsed.claims) {
-    const claim = makeClaim(d, { b: e.b, no, buyer: e.ch, origin: 'chat', seq: d.seq, at: d.at, time: published, minute: false, message: key, ref: null, received: null })
-    if (claim !== null) d.message(key).claimed.push(no)
+    makeClaim(d, { b: e.b, no, buyer: e.ch, origin: 'chat', seq: d.seq, at: d.at, time: published, minute: false, message: key, ref: null, received: null })
   }
   for (const no of parsed.cancels) viewerCancel(d, e.b, no, e.ch)
 }
 
-/** R-8 "시청자 채팅 취소"·"취소 요청 세부" (D-043). 잠금은 확정 찜에만 있고 입금 기록을 포함한다 */
-function viewerCancel(d: Draft, b: string, no: number, buyer: string): void {
+/**
+ * R-8 "시청자 채팅 취소"·"대상 찾기"·"취소 요청 세부" (D-043, D-063). 잠금은 확정 찜에만 있고 입금 기록을 포함한다.
+ * 그 번호에서 지금의 구매자의 활성 찜이 그 채널 자신의 찜(구매자 자신이 그 채널)일 때만 — 합친 다른 구매자의 찜이면 무시한다.
+ */
+function viewerCancel(d: Draft, b: string, no: number, channel: string): void {
   const mode = d.settings['cancel.buyerChat']
   if (mode === 'OFF') return
-  const current = activeClaim(d, slotKey(b, no), buyer)
-  if (current === undefined) return
+  const current = activeClaim(d, slotKey(b, no), channel)
+  if (current === undefined || current.buyer !== channel) return
   if (mode === 'AUTO' && !isLocked(d, current)) {
     release(d, d.claim(current.id), d.slot(b, no), 'CANCELLED', null)
     return
@@ -323,26 +332,28 @@ function viewerCancel(d: Draft, b: string, no: number, buyer: string): void {
 // ── 문자찜 (R-11 "문자찜 구매자 정하기", D-051) ──────────────────────────
 
 function sms(d: Draft, e: SmsEvent): void {
-  // 같은 ref가 다시 오면 아무 일도 없다 (INV-3과 같은 뜻)
+  // ref는 처음 받을 때 기록한다. 같은 ref가 다시 오면 내용이 달라도, 처음 것이 무엇을 했든 아무 일도 없다 (INV-3·INV-12, D-067)
   if (d.readRef(e.ref) !== undefined) return
   // 표시 이름: 문자 구매자는 가장 최근의 비어 있지 않은 메모(앞뒤 공백 제거)로 `문자찜(메모)`
   const memo = e.memo?.trim() ?? ''
   const display = memo === '' ? null : `${SMS_NAME}(${memo})`
   let buyer: string
   if (e.buyer !== undefined) {
-    // 1. 지정 구매자 (전화번호는 보지 않는다). 모르는 구매자면 이벤트 전체가 아무 일도 없다
-    if (d.readBuyer(e.buyer) === undefined) return
+    // 1. 지정 구매자 (전화번호 키는 보지도 기록하지도 않는다). 모르는 구매자면 찜·구매자·메모 반영 없이 ref만 기록한다
+    if (d.readBuyer(e.buyer) === undefined) {
+      d.setRef(e.ref, null)
+      return
+    }
     buyer = e.buyer
   } else {
-    // 2. 휴대폰 번호 모양이면 그 번호의 문자 구매자 / 3. 그 밖은 새 문자 구매자
-    const phone = e.phone === undefined ? null : normalizePhone(e.phone)
-    const linked = phone === null ? undefined : d.readPhone(phone)
+    // 2. 전화번호 키가 있으면 그 키의 문자 구매자 / 3. 그 밖은 새 문자 구매자 (뒤 4자리 = 만든 문자찜의 것, 나중에 바꾸지 않는다)
+    const linked = e.phoneKey === undefined ? undefined : d.readPhoneKey(e.phoneKey)
     if (linked !== undefined) buyer = linked
     else {
       buyer = `sms:${e.ref}`
       if (d.readBuyer(buyer) !== undefined) throw new CorruptStateError(`문자 구매자 ID ${buyer}가 이미 있다`)
-      d.newBuyer(buyer, 'sms', display ?? SMS_NAME, phone)
-      if (phone !== null) d.setPhone(phone, buyer)
+      d.newBuyer(buyer, 'sms', display ?? SMS_NAME, e.phoneLast4 ?? null)
+      if (e.phoneKey !== undefined) d.setPhoneKey(e.phoneKey, buyer)
     }
   }
   d.setRef(e.ref, buyer)
@@ -402,16 +413,17 @@ function reopen(d: Draft, e: HostReopenEvent): void {
   clearWaitlist(d, d.slot(e.b, e.no))
 }
 
-/** host.assign: 직접 배정·1등 교체 (R-9, D-042). 구매자는 지금의 구매자로 본다 */
+/**
+ * host.assign: 직접 배정·1등 교체 (R-9, D-042). 구매자는 지금의 구매자로 본다.
+ * 충돌 중인 상품이면 교체가 있든 없든 아무 일도 없다 — 방송자는 충돌부터 정한다 (D-064). replace·replaceTo 한쪽만은 입력 오류다(checkEvent, D-065).
+ */
 function assign(d: Draft, e: HostAssignEvent): void {
   const key = slotKey(e.b, e.no)
   const current = d.readSlot(key)
   const product = current?.product
-  if (current === undefined || product === null || product === undefined || product.phase !== 'SELLING') return
+  if (current === undefined || product === null || product === undefined || product.phase !== 'SELLING' || current.conflict !== null) return
   if (d.readBuyer(e.buyer) === undefined) return
   const { replace, replaceTo } = e
-  // 교체 대상과 방법은 함께 적어야 한다 (한쪽만 있으면 맞지 않는 명령)
-  if ((replace === undefined) !== (replaceTo === undefined)) return
   const own = activeClaim(d, key, e.buyer)
   if (own !== undefined && own.status !== 'WAITLISTED') return
   let target: ClaimDraft | undefined
@@ -473,13 +485,13 @@ function resolveConflict(d: Draft, e: HostResolveConflictEvent): void {
 }
 
 /**
- * host.convertMessage (R-7 4, D-054): 그 방송에서 받은 메시지를 찜으로. 구매자 = 메시지 채널, 순위 재료·at = 원래 메시지.
- * 모르는 메시지·무시한 방송자 메시지·이미 그 번호의 찜을 만든 메시지(그 찜이 지금 어떤 상태든)는 아무 일도 없다.
+ * host.convertMessage (R-7 4, D-054, D-062): 그 방송에서 받은 주문이 아니었던 메시지를 찜으로. 구매자 = 메시지 채널, 순위 재료·at = 원래 메시지.
+ * 모르는 메시지·무시한 방송자 메시지·주문이었던 메시지(어느 번호로든)·이미 그 번호로 바꾼 메시지는 아무 일도 없다.
  */
 function convert(d: Draft, e: HostConvertMessageEvent): void {
   const key = messageKey(e.b, e.msg)
   const message = d.readMessage(key)
-  if (message === undefined || message.ignored || message.claimed.includes(e.no)) return
+  if (message === undefined || message.ignored || message.order || message.converted.includes(e.no)) return
   const claim = makeClaim(d, {
     b: e.b,
     no: e.no,
@@ -493,7 +505,7 @@ function convert(d: Draft, e: HostConvertMessageEvent): void {
     ref: null,
     received: null,
   })
-  if (claim !== null) d.message(key).claimed.push(e.no)
+  if (claim !== null) d.message(key).converted.push(e.no)
 }
 
 /** host.blockBuyer: 그 구매자 자신의 대기·보류·충돌 찜은 모두 REJECTED(BLOCKED), 확정 찜은 그대로 (D-040). unblock: 새 찜만 다시 받는다 */

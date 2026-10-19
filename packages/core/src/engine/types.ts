@@ -102,17 +102,27 @@ export interface ChatEvent extends EventBase {
   readonly publishedAt?: number
 }
 
-/** 문자찜 (R-1, R-11, D-051) */
+/**
+ * 문자찜 (R-1, R-11, D-051, D-061). 전화번호 원문(`phone`)은 받지 않는다 — 있으면 입력 오류다.
+ * 서버가 받은 번호를 normalizePhone으로 정규화해, 휴대폰 번호 모양이면 판매자마다 고정한 비밀 키의 HMAC으로 만든
+ * 불투명 키(phoneKey)와 정규화한 번호의 뒤 4자리(phoneLast4)를 함께 담는다. 모양이 아니면 둘 다 담지 않는다.
+ */
 export interface SmsEvent extends EventBase {
   readonly type: 'sms'
   readonly b: string
-  /** 문자찜 입력 ID. 같은 ref가 다시 오면 아무 일도 없다 */
+  /**
+   * 문자찜 입력 ID — 서버가 만든 무작위·일련 ID(영문·숫자·`_`·`-` 1~64자). 개인정보를 담지 않는다(문자 구매자 ID·효과에 들어간다).
+   * 처음 받을 때 기록하고, 같은 ref가 다시 오면 내용이 달라도 아무 일도 없다 (D-067)
+   */
   readonly ref: string
   readonly no: number
   /** 실제 수신 시각 `HH:MM` 또는 `HH:MM:SS` (KST). 날짜는 at에 가장 가까운 날 (D-023) */
   readonly received: string
   readonly memo?: string
-  readonly phone?: string
+  /** 전화번호 키: 영문·숫자·`_`·`-` 16~128자. phoneLast4와 함께 온다 */
+  readonly phoneKey?: string
+  /** 정규화한 휴대폰 번호의 뒤 4자리 (숫자 4자리). phoneKey와 함께 온다 */
+  readonly phoneLast4?: string
   /** 지정 구매자 ID */
   readonly buyer?: string
 }
@@ -139,7 +149,7 @@ export interface HostAssignEvent extends EventBase {
   readonly no: number
   readonly buyer: string
   readonly reason: string
-  /** 교체할 지금 1등의 구매자 ID. replaceTo와 함께 쓴다 */
+  /** 교체할 지금 1등의 구매자 ID. replaceTo와 함께 쓴다 (한쪽만 있으면 입력 오류, D-065) */
   readonly replace?: string
   readonly replaceTo?: 'WAITLIST' | 'CANCEL'
 }
@@ -409,8 +419,8 @@ export interface BuyerRecord {
   readonly display: string
   /** 표시 이름이 바뀔 때마다 쌓은 목록 (처음 것 포함, 연속 중복 없음) */
   readonly names: readonly string[]
-  /** 문자 구매자를 이은 휴대폰 번호 (숫자만). 조회 결과에는 뒤 4자리만 보인다 (R-11) */
-  readonly phone: string | null
+  /** 이 문자 구매자를 만든 문자찜의 전화번호 뒤 4자리 (없으면 null). 전화번호 원문·정규화한 번호는 엔진에 없다 (D-061) */
+  readonly phoneLast4: string | null
   /** 이 구매자가 합쳐진 구매자 (바로 위). 합쳐져 있지 않으면 null */
   readonly parent: string | null
   /** 이 구매자에 바로 합쳐진 구매자, 합친 순서 */
@@ -441,7 +451,7 @@ export interface EffectRecord {
   readonly status: EffectStatus
 }
 
-/** 받은 채팅 메시지 (재수신 판단, 메시지 변환의 대상, D-054) */
+/** 받은 채팅 메시지 (재수신 판단, 메시지 변환의 대상, D-054·D-062) */
 export interface MessageRecord {
   readonly ch: string
   readonly seq: number
@@ -449,8 +459,10 @@ export interface MessageRecord {
   readonly publishedAt: number
   /** 무시한 방송자 메시지 (claim.ignoreOwner) */
   readonly ignored: boolean
-  /** 이 메시지가 찜을 만든 번호 (주문·변환) */
-  readonly claimed: readonly number[]
+  /** 주문이었던 메시지: 받을 때 R-3이 주문 번호를 하나라도 읽었다 (찜을 만들었든 아니든). 어느 번호로도 변환하지 않는다 */
+  readonly order: boolean
+  /** 주문이 아니었던 메시지를 찜으로 바꾼 번호 (번호마다 한 번) */
+  readonly converted: readonly number[]
 }
 
 /** 정산 기록 한 줄 (R-12) — 적힌 구매자 자신에 붙는다 */
@@ -469,8 +481,8 @@ export interface LedgerRecord {
 }
 
 export interface EngineState {
-  /** 상태 형식 버전 (S03 = 2) */
-  readonly format: 2
+  /** 상태 형식 버전 (S03 = 2, S03b = 3: 전화번호 키·ref 첫 수신 기록·주문 메시지 표시) */
+  readonly format: 3
   /** 선언 순서 */
   readonly broadcasts: readonly BroadcastInfo[]
   /** 시작 설정 스냅샷 (DOMAIN_RULES 기본값 위에 덮어쓴 값) */
@@ -478,10 +490,10 @@ export interface EngineState {
   readonly counters: { readonly claims: number; readonly effects: number; readonly buyers: number; readonly products: number }
   /** 이미 받은 채팅 메시지: JSON.stringify([방송, 메시지 ID]) → 메시지 */
   readonly messages: PMap<MessageRecord>
-  /** 받은 문자찜 ref → 그 문자찜이 정한 구매자 자신 */
-  readonly refs: PMap<string>
-  /** 휴대폰 번호(숫자만) → 문자 구매자 */
-  readonly phones: PMap<string>
+  /** 받은 문자찜 ref → 그 문자찜이 정한 구매자 자신 (모르는 지정 구매자라 구매자를 정하지 않았으면 null, D-067) */
+  readonly refs: PMap<string | null>
+  /** 전화번호 키(서버가 만든 불투명 키) → 그 키로 만든 문자 구매자 (D-061) */
+  readonly phoneKeys: PMap<string>
   readonly buyers: PMap<BuyerRecord>
   /** 차단한 구매자 ID (엔진이 아직 모르는 채널도 차단할 수 있다) */
   readonly blocked: PMap<true>
@@ -593,7 +605,7 @@ export interface BuyerInfo {
   /** 자신의 표시 이름과 이력 */
   readonly display: string
   readonly nameHistory: readonly string[]
-  /** 문자 구매자의 휴대폰 번호 뒤 4자리 (전체 번호는 보이지 않는다, ORD-08 AC4) */
+  /** 이 구매자 자신의 전화번호 뒤 4자리 — 그 구매자를 만든 문자찜의 것 (유튜브 구매자·전화번호 없이 만든 문자 구매자는 null, ORD-08 AC4) */
   readonly phoneLast4: string | null
   /** 확정 찜의 상품 키 — 자신과 합쳐진 구매자 전부 */
   readonly items: readonly string[]

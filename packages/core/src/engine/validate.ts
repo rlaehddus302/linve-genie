@@ -1,5 +1,6 @@
 // 이벤트 형식 검사 (R-1 "입력 오류와 맞지 않는 명령", D-050, AC-S03-02).
-// - 입력 오류: 표에 없는 종류, 필수 필드가 없거나 값의 형식이 틀림, 선언하지 않은 방송, seq·at이 수가 아님, 이벤트가 객체가 아님.
+// - 입력 오류: 표에 없는 종류, 필수 필드가 없거나 값의 형식이 틀림, 함께 와야 하는 필드가 한쪽만 옴(D-065, D-061),
+//   sms에 전화번호 원문 필드 phone이 있음(D-061), 선언하지 않은 방송, seq·at이 수가 아님, 이벤트가 객체가 아님.
 //   applyEvent는 상태를 바꾸지 않고 InvalidEventError를 던진다. 서버는 기록하기 전에 checkEvent로 거른다(S04).
 // - 맞지 않는 명령(형식은 맞지만 지금 상태에 맞지 않음)은 입력 오류가 아니다. 엔진이 아무것도 바꾸지 않는다(D-039).
 // - 처음 쓰는 스프린트가 따로 있는 종류(broadcast.start·end → S04, effect.failed → S11)는 NotImplementedError로 알린다.
@@ -51,6 +52,13 @@ const time: Check = (v) => (typeof v === 'number' && Number.isFinite(v) ? null :
 const received: Check = (v) => (isValidReceivedTime(v) ? null : '수신 시각은 HH:MM 또는 HH:MM:SS(00:00~23:59:59)여야 한다')
 const date: Check = (v) => (isValidDate(v) ? null : '날짜는 실제 있는 YYYY-MM-DD여야 한다')
 const channel: Check = (v) => id(v) ?? ((v as string).startsWith('sms:') ? "채널 ID는 'sms:'로 시작할 수 없다 (문자 구매자 ID 자리)" : null)
+/** 문자찜 ref·전화번호 키 형식 (R-1 "문자찜 ref와 전화번호", D-061). 정규화한 번호 11자리·하이픈 13자는 키 길이에 못 미친다 */
+const SMS_REF_RE = /^[A-Za-z0-9_-]{1,64}$/
+const PHONE_KEY_RE = /^[A-Za-z0-9_-]{16,128}$/
+const PHONE_LAST4_RE = /^[0-9]{4}$/
+const smsRef: Check = (v) => (typeof v === 'string' && SMS_REF_RE.test(v) ? null : "문자찜 ref는 영문·숫자·'_'·'-'로 된 1~64자여야 한다")
+const phoneKey: Check = (v) => (typeof v === 'string' && PHONE_KEY_RE.test(v) ? null : "전화번호 키는 영문·숫자·'_'·'-'로 된 16~128자여야 한다")
+const phoneLast4: Check = (v) => (typeof v === 'string' && PHONE_LAST4_RE.test(v) ? null : '전화번호 뒤 4자리는 숫자 4자리 문자열이어야 한다')
 const oneOf =
   (...choices: readonly string[]): Check =>
   (v) =>
@@ -62,6 +70,10 @@ const BROADCAST = 'b'
 interface Spec {
   readonly required: Readonly<Record<string, Check>>
   readonly optional?: Readonly<Record<string, Check>>
+  /** 함께 와야 하는 선택 필드 쌍 — 한쪽만 있으면 빠진 쪽을 짚는다 (D-061, D-065) */
+  readonly pairs?: readonly (readonly [string, string])[]
+  /** 있으면 안 되는 필드 → 이유. 값이 무엇이든(undefined여도) 필드가 있으면 입력 오류다 */
+  readonly forbidden?: Readonly<Record<string, string>>
   /** 필드끼리의 조건 */
   readonly extra?: (event: Readonly<Record<string, unknown>>) => EventProblem | null
 }
@@ -80,14 +92,19 @@ const SPECS: Readonly<Record<string, Spec>> = {
   'product.update': { required: BY_PRODUCT, optional: { name: text, price: money, stock, applyTo: oneOf('NEW_ONLY', 'UNPAID_CLAIMS') } },
   'product.renumber': { required: { [BROADCAST]: id, from: no, to: no } },
   chat: { required: { [BROADCAST]: id, id, ch: channel, nick: text, text }, optional: { owner: bool, publishedAt: time } },
-  sms: { required: { [BROADCAST]: id, ref: id, no, received }, optional: { memo: text, phone: text, buyer: id } },
+  sms: {
+    required: { [BROADCAST]: id, ref: smsRef, no, received },
+    optional: { memo: text, phoneKey, phoneLast4, buyer: id },
+    pairs: [['phoneKey', 'phoneLast4']],
+    forbidden: { phone: '전화번호 원문은 엔진에 넣지 않는다 — 서버가 정규화해 phoneKey·phoneLast4로 바꿔 넣는다 (D-061)' },
+  },
   'host.cancel': { required: HOST_REASON },
   'host.reject': { required: HOST_REASON },
   'host.promote': { required: HOST_REASON },
   'host.confirm': { required: BY_CLAIM, optional: { reason } },
   'host.approveCancel': { required: BY_CLAIM, optional: { reason } },
   'host.dismissCancel': { required: BY_CLAIM, optional: { reason } },
-  'host.assign': { required: HOST_REASON, optional: { replace: id, replaceTo: oneOf('WAITLIST', 'CANCEL') } },
+  'host.assign': { required: HOST_REASON, optional: { replace: id, replaceTo: oneOf('WAITLIST', 'CANCEL') }, pairs: [['replace', 'replaceTo']] },
   'host.reopen': { required: { ...BY_PRODUCT, reason } },
   'host.resolveConflict': { required: { ...BY_PRODUCT, decision: oneOf('KEEP', 'SWITCH') }, optional: { reason } },
   'host.convertMessage': { required: { [BROADCAST]: id, msg: id, no }, optional: { reason } },
@@ -150,6 +167,16 @@ export function checkEvent(state: EngineState, event: unknown): EventProblem[] {
     if (value === undefined) continue
     const problem = check(value)
     if (problem !== null) problems.push({ field, message: problem })
+  }
+  for (const [a, b] of spec.pairs ?? []) {
+    const hasA = record[a] !== undefined
+    if (hasA !== (record[b] !== undefined)) {
+      const [present, missing] = hasA ? [a, b] : [b, a]
+      problems.push({ field: missing, message: `${present}와 함께 와야 한다 (한쪽만 있으면 입력 오류)` })
+    }
+  }
+  for (const [field, message] of Object.entries(spec.forbidden ?? {})) {
+    if (Object.hasOwn(record, field)) problems.push({ field, message })
   }
   const extra = problems.length === 0 ? (spec.extra?.(record) ?? null) : null
   if (extra !== null) problems.push(extra)

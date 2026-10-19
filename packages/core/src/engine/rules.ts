@@ -222,8 +222,9 @@ export function trimWaitlist(d: Draft, slot: SlotDraft): void {
 /**
  * 새 찜·KEEP·풀린 충돌·대기로 가는 변환: 자기보다 순위가 앞서는 대기자 중 가장 뒤에 있는 대기자 바로 뒤(없으면 1순위), 넘치면 맨 끝 품절.
  * ARRIVAL의 새 찜은 순위가 늘 맨 뒤라 맨 끝이다.
+ * @param trim false면 넘침 정리를 부르는 쪽에 맡긴다 (확정 자리가 비어 풀린 충돌 찜 — 승계·재고 규칙 뒤에 정리, D-068)
  */
-function queue(d: Draft, claim: ClaimDraft, slot: SlotDraft): void {
+function queue(d: Draft, claim: ClaimDraft, slot: SlotDraft, trim = true): void {
   let at = 0
   for (let i = slot.waitlist.length - 1; i >= 0; i--) {
     const other = d.readClaim(slot.waitlist[i] as string)
@@ -238,7 +239,7 @@ function queue(d: Draft, claim: ClaimDraft, slot: SlotDraft): void {
   claim.status = 'WAITLISTED'
   claim.reason = null
   setActive(d, slot, claim)
-  trimWaitlist(d, slot)
+  if (trim) trimWaitlist(d, slot)
 }
 
 /**
@@ -334,12 +335,23 @@ export function enter(d: Draft, claim: ClaimDraft, slot: SlotDraft, outcome: Out
   }
 }
 
-/** 충돌 KEEP (R-7 7): c를 대기 자리에 넣는다(넘치면 맨 끝 품절) */
+/** 충돌 KEEP (host.resolveConflict, R-7 7): c를 대기 자리에 넣는다(넘치면 맨 끝 품절). 충돌이 있을 때만 부른다 */
 export function resolveKeep(d: Draft, slot: SlotDraft): void {
+  const id = slot.conflict as string
+  slot.conflict = null
+  queue(d, d.claim(id), slot)
+}
+
+/**
+ * 충돌 중에 확정 자리가 비면 충돌이 먼저 풀린다(R-7 7): c를 KEEP처럼 대기 자리에 넣는다. 충돌이 없으면 아무것도 하지 않는다.
+ * 넘침 정리는 하지 않는다 — 부르는 쪽이 승계(R-8)·재고(R-10) 규칙을 적용한 뒤에 정리한다 (D-068: 자리 하나가 비고 c 하나가 들어오므로,
+ * 먼저 정리하면 꽉 찬 대기의 맨 끝이 곧 생길 빈자리를 두고 품절되고, 대기 한도 0이면 1등보다 앞선 c 자신이 품절된다).
+ */
+export function releaseConflict(d: Draft, slot: SlotDraft): void {
   const id = slot.conflict
   if (id === null) return
   slot.conflict = null
-  queue(d, d.claim(id), slot)
+  queue(d, d.claim(id), slot, false)
 }
 
 /** 충돌 SWITCH (R-7 7): c를 확정하고, 그때 순위가 가장 뒤인 확정 찜 w → 대기 1순위(차단 중이면 BLOCKED, 넘치면 맨 끝 품절) */
@@ -381,8 +393,8 @@ export function detach(claim: AnyClaim, slot: SlotDraft): void {
 }
 
 /**
- * 방송자 취소·무효와 같은 처리 (R-8): 확정 → 효과 정리, 충돌이 있으면 먼저 풀고(R-7 7) 승계. 대기 → 뒤 순번 당김, 보류·충돌 → 끝.
- * status: 취소는 CANCELLED, 무효는 REJECTED(BY_HOST).
+ * 방송자 취소·무효와 같은 처리 (R-8): 확정 → 효과 정리, 충돌이 있으면 먼저 풀고(R-7 7) 승계, 그 뒤에 대기 넘침 정리(D-068).
+ * 대기 → 뒤 순번 당김, 보류·충돌 → 끝. status: 취소는 CANCELLED, 무효는 REJECTED(BY_HOST).
  */
 export function release(d: Draft, claim: ClaimDraft, slot: SlotDraft, status: 'CANCELLED' | 'REJECTED', reason: ClaimReason | null): void {
   const was = claim.status
@@ -390,8 +402,10 @@ export function release(d: Draft, claim: ClaimDraft, slot: SlotDraft, status: 'C
   else detach(claim, slot)
   finish(d, claim, slot, status, reason)
   if (was === 'CONFIRMED' && slot.product !== null) {
-    resolveKeep(d, slot)
+    releaseConflict(d, slot)
     succession(d, slot, slot.product)
+    // AUTO는 하나가 빠지고 하나가 들어와 남는 넘침이 없고, ASK는 빈 자리가 방송자 결정으로 남아 한도를 넘는 맨 끝이 품절, REOPEN은 이미 비었다
+    trimWaitlist(d, slot)
   }
   settleAwaiting(slot)
 }

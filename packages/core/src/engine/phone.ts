@@ -1,4 +1,8 @@
-// 휴대폰 번호 정규화 (R-11 "문자찜 구매자 정하기", D-051). 서버·화면·골든 러너가 같은 함수를 쓴다(AC-S03-01·11).
+// 휴대폰 번호 정규화 (R-11 "문자찜 구매자 정하기", D-051). 서버·화면·골든 러너가 같은 함수를 쓴다(AC-S03-01·11, AC-S03b-01).
+// 판정 엔진은 전화번호 원문을 받지 않는다(D-061). 서버가 받은 번호를 이 함수로 정규화하고, 결과가 있으면
+//   phoneKey = 판매자마다 고정한 비밀 키의 HMAC(정규화한 번호) — 영문·숫자·`_`·`-` 16~128자(예: HMAC-SHA256 base64url 43자)
+//   phoneLast4 = phoneLast4(정규화한 번호)
+// 를 sms 이벤트에 담는다. 결과가 null이면 둘 다 담지 않는다(전화번호 없음과 같다). HMAC은 비밀 키가 필요해 코어(순수 함수) 밖, 서버가 한다.
 
 const FULLWIDTH_ZERO = 0xff10
 const FULLWIDTH_NINE = 0xff19
@@ -23,7 +27,7 @@ export function normalizePhone(phone: string): string | null {
   return MOBILE_RE.test(digits) ? digits : null
 }
 
-/** 조회 결과에 보이는 뒤 4자리 (ORD-08 AC4) */
-export function phoneLast4(phone: string): string {
-  return phone.slice(-4)
+/** 정규화한 번호(normalizePhone의 결과)의 뒤 4자리 — 서버가 sms 이벤트의 phoneLast4로 담는다 (ORD-08 AC4, D-061) */
+export function phoneLast4(normalized: string): string {
+  return normalized.slice(-4)
 }
