@@ -6,7 +6,7 @@
 // - 전화번호 원문·정규화한 번호는 어디에도 두지 않는다. 판매자 전화번호 키는 마스터 키로 암호화한 값만 둔다(D-073).
 // - 이 파일과 마이그레이션이 어긋나지 않는지는 test/schema.test.ts가 실제 DB 구조와 대조한다.
 import { sql } from 'drizzle-orm'
-import { bigint, bigserial, boolean, index, integer, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core'
+import { bigint, bigserial, boolean, index, integer, pgTable, text, timestamp, unique, uniqueIndex } from 'drizzle-orm/pg-core'
 
 const timestamptz = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' })
 
@@ -211,7 +211,210 @@ export const snapshots = pgTable(
   (t) => [unique('snapshots_scope_seq_uq').on(t.scopeId, t.seq)],
 )
 
-export const schema = { sellers, accounts, loginLimits, sessions, scopes, broadcasts, events, outbox, snapshots }
+// ── 출력 기록 (I1, LABEL_RULES L-11, D-I1-01~D-I1-10) ─────────────────────
+// 발송함(outbox) 표는 바꾸지 않는다 — 자동 출력 작업은 발송함 행과 같은 트랜잭션에서 이 표들에 따로 쓴다.
+// 실제 범위만 쓴다(리허설 범위에는 출력 기록이 없다, L-11 14). 기록은 지우지 않는다(작업 기록을 지우는 API가 없다).
+
+/**
+ * 출력 대기열 (판매자마다 한 줄, L-11 4·8·10). 출력 기기·멈춤·순서 번호를 둔다.
+ * 출력 기록을 바꾸는 트랜잭션은 모두 이 줄을 먼저 잠근다(FOR UPDATE) — 판매자마다 한 줄로 처리하고 잠금 순서가 늘 같다
+ */
+export const printQueues = pgTable('print_queues', {
+  sellerId: text('seller_id')
+    .primaryKey()
+    .references(() => sellers.id),
+  /** 지금 출력 기기의 기기 ID (화면이 만든 무작위 값). 없으면 null */
+  deviceId: text('device_id'),
+  /** 출력 기기 이름 (다듬은 뒤 1~20자, 판매자가 정함) */
+  deviceName: text('device_name'),
+  /** 출력 기기가 알린 프린터 연결 여부 */
+  printerConnected: boolean('printer_connected').notNull().default(false),
+  /** 출력 그만하기를 눌렀고 출력 중인 장의 결과를 기다리는 중 */
+  releasing: boolean('releasing').notNull().default(false),
+  /** 멈춘 까닭: DISCONNECTED · PRINTER_ERROR · SELLER · LABEL_ERROR (멈추지 않았으면 null) */
+  paused: text('paused'),
+  /** 새로 출력 기기를 정할 때 쌓인 라벨이 있어 판매자 멈춤으로 시작했다("출력 시작") */
+  backlog: boolean('backlog').notNull().default(false),
+  /** 대기 맨 끝에 넣을 다음 순서 번호 */
+  nextOrder: bigint('next_order', { mode: 'number' }).notNull().default(1),
+  /** 대기 맨 앞에 넣을 다음 순서 번호 (줄어든다) */
+  frontOrder: bigint('front_order', { mode: 'number' }).notNull().default(0),
+  /** 출력 기록이 바뀔 때마다 1씩 는다 (실시간 알림의 순서·빠짐 확인) */
+  rev: bigint('rev', { mode: 'number' }).notNull().default(0),
+  updatedAt: timestamptz('updated_at').notNull(),
+})
+
+/**
+ * 라벨 키 (L-8, L-9, L-11). 상품 = (찜, 확정버전) — key `<찜>@<확정버전>`, 포장 = (포장, 지금의 구매자, 날짜) — key `packing:<구매자>`.
+ * 상품 라벨의 구매자는 라벨 키의 첫 작업 때 정해 고정한다(L-9). 폐기는 라벨 키 단위이고 되돌리지 않는다(L-8 4)
+ */
+export const printLabels = pgTable(
+  'print_labels',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    scopeId: text('scope_id')
+      .notNull()
+      .references(() => scopes.id),
+    /** 범위 날짜 YYYY-MM-DD (실제 범위만) */
+    date: text('date').notNull(),
+    key: text('key').notNull(),
+    /** product · packing */
+    kind: text('kind').notNull(),
+    /** 상품: 찜 ID·확정버전·처음 작업 때의 방송·번호 */
+    claim: text('claim'),
+    version: integer('version'),
+    broadcast: text('broadcast'),
+    no: integer('no'),
+    /** 포장: 요청 때의 지금의 구매자 ID */
+    buyerId: text('buyer_id'),
+    /** 라벨의 구매자 (L-3 buyer JSON — 유튜브 닉네임 또는 문자찜. 메모·전화번호 없음) */
+    buyer: text('buyer').notNull(),
+    /** 자동 출력 효과 ID (그 라벨 키의 PRINT_PRODUCT_LABEL — 엔진 출력 보고에 쓴다) */
+    effectId: text('effect_id'),
+    voidedAt: timestamptz('voided_at'),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('print_labels_key_uq').on(t.sellerId, t.scopeId, t.key), index('print_labels_scope_idx').on(t.sellerId, t.scopeId, t.kind)],
+)
+
+/**
+ * 출력 작업 (L-8 작업 + L-11 1). 작업 ID(job_id)는 자동 출력이면 효과 ID, 아니면 서버가 만든 값 — 범위 안에서 유일.
+ * 상태: WAITING 대기 · PRINTING 출력 중 · DONE 출력함 · CANCELLED 출력 안 함. 폐기(voided)는 상태와 따로 붙는다.
+ * 판매자마다 출력 중 작업은 많아야 하나다(부분 유일 인덱스)
+ */
+export const printJobs = pgTable(
+  'print_jobs',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    scopeId: text('scope_id')
+      .notNull()
+      .references(() => scopes.id),
+    labelId: bigint('label_id', { mode: 'number' })
+      .notNull()
+      .references(() => printLabels.id),
+    date: text('date').notNull(),
+    jobId: text('job_id').notNull(),
+    /** product · packing */
+    kind: text('kind').notNull(),
+    /** 만든 까닭: auto 자동 · manual 손으로 · reprint 다시 출력 · packing 포장 */
+    reason: text('reason').notNull(),
+    status: text('status').notNull(),
+    voided: boolean('voided').notNull().default(false),
+    /** 포장 라벨: 요청 때 정한 라벨 데이터 JSON (L-4 칸만). 상품 라벨은 null — 출력 기기가 받을 때 만든다(L-9) */
+    data: text('data'),
+    /** 포장 라벨의 쪽(1부터)·쪽 수·요청 때의 한 장 번호 수 */
+    page: integer('page'),
+    pages: integer('pages'),
+    perPage: integer('per_page'),
+    /** 대기 순서 (작을수록 앞). 맨 앞으로 되돌릴 때는 대기열의 front_order를 쓴다 */
+    queueOrder: bigint('queue_order', { mode: 'number' }).notNull(),
+    /** 실패한 시도 수 */
+    attempts: integer('attempts').notNull().default(0),
+    /** 마지막 오류 코드 (L-7·라벨 오류 코드, DOES_NOT_FIT이면 `DOES_NOT_FIT:<항목>`) */
+    lastError: text('last_error'),
+    /** 출력함이 된 시각·기기 이름·찍은 데이터의 내용 키·찍은 데이터 */
+    printedAt: timestamptz('printed_at'),
+    deviceName: text('device_name'),
+    contentKey: text('content_key'),
+    printedData: text('printed_data'),
+    /** 버릴 라벨 확인 ("버렸어요") — 누른 계정·시각 */
+    discardedAt: timestamptz('discarded_at'),
+    discardedBy: text('discarded_by'),
+    /** 손으로·다시 출력·포장 작업을 요청한 계정 */
+    requestedBy: text('requested_by'),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [
+    unique('print_jobs_job_uq').on(t.sellerId, t.scopeId, t.jobId),
+    index('print_jobs_queue_idx').on(t.sellerId, t.status, t.queueOrder),
+    index('print_jobs_label_idx').on(t.labelId),
+    uniqueIndex('print_jobs_one_printing_uq').on(t.sellerId).where(sql`status = 'PRINTING'`),
+  ],
+)
+
+/** 출력 시도 (L-11 6): 출력 기기가 작업을 받을 때마다 한 줄. 결과는 그 시도의 표(token)로만 받는다 */
+export const printAttempts = pgTable(
+  'print_attempts',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    jobRef: bigint('job_ref', { mode: 'number' })
+      .notNull()
+      .references(() => printJobs.id),
+    token: text('token').notNull(),
+    deviceId: text('device_id').notNull(),
+    deviceName: text('device_name').notNull(),
+    /** 이 시도에 준 라벨 데이터 JSON (L-3·L-4 칸만) */
+    data: text('data').notNull(),
+    contentKey: text('content_key').notNull(),
+    /** DONE 또는 오류 코드 (결과가 아직 없으면 null) */
+    result: text('result'),
+    startedAt: timestamptz('started_at').notNull(),
+    endedAt: timestamptz('ended_at'),
+  },
+  (t) => [unique('print_attempts_token_uq').on(t.sellerId, t.token), index('print_attempts_job_idx').on(t.jobRef)],
+)
+
+/** 라벨 템플릿 (L-11 13): 판매자마다 상품·포장 한 벌씩. 저장한 적이 없으면 50×30 기본 템플릿 */
+export const labelTemplates = pgTable(
+  'label_templates',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** product · packing */
+    kind: text('kind').notNull(),
+    /** 검사를 통과한 템플릿 JSON (templateToJson) */
+    body: text('body').notNull(),
+    /** 저장할 때마다 1씩 는다 (다른 기기가 먼저 바꿨는지 확인) */
+    version: integer('version').notNull(),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [unique('label_templates_kind_uq').on(t.sellerId, t.kind)],
+)
+
+/** 출력 요청 번호 (손으로 출력·다시 출력·포장 라벨 — 같은 요청 번호면 같은 결과, 작업이 두 번 생기지 않는다) */
+export const printRequests = pgTable(
+  'print_requests',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    requestId: text('request_id').notNull(),
+    /** 처음 결과 JSON (만든 작업의 범위 날짜·작업 ID) */
+    result: text('result').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('print_requests_uq').on(t.sellerId, t.requestId)],
+)
+
+export const schema = {
+  sellers,
+  accounts,
+  loginLimits,
+  sessions,
+  scopes,
+  broadcasts,
+  events,
+  outbox,
+  snapshots,
+  printQueues,
+  printLabels,
+  printJobs,
+  printAttempts,
+  labelTemplates,
+  printRequests,
+}
 
 /** 범위 직렬 처리용 어드바이저리 락 키 (범위 = 판매자·날짜·리허설인지, 범위 행이 생기기 전에도 같은 키). 실제 범위는 S04와 같은 키 */
 export const scopeLockKey = (sellerId: string, date: string, rehearsal: boolean) =>
