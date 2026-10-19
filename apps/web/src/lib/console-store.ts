@@ -8,7 +8,9 @@
 //   화면이 열린 동안 계속 다시 시도한다. 새 알림이 오면 바로 다시 시도한다. 맞춰지면 stale이 풀린다 (AC-S06-41, RA-S05-004).
 import { get, isApiError, withQuery, type ApiError } from '../api/client.ts'
 import type { BroadcastItem, Changes, ChatMessage, FullView, GeneratorStatus, MessagesView, ScopeSeq } from '../api/types.ts'
+import { streamUrl } from './device.ts'
 import { applyChanges, fromFull, type ScopeData } from './scope-data.ts'
+import { sharedStream, type EventSourceLike } from './stream.ts'
 
 /** 처음 열 때 받는 최근 메시지 수 (그날 전체를 받지 않는다) */
 export const INITIAL_MESSAGES = 100
@@ -49,13 +51,7 @@ export interface ConsoleSnapshot {
   readonly stale: boolean
 }
 
-export interface EventSourceLike {
-  readonly readyState: number
-  onopen: ((event: Event) => void) | null
-  onerror: ((event: Event) => void) | null
-  addEventListener(type: string, listener: (event: MessageEvent) => void): void
-  close(): void
-}
+export type { EventSourceLike } from './stream.ts'
 
 export interface ScopeKey {
   readonly date: string
@@ -149,7 +145,8 @@ export class ConsoleStore {
     this.broadcastId = options.broadcastId ?? null
     this.#fixedScope = options.scope ?? null
     this.#withMessages = options.messages ?? options.broadcastId !== undefined
-    this.#openStream = options.openStream ?? ((url) => new EventSource(url, { withCredentials: true }))
+    // 기본: 페이지의 실시간 연결 하나를 함께 쓴다 (출력 기록과 같은 연결, lib/stream.ts)
+    this.#openStream = options.openStream ?? (() => sharedStream(streamUrl).open())
     this.#timer = options.timer ?? { set: (fn, ms) => setTimeout(fn, ms), clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>) }
   }
 
