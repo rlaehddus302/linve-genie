@@ -117,6 +117,16 @@ export const intRangeOrNull =
 export const notPhoneShaped: ValueCheck = (value) =>
   typeof value === 'string' && containsPhoneNumber(value) ? `휴대폰 번호가 들어 있다 — 번호는 phone에만 적는다 (값: ${show(value)})` : undefined
 
+/**
+ * 판매자가 적는 다른 글 칸(입금 메모·사유·방송 제목·상품 이름)의 휴대폰 번호 = 코어 containsPhoneNumber.
+ * 엔진이 이 칸들도 입력 오류로 거른다(S04 수정 라운드 2, RA-S04-009·TD-S04-003, DAT-06) — "읽기 오류 = 엔진 입력 오류"가 어긋나지 않게 같은 함수
+ */
+export const noPhoneInText: ValueCheck = (value) =>
+  typeof value === 'string' && containsPhoneNumber(value) ? `휴대폰 번호가 들어 있다 — 판매자가 적는 글 칸에는 전화번호를 적지 않는다 (값: ${show(value)})` : undefined
+
+/** 문자열이고 휴대폰 번호가 없는 글 (입금 메모·방송 제목·상품 이름) */
+const freeText: ValueCheck = (value) => str(value) ?? noPhoneInText(value)
+
 export { show as showValue }
 
 // ── 설정 키 (README "설정 키", DOMAIN_RULES 설정표·"설정값 범위" D-071) ────
@@ -171,7 +181,7 @@ const F = {
   received: { kind: 'received' },
   at: { kind: 'at' },
   no: { kind: 'value', check: intAtLeast(1) },
-  reason: { kind: 'value', check: nonEmptyStr },
+  reason: { kind: 'value', check: (value: unknown) => nonEmptyStr(value) ?? noPhoneInText(value) },
   v: (check: ValueCheck): FieldKind => ({ kind: 'value', check }),
 } as const
 
@@ -197,10 +207,10 @@ const blockLike = spec({ buyer: F.buyer, reason: F.reason })
 
 export const EVENT_SPECS: Readonly<Record<string, EventSpec>> = {
   // 짧은 형식 at은 이 이벤트의 date 기준 (README "시각") — validate가 따로 다룬다
-  'broadcast.start': spec({ b: F.newB, date: F.date, title: F.v(str) }, { settings: F.settings }),
+  'broadcast.start': spec({ b: F.newB, date: F.date, title: F.v(freeText) }, { settings: F.settings }),
   'broadcast.end': spec({ b: F.b }),
   'product.register': spec(
-    { b: F.b, no: F.no, name: F.v(str), price: F.v(intAtLeast(0)) },
+    { b: F.b, no: F.no, name: F.v(freeText), price: F.v(intAtLeast(0)) },
     { stock: F.v(intAtLeast(1)), status: F.v(oneOf(['OPEN', 'READY'])) },
   ),
   'product.open': productByNo,
@@ -208,7 +218,7 @@ export const EVENT_SPECS: Readonly<Record<string, EventSpec>> = {
   'product.close': productByNo,
   'product.update': spec(
     { b: F.b, no: F.no },
-    { name: F.v(str), price: F.v(intAtLeast(0)), stock: F.v(intAtLeast(1)), applyTo: F.v(oneOf(['NEW_ONLY', 'UNPAID_CLAIMS'])) },
+    { name: F.v(freeText), price: F.v(intAtLeast(0)), stock: F.v(intAtLeast(1)), applyTo: F.v(oneOf(['NEW_ONLY', 'UNPAID_CLAIMS'])) },
   ),
   'product.renumber': spec({ b: F.b, from: F.no, to: F.no }),
   chat: spec(
@@ -240,7 +250,7 @@ export const EVENT_SPECS: Readonly<Record<string, EventSpec>> = {
     { amount: F.v(intAtLeast(0)) },
   ),
   'settlement.adjust': spec({ buyer: F.buyer, date: F.date, amount: F.v(anyInt), reason: F.reason }),
-  'settlement.payment': spec({ buyer: F.buyer, date: F.date, amount: F.v(intAtLeast(1)) }, { memo: F.v(str) }),
+  'settlement.payment': spec({ buyer: F.buyer, date: F.date, amount: F.v(intAtLeast(1)) }, { memo: F.v(freeText) }),
   'settlement.refund': spec({ buyer: F.buyer, date: F.date, amount: F.v(intAtLeast(1)), reason: F.reason }),
 }
 

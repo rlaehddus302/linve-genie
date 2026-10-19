@@ -1,7 +1,8 @@
 // 이벤트 형식 검사 (R-1 "입력 오류와 맞지 않는 명령", D-050, AC-S03-02, AC-S04-01·06·07).
 // - 입력 오류: 표에 없는 종류, 필수 필드가 없거나 값의 형식이 틀림, 함께 와야 하는 필드가 한쪽만 옴(D-065, D-061),
 //   sms에 전화번호 원문 필드 phone이 있음(D-061), 표에 없는 필드(모든 종류, 값과 상관없이 — D-073),
-//   sms의 ref·memo에 휴대폰 번호가 들어 있음(containsPhoneNumber — 숫자만 모은 것이 번호 모양이거나 번호 덩어리가 있음, D-073), 방송 날짜·설정 스냅샷의 형식·범위(D-071),
+//   판매자가 손으로 적는 글 칸(sms의 ref·memo, 입금 메모, 사유, 방송 제목, 상품 이름)에 휴대폰 번호가 들어 있음
+//   (containsPhoneNumber — 숫자만 모은 것이 번호 모양이거나 번호 덩어리·번호 배열이 있음, D-073, DAT-06), 방송 날짜·설정 스냅샷의 형식·범위(D-071),
 //   선언하지 않은 방송, seq·at이 수가 아님, 이벤트가 객체가 아님.
 //   applyEvent는 상태를 바꾸지 않고 InvalidEventError를 던진다. 서버는 기록하기 전에 checkEvent로 거른다(D-072).
 // - 맞지 않는 명령(형식은 맞지만 지금 상태에 맞지 않음)은 입력 오류가 아니다. 엔진이 아무것도 바꾸지 않는다(D-039).
@@ -45,7 +46,19 @@ const isInt = (value: unknown, min: number): boolean => typeof value === 'number
 
 const id: Check = (v) => (typeof v === 'string' && v !== '' ? null : '빈 문자열이 아닌 문자열이어야 한다')
 const text: Check = (v) => (typeof v === 'string' ? null : '문자열이어야 한다')
-const reason: Check = (v) => (typeof v === 'string' && v.trim() !== '' ? null : '사유는 빈 문자열이 아닌 문자열이어야 한다')
+/**
+ * 판매자가 손으로 적는 글 칸에 휴대폰 번호가 들어 있으면 입력 오류 (R-1·D-073 "메모·ref ②"를 넓힌 것, DAT-06, RA-S04-001·009).
+ * 이 칸들은 지울 수 없는 이벤트 로그·엔진 상태(입금 메모는 정산 장부, 문자찜 메모는 표시 이름)·이력 응답·백업에 평문으로 남는다.
+ * 시청자가 쓴 글(chat의 text·nick)에는 쓰지 않는다 — 찜을 버리게 되므로(R-3).
+ */
+const NO_PHONE_IN_TEXT = '휴대폰 번호가 들어 있다 — 판매자가 적는 글 칸에는 전화번호를 넣지 않는다(문자찜은 전화번호 칸 phoneKey·phoneLast4로만) (D-073, DAT-06)'
+const withoutPhone =
+  (check: Check): Check =>
+  (v) =>
+    check(v) ?? (containsPhoneNumber(v as string) ? NO_PHONE_IN_TEXT : null)
+/** 판매자가 적는 글 (입금 메모·방송 제목·상품 이름) */
+const freeText: Check = withoutPhone(text)
+const reason: Check = withoutPhone((v) => (typeof v === 'string' && v.trim() !== '' ? null : '사유는 빈 문자열이 아닌 문자열이어야 한다'))
 const no: Check = (v) => (isInt(v, 1) ? null : '1 이상 정수여야 한다')
 const money: Check = (v) => (isInt(v, 0) ? null : '0 이상 정수(원)여야 한다')
 const positive: Check = (v) => (isInt(v, 1) ? null : '1 이상 정수(원)여야 한다')
@@ -60,16 +73,9 @@ const channel: Check = (v) => id(v) ?? ((v as string).startsWith('sms:') ? "채�
 const SMS_REF_RE = /^[A-Za-z0-9_-]{1,64}$/
 const PHONE_KEY_RE = /^[A-Za-z0-9_-]{16,128}$/
 const PHONE_LAST4_RE = /^[0-9]{4}$/
-/**
- * ref·memo에 휴대폰 번호가 들어 있으면 입력 오류 — 번호는 전화번호 칸으로 (R-1, D-073, DAT-06).
- * 숫자만 모은 것이 번호 모양인 경우(R-1 문장)에 더해, 번호 앞뒤에 다른 숫자가 붙은 경우(`3시 010-1234-5678`)도 잡는다 (RA-S04-001, containsPhoneNumber)
- */
-const PHONE_SHAPED = '휴대폰 번호가 들어 있다 — 전화번호는 전화번호 칸(phoneKey·phoneLast4)으로만 넣는다 (D-073)'
-const smsRef: Check = (v) => {
-  if (typeof v !== 'string' || !SMS_REF_RE.test(v)) return "문자찜 ref는 영문·숫자·'_'·'-'로 된 1~64자여야 한다"
-  return containsPhoneNumber(v) ? PHONE_SHAPED : null
-}
-const memo: Check = (v) => text(v) ?? (containsPhoneNumber(v as string) ? PHONE_SHAPED : null)
+/** 문자찜 ref·memo에 휴대폰 번호가 들어 있으면 입력 오류 — 번호는 전화번호 칸으로 (R-1, D-073, DAT-06, 위 withoutPhone) */
+const smsRef: Check = withoutPhone((v) => (typeof v === 'string' && SMS_REF_RE.test(v) ? null : "문자찜 ref는 영문·숫자·'_'·'-'로 된 1~64자여야 한다"))
+const memo: Check = freeText
 const phoneKey: Check = (v) => (typeof v === 'string' && PHONE_KEY_RE.test(v) ? null : "전화번호 키는 영문·숫자·'_'·'-'로 된 16~128자여야 한다")
 const phoneLast4: Check = (v) => (typeof v === 'string' && PHONE_LAST4_RE.test(v) ? null : '전화번호 뒤 4자리는 숫자 4자리 문자열이어야 한다')
 const oneOf =
@@ -107,7 +113,7 @@ const settingsShape: Check = (v) => (typeof v === 'object' && v !== null && !Arr
 const SPECS: Readonly<Record<string, Spec>> = {
   'broadcast.start': {
     declares: true,
-    required: { [BROADCAST]: id, date, title: text },
+    required: { [BROADCAST]: id, date, title: freeText },
     optional: { settings: settingsShape },
     nested: (e) => {
       if (e.settings === undefined || settingsShape(e.settings) !== null) return []
@@ -115,11 +121,11 @@ const SPECS: Readonly<Record<string, Spec>> = {
     },
   },
   'broadcast.end': { required: { [BROADCAST]: id } },
-  'product.register': { required: { ...BY_PRODUCT, name: text, price: money }, optional: { stock, status: oneOf('OPEN', 'READY') } },
+  'product.register': { required: { ...BY_PRODUCT, name: freeText, price: money }, optional: { stock, status: oneOf('OPEN', 'READY') } },
   'product.open': { required: BY_PRODUCT },
   'product.hold': { required: BY_PRODUCT },
   'product.close': { required: BY_PRODUCT },
-  'product.update': { required: BY_PRODUCT, optional: { name: text, price: money, stock, applyTo: oneOf('NEW_ONLY', 'UNPAID_CLAIMS') } },
+  'product.update': { required: BY_PRODUCT, optional: { name: freeText, price: money, stock, applyTo: oneOf('NEW_ONLY', 'UNPAID_CLAIMS') } },
   'product.renumber': { required: { [BROADCAST]: id, from: no, to: no } },
   chat: { required: { [BROADCAST]: id, id, ch: channel, nick: text, text }, optional: { owner: bool, publishedAt: time } },
   sms: {
@@ -154,7 +160,7 @@ const SPECS: Readonly<Record<string, Spec>> = {
     },
   },
   'settlement.adjust': { required: { ...LEDGER, amount: signed, reason } },
-  'settlement.payment': { required: { ...LEDGER, amount: positive }, optional: { memo: text } },
+  'settlement.payment': { required: { ...LEDGER, amount: positive }, optional: { memo: freeText } },
   'settlement.refund': { required: { ...LEDGER, amount: positive, reason } },
 }
 

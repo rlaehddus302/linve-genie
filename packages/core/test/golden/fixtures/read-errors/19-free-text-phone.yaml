@@ -1,0 +1,19 @@
+# 범주 19: 판매자가 적는 다른 글 칸(입금 메모·사유·방송 제목·상품 이름)에 휴대폰 번호가 들어 있음(코어 containsPhoneNumber)
+# — 엔진도 입력 오류로 거른다 (S04 수정 라운드 2, RA-S04-009·TD-S04-003, DAT-06). 시청자 채팅 본문·닉네임은 받는다.
+# 휴대폰 번호 모양이 아닌 숫자(시각·수량·금액·주소)는 받는다
+id: G-ENG-905
+title: 판매자 글 칸에 휴대폰 번호
+refs: [R-1]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: "핑크프릴 1,000", price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: "니트 010ㅡ1234ㅡ5678", price: 10000 }
+  - { at: "20:00:02", type: chat, b: b1, id: m1, ch: UC_A, nick: "010-1234-5678", text: "15 010-1234-5678" }
+  - { at: "20:00:03", type: host.cancel, b: b1, no: 15, buyer: UC_A, reason: "3시 010-1234-5678 요청" }
+  - { at: "20:00:04", type: host.cancel, b: b1, no: 15, buyer: UC_A, reason: "3시 15번 2개 요청" }
+  - { at: "20:00:05", type: broadcast.start, b: b2, date: 2026-10-18, title: "문자 주문 010~1234~5678" }
+  - { at: "20:00:06", type: buyer.merge, from: UC_A, into: UC_B, reason: "같은 분 010,1234,5678" }
+  - { at: "21:00:00", type: settlement.payment, buyer: UC_A, date: 2026-10-18, amount: 10000, memo: "홍길동 010-1234-5678" }
+  - { at: "21:00:01", type: settlement.payment, buyer: UC_A, date: 2026-10-18, amount: 10000, memo: "홍길동 10,000원 3시" }
+  - { at: "21:00:02", type: settlement.refund, buyer: UC_A, date: 2026-10-18, amount: 1000, reason: "+82 10-1234-5678 환불" }
+expect: {}

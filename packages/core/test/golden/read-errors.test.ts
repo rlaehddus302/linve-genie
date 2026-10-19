@@ -383,14 +383,31 @@ const CASES: Readonly<Record<string, { category: string; loaded?: number; errors
       },
     ],
   },
+  '19-free-text-phone.yaml': {
+    category: '19. 판매자가 적는 다른 글 칸(입금 메모·사유·방송 제목·상품 이름)에 휴대폰 번호가 들어 있음 (S04, DAT-06)',
+    errors: [
+      {
+        doc: 1,
+        label: 'G-ENG-905',
+        issues: [
+          ['events[1].name', '휴대폰 번호가 들어 있다 — 판매자가 적는 글 칸에는 전화번호를 적지 않는다 (값: "니트 010ㅡ1234ㅡ5678")'],
+          ['events[3].reason', '(값: "3시 010-1234-5678 요청")'],
+          ['events[5].title', '(값: "문자 주문 010~1234~5678")'],
+          ['events[6].reason', '(값: "같은 분 010,1234,5678")'],
+          ['events[7].memo', '(값: "홍길동 010-1234-5678")'],
+          ['events[9].reason', '(값: "+82 10-1234-5678 환불")'],
+        ],
+      },
+    ],
+  },
 }
 
 describe('형식 계약 위반 = 읽기 오류 (AC-S00-22)', () => {
-  it('fixtures/read-errors의 모든 파일에 기대값이 있다 (범주 1~18)', () => {
+  it('fixtures/read-errors의 모든 파일에 기대값이 있다 (범주 1~19)', () => {
     const files = readdirSync(DIR).filter((f) => f.endsWith('.yaml'))
     expect(files.sort()).toEqual(Object.keys(CASES).sort())
     const categories = new Set(Object.values(CASES).map((c) => Number(c.category.split('.')[0])))
-    expect([...categories].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18])
+    expect([...categories].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19])
   })
 
   for (const [file, { category, loaded = 0, errors }] of Object.entries(CASES)) {
