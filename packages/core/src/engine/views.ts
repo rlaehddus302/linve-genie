@@ -242,7 +242,7 @@ function settlementInfo(state: EngineState, r: Draft, root: string, date: string
 
 /** 지금의 구매자 아래 확정 찜을 방송 날짜로 묶는다 (D-022: 찜 시각이 아니라 방송의 날짜) */
 function itemsByDate(state: EngineState, r: Draft, root: string): Map<string, ClaimRecord[]> {
-  const dateOf = new Map(state.broadcasts.map((broadcast) => [broadcast.id, broadcast.date]))
+  const dateOf = broadcastDates(state)
   const groups = new Map<string, ClaimRecord[]>()
   for (const claim of confirmedClaims(state, r.members(root))) {
     const date = dateOf.get(claim.b) as string
@@ -253,6 +253,10 @@ function itemsByDate(state: EngineState, r: Draft, root: string): Map<string, Cl
   return groups
 }
 
+function broadcastDates(state: EngineState): Map<string, string> {
+  return new Map(state.broadcasts.map((broadcast) => [broadcast.id, broadcast.date]))
+}
+
 /** (지금의 구매자, 날짜) 정산 묶음. 넘긴 구매자는 지금의 구매자로 푼다. 품목도 기록도 없으면 금액 전부 0, UNPAID */
 export function getSettlement(state: EngineState, buyer: string, date: string): SettlementInfo {
   const r = reader(state)
@@ -261,18 +265,40 @@ export function getSettlement(state: EngineState, buyer: string, date: string): 
   return settlementInfo(state, r, root, date, items)
 }
 
-/** 품목이나 정산 기록이 있는 모든 정산 묶음, 지금의 구매자 기록 순서·날짜 순 */
+/**
+ * 품목이나 정산 기록이 있는 모든 정산 묶음, 지금의 구매자 기록 순서·날짜 순.
+ * 찜과 정산 기록을 한 번씩 돌며 (지금의 구매자, 날짜)로 모은다 — 매 이벤트 뒤 불변식 검사에서도 부르므로 상태 크기에 비례해야 한다.
+ */
 export function listSettlements(state: EngineState): SettlementInfo[] {
   const r = reader(state)
-  const out: SettlementInfo[] = []
-  for (const buyer of pvalues(state.buyers).sort(byN)) {
-    if (buyer.parent !== null) continue
-    const groups = itemsByDate(state, r, buyer.id)
-    const dates = new Set(groups.keys())
-    for (const member of r.members(buyer.id)) for (const date of pget(state.buyers, member)?.dates ?? []) dates.add(date)
-    for (const date of [...dates].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) out.push(settlementInfo(state, r, buyer.id, date, groups.get(date) ?? []))
+  const roots = new Map<string, string>()
+  const rootOf = (buyer: string): string => {
+    let root = roots.get(buyer)
+    if (root === undefined) {
+      root = r.root(buyer)
+      roots.set(buyer, root)
+    }
+    return root
   }
-  return out
+  const dateOf = broadcastDates(state)
+  const groups = new Map<string, { readonly root: string; readonly date: string; readonly items: ClaimRecord[] }>()
+  const groupOf = (root: string, date: string): ClaimRecord[] => {
+    const key = JSON.stringify([root, date])
+    let group = groups.get(key)
+    if (group === undefined) {
+      group = { root, date, items: [] }
+      groups.set(key, group)
+    }
+    return group.items
+  }
+  for (const claim of pvalues(state.claims)) {
+    if (claim.status === 'CONFIRMED') groupOf(rootOf(claim.buyer), dateOf.get(claim.b) as string).push(claim)
+  }
+  for (const record of pvalues(state.ledger)) groupOf(rootOf(record.buyer), record.date)
+  const order = (id: string): number => pget(state.buyers, id)?.n ?? 0
+  return [...groups.values()]
+    .sort((a, b) => order(a.root) - order(b.root) || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    .map(({ root, date, items }) => settlementInfo(state, r, root, date, items.sort(byN)))
 }
 
 // ── 효과·요청 ────────────────────────────────────────────────────────────
