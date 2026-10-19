@@ -234,7 +234,8 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   // ── 실시간 (AC-S04-60) ────────────────────────────────────────────────
   api.get('/stream', async (c) => {
     const session = c.get('session')
-    return hub.open(session.sellerId, session.tokenHash, await service.scopes(session.sellerId))
+    // 연결을 먼저 등록한 뒤 범위별 seq를 읽는다 — 그 사이 커밋된 변경도 알림으로 받는다 (RA-S04-003)
+    return hub.open(session.sellerId, session.tokenHash, () => service.scopes(session.sellerId))
   })
 
   api.notFound(() => notFound())

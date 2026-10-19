@@ -31,7 +31,7 @@ export { API_EVENTS, CHAT_FIELDS, REQUEST_ID_RE, type ApiEventSpec } from './api
 export { BODY_LIMIT_BYTES, type ApiDeps } from './api.ts'
 export { checkReplay, formatCheck, canonicalJson, type CheckFilter, type CheckPart, type ScopeCheck } from './check-replay.ts'
 export { INHERITED_BLOCK_REASON, Service, type ChatIngestOutcome, type HistoryItem, type ScopeView } from './service.ts'
-export { StreamHub, type StreamNotice } from './hub.ts'
+export { StreamHub, type ScopeSeq, type StreamNotice } from './hub.ts'
 export { FAILED_INPUT_MESSAGE, REPLAY_SKIPPED_MESSAGE, type AttentionItem, type EngineAdapter, type ScopeRuntime } from './runtime.ts'
 export { ScopeWriter, eventDigest, type Actor, type CommittedRecord, type WriteOutcome, type WriteResult, type WriterHooks } from './writer.ts'
 export { generateMasterKey, phoneKeyOf, readMasterKey, DEFAULT_PASSWORD_COST, type PasswordCost } from './secrets.ts'
