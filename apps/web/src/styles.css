@@ -1097,6 +1097,170 @@ html:has(.sms-submit-bar) {
   color: #5b2a86;
 }
 
+/* ── 음성 칸 (VOC-01·04, D-I4-03·04·05, AC-I4-50) ─────────────
+ * PC(폭 768px 이상, 화면이 정한다)에선 음성 칸이 빠른 입력칸과 함께 고정 영역에 있다(console-sticky-voice) — Enter 대상 카드가 늘 보이게.
+ * 넓으면 두 칸(빠른 입력 | 음성)으로 놓아 고정 영역이 화면 높이 절반을 넘지 않게 하고, 카드가 넘치면 카드 칸 안에서 스크롤한다.
+ * 휴대폰에선 음성 칸이 고정 영역 밖이다(고정 영역 35% 그대로, D-094). 상태는 색 + 글자("확인 필요"·"Enter 등록").
+ */
+.console-sticky-quick {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.voice {
+  display: grid;
+  gap: 0.375rem;
+  min-width: 0;
+  align-content: start;
+}
+
+.voice-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  align-items: center;
+}
+
+.voice-state {
+  font-weight: 700;
+  color: #0d652d;
+}
+
+.voice-sent {
+  flex: 1 1 12rem;
+  color: #3c4043;
+}
+
+.voice-interim {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  overflow: hidden;
+  color: #3c4043;
+}
+
+.voice-error {
+  color: #a50e0e;
+  font-weight: 700;
+}
+
+.voice-info {
+  color: #6b4e00;
+  font-weight: 700;
+}
+
+.voice-cards {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.voice-card {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  border: 2px solid #0b57d0;
+  border-radius: 0.5rem;
+  background-color: #f4f8fe;
+  color: #041e49;
+}
+
+/* 확인 필요(LOW): 점선 테두리 + "확인 필요" 글자 */
+.voice-card-low {
+  border-style: dashed;
+  border-color: #8a6100;
+  background-color: #fffbf0;
+  color: #2b1f00;
+}
+
+.voice-card-body {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+.voice-card-text {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.5rem;
+  align-items: center;
+}
+
+.voice-card-heard {
+  font-size: 1rem;
+  color: #3c4043;
+}
+
+.voice-card-auto {
+  font-weight: 700;
+  color: #0b4fb3;
+}
+
+.voice-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.voice-fix {
+  flex: 1 1 100%;
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+}
+
+.voice-extras {
+  display: grid;
+  gap: 0.5rem;
+  align-content: start;
+}
+
+.voice-settings {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.voice-seconds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.voice-seconds .input {
+  max-width: 6rem;
+}
+
+.voice-heard-list {
+  margin: 0;
+  padding-left: 1.75rem;
+  user-select: text;
+}
+
+/* PC: 카드 칸이 넘치면 그 안에서 스크롤 — 고정 영역이 더 늘지 않는다 */
+.console-sticky-voice .voice-cards {
+  max-height: max(8rem, calc(50vh - 19rem));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (min-width: 64rem) {
+  .console-sticky-voice {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 1rem;
+    align-items: start;
+  }
+
+  .console-sticky-voice > .connection-banner {
+    grid-column: 1 / -1;
+  }
+
+  .console-sticky-voice .voice-cards {
+    max-height: min(20rem, calc(50vh - 7rem));
+  }
+}
+
 /* ── 휴대폰 (375px 기준, AC-S06-02·61) ───────────────────── */
 
 @media (max-width: 47.99rem) {
@@ -1129,6 +1293,10 @@ html:has(.sms-submit-bar) {
 
   .console-sticky {
     padding: 0.375rem 0;
+    gap: 0.375rem;
+  }
+
+  .console-sticky-quick {
     gap: 0.375rem;
   }
 
