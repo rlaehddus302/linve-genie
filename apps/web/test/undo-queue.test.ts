@@ -153,6 +153,45 @@ describe('방송자 조치는 정한 시간 뒤에 보낸다 (AC-S05-41)', () =>
     expect(onError).toHaveBeenCalledTimes(1)
     expect((onError.mock.calls[0]?.[0] as ApiError).problemFor('reason')).toBeDefined()
   })
+
+  it('창을 다시 열 수 있는 거절이면 항목에 버튼 글자("사유 고치기")가 붙고, reopen은 그 항목을 지우고 친 값으로 창을 연다(한 번만)', async () => {
+    const { timer, queue } = setup()
+    const open = vi.fn()
+    const rejected = new ApiError({ status: 400, code: 'INVALID_INPUT', message: '입력한 내용을 확인해 주세요.', problems: [{ field: 'reason', message: '전화번호' }] })
+    const item = queue.add({
+      label: '15번 취소',
+      send: async () => {
+        throw rejected
+      },
+      reopen: { label: '사유 고치기', accepts: (error) => error.status === 400, open },
+    })
+    expect(queue.reopen(item.id)).toBe(false) // 아직 기다리는 중
+    timer.advance(5000)
+    await flush()
+    expect(queue.getSnapshot()).toMatchObject([{ id: item.id, status: 'failed', reopenLabel: '사유 고치기' }])
+    expect(queue.reopen(item.id)).toBe(true)
+    expect(open).toHaveBeenCalledWith(rejected)
+    expect(queue.getSnapshot()).toEqual([])
+    expect(queue.reopen(item.id)).toBe(false)
+    expect(open).toHaveBeenCalledTimes(1)
+  })
+
+  it('다시 열 수 없는 실패(서버 오류)에는 버튼 글자가 없고 reopen은 아무것도 하지 않는다', async () => {
+    const { timer, queue } = setup()
+    const open = vi.fn()
+    const item = queue.add({
+      label: '15번 취소',
+      send: async () => {
+        throw new ApiError({ status: 500, code: 'INTERNAL_ERROR', message: '서버에 문제가 생겼어요. 잠시 뒤 다시 시도해 주세요.' })
+      },
+      reopen: { label: '사유 고치기', accepts: (error) => error.status === 400, open },
+    })
+    timer.advance(5000)
+    await flush()
+    expect(queue.getSnapshot()).toMatchObject([{ id: item.id, status: 'failed', reopenLabel: null }])
+    expect(queue.reopen(item.id)).toBe(false)
+    expect(open).not.toHaveBeenCalled()
+  })
 })
 
 describe('등록 되돌리기 (AC-S05-40)', () => {

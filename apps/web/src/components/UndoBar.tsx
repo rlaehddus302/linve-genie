@@ -1,5 +1,6 @@
 // 되돌리기 띠 (AC-S05-40·41, D-083): "5초 뒤 보내요: 15번 홍길동 취소"·남은 시간·되돌리기, 등록 직후 "15번을 등록했어요"·되돌리기,
-// 보낸 뒤의 결과("적용되지 않았어요…"), 보내지 않은 조치("보내지 않았어요"), 저장 실패의 "다시 보내기".
+// 보낸 뒤의 결과("적용되지 않았어요…"), 보내지 않은 조치("보내지 않았어요"), 저장 실패의 "다시 보내기",
+// 서버가 입력을 거절한 조치의 "사유 고치기"(창을 다시 연다).
 import { useEffect, useState } from 'react'
 import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
 
@@ -103,6 +104,11 @@ function UndoLine({ item, queue, now }: { readonly item: UndoItem; readonly queu
             {item.label} — {item.error?.retryable === true ? `저장하지 못했어요. ${item.error.code === 'SAVE_FAILED' ? '' : item.error.message}` : (item.error?.message ?? '보내지 못했어요.')}
             {item.error?.problems.map((problem) => ` ${problem.message}${problem.hint !== undefined ? ` ${problem.hint}` : ''}`).join('')}
           </span>
+          {item.reopenLabel !== null ? (
+            <button type="button" className="button button-primary" aria-label={`${item.label} ${item.reopenLabel}`} onClick={() => queue.reopen(item.id)}>
+              {item.reopenLabel}
+            </button>
+          ) : null}
           {item.error?.transient === true ? (
             <button type="button" className="button" onClick={() => queue.resend(item.id)}>
               다시 보내기

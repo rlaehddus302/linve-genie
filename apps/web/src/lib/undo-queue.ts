@@ -49,6 +49,8 @@ export interface ActionItem extends ItemBase {
   readonly products: readonly string[]
   /** 화면이 붙인 표시 (메시지 → 찜의 메시지 ID 등), 없으면 null */
   readonly meta: string | null
+  /** 서버가 입력을 거절해 창을 다시 열어 고칠 수 있으면 그 버튼 글자("사유 고치기"), 아니면 null */
+  readonly reopenLabel: string | null
 }
 
 /** 바로 기록한 등록의 되돌리기 */
@@ -62,6 +64,16 @@ export interface RegistrationItem extends ItemBase {
 
 export type UndoItem = ActionItem | RegistrationItem
 
+/** 서버가 입력을 거절했을 때 창을 다시 열어 고치기 (사유의 휴대폰 번호 등, D-079 ⑥) */
+export interface ReopenInput {
+  /** 띠의 버튼 글자 ("사유 고치기") */
+  readonly label: string
+  /** 그 오류면 창을 다시 열 수 있다 */
+  readonly accepts: (error: ApiError) => boolean
+  /** 친 값과 서버 문장으로 창을 다시 연다 */
+  readonly open: (error: ApiError) => void
+}
+
 export interface ActionInput {
   readonly label: string
   readonly meta?: string
@@ -71,8 +83,10 @@ export interface ActionInput {
   readonly send: (requestId: string) => Promise<WriteResult>
   /** 보낸 뒤 결과 (changed: false 포함) */
   readonly onResult?: (result: WriteResult) => void
-  /** 다시 보내도 안 되거나 서버가 거절했을 때 */
-  readonly onError?: (error: ApiError) => void
+  /** 창을 다시 열어 고칠 수 있는 거절 */
+  readonly reopen?: ReopenInput
+  /** 다시 보내도 안 되거나 서버가 거절했을 때 (실패한 항목과 함께) */
+  readonly onError?: (error: ApiError, item: ActionItem) => void
 }
 
 export interface RegistrationInput {
@@ -174,6 +188,7 @@ export class UndoQueue {
       claims: input.claims ?? [],
       products: input.products ?? [],
       meta: input.meta ?? null,
+      reopenLabel: null,
     }
     const entry: Internal = { item, timer: undefined, input }
     this.#items.set(item.id, entry)
@@ -235,9 +250,28 @@ export class UndoQueue {
       input.onResult?.(result)
     } catch (error) {
       const apiError = isApiError(error) ? error : new ApiError({ status: 0, code: 'UNKNOWN', message: '보내지 못했어요. 다시 보내 주세요.' })
-      this.#update(id, { status: 'failed', error: apiError })
-      input.onError?.(apiError)
+      const reopenLabel = input.reopen !== undefined && input.reopen.accepts(apiError) ? input.reopen.label : null
+      this.#update(id, { status: 'failed', error: apiError, reopenLabel })
+      const failed = this.#items.get(id)?.item
+      if (failed?.kind === 'action') input.onError?.(apiError, failed)
     }
+  }
+
+  /**
+   * 거절된 조치의 창을 다시 연다(띠의 "사유 고치기" 또는 화면이 바로). 그 항목은 띠에서 지운다 — 고친 뒤 보내면 새 조치가 된다.
+   * 열었으면 true
+   */
+  reopen(id: number): boolean {
+    const entry = this.#items.get(id)
+    if (entry === undefined || entry.item.kind !== 'action' || entry.item.status !== 'failed' || this.#disposed) return false
+    const { error, reopenLabel } = entry.item
+    const reopen = entry.input?.reopen
+    if (error === null || reopenLabel === null || reopen === undefined) return false
+    if (entry.timer !== undefined) this.#timer.clear(entry.timer)
+    this.#items.delete(id)
+    this.#emit()
+    reopen.open(error)
+    return true
   }
 
   /** 기다리는 조치를 보내지 않는다 / 5초 안의 등록을 되돌린다. 되돌렸으면 true */
@@ -293,7 +327,7 @@ export class UndoQueue {
   resend(id: number): void {
     const entry = this.#items.get(id)
     if (entry === undefined || entry.item.kind !== 'action' || entry.item.status !== 'failed' || this.#disposed) return
-    this.#update(id, { status: 'sending', error: null })
+    this.#update(id, { status: 'sending', error: null, reopenLabel: null })
     this.#chain = this.#chain.then(() => this.#send(id))
   }
 

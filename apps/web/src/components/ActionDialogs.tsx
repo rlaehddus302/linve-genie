@@ -31,7 +31,6 @@ export function ReasonDialog({ spec, onClose }: { readonly spec: ReasonSpec; rea
     <Modal
       title={spec.title}
       onClose={onClose}
-      {...(spec.error != null ? { initialFocus: field } : {})}
       actions={
         <button type="button" className="button button-danger" onClick={submit}>
           {spec.submitLabel}
@@ -230,7 +229,7 @@ export function AssignDialog({ spec, onClose }: { readonly spec: AssignSpec; rea
       label: `${String(product.no)}번 ${buyerName} 직접 배정${replaceWords}`,
       event: { type: 'host.assign', b: product.broadcast, no: product.no, buyer, reason: value, ...(needsReplace && replace !== undefined ? { replace, replaceTo } : {}) },
       products: [product.key],
-      reopen: (error) => api.openDialog({ kind: 'assign', spec: { ...spec, initial: fields, error } }),
+      reopen: { label: '배정 고치기', open: (error) => api.openDialog({ kind: 'assign', spec: { ...spec, initial: fields, error } }) },
     })
     api.closeAll()
   }

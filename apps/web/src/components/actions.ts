@@ -1,5 +1,5 @@
 // 사유가 필요한 방송자 조치 열기 (AC-S05-34): 사유 창 → 5초 대기 조치. 서버가 사유를 거절하면(휴대폰 번호 등)
-// 같은 창을 친 사유와 서버 문장으로 다시 연다(D-079 ⑥).
+// 같은 창을 친 사유와 서버 문장으로 다시 연다(D-079 ⑥) — 판매자가 치는 중이면 되돌리기 띠의 "사유 고치기"로.
 import type { ApiError } from '../api/client.ts'
 import type { Claim, Product } from '../api/types.ts'
 import { productLabel, type ConsoleApi } from './console-context.ts'
@@ -30,7 +30,7 @@ export function openReasonAction(api: ConsoleApi, input: ReasonActionInput, init
           event: input.build(reason),
           ...(input.claims === undefined ? {} : { claims: input.claims }),
           ...(input.products === undefined ? {} : { products: input.products }),
-          reopen: (rejected) => openReasonAction(api, input, reason, rejected),
+          reopen: { label: '사유 고치기', open: (rejected) => openReasonAction(api, input, reason, rejected) },
         })
         api.closeAll()
       },

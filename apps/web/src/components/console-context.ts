@@ -60,8 +60,11 @@ export interface HostActionInput {
   readonly products?: readonly string[]
   /** 메시지 → 찜이면 그 메시지 ID (메시지 옆에 진행을 보인다) */
   readonly message?: string
-  /** 서버가 거절하면 창을 다시 연다 (사유의 휴대폰 번호 등, D-079 ⑥) */
-  readonly reopen?: (error: ApiError) => void
+  /**
+   * 서버가 입력을 거절하면 창을 다시 연다 (사유의 휴대폰 번호 등, D-079 ⑥). 판매자가 글 칸에 치는 중이면 바로 열지 않고
+   * 되돌리기 띠에 버튼(label)을 둔다 — 치던 글자를 빼앗지 않게
+   */
+  readonly reopen?: { readonly label: string; readonly open: (error: ApiError) => void }
   /** 보낸 뒤 결과 */
   readonly onResult?: (result: WriteResult) => void
 }
