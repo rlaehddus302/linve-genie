@@ -234,3 +234,19 @@ interface MergePreview {
 - 화면 단위 시험: `cd apps/web && TZ=Pacific/Honolulu npx vitest run`(또는 루트 `pnpm test`).
 - 손으로 볼 때: `pnpm --filter @livejjim/server e2e --port 3190 --origin http://localhost:5190 --host-delay-ms 2000` + `cd apps/web && node e2e/serve.ts --port 5190 --api http://127.0.0.1:3190` → http://localhost:5190 (계정 `apps/server/e2e/account.json`).
 - E2E는 다른 작업 폴더의 E2E 서버와 포트가 겹치지 않게 `E2E_PORT_OFFSET`(예 400)을 줄 수 있다(재사용 서버가 다른 폴더 빌드일 수 있다).
+
+### 검증 (dev-web 끝, `E2E_PORT_OFFSET=400 pnpm verify`, 커밋 d03099c 작업 트리, TZ=Pacific/Honolulu)
+- 이 기계에서 다른 작업 폴더의 에이전트가 함께 돌아 load average 12~17이었다. 로그: scratchpad `verify-dev-web-S06b-1.log`.
+- **통과**: typecheck(설정 8 · TS 301) · lint(오류 0 · 경고 0) · golden(파일 23 · 파서 379 · 엔진 123 · 통과 502, 그 밖 0) · adversarial(파일 30 · 642).
+- **test 실패 1** — 코어 `engine-timing.test.ts` "checkInvariants: 상태 크기 4배에서 시간이 8배를 넘지 않는다". 부하에서의 시간 비율 시험(dev-core가 적어 둔 것과 같다). 화면 시험 27파일 424개는 통과.
+  - 부하가 더 큰 때 다시 돌린 `pnpm test`에서는 코어·서버의 5초 제한 시험 몇 개와 화면 `console-flows` "다음 줄을 치는 중이면 … 사유 고치기"(포커스 시점) 하나가 더 실패했다.
+  - 그 화면 시험은 따로 3번 모두 통과했고, 첫 verify의 test 단계에서도 통과했다.
+- **coverage 실패** — 코어 속성 시험 `engine-properties-s03.test.ts`가 5초 제한을 넘음(부하). 코어 몫.
+- **e2e 실패 11 / 통과 122**
+  - 10개는 이번 계약 변경에 따른 S06 E2E 교체 몫(test-e2e)이다:
+    - PC 목록이 표: `s06/buyers.spec.ts:30·178`, `s06/settlements.spec.ts:21·93`, `s06/navigation.spec.ts:82`, `s06/attacks-r1.spec.ts:324 @fill`.
+    - 상품 자세히가 찜 취소 뒤에도 열려 있고 "합치기로 돌아가기"로 돌아간다(AC-S06b-34): `s06/buyers.spec.ts:106`.
+    - 미리 보기를 서버에서 받는 동안 "합치기"가 잠겨, 바로 `isDisabled()`를 보면 막힘으로 읽는다(미리 보기를 기다린 뒤 보아야 한다): `s06/phase1.spec.ts:63`.
+    - 방송 날짜 "2099년 12월 30일(수)": `s06/sms.spec.ts:19`.
+    - 받은 시각에 날짜 "받은 시각 10/20 00:00:01": `s06/sms.spec.ts:181`.
+  - 1개 `s05/fill.spec.ts:21 @fill`(p99 1,047ms > 1,000ms)는 부하 때문이다. 따로 다시 돌리면 p99 517ms로 통과했다(`E2E_PORT_OFFSET=400 npx playwright test --project=chromium-fill fill.spec`).
