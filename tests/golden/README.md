@@ -11,7 +11,7 @@
 | `parser/chat.yaml` | 채팅 메시지 → 주문/취소/언급 (R-3) |
 | `parser/amount.yaml` | 한글·숫자 금액 → 원 (빠른 입력·음성 공용), 한글 수사 → 정수 |
 | `parser/quick-input.yaml` | 빠른 입력 한 줄 → 번호·품종·가격 |
-| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13). `08-time.yaml`은 시각 해석(D-022, D-023), `09-host-and-product.yaml`은 방송자 조치·상품 명령 세부(S02, D-039~D-043·D-049). S03 보강: `10-sms.yaml` 문자찜 구매자(D-051), `11-received-time.yaml` 실제 시각순·역전·충돌·메시지 변환(D-052~D-054), `12-product-edit.yaml` 상품 수정·번호 변경(D-055·D-056), `13-merge-settlement.yaml` 구매자 합치기·정산(D-057·D-058). S03b 보강: `14-core-cleanup.yaml` 전화번호 키·문자찜 재전송·메시지 변환·시청자 취소·충돌 중 배정·확정버전 순서·충돌이 풀릴 때 대기 넘침(D-061~D-068) |
+| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13). `08-time.yaml`은 시각 해석(D-022, D-023), `09-host-and-product.yaml`은 방송자 조치·상품 명령 세부(S02, D-039~D-043·D-049). S03 보강: `10-sms.yaml` 문자찜 구매자(D-051), `11-received-time.yaml` 실제 시각순·역전·충돌·메시지 변환(D-052~D-054), `12-product-edit.yaml` 상품 수정·번호 변경(D-055·D-056), `13-merge-settlement.yaml` 구매자 합치기·정산(D-057·D-058). S03b 보강: `14-core-cleanup.yaml` 전화번호 키·문자찜 재전송·메시지 변환·시청자 취소·충돌 중 배정·확정버전 순서·충돌이 풀릴 때 대기 넘침(D-061~D-068). S04 보강: `15-broadcast.yaml` 방송 시작·종료와 방송마다의 설정 스냅샷(D-069·D-070), `16-s04-rules.yaml` 취소 메시지 변환 금지·대기 한도 0의 승계 묻기(D-076·D-077) |
 | `known-unimplemented.yaml` | **예약 파일.** 알려진 미구현 허용 목록 (D-020). 골든 시나리오가 아니다 |
 
 ## 러너가 읽는 범위 (D-020, D-021)
@@ -87,8 +87,8 @@ expect:
   pending: { b1/16: [UC_D] }  # 보류 중인 찜
 ```
 
-- 시나리오 키: `id`(`G-ENG-` + 세 자리, 전체에서 유일), `title`, `refs`(1개 이상), `broadcasts`(1개 이상, 각 `{ id, date: YYYY-MM-DD, title }`), `events`, `expect`, 선택 `settings`.
-- `settings`는 DOMAIN_RULES 기본값 위에 덮어쓰며, 시나리오의 모든 방송에 시작 시점 스냅샷으로 적용된다.
+- 시나리오 키: `id`(`G-ENG-` + 세 자리, 전체에서 유일), `title`, `refs`(1개 이상), `broadcasts`(0개 이상, 각 `{ id, date: YYYY-MM-DD, title }` — S04부터 빈 목록 `[]`도 된다: 서버처럼 빈 엔진에서 시작해 `broadcast.start`로 방송을 선언한다), `events`, `expect`, 선택 `settings`.
+- `settings`는 DOMAIN_RULES 기본값 위에 덮어쓰며, `broadcasts` 목록의 방송(시작 때 선언한 방송)에 시작 시점 스냅샷으로 적용된다. `broadcast.start`로 선언한 방송은 그 이벤트의 `settings`(DOMAIN_RULES 기본값 위 — 시나리오 `settings`와 상관없다)를 쓴다 (S04, D-070).
 
 **추가 검사 키** (`expect` 안, 필요할 때만)
 
@@ -106,11 +106,13 @@ expect:
 | `cancelRequests` | 대기 중인 시청자 취소 요청 `[{ product, buyer }]` |
 | `settlements.<k>.adjustments` / `refundDue` | 조정 합계 / 환불 필요 금액 |
 | `pendingEffects` | 아직 실행 대상(취소·SKIPPED 아님)인 효과의 정확한 목록. `confirmVersion` = 그 상품의 몇 번째 확정인지(1부터) |
+| `broadcasts.<b>` | 방송 하나의 `date`·`title`·`ended`(끝났는지) (S04, D-070) |
 
 **중간 검사**: 이벤트 목록 안에 `{ type: assert, expect: {...} }`를 넣으면 그 시점의 상태를 검사한다. 중간 검사가 틀리면 마지막 `expect`가 맞아도 시나리오는 실패다.
 
 **규칙**
 - `at`은 `HH:MM:SS[.mmm]` (KST, 방송 날짜 기준). 채팅의 `publishedAt`은 따로 적지 않으면 `at`과 같다.
+- 방송 시작·종료 (S04, D-070): `{ type: broadcast.start, b, date, title, settings? }`는 새 방송 `b`를 선언한다. 그 뒤의 이벤트는 `b`를 쓸 수 있다(그 전에 쓰면 읽기 오류). `b`가 이미 선언된 방송(`broadcasts` 목록이나 앞선 `broadcast.start`)이면 그 방송의 **재전송 사본**이다 — 내용(`date`·`title`·`settings`)이 달라도 엔진은 아무 일도 하지 않아야 한다(채팅 메시지 ID의 재수신처럼). `{ type: broadcast.end, b }`는 끝났다는 기록만 남긴다(판정·정산은 바뀌지 않는다, 다시 적으면 아무 일도 없다). 중간 검사와 마지막 `expect`에 적는 방송·상품 키(`broadcasts.<b>`, `<b>/<번호>`, `byBroadcast`)는 그 검사 시점까지 선언된 방송만 쓸 수 있다(마지막 `expect`는 모든 이벤트 뒤).
 - 문자찜: `{ type: sms, b, ref: s1, no: 15, received: "20:01" | "20:01:05", memo?, phone? }` → 구매자 키 `sms:s1`.
   - `phone`은 판매자가 적은 글자 그대로다. 엔진은 전화번호 원문을 받지 않으므로(DOMAIN_RULES R-1, D-061) 러너(코어 어댑터)가 서버가 할 일을 흉내 내 바꿔 넘긴다: 코어 `normalizePhone`으로 정규화해 휴대폰 번호 모양이 아니면 전화번호 없이, 모양이면 `phoneKey` = 정규화한 번호마다 다르고 같은 번호면 같은 결정적 불투명 키(번호 숫자를 그대로 담지 않는 16~128자 영문·숫자·`_`·`-`, 예: 테스트 전용 비밀 키의 HMAC-SHA256 base64url)와 `phoneLast4` = 정규화한 번호의 뒤 4자리를 넘긴다. `phone`은 엔진에 넘기지 않는다.
   - 같은 `ref`를 다시 적으면 그 문자찜의 **재전송 사본**이다(채팅 메시지 ID의 재수신처럼, S03b, D-067). 사본은 다른 필드가 달라도 되고, 엔진은 아무 일도 하지 않아야 한다(INV-3·INV-12). 처음 것이 아무 일도 없었던 문자찜(모르는 지정 구매자)이어도 같다.
@@ -124,12 +126,12 @@ expect:
 
 | 형식 | 예 | 해석 |
 |---|---|---|
-| 짧은 형식 | `"20:00:00"`, `"20:00:02.1"`, `"20:00:02.100"` | 그 이벤트의 방송(`b`) 날짜의 KST 시각. 소수점 아래는 1~3자리 = 밀리초(`.1` = 100ms) |
+| 짧은 형식 | `"20:00:00"`, `"20:00:02.1"`, `"20:00:02.100"` | 그 이벤트의 방송(`b`) 날짜의 KST 시각. `broadcast.start`는 그 이벤트의 `date` 기준이다(사본도 같다). 소수점 아래는 1~3자리 = 밀리초(`.1` = 100ms) |
 | ISO 8601 | `"2026-10-19T00:00:10+09:00"`, `"2026-10-18T15:00:10Z"` | 적힌 오프셋 그대로. 오프셋 없는 ISO는 읽기 오류 |
 
 - 러너는 `at`을 UTC 시각으로 바꿔 엔진에 넘긴다(예: 2026-10-18 방송의 `"20:00:00"` → `2026-10-18T11:00:00.000Z`). 결과는 실행 환경의 시간대와 무관해야 한다.
 - `at`은 파일 순서대로 **줄어들면 안 된다**(같은 값은 허용). 자정을 넘긴 시각을 짧은 형식으로 쓰면 앞 이벤트보다 이른 시각이 되어 읽기 오류가 난다 → 자정 뒤는 ISO로 쓴다.
-- `b`가 없는 이벤트(`host.blockBuyer`, `buyer.*`, `settlement.*` 등)의 짧은 형식은 방송 날짜가 하나뿐인 시나리오에서만 쓸 수 있다. 날짜가 다른 방송이 섞이면 ISO가 필수다.
+- `b`가 없는 이벤트(`host.blockBuyer`, `buyer.*`, `settlement.*` 등)의 짧은 형식은 방송 날짜가 하나뿐인 시나리오에서만 쓸 수 있다. 날짜가 다른 방송이 섞이면 ISO가 필수다. 방송 날짜는 `broadcasts` 목록과 시나리오의 모든 `broadcast.start`(사본 포함)의 `date`를 함께 센다.
 - `publishedAt`은 `at`과 같은 형식이다. 순서 제한은 없다(유튜브 게시 시각은 도착 순서와 다를 수 있다).
 - `received`(문자 수신 시각)는 `HH:MM` 또는 `HH:MM:SS`. 날짜는 DOMAIN_RULES R-6 "문자 수신 시각의 날짜"(D-023)로 정한다: 입력 시각(`at`)에 가장 가까운 날짜. 분 단위면 구간 `[HH:MM:00, +1분)`.
 - `seq`는 `events`에서 `assert`를 뺀 순번(1부터)이다. 재수신 사본도 자기 `seq`를 받는다.
@@ -137,16 +139,18 @@ expect:
 
 ## 이벤트 종류와 필드 (형식 계약)
 
-모든 이벤트에 `at`(필수)과 `type`이 있다. 표에 없는 종류·필드는 읽기 오류다. `b`는 `broadcasts`에 선언된 방송이어야 한다.
+모든 이벤트에 `at`(필수)과 `type`이 있다. 표에 없는 종류·필드는 읽기 오류다. `b`는 `broadcasts`에 선언되었거나 그 이벤트보다 앞선 `broadcast.start`로 선언된 방송이어야 한다(`broadcast.start` 자신의 `b`는 새 ID이거나, 이미 선언된 방송이면 사본).
 
 | type | 필수 | 선택 |
 |---|---|---|
+| `broadcast.start` | `b`(빈 문자열이 아닌 방송 ID), `date`(`YYYY-MM-DD`), `title`(문자열) | `settings`(설정 키 → 값. 아래 "설정 키"의 키·값·범위만, DOMAIN_RULES 기본값 위에 덮어쓴다. 없으면 기본값. `settlement.groupBy: MANUAL`은 엔진 미구현이라 쓰지 않는다) (S04, D-070) |
+| `broadcast.end` | `b` | (S04, D-070) |
 | `product.register` | `b`, `no`(1 이상), `name`(빈 문자열 가능), `price`(0 이상 정수) | `stock`(1 이상, 기본 1), `status`(`OPEN` 기본 / `READY`) |
 | `product.open` / `product.hold` / `product.close` | `b`, `no` | |
 | `product.update` | `b`, `no` | `name`, `price`, `stock`, `applyTo`(`NEW_ONLY` 기본 / `UNPAID_CLAIMS`) |
 | `product.renumber` | `b`, `from`, `to` | |
 | `chat` | `b`, `id`(메시지 ID), `ch`(채널 ID), `nick`, `text` | `owner`(불리언, 기본 false), `publishedAt` |
-| `sms` | `b`, `ref`(영문·숫자·`_`·`-` 1~64자. 다시 적으면 재전송 사본, S03b), `no`, `received` | `memo`, `phone`(판매자가 적은 글자 그대로 — 러너가 `phoneKey`·`phoneLast4`로 바꿔 넘긴다, S03b), `buyer`(지정 구매자 키) |
+| `sms` | `b`, `ref`(영문·숫자·`_`·`-` 1~64자. 다시 적으면 재전송 사본, S03b), `no`, `received` | `memo`, `phone`(판매자가 적은 글자 그대로 — 러너가 `phoneKey`·`phoneLast4`로 바꿔 넘긴다, S03b), `buyer`(지정 구매자 키). `ref`·`memo`에서 숫자만 모은 것이 휴대폰 번호 모양(코어 `normalizePhone`의 결과가 있음)이면 읽기 오류 — 엔진에서는 입력 오류다(S04, D-073) |
 | `host.cancel` / `host.reject` / `host.promote` | `b`, `no`, `buyer`, `reason` | |
 | `host.confirm` / `host.approveCancel` / `host.dismissCancel` | `b`, `no`, `buyer` | `reason` |
 | `host.assign` | `b`, `no`, `buyer`, `reason` | `replace`(구매자 키 — 교체할 지금 1등), `replaceTo`(`WAITLIST`/`CANCEL`). 둘은 함께 쓴다(하나만 있으면 읽기 오류. 엔진에서도 입력 오류, D-065) |
@@ -164,13 +168,13 @@ expect:
 | `settlement.refund` | `buyer`, `date`, `amount`(1 이상), `reason` | |
 | `assert` | `expect` | (`at` 없음, `seq` 없음) |
 
-- R-1의 나머지(`effect.failed`, `broadcast.start`/`end`, 포장·배송 상태)는 처음 쓰는 스프린트에서 spec-keeper가 이 표에 추가한다. (`host.assign`·`host.reopen`·`host.dismissCancel`은 S02에서 추가 — D-041~D-043)
+- R-1의 나머지(`effect.failed`, 포장·배송 상태)는 처음 쓰는 스프린트에서 spec-keeper가 이 표에 추가한다. (`host.assign`·`host.reopen`·`host.dismissCancel`은 S02에서, `broadcast.start`·`broadcast.end`는 S04에서 추가 — D-041~D-043, D-070)
 - **이벤트 안의 구매자 키** (S03, D-057): `buyer.merge`의 `from`·`into`, `buyer.unmerge`의 `from`은 그 키의 구매자 자신(합치기 전)을 가리킨다. 그 밖의 이벤트(`host.*`의 `buyer`·`replace`, `sms`의 `buyer`, `settlement.*`의 `buyer`)도 그 키의 구매자 자신으로 엔진에 넘기고, 엔진이 지금의 구매자(합친 결과)로 풀어 판정·대상 찾기를 한다. `sms:<ref>`는 그 `ref`의 문자찜이 정한 구매자다(지정 구매자, 같은 전화번호로 이어진 구매자, 새 문자 구매자 — DOMAIN_RULES R-11). 키를 구매자 ID로 바꾸는 일은 코어 어댑터가 한다. 이벤트 전체가 아무 일도 없었던 문자찜(모르는 지정 구매자)의 `sms:<ref>`는 풀리지 않는다. 같은 `ref`의 재전송 사본이 있으면 `sms:<ref>`는 그 `ref`의 처음 문자찜으로 정한다(사본은 아무것도 바꾸지 않는다, D-067).
 - 효과 보고(`effect.labelPrinted` / `effect.thanksSent`)는 그 (상품, 구매자[, 대상])의 가장 최근에 나온, 취소되지 않은 해당 효과의 실행 완료로 본다. 상품 키는 효과가 나온 때의 키, 구매자는 지금의 구매자로 풀어 비교한다(S03). 그런 효과가 없으면 러너 오류. 엔진에는 그 효과의 ID로 넘긴다(R-13 "효과 보고" — 바꾸는 일은 코어 어댑터가 한다). 이미 실행 완료된 효과도 "취소되지 않은" 효과이므로 같은 보고를 두 번 적을 수 있다(두 번째는 아무 일도 없어야 한다, INV-11).
 
 ## 설정 키 (형식 계약)
 
-`settings`의 키는 DOMAIN_RULES 설정표의 키만 쓴다. 값도 표의 선택지만 쓴다.
+`settings`(시나리오의 `settings`와 `broadcast.start`의 `settings`)의 키는 DOMAIN_RULES 설정표의 키만 쓴다. 값도 표의 선택지와 "설정값 범위"(DOMAIN_RULES 설정표 아래, S04, D-071) 안의 값만 쓴다. 밖이면 읽기 오류다.
 `claim.parseMode`, `claim.multiNumber`, `claim.maxNumber`, `claim.ignoreOwner`, `claim.preOpenWindowSec`, `waitlist.max`, `cancel.buyerChat`, `cancel.succession`, `contention.policy`, `contention.sameMinuteTieBreaker`, `price.unit`, `shipping.baseFee`, `shipping.freeThreshold`(정수 또는 `null`), `settlement.groupBy`, `print.autoOnConfirm`, `thanks.liveChat`, `thanks.videoComment`, `thanks.batchWindowSec`.
 
 ## `expect` 비교 규칙 (형식 계약)
@@ -202,6 +206,7 @@ expect:
 | `sameBuyer` | 묶음마다 모든 키가 같은 구매자로 풀림 |
 | `claimCount` | 생성된 찜 수(상태 무관). 재수신 메시지와 R-4 4번 줄(같은 사람 반복)은 찜을 만들지 않는다 |
 | `cancelRequests` | 처리 대기 중인 시청자 취소 요청 전체와 정확히 같음. 순서 무관 |
+| `broadcasts.<b>` | 선언된 방송(`broadcasts` 목록 또는 `broadcast.start`)만 적을 수 있다. 적은 필드만 비교: `date`(`YYYY-MM-DD`)·`title`(문자열) = 처음 선언한 값(사본은 바꾸지 않는다), `ended`(불리언) = `broadcast.end`를 받았는지 |
 
 **열거값**: 찜 상태 `PENDING`·`CONFIRMED`·`WAITLISTED`·`REJECTED`·`CANCELLED`·`CONFLICT`·`DUPLICATE` / 거절 사유 `BLOCKED`·`UNOPENED`·`NOT_ON_SALE`·`SOLD_OUT`·`EXPIRED`·`WAITLIST_CLEARED`·`BY_HOST`·`RENUMBERED` / 효과 `PRINT_PRODUCT_LABEL`·`PRINT_PACKING_LABEL`·`POST_THANKS`·`VOID_LABEL`·`NOTIFY` / 대상 `LIVE_CHAT`·`VIDEO_COMMENT`.
 

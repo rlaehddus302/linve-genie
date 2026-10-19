@@ -1,0 +1,140 @@
+# S04 보강 — 방송 시작·종료(broadcast.start / broadcast.end)와 방송마다의 설정 스냅샷 (DOMAIN_RULES "판매 규칙 설정표" 아래 문단, R-0 5, R-1,
+# R-12, D-069·D-070). 기대값 계산은 각 줄 주석.
+# - broadcast.start는 새 방송을 선언하고 그 방송의 설정 스냅샷(settings — DOMAIN_RULES 기본값 위에 덮어쓴 값, 시나리오 settings와 상관없다)을 정한다.
+#   이미 선언한 방송(broadcasts 목록 또는 앞선 broadcast.start)의 broadcast.start는 내용이 달라도 아무 일도 없다(재전송 사본).
+# - 판정(주문 인식·대기 한도·승계·경합·효과)은 그 찜·메시지의 방송 설정으로, 정산 설정(shipping.*, settlement.groupBy)은 그 날짜 첫 방송
+#   (선언 순서)의 설정으로 한다.
+# - broadcast.end는 끝났다는 기록만 남긴다. 판정·정산은 바뀌지 않는다(끝난 뒤의 채팅·문자찜·방송자 조치·정산 기록도 평소대로). 다시 받으면 아무 일도 없다.
+# 기본 설정: 접수순(ARRIVAL), 대기 한도 5, 자동 승계, 확정마다 라벨 1 + 감사 1(켜져 있을 때).
+id: G-ENG-160
+title: 같은 날 두 번째 방송 — broadcast.start의 설정으로 그 방송만 판정하고(대기 0·느슨한 인식·감사·라벨 끔), 정산 배송비는 그날 첫 방송의 설정, 첫 방송의 broadcast.start 사본은 아무 일도 없다
+refs: [ORD-01, ORD-04, STL-01, STL-02, R-0, R-1, R-3, R-4, R-12, R-13, D-069, D-070]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }                 # seq 1
+  - { at: "20:00:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }                       # seq 2. A b1/15 확정(1) — 라벨·감사 (찜 1)
+  - { at: "20:00:06", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }                       # seq 3. 대기 [B] (찜 2)
+  # b1은 이미 선언한 방송 → 사본, 아무 일도 없다(제목·설정 그대로). (받으면 b1 대기 한도 0이 되어 아래 D가 품절된다)
+  - { at: "20:30:00", type: broadcast.start, b: b1, date: 2026-10-18, title: 1부 다시, settings: { waitlist.max: 0, thanks.liveChat: false } }
+  # 2부: 그 방송의 스냅샷 = 기본값 위에 이 값들. 배송비 3,000은 그날 첫 방송(b1, 4,000)이 이미 있으므로 정산에 쓰이지 않는다
+  - { at: "21:00:00", type: broadcast.start, b: b2, date: 2026-10-18, title: 2부, settings: { waitlist.max: 0, claim.parseMode: LOOSE, thanks.liveChat: false, print.autoOnConfirm: false, shipping.baseFee: 3000 } }
+  - { at: "21:00:10", type: product.register, b: b2, no: 15, name: 라울, price: 5000 }                    # seq 6. 번호는 방송 안에서만 유일 — b1/15와 다른 상품
+  - { at: "21:00:20", type: chat, b: b2, id: m1, ch: UC_A, nick: 홍길동, text: "15번 이쁘다 살게요" }       # seq 7. b2는 LOOSE → 주문 15 → A b2/15 확정(1), 효과 없음(감사·라벨 끔) (찜 3)
+  - { at: "21:00:21", type: chat, b: b2, id: m2, ch: UC_B, nick: 김철수, text: "15" }                     # seq 8. b2 대기 한도 0 → 품절 (찜 4)
+  - { at: "21:00:30", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15번 이쁘다 살게요" }       # seq 9. b1은 STRICT → 언급 [15], 찜 없음
+  - { at: "21:00:40", type: chat, b: b1, id: m4, ch: UC_D, nick: 박민수, text: "15" }                     # seq 10. b1 대기 한도 5 → 대기 [B, D] (찜 5)
+  - { at: "21:00:50", type: product.register, b: b2, no: 16, name: 성미인, price: 8000 }                  # seq 11
+  - { at: "21:00:55", type: chat, b: b2, id: m3, ch: UC_E, nick: 최영수, text: "16" }                     # seq 12. E b2/16 확정(1), 효과 없음 (찜 6)
+expect:
+  broadcasts:
+    b1: { date: 2026-10-18, title: 1부, ended: false }        # 사본은 제목을 바꾸지 않는다
+    b2: { date: 2026-10-18, title: 2부, ended: false }
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: [UC_B, UC_D] }
+    b2/15: { status: SOLD, winner: UC_A, waitlist: [] }
+    b2/16: { status: SOLD, winner: UC_E, waitlist: [] }
+  claims:
+    - { product: b2/15, buyer: UC_B, status: REJECTED, reason: SOLD_OUT }
+    - { product: b1/15, buyer: UC_D, status: WAITLISTED }
+  claimCount: 6
+  buyers:
+    UC_A: { items: [b1/15, b2/15], subtotal: 15000, byBroadcast: { b1: 10000, b2: 5000 } }   # 10,000 + 5,000
+    UC_C: { items: [], subtotal: 0 }
+  settlements:
+    # 그날(2026-10-18) 정산 설정 = 첫 방송 b1의 스냅샷(기본 배송비 4,000). 15,000 + 4,000
+    UC_A@2026-10-18: { subtotal: 15000, shipping: 4000, total: 19000, payment: UNPAID }
+    # 2부에서만 샀어도 그날 첫 방송의 배송비(2부 설정 3,000이 아님). 8,000 + 4,000
+    UC_E@2026-10-18: { subtotal: 8000, shipping: 4000, total: 12000, payment: UNPAID }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, text: "15번 핑크프릴 10,000원 홍길동님 구매 감사합니다", confirmVersion: 1 }
+  effectCounts: { POST_THANKS: 1, PRINT_PRODUCT_LABEL: 1 }    # b1의 A 확정만. b2 확정 둘은 감사·라벨 끔
+---
+id: G-ENG-161
+title: 다른 날짜 방송 — broadcast.start에 적지 않은 설정은 기본값(시나리오 설정이 아님), 경합 정책도 방송마다(같은 늦은 문자찜이 접수순 방송에선 대기, 실제 시각순 방송에선 역전), 그날 정산은 그 방송의 배송비·무료 기준
+refs: [ORD-04, ORD-09, STL-01, STL-02, R-1, R-4, R-6, R-7, R-12, R-13, D-052, D-053, D-069, D-070]
+settings: { waitlist.max: 1, shipping.baseFee: 3500 }      # b1(시작 때 선언)에만 적용된다
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }                 # seq 1
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }                       # seq 2. A 확정(1) (찜 1)
+  - { at: "20:00:20", type: sms, b: b1, ref: s1, no: 15, received: "20:00:05" }                            # seq 3. b1은 접수순 → 대기 [s1] — 한도 1, 꽉 참 (찜 2)
+  - { at: "20:00:30", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }                       # seq 4. 품절 (찜 3)
+  # 다음 날 방송. 짧은 형식 at은 이 이벤트의 date(2026-10-19) 기준. 스냅샷 = 기본값 + 실제 시각순 + 무료 기준 20,000
+  # → 대기 한도 5, 배송비 4,000(시나리오의 1·3,500이 아니다)
+  - { at: "19:00:00", type: broadcast.start, b: b2, date: 2026-10-19, title: 1부, settings: { contention.policy: RECEIVED_TIME, shipping.freeThreshold: 20000 } }
+  - { at: "20:00:00", type: product.register, b: b2, no: 15, name: 라울, price: 5000 }                     # seq 6
+  - { at: "20:00:10", type: chat, b: b2, id: m1, ch: UC_A, nick: 홍길동, text: "15" }                       # seq 7. A b2/15 확정(1), t 20:00:10 (찜 4)
+  # 수신 20:00:05(초까지 = 정확한 시각) < A 20:00:10, A 잠금 전 → 자동 역전: s2 확정(2), A → 대기 1순위 [A].
+  # A(1)의 미실행 효과는 취소, 라벨이 나가지 않았으므로 VOID_LABEL 없음 (찜 5)
+  - { at: "20:00:20", type: sms, b: b2, ref: s2, no: 15, received: "20:00:05" }
+  - { at: "20:00:30", type: chat, b: b2, id: m2, ch: UC_B, nick: 김철수, text: "15" }                       # seq 9. t 30 → A(10) 뒤 → 대기 [A, B] (한도 5) (찜 6)
+  - { at: "20:01:00", type: product.register, b: b2, no: 16, name: 성미인, price: 25000 }                  # seq 10
+  - { at: "20:01:10", type: chat, b: b2, id: m3, ch: UC_C, nick: 이영희, text: "16" }                       # seq 11. C b2/16 확정(1) (찜 7)
+expect:
+  broadcasts:
+    b2: { date: 2026-10-19, title: 1부, ended: false }
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: ["sms:s1"] }
+    b2/15: { status: SOLD, winner: "sms:s2", waitlist: [UC_A, UC_B] }
+    b2/16: { status: SOLD, winner: UC_C, waitlist: [] }
+  claims:
+    - { product: b1/15, buyer: UC_B, status: REJECTED, reason: SOLD_OUT }
+    - { product: b2/15, buyer: UC_A, status: WAITLISTED }
+  claimCount: 7
+  buyers:
+    UC_A: { items: [b1/15], subtotal: 10000, byBroadcast: { b1: 10000 } }
+  settlements:
+    UC_A@2026-10-18: { subtotal: 10000, shipping: 3500, total: 13500, payment: UNPAID }      # b1 스냅샷: 배송비 3,500
+    UC_A@2026-10-19: { subtotal: 0, shipping: 0, total: 0, payment: UNPAID }                 # 역전으로 품목 없음
+    "sms:s2@2026-10-19": { subtotal: 5000, shipping: 4000, total: 9000, payment: UNPAID }    # b2 스냅샷: 기본 배송비 4,000, 5,000 < 무료 기준 20,000
+    UC_C@2026-10-19: { subtotal: 25000, shipping: 0, total: 25000, payment: UNPAID }         # 25,000 ≥ 무료 기준 20,000 → 배송비 0
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b2/15, buyer: "sms:s2", text: "15번 라울 5,000원 문자찜님 구매 감사합니다", confirmVersion: 2 }
+  effectCounts: { POST_THANKS: 4, PRINT_PRODUCT_LABEL: 4, VOID_LABEL: 0 }    # A b1(1)·A b2(1)·s2(2)·C(1)
+  pendingEffects:                                  # A b2(1)의 미실행 효과는 역전으로 취소
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b2/15, buyer: "sms:s2", confirmVersion: 2 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b2/15, buyer: "sms:s2", confirmVersion: 2 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b2/16, buyer: UC_C, confirmVersion: 1 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b2/16, buyer: UC_C, confirmVersion: 1 }
+---
+id: G-ENG-162
+title: 로그만으로 시작(방송 선언 없음) — broadcast.start 사본은 아무 일도 없고, broadcast.end는 끝났다는 기록만 남긴다(끝난 뒤의 채팅·문자찜·방송자 취소·정산 기록은 평소대로, 종료 사본은 아무 일도 없다)
+refs: [ORD-03, ORD-07, ORD-08, STL-07, R-0, R-1, R-4, R-8, R-12, D-069, D-070]
+broadcasts: []                                     # 서버처럼 빈 엔진에서 시작해 broadcast.start로 방송을 선언한다
+events:
+  - { at: "19:50:00", type: broadcast.start, b: b1, date: 2026-10-18, title: 1부 }                         # seq 1. 설정 없음 → 기본값
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }                 # seq 2
+  - { at: "20:00:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }                       # seq 3. A 확정(1) (찜 1)
+  - { at: "20:00:06", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }                       # seq 4. 대기 [B] (찜 2)
+  # 같은 b1의 broadcast.start 다시 → 사본, 아무 일도 없다. (받으면 대기 한도 0이 되어 아래 C가 품절된다)
+  - { at: "20:00:10", type: broadcast.start, b: b1, date: 2026-10-18, title: 1부(수정), settings: { waitlist.max: 0 } }
+  - { at: "20:00:30", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15" }                       # seq 6. 대기 [B, C] (찜 3)
+  - { at: "20:00:40", type: broadcast.end, b: b1 }                                                         # seq 7. 끝난 기록만
+  # 끝나기 전에 게시됐지만 끝난 뒤에 도착한 채팅 → 평소대로 판정: 대기 [B, C, D] (찜 4)
+  - { at: "20:00:45", type: chat, b: b1, id: m4, ch: UC_D, nick: 박민수, text: "15", publishedAt: "20:00:39" }
+  - { at: "20:00:50", type: sms, b: b1, ref: s1, no: 15, received: "20:00:38" }                            # seq 9. 늦게 입력한 문자찜 → 대기 [B, C, D, s1] (찜 5)
+  - { at: "20:01:00", type: host.cancel, b: b1, no: 15, buyer: UC_A, reason: 구매자 요청 }                 # seq 10. A 취소 → 자동 승계: B 확정(2) → 대기 [C, D, s1]
+  - { at: "20:01:10", type: broadcast.end, b: b1 }                                                         # seq 11. 이미 끝남 → 아무 일도 없다
+  - { at: "21:00:00", type: broadcast.start, b: b2, date: 2026-10-18, title: 2부 }                         # seq 12
+  - { at: "21:00:10", type: product.register, b: b2, no: 16, name: 라울, price: 5000 }                     # seq 13
+  - { at: "21:00:20", type: chat, b: b2, id: m1, ch: UC_E, nick: 최영수, text: "16" }                       # seq 14. E b2/16 확정(1) (찜 6)
+  # 방송 날짜가 모두 2026-10-18 하나라 방송 없는 이벤트도 짧은 형식 at. B 묶음 10,000 + 4,000 = 14,000 입금 → PAID
+  - { at: "21:30:00", type: settlement.payment, buyer: UC_B, date: 2026-10-18, amount: 14000 }
+expect:
+  broadcasts:
+    b1: { date: 2026-10-18, title: 1부, ended: true }
+    b2: { date: 2026-10-18, title: 2부, ended: false }
+  products:
+    b1/15: { status: SOLD, winner: UC_B, waitlist: [UC_C, UC_D, "sms:s1"] }
+    b2/16: { status: SOLD, winner: UC_E, waitlist: [] }
+  claims:
+    - { product: b1/15, buyer: UC_A, status: CANCELLED }
+    - { product: b1/15, buyer: "sms:s1", status: WAITLISTED }
+  claimCount: 6
+  settlements:
+    UC_B@2026-10-18: { subtotal: 10000, shipping: 4000, total: 14000, payment: PAID }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_B, text: "15번 핑크프릴 10,000원 김철수님 구매 감사합니다", confirmVersion: 2 }
+  effectCounts: { POST_THANKS: 3, PRINT_PRODUCT_LABEL: 3, VOID_LABEL: 0 }    # A(1)·B(2)·E(1)
