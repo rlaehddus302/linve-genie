@@ -2,7 +2,7 @@
 import { DEFAULT_SETTINGS, parseQuickInput } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
 import type { Product } from '../src/api/types.ts'
-import { changedFields, decideFixForm, decideQuickInput, previewNumber, quickErrorMessage, quickSettings } from '../src/lib/quick.ts'
+import { changedFields, decideFixForm, decideQuickInput, numberErrorFill, previewNumber, quickErrorMessage, quickSettings } from '../src/lib/quick.ts'
 import { product } from './support.ts'
 
 const settings = quickSettings(DEFAULT_SETTINGS)
@@ -42,10 +42,28 @@ describe('오류 → 고칠 칸 (AC-S05-11)', () => {
   it.each([
     ['15 핑크프릴', 'PRICE_MISSING', 'price', '가격을 알아보지 못했어요. 가격 칸에 적어 주세요.', 15, '핑크프릴'],
     ['15 핑크프릴 50원', 'PRICE_TOO_LOW', 'price', '가격이 100원보다 적어요. 가격을 확인해 주세요.', 15, '핑크프릴'],
-    ['핑크프릴 10000', 'NUMBER_MISSING', 'no', '맨 앞에 상품 번호를 적어 주세요. 예: 15 핑크프릴 10000', null, null],
-    ['1000 핑크프릴 10000', 'NUMBER_INVALID', 'no', '번호는 1부터 999까지예요. 번호를 확인해 주세요.', null, null],
   ])('%s → %s, 커서 %s', (line, error, focus, message, no, name) => {
     expect(decideQuickInput(line, settings, none)).toEqual({ kind: 'fix', error, focus, message, no, name })
+  })
+
+  // AC-S06-65 (UX-S05-009): 번호 오류면 번호 칸은 비우고(범위 밖이면 친 첫 토큰 그대로) 품종·가격은 번호 자리를 뺀 나머지를 코어로 읽어 채운다
+  it.each([
+    ['핑크프릴 10000', 'NUMBER_MISSING', '맨 앞에 상품 번호를 적어 주세요. 예: 15 핑크프릴 10000', '', '핑크프릴', '10,000원'],
+    ['1000 핑크프릴 10', 'NUMBER_INVALID', '번호는 1부터 999까지예요. 번호를 확인해 주세요.', '1000', '핑크프릴', '10,000원'],
+    ['0 핑크프릴 10', 'NUMBER_INVALID', '번호는 1부터 999까지예요. 번호를 확인해 주세요.', '0', '핑크프릴', '10,000원'],
+    ['1000/핑크프릴/10', 'NUMBER_INVALID', '번호는 1부터 999까지예요. 번호를 확인해 주세요.', '1000', '핑크프릴', '10,000원'],
+    ['방울복랑 금 만오천', 'NUMBER_MISSING', '맨 앞에 상품 번호를 적어 주세요. 예: 15 핑크프릴 10000', '', '방울복랑 금', '15,000원'],
+    ['핑크프릴 예쁜거', 'NUMBER_MISSING', '맨 앞에 상품 번호를 적어 주세요. 예: 15 핑크프릴 10000', '', '핑크프릴 예쁜거', ''],
+    ['1000번 핑크프릴', 'NUMBER_INVALID', '번호는 1부터 999까지예요. 번호를 확인해 주세요.', '1000번', '핑크프릴', ''],
+  ])('%s → %s, 번호 칸 "%s"·품종·가격을 나머지로 채우고 커서는 번호 칸', (line, error, message, noText, name, priceText) => {
+    expect(decideQuickInput(line, settings, none)).toEqual({ kind: 'fix', error, focus: 'no', message, no: null, name, noText, priceText })
+  })
+
+  it('번호 오류의 나머지 읽기는 코어 parseQuickInput이다 (그 방송의 가격 단위: 원 단위면 10 → 읽지 못함은 아니고 100원 미만)', () => {
+    const won = { 'price.unit': 'WON', 'claim.maxNumber': 999 } as const
+    expect(numberErrorFill('핑크프릴 10000', 'NUMBER_MISSING', won)).toEqual({ noText: '', name: '핑크프릴', priceText: '10,000원' })
+    expect(numberErrorFill('핑크프릴 10', 'NUMBER_MISSING', won)).toEqual({ noText: '', name: '핑크프릴 10', priceText: '' })
+    expect(numberErrorFill('1000', 'NUMBER_INVALID', won)).toEqual({ noText: '1000', name: '', priceText: '' })
   })
 
   it('빈 줄은 아무 일도 없다', () => {

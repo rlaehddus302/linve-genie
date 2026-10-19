@@ -1,6 +1,6 @@
 // 빠른 입력칸 한 줄의 뜻 (PRD-01, PRD-03 AC3, R-16, D-084, AC-S05-10~13).
 // 해석은 코어 parseQuickInput·parseAmount에 그 방송 스냅샷의 price.unit·claim.maxNumber를 넣은 결과다(화면이 따로 해석하지 않는다).
-import { DEFAULT_SETTINGS, parseAmount, parseQuickInput, type QuickInputError, type SaleSettings } from '@livejjim/core'
+import { DEFAULT_SETTINGS, formatWon, parseAmount, parseQuickInput, type QuickInputError, type SaleSettings } from '@livejjim/core'
 import type { Product } from '../api/types.ts'
 
 export interface QuickSettings {
@@ -35,6 +35,10 @@ export type QuickDecision =
       readonly name: string | null
       readonly focus: FixField
       readonly message: string
+      /** 번호 칸에 그대로 둘 글자 (범위 밖 번호 — 친 첫 토큰, AC-S06-65) */
+      readonly noText?: string
+      /** 가격 칸에 채울 글자 (번호 오류 때 나머지에서 읽은 가격, AC-S06-65) */
+      readonly priceText?: string
     }
 
 /** 오류 문장 (AC-S05-11 표 그대로) */
@@ -59,6 +63,29 @@ function fix(error: Exclude<QuickInputError, 'EMPTY'>, settings: QuickSettings, 
   return { kind: 'fix', error, no, name, focus: focusOf(error), message: quickErrorMessage(error, settings['claim.maxNumber']) }
 }
 
+/**
+ * 번호를 빠뜨렸거나(NUMBER_MISSING) 범위 밖(NUMBER_INVALID)인 줄의 고치기 칸 (AC-S06-65, UX-S05-009):
+ * 번호 자리를 뺀 나머지(빠뜨림은 줄 전체, 범위 밖은 첫 토큰 뒤)를 코어 parseQuickInput으로 읽는다 — 나머지 앞에 범위 안의 번호(1)를 붙여 읽은
+ * 품종·가격(R-16 4·5). 가격을 읽지 못하면 가격 칸은 비우고 품종은 나머지 전부. 범위 밖이면 번호 칸에 친 첫 토큰을 그대로 둔다.
+ */
+export function numberErrorFill(text: string, error: 'NUMBER_MISSING' | 'NUMBER_INVALID', settings: QuickSettings): { noText: string; name: string; priceText: string } {
+  let line = text.trim()
+  // 슬래시 형식(`1000/핑크프릴/10`)은 코어처럼 '/'를 띄어쓰기로 읽는다
+  if (/^\d+번?\//.test(line)) line = line.replaceAll('/', ' ')
+  const tokens = line.split(/\s+/).filter((token) => token !== '')
+  let noText = ''
+  let rest = tokens
+  if (error === 'NUMBER_INVALID') {
+    noText = tokens[0] ?? ''
+    rest = tokens.slice(tokens[1] === '번' ? 2 : 1)
+  }
+  const remainder = rest.join(' ')
+  if (remainder === '') return { noText, name: '', priceText: '' }
+  const parsed = parseQuickInput(`1 ${remainder}`, settings)
+  if (!('error' in parsed)) return { noText, name: parsed.name, priceText: formatWon(parsed.price) }
+  return { noText, name: remainder, priceText: '' }
+}
+
 /** 빠른 입력 한 줄 → 할 일 (D-084 가~라) */
 export function decideQuickInput(text: string, settings: QuickSettings, findProduct: (no: number) => Product | undefined): QuickDecision {
   const parsed = parseQuickInput(text, settings)
@@ -70,6 +97,10 @@ export function decideQuickInput(text: string, settings: QuickSettings, findProd
     if (parsed.error === 'PRICE_MISSING' && no !== null && (name ?? '') === '') {
       const product = findProduct(no)
       if (product !== undefined) return { kind: 'open', product }
+    }
+    if (parsed.error === 'NUMBER_MISSING' || parsed.error === 'NUMBER_INVALID') {
+      const filled = numberErrorFill(text, parsed.error, settings)
+      return { ...(fix(parsed.error, settings, null, filled.name) as Extract<QuickDecision, { kind: 'fix' }>), noText: filled.noText, priceText: filled.priceText }
     }
     return fix(parsed.error, settings, no, name)
   }

@@ -1,5 +1,5 @@
 // 화면 낱말 (UX-01, D-088, AC-S05-70). 엔진 영어 값은 이 표의 낱말로만 보인다.
-import type { ClaimOrigin, ClaimReason, ClaimStatus, ProductStatus } from '@livejjim/core'
+import { formatWon, type BuyerKind, type ClaimOrigin, type ClaimReason, type ClaimStatus, type PaymentStatus, type ProductStatus, type ShippingMode } from '@livejjim/core'
 
 export const PRODUCT_STATUS_WORD: Readonly<Record<ProductStatus, string>> = {
   READY: '공개 전',
@@ -88,7 +88,7 @@ export function actionWord(type: string, fields: Readonly<Record<string, unknown
     case 'product.update':
       return '고치기'
     case 'product.renumber':
-      return '번호 변경'
+      return typeof fields.from === 'number' && typeof fields.to === 'number' ? `번호 변경 ${String(fields.from)}번 → ${String(fields.to)}번` : '번호 변경'
     case 'host.cancel':
       return '취소'
     case 'host.reject':
@@ -134,5 +134,50 @@ export function stopReasonWord(reason: 'completed' | 'stopped' | 'ended' | 'shut
   }
 }
 
-/** 빠른 사유 (AC-S05-34) */
+/** 빠른 사유 (AC-S05-34, AC-S06-63 — 숫자 키 1~4) */
 export const QUICK_REASONS: readonly string[] = ['시청자 요청', '장난 찜', '번호 착오', '입금 안 함']
+
+/** 구매자 종류 낱말 (D-090) */
+export const BUYER_KIND_WORD: Readonly<Record<BuyerKind, string>> = {
+  youtube: '유튜브',
+  sms: '문자',
+}
+
+/** 입금 상태 낱말 (D-092). 과입금은 환불 필요 금액을 함께: "과입금(환불 필요 5,000원)" */
+export const PAYMENT_WORD: Readonly<Record<PaymentStatus, string>> = {
+  UNPAID: '미입금',
+  PARTIAL: '부분 입금',
+  PAID: '입금 완료',
+  OVERPAID: '과입금',
+}
+
+export function paymentWord(status: PaymentStatus, refundDue: number): string {
+  return status === 'OVERPAID' ? `과입금(환불 필요 ${formatWon(refundDue)})` : PAYMENT_WORD[status]
+}
+
+/** 배송비 예외 낱말 (D-092). 예외 없음은 "기본 배송비" */
+export const SHIPPING_WORD: Readonly<Record<ShippingMode, string>> = {
+  DEFAULT: '기본 배송비',
+  PICKUP: '직접 수령',
+  COMBINED: '합배송',
+  FIXED: '배송비 직접 정함',
+}
+
+/** 정산 기록 종류 낱말 (AC-S06-31): 입금 · 환불 · 할인/추가(조정 부호) · 배송비 예외 */
+export function recordKindWord(kind: 'payment' | 'refund' | 'adjust' | 'shipping', amount: number | null): string {
+  switch (kind) {
+    case 'payment':
+      return '입금'
+    case 'refund':
+      return '환불'
+    case 'adjust':
+      return amount !== null && amount < 0 ? '할인' : '추가'
+    case 'shipping':
+      return '배송비 예외'
+  }
+}
+
+/** 금액을 부호와 함께 ("−1,000원" — 빼기 기호, 양수·0은 그대로) */
+export function signedWon(amount: number): string {
+  return amount < 0 ? `−${formatWon(-amount)}` : formatWon(amount)
+}

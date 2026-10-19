@@ -36,9 +36,12 @@ export function latestProduct(data: ScopeData, b: string): Product | undefined {
 export class BuyerNames {
   readonly #buyers: ReadonlyMap<string, Buyer>
   readonly #counts = new Map<string, number>()
+  /** 전화번호 없는 문자 구매자의 차례 (구분 글자 — 문자 구매자 ID는 보이지 않는다, AC-S06-80) */
+  readonly #smsOrder = new Map<string, number>()
   constructor(buyers: ReadonlyMap<string, Buyer>) {
     this.#buyers = buyers
     for (const buyer of buyers.values()) {
+      if (buyer.kind === 'sms' && buyer.phoneLast4 === null) this.#smsOrder.set(buyer.id, this.#smsOrder.size + 1)
       if (buyer.mergedInto !== null) continue
       this.#counts.set(buyer.display, (this.#counts.get(buyer.display) ?? 0) + 1)
     }
@@ -49,6 +52,7 @@ export class BuyerNames {
     const buyer = this.#buyers.get(id)
     if (buyer === undefined) return '알 수 없는 구매자'
     if ((this.#counts.get(buyer.display) ?? 0) < 2) return buyer.display
+    if (buyer.kind === 'sms' && buyer.phoneLast4 === null) return `${buyer.display} (${String(this.#smsOrder.get(buyer.id) ?? 0)}번째 문자)`
     return `${buyer.display} (끝 ${tail(buyer)})`
   }
 
@@ -60,7 +64,7 @@ export class BuyerNames {
 }
 
 function tail(buyer: Buyer): string {
-  if (buyer.kind === 'sms') return buyer.phoneLast4 ?? buyer.id.slice(-4)
+  if (buyer.kind === 'sms') return buyer.phoneLast4 ?? ''
   return buyer.id.slice(-4)
 }
 

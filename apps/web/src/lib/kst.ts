@@ -54,3 +54,35 @@ export function dateWords(date: string): string {
   if (!m) return date
   return `${String(Number(m[2]))}월 ${String(Number(m[3]))}일`
 }
+
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'] as const
+
+/** `YYYY-MM-DD` → `10/18(토)` (요일은 그 날짜 자체로 — 시간대와 무관) */
+export function dateWithWeekday(date: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  if (!m) return date
+  const day = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay()
+  return `${String(Number(m[2]))}/${String(Number(m[3]))}(${WEEKDAYS[day] ?? ''})`
+}
+
+/** 방송 이름 "1부 · 10/18(토)" */
+export function broadcastWords(title: string, date: string): string {
+  return `${title} · ${dateWithWeekday(date)}`
+}
+
+const shortFormat = new Intl.DateTimeFormat('en-GB', {
+  timeZone: KST_TIME_ZONE,
+  hourCycle: 'h23',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
+/** UTC 시각 → KST `10/18 21:00` (정산 기록의 "기록한 때") */
+export function kstShort(value: string | number): string {
+  const ms = toMs(value)
+  if (!Number.isFinite(ms)) return ''
+  const p = parts(shortFormat, ms)
+  return `${String(Number(p.month ?? '0'))}/${String(Number(p.day ?? '0'))} ${p.hour ?? '00'}:${p.minute ?? '00'}`
+}
