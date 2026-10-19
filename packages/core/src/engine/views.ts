@@ -102,6 +102,7 @@ function claimInfo(state: EngineState, r: Draft, claim: ClaimRecord): ClaimInfo 
   return {
     id: claim.id,
     product: key,
+    productId: claim.pid,
     broadcast: key.slice(0, at),
     no: Number(key.slice(at + 1)),
     buyer: claim.buyer,

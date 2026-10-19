@@ -542,6 +542,8 @@ export interface ClaimInfo {
   readonly id: string
   /** 지금의 상품 키 (번호를 바꾸면 그 상품의 찜은 새 번호, 원래 번호에 남은 보류 찜은 원래 번호 — D-056) */
   readonly product: string
+  /** 판정받은 상품의 ID (아직 보류 중이거나 상품 없이 거절됐으면 null) */
+  readonly productId: string | null
   readonly broadcast: string
   readonly no: number
   /** 구매자 자신 */

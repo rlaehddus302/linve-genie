@@ -43,7 +43,7 @@ export const register = (no: number, fields: Partial<{ name: string; price: numb
 
 let messageCounter = 0
 /** 채팅 한 줄. 메시지 ID를 적지 않으면 새 ID */
-export const chat = (ch: string, text: string, fields: Partial<{ id: string; nick: string; b: string; owner: boolean; at: number }> = {}): EventInput => ({
+export const chat = (ch: string, text: string, fields: Partial<{ id: string; nick: string; b: string; owner: boolean; at: number; publishedAt: number }> = {}): EventInput => ({
   type: 'chat',
   b: 'b1',
   id: `m${String(++messageCounter)}`,
@@ -54,3 +54,20 @@ export const chat = (ch: string, text: string, fields: Partial<{ id: string; nic
 })
 
 export const host = (type: 'host.cancel' | 'host.reject' | 'host.promote', no: number, buyer: string, b = 'b1'): EventInput => ({ type, b, no, buyer, reason: '사유' })
+
+// ── S03 ──────────────────────────────────────────────────────────────────
+
+/** 2026-10-18(방송 날짜)의 KST 시각 → UTC 밀리초. 24시 넘으면 다음 날 */
+export const kst = (hour: number, minute = 0, second = 0, ms = 0): number => Date.UTC(2026, 9, 18, hour - 9, minute, second, ms)
+
+/** 문자찜 한 건 */
+export const sms = (ref: string, no: number, received: string, fields: Partial<{ memo: string; phone: string; buyer: string; b: string; at: number }> = {}): EventInput => ({
+  type: 'sms',
+  b: 'b1',
+  ref,
+  no,
+  received,
+  ...fields,
+})
+
+export const RECEIVED_TIME = { 'contention.policy': 'RECEIVED_TIME' } as const
