@@ -68,6 +68,8 @@ const TITLE_MAX = 100
 /** 메시지 조회 개수 기본·상한 (AC-S05-20 — 그날 메시지 전체를 한 번에 주는 길은 없다) */
 export const MESSAGES_LIMIT_DEFAULT = 100
 export const MESSAGES_LIMIT_MAX = 500
+/** 증분 조회에 함께 담는 새 메시지 수 상한 */
+export const CHANGES_MESSAGES_LIMIT = 200
 /** 시청자로 보내기 닉네임·본문 길이 (AC-S05-52, 글자 수 = 코드 포인트) */
 export const VIEWER_NICK_MAX = 30
 export const VIEWER_TEXT_MAX = 200
@@ -139,8 +141,13 @@ export interface MessagesView {
 }
 
 export interface ChangesView extends Omit<ChangeSet, 'touchedMessages'> {
-  /** since 뒤에 기록이 바뀐 이미 받은 메시지 (메시지 변환으로 바꾼 번호·찜이 늘었다) — 메시지 ID로 덮는다 */
+  /**
+   * 메시지 (seq 오름차순, 방송·메시지 ID로 덮는다): since 이전에 받았는데 그 뒤 기록이 바뀐 메시지(메시지 변환으로 바꾼 번호·찜이 늘었다)와
+   * since 뒤의 새 메시지(최대 200개)
+   */
   readonly messages: readonly MessageItem[]
+  /** since 뒤의 새 메시지가 200개를 넘어 다 담지 못했다 — 나머지는 /messages?after=(마지막 메시지 seq)로 */
+  readonly messagesMore: boolean
 }
 
 /** 상품별 조치 기록 거르기 (AC-S05-35) */
@@ -606,8 +613,9 @@ export class Service {
   }
 
   /**
-   * 증분 조회 (AC-S05-61, D-085): since 뒤로 값이 달라진 항목과 사라진 키, 기록이 바뀐 이미 받은 메시지.
-   * 없는 범위면 null(404), since가 지금보다 크거나 서버가 둔 기준점 밖이면 'resync'
+   * 증분 조회 (AC-S05-61, D-085): since 뒤로 값이 달라진 항목과 사라진 키, 그리고 메시지 —
+   * since 뒤의 새 채팅 메시지(최대 CHANGES_MESSAGES_LIMIT개, 넘으면 messagesMore — 나머지는 메시지 이어 받기로)와
+   * since 이전 메시지 중 기록이 바뀐 것(메시지 변환). 없는 범위면 null(404), since가 지금보다 크거나 서버가 둔 기준점 밖이면 'resync'
    */
   async changes(sellerId: string, date: string, rehearsal: boolean, since: number): Promise<ChangesView | 'resync' | null> {
     const runtime = await this.#options.writer.read(sellerId, date, rehearsal)
@@ -615,12 +623,10 @@ export class Service {
     const set = changeSet(runtime, since)
     if (set === null) return 'resync'
     const { touchedMessages, ...rest } = set
-    let messages: MessageItem[] = []
-    if (touchedMessages.length > 0) {
-      const rows = await chatRowsByIds(this.#options.db, sellerId, runtime.scopeId, touchedMessages)
-      messages = this.#messageItems(runtime.state, rows.filter((row) => row.seq <= runtime.seq))
-    }
-    return { ...rest, messages }
+    const { db } = this.#options
+    const fresh = since === runtime.seq ? { rows: [], more: false } : await chatRows(db, sellerId, runtime.scopeId, { after: since, before: runtime.seq + 1, limit: CHANGES_MESSAGES_LIMIT })
+    const touched = touchedMessages.length === 0 ? [] : (await chatRowsByIds(db, sellerId, runtime.scopeId, touchedMessages)).filter((row) => row.seq <= since)
+    return { ...rest, messages: this.#messageItems(runtime.state, [...touched, ...fresh.rows]), messagesMore: fresh.more }
   }
 
   /**

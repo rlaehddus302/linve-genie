@@ -235,7 +235,7 @@ describe('AC-S05-61 증분 조회 — 덮으면 같다', () => {
       expect(same.body[name]).toEqual([])
       expect((same.body.removed as Record<string, unknown[]>)[name]).toEqual([])
     }
-    expect(same.body).toMatchObject({ date: DAY, rehearsal: false, since: now.seq, seq: now.seq, attention: [], messages: [] })
+    expect(same.body).toMatchObject({ date: DAY, rehearsal: false, since: now.seq, seq: now.seq, attention: [], messages: [], messagesMore: false })
     const empty = Object.fromEntries([...LISTS.map((name) => [name, []]), ['attention', []], ['seq', 0]]) as View
     expectCovers(empty, (await expectOk(changesSince(world, seller, 0))).body, now)
   })
@@ -301,6 +301,26 @@ describe('AC-S05-61 증분 조회 — 덮으면 같다', () => {
   })
 })
 
+describe('AC-S05-61 증분 조회의 새 메시지', () => {
+  it('since 뒤의 새 메시지를 seq 순으로 함께 주고(최대 200개, 넘으면 messagesMore), 메시지 이어 받기와 같은 항목이다', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller, { date: DAY })
+    const before = await full(world, seller)
+    for (let i = 0; i < 205; i++) await world.server.ingestChat(seller.sellerId, { b: b.id, id: `n${String(i)}`, ch: 'UC1', nick: 'n', text: i % 2 === 0 ? '안녕' : '1' })
+    const response = await expectOk(changesSince(world, seller, before.seq as number))
+    const messages = response.body.messages as { id: string; seq: number }[]
+    expect(messages).toHaveLength(200)
+    expect(messages[0]?.id).toBe('n0')
+    expect(messages.at(-1)?.id).toBe('n199')
+    expect(response.body.messagesMore).toBe(true)
+    const follow = await expectOk(client(world, seller.cookie).get(`/api/days/${DAY}/messages?after=${String(messages.at(-1)?.seq)}`))
+    expect((follow.body.messages as { id: string }[]).map((m) => m.id)).toEqual(['n200', 'n201', 'n202', 'n203', 'n204'])
+    const same = await expectOk(client(world, seller.cookie).get(`/api/days/${DAY}/messages?after=${String(before.seq)}&limit=200`))
+    expect(same.body.messages).toEqual(messages)
+  })
+})
+
 describe('AC-S05-61 크기와 지연 (상품 500·채팅 1만 건)', () => {
   it('채팅 1건 뒤의 증분에 바뀌지 않은 상품·찜·지난 채팅이 없고, 증분 조회 응답 p99 300ms 이내 (앞 10번은 준비 구간)', async () => {
     const world = await newWorld()
@@ -317,8 +337,10 @@ describe('AC-S05-61 크기와 지연 (상품 500·채팅 1만 건)', () => {
     const talk = await expectOk(changesSince(world, seller, before.seq as number))
     for (const name of LISTS) if (name !== 'buyers') expect(talk.body[name], name).toEqual([])
     expect((talk.body.buyers as { id: string }[]).map((buyer) => buyer.id)).toEqual(['UCnew'])
-    expect(talk.text.length).toBeLessThan(2000)
-    expect(talk.text).not.toContain('chat') // 지난 채팅이 섞이지 않는다 (채팅은 메시지 이어 받기로)
+    expect(talk.text.length).toBeLessThan(3000)
+    // 새 메시지는 그 1건뿐이다 — 지난 채팅이 섞이지 않는다
+    expect((talk.body.messages as { id: string }[]).map((message) => message.id)).toEqual(['new-talk'])
+    expect(talk.body.messagesMore).toBe(false)
 
     // 주문 채팅 1건: 그 찜과 그 상품(·구매자·정산)만
     const mid = await full(world, seller)

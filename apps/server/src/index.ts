@@ -32,6 +32,7 @@ export { API_EVENTS, CHAT_FIELDS, REQUEST_ID_RE, type ApiEventSpec } from './api
 export { BODY_LIMIT_BYTES, type ApiDeps } from './api.ts'
 export { checkReplay, formatCheck, canonicalJson, type CheckFilter, type CheckPart, type ScopeCheck } from './check-replay.ts'
 export {
+  CHANGES_MESSAGES_LIMIT,
   FAKE_CHANNEL_RE,
   INHERITED_BLOCK_REASON,
   MESSAGES_LIMIT_DEFAULT,
