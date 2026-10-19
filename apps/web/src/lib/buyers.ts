@@ -48,6 +48,51 @@ export function searchBuyers(buyers: ReadonlyMap<string, Buyer>, text: string, l
   return out
 }
 
+/** 그 구매자(합쳐져 있으면 지금의 구매자로 따라가서)의 그 상품 활성 찜 */
+export function activeClaimOf(data: ScopeData, buyer: string, product: string): Claim | undefined {
+  const current = data.buyers.get(buyer)?.current ?? buyer
+  for (const claim of data.claims.values()) if (claim.product === product && claim.currentBuyer === current && isActive(claim)) return claim
+  return undefined
+}
+
+/** 찜을 만들지 않은 문자찜이 정한 구매자와, 그 구매자가 이미 가진 그 상품의 활성 찜 */
+export interface SmsHolder {
+  /** "같은 사람 하나 더"로 고를 구매자 */
+  readonly buyer: string
+  readonly claim: Claim
+}
+
+/**
+ * 찜을 만들지 않은 문자찜이 정한 구매자 (AC-S06-14 "이미 찜한 구매자라…"·"같은 사람 하나 더", R-11 "문자찜 구매자 정하기").
+ * 문자찜 쓰기 응답은 S04 계약 그대로라(AC-S06-16) 구매자를 돌려주지 않는다 — 범위 조회에서 찾는다.
+ * - 지정 구매자를 골랐으면 그 구매자.
+ * - 전화번호로 이은 구매자: 엔진은 그 구매자(의 지금의 구매자)가 그 번호에 이미 활성 찜을 가졌을 때만 문자찜으로 찜을 만들지 않는다
+ *   (그 밖은 거절이어도 찜이 생긴다). 그 구매자는 뒤 4자리가 같은 문자 구매자이므로, 그런 문자 구매자 가운데 그 상품에 활성 찜이 있는
+ *   지금의 구매자가 한 사람뿐이면 그 사람이다(문자 구매자가 하나면 그 구매자 자신, 여럿이 한 사람에 합쳐져 있으면 그 지금의 구매자).
+ *   두 사람 이상이면(뒤 4자리만 같은 다른 번호가 둘 다 그 번호에 찜) 누구인지 정하지 않는다.
+ * - 둘 다 없으면 새 문자 구매자라 찜이 늘 생긴다.
+ */
+export function smsHolder(data: ScopeData, product: string, chosen: string | null, phoneLast4: string | null): SmsHolder | undefined {
+  if (chosen !== null) {
+    const claim = activeClaimOf(data, chosen, product)
+    return claim === undefined ? undefined : { buyer: chosen, claim }
+  }
+  if (phoneLast4 === null) return undefined
+  const byCurrent = new Map<string, { readonly buyers: string[]; readonly claim: Claim }>()
+  for (const buyer of data.buyers.values()) {
+    if (buyer.kind !== 'sms' || buyer.phoneLast4 !== phoneLast4) continue
+    const claim = activeClaimOf(data, buyer.id, product)
+    if (claim === undefined) continue
+    const entry = byCurrent.get(claim.currentBuyer)
+    if (entry === undefined) byCurrent.set(claim.currentBuyer, { buyers: [buyer.id], claim })
+    else entry.buyers.push(buyer.id)
+  }
+  const only = byCurrent.size === 1 ? [...byCurrent][0] : undefined
+  if (only === undefined) return undefined
+  const [current, { buyers, claim }] = only
+  return { buyer: buyers.length === 1 ? (buyers[0] as string) : current, claim }
+}
+
 /** 그날 지금의 구매자 중 같은 표시 이름의 수 */
 export function sameNameCounts(buyers: ReadonlyMap<string, Buyer>): ReadonlyMap<string, number> {
   const counts = new Map<string, number>()

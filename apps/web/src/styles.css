@@ -1004,6 +1004,24 @@ p {
   background-color: #e8f0fe;
 }
 
+/* 칸으로 옮길 때 그 칸이 아래 보내기 막대(와 휴대폰 메뉴 막대)에 가리지 않게 */
+html:has(.sms-submit-bar) {
+  scroll-padding-bottom: 5rem;
+}
+
+/* 보내기 막대: 문자찜 칸을 채우는 동안 화면 아래에 붙어 늘 보인다 (UX-S06-002). 휴대폰은 아래 메뉴 막대 위 */
+.sms-submit-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  display: grid;
+  gap: 0.5rem;
+  margin: 0 -1rem -1rem;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid #c4c7c5;
+  background-color: #ffffff;
+}
+
 .sms-result {
   display: grid;
   gap: 0.5rem;
@@ -1106,6 +1124,27 @@ p {
 
   .quick-help {
     display: none;
+  }
+
+  /* 문자찜 입력: 위를 줄여 결과·번호 칸이 첫 화면에, 보내기 막대는 아래 메뉴 막대(53px) 바로 위 (UX-S06-002) */
+  .sms-page > h1 {
+    font-size: 1.375rem;
+  }
+
+  .sms-broadcast {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .sms-broadcast-title {
+    font-size: 1.25rem;
+  }
+
+  .sms-submit-bar {
+    bottom: calc(3.3125rem + env(safe-area-inset-bottom));
+  }
+
+  html:has(.sms-submit-bar) {
+    scroll-padding-bottom: calc(8.5rem + env(safe-area-inset-bottom));
   }
 
   /* 알림 띠는 한 줄로 접힌다 — 펼친 동안만 늘어난다 */

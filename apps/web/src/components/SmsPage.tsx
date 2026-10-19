@@ -7,7 +7,7 @@ import { containsPhoneRun, normalizePhone, phoneLast4 } from '@livejjim/core'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
 import { get, isApiError, type ApiError } from '../api/client.ts'
 import type { BroadcastItem, Buyer, Claim, Product } from '../api/types.ts'
-import { distinguishWords, isActive, sameNameCounts, searchBuyers, channelTail } from '../lib/buyers.ts'
+import { distinguishWords, isActive, sameNameCounts, searchBuyers, smsHolder, channelTail } from '../lib/buyers.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
 import { claimWord, formatWon, productKey } from '../lib/derive.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
@@ -243,7 +243,7 @@ interface SentResult {
   /** 칸에 쳤던 받은 시각 글자 (같은 사람 하나 더) */
   readonly receivedText: string
   readonly phoneLast4: string | null
-  /** 지정 구매자 */
+  /** 지정 구매자 (고르지 않았으면 null) */
   readonly buyer: string | null
 }
 
@@ -323,7 +323,10 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
     setMemo('')
     setBuyer(null)
     setTried(false)
-    noField.current?.focus()
+    // 결과 카드는 번호 칸 바로 위 — 화면 맨 위로 올려 결과와 번호 칸이 함께 보이게 (UX-S06-002)
+    const page = document.scrollingElement ?? document.documentElement
+    page.scrollTop = 0
+    noField.current?.focus({ preventScroll: true })
   }
 
   const submit = (event?: FormEvent) => {
@@ -354,6 +357,7 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
   const serverError = sender.error
   return (
     <section className="sms-form card" aria-label="문자찜 넣기">
+      {result !== null && api !== undefined ? <ResultCard key={result.seq} api={api} result={result} onSame={fillSame} /> : null}
       <form className="stack" onSubmit={submit} noValidate>
         <div className="stack-tight">
           <div className="field">
@@ -455,16 +459,18 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
           구매자 표시: {chosen !== undefined && api !== undefined ? api.names.name(chosen.id) : memo.trim() === '' ? '문자찜' : `문자찜(${memo.trim()})`}
         </p>
 
-        <div className="row">
-          <button type="submit" className="button button-primary sms-submit" disabled={disabled || number === null || sender.busy}>
-            {label}
-          </button>
-          {sender.busy ? <span role="status">보내는 중…</span> : null}
+        {/* 보내기 막대: 화면 아래에 붙어 있어 칸을 채우는 동안 늘 보인다. 보내는 중·저장 실패도 여기 (UX-S06-002) */}
+        <div className="sms-submit-bar">
+          {/* 다시 보내기: 칸은 그대로라 같은 내용 → 같은 요청 번호 (한 번만 기록) */}
+          {serverError !== null ? <WriteError error={serverError} onRetry={() => void send()} omitFields={['no', 'received', 'phone', 'memo', 'buyer']} /> : null}
+          <div className="row">
+            <button type="submit" className="button button-primary sms-submit" disabled={disabled || number === null || sender.busy}>
+              {label}
+            </button>
+            {sender.busy ? <span role="status">보내는 중…</span> : null}
+          </div>
         </div>
-        {/* 다시 보내기: 칸은 그대로라 같은 내용 → 같은 요청 번호 (한 번만 기록) */}
-        {serverError !== null ? <WriteError error={serverError} onRetry={() => void send()} omitFields={['no', 'received', 'phone', 'memo', 'buyer']} /> : null}
       </form>
-      {result !== null && api !== undefined ? <ResultCard api={api} result={result} onSame={fillSame} /> : null}
       {late !== null ? (
         <Modal
           title="받은 시각을 확인해 주세요"
@@ -576,31 +582,32 @@ function BuyerChooser({
   )
 }
 
-/** 그 구매자(지금의 구매자)의 그 상품 활성 찜 */
-function activeClaimOf(data: ScopeData, buyer: string, product: string): Claim | undefined {
-  const current = data.buyers.get(buyer)?.current ?? buyer
-  for (const claim of data.claims.values()) if (claim.product === product && claim.currentBuyer === current && isActive(claim)) return claim
-  return undefined
-}
-
-/** 보낸 결과 (AC-S06-14) */
+/**
+ * 보낸 결과 (AC-S06-14). 찜이 생기지 않았으면 그 문자찜이 정한 구매자(지정 구매자·전화번호로 이은 구매자)가 그 번호에 활성 찜이 있는지 본다.
+ * 번호 칸 바로 위에 둔다 — 보낸 뒤 칸이 비고 번호 칸으로 가도 결과가 첫 화면에 보인다(UX-S06-002).
+ */
 function ResultCard({ api, result, onSame }: { readonly api: ConsoleApi; readonly result: SentResult; readonly onSame: (buyer: string, received: string) => void }) {
   const claim = useMemo(() => {
     for (const item of api.data.claims.values()) if (item.seq === result.seq && item.origin === 'sms') return item
     return undefined
   }, [api.data.claims, result.seq])
-  const product = productKey(result.b, result.no)
+  const holder = claim === undefined ? smsHolder(api.data, productKey(result.b, result.no), result.buyer, result.phoneLast4) : undefined
+  // 처음 찾은 구매자를 둔다 — 그 찜이 나중에 끝나도 "같은 사람 하나 더"는 같은 사람
+  const [linked, setLinked] = useState<string | null>(null)
+  const found = holder?.buyer ?? null
+  useEffect(() => {
+    if (found !== null) setLinked((current) => current ?? found)
+  }, [found])
   let body: string
-  let who: string | null = result.buyer
+  let who: string | null = result.buyer ?? found ?? linked
   if (claim !== undefined) {
     const received = claim.received ?? kstTime(claim.rankTime)
     body = `${String(claim.no)}번 · ${api.names.name(claim.currentBuyer)} · ${claimWord(api.data, claim)} · 받은 시각 ${received}`
     who = claim.buyer
   } else {
-    const existing = result.buyer === null ? undefined : activeClaimOf(api.data, result.buyer, product)
     body =
-      existing !== undefined
-        ? `${String(result.no)}번 · 이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 ${claimWord(api.data, existing)})`
+      holder !== undefined
+        ? `${String(result.no)}번 · 이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 ${claimWord(api.data, holder.claim)})`
         : `${String(result.no)}번 · 새 찜이 생기지 않았어요. 지금 상태를 확인해 주세요.`
   }
   return (

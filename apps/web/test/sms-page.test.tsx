@@ -193,6 +193,91 @@ describe('보내기·결과·같은 사람 하나 더 (AC-S06-14·81)', () => {
     await waitFor(() => expect(screen.getByRole('region', { name: '넣은 결과' }).textContent).toContain('이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 1등)'))
   })
 
+  it('TE-S06-001: 같은 전화번호로 같은 번호를 다시 넣으면(전화번호로 이은 구매자가 이미 찜) "이미 찜한 구매자라…(지금 1등)", 같은 사람 하나 더는 그 문자 구매자', async () => {
+    setup([register(15, '핑크프릴', 10000, 'b2'), register(16, '청보석', 20000, 'b2')])
+    await open()
+    const sendPhone = async (no: string) => {
+      type(numberField(), no)
+      type(field('전화번호'), '010-2222-3333')
+      fireEvent.submit(numberField().form as HTMLFormElement)
+      await flush(20)
+    }
+    await sendPhone('15')
+    await waitFor(() => expect(screen.getByRole('region', { name: '넣은 결과' }).textContent).toContain('15번 · 문자찜 · 1등'))
+    await sendPhone('15')
+    expect(engine.posts).toHaveLength(2)
+    const result = screen.getByRole('region', { name: '넣은 결과' })
+    await waitFor(() => expect(result.textContent).toContain('15번 · 이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 1등)'))
+    expect(result.textContent).toContain('뒤 4자리 3333')
+    fireEvent.click(within(result).getByRole('button', { name: '같은 사람 하나 더' }))
+    expect(screen.getByRole('group', { name: '고른 구매자' }).textContent).toContain('문자찜')
+    type(numberField(), '16')
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    await flush(20)
+    expect(engine.posts[2]).toMatchObject({ type: 'sms', no: 16, buyer: 'sms:r1' })
+    expect(engine.posts[2]).not.toHaveProperty('phone')
+  })
+
+  it('전화번호로 이은 구매자가 유튜브 구매자에 합쳐져 있어도 "이미 찜한 구매자라…" — 그 지금의 구매자의 찜', async () => {
+    setup([
+      register(15, '핑크프릴', 10000, 'b2'),
+      chat('m1', 'UC_hong1234', '홍길동', '안녕하세요', 'b2'),
+      sms('x1', 15, { phoneKey: 'phonekey-01022223333', phoneLast4: '3333' }, 'b2'),
+      { type: 'buyer.merge', from: 'sms:x1', into: 'UC_hong1234', reason: '같은 사람' },
+    ])
+    await open()
+    type(numberField(), '15')
+    type(field('전화번호'), '010-2222-3333')
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    await flush(20)
+    const result = await screen.findByRole('region', { name: '넣은 결과' })
+    await waitFor(() => expect(result.textContent).toContain('15번 · 이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 1등)'))
+    // 15번 1등은 지금의 구매자 홍길동(합쳐진 문자 구매자의 찜)
+    expect(screen.getByRole('region', { name: '최근 넣은 문자찜' }).textContent).toContain('홍길동')
+    fireEvent.click(within(result).getByRole('button', { name: '같은 사람 하나 더' }))
+    expect(screen.getByRole('group', { name: '고른 구매자' })).toBeDefined()
+    type(numberField(), '15')
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    await flush(20)
+    expect(engine.posts.at(-1)).toMatchObject({ type: 'sms', no: 15, buyer: 'sms:x1' })
+  })
+
+  it('뒤 4자리만 같은 다른 번호 둘이 모두 그 번호에 찜이 있으면 누구인지 정하지 않는다 — 일반 문장, 같은 사람 하나 더 없음', async () => {
+    setup([
+      register(15, '핑크프릴', 10000, 'b2'),
+      sms('x1', 15, { phoneKey: 'phonekey-01022223333', phoneLast4: '3333' }, 'b2'),
+      sms('x2', 15, { phoneKey: 'phonekey-01099993333', phoneLast4: '3333' }, 'b2'),
+    ])
+    await open()
+    type(numberField(), '15')
+    type(field('전화번호'), '010-2222-3333')
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    await flush(20)
+    const result = await screen.findByRole('region', { name: '넣은 결과' })
+    await waitFor(() => expect(result.textContent).toContain('15번 · 새 찜이 생기지 않았어요. 지금 상태를 확인해 주세요.'))
+    expect(within(result).queryByRole('button', { name: '같은 사람 하나 더' })).toBeNull()
+  })
+
+  it('UX-S06-002: 결과 카드는 번호 칸 바로 위, 보내기 버튼·보내는 중·저장 실패는 화면 아래 보내기 막대 안', async () => {
+    setup([register(15, '핑크프릴', 10000, 'b2')])
+    await open()
+    type(numberField(), '15')
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    await flush(20)
+    const result = await screen.findByRole('region', { name: '넣은 결과' })
+    // 문서 순서: 결과 카드 → 번호 칸
+    expect(result.compareDocumentPosition(numberField()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const bar = screen.getByRole('button', { name: '문자찜 넣기' }).closest('.sms-submit-bar') as HTMLElement
+    expect(bar).not.toBeNull()
+    type(numberField(), '15')
+    engine.down = true
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    expect(within(bar).getByText('보내는 중…')).toBeDefined()
+    expect(await within(bar).findByText(/저장하지 못했어요/, {}, { timeout: 6000 })).toBeDefined()
+    expect(within(bar).getByRole('button', { name: '다시 보내기' })).toBeDefined()
+    engine.down = false
+  }, 10_000)
+
   it('저장하지 못하면 "저장하지 못했어요" → 다시 보내기는 같은 요청 번호 (한 번만 기록)', async () => {
     setup([register(15, '핑크프릴', 10000, 'b2')])
     await open()

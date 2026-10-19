@@ -2,7 +2,7 @@
 // 합치기 미리 보기(중복으로 정리될 찜·막는 경우)는 실제 엔진에 buyer.merge를 넣은 결과와 맞대어 본다.
 import { describe, expect, it } from 'vitest'
 import type { Buyer } from '../src/api/types.ts'
-import { buyerList, defaultInto, distinguishWords, planMerge, sameNameCounts, searchBuyers, topicParticle } from '../src/lib/buyers.ts'
+import { buyerList, defaultInto, distinguishWords, planMerge, sameNameCounts, searchBuyers, smsHolder, topicParticle } from '../src/lib/buyers.ts'
 import { BuyerNames } from '../src/lib/derive.ts'
 import { fromFull } from '../src/lib/scope-data.ts'
 import { chat, dataOf, register, run, sms, viewOf } from './engine.ts'
@@ -170,5 +170,42 @@ describe('합치기 미리 보기 (AC-S06-23, D-091) = 실제 엔진 결과', ()
     expect(topicParticle('홍길동')).toBe('은')
     expect(topicParticle('문자찜(김씨)')).toBe('는')
     expect(topicParticle('abc')).toBe('은(는)')
+  })
+})
+
+describe('찜이 생기지 않은 문자찜이 정한 구매자 (AC-S06-14, TE-S06-001) = 엔진이 찜을 만들지 않은 까닭', () => {
+  it('전화번호로 이은 구매자: 엔진이 찜을 만들지 않았으면(같은 사람 반복) 뒤 4자리가 같은 문자 구매자 중 그 상품에 활성 찜이 있는 사람', () => {
+    const again = sms('r9', 16, { phoneKey: KEY_A, phoneLast4: '5678' })
+    const after = run([...BASE, again])
+    const data = fromFull(viewOf(after.state, after.seq))
+    // 엔진: 찜을 만들지 않았다 (r9의 찜이 없다)
+    expect([...data.claims.values()].some((claim) => claim.seq === after.seq)).toBe(false)
+    const holder = smsHolder(data, 'b1/16', null, '5678')
+    expect(holder?.buyer).toBe('sms:r1')
+    expect(holder?.claim.status).toBe('CONFIRMED')
+    // 다른 번호(뒤 4자리 1111)는 16에 찜이 없다
+    expect(smsHolder(data, 'b1/16', null, '1111')).toBeUndefined()
+    // 전화번호도 지정 구매자도 없으면 정할 것이 없다
+    expect(smsHolder(data, 'b1/16', null, null)).toBeUndefined()
+  })
+
+  it('지정 구매자: 그 구매자(합쳐져 있으면 지금의 구매자)의 활성 찜', () => {
+    const data = dataOf([...BASE, { type: 'buyer.merge', from: 'sms:r3', into: 'UC_kim5555', reason: '같은 사람' }])
+    expect(smsHolder(data, 'b1/15', 'UC_hong1234', null)?.claim.currentBuyer).toBe('UC_hong1234')
+    expect(smsHolder(data, 'b1/17', 'sms:r3', null)).toMatchObject({ buyer: 'sms:r3', claim: { currentBuyer: 'UC_kim5555' } })
+    expect(smsHolder(data, 'b1/16', 'UC_kim5555', null)).toBeUndefined()
+  })
+
+  it('같은 뒤 4자리의 문자 구매자 여럿이 한 사람에 합쳐져 있으면 그 지금의 구매자, 서로 다른 사람이면 정하지 않는다', () => {
+    const KEY_C = 'phonekey-cccccccccccc'
+    const two = [...BASE, sms('r7', 17, { phoneKey: KEY_C, phoneLast4: '5678' })]
+    // r1(16 1등)과 r7(17 대기) — 다른 사람, 17에는 r7과 김철수: 뒤 4자리 5678 중 17에 찜이 있는 사람은 r7 하나
+    expect(smsHolder(dataOf(two), 'b1/17', null, '5678')?.buyer).toBe('sms:r7')
+    // 둘 다 15에 찜 → 누구인지 정하지 않는다
+    const both = [...two, sms('r8', 15, { phoneKey: KEY_C, phoneLast4: '5678' })]
+    expect(smsHolder(dataOf(both), 'b1/15', null, '5678')).toBeUndefined()
+    // r7을 r1에 합치면(같은 사람) 15의 활성 찜은 한 사람(r1의 지금의 구매자) — 문자 구매자가 둘이라 지금의 구매자로
+    const merged = dataOf([...both, { type: 'buyer.merge', from: 'sms:r7', into: 'sms:r1', reason: '같은 사람' }])
+    expect(smsHolder(merged, 'b1/15', null, '5678')?.buyer).toBe('sms:r1')
   })
 })
