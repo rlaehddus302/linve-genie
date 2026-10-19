@@ -12,6 +12,7 @@ import { generateMasterKey, type PasswordCost } from './secrets.ts'
 import { createServer, type LivejjimServer } from './server.ts'
 import { kstDate, systemClock, type Clock } from './time.ts'
 import type { Draft } from './writer.ts'
+import { FakeGoogle } from './youtube/fake-google.ts'
 
 /** 시험용 판매자 계정 (저장소의 픽스처 파일 — 실제 비밀값이 아니다) */
 export const E2E_ACCOUNT_FILE = new URL('../e2e/account.json', import.meta.url)
@@ -110,6 +111,12 @@ export interface E2eOptions {
   readonly generatorSpeed?: number
   /** 시험 안에서 빠르게 (비밀번호 해시 비용) */
   readonly passwordCost?: PasswordCost
+  /**
+   * 가짜 구글·유튜브 서버와 함께 띄운다 (AC-Y1-81, D-Y13). 127.0.0.1의 그 포트(0이면 빈 포트)에서 열고 서버가 그 주소를 쓴다.
+   * 돌아오는 주소는 화면 주소를 거친다(<화면>/api/youtube/oauth/callback — 화면이 /api를 서버로 넘긴다), 연결 뒤 화면 주소는 <화면>/settings/youtube.
+   * 워커(수집기·발송함·봉인)를 함께 돌린다
+   */
+  readonly youtube?: { readonly port?: number; readonly returnUrl?: string; readonly pollingIntervalMillis?: number }
 }
 
 /** E2E 서버가 듣는 주소: 이 컴퓨터 안(IPv4 루프백)에서만 (AC-S06-73, D-096 — 모든 인터페이스 0.0.0.0·::이 아니다) */
@@ -121,6 +128,8 @@ export interface E2eServer {
   readonly account: E2eAccount
   readonly sellerId: string
   readonly fill: FillResult | null
+  /** 가짜 구글·유튜브 서버 (youtube를 주었을 때만) */
+  readonly fakeGoogle: FakeGoogle | null
   /** Node HTTP 서버 (열기는 listen으로) */
   readonly http: Server
   /** E2E_HOST(127.0.0.1)의 그 포트에서 연다 (0이면 빈 포트). 연 주소·포트를 돌려준다. 열지 못하면(포트를 이미 씀 등) 그 오류로 실패한다 */
@@ -131,11 +140,32 @@ export interface E2eServer {
 export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServer> {
   const database = await openPglite()
   const masterKey = generateMasterKey()
+  const appOrigin = options.appOrigin ?? 'http://localhost:5173'
+  const fakeGoogle =
+    options.youtube === undefined
+      ? null
+      : await FakeGoogle.start({
+          ...(options.youtube.port === undefined ? {} : { port: options.youtube.port }),
+          pollingIntervalMillis: options.youtube.pollingIntervalMillis ?? 1000,
+        })
   const server = createServer({
     database,
     masterKey,
-    appOrigin: options.appOrigin ?? 'http://localhost:5173',
+    appOrigin,
     log: () => {},
+    ...(fakeGoogle === null
+      ? {}
+      : {
+          youtube: {
+            clientId: fakeGoogle.clientId,
+            clientSecret: fakeGoogle.clientSecret,
+            redirectUri: `${appOrigin}/api/youtube/oauth/callback`,
+            returnUrl: options.youtube?.returnUrl ?? `${appOrigin}/settings/youtube`,
+            endpoints: fakeGoogle.endpoints(),
+            allowInsecure: true,
+          },
+          collectorTiming: { scanMs: 1000 },
+        }),
     ...(options.hostActionDelayMs === undefined ? {} : { hostActionDelayMs: options.hostActionDelayMs }),
     ...(options.generatorSpeed === undefined ? {} : { generatorSpeed: options.generatorSpeed }),
     ...(options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost }),
@@ -144,6 +174,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
   const created = await createSellerAccount(database.db, Buffer.from(masterKey, 'base64'), account, options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost })
   if (!created.ok) throw new Error(created.message)
   const fill = options.fill === undefined ? null : await fillScope(server, created.sellerId, options.fill)
+  if (fakeGoogle !== null) server.start()
   const http = createNodeServer({ app: server.app })
   return {
     server,
@@ -151,6 +182,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     account,
     sellerId: created.sellerId,
     fill,
+    fakeGoogle,
     http,
     listen: (port) =>
       new Promise((resolve, reject) => {
@@ -165,6 +197,8 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
       }),
     close: async () => {
       server.close()
+      await server.stop()
+      await fakeGoogle?.close()
       http.closeAllConnections()
       await new Promise<void>((resolve) => {
         if (!http.listening) resolve()

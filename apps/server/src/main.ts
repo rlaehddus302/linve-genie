@@ -3,11 +3,12 @@
 // - DB 연결 설정(DATABASE_URL 또는 개발용 LIVEJJIM_PGLITE_DIR)·서버 마스터 키(LIVEJJIM_MASTER_KEY)·화면 앱 주소(LIVEJJIM_APP_ORIGIN)가
 //   없거나 틀리면 쉬운 문장으로 알리고 시작하지 않는다(값은 출력하지 않는다). 메모리 DB로 조용히 바꾸지 않는다.
 // - 시작할 때 마이그레이션을 적용한다.
+// - 유튜브 연동(LIVEJJIM_GOOGLE_*)은 선택이다. 적었으면 주소는 https만 받는다(아니면 시작하지 않는다, AC-Y1-72). 워커(수집기·발송함·봉인)를 함께 돌린다.
 // - 기동 로그에 환경변수 값을 찍지 않는다.
 // - Ctrl+C(SIGINT)·SIGTERM이면 새 연결을 받지 않고 진행 중인 요청을 마친 뒤 종료 코드 0으로 끝난다.
 //   한 번 더 누르면 바로 끝낸다.
 import { existsSync } from 'node:fs'
-import { DEFAULT_PORT, readAppOrigin, readDatabaseSetting, readPort } from './config.ts'
+import { DEFAULT_PORT, readAppOrigin, readDatabaseSetting, readPort, readYoutubeSetting } from './config.ts'
 import { createNodeServer } from './node-server.ts'
 import { openDatabaseFromEnv } from './commands/shared.ts'
 import { readMasterKey } from './secrets.ts'
@@ -38,6 +39,11 @@ if (!origin.ok) {
   complain(`시작하지 못했어요. ${origin.message}`)
   process.exit(1)
 }
+const youtubeSetting = readYoutubeSetting(process.env, origin.origin)
+if (!youtubeSetting.ok) {
+  complain(`시작하지 못했어요. ${youtubeSetting.message}`)
+  process.exit(1)
+}
 const databaseSetting = readDatabaseSetting(process.env)
 if (!databaseSetting.ok) {
   complain(`시작하지 못했어요. ${databaseSetting.message}`)
@@ -49,7 +55,9 @@ if (database === null) {
   process.exit(1)
 }
 
-const livejjim = createServer({ database, masterKey: masterKey.key, appOrigin: origin.origin })
+const livejjim = createServer({ database, masterKey: masterKey.key, appOrigin: origin.origin, ...(youtubeSetting.youtube === null ? {} : { youtube: youtubeSetting.youtube }) })
+// 워커: 유튜브 수집기·발송함(설정이 있을 때), 30일 봉인 작업 — 끝나지 않은 회차의 수집기가 저절로 다시 돈다 (NFR-03)
+livejjim.start()
 const server = createNodeServer({ app: livejjim.app })
 
 // PORT 환경변수 값은 로그에 찍지 않는다. 기본값일 때만 번호를 보여 준다.
