@@ -225,6 +225,7 @@ D-079가 D-073의 번호 판단과 수정 라운드 1·2의 `containsPhoneNumber
 - **spec-keeper에게 (확인)**: `ー`(U+30FC 가나 장음)·`ｰ`(U+FF70)는 유니코드 글자(Lm)라 D-080 구분자 정의대로 배열을 끊는다(`3시 010ー1234ー5678`은 번호 아님). 수정 라운드 2에서는 구분자였다. 구분자로 넣으려면 R-1 자모 목록에 더해 주기 바란다.
 
 ### dev-server에게 — S04 마무리 남은 서버 몫 (지금 `pnpm verify`의 실패 3건 전부)
+→ 셋 다 처리함 — 아래 dev-server 절 "S04 마무리 (dev-server)".
 1. **거절 문장 (AC-S04-22, D-079 ⑥)** — `apps/server/src/messages.ts`: 판매자가 적는 칸의 번호 문제는 코어 `checkEvent` 결과의 `problem.code === 'PHONE_NUMBER'`로만 고르고(값을 다시 판단하지 않는다), 글 칸·ID 칸 모두 "전화번호처럼 보이는 숫자(010-…)가 있어요. 빼고 적어 주세요."로. 지금은 `TEXT_FIELDS`+`containsPhoneNumber(value)`로 따로 판단하고 옛 문장을 쓴다 — ID 칸은 "구매자를 골라 주세요." 등이 나간다. (적대 `TD-S04-003 회귀 … D-079 ⑥ 문장`, `TD-S04-004 … ID 칸에 번호를 넣은 요청은 400(그 필드 이름과 D-079 ⑥ 문장)` 실패.) 서버 시험 `sms-privacy`의 옛 문장 기대도 같이 바꿔야 한다.
 2. **차단 이어받기 (AC-S04-27)** — `apps/server/src/service.ts:189` `blockedIds(state).filter((id) => !id.startsWith('sms:'))`에 `!looksLikePhoneId(id)`를 더한다. **지금은 더 나쁘다**: 이전 범위에 번호 모양 ID 차단이 남아 있으면 이어받는 `host.blockBuyer`가 코어 `checkEvent`에서 거절되어 **다음 날 첫 방송 만들기 자체가 400**으로 실패한다(적대 `D-079 전 로그에 번호 모양 ID로 남은 차단은…` 실패 원인). 이어받는 이벤트도 `checkEvent`를 통과한 것만 기록한다.
 3. `containsPhoneNumber`(별칭) → `containsPhoneRun`으로 이름을 바꿔 쓰면 된다(`messages.ts`의 `safeFieldName`, `service.ts:335` ref 생성기). 판단은 이미 같다.
@@ -290,7 +291,8 @@ D-079가 D-073의 번호 판단과 수정 라운드 1·2의 `containsPhoneNumber
   - CORS 헤더를 내지 않는다 → 화면과 API는 같은 출처로 배포하거나 개발 때 Vite 프록시를 쓴다(`/api` → 서버). 프록시를 쓰면 Origin은 화면 주소(예: `http://localhost:5173`)이므로 그 값을 `LIVEJJIM_APP_ORIGIN`에 둔다.
   - 모든 `/api` 응답은 `Cache-Control: no-store`. 시각은 UTC ISO 8601(`Z`), 날짜는 `YYYY-MM-DD`.
   - 로그인·헬스체크 밖은 세션이 없으면(만료·위조 포함) `401 UNAUTHORIZED`. 다른 판매자의 방송·범위는 없는 것과 같은 `404 NOT_FOUND`.
-- **오류 본문**: `{ "error": { "code", "message", "problems"?: [{ "field": string|null, "message" }] } }`. `message`·`problems[].message`는 화면에 그대로 보여 줘도 되는 쉬운 한국어(영어 없음 — 단 설정 문제는 코어 `checkSettings` 문장 그대로라 `true`·`false`가 들어 있다). 받은 값은 되돌려 보내지 않는다. `field`는 엔진 필드 이름(`no`, `price`, `memo`, `settings.waitlist.max` …) — 받은 키가 번호 모양·이상한 이름이면 `null`.
+- **오류 본문**: `{ "error": { "code", "message", "problems"?: [{ "field": string|null, "message", "hint"?: string }] } }`. `message`·`problems[].message`·`problems[].hint`는 화면에 그대로 보여 줘도 되는 쉬운 한국어(영어 없음 — 설정 문제의 코어 `checkSettings` 문장도 S04 마무리에서 `true`·`false`를 뺐다, SA-S04-004). 받은 값은 되돌려 보내지 않는다. `field`는 엔진 필드 이름(`no`, `price`, `memo`, `settings.waitlist.max` …) — 받은 키가 번호 모양·이상한 이름이면 `null`. `hint`는 있을 때만 — `message` 뒤에 이어 보여 줄 다음 할 일이다.
+- **휴대폰 번호 거절 (AC-S04-22, D-079 ⑥)**: 판매자가 적는 칸(글 칸 `memo`·`reason`·`title`·`name`, ID 칸 `buyer`·`from`·`into`·`replace`·`msg`)에 휴대폰 번호가 있으면 400 `INVALID_INPUT`, `problems[].message`는 칸과 상관없이 **"전화번호처럼 보이는 숫자(010-…)가 있어요. 빼고 적어 주세요."**. 서버는 이 판단을 코어 `checkEvent` 문제의 `code: 'PHONE_NUMBER'`로만 한다(값을 다시 보지 않는다). `hint`: `buyer`·`from` "전화번호 대신 구매자를 골라 주세요.", `into` "전화번호 대신 합칠 구매자를 골라 주세요.", `replace` "전화번호 대신 교체할 1등을 골라 주세요.", `msg` "전화번호 대신 메시지를 골라 주세요.", 문자찜 `memo` "전화번호는 전화번호 칸에 적어 주세요.". 그 밖의 글 칸은 `hint` 없음.
 
   | 상태 | code | 문장 | 언제 |
   |---|---|---|---|
@@ -337,7 +339,7 @@ D-079가 D-073의 번호 판단과 수정 라운드 1·2의 `containsPhoneNumber
   - `b`가 있는 종류(그 방송의 범위, `?date=` 쓰면 400): `product.register|open|hold|close|update|renumber`, `sms`, `host.cancel|reject|promote|confirm|approveCancel|dismissCancel|assign|reopen|resolveConflict|convertMessage`.
   - `b`가 없는 종류(`?date=` 필수, 없는 범위면 404): `host.blockBuyer|unblockBuyer`, `buyer.merge|unmerge`, `settlement.shippingOverride|adjust|payment|refund`. `settlement.*`의 `date`는 `?date=`와 같아야 한다(400).
   - 필드 이름·값은 골든 README 이벤트 표·코어 타입 그대로. `broadcast.*`는 방송 경로로만, `chat`은 받지 않는다(서버 수집 함수), `effect.*`는 S08·S11.
-  - **`sms`**: `{ requestId, type: 'sms', b, no, received?, memo?, phone?, buyer? }`. `phone`은 판매자가 적은 글자 그대로(서버가 정규화·키로 바꾸고 원문은 버린다). 응답 `phoneLast4`가 `null`이면 휴대폰 번호로 알아보지 못한 것. `memo`가 번호 모양이면 400(`problems[0].field = 'memo'`, "전화번호는 여기에 적을 수 없어요. 전화번호 칸에 적어 주세요.").
+  - **`sms`**: `{ requestId, type: 'sms', b, no, received?, memo?, phone?, buyer? }`. `phone`은 판매자가 적은 글자 그대로(서버가 정규화·키로 바꾸고 원문은 버린다). 응답 `phoneLast4`가 `null`이면 휴대폰 번호로 알아보지 못한 것. `memo`에 휴대폰 번호가 있으면 400(`problems[0]` = `{ field: 'memo', message: D-079 ⑥ 문장, hint: '전화번호는 전화번호 칸에 적어 주세요.' }`).
 - **SSE `GET /api/stream`** (`text/event-stream`)
   ```
   retry: 3000
@@ -351,6 +353,7 @@ D-079가 D-073의 번호 판단과 수정 라운드 1·2의 `containsPhoneNumber
   : ping
   ```
   - `ready`는 연결 직후 한 번(그 판매자의 범위별 지금 seq). `change`는 커밋된 이벤트마다(같은 요청이 여러 이벤트를 쓰면 — 방송 만들기 + 차단 이어받기 — 하나씩), `id`는 연결마다 1부터. 화면은 알림을 받으면 그 날짜를 다시 조회한다(내용은 보내지 않는다). 하트비트 `: ping`은 15초마다. 다시 붙으면 `ready`의 seq로 놓친 변경을 안다. 로그아웃·세션 만료면 서버가 연결을 닫는다(만료 뒤 다시 붙으면 401).
+  - **빠짐·중복 없음 (S04 마무리, RA-S04-003·SA-S04-005)**: 서버는 연결을 먼저 등록해 알림을 모으기 시작한 뒤 범위별 seq를 읽는다. 읽는 동안 커밋된 변경은 `ready` 바로 뒤에 `change`로 오고, `ready`의 seq에 이미 들어 있는 변경(그 날짜의 seq 이하)은 서버가 거른다 — 같은 변경이 `ready`와 `change`로 두 번 오지 않는다. 화면이 알고 있는 seq보다 작거나 같은 `change`를 무시해도 결과는 같다(여러 탭·재연결에서 화면이 조회로 이미 앞선 경우를 위한 안전장치로 권한다).
 
 ### 실행·명령
 - 환경 변수(`.env.example`): `PORT`, `DATABASE_URL`(운영 PostgreSQL) 또는 `LIVEJJIM_PGLITE_DIR`(개발용 파일 PGlite — 명시적으로 고를 때만, 둘 중 하나), `LIVEJJIM_MASTER_KEY`(32바이트 base64), `LIVEJJIM_APP_ORIGIN`(경로 없는 화면 주소). 하나라도 없거나 틀리면 쉬운 문장으로 시작하지 않는다(값은 출력하지 않는다, 메모리 DB로 바꾸지 않는다).
@@ -404,3 +407,21 @@ const cookie = /lj_session=[^;]+/.exec(res.headers.get('set-cookie') ?? '')?.[0]
 - adversarial 실패 7 — 모두 test-domain 몫(위 "남의 몫" 표): `s00/server.test.ts` 기동 2건(S04 시작 조건), dev-core 절의 5건.
 - 서버 시험은 도커·네트워크·외부 DB 없이 PGlite로, `TZ=Pacific/Honolulu` 아래 돈다(AC-S04-94). 검증 파이프라인(`scripts/verify/**`)은 바꾸지 않았다.
 - **수정 라운드 1 뒤 `pnpm verify`: 통과(통과 6 · 실패 0)** — typecheck(설정 7 · TS 170) · lint(오류 0 · 경고 0) · test(파일 57 · 테스트 1489) · golden(19 · 379 · 111 · 490, 그 밖 0) · adversarial(파일 22 · 테스트 605, 실패 0) · coverage(라인 100% · 분기 99.65%).
+
+### S04 마무리 (dev-server) — 번호 거절 안내(D-079 ⑥)·차단 이어받기·SSE 순서·설정 문장
+| 지적 | 응답 | 한 것 | 확인한 시험 |
+|---|---|---|---|
+| SA-S04-006 · TD-S04-004 (서버 몫) ID 칸 번호 거절 문장, 이어받기가 번호 모양 ID를 매일 다시 기록 | 고침 | `messages.ts`: 번호 문제는 코어 문제의 `code === 'PHONE_NUMBER'`로만 고르고(서버의 `TEXT_FIELDS`+값 판단을 지움), 문장은 글 칸·ID 칸 모두 D-079 ⑥. ID 칸·문자찜 메모는 `problems[].hint`(위 API 계약). `service.ts` 이어받기: `!looksLikePhoneId(id)`를 더하고, 이어받는 `host.blockBuyer`에 `Draft.skipIfInvalid` — `checkEvent`를 통과하지 못하면 그 차단만 빼고(seq를 쓰지 않음, 로그 `DRAFT_SKIPPED`는 날짜만) 방송은 만든다. 전에는 번호 모양 차단이 남은 다음 날 첫 방송 만들기가 400이었다 | 적대 `phone-in-fields` 전부(22), `sms-privacy` "구매자·메시지 ID 칸에 휴대폰 번호…"(8칸 × 400·문장·hint·DB 덤프), `messages.test.ts`(code로만 고름·hint 표·실제 checkEvent 순서·필드 이름 없을 때), `inherit-restart` "차단된 ID가 휴대폰 번호면 이어받지 않고 방송은 만들어진다"·"이어받는 차단도 checkEvent를 통과해야 기록한다" |
+| SA-S04-003 · SA-S04-007 (서버 몫) | 고침 | 서버는 번호를 따로 판단하지 않는다 — 코어 `containsPhoneRun`·`looksLikePhoneId` 결과(문제의 code)만 쓴다. 남은 직접 호출은 둘: 응답에 되돌려 보낼 필드 이름 검사(`safeFieldName`)와 바꿔 끼운 ref 생성기 검사 → `containsPhoneNumber`(별칭)에서 `containsPhoneRun`으로 | 적대 `SA-S04-007 회귀`('01/05 구피 30종 1000원' 방송 제목 200), `sms-privacy` ref 생성기 |
+| RA-S04-003 · SA-S04-005 SSE: seq 읽기와 연결 등록 사이 커밋 알림 유실 | 고침 | `StreamHub.open(seller, session, readScopes)`: 먼저 대기 연결로 등록해 그 판매자의 알림을 모으고 → `readScopes()` → 스트림 `start`(생성자 안 동기 호출)에서 `ready`, 모인 알림, 등록을 한 번에. 연결마다 `ready`의 범위별 seq를 기억해 그 이하 알림은 보내지 않는다(대기 중·연결 뒤 모두). 읽기 실패면 등록을 지우고 오류를 그대로(500). 읽는 동안 로그아웃·`closeAll`이면 `ready` 없이 닫힌 응답 | `hub.test.ts` 5건(읽는 동안 커밋 → ready 뒤 전달·ready seq 이하 거름·새 범위·다른 판매자 / 연결 뒤 늦은 알림 거름 / 읽기 직후 커밋 / 읽기 실패 / 읽는 동안 로그아웃·종료), 기존 `stream.test.ts` 그대로 통과 |
+| SA-S04-004 설정 검사 문장의 영어 `true`·`false` | 고침(코어, dev-core 영역 최소) | `packages/core/src/settings.ts` 문장 '예(true)나 아니오(false)로만 정할 수 있어요' → '예나 아니오로만 정할 수 있어요'(서버 `PATCH /api/settings` 응답에 그대로 나간다). 코어 시험 기대 2줄·서버 `api.test.ts` 1줄을 같은 문장으로 | `engine-s04` "문제 문장에는 영어가 없다"(문제 9개 전부 영문 없음), `api.test.ts` |
+
+- **바꾼 내 시험 (약화 아님 — D-079 ⑥으로 문장이 바뀜)**
+  | 원래 (파일) | 바뀐 뒤 | 근거 |
+  |---|---|---|
+  | 문자찜 메모 번호 → "전화번호는 여기에 적을 수 없어요. 전화번호 칸에 적어 주세요." (`sms-privacy` RA-S04-001, `write-path` 입력 오류 응답) | D-079 ⑥ 문장 + `hint` "전화번호는 전화번호 칸에 적어 주세요.", `toMatchObject` → 본문 전체 `toEqual`(더 엄격) | AC-S04-22, D-079 ⑥ |
+  | 입금 메모·사유·방송 제목·상품 이름 번호 → "전화번호는 적을 수 없어요. 전화번호를 빼고 적어 주세요." (`sms-privacy` RA-S04-009) | D-079 ⑥ 문장, `hint` 없음을 본문 전체 `toEqual`로 | 같은 근거 |
+  | 설정 문제 '예(true)나 아니오(false)로만 정할 수 있어요' (`api.test.ts`) | '예나 아니오로만 정할 수 있어요' | SA-S04-004 |
+- **ID 칸 안내를 `hint`로 둔 이유**: AC-S04-22가 "글 칸·ID 칸 모두" 문장을 D-079 ⑥으로 정했고 적대 시험도 `problems[0].message`가 그 문장과 같은지 본다. ID 칸은 고르는 칸이라 "빼고 적어 주세요"만으로는 할 일이 없어(S05 화면 UX) 다음 할 일을 따로 덧붙였다. 기존 `{ field, message }` 소비자는 그대로 동작한다(추가 키).
+- **verify (S04 마무리 끝, `pnpm verify`)**: 통과(통과 6 · 실패 0) — typecheck(설정 7 · TS 174) · lint(오류 0 · 경고 0) · test(파일 59 · 테스트 1638) · golden(19 · 379 · 112 · 491, 그 밖 0) · adversarial(파일 24 · 테스트 631, 실패 0) · coverage(라인 100% · 분기 99.65%).
+- **남은 minor (그대로 techDebt)**: RA-S04-006(이어받기가 코어 `blocked` 영속 맵을 직접 훑음 — 코어 `listBlocked` 공개 대기), RA-S04-004·007·008. 코어 `containsPhoneNumber` 별칭은 이제 서버가 쓰지 않는다 — 지울지는 dev-core 판단(골든 러너·적대 시험이 쓰는지 확인 필요).
