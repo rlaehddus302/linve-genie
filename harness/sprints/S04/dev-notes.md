@@ -181,8 +181,8 @@
 ## dev-server
 
 ### 만든 것 (`apps/server/**`, 루트 `eslint.config.mjs`의 앱 규칙, `.env.example`)
-- **DB (AC-S04-20)**: Drizzle 스키마 `src/db/schema.ts`, 마이그레이션 `apps/server/drizzle/0000_init.sql`(+ `meta/_journal.json`, drizzle 마이그레이터 형식). 서버 시작·`migrate` 명령이 적용한다. 시험은 PGlite(메모리)에 같은 마이그레이션을 적용한다.
-  - 테이블: `sellers`(판매자·암호화한 전화번호 키·설정 덮어쓰기) · `accounts`(로그인, scrypt 해시, 연속 실패·잠금) · `sessions`(토큰 해시) · `scopes`(판매자, 날짜) · `broadcasts`(방송 ID → 범위, 제목, 끝난 시각) · `events`(범위 로그) · `outbox`(발송함) · `snapshots`.
+- **DB (AC-S04-20)**: Drizzle 스키마 `src/db/schema.ts`, 마이그레이션 `apps/server/drizzle/0000_init.sql`·`0001_login_limits.sql`(+ `meta/_journal.json`, drizzle 마이그레이터 형식). 서버 시작·`migrate` 명령이 적용한다. 시험은 PGlite(메모리)에 같은 마이그레이션을 적용한다.
+  - 테이블: `sellers`(판매자·암호화한 전화번호 키·설정 덮어쓰기) · `accounts`(로그인, scrypt 해시) · `login_limits`(아이디 HMAC별 연속 실패·잠금 — 판매자 데이터가 아니라 `seller_id` 없음, 수정 라운드 1) · `sessions`(토큰 해시) · `scopes`(판매자, 날짜) · `broadcasts`(방송 ID → 범위, 제목, 끝난 시각) · `events`(범위 로그) · `outbox`(발송함) · `snapshots`.
   - 판매자 데이터 테이블 전부에 `seller_id`(판매자 테이블은 `id`). 유일 제약: `events (scope_id, seq)`·`(seller_id, request_id)`·`(seller_id, chat_broadcast, chat_message_id)`·`(seller_id, sms_ref)`, `outbox (seller_id, scope_id, effect_id)`, `scopes (seller_id, date)`.
   - `test/schema.test.ts`가 실제 DB 구조(컬럼·타입·NOT NULL·유일 제약·인덱스·외래 키)와 Drizzle 정의를 대조한다(drizzle-kit 없이 — drizzle-kit은 esbuild 빌드 스크립트 승인이 필요해 넣지 않았다).
   - 새 의존성(정확한 버전): `drizzle-orm 0.45.3`, `@electric-sql/pglite 0.5.8`, `postgres 3.4.9`, `@livejjim/core workspace:*`.
@@ -208,16 +208,27 @@
 - **범위 조회의 시각 필드는 ISO 8601로 바꿔 낸다**: 코어 조회 결과 그대로이되 `at`·`endedAt`·`rankTime`(UTC 밀리초)만 `...Z` 문자열(AC-S04-52 "값은 코어 조회 함수의 결과와 같다" + "시각은 UTC ISO 8601"). `seq`·금액·`received`(받은 시각 글자)는 그대로.
 - **방송이 있는 종류는 `?date=`를 받지 않는다(400)**, 없는 종류는 `?date=`가 필수다. 범위를 두 가지로 정하는 길을 없앴다.
 - **방송 제목은 서버가 더 엄격하게 받는다**: 1~100자, 제어 문자 없음(DB 글자 칸이 NUL을 받지 않는다). 엔진 이벤트 본문은 JSON 문자열(text)로 둔다 — jsonb는 NUL·짝 없는 서로게이트가 든 채팅 본문을 받지 않는다. 채팅 메시지 ID도 제어 문자를 받지 않는다(유일 제약 칸).
-- **없는 아이디도 잠근다(메모리)**: 있는 아이디만 잠그면 11번째 응답(429/401)으로 아이디가 있는지 알 수 있다. 있는 아이디의 잠금은 DB(`accounts`)에 둔다. 없는 아이디도 같은 비용의 해시 확인을 거친다.
+- **로그인 시도 수는 비밀번호 확인 전에 센다, 있는 아이디·없는 아이디를 한 표에서 (수정 라운드 1, SA-S04-001·002)**
+  - 한 문장 `INSERT … ON CONFLICT (key) DO UPDATE … WHERE 잠금 아님 RETURNING failures`로 시도 자리를 먼저 잡는다. 행이 안 돌아오면 잠김(429, 비밀번호 확인 없음). 10번째 자리에서 그 자리에 잠금을 건다. 동시에 온 요청도 DB가 한 줄로 세므로 비밀번호는 15분마다 10번까지만 확인된다.
+  - 맞는 비밀번호면 그 시도와 앞 실패를 지운다(`failures <= 내 번호`면 행 삭제, 아니면 `failures - 내 번호`). 차례대로 왔다면 0이고, 동시에 왔다면 내 뒤에 잡힌 확인 중 시도만 남는다 — 차례대로 처리한 것과 같은 결과. 남는 수는 10보다 작으므로 잠금도 푼다(10번째 자리가 맞는 비밀번호였던 경우).
+  - 잠긴 동안의 시도는 실패 수·잠금 시각을 바꾸지 않는다. 잠금이 끝난 뒤 첫 시도가 1부터 다시 센다.
+  - 계정은 비밀번호 길이와 상관없이 아이디로 찾는다. 200자를 넘으면 가짜 확인(같은 비용)만 하고 실패다 — 실패 수는 이미 셌다.
+  - 표의 키 = HMAC-SHA256(마스터 키에서 나눈 키, 정규화한 아이디). 아이디 원문은 DB에 없고, 아이디 칸에 전화번호를 적어도 DB만으로 되돌릴 수 없다. 인스턴스·재시작마다 같은 키다.
+  - 표 정리(로그인 시도 500번마다): 잠금이 끝난 행·0인 행은 지운다(없는 것과 같다). 잠기지 않은 행이 10만 개를 넘으면 마지막 시도가 오래된 것부터 지운다. **잠긴 행은 잠금이 끝날 때까지 지우지 않는다.** 있는 아이디·없는 아이디가 같은 규칙이라 정리로 아이디가 있는지 갈리지 않는다.
+  - 남는 한계: 서로 다른 아이디 10만 개 넘게 시도가 몰리면 오래된 아이디의 잠기기 전 실패 수(1~9)가 잊힐 수 있다. 그렇게 해서 얻는 추가 시도는 보낸 요청 수(각각 비밀번호 확인 비용)보다 훨씬 적고, 잠금 자체는 잊히지 않는다.
 - **세션 연장은 10분에 한 번** DB에 쓴다(요청마다 쓰지 않게). 연장하면 쿠키도 다시 보낸다.
 - **상태를 바꾸는 요청은 로그아웃을 포함해 모두 JSON 객체 본문**이어야 한다(`{}`). 다른 출처의 폼 전송(CSRF)을 사전 요청 없이 보낼 수 없게.
 - **서버 시험은 다른 프로젝트 뒤에 돈다**(`apps/server/vitest.config.ts`의 `sequence.groupOrder: 1`). PGlite·지연 시험이 같은 시간에 돌면 코어 `engine-timing`의 비율 비교(1ms 대 8ms)가 가끔 8배를 넘었다. 대상 파일·결과는 그대로다.
 - **`main.ts`는 포트 오류·종료 때 DB를 닫고 끝낸다**(PGlite가 열려 있으면 프로세스가 남는다).
+- **범위 상태 메모리에 상한 (수정 라운드 1, RA-S04-002)**: 범위 행이 없는 날짜(없는 날짜 조회·쓰기)는 빈 상태로 답하되 메모리에 두지 않는다. 범위 행이 있는 상태는 기본 128개(`runtimeCacheMax`)까지 두고, 넘으면 가장 오래 안 쓴 범위부터 버린다. 처리 중인 범위(대기열에 작업이 있는 범위)는 버리지 않는다. 버린 범위는 다음에 읽거나 쓸 때 스냅샷 + 뒤 이벤트로 다시 불러오므로 결과는 같다(시험 `test/runtime-cache.test.ts`). 방송 중인 범위는 계속 쓰이므로 맨 뒤(최근)에 있어 남는다. `Service`의 판매자 키 캐시는 세션이 있는 실제 판매자 수만큼(32바이트씩)이라 그대로 뒀다.
 
 ### 바꾼 기존 테스트 (약화 아님)
 | 원래 (파일) | 바뀐 뒤 | 근거 |
 |---|---|---|
 | 기본 기록 함수가 `console.error`에 오류 객체를 넘긴다 (`apps/server/test/app.test.ts`) | `console.error`에 한 번 남기되 오류 객체·메시지·경로는 없고 오류 종류 이름만 | D-073, AC-S04-34 (오류 메시지에 DB 질의 인자 — 전화번호 키·메모 — 가 들어 있을 수 있다) |
+| (수정 라운드 1, 내 시험) 마이그레이션 기록이 1줄 (`test/schema.test.ts`) | 저널의 마이그레이션 수와 같다(두 번 열어도 늘지 않는다) | 마이그레이션 0001을 더함 |
+| (수정 라운드 1, 내 시험) 모든 테이블에 `seller_id` (`test/schema.test.ts`) | `login_limits`만 빠지고, "판매자 ID 없는 테이블은 `login_limits` 하나뿐이고 칸은 키·실패 수·잠금·마지막 시도뿐, 외래 키 없음"을 따로 시험 | SYS-02는 판매자 데이터 테이블 — 로그인 시도 수는 로그인 전이라 판매자를 모르고 없는 아이디도 센다 |
+| (수정 라운드 1, 내 시험) `migrate` 뒤 테이블 8개 (`test/commands.test.ts`) | 스키마의 테이블 이름 전부(9개)와 같다 | 같은 이유 |
 
 ### 웹(S05)에게 — API 계약 (AC-S04-53)
 - **공통**
@@ -309,7 +320,8 @@ await createSellerAccount(database.db, Buffer.from(masterKey, 'base64'), { shopN
 const res = await server.app.request('/api/login', { method: 'POST', headers: { Origin: 'https://app.test', 'Content-Type': 'application/json' }, body: JSON.stringify({ loginId: 'shop1', password: 'pass-word-1' }) })
 const cookie = /lj_session=[^;]+/.exec(res.headers.get('set-cookie') ?? '')?.[0]   // 이후 요청에 Cookie로
 ```
-- `createServer` 옵션(주입점): `clock: { now() }`(서버 시계 — 날짜 기본값·at·세션 만료·잠금), `ids: { broadcast, smsRef, scope, seller, account }`(일부만 바꿔도 됨), `hooks: { beforeCommit, afterCommit, beforeSnapshot }`(던지면 각각 저장 실패·응답 전 멈춤·스냅샷 실패), `engine: { applyEvent }`(엔진 감싸기 — 쓰기와 재생 모두), `log`(로그 수집 — 기본은 표준 오류), `snapshotEvery`(1~500), `heartbeatMs`(1~30000), `passwordCost`.
+- `createServer` 옵션(주입점): `clock: { now() }`(서버 시계 — 날짜 기본값·at·세션 만료·잠금), `ids: { broadcast, smsRef, scope, seller, account }`(일부만 바꿔도 됨), `hooks: { beforeCommit, afterCommit, beforeSnapshot }`(던지면 각각 저장 실패·응답 전 멈춤·스냅샷 실패), `engine: { applyEvent }`(엔진 감싸기 — 쓰기와 재생 모두), `log`(로그 수집 — 기본은 표준 오류), `snapshotEvery`(1~500), `heartbeatMs`(1~30000), `passwordCost`, `runtimeCacheMax`(1 이상, 기본 128 — 메모리에 두는 범위 상태 수). 메모리에 둔 범위 수는 `server.writer.cachedScopes`.
+- 로그인 시도 수 표: `login_limits`(키 = `loginLimitKey(loginLimitSecret(마스터 키), 정규화한 아이디)`, `failures`, `locked_until`). 잠금 확인은 `LOCK_AFTER_FAILURES`(10)·`LOCK_MS`(15분)를 `@livejjim/server`의 `auth.ts`에서.
 - 같은 DB로 두 번째 인스턴스: `createServer({ database, masterKey, ... })`를 한 번 더(재시작·두 인스턴스 시험).
 - 서버 안 채팅 수집: `server.ingestChat(sellerId, { b, id, ch, nick, text, owner?, publishedAt? })` → `{ status: 'recorded'|'duplicate'|'rejected'|'not_found'|'save_failed', ... }`.
 - 메모리 범위 상태: `(await server.writer.read(sellerId, date)).state`(최신 로그까지 따라잡은 엔진 상태), 확인 필요: `.attention`.
@@ -327,7 +339,15 @@ const cookie = /lj_session=[^;]+/.exec(res.headers.get('set-cookie') ?? '')?.[0]
 2. **입금 메모·사유·방송 제목의 번호** — dev-core 질문 2와 같다. 서버는 받은 그대로 기록한다.
 3. **재생 검사의 한계**: 마지막 이벤트를 지우면, 그 뒤 스냅샷도 그 이벤트의 발송함 행도 없을 때 알아챌 수 없다(seq 빈틈이 생기지 않는다). 이벤트 행 덧붙이기만이라는 D-072 전제 아래 우연한 손상·수동 수정을 잡는 수준이다. 필요하면 범위마다 마지막 seq를 따로 남기는 방식을 정해 달라.
 
+### 수정 라운드 1 (dev-server) — 로그인 잠금(SA-S04-001·002, TD-S04-001)·범위 상태 메모리(RA-S04-002)
+| 지적 | 응답 | 한 것 | 확인한 시험 |
+|---|---|---|---|
+| SA-S04-001 · TD-S04-001 동시 요청이 잠금 한도를 넘어 비밀번호를 확인받음 | 고침 | 비밀번호 확인 **전에** 한 문장(`INSERT … ON CONFLICT DO UPDATE … WHERE 잠금 아님 RETURNING`)으로 시도 자리를 잡는다. 잠긴 동안 실패 수를 0으로 되돌리지 않는다(잠금이 끝난 뒤 1부터). 없는 아이디도 같은 경로(메모리 경로 삭제) | 적대 `s04/login-lock` TD-S04-001 2건, `test/auth.test.ts` "30개 한꺼번에 — 10번까지만 확인(있는·없는 아이디)", "틀린 15개 뒤 맞는 비밀번호 429 / 틀린 5개 뒤 200", "먼저 잡힌 실패는 지우고 뒤에 잡힌 실패는 남김", "잠긴 동안 실패 수 그대로" |
+| SA-S04-002 긴 비밀번호·메모리 잠금으로 아이디가 있는지 드러남 | 고침 | 계정은 비밀번호 길이와 상관없이 찾고 200자 초과는 가짜 확인 후 실패로 센다. 없는 아이디 잠금을 메모리에서 DB 표 `login_limits`(있는 아이디와 같은 표, 아이디 HMAC 키)로 옮겨 재시작·인스턴스·정리 차이도 없앴다 | 적대 TD-S04-002, `auth.test.ts` "200자 넘는 비밀번호 — 응답이 매번 같다", "서버를 다시 띄워도 그대로", "정리는 있는·없는 아이디를 가리지 않고 잠긴 행은 둔다", "아이디 원문 없음" |
+| RA-S04-002 범위 상태 메모리 무제한 | 고침 | 범위 행이 없으면 메모리에 두지 않음, 128개 상한 LRU(처리 중인 범위 제외), `runtimeCacheMax` 주입점 | `test/runtime-cache.test.ts` 4건 |
+
 ### 검증 (dev-server 끝, `pnpm verify`)
 - typecheck 통과(설정 7 · TS 파일 165) · lint 통과 · **test 통과(파일 56 · 테스트 1432, 서버 시험 19파일 포함)** · golden 통과(19 · 379 · 111 · 490, 그 밖 0) · coverage 통과(코어 라인 100% · 분기 99.65%).
 - adversarial 실패 7 — 모두 test-domain 몫(위 "남의 몫" 표): `s00/server.test.ts` 기동 2건(S04 시작 조건), dev-core 절의 5건.
 - 서버 시험은 도커·네트워크·외부 DB 없이 PGlite로, `TZ=Pacific/Honolulu` 아래 돈다(AC-S04-94). 검증 파이프라인(`scripts/verify/**`)은 바꾸지 않았다.
+- **수정 라운드 1 뒤 `pnpm verify`: 통과(통과 6 · 실패 0)** — typecheck(설정 7 · TS 170) · lint(오류 0 · 경고 0) · test(파일 57 · 테스트 1489) · golden(19 · 379 · 111 · 490, 그 밖 0) · adversarial(파일 22 · 테스트 605, 실패 0) · coverage(라인 100% · 분기 99.65%).
