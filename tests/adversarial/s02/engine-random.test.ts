@@ -78,8 +78,12 @@ describe('S02 무작위 로그', () => {
         let state = initEngine({ broadcasts: [B1], settings })
         let m = 0
         raws.forEach((raw, i) => {
-          let e: Ev = { ...raw, b: 'b1', reason: '사유' }
+          // S04 (D-073): 표에 없는 필드는 입력 오류 — 종류마다 표의 필드만 (b·reason을 받는 종류에만 붙인다)
+          let e: Ev = { ...raw }
           delete e.pick
+          if (!raw.type.startsWith('effect.') && raw.type !== 'host.blockBuyer' && raw.type !== 'host.unblockBuyer') e.b = 'b1'
+          if (raw.type.startsWith('host.')) e.reason = '사유'
+          if (raw.type === 'host.reopen') delete e.buyer
           if (raw.type === 'product.register') e = { ...e, name: '핑크프릴', price: 1000 }
           if (raw.type === 'chat') e = { ...e, id: `m${String(++m)}`, nick: String(raw.ch) }
           if (raw.type === 'host.assign' && raw.replace === undefined) delete e.replaceTo

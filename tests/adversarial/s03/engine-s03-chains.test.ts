@@ -198,7 +198,8 @@ describe('처리 비용 (AC-S03-05, NFR-01 예산 300ms)', () => {
   }
 
   it('한 번호에 보류 찜 2천 개(채팅·문자찜 반반)가 몰린 뒤 공개·차단·취소 이벤트 하나가 예산 안이다', () => {
-    let state = initEngine({ broadcasts: [B1], settings: { 'claim.preOpenWindowSec': 100_000 } })
+    // S04 (D-071): 공개 전 찜 유효 시간은 0~300초 — 최댓값 300으로, 2천 개를 300초 안(10ms 간격 = 20초)에 넣는다
+    let state = initEngine({ broadcasts: [B1], settings: { 'claim.preOpenWindowSec': 300 } })
     let seq = 0
     const step = (event: Record<string, unknown>): number => time(() => (state = applyEvent(state, { seq: ++seq, at: T0 + seq * 10, ...event } as unknown as EngineEvent).state))
     for (let i = 0; i < 2000; i++) step(i % 2 === 0 ? { type: 'chat', b: 'b1', id: `m${String(i)}`, ch: `U${String(i)}`, nick: 'n', text: '15' } : { type: 'sms', b: 'b1', ref: `r${String(i)}`, no: 15, received: '20:00', ...smsPhoneFields(`010${String(10_000_000 + i)}`) })

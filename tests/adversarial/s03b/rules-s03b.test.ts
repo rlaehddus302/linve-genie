@@ -1,6 +1,6 @@
 // S03b 적대 테스트 (test-domain): 방송자 조작 규칙 정리(D-062~D-068)를 기본 설정(접수순·대기 5·자동 승계·취소 요청)과
 // 실제 방송에서 나올 법한 순서로 공격한다. 기대값은 DOMAIN_RULES v0.1.8 문장으로 손으로 정했다.
-import { checkEvent, initEngine, isInvalidEvent, applyEvent, type EngineEvent } from '@livejjim/core'
+import { checkEvent, initEngine, isInvalidEvent, applyEvent, STATE_FORMAT, type EngineEvent } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
 import {
   B1,
@@ -266,9 +266,10 @@ describe('재고 늘림 다중 확정의 확정버전·효과 ID (AC-S03b-30)', 
   })
 })
 
-describe('시작 상태 (형식 3)', () => {
-  it('새 상태는 형식 3이고 JSON 왕복 뒤에도 같은 결과를 낸다', () => {
+describe('시작 상태 (형식 STATE_FORMAT — S04에서 4로 올랐다, D-072)', () => {
+  it('새 상태는 지금 형식(STATE_FORMAT = 4)이고 JSON 왕복 뒤에도 같은 결과를 낸다', () => {
     const state = initEngine({ broadcasts: [B1], settings: {} })
-    expect(state.format).toBe(3)
+    expect(STATE_FORMAT).toBe(4)
+    expect(state.format).toBe(STATE_FORMAT)
   })
 })

@@ -457,6 +457,11 @@ function materialize(raw: Raw, model: Model, sent: readonly string[], i: number)
   }
   if (raw.type === 'product.register') return { ...rest, b: 'b1', name: '핑크프릴' }
   if (raw.type.startsWith('product.')) return { ...rest, b: 'b1' }
+  // S04 (D-073): 표에 없는 필드는 입력 오류 — host.reopen은 b·no·reason만
+  if (raw.type === 'host.reopen') {
+    const { buyer: _buyer, ...noBuyer } = rest
+    return { ...noBuyer, b: 'b1', reason: '사유' }
+  }
   if (raw.type.startsWith('host.') && raw.type !== 'host.blockBuyer' && raw.type !== 'host.unblockBuyer') return { ...rest, b: 'b1', reason: '사유' }
   return { ...rest, reason: '사유' }
 }

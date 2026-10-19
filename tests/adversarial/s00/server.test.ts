@@ -4,8 +4,10 @@ import { spawn } from 'node:child_process'
 import { createServer as createNetServer, type AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { duplexPair } from 'node:stream'
-import { createApp, createNodeServer } from '@livejjim/server'
-import { describe, expect, it } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { createApp, createNodeServer, generateMasterKey } from '@livejjim/server'
+import { afterAll, describe, expect, it } from 'vitest'
 import { ROOT, node } from './helpers.ts'
 
 const SECRET = 'SECRET-토큰-/Users/someone/livejjim/apps/server/src/app.ts:12'
@@ -157,6 +159,17 @@ describe('Node HTTP 계층: 잘못된 요청도 JSON, 내부 정보 없음 (AC-S
 
 const MAIN = join(ROOT, 'apps', 'server', 'src', 'main.ts')
 
+/** S04부터 서버는 DB 연결 설정·마스터 키·앱 주소가 없으면 시작하지 않는다(AC-S04-20·32) — 기동 회귀는 개발용 파일 PGlite(빈 임시 폴더)로 */
+function serverEnv(port: number): NodeJS.ProcessEnv {
+  const dir = mkdtempSync(join(tmpdir(), 'lj-s00-'))
+  dirs.push(dir)
+  return { ...process.env, PORT: String(port), LIVEJJIM_PGLITE_DIR: dir, LIVEJJIM_MASTER_KEY: generateMasterKey(), LIVEJJIM_APP_ORIGIN: 'http://localhost:5173' }
+}
+const dirs: string[] = []
+afterAll(() => {
+  for (const dir of dirs) rmSync(dir, { recursive: true, force: true })
+})
+
 async function freePort(): Promise<number> {
   const probe = createNetServer()
   await new Promise<void>((resolve) => probe.listen(0, resolve))
@@ -168,7 +181,7 @@ async function freePort(): Promise<number> {
 describe('기동 (AC-S00-42) — 회귀', () => {
   it('PORT로 지정한 포트에서 /health가 응답하고, 로그에 PORT 값이 없고, SIGTERM이면 종료 코드 0', async () => {
     const port = await freePort()
-    const child = spawn(process.execPath, [MAIN], { cwd: ROOT, env: { ...process.env, PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(process.execPath, [MAIN], { cwd: ROOT, env: serverEnv(port), stdio: ['ignore', 'pipe', 'pipe'] })
     let output = ''
     child.stdout.on('data', (chunk: Buffer) => (output += chunk.toString('utf8')))
     child.stderr.on('data', (chunk: Buffer) => (output += chunk.toString('utf8')))
@@ -214,7 +227,7 @@ describe('기동 (AC-S00-42) — 회귀', () => {
     await new Promise<void>((resolve) => blocker.listen(0, resolve))
     const { port } = blocker.address() as AddressInfo
     try {
-      const child = spawn(process.execPath, [MAIN], { cwd: ROOT, env: { ...process.env, PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] })
+      const child = spawn(process.execPath, [MAIN], { cwd: ROOT, env: serverEnv(port), stdio: ['ignore', 'pipe', 'pipe'] })
       let output = ''
       child.stdout.on('data', (chunk: Buffer) => (output += chunk.toString('utf8')))
       child.stderr.on('data', (chunk: Buffer) => (output += chunk.toString('utf8')))

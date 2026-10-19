@@ -521,7 +521,8 @@ class Model {
         const published = (e.publishedAt as number | undefined) ?? at
         const parsed = parseChat(e.text as string, this.set)
         // 주문이었던 메시지 (R-7 4, D-062): 받을 때 R-3이 주문 번호를 하나라도 읽었으면
-        const message = { ch, seq, at, published, ignored, order: parsed.claims.length > 0, claimed: new Set<number>() }
+        // S04 (R-7 4, D-076): 취소 번호를 하나라도 읽은 메시지도 변환하지 않는다 — 처리됐든 무시됐든
+        const message = { ch, seq, at, published, ignored, order: parsed.claims.length > 0 || parsed.cancels.length > 0, claimed: new Set<number>() }
         this.messages.set(id, message)
         if (ignored) return
         const nick = e.nick as string
@@ -909,8 +910,12 @@ function materialize(raw: Raw, model: Model, sent: readonly string[], i: number)
       if (d % 5 === 0) f.buyer = c % 3 === 0 ? (CH[c % 4] as string) : who(c)
       return f as Ev
     }
-    case 'host':
-      return { type: ['host.cancel', 'host.cancel', 'host.reject', 'host.promote', 'host.confirm', 'host.approveCancel', 'host.dismissCancel', 'host.reopen'][b % 8] as string, b: 'b1', no, buyer: who(c), reason: '사유' }
+    case 'host': {
+      const type = ['host.cancel', 'host.cancel', 'host.reject', 'host.promote', 'host.confirm', 'host.approveCancel', 'host.dismissCancel', 'host.reopen'][b % 8] as string
+      // S04 (D-073): 표에 없는 필드는 입력 오류 — host.reopen은 b·no·reason만
+      if (type === 'host.reopen') return { type, b: 'b1', no, reason: '사유' }
+      return { type, b: 'b1', no, buyer: who(c), reason: '사유' }
+    }
     case 'assign': {
       const f: Record<string, unknown> = { type: 'host.assign', b: 'b1', no, buyer: who(b), reason: '사유' }
       if (c % 2 === 0) {
