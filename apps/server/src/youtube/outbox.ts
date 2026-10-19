@@ -359,13 +359,24 @@ export class OutboxRunner {
       units.set(key, list)
     }
     const states = new Map<string, EngineState>()
+    // 같은 방송·대상의 메시지는 효과가 나온 순서대로 하나씩(채팅에 순서대로 보이게), 서로 다른 방송·대상끼리는 함께
+    const lanes = new Map<string, RunnerRow[][]>()
+    for (const unit of units.values()) {
+      const first = unit[0] as RunnerRow
+      const lane = `${first.sellerId}|${first.broadcastId ?? ''}|${targetOf(first)}`
+      lanes.set(lane, [...(lanes.get(lane) ?? []), unit])
+    }
     await Promise.all(
-      [...units.values()].map((unit) =>
-        this.#sendUnit(unit, states).catch((error: unknown) => {
-          if (error instanceof Killed || this.#killed) return
-          this.#options.log({ level: 'error', code: 'OUTBOX_ERROR', seller: unit[0]?.sellerId ?? '', errorKind: errorKind(error) })
-        }),
-      ),
+      [...lanes.values()].map(async (list) => {
+        for (const unit of list.sort((a, b) => Math.min(...a.map((row) => row.id)) - Math.min(...b.map((row) => row.id)))) {
+          try {
+            await this.#sendUnit(unit, states)
+          } catch (error) {
+            if (error instanceof Killed || this.#killed) return
+            this.#options.log({ level: 'error', code: 'OUTBOX_ERROR', seller: unit[0]?.sellerId ?? '', errorKind: errorKind(error) })
+          }
+        }
+      }),
     )
   }
 
