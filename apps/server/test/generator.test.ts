@@ -256,12 +256,14 @@ describe('AC-S05-51 시작·멈춤·상태 API', () => {
     const second = await api.post(gen(b, '/start'), { total: 10 })
     expect(second.status).toBe(409)
     expect(second.body).toEqual({ error: { code: 'GENERATOR_RUNNING', message: '이미 가짜 채팅을 보내는 중이에요. 멈춘 뒤 다시 시작해 주세요.' } })
-    // 동시에 둘
+    // 같은 방송에 동시에 둘 → 하나만 (판매자당 하나라 다른 방송은 b를 멈춘 뒤에 — AC-S06-71)
+    await expectOk(api.post(gen(b, '/stop'), {}))
     const b2 = (await createBroadcast(world, seller, { date: DAY, rehearsal: true })).id
     const both = await Promise.all([api.post(gen(b2, '/start'), { total: 3 }), api.post(gen(b2, '/start'), { total: 3 })])
     expect(both.map((r) => r.status).sort()).toEqual([200, 409])
-    expect(world.server.service.generators.running).toBe(2)
-    await expectOk(api.post(gen(b, '/stop'), {}))
+    expect(both.find((r) => r.status === 409)?.body).toMatchObject({ error: { code: 'GENERATOR_RUNNING' } })
+    expect(world.server.service.generators.running).toBe(1)
+    await expectOk(api.post(gen(b2, '/stop'), {}))
     const restarted = await expectOk(api.post(gen(b, '/start'), { total: 4, seed: 2 }))
     expect(restarted.body.generator).toMatchObject({ running: true, total: 4, seed: 2, sent: 0, stopReason: null })
     // 멈춘 생성기의 같은 요청 번호 → 그 (멈춘) 상태가 아니라 이미 새로 돌고 있으므로 409가 아닌 같은 번호 확인
@@ -289,6 +291,148 @@ describe('AC-S05-51 시작·멈춤·상태 API', () => {
     expect(await status(world, seller, b)).toMatchObject({ running: false, sent: 3, stopReason: 'completed' })
     expect(timer.pending).toBe(0)
   })
+})
+
+describe('AC-S06-71 생성기 판매자당 하나·끝난 실행 기록 정리 (RA-S05-003, D-096)', () => {
+  const ELSEWHERE = { code: 'GENERATOR_RUNNING_ELSEWHERE', message: '다른 리허설 방송에서 가짜 채팅이 돌고 있어요. 그 방송에서 먼저 멈춰 주세요.' }
+  const IDLE = { running: false, sent: 0, total: 0, perSecond: 0, seed: null, duplicates: 0, failed: 0, stopReason: null }
+
+  it('다른 리허설 방송(다른 날짜 포함)에서 돌고 있으면 시작은 409와 그 방송 ID이고 아무것도 시작하지 않는다. 다른 판매자는 상관없다', async () => {
+    const timer = manualTimer()
+    const world = await newWorld({ generatorTimer: timer })
+    const seller = await addSeller(world)
+    const other = await addSeller(world)
+    const api = client(world, seller.cookie)
+    const r1 = (await createBroadcast(world, seller, { date: DAY, rehearsal: true })).id
+    const r2 = (await createBroadcast(world, seller, { date: DAY, rehearsal: true })).id
+    const r3 = (await createBroadcast(world, seller, { date: '2026-10-20', rehearsal: true })).id
+    await expectOk(api.post(gen(r1, '/start'), { total: 5, seed: 1 }))
+    const pendingTimers = timer.pending
+    for (const b of [r2, r3]) {
+      const blocked = await api.post(gen(b, '/start'), { requestId: `try-${b}`, total: 5, seed: 1 })
+      expect(blocked.status, b).toBe(409)
+      expect(blocked.body).toEqual({ broadcast: r1, error: ELSEWHERE })
+      expect(await status(world, seller, b)).toEqual({ b, ...IDLE })
+    }
+    expect(timer.pending).toBe(pendingTimers) // 예약된 일도 늘지 않았다
+    expect(world.server.service.generators.running).toBe(1)
+    // 같은 방송: S05 그대로 (이미 돎 409 GENERATOR_RUNNING)
+    expect((await api.post(gen(r1, '/start'), { total: 5 })).body).toMatchObject({ error: { code: 'GENERATOR_RUNNING' } })
+    // 다른 판매자는 자기 리허설 방송에서 따로 돈다
+    const theirs = (await createBroadcast(world, other, { date: DAY, rehearsal: true })).id
+    await expectOk(client(world, other.cookie).post(gen(theirs, '/start'), { total: 5, seed: 2 }))
+    expect(world.server.service.generators.running).toBe(2)
+    // 다른 판매자의 방송 ID로는 404 (있는지 알리지 않는다)
+    expect((await api.post(gen(theirs, '/start'), { total: 5 })).status).toBe(404)
+    // 멈추면 다른 방송에서 시작할 수 있다 — 막혔던 요청 번호도 그대로 쓸 수 있다(아무것도 기록하지 않았다)
+    await expectOk(api.post(gen(r1, '/stop'), {}))
+    const started = await expectOk(api.post(gen(r2, '/start'), { requestId: `try-${r2}`, total: 5, seed: 1 }))
+    expect(started.body.generator).toMatchObject({ b: r2, running: true, sent: 0 })
+    // 이제 r1이 막힌다
+    expect((await api.post(gen(r1, '/start'), { total: 5 })).body).toEqual({ broadcast: r2, error: ELSEWHERE })
+  })
+
+  it('동시에 두 방송에서 시작해도 하나만 돈다', async () => {
+    const timer = manualTimer()
+    const world = await newWorld({ generatorTimer: timer })
+    const seller = await addSeller(world)
+    const api = client(world, seller.cookie)
+    const r1 = (await createBroadcast(world, seller, { date: DAY, rehearsal: true })).id
+    const r2 = (await createBroadcast(world, seller, { date: DAY, rehearsal: true })).id
+    const results = await Promise.all([api.post(gen(r1, '/start'), { total: 3 }), api.post(gen(r2, '/start'), { total: 3 })])
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409])
+    const winner = results[0]?.status === 200 ? r1 : r2
+    expect(results.find((r) => r.status === 409)?.body).toEqual({ broadcast: winner, error: ELSEWHERE })
+    expect(world.server.service.generators.running).toBe(1)
+  })
+
+  it('다 보내거나 방송을 끝내 멈추면 다른 방송에서 시작할 수 있다', async () => {
+    const world = await newWorld({ generatorTimer: immediateTimer })
+    const seller = await addSeller(world)
+    const api = client(world, seller.cookie)
+    const r1 = await rehearsalWith(world, seller, 2)
+    const r2 = await rehearsalWith(world, seller, 2)
+    expect(await runToEnd(world, seller, r1, { total: 5, perSecond: 50, seed: 4 })).toMatchObject({ stopReason: 'completed' })
+    const timer = manualTimer()
+    const world2 = await newWorld({ generatorTimer: timer })
+    const seller2 = await addSeller(world2)
+    const api2 = client(world2, seller2.cookie)
+    const s1 = (await createBroadcast(world2, seller2, { date: DAY, rehearsal: true })).id
+    const s2 = (await createBroadcast(world2, seller2, { date: DAY, rehearsal: true })).id
+    await expectOk(api2.post(gen(s1, '/start'), { total: 50 }))
+    await expectOk(api2.post(`/api/broadcasts/${s1}/end`, { requestId: rid() }))
+    await expectOk(api2.post(gen(s2, '/start'), { total: 5 }))
+    expect(await runToEnd(world, seller, r2, { total: 5, perSecond: 50, seed: 5 })).toMatchObject({ stopReason: 'completed' })
+    expect((await expectOk(api.get(gen(r1)))).body.generator).toMatchObject({ stopReason: 'completed', sent: 5 })
+  })
+
+  it('끝난 실행 기록: 방송마다 마지막 하나, 판매자마다 최대 20개(가장 먼저 끝난 것부터 지움) — 지운 방송은 다시 시작한 뒤와 같은 상태, 다른 판매자 기록은 그대로', async () => {
+    const timer = manualTimer()
+    const world = await newWorld({ generatorTimer: timer })
+    const seller = await addSeller(world)
+    const other = await addSeller(world)
+    const api = client(world, seller.cookie)
+    const generators = world.server.service.generators
+    /** 시작 → 메시지 하나 → 멈춤 (sent 1, stopped) */
+    const runOnce = async (who: Seller, b: string, seed: number) => {
+      const c = client(world, who.cookie)
+      await expectOk(c.post(gen(b, '/start'), { total: 10, seed }))
+      expect(timer.runNext()).toBe(true)
+      await waitFor(async () => (await status(world, who, b)).sent === 1)
+      await expectOk(c.post(gen(b, '/stop'), {}))
+    }
+    const theirs = (await createBroadcast(world, other, { date: DAY, rehearsal: true })).id
+    await runOnce(other, theirs, 9)
+    const broadcasts: string[] = []
+    for (let i = 0; i < 21; i++) broadcasts.push((await createBroadcast(world, seller, { date: DAY, rehearsal: true })).id)
+    const [first, second, ...rest] = broadcasts as [string, string, ...string[]]
+    for (const [index, b] of broadcasts.slice(0, 20).entries()) await runOnce(seller, b, index)
+    expect(generators.records(seller.sellerId)).toBe(20)
+    // 같은 방송을 다시 돌리면 그 방송의 기록은 마지막 하나(새 실행)로 바뀐다 — 수가 늘지 않고, 이제 가장 늦게 끝난 기록이다
+    await runOnce(seller, first, 100)
+    expect(generators.records(seller.sellerId)).toBe(20)
+    expect(await status(world, seller, first)).toMatchObject({ seed: 100, sent: 1, stopReason: 'stopped' })
+    // 21번째 방송이 끝나면 가장 먼저 끝난 기록(second)이 지워진다
+    await runOnce(seller, rest.at(-1) as string, 21)
+    expect(generators.records(seller.sellerId)).toBe(20)
+    expect(await status(world, seller, second)).toEqual({ b: second, ...IDLE })
+    for (const b of [first, ...rest]) expect((await status(world, seller, b)).sent, b).toBe(1)
+    // 다른 판매자의 기록은 그대로
+    expect(generators.records(other.sellerId)).toBe(1)
+    expect(await status(world, other, theirs)).toMatchObject({ sent: 1, stopReason: 'stopped' })
+    // 지운 방송은 다시 시작할 수 있다
+    await expectOk(api.post(gen(second, '/start'), { total: 3 }))
+    expect(await status(world, seller, second)).toMatchObject({ running: true, total: 3 })
+    // 돌고 있는 실행은 지우지 않는다 (기록 20개 + 돌고 있는 1개)
+    expect(generators.records(seller.sellerId)).toBe(21)
+    await expectOk(api.post(gen(second, '/stop'), {}))
+    expect(generators.records(seller.sellerId)).toBe(20)
+    expect(await status(world, seller, (rest as string[])[0] as string)).toEqual({ b: (rest as string[])[0], ...IDLE })
+  }, 120_000)
+
+  it('끝내서 멈춘 실행·서버 종료로 멈춘 실행도 끝난 기록으로 센다', async () => {
+    const timer = manualTimer()
+    const world = await newWorld({ generatorTimer: timer })
+    const seller = await addSeller(world)
+    const api = client(world, seller.cookie)
+    const generators = world.server.service.generators
+    const ended: string[] = []
+    for (let i = 0; i < 21; i++) {
+      const b = (await createBroadcast(world, seller, { date: DAY, rehearsal: true })).id
+      await expectOk(api.post(gen(b, '/start'), { total: 10, seed: i }))
+      await expectOk(api.post(`/api/broadcasts/${b}/end`, { requestId: rid() }))
+      ended.push(b)
+    }
+    expect(generators.records(seller.sellerId)).toBe(20)
+    expect(await status(world, seller, ended[0] as string)).toEqual({ b: ended[0], ...IDLE })
+    expect(await status(world, seller, ended[1] as string)).toMatchObject({ stopReason: 'ended' })
+    const last = (await createBroadcast(world, seller, { date: DAY, rehearsal: true })).id
+    await expectOk(api.post(gen(last, '/start'), { total: 10 }))
+    world.server.close()
+    expect(generators.records(seller.sellerId)).toBe(20)
+    expect(generators.status(seller.sellerId, last)).toMatchObject({ running: false, stopReason: 'shutdown' })
+    expect(generators.status(seller.sellerId, ended[1] as string)).toMatchObject({ b: ended[1], ...IDLE })
+  }, 120_000)
 })
 
 describe('AC-S05-51 멈추는 때', () => {

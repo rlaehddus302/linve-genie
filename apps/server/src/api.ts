@@ -260,7 +260,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (!parsed.ok) return apiError(parsed.rejection.status, parsed.rejection.code, parsed.rejection.message, parsed.rejection.problems)
     const started = await service.startGenerator(sellerOf(c), c.req.param('id'), parsed)
     if (started.kind === 'not_found') return notFound()
-    if (started.kind === 'rejected') return apiError(started.rejection.status, started.rejection.code, started.rejection.message, started.rejection.problems)
+    if (started.kind === 'rejected') return apiError(started.rejection.status, started.rejection.code, started.rejection.message, started.rejection.problems, started.extra)
     return c.json({ generator: started.status })
   })
   api.post('/broadcasts/:id/rehearsal/generator/stop', async (c) => {

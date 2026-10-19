@@ -1,5 +1,6 @@
-// 리허설 가짜 채팅 생성기 (YT-09 AC2, D-082, AC-S05-51).
-// - 리허설 방송마다 하나만 돈다. 메시지마다 서버 수집 함수(ingestChat, 조치자 collector)로만 쓴다 — 실제 수집기(S10)와 같은 기록·판정을 탄다.
+// 리허설 가짜 채팅 생성기 (YT-09 AC2, D-082, AC-S05-51, AC-S06-71).
+// - 판매자마다 동시에 하나만 돈다(모든 리허설 방송을 통틀어, D-096). 메시지마다 서버 수집 함수(ingestChat, 조치자 collector)로만 쓴다 — 실제 수집기(S10)와 같은 기록·판정을 탄다.
+// - 끝난 실행 기록은 방송마다 마지막 하나, 판매자마다 최대 GENERATOR_RECORDS_MAX개(가장 먼저 끝난 것부터 지운다). 지운 방송의 상태는 서버를 다시 시작한 뒤와 같다.
 // - 다음 메시지는 시드와 그 시점의 리허설 범위 상태(그 방송 상품의 번호·상태, 그 방송의 설정 스냅샷)로만 정한다.
 //   시계·Math.random을 직접 쓰지 않는다: 난수는 시드로 만든 의사 난수, 시계·타이머는 주입한다(시험은 기다리지 않고 돌린다).
 //   같은 시드·같은 상태 순서면 같은 메시지 순서다.
@@ -32,6 +33,8 @@ export const GENERATOR_RATE_MIN = 1
 export const GENERATOR_RATE_MAX = 50
 export const GENERATOR_RATE_DEFAULT = 1
 export const GENERATOR_SEED_MAX = 2_147_483_647
+/** 판매자마다 남겨 두는 끝난 실행 기록 수 (D-096) */
+export const GENERATOR_RECORDS_MAX = 20
 
 // ── 의사 난수 (mulberry32 — 시드만으로 정해진다) ────────────────────────
 
@@ -329,48 +332,67 @@ interface Run {
   cancel: (() => void) | null
   /** 지금 보내는 중인 메시지 (멈출 때 끝나기를 기다린다) */
   inFlight: Promise<void> | null
+  /** 멈춘 차례 (끝난 실행 기록을 지울 때 가장 먼저 끝난 것부터). 돌고 있으면 0 */
+  finishedOrder: number
 }
 
-const runKey = (sellerId: string, b: string) => JSON.stringify([sellerId, b])
+const idleStatus = (b: string): GeneratorStatus => ({ b, running: false, sent: 0, total: 0, perSecond: 0, seed: null, duplicates: 0, failed: 0, stopReason: null })
+
+export type GeneratorStart =
+  | { readonly kind: 'started'; readonly status: GeneratorStatus }
+  /** 그 방송에서 이미 돈다 (same: 같은 요청 번호로 다시 보낸 시작) */
+  | { readonly kind: 'running'; readonly status: GeneratorStatus; readonly same: boolean }
+  /** 그 판매자의 다른 리허설 방송(b)에서 돌고 있다 — 아무것도 시작하지 않았다 */
+  | { readonly kind: 'elsewhere'; readonly b: string }
 
 export class ChatGenerators {
   readonly #deps: GeneratorDeps
-  readonly #runs = new Map<string, Run>()
+  /** 판매자 → (방송 → 그 방송의 마지막 실행). 판매자마다 따로라 서로 영향이 없다 */
+  readonly #sellers = new Map<string, Map<string, Run>>()
+  #finished = 0
 
   constructor(deps: GeneratorDeps) {
     this.#deps = deps
   }
 
   status(sellerId: string, b: string): GeneratorStatus {
-    const run = this.#runs.get(runKey(sellerId, b))
-    if (run === undefined) return { b, running: false, sent: 0, total: 0, perSecond: 0, seed: null, duplicates: 0, failed: 0, stopReason: null }
-    return statusOf(run)
+    const run = this.#sellers.get(sellerId)?.get(b)
+    return run === undefined ? idleStatus(b) : statusOf(run)
   }
 
   /** 지금 도는 생성기 수 (시험용) */
   get running(): number {
     let n = 0
-    for (const run of this.#runs.values()) if (run.running) n++
+    for (const runs of this.#sellers.values()) for (const run of runs.values()) if (run.running) n++
+    return n
+  }
+
+  /** 남아 있는 실행 기록 수 (돌고 있는 것 포함, 시험용). sellerId를 주면 그 판매자만 */
+  records(sellerId?: string): number {
+    if (sellerId !== undefined) return this.#sellers.get(sellerId)?.size ?? 0
+    let n = 0
+    for (const runs of this.#sellers.values()) n += runs.size
     return n
   }
 
   /**
-   * 시작한다. 이미 돌고 있으면 'running'(같은 요청 번호로 다시 보낸 시작이면 그 상태). 호출하는 쪽이 리허설 방송인지·끝나지 않았는지 이미 확인했다.
+   * 시작한다. 그 방송에서 이미 돌고 있으면 'running'(같은 요청 번호로 다시 보낸 시작이면 그 상태), 그 판매자의 다른 리허설 방송에서
+   * 돌고 있으면 'elsewhere'(아무것도 시작하지 않는다, D-096). 호출하는 쪽이 리허설 방송인지·끝나지 않았는지 이미 확인했다.
    * 첫 메시지는 바로 보낸다
    */
-  async start(
-    sellerId: string,
-    b: string,
-    date: string,
-    settings: GeneratorSettings,
-    requestId: string | null,
-  ): Promise<{ kind: 'started'; status: GeneratorStatus } | { kind: 'running'; status: GeneratorStatus; same: boolean }> {
-    const key = runKey(sellerId, b)
-    const existing = this.#runs.get(key)
+  async start(sellerId: string, b: string, date: string, settings: GeneratorSettings, requestId: string | null): Promise<GeneratorStart> {
+    let runs = this.#sellers.get(sellerId)
+    const existing = runs?.get(b)
     if (existing !== undefined && (existing.running || (requestId !== null && existing.requestId === requestId))) {
       return { kind: 'running', status: statusOf(existing), same: requestId !== null && existing.requestId === requestId }
     }
-    // 자리를 먼저 잡는다(같은 방송의 두 번째 시작은 위에서 걸린다). 시작 seq는 그다음에 읽는다
+    for (const run of runs?.values() ?? []) if (run.running) return { kind: 'elsewhere', b: run.b }
+    if (runs === undefined) {
+      runs = new Map()
+      this.#sellers.set(sellerId, runs)
+    }
+    // 자리를 먼저 잡는다(그 판매자의 두 번째 시작은 위에서 걸린다 — 여기까지 기다림이 없다). 시작 seq는 그다음에 읽는다.
+    // 그 방송의 앞 실행 기록은 새 실행으로 바꾼다(방송마다 마지막 하나)
     const placeholder: Run = {
       sellerId,
       b,
@@ -386,22 +408,26 @@ export class ChatGenerators {
       due: this.#deps.now(),
       cancel: null,
       inFlight: null,
+      finishedOrder: 0,
     }
-    this.#runs.set(key, placeholder)
+    runs.delete(b)
+    runs.set(b, placeholder)
     let startSeq: number
     try {
       startSeq = (await this.#deps.read(sellerId, date)).seq
     } catch (error) {
-      this.#runs.delete(key)
+      // 시작하지 못했다: 앞 실행 기록을 되돌린다
+      if (runs.get(b) === placeholder) {
+        runs.delete(b)
+        if (existing !== undefined) runs.set(b, existing)
+      }
+      if (runs.size === 0 && this.#sellers.get(sellerId) === runs) this.#sellers.delete(sellerId)
       throw error
     }
+    // 읽는 동안 멈춤·끝냄·서버 종료가 있었으면 그 상태(멈춘 차례 포함)를 그대로 가져간다
     const run: Run = { ...placeholder, maker: new ChatMaker(b, settings.seed, startSeq), due: this.#deps.now() }
-    if (!placeholder.running) {
-      // 읽는 동안 멈춤·끝냄·서버 종료
-      run.running = false
-      run.stopReason = placeholder.stopReason
-    }
-    this.#runs.set(key, run)
+    runs.set(b, run)
+    if (!run.running) this.#prune(sellerId)
     if (run.running) {
       this.#publish(run)
       this.#schedule(run, 0)
@@ -411,7 +437,7 @@ export class ChatGenerators {
 
   /** 멈춘다 (보내는 중인 메시지가 끝나기를 기다린다). 돌고 있지 않으면 그대로 */
   async stop(sellerId: string, b: string, reason: StopReason): Promise<GeneratorStatus> {
-    const run = this.#runs.get(runKey(sellerId, b))
+    const run = this.#sellers.get(sellerId)?.get(b)
     if (run === undefined) return this.status(sellerId, b)
     if (run.running) this.#halt(run, reason)
     await run.inFlight
@@ -420,15 +446,28 @@ export class ChatGenerators {
 
   /** 서버 종료: 모두 멈춘다 (다시 시작해도 이어서 하지 않는다) */
   closeAll(): void {
-    for (const run of this.#runs.values()) if (run.running) this.#halt(run, 'shutdown')
+    for (const runs of [...this.#sellers.values()]) for (const run of [...runs.values()]) if (run.running) this.#halt(run, 'shutdown')
   }
 
   #halt(run: Run, reason: StopReason): void {
     run.running = false
     run.stopReason = reason
+    run.finishedOrder = ++this.#finished
     run.cancel?.()
     run.cancel = null
     this.#publish(run)
+    this.#prune(run.sellerId)
+  }
+
+  /** 그 판매자의 끝난 실행 기록이 GENERATOR_RECORDS_MAX개를 넘으면 가장 먼저 끝난 것부터 지운다 (D-096) */
+  #prune(sellerId: string): void {
+    const runs = this.#sellers.get(sellerId)
+    if (runs === undefined) return
+    const finished = [...runs.values()].filter((run) => !run.running).sort((x, y) => x.finishedOrder - y.finishedOrder)
+    for (const run of finished.slice(0, Math.max(0, finished.length - GENERATOR_RECORDS_MAX))) {
+      if (runs.get(run.b) === run) runs.delete(run.b)
+    }
+    if (runs.size === 0) this.#sellers.delete(sellerId)
   }
 
   #publish(run: Run): void {

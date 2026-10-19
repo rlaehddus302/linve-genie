@@ -559,19 +559,27 @@ export class Service {
   }
 
   /**
-   * 생성기 시작 (AC-S05-51). 실제 방송·다른 판매자·없는 방송은 404, 끝난 방송·이미 도는 생성기는 409.
+   * 생성기 시작 (AC-S05-51, AC-S06-71). 실제 방송·다른 판매자·없는 방송은 404, 끝난 방송·그 방송에서 이미 도는 생성기는 409,
+   * 그 판매자의 다른 리허설 방송에서 도는 생성기가 있으면 409 GENERATOR_RUNNING_ELSEWHERE(그 방송 ID를 함께 — 아무것도 시작하지 않는다, D-096).
    * 같은 요청 번호로 다시 보낸 시작은 그 생성기 상태(200)다
    */
   async startGenerator(
     sellerId: string,
     b: string,
     input: { total: number; perSecond: number; seed: number | null; requestId: string | null },
-  ): Promise<{ kind: 'ok'; status: GeneratorStatus } | { kind: 'not_found' } | { kind: 'rejected'; rejection: Rejection }> {
+  ): Promise<{ kind: 'ok'; status: GeneratorStatus } | { kind: 'not_found' } | { kind: 'rejected'; rejection: Rejection; extra?: Readonly<Record<string, unknown>> }> {
     const row = await this.#rehearsalBroadcast(sellerId, b)
     if (row === null) return notFound
     if (row.endedAt !== null) return { kind: 'rejected', rejection: rejection(409, 'BROADCAST_ENDED', '끝난 방송이라 가짜 채팅을 보낼 수 없어요.') }
     const seed = input.seed ?? randomBytes(4).readUInt32BE(0) % (GENERATOR_SEED_MAX + 1)
     const started = await this.generators.start(sellerId, b, row.date, { total: input.total, perSecond: input.perSecond, seed }, input.requestId)
+    if (started.kind === 'elsewhere') {
+      return {
+        kind: 'rejected',
+        rejection: rejection(409, 'GENERATOR_RUNNING_ELSEWHERE', '다른 리허설 방송에서 가짜 채팅이 돌고 있어요. 그 방송에서 먼저 멈춰 주세요.'),
+        extra: { broadcast: started.b },
+      }
+    }
     if (started.kind === 'running' && !started.same) {
       return { kind: 'rejected', rejection: rejection(409, 'GENERATOR_RUNNING', '이미 가짜 채팅을 보내는 중이에요. 멈춘 뒤 다시 시작해 주세요.') }
     }

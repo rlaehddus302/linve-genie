@@ -30,6 +30,8 @@ export type ErrorCode =
   | 'BROADCAST_ENDED'
   | 'GENERATOR_RUNNING'
   | 'RESYNC_REQUIRED'
+  // S06 API (AC-S06-71)
+  | 'GENERATOR_RUNNING_ELSEWHERE'
 
 export interface ErrorBody {
   readonly error: {
