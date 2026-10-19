@@ -21,7 +21,7 @@ export function ReasonField({ value, onChange, empty, error, inputRef, onEnter }
   const message = empty ? REASON_REQUIRED : problem === undefined ? null : `${problem.message}${problem.hint !== undefined ? ` ${problem.hint}` : ''}`
   return (
     <div className="stack-tight">
-      <div className="row" role="group" aria-label="빠른 사유">
+      <div className="row" role="group" aria-label="자주 쓰는 이유">
         {QUICK_REASONS.map((reason) => (
           <button key={reason} type="button" className="button button-small" aria-pressed={value === reason} onClick={() => onChange(reason)}>
             {reason}

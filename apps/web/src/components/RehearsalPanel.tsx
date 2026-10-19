@@ -115,7 +115,7 @@ export function RehearsalPanel({ broadcastId, generator, onGenerator, onWritten 
           </button>
         </div>
         <p role="status" aria-label="가짜 채팅 상태">
-          {generator === null
+          {generator === null || (!generator.running && generator.total === 0)
             ? '가짜 채팅을 아직 시작하지 않았어요.'
             : `보낸 수 ${String(generator.sent)} / ${String(generator.total)} · ${running ? '보내는 중' : stopReasonWord(generator.stopReason)}${
                 generator.seed === null ? '' : ` · 시드 ${String(generator.seed)}`
