@@ -39,7 +39,9 @@ import {
 import type { IdSource } from './ids.ts'
 import type { ScopeRuntime } from './runtime.ts'
 import { fieldMessage, safeFieldName, unknownFieldProblems } from './messages.ts'
+import { SHOP_NAME_MAX, cleanDisplayName } from './accounts.ts'
 import { productOwners } from './product-history.ts'
+import { ASSISTANT_EVENT_TYPES, assistantCancelCheck, assistantForbidden } from './roles.ts'
 import { openSellerKey, phoneKeyOf } from './secrets.ts'
 import {
   actionRows,
@@ -49,6 +51,10 @@ import {
   findBroadcast,
   findScopeId,
   findSeller,
+  findWizard,
+  listAssistants,
+  updateSellerName,
+  updateWizard,
   historyRows,
   insertBroadcast,
   listBroadcastRows,
@@ -57,6 +63,7 @@ import {
   scopeSealInfo,
   scopeSealRows,
   scopeSeqs,
+  type AssistantRow,
   type BroadcastRow,
   type ChatRow,
   type HistoryRow,
@@ -67,6 +74,19 @@ import { changeSet, fullView, messageLookup, type ChangeSet, type FullView, type
 import { resultOf, type Actor, type ChatSource, type Draft, type Rejection, type ScopeWriter, type WriteOutcome, type WriteResult } from './writer.ts'
 import { sanitizeNick } from './youtube/texts.ts'
 import { SEALED_CHAT_MESSAGE, sealAtOf, sealedView } from './youtube/seal.ts'
+
+/** 시작 마법사 (UX-02, AC-I3-50): 처음 · 진행 중(단계 1~5) · 마침 · 닫음 */
+export type WizardStatus = 'NEW' | 'IN_PROGRESS' | 'DONE' | 'DISMISSED'
+export const WIZARD_STATUSES: readonly WizardStatus[] = ['NEW', 'IN_PROGRESS', 'DONE', 'DISMISSED']
+export const WIZARD_STEPS = 5
+export interface WizardState {
+  readonly status: WizardStatus
+  readonly step: number | null
+}
+function wizardOf(row: { status: string; step: number | null }): WizardState {
+  const status = WIZARD_STATUSES.includes(row.status as WizardStatus) ? (row.status as WizardStatus) : 'NEW'
+  return { status, step: status === 'IN_PROGRESS' ? row.step : null }
+}
 
 /** 차단 이어받기 사유 (AC-S04-27) */
 export const INHERITED_BLOCK_REASON = '이전 방송에서 차단한 시청자'
@@ -279,6 +299,45 @@ export class Service {
     return { ok: true, settings: resolveSettings(saved) }
   }
 
+  // ── 가게 이름·시작 마법사 (AC-I3-47·50) ───────────────────────────────
+
+  /** 가게 이름 바꾸기 — 그 판매자의 이름만. 이름이 틀리면 null (받은 값은 로그에 남기지 않는다, D-073) */
+  async renameShop(sellerId: string, raw: unknown): Promise<string | null> {
+    const name = cleanDisplayName(raw, SHOP_NAME_MAX)
+    if (name === null) return null
+    if (!(await updateSellerName(this.#options.db, sellerId, name))) throw new Error('판매자가 없다')
+    return name
+  }
+
+  /** 판매자의 보조자 목록 (지우지 않은 것, AC-I3-60) */
+  assistants(sellerId: string): Promise<AssistantRow[]> {
+    return listAssistants(this.#options.db, sellerId)
+  }
+
+  /** 시작 마법사 상태 */
+  async wizard(sellerId: string): Promise<WizardState> {
+    const row = await findWizard(this.#options.db, sellerId)
+    if (row === null) throw new Error('판매자가 없다')
+    return wizardOf(row)
+  }
+
+  /** 시작 마법사 상태 적기 ({ status, step? }). 틀리면 null */
+  async setWizard(sellerId: string, body: Record<string, unknown>): Promise<WizardState | null> {
+    const status = own(body, 'status')
+    const step = own(body, 'step')
+    if (typeof status !== 'string' || !WIZARD_STATUSES.includes(status as WizardStatus)) return null
+    let next: WizardState
+    if (status === 'IN_PROGRESS') {
+      if (typeof step !== 'number' || !Number.isInteger(step) || step < 1 || step > WIZARD_STEPS) return null
+      next = { status, step }
+    } else {
+      if (step !== undefined && step !== null) return null
+      next = { status: status as WizardStatus, step: null }
+    }
+    if (!(await updateWizard(this.#options.db, sellerId, next))) throw new Error('판매자가 없다')
+    return next
+  }
+
   // ── 요청 번호 (AC-S04-25) ─────────────────────────────────────────────
 
   /** 그 요청 번호로 이미 기록한 결과 (없으면 null). 같은 요청 번호면 내용이 달라도 처음 결과를 돌려준다 */
@@ -379,6 +438,7 @@ export class Service {
   /**
    * 화면이 보낸 이벤트 쓰기. body = { requestId, type, ...그 종류의 필드 }, queryDate = 방송이 없는 종류의 범위 날짜.
    * 요청 번호는 호출하는 쪽(API)이 이미 확인했다.
+   * 보조자 계정(options.assistant)은 실제 방송의 문자찜과 문자찜으로 생긴 찜의 방송자 취소만 — 그 밖은 403이고 아무것도 기록하지 않는다 (AC-I3-61)
    */
   async writeEvent(
     sellerId: string,
@@ -387,8 +447,11 @@ export class Service {
     body: Record<string, unknown>,
     queryDate: string | undefined,
     queryRehearsal?: boolean,
+    options: { readonly assistant?: boolean } = {},
   ): Promise<WriteOutcome | { kind: 'phone'; outcome: WriteOutcome; phoneLast4: string | null }> {
     const type = own(body, 'type')
+    const assistant = options.assistant === true
+    if (assistant && (typeof type !== 'string' || !ASSISTANT_EVENT_TYPES.includes(type))) return { kind: 'rejected', rejection: assistantForbidden() }
     const spec = typeof type === 'string' && Object.hasOwn(API_EVENTS, type) ? API_EVENTS[type] : undefined
     if (spec === undefined || typeof type !== 'string') return { kind: 'rejected', rejection: invalidInput([{ field: 'type', message: fieldMessage('type') }]) }
     const allowed = new Set(['requestId', 'type', ...spec.fields])
@@ -410,6 +473,8 @@ export class Service {
       if (typeof b !== 'string' || b === '') return { kind: 'rejected', rejection: invalidInput([{ field: 'b', message: fieldMessage('b') }]) }
       const row = await findBroadcast(this.#options.db, sellerId, b)
       if (row === null) return { kind: 'not_found' }
+      // 보조자는 실제 방송에만 (리허설은 판매자 몫)
+      if (assistant && row.rehearsal) return { kind: 'rejected', rejection: assistantForbidden() }
       date = row.date
       rehearsal = row.rehearsal
     } else {
@@ -429,7 +494,8 @@ export class Service {
       rehearsal,
       createScope: false,
       requestId,
-      build: () => [{ fields, actor, requestId }],
+      // 보조자의 방송자 취소: 그 범위의 지금 상태(기록 트랜잭션 안)에서 문자찜으로 생긴 찜인지 코어 조회로 본다
+      build: () => [{ fields, actor, requestId, ...(assistant ? { validate: assistantCancelCheck } : {}) }],
     })
   }
 

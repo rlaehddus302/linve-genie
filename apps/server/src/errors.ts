@@ -52,6 +52,14 @@ export type ErrorCode =
   | 'ALREADY_SENT'
   | 'RESEND_NOT_ALLOWED'
   | 'COLLECTOR_NOT_RESTARTABLE'
+  // I3 (AC-I3-36·60~67)
+  | 'ASSISTANT_FORBIDDEN'
+  | 'ASSISTANT_LIMIT'
+  | 'LOGIN_RATE_LIMITED'
+  | 'LOGIN_BUSY'
+  | 'CONFIRM_NOT_ALLOWED'
+  | 'DISMISS_NOT_ALLOWED'
+  | 'REHEARSAL_OUTBOX'
 
 export interface ErrorBody {
   readonly error: {

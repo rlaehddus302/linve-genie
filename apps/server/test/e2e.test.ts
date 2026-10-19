@@ -26,7 +26,7 @@ describe('AC-S05-91 E2E 서버 기동 (프로그램)', () => {
       expect(e2e.account).toEqual(account)
       const cookie = await loginTo(e2e.server.app, account.loginId, account.password)
       const get = async (path: string) => (await e2e.server.app.request(path, { headers: { Cookie: cookie } })).json() as Promise<Record<string, unknown>>
-      expect(await get('/api/me')).toEqual({ seller: { name: account.shopName }, loginId: account.loginId })
+      expect(await get('/api/me')).toEqual({ seller: { name: account.shopName }, loginId: account.loginId, role: 'SELLER', assistant: null })
       expect(e2e.fill).toMatchObject({ date: '2026-10-19', products: 20, chats: 300, seq: 1 + 20 + 300 })
       // Y1: 범위마다 봉인 예정 시각·봉인 여부 (AC-Y1-62). 채우기 채팅은 유튜브 수집기 것이 아니라 봉인 예정이 없다
       expect(await get('/api/days')).toEqual({ days: [{ date: '2026-10-19', rehearsal: false, seq: 321, sealAt: null, sealed: false }] })

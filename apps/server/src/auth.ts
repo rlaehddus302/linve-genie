@@ -6,12 +6,13 @@
 //   있는 아이디와 없는 아이디를 같은 표(login_limits)·같은 순서로 센다(SA-S04-002) — 비밀번호 길이·서버 재시작·
 //   인스턴스·표 정리 어느 쪽으로도 잠금 응답이 갈리지 않아 아이디가 있는지 알 수 없다.
 // - 세션: 무작위 토큰(쿠키), 서버엔 해시만. 30일, 쓰는 동안 연장. 로그아웃하면 서버에서 지운다.
-import { LOGIN_ID_RE, PASSWORD_MAX, normalizeLoginId } from './accounts.ts'
+import { LOGIN_ID_RE, PASSWORD_MAX, createAssistant, normalizeLoginId, type CreateAssistantResult } from './accounts.ts'
 import type { Db } from './db/database.ts'
 import { errorKind, type LogSink } from './log.ts'
 import { DEFAULT_PASSWORD_COST, hashPassword, loginLimitKey, newSessionToken, tokenHash, verifyPassword, type PasswordCost } from './secrets.ts'
 import {
   claimLoginAttempt,
+  deleteAssistant,
   deleteSession,
   extendSession,
   findAccountByLogin,
@@ -129,5 +130,15 @@ export class Auth {
 
   async logout(session: Pick<SessionRow, 'tokenHash' | 'sellerId'>): Promise<void> {
     await deleteSession(this.#options.db, session)
+  }
+
+  /** 판매자가 보조자를 만든다 (아이디·비밀번호는 서버가 만든다 — 비밀번호는 결과에만, AC-I3-60) */
+  createAssistant(sellerId: string, name: unknown): Promise<CreateAssistantResult> {
+    return createAssistant(this.#options.db, sellerId, name, { clock: this.#options.clock, ...(this.#options.passwordCost === undefined ? {} : { passwordCost: this.#options.passwordCost }) })
+  }
+
+  /** 보조자를 지운다: 그 계정의 세션을 모두 지우고 그 세션 해시를 돌려준다(실시간 연결 닫기). 그 판매자의 보조자가 아니면 null (AC-I3-62) */
+  deleteAssistant(sellerId: string, accountId: string): Promise<string[] | null> {
+    return deleteAssistant(this.#options.db, sellerId, accountId, new Date(this.#options.clock.now()))
   }
 }

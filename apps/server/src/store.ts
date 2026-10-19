@@ -34,7 +34,9 @@ export interface AccountRow {
   readonly passwordHash: string
 }
 
-/** 로그인 아이디로 계정 찾기 (로그인 전이라 판매자를 모른다 — 아이디는 전체에서 유일하다) */
+/**
+ * 로그인 아이디로 계정 찾기 (로그인 전이라 판매자를 모른다 — 아이디는 전체에서 유일하다). 지운 보조자는 없는 아이디와 같다 (AC-I3-62)
+ */
 export async function findAccountByLogin(db: Db, loginId: string): Promise<AccountRow | null> {
   const rows = await db
     .select({
@@ -44,9 +46,86 @@ export async function findAccountByLogin(db: Db, loginId: string): Promise<Accou
       passwordHash: accounts.passwordHash,
     })
     .from(accounts)
-    .where(eq(accounts.loginId, loginId))
+    .where(and(eq(accounts.loginId, loginId), isNull(accounts.deletedAt)))
     .limit(1)
   return rows[0] ?? null
+}
+
+/** 그 아이디의 계정이 있는지 (지운 계정 포함 — 같은 아이디를 다시 만들지 않는다) */
+export async function loginIdTaken(db: Db, loginId: string): Promise<boolean> {
+  const rows = await db.select({ id: accounts.id }).from(accounts).where(eq(accounts.loginId, loginId)).limit(1)
+  return rows.length > 0
+}
+
+// ── 보조자 계정 (SYS-04, AC-I3-60~62) ─────────────────────────────────────
+
+export interface AssistantRow {
+  readonly id: string
+  readonly name: string
+  readonly loginId: string
+  readonly createdAt: Date
+}
+
+/** 판매자의 보조자 (지우지 않은 것, 만든 순서) */
+export async function listAssistants(db: Db, sellerId: string): Promise<AssistantRow[]> {
+  const rows = await db
+    .select({ id: accounts.id, name: accounts.name, loginId: accounts.loginId, createdAt: accounts.createdAt })
+    .from(accounts)
+    .where(and(eq(accounts.sellerId, sellerId), eq(accounts.role, 'ASSISTANT'), isNull(accounts.deletedAt)))
+    .orderBy(asc(accounts.createdAt), asc(accounts.id))
+  return rows.map((row) => ({ ...row, name: row.name ?? '' }))
+}
+
+/** 판매자 행을 잠근다 (같은 판매자의 보조자 만들기를 하나씩 — 5명 한도) */
+export async function lockSeller(db: Db, sellerId: string): Promise<boolean> {
+  const rows = await db.select({ id: sellers.id }).from(sellers).where(eq(sellers.id, sellerId)).for('update')
+  return rows.length > 0
+}
+
+export async function insertAssistant(db: Db, row: { id: string; sellerId: string; loginId: string; passwordHash: string; name: string; now: Date }): Promise<void> {
+  await db.insert(accounts).values({ id: row.id, sellerId: row.sellerId, loginId: row.loginId, passwordHash: row.passwordHash, createdAt: row.now, role: 'ASSISTANT', name: row.name })
+}
+
+/**
+ * 보조자를 지운다 (행은 남기고 지운 시각만 — 이벤트의 조치자 기록은 그대로). 그 계정의 세션을 모두 지우고 그 세션 해시를 돌려준다(실시간 연결 닫기).
+ * 그 판매자의 지우지 않은 보조자가 아니면 null
+ */
+export async function deleteAssistant(db: Db, sellerId: string, accountId: string, now: Date): Promise<string[] | null> {
+  return db.transaction(async (tx) => {
+    const marked = await tx
+      .update(accounts)
+      .set({ deletedAt: now })
+      .where(and(eq(accounts.sellerId, sellerId), eq(accounts.id, accountId), eq(accounts.role, 'ASSISTANT'), isNull(accounts.deletedAt)))
+      .returning({ id: accounts.id })
+    if (marked.length === 0) return null
+    const gone = await tx
+      .delete(sessions)
+      .where(and(eq(sessions.sellerId, sellerId), eq(sessions.accountId, accountId)))
+      .returning({ tokenHash: sessions.tokenHash })
+    return gone.map((row) => row.tokenHash)
+  })
+}
+
+// ── 가게 이름·시작 마법사 (AC-I3-47·50) ────────────────────────────────────
+
+export async function updateSellerName(db: Db, sellerId: string, name: string): Promise<boolean> {
+  const rows = await db.update(sellers).set({ name }).where(eq(sellers.id, sellerId)).returning({ id: sellers.id })
+  return rows.length > 0
+}
+
+export interface WizardRow {
+  readonly status: string
+  readonly step: number | null
+}
+
+export async function findWizard(db: Db, sellerId: string): Promise<WizardRow | null> {
+  const rows = await db.select({ status: sellers.wizardStatus, step: sellers.wizardStep }).from(sellers).where(eq(sellers.id, sellerId)).limit(1)
+  return rows[0] ?? null
+}
+
+export async function updateWizard(db: Db, sellerId: string, wizard: WizardRow): Promise<boolean> {
+  const rows = await db.update(sellers).set({ wizardStatus: wizard.status, wizardStep: wizard.step }).where(eq(sellers.id, sellerId)).returning({ id: sellers.id })
+  return rows.length > 0
 }
 
 // ── 로그인 시도 수 (판매자 데이터 아님 — 있는 아이디·없는 아이디를 같은 질의로 센다, D-074) ──────────
@@ -122,6 +201,10 @@ export interface SessionRow {
   readonly extendedAt: Date
   readonly loginId: string
   readonly sellerName: string
+  /** 계정 역할 (SELLER · ASSISTANT, AC-I3-61) */
+  readonly role: string
+  /** 보조자 이름 (판매자 계정은 null) */
+  readonly accountName: string | null
 }
 
 export async function insertSession(db: Db, row: { tokenHash: string; sellerId: string; accountId: string; now: Date; expiresAt: Date }): Promise<void> {
@@ -135,7 +218,7 @@ export async function insertSession(db: Db, row: { tokenHash: string; sellerId: 
   })
 }
 
-/** 만료되지 않은 세션 (계정·판매자 이름과 함께) */
+/** 만료되지 않은 세션 (계정·판매자 이름과 함께). 지운 계정의 세션은 없는 것과 같다 (AC-I3-62) */
 export async function findSession(db: Db, tokenHashValue: string, now: Date): Promise<SessionRow | null> {
   const rows = await db
     .select({
@@ -146,9 +229,11 @@ export async function findSession(db: Db, tokenHashValue: string, now: Date): Pr
       extendedAt: sessions.extendedAt,
       loginId: accounts.loginId,
       sellerName: sellers.name,
+      role: accounts.role,
+      accountName: accounts.name,
     })
     .from(sessions)
-    .innerJoin(accounts, and(eq(accounts.id, sessions.accountId), eq(accounts.sellerId, sessions.sellerId)))
+    .innerJoin(accounts, and(eq(accounts.id, sessions.accountId), eq(accounts.sellerId, sessions.sellerId), isNull(accounts.deletedAt)))
     .innerJoin(sellers, eq(sellers.id, sessions.sellerId))
     .where(and(eq(sessions.tokenHash, tokenHashValue), gt(sessions.expiresAt, now)))
     .limit(1)
