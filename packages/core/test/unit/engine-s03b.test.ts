@@ -18,6 +18,7 @@ import {
   type EngineState,
 } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
+import { Draft } from '../../src/engine/draft.ts'
 import { smsPhoneFields, testPhoneKey } from '../golden/phone-key.ts'
 import { RECEIVED_TIME, T0, chat, host, kst, play, register, sms, type EventInput } from './engine-helpers.ts'
 
@@ -215,6 +216,16 @@ describe('AC-S03b-10 ref는 처음 받을 때 기록한다', () => {
       expect(result.state).toBe(state)
       expect(result.effects).toEqual([])
     }
+  })
+
+  it('작업 사본: 같은 이벤트 안에서 구매자를 정하지 않은 ref(null)를 기록하면 이전 상태로 내려가 읽지 않고 null을 돌려준다', () => {
+    const { state } = play([register(15), sms('s1', 15, '20:00')])
+    const draft = new Draft(state, { seq: 9, at: T0 })
+    expect(draft.readRef('s1')).toBe('sms:s1')
+    expect(draft.readRef('s2')).toBeUndefined()
+    draft.setRef('s2', null)
+    expect(draft.readRef('s2')).toBeNull()
+    expect(buyerOfRef(draft.commit().state, 's2')).toBeNull()
   })
 
   it('같은 ref의 사본은 처음 것이 무엇을 했든(새 구매자·이은 구매자·지정 구매자·같은 사람 반복) 아무것도 바꾸지 않는다', () => {
