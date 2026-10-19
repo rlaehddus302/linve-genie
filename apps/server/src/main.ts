@@ -60,8 +60,20 @@ server.on('error', (error: Error & { code?: string }) => {
   if (error.code === 'EADDRINUSE') complain(`시작하지 못했어요. 다른 프로그램이 이미 쓰고 있는 포트예요(${where}). PORT 환경변수로 다른 포트를 지정해 주세요.`)
   else if (error.code === 'EACCES') complain(`시작하지 못했어요. 열 권한이 없는 포트예요(${where}).`)
   else complain(`시작하지 못했어요. (오류 코드: ${error.code ?? '알 수 없음'})`)
-  process.exitCode = 1
+  // DB(특히 PGlite)가 열려 있으면 프로세스가 끝나지 않으므로 닫고 끝낸다
+  livejjim.close()
+  void finish(1)
 })
+
+/** DB를 닫고 종료 코드로 끝낸다 */
+async function finish(code: number): Promise<never> {
+  try {
+    await database?.close()
+  } catch {
+    // 닫다 실패해도 끝낸다
+  }
+  process.exit(code)
+}
 
 server.listen(setting.port, () => {
   say(`시작했어요. ${where}에서 기다리는 중이에요. 상태 확인: GET /health · 끄려면 Ctrl+C`)
@@ -77,13 +89,13 @@ function stop(): void {
   say('끄는 중이에요. 진행 중인 요청을 마무리하고 있어요.')
   livejjim.close()
   server.close((error) => {
-    void database?.close()
     if (error) {
       complain('서버가 이미 멈춰 있었어요.')
-      process.exitCode = 1
+      void finish(1)
       return
     }
     say('껐어요.')
+    void finish(0)
   })
   server.closeIdleConnections()
   setTimeout(() => server.closeAllConnections(), FORCE_CLOSE_AFTER_MS).unref()
