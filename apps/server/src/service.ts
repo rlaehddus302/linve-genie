@@ -624,15 +624,18 @@ export class Service {
     if (set === null) return 'resync'
     const { touchedMessages, ...rest } = set
     const { db } = this.#options
-    const fresh = since === runtime.seq ? { rows: [], more: false } : await chatRows(db, sellerId, runtime.scopeId, { after: since, before: runtime.seq + 1, limit: CHANGES_MESSAGES_LIMIT })
-    const touched = touchedMessages.length === 0 ? [] : (await chatRowsByIds(db, sellerId, runtime.scopeId, touchedMessages)).filter((row) => row.seq <= since)
-    return { ...rest, messages: this.#messageItems(runtime.state, [...touched, ...fresh.rows]), messagesMore: fresh.more }
+    // 조회를 기다리는 사이 쓰기가 runtime을 고치므로, 변경 묶음을 만든 그 시점의 seq·상태로 메시지를 고르고 기록을 붙인다
+    const { seq, state, scopeId } = runtime
+    const fresh = since === seq ? { rows: [], more: false } : await chatRows(db, sellerId, scopeId, { after: since, before: seq + 1, limit: CHANGES_MESSAGES_LIMIT })
+    const touched = touchedMessages.length === 0 ? [] : (await chatRowsByIds(db, sellerId, scopeId, touchedMessages)).filter((row) => row.seq <= since)
+    return { ...rest, messages: this.#messageItems(state, [...touched, ...fresh.rows]), messagesMore: fresh.more }
   }
 
   /**
    * 채팅 메시지 이어 받기 (AC-S05-20). b를 주면 그 방송만(그 범위의 방송이 아니면 null — 리허설 방송은 리허설을 명시해야 보인다).
    * after: 그 seq 뒤 limit개 / before: 그 seq 앞의 가장 최근 limit개 / 둘 다 없으면 가장 최근 limit개. 늘 seq 오름차순.
-   * 조회가 본 범위 상태(seq)까지의 메시지만 준다
+   * 조회가 본 범위 상태(seq)까지의 메시지만 준다 — 응답 seq는 채팅 행을 읽기 전에 잡은 값이라, 응답 seq까지의 메시지는 모두 담긴다
+   * (조회를 기다리는 사이 들어온 채팅은 응답 seq 뒤에 있어 증분으로 받는다, TD-S05-005)
    */
   async messages(
     sellerId: string,
@@ -641,16 +644,19 @@ export class Service {
     query: { readonly b?: string; readonly after?: number; readonly before?: number; readonly limit: number },
   ): Promise<MessagesView | null> {
     const runtime = await this.#options.writer.read(sellerId, date, rehearsal)
-    if (runtime.seq === 0 || runtime.scopeId === null) return null
-    if (query.b !== undefined && getBroadcast(runtime.state, query.b) === null) return null
-    const before = Math.min(query.before ?? runtime.seq + 1, runtime.seq + 1)
-    const { rows, more } = await chatRows(this.#options.db, sellerId, runtime.scopeId, {
+    // runtime은 쓰기와 같이 쓰는 객체다. 채팅 행을 기다리는 사이 들어온 채팅이 seq·상태를 올려 두므로 지금 값을 잡아 두고
+    // 조회 범위(before)·응답 seq·메시지 기록 모두 이 값으로 정한다 (TD-S05-005, AC-S05-20·21·62)
+    const { seq, state, scopeId } = runtime
+    if (seq === 0 || scopeId === null) return null
+    if (query.b !== undefined && getBroadcast(state, query.b) === null) return null
+    const before = Math.min(query.before ?? seq + 1, seq + 1)
+    const { rows, more } = await chatRows(this.#options.db, sellerId, scopeId, {
       ...(query.b === undefined ? {} : { b: query.b }),
       ...(query.after === undefined ? {} : { after: query.after }),
       before,
       limit: query.limit,
     })
-    return { date, rehearsal, seq: runtime.seq, messages: this.#messageItems(runtime.state, rows), more }
+    return { date, rehearsal, seq, messages: this.#messageItems(state, rows), more }
   }
 
   /** 채팅 이벤트 행 → 메시지 항목 (주문·취소·무시·바꾼 번호는 엔진 기록, 언급은 그 방송 설정의 parseChat) */
