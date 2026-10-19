@@ -1,6 +1,6 @@
 // 로그인 화면 (AC-S05-01, SYS-01). 계정은 운영자가 만든다 — 가입 화면·링크는 없다.
 // 틀리면 서버 문장을 그대로 보이고 아이디는 남긴다. 세션이 끝나 돌아왔으면 "로그인이 풀렸어요"를 보인다.
-import { useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { isApiError, post, type ApiError } from '../api/client.ts'
 import type { Me } from '../api/types.ts'
 
@@ -12,6 +12,12 @@ export function LoginPage({ expired, onLoggedIn }: { readonly expired: boolean; 
   const [error, setError] = useState<ApiError | null>(null)
   const [busy, setBusy] = useState(false)
   const passwordField = useRef<HTMLInputElement>(null)
+  const idField = useRef<HTMLInputElement>(null)
+
+  // 로그인 화면을 열면 "아이디" 칸에 커서 (AC-S06-66 015)
+  useEffect(() => {
+    idField.current?.focus()
+  }, [])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -42,7 +48,7 @@ export function LoginPage({ expired, onLoggedIn }: { readonly expired: boolean; 
       <form className="stack" onSubmit={(event) => void submit(event)}>
         <label className="field">
           <span>아이디</span>
-          <input className="input" name="loginId" autoComplete="username" value={loginId} onChange={(event) => setLoginId(event.target.value)} />
+          <input ref={idField} className="input" name="loginId" autoComplete="username" value={loginId} onChange={(event) => setLoginId(event.target.value)} />
         </label>
         <label className="field">
           <span>비밀번호</span>

@@ -4,14 +4,11 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
 import type { BroadcastItem, WriteResult } from '../api/types.ts'
 import { dateWords, kstToday } from '../lib/kst.ts'
-import { routePath, type Route } from '../lib/router.ts'
+import { routePath, type Navigate } from '../lib/router.ts'
 import { ErrorNote, FieldError } from './ErrorNote.tsx'
-import { TopBar } from './TopBar.tsx'
 
 export interface HomePageProps {
-  readonly shopName: string
-  readonly onLogout: () => void
-  readonly navigate: (route: Route) => void
+  readonly navigate: Navigate
 }
 
 /** 날짜(KST) 최근 순. 같은 날은 나중에 만든 방송이 위 (서버는 날짜 오름차순·같은 날은 실제 먼저·선언 순으로 준다) */
@@ -22,7 +19,7 @@ export function sortBroadcasts(items: readonly BroadcastItem[]): BroadcastItem[]
     .map(({ item }) => item)
 }
 
-export function HomePage({ shopName, onLogout, navigate }: HomePageProps) {
+export function HomePage({ navigate }: HomePageProps) {
   const [broadcasts, setBroadcasts] = useState<BroadcastItem[] | null>(null)
   const [loadError, setLoadError] = useState<ApiError | null>(null)
   const [formOpen, setFormOpen] = useState(false)
@@ -87,7 +84,6 @@ export function HomePage({ shopName, onLogout, navigate }: HomePageProps) {
 
   return (
     <>
-      <TopBar shopName={shopName} onLogout={onLogout} />
       <main className="page">
         <h1>방송 목록</h1>
         <div className="row">

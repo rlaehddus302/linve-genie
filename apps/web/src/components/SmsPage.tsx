@@ -1,0 +1,654 @@
+// 문자찜 입력 (SPEC §7 화면 6, ORD-08, BUY-02, R-0 5, R-1, R-5, R-6, R-11, D-023, D-089, AC-S06-10~15).
+// - 방송: 끝나지 않은 실제 방송 중 가장 최근 것이 기본(날짜가 늦은 것, 같으면 나중에 만든 것). 없으면 직접 고른다. 고른 방송은 화면을 연 동안 그대로다.
+// - 칸: 번호(숫자 키패드) · 받은 시각(비우면 서버가 도착 시각을 초까지) · 전화번호(뒤 4자리만 보인다) · 메모 · 구매자 고르기.
+// - "15번에 문자찜 넣기"는 바로 보낸다(5초 대기 없음) — 같은 요청 번호로 재시도, 결과 카드(찜의 지금 상태)·"찜 취소하기"(5초 뒤)·"같은 사람 하나 더".
+// - 보낸 뒤 칸을 모두 비운다(전화번호 원문을 화면 상태에 남기지 않는다). 아래에 고른 방송의 최근 문자찜 10개.
+import { containsPhoneRun, normalizePhone, phoneLast4 } from '@livejjim/core'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
+import { get, isApiError, type ApiError } from '../api/client.ts'
+import type { BroadcastItem, Buyer, Claim, Product } from '../api/types.ts'
+import { distinguishWords, isActive, sameNameCounts, searchBuyers, channelTail } from '../lib/buyers.ts'
+import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
+import { claimWord, formatWon, productKey } from '../lib/derive.ts'
+import { useUndoQueue } from '../lib/host-delay.ts'
+import { broadcastWords, kstTime } from '../lib/kst.ts'
+import { RECEIVED_HELP, RECEIVED_INVALID, readReceived, receivedWords } from '../lib/received.ts'
+import type { Navigate } from '../lib/router.ts'
+import type { ScopeData } from '../lib/scope-data.ts'
+import { useScopeStore } from '../lib/use-store.ts'
+import type { UndoQueue } from '../lib/undo-queue.ts'
+import { BUYER_KIND_WORD, PRODUCT_STATUS_WORD } from '../lib/words.ts'
+import { openClaimAction } from './actions.ts'
+import type { ConsoleApi } from './console-context.ts'
+import { ErrorNote } from './ErrorNote.tsx'
+import { FieldNote, WriteError, serverProblem, useSender } from './forms.tsx'
+import { useHostActions } from './host-actions.tsx'
+import { LiveNotices } from './LiveNotices.tsx'
+import { Modal } from './Modal.tsx'
+import { sortBroadcasts } from './HomePage.tsx'
+import { UndoBar } from './UndoBar.tsx'
+
+export const PHONE_UNREADABLE = '휴대폰 번호로 읽지 못했어요. 고치거나 지워 주세요.'
+export const MEMO_HAS_PHONE = '전화번호처럼 보이는 숫자(010-…)가 있어요. 빼고 적어 주세요.'
+export const NO_BROADCAST = '문자찜을 넣을 방송을 골라 주세요.'
+export const REHEARSAL_WARNING = '리허설 방송이에요 — 실제 판매에 들어가지 않아요'
+
+/** 처음 고를 방송 (R-0 5, D-089): 끝나지 않은 실제 방송 중 가장 최근 것 */
+export function defaultSmsBroadcast(items: readonly BroadcastItem[]): BroadcastItem | null {
+  return sortBroadcasts(items).find((item) => !item.ended && !item.rehearsal) ?? null
+}
+
+/** 번호 칸: 숫자만 (전각 숫자는 반각으로) */
+function digitsOnly(text: string): string {
+  return text.replace(/[０-９]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0)).replace(/\D/g, '').slice(0, 4)
+}
+
+export function SmsPage({ navigate }: { readonly navigate: Navigate }) {
+  const [broadcasts, setBroadcasts] = useState<BroadcastItem[] | null>(null)
+  const [listError, setListError] = useState<ApiError | null>(null)
+  const [selected, setSelected] = useState<string | null>(null)
+  const [choosing, setChoosing] = useState(false)
+  const [focusSignal, setFocusSignal] = useState(0)
+
+  const load = useCallback(async (first: boolean) => {
+    setListError(null)
+    try {
+      const { broadcasts: items } = await get<{ broadcasts: BroadcastItem[] }>('/api/broadcasts')
+      setBroadcasts(sortBroadcasts(items))
+      if (first) setSelected((current) => current ?? defaultSmsBroadcast(items)?.id ?? null)
+    } catch (error) {
+      if (isApiError(error)) setListError(error)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load(true)
+  }, [load])
+
+  const { store, snapshot } = useScopeStore(selected, () => ({ broadcastId: selected ?? '', messages: false }))
+  const queue = useUndoQueue()
+  const item = broadcasts?.find((broadcast) => broadcast.id === selected) ?? snapshot.broadcast
+
+  const choose = (id: string) => {
+    setSelected(id)
+    setChoosing(false)
+    setFocusSignal((n) => n + 1)
+  }
+
+  return (
+    <main className="page page-wide sms-page">
+      <h1>문자찜 입력</h1>
+      <section className="sms-broadcast card" aria-label="고른 방송">
+        {item === null || item === undefined ? (
+          <p className="warning" role="status">
+            {NO_BROADCAST}
+          </p>
+        ) : (
+          <SelectedBroadcast item={item} snapshot={snapshot} />
+        )}
+        <button type="button" className="button" onClick={() => setChoosing(true)} disabled={broadcasts === null}>
+          {item === null || item === undefined ? '방송 고르기' : '방송 바꾸기'}
+        </button>
+      </section>
+      {listError !== null ? <ErrorNote error={listError} onRetry={() => void load(true)} retryLabel="다시 불러오기" /> : null}
+      {item?.rehearsal === true ? (
+        <p className="rehearsal-banner" role="note">
+          {REHEARSAL_WARNING}
+        </p>
+      ) : null}
+      {selected === null || item === null || item === undefined ? (
+        <SmsForm key="none" disabled focusSignal={focusSignal} />
+      ) : store !== null && queue !== null && snapshot.data !== null ? (
+        <ReadySms key={selected} b={selected} item={item} store={store} snapshot={snapshot} data={snapshot.data} queue={queue} focusSignal={focusSignal} />
+      ) : snapshot.phase === 'missing' ? (
+        <p className="warning">그 방송을 찾지 못했어요. "방송 바꾸기"로 다시 골라 주세요.</p>
+      ) : snapshot.phase === 'error' && snapshot.error !== null ? (
+        <ErrorNote error={snapshot.error} onRetry={() => window.location.reload()} retryLabel="다시 열기" />
+      ) : (
+        <>
+          <div className="page-sticky">
+            <LiveNotices snapshot={snapshot} onRetry={() => void store?.retryNow()} />
+          </div>
+          <p role="status">불러오는 중…</p>
+        </>
+      )}
+      {choosing ? (
+        <BroadcastChooser
+          items={broadcasts ?? []}
+          selected={selected}
+          onChoose={choose}
+          onClose={() => setChoosing(false)}
+          onReload={() => void load(false)}
+          onHome={() => navigate({ name: 'home' })}
+        />
+      ) : null}
+    </main>
+  )
+}
+
+function SelectedBroadcast({ item, snapshot }: { readonly item: BroadcastItem; readonly snapshot: ConsoleSnapshot }) {
+  // 다른 기기에서 그 방송을 끝내면 고른 방송은 그대로이고 "끝남"으로 표시만 바뀐다
+  const ended = snapshot.data?.broadcasts.get(item.id)?.ended ?? item.ended
+  return (
+    <p className="sms-broadcast-title">
+      <strong>{broadcastWords(item.title, item.date)}</strong> <span className={ended ? 'tag' : 'tag tag-live'}>{ended ? '끝남' : '진행 중'}</span>
+      {item.rehearsal ? <span className="tag tag-rehearsal">리허설</span> : null}
+    </p>
+  )
+}
+
+function BroadcastChooser(props: {
+  readonly items: readonly BroadcastItem[]
+  readonly selected: string | null
+  readonly onChoose: (id: string) => void
+  readonly onClose: () => void
+  readonly onReload: () => void
+  readonly onHome: () => void
+}) {
+  useEffect(() => {
+    props.onReload()
+    // 열 때 한 번 (새로 만든 방송·끝난 방송을 반영)
+  }, [])
+  return (
+    <Modal title="방송 고르기" onClose={props.onClose}>
+      {props.items.length === 0 ? (
+        <div className="stack-tight">
+          <p>아직 방송이 없어요. 방송 목록에서 먼저 방송을 시작해 주세요.</p>
+          <button type="button" className="button" onClick={props.onHome}>
+            방송 목록으로
+          </button>
+        </div>
+      ) : (
+        <ul className="plain-list stack-tight" aria-label="방송">
+          {props.items.map((item) => (
+            <li key={item.id}>
+              <button type="button" className="choice-button" aria-pressed={item.id === props.selected} onClick={() => props.onChoose(item.id)}>
+                <strong>{broadcastWords(item.title, item.date)}</strong>
+                <span className={item.ended ? 'tag' : 'tag tag-live'}>{item.ended ? '끝남' : '진행 중'}</span>
+                {item.rehearsal ? <span className="tag tag-rehearsal">리허설</span> : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Modal>
+  )
+}
+
+interface ReadySmsProps {
+  readonly b: string
+  readonly item: BroadcastItem
+  readonly store: ConsoleStore
+  readonly snapshot: ConsoleSnapshot
+  readonly data: ScopeData
+  readonly queue: UndoQueue
+  readonly focusSignal: number
+}
+
+function ReadySms({ b, item, store, snapshot, data, queue, focusSignal }: ReadySmsProps) {
+  const ended = data.broadcasts.get(b)?.ended ?? item.ended
+  const host = useHostActions({ store, data, queue, date: item.date, rehearsal: item.rehearsal, b, ended })
+  return (
+    <>
+      <div className="page-sticky">
+        <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
+        <UndoBar items={host.items} queue={queue} />
+      </div>
+      <SmsForm api={host.api} focusSignal={focusSignal} />
+      <RecentSms api={host.api} />
+      {host.dialog}
+    </>
+  )
+}
+
+/** 지금 상품 한 줄 (AC-S06-11): "15번 핑크프릴 10,000원 · 판매 완료 · 1등 홍길동 · 대기 2" */
+function productLine(api: ConsoleApi, product: Product): string {
+  const winners = product.winners.length === 0 ? '아직 없음' : product.winners.map((id) => api.names.name(id)).join(', ')
+  const name = product.name.trim() === '' ? '품종 미입력' : product.name
+  return `${String(product.no)}번 ${name} ${formatWon(product.price)} · ${PRODUCT_STATUS_WORD[product.status]} · 1등 ${winners} · 대기 ${String(product.waitlist.length)}`
+}
+
+/** 번호 칸 아래 상품 미리 보기 (AC-S06-11) */
+function ProductPreview({ api, no }: { readonly api: ConsoleApi; readonly no: number }) {
+  const product = api.data.products.get(productKey(api.b, no))
+  if (product === undefined) {
+    const window = api.settingsOf(api.b)?.['claim.preOpenWindowSec'] ?? 30
+    return (
+      <p className="sms-preview" role="status" aria-label="번호의 상품">
+        {no}번 상품이 아직 없어요. 넣으면 보류 찜이 되고, {window}초 안에 등록되면 판정돼요.
+      </p>
+    )
+  }
+  const note =
+    product.status === 'HOLD' || product.status === 'CLOSED' ? '지금 판매 중이 아니라 넣으면 거절돼요.' : product.status === 'READY' ? '공개 전 상품이라 넣으면 보류 찜이 돼요.' : null
+  return (
+    <div className="sms-preview" role="status" aria-label="번호의 상품">
+      <p>{productLine(api, product)}</p>
+      {note !== null ? <p className="warning">{note}</p> : null}
+    </div>
+  )
+}
+
+interface SentResult {
+  readonly seq: number
+  readonly no: number
+  readonly b: string
+  /** 칸에 쳤던 받은 시각 글자 (같은 사람 하나 더) */
+  readonly receivedText: string
+  readonly phoneLast4: string | null
+  /** 지정 구매자 */
+  readonly buyer: string | null
+}
+
+interface SmsFormProps {
+  readonly api?: ConsoleApi
+  readonly disabled?: boolean
+  readonly focusSignal: number
+}
+
+function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
+  const noId = useId()
+  const receivedId = useId()
+  const phoneId = useId()
+  const memoId = useId()
+  const [no, setNo] = useState('')
+  const [received, setReceived] = useState('')
+  const [phone, setPhone] = useState('')
+  const [memo, setMemo] = useState('')
+  const [buyer, setBuyer] = useState<string | null>(null)
+  const [tried, setTried] = useState(false)
+  const [late, setLate] = useState<{ words: string } | null>(null)
+  const [result, setResult] = useState<SentResult | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+  const noField = useRef<HTMLInputElement>(null)
+  const receivedField = useRef<HTMLInputElement>(null)
+  const sender = useSender(api?.command ?? (() => Promise.reject(new Error('방송을 고르지 않았다'))))
+
+  useEffect(() => {
+    if (!disabled) noField.current?.focus()
+  }, [focusSignal, disabled])
+
+  // "오늘·내일" 판단과 늦은 시각 비교를 위해 30초마다 지금 시각을 새로
+  useEffect(() => {
+    const handle = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(handle)
+  }, [])
+
+  const max = (api === undefined ? null : api.settingsOf(api.b)?.['claim.maxNumber']) ?? 999
+  const number = no === '' ? null : Number(no)
+  const numberProblem = number !== null && (number < 1 || number > max) ? `번호는 1~${String(max)} 사이로 적어 주세요.` : null
+  const read = readReceived(received, now)
+  const receivedProblem = read.kind === 'invalid' ? RECEIVED_INVALID : null
+  const normalized = phone.trim() === '' ? null : normalizePhone(phone)
+  const phoneProblem = buyer === null && phone.trim() !== '' && normalized === null ? PHONE_UNREADABLE : null
+  const memoProblem = memo.trim() !== '' && containsPhoneRun(memo) ? MEMO_HAS_PHONE : null
+  const chosen = buyer === null || api === undefined ? undefined : api.data.buyers.get(buyer)
+  const label = number !== null && numberProblem === null ? `${String(number)}번에 문자찜 넣기` : '문자찜 넣기'
+
+  const send = async () => {
+    if (api === undefined || number === null) return
+    const at = Date.now()
+    const current = readReceived(received, at)
+    const event = {
+      type: 'sms',
+      b: api.b,
+      no: number,
+      ...(current.kind === 'ok' ? { received: current.value } : {}),
+      ...(buyer === null && phone.trim() !== '' ? { phone: phone.trim() } : {}),
+      ...(memo.trim() === '' ? {} : { memo: memo.trim() }),
+      ...(buyer === null ? {} : { buyer }),
+    }
+    const written = await sender.send(event)
+    if (written === null) return
+    const last4 = (written as { phoneLast4?: unknown }).phoneLast4
+    setResult({
+      seq: written.seq,
+      no: number,
+      b: api.b,
+      receivedText: received,
+      phoneLast4: typeof last4 === 'string' ? last4 : normalized === null ? null : phoneLast4(normalized),
+      buyer,
+    })
+    // 보낸 뒤 칸을 모두 비우고 번호 칸으로 (전화번호 원문을 남기지 않는다, AC-S06-13·81)
+    setNo('')
+    setReceived('')
+    setPhone('')
+    setMemo('')
+    setBuyer(null)
+    setTried(false)
+    noField.current?.focus()
+  }
+
+  const submit = (event?: FormEvent) => {
+    event?.preventDefault()
+    if (disabled || api === undefined || sender.busy) return
+    setTried(true)
+    if (number === null || numberProblem !== null) {
+      noField.current?.focus()
+      return
+    }
+    if (receivedProblem !== null || phoneProblem !== null || memoProblem !== null) return
+    const current = readReceived(received, Date.now())
+    if (current.kind === 'ok' && current.late) {
+      setLate({ words: receivedWords(current) })
+      return
+    }
+    void send()
+  }
+
+  const fillSame = (who: string, receivedText: string) => {
+    setBuyer(who)
+    setPhone('')
+    setReceived(receivedText)
+    setNo('')
+    noField.current?.focus()
+  }
+
+  const serverError = sender.error
+  return (
+    <section className="sms-form card" aria-label="문자찜 넣기">
+      <form className="stack" onSubmit={submit} noValidate>
+        <div className="stack-tight">
+          <div className="field">
+            <label htmlFor={noId}>번호</label>
+            <input
+              id={noId}
+              ref={noField}
+              className="input sms-number"
+              inputMode="numeric"
+              enterKeyHint="send"
+              autoComplete="off"
+              value={no}
+              disabled={disabled}
+              aria-invalid={numberProblem !== null}
+              aria-describedby={`${noId}-error`}
+              onChange={(event) => setNo(digitsOnly(event.target.value))}
+            />
+          </div>
+          <FieldNote id={`${noId}-error`} message={numberProblem ?? (tried && number === null ? '번호를 적어 주세요.' : serverProblem(serverError, 'no'))} />
+          {api !== undefined && number !== null && numberProblem === null ? <ProductPreview api={api} no={number} /> : null}
+        </div>
+
+        <div className="stack-tight">
+          <div className="field">
+            <label htmlFor={receivedId}>받은 시각</label>
+            <input
+              id={receivedId}
+              ref={receivedField}
+              className="input"
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="20:01"
+              value={received}
+              disabled={disabled}
+              aria-invalid={receivedProblem !== null}
+              aria-describedby={`${receivedId}-help ${receivedId}-error`}
+              onChange={(event) => setReceived(event.target.value)}
+            />
+          </div>
+          <p id={`${receivedId}-help`} className="hint">
+            {read.kind === 'ok' ? `${receivedWords(read)}에 받은 문자` : RECEIVED_HELP}
+          </p>
+          <FieldNote id={`${receivedId}-error`} message={receivedProblem ?? serverProblem(serverError, 'received')} />
+        </div>
+
+        <div className="stack-tight">
+          <div className="field">
+            <label htmlFor={phoneId}>전화번호</label>
+            <input
+              id={phoneId}
+              className="input"
+              inputMode="tel"
+              autoComplete="off"
+              value={phone}
+              disabled={disabled || buyer !== null}
+              aria-invalid={phoneProblem !== null}
+              aria-describedby={`${phoneId}-help ${phoneId}-error`}
+              onChange={(event) => setPhone(event.target.value)}
+            />
+          </div>
+          <p id={`${phoneId}-help`} className="hint">
+            {buyer !== null ? '구매자를 골랐으면 전화번호는 쓰지 않아요' : normalized !== null ? `뒤 4자리 ${phoneLast4(normalized)}로 이어져요` : '선택 — 적으면 같은 번호의 문자 구매자로 이어져요'}
+          </p>
+          <FieldNote id={`${phoneId}-error`} message={phoneProblem ?? serverProblem(serverError, 'phone')} />
+        </div>
+
+        <div className="stack-tight">
+          <div className="field">
+            <label htmlFor={memoId}>메모</label>
+            <input
+              id={memoId}
+              className="input"
+              autoComplete="off"
+              placeholder="김씨"
+              value={memo}
+              disabled={disabled}
+              aria-invalid={memoProblem !== null}
+              aria-describedby={`${memoId}-error`}
+              onChange={(event) => setMemo(event.target.value)}
+            />
+          </div>
+          <FieldNote id={`${memoId}-error`} message={memoProblem ?? serverProblem(serverError, 'memo')} />
+        </div>
+
+        {api !== undefined ? (
+          <BuyerChooser
+            api={api}
+            buyer={chosen ?? null}
+            onChoose={(id) => {
+              setBuyer(id)
+              setPhone('')
+            }}
+            onClear={() => setBuyer(null)}
+            serverMessage={serverProblem(serverError, 'buyer')}
+          />
+        ) : null}
+
+        <p className="hint" aria-label="구매자 표시 이름">
+          구매자 표시: {chosen !== undefined && api !== undefined ? api.names.name(chosen.id) : memo.trim() === '' ? '문자찜' : `문자찜(${memo.trim()})`}
+        </p>
+
+        <div className="row">
+          <button type="submit" className="button button-primary sms-submit" disabled={disabled || number === null || sender.busy}>
+            {label}
+          </button>
+          {sender.busy ? <span role="status">보내는 중…</span> : null}
+        </div>
+        {/* 다시 보내기: 칸은 그대로라 같은 내용 → 같은 요청 번호 (한 번만 기록) */}
+        {serverError !== null ? <WriteError error={serverError} onRetry={() => void send()} omitFields={['no', 'received', 'phone', 'memo', 'buyer']} /> : null}
+      </form>
+      {result !== null && api !== undefined ? <ResultCard api={api} result={result} onSame={fillSame} /> : null}
+      {late !== null ? (
+        <Modal
+          title="받은 시각을 확인해 주세요"
+          closeLabel="고치기"
+          onClose={() => {
+            setLate(null)
+            setTimeout(() => receivedField.current?.focus(), 0)
+          }}
+          actions={
+            <button
+              type="button"
+              className="button button-primary"
+              onClick={() => {
+                setLate(null)
+                void send()
+              }}
+            >
+              이대로 넣기
+            </button>
+          }
+        >
+          <p>받은 시각({late.words})이 지금보다 늦어요. 이대로 넣을까요?</p>
+        </Modal>
+      ) : null}
+    </section>
+  )
+}
+
+/** 구매자 고르기 (AC-S06-13·21): 그 방송 날짜 범위의 구매자를 표시 이름·뒤 4자리·채널 ID 끝 4자리로 찾는다 */
+function BuyerChooser({
+  api,
+  buyer,
+  onChoose,
+  onClear,
+  serverMessage,
+}: {
+  readonly api: ConsoleApi
+  readonly buyer: Buyer | null
+  readonly onChoose: (id: string) => void
+  readonly onClear: () => void
+  readonly serverMessage: string | null
+}) {
+  const id = useId()
+  const [query, setQuery] = useState('')
+  const counts = useMemo(() => sameNameCounts(api.data.buyers), [api.data.buyers])
+  const hits = useMemo(() => searchBuyers(api.data.buyers, query, 8), [api.data.buyers, query])
+  if (buyer !== null) {
+    return (
+      <div className="stack-tight" role="group" aria-label="고른 구매자">
+        <p>
+          고른 구매자: <strong>{api.names.name(buyer.id)}</strong> <span className="tag">{BUYER_KIND_WORD[buyer.kind]}</span>
+          {buyer.blocked ? <span className="tag tag-alert">차단</span> : null}
+        </p>
+        {buyer.blocked ? <p className="warning">차단된 구매자라 넣으면 거절돼요.</p> : null}
+        <button type="button" className="button" onClick={onClear}>
+          고른 구매자 지우기
+        </button>
+        <FieldNote id={`${id}-error`} message={serverMessage} />
+      </div>
+    )
+  }
+  return (
+    <div className="stack-tight">
+      <div className="field">
+        <label htmlFor={id}>구매자 고르기</label>
+        <input
+          id={id}
+          className="input"
+          type="search"
+          autoComplete="off"
+          placeholder="닉네임·메모·뒤 4자리"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            // 찾는 칸의 Enter는 문자찜을 보내지 않는다
+            if (event.key === 'Enter') event.preventDefault()
+          }}
+        />
+      </div>
+      <p className="hint">선택 — 고르면 그 구매자의 찜으로 넣어요.</p>
+      {query.trim() !== '' && hits.length === 0 ? <p>찾는 구매자가 없어요.</p> : null}
+      {hits.length > 0 ? (
+        <ul className="plain-list stack-tight" aria-label="찾은 구매자">
+          {hits.map((hit) => (
+            <li key={hit.current.id}>
+              <button
+                type="button"
+                className="choice-button"
+                onClick={() => {
+                  onChoose(hit.current.id)
+                  setQuery('')
+                }}
+              >
+                <strong>{api.names.name(hit.current.id)}</strong>
+                <span className="tag">{BUYER_KIND_WORD[hit.current.kind]}</span>
+                {distinguishWords(hit.current, counts).map((word) => (
+                  <span key={word}>{word}</span>
+                ))}
+                {hit.current.kind === 'youtube' && (counts.get(hit.current.display) ?? 0) < 2 ? <span>끝 {channelTail(hit.current)}</span> : null}
+                {hit.current.blocked ? <span className="tag tag-alert">차단</span> : null}
+                {hit.matched.id !== hit.current.id ? <span>{`${api.names.name(hit.matched.id)} — ${api.names.name(hit.current.id)}에 합쳐짐`}</span> : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <FieldNote id={`${id}-error`} message={serverMessage} />
+    </div>
+  )
+}
+
+/** 그 구매자(지금의 구매자)의 그 상품 활성 찜 */
+function activeClaimOf(data: ScopeData, buyer: string, product: string): Claim | undefined {
+  const current = data.buyers.get(buyer)?.current ?? buyer
+  for (const claim of data.claims.values()) if (claim.product === product && claim.currentBuyer === current && isActive(claim)) return claim
+  return undefined
+}
+
+/** 보낸 결과 (AC-S06-14) */
+function ResultCard({ api, result, onSame }: { readonly api: ConsoleApi; readonly result: SentResult; readonly onSame: (buyer: string, received: string) => void }) {
+  const claim = useMemo(() => {
+    for (const item of api.data.claims.values()) if (item.seq === result.seq && item.origin === 'sms') return item
+    return undefined
+  }, [api.data.claims, result.seq])
+  const product = productKey(result.b, result.no)
+  let body: string
+  let who: string | null = result.buyer
+  if (claim !== undefined) {
+    const received = claim.received ?? kstTime(claim.rankTime)
+    body = `${String(claim.no)}번 · ${api.names.name(claim.currentBuyer)} · ${claimWord(api.data, claim)} · 받은 시각 ${received}`
+    who = claim.buyer
+  } else {
+    const existing = result.buyer === null ? undefined : activeClaimOf(api.data, result.buyer, product)
+    body =
+      existing !== undefined
+        ? `${String(result.no)}번 · 이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 ${claimWord(api.data, existing)})`
+        : `${String(result.no)}번 · 새 찜이 생기지 않았어요. 지금 상태를 확인해 주세요.`
+  }
+  return (
+    <section className="sms-result" aria-label="넣은 결과">
+      <p role="status">
+        <strong>{body}</strong>
+        {result.phoneLast4 !== null ? <span> · 뒤 4자리 {result.phoneLast4}</span> : null}
+      </p>
+      <div className="row">
+        {claim !== undefined && isActive(claim) ? (
+          <button type="button" className="button" onClick={() => openClaimAction(api, claim, 'host.cancel')}>
+            찜 취소하기
+          </button>
+        ) : null}
+        {who !== null ? (
+          <button type="button" className="button button-primary" onClick={() => onSame(who, result.receivedText)}>
+            같은 사람 하나 더
+          </button>
+        ) : null}
+      </div>
+    </section>
+  )
+}
+
+/** 최근 넣은 문자찜 10개 (AC-S06-15) */
+function RecentSms({ api }: { readonly api: ConsoleApi }) {
+  const recent = useMemo(() => {
+    const out: Claim[] = []
+    for (const claim of api.data.claims.values()) if (claim.origin === 'sms' && claim.broadcast === api.b) out.push(claim)
+    return out.sort((a, b) => b.seq - a.seq).slice(0, 10)
+  }, [api.data.claims, api.b])
+  return (
+    <section className="stack-tight" aria-label="최근 넣은 문자찜">
+      <h2 className="section-title">최근 넣은 문자찜</h2>
+      {recent.length === 0 ? <p>아직 넣은 문자찜이 없어요.</p> : null}
+      <ul className="plain-list stack-tight">
+        {recent.map((claim) => {
+          const product = api.data.products.get(claim.product)
+          const name = product === undefined ? '상품 없음' : product.name.trim() === '' ? '품종 미입력' : product.name
+          return (
+            <li key={claim.id} className="claim-row">
+              <p>
+                <strong>{claim.no}번</strong> {name} · {api.names.name(claim.currentBuyer)} · {claim.received ?? kstTime(claim.rankTime)} ·{' '}
+                <span className="tag">{claimWord(api.data, claim)}</span>
+                {api.waiting.claims.has(claim.id) ? <span className="tag tag-waiting">보내기 전</span> : null}
+              </p>
+              {isActive(claim) ? (
+                <button type="button" className="button button-small" onClick={() => openClaimAction(api, claim, 'host.cancel')}>
+                  찜 취소하기
+                </button>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
