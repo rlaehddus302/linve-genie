@@ -26,3 +26,34 @@
 | `packages/voice/test/boundaries.test.ts` "apps 안에 @livejjim/voice 참조가 없다" (AC-P2-15) | `apps/**` 전체에 글자로도 참조 없음 | `apps/web/src`: 값은 한 파일의 동적 `import('@livejjim/voice')`로만, 그 밖엔 `import type`·타입 위치 `import()`만(구문 트리로 검사, 검사기 자체 시험 포함). `apps/web` 밖의 앱(서버)·`packages/core/src`·`packages/label`·`packages/documents`는 전과 같이 글자로도 참조 없음 | AC-I4-04·D-I4-09: I4는 콘솔이 음성을 켤 때 불러온다. 코드가 첫 화면 조각에 들어가는 길(정적 import·`import { type X }`·re-export·경로 우회)은 모두 막는다 |
 
 - `packages/voice/package.json` devDependencies에 `typescript` 6.0.3(루트와 같은 버전)을 더했다 — 경계 시험이 구문 트리를 쓴다. `pnpm-lock.yaml`은 그 importer 줄만 바뀐다.
+
+### 측정 스크립트 (AC-I4-03, D-I4-08)
+
+- 명령 (저장소 루트에서, 상대 경로는 명령을 실행한 폴더 기준 — pnpm이 넘기는 `INIT_CWD`):
+  ```
+  pnpm --filter @livejjim/voice accuracy packages/voice/samples/accuracy-example.csv
+  pnpm --filter @livejjim/voice accuracy <표본.csv> --dictionary <이름.txt> --max-number 50 --out harness/sprints/I4/hg4-accuracy.md
+  ```
+  직접: `node packages/voice/scripts/accuracy.ts <표본.csv> …` (상대 경로는 지금 폴더 기준). 선택지는 `--이름 값`·`--이름=값` 둘 다, `--` 뒤는 표본 파일 자리.
+- 파일
+  - `packages/voice/scripts/accuracy.ts` — 명령(파일 읽기·쓰기·종료 코드). 타입 검사는 `packages/voice/tsconfig.test.json`(include에 `scripts/**/*.ts`를 더했다), 린트는 저장소 설정.
+  - `packages/voice/src/accuracy.ts` — 순수 함수. **하위 경로 `@livejjim/voice/accuracy`**로 내보낸다(package.json `exports`) — 패키지 첫 입구(`index.ts`)에 넣지 않아 화면이 음성 코드를 불러올 때 같이 오지 않는다.
+    - `parseCsv(text)` → `{ ok, value: { line, cells }[] }` (BOM·CRLF·LF·CR, 감싼 칸의 쉼표·줄바꿈·`""`, `line` = 레코드가 시작하는 줄)
+    - `parseAccuracySamples(text)` → `{ ok, value: AccuracySample[] }` 또는 `{ ok: false, message }` (쉬운 한국어 한 문장, 줄 번호)
+    - `parseDictionaryLines(text)` → 이름 목록 (BOM·CRLF, 앞뒤 공백 지움, 빈 줄 무시)
+    - `scoreSample(sample, extraction)` / `scoreSamples(samples, { maxNumber?, history? })` → `ScoredSample[]` (칸 결과 `'맞음' | '빈칸' | '틀림' | '채점 안 함'`, `filledWrong`, `confidentWrong`, `cardWorthy`)
+    - `summarizeAccuracy(scored)` → `{ samples, noCorrect, priceCorrect, bothCorrect, nameCorrect, nameScored, filledWrong, confidentWrong, cardWorthy }`
+    - `formatRatio(correct, total)` → `"17/18 (94.4%)"` (정수 반올림, 0.05는 위로), 채점 수 0이면 `"0/0 (채점한 표본 없음)"`
+    - `renderAccuracyReport(scored, summary, { sampleFile, maxNumber, historyNames })` → 마크다운, `tableCell(value)` → 표 칸 이스케이프
+    - `parseAccuracyArgs(argv)` → `{ ok, value: { samples, dictionary, maxNumber, out } }` 또는 `{ ok: false, message, usage }`
+- 정한 세부 (스펙이 정하지 않은 것 — 판단 근거는 "틀린 값보다 오류·빈칸이 안전", D-036 단순함)
+  - 표본 파일 첫 줄은 글자 그대로 비교한다(앞뒤 공백도 다름). 칸이 모두 빈 줄(`,,,,`·빈 줄)은 건너뛴다. 칸 수가 5가 아닌 줄은 오류(엑셀이 붙이는 빈 끝 칸도 오류 — 어떤 칸이 어긋났는지 몰라 채점이 틀어질 수 있다).
+  - 기대 번호: 앞뒤 공백을 지우고 숫자 1~4자리(앞 0 허용, `015` → 15) 1~9999. `15번`·전각 숫자·`일오`는 오류. 기대 가격: 숫자만(1~15자리, 앞 0 허용) 또는 올바른 천 단위 쉼표(`15,000`), 100 이상. `1,0000`·`50`·`-100`·`15000원`·`1.5만`은 오류.
+  - 기대 품종: R-3 정규화(빈 글이면 채점 안 함). 비교는 정규화 → 공백 모두 지움 → NFC.
+  - 표본 이름이 비면 보고서에 "N번째 줄".
+  - 파일은 UTF-8이어야 한다(엄격 해독). 엑셀 기본 CSV(CP949)는 "UTF-8이 아니에요" 오류 — 깨진 글자로 조용히 채점하지 않게.
+  - `--out`이 표본·이름 파일과 같은 파일이면 오류(장치·아이노드로 비교 — `/tmp`↔`/private/tmp` 같은 다른 이름도). 보고서 파일을 먼저 쓰고 성공해야 표준 출력에 쓴다 — 실패하면 표준 출력도 비어 있다.
+  - 오류 문장·사용법은 표준 오류, 보고서는 표준 출력. 오류 문장에 보이는 사용자 값은 한 줄로 바꾸고 20글자로 줄인다.
+  - 보고서 표 칸: 제어 글자·줄바꿈 → 공백, `&`·`<`·`>` → 문자 참조, `\`·`|`·`` ` `` → 백슬래시 이스케이프. 머리에는 표본 파일 **이름만**(경로 아님) 보인다.
+  - 보고서 구성: 머리(표본 파일·사전 크기·최대 번호) → `## 요약`(`- 이름: 값` 줄 8개) → `## 살펴볼 표본`(틀린 값을 채움·확실한데 틀림인 표본과 문장 — HG-4에서 spec-keeper에게 넘길 것) → `## 표본별 결과`(표) → `## 읽는 법`.
+- 예시 표본 `packages/voice/samples/accuracy-example.csv` (20행, 이름 `예시-01`…`예시-20`, 만든 문장): 요약 = 표본 20 · 번호 맞음 17/20 (85.0%) · 가격 맞음 14/20 (70.0%) · 둘 다 13/20 (65.0%) · 품종 17/18 (94.4%) · 틀린 값을 채움 3 (예시-15·16·18) · 확실한데 틀림 3 (예시-15·16·19) · 카드 16 (예시-05·06·08·12 빼고). 표본별 손 계산은 `packages/voice/test/accuracy.test.ts` 주석. 예시-15·16은 인식이 말을 놓치거나 잘못 들은 경우(실제 인식에서 나올 법한 "확실한데 틀림")를 보이려고 만든 행이다.
