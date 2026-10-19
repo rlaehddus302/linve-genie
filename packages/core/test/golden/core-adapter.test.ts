@@ -176,31 +176,29 @@ describe('invariants 훅 — 매 이벤트 뒤 checkInvariants, 위반은 불일
     expect(report.items[0]?.status).toBe('pass')
   })
 
-  it('S03 이벤트는 어댑터를 거쳐 엔진의 미구현으로 멈춘다', () => {
+  it('처음 쓰는 스프린트가 따로 있는 이벤트는 어댑터를 거쳐 엔진의 미구현으로 멈춘다', () => {
     const state = play([])
-    expect(() => realCore.engine.apply(state, golden({ type: 'sms', b: 'b1', ref: 's1', no: 15, received: '20:00' }))).toThrow(NotImplementedError)
+    expect(() => realCore.engine.apply(state, golden({ type: 'broadcast.start' }))).toThrow(NotImplementedError)
   })
 })
 
-describe('실제 tests/golden 전체를 실제 코어로 (AC-S02-90과 같은 합계)', () => {
-  it('통과 427 · 미구현(허용) 20 · 나머지 0, S03 시나리오는 모두 중간 검사 전에 미구현으로 멈춘다', () => {
+describe('실제 tests/golden 전체를 실제 코어로 (AC-S03-90 합계)', () => {
+  it('파일 16 · 파서 379 · 엔진 95 · 통과 474, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
-      files: 12,
+      files: 16,
       parserCases: 379,
-      scenarios: 68,
-      pass: 427,
+      scenarios: 95,
+      pass: 474,
       mismatch: 0,
-      notImplementedAllowed: 20,
+      notImplementedAllowed: 0,
       notImplementedDisallowed: 0,
       readError: 0,
       determinism: 0,
       runnerError: 0,
     })
     expect(report.ok).toBe(true)
-    for (const item of report.items) {
-      if (item.kind === 'scenario' && item.status === 'not-implemented') expect(item.problems[0]?.message, item.id).toContain('S03')
-    }
+    expect(report.warnings).toEqual([])
   })
 })

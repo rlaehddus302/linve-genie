@@ -1,10 +1,15 @@
 // 실제 코어(@livejjim/core)를 골든 러너의 GoldenCore 모양으로 감싼다.
 // - 파서(S01)는 코어 결과를 바꾸지 않고 그대로 넘긴다(AC-S01-04).
-// - 엔진(S02, AC-S02-91)은 이름·모양만 바꾼다. 판정·합계·정산·효과 상태는 다시 계산하지 않고 조회 함수 결과를 그대로 옮긴다.
-// - 효과 보고 이벤트의 (상품, 구매자[, 대상]) → 효과 ID 연결은 README 규칙("가장 최근에 나온, 취소되지 않은 해당 효과")대로 조회 함수로 찾는다.
+// - 엔진(S02·S03, AC-S02-91·AC-S03-91)은 이름·모양만 바꾼다. 판정·합계·정산·효과 상태는 다시 계산하지 않고 조회 함수 결과를 그대로 옮긴다.
+// - 이벤트의 구매자 키(buyer·replace·from·into)는 그 키의 구매자 자신의 ID로 바꿔 넘긴다(`sms:<ref>` → 그 문자찜이 정한 구매자, README "이벤트 안의 구매자 키").
+// - 관찰 스냅샷의 구매자는 지금의 구매자다. buyerKeys = 키 → 지금의 구매자.
+// - 효과 보고 이벤트의 (상품, 구매자[, 대상]) → 효과 ID 연결은 README 규칙("가장 최근에 나온, 취소되지 않은 해당 효과",
+//   상품 키는 효과가 나온 때의 것, 구매자는 지금의 구매자로 비교)대로 조회 함수로 찾는다.
 import {
   applyEvent,
+  buyerOfRef,
   checkInvariants,
+  currentBuyerOf,
   initEngine,
   listBuyers,
   listCancelRequests,
@@ -13,6 +18,7 @@ import {
   listPending,
   listProducts,
   listSettlements,
+  listSmsRefs,
   parseAmount,
   parseChat,
   parseKoreanNumber,
@@ -20,25 +26,45 @@ import {
   type EngineEvent,
   type EngineState,
 } from '@livejjim/core'
+import { SMS_PREFIX } from './contract.ts'
 import type { BuyerView, ClaimView, EffectView, GoldenCore, GoldenEvent, GoldenSnapshot, ProductView, SettlementView } from './types.ts'
+
+/** 이벤트 안의 구매자 키 필드 (README "이벤트 안의 구매자 키") */
+const BUYER_KEY_FIELDS = ['buyer', 'replace', 'from', 'into'] as const
+
+/**
+ * 구매자 키 → 그 키의 구매자 자신의 ID. 유튜브 채널 ID는 그대로, `sms:<ref>`는 그 문자찜이 정한 구매자.
+ * 아무 일도 없었던 문자찜(모르는 지정 구매자)의 키는 풀리지 않으므로 키 그대로 넘긴다 — 엔진에는 모르는 구매자다
+ * (문자 구매자 ID는 `sms:<그 구매자를 만든 ref>`라서, 구매자를 만들지 않은 ref의 키와 겹치지 않는다).
+ */
+export function buyerIdOf(state: EngineState, key: string): string {
+  if (!key.startsWith(SMS_PREFIX)) return key
+  return buyerOfRef(state, key.slice(SMS_PREFIX.length)) ?? key
+}
 
 /** 효과 보고 이벤트가 가리키는 효과 ID (없으면 undefined — 러너가 먼저 러너 오류로 잡는다) */
 export function reportTarget(state: EngineState, event: GoldenEvent): string | undefined {
   const kind = event.type === 'effect.labelPrinted' ? 'PRINT_PRODUCT_LABEL' : 'POST_THANKS'
   const target = event.type === 'effect.thanksSent' ? (typeof event.target === 'string' ? event.target : 'LIVE_CHAT') : null
   const product = `${String(event.b)}/${String(event.no)}`
+  const buyer = currentBuyerOf(state, buyerIdOf(state, String(event.buyer)))
   return listEffects(state).findLast(
-    (effect) =>
-      effect.kind === kind && effect.product === product && effect.buyer === event.buyer && effect.target === target && effect.status !== 'CANCELLED',
+    (effect) => effect.kind === kind && effect.product === product && effect.currentBuyer === buyer && effect.target === target && effect.status !== 'CANCELLED',
   )?.id
 }
 
-/** 골든 이벤트 → 엔진 이벤트. 필드 이름은 README와 같으므로 효과 보고만 효과 ID로 바꾼다 */
+/** 골든 이벤트 → 엔진 이벤트. 필드 이름은 README와 같으므로 구매자 키만 구매자 자신의 ID로, 효과 보고만 효과 ID로 바꾼다 */
 export function toEngineEvent(state: EngineState, event: GoldenEvent): EngineEvent {
-  if (event.type !== 'effect.labelPrinted' && event.type !== 'effect.thanksSent') return event as unknown as EngineEvent
-  const effectId = reportTarget(state, event)
-  if (effectId === undefined) throw new Error(`효과 보고 대상이 없다: ${event.type} ${String(event.b)}/${String(event.no)} ${String(event.buyer)}`)
-  return { seq: event.seq, at: event.at, type: event.type, effectId }
+  if (event.type === 'effect.labelPrinted' || event.type === 'effect.thanksSent') {
+    const effectId = reportTarget(state, event)
+    if (effectId === undefined) throw new Error(`효과 보고 대상이 없다: ${event.type} ${String(event.b)}/${String(event.no)} ${String(event.buyer)}`)
+    return { seq: event.seq, at: event.at, type: event.type, effectId }
+  }
+  const keyed = BUYER_KEY_FIELDS.filter((field) => typeof event[field] === 'string' && (event[field] as string).startsWith(SMS_PREFIX))
+  if (keyed.length === 0) return event as unknown as EngineEvent
+  const mapped: Record<string, unknown> = { ...event }
+  for (const field of keyed) mapped[field] = buyerIdOf(state, event[field] as string)
+  return mapped as unknown as EngineEvent
 }
 
 /** 엔진 상태 → 골든 관찰 스냅샷 (이름·모양만 바꾼다) */
@@ -52,7 +78,7 @@ export function toSnapshot(state: EngineState): GoldenSnapshot {
       waitlist: product.waitlist,
       conflict: product.conflict,
       price: product.price,
-      priceHistory: product.priceHistory,
+      priceHistory: product.priceHistory.map(({ from, to }) => ({ from, to })),
     }
   }
   const buyerViews: Record<string, BuyerView> = {}
@@ -69,26 +95,29 @@ export function toSnapshot(state: EngineState): GoldenSnapshot {
       status: effect.status,
       ...(effect.target === null ? {} : { target: effect.target }),
       product: effect.product,
-      buyer: effect.buyer,
+      buyer: effect.currentBuyer,
       ...(effect.text === null ? {} : { text: effect.text }),
       confirmVersion: effect.confirmVersion,
     }),
   )
   const claims = listClaims(state).map(
-    (claim): ClaimView => ({ product: claim.product, buyer: claim.buyer, status: claim.status, ...(claim.reason === null ? {} : { reason: claim.reason }) }),
+    (claim): ClaimView => ({ product: claim.product, buyer: claim.currentBuyer, status: claim.status, ...(claim.reason === null ? {} : { reason: claim.reason }) }),
   )
   const pending: Record<string, readonly string[]> = {}
   for (const entry of listPending(state)) pending[entry.product] = entry.buyers
+  // 구매자 키 → 지금의 구매자: 유튜브 채널 ID와 받은 문자찜의 `sms:<ref>`
+  const buyerKeys: Record<string, string> = {}
+  for (const buyer of buyers) if (buyer.kind === 'youtube') buyerKeys[buyer.id] = buyer.current
+  for (const ref of listSmsRefs(state)) buyerKeys[`${SMS_PREFIX}${ref.ref}`] = ref.currentBuyer
   return {
-    // S02: 구매자 키 = 유튜브 채널 ID = 구매자 ID (합치기·문자찜 연결은 S03)
-    buyerKeys: Object.fromEntries(buyers.map((buyer) => [buyer.id, buyer.id])),
+    buyerKeys,
     products,
     buyers: buyerViews,
     settlements,
     effects,
     claims,
     pending,
-    cancelRequests: listCancelRequests(state).map((request) => ({ product: request.product, buyer: request.buyer })),
+    cancelRequests: listCancelRequests(state).map((request) => ({ product: request.product, buyer: request.currentBuyer })),
   }
 }
 
