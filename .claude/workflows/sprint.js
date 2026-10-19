@@ -29,6 +29,7 @@ if (!DEVS.length) throw new Error('args.devs가 필요합니다 (core/device/ser
 const MAX_FIX = typeof A.maxFixRounds === 'number' ? A.maxFixRounds : 2
 const USE_TYPES = A.useAgentTypes === true
 const UX = A.uxReview === true
+const RISK = A.riskAudit !== false // 보안 표면이 없는 스프린트는 false로 끈다
 const DIR = `harness/sprints/${S}`
 const TEST_PREFIX = { domain: 'TD-', e2e: 'TE-' }
 
@@ -171,6 +172,7 @@ function head(name) {
   return [
     `[역할] ${name} — 규칙: .claude/agents/${name}.md (시스템 프롬프트로 이미 받았다면 다시 읽지 않아도 된다).`,
     `[스프린트] ${S} — 정의: harness/backlog.yaml 의 ${S} 항목. 작업 폴더: ${DIR}/. 이번 스프린트 개발 영역: ${DEVS.join(', ')} / 테스트: ${TESTS.join(', ') || '없음'}`,
+    `[속도] 작업 중에는 필요한 검사만 돌린다(pnpm typecheck · pnpm lint · pnpm test · 바뀐 패키지의 vitest · 해당 골든/적대/E2E 파일). 약 8분 걸리는 전체 pnpm verify는 일을 끝낼 때 한 번만 돌린다(감사자의 게이트는 예외).`,
     `[진행 방식] 사용자는 자율 진행을 원한다. 질문하지 말고 스펙과 판매자 안전을 기준으로 스스로 판단해 끝까지 진행한다.`,
   ].join('\n')
 }
@@ -283,7 +285,7 @@ phase('Test')
 const closed = new Set()
 const decisions = (spec.decisions || []).slice()
 const escalated = []
-let r = await review(0, [], { tests: TESTS, ux: UX, risk: true })
+let r = await review(0, [], { tests: TESTS, ux: UX, risk: RISK })
 let open = mergeOpen([], r, closed)
 log(`1차 검증: blocker/major ${open.serious.length}건, minor/nit ${open.minor.length}건`)
 
