@@ -8,6 +8,7 @@ import {
   listSettlements,
   type EngineState,
 } from '@livejjim/core'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { runGoldenDir } from './fs-runner.ts'
@@ -127,6 +128,76 @@ describe('효과 보고 → 효과 ID (README: 가장 최근에 나온, 취소�
   })
 })
 
+describe('S03 어댑터 (AC-S03-91): 이벤트 키 → 구매자 자신, 관찰 → 지금의 구매자', () => {
+  // X(sms:s1)·같은 번호 s2 → X. H 채팅. X → H 합침. 51 → 50 번호 변경. 정산 기록만 있는 구매자 P
+  const state = play([
+    { type: 'product.register', b: 'b1', no: 15, name: '핑크프릴', price: 10000 },
+    { type: 'product.register', b: 'b1', no: 51, name: '라울', price: 5000 },
+    { type: 'sms', b: 'b1', ref: 's1', no: 15, received: '20:00', phone: '010-1234-5678', memo: '이모' },
+    { type: 'sms', b: 'b1', ref: 's2', no: 51, received: '20:00', phone: '01012345678' },
+    { type: 'chat', b: 'b1', id: 'm1', ch: 'UC_H', nick: '홍길동', text: '안녕' },
+    { type: 'chat', b: 'b1', id: 'm2', ch: 'UC_P', nick: '박', text: '16' },
+    { type: 'settlement.payment', buyer: 'UC_P', date: '2026-10-18', amount: 3000 },
+    { type: 'buyer.merge', from: 'sms:s1', into: 'UC_H', reason: '같은 사람' },
+    { type: 'product.renumber', b: 'b1', from: 51, to: 50 },
+    { type: 'sms', b: 'b1', ref: 's3', no: 15, received: '20:00', buyer: 'UC_Z' },
+  ])
+  const snapshot = toSnapshot(state)
+
+  it('형식 검사를 통과한다', () => {
+    expect(snapshotIssues(snapshot)).toEqual([])
+  })
+
+  it('이벤트의 구매자 키(buyer·replace·from·into)를 그 키의 구매자 자신으로 바꾼다. 유튜브 키·풀리지 않는 키는 그대로', () => {
+    expect(toEngineEvent(state, golden({ type: 'host.cancel', b: 'b1', no: 15, buyer: 'sms:s2', reason: 'r' }))).toMatchObject({ buyer: 'sms:s1' })
+    expect(toEngineEvent(state, golden({ type: 'host.assign', b: 'b1', no: 15, buyer: 'UC_H', reason: 'r', replace: 'sms:s2', replaceTo: 'WAITLIST' }))).toMatchObject({ buyer: 'UC_H', replace: 'sms:s1' })
+    expect(toEngineEvent(state, golden({ type: 'buyer.merge', from: 'sms:s2', into: 'UC_P', reason: 'r' }))).toMatchObject({ from: 'sms:s1', into: 'UC_P' })
+    expect(toEngineEvent(state, golden({ type: 'settlement.payment', buyer: 'sms:s2', date: '2026-10-18', amount: 1 }))).toMatchObject({ buyer: 'sms:s1' })
+    // 아무 일도 없었던 문자찜(모르는 지정 구매자)의 키는 풀리지 않는다 → 엔진에는 모르는 구매자
+    expect(toEngineEvent(state, golden({ type: 'host.blockBuyer', buyer: 'sms:s3', reason: 'r' }))).toMatchObject({ buyer: 'sms:s3' })
+    const chat = golden({ type: 'chat', b: 'b1', id: 'm9', ch: 'UC_A', nick: 'a', text: '1' })
+    expect(toEngineEvent(state, chat)).toBe(chat)
+  })
+
+  it('buyerKeys = 유튜브 채널·받은 문자찜 ref → 지금의 구매자', () => {
+    expect(snapshot.buyerKeys).toEqual({ UC_H: 'UC_H', UC_P: 'UC_P', 'sms:s1': 'UC_H', 'sms:s2': 'UC_H' })
+  })
+
+  it('상품의 1등·찜·효과의 구매자는 지금의 구매자, 찜의 상품 키는 지금의 키, 효과의 상품 키는 나온 때의 키', () => {
+    expect(snapshot.products['b1/15']?.winners).toEqual(['UC_H'])
+    expect(snapshot.products['b1/50']).toMatchObject({ winners: [], status: 'OPEN' })
+    expect(snapshot.claims).toEqual([
+      { product: 'b1/15', buyer: 'UC_H', status: 'CONFIRMED' },
+      { product: 'b1/50', buyer: 'UC_H', status: 'REJECTED', reason: 'RENUMBERED' },
+      { product: 'b1/16', buyer: 'UC_P', status: 'PENDING', reason: 'UNOPENED' },
+    ])
+    expect(snapshot.pending).toEqual({ 'b1/16': ['UC_P'] })
+    expect(snapshot.effects.filter((e) => e.kind === 'POST_THANKS').map((e) => [e.product, e.buyer, e.status, e.text])).toEqual([
+      ['b1/15', 'UC_H', 'PENDING', '15번 핑크프릴 10,000원 문자찜님 구매 감사합니다'],
+      ['b1/51', 'UC_H', 'CANCELLED', '51번 라울 5,000원 문자찜님 구매 감사합니다'],
+    ])
+  })
+
+  it('구매자·정산은 지금의 구매자 기준이고, 품목 없이 받은 금액만 있는 묶음도 엔진 조회 결과대로 옮긴다', () => {
+    expect(snapshot.buyers.UC_H).toMatchObject({ items: ['b1/15'], subtotal: 10000, display: '홍길동' })
+    expect(snapshot.buyers['sms:s1']).toMatchObject({ display: '문자찜(이모)', items: ['b1/15'] })
+    expect(snapshot.settlements).toEqual({
+      'UC_H@2026-10-18': { subtotal: 10000, shipping: 4000, adjustments: 0, total: 14000, refundDue: 0, payment: 'UNPAID' },
+      'UC_P@2026-10-18': { subtotal: 0, shipping: 0, adjustments: 0, total: 0, refundDue: 3000, payment: 'OVERPAID' },
+    })
+    expect(snapshot.settlements['UC_P@2026-10-18']?.refundDue).toBe(listSettlements(state).find((s) => s.buyer === 'UC_P')?.refundDue)
+  })
+
+  it('효과 보고: 상품 키는 효과가 나온 때의 것, 구매자는 지금의 구매자로 비교해 찾는다 (합쳐진 키·다른 ref로도)', () => {
+    expect(reportTarget(state, golden({ type: 'effect.labelPrinted', b: 'b1', no: 15, buyer: 'UC_H' }))).toBe('c1:PRINT_PRODUCT_LABEL:-:1')
+    expect(reportTarget(state, golden({ type: 'effect.thanksSent', b: 'b1', no: 15, buyer: 'sms:s2' }))).toBe('c1:POST_THANKS:LIVE_CHAT:1')
+    // 51번 효과는 취소됐다(번호 변경) → 취소되지 않은 효과가 없다. 새 번호 50으로는 효과가 나온 적이 없다
+    expect(reportTarget(state, golden({ type: 'effect.labelPrinted', b: 'b1', no: 51, buyer: 'sms:s1' }))).toBeUndefined()
+    expect(reportTarget(state, golden({ type: 'effect.labelPrinted', b: 'b1', no: 50, buyer: 'sms:s1' }))).toBeUndefined()
+    expect(reportTarget(state, golden({ type: 'effect.labelPrinted', b: 'b1', no: 15, buyer: 'sms:s3' }))).toBeUndefined()
+  })
+})
+
 describe('invariants 훅 — 매 이벤트 뒤 checkInvariants, 위반은 불일치', () => {
   it('실제 엔진 상태에서는 위반이 없다', () => {
     const state = play([
@@ -179,6 +250,43 @@ describe('invariants 훅 — 매 이벤트 뒤 checkInvariants, 위반은 불일
   it('처음 쓰는 스프린트가 따로 있는 이벤트는 어댑터를 거쳐 엔진의 미구현으로 멈춘다', () => {
     const state = play([])
     expect(() => realCore.engine.apply(state, golden({ type: 'broadcast.start' }))).toThrow(NotImplementedError)
+  })
+})
+
+describe('S03 골든: 러너는 틀린 기대값·틀린 코어에서 실제로 실패한다', () => {
+  const goldenDir = fileURLToPath(new URL('../../../../tests/golden/engine', import.meta.url))
+  const read = (name: string): string => readFileSync(`${goldenDir}/${name}`, 'utf8')
+
+  it('기대값을 1원 틀리게 바꾸면 그 시나리오만 불일치', () => {
+    const text = read('13-merge-settlement.yaml').replace('UC_H: { items: [b1/15], subtotal: 10000, display: 홍길동 }', 'UC_H: { items: [b1/15], subtotal: 10001, display: 홍길동 }')
+    const report = run([{ path: 'engine/13.yaml', text }], { core: realCore })
+    expect(report.items.filter((item) => item.status === 'mismatch').map((item) => (item.kind === 'scenario' ? item.id : ''))).toEqual(['G-ENG-140'])
+    expect(report.items.find((item) => item.status === 'mismatch')?.problems[0]).toMatchObject({ path: 'buyers.UC_H.subtotal', expected: 10001, actual: 10000 })
+  })
+
+  it('전화번호로 잇지 않는 코어(문자찜마다 새 구매자)는 문자찜 골든에서 불일치', () => {
+    const noLink: GoldenCore = {
+      ...realCore,
+      engine: { ...realCore.engine, apply: (state, event) => realCore.engine.apply(state, event.type === 'sms' ? { ...event, phone: undefined } : event) },
+    }
+    const report = run([{ path: 'engine/10.yaml', text: read('10-sms.yaml') }], { core: noLink })
+    expect(report.items.filter((item) => item.status === 'mismatch').map((item) => (item.kind === 'scenario' ? item.id : ''))).toEqual(['G-ENG-100', 'G-ENG-102'])
+  })
+
+  it('관찰 구매자를 지금의 구매자로 풀지 않는 어댑터는 합치기 골든에서 불일치', () => {
+    const selfOnly: GoldenCore = {
+      ...realCore,
+      engine: {
+        ...realCore.engine,
+        observe: (state) => {
+          const snapshot = toSnapshot(state as EngineState)
+          const keys = Object.fromEntries(Object.keys(snapshot.buyerKeys).map((key) => [key, key.startsWith('sms:') ? (listBuyers(state as EngineState).find((b) => b.id === key)?.id ?? snapshot.buyerKeys[key]) : key]))
+          return { ...snapshot, buyerKeys: keys as Record<string, string> }
+        },
+      },
+    }
+    const report = run([{ path: 'engine/13.yaml', text: read('13-merge-settlement.yaml') }], { core: selfOnly })
+    expect(report.items.some((item) => item.status === 'mismatch')).toBe(true)
   })
 })
 
