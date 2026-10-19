@@ -1,5 +1,6 @@
 // 구글 연결 (AC-Y1-01~06·31, D-Y02·D-Y12).
 // - 연결: 읽기 권한(youtube.readonly)만. 게시 권한(youtube.force-ssl)은 자동 게시에 동의할 때 더 받는다(include_granted_scopes).
+//   다시 연결(같은 채널)은 게시 권한을 받았거나 동의를 켠 적이 있으면 게시 권한도 함께 요청하고, 받지 못하면 동의를 끈다.
 // - 승인 요청: PKCE(S256, 검증 값 86자)와 state(무작위 32바이트) — state는 로그인 세션에 묶여 해시로만 서버에 두고 10분·한 번만 쓴다.
 //   검증 값은 마스터 키로 암호화해 둔다. 둘 다 응답의 승인 주소 밖 어디에도(로그·이벤트 기록) 남지 않는다.
 // - 토큰: 새로 고침·접근 토큰은 마스터 키로 암호화해 저장한다. 접근 토큰은 만료 60초 전에 새로 고치고 같은 판매자의 새로 고침은 동시에 하나만 한다.
@@ -180,8 +181,12 @@ export class YoutubeConnections {
       createdAt: new Date(now),
       expiresAt: new Date(now + STATE_TTL_MS),
     })
-    const scopes = purpose === 'publish' ? [PUBLISH_SCOPE] : [READ_SCOPE]
-    return google.authorizeUrl({ scopes, state, challenge, incremental: purpose === 'publish' })
+    // 다시 연결(같은 채널): 게시 권한을 받았거나 동의를 켠 적이 있으면 게시 권한도 함께 다시 받는다 — 권한을 거둔 뒤 다시 연결해도
+    // "동의는 켜졌는데 게시 권한이 없는" 상태가 되지 않게 (AC-Y1-04·05·31, D-Y12). 처음 연결은 읽기 권한 하나만 (AC-Y1-01)
+    const existing = purpose === 'connect' ? await this.row(session.sellerId) : null
+    const keepPublish = existing !== null && (existing.canPublish || existing.consentLiveChatAt !== null || existing.consentVideoCommentAt !== null)
+    const scopes = purpose === 'publish' ? [PUBLISH_SCOPE] : keepPublish ? [READ_SCOPE, PUBLISH_SCOPE] : [READ_SCOPE]
+    return google.authorizeUrl({ scopes, state, challenge, incremental: purpose === 'publish' || keepPublish })
   }
 
   // ── 돌아오기 (AC-Y1-02) ──────────────────────────────────────────────
@@ -238,6 +243,16 @@ export class YoutubeConnections {
     // 게시 권한을 받으러 온 것이고 받았으면 그 대상의 동의를 켠다 (AC-Y1-31)
     if (row.purpose === 'publish' && tokens.scopes.includes(PUBLISH_SCOPE) && (row.target === 'LIVE_CHAT' || row.target === 'VIDEO_COMMENT')) {
       await this.#setConsentRow(session.sellerId, row.target, true, row.accountId, now)
+    }
+    // 다시 연결에서 게시 권한을 받지 못했으면(구글 화면에서 뺌 등) 켜져 있던 동의를 끈다 — 켜진 동의는 늘 게시 권한과 함께다.
+    // 그 대상의 기다리던 행은 보내지 못함(NO_CONSENT), 상태 알림으로 화면에 알린다
+    const saved = await this.row(session.sellerId)
+    if (saved !== null && !saved.canPublish) {
+      for (const target of CONSENT_TARGETS) {
+        if (YoutubeConnections.consentAt(saved, target) === null) continue
+        await this.#setConsentRow(session.sellerId, target, false, null, now)
+        await this.#options.onConsentOff(session.sellerId, [target])
+      }
     }
     await this.#changed(session.sellerId)
     return 'connected'

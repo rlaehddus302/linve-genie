@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
 import { generateMasterKey } from '../src/secrets.ts'
 import { PUBLISH_SCOPE, READ_SCOPE } from '../src/youtube/google.ts'
-import { addSeller, client, login } from './support.ts'
+import { addSeller, client, expectOk, login, writeEvent } from './support.ts'
 import { API_ORIGIN, approve, callback, connectSeller, dumpText, linkedBroadcast, sibling, until, youtubeWorld, type YoutubeWorld } from './youtube-support.ts'
 
 const worlds: YoutubeWorld[] = []
@@ -283,5 +283,50 @@ describe('AC-Y1-05·06 상태 조회·끊기', () => {
     const view = (await api.get(`/api/broadcasts/${b.id}/youtube`)).body.collector
     expect(view).toMatchObject({ status: 'STOPPED', reason: 'NOT_MY_CHANNEL', statusMessage: '내 채널의 방송이 아니에요.' })
     expect(PUBLISH_SCOPE).toContain('force-ssl')
+  })
+})
+
+describe('AC-Y1-04·05·31 다시 연결 뒤 게시 권한과 동의', () => {
+  it('동의를 켠 판매자가 "다시 연결 필요" 뒤 같은 채널로 다시 연결하면 게시 권한도 함께 요청한다(include_granted_scopes) — 받으면 동의 그대로, 빼면 동의를 끈다(NO_CONSENT)', async () => {
+    const w = await world()
+    const connected = await connectSeller(w, { publish: 'LIVE_CHAT' })
+    const api = client(w, connected.seller.cookie)
+    const reconnectNeeded = async () => {
+      w.fake.revokeAll()
+      w.fake.expireAccessTokens()
+      await api.get('/api/youtube/live-broadcasts')
+      expect(((await api.get('/api/youtube/connection')).body.connection as { status: string }).status).toBe('RECONNECT_NEEDED')
+    }
+    await reconnectNeeded()
+    // 다시 연결 — 게시 권한까지 요청하고, 받으면 동의가 켜진 그대로 게시 권한도 있다
+    w.fake.approval = { account: connected.account, channel: connected.channel.id }
+    const started = await api.post('/api/youtube/connection/start', {})
+    const url = new URL(started.body.authorizeUrl as string)
+    expect(url.searchParams.get('scope')?.split(' ').sort()).toEqual([READ_SCOPE, PUBLISH_SCOPE].sort())
+    expect(url.searchParams.get('include_granted_scopes')).toBe('true')
+    expect(await callback(w, connected.seller.cookie, await approve(started.body.authorizeUrl as string))).toBe('connected')
+    expect((await api.get('/api/youtube/connection')).body.connection).toMatchObject({ status: 'CONNECTED', permissions: { publish: true }, consent: { liveChat: { enabled: true } } })
+    // 기다리는 감사가 있는 채로 다시 "다시 연결 필요" → 이번엔 구글 화면에서 게시 권한을 빼고 승인한다
+    const { b } = await linkedBroadcast(w, connected, { settings: { 'print.autoOnConfirm': false, 'thanks.batchWindowSec': 60 } })
+    await expectOk(writeEvent(w, connected.seller, { type: 'product.register', b: b.id, no: 15, name: '핑크프릴', price: 10000 }))
+    expect((await w.server.ingestChat(connected.seller.sellerId, { b: b.id, id: 'c1', ch: 'UCa', nick: '가', text: '15', publishedAt: w.timer.now() })).status).toBe('recorded')
+    await w.server.youtube?.outbox.runOnce()
+    await reconnectNeeded()
+    w.fake.approval = { account: connected.account, channel: connected.channel.id, grant: [READ_SCOPE] }
+    const again = await api.post('/api/youtube/connection/start', {})
+    expect(await callback(w, connected.seller.cookie, await approve(again.body.authorizeUrl as string))).toBe('connected')
+    // 켜진 동의는 늘 게시 권한과 함께다 — 권한이 없으면 동의가 꺼지고 기다리던 행은 보내지 못함
+    expect((await api.get('/api/youtube/connection')).body.connection).toMatchObject({ status: 'CONNECTED', permissions: { publish: false }, consent: { liveChat: { enabled: false, at: null } } })
+    const rows = (await api.get(`/api/days/${b.date}/outbox`)).body.rows as { state: string; reason: string }[]
+    expect(rows.map((row) => [row.state, row.reason])).toEqual([['FAILED', 'NO_CONSENT']])
+  })
+
+  it('동의도 게시 권한도 없던 연결의 다시 연결은 읽기 권한 하나만 요청한다 (AC-Y1-01)', async () => {
+    const w = await world()
+    const connected = await connectSeller(w)
+    const started = await client(w, connected.seller.cookie).post('/api/youtube/connection/start', {})
+    const url = new URL(started.body.authorizeUrl as string)
+    expect(url.searchParams.get('scope')).toBe(READ_SCOPE)
+    expect(url.searchParams.get('include_granted_scopes')).toBeNull()
   })
 })
