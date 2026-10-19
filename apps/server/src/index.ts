@@ -122,7 +122,7 @@ export {
   type SummaryLine,
 } from './youtube/texts.ts'
 export { DEFAULT_COSTS, GOOGLE_ENDPOINTS, GoogleClient, GoogleError, JsonObjectSplitter, POST_TIMEOUT_MS, PUBLISH_SCOPE, READ_SCOPE, REQUEST_TIMEOUT_MS, type ApiMethod, type GoogleEndpoints, type TokenSet } from './youtube/google.ts'
-export { DEFAULT_QUOTA, QUOTA_EXCEEDED_MARK, QuotaMeter, modeOf, type QuotaMode, type QuotaSettings, type QuotaView } from './youtube/quota.ts'
+export { DEFAULT_QUOTA, QUOTA_EXCEEDED_MARK, QUOTA_SWEEP_MS, QuotaMeter, modeOf, type QuotaMode, type QuotaSettings, type QuotaView } from './youtube/quota.ts'
 export {
   CALLBACK_MESSAGES,
   CONSENT_TARGETS,
@@ -142,8 +142,12 @@ export {
   COLLECTOR_REASON_MESSAGES,
   COLLECTOR_STATUS_MESSAGES,
   CollectorManager,
+  FAILURE_BACKOFF_MS,
   GAP_MESSAGE,
+  MIN_CALL_GAP_MS,
   NOTICE_MESSAGES,
+  STREAM_REOPEN_MS,
+  UPCOMING_CHECK_MS,
   collectorView,
   noticeView,
   type CollectorHooks,
@@ -158,6 +162,7 @@ export {
   CONFIRM_SLACK_MS,
   CONFIRM_WINDOW_MS,
   LIVE_CHAT_DEADLINE_MS,
+  MAX_CONFIRM_TRIES,
   MAX_RETRIES,
   OUTBOX_REASON_MESSAGES,
   OUTBOX_STATE_MESSAGES,
@@ -174,7 +179,7 @@ export {
   type OutboxTarget,
 } from './youtube/outbox.ts'
 export { LEDGER_FORMAT, SEAL_AFTER_DAYS, SEAL_EVERY_MS, SEALED_CHAT_MESSAGE, Sealer, buildLedger, sealAtOf, sealedView, type Ledger } from './youtube/seal.ts'
-export { LINK_MESSAGES, YoutubeSystem, checkYoutubeConfig, type LinkCode, type LinkView, type LiveBroadcastItem, type YoutubeConfig } from './youtube/system.ts'
+export { LINK_MESSAGES, YoutubeSystem, checkYoutubeConfig, type LinkCode, type LinkHooks, type LinkView, type LiveBroadcastItem, type YoutubeConfig } from './youtube/system.ts'
 export { CALLBACK_PATH } from './youtube/routes.ts'
 export { BlockedRequestError, GOOGLE_HOST_RE, blockedRequests, installGoogleBlock } from './youtube/network-guard.ts'
 export { SEALED_MESSAGE, splitChatRaw, type ChatSource } from './writer.ts'
