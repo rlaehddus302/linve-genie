@@ -9,6 +9,8 @@ import type { MergePreviewView } from './buyers.ts'
 export const PREVIEW_LOADING = '미리 보기를 받는 중이에요.'
 export const PREVIEW_REFRESHING = '미리 보기를 새로 받는 중이에요.'
 export const PREVIEW_FAILED = '미리 보기를 받지 못했어요.'
+/** 다시 받아도 미리 보기가 보는 화면보다 앞선 상태가 아닐 때 (서버가 늦게 따라온 드문 경우 — 저절로 되풀이하지 않는다) */
+export const PREVIEW_BEHIND = '화면이 바뀌었는데 미리 보기를 새로 받지 못했어요. "다시 받기"를 눌러 주세요.'
 
 export interface MergePreviewState {
   /** 지금 상태로 받은 미리 보기 (받는 중·낡았으면 null) */
@@ -33,6 +35,8 @@ export interface MergePreviewScope {
 interface Loaded {
   readonly key: string
   readonly view: MergePreviewView
+  /** 이 미리 보기를 청할 때 보던 범위의 seq */
+  readonly askedAt: number
 }
 
 export function mergePreviewPath(date: string, rehearsal: boolean, from: string, into: string): string {
@@ -47,15 +51,19 @@ export function useMergePreview(scope: MergePreviewScope, from: string, into: st
   /** 이 창에서 미리 보기를 한 번이라도 받았는가 ("새로 받는 중") */
   const [seen, setSeen] = useState(false)
   const latest = useRef(0)
+  /** 보는 범위의 지금 seq (청할 때 적어 둔다 — request가 seq마다 바뀌지 않게) */
+  const seq = useRef(scope.seq)
+  seq.current = scope.seq
 
   const request = useCallback(() => {
     const id = ++latest.current
+    const askedAt = seq.current
     setBusy(true)
     setError(null)
     get<MergePreviewView>(mergePreviewPath(scope.date, scope.rehearsal, from, into)).then(
       (view) => {
         if (id !== latest.current) return
-        setLoaded({ key, view })
+        setLoaded({ key, view, askedAt })
         setSeen(true)
         setBusy(false)
       },
@@ -76,20 +84,24 @@ export function useMergePreview(scope: MergePreviewScope, from: string, into: st
     }
   }, [request])
 
-  const current = loaded !== null && loaded.key === key ? loaded.view : null
+  const mine = loaded !== null && loaded.key === key ? loaded : null
+  const current = mine?.view ?? null
   const stale = current !== null && scope.seq > current.seq
-  // 다른 기기의 변화로 보는 범위가 앞서면 다시 받는다 (받는 중이면 끝난 뒤 다시 본다)
+  // 청한 뒤에 보는 범위가 더 앞섰으면 다시 받는다 (받는 중이면 끝난 뒤 다시 본다). 청할 때 이미 알던 seq보다도 낡은 응답이면
+  // 되풀이하지 않고 "다시 받기"를 보인다
+  const refetch = stale && mine !== null && scope.seq > mine.askedAt
   useEffect(() => {
-    if (stale && !busy) request()
-  }, [stale, busy, request])
+    if (refetch && !busy) request()
+  }, [refetch, busy, request])
 
-  const loading = busy || stale || (current === null && error === null)
+  const behind = stale && !refetch && !busy
+  const loading = busy || refetch || (current === null && error === null)
   return {
-    view: loading ? null : current,
+    view: loading || behind ? null : current,
     last: current,
     loading,
     refreshing: loading && seen,
-    error: loading ? null : error,
+    error: loading ? null : behind ? new ApiError({ status: 0, code: 'STALE_PREVIEW', message: PREVIEW_BEHIND }) : error,
     retry: request,
   }
 }

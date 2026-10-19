@@ -278,6 +278,19 @@ describe('합치기·떼어 내기 (AC-S06-23·24, AC-S06b-33·34, G-ENG-171·17
     expect(within(dialog).queryByText('미리 보기를 받지 못했어요.')).toBeNull()
   })
 
+  it('응답이 보던 화면보다 낡았으면(서버가 늦게 따라옴) 되풀이해 받지 않고 "다시 받기"를 보이며 "합치기"를 누를 수 없다', async () => {
+    await open()
+    engine.server.on('GET', /\/merge-preview\?/, (call) => {
+      const reply = engine.mergePreview(call.path) as { body: Record<string, unknown> }
+      return { body: { ...reply.body, seq: 0 } }
+    })
+    const dialog = await openMerge('홍길동')
+    expect(await within(dialog).findByText('화면이 바뀌었는데 미리 보기를 새로 받지 못했어요. "다시 받기"를 눌러 주세요.')).toBeDefined()
+    expect((within(dialog).getByRole('button', { name: '합치기' }) as HTMLButtonElement).disabled).toBe(true)
+    await flush(10)
+    expect(engine.previews).toBe(1)
+  })
+
   it('TE-S06-002: 막힌 합치기(이미 남는 쪽에 합쳐진 구매자 / 고리)는 막는 문장만 — 합친 뒤 합계를 보이지 않는다(합친 금액을 두 번 세지 않는다)', async () => {
     await open([...BASE, { type: 'buyer.merge', from: 'sms:r1', into: 'UC_hong1234', reason: '같은 사람' }])
     const dialog = await openMerge('김씨', /홍길동/)
