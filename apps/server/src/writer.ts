@@ -377,6 +377,8 @@ export class ScopeWriter {
       runtime.sinceSnapshot = 0
       return true
     } catch (error) {
+      // 실패해도 다음 간격까지 다시 시도하지 않는다 (실패가 이어질 때 쓰기마다 상태 전체를 직렬화하지 않게)
+      runtime.sinceSnapshot = 0
       this.#options.log({ level: 'warn', code: 'SNAPSHOT_FAILED', date: runtime.date, seq: runtime.seq, errorKind: errorKind(error) })
       return false
     }

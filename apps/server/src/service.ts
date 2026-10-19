@@ -309,7 +309,8 @@ export class Service {
       requestId,
       build: (ctx) => [
         {
-          fields: { ...fields, ref, received: own(body, 'received') ?? kstTime(ctx.at), ...phoneFields },
+          // 받은 시각이 없으면 서버 도착 시각(이 이벤트의 at)의 KST. null 같은 값은 그대로 넘겨 엔진이 입력 오류로 거른다
+          fields: { ...fields, ref, received: own(body, 'received') === undefined ? kstTime(ctx.at) : own(body, 'received'), ...phoneFields },
           actor,
           requestId,
           smsRef: ref,

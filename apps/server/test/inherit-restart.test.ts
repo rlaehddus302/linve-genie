@@ -118,6 +118,9 @@ describe('AC-S04-28 재시작·스냅샷·형식', () => {
     expect(await countRows(world.database, 'snapshots')).toBe(0)
     expect(await countRows(world.database, 'events')).toBe(2)
     expect(world.logs.some((log) => log.code === 'SNAPSHOT_FAILED')).toBe(true)
+    // 상태는 그대로 맞고, 재시작하면 스냅샷 없이 로그를 재생한다
+    const fresh = startServer(world.database, world.masterKey)
+    expect((await client(fresh, seller.cookie).get(`/api/days/${b.date}`)).body).toEqual((await client(world, seller.cookie).get(`/api/days/${b.date}`)).body)
   })
 
   it('같은 DB로 새 인스턴스를 열면 모든 조회 결과가 재시작 전과 같다 (스냅샷 + 뒤 이벤트)', async () => {

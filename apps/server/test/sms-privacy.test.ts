@@ -32,6 +32,18 @@ describe('AC-S04-31 문자찜 입력 경로', () => {
     expect(event.phoneKey).toBe(phoneKeyOf(sellerKey, '01012345678'))
   })
 
+  it('받은 시각을 null·형식이 틀린 값으로 보내면 기본값으로 바꾸지 않고 입력 오류', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller)
+    for (const received of [null, '', '24:00', 1200]) {
+      const response = await writeEvent(world, seller, { type: 'sms', b: b.id, no: 1, received })
+      expect(response.status, String(received)).toBe(400)
+      expect(response.body).toMatchObject({ error: { problems: [{ field: 'received' }] } })
+    }
+    expect(await countRows(world.database, 'events')).toBe(1)
+  })
+
   it('전화번호가 휴대폰 번호 모양이 아니면 키·뒤 4자리 둘 다 없고, 응답은 알아보지 못했다고 알린다', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)
