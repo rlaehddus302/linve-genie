@@ -98,9 +98,11 @@ test.describe('고정 영역·밀도·명암', () => {
       const s = getComputedStyle(el)
       return `${s.backgroundColor}|${s.color}|${s.borderColor}`
     })
+    // 화면이 자료를 받으며 버튼을 다시 그릴 수 있다 — 붙어 있는 버튼의 모양을 읽는다 (흔들림 고침: 떨어진 요소의 계산 모양은 빈 글자)
+    await expect.poll(style).not.toBe('||')
     const before = await style()
     await submit.hover({ force: true })
-    expect(await style()).toBe(before)
+    await expect.poll(style).toBe(before) // 올려 둔 채 모양이 바뀌면 계속 다르다
     const ratios = await page.evaluate(() => {
       const parse = (c: string): [number, number, number, number] => {
         const m = /rgba?\(([^)]+)\)/.exec(c)
