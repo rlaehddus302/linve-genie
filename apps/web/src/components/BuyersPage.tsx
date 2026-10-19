@@ -277,40 +277,42 @@ function BuyerCards({ api, label, rows, counts, onOpen }: { readonly api: Consol
 /** PC: 열 머리가 있는 표 — 한 줄 = 한 구매자, 금액 열은 오른쪽, 이름 칸의 링크로 자세히 (AC-S06b-21) */
 function BuyerTable({ api, label, rows, counts, onOpen }: { readonly api: ConsoleApi; readonly label: string; readonly rows: readonly BuyerRow[]; readonly counts: ReadonlyMap<string, number>; readonly onOpen: (id: string) => void }) {
   return (
-    <table className="list-table" aria-label={label}>
-      <thead>
-        <tr>
-          <th scope="col">이름</th>
-          <th scope="col">종류</th>
-          <th scope="col" className="num">
-            상품 수
-          </th>
-          <th scope="col" className="num">
-            합계
-          </th>
-          <th scope="col">입금 상태</th>
-          <th scope="col">표시</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map(({ buyer, extra }) => (
-          <tr key={buyer.id}>
-            <td>
-              <a className="table-link" href={routePath({ name: 'buyers', date: api.data.date, rehearsal: api.data.rehearsal, buyer: buyer.id })} onClick={(event) => linkClick(event, () => onOpen(buyer.id))}>
-                {api.names.name(buyer.id)}
-              </a>
-            </td>
-            <td>{BUYER_KIND_WORD[buyer.kind]}</td>
-            <td className="num">{buyer.items.length}개</td>
-            <td className="num">{formatWon(buyer.subtotal)}</td>
-            <td>{payTag(api, buyer)}</td>
-            <td>
-              <span className="cell-marks">{marks(buyer, counts, extra)}</span>
-            </td>
+    <div className="table-scroll">
+      <table className="list-table" aria-label={label}>
+        <thead>
+          <tr>
+            <th scope="col">이름</th>
+            <th scope="col">종류</th>
+            <th scope="col" className="num">
+              상품 수
+            </th>
+            <th scope="col" className="num">
+              합계
+            </th>
+            <th scope="col">입금 상태</th>
+            <th scope="col">표시</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map(({ buyer, extra }) => (
+            <tr key={buyer.id}>
+              <td className="cell-name">
+                <a className="table-link" href={routePath({ name: 'buyers', date: api.data.date, rehearsal: api.data.rehearsal, buyer: buyer.id })} onClick={(event) => linkClick(event, () => onOpen(buyer.id))}>
+                  {api.names.name(buyer.id)}
+                </a>
+              </td>
+              <td>{BUYER_KIND_WORD[buyer.kind]}</td>
+              <td className="num">{buyer.items.length}개</td>
+              <td className="num">{formatWon(buyer.subtotal)}</td>
+              <td>{payTag(api, buyer)}</td>
+              <td>
+                <span className="cell-marks">{marks(buyer, counts, extra)}</span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

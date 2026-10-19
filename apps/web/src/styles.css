@@ -932,6 +932,11 @@ p {
   word-break: normal;
 }
 
+/* 열 머리 낱말("조치자")은 중간에서 꺾지 않는다 (TE-S06b-001과 같은 원인 — body의 overflow-wrap: anywhere) */
+.history th {
+  overflow-wrap: normal;
+}
+
 .compare th,
 .compare td,
 .history th,
@@ -1104,7 +1109,11 @@ html:has(.sms-submit-bar) {
   block-size: 100%;
 }
 
-/* PC 목록 표 (AC-S06b-21, D-101): 열 머리, 금액 열 오른쪽, 줄 높이 44px 이상(이름 칸 링크) */
+/* PC 목록 표 (AC-S06b-21, D-101): 열 머리, 금액 열 오른쪽, 줄 높이 44px 이상(이름 칸 링크). 표는 48rem 이상에서만 그린다(휴대폰은 카드).
+ * 줄바꿈 (TE-S06b-001): 금액은 늘 "1,238,000원" 한 덩어리 — 숫자 중간·"원" 앞에서 줄을 바꾸지 않는다.
+ * body의 overflow-wrap: anywhere는 표의 자동 폭 계산에서 칸의 최소 폭을 글자 하나로 줄여, 태블릿 폭에서 금액이 숫자 중간에서 꺾였다.
+ * 그래서 표 칸은 띄어쓰기에서만 줄을 바꾸고(낱말은 body의 keep-all 그대로), 금액 칸과 금액(.won)은 한 줄이다.
+ * 띄어쓰기 없는 긴 닉네임이 들어가는 이름 칸만 아무 데서나 꺾는다 — 좁아지면 이름 칸이 줄을 더 쓴다. */
 .list-table {
   inline-size: 100%;
   border-collapse: collapse;
@@ -1116,6 +1125,7 @@ html:has(.sms-submit-bar) {
   border-bottom: 1px solid #c4c7c5;
   text-align: left;
   vertical-align: middle;
+  overflow-wrap: normal;
 }
 
 .list-table thead th {
@@ -1130,6 +1140,52 @@ html:has(.sms-submit-bar) {
 .list-table .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.list-table .cell-name {
+  overflow-wrap: anywhere;
+}
+
+/* 그래도 금액이 다 들어가지 않을 만큼 좁으면(아주 큰 금액) 표만 옆으로 밀어 본다 — 화면 전체는 가로로 밀리지 않는다 */
+.table-scroll {
+  overflow-x: auto;
+}
+
+/* 한 줄 고정·최소 폭은 표를 그리는 폭(48rem 이상)에서만 — 휴대폰(375px)에는 닿지 않는다 */
+@media (min-width: 48rem) {
+  .list-table td.num,
+  .list-table .won {
+    white-space: nowrap;
+  }
+
+  /* 배송비 예외 낱말("직접 수령 0원")은 띄어쓰기에서 꺾을 수 있다 — 금액은 .won으로 한 덩어리 */
+  .list-table td.num-words {
+    white-space: normal;
+  }
+
+  .list-table thead th {
+    white-space: nowrap;
+  }
+
+  .list-table .cell-name {
+    min-inline-size: 6rem;
+  }
+}
+
+/* 태블릿 폭(48rem~74.99rem): 열 여덟 개가 가로 밀기 없이 들어가게 글자 16px(기본 글자 16px 이상 그대로)·칸 여백을 줄이고 열 머리도 꺾는다 */
+@media (min-width: 48rem) and (max-width: 74.99rem) {
+  .list-table {
+    font-size: 1rem;
+  }
+
+  .list-table th,
+  .list-table td {
+    padding: 0 0.375rem;
+  }
+
+  .list-table thead th {
+    white-space: normal;
+  }
 }
 
 .table-link {

@@ -12,20 +12,52 @@ const stylesCss = readFileSync(new URL('../src/styles.css', import.meta.url), 'u
 
 const BASE_PX = 16
 
-/** 주석을 뺀 CSS에서 (선택자, 선언 목록)을 꺼낸다. 중첩 규칙(@media 등)이 생기면 이 도우미도 함께 고친다. */
-function rules(css: string): { selector: string; declarations: { property: string; value: string }[] }[] {
+interface Rule {
+  readonly selector: string
+  /** 감싼 @media 조건들(바깥부터). 없으면 빈 목록 */
+  readonly media: readonly string[]
+  readonly declarations: { property: string; value: string }[]
+}
+
+/** 주석을 뺀 CSS에서 (선택자, 감싼 @media, 선언 목록)을 꺼낸다. @media 안의 규칙은 그 조건과 함께 남긴다. */
+function rules(css: string): Rule[] {
   const text = css.replace(/\/\*[\s\S]*?\*\//g, '')
-  const out = []
-  for (const match of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    const declarations = []
-    for (const part of (match[2] ?? '').split(';')) {
-      const colon = part.indexOf(':')
-      if (colon < 0) continue
-      declarations.push({ property: part.slice(0, colon).trim().toLowerCase(), value: part.slice(colon + 1).trim() })
-    }
-    out.push({ selector: (match[1] ?? '').trim().replace(/\s+/g, ' '), declarations })
+  const out: Rule[] = []
+  const media: string[] = []
+  let buffer = ''
+  let selector: string | null = null
+  for (const ch of text) {
+    if (ch === '{') {
+      const prelude = buffer.trim().replace(/\s+/g, ' ')
+      buffer = ''
+      if (prelude.startsWith('@')) media.push(prelude)
+      else selector = prelude
+    } else if (ch === '}') {
+      if (selector === null) media.pop()
+      else {
+        const declarations = []
+        for (const part of buffer.split(';')) {
+          const colon = part.indexOf(':')
+          if (colon < 0) continue
+          declarations.push({ property: part.slice(0, colon).trim().toLowerCase(), value: part.slice(colon + 1).trim() })
+        }
+        out.push({ selector, media: [...media], declarations })
+        selector = null
+      }
+      buffer = ''
+    } else buffer += ch
   }
   return out
+}
+
+/** @media 조건이 375px 폭에서 맞지 않는가 — min-width가 375px보다 크면 휴대폰(375px)에는 닿지 않는다 */
+function skipsAt375(media: readonly string[]): boolean {
+  return media.some((condition) => {
+    const m = /min-width:\s*(\d+(?:\.\d+)?)(px|rem|em)\b/.exec(condition)
+    if (!m) return false
+    const px = m[2] === 'px' ? Number(m[1]) : Number(m[1]) * BASE_PX
+    return px > 375
+  })
 }
 
 /** 글자 크기 값의 최소 px(기본 16px 기준). 모르는 표기는 NaN이라 검사가 실패한다. */
@@ -65,7 +97,7 @@ function splitArgs(text: string): string[] {
 }
 
 const parsed = rules(stylesCss)
-const declarations = parsed.flatMap((rule) => rule.declarations.map((d) => ({ ...d, selector: rule.selector })))
+const declarations = parsed.flatMap((rule) => rule.declarations.map((d) => ({ ...d, selector: rule.selector, media: rule.media })))
 
 describe('styles.css', () => {
   it('규칙을 읽었다 (검사가 빈 목록으로 통과하지 않게)', () => {
@@ -97,15 +129,42 @@ describe('styles.css', () => {
     expect(cssUrls(stylesCss)).toEqual([])
   })
 
-  it('375px 폭에서 가로 스크롤을 만드는 고정 폭·줄바꿈 금지가 없다', () => {
+  it('375px 폭에서 가로 스크롤을 만드는 고정 폭·줄바꿈 금지가 없다 (375px보다 넓은 min-width @media 안의 규칙만 빼고 모두)', () => {
     const fixedLength = /(?:^|[\s(,])-?\d*\.?\d+(px|rem|em|ch|ex|pt|pc|cm|mm|in|q|vw)\b/i
     const widthProperties = new Set(['width', 'min-width', 'inline-size', 'min-inline-size', 'flex-basis'])
-    for (const d of declarations) {
+    const at375 = declarations.filter((d) => !skipsAt375(d.media))
+    expect(at375.length).toBeGreaterThan(declarations.length / 2)
+    for (const d of at375) {
       if (widthProperties.has(d.property)) expect(d.value, `${d.selector} { ${d.property}: ${d.value} }`).not.toMatch(fixedLength)
       if (d.property === 'white-space') expect(d.value, `${d.selector} { white-space: ${d.value} }`).not.toMatch(/nowrap|pre\b/)
     }
     // 긴 낱말(닉네임 등)도 줄을 바꿔 화면 밖으로 나가지 않는다
     expect(declarations.some((d) => d.selector === 'body' && d.property === 'overflow-wrap' && d.value === 'anywhere')).toBe(true)
+  })
+
+  it('PC 표: 칸은 띄어쓰기에서만 줄을 바꾸고 금액 칸은 한 줄(표를 그리는 48rem 이상에서) — 금액이 숫자 중간·"원" 앞에서 꺾이지 않는다 (AC-S06b-21, TE-S06b-001)', () => {
+    const cells = declarations.find((d) => d.selector === '.list-table th, .list-table td' && d.property === 'overflow-wrap' && d.media.length === 0)
+    expect(cells?.value).toBe('normal')
+    const amount = declarations.find((d) => d.selector.split(', ').includes('.list-table td.num') && d.property === 'white-space')
+    expect(amount?.value).toBe('nowrap')
+    expect(amount?.media).toEqual(['@media (min-width: 48rem)'])
+    // 긴 닉네임이 들어가는 이름 칸만 아무 데서나 꺾는다
+    expect(declarations.find((d) => d.selector === '.list-table .cell-name' && d.property === 'overflow-wrap')?.value).toBe('anywhere')
+  })
+
+  it('@media 읽기 (테스트 도우미): 375px보다 넓은 min-width 안의 규칙만 375px 검사에서 빠진다', () => {
+    expect(skipsAt375(['@media (min-width: 48rem)'])).toBe(true)
+    expect(skipsAt375(['@media (min-width: 48rem) and (max-width: 74.99rem)'])).toBe(true)
+    expect(skipsAt375(['@media (min-width: 400px)'])).toBe(true)
+    expect(skipsAt375(['@media (min-width: 20rem)'])).toBe(false)
+    expect(skipsAt375(['@media (max-width: 47.99rem)'])).toBe(false)
+    expect(skipsAt375([])).toBe(false)
+    const nested = rules('a { color: red; } @media (min-width: 48rem) { b { white-space: nowrap; } } c { width: 1px; }')
+    expect(nested.map((rule) => [rule.selector, rule.media])).toEqual([
+      ['a', []],
+      ['b', ['@media (min-width: 48rem)']],
+      ['c', []],
+    ])
   })
 
   it('폭 제한은 max-width로만 한다', () => {

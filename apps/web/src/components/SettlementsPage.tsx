@@ -234,52 +234,57 @@ function SettlementCards({ data, names, list, onOpen }: RowsProps) {
 /** PC: 열 머리가 있는 표 — 한 줄 = 한 묶음, 금액 열은 오른쪽, 이름 칸의 링크로 자세히 (AC-S06b-21) */
 function SettlementTable({ data, names, list, onOpen }: RowsProps) {
   return (
-    <table className="list-table" aria-label="정산 묶음">
-      <thead>
-        <tr>
-          <th scope="col">이름</th>
-          <th scope="col" className="num">
-            상품 수
-          </th>
-          <th scope="col" className="num">
-            상품 합계
-          </th>
-          <th scope="col" className="num">
-            배송비
-          </th>
-          <th scope="col" className="num">
-            조정
-          </th>
-          <th scope="col" className="num">
-            최종 금액
-          </th>
-          <th scope="col" className="num">
-            받은 금액
-          </th>
-          <th scope="col">입금 상태</th>
-        </tr>
-      </thead>
-      <tbody>
-        {list.map((item) => (
-          <tr key={item.buyer}>
-            <td>
-              <a className="table-link" href={routePath({ name: 'settlements', date: data.date, rehearsal: data.rehearsal, buyer: item.buyer })} onClick={(event) => linkClick(event, () => onOpen(item.buyer))}>
-                {names.name(item.buyer)}
-              </a>
-            </td>
-            <td className="num">{item.items.length}개</td>
-            <td className="num">{formatWon(item.subtotal)}</td>
-            <td className="num">{shippingWords(item)}</td>
-            <td className="num">{signedWon(item.adjustments)}</td>
-            <td className="num">{formatWon(item.total)}</td>
-            <td className="num">{formatWon(item.received)}</td>
-            <td>
-              <span className={`tag pay-${item.payment}`}>{paymentWord(item.payment, item.refundDue)}</span>
-            </td>
+    <div className="table-scroll">
+      <table className="list-table" aria-label="정산 묶음">
+        <thead>
+          <tr>
+            <th scope="col">이름</th>
+            <th scope="col" className="num">
+              상품 수
+            </th>
+            <th scope="col" className="num">
+              상품 합계
+            </th>
+            <th scope="col" className="num">
+              배송비
+            </th>
+            <th scope="col" className="num">
+              조정
+            </th>
+            <th scope="col" className="num">
+              최종 금액
+            </th>
+            <th scope="col" className="num">
+              받은 금액
+            </th>
+            <th scope="col">입금 상태</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {list.map((item) => (
+            <tr key={item.buyer}>
+              <td className="cell-name">
+                <a className="table-link" href={routePath({ name: 'settlements', date: data.date, rehearsal: data.rehearsal, buyer: item.buyer })} onClick={(event) => linkClick(event, () => onOpen(item.buyer))}>
+                  {names.name(item.buyer)}
+                </a>
+              </td>
+              <td className="num">{item.items.length}개</td>
+              <td className="num">{formatWon(item.subtotal)}</td>
+              <td className="num num-words">
+                {item.shippingOverride === null ? null : `${SHIPPING_WORD[item.shippingOverride]} `}
+                <span className="won">{formatWon(item.shipping)}</span>
+              </td>
+              <td className="num">{signedWon(item.adjustments)}</td>
+              <td className="num">{formatWon(item.total)}</td>
+              <td className="num">{formatWon(item.received)}</td>
+              <td>
+                <span className={`tag pay-${item.payment}`}>{paymentWord(item.payment, item.refundDue)}</span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
