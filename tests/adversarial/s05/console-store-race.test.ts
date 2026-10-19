@@ -1,0 +1,104 @@
+// S05 적대 테스트 (test-domain): 화면 자료층(ConsoleStore)을 실제 서버(PGlite)에 붙여, 채팅이 흐르는 중에 콘솔을 여는 순서를 공격한다.
+// AC-S05-21 "콘솔에 그 방송의 채팅이 오래된 것 위·새것 아래로 보인다" · AC-S05-62 "다시 붙으면 놓친 변경을 증분으로 받는다".
+//
+// ConsoleStore.#loadAll은 범위 전체 조회와 최근 메시지 조회를 동시에 보낸다. 메시지 조회가 먼저 끝나고(범위 seq M)
+// 그사이 채팅이 더 들어온 뒤 전체 조회가 끝나면(범위 seq F > M), 화면이 아는 seq는 F가 되고 증분 조회는 since=F로만 간다 —
+// (M, F] 사이의 채팅은 다시 받을 길이 없다("이전 메시지 보기"는 가장 오래된 메시지 앞만 받는다).
+//
+// 화면 파일은 DOM 타입으로 검사하므로(루트 tsconfig는 Node 타입) 타입 검사를 거치지 않게 경로를 값으로 불러온다.
+import type { LivejjimServer } from '@livejjim/server'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { harness, startBroadcast, type Harness } from '../s04/helpers.ts'
+
+const DAY = '2026-10-18'
+const STORE_MODULE = '../../../apps/web/src/lib/console-store.ts'
+
+interface StoreLike {
+  start(): Promise<void>
+  catchUp(): Promise<void>
+  stop(): void
+  getSnapshot(): { phase: string; messages: readonly { id: string; seq: number }[]; data: { seq: number } | null }
+}
+type StoreCtor = new (options: { broadcastId: string; openStream: (url: string) => unknown; timer: { set(fn: () => void, ms: number): unknown; clear(handle: unknown): void } }) => StoreLike
+
+/** 이벤트를 하나도 내지 않는 SSE (알림은 시험이 catchUp으로 대신한다) */
+class SilentStream {
+  readonly readyState = 1
+  onopen: ((event: unknown) => void) | null = null
+  onerror: ((event: unknown) => void) | null = null
+  addEventListener(): void {}
+  close(): void {}
+}
+
+const noTimer = { set: () => undefined, clear: () => undefined }
+
+let h: Harness | null = null
+let store: StoreLike | null = null
+afterEach(async () => {
+  store?.stop()
+  store = null
+  vi.unstubAllGlobals()
+  await h?.close()
+  h = null
+})
+
+/** 화면의 fetch(같은 출처 /api)를 프로세스 안 서버로 보낸다. hold(path)가 promise를 주면 그 뒤에 응답한다 */
+function routeFetch(server: () => LivejjimServer, cookie: string, hold: (path: string) => Promise<void> | null, served: (path: string) => void): void {
+  vi.stubGlobal('fetch', async (input: string, init: RequestInit = {}) => {
+    const path = String(input)
+    const wait = hold(path)
+    if (wait !== null) await wait
+    const headers = new Headers(init.headers)
+    headers.set('Cookie', cookie)
+    const response = await server().app.request(path, { ...init, headers })
+    const body = await response.text()
+    served(path)
+    return new Response(body, { status: response.status, headers: response.headers })
+  })
+}
+
+describe('TD-S05-001 콘솔을 여는 중에 들어온 채팅이 채팅 패널에서 빠진다 (AC-S05-21·62)', () => {
+  it('메시지 조회가 먼저 끝나고 그사이 채팅 3건이 들어온 뒤 전체 조회가 끝나도, 따라잡은 뒤 패널에는 그 방송의 채팅이 모두 있다', async () => {
+    h = await harness()
+    const a = await h.account('race1')
+    const s = h.server
+    const b = await startBroadcast(s, a.cookie, DAY)
+    for (let i = 0; i < 3; i++) await s.ingestChat(a.sellerId, { b, id: `early${String(i)}`, ch: 'UCe', nick: '손님', text: '안녕하세요' })
+
+    let messagesServed!: () => void
+    const messagesDone = new Promise<void>((resolve) => {
+      messagesServed = resolve
+    })
+    const fullPath = `/api/days/${DAY}`
+    routeFetch(
+      () => s,
+      a.cookie,
+      (path) => {
+        // 전체 조회: 메시지 조회가 끝난 뒤, 채팅 3건이 더 들어온 다음에 응답한다
+        if (path === fullPath) {
+          return messagesDone.then(async () => {
+            for (let i = 0; i < 3; i++) await s.ingestChat(a.sellerId, { b, id: `mid${String(i)}`, ch: 'UCm', nick: '손님2', text: `15번 예뻐요 ${String(i)}` })
+          })
+        }
+        return null
+      },
+      (path) => {
+        if (path.startsWith(`/api/days/${DAY}/messages`)) messagesServed()
+      },
+    )
+
+    const { ConsoleStore } = (await import(/* @vite-ignore */ STORE_MODULE)) as { ConsoleStore: StoreCtor }
+    store = new ConsoleStore({ broadcastId: b, openStream: () => new SilentStream(), timer: noTimer })
+    await store.start()
+    // 그 뒤 채팅 1건 + 알림 → 증분 따라잡기
+    await s.ingestChat(a.sellerId, { b, id: 'late0', ch: 'UCl', nick: '손님3', text: '배송은 언제 와요?' })
+    await store.catchUp()
+
+    const snapshot = store.getSnapshot()
+    expect(snapshot.phase).toBe('ready')
+    const server = await (await s.app.request(`/api/days/${DAY}/messages?b=${b}&limit=500`, { headers: { Cookie: a.cookie } })).json() as { messages: { id: string }[] }
+    expect(server.messages.map((m) => m.id)).toEqual(['early0', 'early1', 'early2', 'mid0', 'mid1', 'mid2', 'late0'])
+    // 화면 패널 = 서버의 그 방송 채팅 (빈틈 없이)
+    expect(snapshot.messages.map((m) => m.id)).toEqual(server.messages.map((m) => m.id))
+  }, 60_000)
+})
