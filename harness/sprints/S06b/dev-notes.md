@@ -91,3 +91,41 @@ interface MergePreview {
 - 범위마다의 캐시(색인 8·메시지 4)는 그대로. 보기 캐시를 가진 범위: 판매자마다 가장 최근에 조회한 **4개**, 서버 전체 **32개**, 마지막 조회 뒤 **10분**이 지나면 비운다. 범위 실행 상태(writer 128개) 규칙은 그대로.
 - "조회" = 범위 조회(`GET /api/days/:date`)·증분 조회(`/changes`)·메시지 조회(`/messages`) — 보기 캐시를 쓰는 조회. 정리는 그 조회 때와 쓰기 커밋 뒤(서버 시계 기준)에 한다. 타이머는 없다.
 - 시험용으로 `LivejjimServer.viewCaches`(`ViewCacheBudget`)를 낸다: `size`(캐시를 가진 범위 수), `countOf(sellerId)`, `has(sellerId, date, rehearsal)`. 비운 범위의 `runtime.views.index.size`는 0이고 `builds`(계산 횟수)는 그대로 이어 센다.
+
+### 만든 것 (`apps/server`)
+- **합치기 미리 보기 조회** (`api.ts` 경로, `service.ts` `Service.mergePreviewInput`·`mergePreview`, `messages.ts` `phoneIdProblem`): 범위 상태를 따라잡은 뒤 `seq`와 상태를 함께 잡고 동기 함수 `previewMerge`로 계산한다 — 응답 `seq`와 `preview`는 늘 같은 상태의 것이다(쓰기와 동시에 조회해도). 구매자 ID 길이는 코드 포인트로 센다(`MERGE_PREVIEW_ID_MAX = 128`).
+- **문자찜 응답 `buyer`** (`writer.ts` 기록 결과 `states`·`WriteResult.smsBuyer`, `service.ts` `#smsOutcome`·`#withSmsBuyer`, `api.ts` `resultBody`): 기록했으면 그 이벤트를 적용한 뒤 상태의 `buyerOfRef(ref)`. 같은 요청 번호의 처음 결과(API 앞 확인 `priorResult`·기록 경로 안 확인·유일 제약 위반 뒤 확인 — 세 경로 모두)는 그 범위의 지금 상태에서 그 결과의 `ref`로 읽는다. 다른 경로(방송 만들기 등)로 문자찜의 요청 번호를 다시 보내도 `priorResult`가 같은 값을 붙인다.
+- **보기 캐시 상한** (`view-budget.ts` 새 파일 `ViewCacheBudget`, `state-cache.ts` `clear()`, `views.ts` `clearViewCaches`, `writer.ts` `onDrop`, `server.ts` 조립): 서버마다 하나(모듈 전역 아님). 범위 키 → (판매자, 그 범위의 `views`, 마지막 조회 시각), 넣은 순서 = 마지막으로 조회한 순서. `use`(범위·증분·메시지 조회가 캐시를 쓰기 직전 — 메시지 기록은 채팅 행을 기다린 뒤 한 번 더) → 가장 최근으로 옮김 → 10분 지난 범위 → 그 판매자의 5번째부터 → 전체 33번째부터 비움(지금 범위는 비우지 않음). 쓰기 커밋 뒤 `sweep`(10분만). writer가 범위 실행 상태를 내리면 `release`로 그 범위 항목을 지운다(내려간 실행 상태의 캐시를 붙잡아 두지 않게). 같은 범위를 새 실행 상태로 다시 조회하면 앞 실행 상태의 캐시를 비우고 바꾼다.
+
+### 결정과 이유 (규칙 문장 안에서의 구현 선택)
+- **재전송 응답의 `buyer`를 지금 상태에서 읽는다**: 문자찜 ref → 구매자 사전(`state.refs`)은 그 ref를 처음 받을 때만 쓰이고(엔진 `sms` 처리의 첫 줄 — 같은 ref가 다시 오면 아무 일도 없다, D-067·INV-3) 그 뒤 어떤 이벤트도 바꾸지 않는다. 그래서 `buyerOfRef(지금 상태, ref)` = `buyerOfRef(그 이벤트를 적용한 뒤 상태, ref)`이다. 처음 응답의 구매자를 DB에 따로 적는 칸(마이그레이션)을 두지 않았다. 시험: 합치기·같은 사람 문자찜·범위 실행 상태를 내린 뒤 재전송이 처음과 같다.
+- **`buyer`는 구매자 자신**(지금의 구매자가 아니다): D-099·ORD-08 AC7 "그 문자찜이 정한 구매자 자신의 ID". 화면은 범위 조회 `buyers[].current`로 지금의 구매자를 찾는다(합쳐진 지정 구매자로 넣은 경우 시험).
+- **휴대폰 번호 모양 검사는 ID 칸 규칙(`looksLikePhoneId`)만**: D-080 "ID 칸은 값 전체가 숫자와 같은 구분자뿐이고 `normalizePhone` 결과가 있을 때만" — 글 칸 규칙(`containsPhoneRun`)을 쓰면 실제 채널 ID가 걸릴 수 있다. 문제에는 쓰기 경로의 ID 칸과 같은 `hint`를 붙인다(`from` = 구매자 칸 안내, `into` = 합칠 구매자 안내).
+- **검사 순서** 날짜(404) → `rehearsal`(400) → `from`·`into`(400) → 범위(404): 형식 검사는 DB를 보지 않으므로 범위가 있는지와 상관없이 같은 400이다(다른 판매자의 범위인지 알 수 없다).
+- **보기 캐시를 쓰지 않는 조회는 세지 않는다**: 합치기 미리 보기·이력 조회는 보기 캐시를 만들지 않아 "보기 캐시를 가진 범위"를 늘리지 않는다.
+- **정리는 조회·쓰기 커밋 뒤, 타이머 없음**: 항목이 많아야 33개라 한 번 도는 비용이 작고, 서버가 아무 조회·쓰기도 받지 않는 동안 남는 캐시는 32범위로 묶여 있다. 타이머를 두면 서버 종료·시험 시계와 맞추는 일이 늘어난다(D-036).
+
+### 보기 색인 크기 실측 (AC-S06b-12 참고 — 게이트 아님)
+상품 500(재고 1~3) · 채팅 1만 건(시청자 2,000명, 40%가 주문) 범위를 코어로 만들고 색인 하나·메시지 기록 하나를 만들기 전후의 힙 차이(`node --expose-gc`, 이 기계 1회):
+- 범위 조회 JSON 약 2.5MB(찜 2,864 · 구매자 1,930 · 정산 781 · 효과 1,934).
+- **보기 색인 하나 ≈ 6.8MB**(항목 객체 + 항목마다의 JSON 문자열 — JSON 크기의 약 2.7배), 메시지 기록 하나 ≈ 3.0MB.
+- 이런 범위 하나가 캐시를 꽉 채우면 색인 8 + 메시지 4 ≈ 66MB. 상한 전(범위 128개)에는 이론상 약 8.4GB였고 지금(32개)은 약 2.1GB가 이론상 최대다(모든 범위가 이만큼 크고 저마다 상태 8개를 번갈아 조회할 때). 보통 방송(상품 수십·채팅 수천)은 이보다 한 자릿수 작다.
+
+### 바꾼 기존 시험 (교체 — 약화 아님, 계약이 바뀌었다)
+- `apps/server/test/api.test.ts` "응답: seq, changed, 이 입력으로 나온 효과 ID…": 문자찜 응답 전체 비교에 `buyer`(그 찜의 구매자 = `sms:<ref>`)를 더했다(AC-S06b-11).
+- `apps/server/test/sms-contract.test.ts` "응답: …": 응답 키 목록에 `buyer`를 더하고 이름에 AC-S06b-11을 적었다. 나머지 확인(재전송 같은 본문·기록 한 번·전화번호 없음)은 그대로.
+
+### 시험 (내 영역)
+- `merge-preview.test.ts`(10): 코어 결과와 같음(모든 구매자 쌍 + 모르는 ID·`__proto__`), G-ENG-174 막힘 → 한쪽씩 취소 → 미리 본 대로 합쳐짐(DUPLICATE = `duplicates[].claim`, 합친 뒤 = `after`) → FROM_MERGED·CYCLE, 쓰기와 동시 조회(응답 seq의 상태로 계산), 리허설·실제 범위 섞이지 않음·잘못된 `rehearsal`, 다른 판매자·없는·틀린 날짜 = 날짜 조회와 같은 404, 401, 형식 오류 12가지·128자 경계(코드 포인트), 휴대폰 번호 5가지(응답·로그·DB에 없음), 기록 없음(DB 전체 그대로)·no-store, 상태를 바꾸지 않음.
+- `sms-buyer.test.ts`(6): G-ENG-176 흐름, 세 경우(지정·합쳐진 지정·전화번호로 이음·새), 재전송(내용 다름·합치기 뒤·forget 뒤·다른 경로·동시), 정하지 못함 `null`(엔진 호출을 감싸 지정 구매자를 모르는 ID로 적용)·다른 종류에 `buyer` 없음, 리허설 범위, 전화번호·메모 없음.
+- `view-budget.test.ts`(10): 상한 값, 한 판매자 5범위(첫 범위만 비움·다른 판매자 그대로·실행 상태 그대로), 실제·리허설 따로, 판매자 9명 × 4범위 → 32, 10분(9분 59.999초 그대로·조회 때·쓰기 커밋 뒤), 비운 뒤 같은 응답·계산 횟수 증가(범위·증분·메시지)·전체 + 증분, 실행 상태를 내리면 항목 삭제, `ViewCacheBudget` 주입 시계 단위 시험.
+- 서버 시험 전체 34파일 364개 통과(`TZ=Pacific/Honolulu`).
+
+### 화면(dev-web)에게 — 쓸 것
+- **합치기 미리 보기**(AC-S06b-33): `GET /api/days/<날짜>/merge-preview?from=<구매자 ID>&into=<구매자 ID>[&rehearsal=true]` — 값은 `encodeURIComponent`로(`sms:` 콜론 포함). 응답 `preview`를 낱말로만 바꾼다. 중복 문장의 대기 순번·상태 낱말은 `duplicates[].claim`으로 범위 조회 `claims`에서 찾는다. 미리 보기가 낡았는지 = 보는 범위의 `seq`(범위 조회·증분·실시간 알림) > 응답 `seq`. "방향 바꾸기"는 `from`·`into`를 바꿔 다시 받는다. 400(형식)·404(범위 없음)·401은 다른 조회와 같은 모양.
+- **문자찜 결과**(AC-S06b-30): 응답 `buyer`(구매자 자신, `null` 가능). 지금의 구매자 = 범위 조회 `buyers`에서 `id === buyer`인 항목의 `current`. 그 지금의 구매자가 그 상품에 가진 활성 찜은 `claims`에서 `buyer`의 `current`가 같은 활성 찜으로 찾는다. "같은 사람 하나 더"는 이 `buyer`를 지정 구매자로 보낸다.
+- 보기 캐시 상한은 응답을 바꾸지 않는다.
+
+### 테스트(test-domain·test-e2e)에게
+- 서버 시험 기동은 지금과 같다(`apps/server/test/support.ts` `newWorld({ clock })` — `world.clock.advance(ms)`로 10분을 넘긴다). 보기 캐시 상한 점검: `world.server.viewCaches.size`·`countOf(sellerId)`·`has(sellerId, date, rehearsal?)`, 범위의 `(await world.server.writer.read(seller, date, rehearsal)).views.index.size`(비우면 0)·`.builds`(계산 횟수 — 비워도 이어 센다). `@livejjim/server`에서 `ViewCacheBudget`·`VIEW_CACHE_SCOPES_PER_SELLER`(4)·`VIEW_CACHE_SCOPES_MAX`(32)·`VIEW_CACHE_IDLE_MS`(600000)·`MERGE_PREVIEW_ID_MAX`(128)·`MergePreviewView`를 내보낸다.
+- E2E 기동은 S06 그대로: `pnpm --filter @livejjim/server e2e --port 3100 --origin http://127.0.0.1:5173 [--host-delay-ms 2000] [--chat-speed 20] [--fill yes]` → 127.0.0.1:3100, 계정 `apps/server/e2e/account.json`. 새 경로는 같은 서버에 있다.
