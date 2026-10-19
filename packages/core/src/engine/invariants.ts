@@ -107,7 +107,7 @@ export function checkInvariants(state: EngineState): InvariantViolation[] {
     const group = bySlot.get(claim.key)
     if (group === undefined) bySlot.set(claim.key, [claim])
     else group.push(claim)
-    if (claim.status === 'CONFIRMED') confirmedSum.set(claim.buyer, (confirmedSum.get(claim.buyer) ?? 0) + (claim.price ?? 0))
+    if (claim.status === 'CONFIRMED') confirmedSum.set(claim.buyer, (confirmedSum.get(claim.buyer) ?? 0) + (claim.price as number))
     if (claim.price !== null && !isMoney(claim.price)) out.push({ id: 'INV-6', message: `찜 ${claim.id} 가격 스냅샷이 0 이상의 정수가 아니다 (값: ${String(claim.price)})` })
     if (anyBlocked && (claim.status === 'WAITLISTED' || claim.status === 'PENDING' || claim.status === 'CONFLICT') && pget(state.blocked, claim.buyer) === true) {
       out.push({ id: 'R-9', message: `찜 ${claim.id}: 차단 중인 구매자 ${claim.buyer}의 ${claim.status} 찜` })

@@ -101,6 +101,16 @@ export function claimNumber(id: string): number {
 /** 합치기 연결이 이보다 깊으면 고리(손상된 상태)로 본다 */
 const MAX_DEPTH = 100_000
 
+/** 작업 사본 표에서 꺼내고, 없으면 만들어 넣는다 (한 이벤트에서 같은 기록은 사본 하나) */
+function draftIn<D>(table: Map<string, D>, key: string, make: () => D): D {
+  let draft = table.get(key)
+  if (draft === undefined) {
+    draft = make()
+    table.set(key, draft)
+  }
+  return draft
+}
+
 export class Draft {
   readonly base: EngineState
   private readonly slots = new Map<string, SlotDraft>()
@@ -205,26 +215,21 @@ export class Draft {
   /** 번호의 작업 사본. 없으면 상품 없는 빈 번호를 만든다 */
   slot(b: string, no: number): SlotDraft {
     const key = slotKey(b, no)
-    const draft = this.slots.get(key)
-    if (draft !== undefined) return draft
-    const base = pget(this.base.slots, key)
-    const created: SlotDraft =
-      base === undefined
+    return draftIn(this.slots, key, () => {
+      const base = pget(this.base.slots, key)
+      return base === undefined
         ? { key, b, no, product: null, winners: [], waitlist: [], pending: emptyPMap(), active: emptyPMap(), awaiting: false, conflict: null, version: 0 }
         : { ...base, winners: [...base.winners], waitlist: [...base.waitlist] }
-    this.slots.set(key, created)
-    return created
+    })
   }
 
   /** 있는 찜의 작업 사본 */
   claim(id: string): ClaimDraft {
-    const draft = this.claims.get(id)
-    if (draft !== undefined) return draft
-    const base = pget(this.base.claims, id)
-    if (base === undefined) throw new CorruptStateError(`찜 ${id}가 없다`)
-    const created: ClaimDraft = { ...base, effects: [...base.effects], priceHistory: [...base.priceHistory] }
-    this.claims.set(id, created)
-    return created
+    return draftIn(this.claims, id, () => {
+      const base = pget(this.base.claims, id)
+      if (base === undefined) throw new CorruptStateError(`찜 ${id}가 없다`)
+      return { ...base, effects: [...base.effects], priceHistory: [...base.priceHistory] }
+    })
   }
 
   newClaim(fields: Omit<ClaimDraft, 'id' | 'n'>): ClaimDraft {
@@ -236,22 +241,13 @@ export class Draft {
     return created
   }
 
-  /** 있는 구매자의 작업 사본 (모르는 구매자면 undefined) */
-  buyer(id: string): BuyerDraft | undefined {
-    const draft = this.buyers.get(id)
-    if (draft !== undefined) return draft
-    const base = pget(this.base.buyers, id)
-    if (base === undefined) return undefined
-    const created: BuyerDraft = { ...base, names: [...base.names], children: [...base.children], dates: [...base.dates] }
-    this.buyers.set(id, created)
-    return created
-  }
-
-  /** 기록이 있어야 하는 구매자(찜의 주인)의 작업 사본 */
+  /** 기록이 있어야 하는 구매자(찜의 주인 등)의 작업 사본. 없으면 손상된 상태 */
   knownBuyer(id: string): BuyerDraft {
-    const draft = this.buyer(id)
-    if (draft === undefined) throw new CorruptStateError(`구매자 ${id}가 없다`)
-    return draft
+    return draftIn(this.buyers, id, () => {
+      const base = pget(this.base.buyers, id)
+      if (base === undefined) throw new CorruptStateError(`구매자 ${id}가 없다`)
+      return { ...base, names: [...base.names], children: [...base.children], dates: [...base.dates] }
+    })
   }
 
   newBuyer(id: string, kind: BuyerRecord['kind'], display: string, phone: string | null): BuyerDraft {
@@ -274,11 +270,7 @@ export class Draft {
 
   /** 읽은 효과의 작업 사본 (readEffect로 찾은 기록을 넘긴다) */
   effect(record: EffectRecord): EffectDraft {
-    const draft = this.effects.get(record.id)
-    if (draft !== undefined) return draft
-    const created: EffectDraft = { ...record }
-    this.effects.set(record.id, created)
-    return created
+    return draftIn(this.effects, record.id, () => ({ ...record }))
   }
 
   newEffect(fields: Omit<EffectDraft, 'n'>): EffectDraft {
@@ -299,15 +291,12 @@ export class Draft {
     return created
   }
 
-  /** 받은 메시지의 작업 사본 */
-  message(key: string): MessageDraft | undefined {
-    const draft = this.messages.get(key)
-    if (draft !== undefined) return draft
-    const base = pget(this.base.messages, key)
-    if (base === undefined) return undefined
-    const created: MessageDraft = { ...base, claimed: [...base.claimed] }
-    this.messages.set(key, created)
-    return created
+  /** 받은 메시지의 작업 사본 (readMessage로 있는 것을 확인한 메시지) */
+  message(key: string): MessageDraft {
+    return draftIn(this.messages, key, () => {
+      const base = pget(this.base.messages, key) as MessageRecord
+      return { ...base, claimed: [...base.claimed] }
+    })
   }
 
   newMessage(key: string, fields: MessageDraft): void {
@@ -317,12 +306,10 @@ export class Draft {
   /** (구매자 자신, 날짜) 정산 기록의 작업 사본. 없으면 만든다 */
   ledgerOf(buyer: string, date: string): LedgerDraft {
     const key = ledgerKey(buyer, date)
-    const draft = this.ledger.get(key)
-    if (draft !== undefined) return draft
-    const base = pget(this.base.ledger, key)
-    const created: LedgerDraft = base === undefined ? { buyer, date, entries: [] } : { ...base, entries: [...base.entries] }
-    this.ledger.set(key, created)
-    return created
+    return draftIn(this.ledger, key, () => {
+      const base = pget(this.base.ledger, key)
+      return base === undefined ? { buyer, date, entries: [] } : { ...base, entries: [...base.entries] }
+    })
   }
 
   setRef(ref: string, buyer: string): void {

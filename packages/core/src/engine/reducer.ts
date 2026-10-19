@@ -34,11 +34,12 @@ import {
   unconfirm,
   voidLabel,
 } from './rules.ts'
-import { resolveReceivedTime } from './time.ts'
+import { resolveReceivedTime, type ReceivedTime } from './time.ts'
 import { DEFERRED_EVENTS, InvalidEventError, checkEvent } from './validate.ts'
 import type {
   ApplyResult,
   BuyerMergeEvent,
+  BuyerRecord,
   BuyerUnmergeEvent,
   ChatEvent,
   ClaimOrigin,
@@ -227,7 +228,7 @@ function update(d: Draft, e: ProductUpdateEvent): void {
     if (!reprice && !printed) continue
     const claim = d.claim(id)
     if (reprice) {
-      const from = claim.price ?? 0
+      const from = claim.price as number
       claim.price = price
       claim.priceHistory.push({ from, to: price, ...change })
       d.knownBuyer(claim.buyer).subtotal += price - from
@@ -301,7 +302,7 @@ function chat(d: Draft, e: ChatEvent): void {
   const published = e.publishedAt ?? d.at
   for (const no of parsed.claims) {
     const claim = makeClaim(d, { b: e.b, no, buyer: e.ch, origin: 'chat', seq: d.seq, at: d.at, time: published, minute: false, message: key, ref: null, received: null })
-    if (claim !== null) d.message(key)?.claimed.push(no)
+    if (claim !== null) d.message(key).claimed.push(no)
   }
   for (const no of parsed.cancels) viewerCancel(d, e.b, no, e.ch)
 }
@@ -352,8 +353,8 @@ function sms(d: Draft, e: SmsEvent): void {
     draft.display = display
     draft.names.push(display)
   }
-  const received = resolveReceivedTime(e.received, d.at)
-  if (received === null) throw new CorruptStateError(`수신 시각 ${e.received}을 읽을 수 없다`)
+  // 형식은 checkEvent가 이미 확인했다
+  const received = resolveReceivedTime(e.received, d.at) as ReceivedTime
   makeClaim(d, { b: e.b, no: e.no, buyer, origin: 'sms', seq: d.seq, at: d.at, time: received.time, minute: received.minute, message: null, ref: e.ref, received: e.received })
 }
 
@@ -492,7 +493,7 @@ function convert(d: Draft, e: HostConvertMessageEvent): void {
     ref: null,
     received: null,
   })
-  if (claim !== null) d.message(key)?.claimed.push(e.no)
+  if (claim !== null) d.message(key).claimed.push(e.no)
 }
 
 /** host.blockBuyer: 그 구매자 자신의 대기·보류·충돌 찜은 모두 REJECTED(BLOCKED), 확정 찜은 그대로 (D-040). unblock: 새 찜만 다시 받는다 */
@@ -520,7 +521,8 @@ function block(d: Draft, e: HostBlockEvent): void {
 const STATUS_ORDER: Readonly<Record<string, number>> = { CONFIRMED: 0, CONFLICT: 1, WAITLISTED: 2, PENDING: 3 }
 
 function aheadOf(d: Draft, slot: SlotDraft, a: ClaimRecord | ClaimDraft, b: ClaimRecord | ClaimDraft): boolean {
-  const byStatus = (ownGet(STATUS_ORDER, a.status) ?? 9) - (ownGet(STATUS_ORDER, b.status) ?? 9)
+  // 둘 다 활성 찜이다
+  const byStatus = (ownGet(STATUS_ORDER, a.status) as number) - (ownGet(STATUS_ORDER, b.status) as number)
   if (byStatus !== 0) return byStatus < 0
   if (a.status === 'WAITLISTED') return slot.waitlist.indexOf(a.id) < slot.waitlist.indexOf(b.id)
   return compareClaims(d, a, b) < 0
@@ -582,7 +584,8 @@ function unmerge(d: Draft, e: BuyerUnmergeEvent): void {
   const part = d.members(e.from)
   const whole = d.members(oldRoot)
   // 떼어 낸 결과 어느 묶음의 받은 금액이 음수가 되면 떼어 내지 않는다 (INV-6)
-  const dates = new Set(whole.flatMap((member) => d.readBuyer(member)?.dates ?? []))
+  // 읽기만 한다 (떼어 내지 않으면 상태를 그대로 돌려줘야 한다)
+  const dates = new Set(whole.flatMap((member) => (d.readBuyer(member) as BuyerRecord).dates))
   for (const date of dates) {
     const split = receivedOfMembers(d, part, date)
     if (split < 0 || receivedOfMembers(d, whole, date) - split < 0) return

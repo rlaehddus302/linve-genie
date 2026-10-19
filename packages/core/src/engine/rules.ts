@@ -178,7 +178,7 @@ export function unconfirm(d: Draft, claim: ClaimDraft, slot: SlotDraft): void {
     else if (effect.status === 'DONE' && effect.kind === 'PRINT_PRODUCT_LABEL') voidLabel(d, claim, effect)
   }
   remove(slot.winners, claim.id)
-  d.knownBuyer(claim.buyer).subtotal -= claim.price ?? 0
+  d.knownBuyer(claim.buyer).subtotal -= claim.price as number
   claim.locked = false
   claim.reprint = false
 }
@@ -344,8 +344,7 @@ export function resolveKeep(d: Draft, slot: SlotDraft): void {
 
 /** 충돌 SWITCH (R-7 7): c를 확정하고, 그때 순위가 가장 뒤인 확정 찜 w → 대기 1순위(차단 중이면 BLOCKED, 넘치면 맨 끝 품절) */
 export function resolveSwitch(d: Draft, slot: SlotDraft): void {
-  const id = slot.conflict
-  if (id === null) return
+  const id = slot.conflict as string
   slot.conflict = null
   swap(d, d.claim(id), lastWinner(d, slot), slot, slot.product as ProductRecord)
 }
@@ -413,10 +412,8 @@ export function openPending(d: Draft, slot: SlotDraft, openedAt: number): void {
       finish(d, claim, slot, 'REJECTED', 'EXPIRED')
       continue
     }
-    const outcome = decide(d, slot, claim.buyer, claim.id)
-    // 공개된 상품이라 보류는 나오지 않는다. 같은 사람 반복(4번 줄)은 활성 찜이 둘(INV-2 위반)일 때만 나온다
-    if (outcome.kind === 'pending') throw new CorruptStateError(`보류 찜 ${claim.id}: 공개된 상품인데 보류`)
-    enter(d, claim, slot, outcome)
+    // 공개된 상품이라 보류는 나오지 않는다. 같은 사람 반복(4번 줄)은 활성 찜이 둘(INV-2 위반)일 때만 나오고 enter가 멈춘다
+    enter(d, claim, slot, decide(d, slot, claim.buyer, claim.id))
   }
 }
 

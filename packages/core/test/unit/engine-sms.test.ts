@@ -12,6 +12,8 @@ import {
   listPending,
   listProducts,
   listSettlements,
+  isValidDate,
+  isValidReceivedTime,
   normalizePhone,
   resolveReceivedTime,
   type EngineEvent,
@@ -311,5 +313,20 @@ describe('AC-S03-13 문자 수신 시각 해석 (D-023)', () => {
     })
     expect(new Set(outputs).size).toBe(1)
     expect(JSON.parse(outputs[0] as string)[1][0].winners).toEqual(['sms:s1'])
+  })
+})
+
+describe('순수 도우미의 입력 검사 (AC-S03-01)', () => {
+  it('isValidDate: 실제 있는 YYYY-MM-DD만 (윤년·달의 날 수)', () => {
+    for (const ok of ['2024-02-29', '2000-02-29', '2026-02-28', '2026-04-30', '2026-12-31', '2026-01-31']) expect(isValidDate(ok), ok).toBe(true)
+    for (const bad of ['2026-02-29', '1900-02-29', '2026-04-31', '2026-06-31', '2026-09-31', '2026-11-31', '2026-13-01', '2026-00-10', '2026-10-00', '26-10-18', '2026-1-18', 20261018, null]) {
+      expect(isValidDate(bad), String(bad)).toBe(false)
+    }
+  })
+
+  it('isValidReceivedTime·resolveReceivedTime·normalizePhone은 문자열이 아니면 받지 않는다', () => {
+    expect(isValidReceivedTime(2001)).toBe(false)
+    expect(resolveReceivedTime(2001 as unknown as string, 0)).toBeNull()
+    expect(normalizePhone(1012345678 as unknown as string)).toBeNull()
   })
 })

@@ -71,7 +71,8 @@ export function settle(settings: SaleSettings, subtotal: number, itemCount: numb
   const threshold = settings['shipping.freeThreshold']
   let shipping: number
   if (empty || override === 'PICKUP' || override === 'COMBINED') shipping = 0
-  else if (override === 'FIXED') shipping = latest?.amount ?? 0
+  // FIXED에는 금액이 있다 (checkEvent)
+  else if (override === 'FIXED') shipping = (latest as { readonly amount: number }).amount
   else shipping = threshold !== null && subtotal >= threshold ? 0 : settings['shipping.baseFee']
   const adjusted = empty ? 0 : adjustments
   const total = empty ? 0 : Math.max(0, subtotal + shipping + adjusted)

@@ -36,7 +36,7 @@ function reader(state: EngineState): Draft {
 
 function broadcastOrder(state: EngineState): (a: SlotRecord, b: SlotRecord) => number {
   const index = new Map(state.broadcasts.map((broadcast, i) => [broadcast.id, i]))
-  return (a, b) => (index.get(a.b) ?? 0) - (index.get(b.b) ?? 0) || a.no - b.no
+  return (a, b) => (index.get(a.b) as number) - (index.get(b.b) as number) || a.no - b.no
 }
 
 function claimOf(state: EngineState, id: string): ClaimRecord {
@@ -92,7 +92,7 @@ export function listProducts(state: EngineState): ProductInfo[] {
 
 /** 찜의 지금 상품 키: 상품에 붙은 찜은 그 상품의 지금 번호, 아니면 생긴 번호 (D-056) */
 function claimKey(state: EngineState, claim: ClaimRecord): string {
-  return claim.pid === null ? claim.key : (pget(state.products, claim.pid) ?? claim.key)
+  return claim.pid === null ? claim.key : (pget(state.products, claim.pid) as string)
 }
 
 function claimInfo(state: EngineState, r: Draft, claim: ClaimRecord): ClaimInfo {
@@ -148,8 +148,7 @@ export function listPending(state: EngineState): PendingInfo[] {
 function confirmedClaims(state: EngineState, members: readonly string[]): ClaimRecord[] {
   const out: ClaimRecord[] = []
   for (const member of members) {
-    const buyer = pget(state.buyers, member)
-    if (buyer === undefined) continue
+    const buyer = pget(state.buyers, member) as BuyerRecord
     for (const id of pkeys(buyer.claims)) {
       const claim = pget(state.claims, id)
       if (claim?.status === 'CONFIRMED') out.push(claim)
@@ -163,7 +162,7 @@ function buyerInfo(state: EngineState, r: Draft, buyer: BuyerRecord): BuyerInfo 
   const items = confirmedClaims(state, members)
   const byBroadcast: Record<string, number> = {}
   for (const broadcast of state.broadcasts) {
-    const amounts = items.filter((claim) => claim.b === broadcast.id).map((claim) => claim.price ?? 0)
+    const amounts = items.filter((claim) => claim.b === broadcast.id).map((claim) => claim.price as number)
     if (amounts.length > 0) ownSet(byBroadcast, broadcast.id, amounts.reduce((sum, price) => sum + price, 0))
   }
   return {
@@ -176,7 +175,7 @@ function buyerInfo(state: EngineState, r: Draft, buyer: BuyerRecord): BuyerInfo 
     nameHistory: buyer.names,
     phoneLast4: buyer.phone === null ? null : phoneLast4(buyer.phone),
     items: items.map((claim) => claimKey(state, claim)),
-    subtotal: items.reduce((sum, claim) => sum + (claim.price ?? 0), 0),
+    subtotal: items.reduce((sum, claim) => sum + (claim.price as number), 0),
     byBroadcast,
     blocked: pget(state.blocked, buyer.id) === true,
   }
@@ -210,7 +209,7 @@ export function buyerOfRef(state: EngineState, ref: string): string | null {
 export function listSmsRefs(state: EngineState): SmsRefInfo[] {
   const r = reader(state)
   return pkeys(state.refs)
-    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+    .sort((a, b) => (a < b ? -1 : 1))
     .map((ref) => {
       const buyer = pget(state.refs, ref) as string
       return { ref, buyer, currentBuyer: r.root(buyer) }
@@ -221,7 +220,7 @@ export function listSmsRefs(state: EngineState): SmsRefInfo[] {
 
 function settlementInfo(state: EngineState, r: Draft, root: string, date: string, items: readonly ClaimRecord[]): SettlementInfo {
   const entries = groupEntries(r, root, date)
-  const subtotal = items.reduce((sum, claim) => sum + (claim.price ?? 0), 0)
+  const subtotal = items.reduce((sum, claim) => sum + (claim.price as number), 0)
   const totals = settle(
     state.settings,
     subtotal,
@@ -296,9 +295,10 @@ export function listSettlements(state: EngineState): SettlementInfo[] {
     if (claim.status === 'CONFIRMED') groupOf(rootOf(claim.buyer), dateOf.get(claim.b) as string).push(claim)
   }
   for (const record of pvalues(state.ledger)) groupOf(rootOf(record.buyer), record.date)
-  const order = (id: string): number => pget(state.buyers, id)?.n ?? 0
+  // 묶음은 (지금의 구매자, 날짜)마다 하나라 같은 구매자 안에서 날짜가 겹치지 않는다
+  const order = (id: string): number => (pget(state.buyers, id) as BuyerRecord).n
   return [...groups.values()]
-    .sort((a, b) => order(a.root) - order(b.root) || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    .sort((a, b) => order(a.root) - order(b.root) || (a.date < b.date ? -1 : 1))
     .map(({ root, date, items }) => settlementInfo(state, r, root, date, items.sort(byN)))
 }
 
@@ -328,7 +328,7 @@ export function listCancelRequests(state: EngineState): CancelRequestInfo[] {
   const r = reader(state)
   return pvalues(state.claims)
     .filter((claim) => claim.request !== null && isActive(claim.status))
-    .sort((a, b) => (a.request as number) - (b.request as number) || a.n - b.n)
+    .sort((a, b) => (a.request as number) - (b.request as number))
     .map((claim) => ({ product: claimKey(state, claim), buyer: claim.buyer, currentBuyer: r.root(claim.buyer), claim: claim.id, seq: claim.request as number }))
 }
 
