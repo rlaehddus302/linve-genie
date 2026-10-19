@@ -104,7 +104,7 @@ test.describe('다시 받기 실패 (AC-S06-41)', () => {
     // 그사이 다른 기기의 입금
     expect((await writeEvent(page, { type: 'settlement.payment', buyer, date, amount: 14000 }, { date, rehearsal: true })).status).toBeLessThan(300)
     await expect(notice).toHaveCount(0, { timeout: 20_000 })
-    await expect(page.getByRole('list', { name: '정산 묶음' })).toContainText('입금 완료')
+    await expect(page.getByRole('table', { name: '정산 묶음' })).toContainText('입금 완료') // PC는 표 (AC-S06b-21 — 교체)
   })
 
   test('콘솔: 410 뒤 전체 다시 받기가 실패하면 고정 안내, 회복되면 그사이 1등이 보인다', async ({ page }) => {

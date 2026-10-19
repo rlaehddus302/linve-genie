@@ -9,6 +9,16 @@ function uniq(prefix: string): string {
   return `${prefix}${String(Math.floor(Math.random() * 1e6))}`
 }
 
+/** 입력 시각(지금)에 가장 가까운 날의 그 시각 (D-023) → "10/20" */
+function kstMonthDayNearest(hms: string): string {
+  const now = Date.now()
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(now))
+  const base = Date.parse(`${today}T${hms}+09:00`)
+  const best = [-1, 0, 1].map((d) => base + d * 86_400_000).sort((a, b) => Math.abs(a - now) - Math.abs(b - now) || b - a)[0]!
+  const md = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric' }).format(new Date(best))
+  return md
+}
+
 async function rehearsalWithTitle(page: Page, title: string): Promise<{ b: string; date: string }> {
   const date = uniqueDate()
   const b = await openNewBroadcast(page, { date, rehearsal: true, title })
@@ -27,7 +37,7 @@ test.describe('문자찜 입력', () => {
     try {
       await page.goto('/sms')
       const region = page.getByRole('region', { name: '고른 방송' })
-      await expect(region).toContainText(`${title} · 12/30(수)`)
+      await expect(region).toContainText(`${title} · 2099년 12월 30일(수)`)
       await expect(region).toContainText('진행 중')
       await expect(smsField(page, '번호')).toBeFocused()
       // 다른 기기에서 끝냄
@@ -193,7 +203,8 @@ test.describe('문자찜 입력', () => {
     await smsField(page, '메모').fill('김씨')
     await smsField(page, '번호').press('Enter')
     const result = page.getByRole('region', { name: '넣은 결과' })
-    await expect(result).toContainText('15번 · 문자찜(김씨) · 1등 · 받은 시각 00:00:01')
+    // 받은 시각의 날짜는 입력 시각에 가장 가까운 날 (D-023, AC-S06b-31 — 교체: 날짜가 붙었다)
+    await expect(result).toContainText(`15번 · 문자찜(김씨) · 1등 · 받은 시각 ${kstMonthDayNearest('00:00:01')} 00:00:01`)
     await expect(result).toContainText('뒤 4자리 5678')
     for (const name of ['번호', '받은 시각', '전화번호', '메모'] as const) await expect(smsField(page, name)).toHaveValue('')
     await expect(smsField(page, '번호')).toBeFocused()
