@@ -128,4 +128,8 @@ interface MergePreview {
 
 ### 테스트(test-domain·test-e2e)에게
 - 서버 시험 기동은 지금과 같다(`apps/server/test/support.ts` `newWorld({ clock })` — `world.clock.advance(ms)`로 10분을 넘긴다). 보기 캐시 상한 점검: `world.server.viewCaches.size`·`countOf(sellerId)`·`has(sellerId, date, rehearsal?)`, 범위의 `(await world.server.writer.read(seller, date, rehearsal)).views.index.size`(비우면 0)·`.builds`(계산 횟수 — 비워도 이어 센다). `@livejjim/server`에서 `ViewCacheBudget`·`VIEW_CACHE_SCOPES_PER_SELLER`(4)·`VIEW_CACHE_SCOPES_MAX`(32)·`VIEW_CACHE_IDLE_MS`(600000)·`MERGE_PREVIEW_ID_MAX`(128)·`MergePreviewView`를 내보낸다.
-- E2E 기동은 S06 그대로: `pnpm --filter @livejjim/server e2e --port 3100 --origin http://127.0.0.1:5173 [--host-delay-ms 2000] [--chat-speed 20] [--fill yes]` → 127.0.0.1:3100, 계정 `apps/server/e2e/account.json`. 새 경로는 같은 서버에 있다.
+- E2E 기동은 S06 그대로: `pnpm --filter @livejjim/server e2e --port 3100 --origin http://localhost:5173 [--host-delay-ms 2000] [--chat-speed 20] [--fill yes]` → 127.0.0.1:3100(브라우저 주소는 `http://localhost:5173` — `apps/web/playwright.config.ts`), 계정 `apps/server/e2e/account.json`. 새 경로는 같은 서버에 있다.
+
+### 검증 (dev-server 끝, `pnpm verify`, 커밋 6008800 기준, TZ=Pacific/Honolulu)
+- typecheck 통과(설정 8 · TS 298) · lint 통과(오류 0 · 경고 0) · test 통과(파일 95 · 2,147) · golden 통과(파일 23 · 파서 379 · 엔진 123 · 통과 502, 그 밖 0) · e2e 통과(파일 22 · 133, S06 E2E 그대로 — 문자찜 응답에 `buyer`가 더해져도 화면이 그대로 동작) · coverage 통과(코어 라인 100% · 분기 99.66%).
+- adversarial **실패 1** — `tests/adversarial/s00/golden-runner.test.ts` "환경변수·작업 폴더·시간대·언어 설정을 바꿔도 출력과 종료 코드가 같다"가 기본 5초 제한을 넘음(5,956ms, "Test timed out in 5000ms"). 골든 CLI를 여러 번 띄우는 시험이라 이번 서버 변경과 관계없고, 따로 돌리면 통과한다(51/51). 이 시험에 제한 시간을 적는 것은 AC-S06b-51(SA-S06-009) test-domain 몫이다(`tests/**`는 보호 경로). 나머지 적대 시험 641개(서버 s04·s05 포함) 통과.
