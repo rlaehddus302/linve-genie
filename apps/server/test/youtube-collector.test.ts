@@ -120,13 +120,13 @@ describe('AC-Y1-20 어댑터 셋과 대체 경로', () => {
 describe('AC-Y1-23 이어받기 — 누락·중복 없음', () => {
   it('메시지 2,000건을 흘리는 동안 스트림을 묶음 중간에 5번 끊고, 묶음 기록 직후·지점 저장 직전에 수집기(서버)를 죽였다 살린다', async () => {
     let killed = false
-    let w: YoutubeWorld
-    const holder: { kill?: () => void } = {}
-    w = await world({
+    const holder: { kill?: () => void; ready?: () => boolean } = {}
+    const w = await world({
       overrides: {
         collectorHooks: {
           beforeSaveToken: () => {
-            if (!killed && w !== undefined && w.fake.messages(liveChatId).length >= 900) {
+            // 메시지가 900건 넘게 흐른 뒤 처음 맞는 묶음: 기록은 커밋됐고 지점은 아직 — 여기서 서버가 죽는다
+            if (!killed && holder.ready?.() === true) {
               killed = true
               holder.kill?.()
               throw new Error('죽음')
@@ -141,6 +141,7 @@ describe('AC-Y1-23 이어받기 — 누락·중복 없음', () => {
     const managerA = w.server.youtube?.collectors
     if (managerA === undefined) throw new Error('유튜브가 없다')
     holder.kill = () => void managerA.kill()
+    holder.ready = () => w.fake.messages(liveChatId).length >= 900
     w.fake.pageSize = 50
     managerA.start()
     const sent: string[] = []
