@@ -4,7 +4,7 @@
 // - 그 번호에 상품이 없을 때의 조치(보류 찜 취소 등)는 그 뒤 그 번호에 처음 생긴 상품의 기록에.
 // - 다른 판매자·없는 상품 ID는 빈 목록(있는지 알리지 않는다). 이어 받기·개수 상한·응답 모양은 기존 이력 조회와 같다. 방송·번호 거르기는 그대로.
 // 정답은 코어로 처음부터 재생한 상태(listProducts)로 손으로 정한 규칙대로 셈한 것과 비교한다(무작위 순서 포함).
-import { applyEvent, initEngine, listClaims, listProducts, type EngineEvent, type EngineState } from '@livejjim/core'
+import { applyEvent, initEngine, listProducts, type EngineEvent, type EngineState } from '@livejjim/core'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { productOwners } from '../src/product-history.ts'
@@ -277,7 +277,7 @@ describe('AC-S06-70 무작위 순서 — 코어 재생으로 센 정답과 같�
           // 대기 찜이 있으면 하나 취소해 보류·승계가 섞이게
           if (op.kind === 'chat' && op.ch === 3) {
             const view = await expectOk(client(world, seller.cookie).get(`/api/days/${DAY}`))
-            const waiting = (view.body.claims as { id: string; status: string; broadcast: string; no: number; buyer: string }[]).find((claim) => claim.status === 'PENDING' || claim.status === 'WAITING')
+            const waiting = (view.body.claims as { id: string; status: string; broadcast: string; no: number; buyer: string }[]).find((claim) => claim.status === 'PENDING' || claim.status === 'WAITLISTED')
             if (waiting !== undefined) await writeEvent(world, seller, { type: 'host.cancel', b: waiting.broadcast, no: waiting.no, buyer: waiting.buyer, reason: '정리' })
           }
         }
@@ -293,7 +293,6 @@ describe('AC-S06-70 무작위 순서 — 코어 재생으로 센 정답과 같�
         let replayed = initEngine({ broadcasts: [], settings: {} })
         for (const row of rows) if (!row.failed) replayed = applyEvent(replayed, JSON.parse(row.body) as EngineEvent).state
         expect(products.map((product) => product.id).sort()).toEqual(listProducts(replayed).map((product) => product.id).sort())
-        expect(listClaims(replayed).length).toBeGreaterThanOrEqual(0)
         for (const product of products) {
           const want = expected.get(product.id) ?? []
           expect((await productHistory(world, seller, product.id, '&limit=500')).map((event) => event.seq), product.id).toEqual(want)
