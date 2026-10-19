@@ -7,7 +7,7 @@ import { SettlementsPage } from '../src/components/SettlementsPage.tsx'
 import type { Route, ScopeRoute } from '../src/lib/router.ts'
 import { chat, register } from './engine.ts'
 import { EngineServer, PHONE_SENTENCE } from './engine-server.ts'
-import { DATE, FakeEventSource, flush } from './support.ts'
+import { DATE, FakeEventSource, apiError, failWrites as failWritesOf, flush, type Reply } from './support.ts'
 
 let engine: EngineServer
 
@@ -224,5 +224,64 @@ describe('배송비·할인/추가 (AC-S06-33·34, G-ENG-173)', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '할인 적기' }))
     await waitFor(() => expect(screen.getByRole('region', { name: '정산 자세히' }).textContent).toContain('조정 −3,000원 = 최종 31,000원'))
     expect(engine.posts.at(-1)).toMatchObject({ type: 'settlement.adjust', buyer: 'c1', amount: -3000, reason: '단골 할인' })
+  })
+})
+
+describe('쓰기 오류 (AC-S06-82)', () => {
+  const failWrites = (n: number, reply: Reply) => failWritesOf(engine.server, n, reply)
+
+  async function openPayment() {
+    await open()
+    fireEvent.click(within(await openDetail('가나')).getByRole('button', { name: '입금 적기' }))
+    return screen.findByRole('dialog', { name: '입금 적기' })
+  }
+
+  it('SAVE_FAILED: 같은 요청 번호로 저절로 다시 보내고, 그래도 안 되면 "저장하지 못했어요" → "다시 보내기"도 같은 요청 번호 — 한 번만 기록', async () => {
+    const dialog = await openPayment()
+    const sent = failWrites(4, apiError(503, 'SAVE_FAILED', '저장하지 못했어요. 다시 보내 주세요.'))
+    fireEvent.click(within(dialog).getByRole('button', { name: '입금 적기' }))
+    expect(await within(dialog).findByText(/저장하지 못했어요\. "다시 보내기"를 눌러 주세요\./, {}, { timeout: 8000 })).toBeDefined()
+    expect(sent).toHaveLength(4)
+    expect(engine.posts).toHaveLength(0)
+    fireEvent.click(within(dialog).getByRole('button', { name: '다시 보내기' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '입금 적기' })).toBeNull())
+    expect(new Set(sent).size).toBe(1)
+    expect(engine.posts.filter((post) => post.type === 'settlement.payment')).toHaveLength(1)
+    await waitFor(() => expect(screen.getByRole('region', { name: '정산 자세히' }).textContent).toContain('입금 완료'))
+  }, 15_000)
+
+  it('PROCESSING_FAILED: "확인 필요: …" — 저절로 다시 보내지 않는다', async () => {
+    const dialog = await openPayment()
+    const sent = failWrites(1, apiError(500, 'PROCESSING_FAILED', '처리하지 못했어요. 확인 필요 목록에 남겼어요.'))
+    fireEvent.click(within(dialog).getByRole('button', { name: '입금 적기' }))
+    expect(await within(dialog).findByText('확인 필요: 처리하지 못했어요. 확인 필요 목록에 남겼어요.')).toBeDefined()
+    await flush(10)
+    expect(sent).toHaveLength(1)
+    expect(within(dialog).queryByRole('button', { name: '다시 보내기' })).toBeNull()
+  })
+
+  it('401: 로그인 화면으로 (앱의 세션 끝 처리기를 부른다)', async () => {
+    const dialog = await openPayment()
+    const expired = vi.fn()
+    onUnauthorized(expired)
+    failWrites(1, apiError(401, 'UNAUTHORIZED', '로그인이 필요해요.'))
+    fireEvent.click(within(dialog).getByRole('button', { name: '입금 적기' }))
+    await waitFor(() => expect(expired).toHaveBeenCalledTimes(1))
+    expect(engine.posts).toHaveLength(0)
+  })
+
+  it('서버 문제(problems)는 그 칸 아래: 환불 사유', async () => {
+    await open([...BASE, { type: 'settlement.payment', buyer: 'c2', date: DATE, amount: 11000 }])
+    fireEvent.click(within(await openDetail('다라')).getByRole('button', { name: '환불 적기' }))
+    const dialog = await screen.findByRole('dialog', { name: '환불 적기' })
+    fireEvent.change(within(dialog).getByLabelText('환불 금액'), { target: { value: '1000' } })
+    fireEvent.change(within(dialog).getByLabelText('사유'), { target: { value: '환불함' } })
+    failWrites(1, apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'reason', message: '사유를 다시 적어 주세요.', hint: '200자까지 적을 수 있어요.' }]))
+    fireEvent.click(within(dialog).getByRole('button', { name: '환불 적기' }))
+    const note = await within(dialog).findByText('사유를 다시 적어 주세요. 200자까지 적을 수 있어요.')
+    // 사유 칸 바로 아래 (칸 설명으로 이어져 있다)
+    const reason = within(dialog).getByLabelText('사유')
+    expect(reason.getAttribute('aria-describedby') ?? '').toContain(note.id)
+    expect(engine.posts.filter((post) => post.type === 'settlement.refund')).toHaveLength(0)
   })
 })

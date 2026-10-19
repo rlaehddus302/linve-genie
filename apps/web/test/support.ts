@@ -1,6 +1,7 @@
 // 화면 단위 시험 도우미: 가짜 서버(fetch)와 가짜 실시간 연결(EventSource).
 // 서버 응답 모양은 harness/sprints/S05/dev-notes.md "화면(dev-web)에게 — API 계약"을 따른다.
 import { DEFAULT_SETTINGS } from '@livejjim/core'
+import { vi } from 'vitest'
 import type { BroadcastItem, BroadcastView, ChatMessage, FullView, Product } from '../src/api/types.ts'
 
 export interface Call {
@@ -53,6 +54,27 @@ export class FakeServer {
 }
 
 export const apiError = (status: number, code: string, message: string, problems: unknown[] = []): Reply => ({ status, body: { error: { code, message, problems } } })
+
+/**
+ * 다음 쓰기(POST /api/events) n번에 이 응답을 준다(쓰기 오류 시험, AC-S06-82). 그 뒤로는 server가 받는다.
+ * 그동안 보낸 쓰기의 요청 번호를 모두 모아 돌려준다(같은 요청 번호로 다시 보냈는지).
+ */
+export function failWrites(server: FakeServer, n: number, reply: Reply): string[] {
+  const sent: string[] = []
+  let left = n
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+    if ((init?.method ?? 'GET').toUpperCase() === 'POST' && path.startsWith('/api/events')) {
+      sent.push(String((JSON.parse(String(init?.body)) as { requestId?: unknown }).requestId))
+      if (left > 0) {
+        left -= 1
+        return new Response(JSON.stringify(reply.body ?? {}), { status: reply.status ?? 200, headers: { 'Content-Type': 'application/json' } })
+      }
+    }
+    return server.fetch(input, init)
+  })
+  return sent
+}
 
 /** 가짜 실시간 연결 */
 export class FakeEventSource {

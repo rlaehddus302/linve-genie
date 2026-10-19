@@ -5,7 +5,7 @@ import { onUnauthorized } from '../src/api/client.ts'
 import { SmsPage } from '../src/components/SmsPage.tsx'
 import { chat, register, sms } from './engine.ts'
 import { EngineServer, PHONE_SENTENCE } from './engine-server.ts'
-import { FakeEventSource, flush } from './support.ts'
+import { FakeEventSource, apiError, flush } from './support.ts'
 
 let engine: EngineServer
 
@@ -256,6 +256,19 @@ describe('보내기·결과·같은 사람 하나 더 (AC-S06-14·81)', () => {
     const result = await screen.findByRole('region', { name: '넣은 결과' })
     await waitFor(() => expect(result.textContent).toContain('15번 · 새 찜이 생기지 않았어요. 지금 상태를 확인해 주세요.'))
     expect(within(result).queryByRole('button', { name: '같은 사람 하나 더' })).toBeNull()
+  })
+
+  it('AC-S06-82: 서버가 메모를 거절하면 그 문장을 메모 칸 아래에 — 칸은 그대로', async () => {
+    setup([register(15, '핑크프릴', 10000, 'b2')])
+    await open()
+    type(numberField(), '15')
+    type(field('메모'), '김씨')
+    engine.failNext = apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'memo', message: PHONE_SENTENCE }])
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    const note = await screen.findByText(PHONE_SENTENCE)
+    expect(field('메모').getAttribute('aria-describedby')).toBe(note.id)
+    expect([numberField().value, field('메모').value]).toEqual(['15', '김씨'])
+    expect(screen.queryByRole('region', { name: '넣은 결과' })).toBeNull()
   })
 
   it('UX-S06-002: 결과 카드는 번호 칸 바로 위, 보내기 버튼·보내는 중·저장 실패는 화면 아래 보내기 막대 안', async () => {

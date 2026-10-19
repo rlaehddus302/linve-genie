@@ -7,7 +7,7 @@ import { BuyersPage } from '../src/components/BuyersPage.tsx'
 import type { Route, ScopeRoute } from '../src/lib/router.ts'
 import { chat, register, sms } from './engine.ts'
 import { EngineServer } from './engine-server.ts'
-import { DATE, FakeEventSource, flush } from './support.ts'
+import { DATE, FakeEventSource, apiError, failWrites, flush } from './support.ts'
 
 let engine: EngineServer
 let routes: Route[]
@@ -209,5 +209,43 @@ describe('합치기·떼어 내기 (AC-S06-23·24, G-ENG-171·172)', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '떼어 내기' }))
     expect(await within(dialog).findByText('떼어 내지 못했어요. 합친 동안 적은 환불이 한쪽 입금보다 많아요. 정산 기록을 먼저 확인해 주세요.')).toBeDefined()
     expect(engine.posts.at(-1)).toMatchObject({ type: 'buyer.unmerge', from: 'sms:r1', reason: '잘못 합침' })
+  })
+})
+
+describe('쓰기 오류 (AC-S06-82)', () => {
+  async function openMergeWithHong() {
+    await open()
+    fireEvent.click(within(list()).getByRole('link', { name: /문자찜\(김씨\)/ }))
+    await flush()
+    fireEvent.click(screen.getByRole('button', { name: '다른 구매자와 합치기' }))
+    fireEvent.change(screen.getByLabelText('합칠 구매자 찾기'), { target: { value: '홍길동' } })
+    fireEvent.click(within(screen.getByRole('list', { name: '합칠 구매자' })).getAllByRole('button')[0] as HTMLElement)
+    const dialog = await screen.findByRole('dialog', { name: '구매자 합치기' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '1 같은 사람' }))
+    return dialog
+  }
+
+  it('합치기 SAVE_FAILED: 저절로 다시 보낸 뒤 "저장하지 못했어요" → "다시 보내기"는 같은 요청 번호 — 한 번만 합친다', async () => {
+    const dialog = await openMergeWithHong()
+    const sent = failWrites(engine.server, 4, apiError(503, 'SAVE_FAILED', '저장하지 못했어요. 다시 보내 주세요.'))
+    fireEvent.click(within(dialog).getByRole('button', { name: '합치기' }))
+    expect(await within(dialog).findByText(/저장하지 못했어요\. "다시 보내기"를 눌러 주세요\./, {}, { timeout: 8000 })).toBeDefined()
+    expect(engine.posts).toHaveLength(0)
+    fireEvent.click(within(dialog).getByRole('button', { name: '다시 보내기' }))
+    expect(await screen.findByText('합쳤어요')).toBeDefined()
+    expect(new Set(sent).size).toBe(1)
+    expect(engine.posts.filter((post) => post.type === 'buyer.merge')).toHaveLength(1)
+  }, 15_000)
+
+  it('합치기 PROCESSING_FAILED는 "확인 필요: …", 사유의 서버 문제는 사유 칸 아래', async () => {
+    const dialog = await openMergeWithHong()
+    failWrites(engine.server, 1, apiError(500, 'PROCESSING_FAILED', '처리하지 못했어요. 확인 필요 목록에 남겼어요.'))
+    fireEvent.click(within(dialog).getByRole('button', { name: '합치기' }))
+    expect(await within(dialog).findByText('확인 필요: 처리하지 못했어요. 확인 필요 목록에 남겼어요.')).toBeDefined()
+    failWrites(engine.server, 1, apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'reason', message: '사유를 다시 적어 주세요.' }]))
+    fireEvent.click(within(dialog).getByRole('button', { name: '합치기' }))
+    const note = await within(dialog).findByText('사유를 다시 적어 주세요.')
+    expect(within(dialog).getByLabelText('사유').getAttribute('aria-describedby') ?? '').toContain(note.id)
+    expect(engine.posts).toHaveLength(0)
   })
 })
