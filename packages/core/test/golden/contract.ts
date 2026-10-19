@@ -2,6 +2,7 @@
 // 여기 없는 suite·이벤트 종류·필드·설정 키·expect 키·열거값은 읽기 오류다.
 // 새 어휘는 spec-keeper가 README에 먼저 추가하고, 그다음 이 파일을 맞춘다.
 
+import { normalizePhone } from '@livejjim/core'
 import { YamlFloat } from './yaml.ts'
 
 export const SUITES = ['chat', 'amount', 'korean-number', 'quick-input'] as const
@@ -93,43 +94,61 @@ export const phoneLast4OrNull: ValueCheck = (value) =>
     ? undefined
     : `숫자 4자리 문자열(따옴표로 적는다, 예: "0000") 또는 null이어야 한다 (값: ${show(value)})`
 
-export const intOrNull =
-  (min: number): ValueCheck =>
+/** 정수 min~max (설정값 범위, D-071) */
+export const intRange =
+  (min: number, max: number): ValueCheck =>
   (value) =>
-    value === null
+    typeof value === 'number' && Number.isSafeInteger(value) && value >= min && value <= max
       ? undefined
-      : intAtLeast(min)(value) === undefined
-        ? undefined
-        : `${min} 이상 정수 또는 null이어야 한다 (값: ${show(value)})${floatHint(value)}`
+      : `${min} 이상 ${max} 이하 정수여야 한다 (값: ${show(value)})${floatHint(value)}`
+
+/** null 또는 정수 min~max (설정값 범위, D-071) */
+export const intRangeOrNull =
+  (min: number, max: number): ValueCheck =>
+  (value) =>
+    value === null || intRange(min, max)(value) === undefined
+      ? undefined
+      : `${min} 이상 ${max} 이하 정수 또는 null이어야 한다 (값: ${show(value)})${floatHint(value)}`
+
+/** 숫자만 모으면 휴대폰 번호 모양인지 = 코어 normalizePhone의 결과가 있는지 (README sms 행, S04, D-073) */
+export const notPhoneShaped: ValueCheck = (value) =>
+  typeof value === 'string' && normalizePhone(value) !== null
+    ? `숫자만 모으면 휴대폰 번호 모양이다 — 번호는 phone에만 적는다 (값: ${show(value)})`
+    : undefined
 
 export { show as showValue }
 
-// ── 설정 키 (README "설정 키", DOMAIN_RULES 설정표) ──────────────────────
+// ── 설정 키 (README "설정 키", DOMAIN_RULES 설정표·"설정값 범위" D-071) ────
+// 코어 checkSettings를 쓰지 않고 README대로 따로 적는다 — 러너가 코어의 검사를 그대로 따라 하면 코어가 틀려도 잡지 못한다.
 export const SETTING_CHECKS: Readonly<Record<string, ValueCheck>> = {
   'claim.parseMode': oneOf(['STRICT', 'LOOSE']),
   'claim.multiNumber': oneOf(['ALL', 'FIRST', 'IGNORE']),
-  'claim.maxNumber': intAtLeast(1),
+  'claim.maxNumber': intRange(1, 9999),
   'claim.ignoreOwner': bool,
-  'claim.preOpenWindowSec': intAtLeast(0),
-  'waitlist.max': intAtLeast(0),
+  'claim.preOpenWindowSec': intRange(0, 300),
+  'waitlist.max': intRange(0, 100),
   'cancel.buyerChat': oneOf(['OFF', 'REQUEST', 'AUTO']),
   'cancel.succession': oneOf(['AUTO', 'ASK', 'REOPEN']),
   'contention.policy': oneOf(['ARRIVAL', 'RECEIVED_TIME']),
   'contention.sameMinuteTieBreaker': oneOf(['YOUTUBE', 'SMS', 'HOST']),
   'price.unit': oneOf(['WON', 'THOUSAND']),
-  'shipping.baseFee': intAtLeast(0),
-  'shipping.freeThreshold': intOrNull(0),
+  'shipping.baseFee': intRange(0, 1_000_000),
+  'shipping.freeThreshold': intRangeOrNull(0, 100_000_000),
   'settlement.groupBy': oneOf(['DATE', 'MANUAL']),
   'print.autoOnConfirm': bool,
   'thanks.liveChat': bool,
   'thanks.videoComment': oneOf(['OFF', 'PER_SALE', 'SUMMARY']),
-  'thanks.batchWindowSec': intAtLeast(0),
+  'thanks.batchWindowSec': intRange(0, 600),
 }
 
 // ── 이벤트 종류와 필드 (README "이벤트 종류와 필드") ─────────────────────
 /** 필드 값의 종류. 참조형(방송·구매자·메시지)은 시나리오 문맥이 필요해 validate에서 검사한다. */
 export type FieldKind =
   | { readonly kind: 'broadcast' }
+  /** broadcast.start의 방송: 새 방송 ID 또는 이미 선언한 방송(사본) (S04, D-070) */
+  | { readonly kind: 'newBroadcast' }
+  /** broadcast.start의 설정 스냅샷: 설정 키 → 값 (아래 SETTING_CHECKS) */
+  | { readonly kind: 'settings' }
   | { readonly kind: 'buyer' }
   | { readonly kind: 'channel' }
   | { readonly kind: 'message' }
@@ -141,6 +160,8 @@ export type FieldKind =
 
 const F = {
   b: { kind: 'broadcast' },
+  newB: { kind: 'newBroadcast' },
+  settings: { kind: 'settings' },
   buyer: { kind: 'buyer' },
   channel: { kind: 'channel' },
   message: { kind: 'message' },
@@ -174,6 +195,9 @@ const productByNo = spec({ b: F.b, no: F.no })
 const blockLike = spec({ buyer: F.buyer, reason: F.reason })
 
 export const EVENT_SPECS: Readonly<Record<string, EventSpec>> = {
+  // 짧은 형식 at은 이 이벤트의 date 기준 (README "시각") — validate가 따로 다룬다
+  'broadcast.start': spec({ b: F.newB, date: F.date, title: F.v(str) }, { settings: F.settings }),
+  'broadcast.end': spec({ b: F.b }),
   'product.register': spec(
     { b: F.b, no: F.no, name: F.v(str), price: F.v(intAtLeast(0)) },
     { stock: F.v(intAtLeast(1)), status: F.v(oneOf(['OPEN', 'READY'])) },
@@ -190,7 +214,10 @@ export const EVENT_SPECS: Readonly<Record<string, EventSpec>> = {
     { b: F.b, id: F.v(nonEmptyStr), ch: F.channel, nick: F.v(nonEmptyStr), text: F.v(str) },
     { owner: F.v(bool), publishedAt: F.at },
   ),
-  sms: spec({ b: F.b, ref: F.smsRef, no: F.no, received: F.received }, { memo: F.v(str), phone: F.v(str), buyer: F.buyer }),
+  sms: spec(
+    { b: F.b, ref: F.smsRef, no: F.no, received: F.received },
+    { memo: F.v((value) => str(value) ?? notPhoneShaped(value)), phone: F.v(str), buyer: F.buyer },
+  ),
   'host.cancel': hostWithBuyer,
   'host.reject': hostWithBuyer,
   'host.promote': hostWithBuyer,
@@ -229,12 +256,15 @@ export const EXPECT_KEYS = [
   'sameBuyer',
   'claimCount',
   'cancelRequests',
+  'broadcasts',
 ] as const
 export const PRODUCT_EXPECT_KEYS = ['status', 'winner', 'winners', 'waitlist', 'conflict', 'exists', 'price', 'priceHistory'] as const
 export const BUYER_EXPECT_KEYS = ['items', 'subtotal', 'byBroadcast', 'display', 'nameHistory', 'phoneLast4'] as const
 export const SETTLEMENT_EXPECT_KEYS = ['subtotal', 'shipping', 'adjustments', 'total', 'refundDue', 'payment'] as const
 export const EFFECT_EXPECT_KEYS = ['kind', 'target', 'product', 'buyer', 'text', 'confirmVersion'] as const
 export const CLAIM_EXPECT_KEYS = ['product', 'buyer', 'status', 'reason'] as const
+/** `broadcasts.<b>` (S04, D-070) */
+export const BROADCAST_EXPECT_KEYS = ['date', 'title', 'ended'] as const
 
 /** 품목이 없는(엔진이 보고하지 않은) 정산 묶음 (README: 금액 전부 0, UNPAID) */
 export const EMPTY_SETTLEMENT = {

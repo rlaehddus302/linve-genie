@@ -67,6 +67,16 @@ export interface GoldenCore {
 // ── 관찰 스냅샷 (expect 비교 대상) ───────────────────────────────────────
 // 구매자는 모두 "지금의 구매자 ID"로 적는다. 골든의 구매자 키(채널 ID, sms:<ref>)는 buyerKeys로 푼다.
 
+/** 방송 하나 (S04, D-070) */
+export interface BroadcastView {
+  /** 처음 선언한 날짜 YYYY-MM-DD (사본은 바꾸지 않는다) */
+  readonly date: string
+  /** 처음 선언한 제목 */
+  readonly title: string
+  /** broadcast.end를 받았는지 */
+  readonly ended: boolean
+}
+
 export interface ProductView {
   readonly status: ProductStatus
   /** 확정 구매자 ID (재고 1이면 0~1명) */
@@ -122,6 +132,8 @@ export interface ClaimView {
 export interface GoldenSnapshot {
   /** 구매자 키 → 지금의 구매자 ID (합치기·전화번호 연결 반영) */
   readonly buyerKeys: Readonly<Record<string, string>>
+  /** 방송 ID → 방송 (선언된 방송 전부, S04) */
+  readonly broadcasts: Readonly<Record<string, BroadcastView>>
   /** 지금의 상품 키 `<방송>/<번호>` → 상품 */
   readonly products: Readonly<Record<string, ProductView>>
   /** 구매자 ID → 구매자 */

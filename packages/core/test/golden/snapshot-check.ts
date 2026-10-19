@@ -15,8 +15,9 @@ import {
 } from './contract.ts'
 import { parseDate } from './time.ts'
 
-export const SNAPSHOT_KEYS = ['buyerKeys', 'products', 'buyers', 'settlements', 'effects', 'claims', 'pending', 'cancelRequests'] as const
+export const SNAPSHOT_KEYS = ['buyerKeys', 'broadcasts', 'products', 'buyers', 'settlements', 'effects', 'claims', 'pending', 'cancelRequests'] as const
 export const EFFECT_STATUSES = ['PENDING', 'DONE', 'CANCELLED', 'SKIPPED'] as const
+const BROADCAST_VIEW_KEYS = ['date', 'title', 'ended'] as const
 const PRODUCT_VIEW_KEYS = ['status', 'winners', 'waitlist', 'conflict', 'price', 'priceHistory'] as const
 const BUYER_VIEW_KEYS = ['display', 'nameHistory', 'items', 'subtotal', 'byBroadcast', 'phoneLast4'] as const
 const SETTLEMENT_VIEW_KEYS = ['subtotal', 'shipping', 'adjustments', 'total', 'refundDue', 'payment'] as const
@@ -90,6 +91,21 @@ export function snapshotIssues(snapshot: unknown): string[] {
 
   if (has('buyerKeys') && c.record('buyerKeys', snapshot.buyerKeys)) {
     for (const [key, id] of Object.entries(snapshot.buyerKeys)) c.str(`buyerKeys.${key}`, id)
+  }
+
+  if (has('broadcasts') && c.record('broadcasts', snapshot.broadcasts)) {
+    for (const [id, broadcast] of Object.entries(snapshot.broadcasts)) {
+      const p = `broadcasts.${id}`
+      if (!BROADCAST_ID_RE.test(id)) c.fail(p, `방송 ID 형식 오류`)
+      if (!c.record(p, broadcast, BROADCAST_VIEW_KEYS)) continue
+      c.optional(broadcast, 'date', (v) => {
+        if (typeof v !== 'string' || !parseDate(v)) c.fail(`${p}.date`, `YYYY-MM-DD 날짜여야 한다 (값: ${showValue(v)})`)
+      })
+      c.optional(broadcast, 'title', (v) => c.str(`${p}.title`, v))
+      c.optional(broadcast, 'ended', (v) => {
+        if (typeof v !== 'boolean') c.fail(`${p}.ended`, `true 또는 false여야 한다 (값: ${showValue(v)})`)
+      })
+    }
   }
 
   if (has('products') && c.record('products', snapshot.products)) {

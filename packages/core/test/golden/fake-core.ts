@@ -20,6 +20,7 @@ export interface FakeCoreOptions {
 export function emptySnapshot(overrides: Partial<GoldenSnapshot> = {}): GoldenSnapshot {
   return {
     buyerKeys: {},
+    broadcasts: {},
     products: {},
     buyers: {},
     settlements: {},

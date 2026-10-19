@@ -12,6 +12,7 @@ import {
   checkInvariants,
   currentBuyerOf,
   initEngine,
+  listBroadcasts,
   listBuyers,
   listCancelRequests,
   listClaims,
@@ -29,7 +30,7 @@ import {
 } from '@livejjim/core'
 import { SMS_PREFIX } from './contract.ts'
 import { smsPhoneFields } from './phone-key.ts'
-import type { BuyerView, ClaimView, EffectView, GoldenCore, GoldenEvent, GoldenSnapshot, ProductView, SettlementView } from './types.ts'
+import type { BroadcastView, BuyerView, ClaimView, EffectView, GoldenCore, GoldenEvent, GoldenSnapshot, ProductView, SettlementView } from './types.ts'
 
 /** 이벤트 안의 구매자 키 필드 (README "이벤트 안의 구매자 키") */
 const BUYER_KEY_FIELDS = ['buyer', 'replace', 'from', 'into'] as const
@@ -75,6 +76,9 @@ export function toEngineEvent(state: EngineState, event: GoldenEvent): EngineEve
 
 /** 엔진 상태 → 골든 관찰 스냅샷 (이름·모양만 바꾼다) */
 export function toSnapshot(state: EngineState): GoldenSnapshot {
+  // 방송: 조회 함수의 날짜·제목·끝났는지 그대로 (S04, D-070)
+  const broadcasts: Record<string, BroadcastView> = {}
+  for (const broadcast of listBroadcasts(state)) broadcasts[broadcast.id] = { date: broadcast.date, title: broadcast.title, ended: broadcast.ended }
   const buyers = listBuyers(state)
   const products: Record<string, ProductView> = {}
   for (const product of listProducts(state)) {
@@ -124,6 +128,7 @@ export function toSnapshot(state: EngineState): GoldenSnapshot {
   for (const ref of listSmsRefs(state)) buyerKeys[`${SMS_PREFIX}${ref.ref}`] = ref.currentBuyer
   return {
     buyerKeys,
+    broadcasts,
     products,
     buyers: buyerViews,
     settlements,

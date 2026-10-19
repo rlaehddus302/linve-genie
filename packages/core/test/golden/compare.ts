@@ -161,6 +161,21 @@ export function compareExpect(expect: Expect, snapshot: GoldenSnapshot, where?: 
 
   for (const section of EXPECT_KEYS) {
     switch (section) {
+      case 'broadcasts': {
+        // 적은 필드만: date·title = 처음 선언한 값, ended = broadcast.end를 받았는지 (README 비교 규칙, S04)
+        for (const [key, want] of Object.entries(expect.broadcasts ?? {})) {
+          const base = `broadcasts.${key}`
+          const broadcast = own(snapshot.broadcasts, key)
+          if (broadcast === undefined) {
+            push({ path: base, expected: want, actual: undefined, message: '그 방송이 없다' })
+            continue
+          }
+          for (const field of ['date', 'title', 'ended'] as const) {
+            if (want[field] !== undefined && want[field] !== broadcast[field]) push({ path: `${base}.${field}`, expected: want[field], actual: broadcast[field] })
+          }
+        }
+        break
+      }
       case 'products': {
         for (const [key, want] of Object.entries(expect.products ?? {})) {
           const product = own(snapshot.products, key)

@@ -3,6 +3,7 @@
 import type { SettingsOverride } from '@livejjim/core'
 import {
   ASSIGN_REPLACE_FIELDS,
+  BROADCAST_EXPECT_KEYS,
   BROADCAST_ID_RE,
   BUYER_EXPECT_KEYS,
   CLAIM_EXPECT_KEYS,
@@ -30,6 +31,7 @@ import {
   intAtLeast,
   isPlainObject,
   nonEmptyStr,
+  notPhoneShaped,
   oneOf,
   phoneLast4OrNull,
   showValue,
@@ -95,7 +97,14 @@ export interface ClaimExpect {
   readonly reason?: RejectReason
 }
 
+export interface BroadcastExpect {
+  readonly date?: string
+  readonly title?: string
+  readonly ended?: boolean
+}
+
 export interface Expect {
+  readonly broadcasts?: Readonly<Record<string, BroadcastExpect>>
   readonly products?: Readonly<Record<string, ProductExpect>>
   readonly buyers?: Readonly<Record<string, BuyerExpect>>
   readonly settlements?: Readonly<Record<string, SettlementExpect>>
@@ -162,9 +171,15 @@ export function formatPath(path: readonly PathSegment[]): string {
 // ── 검사 도구 ────────────────────────────────────────────────────────────
 
 interface ScenarioContext {
-  readonly broadcasts: ReadonlyMap<string, GoldenBroadcast>
+  /**
+   * 지금까지 선언된 방송 (시작 때 선언한 broadcasts 목록 + 앞선 broadcast.start). 이벤트를 차례로 검사하며 늘어난다 —
+   * 이벤트·중간 검사는 그 시점까지 선언된 방송만, 마지막 expect는 모든 방송을 쓸 수 있다 (README "규칙", S04)
+   */
+  readonly broadcasts: Map<string, GoldenBroadcast>
   readonly smsRefs: ReadonlySet<string>
   readonly messageIds: ReadonlySet<string>
+  /** 방송 날짜(broadcasts 목록과 모든 broadcast.start의 date — 사본 포함) */
+  readonly dates: ReadonlySet<string>
   /** 방송 날짜가 하나뿐이면 그 날짜 (방송 없는 이벤트의 짧은 at 기준) */
   readonly singleDate: string | undefined
 }
@@ -265,6 +280,23 @@ function checkEffectEntry(c: Checker, ctx: ScenarioContext, path: readonly PathS
 function checkExpect(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], value: unknown): void {
   if (!c.object(path, value)) return
   c.keys(path, value, EXPECT_KEYS, [], 'expect 키')
+
+  if (hasValue(value, 'broadcasts')) {
+    const p = [...path, 'broadcasts']
+    if (c.object(p, value.broadcasts)) {
+      for (const [key, broadcast] of Object.entries(value.broadcasts)) {
+        const kp = [...p, key]
+        if (!ctx.broadcasts.has(key)) c.fail(kp, `선언하지 않은 방송 '${key}' (그 검사 시점까지 broadcasts 목록이나 broadcast.start로 선언한 방송만)`)
+        if (!c.object(kp, broadcast)) continue
+        c.keys(kp, broadcast, BROADCAST_EXPECT_KEYS, [], '방송 expect 키')
+        if (hasValue(broadcast, 'date')) {
+          c.value([...kp, 'date'], broadcast.date, (v) => (typeof v === 'string' && parseDate(v) ? undefined : `날짜 형식 오류 ${showValue(v)} (YYYY-MM-DD)`))
+        }
+        if (hasValue(broadcast, 'title')) c.value([...kp, 'title'], broadcast.title, str)
+        if (hasValue(broadcast, 'ended')) c.value([...kp, 'ended'], broadcast.ended, bool)
+      }
+    }
+  }
 
   if (hasValue(value, 'products')) {
     const p = [...path, 'products']
@@ -509,16 +541,18 @@ function validateSuite(raw: Record<string, unknown>): ValidationResult {
 
 // ── 엔진 시나리오 ────────────────────────────────────────────────────────
 
-function collectContext(c: Checker, raw: Record<string, unknown>): ScenarioContext {
+/** 방송 ID 형식 (broadcasts 목록·broadcast.start 공통): 공백·'/'·'@' 없는 문자열 — 상품 키 `<방송>/<번호>`에 쓴다 */
+const broadcastId: ValueCheck = (v) => (typeof v === 'string' && BROADCAST_ID_RE.test(v) ? undefined : `방송 ID는 공백·'/'·'@' 없는 문자열이어야 한다 (값: ${showValue(v)})`)
+
+/** 시작 때 선언한 방송(broadcasts 목록 — S04부터 빈 목록도 된다)과 이벤트 사전 조사 */
+function collectContext(c: Checker, raw: Record<string, unknown>): { readonly ctx: ScenarioContext; readonly initial: readonly GoldenBroadcast[] } {
   const broadcasts = new Map<string, GoldenBroadcast>()
-  if (hasValue(raw, 'broadcasts') && c.array(['broadcasts'], raw.broadcasts, 1)) {
+  if (hasValue(raw, 'broadcasts') && c.array(['broadcasts'], raw.broadcasts)) {
     raw.broadcasts.forEach((entry, i) => {
       const p = ['broadcasts', i]
       if (!c.object(p, entry)) return
       c.keys(p, entry, ['id', 'date', 'title'], ['id', 'date', 'title'], '방송 키')
-      const idOk = hasValue(entry, 'id') && c.value([...p, 'id'], entry.id, (v) =>
-        typeof v === 'string' && BROADCAST_ID_RE.test(v) ? undefined : `방송 ID는 공백·'/'·'@' 없는 문자열이어야 한다 (값: ${showValue(v)})`,
-      )
+      const idOk = hasValue(entry, 'id') && c.value([...p, 'id'], entry.id, broadcastId)
       const dateOk =
         hasValue(entry, 'date') &&
         c.value([...p, 'date'], entry.date, (v) => (typeof v === 'string' && parseDate(v) ? undefined : `날짜 형식 오류 ${showValue(v)} (YYYY-MM-DD)`))
@@ -534,22 +568,41 @@ function collectContext(c: Checker, raw: Record<string, unknown>): ScenarioConte
   }
   const smsRefs = new Set<string>()
   const messageIds = new Set<string>()
+  const dates = new Set([...broadcasts.values()].map((b) => b.date))
   if (Array.isArray(raw.events)) {
     for (const event of raw.events) {
       if (!isPlainObject(event)) continue
       if (event.type === 'sms' && typeof event.ref === 'string') smsRefs.add(event.ref)
       if (event.type === 'chat' && typeof event.id === 'string') messageIds.add(event.id)
+      // 방송 날짜는 broadcast.start(사본 포함)의 date도 센다 (README "시각")
+      if (event.type === 'broadcast.start' && typeof event.date === 'string' && parseDate(event.date)) dates.add(event.date)
     }
   }
-  const dates = new Set([...broadcasts.values()].map((b) => b.date))
   const singleDate = dates.size === 1 ? [...dates][0] : undefined
-  return { broadcasts, smsRefs, messageIds, singleDate }
+  return { ctx: { broadcasts, smsRefs, messageIds, dates, singleDate }, initial: [...broadcasts.values()] }
+}
+
+/** broadcast.start의 settings: 설정 키 → 값 (README "설정 키" — 키·값·범위 밖은 읽기 오류) */
+function checkEventSettings(c: Checker, path: readonly PathSegment[], value: unknown): void {
+  if (!c.object(path, value)) return
+  for (const [key, setting] of Object.entries(value)) {
+    const check = Object.hasOwn(SETTING_CHECKS, key) ? SETTING_CHECKS[key] : undefined
+    if (!check) c.fail([...path, key], `모르는 설정 키 '${key}'`)
+    else c.value([...path, key], setting, check)
+  }
 }
 
 function checkField(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], kind: FieldKind, value: unknown): void {
   switch (kind.kind) {
     case 'broadcast':
-      if (typeof value !== 'string' || !ctx.broadcasts.has(value)) c.fail(path, `선언하지 않은 방송 ${showValue(value)}`)
+      if (typeof value !== 'string' || !ctx.broadcasts.has(value)) c.fail(path, `선언하지 않은 방송 ${showValue(value)} (broadcasts 목록이나 앞선 broadcast.start로 선언한 방송만)`)
+      return
+    case 'newBroadcast':
+      // 새 ID이거나 이미 선언한 방송(재전송 사본). 선언은 validateScenario가 이벤트를 받은 뒤에 한다
+      c.value(path, value, broadcastId)
+      return
+    case 'settings':
+      checkEventSettings(c, path, value)
       return
     case 'buyer':
       checkBuyerKey(c, ctx, path, value)
@@ -564,8 +617,9 @@ function checkField(c: Checker, ctx: ScenarioContext, path: readonly PathSegment
       return
     case 'smsRef':
       // 같은 ref를 다시 적으면 재전송 사본이다 (README sms 행, D-067) — 중복은 읽기 오류가 아니다
+      // 숫자만 모은 것이 휴대폰 번호 모양이면 읽기 오류 (README sms 행, S04, D-073)
       c.value(path, value, (v) =>
-        typeof v === 'string' && SMS_REF_RE.test(v) ? undefined : `문자찜 ref는 영문·숫자·'_'·'-'로 된 1~64자여야 한다 (값: ${showValue(v)})`,
+        typeof v === 'string' && SMS_REF_RE.test(v) ? notPhoneShaped(v) : `문자찜 ref는 영문·숫자·'_'·'-'로 된 1~64자여야 한다 (값: ${showValue(v)})`,
       )
       return
     case 'date':
@@ -593,7 +647,7 @@ function validateScenario(raw: Record<string, unknown>): ValidationResult {
     raw.refs.forEach((ref, i) => c.value(['refs', i], ref, nonEmptyStr))
   }
   const settings = checkScenarioSettings(c, raw.settings)
-  const ctx = collectContext(c, raw)
+  const { ctx, initial } = collectContext(c, raw)
 
   const steps: ScenarioStep[] = []
   let seq = 0
@@ -628,15 +682,17 @@ function validateScenario(raw: Record<string, unknown>): ValidationResult {
         if (present.length === 1) c.fail(p, `host.assign의 replace와 replaceTo는 함께 쓴다 ('${present[0] ?? ''}'만 있다)`)
       }
 
-      // 시각
-      const broadcast = spec.hasBroadcast && typeof entry.b === 'string' ? ctx.broadcasts.get(entry.b) : undefined
-      const baseDate = spec.hasBroadcast ? broadcast?.date : ctx.singleDate
-      const baseKnown = spec.hasBroadcast ? broadcast !== undefined : true
+      // 시각: 짧은 형식은 그 이벤트의 방송 날짜, broadcast.start는 그 이벤트의 date(사본도 같다), 방송 없는 이벤트는 하나뿐인 방송 날짜
+      const starting = type === 'broadcast.start'
+      const startDate = starting && typeof entry.date === 'string' && parseDate(entry.date) ? entry.date : undefined
+      const broadcast = spec.hasBroadcast && !starting && typeof entry.b === 'string' ? ctx.broadcasts.get(entry.b) : undefined
+      const baseDate = starting ? startDate : spec.hasBroadcast ? broadcast?.date : ctx.singleDate
+      const baseKnown = starting ? startDate !== undefined : spec.hasBroadcast ? broadcast !== undefined : true
       let atMs: number | undefined
       if (hasValue(entry, 'at')) {
         if (typeof entry.at !== 'string') {
           c.fail([...p, 'at'], `at은 문자열이어야 한다 (값: ${showValue(entry.at)})`)
-        } else if (!spec.hasBroadcast && ctx.singleDate === undefined && isShortAt(entry.at) && ctx.broadcasts.size > 0) {
+        } else if (!spec.hasBroadcast && ctx.dates.size > 1 && isShortAt(entry.at)) {
           c.fail([...p, 'at'], `날짜가 다른 방송이 섞인 시나리오에서 방송(b) 없는 이벤트의 짧은 at "${entry.at}" — ISO 시각(오프셋 포함)으로 적어야 한다`)
         } else if (baseKnown) {
           const resolved = resolveAt(entry.at, baseDate)
@@ -659,6 +715,11 @@ function validateScenario(raw: Record<string, unknown>): ValidationResult {
           if (!resolved.ok) c.fail([...p, 'publishedAt'], resolved.reason)
           else publishedMs = resolved.utcMs
         }
+      }
+
+      // 새 방송 선언: 이 이벤트 뒤의 이벤트·검사가 그 방송을 쓸 수 있다. 이미 선언한 방송이면 사본 — 처음 선언한 날짜·제목 그대로
+      if (starting && startDate !== undefined && typeof entry.b === 'string' && BROADCAST_ID_RE.test(entry.b) && typeof entry.title === 'string' && !ctx.broadcasts.has(entry.b)) {
+        ctx.broadcasts.set(entry.b, { id: entry.b, date: startDate, title: entry.title })
       }
 
       seq += 1
@@ -686,7 +747,7 @@ function validateScenario(raw: Record<string, unknown>): ValidationResult {
       id: raw.id as string,
       title: raw.title as string,
       refs: raw.refs as string[],
-      setup: { broadcasts: [...ctx.broadcasts.values()], settings },
+      setup: { broadcasts: initial, settings },
       steps,
       expect: expectValue as Expect,
     },
