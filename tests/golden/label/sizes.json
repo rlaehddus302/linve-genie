@@ -1,0 +1,10 @@
+{
+  "kind": "size",
+  "about": "라벨 크기 목록과 점 수·A4 모아찍기 장 수 (LABEL_RULES L-1·L-6, D-P1-02·07)",
+  "cases": [
+    {"id":"G-LBL-201","title":"50×30mm(기본) = 384×240점, A4에 3열×8줄","refs":["LBL-04","L-1","L-6"],"note":"높이 30×8 = 240, 폭 min(50×8, 384) = 384. A4: 열 floor((210−20+2)/52) = 3, 줄 floor((297−20+2)/32) = 8 → 24","size":"50x30","out":{"width":384,"height":240,"a4PerPage":24,"default":true}},
+    {"id":"G-LBL-202","title":"50×20mm = 384×160점, A4에 3열×12줄","refs":["LBL-04","L-1","L-6"],"note":"20×8 = 160. 줄 floor(279/22) = 12 → 36","size":"50x20","out":{"width":384,"height":160,"a4PerPage":36,"default":false}},
+    {"id":"G-LBL-203","title":"50×40mm = 384×320점, A4에 3열×6줄","refs":["LBL-04","L-1","L-6"],"note":"40×8 = 320. 줄 floor(279/42) = 6 → 18","size":"50x40","out":{"width":384,"height":320,"a4PerPage":18,"default":false}},
+    {"id":"G-LBL-204","title":"목록 밖 크기(40×30)는 템플릿 오류","refs":["L-1","L-5"],"note":"폭이 384점보다 좁은 라벨의 가로 위치는 실제 B1로 확인한 뒤 더한다(D-P1-02)","size":"40x30","out":{"error":"INVALID_TEMPLATE"}}
+  ]
+}
