@@ -513,3 +513,33 @@ describe('AC-S05-52 시청자로 채팅 보내기', () => {
     expect(missing.body).toMatchObject({ error: { code: 'INVALID_REQUEST_ID' } })
   })
 })
+
+describe('AC-S05-91 리허설 끝까지 비교 방법 (dev-notes "이력으로 코어 재생하기")', () => {
+  it('생성기와 판매자 조치가 섞인 리허설 범위의 이력을 코어 applyEvent로 처음부터 재생하면 범위 조회(상품·정산 묶음)와 같다', async () => {
+    const world = await newWorld({ generatorTimer: immediateTimer })
+    const seller = await addSeller(world)
+    const b = await rehearsalWith(world, seller, 5)
+    await expectOk(client(world, seller.cookie).post(gen(b, '/start'), { total: 300, perSecond: 50, seed: 31 }))
+    for (let no = 6; no <= 15; no++) await expectOk(writeEvent(world, seller, { type: 'product.register', b, no, name: '구피', price: 2000 }))
+    await waitFor(async () => !(await status(world, seller, b)).running, 60_000)
+    await writeEvent(world, seller, { type: 'host.cancel', b, no: 1, buyer: 'sim_c1', reason: '시청자 요청' })
+    const events: { type: string; seq: number; at: string; reason: string | null; fields: Record<string, unknown>; failed: boolean }[] = []
+    for (let after = 0; ; ) {
+      const page = (await expectOk(client(world, seller.cookie).get(`/api/days/${DAY}/history?rehearsal=true&after=${String(after)}&limit=500`))).body.events as typeof events
+      if (page.length === 0) break
+      events.push(...page)
+      after = page.at(-1)?.seq ?? after
+    }
+    let state = initState()
+    for (const event of events) {
+      if (event.failed) continue
+      state = applyEvent(state, { type: event.type, seq: event.seq, at: Date.parse(event.at), ...event.fields, ...(event.reason === null ? {} : { reason: event.reason }) } as EngineEvent).state
+    }
+    const view = (await expectOk(client(world, seller.cookie).get(`/api/days/${DAY}?rehearsal=true`))).body
+    const { listProducts, listSettlements } = await import('@livejjim/core')
+    const { withIsoTimes } = await import('../src/time.ts')
+    expect(view.products).toEqual(withIsoTimes(listProducts(state)))
+    expect(view.settlements).toEqual(withIsoTimes(listSettlements(state)))
+    expect(events.length).toBe(view.seq)
+  }, 60_000)
+})
