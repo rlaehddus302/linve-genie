@@ -4,6 +4,20 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./browser": "./src/browser.ts",
+    "./node": "./src/node.ts",
+    "./font": "./fonts/Pretendard-Bold.otf"
+  },
+  "dependencies": {
+    "@livejjim/core": "workspace:*",
+    "@napi-rs/canvas": "1.0.11",
+    "fflate": "0.8.3",
+    "pdf-lib": "1.17.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "fast-check": "4.10.2",
+    "vitest": "5.0.5"
   }
 }
