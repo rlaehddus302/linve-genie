@@ -3,24 +3,14 @@
 import { a4Layout, type LabelBitmap } from '@livejjim/label'
 import { CONNECTION_STATE_NAMES, PRINTER_MESSAGES, RECONNECT_ACTION, type PrinterError } from '@livejjim/printer'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { get, isApiError, patch, withQuery, type ApiError } from '../api/client.ts'
+import { get, isApiError, patch, type ApiError } from '../api/client.ts'
 import type { LabelView } from '../api/print-types.ts'
 import type { BroadcastItem, FullView } from '../api/types.ts'
 import { DENSITY_MAX, DENSITY_MIN, cleanDeviceName, savedDeviceName } from '../lib/device.ts'
 import { dateWords, kstToday } from '../lib/kst.ts'
-import {
-  a4PdfBytes,
-  broadcastA4Name,
-  canShareFile,
-  downloadBytes,
-  labelEnv,
-  labelErrorMessage,
-  pngBytes,
-  productPngName,
-  renderJob,
-  renderProduct,
-  shareBytes,
-} from '../lib/label-render.ts'
+import { labelEnv } from '../lib/label-env.ts'
+import { canShareFile, downloadBytes, shareBytes } from '../lib/label-files.ts'
+import { a4PdfBytes, broadcastA4Name, labelErrorMessage, pngBytes, productPngName, renderJob, renderProduct, waitingA4Name } from '../lib/label-render.ts'
 import { KEEP_SCREEN_ON, PRINT_ACTION, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, replaceQuestion } from '../lib/print-words.ts'
 import type { PrinterMethod } from '../lib/printer-station.ts'
 import { ErrorNote } from './ErrorNote.tsx'
@@ -490,7 +480,7 @@ function AutoPrintSetting() {
         const running = broadcasts.filter((item) => !item.rehearsal && !item.ended)
         const out: { title: string; on: boolean }[] = []
         for (const date of new Set(running.map((item) => item.date))) {
-          const view = await get<FullView>(withQuery(`/api/days/${date}`, {}))
+          const view = await get<FullView>(`/api/days/${date}`)
           for (const item of running.filter((b) => b.date === date)) {
             const settings = view.broadcasts.find((b) => b.id === item.id)?.settings
             if (settings !== undefined) out.push({ title: item.title, on: settings['print.autoOnConfirm'] })
@@ -632,7 +622,7 @@ function ExportSection() {
       }
       const pdf = a4PdfBytes(images)
       if (!pdf.ok) return pdf.message
-      downloadBytes(pdf.bytes, `라벨-대기-${kstToday()}-A4.pdf`, 'application/pdf')
+      downloadBytes(pdf.bytes, waitingA4Name(kstToday()), 'application/pdf')
       return null
     })
 

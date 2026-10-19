@@ -1,6 +1,6 @@
 // 라벨 그리기·내보내기 (LABEL_RULES L-0·L-6, LBL-03·LBL-07, D-I1-07). 미리 보기·출력·PNG·PDF가 같은 렌더러의 같은 1비트 그림을 쓴다.
-// - 글꼴은 이 앱 번들 안의 내장 글꼴을 한 번 불러온다(@livejjim/label/browser — 인터넷 글꼴이 아니다).
-// - 파일 이름에는 날짜·번호·쪽·순번만 넣는다(구매자 이름·메모·전화번호 없음, L-11 16).
+// 렌더 환경(글꼴)은 주입한다 — 브라우저는 lib/label-env.ts, 시험은 Node 캔버스. 이 파일은 DOM을 쓰지 않는다(파일 저장·공유는 lib/label-files.ts).
+// 파일 이름에는 날짜·번호·쪽·순번만 넣는다(구매자 이름·메모·전화번호 없음, L-11 16).
 import {
   LABEL_MESSAGES,
   computePackingText,
@@ -29,27 +29,6 @@ import type { ClaimedJob, LabelData } from '../api/print-types.ts'
 
 export type RenderOutcome = { readonly ok: true; readonly image: LabelBitmap } | { readonly ok: false; readonly error: LabelError }
 export type PagesOutcome = { readonly ok: true; readonly images: readonly LabelBitmap[] } | { readonly ok: false; readonly error: LabelError }
-
-let envPromise: Promise<LabelRenderEnv> | null = null
-let injected: LabelRenderEnv | null = null
-
-/** 렌더 환경 (내장 글꼴을 불러온 뒤). 실패하면 다음에 다시 시도한다 */
-export function labelEnv(): Promise<LabelRenderEnv> {
-  if (injected !== null) return Promise.resolve(injected)
-  envPromise ??= import('@livejjim/label/browser')
-    .then(async ({ createBrowserRenderEnv, loadBrowserLabelFont }) => createBrowserRenderEnv(await loadBrowserLabelFont()))
-    .catch((error: unknown) => {
-      envPromise = null
-      throw error
-    })
-  return envPromise
-}
-
-/** 시험: 렌더 환경을 넣는다 (Node 캔버스 등) */
-export function setLabelEnv(env: LabelRenderEnv | null): void {
-  injected = env
-  envPromise = null
-}
 
 export function renderProduct(env: LabelRenderEnv, template: unknown, data: ProductLabelData): RenderOutcome {
   const result = renderProductLabel(env, template, data)
@@ -198,41 +177,6 @@ export function labelPdfBytes(images: readonly LabelBitmap[]): BytesOutcome {
 export function a4PdfBytes(images: readonly LabelBitmap[]): BytesOutcome {
   const result = createA4Pdf(images)
   return result.ok ? { ok: true, bytes: result.bytes } : { ok: false, message: result.error.message }
-}
-
-/** 파일 내려받기 (브라우저 저장) */
-export function downloadBytes(bytes: Uint8Array, name: string, type: string): void {
-  const blob = new Blob([new Uint8Array(bytes)], { type })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = name
-  link.rel = 'noopener'
-  document.body.append(link)
-  link.click()
-  link.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 10_000)
-}
-
-/** 파일 공유를 지원하는지 (휴대폰 — 그림 파일 하나) */
-export function canShareFile(): boolean {
-  try {
-    if (typeof navigator.share !== 'function' || typeof navigator.canShare !== 'function') return false
-    const probe = new File([new Uint8Array([0])], 'label.png', { type: 'image/png' })
-    return navigator.canShare({ files: [probe] })
-  } catch {
-    return false
-  }
-}
-
-/** 그림 파일 공유 (취소하면 아무 일도 없다) */
-export async function shareBytes(bytes: Uint8Array, name: string, type: string): Promise<void> {
-  const file = new File([new Uint8Array(bytes)], name, { type })
-  try {
-    await navigator.share({ files: [file] })
-  } catch {
-    // 판매자가 공유 창을 닫았다
-  }
 }
 
 /** 지금 템플릿 (서버에서 받기 전이면 기본 템플릿) */

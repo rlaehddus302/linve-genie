@@ -9,9 +9,8 @@ import { useMemo, useRef, useState } from 'react'
 import { isApiError, newRequestId, withRetry, type ApiError } from '../api/client.ts'
 import type { JobView, LabelView } from '../api/print-types.ts'
 import type { Claim, Product } from '../api/types.ts'
+import { canShareFile, downloadBytes, shareBytes } from '../lib/label-files.ts'
 import {
-  canShareFile,
-  downloadBytes,
   labelErrorMessage,
   labelPdfBytes,
   packingPdfName,
@@ -23,7 +22,6 @@ import {
   productTemplateOf,
   renderPacking,
   renderProduct,
-  shareBytes,
 } from '../lib/label-render.ts'
 import { NO_WINNER_LABEL, PRINT_ACTION, REHEARSAL_NO_LABELS, historyWord } from '../lib/print-words.ts'
 import { ErrorNote } from './ErrorNote.tsx'
