@@ -4,8 +4,10 @@
 // - 커질 수 있는 모음(번호의 보류 찜·활성 표시, 구매자의 찜)은 레코드 안에서도 영속 맵이라 복사할 때 통째로 복사하지 않는다.
 //   통째로 복사하는 배열은 설정으로 크기가 정해지는 것(확정 ≤ 재고, 대기 ≤ 대기 한도)과 작은 이력뿐이다.
 // - 깊게 얼린 상태를 넘겨도 읽기만 하므로 예외가 나지 않는다.
+import type { SaleSettings } from '../settings.ts'
 import { emptyPMap, pdelete, pget, phas, pkeys, pset, type PMap } from './pmap.ts'
 import type {
+  BroadcastRecord,
   BuyerRecord,
   ClaimRecord,
   EffectRecord,
@@ -123,6 +125,10 @@ export class Draft {
   private readonly phoneKeys = new Map<string, string>()
   private readonly productKeys = new Map<string, string>()
   private readonly blockedChanges = new Map<string, boolean>()
+  /** 방송 기록 작업 사본 (바꾸기 전에는 null — 넘겨받은 목록을 그대로 쓴다) */
+  private broadcastList: BroadcastRecord[] | null = null
+  /** 방송 ID → 기록 (처음 찾을 때 만든다, 방송 기록이 바뀌면 다시 만든다) */
+  private broadcastIndex: Map<string, BroadcastRecord> | null = null
   private readonly counters: { claims: number; effects: number; buyers: number; products: number }
   readonly emitted: EngineEffect[] = []
   /** 처리 중인 이벤트의 seq·at */
@@ -136,11 +142,30 @@ export class Draft {
     this.at = event.at
   }
 
-  get settings(): EngineState['settings'] {
-    return this.base.settings
+  // ── 읽기 (복사 없음) ────────────────────────────────────────────────────
+
+  /** 지금까지 선언된 방송, 선언 순서 */
+  get broadcasts(): readonly BroadcastRecord[] {
+    return this.broadcastList ?? this.base.broadcasts
   }
 
-  // ── 읽기 (복사 없음) ────────────────────────────────────────────────────
+  /** 선언된 방송이면 그 기록, 아니면 undefined */
+  readBroadcast(id: string): BroadcastRecord | undefined {
+    this.broadcastIndex ??= new Map(this.broadcasts.map((broadcast) => [broadcast.id, broadcast]))
+    return this.broadcastIndex.get(id)
+  }
+
+  /** 선언된 방송의 기록 (없으면 손상된 상태 — 이벤트의 방송은 checkEvent가 확인했다) */
+  broadcastOf(id: string): BroadcastRecord {
+    const broadcast = this.readBroadcast(id)
+    if (broadcast === undefined) throw new CorruptStateError(`방송 ${id}가 없다`)
+    return broadcast
+  }
+
+  /** 그 방송의 설정 스냅샷 — 판정은 메시지·찜·상품이 속한 방송의 스냅샷으로 한다 (D-070) */
+  settingsOf(b: string): SaleSettings {
+    return this.broadcastOf(b).settings
+  }
 
   readSlot(key: string): SlotRecord | SlotDraft | undefined {
     return this.slots.get(key) ?? pget(this.base.slots, key)
@@ -334,12 +359,24 @@ export class Draft {
     this.blockedChanges.set(buyer, blocked)
   }
 
+  /** 새 방송을 선언 순서 끝에 더한다 */
+  addBroadcast(record: BroadcastRecord): void {
+    this.broadcastList = [...this.broadcasts, record]
+    this.broadcastIndex = null
+  }
+
+  /** 방송 기록 하나를 바꾼다 (끝난 시각) */
+  replaceBroadcast(record: BroadcastRecord): void {
+    this.broadcastList = this.broadcasts.map((broadcast) => (broadcast.id === record.id ? record : broadcast))
+    this.broadcastIndex = null
+  }
+
   // ── 반영 ────────────────────────────────────────────────────────────────
 
   commit(): { state: EngineState; effects: EngineEffect[] } {
     const base = this.base
     const tables = [this.slots, this.claims, this.buyers, this.effects, this.messages, this.ledger, this.refs, this.phoneKeys, this.productKeys, this.blockedChanges]
-    if (tables.every((table) => table.size === 0)) return { state: base, effects: [] }
+    if (this.broadcastList === null && tables.every((table) => table.size === 0)) return { state: base, effects: [] }
     const put = <V>(map: PMap<V>, changes: ReadonlyMap<string, V>): PMap<V> => {
       let out = map
       for (const [key, value] of changes) out = pset(out, key, value)
@@ -350,6 +387,7 @@ export class Draft {
     return {
       state: {
         ...base,
+        broadcasts: this.broadcasts,
         counters: { ...this.counters },
         messages: put<MessageRecord>(base.messages, this.messages),
         refs: put(base.refs, this.refs),

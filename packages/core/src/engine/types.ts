@@ -31,12 +31,25 @@ export interface BroadcastInfo {
 }
 
 export interface EngineSetup {
+  /** 엔진을 시작할 때 선언하는 방송 (서버는 빈 목록에서 시작해 broadcast.start로 선언한다, D-069·D-070) */
   readonly broadcasts: readonly BroadcastInfo[]
-  /** 시작 시점 스냅샷으로 모든 방송에 적용할 설정 (DOMAIN_RULES 기본값 위에 덮어쓴다) */
+  /**
+   * 시작 때 선언한 방송들의 설정 스냅샷 (DOMAIN_RULES 기본값 위에 덮어쓴다). broadcast.start로 선언한 방송에는 쓰지 않는다.
+   * 범위 밖 값이면 initEngine이 TypeError를 던진다(checkSettings, D-071)
+   */
   readonly settings: SettingsOverride
 }
 
+/** 방송 기록 (선언 순서로 상태에 남는다, D-070) */
+export interface BroadcastRecord extends BroadcastInfo {
+  /** 설정 스냅샷 = DOMAIN_RULES 기본값 위에 덮어쓴 값. 판정은 그 방송의 스냅샷으로, 정산 설정은 그 날짜 첫 방송의 스냅샷으로 한다 */
+  readonly settings: SaleSettings
+  /** broadcast.end를 받은 시각(그 이벤트의 at, UTC 밀리초). 끝나지 않았으면 null */
+  readonly endedAt: number | null
+}
+
 // ── 이벤트 (R-1, tests/golden/README "이벤트 종류와 필드") ────────────────
+// 모든 이벤트는 type·seq·at과 그 종류의 필드만 가진다. 표에 없는 필드는 값과 상관없이 입력 오류다(D-073).
 // 필드 이름은 골든 README와 같다(b = 방송 ID, no = 상품 번호, buyer = 구매자 ID). 효과 보고만 효과 ID로 가리킨다(R-13).
 // 구매자 ID는 그 구매자 자신을 가리킨다. 판정·대상 찾기는 엔진이 지금의 구매자(합친 결과)로 한다(R-11, D-057).
 
@@ -45,6 +58,27 @@ interface EventBase {
   readonly seq: number
   /** 서버 도착 시각, UTC 밀리초. 코어는 시계를 읽지 않는다 */
   readonly at: number
+}
+
+/**
+ * 방송 시작 (R-1 "방송 시작·종료", D-070): 새 방송을 선언한다. 이미 선언한 방송이면 내용이 달라도 아무 일도 없다(재전송 사본, INV-3).
+ * settings는 DOMAIN_RULES 기본값 위에 덮어쓸 값(설정값 범위 안, D-071). 서버는 모든 키를 적는다. settlement.groupBy=MANUAL이면 NotImplementedError
+ */
+export interface BroadcastStartEvent extends EventBase {
+  readonly type: 'broadcast.start'
+  /** 새 방송 ID (빈 문자열이 아닌 문자열) */
+  readonly b: string
+  /** 방송 날짜 YYYY-MM-DD (KST). 정산 묶음 날짜가 된다 */
+  readonly date: string
+  /** 회차(제목) */
+  readonly title: string
+  readonly settings?: SettingsOverride
+}
+
+/** 방송 종료 (R-1, D-070): 끝났다는 기록(끝난 시각 = at)만 남긴다. 판정·정산은 바뀌지 않는다. 이미 끝났으면 아무 일도 없다 */
+export interface BroadcastEndEvent extends EventBase {
+  readonly type: 'broadcast.end'
+  readonly b: string
 }
 
 export interface ProductRegisterEvent extends EventBase {
@@ -243,8 +277,8 @@ export interface SettlementRefundEvent extends EventBase {
   readonly reason: string
 }
 
-/** 처음 쓰는 스프린트가 따로 있는 R-1 이벤트 (S04·S11). 엔진은 NotImplementedError를 던진다 */
-export type DeferredEventType = 'broadcast.start' | 'broadcast.end' | 'effect.failed'
+/** 처음 쓰는 스프린트가 따로 있는 R-1 이벤트 (S11). 엔진은 NotImplementedError를 던진다 */
+export type DeferredEventType = 'effect.failed'
 
 export interface DeferredEvent extends EventBase {
   readonly type: DeferredEventType
@@ -252,6 +286,8 @@ export interface DeferredEvent extends EventBase {
 }
 
 export type EngineEvent =
+  | BroadcastStartEvent
+  | BroadcastEndEvent
   | ProductRegisterEvent
   | ProductCommandEvent
   | ProductUpdateEvent
@@ -459,9 +495,11 @@ export interface MessageRecord {
   readonly publishedAt: number
   /** 무시한 방송자 메시지 (claim.ignoreOwner) */
   readonly ignored: boolean
-  /** 주문이었던 메시지: 받을 때 R-3이 주문 번호를 하나라도 읽었다 (찜을 만들었든 아니든). 어느 번호로도 변환하지 않는다 */
+  /** 주문이었던 메시지: 받을 때 R-3이 주문 번호를 하나라도 읽었다 (찜을 만들었든 아니든). 어느 번호로도 변환하지 않는다 (D-062) */
   readonly order: boolean
-  /** 주문이 아니었던 메시지를 찜으로 바꾼 번호 (번호마다 한 번) */
+  /** 취소였던 메시지: 받을 때 R-3이 취소 번호를 하나라도 읽었다 (처리·요청·무시와 상관없이). 어느 번호로도 변환하지 않는다 (D-076) */
+  readonly cancel: boolean
+  /** 주문도 취소도 아니었던 메시지를 찜으로 바꾼 번호 (번호마다 한 번) */
   readonly converted: readonly number[]
 }
 
@@ -481,12 +519,13 @@ export interface LedgerRecord {
 }
 
 export interface EngineState {
-  /** 상태 형식 버전 (S03 = 2, S03b = 3: 전화번호 키·ref 첫 수신 기록·주문 메시지 표시) */
-  readonly format: 3
-  /** 선언 순서 */
-  readonly broadcasts: readonly BroadcastInfo[]
-  /** 시작 설정 스냅샷 (DOMAIN_RULES 기본값 위에 덮어쓴 값) */
-  readonly settings: SaleSettings
+  /**
+   * 상태 형식 번호 (S03 = 2, S03b = 3, S04 = 4: 방송마다 설정 스냅샷·끝난 시각, 시작 설정 칸 없앰, 취소 메시지 표시).
+   * applyEvent·checkEvent는 다른 형식을 받으면 StateFormatError를 던진다(D-072)
+   */
+  readonly format: 4
+  /** 방송 기록, 선언 순서 (시작 때 선언한 방송 → broadcast.start 순) */
+  readonly broadcasts: readonly BroadcastRecord[]
   readonly counters: { readonly claims: number; readonly effects: number; readonly buyers: number; readonly products: number }
   /** 이미 받은 채팅 메시지: JSON.stringify([방송, 메시지 ID]) → 메시지 */
   readonly messages: PMap<MessageRecord>
@@ -508,6 +547,19 @@ export interface EngineState {
 }
 
 // ── 조회 결과 ────────────────────────────────────────────────────────────
+
+/** 방송 조회 (listBroadcasts·getBroadcast, D-070) */
+export interface BroadcastDetails {
+  readonly id: string
+  readonly date: string
+  readonly title: string
+  /** broadcast.end를 받았는지 */
+  readonly ended: boolean
+  /** 끝난 시각 (UTC 밀리초, 끝나지 않았으면 null) */
+  readonly endedAt: number | null
+  /** 그 방송의 설정 스냅샷 (모든 키) */
+  readonly settings: SaleSettings
+}
 
 export interface PriceChangeInfo {
   readonly from: number

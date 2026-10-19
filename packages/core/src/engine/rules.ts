@@ -1,10 +1,12 @@
 // 판정 규칙 (DOMAIN_RULES R-4, R-5, R-7, R-8, R-13). 모두 작업 사본(Draft) 위에서 돈다.
 // "같은 구매자"는 지금의 구매자(합친 결과), "차단"은 찜의 구매자 자신으로 본다(R-4 머리말, R-11).
+// 설정은 그 찜·상품이 속한 방송의 스냅샷으로 읽는다(d.settingsOf(방송), D-070). 한 번호(slot)의 찜은 모두 그 번호의 방송에 속한다.
 import { formatThanksText } from '../format.ts'
 import { CorruptStateError, type ClaimDraft, type Draft, type SlotDraft } from './draft.ts'
 import { receivedOf } from './ledger.ts'
 import { emptyPMap, pdelete, pget, pkeys, pset } from './pmap.ts'
 import { compareRank, isSameMinuteTie, type RankMaterial } from './rank.ts'
+import type { SaleSettings } from '../settings.ts'
 import type { ClaimReason, ClaimRecord, ClaimStatus, EffectKind, EffectRecord, ProductRecord, SlotRecord, ThanksTarget } from './types.ts'
 
 /** R-4 판정 결과. none = 4번 줄(같은 사람 반복) — 새 찜을 만들지 않는다. contend = 자리가 다 찼다(R-7 → 7·8번 줄) */
@@ -36,9 +38,7 @@ type AnySlot = SlotRecord | SlotDraft
 
 /** 방송의 날짜 (정산 묶음 날짜, R-12) */
 export function dateOf(d: Draft, b: string): string {
-  const broadcast = d.base.broadcasts.find((item) => item.id === b)
-  if (broadcast === undefined) throw new CorruptStateError(`방송 ${b}가 없다`)
-  return broadcast.date
+  return d.broadcastOf(b).date
 }
 
 // ── 활성 표시 (지금의 구매자 → 활성 찜) ──────────────────────────────────
@@ -96,9 +96,9 @@ function remove(list: string[], id: string): void {
   if (at >= 0) list.splice(at, 1)
 }
 
-/** 판정 순위 비교 (R-6). 같은 키면 생성 순서 */
-export function compareClaims(d: Draft, a: RankMaterial & { readonly n: number }, b: RankMaterial & { readonly n: number }): number {
-  return compareRank(a, b, d.settings) || a.n - b.n
+/** 판정 순위 비교 (R-6) — 같은 번호의 찜끼리, 그 방송의 경합 정책으로. 같은 키면 생성 순서 */
+export function compareClaims(d: Draft, a: RankMaterial & { readonly n: number; readonly b: string }, b: RankMaterial & { readonly n: number }): number {
+  return compareRank(a, b, d.settingsOf(a.b)) || a.n - b.n
 }
 
 /** 보류 찜 ID, 판정 순위 순 */
@@ -149,7 +149,7 @@ export function confirm(d: Draft, claim: ClaimDraft, slot: SlotDraft, product: P
   slot.winners.push(claim.id)
   setActive(d, slot, claim)
   d.knownBuyer(claim.buyer).subtotal += product.price
-  const { settings } = d
+  const settings = d.settingsOf(slot.b)
   if (settings['print.autoOnConfirm']) emit(d, claim, 'PRINT_PRODUCT_LABEL', null, version, null, slot)
   const text = formatThanksText({ no: slot.no, name: product.name, price: product.price, buyerName: thanksName(d, claim) })
   if (settings['thanks.liveChat']) emit(d, claim, 'POST_THANKS', 'LIVE_CHAT', version, text, slot)
@@ -207,15 +207,14 @@ function lockedForContest(d: Draft, claim: AnyClaim): boolean {
 
 // ── 대기 (R-4 "대기에 넣는 자리", D-053) ─────────────────────────────────
 
-/** 대기 인원 한도. 범위 밖 설정값(음수·NaN)이면 대기 없음 */
-export function waitlistLimit(d: Draft): number {
-  const max = d.settings['waitlist.max']
-  return max > 0 ? Math.ceil(max) : 0
+/** 대기 인원 한도 (그 방송의 스냅샷 — 설정값은 0~100 정수로 검사했다, D-071) */
+function waitlistLimit(settings: SaleSettings): number {
+  return settings['waitlist.max']
 }
 
 /** 넣은 뒤 대기 수가 한도를 넘으면 맨 끝 대기자부터 REJECTED(SOLD_OUT) */
 export function trimWaitlist(d: Draft, slot: SlotDraft): void {
-  const limit = waitlistLimit(d)
+  const limit = waitlistLimit(d.settingsOf(slot.b))
   while (slot.waitlist.length > limit) finish(d, d.claim(slot.waitlist.pop() as string), slot, 'REJECTED', 'SOLD_OUT')
 }
 
@@ -292,10 +291,11 @@ function swap(d: Draft, claim: ClaimDraft, winner: ClaimDraft, slot: SlotDraft, 
  * HOST 동률 → 충돌, 앞서면 w가 잠금 전이면 자동 역전·잠금 후면 충돌(변환은 늘 충돌). 그 밖은 대기 자리.
  */
 function contend(d: Draft, claim: ClaimDraft, slot: SlotDraft, product: ProductRecord): void {
-  const policy = d.settings['contention.policy']
+  const settings = d.settingsOf(slot.b)
+  const policy = settings['contention.policy']
   if (slot.conflict === null && (policy === 'RECEIVED_TIME' || claim.origin === 'convert')) {
     const winner = lastWinner(d, slot)
-    const hostTie = policy === 'RECEIVED_TIME' && d.settings['contention.sameMinuteTieBreaker'] === 'HOST' && isSameMinuteTie(claim, winner)
+    const hostTie = policy === 'RECEIVED_TIME' && settings['contention.sameMinuteTieBreaker'] === 'HOST' && isSameMinuteTie(claim, winner)
     const ahead = compareClaims(d, claim, winner) < 0
     if (hostTie || (ahead && (claim.origin === 'convert' || lockedForContest(d, winner)))) {
       markConflict(d, claim, slot)
@@ -376,12 +376,16 @@ export function clearWaitlist(d: Draft, slot: SlotDraft): void {
   slot.awaiting = false
 }
 
-/** R-8 cancel.succession — 확정 찜 하나가 풀린 뒤 */
+/**
+ * R-8 cancel.succession — 확정 찜 하나가 풀린 뒤.
+ * 대기 한도 0이면 ASK는 AUTO와 같다 (D-077 — 그때 대기에 있는 것은 자리가 비어 풀린 충돌 찜뿐이고, 물을 것 없이 그 찜이 빈 자리를 채운다)
+ */
 function succession(d: Draft, slot: SlotDraft, product: ProductRecord): void {
   if (slot.waitlist.length === 0) return
-  const mode = d.settings['cancel.succession']
+  const settings = d.settingsOf(slot.b)
+  const mode = settings['cancel.succession']
   if (mode === 'REOPEN') clearWaitlist(d, slot)
-  else if (mode === 'ASK') slot.awaiting = true
+  else if (mode === 'ASK' && waitlistLimit(settings) > 0) slot.awaiting = true
   else confirm(d, d.claim(slot.waitlist.shift() as string), slot, product)
 }
 
@@ -417,7 +421,7 @@ export function release(d: Draft, claim: ClaimDraft, slot: SlotDraft, status: 'C
  * 더 오래된 찜은 EXPIRED. 재고가 다 찬 뒤의 찜은 R-7을 본다(HOST 동률이면 공개 순간에도 충돌, D-052).
  */
 export function openPending(d: Draft, slot: SlotDraft, openedAt: number): void {
-  const start = openedAt - d.settings['claim.preOpenWindowSec'] * 1000
+  const start = openedAt - d.settingsOf(slot.b)['claim.preOpenWindowSec'] * 1000
   const ids = sortedPending(d, slot)
   slot.pending = emptyPMap()
   for (const id of ids) {

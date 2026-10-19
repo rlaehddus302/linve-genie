@@ -2,10 +2,12 @@
 // - 넘긴 상태·이벤트를 바꾸지 않는다. 같은 설정·같은 이벤트 열이면 같은 결과(INV-4).
 // - 입력 오류(형식이 틀린 이벤트)는 상태를 바꾸지 않고 InvalidEventError를 던진다(D-050). 같은 검사를 checkEvent로 내보낸다.
 // - 맞지 않는 명령(없는 상품·찜·메시지, 조건이 안 맞는 조치)은 아무것도 바꾸지 않는다(D-039, AC-S03-04).
-// - 처음 쓰는 스프린트가 따로 있는 기능(broadcast.*·effect.failed, settlement.groupBy=MANUAL)은 NotImplementedError로 알린다.
+// - 처음 쓰는 스프린트가 따로 있는 기능(effect.failed, settlement.groupBy=MANUAL)은 NotImplementedError로 알린다.
+// - 상태 형식이 지금 코어와 다르면 StateFormatError를 던진다(D-072).
+// - 판정 설정은 그 메시지·찜·상품이 속한 방송의 스냅샷이다(D-070). 방송은 initEngine의 시작 목록이나 broadcast.start로 선언한다.
 import { NotImplementedError } from '../not-implemented.ts'
 import { parseChat } from '../parse/chat.ts'
-import { resolveSettings } from '../settings.ts'
+import { checkSettings, resolveSettings } from '../settings.ts'
 import { CorruptStateError, Draft, claimNumber, messageKey, ownGet, slotKey, type ClaimDraft, type SlotDraft } from './draft.ts'
 import { receivedOf, receivedOfMembers } from './ledger.ts'
 import { emptyPMap, pdelete, pget, pkeys, pset } from './pmap.ts'
@@ -34,10 +36,13 @@ import {
   unconfirm,
   voidLabel,
 } from './rules.ts'
+import { STATE_FORMAT, assertStateFormat } from './state-format.ts'
 import { resolveReceivedTime, type ReceivedTime } from './time.ts'
 import { DEFERRED_EVENTS, InvalidEventError, checkEvent } from './validate.ts'
 import type {
   ApplyResult,
+  BroadcastEndEvent,
+  BroadcastStartEvent,
   BuyerMergeEvent,
   BuyerRecord,
   BuyerUnmergeEvent,
@@ -70,24 +75,32 @@ import type {
 
 // ── 시작 ─────────────────────────────────────────────────────────────────
 
+const MANUAL_GROUPING = '정산 직접 묶기(settlement.groupBy=MANUAL, R-12) — 묶음을 정하는 화면과 함께 정한다(D-059)'
+
 /**
- * 새 엔진 상태. settings는 DOMAIN_RULES 기본값 위에 덮어쓴다(resolveSettings).
- * settlement.groupBy=MANUAL이면 NotImplementedError(D-059).
- * 방송 ID가 비었거나 겹치면 TypeError — 시작 설정은 서버가 만드는 값이라 잘못되면 프로그램 오류다.
+ * 새 엔진 상태. settings는 시작 때 선언한 방송들의 스냅샷이다(DOMAIN_RULES 기본값 위에 덮어쓴다, resolveSettings).
+ * 서버는 빈 목록 `initEngine({ broadcasts: [], settings: {} })`에서 시작해 broadcast.start로 방송을 선언한다(D-069·D-070).
+ * - settings가 설정값 범위 밖이면(checkSettings 문제) TypeError — 시작 설정은 서버·러너가 만드는 값이라 잘못되면 프로그램 오류다(D-071).
+ * - settlement.groupBy=MANUAL이면 NotImplementedError(D-059).
+ * - 방송 ID가 비었거나 겹치면 TypeError.
  */
 export function initEngine(setup: EngineSetup): EngineState {
-  const settings = resolveSettings(setup.settings)
-  if (settings['settlement.groupBy'] === 'MANUAL') throw new NotImplementedError('정산 직접 묶기(settlement.groupBy=MANUAL, R-12) — 묶음을 정하는 화면과 함께 정한다(D-059)')
+  const override = setup.settings ?? {}
+  const problems = checkSettings(override)
+  if (problems.length > 0) {
+    throw new TypeError(`시작 설정이 설정값 범위 밖이다: ${problems.map((p) => (p.key === null ? p.message : `${p.key} — ${p.message}`)).join(' · ')}`)
+  }
+  const settings = resolveSettings(override)
+  if (settings['settlement.groupBy'] === 'MANUAL') throw new NotImplementedError(MANUAL_GROUPING)
   const seen = new Set<string>()
   const broadcasts = setup.broadcasts.map(({ id, date, title }) => {
     if (typeof id !== 'string' || id === '' || seen.has(id)) throw new TypeError(`방송 ID는 겹치지 않는 빈 문자열이 아닌 값이어야 한다 (값: ${String(id)})`)
     seen.add(id)
-    return { id, date, title }
+    return { id, date, title, settings, endedAt: null }
   })
   return {
-    format: 3,
+    format: STATE_FORMAT,
     broadcasts,
-    settings,
     counters: { claims: 0, effects: 0, buyers: 0, products: 0 },
     messages: emptyPMap(),
     refs: emptyPMap(),
@@ -160,6 +173,25 @@ function makeClaim(d: Draft, source: ClaimSource): ClaimDraft | null {
   }
   enter(d, claim, d.slot(source.b, source.no), outcome)
   return claim
+}
+
+// ── 방송 시작·종료 (R-1 "방송 시작·종료", D-070) ──────────────────────────
+
+/**
+ * broadcast.start: 새 방송을 선언 순서 끝에 더한다. 스냅샷 = DOMAIN_RULES 기본값 위에 settings를 덮어쓴 값(엔진 시작 설정과 상관없다).
+ * 이미 선언한 방송(시작 때 또는 앞선 broadcast.start)이면 날짜·제목·설정이 달라도 아무 일도 없다 — 같은 입력의 재전송이다(INV-3).
+ * 설정 범위는 checkEvent가, MANUAL은 applyEvent가 이미 걸렀다.
+ */
+function startBroadcast(d: Draft, e: BroadcastStartEvent): void {
+  if (d.readBroadcast(e.b) !== undefined) return
+  d.addBroadcast({ id: e.b, date: e.date, title: e.title, settings: resolveSettings(e.settings ?? {}), endedAt: null })
+}
+
+/** broadcast.end: 끝난 시각(at)만 남긴다. 판정·정산·효과는 바뀌지 않는다. 이미 끝난 방송이면 아무 일도 없다 */
+function endBroadcast(d: Draft, e: BroadcastEndEvent): void {
+  const broadcast = d.broadcastOf(e.b)
+  if (broadcast.endedAt !== null) return
+  d.replaceBroadcast({ ...broadcast, endedAt: d.at })
 }
 
 // ── 상품 명령 (R-2 "상품 명령 세부", D-039) ──────────────────────────────
@@ -287,17 +319,18 @@ function chat(d: Draft, e: ChatEvent): void {
   const key = messageKey(e.b, e.id)
   // ① 재수신: 본문·닉네임이 달라도 아무 일도 없다 (INV-3·INV-12)
   if (d.readMessage(key) !== undefined) return
-  // ② 방송자 본인 메시지 + claim.ignoreOwner (받은 메시지로는 기록한다 — 재수신·변환 판단)
-  const ignored = e.owner === true && d.settings['claim.ignoreOwner']
+  // ② 방송자 본인 메시지 + claim.ignoreOwner (받은 메시지로는 기록한다 — 재수신·변환 판단). 설정은 그 방송의 스냅샷 (D-070)
+  const settings = d.settingsOf(e.b)
+  const ignored = e.owner === true && settings['claim.ignoreOwner']
   const published = e.publishedAt ?? d.at
-  const message = { ch: e.ch, seq: d.seq, at: d.at, publishedAt: published, ignored, order: false, converted: [] }
+  const message = { ch: e.ch, seq: d.seq, at: d.at, publishedAt: published, ignored, order: false, cancel: false, converted: [] }
   if (ignored) {
     d.newMessage(key, message)
     return
   }
-  // 그 방송 설정으로 R-3. 주문 번호를 하나라도 읽었으면 "주문이었던 메시지" — 받을 때의 해석으로 정하고 나중에 다시 읽지 않는다 (D-062)
-  const parsed = parseChat(e.text, d.settings)
-  d.newMessage(key, { ...message, order: parsed.claims.length > 0 })
+  // 그 방송 설정으로 R-3. 주문·취소 번호를 하나라도 읽었으면 "주문·취소였던 메시지" — 받을 때의 해석으로 정하고 나중에 다시 읽지 않는다 (D-062, D-076)
+  const parsed = parseChat(e.text, settings)
+  d.newMessage(key, { ...message, order: parsed.claims.length > 0, cancel: parsed.cancels.length > 0 })
   // ③ 구매자 기록·닉네임 갱신 (R-11, 주문이 아닌 메시지도)
   const known = d.readBuyer(e.ch)
   if (known === undefined) d.newBuyer(e.ch, 'youtube', e.nick, null)
@@ -318,7 +351,7 @@ function chat(d: Draft, e: ChatEvent): void {
  * 그 번호에서 지금의 구매자의 활성 찜이 그 채널 자신의 찜(구매자 자신이 그 채널)일 때만 — 합친 다른 구매자의 찜이면 무시한다.
  */
 function viewerCancel(d: Draft, b: string, no: number, channel: string): void {
-  const mode = d.settings['cancel.buyerChat']
+  const mode = d.settingsOf(b)['cancel.buyerChat']
   if (mode === 'OFF') return
   const current = activeClaim(d, slotKey(b, no), channel)
   if (current === undefined || current.buyer !== channel) return
@@ -485,13 +518,13 @@ function resolveConflict(d: Draft, e: HostResolveConflictEvent): void {
 }
 
 /**
- * host.convertMessage (R-7 4, D-054, D-062): 그 방송에서 받은 주문이 아니었던 메시지를 찜으로. 구매자 = 메시지 채널, 순위 재료·at = 원래 메시지.
- * 모르는 메시지·무시한 방송자 메시지·주문이었던 메시지(어느 번호로든)·이미 그 번호로 바꾼 메시지는 아무 일도 없다.
+ * host.convertMessage (R-7 4, D-054, D-062, D-076): 그 방송에서 받은 주문도 취소도 아니었던 메시지를 찜으로. 구매자 = 메시지 채널, 순위 재료·at = 원래 메시지.
+ * 모르는 메시지·무시한 방송자 메시지·주문이나 취소였던 메시지(어느 번호로든)·이미 그 번호로 바꾼 메시지는 아무 일도 없다.
  */
 function convert(d: Draft, e: HostConvertMessageEvent): void {
   const key = messageKey(e.b, e.msg)
   const message = d.readMessage(key)
-  if (message === undefined || message.ignored || message.order || message.converted.includes(e.no)) return
+  if (message === undefined || message.ignored || message.order || message.cancel || message.converted.includes(e.no)) return
   const claim = makeClaim(d, {
     b: e.b,
     no: e.no,
@@ -665,6 +698,8 @@ function report(d: Draft, e: EffectReportEvent): void {
 // ── 이벤트 표 ────────────────────────────────────────────────────────────
 
 const HANDLERS: Readonly<Record<string, (d: Draft, event: never) => void>> = {
+  'broadcast.start': startBroadcast,
+  'broadcast.end': endBroadcast,
   'product.register': register,
   'product.open': productCommand,
   'product.hold': productCommand,
@@ -698,14 +733,17 @@ const HANDLERS: Readonly<Record<string, (d: Draft, event: never) => void>> = {
 /**
  * apply(state, event) → { state, effects } (R-0).
  * effects = 이 이벤트로 새로 나온 효과. 효과의 취소·완료는 상태에 남고 조회 함수(listEffects)로 본다.
- * 입력 오류면 InvalidEventError(상태 그대로), 처음 쓰는 스프린트가 따로 있는 종류면 NotImplementedError.
+ * - 상태 형식이 다르면 StateFormatError, 입력 오류면 InvalidEventError(상태 그대로).
+ * - 처음 쓰는 스프린트가 따로 있는 종류, settlement.groupBy=MANUAL인 broadcast.start(이미 선언한 방송의 사본이어도 — 로그에 남지 않게)는 NotImplementedError.
  */
 export function applyEvent(state: EngineState, event: EngineEvent): ApplyResult {
+  assertStateFormat(state)
   const problems = checkEvent(state, event)
   const type = typeof event === 'object' && event !== null && typeof event.type === 'string' ? event.type : null
   if (problems.length > 0) throw new InvalidEventError(type, problems)
   const deferred = ownGet(DEFERRED_EVENTS, type as string)
   if (deferred !== undefined) throw new NotImplementedError(deferred)
+  if (event.type === 'broadcast.start' && resolveSettings(event.settings ?? {})['settlement.groupBy'] === 'MANUAL') throw new NotImplementedError(MANUAL_GROUPING)
   const handler = ownGet(HANDLERS, type as string) as (d: Draft, event: EngineEvent) => void
   const draft = new Draft(state, event)
   handler(draft, event)

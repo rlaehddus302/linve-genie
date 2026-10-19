@@ -1,10 +1,16 @@
-// 이벤트 형식 검사 (R-1 "입력 오류와 맞지 않는 명령", D-050, AC-S03-02).
+// 이벤트 형식 검사 (R-1 "입력 오류와 맞지 않는 명령", D-050, AC-S03-02, AC-S04-01·06·07).
 // - 입력 오류: 표에 없는 종류, 필수 필드가 없거나 값의 형식이 틀림, 함께 와야 하는 필드가 한쪽만 옴(D-065, D-061),
-//   sms에 전화번호 원문 필드 phone이 있음(D-061), 선언하지 않은 방송, seq·at이 수가 아님, 이벤트가 객체가 아님.
-//   applyEvent는 상태를 바꾸지 않고 InvalidEventError를 던진다. 서버는 기록하기 전에 checkEvent로 거른다(S04).
+//   sms에 전화번호 원문 필드 phone이 있음(D-061), 표에 없는 필드(모든 종류, 값과 상관없이 — D-073),
+//   sms의 ref·memo가 휴대폰 번호 모양(normalizePhone의 결과가 있음, D-073), 방송 날짜·설정 스냅샷의 형식·범위(D-071),
+//   선언하지 않은 방송, seq·at이 수가 아님, 이벤트가 객체가 아님.
+//   applyEvent는 상태를 바꾸지 않고 InvalidEventError를 던진다. 서버는 기록하기 전에 checkEvent로 거른다(D-072).
 // - 맞지 않는 명령(형식은 맞지만 지금 상태에 맞지 않음)은 입력 오류가 아니다. 엔진이 아무것도 바꾸지 않는다(D-039).
-// - 처음 쓰는 스프린트가 따로 있는 종류(broadcast.start·end → S04, effect.failed → S11)는 NotImplementedError로 알린다.
+// - 처음 쓰는 스프린트가 따로 있는 종류(effect.failed → S11)와 settlement.groupBy=MANUAL은 applyEvent가 NotImplementedError로 알린다.
+// - 상태 형식이 지금 코어와 다르면 문제 목록 대신 StateFormatError를 던진다(D-072).
+import { checkSettings } from '../settings.ts'
 import { ownGet } from './draft.ts'
+import { normalizePhone } from './phone.ts'
+import { assertStateFormat } from './state-format.ts'
 import { isValidDate, isValidReceivedTime } from './time.ts'
 import type { EngineState, EventProblem } from './types.ts'
 
@@ -29,8 +35,6 @@ export function isInvalidEvent(error: unknown): error is InvalidEventError {
 
 /** 처음 쓰는 스프린트가 따로 있는 R-1 이벤트 → 보고용 기능 이름 */
 export const DEFERRED_EVENTS: Readonly<Record<string, string>> = {
-  'broadcast.start': '방송 시작(broadcast.start, R-1) — S04',
-  'broadcast.end': '방송 종료(broadcast.end, R-1) — S04',
   'effect.failed': '효과 실패 보고(effect.failed, R-13) — S11',
 }
 
@@ -56,7 +60,13 @@ const channel: Check = (v) => id(v) ?? ((v as string).startsWith('sms:') ? "채�
 const SMS_REF_RE = /^[A-Za-z0-9_-]{1,64}$/
 const PHONE_KEY_RE = /^[A-Za-z0-9_-]{16,128}$/
 const PHONE_LAST4_RE = /^[0-9]{4}$/
-const smsRef: Check = (v) => (typeof v === 'string' && SMS_REF_RE.test(v) ? null : "문자찜 ref는 영문·숫자·'_'·'-'로 된 1~64자여야 한다")
+/** ref·memo에서 숫자만 모은 것이 휴대폰 번호 모양이면 입력 오류 — 번호는 전화번호 칸으로 (D-073) */
+const PHONE_SHAPED = '숫자만 모으면 휴대폰 번호 모양이다 — 전화번호는 전화번호 칸(phoneKey·phoneLast4)으로만 넣는다 (D-073)'
+const smsRef: Check = (v) => {
+  if (typeof v !== 'string' || !SMS_REF_RE.test(v)) return "문자찜 ref는 영문·숫자·'_'·'-'로 된 1~64자여야 한다"
+  return normalizePhone(v) === null ? null : PHONE_SHAPED
+}
+const memo: Check = (v) => text(v) ?? (normalizePhone(v as string) === null ? null : PHONE_SHAPED)
 const phoneKey: Check = (v) => (typeof v === 'string' && PHONE_KEY_RE.test(v) ? null : "전화번호 키는 영문·숫자·'_'·'-'로 된 16~128자여야 한다")
 const phoneLast4: Check = (v) => (typeof v === 'string' && PHONE_LAST4_RE.test(v) ? null : '전화번호 뒤 4자리는 숫자 4자리 문자열이어야 한다')
 const oneOf =
@@ -68,14 +78,18 @@ const oneOf =
 const BROADCAST = 'b'
 
 interface Spec {
+  /** 방송 필드 b가 새 방송을 선언한다 (broadcast.start — 선언하지 않은 방송이어도 된다, 이미 선언했으면 사본) */
+  readonly declares?: true
   readonly required: Readonly<Record<string, Check>>
   readonly optional?: Readonly<Record<string, Check>>
   /** 함께 와야 하는 선택 필드 쌍 — 한쪽만 있으면 빠진 쪽을 짚는다 (D-061, D-065) */
   readonly pairs?: readonly (readonly [string, string])[]
   /** 있으면 안 되는 필드 → 이유. 값이 무엇이든(undefined여도) 필드가 있으면 입력 오류다 */
   readonly forbidden?: Readonly<Record<string, string>>
-  /** 필드끼리의 조건 */
+  /** 필드끼리의 조건 (다른 문제가 없을 때만 본다) */
   readonly extra?: (event: Readonly<Record<string, unknown>>) => EventProblem | null
+  /** 필드 안쪽 검사 (늘 본다) — 필드 이름은 `필드.안쪽 키` */
+  readonly nested?: (event: Readonly<Record<string, unknown>>) => EventProblem[]
 }
 
 const BY_PRODUCT = { [BROADCAST]: id, no }
@@ -83,8 +97,21 @@ const BY_CLAIM = { [BROADCAST]: id, no, buyer: id }
 const HOST_REASON = { ...BY_CLAIM, reason }
 const LEDGER = { buyer: id, date }
 
-/** R-1 이벤트 표 = tests/golden/README "이벤트 종류와 필드" (효과 보고만 효과 ID) */
+/** 설정 스냅샷: 객체(배열·null 아님). 키·값·범위는 nested에서 checkSettings로 (D-071) */
+const settingsShape: Check = (v) => (typeof v === 'object' && v !== null && !Array.isArray(v) ? null : '설정 스냅샷은 키와 값을 짝지은 객체여야 한다')
+
+/** R-1 이벤트 표 = tests/golden/README "이벤트 종류와 필드" (효과 보고만 효과 ID, 문자찜 전화번호만 phoneKey·phoneLast4) */
 const SPECS: Readonly<Record<string, Spec>> = {
+  'broadcast.start': {
+    declares: true,
+    required: { [BROADCAST]: id, date, title: text },
+    optional: { settings: settingsShape },
+    nested: (e) => {
+      if (e.settings === undefined || settingsShape(e.settings) !== null) return []
+      return checkSettings(e.settings).map((p) => ({ field: p.key === null ? 'settings' : `settings.${p.key}`, message: p.message }))
+    },
+  },
+  'broadcast.end': { required: { [BROADCAST]: id } },
   'product.register': { required: { ...BY_PRODUCT, name: text, price: money }, optional: { stock, status: oneOf('OPEN', 'READY') } },
   'product.open': { required: BY_PRODUCT },
   'product.hold': { required: BY_PRODUCT },
@@ -94,7 +121,7 @@ const SPECS: Readonly<Record<string, Spec>> = {
   chat: { required: { [BROADCAST]: id, id, ch: channel, nick: text, text }, optional: { owner: bool, publishedAt: time } },
   sms: {
     required: { [BROADCAST]: id, ref: smsRef, no, received },
-    optional: { memo: text, phoneKey, phoneLast4, buyer: id },
+    optional: { memo, phoneKey, phoneLast4, buyer: id },
     pairs: [['phoneKey', 'phoneLast4']],
     forbidden: { phone: '전화번호 원문은 엔진에 넣지 않는다 — 서버가 정규화해 phoneKey·phoneLast4로 바꿔 넣는다 (D-061)' },
   },
@@ -131,12 +158,17 @@ const SPECS: Readonly<Record<string, Spec>> = {
 /** 엔진이 처리하는 이벤트 종류 (처음 쓰는 스프린트가 따로 있는 종류는 뺀다) */
 export const EVENT_TYPES: readonly string[] = Object.keys(SPECS)
 
+/** 모든 이벤트에 붙는 필드 */
+const COMMON_FIELDS: ReadonlySet<string> = new Set(['type', 'seq', 'at'])
+
 /**
  * 이벤트 형식 검사. 문제가 없으면 빈 목록.
  * 같은 상태·이벤트에 대해 applyEvent가 입력 오류(InvalidEventError)를 던질 때만, 그리고 그때는 언제나 문제를 돌려준다.
  * 형식은 맞지만 지금 상태에 맞지 않는 명령(없는 상품·찜·메시지 등)은 문제가 아니다.
+ * 상태 형식이 지금 코어와 다르면 StateFormatError를 던진다(D-072).
  */
 export function checkEvent(state: EngineState, event: unknown): EventProblem[] {
+  assertStateFormat(state)
   if (typeof event !== 'object' || event === null || Array.isArray(event)) return [{ field: null, message: '이벤트는 객체여야 한다' }]
   const record = event as Readonly<Record<string, unknown>>
   const type = record.type
@@ -158,7 +190,7 @@ export function checkEvent(state: EngineState, event: unknown): EventProblem[] {
     }
     const problem = check(value)
     if (problem !== null) problems.push({ field, message: problem })
-    else if (field === BROADCAST && !state.broadcasts.some((broadcast) => broadcast.id === value)) {
+    else if (field === BROADCAST && spec.declares !== true && !state.broadcasts.some((broadcast) => broadcast.id === value)) {
       problems.push({ field, message: `선언하지 않은 방송 '${value as string}'` })
     }
   }
@@ -177,6 +209,13 @@ export function checkEvent(state: EngineState, event: unknown): EventProblem[] {
   }
   for (const [field, message] of Object.entries(spec.forbidden ?? {})) {
     if (Object.hasOwn(record, field)) problems.push({ field, message })
+  }
+  problems.push(...(spec.nested?.(record) ?? []))
+  // 표에 없는 필드: 자기 속성이면 값과 상관없이(undefined여도) 입력 오류 — 이름이 다른 번호 필드가 로그에 남지 않게 (D-073)
+  for (const key of Reflect.ownKeys(record)) {
+    const field = typeof key === 'string' ? key : String(key)
+    const known = typeof key === 'string' && (COMMON_FIELDS.has(key) || Object.hasOwn(spec.required, key) || Object.hasOwn(spec.optional ?? {}, key) || Object.hasOwn(spec.forbidden ?? {}, key))
+    if (!known) problems.push({ field, message: '이 종류의 이벤트에 없는 필드다 (표에 없는 필드는 받지 않는다)' })
   }
   const extra = problems.length === 0 ? (spec.extra?.(record) ?? null) : null
   if (extra !== null) problems.push(extra)

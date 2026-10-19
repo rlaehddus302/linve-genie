@@ -2,11 +2,15 @@
 // - 구매자는 지금의 구매자(합친 결과) 기준이다: 상품의 1등·대기, 보류, 정산 묶음. 찜·효과·요청은 자신과 지금의 구매자를 함께 보인다.
 // - 정렬은 항상 명시적인 키로 한다: 방송 선언 순서·번호, 찜·효과·구매자의 생성 순서(n), 판정 순위.
 // - 개인정보: 엔진에는 전화번호 원문이 없다. 구매자의 전화번호 정보는 뒤 4자리뿐이고, 전화번호 키는 보이지 않는다(R-11, ORD-08 AC4, D-061).
+// - 정산 설정(배송비·무료 기준)은 그 날짜의 첫 방송(선언 순서)의 스냅샷이다(D-070).
+import { DEFAULT_SETTINGS, type SaleSettings } from '../settings.ts'
 import { Draft, ownSet } from './draft.ts'
 import { groupEntries, settle } from './ledger.ts'
 import { pentries, pget, pkeys, pvalues } from './pmap.ts'
 import { isActive, isLocked, sortedPending } from './rules.ts'
 import type {
+  BroadcastDetails,
+  BroadcastRecord,
   BuyerInfo,
   BuyerRecord,
   CancelRequestInfo,
@@ -43,6 +47,38 @@ function claimOf(state: EngineState, id: string): ClaimRecord {
 }
 
 const priceChanges = (history: readonly PriceChange[]): PriceChangeInfo[] => history.map(({ from, to, at }) => ({ from, to, at }))
+
+// ── 방송 (D-070) ─────────────────────────────────────────────────────────
+
+function broadcastDetails(broadcast: BroadcastRecord): BroadcastDetails {
+  return {
+    id: broadcast.id,
+    date: broadcast.date,
+    title: broadcast.title,
+    ended: broadcast.endedAt !== null,
+    endedAt: broadcast.endedAt,
+    settings: { ...broadcast.settings },
+  }
+}
+
+/** 선언된 방송 전부, 선언 순서 (ID·날짜·제목·끝났는지·끝난 시각·설정 스냅샷) */
+export function listBroadcasts(state: EngineState): BroadcastDetails[] {
+  return state.broadcasts.map(broadcastDetails)
+}
+
+/** 선언된 방송 하나 (선언하지 않은 방송이면 null) */
+export function getBroadcast(state: EngineState, id: string): BroadcastDetails | null {
+  const broadcast = state.broadcasts.find((item) => item.id === id)
+  return broadcast === undefined ? null : broadcastDetails(broadcast)
+}
+
+/**
+ * 그 날짜 정산 묶음의 설정 = 그 날짜 방송 중 선언 순서가 처음인 방송의 스냅샷 (D-070 — 뒤 방송을 시작해도 이미 계산한 묶음 금액이 바뀌지 않게).
+ * 그 날짜에 방송이 없으면 품목이 있을 수 없어(배송비 0) 기본값을 쓴다.
+ */
+function settlementSettings(state: EngineState, date: string): SaleSettings {
+  return state.broadcasts.find((broadcast) => broadcast.date === date)?.settings ?? DEFAULT_SETTINGS
+}
 
 /** 표시 상태 (R-2): READY·HOLD·CLOSED는 방송자가 정한 상태, 판매 중이면 확정 수 = 재고 → SOLD, 적으면 OPEN */
 export function productStatus(product: Pick<ProductRecord, 'phase' | 'stock'>, confirmed: number): ProductStatus {
@@ -218,7 +254,7 @@ function settlementInfo(state: EngineState, r: Draft, root: string, date: string
   const entries = groupEntries(r, root, date)
   const subtotal = items.reduce((sum, claim) => sum + (claim.price as number), 0)
   const totals = settle(
-    state.settings,
+    settlementSettings(state, date),
     subtotal,
     items.length,
     entries.map((item) => item.entry),
