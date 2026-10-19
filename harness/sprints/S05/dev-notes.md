@@ -80,6 +80,7 @@ S04 계약(`harness/sprints/S04/dev-notes.md` "웹(S05)에게")은 그대로이�
 - **메시지 조회** `GET /api/days/:date/messages[?rehearsal=true][&b=<방송>][&after=N | &before=N][&limit=1~500(기본 100)]`
   - after: 그 seq 뒤 limit개 · before: 그 seq 앞의 가장 최근 limit개 · 둘 다 없으면 가장 최근 limit개. 늘 seq 오름차순. after·before를 같이 쓰면 400.
   - 200: `{ date, rehearsal, seq, messages: [...], more }` — `seq`는 이 조회가 본 범위 seq, `more`는 그 방향(after면 뒤, 아니면 앞)으로 더 있는지. "이전 메시지 보기" = `before=<가장 오래된 메시지 seq>`.
+  - **`seq`까지는 빈틈이 없다**(TD-S05-005): `seq`는 채팅 행을 읽기 전에 잡은 값이고, 조회 범위(`before` 상한 = `seq`+1)와 메시지 기록(주문·바꾼 번호·찜)도 그 시점 상태로 만든다. 그래서 가장 최근 조회(`more: false`)면 `seq`까지의 그 범위(또는 그 방송) 메시지가 모두 담기고, 조회하는 사이 들어온 채팅·변환은 `seq` 뒤라 `changes?since=<seq>`로 온다. 증분 조회의 `messages`도 응답 `seq` 시점의 기록이다.
   - 메시지 항목: `{ id, broadcast, channel, nick, text, owner, seq, at, publishedAt, ignored, order, cancel, orders, cancels, mentions, converted, claims, failed }`
     - `at` 서버 도착 시각, `publishedAt` 게시 시각(없었으면 도착 시각) — UTC ISO. 화면은 KST로 보인다.
     - `owner` 방송자 본인 메시지, `ignored` 무시한 방송자 메시지, `order`·`cancel` 주문·취소였던 메시지(엔진 기록), `orders`·`cancels` 그 번호(주문·취소였을 때만), `mentions` 언급 번호(`parseChat` — 주문인 메시지는 언급이 비어 있다), `converted` 이미 찜으로 바꾼 번호, `claims` 그 메시지로 생긴 찜 ID(채팅 찜·메시지 변환 찜 — 지금 상태는 범위 조회의 `claims`에서), `failed` 엔진이 처리하지 못한 입력(확인 필요).
@@ -246,3 +247,14 @@ S04 계약(`harness/sprints/S04/dev-notes.md` "웹(S05)에게")은 그대로이�
 #### 검증 (dev-web 수정 라운드 1 끝)
 - `pnpm verify` 통과 (통과 6 · 실패 0 · 건너뜀 0): typecheck(설정 7 · TS 229) · lint(오류 0 · 경고 0) · test(파일 74 · 테스트 1827 — 화면 시험 파일 14 · 테스트 200) · golden(파일 20 · 파서 379 · 엔진 114 · 통과 493, 그 밖 0) · adversarial(파일 28 · 테스트 639, TD-S05-001·002·003 포함 실패 0) · coverage(코어 라인 100% · 분기 99.65%).
 - 게이트 밖: `CI=1 pnpm --filter @livejjim/web e2e` 58 통과 · 실패 0 (4.8분, TE-S05-001 포함).
+
+### 수정 라운드 2 (dev-server)
+| 지적 | 응답 | 고친 것 · 확인 |
+|---|---|---|
+| SA-S05-005 / TD-S05-005 메시지 조회 응답 seq가 담은 메시지보다 앞서 나감 | FIXED | `Service.messages`: `writer.read` 직후(await 전) `const { seq, state, scopeId } = runtime`로 잡아 두고 조회 범위(`before = min(query.before ?? seq+1, seq+1)`)·응답 `seq`·메시지 기록(`#messageItems(state, …)`)에 모두 이 값을 쓴다. 쓰기는 `runtime.state`를 새 객체로 바꾸므로(writer `#afterCommit`) 잡아 둔 참조는 그 시점 상태 그대로다. `Service.changes`도 같은 방식으로 정리 — 응답 seq는 이미 동기로 정해졌지만 메시지 기록이 조회 뒤의 더 새 상태로 만들어지던 것을 변경 묶음을 만든 시점 상태로 맞췄다(뒤의 변환은 다음 증분의 '기록이 바뀐 메시지'로 온다). 시험: 적대 `messages-seq-race.test.ts` 2건 통과, 서버 `test/messages-seq.test.ts` 4건(가장 최근·방송 거르기 없이·before가 지금보다 큼 — 응답 seq = 읽기 전 seq, 그 seq까지의 메시지 모두, 변환은 아직 안 보임, since=응답 seq 증분에 새 채팅과 바뀐 기록 / 증분 조회 사이 변환 → 그 응답은 바뀌기 전 기록, 다음 증분에 바뀐 기록). 고치기 전 코드로 돌리면 4건 모두 실패하는 것을 확인했다 |
+| GATE-S05-VERIFY | FIXED | 적대 실패 2건(TD-S05-005)이 서버 원인이었다. 아래 검증 |
+
+- 바꾼 기존 시험 없음(더하기만). 화면(`#loadAll`)은 그대로 — 서버가 계약("메시지 조회 seq까지 빈틈 없음")을 지키게 됐다.
+
+#### 검증 (dev-server 수정 라운드 2 끝)
+- `pnpm verify` 통과 (통과 6 · 실패 0 · 건너뜀 0): typecheck(설정 7 · TS 231) · lint(오류 0 · 경고 0) · test(파일 75 · 테스트 1831) · golden(파일 20 · 파서 379 · 엔진 114 · 통과 493, 그 밖 0) · adversarial(파일 29 · 테스트 641, TD-S05-005 포함 실패 0) · coverage(코어 라인 100% · 분기 99.65%).
