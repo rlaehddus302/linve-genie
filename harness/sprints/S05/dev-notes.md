@@ -128,6 +128,7 @@ S04 계약(`harness/sprints/S04/dev-notes.md` "웹(S05)에게")은 그대로이�
   - 포트를 열면 표준 출력에 `E2E 서버를 시작했어요. http://localhost:<포트> · …` 한 줄(Playwright `webServer`가 이 줄이나 `GET /api/health`로 기다리면 된다). 비밀번호·마스터 키는 출력하지 않는다.
   - CORS를 내지 않으므로 화면은 같은 출처(Vite 프록시 `/api` → 이 서버)로 띄우고 `--origin`을 화면 주소로 준다.
 - 프로그램: `startE2eServer({ appOrigin?, fill?, hostActionDelayMs?, generatorSpeed?, passwordCost? })` → `{ server, database, account, sellerId, fill, http, close() }`, `fillScope(server, sellerId, { date?, products?, chats?, seed? })`.
+- **이력으로 코어 재생하기** (리허설 끝까지 E2E): `GET /api/days/:date/history?rehearsal=true&after=…&limit=500`을 끝까지 받아 이벤트마다 `{ type, seq, at: Date.parse(at), ...fields, ...(reason === null ? {} : { reason }) }`를 `initEngine({ broadcasts: [], settings: {} })`부터 `applyEvent`로 차례로 적용한다(`failed: true` 행은 건너뛴다 — 서버 재생과 같다). 이력은 문자찜의 `phoneKey`를 빼고 주므로(S04 개인정보), 같은 전화번호 문자찜을 쓴 시험이면 문자 구매자가 하나로 묶이지 않아 다르게 재생된다 — 리허설 E2E에서는 문자찜을 쓰지 않거나 전화번호 없이 쓴다. 정산 묶음 비교는 범위 조회 `settlements`(구매자별 `total`)와 코어 `listSettlements`.
 
 ### 시험용 기동과 주입점 (test-domain·다음 개발자)
 - S04 주입점은 그대로. 더한 것: `createServer({ changesWindow, generatorTimer, generatorSpeed, hostActionDelayMs })`.
