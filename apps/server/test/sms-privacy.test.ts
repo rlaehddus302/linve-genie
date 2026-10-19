@@ -117,7 +117,8 @@ describe('AC-S04-31 문자찜 입력 경로', () => {
     const b = await createBroadcast(world, seller)
     await expectOk(writeEvent(world, seller, { type: 'product.register', b: b.id, no: 1, name: 'a', price: 1000 }))
     const before = await countRows(world.database, 'events')
-    for (const memo of ['3시 010-8642-5678', '010-8642-5678 2개', '15번 01086425678', '+82 10-8642-5678']) {
+    // 국가 번호 표기('+82 10-…')는 D-080으로 번호가 아니다(받는 쪽은 코어 단위 시험 — engine-s04 AC-S04-07). 앞뒤에 숫자가 붙은 번호만 본다
+    for (const memo of ['3시 010-8642-5678', '010-8642-5678 2개', '15번 01086425678', '+82 010-8642-5678']) {
       const response = await writeEvent(world, seller, { type: 'sms', b: b.id, no: 1, memo, phone: '010-9999-8888' })
       expect(response.status, memo).toBe(400)
       expect(response.body, memo).toMatchObject({ error: { code: 'INVALID_INPUT', problems: [{ field: 'memo', message: '전화번호는 여기에 적을 수 없어요. 전화번호 칸에 적어 주세요.' }] } })
