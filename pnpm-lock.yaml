@@ -172,6 +172,12 @@ importers:
       '@livejjim/core':
         specifier: workspace:*
         version: link:packages/core
+      '@livejjim/label':
+        specifier: workspace:*
+        version: link:packages/label
+      '@livejjim/printer':
+        specifier: workspace:*
+        version: link:packages/printer
       '@livejjim/server':
         specifier: workspace:*
         version: link:apps/server
