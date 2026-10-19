@@ -50,6 +50,11 @@ export interface Draft {
   readonly smsRef?: string
   /** checkEvent를 통과한 뒤 지금 상태로 더 거를 것 (예: 문자찜의 모르는 지정 구매자) */
   readonly validate?: (state: EngineState, event: EngineEvent) => Rejection | null
+  /**
+   * 서버가 덧붙이는 이벤트(차단 이어받기)라 checkEvent 문제가 있으면 요청 전체를 거절하지 않고 이 이벤트만 기록하지 않는다 (AC-S04-27).
+   * 거른 이벤트는 seq를 쓰지 않는다(뒤 이벤트가 그 seq를 받는다)
+   */
+  readonly skipIfInvalid?: boolean
 }
 
 export interface BuildContext {
@@ -323,10 +328,10 @@ export class ScopeWriter {
     let seq = runtime.seq
     let lastAt = runtime.lastAt
     const records: CommittedRecord[] = []
+    const kept: Draft[] = []
     for (const draft of drafts as readonly Draft[]) {
-      seq += 1
-      lastAt = Math.max(clock.now(), lastAt, firstAt)
-      const event = { ...draft.fields, seq, at: lastAt } as unknown as EngineEvent
+      const at = Math.max(clock.now(), lastAt, firstAt)
+      const event = { ...draft.fields, seq: seq + 1, at } as unknown as EngineEvent
       let problems
       try {
         problems = checkEvent(state, event)
@@ -334,9 +339,18 @@ export class ScopeWriter {
         if (isStateFormatError(error)) return { rejection: stateFormatRejection() }
         throw error
       }
-      if (problems.length > 0) return { rejection: invalid(easyProblems(problems, event as unknown as Record<string, unknown>)) }
+      if (problems.length > 0) {
+        if (draft.skipIfInvalid === true) {
+          log({ level: 'warn', code: 'DRAFT_SKIPPED', date: job.date })
+          continue
+        }
+        return { rejection: invalid(easyProblems(problems, event as unknown as Record<string, unknown>)) }
+      }
       const extra = draft.validate?.(state, event) ?? null
       if (extra !== null) return { rejection: extra }
+      seq += 1
+      lastAt = at
+      kept.push(draft)
       try {
         const result = engine.applyEvent(state, event)
         records.push({ event, seq, type: event.type, changed: result.state !== state, failed: false, effects: result.effects })
@@ -350,7 +364,7 @@ export class ScopeWriter {
         records.push({ event, seq, type: event.type, changed: false, failed: true, effects: [] })
       }
     }
-    return { records, drafts: drafts as readonly Draft[], state, seq, lastAt }
+    return { records, drafts: kept, state, seq, lastAt }
   }
 
   async #afterCommit(

@@ -28,6 +28,7 @@ export type LogCode =
   | 'STATE_FORMAT'
   | 'STREAM_FAILED'
   | 'LOGIN_PRUNE_FAILED'
+  | 'DRAFT_SKIPPED'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -41,6 +42,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   STATE_FORMAT: '상태 형식이 달라 다시 불러와요',
   STREAM_FAILED: '실시간 연결에 보내지 못했어요',
   LOGIN_PRUNE_FAILED: '로그인 시도 기록을 정리하지 못했어요(로그인은 계속함)',
+  DRAFT_SKIPPED: '서버가 덧붙이는 입력(차단 이어받기)이 입력 검사를 통과하지 못해 기록하지 않았어요',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */

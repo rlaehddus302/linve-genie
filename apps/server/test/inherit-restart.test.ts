@@ -74,6 +74,61 @@ describe('AC-S04-27 차단 이어받기', () => {
     await createBroadcast(world, seller, { date: '2026-10-21' })
     expect((await eventsOf(world, '2026-10-21')).map((event) => event.body.buyer ?? event.type)).toEqual(['broadcast.start', 'UCZ-never-seen'])
   })
+
+  it('차단된 ID가 휴대폰 번호(looksLikePhoneId — D-079 전 로그에 남은 값)면 이어받지 않고, 방송은 만들어진다 (TD-S04-004)', async () => {
+    const { world, seller } = await setup()
+    // 예전 규칙으로 기록된 로그를 흉내 낸다: 차단 대상 하나를 번호 모양 ID로 바꾸고 스냅샷을 지운 뒤 새 인스턴스로 연다
+    await world.database.pglite?.query(`update events set body = replace(body, '"UCZ-never-seen"', '"010-4826-1937"') where body like '%UCZ-never-seen%'`)
+    await world.database.pglite?.query(`delete from snapshots`)
+    const fresh = startServer(world.database, world.masterKey)
+    const created = await client(fresh, seller.cookie).post('/api/broadcasts', { requestId: 'bc-phone-block', date: '2026-10-19' })
+    expect(created.status, created.text).toBe(200)
+    const events = await eventsOf(fresh, '2026-10-19')
+    expect(events.map((event) => [event.seq, event.type, event.body.buyer ?? null])).toEqual([
+      [1, 'broadcast.start', null],
+      [2, 'host.blockBuyer', 'UCX'],
+    ])
+    expect(fresh.logs).toEqual([])
+    fresh.server.close()
+  })
+
+  it('이어받는 차단도 checkEvent를 통과해야 기록한다 — 통과하지 못한 것만 빼고(seq를 쓰지 않음) 나머지·방송은 기록한다', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller, { date: '2026-10-18' })
+    const block = (buyer: string, skipIfInvalid: boolean) => ({ fields: { type: 'host.blockBuyer', buyer, reason: INHERITED_BLOCK_REASON }, actor: { kind: 'server' as const }, skipIfInvalid })
+    const write = (requestId: string, skipIfInvalid: boolean) =>
+      world.server.writer.write({
+        sellerId: seller.sellerId,
+        date: b.date,
+        createScope: false,
+        requestId,
+        build: () => [
+          { fields: { type: 'host.blockBuyer', buyer: 'UCA', reason: '노쇼' }, actor: { kind: 'account', accountId: seller.accountId }, requestId },
+          block('010-4826-1938', skipIfInvalid),
+          block('', skipIfInvalid),
+          block('UCB', skipIfInvalid),
+        ],
+      })
+    // 표시가 없으면 요청 전체를 거절한다 (기록 없음)
+    const rejected = await write('req-strict', false)
+    expect(rejected.kind).toBe('rejected')
+    expect(await eventsOf(world, b.date)).toHaveLength(1)
+    // 표시가 있으면 그 이벤트만 빼고 기록한다
+    const written = await write('req-skip', true)
+    expect(written.kind).toBe('ok')
+    expect((await eventsOf(world, b.date)).map((event) => [event.seq, event.body.buyer ?? event.type, event.actor])).toEqual([
+      [1, 'broadcast.start', 'account'],
+      [2, 'UCA', 'account'],
+      [3, 'UCB', 'server'],
+    ])
+    expect(world.logs).toEqual([
+      { level: 'warn', code: 'DRAFT_SKIPPED', date: b.date },
+      { level: 'warn', code: 'DRAFT_SKIPPED', date: b.date },
+    ])
+    // 메모리 상태도 기록과 같은 seq까지 (거른 이벤트는 seq를 쓰지 않았다)
+    expect((await world.server.writer.read(seller.sellerId, b.date)).seq).toBe(3)
+  })
 })
 
 describe('AC-S04-28 재시작·스냅샷·형식', () => {

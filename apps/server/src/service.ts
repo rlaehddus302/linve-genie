@@ -1,7 +1,7 @@
 // 판매자 작업 (AC-S04-21·27·31·33·50~52). 판정은 모두 packages/core가 한다 — 여기서는 이벤트를 만들고 기록 경로에 넘기고 조회 함수를 부른다.
 import {
   checkSettings,
-  containsPhoneNumber,
+  containsPhoneRun,
   getBuyer,
   isValidDate,
   listBroadcasts,
@@ -12,6 +12,7 @@ import {
   listPending,
   listProducts,
   listSettlements,
+  looksLikePhoneId,
   normalizePhone,
   phoneLast4,
   resolveSettings,
@@ -186,14 +187,16 @@ export class Service {
         const previous = await previousScopeDate(db, sellerId, date)
         if (previous === null) return []
         const state = (await writer.read(sellerId, previous)).state
-        return blockedIds(state).filter((id) => !id.startsWith('sms:'))
+        // 문자 구매자는 날짜를 넘지 않고, 휴대폰 번호인 ID(D-079 전 로그에 남은 값)는 새 범위에 다시 쓰지 않는다 (AC-S04-27, TD-S04-004)
+        return blockedIds(state).filter((id) => !id.startsWith('sms:') && !looksLikePhoneId(id))
       },
       build: (ctx, prepared) => {
         const title = input.title ?? `${String(listBroadcasts(ctx.state).length + 1)}부`
         const drafts: Draft[] = [{ fields: { type: 'broadcast.start', b, date, title, settings: { ...settings } }, actor, requestId }]
         if (ctx.isNewScope) {
           for (const buyer of (prepared as string[] | undefined) ?? []) {
-            drafts.push({ fields: { type: 'host.blockBuyer', buyer, reason: INHERITED_BLOCK_REASON }, actor: { kind: 'server' } })
+            // 이어받는 차단도 checkEvent를 통과해야 기록한다 — 통과하지 못하면 그 차단만 빼고 방송은 만든다
+            drafts.push({ fields: { type: 'host.blockBuyer', buyer, reason: INHERITED_BLOCK_REASON }, actor: { kind: 'server' }, skipIfInvalid: true })
           }
         }
         return drafts
@@ -328,11 +331,11 @@ export class Service {
     return { kind: 'phone', outcome, phoneLast4: normalized === null ? null : phoneLast4(normalized) }
   }
 
-  /** 문자찜 ref (영문만이라 휴대폰 번호가 들어갈 수 없다. 바꿔 끼운 ID 생성기가 숫자를 섞어도 번호가 들어 있으면 — 코어 입력 오류와 같은 판단 — 다시 만든다) */
+  /** 문자찜 ref (영문만이라 휴대폰 번호가 들어갈 수 없다. 바꿔 끼운 ID 생성기가 숫자를 섞어도 번호가 들어 있으면 — 코어 입력 오류와 같은 판단 containsPhoneRun — 다시 만든다) */
   #smsRef(): string {
     for (let i = 0; i < 10; i++) {
       const ref = this.#options.ids.smsRef()
-      if (/^[A-Za-z0-9_-]{1,64}$/.test(ref) && !containsPhoneNumber(ref)) return ref
+      if (/^[A-Za-z0-9_-]{1,64}$/.test(ref) && !containsPhoneRun(ref)) return ref
     }
     throw new Error('문자찜 ref를 만들지 못했다')
   }
