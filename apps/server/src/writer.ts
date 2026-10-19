@@ -127,9 +127,16 @@ export interface WriterOptions {
   /** 이 이벤트 수마다 스냅샷 (최대 500) */
   readonly snapshotEvery: number
   readonly onCommit: CommitListener
+  /** 메모리에 두는 범위 상태 수 상한 (기본 DEFAULT_RUNTIME_CACHE_MAX) */
+  readonly runtimeCacheMax?: number
 }
 
 const MAX_SEQ_RETRIES = 5
+/**
+ * 메모리에 두는 범위 상태 수 기본 상한 (RA-S04-002). 넘으면 가장 오래 안 쓴 범위부터 버린다 — 처리 중인 범위는 두고.
+ * 버린 범위는 다음에 쓰거나 읽을 때 스냅샷 + 뒤 이벤트로 다시 불러온다(결과는 같다). 방송 중인 범위는 계속 쓰이므로 남는다.
+ */
+export const DEFAULT_RUNTIME_CACHE_MAX = 128
 
 class Abort {
   readonly outcome: WriteOutcome
@@ -160,11 +167,17 @@ export function eventDigest(scopeId: string, seq: number, type: string, body: st
 /** 범위(판매자, 날짜)마다 한 줄로 처리하는 기록기 */
 export class ScopeWriter {
   readonly #options: WriterOptions
-  readonly #runtimes = new Map<string, Promise<ScopeRuntime>>()
+  /** 범위 상태 (키 = [판매자, 날짜]). 넣은 순서 = 마지막으로 쓴 순서 (앞이 가장 오래 안 쓴 것). 범위 행이 있는 것만 둔다 */
+  readonly #runtimes = new Map<string, ScopeRuntime>()
   readonly #queues = new Map<string, Promise<unknown>>()
 
   constructor(options: WriterOptions) {
     this.#options = options
+  }
+
+  /** 메모리에 둔 범위 상태 수 (시험·점검용) */
+  get cachedScopes(): number {
+    return this.#runtimes.size
   }
 
   /** 범위마다 한 줄: 같은 범위의 작업은 앞 작업이 끝난 뒤 시작한다 */
@@ -183,16 +196,39 @@ export class ScopeWriter {
     return run
   }
 
-  /** 범위 상태 (처음이면 DB에서 불러온다). serial 안에서 쓴다 */
+  /**
+   * 범위 상태 (처음이면 DB에서 불러온다). serial 안에서 쓴다 — 같은 범위를 동시에 불러오지 않는다.
+   * 범위 행이 없으면(이벤트 0개) 빈 상태를 돌려주되 메모리에 두지 않는다: 없는 날짜를 아무리 조회해도 쌓이지 않는다(RA-S04-002).
+   */
   async runtime(sellerId: string, date: string): Promise<ScopeRuntime> {
     const key = JSON.stringify([sellerId, date])
-    let loading = this.#runtimes.get(key)
-    if (loading === undefined) {
-      loading = loadRuntime(this.#options.db, sellerId, date, this.#options.engine, this.#options.log)
-      this.#runtimes.set(key, loading)
-      loading.catch(() => this.#runtimes.delete(key))
+    const cached = this.#runtimes.get(key)
+    if (cached !== undefined) {
+      this.#touch(key, cached)
+      return cached
     }
-    return loading
+    const runtime = await loadRuntime(this.#options.db, sellerId, date, this.#options.engine, this.#options.log)
+    this.#keep(runtime)
+    return runtime
+  }
+
+  /** 범위 행이 있는 상태만 메모리에 둔다. 상한을 넘으면 가장 오래 안 쓴, 처리 중이 아닌 범위부터 버린다 */
+  #keep(runtime: ScopeRuntime): void {
+    if (runtime.scopeId === null) return
+    const key = JSON.stringify([runtime.sellerId, runtime.date])
+    this.#touch(key, runtime)
+    const max = this.#options.runtimeCacheMax ?? DEFAULT_RUNTIME_CACHE_MAX
+    if (this.#runtimes.size <= max) return
+    for (const candidate of this.#runtimes.keys()) {
+      if (this.#runtimes.size <= max) break
+      if (candidate !== key && !this.#queues.has(candidate)) this.#runtimes.delete(candidate)
+    }
+  }
+
+  /** 마지막으로 쓴 것으로 옮긴다 */
+  #touch(key: string, runtime: ScopeRuntime): void {
+    this.#runtimes.delete(key)
+    this.#runtimes.set(key, runtime)
   }
 
   /** 메모리 상태를 버린다 (다음에 DB에서 다시 불러온다) */
@@ -205,6 +241,8 @@ export class ScopeWriter {
     return this.serial(sellerId, date, async () => {
       const runtime = await this.runtime(sellerId, date)
       await catchUp(this.#options.db, runtime, this.#options.engine, this.#options.log)
+      // 다른 인스턴스가 그사이 범위를 만들었으면 이제 메모리에 둔다
+      this.#keep(runtime)
       return runtime
     })
   }
@@ -333,6 +371,8 @@ export class ScopeWriter {
     runtime.lastAt = committed.lastAt
     runtime.scopeId = committed.scopeId
     runtime.sinceSnapshot += committed.records.length
+    // 이 기록으로 범위가 생겼으면(방송 만들기) 이제 메모리에 둔다
+    this.#keep(runtime)
     for (const record of committed.records) {
       if (record.failed) runtime.attention = [...runtime.attention, { seq: record.seq, message: FAILED_INPUT_MESSAGE }]
     }

@@ -1,6 +1,6 @@
 // 서버 조립 (S04): DB·마스터 키·앱 주소를 받아 기록 경로·서비스·로그인·실시간 알림·HTTP 앱을 만든다.
 // 시험(단위·적대)은 PGlite로 열어 createServer(...).app.request(...)로 포트 없이 요청한다.
-// 시험용 주입점: clock(서버 시계), ids(ID 생성), hooks(저장 실패·응답 전 멈춤·스냅샷 실패), engine(엔진 감싸기), log(로그 수집).
+// 시험용 주입점: clock(서버 시계), ids(ID 생성), hooks(저장 실패·응답 전 멈춤·스냅샷 실패), engine(엔진 감싸기), log(로그 수집), runtimeCacheMax(범위 상태 메모리 상한).
 import { applyEvent } from '@livejjim/core'
 import type { Hono } from 'hono'
 import { Auth } from './auth.ts'
@@ -13,7 +13,7 @@ import type { EngineAdapter } from './runtime.ts'
 import { loginLimitSecret, readMasterKey, type PasswordCost } from './secrets.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
 import { systemClock, type Clock } from './time.ts'
-import { ScopeWriter, type WriterHooks } from './writer.ts'
+import { DEFAULT_RUNTIME_CACHE_MAX, ScopeWriter, type WriterHooks } from './writer.ts'
 
 /** 스냅샷 간격 상한 (AC-S04-28: 일정 이벤트 수, 최대 500) */
 export const MAX_SNAPSHOT_EVERY = 500
@@ -37,6 +37,8 @@ export interface ServerOptions {
   readonly heartbeatMs?: number
   /** 비밀번호 해시 비용 (시험은 낮춘다) */
   readonly passwordCost?: PasswordCost
+  /** 메모리에 두는 범위 상태 수 상한 (1 이상, 기본 128 — 넘으면 오래 안 쓴 범위부터 버리고 다시 필요하면 DB에서 불러온다) */
+  readonly runtimeCacheMax?: number
 }
 
 export interface LivejjimServer {
@@ -69,6 +71,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
   if (!Number.isSafeInteger(snapshotEvery) || snapshotEvery < 1 || snapshotEvery > MAX_SNAPSHOT_EVERY) throw new TypeError('스냅샷 간격은 1~500이어야 해요.')
   const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS
   if (!Number.isSafeInteger(heartbeatMs) || heartbeatMs < 1 || heartbeatMs > 30_000) throw new TypeError('하트비트 간격은 30초 이내여야 해요.')
+  const runtimeCacheMax = options.runtimeCacheMax ?? DEFAULT_RUNTIME_CACHE_MAX
+  if (!Number.isSafeInteger(runtimeCacheMax) || runtimeCacheMax < 1) throw new TypeError('메모리에 두는 범위 수는 1 이상이어야 해요.')
 
   const db = options.database.db
   const clock = options.clock ?? systemClock
@@ -85,6 +89,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     log,
     hooks: options.hooks ?? {},
     snapshotEvery,
+    runtimeCacheMax,
     onCommit: (sellerId, date, records) => hub.publish(sellerId, records.map((record) => ({ date, seq: record.seq, type: record.type }))),
   })
   const service = new Service({ db, writer, masterKey, clock, ids })
