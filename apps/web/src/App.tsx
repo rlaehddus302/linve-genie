@@ -1,4 +1,5 @@
-// 앱 (AC-S05-01·02, AC-S06-01): 로그인 확인 → 메뉴(방송·문자찜 입력·구매자·정산)와 그 화면.
+// 앱 (AC-S05-01·02, AC-S06-01, AC-I1-20): 로그인 확인 → 메뉴(방송·문자찜 입력·구매자·정산·라벨)와 그 화면.
+// 로그인한 동안 출력 기록·이 기기의 프린터(PrintProvider)는 앱 전체에 하나다 — 화면을 옮겨도 출력 기기의 출력이 이어진다(AC-I1-23).
 // 쓰는 중에 세션이 끝나면(어떤 API든 401) 로그인 화면으로 가고, 다시 로그인하면 보던 화면(주소·검색값 그대로)으로 돌아간다.
 // 그때 화면이 닫히며 5초 대기 중이던 방송자 조치는 보내지 않는다(D-083).
 // 5초 대기 중인 조치가 있으면 떠나기 전에 묻는다(AC-S06-01): 메뉴·링크·같은 화면 안의 이동, 브라우저 뒤로·앞으로(앱 창), 새로고침·탭 닫기(브라우저 확인).
@@ -11,8 +12,10 @@ import { BuyersPage } from './components/BuyersPage.tsx'
 import { ConsolePage } from './components/ConsolePage.tsx'
 import { ErrorNote } from './components/ErrorNote.tsx'
 import { HomePage } from './components/HomePage.tsx'
+import { LabelsPage } from './components/LabelsPage.tsx'
 import { LoginPage } from './components/LoginPage.tsx'
 import { Modal } from './components/Modal.tsx'
+import { PrintProvider } from './components/print-context.tsx'
 import { SettlementsPage } from './components/SettlementsPage.tsx'
 import { SmsPage } from './components/SmsPage.tsx'
 import { TopBar } from './components/TopBar.tsx'
@@ -171,22 +174,24 @@ export function App() {
   const shopName = session.me.seller.name
   return (
     <LeaveGuardContext.Provider value={register}>
-      <TopBar shopName={shopName} onLogout={() => void logout()} route={route} navigate={navigate} />
-      {logoutError !== null ? <ErrorNote error={logoutError} /> : null}
-      <Screen route={route} navigate={navigate} />
-      {leaving !== null ? (
-        <Modal
-          title="다른 화면으로 갈까요?"
-          onClose={stay}
-          actions={
-            <button type="button" className="button button-danger" onClick={leave}>
-              보내지 않고 떠나기
-            </button>
-          }
-        >
-          <p>{LEAVE_QUESTION}</p>
-        </Modal>
-      ) : null}
+      <PrintProvider>
+        <TopBar shopName={shopName} onLogout={() => void logout()} route={route} navigate={navigate} />
+        {logoutError !== null ? <ErrorNote error={logoutError} /> : null}
+        <Screen route={route} navigate={navigate} />
+        {leaving !== null ? (
+          <Modal
+            title="다른 화면으로 갈까요?"
+            onClose={stay}
+            actions={
+              <button type="button" className="button button-danger" onClick={leave}>
+                보내지 않고 떠나기
+              </button>
+            }
+          >
+            <p>{LEAVE_QUESTION}</p>
+          </Modal>
+        ) : null}
+      </PrintProvider>
     </LeaveGuardContext.Provider>
   )
 }
@@ -201,6 +206,8 @@ function Screen({ route, navigate }: { readonly route: Route; readonly navigate:
       return <BuyersPage route={route} navigate={navigate} />
     case 'settlements':
       return <SettlementsPage route={route} navigate={navigate} />
+    case 'labels':
+      return <LabelsPage />
     case 'home':
       return <HomePage navigate={navigate} />
   }

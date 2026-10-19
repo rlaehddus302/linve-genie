@@ -1,6 +1,7 @@
 // 화면 주소 (AC-S05-01, AC-S06-01, D-094):
 //   `/` 방송 목록(홈) · `/broadcasts/<방송 ID>` 그 방송의 콘솔 · `/sms` 문자찜 입력
 //   `/buyers` 구매자 · `/settlements` 정산 — 고른 날짜·리허설·구매자는 검색값(`?date=2026-10-18&rehearsal=true&buyer=UC_A`)
+//   `/labels` 라벨(프린터·출력 대기열·버릴 라벨·출력 이력·라벨 설정·내보내기, I1 AC-I1-20)
 // 전화번호·메모·사유는 주소에 넣지 않는다(AC-S06-81). 새로고침·북마크해도 같은 화면이다.
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -15,7 +16,7 @@ export interface ScopeRoute {
   readonly buyer?: string
 }
 
-export type Route = { readonly name: 'home' } | { readonly name: 'console'; readonly id: string } | { readonly name: 'sms' } | ScopeRoute
+export type Route = { readonly name: 'home' } | { readonly name: 'console'; readonly id: string } | { readonly name: 'sms' } | { readonly name: 'labels' } | ScopeRoute
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -42,6 +43,7 @@ export function parseRoute(pathname: string, search = ''): Route {
   }
   const path = pathname.replace(/\/+$/, '')
   if (path === '/sms') return { name: 'sms' }
+  if (path === '/labels') return { name: 'labels' }
   if (path === '/buyers') return scopeRoute('buyers', search)
   if (path === '/settlements') return scopeRoute('settlements', search)
   return { name: 'home' }
@@ -55,6 +57,8 @@ export function routePath(route: Route): string {
       return `/broadcasts/${encodeURIComponent(route.id)}`
     case 'sms':
       return '/sms'
+    case 'labels':
+      return '/labels'
     case 'buyers':
     case 'settlements': {
       const params = new URLSearchParams()
@@ -68,7 +72,7 @@ export function routePath(route: Route): string {
 }
 
 /** 메뉴 항목 (AC-S06-01): 지금 화면이 어느 메뉴에 속하는지 */
-export type MenuKey = 'broadcasts' | 'sms' | 'buyers' | 'settlements'
+export type MenuKey = 'broadcasts' | 'sms' | 'buyers' | 'settlements' | 'labels'
 
 export function menuOf(route: Route): MenuKey {
   switch (route.name) {
@@ -81,6 +85,8 @@ export function menuOf(route: Route): MenuKey {
       return 'buyers'
     case 'settlements':
       return 'settlements'
+    case 'labels':
+      return 'labels'
   }
 }
 

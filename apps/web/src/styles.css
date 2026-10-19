@@ -1097,6 +1097,170 @@ html:has(.sms-submit-bar) {
   color: #5b2a86;
 }
 
+/* ── 라벨·출력 (I1, AC-I1-20~27·30~35·62) ─────────────────── */
+
+/* 프린터 상태 (모든 화면 위, AC-I1-34): 글자로 — 누르면 라벨 화면 */
+.printer-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0.25rem 0.75rem;
+  border: 2px solid #5f6368;
+  border-radius: 0.5rem;
+  color: #1a1a1a;
+  background-color: #ffffff;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.printer-status-alert {
+  border-color: #a50e0e;
+  background-color: #fce8e6;
+  color: #5c0b0b;
+}
+
+.labels-page .card {
+  display: grid;
+  gap: 1rem;
+}
+
+.fieldset {
+  margin: 0;
+  padding: 0.5rem 0.75rem 0.75rem;
+  border: 1px solid #c4c7c5;
+  border-radius: 0.5rem;
+  min-width: 0;
+}
+
+.fieldset legend {
+  font-weight: 700;
+  padding: 0 0.25rem;
+}
+
+.input-short {
+  max-width: 8rem;
+}
+
+/* 멈춤 띠 (AC-I1-24): 까닭 문장과 할 일 — 휴대폰에서도 잘리지 않는다 */
+.pause-band {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+  padding: 0.75rem 1rem;
+  border: 2px solid #a50e0e;
+  border-radius: 0.5rem;
+  background-color: #fce8e6;
+  color: #3b0707;
+}
+
+.pause-message {
+  font-weight: 700;
+}
+
+.job-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.job-row {
+  display: grid;
+  gap: 0.25rem;
+  justify-items: start;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #c4c7c5;
+  border-radius: 0.5rem;
+}
+
+.job-main {
+  overflow-wrap: anywhere;
+}
+
+.job-error {
+  color: #a50e0e;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.tag-printing {
+  border-color: #0b57d0;
+  background-color: #d3e3fd;
+  color: #041e49;
+}
+
+.tag-discard {
+  border-color: #a50e0e;
+  background-color: #fce8e6;
+  color: #a50e0e;
+}
+
+.device-status {
+  justify-items: start;
+}
+
+/* 라벨 설정: PC는 칸과 미리 보기를 나란히, 휴대폰은 아래로 */
+.label-editor {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+}
+
+.item-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  align-items: center;
+}
+
+.item-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.item-size {
+  padding: 0 0.25rem;
+  text-align: center;
+}
+
+/* 라벨 그림: 50mm 라벨 틀 안의 가운데 48mm, 점이 흐려지지 않게 */
+.label-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  border: 2px dashed #5f6368;
+  border-radius: 0.5rem;
+  background-color: #ffffff;
+}
+
+.label-canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  background-color: #ffffff;
+}
+
+.label-frame .label-canvas {
+  outline: 1px solid #c4c7c5;
+}
+
+.label-box {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid #c4c7c5;
+  border-radius: 0.5rem;
+}
+
+.label-pages {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+}
+
 /* ── 휴대폰 (375px 기준, AC-S06-02·61) ───────────────────── */
 
 @media (max-width: 47.99rem) {
@@ -1110,8 +1274,9 @@ html:has(.sms-submit-bar) {
     right: 0;
     bottom: 0;
     z-index: 15;
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    /* 메뉴 다섯 개(AC-I1-20): 글자 길이만큼 나눠 "문자찜 입력"도 한 줄 */
+    display: flex;
+    flex-wrap: nowrap;
     gap: 0;
     padding: 0.25rem 0.125rem calc(0.25rem + env(safe-area-inset-bottom));
     border-top: 1px solid #c4c7c5;
@@ -1119,8 +1284,13 @@ html:has(.sms-submit-bar) {
   }
 
   .menu-link {
+    flex: 1 1 auto;
     padding: 0.25rem 0.125rem;
     letter-spacing: -0.02em;
+  }
+
+  .label-editor {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .console {
