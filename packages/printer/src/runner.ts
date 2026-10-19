@@ -76,22 +76,39 @@ export function createPrintRunner(options: PrintRunnerOptions): PrintRunner {
       if (!started.job) return
       const job = started.job
       commit(started.state)
-      const rendered = render(job)
+      let rendered: ReturnType<JobRenderer>
+      try {
+        rendered = render(job)
+      } catch {
+        rendered = { ok: false, error: { code: 'INVALID_DATA' } }
+      }
       if (!rendered.ok) {
         commit(failJob(state, job.id, rendered.error.code))
         return
       }
-      const result = await adapter.print(rendered.image, options.density === undefined ? {} : { density: options.density })
+      // 어댑터는 실패를 결과로 알린다. 그래도 예외가 나오면 프린터 오류로 멈춘다(작업은 대기 맨 앞에 남는다)
+      const result = await adapter.print(rendered.image, options.density === undefined ? {} : { density: options.density }).catch(() => ({ ok: false as const, error: { code: 'PRINT_FAILED' } }))
       if (result.ok) commit(completeJob(state, job.id, { at: clock(), device }))
       else commit(failJob(state, job.id, result.error.code))
     }
   }
 
+  /** 도는 중에 다시 불렸는지 — 돌던 것이 끝난 뒤 한 번 더 돈다(멈춤을 푼 직후 등의 알림을 놓치지 않게) */
+  let again = false
   const pump = (): void => {
-    if (running) return
-    running = drain().finally(() => {
-      running = undefined
-    })
+    if (running) {
+      again = true
+      return
+    }
+    again = false
+    // drain은 다음 마이크로태스크에 시작한다 — 그 안에서 어댑터 알림이 pump를 다시 불러도 running이 이미 있다
+    const current: Promise<void> = Promise.resolve()
+      .then(drain)
+      .finally(() => {
+        if (running === current) running = undefined
+        if (again) pump()
+      })
+    running = current
   }
 
   const unlisten = adapter.onStateChange((s) => {
@@ -104,6 +121,9 @@ export function createPrintRunner(options: PrintRunnerOptions): PrintRunner {
     commit(next)
     pump()
   }
+
+  // 이미 연결돼 있고 대기 작업이 있으면 바로 시작한다
+  pump()
 
   return {
     get state() {
