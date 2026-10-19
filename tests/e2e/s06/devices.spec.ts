@@ -143,4 +143,34 @@ test.describe('개인정보·말', () => {
     await expect(page.getByRole('region', { name: '최근 넣은 문자찜' })).toContainText('<script>')
     expect(await page.evaluate(() => (window as unknown as { __xss?: number }).__xss)).toBeUndefined()
   })
+
+  test('AC-S06-80 (NFR-07): 브라우저 시간대가 KST가 아니어도 기록한 때·받은 시각은 KST', async ({ browser }) => {
+    const baseURL = test.info().project.use.baseURL!
+    const context = await browser.newContext({ baseURL, locale: 'ko-KR', timezoneId: 'Pacific/Honolulu' })
+    const page = await context.newPage()
+    await login(page)
+    const date = uniqueDate()
+    const title = `시간대${String(Math.floor(Math.random() * 1e5))}`
+    const b = await openNewBroadcast(page, { date, rehearsal: true, title })
+    await registerApi(page, b, 15, '핑크프릴', 10000)
+    await smsApi(page, { b, no: 15, memo: '하와이' })
+    const view = await scopeView(page, date, true)
+    const buyer = view.buyers[0]!.id
+    expect((await writeEvent(page, { type: 'settlement.payment', buyer, date, amount: 14000 }, { date, rehearsal: true })).status).toBeLessThan(300)
+    const after = await scopeView(page, date, true)
+    const at = (after.settlements[0]!.records[0] as unknown as { at: string }).at
+    const kst = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(at))
+    const part = (t: string) => kst.find((x) => x.type === t)!.value
+    await page.goto(`/settlements?date=${date}&rehearsal=true&buyer=${encodeURIComponent(buyer)}`)
+    await expect(page.getByRole('region', { name: '정산 기록' })).toContainText(`기록한 때 ${part('month')}/${part('day')} ${part('hour')}:${part('minute')}`)
+    // 문자찜: 받은 시각을 비우면 서버가 KST 도착 시각(초까지)을 적는다 — 최근 목록에 그대로
+    const hist = await (await page.request.get(`/api/days/${date}/history?rehearsal=true`)).json() as { events: { type: string; fields: Record<string, unknown> }[] }
+    const received = String(hist.events.find((e) => e.type === 'sms')!.fields['received'])
+    expect(received).toMatch(/^\d{2}:\d{2}:\d{2}$/)
+    await openSms(page, title)
+    await expect(page.getByRole('region', { name: '최근 넣은 문자찜' })).toContainText(received)
+    const text = await page.locator('main').innerText()
+    expect(text).not.toMatch(/PENDING|CONFIRMED|sms:|undefined|NaN|null/)
+    await context.close()
+  })
 })

@@ -40,6 +40,23 @@ test.describe('문자찜 입력', () => {
     }
   })
 
+  test('AC-S06-10: 끝나지 않은 실제 방송이 없으면 고른 방송이 없고 안내, 보낼 수 없다 (리허설만 있어도 기본으로 고르지 않는다)', async ({ page }) => {
+    await login(page)
+    await rehearsalWithTitle(page, uniq('리허만'))
+    // 방송 목록에서 끝나지 않은 실제 방송을 뺀다 (같은 서버를 함께 쓰는 다른 시험의 방송)
+    await page.route('**/api/broadcasts', async (route) => {
+      if (route.request().method() !== 'GET') return route.continue()
+      const res = await route.fetch()
+      const body = await res.json() as { broadcasts: { rehearsal: boolean; ended: boolean }[] }
+      await route.fulfill({ response: res, json: { broadcasts: body.broadcasts.filter((x) => x.rehearsal || x.ended) } })
+    })
+    await page.goto('/sms')
+    await expect(page.getByRole('region', { name: '고른 방송' })).toContainText('문자찜을 넣을 방송을 골라 주세요.')
+    await expect(page.getByRole('region', { name: '고른 방송' }).getByRole('button', { name: '방송 고르기' })).toBeVisible()
+    await expect(page.getByRole('button', { name: /문자찜 넣기$/ })).toBeDisabled()
+    await page.unrouteAll({ behavior: 'ignoreErrors' })
+  })
+
   test('AC-S06-10: 리허설 방송을 고르면 경고가 늘 보이고 끝난 방송도 고를 수 있다', async ({ page }) => {
     await login(page)
     const title = uniq('리허')
