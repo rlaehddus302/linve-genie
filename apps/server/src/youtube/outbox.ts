@@ -251,7 +251,7 @@ export class OutboxRunner {
   async runOnce(): Promise<void> {
     if (this.#running !== null) return this.#running
     this.#running = (async () => {
-      const steps = [() => this.#intake(), () => this.#confirmAll(), () => this.#sendDue(), () => this.#reportAll(), () => this.#summaries()]
+      const steps = [() => this.#options.quota.tick(), () => this.#intake(), () => this.#confirmAll(), () => this.#sendDue(), () => this.#reportAll(), () => this.#summaries()]
       for (const step of steps) {
         if (this.#killed) return
         try {

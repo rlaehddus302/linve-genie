@@ -214,6 +214,29 @@ describe('AC-Y1-04 새로 고침과 "다시 연결 필요"', () => {
   })
 })
 
+describe('AC-Y1-06 끊기 — 도는 수집기도 멈춘다', () => {
+  it('스트림이 열린 채 도는 수집기가 끊기 뒤 바로 멈추고(열린 스트림 0), 기록한 채팅은 그대로', async () => {
+    const w = await world()
+    const connected = await connectSeller(w, { publish: true })
+    const { b, liveChatId } = await linkedBroadcast(w, connected)
+    w.server.youtube?.collectors.start()
+    w.fake.addMessage(liveChatId, { author: 'UCa', name: '가', text: '안녕', publishedAt: w.timer.now() + 1 })
+    const api = client(w, connected.seller.cookie)
+    await until(w, async () => ((await api.get(`/api/broadcasts/${b.id}/youtube`)).body.collector as { recorded: number }).recorded === 1, { step: 100 })
+    expect(w.fake.openStreams.get(liveChatId)).toBe(1)
+    await api.post('/api/youtube/connection/disconnect', {})
+    await until(w, async () => ((await api.get(`/api/broadcasts/${b.id}/youtube`)).body.collector as { status: string }).status === 'STOPPED', { step: 100 })
+    expect((await api.get(`/api/broadcasts/${b.id}/youtube`)).body.collector).toMatchObject({ status: 'STOPPED', reason: 'NOT_CONNECTED', recorded: 1 })
+    await until(w, () => (w.fake.openStreams.get(liveChatId) ?? 0) === 0, { step: 100 })
+    // 같은 채널로 다시 연결하면 이어서 수집
+    w.fake.addMessage(liveChatId, { author: 'UCb', name: '나', text: '끊긴 동안', publishedAt: w.timer.now() + 1 })
+    w.fake.approval = { account: connected.account, channel: connected.channel.id }
+    expect(await callback(w, connected.seller.cookie, await approve((await api.post('/api/youtube/connection/start', {})).body.authorizeUrl as string))).toBe('connected')
+    await until(w, async () => ((await api.get(`/api/broadcasts/${b.id}/youtube`)).body.collector as { recorded: number }).recorded === 2, { step: 1000 })
+    await w.server.youtube?.collectors.stop()
+  })
+})
+
 describe('AC-Y1-05·06 상태 조회·끊기', () => {
   it('상태가 바뀌면 그 판매자의 SSE로 알린다 (토큰·만료 시각 없음)', async () => {
     const w = await world()

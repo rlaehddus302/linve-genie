@@ -138,10 +138,11 @@ describe('AC-Y1-52 묶음·멈춤 전환', () => {
     expect(await meter.mode(id)).toBe('BATCH')
     await meter.count(id, 'channels.list')
     expect(await meter.mode(id)).toBe('PAUSED')
-    // 자정에 다시 계산
+    // 자정에 다시 계산 — 발송함 워커가 바퀴마다 날짜를 보고 알린다
+    await server.server.youtube?.outbox.runOnce()
     await v.timer.set(Date.parse('2026-10-20T07:00:01Z'))
     expect(await meter.mode(id)).toBe('NORMAL')
-    await meter.recheck([id])
+    await server.server.youtube?.outbox.runOnce()
     await new Promise((resolve) => setTimeout(resolve, 20))
     await reader?.cancel()
     await pump

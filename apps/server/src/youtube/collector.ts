@@ -212,6 +212,12 @@ export class CollectorManager {
     this.wake()
   }
 
+  /** 그 판매자의 도는 수집기가 모두 다시 계산하게 한다 (연결이 끊김·다시 연결 필요 — 멈춤 상태로) */
+  refreshSeller(sellerId: string): void {
+    for (const running of this.#running.values()) if (running.sellerId === sellerId) running.attempt?.abort()
+    this.wake()
+  }
+
   /** 모두 멈춘다 (임대를 놓는다) */
   async stop(): Promise<void> {
     this.#stopped = true

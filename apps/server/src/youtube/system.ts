@@ -153,7 +153,8 @@ export class YoutubeSystem {
       log,
       onStatus: (sellerId, view) => {
         publish(sellerId, { kind: 'connection', connection: view })
-        this.collectors.wake()
+        // 끊김·다시 연결 필요면 그 판매자의 도는 수집기가 바로 멈춘다(열린 스트림도), 다시 연결되면 찾아 이어받는다
+        this.collectors.refreshSeller(sellerId)
         this.outbox.notify()
       },
       onConsentOff: (sellerId, targets) => this.outbox.consentOff(sellerId, targets, targets.length > 1),

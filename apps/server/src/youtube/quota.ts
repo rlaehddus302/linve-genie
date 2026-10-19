@@ -44,6 +44,7 @@ export class QuotaMeter {
   /** 모드가 바뀌면 (판매자, 새 모드) */
   readonly #onMode: (sellerId: string, mode: QuotaMode) => void
   readonly #modes = new Map<string, QuotaMode>()
+  #day: string | null = null
 
   constructor(db: Db, settings: QuotaSettings, now: () => number, onMode: (sellerId: string, mode: QuotaMode) => void) {
     this.#db = db
@@ -136,6 +137,15 @@ export class QuotaMeter {
         .map((row) => ({ method: row.method, calls: row.calls, units: row.units }))
         .sort((a, b) => a.method.localeCompare(b.method)),
     }
+  }
+
+  /** 태평양 날짜가 바뀌었으면(자정) 알던 판매자들의 모드를 다시 계산해 바뀐 판매자에게 알린다 (발송함 워커가 바퀴마다 부른다) */
+  async tick(): Promise<void> {
+    const day = pacificDay(this.#now())
+    if (this.#day === day) return
+    const first = this.#day === null
+    this.#day = day
+    if (!first) await this.recheck([...this.#modes.keys()])
   }
 
   /** 자정 뒤 모드를 다시 계산해 바뀐 판매자에게 알린다 (워커가 부른다) */
