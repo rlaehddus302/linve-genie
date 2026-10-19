@@ -57,6 +57,26 @@ sprints:
     specIds: [ORD-08, ORD-09, ORD-10, PRD-02, BUY-01, BUY-02, BUY-03, BUY-04, STL-01, STL-02, STL-03, STL-07, STL-09]
     status: done
 
+  - id: S03b
+    phase: 1
+    title: 코어 정리 — 전화번호 평문 제거, S03 미결 규칙 정리
+    devs: [core]
+    tests: [domain]
+    goal: >
+      S04가 엔진 상태를 저장하기 전에 개인정보 구조를 고치고, S03 감사에서 남은 방송자 조작 규칙 빈틈을
+      단순·보수 원칙(D-036)으로 닫는다.
+    carryOver:
+      - "RA-S03-001: 엔진 상태에 휴대폰 번호 평문을 두지 않는다. sms 이벤트는 서버가 정규화·HMAC한 불투명 phoneKey와 phoneLast4만 받는다(normalizePhone은 core에 유지). 문자찜 ref는 서버가 만든 무작위·일련 ID라는 문장을 R-1/DAT-06에 넣는다"
+      - "SA-S03-001: 주문이었던 메시지(4번 줄로 찜을 만들지 않은 경우 포함)는 변환하지 못하게 한다 (R-7 4 괄호 문장대로)"
+      - "SA-S03-002: 시청자 채팅 취소의 대상 찾기 규칙을 R-8에 명시한다 (지금 동작 유지 여부를 spec-keeper가 결정)"
+      - "SA-S03-003 / RA-S03-002: 충돌 중인 상품에 교체 배정(host.assign + replace)은 맞지 않는 명령으로 무시한다 (방송자는 충돌부터 해결)"
+      - "SA-S03-004: host.assign의 replace·replaceTo 한쪽만 있으면 입력 오류 (README 계약과 일치)"
+      - "SA-S03-005: 재고를 늘려 여럿이 확정될 때 확정버전 순서를 R-13·R-10 중 하나로 통일해 명시"
+      - "TD-S03-001: 모르는 지정 구매자의 문자찜 사본 재수신 시 결과가 같도록 (INV-3·INV-12 우선)"
+      - "TD-S03-002: 대기가 가득 찬 상태에서 충돌이 자동으로 풀릴 때 대기 맨 끝 사람이 이유 없이 품절되지 않도록 규칙을 정한다"
+    specIds: [DAT-06, ORD-10, ORD-12, BUY-02]
+    status: todo
+
   - id: S04
     phase: 1
     title: 저장소·API·실시간 동기화
