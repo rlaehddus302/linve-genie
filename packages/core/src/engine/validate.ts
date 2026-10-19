@@ -1,16 +1,17 @@
 // 이벤트 형식 검사 (R-1 "입력 오류와 맞지 않는 명령", D-050, AC-S03-02, AC-S04-01·06·07).
 // - 입력 오류: 표에 없는 종류, 필수 필드가 없거나 값의 형식이 틀림, 함께 와야 하는 필드가 한쪽만 옴(D-065, D-061),
-//   sms에 전화번호 원문 필드 phone이 있음(D-061), 표에 없는 필드(모든 종류, 값과 상관없이 — D-073),
-//   판매자가 손으로 적는 글 칸(sms의 ref·memo, 입금 메모, 사유, 방송 제목, 상품 이름)에 휴대폰 번호가 들어 있음
-//   (containsPhoneNumber — 숫자만 모은 것이 번호 모양이거나 번호 덩어리·번호 배열이 있음, D-073, DAT-06), 방송 날짜·설정 스냅샷의 형식·범위(D-071),
-//   선언하지 않은 방송, seq·at이 수가 아님, 이벤트가 객체가 아님.
-//   applyEvent는 상태를 바꾸지 않고 InvalidEventError를 던진다. 서버는 기록하기 전에 checkEvent로 거른다(D-072).
+//   sms에 전화번호 원문 필드 phone이 있음(D-061), 표에 없는 필드(모든 종류, 값과 상관없이 — D-073), 방송 날짜·설정 스냅샷의 형식·범위(D-071),
+//   선언하지 않은 방송, seq·at이 수가 아님, 이벤트가 객체가 아님 (구조 검사 checkShape).
+//   applyEvent는 구조 검사에 걸리면 상태를 바꾸지 않고 InvalidEventError를 던진다.
+// - 판매자가 적는 칸의 휴대폰 번호(R-1, D-079·D-080, DAT-06): 글 칸(sms의 ref·memo, 입금 메모, 사유, 방송 제목, 상품 이름)의
+//   containsPhoneRun, ID 칸(buyer·from·into·replace·msg)의 looksLikePhoneId. 기록 전 검사 checkEvent에서만 본다 —
+//   재생(applyEvent)은 이 검사로 입력 오류를 내지 않는다(D-079 ⑤, RA-S04-011). 서버는 기록하기 전에 checkEvent로 거른다(D-072).
 // - 맞지 않는 명령(형식은 맞지만 지금 상태에 맞지 않음)은 입력 오류가 아니다. 엔진이 아무것도 바꾸지 않는다(D-039).
 // - 처음 쓰는 스프린트가 따로 있는 종류(effect.failed → S11)와 settlement.groupBy=MANUAL은 applyEvent가 NotImplementedError로 알린다.
 // - 상태 형식이 지금 코어와 다르면 문제 목록 대신 StateFormatError를 던진다(D-072).
 import { checkSettings } from '../settings.ts'
 import { ownGet } from './draft.ts'
-import { containsPhoneNumber } from './phone.ts'
+import { containsPhoneRun, looksLikePhoneId } from './phone.ts'
 import { assertStateFormat } from './state-format.ts'
 import { isValidDate, isValidReceivedTime } from './time.ts'
 import type { EngineState, EventProblem } from './types.ts'
@@ -46,19 +47,29 @@ const isInt = (value: unknown, min: number): boolean => typeof value === 'number
 
 const id: Check = (v) => (typeof v === 'string' && v !== '' ? null : '빈 문자열이 아닌 문자열이어야 한다')
 const text: Check = (v) => (typeof v === 'string' ? null : '문자열이어야 한다')
+
 /**
- * 판매자가 손으로 적는 글 칸에 휴대폰 번호가 들어 있으면 입력 오류 (R-1·D-073 "메모·ref ②"를 넓힌 것, DAT-06, RA-S04-001·009).
+ * 판매자가 적는 칸 → 휴대폰 번호 판단 (R-1 "판매자가 적는 칸의 휴대폰 번호", D-079·D-080, DAT-06).
  * 이 칸들은 지울 수 없는 이벤트 로그·엔진 상태(입금 메모는 정산 장부, 문자찜 메모는 표시 이름)·이력 응답·백업에 평문으로 남는다.
- * 시청자가 쓴 글(chat의 text·nick)에는 쓰지 않는다 — 찜을 버리게 되므로(R-3).
+ * 구조 검사가 통과한 값에만, 기록 전 검사(checkEvent)에서만 본다 — 재생(applyEvent)은 보지 않는다(D-079 ⑤).
+ * 시청자 쪽 값(chat의 id·ch·nick·text)에는 쓰지 않는다 — 찜을 버리게 되므로(R-3).
  */
-const NO_PHONE_IN_TEXT = '휴대폰 번호가 들어 있다 — 판매자가 적는 글 칸에는 전화번호를 넣지 않는다(문자찜은 전화번호 칸 phoneKey·phoneLast4로만) (D-073, DAT-06)'
-const withoutPhone =
-  (check: Check): Check =>
-  (v) =>
-    check(v) ?? (containsPhoneNumber(v as string) ? NO_PHONE_IN_TEXT : null)
-/** 판매자가 적는 글 (입금 메모·방송 제목·상품 이름) */
-const freeText: Check = withoutPhone(text)
-const reason: Check = withoutPhone((v) => (typeof v === 'string' && v.trim() !== '' ? null : '사유는 빈 문자열이 아닌 문자열이어야 한다'))
+const PHONE_JUDGES = new Map<Check, { readonly judge: (value: string) => boolean; readonly message: string }>()
+const PHONE_IN_TEXT = '휴대폰 번호가 들어 있다 — 판매자가 적는 글 칸에는 전화번호를 넣지 않는다(문자찜 번호는 전화번호 칸 phoneKey·phoneLast4로만) (R-1, D-079, DAT-06)'
+const PHONE_AS_ID = '휴대폰 번호로 된 ID다 — 구매자·메시지 ID 칸에는 전화번호를 넣지 않는다 (R-1, D-079, DAT-06)'
+/** 판매자가 적는 칸의 검사: 구조 검사는 check 그대로, 휴대폰 번호 판단은 judge (checkEvent에서만) */
+function sellerTyped(check: Check, judge: (value: string) => boolean, message: string): Check {
+  const wrapped: Check = (v) => check(v)
+  PHONE_JUDGES.set(wrapped, { judge, message })
+  return wrapped
+}
+/** 판매자가 고르거나 적는 구매자·메시지 ID 칸 (buyer·from·into·replace·msg) — looksLikePhoneId */
+const typedId: Check = sellerTyped(id, looksLikePhoneId, PHONE_AS_ID)
+/** 글 칸 — containsPhoneRun */
+const sellerText = (check: Check): Check => sellerTyped(check, containsPhoneRun, PHONE_IN_TEXT)
+/** 판매자가 적는 글 (입금 메모·방송 제목·상품 이름·문자찜 메모) */
+const freeText: Check = sellerText(text)
+const reason: Check = sellerText((v) => (typeof v === 'string' && v.trim() !== '' ? null : '사유는 빈 문자열이 아닌 문자열이어야 한다'))
 const no: Check = (v) => (isInt(v, 1) ? null : '1 이상 정수여야 한다')
 const money: Check = (v) => (isInt(v, 0) ? null : '0 이상 정수(원)여야 한다')
 const positive: Check = (v) => (isInt(v, 1) ? null : '1 이상 정수(원)여야 한다')
@@ -73,8 +84,8 @@ const channel: Check = (v) => id(v) ?? ((v as string).startsWith('sms:') ? "채�
 const SMS_REF_RE = /^[A-Za-z0-9_-]{1,64}$/
 const PHONE_KEY_RE = /^[A-Za-z0-9_-]{16,128}$/
 const PHONE_LAST4_RE = /^[0-9]{4}$/
-/** 문자찜 ref·memo에 휴대폰 번호가 들어 있으면 입력 오류 — 번호는 전화번호 칸으로 (R-1, D-073, DAT-06, 위 withoutPhone) */
-const smsRef: Check = withoutPhone((v) => (typeof v === 'string' && SMS_REF_RE.test(v) ? null : "문자찜 ref는 영문·숫자·'_'·'-'로 된 1~64자여야 한다"))
+/** 문자찜 ref도 글 칸 — 번호는 전화번호 칸으로 (R-1, D-079 ③, DAT-06, 위 sellerText) */
+const smsRef: Check = sellerText((v) => (typeof v === 'string' && SMS_REF_RE.test(v) ? null : "문자찜 ref는 영문·숫자·'_'·'-'로 된 1~64자여야 한다"))
 const memo: Check = freeText
 const phoneKey: Check = (v) => (typeof v === 'string' && PHONE_KEY_RE.test(v) ? null : "전화번호 키는 영문·숫자·'_'·'-'로 된 16~128자여야 한다")
 const phoneLast4: Check = (v) => (typeof v === 'string' && PHONE_LAST4_RE.test(v) ? null : '전화번호 뒤 4자리는 숫자 4자리 문자열이어야 한다')
@@ -102,9 +113,9 @@ interface Spec {
 }
 
 const BY_PRODUCT = { [BROADCAST]: id, no }
-const BY_CLAIM = { [BROADCAST]: id, no, buyer: id }
+const BY_CLAIM = { [BROADCAST]: id, no, buyer: typedId }
 const HOST_REASON = { ...BY_CLAIM, reason }
-const LEDGER = { buyer: id, date }
+const LEDGER = { buyer: typedId, date }
 
 /** 설정 스냅샷: 객체(배열·null 아님). 키·값·범위는 nested에서 checkSettings로 (D-071) */
 const settingsShape: Check = (v) => (typeof v === 'object' && v !== null && !Array.isArray(v) ? null : '설정 스냅샷은 키와 값을 짝지은 객체여야 한다')
@@ -130,7 +141,7 @@ const SPECS: Readonly<Record<string, Spec>> = {
   chat: { required: { [BROADCAST]: id, id, ch: channel, nick: text, text }, optional: { owner: bool, publishedAt: time } },
   sms: {
     required: { [BROADCAST]: id, ref: smsRef, no, received },
-    optional: { memo, phoneKey, phoneLast4, buyer: id },
+    optional: { memo, phoneKey, phoneLast4, buyer: typedId },
     pairs: [['phoneKey', 'phoneLast4']],
     forbidden: { phone: '전화번호 원문은 엔진에 넣지 않는다 — 서버가 정규화해 phoneKey·phoneLast4로 바꿔 넣는다 (D-061)' },
   },
@@ -140,14 +151,14 @@ const SPECS: Readonly<Record<string, Spec>> = {
   'host.confirm': { required: BY_CLAIM, optional: { reason } },
   'host.approveCancel': { required: BY_CLAIM, optional: { reason } },
   'host.dismissCancel': { required: BY_CLAIM, optional: { reason } },
-  'host.assign': { required: HOST_REASON, optional: { replace: id, replaceTo: oneOf('WAITLIST', 'CANCEL') }, pairs: [['replace', 'replaceTo']] },
+  'host.assign': { required: HOST_REASON, optional: { replace: typedId, replaceTo: oneOf('WAITLIST', 'CANCEL') }, pairs: [['replace', 'replaceTo']] },
   'host.reopen': { required: { ...BY_PRODUCT, reason } },
   'host.resolveConflict': { required: { ...BY_PRODUCT, decision: oneOf('KEEP', 'SWITCH') }, optional: { reason } },
-  'host.convertMessage': { required: { [BROADCAST]: id, msg: id, no }, optional: { reason } },
-  'host.blockBuyer': { required: { buyer: id, reason } },
-  'host.unblockBuyer': { required: { buyer: id, reason } },
-  'buyer.merge': { required: { from: id, into: id, reason } },
-  'buyer.unmerge': { required: { from: id, reason } },
+  'host.convertMessage': { required: { [BROADCAST]: id, msg: typedId, no }, optional: { reason } },
+  'host.blockBuyer': { required: { buyer: typedId, reason } },
+  'host.unblockBuyer': { required: { buyer: typedId, reason } },
+  'buyer.merge': { required: { from: typedId, into: typedId, reason } },
+  'buyer.unmerge': { required: { from: typedId, reason } },
   'effect.labelPrinted': { required: { effectId: id } },
   'effect.thanksSent': { required: { effectId: id } },
   'settlement.shippingOverride': {
@@ -171,43 +182,74 @@ export const EVENT_TYPES: readonly string[] = Object.keys(SPECS)
 const COMMON_FIELDS: ReadonlySet<string> = new Set(['type', 'seq', 'at'])
 
 /**
- * 이벤트 형식 검사. 문제가 없으면 빈 목록.
- * 같은 상태·이벤트에 대해 applyEvent가 입력 오류(InvalidEventError)를 던질 때만, 그리고 그때는 언제나 문제를 돌려준다.
+ * 기록 전 검사 (서버가 기록하기 전에 거른다, D-072). 문제가 없으면 빈 목록.
+ * = 구조 검사(checkShape — applyEvent가 InvalidEventError를 던지는 경우와 같다) + 판매자가 적는 칸의 휴대폰 번호(R-1, D-079·D-080).
+ * 휴대폰 번호 문제는 구조 문제 뒤에 오고 code가 'PHONE_NUMBER'다. 이 두 판단에 한해 checkEvent가 문제를 돌려줘도 applyEvent는 처리한다
+ * (재생 때는 번호 검사를 하지 않는다, D-079 ⑤). 그 밖의 입력 오류는 둘의 판정이 같다.
  * 형식은 맞지만 지금 상태에 맞지 않는 명령(없는 상품·찜·메시지 등)은 문제가 아니다.
  * 상태 형식이 지금 코어와 다르면 StateFormatError를 던진다(D-072).
  */
 export function checkEvent(state: EngineState, event: unknown): EventProblem[] {
+  const { problems, phone } = inspect(state, event, true)
+  return phone.length === 0 ? problems : [...problems, ...phone]
+}
+
+/**
+ * 구조 검사: applyEvent가 InvalidEventError를 던지는 경우와 그 문제 목록 (휴대폰 번호 판단은 빼고 — D-079 ⑤).
+ * 상태 형식이 지금 코어와 다르면 StateFormatError를 던진다(D-072).
+ */
+export function checkShape(state: EngineState, event: unknown): EventProblem[] {
+  return inspect(state, event, false).problems
+}
+
+interface Inspection {
+  /** 구조 문제 */
+  readonly problems: EventProblem[]
+  /** 판매자가 적는 칸의 휴대폰 번호 문제 (구조 검사가 통과한 칸만, withPhone일 때만 본다) */
+  readonly phone: EventProblem[]
+}
+
+function inspect(state: EngineState, event: unknown, withPhone: boolean): Inspection {
   assertStateFormat(state)
-  if (typeof event !== 'object' || event === null || Array.isArray(event)) return [{ field: null, message: '이벤트는 객체여야 한다' }]
+  const phone: EventProblem[] = []
+  const only = (problem: EventProblem): Inspection => ({ problems: [problem], phone })
+  if (typeof event !== 'object' || event === null || Array.isArray(event)) return only({ field: null, message: '이벤트는 객체여야 한다' })
   const record = event as Readonly<Record<string, unknown>>
   const type = record.type
-  if (typeof type !== 'string') return [{ field: 'type', message: '이벤트 종류(type)가 없다' }]
+  if (typeof type !== 'string') return only({ field: 'type', message: '이벤트 종류(type)가 없다' })
   const deferred = ownGet(DEFERRED_EVENTS, type) !== undefined
   const spec = ownGet(SPECS, type)
-  if (spec === undefined && !deferred) return [{ field: 'type', message: `모르는 이벤트 종류 '${type}'` }]
+  if (spec === undefined && !deferred) return only({ field: 'type', message: `모르는 이벤트 종류 '${type}'` })
   const problems: EventProblem[] = []
   if (typeof record.seq !== 'number' || !Number.isSafeInteger(record.seq)) problems.push({ field: 'seq', message: 'seq는 정수여야 한다' })
   const atProblem = time(record.at)
   if (atProblem !== null) problems.push({ field: 'at', message: atProblem })
   // 처음 쓰는 스프린트가 따로 있는 종류는 필드를 아직 정하지 않았다 (applyEvent가 NotImplementedError로 알린다)
-  if (spec === undefined) return problems
+  if (spec === undefined) return { problems, phone }
+  /** 값이 있는 필드 하나: 구조 검사, 통과하면 판매자가 적는 칸의 휴대폰 번호 판단 */
+  const checkField = (field: string, check: Check, value: unknown): boolean => {
+    const problem = check(value)
+    if (problem !== null) {
+      problems.push({ field, message: problem })
+      return false
+    }
+    const judge = withPhone ? PHONE_JUDGES.get(check) : undefined
+    if (judge !== undefined && judge.judge(value as string)) phone.push({ field, message: judge.message, code: 'PHONE_NUMBER' })
+    return true
+  }
   for (const [field, check] of Object.entries(spec.required)) {
     const value = record[field]
     if (value === undefined) {
       problems.push({ field, message: '필수 필드가 없다' })
       continue
     }
-    const problem = check(value)
-    if (problem !== null) problems.push({ field, message: problem })
-    else if (field === BROADCAST && spec.declares !== true && !state.broadcasts.some((broadcast) => broadcast.id === value)) {
+    if (checkField(field, check, value) && field === BROADCAST && spec.declares !== true && !state.broadcasts.some((broadcast) => broadcast.id === value)) {
       problems.push({ field, message: `선언하지 않은 방송 '${value as string}'` })
     }
   }
   for (const [field, check] of Object.entries(spec.optional ?? {})) {
     const value = record[field]
-    if (value === undefined) continue
-    const problem = check(value)
-    if (problem !== null) problems.push({ field, message: problem })
+    if (value !== undefined) checkField(field, check, value)
   }
   for (const [a, b] of spec.pairs ?? []) {
     const hasA = record[a] !== undefined
@@ -228,5 +270,5 @@ export function checkEvent(state: EngineState, event: unknown): EventProblem[] {
   }
   const extra = problems.length === 0 ? (spec.extra?.(record) ?? null) : null
   if (extra !== null) problems.push(extra)
-  return problems
+  return { problems, phone }
 }

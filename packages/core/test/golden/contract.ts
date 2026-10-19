@@ -2,7 +2,7 @@
 // 여기 없는 suite·이벤트 종류·필드·설정 키·expect 키·열거값은 읽기 오류다.
 // 새 어휘는 spec-keeper가 README에 먼저 추가하고, 그다음 이 파일을 맞춘다.
 
-import { containsPhoneNumber } from '@livejjim/core'
+import { containsPhoneRun, looksLikePhoneId } from '@livejjim/core'
 import { YamlFloat } from './yaml.ts'
 
 export const SUITES = ['chat', 'amount', 'korean-number', 'quick-input'] as const
@@ -110,19 +110,21 @@ export const intRangeOrNull =
       ? undefined
       : `${min} 이상 ${max} 이하 정수 또는 null이어야 한다 (값: ${show(value)})${floatHint(value)}`
 
-/**
- * 휴대폰 번호가 들어 있는지 = 코어 containsPhoneNumber (README sms 행, S04, D-073). 숫자만 모은 것이 번호 모양(normalizePhone의 결과가 있음)이면
- * 늘 들어 있고, 번호 앞뒤에 다른 숫자가 붙은 것도 들어 있다(RA-S04-001). 엔진의 입력 오류와 같은 함수라 "읽기 오류 = 엔진 입력 오류"가 어긋나지 않는다
- */
-export const notPhoneShaped: ValueCheck = (value) =>
-  typeof value === 'string' && containsPhoneNumber(value) ? `휴대폰 번호가 들어 있다 — 번호는 phone에만 적는다 (값: ${show(value)})` : undefined
+// ── 판매자가 적는 칸의 휴대폰 번호 (README 이벤트 표 아래 같은 이름의 문단, S04 마무리 D-079·D-080) ──
+// 골든은 서버가 기록 전 검사(checkEvent)를 통과시킨 로그만 적는다. 엔진의 기록 전 검사와 같은 코어 함수라 "읽기 오류 = 엔진 입력 오류"가 어긋나지 않는다.
+// 글의 숫자를 전부 모아 번호 모양을 보는 판단(normalizePhone을 글 전체에)은 쓰지 않는다.
 
-/**
- * 판매자가 적는 다른 글 칸(입금 메모·사유·방송 제목·상품 이름)의 휴대폰 번호 = 코어 containsPhoneNumber.
- * 엔진이 이 칸들도 입력 오류로 거른다(S04 수정 라운드 2, RA-S04-009·TD-S04-003, DAT-06) — "읽기 오류 = 엔진 입력 오류"가 어긋나지 않게 같은 함수
- */
+/** 문자찜 ref·memo의 휴대폰 번호 = 코어 containsPhoneRun (README sms 행) — 번호는 phone에만 */
+export const notPhoneShaped: ValueCheck = (value) =>
+  typeof value === 'string' && containsPhoneRun(value) ? `휴대폰 번호가 들어 있다 — 번호는 phone에만 적는다 (값: ${show(value)})` : undefined
+
+/** 판매자가 적는 다른 글 칸(입금 메모·사유·방송 제목·상품 이름)의 휴대폰 번호 = 코어 containsPhoneRun */
 export const noPhoneInText: ValueCheck = (value) =>
-  typeof value === 'string' && containsPhoneNumber(value) ? `휴대폰 번호가 들어 있다 — 판매자가 적는 글 칸에는 전화번호를 적지 않는다 (값: ${show(value)})` : undefined
+  typeof value === 'string' && containsPhoneRun(value) ? `휴대폰 번호가 들어 있다 — 판매자가 적는 글 칸에는 전화번호를 적지 않는다 (값: ${show(value)})` : undefined
+
+/** 판매자가 적는 ID 칸(buyer·from·into·replace·msg — 효과 보고의 buyer는 빼고)의 휴대폰 번호 = 코어 looksLikePhoneId */
+export const notPhoneId: ValueCheck = (value) =>
+  typeof value === 'string' && looksLikePhoneId(value) ? `휴대폰 번호로 된 키다 — 판매자가 적는 구매자·메시지 ID 칸에는 전화번호를 적지 않는다 (값: ${show(value)})` : undefined
 
 /** 문자열이고 휴대폰 번호가 없는 글 (입금 메모·방송 제목·상품 이름) */
 const freeText: ValueCheck = (value) => str(value) ?? noPhoneInText(value)
@@ -160,8 +162,10 @@ export type FieldKind =
   | { readonly kind: 'newBroadcast' }
   /** broadcast.start의 설정 스냅샷: 설정 키 → 값 (아래 SETTING_CHECKS) */
   | { readonly kind: 'settings' }
-  | { readonly kind: 'buyer' }
+  /** 구매자 키. sellerTyped면 판매자가 적는 ID 칸 — 휴대폰 번호면 읽기 오류(notPhoneId). 효과 보고의 buyer는 아니다(엔진에는 효과 ID로 넘긴다) */
+  | { readonly kind: 'buyer'; readonly sellerTyped: boolean }
   | { readonly kind: 'channel' }
+  /** host.convertMessage의 msg — 판매자가 적는 ID 칸(notPhoneId) */
   | { readonly kind: 'message' }
   | { readonly kind: 'smsRef' }
   | { readonly kind: 'date' }
@@ -173,7 +177,9 @@ const F = {
   b: { kind: 'broadcast' },
   newB: { kind: 'newBroadcast' },
   settings: { kind: 'settings' },
-  buyer: { kind: 'buyer' },
+  buyer: { kind: 'buyer', sellerTyped: true },
+  /** 효과 보고의 buyer — ID 칸 번호 검사 밖 (README "판매자가 적는 칸의 휴대폰 번호") */
+  effectBuyer: { kind: 'buyer', sellerTyped: false },
   channel: { kind: 'channel' },
   message: { kind: 'message' },
   smsRef: { kind: 'smsRef' },
@@ -243,8 +249,8 @@ export const EVENT_SPECS: Readonly<Record<string, EventSpec>> = {
   'host.unblockBuyer': blockLike,
   'buyer.merge': spec({ from: F.buyer, into: F.buyer, reason: F.reason }),
   'buyer.unmerge': spec({ from: F.buyer, reason: F.reason }),
-  'effect.labelPrinted': spec({ b: F.b, no: F.no, buyer: F.buyer }),
-  'effect.thanksSent': spec({ b: F.b, no: F.no, buyer: F.buyer }, { target: F.v(oneOf(TARGETS)) }),
+  'effect.labelPrinted': spec({ b: F.b, no: F.no, buyer: F.effectBuyer }),
+  'effect.thanksSent': spec({ b: F.b, no: F.no, buyer: F.effectBuyer }, { target: F.v(oneOf(TARGETS)) }),
   'settlement.shippingOverride': spec(
     { buyer: F.buyer, date: F.date, mode: F.v(oneOf(['PICKUP', 'COMBINED', 'FIXED', 'DEFAULT'])) },
     { amount: F.v(intAtLeast(0)) },

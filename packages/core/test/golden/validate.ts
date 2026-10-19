@@ -31,6 +31,7 @@ import {
   intAtLeast,
   isPlainObject,
   nonEmptyStr,
+  notPhoneId,
   notPhoneShaped,
   oneOf,
   phoneLast4OrNull,
@@ -605,7 +606,7 @@ function checkField(c: Checker, ctx: ScenarioContext, path: readonly PathSegment
       checkEventSettings(c, path, value)
       return
     case 'buyer':
-      checkBuyerKey(c, ctx, path, value)
+      if (checkBuyerKey(c, ctx, path, value) && kind.sellerTyped) c.value(path, value, notPhoneId)
       return
     case 'channel':
       if (c.value(path, value, nonEmptyStr) && (value as string).startsWith(SMS_PREFIX)) {
@@ -614,10 +615,11 @@ function checkField(c: Checker, ctx: ScenarioContext, path: readonly PathSegment
       return
     case 'message':
       if (typeof value !== 'string' || !ctx.messageIds.has(value)) c.fail(path, `시나리오에 없는 채팅 메시지 ID ${showValue(value)}`)
+      else c.value(path, value, notPhoneId)
       return
     case 'smsRef':
       // 같은 ref를 다시 적으면 재전송 사본이다 (README sms 행, D-067) — 중복은 읽기 오류가 아니다
-      // 숫자만 모은 것이 휴대폰 번호 모양이면 읽기 오류 (README sms 행, S04, D-073)
+      // 휴대폰 번호가 들어 있으면 읽기 오류 (README sms 행·"판매자가 적는 칸의 휴대폰 번호", D-079·D-080)
       c.value(path, value, (v) =>
         typeof v === 'string' && SMS_REF_RE.test(v) ? notPhoneShaped(v) : `문자찜 ref는 영문·숫자·'_'·'-'로 된 1~64자여야 한다 (값: ${showValue(v)})`,
       )

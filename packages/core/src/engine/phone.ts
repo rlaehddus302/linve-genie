@@ -1,4 +1,5 @@
-// 휴대폰 번호 정규화 (R-11 "문자찜 구매자 정하기", D-051)와 글 안의 휴대폰 번호 찾기(R-1 입력 오류, D-073). 서버·화면·골든 러너가 같은 함수를 쓴다(AC-S03-01·11, AC-S03b-01, AC-S04-07).
+// 휴대폰 번호 정규화 (R-11 "문자찜 구매자 정하기", D-051)와 판매자가 적는 칸의 휴대폰 번호 판단
+// (R-1 "판매자가 적는 칸의 휴대폰 번호", D-079·D-080). 서버·화면·골든 러너가 같은 함수를 쓴다(AC-S03-01·11, AC-S03b-01, AC-S04-07·91).
 // 판정 엔진은 전화번호 원문을 받지 않는다(D-061). 서버가 받은 번호를 이 함수로 정규화하고, 결과가 있으면
 //   phoneKey = 판매자마다 고정한 비밀 키의 HMAC(정규화한 번호) — 영문·숫자·`_`·`-` 16~128자(예: HMAC-SHA256 base64url 43자)
 //   phoneLast4 = phoneLast4(정규화한 번호)
@@ -14,100 +15,130 @@ const MOBILE_RE = /^01\d{8,9}$/
  * 숫자만 남겨(전각 숫자는 반각으로, 그 밖의 글자·공백·`-`·`+`·괄호는 지운다) `01`로 시작하는 10~11자리면 그 숫자열, 아니면 null.
  * `5678`처럼 일부만, `+82 10-…`처럼 국가 번호로 시작하면 null — 번호 일부만 같은 다른 사람이 한 구매자로 묶이지 않게(D-051).
  * 결과에 다시 넣으면 같은 값이 나온다(멱등).
+ * 전화번호 칸(R-11)과 ID 칸 판단(looksLikePhoneId)에만 쓴다 — 글 전체에 적용해 번호를 찾지 않는다(D-079 ①).
  */
 export function normalizePhone(phone: string): string | null {
   if (typeof phone !== 'string') return null
   let digits = ''
   for (const char of phone) {
-    const code = char.codePointAt(0) as number
-    if (code >= ZERO && code <= NINE) digits += char
-    else if (code >= FULLWIDTH_ZERO && code <= FULLWIDTH_NINE) digits += String.fromCharCode(code - FULLWIDTH_ZERO + ZERO)
+    const digit = digitOf(char)
+    if (digit !== null) digits += digit
     // 그 밖의 글자는 모두 지운다 (공백·하이픈·+·괄호·글자)
   }
   return MOBILE_RE.test(digits) ? digits : null
 }
 
-/**
- * 글 안에서 휴대폰 번호로 볼 숫자열: `01`로 시작하는 10~11자리, 또는 국가 번호로 적은 휴대폰 번호
- * (`82 10-…`·`82 010-…`, 앞에 국제 전화 `00`이 붙어도). 국가 번호 형태는 구매자를 잇는 데엔 쓰지 않지만(normalizePhone은 null)
- * 평문으로 남으면 같은 개인정보다.
- */
-const MOBILE_IN_TEXT_RE = /^(?:01\d{8,9}|(?:00)?820?1\d{8,9})$/
-/** 가장 긴 후보: 00 + 82 + 0 + 1 + 9자리 = 15자리 */
-const MAX_CANDIDATE_DIGITS = 15
-/**
- * 숫자 덩어리 사이에 이 글자만 있으면 이어 적은 숫자로 본다(구분자):
- * - 공백(전각 포함)·보이지 않는 글자(서식 문자)
- * - 하이픈·대시·빼기(`-`·`‐`~`―`·`−`·`﹘`·`﹣`·`－`)와 하이픈 대신 치는 가로줄: 한글 자모 `ㅡ`(U+3161·U+1173·반각 U+FFDA),
- *   장음 기호 `ー`(U+30FC·반각 U+FF70), 괘선 `─`·`━`(U+2500·U+2501)
- * - 물결 `~`·`～`·`〜`·`∼`, 별표 `*`·`＊`
- * - 점·가운뎃점(`.`·`·`·`․`·`・`·`．`·`･`), 괄호(`()`·`（）`·`[]`·`［］`), 빗금(`/`·`／`), 밑줄(`_`·`＿`), `+`·`＋`
- * 그 밖의 글자(한글 음절·영문·`:`·`,` 등)가 끼면 다른 숫자다 — `:`·`,`로 나눈 번호는 아래 번호 배열(PHONE_LAYOUT_RE)로 잡는다.
- */
-const JOINER_CLASS =
-  '\\s\\p{Cf}\\-\\u2010-\\u2015\\u2212\\uFE58\\uFE63\\uFF0D\\u3161\\u1173\\uFFDA\\u30FC\\uFF70\\u2500\\u2501~\\uFF5E\\u301C\\u223C*\\uFF0A.\\u00B7\\u2024\\u30FB\\uFF0E\\uFF65()\\uFF08\\uFF09\\[\\]\\uFF3B\\uFF3D/\\uFF0F_\\uFF3F+\\uFF0B'
-const JOINER_RE = new RegExp(`[${JOINER_CLASS}]`, 'u')
-/**
- * 번호 배열: `01X`·3~4자리·4자리를 숫자·글자가 아닌 1~3글자(`,`·`:`·`;`·`#`·`=` 등 기호, 위 구분자)로 나눠 적은 것 — 앞뒤에 숫자가 바로 붙지 않으면.
- * 예: `3시,010,1234,5678`, `010:1234:5678 3시`. 수량·금액·번호 나열(`1,2,3번`·`10,000원`)은 이 배열이 아니라 번호로 보지 않는다.
- * 숫자는 전각을 반각으로 바꾼 뒤 본다.
- */
-const LAYOUT_SEP = `(?:[^\\p{L}\\p{N}]|[${JOINER_CLASS}]){1,3}`
-const PHONE_LAYOUT_RE = new RegExp(`(?<![0-9])01[0-9]${LAYOUT_SEP}[0-9]{3,4}${LAYOUT_SEP}[0-9]{4}(?![0-9])`, 'u')
-
-/** 전각 숫자를 반각으로 (그 밖의 글자는 그대로) */
-function halfwidthDigits(text: string): string {
-  return text.replace(/[\uFF10-\uFF19]/g, (char) => String.fromCharCode((char.codePointAt(0) as number) - FULLWIDTH_ZERO + ZERO))
+/** 반각·전각 숫자면 반각 숫자 한 글자, 아니면 null */
+function digitOf(char: string): string | null {
+  const code = char.codePointAt(0) as number
+  if (code >= ZERO && code <= NINE) return char
+  if (code >= FULLWIDTH_ZERO && code <= FULLWIDTH_NINE) return String.fromCharCode(code - FULLWIDTH_ZERO + ZERO)
+  return null
 }
 
 /**
- * 글 안에 휴대폰 번호가 들어 있는지 (R-1 입력 오류, DAT-06, D-073 — 평문 번호가 이벤트 로그·엔진 상태·표시 이름에 남지 않게).
- * 판매자가 손으로 적는 글 칸에 쓴다: 문자찜 메모·ref, 입금 메모, 사유, 방송 제목, 상품 이름 (validate.ts).
- * - 숫자만 모은 것이 휴대폰 번호 모양(normalizePhone의 결과가 있음)이면 true — R-1 문장 그대로.
- * - 또한 글 안의 숫자 덩어리 중 구분자(JOINER_CLASS)만 사이에 두고 이어 적은 몇 덩어리를 모은 것이 휴대폰 번호(MOBILE_IN_TEXT_RE)면 true.
- *   번호 앞뒤에 다른 숫자가 있어도 잡는다: `3시 010-1234-5678`, `010-1234-5678 2개`, `15번 01012345678`, `+82 10-1234-5678`, `3시 010ㅡ1234ㅡ5678`.
- * - 또한 번호 배열(PHONE_LAYOUT_RE)이 있으면 true: `3시,010,1234,5678`, `010:1234:5678 3시`.
- * - 주소·시각·수량·번호 일부는 false: `3시 15번 2개`, `101동 1203호`, `뒷번호 5678`, `r-20261018-0001`, `1,2,3번 각 1개`.
- * 덩어리 경계에서만 자른다 — 한 덩어리 안의 일부(`010123456789`의 앞 11자리)는 번호로 보지 않는다.
+ * 줄·점 대신 치는 한글 자모 — 글자(\p{L})지만 구분자로 본다 (R-1, D-080):
+ * `ㅡ`(호환 U+3161·조합형 U+1173·반각 U+FFDA), `ㅣ`(U+3163·U+1175·반각 U+FFDC), `ㆍ`(U+318D·조합형 U+119E)
  */
-export function containsPhoneNumber(text: string): boolean {
-  if (typeof text !== 'string') return false
-  if (normalizePhone(text) !== null) return true
-  if (PHONE_LAYOUT_RE.test(halfwidthDigits(text))) return true
-  let chain: string[] = []
+const JAMO_SEPARATORS: ReadonlySet<number> = new Set([0x3161, 0x1173, 0xffda, 0x3163, 0x1175, 0xffdc, 0x318d, 0x119e])
+/** 배열을 끊는 글자: 글자(한글 음절·영문 등)와 반각·전각 숫자가 아닌 숫자 문자(`①`·`²`·`٠` 등) */
+const LETTER_OR_NUMBER_RE = /^[\p{L}\p{N}]$/u
+
+/**
+ * 구분자인지 (R-1 "판매자가 적는 칸의 휴대폰 번호", D-080 ②): 글자·숫자가 아닌 모든 글자(공백·줄바꿈·문장 부호·기호·이모지·
+ * 보이지 않는 글자·결합 부호) + 위 자모. 반각·전각 숫자는 구분자가 아니다(숫자 덩어리) — 부르는 쪽이 먼저 digitOf로 거른다.
+ */
+function isSeparator(char: string): boolean {
+  return JAMO_SEPARATORS.has(char.codePointAt(0) as number) || !LETTER_OR_NUMBER_RE.test(char)
+}
+
+/** (가) 덩어리 하나가 휴대폰 번호 전체: `01X`(X = 0·1·6·7·8·9)로 시작하는 10~11자리 (D-079 ②) */
+const WHOLE_RUN_RE = /^01[016789]\d{7,8}$/
+/** (나) 번호 배열의 시작 덩어리: 정확히 `01X` 세 자리 */
+const HEAD_RUN_RE = /^01[016789]$/
+/** (나) `01X` 뒤에 이어 붙인 덩어리들의 자릿수 (정확히 7이나 8) */
+const TAIL_MIN = 7
+const TAIL_MAX = 8
+
+/**
+ * 글 안의 숫자 배열들: 숫자 덩어리(이어 적은 숫자, 전각은 반각)를 구분자만 사이에 두고 이은 것.
+ * 글자·다른 숫자 문자가 끼면 배열이 끊긴다. 덩어리가 없는 배열은 넣지 않는다.
+ */
+function digitArrays(text: string): string[][] {
+  const arrays: string[][] = []
+  let array: string[] = []
   let run = ''
-  for (const char of text) {
-    const code = char.codePointAt(0) as number
-    if (code >= ZERO && code <= NINE) {
-      run += char
-      continue
-    }
-    if (code >= FULLWIDTH_ZERO && code <= FULLWIDTH_NINE) {
-      run += String.fromCharCode(code - FULLWIDTH_ZERO + ZERO)
-      continue
-    }
-    if (run !== '') chain.push(run)
+  const closeRun = (): void => {
+    if (run !== '') array.push(run)
     run = ''
-    if (JOINER_RE.test(char)) continue
-    if (chainHasPhone(chain)) return true
-    chain = []
   }
-  if (run !== '') chain.push(run)
-  return chainHasPhone(chain)
+  for (const char of text) {
+    const digit = digitOf(char)
+    if (digit !== null) {
+      run += digit
+      continue
+    }
+    closeRun()
+    if (isSeparator(char)) continue
+    if (array.length > 0) arrays.push(array)
+    array = []
+  }
+  closeRun()
+  if (array.length > 0) arrays.push(array)
+  return arrays
 }
 
-/** 이어 적은 숫자 덩어리들 중 연속한 몇 덩어리를 모은 것이 휴대폰 번호인지 */
-function chainHasPhone(chain: readonly string[]): boolean {
-  for (let start = 0; start < chain.length; start++) {
-    let digits = ''
-    for (let end = start; end < chain.length; end++) {
-      digits += chain[end] as string
-      if (digits.length > MAX_CANDIDATE_DIGITS) break
-      if (MOBILE_IN_TEXT_RE.test(digits)) return true
+/** 이어진 덩어리 배열에 휴대폰 번호가 있는지 — (가) 또는 (나). 덩어리 일부만 떼어 보지 않는다 */
+function arrayHasPhone(runs: readonly string[]): boolean {
+  for (let start = 0; start < runs.length; start++) {
+    const head = runs[start] as string
+    if (WHOLE_RUN_RE.test(head)) return true
+    if (!HEAD_RUN_RE.test(head)) continue
+    let tail = 0
+    for (let next = start + 1; next < runs.length && tail < TAIL_MAX; next++) {
+      tail += (runs[next] as string).length
+      if (tail >= TAIL_MIN && tail <= TAIL_MAX) return true
     }
   }
   return false
 }
+
+/**
+ * 판매자가 적는 글 칸에 휴대폰 번호가 들어 있는지 (R-1 "판매자가 적는 칸의 휴대폰 번호" 글 칸, D-079 ②·③, D-080, DAT-06).
+ * 글 칸: `sms`의 `ref`·`memo`, 입금 메모, 모든 사유, 방송 제목, 상품 이름 (validate.ts — 기록 전 검사 checkEvent에서만).
+ * - 숫자 덩어리 사이에 구분자만 있으면 이어진 배열이다(구분자 = 글자·숫자가 아닌 모든 글자 + 자모 `ㅡ`·`ㅣ`·`ㆍ`).
+ * - (가) 덩어리 하나가 `01X`로 시작하는 10~11자리 전체이거나, (나) `01X` 세 자리 덩어리 바로 뒤의 덩어리들을 차례로 붙여
+ *   정확히 7자리나 8자리가 되는 곳이 있으면 참: `010-1234-5678`, `3시,010,1234,5678`, `010 12345678`, `+82 010-1234-5678`, `s01012345678`.
+ * - 거짓: `01/05 구피 30종 1000원`(시작 덩어리가 `01X` 세 자리가 아니다), `1234-5678`(`010`을 뺀 8자리), `010123456789`(12자리 한 덩어리),
+ *   `+82 10-1234-5678`(국가 번호 표기), `3시 15번 2개`, `101동 1203호`.
+ * 글의 숫자를 전부 모아 번호 모양을 보는 판단(normalizePhone을 글 전체에)은 쓰지 않는다(D-079 ①).
+ */
+export function containsPhoneRun(text: string): boolean {
+  if (typeof text !== 'string') return false
+  return digitArrays(text).some(arrayHasPhone)
+}
+
+/**
+ * 판매자가 적는 ID 칸의 값이 휴대폰 번호인지 (R-1 "판매자가 적는 칸의 휴대폰 번호" ID 칸, D-079 ④, D-080).
+ * ID 칸: `buyer`(`host.*`·`sms`·`settlement.*`), `buyer.merge`의 `from`·`into`, `buyer.unmerge`의 `from`, `host.assign`의 `replace`,
+ * `host.convertMessage`의 `msg` (validate.ts — 기록 전 검사 checkEvent에서만).
+ * 값 전체가 숫자(반각·전각)와 구분자(containsPhoneRun과 같다)뿐이고 normalizePhone의 결과가 있으면 참:
+ * `010-5151-6161`, `01051516162`, `010 5151 6163`, `(010)5151-6164`.
+ * 글자가 하나라도 섞인 ID(`UC_A`, `sms:s1`, `UC01012345678abcdEFGH_-`)는 늘 거짓 — 불투명 ID는 절대 걸리지 않는다.
+ */
+export function looksLikePhoneId(value: string): boolean {
+  if (typeof value !== 'string') return false
+  for (const char of value) {
+    if (digitOf(char) === null && !isSeparator(char)) return false
+  }
+  return normalizePhone(value) !== null
+}
+
+/**
+ * @deprecated containsPhoneRun과 같은 함수다(AC-S04-07 — 다른 판단이 둘 있으면 안 된다). 새 코드는 containsPhoneRun을 쓴다.
+ * S04 수정 라운드 2까지의 숫자 모으기 판단은 D-079 ①로 없앴다.
+ */
+export const containsPhoneNumber: (text: string) => boolean = containsPhoneRun
 
 /** 정규화한 번호(normalizePhone의 결과)의 뒤 4자리 — 서버가 sms 이벤트의 phoneLast4로 담는다 (ORD-08 AC4, D-061) */
 export function phoneLast4(normalized: string): string {

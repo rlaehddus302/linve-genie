@@ -654,14 +654,14 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
 })
 
 describe('실제 tests/golden 전체를 실제 코어로 (AC-S04-90 합계)', () => {
-  it('파일 19 · 파서 379 · 엔진 111 · 통과 490, 나머지 0', () => {
+  it('파일 19 · 파서 379 · 엔진 112 · 통과 491, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
       files: 19,
       parserCases: 379,
-      scenarios: 111,
-      pass: 490,
+      scenarios: 112,
+      pass: 491,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,

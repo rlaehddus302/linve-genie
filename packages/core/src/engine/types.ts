@@ -317,6 +317,11 @@ export interface EventProblem {
   /** 문제가 있는 필드 (이벤트 전체 문제면 null) */
   readonly field: string | null
   readonly message: string
+  /**
+   * 판매자가 적는 칸의 휴대폰 번호 문제(R-1, D-079·D-080 — checkEvent만 돌려준다)일 때만 'PHONE_NUMBER'. 그 밖의 문제에는 없다.
+   * 서버가 거절 안내(D-079 ⑥)를 값을 다시 보지 않고 이 표시로 정한다(AC-S04-22)
+   */
+  readonly code?: 'PHONE_NUMBER'
 }
 
 // ── 효과 (R-13) ──────────────────────────────────────────────────────────

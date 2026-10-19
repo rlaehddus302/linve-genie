@@ -1,6 +1,6 @@
-# 범주 19: 판매자가 적는 다른 글 칸(입금 메모·사유·방송 제목·상품 이름)에 휴대폰 번호가 들어 있음(코어 containsPhoneNumber)
-# — 엔진도 입력 오류로 거른다 (S04 수정 라운드 2, RA-S04-009·TD-S04-003, DAT-06). 시청자 채팅 본문·닉네임은 받는다.
-# 휴대폰 번호 모양이 아닌 숫자(시각·수량·금액·주소)는 받는다
+# 범주 19: 판매자가 적는 글 칸(입금 메모·사유·방송 제목·상품 이름)과 ID 칸(buyer·from·into·replace·msg)에 휴대폰 번호
+# (README "판매자가 적는 칸의 휴대폰 번호", S04 마무리 D-079·D-080 — 코어 containsPhoneRun·looksLikePhoneId).
+# 시청자 채팅의 id·ch·nick·text는 받는다. 휴대폰 번호가 아닌 숫자(시각·수량·금액·주소·날짜·국가 번호 표기)와 영문이 섞인 키도 받는다
 id: G-ENG-905
 title: 판매자 글 칸에 휴대폰 번호
 refs: [R-1]
@@ -16,4 +16,29 @@ events:
   - { at: "21:00:00", type: settlement.payment, buyer: UC_A, date: 2026-10-18, amount: 10000, memo: "홍길동 010-1234-5678" }
   - { at: "21:00:01", type: settlement.payment, buyer: UC_A, date: 2026-10-18, amount: 10000, memo: "홍길동 10,000원 3시" }
   - { at: "21:00:02", type: settlement.refund, buyer: UC_A, date: 2026-10-18, amount: 1000, reason: "+82 10-1234-5678 환불" }
+  - { at: "21:00:03", type: broadcast.start, b: b3, date: 2026-10-18, title: "01/05 구피 30종 1000원" }
+  - { at: "21:00:04", type: product.update, b: b1, no: 15, name: "01/05 3개 25,000원" }
+  - { at: "21:00:05", type: settlement.adjust, buyer: UC_A, date: 2026-10-18, amount: -500, reason: "1234-5678" }
+  - { at: "21:00:06", type: product.update, b: b1, no: 15, name: "010ㆍ1234ㆍ5678" }
+expect: {}
+---
+# ID 칸: 숫자와 구분자로만 되어 있고 휴대폰 번호로 정규화되는 키는 읽기 오류. 영문이 섞인 키·번호로 정규화되지 않는 값은 받는다.
+# 효과 보고의 buyer는 ID 칸 검사 밖이다(엔진에는 효과 ID로 넘긴다)
+id: G-ENG-906
+title: 판매자 ID 칸에 휴대폰 번호
+refs: [R-1]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: chat, b: b1, id: "010-5151-6169", ch: UC_A, nick: 가, text: "15번 예뻐요" }
+  - { at: "20:00:02", type: host.blockBuyer, buyer: "010-5151-6161", reason: 노쇼 }
+  - { at: "20:00:03", type: settlement.payment, buyer: "01051516162", date: 2026-10-18, amount: 1000 }
+  - { at: "20:00:04", type: buyer.merge, from: "010 5151 6163", into: UC_A, reason: 같은 사람 }
+  - { at: "20:00:05", type: buyer.merge, from: UC_A, into: "(010)5151-6164", reason: 같은 사람 }
+  - { at: "20:00:06", type: host.assign, b: b1, no: 15, buyer: UC_A, reason: 전화 주문, replace: "010.5151.6165", replaceTo: WAITLIST }
+  - { at: "20:00:07", type: host.convertMessage, b: b1, msg: "010-5151-6169", no: 15 }
+  - { at: "20:00:08", type: buyer.unmerge, from: "０１０５１５１６１６６", reason: 잘못 합침 }
+  - { at: "20:00:09", type: host.blockBuyer, buyer: "UC01012345678abcdEFGH_-", reason: 노쇼 }
+  - { at: "20:00:10", type: host.unblockBuyer, buyer: "1234-5678", reason: 풀기 }
+  - { at: "20:00:11", type: settlement.payment, buyer: "+82 10-5151-6161", date: 2026-10-18, amount: 1000 }
 expect: {}

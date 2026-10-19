@@ -365,7 +365,7 @@ const CASES: Readonly<Record<string, { category: string; loaded?: number; errors
     ],
   },
   '18-sms-phone-shaped.yaml': {
-    category: '18. sms ref·memo에 휴대폰 번호가 들어 있음 (S04, D-073)',
+    category: '18. sms ref·memo에 휴대폰 번호, 지정 구매자 키가 휴대폰 번호 (S04, D-079·D-080)',
     errors: [
       {
         doc: 1,
@@ -377,14 +377,15 @@ const CASES: Readonly<Record<string, { category: string; loaded?: number; errors
           ['events[5].memo', '(값: "０１０-１２３４-５６７８")'],
           ['events[7].memo', '(값: "3시 010-1234-5678")'],
           ['events[8].memo', '(값: "010-1234-5678 2개")'],
-          ['events[9].memo', '(값: "+82 10-1234-5678")'],
           ['events[10].ref', '(값: "r-010-1234-5678-2")'],
+          ['events[15].memo', '(값: "3시,010,1234,5678")'],
+          ['events[16].buyer', '휴대폰 번호로 된 키다 — 판매자가 적는 구매자·메시지 ID 칸에는 전화번호를 적지 않는다 (값: "010-5151-6161")'],
         ],
       },
     ],
   },
   '19-free-text-phone.yaml': {
-    category: '19. 판매자가 적는 다른 글 칸(입금 메모·사유·방송 제목·상품 이름)에 휴대폰 번호가 들어 있음 (S04, DAT-06)',
+    category: '19. 판매자가 적는 글 칸(입금 메모·사유·방송 제목·상품 이름)·ID 칸(buyer·from·into·replace·msg)에 휴대폰 번호 (S04, D-079·D-080, DAT-06)',
     errors: [
       {
         doc: 1,
@@ -395,7 +396,20 @@ const CASES: Readonly<Record<string, { category: string; loaded?: number; errors
           ['events[5].title', '(값: "문자 주문 010~1234~5678")'],
           ['events[6].reason', '(값: "같은 분 010,1234,5678")'],
           ['events[7].memo', '(값: "홍길동 010-1234-5678")'],
-          ['events[9].reason', '(값: "+82 10-1234-5678 환불")'],
+          ['events[13].name', '(값: "010ㆍ1234ㆍ5678")'],
+        ],
+      },
+      {
+        doc: 2,
+        label: 'G-ENG-906',
+        issues: [
+          ['events[2].buyer', '휴대폰 번호로 된 키다 — 판매자가 적는 구매자·메시지 ID 칸에는 전화번호를 적지 않는다 (값: "010-5151-6161")'],
+          ['events[3].buyer', '(값: "01051516162")'],
+          ['events[4].from', '(값: "010 5151 6163")'],
+          ['events[5].into', '(값: "(010)5151-6164")'],
+          ['events[6].replace', '(값: "010.5151.6165")'],
+          ['events[7].msg', '(값: "010-5151-6169")'],
+          ['events[8].from', '(값: "０１０５１５１６１６６")'],
         ],
       },
     ],

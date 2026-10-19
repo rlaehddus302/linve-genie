@@ -4,13 +4,18 @@
 // S03b: 문자찜은 서버처럼 키로 바꿔 넣고(같은 번호의 여러 형식, 뒤 4자리만 같은 다른 번호), 모르는 지정 구매자였다가 알게 되는 문자찜과 사본,
 // 합친 뒤의 시청자 채팅 취소, 충돌 중 host.assign, 주문 메시지·언급 메시지의 변환, 대기 한도 0·1에서의 충돌·1등 취소·재고 늘림을 더한다.
 // S04(AC-S04-92): 로그 중간의 broadcast.start(새 방송 — 여러 날짜, 범위 안 무작위 설정, 이미 선언한 방송의 사본), 아무 위치의 broadcast.end와 그 뒤 입력,
-// 승계 ASK·대기 한도 0 방송, 취소 메시지와 그 변환, 표에 없는 필드를 붙인 이벤트, 번호 모양 ref·memo를 더한다. 빈 엔진에서 broadcast.start로 시작하는 로그도 만든다.
+// 승계 ASK·대기 한도 0 방송, 취소 메시지와 그 변환, 표에 없는 필드를 붙인 이벤트를 더한다. 빈 엔진에서 broadcast.start로 시작하는 로그도 만든다.
+// S04 마무리(D-079·D-080): 휴대폰 번호(여러 형식)를 넣은 글 칸과 번호 ID 칸은 기록 전 검사(checkEvent)만 거절하고 applyEvent(재생)는 처리한다.
+// 날짜·수량·금액을 섞은 번호 아닌 글(방송 제목·상품 이름·입금 메모·사유)과 영문이 섞인 숫자 많은 ID(채널 UC0101…)는 기록된다.
+// 로그에 남는 이벤트는 모두 checkEvent를 통과한다(서버는 checkEvent를 통과한 것만 기록한다).
 // 이벤트는 선언된 방송 중 하나로 가고(entry.bsel), 판정 검사는 그 찜·상품이 속한 방송의 설정으로 한다(D-070).
 // 실패하면 가장 짧은 로그로 줄여 시드와 함께 보여 준다. 재현: 실패 메시지의 seed·path를 fc.assert 옵션에 넣는다.
 import {
   applyEvent,
   checkEvent,
   checkInvariants,
+  containsPhoneRun,
+  looksLikePhoneId,
   compareRank,
   initEngine,
   isInvalidEvent,
@@ -43,7 +48,11 @@ import { smsPhoneFields } from '../golden/phone-key.ts'
 import { B1, B2, T0 } from './engine-helpers.ts'
 
 const B0919: BroadcastInfo = { id: 'n1', date: '2026-10-19', title: '19일' }
-const CHANNELS = ['A', 'B', 'C', 'D', 'OWNER'] as const
+/** 영문이 섞인 숫자 많은 불투명 채널 ID — 휴대폰 번호 ID가 아니다(looksLikePhoneId 거짓, D-079 ④). 아직 채팅하지 않았을 수 있는 채널 자리 */
+const OPAQUE = 'UC01012345678abcdEFGH_-'
+const CHANNELS = ['A', 'B', 'C', OPAQUE, 'OWNER'] as const
+/** 날짜·수량·금액을 섞은 번호 아닌 글 (D-079 — 숫자를 모두 모으면 01로 시작하는 10자리라도 받는다, SA-S04-007) */
+const NOT_PHONE_TEXTS = ['01/05 구피 30종 1000원', '01/05 100,000원 이상 무료', '01/05 3개 25,000원', '1234-5678', '+82 10-1234-5678'] as const
 const NOS = [1, 2, 3] as const
 /** 같은 번호의 여러 형식, 뒤 4자리만 같은 다른 번호(010-7777-2222), 휴대폰 번호 모양이 아닌 값 */
 const PHONES = ['010-1111-2222', '01011112222', '０１０-３３３３-４４４４', '5678', '+82 10-1111-2222', '010-7777-2222', '(010) 3333 4444'] as const
@@ -82,7 +91,7 @@ type Raw =
   // S04: 방송 시작(새 방송 또는 이미 선언한 방송의 사본)·종료, 입력 오류여야 하는 이벤트(기록되지 않는다)
   | { readonly type: 'start'; readonly slot: number; readonly day: number; readonly title: number; readonly settings: SettingsOverride }
   | { readonly type: 'end'; readonly pick: number }
-  | { readonly type: 'bad'; readonly kind: 'extra' | 'ref' | 'memo'; readonly base: number; readonly name: number; readonly digits: number; readonly form: number }
+  | { readonly type: 'bad'; readonly kind: 'extra' | 'ref' | 'memo' | 'text' | 'id'; readonly base: number; readonly name: number; readonly digits: number; readonly form: number }
 
 interface Entry {
   readonly raw: Raw
@@ -151,7 +160,7 @@ const endArb: fc.Arbitrary<Raw> = fc.record({ type: fc.constant('end' as const),
 const PHONE_FORM_LAST = phoneForms(0).length - 1
 const badArb: fc.Arbitrary<Raw> = fc.record({
   type: fc.constant('bad' as const),
-  kind: fc.constantFrom('extra' as const, 'ref' as const, 'memo' as const),
+  kind: fc.constantFrom('extra' as const, 'ref' as const, 'memo' as const, 'text' as const, 'id' as const),
   base: fc.nat(),
   name: fc.nat(EXTRA_NAMES.length - 1),
   digits: fc.integer({ min: 0, max: 99_999_999 }),
@@ -224,7 +233,7 @@ const rawArb: fc.Arbitrary<Raw> = fc.oneof(
       no,
       price: fc.option(fc.constantFrom(0, 7000, 10000, 12000), { nil: null }),
       stock: fc.option(fc.integer({ min: 1, max: 4 }), { nil: null }),
-      name: fc.option(fc.constantFrom('핑크프릴', '라울'), { nil: null }),
+      name: fc.option(fc.constantFrom('핑크프릴', '라울', ...NOT_PHONE_TEXTS), { nil: null }),
       unpaid: fc.boolean(),
     }),
   },
@@ -374,9 +383,11 @@ function materialize(state: EngineState, scenario: Scenario, entry: Entry, seq: 
     case 'ledger': {
       const date = (state.broadcasts[raw.day % state.broadcasts.length] as BroadcastInfo).date
       const buyer = buyerAt(raw.buyer)
-      if (raw.kind === 'payment') return { ...base, type: 'settlement.payment', buyer, date, amount: raw.amount }
-      if (raw.kind === 'refund') return { ...base, type: 'settlement.refund', buyer, date, amount: raw.amount, reason: '환불' }
-      if (raw.kind === 'adjust') return { ...base, type: 'settlement.adjust', buyer, date, amount: -raw.amount, reason: '할인' }
+      // 입금 메모·사유에 번호 아닌 숫자 글을 섞는다 (D-079 — 기록된다)
+      const note = raw.mode === 0 ? undefined : (NOT_PHONE_TEXTS[(raw.amount + raw.mode) % NOT_PHONE_TEXTS.length] as string)
+      if (raw.kind === 'payment') return { ...base, type: 'settlement.payment', buyer, date, amount: raw.amount, ...(note === undefined ? {} : { memo: note }) }
+      if (raw.kind === 'refund') return { ...base, type: 'settlement.refund', buyer, date, amount: raw.amount, reason: note ?? '환불' }
+      if (raw.kind === 'adjust') return { ...base, type: 'settlement.adjust', buyer, date, amount: -raw.amount, reason: note ?? '할인' }
       const mode = (['PICKUP', 'COMBINED', 'FIXED', 'DEFAULT'] as const)[raw.mode] as 'PICKUP' | 'COMBINED' | 'FIXED' | 'DEFAULT'
       return { ...base, type: 'settlement.shippingOverride', buyer, date, mode, ...(mode === 'FIXED' ? { amount: 3000 } : {}) }
     }
@@ -419,7 +430,9 @@ function materialize(state: EngineState, scenario: Scenario, entry: Entry, seq: 
     case 'start': {
       // 새 방송이면 선언, 이미 선언한 방송이면 사본(날짜·제목·설정이 달라도 아무 일도 없어야 한다)
       const id = START_IDS[raw.slot] as string
-      return { ...base, type: 'broadcast.start', b: id, date: START_DATES[raw.day] as string, title: `${String(raw.title + 1)}부`, settings: raw.settings }
+      // 제목 넷 중 둘은 날짜·금액이 섞인 번호 아닌 글 (D-079, SA-S04-007 — 방송이 시작된다)
+      const title = [`${String(raw.title + 1)}부`, NOT_PHONE_TEXTS[0], `${String(raw.title + 1)}부`, NOT_PHONE_TEXTS[1]][raw.title] as string
+      return { ...base, type: 'broadcast.start', b: id, date: START_DATES[raw.day] as string, title, settings: raw.settings }
     }
     case 'end':
       return { ...base, type: 'broadcast.end', b: (state.broadcasts[raw.pick % state.broadcasts.length] as BroadcastInfo).id }
@@ -430,55 +443,108 @@ function materialize(state: EngineState, scenario: Scenario, entry: Entry, seq: 
 }
 
 /**
- * 번호 8자리 → 여러 형식의 휴대폰 번호. 앞 6개는 숫자만 모으면 번호 모양(normalizePhone의 결과가 있음),
- * 뒤 6개는 번호 앞뒤에 다른 숫자가 붙거나 국가 번호로 적은 것(containsPhoneNumber만 잡는다 — RA-S04-001)
+ * 번호 8자리 → 글 칸에서 휴대폰 번호인 여러 형식 (R-1 "판매자가 적는 칸의 휴대폰 번호", D-079·D-080 — containsPhoneRun이 참):
+ * 한 덩어리 11자리, `01X` 세 자리 덩어리 뒤에 구분자(공백·문장 부호·기호·자모 ㆍ)로 이은 7~8자리, 앞뒤에 다른 숫자·글자가 붙은 것, 전각
  */
 function phoneForms(digits: number): readonly string[] {
   const d = String(digits).padStart(8, '0')
+  const [head, tail] = [d.slice(0, 4), d.slice(4)]
   const full = `010${d}`
-  const dashed = `010-${d.slice(0, 4)}-${d.slice(4)}`
+  const dashed = `010-${head}-${tail}`
   const wide = [...full].map((c) => String.fromCharCode(c.charCodeAt(0) - 0x30 + 0xff10)).join('')
   return [
     full,
     dashed,
-    `010 ${d.slice(0, 4)} ${d.slice(4)}`,
+    `010 ${head} ${tail}`,
     wide,
     `s${full}`,
-    `김영희 ${full.slice(0, 3)}.${d.slice(0, 4)}.${d.slice(4)}`,
+    `김영희 010.${head}.${tail}`,
     `3시 ${dashed}`,
     `${dashed} 2개`,
     `15번 ${full}`,
-    `+82 10-${d.slice(0, 4)}-${d.slice(4)}`,
-    `r-${dashed}-2`,
-    `0082${full.slice(1)}`,
+    `+82 010-${head}-${tail}`,
+    `3시,010,${head},${tail}`,
+    `010ㆍ${head}ㆍ${tail}`,
+    `010 ${d}`,
   ]
 }
+/** 문자찜 ref 형식(영문·숫자·`_`·`-`)에 맞는 휴대폰 번호 — 구조 검사는 통과하고 번호 검사만 걸린다 */
+function refForms(digits: number): readonly string[] {
+  const d = String(digits).padStart(8, '0')
+  return [`010${d}`, `010-${d.slice(0, 4)}-${d.slice(4)}`, `s010${d}`, `r-010-${d.slice(0, 4)}-${d.slice(4)}-2`, `r_010_${d.slice(0, 4)}_${d.slice(4)}`, `x15-010${d}`]
+}
+/** ID 칸에서 휴대폰 번호인 값: 숫자와 구분자뿐이고 normalizePhone 결과가 있음 (looksLikePhoneId가 참) */
+function idForms(digits: number): readonly string[] {
+  const d = String(digits).padStart(8, '0')
+  const [head, tail] = [d.slice(0, 4), d.slice(4)]
+  return [`010${d}`, `010-${head}-${tail}`, `010 ${head} ${tail}`, `(010)${head}-${tail}`, `010.${head}.${tail}`, `０１０${d}`]
+}
+const pickForm = (forms: readonly string[], form: number): string => forms[form % forms.length] as string
 
 /**
- * 입력 오류여야 하는 이벤트 (AC-S04-06·07): 유효한 이벤트에 표에 없는 필드를 붙이거나, sms의 ref·memo에 휴대폰 번호를 넣는다.
- * 짚어야 하는 필드 이름과 함께 돌려준다
+ * 기록되지 않는 이벤트 (AC-S04-06·07·92): 유효한 이벤트에 표에 없는 필드를 붙이거나(구조 오류 — checkEvent와 applyEvent 모두),
+ * 판매자가 적는 글 칸·ID 칸에 휴대폰 번호를 넣는다(checkEvent만 — 재생은 처리한다, D-079 ⑤).
+ * 짚어야 하는 필드 이름, 휴대폰 번호 문제인지와 함께 돌려준다
  */
-function badEvent(state: EngineState, raw: Extract<Raw, { type: 'bad' }>, b: string, seq: number, at: number): { readonly event: Record<string, unknown>; readonly field: string } {
-  const phone = phoneForms(raw.digits)[raw.form % (PHONE_FORM_LAST + 1)] as string
+function badEvent(
+  state: EngineState,
+  raw: Extract<Raw, { type: 'bad' }>,
+  b: string,
+  seq: number,
+  at: number,
+): { readonly event: Record<string, unknown>; readonly field: string; readonly phone: boolean } {
+  const date = (state.broadcasts[0] as BroadcastInfo).date
   const sms = { seq, at, type: 'sms', b, ref: `x${String(seq)}`, no: 1, received: '20:00' }
-  if (raw.kind === 'ref') return { event: { ...sms, ref: phone }, field: 'ref' }
-  if (raw.kind === 'memo') return { event: { ...sms, memo: phone }, field: 'memo' }
+  if (raw.kind === 'ref') return { event: { ...sms, ref: pickForm(refForms(raw.digits), raw.form) }, field: 'ref', phone: true }
+  if (raw.kind === 'memo') return { event: { ...sms, memo: pickForm(phoneForms(raw.digits), raw.form) }, field: 'memo', phone: true }
+  if (raw.kind === 'text') {
+    const phone = pickForm(phoneForms(raw.digits), raw.form)
+    const texts: readonly (readonly [Record<string, unknown>, string])[] = [
+      [{ seq, at, type: 'host.cancel', b, no: 1, buyer: 'A', reason: phone }, 'reason'],
+      [{ seq, at, type: 'host.reopen', b, no: 1, reason: phone }, 'reason'],
+      [{ seq, at, type: 'buyer.merge', from: 'A', into: 'B', reason: phone }, 'reason'],
+      [{ seq, at, type: 'settlement.refund', buyer: 'A', date, amount: 1000, reason: phone }, 'reason'],
+      [{ seq, at, type: 'settlement.payment', buyer: 'A', date, amount: 1000, memo: phone }, 'memo'],
+      [{ seq, at, type: 'product.register', b, no: 9, name: phone, price: 1000 }, 'name'],
+      [{ seq, at, type: 'product.update', b, no: 1, name: phone }, 'name'],
+      [{ seq, at, type: 'broadcast.start', b: 'z9', date: '2026-10-20', title: phone }, 'title'],
+    ]
+    const [event, field] = texts[raw.base % texts.length] as readonly [Record<string, unknown>, string]
+    return { event, field, phone: true }
+  }
+  if (raw.kind === 'id') {
+    const phone = pickForm(idForms(raw.digits), raw.form)
+    const ids: readonly (readonly [Record<string, unknown>, string])[] = [
+      [{ seq, at, type: 'host.blockBuyer', buyer: phone, reason: '노쇼' }, 'buyer'],
+      [{ seq, at, type: 'host.cancel', b, no: 1, buyer: phone, reason: '사유' }, 'buyer'],
+      [{ seq, at, type: 'host.assign', b, no: 1, buyer: 'A', reason: '사유', replace: phone, replaceTo: 'WAITLIST' }, 'replace'],
+      [{ ...sms, buyer: phone }, 'buyer'],
+      [{ seq, at, type: 'settlement.payment', buyer: phone, date, amount: 1000 }, 'buyer'],
+      [{ seq, at, type: 'buyer.merge', from: phone, into: 'A', reason: '같은 사람' }, 'from'],
+      [{ seq, at, type: 'buyer.merge', from: 'A', into: phone, reason: '같은 사람' }, 'into'],
+      [{ seq, at, type: 'buyer.unmerge', from: phone, reason: '잘못' }, 'from'],
+      [{ seq, at, type: 'host.convertMessage', b, msg: phone, no: 1 }, 'msg'],
+    ]
+    const [event, field] = ids[raw.base % ids.length] as readonly [Record<string, unknown>, string]
+    return { event, field, phone: true }
+  }
+  const phone = pickForm(phoneForms(raw.digits), raw.form)
   const bases: readonly Record<string, unknown>[] = [
     { seq, at, type: 'chat', b, id: `bad${String(seq)}`, ch: 'A', nick: '가', text: '1' },
     sms,
     { seq, at, type: 'host.cancel', b, no: 1, buyer: 'A', reason: '사유' },
-    { seq, at, type: 'settlement.payment', buyer: 'A', date: (state.broadcasts[0] as BroadcastInfo).date, amount: 1000 },
+    { seq, at, type: 'settlement.payment', buyer: 'A', date, amount: 1000 },
     { seq, at, type: 'product.register', b, no: 9, name: 'x', price: 1000 },
     { seq, at, type: 'broadcast.start', b: 'z9', date: '2026-10-20', title: '새 방송' },
     { seq, at, type: 'broadcast.end', b },
   ]
   const event = { ...(bases[raw.base % bases.length] as Record<string, unknown>) }
-  // 입금의 memo(입금 메모)는 표에 있는 필드다 — 번호 모양 검사는 sms의 ref·memo만이라(D-073) 다른 이름으로 바꾼다
-  const name = EXTRA_NAMES[raw.name] === 'memo' && event.type === 'settlement.payment' ? 'note' : (EXTRA_NAMES[raw.name] as string)
-  // sms의 memo는 표에 있는 필드라 번호 모양이어야 입력 오류다 — 그 밖의 이름은 값과 상관없이 입력 오류
+  // 문자찜·입금의 memo는 표에 있는 필드(글 칸)다 — 표에 없는 필드를 만들려고 다른 이름으로 바꾼다
+  const name = EXTRA_NAMES[raw.name] === 'memo' && (event.type === 'settlement.payment' || event.type === 'sms') ? 'note' : (EXTRA_NAMES[raw.name] as string)
+  // 표에 없는 이름은 값과 상관없이 입력 오류
   const value = name === 'meta' ? { phone } : phone
   Object.defineProperty(event, name, { value, enumerable: true, writable: true, configurable: true })
-  return { event, field: name }
+  return { event, field: name, phone: false }
 }
 
 function resolvePick(state: EngineState, raw: Extract<Raw, { type: 'pick' }>, base: { seq: number; at: number }, fallbackB: string): EngineEvent {
@@ -550,23 +616,35 @@ function runScenario(scenario: Scenario): Run {
   scenario.entries.forEach((entry) => {
     at += entry.dt
     if (entry.raw.type === 'bad') {
-      // 입력 오류: 검사 함수가 그 필드를 짚고, applyEvent는 상태를 바꾸지 않고 입력 오류를 던진다. 서버는 기록하지 않으므로 seq도 쓰지 않는다
-      const { event, field } = badEvent(state, entry.raw, broadcastFor(state, entry), seq + 1, at)
+      // 기록 전 검사가 그 필드를 짚는다. 서버는 기록하지 않으므로 seq도 쓰지 않는다.
+      // - 구조 오류(표에 없는 필드): applyEvent도 상태를 바꾸지 않고 입력 오류를 던진다.
+      // - 판매자가 적는 칸의 휴대폰 번호: checkEvent만 문제(code PHONE_NUMBER)를 돌려주고 applyEvent는 처리한다 — 재생은 번호 검사를 하지 않는다(D-079 ⑤).
+      //   처리한 결과는 버린다(기록되지 않은 이벤트).
+      const { event, field, phone } = badEvent(state, entry.raw, broadcastFor(state, entry), seq + 1, at)
       const before = json(state)
-      expect(checkEvent(state, event).map((p) => p.field), json(event)).toContain(field)
+      const problems = checkEvent(state, event)
+      expect(problems.map((p) => p.field), json(event)).toContain(field)
       let thrown: unknown
       try {
         applyEvent(state, event as unknown as EngineEvent)
       } catch (error) {
         thrown = error
       }
-      expect(isInvalidEvent(thrown), json(event)).toBe(true)
+      if (phone) {
+        expect(problems, json(event)).toEqual([expect.objectContaining({ field, code: 'PHONE_NUMBER' })])
+        expect(thrown, json(event)).toBeUndefined()
+      } else {
+        expect(isInvalidEvent(thrown), json(event)).toBe(true)
+        expect(problems.some((p) => p.code === 'PHONE_NUMBER')).toBe(false)
+      }
       expect(json(state)).toBe(before)
       eventOf.push(-1)
       return
     }
     seq += 1
     const event = materialize(state, scenario, entry, seq, at)
+    // 로그에 남는 이벤트는 기록 전 검사를 통과한다 — 번호 아닌 숫자 글·영문이 섞인 ID 포함 (D-079)
+    expect(checkEvent(state, event), json(event)).toEqual([])
     const result = applyEvent(state, event)
     state = result.state
     states.push(state)
@@ -1038,9 +1116,14 @@ const mutation = fc.oneof(
     field: fc.constantFrom('ref', 'phoneKey', 'phoneLast4', 'phone', 'replace', 'replaceTo'),
     value: fc.constantFrom<unknown>(undefined, '', 'a'.repeat(15), 'a'.repeat(16), 'a'.repeat(128), 'a'.repeat(129), 'a+b='.repeat(5), '010-1234-5678', '01012345678', '5678', '567', '56789', '５６７８', '12a4', 5678, '김영희', 's:1', 'a'.repeat(64), 'a'.repeat(65), 'WAITLIST', 'B'),
   }),
-  // S04: 표에 없는 필드(값과 상관없이, undefined여도 — D-073), ref·memo의 휴대폰 번호, 설정 스냅샷 키·값·범위 (D-071)
+  // S04: 표에 없는 필드(값과 상관없이, undefined여도 — D-073), 판매자가 적는 글 칸·ID 칸의 휴대폰 번호(D-079), 설정 스냅샷 키·값·범위 (D-071)
   fc.record({ kind: fc.constant('named' as const), field: fc.constantFrom(...EXTRA_NAMES, 'seq2', 'B', 'settings'), value: fc.constantFrom<unknown>(undefined, null, '010-1234-5678', { phone: '01012345678' }, 1) }),
-  fc.record({ kind: fc.constant('phone' as const), field: fc.constantFrom('ref', 'memo'), digits: fc.integer({ min: 0, max: 99_999_999 }), form: fc.nat(PHONE_FORM_LAST) }),
+  fc.record({
+    kind: fc.constant('phone' as const),
+    field: fc.constantFrom('ref', 'memo', 'reason', 'name', 'title', 'buyer', 'from', 'into', 'replace', 'msg', 'id', 'ch', 'nick', 'text'),
+    digits: fc.integer({ min: 0, max: 99_999_999 }),
+    form: fc.nat(PHONE_FORM_LAST),
+  }),
   fc.record({
     kind: fc.constant('setting' as const),
     key: fc.constantFrom('waitlist.max', 'claim.maxNumber', 'claim.preOpenWindowSec', 'shipping.baseFee', 'shipping.freeThreshold', 'thanks.batchWindowSec', 'claim.ignoreOwner', 'cancel.succession', 'settlement.groupBy', 'waitlist.maxx'),
@@ -1065,7 +1148,7 @@ describe('AC-S03-02 검사 함수 = applyEvent의 입력 오류 판정', () => {
           else if (m.kind === 'named') {
             event = { ...event }
             Object.defineProperty(event, m.field, { value: m.value, enumerable: true, writable: true, configurable: true })
-          } else if (m.kind === 'phone') event = { ...event, [m.field]: phoneForms(m.digits)[m.form] }
+          } else if (m.kind === 'phone') event = { ...event, [m.field]: pickForm([...phoneForms(m.digits), ...refForms(m.digits), ...idForms(m.digits)], m.form * 3 + m.digits) }
           else if (m.kind === 'setting') {
             const current = event.settings
             event = { ...event, settings: { ...(typeof current === 'object' && current !== null ? current : {}), [m.key]: m.value } }
@@ -1079,16 +1162,25 @@ describe('AC-S03-02 검사 함수 = applyEvent의 입력 오류 판정', () => {
         } catch (error) {
           thrown = error
         }
-        expect(isInvalidEvent(thrown), json(event)).toBe(problems.length > 0)
-        if (problems.length > 0) expect(json(state)).toBe(before)
+        // 휴대폰 번호 문제(code PHONE_NUMBER)는 기록 전 검사만 — 재생(applyEvent)은 번호 검사를 하지 않는다 (D-079 ⑤). 그 밖의 입력 오류는 판정이 같다
+        const shape = problems.filter((p) => p.code !== 'PHONE_NUMBER')
+        expect(isInvalidEvent(thrown), json(event)).toBe(shape.length > 0)
+        if (isInvalidEvent(thrown)) expect((thrown as InvalidEventError).problems).toEqual(shape)
+        expect(json(state)).toBe(before)
         // 입력 오류도 미구현도 아니면 예외가 없다 (미구현은 effect.failed와 MANUAL 설정뿐)
-        if (problems.length === 0 && thrown !== undefined) expect(isNotImplemented(thrown), `${json(event)}: ${String(thrown)}`).toBe(true)
+        if (shape.length === 0 && thrown !== undefined) expect(isNotImplemented(thrown), `${json(event)}: ${String(thrown)}`).toBe(true)
+        // 번호 문제는 글 칸이면 containsPhoneRun, ID 칸이면 looksLikePhoneId가 참인 칸에만 (시청자 쪽 값 id·ch·nick·text에는 없다)
+        for (const p of problems.filter((x) => x.code === 'PHONE_NUMBER')) {
+          const value = event[p.field as string] as string
+          expect(['ref', 'memo', 'reason', 'name', 'title', 'buyer', 'from', 'into', 'replace', 'msg'], json(event)).toContain(p.field)
+          expect(['buyer', 'from', 'into', 'replace', 'msg'].includes(p.field as string) ? looksLikePhoneId(value) : containsPhoneRun(value), json(event)).toBe(true)
+        }
       }),
       { numRuns: 400 },
     )
   })
 
-  it('속성 (S04): 유효한 이벤트에 임의 이름의 필드를 더하면 입력 오류이고 checkEvent가 그 필드를 짚는다, ref·memo의 휴대폰 번호(여러 형식)도 입력 오류 (AC-S04-06·07)', () => {
+  it('속성 (S04): 유효한 이벤트에 임의 이름의 필드를 더하면 입력 오류이고 checkEvent가 그 필드를 짚는다, ref·memo의 휴대폰 번호(여러 형식)는 checkEvent만 거절하고 applyEvent는 처리한다 (AC-S04-06·07, D-079 ⑤)', () => {
     // R-1 표에 있는 필드 이름 (어느 종류에든) — 무작위 이름이 그중 하나면 건너뛴다
     const known = new Set(['type', 'seq', 'at', 'b', 'no', 'name', 'price', 'stock', 'status', 'applyTo', 'from', 'to', 'id', 'ch', 'nick', 'text', 'owner', 'publishedAt', 'ref', 'received', 'memo', 'phoneKey', 'phoneLast4', 'buyer', 'phone', 'reason', 'replace', 'replaceTo', 'decision', 'msg', 'into', 'effectId', 'date', 'mode', 'amount', 'title', 'settings'])
     fc.assert(
@@ -1102,11 +1194,13 @@ describe('AC-S03-02 검사 함수 = applyEvent의 입력 오류 판정', () => {
           expect(checkEvent(state, event).map((p) => p.field), name).toContain(name)
           expect(() => applyEvent(state, event as unknown as EngineEvent)).toThrow(InvalidEventError)
         }
-        const phone = phoneForms(digits)[form] as string
-        for (const field of ['ref', 'memo'] as const) {
+        for (const [field, phone] of [
+          ['ref', pickForm(refForms(digits), form)],
+          ['memo', pickForm(phoneForms(digits), form)],
+        ] as const) {
           const sms = { seq: 999, at: T0 + 10_000_000, type: 'sms', b: 'b1', ref: 'r9', no: 1, received: '20:00', [field]: phone }
-          expect(checkEvent(state, sms).map((p) => p.field), `${field}: ${phone}`).toContain(field)
-          expect(() => applyEvent(state, sms as unknown as EngineEvent)).toThrow(InvalidEventError)
+          expect(checkEvent(state, sms), `${field}: ${phone}`).toEqual([expect.objectContaining({ field, code: 'PHONE_NUMBER' })])
+          expect(() => applyEvent(state, sms as unknown as EngineEvent), `${field}: ${phone}`).not.toThrow()
         }
         expect(json(state)).toBe(before)
       }),

@@ -1,5 +1,5 @@
 // S04 코어 (AC-S04-01~08·10·11): 방송 시작·종료와 방송마다의 설정 스냅샷, 정산 설정은 그날 첫 방송, 설정값 검사 함수,
-// 표에 없는 필드·ref·memo 번호 모양 입력 오류, 상태 형식, 취소 메시지 변환 금지, 대기 한도 0의 승계 묻기.
+// 표에 없는 필드 입력 오류, 판매자가 적는 칸의 휴대폰 번호(D-079·D-080 — 기록 전 검사만), 상태 형식, 취소 메시지 변환 금지, 대기 한도 0의 승계 묻기.
 // 골든(15-broadcast·16-s04-rules)이 고정한 것 밖의 경계와 경로를 규칙 문장대로 본다.
 import {
   DEFAULT_SETTINGS,
@@ -11,6 +11,7 @@ import {
   checkEvent,
   checkSettings,
   containsPhoneNumber,
+  containsPhoneRun,
   getBroadcast,
   getProduct,
   getSettlement,
@@ -26,10 +27,12 @@ import {
   listPending,
   listProducts,
   listSettlements,
+  looksLikePhoneId,
   normalizePhone,
   resolveSettings,
   type EngineEvent,
   type EngineState,
+  type EventProblem,
   type SettingsOverride,
 } from '@livejjim/core'
 import fc from 'fast-check'
@@ -441,67 +444,110 @@ describe('AC-S04-06 표에 없는 필드는 입력 오류 — 모든 종류', ()
   })
 })
 
-describe('AC-S04-07 sms의 ref·memo가 휴대폰 번호 모양이면 입력 오류', () => {
-  const { state } = server([start('b1'), register(15)])
+// ── 판매자가 적는 칸의 휴대폰 번호 (AC-S04-07, R-1, D-079·D-080) ─────────────
+// S04 마무리(AC-S04-93 교체): 숫자 모으기 판단(normalizePhone을 글 전체에)·국가 번호 표기(`+82 10-…`)를 번호로 기대한 항목과
+// "applyEvent가 번호 글 칸을 입력 오류로 던진다"는 기대를 D-079·D-080 판단으로 바꿨다 — 글 칸은 containsPhoneRun, ID 칸은 looksLikePhoneId,
+// 번호 검사는 기록 전 검사(checkEvent)에서만 하고 재생(applyEvent)은 처리한다.
+
+/** checkEvent만 그 칸을 휴대폰 번호 문제(code PHONE_NUMBER)로 짚고 applyEvent(재생)는 입력 오류 없이 처리한다 (D-079 ⑤). 넘긴 상태는 그대로 */
+function expectPhoneRejected(state: EngineState, fields: Record<string, unknown>, field: string): void {
+  const event = { seq: 99, at: T0 + 99_000, ...fields }
+  const before = json(state)
+  const problems = checkEvent(state, event)
+  expect(problems, json(fields)).toEqual([{ field, message: expect.any(String) as unknown, code: 'PHONE_NUMBER' }])
+  // 문제 문장에 받은 값(번호)을 되풀이하지 않는다
+  expect(problems[0]?.message).not.toMatch(/[0-9０-９]{4}/)
+  expect(() => applyEvent(state, event as unknown as EngineEvent), json(fields)).not.toThrow()
+  expect(json(state)).toBe(before)
+}
+
+const accepted = (state: EngineState, fields: Record<string, unknown>): EventProblem[] => checkEvent(state, { seq: 9, at: T0, ...fields })
+
+describe('AC-S04-07 글 칸 — 휴대폰 번호는 기록 전 검사만 거절한다 (D-079·D-080)', () => {
+  const { state } = server([start('b1'), register(15), { type: 'chat', b: 'b1', id: 'm1', ch: 'A', nick: 'a', text: '15' }])
   const smsEvent = (fields: Record<string, unknown>): Record<string, unknown> => ({ type: 'sms', b: 'b1', ref: 's1', no: 15, received: '20:00', ...fields })
 
-  it.each(['01012345678', '010-1234-5678', 's01012345678', '0111234567', 'r_010_1234_5678', 'r-010-1234-5678-2', 'x15-01012345678'])('ref %s → 입력 오류', (ref) => {
-    expectInvalid(state, smsEvent({ ref }), 'ref')
+  it.each(['01012345678', '010-1234-5678', 's01012345678', '0111234567', 'r_010_1234_5678', 'r-010-1234-5678-2', 'x15-01012345678', '0161234567'])('ref %s → checkEvent만 거절', (ref) => {
+    expectPhoneRejected(state, smsEvent({ ref }), 'ref')
   })
 
-  it.each(['010-1234-5678', '김영희 010 1234 5678', '０１０１２３４５６７８', '(010)1234.5678', '연락처01012345678'])('memo %s → 입력 오류', (memo) => {
-    expectInvalid(state, smsEvent({ memo }), 'memo')
+  it('ref 형식이 틀리면 구조 오류가 먼저다 — 번호 문제를 따로 더하지 않고 applyEvent도 던진다', () => {
+    expectInvalid(state, smsEvent({ ref: '010 1234 5678' }), 'ref')
+    expect(checkEvent(state, { seq: 9, at: T0, ...smsEvent({ ref: '010 1234 5678' }) }).some((p) => p.code === 'PHONE_NUMBER')).toBe(false)
   })
 
-  // RA-S04-001·SA-S04-003·TD-S04-003: 번호 앞뒤에 다른 숫자가 붙으면 숫자를 모두 모은 것은 12자리 이상이라 번호 모양이 아니다.
-  // 그래도 평문 번호가 이벤트 로그·표시 이름(문자찜(…))에 남으므로 번호 덩어리를 찾아 입력 오류로 한다 (DAT-06, D-073)
+  // AC-S04-07의 글 칸 거절 예 전부 + 앞뒤에 다른 숫자가 붙은 번호, 구분자 여러 가지
   it.each([
-    '3시 010-1234-5678',
+    '010-1234-5678',
+    '김영희 010 1234 5678',
+    '01012345678',
+    '3시,010,1234,5678',
+    '010:1234:5678 3시',
+    '3시 010ㅡ1234ㅡ5678',
+    '010ㆍ1234ㆍ5678',
+    '010ㅣ1234ㅣ5678',
     '010-1234-5678 2개',
+    '(010)1234.5678',
+    '010 12345678',
+    '０１０-１２３４-５６７８',
+    '０１０１２３４５６７８',
+    '+82 010-1234-5678',
+    '+82-010-1234-5678',
+    '연락처01012345678',
     '15번 01012345678',
     '김영희 3시 15번 010 1234 5678 2개',
-    '2개 ０１０-１２３４-５６７８',
-    '010\u200b1234\u200b5678 1개',
-    '+82 10-1234-5678',
-    '+82-010-1234-5678',
-    '0082 10 1234 5678',
+    '010​1234​5678 1개',
     '011-123-4567 3시',
-    // 수정 라운드 2 (SA-S04-003·TD-S04-003): 하이픈 대신 치는 가로줄·물결·별표, 쉼표·쌍점으로 나눈 번호 배열
-    '3시 010ㅡ1234ㅡ5678',
     '010 ㅡ 1234 ㅡ 5678 2개',
     '3시 010~1234~5678',
     '15번 010*1234*5678',
-    '3시,010,1234,5678',
-    '010:1234:5678 3시',
-  ])('memo %s (번호에 다른 숫자가 붙음·국가 번호) → 입력 오류', (memo) => {
-    expectInvalid(state, smsEvent({ memo }), 'memo')
+    '010😀1234😀5678',
+    '010\n1234\n5678',
+  ])('memo %s → checkEvent만 거절', (memo) => {
+    expectPhoneRejected(state, smsEvent({ memo }), 'memo')
   })
 
-  it('받는 예: ref 1234567·s1·r-20261018-0001, memo 김영희 이모·3시 15번 2개·101동 1203호·날짜·시각·번호 일부·집 전화', () => {
-    for (const ref of ['1234567', 's1', 'r-20261018-0001']) expect(checkEvent(state, { seq: 9, at: T0, ...smsEvent({ ref }) }), ref).toEqual([])
-    for (const memo of ['김영희 이모', '3시 15번 2개', '101동 1203호', '101동 1203호 3시 15번', '10/18 15번 2개', '2026-10-18 01:30 받음', '뒷번호 5678', '010-1234', '02-123-4567', '']) {
-      expect(checkEvent(state, { seq: 9, at: T0, ...smsEvent({ memo }) }), memo).toEqual([])
+  it('받는 예 (AC-S04-07): 날짜·금액이 섞인 글, 010을 뺀 8자리, 국가 번호 표기, 주소·시각·수량, 12자리 한 덩어리', () => {
+    for (const ref of ['1234567', 's1', 'r-20261018-0001']) expect(accepted(state, smsEvent({ ref })), ref).toEqual([])
+    for (const memo of [
+      '01/05 3개 25,000원',
+      '01/05 구피 30종 1000원',
+      '01/05 100,000원 이상 무료',
+      '1234-5678',
+      '3시 15번 2개',
+      '101동 1203호',
+      '1,2,3번 각 1개',
+      '김영희 이모',
+      '010123456789',
+      '+82 10-1234-5678',
+      '0082 10 1234 5678',
+      '김영희010가1234나5678',
+      '10/18 15번 2개',
+      '2026-10-18 01:30 받음',
+      '뒷번호 5678',
+      '010-1234',
+      '02-123-4567',
+      '1~3번 2개씩',
+      '10,000원 입금',
+      '12:30~13:00 받음',
+      '50,000 01,02번',
+      '',
+    ]) {
+      expect(accepted(state, smsEvent({ memo })), memo).toEqual([])
     }
   })
 
-  it('받는 예 (수정 라운드 2): 수량·범위·곱하기·금액·시각 나열', () => {
-    for (const memo of ['1,2,3번 각 1개', '1~3번 2개씩', '3*2개', '10,000원 입금', '12:30~13:00 받음', '50,000 01,02번']) {
-      expect(checkEvent(state, { seq: 9, at: T0, ...smsEvent({ memo }) }), memo).toEqual([])
-    }
-  })
-})
-
-describe('판매자가 적는 다른 글 칸(입금 메모·사유·방송 제목·상품 이름)의 휴대폰 번호도 입력 오류 (DAT-06, D-073, RA-S04-009·TD-S04-003)', () => {
-  const { state } = server([start('b1'), register(15), { type: 'chat', b: 'b1', id: 'm1', ch: 'A', nick: 'a', text: '15' }])
-  const PHONES = ['010-1234-5678', '홍길동 010-1234-5678', '3시 010ㅡ1234ㅡ5678', '+82 10-1234-5678', '같은 분 010,1234,5678']
+  const PHONES = ['010-1234-5678', '홍길동 010-1234-5678', '3시 010ㅡ1234ㅡ5678', '+82 010-1234-5678', '같은 분 010,1234,5678', '010ㆍ1234ㆍ5678']
   const cases: readonly (readonly [string, (value: string) => Record<string, unknown>, string])[] = [
     ['입금 메모', (v) => ({ type: 'settlement.payment', buyer: 'A', date: '2026-10-18', amount: 1, memo: v }), 'memo'],
     ['방송자 취소 사유', (v) => ({ type: 'host.cancel', b: 'b1', no: 15, buyer: 'A', reason: v }), 'reason'],
     ['확정 사유(선택)', (v) => ({ type: 'host.confirm', b: 'b1', no: 15, buyer: 'A', reason: v }), 'reason'],
     ['다시 열기 사유', (v) => ({ type: 'host.reopen', b: 'b1', no: 15, reason: v }), 'reason'],
+    ['충돌 결정 사유(선택)', (v) => ({ type: 'host.resolveConflict', b: 'b1', no: 15, decision: 'KEEP', reason: v }), 'reason'],
     ['메시지 변환 사유', (v) => ({ type: 'host.convertMessage', b: 'b1', msg: 'm1', no: 15, reason: v }), 'reason'],
     ['차단 사유', (v) => ({ type: 'host.blockBuyer', buyer: 'A', reason: v }), 'reason'],
     ['합치기 사유', (v) => ({ type: 'buyer.merge', from: 'A', into: 'B', reason: v }), 'reason'],
+    ['떼어 내기 사유', (v) => ({ type: 'buyer.unmerge', from: 'A', reason: v }), 'reason'],
     ['조정 사유', (v) => ({ type: 'settlement.adjust', buyer: 'A', date: '2026-10-18', amount: -1, reason: v }), 'reason'],
     ['환불 사유', (v) => ({ type: 'settlement.refund', buyer: 'A', date: '2026-10-18', amount: 1, reason: v }), 'reason'],
     ['방송 제목', (v) => start('b2', undefined, '2026-10-18', v), 'title'],
@@ -510,41 +556,194 @@ describe('판매자가 적는 다른 글 칸(입금 메모·사유·방송 제�
   ]
 
   for (const [label, make, field] of cases) {
-    it(`${label}: 휴대폰 번호가 들어 있으면 입력 오류, 상태는 그대로`, () => {
-      for (const phone of PHONES) expectInvalid(state, make(phone), field)
+    it(`${label}: 휴대폰 번호가 들어 있으면 checkEvent만 거절하고 applyEvent는 처리한다`, () => {
+      for (const phone of PHONES) expectPhoneRejected(state, make(phone), field)
     })
 
-    it(`${label}: 번호가 아닌 숫자는 받는다`, () => {
-      for (const value of ['입금자 홍길동', '3시 15번 2개', '101동 1203호', '10,000원 3시', '뒷번호 5678', '1~3번']) {
-        expect(checkEvent(state, { seq: 9, at: T0, ...make(value) }), `${label}: ${value}`).toEqual([])
+    it(`${label}: 번호가 아닌 숫자는 받는다 (SA-S04-007 회귀)`, () => {
+      for (const value of ['입금자 홍길동', '3시 15번 2개', '101동 1203호', '10,000원 3시', '뒷번호 5678', '1~3번', '01/05 3개 25,000원', '01/05 구피 30종 1000원', '01/05 100,000원 이상 무료', '1234-5678', '+82 10-1234-5678']) {
+        expect(accepted(state, make(value)), `${label}: ${value}`).toEqual([])
       }
     })
   }
 
-  it('시청자가 쓴 채팅 본문·닉네임은 휴대폰 번호가 있어도 받는다 — 찜을 버리지 않는다 (R-3)', () => {
-    const chatEvent = { type: 'chat', b: 'b1', id: 'm2', ch: 'C', nick: '010-1234-5678', text: '15 010-1234-5678' }
-    expect(checkEvent(state, { seq: 9, at: T0, ...chatEvent })).toEqual([])
+  it("'01/05 구피 30종 1000원' 방송 제목으로 방송이 시작된다 (SA-S04-007)", () => {
+    const { state: next } = server([start('b1'), start('b2', undefined, '2026-10-18', '01/05 구피 30종 1000원')])
+    expect(getBroadcast(next, 'b2')?.title).toBe('01/05 구피 30종 1000원')
+  })
+
+  it('시청자 쪽 값(chat의 id·ch·nick·text)은 번호가 있어도 검사하지 않는다 — 찜을 버리지 않는다 (R-3)', () => {
+    const chatEvent = { type: 'chat', b: 'b1', id: '010-1234-5678', ch: '01012345678', nick: '010 1234 5678', text: '15 010-1234-5678' }
+    expect(accepted(state, chatEvent)).toEqual([])
+  })
+
+  it('구조 검사가 틀린 사유(빈 글)는 구조 오류 — 번호 문제는 구조 검사를 통과한 칸만', () => {
+    expectInvalid(state, { type: 'host.cancel', b: 'b1', no: 15, buyer: 'A', reason: '  ' }, 'reason')
+    expectPhoneRejected(state, { type: 'host.cancel', b: 'b1', no: 15, buyer: 'A', reason: ' 010-1234-5678 ' }, 'reason')
   })
 })
 
-describe('containsPhoneNumber — 글 안의 휴대폰 번호 (AC-S04-07, D-073, RA-S04-001)', () => {
+describe('AC-S04-07 ID 칸 — 숫자·구분자로만 된 휴대폰 번호는 기록 전 검사만 거절한다 (D-079 ④, TD-S04-004)', () => {
+  const { state } = server([start('b1'), register(15), { type: 'chat', b: 'b1', id: 'm1', ch: 'A', nick: 'a', text: '15' }])
+  const cases: readonly (readonly [string, (value: string) => Record<string, unknown>, string])[] = [
+    ['차단', (v) => ({ type: 'host.blockBuyer', buyer: v, reason: '노쇼' }), 'buyer'],
+    ['차단 풀기', (v) => ({ type: 'host.unblockBuyer', buyer: v, reason: '풀기' }), 'buyer'],
+    ['방송자 취소', (v) => ({ type: 'host.cancel', b: 'b1', no: 15, buyer: v, reason: '요청' }), 'buyer'],
+    ['확정', (v) => ({ type: 'host.confirm', b: 'b1', no: 15, buyer: v }), 'buyer'],
+    ['직접 배정', (v) => ({ type: 'host.assign', b: 'b1', no: 15, buyer: v, reason: '전화 주문' }), 'buyer'],
+    ['교체할 1등', (v) => ({ type: 'host.assign', b: 'b1', no: 15, buyer: 'A', reason: '전화 주문', replace: v, replaceTo: 'CANCEL' }), 'replace'],
+    ['문자찜 지정 구매자', (v) => ({ type: 'sms', b: 'b1', ref: 's9', no: 15, received: '20:00', buyer: v }), 'buyer'],
+    ['입금', (v) => ({ type: 'settlement.payment', buyer: v, date: '2026-10-18', amount: 1000 }), 'buyer'],
+    ['배송비 예외', (v) => ({ type: 'settlement.shippingOverride', buyer: v, date: '2026-10-18', mode: 'PICKUP' }), 'buyer'],
+    ['조정', (v) => ({ type: 'settlement.adjust', buyer: v, date: '2026-10-18', amount: -500, reason: '할인' }), 'buyer'],
+    ['환불', (v) => ({ type: 'settlement.refund', buyer: v, date: '2026-10-18', amount: 500, reason: '환불' }), 'buyer'],
+    ['합치기 from', (v) => ({ type: 'buyer.merge', from: v, into: 'A', reason: '같은 사람' }), 'from'],
+    ['합치기 into', (v) => ({ type: 'buyer.merge', from: 'A', into: v, reason: '같은 사람' }), 'into'],
+    ['떼어 내기 from', (v) => ({ type: 'buyer.unmerge', from: v, reason: '잘못 합침' }), 'from'],
+    ['메시지 변환 msg', (v) => ({ type: 'host.convertMessage', b: 'b1', msg: v, no: 15 }), 'msg'],
+  ]
+  const PHONE_IDS = ['010-5151-6161', '01051516162', '010 5151 6163', '(010)5151-6164', '０１０５１５１６１６５', '010.5151.6166', '010ㅡ5151ㅡ6167']
+  const OPAQUE_IDS = ['UC_A', 'sms:s1', 'UC01012345678abcdEFGH_-', 'm1', '1234-5678', '010-5151', '02-123-4567', '+82 10-5151-6161', '010123456789', 'A01051516161']
+
+  for (const [label, make, field] of cases) {
+    it(`${label}: 휴대폰 번호 ID → checkEvent만 거절, 영문이 섞인 ID·번호로 정규화되지 않는 값은 받는다`, () => {
+      for (const value of PHONE_IDS) expectPhoneRejected(state, make(value), field)
+      for (const value of OPAQUE_IDS) expect(accepted(state, make(value)), `${label}: ${value}`).toEqual([])
+    })
+  }
+
+  it('효과 보고의 effectId·번호 바꾸기의 from(수)은 ID 칸 판단을 하지 않는다', () => {
+    expect(accepted(state, { type: 'effect.thanksSent', effectId: '01012345678' })).toEqual([])
+    expect(accepted(state, { type: 'product.renumber', b: 'b1', from: 15, to: 16 })).toEqual([])
+  })
+
+  it('번호 ID 문제와 구조 문제가 함께 있으면 구조 문제 뒤에 번호 문제가 오고, applyEvent는 구조 문제만 던진다', () => {
+    const event = { seq: 9, at: T0, type: 'host.blockBuyer', buyer: '010-5151-6161', reason: '노쇼 010-1234-5678', note: 'x' }
+    const problems = checkEvent(state, event)
+    expect(problems.map((p) => [p.field, p.code ?? null])).toEqual([
+      ['note', null],
+      ['buyer', 'PHONE_NUMBER'],
+      ['reason', 'PHONE_NUMBER'],
+    ])
+    let thrown: unknown
+    try {
+      applyEvent(state, event as unknown as EngineEvent)
+    } catch (error) {
+      thrown = error
+    }
+    expect((thrown as InvalidEventError).problems).toEqual([problems[0]])
+  })
+})
+
+describe('D-079 ⑤ 재생 — applyEvent는 글 칸·ID 칸의 번호 검사를 하지 않는다 (RA-S04-011)', () => {
+  // D-079 전 서버가 기록했을 수 있는 로그: 번호가 든 방송 제목·상품 이름·문자찜 메모·사유·입금 메모, 번호 ID 차단·입금
+  const oldLog: readonly Record<string, unknown>[] = [
+    start('b1', undefined, '2026-10-18', '문자 주문 010-1234-5678'),
+    { type: 'product.register', b: 'b1', no: 15, name: '니트 010ㅡ1234ㅡ5678', price: 10000 },
+    { type: 'chat', b: 'b1', id: 'm1', ch: 'A', nick: 'a', text: '15' },
+    { type: 'sms', b: 'b1', ref: 'r-010-1234-5678-2', no: 15, received: '20:00', memo: '김영희 010 1234 5678' },
+    { type: 'host.blockBuyer', buyer: '010-5151-6161', reason: '노쇼 3시,010,1234,5678' },
+    { type: 'settlement.payment', buyer: 'A', date: '2026-10-18', amount: 10000, memo: '홍길동 010-1234-5678' },
+    { type: 'settlement.payment', buyer: '01051516162', date: '2026-10-18', amount: 5000 },
+  ]
+
+  it('기록된 로그를 처음부터 재생해도 입력 오류 없이 모두 처리된다 (기록 전 검사는 이벤트마다 번호 문제를 짚는다)', () => {
+    let state = initEngine(EMPTY)
+    oldLog.forEach((fields, i) => {
+      const event = { at: T0 + i * 1000, ...fields, seq: i + 1 }
+      if (i !== 2) expect(checkEvent(state, event).map((p) => p.code), json(fields)).toContain('PHONE_NUMBER')
+      state = applyEvent(state, event as unknown as EngineEvent).state
+    })
+    expect(getBroadcast(state, 'b1')?.title).toBe('문자 주문 010-1234-5678')
+    expect(getProduct(state, 'b1', 15)?.name).toBe('니트 010ㅡ1234ㅡ5678')
+    expect(listClaims(state).map((c) => c.buyer)).toEqual(['A', 'sms:r-010-1234-5678-2'])
+    expect(getSettlement(state, 'A', '2026-10-18')?.received).toBe(10000)
+    // 같은 로그를 다시 재생하면 같은 상태 (INV-4)
+    expect(json(server(oldLog).state)).toBe(json(state))
+  })
+})
+
+/** containsPhoneRun을 다른 방식(정규식)으로 다시 적은 기준 — R-1 문장 그대로: 숫자 덩어리·구분자·끊는 글자로 바꾼 뒤 (가)·(나) */
+function phoneRunOracle(text: string): boolean {
+  const shape = [...text]
+    .map((char) => {
+      const code = char.codePointAt(0) as number
+      if (code >= 0x30 && code <= 0x39) return char
+      if (code >= 0xff10 && code <= 0xff19) return String.fromCharCode(code - 0xff10 + 0x30)
+      if ('ㅡᅳￚㅣᅵￜㆍᆞ'.includes(char)) return '-'
+      return /[\p{L}\p{N}]/u.test(char) ? '|' : '-'
+    })
+    .join('')
+  return /(?<![0-9])01[016789][0-9]{7,8}(?![0-9])/.test(shape) || /(?<![0-9])01[016789]-+(?:[0-9]-*){6,7}[0-9](?![0-9])/.test(shape)
+}
+
+describe('containsPhoneRun — 글 칸의 휴대폰 번호 판단 (R-1, D-079 ②, D-080)', () => {
   it.each([
+    // (가) 덩어리 하나가 01X로 시작하는 10~11자리
+    ['01012345678', true],
+    ['0111234567', true],
+    ['s01012345678', true],
+    ['15번 01012345678', true],
+    ['０１０１２３４５６７８', true],
+    ['01212345678', false], // 01X의 X는 0·1·6·7·8·9만
+    ['010123456789', false], // 12자리 한 덩어리 — 일부만 떼어 보지 않는다
+    ['010123456', false], // 9자리
+    // (나) 01X 세 자리 덩어리 뒤 덩어리들을 붙여 정확히 7~8자리
     ['010-1234-5678', true],
     ['3시 010-1234-5678', true],
     ['010-1234-5678 2개', true],
     ['010-1234-5678/2개', true],
-    ['15번 01012345678', true],
     ['(010) 1234 5678 김영희', true],
     ['010 － 1234 － 5678', true],
     ['２개 ０１０ １２３４ ５６７８', true],
-    ['+82 10-1234-5678', true],
     ['+82 010 1234 5678', true],
-    ['+821012345678', true],
-    ['0082-10-1234-5678', true],
-    ['김영희010가1234나5678', true], // 숫자만 모으면 번호 모양 (R-1 문장 그대로)
+    ['011-123-4567', true],
+    ['010 12345678', true],
+    ['010 1234567', true],
+    ['국민 010-12-345678', true], // 01X로 시작하는 계좌번호도 거른다 — 다시 적으면 되는 안전 쪽 비용
+    ['0-010-1234-5678', true], // 앞 덩어리는 상관없다
+    ['010,1234,5678,9', true], // 8자리가 되는 곳이 있으면
+    ['010,1234,56789', false], // 4+5 = 9 — 정확히 7·8이 되는 곳이 없다
+    ['010 123456', false], // 6자리
+    ['0101 234 5678', false], // 시작 덩어리가 01X 세 자리가 아니다
+    ['2010,1234,5678', false],
+    // 구분자: 글자·숫자가 아닌 모든 글자 + 자모 ㅡ·ㅣ·ㆍ (호환·조합형·반각)
+    ['3시 010ㅡ1234ㅡ5678', true],
+    ['3시 010ᅳ1234ᅳ5678', true],
+    ['3시 010ￚ1234ￚ5678', true],
+    ['010ㅣ1234ㅣ5678', true],
+    ['010ᅵ1234ᅵ5678', true],
+    ['010ￜ1234ￜ5678', true],
+    ['010ㆍ1234ㆍ5678', true],
+    ['010ᆞ1234ᆞ5678', true],
+    ['3시 010─1234─5678', true],
+    ['3시 010～1234～5678', true],
+    ['15번 010＊1234＊5678', true],
+    ['3시,010,1234,5678', true],
+    ['３시，０１０，１２３４，５６７８', true],
+    ['010:1234:5678 3시', true],
+    ['12:30~13:00 010:1234:5678', true],
+    ['011;123;4567 2개', true],
+    ['010😀1234😀5678', true],
+    ['010́1234́5678', true], // 결합 부호도 글자·숫자가 아니다
+    // 끊는 글자: 한글 음절·영문·가나·다른 숫자 문자
+    ['김영희010가1234나5678', false], // 숫자를 모두 모으면 번호 모양이지만 모으지 않는다 (D-079 ①)
+    ['010a1234b5678', false],
+    ['3시 010ー1234ー5678', false], // ー(U+30FC)는 글자(가나 장음)
+    ['010①1234①5678', false],
+    ['٠١٠١٢٣٤٥٦٧٨', false], // 아라비아 숫자는 숫자 덩어리가 아니다
+    // 받는 글 (AC-S04-07)
+    ['01/05 3개 25,000원', false],
+    ['01/05 구피 30종 1000원', false],
+    ['01/05 100,000원 이상 무료', false],
+    ['1234-5678', false],
     ['3시 15번 2개', false],
     ['101동 1203호', false],
-    ['101동 1203호 3시 15번', false],
+    ['1,2,3번 각 1개', false],
+    ['r-20261018-0001', false],
+    ['+82 10-1234-5678', false], // 국가 번호 표기
+    ['+821012345678', false],
+    ['0082-10-1234-5678', false],
     ['2026-10-18 01:30', false],
     ['10/18 15번 2개', false],
     ['뒷번호 5678', false],
@@ -552,78 +751,118 @@ describe('containsPhoneNumber — 글 안의 휴대폰 번호 (AC-S04-07, D-073,
     ['02-123-4567', false],
     ['10-1234-5678', false],
     ['1982 10 1234 5678', false],
-    ['010123456789', false], // 한 덩어리 12자리는 번호로 자르지 않는다
-    ['٠١٠١٢٣٤٥٦٧٨', false], // 아라비아 숫자는 normalizePhone처럼 숫자로 보지 않는다
-    ['', false],
-    // 수정 라운드 2 (SA-S04-003·TD-S04-003): 하이픈 대신 치는 가로줄(ㅡ·ᅳ·반각 ㅡ·ー·─)·물결·별표는 구분자
-    ['3시 010ㅡ1234ㅡ5678', true],
-    ['010ㅡ1234ㅡ5678 2개', true],
-    ['010 ㅡ 1234 ㅡ 5678 2개', true],
-    ['3시 010\u11731234\u11735678', true],
-    ['3시 010\uFFDA1234\uFFDA5678', true],
-    ['3시 010ー1234ー5678', true],
-    ['3시 010─1234─5678', true],
-    ['3시 010~1234~5678', true],
-    ['3시 010～1234～5678', true],
-    ['3시 010〜1234〜5678', true],
-    ['15번 010*1234*5678', true],
-    ['15번 010＊1234＊5678', true],
-    // 쉼표·쌍점 등 그 밖의 기호로 나눈 번호 배열 (01X · 3~4자리 · 4자리)
-    ['3시,010,1234,5678', true],
-    ['３시，０１０，１２３４，５６７８', true],
-    ['010, 1234, 5678 3개', true],
-    ['010:1234:5678 3시', true],
-    ['12:30~13:00 010:1234:5678', true],
-    ['011;123;4567 2개', true],
-    ['국민 010-12-345678', true], // 01로 시작하는 계좌번호도 거른다 — 다시 적으면 되는 안전 쪽 비용
-    ['1,2,3번 각 1개', false],
     ['1~3번 2개씩', false],
     ['3*2개', false],
     ['10,000원', false],
     ['50,000 01,02번', false],
     ['12:30~13:00', false],
-    ['2010,1234,5678', false], // 번호 배열 앞에 숫자가 바로 붙으면 배열이 아니다
-    ['010,1234,56789', false],
+    ['', false],
   ])('%s → %s', (text, expected) => {
-    expect(containsPhoneNumber(text)).toBe(expected)
+    expect(containsPhoneRun(text)).toBe(expected)
+    expect(phoneRunOracle(text), `기준: ${text}`).toBe(expected)
   })
 
   it('문자열이 아니면 false', () => {
-    for (const value of [null, undefined, 1012345678, ['010-1234-5678'], { memo: '010-1234-5678' }]) expect(containsPhoneNumber(value as unknown as string)).toBe(false)
+    for (const value of [null, undefined, 1012345678, ['010-1234-5678'], { memo: '010-1234-5678' }]) expect(containsPhoneRun(value as unknown as string)).toBe(false)
   })
 
-  const NOT_DIGIT = fc.constantFrom(' ', '-', '.', '/', '(', ')', '+', '_', '번', '시', '개', 'a', ':', ',', '\u3000', '\u200b')
+  it('containsPhoneNumber는 containsPhoneRun과 같은 함수다 (다른 판단이 둘 있으면 안 된다, AC-S04-07)', () => {
+    expect(containsPhoneNumber).toBe(containsPhoneRun)
+  })
+
+  const PIECES = ['010', '011', '016', '019', '012', '01', '0', '1', '5', '1234', '5678', '12345678', '1234567', '０１０', '１２３４']
+  const SEPARATORS = [' ', '-', ',', '.', '/', ':', '(', ')', '+', '~', 'ㅡ', 'ㆍ', 'ㅣ', '​', '\n', '😀', '－']
+  const BREAKERS = ['가', '번', 'a', 'Z', 'ー', '①', '٣']
+  const textArb = fc.array(fc.oneof({ weight: 4, arbitrary: fc.constantFrom(...PIECES) }, { weight: 3, arbitrary: fc.constantFrom(...SEPARATORS) }, { weight: 1, arbitrary: fc.constantFrom(...BREAKERS) }), { maxLength: 12 }).map((parts) => parts.join(''))
+
+  it('속성: 정규식으로 다시 적은 기준과 늘 같다 (덩어리·배열 판단만, 숫자 모으기 없음)', () => {
+    fc.assert(
+      fc.property(textArb, (text) => {
+        expect(containsPhoneRun(text), text).toBe(phoneRunOracle(text))
+      }),
+      { numRuns: 3000, seed: 20261019 },
+    )
+  })
+
+  const NOT_DIGIT = fc.constantFrom(' ', '-', '.', '/', '(', ')', '+', '_', '번', '시', '개', 'a', ':', ',', '　', '​')
   const anyText = fc.array(fc.oneof(fc.constantFrom(...'0123456789'), NOT_DIGIT, fc.constantFrom('김', '영', '희', '０', '８')), { maxLength: 16 }).map((chars) => chars.join(''))
 
   it('속성: 휴대폰 번호(여러 형식) 앞뒤에 아무 글이 붙어도, 숫자가 아닌 글자로 띄우면 true', () => {
     fc.assert(
       fc.property(fc.integer({ min: 0, max: 99_999_999 }), fc.nat(4), anyText, NOT_DIGIT, NOT_DIGIT, anyText, (digits, form, before, left, right, after) => {
         const d = String(digits).padStart(8, '0')
-        const phone = [`010${d}`, `010-${d.slice(0, 4)}-${d.slice(4)}`, `010 ${d.slice(0, 4)} ${d.slice(4)}`, `+82 10-${d.slice(0, 4)}-${d.slice(4)}`, `(010)${d.slice(0, 4)}.${d.slice(4)}`][form] as string
+        const phone = [`010${d}`, `010-${d.slice(0, 4)}-${d.slice(4)}`, `010 ${d.slice(0, 4)} ${d.slice(4)}`, `+82 010-${d.slice(0, 4)}-${d.slice(4)}`, `(010)${d.slice(0, 4)}.${d.slice(4)}`][form] as string
         const text = `${before}${left}${phone}${right}${after}`
-        expect(containsPhoneNumber(text), text).toBe(true)
+        expect(containsPhoneRun(text), text).toBe(true)
       }),
       { numRuns: 500 },
     )
   })
 
-  it('속성: 숫자만 모은 것이 번호 모양이면(normalizePhone) 늘 true — R-1 문장보다 좁지 않다', () => {
-    fc.assert(
-      fc.property(anyText, (text) => {
-        if (normalizePhone(text) !== null) expect(containsPhoneNumber(text), text).toBe(true)
-      }),
-      { numRuns: 1000 },
-    )
-  })
-
-  it('속성: 0·8로 시작하는 숫자 덩어리가 없으면 false (번호는 01·00·82로 시작한다)', () => {
+  it('속성: 0으로 시작하는 숫자 덩어리가 없으면 false (번호는 01X로 시작한다)', () => {
     const run = fc.integer({ min: 1, max: 7 }).chain((first) => fc.array(fc.constantFrom(...'0123456789'), { maxLength: 5 }).map((rest) => `${String(first === 7 ? 9 : first)}${rest.join('')}`))
     fc.assert(
       fc.property(fc.array(fc.tuple(run, NOT_DIGIT), { maxLength: 8 }), (parts) => {
         const text = parts.map(([r, sep]) => `${r}${sep}`).join('')
-        expect(containsPhoneNumber(text), text).toBe(false)
+        expect(containsPhoneRun(text), text).toBe(false)
       }),
       { numRuns: 500 },
+    )
+  })
+})
+
+describe('looksLikePhoneId — ID 칸의 휴대폰 번호 판단 (R-1, D-079 ④)', () => {
+  it.each([
+    ['010-5151-6161', true],
+    ['01051516162', true],
+    ['010 5151 6163', true],
+    ['(010)5151-6164', true],
+    ['０１０５１５１６１６５', true],
+    ['010ㅡ5151ㅡ6166', true],
+    ['010ㆍ5151ㆍ6167', true],
+    [' 010-5151-6168 ', true],
+    ['0125151616', true], // normalizePhone 결과가 있다 (R-11은 01 + 8~9자리)
+    ['UC_A', false],
+    ['sms:s1', false],
+    ['UC01012345678abcdEFGH_-', false],
+    ['A01051516161', false],
+    ['01051516161a', false],
+    ['m1', false],
+    ['1234-5678', false],
+    ['010-5151', false],
+    ['02-123-4567', false],
+    ['+82 10-5151-6161', false],
+    ['010123456789', false],
+    ['010①5151①6161', false],
+    ['', false],
+  ])('%s → %s', (value, expected) => {
+    expect(looksLikePhoneId(value)).toBe(expected)
+  })
+
+  it('문자열이 아니면 false', () => {
+    for (const value of [null, undefined, 1051516161, ['01051516161']]) expect(looksLikePhoneId(value as unknown as string)).toBe(false)
+  })
+
+  const B64URL = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_']
+  it('속성: 영문이 하나라도 섞인 값(불투명 ID)은 늘 false', () => {
+    fc.assert(
+      fc.property(fc.array(fc.constantFrom(...B64URL, '0', '1', '0', '1'), { maxLength: 80 }), fc.constantFrom(...'abcXYZ가'), fc.nat(), (chars, letter, at) => {
+        const s = chars.join('')
+        const i = at % (s.length + 1)
+        const value = `${s.slice(0, i)}${letter}${s.slice(i)}`
+        expect(looksLikePhoneId(value), value).toBe(false)
+      }),
+      { numRuns: 1000, seed: 20261019 },
+    )
+  })
+
+  it('속성: 숫자와 구분자로만 된 값이면 normalizePhone 결과가 있을 때만 true', () => {
+    fc.assert(
+      fc.property(fc.array(fc.constantFrom('0', '1', '0', '1', '5', '6', '-', ' ', '.', '(', ')', 'ㅡ', '０', '１'), { maxLength: 16 }), (chars) => {
+        const value = chars.join('')
+        expect(looksLikePhoneId(value), value).toBe(normalizePhone(value) !== null)
+      }),
+      { numRuns: 1000 },
     )
   })
 })

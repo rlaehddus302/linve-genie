@@ -1,6 +1,7 @@
 // 판정 리듀서 apply(state, event) → { state, effects } (R-0). 순수 함수다.
 // - 넘긴 상태·이벤트를 바꾸지 않는다. 같은 설정·같은 이벤트 열이면 같은 결과(INV-4).
-// - 입력 오류(형식이 틀린 이벤트)는 상태를 바꾸지 않고 InvalidEventError를 던진다(D-050). 같은 검사를 checkEvent로 내보낸다.
+// - 입력 오류(형식이 틀린 이벤트)는 상태를 바꾸지 않고 InvalidEventError를 던진다(D-050). 같은 검사에 판매자가 적는 칸의 휴대폰 번호를 더한
+//   기록 전 검사를 checkEvent로 내보낸다 — 재생은 번호 검사를 하지 않는다(D-079 ⑤).
 // - 맞지 않는 명령(없는 상품·찜·메시지, 조건이 안 맞는 조치)은 아무것도 바꾸지 않는다(D-039, AC-S03-04).
 // - 처음 쓰는 스프린트가 따로 있는 기능(effect.failed, settlement.groupBy=MANUAL)은 NotImplementedError로 알린다.
 // - 상태 형식이 지금 코어와 다르면 StateFormatError를 던진다(D-072).
@@ -38,7 +39,7 @@ import {
 } from './rules.ts'
 import { STATE_FORMAT, assertStateFormat } from './state-format.ts'
 import { resolveReceivedTime, type ReceivedTime } from './time.ts'
-import { DEFERRED_EVENTS, InvalidEventError, checkEvent } from './validate.ts'
+import { DEFERRED_EVENTS, InvalidEventError, checkShape } from './validate.ts'
 import type {
   ApplyResult,
   BroadcastEndEvent,
@@ -180,7 +181,7 @@ function makeClaim(d: Draft, source: ClaimSource): ClaimDraft | null {
 /**
  * broadcast.start: 새 방송을 선언 순서 끝에 더한다. 스냅샷 = DOMAIN_RULES 기본값 위에 settings를 덮어쓴 값(엔진 시작 설정과 상관없다).
  * 이미 선언한 방송(시작 때 또는 앞선 broadcast.start)이면 날짜·제목·설정이 달라도 아무 일도 없다 — 같은 입력의 재전송이다(INV-3).
- * 설정 범위는 checkEvent가, MANUAL은 applyEvent가 이미 걸렀다.
+ * 설정 범위는 구조 검사(checkShape)가, MANUAL은 applyEvent가 이미 걸렀다.
  */
 function startBroadcast(d: Draft, e: BroadcastStartEvent): void {
   if (d.readBroadcast(e.b) !== undefined) return
@@ -397,7 +398,7 @@ function sms(d: Draft, e: SmsEvent): void {
     draft.display = display
     draft.names.push(display)
   }
-  // 형식은 checkEvent가 이미 확인했다
+  // 형식은 구조 검사(checkShape)가 이미 확인했다
   const received = resolveReceivedTime(e.received, d.at) as ReceivedTime
   makeClaim(d, { b: e.b, no: e.no, buyer, origin: 'sms', seq: d.seq, at: d.at, time: received.time, minute: received.minute, message: null, ref: e.ref, received: e.received })
 }
@@ -448,7 +449,7 @@ function reopen(d: Draft, e: HostReopenEvent): void {
 
 /**
  * host.assign: 직접 배정·1등 교체 (R-9, D-042). 구매자는 지금의 구매자로 본다.
- * 충돌 중인 상품이면 교체가 있든 없든 아무 일도 없다 — 방송자는 충돌부터 정한다 (D-064). replace·replaceTo 한쪽만은 입력 오류다(checkEvent, D-065).
+ * 충돌 중인 상품이면 교체가 있든 없든 아무 일도 없다 — 방송자는 충돌부터 정한다 (D-064). replace·replaceTo 한쪽만은 입력 오류다(checkShape, D-065).
  */
 function assign(d: Draft, e: HostAssignEvent): void {
   const key = slotKey(e.b, e.no)
@@ -733,12 +734,13 @@ const HANDLERS: Readonly<Record<string, (d: Draft, event: never) => void>> = {
 /**
  * apply(state, event) → { state, effects } (R-0).
  * effects = 이 이벤트로 새로 나온 효과. 효과의 취소·완료는 상태에 남고 조회 함수(listEffects)로 본다.
- * - 상태 형식이 다르면 StateFormatError, 입력 오류면 InvalidEventError(상태 그대로).
+ * - 상태 형식이 다르면 StateFormatError, 입력 오류(구조 검사 checkShape)면 InvalidEventError(상태 그대로).
+ *   판매자가 적는 칸의 휴대폰 번호는 보지 않는다 — 기록 전 검사(checkEvent)만 본다. 기록된 로그의 재생이 규칙 변경으로 빠지지 않게(D-079 ⑤, RA-S04-011).
  * - 처음 쓰는 스프린트가 따로 있는 종류, settlement.groupBy=MANUAL인 broadcast.start(이미 선언한 방송의 사본이어도 — 로그에 남지 않게)는 NotImplementedError.
  */
 export function applyEvent(state: EngineState, event: EngineEvent): ApplyResult {
   assertStateFormat(state)
-  const problems = checkEvent(state, event)
+  const problems = checkShape(state, event)
   const type = typeof event === 'object' && event !== null && typeof event.type === 'string' ? event.type : null
   if (problems.length > 0) throw new InvalidEventError(type, problems)
   const deferred = ownGet(DEFERRED_EVENTS, type as string)

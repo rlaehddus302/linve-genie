@@ -4,7 +4,7 @@ export { checkEvent, InvalidEventError, isInvalidEvent, EVENT_TYPES } from './en
 export { STATE_FORMAT, StateFormatError, isStateFormatError } from './engine/state-format.ts'
 export { checkInvariants } from './engine/invariants.ts'
 export { CorruptStateError } from './engine/draft.ts'
-export { normalizePhone, phoneLast4, containsPhoneNumber } from './engine/phone.ts'
+export { normalizePhone, phoneLast4, containsPhoneRun, looksLikePhoneId, containsPhoneNumber } from './engine/phone.ts'
 export { resolveReceivedTime, isValidReceivedTime, isValidDate, type ReceivedTime } from './engine/time.ts'
 export { rankKey, compareRank, isSameMinuteTie, type RankMaterial, type ContentionSettings } from './engine/rank.ts'
 export { settle, type SettlementTotals } from './engine/ledger.ts'
