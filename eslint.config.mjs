@@ -169,9 +169,10 @@ export default defineConfig(
     // 오케스트레이터·하네스 소유 (개발자가 고칠 수 없는 경로)
     '.claude/',
     'scripts/harness/',
-    // tests/ 아래는 적대 테스트만 린트한다 (AC-S00-03 범위)
+    // tests/ 아래는 적대 테스트와 E2E만 린트한다 (AC-S00-03 범위, RA-S05-005)
     'tests/*',
     '!tests/adversarial/',
+    '!tests/e2e/',
   ]),
 
   js.configs.recommended,

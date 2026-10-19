@@ -1,5 +1,5 @@
 // pnpm verify — 전체 검사 한 번 (AC-S00-10, AC-S00-11).
-// typecheck → lint → test → golden → adversarial → coverage 순서로 모두 돌리고 끝에 요약표를 보여 준다.
+// typecheck → lint → test → golden → adversarial → e2e → coverage 순서로 모두 돌리고 끝에 요약표를 보여 준다.
 // 한 단계가 실패해도 뒤 단계는 계속 돌린다(전체 상황을 한 번에 보이기 위해). 모든 단계가 통과할 때만 종료 코드 0.
 // CI용 단일 명령: pnpm install --frozen-lockfile && pnpm verify
 import { STAGES, TZ_STAGES, runStage, statusLabel } from './stages.mjs'

@@ -1,5 +1,5 @@
 // pnpm verify 단계 정의 (AC-S00-10~14). 보호 경로(scripts/harness/) 밖에 둔다.
-// 단계: typecheck → lint → test → golden → adversarial → coverage
+// 단계: typecheck → lint → test → golden → adversarial → e2e → coverage
 // 각 단계는 자기 대상만 돈다. 결과: { name, status: 'pass'|'fail'|'skip', detail, durationMs }
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs'
@@ -9,7 +9,7 @@ import { ESLint } from 'eslint'
 import { TEST_TIME_ZONE } from './time-zone.mjs'
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
-export const STAGES = ['typecheck', 'lint', 'test', 'golden', 'adversarial', 'coverage']
+export const STAGES = ['typecheck', 'lint', 'test', 'golden', 'adversarial', 'e2e', 'coverage']
 /** 시간대를 고정하는 단계 (D-026) */
 export const TZ_STAGES = new Set(['test', 'golden', 'adversarial', 'coverage'])
 /** 코어 커버리지 기준 (AC-S00-13). vitest.coverage.config.ts 임계값과 별개로 여기서도 다시 확인한다. */
@@ -30,9 +30,9 @@ function bin(pkg, name = pkg) {
 }
 
 /** 자식 프로세스를 띄워 출력을 그대로 보여 주면서 모은다 */
-function exec(args, { tz = false, quiet = false } = {}) {
+function exec(args, { tz = false, quiet = false, extraEnv = {} } = {}) {
   return new Promise((resolve) => {
-    const env = { ...process.env, ...(tz ? { TZ: TEST_TIME_ZONE } : {}) }
+    const env = { ...process.env, ...(tz ? { TZ: TEST_TIME_ZONE } : {}), ...extraEnv }
     const child = spawn(process.execPath, args, { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] })
     let output = ''
     child.stdout.on('data', (chunk) => {
@@ -169,7 +169,11 @@ const isTypeScriptSource = (path) => /\.(?:[cm]?ts|tsx)$/.test(path) && !isDecla
  * 손으로 쓴 선언 파일에 넣은 잘못된 타입은 어디서도 잡히지 않는다. 범위 안에는 두지 않는다.
  */
 export function declarationFilesInScope() {
-  const files = [...workspaceFiles(isDeclarationFile), ...walk(join(ROOT, 'tests', 'adversarial'), isDeclarationFile)]
+  const files = [
+    ...workspaceFiles(isDeclarationFile),
+    ...walk(join(ROOT, 'tests', 'adversarial'), isDeclarationFile),
+    ...walk(join(ROOT, 'tests', 'e2e'), isDeclarationFile),
+  ]
   for (const entry of readdirSync(ROOT, { withFileTypes: true })) {
     if (entry.isFile() && isDeclarationFile(entry.name)) files.push(join(ROOT, entry.name))
   }
@@ -182,12 +186,19 @@ export function declarationFilesInScope() {
  * 범위 안 파일이 모두 어떤 설정의 검사 대상인지 따로 확인한다 (TD-S00-015).
  */
 export function typecheckScope() {
-  const files = [...workspaceFiles(isTypeScriptSource), ...walk(join(ROOT, 'tests', 'adversarial'), isTypeScriptSource)]
+  const files = [
+    ...workspaceFiles(isTypeScriptSource),
+    ...walk(join(ROOT, 'tests', 'adversarial'), isTypeScriptSource),
+    ...walk(join(ROOT, 'tests', 'e2e'), isTypeScriptSource),
+  ]
   for (const entry of readdirSync(ROOT, { withFileTypes: true })) {
     if (entry.isFile() && isTypeScriptSource(entry.name)) files.push(join(ROOT, entry.name))
   }
   return files.sort()
 }
+
+/** E2E 타입 검사 설정 (DOM 포함, RA-S05-005) */
+const E2E_TSCONFIG = join(ROOT, 'tests', 'e2e', 'tsconfig.json')
 
 async function typecheck() {
   const configs = []
@@ -198,6 +209,10 @@ async function typecheck() {
     for (const file of own) configs.push(join(dir, file))
   }
   configs.push(join(ROOT, 'tsconfig.json'))
+  if (existsSync(join(ROOT, 'tests', 'e2e'))) {
+    if (existsSync(E2E_TSCONFIG)) configs.push(E2E_TSCONFIG)
+    else problems.push('E2E 타입 검사 설정이 없다: tests/e2e/tsconfig.json')
+  }
   const tsc = bin('typescript', 'tsc')
 
   // 모든 설정이 strict·noUncheckedIndexedAccess를 상속하고 끄지 않는지 (AC-S00-03)
@@ -308,7 +323,7 @@ function lintProbeDirs() {
 
 export async function lintGuardProblems() {
   const eslint = new ESLint({ cwd: ROOT, overrideConfigFile: join(ROOT, ESLINT_CONFIG) })
-  const probes = [join(ROOT, '__probe__.ts'), join(ROOT, 'tests', 'adversarial', '__probe__.ts')]
+  const probes = [join(ROOT, '__probe__.ts'), join(ROOT, 'tests', 'adversarial', '__probe__.ts'), join(ROOT, 'tests', 'e2e', '__probe__.ts')]
   for (const dir of lintProbeDirs()) probes.push(join(dir, 'src', '__probe__.ts'), join(dir, 'test', '__probe__.ts'), join(dir, '__probe__.ts'))
   const problems = []
   for (const probe of probes) {
@@ -431,6 +446,63 @@ async function adversarial() {
   return { ...result, detail: `적대 테스트 ${result.detail}` }
 }
 
+export function e2eFiles() {
+  return walk(join(ROOT, 'tests', 'e2e'), (f) => /\.spec\.[cm]?ts$/.test(f))
+}
+
+/** Playwright JSON 보고서의 스위트 트리에서 파일 이름을 모은다 */
+function e2eReportFiles(suites, out = new Set()) {
+  for (const suite of suites ?? []) {
+    if (typeof suite.file === 'string') out.add(suite.file)
+    e2eReportFiles(suite.suites, out)
+  }
+  return out
+}
+
+/**
+ * E2E (RA-S05-005): apps/web/playwright.config.ts로 tests/e2e/**\/*.spec.ts를 실제 브라우저에서 돌린다.
+ * 실패·건너뜀·흔들림(재시도로 통과)·돌지 않은 파일이 하나라도 있으면 실패. 브라우저가 없으면 설치 안내.
+ */
+async function e2e() {
+  const files = e2eFiles()
+  if (files.length === 0) {
+    process.stdout.write('tests/e2e/**/*.spec.ts 없음\n')
+    return { status: 'pass', detail: 'E2E 0개' }
+  }
+  mkdirSync(CACHE, { recursive: true })
+  const out = join(CACHE, 'e2e.json')
+  rmSync(out, { force: true })
+  const config = join(ROOT, 'apps', 'web', 'playwright.config.ts')
+  const result = await exec([bin('@playwright/test', 'playwright'), 'test', '--config', config, '--reporter=line,json'], {
+    extraEnv: { PLAYWRIGHT_JSON_OUTPUT_NAME: out },
+  })
+  const report = readJson(out)
+  if (!report) {
+    const hint = /Executable doesn't exist|playwright install/i.test(result.output) ? ' — 브라우저 설치: pnpm exec playwright install chromium' : ''
+    return { status: 'fail', detail: `결과 파일이 없다 (Playwright 종료 코드 ${result.code})${hint}` }
+  }
+  const stats = report.stats ?? {}
+  const ran = e2eReportFiles(report.suites)
+  const e2eRoot = join(ROOT, 'tests', 'e2e')
+  const missing = files.map((f) => toPosix(relative(e2eRoot, f))).filter((f) => !ran.has(f))
+  const passed = stats.expected ?? 0
+  const failed = stats.unexpected ?? 0
+  const flaky = stats.flaky ?? 0
+  const skipped = stats.skipped ?? 0
+  const errors = (report.errors ?? []).length
+  if (missing.length > 0) process.stdout.write(`✗ 돌지 않은 E2E 파일 ${missing.length}개:\n${bullet(missing)}\n`)
+  if (flaky > 0) process.stdout.write(`✗ 흔들린 E2E ${flaky}개 — 재시도로 통과한 시험도 실패로 본다(경쟁 상태는 진짜 버그일 수 있다)\n`)
+  if (skipped > 0) process.stdout.write(`✗ 건너뛴 E2E ${skipped}개 — test.skip·fixme는 쓸 수 없다\n`)
+  const parts = [`파일 ${files.length}`, `통과 ${passed}`]
+  if (failed > 0) parts.push(`실패 ${failed}`)
+  if (flaky > 0) parts.push(`흔들림 ${flaky}`)
+  if (skipped > 0) parts.push(`건너뜀 ${skipped}`)
+  if (errors > 0) parts.push(`오류 ${errors}`)
+  if (missing.length > 0) parts.push(`돌지 않은 파일 ${missing.length}개 (${missing.join(', ')})`)
+  const ok = result.code === 0 && failed === 0 && flaky === 0 && skipped === 0 && errors === 0 && missing.length === 0 && passed > 0
+  return { status: ok ? 'pass' : 'fail', detail: parts.join(' · ') }
+}
+
 async function coverage() {
   const summaryPath = join(ROOT, 'coverage', 'coverage-summary.json')
   rmSync(summaryPath, { force: true })
@@ -448,7 +520,7 @@ async function coverage() {
   return { status: result.code === 0 && enough ? 'pass' : 'fail', detail }
 }
 
-const RUNNERS = { typecheck, lint, test, golden, adversarial, coverage }
+const RUNNERS = { typecheck, lint, test, golden, adversarial, e2e, coverage }
 
 export async function runStage(name) {
   const started = performance.now()

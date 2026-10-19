@@ -1,4 +1,4 @@
-// 루트 설정: 루트 도구 설정 파일(*.ts)과 적대 테스트(tests/adversarial)를 검사한다 (AC-S00-03, AC-S00-15).
+// 루트 설정: 루트 도구 설정 파일(*.ts)과 적대 테스트(tests/adversarial)를 검사한다 (AC-S00-03, AC-S00-15). E2E는 tests/e2e/tsconfig.json(DOM 포함).
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {

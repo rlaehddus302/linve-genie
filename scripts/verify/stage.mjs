@@ -1,4 +1,4 @@
-// 단계 하나만 돌린다: pnpm typecheck | lint | test | golden | adversarial | coverage
+// 단계 하나만 돌린다: pnpm typecheck | lint | test | golden | adversarial | e2e | coverage
 // verify와 같은 정의(stages.mjs)를 쓴다. 단계 내용을 바꾸는 옵션은 받지 않는다.
 import { STAGES, TZ_STAGES, runStage, statusLabel } from './stages.mjs'
 import { TEST_TIME_ZONE } from './time-zone.mjs'

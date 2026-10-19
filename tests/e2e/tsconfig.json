@@ -1,0 +1,9 @@
+// E2E 시험(Playwright) 타입 검사 설정 (RA-S05-005). page.evaluate 안에서 브라우저 API를 쓰므로 DOM을 더한다.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "lib": ["ES2024", "DOM", "DOM.Iterable"]
+  },
+  "include": ["**/*.ts"]
+}

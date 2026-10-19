@@ -13,6 +13,7 @@
     "test": "node scripts/verify/stage.mjs test",
     "golden": "node scripts/verify/stage.mjs golden",
     "adversarial": "node scripts/verify/stage.mjs adversarial",
+    "e2e": "node scripts/verify/stage.mjs e2e",
     "coverage": "node scripts/verify/stage.mjs coverage"
   },
   "devDependencies": {
