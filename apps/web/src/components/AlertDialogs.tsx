@@ -251,14 +251,17 @@ export function PendingDialog({ onClose, now }: { readonly onClose: () => void; 
         {groups.map((group) => {
           const window = api.settingsOf(group.broadcast)?.['claim.preOpenWindowSec'] ?? 30
           const oldest = Math.min(...group.claims.map((claim) => Date.parse(claim.at)))
-          const age = Number.isFinite(oldest) ? Math.max(0, Math.floor((now - oldest) / 1000)) : 0
+          const ageMs = Number.isFinite(oldest) ? Math.max(0, now - oldest) : 0
+          const age = Math.floor(ageMs / 1000)
+          // R-5: 공개 시각 T에 at ≥ T − 유효 시간이면 유효 — 지금 등록하면 만료되는 것은 지난 시간이 유효 시간보다 길 때(밀리초로 비교)
+          const expires = ageMs > window * 1000
           const label = productLabel(api, group.broadcast, group.no)
           return (
             <li key={group.product} className="row">
               <span>
                 {label} 보류 찜 {group.claims.length}개 · 가장 오래된 찜 {age}초 전
               </span>
-              {age > window ? <span className="tag tag-alert">지금 등록하면 만료돼요</span> : null}
+              {expires ? <span className="tag tag-alert">지금 등록하면 만료돼요</span> : null}
               {group.broadcast === api.b ? (
                 <button type="button" className="button" aria-label={`${String(group.no)}번 번호 넣기`} onClick={() => api.fillQuick(`${String(group.no)} `)}>
                   번호 넣기
