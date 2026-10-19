@@ -87,7 +87,8 @@ describe('날짜 (D-023 — 어제·오늘·내일)와 늦은 시각', () => {
   })
 
   it('날짜는 실행 환경 시간대와 상관없이 KST', () => {
-    expect(process.env.TZ).not.toBe('Asia/Seoul')
+    // 시험 환경은 KST(UTC+9, getTimezoneOffset −540)가 아니다
+    expect(new Date(Date.parse('2026-10-18T00:00:00Z')).getTimezoneOffset()).not.toBe(-540)
     expect(ok('20:01').time).toBe(kst('2026-10-18T20:01:00'))
   })
 })
