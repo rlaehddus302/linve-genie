@@ -1,0 +1,92 @@
+# Y1 보강 — 유튜브 서버(수집기·감사 메시지 발송함)가 기대는 엔진 동작 (DOMAIN_RULES R-1, R-4, R-6, R-7, R-11, R-13, INV-3·INV-11·INV-12, D-003, D-044, D-053, D-Y04, D-Y06~D-Y08).
+# 새 규칙은 없다(Y1은 dev-core가 없다). 발송함·수집기가 기대는 기존 규칙을 그 흐름 그대로 고정한다. 기대값 계산은 각 줄 주석.
+# - 발송함은 묶음 감사(한 메시지에 여러 판매)를 게시해도 엔진에는 효과마다 effect.thanksSent를 따로 보고한다(D-Y07). 엔진의 효과는 묶음 시간과 상관없이
+#   판매마다 따로 나온다(D-044). 감사 게시 보고는 대상(실시간 채팅·영상 댓글)과 상관없이 그 확정을 잠근다(R-7 3).
+# - 발송함은 게시 직전에 엔진의 효과 상태를 다시 본다. 확정이 풀려 취소된 효과는 게시하지 않는다(R-13 "실행 직전", D-Y06).
+# - 수집기는 끊겼다 이어받을 때 겹친 메시지를 다시 넘길 수 있다. 같은 (방송, 메시지 ID)는 아무 일도 없다(INV-3·INV-12). 이어받은 채팅의 `at`은
+#   서버에 도착한 시각이고, 접수순(ARRIVAL)에서는 게시 시각(publishedAt)이 더 이르더라도 도착 순서로 판정한다(D-003, D-Y04).
+# 시나리오 번호: 병렬 트랙끼리 번호가 겹치지 않게 Y1은 G-ENG-401부터 쓴다.
+# 기본 설정: 접수순(ARRIVAL), 대기 한도 5, 자동 승계, 확정마다 라벨 1 + 실시간 채팅 감사 1.
+id: G-ENG-401
+title: 묶음 감사 — 한 메시지로 게시해도 효과마다 게시 보고, 영상 댓글 게시 보고도 잠근다. 보고가 없는 확정은 늦게 온 선순위 문자찜에 자동 역전되고 그 미실행 감사는 취소된다(발송함은 게시하지 않는다)
+refs: [YT-04, YT-05, YT-06, YT-07, R-7, R-13, INV-11, D-044, D-053, D-Y06, D-Y07]
+settings: { contention.policy: RECEIVED_TIME, thanks.videoComment: PER_SALE, thanks.batchWindowSec: 30, print.autoOnConfirm: false }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:02", type: product.register, b: b1, no: 17, name: 성미인, price: 8000 }
+  - { at: "20:00:03", type: product.register, b: b1, no: 18, name: 미니마, price: 800 }
+  # 확정마다 감사 효과 둘(실시간 채팅 + 영상 댓글, 판매마다). 자동 출력 꺼짐 → 라벨 없음. 묶음 시간 30초여도 엔진은 판매마다 따로 낸다(D-044)
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }   # A 15번 1등(확정버전 1). 게시 시각 = 20:00:10
+  - { at: "20:00:11", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "16" }   # B 16번 1등(1)
+  - { at: "20:00:12", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "17" }   # C 17번 1등(1)
+  - { at: "20:00:13", type: chat, b: b1, id: m4, ch: UC_D, nick: 박민수, text: "18" }   # D 18번 1등(1)
+  - type: assert
+    expect:
+      effectCounts: { POST_THANKS: 8, PRINT_PRODUCT_LABEL: 0 }   # 4 확정 × (실시간 채팅 1 + 영상 댓글 1)
+  # 발송함: 15·16번 실시간 채팅 감사를 묶음 메시지 하나("15번 핑크프릴 10,000원 홍길동님, 16번 라울 5,000원 김철수님 구매 감사합니다")로 게시 성공 →
+  # 그 메시지에 든 효과마다 보고 (D-Y07). 17·18번 실시간 채팅 묶음은 아직 게시하지 못했다(재시도 중)
+  - { at: "20:00:41", type: effect.thanksSent, b: b1, no: 15, buyer: UC_A }   # A15 실시간 채팅 감사 완료 → A의 지금 확정(1) 잠금 (R-7 3)
+  - { at: "20:00:41", type: effect.thanksSent, b: b1, no: 16, buyer: UC_B }   # B16 잠금
+  - { at: "20:00:45", type: effect.thanksSent, b: b1, no: 17, buyer: UC_C, target: VIDEO_COMMENT }   # C17 영상 댓글 감사 완료 → 대상과 상관없이 잠금
+  # 실제 시각순(RECEIVED_TIME): 문자 수신 시각 "20:00:05"(초까지 = 정확한 시각)가 유튜브 게시 시각 20:00:10~13보다 이르다 → 문자찜이 앞선다
+  - { at: "20:01:00", type: sms, b: b1, ref: s1, no: 15, received: "20:00:05" }   # w = A(잠금 후) → 충돌 (R-7 2). A는 1등 그대로
+  - { at: "20:01:01", type: sms, b: b1, ref: s2, no: 17, received: "20:00:05" }   # w = C(영상 댓글 보고로 잠금 후) → 충돌
+  # w = D(보고 없음 = 잠금 전) → 자동 역전 (R-7 1): s3 1등(확정버전 2), D는 대기 1순위. D에게 나가기로 한 미실행 감사 둘(실시간 채팅·영상 댓글, 확정버전 1)은 취소 →
+  # 발송함은 18번 묶음을 보낼 때 엔진 상태를 다시 보고 D의 감사를 빼고 s3의 새 감사를 보낸다(D-Y06). 문자찜 이름은 항상 "문자찜"(YT-04 AC1)
+  - { at: "20:01:02", type: sms, b: b1, ref: s3, no: 18, received: "20:00:05" }
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_A, waitlist: [], conflict: true }
+    b1/16: { status: SOLD, winner: UC_B, waitlist: [], conflict: false }
+    b1/17: { status: SOLD, winner: UC_C, waitlist: [], conflict: true }
+    b1/18: { status: SOLD, winner: "sms:s3", waitlist: [UC_D], conflict: false }
+  claims:
+    - { product: b1/15, buyer: "sms:s1", status: CONFLICT }
+    - { product: b1/17, buyer: "sms:s2", status: CONFLICT }
+    - { product: b1/18, buyer: UC_D, status: WAITLISTED }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, text: "15번 핑크프릴 10,000원 홍길동님 구매 감사합니다", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/16, buyer: UC_B, text: "16번 라울 5,000원 김철수님 구매 감사합니다", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/18, buyer: UC_D, text: "18번 미니마 800원 박민수님 구매 감사합니다", confirmVersion: 1 }   # 나왔다가 취소된 효과도 effects에는 남는다
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/18, buyer: "sms:s3", text: "18번 미니마 800원 문자찜님 구매 감사합니다", confirmVersion: 2 }
+    - { kind: POST_THANKS, target: VIDEO_COMMENT, product: b1/18, buyer: "sms:s3", text: "18번 미니마 800원 문자찜님 구매 감사합니다", confirmVersion: 2 }
+  effectCounts: { POST_THANKS: 10, PRINT_PRODUCT_LABEL: 0, VOID_LABEL: 0 }   # 8 + s3의 둘. 충돌 찜은 효과를 내지 않는다(R-7 7). 출력된 라벨이 없어 폐기도 없다
+  pendingEffects:    # A15·B16 실시간 채팅 완료, C17 영상 댓글 완료, D18 둘은 취소 → 남은 실행 대상 다섯
+    - { kind: POST_THANKS, target: VIDEO_COMMENT, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: POST_THANKS, target: VIDEO_COMMENT, product: b1/16, buyer: UC_B, confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/17, buyer: UC_C, confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/18, buyer: "sms:s3", confirmVersion: 2 }
+    - { kind: POST_THANKS, target: VIDEO_COMMENT, product: b1/18, buyer: "sms:s3", confirmVersion: 2 }
+---
+id: G-ENG-402
+title: 수집이 끊겼다 이어받은 채팅 — 도착한 때(접수순)로 판정하고, 겹쳐 다시 받은 메시지는 아무 일도 없다
+refs: [YT-03, ORD-02, ORD-09, R-4, R-6, INV-3, INV-12, D-003, D-045, D-Y04]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:00", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "16", publishedAt: "20:00:04" }   # A 16번 1등
+  # 20:00:06 ~ 20:00:39 수집이 끊김(유튜브 연결 끊김·서버 재시작). 그동안 보조자가 문자찜을 넣는다
+  - { at: "20:00:20", type: sms, b: b1, ref: s1, no: 15, received: "20:00:15" }   # 접수순 → 먼저 도착한 s1이 15번 1등
+  # 20:00:40 이어받기 지점(마지막으로 기록을 마친 묶음 뒤 nextPageToken)부터 다시 받는다. 겹친 m1이 한 번 더 온다
+  - { at: "20:00:40", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "16", publishedAt: "20:00:04" }   # 재수신 사본 → 아무 일도 없음 (INV-3)
+  # B는 문자 수신 시각(20:00:15)보다 먼저(20:00:10) 썼지만 접수순은 도착 순서(seq)로 정한다 → s1이 1등 그대로, B는 대기 1순위 (D-003, R-6 ARRIVAL)
+  - { at: "20:00:40", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15", publishedAt: "20:00:10" }
+  - { at: "20:00:40", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "16", publishedAt: "20:00:12" }   # 16번 대기 1순위
+  - { at: "20:00:41", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "16", publishedAt: "20:00:12" }   # 한 번 더 겹침 → 아무 일도 없음
+  - { at: "20:00:42", type: chat, b: b1, id: m4, ch: UC_B, nick: 김철수, text: "15", publishedAt: "20:00:41" }   # 새 메시지지만 같은 사람 반복(R-4 4번 줄) → 찜 없음
+expect:
+  products:
+    b1/15: { status: SOLD, winner: "sms:s1", waitlist: [UC_B], conflict: false }
+    b1/16: { status: SOLD, winner: UC_A, waitlist: [UC_C], conflict: false }
+  claims:
+    - { product: b1/15, buyer: UC_B, status: WAITLISTED }
+    - { product: b1/16, buyer: UC_C, status: WAITLISTED }
+  claimCount: 4                                        # A16 · s1 15 · B15 · C16 (사본 둘과 같은 사람 반복은 찜을 만들지 않는다)
+  effectCounts: { POST_THANKS: 2, PRINT_PRODUCT_LABEL: 2 }   # 확정 둘(A16, s1 15)
+  buyers:
+    UC_A: { items: [b1/16], subtotal: 5000 }
+    "sms:s1": { items: [b1/15], subtotal: 10000 }
+    UC_B: { items: [], subtotal: 0 }

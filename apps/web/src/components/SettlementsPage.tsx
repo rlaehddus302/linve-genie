@@ -8,9 +8,10 @@
 // - 자세히의 포장 라벨(AC-I1-35): 쪽마다 미리 보기·출력·그림 파일·PDF·재출력 필요. 리허설 범위는 라벨이 없다(AC-I1-36).
 // - I2: 목록 위 "전원 확인서 PDF (n명)"·"판매대장 엑셀"(실제 범위 — 리허설이면 안내 한 줄), 실제 범위의 줄·자세히에 포장·배송 상태 말(송장번호),
 //   자세히의 "구매 내역 확인서"(미리 보기·PDF·공유/저장) (AC-I2-13·14·22·33).
+// - I3: 봉인 예정 날짜면 "이 날짜 기록은 … 봉인돼요"(7일 전부터 경고 상자), 봉인한 날짜는 볼 수만 있다 — 입금·배송비·할인/추가·환불이 잠긴다 (AC-I3-40·41).
 import { containsPhoneRun, formatWon, type PaymentStatus } from '@livejjim/core'
 import { useMemo, useRef, useState, type MouseEvent } from 'react'
-import { isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
+import { ApiError, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
 import type { Claim, PackingWord, Settlement, WriteResult } from '../api/types.ts'
 import { claimsOf } from '../lib/buyers.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
@@ -35,7 +36,10 @@ import { LiveNotices } from './LiveNotices.tsx'
 import { Modal } from './Modal.tsx'
 import { ReasonField } from './ReasonField.tsx'
 import { ReceiptSection } from './ReceiptSection.tsx'
-import { ScopePicker, useScopeChoice } from './ScopePicker.tsx'
+import { Lock } from './Lock.tsx'
+import { ScopePicker, sealOf, useScopeChoice } from './ScopePicker.tsx'
+import { SealNotice } from './SealNotice.tsx'
+import { ReadOnlyContext } from '../lib/read-only.ts'
 
 export const REHEARSAL_SETTLEMENT = '리허설 — 실제 정산이 아니에요'
 export const PAYMENT_DATE_NOTE = '입금 날짜는 적은 때로 남아요. 실제 입금일이 다르면 메모에 적어 주세요.'
@@ -66,6 +70,7 @@ export function SettlementsPage({ route, navigate }: { readonly route: ScopeRout
   const scope = choice.scope
   const key = scope === null ? null : `${scope.date}|${String(scope.rehearsal)}`
   const { store, snapshot } = useScopeStore(key, () => ({ scope: scope ?? { date: '', rehearsal: false } }))
+  const seal = sealOf(choice.days, scope)
   return (
     <main className="page page-wide settlements-page">
       <h1>정산</h1>
@@ -74,6 +79,7 @@ export function SettlementsPage({ route, navigate }: { readonly route: ScopeRout
         {/* 정산 문서 (AC-I2-14·22): 날짜 줄에 두어 PC 표가 위로 밀리지 않게 — 목록에서만 */}
         {scope !== null && route.buyer === undefined && snapshot.data !== null && snapshot.data.date === scope.date && snapshot.data.rehearsal === scope.rehearsal ? <ClosingActions data={snapshot.data} /> : null}
       </div>
+      <SealNotice sealAt={seal.sealAt} sealed={seal.sealed || snapshot.sealed} />
       {route.rehearsal ? (
         <p className="rehearsal-banner" role="note">
           {REHEARSAL_SETTLEMENT}
@@ -107,11 +113,12 @@ interface ReadyProps {
   readonly data: ScopeData
 }
 
-/** 정산 쓰기 (settlement.* — 날짜 범위로, 같은 요청 번호로 재시도 → 응답 seq까지 따라잡기) */
-function useCommand(store: ConsoleStore, data: ScopeData) {
+/** 정산 쓰기 (settlement.* — 날짜 범위로, 같은 요청 번호로 재시도 → 응답 seq까지 따라잡기). 봉인한 날짜는 보내지 않는다 */
+function useCommand(store: ConsoleStore, data: ScopeData, sealed: boolean) {
   return useMemo(
     () =>
       async (event: Readonly<Record<string, unknown>>, requestId: string = newRequestId()): Promise<WriteResult> => {
+        if (sealed) throw new ApiError({ status: 409, code: 'SEALED', message: '30일이 지난 방송 기록은 봉인되어 고칠 수 없어요.' })
         let result: WriteResult
         try {
           result = await withRetry(() => post<WriteResult>(withQuery('/api/events', { date: data.date, rehearsal: data.rehearsal }), { requestId, ...event }))
@@ -123,13 +130,13 @@ function useCommand(store: ConsoleStore, data: ScopeData) {
         await store.sync(result.seq)
         return result
       },
-    [store, data.date, data.rehearsal],
+    [store, data.date, data.rehearsal, sealed],
   )
 }
 
 function ReadySettlements({ route, navigate, store, snapshot, data }: ReadyProps) {
   const names = useMemo(() => new BuyerNames(data.buyers, data.claims), [data.buyers, data.claims])
-  const command = useCommand(store, data)
+  const command = useCommand(store, data, snapshot.sealed)
   // 포장·배송 상태 (실제 범위만, AC-I2-33): 품목·묶음이 바뀌거나 포장 알림이 오면 다시 받는다. 받지 못하면 상태 칸을 그리지 않는다
   const signature = useClosingSignature(data)
   const packing = usePackingList(data.rehearsal ? null : data.date, `${signature}|${String(snapshot.packingVersion)}`)
@@ -137,7 +144,7 @@ function ReadySettlements({ route, navigate, store, snapshot, data }: ReadyProps
   const open = (buyer: string | undefined) => navigate({ name: 'settlements', date: data.date, rehearsal: data.rehearsal, ...(buyer === undefined ? {} : { buyer }) })
   const selected = route.buyer === undefined ? undefined : data.settlements.get(settlementKey({ buyer: data.buyers.get(route.buyer)?.current ?? route.buyer, date: data.date }))
   return (
-    <>
+    <ReadOnlyContext.Provider value={snapshot.sealed}>
       <div className="page-sticky">
         <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
       </div>
@@ -162,7 +169,7 @@ function ReadySettlements({ route, navigate, store, snapshot, data }: ReadyProps
           receiptSignature={`${receiptSignature(data, selected)}|${String(snapshot.shopVersion)}`}
         />
       )}
-    </>
+    </ReadOnlyContext.Provider>
   )
 }
 
@@ -484,14 +491,16 @@ function SettlementDetail({ data, names, settlement, command, onBack, mark, rece
 
       <PackingLabels date={settlement.date} buyer={settlement.buyer} rehearsal={data.rehearsal} />
 
-      {/* 주 버튼은 지금 할 일 하나 (D-101) */}
-      <div className="row" role="group" aria-label="정산 입력">
-        {(['payment', 'shipping', 'adjust', 'refund'] as const).map((kind) => (
-          <button key={kind} type="button" className={kind === primary ? 'button button-primary' : 'button'} onClick={() => openInput(kind)}>
-            {INPUT_TITLE[kind]}
-          </button>
-        ))}
-      </div>
+      {/* 주 버튼은 지금 할 일 하나 (D-101). 봉인한 날짜는 잠긴다 (AC-I3-41) */}
+      <Lock>
+        <div className="row" role="group" aria-label="정산 입력">
+          {(['payment', 'shipping', 'adjust', 'refund'] as const).map((kind) => (
+            <button key={kind} type="button" className={kind === primary ? 'button button-primary' : 'button'} onClick={() => openInput(kind)}>
+              {INPUT_TITLE[kind]}
+            </button>
+          ))}
+        </div>
+      </Lock>
 
       <ReceiptSection date={settlement.date} rehearsal={data.rehearsal} buyer={settlement.buyer} hasItems={settlement.items.length > 0} signature={receiptSignature} />
 

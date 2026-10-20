@@ -199,6 +199,7 @@ function fakeApi(view: FullView): ConsoleApi & { readonly queued: HostActionInpu
     date: DATE,
     rehearsal: false,
     ended: false,
+    sealed: false,
     data,
     names: new BuyerNames(data.buyers, data.claims),
     waiting: { claims: new Set(), products: new Set() },

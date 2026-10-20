@@ -8,7 +8,7 @@ import { applyEvent, initEngine, listProducts, type EngineEvent, type EngineStat
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { productOwners } from '../src/product-history.ts'
-import { addSeller, client, createBroadcast, expectOk, newWorld, writeEvent, type Seller, type TestServer } from './support.ts'
+import { MERGED_BODY, RAW_JOIN, addSeller, client, createBroadcast, expectOk, newWorld, writeEvent, type Seller, type TestServer } from './support.ts'
 
 const DAY = '2026-10-19'
 
@@ -281,7 +281,7 @@ describe('AC-S06-70 무작위 순서 — 코어 재생으로 센 정답과 같�
             if (waiting !== undefined) await writeEvent(world, seller, { type: 'host.cancel', b: waiting.broadcast, no: waiting.no, buyer: waiting.buyer, reason: '정리' })
           }
         }
-        const rows = ((await world.database.pglite?.query<{ seq: number; type: string; body: string; failed: boolean }>(`select seq, type, body, failed from events order by seq`))?.rows ?? []) as {
+        const rows = ((await world.database.pglite?.query<{ seq: number; type: string; body: string; failed: boolean }>(`select e.seq, e.type, ${MERGED_BODY} as body, e.failed from events e ${RAW_JOIN} order by e.seq`))?.rows ?? []) as {
           seq: number
           type: string
           body: string

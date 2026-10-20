@@ -87,8 +87,8 @@ describe('앱 설치 (AC-S06-52)', () => {
   })
 })
 
-describe('메뉴 (AC-S06-01, AC-I1-20)', () => {
-  it('"방송"·"문자찜 입력"·"구매자"·"정산"·"포장"·"라벨"·"설정"(I1 AC-I1-20, I2 AC-I2-02·35), 지금 화면은 aria-current="page" — 구매자·정산 사이는 고른 날짜를 이어 간다', async () => {
+describe('메뉴 (AC-S06-01, AC-I1-20, AC-I3-44)', () => {
+  it('"방송"·"문자찜 입력"·"구매자"·"정산"·"포장"·"라벨"(AC-I1-20)·"설정"(AC-I3-44, I2 AC-I2-02·35), 지금 화면은 aria-current="page" — 구매자·정산 사이는 고른 날짜를 이어 간다', async () => {
     const { TopBar } = await import('../src/components/TopBar.tsx')
     const navigate = vi.fn()
     render(<TopBar shopName="구피 가게" onLogout={() => {}} route={{ name: 'buyers', date: '2026-10-18', rehearsal: true }} navigate={navigate} />)

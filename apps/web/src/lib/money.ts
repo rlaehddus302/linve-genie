@@ -36,3 +36,8 @@ export function refundRange(received: number): AmountRange {
     ? { min: 1, max: 0, message: '받은 금액이 없어서 환불할 수 없어요.' }
     : { min: 1, max: received, message: `받은 금액(${formatWon(received)})보다 많이 환불할 수 없어요.`, low: '환불은 1원 이상으로 적어 주세요.' }
 }
+
+/** 세 자리마다 쉼표 (개수·사용량 — 실행 환경의 언어 설정과 무관하게) */
+export function groupDigits(value: number): string {
+  return formatWon(Math.trunc(value)).replace(/원$/, '')
+}

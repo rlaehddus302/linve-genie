@@ -6,7 +6,7 @@
 import { STATE_FORMAT, checkInvariants, initEngine, type ApplyResult, type EngineEvent, type EngineState } from '@livejjim/core'
 import type { Db } from './db/database.ts'
 import { errorKind, type LogSink } from './log.ts'
-import { eventAtSeq, eventsAfter, findScopeId, latestSnapshot, type EventRow } from './store.ts'
+import { eventAtSeq, eventsAfter, findScopeId, latestSnapshot, scopeRow, type EventRow } from './store.ts'
 import { newViewCaches, type ViewCaches } from './views.ts'
 
 /** 엔진 호출 (시험에서 감싸 예외를 주입한다). 쓰기와 재생 모두 이 함수를 쓴다 */
@@ -152,9 +152,17 @@ export async function loadRuntime(
   window = DEFAULT_CHANGES_WINDOW,
 ): Promise<ScopeRuntime> {
   const runtime = emptyRuntime(sellerId, date, rehearsal, window)
-  const scopeId = await findScopeId(db, sellerId, date, rehearsal)
-  if (scopeId === null) return runtime
+  const scope = await scopeRow(db, sellerId, date, rehearsal)
+  if (scope === null) return runtime
+  const scopeId = scope.id
   runtime.scopeId = scopeId
+  // 봉인한 범위(AC-Y1-61·62)는 재생하지 않는다 — 채팅 원문을 지워 다시 만들 수 없고, 조회는 봉인한 장부로 한다. 쓰기는 기록 경로가 409로 거절한다
+  if (scope.sealedAt !== null) {
+    runtime.seq = scope.seq
+    runtime.points = []
+    recordPoint(runtime, null)
+    return runtime
+  }
   const snapshot = await latestSnapshot(db, sellerId, scopeId, STATE_FORMAT)
   if (snapshot !== null) {
     const usable = usableSnapshot(snapshot.state, snapshot.attention)

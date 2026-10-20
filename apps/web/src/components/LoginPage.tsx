@@ -1,5 +1,6 @@
 // 로그인 화면 (AC-S05-01, SYS-01). 계정은 운영자가 만든다 — 가입 화면·링크는 없다.
 // 틀리면 서버 문장을 그대로 보이고 아이디는 남긴다. 세션이 끝나 돌아왔으면 "로그인이 풀렸어요"를 보인다.
+// 로그인 제한(429 LOGIN_RATE_LIMITED·LOGIN_BUSY)도 서버 문장 그대로. 아래에 정책 초안 링크(AC-I3-77).
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { isApiError, post, type ApiError } from '../api/client.ts'
 import type { Me } from '../api/types.ts'
@@ -71,6 +72,10 @@ export function LoginPage({ expired, onLoggedIn }: { readonly expired: boolean; 
           로그인
         </button>
       </form>
+      <nav className="row policy-links" aria-label="약관">
+        <a href="/privacy">개인정보처리방침</a>
+        <a href="/terms">이용약관</a>
+      </nav>
     </main>
   )
 }

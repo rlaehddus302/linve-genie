@@ -4,6 +4,7 @@
 // changesWindow(증분 조회 기준점 수), generatorTimer·generatorSpeed(리허설 생성기 타이머·시험 속도), hostActionDelayMs(화면의 방송자 조치 대기 — E2E 기동만 줄인다),
 // testPrinter(시험 모드 신호 — 화면이 시험용 프린터를 켠다. E2E 기동만 켠다, 운영 기동은 production.ts가 늘 끈다 — I1 L-11 15).
 // I1: 출력 기록(PrintService)을 기록 경로의 같은 트랜잭션(txHook)에 잇고, 실시간 알림(print)·출력 기기 실시간 연결 여부를 허브에 잇는다.
+import { readFileSync } from 'node:fs'
 import { applyEvent } from '@livejjim/core'
 import type { Hono } from 'hono'
 import { Auth } from './auth.ts'
@@ -14,17 +15,26 @@ import type { Database } from './db/database.ts'
 import { StreamHub } from './hub.ts'
 import { randomIds, type IdSource } from './ids.ts'
 import { errorKind, safeSink, stderrLog, type LogSink } from './log.ts'
+import { Alerter, WorkerHealth } from './ops.ts'
+import { collectorCounts, failedEventCount, outboxCounts, ping } from './ops-store.ts'
+import { createWebServer, webDirProblem } from './web.ts'
 import type { EngineAdapter } from './runtime.ts'
+import type { LoginLimitOptions } from './login-limit.ts'
 import { loginLimitSecret, readMasterKey, type PasswordCost } from './secrets.ts'
 import type { GeneratorTimer } from './generator.ts'
 import { PrintService } from './print.ts'
 import { readQueue } from './print-store.ts'
 import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
-import { systemClock, type Clock } from './time.ts'
+import { kstDate, systemClock, type Clock } from './time.ts'
 import { ViewCacheBudget } from './view-budget.ts'
 import { sharedWorkPools, type WorkPools } from './work-pool.ts'
 import { DEFAULT_RUNTIME_CACHE_MAX, ScopeWriter, type WriterHooks } from './writer.ts'
+import type { CollectorHooks } from './youtube/collector.ts'
+import type { OutboxHooks, OutboxTiming } from './youtube/outbox.ts'
+import { Sealer } from './youtube/seal.ts'
+import { YoutubeSystem, checkYoutubeConfig, type LinkHooks, type YoutubeConfig } from './youtube/system.ts'
+import { realTimer, type Timer } from './youtube/timer.ts'
 
 /** 스냅샷 간격 상한 (AC-S04-28: 일정 이벤트 수, 최대 500) */
 export const MAX_SNAPSHOT_EVERY = 500
@@ -32,6 +42,17 @@ export const MAX_SNAPSHOT_EVERY = 500
 export const DEFAULT_HEARTBEAT_MS = 15_000
 /** 화면이 방송자 조치(host.*)를 보내기 전에 기다리는 시간 — 운영 값 5초 (D-083, AC-S05-41) */
 export const HOST_ACTION_DELAY_MS = 5000
+/** 준비 확인: DB 질의가 이 안에 되어야 한다 (AC-I3-80) */
+export const READY_TIMEOUT_MS = 2000
+/** 서버 버전 (apps/server/package.json) — 운영 상태에 */
+export const SERVER_VERSION: string = (() => {
+  try {
+    const parsed = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version?: unknown }
+    return typeof parsed.version === 'string' ? parsed.version : 'unknown'
+  } catch {
+    return 'unknown'
+  }
+})()
 
 export interface ServerOptions {
   readonly database: Pick<Database, 'db'>
@@ -60,6 +81,35 @@ export interface ServerOptions {
   readonly generatorSpeed?: number
   /** 화면이 방송자 조치를 보내기 전에 기다리는 시간 (0~5000밀리초, 기본 5000 — E2E 기동만 줄인다, D-083) */
   readonly hostActionDelayMs?: number
+  /** 유튜브 연동 설정 (Y1). 없으면 유튜브 API는 503 YOUTUBE_NOT_CONFIGURED */
+  readonly youtube?: YoutubeConfig
+  /** 워커의 시계·기다리기 (기본 clock + 실제 setTimeout — 시험은 ManualTimer) */
+  readonly timer?: Timer
+  /** 유튜브 HTTP (기본 전역 fetch) */
+  readonly youtubeFetch?: typeof fetch
+  /** 이 서버(인스턴스) 이름 — 수집기·발송함 임대 주인 (시험에서 둘을 띄울 때) */
+  readonly instanceName?: string
+  readonly collectorHooks?: CollectorHooks
+  readonly outboxHooks?: OutboxHooks
+  readonly linkHooks?: LinkHooks
+  readonly collectorTiming?: { readonly leaseMs?: number; readonly renewMs?: number; readonly scanMs?: number }
+  readonly sealHooks?: { readonly beforeCommit?: () => void | Promise<void> }
+  /** 믿는 앞단 프록시 수 (0~5, 기본 0 — LIVEJJIM_TRUSTED_PROXIES, AC-I3-66) */
+  readonly trustedProxies?: number
+  /** 로그인 경로 속도 제한 (시험에서 줄인다 — 운영은 기본값, AC-I3-66·67) */
+  readonly loginLimits?: LoginLimitOptions
+  /** 비밀번호 확인 함수 (시험이 호출 수·동시 수를 잰다) */
+  readonly passwordVerifier?: (password: string, stored: string) => Promise<boolean>
+  /** 화면 빌드 폴더 — 같은 출처로 함께 낸다 (LIVEJJIM_WEB_DIR, AC-I3-70). 그 폴더에 index.html이 없으면 만들지 않는다 */
+  readonly webDir?: string
+  /** 운영 토큰 (LIVEJJIM_OPS_TOKEN, 32자 이상 — 없으면 /ops/status는 404, AC-I3-81) */
+  readonly opsToken?: string
+  /** 준비 확인 시간 제한 (기본 2000밀리초) */
+  readonly readyTimeoutMs?: number
+  /** 준비 확인 질의 (시험: 느린 질의 흉내) */
+  readonly dbPing?: () => Promise<void>
+  /** 발송함 시간 (E2E 기동만 줄인다 — AC-I3-93) */
+  readonly outboxTiming?: OutboxTiming
   /** 시험 모드 신호 (화면 설정 testPrinter — 시험용 프린터를 켠다). E2E 기동만 켠다. 기본 false (L-11 15, AC-I1-16) */
   readonly testPrinter?: boolean
   /** 백업 저장소 (I2 D-I2-10 — 없으면 자동 백업이 꺼진다. 판매는 그대로) */
@@ -95,8 +145,20 @@ export interface LivejjimServer {
   readonly work: WorkPools
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
-  /** 실시간 연결을 닫고 리허설 생성기·타이머·자동 백업 확인을 멈춘다 (DB는 닫지 않는다) */
+  /** 유튜브 연동 (설정이 있을 때만) */
+  readonly youtube: YoutubeSystem | null
+  /** 30일 봉인 작업 (AC-Y1-61) */
+  readonly sealer: Sealer
+  /** 워커를 돌린다: 유튜브 수집기·발송함, 봉인 작업 (서버 시작 때) */
+  start(): void
+  /** 워커를 멈춘다 (임대를 놓는다) */
+  stop(): Promise<void>
+  /** 실시간 연결을 닫고 리허설 생성기·타이머·워커·자동 백업 확인을 멈춘다 (DB는 닫지 않는다) */
   close(): void
+  /** 경보 기록 (AC-I3-82) */
+  readonly alerter: Alerter
+  /** 워커 건강 (AC-I3-81·82) */
+  readonly health: WorkerHealth
 }
 
 /** 마스터 키를 확인한다 (값은 오류 문장에 넣지 않는다) */
@@ -126,12 +188,44 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const hostActionDelayMs = options.hostActionDelayMs ?? HOST_ACTION_DELAY_MS
   if (!Number.isSafeInteger(hostActionDelayMs) || hostActionDelayMs < 0 || hostActionDelayMs > HOST_ACTION_DELAY_MS) throw new TypeError('방송자 조치 대기 시간은 0~5000밀리초여야 해요.')
 
+  if (options.youtube !== undefined) {
+    const problem = checkYoutubeConfig(options.youtube)
+    if (problem !== null) throw new TypeError(problem)
+  }
+
+  if (options.opsToken !== undefined && options.opsToken.trim().length < 32) throw new TypeError('운영 토큰은 32자 이상이어야 해요.')
+  if (options.webDir !== undefined && webDirProblem(options.webDir) !== null) throw new TypeError('화면 폴더에 index.html이 없어요.')
+  const readyTimeoutMs = options.readyTimeoutMs ?? READY_TIMEOUT_MS
+
   const db = options.database.db
   const clock = options.clock ?? systemClock
+  const timer = options.timer ?? realTimer(clock)
   const ids: IdSource = { ...randomIds, ...options.ids }
-  const log = safeSink(options.log ?? stderrLog)
+  const baseLog = safeSink(options.log ?? stderrLog)
+  // 경보 (AC-I3-82): 남기던 로그에서 꺼내고(observe), 경보 자체는 그대로 기록에 쓴다
+  const alerter = new Alerter(baseLog, clock)
+  const log: LogSink = (record) => {
+    baseLog(record)
+    try {
+      alerter.observe(record)
+    } catch {
+      // 경보를 못 써도 처리는 계속한다
+    }
+  }
+  const health = new WorkerHealth(alerter, clock)
+  const startedAt = new Date(clock.now()).toISOString()
   const engine: EngineAdapter = options.engine ?? { applyEvent }
-  const auth = new Auth({ db, clock, limitSecret: loginLimitSecret(masterKey), log, ...(options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost }) })
+  const trustedProxies = options.trustedProxies ?? 0
+  if (!Number.isSafeInteger(trustedProxies) || trustedProxies < 0 || trustedProxies > 5) throw new TypeError('믿는 프록시 수는 0~5여야 해요.')
+  const auth = new Auth({
+    db,
+    clock,
+    limitSecret: loginLimitSecret(masterKey),
+    log,
+    ...(options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost }),
+    ...(options.loginLimits === undefined ? {} : { loginLimits: options.loginLimits }),
+    ...(options.passwordVerifier === undefined ? {} : { verify: options.passwordVerifier }),
+  })
   let print: PrintService | null = null
   const hub = new StreamHub({
     heartbeatMs,
@@ -158,6 +252,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     changesWindow,
     onCommit: (sellerId, date, rehearsal, records) => {
       hub.publish(sellerId, records.map((record) => ({ date, rehearsal, seq: record.seq, type: record.type })))
+      youtube?.onCommit(sellerId, rehearsal, records)
       // 마지막 조회 뒤 10분이 지난 범위의 보기 캐시를 비운다 (커밋 뒤 — 항목이 많아야 33개, AC-S06b-12)
       viewCaches.sweep()
     },
@@ -195,27 +290,132 @@ export function createServer(options: ServerOptions): LivejjimServer {
   })
   const work = options.work ?? sharedWorkPools()
   const closing = new ClosingService({ db, writer, clock, hub, backups, log, work })
+  const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)
+  const youtube: YoutubeSystem | null =
+    options.youtube === undefined
+      ? null
+      : new YoutubeSystem({
+          db,
+          masterKey,
+          timer,
+          log,
+          writer,
+          service,
+          config: options.youtube,
+          publish: publishYoutube,
+          ...(options.instanceName === undefined ? {} : { owner: options.instanceName }),
+          ...(options.youtubeFetch === undefined ? {} : { fetch: options.youtubeFetch }),
+          ...(options.collectorHooks === undefined ? {} : { collectorHooks: options.collectorHooks }),
+          ...(options.outboxHooks === undefined ? {} : { outboxHooks: options.outboxHooks }),
+          ...(options.linkHooks === undefined ? {} : { linkHooks: options.linkHooks }),
+          ...(options.collectorTiming === undefined ? {} : { collectorTiming: options.collectorTiming }),
+          ...(options.outboxTiming === undefined ? {} : { outboxTiming: options.outboxTiming }),
+          health,
+        })
+  const sealer = new Sealer({
+    db,
+    writer,
+    timer,
+    log,
+    onSealed: (sellerId, date) => publishYoutube(sellerId, { kind: 'sealed', date }),
+    ...(options.sealHooks === undefined ? {} : { hooks: options.sealHooks }),
+    onPass: (ok) => health.pass('sealer', ok),
+  })
+  // DB가 시간 안에 답하는지 (준비 확인·운영 상태)
+  const dbAlive = async (): Promise<boolean> => {
+    const probe = (options.dbPing ?? (() => ping(db)))().then(
+      () => true,
+      () => false,
+    )
+    let handle: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<boolean>((resolve) => {
+      handle = setTimeout(() => resolve(false), readyTimeoutMs)
+      handle.unref?.()
+    })
+    const ok = await Promise.race([probe, late])
+    clearTimeout(handle)
+    return ok
+  }
+  const opsStatus = async (): Promise<Record<string, unknown>> => {
+    const now = clock.now()
+    const date = kstDate(now)
+    const dayStart = new Date(Date.parse(`${date}T00:00:00+09:00`))
+    const dbOk = await dbAlive()
+    const counts = async <T>(read: () => Promise<T>): Promise<T | null> => {
+      if (!dbOk) return null
+      try {
+        return await read()
+      } catch {
+        return null
+      }
+    }
+    return {
+      version: SERVER_VERSION,
+      startedAt,
+      db: dbOk ? 'ok' : 'unavailable',
+      workers: health.view(),
+      collectors: await counts(() => collectorCounts(db)),
+      outbox: await counts(async () => ({ date, ...(await outboxCounts(db, dayStart, new Date(dayStart.getTime() + 24 * 60 * 60 * 1000))) })),
+      failedEvents24h: await counts(() => failedEventCount(db, new Date(now - 24 * 60 * 60 * 1000))),
+      realtimeConnections: hub.size,
+      quota: youtube === null ? null : await counts(() => youtube.quota.projectToday()),
+      loginRejected: auth.loginRejections,
+    }
+  }
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
-    api: { service, closing, auth, hub, print: printService, appOrigin: options.appOrigin, clientConfig: { hostActionDelayMs, testPrinter: options.testPrinter === true }, receiptAtParam: options.receiptAtParam === true },
+    api: {
+      service,
+      closing,
+      auth,
+      hub,
+      print: printService,
+      appOrigin: options.appOrigin,
+      clientConfig: { hostActionDelayMs, testPrinter: options.testPrinter === true },
+      receiptAtParam: options.receiptAtParam === true,
+      youtube,
+      sealer,
+      trustedProxies,
+    },
+    https: options.appOrigin.startsWith('https://'),
+    web: options.webDir === undefined ? null : createWebServer(options.webDir),
+    ready: async () => {
+      const ok = await dbAlive()
+      if (!ok) alerter.alert('DB_UNAVAILABLE')
+      return ok
+    },
+    ops: { token: options.opsToken === undefined ? null : options.opsToken.trim(), status: opsStatus },
   })
+  const stop = async () => {
+    await Promise.all([youtube?.stop(), sealer.stop()])
+  }
   return {
     app,
     service,
     writer,
     hub,
     auth,
+    youtube,
+    sealer,
     viewCaches,
     print: printService,
     closing,
     backups,
     work,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
+    start: () => {
+      youtube?.start()
+      sealer.start()
+    },
+    stop,
     close: () => {
       service.generators.closeAll()
       printService.close()
       hub.closeAll()
       backups.stop()
+      void stop()
     },
+    alerter,
+    health,
   }
 }
