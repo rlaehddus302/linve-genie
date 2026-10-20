@@ -1,5 +1,6 @@
 // 개인정보처리방침·이용약관 초안 (SYS-05, D-I3-15, AC-I3-77·78). 로그인 없이 열린다(앱이 세션 확인을 기다리지 않는다).
 // 법률 검토 전 초안이다 — 확정은 사용자 몫(D-012). 정해지지 않은 값은 "[미정]"·"[검토 필요]"로 둔다.
+// N4b: 개인정보처리방침에 "구매자 확인서 공유 링크" 문단(AC-N4b-35).
 // 바깥 주소(구글·유튜브)는 새 탭으로 연다 — 이 화면은 그 주소를 부르지 않는다.
 import type { ReactNode } from 'react'
 
@@ -7,6 +8,10 @@ export const DRAFT_NOTICE = '초안이에요. 법률 검토 전이라 실제 서
 export const GOOGLE_PRIVACY_URL = 'https://policies.google.com/privacy'
 export const GOOGLE_PERMISSIONS_URL = 'https://myaccount.google.com/permissions'
 export const YOUTUBE_TERMS_URL = 'https://www.youtube.com/t/terms'
+/** 구매자 확인서 공유 링크 문단 (N4b AC-N4b-35, D-N4b-01·02) */
+export const RECEIPT_LINK_WHAT = '판매자가 만든 링크를 받은 사람은 로그인 없이 그 구매자 한 명의 구매 내역·결제 금액·입금 계좌를 볼 수 있어요.'
+export const RECEIPT_LINK_PERIOD = '링크는 만든 때부터 14일 뒤에 열리지 않아요. 판매자는 언제든 링크를 끊을 수 있어요.'
+export const RECEIPT_LINK_PHONE = '링크 화면에는 휴대폰 번호의 끝 4자리만 보여요.'
 export const TAX_NOTE = '구매 내역 확인서는 세금계산서·현금영수증 같은 세법상 증빙이 아니에요'
 
 function Outside({ href, children }: { readonly href: string; readonly children: ReactNode }) {
@@ -84,7 +89,15 @@ export function PrivacyPage() {
       <Section title="11. 판매자와 서비스의 역할">
         <p>판매자가 모은 구매자 정보에 대한 판매자와 서비스의 역할: [검토 필요]</p>
       </Section>
-      <Section title="12. 시행일">
+      <Section title="12. 구매자 확인서 공유 링크">
+        <ul>
+          <li>{RECEIPT_LINK_WHAT}</li>
+          <li>{RECEIPT_LINK_PERIOD}</li>
+          <li>{RECEIPT_LINK_PHONE}</li>
+          <li>링크는 판매자가 구매자에게 직접 보내요. 서비스가 링크를 채팅·메시지로 보내지 않아요. 링크 화면은 검색에 나오지 않게 하고, 메신저 미리 보기에는 이름·금액·그림을 내보내지 않아요.</li>
+        </ul>
+      </Section>
+      <Section title="13. 시행일">
         <p>[미정]</p>
       </Section>
     </main>
