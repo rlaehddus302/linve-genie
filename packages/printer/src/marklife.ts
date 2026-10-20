@@ -2,8 +2,12 @@
 // - 연결: 판매자가 누른 동작 안에서만. 기기 고르기 창은 켠 프로필의 이름 앞자리로 거르고, 고른 기기의 이름으로 프로필을 정한다.
 //   GATT 꾸러미 A(ff00) → C(fd00). 꾸러미 A면 연결할 때 ff03·ff01 알림을 켠다(첫 `01 04`를 놓치지 않게 듣기를 먼저 붙인다).
 // - 보내기: 작업 바이트(job.ts)를 90바이트 이하 조각으로, 조각 사이 30ms, 꾸러미 A는 크레딧(0에서 시작, 상한 4, 1초 기다려도 없으면 하나).
-// - 끝: 이번 출력의 첫 조각을 쓴 뒤 받은 `AA` + 모든 조각을 씀 → 출력 OK. 20초 안에 안 끝나면 TIMEOUT, 그 전 끊김은 DISCONNECTED —
+// - 끝: 이번 출력의 첫 조각을 쓴 뒤 받은 `AA` + 모든 조각을 씀 → 출력 OK. 그 전 끊김은 DISCONNECTED —
 //   바이트를 다 썼다는 것만으로 출력함이라 하지 않는다(라벨이 조용히 빠지지 않게, D-N1-06).
+// - 시간 초과는 "진행이 멈춘 20초"다(L-12 5, D-N1-12): 출력을 시작할 때와 조각 하나의 쓰기가 끝날 때마다(마지막 조각 포함) 20초를 새로 센다.
+//   보내는 중이면 쓰기가 끝나지 않은 채 20초, 모든 조각을 쓴 뒤면 마지막 쓰기가 끝나고 `AA` 없이 20초에 TIMEOUT. 출력 전체 시간의 상한은 없다 —
+//   작은 MTU·크레딧 없는 기기의 큰 라벨도 조각이 나가는 동안은 끝까지 보낸다(정상 출력을 시간 초과로 만들어 같은 라벨이 두 장 나오지 않게).
+//   B1 어댑터·가짜 프린터의 시간 초과(L-7 — 출력 시작부터)는 그대로다.
 // 시각·난수를 읽지 않는다(타이머는 주입). import만으로는 navigator를 건드리지 않는다.
 import type { LabelBitmap } from '@livejjim/label'
 import {
@@ -37,7 +41,10 @@ import { MARKLIFE_PROFILES, profileForDeviceName } from './profiles.ts'
 
 /** 보내기 기본값 (L-12 4·5, D-N1-05·06) */
 export const MARKLIFE_DEFAULTS = Object.freeze({
-  /** 출력 시작부터 끝 알림까지 (ms) */
+  /**
+   * 진행 없이 기다리는 시간 (ms) — 출력을 시작할 때와 조각 하나의 쓰기가 끝날 때마다 새로 센다(L-12 5, D-N1-12).
+   * 보내는 중이면 쓰기가 끝나지 않은 채, 모든 조각을 쓴 뒤면 `AA` 없이 이만큼 지나면 TIMEOUT. 출력 전체 시간의 상한이 아니다.
+   */
   printTimeoutMs: DEFAULT_PRINT_TIMEOUT_MS,
   /** 조각 사이 쉬는 시간 (ms) */
   packetIntervalMs: 30,
@@ -61,6 +68,7 @@ export interface MarklifeAdapterOptions {
   /** 기능 감지 환경 (기본: 부를 때의 navigator) */
   readonly environment?: () => BluetoothEnvironment
   readonly timer?: PrinterTimer
+  /** 진행 없이 기다리는 시간 (기본 20,000ms — MARKLIFE_DEFAULTS.printTimeoutMs). 쓰기가 끝날 때마다 새로 센다 */
   readonly printTimeoutMs?: number
   readonly packetIntervalMs?: number
   readonly maxPacketBytes?: number
@@ -294,7 +302,7 @@ export function createMarklifeAdapter(options: MarklifeAdapterOptions = {}): Mar
     return OK
   }
 
-  /** 작업 바이트를 조각으로 보내고 끝 알림을 기다린다 */
+  /** 작업 바이트를 조각으로 보내고 끝 알림을 기다린다 (시간 초과는 진행이 멈춘 timeoutMs — L-12 5, D-N1-12) */
   const send = (link: Link, bytes: Uint8Array): Promise<Outcome> =>
     new Promise<Outcome>((resolve) => {
       let settled = false
@@ -331,7 +339,14 @@ export function createMarklifeAdapter(options: MarklifeAdapterOptions = {}): Mar
         if (written) finish({ kind: 'done' })
       }
       link.onDrop = () => finish({ kind: 'disconnected' })
-      after(timeoutMs, () => finish({ kind: 'timeout' }))
+      /** 진행 없음 타이머 — 출력을 시작할 때와 조각 하나의 쓰기가 끝날 때마다 앞의 것을 지우고 다시 건다. 전체 시간의 상한은 없다 */
+      let stall: unknown
+      const rearm = (): void => {
+        // 처음엔 지울 것이 없다(cancel은 이 출력이 건 타이머만 지운다)
+        cancel(stall)
+        stall = after(timeoutMs, () => finish({ kind: 'timeout' }))
+      }
+      rearm()
 
       const writeNext = (useCredit: boolean): void => {
         if (settled) return
@@ -349,7 +364,10 @@ export function createMarklifeAdapter(options: MarklifeAdapterOptions = {}): Mar
         }
         pending.then(
           () => {
+            // 시간 초과(또는 끊김) 뒤에 끝난 쓰기는 결과를 바꾸지 않고 다음 조각을 쓰지 않는다
             if (settled) return
+            // 진행이 있었다 — 마지막 조각이면 여기부터 `AA`를 기다리는 20초다
+            rearm()
             if (offset >= bytes.length) {
               written = true
               if (ended) finish({ kind: 'done' })

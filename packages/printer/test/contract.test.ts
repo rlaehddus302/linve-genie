@@ -2,6 +2,7 @@
 // YXQ 프로필 S2 하나와 L11 프로필 P12 하나)가 같은 묶음을 통과한다. 마지막 줄 +1행은 B1 전용이라 이 묶음에서 빼고 b1.test.ts에서 본다.
 // 모델마다 다른 것은 묶음의 입력으로만 받는다: 그 프로필에 맞는 그림, 헤드보다 넓은 그림, 농도 범위·문장(농도를 받지 않는 L11은 무엇을 넘겨도 보낸다).
 // Marklife 묶음의 타이머는 조각 사이 30ms를 바로 돌리는 PacedTimer다(정확한 간격은 marklife.test.ts).
+// 시간 초과는 B1·가짜 프린터가 출력 시작부터(L-7), Marklife는 마지막 조각의 쓰기가 끝난 때부터 잰다(L-12 5 "진행이 멈춘 20초", D-N1-12, AC-N1-45).
 import type { LabelBitmap } from '@livejjim/label'
 import { describe, expect, it } from 'vitest'
 import {
@@ -40,6 +41,11 @@ interface Harness {
    * finishThenDisconnect(): 프린터가 끝났다고 알린 직후, 출력 결과를 돌려주기 전에 끊긴다
    */
   holdNextPrint(ms?: number): { finish(): Promise<void>; finishThenDisconnect(): Promise<void> }
+  /**
+   * 시간 초과를 세기 시작하는 때까지 기다린다(시계는 돌리지 않는다) — B1·가짜 프린터는 출력 시작이라 기다릴 것이 없고(L-7),
+   * Marklife는 모든 조각의 쓰기가 끝난 때다(L-12 5, D-N1-12 — 그 전에는 쓰기가 끝날 때마다 다시 센다)
+   */
+  untilTimeoutStarts(): Promise<void>
   /** 프린터 쪽에서 끊긴다 */
   disconnectNow(): void
   /** 다음 출력에서 프린터 오류 */
@@ -98,6 +104,7 @@ function b1Harness(): Harness {
         },
       }
     },
+    untilTimeoutStarts: () => flush(),
     disconnectNow: () => last().emitDisconnect(),
     failNextPrint: () => {
       last().failOn = 'page'
@@ -126,6 +133,7 @@ function fakeHarness(): Harness {
         },
       }
     },
+    untilTimeoutStarts: () => flush(),
     disconnectNow: () => printer.simulateDisconnect(),
     failNextPrint: () => printer.setBehavior(printer.printCalls + 1, 'fail'),
   }
@@ -166,6 +174,11 @@ function marklifeHarness(profile: ModelProfile, deviceName: string, image: (seed
             await flush()
           },
         }
+      },
+      untilTimeoutStarts: async () => {
+        // 작업을 끝까지 받았고(마지막 조각을 씀), 그 쓰기가 끝난 뒤 시간 초과를 다시 걸 때까지
+        await untilReceived()
+        await flush()
       },
       disconnectNow: () => fake.disconnect(),
       failNextPrint: () => fake.setJob(fake.attempts.length + 1, { failWriteAtPacket: 1 }),
@@ -324,7 +337,7 @@ for (const [name, make] of [
       expect(h.printed()).toHaveLength(0)
     })
 
-    it('정해진 시간 안에 끝나지 않으면 TIMEOUT (주입한 타이머)', async () => {
+    it('진행 없이 정해진 시간이 지나면 TIMEOUT (주입한 타이머 — B1·가짜 프린터는 출력 시작부터, Marklife는 마지막 조각의 쓰기가 끝난 때부터)', async () => {
       const h = make()
       await h.adapter.connect('bluetooth')
       h.holdNextPrint(TIMEOUT_MS * 2)
@@ -333,6 +346,9 @@ for (const [name, make] of [
         settled = true
         return r
       })
+      await h.untilTimeoutStarts()
+      expect(settled).toBe(false)
+      expect(h.adapter.state).toBe('PRINTING')
       await h.timer.advance(TIMEOUT_MS - 1)
       expect(settled).toBe(false)
       await h.timer.advance(1)

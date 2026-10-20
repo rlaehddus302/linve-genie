@@ -2,9 +2,10 @@
 // navigator.bluetooth 모양(requestDevice·getAvailability, 기기의 gatt.connect·getPrimaryService·getCharacteristic·쓰기·startNotifications·
 // 알림 사건·gattserverdisconnected)을 흉내 낸다. 받은 조각을 받은 순서대로 복사해 기록하고, 출력(작업)마다 이어 붙인 바이트를 돌려준다.
 // 기기 이름, 꾸러미(A·C·없음), 고르기 창 닫기, 블루투스 꺼짐, 연결 실패, 첫 크레딧(`01 04` — 안 보냄 포함)과 조각마다 보충할 크레딧,
-// MTU 알림, `AA`(보냄·안 보냄·n ms 늦게·붙잡아 두기·다른 바이트), n번째 조각에서 끊김·쓰기 오류를 미리 정할 수 있다.
+// MTU 알림, `AA`(보냄·안 보냄·n ms 늦게·붙잡아 두기·다른 바이트), n번째 조각에서 끊김·쓰기 오류·쓰기 멈춤(끝나지 않음 — 연결은 그대로,
+// D-N1-12)을 미리 정할 수 있다.
 // 시각·난수를 쓰지 않는다(지연은 주입한 타이머). 작업의 끝은 받은 바이트의 래스터 머리로 계산한다(작업을 다 받아야 `AA`를 보낸다).
-// 작업의 시작은 방식마다의 시작 바이트로 알아본다 — 어댑터가 작업 중간에 그만둔(TIMEOUT) 시도는 다음 작업의 시작을 받으면 닫고,
+// 작업의 시작은 방식마다의 시작 바이트로 알아본다 — 어댑터가 작업 중간에 그만둔 시도는 다음 작업의 시작을 받으면 닫고,
 // 다음 출력은 새 시도로 센다(어댑터와 가짜 기기 사이에 따로 신호가 없다).
 import { systemTimer, type PrinterProtocol, type PrinterTimer } from './adapter.ts'
 import {
@@ -30,6 +31,11 @@ export interface FakeJobBehavior {
   readonly disconnectAtPacket?: number
   /** 이 작업의 n번째 조각 쓰기가 오류다 (연결은 그대로, 그 조각은 받지 않고 이 작업은 끝까지 받지 못한 채 닫힌다) */
   readonly failWriteAtPacket?: number
+  /**
+   * 이 작업의 n번째 조각 쓰기가 끝나지 않는다 (멈춤 — 연결은 그대로, L-12 7·D-N1-12). 그 쓰기의 promise는 releaseStalledWrites()·끊김
+   * 전까지 끝나지 않고, 그 조각은 받지 않는다. 이 작업은 끝까지 받지 못한 채 닫힌다 — 어댑터가 TIMEOUT으로 그만둔 뒤의 다음 출력은 새 시도로 센다
+   */
+  readonly stallWriteAtPacket?: number
 }
 
 export interface FakeBluetoothOptions {
@@ -110,6 +116,10 @@ export interface FakeBluetooth {
   sendFlow(bytes: readonly number[]): void
   /** 붙잡아 둔 끝 알림을 보낸다 */
   releaseAck(): void
+  /** 멈춘 쓰기(stallWriteAtPacket)를 끝낸다 — promise만 성공으로 끝나고 그 조각은 여전히 받지 않은 것이다 */
+  releaseStalledWrites(): void
+  /** 끝나지 않은 채 멈춰 있는 쓰기 수 */
+  readonly stalledWrites: number
   setJob(n: number, behavior: FakeJobBehavior | undefined): void
   setAvailable(available: boolean): void
   setChooser(chooser: 'pick' | 'cancel'): void
@@ -211,6 +221,8 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
   const notifying = new Set<string>()
   const deviceListeners = new Set<() => void>()
   let held: (() => void) | undefined
+  /** 멈춘 쓰기 — 끊기면 거절, releaseStalledWrites()면 성공으로 끝난다 */
+  const stalled: { readonly resolve: () => void; readonly reject: (error: unknown) => void }[] = []
 
   class Characteristic implements GattCharacteristicLike {
     readonly uuid: string
@@ -298,6 +310,8 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
     notifying.clear()
     held = undefined
     closeOpen()
+    // 멈춰 있던 쓰기는 연결이 없어지면 거절된다 (진짜 Web Bluetooth와 같다)
+    for (const write of stalled.splice(0)) write.reject(new FakeError('NetworkError', 'GATT 서버가 끊겼다'))
     if (notice) for (const listener of [...deviceListeners]) listener()
   }
 
@@ -405,6 +419,14 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
       closeOpen()
       return Promise.reject(new FakeError('NotSupportedError', '쓰기 오류'))
     }
+    if (behavior?.stallWriteAtPacket === attempt.writes) {
+      // 쓰기가 끝나지 않는다 — 연결은 그대로, 그 조각은 받지 않는다. 이 작업은 여기서 닫는다(다음 출력은 새 시도로 센다).
+      // 멈춘 쓰기를 끝내 준 뒤 어댑터가 이 작업의 다음 조각을 보내면(그러면 안 된다) 작업 시작 바이트가 아닌 조각으로 시작하는 새 시도가 된다
+      closeOpen()
+      return new Promise<void>((resolve, reject) => {
+        stalled.push({ resolve, reject })
+      })
+    }
     packets.push(packet)
     // 조각이 시작 바이트보다 짧으면(MTU 알림) 이 조각만으로 가리지 못한다 — 후보로 두고 뒤 조각과 함께 본다
     if (attempt.packets.length > 0 && fakeJobStartAt(protocol, packet, 0) !== 'no') attempt.starts.push({ packet: attempt.packets.length, at: attempt.bytes.length })
@@ -465,6 +487,12 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
       const release = held
       held = undefined
       release?.()
+    },
+    releaseStalledWrites: () => {
+      for (const write of stalled.splice(0)) write.resolve()
+    },
+    get stalledWrites() {
+      return stalled.length
     },
     setJob: (n, behavior) => {
       if (behavior === undefined) jobs.delete(n)

@@ -1,4 +1,4 @@
-// Marklife·바우아토 어댑터 (AC-N1-03·30~34·40~42·50·55, LABEL_RULES L-12 3~7, D-N1-04~08) — 가짜 Web Bluetooth 기기와 손으로 돌리는 타이머로 돈다.
+// Marklife·바우아토 어댑터 (AC-N1-03·30~34·40~42·45·50·55, LABEL_RULES L-12 3~7, D-N1-04~08·12·13) — 가짜 Web Bluetooth 기기와 손으로 돌리는 타이머로 돈다.
 import { createBitmap, defaultTemplate, renderProductLabel, setPixel, type LabelBitmap } from '@livejjim/label'
 import { createNodeRenderEnv } from '@livejjim/label/node'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -503,25 +503,34 @@ describe('흐름 제어 — 꾸러미 A (AC-N1-41)', () => {
     await adapter.disconnect()
   })
 
-  it('크레딧을 전혀 보내지 않으면 조각이 (30ms 쉼 + 1초)마다 하나씩, 끝 알림이 없으면 20초에 TIMEOUT', async () => {
+  it('크레딧을 전혀 보내지 않으면 첫 조각은 1,000ms, 그 뒤 조각은 앞 조각보다 1,030ms 뒤(30ms 쉰 뒤 1초, D-N1-13) — 작업 끝까지 다 나가고 그 사이 TIMEOUT이 없다 (D-N1-12)', async () => {
     const { adapter, fake, timer } = setup({ initialCredits: null, creditsPerPacket: 0 })
     await adapter.connect('bluetooth')
-    const p = track(adapter.print(noisy(384, 240)))
-    await timer.advance(1000)
-    expect(fake.packets).toHaveLength(1)
-    await timer.advance(1029)
-    expect(fake.packets).toHaveLength(1)
+    const image = noisy(384, 48)
+    const expected = jobBytes(MARKLIFE_S2, image)
+    const total = Math.ceil(expected.length / 90)
+    // 마지막 조각이 출력 시작 20초(시간 초과 값)보다 뒤에 나가는 작업이다
+    expect(1000 + (total - 1) * 1030).toBeGreaterThan(MARKLIFE_DEFAULTS.printTimeoutMs + 1030)
+    const p = track(adapter.print(image))
+    await timer.advance(999)
+    expect(fake.packets).toHaveLength(0)
     await timer.advance(1)
-    expect(fake.packets).toHaveLength(2)
-    await timer.advance(20_000 - 2030 - 1)
-    expect(p.done()).toBe(false)
-    await timer.advance(1)
-    expect(await p.promise).toEqual({ ok: false, error: { code: 'TIMEOUT', message: PRINTER_MESSAGES.TIMEOUT } })
+    expect(fake.packets).toHaveLength(1)
+    for (let k = 2; k <= total; k++) {
+      // 1,029ms에는 아직 안 나가고, 1,030ms에 나간다. 그 사이 TIMEOUT이 없다
+      await timer.advance(1029)
+      expect(fake.packets, `${k}번째 조각 전`).toHaveLength(k - 1)
+      expect(p.done(), `${k}번째 조각 전`).toBe(false)
+      expect(adapter.state).toBe('PRINTING')
+      await timer.advance(1)
+      expect(fake.packets, `${k}번째 조각`).toHaveLength(k)
+    }
+    expect(timer.now).toBe(1000 + (total - 1) * 1030)
+    // 가짜 기기는 작업을 다 받으면 AA를 보낸다
+    expect(await p.promise).toEqual({ ok: true })
+    expect(concat(fake.packets)).toEqual(expected)
     expect(adapter.state).toBe('CONNECTED')
     expect(timer.pending).toBe(0)
-    const sent = fake.packets.length
-    await timer.advance(5000)
-    expect(fake.packets).toHaveLength(sent)
   })
 
   it('꾸러미 C는 크레딧을 기다리지 않고 간격만 지켜 보낸다', async () => {
@@ -570,7 +579,7 @@ describe('AA 끝 알림 — 라벨이 조용히 빠지지 않는다 (AC-N1-42)',
     expect(fake.attempts[0]?.acked).toBe(true)
   })
 
-  it('AA가 늦게 와도(n ms) 기다린다, 오지 않으면 출력 시작 20초 뒤 TIMEOUT — 출력함이 되지 않는다', async () => {
+  it('AA가 늦게 와도(n ms) 기다린다, 오지 않으면 마지막 조각의 쓰기가 끝난 때부터 20초 뒤 TIMEOUT(출력 시작부터가 아니다, D-N1-12) — 출력함이 되지 않는다', async () => {
     const late = setup({ ack: { delayMs: 5000 } })
     await late.adapter.connect('bluetooth')
     const p1 = track(late.adapter.print(border()))
@@ -581,12 +590,27 @@ describe('AA 끝 알림 — 라벨이 조용히 빠지지 않는다 (AC-N1-42)',
 
     const none = setup({ ack: 'none' })
     await none.adapter.connect('bluetooth')
-    const p2 = track(none.adapter.print(border()))
-    await none.timer.advance(19_999)
-    expect(p2.done()).toBe(false)
+    // 조각이 많은 작업 — 크레딧이 넉넉해 조각 k는 (k − 1) × 30ms에 나간다
+    const image = noisy(384, 240)
+    const total = Math.ceil(jobBytes(MARKLIFE_S2, image).length / 90)
+    const last = (total - 1) * 30
+    expect(last).toBeGreaterThan(0)
+    const p2 = track(none.adapter.print(image))
+    await none.timer.advance(last - 1)
+    expect(none.fake.packets).toHaveLength(total - 1)
     await none.timer.advance(1)
-    expect(await p2.promise).toMatchObject({ ok: false, error: { code: 'TIMEOUT' } })
+    expect(none.fake.packets).toHaveLength(total)
+    expect(none.fake.attempts[0]).toMatchObject({ complete: true, acked: false })
+    // 출력 시작 20초는 지나도 TIMEOUT이 아니다
+    await none.timer.advance(20_000 - 1)
+    expect(none.timer.now).toBe(last + 19_999)
+    expect(p2.done()).toBe(false)
+    expect(none.adapter.state).toBe('PRINTING')
+    await none.timer.advance(1)
+    expect(await p2.promise).toEqual({ ok: false, error: { code: 'TIMEOUT', message: MARKLIFE_MESSAGES.TIMEOUT } })
     expect(none.adapter.state).toBe('CONNECTED')
+    expect(none.timer.pending).toBe(0)
+    expect(none.fake.printed).toHaveLength(0)
   })
 
   it('출력 전에 와 있던 AA(앞 출력의 늦은 알림)는 세지 않는다, AA가 아닌 알림(55·여러 바이트)은 끝 알림이 아니다', async () => {
@@ -595,7 +619,9 @@ describe('AA 끝 알림 — 라벨이 조용히 빠지지 않는다 (AC-N1-42)',
       await adapter.connect('bluetooth')
       fake.sendNotify([0xaa])
       const p = track(adapter.print(border()))
-      await timer.advance(19_999)
+      // 시간 초과는 마지막 조각의 쓰기가 끝난 때((조각 수 − 1) × 30ms)부터 20초 (D-N1-12)
+      const last = (Math.ceil(jobBytes(MARKLIFE_S2, border()).length / 90) - 1) * 30
+      await timer.advance(last + 19_999)
       expect(p.done(), JSON.stringify(ack)).toBe(false)
       await timer.advance(1)
       expect(await p.promise).toMatchObject({ ok: false, error: { code: 'TIMEOUT' } })
@@ -683,6 +709,143 @@ describe('AA 끝 알림 — 라벨이 조용히 빠지지 않는다 (AC-N1-42)',
   })
 })
 
+describe('시간 초과는 진행이 멈춘 20초 — 큰 라벨·작은 MTU (AC-N1-45, L-12 4·5, D-N1-12·13)', () => {
+  /** 바우아토 50×50 흰 그림 (384×400) */
+  const blank5050 = (): LabelBitmap => createBitmap(384, 400)
+  /** 꾸러미 A, 첫 크레딧 `01 04`, 조각마다 `01 01`, 첫 크레딧 뒤 MTU 알림 `02 17 00`(23), 실험 목록을 넘긴 어댑터 (printTimeoutMs 기본) */
+  const bauato = (fakeOptions: FakeBluetoothOptions = {}) =>
+    setup({ name: 'PPA2L_1234', initialCredits: 4, creditsPerPacket: 1, mtu: 23, ...fakeOptions }, { profiles: [...MARKLIFE_PROFILES, ...EXPERIMENTAL_PROFILES] })
+  const TIMEOUT = { ok: false, error: { code: 'TIMEOUT', message: MARKLIFE_MESSAGES.TIMEOUT } }
+
+  it('바우아토 50×50: 작업 19,233바이트를 20바이트 조각 962개로(마지막 13바이트), 마지막 조각은 28,830ms — AA가 오면 출력 시작 20초가 지났어도 출력 OK', async () => {
+    const { adapter, fake, timer } = bauato()
+    expect((await adapter.connect('bluetooth')).ok).toBe(true)
+    expect(adapter.profile).toBe(BAUATO_PPA2L)
+    expect(MARKLIFE_DEFAULTS.printTimeoutMs).toBe(20_000)
+    const image = blank5050()
+    const expected = jobBytes(BAUATO_PPA2L, image)
+    // 00×15 + 10 FF F1 02 + L11 머리 8 + 줄 48×400 + 1D 0C + 10 FF F1 45
+    expect(expected.length).toBe(15 + 4 + 8 + 48 * 400 + 2 + 4)
+    expect(expected.length).toBe(19_233)
+    const p = track(adapter.print(image))
+    await timer.advance(20_000)
+    expect(p.done()).toBe(false)
+    expect(adapter.state).toBe('PRINTING')
+    await timer.advance(28_829 - 20_000)
+    expect(fake.packets).toHaveLength(961)
+    expect(p.done()).toBe(false)
+    await timer.advance(1)
+    expect(fake.packets).toHaveLength(962)
+    expect(await p.promise).toEqual({ ok: true })
+    expect(timer.now).toBe(961 * 30)
+    expect(adapter.state).toBe('CONNECTED')
+    expect(timer.pending).toBe(0)
+    expect(fake.packets.every((packet) => packet.length <= 20)).toBe(true)
+    expect(fake.packets.slice(0, -1).every((packet) => packet.length === 20)).toBe(true)
+    expect(fake.packets.at(-1)).toHaveLength(13)
+    expect(concat(fake.packets)).toEqual(expected)
+    expect(fake.printed).toHaveLength(1)
+  })
+
+  it('같은 출력에서 AA가 오지 않으면 마지막 조각의 쓰기가 끝난 때(28,830ms)부터 20초 뒤인 48,830ms에 TIMEOUT — 48,829ms에는 아직 출력 중, 결과 뒤 연결됨·남은 타이머 없음', async () => {
+    const { adapter, fake, timer } = bauato({ ack: 'none' })
+    await adapter.connect('bluetooth')
+    const p = track(adapter.print(blank5050()))
+    await timer.advance(28_830)
+    expect(fake.packets).toHaveLength(962)
+    expect(fake.attempts[0]).toMatchObject({ complete: true, acked: false })
+    await timer.advance(48_829 - 28_830)
+    expect(p.done()).toBe(false)
+    expect(adapter.state).toBe('PRINTING')
+    await timer.advance(1)
+    expect(await p.promise).toEqual(TIMEOUT)
+    expect(timer.now).toBe(48_830)
+    expect(adapter.state).toBe('CONNECTED')
+    expect(timer.pending).toBe(0)
+    expect(fake.printed).toHaveLength(0)
+  })
+
+  it('100번째 조각의 쓰기가 끝나지 않으면(멈춤 — 연결은 그대로) 99번째 쓰기가 끝난 2,940ms부터 20초 뒤인 22,940ms에 TIMEOUT — 그 뒤 쓰기가 끝나도 결과는 그대로이고 다음 조각을 쓰지 않는다', async () => {
+    const { adapter, fake, timer } = bauato({ jobs: { 1: { stallWriteAtPacket: 100 } } })
+    await adapter.connect('bluetooth')
+    const p = track(adapter.print(blank5050()))
+    // 99번째 조각 = 98 × 30 = 2,940ms, 100번째 쓰기 = 2,970ms(끝나지 않음)
+    await timer.advance(2_940)
+    expect(fake.packets).toHaveLength(99)
+    expect(fake.stalledWrites).toBe(0)
+    await timer.advance(30)
+    expect(fake.stalledWrites).toBe(1)
+    expect(fake.packets).toHaveLength(99)
+    expect(fake.connected).toBe(true)
+    await timer.advance(22_939 - 2_970)
+    expect(p.done()).toBe(false)
+    expect(adapter.state).toBe('PRINTING')
+    await timer.advance(1)
+    expect(await p.promise).toEqual(TIMEOUT)
+    expect(timer.now).toBe(22_940)
+    expect(adapter.state).toBe('CONNECTED')
+    expect(timer.pending).toBe(0)
+    // 멈춘 쓰기가 이제야 끝나도 결과는 바뀌지 않고 다음 조각을 쓰지 않는다
+    fake.releaseStalledWrites()
+    await timer.advance(60_000)
+    expect(fake.stalledWrites).toBe(0)
+    expect(fake.packets).toHaveLength(99)
+    expect(adapter.state).toBe('CONNECTED')
+    expect(timer.pending).toBe(0)
+    expect(fake.attempts.map((a) => [a.index, a.complete, a.acked, a.packets.length])).toEqual([[1, false, false, 99]])
+    // 다음 출력은 새 시도로 센다 (조각 20바이트 — 작업 시작 바이트 23바이트보다 짧아도)
+    const image = createBitmap(384, 30)
+    const again = track(adapter.print(image))
+    await runUntil(timer, again.done)
+    expect(await again.promise).toEqual({ ok: true })
+    expect(fake.attempts.map((a) => [a.index, a.complete, a.acked])).toEqual([
+      [1, false, false],
+      [2, true, true],
+    ])
+    expect(fake.attempts[1]?.bytes).toEqual(jobBytes(BAUATO_PPA2L, image))
+  })
+
+  for (const ack of ['send', 'none'] as const) {
+    it(`크레딧을 전혀 보내지 않는 기기의 P12 테이프 12×40(작업 3,873바이트 = 90바이트 조각 44개): 첫 조각 1,000ms, 마지막 조각 45,290ms, 그 사이 TIMEOUT 없음 — ${ack === 'send' ? 'AA가 오면 출력 OK' : 'AA가 없으면 65,290ms에 TIMEOUT'}`, async () => {
+      const { adapter, fake, timer } = setup({ name: 'P12_ZA15B', initialCredits: null, creditsPerPacket: 0, mtu: null, ack })
+      await adapter.connect('bluetooth')
+      const image = border(320, 96)
+      const expected = jobBytes(MARKLIFE_P12, image)
+      // 돌려 96×320: 00×15 + 10 FF F1 02 + L11 머리 8 + 줄 12×320 + 1D 0C + 10 FF F1 45
+      expect(expected.length).toBe(15 + 4 + 8 + 12 * 320 + 2 + 4)
+      expect(expected.length).toBe(3_873)
+      const p = track(adapter.print(image))
+      await timer.advance(999)
+      expect(fake.packets).toHaveLength(0)
+      await timer.advance(1)
+      expect(fake.packets).toHaveLength(1)
+      await timer.advance(45_289 - 1_000)
+      expect(fake.packets).toHaveLength(43)
+      expect(p.done()).toBe(false)
+      expect(adapter.state).toBe('PRINTING')
+      await timer.advance(1)
+      expect(fake.packets).toHaveLength(44)
+      expect(fake.packets.at(-1)).toHaveLength(3)
+      expect(concat(fake.packets)).toEqual(expected)
+      if (ack === 'send') {
+        expect(await p.promise).toEqual({ ok: true })
+        expect(timer.now).toBe(1_000 + 43 * 1_030)
+        expect(fake.printed).toHaveLength(1)
+      } else {
+        await timer.advance(65_289 - 45_290)
+        expect(p.done()).toBe(false)
+        expect(adapter.state).toBe('PRINTING')
+        await timer.advance(1)
+        expect(await p.promise).toEqual(TIMEOUT)
+        expect(timer.now).toBe(45_290 + 20_000)
+        expect(fake.printed).toHaveLength(0)
+      }
+      expect(adapter.state).toBe('CONNECTED')
+      expect(timer.pending).toBe(0)
+    })
+  }
+})
+
 describe('가짜 Web Bluetooth 기기 (AC-N1-50)', () => {
   it('받은 조각을 받은 순서대로 복사해 기록한다 (받은 뒤 원본을 바꿔도 기록은 그대로), 출력마다 이어 붙인 바이트', async () => {
     const fake = createFakeBluetooth({ name: 'S2_X', timer: new ManualTimer() })
@@ -698,14 +861,22 @@ describe('가짜 Web Bluetooth 기기 (AC-N1-50)', () => {
   })
 
   it('작업 중간에 TIMEOUT이 난 뒤의 다음 출력은 새 시도로 센다 — 끝까지 받으면 AA를 보내 출력 OK (SA-N1-002)', async () => {
-    // 크레딧을 보내지 않는 기기: 조각이 1초마다 하나라 20초에 작업 중간 TIMEOUT
-    const { adapter, fake, timer } = setup({ initialCredits: null, creditsPerPacket: 0 })
+    // 크레딧 굶김만으로는 작업 중간 TIMEOUT이 나지 않는다(조각이 나가는 동안은 진행이 있다, D-N1-12) — 5번째 조각의 쓰기가 끝나지 않게 한다
+    const { adapter, fake, timer } = setup({ initialCredits: null, creditsPerPacket: 0, jobs: { 1: { stallWriteAtPacket: 5 } } })
     await adapter.connect('bluetooth')
     const first = track(adapter.print(noisy(384, 240)))
-    await runUntil(timer, first.done, 100)
+    // 4번째 조각은 1,000 + 3 × 1,030 = 4,090ms에 나갔고 5번째 쓰기(5,120ms)는 끝나지 않는다 → 4,090ms부터 20초
+    await timer.advance(4_090 + 20_000 - 1)
+    expect(fake.packets).toHaveLength(4)
+    expect(fake.stalledWrites).toBe(1)
+    expect(first.done()).toBe(false)
+    await timer.advance(1)
     expect(await first.promise).toMatchObject({ ok: false, error: { code: 'TIMEOUT' } })
+    expect(adapter.state).toBe('CONNECTED')
+    expect(timer.pending).toBe(0)
     expect(fake.attempts).toHaveLength(1)
     expect(fake.attempts[0]).toMatchObject({ index: 1, complete: false, acked: false })
+    expect(fake.attempts[0]?.packets).toHaveLength(4)
     const image = border(384, 16)
     const second = track(adapter.print(image))
     for (let t = 0; t < 60_000 && !second.done(); t += 100) {
@@ -819,7 +990,7 @@ describe('화면 문장 (AC-N1-62)', () => {
 })
 
 describe('보내기 기본값 (AC-N1-63 기록과 같다)', () => {
-  it('시간 초과 20초 · 간격 30ms · 조각 90바이트 · 크레딧 기다림 1초 · 크레딧 상한 4', () => {
+  it('시간 초과 20초(진행이 멈춘 시간 — 쓰기가 끝날 때마다 다시 센다, D-N1-12) · 간격 30ms · 조각 90바이트 · 크레딧 기다림 1초 · 크레딧 상한 4', () => {
     expect({ ...MARKLIFE_DEFAULTS }).toEqual({ printTimeoutMs: 20_000, packetIntervalMs: 30, maxPacketBytes: 90, creditWaitMs: 1000, maxCredits: 4 })
   })
 })
