@@ -42,7 +42,9 @@ import {
 import type { IdSource } from './ids.ts'
 import type { ScopeRuntime } from './runtime.ts'
 import { fieldMessage, phoneIdProblem, safeFieldName, unknownFieldProblems } from './messages.ts'
+import { SHOP_NAME_MAX, cleanDisplayName } from './accounts.ts'
 import { productOwners } from './product-history.ts'
+import { ASSISTANT_EVENT_TYPES, assistantCancelCheck, assistantForbidden } from './roles.ts'
 import { openSellerKey, phoneKeyOf } from './secrets.ts'
 import {
   actionRows,
@@ -52,12 +54,19 @@ import {
   findBroadcast,
   findScopeId,
   findSeller,
+  findWizard,
+  listAssistants,
+  updateSellerName,
+  updateWizard,
   historyRows,
   insertBroadcast,
   listBroadcastRows,
   markBroadcastEnded,
   previousScopeDate,
+  scopeSealInfo,
+  scopeSealRows,
   scopeSeqs,
+  type AssistantRow,
   type BroadcastRow,
   type ChatRow,
   type HistoryRow,
@@ -66,7 +75,22 @@ import {
 import { iso, kstDate, kstTime, type Clock } from './time.ts'
 import type { ViewCacheBudget } from './view-budget.ts'
 import { changeSet, fullView, messageLookup, type ChangeSet, type FullView, type MessageLookup } from './views.ts'
-import { resultOf, WriteAbort, type Actor, type Draft, type Rejection, type ScopeWriter, type WriteOutcome, type WriteResult } from './writer.ts'
+import { resultOf, WriteAbort, type Actor, type ChatSource, type Draft, type Rejection, type ScopeWriter, type WriteOutcome, type WriteResult } from './writer.ts'
+import { sanitizeNick } from './youtube/texts.ts'
+import { SEALED_CHAT_MESSAGE, sealAtOf, sealedView } from './youtube/seal.ts'
+
+/** 시작 마법사 (UX-02, AC-I3-50): 처음 · 진행 중(단계 1~5) · 마침 · 닫음 */
+export type WizardStatus = 'NEW' | 'IN_PROGRESS' | 'DONE' | 'DISMISSED'
+export const WIZARD_STATUSES: readonly WizardStatus[] = ['NEW', 'IN_PROGRESS', 'DONE', 'DISMISSED']
+export const WIZARD_STEPS = 5
+export interface WizardState {
+  readonly status: WizardStatus
+  readonly step: number | null
+}
+function wizardOf(row: { status: string; step: number | null }): WizardState {
+  const status = WIZARD_STATUSES.includes(row.status as WizardStatus) ? (row.status as WizardStatus) : 'NEW'
+  return { status, step: status === 'IN_PROGRESS' ? row.step : null }
+}
 
 /** 차단 이어받기 사유 (AC-S04-27) */
 export const INHERITED_BLOCK_REASON = '이전 방송에서 차단한 시청자'
@@ -110,6 +134,24 @@ export type ChatIngestOutcome =
 
 export type ScopeView = FullView
 
+/** 유튜브 수집기가 한 응답에서 넘기는 채팅 하나 (AC-Y1-21) */
+export interface CollectedChat {
+  readonly id: string
+  readonly ch: string
+  /** 정리 전 표시 이름 (수집 경로가 정리한다) */
+  readonly nick: string
+  readonly text: string
+  readonly owner?: boolean
+  readonly publishedAt?: number
+}
+
+export type ChatBatchOutcome =
+  | { readonly status: 'ok'; readonly recorded: number }
+  | { readonly status: 'not_found' }
+  | { readonly status: 'sealed' }
+  /** guard가 거절했다 (그 연결을 그사이 끊음) */
+  | { readonly status: 'unlinked' }
+  | { readonly status: 'save_failed' }
 /** 합치기 미리 보기 (GET /api/days/:date/merge-preview, AC-S06b-10) — preview는 응답 seq까지 적용한 상태의 코어 previewMerge 결과 그대로 */
 export interface MergePreviewView {
   readonly date: string
@@ -272,6 +314,45 @@ export class Service {
     return { ok: true, settings: resolveSettings(saved) }
   }
 
+  // ── 가게 이름·시작 마법사 (AC-I3-47·50) ───────────────────────────────
+
+  /** 가게 이름 바꾸기 — 그 판매자의 이름만. 이름이 틀리면 null (받은 값은 로그에 남기지 않는다, D-073) */
+  async renameShop(sellerId: string, raw: unknown): Promise<string | null> {
+    const name = cleanDisplayName(raw, SHOP_NAME_MAX)
+    if (name === null) return null
+    if (!(await updateSellerName(this.#options.db, sellerId, name))) throw new Error('판매자가 없다')
+    return name
+  }
+
+  /** 판매자의 보조자 목록 (지우지 않은 것, AC-I3-60) */
+  assistants(sellerId: string): Promise<AssistantRow[]> {
+    return listAssistants(this.#options.db, sellerId)
+  }
+
+  /** 시작 마법사 상태 */
+  async wizard(sellerId: string): Promise<WizardState> {
+    const row = await findWizard(this.#options.db, sellerId)
+    if (row === null) throw new Error('판매자가 없다')
+    return wizardOf(row)
+  }
+
+  /** 시작 마법사 상태 적기 ({ status, step? }). 틀리면 null */
+  async setWizard(sellerId: string, body: Record<string, unknown>): Promise<WizardState | null> {
+    const status = own(body, 'status')
+    const step = own(body, 'step')
+    if (typeof status !== 'string' || !WIZARD_STATUSES.includes(status as WizardStatus)) return null
+    let next: WizardState
+    if (status === 'IN_PROGRESS') {
+      if (typeof step !== 'number' || !Number.isInteger(step) || step < 1 || step > WIZARD_STEPS) return null
+      next = { status, step }
+    } else {
+      if (step !== undefined && step !== null) return null
+      next = { status: status as WizardStatus, step: null }
+    }
+    if (!(await updateWizard(this.#options.db, sellerId, next))) throw new Error('판매자가 없다')
+    return next
+  }
+
   // ── 요청 번호 (AC-S04-25) ─────────────────────────────────────────────
 
   /** 그 요청 번호로 이미 기록한 결과 (없으면 null). 같은 요청 번호면 내용이 달라도 처음 결과를 돌려준다 */
@@ -385,6 +466,7 @@ export class Service {
   /**
    * 화면이 보낸 이벤트 쓰기. body = { requestId, type, ...그 종류의 필드 }, queryDate = 방송이 없는 종류의 범위 날짜.
    * 요청 번호는 호출하는 쪽(API)이 이미 확인했다.
+   * 보조자 계정(options.assistant)은 실제 방송의 문자찜과 문자찜으로 생긴 찜의 방송자 취소만 — 그 밖은 403이고 아무것도 기록하지 않는다 (AC-I3-61)
    */
   async writeEvent(
     sellerId: string,
@@ -393,8 +475,11 @@ export class Service {
     body: Record<string, unknown>,
     queryDate: string | undefined,
     queryRehearsal?: boolean,
+    options: { readonly assistant?: boolean } = {},
   ): Promise<WriteOutcome | { kind: 'phone'; outcome: WriteOutcome; phoneLast4: string | null }> {
     const type = own(body, 'type')
+    const assistant = options.assistant === true
+    if (assistant && (typeof type !== 'string' || !ASSISTANT_EVENT_TYPES.includes(type))) return { kind: 'rejected', rejection: assistantForbidden() }
     const spec = typeof type === 'string' && Object.hasOwn(API_EVENTS, type) ? API_EVENTS[type] : undefined
     if (spec === undefined || typeof type !== 'string') return { kind: 'rejected', rejection: invalidInput([{ field: 'type', message: fieldMessage('type') }]) }
     const allowed = new Set(['requestId', 'type', ...spec.fields])
@@ -416,6 +501,8 @@ export class Service {
       if (typeof b !== 'string' || b === '') return { kind: 'rejected', rejection: invalidInput([{ field: 'b', message: fieldMessage('b') }]) }
       const row = await findBroadcast(this.#options.db, sellerId, b)
       if (row === null) return { kind: 'not_found' }
+      // 보조자는 실제 방송에만 (리허설은 판매자 몫)
+      if (assistant && row.rehearsal) return { kind: 'rejected', rejection: assistantForbidden() }
       date = row.date
       rehearsal = row.rehearsal
     } else {
@@ -435,7 +522,8 @@ export class Service {
       rehearsal,
       createScope: false,
       requestId,
-      build: () => [{ fields, actor, requestId }],
+      // 보조자의 방송자 취소: 그 범위의 지금 상태(기록 트랜잭션 안)에서 문자찜으로 생긴 찜인지 코어 조회로 본다
+      build: () => [{ fields, actor, requestId, ...(assistant ? { validate: assistantCancelCheck } : {}) }],
     })
   }
 
@@ -581,9 +669,15 @@ export class Service {
     return { row, fields }
   }
 
-  /** 채팅 이벤트 기록 (조치자 수집기). 요청 번호가 있으면(시청자로 보내기) 그 요청 번호로도 한 번만 */
+  /**
+   * 채팅 이벤트 기록 (조치자 수집기). 요청 번호가 있으면(시청자로 보내기) 그 요청 번호로도 한 번만.
+   * 이름은 수집 경로가 정리해 기록한다(AC-Y1-22, D-Y05 — 유튜브 수집기·리허설 생성기·시청자로 보내기 모두). 본문은 그대로(파서가 읽는다).
+   * 실제 범위의 채팅은 유튜브 채팅이다(봉인 대상, AC-Y1-61)
+   */
   #recordChat(sellerId: string, row: BroadcastRow, fields: Record<string, unknown>, requestId: string | null): Promise<WriteOutcome> {
     const chat = { b: row.id, id: fields.id as string }
+    const named = typeof fields.nick === 'string' ? { ...fields, nick: sanitizeNick(fields.nick) } : fields
+    const source: ChatSource = row.rehearsal ? 'rehearsal' : 'youtube'
     return this.#options.writer.write({
       sellerId,
       date: row.date,
@@ -591,8 +685,61 @@ export class Service {
       createScope: false,
       requestId,
       chat,
-      build: () => [{ fields, actor: { kind: 'collector' }, chat, ...(requestId === null ? {} : { requestId }) }],
+      build: () => [{ fields: named, actor: { kind: 'collector' }, chat, source, ...(requestId === null ? {} : { requestId }) }],
     })
+  }
+
+  /**
+   * 유튜브 수집기의 한 응답을 한 번에 기록한다 (AC-Y1-21·23). 실제 방송만. 이미 기록된 메시지 ID·응답 안에서 겹친 ID는 빼고,
+   * 엔진 입력 검사를 통과하지 못한 채팅은 그것만 기록하지 않는다. 모두 커밋되면 ok(기록한 수) — 그 뒤에야 수집기가 이어받기 지점을 저장한다
+   */
+  /**
+   * 유튜브 수집기의 한 응답 (AC-Y1-21·25). 범위 락 안의 지금 상태로 거른다: 회차를 끝냈으면(어느 서버에서든) 게시 시각이 끝낸 시각보다 늦은 메시지는
+   * 기록하지 않는다. guard는 같은 트랜잭션에서 그 연결이 아직 이어져 있는지 본다(거절이면 unlinked)
+   */
+  async ingestYoutubeBatch(sellerId: string, b: string, chats: readonly CollectedChat[], guard?: (tx: Db) => Promise<boolean>): Promise<ChatBatchOutcome> {
+    const row = await findBroadcast(this.#options.db, sellerId, b)
+    if (row === null || row.rehearsal) return { status: 'not_found' }
+    if (chats.length === 0) return { status: 'ok', recorded: 0 }
+    const outcome = await this.#options.writer.write({
+      sellerId,
+      date: row.date,
+      rehearsal: false,
+      createScope: false,
+      requestId: null,
+      chatBatch: { b, ids: chats.map((chat) => chat.id) },
+      ...(guard === undefined ? {} : { guard: async (tx: Db) => ((await guard(tx)) ? null : rejection(409, 'NOT_LINKED', '이어진 유튜브 방송이 없어요.')) }),
+      build: (ctx) => {
+        const seen = new Set(ctx.existingChats)
+        const drafts: Draft[] = []
+        const endedAt = getBroadcast(ctx.state, b)?.endedAt ?? null
+        for (const chat of chats) {
+          if (seen.has(chat.id)) continue
+          if (endedAt !== null && chat.publishedAt !== undefined && chat.publishedAt > endedAt) continue
+          seen.add(chat.id)
+          const fields: Record<string, unknown> = { type: 'chat', b, id: chat.id, ch: chat.ch, nick: sanitizeNick(chat.nick), text: chat.text }
+          if (chat.owner === true) fields.owner = true
+          if (chat.publishedAt !== undefined) fields.publishedAt = chat.publishedAt
+          drafts.push({ fields, actor: { kind: 'collector' }, chat: { b, id: chat.id }, source: 'youtube', skipIfInvalid: true })
+        }
+        return drafts
+      },
+    })
+    switch (outcome.kind) {
+      case 'ok':
+        return { status: 'ok', recorded: outcome.records.length }
+      case 'empty':
+        return { status: 'ok', recorded: 0 }
+      case 'not_found':
+        return { status: 'not_found' }
+      case 'rejected':
+        return outcome.rejection.code === 'SEALED' ? { status: 'sealed' } : outcome.rejection.code === 'NOT_LINKED' ? { status: 'unlinked' } : { status: 'save_failed' }
+      case 'duplicate':
+        // 다른 쪽이 그사이 같은 메시지를 기록했다(락 밖 경합) — 지점을 저장하지 않고 다시 받는다(그때는 이미 기록된 것으로 빠진다)
+        return { status: 'save_failed' }
+      case 'save_failed':
+        return { status: 'save_failed' }
+    }
   }
 
   // ── 리허설: 시청자로 보내기·가짜 채팅 생성기 (AC-S05-51·52, D-082) ────────
@@ -712,8 +859,38 @@ export class Service {
     return scopeSeqs(this.#options.db, sellerId, rehearsal)
   }
 
-  /** 범위 조회. 값은 코어 조회 함수의 결과(시각은 ISO). 없는 범위면 null */
-  async scopeView(sellerId: string, date: string, rehearsal = false): Promise<ScopeView | null> {
+  /**
+   * 범위 목록 (GET /api/days): 범위별 지금 seq와 봉인 예정 시각(sealAt — 유튜브 채팅이 있는 실제 범위만, 아니면 null)·봉인 여부 (AC-Y1-62)
+   */
+  async days(sellerId: string, rehearsal: boolean): Promise<(ScopeSeqRow & { sealAt: string | null; sealed: boolean })[]> {
+    const rows = await scopeSeqs(this.#options.db, sellerId, rehearsal)
+    const seals = new Map((await scopeSealRows(this.#options.db, sellerId)).map((row) => [`${row.date}|${String(row.rehearsal)}`, row]))
+    return rows.map((row) => {
+      const seal = seals.get(`${row.date}|${String(row.rehearsal)}`)
+      const youtube = seal !== undefined && seal.youtubeChat && !row.rehearsal
+      return { ...row, sealAt: youtube ? iso(sealAtOf(row.date)) : null, sealed: seal?.sealedAt !== null && seal?.sealedAt !== undefined }
+    })
+  }
+
+  /** 실제 범위 ID (없으면 null) */
+  scopeId(sellerId: string, date: string): Promise<string | null> {
+    return findScopeId(this.#options.db, sellerId, date, false)
+  }
+
+  /** 봉인한 범위면 그 장부 정보 (AC-Y1-62) */
+  async sealed(sellerId: string, date: string, rehearsal = false): Promise<{ scopeId: string; ledger: string | null } | null> {
+    if (rehearsal) return null
+    const info = await scopeSealInfo(this.#options.db, sellerId, date, false)
+    return info === null || info.sealedAt === null ? null : { scopeId: info.scopeId, ledger: info.ledger }
+  }
+
+  /** 범위 조회. 값은 코어 조회 함수의 결과(시각은 ISO). 없는 범위면 null. 봉인한 범위는 봉인한 장부로 같은 모양 + 봉인 표시 */
+  async scopeView(sellerId: string, date: string, rehearsal = false): Promise<ScopeView | Record<string, unknown> | null> {
+    const sealed = await this.sealed(sellerId, date, rehearsal)
+    if (sealed !== null) {
+      const seq = (await scopeSeqs(this.#options.db, sellerId, false)).find((row) => row.date === date)?.seq ?? 0
+      return sealedView(date, seq, sealed.ledger)
+    }
     const runtime = await this.#options.writer.read(sellerId, date, rehearsal)
     if (runtime.seq === 0) return null
     this.#options.viewCaches.use(runtime)
@@ -752,6 +929,8 @@ export class Service {
    * since 이전 메시지 중 기록이 바뀐 것(메시지 변환). 없는 범위면 null(404), since가 지금보다 크거나 서버가 둔 기준점 밖이면 'resync'
    */
   async changes(sellerId: string, date: string, rehearsal: boolean, since: number): Promise<ChangesView | 'resync' | null> {
+    // 봉인한 범위는 증분이 없다 — 전체(봉인한 장부)를 다시 받는다
+    if ((await this.sealed(sellerId, date, rehearsal)) !== null) return 'resync'
     const runtime = await this.#options.writer.read(sellerId, date, rehearsal)
     if (runtime.seq === 0 || runtime.scopeId === null) return null
     this.#options.viewCaches.use(runtime)
@@ -777,7 +956,12 @@ export class Service {
     date: string,
     rehearsal: boolean,
     query: { readonly b?: string; readonly after?: number; readonly before?: number; readonly limit: number },
-  ): Promise<MessagesView | null> {
+  ): Promise<MessagesView | (MessagesView & { sealed: true; sealedMessage: string }) | null> {
+    // 봉인한 범위: 채팅 목록은 비고 문장을 준다 (AC-Y1-62)
+    if ((await this.sealed(sellerId, date, rehearsal)) !== null) {
+      const seq = (await scopeSeqs(this.#options.db, sellerId, false)).find((row) => row.date === date)?.seq ?? 0
+      return { date, rehearsal: false, seq, messages: [], more: false, sealed: true, sealedMessage: SEALED_CHAT_MESSAGE }
+    }
     const runtime = await this.#options.writer.read(sellerId, date, rehearsal)
     // runtime은 쓰기와 같이 쓰는 객체다. 채팅 행을 기다리는 사이 들어온 채팅이 seq·상태를 올려 두므로 지금 값을 잡아 두고
     // 조회 범위(before)·응답 seq·메시지 기록 모두 이 값으로 정한다 (TD-S05-005, AC-S05-20·21·62)
@@ -953,6 +1137,7 @@ function ingestOutcome(outcome: WriteOutcome): ChatIngestOutcome {
     case 'ok':
       return { status: 'recorded', date: outcome.result.date, seq: outcome.result.seq, changed: outcome.result.changed, failed: outcome.result.failed, effects: outcome.result.effects }
     case 'duplicate':
+    case 'empty':
       return { status: 'duplicate' }
     case 'rejected':
       return { status: 'rejected', problems: outcome.rejection.problems }

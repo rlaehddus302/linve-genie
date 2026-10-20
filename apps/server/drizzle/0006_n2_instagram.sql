@@ -1,4 +1,4 @@
--- N2: 플랫폼 라이브 연결·옮긴 기록·인스타그램 계정 연결·DM 발송 기록 (PLT-01·PLT-03, D-N2-01~D-N2-16). src/db/schema.ts와 같아야 한다(test/schema.test.ts가 대조한다).
+-- N2 (0006 — 합칠 때 Y1 0004·I3 0005 뒤로 번호를 옮김): 플랫폼 라이브 연결·옮긴 기록·인스타그램 계정 연결·DM 발송 기록 (PLT-01·PLT-03, D-N2-01~D-N2-16). src/db/schema.ts와 같아야 한다(test/schema.test.ts가 대조한다).
 -- 발송함(outbox) 표는 바꾸지 않는다(Y1 트랙과 겹치지 않게, D-N2-01). 모든 표에 판매자 ID가 있다(SYS-02). 토큰은 암호화한 값만, OAuth state는 해시만 둔다.
 CREATE TABLE "ig_connections" (
 	"seller_id" text PRIMARY KEY NOT NULL,

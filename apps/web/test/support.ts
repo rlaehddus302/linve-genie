@@ -2,7 +2,7 @@
 // 서버 응답 모양은 harness/sprints/S05/dev-notes.md "화면(dev-web)에게 — API 계약"을 따른다.
 import { DEFAULT_SETTINGS } from '@livejjim/core'
 import { vi } from 'vitest'
-import type { BroadcastItem, BroadcastView, ChatMessage, FullView, Product } from '../src/api/types.ts'
+import type { BroadcastItem, BroadcastView, ChatMessage, FullView, OutboxRow, Product, YoutubeConnection } from '../src/api/types.ts'
 
 export interface Call {
   readonly method: string
@@ -224,3 +224,43 @@ export function emptyChanges(since: number, seq: number) {
 export async function flush(times = 5): Promise<void> {
   for (let i = 0; i < times; i++) await new Promise<void>((resolve) => setTimeout(resolve, 0))
 }
+
+/** 감사 메시지 발송함 한 줄 (I3) */
+export function outboxRow(id: number, patch: Partial<OutboxRow> = {}): OutboxRow {
+  return {
+    id,
+    target: 'LIVE_CHAT',
+    broadcast: 'b1',
+    product: `b1/${String(id)}`,
+    buyer: 'UC_A',
+    text: `${String(id)}번 핑크프릴 10,000원 홍길동님 구매 감사합니다`,
+    state: 'SENT',
+    stateMessage: '게시됨',
+    reason: null,
+    reasonMessage: null,
+    attempts: 1,
+    nextAt: null,
+    postedAt: '2026-10-19T11:00:00.000Z',
+    messageId: 'm1',
+    manual: false,
+    groupWith: [],
+    confirmedBySeller: false,
+    dismissed: false,
+    dismissedAt: null,
+    ...patch,
+  }
+}
+
+/** 유튜브 연결 (I3) */
+export function connection(patch: Partial<YoutubeConnection> = {}): YoutubeConnection {
+  return {
+    status: 'CONNECTED',
+    channel: { id: 'UC_ME', title: '구피 채널' },
+    permissions: { read: true, publish: false },
+    consent: { liveChat: { enabled: false, at: null }, videoComment: { enabled: false, at: null } },
+    ...patch,
+  }
+}
+
+/** 유튜브 연동을 준비하지 않은 서버 (503) */
+export const youtubeNotConfigured: Reply = { status: 503, body: { error: { code: 'YOUTUBE_NOT_CONFIGURED', message: '유튜브 연동을 준비하지 않은 서버예요.' } } }
