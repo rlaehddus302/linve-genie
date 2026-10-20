@@ -524,7 +524,10 @@ export class InstagramDms {
     if (send === null) return
     const attempts = send.attempts + 1
     if (attempts > MAX_RETRIES) {
-      await updateSend(db, sellerId, sendId, { attempts }, this.#now())
+      const now = this.#now()
+      const sending = (await rowsOfSend(db, sellerId, sendId)).filter((row) => row.status === 'SENDING').map((row) => row.id)
+      await updateSend(db, sellerId, sendId, { attempts }, now)
+      await updateDmRows(db, sellerId, sending, { attempts }, now)
       return this.#fail(sellerId, sendId, 'GAVE_UP')
     }
     const now = this.#now()
