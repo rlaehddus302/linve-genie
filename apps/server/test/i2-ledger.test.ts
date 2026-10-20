@@ -1,4 +1,5 @@
 // AC-I2-20 판매대장 엑셀 내려받기, AC-I2-21 엑셀 글 칸 금지 글자(서버 경로), AC-I2-33 배송 칸, AC-I2-64 전체 판매대장
+import { stripXlsxForbidden } from '@livejjim/documents'
 import ExcelJS from 'exceljs'
 import { describe, expect, it } from 'vitest'
 import { at, chat, fileNameOf, getFile, kst, ok, pack, sellG201, sellG202 } from './i2-support.ts'
@@ -133,7 +134,11 @@ describe('AC-I2-21 엑셀 글 칸 금지 글자 (서버 경로)', () => {
     await ok(world, seller, { type: 'product.register', b: b.id, no: 1, name: '핑\uFFFE크', price: 1000 })
     await chat(world, seller, b.id, 'z1', 'UC_Z', '라\n울\uD800', '1')
     const rows = await readSheet((await getFile(world, seller.cookie, ledgerUrl('2026-10-19', '2026-10-19'))).bytes)
-    expect(rows[1]?.slice(1, 6)).toEqual(['1부', '1', '핑크', '1000', '라울'])
+    // 합친 뒤(main Y1·I3): 채팅 이름은 수집 경로가 먼저 정리해 기록한다(DOMAIN_RULES R-11, D-Y05 — 줄바꿈 같은 공백 문자 → 한 칸).
+    // 그래서 대장 칸은 정리한 이름 '라 울\uD800'에서 엑셀 금지 글자(짝 없는 서로게이트)만 뺀 '라 울'이다
+    expect(rows[1]?.slice(1, 6)).toEqual(['1부', '1', '핑크', '1000', '라 울'])
+    // 엑셀 글 칸 다듬기 자체는 정리 전 이름의 줄바꿈·짝 없는 서로게이트도 뺀다 (I2의 기대값 그대로 — Y1 전 기록·다른 경로의 글)
+    expect(stripXlsxForbidden('라\n울\uD800')).toBe('라울')
   })
 })
 

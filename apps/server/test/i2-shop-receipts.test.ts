@@ -244,7 +244,11 @@ describe('AC-I2-10 한 사람 확인서 — 데이터·PDF·PNG', () => {
       expect(header.match(/"/g)).toHaveLength(2) // filename="…" 한 쌍뿐
       names.push(fileNameOf(file.headers))
     }
-    expect(names).toEqual(['확인서-2026-10-19-abSet-Cookie_x.pdf', '확인서-2026-10-19-....x.pdf', `확인서-2026-10-19-${'가'.repeat(40)}.pdf`, '확인서-2026-10-19-구매자.pdf', '확인서-2026-10-19-abcdefghij_k.pdf'])
+    // 합친 뒤(main Y1·I3): 채팅 이름은 수집 경로가 먼저 정리해 기록한다(DOMAIN_RULES R-11, D-Y05 — 공백 문자 → 한 칸, 점 → 가운뎃점, 30자 넘으면 앞 30자 + …).
+    // 그래서 파일 이름은 정리한 이름을 다듬은 것이다 — 헤더 안전(줄바꿈·따옴표·/·\\ 없음)은 위에서 그대로 본다
+    expect(names).toEqual(['확인서-2026-10-19-ab_Set-Cookie_x.pdf', '확인서-2026-10-19-····x.pdf', `확인서-2026-10-19-${'가'.repeat(30)}….pdf`, '확인서-2026-10-19-구매자.pdf', '확인서-2026-10-19-abcdefghij_k.pdf'])
+    // 다듬기 함수 자체는 정리 전 이름에도 I2의 기대값 그대로다 (Y1 전 기록·다른 경로의 이름)
+    expect(nicks.map((nick) => `확인서-2026-10-19-${fileNamePart(nick, documentFont())}.pdf`)).toEqual(['확인서-2026-10-19-abSet-Cookie_x.pdf', '확인서-2026-10-19-....x.pdf', `확인서-2026-10-19-${'가'.repeat(40)}.pdf`, '확인서-2026-10-19-구매자.pdf', '확인서-2026-10-19-abcdefghij_k.pdf'])
     expect(fileNamePart('  ', documentFont())).toBe('구매자')
   })
 
