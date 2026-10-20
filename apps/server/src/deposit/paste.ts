@@ -61,7 +61,27 @@ const ROLES = Object.keys(HEADER_NAMES) as Role[]
 const AMOUNT_RE = /^([+-]?)((?:\d{1,3}(?:,\d{3})+)|\d+)원?$/
 const DATE_RE = /^(\d{4})(?:([-./])(\d{2})\2(\d{2})|(\d{2})(\d{2}))$/
 const TIME_RE = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/
-const DATE_TIME_RE = /^(\S+?)(?:\s+|T)(\S+)$/
+const SPACE_RE = /\s/
+
+/**
+ * 날짜와 시각을 함께 담은 일시 칸 → [날짜 부분, 시각 부분] (DP-2 4.2 "날짜와 시각 사이는 공백 하나 이상 또는 `T` 하나").
+ * 예전 정규식 `/^(\S+?)(?:\s+|T)(\S+)$/`과 같은 결과를 되추적 없이 한 번 훑어서 낸다(RA-N3-002 — 긴 칸 하나가 이벤트 루프를 막지 않게):
+ * 공백이 있으면 첫 공백 덩어리 앞·뒤(앞은 비지 않고 뒤에는 공백이 없어야 한다), 공백이 없으면 둘째 글자부터 찾은 첫 `T`의 앞·뒤(뒤가 비지 않아야 한다).
+ */
+export function splitDateTime(text: string): readonly [string, string] | null {
+  const space = text.search(SPACE_RE)
+  if (space >= 0) {
+    if (space === 0) return null
+    let end = space + 1
+    while (end < text.length && SPACE_RE.test(text[end] as string)) end++
+    const time = text.slice(end)
+    if (time === '' || SPACE_RE.test(time)) return null
+    return [text.slice(0, space), time]
+  }
+  const t = text.indexOf('T', 1)
+  if (t < 0 || t === text.length - 1) return null
+  return [text.slice(0, t), text.slice(t + 1)]
+}
 
 interface Amount {
   readonly sign: '' | '+' | '-'
@@ -163,10 +183,10 @@ function readTime(when: string, time: string | null): ReadTime | null {
   let date = readDate(when)
   let clock: ReturnType<typeof readClock>
   if (date === null) {
-    const parts = DATE_TIME_RE.exec(when)
+    const parts = splitDateTime(when)
     if (parts === null) return null
-    date = readDate(parts[1] as string)
-    clock = readClock(parts[2] as string)
+    date = readDate(parts[0])
+    clock = readClock(parts[1])
     if (date === null || clock === null) return null
   } else {
     if (time === null || time === '') return null
