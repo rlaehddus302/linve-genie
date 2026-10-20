@@ -144,3 +144,41 @@ LabelSwitchEntry = { enabled: boolean /* 바뀐 값 */, at: string /* UTC ISO �
 - coverage: 오케스트레이터의 D-906(main f4e5814, `vitest.coverage.config.ts` 시간 제한 30초)을 이 갈래에 그대로 가져왔다(`git cherry-pick -x`, [orch] 커밋 그대로). 시험·기준선·포함 범위는 그대로다.
 - `E2E_PORT_OFFSET=1300 pnpm verify` (025eda0, 부하 평균 20~54): typecheck·lint·golden(589)·adversarial(823)·e2e(304 모두 통과)·coverage(1403, 줄 100%·분기 99.66%) 통과. test 3165 중 1 실패 — `apps/server/test/changes.test.ts` AC-S05-61 무작위 속성 시험 60초 초과(서버 영역, 라벨과 무관). 같은 파일을 따로 돌리면 8/8 통과.
 - 남은 일: D-906대로 오케스트레이터가 다른 트랙 verify와 겹치지 않게 마지막 verify를 다시 돌리면 된다. 시간 제한을 늘리거나 시험을 고치지 않았다.
+
+## 수정 라운드 2 — dev-web (SA-N4a-04 · GATE-N4a-VERIFY)
+- **결론**: AC-S06-90의 Alt+1 실패는 화면 결함이 아니라 시험이 센 알림 수가 낡은 경쟁이다. 화면은 AC-S05-30("수와 내용은 서버 조회와 같다")·D-087(Alt+1 = 누른 순간의 첫 알림, 없으면 아무것도 열지 않음)대로 동작한다. 고칠 곳은 `tests/e2e/s06/phase1.spec.ts`(test-e2e 몫, CLAUDE.md 규칙 4)라 화면 코드는 바꾸지 않았다.
+- **같은 자료를 본다**: 알림 띠(`AlertStrip`)는 `alertCounts(data)`, Alt+1(`ConsolePage.tsx` 715행)은 `alertCounts(latest.current.data)` — `latest.current`는 그리는 순간에 넣는 같은 스냅샷이다. 띠에 "취소 요청 1"이 그려진 채로 Alt+1을 누르면 창이 열린다. 창이 없으려면 센 뒤 누르기 전에 자료가 바뀌어야 한다. N4a는 이 길(콘솔 저장소·되돌리기 띠·알림 수)을 바꾸지 않았다(`git diff BASE..HEAD`에 `console-store.ts`·`undo-queue.ts`·`AlertStrip.tsx`·`derive.ts` 없음, 출력 멈춤 가림은 라벨이 켜진 리허설에선 쓰이지 않음).
+- **실패 기록(trace, test-results/e2e/s06-phase1-…/trace.zip, 23:10 실행)에서 본 순서** (ms, 같은 시계):
+  - 126964 앞 처리에서 "1" → 2초 대기(E2E_HOST_DELAY_MS) → 129010 `POST /api/events` host.approveCancel 89번(seq 1032) 시작 = "초 뒤 보내요"가 "보내는 중…"으로 바뀜.
+  - 시험은 "초 뒤 보내요" 0개만 기다리고 바로 129125에 알림 수를 센다 — 응답 전이라 띠에는 89번의 "취소 요청 1"이 그대로(남은 마지막 처리 알림).
+  - 129171 응답 뒤 화면이 `GET /changes?since=1031`(103ms) → 약 129275에 seq 1032가 들어와 취소 요청이 0이 된다.
+  - 129344 Alt+1 — 이미 처리 알림이 없으니 창이 없다(맞는 동작). 실패 화면의 띠도 "보류 찜 263"뿐.
+  - 앞 반복들도 모두 POST 뒤 70~110ms에 세고 있었다. 다른 취소 요청이 남아 있어서 창이 열렸을 뿐이다. 마지막 남은 알림에서 자료가 센 때와 누른 때 사이에 오면 실패한다.
+- **같은 원인의 두 번째 실패 꼴**: 동기화가 Alt+1과 "1" 사이에 오면 창은 열렸다가 "지금 처리할 취소 요청이 없어요."(충돌 "지금 정할 충돌이 없어요." · 승계 "지금 정할 승계가 없어요.")로 바뀐다. 그러면 "1"이 누를 버튼이 없어 창이 남고 `toHaveCount(0)`가 실패한다. `tests/e2e/s05/rehearsal-full.spec.ts` 39~60행도 같은 꼴이다.
+- **test-e2e에게 요청하는 고침** (검사 그대로 — 띠에 처리 알림이 남아 있는데 Alt+1이 창을 열지 않으면 여전히 실패):
+  ```ts
+  async function handleOne(page: Page): Promise<boolean> {
+    const strip = page.getByRole('region', { name: '알림' })
+    const actionable = strip.getByRole('button', { name: /^(충돌|취소 요청|승계 결정 필요) \d+$/ })
+    const dlg = page.getByRole('dialog')
+    // 앞 조치가 서버에 닿을 때까지 — "초 뒤 보내요"가 사라진 것은 보내기 시작일 뿐이다(그 뒤 "보내는 중…")
+    await expect(page.getByRole('region', { name: '보내기 전 조치' }).getByText(/초 뒤 보내요|보내는 중/)).toHaveCount(0, { timeout: 15_000 })
+    for (let tries = 1; ; tries += 1) {
+      if ((await actionable.count()) === 0) return false
+      await page.getByLabel('빠른 입력').focus()
+      await page.keyboard.press('Alt+1')
+      // Alt+1은 누른 순간의 자료로 연다(D-087). 센 뒤 누르기 전에 변경이 와서 알림이 없어졌으면 창이 없는 게 맞다 → 다시 센다
+      if (await dlg.waitFor({ state: 'visible', timeout: 3_000 }).then(() => true, () => false)) break
+      if (tries === 3) await expect(dlg).toBeVisible() // 띠에 알림이 계속 있는데 세 번 모두 창이 없으면 화면 결함
+    }
+    // 연 뒤 같은 변경이 와서 알림이 없어졌으면 창은 "지금 … 없어요"만 보인다 → 닫고 다시 센다
+    const empty = dlg.getByText(/^지금 (정할 충돌|처리할 취소 요청|정할 승계)이 없어요\.$/)
+    if (await empty.isVisible()) {
+      await page.keyboard.press('Escape')
+      await expect(dlg).toHaveCount(0)
+      return true
+    }
+    // (이하 지금 그대로: 제목 → 승계면 1등으로 + 사유, 아니면 "1" → 창 0개 → "초 뒤 보내요" 0개)
+  ```
+  "1"을 누른 뒤에도 창이 남아 있고 그 창이 위 `empty` 문장이면 Escape로 닫는 줄을 더하면 두 번째 꼴까지 막힌다. "보내는 중" 대기만으로는 모자란다 — 화면은 응답을 받은 뒤 `store.sync`(증분 조회 한 번)로 자료를 받으므로 "보냈어요"와 띠 갱신 사이에도 100ms 남짓 틈이 있다. 다시 세기가 그 틈과 생성기 변경을 함께 덮는다.
+- **GATE-N4a-VERIFY**: 라운드 1 실패 둘 중 test 단계(`packages/voice` p99, SA-N4a-03)는 오케스트레이터가 main의 D-902 분리(`extract.perf.test.ts`, `pnpm perf`)를 합쳐(ad86adf) 게이트 밖으로 나갔다. 남은 e2e 실패는 위 SA-N4a-04다. 화면(web) 원인은 없어서 이번 라운드에 화면 코드를 고치지 않았다.
