@@ -7,6 +7,9 @@
 //   | chromium-prod-delay | 5174  | 3101  | 운영 값 5000 (대기 줄이지 않음)                  | 제목에 @prod-delay              |
 //   | chromium-fill       | 5175  | 3102  | --fill yes(오늘 실제 범위 상품 500·채팅 1만)     | 제목에 @fill                    |
 //   | chromium-no-test-printer | 5176 | 3103 | --test-printer no(시험 모드 끔 — 운영처럼 시험용 프린터 없음, AC-I1-50) | 제목에 @no-test-printer |
+//   | chromium-billing    | 5177  | 3104  | --billing yes(요금 기능 켬 + 시험 결제 — 가짜 결제 서버·가짜 발행기, N5 AC-N5-11·40) | 제목에 @billing |
+// - 요금 기능(N5): 기본 묶음들은 요금 기능이 꺼진 서버다(메뉴 "요금" 없음 — AC-N5-50의 꺼진 서버 시험은 기본 묶음에서 돈다).
+//   요금을 켠 시험은 제목에 @billing을 달아 chromium-billing에서만 돈다(실행마다 빈 메모리 DB — 시험 계정은 이용권 없이 시작한다).
 // - 시험용 프린터(I1): E2E 서버는 기본으로 시험 모드다(화면 연결 방법에 "시험용 프린터 — 실제로 출력되지 않아요"와 window.livejjimTestPrinter 손잡이).
 // - 리허설 생성기 시험 속도 E2E_CHAT_SPEED(기본 20 — 초당 50 설정이면 초당 1,000).
 // - 포트가 겹치면 E2E_PORT_OFFSET(예: 100)으로 모두 옮긴다.
@@ -41,10 +44,11 @@ interface Stack {
 }
 
 export const STACKS: readonly Stack[] = [
-  { name: 'chromium', web: 5173 + offset, api: 3100 + offset, serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`, grepInvert: /@prod-delay|@fill|@no-test-printer/ },
+  { name: 'chromium', web: 5173 + offset, api: 3100 + offset, serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`, grepInvert: /@prod-delay|@fill|@no-test-printer|@billing/ },
   { name: 'chromium-prod-delay', web: 5174 + offset, api: 3101 + offset, serverArgs: `--chat-speed ${chatSpeed}`, grep: /@prod-delay/ },
   { name: 'chromium-fill', web: 5175 + offset, api: 3102 + offset, serverArgs: `--fill yes --host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`, grep: /@fill/ },
   { name: 'chromium-no-test-printer', web: 5176 + offset, api: 3103 + offset, serverArgs: `--test-printer no --host-delay-ms ${hostDelay}`, grep: /@no-test-printer/ },
+  { name: 'chromium-billing', web: 5177 + offset, api: 3104 + offset, serverArgs: `--billing yes --host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`, grep: /@billing/ },
 ]
 
 export default defineConfig({
