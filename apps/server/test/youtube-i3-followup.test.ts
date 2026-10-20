@@ -1,11 +1,11 @@
 // AC-I3-85~88 Y1 남은 minor — 발송함 (YT-06, R-13 "응답 유실 대비", D-Y1-02·03·06, D-I3-17).
 // (85) 게시·조회 토큰은 그 방송을 이은 채널의 연결에서만 — 꺼내는 순간 채널이 다르면 보내지 않는다(주입점에서 채널을 바꿔도 다른 채널 이름의 글 0).
-// (86) 조회는 다음 쪽을 따라 그 시도 뒤의 글을 모두 본다(5쪽까지 — 다 못 보면 실패한 조회). (87) 이른 조회 1 + 끝 조회 3·간격 10초 이상(미룸도 셈).
+// (86) 조회는 다음 쪽을 따라 그 시도 뒤의 글을 모두 본다(5쪽까지 — 다 못 보면 실패한 조회, 실시간 채팅은 지점 없는 첫 쪽이 그 시도 전까지 거슬러 가야 — RA-I3-001). (87) 이른 조회 1 + 끝 조회 3·간격 10초 이상(미룸도 셈).
 // (88) 기다리는 중(다시 시도·묶음 창·할당량·다시 연결)에 채널이 바뀐 행.
 import { afterEach, describe, expect, it } from 'vitest'
 import { insertOwnMessage } from '../src/youtube/store.ts'
 import { client, expectOk, writeEvent } from './support.ts'
-import { approve, callback, connectSeller, drive, enableConsent, linkedBroadcast, youtubeWorld, type Connected, type YoutubeWorld } from './youtube-support.ts'
+import { approve, callback, connectSeller, drive, enableConsent, linkedBroadcast, until, youtubeWorld, type Connected, type YoutubeWorld } from './youtube-support.ts'
 
 const worlds: YoutubeWorld[] = []
 async function world(options: Parameters<typeof youtubeWorld>[0] = {}): Promise<YoutubeWorld> {
@@ -227,6 +227,55 @@ describe('AC-I3-86 조회는 그 시도 뒤의 글을 모두 본다', () => {
     await insertOwnMessage(w.database.db, { sellerId: connected.seller.sellerId, scopeId: scope?.rows[0]?.id ?? '', liveChatId, messageId: posted?.id ?? '', text: TEXT, publishedAt: new Date(w.timer.now()) })
     await runUntil(w, async () => (await rows(w, connected, b.date))[0]?.state === 'SENT')
     expect(w.fake.calls('liveChatMessages.insert')).toBe(1)
+  })
+})
+
+describe('RA-I3-001 실시간 채팅 조회 — 지점 없는 첫 쪽은 최근 메시지뿐(실제 API)', () => {
+  it('우리 글이 올라간 뒤 시청자 채팅 200개가 몰려 첫 쪽(최근 50개)에 우리 글이 없고 그 쪽이 그 시도 전까지 거슬러 가지 못함 → "못 찾음"이 아니라 실패한 조회 → 끝 조회 3번 → UNCONFIRMED, 다시 게시 0', async () => {
+    const w = await world()
+    const { connected, b, liveChatId } = await oneSale(w)
+    w.fake.backlogSize = 50
+    w.fake.fail('liveChatMessages.insert', { kind: 'acceptHang' })
+    await sale(w, connected, b.id, 'c1')
+    // 게시는 받아져 채팅에 올라갔다(응답 없음 — 10초 타임아웃). 그 사이 시청자 채팅 200개가 몰린다. 수집기는 돌지 않는다
+    const running = youtubeOf(w).outbox.runOnce()
+    await until(w, () => w.fake.calls('liveChatMessages.insert') >= 1)
+    expect(w.fake.messages(liveChatId).filter((message) => message.text === TEXT)).toHaveLength(1)
+    for (let i = 0; i < 200; i++) w.fake.addMessage(liveChatId, { author: `UCv${String(i)}`, name: `시청자${String(i)}`, text: `채팅 ${String(i)}` })
+    await drive(w, running)
+    expect((await rows(w, connected, b.date))[0]?.state).toBe('SENDING')
+    await runUntil(w, async () => (await rows(w, connected, b.date))[0]?.state === 'FAILED')
+    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'FAILED', reason: 'UNCONFIRMED' })
+    expect(w.fake.calls('liveChatMessages.insert')).toBe(1)
+    for (let i = 0; i < 3; i++) {
+      await w.timer.advance(60_000)
+      await run(w)
+    }
+    expect(w.fake.calls('liveChatMessages.insert')).toBe(1)
+    expect(w.fake.messages(liveChatId).filter((message) => message.text === TEXT)).toHaveLength(1)
+  })
+
+  it('첫 쪽이 그 시도 전 채팅까지 거슬러 가면 모두 본 조회 — 받지 않은 글은 실패 한 번 → 다시 시도로 1번 게시 (회귀)', async () => {
+    const w = await world()
+    const { connected, b, liveChatId } = await oneSale(w)
+    w.fake.backlogSize = 50
+    for (let i = 0; i < 100; i++) w.fake.addMessage(liveChatId, { author: `UCv${String(i)}`, name: `시청자${String(i)}`, text: `채팅 ${String(i)}`, publishedAt: w.timer.now() - 60_000 + i })
+    w.fake.fail('liveChatMessages.insert', { kind: 'hang' })
+    await sale(w, connected, b.id, 'c1')
+    await runUntil(w, async () => (await rows(w, connected, b.date))[0]?.state === 'SENT')
+    expect(w.fake.calls('liveChatMessages.insert')).toBe(2)
+    expect(w.fake.messages(liveChatId).filter((message) => message.text === TEXT)).toHaveLength(1)
+  })
+
+  it('채팅에 메시지가 하나도 없을 때(첫 쪽이 빔) 받지 않은 글은 모두 본 조회로 실패 한 번 → 다시 시도 (회귀)', async () => {
+    const w = await world()
+    const { connected, b, liveChatId } = await oneSale(w)
+    w.fake.backlogSize = 50
+    w.fake.fail('liveChatMessages.insert', { kind: 'hang' })
+    await sale(w, connected, b.id, 'c1')
+    await runUntil(w, async () => (await rows(w, connected, b.date))[0]?.state === 'SENT')
+    expect(w.fake.calls('liveChatMessages.insert')).toBe(2)
+    expect(w.fake.messages(liveChatId).filter((message) => message.text === TEXT)).toHaveLength(1)
   })
 })
 

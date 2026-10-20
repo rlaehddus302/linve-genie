@@ -8,7 +8,8 @@
 //   보고 기록이 실패하면 보고만 다시 한다(다시 게시하지 않는다).
 // - 타임아웃·연결 끊김(응답을 모름)은 바로 다시 보내지 않고 SENDING인 채 확인한다: 그 시도를 시작한 시각 − 5초 뒤 우리 채널이 같은 글을 올렸는지
 //   (수집기가 본 우리 메시지는 바퀴마다, 수집기가 LIVE가 아니면 이른 조회 한 번 — 영상·요약 댓글은 최근 댓글 이른 조회 한 번). 찾으면 SENT.
-//   다시 게시(실패 한 번)는 확인 시간(30초)이 끝난 뒤의 성공한 조회(끝 조회)로도 못 찾았을 때만 한다. 조회 실패는 "조회함"이 아니다 —
+//   다시 게시(실패 한 번)는 확인 시간(30초)이 끝난 뒤 그 시도 뒤의 글을 모두 본 조회(끝 조회)로도 못 찾았을 때만 한다(실시간 채팅은 지점 없는 첫 쪽이
+//   기준 시각까지 거슬러 가야 모두 본 것 — RA-I3-001). 조회 실패·다 보지 못한 조회는 "조회함"이 아니다 —
 //   끝 조회가 3번 실패하면 다시 게시하지 않고 FAILED(UNCONFIRMED), 게시 보고 없음, 판매자가 수동 재전송으로 고른다 (D-Y1-06).
 //   찾은 메시지는 이미 다른 묶음이 가진 것이면 고르지 않고, 같은 글을 확인하는 묶음끼리는 효과 순서대로 짝짓는다 (D-Y1-03, outbox-store claimRemote).
 //   서버가 SENDING 행을 남긴 채 죽었다 살아나면 그 행은 임대가 지난 뒤 확인부터 한다(확인 시간이 이미 지났으면 바로 끝 조회부터).
@@ -832,14 +833,16 @@ export class OutboxRunner {
       if (first.reason !== 'CONFIRM') return
       if (target === 'LIVE_CHAT' && (await this.#options.collectorRunning(first.sellerId, link.id))) return
       const lookup = await this.#lookup(first, link, target)
-      await this.#update(first, ids, { reason: lookup === null ? 'CONFIRM_LIST_FAILED' : 'CONFIRM_LISTED', nextAt: nextLookup }, { state: 'SENDING', leaseOwner: owner })
-      if (lookup !== null) await this.#claim(rows, link, target, lookup, 'SENDING')
+      await this.#update(first, ids, { reason: lookup === null || !lookup.complete ? 'CONFIRM_LIST_FAILED' : 'CONFIRM_LISTED', nextAt: nextLookup }, { state: 'SENDING', leaseOwner: owner })
+      if (lookup !== null) await this.#claim(rows, link, target, lookup.found, 'SENDING')
       return
     }
     // 3. 끝 조회 (확인 시간이 끝난 뒤, 3번까지): 그 시도 뒤의 글을 모두 본 조회로도 못 찾았을 때만 다시 게시한다.
     //    조회 실패·같은 글을 게시하는 중인 다른 묶음 때문에 짝짓기를 미룸은 모두 한 번으로 센다 — 3번 안에 정하지 못하면 UNCONFIRMED(다시 게시 없음)
+    //    다 보지 못한 조회(실시간 채팅의 첫 쪽이 기준 시각까지 거슬러 가지 못함·5쪽 상한)는 찾은 글로 짝지을 수는 있어도, 못 찾음은 실패한 조회다 (RA-I3-001)
     const lookup = await this.#lookup(first, link, target)
-    const outcome = lookup === null ? 'failed' : await this.#claim(rows, link, target, lookup, 'SENDING')
+    const claimed = lookup === null ? 'failed' : await this.#claim(rows, link, target, lookup.found, 'SENDING')
+    const outcome = claimed === 'none' && lookup !== null && !lookup.complete ? 'failed' : claimed
     if (outcome === 'sent' || outcome === 'gone') return
     if (outcome === 'none') {
       await this.#failAttempt(rows)
@@ -888,19 +891,25 @@ export class OutboxRunner {
   }
 
   /**
-   * 확인 조회 한 번 — 우리 채널이 쓴 같은 글 전부(그 시도 시작 − 5초 이후). 응답의 다음 쪽을 따라가 그 범위를 **모두 본** 경우만 결과다
-   * (D-I3-17 (2), AC-I3-86): 실시간 채팅은 받은 쪽이 꽉 차지 않을 때까지(요청한 최대 수보다 적게 옴), 댓글(최신순)은 기준 시각보다 이른 항목이
-   * 나올 때까지(다음 쪽이 없으면 끝), 많아야 5쪽. 5쪽으로 다 보지 못하면 실패한 조회(null)다. 쪽마다 할당량에 센다.
-   * 조회하지 못해도 null: 네트워크·시간 제한·5xx·429·속도 제한·할당량 초과·권한 없음·401 뒤 새로 고침 실패, 다시 연결 필요, 할당량 멈춤이라 부르지 않음,
+   * 확인 조회 한 번 — 우리 채널이 쓴 같은 글 전부(그 시도 시작 − 5초 이후). 응답의 다음 쪽을 따라가며(많아야 5쪽, 쪽마다 할당량에 센다) 찾은 글과
+   * 그 범위를 **모두 봤는지**(complete)를 돌려준다 (D-I3-17 (2), AC-I3-86). 못 찾음은 모두 본 조회일 때만 결과다 — 다 보지 못했으면 실패한 조회로 센다.
+   * - 실시간 채팅: 지점 없는 첫 쪽은 채팅 처음이 아니라 최근 메시지 몇 개(실제 API)이고 다음 쪽은 그 뒤로만 간다. 그래서 첫 쪽이 기준 시각까지 거슬러
+   *   가야(첫 쪽이 비었거나 — 그때 채팅에 메시지가 없었다 — 게시 시각을 아는 첫 항목이 기준 시각보다 이름) 그 뒤를 모두 본 것이다 (RA-I3-001).
+   *   그 뒤로 받은 쪽이 꽉 차지 않을 때까지(요청한 최대 수보다 적게 옴·다음 쪽 없음) 따라간다.
+   * - 댓글(최신순): 기준 시각보다 이른 항목이 나올 때까지(다음 쪽이 없으면 끝).
+   * - 5쪽으로 끝까지 가지 못하면 다 보지 못한 것이다.
+   * 조회하지 못하면 null: 네트워크·시간 제한·5xx·429·속도 제한·할당량 초과·권한 없음·401 뒤 새로 고침 실패, 다시 연결 필요, 할당량 멈춤이라 부르지 않음,
    * 그 방송을 이은 채널의 토큰을 꺼낼 수 없음(채널이 바뀜 — AC-I3-85)
    */
-  async #lookup(row: RunnerRow, link: LinkRow, target: OutboxTarget): Promise<RemoteCandidate[] | null> {
+  async #lookup(row: RunnerRow, link: LinkRow, target: OutboxTarget): Promise<{ readonly found: RemoteCandidate[]; readonly complete: boolean } | null> {
     const { connections, google, quota, log } = this.#options
     const text = row.sentText ?? ''
     const since = row.attemptAt === null ? 0 : row.attemptAt.getTime() - CONFIRM_SLACK_MS
     const pageSize = target === 'LIVE_CHAT' ? (this.#options.timing?.liveChatLookupPage ?? LIVE_CHAT_LOOKUP_PAGE) : COMMENT_LOOKUP_PAGE
     const found: RemoteCandidate[] = []
     let pageToken: string | null = null
+    /** 실시간 채팅: 첫 쪽이 기준 시각까지 거슬러 갔다 (댓글은 늘 참 — 최신순이라 기준 시각보다 이른 항목으로 끝을 안다) */
+    let reachedSince = target !== 'LIVE_CHAT'
     for (let page = 0; page < LOOKUP_MAX_PAGES; page++) {
       if ((await quota.mode(row.sellerId)) === 'PAUSED') return null
       let body: Record<string, unknown>
@@ -928,6 +937,8 @@ export class OutboxRunner {
       if (!Array.isArray(body.items)) return null
       const items = body.items as Record<string, unknown>[]
       let reachedOlder = false
+      /** 이 쪽에서 게시 시각을 아는 첫 항목의 시각 */
+      let firstPublished: number | null = null
       for (const item of items) {
         if (typeof item.id !== 'string') continue
         let author: unknown
@@ -938,6 +949,7 @@ export class OutboxRunner {
           author = ((item.authorDetails ?? {}) as Record<string, unknown>).channelId
           message = ((snippet.textMessageDetails ?? {}) as Record<string, unknown>).messageText
           published = Date.parse(typeof snippet.publishedAt === 'string' ? snippet.publishedAt : '')
+          if (firstPublished === null && Number.isFinite(published)) firstPublished = published
         } else {
           const top = (((item.snippet ?? {}) as Record<string, unknown>).topLevelComment ?? {}) as Record<string, unknown>
           const snippet = (top.snippet ?? {}) as Record<string, unknown>
@@ -948,12 +960,14 @@ export class OutboxRunner {
         }
         if (author === link.channelId && message === text && Number.isFinite(published) && published >= since) found.push({ id: item.id, publishedAt: published })
       }
+      // 지점 없는 첫 쪽: 비었으면 그때 채팅에 메시지가 없었고, 첫 항목이 기준 시각보다 이르면 그 뒤를 모두 이 쪽부터 본다
+      if (target === 'LIVE_CHAT' && page === 0) reachedSince = items.length === 0 || (firstPublished !== null && firstPublished < since)
       const next = typeof body.nextPageToken === 'string' && body.nextPageToken !== '' ? body.nextPageToken : null
-      // 그 시도 뒤의 글을 모두 봤다
-      if (target === 'LIVE_CHAT' ? items.length < pageSize || next === null : reachedOlder || next === null) return found
+      // 끝까지 갔다 (실시간 채팅은 첫 쪽이 기준 시각까지 거슬러 갔어야 모두 본 것이다)
+      if (target === 'LIVE_CHAT' ? items.length < pageSize || next === null : reachedOlder || next === null) return { found, complete: reachedSince }
       pageToken = next
     }
-    return null
+    return { found, complete: false }
   }
 
   // ── 방송 후 요약 댓글 (AC-Y1-46) ──────────────────────────────────────

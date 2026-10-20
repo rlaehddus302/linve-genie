@@ -201,6 +201,8 @@ async function namelessPair(w: YoutubeWorld) {
   const connected = await connectSeller(w, { publish: 'LIVE_CHAT' })
   const { b, liveChatId } = await linkedBroadcast(w, connected, { settings: { ...NO_LABEL, 'thanks.batchWindowSec': 0 } })
   await product(w, connected, b.id, 15, '핑크프릴', 10000, 2)
+  // 방송 채팅에는 감사 시도 전부터 올라온 시청자 채팅이 있다 — 지점 없는 조회의 첫 쪽이 그 시도 전까지 거슬러 가야 "모두 본" 조회다 (RA-I3-001)
+  w.fake.addMessage(liveChatId, { author: 'UCearly', name: '먼저 온 시청자', text: '안녕하세요', publishedAt: w.timer.now() - 60_000 })
   const second = () => chat(w, connected, b.id, 'v2', 'UCv2', 'ㅤㅤ', '15')
   await chat(w, connected, b.id, 'v1', 'UCv1', '​', '15')
   return { connected, b, liveChatId, second }
