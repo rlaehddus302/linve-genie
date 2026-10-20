@@ -294,5 +294,11 @@ interface MergePreview {
 
 ### GATE-S06b-VERIFY
 - e2e 실패 둘(TE-S06b-004)은 위 SA-S06b-002 고침으로 해결.
-- test 단계의 시각 시험 다섯 개(부하 아래 실패, SA-S06b-003)는 이번 배정 목록에 없다 — 웹 몫이 아니면 손대지 않는다(아래 검증 결과 참고).
+- test 단계의 시각 시험 다섯 개(부하 아래 실패, SA-S06b-003)는 core(`engine-properties-s03`·`engine-timing`)·server(`changes.test.ts`) 시험이라 웹 몫이 아니다 — 손대지 않았다. 아래 실행에서는 부하 평균 약 10에서도 통과했다(흔들림은 남아 있을 수 있다).
+
+### 검증 (dev-web 수정 라운드 2 끝, `TZ=Pacific/Honolulu E2E_PORT_OFFSET=830 pnpm verify`, 커밋 b7049f7)
+- **통과 7 · 실패 0 · 건너뜀 0**
+  - typecheck(설정 8 · TS 309) · lint(오류 0 · 경고 0) · test(파일 96 · 2191)
+  - golden(파일 23 · 파서 379 · 엔진 123 · 통과 502, 불일치·미구현·읽기 오류·결정성 위반·러너 오류 0)
+  - adversarial(파일 32 · 654) · e2e(파일 27 · 통과 169 — TE-S06b-004 둘 포함) · coverage(라인 100% · 분기 99.66%)
 
