@@ -53,6 +53,9 @@ function setup(events: Record<string, unknown>[] = []) {
 beforeEach(() => {
   vi.stubGlobal('EventSource', FakeEventSource)
   vi.stubGlobal('SpeechRecognition', FakeRecognition)
+  // PC 폭(48rem 이상) — 음성 카드의 Enter 등록은 PC 모양에서만이다(D-I4-03). jsdom에는 matchMedia가 없어
+  // 폭 훅이 휴대폰 모양으로 보므로(S06b 규칙), 다른 화면 시험처럼 PC 폭을 명시한다.
+  vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(min-width: 48rem)', media: query, addEventListener: () => {}, removeEventListener: () => {} }))
   FakeEventSource.reset()
   FakeRecognition.all.length = 0
   window.localStorage.clear()

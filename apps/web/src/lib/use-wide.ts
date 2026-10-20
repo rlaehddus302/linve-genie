@@ -6,8 +6,6 @@
 import { useSyncExternalStore } from 'react'
 
 export const WIDE_QUERY = '(min-width: 48rem)'
-/** matchMedia가 없는 환경의 대체 기준 (기본 글자 16px일 때 48rem) */
-const WIDE_FALLBACK_PX = 768
 
 function media(): MediaQueryList | null {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(WIDE_QUERY) : null
@@ -15,20 +13,17 @@ function media(): MediaQueryList | null {
 
 function subscribe(listener: () => void): () => void {
   const list = media()
-  if (list === null) {
-    window.addEventListener('resize', listener)
-    return () => window.removeEventListener('resize', listener)
-  }
+  if (list === null) return () => {}
   list.addEventListener('change', listener)
   return () => list.removeEventListener('change', listener)
 }
 
+/** matchMedia가 없으면(폭을 알 수 없는 환경) 휴대폰 모양 — 창 너비로 짐작하지 않는다(S06b 규칙) */
 function snapshot(): boolean {
-  const list = media()
-  return list === null ? typeof window !== 'undefined' && window.innerWidth >= WIDE_FALLBACK_PX : list.matches
+  return media()?.matches ?? false
 }
 
-/** 지금 PC 폭인가 (폭이 바뀌면 다시 그린다). 폭을 알 수 없는 환경(서버 그리기)이면 휴대폰 모양 */
+/** 지금 PC 폭인가 (폭이 바뀌면 다시 그린다). 폭을 알 수 없는 환경(서버 그리기·matchMedia 없음)이면 휴대폰 모양 */
 export function useWide(): boolean {
   return useSyncExternalStore(subscribe, snapshot, () => false)
 }
