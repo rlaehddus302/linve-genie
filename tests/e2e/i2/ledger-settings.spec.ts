@@ -69,7 +69,9 @@ test.describe('설정 화면 (AC-I2-02·65)', () => {
       await expect(phone.getByLabel('가게 이름')).toHaveValue('시험 가게')
       await expect(preview.getByText('확인서에 입금 계좌가 나오지 않아요.')).toBeVisible()
       await phone.getByLabel('은행').fill('농협')
-      await phone.getByRole('button', { name: '저장' }).click()
+      // 합친 뒤(main I3) 설정 화면에는 칸마다 "저장"이 있다(판매 규칙·배송비·감사 메시지) — 가게 칸의 것을 누른다
+      const shopSave = phone.getByRole('region', { name: '가게' }).getByRole('button', { name: '저장' })
+      await shopSave.click()
       await expect(phone.getByText('은행·계좌번호·예금주를 모두 적거나 모두 비워 주세요.')).toBeVisible()
       await expect(phone.getByLabel('계좌번호')).toHaveAttribute('aria-invalid', 'true')
       await phone.getByLabel('가게 이름').fill('초록다육')
@@ -78,7 +80,7 @@ test.describe('설정 화면 (AC-I2-02·65)', () => {
       await phone.getByLabel('입금 안내 문장').fill('문의 010-1234-5678')
       await expect(preview).toContainText('농협 302-9988-7766-11 (예금주 김판매)')
       await expect(preview).toContainText('문의 010-1234-5678')
-      await phone.getByRole('button', { name: '저장' }).click()
+      await shopSave.click()
       await expect(phone.getByText('저장했어요.')).toBeVisible()
       await expect(phone.getByRole('banner').getByText('초록다육')).toBeVisible()
       // 백업 부분
