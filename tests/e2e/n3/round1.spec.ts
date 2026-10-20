@@ -4,8 +4,8 @@
 // - 음성 이력 기다림(SA-N3-04 수정, AC-I4-40·D-I4-06): 켠 직후 이력을 받는 동안 말한 문장은 기록에 바로 남고, 이력을 받으면 이력 사전으로 카드가 된다.
 //   이력이 늦으면(2초 넘김) 카드를 잃지 않고 그때 사전으로 만든다.
 import { test, expect, type Page, type Route } from '@playwright/test'
-import { deposit, depositOne, depositRow, fakeSource, kstDate, kstIso, login, menu, noHorizontalScroll, phoneLike, scopeView, smsSale, todayKst, uniq } from './support.ts'
-import { card, installFakeSpeech, registerApi, speak, turnOnVoice, voiceRegion } from '../i4/support.ts'
+import { deposit, depositOne, depositRow, fakeSource, history, kstDate, kstIso, login, menu, noHorizontalScroll, phoneLike, scopeView, smsSale, todayKst, uniq } from './support.ts'
+import { card, installFakeSpeech, openNewBroadcast, registerApi, speak, turnOnVoice, uniqueDate, voiceRegion } from '../i4/support.ts'
 
 test.describe('묶음 찾기 범위 (수정 라운드 1)', () => {
   test('날짜를 고르지 않으면 입금 날짜 앞뒤(60일 안)의 묶음만 — 75일 전 묶음은 날짜를 골라 찾고 확정한다 (AC-N3-33·43)', async ({ page }) => {
@@ -179,6 +179,39 @@ test.describe('음성 — 이력을 받는 동안 말한 문장 (수정 라운�
     expect(gate.held()).toBe(1)
     await voiceRegion(page).getByRole('button', { name: '음성 끄기' }).click()
     gate.release()
+  })
+})
+
+test.describe('음성 — 이력을 받는 동안 미룬 문장과 자동 등록 설정 (TE-N3-004)', () => {
+  test('TE-N3-004: 자동 등록을 끈 채 말한 문장은, 이력을 기다리는 사이 자동 등록을 켜도 자동 등록 카드가 되지 않는다 (AC-I4-31 "설정을 끈 채 만든 카드", D-I4-05)', async ({ page }) => {
+    // 시계를 멈춰 2초 기다림이 끝나지 않게 한다 — 이력 응답은 붙잡아 두었다가 자동 등록을 켠 뒤 놓아준다
+    await installFakeSpeech(page, { consent: true, settings: { 'voice.autoConfirm': false, 'voice.autoConfirmSec': 5 } })
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.clock.install()
+    await login(page)
+    const waiting: Route[] = []
+    let open = false
+    await page.route((url) => url.pathname === '/api/days', async (route: Route) => {
+      if (open) return route.fallback()
+      waiting.push(route)
+    })
+    const date = uniqueDate()
+    await openNewBroadcast(page, { date, rehearsal: true })
+    await turnOnVoice(page)
+    const now = await page.evaluate(() => Date.now())
+    await page.clock.pauseAt(now + 500)
+    await expect.poll(() => waiting.length).toBe(1)
+    await speak(page, '15번 라울 만원') // 자동 등록이 꺼진 채 말함
+    const box = page.getByRole('region', { name: '음성 설정과 기록' }).getByRole('checkbox', { name: '확실한 카드는 자동으로 등록' })
+    await box.check()
+    open = true
+    for (const r of waiting.splice(0)) await r.fallback()
+    const c = card(page, '15번 라울 10,000원')
+    await expect(c).toBeVisible()
+    await expect(c.getByText(/초 뒤 자동 등록/)).toHaveCount(0)
+    await page.clock.runFor(10_000)
+    await expect(c).toBeVisible()
+    expect((await history(page, date, true)).filter((e) => e.type === 'product.register')).toEqual([])
   })
 })
 
