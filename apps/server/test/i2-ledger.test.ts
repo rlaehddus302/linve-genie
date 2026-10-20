@@ -193,3 +193,63 @@ describe('AC-I2-64 전체 판매대장 (실제 범위 전체 기간 — 366일 �
     expect((await readSheet(file.bytes)).slice(1).map((row) => row[3])).toEqual(['오래된', '최근'])
   })
 })
+
+describe('TD-I2-008 여러 날짜를 훑는 조회(기간·전체 판매대장, 지난 구매)는 서버 공용 범위 상태 캐시에 넣지 않는다', () => {
+  /** 상한 4인 서버: 판매자 A는 방송 중(오늘), 판매자 B는 지난 날짜 6일에 같은 채널 UC_X가 1등 */
+  async function busyServer() {
+    const world = await newWorld({ clock: fakeClock(kst('2026-10-01', '09:00:00')), runtimeCacheMax: 4 })
+    const a = await addSeller(world)
+    const b = await addSeller(world)
+    const days: string[] = []
+    for (let day = 1; day <= 6; day++) {
+      const date = `2026-10-0${String(day)}`
+      days.push(date)
+      at(world, date, '20:00:00')
+      const id = (await createBroadcast(world, b, { date, title: `${String(day)}일` })).id
+      await ok(world, b, { type: 'product.register', b: id, no: 1, name: '방울복랑', price: 5000 })
+      await chat(world, b, id, `x${String(day)}`, 'UC_X', '단골', '1')
+    }
+    at(world, '2026-10-19', '20:00:00')
+    const live = (await createBroadcast(world, a, { date: '2026-10-19', title: '1부' })).id
+    await ok(world, a, { type: 'product.register', b: live, no: 15, name: '핑크프릴', price: 10000 })
+    await chat(world, a, live, 'm1', 'UC_A', '홍길동', '15')
+    return { world, a, b, days, live }
+  }
+
+  it('B의 기간 판매대장·전체 판매대장·지난 구매 뒤에도 방송 중인 A의 범위 상태는 같은 객체로 남고, 캐시 크기는 늘지 않는다', async () => {
+    const { world, a, b, days } = await busyServer()
+    const before = await world.server.writer.read(a.sellerId, '2026-10-19', false)
+    const cached = world.server.writer.cachedScopes
+    expect(cached).toBeLessThanOrEqual(4)
+    const period = await getFile(world, b.cookie, ledgerUrl('2026-10-01', '2026-10-06'))
+    expect(period.status).toBe(200)
+    expect((await readSheet(period.bytes)).length).toBe(1 + days.length)
+    const all = await getFile(world, b.cookie, '/api/export/ledger.xlsx')
+    expect(all.status).toBe(200)
+    expect((await readSheet(all.bytes)).slice(1).map((row) => row[0])).toEqual(days)
+    const pastView = await client(world, b.cookie).get('/api/days/2026-10-06/past?buyer=UC_X')
+    expect(pastView.status).toBe(200)
+    expect((pastView.body.items as { date: string }[]).map((item) => item.date)).toEqual(['2026-10-05', '2026-10-04', '2026-10-03', '2026-10-02', '2026-10-01'])
+    expect(world.server.writer.cachedScopes).toBeLessThanOrEqual(cached)
+    expect(await world.server.writer.read(a.sellerId, '2026-10-19', false), 'A의 범위 상태가 B의 여러 날짜 조회 때문에 밀려났다').toBe(before)
+  }, 60_000)
+
+  it('readDetached: 메모리에 있으면 그 객체(최신까지), 없으면 같은 상태의 임시 객체를 만들고 메모리에 두지 않는다', async () => {
+    const { world, a, b } = await busyServer()
+    const writer = world.server.writer
+    const live = await writer.read(a.sellerId, '2026-10-19', false)
+    expect(await writer.readDetached(a.sellerId, '2026-10-19', false)).toBe(live)
+    // 메모리에서 내린 범위: 임시 객체 — 상태·seq는 보통 읽기와 같고, 캐시 크기는 그대로
+    writer.forget(b.sellerId, '2026-10-01', false)
+    const size = writer.cachedScopes
+    const detached = await writer.readDetached(b.sellerId, '2026-10-01', false)
+    expect(writer.cachedScopes).toBe(size)
+    expect(await writer.readDetached(b.sellerId, '2026-10-01', false)).not.toBe(detached)
+    const kept = await writer.read(b.sellerId, '2026-10-01', false)
+    expect(kept).not.toBe(detached)
+    expect([detached.seq, detached.scopeId, detached.state]).toEqual([kept.seq, kept.scopeId, kept.state])
+    // 범위가 없는 날짜: 빈 상태, 메모리에 두지 않는다
+    const none = await writer.readDetached(b.sellerId, '2026-09-30', false)
+    expect([none.seq, none.scopeId]).toEqual([0, null])
+  }, 60_000)
+})

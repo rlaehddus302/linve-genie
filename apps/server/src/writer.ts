@@ -293,6 +293,24 @@ export class ScopeWriter {
     })
   }
 
+  /**
+   * 여러 날짜를 훑는 조회용 범위 상태 (기간·전체 판매대장, 지난 구매의 다른 날짜 — TD-I2-008·SA-I2-008).
+   * 메모리에 있으면 그 상태를 최신 로그까지 따라잡아 쓰고, 없으면 스냅샷 + 뒤 이벤트로 임시 상태를 만들어 돌려주되 메모리에 두지 않는다.
+   * 모든 판매자가 함께 쓰는 상한 캐시에 넣지 않으므로, 한 판매자가 지난 날짜를 아무리 많이 읽어도 방송 중인 다른 판매자의 범위 상태를 밀어내지 않고
+   * 메모리도 한 번에 그 날짜 하나만큼만 잡는다(D-096의 원칙). 같은 범위의 쓰기와 겹치지 않게 범위 줄 안에서 읽는다. 돌려준 상태는 읽기만 한다.
+   */
+  readDetached(sellerId: string, date: string, rehearsal = false): Promise<ScopeRuntime> {
+    return this.serial(sellerId, date, rehearsal, async () => {
+      const { db, engine, log } = this.#options
+      const cached = this.#runtimes.get(scopeKey(sellerId, date, rehearsal))
+      if (cached !== undefined) {
+        await catchUp(db, cached, engine, log)
+        return cached
+      }
+      return loadRuntime(db, sellerId, date, rehearsal, engine, log, this.#options.changesWindow ?? DEFAULT_CHANGES_WINDOW)
+    })
+  }
+
   write(job: WriteJob): Promise<WriteOutcome> {
     return this.serial(job.sellerId, job.date, job.rehearsal, () => this.#write(job))
   }

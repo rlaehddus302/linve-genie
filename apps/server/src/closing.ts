@@ -237,11 +237,12 @@ export class ClosingService {
   /**
    * 실제 범위들의 대장 행 — 날짜마다 그 범위 하나로 buildLedger (배송 칸 = 그 묶음의 포장·배송 상태 말).
    * 범위마다 방송 날짜 = 범위 날짜라, 날짜 순으로 이어 붙인 행 = 여러 범위를 한 번에 넘긴 buildLedger의 행(방송 날짜 → 선언 순 → 번호 → 확정 순)이다.
-   * 범위 상태를 한꺼번에 메모리에 두지 않고, 날짜 사이마다 이벤트 루프에 차례를 넘긴다 (RA-I2-003)
+   * 범위 상태를 한꺼번에 메모리에 두지 않고, 날짜 사이마다 이벤트 루프에 차례를 넘긴다 (RA-I2-003).
+   * 날짜마다 범위 상태는 공용 캐시에 넣지 않는 읽기(readDetached)로 불러온다 — 전체 판매대장이 방송 중인 다른 판매자의 범위 상태를 밀어내지 않는다 (TD-I2-008)
    */
   async *#ledgerRows(sellerId: string, dates: readonly string[], from: string, to: string, selected: readonly string[] | null): AsyncGenerator<LedgerRow[]> {
     for (const date of dates) {
-      const runtime = await this.#deps.writer.read(sellerId, date, false)
+      const runtime = await this.#deps.writer.readDetached(sellerId, date, false)
       if (runtime.seq === 0 || runtime.scopeId === null) continue
       const { state, scopeId } = runtime
       const words: Map<string, { readonly status: PackingWord; readonly invoice: string | null }> = packingStatusByBuyer(state, date, await packingRows(this.#deps.db, sellerId, scopeId))
@@ -481,7 +482,9 @@ export class ClosingService {
 
   past(sellerId: string, date: string, buyer: string, before: string | null): Promise<PastView | null> {
     if (!isValidDate(date)) return Promise.resolve(null)
-    return pastPurchases({ db: this.#deps.db, read: (day) => this.#deps.writer.read(sellerId, day, false) }, sellerId, date, buyer, before)
+    // 보고 있는 날짜는 보통 읽기, 다른 날짜들은 공용 캐시에 넣지 않는 읽기 (TD-I2-008)
+    const writer = this.#deps.writer
+    return pastPurchases({ db: this.#deps.db, read: (day) => writer.read(sellerId, day, false), readOther: (day) => writer.readDetached(sellerId, day, false) }, sellerId, date, buyer, before)
   }
 
   // ── 상품 목록 가져오기 (AC-I2-51) ──────────────────────────────────────

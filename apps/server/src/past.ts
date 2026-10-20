@@ -60,8 +60,10 @@ const reasonOf = (marker: Marker): string => (marker.kind === 'channel' ? '같�
 
 export interface PastDeps {
   readonly db: Db
-  /** 그 날짜의 실제 범위 상태 (최신 로그까지) */
+  /** 그 날짜의 실제 범위 상태 (최신 로그까지) — 보고 있는 날짜 */
   readonly read: (date: string) => Promise<ScopeRuntime>
+  /** 다른 날짜의 실제 범위 상태 (최신 로그까지) — 여러 날짜를 훑으므로 서버 공용 캐시에 넣지 않는 읽기 (TD-I2-008) */
+  readonly readOther: (date: string) => Promise<ScopeRuntime>
 }
 
 /** 문자 구매자를 만든 문자찜의 전화번호 키 (그 구매자 ID = sms:<그 ref>, 판매자 ID 조건) */
@@ -205,7 +207,7 @@ export async function pastPurchases(deps: PastDeps, sellerId: string, date: stri
   const items: PastItem[] = []
   let more = false
   for (const day of days) {
-    const dayItems = await itemsOn(deps.db, sellerId, await deps.read(day), day, found.get(day) ?? [])
+    const dayItems = await itemsOn(deps.db, sellerId, await deps.readOther(day), day, found.get(day) ?? [])
     if (dayItems.length === 0) continue
     if (items.length >= PAST_PAGE_SIZE) {
       more = true
