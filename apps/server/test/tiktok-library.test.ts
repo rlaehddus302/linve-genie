@@ -132,8 +132,9 @@ describe('AC-N2b-1-02 연결기 판·라이선스 고정', () => {
     const BASE_DEPENDENCIES = new Set(['@electric-sql/pglite', '@hono/node-server', '@livejjim/core', '@livejjim/label', 'drizzle-orm', 'hono', 'postgres', '@types/node', 'vitest'])
     const PERMISSIVE = new Set(['MIT', 'ISC', 'BSD-2-Clause', 'BSD-3-Clause', 'Apache-2.0'])
     const server = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { dependencies: Record<string, string>; devDependencies: Record<string, string> }
-    const added = Object.entries({ ...server.dependencies, ...server.devDependencies }).filter(([name]) => !BASE_DEPENDENCIES.has(name))
-    expect(added.map(([name]) => name)).toEqual(['tiktok-live-connector'])
+    // 작업 공간 패키지(workspace:*)는 우리 코드라 라이선스 대상이 아니다. 다른 트랙이 더한 외부 의존성(I2의 exceljs 등)도 같은 검사를 받는다
+    const added = Object.entries({ ...server.dependencies, ...server.devDependencies }).filter(([name, spec]) => !BASE_DEPENDENCIES.has(name) && spec !== 'workspace:*')
+    expect(added.map(([name]) => name)).toContain('tiktok-live-connector')
     for (const [name, spec] of added) {
       expect(spec, name).toMatch(/^[0-9]+\.[0-9]+\.[0-9]+$/)
       const pkg = JSON.parse(readFileSync(requireFromServer.resolve(`${name}/package.json`), 'utf8')) as { license?: unknown }
