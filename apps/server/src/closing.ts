@@ -151,7 +151,8 @@ export class ClosingService {
   }
 
   async updateShop(sellerId: string, body: unknown): Promise<{ ok: true; shop: ShopView } | { ok: false; rejection: Rejection }> {
-    const checked = checkShopInput(body)
+    // 지금 이름 그대로면 길이를 다시 따지지 않는다 (계정 만들기가 받은 긴 이름 — SA-I2-006)
+    const checked = checkShopInput(body, (await readShop(this.#deps.db, sellerId)).name)
     if (!checked.ok) return checked
     await writeShop(this.#deps.db, sellerId, checked.value)
     // 다른 기기 화면이 확인서 미리 보기를 새로 받는다 (AC-I2-13) — 값은 알림에 넣지 않는다

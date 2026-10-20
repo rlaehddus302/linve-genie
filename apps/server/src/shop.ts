@@ -55,9 +55,11 @@ const rejection = (message: string, problems: readonly FieldProblem[]): Rejectio
 
 /**
  * PUT /api/shop 본문 검사: 다섯 칸(name·bank·accountNumber·accountHolder·accountNote) 모두 문자열로. 앞뒤 공백을 지운 뒤 길이를 센다.
- * 제어 글자가 있거나·모르는 칸·형식이 틀린 값·계좌 일부만이면 저장하지 않고 칸별 문제를 돌려준다
+ * 제어 글자가 있거나·모르는 칸·형식이 틀린 값·계좌 일부만이면 저장하지 않고 칸별 문제를 돌려준다.
+ * currentName = 지금 저장된 가게 이름. 가게 이름을 고치지 않았으면(앞뒤 공백을 지운 값이 같으면) 길이를 다시 따지지 않는다 —
+ * 계정 만들기 명령(accounts.ts)이 30글자보다 긴 이름을 받았던 판매자도 계좌만 적어 저장할 수 있다(TD-I2-004·SA-I2-006, D-I2-02의 1~30글자는 새로 적는 이름에 건다)
  */
-export function checkShopInput(body: unknown): { ok: true; value: ShopView } | { ok: false; rejection: Rejection } {
+export function checkShopInput(body: unknown, currentName: string | null = null): { ok: true; value: ShopView } | { ok: false; rejection: Rejection } {
   if (!isPlainObject(body)) return { ok: false, rejection: { status: 400, code: 'NOT_JSON', message: '보낸 내용의 형식이 올바르지 않아요.', problems: [] } }
   const extra = ownKeys(body).filter((key) => !(SHOP_FIELDS as readonly string[]).includes(key))
   if (extra.length > 0) return { ok: false, rejection: { status: 400, code: 'UNKNOWN_FIELD', message: '받을 수 없는 항목이 있어요.', problems: unknownFieldProblems(extra) } }
@@ -79,7 +81,8 @@ export function checkShopInput(body: unknown): { ok: true; value: ShopView } | {
   const check = (field: (typeof SHOP_FIELDS)[number], ok: boolean) => {
     if (!failed.has(field) && !ok) problems.push({ field, message: MESSAGES[field] })
   }
-  check('name', length(values.name) >= 1 && length(values.name) <= SHOP_NAME_MAX)
+  const unchangedName = currentName !== null && values.name !== '' && values.name === currentName.trim()
+  check('name', unchangedName || (length(values.name) >= 1 && length(values.name) <= SHOP_NAME_MAX))
   check('accountNote', length(values.accountNote) <= SHOP_NOTE_MAX)
   const accountFields = ['bank', 'accountNumber', 'accountHolder'] as const
   const filled = accountFields.filter((field) => values[field] !== '')

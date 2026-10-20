@@ -1,11 +1,12 @@
 // AC-I2-01 가게 설정, AC-I2-10~12 확인서(데이터·PDF·PNG·전원 PDF), AC-I2-81 개인정보 (서버 경로)
 import { buildReceipt, loadDocumentFont, renderReceiptPng, type ReceiptData } from '@livejjim/documents'
 import { describe, expect, it } from 'vitest'
+import { createSellerAccount } from '../src/accounts.ts'
 import { documentFont, fileNamePart } from '../src/files.ts'
 import { formatLog } from '../src/log.ts'
 import { replayGolden, fontBytes, pdfPageTexts } from '../../../packages/documents/test/helpers.ts'
 import { SHOP, at, chat, fileNameOf, getFile, kst, ok, putShop, sellG201, sellG202 } from './i2-support.ts'
-import { addSeller, client, countRows, createBroadcast, dumpAllTables, fakeClock, newWorld } from './support.ts'
+import { FAST_COST, addSeller, client, countRows, createBroadcast, dumpAllTables, fakeClock, login, newWorld, type Seller } from './support.ts'
 
 const CREATED = Date.UTC(2026, 9, 18, 14, 30, 0)
 const early = () => fakeClock(kst('2026-10-17', '09:00:00'))
@@ -72,6 +73,29 @@ describe('AC-I2-01 가게 설정 저장·조회', () => {
     expect((await putShop(world, seller, { ...SHOP, extra: 1 })).body.error).toMatchObject({ code: 'UNKNOWN_FIELD' })
     // 경계값은 받는다: 30·20·30·20·100글자, 이모지는 한 글자
     expect((await putShop(world, seller, { name: '🌵'.repeat(30), bank: '은'.repeat(20), accountNumber: '1'.repeat(30), accountHolder: '김'.repeat(20), accountNote: '가'.repeat(100) })).status).toBe(200)
+  })
+
+  it('SA-I2-006: 계정 만들기가 받은 30글자보다 긴 가게 이름은 고치지 않으면 그대로 저장된다(계좌만 적기) — 다른 이름으로 고치면 1~30글자', async () => {
+    const world = await newWorld()
+    const longName = '초록다육 다육이 전문 농장 직영 라이브 판매 공식 가게 본점'
+    expect([...longName].length).toBeGreaterThan(30)
+    const created = await createSellerAccount(world.database.db, Buffer.from(world.masterKey, 'base64'), { shopName: longName, loginId: 'longshop', password: 'correct-horse-1' }, { passwordCost: FAST_COST })
+    if (!created.ok) throw new Error(created.message)
+    const seller: Seller = { sellerId: created.sellerId, accountId: created.accountId, loginId: 'longshop', password: 'correct-horse-1', cookie: await login(world, 'longshop', 'correct-horse-1') }
+    const current = (await client(world, seller.cookie).get('/api/shop')).body.shop as Record<string, string>
+    // 이름 그대로 + 계좌 (앞뒤 공백은 지운 뒤 같은지 본다)
+    const saved = await putShop(world, seller, { ...current, name: ` ${longName} `, bank: '농협', accountNumber: '302-9988-7766-11', accountHolder: '김판매' })
+    expect(saved.status, saved.text).toBe(200)
+    expect(saved.body.shop).toEqual({ name: longName, bank: '농협', accountNumber: '302-9988-7766-11', accountHolder: '김판매', accountNote: '' })
+    // 다른 긴 이름으로 고치면 거절, 30글자 안으로 고치면 저장 — 그 뒤에는 긴 이름으로 돌아가지 못한다
+    const other = await putShop(world, seller, { ...SHOP, name: `${longName}2` })
+    expect(other.status).toBe(400)
+    expect(other.body.error).toMatchObject({ problems: [{ field: 'name', message: '가게 이름은 1~30글자로 적어 주세요.' }] })
+    expect((await putShop(world, seller, SHOP)).status).toBe(200)
+    expect((await putShop(world, seller, { ...SHOP, name: longName })).status).toBe(400)
+    // 빈 이름·제어 글자는 지금 이름과 상관없이 거절
+    expect((await putShop(world, seller, { ...SHOP, name: '  ' })).status).toBe(400)
+    expect((await putShop(world, seller, { ...SHOP, name: `${SHOP.name}\n` })).status).toBe(400)
   })
 
   it('휴대폰 번호 검사를 하지 않는다 — 계좌번호 010-1234-5678-90, 안내 문장 문의 010-1234-5678', async () => {
