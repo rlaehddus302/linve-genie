@@ -36,6 +36,7 @@ import {
   igDmRows,
   igDmSends,
   igOauthStates,
+  labelSwitches,
   labelTemplates,
   liveLinkMoves,
   liveLinks,
@@ -1101,7 +1102,7 @@ const BATCH = 500
  * (test/i2-restore-contract.test.ts가 마이그레이션을 적용한 실제 DB의 표·외래 키로 확인한다 — 다른 트랙의 표를 합치면 그 시험이 어디에 둘지 정하라고 알린다)
  * 합칠 때(I1·Y1·I3) 더한 표:
  * - 출력 기록(I1 — 시도·작업·라벨 키·출력 요청 번호·대기열): 범위를 참조하고 파일에 없다 — 지운다(복구한 기록의 효과는 다시 출력하지 않는다, restored).
- *   대기열 줄은 처음 출력할 때 다시 생긴다 — 출력 기기는 다시 정한다.
+ *   대기열 줄(print_queues)은 그대로 둔다 — 라벨 기능 켬/끔(N4a labels_enabled)·출력 기기 설정이 있다. 출력 중·멈춤 상태만 지운다(지운 작업을 기다리지 않게).
  * - 유튜브(Y1 — 채팅 본문·이름 chat_raw, 수집기·방송 잇기·우리 메시지·삭제·차단 알림): 범위를 참조한다 — 지운다. 채팅 본문·이름은 파일의 이벤트에서 다시 만든다.
  * - 인스타그램·라이브 연결(N2 — 감사 DM 행·발송, 라이브 연결·옮긴 기록, 이어지지 않은 댓글 수, 요청 번호): 범위·방송·발송함을 참조하거나 그 기록이다 — 지운다
  *   (복구한 지난 감사 DM을 다시 보내지 않는다).
@@ -1117,7 +1118,6 @@ export const RESTORE_REPLACED_TABLES = [
   printJobs,
   printLabels,
   printRequests,
-  printQueues,
   youtubeOwnMessages,
   youtubeNotices,
   youtubeCollectors,
@@ -1132,9 +1132,9 @@ export const RESTORE_REPLACED_TABLES = [
 ] as const
 /**
  * 복구가 그대로 두는 판매자 표: 판매자 행(가게 설정·판매 규칙 설정 칸만 파일의 것으로 바꾼다)·로그인 계정·세션 (AC-I2-62 "판매자 ID·로그인 계정·세션·전화번호 키는 그대로"),
- * 라벨 템플릿(I1 — 판매자 설정, 파일에 없다), 구글 연결·승인 요청·할당량 사용량(Y1 — 계정 연결과 그날 쓴 양, 파일에 없다), 인스타그램 연결·승인 요청(N2 — 계정 연결)
+ * 라벨 템플릿(I1 — 판매자 설정, 파일에 없다), 구글 연결·승인 요청·할당량 사용량(Y1 — 계정 연결과 그날 쓴 양, 파일에 없다), 인스타그램 연결·승인 요청(N2 — 계정 연결), 출력 대기열 줄·라벨 기능 켬/끔 기록(I1·N4a — 판매자 설정, 대기열의 출력 중·멈춤 상태는 복구가 지운다)
  */
-export const RESTORE_KEPT_TABLES = [sellers, accounts, sessions, labelTemplates, youtubeConnections, youtubeOauthStates, youtubeQuota, igConnections, igOauthStates] as const
+export const RESTORE_KEPT_TABLES = [sellers, accounts, sessions, labelTemplates, youtubeConnections, youtubeOauthStates, youtubeQuota, igConnections, igOauthStates, printQueues, labelSwitches] as const
 /** 판매자 데이터가 아닌 표 (로그인 전 시도 수 — 판매자 ID가 없다) */
 export const RESTORE_UNRELATED_TABLES = [loginLimits] as const
 
@@ -1202,6 +1202,8 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
       const nowExisting = await tx.select({ id: scopes.id }).from(scopes).where(eq(scopes.sellerId, sellerId))
       if (nowExisting.length > 0 && !options.replace) throw new RestoreAbort(RESTORE_MESSAGES.needReplace)
       for (const table of RESTORE_REPLACED_TABLES) await tx.delete(table).where(eq(table.sellerId, sellerId))
+      // 출력 대기열 줄은 남긴다(라벨 기능 켬/끔·출력 기기) — 지운 작업을 기다리는 출력 중·멈춤 상태만 지운다 (D-I2-14)
+      await tx.update(printQueues).set({ releasing: false, paused: null, backlog: false, rev: sql`${printQueues.rev} + 1`, updatedAt: now }).where(eq(printQueues.sellerId, sellerId))
       await tx
         .update(sellers)
         .set({ name: summary.shop.name.trim(), shop: shopJson(summary.shop), settings: JSON.stringify(summary.settings) })
