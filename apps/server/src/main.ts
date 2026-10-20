@@ -3,16 +3,20 @@
 // - DB 연결 설정(DATABASE_URL 또는 개발용 LIVEJJIM_PGLITE_DIR)·서버 마스터 키(LIVEJJIM_MASTER_KEY)·화면 앱 주소(LIVEJJIM_APP_ORIGIN)가
 //   없거나 틀리면 쉬운 문장으로 알리고 시작하지 않는다(값은 출력하지 않는다). 메모리 DB로 조용히 바꾸지 않는다.
 // - 시작할 때 마이그레이션을 적용한다.
+// - 유튜브 연동(LIVEJJIM_GOOGLE_*)은 선택이다. 적었으면 주소는 https만 받는다(아니면 시작하지 않는다, AC-Y1-72). 워커(수집기·발송함·봉인)를 함께 돌린다.
+// - 배포·운영 (I3, AC-I3-72): 앱 주소는 https만(내 컴퓨터 시험은 http://localhost), 운영 토큰(LIVEJJIM_OPS_TOKEN)은 32자 이상, 믿는 프록시 수
+//   (LIVEJJIM_TRUSTED_PROXIES)는 0~5, 화면 폴더(LIVEJJIM_WEB_DIR)에는 index.html — 아니면 시작하지 않는다. 화면 폴더가 있으면 같은 출처로 함께 낸다.
 // - 기동 로그에 환경변수 값을 찍지 않는다.
 // - Ctrl+C(SIGINT)·SIGTERM이면 새 연결을 받지 않고 진행 중인 요청을 마친 뒤 종료 코드 0으로 끝난다.
 //   한 번 더 누르면 바로 끝낸다.
 import { existsSync } from 'node:fs'
-import { DEFAULT_PORT, readAppOrigin, readDatabaseSetting, readPort } from './config.ts'
+import { DEFAULT_PORT, readAppOrigin, readDatabaseSetting, readDeploySetting, readPort, readYoutubeSetting } from './config.ts'
 import { createNodeServer } from './node-server.ts'
 import { openDatabaseFromEnv } from './commands/shared.ts'
 import { productionServerOptions } from './production.ts'
 import { readMasterKey } from './secrets.ts'
 import { createServer } from './server.ts'
+import { webDirProblem } from './web.ts'
 
 /** 종료를 요청한 뒤 남은 연결을 강제로 끊기까지 기다리는 시간 */
 const FORCE_CLOSE_AFTER_MS = 5000
@@ -39,6 +43,16 @@ if (!origin.ok) {
   complain(`시작하지 못했어요. ${origin.message}`)
   process.exit(1)
 }
+const deploy = readDeploySetting(process.env, origin.origin, webDirProblem)
+if (!deploy.ok) {
+  complain(`시작하지 못했어요. ${deploy.message}`)
+  process.exit(1)
+}
+const youtubeSetting = readYoutubeSetting(process.env, origin.origin)
+if (!youtubeSetting.ok) {
+  complain(`시작하지 못했어요. ${youtubeSetting.message}`)
+  process.exit(1)
+}
 const databaseSetting = readDatabaseSetting(process.env)
 if (!databaseSetting.ok) {
   complain(`시작하지 못했어요. ${databaseSetting.message}`)
@@ -50,14 +64,23 @@ if (database === null) {
   process.exit(1)
 }
 
-// 운영 옵션은 productionServerOptions로만 만든다 — 시험 모드 신호(시험용 프린터)는 늘 꺼져 있다 (AC-I1-16)
+// 운영 옵션은 productionServerOptions로만 만든다 — 시험 모드 신호(시험용 프린터)는 늘 꺼져 있다 (AC-I1-16).
+// 그 위에 배포·운영 설정(I3, AC-I3-72)과 유튜브 연동(Y1)을 더한다 — 둘 다 위에서 이미 확인했다
 const assembled = productionServerOptions(process.env, database)
 if (!assembled.ok) {
   complain(`시작하지 못했어요. ${assembled.message}`)
   await database.close()
   process.exit(1)
 }
-const livejjim = createServer(assembled.options)
+const livejjim = createServer({
+  ...assembled.options,
+  trustedProxies: deploy.trustedProxies,
+  ...(deploy.opsToken === null ? {} : { opsToken: deploy.opsToken }),
+  ...(deploy.webDir === null ? {} : { webDir: deploy.webDir }),
+  ...(youtubeSetting.youtube === null ? {} : { youtube: youtubeSetting.youtube }),
+})
+// 워커: 유튜브 수집기·발송함(설정이 있을 때), 30일 봉인 작업 — 끝나지 않은 회차의 수집기가 저절로 다시 돈다 (NFR-03)
+livejjim.start()
 const server = createNodeServer({ app: livejjim.app })
 
 // PORT 환경변수 값은 로그에 찍지 않는다. 기본값일 때만 번호를 보여 준다.

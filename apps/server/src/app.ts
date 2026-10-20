@@ -1,10 +1,12 @@
 // HTTP 앱 (AC-S00-40, AC-S00-41, AC-S04-40~60). 포트를 열지 않는다: 기동은 main.ts, 노드 HTTP 연결은 node-server.ts가 맡는다.
 // 테스트는 app.request(...)로 프로세스 안에서 요청한다. /api는 서버(createServer)가 DB·서비스를 넘길 때만 붙는다.
-import { Hono } from 'hono'
+import { createHash, timingSafeEqual } from 'node:crypto'
+import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { createApi, type ApiDeps } from './api.ts'
-import { errorResponse } from './errors.ts'
+import { JSON_CONTENT_TYPE, errorResponse } from './errors.ts'
 import { errorKind, formatLog } from './log.ts'
+import { isServerPath, type WebServer } from './web.ts'
 
 export type ErrorLogger = (error: unknown) => void
 
@@ -13,6 +15,45 @@ export interface AppOptions {
   readonly logError?: ErrorLogger
   /** /api 경로 (S04). 없으면 헬스체크만 있다 */
   readonly api?: ApiDeps
+  /** 앱 주소가 https면 HSTS를 붙인다 (AC-I3-71) */
+  readonly https?: boolean
+  /** 화면 빌드를 같은 출처로 낸다 (LIVEJJIM_WEB_DIR, AC-I3-70). 없으면 화면 없음 */
+  readonly web?: WebServer | null
+  /** 준비 확인 /health/ready: DB가 2초 안에 답하는지 (AC-I3-80). 없으면 그 경로 없음 */
+  readonly ready?: () => Promise<boolean>
+  /** 운영 상태 /ops/status (AC-I3-81): 토큰(없으면 404)과 합친 숫자 */
+  readonly ops?: { readonly token: string | null; readonly status: () => Promise<Record<string, unknown>> }
+}
+
+/** 모든 응답의 보안 머리글 (AC-I3-71) */
+export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'X-Frame-Options': 'DENY',
+}
+export const HSTS_HEADER = 'max-age=31536000'
+
+/** 운영 토큰 일정 시간 비교 (길이도 드러내지 않게 해시를 견준다) */
+export function bearerMatches(header: string | undefined, token: string): boolean {
+  const match = /^Bearer (\S+)$/.exec(header ?? '')
+  const given = createHash('sha256').update(match?.[1] ?? '', 'utf8').digest()
+  const expected = createHash('sha256').update(token, 'utf8').digest()
+  return timingSafeEqual(given, expected) && match !== null
+}
+
+function jsonNoStore(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': JSON_CONTENT_TYPE, 'Cache-Control': 'no-store' } })
+}
+
+/** 응답에 머리글을 붙인다 (머리글을 바꿀 수 없는 응답이면 복사해서) */
+function withHeaders(c: Context, headers: Readonly<Record<string, string>>): void {
+  try {
+    for (const [name, value] of Object.entries(headers)) c.res.headers.set(name, value)
+  } catch {
+    const copy = new Response(c.res.body, c.res)
+    for (const [name, value] of Object.entries(headers)) copy.headers.set(name, value)
+    c.res = copy
+  }
 }
 
 /**
@@ -40,6 +81,13 @@ const HEALTH_ALLOW = 'GET, HEAD'
 export function createApp(options: AppOptions = {}): Hono {
   const logError = safeLogger(options.logError ?? defaultLogError)
   const app = new Hono()
+  const securityHeaders = options.https === true ? { ...SECURITY_HEADERS, 'Strict-Transport-Security': HSTS_HEADER } : SECURITY_HEADERS
+
+  // 모든 응답(화면·API·헬스·오류)에 보안 머리글 (AC-I3-71)
+  app.use(async (c, next) => {
+    await next()
+    withHeaders(c, securityHeaders)
+  })
 
   // Hono의 onError는 Error 인스턴스만 받는다. 처리기가 Error가 아닌 값을 던져도 JSON 500으로 끝나게 한다.
   app.use(async (_c, next) => {
@@ -56,7 +104,32 @@ export function createApp(options: AppOptions = {}): Hono {
   app.get('/health', (c) => c.json({ status: 'ok' }))
   app.all('/health', () => errorResponse(405, { Allow: HEALTH_ALLOW }))
 
+  // 준비 확인 (AC-I3-80): DB에 가벼운 질의가 2초 안에 되면 200, 아니면 503 — 이유·오류 문장 없음. 세션·Origin 필요 없음
+  const ready = options.ready
+  if (ready !== undefined) {
+    app.get('/health/ready', async () => ((await ready()) ? jsonNoStore({ status: 'ready' }, 200) : jsonNoStore({ status: 'not_ready' }, 503)))
+    app.all('/health/ready', () => errorResponse(405, { Allow: HEALTH_ALLOW }))
+  }
+
+  // 운영 상태 (AC-I3-81): 토큰 설정이 없으면 일반 404와 같다. 있으면 Bearer 토큰이 같을 때만 — 다르거나 없으면 같은 401(힌트 없음)
+  const ops = options.ops
+  if (ops !== undefined) {
+    app.get('/ops/status', async (c) => {
+      if (ops.token === null) return errorResponse(404)
+      if (!bearerMatches(c.req.header('authorization'), ops.token)) return jsonNoStore({ error: { code: 'UNAUTHORIZED', message: '운영 토큰이 필요해요.' } }, 401)
+      return jsonNoStore(await ops.status(), 200)
+    })
+    app.all('/ops/status', () => (ops.token === null ? errorResponse(404) : errorResponse(405, { Allow: HEALTH_ALLOW })))
+  }
+
   if (options.api !== undefined) app.route('/api', createApi(options.api))
+
+  // 화면 (AC-I3-70): /api·/health·/ops 밖의 GET·HEAD는 화면 빌드에서, 그 밖의 메서드는 405
+  const web = options.web ?? null
+  if (web !== null) {
+    app.on(['GET', 'HEAD'], '*', (c) => (isServerPath(c.req.path) ? errorResponse(404) : web.serve(c)))
+    app.all('*', (c) => (isServerPath(c.req.path) ? errorResponse(404) : errorResponse(405, { Allow: HEALTH_ALLOW })))
+  }
 
   app.notFound(() => errorResponse(404))
 

@@ -81,8 +81,9 @@ export function ConfirmDialog({ spec, onClose }: { readonly spec: ConfirmSpec; r
     <Modal
       title={spec.title}
       onClose={onClose}
+      {...(spec.closeLabel === undefined ? {} : { closeLabel: spec.closeLabel })}
       actions={
-        <button type="button" className="button button-danger" disabled={busy} onClick={() => void confirm()}>
+        <button type="button" className={spec.tone === 'primary' ? 'button button-primary' : 'button button-danger'} disabled={busy} onClick={() => void confirm()}>
           {busy ? '보내는 중…' : spec.confirmLabel}
         </button>
       }

@@ -1,0 +1,25 @@
+# 컨테이너 이미지에 넣지 않는 것 (AC-I3-73): 비밀값·저장소 기록·의존성 폴더(이미지 안에서 다시 설치)·시험·하네스
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+**/node_modules
+test-results
+playwright-report
+tests
+harness
+.claude
+coverage
+**/coverage
+**/dist
+**/.vite
+apps/server/test
+apps/server/e2e
+apps/web/e2e
+apps/web/test
+packages/*/test
+scripts
+docs
+*.log
+.DS_Store

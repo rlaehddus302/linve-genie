@@ -8,6 +8,7 @@
 //  5. effect.labelPrinted는 효과마다 하나이고, 그 집합 = 출력함이 된 자동 효과(라벨 키의 효과 ID) 집합
 //  6. 받은 상품 라벨 데이터 = 그 시점 상태로 손으로 계산한 L-9 값 (구매자는 라벨 키가 처음 생긴 때의 이름)
 import { applyEvent, getBuyer, getProduct, initEngine, listClaims, listEffects, type ClaimInfo, type EngineEvent, type EngineState } from '@livejjim/core'
+import { mergeRaw } from '@livejjim/server'
 import fc from 'fast-check'
 import { afterEach, describe, expect, it } from 'vitest'
 import { DAY, DEV_A, DEV_B, call, chat, harness, printer, rid, startBroadcast, type Claimed, type Harness } from './helpers.ts'
@@ -83,16 +84,19 @@ interface LabelRowLite {
   effect_id: string | null
 }
 
+/** 기록을 빈 엔진부터 재생한다 — 채팅 본문·이름은 chat_raw에 따로 있으므로(Y1, AC-Y1-60) 서버 재생과 같이 합친 본문으로 */
 async function replay(h: Harness, sellerId: string): Promise<EngineState> {
   const rows =
     (
-      await h.database.pglite?.query<{ body: string; failed: boolean }>(
-        `select e.body, e.failed from events e join scopes s on s.id = e.scope_id where e.seller_id = $1 and s.date = $2 and s.rehearsal = false order by e.seq`,
+      await h.database.pglite?.query<{ body: string; failed: boolean; nick: string | null; text: string | null }>(
+        `select e.body, e.failed, r.nick, r.text from events e join scopes s on s.id = e.scope_id
+           left join chat_raw r on r.scope_id = e.scope_id and r.seq = e.seq and r.seller_id = e.seller_id
+         where e.seller_id = $1 and s.date = $2 and s.rehearsal = false order by e.seq`,
         [sellerId, DAY],
       )
     )?.rows ?? []
   let state: EngineState = initEngine({ broadcasts: [], settings: {} })
-  for (const row of rows) if (!row.failed) state = applyEvent(state, JSON.parse(row.body) as EngineEvent).state
+  for (const row of rows) if (!row.failed) state = applyEvent(state, JSON.parse(mergeRaw(row.body, row.nick, row.text)) as EngineEvent).state
   return state
 }
 
