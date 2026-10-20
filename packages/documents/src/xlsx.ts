@@ -1,8 +1,10 @@
 // 엑셀 판매대장 파일 (STL-06, D-208, NFR-06): 시트 하나 "판매대장", 첫 줄 = 열 이름 11개(틀 고정).
 // 상품 번호·가격은 수 칸(가격 서식 #,##0), 나머지는 글 칸, 빈 값은 빈 칸. 글 값은 늘 글 칸이다 —
 // `=`·`+`·`-`·`@`로 시작하는 닉네임·품종도 수식이 되지 않는다(파일을 연 판매자 PC에서 실행되지 않게).
+// I2 (D-I2-03, TD-P2-003): 글 칸에는 엑셀이 받지 않는 글자(제어 글자·U+FFFE·U+FFFF·짝 없는 서로게이트)를 빼고 쓴다 — 한 글자 때문에 파일 전체가 열리지 않으면 대장을 못 쓴다.
 import ExcelJS from 'exceljs'
 import { LEDGER_COLUMNS, LEDGER_SHEET_NAME, ledgerRowValues, type LedgerRow } from './ledger.ts'
+import { stripXlsxForbidden } from './text.ts'
 
 const NUMBER_COLUMNS = new Set([3, 5])
 const PRICE_COLUMN = 5
@@ -30,8 +32,9 @@ export async function ledgerToXlsx(rows: readonly LedgerRow[]): Promise<Uint8Arr
         if (column === PRICE_COLUMN) cell.numFmt = '#,##0'
         return
       }
-      // 글 값은 글 칸으로만 — 수식 객체로 넣지 않는다
-      cell.value = String(value)
+      // 글 값은 글 칸으로만 — 수식 객체로 넣지 않는다. 금지 글자를 빼서 비면 빈 칸
+      const text = stripXlsxForbidden(String(value))
+      if (text !== '') cell.value = text
     })
   }
   const buffer = await workbook.xlsx.writeBuffer()

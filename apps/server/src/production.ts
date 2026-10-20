@@ -2,6 +2,8 @@
 // - 시험 모드 신호(testPrinter — 화면이 시험용 프린터를 켠다)는 어떤 환경변수·옵션으로도 켜지 않는다: 늘 false (L-11 15, D-I1-06).
 //   시험용 프린터는 E2E 기동(e2e.ts startE2eServer)만 켠다.
 // - 방송자 조치 대기 시간·리허설 생성기 속도도 운영 값 그대로다(E2E 기동만 바꾼다).
+// - 인스타그램 연동 설정(LIVEJJIM_IG_* — N2, instagram/config.ts)을 읽는다. 필수 값이 없으면 설정 없음(서버는 정상으로 시작, 인스타그램은 NOT_CONFIGURED).
+//   운영 기동은 가짜 메타 서버를 쓰지 않는다(가짜 서버는 시험·E2E 기동만, D-N2-11).
 // - 요금(N5): LIVEJJIM_BILLING(on|off, 기본 off)·LIVEJJIM_BILLING_PRICES(요금 표 JSON 파일)·PORTONE_*(포트원 V2). 결제 어댑터는 포트원 V2,
 //   증빙 발행기는 "없음"(팝빌 자리). 시험 결제(가짜 결제 서버·가짜 발행기·시험 경로)는 운영 구성에 없다.
 //   켜져 있는데 요금 표가 자리 표시이거나 포트원 설정이 비어 있으면 기동하지 않는다.
@@ -12,13 +14,14 @@ import { PortOneGateway } from './billing/portone.ts'
 import type { BillingSetup } from './billing/service.ts'
 import { readAppOrigin } from './config.ts'
 import type { Database } from './db/database.ts'
+import { readInstagramConfig } from './instagram/config.ts'
 import { readMasterKey } from './secrets.ts'
 import type { ServerOptions } from './server.ts'
 
 export type ProductionOptions = { readonly ok: true; readonly options: ServerOptions } | { readonly ok: false; readonly message: string }
 
 /**
- * 환경변수(LIVEJJIM_MASTER_KEY·LIVEJJIM_APP_ORIGIN·요금 설정)와 연 DB로 운영 서버 옵션을 만든다. 그 밖의 환경변수는 읽지 않는다.
+ * 환경변수(LIVEJJIM_MASTER_KEY·LIVEJJIM_APP_ORIGIN·LIVEJJIM_IG_*·요금 설정)와 연 DB로 운영 서버 옵션을 만든다. 그 밖의 환경변수는 읽지 않는다.
  * readFile은 요금 표 파일 읽기 (시험에서 바꿔 끼운다)
  */
 export function productionServerOptions(
@@ -30,6 +33,8 @@ export function productionServerOptions(
   if (!masterKey.ok) return { ok: false, message: masterKey.message }
   const origin = readAppOrigin(env)
   if (!origin.ok) return { ok: false, message: origin.message }
+  const instagram = readInstagramConfig(env)
+  if (!instagram.ok) return { ok: false, message: instagram.message }
   const billingEnv = readBillingEnv(env, readFile)
   if (!billingEnv.ok) return { ok: false, message: billingEnv.message }
   const { enabled, prices, portone } = billingEnv.billing
@@ -43,5 +48,5 @@ export function productionServerOptions(
     publicKeys: enabled ? { storeId: portone.storeId, channelKey: portone.channelKey } : null,
     test: null,
   }
-  return { ok: true, options: { database, masterKey: masterKey.key, appOrigin: origin.origin, testPrinter: false, billing } }
+  return { ok: true, options: { database, masterKey: masterKey.key, appOrigin: origin.origin, testPrinter: false, instagram: instagram.settings, billing } }
 }

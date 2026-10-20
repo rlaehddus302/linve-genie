@@ -1,13 +1,15 @@
-// 화면 위 줄 (AC-S05-01, AC-S06-01·51·52, AC-I1-20·34, AC-I3-44·63): 가게 이름, 프린터 상태(누르면 라벨 화면), 메뉴("방송"·"문자찜 입력"·"구매자"·"정산"·"라벨"·"설정" —
+// 화면 위 줄 (AC-S05-01, AC-S06-01·51·52, AC-I1-20·34, AC-I3-44·63, AC-N4a-10·13·18, I2 AC-I2-02·35): 가게 이름, 프린터 상태(누르면 라벨 화면), 메뉴("방송"·"문자찜 입력"·"구매자"·"정산"·"포장"·"라벨"·"설정" —
 // 지금 화면은 aria-current="page"), 앱 설치 안내, 로그아웃, 새 버전 안내. 메뉴는 PC에서 위 줄에, 휴대폰에서는 아래 고정 막대로 보인다(같은 메뉴, CSS가 자리만 바꾼다).
 // 요금 기능이 켜져 있으면 판매자 메뉴 끝("설정" 뒤)에 "요금"(N5, AC-N5-50). 꺼져 있으면 메뉴가 그대로다.
 // 보조자 계정은 가게 이름 + "보조자", 메뉴는 "문자찜 입력"뿐이다(프린터 상태도 없다 — 보조자는 출력을 쓰지 않는다).
+// 라벨 기능이 꺼져 있거나 켬/끔을 아직 모르면 프린터 상태와 메뉴 "라벨"을 보이지 않는다(L-13 9) — "설정"을 비롯한 다른 메뉴는 그대로다.
+// 라벨 켬/끔을 바꾸는 "설정"은 메뉴 항목 하나다(I3 AC-I3-44 — N4a의 위 줄 "설정" 링크는 합치며 메뉴 항목으로 모았다, D-N4a-07).
 import type { MouseEvent } from 'react'
 import { useInstallHint, useUpdateNotice } from '../pwa/pwa.ts'
 import { printerStatusWord } from '../lib/print-words.ts'
 import { menuOf, routePath, type Navigate, type Route } from '../lib/router.ts'
 import { useBillingConfig } from './billing-context.tsx'
-import { usePrintApi, usePrintState } from './print-context.tsx'
+import { useLabelsEnabled, usePrintApi, usePrintState } from './print-context.tsx'
 
 export interface TopBarProps {
   readonly shopName: string
@@ -24,16 +26,22 @@ interface MenuItem {
   readonly to: Route
 }
 
-/** 구매자·정산 사이를 오가면 고른 날짜·리허설을 이어 간다. billing = 요금 기능이 켜져 있다(보조자에게는 요금 메뉴가 없다 — 요금·결제는 판매자만) */
-function menuItems(route: Route, assistant: boolean, billing = false): readonly MenuItem[] {
+/**
+ * 구매자·정산 사이를 오가면 고른 날짜·리허설을 이어 간다. 포장은 실제 범위만이라 실제 날짜를 보고 있었을 때만 그 날짜로. 메뉴 "라벨"은 라벨 기능이 켜져 있을 때만.
+ * billing = 요금 기능이 켜져 있다(보조자에게는 요금 메뉴가 없다 — 요금·결제는 판매자만)
+ */
+function menuItems(route: Route, assistant: boolean, labels: boolean, billing = false): readonly MenuItem[] {
   if (assistant) return [{ key: 'sms', label: '문자찜 입력', to: { name: 'sms' } }]
-  const scope = route.name === 'buyers' || route.name === 'settlements' ? { ...(route.date === undefined ? {} : { date: route.date }), rehearsal: route.rehearsal } : { rehearsal: false }
+  const scoped = route.name === 'buyers' || route.name === 'settlements' ? route : null
+  const scope = scoped === null ? { rehearsal: false } : { ...(scoped.date === undefined ? {} : { date: scoped.date }), rehearsal: scoped.rehearsal }
+  const realDate = scoped !== null && !scoped.rehearsal && scoped.date !== undefined ? scoped.date : route.name === 'packing' ? route.date : undefined
   return [
     { key: 'broadcasts', label: '방송', to: { name: 'home' } },
     { key: 'sms', label: '문자찜 입력', to: { name: 'sms' } },
     { key: 'buyers', label: '구매자', to: { name: 'buyers', ...scope } },
     { key: 'settlements', label: '정산', to: { name: 'settlements', ...scope } },
-    { key: 'labels', label: '라벨', to: { name: 'labels' } },
+    { key: 'packing', label: '포장', to: { name: 'packing', ...(realDate === undefined ? {} : { date: realDate }) } },
+    ...(labels ? [{ key: 'labels', label: '라벨', to: { name: 'labels' } } as const] : []),
     { key: 'settings', label: '설정', to: { name: 'settings' } },
     ...(billing ? [{ key: 'billing', label: '요금', to: { name: 'billing' } } satisfies MenuItem] : []),
   ]
@@ -42,6 +50,7 @@ function menuItems(route: Route, assistant: boolean, billing = false): readonly 
 export function TopBar({ shopName, assistant = false, onLogout, route, navigate }: TopBarProps) {
   const billing = useBillingConfig()?.enabled === true
   const current = menuOf(route)
+  const labels = useLabelsEnabled() === true
   const go = (event: MouseEvent<HTMLAnchorElement>, to: Route) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
     event.preventDefault()
@@ -55,9 +64,9 @@ export function TopBar({ shopName, assistant = false, onLogout, route, navigate 
           {shopName}
           {assistant ? <span className="tag tag-assistant">보조자</span> : null}
         </p>
-        {assistant ? null : <PrinterStatus onOpen={(event) => go(event, { name: 'labels' })} />}
+        {assistant || !labels ? null : <PrinterStatus onOpen={(event) => go(event, { name: 'labels' })} />}
         <nav className={assistant ? 'menu menu-single' : 'menu'} aria-label="메뉴">
-          {menuItems(route, assistant, billing).map((item) => (
+          {menuItems(route, assistant, labels, billing).map((item) => (
             <a key={item.key} className="menu-link" href={routePath(item.to)} aria-current={item.key === current ? 'page' : undefined} onClick={(event) => go(event, item.to)}>
               {item.label}
             </a>

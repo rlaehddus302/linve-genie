@@ -3,7 +3,7 @@ import { getBuyer, getSettlement, listBuyers, listClaims, listProducts, type Eng
 import fc from 'fast-check'
 import { strFromU8, unzipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
-import { LEDGER_COLUMNS, PAYMENT_WORDS, buildLedger, formatKstLedgerTime, ledgerRowValues, ledgerToXlsx, type LedgerRow, type LedgerScope } from '../src/index.ts'
+import { LEDGER_COLUMNS, PAYMENT_WORDS, buildLedger, formatKstLedgerTime, ledgerRowValues, ledgerToXlsx, stripXlsxForbidden, type LedgerRow, type LedgerScope } from '../src/index.ts'
 import { play, playLoosely, randomEvents, readXlsx, replayGolden, sale, type EventInput } from './helpers.ts'
 
 const G201 = replayGolden('G-ENG-201')
@@ -211,7 +211,9 @@ describe('AC-P2-32 엑셀 파일', () => {
     const sheet = (await readXlsx(bytes))[0]
     for (const cells of sheet?.rows ?? []) for (const cell of cells) expect(cell.type).not.toBe('Formula')
     const buyers = (sheet?.rows.slice(1) ?? []).map((cells) => cells[5]?.value)
-    expect(buyers).toEqual(rows.map((row) => row.buyer))
+    // I2 (D-I2-03): 글 칸은 엑셀이 받지 않는 글자(여기서는 탭)를 빼고 쓴다 — 기대값도 뺀 글 (교체: harness/sprints/I2/dev-notes.md)
+    expect(buyers).toEqual(rows.map((row) => stripXlsxForbidden(row.buyer)))
+    expect(buyers).toContain('=cmd|calc')
     expect(buyers).toContain('=HYPERLINK("http://x","y")')
     // 파일 안 시트 XML에 수식 요소(<f>)가 없다
     const files = unzipSync(bytes)

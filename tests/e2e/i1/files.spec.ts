@@ -99,6 +99,8 @@ test('AC-I1-41: 라벨 화면 내보내기 — 1등 라벨 25장 → A4 PDF 2쪽
   await page.getByRole('navigation', { name: '메뉴' }).getByRole('link', { name: '라벨' }).click()
   const exp = region(page, '내보내기')
   const select = exp.getByLabel('방송')
+  // AC-N4a-40: 방송 목록을 받은 뒤에 읽는다 (라벨 화면은 켬/끔을 안 뒤에 그려져 목록 조회와 경쟁한다 — 검사는 그대로)
+  await expect(select.locator('option', { hasText: '첫 방송 제목' })).toHaveCount(1)
   const options = await select.locator('option').allTextContents()
   const target = options.find((o) => o.includes('첫 방송 제목'))
   expect(target).toBeDefined()

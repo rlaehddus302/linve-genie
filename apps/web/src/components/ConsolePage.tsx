@@ -3,6 +3,8 @@
 // I3: 유튜브 칸(스크롤 영역)·수집 멈춤 경고·사용량 알림(고정 영역)·알림 띠 "감사 실패"·감사 메시지 목록 (AC-I3-20~38),
 //     봉인한 날짜는 볼 수만 있다 — 쓰기 칸·버튼이 잠기고 눌러도 요청을 보내지 않는다 (AC-I3-41).
 // 라벨 상태는 서버의 출력 기록(라벨 키마다)으로 보인다 — 리허설은 라벨이 없다. Alt+P(⌥P)는 현재 상품의 1등 라벨 다시 출력 창.
+// 라벨 기능이 꺼져 있거나 켬/끔을 아직 모르면(N4a, L-13 9, AC-N4a-14·18): 보드 라벨 상태·알림 "출력 멈춤"(Alt+1 순서에서도)·단축키 안내의 Alt+P가 빠지고,
+// Alt+P는 창을 열지 않고 "라벨 쓰지 않음 — 설정에서 켤 수 있어요."를 알린다(빠른 입력칸 포커스 그대로). 버릴 라벨은 남는다.
 import { DEFAULT_SETTINGS, type SaleSettings } from '@livejjim/core'
 import type { CardRegistration, SuggestionCard } from '@livejjim/voice'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
@@ -12,6 +14,7 @@ import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
 import { BuyerNames, alertCounts, latestProduct, productKey } from '../lib/derive.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
 import { dateWords } from '../lib/kst.ts'
+import { LABELS_OFF_NOTE } from '../lib/print-words.ts'
 import { useLeaveGuard } from '../lib/leave-guard.ts'
 import { ReadOnlyContext } from '../lib/read-only.ts'
 import { changedFields, decideFixForm, decideQuickInput, editQuestion, quickSettings, type QuickDecision } from '../lib/quick.ts'
@@ -33,10 +36,11 @@ import { Lock } from './Lock.tsx'
 import { SealedNotice } from './SealNotice.tsx'
 import { ConsoleContext, consoleLabels, productLabel, useConsoleApi, type ConsoleApi, type Dialog, type HostActionInput } from './console-context.ts'
 import { ErrorNote } from './ErrorNote.tsx'
+import { ImportDialog } from './ImportDialog.tsx'
 import { ReprintDialog } from './LabelParts.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
 import { ProductBoard, CurrentProduct } from './ProductBoard.tsx'
-import { usePrintState, useScopeLabels } from './print-context.tsx'
+import { useLabelsEnabled, usePrintState, useScopeLabels } from './print-context.tsx'
 import { DiscardDialog, PrintPauseDialog } from './PrintParts.tsx'
 import { ProductDetail } from './ProductDetail.tsx'
 import { QuickInput, type EditAsk, type FixState, type Registration } from './QuickInput.tsx'
@@ -53,6 +57,15 @@ export interface ConsolePageProps {
 }
 
 const NO_ITEMS: readonly UndoItem[] = []
+/** Alt+P 안내가 보이는 동안 */
+const LABELS_NOTE_MS = 6000
+/** Alt+P를 눌렀지만 라벨 기능 켬/끔을 아직 모른다 */
+const LABELS_LOADING = '라벨 상태를 불러오는 중이에요. 잠시 뒤 다시 눌러 주세요.'
+
+/** 콘솔의 단축키 안내 — 라벨 기능이 꺼져 있으면(모르면) Alt+P가 빠진다 (AC-N4a-14) */
+export function shortcutsWord(labels: boolean): string {
+  return `단축키: Enter 등록·찾기 · Esc 창 닫기 · Ctrl+Z(⌘Z) 되돌리기 · Alt+1(⌥1) 첫 알림 열기 · ${labels ? 'Alt+P(⌥P) 라벨 다시 출력 · ' : ''}1·2·3 창 안의 선택`
+}
 const noSubscribe = () => () => {}
 const idleVoice = (): VoiceSnapshot => VOICE_IDLE
 
@@ -339,14 +352,31 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
 
   const names = useMemo(() => new BuyerNames(data.buyers, data.claims), [data.buyers, data.claims])
   const settingsOf = useCallback((id: string) => latest.current.data.broadcasts.get(id)?.settings ?? null, [])
-  // 라벨 상태는 서버의 출력 기록 (리허설 범위는 라벨이 없다 — 조회하지 않는다, D-I1-08)
-  const labelState = useScopeLabels(broadcast.rehearsal ? null : broadcast.date)
+  // 라벨 상태는 서버의 출력 기록 (리허설 범위는 라벨이 없다 — 조회하지 않는다, D-I1-08). 라벨 기능이 꺼져 있거나 모르면 보지 않는다(L-13 9)
+  const labelsOn = useLabelsEnabled()
+  const labelsOnRef = useRef(labelsOn)
+  labelsOnRef.current = labelsOn
+  const labelState = useScopeLabels(broadcast.rehearsal || labelsOn !== true ? null : broadcast.date)
   const labels = labelState.labels
   const print = usePrintState()
   const queueSummary = print.overview?.queue ?? null
-  const printAlerts: PrintAlerts = useMemo(() => ({ pause: queueSummary?.pause?.message ?? null, discard: queueSummary?.discard ?? 0 }), [queueSummary])
+  // 꺼져 있으면 "출력 멈춤"은 알림 띠·Alt+1 순서에서 빠진다 — 버릴 라벨은 남는다 (AC-N4a-14·16)
+  const printAlerts: PrintAlerts = useMemo(
+    () => ({ pause: labelsOn === true ? (queueSummary?.pause?.message ?? null) : null, discard: queueSummary?.discard ?? 0 }),
+    [queueSummary, labelsOn],
+  )
   const printAlertsRef = useRef(printAlerts)
   printAlertsRef.current = printAlerts
+  /** Alt+P를 눌렀지만 라벨 기능이 꺼져 있다는 알림 (잠시 보인다) */
+  const [labelsNote, setLabelsNote] = useState<{ readonly text: string; readonly n: number } | null>(null)
+  useEffect(() => {
+    if (labelsNote === null) return
+    const timer = setTimeout(() => setLabelsNote(null), LABELS_NOTE_MS)
+    return () => clearTimeout(timer)
+  }, [labelsNote])
+  useEffect(() => {
+    if (labelsOn === true) setLabelsNote(null)
+  }, [labelsOn])
 
   const api: ConsoleApi = useMemo(
     () => ({
@@ -710,6 +740,11 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       // Alt+P(⌥P): 현재 상품의 1등 라벨 다시 출력 — 빠른 입력칸에 글자(π 등)가 들어가지 않는다 (AC-I1-33)
       if (event.altKey && !mod && !event.shiftKey && (event.code === 'KeyP' || event.key === 'p' || event.key === 'P' || event.key === 'π')) {
         event.preventDefault()
+        // 라벨 기능이 꺼져 있으면 창을 열지 않고 출력 요청도 보내지 않는다 — 안내만 (AC-N4a-14). 모르는 동안도 창을 열지 않는다
+        if (labelsOnRef.current !== true) {
+          setLabelsNote((note) => ({ text: labelsOnRef.current === false ? LABELS_OFF_NOTE : LABELS_LOADING, n: (note?.n ?? 0) + 1 }))
+          return
+        }
         setDialogs([{ kind: 'reprint', product: currentKey.current }])
         return
       }
@@ -831,9 +866,15 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
                 끝난 방송이에요
               </p>
             ) : (
-              <button type="button" className="button" onClick={endBroadcast}>
-                방송 끝내기
-              </button>
+              <>
+                {/* 상품 목록 가져오기 (I2 AC-I2-52) — 끝난 방송에는 없다 */}
+                <button type="button" className="button" onClick={() => openDialog({ kind: 'import' })}>
+                  상품 목록 가져오기
+                </button>
+                <button type="button" className="button" onClick={endBroadcast}>
+                  방송 끝내기
+                </button>
+              </>
             )}
             {voice !== null && !sealed ? <VoiceToggle voice={voice} snapshot={voiceSnapshot} ready={settings !== null} /> : null}
           </div>
@@ -866,6 +907,11 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
               />
             </Lock>
             <UndoBar items={items} queue={queue} />
+            {labelsNote !== null ? (
+              <p key={labelsNote.n} className="notice labels-note" role="status">
+                {labelsNote.text}
+              </p>
+            ) : null}
           </div>
           {wide ? voiceLive : null}
         </div>
@@ -908,13 +954,15 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
             sealedMessage={snapshot.sealedMessage}
           />
         </div>
-        <p className="shortcuts">단축키: Enter 등록·찾기 · Esc 창 닫기 · Ctrl+Z(⌘Z) 되돌리기 · Alt+1(⌥1) 첫 알림 열기 · Alt+P(⌥P) 라벨 다시 출력 · 1·2·3 창 안의 선택</p>
+        <p className="shortcuts">{shortcutsWord(labelsOn === true)}</p>
       </main>
       {voice !== null && voiceSnapshot.phase === 'consent' ? <VoiceConsentDialog voice={voice} /> : null}
       {topDialog !== undefined ? (
         <DialogView
           key={dialogs.length}
           dialog={topDialog}
+          broadcastId={b}
+          onSync={(seq) => store.sync(seq)}
           messageOf={(id) => messagesById.get(id)}
           onClose={closeTop}
           onEditDone={(product, line, ask) => {
@@ -938,14 +986,19 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
 
 interface DialogViewProps {
   readonly dialog: Dialog
+  readonly broadcastId: string
+  /** 쓰기 응답 seq까지 화면을 따라잡는다 */
+  readonly onSync: (seq: number) => Promise<void>
   readonly messageOf: (id: string) => ChatMessage | undefined
   readonly onClose: () => void
   readonly onEditDone: (product: Product, line: string | null, ask: number | undefined) => void
   readonly onEditUnchanged: (product: Product, ask: number | undefined) => void
 }
 
-function DialogView({ dialog, messageOf, onClose, onEditDone, onEditUnchanged }: DialogViewProps) {
+function DialogView({ dialog, broadcastId, onSync, messageOf, onClose, onEditDone, onEditUnchanged }: DialogViewProps) {
   switch (dialog.kind) {
+    case 'import':
+      return <ImportDialog broadcastId={broadcastId} onClose={onClose} onRegistered={onSync} />
     case 'product':
       return <ProductDetailHost productKey={dialog.key} onClose={onClose} />
     case 'edit':

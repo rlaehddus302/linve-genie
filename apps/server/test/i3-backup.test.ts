@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { BACKUP_MESSAGES, backupName, backupTime, pgEnvOf, retentionVictims, runBackup } from '../src/backup.ts'
+import { BACKUP_MESSAGES, backupName, backupTime, pgEnvOf, retentionVictims, runBackup } from '../src/db-backup.ts'
 import { formatAlert } from '../src/log.ts'
 
 let root = ''

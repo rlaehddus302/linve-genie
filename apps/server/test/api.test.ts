@@ -246,8 +246,13 @@ describe('AC-S04-52 조회·이력 API', () => {
         effects: listEffects(state),
         cancelRequests: listCancelRequests(state),
         attention: [],
+        // I2 (AC-I2-33): 실제 범위의 날짜 보기에는 묶음마다 포장·배송 상태가 있다 — 기록이 없으면 포장 대기 (교체 목록: harness/sprints/I2/dev-notes.md)
+        packing: listSettlements(state)
+          .filter((settlement) => settlement.date === b.date && settlement.items.length > 0)
+          .map((settlement) => ({ buyer: settlement.buyer, status: '포장 대기', invoice: null })),
       }),
     )
+    expect((view.body.packing as unknown[]).length).toBeGreaterThan(0)
     expect(JSON.parse(view.text)).toEqual(view.body)
     expect((view.body.claims as { at: string }[])[0]?.at).toBe(new Date(T0).toISOString())
     expect(view.headers.get('cache-control')).toBe('no-store')

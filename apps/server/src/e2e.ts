@@ -3,19 +3,28 @@
 // - 선택: 상품 500·채팅 1만 건을 채운 실제 범위(오늘, KST), 화면의 방송자 조치 대기 시간 줄이기 신호(GET /api/client-config), 리허설 생성기 시험 속도.
 // - 시험 모드 신호(GET /api/client-config testPrinter — 화면이 시험용 프린터를 켠다, I1 L-11 15): E2E 기동은 기본으로 켠다(testPrinter: false로 끌 수 있다).
 // - 요금 기능(N5, AC-N5-11·40): 기본 꺼짐. billing: true면 시험 결제(가짜 결제 서버·가짜 발행기)와 BL-1 기본 요금 표로 켠다.
+// - I2: 백업 저장소 = 임시 폴더(또는 지정한 폴더), 시작할 때 시험 판매자의 자동 백업 하나(시각과 상관없이 — 설정 화면의 "마지막 자동 백업"이 늘 있게),
+//   확인서 데이터 조회의 ?at= (공유 그림 바이트를 같은 데이터의 Node 그림과 맞댈 때, AC-I2-15).
 // - 채우기는 기록 경로(ScopeWriter)를 그대로 탄다: 상품은 product.register(조치자 서버), 채팅은 가짜 채팅 생성기의 메시지(조치자 수집기).
+// - 선택: 가짜 메타 서버(instagram: true, N2 AC-N2-70) — 127.0.0.1의 빈 포트에 띄우고 서버의 인스타그램 설정을 그 주소로 둔다.
+//   돌아오는 주소는 화면 주소 + /api/instagram/callback(화면 개발 서버가 /api를 이 서버로 넘긴다), 웹훅은 이 서버의 /webhooks/instagram으로 보낸다.
+//   운영 기동(main.ts)에는 없다 — 시험 모드에서만.
 // - I3 시험용 선택(AC-I3-93 — 운영 시작 main에는 없다): 유튜브 할당량 예산 줄이기, 발송함 시간 줄이기, 화면 폴더(같은 출처로 화면을 함께 냄),
 //   시험용 조작 경로 /_e2e/*(새 판매자 계정·봉인 시험 날짜·지금 봉인) — 이 기동에서만 앞에 붙는다(서버 앱에는 없다).
 import { randomBytes, randomInt } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import type { Server } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Hono } from 'hono'
 import { createSellerAccount } from './accounts.ts'
 import { testBilling } from './billing/fake.ts'
 import { isValidDate } from '@livejjim/core'
+import { FolderBackupStorage } from './backup.ts'
 import { openPglite, type Database } from './db/database.ts'
 import { ChatMaker, generatorView } from './generator.ts'
 import { createNodeServer } from './node-server.ts'
+import { FakeMeta } from './instagram/fake-meta.ts'
 import { generateMasterKey, type PasswordCost } from './secrets.ts'
 import { createServer, type LivejjimServer } from './server.ts'
 import { findAccountByLogin } from './store.ts'
@@ -125,6 +134,12 @@ export interface E2eOptions {
   readonly testPrinter?: boolean
   /** 요금 기능 (N5) — 켜면 시험 결제(가짜 결제 서버·가짜 발행기)·기본 요금 표. 기본 false (AC-N5-11) */
   readonly billing?: boolean
+  /** 백업 폴더 (없으면 임시 폴더를 만들고 끌 때 지운다) */
+  readonly backupDir?: string
+  /** 시작할 때 시험 판매자의 자동 백업을 하나 만든다 (기본 true) */
+  readonly initialBackup?: boolean
+  /** 가짜 메타 서버를 함께 띄우고 인스타그램을 그 주소로 연결한다 (기본 false, N2) */
+  readonly instagram?: boolean
   /**
    * 가짜 구글·유튜브 서버와 함께 띄운다 (AC-Y1-81, D-Y13). 127.0.0.1의 그 포트(0이면 빈 포트)에서 열고 서버가 그 주소를 쓴다.
    * 돌아오는 주소는 화면 주소를 거친다(<화면>/api/youtube/oauth/callback — 화면이 /api를 서버로 넘긴다), 연결 뒤 화면 주소는 <화면>/settings/youtube.
@@ -228,10 +243,14 @@ export interface E2eServer {
   readonly account: E2eAccount
   readonly sellerId: string
   readonly fill: FillResult | null
+  /** 백업 폴더 (I2) */
+  readonly backupDir: string
   /** 가짜 구글·유튜브 서버 (youtube를 주었을 때만) */
   readonly fakeGoogle: FakeGoogle | null
   /** Node HTTP 서버 (열기는 listen으로) */
   readonly http: Server
+  /** 함께 띄운 가짜 메타 서버 (instagram: true일 때만) */
+  readonly fakeMeta: FakeMeta | null
   /** E2E_HOST(127.0.0.1)의 그 포트에서 연다 (0이면 빈 포트). 연 주소·포트를 돌려준다. 열지 못하면(포트를 이미 씀 등) 그 오류로 실패한다 */
   listen(port: number): Promise<{ readonly host: string; readonly port: number }>
   close(): Promise<void>
@@ -240,7 +259,10 @@ export interface E2eServer {
 export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServer> {
   const database = await openPglite()
   const masterKey = generateMasterKey()
+  const ownBackupDir = options.backupDir === undefined
+  const backupDir = options.backupDir ?? mkdtempSync(join(tmpdir(), 'livejjim-e2e-backup-'))
   const appOrigin = options.appOrigin ?? 'http://localhost:5173'
+  const fakeMeta = options.instagram === true ? await FakeMeta.start() : null
   const fakeGoogle =
     options.youtube === undefined
       ? null
@@ -253,7 +275,10 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     database,
     masterKey,
     appOrigin,
+    ...(fakeMeta === null ? {} : { instagram: fakeMeta.settings({ redirectUri: `${appOrigin}/api/instagram/callback` }) }),
     log: () => {},
+    backupStorage: new FolderBackupStorage(backupDir),
+    receiptAtParam: true,
     // E2E는 모든 브라우저 로그인이 한 주소(127.0.0.1 — 화면 서버의 /api 넘기기)에서 온다. 시험 수십 개가 같은 IP 한도(10분 20번)에 걸리지 않게
     // E2E 기동만 IP 한도를 넓힌다(운영 main은 기본값 — 로그인 제한 동작은 서버 시험 i3-login-limit이 확인한다)
     loginLimits: { ipMaxAttempts: 1_000_000 },
@@ -287,6 +312,9 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
   // 저절로 연다, AC-I3-50). 마법사 시험은 POST /_e2e/sellers의 새 판매자(처음)로 한다 (dev-web, I3 dev-notes)
   await server.service.setWizard(created.sellerId, { status: 'DONE' })
   const fill = options.fill === undefined ? null : await fillScope(server, created.sellerId, options.fill)
+  if (options.initialBackup !== false) await server.backups.createNow(created.sellerId, 'daily')
+  server.backups.start()
+  server.work.receipts.warm()
   if (fakeGoogle !== null) server.start()
   const http = createNodeServer({ app: e2eControl(server, database, Buffer.from(masterKey, 'base64'), options.passwordCost) })
   return {
@@ -295,8 +323,10 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     account,
     sellerId: created.sellerId,
     fill,
+    backupDir,
     fakeGoogle,
     http,
+    fakeMeta,
     listen: (port) =>
       new Promise((resolve, reject) => {
         const failed = (error: Error) => reject(error)
@@ -305,7 +335,11 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
           http.off('error', failed)
           const address = http.address()
           if (typeof address !== 'object' || address === null) reject(new Error('듣는 주소를 알 수 없다'))
-          else resolve({ host: address.address, port: address.port })
+          else {
+            // 가짜 메타 서버가 서명한 웹훅을 이 서버로 보낸다 (/_fake/comments)
+            if (fakeMeta !== null) fakeMeta.webhookUrl = `http://${address.address}:${String(address.port)}/webhooks/instagram`
+            resolve({ host: address.address, port: address.port })
+          }
         })
       }),
     close: async () => {
@@ -317,7 +351,9 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
         if (!http.listening) resolve()
         else http.close(() => resolve())
       })
+      await fakeMeta?.close()
       await database.close()
+      if (ownBackupDir) rmSync(backupDir, { recursive: true, force: true })
     },
   }
 }

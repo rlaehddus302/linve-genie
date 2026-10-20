@@ -42,8 +42,8 @@ import {
 import type { IdSource } from './ids.ts'
 import type { ScopeRuntime } from './runtime.ts'
 import { fieldMessage, phoneIdProblem, safeFieldName, unknownFieldProblems } from './messages.ts'
-import { SHOP_NAME_MAX, cleanDisplayName } from './accounts.ts'
 import { productOwners } from './product-history.ts'
+import { mergePackingCheck } from './packing.ts'
 import { ASSISTANT_EVENT_TYPES, assistantCancelCheck, assistantForbidden } from './roles.ts'
 import { openSellerKey, phoneKeyOf } from './secrets.ts'
 import {
@@ -56,7 +56,6 @@ import {
   findSeller,
   findWizard,
   listAssistants,
-  updateSellerName,
   updateWizard,
   historyRows,
   insertBroadcast,
@@ -76,7 +75,7 @@ import type { BillingService } from './billing/service.ts'
 import { iso, kstDate, kstTime, type Clock } from './time.ts'
 import type { ViewCacheBudget } from './view-budget.ts'
 import { changeSet, fullView, messageLookup, type ChangeSet, type FullView, type MessageLookup } from './views.ts'
-import { resultOf, type Actor, type ChatSource, type Draft, type Rejection, type ScopeWriter, type WriteOutcome, type WriteResult } from './writer.ts'
+import { resultOf, WriteAbort, type Actor, type ChatSource, type Draft, type Rejection, type ScopeWriter, type WriteOutcome, type WriteResult } from './writer.ts'
 import { sanitizeNick } from './youtube/texts.ts'
 import { SEALED_CHAT_MESSAGE, sealAtOf, sealedView } from './youtube/seal.ts'
 
@@ -319,13 +318,7 @@ export class Service {
 
   // ── 가게 이름·시작 마법사 (AC-I3-47·50) ───────────────────────────────
 
-  /** 가게 이름 바꾸기 — 그 판매자의 이름만. 이름이 틀리면 null (받은 값은 로그에 남기지 않는다, D-073) */
-  async renameShop(sellerId: string, raw: unknown): Promise<string | null> {
-    const name = cleanDisplayName(raw, SHOP_NAME_MAX)
-    if (name === null) return null
-    if (!(await updateSellerName(this.#options.db, sellerId, name))) throw new Error('판매자가 없다')
-    return name
-  }
+  // 가게 이름 바꾸기는 I2와 합친 뒤 ClosingService.renameShop(shop.ts 규칙 — 가게 설정과 같은 상한, 가게 설정 알림)으로 옮겼다
 
   /** 판매자의 보조자 목록 (지우지 않은 것, AC-I3-60) */
   assistants(sellerId: string): Promise<AssistantRow[]> {
@@ -528,12 +521,18 @@ export class Service {
     }
 
     if (type === 'sms') return this.#writeSms(sellerId, actor, requestId, date, rehearsal, body, fields)
+    // 포장·배송을 적은 구매자의 합치기·떼어 내기 제한 (D-I2-20 — 실제 범위만, 엔진 이벤트를 기록하기 전에 같은 범위 줄·락 안에서)
+    const packingGuard =
+      !rehearsal && (type === 'buyer.merge' || type === 'buyer.unmerge')
+        ? { guard: (tx: Db, runtime: Pick<ScopeRuntime, 'scopeId' | 'state'>) => mergePackingCheck(tx, sellerId, runtime.scopeId, runtime.state, fields) }
+        : {}
     return this.#options.writer.write({
       sellerId,
       date,
       rehearsal,
       createScope: false,
       requestId,
+      ...packingGuard,
       // 보조자의 방송자 취소: 그 범위의 지금 상태(기록 트랜잭션 안)에서 문자찜으로 생긴 찜인지 코어 조회로 본다
       build: () => [{ fields, actor, requestId, ...(assistant ? { validate: assistantCancelCheck } : {}) }],
     })
@@ -613,6 +612,53 @@ export class Service {
     const checked = await this.#chatInput(sellerId, input)
     if ('status' in checked) return checked
     return ingestOutcome(await this.#recordChat(sellerId, checked.row, checked.fields, null))
+  }
+
+  /**
+   * 인스타그램 댓글 수집 (N2, AC-N2-24·32): ingestChat과 같은 기록(허용 필드·같은 기록 경로·조치자 collector·같은 (판매자, 방송, 메시지 ID)는 한 번만)이고,
+   * 그 방송이 이미 끝났으면(broadcast.end가 기록됨) 기록하지 않고 'ended' — 끝내기와 같은 범위 줄 안에서 판단한다(끝낸 뒤 도착한 댓글은 그 방송에 들어가지 않는다).
+   * guard가 있으면 그 chat을 넣은 같은 트랜잭션에서 부른다(라이브 연결 옮기기, AC-N2-25). false면 기록을 취소하고 'retry' — 회차를 다시 정한다
+   */
+  async ingestOpenChat(
+    sellerId: string,
+    input: unknown,
+    options: { readonly guard?: (tx: Db, scopeId: string, now: Date) => Promise<boolean> } = {},
+  ): Promise<ChatIngestOutcome | { readonly status: 'ended' } | { readonly status: 'retry' }> {
+    const checked = await this.#chatInput(sellerId, input)
+    if ('status' in checked) return checked
+    const { row, fields } = checked
+    if (row.endedAt !== null) return { status: 'ended' }
+    const chat = { b: row.id, id: fields.id as string }
+    const guard = options.guard
+    let ended = false
+    let retry = false
+    const outcome = await this.#options.writer.write({
+      sellerId,
+      date: row.date,
+      rehearsal: row.rehearsal,
+      createScope: false,
+      requestId: null,
+      chat,
+      build: (ctx) => {
+        if (getBroadcast(ctx.state, row.id)?.ended === true) {
+          ended = true
+          return rejection(409, 'BROADCAST_ENDED', '끝난 방송이에요.')
+        }
+        return [{ fields, actor: { kind: 'collector' }, chat }]
+      },
+      ...(guard === undefined
+        ? {}
+        : {
+            afterInsert: async (tx: Db, scopeId: string, _records: unknown, now: Date) => {
+              if (await guard(tx, scopeId, now)) return
+              retry = true
+              throw new WriteAbort({ kind: 'not_found' })
+            },
+          }),
+    })
+    if (ended) return { status: 'ended' }
+    if (retry) return { status: 'retry' }
+    return ingestOutcome(outcome)
   }
 
   /** 수집 함수 입력 검사 (필드·방송) */

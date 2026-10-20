@@ -15,6 +15,8 @@ export interface AppOptions {
   readonly logError?: ErrorLogger
   /** /api 경로 (S04). 없으면 헬스체크만 있다 */
   readonly api?: ApiDeps
+  /** 웹훅 받는 경로 (/webhooks — 로그인·Origin 검사 밖, 서명으로만 받는다, N2) */
+  readonly webhooks?: Hono
   /** 앱 주소가 https면 HSTS를 붙인다 (AC-I3-71) */
   readonly https?: boolean
   /** 화면 빌드를 같은 출처로 낸다 (LIVEJJIM_WEB_DIR, AC-I3-70). 없으면 화면 없음 */
@@ -123,6 +125,7 @@ export function createApp(options: AppOptions = {}): Hono {
   }
 
   if (options.api !== undefined) app.route('/api', createApi(options.api))
+  if (options.webhooks !== undefined) app.route('/webhooks', options.webhooks)
 
   // 화면 (AC-I3-70): /api·/health·/ops 밖의 GET·HEAD는 화면 빌드에서, 그 밖의 메서드는 405
   const web = options.web ?? null

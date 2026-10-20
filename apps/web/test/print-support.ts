@@ -3,8 +3,9 @@ import { LABEL_FONT_FAMILY, defaultTemplate, parseLabelFont, type LabelCanvas2D,
 import type { JobView, LabelView, PrintOverview, QueueSummary, Templates } from '../src/api/print-types.ts'
 import { DATE } from './support.ts'
 
+/** 대기열 요약 — 라벨 기능은 기본 켬(서버 기본, N4a dev-notes "dev-server > 바뀐 계약" 2) */
 export function queue(patch: Partial<QueueSummary> = {}): QueueSummary {
-  return { rev: 1, device: null, pause: null, waiting: 0, printing: 0, discard: 0, ...patch }
+  return { rev: 1, device: null, pause: null, waiting: 0, printing: 0, discard: 0, labelsEnabled: true, ...patch }
 }
 
 export function device(id: string, patch: Partial<NonNullable<QueueSummary['device']>> = {}): NonNullable<QueueSummary['device']> {

@@ -2,7 +2,6 @@
 // 판매자를 만들 때 32바이트 무작위 전화번호 키를 만들어 마스터 키로 암호화해 저장한다(평문 키는 DB·로그·응답에 없다).
 // N5: 선택 항목 사업자등록번호(G-BIL bizno로 읽는다 — 틀리면 계정을 만들지 않는다). 번호만 암호화해 사업자 정보에 두고, 상호·대표자는 화면에서 적는다(AC-N5-12).
 import { randomInt } from 'node:crypto'
-import { hasControlChar } from './api-fields.ts'
 import type { Db } from './db/database.ts'
 import { BILLING_MESSAGES, sealedBusinessNumber } from './billing/service.ts'
 import { parseBizno } from './billing/rules.ts'
@@ -17,7 +16,6 @@ import { uniqueViolation } from './writer.ts'
 export const LOGIN_ID_RE = /^[a-z][a-z0-9_.-]{2,31}$/
 export const PASSWORD_MIN = 8
 export const PASSWORD_MAX = 200
-const NAME_MAX = 50
 
 export function normalizeLoginId(raw: string): string {
   return raw.trim().toLowerCase()
@@ -42,10 +40,13 @@ export interface CreateAccountOptions {
   readonly passwordCost?: PasswordCost
 }
 
-/** 판매자와 로그인 계정을 함께 만든다. 문장에는 받은 값을 넣지 않는다 */
+/**
+ * 판매자와 로그인 계정을 함께 만든다. 문장에는 받은 값을 넣지 않는다.
+ * 가게 이름은 모든 입구와 같은 규칙(checkShopNameRule — 1~30글자, D-I2-18)이고 틀리면 아무것도 만들지 않는다
+ */
 export async function createSellerAccount(db: Db, masterKey: Buffer, input: NewAccountInput, options: CreateAccountOptions = {}): Promise<CreateAccountResult> {
-  const shopName = input.shopName.trim()
-  if (shopName === '' || shopName.length > NAME_MAX || hasControlChar(shopName)) return { ok: false, message: `가게 이름은 ${String(NAME_MAX)}자 이하로 적어 주세요.` }
+  const shopName = checkShopNameRule(input.shopName, null)
+  if (shopName === null) return { ok: false, message: SHOP_NAME_MESSAGE }
   const loginId = normalizeLoginId(input.loginId)
   if (!LOGIN_ID_RE.test(loginId)) return { ok: false, message: "아이디는 영문 소문자로 시작하는 3~32자(영문 소문자·숫자·'_'·'.'·'-')로 적어 주세요." }
   if (input.password.length < PASSWORD_MIN || input.password.length > PASSWORD_MAX) {
@@ -95,6 +96,29 @@ export function cleanDisplayName(raw: unknown, max: number): string | null {
 
 export const SHOP_NAME_MAX = 30
 export const SHOP_NAME_MESSAGE = '가게 이름은 1~30자로 적어 주세요.'
+/** 제어 글자 U+0000~U+001F·U+007F (앞뒤 공백을 지우기 전의 글에서 본다 — 탭·줄바꿈도 받지 않는다) */
+const hasRawControl = (text: string): boolean => {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i)
+    if (code <= 0x1f || code === 0x7f) return true
+  }
+  return false
+}
+
+/**
+ * 가게 이름 규칙 하나 (I2 마지막 감사 SA-I2-009·TD-I2-004, D-I2-18·D-I2-15, AC-I2-01): 운영자 계정 만들기 명령·시작 마법사·설정의 PUT /api/shop 모두.
+ * 앞뒤 공백을 지운 뒤 1~30글자(코드 포인트 — 그림 문자 하나 = 1글자), 제어 글자·서식 글자·U+2028·U+2029·짝 없는 서로게이트는 받지 않는다.
+ * 예외: currentName(지금 저장된 이름)과 같은 이름(앞뒤 공백만 다름)은 길이·글자를 다시 따지지 않는다 — 이 결정 전에 만든 31~50자 이름의 판매자.
+ * 복구·가져오기는 이 함수를 부르지 않는다(파일의 가게 이름 그대로). 맞으면 앞뒤 공백을 지운 이름, 아니면 null(문장은 SHOP_NAME_MESSAGE 하나)
+ */
+export function checkShopNameRule(raw: unknown, currentName: string | null): string | null {
+  if (typeof raw !== 'string') return null
+  const name = raw.trim()
+  // 지금 이름을 그대로 다시 보내면(앞뒤 공백만 다름) 길이·글자를 다시 따지지 않는다. 다만 보낸 글에 새로 붙은 제어 글자(줄바꿈·탭)는 받지 않는다
+  if (currentName !== null && name !== '' && name === currentName.trim() && (raw === currentName || !hasRawControl(raw))) return name
+  if (hasRawControl(raw)) return null
+  return cleanDisplayName(raw, SHOP_NAME_MAX)
+}
 
 // ── 보조자 계정 (SYS-04, D-I3-11, AC-I3-60) ────────────────────────────────
 

@@ -17,7 +17,7 @@ export interface LogRecord {
   readonly errorKind?: string
   /** 개수 같은 숫자 */
   readonly count?: number
-  /** 판매자 ID (유튜브 워커 — 판매자 ID는 서버가 만든 값이다) */
+  /** 판매자 ID (유튜브 워커·판매자 백업 경보 — 판매자 ID는 서버가 만든 값이다. 판매자 이름·구매자 정보가 아니다) */
   readonly seller?: string
   /** HTTP 상태 (유튜브 오류) */
   readonly status?: number
@@ -61,6 +61,11 @@ export type LogCode =
   | 'BACKUP_FAILED'
   | 'DB_UNAVAILABLE'
   | 'PRINT_NOTIFY_FAILED'
+  | 'IG_META_FAILED'
+  | 'IG_TOKEN_UNREADABLE'
+  | 'IG_COMMENT_SKIPPED'
+  | 'IG_DM_FAILED'
+  | 'IG_REPORT_FAILED'
   // 틱톡 연결 모듈 (N2b-1, D-N2b-1-08): 정해진 코드·실패 종류·개수만. 댓글·닉네임·아이디·판매자 틱톡 아이디·오류 메시지·서명 키는 남기지 않는다
   | 'TIKTOK_BETA_INVALID'
   | 'TIKTOK_CONNECT_FAILED'
@@ -72,6 +77,11 @@ export type LogCode =
   | 'TIKTOK_RECORD_FAILED'
   | 'TIKTOK_STATUS_FAILED'
   | 'TIKTOK_EVENT_FAILED'
+  | 'DOCUMENT_MISMATCH'
+  | 'LABEL_INVALID'
+  | 'BACKUP_DISABLED'
+  | 'BACKUP_PRUNE_FAILED'
+  | 'DOCUMENT_WORK_FAILED'
   // N5 요금 (결제 ID·사업자 정보·조회 원문·비밀값은 남기지 않는다)
   | 'BILLING_FAILED'
   | 'PAYMENT_LOOKUP_FAILED'
@@ -110,9 +120,14 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   OUTBOX_GAVE_UP: '감사 메시지를 여러 번 보내지 못해 그만두었어요',
   QUOTA_EXCEEDED: '구글이 유튜브 할당량 초과를 알렸어요',
   WORKER_FAILING: '워커가 연속으로 실패하고 있어요',
-  BACKUP_FAILED: '백업하지 못했어요',
+  BACKUP_FAILED: '백업하지 못했어요(운영 백업 명령은 종료 코드 1 · 판매자 자동 백업은 다음 확인 때 다시 해요)',
   DB_UNAVAILABLE: '데이터베이스에 닿지 않아요',
   PRINT_NOTIFY_FAILED: '출력 기록 알림을 보내지 못했어요(기록은 저장됨)',
+  IG_META_FAILED: '인스타그램(메타) 요청이 실패했어요',
+  IG_TOKEN_UNREADABLE: '인스타그램 토큰을 풀지 못해 연결을 다시 연결 필요로 바꿨어요',
+  IG_COMMENT_SKIPPED: '형식이 틀린 인스타그램 댓글을 기록하지 않고 셌어요',
+  IG_DM_FAILED: '인스타그램 DM 실행기에서 오류가 생겼어요(다음에 다시 해요)',
+  IG_REPORT_FAILED: '인스타그램 DM 게시 보고를 기록하지 못했어요(다음에 다시 해요)',
   TIKTOK_BETA_INVALID: '틱톡 베타 스위치 값을 알아볼 수 없어 끔으로 봤어요',
   TIKTOK_CONNECT_FAILED: '틱톡 연결 시도가 실패했어요',
   TIKTOK_DISCONNECTED: '받던 틱톡 연결이 끊겼어요',
@@ -123,6 +138,11 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   TIKTOK_RECORD_FAILED: '틱톡 댓글을 받는 쪽에서 오류가 났어요(연결은 계속함)',
   TIKTOK_STATUS_FAILED: '틱톡 연결 상태를 받는 쪽에서 오류가 났어요(연결은 계속함)',
   TIKTOK_EVENT_FAILED: '틱톡 이벤트를 처리하지 못해 건너뛰었어요(연결은 계속함)',
+  DOCUMENT_MISMATCH: '확인서 금액이 정산 금액과 맞지 않아 문서를 만들지 않았어요',
+  LABEL_INVALID: '포장 라벨 데이터가 형식 검사를 통과하지 못해 라벨을 만들지 않았어요',
+  BACKUP_DISABLED: '백업 저장소가 정해지지 않아 자동 백업이 꺼져 있어요',
+  BACKUP_PRUNE_FAILED: '오래된 백업을 지우지 못했어요(다음 확인 때 다시 해요)',
+  DOCUMENT_WORK_FAILED: '파일 작업 워커가 일을 끝내지 못했어요(시간·메모리 상한·끊긴 요청 등 — 서버 판정은 그대로)',
   BILLING_FAILED: '요금 정보를 읽지 못했어요',
   PAYMENT_LOOKUP_FAILED: '결제를 조회하지 못했어요(주문은 그대로)',
   PAYMENT_CANCEL_FAILED: '결제를 취소하지 못했어요',

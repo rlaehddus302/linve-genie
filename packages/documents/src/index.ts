@@ -20,6 +20,7 @@ export {
   type ReceiptRow,
   type ReceiptScope,
   type ReceiptsResult,
+  type NameSanitizer,
   type ShippingNote,
   type ShopSettings,
 } from './receipt.ts'
@@ -58,5 +59,5 @@ export {
   type LedgerScope,
 } from './ledger.ts'
 export { ledgerToXlsx } from './xlsx.ts'
-export { compareCodePoints, stripInvisible } from './text.ts'
+export { NO_NAME, compareCodePoints, printedName, stripInvisible, stripXlsxForbidden } from './text.ts'
 export { formatKoreanDate, formatKstDateTime, formatKstLedgerTime } from './kst.ts'

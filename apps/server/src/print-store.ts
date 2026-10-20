@@ -4,7 +4,7 @@
 // - 트랜잭션 안에서는 트랜잭션 객체(tx)를 넘긴다(PGlite는 연결이 하나다).
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm'
 import type { Db } from './db/database.ts'
-import { labelTemplates, outbox, printAttempts, printJobs, printLabels, printQueues, printRequests, scopes } from './db/schema.ts'
+import { accounts, labelSwitches, labelTemplates, outbox, printAttempts, printJobs, printLabels, printQueues, printRequests, scopes } from './db/schema.ts'
 
 export type QueueRow = typeof printQueues.$inferSelect
 export type LabelRow = typeof printLabels.$inferSelect
@@ -33,7 +33,12 @@ export async function readQueue(db: Db, sellerId: string): Promise<QueueRow | nu
   return rows[0] ?? null
 }
 
-export type QueuePatch = Partial<Pick<QueueRow, 'deviceId' | 'deviceName' | 'printerConnected' | 'releasing' | 'paused' | 'backlog' | 'nextOrder' | 'frontOrder'>>
+export type QueuePatch = Partial<Pick<QueueRow, 'deviceId' | 'deviceName' | 'printerConnected' | 'releasing' | 'paused' | 'backlog' | 'nextOrder' | 'frontOrder' | 'labelsEnabled'>>
+
+/** 라벨 기능이 꺼져 있는지 (잠그지 않고 읽는다 — 미리 거르기용. 줄이 없으면 켬, N4a L-13 1). 정하는 값은 잠근 줄의 labelsEnabled다 */
+export async function labelsOff(db: Db, sellerId: string): Promise<boolean> {
+  return (await readQueue(db, sellerId))?.labelsEnabled === false
+}
 
 /** 대기열 줄을 고치고 rev를 1 올린다. 새 rev를 돌려준다 (잠근 트랜잭션 안에서) */
 export async function updateQueue(tx: Db, sellerId: string, patch: QueuePatch, now: Date): Promise<number> {
@@ -83,6 +88,8 @@ export async function autoLabelEffects(db: Db, sellerId: string, scopeId: string
         eq(outbox.sellerId, sellerId),
         eq(outbox.scopeId, scopeId),
         eq(outbox.rehearsal, false),
+        // 복구·가져오기가 다시 만든 행이 아님 (db/schema.ts executableOutbox와 같은 조건, D-I2-11 — 지난 라벨을 다시 출력하지 않는다)
+        eq(outbox.restored, false),
         eq(outbox.kind, 'PRINT_PRODUCT_LABEL'),
         gte(outbox.seq, fromSeq),
         lte(outbox.seq, toSeq),
@@ -137,6 +144,9 @@ export async function createAutoJobs(
   const effects = await autoLabelEffects(tx, sellerId, scopeId, fromSeq, toSeq)
   if (effects.length === 0) return { labels: [], jobs: [] }
   const queue = await lockQueue(tx, sellerId, now)
+  // 라벨 기능이 꺼져 있으면 효과가 있어도 작업(·라벨 키)을 만들지 않는다 — 이 기록 트랜잭션 안에서 잠근 줄의 값으로 정한다 (N4a L-13 3, L-11 2, D-N4a-01).
+  // 켬/끔을 바꾸는 요청도 같은 줄을 잠그므로, 바꾸기에 성공 응답이 나간 뒤 기록되는 이벤트는 반드시 바뀐 값을 따른다. 나중에 켜도 이 효과로 작업을 만들지 않는다
+  if (!queue.labelsEnabled) return { labels: [], jobs: [] }
   const parsed = effects.map((row) => ({ row, effect: JSON.parse(row.body) as LabelEffectBody }))
   const keyOf = (effect: LabelEffectBody) => `${effect.claim}@${String(effect.confirmVersion)}`
   const inserted = await insertLabels(
@@ -192,6 +202,14 @@ export async function createAutoJobs(
 }
 
 // ── 라벨 키 ──────────────────────────────────────────────────────────────
+
+/** 라벨 키를 효과와 묶는다 (아직 묶이지 않은 것만 — 켠 뒤 손으로 출력, N4a L-11 3·7, L-13 8) */
+export async function bindLabelEffect(tx: Db, sellerId: string, labelId: number, effectId: string): Promise<void> {
+  await tx
+    .update(printLabels)
+    .set({ effectId })
+    .where(and(eq(printLabels.sellerId, sellerId), eq(printLabels.id, labelId), isNull(printLabels.effectId)))
+}
 
 export async function findLabel(db: Db, sellerId: string, scopeId: string, key: string): Promise<LabelRow | null> {
   const rows = await db
@@ -445,4 +463,32 @@ export async function findPrintRequest(db: Db, sellerId: string, requestId: stri
 
 export async function insertPrintRequest(tx: Db, sellerId: string, requestId: string, result: string, now: Date): Promise<void> {
   await tx.insert(printRequests).values({ sellerId, requestId, result, createdAt: now })
+}
+
+// ── 라벨 기능 켬/끔 바꾼 기록 (N4a, L-13 2) ─────────────────────────────
+
+export interface LabelSwitchRow {
+  readonly id: number
+  readonly enabled: boolean
+  readonly changedAt: Date
+  readonly loginId: string
+}
+
+/** 바꾼 기록 한 줄을 남긴다 (켬/끔을 바꾸는 잠근 트랜잭션 안에서). 남긴 줄 ID */
+export async function insertLabelSwitch(tx: Db, sellerId: string, enabled: boolean, accountId: string, now: Date): Promise<number> {
+  const rows = await tx.insert(labelSwitches).values({ sellerId, enabled, accountId, changedAt: now }).returning({ id: labelSwitches.id })
+  const row = rows[0]
+  if (row === undefined) throw new Error('바꾼 기록을 남기지 못했다')
+  return row.id
+}
+
+/** 바꾼 기록 (새것 먼저, limit줄). id를 주면 그 줄만 — 바꾼 계정의 로그인 아이디와 함께, 판매자 조건 */
+export async function labelSwitchHistory(db: Db, sellerId: string, limit: number, id?: number): Promise<LabelSwitchRow[]> {
+  return db
+    .select({ id: labelSwitches.id, enabled: labelSwitches.enabled, changedAt: labelSwitches.changedAt, loginId: accounts.loginId })
+    .from(labelSwitches)
+    .innerJoin(accounts, and(eq(accounts.id, labelSwitches.accountId), eq(accounts.sellerId, sellerId)))
+    .where(and(eq(labelSwitches.sellerId, sellerId), id === undefined ? undefined : eq(labelSwitches.id, id)))
+    .orderBy(desc(labelSwitches.id))
+    .limit(limit)
 }

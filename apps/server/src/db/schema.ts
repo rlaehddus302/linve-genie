@@ -5,7 +5,7 @@
 // - 시각은 UTC(timestamptz, 엔진 at은 UTC 밀리초)로 둔다(NFR-07).
 // - 전화번호 원문·정규화한 번호는 어디에도 두지 않는다. 판매자 전화번호 키는 마스터 키로 암호화한 값만 둔다(D-073).
 // - 이 파일과 마이그레이션이 어긋나지 않는지는 test/schema.test.ts가 실제 DB 구조와 대조한다.
-import { sql } from 'drizzle-orm'
+import { and, eq, sql, type SQL } from 'drizzle-orm'
 import { bigint, bigserial, boolean, index, integer, pgTable, text, timestamp, unique, uniqueIndex } from 'drizzle-orm/pg-core'
 
 const timestamptz = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' })
@@ -23,6 +23,11 @@ export const sellers = pgTable('sellers', {
   wizardStatus: text('wizard_status').notNull().default('NEW'),
   /** 진행 중인 단계 1~5 (IN_PROGRESS일 때만) */
   wizardStep: integer('wizard_step'),
+  /**
+   * 가게 설정 (I2 D-I2-02, 이벤트 로그 밖): 입금 계좌(은행·계좌번호·예금주 — 셋 다 있거나 셋 다 빈 값)·안내 문장의 JSON 객체 문자열.
+   * 가게 이름은 name 칸이다(화면 위 가게 이름과 같은 값)
+   */
+  shop: text('shop').notNull().default('{}'),
 })
 
 /**
@@ -120,7 +125,10 @@ export const scopes = pgTable(
   (t) => [unique('scopes_seller_date_rehearsal_uq').on(t.sellerId, t.date, t.rehearsal)],
 )
 
-/** 방송 목록 (방송 ID → 범위). broadcast.start·broadcast.end 이벤트와 같은 트랜잭션에서 쓴다 */
+/**
+ * 방송 목록 (방송 ID → 범위). broadcast.start·broadcast.end 이벤트와 같은 트랜잭션에서 쓴다.
+ * 방송 ID는 서버 전체에서 유일하다(기본 키 — 다른 표가 broadcasts(id)를 참조할 수 있다, RA-I2-002). 조회는 늘 판매자 ID와 함께 건다
+ */
 export const broadcasts = pgTable(
   'broadcasts',
   {
@@ -188,6 +196,8 @@ export const events = pgTable(
     unique('events_sms_ref_uq').on(t.sellerId, t.smsRef),
     /** 채팅 이어 받기 (방송별 seq 뒤·앞, AC-S05-20) */
     index('events_chat_seq_idx').on(t.scopeId, t.chatBroadcast, t.seq),
+    /** 인스타그램 댓글 ID는 판매자 안에서 어느 회차든 한 번만 (다시 배달된 댓글을 회차를 정하기 전에 거른다, AC-N2-33, N2 TD-N2-001) */
+    index('events_ig_chat_idx').on(t.sellerId, t.chatMessageId).where(sql`chat_message_id LIKE 'ig:%'`),
   ],
 )
 
@@ -255,6 +265,11 @@ export const outbox = pgTable(
     /** 알림에서 뺀 시각·계정 (상태·이유는 그대로, 다시 보내면 지운다) */
     dismissedAt: timestamptz('dismissed_at'),
     dismissedBy: text('dismissed_by'),
+    /**
+     * 복구·가져오기가 재생으로 다시 만든 효과 (I2 D-I2-11): 실행하지 않는다 — 지난 라벨·감사 메시지를 다시 내지 않는다.
+     * 실행기(I1·Y1)의 실행 대상 조회는 rehearsal = false AND restored = false 행만 본다(executableOutboxRows)
+     */
+    restored: boolean('restored').notNull().default(false),
   },
   (t) => [
     unique('outbox_effect_uq').on(t.sellerId, t.scopeId, t.effectId),
@@ -518,7 +533,34 @@ export const printQueues = pgTable('print_queues', {
   /** 출력 기록이 바뀔 때마다 1씩 는다 (실시간 알림의 순서·빠짐 확인) */
   rev: bigint('rev', { mode: 'number' }).notNull().default(0),
   updatedAt: timestamptz('updated_at').notNull(),
+  /**
+   * 라벨 기능 켬/끔 (N4a, SPEC RCP-01, L-13 1·D-N4a-01). 기본 켬 — 줄이 없어도 켬. 판매 규칙 설정이 아니다(방송 스냅샷·엔진 입력에 들어가지 않는다).
+   * 이 줄을 잠근(lockQueue) 트랜잭션 안에서 읽고 바꾼다: 이벤트 기록의 효과 → 작업, 출력 요청 거절, 켜기·끄기가 같은 잠금으로 한 줄씩 처리된다
+   */
+  labelsEnabled: boolean('labels_enabled').notNull().default(true),
 })
+
+/**
+ * 라벨 기능 켬/끔을 바꾼 기록 (N4a, L-13 2). 값이 실제로 바뀔 때마다 한 줄(바뀐 값·시각 UTC·바꾼 계정), 켬/끔을 바꾼 트랜잭션 안에서.
+ * 지우지 않는다(지우는 API가 없다). 다른 판매자의 기록은 보이지 않는다(판매자 조건)
+ */
+export const labelSwitches = pgTable(
+  'label_switches',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** 바뀐 값 (true = 켬) */
+    enabled: boolean('enabled').notNull(),
+    /** 바꾼 계정 */
+    accountId: text('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    changedAt: timestamptz('changed_at').notNull(),
+  },
+  (t) => [index('label_switches_seller_idx').on(t.sellerId, t.id)],
+)
 
 /**
  * 라벨 키 (L-8, L-9, L-11). 상품 = (찜, 확정버전) — key `<찜>@<확정버전>`, 포장 = (포장, 지금의 구매자, 날짜) — key `packing:<구매자>`.
@@ -672,6 +714,303 @@ export const printRequests = pgTable(
     createdAt: timestamptz('created_at').notNull(),
   },
   (t) => [unique('print_requests_uq').on(t.sellerId, t.requestId)],
+)
+
+// ── 플랫폼 라이브 연결·인스타그램 (N2, PLT-01·PLT-03, D-N2-01~D-N2-15) ──────────────
+// 발송함(outbox) 표는 바꾸지 않는다 — 인스타그램 DM 발송 기록은 이 표들에 따로 쓴다(I1 출력 기록과 같은 방식, D-N2-01).
+// 토큰은 서버 마스터 키로 암호화한 값만 둔다(D-073, D-N2-06). OAuth state는 해시만 둔다. 웹훅 원문은 어디에도 두지 않는다(D-N2-07).
+
+/**
+ * 인스타그램 계정 연결 (판매자마다 하나, 계정 하나는 판매자 하나에만 — D-N2-06). 끊으면 행을 지운다(토큰·DM 동의 함께).
+ * 상태: CONNECTED 연결됨 · RECONNECT_NEEDED 다시 연결 필요 (행이 없으면 NOT_CONNECTED)
+ */
+export const igConnections = pgTable(
+  'ig_connections',
+  {
+    sellerId: text('seller_id')
+      .primaryKey()
+      .references(() => sellers.id),
+    /** 로그인 방식: FACEBOOK · INSTAGRAM */
+    login: text('login').notNull(),
+    /** 인스타그램 프로페셔널 계정 ID (웹훅 entry[].id) */
+    accountId: text('account_id').notNull(),
+    username: text('username').notNull(),
+    /** 계정 종류: BUSINESS · CREATOR (메타가 알려 주지 않으면 null) */
+    accountType: text('account_type'),
+    /** 페이스북 로그인: 계정이 붙은 페이지 ID */
+    pageId: text('page_id'),
+    /** 토큰 묶음(사용자·페이지·인스타 토큰 JSON)을 서버 마스터 키로 AES-256-GCM 암호화한 값 */
+    tokensEnc: text('tokens_enc').notNull(),
+    /** 지금 토큰을 받은 시각·만료 시각(인스타그램 로그인의 긴 토큰만, 페이스북 로그인 페이지 토큰은 null) */
+    tokenObtainedAt: timestamptz('token_obtained_at').notNull(),
+    tokenExpiresAt: timestamptz('token_expires_at'),
+    /** 받은 권한: 댓글 읽기·메시지 */
+    permComments: boolean('perm_comments').notNull(),
+    permMessages: boolean('perm_messages').notNull(),
+    status: text('status').notNull(),
+    /** DM 자동 발송 동의 (기본 꺼짐 — null). 켠 시각·켠 로그인 계정 */
+    consentAt: timestamptz('consent_at'),
+    consentBy: text('consent_by').references(() => accounts.id),
+    /** 형식 틀린 댓글 수 (판매자 단위, AC-N2-35) */
+    malformedCount: integer('malformed_count').notNull().default(0),
+    connectedAt: timestamptz('connected_at').notNull(),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [unique('ig_connections_account_uq').on(t.accountId)],
+)
+
+/** OAuth state (그 로그인 세션에 묶임, 해시만, 10분·한 번 — AC-N2-10). purpose: CONNECT 연결·다시 연결 · MESSAGES DM 동의를 켜려고 메시지 권한을 다시 요청 */
+export const igOauthStates = pgTable(
+  'ig_oauth_states',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    sessionHash: text('session_hash').notNull(),
+    stateHash: text('state_hash').notNull(),
+    purpose: text('purpose').notNull(),
+    login: text('login').notNull(),
+    expiresAt: timestamptz('expires_at').notNull(),
+    usedAt: timestamptz('used_at'),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('ig_oauth_states_state_uq').on(t.stateHash), index('ig_oauth_states_seller_idx').on(t.sellerId)],
+)
+
+/**
+ * 회차의 라이브 연결 기록 (PLT-03, D-N2-08). 상태: WAITING 기다리는 중 · LINKED 이어짐 · UNLINKED 끊음.
+ * 회차마다 끊지 않은 연결(WAITING·LINKED)은 하나뿐이다(부분 유일 인덱스). 잇기는 엔진 이벤트가 아니다 — 누가·언제는 여기 남는다(DAT-05)
+ */
+export const liveLinks = pgTable(
+  'live_links',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    broadcastId: text('broadcast_id')
+      .notNull()
+      .references(() => broadcasts.id),
+    /** YOUTUBE · INSTAGRAM · TIKTOK (지금은 INSTAGRAM만 쓴다) */
+    platform: text('platform').notNull(),
+    state: text('state').notNull(),
+    /** 이은 라이브 ID (인스타그램 미디어 ID — LINKED일 때) */
+    liveId: text('live_id'),
+    /** 이은(기다리기로 정한) 때 연결돼 있던 인스타그램 계정 ID */
+    accountId: text('account_id'),
+    /** 조치자: account(판매자 계정) · server(저절로 잇기) */
+    actor: text('actor').notNull(),
+    actorAccountId: text('actor_account_id').references(() => accounts.id),
+    linkedAt: timestamptz('linked_at').notNull(),
+    unlinkedAt: timestamptz('unlinked_at'),
+    unlinkedBy: text('unlinked_by').references(() => accounts.id),
+    /** 늦게 받은 댓글 수·형식 틀린 댓글 수 (AC-N2-36·37) */
+    lateCount: integer('late_count').notNull().default(0),
+    malformedCount: integer('malformed_count').notNull().default(0),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('live_links_open_uq').on(t.sellerId, t.broadcastId).where(sql`state <> 'UNLINKED'`),
+    index('live_links_broadcast_idx').on(t.sellerId, t.broadcastId),
+    index('live_links_live_idx').on(t.sellerId, t.liveId),
+  ],
+)
+
+/**
+ * 저절로 이은 연결을 같은 계정의 새 라이브로 옮긴 기록 (AC-N2-25, D-N2-16). 옮기기는 끊기가 아니다 — 연결 행(live_links)은 그대로 두고
+ * 라이브 ID·이은 시각만 바꾸며, 이전 라이브 ID·옮긴 시각·조치자(서버)는 여기에 남는다. "이어진 적이 있는 라이브"는 live_links.live_id와 이 표의 두 라이브 ID다.
+ */
+export const liveLinkMoves = pgTable(
+  'live_link_moves',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    linkId: bigint('link_id', { mode: 'number' })
+      .notNull()
+      .references(() => liveLinks.id),
+    broadcastId: text('broadcast_id')
+      .notNull()
+      .references(() => broadcasts.id),
+    platform: text('platform').notNull(),
+    /** 옮기기 전 라이브 ID · 옮긴 라이브 ID */
+    fromLiveId: text('from_live_id').notNull(),
+    toLiveId: text('to_live_id').notNull(),
+    /** 옮길 때의 인스타그램 계정 ID (옮기기 전과 같은 계정이어야 옮긴다) */
+    accountId: text('account_id').notNull(),
+    /** 조치자: server (판매자가 손으로 이은 연결은 옮기지 않는다) */
+    actor: text('actor').notNull(),
+    /** 옮기기 전까지 이 방송에 기록한 인스타그램 댓글 수 (알림 LIVE_MOVED의 N) */
+    commentsBefore: integer('comments_before').notNull(),
+    movedAt: timestamptz('moved_at').notNull(),
+  },
+  (t) => [index('live_link_moves_from_idx').on(t.sellerId, t.fromLiveId), index('live_link_moves_to_idx').on(t.sellerId, t.toLiveId)],
+)
+
+/** 이어지지 않은 라이브의 댓글 수 (라이브마다 수·처음·마지막 받은 시각만 — 본문·이름·IGSID·댓글 ID 없음, AC-N2-24) */
+export const liveUnlinked = pgTable(
+  'live_unlinked',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    platform: text('platform').notNull(),
+    liveId: text('live_id').notNull(),
+    count: integer('count').notNull(),
+    firstAt: timestamptz('first_at').notNull(),
+    lastAt: timestamptz('last_at').notNull(),
+  },
+  (t) => [unique('live_unlinked_uq').on(t.sellerId, t.platform, t.liveId)],
+)
+
+/** 라이브 잇기·DM 수동 재전송 요청 번호 (같은 요청 번호면 처음 결과 — 두 번 하지 않는다) */
+export const liveRequests = pgTable(
+  'live_requests',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    requestId: text('request_id').notNull(),
+    /** 처음 응답 JSON (상태 코드·본문) */
+    result: text('result').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('live_requests_uq').on(t.sellerId, t.requestId)],
+)
+
+/**
+ * 인스타그램 DM 발송 하나 (댓글 하나에 DM 하나 — D-N2-09). 댓글마다 진행 중인 발송(PENDING·SENDING·CONFIRMING)은 하나뿐이다(부분 유일 인덱스).
+ * 상태: PENDING 다음 시도 기다림 · SENDING 보내는 중(임대) · CONFIRMING 타임아웃 뒤 대화 조회로 확인하는 중 · SENT · FAILED · UNCONFIRMED
+ */
+export const igDmSends = pgTable(
+  'ig_dm_sends',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    scopeId: text('scope_id')
+      .notNull()
+      .references(() => scopes.id),
+    date: text('date').notNull(),
+    broadcastId: text('broadcast_id').notNull(),
+    /** 받는 댓글 (`ig:` 메시지 ID) */
+    comment: text('comment').notNull(),
+    /** 댓글 쓴 사람의 IGSID (타임아웃 뒤 대화 조회) */
+    igsid: text('igsid').notNull(),
+    /** 마지막 시도에 실제로 보낸 글 (타임아웃 확인은 이 글로 한다) */
+    text: text('text'),
+    state: text('state').notNull(),
+    reason: text('reason'),
+    /** 실패한 시도 수 (다시 시도 2·4·8·16·32초, 최대 5번) */
+    attempts: integer('attempts').notNull().default(0),
+    nextAt: timestamptz('next_at'),
+    /** 보내는 중·확인 중 임대 (서버가 죽으면 지난 뒤 확인부터) */
+    leaseUntil: timestamptz('lease_until'),
+    /** 마지막 시도를 시작한 시각 */
+    startedAt: timestamptz('started_at'),
+    /** 판매자가 직접 다시 보냄 (동의·기한 없이) */
+    manual: boolean('manual').notNull().default(false),
+    metaMessageId: text('meta_message_id'),
+    sentAt: timestamptz('sent_at'),
+    createdAt: timestamptz('created_at').notNull(),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('ig_dm_sends_active_uq').on(t.sellerId, t.scopeId, t.comment).where(sql`state IN ('PENDING', 'SENDING', 'CONFIRMING')`),
+    index('ig_dm_sends_state_idx').on(t.state, t.nextAt),
+  ],
+)
+
+/**
+ * 인스타그램 DM 행 (인스타그램 회차의 실제 범위 발송함 POST_THANKS 행마다 하나 — 그 효과가 기록되는 같은 트랜잭션에서 만든다).
+ * 상태: WAITING(이유 RETRY·RECONNECT·PREVIOUS) · SENDING(CONFIRM) · SENT · SKIPPED(CANCELLED·NO_RECIPIENT·NOT_SUPPORTED) · FAILED(이유)
+ */
+export const igDmRows = pgTable(
+  'ig_dm_rows',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    scopeId: text('scope_id')
+      .notNull()
+      .references(() => scopes.id),
+    date: text('date').notNull(),
+    outboxId: bigint('outbox_id', { mode: 'number' })
+      .notNull()
+      .references(() => outbox.id),
+    effectId: text('effect_id').notNull(),
+    /** 효과를 낸 이벤트의 seq와 그 이벤트 안 효과 순서 (DM 줄 순서) */
+    seq: integer('seq').notNull(),
+    ord: integer('ord').notNull(),
+    broadcastId: text('broadcast_id').notNull(),
+    /** 효과의 상품 키·구매자 자신 */
+    product: text('product').notNull(),
+    buyer: text('buyer').notNull(),
+    /** 받는 댓글 (`ig:` 메시지 ID). 받는 댓글이 없으면 null */
+    comment: text('comment'),
+    /** DM 한 줄 (효과 문구 정리 — AC-N2-44) */
+    line: text('line').notNull(),
+    status: text('status').notNull(),
+    reason: text('reason'),
+    attempts: integer('attempts').notNull().default(0),
+    nextAt: timestamptz('next_at'),
+    /** 자동 발송 기한 (행이 생긴 뒤 10분, 수동 재전송이면 null) */
+    deadlineAt: timestamptz('deadline_at'),
+    sendId: bigint('send_id', { mode: 'number' }).references(() => igDmSends.id),
+    sentAt: timestamptz('sent_at'),
+    metaMessageId: text('meta_message_id'),
+    /** effect.thanksSent를 기록했는지 */
+    reported: boolean('reported').notNull().default(false),
+    createdAt: timestamptz('created_at').notNull(),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [
+    unique('ig_dm_rows_outbox_uq').on(t.sellerId, t.outboxId),
+    index('ig_dm_rows_status_idx').on(t.status, t.sellerId),
+    index('ig_dm_rows_comment_idx').on(t.sellerId, t.scopeId, t.comment),
+  ],
+)
+
+/**
+ * 포장·배송 기록 (STL-08, I2 D-I2-05): 엔진 이벤트가 아니라 서버가 덧붙이기만 하는 기록이다(고치거나 지우지 않는다 — 복구 명령만 예외, D-I2-11).
+ * (판매자, 실제 범위 날짜, 그때 지금의 구매자 ID)마다 차례로 읽어 상태를 계산한다. 리허설 범위에는 쓰지 않는다
+ */
+export const packingRecords = pgTable(
+  'packing_records',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    scopeId: text('scope_id')
+      .notNull()
+      .references(() => scopes.id),
+    /** 묶음 날짜 YYYY-MM-DD (실제 범위) */
+    date: text('date').notNull(),
+    /** 기록할 때의 지금의 구매자 ID (그 ID의 묶음에만 보인다) */
+    buyer: text('buyer').notNull(),
+    /** PACKED(포장 완료) · UNPACKED(포장 취소) · SHIPPED(배송 완료) · UNSHIPPED(배송 취소) */
+    kind: text('kind').notNull(),
+    /** 포장 완료의 담은 품목 = 상품 키(`<방송 ID>/<번호>`) 목록 JSON (다른 종류는 null) */
+    items: text('items'),
+    /** 배송 완료의 송장번호(숫자만, 없으면 null) */
+    invoice: text('invoice'),
+    /** 누가 (로그인 계정 — 가져온 기록의 계정이 이 서버에 없으면 null) */
+    accountId: text('account_id').references(() => accounts.id),
+    requestId: text('request_id'),
+    /** 언제 (서버 도착 시각 UTC) */
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('packing_request_uq').on(t.sellerId, t.requestId), index('packing_scope_idx').on(t.sellerId, t.scopeId, t.id)],
 )
 
 // ── 요금 (N5, BILLING_RULES BL-0~BL-8, D-N5-01~D-N5-14) ─────────────────────
@@ -883,6 +1222,16 @@ export const schema = {
   printAttempts,
   labelTemplates,
   printRequests,
+  igConnections,
+  igOauthStates,
+  liveLinks,
+  liveLinkMoves,
+  liveUnlinked,
+  liveRequests,
+  igDmSends,
+  igDmRows,
+  labelSwitches,
+  packingRecords,
   billingGrants,
   billingRevocations,
   billingUsage,
@@ -892,6 +1241,13 @@ export const schema = {
   billingDocuments,
   billingRequests,
 }
+
+/**
+ * 발송함 실행 대상 조건 (R-13, D-081, D-I2-11 — RA-I2-001): 실제 범위의 행이고 복구·가져오기가 다시 만든 행이 아니다.
+ * 발송함 행을 골라 실행하는 질의(라벨 출력·감사 메시지 게시 등 실행기)는 모두 이 조건을 건다 —
+ * test/i2-restore-contract.test.ts가 apps/server/src의 발송함 질의를 훑어 rehearsal 조건을 거는 곳이 restored 조건도 거는지 확인한다
+ */
+export const executableOutbox = and(eq(outbox.rehearsal, false), eq(outbox.restored, false)) as SQL
 
 /** 요금 직렬 처리용 어드바이저리 락 키 (판매자마다 하나 — 새 실제 방송 시작·환불·부여·결제 확인·쓰기를 차례로, BL-4 3·BL-7 4) */
 export const billingLockKey = (sellerId: string) => sql`hashtextextended(${`billing/${sellerId}`}, 0)`

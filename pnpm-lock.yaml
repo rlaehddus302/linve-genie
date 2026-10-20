@@ -226,12 +226,18 @@ importers:
       '@livejjim/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@livejjim/documents':
+        specifier: workspace:*
+        version: link:../../packages/documents
       '@livejjim/label':
         specifier: workspace:*
         version: link:../../packages/label
       drizzle-orm:
         specifier: 0.45.3
         version: 0.45.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9)
+      exceljs:
+        specifier: 4.4.0
+        version: 4.4.0
       hono:
         specifier: 4.13.13
         version: 4.13.13

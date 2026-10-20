@@ -10,7 +10,8 @@
 // - Ctrl+C(SIGINT)·SIGTERM이면 새 연결을 받지 않고 진행 중인 요청을 마친 뒤 종료 코드 0으로 끝난다.
 //   한 번 더 누르면 바로 끝낸다.
 import { existsSync } from 'node:fs'
-import { DEFAULT_PORT, readAppOrigin, readDatabaseSetting, readDeploySetting, readPort, readYoutubeSetting } from './config.ts'
+import { FolderBackupStorage } from './backup.ts'
+import { DEFAULT_PORT, readAppOrigin, readBackupDir, readDatabaseSetting, readDeploySetting, readPort, readYoutubeSetting } from './config.ts'
 import { createNodeServer } from './node-server.ts'
 import { openDatabaseFromEnv } from './commands/shared.ts'
 import { productionServerOptions } from './production.ts'
@@ -72,15 +73,22 @@ if (!assembled.ok) {
   await database.close()
   process.exit(1)
 }
+// 백업 저장소 (I2 D-I2-10): LIVEJJIM_BACKUP_DIR 폴더(판매자마다 하위 폴더 — 운영 백업 명령의 덤프와 같은 폴더). 없으면 자동 백업이 꺼진다는 경보만 남기고 판매는 그대로 한다
+const backupDir = readBackupDir(process.env)
 const livejjim = createServer({
   ...assembled.options,
   trustedProxies: deploy.trustedProxies,
   ...(deploy.opsToken === null ? {} : { opsToken: deploy.opsToken }),
   ...(deploy.webDir === null ? {} : { webDir: deploy.webDir }),
   ...(youtubeSetting.youtube === null ? {} : { youtube: youtubeSetting.youtube }),
+  backupStorage: backupDir === null ? null : new FolderBackupStorage(backupDir),
 })
 // 워커: 유튜브 수집기·발송함(설정이 있을 때), 30일 봉인 작업 — 끝나지 않은 회차의 수집기가 저절로 다시 돈다 (NFR-03)
 livejjim.start()
+// 매일 판매자 자동 백업 (I2 D-I2-10)
+livejjim.backups.start()
+// 확인서 미리 보기 워커를 미리 띄운다 (첫 미리 보기가 워커를 띄우는 시간을 기다리지 않게 — RA-I2-003)
+livejjim.work.receipts.warm()
 const server = createNodeServer({ app: livejjim.app })
 
 // PORT 환경변수 값은 로그에 찍지 않는다. 기본값일 때만 번호를 보여 준다.

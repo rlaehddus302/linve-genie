@@ -363,4 +363,36 @@ describe('쓰기 오류 (AC-S06-82)', () => {
     expect(within(dialog).getByLabelText('사유').getAttribute('aria-describedby') ?? '').toContain(note.id)
     expect(engine.posts).toHaveLength(0)
   })
+
+  // D-I2-20: 포장·배송을 적은 구매자의 합치기·떼어 내기는 서버가 409로 거절한다 — 화면은 서버 문장 그대로(한 번만), 다시 보내기 없이
+  const PACKED_MERGE = '포장이나 배송을 적은 구매자는 다른 구매자에 합칠 수 없어요. 포장 모드에서 먼저 취소해 주세요.'
+  const SHIPPED_UNMERGE = '배송을 적은 구매자에게서는 떼어 낼 수 없어요. 포장 모드에서 배송 완료를 먼저 취소해 주세요.'
+
+  it('합치기 409(포장·배송을 적은 구매자, D-I2-20): 서버 문장을 그대로 한 번 — 다시 보내기 없음, 합치지 않음', async () => {
+    const dialog = await openMergeWithHong()
+    failWrites(engine.server, 1, apiError(409, 'PACKING_RECORDED', PACKED_MERGE, [{ field: null, message: PACKED_MERGE }]))
+    fireEvent.click(within(dialog).getByRole('button', { name: '합치기' }))
+    const text = await within(dialog).findByText(PACKED_MERGE)
+    expect(within(dialog).getAllByText(PACKED_MERGE)).toHaveLength(1)
+    expect(text.closest('[role="alert"]')?.getAttribute('data-tone')).toBe('danger')
+    expect(within(dialog).queryByRole('button', { name: '다시 보내기' })).toBeNull()
+    expect(engine.posts).toHaveLength(0)
+    expect(screen.queryByText('합쳤어요')).toBeNull()
+  })
+
+  it('떼어 내기 409(배송을 적은 구매자에게서, D-I2-20): 서버 문장을 그대로 — 엔진 거절 문장(환불)이 아니다', async () => {
+    await open([...BASE, { type: 'buyer.merge', from: 'sms:r1', into: 'UC_hong1234', reason: '같은 사람' }])
+    fireEvent.click(within(list()).getByRole('link', { name: /홍길동/ }))
+    await flush()
+    fireEvent.click(screen.getByRole('button', { name: '문자찜(김씨) 떼어 내기' }))
+    const dialog = await screen.findByRole('dialog', { name: '문자찜(김씨) 떼어 내기' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '1 잘못 합침' }))
+    failWrites(engine.server, 1, apiError(409, 'PACKING_RECORDED', SHIPPED_UNMERGE))
+    fireEvent.click(within(dialog).getByRole('button', { name: '떼어 내기' }))
+    expect(await within(dialog).findByText(SHIPPED_UNMERGE)).toBeDefined()
+    expect(dialog.textContent).not.toContain('떼어 내지 못했어요.')
+    expect(within(dialog).queryByRole('button', { name: '다시 보내기' })).toBeNull()
+    expect(engine.posts.filter((post) => post.type === 'buyer.unmerge')).toHaveLength(0)
+    expect(screen.getByRole('dialog', { name: '문자찜(김씨) 떼어 내기' })).toBe(dialog)
+  })
 })

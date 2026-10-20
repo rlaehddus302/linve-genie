@@ -13,6 +13,8 @@ export interface GoldenParserCore {
   quickInput(text: string, settings: SettingsOverride): unknown
   /** 음성 문장 추출 (P2, D-209 — 추출기는 packages/voice에 있고 어댑터가 부른다). dictionary는 suite의 품종 사전(사본) */
   voiceExtract(text: string, settings: SettingsOverride, dictionary: readonly string[]): unknown
+  /** 상품 목록 가져오기 (I2, D-I2-09 — 해석 함수는 apps/server에 있고 어댑터가 부른다). existing은 suite의 이미 있는 번호(사본) */
+  productImport(text: string, settings: SettingsOverride, existing: readonly number[]): unknown
 }
 
 export interface GoldenBroadcast {

@@ -109,7 +109,7 @@ export function AssistantsSection() {
         />
         <FieldError error={error} field="name" id={`${nameId}-error`} />
         <div className="row">
-          <button type="submit" className="button button-primary" disabled={busy || full}>
+          <button type="submit" className="button" disabled={busy || full}>
             보조자 만들기
           </button>
         </div>

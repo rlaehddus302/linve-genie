@@ -42,6 +42,8 @@ export const KEEP_SCREEN_ON = '출력하는 동안 이 화면을 켜 두세요.'
 export const TEST_QUESTION = '테스트 라벨의 네 변 테두리와 한글이 모두 또렷하게 보이나요?'
 export const SETTING_NEXT_BROADCAST = '다음에 시작하는 방송부터 적용돼요.'
 export const NO_WINNER_LABEL = '1등이 없어 출력할 라벨이 없어요.'
+/** 라벨 기능을 끈 판매자의 라벨 자리 안내 (L-13 9, D-N4a-05) — 라벨 화면·상품 자세히·정산 자세히·Alt+P */
+export const LABELS_OFF_NOTE = '라벨 쓰지 않음 — 설정에서 켤 수 있어요.'
 
 /** 쌓인 라벨 안내 (L-11 10) */
 export function backlogMessage(count: number): string {
