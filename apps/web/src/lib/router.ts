@@ -4,6 +4,8 @@
 //   구매자 자세히의 합치기 창: 상대·방향은 `merge`(상대 구매자 ID)·`into`(남는 쪽 구매자 ID), 막힘에서 연 상품 자세히는 `product`(상품 키)
 //   — 상품 자세히에 갔다 와도(브라우저 뒤로 가기 포함) 같은 합치기 창이 다시 열린다 (AC-S06b-34, D-102).
 //   `/labels` 라벨(프린터·출력 대기열·버릴 라벨·출력 이력·라벨 설정·내보내기, I1 AC-I1-20)
+//   `/deposits` 입금 확인(N3, AC-N3-40) — 보는 목록은 검색값 `tab`(확인 필요는 적지 않는다): done 자동 확인됨·확인함 · ignored 무시함 · paste 붙여넣기 · sources 계좌 연동.
+//   입금자명·금액은 주소에 넣지 않는다.
 // 전화번호·메모·사유는 주소에 넣지 않는다(AC-S06-81) — 구매자 ID·상품 키만. 새로고침·북마크해도 같은 화면이다.
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -26,7 +28,16 @@ export interface ScopeRoute {
 
 const SCOPE_PARAMS = ['buyer', 'merge', 'into', 'product'] as const
 
-export type Route = { readonly name: 'home' } | { readonly name: 'console'; readonly id: string } | { readonly name: 'sms' } | { readonly name: 'labels' } | ScopeRoute
+/** 입금 확인 화면의 목록 (N3) */
+export const DEPOSIT_TABS = ['review', 'done', 'ignored', 'paste', 'sources'] as const
+export type DepositTab = (typeof DEPOSIT_TABS)[number]
+
+export interface DepositsRoute {
+  readonly name: 'deposits'
+  readonly tab: DepositTab
+}
+
+export type Route = { readonly name: 'home' } | { readonly name: 'console'; readonly id: string } | { readonly name: 'sms' } | { readonly name: 'labels' } | ScopeRoute | DepositsRoute
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -57,6 +68,10 @@ export function parseRoute(pathname: string, search = ''): Route {
   const path = pathname.replace(/\/+$/, '')
   if (path === '/sms') return { name: 'sms' }
   if (path === '/labels') return { name: 'labels' }
+  if (path === '/deposits') {
+    const tab = new URLSearchParams(search).get('tab')
+    return { name: 'deposits', tab: (DEPOSIT_TABS as readonly string[]).includes(tab ?? '') ? (tab as DepositTab) : 'review' }
+  }
   if (path === '/buyers') return scopeRoute('buyers', search)
   if (path === '/settlements') return scopeRoute('settlements', search)
   return { name: 'home' }
@@ -72,6 +87,8 @@ export function routePath(route: Route): string {
       return '/sms'
     case 'labels':
       return '/labels'
+    case 'deposits':
+      return route.tab === 'review' ? '/deposits' : `/deposits?tab=${route.tab}`
     case 'buyers':
     case 'settlements': {
       const params = new URLSearchParams()
@@ -88,7 +105,7 @@ export function routePath(route: Route): string {
 }
 
 /** 메뉴 항목 (AC-S06-01): 지금 화면이 어느 메뉴에 속하는지 */
-export type MenuKey = 'broadcasts' | 'sms' | 'buyers' | 'settlements' | 'labels'
+export type MenuKey = 'broadcasts' | 'sms' | 'buyers' | 'settlements' | 'labels' | 'deposits'
 
 export function menuOf(route: Route): MenuKey {
   switch (route.name) {
@@ -103,6 +120,8 @@ export function menuOf(route: Route): MenuKey {
       return 'settlements'
     case 'labels':
       return 'labels'
+    case 'deposits':
+      return 'deposits'
   }
 }
 

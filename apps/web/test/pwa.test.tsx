@@ -87,16 +87,17 @@ describe('앱 설치 (AC-S06-52)', () => {
   })
 })
 
-describe('메뉴 (AC-S06-01, AC-I1-20)', () => {
-  it('"방송"·"문자찜 입력"·"구매자"·"정산"·"라벨", 지금 화면은 aria-current="page" — 구매자·정산 사이는 고른 날짜를 이어 간다', async () => {
+describe('메뉴 (AC-S06-01, AC-I1-20, AC-N3-40)', () => {
+  it('"방송"·"문자찜 입력"·"구매자"·"정산"·"입금 확인"·"라벨", 지금 화면은 aria-current="page" — 구매자·정산 사이는 고른 날짜를 이어 간다', async () => {
     const { TopBar } = await import('../src/components/TopBar.tsx')
     const navigate = vi.fn()
     render(<TopBar shopName="구피 가게" onLogout={() => {}} route={{ name: 'buyers', date: '2026-10-18', rehearsal: true }} navigate={navigate} />)
     const menu = screen.getByRole('navigation', { name: '메뉴' })
     const links = [...menu.querySelectorAll('a')]
-    expect(links.map((link) => link.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '라벨'])
-    expect(links.map((link) => link.getAttribute('aria-current'))).toEqual([null, null, 'page', null, null])
-    expect(links[4]?.getAttribute('href')).toBe('/labels')
+    expect(links.map((link) => link.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '입금 확인', '라벨'])
+    expect(links.map((link) => link.getAttribute('aria-current'))).toEqual([null, null, 'page', null, null, null])
+    expect(links[5]?.getAttribute('href')).toBe('/labels')
+    expect(links[4]?.getAttribute('href')).toBe('/deposits')
     expect(links[3]?.getAttribute('href')).toBe('/settlements?date=2026-10-18&rehearsal=true')
     fireEvent.click(links[1] as HTMLAnchorElement)
     expect(navigate).toHaveBeenCalledWith({ name: 'sms' })

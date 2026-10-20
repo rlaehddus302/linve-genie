@@ -1604,7 +1604,7 @@ html:has(.sms-submit-bar) {
     right: 0;
     bottom: 0;
     z-index: 15;
-    /* 메뉴 다섯 개(AC-I1-20): 글자 길이만큼 나눠 "문자찜 입력"도 한 줄 */
+    /* 메뉴 여섯 개(AC-I1-20, N3): 글자 길이만큼 나눠 "문자찜 입력"도 한 줄 */
     display: flex;
     flex-wrap: nowrap;
     gap: 0;
@@ -1613,10 +1613,16 @@ html:has(.sms-submit-bar) {
     background-color: #f8f9fa;
   }
 
+  /* 메뉴 여섯 개(N3 "입금 확인 3"): 글자 16px로 375px 폭에 한 줄 — 더 좁으면 띄어쓰기에서 두 줄 */
   .menu-link {
     flex: 1 1 auto;
     padding: 0.25rem 0.125rem;
+    font-size: 1rem;
     letter-spacing: -0.02em;
+  }
+
+  .menu-count {
+    padding: 0 0.25rem;
   }
 
   .label-editor {
@@ -1738,6 +1744,173 @@ html:has(.sms-submit-bar) {
     flex-wrap: wrap;
     gap: 0.25rem 1.5rem;
   }
+}
+
+/* ── 입금 확인 (N3, AC-N3-40~50) ─────────────────────────────
+ * 메뉴의 확인 필요 수는 글자로("입금 확인 3") — 둥근 바탕은 덧붙인 표시일 뿐 색만으로 알리지 않는다.
+ * 목록은 PC(48rem 이상) 표, 휴대폰 카드(입금마다 한 묶음). 누르는 곳 44px, 글자 16px 이상, 마우스를 올려야만 보이는 조작 없음.
+ */
+.menu-count {
+  display: inline-block;
+  margin-inline-start: 0.25rem;
+  padding: 0 0.375rem;
+  border-radius: 999px;
+  background-color: #a50e0e;
+  color: #ffffff;
+  font-size: 1rem;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.deposit-tabs {
+  gap: 0.375rem;
+}
+
+.deposit-tab[aria-selected='true'] {
+  color: #041e49;
+  background-color: #d3e3fd;
+  border-color: #0b57d0;
+  font-weight: 700;
+}
+
+.deposit-notice {
+  margin-bottom: 0;
+}
+
+.notice-close {
+  justify-self: start;
+}
+
+.deposit-toolbar {
+  align-items: center;
+}
+
+.deposit-cards {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.deposit-card {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+}
+
+.deposit-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 1.125rem;
+}
+
+.deposit-card-part {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.deposit-table td {
+  vertical-align: top;
+  padding-block: 0.375rem;
+}
+
+.deposit-table .deposit-no {
+  font-weight: 700;
+}
+
+/* 표는 48rem 이상에서만 그린다 — 번호("#12")는 한 줄 */
+@media (min-width: 48rem) {
+  .deposit-table .deposit-no {
+    white-space: nowrap;
+  }
+}
+
+.deposit-name {
+  overflow-wrap: anywhere;
+}
+
+.deposit-actions {
+  gap: 0.375rem;
+}
+
+.deposit-reason {
+  color: #3d2b00;
+}
+
+.suggestion {
+  align-items: flex-start;
+}
+
+.suggestion > span {
+  padding-top: 0.5rem;
+}
+
+.change-warning {
+  font-weight: 700;
+  color: #6b4e00;
+}
+
+.before-sale {
+  font-weight: 700;
+}
+
+.confirm-line {
+  padding: 0.75rem;
+  border-width: 2px;
+}
+
+.confirm-words {
+  font-weight: 700;
+}
+
+.deposit-AUTO_APPLIED {
+  background-color: #e6f4ea;
+  border-color: #137333;
+  color: #0d652d;
+}
+
+.deposit-APPLIED {
+  background-color: #e8f0fe;
+  border-color: #0b57d0;
+  color: #0b4fb3;
+}
+
+.paste-input {
+  inline-size: 100%;
+  min-block-size: 10rem;
+  font-family: ui-monospace, 'D2Coding', monospace;
+  font-size: 1rem;
+}
+
+.file-input {
+  inline-size: 100%;
+  font-size: 1rem;
+}
+
+.paste-NEW {
+  background-color: #e6f4ea;
+  border-color: #137333;
+  color: #0d652d;
+}
+
+.paste-OLD,
+.paste-FUTURE {
+  background-color: #fef7e0;
+  border-color: #6b4e00;
+  color: #6b4e00;
+}
+
+.bundle-choice {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.source-item .toolbar {
+  align-items: end;
+}
+
+.more-button {
+  justify-self: start;
 }
 
 /* ── 결과·안내의 뜻 (UX-01, D-102, AC-S06b-40) ────────────────
