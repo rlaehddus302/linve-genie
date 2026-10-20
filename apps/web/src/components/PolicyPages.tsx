@@ -11,7 +11,7 @@ export const TAX_NOTE = '구매 내역 확인서는 세금계산서·현금영�
 
 function Outside({ href, children }: { readonly href: string; readonly children: ReactNode }) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer">
+    <a className="text-link" href={href} target="_blank" rel="noopener noreferrer">
       {children}
     </a>
   )

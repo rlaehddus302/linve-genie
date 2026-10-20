@@ -492,6 +492,7 @@ export interface YoutubePanelProps {
 function SettingsLink({ navigate, children }: { readonly navigate: Navigate; readonly children: string }) {
   return (
     <a
+      className="text-link"
       href={routePath({ name: 'settings', section: 'youtube' })}
       onClick={(event) => {
         if (event.button !== 0 || event.metaKey || event.ctrlKey) return

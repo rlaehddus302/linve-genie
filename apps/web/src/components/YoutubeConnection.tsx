@@ -97,6 +97,7 @@ export function PermissionGuide({ navigate, place }: { readonly navigate: Naviga
       <p>언제든 연결을 끊거나 구글 계정 설정에서 권한을 거둘 수 있어요.</p>
       <p>
         <a
+          className="text-link"
           href={routePath({ name: 'privacy' })}
           onClick={(event) => {
             if (event.button !== 0 || event.metaKey || event.ctrlKey) return
