@@ -8,7 +8,7 @@ import type { PackingEntry, PackingItem, PackingWord } from '../src/api/types.ts
 import { ImportDialog } from '../src/components/ImportDialog.tsx'
 import { PackingPage } from '../src/components/PackingPage.tsx'
 import { ReceiptSection } from '../src/components/ReceiptSection.tsx'
-import { SettingsPage } from '../src/components/SettingsPage.tsx'
+import { BackupSection, ExportSection, ShopForm } from '../src/components/SettingsPage.tsx'
 import type { Route } from '../src/lib/router.ts'
 import { chat, register } from './engine.ts'
 import { EngineServer } from './engine-server.ts'
@@ -226,9 +226,10 @@ describe('체크리스트·포장 완료 (AC-I2-36)', () => {
     expect((within(region).getByRole('checkbox', { name: '31번 금황' }) as HTMLInputElement).checked).toBe(false)
     expect(region.textContent).toContain('2/3 담음')
     expect((within(region).getByRole('button', { name: '포장 완료' }) as HTMLButtonElement).disabled).toBe(true)
-    // 체크는 이 기기 화면에만 — 브라우저 저장소에 두지 않는다 (AC-I2-81)
+    // 체크는 이 기기 화면에만 — 브라우저 저장소에 두지 않는다 (AC-I2-81).
+    // 합친 뒤(main I1): sessionStorage에는 실시간 연결이 밝히는 이 탭의 기기 ID(LABEL_RULES L-11 10, lib/device.ts) 하나만 있다 — 체크 상태가 아니다
     expect(localStorage.length).toBe(0)
-    expect(sessionStorage.length).toBe(0)
+    expect(Object.keys(sessionStorage).filter((key) => key !== 'livejjim.deviceId')).toEqual([])
   })
 
   it('보냈는데 그 사이 품목이 바뀌어 거절되면 같은 안내로 새 품목을 보인다 (영어 코드는 화면 글자에 없다)', async () => {
@@ -441,6 +442,17 @@ describe('배송 완료·취소 (AC-I2-38)', () => {
 // ── 설정 (AC-I2-02·65) ──────────────────────────────────────────────────
 
 describe('설정 화면', () => {
+  /** 합친 뒤(main I3) 설정 화면은 판매 규칙·유튜브·보조자 칸도 함께 불러온다(settings-page.test.tsx) — 이 시험은 I2 칸(가게·백업·전체 기록 내려받기)을 그린다 */
+  function SettingsPage({ onShopName }: { readonly onShopName: (name: string) => void }) {
+    return (
+      <>
+        <ShopForm onRenamed={onShopName} />
+        <BackupSection />
+        <ExportSection />
+      </>
+    )
+  }
+
   function settingsServer(backups: Record<string, unknown>) {
     const server = new FakeServer()
     let shop = { name: '시험 가게', bank: '', accountNumber: '', accountHolder: '', accountNote: '' }
