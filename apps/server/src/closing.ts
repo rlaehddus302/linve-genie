@@ -3,7 +3,7 @@
 // - 가게 설정, 확인서(데이터·PDF·PNG·전원 PDF), 판매대장 엑셀, 포장·배송(상태·명령·라벨), 지난 구매, 상품 목록 가져오기(미리 보기·등록), 백업 상태, 전체 내려받기.
 // - 판매자 ID 조건은 늘 세션의 판매자다. 없는 범위·다른 판매자의 자원은 404(있는지 드러내지 않는다).
 // - 문서·파일 내용, 파일 이름, 송장번호, 가게 설정 값, 가져오기 글은 로그에 남기지 않는다(로그는 정해진 코드·날짜뿐).
-import { containsPhoneRun, currentBuyerOf, getBroadcast, getBuyer, isValidDate, listProducts, looksLikePhoneId, type EngineState } from '@livejjim/core'
+import { containsPhoneRun, currentBuyerOf, getBroadcast, getBuyer, isValidDate, listProducts, looksLikePhoneId, normalizeText, type EngineState } from '@livejjim/core'
 import { buildLedger, buildReceipt, ledgerToXlsx, renderBatchPdf, renderReceiptPdf, renderReceiptPng, type ReceiptData } from '@livejjim/documents'
 import type { PackingLabelData } from '@livejjim/label'
 import { and, asc, eq, gte, sql } from 'drizzle-orm'
@@ -39,7 +39,7 @@ import {
   type PackingWord,
 } from './packing.ts'
 import { pastPurchases, type PastView } from './past.ts'
-import { IMPORT_MAX_ROWS, isNormalizedName, parseProductList, parseProductRows, recheckRows, splitImportLines, type ImportResult, type RegisterRow } from './product-import.ts'
+import { IMPORT_MAX_ROWS, isNormalizedName, parseProductList, parseProductRows, recheckRows, splitCells, splitImportLines, type ImportResult, type RegisterRow } from './product-import.ts'
 import type { ScopeRuntime } from './runtime.ts'
 import { checkShopInput, documentShop, readShop, writeShop, type ShopView } from './shop.ts'
 import { findBroadcast, listBroadcastRows, scopeSeqs } from './store.ts'
@@ -486,16 +486,12 @@ export class ClosingService {
     if (!source.ok) return { kind: 'error', error: source.error }
     const settings = { unit: target.unit, maxNumber: target.maxNumber, existing: target.existing }
     const result: ImportResult = source.kind === 'text' ? parseProductList(source.text, settings) : parseProductRows(source.rows, settings)
-    const lineText = (line: number): string => (source.kind === 'text' ? (source.lines.get(line) ?? '') : (source.rows.find((row) => row.line === line)?.cells.join('\t') ?? ''))
     if ('error' in result) return ok({ broadcast: b, unit: target.unit, maxNumber: target.maxNumber, error: result.error, header: null, headerCells: null, rows: [], register: 0, problems: 0 })
+    const sheet = source.kind === 'rows' ? new Map(source.rows.map((row) => [row.line, row.cells])) : null
+    const lineText = (line: number): string => (sheet === null ? (source.kind === 'text' ? (source.lines.get(line) ?? '') : '') : (sheet.get(line)?.join('\t') ?? ''))
+    // 머리글 칸: 해석기와 같은 칸 나누기(따옴표 포함)·정규화
     const headerCells =
-      result.header === null
-        ? null
-        : source.kind === 'text'
-          ? lineText(result.header)
-              .split(lineText(result.header).includes('\t') ? '\t' : ',')
-              .map((cell) => cell.trim())
-          : (source.rows.find((row) => row.line === result.header)?.cells ?? []).map((cell) => cell.trim())
+      result.header === null ? null : (sheet === null ? (splitCells(lineText(result.header)) ?? [lineText(result.header)]) : (sheet.get(result.header) ?? [])).map((cell) => normalizeText(cell))
     const rows = result.rows.map((row) => ({ ...row, text: lineText(row.line) }))
     const register = result.rows.filter((row) => !('error' in row)).length
     return ok({ broadcast: b, unit: target.unit, maxNumber: target.maxNumber, error: null, header: result.header, headerCells, rows, register, problems: result.rows.length - register })

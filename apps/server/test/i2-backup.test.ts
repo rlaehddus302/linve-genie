@@ -290,19 +290,33 @@ describe('AC-I2-61 매일 자동 백업·보관·상태', () => {
   })
 
   it('성능: 범위 10개(범위마다 상품 500·채팅 1만 건) 판매자의 백업이 60초 안', async () => {
-    const { world } = await backupWorld(kst('2026-10-01', '05:00:00'))
+    const { world, storage } = await backupWorld(kst('2026-10-01', '05:00:00'))
     const seller = await addSeller(world)
-    for (let day = 1; day <= 10; day++) {
-      const date = `2026-10-${String(day).padStart(2, '0')}`
-      world.clock.set(kst(date, '10:00:00'))
-      await fillScope(world.server, seller.sellerId, { date, clock: world.clock, seed: day })
-      world.server.writer.forget(seller.sellerId, date)
+    // 범위 하나를 기록 경로로 채우고(상품 500·채팅 1만 건), 나머지 9개는 그 이벤트 행을 DB에서 복사한다(방송 ID만 바꿔) —
+    // 재는 것은 백업 만들기이고, 같은 서버 시험 프로젝트의 다른 시간 재는 시험을 무겁게 누르지 않게 채우기 비용을 줄였다
+    const filled = await fillScope(world.server, seller.sellerId, { date: '2026-10-01', clock: world.clock, seed: 1 })
+    const pg = world.database.pglite
+    const source = (await pg?.query<{ id: string; seq: number }>(`select id, seq from scopes where seller_id = $1`, [seller.sellerId]))?.rows[0]
+    if (pg === undefined || pg === null || source === undefined) throw new Error('채운 범위가 없다')
+    for (let day = 2; day <= 10; day++) {
+      const scopeId = `scp_perf_${String(day)}`
+      const b = `b_perf_${String(day)}`
+      await pg.query(`insert into scopes (id, seller_id, date, rehearsal, seq, created_at) values ($1, $2, $3, false, $4, now())`, [scopeId, seller.sellerId, `2026-10-${String(day).padStart(2, '0')}`, source.seq])
+      await pg.query(
+        `insert into events (seller_id, scope_id, seq, type, body, at, received_at, actor, account_id, request_id, chat_broadcast, chat_message_id, sms_ref, changed, failed, digest)
+         select seller_id, $1, seq, type, replace(body, $2, $3), at, received_at, actor, account_id, null, case when chat_broadcast is null then null else $3 end, chat_message_id, sms_ref, changed, failed, digest
+         from events where seller_id = $4 and scope_id = $5`,
+        [scopeId, filled.broadcast, b, seller.sellerId, source.id],
+      )
     }
     const started = performance.now()
     const entry = await world.server.backups.createNow(seller.sellerId, 'daily')
     expect(performance.now() - started).toBeLessThan(60_000)
-    expect(entry.size).toBeGreaterThan(0)
-  }, 600_000)
+    const file = decode(await storage.read(seller.sellerId, entry.name))
+    expect(file.scopes).toHaveLength(10)
+    expect(file.scopes.every((scope) => scope.events.length === source.seq)).toBe(true)
+    expect(source.seq).toBeGreaterThan(10_500)
+  }, 300_000)
 })
 
 describe('AC-I2-62 복구·가져오기', () => {
