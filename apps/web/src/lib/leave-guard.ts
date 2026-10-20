@@ -42,6 +42,9 @@ export function useLeaveGuard(queue: UndoQueue): void {
   useEffect(() => register(queueLeaveGuard(queue)), [register, queue])
 }
 
+/** 떠나기 확인 창 제목 (D-083) */
+export const LEAVE_TITLE = '다른 화면으로 갈까요?'
+
 /** 떠나기 전 물음 (D-083) */
 export const LEAVE_QUESTION = '보내기 전인 조치가 있어요. 떠나면 보내지 않아요.'
 
@@ -49,15 +52,21 @@ export const LEAVE_QUESTION = '보내기 전인 조치가 있어요. 떠나면 �
 export const UNSAVED_QUESTION = '저장하지 않은 값이 있어요. 떠나면 저장하지 않아요.'
 export const UNSAVED_LEAVE = '저장하지 않고 떠나기'
 
-/** 이 화면에 저장하지 않은 값이 있으면 다른 곳으로 가기 전에 같은 창으로 묻는다 (새로고침·탭 닫기는 브라우저가 묻는다) */
-export function useUnsavedGuard(dirty: boolean): void {
+/**
+ * 이 화면에 저장하지 않은 값이 있으면 다른 곳으로 가기 전에 같은 창으로 묻는다 (새로고침·탭 닫기는 브라우저가 묻는다).
+ * dirty는 값 또는 그때그때 묻는 함수(마법사처럼 칸들이 따로 알리는 화면 — 묻는 순간의 값을 쓴다).
+ */
+export function useUnsavedGuard(dirty: boolean | (() => boolean)): void {
   const register = useContext(LeaveGuardContext)
   const ref = useRef(dirty)
   ref.current = dirty
   useEffect(
     () =>
       register({
-        pending: () => ref.current,
+        pending: () => {
+          const current = ref.current
+          return typeof current === 'function' ? current() : current
+        },
         hold: () => {},
         release: () => {},
         discard: () => {},

@@ -156,6 +156,118 @@ describe('마법사 단계 (AC-I3-51~55)', () => {
     expect(server.callsTo('PATCH', /settings/).map((call) => call.body)).toEqual([{ settings: { 'cancel.succession': 'ASK' } }])
   })
 
+  describe('저장하지 않은 값 (UX-I3-001, AC-I3-46·52)', () => {
+    let saved: typeof DEFAULT_SETTINGS
+    beforeEach(() => {
+      saved = { ...DEFAULT_SETTINGS }
+      server.on('GET', /^\/api\/settings$/, () => ({ body: { settings: saved } }))
+      server.on('PATCH', /^\/api\/settings$/, (call) => {
+        saved = { ...saved, ...(call.body?.settings as object) }
+        return { body: { settings: saved } }
+      })
+    })
+
+    const dialog = () => screen.findByRole('dialog', { name: '다른 화면으로 갈까요?' })
+    const editFee = async (value: string) => {
+      fireEvent.click(await screen.findByRole('button', { name: '기본 배송비 바꾸기' }))
+      fireEvent.change(screen.getByLabelText('기본 배송비 (원)'), { target: { value } })
+    }
+
+    it('2단계: 칸에서 바꾼 값이 있는 채 "다음"이면 설정 화면과 같은 창으로 묻는다 — "닫기"면 그 단계·값·포커스 그대로, 저장하면 묻지 않고 넘어간다', async () => {
+      wizard = { status: 'IN_PROGRESS', step: 2 }
+      await open('/start')
+      await editFee('3000')
+      const next = screen.getByRole('button', { name: '다음' })
+      next.focus()
+      fireEvent.click(next)
+      const asked = await dialog()
+      expect(within(asked).getByText('저장하지 않은 값이 있어요. 떠나면 저장하지 않아요.')).toBeDefined()
+      expect(within(asked).getByRole('button', { name: '저장하지 않고 떠나기' })).toBeDefined()
+      expect(screen.getByRole('heading', { name: '2/5 판매 규칙 확인', level: 2 })).toBeDefined()
+      fireEvent.click(within(asked).getByRole('button', { name: '닫기' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      expect(document.activeElement).toBe(next)
+      expect(screen.getByRole('heading', { name: '2/5 판매 규칙 확인', level: 2 })).toBeDefined()
+      expect((screen.getByLabelText('기본 배송비 (원)') as HTMLInputElement).value).toBe('3000')
+      expect(wizard).toEqual({ status: 'IN_PROGRESS', step: 2 })
+      fireEvent.click(screen.getByRole('button', { name: '저장' }))
+      expect(await screen.findByText('기본 배송비: 3,000원')).toBeDefined()
+      expect(server.callsTo('PATCH', /settings/).map((call) => call.body)).toEqual([{ settings: { 'shipping.baseFee': 3000 } }])
+      fireEvent.click(screen.getByRole('button', { name: '다음' }))
+      expect(await heading('3/5 프린터 연결')).toBeDefined()
+      expect(screen.queryByRole('dialog')).toBeNull()
+    })
+
+    it('2단계: "저장하지 않고 떠나기"면 저장 요청 없이 다음 단계로 — 돌아오면 저장된 값', async () => {
+      wizard = { status: 'IN_PROGRESS', step: 2 }
+      await open('/start')
+      await editFee('3000')
+      fireEvent.click(screen.getByRole('button', { name: '다음' }))
+      fireEvent.click(within(await dialog()).getByRole('button', { name: '저장하지 않고 떠나기' }))
+      expect(await heading('3/5 프린터 연결')).toBeDefined()
+      expect(server.callsTo('PATCH', /settings/)).toHaveLength(0)
+      fireEvent.click(screen.getByRole('button', { name: '이전' }))
+      expect(await screen.findByText('기본 배송비: 4,000원')).toBeDefined()
+      fireEvent.click(screen.getByRole('button', { name: '다음' }))
+      expect(await heading('3/5 프린터 연결')).toBeDefined()
+    })
+
+    it('2단계: "이전"·"나중에 할게요"도 묻는다 — 나중에 할게요를 떠나면 상태 "닫음" → 방송 목록(앱 창이 다시 묻지 않는다)', async () => {
+      wizard = { status: 'IN_PROGRESS', step: 2 }
+      await open('/start')
+      await editFee('3000')
+      fireEvent.click(screen.getByRole('button', { name: '이전' }))
+      fireEvent.click(within(await dialog()).getByRole('button', { name: '닫기' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      expect(screen.getByRole('heading', { name: '2/5 판매 규칙 확인', level: 2 })).toBeDefined()
+      fireEvent.click(screen.getByRole('button', { name: '나중에 할게요' }))
+      await dialog()
+      expect(wizard).toEqual({ status: 'IN_PROGRESS', step: 2 })
+      fireEvent.click(screen.getByRole('button', { name: '저장하지 않고 떠나기' }))
+      expect(await screen.findByRole('heading', { name: '방송 목록' })).toBeDefined()
+      expect(window.location.pathname).toBe('/')
+      expect(wizard).toEqual({ status: 'DISMISSED', step: null })
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(server.callsTo('PATCH', /settings/)).toHaveLength(0)
+    })
+
+    it('2단계: 메뉴로 가도 같은 문장으로 묻는다 / 칸을 열기만 했거나 "그만두기"면 묻지 않는다', async () => {
+      wizard = { status: 'IN_PROGRESS', step: 2 }
+      await open('/start')
+      await editFee('3000')
+      fireEvent.click(within(screen.getByRole('navigation', { name: '메뉴' })).getByRole('link', { name: '문자찜 입력' }))
+      const asked = await dialog()
+      expect(within(asked).getByText('저장하지 않은 값이 있어요. 떠나면 저장하지 않아요.')).toBeDefined()
+      fireEvent.click(within(asked).getByRole('button', { name: '닫기' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      expect(window.location.pathname).toBe('/start')
+      fireEvent.click(screen.getByRole('button', { name: '그만두기' }))
+      fireEvent.click(screen.getByRole('button', { name: '1등이 취소되면 바꾸기' }))
+      fireEvent.click(screen.getByRole('button', { name: '다음' }))
+      expect(await heading('3/5 프린터 연결')).toBeDefined()
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(server.callsTo('PATCH', /settings/)).toHaveLength(0)
+    })
+
+    it('1단계: 바꾼 이름이 있는 채 "나중에 할게요"·메뉴면 묻는다 ("다음"은 저장하므로 묻지 않는다)', async () => {
+      await open('/start')
+      await heading('1/5 가게 이름')
+      fireEvent.change(screen.getByLabelText('가게 이름'), { target: { value: '새 가게' } })
+      fireEvent.click(screen.getByRole('button', { name: '나중에 할게요' }))
+      fireEvent.click(within(await dialog()).getByRole('button', { name: '닫기' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      fireEvent.click(within(screen.getByRole('navigation', { name: '메뉴' })).getByRole('link', { name: '방송' }))
+      fireEvent.click(within(await dialog()).getByRole('button', { name: '닫기' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      expect(window.location.pathname).toBe('/start')
+      expect(server.callsTo('PUT', /^\/api\/shop$/)).toHaveLength(0)
+      fireEvent.click(screen.getByRole('button', { name: '다음' }))
+      expect(await heading('2/5 판매 규칙 확인')).toBeDefined()
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(server.callsTo('PUT', /^\/api\/shop$/).map((call) => call.body)).toEqual([{ name: '새 가게' }])
+    })
+  })
+
   it('4단계: 준비 안 된 서버면 안내 + 다음, 자동 게시 동의는 묻지 않는다 / 연결됐으면 채널 이름', async () => {
     wizard = { status: 'IN_PROGRESS', step: 4 }
     await open('/start')

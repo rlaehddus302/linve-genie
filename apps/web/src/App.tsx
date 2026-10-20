@@ -23,7 +23,7 @@ import { SmsPage } from './components/SmsPage.tsx'
 import { TopBar } from './components/TopBar.tsx'
 import { WizardPage } from './components/WizardPage.tsx'
 import { takeGoogleReturn } from './lib/google-return.ts'
-import { LEAVE_QUESTION, LeaveGuardContext, type LeaveGuard } from './lib/leave-guard.ts'
+import { LEAVE_QUESTION, LEAVE_TITLE, LeaveGuardContext, type LeaveGuard } from './lib/leave-guard.ts'
 import { isPublicRoute, routePath, useRoute, type Navigate, type NavigateOptions, type Route } from './lib/router.ts'
 
 type Session = { readonly state: 'checking' } | { readonly state: 'out'; readonly expired: boolean } | { readonly state: 'in'; readonly me: Me }
@@ -228,7 +228,7 @@ export function App() {
       {assistant && route.name !== 'sms' && !isPublicRoute(route) ? <AssistantBlocked navigate={navigate} /> : <Screen route={route} navigate={navigate} me={me} onRenamed={renamed} />}
       {leaving !== null ? (
         <Modal
-          title="다른 화면으로 갈까요?"
+          title={LEAVE_TITLE}
           onClose={stay}
           actions={
             <button type="button" className="button button-danger" onClick={leave}>

@@ -2,15 +2,19 @@
 // - 단계 표시는 글자("1/5 가게 이름"). 단계마다 "이전"(1단계 제외)·"다음"·"나중에 할게요". 단계를 옮기면 서버에 그 단계를 적는다(PUT /api/wizard).
 // - "나중에 할게요" → 닫음 → 방송 목록. "마치기"·"리허설 시작하기" → 마침. 마치거나 닫으면 다시 저절로 열리지 않는다(다른 기기도 — 서버 상태).
 // - 1단계는 이름을 바꿨을 때만 저장한다(실패하면 다음으로 가지 않는다). 2단계는 바꾸지 않고 "다음"이면 설정 요청을 보내지 않는다.
+// - 저장하지 않은 값(2단계의 열린 칸에서 바꾼 값, 1단계의 바꾼 이름)이 있는 채 "이전"·"다음"(2단계)·"나중에 할게요"·메뉴·주소로 가면
+//   설정 화면과 같은 떠나기 창·문장으로 묻는다 — 묻지 않고 버리지 않는다(AC-I3-46·52). 1단계 "다음"은 저장하므로 묻지 않는다.
 // - 4단계에서 구글로 갔다 오면 서버는 설정 화면 주소로 돌려보낸다 — 앱이 이 화면 4단계로 다시 보내고 결과 문장을 보인다.
 // - 단계가 바뀌면 포커스는 그 단계 제목으로. 키보드만으로 끝까지 갈 수 있다.
 import type { SaleSettings } from '@livejjim/core'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { get, isApiError, newRequestId, post, put, withRetry, type ApiError } from '../api/client.ts'
 import type { WizardState, WriteResult } from '../api/types.ts'
+import { LEAVE_TITLE, UNSAVED_LEAVE, UNSAVED_QUESTION, useUnsavedGuard } from '../lib/leave-guard.ts'
 import type { Navigate, StartRoute } from '../lib/router.ts'
 import { fieldOf, SAVED_MESSAGE, SAVED_SHIPPING_MESSAGE, valueWords, type FieldDef, type RuleKey } from '../lib/settings-fields.ts'
 import { ErrorNote, FieldError } from './ErrorNote.tsx'
+import { Modal } from './Modal.tsx'
 import { RuleField, settingProblem, useRuleForm } from './RuleFields.tsx'
 import { PrinterStep } from './wizard/PrinterStep.tsx'
 import { CallbackResult, useYoutubeConnection, YoutubeStatus } from './YoutubeConnection.tsx'
@@ -37,6 +41,9 @@ export interface WizardPageProps {
   readonly onRenamed: (name: string) => void
 }
 
+/** 칸이 "저장하지 않은 값이 있다/없다"를 알린다 (칸 이름 — 2단계는 설정 키, 1단계는 'shop') */
+type MarkUnsaved = (key: string, dirty: boolean) => void
+
 const clampStep = (step: number | null | undefined): number => (typeof step === 'number' && Number.isInteger(step) && step >= 1 && step <= LAST ? step : 1)
 
 export function WizardPage({ route, navigate, shopName, onRenamed }: WizardPageProps) {
@@ -46,6 +53,16 @@ export function WizardPage({ route, navigate, shopName, onRenamed }: WizardPageP
   const [closing, setClosing] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
+  /** 저장하지 않은 값이 있는 칸 — 칸이 바뀔 때 알리고, 사라지면(단계를 옮김) 뺀다 */
+  const unsaved = useRef(new Set<string>())
+  const markUnsaved = useCallback<MarkUnsaved>((key, dirty) => {
+    if (dirty) unsaved.current.add(key)
+    else unsaved.current.delete(key)
+  }, [])
+  // 메뉴·주소·브라우저 뒤로·새로고침: 앱의 떠나기 창이 같은 문장으로 묻는다 (AC-I3-46)
+  useUnsavedGuard(useCallback(() => unsaved.current.size > 0, []))
+  /** 단계 버튼에서 묻는 중: "저장하지 않고 떠나기"면 할 일, "닫기"면 포커스를 돌려줄 버튼 */
+  const [asking, setAsking] = useState<{ readonly then: () => void; readonly from: HTMLElement | null } | null>(null)
 
   /** 서버에 상태를 적는다 (진행 중이면 단계도). 실패해도 화면은 그대로 간다 — 다음에 열 때 단계만 다를 수 있다 */
   const record = useCallback(async (state: WizardState) => {
@@ -111,6 +128,29 @@ export function WizardPage({ route, navigate, shopName, onRenamed }: WizardPageP
     navigate({ name: 'home' })
   }
 
+  /** 저장하지 않은 값이 있으면 먼저 묻는다 (설정 화면과 같은 창·문장) — 없으면 바로 */
+  const guarded = (action: () => void) => {
+    if (unsaved.current.size === 0) action()
+    else setAsking({ then: action, from: document.activeElement instanceof HTMLElement ? document.activeElement : null })
+  }
+  const move = (next: number) => guarded(() => go(next))
+  const dismiss = () => guarded(() => void later())
+
+  /** "닫기": 그 단계에 남는다 — 누른 버튼으로 포커스를 돌려준다(키보드로 이어서 "저장") */
+  const stay = () => {
+    const target = asking
+    setAsking(null)
+    target?.from?.focus()
+  }
+
+  /** "저장하지 않고 떠나기": 바꾼 값은 버리고(그 칸들은 단계를 옮기면 사라진다) 하려던 일을 한다 */
+  const leaveUnsaved = () => {
+    const target = asking
+    setAsking(null)
+    unsaved.current.clear()
+    target?.then()
+  }
+
   if (step === null) {
     return (
       <main className="page wizard-page">
@@ -135,27 +175,40 @@ export function WizardPage({ route, navigate, shopName, onRenamed }: WizardPageP
         <h2 id="wizard-step-title" ref={heading} tabIndex={-1} className="section-title">
           {step}/{LAST} {title}
         </h2>
-        {step === 1 ? <ShopStep key="shop" shopName={shopName} onRenamed={onRenamed} onNext={() => go(2)} onLater={() => void later()} /> : null}
+        {step === 1 ? <ShopStep key="shop" shopName={shopName} onRenamed={onRenamed} onNext={() => go(2)} onLater={dismiss} onUnsaved={markUnsaved} /> : null}
         {step === 2 ? (
           <>
-            {settings === null ? error !== null ? <ErrorNote error={error} /> : <p role="status">불러오는 중…</p> : <RulesStep settings={settings} onSaved={setSettings} />}
-            <StepButtons step={step} onPrev={() => go(1)} onNext={() => go(3)} onLater={() => void later()} />
+            {settings === null ? error !== null ? <ErrorNote error={error} /> : <p role="status">불러오는 중…</p> : <RulesStep settings={settings} onSaved={setSettings} onUnsaved={markUnsaved} />}
+            <StepButtons step={step} onPrev={() => move(1)} onNext={() => move(3)} onLater={dismiss} />
           </>
         ) : null}
         {step === 3 ? (
           <>
             <PrinterStep />
-            <StepButtons step={step} onPrev={() => go(2)} onNext={() => go(4)} onLater={() => void later()} />
+            <StepButtons step={step} onPrev={() => move(2)} onNext={() => move(4)} onLater={dismiss} />
           </>
         ) : null}
         {step === 4 ? (
           <>
             <YoutubeStep result={result} navigate={navigate} />
-            <StepButtons step={step} onPrev={() => go(3)} onNext={() => go(5)} onLater={() => void later()} />
+            <StepButtons step={step} onPrev={() => move(3)} onNext={() => move(5)} onLater={dismiss} />
           </>
         ) : null}
-        {step === 5 ? <RehearsalStep navigate={navigate} onFinish={() => void finish()} onPrev={() => go(4)} onLater={() => void later()} busy={closing} /> : null}
+        {step === 5 ? <RehearsalStep navigate={navigate} onFinish={() => void finish()} onPrev={() => move(4)} onLater={dismiss} busy={closing} /> : null}
       </section>
+      {asking !== null ? (
+        <Modal
+          title={LEAVE_TITLE}
+          onClose={stay}
+          actions={
+            <button type="button" className="button button-danger" onClick={leaveUnsaved}>
+              {UNSAVED_LEAVE}
+            </button>
+          }
+        >
+          <p>{UNSAVED_QUESTION}</p>
+        </Modal>
+      ) : null}
     </main>
   )
 }
@@ -181,11 +234,28 @@ function StepButtons({ step, onPrev, onNext, onLater, nextBusy = false }: { read
 }
 
 /** 1단계 가게 이름 (AC-I3-51): 바꿨을 때만 저장, 실패하면 다음으로 가지 않는다 */
-function ShopStep({ shopName, onRenamed, onNext, onLater }: { readonly shopName: string; readonly onRenamed: (name: string) => void; readonly onNext: () => void; readonly onLater: () => void }) {
+function ShopStep({
+  shopName,
+  onRenamed,
+  onNext,
+  onLater,
+  onUnsaved,
+}: {
+  readonly shopName: string
+  readonly onRenamed: (name: string) => void
+  readonly onNext: () => void
+  readonly onLater: () => void
+  readonly onUnsaved: MarkUnsaved
+}) {
   const [name, setName] = useState(shopName)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const id = useId()
+  const dirty = name !== shopName
+  useEffect(() => {
+    onUnsaved('shop', dirty)
+    return () => onUnsaved('shop', false)
+  }, [dirty, onUnsaved])
   const next = async () => {
     if (busy) return
     if (name === shopName) {
@@ -232,12 +302,12 @@ function ShopStep({ shopName, onRenamed, onNext, onLater }: { readonly shopName:
 }
 
 /** 2단계 판매 규칙 확인 (AC-I3-52): 지금 값 여섯 줄, 줄마다 "바꾸기" → 그 자리의 칸 → "저장" */
-function RulesStep({ settings, onSaved }: { readonly settings: SaleSettings; readonly onSaved: (settings: SaleSettings) => void }) {
+function RulesStep({ settings, onSaved, onUnsaved }: { readonly settings: SaleSettings; readonly onSaved: (settings: SaleSettings) => void; readonly onUnsaved: MarkUnsaved }) {
   return (
     <div className="stack">
       <ul className="plain-list rule-lines">
         {RULE_LINES.map((line) => (
-          <RuleLine key={line.key} label={line.label} field={fieldOf(line.key)} settings={settings} onSaved={onSaved} />
+          <RuleLine key={line.key} label={line.label} field={fieldOf(line.key)} settings={settings} onSaved={onSaved} onUnsaved={onUnsaved} />
         ))}
       </ul>
       <p>바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.</p>
@@ -246,10 +316,27 @@ function RulesStep({ settings, onSaved }: { readonly settings: SaleSettings; rea
   )
 }
 
-function RuleLine({ label, field, settings, onSaved }: { readonly label: string; readonly field: FieldDef; readonly settings: SaleSettings; readonly onSaved: (settings: SaleSettings) => void }) {
+function RuleLine({
+  label,
+  field,
+  settings,
+  onSaved,
+  onUnsaved,
+}: {
+  readonly label: string
+  readonly field: FieldDef
+  readonly settings: SaleSettings
+  readonly onSaved: (settings: SaleSettings) => void
+  readonly onUnsaved: MarkUnsaved
+}) {
   const fields = useRef([field]).current
   const form = useRuleForm(fields, settings, onSaved, field.place === 'shipping' ? SAVED_SHIPPING_MESSAGE : SAVED_MESSAGE)
   const [editing, setEditing] = useState(false)
+  // 열린 칸에서 바꾼 값(저장 전·저장 실패)은 저장하지 않은 값 — "그만두기"·저장하면 없어진다
+  useEffect(() => {
+    onUnsaved(field.key, form.dirty)
+    return () => onUnsaved(field.key, false)
+  }, [field.key, form.dirty, onUnsaved])
   return (
     <li className="rule-line stack-tight">
       <div className="row">
