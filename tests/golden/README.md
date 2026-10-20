@@ -15,6 +15,7 @@
 | `parser/voice-extract.yaml` | 음성 문장 하나 → 번호·품종·가격·신뢰도 (R-17, P2 — D-202·D-203·D-209, I4 보강 — 끊어 말한 번호 D-I4-01). 추출기는 `packages/voice`에 있고 이 러너가 부른다 |
 | `known-unimplemented.yaml` | **예약 파일.** 알려진 미구현 허용 목록 (D-020). 골든 시나리오가 아니다 |
 | `label/*.json` | 라벨 글·쪽 나누기·크기 (LABEL_RULES L-1~L-5, P1, D-P1-01). **JSON이라 코어 골든 러너는 읽지 않는다**(`*.yaml`만 읽는다). `packages/label` 단위 테스트가 읽는다 — 아래 "라벨 골든" |
+| `printer/*.json` | 프린터 작업 바이트·기기 이름으로 고르기·프로필 표·바로 연결할 수 없는 브라우저의 까닭 (LABEL_RULES L-7·L-12, N1 — D-N1-01·09). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/printer` 단위 테스트가 읽는다 — 아래 "프린터 골든" |
 | `tiktok/*.json` | 틱톡 아이디·방송 주소 해석, 웹캐스트 댓글 → 공통 댓글 레코드·중복 제거 (PLT-02, N2b-1, D-N2b-1-02~04). **JSON이라 코어 골든 러너는 읽지 않는다**. `apps/server` 시험이 읽는다 — 아래 "틱톡 골든" |
 
 ## 러너가 읽는 범위 (D-020, D-021)
@@ -234,17 +235,44 @@ expect:
 
 - **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. `packages/label`의 단위 테스트가 이 폴더의 모든 `*.json`을 읽어 라벨 패키지의 순수 함수(글 계산 — L-0 2)로 돌리고 `out`과 비교한다(`pnpm test` 단계). 그 테스트는 파일 수와 사례 수 합계를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다.
 - **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `product`·`packing`·`size`. 모르는 키·모르는 `kind`는 테스트 실패(읽기 오류)다. 보이지 않는 글자는 `\uXXXX`로 적는다.
-- **사례 공통 키**: `id`(`G-LBL-` + 세 자리, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `out`.
+- **사례 공통 키**: `id`(`G-LBL-` + 세 자리, 또는 병렬 스프린트가 더한 `G-LBL-<스프린트>-` + 두 자리 — 예 `G-LBL-N1-01`. 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `out`.
 - `out`이 `{ "error": <코드> }`면 그 사례는 그 오류여야 하고 라벨(글·그림)을 만들지 않아야 한다. 코드: `INVALID_DATA`(라벨 데이터 형식 위반 — L-3·L-4 표 밖의 칸 포함), `INVALID_TEMPLATE`(템플릿 검사 위반 — L-5).
 
 | `kind` | 사례 키 | `out` (오류가 아닐 때) |
 |---|---|---|
-| `product` | `data`(L-3 라벨 데이터 그대로), 선택 `template` = 기본 템플릿(50×30 상품)에 덮어쓸 값: `shopName`(문자열), `priceStyle`(`THOUSAND`/`WON`), `visible`(항목 ID → 불리언) | `{ "items": { 항목 ID: 값 } }` — 찍는 항목만, 정확히 같은 키 집합. 값은 L-3 "값" 열의 글(캡션·머리글 꾸밈 `-…-` 빼고, 다듬은 뒤, 그리기 전 — 글꼴에 없는 글자도 그대로) |
-| `packing` | `data`(L-4 라벨 데이터 그대로), 선택 `template` = 기본 템플릿(50×30 포장)에 덮어쓸 값: `shopName`, `perPage`(정수), `visible` | `{ "common": { 항목 ID: 값 }, "pages": [ { "page": "k/n", "broadcast"?: 제목, "numbers": [정수…] } ] }` — `common`은 `shop`·`date`·`buyer`·`count`·`subtotal` 중 찍는 것만(정확히 같은 키 집합), `pages`는 쪽 순서대로 정확히 같다. `broadcast`는 방송이 둘 이상일 때만 있다 |
-| `size` | `size`(`"<폭>x<높이>"` mm) | `{ "width", "height", "a4PerPage", "default" }` — 그 크기의 기본 템플릿(상품)으로 만든 그림의 점 수, A4 모아찍기 한 장의 라벨 수(L-6), 기본 크기인지. 목록 밖 크기는 `INVALID_TEMPLATE` |
+| `product` | `data`(L-3 라벨 데이터 그대로), 선택 `template` = 기본 템플릿(50×30 상품)에 덮어쓸 값: `size`(L-1 크기 ID — N1), `shopName`(문자열), `priceStyle`(`THOUSAND`/`WON`), `visible`(항목 ID → 불리언) | `{ "items": { 항목 ID: 값 } }` — 찍는 항목만, 정확히 같은 키 집합. 값은 L-3 "값" 열의 글(캡션·머리글 꾸밈 `-…-` 빼고, 다듬은 뒤, 그리기 전 — 글꼴에 없는 글자도 그대로) |
+| `packing` | `data`(L-4 라벨 데이터 그대로), 선택 `template` = 기본 템플릿(50×30 포장)에 덮어쓸 값: `size`(L-1 크기 ID — N1), `shopName`, `perPage`(정수), `visible` | `{ "common": { 항목 ID: 값 }, "pages": [ { "page": "k/n", "broadcast"?: 제목, "numbers": [정수…] } ] }` — `common`은 `shop`·`date`·`buyer`·`count`·`subtotal` 중 찍는 것만(정확히 같은 키 집합), `pages`는 쪽 순서대로 정확히 같다. `broadcast`는 방송이 둘 이상일 때만 있다 |
+| `size` | `size`(L-1 크기 ID — `"<폭>x<높이>"` mm 또는 테이프 `"tape<테이프 폭>x<길이>"` — N1) | `{ "width", "height", "a4PerPage", "default" }` — 그 크기의 기본 템플릿(상품)으로 만든 그림의 점 수, A4 모아찍기 한 장의 라벨 수(L-6), 기본 크기인지. 목록 밖 크기는 `INVALID_TEMPLATE` |
 
 - 기본 템플릿의 값: 크기 50×30, `shopName` 빈 글, `priceStyle` `THOUSAND`, 포장 `perPage` 10, 모든 항목 켬. `visible`에 없는 항목은 기본(켬) 그대로다.
+- **`size` 덮어쓰기 (N1, D-N1-03)**: `template.size`가 있으면 그 크기의 기본 템플릿(상품 또는 포장)에서 시작해 나머지 값(`shopName`·`priceStyle`·`perPage`·`visible`)을 덮어쓴다. 작은 크기(50×15·테이프 세 가지)의 기본 상품 템플릿은 `shop`·`date`·`name`이 꺼져 있다(L-5). 포장 템플릿이 없는 크기(작은 크기)를 포장 사례의 `size`로 주면, 50×30 기본 포장 템플릿의 `size`만 그 크기로 바꾼 템플릿을 검사해 `INVALID_TEMPLATE`이어야 한다(테스트가 지어내는 템플릿이 하나로 정해지게).
+- 파일(N1 뒤): `product.json`(상품 50) · `product-sized.json`(크기를 고른 상품 18 — N1) · `packing.json`(포장 29 + N1 5) · `sizes.json`(크기 4 + N1 8) — 파일 4 · 사례 114. 테스트는 이 수를 고정값으로 단언한다.
 - 항목 ID: 상품 `shop`·`number`·`price`·`date`·`name`·`buyer`, 포장 `shop`·`date`·`buyer`·`page`·`broadcast`·`count`·`subtotal`·`numbers` (L-3·L-4 표).
+
+## 프린터 골든 (`printer/*.json`, N1 — D-N1-01·09)
+
+프린터 패키지가 프린터로 보내는 **바이트**, 블루투스 기기 **이름으로 프로필 고르기**, **프로필 표**, **바로 연결할 수 없는 브라우저의 까닭**을 고정한다. 규칙 문장은 `docs/spec/LABEL_RULES.md` L-7·L-12다.
+
+- **누가 읽나**: 코어 골든 러너는 읽지 않는다(`*.yaml`만). `packages/printer` 단위 테스트가 이 폴더의 모든 `*.json`을 읽어 프린터 패키지의 순수 함수(작업 바이트 만들기·이름으로 고르기·프로필 목록·까닭 판단)로 돌리고 `out`과 비교한다(`pnpm test` 단계). 파일 수·사례 수 합계를 고정값으로 단언한다 — 지금 파일 4(`browser.json` 15 · `job.json` 34 · `name.json` 27 · `profile.json` 11) · 사례 87(N1 감사 뒤 `name` 3사례 G-PRT-N1-76~78을 더함 — D-N1-11, 기존 사례는 그대로).
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `job`·`name`·`profile`·`browser`. 모르는 키·모르는 `kind`·겹친 `id`는 테스트 실패(읽기 오류)다.
+- **사례 공통 키**: `id`(`G-PRT-N1-` + 두 자리, 이 폴더 전체에서 유일 — 다음 스프린트는 `G-PRT-<스프린트>-`), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `out`.
+
+| `kind` | 사례 키 | `out` |
+|---|---|---|
+| `job` | `profile`(프로필 ID), `image`(아래 그림), 선택 `options` = `{ "density": 수 }` | 성공 `{ "bytes": [조각…] }` — 만든 바이트가 조각을 차례로 이어 붙인 것과 **처음부터 끝까지** 같아야 한다(앞뒤에 남는 바이트 없음). 실패 `{ "error": 코드 }` — 코드 ∈ `IMAGE_TOO_WIDE`·`INVALID_DENSITY`·`PRINT_FAILED`, 바이트를 만들지 않는다 |
+| `name` | `name`(기기 이름 글 — 그대로 넘긴다. 앞뒤 공백도 지우지 않는다) | `{ "profile": 프로필 ID 또는 null }` — 목록은 Marklife 9종 + 바우아토(실험적) 전부 |
+| `profile` | `profile`(프로필 ID) | 그 프로필의 칸 `maker`·`displayName`·`protocol`·`dpi`·`headDots`·`rotate`·`sizes`·`defaultSize`·`density`(`{ min, max, default }` 또는 null)·`experimental`·`fallbackApp`·`namePrefix`(글 또는 null)와 깊은 같음(이 열두 칸이 모두 있어야 한다) |
+| `browser` | `ua`(사용자 에이전트 글), 선택 `maxTouchPoints`(정수, 없으면 0) | `{ "reason": 까닭 }` — 까닭 ∈ `IOS`·`IN_APP`·`OTHER` |
+
+**그림** (`image`): `{ "width", "height", "rows" }` — `rows`는 줄마다 16진 글 하나(공백 허용), 한 줄 = `ceil(width/8)`바이트(L-1 형식: 왼쪽 점이 높은 비트, 1 = 검정). 폭 밖의 남는 비트는 아무 값이어도 점이 아니다 — 보내는 줄의 남는 비트는 늘 0이다(L-12 2). 또는 `{ "width", "height", "fill" }` — `width`는 8의 배수, `fill` ∈ `white`(모두 흰색)·`black`(모두 검정)·`border`(맨 위·맨 아래 줄과 맨 왼쪽·맨 오른쪽 열만 검정).
+
+**조각** (`out.bytes`의 원소):
+- 16진 글(공백 허용) — 그 바이트 그대로.
+- `{ "yxqRaster": { "widthBytes", "height", "rows" | "fill" } }` — `1F 10` + `widthBytes`(BE16) + `height`(BE16) + 압축 길이 L(BE32) + 압축 바이트 L개. 압축 바이트는 ① 첫 바이트(CMF)가 `28`(deflate, 창 1KiB), ② (CMF×256 + FLG)가 31의 배수이고 사전 비트(FDICT)가 0, ③ 창 1KiB(windowBits 10)로 풀면 오류 없이 `rows`(또는 `fill`을 `widthBytes×8`×`height` 그림으로 만든 줄)를 이어 붙인 바이트와 정확히 같고, ④ 풀기가 L바이트에서 정확히 끝난다(Adler-32 포함). 압축 바이트 자체는 비교하지 않는다(D-N1-09 — 압축기마다 다르다. 같은 그림이면 같은 바이트인지는 AC-N1-20).
+- `{ "rawRaster": { "widthBytes", "height", "rows" | "fill" } }` — `1D 76 30 00` + `widthBytes`(LE16) + `height`(LE16) + 줄 바이트 그대로(`widthBytes × height`바이트, 길이 칸 없음).
+
+- 프로필 ID: `NIIMBOT_B1`, `MARKLIFE_P50`·`MARKLIFE_S2`·`MARKLIFE_X2`(YXQ), `MARKLIFE_P11`·`MARKLIFE_P12`·`MARKLIFE_P15`·`MARKLIFE_L13`·`MARKLIFE_LP90`·`MARKLIFE_LP15`(L11), `BAUATO_PPA2L`(실험적). `job` 사례에 `NIIMBOT_B1`은 쓰지 않는다(B1 바이트는 niimbluelib이 만든다 — L-7).
+- 열거값: `protocol` ∈ `NIIMBOT_B1`·`MARKLIFE_YXQ2`·`MARKLIFE_YXQ3`·`MARKLIFE_YXQ8`·`MARKLIFE_L11`, `rotate` ∈ `NONE`·`CW90`.
 
 ## 틱톡 골든 (`tiktok/*.json`, N2b-1 — D-N2b-1-02~04·D-N2b-1-07)
 

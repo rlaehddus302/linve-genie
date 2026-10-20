@@ -16,8 +16,9 @@ import {
 } from '@livejjim/printer'
 import { describe, expect, it } from 'vitest'
 
-const SIZES: readonly LabelSizeId[] = ['50x30', '50x20', '50x40']
-const A4_PER_PAGE: Record<LabelSizeId, number> = { '50x30': 24, '50x20': 36, '50x40': 18 }
+type B1SizeId = '50x30' | '50x20' | '50x40'
+const SIZES: readonly B1SizeId[] = ['50x30', '50x20', '50x40']
+const A4_PER_PAGE: Record<B1SizeId, number> = { '50x30': 24, '50x20': 36, '50x40': 18 }
 
 function pattern(size: LabelSizeId, seed: number): LabelBitmap {
   const { widthDots, heightDots } = labelSizeInfo(size)
