@@ -44,6 +44,16 @@ export async function openSms(page: Page, title: string): Promise<void> {
   await expect(smsField(page, '번호')).toBeFocused()
 }
 
+/**
+ * 지금(한국 시각)보다 seconds초 이른 "HH:MM:SS". 받은 시각은 입력 시각에 가장 가까운 날짜로 읽으므로(D-023·D-089),
+ * 고정 시각('00:00:01')을 쓰면 정오 뒤에는 "내일"로 읽혀 늦은 시각 확인 창이 뜬다 — 시험이 벽시계에 따라 달라지지 않게 쓴다.
+ */
+export function kstTimeAgo(seconds = 60): string {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(Date.now() - seconds * 1000))
+  const part = (t: string): string => parts.find((x) => x.type === t)?.value ?? '00'
+  return `${part('hour')}:${part('minute')}:${part('second')}`
+}
+
 export function smsField(page: Page, name: '번호' | '받은 시각' | '전화번호' | '메모' | '구매자 고르기') {
   return page.getByLabel(name, { exact: true })
 }
