@@ -21,6 +21,8 @@
     "@eslint/js": "10.0.1",
     "@livejjim/core": "workspace:*",
     "@livejjim/documents": "workspace:*",
+    "@livejjim/label": "workspace:*",
+    "@livejjim/printer": "workspace:*",
     "@livejjim/server": "workspace:*",
     "@livejjim/voice": "workspace:*",
     "@playwright/test": "1.62.1",

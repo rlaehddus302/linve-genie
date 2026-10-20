@@ -6,6 +6,8 @@
 //   | chromium            | 5173  | 3100  | 방송자 조치 대기 E2E_HOST_DELAY_MS(기본 2000)    | 아래 태그가 없는 시험 전부      |
 //   | chromium-prod-delay | 5174  | 3101  | 운영 값 5000 (대기 줄이지 않음)                  | 제목에 @prod-delay              |
 //   | chromium-fill       | 5175  | 3102  | --fill yes(오늘 실제 범위 상품 500·채팅 1만)     | 제목에 @fill                    |
+//   | chromium-no-test-printer | 5176 | 3103 | --test-printer no(시험 모드 끔 — 운영처럼 시험용 프린터 없음, AC-I1-50) | 제목에 @no-test-printer |
+// - 시험용 프린터(I1): E2E 서버는 기본으로 시험 모드다(화면 연결 방법에 "시험용 프린터 — 실제로 출력되지 않아요"와 window.livejjimTestPrinter 손잡이).
 // - 리허설 생성기 시험 속도 E2E_CHAT_SPEED(기본 20 — 초당 50 설정이면 초당 1,000).
 // - 포트가 겹치면 E2E_PORT_OFFSET(예: 100)으로 모두 옮긴다.
 // - 시험 계정: apps/server/e2e/account.json (loginId e2e-shop / password e2e-pass-1234, 가게 이름 "시험 가게").
@@ -39,9 +41,10 @@ interface Stack {
 }
 
 export const STACKS: readonly Stack[] = [
-  { name: 'chromium', web: 5173 + offset, api: 3100 + offset, serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`, grepInvert: /@prod-delay|@fill/ },
+  { name: 'chromium', web: 5173 + offset, api: 3100 + offset, serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`, grepInvert: /@prod-delay|@fill|@no-test-printer/ },
   { name: 'chromium-prod-delay', web: 5174 + offset, api: 3101 + offset, serverArgs: `--chat-speed ${chatSpeed}`, grep: /@prod-delay/ },
   { name: 'chromium-fill', web: 5175 + offset, api: 3102 + offset, serverArgs: `--fill yes --host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`, grep: /@fill/ },
+  { name: 'chromium-no-test-printer', web: 5176 + offset, api: 3103 + offset, serverArgs: `--test-printer no --host-delay-ms ${hostDelay}`, grep: /@no-test-printer/ },
 ]
 
 export default defineConfig({

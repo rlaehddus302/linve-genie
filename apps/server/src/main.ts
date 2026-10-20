@@ -10,6 +10,7 @@ import { existsSync } from 'node:fs'
 import { DEFAULT_PORT, readAppOrigin, readDatabaseSetting, readPort } from './config.ts'
 import { createNodeServer } from './node-server.ts'
 import { openDatabaseFromEnv } from './commands/shared.ts'
+import { productionServerOptions } from './production.ts'
 import { readMasterKey } from './secrets.ts'
 import { createServer } from './server.ts'
 
@@ -49,7 +50,14 @@ if (database === null) {
   process.exit(1)
 }
 
-const livejjim = createServer({ database, masterKey: masterKey.key, appOrigin: origin.origin })
+// 운영 옵션은 productionServerOptions로만 만든다 — 시험 모드 신호(시험용 프린터)는 늘 꺼져 있다 (AC-I1-16)
+const assembled = productionServerOptions(process.env, database)
+if (!assembled.ok) {
+  complain(`시작하지 못했어요. ${assembled.message}`)
+  await database.close()
+  process.exit(1)
+}
+const livejjim = createServer(assembled.options)
 const server = createNodeServer({ app: livejjim.app })
 
 // PORT 환경변수 값은 로그에 찍지 않는다. 기본값일 때만 번호를 보여 준다.

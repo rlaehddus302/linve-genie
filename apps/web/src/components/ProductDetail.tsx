@@ -1,5 +1,6 @@
-// 상품 자세히 (AC-S05-15·34·35, PRD-02, PRD-04, R-2, R-8, R-9, R-10, ORD-12, D-083, D-088).
-// - 번호·품종·가격·재고·상태, 1등(들), 대기 목록, 그 번호의 보류·충돌 찜, 취소 요청, 가격·품종 변경 이력, 조치 기록.
+// 상품 자세히 (AC-S05-15·34·35, PRD-02, PRD-04, R-2, R-8, R-9, R-10, ORD-12, D-083, D-088, AC-I1-31·36).
+// - 번호·품종·가격·재고·상태, 1등(들), 대기 목록, 그 번호의 보류·충돌 찜, 라벨(1등마다 미리 보기·상태·이력·출력·내보내기 — 리허설은 없음),
+//   취소 요청, 가격·품종 변경 이력, 조치 기록.
 // - 상품 명령(일시 중지·다시 판매·공개·판매 종료·고치기)은 바로 보낸다. 찜 조치(host.*)는 5초 뒤에 보낸다.
 import { useEffect, useMemo, useState } from 'react'
 import { get, isApiError, newRequestId, withQuery, type ApiError } from '../api/client.ts'
@@ -9,8 +10,9 @@ import { kstTime } from '../lib/kst.ts'
 import { useWide } from '../lib/use-wide.ts'
 import { ORIGIN_WORD, PRODUCT_STATUS_WORD, actionWord, actorWord } from '../lib/words.ts'
 import { openBlockAction, openClaimAction } from './actions.ts'
-import { productLabel, useConsoleApi } from './console-context.ts'
+import { consoleLabels, productLabel, useConsoleApi } from './console-context.ts'
 import { ErrorNote } from './ErrorNote.tsx'
+import { ProductLabels } from './LabelParts.tsx'
 import { Modal } from './Modal.tsx'
 
 export function ProductDetail({ productKey, onClose, onEdit }: { readonly productKey: string; readonly onClose: () => void; readonly onEdit: (product: Product) => void }) {
@@ -96,6 +98,15 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
       <ClaimSection title="1등" claims={winners} product={product} />
       <ClaimSection title="대기" claims={waitlist} product={product} />
       <ClaimSection title="보류·충돌 찜" claims={open} product={product} />
+
+      <ProductLabels
+        product={product}
+        winners={winners}
+        labels={consoleLabels(api)}
+        rehearsal={api.rehearsal}
+        date={api.date}
+        nameOf={(claim) => api.names.name(claim.currentBuyer)}
+      />
 
       <section aria-label="상품 명령" className="stack-tight">
         <h3 className="sub-title">상품 명령</h3>

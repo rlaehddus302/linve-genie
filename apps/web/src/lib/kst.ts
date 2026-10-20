@@ -126,3 +126,9 @@ export function kstStamp(value: string | number, minute = false): string {
   const clock = `${p.hour ?? '00'}:${p.minute ?? '00'}${minute ? '' : `:${p.second ?? '00'}`}`
   return `${String(Number(p.month ?? '0'))}/${String(Number(p.day ?? '0'))} ${clock}`
 }
+
+/** UTC 시각 → KST `HH:MM` (출력 이력 "20:01 휴대폰") */
+export function kstHm(value: string | number): string {
+  const time = kstTime(value)
+  return time === '' ? '' : time.slice(0, 5)
+}
