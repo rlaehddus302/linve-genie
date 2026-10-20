@@ -111,6 +111,7 @@ export function claimIndex(runtime: Pick<ScopeRuntime, 'views'>, state: EngineSt
 export function clearViewCaches(views: ViewCaches): void {
   views.index.clear()
   views.messages.clear()
+  views.claims.clear()
 }
 
 /** 범위 전체 조회 (GET /api/days/:date) */

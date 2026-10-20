@@ -69,7 +69,8 @@ export const SAMPLE_PRODUCT: ProductLabelData = { no: 194, name: '왕비뇌신�
 /** 가장 긴 값 (번호 9999 · 가격 99,999,999원 · 긴 품종·닉네임) */
 export const LONGEST_PRODUCT: ProductLabelData = {
   no: 9999,
-  name: '아주 긴 이름의 다육식물 품종명 핑크프릴 왕비뇌신금 금황환 미니마 블루엘프',
+  // 음성 기본 사전의 표지 낱말('블루엘프')은 넣지 않는다 — 첫 화면 JS에 음성 사전이 없는지 그 낱말로 확인한다(AC-I4-10)
+  name: '아주 긴 이름의 다육식물 품종명 핑크프릴 왕비뇌신금 금황환 미니마 라즈베리아이스',
   price: 99_999_999,
   date: '2026-12-28',
   buyer: { kind: 'youtube', name: '다육이사랑하는우주천사님반가워요길고긴닉네임' },

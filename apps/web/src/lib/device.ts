@@ -4,6 +4,8 @@
 //   탭 복제로 같은 ID가 둘이 되면 나중 탭이 새 ID를 쓴다(Web Locks — 지원할 때).
 // - 기기 이름·인쇄 농도·연결 방법은 그 기기(브라우저)에 남는다(localStorage).
 // - 저장소를 쓸 수 없는 브라우저(사생활 보호 모드 등)는 이 페이지 동안만 기억한다.
+import { WIDE_QUERY } from './use-wide.ts'
+
 const DEVICE_ID_KEY = 'livejjim.deviceId'
 const DEVICE_NAME_KEY = 'livejjim.deviceName'
 const DENSITY_KEY = 'livejjim.printDensity'
@@ -100,7 +102,8 @@ export function streamUrl(): string {
 export function looksLikePhone(): boolean {
   try {
     if (/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)) return true
-    return typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 47.99rem)').matches
+    // 화면 모양과 같은 폭 경계 (use-wide.ts — PC 폭이 아니면 휴대폰)
+    return typeof window.matchMedia === 'function' && !window.matchMedia(WIDE_QUERY).matches
   } catch {
     return false
   }

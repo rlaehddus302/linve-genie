@@ -389,7 +389,8 @@ function PackingBody({ date, buyer }: { readonly date: string; readonly buyer: s
         </ul>
       ) : null}
       <div className="row">
-        <button type="button" className="button button-primary" disabled={busy || data === null} onClick={() => void send()}>
+        {/* 보통 버튼: 정산 자세히의 주 버튼은 지금 할 일 하나(입금·환불 적기)뿐이다 (AC-S06b-24, D-101) */}
+        <button type="button" className="button" disabled={busy || data === null} onClick={() => void send()}>
           포장 라벨 출력
         </button>
         <button type="button" className="button" disabled={pages.length === 0} onClick={savePdf}>
