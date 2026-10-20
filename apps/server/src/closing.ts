@@ -22,6 +22,7 @@ import {
   PACKING_MESSAGES,
   PRODUCT_KEY_RE,
   decidePacking,
+  packedItemsJson,
   labelPdf,
   labelPng,
   ledgerShippingWord,
@@ -435,7 +436,8 @@ export class ClosingService {
         }
         const rows = await packingRows(tx, sellerId, scopeId, input.buyer)
         const current = packingEntry(state, date, input.buyer, rows)
-        const decision = decidePacking(replayPacking(rows), new Set(current.items.map((item) => item.key)), input.action, input.items, input.invoice)
+        // 지금 품목 = (상품 ID, 상품 키) 쌍 — 보낸 키 목록이 지금 키와 같으면 서버가 상품 ID를 붙여 기록한다 (D-I2-19)
+        const decision = decidePacking(replayPacking(rows), current.items.map((item) => ({ id: item.id, key: item.key })), input.action, input.items, input.invoice)
         if (decision.kind === 'reject') return problem(409, decision.code, decision.message, [], { entry: current })
         if (decision.kind === 'same') return ok({ entry: current, recorded: false, buyer: input.buyer })
         const inserted = await tx
@@ -446,7 +448,7 @@ export class ClosingService {
             date,
             buyer: input.buyer,
             kind: decision.record.kind,
-            items: decision.record.items === null ? null : JSON.stringify(decision.record.items),
+            items: decision.record.items === null ? null : packedItemsJson(decision.record.items),
             invoice: decision.record.invoice,
             accountId,
             requestId,

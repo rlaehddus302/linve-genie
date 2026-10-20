@@ -88,6 +88,7 @@ export type ErrorCode =
   | 'NO_BROADCASTS'
   | 'PACKING_STATE'
   | 'ITEMS_CHANGED'
+  | 'PACKING_RECORDED'
   | 'IMPORT_CHANGED'
   | 'IMPORT_EMPTY'
   | 'FILE_TOO_LARGE'

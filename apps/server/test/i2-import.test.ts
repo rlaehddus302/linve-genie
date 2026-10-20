@@ -5,7 +5,7 @@ import ExcelJS from 'exceljs'
 import { describe, expect, it } from 'vitest'
 import { IMPORT_FILE_MAX_BYTES, IMPORT_PREVIEW_BODY_LIMIT_BYTES, IMPORT_REGISTER_BODY_LIMIT_BYTES, XLSX_LIMITS, importRegisterBodyBytes, readXlsxRowsBounded, scanXlsxZip } from '../src/import-files.ts'
 import { chat, ok, post } from './i2-support.ts'
-import { addSeller, client, countRows, createBroadcast, dumpAllTables, newWorld, rid, type Seller, type TestServer } from './support.ts'
+import { ORIGIN, addSeller, client, countRows, createBroadcast, dumpAllTables, newWorld, rid, type Seller, type TestServer } from './support.ts'
 
 const preview = (world: TestServer, seller: Seller, b: string, body: Record<string, unknown>) => post(world, seller, `/api/broadcasts/${b}/import/preview`, body)
 const register = (world: TestServer, seller: Seller, b: string, rows: unknown, requestId = rid('imp')) => post(world, seller, `/api/broadcasts/${b}/import`, { requestId, rows })
@@ -439,5 +439,54 @@ describe('AC-I2-51 등록', () => {
     const { formatLog } = await import('../src/log.ts')
     const logs = world.logs.map(formatLog).join('\n')
     expect(logs).not.toContain('비밀')
+  })
+  it('RA-I2-010: 가져오기 두 경로(미리 보기·등록)는 세션을 본문 읽기 앞에서 본다 — 로그인 없이 상한을 넘는 본문은 413이 아니라 401', async () => {
+    const { world, b } = await setup()
+    const big = 'x'.repeat(IMPORT_REGISTER_BODY_LIMIT_BYTES + 1024)
+    for (const path of [`/api/broadcasts/${b}/import/preview`, `/api/broadcasts/${b}/import`]) {
+      const response = await client(world, null).post(path, { requestId: rid('imp'), text: big })
+      expect(response.status, path).toBe(401)
+      expect(response.body.error).toMatchObject({ code: 'UNAUTHORIZED' })
+      const broken = await world.server.app.request(path, { method: 'POST', headers: { Origin: ORIGIN, 'Content-Type': 'application/json', Cookie: 'lj_session=not-a-real-session-token-000' }, body: '{' })
+      // 본문(깨진 JSON)을 읽기 전에 세션에서 멈춘다 — 400 NOT_JSON이 아니다
+      expect(broken.status, path).toBe(401)
+    }
+  })
+})
+
+describe('I2 마지막 감사 — 품종 제어 글자 NAME_CONTROL·빈 칸 줄 (D-I2-17·D-I2-21, TD-I2-009)', () => {
+  it('2MB 안의 UTF-8 CSV 500줄(품종마다 U+0001 수천 개) → 미리 보기 200, 500줄 모두 NAME_CONTROL(등록할 상품 0개) — 413이 아니다', async () => {
+    const { world, seller, b } = await setup()
+    const name = '\u0001'.repeat(4000)
+    const csv = Array.from({ length: 500 }, (_, i) => `${String(i + 1)},${name},10000`).join('\n')
+    const bytes = Buffer.from(csv, 'utf8')
+    expect(bytes.byteLength).toBeLessThanOrEqual(IMPORT_FILE_MAX_BYTES)
+    const response = await preview(world, seller, b, fileBody('목록.csv', bytes))
+    expect(response.status, response.text.slice(0, 300)).toBe(200)
+    expect(response.body).toMatchObject({ register: 0, problems: 500 })
+    expect((response.body.rows as { error?: string }[]).every((row) => row.error === 'NAME_CONTROL')).toBe(true)
+  })
+
+  it('제어 글자 없는 줄이 섞여 있으면 그 줄만 등록할 줄이고 그 등록은 성공한다, 제어 글자 품종을 등록으로 보내면 아무것도 기록하지 않는다', async () => {
+    const { world, seller, b } = await setup()
+    const text = ['번호,품종,가격', ',,', '1,핑크\u0001프릴,10', '2,라울,9', '"",,', '3,\u007F,8', '4,블루엘프,7'].join('\n')
+    const response = await preview(world, seller, b, { text })
+    expect(response.status, response.text).toBe(200)
+    expect(response.body).toMatchObject({ header: 1, register: 2, problems: 2 })
+    const rows = response.body.rows as { line: number; error?: string; no?: number; name?: string; price?: number }[]
+    expect(rows.map((row) => [row.line, row.error ?? row.no])).toEqual([
+      [3, 'NAME_CONTROL'],
+      [4, 2],
+      [6, 'NAME_CONTROL'],
+      [7, 4],
+    ])
+    const events = await countRows(world.database, 'events')
+    const bad = await register(world, seller, b, [{ no: 1, name: '핑크\u0001프릴', price: 10000 }])
+    expect(bad.status, bad.text).toBe(409)
+    expect(bad.body.error).toMatchObject({ code: 'IMPORT_CHANGED' })
+    expect(await countRows(world.database, 'events')).toBe(events)
+    const good = await register(world, seller, b, rows.flatMap((row) => (row.error === undefined ? [{ no: row.no, name: row.name, price: row.price }] : [])))
+    expect(good.status, good.text).toBe(200)
+    expect(good.body).toMatchObject({ registered: 2 })
   })
 })

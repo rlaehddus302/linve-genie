@@ -3,10 +3,11 @@
 // - 입금 계좌 = 은행·계좌번호·예금주 셋 다 적거나 셋 다 비움. 안내 문장은 계좌가 있을 때만 확인서에 나온다(문서 패키지).
 // - 판매자 자신이 구매자에게 공개하는 정보라 휴대폰 번호 검사(D-079)를 하지 않는다. 서버 로그에 값을 남기지 않는다.
 // - 합친 뒤(I3 AC-I3-47): PUT /api/shop은 다섯 칸(이 파일의 가게 설정) 또는 가게 이름 하나({ name } — 시작 마법사·가게 이름만)를 받는다.
-//   가게 이름의 상한은 이 파일의 규칙(새로 적는 이름 1~30글자, 지금 이름 그대로면 길이를 다시 따지지 않음 — SA-I2-006)이고,
-//   글자 검사는 I3 규칙을 더한다: 제어·서식 글자, 줄 나눔(U+2028)·문단 나눔(U+2029), 짝 없는 서로게이트는 받지 않는다(SA-I3-007 — 위 줄·라벨이 두 줄이 된다).
+//   가게 이름은 모든 입구가 같은 규칙 하나(accounts.ts checkShopNameRule — 1~30글자, 제어·서식 글자·U+2028·U+2029·짝 없는 서로게이트 거절,
+//   지금 이름 그대로면 다시 따지지 않음, 문장 "가게 이름은 1~30자로 적어 주세요." — D-I2-18·D-I2-15, SA-I2-006·SA-I3-007).
 import type { ShopSettings } from '@livejjim/documents'
 import { eq } from 'drizzle-orm'
+import { SHOP_NAME_MAX, SHOP_NAME_MESSAGE, checkShopNameRule } from './accounts.ts'
 import { isPlainObject, own, ownKeys } from './api-fields.ts'
 import type { Db } from './db/database.ts'
 import { sellers } from './db/schema.ts'
@@ -24,7 +25,7 @@ export interface ShopView {
 }
 
 export const SHOP_FIELDS = ['name', 'bank', 'accountNumber', 'accountHolder', 'accountNote'] as const
-export const SHOP_NAME_MAX = 30
+export { SHOP_NAME_MAX }
 export const SHOP_BANK_MAX = 20
 export const SHOP_ACCOUNT_NUMBER_MAX = 30
 export const SHOP_HOLDER_MAX = 20
@@ -33,7 +34,7 @@ export const SHOP_NOTE_MAX = 100
 export const ACCOUNT_PARTIAL_MESSAGE = '은행·계좌번호·예금주를 모두 적거나 모두 비워 주세요.'
 const CONTROL_MESSAGE = '줄바꿈·탭 같은 글자는 쓸 수 없어요.'
 const MESSAGES = {
-  name: `가게 이름은 1~${String(SHOP_NAME_MAX)}글자로 적어 주세요.`,
+  name: SHOP_NAME_MESSAGE,
   bank: `은행은 ${String(SHOP_BANK_MAX)}글자까지 적어 주세요.`,
   accountNumber: `계좌번호는 숫자와 '-'로 ${String(SHOP_ACCOUNT_NUMBER_MAX)}글자까지 적어 주세요.`,
   accountHolder: `예금주는 ${String(SHOP_HOLDER_MAX)}글자까지 적어 주세요.`,
@@ -51,8 +52,6 @@ const hasControl = (text: string): boolean => {
   }
   return false
 }
-/** 가게 이름에 받지 않는 글자 (I3 accounts.ts cleanDisplayName과 같은 판단 — Cc·Cf·Zl·Zp·Cs) */
-const NAME_FORBIDDEN_RE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u
 const ACCOUNT_NUMBER_RE = /^[0-9\- ]+$/
 const HAS_DIGIT_RE = /[0-9]/
 
@@ -61,8 +60,8 @@ const rejection = (message: string, problems: readonly FieldProblem[]): Rejectio
 /**
  * PUT /api/shop 본문 검사: 다섯 칸(name·bank·accountNumber·accountHolder·accountNote) 모두 문자열로. 앞뒤 공백을 지운 뒤 길이를 센다.
  * 제어 글자가 있거나·모르는 칸·형식이 틀린 값·계좌 일부만이면 저장하지 않고 칸별 문제를 돌려준다.
- * currentName = 지금 저장된 가게 이름. 가게 이름을 고치지 않았으면(앞뒤 공백을 지운 값이 같으면) 길이를 다시 따지지 않는다 —
- * 계정 만들기 명령(accounts.ts)이 30글자보다 긴 이름을 받았던 판매자도 계좌만 적어 저장할 수 있다(TD-I2-004·SA-I2-006, D-I2-02의 1~30글자는 새로 적는 이름에 건다)
+ * 가게 이름 칸은 가게 이름 규칙 하나(checkShopNameRule, D-I2-18)이고 문제 문장도 하나(SHOP_NAME_MESSAGE). currentName = 지금 저장된 가게 이름 —
+ * 고치지 않았으면(앞뒤 공백을 지운 값이 같으면) 길이·글자를 다시 따지지 않는다(이 결정 전에 31~50자 이름으로 만든 판매자도 계좌만 적어 저장된다, SA-I2-006)
  */
 export function checkShopInput(body: unknown, currentName: string | null = null): { ok: true; value: ShopView } | { ok: false; rejection: Rejection } {
   if (!isPlainObject(body)) return { ok: false, rejection: { status: 400, code: 'NOT_JSON', message: '보낸 내용의 형식이 올바르지 않아요.', problems: [] } }
@@ -72,6 +71,12 @@ export function checkShopInput(body: unknown, currentName: string | null = null)
   const values: Record<(typeof SHOP_FIELDS)[number], string> = { name: '', bank: '', accountNumber: '', accountHolder: '', accountNote: '' }
   for (const field of SHOP_FIELDS) {
     const raw = own(body, field)
+    if (field === 'name') {
+      const name = checkShopNameRule(raw, currentName)
+      if (name === null) problems.push({ field, message: SHOP_NAME_MESSAGE })
+      else values.name = name
+      continue
+    }
     if (typeof raw !== 'string') {
       problems.push({ field, message: MESSAGES[field] })
       continue
@@ -86,13 +91,6 @@ export function checkShopInput(body: unknown, currentName: string | null = null)
   const check = (field: (typeof SHOP_FIELDS)[number], ok: boolean) => {
     if (!failed.has(field) && !ok) problems.push({ field, message: MESSAGES[field] })
   }
-  const unchangedName = currentName !== null && values.name !== '' && values.name === currentName.trim()
-  // 새로 적는 이름의 서식 글자·줄 나눔·짝 없는 서로게이트 (I3 규칙, SA-I3-007) — 지금 이름 그대로면 따지지 않는다
-  if (!failed.has('name') && !unchangedName && NAME_FORBIDDEN_RE.test(values.name)) {
-    problems.push({ field: 'name', message: CONTROL_MESSAGE })
-    failed.add('name')
-  }
-  check('name', unchangedName || (length(values.name) >= 1 && length(values.name) <= SHOP_NAME_MAX))
   check('accountNote', length(values.accountNote) <= SHOP_NOTE_MAX)
   const accountFields = ['bank', 'accountNumber', 'accountHolder'] as const
   const filled = accountFields.filter((field) => values[field] !== '')
@@ -112,15 +110,10 @@ export function checkShopInput(body: unknown, currentName: string | null = null)
 
 /**
  * 가게 이름 하나만 바꾸기 (PUT /api/shop { name } — I3 AC-I3-47 시작 마법사·설정의 가게 이름). 앞뒤 공백을 지운 값을 돌려주고, 틀리면 null.
- * 상한은 가게 설정과 같다: 새로 적는 이름은 1~30글자(코드 포인트)이고 서식 글자 등이 없어야 한다. 지금 이름 그대로면 길이·서식 글자를 다시 따지지 않는다(SA-I2-006).
- * 빈 이름·제어 글자는 지금 이름과 상관없이 거절
+ * 규칙은 다섯 칸 저장·계정 만들기와 같은 하나다(checkShopNameRule, D-I2-18)
  */
 export function checkShopName(raw: unknown, currentName: string | null): string | null {
-  if (typeof raw !== 'string') return null
-  const name = raw.trim()
-  if (name === '' || hasControl(name)) return null
-  if (currentName !== null && name === currentName.trim()) return name
-  return NAME_FORBIDDEN_RE.test(name) || length(name) > SHOP_NAME_MAX ? null : name
+  return checkShopNameRule(raw, currentName)
 }
 
 /** 저장된 가게 설정 JSON → 계좌·안내 칸 (형식이 틀린 값은 빈 칸) */

@@ -157,6 +157,26 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (contentType !== JSON_CONTENT_TYPE) return apiError(415, 'NOT_JSON', '보낸 내용의 형식이 올바르지 않아요.')
     return next()
   })
+  // 세션 확인: 로그인·헬스체크 밖 전부. 보조자 계정은 허용 목록 밖이면 모두 403 — 처리기에 닿기 전에(아무것도 기록하지 않는다, AC-I3-61). 목록은 roles.ts(기본 거부)
+  const checkSession = async (c: Context<Env>): Promise<Response | null> => {
+    const session = await auth.session(getCookie(c, SESSION_COOKIE))
+    if (session === null) return unauthorized()
+    c.set('session', session)
+    sessionChecked.add(c.req.raw)
+    if (session.role === 'ASSISTANT' && !assistantMayCall(c.req.method, c.req.path, c.req.query('rehearsal'))) return assistantForbidden()
+    return null
+  }
+  /** 세션을 이미 본 요청 (가져오기 두 경로 — 아래 세션 단계가 두 번 보지 않게) */
+  const sessionChecked = new WeakSet<Request>()
+  const isImportPath = (c: Context<Env>): boolean => c.req.method === 'POST' && (IMPORT_PREVIEW_PATH.test(c.req.path) || IMPORT_REGISTER_PATH.test(c.req.path))
+  // 상품 목록 가져오기 두 경로(큰 본문 — 미리 보기 3MB·등록 6MB 남짓)는 세션을 본문 읽기 앞에서 본다 (RA-I2-010):
+  // 로그인하지 않은 요청의 큰 본문을 받아 두지 않는다
+  api.use(async (c, next) => {
+    if (!isImportPath(c)) return next()
+    const refused = await checkSession(c)
+    if (refused !== null) return refused
+    return next()
+  })
   // 본문 상한: 64KB, 상품 목록 가져오기 미리 보기만 3MB·등록만 6MB 남짓 (I2, SA-I2-001·SA-I2-007) — 넘으면 할 일을 적은 쉬운 문장
   const smallBody = bodyLimit({ maxSize: BODY_LIMIT_BYTES, onError: () => apiError(413, 'PAYLOAD_TOO_LARGE', '보낸 내용이 너무 커요.') })
   const previewBody = bodyLimit({ maxSize: IMPORT_PREVIEW_BODY_LIMIT_BYTES, onError: () => apiError(413, 'PAYLOAD_TOO_LARGE', IMPORT_FILE_MESSAGES.previewBodyTooLarge) })
@@ -179,16 +199,16 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     return next()
   })
 
-  // 세션 (로그인·헬스체크 밖 전부)
+  // 세션 (로그인·헬스체크 밖 전부 — 가져오기 두 경로는 위에서 이미 봤다)
   api.use(async (c, next) => {
     if (PUBLIC_PATHS.has(`${c.req.method} ${c.req.path}`)) return next()
-    const session = await auth.session(getCookie(c, SESSION_COOKIE))
-    if (session === null) return unauthorized()
-    c.set('session', session)
-    // 보조자 계정: 허용 목록 밖은 모두 403 — 처리기에 닿기 전에(아무것도 기록하지 않는다, AC-I3-61). 목록은 roles.ts(기본 거부)
-    if (session.role === 'ASSISTANT' && !assistantMayCall(c.req.method, c.req.path, c.req.query('rehearsal'))) return assistantForbidden()
+    if (!sessionChecked.has(c.req.raw)) {
+      const refused = await checkSession(c)
+      if (refused !== null) return refused
+    }
     await next()
-    if (session.refreshedCookie !== null) c.res.headers.append('Set-Cookie', session.refreshedCookie)
+    const { refreshedCookie } = c.get('session')
+    if (refreshedCookie !== null) c.res.headers.append('Set-Cookie', refreshedCookie)
   })
 
   const body = (c: Context<Env>) => c.get('body') ?? {}

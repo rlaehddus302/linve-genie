@@ -190,3 +190,80 @@ describe('R-18 세부 — 코어 함수를 다시 쓴다', () => {
     ).toEqual([null, 'NUMBER_INVALID', 'EXISTS', 'DUPLICATE', 'DUPLICATE', 'NAME_PHONE', 'PRICE_TOO_LOW', 'PRICE_TOO_LOW'])
   })
 })
+
+describe('I2 마지막 감사 — 품종 제어 글자 NAME_CONTROL (R-18 7, D-I2-17)', () => {
+  it('정규화 뒤 남은 제어 글자(U+0000~U+001F·U+007F~U+009F)는 NAME_CONTROL — 휴대폰 번호·가격보다 먼저, 탭 같은 공백·서식 글자는 걸리지 않는다', () => {
+    const text = ['1,핑크\u0001프릴,10000', '2,김 010-1234-5678\u0001,10000', '3,라울\u007F,', '4,\u0085칼,10', '5,\u009F,10000', '6,"줄\u000B바꿈\u000C있음",10000', '7,폭​없음,10000', '8,핑크,10000'].join('\n')
+    const result = parseProductList(text, { unit: 'WON' })
+    expect(result).toEqual({
+      header: null,
+      rows: [
+        { line: 1, error: 'NAME_CONTROL' },
+        { line: 2, error: 'NAME_CONTROL' },
+        { line: 3, error: 'NAME_CONTROL' },
+        { line: 4, error: 'NAME_CONTROL' },
+        { line: 5, error: 'NAME_CONTROL' },
+        { line: 6, no: 6, name: '줄 바꿈 있음', price: 10000 },
+        { line: 7, no: 7, name: '폭​없음', price: 10000 },
+        { line: 8, no: 8, name: '핑크', price: 10000 },
+      ],
+    })
+    // 번호 문제·같은 번호·이미 있는 번호가 먼저다
+    expect(parseProductList('0,핑\u0001,1000\n3,핑\u0001,1000\n3,a,1000\n5,핑\u0001,1000', { unit: 'WON', existing: [5] })).toMatchObject({
+      rows: [{ error: 'NUMBER_INVALID' }, { error: 'DUPLICATE' }, { error: 'DUPLICATE' }, { error: 'EXISTS' }],
+    })
+  })
+
+  it('등록 직전 다시 검사도 같은 순서(제어 글자 → 휴대폰 번호, 가격보다 먼저)', () => {
+    expect(
+      recheckRows(
+        [
+          { no: 1, name: '핑\u0001크', price: 50 },
+          { no: 2, name: '010-1234-5678\u0001', price: 1000 },
+          { no: 3, name: '010-1234-5678', price: 1000 },
+          { no: 4, name: '라울\u009F', price: 1000 },
+        ],
+        {},
+      ),
+    ).toEqual(['NAME_CONTROL', 'NAME_CONTROL', 'NAME_PHONE', 'NAME_CONTROL'])
+  })
+})
+
+describe('I2 마지막 감사 — 칸이 모두 빈 줄은 건너뛴다 (R-18 1, D-I2-21)', () => {
+  it(',,·"",,·공백만 있는 줄·탭만 있는 줄은 문제 아님, 머리글 판단·500줄에 세지 않음, 줄 번호는 센다 — 칸을 나눌 수 없는 줄은 CELLS', () => {
+    const text = [',,', '"",,', '  ,  , ', '\t\t', '번호,품종,가격', ',,', '1,핑크,10000', '"",,""', '"닫히지 않음,,', '2,라울,9000'].join('\n')
+    expect(parseProductList(text, { unit: 'WON' })).toEqual({
+      header: 5,
+      rows: [
+        { line: 7, no: 1, name: '핑크', price: 10000 },
+        { line: 9, error: 'CELLS' },
+        { line: 10, no: 2, name: '라울', price: 9000 },
+      ],
+    })
+    expect(parseProductList(',,\n"",,\n \t ', {})).toEqual({ error: 'EMPTY' })
+    // 빈 칸 줄은 500줄에 세지 않는다
+    const many = Array.from({ length: IMPORT_MAX_ROWS }, (_, i) => `${String(i + 1)},품종,10000\n,,`).join('\n')
+    const result = parseProductList(many, { maxNumber: 9999, unit: 'WON' })
+    expect('rows' in result && result.rows.length).toBe(500)
+  })
+
+  it('같은 행을 탭 글·CSV·.xlsx로 넣은 결과가 같다 (빈 행·제어 글자 행 포함)', () => {
+    const cell = fc.oneof(fc.constantFrom('', ' ', '1', '15번', '핑크', '핑\u0001크', '10000', '1만', '010-1234-5678', '라울\u0085'), fc.string({ maxLength: 4 }))
+    const row = fc.array(cell, { minLength: 1, maxLength: 4 })
+    fc.assert(
+      fc.property(fc.array(row, { maxLength: 12 }), (rows) => {
+        // 탭·쉼표·따옴표·줄바꿈이 없는 칸만 (세 형식이 같은 칸으로 나뉘게)
+        const clean = rows.map((cells) => cells.map((c) => c.replace(/[\t,"\r\n]/g, '')))
+        const tab = parseProductList(clean.map((cells) => (cells.length === 1 ? `${cells[0] as string}\t` : cells.join('\t'))).join('\n'), { unit: 'WON' })
+        const csv = parseProductList(clean.map((cells) => (cells.length === 1 ? `${cells[0] as string},` : cells.join(','))).join('\n'), { unit: 'WON' })
+        const sheet = parseProductRows(
+          clean.map((cells, i) => ({ line: i + 1, cells: cells.length === 1 ? [cells[0] as string, ''] : cells })),
+          { unit: 'WON' },
+        )
+        expect(csv).toEqual(tab)
+        expect(sheet).toEqual(tab)
+      }),
+      { numRuns: 300 },
+    )
+  })
+})

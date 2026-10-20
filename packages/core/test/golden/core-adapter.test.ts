@@ -658,15 +658,16 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
 // I1(engine/21-i1-labels.yaml G-ENG-301~304, AC-I1-80), Y1(engine/19-y1-youtube.yaml G-ENG-401·402, parser/chat.yaml 사례 6, AC-Y1-90),
 // I3(engine/22-i3-settings.yaml G-ENG-701, AC-I3-95), I2(parser/product-import.yaml 21사례 — 실제 해석 함수 apps/server/src/product-import.ts, AC-I2-50·90)를 함께 센다.
 // I2 합치기(main 9f2149d): main 파일 28 · 파서 466 · 엔진 132 · 통과 598 + I2 파일 1 · 파서 21 = 파일 29 · 파서 487 · 엔진 132 · 통과 619.
+// I2 마지막 감사(D-I2-17 NAME_CONTROL·D-I2-21 빈 칸 줄): product-import 5사례가 늘어 파일 29 · 파서 492 · 엔진 132 · 통과 624(AC-I2-90 — 교체, 약화 아님).
 describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + Y1 + I3 + I2 합계)', () => {
-  it('파일 29 · 파서 487 · 엔진 132 · 통과 619, 나머지 0', () => {
+  it('파일 29 · 파서 492 · 엔진 132 · 통과 624, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
       files: 29,
-      parserCases: 487,
+      parserCases: 492,
       scenarios: 132,
-      pass: 619,
+      pass: 624,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,

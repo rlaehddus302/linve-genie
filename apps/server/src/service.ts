@@ -43,6 +43,7 @@ import type { IdSource } from './ids.ts'
 import type { ScopeRuntime } from './runtime.ts'
 import { fieldMessage, phoneIdProblem, safeFieldName, unknownFieldProblems } from './messages.ts'
 import { productOwners } from './product-history.ts'
+import { mergePackingCheck } from './packing.ts'
 import { ASSISTANT_EVENT_TYPES, assistantCancelCheck, assistantForbidden } from './roles.ts'
 import { openSellerKey, phoneKeyOf } from './secrets.ts'
 import {
@@ -508,12 +509,18 @@ export class Service {
     }
 
     if (type === 'sms') return this.#writeSms(sellerId, actor, requestId, date, rehearsal, body, fields)
+    // 포장·배송을 적은 구매자의 합치기·떼어 내기 제한 (D-I2-20 — 실제 범위만, 엔진 이벤트를 기록하기 전에 같은 범위 줄·락 안에서)
+    const packingGuard =
+      !rehearsal && (type === 'buyer.merge' || type === 'buyer.unmerge')
+        ? { guard: (tx: Db, runtime: Pick<ScopeRuntime, 'scopeId' | 'state'>) => mergePackingCheck(tx, sellerId, runtime.scopeId, runtime.state, fields) }
+        : {}
     return this.#options.writer.write({
       sellerId,
       date,
       rehearsal,
       createScope: false,
       requestId,
+      ...packingGuard,
       // 보조자의 방송자 취소: 그 범위의 지금 상태(기록 트랜잭션 안)에서 문자찜으로 생긴 찜인지 코어 조회로 본다
       build: () => [{ fields, actor, requestId, ...(assistant ? { validate: assistantCancelCheck } : {}) }],
     })

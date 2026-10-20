@@ -57,7 +57,7 @@ import {
 import type { IdSource } from './ids.ts'
 import { JsonPullReader, JsonStreamError } from './json-stream.ts'
 import { errorKind, type LogSink } from './log.ts'
-import { PACKING_KINDS, PRODUCT_KEY_RE, type PackingKind } from './packing.ts'
+import { PACKING_KINDS, packedItemValue, parsePackedItems, readPackedItem, type PackedItem, type PackedItemValue, type PackingKind } from './packing.ts'
 import { FAILED_INPUT_MESSAGE, emptyState, type AttentionItem } from './runtime.ts'
 import { sha256Hex } from './secrets.ts'
 import { readShop, shopJson, type ShopView } from './shop.ts'
@@ -123,7 +123,8 @@ export interface BackupPacking {
   readonly date: string
   readonly buyer: string
   readonly kind: PackingKind
-  readonly items: readonly string[] | null
+  /** 포장 완료의 담은 품목 = (상품 ID, 상품 키) 쌍 { id, key } 목록 (D-I2-19 — 이 결정 전 파일은 상품 키 글) */
+  readonly items: readonly PackedItemValue[] | null
   readonly invoice: string | null
   readonly accountId: string | null
   readonly requestId: string | null
@@ -383,7 +384,7 @@ export async function* backupPieces(db: Db, sellerId: string, now: number): Asyn
             date: row.date,
             buyer: row.buyer,
             kind: row.kind as PackingKind,
-            items: row.items === null ? null : (JSON.parse(row.items) as string[]),
+            items: row.items === null ? null : parsePackedItems(row.items).map(packedItemValue),
             invoice: row.invoice,
             accountId: row.accountId,
             requestId: row.requestId,
@@ -589,8 +590,13 @@ class PackingCheck {
       if (this.#requests.has(requestId)) return invalid(`${where}의 요청 번호가 겹쳐요.`)
       this.#requests.add(requestId)
     }
+    let pairs: PackedItem[] = []
     if (kind === 'PACKED') {
-      if (!Array.isArray(items) || items.length === 0 || !items.every((key) => typeof key === 'string' && PRODUCT_KEY_RE.test(key)) || new Set(items).size !== items.length) {
+      // 품목 = (상품 ID, 상품 키) 쌍 { id, key } (D-I2-19). 이 결정 전 형식(상품 키 글)도 읽는다 — 상태 계산에서 지금 품목과 같지 않다고 본다
+      const read = Array.isArray(items) ? (items as unknown[]).map(readPackedItem) : []
+      pairs = read.filter((item): item is PackedItem => item !== null)
+      const ids = pairs.flatMap((item) => (item.id === null ? [] : [item.id]))
+      if (!Array.isArray(items) || items.length === 0 || pairs.length !== items.length || new Set(pairs.map((item) => item.key)).size !== pairs.length || new Set(ids).size !== ids.length) {
         return invalid(`${where}의 담은 품목이 올바르지 않아요.`)
       }
     } else if (items !== null) return invalid(`${where}의 담은 품목이 올바르지 않아요.`)
@@ -603,7 +609,7 @@ class PackingCheck {
       (kind === 'PACKED' && phase !== 'SHIPPED') || (kind === 'UNPACKED' && phase === 'PACKED') || (kind === 'SHIPPED' && phase !== 'WAITING') || (kind === 'UNSHIPPED' && phase === 'SHIPPED')
     if (!allowed) return invalid(`${where}의 차례가 맞지 않아요.`)
     this.#phases.set(key, kind === 'PACKED' || kind === 'UNSHIPPED' ? 'PACKED' : kind === 'UNPACKED' ? 'WAITING' : 'SHIPPED')
-    return { date, buyer, kind: kind as PackingKind, items: kind === 'PACKED' ? [...(items as string[])] : null, invoice: invoice as string | null, accountId, requestId, createdAt }
+    return { date, buyer, kind: kind as PackingKind, items: kind === 'PACKED' ? pairs.map(packedItemValue) : null, invoice: invoice as string | null, accountId, requestId, createdAt }
   }
 }
 

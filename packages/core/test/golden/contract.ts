@@ -36,7 +36,7 @@ export const PRODUCT_IMPORT_EXISTING_KEY = 'existing'
 /** product-import out: 전체 문제 ({ error } 하나만) */
 export const PRODUCT_IMPORT_LIST_ERRORS = ['EMPTY', 'TOO_MANY'] as const
 /** product-import out: 줄마다의 문제 ({ line, error }) */
-export const PRODUCT_IMPORT_ROW_ERRORS = ['CELLS', 'NUMBER_INVALID', 'DUPLICATE', 'EXISTS', 'NAME_PHONE', 'PRICE_MISSING', 'PRICE_INVALID', 'PRICE_TOO_LOW'] as const
+export const PRODUCT_IMPORT_ROW_ERRORS = ['CELLS', 'NUMBER_INVALID', 'DUPLICATE', 'EXISTS', 'NAME_CONTROL', 'NAME_PHONE', 'PRICE_MISSING', 'PRICE_INVALID', 'PRICE_TOO_LOW'] as const
 /** product-import 줄 키: 등록할 값은 정확히 네 키, 문제는 정확히 두 키 */
 export const PRODUCT_IMPORT_ROW_KEYS = ['line', 'no', 'name', 'price'] as const
 export const PRODUCT_IMPORT_ERROR_ROW_KEYS = ['line', 'error'] as const

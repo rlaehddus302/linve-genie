@@ -2,7 +2,7 @@
 import { computePackingText, defaultTemplate } from '@livejjim/label'
 import { describe, expect, it } from 'vitest'
 import { chat, fileNameOf, getFile, ok, pack, pngHeader, putShop } from './i2-support.ts'
-import { addSeller, client, countRows, createBroadcast, dumpAllTables, newWorld, rid, sseReader, type JsonResponse, type Seller, type TestServer } from './support.ts'
+import { addSeller, client, countRows, createBroadcast, dumpAllTables, newWorld, rid, sseReader, writeEvent, type JsonResponse, type Seller, type TestServer } from './support.ts'
 
 const D = '2026-10-19'
 
@@ -12,9 +12,9 @@ interface Entry {
   status: string
   invoice: string | null
   payment: string
-  items: { key: string; no: number; name: string; title: string }[]
-  add: { key: string; no: number; name: string; title: string }[]
-  remove: { key: string; no: number; title: string }[]
+  items: { id: string; key: string; no: number; name: string; title: string }[]
+  add: { id: string; key: string; no: number; name: string; title: string }[]
+  remove: { id: string | null; key: string; no: number; name: string; title: string }[]
 }
 
 async function entries(world: TestServer, seller: Seller, date = D): Promise<Map<string, Entry>> {
@@ -32,7 +32,7 @@ async function expectOkPack(promise: Promise<JsonResponse>): Promise<Entry> {
 }
 
 describe('AC-I2-30 포장·배송 상태 계산 — 서버 시험으로 고정할 흐름 (실제 범위 하나, 방송 b1)', () => {
-  it('1~7: 포장 완료 → 새 1등 → 다시 확인 → 다시 포장·배송 → 취소 승계 → 번호 변경 → 합치기·떼어 내기 → 가격 변경', async () => {
+  it('1~8: 포장 완료 → 새 1등 → 다시 확인 → 다시 포장·배송 → 취소 승계 → 번호 변경(두 단계) → 합치기·떼어 내기 → 가격·품종 변경 → 같은 번호에 다른 상품', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)
     const b = (await createBroadcast(world, seller, { date: D })).id
@@ -66,32 +66,36 @@ describe('AC-I2-30 포장·배송 상태 계산 — 서버 시험으로 고정�
     let all = await entries(world, seller)
     a = all.get('UC_A') as Entry
     expect([a.status, a.invoice]).toEqual(['배송 뒤 바뀜', '123456789012'])
-    expect(a.remove.map((item) => [item.key, item.no])).toEqual([[key(28), 28]])
+    expect(a.remove.map((item) => [item.key, item.no, item.name])).toEqual([[key(28), 28, '품종28']])
     expect(a.add).toEqual([])
     expect(all.get('UC_X')?.status).toBe('포장 대기')
 
-    // 5. UC_B 7번 포장 완료 뒤 7번을 70번으로 번호 변경 → 포장 다시 확인.
-    //    R-10 번호 변경(D-056)은 a에 붙은 찜을 모두 REJECTED(RENUMBERED)로 하므로 바로 뒤에는 뺄 것 7번만 있다 — 판매자가 70번을 다시 배정하면
-    //    새로 담을 것 70번·뺄 것 7번 (AC-I2-30 5의 모양, dev-notes "스펙과 다른 점" — 규칙 문장이 우선)
+    // 5. UC_B 7번 포장 완료 뒤 7번을 70번으로 번호 변경 → R-10·D-056대로 UC_B의 7번 찜은 무효 → 포장 다시 확인(뺄 것 7번, 새로 담을 것 없음)
+    // 5b. 70번에 UC_B를 직접 배정 → 포장 다시 확인(새로 담을 것 70번 · 뺄 것 7번 — 같은 상품이어도 번호가 바뀌었다) → 포장 완료([70]) → 포장 완료
+    //     (AC-I2-30 흐름 5·5b, SA-I2-005·D-I2-19 — 교체)
     await expectOkPack(pack(world, seller, D, { buyer: 'UC_B', action: 'pack', items: [key(7)] }))
     await ok(world, seller, { type: 'product.renumber', b, from: 7, to: 70 })
     let bb = (await entries(world, seller)).get('UC_B') as Entry
     expect(bb.status).toBe('포장 다시 확인')
     expect(bb.add).toEqual([])
-    expect(bb.remove.map((item) => item.no)).toEqual([7])
+    expect(bb.remove.map((item) => [item.no, item.name])).toEqual([[7, '품종7']])
     await ok(world, seller, { type: 'host.assign', b, no: 70, buyer: 'UC_B', reason: '번호 바꾼 뒤 다시 배정' })
     bb = (await entries(world, seller)).get('UC_B') as Entry
     expect(bb.status).toBe('포장 다시 확인')
     expect(bb.add.map((item) => item.no)).toEqual([70])
-    expect(bb.remove.map((item) => item.no)).toEqual([7])
+    expect(bb.remove.map((item) => [item.no, item.name])).toEqual([[7, '품종7']])
+    // 같은 상품이다(상품 ID가 같다) — 번호만 바뀌었다
+    expect(bb.add[0]?.id).toBe(bb.remove[0]?.id)
+    const repacked = await expectOkPack(pack(world, seller, D, { buyer: 'UC_B', action: 'pack', items: [key(70)] }))
+    expect([repacked.status, repacked.add, repacked.remove]).toEqual(['포장 완료', [], []])
 
-    // 6. UC_C(포장 완료)에 문자 구매자(품목 있음)를 합침 → 다시 확인. 문자 구매자 ID의 기록은 목록에 안 나온다. 떼어 내면 돌아온다
+    // 6. UC_C(포장 완료)에 문자 구매자(품목 있음, 포장 대기)를 합침 → 다시 확인. 떼어 내면 UC_C는 포장 완료, 문자 구매자는 자기 기록대로(포장 대기).
+    //    포장을 적은 문자 구매자는 합칠 수 없다(D-I2-20 — 아래 AC-I2-31 시험) — 그래서 여기서는 문자 구매자를 포장하지 않는다(교체)
     await ok(world, seller, { type: 'product.register', b, no: 40, name: '사십', price: 4000 })
     await ok(world, seller, { type: 'product.register', b, no: 41, name: '사십일', price: 4100 })
     await chat(world, seller, b, 'c40', 'UC_C', '초록이', '40')
     const sms = (await ok(world, seller, { type: 'sms', b, no: 41, received: '20:00' })).body.buyer as string
     await expectOkPack(pack(world, seller, D, { buyer: 'UC_C', action: 'pack', items: [key(40)] }))
-    await expectOkPack(pack(world, seller, D, { buyer: sms, action: 'pack', items: [key(41)] }))
     await ok(world, seller, { type: 'buyer.merge', from: sms, into: 'UC_C', reason: '같은 사람' }, D)
     all = await entries(world, seller)
     expect(all.get('UC_C')?.status).toBe('포장 다시 확인')
@@ -100,11 +104,30 @@ describe('AC-I2-30 포장·배송 상태 계산 — 서버 시험으로 고정�
     await ok(world, seller, { type: 'buyer.unmerge', from: sms, reason: '다른 사람' }, D)
     all = await entries(world, seller)
     expect(all.get('UC_C')?.status).toBe('포장 완료')
-    expect(all.get(sms)?.status).toBe('포장 완료')
+    expect(all.get(sms)?.status).toBe('포장 대기')
 
-    // 7. UC_A 15번 가격을 입금 전 찜까지 바꿈(UNPAID_CLAIMS) → 상태 그대로(품목 키가 같다)
+    // 7. UC_A 15번 가격을 입금 전 찜까지 바꿈(UNPAID_CLAIMS) → 상태 그대로(상품 ID·키가 같다). 품종을 바꿔도 그대로. UC_B(포장 완료)도 마찬가지
     await ok(world, seller, { type: 'product.update', b, no: 15, price: 99000, applyTo: 'UNPAID_CLAIMS' })
     expect(await statusOf(world, seller, 'UC_A')).toBe('배송 뒤 바뀜')
+    await ok(world, seller, { type: 'product.update', b, no: 70, name: '새품종' })
+    expect(await statusOf(world, seller, 'UC_B')).toBe('포장 완료')
+
+    // 8. (TD-I2-005, D-I2-19) UC_D 9번 1등 → 포장 완료([9]) → 9번을 90번으로 번호 변경(UC_D 찜 무효) → 빈 9번에 다른 상품(라울)을 새로 등록하고
+    //    UC_D를 직접 배정 → 상품 키 집합은 {b/9}로 포장 때와 같지만 다른 상품이라 포장 다시 확인(새로 담을 것 9번 라울 · 뺄 것 9번 — 그 상품의 지금 품종)
+    await ok(world, seller, { type: 'product.register', b, no: 9, name: '핑크프릴', price: 9000 })
+    await chat(world, seller, b, 'd9', 'UC_D', '다육손님', '9')
+    await expectOkPack(pack(world, seller, D, { buyer: 'UC_D', action: 'pack', items: [key(9)] }))
+    await ok(world, seller, { type: 'product.renumber', b, from: 9, to: 90 })
+    await ok(world, seller, { type: 'product.register', b, no: 9, name: '라울', price: 9500 })
+    await ok(world, seller, { type: 'host.assign', b, no: 9, buyer: 'UC_D', reason: '다른 상품 배정' })
+    const d = (await entries(world, seller)).get('UC_D') as Entry
+    expect(d.items.map((item) => item.key)).toEqual([key(9)])
+    expect(d.status).toBe('포장 다시 확인')
+    expect(d.add.map((item) => [item.no, item.name])).toEqual([[9, '라울']])
+    expect(d.remove.map((item) => [item.no, item.name])).toEqual([[9, '핑크프릴']])
+    expect(d.add[0]?.id).not.toBe(d.remove[0]?.id)
+    // 같은 키 목록을 보내 포장 완료하면 서버가 지금 상품 ID를 붙여 기록한다 → 포장 완료
+    expect((await expectOkPack(pack(world, seller, D, { buyer: 'UC_D', action: 'pack', items: [key(9)] }))).status).toBe('포장 완료')
   })
 
   it('포장 목록 = 품목 있는 지금의 구매자 + 품목이 없어도 자기 기록이 있는 구매자(뺄 것을 알리려고), 합쳐진 구매자는 따로 없음', async () => {
@@ -270,6 +293,114 @@ describe('AC-I2-31 포장·배송 명령', () => {
     expect(['11111111', '22222222']).toContain(last.invoice)
     const rows = await world.database.pglite?.query<{ n: number }>('select count(*)::int as n from packing_records')
     expect(rows?.rows[0]?.n).toBe(3)
+  })
+})
+
+describe('AC-I2-31 합치기·떼어 내기 제한 (I2 마지막 감사 RA-I2-009, D-I2-20)', () => {
+  const MERGE = '포장이나 배송을 적은 구매자는 다른 구매자에 합칠 수 없어요. 포장 모드에서 먼저 취소해 주세요.'
+  const UNMERGE = '배송을 적은 구매자에게서는 떼어 낼 수 없어요. 포장 모드에서 배송 완료를 먼저 취소해 주세요.'
+
+  async function setup() {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = (await createBroadcast(world, seller, { date: D })).id
+    for (const no of [1, 2, 3]) await ok(world, seller, { type: 'product.register', b, no, name: `품종${String(no)}`, price: 1000 })
+    await chat(world, seller, b, 'm1', 'UC_Y', '받는사람', '1')
+    const x = (await ok(world, seller, { type: 'sms', b, no: 2, received: '20:00' })).body.buyer as string
+    return { world, seller, b, x, key: (no: number) => `${b}/${String(no)}` }
+  }
+  const snapshot = async (world: TestServer, seller: Seller) => ({
+    events: await countRows(world.database, 'events'),
+    seq: (await client(world, seller.cookie).get(`/api/days/${D}`)).body.seq,
+    packing: (await world.database.pglite?.query<{ n: number }>('select count(*)::int as n from packing_records'))?.rows[0]?.n,
+  })
+  const refused = async (world: TestServer, seller: Seller, event: Record<string, unknown>, message: string) => {
+    const before = await snapshot(world, seller)
+    const response = await writeEvent(world, seller, event, D)
+    expect(response.status, response.text).toBe(409)
+    expect(response.body.error).toMatchObject({ code: 'PACKING_RECORDED', message })
+    expect(await snapshot(world, seller)).toEqual(before)
+  }
+
+  it('합쳐질 X가 포장 완료·포장 다시 확인·배송 완료·배송 뒤 바뀜이면 409(기록 없음) — 포장 취소·배송 취소로 포장 대기가 되면 합칠 수 있다', async () => {
+    const { world, seller, b, x, key } = await setup()
+    const merge = { type: 'buyer.merge', from: x, into: 'UC_Y', reason: '같은 사람' }
+    await expectOkPack(pack(world, seller, D, { buyer: x, action: 'pack', items: [key(2)] }))
+    await refused(world, seller, merge, MERGE) // 포장 완료
+    await ok(world, seller, { type: 'host.assign', b, no: 3, buyer: x, reason: '전화 주문' })
+    expect(await statusOf(world, seller, x)).toBe('포장 다시 확인')
+    await refused(world, seller, merge, MERGE)
+    await expectOkPack(pack(world, seller, D, { buyer: x, action: 'pack', items: [key(2), key(3)] }))
+    await expectOkPack(pack(world, seller, D, { buyer: x, action: 'ship', invoice: '12345678' }))
+    await refused(world, seller, merge, MERGE) // 배송 완료
+    await ok(world, seller, { type: 'host.cancel', b, no: 3, buyer: x, reason: '취소' })
+    expect(await statusOf(world, seller, x)).toBe('배송 뒤 바뀜')
+    await refused(world, seller, merge, MERGE)
+    await expectOkPack(pack(world, seller, D, { buyer: x, action: 'unship' }))
+    await expectOkPack(pack(world, seller, D, { buyer: x, action: 'unpack' }))
+    expect(await statusOf(world, seller, x)).toBe('포장 대기')
+    await ok(world, seller, merge, D)
+  })
+
+  it('포장·배송을 마친 Y 쪽에 합치는 것은 된다(포장 다시 확인·배송 뒤 바뀜), 배송을 마친 Y에서 떼어 내기는 409 — 포장만 한 Y에서는 된다', async () => {
+    const { world, seller, x, key } = await setup()
+    await expectOkPack(pack(world, seller, D, { buyer: 'UC_Y', action: 'pack', items: [key(1)] }))
+    await expectOkPack(pack(world, seller, D, { buyer: 'UC_Y', action: 'ship' }))
+    await ok(world, seller, { type: 'buyer.merge', from: x, into: 'UC_Y', reason: '같은 사람' }, D)
+    expect(await statusOf(world, seller, 'UC_Y')).toBe('배송 뒤 바뀜')
+    const unmerge = { type: 'buyer.unmerge', from: x, reason: '다른 사람' }
+    await refused(world, seller, unmerge, UNMERGE)
+    // 배송 완료를 취소하면(포장만 한 상태) 떼어 낼 수 있다
+    await expectOkPack(pack(world, seller, D, { buyer: 'UC_Y', action: 'unship' }))
+    await ok(world, seller, unmerge, D)
+    const all = await entries(world, seller)
+    expect(all.get('UC_Y')?.status).toBe('포장 완료')
+    expect(all.get(x)?.status).toBe('포장 대기')
+  })
+
+  it('리허설 범위는 포장이 없어 막지 않는다, 같은 범위 줄에서 검사 — X의 포장 완료와 X 합치기를 동시에 보내도 둘이 함께 남지 않는다', async () => {
+    const { world, seller, x, key } = await setup()
+    const r = await createBroadcast(world, seller, { date: D, rehearsal: true })
+    await ok(world, seller, { type: 'product.register', b: r.id, no: 1, name: '연습', price: 1000 })
+    await chat(world, seller, r.id, 'r1', 'sim_a', '연습', '1')
+    await chat(world, seller, r.id, 'r2', 'sim_b', '연습둘', '안녕')
+    expect((await writeEvent(world, seller, { type: 'buyer.merge', from: 'sim_a', into: 'sim_b', reason: '연습' }, D, true)).status).toBe(200)
+    for (let round = 0; round < 5; round++) {
+      const [packed, merged] = await Promise.all([
+        pack(world, seller, D, { buyer: x, action: 'pack', items: [key(2)] }),
+        writeEvent(world, seller, { type: 'buyer.merge', from: x, into: 'UC_Y', reason: '같은 사람' }, D),
+      ])
+      const packedOk = packed.status === 200 && packed.body.recorded === true
+      const mergedOk = merged.status === 200
+      expect(packedOk && mergedOk, `${packed.text} ${merged.text}`).toBe(false)
+      expect(packedOk || mergedOk).toBe(true)
+      // 처음으로 되돌린다
+      if (mergedOk) await ok(world, seller, { type: 'buyer.unmerge', from: x, reason: '되돌림' }, D)
+      else await expectOkPack(pack(world, seller, D, { buyer: x, action: 'unpack' }))
+    }
+  })
+})
+
+describe('D-I2-19 포장 기록의 품목 = (상품 ID, 상품 키) 쌍', () => {
+  it('포장 완료 기록은 서버가 붙인 상품 ID와 키를 남기고, 상품 ID가 없는 예전 기록은 지금 품목과 같지 않다(포장 다시 확인)', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = (await createBroadcast(world, seller, { date: D })).id
+    await ok(world, seller, { type: 'product.register', b, no: 1, name: '하나', price: 1000 })
+    await chat(world, seller, b, 'm1', 'UC_A', '홍길동', '1')
+    const entry = await expectOkPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: [`${b}/1`] }))
+    const id = entry.items[0]?.id as string
+    expect(id).toMatch(/\S/)
+    const rows = await world.database.pglite?.query<{ items: string }>('select items from packing_records')
+    expect(JSON.parse(rows?.rows[0]?.items as string)).toEqual([{ id, key: `${b}/1` }])
+    // 이 결정 전 형식(상품 키 글만)으로 바꾸면 같은 키여도 포장 다시 확인 — 뺄 것은 ID 없이 포장 때 번호
+    await world.database.pglite?.query(`update packing_records set items = $1`, [JSON.stringify([`${b}/1`])])
+    const legacy = (await entries(world, seller)).get('UC_A') as Entry
+    expect(legacy.status).toBe('포장 다시 확인')
+    expect(legacy.add.map((item) => item.no)).toEqual([1])
+    expect(legacy.remove).toEqual([{ id: null, key: `${b}/1`, broadcast: b, title: legacy.items[0]?.title, no: 1, name: '' }])
+    // 다시 포장 완료하면 새 형식으로 남고 포장 완료
+    expect((await expectOkPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: [`${b}/1`] }))).status).toBe('포장 완료')
   })
 })
 

@@ -7,7 +7,7 @@
 import { DEFAULT_SETTINGS, containsPhoneRun, normalizeText, parseAmount } from '@livejjim/core'
 
 /** 줄마다의 문제 (R-18 9의 순서) */
-export const IMPORT_ROW_ERRORS = ['CELLS', 'NUMBER_INVALID', 'DUPLICATE', 'EXISTS', 'NAME_PHONE', 'PRICE_MISSING', 'PRICE_INVALID', 'PRICE_TOO_LOW'] as const
+export const IMPORT_ROW_ERRORS = ['CELLS', 'NUMBER_INVALID', 'DUPLICATE', 'EXISTS', 'NAME_CONTROL', 'NAME_PHONE', 'PRICE_MISSING', 'PRICE_INVALID', 'PRICE_TOO_LOW'] as const
 export type ImportRowError = (typeof IMPORT_ROW_ERRORS)[number]
 /** 전체 문제 (R-18 10) */
 export type ImportListError = 'EMPTY' | 'TOO_MANY'
@@ -32,6 +32,21 @@ const MIN_PRICE = 100
 const NUMBER_RE = /^([0-9]{1,4})(?: ?번)?$/
 const DIGIT_RE = /[0-9]/
 const BOM = '\uFEFF'
+// R-18 7 (D-I2-17): 정규화한 품종에 남은 제어 글자 U+0000~U+001F·U+007F~U+009F → NAME_CONTROL
+const hasControl = (text: string): boolean => {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i)
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true
+  }
+  return false
+}
+
+/** R-18 7: 품종 칸의 문제 (제어 글자 → 휴대폰 번호 순서, D-I2-17) */
+function nameError(name: string): 'NAME_CONTROL' | 'NAME_PHONE' | null {
+  if (hasControl(name)) return 'NAME_CONTROL'
+  if (containsPhoneRun(name)) return 'NAME_PHONE'
+  return null
+}
 
 interface ResolvedSettings {
   readonly unit: 'WON' | 'THOUSAND'
@@ -169,7 +184,8 @@ function analyze(rows: readonly RawRow[], settings: ResolvedSettings): ImportRes
     const { line, no, name } = row
     if ((counts.get(no) ?? 0) > 1) return { line, error: 'DUPLICATE' }
     if (settings.existing.has(no)) return { line, error: 'EXISTS' }
-    if (containsPhoneRun(name)) return { line, error: 'NAME_PHONE' }
+    const nameProblem = nameError(name)
+    if (nameProblem !== null) return { line, error: nameProblem }
     if (row.price === '') return { line, error: 'PRICE_MISSING' }
     const price = parseAmount(row.price, amountSettings)
     if (price === null) return { line, error: 'PRICE_INVALID' }
@@ -179,8 +195,14 @@ function analyze(rows: readonly RawRow[], settings: ResolvedSettings): ImportRes
   return { header, rows: out }
 }
 
-/** 공백(R-3 — 탭 포함)만 있는 줄인가 */
+/** 공백(R-3 — 탭 포함)만 있는 칸인가 */
 const isBlank = (text: string): boolean => normalizeText(text) === ''
+
+/**
+ * R-18 1 빈 줄 (D-I2-21): 칸을 나눌 수 있고 정규화한 칸이 모두 빈 줄 — 아무것도 없는 줄, 공백만 있는 줄, `,,`, `"",,`.
+ * 따옴표 문제로 칸을 나눌 수 없는 줄(null)은 빈 줄이 아니다(CELLS)
+ */
+const isBlankCells = (cells: readonly string[] | null): boolean => cells !== null && cells.every(isBlank)
 
 /**
  * 붙여 넣은 글(엑셀 복사 = 탭, 또는 CSV) → R-18 결과. settings = 그 방송의 price.unit·claim.maxNumber와 이미 있는 번호.
@@ -190,17 +212,15 @@ export function parseProductList(text: unknown, settings: ImportSettings = {}): 
   try {
     if (typeof text !== 'string') return { error: 'EMPTY' }
     const resolved = resolve(settings)
-    const kept = splitImportLines(text).filter((source) => !isBlank(source.text))
-    // 상품 줄이 500을 넘으면 칸을 나누지 않고 끝낸다 (머리글 판단에 첫 줄만 나눈다)
-    const firstCells = kept[0] === undefined ? null : splitCells(kept[0].text)
-    const firstIsHeader = firstCells !== null && !DIGIT_RE.test(normalizeText(firstCells[0] ?? ''))
-    const productCount = kept.length - (firstIsHeader ? 1 : 0)
-    if (productCount <= 0) return { error: 'EMPTY' }
-    if (productCount > IMPORT_MAX_ROWS) return { error: 'TOO_MANY' }
-    return analyze(
-      kept.map((source, index) => ({ line: source.line, cells: index === 0 ? firstCells : splitCells(source.text) })),
-      resolved,
-    )
+    // 칸 나누기는 줄 길이에 비례한다 — 빈 줄(D-I2-21)을 가리려면 줄마다 한 번 나눈다. 500줄을 넘으면 그다음 줄은 나누지 않고 끝낸다
+    const kept: RawRow[] = []
+    for (const source of splitImportLines(text)) {
+      const cells = splitCells(source.text)
+      if (isBlankCells(cells)) continue
+      kept.push({ line: source.line, cells })
+      if (kept.length > IMPORT_MAX_ROWS + 1) return { error: 'TOO_MANY' }
+    }
+    return analyze(kept, resolved)
   } catch {
     // 규칙상 오지 않는 길 — 예외 대신 빈 목록으로 본다
     return { error: 'EMPTY' }
@@ -244,7 +264,7 @@ export interface RegisterRow {
 }
 
 /**
- * 등록 직전 다시 검사 (R-18 11 — 4~8): 번호 범위, 목록 안 같은 번호, 이미 있는 번호, 품종 휴대폰 번호, 가격 100원 이상 정수.
+ * 등록 직전 다시 검사 (R-18 11 — 4~8): 번호 범위, 목록 안 같은 번호, 이미 있는 번호, 품종 제어 글자(D-I2-17)·휴대폰 번호, 가격 100원 이상 정수.
  * 줄마다 문제 하나(없으면 null)를 돌려준다. 값의 형식(정수·정규화한 품종 글)은 부르는 쪽이 먼저 본다
  */
 export function recheckRows(rows: readonly RegisterRow[], settings: ImportSettings): (ImportRowError | null)[] {
@@ -255,7 +275,8 @@ export function recheckRows(rows: readonly RegisterRow[], settings: ImportSettin
     if (!(Number.isInteger(row.no) && row.no >= 1 && row.no <= resolved.maxNumber)) return 'NUMBER_INVALID'
     if ((counts.get(row.no) ?? 0) > 1) return 'DUPLICATE'
     if (resolved.existing.has(row.no)) return 'EXISTS'
-    if (containsPhoneRun(row.name)) return 'NAME_PHONE'
+    const nameProblem = nameError(row.name)
+    if (nameProblem !== null) return nameProblem
     if (!(Number.isSafeInteger(row.price) && row.price >= MIN_PRICE)) return 'PRICE_TOO_LOW'
     return null
   })

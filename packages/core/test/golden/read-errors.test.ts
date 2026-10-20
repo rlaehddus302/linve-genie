@@ -479,7 +479,7 @@ const CASES: Readonly<Record<string, { category: string; loaded?: number; errors
           ['cases[1].out', "필수 product-import out 키 'rows'가 없다"],
           ['cases[2].out.rows', "모르는 product-import 전체 문제 out 키 'rows'"],
           ['cases[3].out.error', 'EMPTY / TOO_MANY 중 하나여야 한다'],
-          ['cases[4].out.rows[0].error', 'CELLS / NUMBER_INVALID / DUPLICATE / EXISTS / NAME_PHONE / PRICE_MISSING / PRICE_INVALID / PRICE_TOO_LOW 중 하나여야 한다'],
+          ['cases[4].out.rows[0].error', 'CELLS / NUMBER_INVALID / DUPLICATE / EXISTS / NAME_CONTROL / NAME_PHONE / PRICE_MISSING / PRICE_INVALID / PRICE_TOO_LOW 중 하나여야 한다'],
           ['cases[5].out.rows[0].line', '1 이상 정수여야 한다'],
           ['cases[6].out.rows[0].price', '100 이상 정수여야 한다'],
           ['cases[7].out.rows[0]', "필수 product-import 등록 줄 키 'line'가 없다"],

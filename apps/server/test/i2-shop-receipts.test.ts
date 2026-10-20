@@ -1,7 +1,9 @@
 // AC-I2-01 가게 설정, AC-I2-10~12 확인서(데이터·PDF·PNG·전원 PDF), AC-I2-81 개인정보 (서버 경로)
 import { buildReceipt, loadDocumentFont, renderReceiptPng, type ReceiptData } from '@livejjim/documents'
 import { describe, expect, it } from 'vitest'
+import { eq } from 'drizzle-orm'
 import { createSellerAccount } from '../src/accounts.ts'
+import { sellers } from '../src/db/schema.ts'
 import { documentFont, fileNamePart } from '../src/files.ts'
 import { formatLog } from '../src/log.ts'
 import { replayGolden, fontBytes, pdfPageTexts } from '../../../packages/documents/test/helpers.ts'
@@ -75,27 +77,65 @@ describe('AC-I2-01 가게 설정 저장·조회', () => {
     expect((await putShop(world, seller, { name: '🌵'.repeat(30), bank: '은'.repeat(20), accountNumber: '1'.repeat(30), accountHolder: '김'.repeat(20), accountNote: '가'.repeat(100) })).status).toBe(200)
   })
 
-  it('SA-I2-006: 계정 만들기가 받은 30글자보다 긴 가게 이름은 고치지 않으면 그대로 저장된다(계좌만 적기) — 다른 이름으로 고치면 1~30글자', async () => {
+  it('SA-I2-006 (D-I2-18 교체): 이 결정 전에 만든 30글자보다 긴 가게 이름은 고치지 않으면 그대로 저장된다(계좌만 적기) — 다른 이름으로 고치면 1~30글자', async () => {
+    // 계정 만들기는 이제 31글자 이름을 받지 않는다(D-I2-18) — 30글자 이름으로 만든 뒤 DB에서 이름을 바꿔 이 결정 전에 만든 판매자를 흉내 낸다
     const world = await newWorld()
     const longName = '초록다육 다육이 전문 농장 직영 라이브 판매 공식 가게 본점'
     expect([...longName].length).toBeGreaterThan(30)
-    const created = await createSellerAccount(world.database.db, Buffer.from(world.masterKey, 'base64'), { shopName: longName, loginId: 'longshop', password: 'correct-horse-1' }, { passwordCost: FAST_COST })
+    const created = await createSellerAccount(world.database.db, Buffer.from(world.masterKey, 'base64'), { shopName: '가'.repeat(30), loginId: 'longshop', password: 'correct-horse-1' }, { passwordCost: FAST_COST })
     if (!created.ok) throw new Error(created.message)
+    await world.database.db.update(sellers).set({ name: longName }).where(eq(sellers.id, created.sellerId))
     const seller: Seller = { sellerId: created.sellerId, accountId: created.accountId, loginId: 'longshop', password: 'correct-horse-1', cookie: await login(world, 'longshop', 'correct-horse-1') }
     const current = (await client(world, seller.cookie).get('/api/shop')).body.shop as Record<string, string>
+    expect(current.name).toBe(longName)
     // 이름 그대로 + 계좌 (앞뒤 공백은 지운 뒤 같은지 본다)
     const saved = await putShop(world, seller, { ...current, name: ` ${longName} `, bank: '농협', accountNumber: '302-9988-7766-11', accountHolder: '김판매' })
     expect(saved.status, saved.text).toBe(200)
     expect(saved.body.shop).toEqual({ name: longName, bank: '농협', accountNumber: '302-9988-7766-11', accountHolder: '김판매', accountNote: '' })
-    // 다른 긴 이름으로 고치면 거절, 30글자 안으로 고치면 저장 — 그 뒤에는 긴 이름으로 돌아가지 못한다
+    // 가게 이름 하나만 보내는 모양(PUT /api/shop { name })도 지금 이름 그대로면 받는다
+    expect((await putShop(world, seller, { name: longName })).status).toBe(200)
+    // 다른 긴 이름으로 고치면 거절(문장 하나), 30글자 안으로 고치면 저장 — 그 뒤에는 긴 이름으로 돌아가지 못한다
     const other = await putShop(world, seller, { ...SHOP, name: `${longName}2` })
     expect(other.status).toBe(400)
-    expect(other.body.error).toMatchObject({ problems: [{ field: 'name', message: '가게 이름은 1~30글자로 적어 주세요.' }] })
+    expect(other.body.error).toMatchObject({ problems: [{ field: 'name', message: '가게 이름은 1~30자로 적어 주세요.' }] })
     expect((await putShop(world, seller, SHOP)).status).toBe(200)
     expect((await putShop(world, seller, { ...SHOP, name: longName })).status).toBe(400)
-    // 빈 이름·제어 글자는 지금 이름과 상관없이 거절
+    // 빈 이름·새로 붙은 제어 글자는 지금 이름과 상관없이 거절
     expect((await putShop(world, seller, { ...SHOP, name: '  ' })).status).toBe(400)
     expect((await putShop(world, seller, { ...SHOP, name: `${SHOP.name}\n` })).status).toBe(400)
+  })
+
+  it('D-I2-18 가게 이름 규칙 하나: 계정 만들기·다섯 칸·이름 하나 모두 1~30글자(코드 포인트), 서식 글자·U+2028·U+2029·짝 없는 서로게이트 거절, 문장 하나', async () => {
+    const world = await newWorld()
+    const key = Buffer.from(world.masterKey, 'base64')
+    const make = (shopName: string, loginId: string) => createSellerAccount(world.database.db, key, { shopName, loginId, password: 'correct-horse-1' }, { passwordCost: FAST_COST })
+    const MESSAGE = '가게 이름은 1~30자로 적어 주세요.'
+    // 계정 만들기: 31글자 → 그 문장으로 거절하고 아무것도 만들지 않는다, 그림 문자 30개(1개 = 1글자)는 만들어진다
+    const sellerCount = async () => (await world.database.db.select({ id: sellers.id }).from(sellers)).length
+    const before = await sellerCount()
+    for (const [name, login] of [
+      ['가'.repeat(31), 'toolong'],
+      ['', 'empty'],
+      ['가게\u200B이름', 'zwsp'],
+      ['가게\u2028이름', 'linesep'],
+      ['가게\u2029이름', 'parasep'],
+      ['가게\uD800', 'lonesur'],
+      ['가게\n이름', 'newline'],
+    ] as const) {
+      expect(await make(name, login), name).toEqual({ ok: false, message: MESSAGE })
+    }
+    expect(await sellerCount()).toBe(before)
+    expect((await make('🌵'.repeat(30), 'emoji30')).ok).toBe(true)
+    expect((await make(' 앞뒤 공백 가게 ', 'trimmed')).ok).toBe(true)
+    // 가게 설정 다섯 칸·이름 하나: 같은 글자 규칙, 같은 문장
+    const seller = await addSeller(world)
+    for (const name of ['가게\u200B이름', '가게\u2028이름', '가게\uD800', '가'.repeat(31)]) {
+      for (const body of [{ ...SHOP, name }, { name }]) {
+        const response = await putShop(world, seller, body)
+        expect(response.status, JSON.stringify(body)).toBe(400)
+        expect(response.body.error).toMatchObject({ problems: [{ field: 'name', message: MESSAGE }] })
+      }
+    }
   })
 
   it('휴대폰 번호 검사를 하지 않는다 — 계좌번호 010-1234-5678-90, 안내 문장 문의 010-1234-5678', async () => {

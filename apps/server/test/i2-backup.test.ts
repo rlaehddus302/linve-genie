@@ -145,6 +145,8 @@ describe('AC-I2-60 백업 파일 형식', () => {
       ['PACKED', null],
       ['SHIPPED', '123456789012'],
     ])
+    // 포장 완료의 담은 품목 = (상품 ID, 상품 키) 쌍 { id, key } (D-I2-19)
+    expect(file.packing[0]?.items).toEqual([{ id: expect.stringMatching(/\S/), key: expect.stringMatching(/\/31$/) }])
     expect(file.digest).toBe(backupDigest(file))
     // 파일 안을 찾아 없음: 비밀번호 해시·로그인 아이디·세션 토큰 해시·로그인 시도 키·판매자 전화번호 키(암호문)·마스터 키·스냅샷·발송함
     const text = JSON.stringify(file)
@@ -416,6 +418,7 @@ describe('AC-I2-62 복구·가져오기', () => {
       if (redigest) (copy as { digest: string }).digest = backupDigest(copy)
       return reencode(copy)
     }
+    const packedItems = (copy: BackupFile) => (copy.packing[0] as unknown as { items: Record<string, unknown>[] }).items
     const scope0 = (copy: BackupFile) => copy.scopes[0] as unknown as { events: { seq: number; body: string; digest: string; type: string; failed: boolean }[]; date: string; rehearsal: boolean; seq: number }
     const cases: [Uint8Array, RegExp][] = [
       [fix((copy) => ((copy.shop as { name: string }).name = '바뀐 이름'), false), /파일 요약값이 맞지 않아요/],
@@ -435,6 +438,10 @@ describe('AC-I2-62 복구·가져오기', () => {
       [fix((copy) => (copy.scopes as unknown[]).push(structuredClone(copy.scopes[0]))), /두 번 있어요/],
       [fix((copy) => ((copy.settings as Record<string, unknown>)['claim.maxNumber'] = 0)), /판매 규칙 설정/],
       [fix((copy) => ((copy.packing[1] as { kind: string }).kind = 'UNPACKED')), /포장 기록 2번/],
+      // 담은 품목 형식 (D-I2-19): 상품 ID 빠짐·모르는 칸·같은 상품 ID 둘
+      [fix((copy) => { const items = packedItems(copy); items[0] = { key: items[0]?.key } }), /포장 기록 1번의 담은 품목/],
+      [fix((copy) => { const items = packedItems(copy); items[0] = { ...items[0], note: 1 } }), /포장 기록 1번의 담은 품목/],
+      [fix((copy) => { const items = packedItems(copy); items.push({ id: items[0]?.id, key: 'other/1' }) }), /포장 기록 1번의 담은 품목/],
       [fix((copy) => ((copy as { format: string }).format = 'other')), /형식 이름/],
       // 형식 번호 2: 칸의 차례가 정해져 있다(조각으로 읽는다 — RA-I2-005), 모르는 칸·잘린 파일·뒤에 남은 글
       [
