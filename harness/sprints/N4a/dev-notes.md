@@ -182,3 +182,4 @@ LabelSwitchEntry = { enabled: boolean /* 바뀐 값 */, at: string /* UTC ISO �
   ```
   "1"을 누른 뒤에도 창이 남아 있고 그 창이 위 `empty` 문장이면 Escape로 닫는 줄을 더하면 두 번째 꼴까지 막힌다. "보내는 중" 대기만으로는 모자란다 — 화면은 응답을 받은 뒤 `store.sync`(증분 조회 한 번)로 자료를 받으므로 "보냈어요"와 띠 갱신 사이에도 100ms 남짓 틈이 있다. 다시 세기가 그 틈과 생성기 변경을 함께 덮는다.
 - **GATE-N4a-VERIFY**: 라운드 1 실패 둘 중 test 단계(`packages/voice` p99, SA-N4a-03)는 오케스트레이터가 main의 D-902 분리(`extract.perf.test.ts`, `pnpm perf`)를 합쳐(ad86adf) 게이트 밖으로 나갔다. 남은 e2e 실패는 위 SA-N4a-04다. 화면(web) 원인은 없어서 이번 라운드에 화면 코드를 고치지 않았다.
+- **verify (8915669, 2026-10-21 00:22 KST 끝, 부하 평균 40 → 7)**: `E2E_PORT_OFFSET=1300 pnpm verify` 통과 — typecheck(498)·lint(0/0)·test(141 파일 · 3420)·golden(589)·adversarial(51 파일 · 921)·e2e(50 파일 · 304, AC-S06-90 포함)·coverage(100% · 99.66%). 이번에 AC-S06-90이 통과한 것은 경쟁이 안 맞았을 뿐이다. 위 시험 고침 전까지 부하가 크면 다시 흔들릴 수 있다.
