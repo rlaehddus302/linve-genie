@@ -493,6 +493,48 @@ describe('AC-N2-47 다시 시도', () => {
     expect((await rows(w, s)).map((row) => [row.status, row.reason, row.message])).toEqual([['FAILED', reason, message]])
   })
 
+  it('보내기 연결 거절(메타에 닿지 않음)은 대화 조회 없이 WAITING(RETRY) → 2초 뒤 다시 보내 DM 1 (TD-N2-002)', async () => {
+    const w = await world()
+    const s = await setup(w)
+    const original = globalThis.fetch
+    let refused = 0
+    globalThis.fetch = ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (refused === 0 && url.startsWith(w.fake.url) && url.includes('/messages')) {
+        refused += 1
+        return Promise.reject(new TypeError('fetch failed', { cause: Object.assign(new Error('connect ECONNREFUSED 127.0.0.1'), { code: 'ECONNREFUSED', syscall: 'connect' }) }))
+      }
+      return original(input, init)
+    }) as typeof fetch
+    try {
+      await comment(w, s, '1207', '1', 'pink.mom', '15')
+      await drain(w)
+      expect(refused).toBe(1)
+      expect((await rows(w, s)).map((row) => [row.status, row.reason, row.attempts, row.nextAt])).toEqual([['WAITING', 'RETRY', 1, new Date(w.clock.now() + 2000).toISOString()]])
+      expect(w.fake.count('conversation')).toBe(0)
+      w.clock.advance(2000)
+      await drain(w)
+      expect(w.fake.dms.map((dm) => dm.commentId)).toEqual(['1207'])
+      expect((await rows(w, s)).map((row) => row.status)).toEqual(['SENT'])
+      expect(w.fake.count('conversation')).toBe(0)
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+
+  it('보내기 연결이 요청을 받은 뒤 끊기면(보냈을 수 있음) 바로 다시 보내지 않고 대화 조회로 확인한다', async () => {
+    const w = await world()
+    const s = await setup(w)
+    w.fake.fail('send', 'DROP')
+    await comment(w, s, '1208', '1', 'pink.mom', '15')
+    await drain(w)
+    expect(w.fake.count('conversation')).toBe(1)
+    expect((await rows(w, s)).map((row) => [row.status, row.reason, row.attempts])).toEqual([['WAITING', 'RETRY', 1]])
+    w.clock.advance(2000)
+    await drain(w)
+    expect(w.fake.dms.map((dm) => dm.commentId)).toEqual(['1208'])
+  })
+
   it('라이브가 실제로 끝나면 메타가 거절해 LIVE_ENDED', async () => {
     const w = await world()
     const s = await setup(w)

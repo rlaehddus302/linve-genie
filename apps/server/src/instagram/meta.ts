@@ -101,7 +101,50 @@ interface CallOptions {
   readonly timeoutMs: number
 }
 
-type CallResult = { readonly kind: 'response'; readonly status: number; readonly body: unknown } | { readonly kind: 'timeout' } | { readonly kind: 'network' }
+/**
+ * 호출 결과. 응답이 없는 것은 셋으로 나눈다:
+ * - timeout: 시간 제한에 걸림 — 요청이 메타에 닿았을 수 있다
+ * - unreached: 요청을 보내기 전에 연결이 안 됨(연결 거절·주소 못 찾음·경로 없음·연결 시간 초과) — 메타에 닿지 않은 것이 확실하다
+ * - network: 그 밖의 네트워크 오류(연결된 뒤 끊김 등) — 메타에 닿았을 수 있다
+ */
+type CallResult = { readonly kind: 'response'; readonly status: number; readonly body: unknown } | { readonly kind: 'timeout' } | { readonly kind: 'unreached' } | { readonly kind: 'network' }
+
+/**
+ * 요청을 보내기 전에 나는 연결 오류의 코드 (AC-N2-47 "네트워크 오류" — 보내지지 않은 것이 확실하므로 다시 시도한다, TD-N2-002).
+ * 연결된 뒤의 오류(ECONNRESET·ETIMEDOUT·EPIPE·UND_ERR_SOCKET 등)는 여기 없다 — 보냈을 수 있으니 타임아웃처럼 확인한다(AC-N2-48).
+ */
+export const UNREACHED_CODES: ReadonlySet<string> = new Set([
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'EAI_FAIL',
+  'EAI_NONAME',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'ENETDOWN',
+  'EHOSTDOWN',
+  'EADDRNOTAVAIL',
+  'UND_ERR_CONNECT_TIMEOUT',
+])
+/** 연결 전 단계의 시스템 호출 (이 단계에서 난 오류는 요청을 보내기 전이다) */
+const UNREACHED_SYSCALLS: ReadonlySet<string> = new Set(['connect', 'getaddrinfo'])
+
+/** 오류 안의 (코드, 시스템 호출) 모두 — fetch(undici)는 TypeError('fetch failed', { cause }), 여러 주소를 시도하면 cause가 AggregateError(errors[]) */
+function errorLeaves(error: unknown, depth = 0): { code: string | null; syscall: string | null }[] {
+  if (depth > 4 || typeof error !== 'object' || error === null) return []
+  const record = error as { code?: unknown; syscall?: unknown; cause?: unknown; errors?: unknown }
+  const nested = [...errorLeaves(record.cause, depth + 1), ...(Array.isArray(record.errors) ? record.errors.flatMap((item) => errorLeaves(item, depth + 1)) : [])]
+  if (nested.length > 0) return nested
+  const code = typeof record.code === 'string' ? record.code : null
+  const syscall = typeof record.syscall === 'string' ? record.syscall : null
+  return code === null && syscall === null ? [] : [{ code, syscall }]
+}
+
+/** 요청을 보내기 전에 난 연결 오류인가 (원인이 하나라도 있고, 모두 연결 전 단계일 때만) */
+export function isUnreached(error: unknown): boolean {
+  const leaves = errorLeaves(error)
+  return leaves.length > 0 && leaves.every((leaf) => (leaf.code !== null && UNREACHED_CODES.has(leaf.code)) || (leaf.syscall !== null && UNREACHED_SYSCALLS.has(leaf.syscall)))
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -169,7 +212,8 @@ export class MetaClient {
       return { kind: 'response', status: response.status, body: parsed }
     } catch (error) {
       const name = error instanceof Error ? error.name : ''
-      return name === 'TimeoutError' || name === 'AbortError' ? { kind: 'timeout' } : { kind: 'network' }
+      if (name === 'TimeoutError' || name === 'AbortError') return { kind: 'timeout' }
+      return isUnreached(error) ? { kind: 'unreached' } : { kind: 'network' }
     }
   }
 
@@ -339,7 +383,11 @@ export class MetaClient {
     return { ok: true, value: lives }
   }
 
-  /** 개인 답장 (받는 사람 = 댓글 ID, AC-N2-46·47·48). 응답이 없으면(시간 제한·연결 끊김) TIMEOUT */
+  /**
+   * 개인 답장 (받는 사람 = 댓글 ID, AC-N2-46·47·48).
+   * - 요청을 보내기 전의 연결 오류(연결 거절·주소 못 찾음 등 — 메타에 닿지 않음)는 RETRY: 다시 시도 2·4·8·16·32초 (AC-N2-47, TD-N2-002)
+   * - 응답이 없으면(시간 제한·연결된 뒤 끊김 — 보내졌을 수 있다) TIMEOUT: 대화 조회로 확인 (AC-N2-48)
+   */
   async privateReply(conn: MetaConnection, commentId: string, text: string): Promise<MetaResult<string>> {
     const api = this.#api(conn)
     if (api.token === null) return { ok: false, failure: 'TOKEN_INVALID' }
@@ -348,6 +396,7 @@ export class MetaClient {
       json: { recipient: { comment_id: commentId }, message: { text } },
       timeoutMs: this.#settings.timeouts.sendMs,
     })
+    if (result.kind === 'unreached') return { ok: false, failure: 'RETRY' }
     if (result.kind !== 'response') return { ok: false, failure: 'TIMEOUT' }
     if (result.status < 200 || result.status >= 300) return { ok: false, failure: classifyMetaError(result.status, result.body) }
     const id = isRecord(result.body) ? str(result.body.message_id) : null

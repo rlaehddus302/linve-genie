@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
 import { startE2eServer, type E2eServer } from '../src/e2e.ts'
 import { FakeMeta } from '../src/instagram/fake-meta.ts'
-import { MetaClient, type MetaConnection } from '../src/instagram/meta.ts'
+import { isUnreached, MetaClient, UNREACHED_CODES, type MetaConnection } from '../src/instagram/meta.ts'
 import { FAST_COST } from './support.ts'
 
 let fake: FakeMeta | null = null
@@ -161,5 +161,59 @@ describe('AC-N2-70 가짜 메타 서버', () => {
     // 서버 인스타그램 설정이 가짜 서버 주소다 (화면 경로로 돌아온다)
     expect(e2e.server.instagram.settings?.redirectUri).toBe('http://localhost:5173/api/instagram/callback')
     expect(e2e.server.instagram.settings?.endpoints.graph.startsWith(fakeMeta.url)).toBe(true)
+  })
+})
+
+describe('AC-N2-47·48 응답 없는 실패의 분류 — 보내기 전 연결 오류는 다시 시도, 보냈을 수 있으면 타임아웃 확인 (TD-N2-002)', () => {
+  const systemError = (code: string, syscall: string) => Object.assign(new Error(`${syscall} ${code}`), { code, syscall })
+  const fetchFailed = (cause: unknown) => new TypeError('fetch failed', { cause })
+
+  it('연결 거절·주소 못 찾음·경로 없음·연결 시간 초과(여러 주소 모두 포함)는 메타에 닿지 않은 것', () => {
+    for (const [code, syscall] of [
+      ['ECONNREFUSED', 'connect'],
+      ['ENOTFOUND', 'getaddrinfo'],
+      ['EAI_AGAIN', 'getaddrinfo'],
+      ['EHOSTUNREACH', 'connect'],
+      ['ENETUNREACH', 'connect'],
+      ['ETIMEDOUT', 'connect'],
+    ] as const) {
+      expect(isUnreached(fetchFailed(systemError(code, syscall))), code).toBe(true)
+    }
+    expect(isUnreached(fetchFailed(Object.assign(new Error('Connect Timeout Error'), { code: 'UND_ERR_CONNECT_TIMEOUT' })))).toBe(true)
+    // 여러 주소(IPv4·IPv6)로 시도해 모두 거절
+    const aggregate = Object.assign(new AggregateError([systemError('ECONNREFUSED', 'connect'), systemError('ECONNREFUSED', 'connect')], ''), { code: 'ECONNREFUSED' })
+    expect(isUnreached(fetchFailed(aggregate))).toBe(true)
+    expect(UNREACHED_CODES.has('ECONNREFUSED')).toBe(true)
+  })
+
+  it('연결된 뒤 끊김·읽기 시간 초과·원인 모름·섞인 원인은 보냈을 수 있는 것', () => {
+    expect(isUnreached(fetchFailed(systemError('ECONNRESET', 'read')))).toBe(false)
+    expect(isUnreached(fetchFailed(systemError('ETIMEDOUT', 'read')))).toBe(false)
+    expect(isUnreached(fetchFailed(systemError('EPIPE', 'write')))).toBe(false)
+    expect(isUnreached(fetchFailed(Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' })))).toBe(false)
+    expect(isUnreached(new TypeError('fetch failed'))).toBe(false)
+    expect(isUnreached(new Error('알 수 없음'))).toBe(false)
+    expect(isUnreached('문자열')).toBe(false)
+    expect(isUnreached(null)).toBe(false)
+    const mixed = new AggregateError([systemError('ECONNREFUSED', 'connect'), systemError('ECONNRESET', 'read')], '')
+    expect(isUnreached(fetchFailed(mixed))).toBe(false)
+  })
+
+  it('개인 답장: 보내기 전 연결 오류는 RETRY(대화 조회 없이 다시 시도), 연결된 뒤 끊김은 TIMEOUT, 대화 조회의 네트워크 오류는 RETRY', async () => {
+    const f = await start()
+    const settings = f.settings({ redirectUri: 'https://a.test/cb', timeouts: { sendMs: 300, confirmMs: 300, requestMs: 1000 } })
+    const conn: MetaConnection = { login: 'FACEBOOK', accountId: '1', pageId: '2', tokens: { user: 'u', page: 'p', ig: null } }
+    let error: unknown = null
+    const meta = new MetaClient(settings, () => Promise.reject(error))
+    error = fetchFailed(systemError('ECONNREFUSED', 'connect'))
+    expect(await meta.privateReply(conn, '101', '글')).toEqual({ ok: false, failure: 'RETRY' })
+    expect(await meta.conversation(conn, '1')).toEqual({ ok: false, failure: 'RETRY' })
+    error = fetchFailed(systemError('ECONNRESET', 'read'))
+    expect(await meta.privateReply(conn, '101', '글')).toEqual({ ok: false, failure: 'TIMEOUT' })
+    expect(await meta.conversation(conn, '1')).toEqual({ ok: false, failure: 'RETRY' })
+    error = Object.assign(new Error('timed out'), { name: 'TimeoutError' })
+    expect(await meta.privateReply(conn, '101', '글')).toEqual({ ok: false, failure: 'TIMEOUT' })
+    expect(await meta.conversation(conn, '1')).toEqual({ ok: false, failure: 'TIMEOUT' })
+    expect(f.dms).toEqual([])
   })
 })
