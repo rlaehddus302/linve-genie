@@ -29,6 +29,8 @@ const scopeOf = (scope: { readonly date: string; readonly rehearsal: boolean }):
 interface Connection {
   readonly sellerId: string
   readonly sessionHash: string
+  /** 이름 붙은 알림(유튜브·리허설 생성기)을 받는지 — 보조자 연결은 받지 않는다 (AC-I3-61: 보조자는 유튜브·리허설을 쓰지 않는다) */
+  readonly named: boolean
   readonly controller: ReadableStreamDefaultController<Uint8Array>
   /** ready에 보낸 범위별 seq (키 = 날짜·리허설인지) — 그 이하의 알림은 이미 반영된 것이라 보내지 않는다 */
   readonly baseline: ReadonlyMap<string, number>
@@ -40,6 +42,7 @@ interface Connection {
 interface Pending {
   readonly sellerId: string
   readonly sessionHash: string
+  readonly named: boolean
   /** 모인 알림 (generator 알림은 그대로 지나간다) */
   readonly notices: (StreamNotice | GeneratorNotice)[]
   closed: boolean
@@ -80,8 +83,9 @@ export class StreamHub {
    * 읽는 동안 모인 알림 중 ready에 없는 것(그 날짜의 seq보다 큰 것)을 차례로 보낸 응답을 돌려준다 (RA-S04-003).
    * 읽기가 실패하면 등록을 지우고 오류를 그대로 던진다. 읽는 동안 로그아웃·종료되면 ready 없이 닫힌 응답이다
    */
-  async open(sellerId: string, sessionHash: string, readScopes: () => Promise<readonly ScopeSeq[]>): Promise<Response> {
-    const pending: Pending = { sellerId, sessionHash, notices: [], closed: false }
+  async open(sellerId: string, sessionHash: string, readScopes: () => Promise<readonly ScopeSeq[]>, options: { readonly named?: boolean } = {}): Promise<Response> {
+    const named = options.named ?? true
+    const pending: Pending = { sellerId, sessionHash, named, notices: [], closed: false }
     this.#pending.add(pending)
     let scopes: readonly ScopeSeq[]
     try {
@@ -100,7 +104,7 @@ export class StreamHub {
           return
         }
         const baseline = new Map(scopes.map((scope) => [scopeOf(scope), scope.seq]))
-        const live: Connection = { sellerId, sessionHash, controller, baseline, nextId: 1, closed: false }
+        const live: Connection = { sellerId, sessionHash, named, controller, baseline, nextId: 1, closed: false }
         connection = live
         this.#write(live, `retry: 3000\nevent: ready\ndata: ${JSON.stringify({ scopes })}\n\n`)
         for (const notice of pending.notices) this.#send(live, notice)
@@ -148,8 +152,8 @@ export class StreamHub {
   }
 
   #publishNamed(sellerId: string, notice: GeneratorNotice): void {
-    for (const pending of this.#pending) if (pending.sellerId === sellerId) pending.notices.push(notice)
-    for (const connection of [...this.#connections]) if (connection.sellerId === sellerId) this.#send(connection, notice)
+    for (const pending of this.#pending) if (pending.sellerId === sellerId && pending.named) pending.notices.push(notice)
+    for (const connection of [...this.#connections]) if (connection.sellerId === sellerId && connection.named) this.#send(connection, notice)
   }
 
   /** 알림 하나. ready에 이미 반영된 변경(그 범위의 ready seq 이하)은 보내지 않는다 */

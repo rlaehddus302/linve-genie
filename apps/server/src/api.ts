@@ -459,7 +459,8 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   api.get('/stream', async (c) => {
     const session = c.get('session')
     // 연결을 먼저 등록한 뒤 범위별 seq를 읽는다 — 그 사이 커밋된 변경도 알림으로 받는다 (RA-S04-003)
-    return hub.open(session.sellerId, session.tokenHash, () => service.scopes(session.sellerId))
+    // 보조자 연결은 유튜브·리허설 생성기 알림을 받지 않는다 (범위 변경 알림만 — 문자찜 입력 화면이 쓰는 것)
+    return hub.open(session.sellerId, session.tokenHash, () => service.scopes(session.sellerId), { named: session.role !== 'ASSISTANT' })
   })
 
   // ── 유튜브 (Y1) ──────────────────────────────────────────────────────

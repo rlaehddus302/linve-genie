@@ -302,6 +302,27 @@ describe('AC-I3-61 보조자 권한 — 허용 목록 밖은 기본으로 막힘
     expect((await writeEvent(w, seller, { type: 'host.cancel', b: b.id, no: 15, buyer: 'UCviewer1', reason: '취소' })).status).toBe(200)
   })
 
+  it('보조자의 실시간 연결은 범위 변경 알림만 받는다 — 유튜브·리허설 생성기 알림은 판매자 연결에만', async () => {
+    const w = await world()
+    const seller = await addSeller(w)
+    const helper = await assistantSession(w, seller)
+    const b = await createBroadcast(w, seller)
+    const mine = sseReader(await w.server.app.request('/api/stream', { headers: { Cookie: seller.cookie } }))
+    const theirs = sseReader(await w.server.app.request('/api/stream', { headers: { Cookie: helper.cookie } }))
+    await mine.until(() => mine.events.some((event) => event.event === 'ready'))
+    await theirs.until(() => theirs.events.some((event) => event.event === 'ready'))
+    w.server.hub.publishYoutube(seller.sellerId, { kind: 'connection', connection: { channel: { title: '비밀 채널' } } })
+    w.server.hub.publishGenerator(seller.sellerId, { date: b.date, rehearsal: true, state: 'running' })
+    await expectOk(writeEvent(w, seller, { type: 'product.register', b: b.id, no: 1, name: '상품', price: 1000 }))
+    await mine.until(() => mine.events.some((event) => event.event === 'change'))
+    await theirs.until(() => theirs.events.some((event) => event.event === 'change'))
+    expect(mine.events.map((event) => event.event)).toEqual(['ready', 'youtube', 'generator', 'change'])
+    expect(theirs.events.map((event) => event.event)).toEqual(['ready', 'change'])
+    expect(JSON.stringify(theirs.events)).not.toContain('비밀 채널')
+    await mine.cancel()
+    await theirs.cancel()
+  })
+
   it('보조자 쿠키로 유튜브 돌아오는 주소(세션을 강제하지 않는 경로)도 403', async () => {
     const w = await world()
     const seller = await addSeller(w)
@@ -443,6 +464,8 @@ describe('AC-I3-97 새 API의 공통 규칙 (Origin·JSON·모르는 필드·no-
       { path: '/api/wizard', method: 'PUT', body: { status: 'DONE' } },
       { path: '/api/assistants', method: 'POST', body: { name: '엄마' } },
       { path: '/api/assistants/acc_x/delete', method: 'POST', body: {} },
+      { path: '/api/outbox/1/confirm-posted', method: 'POST', body: { requestId: 'cp-97' } },
+      { path: '/api/outbox/1/dismiss', method: 'POST', body: {} },
     ]
     for (const item of cases) {
       const send = (headers: Record<string, string>, body: string, cookie: string | null = seller.cookie) =>
