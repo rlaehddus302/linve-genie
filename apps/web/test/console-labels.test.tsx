@@ -121,6 +121,24 @@ describe('보드 라벨 상태 (AC-I1-30)', () => {
     expect(boardItem().textContent).not.toMatch(/라벨|출력/)
   })
 
+  it('상품 자세히: 라벨 상태에 없는 1등(자동 출력 끔 — 문자찜·채팅으로 생긴 1등은 print 알림이 없다)은 그 날짜를 한 번 다시 받아 그 라벨을 보인다 (AC-I1-31, TE-I1-005)', async () => {
+    labels = []
+    await openConsole()
+    await flush(5)
+    const labelCalls = () => server.callsTo('GET', /^\/api\/print\/labels\?/).length
+    expect(labelCalls()).toBe(1)
+    // 서버는 작업이 없는 지금 1등도 라벨 상태(데이터 포함)로 준다
+    labels = [labelView('c1@1')]
+    fireEvent.click(boardItem())
+    const detail = await screen.findByRole('dialog', { name: '15번 자세히' })
+    const group = within(within(detail).getByRole('region', { name: '라벨' })).getByRole('group', { name: '1등 우주천사 라벨' })
+    await waitFor(() => expect(within(group).getByText('아직 출력하지 않았어요')).toBeTruthy())
+    expect(labelCalls()).toBe(2)
+    // 한 번만 (창이 다시 그려져도 거듭 받지 않는다)
+    await flush(10)
+    expect(labelCalls()).toBe(2)
+  })
+
   it('리허설은 라벨 상태를 보이지 않고 조회하지도 않는다 — 자세히·Alt+P는 "리허설 방송은 라벨을 출력하지 않아요."', async () => {
     rehearsal = true
     const quick = await openConsole()

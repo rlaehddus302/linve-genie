@@ -191,6 +191,41 @@ describe('라벨 상태 (AC-I1-12·30)', () => {
     expect(seen).toHaveBeenCalled()
   })
 
+  it('보는 화면의 1등 라벨 키가 없으면 한 번 다시 받는다 (자동 출력 끔 — 문자찜·채팅으로 생긴 1등은 print 알림이 없다, AC-I1-31·TE-I1-005) — 키마다 한 번, 처음 조회 전에는 묻지 않는다', async () => {
+    let labels: LabelView[] = [labelView('c1@1')]
+    server.on('GET', /^\/api\/print\/labels\?date=/, () => ({ body: { date: DATE, labels } }))
+    const s = await started()
+    const calls = () => server.callsTo('GET', /^\/api\/print\/labels/).length
+    // 보지 않는 날짜·처음 조회 전: 아무것도 하지 않는다
+    s.ensureLabels(DATE, ['c2@1'])
+    s.watchLabels(DATE, () => {})
+    s.ensureLabels(DATE, ['c2@1'])
+    await vi.waitFor(() => expect(s.labelsSnapshot(DATE).phase).toBe('ready'))
+    await flush()
+    expect(calls()).toBe(1)
+    // 문자찜 기록 change로는 다시 받지 않는다 (채팅마다 다시 받지 않음)
+    labels = [labelView('c1@1'), labelView('c2@1', { no: 16 })]
+    FakeEventSource.last.emit('change', { date: DATE, rehearsal: false, seq: 4, type: 'sms' })
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(calls()).toBe(1)
+    // 있는 키만이면 다시 받지 않는다
+    s.ensureLabels(DATE, ['c1@1'])
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(calls()).toBe(1)
+    // 없는 키 → 한 번 다시 받는다 (같은 키를 거듭 물어도 한 번)
+    s.ensureLabels(DATE, ['c1@1', 'c2@1'])
+    s.ensureLabels(DATE, ['c2@1'])
+    await vi.waitFor(() => expect(s.labelsSnapshot(DATE).labels.has('c2@1')).toBe(true))
+    expect(s.labelsSnapshot(DATE).labels.get('c2@1')?.data).not.toBeNull()
+    expect(calls()).toBe(2)
+    // 다시 받아도 없는 키는 더 묻지 않는다 (서버가 1등으로 보지 않는다 — 거듭 받지 않는다)
+    s.ensureLabels(DATE, ['c9@1'])
+    await vi.waitFor(() => expect(calls()).toBe(3))
+    s.ensureLabels(DATE, ['c9@1'])
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(calls()).toBe(3)
+  })
+
   it('없는 범위는 missing', async () => {
     server.on('GET', /^\/api\/print\/labels\?date=/, () => ({ status: 404, body: { error: { code: 'NOT_FOUND', message: '찾을 수 없어요.' } } }))
     const s = await started()

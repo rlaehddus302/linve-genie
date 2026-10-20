@@ -7,6 +7,8 @@
 //   (느린 망에서 늦게 온 응답이 그사이 받은 "출력함"을 "출력 중"으로 되돌리지 않게, TE-I1-001). 알림의 라벨은 한 연결로 순서대로 오므로
 //   대기열 판과 상관없이 온 순서대로 덮는다.
 //   "재출력 필요"는 범위 기록(품종·가격·묶음 변경)으로도 바뀌고 그때는 print 알림이 없다 — 그 날짜의 change 알림이 오면 다시 받는다.
+//   채팅·문자찜 기록으로는 다시 받지 않는다. 자동 출력을 끈 방송에서 그 기록으로 생긴 1등은 작업이 없어 print 알림도 없으므로,
+//   상품 자세히가 1등 라벨 키가 없다고 알릴 때(ensureLabels) 한 번 다시 받는다.
 // - 리허설 범위에는 라벨이 없다(D-I1-08) — 조회하지 않는다.
 import { get, isApiError, post, withQuery, type ApiError } from '../api/client.ts'
 import type { ClientConfig, JobView, LabelView, PackingView, PrintNotice, PrintOverview, QueueSummary, StoredTemplate, Templates } from '../api/print-types.ts'
@@ -130,6 +132,8 @@ interface Watched<S> {
 interface WatchedLabels extends Watched<LabelsSnapshot> {
   /** 지금 도는 조회를 보낸 뒤 print 알림으로 받은 라벨 (라벨 키 → 상태). 조회가 돌지 않으면 null */
   fresh: Map<string, LabelView> | null
+  /** 보는 화면이 없다고 알려 다시 받은 라벨 키 (키마다 한 번만 — 다시 받아도 없으면 더 묻지 않는다) */
+  readonly asked: Set<string>
 }
 
 const EMPTY_LABELS: LabelsSnapshot = { phase: 'loading', error: null, labels: new Map() }
@@ -376,7 +380,7 @@ export class PrintStore {
   watchLabels(date: string, listener: () => void): () => void {
     let entry = this.#labels.get(date)
     if (entry === undefined) {
-      entry = { snapshot: EMPTY_LABELS, listeners: new Set(), count: 0, loading: false, again: false, reload: undefined, fresh: null }
+      entry = { snapshot: EMPTY_LABELS, listeners: new Set(), count: 0, loading: false, again: false, reload: undefined, fresh: null, asked: new Set() }
       this.#labels.set(date, entry)
       void this.#loadLabels(date)
     }
@@ -461,6 +465,24 @@ export class PrintStore {
   #reloadAllWatched(): void {
     for (const date of this.#labels.keys()) void this.#loadLabels(date)
     for (const entry of this.#packing.values()) void this.#loadPacking(entry.date, entry.buyer)
+  }
+
+  /**
+   * 보는 화면(상품 자세히)의 1등 라벨 키가 라벨 상태에 없으면 그 날짜를 한 번 다시 받는다 (AC-I1-31).
+   * 채팅·문자찜 기록은 라벨 상태를 다시 받지 않는다(1등 변화는 작업·폐기의 print 알림으로 온다) — 그런데 자동 출력을 끈 방송은
+   * 새 1등에 작업이 없어 print 알림도 없다. 서버 라벨 상태는 작업이 없는 지금 1등도 담으므로 필요한 때만 다시 받는다(채팅마다가 아니라, NFR-01).
+   * 라벨 상태를 아직 받지 못했으면(처음 조회 중·오류) 묻지 않는다 — 처음 조회가 끝나면 화면이 다시 묻는다
+   */
+  ensureLabels(date: string, keys: readonly string[]): void {
+    const entry = this.#labels.get(date)
+    if (entry === undefined || entry.snapshot.phase !== 'ready') return
+    let missing = false
+    for (const key of keys) {
+      if (entry.snapshot.labels.has(key) || entry.asked.has(key)) continue
+      entry.asked.add(key)
+      missing = true
+    }
+    if (missing) this.#scheduleWatched(entry, () => this.#loadLabels(date))
   }
 
   /** 그 날짜의 라벨 상태를 바로 다시 받는다 (조치 뒤) */

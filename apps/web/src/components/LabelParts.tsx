@@ -5,7 +5,7 @@
 // - 리허설은 라벨이 없다: 그 자리에 "리허설 방송은 라벨을 출력하지 않아요."
 // - 출력·다시 출력·포장 라벨은 엔진 기록이 아니어서 5초 대기 없이 바로 보낸다(같은 요청 번호로 재시도 — 서버는 한 번만 만든다).
 import type { PackingLabelData, ProductLabelData } from '@livejjim/label'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { isApiError, newRequestId, withRetry, type ApiError } from '../api/client.ts'
 import type { JobView, LabelView } from '../api/print-types.ts'
 import type { Claim, Product } from '../api/types.ts'
@@ -98,6 +98,20 @@ export interface ProductLabelsProps {
 
 export function ProductLabels({ product, winners, labels, rehearsal, date, nameOf }: ProductLabelsProps) {
   const env = useLabelEnv()
+  const api = usePrintApi()
+  const store = api?.store ?? null
+  // 라벨 상태에 없는 1등 라벨 키 (자동 출력을 끈 방송에서 채팅·문자찜으로 생긴 1등 — 작업이 없어 print 알림이 없다): 한 번 다시 받는다 (AC-I1-31)
+  const missing = rehearsal
+    ? ''
+    : winners
+        .map((claim) => labelKeyOf(claim))
+        .filter((key): key is string => key !== null && !labels.has(key))
+        .join('\n')
+  useEffect(() => {
+    if (store === null || missing === '') return
+    store.ensureLabels(date, missing.split('\n'))
+    // labels: 처음 조회가 끝나 라벨 상태가 바뀌면 다시 본다 (저장소가 키마다 한 번만 다시 받는다)
+  }, [store, date, missing, labels])
   if (rehearsal) {
     return (
       <section className="stack-tight" aria-label="라벨">
