@@ -91,7 +91,11 @@ await adapter.print(image)                // fake.printed에 작업 바이트가
 - 단위 시험(packages/printer/test/marklife.test.ts): 쓰기 거절이 끊김 알림보다 먼저(결과·상태 DISCONNECTED, 다음 출력 NOT_CONNECTED, 다시 연결은 고르기 창 2번째), 조각을 다 쓴 뒤 조용히 끊긴 채 20초(DISCONNECTED), 작업 중간 TIMEOUT 뒤 다음 출력(새 시도·AA·OK), S2·P50·X2·P12·바우아토 × 조각 1·5·20·90바이트 × 빠진 바이트 1·3·9·40(앞 시도는 AA 없이 닫힘, 뒤 시도는 작업 바이트와 같음), 시작 바이트는 작업 안 다른 자리에서 늘 'no'.
 - SA-N1-003(부하로 인한 서버·음성 시간 초과): 서버 두 파일은 이 스프린트가 바꾸지 않은 곳이라 부하가 낮을 때 verify를 다시 돌려 판정한다. 음성 시간 시험은 내 영역(`packages/voice/**`)이라 D-902대로 나눴다 — 걸린 시간만 재는 세 시험(p99 50ms 둘, 300글자 500ms)은 `packages/voice/test/extract.perf.test.ts`(pnpm perf), 같은 재료의 정확성 단언(사전 3,000개, 빨리 거른 결과 = 모두 계산한 결과)은 `extract-filter.test.ts`(게이트 안)에 남겼다. 고정 시드 사전·문장은 `test/sample-dictionary.ts`가 함께 준다. 시험 내용·기준값은 그대로다(부하 속에서 성능 파일만 돌리면 첫 번은 실패, 다시 돌리면 통과 — 거짓 실패를 확인했다).
 
-### pnpm verify 결과 (`E2E_PORT_OFFSET=1000 pnpm verify`, 마지막 커밋 기준)
+### pnpm verify 결과 — 수정 라운드 1 (df0f71b, `E2E_PORT_OFFSET=1000 pnpm verify`)
+- 통과 6: typecheck(설정 15 · 파일 481) · lint(0/0) · test(파일 137 · 테스트 3339) · golden(589) · adversarial(파일 50 · 테스트 899 — TD-N1-001·002 포함) · e2e(파일 42 · 265).
+- 실패 1: coverage — 부하(load avg 30~44, 다른 트랙 동시 실행) 속에서 `packages/core` 속성 시험이 5초 제한에 걸렸다(코어 단위 설정은 D-902대로 30초인데 루트 `vitest.coverage.config.ts`에는 `testTimeout`이 없어 기본 5초). 이 스프린트는 코어·하네스 설정을 바꾸지 않았다. 부하가 내려간 뒤(load 17) `pnpm coverage`만 다시 돌리니 통과(테스트 1403 · 라인 100% · 분기 99.66%).
+
+### pnpm verify 결과 (첫 개발 라운드, 74277ad 기준)
 - 통과: lint · test(파일 137 · 테스트 3337) · golden(589) · e2e(파일 42 · 265) · coverage(라인 100% · 분기 99.66%).
 - 실패 2 — 모두 같은 뿌리(위 "스펙에 올린 것" 3):
   - typecheck: `tests/adversarial/p1/export-printer.test.ts(20,7) TS2739` — `Record<LabelSizeId, number>`에 세 크기만 적은 P1 적대 시험(보호 경로, test-domain 몫). 한 줄 고치면 통과한다.
