@@ -1,0 +1,195 @@
+{
+  "kind": "payment",
+  "about": "결제 확인 판단 (BILLING_RULES BL-6 3·4, N5 — D-N5-08). 입력 = 우리 결제 주문(금액 스냅샷·상태) + 결제 조회 API로 다시 읽은 결제(없으면 null) + 우리 상점 ID. 화면·웹훅이 보낸 값은 입력이 아니다. 위에서부터 처음 맞는 규칙: ① 주문이 PENDING·FAILED가 아니면 NONE ② 조회 결과 없음 WAIT ③ 상점이 다르면 REVIEW ④ PAID: 통화 KRW·금액 같음이면 GRANT(계좌이체면 증빙 요청), 아니면 CANCEL_MISMATCH ⑤ READY·PAY_PENDING·VIRTUAL_ACCOUNT_ISSUED는 WAIT ⑥ FAILED·CANCELLED는 FAIL ⑦ 그 밖(PARTIAL_CANCELLED·모르는 상태)은 REVIEW. out은 정확히 같아야 한다.",
+  "cases": [
+    {
+      "id": "G-BIL-101",
+      "title": "결제 완료·금액·통화·상점이 같으면 부여 — 카드는 증빙 요청 없음",
+      "refs": ["BIL-01", "BL-6", "D-N5-08"],
+      "order": { "amount": 30000, "state": "PENDING" },
+      "payment": { "status": "PAID", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "GRANT", "document": false }
+    },
+    {
+      "id": "G-BIL-102",
+      "title": "계좌이체 결제 완료는 부여 + 증빙 요청(팝빌 자리)",
+      "refs": ["BIL-01", "BL-6", "BL-8", "D-N5-11"],
+      "order": { "amount": 30000, "state": "PENDING" },
+      "payment": { "status": "PAID", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "TRANSFER" },
+      "storeId": "store-test",
+      "out": { "action": "GRANT", "document": true }
+    },
+    {
+      "id": "G-BIL-103",
+      "title": "결제 금액이 주문보다 적으면 부여하지 않고 전액 취소",
+      "refs": ["BL-6", "D-N5-08"],
+      "order": { "amount": 30000, "state": "PENDING" },
+      "payment": { "status": "PAID", "amount": 100, "currency": "KRW", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "CANCEL_MISMATCH", "document": false }
+    },
+    {
+      "id": "G-BIL-104",
+      "title": "결제 금액이 주문보다 많아도 부여하지 않고 전액 취소",
+      "refs": ["BL-6", "D-N5-08"],
+      "order": { "amount": 30000, "state": "PENDING" },
+      "payment": { "status": "PAID", "amount": 30001, "currency": "KRW", "storeId": "store-test", "method": "TRANSFER" },
+      "storeId": "store-test",
+      "out": { "action": "CANCEL_MISMATCH", "document": false }
+    },
+    {
+      "id": "G-BIL-105",
+      "title": "통화가 원(KRW)이 아니면 금액 숫자가 같아도 전액 취소",
+      "refs": ["BL-6", "D-N5-08"],
+      "order": { "amount": 30000, "state": "PENDING" },
+      "payment": { "status": "PAID", "amount": 30000, "currency": "USD", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "CANCEL_MISMATCH", "document": false }
+    },
+    {
+      "id": "G-BIL-106",
+      "title": "상점 ID가 다르면 우리 결제가 아니다 — 부여도 취소도 하지 않고 확인 필요",
+      "refs": ["BL-6", "D-N5-08"],
+      "order": { "amount": 30000, "state": "PENDING" },
+      "payment": { "status": "PAID", "amount": 30000, "currency": "KRW", "storeId": "store-other", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "REVIEW", "document": false }
+    },
+    {
+      "id": "G-BIL-107",
+      "title": "결제 창을 열었지만 아직 결제 전(READY)이면 기다린다",
+      "refs": ["BL-6"],
+      "order": { "amount": 30000, "state": "PENDING" },
+      "payment": { "status": "READY", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": null },
+      "storeId": "store-test",
+      "out": { "action": "WAIT", "document": false }
+    },
+    {
+      "id": "G-BIL-108",
+      "title": "결제 조회에 그 결제가 없으면(창을 열기 전) 기다린다",
+      "refs": ["BL-6"],
+      "order": { "amount": 30000, "state": "PENDING" },
+      "payment": null,
+      "storeId": "store-test",
+      "out": { "action": "WAIT", "document": false }
+    },
+    {
+      "id": "G-BIL-109",
+      "title": "결제 실패는 실패로 적는다",
+      "refs": ["BL-6"],
+      "order": { "amount": 30000, "state": "PENDING" },
+      "payment": { "status": "FAILED", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "FAIL", "document": false }
+    },
+    {
+      "id": "G-BIL-110",
+      "title": "부여 전에 취소된 결제는 실패로 적는다",
+      "refs": ["BL-6"],
+      "order": { "amount": 30000, "state": "PENDING" },
+      "payment": { "status": "CANCELLED", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "FAIL", "document": false }
+    },
+    {
+      "id": "G-BIL-111",
+      "title": "부분 취소된 결제는 자동으로 정하지 않는다 — 확인 필요",
+      "refs": ["BL-6"],
+      "order": { "amount": 30000, "state": "PENDING" },
+      "payment": { "status": "PARTIAL_CANCELLED", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "REVIEW", "document": false }
+    },
+    {
+      "id": "G-BIL-112",
+      "title": "이미 부여한 주문은 다시 확인해도 아무 일 없다(이용권은 결제마다 하나)",
+      "refs": ["BL-6", "BL-INV-1"],
+      "order": { "amount": 30000, "state": "GRANTED" },
+      "payment": { "status": "PAID", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "TRANSFER" },
+      "storeId": "store-test",
+      "out": { "action": "NONE", "document": false }
+    },
+    {
+      "id": "G-BIL-113",
+      "title": "실패로 적었던 주문도 나중에 결제 완료로 바뀌면 부여한다(돈이 나갔으면 이용권을 준다)",
+      "refs": ["BL-6", "D-N5-08"],
+      "order": { "amount": 30000, "state": "FAILED" },
+      "payment": { "status": "PAID", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "GRANT", "document": false }
+    },
+    {
+      "id": "G-BIL-114",
+      "title": "가상계좌 발급 상태(제공하지 않는 수단이지만)는 입금될 때까지 기다린다",
+      "refs": ["BL-6", "D-N5-08"],
+      "order": { "amount": 30000, "state": "PENDING" },
+      "payment": { "status": "VIRTUAL_ACCOUNT_ISSUED", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "VIRTUAL_ACCOUNT" },
+      "storeId": "store-test",
+      "out": { "action": "WAIT", "document": false }
+    },
+    {
+      "id": "G-BIL-115",
+      "title": "결제 승인 대기(PAY_PENDING)는 기다린다",
+      "refs": ["BL-6"],
+      "order": { "amount": 30000, "state": "PENDING" },
+      "payment": { "status": "PAY_PENDING", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "TRANSFER" },
+      "storeId": "store-test",
+      "out": { "action": "WAIT", "document": false }
+    },
+    {
+      "id": "G-BIL-116",
+      "title": "카드·계좌이체가 아닌 수단(간편결제)으로 결제 완료됐어도 금액이 같으면 부여 — 증빙 요청은 계좌이체만",
+      "refs": ["BL-6", "BL-8", "D-N5-08", "D-N5-11"],
+      "order": { "amount": 5000, "state": "PENDING" },
+      "payment": { "status": "PAID", "amount": 5000, "currency": "KRW", "storeId": "store-test", "method": "EASY_PAY" },
+      "storeId": "store-test",
+      "out": { "action": "GRANT", "document": false }
+    },
+    {
+      "id": "G-BIL-117",
+      "title": "환불한 주문은 다시 확인해도 아무 일 없다",
+      "refs": ["BL-6", "BL-7"],
+      "order": { "amount": 30000, "state": "REFUNDED" },
+      "payment": { "status": "CANCELLED", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "NONE", "document": false }
+    },
+    {
+      "id": "G-BIL-118",
+      "title": "모르는 결제 상태는 자동으로 정하지 않는다 — 확인 필요",
+      "refs": ["BL-6"],
+      "order": { "amount": 30000, "state": "PENDING" },
+      "payment": { "status": "SOMETHING_NEW", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "REVIEW", "document": false }
+    },
+    {
+      "id": "G-BIL-119",
+      "title": "확인 필요로 넘긴 주문은 자동 확인이 다시 건드리지 않는다(운영자가 정한다)",
+      "refs": ["BL-6"],
+      "order": { "amount": 30000, "state": "NEEDS_REVIEW" },
+      "payment": { "status": "PAID", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "NONE", "document": false }
+    },
+    {
+      "id": "G-BIL-120",
+      "title": "금액이 달라 취소한 주문은 다시 확인해도 아무 일 없다",
+      "refs": ["BL-6"],
+      "order": { "amount": 30000, "state": "MISMATCH_CANCELLED" },
+      "payment": { "status": "CANCELLED", "amount": 100, "currency": "KRW", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "NONE", "document": false }
+    },
+    {
+      "id": "G-BIL-121",
+      "title": "실패로 적었던 주문의 결제가 금액이 다른 채 완료되면 전액 취소",
+      "refs": ["BL-6", "D-N5-08"],
+      "order": { "amount": 5000, "state": "FAILED" },
+      "payment": { "status": "PAID", "amount": 4900, "currency": "KRW", "storeId": "store-test", "method": "TRANSFER" },
+      "storeId": "store-test",
+      "out": { "action": "CANCEL_MISMATCH", "document": false }
+    }
+  ]
+}

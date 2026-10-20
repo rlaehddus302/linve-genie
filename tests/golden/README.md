@@ -11,9 +11,10 @@
 | `parser/chat.yaml` | 채팅 메시지 → 주문/취소/언급 (R-3) |
 | `parser/amount.yaml` | 한글·숫자 금액 → 원 (빠른 입력·음성 공용), 한글 수사 → 정수 |
 | `parser/quick-input.yaml` | 빠른 입력 한 줄 → 번호·품종·가격 |
-| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13). `08-time.yaml`은 시각 해석(D-022, D-023), `09-host-and-product.yaml`은 방송자 조치·상품 명령 세부(S02, D-039~D-043·D-049). S03 보강: `10-sms.yaml` 문자찜 구매자(D-051), `11-received-time.yaml` 실제 시각순·역전·충돌·메시지 변환(D-052~D-054), `12-product-edit.yaml` 상품 수정·번호 변경(D-055·D-056), `13-merge-settlement.yaml` 구매자 합치기·정산(D-057·D-058). S03b 보강: `14-core-cleanup.yaml` 전화번호 키·문자찜 재전송·메시지 변환·시청자 취소·충돌 중 배정·확정버전 순서·충돌이 풀릴 때 대기 넘침(D-061~D-068). S04 보강: `15-broadcast.yaml` 방송 시작·종료와 방송마다의 설정 스냅샷(D-069·D-070), `16-s04-rules.yaml` 취소 메시지 변환 금지·대기 한도 0의 승계 묻기(D-076·D-077), S04 마무리 G-ENG-166 전화번호가 아닌 숫자는 받는다(D-079·D-080). S05 보강: `17-s05-console.yaml` 라이브 콘솔이 기대는 동작 — 등록 되돌리기(판매 종료)·5초 뒤 보낸 방송자 조치(D-083, 새 규칙 없음). S06 보강: `18-s06-sms-buyers-settlement.yaml` 문자찜 입력·구매자·정산 화면이 기대는 동작 — 수신 시각 기본값(초까지)·지정 구매자·끝난 방송의 늦은 문자찜·합치기가 막히는 경우와 중복·입금 바로잡기·떼어 내기가 막히는 경우·배송비 예외와 조정(D-089~D-092, 새 규칙 없음). S06b 보강: `19-s06b-merge-preview.yaml` 합치기 미리 보기(코어 `previewMerge`, 새 검사 키 `mergePreviews`)가 R-11과 같은 답 — 막히는 다섯 경우·옮길 찜·합친 뒤 합계·중복 정리 순서(D-100), `20-s06b-sms-buyer-payment.yaml` 뒤 4자리만 같은 두 문자 구매자에서 문자찜이 정한 구매자(D-099)·입금이 아닌 기록이 바꾸는 입금 상태(D-101) (새 규칙 없음). I1 보강: `21-i1-labels.yaml` 라벨·출력 화면 통합이 기대는 동작 — 라벨 키 = (찜, 확정버전)·출력 보고 잠금·품종·가격 변경은 효과 없음·재고 2의 라벨 키·방송마다의 자동 출력·포장 라벨 효과 없음·합치기는 라벨을 폐기하지 않음(D-I1-02·D-I1-04, 새 규칙 없음) |
+| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13). `08-time.yaml`은 시각 해석(D-022, D-023), `09-host-and-product.yaml`은 방송자 조치·상품 명령 세부(S02, D-039~D-043·D-049). S03 보강: `10-sms.yaml` 문자찜 구매자(D-051), `11-received-time.yaml` 실제 시각순·역전·충돌·메시지 변환(D-052~D-054), `12-product-edit.yaml` 상품 수정·번호 변경(D-055·D-056), `13-merge-settlement.yaml` 구매자 합치기·정산(D-057·D-058). S03b 보강: `14-core-cleanup.yaml` 전화번호 키·문자찜 재전송·메시지 변환·시청자 취소·충돌 중 배정·확정버전 순서·충돌이 풀릴 때 대기 넘침(D-061~D-068). S04 보강: `15-broadcast.yaml` 방송 시작·종료와 방송마다의 설정 스냅샷(D-069·D-070), `16-s04-rules.yaml` 취소 메시지 변환 금지·대기 한도 0의 승계 묻기(D-076·D-077), S04 마무리 G-ENG-166 전화번호가 아닌 숫자는 받는다(D-079·D-080). S05 보강: `17-s05-console.yaml` 라이브 콘솔이 기대는 동작 — 등록 되돌리기(판매 종료)·5초 뒤 보낸 방송자 조치(D-083, 새 규칙 없음). S06 보강: `18-s06-sms-buyers-settlement.yaml` 문자찜 입력·구매자·정산 화면이 기대는 동작 — 수신 시각 기본값(초까지)·지정 구매자·끝난 방송의 늦은 문자찜·합치기가 막히는 경우와 중복·입금 바로잡기·떼어 내기가 막히는 경우·배송비 예외와 조정(D-089~D-092, 새 규칙 없음). S06b 보강: `19-s06b-merge-preview.yaml` 합치기 미리 보기(코어 `previewMerge`, 새 검사 키 `mergePreviews`)가 R-11과 같은 답 — 막히는 다섯 경우·옮길 찜·합친 뒤 합계·중복 정리 순서(D-100), `20-s06b-sms-buyer-payment.yaml` 뒤 4자리만 같은 두 문자 구매자에서 문자찜이 정한 구매자(D-099)·입금이 아닌 기록이 바꾸는 입금 상태(D-101) (새 규칙 없음). I1 보강: `21-i1-labels.yaml` 라벨·출력 화면 통합이 기대는 동작 — 라벨 키 = (찜, 확정버전)·출력 보고 잠금·품종·가격 변경은 효과 없음·재고 2의 라벨 키·방송마다의 자동 출력·포장 라벨 효과 없음·합치기는 라벨을 폐기하지 않음(D-I1-02·D-I1-04, 새 규칙 없음). N5 보강: `22-n5-billing.yaml` 요금(주문 건권)이 기대는 확정 횟수 — 승계·취소로 줄지 않음·재고 2·등록만·판매 종료·번호 변경·같은 날 다른 방송·끝낸 방송의 늦은 문자찜·합치기(새 검사 키 `products.<p>.confirmVersion`, D-N5-05·D-N5-14, 새 규칙 없음) |
 | `parser/voice-extract.yaml` | 음성 문장 하나 → 번호·품종·가격·신뢰도 (R-17, P2 — D-202·D-203·D-209, I4 보강 — 끊어 말한 번호 D-I4-01). 추출기는 `packages/voice`에 있고 이 러너가 부른다 |
 | `known-unimplemented.yaml` | **예약 파일.** 알려진 미구현 허용 목록 (D-020). 골든 시나리오가 아니다 |
+| `billing/*.json` | 요금 — 상태(정액제 기간 사슬·정량 잔량·새 실제 방송의 이용 방식·7일 환불 가능)·결제 확인 판단·부가세 나누기·사업자등록번호 읽기 (BILLING_RULES BL-2·BL-3·BL-4·BL-6·BL-7·BL-8, N5, D-N5-01). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "요금 골든" |
 | `label/*.json` | 라벨 글·쪽 나누기·크기 (LABEL_RULES L-1~L-5, P1, D-P1-01). **JSON이라 코어 골든 러너는 읽지 않는다**(`*.yaml`만 읽는다). `packages/label` 단위 테스트가 읽는다 — 아래 "라벨 골든" |
 
 ## 러너가 읽는 범위 (D-020, D-021)
@@ -90,7 +91,7 @@ expect:
   pending: { b1/16: [UC_D] }  # 보류 중인 찜
 ```
 
-- 시나리오 키: `id`(`G-ENG-` + 세 자리, 전체에서 유일), `title`, `refs`(1개 이상), `broadcasts`(0개 이상, 각 `{ id, date: YYYY-MM-DD, title }` — S04부터 빈 목록 `[]`도 된다: 서버처럼 빈 엔진에서 시작해 `broadcast.start`로 방송을 선언한다), `events`, `expect`, 선택 `settings`.
+- 시나리오 키: `id`(`G-ENG-` + 세 자리, 또는 병렬 트랙 스프린트가 쓰는 `G-ENG-<스프린트 ID>-<두 자리>` — 스프린트 ID는 영문 대문자로 시작하는 영문·숫자 1~8자, 예: `G-ENG-N5-01`(N5, D-N5-14). 전체에서 유일), `title`, `refs`(1개 이상), `broadcasts`(0개 이상, 각 `{ id, date: YYYY-MM-DD, title }` — S04부터 빈 목록 `[]`도 된다: 서버처럼 빈 엔진에서 시작해 `broadcast.start`로 방송을 선언한다), `events`, `expect`, 선택 `settings`.
 - `settings`는 DOMAIN_RULES 기본값 위에 덮어쓰며, `broadcasts` 목록의 방송(시작 때 선언한 방송)에 시작 시점 스냅샷으로 적용된다. `broadcast.start`로 선언한 방송은 그 이벤트의 `settings`(DOMAIN_RULES 기본값 위 — 시나리오 `settings`와 상관없다)를 쓴다 (S04, D-070).
 
 **추가 검사 키** (`expect` 안, 필요할 때만)
@@ -108,6 +109,7 @@ expect:
 | `effectCounts` | 효과 종류별 정확한 개수 `{ POST_THANKS: 2 }` |
 | `cancelRequests` | 대기 중인 시청자 취소 요청 `[{ product, buyer }]` |
 | `settlements.<k>.adjustments` / `refundDue` | 조정 합계 / 환불 필요 금액 |
+| `products.<p>.confirmVersion` | 지금 그 번호를 가진 상품의 지금까지 확정 횟수(0 이상 정수 — 코어 `ProductInfo.confirmVersion`, R-13 확정버전의 마지막 값). 0 = 1등이 한 번도 나오지 않음 (N5, D-N5-14 — 요금의 주문 건 세기 재료, BILLING_RULES BL-5) |
 | `pendingEffects` | 아직 실행 대상(취소·SKIPPED 아님)인 효과의 정확한 목록. `confirmVersion` = 그 상품의 몇 번째 확정인지(1부터) |
 | `broadcasts.<b>` | 방송 하나의 `date`·`title`·`ended`(끝났는지) (S04, D-070) |
 | `mergePreviews` | 그 시점 상태에서 코어 순수 조회 `previewMerge(from, into)`를 부른 결과 목록 — 합치기 미리 보기(R-11 "구매자 합치기", S06b, D-100). 항목마다 `from`·`into`(필수)와 선택 `blocked`·`bothConfirmed`·`moving`·`after`·`duplicates` |
@@ -197,6 +199,7 @@ expect:
 | └ `conflict` | 충돌 표시 여부 |
 | └ `exists` | 그 번호의 상품 기록이 있는지(`CLOSED`도 있는 것으로 본다) |
 | └ `price` / `priceHistory` | 현재 가격 / 가격 변경 이력 `[{ from, to }]` 시간순, 정확히 같음 |
+| └ `confirmVersion` | 0 이상 정수, 정확히 같음. 확정될 때마다 1씩 늘고(승계·역전·교체·충돌 바꾸기·재고 2 이상의 다음 확정 포함) 취소·무효·대기 없음으로 1등이 없어져도 줄지 않는다. 번호를 바꾸면 상품과 함께 옮기고, 옛 번호에 새로 등록한 상품은 0부터다(N5, D-N5-14) |
 | `buyers.<키>` | 키를 지금의 구매자로 풀어서(합치기·전화번호 연결 반영) 비교 |
 | └ `items` | 확정 찜의 상품 키 집합. 순서 무관, 정확히 같음 |
 | └ `subtotal` | 확정 찜 가격 스냅샷의 합 |
@@ -244,3 +247,22 @@ expect:
 
 - 기본 템플릿의 값: 크기 50×30, `shopName` 빈 글, `priceStyle` `THOUSAND`, 포장 `perPage` 10, 모든 항목 켬. `visible`에 없는 항목은 기본(켬) 그대로다.
 - 항목 ID: 상품 `shop`·`number`·`price`·`date`·`name`·`buyer`, 포장 `shop`·`date`·`buyer`·`page`·`broadcast`·`count`·`subtotal`·`numbers` (L-3·L-4 표).
+
+## 요금 골든 (`billing/*.json`, N5 — D-N5-01)
+
+요금(BIL-01·BIL-02·SYS-03)의 순수 함수 넷을 고정한다. 규칙 문장은 `docs/spec/BILLING_RULES.md`다(정액제 기간 사슬 BL-2, 정량 잔량 BL-3, 새 실제 방송의 이용 방식 BL-4, 결제 확인 BL-6, 7일 환불 BL-7, 사업자등록번호·부가세 BL-8). 판정 엔진이 아니라 서버의 규칙이라 엔진 골든(YAML)과 따로 둔다. 엔진이 요금을 위해 내놓는 값(확정 횟수)은 엔진 골든 `22-n5-billing.yaml`이 고정한다.
+
+- **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. 서버(`apps/server`)의 단위 시험이 이 폴더의 모든 `*.json`을 읽어 서버의 순수 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 그 시험은 파일 수와 사례 수 합계를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다. 미구현을 허용하는 장치가 없다(`known-unimplemented.yaml`의 대상이 아니다).
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `status`·`payment`·`vat`·`bizno`. 모르는 키·모르는 `kind`·아래 표 밖의 열거값은 시험 실패(읽기 오류)다. 보이지 않는 글자는 `\uXXXX`로 적는다.
+- **사례 공통 키**: `id`(`G-BIL-` + 세 자리, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `out`.
+- 시각은 오프셋을 적은 ISO 8601(`2026-10-20T20:31:00+09:00`)이고, `out`의 시각은 KST 오프셋 `+09:00`·초까지(`YYYY-MM-DDTHH:MM:SS+09:00`)로 적는다. 결과는 실행 환경의 시간대와 상관없어야 한다(서버 시험도 `TZ`를 바꿔 돌린다). 30일 = 30×24시간, 창 = 24시간, 7일 = 7×24시간이고 끝 시각은 포함하지 않는다(그 순간부터 끝남).
+
+| `kind` | 사례 키 | `out` |
+|---|---|---|
+| `status` | `grants`(이용권 `{ id, kind, quantity?, source, at, revoked? }` — `kind` ∈ `FLAT_30D`·`DAYS`·`ORDERS`·`LABELS`, `quantity`는 정량(`DAYS`·`ORDERS`·`LABELS`)에만 1 이상 정수(정액엔 없음), `source` ∈ `PAYMENT`·`OPERATOR`, `at` = 부여 시각, `revoked` = 환불로 회수됨(기본 `false`)), `usage`(쓴 기록 `{ kind, at, count? }` — `kind` ∈ `DAYS`·`ORDERS`·`LABELS`, `count`는 `ORDERS`·`LABELS`에만 1 이상 정수(그 시각에 그만큼, 기본 1), `DAYS`는 언제나 1 = 그 시각에 연 24시간 창), `flatStarts`(정액 방식으로 시작한 실제 방송의 시작 시각 목록), `now` — 넷 다 필수(목록은 비어도 된다) | 적은 키만 비교한다(하나 이상, 아래 다섯 중). `flat` = `{ "active", "until", "chain": [ { "grant", "from", "until" } ] }`(사슬은 회수되지 않은 정액 이용권을 부여 시각·ID 순으로, `until`은 이용 중일 때 지금 이용권부터 이어진 마지막 끝 아니면 `null`) · `balances` = `{ "DAYS", "ORDERS", "LABELS" }`(음수 가능) · `window` = 지금 열린 방송 일 창 `{ "from", "until" }` 또는 `null` · `refundable` = 지금 7일 환불할 수 있는 이용권 ID(부여 시각·ID 순) · `start` = `{ "allowed": true, "mode": "FLAT" \| "DAY" \| "ORDERS", "useDay" }` 또는 `{ "allowed": false, "reason": "NO_PASS" }` — 각각 정확히 같음 |
+| `payment` | `order`(`{ amount, state }` — `amount` = 주문의 금액 스냅샷(원), `state` ∈ `PENDING`·`FAILED`·`GRANTED`·`MISMATCH_CANCELLED`·`NEEDS_REVIEW`·`REFUNDED`), `payment`(결제 조회 API로 다시 읽은 결제 `{ status, amount, currency, storeId, method }` 또는 `null` = 그 결제가 없음. `status`는 포트원 V2 결제 상태 글자 그대로 — 모르는 값도 입력으로 받는다, `method` ∈ `CARD`·`TRANSFER`·`EASY_PAY`·`VIRTUAL_ACCOUNT`·그 밖 글자·`null`), `storeId`(우리 상점 ID) | `{ "action", "document" }` 정확히 같음. `action` ∈ `GRANT`·`WAIT`·`FAIL`·`CANCEL_MISMATCH`·`REVIEW`·`NONE`, `document` = 증빙 요청을 만드는지(`GRANT`이고 계좌이체일 때만 `true`) |
+| `vat` | `in`(결제 금액, 1 이상 정수 원) | `{ "supply", "vat" }` 정확히 같음 |
+| `bizno` | `in`(판매자가 적은 글 그대로) | `{ "ok": "XXX-XX-XXXXX" }` 또는 `{ "error": "FORMAT" \| "CHECKSUM" }` 정확히 같음 |
+
+- `status`의 함수는 원장만 본다. 방송이 리허설인지, 요금 기능이 켜졌는지, 방송 중인지는 서버가 함수를 부르기 전·후에 하는 일이라 이 골든이 아니라 서버 시험·E2E가 본다(BL-0 6·7, BL-4).
+- `start.useDay = true`는 "시작하면서 방송 일 하나를 쓰고 지금부터 24시간 창을 연다"는 뜻이다. 실제로 쓰는 일(쓴 기록·방송 시작 기록을 한 트랜잭션에)은 서버가 한다.
