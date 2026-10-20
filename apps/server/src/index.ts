@@ -4,6 +4,7 @@
 // S06: 상품 ID 조치 기록(productOwners), 범위별 보기 캐시(StateCache·newViewCaches), 생성기 판매자당 하나(GENERATOR_RECORDS_MAX), E2E 127.0.0.1(E2E_HOST).
 // S06b: 합치기 미리 보기 조회(MergePreviewView), 문자찜 응답 buyer, 보기 캐시 상한(ViewCacheBudget — 판매자마다 4·서버 전체 32·10분).
 // I1: 서버 출력 기록(PrintService·createAutoJobs·autoLabelEffects), 라벨 데이터(L-9), 운영 설정 조립(productionServerOptions — 시험 모드 신호 없음).
+// N2: 플랫폼 공통 연결(platform·live-links), 인스타그램 묶음(설정·메타 어댑터·가짜 메타 서버·DM 실행기·글 정리).
 export { createApp, defaultLogError, type AppOptions, type ErrorLogger } from './app.ts'
 export { DEFAULT_PORT, readAppOrigin, readDatabaseSetting, readPort, type DatabaseSetting, type OriginSetting, type PortSetting } from './config.ts'
 export {
@@ -163,3 +164,33 @@ export {
 } from './print-store.ts'
 export { buildClaimIndex, contentKeyOf, currentLabelBuyer, isWinnerOf, packingLabelData, productLabelBuyer, productLabelData, type ClaimIndex } from './label-data.ts'
 export { productionServerOptions, type ProductionOptions } from './production.ts'
+// N2 플랫폼 공통 연결·인스타그램
+export {
+  INSTAGRAM_PREFIX,
+  PLATFORM_KEY_MAX,
+  PLATFORM_MESSAGES,
+  PLATFORMS,
+  SMS_PREFIX,
+  TIKTOK_PREFIX,
+  isPlatform,
+  platformCapabilities,
+  platformOfKey,
+  prefixedKey,
+  type LiveItem,
+  type LiveSource,
+  type Platform,
+  type PlatformCapability,
+  type ThanksMode,
+  type ThanksSendResult,
+  type ThanksSender,
+} from './platform.ts'
+export { COLLECTION_MESSAGES, LINK_MESSAGES, LiveLinks, type CollectionView, type LinkOutcome, type LinkView } from './live-links.ts'
+export { DEFAULT_SCOPES, DEFAULT_TIMEOUTS, META_ENDPOINTS, instagramSettings, readInstagramConfig, type InstagramEndpoints, type InstagramLogin, type InstagramSettings, type InstagramTimeouts } from './instagram/config.ts'
+export { CALLBACK_MESSAGES, InstagramConnections, type CallbackCode, type ConnectionView } from './instagram/connection.ts'
+export { DM_DEADLINE_MS, DM_REASON_MESSAGES, MAX_RETRIES, RESEND_MESSAGES, RETRY_DELAYS_S, SEND_LEASE_MS, InstagramDms, type DmReason, type DmRowView, type DmStatus } from './instagram/dm.ts'
+export { FakeMeta, type FakeAccount, type FakeAccountType, type FakeChange, type FakeDm, type FakeEntry, type FakeFault, type FakeLoginScenario, type FakeOp, type WebhookTarget } from './instagram/fake-meta.ts'
+export { ERROR_TABLE, MetaClient, classifyMetaError, type MetaFailure } from './instagram/meta.ts'
+export { NOTICE_MESSAGES, type LiveTimer } from './instagram/notices.ts'
+export { DM_LINE_MAX, DM_LINES_MAX, FALLBACK_NICK, USERNAME_RE, dmLine, dmText, instagramNick } from './instagram/text.ts'
+export { LATE_AFTER_MS, WEBHOOK_BODY_LIMIT } from './instagram/webhook.ts'
+export type { InstagramModule } from './instagram/index.ts'
