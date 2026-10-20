@@ -227,6 +227,11 @@ LIVEJJIM_PGLITE_DIR=… (또는 DATABASE_URL=…) LIVEJJIM_BACKUP_DIR=… \
 | `i2-backup.test.ts` 형식 단언 | `version: 1`, `buildBackup` 객체 | `version: 2`, `createBackupBytes` 바이트를 푼 객체(같은 칸·같은 차례) | 서버가 실제로 쓰는 길을 시험 |
 | `i2-isolation.test.ts` 복구 명령 | 원래 판매자·대상 판매자가 같은 DB | 원래 판매자는 다른 DB, 대상 DB에 판매자 둘 — 같은 단언 + 둘째 판매자로 같은 파일 → 방송 겹침 거절(종료 코드 1) | RA-I2-002 |
 
+### 검증 (수정 라운드 1, `E2E_PORT_OFFSET=800 pnpm verify`, 커밋 a6bfc06, 같은 기계에서 다른 작업 폴더 검증이 함께 돌아 부하 평균 약 40)
+typecheck(TS 파일 439)·lint·golden(파일 26 · 파서 469 · 엔진 125 · 통과 594)·adversarial(파일 39 · 804 — TD-I2-001 포함 통과)·coverage 통과.
+- test 실패 3: `packages/voice/test/perf.test.ts` p99 50ms, `packages/core/test/unit/engine-timing.test.ts` 둘 — 시간 비교 시험(부하). 서버 시험(server·server-i2 47파일 481개)은 모두 통과.
+- e2e 200 통과 · 6 실패: TE-I2-001(웹 포장 라벨 다시 받기), `s06/attacks-r1`:172 둘·`s06/sms`:191·`s06b/names`:50(받은 시각 00:00:0x — KST 정오 뒤), `i2/receipt.spec.ts`:136(첫 그림 응답과 내려받은 그림 비교 — 그 파일만 4번 되풀이하면 28/28 통과. 확인서 만든 시각이 분까지 찍혀 두 번 받은 그림이 분 경계를 넘으면 바이트가 달라지는 시험 경쟁으로 본다). `s05/fill` p99 183ms 통과.
+
 ### 새 시험
 - `i2-import.test.ts`: SA-I2-001 200,000글자에 가까운 500줄(이모지 품종) 등록·`.xlsx` 200,000글자 상한, RA-I2-004 압축 폭탄·큰 시트·시트 수·잘린 zip·넓은 행(XFD)·1만 행.
 - `i2-restore-contract.test.ts`: RA-I2-001·002 계약(위).
