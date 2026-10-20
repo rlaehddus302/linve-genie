@@ -186,8 +186,9 @@ export interface RunOptions {
 export interface ActionRunner {
   readonly busy: boolean
   readonly error: ApiError | null
-  /** 보낸다. 성공하면 응답, 아니면 null (오류는 error에). 같은 runner에서 다시 보내면(실패 뒤) 같은 요청 번호 */
+  /** 보낸다. 성공하면 응답, 아니면 null (오류는 error에). 같은 runner에서 다시 보내면(다시 보내도 되는 실패 뒤) 같은 요청 번호 */
   run<T>(path: string, body?: Readonly<Record<string, unknown>>, options?: RunOptions): Promise<T | null>
+  /** 오류를 지우고 요청 번호를 새로 (보낼 내용이 바뀌었을 때) */
   clear(): void
 }
 
@@ -203,7 +204,11 @@ export function useAction(): ActionRunner {
   return {
     busy,
     error,
-    clear: () => setError(null),
+    clear: () => {
+      // 처음부터 다시 (보낼 내용이 바뀌었다 — 실패한 요청의 요청 번호를 이어 쓰지 않는다)
+      setError(null)
+      if (!busyRef.current) requestId.current = null
+    },
     run: async <T,>(path: string, body: Readonly<Record<string, unknown>> = {}, options: RunOptions = {}): Promise<T | null> => {
       if (busyRef.current) return null
       busyRef.current = true
