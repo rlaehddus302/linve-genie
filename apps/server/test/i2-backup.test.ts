@@ -1,6 +1,7 @@
 // AC-I2-60 백업 파일 형식, AC-I2-61 매일 자동 백업·보관·상태, AC-I2-62 복구·가져오기, AC-I2-63 백업 → 복구 리허설, AC-I2-64 전체 내려받기
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { monitorEventLoopDelay } from 'node:perf_hooks'
 import { join } from 'node:path'
 import { gunzipSync, gzipSync } from 'node:zlib'
 import ExcelJS from 'exceljs'
@@ -355,7 +356,15 @@ describe('RA-I2-005 판매자 전체 역사를 글 하나로 만들지 않는다
     // 가장 긴 조각 = 이벤트 한 묶음(BACKUP_PAGE건) — 기록 전체 길이와 상관없다
     expect(longest).toBeLessThan(BACKUP_PAGE * 1200)
     expect(longest * 4).toBeLessThan(total)
+    // 만드는 동안 이벤트 루프가 오래 멈추지 않는다 — 이벤트 묶음마다 차례를 넘기고 gzip은 스레드 풀에서 (RA-I2-003)
+    const delay = monitorEventLoopDelay({ resolution: 5 })
+    delay.enable()
+    const startedAt = performance.now()
     const bytes = await createBackupBytes(world.database.db, seller.sellerId, world.clock.now())
+    const tookMs = performance.now() - startedAt
+    delay.disable()
+    const maxLagMs = delay.max / 1e6
+    expect(maxLagMs, `가장 긴 멈춤 ${maxLagMs.toFixed(0)}ms · 전체 ${tookMs.toFixed(0)}ms`).toBeLessThan(Math.max(500, tookMs / 3))
     const parse = vi.spyOn(JSON, 'parse')
     let checked: Awaited<ReturnType<typeof checkBackupBytes>>
     try {
