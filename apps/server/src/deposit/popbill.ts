@@ -10,7 +10,7 @@ import { DAY_MS, isRealDate, kstDateOf, kstToMs } from './calendar.ts'
 import { DEPOSIT_AMOUNT_MAX, cleanDepositName } from './paste.ts'
 
 /** 원천 오류 종류 (기술 상세 없이 문장 하나로 바꾼다) */
-export type SourceErrorKind = 'AUTH' | 'NO_KEY' | 'FORBIDDEN' | 'NOT_REGISTERED' | 'NETWORK' | 'TIMEOUT' | 'JOB_FAILED' | 'BAD_RESPONSE' | 'CORP_TAKEN' | 'CORP_MISMATCH'
+export type SourceErrorKind = 'AUTH' | 'NO_KEY' | 'FORBIDDEN' | 'NOT_REGISTERED' | 'NETWORK' | 'TIMEOUT' | 'JOB_FAILED' | 'BAD_RESPONSE' | 'CORP_TAKEN' | 'CORP_MISMATCH' | 'CORP_UNBOUND'
 
 /** 원천 오류 (메시지에 값을 넣지 않는다 — 종류만) */
 export class SourceError extends Error {
@@ -35,6 +35,8 @@ export const SOURCE_MESSAGES: Readonly<Record<SourceErrorKind | 'MALFORMED', str
   // 사업자번호가 이 판매자에게 묶인 것이 아니다 (RA-N3-001) — 다른 계정이 쓰는지는 밝히지 않는 문장
   CORP_TAKEN: '이 사업자번호는 이 계정에서 쓸 수 없어요. 사업자번호를 확인해 주세요.',
   CORP_MISMATCH: '이 계정에 연결한 사업자번호와 달라요. 사업자번호를 확인해 주세요.',
+  // 운영에서는 운영자가 묶은 사업자번호만 쓴다 (TD-N3-004, D-N3-AUTO) — 이 계정에 묶인 번호가 아직 없다
+  CORP_UNBOUND: '이 사업자번호는 아직 연결 준비가 안 됐어요. 운영자에게 연결을 요청해 주세요.',
   MALFORMED: '읽지 못한 내역이 있어요',
 }
 

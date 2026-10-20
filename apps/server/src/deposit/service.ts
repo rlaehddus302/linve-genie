@@ -10,7 +10,7 @@
 // - 로그에는 코드·개수·오류 종류만 남긴다(입금자명·금액·붙여넣은 글·계좌번호·사업자번호·팝빌 응답 없음, AC-N3-16).
 import { randomUUID } from 'node:crypto'
 import { currentBuyerOf, getSettlement, isValidDate } from '@livejjim/core'
-import { hasControlChar } from '../api-fields.ts'
+import { hasUnsafeText } from '../api-fields.ts'
 import type { Db } from '../db/database.ts'
 import type { ErrorCode, FieldProblem } from '../errors.ts'
 import { realTimer, type GeneratorTimer } from '../generator.ts'
@@ -435,7 +435,7 @@ export class DepositService {
     if (kind === 'POPBILL' && !this.popbillReady) return fail(409, 'POPBILL_NOT_READY', DEPOSIT_MESSAGES.popbillNotReady)
     const problems: FieldProblem[] = []
     const label = typeof input.label === 'string' ? input.label.trim() : input.label === undefined && kind === 'FAKE' ? KIND_LABEL.FAKE : null
-    if (label === null || label === '' || charCount(label) > SOURCE_LABEL_MAX || hasControlChar(label)) problems.push({ field: 'label', message: `표시 이름은 1~${String(SOURCE_LABEL_MAX)}자로 적어 주세요.` })
+    if (label === null || label === '' || charCount(label) > SOURCE_LABEL_MAX || hasUnsafeText(label)) problems.push({ field: 'label', message: `표시 이름은 1~${String(SOURCE_LABEL_MAX)}자로 적어 주세요.` })
     const interval = input.intervalMin === undefined ? INTERVAL_DEFAULT : input.intervalMin
     if (typeof interval !== 'number' || !Number.isInteger(interval) || interval < INTERVAL_MIN || interval > INTERVAL_MAX) problems.push({ field: 'intervalMin', message: '받아 오기 주기는 1~5분 중에서 골라 주세요.' })
     let account: { corpNum: string; bank: string; accountNumber: string } | null = null
@@ -451,8 +451,8 @@ export class DepositService {
       for (const field of ['corpNum', 'bank', 'accountNumber'] as const) if (input[field] !== undefined) problems.push({ field, message: '시험용 원천에는 계좌를 적지 않아요.' })
     }
     if (problems.length > 0) return invalid(problems)
-    // 사업자번호는 판매자에게 묶인 것만 (RA-N3-001): 이 계정에 묶인 다른 번호거나 다른 계정에 묶인 번호면 만들지 않는다.
-    // 묶기는 팝빌이 그 번호로 처음 답한 때(받아 오기·계좌 관리 주소 성공) 한다 — 잘못 적은 번호가 묶여 버리지 않게
+    // 사업자번호는 판매자에게 묶인 것만 (RA-N3-001, TD-N3-004): 운영에서는 운영자가 popbill-corp 명령으로 이 계정에 묶은 번호만 쓴다.
+    // 시험 모드만 팝빌이 그 번호로 처음 답한 때(받아 오기·계좌 관리 주소 성공) 저절로 묶는다
     if (account !== null) {
       const use = await this.#corpUse(sellerId, account.corpNum)
       if (use !== 'OK') return fail(409, 'CORP_NOT_ALLOWED', SOURCE_MESSAGES[use])
@@ -483,7 +483,7 @@ export class DepositService {
     const patch: { label?: string; intervalMin?: number; enabled?: boolean } = {}
     if (input.label !== undefined) {
       const label = typeof input.label === 'string' ? input.label.trim() : ''
-      if (label === '' || charCount(label) > SOURCE_LABEL_MAX || hasControlChar(label)) problems.push({ field: 'label', message: `표시 이름은 1~${String(SOURCE_LABEL_MAX)}자로 적어 주세요.` })
+      if (label === '' || charCount(label) > SOURCE_LABEL_MAX || hasUnsafeText(label)) problems.push({ field: 'label', message: `표시 이름은 1~${String(SOURCE_LABEL_MAX)}자로 적어 주세요.` })
       else patch.label = label
     }
     if (input.intervalMin !== undefined) {
@@ -539,15 +539,16 @@ export class DepositService {
       corpNum = typeof input.corpNum === 'string' ? input.corpNum.replace(/[\s-]/g, '') : ''
       if (!/^\d{10}$/.test(corpNum)) return invalid([{ field: 'corpNum', message: '사업자번호는 숫자 10자리로 적어 주세요.' }])
     }
-    // 팝빌 계좌 관리 주소는 그 사업자로 로그인된 주소다 — 이 판매자에게 묶인(또는 아무에게도 묶이지 않은) 사업자번호로만 연다 (RA-N3-001)
+    // 팝빌 계좌 관리 주소는 그 사업자로 로그인된 주소다 — 이 판매자에게 묶인(시험 모드만: 또는 아무에게도 묶이지 않은) 사업자번호로만 연다 (RA-N3-001, TD-N3-004)
     const use = await this.#corpUse(sellerId, corpNum)
     if (use !== 'OK') return fail(409, 'CORP_NOT_ALLOWED', SOURCE_MESSAGES[use])
     try {
       const timeout = this.#deps.options.callTimeoutMs ?? SOURCE_CALL_TIMEOUT_MS
       const url = await withTimeout(this.#waitTimer, timeout, () => transport.getBankAccountMgtURL({ corpNum }))
       if (typeof url !== 'string' || !/^https:\/\//.test(url)) throw new SourceError('BAD_RESPONSE')
-      // 팝빌이 그 번호로 답했다 — 이 판매자에게 묶는다. 그사이 다른 판매자가 묶었으면 주소를 주지 않는다
-      if (!(await this.#bindCorp(sellerId, corpNum))) return fail(409, 'CORP_NOT_ALLOWED', SOURCE_MESSAGES.CORP_TAKEN)
+      // 팝빌이 그 번호로 답했다 — 아직 이 판매자의 번호인지 다시 본다(시험 모드는 처음이면 묶는다). 그사이 묶음이 바뀌었으면 주소를 주지 않는다
+      const after = await this.#claimCorp(sellerId, corpNum)
+      if (after !== 'OK') return fail(409, 'CORP_NOT_ALLOWED', SOURCE_MESSAGES[after])
       return { ok: true, value: { url } }
     } catch (error) {
       const kind = sourceErrorKind(error)
@@ -699,27 +700,36 @@ export class DepositService {
       },
       account,
     )
-    // 팝빌이 그 번호로 답했다 — 처음이면 이 판매자에게 묶는다. 그사이 다른 판매자가 묶었으면 받은 줄을 버린다(저장하지 않는다)
-    if (!(await this.#bindCorp(row.sellerId, account.corpNum))) throw new SourceError('CORP_TAKEN')
+    // 팝빌이 그 번호로 답했다 — 아직 이 판매자의 번호인지 다시 본다(시험 모드는 처음이면 묶는다). 그사이 묶음이 바뀌었으면 받은 줄을 버린다(저장하지 않는다)
+    const after = await this.#claimCorp(row.sellerId, account.corpNum)
+    if (after !== 'OK') throw new SourceError(after)
     return fetched
   }
 
   /**
    * 사업자번호를 이 판매자가 쓸 수 있는지 (RA-N3-001, SYS-02): 서버는 연동 키 하나로 모든 판매자를 대신해 팝빌을 부르고 토큰은 사업자번호로 받는다 —
    * 사업자번호가 그 판매자의 것인지 서버가 지켜야 다른 판매자의 팝빌 계좌 관리 화면·입금 내역에 닿지 않는다.
-   * 판매자마다 사업자번호 하나, 사업자번호마다 판매자 하나. 이 판매자에게 묶였으면 그 번호만, 아무에게도 묶이지 않았으면 쓸 수 있다
+   * 판매자마다 사업자번호 하나, 사업자번호마다 판매자 하나. 이 판매자에게 묶였으면 그 번호만 쓸 수 있다.
+   * 운영(시험 모드가 아님)에서는 운영자가 popbill-corp 명령으로 묶은 번호만 쓴다 — 이 계정에 묶인 번호가 없으면 어떤 번호든 CORP_UNBOUND이고
+   * 팝빌을 부르지 않는다(TD-N3-004: 아무에게도 묶이지 않은 남의 번호를 먼저 적어 그 사람의 입금 내역을 보는 틈을 막는다. 그 번호가 다른 계정에 묶였는지도 밝히지 않는다).
+   * 시험 모드만 아무에게도 묶이지 않은 번호를 쓸 수 있고 팝빌이 처음 답할 때 묶는다(#claimCorp)
    */
-  async #corpUse(sellerId: string, corpNum: string): Promise<'OK' | 'CORP_TAKEN' | 'CORP_MISMATCH'> {
+  async #corpUse(sellerId: string, corpNum: string): Promise<'OK' | 'CORP_TAKEN' | 'CORP_MISMATCH' | 'CORP_UNBOUND'> {
     const key = corpKeyOf(this.#deps.masterKey, corpNum)
     const mine = await corpKeyOfSeller(this.#deps.db, sellerId)
     if (mine !== null) return mine === key ? 'OK' : 'CORP_MISMATCH'
+    if (!this.testMode) return 'CORP_UNBOUND'
     const owner = await sellerOfCorpKey(this.#deps.db, key)
     return owner === null || owner === sellerId ? 'OK' : 'CORP_TAKEN'
   }
 
-  /** 팝빌이 그 사업자번호로 답한 뒤 이 판매자에게 묶는다 (이미 묶였으면 그대로). 이 판매자에게 묶였는지 */
-  #bindCorp(sellerId: string, corpNum: string): Promise<boolean> {
-    return bindCorpKey(this.#deps.db, sellerId, corpKeyOf(this.#deps.masterKey, corpNum), new Date(this.#now()))
+  /**
+   * 팝빌이 그 사업자번호로 답한 뒤: 아직 이 판매자가 쓸 수 있는 번호인지 다시 본다.
+   * 시험 모드는 처음이면 이 판매자에게 묶는다(이미 묶였으면 그대로). 운영은 묶지 않는다 — 그사이 운영자가 풀었으면 거절
+   */
+  async #claimCorp(sellerId: string, corpNum: string): Promise<'OK' | 'CORP_TAKEN' | 'CORP_MISMATCH' | 'CORP_UNBOUND'> {
+    if (!this.testMode) return this.#corpUse(sellerId, corpNum)
+    return (await bindCorpKey(this.#deps.db, sellerId, corpKeyOf(this.#deps.masterKey, corpNum), new Date(this.#now()))) ? 'OK' : 'CORP_TAKEN'
   }
 
   // ── 저장과 자동 확인 (DP-1·DP-5·DP-6·DP-7) ─────────────────────────────────

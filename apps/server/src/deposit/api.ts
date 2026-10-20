@@ -5,7 +5,7 @@
 // - 시험용 입금 넣기(/deposits/test/rows)는 시험 모드(E2E 기동)에서만 붙는다 — 운영 기동에는 경로 자체가 없다(404, AC-N3-17).
 import { isValidDate } from '@livejjim/core'
 import type { Context, Hono } from 'hono'
-import { REQUEST_ID_RE, hasControlChar, isPlainObject, own, ownKeys } from '../api-fields.ts'
+import { REQUEST_ID_RE, hasUnsafeText, isPlainObject, own, ownKeys } from '../api-fields.ts'
 import type { SessionContext } from '../auth.ts'
 import { apiError, type FieldProblem } from '../errors.ts'
 import { unknownFieldProblems } from '../messages.ts'
@@ -19,7 +19,7 @@ const SOURCE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 /** 묶음 찾기 말 길이 상한 */
 const QUERY_MAX = 40
 /** 구매자 ID (채널 ID·문자 구매자 ID) — 1~200자, 제어 문자 없음 */
-const isBuyerId = (value: unknown): value is string => typeof value === 'string' && value.length >= 1 && value.length <= 200 && !hasControlChar(value)
+const isBuyerId = (value: unknown): value is string => typeof value === 'string' && value.length >= 1 && value.length <= 200 && !hasUnsafeText(value)
 
 const invalid = (problems: readonly FieldProblem[]) => apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', problems)
 const notFound = () => apiError(404, 'NOT_FOUND', '찾을 수 없어요.')
@@ -219,7 +219,7 @@ export function registerDepositRoutes(api: Hono<Env>, deposits: DepositService):
     const q = c.req.query('q') ?? ''
     const date = c.req.query('date')
     const problems: FieldProblem[] = []
-    if ([...q].length > QUERY_MAX || hasControlChar(q)) problems.push({ field: 'q', message: `찾을 말은 ${String(QUERY_MAX)}자까지 적어 주세요.` })
+    if ([...q].length > QUERY_MAX || hasUnsafeText(q)) problems.push({ field: 'q', message: `찾을 말은 ${String(QUERY_MAX)}자까지 적어 주세요.` })
     if (date !== undefined && !isValidDate(date)) problems.push({ field: 'date', message: "날짜는 '2026-10-18'처럼 적어 주세요." })
     if (problems.length > 0) return invalid(problems)
     return respond(c, await deposits.searchBundles(sellerOf(c), no, q, date ?? null))
