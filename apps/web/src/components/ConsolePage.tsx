@@ -1,6 +1,8 @@
 // 라이브 콘솔 (SPEC §7 화면 2, AC-S05-02·10~15·21·22·30~35·40~42·54·62·63, AC-I1-30~34·36).
 // 빠른 입력·알림 띠는 위쪽에 늘 보인다. 현재 상품·상품 보드·채팅(·리허설 조작판)은 폭에 맞춰 나란히 또는 아래로.
 // 라벨 상태는 서버의 출력 기록(라벨 키마다)으로 보인다 — 리허설은 라벨이 없다. Alt+P(⌥P)는 현재 상품의 1등 라벨 다시 출력 창.
+// 라벨 기능이 꺼져 있거나 켬/끔을 아직 모르면(N4a, L-12 9, AC-N4a-14·18): 보드 라벨 상태·알림 "출력 멈춤"(Alt+1 순서에서도)·단축키 안내의 Alt+P가 빠지고,
+// Alt+P는 창을 열지 않고 "라벨 쓰지 않음 — 설정에서 켤 수 있어요."를 알린다(빠른 입력칸 포커스 그대로). 버릴 라벨은 남는다.
 import { DEFAULT_SETTINGS, type SaleSettings } from '@livejjim/core'
 import type { CardRegistration, SuggestionCard } from '@livejjim/voice'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
@@ -10,6 +12,7 @@ import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
 import { BuyerNames, alertCounts, latestProduct, productKey } from '../lib/derive.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
 import { dateWords } from '../lib/kst.ts'
+import { LABELS_OFF_NOTE } from '../lib/print-words.ts'
 import { useLeaveGuard } from '../lib/leave-guard.ts'
 import { changedFields, decideFixForm, decideQuickInput, editQuestion, quickSettings, type QuickDecision } from '../lib/quick.ts'
 import { routePath, type Navigate } from '../lib/router.ts'
@@ -30,7 +33,7 @@ import { ErrorNote } from './ErrorNote.tsx'
 import { ReprintDialog } from './LabelParts.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
 import { ProductBoard, CurrentProduct } from './ProductBoard.tsx'
-import { usePrintState, useScopeLabels } from './print-context.tsx'
+import { useLabelsEnabled, usePrintState, useScopeLabels } from './print-context.tsx'
 import { DiscardDialog, PrintPauseDialog } from './PrintParts.tsx'
 import { ProductDetail } from './ProductDetail.tsx'
 import { QuickInput, type EditAsk, type FixState, type Registration } from './QuickInput.tsx'
@@ -47,6 +50,15 @@ export interface ConsolePageProps {
 }
 
 const NO_ITEMS: readonly UndoItem[] = []
+/** Alt+P 안내가 보이는 동안 */
+const LABELS_NOTE_MS = 6000
+/** Alt+P를 눌렀지만 라벨 기능 켬/끔을 아직 모른다 */
+const LABELS_LOADING = '라벨 상태를 불러오는 중이에요. 잠시 뒤 다시 눌러 주세요.'
+
+/** 콘솔의 단축키 안내 — 라벨 기능이 꺼져 있으면(모르면) Alt+P가 빠진다 (AC-N4a-14) */
+export function shortcutsWord(labels: boolean): string {
+  return `단축키: Enter 등록·찾기 · Esc 창 닫기 · Ctrl+Z(⌘Z) 되돌리기 · Alt+1(⌥1) 첫 알림 열기 · ${labels ? 'Alt+P(⌥P) 라벨 다시 출력 · ' : ''}1·2·3 창 안의 선택`
+}
 const noSubscribe = () => () => {}
 const idleVoice = (): VoiceSnapshot => VOICE_IDLE
 
@@ -322,14 +334,31 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
 
   const names = useMemo(() => new BuyerNames(data.buyers, data.claims), [data.buyers, data.claims])
   const settingsOf = useCallback((id: string) => latest.current.data.broadcasts.get(id)?.settings ?? null, [])
-  // 라벨 상태는 서버의 출력 기록 (리허설 범위는 라벨이 없다 — 조회하지 않는다, D-I1-08)
-  const labelState = useScopeLabels(broadcast.rehearsal ? null : broadcast.date)
+  // 라벨 상태는 서버의 출력 기록 (리허설 범위는 라벨이 없다 — 조회하지 않는다, D-I1-08). 라벨 기능이 꺼져 있거나 모르면 보지 않는다(L-12 9)
+  const labelsOn = useLabelsEnabled()
+  const labelsOnRef = useRef(labelsOn)
+  labelsOnRef.current = labelsOn
+  const labelState = useScopeLabels(broadcast.rehearsal || labelsOn !== true ? null : broadcast.date)
   const labels = labelState.labels
   const print = usePrintState()
   const queueSummary = print.overview?.queue ?? null
-  const printAlerts: PrintAlerts = useMemo(() => ({ pause: queueSummary?.pause?.message ?? null, discard: queueSummary?.discard ?? 0 }), [queueSummary])
+  // 꺼져 있으면 "출력 멈춤"은 알림 띠·Alt+1 순서에서 빠진다 — 버릴 라벨은 남는다 (AC-N4a-14·16)
+  const printAlerts: PrintAlerts = useMemo(
+    () => ({ pause: labelsOn === true ? (queueSummary?.pause?.message ?? null) : null, discard: queueSummary?.discard ?? 0 }),
+    [queueSummary, labelsOn],
+  )
   const printAlertsRef = useRef(printAlerts)
   printAlertsRef.current = printAlerts
+  /** Alt+P를 눌렀지만 라벨 기능이 꺼져 있다는 알림 (잠시 보인다) */
+  const [labelsNote, setLabelsNote] = useState<{ readonly text: string; readonly n: number } | null>(null)
+  useEffect(() => {
+    if (labelsNote === null) return
+    const timer = setTimeout(() => setLabelsNote(null), LABELS_NOTE_MS)
+    return () => clearTimeout(timer)
+  }, [labelsNote])
+  useEffect(() => {
+    if (labelsOn === true) setLabelsNote(null)
+  }, [labelsOn])
 
   const api: ConsoleApi = useMemo(
     () => ({
@@ -692,6 +721,11 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       // Alt+P(⌥P): 현재 상품의 1등 라벨 다시 출력 — 빠른 입력칸에 글자(π 등)가 들어가지 않는다 (AC-I1-33)
       if (event.altKey && !mod && !event.shiftKey && (event.code === 'KeyP' || event.key === 'p' || event.key === 'P' || event.key === 'π')) {
         event.preventDefault()
+        // 라벨 기능이 꺼져 있으면 창을 열지 않고 출력 요청도 보내지 않는다 — 안내만 (AC-N4a-14). 모르는 동안도 창을 열지 않는다
+        if (labelsOnRef.current !== true) {
+          setLabelsNote((note) => ({ text: labelsOnRef.current === false ? LABELS_OFF_NOTE : LABELS_LOADING, n: (note?.n ?? 0) + 1 }))
+          return
+        }
         setDialogs([{ kind: 'reprint', product: currentKey.current }])
         return
       }
@@ -841,6 +875,11 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
               error={quickError}
             />
             <UndoBar items={items} queue={queue} />
+            {labelsNote !== null ? (
+              <p key={labelsNote.n} className="notice labels-note" role="status">
+                {labelsNote.text}
+              </p>
+            ) : null}
           </div>
           {wide ? voiceLive : null}
         </div>
@@ -875,7 +914,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
             convertNotes={convertNotes}
           />
         </div>
-        <p className="shortcuts">단축키: Enter 등록·찾기 · Esc 창 닫기 · Ctrl+Z(⌘Z) 되돌리기 · Alt+1(⌥1) 첫 알림 열기 · Alt+P(⌥P) 라벨 다시 출력 · 1·2·3 창 안의 선택</p>
+        <p className="shortcuts">{shortcutsWord(labelsOn === true)}</p>
       </main>
       {voice !== null && voiceSnapshot.phase === 'consent' ? <VoiceConsentDialog voice={voice} /> : null}
       {topDialog !== undefined ? (

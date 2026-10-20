@@ -1,4 +1,4 @@
-// 앱 (AC-S05-01·02, AC-S06-01, AC-S06b-42·43, AC-I1-20): 로그인 확인 → 메뉴(방송·문자찜 입력·구매자·정산·라벨)와 그 화면.
+// 앱 (AC-S05-01·02, AC-S06-01, AC-S06b-42·43, AC-I1-20, AC-N4a-10): 로그인 확인 → 메뉴(방송·문자찜 입력·구매자·정산·라벨)와 그 화면, 위 줄 "설정"의 설정 화면.
 // 로그인한 동안 출력 기록·이 기기의 프린터(PrintProvider)는 앱 전체에 하나다 — 화면을 옮겨도 출력 기기의 출력이 이어진다(AC-I1-23).
 // 쓰는 중에 세션이 끝나면(어떤 API든 401) 로그인 화면으로 가고, 다시 로그인하면 보던 화면(주소·검색값 그대로)으로 돌아간다.
 // 그때 화면이 닫히며 5초 대기 중이던 방송자 조치는 보내지 않는다(D-083).
@@ -16,14 +16,16 @@ import { ConsolePage } from './components/ConsolePage.tsx'
 import { ErrorNote } from './components/ErrorNote.tsx'
 import { HomePage } from './components/HomePage.tsx'
 import { LabelsPage } from './components/LabelsPage.tsx'
+import { RefusalReset } from './components/LabelsOff.tsx'
 import { LoginPage } from './components/LoginPage.tsx'
 import { Modal } from './components/Modal.tsx'
 import { PrintProvider } from './components/print-context.tsx'
+import { SettingsPage } from './components/SettingsPage.tsx'
 import { SettlementsPage } from './components/SettlementsPage.tsx'
 import { SmsPage } from './components/SmsPage.tsx'
 import { TopBar } from './components/TopBar.tsx'
 import { LEAVE_QUESTION, LeaveGuardContext, type LeaveGuard } from './lib/leave-guard.ts'
-import { historyDepth, isGuardEntry, pushGuardEntry, useRoute, type Navigate, type NavigateOptions, type Route } from './lib/router.ts'
+import { historyDepth, isGuardEntry, pushGuardEntry, routePath, useRoute, type Navigate, type NavigateOptions, type Route } from './lib/router.ts'
 
 type Session = { readonly state: 'checking' } | { readonly state: 'out'; readonly expired: boolean } | { readonly state: 'in'; readonly me: Me }
 
@@ -218,6 +220,7 @@ export function App() {
     <LeaveGuardContext.Provider value={register}>
       <PrintProvider>
         <TopBar shopName={shopName} onLogout={() => void logout()} route={route} navigate={navigate} />
+        <RefusalReset screen={routePath(route)} />
         {logoutError !== null ? <ErrorNote error={logoutError} /> : null}
         <Screen route={route} navigate={navigate} />
         {leaving !== null ? (
@@ -249,7 +252,9 @@ function Screen({ route, navigate }: { readonly route: Route; readonly navigate:
     case 'settlements':
       return <SettlementsPage route={route} navigate={navigate} />
     case 'labels':
-      return <LabelsPage />
+      return <LabelsPage navigate={navigate} />
+    case 'settings':
+      return <SettingsPage />
     case 'home':
       return <HomePage navigate={navigate} />
   }
