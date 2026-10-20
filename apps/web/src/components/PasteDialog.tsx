@@ -135,7 +135,13 @@ export function PastePreview({ plan }: { readonly plan: PastePlanView }) {
       <ol className="plain-list paste-rows" aria-label="줄마다 결과">
         {plan.rows.map((row) => (
           <li key={row.line} className={row.result === 'ORDER' ? 'paste-row paste-row-order' : 'paste-row'}>
-            <span className="paste-line">{row.line}줄</span> {row.nickname !== undefined ? <strong className="paste-nick">{row.nickname}</strong> : null} <span>{row.message}</span>
+            <span className="paste-line">{row.line}줄</span>{' '}
+            {row.nickname !== undefined ? (
+              <>
+                <strong className="paste-nick">{row.nickname}</strong>{' '}
+              </>
+            ) : null}
+            <span>{row.message}</span>
           </li>
         ))}
       </ol>

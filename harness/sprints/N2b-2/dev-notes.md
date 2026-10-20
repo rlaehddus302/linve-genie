@@ -106,3 +106,43 @@
 - 서버 시험: `apps/server/test/tiktok-live.test.ts`(C·D·F), `paste.test.ts`(G·72), `multi-platform.test.ts`(A·B·70·71·73), `tiktok-n2b2-connection.test.ts`(E). 도우미 `test/tiktok-live-support.ts`(`ttWorld`·`tiktokSeller`·`linkTiktok`·`connected`·`tiktokComment`).
 - 시험 서버 옵션: `createServer({ tiktok: { settings: readTikTokSettings({ LIVEJJIM_TIKTOK_BETA: 'on' }), webcast: fake.factory, clock: new FakeTikTokClock(t), libraryEnv?, limiter?, noticeVersion? } })`. 댓글 기록이 끝나기를 기다리려면 `server.tiktok.idle()`, 재시작 이어받기는 `server.tiktok.resume()`(운영 `start()`가 부른다).
 - PGlite: 틱톡 연결의 동의 확인 질의가 도는 중에 DB를 닫으면 멈춘다 — `server.close()` 뒤 `server.tiktok.idle()`과 잠깐 기다린 뒤 닫는다(`ttWorld.close`).
+
+---
+
+# N2b-2 dev-notes (dev-web)
+
+## 만든 것 (화면)
+
+| 묶음 | 파일 |
+|---|---|
+| 플랫폼 낱말·판단 (키 접두어 → 플랫폼, 틱톡 막힘·다시 연결·붙여넣기 주 단추 조건, 인스타 결과 문장, DM 실패 수) | `apps/web/src/lib/platforms.ts` |
+| 콘솔 인스타그램·틱톡 칸, 도착순 안내, 고정 영역 한 줄(틱톡 알림 줄·인스타그램 알림) | `apps/web/src/components/ConsolePlatforms.tsx`, `ConsolePage.tsx` |
+| 붙여넣기 창 (콘솔·문자찜 화면 같은 창) | `apps/web/src/components/PasteDialog.tsx`, `SmsPage.tsx` |
+| 설정 인스타그램·틱톡 라이브(베타) 칸 | `apps/web/src/components/PlatformSettings.tsx`, `SettingsPage.tsx` |
+| 채팅 줄·구매자 목록·합치기·문자찜 구매자 고르기의 플랫폼 글자 | `ChatPanel.tsx`, `BuyersPage.tsx`, `SmsPage.tsx` |
+| SSE `instagram`·`tiktok` 받기 | `lib/stream.ts`, `lib/console-store.ts`(`onPlatform`), `lib/live-events.ts`(`onPlatform`) |
+| 주소 `/settings/instagram`·`/settings/tiktok`, `?instagram=<결과>`(경로 `/`여도 설정 인스타그램 칸) | `lib/router.ts` |
+| E2E 묶음 `chromium-multi` (@multi) | `apps/web/playwright.config.ts` (`fakeMetaUrl`·`e2eServerUrl`) |
+
+## 구현으로 정한 것
+
+1. **플랫폼 칸 자리**: 콘솔 왼쪽 열(스크롤 영역) — 현재 상품 아래에 도착순 안내 → 유튜브 칸 → 인스타그램 칸 → 틱톡 칸. 고정 영역에는 한 줄만 더한다: 틱톡 알림 줄(버튼 — 누르면 붙여넣기 창), 인스타그램 알림 최근 하나("닫기"), 붙여넣기 결과 문장(10초).
+2. **이어진 플랫폼 수**(도착순 안내): 유튜브 `link !== null` + 인스타그램 `state !== 'NONE'`(기다리기 포함 — 서버 `links`와 같은 기준) + 틱톡 `state === 'LINKED'`. SSE로 바로 바뀐다.
+3. **틱톡 칸의 준비 안 됨 문장**: 서버가 조회 응답으로 주지 않아 잇기 거절 문장(AC-30 표)과 같은 글자를 화면 상수로 둔다. 운영자 꺼짐은 `GET /api/platforms`의 `TIKTOK.reasons.ready`를 먼저 쓴다. 이 상태에서는 문장 + "설정으로"만(AC-62 "만 보인다") — 붙여넣기는 문자찜 화면에서 할 수 있다.
+4. **"댓글 붙여넣기"**: 틱톡이 이어진 동안 칸에 늘 있고, 막힘 조건(AC-62)일 때만 주 단추(`button-primary`)이고 알림 줄이 보인다. 끝난 방송(`FINISHED`)에서는 알림 줄을 띄우지 않는다.
+5. **인스타그램 돌아오기**: 서버 `LIVEJJIM_IG_RETURN_PATH` 기본이 `/`라 `/?instagram=<코드>`를 설정의 인스타그램 칸으로 연다(결과 문장 한 번, 주소에서 지움). 결과 문장은 N2 `CALLBACK_MESSAGES`와 같은 글자.
+6. **칸 상태를 받지 못함**(`/api/instagram`·`/api/tiktok` 실패): 경고 영역(alert)이 아닌 보통 문장 + "다시 불러오기" — 방송 중 급한 일이 아니라서.
+7. **보내지 못한 DM 수**: `GET /api/instagram/dms?date=` 중 그 회차·`FAILED` 행 수. SSE `instagram` `DM`이 오면 다시 센다.
+8. **서버 영역 최소 변경**(dev-server 영역): E2E 시험이 가짜 메타 `/_fake/*`를 부르려면 포트를 알아야 해서 `e2e-server.ts --instagram-port`, `startE2eServer({ instagramPort })`, `FakeMeta.start({ port })`를 더했다(기본은 전과 같이 빈 포트).
+
+## 테스터(e2e)에게
+
+- 묶음: `chromium-multi` — 시험 제목에 `@multi`. 화면 5179·서버 3107·가짜 유튜브 4102·가짜 메타 4103(+`E2E_PORT_OFFSET`). 서버 인자 `--youtube fake --instagram yes --instagram-port <포트> --tiktok yes`.
+- 주소: `import { fakeMetaUrl, fakeYoutubeUrl, e2eServerUrl } from 'apps/web/playwright.config.ts'` — `fakeMetaUrl(project)`로 `/_fake/accounts`·`/_fake/login`·`/_fake/live`·`/_fake/comments`, `e2eServerUrl(project)`로 `/_e2e/tiktok/*`.
+- 화면 이름(role·name):
+  - 설정: 영역 `인스타그램`·`틱톡 라이브(베타)`. 틱톡: 체크 상자 `안내를 읽었고, 위 내용에 동의해요`, 버튼 `켜기`, 칸 `내 틱톡 아이디`, `저장`, `끄기`(창 `틱톡 연결 끄기` 안의 `끄기`). 인스타그램: `인스타그램 연결하기`(다시 연결은 `인스타그램 다시 연결하기`), `연결 끊기`(창 `인스타그램 연결 끊기`), `감사 DM 자동 발송 켜기`(창 `감사 DM 자동 발송`의 `동의해요`)·`감사 DM 자동 발송 끄기`.
+  - 콘솔: 영역 `인스타그램`·`틱톡`(리허설은 `인스타그램·틱톡`). 버튼 `틱톡 잇기`·`다시 연결`·`끊기`(창 `틱톡 연결 끊기`)·`댓글 붙여넣기`, `인스타그램 기다리기`·`진행 중인 라이브 고르기`(목록 `진행 중인 인스타그램 라이브`의 `이 라이브 잇기`)·`끊기`(창 `인스타그램 연결 끊기`), 링크 `설정으로`. 알림 줄 버튼 이름 = "틱톡 댓글이 들어오지 않아요. 댓글을 직접 붙여 넣어 주세요.", 인스타그램 알림 닫기 `인스타그램 알림 닫기`.
+  - 붙여넣기 창: 대화 상자 `댓글 붙여넣기`, 글 칸 `붙여 넣을 댓글`, `미리 보기`, 목록 `줄마다 결과`·`같은 닉네임`, 주 단추 `찜 N개 넣기`(넣는 중 `넣는 중…`). 끝나면 창이 닫히고 상태 문장 "찜 N개를 넣었어요."
+  - 문자찜 화면: 고른 방송 칸의 `댓글 붙여넣기`.
+  - 채팅 줄의 플랫폼 글자는 `.tag-platform`("유튜브"·"인스타그램"·"틱톡"). 구매자 목록 "종류" 칸이 "유튜브"·"인스타그램"·"틱톡"·"문자".
+- 직접 띄워 보기: `pnpm --filter @livejjim/server e2e --port 4707 --origin http://localhost:6779 --youtube fake --youtube-port 5702 --instagram yes --instagram-port 5703 --tiktok yes` + `node apps/web/e2e/serve.ts --port 6779 --api http://127.0.0.1:4707`(apps/web에서).
