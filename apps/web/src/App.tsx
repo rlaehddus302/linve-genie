@@ -8,9 +8,12 @@
 // 기록이 없는 처음 연 화면(홈 화면 앱의 첫 화면·새 탭)에 보내기 전인 조치가 생기면 같은 주소의 기록을 하나 더 쌓아 뒤로 가기가 앱을 떠나지 않고
 // 묻는다. 웹이 막을 수 없는 닫기(앱을 위로 밀어 닫기)로 떠나면 보내지 않는다 (D-103, AC-S06b-42·43).
 // 인터넷이 끊긴 채 열면(서비스 워커가 저장한 껍데기) "인터넷 연결이 없어요. 연결되면 다시 불러와요." — 연결되면 저절로 다시 불러온다(D-093).
+// 요금(N5, AC-N5-50): 로그인한 동안 요금 기능 설정을 한 번 받는다. 켜져 있으면 메뉴 "요금"과 /billing 화면, 꺼져 있으면 /billing은 없는 화면이다.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, isApiError, onUnauthorized, post, type ApiError } from './api/client.ts'
 import type { Me } from './api/types.ts'
+import { BillingConfigProvider, useBillingConfigState } from './components/billing-context.tsx'
+import { BillingPage } from './components/BillingPage.tsx'
 import { BuyersPage } from './components/BuyersPage.tsx'
 import { ConsolePage } from './components/ConsolePage.tsx'
 import { ErrorNote } from './components/ErrorNote.tsx'
@@ -23,7 +26,7 @@ import { SettlementsPage } from './components/SettlementsPage.tsx'
 import { SmsPage } from './components/SmsPage.tsx'
 import { TopBar } from './components/TopBar.tsx'
 import { LEAVE_QUESTION, LeaveGuardContext, type LeaveGuard } from './lib/leave-guard.ts'
-import { historyDepth, isGuardEntry, pushGuardEntry, useRoute, type Navigate, type NavigateOptions, type Route } from './lib/router.ts'
+import { historyDepth, isGuardEntry, pushGuardEntry, routePath, useRoute, type BillingRoute, type Navigate, type NavigateOptions, type Route } from './lib/router.ts'
 
 type Session = { readonly state: 'checking' } | { readonly state: 'out'; readonly expired: boolean } | { readonly state: 'in'; readonly me: Me }
 
@@ -216,24 +219,26 @@ export function App() {
   const shopName = session.me.seller.name
   return (
     <LeaveGuardContext.Provider value={register}>
-      <PrintProvider>
-        <TopBar shopName={shopName} onLogout={() => void logout()} route={route} navigate={navigate} />
-        {logoutError !== null ? <ErrorNote error={logoutError} /> : null}
-        <Screen route={route} navigate={navigate} />
-        {leaving !== null ? (
-          <Modal
-            title="다른 화면으로 갈까요?"
-            onClose={stay}
-            actions={
-              <button type="button" className="button button-danger" onClick={leave}>
-                보내지 않고 떠나기
-              </button>
-            }
-          >
-            <p>{LEAVE_QUESTION}</p>
-          </Modal>
-        ) : null}
-      </PrintProvider>
+      <BillingConfigProvider>
+        <PrintProvider>
+          <TopBar shopName={shopName} onLogout={() => void logout()} route={route} navigate={navigate} />
+          {logoutError !== null ? <ErrorNote error={logoutError} /> : null}
+          <Screen route={route} navigate={navigate} />
+          {leaving !== null ? (
+            <Modal
+              title="다른 화면으로 갈까요?"
+              onClose={stay}
+              actions={
+                <button type="button" className="button button-danger" onClick={leave}>
+                  보내지 않고 떠나기
+                </button>
+              }
+            >
+              <p>{LEAVE_QUESTION}</p>
+            </Modal>
+          ) : null}
+        </PrintProvider>
+      </BillingConfigProvider>
     </LeaveGuardContext.Provider>
   )
 }
@@ -250,7 +255,55 @@ function Screen({ route, navigate }: { readonly route: Route; readonly navigate:
       return <SettlementsPage route={route} navigate={navigate} />
     case 'labels':
       return <LabelsPage />
+    case 'billing':
+      return <BillingScreen route={route} navigate={navigate} />
     case 'home':
       return <HomePage navigate={navigate} />
   }
+}
+
+/** 없는 화면 (요금 기능이 꺼진 서버의 /billing — AC-N5-50) */
+export const NOT_FOUND_MESSAGE = '찾을 수 없는 화면이에요.'
+
+function NotFound({ navigate }: { readonly navigate: Navigate }) {
+  return (
+    <main className="page stack">
+      <h1>{NOT_FOUND_MESSAGE}</h1>
+      <p>주소를 확인하거나 방송 목록으로 가 주세요.</p>
+      <div className="row">
+        <a
+          className="button"
+          href={routePath({ name: 'home' })}
+          onClick={(event) => {
+            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+            event.preventDefault()
+            navigate({ name: 'home' })
+          }}
+        >
+          방송 목록으로
+        </a>
+      </div>
+    </main>
+  )
+}
+
+/** 요금 화면: 요금 기능 설정을 받은 뒤 — 켜져 있으면 요금 화면, 꺼져 있으면 없는 화면 */
+function BillingScreen({ route, navigate }: { readonly route: BillingRoute; readonly navigate: Navigate }) {
+  const state = useBillingConfigState()
+  if (state.state === 'loading') {
+    return (
+      <main className="page">
+        <p>불러오는 중…</p>
+      </main>
+    )
+  }
+  if (state.state === 'error') {
+    return (
+      <main className="page">
+        <ErrorNote error={state.error} onRetry={state.retry} retryLabel="다시 불러오기" />
+      </main>
+    )
+  }
+  if (!state.config.enabled) return <NotFound navigate={navigate} />
+  return <BillingPage config={state.config} route={route} navigate={navigate} />
 }
