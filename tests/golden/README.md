@@ -252,14 +252,14 @@ expect:
 
 프린터 패키지가 프린터로 보내는 **바이트**, 블루투스 기기 **이름으로 프로필 고르기**, **프로필 표**, **바로 연결할 수 없는 브라우저의 까닭**을 고정한다. 규칙 문장은 `docs/spec/LABEL_RULES.md` L-7·L-12다.
 
-- **누가 읽나**: 코어 골든 러너는 읽지 않는다(`*.yaml`만). `packages/printer` 단위 테스트가 이 폴더의 모든 `*.json`을 읽어 프린터 패키지의 순수 함수(작업 바이트 만들기·이름으로 고르기·프로필 목록·까닭 판단)로 돌리고 `out`과 비교한다(`pnpm test` 단계). 파일 수·사례 수 합계를 고정값으로 단언한다 — 지금 파일 4(`browser.json` 15 · `job.json` 34 · `name.json` 24 · `profile.json` 11) · 사례 84.
+- **누가 읽나**: 코어 골든 러너는 읽지 않는다(`*.yaml`만). `packages/printer` 단위 테스트가 이 폴더의 모든 `*.json`을 읽어 프린터 패키지의 순수 함수(작업 바이트 만들기·이름으로 고르기·프로필 목록·까닭 판단)로 돌리고 `out`과 비교한다(`pnpm test` 단계). 파일 수·사례 수 합계를 고정값으로 단언한다 — 지금 파일 4(`browser.json` 15 · `job.json` 34 · `name.json` 27 · `profile.json` 11) · 사례 87(N1 감사 뒤 `name` 3사례 G-PRT-N1-76~78을 더함 — D-N1-11, 기존 사례는 그대로).
 - **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `job`·`name`·`profile`·`browser`. 모르는 키·모르는 `kind`·겹친 `id`는 테스트 실패(읽기 오류)다.
 - **사례 공통 키**: `id`(`G-PRT-N1-` + 두 자리, 이 폴더 전체에서 유일 — 다음 스프린트는 `G-PRT-<스프린트>-`), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `out`.
 
 | `kind` | 사례 키 | `out` |
 |---|---|---|
 | `job` | `profile`(프로필 ID), `image`(아래 그림), 선택 `options` = `{ "density": 수 }` | 성공 `{ "bytes": [조각…] }` — 만든 바이트가 조각을 차례로 이어 붙인 것과 **처음부터 끝까지** 같아야 한다(앞뒤에 남는 바이트 없음). 실패 `{ "error": 코드 }` — 코드 ∈ `IMAGE_TOO_WIDE`·`INVALID_DENSITY`·`PRINT_FAILED`, 바이트를 만들지 않는다 |
-| `name` | `name`(기기 이름 글) | `{ "profile": 프로필 ID 또는 null }` — 목록은 Marklife 9종 + 바우아토(실험적) 전부 |
+| `name` | `name`(기기 이름 글 — 그대로 넘긴다. 앞뒤 공백도 지우지 않는다) | `{ "profile": 프로필 ID 또는 null }` — 목록은 Marklife 9종 + 바우아토(실험적) 전부 |
 | `profile` | `profile`(프로필 ID) | 그 프로필의 칸 `maker`·`displayName`·`protocol`·`dpi`·`headDots`·`rotate`·`sizes`·`defaultSize`·`density`(`{ min, max, default }` 또는 null)·`experimental`·`fallbackApp`·`namePrefix`(글 또는 null)와 깊은 같음(이 열두 칸이 모두 있어야 한다) |
 | `browser` | `ua`(사용자 에이전트 글), 선택 `maxTouchPoints`(정수, 없으면 0) | `{ "reason": 까닭 }` — 까닭 ∈ `IOS`·`IN_APP`·`OTHER` |
 

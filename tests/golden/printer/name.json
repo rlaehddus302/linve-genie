@@ -1,6 +1,6 @@
 {
   "kind": "name",
-  "about": "블루투스 기기 이름 → 프로필 (LABEL_RULES L-12 이름으로 고르기, D-N1-04). 목록 = Marklife 9종 + 바우아토(실험적) 전부. 이름이 프로필의 앞자리로 시작하면 그 프로필, 아니면 null. 대소문자를 가리고 이름을 다듬지 않는다",
+  "about": "블루투스 기기 이름 → 프로필 (LABEL_RULES L-12 이름으로 고르기, D-N1-04). 목록 = Marklife 9종 + 바우아토(실험적) 전부. 이름이 프로필의 앞자리로 시작하면 그 프로필, 아니면 null. 대소문자를 가리고 이름을 다듬지 않는다. 앞자리 뒤의 글(끝 공백·길이)은 보지 않는다 — 기기 고르기 창의 namePrefix와 같은 판단(D-N1-11)",
   "cases": [
     {"id":"G-PRT-N1-41","title":"Marklife 이름 꼴 = 모델 + 밑줄 + 기기 번호","refs":["PRT-01","L-12","D-N1-04"],"note":"앞자리 P12_","name":"P12_ZA15B","out":{"profile":"MARKLIFE_P12"}},
     {"id":"G-PRT-N1-42","title":"블루투스 LE 이름(뒤에 _BLE)도 같은 모델","refs":["PRT-01","L-12","D-N1-04"],"name":"P12_ZA15B_BLE","out":{"profile":"MARKLIFE_P12"}},
@@ -25,6 +25,9 @@
     {"id":"G-PRT-N1-61","title":"NIIMBOT B1은 이름으로 고르지 않는다(niimbluelib 모델 정보로 고른다)","refs":["PRT-01","L-12","D-N1-04"],"name":"B1-H123456","out":{"profile":null}},
     {"id":"G-PRT-N1-62","title":"전각 Ｐ는 P가 아니다","refs":["PRT-01","L-12","D-N1-04"],"note":"U+FF30","name":"Ｐ12_ZA15B","out":{"profile":null}},
     {"id":"G-PRT-N1-63","title":"X2Pro는 고르지 않는다(다른 래스터일 수 있다)","refs":["PRT-01","L-12","D-N1-04"],"name":"X2Pro_1","out":{"profile":null}},
-    {"id":"G-PRT-N1-64","title":"LP9_는 목록에 없다","refs":["PRT-01","L-12","D-N1-04"],"name":"LP9_0001","out":{"profile":null}}
+    {"id":"G-PRT-N1-64","title":"LP9_는 목록에 없다","refs":["PRT-01","L-12","D-N1-04"],"name":"LP9_0001","out":{"profile":null}},
+    {"id":"G-PRT-N1-76","title":"이름 뒤 공백은 보지 않는다 — 앞자리가 맞으면 그 프로필(다듬지도 거르지도 않는다)","refs":["PRT-01","L-12","D-N1-11"],"note":"'P12_ZA15B '는 P12_로 시작 → P12. 끝 공백은 앞자리 뒤의 글이라 보지 않는다. 고르기 창의 namePrefix P12_도 이 기기를 보인다(SA-N1-004·TD-N1-004 판정)","name":"P12_ZA15B ","out":{"profile":"MARKLIFE_P12"}},
+    {"id":"G-PRT-N1-77","title":"아주 긴 이름(248자 — 블루투스 기기 이름의 최대 248바이트)도 길이를 보지 않는다","refs":["PRT-01","L-12","D-N1-11"],"note":"LP15_ 5자 + A 243자 = 248자. LP15_로 시작 → LP15(P15_로는 시작하지 않는다 — G-PRT-N1-47)","name":"LP15_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","out":{"profile":"MARKLIFE_LP15"}},
+    {"id":"G-PRT-N1-78","title":"앞자리만 있는 이름(S2_)도 그 프로필 — 앞자리 뒤는 비어도 된다","refs":["PRT-01","L-12","D-N1-11"],"note":"'S2_'는 S2_로 시작 → S2(이름이 PPA2뿐인 G-PRT-N1-52와 같은 판단)","name":"S2_","out":{"profile":"MARKLIFE_S2"}}
   ]
 }
