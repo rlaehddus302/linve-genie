@@ -11,21 +11,15 @@ export function kstDate(daysAgo: number): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(Date.now() - daysAgo * 86_400_000))
 }
 
-const usedDates = new Set<string>()
-const dayOffset = Math.floor(Math.random() * 20)
+let dateTurn = 0
+const dayOffset = Math.floor(Math.random() * 17)
 /**
- * 입금 후보 창(입금 날짜 − 30일 ~ 입금 날짜, DP-4) 안의 지난 날짜. 다른 시험 파일이 쓰는 오늘·2005~2021년 날짜와 겹치지 않게 2~27일 전에서 고른다.
- * 한 프로세스 안에서는 같은 날짜를 두 번 주지 않는다.
+ * 입금 후보 창(입금 날짜 − 30일 ~ 입금 날짜, DP-4) 안의 지난 날짜. 다른 시험 파일이 쓰는 날짜(오늘·2005~2024년, I4 판매 이력 시험의 오늘 앞 12일)와 겹치지 않게 13~29일 전에서 고른다.
+ * 17개를 차례로 돌려 쓴다 — 이어서 부른 두 번은 늘 다른 날짜다(같은 날짜 범위를 여러 시험이 함께 써도 이름·금액이 시험마다 달라 서로 맞지 않는다).
  */
 export function recentDate(): string {
-  for (let i = 0; i < 26; i++) {
-    const d = kstDate(2 + ((dayOffset + usedDates.size + i) % 26))
-    if (!usedDates.has(d)) {
-      usedDates.add(d)
-      return d
-    }
-  }
-  throw new Error('쓸 수 있는 최근 날짜가 없다')
+  dateTurn += 1
+  return kstDate(13 + ((dayOffset + dateTurn) % 17))
 }
 
 /** 시험마다 다른 금액(다른 시험의 묶음과 남은 금액이 같아지지 않게) — 100원 단위 */
