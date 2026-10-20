@@ -27,6 +27,8 @@ const MERGE_DUPLICATE_VIEW_KEYS = ['product', 'buyer', 'status'] as const
 export const EFFECT_STATUSES = ['PENDING', 'DONE', 'CANCELLED', 'SKIPPED'] as const
 const BROADCAST_VIEW_KEYS = ['date', 'title', 'ended'] as const
 const PRODUCT_VIEW_KEYS = ['status', 'winners', 'waitlist', 'conflict', 'price', 'priceHistory'] as const
+/** 있어도 되는 상품 관찰 키 (N5 — 확정 횟수, D-N5-14) */
+const OPTIONAL_PRODUCT_VIEW_KEYS = ['confirmVersion'] as const
 const BUYER_VIEW_KEYS = ['display', 'nameHistory', 'items', 'subtotal', 'byBroadcast', 'phoneLast4'] as const
 const SETTLEMENT_VIEW_KEYS = ['subtotal', 'shipping', 'adjustments', 'total', 'refundDue', 'payment'] as const
 const EFFECT_VIEW_KEYS = ['kind', 'status', 'target', 'product', 'buyer', 'text', 'confirmVersion'] as const
@@ -122,7 +124,8 @@ export function snapshotIssues(snapshot: unknown): string[] {
     for (const [key, product] of Object.entries(snapshot.products)) {
       const p = `products.${key}`
       c.productKey(p, key)
-      if (!c.record(p, product, PRODUCT_VIEW_KEYS)) continue
+      if (!c.record(p, product, [...PRODUCT_VIEW_KEYS, ...OPTIONAL_PRODUCT_VIEW_KEYS], PRODUCT_VIEW_KEYS)) continue
+      c.optional(product, 'confirmVersion', (v) => c.int(`${p}.confirmVersion`, v, 0))
       c.optional(product, 'status', (v) => c.oneOf(`${p}.status`, v, PRODUCT_STATUSES))
       c.optional(product, 'winners', (v) => c.strings(`${p}.winners`, v))
       c.optional(product, 'waitlist', (v) => c.strings(`${p}.waitlist`, v))

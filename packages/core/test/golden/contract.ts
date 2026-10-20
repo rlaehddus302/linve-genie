@@ -287,7 +287,7 @@ export const EXPECT_KEYS = [
   'broadcasts',
   'mergePreviews',
 ] as const
-export const PRODUCT_EXPECT_KEYS = ['status', 'winner', 'winners', 'waitlist', 'conflict', 'exists', 'price', 'priceHistory'] as const
+export const PRODUCT_EXPECT_KEYS = ['status', 'winner', 'winners', 'waitlist', 'conflict', 'exists', 'price', 'priceHistory', 'confirmVersion'] as const
 export const BUYER_EXPECT_KEYS = ['items', 'subtotal', 'byBroadcast', 'display', 'nameHistory', 'phoneLast4'] as const
 export const SETTLEMENT_EXPECT_KEYS = ['subtotal', 'shipping', 'adjustments', 'total', 'refundDue', 'payment'] as const
 export const EFFECT_EXPECT_KEYS = ['kind', 'target', 'product', 'buyer', 'text', 'confirmVersion'] as const
@@ -318,7 +318,11 @@ export const EMPTY_SETTLEMENT = {
   payment: 'UNPAID',
 } as const
 
-export const SCENARIO_ID_RE = /^G-ENG-\d{3}$/
+/**
+ * 시나리오 ID: `G-ENG-` + 세 자리, 또는 병렬 트랙 스프린트가 쓰는 `G-ENG-<스프린트 ID>-<두 자리>`
+ * (스프린트 ID = 영문 대문자로 시작하는 영문·숫자 1~8자, 예: G-ENG-N5-01 — README "시나리오 키", N5 D-N5-14)
+ */
+export const SCENARIO_ID_RE = /^G-ENG-(?:\d{3}|[A-Z][A-Za-z0-9]{0,7}-\d{2})$/
 export const BROADCAST_ID_RE = /^[^\s/@]+$/
 export const PRODUCT_KEY_RE = /^([^\s/@]+)\/([1-9]\d*)$/
 export const SMS_PREFIX = 'sms:'

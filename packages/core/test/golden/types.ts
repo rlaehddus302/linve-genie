@@ -93,6 +93,8 @@ export interface ProductView {
   readonly conflict: boolean
   readonly price: number
   readonly priceHistory: readonly { readonly from: number; readonly to: number }[]
+  /** 지금까지 확정 횟수 (코어 ProductInfo.confirmVersion, N5 D-N5-14). 이 값을 내지 않는 관찰도 받는다 — 검사 키로 쓰면 없을 때 불일치 */
+  readonly confirmVersion?: number
 }
 
 export interface BuyerView {

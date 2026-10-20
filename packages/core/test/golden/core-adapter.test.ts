@@ -59,8 +59,9 @@ describe('observe — 조회 함수 결과를 이름·모양만 바꿔 옮긴다
   it('상품·구매자·정산·찜·보류·취소 요청·구매자 키', () => {
     expect(snapshot.buyerKeys).toEqual({ UC_A: 'UC_A', UC_B: 'UC_B', UC_X: 'UC_X' })
     expect(snapshot.products).toEqual({
-      'b1/15': { status: 'SOLD', winners: ['UC_A'], waitlist: ['UC_B'], conflict: false, price: 10000, priceHistory: [] },
-      'b1/16': { status: 'READY', winners: [], waitlist: [], conflict: false, price: 800, priceHistory: [] },
+      // confirmVersion: 확정 횟수 (N5 새 검사 키 — AC-N5-04, D-N5-14). 관찰에 더한 키라 기대값에도 더했다(교체)
+      'b1/15': { status: 'SOLD', winners: ['UC_A'], waitlist: ['UC_B'], conflict: false, price: 10000, priceHistory: [], confirmVersion: 1 },
+      'b1/16': { status: 'READY', winners: [], waitlist: [], conflict: false, price: 800, priceHistory: [], confirmVersion: 0 },
     })
     expect(snapshot.buyers.UC_B).toEqual({ display: '철수', nameHistory: ['김철수', '철수'], items: [], subtotal: 0, byBroadcast: {}, phoneLast4: null })
     expect(snapshot.buyers.UC_A).toEqual({ display: '홍길동', nameHistory: ['홍길동'], items: ['b1/15'], subtotal: 10000, byBroadcast: { b1: 10000 }, phoneLast4: null })
@@ -653,18 +654,18 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
   })
 })
 
-// 합치기(S06b + P2 + I4 + I1): 골든이 늘어 합계를 바꿨다(교체 — 약화 아님). S06b(19·20번 엔진 파일, G-ENG-174~177),
+// 합치기(S06b + P2 + I4 + I1 + N5): 골든이 늘어 합계를 바꿨다(교체 — 약화 아님). S06b(19·20번 엔진 파일, G-ENG-174~177),
 // P2(parser/voice-extract.yaml, engine/19-p2-documents.yaml G-ENG-201·202), I4(voice-extract 끊어 말한 번호 사례),
-// I1(engine/21-i1-labels.yaml G-ENG-301~304, AC-I1-80)을 함께 센다.
-describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 합계)', () => {
-  it('파일 26 · 파서 460 · 엔진 129 · 통과 589, 나머지 0', () => {
+// I1(engine/21-i1-labels.yaml G-ENG-301~304, AC-I1-80), N5(engine/22-n5-billing.yaml G-ENG-N5-01·02, AC-N5-04 — 파일 26 → 27, 엔진 129 → 131, 통과 589 → 591)을 함께 센다.
+describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + N5 합계)', () => {
+  it('파일 27 · 파서 460 · 엔진 131 · 통과 591, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
-      files: 26,
+      files: 27,
       parserCases: 460,
-      scenarios: 129,
-      pass: 589,
+      scenarios: 131,
+      pass: 591,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,

@@ -291,6 +291,9 @@ export function compareExpect(expect: Expect, snapshot: GoldenSnapshot, where?: 
           if (want.priceHistory !== undefined && !deepEqual(want.priceHistory, product.priceHistory)) {
             push({ path: `${base}.priceHistory`, expected: want.priceHistory, actual: product.priceHistory })
           }
+          if (want.confirmVersion !== undefined && want.confirmVersion !== product.confirmVersion) {
+            push({ path: `${base}.confirmVersion`, expected: want.confirmVersion, actual: product.confirmVersion })
+          }
         }
         break
       }

@@ -72,6 +72,8 @@ export interface ProductExpect {
   readonly exists?: boolean
   readonly price?: number
   readonly priceHistory?: readonly { readonly from: number; readonly to: number }[]
+  /** 지금까지 확정 횟수 (0 이상 정수 — 코어 ProductInfo.confirmVersion, N5 D-N5-14) */
+  readonly confirmVersion?: number
 }
 
 export interface BuyerExpect {
@@ -387,6 +389,7 @@ function checkExpect(c: Checker, ctx: ScenarioContext, path: readonly PathSegmen
         if (hasValue(product, 'conflict')) c.value([...kp, 'conflict'], product.conflict, bool)
         if (hasValue(product, 'exists')) c.value([...kp, 'exists'], product.exists, bool)
         if (hasValue(product, 'price')) c.value([...kp, 'price'], product.price, intAtLeast(0))
+        if (hasValue(product, 'confirmVersion')) c.value([...kp, 'confirmVersion'], product.confirmVersion, intAtLeast(0))
         if (hasValue(product, 'priceHistory')) {
           const hp = [...kp, 'priceHistory']
           if (c.array(hp, product.priceHistory)) {
@@ -742,7 +745,7 @@ function validateScenario(raw: Record<string, unknown>): ValidationResult {
   const c = new Checker()
   const label = typeof raw.id === 'string' ? raw.id : undefined
   c.keys([], raw, ['id', 'title', 'refs', 'settings', 'broadcasts', 'events', 'expect'], ['id', 'title', 'refs', 'broadcasts', 'events', 'expect'])
-  c.value(['id'], raw.id, (v) => (typeof v === 'string' && SCENARIO_ID_RE.test(v) ? undefined : `시나리오 ID 형식 오류 ${showValue(v)} (G-ENG-세 자리)`))
+  c.value(['id'], raw.id, (v) => (typeof v === 'string' && SCENARIO_ID_RE.test(v) ? undefined : `시나리오 ID 형식 오류 ${showValue(v)} (G-ENG-세 자리 또는 G-ENG-<스프린트 ID>-두 자리)`))
   if (hasValue(raw, 'title')) c.value(['title'], raw.title, nonEmptyStr)
   if (hasValue(raw, 'refs') && c.array(['refs'], raw.refs, 1)) {
     raw.refs.forEach((ref, i) => c.value(['refs', i], ref, nonEmptyStr))

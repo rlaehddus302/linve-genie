@@ -96,6 +96,7 @@ export function toSnapshot(state: EngineState): GoldenSnapshot {
       conflict: product.conflict,
       price: product.price,
       priceHistory: product.priceHistory.map(({ from, to }) => ({ from, to })),
+      confirmVersion: product.confirmVersion,
     }
   }
   const buyerViews: Record<string, BuyerView> = {}
