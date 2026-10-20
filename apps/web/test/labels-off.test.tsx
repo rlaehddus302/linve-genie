@@ -79,8 +79,8 @@ const sendLabels = (rev: number, enabled: boolean, changed = entry(enabled, '202
     FakeEventSource.last.emit('labels', { rev, enabled, entry: changed })
   })
 
-describe('설정 화면과 "설정" 링크 (AC-N4a-10)', () => {
-  it('/settings를 주소로 바로 열면 제목 "설정", 첫 절 "라벨"에 지금 상태 글자·보통 버튼 하나·설명 — 이 화면에 주 버튼 없음', async () => {
+describe('설정 화면과 메뉴 "설정" (AC-N4a-10, AC-I3-44)', () => {
+  it('/settings를 주소로 바로 열면 제목 "설정", "라벨" 칸에 지금 상태 글자·보통 버튼 하나·설명 — 그 칸에 주 버튼 없음', async () => {
     await openAt('/settings', '설정')
     const section = labelSection()
     await waitFor(() => expect(within(section).getByText('라벨 기능: 켜짐')).toBeTruthy())
@@ -88,15 +88,16 @@ describe('설정 화면과 "설정" 링크 (AC-N4a-10)', () => {
     expect(button.className).toBe('button')
     expect(within(section).getAllByRole('button')).toHaveLength(1)
     expect(within(section).getByText(HELP)).toBeTruthy()
-    expect(primaryOutsideDialogs()).toEqual([])
+    // "라벨" 칸에는 주 버튼이 없다 (다른 칸의 "저장" 등 주 버튼은 I3 설정 화면의 것 — D-N4a-07)
+    expect(section.querySelectorAll('.button-primary')).toHaveLength(0)
     expect(screen.getByRole('link', { name: '설정' }).getAttribute('aria-current')).toBe('page')
   })
 
-  it('위 줄 "설정"을 누르면 설정 화면 (메뉴 막대에는 없다)', async () => {
+  it('메뉴 "설정"을 누르면 설정 화면 — "설정"은 메뉴 항목 하나다 (AC-I3-44, D-N4a-07)', async () => {
     await openAt('/', '방송 목록')
     const menu = screen.getByRole('navigation', { name: '메뉴' })
-    expect(within(menu).queryByRole('link', { name: '설정' })).toBeNull()
-    fireEvent.click(screen.getByRole('link', { name: '설정' }))
+    expect(screen.getAllByRole('link', { name: '설정' })).toHaveLength(1)
+    fireEvent.click(within(menu).getByRole('link', { name: '설정' }))
     expect(await screen.findByRole('heading', { name: '설정', level: 1 })).toBeTruthy()
     expect(window.location.pathname).toBe('/settings')
   })

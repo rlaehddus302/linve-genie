@@ -2,16 +2,20 @@
 import { applyEvent, initEngine, listEffects, type EngineEvent, type EngineState } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
 import { RECLAIM_AFTER_MS } from '../src/print.ts'
+import { mergeRaw } from '../src/store.ts'
 import { DAY, DEVICE_A, DEVICE_B, becomeDevice, chat, labelReports, printApi, register } from './print-support.ts'
 import { addSeller, client, createBroadcast, expectOk, newWorld, rid, writeEvent, type Seller, type TestServer } from './support.ts'
 
+// 채팅은 본문·이름을 chat_raw에 따로 둔다(Y1, AC-Y1-60) — 서버 재생과 같이 합친 본문으로 재생한다
 async function replayEffects(world: TestServer, seller: Seller, date = DAY): Promise<ReturnType<typeof listEffects>> {
-  const rows = await world.database.pglite?.query<{ body: string; failed: boolean }>(
-    `select e.body, e.failed from events e join scopes s on s.id = e.scope_id where e.seller_id = $1 and s.date = $2 and s.rehearsal = false order by e.seq`,
+  const rows = await world.database.pglite?.query<{ body: string; failed: boolean; nick: string | null; text: string | null }>(
+    `select e.body, e.failed, r.nick, r.text from events e join scopes s on s.id = e.scope_id
+       left join chat_raw r on r.scope_id = e.scope_id and r.seq = e.seq and r.seller_id = e.seller_id
+     where e.seller_id = $1 and s.date = $2 and s.rehearsal = false order by e.seq`,
     [seller.sellerId, date],
   )
   let state: EngineState = initEngine({ broadcasts: [], settings: {} })
-  for (const row of rows?.rows ?? []) if (!row.failed) state = applyEvent(state, JSON.parse(row.body) as EngineEvent).state
+  for (const row of rows?.rows ?? []) if (!row.failed) state = applyEvent(state, JSON.parse(mergeRaw(row.body, row.nick, row.text)) as EngineEvent).state
   return listEffects(state)
 }
 

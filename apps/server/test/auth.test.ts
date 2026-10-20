@@ -42,7 +42,7 @@ describe('AC-S04-40 로그인·세션', () => {
     const seller = await addSeller(world, 'cookieshop', 'pass-word-11')
     const response = await loginRequest(world, 'CookieShop', 'pass-word-11')
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ seller: { name: '가게 cookieshop' }, loginId: 'cookieshop' })
+    expect(await response.json()).toEqual({ seller: { name: '가게 cookieshop' }, loginId: 'cookieshop', role: 'SELLER' })
     const cookie = response.headers.get('set-cookie') ?? ''
     expect(cookie).toMatch(/^lj_session=[A-Za-z0-9_-]{43}; Path=\/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000$/)
     const token = /lj_session=([^;]+)/.exec(cookie)?.[1] ?? ''
@@ -138,7 +138,7 @@ describe('AC-S04-40 로그인·세션', () => {
     }
     for (const path of ['/api/logout', '/api/events', '/api/broadcasts', '/api/broadcasts/x/end']) expect((await anonymous.post(path, { requestId: rid() })).status, path).toBe(401)
     expect((await anonymous.get('/api/health')).body).toEqual({ status: 'ok' })
-    expect((await client(world, seller.cookie).get('/api/me')).body).toEqual({ seller: { name: '가게 meshop' }, loginId: 'meshop' })
+    expect((await client(world, seller.cookie).get('/api/me')).body).toEqual({ seller: { name: '가게 meshop' }, loginId: 'meshop', role: 'SELLER', assistant: null })
   })
 
   it('로그인 요청 형식: 아이디·비밀번호가 문자열이 아니거나 모르는 필드면 400', async () => {

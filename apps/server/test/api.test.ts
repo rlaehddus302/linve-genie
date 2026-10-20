@@ -154,8 +154,9 @@ describe('AC-S04-51 이벤트 쓰기 API', () => {
     await expectOk(writeEvent(world, seller, { type: 'settlement.payment', buyer: 'UC1', date: '2026-10-18', amount: 1000, memo: '입금자 김영희' }, '2026-10-18'))
     expect((await client(world, seller.cookie).get('/api/days')).body).toEqual({
       days: [
-        { date: '2026-10-18', rehearsal: false, seq: 4 },
-        { date: '2026-10-19', rehearsal: false, seq: 1 },
+        // Y1: 범위마다 봉인 예정 시각·봉인 여부 (AC-Y1-62) — 10/18은 유튜브 채팅(실제 범위 채팅)이 있어 10/18 + 30일 0시(KST)
+        { date: '2026-10-18', rehearsal: false, seq: 4, sealAt: '2026-11-16T15:00:00.000Z', sealed: false },
+        { date: '2026-10-19', rehearsal: false, seq: 1, sealAt: null, sealed: false },
       ],
     })
     void b19

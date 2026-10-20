@@ -158,8 +158,13 @@ function PrinterErrorView({ error, onRetry }: { readonly error: PrinterError; re
   )
 }
 
-/** 프린터 단계 (stepPrimary: 이 단계가 주 버튼을 가질 수 있나 — 멈춤 띠의 조치가 보이면 아니다) */
-function PrinterSection({ stepPrimary }: { readonly stepPrimary: boolean }) {
+/**
+ * 프린터 칸: 연결 마법사(연결 방법 → 프린터 고르기 → 연결됨 → 테스트 인쇄 → "이 기기에서 출력"), 출력 기기 표시.
+ * 시작 마법사 3단계(UX-02, D-I1-06·D-I3-01)도 이 칸을 그대로 끼운다 — 그때(inWizard)는 제목이 단계 제목 아래(h3)이고,
+ * 이 브라우저가 연결할 수 없으면 안내만 보인다(그림 파일 저장은 라벨 화면의 내보내기에 있다).
+ * stepPrimary: 이 단계가 주 버튼을 가질 수 있나 — 라벨 화면에서 멈춤 띠의 조치가 보이면 아니다 (AC-N4a-21)
+ */
+export function PrinterSection({ inWizard = false, stepPrimary = true }: { readonly inWizard?: boolean; readonly stepPrimary?: boolean }) {
   const titleId = useId()
   const api = usePrintApi()
   const print = usePrintState()
@@ -171,12 +176,13 @@ function PrinterSection({ stepPrimary }: { readonly stepPrimary: boolean }) {
   useEffect(() => {
     if (!linked) setAnswer(null)
   }, [linked])
+  const Title = inWizard ? 'h3' : 'h2'
   if (api === null || station === null) {
     return (
       <section id={PRINTER_ID} className="card stack" aria-labelledby={titleId}>
-        <h2 id={titleId} className="section-title">
+        <Title id={titleId} className="section-title">
           프린터
-        </h2>
+        </Title>
         <p role="status">불러오는 중…</p>
       </section>
     )
@@ -194,17 +200,19 @@ function PrinterSection({ stepPrimary }: { readonly stepPrimary: boolean }) {
   const testAnswered = answer === 'yes' && station.testPrinted
   return (
     <section id={PRINTER_ID} className="card stack" aria-labelledby={titleId}>
-      <h2 id={titleId} className="section-title">
+      <Title id={titleId} className="section-title">
         프린터
-      </h2>
+      </Title>
       <DeviceStatus />
       {unsupported ? (
         <div className="notice stack-tight" role="note">
           <p>{PRINTER_MESSAGES.UNSUPPORTED}</p>
           <p>이 기기는 출력 기기가 될 수 없어요.</p>
-          <a className="button" href={`#${EXPORT_ID}`}>
-            그림 파일로 저장하기
-          </a>
+          {inWizard ? null : (
+            <a className="button" href={`#${EXPORT_ID}`}>
+              그림 파일로 저장하기
+            </a>
+          )}
         </div>
       ) : (
         <>

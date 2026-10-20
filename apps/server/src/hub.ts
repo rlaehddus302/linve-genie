@@ -32,6 +32,8 @@ const scopeOf = (scope: { readonly date: string; readonly rehearsal: boolean }):
 interface Connection {
   readonly sellerId: string
   readonly sessionHash: string
+  /** 이름 붙은 알림(유튜브·리허설 생성기)을 받는지 — 보조자 연결은 받지 않는다 (AC-I3-61: 보조자는 유튜브·리허설을 쓰지 않는다) */
+  readonly named: boolean
   /** 이 연결이 밝힌 기기 ID (출력 기기 실시간 연결 여부, I1). 없으면 null */
   readonly deviceId: string | null
   readonly controller: ReadableStreamDefaultController<Uint8Array>
@@ -45,14 +47,15 @@ interface Connection {
 interface Pending {
   readonly sellerId: string
   readonly sessionHash: string
+  readonly named: boolean
   /** 모인 알림 (generator 알림은 그대로 지나간다) */
   readonly notices: (StreamNotice | GeneratorNotice)[]
   closed: boolean
 }
 
-/** 리허설 생성기 상태 알림 (event: generator), 출력 기록 알림 (event: print, I1), 라벨 기능 켬/끔 알림 (event: labels, N4a) — seq가 없다 */
+/** 리허설 생성기 상태 알림 (event: generator) · 유튜브 알림 (event: youtube — 연결·수집·발송함·할당량·삭제·차단, AC-Y1-05·27·28·39·52) · 출력 기록 알림 (event: print, I1) · 라벨 기능 켬/끔 알림 (event: labels, N4a) — seq가 없다 */
 export interface GeneratorNotice {
-  readonly kind: 'generator' | 'print' | 'labels'
+  readonly kind: 'generator' | 'youtube' | 'print' | 'labels'
   readonly data: Readonly<Record<string, unknown>>
 }
 
@@ -87,8 +90,15 @@ export class StreamHub {
    * 읽는 동안 모인 알림 중 ready에 없는 것(그 날짜의 seq보다 큰 것)을 차례로 보낸 응답을 돌려준다 (RA-S04-003).
    * 읽기가 실패하면 등록을 지우고 오류를 그대로 던진다. 읽는 동안 로그아웃·종료되면 ready 없이 닫힌 응답이다
    */
-  async open(sellerId: string, sessionHash: string, readScopes: () => Promise<readonly ScopeSeq[]>, deviceId: string | null = null): Promise<Response> {
-    const pending: Pending = { sellerId, sessionHash, notices: [], closed: false }
+  async open(
+    sellerId: string,
+    sessionHash: string,
+    readScopes: () => Promise<readonly ScopeSeq[]>,
+    options: { readonly named?: boolean; readonly deviceId?: string | null } = {},
+  ): Promise<Response> {
+    const named = options.named ?? true
+    const deviceId = options.deviceId ?? null
+    const pending: Pending = { sellerId, sessionHash, named, notices: [], closed: false }
     this.#pending.add(pending)
     let scopes: readonly ScopeSeq[]
     try {
@@ -107,7 +117,7 @@ export class StreamHub {
           return
         }
         const baseline = new Map(scopes.map((scope) => [scopeOf(scope), scope.seq]))
-        const live: Connection = { sellerId, sessionHash, deviceId, controller, baseline, nextId: 1, closed: false }
+        const live: Connection = { sellerId, sessionHash, named, deviceId, controller, baseline, nextId: 1, closed: false }
         connection = live
         this.#write(live, `retry: 3000\nevent: ready\ndata: ${JSON.stringify({ scopes })}\n\n`)
         for (const notice of pending.notices) this.#send(live, notice)
@@ -147,15 +157,20 @@ export class StreamHub {
 
   /** 리허설 생성기 상태 알림 (그 판매자의 연결 전부) */
   publishGenerator(sellerId: string, data: Readonly<Record<string, unknown>>): void {
-    this.#publishKind(sellerId, { kind: 'generator', data })
+    this.#publishNamed(sellerId, { kind: 'generator', data })
   }
 
-  /** 출력 기록 알림 (그 판매자의 연결 전부, I1) */
+  /** 유튜브 알림 (그 판매자의 연결 전부, event: youtube). data.kind = connection · collector · outbox · quota · notice */
+  publishYoutube(sellerId: string, data: Readonly<Record<string, unknown>>): void {
+    this.#publishNamed(sellerId, { kind: 'youtube', data })
+  }
+
+  /** 출력 기록 알림 (그 판매자의 연결 전부, I1). 보조자 연결은 받지 않는다 — 보조자는 출력을 쓰지 않는다 (SYS-04) */
   publishPrint(sellerId: string, data: Readonly<Record<string, unknown>>): void {
-    this.#publishKind(sellerId, { kind: 'print', data })
+    this.#publishNamed(sellerId, { kind: 'print', data })
   }
 
-  /** 라벨 기능 켬/끔이 바뀜 (그 판매자의 연결 전부, N4a L-13 9) */
+  /** 라벨 기능 켬/끔이 바뀜 (그 판매자의 연결 전부 — 보조자 연결도 받는다: 메뉴의 라벨 칸을 숨기고 보이는 규칙이 모든 화면에 같아야 한다, N4a L-13 9) */
   publishLabels(sellerId: string, data: Readonly<Record<string, unknown>>): void {
     this.#publishKind(sellerId, { kind: 'labels', data })
   }
@@ -163,6 +178,11 @@ export class StreamHub {
   #publishKind(sellerId: string, notice: GeneratorNotice): void {
     for (const pending of this.#pending) if (pending.sellerId === sellerId) pending.notices.push(notice)
     for (const connection of [...this.#connections]) if (connection.sellerId === sellerId) this.#send(connection, notice)
+  }
+
+  #publishNamed(sellerId: string, notice: GeneratorNotice): void {
+    for (const pending of this.#pending) if (pending.sellerId === sellerId && pending.named) pending.notices.push(notice)
+    for (const connection of [...this.#connections]) if (connection.sellerId === sellerId && connection.named) this.#send(connection, notice)
   }
 
   /** 그 기기 ID를 밝힌 실시간 연결이 지금 열려 있는지 (출력 기기의 "연결됨/끊김", I1) */

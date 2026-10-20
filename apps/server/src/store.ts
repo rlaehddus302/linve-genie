@@ -3,7 +3,7 @@
 // 트랜잭션 안에서는 트랜잭션 객체(tx)를 넘긴다(PGlite는 연결이 하나라 트랜잭션 밖 객체를 쓰면 기다리다 멈춘다).
 import { and, asc, desc, eq, gt, inArray, isNull, like, lt, lte, or, sql } from 'drizzle-orm'
 import type { Db } from './db/database.ts'
-import { accounts, broadcasts, events, loginLimits, outbox, scopes, sellers, sessions, snapshots } from './db/schema.ts'
+import { accounts, broadcasts, chatRaw, events, loginLimits, outbox, scopes, sellers, sessions, snapshots } from './db/schema.ts'
 
 // ── 판매자·계정·세션 ─────────────────────────────────────────────────────
 
@@ -34,7 +34,9 @@ export interface AccountRow {
   readonly passwordHash: string
 }
 
-/** 로그인 아이디로 계정 찾기 (로그인 전이라 판매자를 모른다 — 아이디는 전체에서 유일하다) */
+/**
+ * 로그인 아이디로 계정 찾기 (로그인 전이라 판매자를 모른다 — 아이디는 전체에서 유일하다). 지운 보조자는 없는 아이디와 같다 (AC-I3-62)
+ */
 export async function findAccountByLogin(db: Db, loginId: string): Promise<AccountRow | null> {
   const rows = await db
     .select({
@@ -44,9 +46,86 @@ export async function findAccountByLogin(db: Db, loginId: string): Promise<Accou
       passwordHash: accounts.passwordHash,
     })
     .from(accounts)
-    .where(eq(accounts.loginId, loginId))
+    .where(and(eq(accounts.loginId, loginId), isNull(accounts.deletedAt)))
     .limit(1)
   return rows[0] ?? null
+}
+
+/** 그 아이디의 계정이 있는지 (지운 계정 포함 — 같은 아이디를 다시 만들지 않는다) */
+export async function loginIdTaken(db: Db, loginId: string): Promise<boolean> {
+  const rows = await db.select({ id: accounts.id }).from(accounts).where(eq(accounts.loginId, loginId)).limit(1)
+  return rows.length > 0
+}
+
+// ── 보조자 계정 (SYS-04, AC-I3-60~62) ─────────────────────────────────────
+
+export interface AssistantRow {
+  readonly id: string
+  readonly name: string
+  readonly loginId: string
+  readonly createdAt: Date
+}
+
+/** 판매자의 보조자 (지우지 않은 것, 만든 순서) */
+export async function listAssistants(db: Db, sellerId: string): Promise<AssistantRow[]> {
+  const rows = await db
+    .select({ id: accounts.id, name: accounts.name, loginId: accounts.loginId, createdAt: accounts.createdAt })
+    .from(accounts)
+    .where(and(eq(accounts.sellerId, sellerId), eq(accounts.role, 'ASSISTANT'), isNull(accounts.deletedAt)))
+    .orderBy(asc(accounts.createdAt), asc(accounts.id))
+  return rows.map((row) => ({ ...row, name: row.name ?? '' }))
+}
+
+/** 판매자 행을 잠근다 (같은 판매자의 보조자 만들기를 하나씩 — 5명 한도) */
+export async function lockSeller(db: Db, sellerId: string): Promise<boolean> {
+  const rows = await db.select({ id: sellers.id }).from(sellers).where(eq(sellers.id, sellerId)).for('update')
+  return rows.length > 0
+}
+
+export async function insertAssistant(db: Db, row: { id: string; sellerId: string; loginId: string; passwordHash: string; name: string; now: Date }): Promise<void> {
+  await db.insert(accounts).values({ id: row.id, sellerId: row.sellerId, loginId: row.loginId, passwordHash: row.passwordHash, createdAt: row.now, role: 'ASSISTANT', name: row.name })
+}
+
+/**
+ * 보조자를 지운다 (행은 남기고 지운 시각만 — 이벤트의 조치자 기록은 그대로). 그 계정의 세션을 모두 지우고 그 세션 해시를 돌려준다(실시간 연결 닫기).
+ * 그 판매자의 지우지 않은 보조자가 아니면 null
+ */
+export async function deleteAssistant(db: Db, sellerId: string, accountId: string, now: Date): Promise<string[] | null> {
+  return db.transaction(async (tx) => {
+    const marked = await tx
+      .update(accounts)
+      .set({ deletedAt: now })
+      .where(and(eq(accounts.sellerId, sellerId), eq(accounts.id, accountId), eq(accounts.role, 'ASSISTANT'), isNull(accounts.deletedAt)))
+      .returning({ id: accounts.id })
+    if (marked.length === 0) return null
+    const gone = await tx
+      .delete(sessions)
+      .where(and(eq(sessions.sellerId, sellerId), eq(sessions.accountId, accountId)))
+      .returning({ tokenHash: sessions.tokenHash })
+    return gone.map((row) => row.tokenHash)
+  })
+}
+
+// ── 가게 이름·시작 마법사 (AC-I3-47·50) ────────────────────────────────────
+
+export async function updateSellerName(db: Db, sellerId: string, name: string): Promise<boolean> {
+  const rows = await db.update(sellers).set({ name }).where(eq(sellers.id, sellerId)).returning({ id: sellers.id })
+  return rows.length > 0
+}
+
+export interface WizardRow {
+  readonly status: string
+  readonly step: number | null
+}
+
+export async function findWizard(db: Db, sellerId: string): Promise<WizardRow | null> {
+  const rows = await db.select({ status: sellers.wizardStatus, step: sellers.wizardStep }).from(sellers).where(eq(sellers.id, sellerId)).limit(1)
+  return rows[0] ?? null
+}
+
+export async function updateWizard(db: Db, sellerId: string, wizard: WizardRow): Promise<boolean> {
+  const rows = await db.update(sellers).set({ wizardStatus: wizard.status, wizardStep: wizard.step }).where(eq(sellers.id, sellerId)).returning({ id: sellers.id })
+  return rows.length > 0
 }
 
 // ── 로그인 시도 수 (판매자 데이터 아님 — 있는 아이디·없는 아이디를 같은 질의로 센다, D-074) ──────────
@@ -122,6 +201,10 @@ export interface SessionRow {
   readonly extendedAt: Date
   readonly loginId: string
   readonly sellerName: string
+  /** 계정 역할 (SELLER · ASSISTANT, AC-I3-61) */
+  readonly role: string
+  /** 보조자 이름 (판매자 계정은 null) */
+  readonly accountName: string | null
 }
 
 export async function insertSession(db: Db, row: { tokenHash: string; sellerId: string; accountId: string; now: Date; expiresAt: Date }): Promise<void> {
@@ -135,7 +218,7 @@ export async function insertSession(db: Db, row: { tokenHash: string; sellerId: 
   })
 }
 
-/** 만료되지 않은 세션 (계정·판매자 이름과 함께) */
+/** 만료되지 않은 세션 (계정·판매자 이름과 함께). 지운 계정의 세션은 없는 것과 같다 (AC-I3-62) */
 export async function findSession(db: Db, tokenHashValue: string, now: Date): Promise<SessionRow | null> {
   const rows = await db
     .select({
@@ -146,9 +229,11 @@ export async function findSession(db: Db, tokenHashValue: string, now: Date): Pr
       extendedAt: sessions.extendedAt,
       loginId: accounts.loginId,
       sellerName: sellers.name,
+      role: accounts.role,
+      accountName: accounts.name,
     })
     .from(sessions)
-    .innerJoin(accounts, and(eq(accounts.id, sessions.accountId), eq(accounts.sellerId, sessions.sellerId)))
+    .innerJoin(accounts, and(eq(accounts.id, sessions.accountId), eq(accounts.sellerId, sessions.sellerId), isNull(accounts.deletedAt)))
     .innerJoin(sellers, eq(sellers.id, sessions.sellerId))
     .where(and(eq(sessions.tokenHash, tokenHashValue), gt(sessions.expiresAt, now)))
     .limit(1)
@@ -176,6 +261,16 @@ export async function findScopeId(db: Db, sellerId: string, date: string, rehear
     .where(and(eq(scopes.sellerId, sellerId), eq(scopes.date, date), eq(scopes.rehearsal, rehearsal)))
     .limit(1)
   return rows[0]?.id ?? null
+}
+
+/** 범위 행 (ID·지금 seq·봉인 시각) — 없으면 null */
+export async function scopeRow(db: Db, sellerId: string, date: string, rehearsal = false): Promise<{ id: string; seq: number; sealedAt: Date | null } | null> {
+  const rows = await db
+    .select({ id: scopes.id, seq: scopes.seq, sealedAt: scopes.sealedAt })
+    .from(scopes)
+    .where(and(eq(scopes.sellerId, sellerId), eq(scopes.date, date), eq(scopes.rehearsal, rehearsal)))
+    .limit(1)
+  return rows[0] ?? null
 }
 
 /** 범위 행을 만든다 (이미 있으면 그대로). 범위 ID를 돌려준다 */
@@ -227,6 +322,14 @@ export async function scopeSeqs(db: Db, sellerId: string, rehearsal?: boolean): 
     .from(scopes)
     .where(and(eq(scopes.sellerId, sellerId), gt(scopes.seq, 0), rehearsal === undefined ? undefined : eq(scopes.rehearsal, rehearsal)))
     .orderBy(asc(scopes.date), asc(scopes.rehearsal))
+}
+
+/** 판매자의 범위별 봉인 정보 (범위 목록의 sealAt·sealed) */
+export async function scopeSealRows(db: Db, sellerId: string): Promise<{ date: string; rehearsal: boolean; youtubeChat: boolean; sealedAt: Date | null }[]> {
+  return db
+    .select({ date: scopes.date, rehearsal: scopes.rehearsal, youtubeChat: scopes.youtubeChat, sealedAt: scopes.sealedAt })
+    .from(scopes)
+    .where(eq(scopes.sellerId, sellerId))
 }
 
 export interface BroadcastRow {
@@ -304,13 +407,33 @@ export interface EventRow {
 
 const eventColumns = { seq: events.seq, type: events.type, body: events.body, at: events.at, changed: events.changed, failed: events.failed }
 
-/** 범위의 seq 뒤 이벤트, seq 순 */
+/** 따로 둔 채팅 본문·이름 (AC-Y1-60) — 이벤트와 같은 범위·seq, 같은 판매자 */
+const rawJoin = and(eq(chatRaw.scopeId, events.scopeId), eq(chatRaw.seq, events.seq), eq(chatRaw.sellerId, events.sellerId))
+const rawColumns = { rawNick: chatRaw.nick, rawText: chatRaw.text }
+
+/**
+ * 따로 둔 본문·이름을 이벤트 본문에 다시 합친다 (재생·조회는 Y1 전과 같은 모양을 본다). 따로 둔 값이 없으면(Y1 전 기록·봉인 뒤) 그대로
+ */
+export function mergeRaw(body: string, nick: string | null, text: string | null): string {
+  if (nick === null || text === null) return body
+  const event = JSON.parse(body) as Record<string, unknown>
+  return JSON.stringify({ ...event, nick, text })
+}
+
+function withRaw<T extends { body: string; rawNick: string | null; rawText: string | null }>(row: T): Omit<T, 'rawNick' | 'rawText'> {
+  const { rawNick, rawText, ...rest } = row
+  return { ...rest, body: mergeRaw(row.body, rawNick, rawText) }
+}
+
+/** 범위의 seq 뒤 이벤트, seq 순 (채팅은 따로 둔 본문·이름을 합친 본문) */
 export async function eventsAfter(db: Db, sellerId: string, scopeId: string, seq: number): Promise<EventRow[]> {
-  return db
-    .select(eventColumns)
+  const rows = await db
+    .select({ ...eventColumns, ...rawColumns })
     .from(events)
+    .leftJoin(chatRaw, rawJoin)
     .where(and(eq(events.sellerId, sellerId), eq(events.scopeId, scopeId), gt(events.seq, seq)))
     .orderBy(asc(events.seq))
+  return rows.map(withRaw)
 }
 
 /** 범위의 그 seq 이벤트 (없으면 null) */
@@ -338,6 +461,20 @@ export async function eventByRequestId(db: Db, sellerId: string, requestId: stri
     .where(and(eq(events.sellerId, sellerId), eq(events.requestId, requestId)))
     .limit(1)
   return rows[0] ?? null
+}
+
+/** 그 방송의 이 메시지 ID들 중 이미 기록된 것 (유튜브 수집기의 한 응답, 트랜잭션 안에서) */
+export async function existingChatIds(db: Db, sellerId: string, broadcastId: string, messageIds: readonly string[]): Promise<Set<string>> {
+  const found = new Set<string>()
+  for (let start = 0; start < messageIds.length; start += 500) {
+    const part = messageIds.slice(start, start + 500)
+    const rows = await db
+      .select({ id: events.chatMessageId })
+      .from(events)
+      .where(and(eq(events.sellerId, sellerId), eq(events.chatBroadcast, broadcastId), inArray(events.chatMessageId, [...part])))
+    for (const row of rows) if (row.id !== null) found.add(row.id)
+  }
+  return found
 }
 
 export async function chatEventSeq(db: Db, sellerId: string, broadcastId: string, messageId: string): Promise<number | null> {
@@ -376,10 +513,63 @@ export interface NewEventRow {
   readonly changed: boolean
   readonly failed: boolean
   readonly digest: string
+  /** 채팅이 어디서 왔는지 (채팅만) */
+  readonly chatSource: string | null
+  /** 본문·이름을 chat_raw에 따로 두었는지 */
+  readonly raw: boolean
 }
 
 export async function insertEvents(db: Db, rows: readonly NewEventRow[]): Promise<void> {
-  if (rows.length > 0) await db.insert(events).values([...rows])
+  for (let start = 0; start < rows.length; start += 1000) await db.insert(events).values(rows.slice(start, start + 1000))
+}
+
+export interface ChatRawRow {
+  readonly sellerId: string
+  readonly scopeId: string
+  readonly seq: number
+  readonly nick: string
+  readonly text: string
+}
+
+/** 채팅 본문·이름 (이벤트와 같은 트랜잭션, AC-Y1-60) */
+export async function insertChatRaw(db: Db, rows: readonly ChatRawRow[]): Promise<void> {
+  for (let start = 0; start < rows.length; start += 1000) await db.insert(chatRaw).values(rows.slice(start, start + 1000))
+}
+
+/** 이 범위에 유튜브 수집기 채팅이 있다 (봉인 대상, AC-Y1-61) */
+export async function markYoutubeChat(db: Db, sellerId: string, scopeId: string): Promise<void> {
+  await db
+    .update(scopes)
+    .set({ youtubeChat: true })
+    .where(and(eq(scopes.sellerId, sellerId), eq(scopes.id, scopeId), eq(scopes.youtubeChat, false)))
+}
+
+/** 범위를 봉인한 시각 (봉인하지 않았으면 null) */
+export async function scopeSealedAt(db: Db, sellerId: string, scopeId: string): Promise<Date | null> {
+  const rows = await db
+    .select({ sealedAt: scopes.sealedAt })
+    .from(scopes)
+    .where(and(eq(scopes.sellerId, sellerId), eq(scopes.id, scopeId)))
+    .limit(1)
+  return rows[0]?.sealedAt ?? null
+}
+
+export interface SealInfo {
+  readonly scopeId: string
+  readonly youtubeChat: boolean
+  readonly sealedAt: Date | null
+  readonly ledger: string | null
+  readonly ledgerDigest: string | null
+}
+
+/** 날짜로 고른 범위의 봉인 정보 (범위가 없으면 null) */
+export async function scopeSealInfo(db: Db, sellerId: string, date: string, rehearsal: boolean): Promise<SealInfo | null> {
+  const rows = await db
+    .select({ scopeId: scopes.id, youtubeChat: scopes.youtubeChat, sealedAt: scopes.sealedAt, ledger: scopes.ledger, ledgerDigest: scopes.ledgerDigest })
+    .from(scopes)
+    .where(and(eq(scopes.sellerId, sellerId), eq(scopes.date, date), eq(scopes.rehearsal, rehearsal)))
+    .limit(1)
+  return rows[0] ?? null
 }
 
 export interface NewOutboxRow {
@@ -457,15 +647,17 @@ const historyColumns = {
   failed: events.failed,
 }
 
-/** 이력 조회: 범위의 이벤트, seq 순, after 뒤부터 limit개 (조치자 계정 아이디와 함께) */
+/** 이력 조회: 범위의 이벤트, seq 순, after 뒤부터 limit개 (조치자 계정 아이디와 함께, 채팅은 따로 둔 본문·이름을 합친다) */
 export async function historyRows(db: Db, sellerId: string, scopeId: string, after: number, limit: number): Promise<HistoryRow[]> {
-  return db
-    .select(historyColumns)
+  const rows = await db
+    .select({ ...historyColumns, ...rawColumns })
     .from(events)
     .leftJoin(accounts, and(eq(accounts.id, events.accountId), eq(accounts.sellerId, sellerId)))
+    .leftJoin(chatRaw, rawJoin)
     .where(and(eq(events.sellerId, sellerId), eq(events.scopeId, scopeId), gt(events.seq, after)))
     .orderBy(asc(events.seq))
     .limit(limit)
+  return rows.map(withRaw)
 }
 
 /**
@@ -514,22 +706,24 @@ export async function chatRows(
   if (options.before !== undefined) conditions.push(lt(events.seq, options.before))
   const ascending = options.after !== undefined
   const rows = await db
-    .select({ seq: events.seq, body: events.body, failed: events.failed })
+    .select({ seq: events.seq, body: events.body, failed: events.failed, ...rawColumns })
     .from(events)
+    .leftJoin(chatRaw, rawJoin)
     .where(and(...conditions))
     .orderBy(ascending ? asc(events.seq) : desc(events.seq))
     .limit(options.limit + 1)
   const more = rows.length > options.limit
-  const kept = rows.slice(0, options.limit)
+  const kept = rows.slice(0, options.limit).map(withRaw)
   return { rows: ascending ? kept : kept.reverse(), more }
 }
 
 /** 그 메시지들의 채팅 이벤트 (방송, 메시지 ID로 — 바뀐 메시지를 다시 보낼 때) */
 export async function chatRowsByIds(db: Db, sellerId: string, scopeId: string, keys: readonly { readonly b: string; readonly id: string }[]): Promise<ChatRow[]> {
   if (keys.length === 0) return []
-  return db
-    .select({ seq: events.seq, body: events.body, failed: events.failed })
+  const rows = await db
+    .select({ seq: events.seq, body: events.body, failed: events.failed, ...rawColumns })
     .from(events)
+    .leftJoin(chatRaw, rawJoin)
     .where(
       and(
         eq(events.sellerId, sellerId),
@@ -539,4 +733,5 @@ export async function chatRowsByIds(db: Db, sellerId: string, scopeId: string, k
       ),
     )
     .orderBy(asc(events.seq))
+  return rows.map(withRaw)
 }
