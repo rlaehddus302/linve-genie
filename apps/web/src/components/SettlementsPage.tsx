@@ -6,6 +6,9 @@
 // - 입력 창 머리: "입금 적기 · 홍길동 · 2026년 10월 18일 묶음"과 "최종 · 받은 금액 · 남은 금액". 보내기 전 미리 보기에 입금 상태 변화(코어 settle).
 // - 금액 칸은 원 단위(AC-S06-36), 입금은 1원~100,000,000원(화면만의 오타 막기). 입금 날짜는 적은 때로 남는다(실제 입금일은 메모).
 // - 자세히의 포장 라벨(AC-I1-35): 쪽마다 미리 보기·출력·그림 파일·PDF·재출력 필요. 리허설 범위는 라벨이 없다(AC-I1-36).
+// - 입금 확인(N3, AC-N3-47·48): 입금 확인이 적은 입금 기록은 "자동 입금 확인 · 김영희 · 10/18 21:03"(판매자 확정은 "입금 내역으로 확인 · …"),
+//   되돌림 환불은 "입금 확인 되돌림 · 입금 #12" — 서버의 입금 연결(범위 seq)로 붙이고 메모 글을 읽지 않는다. 아직 되돌리지 않은 입금 확인 기록에는
+//   "입금 확인 되돌리기"(입금 확인 화면과 같은 확인 창). 리허설 범위는 "리허설 묶음은 입금 확인에 쓰지 않아요."이고 연결·되돌리기가 없다.
 import { containsPhoneRun, formatWon, type PaymentStatus } from '@livejjim/core'
 import { useMemo, useRef, useState, type MouseEvent } from 'react'
 import { isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
@@ -22,6 +25,8 @@ import { filterSettlements, paymentChange, previewWith, remainingOf, sortSettlem
 import { useScopeStore } from '../lib/use-store.ts'
 import { useWide } from '../lib/use-wide.ts'
 import { PAYMENT_WORD, SHIPPING_WORD, paymentWord, recordKindWord, signedWon } from '../lib/words.ts'
+import { depositLinkWords } from '../lib/deposit-words.ts'
+import { RevertDialog, type RevertTarget } from './deposit-parts.tsx'
 import { ErrorNote } from './ErrorNote.tsx'
 import { PackingLabels } from './LabelParts.tsx'
 import { AmountField, FieldNote, WriteError, serverProblem, useSender } from './forms.tsx'
@@ -31,6 +36,7 @@ import { ReasonField } from './ReasonField.tsx'
 import { ScopePicker, useScopeChoice } from './ScopePicker.tsx'
 
 export const REHEARSAL_SETTLEMENT = '리허설 — 실제 정산이 아니에요'
+export const REHEARSAL_DEPOSITS = '리허설 묶음은 입금 확인에 쓰지 않아요.'
 export const PAYMENT_DATE_NOTE = '입금 날짜는 적은 때로 남아요. 실제 입금일이 다르면 메모에 적어 주세요.'
 export const REFUND_NOTE = '입금을 잘못 적었으면 같은 금액을 환불로 적어 바로잡아요.'
 export const PHONE_IN_TEXT = '전화번호처럼 보이는 숫자(010-…)가 있어요. 빼고 적어 주세요.'
@@ -57,9 +63,14 @@ export function SettlementsPage({ route, navigate }: { readonly route: ScopeRout
         <ScopePicker route={route} navigate={navigate} days={choice.days} error={choice.error} onRetry={choice.retry} />
       </div>
       {route.rehearsal ? (
-        <p className="rehearsal-banner" role="note">
-          {REHEARSAL_SETTLEMENT}
-        </p>
+        <>
+          <p className="rehearsal-banner" role="note">
+            {REHEARSAL_SETTLEMENT}
+          </p>
+          <p className="hint" role="note">
+            {REHEARSAL_DEPOSITS}
+          </p>
+        </>
       ) : null}
       {scope === null ? (
         choice.days !== null ? <p>아직 판매 기록이 없어요.</p> : null
@@ -129,7 +140,7 @@ function ReadySettlements({ route, navigate, store, snapshot, data }: ReadyProps
           </button>
         </div>
       ) : (
-        <SettlementDetail key={selected.buyer} data={data} names={names} settlement={selected} command={command} onBack={() => open(undefined)} />
+        <SettlementDetail key={selected.buyer} data={data} names={names} settlement={selected} command={command} sync={(seq) => store.sync(seq)} onBack={() => open(undefined)} />
       )}
     </>
   )
@@ -308,6 +319,8 @@ interface DetailProps {
   readonly names: BuyerNames
   readonly settlement: Settlement
   readonly command: Command
+  /** 응답 seq까지 따라잡기 (입금 확인 되돌리기 뒤) */
+  readonly sync: (seq: number) => Promise<void>
   readonly onBack: () => void
 }
 
@@ -326,9 +339,10 @@ export function primaryInput(payment: PaymentStatus): InputKind | null {
   return null
 }
 
-function SettlementDetail({ data, names, settlement, command, onBack }: DetailProps) {
+function SettlementDetail({ data, names, settlement, command, sync, onBack }: DetailProps) {
   const [input, setInput] = useState<InputKind | null>(null)
   const [saved, setSaved] = useState<Saved | null>(null)
+  const [reverting, setReverting] = useState<RevertTarget | null>(null)
   const buyer = data.buyers.get(settlement.buyer)
   const claims = useMemo(() => claimsOf(data, settlement.buyer).filter((claim) => claim.status === 'CONFIRMED'), [data, settlement.buyer])
   const groups = useMemo(() => {
@@ -420,24 +434,60 @@ function SettlementDetail({ data, names, settlement, command, onBack }: DetailPr
         <h3 className="sub-title">기록</h3>
         {settlement.records.length === 0 ? <p>아직 기록이 없어요.</p> : null}
         <ul className="plain-list stack-tight">
-          {settlement.records.map((record) => (
-            <li key={record.seq} className="claim-row">
-              <p>
-                <strong>{recordKindWord(record.kind, record.amount)}</strong>{' '}
-                {record.kind === 'shipping'
-                  ? `${SHIPPING_WORD[record.mode ?? 'DEFAULT']}${record.mode === 'FIXED' && record.amount !== null ? ` ${formatWon(record.amount)}` : ''}`
-                  : record.amount === null
-                    ? ''
-                    : formatWon(Math.abs(record.amount))}
-                {record.reason !== null ? ` · ${record.reason}` : ''}
-                {record.memo !== null ? ` · ${record.memo}` : ''}
-                {` · 기록한 때 ${kstShort(record.at)}`}
-                {record.buyer !== settlement.buyer ? ` · ${names.name(record.buyer)}` : ''}
-              </p>
-            </li>
-          ))}
+          {settlement.records.map((record) => {
+            // 입금 확인이 적은 기록 (서버의 범위 seq 연결 — 메모 글을 읽지 않는다). 리허설 범위에는 없다
+            const link = data.rehearsal ? undefined : data.depositLinks.get(record.seq)
+            return (
+              <li key={record.seq} className="claim-row">
+                <p>
+                  <strong>{recordKindWord(record.kind, record.amount)}</strong>{' '}
+                  {record.kind === 'shipping'
+                    ? `${SHIPPING_WORD[record.mode ?? 'DEFAULT']}${record.mode === 'FIXED' && record.amount !== null ? ` ${formatWon(record.amount)}` : ''}`
+                    : record.amount === null
+                      ? ''
+                      : formatWon(Math.abs(record.amount))}
+                  {link !== undefined ? (
+                    ` · ${depositLinkWords(link)}`
+                  ) : (
+                    <>
+                      {record.reason !== null ? ` · ${record.reason}` : ''}
+                      {record.memo !== null ? ` · ${record.memo}` : ''}
+                    </>
+                  )}
+                  {` · 기록한 때 ${kstShort(record.at)}`}
+                  {record.buyer !== settlement.buyer ? ` · ${names.name(record.buyer)}` : ''}
+                </p>
+                {link !== undefined && link.kind === 'payment' && !link.reverted ? (
+                  <div>
+                    <button
+                      type="button"
+                      className="button"
+                      onClick={() => {
+                        setSaved(null)
+                        setReverting({ no: link.deposit.no, buyerName: names.name(settlement.buyer), date: settlement.date, amount: link.deposit.amount })
+                      }}
+                    >
+                      입금 확인 되돌리기
+                    </button>
+                  </div>
+                ) : null}
+              </li>
+            )
+          })}
         </ul>
       </section>
+
+      {reverting !== null ? (
+        <RevertDialog
+          target={reverting}
+          onClose={() => setReverting(null)}
+          onDone={(result) => {
+            setReverting(null)
+            setSaved({ text: '입금 확인을 되돌렸어요. 같은 금액의 환불 기록을 적었어요.', tone: 'success' })
+            if (result.refund !== undefined && result.refund.date === data.date) void sync(result.refund.seq)
+          }}
+        />
+      ) : null}
 
       {input === 'payment' ? <PaymentDialog {...dialogProps} /> : null}
       {input === 'shipping' ? <ShippingDialog {...dialogProps} /> : null}
