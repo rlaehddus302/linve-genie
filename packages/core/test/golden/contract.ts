@@ -5,7 +5,7 @@
 import { containsPhoneRun, looksLikePhoneId } from '@livejjim/core'
 import { YamlFloat } from './yaml.ts'
 
-export const SUITES = ['chat', 'amount', 'korean-number', 'quick-input'] as const
+export const SUITES = ['chat', 'amount', 'korean-number', 'quick-input', 'voice-extract'] as const
 export type SuiteName = (typeof SUITES)[number]
 
 /** suite별 settings 키 → DOMAIN_RULES 키 */
@@ -14,7 +14,18 @@ export const SUITE_SETTINGS: Readonly<Record<SuiteName, Readonly<Record<string, 
   amount: { unit: 'price.unit' },
   'korean-number': {},
   'quick-input': { unit: 'price.unit' },
+  'voice-extract': { maxNumber: 'claim.maxNumber' },
 }
+
+/**
+ * voice-extract의 품종 사전 (README 파서 suite 표, P2 D-209): DOMAIN_RULES 설정표 키가 아니라 이 suite의 입력이다.
+ * 문자열 목록(0개 이상), 생략하면 빈 목록. 기본 사전은 쓰지 않는다.
+ */
+export const VOICE_DICTIONARY_KEY = 'dictionary'
+
+/** voice-extract out 키 (README: confidence 필수, 실제 결과는 정확히 네 키) */
+export const VOICE_EXTRACT_KEYS = ['no', 'name', 'price', 'confidence'] as const
+export const VOICE_CONFIDENCES = ['HIGH', 'LOW'] as const
 
 export const QUICK_INPUT_ERRORS = ['PRICE_MISSING', 'NUMBER_MISSING', 'EMPTY', 'NUMBER_INVALID', 'PRICE_TOO_LOW'] as const
 
