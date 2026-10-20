@@ -6,7 +6,7 @@ import { META_ENDPOINTS, instagramSettings } from '../src/instagram/config.ts'
 import { MetaClient } from '../src/instagram/meta.ts'
 import { formatLog } from '../src/log.ts'
 import { blockedConnections } from './network-guard.ts'
-import { callback, connectedShop, igWorld, linkLive, liveBroadcast, register, webhookTarget, type IgWorld } from './instagram-support.ts'
+import { callback, connectedShop, igWorld, linkLive, liveBroadcast, register, SHORT_SEND_TIMEOUT, webhookTarget, type IgWorld } from './instagram-support.ts'
 import { ORIGIN, client, rid } from './support.ts'
 
 let ig: IgWorld | null = null
@@ -29,7 +29,8 @@ async function dbTexts(w: IgWorld): Promise<string> {
 
 describe('AC-N2-60 로그·응답·저장에 남기지 않는 것', () => {
   it('연결·웹훅·DM·오류 주입 시나리오 전체의 로그에 본문·username·IGSID·댓글 ID·미디어 ID·토큰·비밀값·서명·웹훅 본문이 없다', async () => {
-    ig = await igWorld()
+    // 보내기 시간 초과(HANG)의 로그까지 본다 (SA-N2-007 — 보내기만 짧게)
+    ig = await igWorld({ timeouts: SHORT_SEND_TIMEOUT })
     const w = ig
     const { seller, account } = await connectedShop(w, { username: 'leak.shop.zz', consent: true })
     const b = await liveBroadcast(w, seller)

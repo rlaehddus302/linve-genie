@@ -8,6 +8,14 @@ import { addSeller, client, fakeClock, newWorld, rid, type FakeClock, type Selle
 
 export const REDIRECT_URI = 'https://api.livejjim.test/api/instagram/callback'
 
+/**
+ * 시험의 메타 호출 시간 제한 (SA-N2-007). 운영값(보내기 10초·대화 조회 30초)보다 짧지만, 부하가 걸린 병렬 실행에서도 정상 호출이 시간 초과로
+ * 거짓 실패하지 않을 만큼 둔다. 시간 초과 자체를 보는 시험(가짜 서버가 응답하지 않음 — HANG·HANG_AFTER)만 SHORT_SEND_TIMEOUT으로 보내기를 줄인다.
+ */
+export const TEST_TIMEOUTS: InstagramTimeouts = { requestMs: 5000, sendMs: 5000, confirmMs: 5000 }
+/** 보내기 시간 초과를 직접 보는 시험용 — 대화 조회·그 밖 호출은 TEST_TIMEOUTS 그대로 */
+export const SHORT_SEND_TIMEOUT: Partial<InstagramTimeouts> = { sendMs: 400 }
+
 export interface IgWorld extends TestServer {
   readonly fake: FakeMeta
   readonly clock: FakeClock
@@ -23,7 +31,7 @@ export async function igWorld(
   const fake = await FakeMeta.start({ now: () => clock.now() })
   const world = await newWorld({
     clock,
-    instagram: options.configured === false ? null : fake.settings({ redirectUri: REDIRECT_URI, login: options.login ?? 'FACEBOOK', timeouts: { sendMs: 400, confirmMs: 400, requestMs: 2000, ...options.timeouts } }),
+    instagram: options.configured === false ? null : fake.settings({ redirectUri: REDIRECT_URI, login: options.login ?? 'FACEBOOK', timeouts: { ...TEST_TIMEOUTS, ...options.timeouts } }),
     dmAutoRun: false,
     // 수집 상태 알림은 묶어서 보낸다 (운영 1초 — 시험은 25밀리초로 줄인다)
     collectionIntervalMs: 25,

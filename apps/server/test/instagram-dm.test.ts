@@ -5,7 +5,7 @@ import { applyEvent, initEngine, listClaims, listEffects, type EngineEvent, type
 import { afterEach, describe, expect, it } from 'vitest'
 import { DM_LINE_MAX, dmLine, dmText } from '../src/instagram/text.ts'
 import { startServer } from './support.ts'
-import { connectedShop, connectInstagram, igWorld, linkLive, liveBroadcast, register, sendComments, type IgWorld, type Shop } from './instagram-support.ts'
+import { connectedShop, connectInstagram, igWorld, linkLive, liveBroadcast, register, sendComments, SHORT_SEND_TIMEOUT, TEST_TIMEOUTS, type IgWorld, type Shop } from './instagram-support.ts'
 import { addSeller, client, rid, type TestServer } from './support.ts'
 
 let ig: IgWorld | null = null
@@ -566,7 +566,8 @@ describe('AC-N2-47 다시 시도', () => {
 
 describe('AC-N2-48 타임아웃·재시작 — 두 번 보내지 않음', () => {
   it('(가) DM은 받지만 응답 없음 → 대화 조회로 SENT, DM 1', async () => {
-    const w = await world()
+    // 보내기 시간 초과를 직접 본다 (SA-N2-007 — 그 밖의 시험은 TEST_TIMEOUTS)
+    const w = await world({ timeouts: SHORT_SEND_TIMEOUT })
     const s = await setup(w)
     w.fake.fail('send', 'HANG_AFTER')
     await comment(w, s, '1301', '1', 'pink.mom', '15')
@@ -578,7 +579,8 @@ describe('AC-N2-48 타임아웃·재시작 — 두 번 보내지 않음', () => 
   })
 
   it('(나) 받지 않고 응답 없음 → 확인에 없음 → 다시 시도로 DM 1', async () => {
-    const w = await world()
+    // 보내기 시간 초과를 직접 본다 (SA-N2-007 — 그 밖의 시험은 TEST_TIMEOUTS)
+    const w = await world({ timeouts: SHORT_SEND_TIMEOUT })
     const s = await setup(w)
     w.fake.fail('send', 'HANG')
     await comment(w, s, '1302', '1', 'pink.mom', '15')
@@ -606,7 +608,7 @@ describe('AC-N2-48 타임아웃·재시작 — 두 번 보내지 않음', () => 
     for (let i = 0; i < 100 && w.fake.dms.length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 10))
     expect(w.fake.dms).toHaveLength(1)
     w.server.close()
-    const restarted = startServer(w.database, w.masterKey, { clock: w.clock, instagram: w.fake.settings({ redirectUri: 'https://api.livejjim.test/api/instagram/callback', timeouts: { sendMs: 400, confirmMs: 400 } }), dmAutoRun: false })
+    const restarted = startServer(w.database, w.masterKey, { clock: w.clock, instagram: w.fake.settings({ redirectUri: 'https://api.livejjim.test/api/instagram/callback', timeouts: TEST_TIMEOUTS }), dmAutoRun: false })
     extra.push(restarted)
     await restarted.server.instagram.dms.drain()
     expect(w.fake.count('conversation')).toBe(0)
@@ -619,7 +621,8 @@ describe('AC-N2-48 타임아웃·재시작 — 두 번 보내지 않음', () => 
   })
 
   it('(라) 응답 없음 + 대화 조회 실패 → UNCONFIRMED, 자동으로 다시 보내지 않음', async () => {
-    const w = await world()
+    // 보내기 시간 초과를 직접 본다 (SA-N2-007 — 그 밖의 시험은 TEST_TIMEOUTS)
+    const w = await world({ timeouts: SHORT_SEND_TIMEOUT })
     const s = await setup(w)
     w.fake.fail('send', 'HANG')
     w.fake.fail('conversation', 'SERVER_ERROR')
@@ -673,7 +676,8 @@ describe('AC-N2-50 수동 재전송', () => {
   })
 
   it('취소된 효과 → SKIPPED("확정이 풀린 판매라 보내지 않아요."), 그 댓글에 SENT가 있으면 ONE_REPLY, UNCONFIRMED는 다시 보낼 수 있다', async () => {
-    const w = await world()
+    // 보내기 시간 초과를 직접 본다 (SA-N2-007 — 그 밖의 시험은 TEST_TIMEOUTS)
+    const w = await world({ timeouts: SHORT_SEND_TIMEOUT })
     const s = await setup(w, { consent: false })
     const api = client(w, s.seller.cookie)
     await comment(w, s, '1502', '1', 'pink.mom', '15')
@@ -748,7 +752,7 @@ describe('AC-N2-51 실행기 하나·DM 목록·실시간 알림', () => {
     const w = await world()
     const s = await setup(w, { products: Array.from({ length: 10 }, (_, i) => [i + 1, `상품${String(i + 1)}`, 1000] as [number, string, number]) })
     for (let i = 1; i <= 10; i++) await comment(w, s, String(1600 + i), String(i), `buyer${String(i)}`, String(i))
-    const second = startServer(w.database, w.masterKey, { clock: w.clock, instagram: w.fake.settings({ redirectUri: 'https://api.livejjim.test/api/instagram/callback', timeouts: { sendMs: 400, confirmMs: 400 } }), dmAutoRun: false })
+    const second = startServer(w.database, w.masterKey, { clock: w.clock, instagram: w.fake.settings({ redirectUri: 'https://api.livejjim.test/api/instagram/callback', timeouts: TEST_TIMEOUTS }), dmAutoRun: false })
     extra.push(second)
     await Promise.all([w.server.instagram.dms.drain(), second.server.instagram.dms.drain(), w.server.instagram.dms.drain()])
     expect(w.fake.dms.map((dm) => dm.commentId).sort()).toEqual(Array.from({ length: 10 }, (_, i) => String(1601 + i)).sort())
