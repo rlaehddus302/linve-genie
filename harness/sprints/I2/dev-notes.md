@@ -150,6 +150,8 @@ LIVEJJIM_PGLITE_DIR=… (또는 DATABASE_URL=…) LIVEJJIM_BACKUP_DIR=… \
 | `apps/server/test/api.test.ts` "범위 조회: 값은 코어 조회 함수의 결과와 같다" | 칸 11개 정확히 | + `packing`(품목 있는 묶음마다 `포장 대기`, 하나 이상) | AC-I2-33 — 날짜 보기의 포장 상태 |
 | `apps/server/test/commands.test.ts` 마이그레이션 | 테이블 9개 | 10개(`packing_records`) — 스키마와 같다는 단언은 그대로 | 포장 기록 표 |
 
+| `apps/server/test/changes.test.ts` "무작위 이벤트 순서 … 전체(a) + 증분 = 전체(지금)" | 시험 시간 한도 30초(프로젝트 기본) | 120초 — 단언·사례 수(25)는 그대로 | 정답 성질 시험이고 시간 기준이 아니다. 혼자 5초쯤인데 같은 기계에서 다른 작업 폴더의 검증 3개가 함께 돌 때 30초를 넘어 시간 초과로만 실패했다(날짜 보기에 더한 `packing` 칸의 몫은 재 보니 약 3%) |
+
 판매대장 "배송 칸 빈칸"을 단언하던 문서 패키지 시험(`ledger.test.ts`의 `cells[10]?.type === 'Null'`·G202 표의 빈 배송 칸)은 그대로 통과한다 — `shipping` 입력을 넘기지 않으면 빈칸이다. 서버 경로의 대장은 `포장 대기` 등으로 채운다.
 
 ## 결정과 이유 (규칙 문장으로 정해지지 않은 구현 선택)
@@ -178,3 +180,9 @@ LIVEJJIM_PGLITE_DIR=… (또는 DATABASE_URL=…) LIVEJJIM_BACKUP_DIR=… \
 - 상품 목록 가져오기: 미리 보기 응답의 `rows` 중 `error`가 없는 줄의 `{ no, name, price }`를 그대로 등록에 보낸다(요청 번호는 다시 누를 때 같은 값). 거절(409 `IMPORT_CHANGED`)이면 같은 글·파일로 미리 보기를 다시 받는다. 파일은 base64로 싣는다.
 - 판매대장 창의 방송 목록은 기존 `GET /api/broadcasts`에서 `rehearsal === false`이고 기간 안인 것.
 - 오류는 늘 `{ error: { code, message, problems? } }` — 화면은 `message`를 그대로, 칸 오류는 `problems[].field` 옆에.
+
+## 검증 (`E2E_PORT_OFFSET=800 pnpm verify`, 마지막 실행)
+
+typecheck·lint·golden(파일 26 · 파서 469 · 엔진 125 · 통과 594)·adversarial(799)·coverage 통과. 실패는 이 노트를 쓴 기계에서 다른 작업 폴더(main·i1·i3)의 검증이 함께 돌던 때다(부하 평균 20 넘음).
+- test: `apps/server/test/changes.test.ts` 덮기 시험 시간 초과(위 교체로 한도를 늘렸다), `packages/voice/test/perf.test.ts` p99 50ms(부하 — device 영역, 바꾸지 않았다). 앞 실행에서 한 번 `apps/server/test/sms-contract.test.ts`의 "DB 전체에 '5555'가 없다"가 실패했다 — 무작위 ID·요약값(hex)에 '5555'가 우연히 든 경우로 I2 변경과 상관없다(덤프에 새로 든 값은 `sellers.shop` `{}`뿐).
+- e2e 4개 실패(`s06/attacks-r1.spec.ts` 결과 카드 2·`s06/sms.spec.ts` AC-S06-14·81·`s06b/names.spec.ts` 받은 시각까지 같은 두 문자찜): 모두 받은 시각 `00:00:0x`을 적는 시험이다. KST 정오가 지나면 그 시각이 "내일"(지금보다 늦음)로 풀려 화면이 "받은 시각(내일 00:00:01)이 지금보다 늦어요. 이대로 넣을까요?"를 묻고 시험이 그 창을 모른 채 결과 카드를 기다린다(error-context 스냅샷으로 확인). 하루 중 시각에 기대는 기존 시험(test-e2e 영역)이고 서버 변경과 상관없다 — BASE 검증은 오전에 돌아 통과했다. `names.spec.ts`의 "채널 끝 4자리까지 같은 두 홍길동"은 한 실행에서 함께 실패했지만 혼자 돌리면 통과한다.
