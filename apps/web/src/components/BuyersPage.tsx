@@ -143,7 +143,9 @@ function ReadyBuyers({ route, navigate, store, snapshot, data, queue }: ReadyPro
   })
 
   let routeDialog: ReactNode = null
-  if (selected !== undefined && merge !== null && route.product !== undefined) {
+  if (snapshot.sealed) {
+    // 봉인한 날짜는 볼 수만 있다 — 주소에 합치기 창(merge·into·product)이 남아 있어도 열지 않는다 (AC-I3-41)
+  } else if (selected !== undefined && merge !== null && route.product !== undefined) {
     routeDialog = (
       <ProductWinnersDialog
         api={host.api}

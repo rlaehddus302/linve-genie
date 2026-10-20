@@ -204,6 +204,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     return () => controller.dispose()
   }, [b, store, broadcast.date, broadcast.rehearsal])
   const voiceSnapshot = useSyncExternalStore(voice?.subscribe ?? noSubscribe, voice?.getSnapshot ?? idleVoice)
+  // 봉인한 날짜(AC-I3-41)는 등록할 수 없다 — 음성 켜기를 숨기고, 켜 둔 채 봉인되면 끈다(카드는 남고 자동 확정은 멈춘다)
+  useEffect(() => {
+    if (sealed) voice?.turnOff()
+  }, [sealed, voice])
 
   // 5초 대기 중인 방송자 조치가 있으면 다른 화면으로 가기 전에 묻는다 (AC-S06-01, D-083)
   useLeaveGuard(queue)
@@ -831,7 +835,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
                 방송 끝내기
               </button>
             )}
-            {voice !== null ? <VoiceToggle voice={voice} snapshot={voiceSnapshot} ready={settings !== null} /> : null}
+            {voice !== null && !sealed ? <VoiceToggle voice={voice} snapshot={voiceSnapshot} ready={settings !== null} /> : null}
           </div>
         </div>
         {endError !== null ? <ErrorNote error={endError} /> : null}
