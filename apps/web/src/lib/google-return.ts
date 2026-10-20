@@ -5,6 +5,14 @@ const KEY = 'livejjim.googleReturn'
 
 export type GoogleReturn = 'wizard'
 
+type Assign = (url: string) => void
+let assign: Assign = (url) => window.location.assign(url)
+
+/** 최상위 이동을 바꾼다 (화면 단위 시험 — jsdom은 다른 주소로 이동하지 못한다). null이면 기본 */
+export function setTopLevelNavigation(fn: Assign | null): void {
+  assign = fn ?? ((url) => window.location.assign(url))
+}
+
 /** 승인 주소로 최상위 이동 (from = 돌아온 뒤 갈 화면) */
 export function goToGoogle(authorizeUrl: string, from: GoogleReturn | null = null): void {
   try {
@@ -13,7 +21,7 @@ export function goToGoogle(authorizeUrl: string, from: GoogleReturn | null = nul
   } catch {
     // 저장소를 쓸 수 없으면 설정 화면으로 돌아온다 (결과 문장은 그대로 보인다)
   }
-  window.location.assign(authorizeUrl)
+  assign(authorizeUrl)
 }
 
 /** 돌아온 뒤 갈 화면 (한 번 읽으면 지운다) */

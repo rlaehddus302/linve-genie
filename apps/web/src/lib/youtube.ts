@@ -167,10 +167,12 @@ export function collectorWarning(collector: CollectorView | null, retryingLong: 
   const retrying = collector.status === 'RETRYING' && retryingLong
   if (!stopped && !retrying) return null
   const detail = collector.reasonMessage ?? collector.statusMessage
+  const reconnect = collector.reason === 'RECONNECT' || collector.reason === 'NOT_CONNECTED'
   return {
     message: `${STOP_WARNING_PREFIX} — ${detail}`,
-    reconnect: collector.reason === 'RECONNECT' || collector.reason === 'NOT_CONNECTED',
-    restartable: collector.restartable,
+    reconnect,
+    // 다시 연결해야 하는 멈춤은 연결을 고치면 저절로 이어받는다 — 할 일 버튼은 "다시 연결하기" 하나만 (헷갈리지 않게)
+    restartable: collector.restartable && !reconnect,
   }
 }
 

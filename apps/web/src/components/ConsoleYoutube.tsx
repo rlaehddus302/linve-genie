@@ -605,7 +605,7 @@ function CollectorStatus({ writable, onUnlink }: { readonly writable: boolean; r
       )}
       {writable ? (
         <div className="row">
-          {collector?.restartable === true ? (
+          {collector?.restartable === true && collector.reason !== 'RECONNECT' && collector.reason !== 'NOT_CONNECTED' ? (
             <button type="button" className="button" disabled={busy} onClick={() => void restart()}>
               채팅 다시 받기
             </button>

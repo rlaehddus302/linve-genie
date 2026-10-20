@@ -165,9 +165,10 @@ function SettingsSection({ title, focus = false, children }: { readonly title: s
   const heading = useRef<HTMLHeadingElement>(null)
   const id = useId()
   useEffect(() => {
-    if (!focus) return
-    heading.current?.scrollIntoView({ block: 'start' })
-    heading.current?.focus()
+    const element = heading.current
+    if (!focus || element === null) return
+    if (typeof element.scrollIntoView === 'function') element.scrollIntoView({ block: 'start' })
+    element.focus()
   }, [focus])
   return (
     <section className="card stack settings-section" aria-labelledby={id}>
