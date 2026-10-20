@@ -4,6 +4,7 @@
 // changesWindow(증분 조회 기준점 수), generatorTimer·generatorSpeed(리허설 생성기 타이머·시험 속도), hostActionDelayMs(화면의 방송자 조치 대기 — E2E 기동만 줄인다),
 // testPrinter(시험 모드 신호 — 화면이 시험용 프린터를 켠다. E2E 기동만 켠다, 운영 기동은 production.ts가 늘 끈다 — I1 L-11 15).
 // I1: 출력 기록(PrintService)을 기록 경로의 같은 트랜잭션(txHook)에 잇고, 실시간 알림(print)·출력 기기 실시간 연결 여부를 허브에 잇는다.
+// N4a: 라벨 기능 켬/끔 알림(labels)을 허브에 잇는다.
 import { readFileSync } from 'node:fs'
 import { applyEvent } from '@livejjim/core'
 import type { Hono } from 'hono'
@@ -290,6 +291,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     clock,
     log,
     publish: (sellerId, data) => hub.publishPrint(sellerId, data),
+    publishLabels: (sellerId, data) => hub.publishLabels(sellerId, data),
     deviceLive: (sellerId, deviceId) => hub.deviceLive(sellerId, deviceId),
   })
   const printService = print

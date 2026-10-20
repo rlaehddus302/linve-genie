@@ -1,4 +1,5 @@
-// 앱 (AC-S05-01·02, AC-S06-01, AC-S06b-42·43, AC-I1-20, I2 AC-I2-02·35): 로그인 확인 → 메뉴(방송·문자찜 입력·구매자·정산·포장·라벨·설정)와 그 화면.
+// 앱 (AC-S05-01·02, AC-S06-01, AC-S06b-42·43, AC-I1-20, AC-N4a-10, I2 AC-I2-02·35): 로그인 확인 → 메뉴(방송·문자찜 입력·구매자·정산·포장·라벨·설정)와 그 화면.
+// 라벨 기능이 꺼져 있으면 메뉴 "라벨"이 숨고 라벨 화면은 안내만 보인다(N4a L-13 9).
 // 로그인한 동안 출력 기록·이 기기의 프린터(PrintProvider)는 앱 전체에 하나다 — 화면을 옮겨도 출력 기기의 출력이 이어진다(AC-I1-23).
 // 설정에서 가게 이름을 저장하면 화면 위 가게 이름이 바로 바뀐다.
 // 쓰는 중에 세션이 끝나면(어떤 API든 401) 로그인 화면으로 가고, 다시 로그인하면 보던 화면(주소·검색값 그대로)으로 돌아간다.
@@ -20,6 +21,7 @@ import { ConsolePage } from './components/ConsolePage.tsx'
 import { ErrorNote } from './components/ErrorNote.tsx'
 import { HomePage } from './components/HomePage.tsx'
 import { LabelsPage } from './components/LabelsPage.tsx'
+import { RefusalReset } from './components/LabelsOff.tsx'
 import { LoginPage } from './components/LoginPage.tsx'
 import { Modal } from './components/Modal.tsx'
 import { PackingPage } from './components/PackingPage.tsx'
@@ -271,6 +273,7 @@ export function App() {
   const shell = (
     <>
       <TopBar shopName={me.seller.name} assistant={assistant} onLogout={() => void logout()} route={route} navigate={navigate} />
+      {assistant ? null : <RefusalReset screen={routePath(route)} />}
       {logoutError !== null ? <ErrorNote error={logoutError} /> : null}
       {assistant && route.name !== 'sms' && !isPublicRoute(route) ? <AssistantBlocked navigate={navigate} /> : <Screen route={route} navigate={navigate} me={me} onRenamed={renamed} />}
       {leaving !== null ? (
@@ -340,7 +343,7 @@ function Screen({ route, navigate, me, onRenamed }: ScreenProps) {
     case 'packing':
       return <PackingPage route={route} navigate={navigate} />
     case 'labels':
-      return <LabelsPage />
+      return <LabelsPage navigate={navigate} />
     case 'settings':
       return <SettingsRoute route={route} navigate={navigate} me={me} onRenamed={onRenamed} />
     case 'start':

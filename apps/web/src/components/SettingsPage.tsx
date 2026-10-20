@@ -1,5 +1,6 @@
 // 설정 (SPEC §7 화면 8, D-I3-08·D-I3-10, AC-I3-44~47·01~05·10~14·37·64).
-// 칸: 가게 · 판매 규칙(자주 쓰는 칸 + "더 보기") · 배송비 · 구매 감사 메시지 · 유튜브 · 보조자 · 그 밖. 칸마다 "저장"(바뀐 키만).
+// 칸: 가게 · 판매 규칙(자주 쓰는 칸 + "더 보기") · 배송비 · 구매 감사 메시지 · 라벨 · 유튜브 · 보조자 · 그 밖. 칸마다 "저장"(바뀐 키만).
+// - "라벨" 칸은 라벨 기능 켜기/끄기·바꾼 기록이다(N4a AC-N4a-10, D-N4a-05) — 저장 버튼 없이 누르면 바로 바뀐다(끌 때는 묻는다).
 // - `/settings/youtube`는 같은 화면에서 유튜브 칸이 보이게(스크롤·포커스) 연다. 구글에서 돌아온 결과(`?youtube=`)는 한 번 보이고 주소에서 지운다.
 // - 끝나지 않은 실제 방송이 있으면 위에 "진행 중인 방송에는 바뀐 규칙이 적용되지 않아요."
 // - 저장하지 않은 값이 있으면 다른 화면으로 가기 전에 같은 떠나기 창이 묻는다.
@@ -25,6 +26,7 @@ import { hasChannel } from '../lib/youtube.ts'
 import { AssistantsSection } from './AssistantsSection.tsx'
 import { DownloadButton } from './downloads.tsx'
 import { ErrorNote, RequestError } from './ErrorNote.tsx'
+import { LabelSwitchSection } from './LabelSwitchSection.tsx'
 import { RuleField, SaveRow, settingProblem, useRuleForm } from './RuleFields.tsx'
 import { ThanksSettings, useThanksForm } from './ThanksSettings.tsx'
 import { CallbackResult, useQuota, useYoutubeConnection, YoutubeStatus } from './YoutubeConnection.tsx'
@@ -138,6 +140,7 @@ export function SettingsPage({ route, navigate, shopName, onRenamed }: SettingsP
         <ShopForm shopName={shopName} onRenamed={onRenamed} />
       </SettingsSection>
       {settings !== null ? <RuleSections settings={settings} onSaved={setSettings} youtube={youtube} /> : null}
+      <LabelSwitchSection />
       <SettingsSection title="유튜브" focus={route.section === 'youtube' && (settings !== null || loadError !== null)}>
         <CallbackResult code={result} />
         <YoutubeStatus handle={youtube} quota={quota.quota} navigate={navigate} place="settings" />
@@ -362,7 +365,7 @@ export function ShopForm({ shopName, onRenamed }: { readonly shopName?: string; 
         </section>
       )}
       <div className="row">
-        <button type="submit" className="button button-primary" disabled={busy}>
+        <button type="submit" className="button" disabled={busy}>
           저장
         </button>
         {busy ? <span role="status">저장하는 중…</span> : null}

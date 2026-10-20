@@ -216,6 +216,8 @@ function TemplateEditor({ kind }: { readonly kind: Kind }) {
       setSaved(response.message)
     } catch (error) {
       if (!isApiError(error)) throw error
+      // 라벨 기능이 꺼져 있다는 거절(오래된 화면): 그 문장을 남기고 화면을 꺼진 상태로 다시 불러온다 (AC-N4a-20)
+      api?.store.noteRefusal(error)
       setSaveError(error)
     } finally {
       setBusy(false)
@@ -364,7 +366,8 @@ function TemplateEditor({ kind }: { readonly kind: Kind }) {
           </ul>
         ) : null}
         <div className="row">
-          <button type="button" className="button button-primary" disabled={blocked || busy} onClick={() => void save()}>
+          {/* 보통 버튼: 라벨 화면의 주 버튼은 프린터 단계·멈춤 띠의 지금 할 일 하나뿐이다 (AC-N4a-21, D-N4a-06) */}
+          <button type="button" className="button" disabled={blocked || busy} onClick={() => void save()}>
             {busy ? '저장하는 중…' : '라벨 설정 저장'}
           </button>
           <button type="button" className="button" onClick={reset}>

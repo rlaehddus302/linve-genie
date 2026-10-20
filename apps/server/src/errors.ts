@@ -85,6 +85,8 @@ export type ErrorCode =
   | 'NOT_CONNECTED'
   | 'RECONNECT_NEEDED'
   | 'UNAVAILABLE'
+  // N4a 라벨 기능 끄기 (LABEL_RULES L-13 5)
+  | 'LABELS_OFF'
   // I2 API (harness/sprints/I2/dev-notes.md)
   | 'NO_ITEMS'
   | 'AMOUNT_MISMATCH'

@@ -6,6 +6,8 @@
 // - 출력 중에 앱이 닫히면 그 시도는 다음에 열 때 끊김으로 알린다(찍혔는지 모른다 — 한 장 더 나오는 편이 빠지는 것보다 낫다, D-P1-09).
 // - 테스트 인쇄는 서버를 거치지 않는다(기록 없음). 그 기기가 대기열 작업을 출력하는 중이면 할 수 없다.
 // - 출력 기기는 화면 꺼짐 막기를 요청한다(지원할 때). 안 되면 화면이 안내한다.
+// - 라벨 기능이 꺼져 있거나 켬/끔을 아직 모르면 받지 않는다(N4a, L-13 5·6, AC-N4a-17·18). 꺼지면(labels 알림·대기열 요약·받기의 LABELS_OFF)
+//   새 받기를 멈추고, 이미 받은 한 장은 마저 찍어 결과를 알린다. 꺼진 동안은 화면 꺼짐 막기도 풀어 둔다(출력하지 않는다).
 import type { LabelBitmap } from '@livejjim/label'
 import {
   PRINTER_MESSAGES,
@@ -25,7 +27,7 @@ import { isApiError, post, withRetry, type ApiError } from '../api/client.ts'
 import type { ClaimedJob, QueueSummary } from '../api/print-types.ts'
 import { DENSITY_MAX, DENSITY_MIN, saveAttempt, saveDensity, saveDeviceName, savedAttempt, savedDensity } from './device.ts'
 import type { RenderOutcome } from './label-render.ts'
-import type { PrintStore } from './print-store.ts'
+import { LABELS_OFF, type PrintStore } from './print-store.ts'
 
 /** 연결 방법: 브라우저(블루투스·USB 선) 또는 시험용 프린터 */
 export type PrinterMethod = ConnectionMethod | 'test'
@@ -388,6 +390,8 @@ export class PrinterStation {
     return (
       !this.#stopped &&
       queue !== null &&
+      // 라벨 기능이 켜져 있다고 안 뒤에만 (끔·모름이면 받지 않는다)
+      queue.labelsEnabled === true &&
       this.isMine(queue) &&
       queue.pause === null &&
       // 출력 그만하기를 기다리는 중에는 새 장을 받지 않는다 — 단 받기 응답을 잃어 이 기기가 쥔 장이 없을 때는 그 장의 결과를 정하러 받는다(서버는 새 장을 주지 않고 비운다)
@@ -429,6 +433,9 @@ export class PrinterStation {
           if (error.code === 'PRINT_NOT_DEVICE') {
             this.#lostClaim = false
             void this.#options.store.reload()
+          } else if (error.code === LABELS_OFF) {
+            // 꺼진 것을 늦게 알았다: 받기를 멈춘다 (다시 켜지면 알림이 다시 깨운다)
+            this.#options.store.noteLabelsOff()
           } else if (error.transient) {
             // 응답을 잃었다: 서버가 그 장을 이 기기의 출력 중으로 적었을 수 있다
             this.#lostClaim = true
@@ -550,8 +557,13 @@ export class PrinterStation {
 
   // ── 화면 꺼짐 막기 (D-I1-03) ───────────────────────────────────────────
 
+  /** 화면 꺼짐 막기가 필요한가: 이 기기가 출력 기기이고 라벨 기능이 켜져 있다 */
+  #wantWake(): boolean {
+    return this.#mine && this.#options.store.queue?.labelsEnabled === true
+  }
+
   #syncWake(): void {
-    if (this.#mine) {
+    if (this.#wantWake()) {
       if (this.#wake !== null || this.#wakeAsking) return
       const request = this.#options.requestWakeLock
       if (request === undefined || request === null) {
@@ -563,7 +575,7 @@ export class PrinterStation {
       request().then(
         (sentinel) => {
           this.#wakeAsking = false
-          if (!this.#mine || this.#stopped) {
+          if (!this.#wantWake() || this.#stopped) {
             void sentinel.release()
             return
           }
@@ -571,7 +583,7 @@ export class PrinterStation {
           this.#set({ wake: 'on' })
           sentinel.addEventListener('release', () => {
             if (this.#wake === sentinel) this.#wake = null
-            if (this.#mine) this.#set({ wake: 'unsupported' })
+            if (this.#wantWake()) this.#set({ wake: 'unsupported' })
           })
         },
         () => {

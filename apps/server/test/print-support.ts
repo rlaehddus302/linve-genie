@@ -31,6 +31,8 @@ export interface Overview {
     waiting: number
     printing: number
     discard: number
+    /** 라벨 기능 켬/끔 (N4a) */
+    labelsEnabled: boolean
   }
   readonly jobs: PrintedJob[]
   readonly discard: PrintedJob[]
