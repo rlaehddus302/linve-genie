@@ -94,7 +94,13 @@ await adapter.print(image)                // fake.printed에 작업 바이트가
 ### 수정 라운드 2
 - SA-N1-007·GATE-N1-VERIFY(coverage 단계만 부하로 5초 시간 초과): 원인은 내 영역(`packages/label`·`packages/printer`·`packages/documents`·`packages/voice`) 밖이다. coverage 단계는 `packages/core/test/**`만 돌리고, 시간 제한이 빠진 곳은 루트 `vitest.coverage.config.ts`다. D-902(오케스트레이터 결정 "무거운 속성 시험은 시간 제한만 늘린다(코어 30초…)")가 `packages/core/vitest.config.ts`에만 들어가고 coverage 설정에는 빠졌다. 이 파일은 coverage 게이트의 기준값(라인·분기 95%)을 쥔 검증 게이트 설정이라 D-027대로 오케스트레이터 몫으로 보고 고치지 않았다. 다른 트랙(N2·N3·N5 등)도 같은 설정을 쓰므로 한 트랙 브랜치보다 main에서 한 번 고치는 편이 충돌이 없다.
 - **오케스트레이터 요청**: `vitest.coverage.config.ts`의 `test`에 `testTimeout: 30_000`(코어 단위 설정과 같은 값, D-902)을 더한다. 기준값·include는 그대로 둔다 — 시험 내용·커버리지 기준은 약해지지 않고, 걸린 시간은 `pnpm perf`가 따로 잰다.
-- 이번 라운드에 바꾼 코드는 없다(d7a3c16과 같은 코드). verify는 부하가 낮을 때 다시 돌렸다(아래).
+- 이번 라운드에 바꾼 코드는 없다(d7a3c16과 같은 코드).
+
+### pnpm verify 결과 — 수정 라운드 2 (72291b3, `E2E_PORT_OFFSET=1000 pnpm verify`, load avg 15~72 — 다른 트랙 verify 동시 실행)
+- 통과 5: typecheck(설정 15 · 파일 481) · lint(0/0) · golden(589) · adversarial(파일 50 · 테스트 899) · e2e(파일 42 · 265).
+- 실패 2 — 모두 부하로 인한 시간 초과, 이 스프린트가 바꾸지 않은 곳:
+  - test: `apps/server` 속성 시험 둘(`test/changes.test.ts` AC-S05-61, `test/chat-messages.test.ts` AC-S05-20)이 60초 제한에 걸렸다(load 72 순간). 바로 그 두 파일만 다시 돌리니 load 46~50에서도 통과(파일 2 · 테스트 15, 19초).
+  - coverage: 위 "수정 라운드 2"의 원인 — `packages/core` 속성 시험·골든 어댑터 6건이 기본 5초에 걸렸다. `pnpm coverage`만 다시 돌려도 load 47에서 1건이 5초에 걸린다. 같은 설정에 D-902 값(`--testTimeout=30000`)만 붙이면 load 42~46에서 파일 37 · 테스트 1411 모두 통과, 라인 100% · 분기 99.66%.
 
 ### pnpm verify 결과 — 수정 라운드 1 (df0f71b, `E2E_PORT_OFFSET=1000 pnpm verify`)
 - 통과 6: typecheck(설정 15 · 파일 481) · lint(0/0) · test(파일 137 · 테스트 3339) · golden(589) · adversarial(파일 50 · 테스트 899 — TD-N1-001·002 포함) · e2e(파일 42 · 265).
