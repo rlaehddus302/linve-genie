@@ -48,6 +48,12 @@ describe('AC-I3-93 E2E 서버 시험용 선택', () => {
     expect(((await get(base, '/api/me', cookie)).seller as { name: string }).name).toBe(first.body.shopName)
   })
 
+  it('시험 계정(e2e-shop)은 시작 마법사를 마친 계정이다 — 기존 E2E가 로그인 뒤 방송 목록을 쓴다 (dev-web I3, AC-I3-50)', async () => {
+    const { base, e2e } = await started()
+    const cookie = await login(base, e2e.account.loginId, e2e.account.password)
+    expect(await get(base, '/api/wizard', cookie)).toEqual({ wizard: { status: 'DONE', step: null } })
+  })
+
   it('POST /_e2e/dates: 봉인 7일 전 날짜(sealAt이 6일 뒤)·봉인 예정만 있는 날짜·봉인된 날짜, POST /_e2e/seal: 지금 봉인', async () => {
     const { base, e2e } = await started()
     const cookie = await login(base, e2e.account.loginId, e2e.account.password)

@@ -274,6 +274,9 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
   const account = readE2eAccount()
   const created = await createSellerAccount(database.db, Buffer.from(masterKey, 'base64'), account, options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost })
   if (!created.ok) throw new Error(created.message)
+  // 시험 계정(e2e-shop)은 시작 마법사를 마친 계정이다 — 기존 E2E가 로그인 뒤 방송 목록을 그대로 쓰게(I3 화면은 실제 방송이 없는 "처음" 계정에 마법사를
+  // 저절로 연다, AC-I3-50). 마법사 시험은 POST /_e2e/sellers의 새 판매자(처음)로 한다 (dev-web, I3 dev-notes)
+  await server.service.setWizard(created.sellerId, { status: 'DONE' })
   const fill = options.fill === undefined ? null : await fillScope(server, created.sellerId, options.fill)
   if (fakeGoogle !== null) server.start()
   const http = createNodeServer({ app: e2eControl(server, database, Buffer.from(masterKey, 'base64'), options.passwordCost) })
