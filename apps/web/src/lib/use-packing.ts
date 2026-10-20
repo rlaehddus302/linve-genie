@@ -3,21 +3,34 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { get, isApiError, type ApiError } from '../api/client.ts'
 import type { PackingEntry, PackingList, Settlement } from '../api/types.ts'
-import type { ScopeData } from './scope-data.ts'
+import { settlementKey, type ScopeData } from './scope-data.ts'
 
 /**
- * 포장·확인서에 닿는 범위 자료의 모양: 그날 묶음(구매자·품목·입금 상태)·품목의 품종·구매자 표시 이름·방송 제목.
- * 이 값이 같으면 포장 목록·확인서 그림도 같다(채팅만 들어온 변경은 다시 받지 않는다).
+ * 포장·확인서에 닿는 범위 자료의 모양: 그날 묶음(구매자·품목·상품 합계·입금 상태)·품목의 품종·구매자 표시 이름·방송 제목.
+ * 이 값이 같으면 포장 목록(품목의 가격 스냅샷 포함)·확인서 그림도 같다(채팅만 들어온 변경은 다시 받지 않는다).
+ * 상품 합계 = 품목 가격 스냅샷의 합 — 입금 전 찜까지 가격을 바꾸면(UNPAID_CLAIMS) 품목은 그대로여도 합계가 바뀐다 (SA-I2-002).
  */
 export function closingSignature(data: ScopeData): string {
   const parts: unknown[] = []
   for (const settlement of data.settlements.values()) {
     if (settlement.date !== data.date) continue
     const buyer = data.buyers.get(settlement.buyer)
-    parts.push([settlement.buyer, buyer?.display ?? '', settlement.payment, settlement.items, settlement.items.map((key) => data.products.get(key)?.name ?? '')])
+    parts.push([settlement.buyer, buyer?.display ?? '', settlement.payment, settlement.items, settlement.subtotal, settlement.items.map((key) => data.products.get(key)?.name ?? '')])
   }
   for (const broadcast of data.broadcasts.values()) parts.push([broadcast.id, broadcast.title])
   return JSON.stringify(parts)
+}
+
+/**
+ * 그 묶음의 포장 라벨에 찍히는 값의 모양 (L-9, AC-I2-34·39, LBL-03): 품목(방송·번호)·방송 제목·상품 합계·구매자(문자 구매자인지, 표시 이름).
+ * 이 값이나 가게 이름이 바뀌면 라벨 그림을 새로 받는다 — 화면 그림 = "그림 저장" 파일 = 지금 라벨.
+ * 범위 자료에서 바로 정한다(포장 목록을 다시 받기를 기다리지 않는다). 다른 묶음·채팅·입금만 바뀌면 같다.
+ */
+export function packingLabelSignature(data: ScopeData, buyer: string): string {
+  const settlement = data.settlements.get(settlementKey({ buyer, date: data.date }))
+  const info = data.buyers.get(buyer)
+  const titles = [...data.broadcasts.values()].map((broadcast) => [broadcast.id, broadcast.title])
+  return JSON.stringify([settlement?.items ?? null, settlement?.subtotal ?? null, info?.kind ?? null, info?.display ?? null, titles])
 }
 
 /**

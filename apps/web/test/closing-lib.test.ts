@@ -7,8 +7,11 @@ import { ledgerPath } from '../src/components/LedgerDialog.tsx'
 import { accountPreview, backupStopped } from '../src/components/SettingsPage.tsx'
 import { sizeWords } from '../src/lib/files.ts'
 import { kstDateTimeLong } from '../src/lib/kst.ts'
-import { PACKING_TONE, changeNotice, changeWords, diffItems, inFilter, nextBuyer, packingWords, sameKeys, sortEntries, spansBroadcasts } from '../src/lib/packing.ts'
+import { PACKING_TONE, changeNotice, changeWords, checklistSpansBroadcasts, diffItems, inFilter, nextBuyer, packingWords, sameKeys, sortEntries, spansBroadcasts } from '../src/lib/packing.ts'
 import { parseRoute, routePath } from '../src/lib/router.ts'
+import { closingSignature, packingLabelSignature } from '../src/lib/use-packing.ts'
+import { chat, dataOf, register } from './engine.ts'
+import { DATE } from './support.ts'
 
 const item = (no: number, patch: Partial<PackingItem> = {}): PackingItem => ({ key: `b1/${String(no)}`, broadcast: 'b1', title: '1부', no, name: '핑크프릴', price: 10000, ...patch })
 const entry = (buyer: string, name: string, patch: Partial<PackingEntry> = {}): PackingEntry => ({
@@ -78,9 +81,54 @@ describe('바뀐 품목 (AC-I2-37)', () => {
     expect(changeWords({ add: [items[1] as PackingItem], remove: [] }, true)).toBe('새로 담을 것: 2부 31번')
   })
 
+  it('지금 품목은 1부 7번뿐이고 2부 7번이 빠지면 방송 제목을 붙인다 — "뺄 것: 2부 7번" (TD-I2-002)', () => {
+    const now = [item(7)]
+    const removed = { key: 'b2/7', broadcast: 'b2', title: '2부', no: 7 }
+    expect(spansBroadcasts(now)).toBe(false)
+    expect(spansBroadcasts([removed])).toBe(false)
+    const change = { add: [], remove: [removed] }
+    expect(checklistSpansBroadcasts(now, change)).toBe(true)
+    expect(changeNotice(change, checklistSpansBroadcasts(now, change), false)).toBe('구매 내역이 바뀌었어요 — 뺄 것: 2부 7번')
+    // 한 방송 안에서만 바뀌면 그대로 "뺄 것: 28번"
+    expect(checklistSpansBroadcasts(now, { add: [], remove: [{ key: 'b1/28', broadcast: 'b1', title: '1부', no: 28 }] })).toBe(false)
+    // 새로 담을 것이 다른 방송이어도
+    expect(checklistSpansBroadcasts(now, { add: [item(7, { key: 'b2/7', broadcast: 'b2', title: '2부' })], remove: [] })).toBe(true)
+  })
+
   it('상품 키 집합 비교', () => {
     expect(sameKeys([item(15), item(28)], [item(28), item(15)])).toBe(true)
     expect(sameKeys([item(15)], [item(15), item(28)])).toBe(false)
+  })
+})
+
+describe('다시 받는 때 (AC-I2-39·34, LBL-03, SA-I2-002)', () => {
+  const base = [register(15, '핑크프릴', 10000), register(28, '청보석', 5000), chat('m1', 'c1', '가나', '15'), chat('m2', 'c2', '다라', '28')]
+
+  it('포장 라벨: 입금 전 찜까지 가격을 바꿔 상품 합계가 바뀌면 달라진다 — 품목 키·품종은 그대로여도', () => {
+    const before = dataOf(base)
+    const after = dataOf([...base, { type: 'product.update', b: 'b1', no: 15, price: 12000, applyTo: 'UNPAID_CLAIMS' }])
+    expect(after.settlements.get(JSON.stringify(['c1', DATE]))?.subtotal).toBe(12000)
+    expect(packingLabelSignature(after, 'c1')).not.toBe(packingLabelSignature(before, 'c1'))
+    // 포장 목록(품목의 가격 스냅샷)도 다시 받는다
+    expect(closingSignature(after)).not.toBe(closingSignature(before))
+    // 새 찜에만(NEW_ONLY) 바꾸면 그 묶음의 합계·라벨은 그대로
+    const newOnly = dataOf([...base, { type: 'product.update', b: 'b1', no: 15, price: 12000 }])
+    expect(packingLabelSignature(newOnly, 'c1')).toBe(packingLabelSignature(before, 'c1'))
+  })
+
+  it('포장 라벨: 구매자 표시 이름(닉네임)이 바뀌면 달라진다, 그 묶음과 상관없는 변경(다른 구매자 입금·채팅)에는 그대로', () => {
+    const before = dataOf(base)
+    const renamed = dataOf([...base, chat('m3', 'c1', '가나다', '안녕하세요')])
+    expect(renamed.buyers.get('c1')?.display).toBe('가나다')
+    expect(packingLabelSignature(renamed, 'c1')).not.toBe(packingLabelSignature(before, 'c1'))
+    const other = dataOf([...base, { type: 'settlement.payment', buyer: 'c2', date: DATE, amount: 5000 }, chat('m4', 'c2', '다라', '감사해요')])
+    expect(packingLabelSignature(other, 'c1')).toBe(packingLabelSignature(before, 'c1'))
+  })
+
+  it('포장 라벨: 품목·방송 제목이 바뀌면 달라진다', () => {
+    const before = dataOf(base)
+    expect(packingLabelSignature(dataOf([...base, register(31, '금황', 8000), chat('m5', 'c1', '가나', '31')]), 'c1')).not.toBe(packingLabelSignature(before, 'c1'))
+    expect(packingLabelSignature(dataOf([...base, { type: 'host.cancel', b: 'b1', no: 15, buyer: 'c1', reason: '취소 요청' }]), 'c1')).not.toBe(packingLabelSignature(before, 'c1'))
   })
 })
 

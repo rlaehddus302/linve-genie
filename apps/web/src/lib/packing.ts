@@ -79,6 +79,14 @@ export interface ItemChange {
   readonly remove: readonly PackingRemoved[]
 }
 
+/**
+ * 체크리스트·바뀐 품목 안내에 방송 제목을 붙이는가 (TD-I2-002): 지금 품목과 새로 담을 것·뺄 것을 합친 집합이 방송 둘 이상에 걸치면 붙인다.
+ * 1부 7번을 남기고 2부 7번이 빠지면 지금 품목도 뺄 것도 한 방송씩이지만, 제목 없이 "뺄 것: 7번"이면 어느 7번인지 모른다.
+ */
+export function checklistSpansBroadcasts(items: readonly Pick<PackingItem, 'broadcast'>[], change: ItemChange): boolean {
+  return spansBroadcasts([...items, ...change.add, ...change.remove])
+}
+
 /** 처음 본 품목(base)과 지금 품목의 차이 — 새로 담을 것(지금만 있음)·뺄 것(처음만 있음) */
 export function diffItems(base: readonly PackingItem[], current: readonly PackingItem[]): ItemChange {
   const before = new Set(base.map((item) => item.key))

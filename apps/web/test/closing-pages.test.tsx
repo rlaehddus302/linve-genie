@@ -72,7 +72,9 @@ class FakePacking {
         status,
         invoice: record.phase === 'SHIPPED' ? record.invoice : null,
         add: changed ? items.filter((x) => !record.packed.includes(x.key)) : [],
-        remove: changed ? record.packed.filter((key) => !now.has(key)).map((key) => ({ key, broadcast: 'b1', title: '1부', no: Number(key.split('/')[1]) })) : [],
+        remove: changed
+          ? record.packed.filter((key) => !now.has(key)).map((key) => ({ key, broadcast: key.split('/')[0] ?? '', title: titles.get(key.split('/')[0] ?? '') ?? '', no: Number(key.split('/')[1]) }))
+          : [],
       })
     }
     return out
@@ -260,6 +262,110 @@ describe('체크리스트·포장 완료 (AC-I2-36)', () => {
     await flush(10)
     expect(packing.records.get('c1')?.packed).toEqual(['b1/15', 'b1/28', 'b1/31'])
     expect(checklist().textContent).toContain('포장 완료로 적었어요.')
+  })
+
+  it('결과와 "다음 구매자"는 상품 줄 아래 버튼 줄 바로 위·안 — 저장되면 포커스가 "다음 구매자"(주 버튼)로 간다 (UX-I2-001)', async () => {
+    await openPacking('c1')
+    const region = checklist()
+    for (const name of ['15번 핑크프릴', '28번 청보석']) fireEvent.click(within(region).getByRole('checkbox', { name }))
+    fireEvent.click(within(region).getByRole('button', { name: '포장 완료' }))
+    await flush(10)
+    const done = within(checklist()).getByText('포장 완료로 적었어요.')
+    const actions = within(checklist()).getByRole('group', { name: '포장·배송' })
+    const lastItem = within(checklist()).getByRole('checkbox', { name: '28번 청보석' })
+    // 문서 순서: 마지막 상품 줄 → 결과 → 버튼 줄
+    expect(lastItem.compareDocumentPosition(done) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(done.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const next = within(actions).getByRole('button', { name: '다음 구매자' })
+    expect(document.activeElement).toBe(next)
+    expect(next.className).toContain('button-primary')
+    expect(within(actions).getByRole('button', { name: '배송 완료로 적기' }).className).not.toContain('button-primary')
+  })
+
+  it('다음 구매자가 없으면 포커스는 결과 안내로, 배송 완료로 적기가 주 버튼 · 창을 닫은 뒤 결과 안내로 (UX-I2-001)', async () => {
+    const engine = new EngineServer([register(15, '핑크프릴', 10000), chat('m1', 'c1', '가나', '15')])
+    const packing = new FakePacking(engine)
+    vi.stubGlobal('fetch', engine.server.fetch)
+    render(<PackingHarness initial={{ name: 'packing', date: DATE, buyer: 'c1' }} />)
+    await flush(15)
+    fireEvent.click(within(checklist()).getByRole('checkbox', { name: '15번 핑크프릴' }))
+    fireEvent.click(within(checklist()).getByRole('button', { name: '포장 완료' }))
+    await flush(10)
+    expect(within(checklist()).queryByRole('button', { name: '다음 구매자' })).toBeNull()
+    expect(document.activeElement?.textContent).toBe('포장 완료로 적었어요.')
+    expect(within(checklist()).getByRole('button', { name: '배송 완료로 적기' }).className).toContain('button-primary')
+    // 포장 완료 취소 → 확인 창에서 보내면 창이 닫히고 결과 안내로
+    fireEvent.click(within(checklist()).getByRole('button', { name: '포장 완료 취소' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: '포장 완료 취소' })).getByRole('button', { name: '포장 완료 취소하기' }))
+    await flush(10)
+    expect(packing.records.get('c1')).toBeUndefined()
+    expect(document.activeElement?.textContent).toBe('포장 완료를 취소했어요.')
+  })
+
+  it('보냈는데 그 사이 품목이 바뀌어 거절되면 버튼 줄 위에도 "적지 않았어요" — 휴대폰에서 누른 자리에 결과가 있다 (UX-I2-001)', async () => {
+    const { engine } = await openPacking('c1')
+    for (const name of ['15번 핑크프릴', '28번 청보석']) fireEvent.click(within(checklist()).getByRole('checkbox', { name }))
+    engine.writeQuietly({ type: 'host.cancel', b: 'b1', no: 28, buyer: 'c1', reason: '시청자 요청' })
+    fireEvent.click(within(checklist()).getByRole('button', { name: '포장 완료' }))
+    await flush(15)
+    const result = within(checklist()).getByText('그 사이 구매 내역이 바뀌어 포장 완료로 적지 않았어요. 바뀐 품목을 담고 다시 눌러 주세요.')
+    expect(result.compareDocumentPosition(within(checklist()).getByRole('group', { name: '포장·배송' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(checklist().textContent).toContain('구매 내역이 바뀌었어요 — 뺄 것: 28번')
+  })
+
+  it('방송이 다른 같은 번호: 1부 7번은 남고 2부 7번이 빠지면 "뺄 것: 2부 7번"과 체크리스트의 방송 제목 (TD-I2-002)', async () => {
+    const events = [register(7, '핑크프릴', 10000, 'b1'), register(7, '라울', 8000, 'b2'), chat('m1', 'c1', '가나', '7', 'b1'), chat('m2', 'c1', '가나', '7', 'b2')]
+    // 포장 대기 — 연 동안 빠짐 (처음 품목과 비교)
+    const engine = new EngineServer(events)
+    new FakePacking(engine)
+    vi.stubGlobal('fetch', engine.server.fetch)
+    render(<PackingHarness initial={{ name: 'packing', date: DATE, buyer: 'c1' }} />)
+    await flush(15)
+    engine.write({ type: 'host.cancel', b: 'b2', no: 7, buyer: 'c1', reason: '취소 요청' })
+    await flush(20)
+    let region = checklist()
+    expect(region.textContent).toContain('구매 내역이 바뀌었어요 — 뺄 것: 2부 7번')
+    expect(within(region).getByRole('heading', { level: 3, name: '1부' })).toBeDefined()
+    expect(within(region).getByRole('group', { name: '1부' })).toBeDefined()
+    cleanup()
+    // 포장 완료 뒤 빠짐 = 포장 다시 확인 (서버가 준 뺄 것)
+    const after = new EngineServer([...events, { type: 'host.cancel', b: 'b2', no: 7, buyer: 'c1', reason: '취소 요청' }])
+    const packing = new FakePacking(after)
+    packing.records.set('c1', { phase: 'PACKED', packed: ['b1/7', 'b2/7'], invoice: null })
+    vi.stubGlobal('fetch', after.server.fetch)
+    render(<PackingHarness initial={{ name: 'packing', date: DATE, buyer: 'c1' }} />)
+    await flush(15)
+    region = checklist()
+    expect(region.textContent).toContain('포장 다시 확인')
+    expect(region.textContent).toContain('구매 내역이 바뀌었어요 — 뺄 것: 2부 7번')
+    expect(within(region).getByRole('heading', { level: 3, name: '1부' })).toBeDefined()
+  })
+})
+
+describe('포장 라벨 (AC-I2-39·34, LBL-03)', () => {
+  const pngCalls = (engine: EngineServer) => engine.server.callsTo('GET', /\/packing-label\.png\?/).length
+
+  it('연 동안 입금 전 찜까지 가격이 바뀌어 상품 합계가 달라지면 라벨 그림을 새로 받는다 (SA-I2-002)', async () => {
+    const { engine } = await openPacking('c1')
+    const before = pngCalls(engine)
+    expect(before).toBe(1)
+    engine.write({ type: 'product.update', b: 'b1', no: 15, price: 12000, applyTo: 'UNPAID_CLAIMS' })
+    await flush(20)
+    expect(pngCalls(engine)).toBe(before + 1)
+    // 포장 목록(품목의 가격 스냅샷)도 다시 받았다
+    expect(engine.server.callsTo('GET', /\/packing$/).length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('구매자 표시 이름(닉네임)이 바뀌면 새로 받고, 그 묶음과 상관없는 변경(다른 구매자 입금·같은 이름의 채팅)에는 받지 않는다', async () => {
+    const { engine } = await openPacking('c1')
+    const before = pngCalls(engine)
+    engine.write(chat('m8', 'c1', '가나', '감사해요'))
+    engine.write({ type: 'settlement.payment', buyer: 'c2', date: DATE, amount: 3000 })
+    await flush(20)
+    expect(pngCalls(engine)).toBe(before)
+    engine.write(chat('m9', 'c1', '가나다', '안녕하세요'))
+    await flush(20)
+    expect(pngCalls(engine)).toBe(before + 1)
   })
 })
 

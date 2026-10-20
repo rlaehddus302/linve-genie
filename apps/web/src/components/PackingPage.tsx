@@ -7,7 +7,10 @@
 //   누르면 체크한 품목과 함께 바로 보낸다. 체크는 이 기기 화면에만 있다(저장하지 않는다 — 새로고침하면 처음부터).
 // - 품목이 바뀌면 새 품목은 체크 안 됨으로 더하고 빠진 품목은 지우고 남은 체크는 그대로, "구매 내역이 바뀌었어요 — 새로 담을 것: … · 뺄 것: …".
 // - 배송 완료(송장번호 선택)·송장번호 고치기·배송 완료 취소·포장 완료 취소. 확인 창의 처음 포커스는 "닫기". 같은 요청은 같은 요청 번호로 다시 보낸다.
-// - 포장 라벨: 쪽마다 서버 그림(대체 글 "포장 라벨 1/2쪽")·"그림 저장"(PNG)·"라벨 PDF". 품목이 바뀌면 새로 받고, 받기 전엔 저장을 잠근다.
+// - 명령 결과("포장 완료로 적었어요."·오류)와 "다음 구매자"는 버튼 줄 바로 위·안에 — 휴대폰에서 맨 아래 "포장 완료"를 누른 자리에서 보인다.
+//   저장되면 포커스를 "다음 구매자"(없으면 결과 안내)로 옮긴다. 포장 완료 직후엔 "다음 구매자"가 주 버튼이다 (UX-I2-001).
+// - 포장 라벨: 쪽마다 서버 그림(대체 글 "포장 라벨 1/2쪽")·"그림 저장"(PNG)·"라벨 PDF". 라벨에 찍히는 값(품목·방송 제목·상품 합계·구매자 이름·가게 이름)이
+//   바뀌면 새로 받고, 받기 전엔 저장을 잠근다 (SA-I2-002).
 //   "B1로 출력"·프린터 연결은 없다(I1을 합친 뒤 — D-I2-07).
 import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { get, getFile, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
@@ -20,19 +23,19 @@ import {
   PACKING_FILTERS,
   PACKING_TONE,
   changeNotice,
+  checklistSpansBroadcasts,
   diffItems,
   inFilter,
   isChanged,
   nextBuyer,
   packingWords,
   sortEntries,
-  spansBroadcasts,
   type ItemChange,
   type PackingFilter,
 } from '../lib/packing.ts'
 import { routePath, type Navigate, type PackingRoute } from '../lib/router.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
-import { useClosingSignature, usePackingList } from '../lib/use-packing.ts'
+import { packingLabelSignature, useClosingSignature, usePackingList } from '../lib/use-packing.ts'
 import { useScopeStore } from '../lib/use-store.ts'
 import { useWide } from '../lib/use-wide.ts'
 import { PAYMENT_WORD } from '../lib/words.ts'
@@ -46,6 +49,7 @@ export const ALL_CHECKED_HINT = '모두 담으면 포장 완료를 누를 수 �
 export const PACKED_NOTICE = '포장 완료로 적었어요.'
 export const NO_LABEL_ITEMS = '담을 상품이 없어 포장 라벨을 만들 수 없어요.'
 export const LABEL_LOADING = '포장 라벨을 만드는 중이에요…'
+export const ITEMS_CHANGED_RESULT = '그 사이 구매 내역이 바뀌어 포장 완료로 적지 않았어요. 바뀐 품목을 담고 다시 눌러 주세요.'
 
 // ── 날짜 고르기 (실제 범위만) ────────────────────────────────────────────
 
@@ -176,7 +180,7 @@ function ReadyPacking({ route, navigate, store, snapshot, data }: ReadyProps) {
         date={data.date}
         entry={selected}
         name={nameOf(selected)}
-        shopVersion={snapshot.shopVersion}
+        labelSignature={`${packingLabelSignature(data, selected.buyer)}|${String(snapshot.shopVersion)}`}
         showBack={!wide}
         onBack={() => open(undefined)}
         onSent={packing.replace}
@@ -273,7 +277,8 @@ interface ChecklistProps {
   readonly date: string
   readonly entry: PackingEntry
   readonly name: string
-  readonly shopVersion: number
+  /** 포장 라벨에 찍히는 값(L-9)과 가게 이름의 모양 — 바뀌면 라벨 그림을 새로 받는다 */
+  readonly labelSignature: string
   readonly showBack: boolean
   readonly onBack: () => void
   /** 명령 응답(거절 응답 포함)의 지금 상태로 목록 한 줄을 바꾼다 */
@@ -332,20 +337,28 @@ function usePackingCommand(date: string, buyer: string, onSent: (entry: PackingE
   return { busy, error, send, clearError: () => setError(null) }
 }
 
-function PackingChecklist({ date, entry, name, shopVersion, showBack, onBack, onSent, next, onNext }: ChecklistProps) {
+function PackingChecklist({ date, entry, name, labelSignature, showBack, onBack, onSent, next, onNext }: ChecklistProps) {
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set())
   /** 비교 기준: 연 때의 품목(포장·포장 취소가 저장되면 그때의 품목) */
   const [base, setBase] = useState<readonly PackingItem[]>(entry.items)
   const [sent, setSent] = useState<Sent | null>(null)
   const [ask, setAsk] = useState<Ask>(null)
   const command = usePackingCommand(date, entry.buyer, onSent)
-  const multi = spansBroadcasts(entry.items)
   const keys = entry.items.map((item) => item.key)
   const done = keys.filter((key) => checked.has(key)).length
   const allChecked = keys.length > 0 && done === keys.length
   const change: ItemChange = isChanged(entry.status) ? { add: entry.add, remove: entry.remove } : entry.status === '포장 대기' ? diffItems(base, entry.items) : { add: [], remove: [] }
   const changed = change.add.length > 0 || change.remove.length > 0
+  // 방송 제목: 지금 품목과 바뀐 품목을 합쳐 방송이 둘 이상이면 안내와 체크리스트 모두에 붙인다 (1부 7번·2부 7번 — TD-I2-002)
+  const multi = checklistSpansBroadcasts(entry.items, change)
   const canPack = entry.status === '포장 대기' || entry.status === '포장 다시 확인'
+  /** 포장 완료를 저장한 뒤 "다음 구매자" — 상태가 그대로 포장 완료면 주 버튼(배송 완료로 적기는 보조), 그 사이 품목이 바뀌었으면 보조 */
+  const nextBuyerId = sent !== null && sent.packed ? next : null
+  const nextFirst = nextBuyerId !== null && entry.status === '포장 완료'
+  const nextButton = useRef<HTMLButtonElement>(null)
+  const result = useRef<HTMLDivElement>(null)
+  /** 명령이 저장되면 창이 닫힌 뒤 한 번 포커스를 옮긴다 */
+  const focusAfterSend = useRef(false)
 
   const toggle = (key: string) =>
     setChecked((set) => {
@@ -357,12 +370,21 @@ function PackingChecklist({ date, entry, name, shopVersion, showBack, onBack, on
 
   const run = async (body: { readonly action: PackingAction; readonly items?: readonly string[]; readonly invoice?: string | null }) => {
     setSent(null)
-    const result = await command.send(body)
-    if (result === null) return false
-    if (body.action === 'pack' || body.action === 'unpack') setBase(result.entry.items)
+    const reply = await command.send(body)
+    if (reply === null) return false
+    if (body.action === 'pack' || body.action === 'unpack') setBase(reply.entry.items)
+    focusAfterSend.current = true
     setSent({ text: SENT_TEXT[body.action], packed: body.action === 'pack' })
     return true
   }
+
+  // 저장되면 누른 자리 근처의 다음 할 일로: "다음 구매자", 없으면 결과 안내 (누른 버튼이 사라져 포커스가 문서 처음으로 가지 않게, 휴대폰은 그 자리가 화면 안으로)
+  useEffect(() => {
+    if (!focusAfterSend.current || ask !== null) return
+    focusAfterSend.current = false
+    const target = nextButton.current ?? result.current
+    target?.focus()
+  }, [sent, ask])
 
   const pack = () => {
     if (!allChecked) return
@@ -372,6 +394,8 @@ function PackingChecklist({ date, entry, name, shopVersion, showBack, onBack, on
   // 거절(그 사이 품목이 바뀜)은 바뀐 품목 안내로 보인다 — 같은 글을 두 번 보이지 않게 오류 문장은 뺀다
   // 창(배송 완료·확인)이 열려 있으면 오류는 그 창 안에만 보인다
   const showError = command.error !== null && ask === null && !(command.error.code === 'ITEMS_CHANGED' && changed)
+  // 그때는 버튼 옆에 "적지 않았어요"만 짧게 (바뀐 품목 안내는 체크리스트 위에 있다 — 휴대폰에서 누른 자리에 결과가 없지 않게)
+  const itemsChangedResult = command.error !== null && ask === null && command.error.code === 'ITEMS_CHANGED' && changed
   const groups = useMemo(() => {
     const out: { broadcast: string; title: string; items: PackingItem[] }[] = []
     for (const item of entry.items) {
@@ -403,20 +427,9 @@ function PackingChecklist({ date, entry, name, shopVersion, showBack, onBack, on
 
       {changed ? (
         <p className="notice" role="status" data-tone="warning">
-          {changeNotice(change, multi || spansBroadcasts([...change.add, ...change.remove]), entry.status === '배송 뒤 바뀜')}
+          {changeNotice(change, multi, entry.status === '배송 뒤 바뀜')}
         </p>
       ) : null}
-      {sent !== null ? (
-        <div className="notice row" role="status" data-tone="success">
-          <span>{sent.text}</span>
-          {sent.packed && next !== null ? (
-            <button type="button" className="button" onClick={() => onNext(next)}>
-              다음 구매자
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-      {showError && command.error !== null ? <RequestError error={command.error} omitFields={['invoice']} /> : null}
 
       {entry.items.length === 0 ? <p>담을 상품이 없어요.</p> : null}
       <div className="stack-tight">
@@ -442,14 +455,32 @@ function PackingChecklist({ date, entry, name, shopVersion, showBack, onBack, on
         </p>
       ) : null}
 
+      {/* 결과는 버튼 줄 바로 위 — 휴대폰에서 맨 아래 버튼을 누른 자리에서 보인다 (UX-I2-001) */}
+      {sent !== null ? (
+        <div ref={result} tabIndex={-1} className="notice packing-result" role="status" data-tone="success">
+          {sent.text}
+        </div>
+      ) : null}
+      {showError && command.error !== null ? <RequestError error={command.error} omitFields={['invoice']} /> : null}
+      {itemsChangedResult ? (
+        <p className="notice packing-result" role="status" data-tone="warning">
+          {ITEMS_CHANGED_RESULT}
+        </p>
+      ) : null}
+
       <div className="row" role="group" aria-label="포장·배송">
+        {nextBuyerId !== null ? (
+          <button ref={nextButton} type="button" className={nextFirst ? 'button button-primary' : 'button'} onClick={() => onNext(nextBuyerId)}>
+            다음 구매자
+          </button>
+        ) : null}
         {canPack ? (
           <button type="button" className="button button-primary" disabled={!allChecked || command.busy} onClick={pack}>
             포장 완료
           </button>
         ) : null}
         {entry.status === '포장 완료' ? (
-          <button type="button" className="button button-primary" disabled={command.busy} onClick={() => setAsk('ship')}>
+          <button type="button" className={nextFirst ? 'button' : 'button button-primary'} disabled={command.busy} onClick={() => setAsk('ship')}>
             배송 완료로 적기
           </button>
         ) : null}
@@ -472,7 +503,7 @@ function PackingChecklist({ date, entry, name, shopVersion, showBack, onBack, on
       </div>
       {canPack && !allChecked && entry.items.length > 0 ? <p className="hint">{ALL_CHECKED_HINT}</p> : null}
 
-      <PackingLabelSection date={date} buyer={entry.buyer} items={entry.items} shopVersion={shopVersion} />
+      <PackingLabelSection date={date} buyer={entry.buyer} empty={entry.items.length === 0} signature={labelSignature} />
 
       {ask === 'ship' || ask === 'fixInvoice' ? (
         <ShipDialog
@@ -644,15 +675,17 @@ interface LabelPage {
   readonly url: string | null
 }
 
-function PackingLabelSection({ date, buyer, items, shopVersion }: { readonly date: string; readonly buyer: string; readonly items: readonly PackingItem[]; readonly shopVersion: number }) {
+/**
+ * signature = 라벨에 찍히는 값(L-9: 품목·방송 제목·상품 합계·구매자 표시 이름)과 가게 이름의 모양 — 바뀌면 새로 받는다(받는 동안 저장 잠금).
+ * 가격만 바뀌어(입금 전 찜까지) 상품 합계가 달라지거나 닉네임이 바뀌어도 화면 그림 = 저장 그림 = 지금 라벨 (AC-I2-39, LBL-03, SA-I2-002).
+ */
+function PackingLabelSection({ date, buyer, empty, signature }: { readonly date: string; readonly buyer: string; readonly empty: boolean; readonly signature: string }) {
   const [pages, setPages] = useState<readonly LabelPage[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const [attempt, setAttempt] = useState(0)
   const pdf = useDownload()
   const held = useRef<readonly LabelPage[]>([])
-  const signature = `${items.map((item) => item.key).join(',')}|${items.map((item) => item.name).join('\u0000')}|${String(shopVersion)}`
-  const empty = items.length === 0
 
   useEffect(() => {
     if (empty) return
