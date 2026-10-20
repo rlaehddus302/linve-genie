@@ -402,7 +402,9 @@ describe('AC-N5-01·02·10·41 구조 (소스 검사)', () => {
     expect(routes.filter((route) => route.includes('/api/billing'))).toEqual(
       expect.arrayContaining(['GET /api/billing', 'POST /api/billing/orders', 'POST /api/billing/orders/:paymentId/refund', 'POST /api/billing/webhook']),
     )
-    for (const route of routes) expect(route).not.toMatch(/charge|point|wallet|balance|transfer|withdraw|payout|deposit-to|gift|send/i)
+    // 돈과 상관없는 경로 중 낱말이 걸리는 것만 이름으로 뺀다: I3의 감사 메시지 다시 보내기(발송함 — 유튜브 채팅 글, 돈이 움직이지 않는다)
+    const notMoney = new Set(['POST /api/outbox/:id/resend'])
+    for (const route of routes) if (!notMoney.has(route)) expect(route).not.toMatch(/charge|point|wallet|balance|transfer|withdraw|payout|deposit-to|gift|send/i)
     const cancelCallers = sources().filter(({ text }) => /gateway\.cancel\(/.test(text)).map(({ path }) => path)
     expect(cancelCallers).toEqual(['billing/service.ts'])
   })
