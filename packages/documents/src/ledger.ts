@@ -44,8 +44,8 @@ export interface LedgerRow {
   readonly status: string
   /** 그 구매자의 그 날짜 정산 묶음 입금 상태 말. 확정 없는 행은 "" */
   readonly payment: LedgerPayment | ''
-  /** 포장·배송 상태 (S09 전까지 빈칸) */
-  readonly shipping: ''
+  /** 포장·배송 상태 말 (I2 D-I2-05 — 부르는 쪽이 넘긴 값, 넘기지 않으면 빈칸). 확정 없는 행은 "" */
+  readonly shipping: string
 }
 
 export interface LedgerScope {
@@ -62,6 +62,11 @@ export interface LedgerInput {
   readonly to: string
   /** 고른 방송 ID (생략·null이면 기간 안 모든 방송) */
   readonly broadcasts?: readonly string[] | null
+  /**
+   * 확정 행의 "배송" 칸 값 (I2 D-I2-05·AC-I2-33): (지금의 구매자 ID, 방송 날짜) → 그 묶음의 포장·배송 상태 말. 생략하면 빈칸.
+   * 포장·배송 기록은 서버에 있어 부르는 쪽이 넘긴다. 문자열이 아닌 값은 빈칸으로 본다
+   */
+  readonly shipping?: ((buyer: string, date: string) => string) | null
 }
 
 export type LedgerErrorCode = 'INVALID_INPUT' | 'PERIOD_INVALID' | 'REHEARSAL' | 'UNKNOWN_BROADCAST'
@@ -108,7 +113,7 @@ interface SelectedBroadcast {
 }
 
 /** 확정 행 (찜 하나) */
-function claimRow(state: EngineState, broadcast: SelectedBroadcast, productName: string, claim: ClaimInfo, payments: Map<string, LedgerPayment>): LedgerRow {
+function claimRow(state: EngineState, broadcast: SelectedBroadcast, productName: string, claim: ClaimInfo, payments: Map<string, LedgerPayment>, shipping: (buyer: string) => string): LedgerRow {
   const buyer = getBuyer(state, claim.currentBuyer)
   const display = buyer?.display ?? ''
   const last4 = buyer?.phoneLast4 ?? null
@@ -128,7 +133,7 @@ function claimRow(state: EngineState, broadcast: SelectedBroadcast, productName:
     claimedAt: formatKstLedgerTime(claim.rankTime, claim.rankMinute),
     status: '1등',
     payment,
-    shipping: '',
+    shipping: shipping(claim.currentBuyer),
   }
 }
 
@@ -168,6 +173,17 @@ export function buildLedger(input: LedgerInput): LedgerResult {
     const claims = found
     // 입금 상태는 (구매자, 그 방송 날짜) 묶음의 것 — 방송마다 새로 묻는다(같은 범위에 날짜가 다른 방송이 있을 수 있다)
     const payments = new Map<string, LedgerPayment>()
+    // 배송 칸도 (구매자, 그 방송 날짜) 묶음의 것 (I2 D-I2-05)
+    const shippingWords = new Map<string, string>()
+    const shippingOf = (buyer: string): string => {
+      let word = shippingWords.get(buyer)
+      if (word === undefined) {
+        const value = typeof input.shipping === 'function' ? input.shipping(buyer, broadcast.date) : ''
+        word = typeof value === 'string' ? value : ''
+        shippingWords.set(buyer, word)
+      }
+      return word
+    }
     const products = listProducts(state)
       .filter((product) => product.broadcast === broadcast.id)
       .sort((a, b) => a.no - b.no)
@@ -189,7 +205,7 @@ export function buildLedger(input: LedgerInput): LedgerResult {
         })
         continue
       }
-      for (const claim of winners) rows.push(claimRow(state, broadcast, product.name, claim, payments))
+      for (const claim of winners) rows.push(claimRow(state, broadcast, product.name, claim, payments, shippingOf))
     }
   }
   return { ok: true, rows }
