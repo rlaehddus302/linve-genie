@@ -139,6 +139,10 @@ export function put<T>(path: string, body: unknown, options?: RequestOptions): P
   return request<T>('PUT', path, body, options)
 }
 
+export function patch<T>(path: string, body: unknown, options?: RequestOptions): Promise<T> {
+  return request<T>('PATCH', path, body, options)
+}
+
 /** 서버가 만든 파일 (확인서·판매대장·포장 라벨·전체 내려받기, I2 D-I2-01) */
 export interface FileResponse {
   readonly blob: Blob

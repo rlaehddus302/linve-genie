@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./accuracy": "./src/accuracy.ts"
+  },
+  "scripts": {
+    "accuracy": "node scripts/accuracy.ts"
   },
   "dependencies": {
     "@livejjim/core": "workspace:*"
@@ -12,6 +16,7 @@
   "devDependencies": {
     "@types/node": "24.19.2",
     "fast-check": "4.10.2",
+    "typescript": "6.0.3",
     "vitest": "5.0.5"
   }
 }

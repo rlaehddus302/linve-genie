@@ -257,6 +257,15 @@ importers:
       '@livejjim/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@livejjim/label':
+        specifier: workspace:*
+        version: link:../../packages/label
+      '@livejjim/printer':
+        specifier: workspace:*
+        version: link:../../packages/printer
+      '@livejjim/voice':
+        specifier: workspace:*
+        version: link:../../packages/voice
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -403,6 +412,9 @@ importers:
       fast-check:
         specifier: 4.10.2
         version: 4.10.2
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
       vitest:
         specifier: 5.0.5
         version: 5.0.5(@types/node@24.19.2)(@vitest/coverage-v8@5.0.5)(jsdom@30.1.3)(vite@8.3.4(@types/node@24.19.2)(yaml@2.9.1))

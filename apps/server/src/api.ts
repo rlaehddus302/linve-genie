@@ -17,6 +17,8 @@ import { MIME, fileResponse } from './files.ts'
 import type { StreamHub } from './hub.ts'
 import { IMPORT_FILE_MESSAGES, IMPORT_PREVIEW_BODY_LIMIT_BYTES, IMPORT_REGISTER_BODY_LIMIT_BYTES } from './import-files.ts'
 import { unknownFieldProblems } from './messages.ts'
+import { DEVICE_ID_RE, type PrintService } from './print.ts'
+import { registerPrintRoutes } from './print-api.ts'
 import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.ts'
 import type { Actor, WriteOutcome, WriteResult } from './writer.ts'
 
@@ -36,10 +38,12 @@ export interface ApiDeps {
   readonly closing: ClosingService
   readonly auth: Auth
   readonly hub: StreamHub
+  /** 출력 기록과 출력 기기 (I1). 없으면 /api/print 경로가 없다 */
+  readonly print?: PrintService
   /** 화면 앱 주소 (Origin 검사, 예: https://app.livejjim.kr) */
   readonly appOrigin: string
-  /** 화면 설정 (방송자 조치 대기 시간 — 운영 5000, E2E 기동만 줄인다) */
-  readonly clientConfig?: { readonly hostActionDelayMs: number }
+  /** 화면 설정 (방송자 조치 대기 시간 — 운영 5000, E2E 기동만 줄인다 / 시험 모드 신호 testPrinter — E2E 기동만 켠다, I1) */
+  readonly clientConfig?: { readonly hostActionDelayMs: number; readonly testPrinter?: boolean }
   /** E2E 기동만: 확인서 데이터 조회의 ?at=<UTC 밀리초> (AC-I2-15, ServerOptions.receiptAtParam) */
   readonly receiptAtParam?: boolean
 }
@@ -211,8 +215,8 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     return c.json({ seller: { name: session.sellerName }, loginId: session.loginId })
   })
 
-  // 화면 설정 (방송자 조치 대기 시간, D-083 — 운영 5000밀리초)
-  api.get('/client-config', (c) => c.json({ hostActionDelayMs: deps.clientConfig?.hostActionDelayMs ?? 5000 }))
+  // 화면 설정 (방송자 조치 대기 시간, D-083 — 운영 5000밀리초 / 시험 모드 신호 — 시험용 프린터를 켠다, E2E 기동만 true, L-11 15)
+  api.get('/client-config', (c) => c.json({ hostActionDelayMs: deps.clientConfig?.hostActionDelayMs ?? 5000, testPrinter: deps.clientConfig?.testPrinter === true }))
 
   // ── 설정 (AC-S04-50) ──────────────────────────────────────────────────
   api.get('/settings', async (c) => c.json({ settings: await service.settings(sellerOf(c)) }))
@@ -559,11 +563,19 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   api.get('/export/ledger.xlsx', async (c) => fileOf(await closing.exportLedger(sellerOf(c), c.req.raw.signal)))
 
   // ── 실시간 (AC-S04-60) ────────────────────────────────────────────────
+  // ?device=<기기 ID>: 그 기기의 실시간 연결로 센다 (출력 기기 "연결됨/끊김", I1 AC-I1-10)
   api.get('/stream', async (c) => {
     const session = c.get('session')
+    const device = c.req.query('device')
+    if (device !== undefined && !DEVICE_ID_RE.test(device)) {
+      return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'device', message: "기기 ID는 영문·숫자·'_'·'-'로 된 8~64자여야 해요." }])
+    }
     // 연결을 먼저 등록한 뒤 범위별 seq를 읽는다 — 그 사이 커밋된 변경도 알림으로 받는다 (RA-S04-003)
-    return hub.open(session.sellerId, session.tokenHash, () => service.scopes(session.sellerId))
+    return hub.open(session.sellerId, session.tokenHash, () => service.scopes(session.sellerId), device ?? null)
   })
+
+  // ── 출력 기록 (I1, LABEL_RULES L-11) ──────────────────────────────────
+  if (deps.print !== undefined) registerPrintRoutes(api, deps.print)
 
   api.notFound(() => notFound())
   return api

@@ -11,6 +11,7 @@ import { FolderBackupStorage } from './backup.ts'
 import { DEFAULT_PORT, readAppOrigin, readBackupDir, readDatabaseSetting, readPort } from './config.ts'
 import { createNodeServer } from './node-server.ts'
 import { openDatabaseFromEnv } from './commands/shared.ts'
+import { productionServerOptions } from './production.ts'
 import { readMasterKey } from './secrets.ts'
 import { createServer } from './server.ts'
 
@@ -50,9 +51,16 @@ if (database === null) {
   process.exit(1)
 }
 
+// 운영 옵션은 productionServerOptions로만 만든다 — 시험 모드 신호(시험용 프린터)는 늘 꺼져 있다 (AC-I1-16)
+const assembled = productionServerOptions(process.env, database)
+if (!assembled.ok) {
+  complain(`시작하지 못했어요. ${assembled.message}`)
+  await database.close()
+  process.exit(1)
+}
 // 백업 저장소 (I2 D-I2-10): LIVEJJIM_BACKUP_DIR 폴더. 없으면 자동 백업이 꺼진다는 경보만 남기고 판매는 그대로 한다
 const backupDir = readBackupDir(process.env)
-const livejjim = createServer({ database, masterKey: masterKey.key, appOrigin: origin.origin, backupStorage: backupDir === null ? null : new FolderBackupStorage(backupDir) })
+const livejjim = createServer({ ...assembled.options, backupStorage: backupDir === null ? null : new FolderBackupStorage(backupDir) })
 livejjim.backups.start()
 // 확인서 미리 보기 워커를 미리 띄운다 (첫 미리 보기가 워커를 띄우는 시간을 기다리지 않게 — RA-I2-003)
 livejjim.work.receipts.warm()

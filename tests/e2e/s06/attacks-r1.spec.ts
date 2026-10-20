@@ -4,6 +4,7 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import {
   history, login, menu, openNewBroadcast, openSms, registerApi, scopeView, smsApi, smsField, smsUi, uniqueDate, untilElapsed, viewerClaim, writeEvent,
+  kstTimeAgo,
 } from './support.ts'
 
 function uniq(prefix: string): string {
@@ -177,7 +178,7 @@ test.describe('문자찜 결과 위치 (UX-S06-002)', () => {
       const b = await openNewBroadcast(page, { date, rehearsal: true, title })
       await registerApi(page, b, 15, '핑크프릴', 10000)
       await openSms(page, title)
-      await smsUi(page, { no: 15, phone: '010-4321-8765', memo: '위치', received: '00:00:01' })
+      await smsUi(page, { no: 15, phone: '010-4321-8765', memo: '위치', received: kstTimeAgo(60) })
       await expect(page.getByRole('region', { name: '넣은 결과' })).toBeInViewport({ ratio: 1 })
       await expect(smsField(page, '번호')).toBeInViewport({ ratio: 1 })
       await expect(smsField(page, '번호')).toBeFocused()

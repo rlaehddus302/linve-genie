@@ -20,7 +20,7 @@ import {
   type ProductTemplate,
   type TemplateItem,
 } from '../src/index.ts'
-import { SAMPLE_PACKING, SAMPLE_PRODUCT, blackIn, diffOutside, expectCleanLayout, expectLayoutMatchesText, nodeEnv, overlaps } from './helpers.ts'
+import { SAMPLE_PACKING, SAMPLE_PRODUCT, blackIn, diffOutside, expectCleanLayout, expectLayoutMatchesText, nodeEnv, overlaps, thirtyLabelData } from './helpers.ts'
 
 const env = nodeEnv()
 
@@ -258,11 +258,9 @@ describe('긴 품종명 — 줄이기 → 두 줄 → 말줄임표 (AC-P1-13)', 
     }
   })
 
-  it('1만 자 품종·닉네임도 라벨이 빨리 나온다', () => {
+  it('1만 자 품종·닉네임도 라벨이 나온다 (걸린 시간은 render.perf.test.ts — D-902)', () => {
     const huge = '가'.repeat(10_000)
-    const started = performance.now()
     const r = product({ ...defaultTemplate('product'), shopName: huge }, { ...SAMPLE_PRODUCT, name: huge, buyer: { kind: 'youtube', name: `${huge} ${huge}` } })
-    expect(performance.now() - started).toBeLessThan(5000)
     expect(item(r.layout.items, 'name').method).toBe('truncated')
     expect(item(r.layout.items, 'buyer').method).toBe('truncated')
     expectCleanLayout(r.image, r.layout)
@@ -368,15 +366,12 @@ describe('결정성 (AC-P1-15)', () => {
   })
 })
 
-describe('렌더 속도 (AC-P1-16)', () => {
-  it('서로 다른 상품 라벨 30장 렌더 합계 6초 이내 (글꼴 등록 제외)', () => {
-    nodeEnv()
+describe('서로 다른 상품 라벨 30장 (AC-P1-16 — 걸린 시간 기준은 render.perf.test.ts, D-902·AC-N1-15)', () => {
+  it('30장이 모두 만들어지고 서로 다르다', () => {
     const t = { ...defaultTemplate('product'), shopName: '다육농장' }
-    const started = performance.now()
-    for (let i = 0; i < 30; i++) {
-      product(t, { no: 100 + i, name: `왕비뇌신금 ${String(i)}호 아주 긴 품종 이름 금황환 핑크프릴`.slice(0, 5 + i), price: 8000 + i * 500, date: '2026-10-08', buyer: { kind: 'youtube', name: `구매자${String(i)}` } })
-    }
-    expect(performance.now() - started).toBeLessThan(6000)
+    const images = Array.from({ length: 30 }, (_, i) => product(t, thirtyLabelData(i)).image)
+    expect(images).toHaveLength(30)
+    for (let i = 0; i < 30; i++) for (let k = i + 1; k < 30; k++) expect(bitmapsEqual(images[i] as never, images[k] as never), `${String(i)}·${String(k)}`).toBe(false)
   })
 })
 
@@ -416,7 +411,8 @@ describe('테스트 라벨 (AC-P1-17)', () => {
       if (r.ok) continue
       expect(r.error.code).toBe('INVALID_TEMPLATE')
       expect(r.error.message).toBe('라벨 설정에 고칠 곳이 있어요.')
-      expect(r.error.problems).toEqual([{ path: 'size', message: '쓸 수 없는 라벨 크기예요. 50×30, 50×20, 50×40 중에서 골라 주세요.' }])
+      // 크기 오류 문장은 템플릿 검사와 같다 (L-7·L-5, AC-N1-10)
+      expect(r.error.problems).toEqual([{ path: 'size', message: '쓸 수 없는 라벨 크기예요. 라벨 크기 목록에서 다시 골라 주세요.' }])
     }
     expect(made).toEqual([])
   })

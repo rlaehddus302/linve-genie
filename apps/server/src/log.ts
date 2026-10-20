@@ -31,6 +31,7 @@ export type LogCode =
   | 'STREAM_FAILED'
   | 'LOGIN_PRUNE_FAILED'
   | 'DRAFT_SKIPPED'
+  | 'PRINT_NOTIFY_FAILED'
   | 'DOCUMENT_MISMATCH'
   | 'LABEL_INVALID'
   | 'BACKUP_DISABLED'
@@ -51,6 +52,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   STREAM_FAILED: '실시간 연결에 보내지 못했어요',
   LOGIN_PRUNE_FAILED: '로그인 시도 기록을 정리하지 못했어요(로그인은 계속함)',
   DRAFT_SKIPPED: '서버가 덧붙이는 입력(차단 이어받기)이 입력 검사를 통과하지 못해 기록하지 않았어요',
+  PRINT_NOTIFY_FAILED: '출력 기록 알림을 보내지 못했어요(기록은 저장됨)',
   DOCUMENT_MISMATCH: '확인서 금액이 정산 금액과 맞지 않아 문서를 만들지 않았어요',
   LABEL_INVALID: '포장 라벨 데이터가 형식 검사를 통과하지 못해 라벨을 만들지 않았어요',
   BACKUP_DISABLED: '백업 저장소가 정해지지 않아 자동 백업이 꺼져 있어요',

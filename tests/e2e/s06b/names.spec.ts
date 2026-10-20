@@ -1,7 +1,7 @@
 // 구매자 이름 표기 하나 (AC-S06b-20, BUY-01, D-098) — test-e2e.
 // 같은 표시 이름이 둘 이상이면 "표시 이름 · 구분 글자", 그래도 같으면 생긴 순서로 " · 2". 목록·자세히·정산·합치기 창·문자찜 결과에서 같은 글자.
 import { test, expect, type Page } from '@playwright/test'
-import { boardItem, login, openNewBroadcast, openSms, registerApi, scopeView, smsApi, smsField, uniq, uniqueDate, viewerClaim, writeEvent } from './support.ts'
+import { boardItem, kstTimeAgo, login, openNewBroadcast, openSms, registerApi, scopeView, smsApi, smsField, uniq, uniqueDate, viewerClaim, writeEvent } from './support.ts'
 
 async function day(page: Page): Promise<{ b: string; date: string; title: string }> {
   const date = uniqueDate()
@@ -50,26 +50,28 @@ test.describe('이름 표기 (AC-S06b-20)', () => {
   test('받은 시각까지 같으면 생긴 순서로 " · 2" — 문자찜 결과 카드·최근 목록·구매자 고르기도 같은 이름', async ({ page }) => {
     await login(page)
     const { b, date, title } = await day(page)
-    await smsApi(page, { b, no: 11, memo: '김씨', received: '00:00:07' })
+    // 받은 시각: 지금보다 1분 이른 한국 시각 — 고정 시각은 정오 뒤 '내일'로 읽혀 화면이 확인 창을 띄운다(D-023, SA-I4-009)
+    const t = kstTimeAgo(60)
+    await smsApi(page, { b, no: 11, memo: '김씨', received: t })
     await openSms(page, title)
     await smsField(page, '번호').fill('12')
-    await smsField(page, '받은 시각').fill('00:00:07')
+    await smsField(page, '받은 시각').fill(t)
     await smsField(page, '메모').fill('김씨')
     await page.getByRole('button', { name: '12번에 문자찜 넣기' }).click()
     const result = page.getByRole('region', { name: '넣은 결과' })
-    await expect(result).toContainText('12번 · 문자찜(김씨) · 문자 00:00:07 · 2 · 1등')
+    await expect(result).toContainText(`12번 · 문자찜(김씨) · 문자 ${t} · 2 · 1등`)
     const recent = page.getByRole('region', { name: '최근 넣은 문자찜' })
-    await expect(recent.getByRole('listitem').filter({ hasText: '12번' })).toContainText('문자찜(김씨) · 문자 00:00:07 · 2 ·')
-    await expect(recent.getByRole('listitem').filter({ hasText: '11번' })).toContainText('문자찜(김씨) · 문자 00:00:07 ·')
-    await expect(recent.getByRole('listitem').filter({ hasText: '11번' })).not.toContainText('00:00:07 · 2')
+    await expect(recent.getByRole('listitem').filter({ hasText: '12번' })).toContainText(`문자찜(김씨) · 문자 ${t} · 2 ·`)
+    await expect(recent.getByRole('listitem').filter({ hasText: '11번' })).toContainText(`문자찜(김씨) · 문자 ${t} ·`)
+    await expect(recent.getByRole('listitem').filter({ hasText: '11번' })).not.toContainText(`${t} · 2`)
     // 구매자 고르기 찾기 결과
     await smsField(page, '구매자 고르기').fill('김씨')
     const found = page.getByRole('list', { name: '찾은 구매자' })
-    await expect(found.getByRole('button', { name: /문자찜\(김씨\) · 문자 00:00:07 · 2/ })).toHaveCount(1)
-    await expect(found.getByRole('button', { name: /문자찜\(김씨\) · 문자 00:00:07(?! · 2)/ })).toHaveCount(1)
+    await expect(found.getByRole('button', { name: new RegExp(`문자찜\\(김씨\\) · 문자 ${t} · 2`) })).toHaveCount(1)
+    await expect(found.getByRole('button', { name: new RegExp(`문자찜\\(김씨\\) · 문자 ${t}(?! · 2)`) })).toHaveCount(1)
     const view = await scopeView(page, date, true)
     const second = view.buyers.find((x) => x.kind === 'sms' && view.claims.some((c) => c.buyer === x.id && c.no === 12))!
-    expect(await namesEverywhere(page, date, second.id)).toEqual(Array(4).fill('문자찜(김씨) · 문자 00:00:07 · 2'))
+    expect(await namesEverywhere(page, date, second.id)).toEqual(Array(4).fill(`문자찜(김씨) · 문자 ${t} · 2`))
   })
 
   test('같은 닉네임 유튜브 둘 "홍길동 · 끝 1234", 같은 메모·뒤 4자리 같은 두 사람 "· 뒤 4자리 5678" / "· 2" — 합치기 창에서도 같다', async ({ page }) => {

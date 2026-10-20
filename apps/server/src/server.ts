@@ -1,7 +1,9 @@
 // 서버 조립 (S04·S05): DB·마스터 키·앱 주소를 받아 기록 경로·서비스·로그인·실시간 알림·리허설 생성기·HTTP 앱을 만든다.
 // 시험(단위·적대)은 PGlite로 열어 createServer(...).app.request(...)로 포트 없이 요청한다.
 // 시험용 주입점: clock(서버 시계), ids(ID 생성), hooks(저장 실패·응답 전 멈춤·스냅샷 실패), engine(엔진 감싸기), log(로그 수집), runtimeCacheMax(범위 상태 메모리 상한),
-// changesWindow(증분 조회 기준점 수), generatorTimer·generatorSpeed(리허설 생성기 타이머·시험 속도), hostActionDelayMs(화면의 방송자 조치 대기 — E2E 기동만 줄인다).
+// changesWindow(증분 조회 기준점 수), generatorTimer·generatorSpeed(리허설 생성기 타이머·시험 속도), hostActionDelayMs(화면의 방송자 조치 대기 — E2E 기동만 줄인다),
+// testPrinter(시험 모드 신호 — 화면이 시험용 프린터를 켠다. E2E 기동만 켠다, 운영 기동은 production.ts가 늘 끈다 — I1 L-11 15).
+// I1: 출력 기록(PrintService)을 기록 경로의 같은 트랜잭션(txHook)에 잇고, 실시간 알림(print)·출력 기기 실시간 연결 여부를 허브에 잇는다.
 import { applyEvent } from '@livejjim/core'
 import type { Hono } from 'hono'
 import { Auth } from './auth.ts'
@@ -15,6 +17,8 @@ import { errorKind, safeSink, stderrLog, type LogSink } from './log.ts'
 import type { EngineAdapter } from './runtime.ts'
 import { loginLimitSecret, readMasterKey, type PasswordCost } from './secrets.ts'
 import type { GeneratorTimer } from './generator.ts'
+import { PrintService } from './print.ts'
+import { readQueue } from './print-store.ts'
 import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
 import { systemClock, type Clock } from './time.ts'
@@ -56,6 +60,8 @@ export interface ServerOptions {
   readonly generatorSpeed?: number
   /** 화면이 방송자 조치를 보내기 전에 기다리는 시간 (0~5000밀리초, 기본 5000 — E2E 기동만 줄인다, D-083) */
   readonly hostActionDelayMs?: number
+  /** 시험 모드 신호 (화면 설정 testPrinter — 시험용 프린터를 켠다). E2E 기동만 켠다. 기본 false (L-11 15, AC-I1-16) */
+  readonly testPrinter?: boolean
   /** 백업 저장소 (I2 D-I2-10 — 없으면 자동 백업이 꺼진다. 판매는 그대로) */
   readonly backupStorage?: BackupStorage | null
   /** 자동 백업 확인 주기 (기본 5분) */
@@ -79,6 +85,8 @@ export interface LivejjimServer {
   readonly auth: Auth
   /** 보기 캐시 상한 (판매자마다 4·서버 전체 32·10분, AC-S06b-12 — 시험·점검용) */
   readonly viewCaches: ViewCacheBudget
+  /** 출력 기록과 출력 기기 (I1) */
+  readonly print: PrintService
   /** 정산 마무리 (I2) */
   readonly closing: ClosingService
   /** 매일 자동 백업 (I2 D-I2-10 — 시작은 backups.start(), 시험은 check()를 직접 부른다) */
@@ -124,7 +132,19 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const log = safeSink(options.log ?? stderrLog)
   const engine: EngineAdapter = options.engine ?? { applyEvent }
   const auth = new Auth({ db, clock, limitSecret: loginLimitSecret(masterKey), log, ...(options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost }) })
-  const hub = new StreamHub({ heartbeatMs, sessionAlive: (hash) => auth.alive(hash) })
+  let print: PrintService | null = null
+  const hub = new StreamHub({
+    heartbeatMs,
+    sessionAlive: (hash) => auth.alive(hash),
+    // 출력 기기의 실시간 연결이 열리고 닫히면 다른 기기에 대기열 요약을 알린다 (AC-I1-10·15)
+    onDevice: (sellerId, deviceId) => {
+      void readQueue(db, sellerId)
+        .then((queue) => {
+          if (queue?.deviceId === deviceId) print?.notifyQueue(sellerId)
+        })
+        .catch((error: unknown) => log({ level: 'warn', code: 'PRINT_NOTIFY_FAILED', errorKind: errorKind(error) }))
+    },
+  })
   const viewCaches = new ViewCacheBudget({ now: () => clock.now() })
   const writer = new ScopeWriter({
     db,
@@ -142,7 +162,18 @@ export function createServer(options: ServerOptions): LivejjimServer {
       viewCaches.sweep()
     },
     onDrop: (runtime) => viewCaches.release(runtime),
+    // 효과 → 출력 작업·라벨 폐기를 이벤트 기록과 같은 트랜잭션에서 (L-11 2·5)
+    txHook: (tx, ctx) => (print as PrintService).txHook(tx, ctx),
   })
+  print = new PrintService({
+    db,
+    writer,
+    clock,
+    log,
+    publish: (sellerId, data) => hub.publishPrint(sellerId, data),
+    deviceLive: (sellerId, deviceId) => hub.deviceLive(sellerId, deviceId),
+  })
+  const printService = print
   const service = new Service({
     db,
     writer,
@@ -166,7 +197,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const closing = new ClosingService({ db, writer, clock, hub, backups, log, work })
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
-    api: { service, closing, auth, hub, appOrigin: options.appOrigin, clientConfig: { hostActionDelayMs }, receiptAtParam: options.receiptAtParam === true },
+    api: { service, closing, auth, hub, print: printService, appOrigin: options.appOrigin, clientConfig: { hostActionDelayMs, testPrinter: options.testPrinter === true }, receiptAtParam: options.receiptAtParam === true },
   })
   return {
     app,
@@ -175,12 +206,14 @@ export function createServer(options: ServerOptions): LivejjimServer {
     hub,
     auth,
     viewCaches,
+    print: printService,
     closing,
     backups,
     work,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     close: () => {
       service.generators.closeAll()
+      printService.close()
       hub.closeAll()
       backups.stop()
     },

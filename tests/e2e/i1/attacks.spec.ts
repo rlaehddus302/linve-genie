@@ -1,0 +1,245 @@
+// I1 흐름 깨뜨리기 (라운드 0) — 새로고침·그만하기·프린터 오류·테스트 인쇄·연결 오류·라벨 설정 충돌
+import { expect, test, type Browser, type Page } from '@playwright/test'
+import { becomeDevice, cleanupPrint, gotoLabels, login, postJson, printOverview, printedCount, realBroadcast, region, registerApi, scopeLabels, setBehavior, smsApi, TEST_PRINTER, uniqueDate, waitPrinted } from './support.ts'
+
+test.afterEach(async ({ page }) => {
+  await cleanupPrint(page)
+})
+
+async function second(page: Page, browser: Browser, mobile = false) {
+  const ctx = await browser.newContext({ ...(mobile ? { viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true } : {}), locale: 'ko-KR', timezoneId: 'Asia/Seoul', baseURL: new URL(page.url()).origin })
+  const other = await ctx.newPage()
+  await login(other)
+  return { ctx, other }
+}
+
+test('출력 기기 탭을 출력 중에 새로고침 → 끊김 멈춤 → 다시 연결 → 라벨이 빠지지 않는다', async ({ page }) => {
+  const date = uniqueDate()
+  await login(page)
+  const b = await realBroadcast(page, date)
+  await becomeDevice(page, 'PC')
+  await setBehavior(page, 2, { delayMs: 5000 })
+  for (let no = 1; no <= 4; no += 1) await registerApi(page, b, no, `품종${String(no)}`, 5000)
+  for (let no = 1; no <= 4; no += 1) await smsApi(page, { b, no })
+  await waitPrinted(page, 1)
+  await expect.poll(async () => (await printOverview(page)).queue.printing).toBe(1)
+  await page.reload()
+  await expect(page.getByRole('heading', { name: '라벨', level: 1 })).toBeVisible()
+  const band = region(page, '출력 멈춤')
+  await expect(band).toContainText('프린터 연결이 끊겼어요.')
+  const ov = await printOverview(page)
+  expect(ov.queue.pause?.reason).toBe('DISCONNECTED')
+  expect(ov.queue.printing).toBe(0)
+  expect(ov.jobs[0]!.label.no).toBe(2)
+  await band.getByRole('button', { name: '다시 연결' }).click()
+  await waitPrinted(page, 3)
+  const labels = (await scopeLabels(page, date)).filter((l) => l.winner)
+  for (const l of labels) expect(l.printed, `${String(l.no)}번`).toBeGreaterThanOrEqual(1)
+})
+
+test('다른 기기에서 출력 그만하기 (출력 중) → 그 장이 끝난 뒤 출력 기기 없음, 남은 대기는 그대로', async ({ page, browser }) => {
+  const date = uniqueDate()
+  await login(page)
+  const b = await realBroadcast(page, date)
+  await becomeDevice(page, 'PC')
+  await setBehavior(page, 1, { delayMs: 3000 })
+  for (let no = 1; no <= 3; no += 1) await registerApi(page, b, no, `품종${String(no)}`, 5000)
+  for (let no = 1; no <= 3; no += 1) await smsApi(page, { b, no })
+  await expect.poll(async () => (await printOverview(page)).queue.printing).toBe(1)
+  const { ctx, other } = await second(page, browser, true)
+  try {
+    await gotoLabels(other)
+    await region(other, '프린터').getByRole('button', { name: '출력 그만하기' }).click()
+    await waitPrinted(page, 1)
+    await expect.poll(async () => (await printOverview(page)).queue.device).toBeNull()
+    expect((await printOverview(page)).queue.waiting).toBe(2)
+    await expect(other.getByRole('link', { name: '출력 기기 없음 · 대기 2장' })).toBeVisible()
+    await expect(page.getByRole('link', { name: '출력 기기 없음 · 대기 2장' })).toBeVisible()
+    expect(await printedCount(page)).toBe(1)
+  } finally {
+    await ctx.close()
+  }
+})
+
+test('프린터 오류(PRINT_FAILED) → 프린터 오류 멈춤 · L-7 문장 · 다시 시작 → 그 장부터 이어서', async ({ page, browser }) => {
+  const date = uniqueDate()
+  await login(page)
+  const b = await realBroadcast(page, date)
+  await becomeDevice(page, 'PC')
+  await setBehavior(page, 2, 'fail')
+  for (let no = 1; no <= 3; no += 1) await registerApi(page, b, no, `품종${String(no)}`, 5000)
+  for (let no = 1; no <= 3; no += 1) await smsApi(page, { b, no })
+  const band = region(page, '출력 멈춤')
+  await expect(band).toContainText('프린터 오류로 멈췄어요.')
+  const queue = region(page, '출력 대기열')
+  await expect(queue.getByRole('list', { name: '대기 작업' })).toContainText('마지막 오류: 라벨을 출력하지 못했어요. 프린터의 라벨과 덮개를 확인한 뒤 다시 시작해 주세요.')
+  await expect(queue.getByRole('list', { name: '대기 작업' }).getByRole('listitem').first()).toContainText('2번')
+  await expect(queue.getByRole('list', { name: '대기 작업' }).getByRole('listitem').first()).toContainText('시도 1번')
+  // 다른 기기에서도 다시 시작할 수 있다
+  const { ctx, other } = await second(page, browser)
+  try {
+    await gotoLabels(other)
+    await expect(region(other, '출력 멈춤')).toContainText('프린터 오류로 멈췄어요.')
+    await region(other, '출력 멈춤').getByRole('button', { name: '다시 시작' }).click()
+    await waitPrinted(page, 3)
+    const labels = (await scopeLabels(page, date)).filter((l) => l.winner)
+    expect(labels.map((l) => l.printed)).toEqual([1, 1, 1])
+  } finally {
+    await ctx.close()
+  }
+})
+
+test('테스트 인쇄: 대기열 작업 출력 중이면 막히고 안내, 끝나면 테스트 라벨 한 장 — 서버 기록 없음', async ({ page }) => {
+  const date = uniqueDate()
+  await login(page)
+  const b = await realBroadcast(page, date)
+  await becomeDevice(page, 'PC')
+  await setBehavior(page, 1, { delayMs: 3000 })
+  await registerApi(page, b, 1, '품종1', 5000)
+  await smsApi(page, { b, no: 1 })
+  const printer = region(page, '프린터')
+  await expect(printer.getByText('앞 라벨을 출력하는 중이에요. 끝난 뒤 다시 해 주세요.')).toBeVisible()
+  await expect(printer.getByRole('button', { name: '테스트 인쇄' })).toBeDisabled()
+  await waitPrinted(page, 1)
+  const before = await printOverview(page)
+  await printer.getByRole('button', { name: '테스트 인쇄' }).click()
+  await expect(printer.getByText('테스트 라벨의 네 변 테두리와 한글이 모두 또렷하게 보이나요?')).toBeVisible()
+  await waitPrinted(page, 2)
+  await printer.getByRole('button', { name: '아니요' }).click()
+  const help = printer.getByRole('list', { name: '테스트 인쇄 도움말' })
+  await expect(help).toContainText('라벨 크기가 50×30mm인지 확인해 주세요.')
+  await expect(help).toContainText('맨 아래 테두리가 빠지면 알려 주세요.')
+  const after = await printOverview(page)
+  expect(after.queue.rev).toBe(before.queue.rev)
+  expect(after.jobs).toEqual(before.jobs)
+  const density = printer.getByLabel('인쇄 농도')
+  await expect(density).toHaveValue('3')
+  const options = await density.locator('option').allTextContents()
+  expect(options.map((x) => x.replace(/\D/g, ''))).toEqual(['1', '2', '3', '4', '5'])
+})
+
+test('AC-I1-21: 연결 실패는 L-7 문장 그대로 (블루투스 꺼짐·고르지 않음), 영어 예외 문장 없음', async ({ page }) => {
+  await login(page)
+  await gotoLabels(page)
+  const printer = region(page, '프린터')
+  await expect(page.evaluate(() => 'livejjimTestPrinter' in window)).resolves.toBe(true)
+  await page.evaluate(() => (window as unknown as { livejjimTestPrinter: { setConnectError(c: string | null): void } }).livejjimTestPrinter.setConnectError('BLUETOOTH_OFF'))
+  await printer.getByRole('button', { name: TEST_PRINTER }).click()
+  await expect(printer.getByRole('alert')).toContainText('블루투스가 꺼져 있어요. 블루투스를 켠 뒤 다시 연결해 주세요.')
+  await page.evaluate(() => (window as unknown as { livejjimTestPrinter: { setConnectError(c: string | null): void } }).livejjimTestPrinter.setConnectError('NOT_SELECTED'))
+  await printer.getByRole('button', { name: TEST_PRINTER }).click()
+  await expect(printer.getByRole('alert')).toContainText('프린터를 고르지 않았어요. 다시 연결을 누르고 목록에서 B1을 골라 주세요.')
+  const text = await page.locator('main').innerText()
+  expect(text).not.toMatch(/Error|undefined|NOT_SELECTED|BLUETOOTH_OFF|DISCONNECTED|WAITING|PRINTING/)
+})
+
+test('AC-I1-26: 라벨 설정 — 다른 기기가 먼저 저장했으면 서버 문장과 "새로 불러오기" (조용히 덮어쓰지 않는다)', async ({ page, browser }) => {
+  await login(page)
+  await gotoLabels(page)
+  const { ctx, other } = await second(page, browser)
+  try {
+    await gotoLabels(other)
+    const mine = region(page, '라벨 설정')
+    const theirs = region(other, '라벨 설정')
+    await expect(theirs.getByLabel('가게 이름', { exact: true })).toBeVisible()
+    await expect(mine.getByLabel('가게 이름', { exact: true })).toBeVisible()
+    // 휴대폰이 먼저 고치기 시작 (저장 전)
+    await theirs.getByLabel('가게 이름', { exact: true }).fill('휴대폰 가게')
+    // PC가 저장
+    await mine.getByLabel('가게 이름', { exact: true }).fill('PC 가게')
+    await mine.getByRole('button', { name: '라벨 설정 저장' }).click()
+    await expect(mine.getByText('라벨 설정을 저장했어요.')).toBeVisible()
+    // 휴대폰이 저장 → 충돌
+    await theirs.getByRole('button', { name: '라벨 설정 저장' }).click()
+    await expect(theirs.getByText('다른 기기에서 라벨 설정이 바뀌었어요. 새로 불러온 뒤 다시 바꿔 주세요.')).toBeVisible()
+    await expect(theirs.getByRole('button', { name: '새로 불러오기' })).toBeVisible()
+    const tpl = await (await page.request.get('/api/print/templates')).json() as { product: { template: { shopName?: string } } }
+    expect(JSON.stringify(tpl.product.template)).toContain('PC 가게')
+    // 가게 이름 되돌리기 (뒤 시험이 기본 가게 이름을 본다)
+    await mine.getByLabel('가게 이름', { exact: true }).fill('')
+    await mine.getByRole('button', { name: '라벨 설정 저장' }).click()
+    await expect(mine.getByText('라벨 설정을 저장했어요.')).toBeVisible()
+  } finally {
+    await ctx.close()
+  }
+})
+
+test('AC-I1-24·11: 대기열 "빼기"·"모두 빼기"(확인 창, 1) — 출력 안 함으로, 기록은 남는다', async ({ page }) => {
+  const date = uniqueDate()
+  await login(page)
+  const b = await realBroadcast(page, date)
+  await postJson(page, '/api/print/pause', {})
+  for (const no of [1, 2, 3]) await registerApi(page, b, no, `품종${String(no)}`, 1000)
+  for (const no of [1, 2, 3]) await smsApi(page, { b, no })
+  await gotoLabels(page)
+  const list = region(page, '출력 대기열').getByRole('list', { name: '대기 작업' })
+  await expect(list.getByRole('listitem')).toHaveCount(3)
+  await list.getByRole('listitem').first().getByRole('button', { name: '빼기' }).click()
+  await expect(list.getByRole('listitem')).toHaveCount(2)
+  await region(page, '출력 대기열').getByRole('button', { name: '모두 빼기' }).click()
+  const dlg = page.getByRole('dialog', { name: '모두 빼기' })
+  await expect(dlg.getByRole('button', { name: '닫기' })).toBeFocused()
+  await page.keyboard.press('1')
+  await expect(list.getByRole('listitem')).toHaveCount(0)
+  const labels = (await scopeLabels(page, date)).filter((l) => l.winner)
+  expect(labels.map((l) => l.word)).toEqual(['출력 안 함', '출력 안 함', '출력 안 함'])
+  expect(labels.every((l) => l.canReprint)).toBe(true)
+})
+
+test('AC-I1-10·14: 기기 이름 21자·공백만은 막고, 가게 이름 41자는 저장을 막는다(서버와 같은 문장)', async ({ page }) => {
+  await login(page)
+  await gotoLabels(page)
+  const printer = region(page, '프린터')
+  await printer.getByRole('button', { name: TEST_PRINTER }).click()
+  await expect(printer.getByText(/이 기기의 프린터: 연결됨/)).toBeVisible()
+  await printer.getByLabel('기기 이름').fill('가'.repeat(21))
+  await printer.getByRole('button', { name: '이 기기에서 출력' }).click()
+  await expect(printer.getByText('기기 이름은 1~20자로 적어 주세요.')).toBeVisible()
+  await printer.getByLabel('기기 이름').fill('   ')
+  await printer.getByRole('button', { name: '이 기기에서 출력' }).click()
+  await expect(printer.getByText('기기 이름은 1~20자로 적어 주세요.')).toBeVisible()
+  expect((await printOverview(page)).queue.device).toBeNull()
+  await printer.getByLabel('기기 이름').fill('  계산대 PC  ')
+  await printer.getByRole('button', { name: '이 기기에서 출력' }).click()
+  await expect(printer.getByText('이 기기가 출력 기기예요')).toBeVisible()
+  expect((await printOverview(page)).queue.device?.name).toBe('계산대 PC')
+
+  const settings = region(page, '라벨 설정')
+  const before = await (await page.request.get('/api/print/templates')).json() as { product: { version: number } }
+  await settings.getByLabel('가게 이름', { exact: true }).fill('가'.repeat(41))
+  await expect(settings.getByText('가게 이름은 40자 이하로 적어 주세요.')).toBeVisible()
+  await expect(settings.getByRole('button', { name: '라벨 설정 저장' })).toBeDisabled()
+  const after = await (await page.request.get('/api/print/templates')).json() as { product: { version: number } }
+  expect(after.product.version).toBe(before.product.version)
+})
+
+test('AC-I1-09·23: 끊김 멈춤은 다른 기기에서 풀 수 없고 "출력 기기 \'PC\'에서 다시 연결해 주세요.", 판매자 멈춤 중 끊겼다 이어져도 판매자 멈춤 그대로', async ({ page, browser }) => {
+  await login(page)
+  await becomeDevice(page, 'PC')
+  const { ctx, other } = await second(page, browser, true)
+  try {
+    await gotoLabels(other)
+    await page.evaluate(() => (window as unknown as { livejjimTestPrinter: { simulateDisconnect(): void } }).livejjimTestPrinter.simulateDisconnect())
+    const band = region(other, '출력 멈춤')
+    await expect(band).toContainText('프린터 연결이 끊겼어요.')
+    await expect(band).toContainText("출력 기기 'PC'에서 다시 연결해 주세요.")
+    await expect(band.getByRole('button', { name: /다시 시작|다시 연결/ })).toHaveCount(0)
+    const r = await postJson(other, '/api/print/restart', {})
+    expect(r.status).toBe(409)
+    // 출력 기기에서 다시 연결
+    await region(page, '출력 멈춤').getByRole('button', { name: '다시 연결' }).click()
+    await expect(band).toHaveCount(0)
+    // 판매자 멈춤 → 끊김 → 다시 연결 → 판매자 멈춤 그대로
+    await region(other, '출력 대기열').getByRole('button', { name: '출력 멈추기' }).click()
+    await expect(region(other, '출력 멈춤')).toContainText('출력을 멈췄어요.')
+    await page.evaluate(() => (window as unknown as { livejjimTestPrinter: { simulateDisconnect(): void } }).livejjimTestPrinter.simulateDisconnect())
+    await expect(region(page, '프린터').getByText(/이 기기의 프린터: (끊김|연결 안 됨)/)).toBeVisible()
+    await region(page, '프린터').getByRole('button', { name: TEST_PRINTER }).click()
+    await expect(region(page, '프린터').getByText(/이 기기의 프린터: 연결됨/)).toBeVisible()
+    await expect.poll(async () => (await printOverview(page)).queue.device?.printerConnected).toBe(true)
+    expect((await printOverview(page)).queue.pause?.reason).toBe('SELLER')
+    await expect(region(other, '출력 멈춤')).toContainText('출력을 멈췄어요.')
+  } finally {
+    await ctx.close()
+  }
+})

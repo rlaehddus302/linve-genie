@@ -115,7 +115,9 @@
 | 검증 | `pnpm verify` | 타입체크·린트·단위·골든·적대·E2E(해당 시) 전부 통과, `packages/core` 커버리지 95% 이상 |
 | 보호 경로 | `node scripts/harness/check-protected.mjs $(cat harness/sprints/<S>/BASE)` | 역할별 커밋이 자기 영역만 건드림, 금지 패턴(`.only`, `.skip`, `todo` 등) 없음, 커밋 안 된 변경 없음 |
 
-검증 파이프라인(`scripts/verify/**`, `vitest.adversarial.config.ts`)은 S00 이후 오케스트레이터 소유다(D-027). 개발자가 게이트를 고쳐 통과하는 길을 구조적으로 막는다. 테스터도 제품을 공격하지, 파이프라인 우회를 찾지 않는다.
+검증 파이프라인(`scripts/verify/**`, `vitest.adversarial.config.ts`)은 S00 이후 오케스트레이터 소유다(D-027).
+
+**성능 시험은 게이트 밖이다(D-902).** 걸린 시간을 재는 시험은 `*.perf.test.*`·`*.perf.spec.*`(또는 E2E 제목 `@fill`·`@perf`)로 두고 `pnpm perf`로 따로 돈다. 병렬 작업 중엔 측정이 흔들려 정확성 게이트를 막으면 안 되기 때문이다. 오케스트레이터가 통합 시점(부하 없음)에 `pnpm perf`로 NFR을 확인한다. 개발자가 게이트를 고쳐 통과하는 길을 구조적으로 막는다. 테스터도 제품을 공격하지, 파이프라인 우회를 찾지 않는다.
 
 ## 6. 진행 방식: 자율 모드
 

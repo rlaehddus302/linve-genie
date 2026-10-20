@@ -2,7 +2,7 @@
 import type { Buyer, Claim, Product } from '../api/types.ts'
 import { kstTime } from './kst.ts'
 import type { ScopeData } from './scope-data.ts'
-import { LABEL_WORD, claimStatusWord } from './words.ts'
+import { claimStatusWord } from './words.ts'
 
 /** 상품 키 `<방송>/<번호>` */
 export const productKey = (b: string, no: number): string => `${b}/${String(no)}`
@@ -157,45 +157,6 @@ export function waitPosition(data: ScopeData, claim: Claim): number | null {
 /** 찜의 지금 상태 낱말 (1등 · 대기 n번 · 보류 · 충돌 · …) */
 export function claimWord(data: ScopeData, claim: Claim): string {
   return claimStatusWord(claim.status, claim.reason, waitPosition(data, claim))
-}
-
-type LabelState = 'PENDING' | 'DONE'
-const labelIndexCache = new WeakMap<ScopeData['effects'], ReadonlyMap<string, LabelState>>()
-
-/** (찜, 확정버전) → 상품 라벨 효과 상태. 효과 목록이 바뀔 때만 다시 만든다 */
-function labelIndex(effects: ScopeData['effects']): ReadonlyMap<string, LabelState> {
-  const hit = labelIndexCache.get(effects)
-  if (hit !== undefined) return hit
-  const map = new Map<string, LabelState>()
-  for (const effect of effects.values()) {
-    if (effect.kind !== 'PRINT_PRODUCT_LABEL') continue
-    const key = `${effect.claim}#${String(effect.confirmVersion)}`
-    if (effect.status === 'DONE') map.set(key, 'DONE')
-    else if (effect.status === 'PENDING' && !map.has(key)) map.set(key, 'PENDING')
-  }
-  labelIndexCache.set(effects, map)
-  return map
-}
-
-/** 상품 라벨 상태 (그 방송이 자동 출력을 켰을 때만, 실제 범위만 — D-081·D-088) */
-export function labelWords(data: ScopeData, product: Product): string[] {
-  const broadcast = data.broadcasts.get(product.broadcast)
-  // 리허설 범위는 라벨을 출력하지 않는다(D-081) — 영원히 "라벨 대기"로 보이지 않게 숨긴다
-  if (data.rehearsal || broadcast === undefined || broadcast.settings['print.autoOnConfirm'] !== true) return []
-  const index = labelIndex(data.effects)
-  const words = new Set<string>()
-  for (const claimId of product.winnerClaims) {
-    const claim = data.claims.get(claimId)
-    if (claim === undefined) continue
-    if (claim.reprintNeeded) {
-      words.add(LABEL_WORD.reprint)
-      continue
-    }
-    const label = index.get(`${claimId}#${String(claim.confirmVersion)}`)
-    if (label === 'DONE') words.add(LABEL_WORD.printed)
-    else if (label === 'PENDING') words.add(LABEL_WORD.waiting)
-  }
-  return [...words]
 }
 
 const requestIndexCache = new WeakMap<ScopeData['cancelRequests'], ReadonlyMap<string, number>>()

@@ -5,6 +5,14 @@
     {"id":"G-LBL-201","title":"50×30mm(기본) = 384×240점, A4에 3열×8줄","refs":["LBL-04","L-1","L-6"],"note":"높이 30×8 = 240, 폭 min(50×8, 384) = 384. A4: 열 floor((210−20+2)/52) = 3, 줄 floor((297−20+2)/32) = 8 → 24","size":"50x30","out":{"width":384,"height":240,"a4PerPage":24,"default":true}},
     {"id":"G-LBL-202","title":"50×20mm = 384×160점, A4에 3열×12줄","refs":["LBL-04","L-1","L-6"],"note":"20×8 = 160. 줄 floor(279/22) = 12 → 36","size":"50x20","out":{"width":384,"height":160,"a4PerPage":36,"default":false}},
     {"id":"G-LBL-203","title":"50×40mm = 384×320점, A4에 3열×6줄","refs":["LBL-04","L-1","L-6"],"note":"40×8 = 320. 줄 floor(279/42) = 6 → 18","size":"50x40","out":{"width":384,"height":320,"a4PerPage":18,"default":false}},
-    {"id":"G-LBL-204","title":"목록 밖 크기(40×30)는 템플릿 오류","refs":["L-1","L-5"],"note":"폭이 384점보다 좁은 라벨의 가로 위치는 실제 B1로 확인한 뒤 더한다(D-P1-02)","size":"40x30","out":{"error":"INVALID_TEMPLATE"}}
+    {"id":"G-LBL-204","title":"목록 밖 크기(40×30)는 템플릿 오류","refs":["L-1","L-5"],"note":"폭이 384점보다 좁은 라벨의 가로 위치는 실제 B1로 확인한 뒤 더한다(D-P1-02)","size":"40x30","out":{"error":"INVALID_TEMPLATE"}},
+    {"id":"G-LBL-N1-01","title":"50×15mm = 384×120점(작은 크기), A4에 3열×16줄","refs":["PRT-02","L-1","L-6","D-N1-03"],"note":"높이 15×8 = 120. A4: 열 floor((210−20+2)/(가로+2)), 줄 floor((297−20+2)/(세로+2)) = floor(192/52)=3 · floor(279/17)=16 → 48. 기본 상품 템플릿은 작은 템플릿(L-5)","size":"50x15","out":{"width":384,"height":120,"a4PerPage":48,"default":false}},
+    {"id":"G-LBL-N1-02","title":"50×50mm = 384×400점, A4에 3열×5줄","refs":["PRT-01","PRT-02","L-1","L-6","D-N1-03"],"note":"50×8 = 400. 줄 floor(279/52)=5 → 15","size":"50x50","out":{"width":384,"height":400,"a4PerPage":15,"default":false}},
+    {"id":"G-LBL-N1-03","title":"테이프 12×40 = 320×96점(옆으로 눕혀 그린다), A4에 4열×19줄","refs":["PRT-01","L-1","L-6","D-N1-03"],"note":"그림 폭 = 길이 40×8 = 320, 높이 = 헤드 96점(12mm). A4 칸 = 읽는 방향 40×12mm: floor(192/42)=4 · floor(279/14)=19 → 76","size":"tape12x40","out":{"width":320,"height":96,"a4PerPage":76,"default":false}},
+    {"id":"G-LBL-N1-04","title":"테이프 15×30 = 240×96점, A4에 6열×16줄","refs":["PRT-01","L-1","L-6","D-N1-03"],"note":"폭 30×8 = 240, 높이 96(15mm 테이프의 가운데 12mm). A4 칸 = 30×15mm: floor(192/32)=6 · floor(279/17)=16 → 96","size":"tape15x30","out":{"width":240,"height":96,"a4PerPage":96,"default":false}},
+    {"id":"G-LBL-N1-05","title":"테이프 15×50 = 400×96점, A4에 3열×16줄","refs":["PRT-01","L-1","L-6","D-N1-03"],"note":"폭 50×8 = 400. A4 칸 = 50×15mm → 3 · 16 → 48","size":"tape15x50","out":{"width":400,"height":96,"a4PerPage":48,"default":false}},
+    {"id":"G-LBL-N1-06","title":"테이프 표시 없는 12×40은 목록 밖(템플릿 오류)","refs":["L-1","L-5","D-N1-03"],"note":"폭 12mm 라벨을 384점 헤드에 찍지 않는다 — 테이프는 tape12x40","size":"12x40","out":{"error":"INVALID_TEMPLATE"}},
+    {"id":"G-LBL-N1-07","title":"목록에 없는 테이프 길이(tape12x30)는 템플릿 오류","refs":["L-1","L-5","D-N1-03"],"size":"tape12x30","out":{"error":"INVALID_TEMPLATE"}},
+    {"id":"G-LBL-N1-08","title":"목록에 없는 50×60은 템플릿 오류","refs":["L-1","L-5","D-N1-03"],"size":"50x60","out":{"error":"INVALID_TEMPLATE"}}
   ]
 }

@@ -23,6 +23,7 @@
 ## 명령 (S00 이후)
 - 전체 검증: `pnpm verify`
 - 보호 경로 게이트: `node scripts/harness/check-protected.mjs <baseRef>`
+- 성능 시험(게이트 밖, D-902): `pnpm perf` — `*.perf.test.*`·`*.perf.spec.*`만. 부하 없을 때 돌린다
 - 스프린트 실행: Workflow `sprint` + `{ sprintId, devs, tests, uxReview }` (오케스트레이터, 값은 backlog.yaml)
 
 ## 역할

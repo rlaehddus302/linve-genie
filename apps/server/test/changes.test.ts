@@ -1,7 +1,7 @@
 // AC-S05-61 증분 조회 (RA-S04-007, NFR-01·04, D-085): GET /api/days/:date/changes?since=a
 // - 덮으면 같다: a의 전체 조회 결과에 (a → 지금) 증분을 항목 키로 덮고 사라진 키를 지우면 지금의 전체 조회 결과와 같다. 값이 같은 항목은 넣지 않는다.
 // - 응답 크기는 바뀐 양에 비례한다. 줄 수 없는 since(기준점 밖·지금보다 큼)는 410 RESYNC_REQUIRED.
-// - 상품 500·채팅 1만 건 범위에서 증분 조회 응답 p99 300ms 이내.
+// - 상품 500·채팅 1만 건 범위에서 증분 조회 응답 p99 300ms 이내 — 성능 시험(changes.perf.test.ts, pnpm perf)으로 따로 잰다 (D-902).
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { fillScope } from '../src/e2e.ts'
@@ -323,13 +323,12 @@ describe('AC-S05-61 증분 조회의 새 메시지', () => {
   })
 })
 
-describe('AC-S05-61 크기와 지연 (상품 500·채팅 1만 건)', () => {
-  it('채팅 1건 뒤의 증분에 바뀌지 않은 상품·찜·지난 채팅이 없고, 증분 조회 응답 p99 300ms 이내 (앞 10번은 준비 구간)', async () => {
+describe('AC-S05-61 크기 (상품 500·채팅 1만 건) — 지연 p99는 changes.perf.test.ts', () => {
+  it('채팅 1건 뒤의 증분에 바뀌지 않은 상품·찜·지난 채팅이 없고, 응답 크기가 바뀐 양에 비례한다', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)
     const filled = await fillScope(world.server, seller.sellerId, { date: DAY, products: 500, chats: 10_000, clock: world.clock })
     expect(filled.seq).toBe(10_501)
-    const api = client(world, seller.cookie)
     const before = await full(world, seller)
     expect((before.products as unknown[]).length).toBe(500)
     const fullBytes = JSON.stringify(before).length
@@ -353,21 +352,5 @@ describe('AC-S05-61 크기와 지연 (상품 500·채팅 1만 건)', () => {
     expectCovers(mid, order.body, await full(world, seller))
     expect(order.text.length * 50).toBeLessThan(fullBytes)
 
-    // 지연: 쓰기 1건 → 증분 조회, 60번 (앞 10번 준비)
-    const timings: number[] = []
-    let known = (await full(world, seller)).seq as number
-    for (let i = 0; i < 60; i++) {
-      const text = i % 3 === 0 ? String(1 + (i % 500)) : '와 대박'
-      await world.server.ingestChat(seller.sellerId, { b: filled.broadcast, id: `lat-${String(i)}`, ch: `UClat${String(i % 7)}`, nick: '손님', text })
-      const started = performance.now()
-      const response = await api.get(`/api/days/${DAY}/changes?since=${String(known)}`)
-      timings.push(performance.now() - started)
-      expect(response.status).toBe(200)
-      known = response.body.seq as number
-    }
-    const measured = timings.slice(10).sort((a, b) => a - b)
-    const p99 = measured[Math.ceil(measured.length * 0.99) - 1] as number
-    expect(p99).toBeLessThan(300)
-    expect(p99).toBeLessThanOrEqual(measured.at(-1) as number)
   }, 180_000)
 })

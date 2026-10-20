@@ -5,6 +5,7 @@
 //   주 버튼은 지금 할 일 하나: 미입금·부분 입금이면 "입금 적기", 과입금이면 "환불 적기", 입금 완료면 없다 (D-101).
 // - 입력 창 머리: "입금 적기 · 홍길동 · 2026년 10월 18일 묶음"과 "최종 · 받은 금액 · 남은 금액". 보내기 전 미리 보기에 입금 상태 변화(코어 settle).
 // - 금액 칸은 원 단위(AC-S06-36), 입금은 1원~100,000,000원(화면만의 오타 막기). 입금 날짜는 적은 때로 남는다(실제 입금일은 메모).
+// - 자세히의 포장 라벨(AC-I1-35): 쪽마다 미리 보기·출력·그림 파일·PDF·재출력 필요. 리허설 범위는 라벨이 없다(AC-I1-36).
 // - I2: 목록 위 "전원 확인서 PDF (n명)"·"판매대장 엑셀"(실제 범위 — 리허설이면 안내 한 줄), 실제 범위의 줄·자세히에 포장·배송 상태 말(송장번호),
 //   자세히의 "구매 내역 확인서"(미리 보기·PDF·공유/저장) (AC-I2-13·14·22·33).
 import { containsPhoneRun, formatWon, type PaymentStatus } from '@livejjim/core'
@@ -27,6 +28,7 @@ import { useWide } from '../lib/use-wide.ts'
 import { PAYMENT_WORD, SHIPPING_WORD, paymentWord, recordKindWord, signedWon } from '../lib/words.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { DownloadButton } from './downloads.tsx'
+import { PackingLabels } from './LabelParts.tsx'
 import { AmountField, FieldNote, WriteError, serverProblem, useSender } from './forms.tsx'
 import { LedgerDialog } from './LedgerDialog.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
@@ -479,6 +481,8 @@ function SettlementDetail({ data, names, settlement, command, onBack, mark, rece
           받은 금액 {formatWon(settlement.received)} · 남은 금액 {formatWon(remaining)} · 환불 필요 {formatWon(settlement.refundDue)}
         </p>
       </section>
+
+      <PackingLabels date={settlement.date} buyer={settlement.buyer} rehearsal={data.rehearsal} />
 
       {/* 주 버튼은 지금 할 일 하나 (D-101) */}
       <div className="row" role="group" aria-label="정산 입력">

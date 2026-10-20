@@ -4,6 +4,7 @@
 //   `/packing` 포장 모드 — 고른 날짜(실제 범위만)·연 구매자는 검색값(`?date=2026-10-18&buyer=UC_A`) · `/settings` 설정 (I2 AC-I2-02·35)
 //   구매자 자세히의 합치기 창: 상대·방향은 `merge`(상대 구매자 ID)·`into`(남는 쪽 구매자 ID), 막힘에서 연 상품 자세히는 `product`(상품 키)
 //   — 상품 자세히에 갔다 와도(브라우저 뒤로 가기 포함) 같은 합치기 창이 다시 열린다 (AC-S06b-34, D-102).
+//   `/labels` 라벨(프린터·출력 대기열·버릴 라벨·출력 이력·라벨 설정·내보내기, I1 AC-I1-20)
 // 전화번호·메모·사유는 주소에 넣지 않는다(AC-S06-81) — 구매자 ID·상품 키만. 새로고침·북마크해도 같은 화면이다.
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -38,6 +39,7 @@ export type Route =
   | { readonly name: 'home' }
   | { readonly name: 'console'; readonly id: string }
   | { readonly name: 'sms' }
+  | { readonly name: 'labels' }
   | ScopeRoute
   | PackingRoute
   | { readonly name: 'settings' }
@@ -81,6 +83,7 @@ export function parseRoute(pathname: string, search = ''): Route {
   }
   const path = pathname.replace(/\/+$/, '')
   if (path === '/sms') return { name: 'sms' }
+  if (path === '/labels') return { name: 'labels' }
   if (path === '/buyers') return scopeRoute('buyers', search)
   if (path === '/settlements') return scopeRoute('settlements', search)
   if (path === '/packing') return packingRoute(search)
@@ -96,6 +99,8 @@ export function routePath(route: Route): string {
       return `/broadcasts/${encodeURIComponent(route.id)}`
     case 'sms':
       return '/sms'
+    case 'labels':
+      return '/labels'
     case 'buyers':
     case 'settlements': {
       const params = new URLSearchParams()
@@ -121,7 +126,7 @@ export function routePath(route: Route): string {
 }
 
 /** 메뉴 항목 (AC-S06-01): 지금 화면이 어느 메뉴에 속하는지 */
-export type MenuKey = 'broadcasts' | 'sms' | 'buyers' | 'settlements' | 'packing' | 'settings'
+export type MenuKey = 'broadcasts' | 'sms' | 'buyers' | 'settlements' | 'packing' | 'labels' | 'settings'
 
 export function menuOf(route: Route): MenuKey {
   switch (route.name) {
@@ -136,6 +141,8 @@ export function menuOf(route: Route): MenuKey {
       return 'settlements'
     case 'packing':
       return 'packing'
+    case 'labels':
+      return 'labels'
     case 'settings':
       return 'settings'
   }

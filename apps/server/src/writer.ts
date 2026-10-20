@@ -5,6 +5,7 @@
 //    엔진이 예상하지 못한 오류를 내면 그 입력은 실패 표시로 기록하고 상태는 그 전 그대로 둔다.
 // 4. 이벤트 행과 그 효과(발송함 행)와 범위의 지금 seq(D-085)를 한 트랜잭션으로 커밋한다. 커밋된 뒤에야 메모리 상태 교체·실시간 알림·성공 응답이 나간다.
 //    리허설 범위의 발송함 행은 리허설 표시를 단다(D-081).
+//    같은 트랜잭션에서 txHook(출력 기록 — 효과 → 출력 작업·라벨 폐기, I1 L-11 2·5)을 부른다. 커밋된 뒤에야 그 알림을 보낸다.
 // 5. (범위, seq) 유일 제약에 걸리면(다른 인스턴스가 먼저 씀) 최신 로그를 읽고 다시 계산한다.
 import { STATE_FORMAT, checkEvent, isInvalidEvent, isNotImplemented, isStateFormatError, type EngineEffect, type EngineEvent, type EngineState } from '@livejjim/core'
 import { sql } from 'drizzle-orm'
@@ -137,6 +138,25 @@ export interface WriterHooks {
   readonly beforeSnapshot?: () => void | Promise<void>
 }
 
+/** 트랜잭션 안에서 더 쓸 것 (출력 기록, I1)에 넘기는 값 */
+export interface TxHookContext {
+  readonly sellerId: string
+  readonly date: string
+  readonly rehearsal: boolean
+  readonly scopeId: string
+  readonly records: readonly CommittedRecord[]
+  /** 이벤트마다 적용한 뒤의 상태 (records와 같은 순서) */
+  readonly states: readonly EngineState[]
+  /** 이 기록 전의 상태 */
+  readonly before: EngineState
+  /** 이 범위의 실행 상태 (보기 캐시만 쓴다 — 상태는 커밋된 뒤에 바뀐다) */
+  readonly runtime: ScopeRuntime
+  readonly now: Date
+}
+
+/** 이벤트 행·발송함 행과 같은 트랜잭션에서 부른다. 커밋된 뒤 부를 일(알림)을 돌려준다. 던지면 기록 전체가 롤백된다 */
+export type TxHook = (tx: Db, ctx: TxHookContext) => Promise<(() => void) | null>
+
 export interface CommitListener {
   (sellerId: string, date: string, rehearsal: boolean, records: readonly CommittedRecord[]): void
 }
@@ -157,6 +177,8 @@ export interface WriterOptions {
   readonly changesWindow?: number
   /** 범위 상태를 메모리에서 내렸을 때 (상한·forget — 보기 캐시 상한이 그 범위의 캐시를 비운다, AC-S06b-12) */
   readonly onDrop?: (runtime: ScopeRuntime) => void
+  /** 같은 트랜잭션에서 더 쓸 것 (출력 기록, I1) */
+  readonly txHook?: TxHook
 }
 
 const MAX_SEQ_RETRIES = 5
@@ -174,14 +196,22 @@ interface Committed {
   readonly seq: number
   readonly lastAt: number
   readonly scopeId: string
+  /** 커밋된 뒤 부를 일 (txHook이 돌려준 것) */
+  readonly after: (() => void) | null
 }
 
-class Abort {
+/**
+ * 기록을 그만두고 이 결과를 돌려준다 (트랜잭션 롤백). 트랜잭션 안의 afterInsert·txHook이 던질 수 있다 —
+ * 예: 출력 결과를 엔진 보고와 함께 기록하려는데 그 시도가 이미 끝났다(I1)
+ */
+export class WriteAbort {
   readonly outcome: WriteOutcome
   constructor(outcome: WriteOutcome) {
     this.outcome = outcome
   }
 }
+
+const Abort = WriteAbort
 
 /** 유일 제약 위반이면 제약 이름 (PGlite: constraint, postgres: constraint_name) */
 export function uniqueViolation(error: unknown): string | null {
@@ -282,6 +312,19 @@ export class ScopeWriter {
     if (runtime !== undefined) this.#drop(key, runtime)
   }
 
+  /**
+   * 범위마다 한 줄 처리 안에서 최신 로그까지 따라잡은 범위 상태로 fn을 부른다 (출력 기록이 상태를 읽고 쓰는 동안 그 범위의 이벤트 기록이 끼지 않게, I1).
+   * fn 안에서 같은 범위의 read·write·withState를 부르면 안 된다(자기 차례를 기다리다 멈춘다)
+   */
+  withState<T>(sellerId: string, date: string, rehearsal: boolean, fn: (runtime: ScopeRuntime) => Promise<T>): Promise<T> {
+    return this.serial(sellerId, date, rehearsal, async () => {
+      const runtime = await this.runtime(sellerId, date, rehearsal)
+      await catchUp(this.#options.db, runtime, this.#options.engine, this.#options.log)
+      this.#keep(runtime)
+      return fn(runtime)
+    })
+  }
+
   /** 최신 로그까지 따라잡은 범위 상태 (조회용). 리허설을 적지 않으면 실제 범위다 */
   read(sellerId: string, date: string, rehearsal = false): Promise<ScopeRuntime> {
     return this.serial(sellerId, date, rehearsal, async () => {
@@ -374,8 +417,22 @@ export class ScopeWriter {
           // 범위의 지금 seq — 실패 표시 이벤트도 seq를 쓴다 (AC-S05-60)
           await setScopeSeq(tx, job.sellerId, scopeId, computed.seq)
           await job.afterInsert?.(tx, scopeId, computed.records, now)
+          const after =
+            this.#options.txHook === undefined || computed.records.length === 0
+              ? null
+              : await this.#options.txHook(tx, {
+                  sellerId: job.sellerId,
+                  date: job.date,
+                  rehearsal: job.rehearsal,
+                  scopeId,
+                  records: computed.records,
+                  states: computed.states,
+                  before: runtime.state,
+                  runtime,
+                  now,
+                })
           await this.#options.hooks.beforeCommit?.(computed.records)
-          return { records: computed.records, states: computed.states, state: computed.state, seq: computed.seq, lastAt: computed.lastAt, scopeId }
+          return { records: computed.records, states: computed.states, state: computed.state, seq: computed.seq, lastAt: computed.lastAt, scopeId, after }
         })
       } catch (error) {
         if (error instanceof Abort) {
@@ -479,6 +536,11 @@ export class ScopeWriter {
     this.#keep(runtime)
     try {
       onCommit(job.sellerId, job.date, job.rehearsal, committed.records)
+    } catch (error) {
+      log({ level: 'warn', code: 'STREAM_FAILED', date: job.date, errorKind: errorKind(error) })
+    }
+    try {
+      committed.after?.()
     } catch (error) {
       log({ level: 'warn', code: 'STREAM_FAILED', date: job.date, errorKind: errorKind(error) })
     }

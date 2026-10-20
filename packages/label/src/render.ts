@@ -579,6 +579,10 @@ export function renderPackingText(env: LabelRenderEnv, text: PackingText): Rende
 export const TEST_LABEL_TITLE = '테스트 라벨'
 export const TEST_LABEL_HANGUL = '한글 확인: 가나다 똠햏 ㄱㄴㄷ'
 export const TEST_LABEL_DIGITS = '0123456789'
+/** 작은 크기(L-1)의 테스트 라벨 한글 확인 글 — 둘째 줄은 `0123456789 <YY.MM.DD>` (L-7, N1) */
+export const TEST_LABEL_SMALL_HANGUL = '한글 확인: 가나다 똠햏'
+/** 작은 크기 테스트 라벨의 가장 작은 글자 크기 (점) — 높이 96~120점에 20점 이상으로 들어간다 */
+const SMALL_TEST_MIN_FONT = 20
 /** 테스트 라벨 테두리 두께 (점) */
 export const TEST_LABEL_BORDER = 2
 
@@ -593,6 +597,7 @@ export interface TestLabelInput {
 /**
  * 테스트 라벨 (연결 마법사의 테스트 인쇄): 가게 이름, `테스트 라벨`, 한글 확인 글, 숫자, 날짜(`YY.MM.DD`),
  * 그림의 맨 위·맨 아래·맨 왼쪽·맨 오른쪽 줄을 지나는 테두리. 맨 아래 테두리가 찍히면 마지막 줄 대응이 된 것이다(HG-2).
+ * 작은 크기(50×15·테이프)는 `한글 확인: 가나다 똠햏`과 `0123456789 <날짜>` 두 줄과 같은 테두리만 찍는다(L-7, N1).
  */
 export function renderTestLabel(env: LabelRenderEnv, input: TestLabelInput): RenderResult<RenderedLabel> {
   if (typeof input.date !== 'string' || !isCalendarDate(input.date)) {
@@ -603,7 +608,26 @@ export function renderTestLabel(env: LabelRenderEnv, input: TestLabelInput): Ren
   if (!isLabelSize(size)) {
     return { ok: false, error: { code: 'INVALID_TEMPLATE', message: LABEL_MESSAGES.invalidTemplate, problems: [{ path: 'size', message: TEMPLATE_MESSAGES.size }] } }
   }
-  const { widthDots: width, heightDots: height } = labelSizeInfo(size)
+  const { widthDots: width, heightDots: height, small } = labelSizeInfo(size)
+  const inset = TEST_LABEL_BORDER + 4
+  if (small) {
+    const rowHeight = Math.floor((height - 2 * inset) / 2)
+    const fontSize = Math.max(SMALL_TEST_MIN_FONT, Math.min(32, Math.floor(rowHeight / (env.font.ascent + env.font.descent))))
+    const smallRows = [
+      { id: 'check', value: TEST_LABEL_SMALL_HANGUL },
+      { id: 'digits', value: `${TEST_LABEL_DIGITS} ${formatLabelDate(input.date)}` },
+    ]
+    const smallSpecs: ItemSpec[] = smallRows.map((row, i) => ({
+      id: row.id,
+      box: { visible: true, x: inset, y: inset + i * rowHeight, width: width - 2 * inset, height: rowHeight, fontSize, minFontSize: SMALL_TEST_MIN_FONT },
+      caption: '',
+      suffix: '',
+      value: row.value,
+      mode: 'number',
+      align: 'center',
+    }))
+    return renderSpecs(env, size, smallSpecs, { border: TEST_LABEL_BORDER })
+  }
   const shop = trimLabelText(typeof input.shopName === 'string' ? input.shopName : '')
   const rows: { id: string; value: string; mode: Mode }[] = [
     ...(shop === '' ? [] : [{ id: 'shop', value: shop, mode: 'text' as const }]),
@@ -612,7 +636,6 @@ export function renderTestLabel(env: LabelRenderEnv, input: TestLabelInput): Ren
     { id: 'digits', value: TEST_LABEL_DIGITS, mode: 'number' },
     { id: 'date', value: formatLabelDate(input.date), mode: 'number' },
   ]
-  const inset = TEST_LABEL_BORDER + 4
   const rowHeight = Math.floor((height - 2 * inset) / 5)
   const fontSize = Math.max(16, Math.min(32, Math.floor(rowHeight / (env.font.ascent + env.font.descent))))
   const specs: ItemSpec[] = rows.map((row, i) => ({

@@ -12,6 +12,12 @@ export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 export const STAGES = ['typecheck', 'lint', 'test', 'golden', 'adversarial', 'e2e', 'coverage']
 /** 시간대를 고정하는 단계 (D-026) */
 export const TZ_STAGES = new Set(['test', 'golden', 'adversarial', 'coverage'])
+/**
+ * 성능 시험(D-902): 이름이 *.perf.test.* · *.perf.spec.* 인 파일. 걸린 시간(p99·배수)을 재므로 기계 부하에 따라 흔들린다.
+ * pnpm verify(정확성)에서는 빼고, pnpm perf로 부하 없는 때(통합 시점)에 오케스트레이터가 돌린다.
+ */
+export const isPerfTest = (path) => /\.perf\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path)
+const PERF_EXCLUDE = ['--exclude', '**/*.perf.test.*']
 /** 코어 커버리지 기준 (AC-S00-13). vitest.coverage.config.ts 임계값과 별개로 여기서도 다시 확인한다. */
 export const COVERAGE_MINIMUM = 95
 
@@ -370,13 +376,13 @@ const RAN_STATUSES = new Set(['passed', 'failed'])
  * - expected: 디스크에서 찾은 대상 파일 전부. 정확히 이 파일들이 돌아야 한다(include·exclude로 빼거나 넓히면 실패)
  * - 건너뛴 테스트(.skip·.todo·skipIf·.only·testNamePattern)가 하나라도 있으면 실패 (dev-common, AC-S00-11)
  */
-async function vitestRun(config, label, { under, notUnder = [], expected, configHint = config }) {
+async function vitestRun(config, label, { under, notUnder = [], expected, configHint = config, extraArgs = [] }) {
   mkdirSync(CACHE, { recursive: true })
   const out = join(CACHE, `${label}.json`)
   rmSync(out, { force: true })
   // --typecheck.enabled=false: 설정 파일의 typecheck 모드(테스트를 실행하지 않고 타입만 보고 passed로 보고)를 덮어쓴다 (SA-S00-010)
   const result = await exec(
-    [bin('vitest'), 'run', '--config', config, '--typecheck.enabled=false', '--reporter=default', '--reporter=json', `--outputFile.json=${out}`],
+    [bin('vitest'), 'run', '--config', config, '--typecheck.enabled=false', ...extraArgs, '--reporter=default', '--reporter=json', `--outputFile.json=${out}`],
     { tz: true },
   )
   const json = readJson(out)
@@ -413,7 +419,12 @@ async function vitestRun(config, label, { under, notUnder = [], expected, config
 
 /** test 단계 대상: `packages/*`·`apps/*` 안의 단위 테스트 파일 전부 (Vitest 기본 이름 규칙 *.test.*·*.spec.*) */
 export function unitTestFiles() {
-  return workspaceFiles((f) => /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(f))
+  return workspaceFiles((f) => /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(f) && !isPerfTest(f))
+}
+
+/** 성능 시험 파일 (packages/*·apps/*) */
+export function unitPerfFiles() {
+  return workspaceFiles((f) => /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(f) && isPerfTest(f))
 }
 
 async function test() {
@@ -422,6 +433,7 @@ async function test() {
     notUnder: ['tests/'],
     expected: unitTestFiles().map(rel),
     configHint: '각 패키지 vitest.config.ts',
+    extraArgs: PERF_EXCLUDE,
   })
 }
 
@@ -433,7 +445,11 @@ async function golden() {
 }
 
 export function adversarialFiles() {
-  return walk(join(ROOT, 'tests', 'adversarial'), (f) => f.endsWith('.test.ts'))
+  return walk(join(ROOT, 'tests', 'adversarial'), (f) => f.endsWith('.test.ts') && !isPerfTest(f))
+}
+
+export function adversarialPerfFiles() {
+  return walk(join(ROOT, 'tests', 'adversarial'), (f) => f.endsWith('.test.ts') && isPerfTest(f))
 }
 
 async function adversarial() {
@@ -442,13 +458,20 @@ async function adversarial() {
     process.stdout.write('tests/adversarial/**/*.test.ts 없음\n')
     return { status: 'pass', detail: '적대 테스트 0개' }
   }
-  const result = await vitestRun('vitest.adversarial.config.ts', 'adversarial', { under: ['tests/adversarial/'], expected: files.map(rel) })
+  const result = await vitestRun('vitest.adversarial.config.ts', 'adversarial', { under: ['tests/adversarial/'], expected: files.map(rel), extraArgs: PERF_EXCLUDE })
   return { ...result, detail: `적대 테스트 ${result.detail}` }
 }
 
 export function e2eFiles() {
-  return walk(join(ROOT, 'tests', 'e2e'), (f) => /\.spec\.[cm]?ts$/.test(f))
+  return walk(join(ROOT, 'tests', 'e2e'), (f) => /\.spec\.[cm]?ts$/.test(f) && !isPerfTest(f))
 }
+
+export function e2ePerfFiles() {
+  return walk(join(ROOT, 'tests', 'e2e'), (f) => /\.spec\.[cm]?ts$/.test(f) && isPerfTest(f))
+}
+
+/** 성능 E2E를 고르는 제목 태그 (playwright.config.ts의 @fill 묶음 포함) */
+const E2E_PERF_TAGS = '@fill|@perf'
 
 /** Playwright JSON 보고서의 스위트 트리에서 파일 이름을 모은다 */
 function e2eReportFiles(suites, out = new Set()) {
@@ -473,7 +496,7 @@ async function e2e() {
   const out = join(CACHE, 'e2e.json')
   rmSync(out, { force: true })
   const config = join(ROOT, 'apps', 'web', 'playwright.config.ts')
-  const result = await exec([bin('@playwright/test', 'playwright'), 'test', '--config', config, '--reporter=line,json'], {
+  const result = await exec([bin('@playwright/test', 'playwright'), 'test', '--config', config, '--grep-invert', E2E_PERF_TAGS, '--reporter=line,json'], {
     extraEnv: { PLAYWRIGHT_JSON_OUTPUT_NAME: out },
   })
   const report = readJson(out)
@@ -506,7 +529,7 @@ async function e2e() {
 async function coverage() {
   const summaryPath = join(ROOT, 'coverage', 'coverage-summary.json')
   rmSync(summaryPath, { force: true })
-  const result = await exec([bin('vitest'), 'run', '--config', 'vitest.coverage.config.ts', '--typecheck.enabled=false'], { tz: true })
+  const result = await exec([bin('vitest'), 'run', '--config', 'vitest.coverage.config.ts', '--typecheck.enabled=false', ...PERF_EXCLUDE], { tz: true })
   const summary = readJson(summaryPath)
   const total = summary?.total
   if (!total) return { status: 'fail', detail: `커버리지 요약이 없다 (종료 코드 ${result.code})` }
@@ -520,7 +543,46 @@ async function coverage() {
   return { status: result.code === 0 && enough ? 'pass' : 'fail', detail }
 }
 
-const RUNNERS = { typecheck, lint, test, golden, adversarial, e2e, coverage }
+/**
+ * 성능 단계(D-902, pnpm perf): 성능 시험만 돌린다 — 단위·서버(*.perf.test.*), 적대(tests/adversarial/**\/*.perf.test.ts),
+ * E2E(*.perf.spec.ts · @fill·@perf 제목). pnpm verify에는 들어가지 않는다. 다른 무거운 작업이 없을 때 돌려야 뜻이 있다.
+ */
+async function perf() {
+  const parts = []
+  let ok = true
+  const unit = unitPerfFiles().map(rel)
+  if (unit.length > 0) {
+    const r = await vitestRun('vitest.config.ts', 'perf-unit', { under: ['packages/', 'apps/'], expected: unit, extraArgs: unit })
+    parts.push(`단위·서버 ${r.detail}`)
+    ok &&= r.status === 'pass'
+  }
+  const adv = adversarialPerfFiles().map(rel)
+  if (adv.length > 0) {
+    const r = await vitestRun('vitest.adversarial.config.ts', 'perf-adversarial', { under: ['tests/adversarial/'], expected: adv, extraArgs: adv })
+    parts.push(`적대 ${r.detail}`)
+    ok &&= r.status === 'pass'
+  }
+  if (e2ePerfFiles().length > 0) {
+    mkdirSync(CACHE, { recursive: true })
+    const out = join(CACHE, 'perf-e2e.json')
+    rmSync(out, { force: true })
+    const config = join(ROOT, 'apps', 'web', 'playwright.config.ts')
+    const result = await exec([bin('@playwright/test', 'playwright'), 'test', '--config', config, '--grep', E2E_PERF_TAGS, '--reporter=line,json'], {
+      extraEnv: { PLAYWRIGHT_JSON_OUTPUT_NAME: out },
+    })
+    const stats = readJson(out)?.stats ?? {}
+    const passed = stats.expected ?? 0
+    const failed = (stats.unexpected ?? 0) + (stats.flaky ?? 0)
+    parts.push(`E2E 통과 ${passed}${failed > 0 ? ` · 실패 ${failed}` : ''}`)
+    ok &&= result.code === 0 && failed === 0 && passed > 0
+  }
+  if (parts.length === 0) return { status: 'pass', detail: '성능 시험 0개' }
+  return { status: ok ? 'pass' : 'fail', detail: parts.join(' / ') }
+}
+
+const RUNNERS = { typecheck, lint, test, golden, adversarial, e2e, coverage, perf }
+/** pnpm verify에 들어가지 않고 따로 부르는 단계 */
+export const EXTRA_STAGES = ['perf']
 
 export async function runStage(name) {
   const started = performance.now()

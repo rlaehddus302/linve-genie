@@ -14,14 +14,15 @@
     "golden": "node scripts/verify/stage.mjs golden",
     "adversarial": "node scripts/verify/stage.mjs adversarial",
     "e2e": "node scripts/verify/stage.mjs e2e",
-    "coverage": "node scripts/verify/stage.mjs coverage"
+    "coverage": "node scripts/verify/stage.mjs coverage",
+    "perf": "node scripts/verify/stage.mjs perf"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@livejjim/core": "workspace:*",
+    "@livejjim/documents": "workspace:*",
     "@livejjim/label": "workspace:*",
     "@livejjim/printer": "workspace:*",
-    "@livejjim/documents": "workspace:*",
     "@livejjim/server": "workspace:*",
     "@livejjim/voice": "workspace:*",
     "@playwright/test": "1.62.1",
