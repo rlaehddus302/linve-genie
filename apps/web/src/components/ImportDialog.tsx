@@ -17,6 +17,9 @@ export const IMPORT_GUIDE = '엑셀에서 번호·품종·가격 세 칸을 복�
 export const IMPORT_CHANGED = '그 사이에 바뀐 것이 있어요. 다시 확인해 주세요.'
 export const IMPORT_EMPTY = '가져올 상품이 없어요.'
 export const IMPORT_TOO_MANY = '한 번에 500개까지 가져올 수 있어요.'
+/** 파일 크기 상한 (서버와 같은 2MB — 큰 파일은 올리기 전에 막는다) */
+export const IMPORT_FILE_MAX_BYTES = 2 * 1024 * 1024
+export const IMPORT_FILE_TOO_LARGE = '파일이 너무 커요(2MB까지).'
 
 /** 줄 문제의 말 (AC-I2-52) — 번호 범위는 그 방송의 최대 번호 */
 export function importProblemWords(error: ImportRowError, maxNumber: number): string {
@@ -67,6 +70,7 @@ export function ImportDialog({ broadcastId, onClose, onRegistered }: ImportDialo
   const [error, setError] = useState<ApiError | null>(null)
   const [changedNotice, setChangedNotice] = useState(false)
   const [done, setDone] = useState<number | null>(null)
+  const [tooLarge, setTooLarge] = useState(false)
   const pending = useRef<{ key: string; requestId: string } | null>(null)
   const base = `/api/broadcasts/${encodeURIComponent(broadcastId)}/import`
 
@@ -131,14 +135,23 @@ export function ImportDialog({ broadcastId, onClose, onRegistered }: ImportDialo
     }
   }
 
+  /** 파일을 고르면 그 파일이 입력이다 (붙여 넣은 글은 비운다 — 한 번에 하나) */
   const pickFile = async (picked: File | undefined) => {
     if (picked === undefined) return
-    setBusy('file')
     setError(null)
     setDone(null)
+    setPreview(null)
+    setChangedNotice(false)
+    if (picked.size > IMPORT_FILE_MAX_BYTES) {
+      setFile(null)
+      setTooLarge(true)
+      return
+    }
+    setTooLarge(false)
+    setBusy('file')
     try {
       setFile({ name: picked.name, data: await fileBase64(picked) })
-      setPreview(null)
+      setText('')
     } finally {
       setBusy(null)
     }
@@ -179,6 +192,7 @@ export function ImportDialog({ broadcastId, onClose, onRegistered }: ImportDialo
             setText(event.target.value)
             // 글을 고치면 고른 파일·지난 미리 보기는 쓰지 않는다
             setFile(null)
+            setTooLarge(false)
             setPreview(null)
             setDone(null)
           }}
@@ -201,6 +215,11 @@ export function ImportDialog({ broadcastId, onClose, onRegistered }: ImportDialo
         {file !== null ? <span>고른 파일: {file.name}</span> : null}
         {busy === 'file' ? <span role="status">파일을 읽는 중…</span> : null}
       </div>
+      {tooLarge ? (
+        <p className="field-error" role="alert">
+          {IMPORT_FILE_TOO_LARGE}
+        </p>
+      ) : null}
       {busy === 'preview' ? <p role="status">미리 보기를 만드는 중이에요…</p> : null}
       {busy === 'register' ? <p role="status">등록하는 중이에요…</p> : null}
       {done !== null ? (

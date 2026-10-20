@@ -467,6 +467,26 @@ describe('상품 목록 가져오기 창', () => {
     expect(synced).toEqual([9])
   })
 
+  it('파일을 고르면 그 파일이 입력(붙여 넣은 글은 비움) — 2MB 넘는 파일은 올리기 전에 막는다', async () => {
+    const server = new FakeServer().on('POST', /preview$/, () => ({ body: preview }))
+    vi.stubGlobal('fetch', server.fetch)
+    render(<ImportDialog broadcastId="b1" onClose={() => {}} onRegistered={async () => {}} />)
+    fireEvent.change(screen.getByLabelText('붙여 넣기'), { target: { value: '15\t핑크프릴\t10000' } })
+    const big = new File([new Uint8Array(2 * 1024 * 1024 + 1)], '큰목록.xlsx')
+    fireEvent.change(screen.getByLabelText('파일 고르기'), { target: { files: [big] } })
+    await flush(5)
+    expect(screen.getByRole('alert').textContent).toBe('파일이 너무 커요(2MB까지).')
+    const csv = new File([new TextEncoder().encode('15,핑크프릴,10000')], '목록.csv', { type: 'text/csv' })
+    fireEvent.change(screen.getByLabelText('파일 고르기'), { target: { files: [csv] } })
+    await flush(10)
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByText('고른 파일: 목록.csv')).toBeDefined()
+    expect((screen.getByLabelText('붙여 넣기') as HTMLTextAreaElement).value).toBe('')
+    fireEvent.click(screen.getByRole('button', { name: '미리 보기' }))
+    await flush(5)
+    expect(server.callsTo('POST', /preview$/)[0]?.body).toEqual({ file: { name: '목록.csv', data: btoa(String.fromCharCode(...new TextEncoder().encode('15,핑크프릴,10000'))) } })
+  })
+
   it('빈 목록·500개 넘음은 쉬운 말', async () => {
     const server = new FakeServer().on('POST', /preview$/, () => ({ body: { ...preview, error: 'TOO_MANY', rows: [], register: 0, problems: 0, header: null, headerCells: null } }))
     vi.stubGlobal('fetch', server.fetch)
