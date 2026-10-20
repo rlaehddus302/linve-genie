@@ -47,7 +47,7 @@
 # 라운드 3 (D-N2-17 — 옮기기 (사)를 60분 간격으로, LIVE_NOT_MOVED, 연결 조회 moved)
 
 ## 이전 지적
-- TD-N2-004 — dev-server 진행 중 코드(작업 폴더, 아직 커밋 전)에서 통과. 판정은 dev-server 커밋 뒤 다시 돌린 결과로 적는다(아래).
+- TD-N2-004 — 고쳐짐(de6c762). 시험 통과(자정을 넘긴 다시 켜기, 간격 36분 → 옮김).
 - 기존 적대 시험 중 막힌 경우에 `UNLINKED_COMMENTS`나 날짜 기준을 가정한 것은 없었다(TD-N2-003 시험은 찜·잇기만 본다, TD-N2-001 시험의 `UNLINKED_COMMENTS` 없음은 끊은 뒤 재배달이라 새 규칙과 무관). 바꾼 시험 없음.
 
 ## 새 공격 — `live-move-gap-attacks.test.ts` (모두 통과 — 버그 없음, 회귀로 남김)
@@ -63,3 +63,7 @@
 | ID | 심각도 | 내용 | 시험 |
 |---|---|---|---|
 | TD-N2-005 | minor | **스펙 확인 필요** (category: spec, file `apps/server/src/live-links.ts`, AC-N2-25). 라이브를 빠르게 두 번 다시 켤 때(M → M2 → M3) 메타가 M2 댓글을 M3 첫 댓글보다 늦게 배달하면(entry.time이 60초 안이라 늦지 않음), b가 M → M3으로 옮겨진 뒤 다시 M3 → M2(이미 끝난 라이브)로 옮겨진다. M2는 "이어진 적 없는 라이브"라 AC-N2-25 조건을 모두 만족한다. 그 뒤 지금 방송 중인 M3의 댓글은 "이어진 적 있는 라이브"라 기록되지 않고 `UNLINKED_COMMENTS`로 세기만 한다. 판매자가 알아채고 b를 끊어 M3에 다시 이을 때까지 주문이 사라진다. 확인: 작업 폴더 코드에서 20:06:30 M3 "15" → b가 M3으로, 20:06:40 M2 "16"(entry.time 20:06:00) → b가 M2로, 20:07 M3 "17"은 이어지지 않은 수 1. 드물다(빠른 다시 켜기 두 번 + 메타 배달 순서 뒤바뀜). 제안: 새 라이브 댓글의 entry.time이 b의 마지막 활동(서버 시계)보다 이르면 옮기지 않기, 또는 `live_media` 시작 시각을 비교하기. 스펙이 정할 일이라 실패하는 시험은 두지 않음 | 없음(재현 절차만) |
+
+## 결과 (de6c762 뒤)
+- `npx vitest run --config vitest.adversarial.config.ts tests/adversarial/n2` — 3파일 42개 모두 통과(instagram-attacks 7·dm-attacks 3·live-move-gap-attacks 32). 새 실패 시험 없음.
+- resolvedIds: TD-N2-004. 남은 것: TD-N2-005(minor, 스펙 확인 필요 — spec-keeper에게).
