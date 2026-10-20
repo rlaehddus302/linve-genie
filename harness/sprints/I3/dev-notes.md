@@ -134,3 +134,7 @@ Y1 계약(`harness/sprints/Y1/dev-notes.md` "화면(I3)에게" 1~8)은 그대로
 ### disputesWithSpec
 - **AC-I3-88 "기다리는 중에 채널을 바꾸면 그 행은 다음 차례에 FAILED(NOT_MY_CHANNEL)"**: 실제로 채널을 바꾸는 길은 "연결 끊기 → 다른 채널 연결"뿐이고(같은 판매자가 다른 채널로 다시 승인하면 `CHANNEL_MISMATCH`), **끊기는 그때 기다리던 행을 모두 `FAILED(NO_CONSENT)`로 바꾼다**(Y1 계약 "끊으면 동의도 꺼진다… 기다리던 행은 '자동 게시에 동의하기 전의 감사예요.'", AC-Y1-06·D-Y12). 그래서 실제 흐름의 결과는 `NO_CONSENT`이고, `NOT_MY_CHANNEL`은 끊기의 정리를 거치지 않고 연결의 채널이 바뀐 경합(다른 서버)에서만 나온다. 시험은 둘 다 넣었다: 연결 행의 채널만 바꾼 경합 → 다음 차례 `NOT_MY_CHANNEL`·게시 0번(네 이유 모두), 실제 흐름(끊기 → C 연결·동의) → `NO_CONSENT`·게시 0번(네 이유 모두). 어느 쪽이든 다른 채널로 게시는 0번이다(안전 조건). 기준 문장을 "끊기의 정리를 거치지 않은 채널 변경"으로 고칠지 spec-keeper 판정을 바란다 — 구현은 끊기의 동작(Y1 계약)을 바꾸지 않았다.
 - (참고, 다툼 아님) AC-Y1-92의 "보내는 중 행은 확인을 마치고 확인 실패 뒤 다시 시도할 때 NOT_MY_CHANNEL"은 AC-I3-85·86으로 결과가 `UNCONFIRMED`가 된다(위 표). 게시 0번은 그대로다.
+
+### verify
+- `E2E_PORT_OFFSET=700 pnpm verify` (작업 폴더 `livejjim-wt/i3`, 커밋 34b7648 뒤 — 그 뒤 커밋은 시험 하나·문서뿐): **7단계 모두 통과** — typecheck(설정 8 · TS 파일 340) · lint(0·0) · test(파일 109 · 2313) · golden(파일 23 · 파서 385 · 엔진 122 · 통과 507) · adversarial(파일 36 · 660) · e2e(파일 22 · 통과 133) · coverage(라인 100% · 분기 99.65%).
+- 보호 경로 게이트 `node scripts/harness/check-protected.mjs f55a18e` 통과.
