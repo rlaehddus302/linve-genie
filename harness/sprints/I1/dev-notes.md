@@ -205,3 +205,14 @@ LabelView = LabelRef & {
 
 ### test-e2e에게 — 시험끼리 출력 기록이 섞이지 않게
 - 출력 기록은 **판매자 단위**(시험 계정 하나를 모든 E2E가 함께 쓴다)이고 Playwright는 파일 이름 순으로 돈다 — `tests/e2e/i1/**`이 `s05`·`s06`보다 먼저 돈다. I1 시험이 출력 기기·멈춤·버릴 라벨·대기를 남기면 뒤 시험의 콘솔 알림 띠에 "출력 멈춤 · …"·"버릴 라벨 N"이 보이고 Alt+1이 그 창을 먼저 연다(기존 S05·S06 시험이 "알림 없음"·Alt+1 순서를 본다). 시험 끝에 정리해 주세요: `POST /api/print/device/release {}` → `POST /api/print/jobs/cancel-all {confirm:true}` → `GET /api/print`의 `discard`마다 `POST /api/print/jobs/discard {date,id}` → 멈춰 있으면 `POST /api/print/restart {}`(끊김 멈춤은 출력 기기를 비우면 풀린다), 자동 출력을 껐으면 `PATCH /api/settings {settings:{'print.autoOnConfirm':true}}`.
+
+### 수정 라운드 1 (dev-web)
+- **SA-I1-003·TE-I1-001 (늦게 온 라벨 상태 응답)**: `PrintStore`가 날짜마다 "지금 도는 라벨 상태 조회를 보낸 뒤 print 알림으로 받은 라벨"(`fresh`, 라벨 키 → LabelView)을 기억하고, 응답이 오면 응답 위에 그것을 다시 덮는다. 다시 받기가 이어지면(`again`) 조회마다 새로 기억한다(다음 조회는 그 알림보다 뒤에 보냈으므로 응답이 더 새것 — 재출력 필요처럼 print 알림 없이 바뀐 값을 되돌리지 않는다). 처음 조회가 도는 사이(아직 보일 것이 없는 `loading`) 온 알림의 라벨도 버리지 않고 응답 위에 덮는다.
+  - 근거: 서버 알림은 커밋 뒤 그때 DB를 읽어 만들고(`#publishNow`) 한 실시간 연결로 순서대로 온다 — 조회를 보낸 뒤 받은 알림의 라벨은 응답과 같거나 더 새것이고, 그보다 새 변화는 뒤따르는 알림(라벨)·change 알림(다시 받기)으로 온다.
+  - 알림의 라벨은 대기열 판(rev)과 따로 덮는다: 대기열 요약은 버리는 오래된 판의 알림, 처음 대기열 조회 전에 모아 둔 알림이라도 라벨은 온 순서대로 덮는다(라벨 상태 조회는 대기열 조회와 따로 돈다).
+  - 서버 계약은 바꾸지 않았다(LabelView에 판을 넣지 않음).
+- **SA-I1-006 (테스트 라벨 그림 비교, AC-I1-22)**: `tests/**`는 테스터 소유(보호 경로)라 E2E 파일은 고치지 않고, 화면 시험 `apps/web/test/labels-page.test.tsx`에 라벨 화면 → 시험용 프린터까지 한 길로 "테스트 인쇄 그림 = `renderTestLabel(상품 라벨 설정의 가게 이름 '다육농장', 한국 날짜 오늘, 크기 50×40)`"을 `bitmapsEqual`로 비교하는 시험을 더했다. 시각은 2026-10-19T16:30Z(한국은 20일, UTC·미국은 19일)로 고정. 다른 날짜(19일)·빈 가게 이름·50×30과는 다름도 본다(비교가 헛돌지 않게). 고치기 전 코드로 날짜를 UTC로·크기를 50×30으로·가게 이름을 빈 글자로 바꾸면 각각 실패하는 것을 확인했다.
+  - jsdom 시험은 `@livejjim/label/node`의 글꼴 경로(`import.meta.url`)를 Vite가 화면 주소로 바꿔 쓸 수 없다 — `test/print-support.ts` `jsdomLabelEnv()`가 글꼴을 패키지 내보내기 `@livejjim/label/font`로 찾고 캔버스(`@napi-rs/canvas`)는 라벨 패키지의 의존성에서 불러와 같은 렌더 환경을 만든다(웹 설정은 Node 타입이 없어 `process.getBuiltinModule`로 좁게 적었다). 의존성은 더하지 않았다.
+  - test-e2e에게: E2E에서도 같은 비교(`livejjimTestPrinter.printed()` ↔ `renderTestLabel(createNodeRenderEnv(), …)`)를 원하면 상품 라벨 설정을 50×40·가게 이름으로 저장한 뒤 테스트 인쇄하면 된다(화면은 저장된 상품 라벨 설정의 가게 이름·크기와 한국 날짜 오늘을 쓴다).
+- **TE-I1-002·TD-I1-001·TD-I1-002**: 서버 수정(aa1599d)으로 통과 — 화면은 받기 응답을 잃으면(네트워크 오류 = transient) 3초 뒤 다시 받으므로 서버의 되찾기(2초 뒤 같은 기기)와 맞물린다. 화면 쪽 변경 없음.
+- 더한 시험: `test/print-store.test.ts` "느린 망 (TE-I1-001)" — 처음 조회 중 알림, 조치 뒤 다시 받기 중 출력 중 → 출력함 알림, 다음 조회는 덮지 않음, 오래된 판 알림의 라벨. 고치기 전 코드에서 실패하는 것을 확인했다. 기존 시험은 바꾸지 않았다.

@@ -1,11 +1,13 @@
 // 라벨 화면·프린터 상태 (AC-I1-20·21·23·24·27·34·50·60): 메뉴 "라벨", 연결 방법은 이 브라우저에 있는 것만(시험용 프린터는 시험 모드에서만),
 // 바로 연결할 수 없는 브라우저 안내, 멈춤 띠의 문장·할 일, 다른 기기에서 보는 출력 기기, 버릴 라벨, 자동 출력 설정, 영어 상태값 없음.
+import { bitmapsEqual, defaultTemplate, renderTestLabel } from '@livejjim/label'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../src/App.tsx'
 import { onUnauthorized } from '../src/api/client.ts'
 import type { PrintOverview } from '../src/api/print-types.ts'
-import { device, job, overview, queue, templates } from './print-support.ts'
+import { setLabelEnv } from '../src/lib/label-env.ts'
+import { device, job, jsdomLabelEnv, overview, queue, templates } from './print-support.ts'
 import { DATE, FakeEventSource, FakeServer, flush } from './support.ts'
 
 let server: FakeServer
@@ -86,6 +88,50 @@ describe('연결 방법 (AC-I1-21·50)', () => {
     expect((within(printer).getByLabelText('기기 이름') as HTMLInputElement).value).toBe('PC')
     expect(within(printer).getByRole('button', { name: '이 기기에서 출력' })).toBeTruthy()
     expect(window.livejjimTestPrinter).toBeDefined()
+  })
+
+  it('테스트 인쇄 그림 = renderTestLabel(상품 라벨 설정의 가게 이름·크기, 한국 날짜 오늘) — 점 하나까지 (AC-I1-22, D-I1-06)', async () => {
+    // 한국은 이미 10월 20일, UTC·미국은 아직 19일인 때 (실행 환경 시간대가 한국이 아니면 날짜를 잘못 고르는 것도 잡는다)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-19T16:30:00Z'))
+    const env = jsdomLabelEnv()
+    setLabelEnv(env)
+    // 미리 보기 캔버스는 jsdom에 그릴 곳이 없다 (LabelImage는 null이면 그리지 않는다)
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+    try {
+      testPrinter = true
+      const product = { ...defaultTemplate('product', '50x40'), shopName: '다육농장' }
+      server.on('GET', /^\/api\/print\/templates$/, () => ({ body: { ...templates(), product: { template: product, version: 3 } } }))
+      await openLabels()
+      const printer = screen.getByRole('region', { name: '프린터' })
+      fireEvent.click(within(printer).getByRole('button', { name: '시험용 프린터 — 실제로 출력되지 않아요' }))
+      await waitFor(() => expect(within(printer).getByText('연결됨')).toBeTruthy())
+      fireEvent.click(within(printer).getByRole('button', { name: '테스트 인쇄' }))
+      await waitFor(() => expect(within(printer).getByText('테스트 라벨의 네 변 테두리와 한글이 모두 또렷하게 보이나요?')).toBeTruthy(), { timeout: 5000 })
+      const printed = window.livejjimTestPrinter?.printed() ?? []
+      expect(printed).toHaveLength(1)
+      const expected = renderTestLabel(env, { shopName: '다육농장', date: '2026-10-20', size: '50x40' })
+      expect(expected.ok).toBe(true)
+      if (!expected.ok) return
+      const got = printed[0]
+      expect(got === undefined ? null : { width: got.width, height: got.height }).toEqual({ width: expected.image.width, height: expected.image.height })
+      expect(bitmapsEqual({ width: got?.width ?? 0, height: got?.height ?? 0, data: Uint8Array.from(got?.data ?? []) }, expected.image)).toBe(true)
+      // 다른 날짜·가게 이름·크기의 테스트 라벨과는 다르다 (비교가 헛돌지 않는다)
+      for (const other of [
+        { shopName: '다육농장', date: '2026-10-19', size: '50x40' as const },
+        { shopName: '', date: '2026-10-20', size: '50x40' as const },
+        { shopName: '다육농장', date: '2026-10-20', size: '50x30' as const },
+      ]) {
+        const wrong = renderTestLabel(env, other)
+        expect(wrong.ok && bitmapsEqual({ width: got?.width ?? 0, height: got?.height ?? 0, data: Uint8Array.from(got?.data ?? []) }, wrong.image)).toBe(false)
+      }
+      // 서버를 거치지 않는다 (받기·결과 없음)
+      expect(server.callsTo('POST', /^\/api\/print\/(claim|result)$/)).toHaveLength(0)
+    } finally {
+      setLabelEnv(null)
+      getContext.mockRestore()
+      vi.useRealTimers()
+    }
   })
 })
 

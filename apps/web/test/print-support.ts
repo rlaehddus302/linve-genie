@@ -1,5 +1,5 @@
 // 출력 화면 시험 도우미: 서버 출력 계약 모양(harness/sprints/I1/dev-notes.md "dev-server > 바뀐 계약")의 값 만들기.
-import { defaultTemplate } from '@livejjim/label'
+import { LABEL_FONT_FAMILY, defaultTemplate, parseLabelFont, type LabelCanvas2D, type LabelRenderEnv } from '@livejjim/label'
 import type { JobView, LabelView, PrintOverview, QueueSummary, Templates } from '../src/api/print-types.ts'
 import { DATE } from './support.ts'
 
@@ -68,4 +68,39 @@ export function overview(patch: Partial<PrintOverview> = {}): PrintOverview {
 
 export function templates(): Templates {
   return { product: { template: defaultTemplate('product'), version: 0 }, packing: { template: defaultTemplate('packing'), version: 0 } }
+}
+
+interface NodeCanvasModule {
+  readonly GlobalFonts: { register(font: Uint8Array, family: string): unknown }
+  createCanvas(width: number, height: number): { getContext(kind: '2d'): unknown }
+}
+
+/** 이 설정(jsdom·DOM 타입)에는 Node 타입이 없다 — 시험이 쓰는 Node 기본 모듈 몇 개만 좁게 적는다 */
+interface NodeBuiltins {
+  readonly module: { createRequire(from: string): ((id: string) => unknown) & { resolve(id: string): string } }
+  readonly fs: { readFileSync(path: string): Uint8Array }
+  readonly buffer: { Buffer: { from(bytes: Uint8Array): Uint8Array } }
+}
+
+function builtin<K extends keyof NodeBuiltins>(name: K): NodeBuiltins[K] {
+  const runtime = globalThis as unknown as { process: { getBuiltinModule(id: string): unknown } }
+  return runtime.process.getBuiltinModule(`node:${name}`) as NodeBuiltins[K]
+}
+
+let jsdomEnv: LabelRenderEnv | null = null
+
+/**
+ * jsdom 시험에서 쓰는 Node 캔버스 렌더 환경 (@livejjim/label/node와 같은 글꼴·캔버스).
+ * jsdom 변환은 그 진입점의 글꼴 경로(import.meta.url)를 화면 주소로 바꾸므로, 글꼴 파일은 패키지 내보내기('@livejjim/label/font')로 찾고
+ * 캔버스는 라벨 패키지의 의존성에서 불러온다.
+ */
+export function jsdomLabelEnv(): LabelRenderEnv {
+  if (jsdomEnv !== null) return jsdomEnv
+  const { createRequire } = builtin('module')
+  const fontPath = createRequire(import.meta.url).resolve('@livejjim/label/font')
+  const canvas = createRequire(fontPath)('@napi-rs/canvas') as NodeCanvasModule
+  const bytes = new Uint8Array(builtin('fs').readFileSync(fontPath))
+  if (canvas.GlobalFonts.register(builtin('buffer').Buffer.from(bytes), LABEL_FONT_FAMILY) === null) throw new Error('내장 글꼴을 Node 캔버스에 등록하지 못했다')
+  jsdomEnv = { font: parseLabelFont(bytes, LABEL_FONT_FAMILY), createContext: (width, height) => canvas.createCanvas(width, height).getContext('2d') as LabelCanvas2D }
+  return jsdomEnv
 }
