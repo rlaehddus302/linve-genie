@@ -456,7 +456,10 @@ export class ClosingService {
     }
     if (text !== undefined) {
       if (typeof text !== 'string') return { ok: false, error: { status: 400, code: 'INVALID_INPUT', message: '입력한 내용을 확인해 주세요.', problems: [{ field: 'text', message: '붙여 넣은 글을 확인해 주세요.' }] } }
-      if ([...text].length > IMPORT_TEXT_MAX_CHARS) return { ok: false, error: { status: 413, code: 'PAYLOAD_TOO_LARGE', message: IMPORT_FILE_MESSAGES.textTooLong } }
+      // 글자 수 = 코드 포인트 (UTF-16 단위 수가 두 배를 넘으면 세 보지 않아도 넘는다)
+      if (text.length > IMPORT_TEXT_MAX_CHARS * 2 || (text.length > IMPORT_TEXT_MAX_CHARS && [...text].length > IMPORT_TEXT_MAX_CHARS)) {
+        return { ok: false, error: { status: 413, code: 'PAYLOAD_TOO_LARGE', message: IMPORT_FILE_MESSAGES.textTooLong } }
+      }
       return { ok: true, kind: 'text', text, lines: new Map(splitImportLines(text).map((line) => [line.line, line.text])) }
     }
     if (!isPlainObject(file) || ownKeys(file).some((key) => key !== 'name' && key !== 'data') || typeof own(file, 'name') !== 'string' || typeof own(file, 'data') !== 'string') {

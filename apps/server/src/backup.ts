@@ -12,7 +12,7 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/p
 import { join } from 'node:path'
 import { gunzipSync, gzipSync } from 'node:zlib'
 import { STATE_FORMAT, applyEvent, checkInvariants, checkSettings, isValidDate, type EngineEffect, type EngineEvent, type EngineState } from '@livejjim/core'
-import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm'
+import { and, asc, eq, lte, sql } from 'drizzle-orm'
 import { canonicalJson, checkReplay, type ScopeCheck } from './check-replay.ts'
 import type { Db } from './db/database.ts'
 import { accounts, broadcasts, events, outbox, packingRecords, scopeLockKey, scopes, sellers, snapshots } from './db/schema.ts'
@@ -868,15 +868,5 @@ export async function executableOutboxCount(db: Db, sellerId: string): Promise<n
     .select({ n: sql<number>`count(*)::int` })
     .from(outbox)
     .where(and(eq(outbox.sellerId, sellerId), eq(outbox.rehearsal, false), eq(outbox.restored, false)))
-  return rows[0]?.n ?? 0
-}
-
-/** 판매자의 범위 목록이 비었는지 (복구 명령의 안내용) */
-export async function sellerScopeCount(db: Db, sellerIds: readonly string[]): Promise<number> {
-  if (sellerIds.length === 0) return 0
-  const rows = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(scopes)
-    .where(inArray(scopes.sellerId, [...sellerIds]))
   return rows[0]?.n ?? 0
 }
