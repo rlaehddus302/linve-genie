@@ -1,5 +1,6 @@
 // I2 적대 테스트 라운드 1 (test-domain): 수정 라운드 1(본문 상한·워커·백업 형식 2)과 남은 지적을 다시 공격한다.
 // - TD-I2-004: 계정 만들 때 받은 가게 이름(31~50글자)으로는 가게 설정을 저장하지 못한다 — GET /api/shop 값을 그대로 PUT해도 거절
+//   (D-I2-18 뒤로는 계정 만들기도 30자 상한 — 예전 판매자를 30자로 만든 뒤 DB에서 이름을 바꿔 흉내 낸다. 단언은 그대로)
 // - TD-I2-007: 미리 보기가 받은 .csv(2MB 안, EUC-KR)의 등록할 줄을 그대로 등록에 보내면 본문 상한(3MB)에 걸린다 — .xlsx·붙여 넣은 글에는 있는 200,000글자 상한이 .csv·.txt 파일에는 없다
 // - TD-I2-008: 한 판매자의 전체 판매대장(엑셀)이 날짜마다 범위 상태를 서버 공용 캐시(상한 128)에 넣어, 방송 중인 다른 판매자의 범위 상태를 밀어낸다
 // - 회귀: 따옴표·역슬래시·이모지·줄 구분 글자(U+2028)·EUC-KR에 없는 글자가 든 채팅·문자 메모·가게 설정의 백업 → 검사 → 다른 서버로 복구가 같다
@@ -16,12 +17,16 @@ const D = '2026-10-19'
 describe('TD-I2-004 계정의 가게 이름 상한(50자)과 가게 설정 상한(30글자)', () => {
   it('운영자가 31글자 이상 이름으로 만든 판매자도 설정 화면에서 계좌만 적어 저장할 수 있다 (GET /api/shop 값 그대로 + 계좌)', async () => {
     const world = await newWorld()
-    // 계정 만들기 명령은 50자까지 받는다 (accounts.ts NAME_MAX)
+    // 예전 계정 만들기 명령은 50자까지 받았다. D-I2-18로 지금은 30자 상한이라, 30자 이름으로 만든 뒤 DB에서 이름을 바꿔 그 판매자를 흉내 낸다
     const shopName = '초록다육 다육이 전문 농장 직영 라이브 판매 공식 가게 본점'
     expect([...shopName].length).toBeGreaterThan(30)
     expect(shopName.length).toBeLessThanOrEqual(50)
-    const created = await createSellerAccount(world.database.db, Buffer.from(world.masterKey, 'base64'), { shopName, loginId: 'longname', password: 'correct-horse-1' }, { passwordCost: FAST_COST })
+    const created = await createSellerAccount(world.database.db, Buffer.from(world.masterKey, 'base64'), { shopName: [...shopName].slice(0, 30).join(''), loginId: 'longname', password: 'correct-horse-1' }, { passwordCost: FAST_COST })
     expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const pglite = world.database.pglite
+    if (pglite === null) throw new Error('PGlite 시험 DB가 아니에요')
+    await pglite.query('update sellers set name = $1 where id = $2', [shopName, created.sellerId])
     const cookie = await login(world, 'longname', 'correct-horse-1')
     const api = client(world, cookie)
     const shop = await api.get('/api/shop')
