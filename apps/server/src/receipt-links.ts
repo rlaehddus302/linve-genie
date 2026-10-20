@@ -154,15 +154,21 @@ export class ReceiptLinkService {
     return { buyer: stored.buyer, status: stored.status, url, expiresAt: stored.expiresAt, revokedAt: stored.revokedAt }
   }
 
-  /** 그 날짜 구매자들의 가장 최근 링크 */
-  async #latest(db: Db, sellerId: string, date: string): Promise<Map<string, LinkRow>> {
+  /**
+   * 그 날짜 구매자들의 지금 링크: 쓸 수 있는 링크가 있으면 그것(구매자마다 많아야 하나), 없으면 가장 최근에 만든 링크.
+   * 같은 시각에 끊고 다시 만든 링크도 쓸 수 있는 쪽을 고른다 (만든 시각이 같으면 무작위 ID 순서에 기대지 않는다)
+   */
+  async #latest(db: Db, sellerId: string, date: string, now: number): Promise<Map<string, LinkRow>> {
     const rows = await db
       .select()
       .from(receiptLinks)
       .where(and(eq(receiptLinks.sellerId, sellerId), eq(receiptLinks.date, date)))
       .orderBy(desc(receiptLinks.createdAt), desc(receiptLinks.id))
     const latest = new Map<string, LinkRow>()
-    for (const row of rows) if (!latest.has(row.buyer)) latest.set(row.buyer, row)
+    for (const row of rows) {
+      const known = latest.get(row.buyer)
+      if (known === undefined || (this.#status(known, now) !== 'ACTIVE' && this.#status(row, now) === 'ACTIVE')) latest.set(row.buyer, row)
+    }
     return latest
   }
 
@@ -247,7 +253,7 @@ export class ReceiptLinkService {
     const key = await this.#key(sellerId)
     const result = await this.#run(sellerId, date, requestId, 'CREATE', async (tx, now) => {
       if (!linkableBuyer(state, date, buyer)) return problem(409, 'NO_ITEMS', RECEIPT_LINK_MESSAGES.noItems)
-      const current = (await this.#latest(tx, sellerId, date)).get(buyer)
+      const current = (await this.#latest(tx, sellerId, date, now)).get(buyer)
       if (current !== undefined && this.#status(current, now) === 'ACTIVE') return { kind: 'CREATE' as const, created: false, link: this.#stored(buyer, current, now) }
       const row = await this.#insert(tx, key, sellerId, accountId, date, buyer, now)
       return { kind: 'CREATE' as const, created: true, link: this.#stored(buyer, row, now) }
@@ -267,7 +273,7 @@ export class ReceiptLinkService {
     const order = ClosingService.batchOrder(state, date)
     const key = await this.#key(sellerId)
     const result = await this.#run(sellerId, date, requestId, 'CREATE_ALL', async (tx, now) => {
-      const latest = await this.#latest(tx, sellerId, date)
+      const latest = await this.#latest(tx, sellerId, date, now)
       let created = 0
       const links: StoredView[] = []
       for (const buyer of order) {
@@ -293,7 +299,7 @@ export class ReceiptLinkService {
     const scope = await this.#realScope(sellerId, date, rehearsal)
     if (scope.kind !== 'ok') return scope
     const result = await this.#run(sellerId, date, requestId, 'REVOKE', async (tx, now) => {
-      const current = (await this.#latest(tx, sellerId, date)).get(buyer)
+      const current = (await this.#latest(tx, sellerId, date, now)).get(buyer)
       if (current === undefined || this.#status(current, now) !== 'ACTIVE') return { kind: 'REVOKE' as const, revoked: false, link: this.#stored(buyer, current, now) }
       const revokedAt = new Date(now)
       await tx
@@ -314,14 +320,14 @@ export class ReceiptLinkService {
     if (state === null) return NOT_FOUND
     if (rehearsal) return ok([])
     const now = this.#deps.clock.now()
-    const latest = await this.#latest(this.#deps.db, sellerId, date)
+    const latest = await this.#latest(this.#deps.db, sellerId, date, now)
     return ok(await Promise.all(ClosingService.batchOrder(state, date).map((buyer) => this.#view(sellerId, this.#stored(buyer, latest.get(buyer), now)))))
   }
 
   /** 그 날짜 구매자들의 링크 상태 (영수증 보내기 화면의 구매자 줄과 함께 — 리허설이면 빈 맵) */
   async statuses(sellerId: string, date: string, buyers: readonly string[]): Promise<Map<string, ReceiptLinkView>> {
     const now = this.#deps.clock.now()
-    const latest = await this.#latest(this.#deps.db, sellerId, date)
+    const latest = await this.#latest(this.#deps.db, sellerId, date, now)
     const out = new Map<string, ReceiptLinkView>()
     for (const buyer of buyers) out.set(buyer, await this.#view(sellerId, this.#stored(buyer, latest.get(buyer), now)))
     return out

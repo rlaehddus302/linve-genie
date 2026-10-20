@@ -83,9 +83,10 @@ describe('마이그레이션 명령 (AC-S04-20)', () => {
     await database.close()
     // 스키마의 테이블이 모두 생겼다 (판매자·계정·로그인 시도 수·세션·범위·방송·이벤트·발송함·스냅샷 + Y1: 채팅 원문·유튜브 연결·승인 요청·방송 잇기·수집기·우리 메시지·알림·할당량
     //   + I1 출력 기록: 대기열·라벨 키·작업·시도·라벨 템플릿·출력 요청 번호 + I2 포장 기록
-    //   + N2: 인스타그램 연결·OAuth state·라이브 연결·라이브 옮긴 기록·이어지지 않은 댓글 수·라이브 요청 번호·DM 발송·DM 행 + N4a 라벨 기능 켬/끔 바꾼 기록)
+    //   + N2: 인스타그램 연결·OAuth state·라이브 연결·라이브 옮긴 기록·이어지지 않은 댓글 수·라이브 요청 번호·DM 발송·DM 행 + N4a 라벨 기능 켬/끔 바꾼 기록
+    //   + N4b 구매자 확인서 공유 링크·그 요청 번호)
     expect(tables?.rows.map((row) => row.table_name).sort()).toEqual(Object.values(schema).map((table) => getTableConfig(table).name).sort())
-    expect(tables?.rows).toHaveLength(33)
+    expect(tables?.rows).toHaveLength(35)
     const none = await run(script('commands/migrate.ts'), [], {})
     expect(none.code).toBe(1)
     expect(none.out).toContain('데이터베이스 연결 설정이 없어요')
