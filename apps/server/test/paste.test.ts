@@ -153,6 +153,31 @@ describe('AC-N2b-2-57 넣기 — 번호마다 문자찜 (G-ENG-N2b-2-02를 서�
   })
 })
 
+describe('붙여넣기 요청 기록에는 닉네임·댓글이 없다 (DAT-06·D-079, SA/RA-N2b-2-01)', () => {
+  it('paste_requests.result는 줄 번호·결과·번호·문구·넣은 수뿐, 재전송 응답은 처음과 같다(오류 줄·취소·주문 아님 줄 포함)', async () => {
+    const w = await world()
+    const seller = await addSeller(w)
+    const b = await realBroadcast(w, seller)
+    for (const no of [15, 16]) await register(w, seller.cookie, b, no)
+    const api = client(w, seller.cookie)
+    const requestId = rid('paste')
+    const text = ['홍길동: 15', '김철수: 16', '홍길동: 16', '이영희: 연락처 010-2468-1357 심은글', '박지민: 15 취소', '12:34', '010-1111-2222: 15'].join('\n')
+    const first = await api.post(`/api/broadcasts/${b}/paste`, { requestId, text })
+    expect(first.status, first.text).toBe(200)
+    expect(first.body.added).toBe(3)
+    const stored = (await w.database.pglite?.query<{ result: string }>(`select result from paste_requests where seller_id = $1`, [seller.sellerId]))?.rows ?? []
+    expect(stored).toHaveLength(1)
+    for (const planted of ['홍길동', '김철수', '이영희', '박지민', '010-2468-1357', '심은글', '010-1111-2222']) expect(stored[0]?.result).not.toContain(planted)
+    const again = await api.post(`/api/broadcasts/${b}/paste`, { requestId, text })
+    expect(again.status).toBe(200)
+    expect(again.body).toEqual(first.body)
+    expect(again.body.groups).toEqual([
+      { nickname: '홍길동', lines: [1, 3], claims: 2, message: '같은 닉네임은 한 구매자로 넣어요' },
+      { nickname: '김철수', lines: [2], claims: 1, message: null },
+    ])
+  })
+})
+
 describe('AC-N2b-2-58 다른 구매자에게 저절로 잇지 않는다', () => {
   it('(가) 따로 두 번 넣으면 문자 구매자 둘 (나) 같은 닉네임의 틱톡 구매자가 있어도 지정 구매자 없음 (다) 합치기로 이을 수 있다', async () => {
     const w = await world()

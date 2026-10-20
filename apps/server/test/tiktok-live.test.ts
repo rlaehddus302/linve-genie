@@ -452,9 +452,38 @@ describe('AC-N2b-2-37 받는 순서 = 기록 순서', () => {
     failing = false
     await tiktokComment(w, tiktokId, { userId: '7102', nickname: '다음', comment: '안녕' })
     const view = await linkView(w, seller.cookie, b)
-    expect(view.collection).toMatchObject({ state: 'CONNECTED', saveFailed: 1, comments: 1 })
+    // 끝내 저장하지 못하면 판매자에게 알린다 — "받지 못했을 수 있음"이 켜지고 붙여넣기를 안내한다 (RA-N2b-2-02)
+    expect(view.collection).toMatchObject({ state: 'CONNECTED', saveFailed: 1, comments: 1, missed: true, missedMessage: '저장하지 못한 틱톡 댓글이 1개 있어요. 틱톡 앱에서 확인해 댓글을 붙여 넣어 주세요.' })
     expect(w.logs.map((l) => l.code)).toContain('TIKTOK_SAVE_FAILED')
     expect(logText(w.logs)).not.toMatch(/PLANTED-NICK|PLANTED-TEXT-15|planted-db-error/)
+    expect(w.published.some((p) => p.sellerId === seller.sellerId && JSON.stringify(p.data).includes('저장하지 못한 틱톡 댓글'))).toBe(true)
+  })
+
+  it('짧은 저장 실패(두 번 실패 뒤 성공)는 기다렸다가 다시 써서 댓글을 버리지 않는다 — 받은 순서 그대로 (RA-N2b-2-02)', async () => {
+    let failures = 0
+    const w = await world({
+      overrides: {
+        hooks: {
+          beforeCommit: (records) => {
+            if (failures > 0 && records.some((r) => r.type === 'chat')) {
+              failures -= 1
+              throw new Error('planted-db-error')
+            }
+          },
+        },
+      },
+    })
+    const { seller, tiktokId } = await tiktokSeller(w)
+    const b = await realBroadcast(w, seller)
+    await linkTiktok(w, seller, b)
+    await connected(w, seller, b)
+    failures = 2
+    await tiktokComment(w, tiktokId, { userId: '7101', nickname: '첫째', comment: '15' })
+    await tiktokComment(w, tiktokId, { userId: '7102', nickname: '둘째', comment: '16' })
+    await w.server.tiktok.idle()
+    const view = await linkView(w, seller.cookie, b)
+    expect(view.collection).toMatchObject({ saveFailed: 0, comments: 2, missed: false, missedMessage: null })
+    expect((await chats(w, seller.sellerId)).map((c) => c.nick)).toEqual(['첫째', '둘째'])
   })
 })
 
