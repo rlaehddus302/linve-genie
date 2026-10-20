@@ -5,6 +5,7 @@ import type {
   CancelRequestInfo,
   ClaimInfo,
   EffectInfo,
+  PaymentStatus,
   PendingInfo,
   ProductInfo,
   SettlementInfo,
@@ -178,4 +179,137 @@ export interface ScopeSeq {
   readonly date: string
   readonly rehearsal: boolean
   readonly seq: number
+}
+
+// ── I2 정산 마무리 (harness/sprints/I2/dev-notes.md "API") ─────────────────
+
+/** 가게 설정 (GET·PUT /api/shop — 빈 칸은 "") */
+export interface Shop {
+  readonly name: string
+  readonly bank: string
+  readonly accountNumber: string
+  readonly accountHolder: string
+  readonly accountNote: string
+}
+
+/** 포장·배송 상태 말 다섯 (화면에 그대로) */
+export const PACKING_WORDS = ['포장 대기', '포장 완료', '포장 다시 확인', '배송 완료', '배송 뒤 바뀜'] as const
+export type PackingWord = (typeof PACKING_WORDS)[number]
+
+/** 포장 목록의 품목 하나 */
+export interface PackingItem {
+  /** 상품 키 `<방송 ID>/<번호>` */
+  readonly key: string
+  readonly broadcast: string
+  /** 방송 제목 */
+  readonly title: string
+  readonly no: number
+  /** 품종 (빈 품종은 "") */
+  readonly name: string
+  readonly price: number
+}
+
+export interface PackingRemoved {
+  readonly key: string
+  readonly broadcast: string
+  readonly title: string
+  readonly no: number
+}
+
+/** 포장 목록 한 줄 = 묶음 (GET /api/days/:date/packing) */
+export interface PackingEntry {
+  /** 지금의 구매자 ID */
+  readonly buyer: string
+  readonly name: string
+  readonly phoneLast4: string | null
+  readonly payment: PaymentStatus
+  /** 지금 품목 (방송 선언 순 → 번호 순) */
+  readonly items: readonly PackingItem[]
+  readonly status: PackingWord
+  readonly invoice: string | null
+  /** 포장 다시 확인·배송 뒤 바뀜: 새로 담을 것 */
+  readonly add: readonly PackingItem[]
+  /** 포장 다시 확인·배송 뒤 바뀜: 뺄 것 */
+  readonly remove: readonly PackingRemoved[]
+}
+
+export interface PackingList {
+  readonly date: string
+  readonly seq: number
+  readonly entries: readonly PackingEntry[]
+}
+
+export type PackingAction = 'pack' | 'unpack' | 'ship' | 'unship'
+
+/** 포장 명령 응답 (POST /api/days/:date/packing) */
+export interface PackingResult {
+  readonly date: string
+  readonly entry: PackingEntry
+  readonly recorded: boolean
+}
+
+/** 포장 라벨 데이터 (GET /api/days/:date/packing-label) — 화면은 쪽 수만 쓴다 */
+export interface PackingLabelView {
+  readonly date: string
+  readonly buyer: string
+  readonly pages: number
+}
+
+/** 지난 구매 항목 (GET /api/days/:date/past) */
+export interface PastItem {
+  readonly date: string
+  /** 그날 그 묶음의 지금의 구매자 ID (정산 자세히로) */
+  readonly buyer: string
+  readonly broadcasts: readonly string[]
+  readonly name: string
+  readonly phoneLast4: string | null
+  readonly items: readonly { readonly title: string; readonly no: number; readonly name: string; readonly price: number }[]
+  readonly subtotal: number
+  readonly shipping: number
+  readonly adjustments: number
+  readonly total: number
+  readonly payment: PaymentStatus
+  readonly received: number
+  readonly refundDue: number
+  readonly packing: PackingWord
+  readonly invoice: string | null
+  readonly reasons: readonly string[]
+}
+
+export interface PastView {
+  readonly date: string
+  readonly buyer: string
+  readonly items: readonly PastItem[]
+  readonly more: boolean
+  readonly next: string | null
+}
+
+/** 상품 목록 가져오기 줄 문제 (R-18) */
+export const IMPORT_ROW_ERRORS = ['CELLS', 'NUMBER_INVALID', 'DUPLICATE', 'EXISTS', 'NAME_PHONE', 'PRICE_MISSING', 'PRICE_INVALID', 'PRICE_TOO_LOW'] as const
+export type ImportRowError = (typeof IMPORT_ROW_ERRORS)[number]
+
+export type ImportPreviewRow =
+  | { readonly line: number; readonly no: number; readonly name: string; readonly price: number; readonly text: string }
+  | { readonly line: number; readonly error: ImportRowError; readonly text: string }
+
+/** 상품 목록 가져오기 미리 보기 (POST /api/broadcasts/:id/import/preview) */
+export interface ImportPreview {
+  readonly broadcast: string
+  readonly unit: string
+  readonly maxNumber: number
+  readonly error: 'EMPTY' | 'TOO_MANY' | null
+  readonly header: number | null
+  readonly headerCells: readonly string[] | null
+  readonly rows: readonly ImportPreviewRow[]
+  readonly register: number
+  readonly problems: number
+}
+
+/** 백업 상태 (GET /api/backups) */
+export interface BackupStatus {
+  readonly enabled: boolean
+  readonly retentionDays: number
+  /** 마지막 자동 백업 (UTC ISO, 없으면 null) */
+  readonly lastSuccessAt: string | null
+  readonly backups: readonly { readonly createdAt: string; readonly size: number }[]
 }

@@ -1253,16 +1253,19 @@ html:has(.sms-submit-bar) {
     bottom: 0;
     z-index: 15;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 0;
     padding: 0.25rem 0.125rem calc(0.25rem + env(safe-area-inset-bottom));
     border-top: 1px solid #c4c7c5;
     background-color: #f8f9fa;
   }
 
+  /* 메뉴 여섯 개(I2 포장·설정): 두 줄로 꺾이는 "문자찜 입력"도 44px 막대 안에 들어가게 줄 간격을 줄인다 — 막대 높이(53px)는 그대로 */
   .menu-link {
     padding: 0.25rem 0.125rem;
     letter-spacing: -0.02em;
+    font-size: 1rem;
+    line-height: 1.2;
   }
 
   .console {
@@ -1404,4 +1407,194 @@ html:has(.sms-submit-bar) {
   border-color: #0b57d0;
   background-color: #e8f0fe;
   color: #041e49;
+}
+
+/* ── I2 정산 마무리: 확인서·판매대장·포장·설정·가져오기 (AC-I2-02·13·22·35~39·52·65) ── */
+
+/* 눈에는 안 보이지만 보조 기술·키보드에는 있는 칸 (파일 고르기 — 보이는 버튼은 label) */
+.visually-hidden {
+  position: absolute;
+  max-inline-size: 1px;
+  max-block-size: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  border: 0;
+}
+
+.visually-hidden:focus-visible + label {
+  outline: 3px solid #0b57d0;
+  outline-offset: 2px;
+}
+
+.closing-actions {
+  align-items: center;
+}
+
+.download {
+  display: inline-grid;
+}
+
+/* 확인서 미리 보기: 서버 그림 그대로, 화면 폭에 맞춘다. 새 그림을 받는 동안은 흐리게 */
+.receipt-preview {
+  display: block;
+  max-inline-size: 100%;
+  block-size: auto;
+  border: 1px solid #c4c7c5;
+  border-radius: 0.5rem;
+  background-color: #ffffff;
+}
+
+.receipt-preview-old {
+  opacity: 0.5;
+}
+
+.receipt-section {
+  max-inline-size: 36rem;
+}
+
+/* 판매대장 창 */
+.ledger-period {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+}
+
+.ledger-broadcasts {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
+.ledger-broadcasts legend {
+  font-weight: 700;
+  padding: 0;
+}
+
+/* 포장 모드: 넓은 화면은 목록 옆에 체크리스트 */
+.packing-layout {
+  display: grid;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (min-width: 48rem) {
+  .packing-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  }
+
+  .packing-checklist {
+    position: sticky;
+    top: 0.5rem;
+    max-block-size: calc(100vh - 1rem);
+    overflow-y: auto;
+    padding: 0 0.25rem 1rem;
+  }
+}
+
+.packing-row[aria-current='true'] {
+  border-color: #0b57d0;
+  border-width: 3px;
+  background-color: #e8f0fe;
+}
+
+/* 체크리스트 줄: 줄 전체가 체크 칸 — 번호는 32px 이상 굵게 */
+.pack-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  min-block-size: 3.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid #c4c7c5;
+  border-radius: 0.5rem;
+  background-color: #ffffff;
+  cursor: pointer;
+}
+
+.pack-item:has(input:checked) {
+  border-color: #137333;
+  background-color: #e6f4ea;
+}
+
+.pack-item input[type='checkbox'] {
+  appearance: none;
+  flex: none;
+  block-size: 2.75rem;
+  aspect-ratio: 1 / 1;
+  margin: 0;
+  border: 2px solid #3c4043;
+  border-radius: 0.375rem;
+  background-color: #ffffff;
+  cursor: pointer;
+}
+
+.pack-item input[type='checkbox']:checked {
+  border-color: #137333;
+  background-color: #137333;
+  box-shadow: inset 0 0 0 0.5rem #ffffff;
+}
+
+.pack-no {
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.pack-name {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.pack-count {
+  font-weight: 700;
+}
+
+/* 포장 라벨 쪽 그림: 1비트 그림이라 점이 번지지 않게 */
+.label-pages {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+}
+
+.label-page {
+  justify-items: start;
+}
+
+.label-image {
+  display: block;
+  max-inline-size: 100%;
+  block-size: auto;
+  border: 1px solid #5f6368;
+  image-rendering: pixelated;
+  background-color: #ffffff;
+}
+
+/* 지난 구매 항목 */
+.past-item {
+  align-items: flex-start;
+}
+
+/* 상품 목록 가져오기 */
+.import-text {
+  inline-size: 100%;
+  min-block-size: 8rem;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.import-table td {
+  padding: 0.25rem 0.5rem;
+}
+
+.import-original {
+  white-space: break-spaces;
+  overflow-wrap: anywhere;
+}
+
+.backup-list {
+  display: grid;
+  gap: 0.25rem;
 }

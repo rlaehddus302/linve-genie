@@ -135,6 +135,85 @@ export function post<T>(path: string, body: unknown, options?: RequestOptions): 
   return request<T>('POST', path, body, options)
 }
 
+export function put<T>(path: string, body: unknown, options?: RequestOptions): Promise<T> {
+  return request<T>('PUT', path, body, options)
+}
+
+/** 서버가 만든 파일 (확인서·판매대장·포장 라벨·전체 내려받기, I2 D-I2-01) */
+export interface FileResponse {
+  readonly blob: Blob
+  /** 내려받기 이름 (응답 Content-Disposition의 UTF-8 이름 — 없으면 fallback) */
+  readonly fileName: string
+  readonly type: string
+  readonly headers: Headers
+}
+
+/**
+ * Content-Disposition에서 파일 이름: UTF-8 `filename*`가 먼저, 없으면 따옴표 안 `filename`, 둘 다 없으면 fallback.
+ * 경로 글자(`/`·`\`)와 제어 글자는 빼서 이름만 남긴다.
+ */
+export function fileNameOf(disposition: string | null, fallback: string): string {
+  if (disposition === null) return fallback
+  let name: string | null = null
+  const ext = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(disposition)
+  if (ext?.[1] !== undefined) {
+    try {
+      name = decodeURIComponent(ext[1].trim())
+    } catch {
+      name = null
+    }
+  }
+  if (name === null) name = /filename\s*=\s*"([^"]*)"/i.exec(disposition)?.[1] ?? null
+  // 경로 글자·제어 글자를 뺀다 (이름만 남긴다)
+  const cleaned = [...(name ?? '')].filter((char) => char !== '/' && char !== '\\' && (char.codePointAt(0) ?? 0) > 0x1f && char !== '\u007f').join('').trim()
+  return cleaned === '' ? fallback : cleaned
+}
+
+export interface FileRequestOptions extends RequestOptions {
+  /** 응답에 이름이 없을 때 쓸 이름 */
+  readonly fallbackName?: string
+}
+
+/**
+ * 파일 받기 (GET). 실패하면 서버 오류 본문(JSON)의 쉬운 문장으로 ApiError를 던진다 — JSON 조회와 같다.
+ * 받은 바이트는 그대로 돌려준다(화면이 다시 만들지 않는다 — 공유·저장·미리 보기가 같은 바이트, D-I2-01).
+ */
+export async function getFile(path: string, options: FileRequestOptions = {}): Promise<FileResponse> {
+  let response: Response
+  try {
+    response = await fetch(path, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { Accept: '*/*' },
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
+    throw new ApiError({ status: 0, code: 'NETWORK', message: NETWORK_MESSAGE, network: true })
+  }
+  if (!response.ok) {
+    let payload: unknown
+    try {
+      payload = await response.json()
+    } catch {
+      payload = null
+    }
+    const error = errorFromBody(response.status, payload)
+    if (response.status === 401 && error.code === 'UNAUTHORIZED') unauthorizedListener?.()
+    throw error
+  }
+  let blob: Blob
+  try {
+    blob = await response.blob()
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
+    throw new ApiError({ status: 0, code: 'NETWORK', message: NETWORK_MESSAGE, network: true })
+  }
+  const type = response.headers.get('Content-Type') ?? blob.type
+  return { blob, fileName: fileNameOf(response.headers.get('Content-Disposition'), options.fallbackName ?? 'file'), type, headers: response.headers }
+}
+
 /** 요청 번호: 쓰기 버튼을 누를 때마다 새로 만든다 (서버 형식 영문·숫자·'-' 1~64자) */
 export function newRequestId(): string {
   return crypto.randomUUID()

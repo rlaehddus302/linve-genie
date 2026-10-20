@@ -1,6 +1,7 @@
 // 화면 주소 (AC-S05-01, AC-S06-01, D-094):
 //   `/` 방송 목록(홈) · `/broadcasts/<방송 ID>` 그 방송의 콘솔 · `/sms` 문자찜 입력
 //   `/buyers` 구매자 · `/settlements` 정산 — 고른 날짜·리허설·구매자는 검색값(`?date=2026-10-18&rehearsal=true&buyer=UC_A`)
+//   `/packing` 포장 모드 — 고른 날짜(실제 범위만)·연 구매자는 검색값(`?date=2026-10-18&buyer=UC_A`) · `/settings` 설정 (I2 AC-I2-02·35)
 //   구매자 자세히의 합치기 창: 상대·방향은 `merge`(상대 구매자 ID)·`into`(남는 쪽 구매자 ID), 막힘에서 연 상품 자세히는 `product`(상품 키)
 //   — 상품 자세히에 갔다 와도(브라우저 뒤로 가기 포함) 같은 합치기 창이 다시 열린다 (AC-S06b-34, D-102).
 // 전화번호·메모·사유는 주소에 넣지 않는다(AC-S06-81) — 구매자 ID·상품 키만. 새로고침·북마크해도 같은 화면이다.
@@ -25,7 +26,21 @@ export interface ScopeRoute {
 
 const SCOPE_PARAMS = ['buyer', 'merge', 'into', 'product'] as const
 
-export type Route = { readonly name: 'home' } | { readonly name: 'console'; readonly id: string } | { readonly name: 'sms' } | ScopeRoute
+/** 포장 모드 (I2 AC-I2-35): 실제 범위만 — 리허설 표시가 없다 */
+export interface PackingRoute {
+  readonly name: 'packing'
+  readonly date?: string
+  /** 체크리스트를 연 구매자 (지금의 구매자 ID) */
+  readonly buyer?: string
+}
+
+export type Route =
+  | { readonly name: 'home' }
+  | { readonly name: 'console'; readonly id: string }
+  | { readonly name: 'sms' }
+  | ScopeRoute
+  | PackingRoute
+  | { readonly name: 'settings' }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -44,6 +59,17 @@ function scopeRoute(name: ScopeRouteName, search: string): ScopeRoute {
   return out
 }
 
+function packingRoute(search: string): PackingRoute {
+  const params = new URLSearchParams(search)
+  const date = params.get('date')
+  const buyer = params.get('buyer')
+  return {
+    name: 'packing',
+    ...(date !== null && DATE_RE.test(date) ? { date } : {}),
+    ...(buyer !== null && buyer !== '' ? { buyer } : {}),
+  }
+}
+
 export function parseRoute(pathname: string, search = ''): Route {
   const m = /^\/broadcasts\/([^/]+)\/?$/.exec(pathname)
   if (m?.[1] !== undefined) {
@@ -57,6 +83,8 @@ export function parseRoute(pathname: string, search = ''): Route {
   if (path === '/sms') return { name: 'sms' }
   if (path === '/buyers') return scopeRoute('buyers', search)
   if (path === '/settlements') return scopeRoute('settlements', search)
+  if (path === '/packing') return packingRoute(search)
+  if (path === '/settings') return { name: 'settings' }
   return { name: 'home' }
 }
 
@@ -80,11 +108,20 @@ export function routePath(route: Route): string {
       const query = params.toString()
       return query === '' ? `/${route.name}` : `/${route.name}?${query}`
     }
+    case 'packing': {
+      const params = new URLSearchParams()
+      if (route.date !== undefined) params.set('date', route.date)
+      if (route.buyer !== undefined) params.set('buyer', route.buyer)
+      const query = params.toString()
+      return query === '' ? '/packing' : `/packing?${query}`
+    }
+    case 'settings':
+      return '/settings'
   }
 }
 
 /** 메뉴 항목 (AC-S06-01): 지금 화면이 어느 메뉴에 속하는지 */
-export type MenuKey = 'broadcasts' | 'sms' | 'buyers' | 'settlements'
+export type MenuKey = 'broadcasts' | 'sms' | 'buyers' | 'settlements' | 'packing' | 'settings'
 
 export function menuOf(route: Route): MenuKey {
   switch (route.name) {
@@ -97,6 +134,10 @@ export function menuOf(route: Route): MenuKey {
       return 'buyers'
     case 'settlements':
       return 'settlements'
+    case 'packing':
+      return 'packing'
+    case 'settings':
+      return 'settings'
   }
 }
 

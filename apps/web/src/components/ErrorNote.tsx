@@ -51,3 +51,39 @@ export function FieldError({ error, field, id }: { readonly error: ApiError | nu
     </p>
   )
 }
+
+/** 새 화면(I2)의 연결 끊김 문장 (AC-I2-82) */
+export const RECONNECT_MESSAGE = '인터넷 연결을 확인하고 다시 눌러 주세요.'
+
+/**
+ * 새 화면(I2)의 요청 오류 (AC-I2-80·82): 연결이 끊기면 "인터넷 연결을 확인하고 다시 눌러 주세요.", 그 밖은 서버 문장 그대로(칸 문제는 칸 옆에 — omitFields).
+ * 기술 상세는 "자세히" 안에 오류 번호(HTTP 상태)만 접어 둔다 — 영어 오류 코드는 화면 글자에 넣지 않는다.
+ */
+export function RequestError({ error, onRetry, retryLabel = '다시 시도', omitFields = [] }: { readonly error: ApiError; readonly onRetry?: () => void; readonly retryLabel?: string; readonly omitFields?: readonly string[] }) {
+  const problems = error.network ? [] : error.problems.filter((problem) => (problem.field === null || !omitFields.includes(problem.field)) && problem.message !== error.message)
+  const retry = onRetry !== undefined && (error.network || error.transient)
+  return (
+    <div className="error-note" role="alert" data-tone="danger">
+      <p>{error.network ? RECONNECT_MESSAGE : error.message}</p>
+      {problems.length > 0 ? (
+        <ul className="plain-list">
+          {problems.map((problem, index) => (
+            <li key={index}>
+              {problem.message}
+              {problem.hint !== undefined ? ` ${problem.hint}` : ''}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {retry ? (
+        <button type="button" className="button" onClick={onRetry}>
+          {retryLabel}
+        </button>
+      ) : null}
+      <details className="details">
+        <summary>자세히</summary>
+        <p>오류 번호 {error.status === 0 ? '연결 없음' : String(error.status)}</p>
+      </details>
+    </div>
+  )
+}
