@@ -133,6 +133,12 @@ const DEFERRED_POLL_MS = 250
  * 그 사이 최종 결과가 오면(다시 듣고 있다) 바로 "듣는 중"으로 바꾼다.
  */
 export const RESTART_LABEL_MS = 1000
+/**
+ * 켠 직후 판매 이력(D-I4-06)을 받는 동안 온 최종 문장은 이력을 받을 때까지(켠 때부터 최대 이만큼) 카드 만들기를 미룬다 —
+ * 켜자마자 말한 지난 판매 품종도 이력 사전으로 알아듣게. 들린 말 기록에는 바로 남고, 미룬 문장은 온 차례대로 카드가 된다.
+ * 받지 못했거나(실패) 이 시간이 지나면 그때의 사전(지금 범위 + 기본 사전)으로 만든다. 끄거나 엔진이 멈추면 바로 만든다.
+ */
+export const HISTORY_WAIT_MS = 2000
 
 type HistoryState = { readonly state: 'idle' | 'loading' | 'failed'; readonly past: readonly PastDay[] } | { readonly state: 'done'; readonly past: readonly PastDay[] }
 
@@ -160,6 +166,11 @@ export class VoiceController {
   #nextCard = 1
   #nextHeard = 1
   #history: HistoryState = { state: 'idle', past: [] }
+  /** 이력을 받는 동안 미룬 최종 문장 (온 차례) */
+  #held: string[] = []
+  #heldTimer: ReturnType<typeof setTimeout> | null = null
+  /** 이 시각까지만 이력을 기다린다 (host.now 기준) */
+  #historyDeadline = 0
   #dictionary: { readonly names: readonly string[]; readonly past: readonly PastDay[]; readonly prepared: VarietyDictionary } | null = null
 
   constructor(host: VoiceHost) {
@@ -247,6 +258,7 @@ export class VoiceController {
     if (this.#timer !== null) clearTimeout(this.#timer)
     this.#timer = null
     this.#releaseRestart()
+    this.#dropHeld()
     this.#engine?.stop()
     this.#listeners.clear()
   }
@@ -279,6 +291,8 @@ export class VoiceController {
 
   #becomeOff(): void {
     this.#releaseRestart()
+    // 이력을 기다리며 미룬 문장도 카드로 (끈 뒤라 자동 확정은 아래에서 멈춘다)
+    this.#flushHeld()
     const cards = this.#snapshot.cards.map((card) => (card.autoConfirmAt === null ? card : { ...card, autoConfirmAt: null }))
     this.#set({ phase: 'off', stateLabel: null, interim: null, tooSoon: false, cards })
   }
@@ -340,13 +354,73 @@ export class VoiceController {
       this.#set({ ...label, interim: null, heard })
       return
     }
-    const extraction = module.extractVoice(result.text, { maxNumber: this.#host.maxNumber(), dictionary: this.#prepared(module) })
-    const card = module.createCard({ id: `voice-${String(this.#nextCard++)}`, extraction, text: result.text, createdAt: this.#host.now(), settings })
-    if (card === null) {
+    if (this.#waitingHistory()) {
+      this.#held.push(result.text)
+      this.#armHeld()
       this.#set({ ...label, interim: null, heard })
       return
     }
-    this.#set({ ...label, interim: null, heard, cards: module.addCard(this.#snapshot.cards, card).filter(isOpen) })
+    // 기다림이 끝났는데 타이머보다 먼저 온 문장: 미룬 문장을 먼저 카드로 (온 차례)
+    const before = this.#snapshot.cards
+    const cards = this.#cardsWith(this.#heldCards(module, settings), module, settings, result.text)
+    this.#set({ ...label, interim: null, heard, ...(cards === before ? {} : { cards }) })
+  }
+
+  /** 지금 카드 목록에 이 문장의 카드를 더한 목록 (카드를 만들 결과가 아니면 그대로) */
+  #cardsWith(cards: readonly SuggestionCard[], module: VoiceModule, settings: VoiceSettings, text: string): readonly SuggestionCard[] {
+    const extraction = module.extractVoice(text, { maxNumber: this.#host.maxNumber(), dictionary: this.#prepared(module) })
+    const card = module.createCard({ id: `voice-${String(this.#nextCard++)}`, extraction, text, createdAt: this.#host.now(), settings })
+    return card === null ? cards : module.addCard(cards, card).filter(isOpen)
+  }
+
+  // ── 이력을 기다리며 미룬 문장 (HISTORY_WAIT_MS) ─────────────────────
+
+  #waitingHistory(): boolean {
+    return this.#history.state === 'loading' && this.#host.now() < this.#historyDeadline
+  }
+
+  #armHeld(): void {
+    if (this.#heldTimer !== null) return
+    this.#heldTimer = setTimeout(
+      () => {
+        this.#heldTimer = null
+        this.#flushHeld()
+      },
+      Math.max(0, this.#historyDeadline - this.#host.now()),
+    )
+  }
+
+  /** 미룬 문장을 지금 사전으로 카드로 만든 목록 (미룬 것이 없으면 지금 목록) — 미룬 목록은 비운다 */
+  #heldCards(module: VoiceModule, settings: VoiceSettings): readonly SuggestionCard[] {
+    if (this.#heldTimer !== null) clearTimeout(this.#heldTimer)
+    this.#heldTimer = null
+    const texts = this.#held
+    this.#held = []
+    let cards = this.#snapshot.cards
+    for (const text of texts) cards = this.#cardsWith(cards, module, settings, text)
+    return cards
+  }
+
+  #flushHeld(): void {
+    if (this.#held.length === 0) {
+      this.#dropHeld()
+      return
+    }
+    const module = this.#module
+    const settings = this.#snapshot.settings
+    if (this.#disposed || module === null || settings === null) {
+      this.#dropHeld()
+      return
+    }
+    const before = this.#snapshot.cards
+    const cards = this.#heldCards(module, settings)
+    if (cards !== before) this.#set({ cards })
+  }
+
+  #dropHeld(): void {
+    if (this.#heldTimer !== null) clearTimeout(this.#heldTimer)
+    this.#heldTimer = null
+    this.#held = []
   }
 
   // ── 판매 이력 사전 (D-I4-06) ────────────────────────────────────────
@@ -354,16 +428,19 @@ export class VoiceController {
   #loadHistory(): void {
     if (this.#history.state === 'loading' || this.#history.state === 'done') return
     this.#history = { state: 'loading', past: [] }
+    this.#historyDeadline = this.#host.now() + HISTORY_WAIT_MS
     this.#host.fetchHistory().then(
       (past) => {
         if (this.#disposed) return
         this.#history = { state: 'done', past }
         this.#set({ historyFailed: false })
+        this.#flushHeld()
       },
       () => {
         if (this.#disposed) return
         this.#history = { state: 'failed', past: [] }
         this.#set({ historyFailed: true })
+        this.#flushHeld()
       },
     )
   }
