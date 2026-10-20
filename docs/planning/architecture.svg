@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 860" width="1240" height="860">
+<defs><marker id="ah" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#475569"/></marker><marker id="ah2" markerWidth="10" markerHeight="8" refX="1" refY="4" orient="auto"><path d="M10,0 L0,4 L10,8 z" fill="#475569"/></marker></defs>
+<rect width="1240" height="860" fill="#ffffff"/>
+<text x="620.0" y="34" font-size="22" font-weight="bold" fill="#0f172a" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">라이브찜 시스템 구성도</text>
+<rect x="30" y="60" width="800" height="150" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="44" y="84" font-size="15" font-weight="bold" fill="#334155" text-anchor="start" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">판매자 기기 — 브라우저(PWA), 설치 없음</text>
+<rect x="50" y="100" width="130" height="90" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.4"/>
+<text x="115.0" y="141.05" font-size="13" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">마이크</text>
+<text x="115.0" y="158.05" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">방송자 음성</text>
+<rect x="215" y="100" width="180" height="90" rx="8" fill="#eef2ff" stroke="#6366f1" stroke-width="1.4"/>
+<text x="305.0" y="132.55" font-size="13" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">PC 크롬·엣지</text>
+<text x="305.0" y="149.55" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">방송 콘솔·정산</text>
+<text x="305.0" y="166.55" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">음성 등록·라벨 출력</text>
+<rect x="415" y="100" width="195" height="90" rx="8" fill="#eef2ff" stroke="#6366f1" stroke-width="1.4"/>
+<text x="512.5" y="132.55" font-size="13" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">안드로이드 크롬</text>
+<text x="512.5" y="149.55" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">문자찜·포장</text>
+<text x="512.5" y="166.55" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">프린트 스테이션</text>
+<rect x="630" y="100" width="180" height="90" rx="8" fill="#eef2ff" stroke="#6366f1" stroke-width="1.4"/>
+<text x="720.0" y="132.55" font-size="13" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">아이폰 사파리</text>
+<text x="720.0" y="149.55" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">문자찜·포장·조회</text>
+<text x="720.0" y="166.55" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">라벨 그림 공유</text>
+<polyline points="180,145 213,145" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="870" y="60" width="340" height="150" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="884" y="84" font-size="15" font-weight="bold" fill="#334155" text-anchor="start" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">라벨프린터 — 선택(끌 수 있음)</text>
+<rect x="885" y="100" width="100" height="44" rx="8" fill="#ecfdf5" stroke="#059669" stroke-width="1.4"/>
+<text x="935.0" y="126.2" font-size="12" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">NIIMBOT B1</text>
+<rect x="995" y="100" width="100" height="44" rx="8" fill="#ecfdf5" stroke="#059669" stroke-width="1.4"/>
+<text x="1045.0" y="126.2" font-size="12" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">Marklife</text>
+<rect x="1105" y="100" width="95" height="44" rx="8" fill="#ecfdf5" stroke="#059669" stroke-width="1.4"/>
+<text x="1152.5" y="126.2" font-size="12" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">바우아토</text>
+<rect x="885" y="152" width="315" height="44" rx="8" fill="#f0fdf4" stroke="#86efac" stroke-width="1.4"/>
+<text x="1042.5" y="178.2" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">그 밖의 프린터: 라벨 PNG·PDF로 출력</text>
+<polyline points="830,128 868,128" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="849" y="118" font-size="11" font-weight="normal" fill="#065f46" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">Web Bluetooth</text>
+<text x="849" y="148" font-size="11" font-weight="normal" fill="#065f46" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">· Serial</text>
+<polyline points="330,212 330,262" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="338" y="242" font-size="12" font-weight="normal" fill="#334155" text-anchor="start" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">HTTPS 요청(찜·등록·조작)</text>
+<polyline points="560,262 560,212" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="568" y="242" font-size="12" font-weight="normal" fill="#334155" text-anchor="start" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">SSE 실시간 반영 — 모든 기기 1초 안</text>
+<rect x="30" y="264" width="1180" height="330" rx="10" fill="#f5f3ff" stroke="#a78bfa" stroke-width="1.5"/>
+<text x="44" y="288" font-size="15" font-weight="bold" fill="#334155" text-anchor="start" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">라이브찜 서버 — Node.js·TypeScript, 컨테이너 1개, 판매자별 데이터 격리</text>
+<rect x="55" y="310" width="215" height="70" rx="8" fill="#ffffff" stroke="#6366f1" stroke-width="1.4"/>
+<text x="162.5" y="332.55" font-size="13" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">웹 API·로그인</text>
+<text x="162.5" y="349.55" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">판매자·보조자 계정</text>
+<text x="162.5" y="366.55" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">문자찜·조작 입력</text>
+<rect x="55" y="470" width="135" height="96" rx="8" fill="#ffffff" stroke="#6366f1" stroke-width="1.4"/>
+<text x="122.5" y="497.05" font-size="13" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">댓글 수집기</text>
+<text x="122.5" y="514.05" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">유튜브·인스타</text>
+<text x="122.5" y="531.05" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">틱톡(베타)</text>
+<text x="122.5" y="548.05" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">끊기면 이어받기</text>
+<rect x="198" y="470" width="72" height="96" rx="8" fill="#ffffff" stroke="#6366f1" stroke-width="1.4"/>
+<text x="234.0" y="497.05" font-size="13" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">입금</text>
+<text x="234.0" y="514.05" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">매칭</text>
+<text x="234.0" y="531.05" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">금액+</text>
+<text x="234.0" y="548.05" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">이름</text>
+<rect x="320" y="375" width="190" height="96" rx="8" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.4"/>
+<text x="415.0" y="410.55" font-size="13" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">① 입력 우선 기록</text>
+<text x="415.0" y="427.55" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">판정 전에 먼저 저장</text>
+<text x="415.0" y="444.55" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">같은 메시지 ID는 한 번만</text>
+<rect x="560" y="375" width="200" height="96" rx="8" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1.4"/>
+<text x="660.0" y="410.55" font-size="13" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">② 판정 엔진(core)</text>
+<text x="660.0" y="427.55" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">순수 함수, 방송별 한 줄</text>
+<text x="660.0" y="444.55" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">선착순·대기·승계·금액</text>
+<rect x="815" y="300" width="370" height="56" rx="8" fill="#ffffff" stroke="#6366f1" stroke-width="1.4"/>
+<text x="1000.0" y="332.55" font-size="13" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">③ 조회용 표 — 상품·찜·구매자·정산 묶음</text>
+<rect x="815" y="372" width="175" height="62" rx="8" fill="#ffffff" stroke="#6366f1" stroke-width="1.4"/>
+<text x="902.5" y="407.55" font-size="13" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">실시간 푸시(SSE)</text>
+<rect x="1005" y="372" width="180" height="62" rx="8" fill="#ffffff" stroke="#6366f1" stroke-width="1.4"/>
+<text x="1095.0" y="399.05" font-size="13" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">문서 생성</text>
+<text x="1095.0" y="416.05" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">영수증 PDF·JPG·엑셀</text>
+<rect x="815" y="504" width="185" height="62" rx="8" fill="#ffffff" stroke="#6366f1" stroke-width="1.4"/>
+<text x="907.5" y="531.05" font-size="13" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">④ 발송함(outbox)</text>
+<text x="907.5" y="548.05" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">감사 메시지·재시도</text>
+<rect x="1010" y="504" width="175" height="62" rx="8" fill="#ffffff" stroke="#6366f1" stroke-width="1.4"/>
+<text x="1097.5" y="531.05" font-size="13" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">요금·이용권</text>
+<text x="1097.5" y="548.05" font-size="12" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">기간권·회당권</text>
+<polyline points="270,345 295,345 295,405 318,405" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<polyline points="122,468 122,450 295,450 295,423 318,423" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<polyline points="234,468 234,458 305,458 305,441 318,441" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<polyline points="510,423 558,423" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<polyline points="760,400 790,400 790,328 813,328" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<polyline points="760,446 790,446 790,535 813,535" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<polyline points="902,356 902,370" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<polyline points="1095,356 1095,370" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="30" y="640" width="400" height="190" rx="10" fill="#fff7ed" stroke="#fdba74" stroke-width="1.5"/>
+<text x="44" y="664" font-size="15" font-weight="bold" fill="#334155" text-anchor="start" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">외부 입력 원천</text>
+<rect x="45" y="676" width="180" height="62" rx="8" fill="#ffffff" stroke="#ea580c" stroke-width="1.4"/>
+<text x="135.0" y="703.2" font-size="12" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">YouTube Data API</text>
+<text x="135.0" y="719.2" font-size="11" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">채팅 streamList(실시간)</text>
+<rect x="235" y="676" width="180" height="62" rx="8" fill="#ffffff" stroke="#ea580c" stroke-width="1.4"/>
+<text x="325.0" y="703.2" font-size="12" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">팝빌 계좌조회</text>
+<text x="325.0" y="719.2" font-size="11" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">입금 내역(또는 붙여넣기)</text>
+<rect x="45" y="750" width="180" height="62" rx="8" fill="#ffffff" stroke="#ea580c" stroke-width="1.4"/>
+<text x="135.0" y="777.2" font-size="12" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">Instagram API</text>
+<text x="135.0" y="793.2" font-size="11" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">라이브 댓글 웹훅</text>
+<rect x="235" y="750" width="180" height="62" rx="8" fill="#ffffff" stroke="#fb923c" stroke-width="1.4"/>
+<text x="325.0" y="777.2" font-size="12" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">TikTok 라이브</text>
+<text x="325.0" y="793.2" font-size="11" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">읽기 전용 베타</text>
+<polyline points="122,640 122,568" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="130" y="612" font-size="12" font-weight="normal" fill="#9a3412" text-anchor="start" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">댓글</text>
+<polyline points="234,640 234,568" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="242" y="612" font-size="12" font-weight="normal" fill="#9a3412" text-anchor="start" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">입금 내역</text>
+<ellipse cx="610" cy="672" rx="150" ry="18" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.5"/>
+<rect x="460" y="672" width="300" height="120" fill="#e0f2fe"/>
+<line x1="460" y1="672" x2="460" y2="792" stroke="#0284c7" stroke-width="1.5"/><line x1="760" y1="672" x2="760" y2="792" stroke="#0284c7" stroke-width="1.5"/>
+<ellipse cx="610" cy="792" rx="150" ry="18" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.5"/>
+<text x="610" y="722" font-size="15" font-weight="bold" fill="#0c4a6e" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">PostgreSQL(관리형)</text>
+<text x="610" y="746" font-size="13" font-weight="normal" fill="#0c4a6e" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">이벤트 기록 · 조회용 표</text>
+<text x="610" y="766" font-size="13" font-weight="normal" fill="#0c4a6e" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">매일 백업 · 복구 · 기록 재생 검증</text>
+<polyline points="415,473 415,620 520,620 520,656" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="528" y="640" font-size="12" font-weight="normal" fill="#334155" text-anchor="start" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">저장</text>
+<rect x="790" y="640" width="420" height="190" rx="10" fill="#fff7ed" stroke="#fdba74" stroke-width="1.5"/>
+<text x="804" y="664" font-size="15" font-weight="bold" fill="#334155" text-anchor="start" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">외부 발송·결제</text>
+<rect x="805" y="676" width="190" height="62" rx="8" fill="#ffffff" stroke="#ea580c" stroke-width="1.4"/>
+<text x="900.0" y="703.2" font-size="12" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">YouTube 라이브 채팅</text>
+<text x="900.0" y="719.2" font-size="11" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">감사 메시지 게시</text>
+<rect x="1005" y="676" width="190" height="62" rx="8" fill="#ffffff" stroke="#ea580c" stroke-width="1.4"/>
+<text x="1100.0" y="703.2" font-size="12" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">포트원 V2·토스페이먼츠</text>
+<text x="1100.0" y="719.2" font-size="11" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">요금 결제</text>
+<rect x="805" y="750" width="190" height="62" rx="8" fill="#ffffff" stroke="#ea580c" stroke-width="1.4"/>
+<text x="900.0" y="777.2" font-size="12" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">Instagram DM</text>
+<text x="900.0" y="793.2" font-size="11" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">감사 메시지(라이브 중 1회)</text>
+<rect x="1005" y="750" width="190" height="62" rx="8" fill="#ffffff" stroke="#fb923c" stroke-width="1.4"/>
+<text x="1100.0" y="777.2" font-size="12" font-weight="bold" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">클라우드 음성 인식(선택)</text>
+<text x="1100.0" y="793.2" font-size="11" font-weight="normal" fill="#111827" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">Deepgram·리턴제로</text>
+<polyline points="900,568 900,674" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="908" y="612" font-size="12" font-weight="normal" fill="#9a3412" text-anchor="start" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">게시(중복 방지)</text>
+<polyline points="1095,568 1095,674" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="1103" y="612" font-size="12" font-weight="normal" fill="#9a3412" text-anchor="start" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">결제 확인</text>
+<text x="620.0" y="852" font-size="13" font-weight="normal" fill="#475569" text-anchor="middle" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">원칙: 입력은 판정 전에 먼저 기록 → 판정은 순수 규칙 엔진 → 외부 발송은 발송함에서 재시도(판매 기록과 분리)</text>
+</svg>

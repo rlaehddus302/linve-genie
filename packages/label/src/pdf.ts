@@ -147,8 +147,8 @@ function commonSize(bitmaps: readonly LabelBitmap[]): { ok: true; size: LabelSiz
 const imageMm = (bitmap: LabelBitmap): { width: number; height: number } => ({ width: bitmap.width / DOTS_PER_MM, height: bitmap.height / DOTS_PER_MM })
 
 /**
- * 라벨 크기 PDF: 라벨 한 장 = 한 쪽, 쪽 크기 = 라벨 크기(50×30mm = 141.73×85.04pt).
- * 그림은 실제 크기(384점 = 48mm)로 쪽 가로 가운데·세로 꽉 차게.
+ * 라벨 크기 PDF: 라벨 한 장 = 한 쪽, 쪽 크기 = 읽는 방향 라벨 크기(50×30mm = 141.73×85.04pt, 테이프 12×40 = 40×12mm).
+ * 그림은 실제 크기(384점 = 48mm)로 쪽 가로·세로 가운데에 놓는다(높이가 같으면 세로 꽉 참 — 15mm 테이프는 위아래 1.5mm가 빈다, N1).
  */
 export function createLabelPdf(bitmaps: readonly LabelBitmap[]): PdfResult {
   const checked = commonSize(bitmaps)
@@ -159,7 +159,7 @@ export function createLabelPdf(bitmaps: readonly LabelBitmap[]): PdfResult {
     return {
       width: info.widthMm * PT_PER_MM,
       height: info.heightMm * PT_PER_MM,
-      images: [{ bitmap, x: ((info.widthMm - mm.width) / 2) * PT_PER_MM, y: (info.heightMm - mm.height) * PT_PER_MM, width: mm.width * PT_PER_MM, height: mm.height * PT_PER_MM }],
+      images: [{ bitmap, x: ((info.widthMm - mm.width) / 2) * PT_PER_MM, y: ((info.heightMm - mm.height) / 2) * PT_PER_MM, width: mm.width * PT_PER_MM, height: mm.height * PT_PER_MM }],
       cutBoxes: [],
     }
   })
@@ -167,8 +167,8 @@ export function createLabelPdf(bitmaps: readonly LabelBitmap[]): PdfResult {
 }
 
 /**
- * A4 모아찍기 PDF: A4 세로, 여백 10mm, 칸 사이 2mm, 칸 = 라벨 크기, 왼쪽 위부터 줄마다 채운다(a4Cell).
- * 칸마다 라벨 그림을 실제 크기로 칸 가로 가운데에 넣고, 칸 테두리에 자르는 선(0.2mm, 회색)을 긋는다. 넘치면 다음 쪽.
+ * A4 모아찍기 PDF: A4 세로, 여백 10mm, 칸 사이 2mm, 칸 = 라벨 크기(읽는 방향), 왼쪽 위부터 줄마다 채운다(a4Cell).
+ * 칸마다 라벨 그림을 실제 크기로 칸 가로·세로 가운데에 넣고, 칸 테두리에 자르는 선(0.2mm, 회색)을 긋는다. 넘치면 다음 쪽.
  */
 export function createA4Pdf(bitmaps: readonly LabelBitmap[]): PdfResult {
   const checked = commonSize(bitmaps)
@@ -185,7 +185,7 @@ export function createA4Pdf(bitmaps: readonly LabelBitmap[]): PdfResult {
     page.images.push({
       bitmap,
       x: (cell.leftMm + (cell.widthMm - mm.width) / 2) * PT_PER_MM,
-      y: (bottom + (cell.heightMm - mm.height)) * PT_PER_MM,
+      y: (bottom + (cell.heightMm - mm.height) / 2) * PT_PER_MM,
       width: mm.width * PT_PER_MM,
       height: mm.height * PT_PER_MM,
     })
