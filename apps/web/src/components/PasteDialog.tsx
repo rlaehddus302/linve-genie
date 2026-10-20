@@ -3,8 +3,11 @@
 // - 글을 고치면 미리 보기를 다시 해야 넣을 수 있다(고친 글은 새 요청 번호).
 // - 넣기: 한 번 누르면 단추가 잠긴다. 응답이 없어 다시 보내도 같은 요청 번호 — 찜이 둘 생기지 않는다(서버가 처음 응답을 돌려준다).
 //   끝나면 "찜 N개를 넣었어요."를 부른 쪽에 넘기고 창을 닫는다.
+// - 키보드(UX-N2b-2-01): 미리 보기가 끝나면 포커스가 "찜 N개 넣기"로 간다(넣을 찜이 있을 때). 보는 동안 "미리 보기"는 잠그지 않고 aria-busy —
+//   포커스가 창 밖으로 빠져 "닫기"로 가지 않게. 글 칸에서 Ctrl+Enter(⌘Enter)는 미리 보기, 미리 본 뒤면 넣기.
+//   붙여 넣던 글은 부른 쪽(draft)에 남아 창을 닫았다 다시 열어도 그대로다.
 // 닉네임·댓글은 글자로만 보인다(React 기본 이스케이프). 375px 폭에서도 가로로 넘치지 않게 줄을 감싼다.
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
 import type { PastePlanView } from '../api/types.ts'
 import { groupDigits } from '../lib/money.ts'
@@ -17,6 +20,9 @@ export interface PasteDialogProps {
   readonly onClose: () => void
   /** 넣기를 마쳤다 (문장 "찜 N개를 넣었어요.") — 부른 쪽이 창을 닫고 문장을 보인다 */
   readonly onDone: (message: string) => void
+  /** 붙여 넣던 글 (창을 닫아도 부른 쪽에 남는다) */
+  readonly draft?: string
+  readonly onDraftChange?: (text: string) => void
 }
 
 interface Previewed {
@@ -26,8 +32,12 @@ interface Previewed {
   readonly requestId: string
 }
 
-export function PasteDialog({ broadcastId, onClose, onDone }: PasteDialogProps) {
-  const [text, setText] = useState('')
+export function PasteDialog({ broadcastId, onClose, onDone, draft = '', onDraftChange }: PasteDialogProps) {
+  const [text, setTextState] = useState(draft)
+  const setText = (value: string) => {
+    setTextState(value)
+    onDraftChange?.(value)
+  }
   const [previewed, setPreviewed] = useState<Previewed | null>(null)
   const [previewing, setPreviewing] = useState(false)
   const [previewError, setPreviewError] = useState<ApiError | null>(null)
@@ -37,12 +47,21 @@ export function PasteDialog({ broadcastId, onClose, onDone }: PasteDialogProps) 
   const textId = useId()
   const guideId = useId()
   const area = useRef<HTMLTextAreaElement>(null)
+  const sendButton = useRef<HTMLButtonElement>(null)
+  /** 미리 보기를 마치면 "찜 N개 넣기"로 포커스를 옮긴다 */
+  const focusSend = useRef(false)
   const base = `/api/broadcasts/${encodeURIComponent(broadcastId)}`
 
   const stale = previewed !== null && previewed.text !== text
   const plan = previewed?.plan ?? null
   const total = plan?.total ?? 0
   const canSend = previewed !== null && !stale && total > 0 && !sending
+
+  useEffect(() => {
+    if (!focusSend.current) return
+    focusSend.current = false
+    if (canSend) sendButton.current?.focus()
+  }, [previewed, canSend])
 
   const preview = async () => {
     if (previewing || sending) return
@@ -53,6 +72,7 @@ export function PasteDialog({ broadcastId, onClose, onDone }: PasteDialogProps) 
     try {
       const result = await withRetry(() => post<PastePlanView>(`${base}/paste/preview`, { text: current }))
       // 같은 글을 다시 미리 보면 요청 번호를 그대로 둔다 (응답 없이 끝난 넣기를 다시 보내도 한 번만)
+      focusSend.current = true
       setPreviewed((before) => ({ text: current, plan: result, requestId: before !== null && before.text === current ? before.requestId : newRequestId() }))
     } catch (caught) {
       if (!isApiError(caught)) throw caught
@@ -81,6 +101,13 @@ export function PasteDialog({ broadcastId, onClose, onDone }: PasteDialogProps) 
     }
   }
 
+  const onTextKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey)) return
+    event.preventDefault()
+    if (canSend) void send()
+    else if (text.trim() !== '') void preview()
+  }
+
   return (
     <Modal
       title="댓글 붙여넣기"
@@ -88,7 +115,7 @@ export function PasteDialog({ broadcastId, onClose, onDone }: PasteDialogProps) 
       wide
       initialFocus={area}
       actions={
-        <button type="button" className="button button-primary" disabled={!canSend} onClick={() => void send()}>
+        <button ref={sendButton} type="button" className="button button-primary" disabled={!canSend} onClick={() => void send()}>
           {sending ? '넣는 중…' : pasteButtonLabel(stale ? 0 : total)}
         </button>
       }
@@ -107,9 +134,10 @@ export function PasteDialog({ broadcastId, onClose, onDone }: PasteDialogProps) 
           aria-describedby={guideId}
           value={text}
           onChange={(event) => setText(event.target.value)}
+          onKeyDown={onTextKey}
         />
         <div className="row">
-          <button type="button" className="button" disabled={previewing || sending || text.trim() === ''} onClick={() => void preview()}>
+          <button type="button" className="button" aria-busy={previewing} disabled={sending || text.trim() === ''} onClick={() => void preview()}>
             {previewing ? '보는 중…' : '미리 보기'}
           </button>
         </div>

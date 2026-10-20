@@ -2,7 +2,7 @@
 // 빠른 입력·알림 띠는 위쪽에 늘 보인다. 현재 상품·상품 보드·채팅(·리허설 조작판)은 폭에 맞춰 나란히 또는 아래로.
 // I3: 유튜브 칸(스크롤 영역)·수집 멈춤 경고·사용량 알림(고정 영역)·알림 띠 "감사 실패"·감사 메시지 목록 (AC-I3-20~38),
 //     봉인한 날짜는 볼 수만 있다 — 쓰기 칸·버튼이 잠기고 눌러도 요청을 보내지 않는다 (AC-I3-41).
-// N2b-2: 인스타그램·틱톡 칸(스크롤 영역)·여러 플랫폼 도착순 안내·틱톡 알림 줄과 인스타그램 알림(고정 영역 한 줄)·댓글 붙여넣기 창·채팅 줄 플랫폼 글자.
+// N2b-2: 인스타그램·틱톡 칸(스크롤 영역)·여러 플랫폼 도착순 안내·틱톡 알림 줄·인스타그램 알림·붙여넣기 결과(알림 띠 맨 앞 — 고정 영역에 줄을 더하지 않는다)·댓글 붙여넣기 창·채팅 줄 플랫폼 글자.
 // 라벨 상태는 서버의 출력 기록(라벨 키마다)으로 보인다 — 리허설은 라벨이 없다. Alt+P(⌥P)는 현재 상품의 1등 라벨 다시 출력 창.
 import { DEFAULT_SETTINGS, type SaleSettings } from '@livejjim/core'
 import type { CardRegistration, SuggestionCard } from '@livejjim/voice'
@@ -29,7 +29,7 @@ import { AssignDialog, ConfirmDialog, ConvertDialog, EditDialog, ReasonDialog } 
 import { AttentionDialog, CancelRequestDialog, ConflictDialog, PendingDialog, SuccessionDialog } from './AlertDialogs.tsx'
 import { AlertStrip, firstAlert, type AlertKind, type PrintAlerts } from './AlertStrip.tsx'
 import { ChatPanel } from './ChatPanel.tsx'
-import { MultiPlatformNotice, PlatformAlerts, PlatformPanels, useConsolePlatforms } from './ConsolePlatforms.tsx'
+import { MultiPlatformNotice, PlatformPanels, platformLeads, useConsolePlatforms } from './ConsolePlatforms.tsx'
 import { AuthorizeDialog, CollectorWarningBar, OutboxDialog, QuotaToast, UnlinkDialog, YoutubeContext, YoutubePanel, useConsoleYoutube } from './ConsoleYoutube.tsx'
 import { Lock } from './Lock.tsx'
 import { SealedNotice } from './SealNotice.tsx'
@@ -147,6 +147,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   const live = useConsolePlatforms({ store, broadcastId, date: broadcast.date, rehearsal: broadcast.rehearsal, lastMessageSeq: snapshot.messages.at(-1)?.seq ?? 0 })
   const [pasteOpen, setPasteOpen] = useState(false)
   const [pasteNote, setPasteNote] = useState<string | null>(null)
+  // 붙여 넣던 글은 창을 닫아도 남는다 (넣기를 마치면 비운다 — UX-N2b-2-01)
+  const [pasteDraft, setPasteDraft] = useState('')
   useEffect(() => {
     if (pasteNote === null) return
     const timer = setTimeout(() => setPasteNote(null), 10_000)
@@ -358,7 +360,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
 
   const names = useMemo(() => new BuyerNames(data.buyers, data.claims), [data.buyers, data.claims])
   const settingsOf = useCallback((id: string) => latest.current.data.broadcasts.get(id)?.settings ?? null, [])
-  // N2b-2: 인스타그램·틱톡 칸(스크롤 영역)·여러 플랫폼 도착순 안내·틱톡 알림 줄과 인스타그램 알림(고정 영역 한 줄)·댓글 붙여넣기 창·채팅 줄 플랫폼 글자.
+  // N2b-2: 인스타그램·틱톡 칸(스크롤 영역)·여러 플랫폼 도착순 안내·틱톡 알림 줄·인스타그램 알림·붙여넣기 결과(알림 띠 맨 앞 — 고정 영역에 줄을 더하지 않는다)·댓글 붙여넣기 창·채팅 줄 플랫폼 글자.
 // 라벨 상태는 서버의 출력 기록 (리허설 범위는 라벨이 없다 — 조회하지 않는다, D-I1-08)
   const labelState = useScopeLabels(broadcast.rehearsal ? null : broadcast.date)
   const labels = labelState.labels
@@ -864,9 +866,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
           <CollectorWarningBar navigate={navigate} ended={ended || sealed} />
           <QuotaToast />
-          <PlatformAlerts live={live} sealed={sealed} onPaste={openPaste} pasteNote={pasteNote} />
           <div className="console-sticky-quick">
-            <AlertStrip counts={counts} print={printAlerts} thanksFailed={yt.thanksFailed} onOpen={openAlert} expanded={alertsOpen} onToggle={() => setAlertsOpen((open) => !open)} />
+            <AlertStrip
+              leads={platformLeads({ live, sealed, onPaste: openPaste, pasteNote })}
+              counts={counts} print={printAlerts} thanksFailed={yt.thanksFailed} onOpen={openAlert} expanded={alertsOpen} onToggle={() => setAlertsOpen((open) => !open)} />
             <Lock className="lock-quick">
               <QuickInput
                 value={quickText}
@@ -938,8 +941,11 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       {pasteOpen ? (
         <PasteDialog
           broadcastId={b}
+          draft={pasteDraft}
+          onDraftChange={setPasteDraft}
           onClose={() => setPasteOpen(false)}
           onDone={(message) => {
+            setPasteDraft('')
             setPasteOpen(false)
             setPasteNote(message)
           }}

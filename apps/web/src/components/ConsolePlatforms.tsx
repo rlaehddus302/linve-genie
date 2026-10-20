@@ -1,7 +1,10 @@
 // 콘솔의 인스타그램·틱톡 칸과 여러 플랫폼 안내 (SPEC §7 화면 2, PLT-01·02·03, D-N2b-2-02·13, AC-N2b-2-60~64).
 // - 플랫폼 칸은 스크롤 영역(고정 영역 밖)에 둔다: 유튜브(지금 칸 그대로) · 인스타그램 · 틱톡. 둘 이상 이으면 칸 위에 도착순 안내.
 //   리허설 회차는 인스타그램·틱톡 칸 대신 "리허설 방송에는 라이브를 이을 수 없어요." 한 줄이고 인스타그램·틱톡 요청을 보내지 않는다.
-// - 고정 영역에는 한 줄만: 틱톡 댓글이 들어오지 않을 때의 알림 줄(누르면 붙여넣기 창), 인스타그램 알림(LIVE_MOVED 등 — 문장 그대로, "닫기").
+// - 고정 영역에 줄을 더하지 않는다(UX-04 35%, TE-N2b-2-001): 틱톡 알림 줄(누르면 붙여넣기 창)·인스타그램 알림(LIVE_MOVED 등 — 문장 그대로,
+//   누르면 인스타그램 칸의 알림 목록으로)·붙여넣기 결과는 알림 띠 맨 앞 항목이다(platformLeads). 휴대폰에서는 띠와 함께 한 줄로 접힌다.
+//   인스타그램 알림의 "닫기"는 인스타그램 칸의 알림 목록에 있다.
+// - 쓰기 응답(잇기·끊기·다시 연결)은 그사이 SSE로 더 새 상태가 오지 않았을 때만 넣는다 — 왔으면 서버 상태를 다시 받는다(TE-N2b-2-003).
 // - 실시간: 범위 저장소의 같은 연결로 SSE `instagram`·`tiktok`을 받는다(새로 고침 없이). 끊겼다 이어지면 모두 다시 받는다.
 //   댓글 수는 알림마다 오지 않으므로 새 채팅이 들어오면 모아서 한 번 다시 받는다.
 // 서버 문장(수집 상태·오류·알림)은 고치지 않고 그대로 보인다. 아이디·라이브 ID는 글자로만 보인다.
@@ -9,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, isApiError, newRequestId, post, withRetry, withQuery, type ApiError } from '../api/client.ts'
 import type { BroadcastLive, InstagramConnection, InstagramDmRow, InstagramLinkView, InstagramLive, PlatformCapability, TikTokLinkView, TikTokSettings } from '../api/types.ts'
 import type { ConsoleStore } from '../lib/console-store.ts'
+import type { AlertLead } from './AlertStrip.tsx'
 import { kstClockWords } from '../lib/kst.ts'
 import { groupDigits } from '../lib/money.ts'
 import {
@@ -69,6 +73,12 @@ export interface ConsolePlatforms {
   readonly linkedCount: number
   setIgLink(view: InstagramLinkView): void
   setTtLink(view: TikTokLinkView): void
+  /** 쓰기를 보내기 직전에 받아 둔다 (응답을 넣을 때 그사이 더 새 상태가 왔는지 본다) */
+  igStamp(): number
+  ttStamp(): number
+  /** 쓰기 응답: 그사이 SSE·조회로 상태가 바뀌지 않았으면 넣고, 바뀌었으면 서버 상태를 다시 받는다 */
+  acceptIgLink(view: InstagramLinkView, stamp: number): void
+  acceptTtLink(view: TikTokLinkView, stamp: number): void
   dismissNotice(id: number): void
   reload(): Promise<void>
 }
@@ -129,6 +139,25 @@ export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastM
       // 다음 알림·다시 붙을 때 다시 받는다
     }
   }, [base])
+
+  const igStamp = useCallback(() => igVersion.current, [])
+  const ttStamp = useCallback(() => ttVersion.current, [])
+  const acceptIgLink = useCallback(
+    (view: InstagramLinkView, stamp: number) => {
+      if (!alive.current) return
+      if (stamp === igVersion.current) setIgLink(view)
+      else void reloadIgLink()
+    },
+    [setIgLink, reloadIgLink],
+  )
+  const acceptTtLink = useCallback(
+    (view: TikTokLinkView, stamp: number) => {
+      if (!alive.current) return
+      if (stamp === ttVersion.current) setTtLink(view)
+      else void reloadTtLink()
+    },
+    [setTtLink, reloadTtLink],
+  )
 
   const reloadDms = useCallback(async () => {
     try {
@@ -243,6 +272,10 @@ export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastM
     linkedCount: enabled ? (igOpen ? 1 : 0) + (ttOpen ? 1 : 0) : 0,
     setIgLink,
     setTtLink,
+    igStamp,
+    ttStamp,
+    acceptIgLink,
+    acceptTtLink,
     dismissNotice,
     reload,
   }
@@ -253,34 +286,27 @@ export function tiktokTrouble(live: ConsolePlatforms): boolean {
   return live.enabled && live.ttLink?.state === 'LINKED' && tiktokNeedsPaste(live.ttLink.collection)
 }
 
-// ── 고정 영역: 한 줄 알림 ─────────────────────────────────────────────
+// ── 알림 띠 맨 앞 항목 (고정 영역에 줄을 더하지 않는다) ─────────────────
 
-export function PlatformAlerts({ live, sealed, onPaste, pasteNote }: { readonly live: ConsolePlatforms; readonly sealed: boolean; readonly onPaste: () => void; readonly pasteNote: string | null }) {
+/** 인스타그램 칸의 알림 목록 (띠의 인스타그램 알림을 누르면 여기로) */
+export const INSTAGRAM_NOTICES_ID = 'instagram-notices'
+
+function showInstagramNotices(): void {
+  // 포커스를 옮기면 브라우저가 그 목록이 보이게 굴린다
+  document.getElementById(INSTAGRAM_NOTICES_ID)?.focus()
+}
+
+/**
+ * 알림 띠 맨 앞에 붙일 플랫폼 줄 (AC-N2b-2-60·62·63, UX-04): 붙여넣기 결과(10초) · 틱톡 알림 줄 · 인스타그램 알림(가장 최근 것).
+ * 휴대폰에서는 띠와 함께 한 줄로 접히고 긴 문장은 말줄임이다(전문은 단추 이름·"펼치기"·인스타그램 칸).
+ */
+export function platformLeads({ live, sealed, onPaste, pasteNote }: { readonly live: ConsolePlatforms; readonly sealed: boolean; readonly onPaste: () => void; readonly pasteNote: string | null }): AlertLead[] {
+  const leads: AlertLead[] = []
+  if (pasteNote !== null) leads.push({ key: 'paste-note', text: pasteNote })
+  if (!sealed && tiktokTrouble(live)) leads.push({ key: 'tiktok', text: TIKTOK_PASTE_ALERT, onClick: onPaste })
   const notice = live.notices.at(-1)
-  const trouble = !sealed && tiktokTrouble(live)
-  if (!trouble && notice === undefined && pasteNote === null) return null
-  return (
-    <div className="platform-alerts stack-tight">
-      {trouble ? (
-        <button type="button" className="connection-banner platform-alert-line" onClick={onPaste}>
-          {TIKTOK_PASTE_ALERT}
-        </button>
-      ) : null}
-      {notice !== undefined ? (
-        <div className="notice platform-notice" role="status">
-          <span>{notice.message}</span>
-          <button type="button" className="button button-small" aria-label="인스타그램 알림 닫기" onClick={() => live.dismissNotice(notice.id)}>
-            닫기
-          </button>
-        </div>
-      ) : null}
-      {pasteNote !== null ? (
-        <p className="notice platform-notice" role="status">
-          {pasteNote}
-        </p>
-      ) : null}
-    </div>
-  )
+  if (notice !== undefined) leads.push({ key: 'instagram', text: notice.message, onClick: showInstagramNotices, soft: true })
+  return leads
 }
 
 // ── 스크롤 영역: 플랫폼 칸 ────────────────────────────────────────────
@@ -428,17 +454,27 @@ function InstagramPanel({ live, broadcastId, navigate, ended, sealed }: Platform
     }
   }
 
-  const wait = () => action.run(async () => live.setIgLink((await send<{ link: InstagramLinkView }>(ids, 'wait', `${base}/wait`, (requestId) => ({ requestId, platform: 'INSTAGRAM' }))).link))
+  const wait = () =>
+    action.run(async () => {
+      const stamp = live.igStamp()
+      live.acceptIgLink((await send<{ link: InstagramLinkView }>(ids, 'wait', `${base}/wait`, (requestId) => ({ requestId, platform: 'INSTAGRAM' }))).link, stamp)
+    })
   const link = (liveId: string) =>
     action.run(async () => {
-      live.setIgLink((await send<{ link: InstagramLinkView }>(ids, `link:${liveId}`, `${base}/link`, (requestId) => ({ requestId, platform: 'INSTAGRAM', liveId }))).link)
+      const stamp = live.igStamp()
+      live.acceptIgLink((await send<{ link: InstagramLinkView }>(ids, `link:${liveId}`, `${base}/link`, (requestId) => ({ requestId, platform: 'INSTAGRAM', liveId }))).link, stamp)
       setLivesOpen(false)
     })
   const unlink = () =>
     action.run(async () => {
-      live.setIgLink((await send<{ link: InstagramLinkView }>(ids, 'unlink', `${base}/unlink`, (requestId) => ({ requestId, platform: 'INSTAGRAM' }))).link)
+      const stamp = live.igStamp()
+      live.acceptIgLink((await send<{ link: InstagramLinkView }>(ids, 'unlink', `${base}/unlink`, (requestId) => ({ requestId, platform: 'INSTAGRAM' }))).link, stamp)
       setAsking(false)
     })
+  // 연결 상태가 바뀌면(SSE·응답) 앞선 조작의 오류 문장은 지운다 (UX-N2b-2-03)
+  const igState = igLink === null ? null : `${igLink.state}:${igLink.collection?.state ?? ''}`
+  const clearIgError = action.setError
+  useEffect(() => clearIgError(null), [igState, clearIgError])
 
   const open = igLink !== null && igLink.state !== 'NONE'
   const collection = igLink?.collection ?? null
@@ -476,7 +512,15 @@ function InstagramPanel({ live, broadcastId, navigate, ended, sealed }: Platform
       {open && igLink.moved !== null ? <p className="warning">{igLink.moved.message}</p> : null}
       {open && !sealed ? (
         <div className="row">
-          <button type="button" className="button" disabled={action.busy} onClick={() => setAsking(true)}>
+          <button
+            type="button"
+            className="button"
+            disabled={action.busy}
+            onClick={() => {
+              action.setError(null)
+              setAsking(true)
+            }}
+          >
             끊기
           </button>
         </div>
@@ -521,9 +565,14 @@ function InstagramPanel({ live, broadcastId, navigate, ended, sealed }: Platform
       ) : null}
       {live.dmFailed > 0 ? <p className="warning">{failedDmMessage(live.dmFailed)}</p> : null}
       {live.notices.length > 0 ? (
-        <ul className="plain-list stack-tight" aria-label="인스타그램 알림">
+        <ul id={INSTAGRAM_NOTICES_ID} className="plain-list stack-tight" aria-label="인스타그램 알림" tabIndex={-1}>
           {live.notices.map((notice) => (
-            <li key={notice.id}>{notice.message}</li>
+            <li key={notice.id} className="notice platform-notice">
+              <span>{notice.message}</span>
+              <button type="button" className="button button-small" aria-label="인스타그램 알림 닫기" onClick={() => live.dismissNotice(notice.id)}>
+                닫기
+              </button>
+            </li>
           ))}
         </ul>
       ) : null}
@@ -562,13 +611,26 @@ function TikTokPanel({ live, broadcastId, navigate, ended, sealed, onPaste }: Pl
   const collection = ttLink?.collection ?? null
   const reason = live.platforms?.find((item) => item.platform === 'TIKTOK')?.reasons.ready
 
-  const link = () => action.run(async () => live.setTtLink((await send<{ link: TikTokLinkView }>(ids, 'link', `${base}/live/link`, (requestId) => ({ requestId, platform: 'TIKTOK' }))).link))
+  const link = () =>
+    action.run(async () => {
+      const stamp = live.ttStamp()
+      live.acceptTtLink((await send<{ link: TikTokLinkView }>(ids, 'link', `${base}/live/link`, (requestId) => ({ requestId, platform: 'TIKTOK' }))).link, stamp)
+    })
   const unlink = () =>
     action.run(async () => {
-      live.setTtLink((await send<{ link: TikTokLinkView }>(ids, 'unlink', `${base}/live/unlink`, (requestId) => ({ requestId, platform: 'TIKTOK' }))).link)
+      const stamp = live.ttStamp()
+      live.acceptTtLink((await send<{ link: TikTokLinkView }>(ids, 'unlink', `${base}/live/unlink`, (requestId) => ({ requestId, platform: 'TIKTOK' }))).link, stamp)
       setAsking(false)
     })
-  const reconnect = () => action.run(async () => live.setTtLink((await withRetry(() => post<{ link: TikTokLinkView }>(`${base}/tiktok/reconnect`, {}))).link))
+  const reconnect = () =>
+    action.run(async () => {
+      const stamp = live.ttStamp()
+      live.acceptTtLink((await withRetry(() => post<{ link: TikTokLinkView }>(`${base}/tiktok/reconnect`, {}))).link, stamp)
+    })
+  // 연결 상태가 바뀌면(SSE·응답) 앞선 조작의 오류 문장("잠시 뒤 다시 눌러 주세요." 등)은 지운다 (UX-N2b-2-03)
+  const ttState = ttLink === null ? null : `${ttLink.state}:${ttLink.collection?.state ?? ''}:${ttLink.collection?.reason ?? ''}`
+  const clearTtError = action.setError
+  useEffect(() => clearTtError(null), [ttState, clearTtError])
 
   const trouble = tiktokTrouble(live)
   const blocker = tiktok === null ? null : tiktokBlocker(tiktok, reason)
@@ -602,7 +664,15 @@ function TikTokPanel({ live, broadcastId, navigate, ended, sealed, onPaste }: Pl
                   다시 연결
                 </button>
               ) : null}
-              <button type="button" className="button" disabled={action.busy} onClick={() => setAsking(true)}>
+              <button
+                type="button"
+                className="button"
+                disabled={action.busy}
+                onClick={() => {
+                  action.setError(null)
+                  setAsking(true)
+                }}
+              >
                 끊기
               </button>
               {!trouble ? (

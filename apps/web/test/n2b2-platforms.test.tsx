@@ -207,13 +207,32 @@ describe('플랫폼 낱말·판단 (platforms.ts)', () => {
     expect(tiktokNeedsPaste(ttCollection({ state: 'RETRYING', reason: 'NETWORK' }))).toBe(false)
     expect(tiktokNeedsPaste(ttCollection({ state: 'STOPPED' }))).toBe(true)
     expect(tiktokNeedsPaste(ttCollection({ state: 'OFF' }))).toBe(true)
-    expect(tiktokNeedsPaste(ttCollection({ missed: true }))).toBe(true)
+    // 끊긴 동안 받지 못했을 수 있음: 지금 받지 못하는 동안만 — 저절로 다시 붙어 CONNECTED면 붙여넣기를 띄우지 않는다 (SA-N2b-2-006·TE-N2b-2-004)
+    expect(tiktokNeedsPaste(ttCollection({ missed: true }))).toBe(false)
+    expect(tiktokNeedsPaste(ttCollection({ state: 'CONNECTING', missed: true }))).toBe(true)
+    expect(tiktokNeedsPaste(ttCollection({ state: 'IDLE', missed: true }))).toBe(true)
+    expect(tiktokNeedsPaste(ttCollection({ state: 'RETRYING', reason: 'NETWORK', missed: true }))).toBe(true)
     expect(tiktokNeedsPaste(ttCollection({ state: 'FINISHED', missed: true }))).toBe(false)
     expect(tiktokNeedsPaste(null)).toBe(false)
   })
 
   it('인스타그램: 보내지 못한 DM 수·결과 문장, 붙여넣기 묶음 문장', () => {
-    expect(failedDmCount([{ broadcast: 'b1', status: 'FAILED' }, { broadcast: 'b2', status: 'FAILED' }, { broadcast: 'b1', status: 'SENT' }, { broadcast: 'b1', status: 'FAILED' }], 'b1')).toBe(2)
+    expect(
+      failedDmCount(
+        [
+          { broadcast: 'b1', status: 'FAILED', reason: 'GAVE_UP' },
+          { broadcast: 'b2', status: 'FAILED', reason: 'GAVE_UP' },
+          { broadcast: 'b1', status: 'SENT', reason: null },
+          { broadcast: 'b1', status: 'FAILED', reason: 'UNCONFIRMED' },
+          { broadcast: 'b1', status: 'FAILED', reason: null },
+          // 판매자가 할 일이 없는 실패는 세지 않는다 (YT-06 화면, TE-N2b-2-002)
+          { broadcast: 'b1', status: 'FAILED', reason: 'NO_CONSENT' },
+          { broadcast: 'b1', status: 'FAILED', reason: 'NO_LINK' },
+          { broadcast: 'b1', status: 'SKIPPED', reason: 'NO_RECIPIENT' },
+        ],
+        'b1',
+      ),
+    ).toBe(3)
     expect(failedDmMessage(2)).toBe('감사 DM 2건을 보내지 못했어요. 인스타그램 앱에서 직접 보내 주세요.')
     expect(instagramCallbackMessage('CONNECTED')).toBe('인스타그램 계정을 연결했어요.')
     expect(instagramCallbackMessage('toString')).toBe('인스타그램 연결 결과를 확인하지 못했어요. 아래 연결 상태를 확인해 주세요.')
@@ -486,13 +505,52 @@ describe('콘솔 — 틱톡 칸 (AC-62)', () => {
     fireEvent.click(within(paste).getByRole('button', { name: '닫기' }))
     fireEvent.click(within(ttPanel()).getByRole('button', { name: '다시 연결' }))
     expect(await within(ttPanel()).findByText('잠시 뒤 다시 눌러 주세요.')).toBeDefined()
+    // 상태가 바뀌면 앞선 조작 오류는 지운다 (UX-N2b-2-03)
+    act(() => FakeEventSource.last.emit('tiktok', { kind: 'LINK', broadcast: 'b1', link: ttLinked({ state: 'RETRYING', reason: 'NETWORK', message: '틱톡 연결이 끊겨 다시 연결하는 중이에요.' }) }))
+    expect(within(ttPanel()).queryByText('잠시 뒤 다시 눌러 주세요.')).toBeNull()
+    fireEvent.click(within(ttPanel()).getByRole('button', { name: '다시 연결' }))
+    expect(await within(ttPanel()).findByText('잠시 뒤 다시 눌러 주세요.')).toBeDefined()
     fireEvent.click(within(ttPanel()).getByRole('button', { name: '끊기' }))
     const dialog = screen.getByRole('dialog', { name: '틱톡 연결 끊기' })
     expect(within(dialog).getByText('끊으면 이 방송의 틱톡 댓글을 더 받지 않아요. 이미 받은 찜은 그대로예요.')).toBeDefined()
+    // 끊기 확인 창에는 앞선 "다시 연결" 오류가 따라오지 않는다 (UX-N2b-2-03)
+    expect(within(dialog).queryByText('잠시 뒤 다시 눌러 주세요.')).toBeNull()
     fireEvent.click(within(dialog).getByRole('button', { name: '끊기' }))
     await within(ttPanel()).findByRole('button', { name: '틱톡 잇기' })
     expect(unlinks).toEqual([expect.objectContaining({ platform: 'TIKTOK' })])
     expect(screen.queryByRole('button', { name: TIKTOK_PASTE_ALERT })).toBeNull()
+  })
+
+  it('저절로 다시 붙음(CONNECTED + missed): 알림 줄·주 단추 없이 칸에 경고 문장만 (SA-N2b-2-006·TE-N2b-2-004)', async () => {
+    ttLink = ttLinked({ missed: true, missedMessage: '끊긴 동안의 틱톡 댓글은 받지 못했을 수 있어요. 틱톡 앱에서 확인해 주세요.' })
+    await openConsole()
+    expect(within(ttPanel()).getByText('끊긴 동안의 틱톡 댓글은 받지 못했을 수 있어요. 틱톡 앱에서 확인해 주세요.')).toBeDefined()
+    expect(screen.queryByRole('button', { name: TIKTOK_PASTE_ALERT })).toBeNull()
+    expect(within(ttPanel()).getByRole('button', { name: '댓글 붙여넣기' }).className).not.toContain('button-primary')
+  })
+
+  it('늦게 도착한 잇기 응답은 그사이 SSE로 온 새 상태를 덮지 않는다 — 서버 상태를 다시 받는다 (TE-N2b-2-003)', async () => {
+    tiktok = tiktokSettings({ consent: consentOn, tiktokId: 'myshop' })
+    let release: (() => void) | undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    server.on('POST', /^\/api\/broadcasts\/b1\/live\/link$/, async () => {
+      await held
+      return { body: { link: ttLinked({ state: 'CONNECTING', message: '틱톡에 연결하는 중이에요.' }) } }
+    })
+    await openConsole()
+    fireEvent.click(await within(ttPanel()).findByRole('button', { name: '틱톡 잇기' }))
+    ttLink = ttLinked()
+    act(() => FakeEventSource.last.emit('tiktok', { kind: 'LINK', broadcast: 'b1', link: ttLinked() }))
+    expect(within(ttPanel()).getByText('틱톡 댓글을 받고 있어요.')).toBeDefined()
+    await act(async () => {
+      release?.()
+      await held
+    })
+    await waitFor(() => expect(server.calls.filter((call) => call.method === 'GET' && call.path === '/api/broadcasts/b1/tiktok').length).toBeGreaterThan(1))
+    await waitFor(() => expect(within(ttPanel()).getByText('틱톡 댓글을 받고 있어요.')).toBeDefined())
+    expect(within(ttPanel()).queryByText('틱톡에 연결하는 중이에요.')).toBeNull()
   })
 
   it('끝난 방송: 잇기·다시 연결 없음', async () => {
@@ -547,12 +605,17 @@ describe('콘솔 — 인스타그램 칸 (AC-63)', () => {
     expect(await within(igPanel()).findByText('받은 댓글 12개')).toBeDefined()
     expect(within(igPanel()).getByText('늦게 받은 댓글 2개')).toBeDefined()
     expect(within(igPanel()).getByText('인스타그램 라이브가 바뀌어 방송을 새 라이브에 다시 이었어요.')).toBeDefined()
-    // 알림은 고정 영역에 문장 그대로, 닫을 수 있다
+    // 알림은 알림 띠 맨 앞에 문장 그대로(누르면 칸의 알림 목록으로), 칸에서 닫을 수 있다 — 고정 영역에 줄을 더하지 않는다 (TE-N2b-2-001)
     act(() => FakeEventSource.last.emit('instagram', { kind: 'NOTICE', code: 'UNLINKED_COMMENTS', message: '이어지지 않은 인스타그램 라이브에서 댓글 4개가 왔어요.', liveId: 'x', count: 4 }))
-    const close = screen.getByRole('button', { name: '인스타그램 알림 닫기' })
+    const strip = screen.getByRole('region', { name: '알림' })
+    fireEvent.click(within(strip).getByRole('button', { name: '이어지지 않은 인스타그램 라이브에서 댓글 4개가 왔어요.' }))
+    expect(document.activeElement).toBe(within(igPanel()).getByRole('list', { name: '인스타그램 알림' }))
+    expect(document.querySelector('.platform-alerts')).toBeNull()
+    const close = within(igPanel()).getByRole('button', { name: '인스타그램 알림 닫기' })
     expect(close.parentElement?.textContent).toContain('이어지지 않은 인스타그램 라이브에서 댓글 4개가 왔어요.')
     fireEvent.click(close)
     expect(screen.queryByRole('button', { name: '인스타그램 알림 닫기' })).toBeNull()
+    expect(within(strip).queryByRole('button', { name: '이어지지 않은 인스타그램 라이브에서 댓글 4개가 왔어요.' })).toBeNull()
     // DM 알림 → 다시 센다
     dmRows = [...dmRows, { id: 4, broadcast: 'b1', status: 'FAILED', reason: 'EXPIRED' }]
     act(() => FakeEventSource.last.emit('instagram', { kind: 'DM', date: DATE, rows: [] }))
@@ -567,6 +630,31 @@ describe('콘솔 — 인스타그램 칸 (AC-63)', () => {
       ['link', 'INSTAGRAM', '1790000001'],
       ['unlink', 'INSTAGRAM', undefined],
     ])
+  })
+})
+
+describe('콘솔 — 인스타그램 늦은 응답 (TE-N2b-2-003)', () => {
+  it('기다리기 응답보다 SSE가 먼저 오면 응답을 버리고 서버 상태를 다시 받는다', async () => {
+    let release: (() => void) | undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    server.on('POST', /^\/api\/broadcasts\/b1\/live\/wait$/, async () => {
+      await held
+      return { body: { link: { ...igLinked(), state: 'WAITING', liveId: null, collection: { ...igLinked().collection!, state: 'WAITING', message: '인스타그램 라이브를 기다리는 중이에요.' } } } }
+    })
+    await openConsole()
+    fireEvent.click(await within(igPanel()).findByRole('button', { name: '인스타그램 기다리기' }))
+    igLink = igLinked()
+    act(() => FakeEventSource.last.emit('instagram', { kind: 'LINK', broadcast: 'b1', link: igLinked() }))
+    expect(within(igPanel()).getByText('댓글을 받는 중')).toBeDefined()
+    await act(async () => {
+      release?.()
+      await held
+    })
+    await waitFor(() => expect(server.calls.filter((call) => call.method === 'GET' && call.path === '/api/broadcasts/b1/live').length).toBeGreaterThan(1))
+    await waitFor(() => expect(within(igPanel()).getByText('댓글을 받는 중')).toBeDefined())
+    expect(within(igPanel()).queryByText('인스타그램 라이브를 기다리는 중이에요.')).toBeNull()
   })
 })
 
@@ -649,6 +737,44 @@ describe('붙여넣기 창 (AC-64)', () => {
     expect(new Set(inserts.map((body) => body.requestId)).size).toBe(1)
     expect(inserts[0]?.text).toBe('철수: 15\n철수: 16')
     expect(previews).toEqual(['철수: 15\n철수: 16'])
+  })
+
+  it('키보드: 미리 보기 뒤 포커스는 "찜 N개 넣기"(닫기로 빠지지 않는다), Ctrl+Enter로 미리 보기·넣기, 닫았다 열어도 글이 남는다 (UX-N2b-2-01)', async () => {
+    const inserts: unknown[] = []
+    server
+      .on('POST', /^\/api\/broadcasts\/b1\/paste\/preview$/, () => ({ body: plan }))
+      .on('POST', /^\/api\/broadcasts\/b1\/paste$/, (call) => {
+        inserts.push(call.body)
+        return { body: { ...plan, added: 3 } }
+      })
+    const done = vi.fn()
+    let draft = ''
+    const view = render(<PasteDialog broadcastId="b1" draft={draft} onDraftChange={(text) => (draft = text)} onClose={() => {}} onDone={done} />)
+    let dialog = screen.getByRole('dialog', { name: '댓글 붙여넣기' })
+    fireEvent.change(within(dialog).getByLabelText('붙여 넣을 댓글'), { target: { value: '철수: 15' } })
+    const previewButton = within(dialog).getByRole('button', { name: '미리 보기' }) as HTMLButtonElement
+    fireEvent.click(previewButton)
+    // 보는 동안 잠그지 않고 aria-busy (포커스가 창 밖으로 빠지지 않게)
+    expect(previewButton.disabled).toBe(false)
+    expect(previewButton.getAttribute('aria-busy')).toBe('true')
+    await waitFor(() => expect(document.activeElement?.textContent).toBe('찜 3개 넣기'))
+    // 닫았다 다시 열어도 글이 남는다
+    view.unmount()
+    expect(draft).toBe('철수: 15')
+    render(<PasteDialog broadcastId="b1" draft={draft} onDraftChange={(text) => (draft = text)} onClose={() => {}} onDone={done} />)
+    dialog = screen.getByRole('dialog', { name: '댓글 붙여넣기' })
+    const area = within(dialog).getByLabelText('붙여 넣을 댓글') as HTMLTextAreaElement
+    expect(area.value).toBe('철수: 15')
+    // Ctrl+Enter: 미리 보기 → 넣기
+    fireEvent.keyDown(area, { key: 'Enter', ctrlKey: true })
+    await within(dialog).findByRole('button', { name: '찜 3개 넣기' })
+    await waitFor(() => expect((within(dialog).getByRole('button', { name: '찜 3개 넣기' }) as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.keyDown(area, { key: 'Enter', metaKey: true })
+    await waitFor(() => expect(done).toHaveBeenCalledWith('찜 3개를 넣었어요.'))
+    expect(inserts).toHaveLength(1)
+    // 그냥 Enter는 줄 바꿈 (보내지 않는다)
+    fireEvent.keyDown(area, { key: 'Enter' })
+    expect(inserts).toHaveLength(1)
   })
 
   it('전체 거절·넣을 찜 없음은 서버 문장', async () => {

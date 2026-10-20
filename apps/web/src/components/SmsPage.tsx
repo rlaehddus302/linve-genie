@@ -73,6 +73,8 @@ export function SmsPage({ navigate, assistant = false }: { readonly navigate: Na
   // 댓글 붙여넣기 (틱톡 등 — 번호마다 문자찜, N2b-2 AC-N2b-2-64)
   const [pasting, setPasting] = useState(false)
   const [pasteNote, setPasteNote] = useState<string | null>(null)
+  // 붙여 넣던 글은 창을 닫아도 그 방송에 남는다 (넣기를 마치면 비운다 — UX-N2b-2-01)
+  const [pasteDraft, setPasteDraft] = useState<{ readonly broadcast: string; readonly text: string } | null>(null)
 
   const load = useCallback(async (first: boolean) => {
     setListError(null)
@@ -138,8 +140,11 @@ export function SmsPage({ navigate, assistant = false }: { readonly navigate: Na
       {pasting && selected !== null ? (
         <PasteDialog
           broadcastId={selected}
+          draft={pasteDraft?.broadcast === selected ? pasteDraft.text : ''}
+          onDraftChange={(text) => setPasteDraft({ broadcast: selected, text })}
           onClose={() => setPasting(false)}
           onDone={(message) => {
+            setPasteDraft(null)
             setPasting(false)
             setPasteNote(message)
           }}

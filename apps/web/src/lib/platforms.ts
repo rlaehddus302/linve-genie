@@ -70,10 +70,16 @@ export function tiktokReconnectable(collection: TikTokCollection | null): boolea
   return collection !== null && ['RETRYING', 'STOPPED', 'ENDED', 'OFF'].includes(collection.state)
 }
 
-/** 댓글이 들어오지 않는 상태 — "댓글 붙여넣기"가 주 단추, 알림 띠 한 줄 (AC-N2b-2-62) */
+/**
+ * 댓글이 들어오지 않는 상태 — "댓글 붙여넣기"가 주 단추, 알림 띠 한 줄 (AC-N2b-2-62).
+ * `missed`(끊긴 동안 받지 못했을 수 있음)는 지금 댓글을 받고 있지 않을 때만 센다: 저절로 다시 붙어 `CONNECTED`가 되면
+ * 댓글이 다시 들어오므로 "들어오지 않아요. 붙여 넣어 주세요"를 띄우지 않는다 — 그 말대로 이미 들어온 댓글을 붙여 넣으면
+ * 같은 시청자가 틱톡·문자 두 구매자로 찜한다(SA-N2b-2-006·TE-N2b-2-004·UX-N2b-2-02, 스펙 확인 요청은 dev-notes(화면)).
+ * 그때 칸에는 서버의 `missedMessage`("끊긴 동안의 틱톡 댓글은 받지 못했을 수 있어요. 틱톡 앱에서 확인해 주세요.")가 경고로 남는다.
+ */
 export function tiktokNeedsPaste(collection: TikTokCollection | null): boolean {
   if (collection === null || collection.state === 'FINISHED') return false
-  if (collection.missed) return true
+  if (collection.missed && collection.state !== 'CONNECTED') return true
   if (collection.state === 'STOPPED' || collection.state === 'OFF') return true
   return collection.state === 'RETRYING' && (collection.reason === 'BLOCKED' || collection.reason === 'SIGN_FAILED')
 }
@@ -116,9 +122,15 @@ export function instagramCallbackSucceeded(code: string): boolean {
   return code === 'CONNECTED' || code === 'CONSENT_ON'
 }
 
-/** 그 회차의 보내지 못한 감사 DM 수 (FAILED — 이유 무엇이든, AC-N2b-2-63) */
-export function failedDmCount(rows: readonly Pick<InstagramDmRow, 'broadcast' | 'status'>[], broadcast: string): number {
-  return rows.filter((row) => row.broadcast === broadcast && row.status === 'FAILED').length
+/**
+ * 판매자가 할 일이 없는 실패 — 세지 않는다 (SPEC YT-06 화면 "동의하지 않음·방송을 잇지 않음은 세지 않는다", D-I3-05):
+ * 자동 DM에 동의하기 전의 감사(`NO_CONSENT`)·이어진 라이브가 없음(`NO_LINK`).
+ */
+const DM_NOT_COUNTED: ReadonlySet<string> = new Set(['NO_CONSENT', 'NO_LINK'])
+
+/** 그 회차의 보내지 못한 감사 DM 수 (AC-N2b-2-63: `FAILED`의 `GAVE_UP`·`EXPIRED`·`UNCONFIRMED`·`LIVE_ENDED` 등 — 동의하지 않음·잇지 않음은 빼고) */
+export function failedDmCount(rows: readonly Pick<InstagramDmRow, 'broadcast' | 'status' | 'reason'>[], broadcast: string): number {
+  return rows.filter((row) => row.broadcast === broadcast && row.status === 'FAILED' && !(row.reason !== null && DM_NOT_COUNTED.has(row.reason))).length
 }
 
 export function failedDmMessage(count: number): string {

@@ -1687,6 +1687,11 @@ html:has(.sms-submit-bar) {
     max-height: none;
   }
 
+  /* 띠 맨 앞의 긴 문장(플랫폼 줄)에 밀려 "알림 N 펼치기"가 여러 줄로 눌리지 않게 */
+  .alert-bar .alert-toggle {
+    flex: none;
+  }
+
   .undo-item {
     padding: 0.125rem 0.5rem;
     gap: 0.25rem 0.5rem;
@@ -1933,17 +1938,28 @@ html:has(.sms-submit-bar) {
   margin: 0;
 }
 
-.platform-alerts {
-  min-width: 0;
+/* 알림 띠 맨 앞의 플랫폼 줄 (틱톡 알림 줄·인스타그램 알림·붙여넣기 결과) — 고정 영역에 줄을 더하지 않는다(UX-04 35%) */
+.alert-lead-button {
+  max-inline-size: 100%;
+  text-align: start;
 }
 
-.platform-alert-line {
-  display: block;
-  inline-size: 100%;
+.alert-lead-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.alert-lead-note {
+  margin: 0;
   min-height: 2.75rem;
-  font-size: 1rem;
-  text-align: start;
-  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0 0.75rem;
+  border: 2px solid #146c2e;
+  border-radius: 0.5rem;
+  background-color: #e6f4ea;
+  color: #0d3d1b;
+  font-weight: 700;
 }
 
 .platform-notice {
@@ -1953,6 +1969,36 @@ html:has(.sms-submit-bar) {
   align-items: center;
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+/* 휴대폰: 접힌 띠 한 줄에 들어가게 긴 문장은 말줄임(전문은 단추 이름·"펼치기"·플랫폼 칸) */
+@media (max-width: 47.99rem) {
+  .alert-lead {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-inline-size: 100%;
+  }
+
+  .alert-bar:not(.alert-bar-open) .alert-lead-button {
+    inline-size: 100%;
+    justify-content: flex-start;
+  }
+
+  /* 한 줄로 자르고 말줄임 (줄바꿈 금지 대신 줄 수 제한 — 375px 가로 넘침 없음) */
+  .alert-bar:not(.alert-bar-open) .alert-lead-text,
+  .alert-bar:not(.alert-bar-open) .alert-lead-note {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+    overflow: hidden;
+  }
+
+  .alert-bar:not(.alert-bar-open) .alert-lead-note {
+    line-height: 2.5rem;
+    min-height: 0;
+    max-block-size: 2.75rem;
+  }
 }
 
 .tag-platform {
