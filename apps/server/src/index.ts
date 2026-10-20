@@ -268,3 +268,5 @@ export {
   type UsageItem,
 } from './billing/service.ts'
 export { WEBHOOK_PATH } from './billing/api.ts'
+export { checkBillingScope, type BillingScope } from './billing/check.ts'
+export { STALE_PENDING_MS, formatOperatorLists, grantForLogin, operatorLists, type DocumentToHandle, type GrantCommandResult, type OperatorLists } from './billing/operator.ts'

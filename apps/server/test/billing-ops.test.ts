@@ -152,6 +152,8 @@ describe('AC-N5-12 운영자 명령', () => {
     expect(await give('DAYS', 3, '기존 판매자 보상')).toMatchObject({ ok: true, sellerId: seller.sellerId, kind: 'DAYS', quantity: 3 })
     expect(await give('DAYS', 3, '기존 판매자 보상')).toMatchObject({ ok: true })
     expect((await status(world, seller)).balances).toMatchObject({ DAYS: 6 })
+    // 최근 것 먼저 — 부여 시각이 같으면 ID 순이라 시각을 띄운다
+    world.clock.advance(1000)
     expect(await give('FLAT_30D', undefined, '시험')).toMatchObject({ ok: true, quantity: null })
     expect(await give('FLAT_30D', 1, '시험')).toEqual({ ok: false, message: '정액제에는 양을 적지 않아요.' })
     expect(await give('DAYS', 0, '시험')).toMatchObject({ ok: false })
