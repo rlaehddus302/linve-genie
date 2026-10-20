@@ -1,4 +1,5 @@
-// 앱 (AC-S05-01·02, AC-S06-01, AC-S06b-42·43): 로그인 확인 → 메뉴(방송·문자찜 입력·구매자·정산)와 그 화면.
+// 앱 (AC-S05-01·02, AC-S06-01, AC-S06b-42·43, I2 AC-I2-02·35): 로그인 확인 → 메뉴(방송·문자찜 입력·구매자·정산·포장·설정)와 그 화면.
+// 설정에서 가게 이름을 저장하면 화면 위 가게 이름이 바로 바뀐다.
 // 쓰는 중에 세션이 끝나면(어떤 API든 401) 로그인 화면으로 가고, 다시 로그인하면 보던 화면(주소·검색값 그대로)으로 돌아간다.
 // 그때 화면이 닫히며 5초 대기 중이던 방송자 조치는 보내지 않는다(D-083).
 // 5초 대기 중인 조치가 있으면 떠나기 전에 묻는다(AC-S06-01): 메뉴·링크·같은 화면 안의 이동, 브라우저 뒤로·앞으로(앱 창), 새로고침·탭 닫기(브라우저 확인).
@@ -16,6 +17,8 @@ import { ErrorNote } from './components/ErrorNote.tsx'
 import { HomePage } from './components/HomePage.tsx'
 import { LoginPage } from './components/LoginPage.tsx'
 import { Modal } from './components/Modal.tsx'
+import { PackingPage } from './components/PackingPage.tsx'
+import { SettingsPage } from './components/SettingsPage.tsx'
 import { SettlementsPage } from './components/SettlementsPage.tsx'
 import { SmsPage } from './components/SmsPage.tsx'
 import { TopBar } from './components/TopBar.tsx'
@@ -215,7 +218,7 @@ export function App() {
     <LeaveGuardContext.Provider value={register}>
       <TopBar shopName={shopName} onLogout={() => void logout()} route={route} navigate={navigate} />
       {logoutError !== null ? <ErrorNote error={logoutError} /> : null}
-      <Screen route={route} navigate={navigate} />
+      <Screen route={route} navigate={navigate} onShopName={(name) => setSession((current) => (current.state === 'in' ? { state: 'in', me: { ...current.me, seller: { ...current.me.seller, name } } } : current))} />
       {leaving !== null ? (
         <Modal
           title="다른 화면으로 갈까요?"
@@ -233,7 +236,7 @@ export function App() {
   )
 }
 
-function Screen({ route, navigate }: { readonly route: Route; readonly navigate: Navigate }) {
+function Screen({ route, navigate, onShopName }: { readonly route: Route; readonly navigate: Navigate; readonly onShopName: (name: string) => void }) {
   switch (route.name) {
     case 'console':
       return <ConsolePage key={route.id} broadcastId={route.id} navigate={navigate} />
@@ -243,6 +246,10 @@ function Screen({ route, navigate }: { readonly route: Route; readonly navigate:
       return <BuyersPage route={route} navigate={navigate} />
     case 'settlements':
       return <SettlementsPage route={route} navigate={navigate} />
+    case 'packing':
+      return <PackingPage route={route} navigate={navigate} />
+    case 'settings':
+      return <SettingsPage onShopName={onShopName} />
     case 'home':
       return <HomePage navigate={navigate} />
   }

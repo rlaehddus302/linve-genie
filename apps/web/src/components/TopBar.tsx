@@ -1,4 +1,4 @@
-// 화면 위 줄 (AC-S05-01, AC-S06-01·51·52): 가게 이름, 메뉴("방송"·"문자찜 입력"·"구매자"·"정산" — 지금 화면은 aria-current="page"),
+// 화면 위 줄 (AC-S05-01, AC-S06-01·51·52, I2 AC-I2-02·35): 가게 이름, 메뉴("방송"·"문자찜 입력"·"구매자"·"정산"·"포장"·"설정" — 지금 화면은 aria-current="page"),
 // 앱 설치 안내, 로그아웃, 새 버전 안내. 메뉴는 PC에서 위 줄에, 휴대폰에서는 아래 고정 막대로 보인다(같은 메뉴, CSS가 자리만 바꾼다).
 import type { MouseEvent } from 'react'
 import { useInstallHint, useUpdateNotice } from '../pwa/pwa.ts'
@@ -17,14 +17,18 @@ interface MenuItem {
   readonly to: Route
 }
 
-/** 구매자·정산 사이를 오가면 고른 날짜·리허설을 이어 간다 */
+/** 구매자·정산 사이를 오가면 고른 날짜·리허설을 이어 간다. 포장은 실제 범위만이라 실제 날짜를 보고 있었을 때만 그 날짜로 */
 function menuItems(route: Route): readonly MenuItem[] {
-  const scope = route.name === 'buyers' || route.name === 'settlements' ? { ...(route.date === undefined ? {} : { date: route.date }), rehearsal: route.rehearsal } : { rehearsal: false }
+  const scoped = route.name === 'buyers' || route.name === 'settlements' ? route : null
+  const scope = scoped === null ? { rehearsal: false } : { ...(scoped.date === undefined ? {} : { date: scoped.date }), rehearsal: scoped.rehearsal }
+  const realDate = scoped !== null && !scoped.rehearsal && scoped.date !== undefined ? scoped.date : route.name === 'packing' ? route.date : undefined
   return [
     { key: 'broadcasts', label: '방송', to: { name: 'home' } },
     { key: 'sms', label: '문자찜 입력', to: { name: 'sms' } },
     { key: 'buyers', label: '구매자', to: { name: 'buyers', ...scope } },
     { key: 'settlements', label: '정산', to: { name: 'settlements', ...scope } },
+    { key: 'packing', label: '포장', to: { name: 'packing', ...(realDate === undefined ? {} : { date: realDate }) } },
+    { key: 'settings', label: '설정', to: { name: 'settings' } },
   ]
 }
 
