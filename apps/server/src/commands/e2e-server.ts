@@ -1,5 +1,5 @@
 // E2E용 서버 기동 명령 (AC-S05-91): pnpm --filter @livejjim/server e2e [--port 3100 (0이면 빈 포트)] [--origin http://localhost:5173] [--fill yes]
-//   [--fill-products 500] [--fill-chats 10000] [--host-delay-ms 5000] [--chat-speed 1] [--test-printer yes|no] [--youtube fake] [--youtube-port 4100] [--instagram yes|no]
+//   [--fill-products 500] [--fill-chats 10000] [--host-delay-ms 5000] [--chat-speed 1] [--test-printer yes|no] [--youtube fake] [--youtube-port 4100] [--instagram yes|no] [--tiktok yes|no]
 // - 메모리 PGlite + 마이그레이션, 그 자리에서 만든 시험용 마스터 키, 시험용 판매자 계정(apps/server/e2e/account.json). 끄면 데이터는 사라진다.
 // - --fill yes: 상품 500·채팅 1만 건을 채운 실제 범위(오늘, KST) — 화면 반영 1초 시험(AC-S05-64)용. 채우기가 끝난 뒤에 포트를 연다.
 // - --host-delay-ms: 화면이 방송자 조치를 보내기 전에 기다리는 시간(GET /api/client-config, 운영 값 5000). E2E에서만 줄인다.
@@ -11,6 +11,7 @@
 //   --youtube-quota-budget n(유튜브 할당량 판매자 예산·프로젝트 한도) · --outbox-fast yes(발송함 시간 줄이기) · --web-dir <폴더>(서버가 화면을 같은 출처로 함께 낸다).
 //   시험용 조작 경로 POST /_e2e/sellers · /_e2e/dates · /_e2e/seal (이 서버 주소, JSON).
 // - --instagram yes: 가짜 메타 서버를 함께 띄우고 인스타그램 연동을 그 주소로 둔다(N2 — 조작 주소 /_fake/*, harness/sprints/N2/dev-notes.md "화면에게"). 기본 no.
+// - --tiktok yes: 가짜 웹캐스트로 틱톡 라이브 베타를 켠다(운영자 스위치 켬, N2b-2 — 조작 주소 /_e2e/tiktok/*, harness/sprints/N2b-2/dev-notes.md "화면에게"). 기본 no.
 // - 환경변수 PORT·LIVEJJIM_APP_ORIGIN도 읽는다(인자가 우선). .env는 읽지 않는다(실제 비밀값이 필요 없다).
 // - 127.0.0.1에서만 연다(모든 인터페이스가 아니다, AC-S06-73). 헬스체크·프록시는 http://127.0.0.1:<포트>로.
 // 포트를 연 뒤 "E2E 서버를 시작했어요. http://127.0.0.1:<포트> · …" 한 줄을 표준 출력에 쓴다. 비밀번호·마스터 키는 출력하지 않는다.
@@ -36,6 +37,7 @@ const args = parseArgs(process.argv.slice(2), [
   'outbox-fast',
   'web-dir',
   'instagram',
+  'tiktok',
 ])
 if (!args.ok) {
   complain(args.message)
@@ -66,6 +68,7 @@ const quotaBudget = intArg('youtube-quota-budget', 1, 1_000_000)
 const outboxFast = values.get('outbox-fast')
 const webDir = values.get('web-dir')
 const instagramFlag = values.get('instagram')
+const tiktokFlag = values.get('tiktok')
 
 if (
   portArg === null ||
@@ -80,11 +83,12 @@ if (
   (youtubeFlag !== undefined && youtubeFlag !== 'fake' && youtubeFlag !== 'no') ||
   (outboxFast !== undefined && outboxFast !== 'yes' && outboxFast !== 'no') ||
   (webDir !== undefined && webDirProblem(webDir) !== null) ||
-  (instagramFlag !== undefined && instagramFlag !== 'yes' && instagramFlag !== 'no')
+  (instagramFlag !== undefined && instagramFlag !== 'yes' && instagramFlag !== 'no') ||
+  (tiktokFlag !== undefined && tiktokFlag !== 'yes' && tiktokFlag !== 'no')
 ) {
   complain(
     '인자를 확인해 주세요. --port 0~65535, --fill yes|no, --fill-products 1~999, --fill-chats 0~100000, --host-delay-ms 0~5000, --chat-speed 1~1000, --test-printer yes|no, ' +
-      '--youtube fake|no, --youtube-port 0~65535, --youtube-quota-budget 1~1000000, --outbox-fast yes|no, --web-dir <index.html이 있는 화면 빌드 폴더>, --instagram yes|no',
+      '--youtube fake|no, --youtube-port 0~65535, --youtube-quota-budget 1~1000000, --outbox-fast yes|no, --web-dir <index.html이 있는 화면 빌드 폴더>, --instagram yes|no, --tiktok yes|no',
   )
   process.exit(2)
 }
@@ -107,6 +111,7 @@ const e2e = await startE2eServer({
   ...(outboxFast === 'yes' ? { outboxFast: true } : {}),
   ...(webDir === undefined ? {} : { webDir }),
   instagram: instagramFlag === 'yes',
+  tiktok: tiktokFlag === 'yes',
 })
 
 // 127.0.0.1에서만 연다 (AC-S06-73, D-096 — 같은 네트워크의 다른 기기가 시험 계정·시험 데이터에 닿지 않게)
@@ -114,7 +119,7 @@ try {
   const opened = await e2e.listen(port)
   const filled = e2e.fill === null ? '채우기 없음' : `채운 범위 ${e2e.fill.date} · 상품 ${String(e2e.fill.products)} · 채팅 ${String(e2e.fill.chats)}`
   const youtube = e2e.fakeGoogle === null ? '' : ` · 가짜 유튜브 ${e2e.fakeGoogle.url}`
-  const meta = e2e.fakeMeta === null ? '' : ` · 가짜 메타 ${e2e.fakeMeta.url}`
+  const meta = (e2e.fakeMeta === null ? '' : ` · 가짜 메타 ${e2e.fakeMeta.url}`) + (e2e.fakeWebcast === null ? '' : ' · 가짜 틱톡(/_e2e/tiktok/*)')
   const web = webDir === undefined ? '' : ' · 화면 함께 냄'
   say(
     `E2E 서버를 시작했어요. http://${opened.host}:${String(opened.port)} · 화면 주소 ${origin} · 시험 계정 ${e2e.account.loginId} · ${filled} · ` +
