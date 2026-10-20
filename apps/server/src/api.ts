@@ -564,7 +564,8 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     c.header('X-Receipt-Created-At', String(outcome.value.createdAt))
     return c.json(outcome.value.receipt)
   })
-  for (const kind of ['pdf', 'png'] as const) {
+  // 한 사람 JPG (N4b AC-N4b-01 — PNG와 같은 그림, 같은 인자·같은 오류 답)
+  for (const kind of ['pdf', 'png', 'jpg'] as const) {
     api.get(`/days/:date/receipt.${kind}`, async (c) => {
       const scope = scopeParams(c)
       if (!scope.ok) return scope.response
@@ -577,6 +578,13 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     const scope = scopeParams(c)
     if (!scope.ok) return scope.response
     return fileOf(await closing.batchPdf(sellerOf(c), scope.date, scope.rehearsal, c.req.raw.signal))
+  })
+
+  // 전원 이미지 묶음 ZIP (N4b AC-N4b-02 — 리허설 범위도 된다)
+  api.get('/days/:date/receipts.zip', async (c) => {
+    const scope = scopeParams(c)
+    if (!scope.ok) return scope.response
+    return fileOf(await closing.batchJpgZip(sellerOf(c), scope.date, scope.rehearsal, c.req.raw.signal))
   })
 
   // 판매대장 (AC-I2-20): ?from=&to=&b=<방송 ID>&b=… (b가 없으면 기간 안 모든 실제 방송)
