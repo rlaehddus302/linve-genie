@@ -12,7 +12,7 @@
 // - 가짜 유튜브 묶음(AC-I3-93): 가짜 구글·유튜브 서버가 127.0.0.1:<가짜 유튜브 포트>에 함께 뜬다(조작은 POST /_fake/*, 상태 GET /_fake/state —
 //   harness/sprints/Y1/dev-notes.md "화면(I3)에게" 8). 시험은 STACKS의 youtube 포트를 쓴다(fakeYoutubeUrl). 실제 구글 주소로는 나가지 않는다.
 // - 서버가 화면을 내는 묶음(AC-I3-70·71): 화면 서버 없이 브라우저가 서버 주소를 바로 연다. 띄우기 전에 화면을 운영용으로 빌드한다
-//   (test-results/e2e-served-web). 서버 --origin = 그 서버 주소.
+//   (node_modules/.cache/livejjim-e2e/served-web — 린트·git이 보지 않는 곳). 서버 --origin = 그 서버 주소.
 // - E2E 서버의 시험용 조작 POST /_e2e/sellers·/_e2e/dates·/_e2e/seal은 모든 묶음의 서버 주소에서 쓸 수 있다(I3 dev-notes "화면에게" 8).
 // - 리허설 생성기 시험 속도 E2E_CHAT_SPEED(기본 20 — 초당 50 설정이면 초당 1,000).
 // - 포트가 겹치면 E2E_PORT_OFFSET(예: 100)으로 모두 옮긴다.
@@ -51,8 +51,8 @@ export interface Stack {
   readonly served?: boolean
 }
 
-/** 서버가 화면을 내는 묶음의 화면 빌드 폴더 (실행마다 다시 빌드한다) */
-export const SERVED_WEB_DIR = fileURLToPath(new URL('../../test-results/e2e-served-web', import.meta.url))
+/** 서버가 화면을 내는 묶음의 화면 빌드 폴더 (실행마다 다시 빌드한다 — 빌드 결과물이 린트 범위에 들어가지 않게 node_modules/.cache 아래) */
+export const SERVED_WEB_DIR = fileURLToPath(new URL('../../node_modules/.cache/livejjim-e2e/served-web', import.meta.url))
 /** 작은 할당량 묶음의 예산 (게시 20 · 목록 조회 5 · 댓글 50 단위) */
 export const E2E_QUOTA_BUDGET = 400
 

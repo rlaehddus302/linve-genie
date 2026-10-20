@@ -56,6 +56,8 @@ describe('E2E 기동 (코드 검사)', () => {
     expect(fakeYoutubeUrl('chromium')).toBeNull()
     const base = STACKS.find((item) => item.name === 'chromium')
     for (const tag of ['@youtube', '@quota', '@served', '@prod-delay', '@fill']) expect(base?.grepInvert?.test(`시험 ${tag}`)).toBe(true)
+    // 빌드 결과물은 린트·git 범위 밖 (node_modules/.cache)
+    expect(SERVED_WEB_DIR.split(/[\\/]/).slice(-4)).toEqual(['node_modules', '.cache', 'livejjim-e2e', 'served-web'])
     const ports = STACKS.flatMap((stack) => [...new Set([stack.web, stack.api, ...(stack.youtube === undefined ? [] : [stack.youtube])])])
     expect(new Set(ports).size).toBe(ports.length)
   })

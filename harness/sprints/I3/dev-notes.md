@@ -165,7 +165,7 @@ Y1 계약(`harness/sprints/Y1/dev-notes.md` "화면(I3)에게" 1~8)은 그대로
 | chromium | 5173 | 3100 | — | 유튜브 준비 안 됨(503) | 태그 없음 |
 | chromium-youtube | 5176 | 3103 | 4100 | `--youtube fake --outbox-fast yes` | `@youtube` |
 | chromium-quota | 5177 | 3104 | 4101 | 위 + `--youtube-quota-budget 400` | `@quota` |
-| chromium-served | 3105 | 3105 | — | `--web-dir test-results/e2e-served-web`(띄우기 전에 운영용 빌드) | `@served` |
+| chromium-served | 3105 | 3105 | — | `--web-dir node_modules/.cache/livejjim-e2e/served-web`(띄우기 전에 운영용 빌드 — 린트·git 범위 밖) | `@served` |
 
 - 가짜 유튜브 주소: `import { fakeYoutubeUrl } from '../../../apps/web/playwright.config.ts'` → `fakeYoutubeUrl(test.info().project.name)` (= `http://127.0.0.1:<4100+offset>`). 조작은 Y1 dev-notes "화면(I3)에게" 8 (`/_fake/channels`·`/_fake/approval`·`/_fake/broadcasts`·`/_fake/messages`·`/_fake/fail`·`/_fake/revoke-all`·`/_fake/drop-streams`·`GET /_fake/state`). 가짜 승인은 화면 없이 바로 돌려보낸다(302) — `/_fake/approval { account, channel }`을 먼저 적어 둔다.
 - E2E 서버 조작(모든 묶음, 그 묶음의 서버 주소 `http://127.0.0.1:<api>`): `POST /_e2e/sellers {}` → 새 판매자(마법사 "처음"·방송 없음), `POST /_e2e/dates { loginId, kind: 'sealed'|'sealSoon'|'youtube' }`, `POST /_e2e/seal { loginId, date }` (서버 dev-notes "화면에게" 8).
