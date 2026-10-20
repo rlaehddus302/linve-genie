@@ -6,7 +6,7 @@
 # - 스프린트가 항목을 구현하면 spec-keeper가 그 스프린트 시작 때 지운다. 이미 통과하던 항목을 다시 넣으려면 DECISIONS 근거가 필요하다.
 # - 미래 스프린트용으로 새로 추가한 골든은 넣을 수 있다.
 #
-# suites: 파서 suite 이름 (chat / amount / korean-number / quick-input) — 그 suite의 모든 문서·사례
+# suites: 파서 suite 이름 (chat / amount / korean-number / quick-input / voice-extract / product-import) — 그 suite의 모든 문서·사례
 # scenarios: 엔진 시나리오 ID. '*'는 0글자 이상과 맞는다. 어떤 시나리오와도 맞지 않는 항목은 읽기 오류.
 #
 # S02 (D-037): 판정 엔진 범위의 시나리오(01·02·03 전부, G-ENG-050·051·061·062·070, S02 보강 전부)는 모두 뺐다.
@@ -34,6 +34,10 @@
 #      러너가 suite를 아직 모르면 읽기 오류, 추출기가 없으면 미구현(불허)으로 실패한다 — P2 끝에는 모두 통과해야 하므로 넣지 않았다.
 #      G-ENG-201·202(engine/19-p2-documents.yaml — 확인서·판매대장 재료, D-206·D-208)는 새 엔진 규칙이 없어 지금 코어로 통과한다. 넣지 않았다.
 #      허용 목록은 계속 비어 있다 — 남기면 미구현이 통과로 숨는다. (P2는 dev-core가 없다. 러너 연결은 dev-device가 최소로 한다 — D-209.)
-sprint: P2
+# I2 (정산 마무리 — 확인서·판매대장·포장·과거 구매·상품 목록 가져오기·백업): 새 골든 product-import suite(parser/product-import.yaml 21사례 —
+#      상품 목록 가져오기 R-18, D-I2-09)는 I2 범위다. 러너가 suite를 아직 모르면 읽기 오류(이 목록으로 가릴 수 없다), 해석 함수가 없으면
+#      미구현(불허)으로 실패한다 — I2 끝에는 모두 통과해야 하므로 넣지 않았다. 포장·배송 상태는 엔진 이벤트가 아니라서(D-I2-05) 엔진 골든이 없다.
+#      허용 목록은 계속 비어 있다 — 남기면 미구현이 통과로 숨는다. (I2는 dev-core가 없다. 러너 연결은 dev-server가 최소로 한다 — D-I2-09.)
+sprint: I2
 suites: []
 scenarios: []
