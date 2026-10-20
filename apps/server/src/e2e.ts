@@ -247,6 +247,9 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     masterKey,
     appOrigin,
     log: () => {},
+    // E2E는 모든 브라우저 로그인이 한 주소(127.0.0.1 — 화면 서버의 /api 넘기기)에서 온다. 시험 수십 개가 같은 IP 한도(10분 20번)에 걸리지 않게
+    // E2E 기동만 IP 한도를 넓힌다(운영 main은 기본값 — 로그인 제한 동작은 서버 시험 i3-login-limit이 확인한다)
+    loginLimits: { ipMaxAttempts: 1_000_000 },
     ...(fakeGoogle === null
       ? {}
       : {
