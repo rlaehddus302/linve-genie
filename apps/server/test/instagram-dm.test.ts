@@ -4,9 +4,10 @@ import { readFileSync } from 'node:fs'
 import { applyEvent, initEngine, listClaims, listEffects, type EngineEvent, type EngineState } from '@livejjim/core'
 import { afterEach, describe, expect, it } from 'vitest'
 import { DM_LINE_MAX, dmLine, dmText } from '../src/instagram/text.ts'
+import { newThanksRows } from '../src/youtube/outbox-store.ts'
 import { startServer } from './support.ts'
 import { connectedShop, connectInstagram, igWorld, linkLive, liveBroadcast, register, sendComments, SHORT_SEND_TIMEOUT, TEST_TIMEOUTS, type IgWorld, type Shop } from './instagram-support.ts'
-import { addSeller, client, rid, type TestServer } from './support.ts'
+import { MERGED_BODY, RAW_JOIN, addSeller, client, rid, type TestServer } from './support.ts'
 
 let ig: IgWorld | null = null
 const extra: TestServer[] = []
@@ -66,7 +67,7 @@ async function drain(w: IgWorld): Promise<void> {
 }
 
 async function eventTypes(w: TestServer, sellerId: string): Promise<{ type: string; actor: string; body: Record<string, unknown> }[]> {
-  const result = await w.database.pglite?.query<{ type: string; actor: string; body: string }>(`select type, actor, body from events where seller_id = $1 order by scope_id, seq`, [sellerId])
+  const result = await w.database.pglite?.query<{ type: string; actor: string; body: string }>(`select e.type, e.actor, ${MERGED_BODY} as body from events e ${RAW_JOIN} where e.seller_id = $1 order by e.scope_id, e.seq`, [sellerId])
   return (result?.rows ?? []).map((row) => ({ type: row.type, actor: row.actor, body: JSON.parse(row.body) as Record<string, unknown> }))
 }
 
@@ -82,7 +83,7 @@ async function write(w: TestServer, s: Shop, event: Record<string, unknown>): Pr
 
 async function replay(w: TestServer, sellerId: string): Promise<EngineState> {
   const result = await w.database.pglite?.query<{ body: string; failed: boolean }>(
-    `select e.body, e.failed from events e join scopes s on s.id = e.scope_id where e.seller_id = $1 and s.date = '2026-10-19' and s.rehearsal = false order by e.seq`,
+    `select ${MERGED_BODY} as body, e.failed from events e join scopes s on s.id = e.scope_id ${RAW_JOIN} where e.seller_id = $1 and s.date = '2026-10-19' and s.rehearsal = false order by e.seq`,
     [sellerId],
   )
   let state = initEngine({ broadcasts: [], settings: {} })
@@ -114,6 +115,21 @@ describe('AC-N2-40 실행기가 집는 행', () => {
     expect((await rows(w, s)).map((row) => row.comment)).toEqual(['ig:501'])
   })
 
+  it('유튜브 발송함 실행기는 인스타 회차의 감사 행을 집지 않는다 — 인스타가 아닌 회차의 감사 행만 (N2 합치기, D-N2-01)', async () => {
+    const w = await world()
+    const s = await setup(w)
+    const plain = await liveBroadcast(w, s.seller)
+    await register(w, s.seller, plain, 1, '연결 없는 상품', 1000)
+    await write(w, s, { type: 'sms', b: plain, no: 1, received: '12:00' })
+    await comment(w, s, '601', '1', 'buyer.one', '15')
+    const thanks = await w.database.pglite?.query<{ id: number; ig: boolean }>(
+      `select o.id::int as id, exists (select 1 from ig_dm_rows d where d.outbox_id = o.id) as ig from outbox o where o.kind = 'POST_THANKS' and o.rehearsal = false order by o.id`,
+    )
+    expect(thanks?.rows.map((row) => row.ig)).toEqual([false, true])
+    const picked = await newThanksRows(w.database.db)
+    expect(picked.map((row) => row.id)).toEqual(thanks?.rows.filter((row) => !row.ig).map((row) => row.id))
+  })
+
   it('행을 고르는 조회는 rehearsal = false를 조건에 고정하고 바꾸는 매개변수가 없다, 발송함 표의 열은 그대로다', async () => {
     const source = readFileSync(new URL('../src/instagram/store.ts', import.meta.url), 'utf8')
     const start = source.indexOf('export async function dueDmGroups(')
@@ -123,7 +139,43 @@ describe('AC-N2-40 실행기가 집는 행', () => {
     expect(body).not.toMatch(/rehearsal(?!, false\))/)
     const w = await world()
     const columns = await w.database.pglite?.query<{ column_name: string }>(`select column_name from information_schema.columns where table_name = 'outbox' order by ordinal_position`)
-    expect(columns?.rows.map((row) => row.column_name)).toEqual(['id', 'seller_id', 'scope_id', 'effect_id', 'seq', 'kind', 'body', 'created_at', 'rehearsal'])
+    // 합친 뒤(N2 + Y1·I3): 발송함 열은 main의 것(Y1 0004 발송함 상태 열·I3 0005 정리 열) 그대로 — N2는 열을 더하지 않는다(D-N2-01)
+    expect(columns?.rows.map((row) => row.column_name)).toEqual([
+      'id',
+      'seller_id',
+      'scope_id',
+      'effect_id',
+      'seq',
+      'kind',
+      'body',
+      'created_at',
+      'rehearsal',
+      'state',
+      'reason',
+      'target',
+      'broadcast_id',
+      'group_id',
+      'attempts',
+      'next_at',
+      'deadline_at',
+      'post_text',
+      'sent_text',
+      'attempt_at',
+      'confirm_until',
+      'confirm_tries',
+      'remote_id',
+      'posted_at',
+      'reported',
+      'manual',
+      'resend_request_id',
+      'lease_owner',
+      'lease_until',
+      'updated_at',
+      'confirmed_by',
+      'confirm_request_id',
+      'dismissed_at',
+      'dismissed_by',
+    ])
   })
 })
 

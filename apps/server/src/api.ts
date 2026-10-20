@@ -500,8 +500,8 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   if (deps.print !== undefined) registerPrintRoutes(api, deps.print)
 
   // ── 플랫폼 공통 라이브 연결·인스타그램 (N2) ────────────────────────────
-  // 유튜브 잇기는 이 바탕에 없다(Y1) — 플랫폼 능력 조회의 YOUTUBE.ready는 아니오 (합칠 때 Y1 설정 여부로)
-  if (deps.instagram !== undefined) registerLiveRoutes(api, deps.instagram, auth, { youtube: false })
+  // 플랫폼 능력 조회의 YOUTUBE.ready = 유튜브 연동 설정(Y1)이 있는지. 유튜브 잇기 자체는 /api/youtube 경로(Y1)가 맡는다
+  if (deps.instagram !== undefined) registerLiveRoutes(api, deps.instagram, auth, { youtube: deps.youtube !== undefined && deps.youtube !== null })
 
   api.notFound(() => notFound())
   return api

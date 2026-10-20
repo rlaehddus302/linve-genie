@@ -22,6 +22,7 @@ import type { Db } from './db/database.ts'
 import { isPlatform, PLATFORM_MESSAGES, type LiveSource, type Platform } from './platform.ts'
 import type { SellerLocks } from './seller-locks.ts'
 import { findBroadcast } from './store.ts'
+import { activeLink as youtubeLink } from './youtube/store.ts'
 import type { Clock } from './time.ts'
 import type { ScopeWriter } from './writer.ts'
 import {
@@ -264,6 +265,8 @@ export class LiveLinks {
     if (broadcast.endedAt !== null) return fail(409, 'ENDED')
     const open = await latestLink(this.#deps.db, sellerId, broadcastId)
     if (open !== null && open.state !== 'UNLINKED') return fail(409, 'ALREADY_LINKED')
+    // 한 회차 한 플랫폼: 유튜브 방송이 이어져 있어도 막는다 (PLT-01, N2 합치기 — acceptance "합칠 때 맞출 것" 2)
+    if ((await youtubeLink(this.#deps.db, sellerId, broadcastId)) !== null) return fail(409, 'ALREADY_LINKED')
     // 그 회차의 설정 스냅샷 (broadcast.start) — 실제 시각순이면 이을 수 없다 (D-N2-05)
     const state = (await this.#deps.writer.read(sellerId, broadcast.date, false)).state
     if (getBroadcast(state, broadcastId)?.settings['contention.policy'] === 'RECEIVED_TIME') return fail(409, 'RECEIVED_TIME_NOT_ALLOWED')
@@ -316,6 +319,7 @@ export class LiveLinks {
       await tx.execute(sql`select pg_advisory_xact_lock(${lockKey(sellerId)})`)
       const open = await latestLink(tx, sellerId, broadcastId)
       if (open !== null && open.state !== 'UNLINKED') return fail(409, 'ALREADY_LINKED')
+      if ((await youtubeLink(tx, sellerId, broadcastId)) !== null) return fail(409, 'ALREADY_LINKED')
       if (liveId !== null && (await linkedToLive(tx, sellerId, liveId)).length > 0) return fail(409, 'LIVE_TAKEN')
       const connection = await this.#deps.instagram.connection(sellerId, tx)
       if (connection === null) return fail(409, 'NOT_CONNECTED')
