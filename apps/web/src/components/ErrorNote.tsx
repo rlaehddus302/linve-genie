@@ -11,7 +11,8 @@ export interface ErrorNoteProps {
 }
 
 export function ErrorNote({ error, omitFields = [], onRetry, retryLabel = '다시 보내기' }: ErrorNoteProps) {
-  const problems = error.problems.filter((problem) => problem.field === null || !omitFields.includes(problem.field))
+  // 위 문장과 같은 문제 문장은 두 번 보이지 않는다 (예: 합치기·떼어 내기 409 — D-I2-20)
+  const problems = error.problems.filter((problem) => (problem.field === null || !omitFields.includes(problem.field)) && !(problem.message === error.message && problem.hint === undefined))
   return (
     <div className="error-note" role="alert" data-tone="danger">
       <p>{error.message}</p>

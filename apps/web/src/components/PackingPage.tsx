@@ -25,6 +25,7 @@ import {
   changeNotice,
   checklistSpansBroadcasts,
   diffItems,
+  itemIdentity,
   inFilter,
   isChanged,
   nextBuyer,
@@ -345,7 +346,8 @@ function PackingChecklist({ date, entry, name, labelSignature, showBack, onBack,
   const [ask, setAsk] = useState<Ask>(null)
   const command = usePackingCommand(date, entry.buyer, onSent)
   const keys = entry.items.map((item) => item.key)
-  const done = keys.filter((key) => checked.has(key)).length
+  // 체크는 (상품 ID, 상품 키) 쌍에 붙인다 — 같은 번호에 다른 상품이 들어오면 새 품목이라 체크 안 됨 (D-I2-19)
+  const done = entry.items.filter((item) => checked.has(itemIdentity(item))).length
   const allChecked = keys.length > 0 && done === keys.length
   const change: ItemChange = isChanged(entry.status) ? { add: entry.add, remove: entry.remove } : entry.status === '포장 대기' ? diffItems(base, entry.items) : { add: [], remove: [] }
   const changed = change.add.length > 0 || change.remove.length > 0
@@ -438,9 +440,9 @@ function PackingChecklist({ date, entry, name, labelSignature, showBack, onBack,
             {multi ? <h3 className="sub-title">{group.title}</h3> : null}
             <ul className="plain-list stack-tight">
               {group.items.map((item) => (
-                <li key={item.key}>
+                <li key={itemIdentity(item)}>
                   <label className="pack-item">
-                    <input type="checkbox" checked={checked.has(item.key)} onChange={() => toggle(item.key)} />
+                    <input type="checkbox" checked={checked.has(itemIdentity(item))} onChange={() => toggle(itemIdentity(item))} />
                     <span className="pack-no">{String(item.no)}번</span> <span className="pack-name">{item.name.trim() === '' ? '품종 미입력' : item.name}</span>
                   </label>
                 </li>

@@ -232,6 +232,8 @@ export interface PackingItem {
   /** 품종 (빈 품종은 "") */
   readonly name: string
   readonly price: number
+  /** 상품 ID (번호를 바꿔도 그대로 — D-I2-19). 품목은 (상품 ID, 상품 키) 쌍으로 견준다. 없으면 상품 키만 */
+  readonly id?: string
 }
 
 export interface PackingRemoved {
@@ -239,6 +241,10 @@ export interface PackingRemoved {
   readonly broadcast: string
   readonly title: string
   readonly no: number
+  /** 그 상품의 품종 (D-I2-19 — 같은 번호가 "새로 담을 것"에도 있으면 번호 뒤에 붙인다) */
+  readonly name?: string
+  /** 포장 때 상품 ID (이 결정 전 기록은 null) */
+  readonly id?: string | null
 }
 
 /** 포장 목록 한 줄 = 묶음 (GET /api/days/:date/packing) */
@@ -310,7 +316,7 @@ export interface PastView {
 }
 
 /** 상품 목록 가져오기 줄 문제 (R-18) */
-export const IMPORT_ROW_ERRORS = ['CELLS', 'NUMBER_INVALID', 'DUPLICATE', 'EXISTS', 'NAME_PHONE', 'PRICE_MISSING', 'PRICE_INVALID', 'PRICE_TOO_LOW'] as const
+export const IMPORT_ROW_ERRORS = ['CELLS', 'NUMBER_INVALID', 'DUPLICATE', 'EXISTS', 'NAME_CONTROL', 'NAME_PHONE', 'PRICE_MISSING', 'PRICE_INVALID', 'PRICE_TOO_LOW'] as const
 export type ImportRowError = (typeof IMPORT_ROW_ERRORS)[number]
 
 export type ImportPreviewRow =

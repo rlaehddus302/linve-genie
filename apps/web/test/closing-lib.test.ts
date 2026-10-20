@@ -7,7 +7,7 @@ import { ledgerPath } from '../src/components/LedgerDialog.tsx'
 import { accountPreview, backupStopped } from '../src/components/SettingsPage.tsx'
 import { sizeWords } from '../src/lib/files.ts'
 import { kstDateTimeLong } from '../src/lib/kst.ts'
-import { PACKING_TONE, changeNotice, changeWords, checklistSpansBroadcasts, diffItems, inFilter, nextBuyer, packingWords, sameKeys, sortEntries, spansBroadcasts } from '../src/lib/packing.ts'
+import { PACKING_TONE, changeNotice, changeWords, checklistSpansBroadcasts, diffItems, inFilter, itemIdentity, nextBuyer, packingWords, sameKeys, sortEntries, spansBroadcasts } from '../src/lib/packing.ts'
 import { parseRoute, routePath } from '../src/lib/router.ts'
 import { closingSignature, packingLabelSignature } from '../src/lib/use-packing.ts'
 import { chat, dataOf, register } from './engine.ts'
@@ -93,6 +93,41 @@ describe('바뀐 품목 (AC-I2-37)', () => {
     expect(checklistSpansBroadcasts(now, { add: [], remove: [{ key: 'b1/28', broadcast: 'b1', title: '1부', no: 28 }] })).toBe(false)
     // 새로 담을 것이 다른 방송이어도
     expect(checklistSpansBroadcasts(now, { add: [item(7, { key: 'b2/7', broadcast: 'b2', title: '2부' })], remove: [] })).toBe(true)
+  })
+
+  it('같은 번호에 다른 상품(상품 ID가 다름)이면 새로 담을 것·뺄 것 둘 다 — 번호 뒤에 품종 "9번 라울 · 9번 핑크프릴" (D-I2-19)', () => {
+    const before = [item(15, { id: 'p15' }), item(9, { id: 'p9a', name: '핑크프릴' })]
+    const after = [item(15, { id: 'p15' }), item(9, { id: 'p9b', name: '라울' })]
+    expect(itemIdentity(before[1] as PackingItem)).not.toBe(itemIdentity(after[1] as PackingItem))
+    const change = diffItems(before, after)
+    expect(change.add.map((x) => [x.no, x.name])).toEqual([[9, '라울']])
+    expect(change.remove).toEqual([{ key: 'b1/9', broadcast: 'b1', title: '1부', no: 9, name: '핑크프릴' }])
+    expect(changeNotice(change, false, false)).toBe('구매 내역이 바뀌었어요 — 새로 담을 것: 9번 라울 · 뺄 것: 9번 핑크프릴')
+    // 같은 상품 ID·같은 키면 바뀐 것이 없다
+    expect(diffItems(before, [...before])).toEqual({ add: [], remove: [] })
+  })
+
+  it('서버가 보낸 바뀐 품목(포장 다시 확인): 같은 번호가 두 쪽에 다 있을 때만 품종을 붙인다, 빈 품종은 "품종 미입력"', () => {
+    const removed = { key: 'b1/9', broadcast: 'b1', title: '1부', no: 9, name: '' }
+    expect(changeWords({ add: [item(9, { name: '라울' })], remove: [removed] }, false)).toBe('새로 담을 것: 9번 라울 · 뺄 것: 9번 품종 미입력')
+    // 다른 번호끼리는 번호만 (뺄 것에 품종이 실려 와도)
+    expect(changeWords({ add: [item(31)], remove: [{ key: 'b1/28', broadcast: 'b1', title: '1부', no: 28, name: '청보석' }] }, false)).toBe('새로 담을 것: 31번 · 뺄 것: 28번')
+    // 방송이 둘 이상이면 방송 제목 + 번호 + 품종 — 다른 방송의 같은 번호는 같은 번호가 아니다
+    expect(
+      changeWords(
+        {
+          add: [item(9, { name: '라울' }), item(7, { key: 'b2/7', broadcast: 'b2', title: '2부' })],
+          remove: [
+            { key: 'b1/9', broadcast: 'b1', title: '1부', no: 9, name: '핑크프릴' },
+            { key: 'b1/7', broadcast: 'b1', title: '1부', no: 7, name: '금황' },
+          ],
+        },
+        true,
+      ),
+    ).toBe('새로 담을 것: 1부 9번 라울, 2부 7번 · 뺄 것: 1부 9번 핑크프릴, 1부 7번')
+    // 번호 변경(같은 상품 ID, 다른 키): 새로 담을 것 70번 · 뺄 것 7번 — 번호가 달라 품종 없이 (AC-I2-30 흐름 5)
+    const change = diffItems([item(7, { id: 'p7' })], [item(70, { id: 'p7' })])
+    expect(changeNotice(change, false, false)).toBe('구매 내역이 바뀌었어요 — 새로 담을 것: 70번 · 뺄 것: 7번')
   })
 
   it('상품 키 집합 비교', () => {
@@ -199,6 +234,7 @@ describe('가져오기 문제 말 (AC-I2-52)', () => {
     expect(importProblemWords('NUMBER_INVALID', 50)).toBe('번호를 확인해 주세요(1~50).')
     expect(importProblemWords('DUPLICATE', 999)).toBe('목록에 같은 번호가 또 있어요.')
     expect(importProblemWords('EXISTS', 999)).toBe('이 방송에 이미 있는 번호예요.')
+    expect(importProblemWords('NAME_CONTROL', 999)).toBe('품종에 보이지 않는 글자가 있어요. 품종을 다시 적어 주세요.')
     expect(importProblemWords('NAME_PHONE', 999)).toBe('품종에 전화번호처럼 보이는 숫자가 있어요.')
     expect(importProblemWords('PRICE_MISSING', 999)).toBe('가격이 비었어요.')
     expect(importProblemWords('PRICE_INVALID', 999)).toBe('가격을 읽지 못했어요.')

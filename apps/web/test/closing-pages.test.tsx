@@ -27,9 +27,12 @@ afterEach(() => {
 
 // ── 포장 모드 ────────────────────────────────────────────────────────────
 
-/** 가짜 포장 기록: 구매자마다 단계(대기·포장·배송)와 포장한 품목. 상태 말은 지금 품목과 견준다(서버 packingWord와 같은 규칙) */
+/**
+ * 가짜 포장 기록: 구매자마다 단계(대기·포장·배송)와 포장한 품목. 상태 말은 지금 품목과 견준다(서버 packingWord와 같은 규칙).
+ * 포장 명령으로 적은 기록은 품목마다 상품 ID·품종도 남겨 (상품 ID, 상품 키) 쌍으로 견준다(D-I2-19). 시험이 직접 넣은 기록(키만)은 키로만 견준다.
+ */
 class FakePacking {
-  readonly records = new Map<string, { phase: 'WAITING' | 'PACKED' | 'SHIPPED'; packed: string[]; invoice: string | null }>()
+  readonly records = new Map<string, { phase: 'WAITING' | 'PACKED' | 'SHIPPED'; packed: string[]; invoice: string | null; ids?: Record<string, { id: string; name: string }> }>()
   readonly posts: Record<string, unknown>[] = []
   readonly #seen = new Map<string, unknown>()
   /** 다음 명령을 이 응답으로 대신한다 */
@@ -57,10 +60,14 @@ class FakePacking {
       if (settlement.items.length === 0 && record.phase === 'WAITING') continue
       const items: PackingItem[] = settlement.items.map((key) => {
         const product = products.get(key)
-        return { key, broadcast: product?.broadcast ?? '', title: titles.get(product?.broadcast ?? '') ?? '', no: product?.no ?? 0, name: product?.name ?? '', price: product?.price ?? 0 }
+        return { key, broadcast: product?.broadcast ?? '', title: titles.get(product?.broadcast ?? '') ?? '', no: product?.no ?? 0, name: product?.name ?? '', price: product?.price ?? 0, id: product?.id ?? '' }
       })
+      const ids = record.ids
+      const nowIds = new Map(items.map((x) => [x.key, x.id]))
+      // 지금 품목에 (상품 ID, 키) 쌍으로 있는가
+      const kept = (key: string) => nowIds.has(key) && (ids === undefined || ids[key]?.id === nowIds.get(key))
       const now = new Set(settlement.items)
-      const same = record.packed.length === now.size && record.packed.every((key) => now.has(key))
+      const same = record.packed.length === now.size && record.packed.every(kept)
       const status: PackingWord = record.phase === 'WAITING' ? '포장 대기' : record.phase === 'PACKED' ? (same ? '포장 완료' : '포장 다시 확인') : same ? '배송 완료' : '배송 뒤 바뀜'
       const changed = status === '포장 다시 확인' || status === '배송 뒤 바뀜'
       out.push({
@@ -71,9 +78,11 @@ class FakePacking {
         items,
         status,
         invoice: record.phase === 'SHIPPED' ? record.invoice : null,
-        add: changed ? items.filter((x) => !record.packed.includes(x.key)) : [],
+        add: changed ? items.filter((x) => !record.packed.includes(x.key) || (ids !== undefined && ids[x.key]?.id !== x.id)) : [],
         remove: changed
-          ? record.packed.filter((key) => !now.has(key)).map((key) => ({ key, broadcast: key.split('/')[0] ?? '', title: titles.get(key.split('/')[0] ?? '') ?? '', no: Number(key.split('/')[1]) }))
+          ? record.packed
+              .filter((key) => !kept(key))
+              .map((key) => ({ key, broadcast: key.split('/')[0] ?? '', title: titles.get(key.split('/')[0] ?? '') ?? '', no: Number(key.split('/')[1]), ...(ids?.[key] === undefined ? {} : { name: ids[key].name, id: ids[key].id }) }))
           : [],
       })
     }
@@ -101,7 +110,7 @@ class FakePacking {
       if (items.length !== now.length || !items.every((key) => now.includes(key))) {
         reply = { status: 409, body: { error: { code: 'ITEMS_CHANGED', message: '그 사이에 구매 내역이 바뀌었어요. 다시 확인해 주세요.' }, entry: current } }
       } else {
-        this.records.set(buyer, { phase: 'PACKED', packed: [...items], invoice: null })
+        this.records.set(buyer, { phase: 'PACKED', packed: [...items], invoice: null, ids: Object.fromEntries(current.items.map((x) => [x.key, { id: x.id ?? '', name: x.name }])) })
         reply = { body: { date: DATE, entry: entry(), recorded: true } }
       }
     } else if (body.action === 'ship') {
@@ -312,6 +321,42 @@ describe('체크리스트·포장 완료 (AC-I2-36)', () => {
     const result = within(checklist()).getByText('그 사이 구매 내역이 바뀌어 포장 완료로 적지 않았어요. 바뀐 품목을 담고 다시 눌러 주세요.')
     expect(result.compareDocumentPosition(within(checklist()).getByRole('group', { name: '포장·배송' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(checklist().textContent).toContain('구매 내역이 바뀌었어요 — 뺄 것: 28번')
+  })
+
+  it('같은 번호에 다른 상품(번호 변경 뒤 빈 번호에 새 상품): 연 동안 — 그 번호 체크는 풀리고 "새로 담을 것: 28번 라울 · 뺄 것: 28번 청보석" (D-I2-19)', async () => {
+    const { engine } = await openPacking('c1')
+    fireEvent.click(within(checklist()).getByRole('checkbox', { name: '15번 핑크프릴' }))
+    fireEvent.click(within(checklist()).getByRole('checkbox', { name: '28번 청보석' }))
+    engine.write({ type: 'product.renumber', b: 'b1', from: 28, to: 70 })
+    engine.write(register(28, '라울', 9000))
+    engine.write(chat('m9', 'c1', '가나', '28'))
+    await flush(20)
+    const region = checklist()
+    expect(region.textContent).toContain('구매 내역이 바뀌었어요 — 새로 담을 것: 28번 라울 · 뺄 것: 28번 청보석')
+    expect((within(region).getByRole('checkbox', { name: '15번 핑크프릴' }) as HTMLInputElement).checked).toBe(true)
+    expect((within(region).getByRole('checkbox', { name: '28번 라울' }) as HTMLInputElement).checked).toBe(false)
+    expect(region.textContent).toContain('1/2 담음')
+    expect((within(region).getByRole('button', { name: '포장 완료' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('같은 번호에 다른 상품 — 포장 완료 뒤 번호 변경 → 포장 다시 확인 "뺄 것: 28번", 빈 28번에 새 상품 1등 → 번호 뒤 품종 (D-I2-19, AC-I2-30 흐름 5·8)', async () => {
+    const { engine, packing } = await openPacking('c1')
+    for (const name of ['15번 핑크프릴', '28번 청보석']) fireEvent.click(within(checklist()).getByRole('checkbox', { name }))
+    fireEvent.click(within(checklist()).getByRole('button', { name: '포장 완료' }))
+    await flush(10)
+    expect(packing.records.get('c1')?.phase).toBe('PACKED')
+    engine.write({ type: 'product.renumber', b: 'b1', from: 28, to: 70 })
+    await flush(20)
+    // 번호 변경 → 찜 무효(D-056) → 뺄 것 28번
+    expect(checklist().textContent).toContain('포장 다시 확인')
+    expect(checklist().textContent).toContain('구매 내역이 바뀌었어요 — 뺄 것: 28번')
+    engine.write(register(28, '라울', 9000))
+    engine.write(chat('m9', 'c1', '가나', '28'))
+    await flush(20)
+    const region = checklist()
+    expect(region.textContent).toContain('구매 내역이 바뀌었어요 — 새로 담을 것: 28번 라울 · 뺄 것: 28번 청보석')
+    expect((within(region).getByRole('checkbox', { name: '28번 라울' }) as HTMLInputElement).checked).toBe(false)
+    expect((within(region).getByRole('button', { name: '포장 완료' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('방송이 다른 같은 번호: 1부 7번은 남고 2부 7번이 빠지면 "뺄 것: 2부 7번"과 체크리스트의 방송 제목 (TD-I2-002)', async () => {
@@ -603,6 +648,33 @@ describe('상품 목록 가져오기 창', () => {
     fireEvent.click(screen.getByRole('button', { name: '미리 보기' }))
     await flush(5)
     expect(server.callsTo('POST', /preview$/)[0]?.body).toEqual({ file: { name: '목록.csv', data: btoa(String.fromCharCode(...new TextEncoder().encode('15,핑크프릴,10000'))) } })
+  })
+
+  it('품종에 보이지 않는 글자(NAME_CONTROL)는 쉬운 말 — 코드는 보이지 않는다 (D-I2-17)', async () => {
+    const control = {
+      ...preview,
+      header: null,
+      headerCells: null,
+      rows: [
+        { line: 1, error: 'NAME_CONTROL', text: '9\t핑크\u0001프릴\t10000' },
+        { line: 2, no: 15, name: '핑크프릴', price: 10000, text: '15\t핑크프릴\t10000' },
+      ],
+      register: 1,
+      problems: 1,
+    }
+    const server = new FakeServer().on('POST', /preview$/, () => ({ body: control }))
+    vi.stubGlobal('fetch', server.fetch)
+    render(<ImportDialog broadcastId="b1" onClose={() => {}} onRegistered={async () => {}} />)
+    const dialog = screen.getByRole('dialog', { name: '상품 목록 가져오기' })
+    fireEvent.change(within(dialog).getByLabelText('붙여 넣기'), { target: { value: '9\t핑크\u0001프릴\t10000\n15\t핑크프릴\t10000' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '미리 보기' }))
+    await flush(5)
+    expect(dialog.textContent).toContain('등록할 상품 1개 · 빼는 줄 1개')
+    const table = within(dialog).getByRole('table', { name: '가져올 상품' })
+    const problem = within(table).getByText('품종에 보이지 않는 글자가 있어요. 품종을 다시 적어 주세요.')
+    expect(problem.closest('tr')?.getAttribute('data-tone')).toBe('warning')
+    expect(dialog.textContent).not.toContain('NAME_CONTROL')
+    expect((within(dialog).getByRole('button', { name: '1개 등록하기' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('빈 목록·500개 넘음은 쉬운 말', async () => {

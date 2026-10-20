@@ -87,21 +87,48 @@ export function checklistSpansBroadcasts(items: readonly Pick<PackingItem, 'broa
   return spansBroadcasts([...items, ...change.add, ...change.remove])
 }
 
-/** 처음 본 품목(base)과 지금 품목의 차이 — 새로 담을 것(지금만 있음)·뺄 것(처음만 있음) */
-export function diffItems(base: readonly PackingItem[], current: readonly PackingItem[]): ItemChange {
-  const before = new Set(base.map((item) => item.key))
-  const now = new Set(current.map((item) => item.key))
-  return {
-    add: current.filter((item) => !before.has(item.key)),
-    remove: base.filter((item) => !now.has(item.key)).map((item) => ({ key: item.key, broadcast: item.broadcast, title: item.title, no: item.no })),
-  }
+/** 품목을 견주는 값 = (상품 ID, 상품 키) 쌍 (D-I2-19 — 같은 번호에 다른 상품이 들어와도 다른 품목) */
+export function itemIdentity(item: Pick<PackingItem, 'key' | 'id'>): string {
+  return `${item.id ?? ''}\u0000${item.key}`
 }
 
-/** "새로 담을 것: 31번 · 뺄 것: 28번" (없는 쪽은 뺀다) */
+/**
+ * 처음 본 품목(base)과 지금 품목의 차이 — 새로 담을 것(지금만 있음)·뺄 것(처음만 있음).
+ * (상품 ID, 상품 키) 쌍으로 견준다(D-I2-19). 같은 번호가 양쪽에 다 있으면(같은 번호에 다른 상품) 뺄 것에 그때의 품종을 담는다.
+ */
+export function diffItems(base: readonly PackingItem[], current: readonly PackingItem[]): ItemChange {
+  const before = new Set(base.map(itemIdentity))
+  const now = new Set(current.map(itemIdentity))
+  const add = current.filter((item) => !before.has(itemIdentity(item)))
+  const addedKeys = new Set(add.map((item) => item.key))
+  const remove = base
+    .filter((item) => !now.has(itemIdentity(item)))
+    .map((item): PackingRemoved => {
+      const removed = { key: item.key, broadcast: item.broadcast, title: item.title, no: item.no }
+      return addedKeys.has(item.key) ? { ...removed, name: item.name } : removed
+    })
+  return { add, remove }
+}
+
+/** 품종 글 (빈 품종은 "품종 미입력") */
+function nameWords(name: string): string {
+  return name === '' ? '품종 미입력' : name
+}
+
+/**
+ * "새로 담을 것: 31번 · 뺄 것: 28번" (없는 쪽은 뺀다).
+ * 같은 번호가 두 쪽에 다 있으면 번호 뒤에 품종을 붙인다: "새로 담을 것: 9번 라울 · 뺄 것: 9번 핑크프릴" (D-I2-19, AC-I2-37)
+ */
 export function changeWords(change: ItemChange, multi: boolean): string {
+  const removedKeys = new Set(change.remove.map((item) => item.key))
+  const addedKeys = new Set(change.add.map((item) => item.key))
+  const word = (item: Pick<PackingItem, 'key' | 'title' | 'no'> & { readonly name?: string }, both: boolean) => {
+    const number = itemNumber(item, multi)
+    return both && item.name !== undefined ? `${number} ${nameWords(item.name)}` : number
+  }
   const parts: string[] = []
-  if (change.add.length > 0) parts.push(`새로 담을 것: ${change.add.map((item) => itemNumber(item, multi)).join(', ')}`)
-  if (change.remove.length > 0) parts.push(`뺄 것: ${change.remove.map((item) => itemNumber(item, multi)).join(', ')}`)
+  if (change.add.length > 0) parts.push(`새로 담을 것: ${change.add.map((item) => word(item, removedKeys.has(item.key))).join(', ')}`)
+  if (change.remove.length > 0) parts.push(`뺄 것: ${change.remove.map((item) => word(item, addedKeys.has(item.key))).join(', ')}`)
   return parts.join(' · ')
 }
 

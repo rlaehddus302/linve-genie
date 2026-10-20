@@ -32,6 +32,8 @@ export function importProblemWords(error: ImportRowError, maxNumber: number): st
       return '목록에 같은 번호가 또 있어요.'
     case 'EXISTS':
       return '이 방송에 이미 있는 번호예요.'
+    case 'NAME_CONTROL':
+      return '품종에 보이지 않는 글자가 있어요. 품종을 다시 적어 주세요.'
     case 'NAME_PHONE':
       return '품종에 전화번호처럼 보이는 숫자가 있어요.'
     case 'PRICE_MISSING':
