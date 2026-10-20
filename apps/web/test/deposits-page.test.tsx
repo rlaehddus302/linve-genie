@@ -92,8 +92,9 @@ describe('주소·메뉴·실시간 (AC-N3-40)', () => {
     await flush()
     expect(lists()).toBe(before)
     for (let seq = 6; seq < 10; seq++) stream.emit('change', { date: D_DATE, rehearsal: false, seq })
-    await new Promise((resolve) => setTimeout(resolve, 1100))
-    await flush()
+    // 여럿이 와도 한 번 (부하가 큰 기계에서 타이머가 늦어도 되게 기다림은 상태로)
+    await waitFor(() => expect(lists()).toBe(before + 1), { timeout: 3000 })
+    await new Promise((resolve) => setTimeout(resolve, 300))
     expect(lists()).toBe(before + 1)
   })
 

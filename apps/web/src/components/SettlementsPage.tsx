@@ -63,14 +63,15 @@ export function SettlementsPage({ route, navigate }: { readonly route: ScopeRout
         <ScopePicker route={route} navigate={navigate} days={choice.days} error={choice.error} onRetry={choice.retry} />
       </div>
       {route.rehearsal ? (
-        <>
+        // 입금 확인 안내는 리허설 띠 옆에 (PC에서 한 줄 — 표가 아래로 밀려 보이는 줄이 줄지 않게, AC-S06b-21)
+        <div className="row rehearsal-row">
           <p className="rehearsal-banner" role="note">
             {REHEARSAL_SETTLEMENT}
           </p>
           <p className="hint" role="note">
             {REHEARSAL_DEPOSITS}
           </p>
-        </>
+        </div>
       ) : null}
       {scope === null ? (
         choice.days !== null ? <p>아직 판매 기록이 없어요.</p> : null
