@@ -38,6 +38,8 @@
 | `LIVEJJIM_GOOGLE_TOKEN_URL` | 선택 | (비움) | 구글 토큰 주소 — 보통 비워 둔다 | |
 | `LIVEJJIM_GOOGLE_REVOKE_URL` | 선택 | (비움) | 구글 토큰 폐기 주소 — 보통 비워 둔다 | |
 | `LIVEJJIM_YOUTUBE_API_URL` | 선택 | (비움) | 유튜브 Data API 주소 — 보통 비워 둔다 | |
+| `LIVEJJIM_TIKTOK_BETA` | 선택 | `on` | 틱톡 라이브 베타(읽기 전용, D-904) 운영자 전체 스위치. `on`일 때만 켜고, 비우거나 `off`면 끔 | 상용 출시 전 법률 검토 뒤에 켠다. `on`·`off`·빈 값이 아니면 끔으로 보고 경고 `TIKTOK_BETA_INVALID`를 남긴다 |
+| `LIVEJJIM_TIKTOK_SIGN_API_KEY` | 선택 | (비움) | 틱톡 서명 서비스 키 — 보통 비워 둔다. 값은 로그·화면에 나오지 않는다 | 연결 라이브러리가 따로 읽는 `SIGN_API_URL`·`SIGN_API_KEY`는 운영 환경에 두지 않는다(서명 키가 다른 주소로 갈 수 있다) |
 | `LIVEJJIM_BACKUP_DIR` | 백업이면 필수 | `/backups` | 백업 명령이 덤프를 둘 폴더(미리 만들어 둔다) | 없으면 백업이 실패한다(경보 `BACKUP_FAILED`) |
 | `LIVEJJIM_PG_DUMP` | 선택 | `/usr/lib/postgresql/17/bin/pg_dump` | 백업에 쓸 `pg_dump` 경로(기본 `pg_dump`) | DB보다 낮은 버전이면 백업이 실패한다 |
 
