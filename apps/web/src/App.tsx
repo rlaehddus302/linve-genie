@@ -11,6 +11,7 @@
 // 묻는다. 웹이 막을 수 없는 닫기(앱을 위로 밀어 닫기)로 떠나면 보내지 않는다 (D-103, AC-S06b-42·43).
 // 인터넷이 끊긴 채 열면(서비스 워커가 저장한 껍데기) "인터넷 연결이 없어요. 연결되면 다시 불러와요." — 연결되면 저절로 다시 불러온다(D-093).
 // I3: 메뉴에 "설정"(AC-I3-44), 시작 마법사 `/start`(AC-I3-50), 정책 페이지 `/privacy`·`/terms`는 로그인 없이(AC-I3-77),
+// N4b: 끝난 방송의 영수증 보내기 `/broadcasts/<ID>/receipts`(AC-N4b-30) — 보조자는 다른 화면처럼 안내만.
 // 보조자 계정은 문자찜 입력만 — 로그인하면 `/sms`로, 다른 화면 주소는 안내만 보이고 그 화면의 데이터를 부르지 않는다(AC-I3-63).
 // 저장하지 않은 설정 값이 있으면 같은 떠나기 창이 그 문장으로 묻는다(AC-I3-46).
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -27,6 +28,7 @@ import { Modal } from './components/Modal.tsx'
 import { PackingPage } from './components/PackingPage.tsx'
 import { PrivacyPage, TermsPage } from './components/PolicyPages.tsx'
 import { PrintProvider } from './components/print-context.tsx'
+import { ReceiptsPage } from './components/ReceiptsPage.tsx'
 import { SettingsPage } from './components/SettingsPage.tsx'
 import { SettlementsPage } from './components/SettlementsPage.tsx'
 import { SmsPage } from './components/SmsPage.tsx'
@@ -334,6 +336,8 @@ function Screen({ route, navigate, me, onRenamed }: ScreenProps) {
   switch (route.name) {
     case 'console':
       return <ConsolePage key={route.id} broadcastId={route.id} navigate={navigate} />
+    case 'receipts':
+      return <ReceiptsPage key={route.id} broadcastId={route.id} navigate={navigate} shopName={me.seller.name} />
     case 'sms':
       return <SmsPage navigate={navigate} assistant={isAssistant(me)} />
     case 'buyers':
