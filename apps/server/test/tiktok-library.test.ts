@@ -267,6 +267,25 @@ describe('AC-N2b-1-21·22 실제 라이브러리 chat 이벤트 → 레코드', 
     expect(r.records).toEqual([])
   })
 
+  it('제어 메시지: 잠시 멈춤(1)·다시 이어짐(2)은 받는 상태 그대로, 일시 중단(4)은 라이브러리가 방송 끝으로 내보내 ENDED (AC-N2b-1-33)', async () => {
+    constructed.length = 0
+    const r = rig({ webcast: libraryWebcast({ Connection: Offline }) })
+    r.conn.start()
+    await r.flush()
+    const lib = constructed[0]?.instance
+    await lib?.push([{ type: 'WebcastControlMessage', payload: controlBytes(1) }])
+    await r.flush()
+    expect(r.conn.status()).toMatchObject({ state: 'CONNECTED', reason: null, missed: false })
+    await lib?.push([{ type: 'WebcastControlMessage', payload: controlBytes(2) }])
+    await lib?.push([{ type: 'WebcastChatMessage', payload: chatBytes({ msgId: freshId(), userId: '7101', uniqueId: 'buyer_a', nickname: 'a', comment: '15' }) }])
+    await r.flush()
+    expect(r.conn.status()).toMatchObject({ state: 'CONNECTED', reason: null, missed: false })
+    expect(r.records).toHaveLength(1)
+    await lib?.push([{ type: 'WebcastControlMessage', payload: controlBytes(4) }])
+    await r.flush()
+    expect(r.conn.status()).toMatchObject({ state: 'ENDED', reason: null, missed: true, nextAttemptAt: null })
+  })
+
   it('감싸개가 닫은 뒤 늦게 성공한 라이브러리 연결은 바로 닫는다', async () => {
     const disconnects: number[] = []
     let release: () => void = () => undefined
@@ -309,8 +328,18 @@ describe('AC-N2b-1-35 라이브러리 오류 → 실패 종류 (대응표의 행
     ['틱톡 확인 문자(차단 문구)', new FetchIsLiveError([new Error('Failed to extract the SIGI_STATE HTML tag, you might be blocked by TikTok.')]), 'BLOCKED'],
     ['틱톡 확인 문자(captcha)', new FetchIsLiveError([new Error('Failed to parse SIGI_STATE into JSON. Are you captcha-blocked by TikTok?')]), 'BLOCKED'],
     ['네트워크 끊김', new FetchIsLiveError([axiosLike(null, 'ECONNRESET'), axiosLike(null, 'ETIMEDOUT')]), 'NETWORK'],
+    // 라이브러리 2.1.0 setupWebsocket은 손잡기 실패를 문자열 `Websocket connection failed, ${err}`로 거부한다 (ws 8.x: `Unexpected server response: ${status}`)
+    ['웹소켓 손잡기 거부 403(문자열 거부)', `Websocket connection failed, ${String(new Error('Unexpected server response: 403'))}`, 'BLOCKED'],
+    ['웹소켓 손잡기 요청 한도 429(문자열 거부)', `Websocket connection failed, ${String(new Error('Unexpected server response: 429'))}`, 'BLOCKED'],
+    ['웹소켓 손잡기 오류 객체 안의 403 (cause)', new Error('wrapped', { cause: new Error('Unexpected server response: 403') }), 'BLOCKED'],
+    ['문자열 거부 안의 확인 문자 문구', 'Websocket connection failed, Error: captcha required', 'BLOCKED'],
+    ['웹소켓 손잡기 500(문자열 거부)', 'Websocket connection failed, Error: Unexpected server response: 500', 'NETWORK'],
+    ['웹소켓 손잡기 4030처럼 다른 수(문자열 거부)', 'Websocket connection failed, Error: Unexpected server response: 4030', 'NETWORK'],
     ['웹소켓 실패(문자열 거부)', 'Websocket connection failed, Error: Unexpected server response: 200', 'NETWORK'],
+    ['웹소켓 DNS 실패(문자열 거부)', 'Websocket connection failed, Error: getaddrinfo ENOTFOUND webcast16-ws-useast1a.tiktok.com', 'NETWORK'],
     ['웹소켓 시간 초과(문자열 거부)', 'Websocket not responding', 'NETWORK'],
+    ['빈 문자열', '', 'NETWORK'],
+    ['2,000자 뒤에만 403 문구가 있는 문자열', `${'x'.repeat(2000)}Unexpected server response: 403`, 'NETWORK'],
     ['커서 없음', new InvalidResponseError('Missing cursor in initial fetch response.'), 'NETWORK'],
     ['방 ID 없음', new MissingRoomIdError('Missing roomId.'), 'NETWORK'],
     ['이미 연결 중', new AlreadyConnectingError('Already connecting!'), 'NETWORK'],

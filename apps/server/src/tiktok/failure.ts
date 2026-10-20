@@ -15,6 +15,13 @@ const USER_NOT_FOUND_TEXT = /\b19881007\b|user[_ ]not[_ ]found/i
 const BLOCKED_TEXT = /captcha|blocked by tiktok/i
 /** 틱톡의 거부·요청 한도 HTTP 상태 */
 const BLOCKED_STATUS: ReadonlySet<number> = new Set([403, 429])
+/**
+ * 웹소켓 손잡기에서 틱톡이 거부·요청 한도로 답했을 때의 문구. 라이브러리 2.1.0 setupWebsocket은 손잡기 실패를 오류 객체가 아니라
+ * 문자열 `Websocket connection failed, ${err}`로 거부하고, ws 8.x는 101이 아닌 응답에 `Unexpected server response: ${status}`를 낸다.
+ */
+const BLOCKED_HANDSHAKE_TEXT = /Unexpected server response: (?:403|429)\b/
+/** 문구를 볼 때 앞에서부터 읽는 길이 */
+const MAX_TEXT = 2000
 
 const MAX_NODES = 32
 const MAX_DEPTH = 4
@@ -59,12 +66,22 @@ function httpStatus(value: object): number | null {
   return typeof status === 'number' ? status : null
 }
 
+/** 틱톡의 거부·한도·확인 문자를 알리는 문구인가 (앞 2,000자만 본다) */
+function blockedText(text: string): boolean {
+  return BLOCKED_TEXT.test(text) || BLOCKED_HANDSHAKE_TEXT.test(text)
+}
+
 function visit(value: unknown, depth: number, seen: Set<object>, signals: Signals): void {
+  if (typeof value === 'string') {
+    // 오류 객체가 아닌 문자열 거부 (웹소켓 손잡기 실패·응답 없음). 거부·한도·확인 문자 문구만 보고 그 밖은 NETWORK로 둔다
+    if (blockedText(value.slice(0, MAX_TEXT))) signals.blocked = true
+    return
+  }
   if (typeof value !== 'object' || value === null || seen.has(value) || seen.size >= MAX_NODES || depth > MAX_DEPTH) return
   seen.add(value)
   const names = typeNames(value)
   const message = readField(value, 'message')
-  const text = typeof message === 'string' ? message.slice(0, 2000) : ''
+  const text = typeof message === 'string' ? message.slice(0, MAX_TEXT) : ''
   if (names.has('InvalidUniqueIdError') || (names.has('InvalidResponseError') && USER_NOT_FOUND_TEXT.test(text))) signals.userNotFound = true
   if (names.has('UserOfflineError')) signals.notLive = true
   if (names.has('SignAPIError')) {
@@ -73,7 +90,7 @@ function visit(value: unknown, depth: number, seen: Set<object>, signals: Signal
     return
   }
   const status = httpStatus(value)
-  if ((status !== null && BLOCKED_STATUS.has(status)) || BLOCKED_TEXT.test(text)) signals.blocked = true
+  if ((status !== null && BLOCKED_STATUS.has(status)) || blockedText(text)) signals.blocked = true
   // 여러 경로를 시도한 끝의 오류(FetchIsLiveError.errors), 감싼 요청 오류(InvalidResponseError.requestErr), 표준 cause
   const errors = readField(value, 'errors')
   if (Array.isArray(errors)) for (const inner of errors.slice(0, MAX_NODES)) visit(inner, depth + 1, seen, signals)
@@ -84,6 +101,7 @@ function visit(value: unknown, depth: number, seen: Set<object>, signals: Signal
 /**
  * 연결 시도의 실패(거부된 값)를 실패 종류로 바꾼다. 어떤 값이 와도 예외를 던지지 않는다.
  * 우선순위: 없는 사용자 → 방송 중 아님 → 서명 서비스 → 틱톡의 거부·한도·확인 문자 → 그 밖(네트워크·시간 초과·모르는 오류·오류가 아닌 값).
+ * 문자열 거부 값(라이브러리의 웹소켓 손잡기 실패)은 거부·한도·확인 문자 문구일 때만 BLOCKED이고 그 밖은 NETWORK다.
  */
 export function classifyWebcastFailure(error: unknown): TikTokFailureKind {
   const signals: Signals = { userNotFound: false, notLive: false, sign: false, blocked: false }
