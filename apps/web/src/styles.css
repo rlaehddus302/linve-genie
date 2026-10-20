@@ -1589,6 +1589,12 @@ html:has(.sms-submit-bar) {
   padding: 0.25rem 0.5rem;
 }
 
+/* 휴대폰에서도 표가 창 폭 안에 — 띄어쓰기 없는 긴 품종·원래 줄 글은 아무 데서나 꺾는다 */
+.import-table td,
+.import-table th {
+  overflow-wrap: anywhere;
+}
+
 .import-original {
   white-space: break-spaces;
   overflow-wrap: anywhere;

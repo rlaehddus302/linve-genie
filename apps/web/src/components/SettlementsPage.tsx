@@ -69,6 +69,8 @@ export function SettlementsPage({ route, navigate }: { readonly route: ScopeRout
       <h1>정산</h1>
       <div className="row scope-row">
         <ScopePicker route={route} navigate={navigate} days={choice.days} error={choice.error} onRetry={choice.retry} />
+        {/* 정산 문서 (AC-I2-14·22): 날짜 줄에 두어 PC 표가 위로 밀리지 않게 — 목록에서만 */}
+        {scope !== null && route.buyer === undefined && snapshot.data !== null && snapshot.data.date === scope.date && snapshot.data.rehearsal === scope.rehearsal ? <ClosingActions data={snapshot.data} /> : null}
       </div>
       {route.rehearsal ? (
         <p className="rehearsal-banner" role="note">
@@ -162,6 +164,33 @@ function ReadySettlements({ route, navigate, store, snapshot, data }: ReadyProps
   )
 }
 
+// ── 정산 문서: 전원 확인서·판매대장 (AC-I2-14·22) ───────────────────────
+
+function ClosingActions({ data }: { readonly data: ScopeData }) {
+  const [ledger, setLedger] = useState(false)
+  const receiptCount = useMemo(() => [...data.settlements.values()].filter((item) => item.date === data.date && item.items.length > 0).length, [data.settlements, data.date])
+  return (
+    <div className="row closing-actions" role="group" aria-label="정산 문서">
+      <DownloadButton
+        label={`전원 확인서 PDF (${String(receiptCount)}명)`}
+        busyText={`확인서 ${String(receiptCount)}명을 만드는 중이에요…`}
+        path={withQuery(`/api/days/${data.date}/receipts.pdf`, { rehearsal: data.rehearsal })}
+        fallbackName={`receipts-${data.date}.pdf`}
+        disabled={receiptCount === 0}
+      />
+      {receiptCount === 0 ? <span className="hint">{NO_RECEIPT_BUYERS}</span> : null}
+      {data.rehearsal ? (
+        <span className="hint">{REHEARSAL_NO_LEDGER}</span>
+      ) : (
+        <button type="button" className="button" onClick={() => setLedger(true)}>
+          판매대장 엑셀
+        </button>
+      )}
+      {ledger ? <LedgerDialog date={data.date} onClose={() => setLedger(false)} /> : null}
+    </div>
+  )
+}
+
 // ── 목록 (AC-S06-30) ────────────────────────────────────────────────────
 
 function shippingWords(settlement: Settlement): string {
@@ -170,7 +199,6 @@ function shippingWords(settlement: Settlement): string {
 
 function SettlementList({ data, names, marks, onOpen }: { readonly data: ScopeData; readonly names: BuyerNames; readonly marks: PackingMarks; readonly onOpen: (buyer: string) => void }) {
   const wide = useWide()
-  const [ledger, setLedger] = useState(false)
   const [filter, setFilter] = useState<PaymentFilter>('ALL')
   const [query, setQuery] = useState('')
   const all = useMemo(() => [...data.settlements.values()].filter((item) => item.date === data.date), [data.settlements, data.date])
@@ -178,7 +206,6 @@ function SettlementList({ data, names, marks, onOpen }: { readonly data: ScopeDa
   const summary = useMemo(() => summarize(all), [all])
   const list = useMemo(() => sortSettlements(filterSettlements(all, filter, query, nameOf), nameOf), [all, filter, query, names])
   const statusLine = (['UNPAID', 'PARTIAL', 'PAID', 'OVERPAID'] as const satisfies readonly PaymentStatus[]).map((status) => `${PAYMENT_WORD[status]} ${String(summary.byStatus[status])}`).join(' · ')
-  const receiptCount = all.filter((item) => item.items.length > 0).length
   return (
     <section className="stack" aria-label="정산 목록">
       <section className="card stack-tight settlement-summary" aria-label="정산 요약">
@@ -216,28 +243,9 @@ function SettlementList({ data, names, marks, onOpen }: { readonly data: ScopeDa
           <label htmlFor="settlement-search">이름 찾기</label>
           <input id="settlement-search" className="input" type="search" autoComplete="off" value={query} onChange={(event) => setQuery(event.target.value)} />
         </div>
-        {/* 정산 문서 (AC-I2-14·22): 같은 줄에 두어 PC 표가 위로 밀리지 않게 */}
-        <div className="row closing-actions" role="group" aria-label="정산 문서">
-          <DownloadButton
-            label={`전원 확인서 PDF (${String(receiptCount)}명)`}
-            busyText={`확인서 ${String(receiptCount)}명을 만드는 중이에요…`}
-            path={withQuery(`/api/days/${data.date}/receipts.pdf`, { rehearsal: data.rehearsal })}
-            fallbackName={`receipts-${data.date}.pdf`}
-            disabled={receiptCount === 0}
-          />
-          {receiptCount === 0 ? <span className="hint">{NO_RECEIPT_BUYERS}</span> : null}
-          {data.rehearsal ? (
-            <span className="hint">{REHEARSAL_NO_LEDGER}</span>
-          ) : (
-            <button type="button" className="button" onClick={() => setLedger(true)}>
-              판매대장 엑셀
-            </button>
-          )}
-        </div>
       </div>
       {list.length === 0 ? <p>{all.length === 0 ? '그날 정산할 묶음이 없어요.' : '맞는 묶음이 없어요.'}</p> : null}
       {wide ? <SettlementTable data={data} names={names} list={list} marks={marks} onOpen={onOpen} /> : <SettlementCards data={data} names={names} list={list} marks={marks} onOpen={onOpen} />}
-      {ledger ? <LedgerDialog date={data.date} onClose={() => setLedger(false)} /> : null}
     </section>
   )
 }
