@@ -83,5 +83,9 @@ await adapter.print(image)                // fake.printed에 작업 바이트가
 - 작업 바이트의 거절 순서: 그림 형식(`PRINT_FAILED`) → 헤드 폭(`IMAGE_TOO_WIDE` — 농도와 상관없이 언제나, AC-N1-70) → 농도(`INVALID_DENSITY`). B1 어댑터(농도 → 형식 → 폭)와 순서가 다르다 — 둘 다 틀린 그림은 화면이 크기 목록·농도 범위로 미리 막는다.
 - 가짜 기기는 작업을 다 받았는지를 래스터 머리(YXQ 길이 칸·L11 폭×높이)로 계산하고, 다 받은 그 쓰기 안에서 `AA`를 보낸다(마지막 쓰기가 끝나기 전에 오는 경우). 이름표에 없는 기기 이름이면 `protocol`을 알려 줘야 한다.
 
-### pnpm verify 결과
-- (끝에 적는다)
+### pnpm verify 결과 (`E2E_PORT_OFFSET=1000 pnpm verify`, 마지막 커밋 기준)
+- 통과: lint · test(파일 137 · 테스트 3337) · golden(589) · e2e(파일 42 · 265) · coverage(라인 100% · 분기 99.66%).
+- 실패 2 — 모두 같은 뿌리(위 "스펙에 올린 것" 3):
+  - typecheck: `tests/adversarial/p1/export-printer.test.ts(20,7) TS2739` — `Record<LabelSizeId, number>`에 세 크기만 적은 P1 적대 시험(보호 경로, test-domain 몫). 한 줄 고치면 통과한다.
+  - adversarial 1건: `tests/adversarial/s00/verify-gates.test.ts` TD-S00-015 "전제: 임시 저장소 복사본은 typecheck 단계를 통과한다" — 저장소 복사본(`tests/adversarial` 포함)의 typecheck가 위 오류로 실패하는 시험이다. 이번 실행은 기계 부하(load 20~70)로 90초 제한에 걸려 `code null`이었지만, 부하가 없어도 위 타입 오류 때문에 실패한다. 위 한 줄이 고쳐지면 같이 통과한다.
+- 중간에 혼자 돌린 `pnpm test`에서는 기계 부하로 `apps/server` changes·schema 시간 초과와 `packages/voice/test/perf.test.ts` p99가 실패했지만, verify의 test 단계에서는 모두 통과했다(이 스프린트가 바꾸지 않은 곳).
