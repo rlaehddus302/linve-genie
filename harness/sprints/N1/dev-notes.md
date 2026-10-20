@@ -91,6 +91,11 @@ await adapter.print(image)                // fake.printed에 작업 바이트가
 - 단위 시험(packages/printer/test/marklife.test.ts): 쓰기 거절이 끊김 알림보다 먼저(결과·상태 DISCONNECTED, 다음 출력 NOT_CONNECTED, 다시 연결은 고르기 창 2번째), 조각을 다 쓴 뒤 조용히 끊긴 채 20초(DISCONNECTED), 작업 중간 TIMEOUT 뒤 다음 출력(새 시도·AA·OK), S2·P50·X2·P12·바우아토 × 조각 1·5·20·90바이트 × 빠진 바이트 1·3·9·40(앞 시도는 AA 없이 닫힘, 뒤 시도는 작업 바이트와 같음), 시작 바이트는 작업 안 다른 자리에서 늘 'no'.
 - SA-N1-003(부하로 인한 서버·음성 시간 초과): 서버 두 파일은 이 스프린트가 바꾸지 않은 곳이라 부하가 낮을 때 verify를 다시 돌려 판정한다. 음성 시간 시험은 내 영역(`packages/voice/**`)이라 D-902대로 나눴다 — 걸린 시간만 재는 세 시험(p99 50ms 둘, 300글자 500ms)은 `packages/voice/test/extract.perf.test.ts`(pnpm perf), 같은 재료의 정확성 단언(사전 3,000개, 빨리 거른 결과 = 모두 계산한 결과)은 `extract-filter.test.ts`(게이트 안)에 남겼다. 고정 시드 사전·문장은 `test/sample-dictionary.ts`가 함께 준다. 시험 내용·기준값은 그대로다(부하 속에서 성능 파일만 돌리면 첫 번은 실패, 다시 돌리면 통과 — 거짓 실패를 확인했다).
 
+### 수정 라운드 2
+- SA-N1-007·GATE-N1-VERIFY(coverage 단계만 부하로 5초 시간 초과): 원인은 내 영역(`packages/label`·`packages/printer`·`packages/documents`·`packages/voice`) 밖이다. coverage 단계는 `packages/core/test/**`만 돌리고, 시간 제한이 빠진 곳은 루트 `vitest.coverage.config.ts`다. D-902(오케스트레이터 결정 "무거운 속성 시험은 시간 제한만 늘린다(코어 30초…)")가 `packages/core/vitest.config.ts`에만 들어가고 coverage 설정에는 빠졌다. 이 파일은 coverage 게이트의 기준값(라인·분기 95%)을 쥔 검증 게이트 설정이라 D-027대로 오케스트레이터 몫으로 보고 고치지 않았다. 다른 트랙(N2·N3·N5 등)도 같은 설정을 쓰므로 한 트랙 브랜치보다 main에서 한 번 고치는 편이 충돌이 없다.
+- **오케스트레이터 요청**: `vitest.coverage.config.ts`의 `test`에 `testTimeout: 30_000`(코어 단위 설정과 같은 값, D-902)을 더한다. 기준값·include는 그대로 둔다 — 시험 내용·커버리지 기준은 약해지지 않고, 걸린 시간은 `pnpm perf`가 따로 잰다.
+- 이번 라운드에 바꾼 코드는 없다(d7a3c16과 같은 코드). verify는 부하가 낮을 때 다시 돌렸다(아래).
+
 ### pnpm verify 결과 — 수정 라운드 1 (df0f71b, `E2E_PORT_OFFSET=1000 pnpm verify`)
 - 통과 6: typecheck(설정 15 · 파일 481) · lint(0/0) · test(파일 137 · 테스트 3339) · golden(589) · adversarial(파일 50 · 테스트 899 — TD-N1-001·002 포함) · e2e(파일 42 · 265).
 - 실패 1: coverage — 부하(load avg 30~44, 다른 트랙 동시 실행) 속에서 `packages/core` 속성 시험이 5초 제한에 걸렸다(코어 단위 설정은 D-902대로 30초인데 루트 `vitest.coverage.config.ts`에는 `testTimeout`이 없어 기본 5초). 이 스프린트는 코어·하네스 설정을 바꾸지 않았다. 부하가 내려간 뒤(load 17) `pnpm coverage`만 다시 돌리니 통과(테스트 1403 · 라인 100% · 분기 99.66%).
