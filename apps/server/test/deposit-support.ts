@@ -3,7 +3,7 @@ import { expect } from 'vitest'
 import { FakePopbillTransport } from '../src/deposit/popbill-fake.ts'
 import type { DepositOptions } from '../src/deposit/service.ts'
 import type { ServerOptions } from '../src/server.ts'
-import { ORIGIN, client, expectOk, manualTimer, newWorld, rid, writeEvent, type FakeClock, type JsonResponse, type Seller, type TestServer } from './support.ts'
+import { ORIGIN, client, expectOk, immediateTimer, manualTimer, newWorld, rid, writeEvent, type FakeClock, type JsonResponse, type Seller, type TestServer } from './support.ts'
 
 export const DAY = '2026-10-19'
 export const KST_HOUR_MS = 3_600_000
@@ -20,11 +20,11 @@ export interface DepositWorld extends TestServer {
   readonly timer: ReturnType<typeof manualTimer>
 }
 
-/** 입금 확인 시험 세계: 시험 모드(가짜 원천)·가짜 팝빌 전송·손으로 돌리는 타이머 */
+/** 입금 확인 시험 세계: 시험 모드(가짜 원천)·가짜 팝빌 전송·손으로 돌리는 주기 타이머·기다리지 않는 대기 타이머 */
 export async function depositWorld(overrides: Partial<ServerOptions> & { clock?: FakeClock; deposits?: DepositOptions } = {}): Promise<DepositWorld> {
   const popbill = new FakePopbillTransport()
   const timer = manualTimer()
-  const world = await newWorld({ ...overrides, deposits: { testMode: true, popbill, timer, popbillPollMs: 1, ...overrides.deposits } })
+  const world = await newWorld({ ...overrides, deposits: { testMode: true, popbill, timer, waitTimer: immediateTimer, popbillPollMs: 1, ...overrides.deposits } })
   return { ...world, popbill, timer }
 }
 

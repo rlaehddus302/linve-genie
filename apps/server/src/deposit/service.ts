@@ -272,8 +272,10 @@ export interface DepositOptions {
   readonly pollMs?: number
   /** "지금 받아 오기" 간격 (밀리초, 0~60000, 기본 60000 — E2E 기동만 줄인다) */
   readonly refetchGapMs?: number
-  /** 주기·대기 타이머 (시험은 손으로 돌리는 타이머) */
+  /** 받아 오기 주기 타이머 (시험은 손으로 돌리는 타이머) */
   readonly timer?: GeneratorTimer
+  /** 받아 오기 안의 대기·시간 제한 타이머 (수집 상태 확인 간격·전송 호출 시간 제한, 기본 실제 타이머) */
+  readonly waitTimer?: GeneratorTimer
   /** 수집 상태 확인 간격 (밀리초, 기본 1000) */
   readonly popbillPollMs?: number
   /** 전송 호출 하나의 시간 제한 (밀리초, 기본 30000) */
@@ -322,6 +324,7 @@ export function pasteRowKeys(rows: readonly PasteRow[]): string[] {
 export class DepositService {
   readonly #deps: DepositServiceDeps
   readonly #timer: GeneratorTimer
+  readonly #waitTimer: GeneratorTimer
   readonly #queues = new Map<string, Promise<unknown>>()
   readonly #schedules = new Map<string, () => void>()
   readonly #running = new Map<string, Promise<void>>()
@@ -333,6 +336,7 @@ export class DepositService {
   constructor(deps: DepositServiceDeps) {
     this.#deps = deps
     this.#timer = deps.options.timer ?? realTimer
+    this.#waitTimer = deps.options.waitTimer ?? realTimer
   }
 
   get testMode(): boolean {
@@ -513,7 +517,7 @@ export class DepositService {
     }
     try {
       const timeout = this.#deps.options.callTimeoutMs ?? SOURCE_CALL_TIMEOUT_MS
-      const url = await withTimeout(this.#timer, timeout, () => transport.getBankAccountMgtURL({ corpNum }))
+      const url = await withTimeout(this.#waitTimer, timeout, () => transport.getBankAccountMgtURL({ corpNum }))
       if (typeof url !== 'string' || !/^https:\/\//.test(url)) throw new SourceError('BAD_RESPONSE')
       return { ok: true, value: { url } }
     } catch (error) {
@@ -656,7 +660,7 @@ export class DepositService {
       {
         transport,
         now: () => this.#now(),
-        timer: this.#timer,
+        timer: this.#waitTimer,
         pollMs: this.#deps.options.popbillPollMs ?? POPBILL_POLL_MS,
         jobTimeoutMs: POPBILL_JOB_TIMEOUT_MS,
         callTimeoutMs: this.#deps.options.callTimeoutMs ?? SOURCE_CALL_TIMEOUT_MS,
