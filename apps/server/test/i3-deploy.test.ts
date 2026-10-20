@@ -1,8 +1,10 @@
 // AC-I3-70·71·72·80·81·82 배포·운영 (SYS-05, NFR-06, D-I3-13·16): 서버가 화면을 같은 출처로 함께 낸다, 보안 머리글·CSP, 운영 시작 검사,
 // 준비 확인(/health/ready), 운영 상태(/ops/status), 경보 기록.
+import { execFile } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { PGlite } from '@electric-sql/pglite'
 import { applyEvent as applyReal } from '@livejjim/core'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
@@ -206,6 +208,29 @@ describe('AC-I3-72 운영 시작 검사', () => {
       expect(JSON.stringify(result)).not.toMatch(/secret/)
     }
   })
+
+  it('운영 시작(main)은 그 문장으로 알리고 시작하지 않는다 — 값은 출력하지 않는다', async () => {
+    const key = generateMasterKey()
+    const run = (env: Record<string, string>) =>
+      new Promise<{ code: number; out: string }>((resolve) => {
+        execFile(process.execPath, [fileURLToPath(new URL('../src/main.ts', import.meta.url))], { env: { PATH: process.env.PATH ?? '', PORT: '39998', LIVEJJIM_MASTER_KEY: key, ...env }, timeout: 60_000 }, (error, stdout, stderr) => {
+          resolve({ code: error === null ? 0 : typeof error.code === 'number' ? error.code : 1, out: `${stdout}\n${stderr}` })
+        })
+      })
+    const cases: [Record<string, string>, string, string[]][] = [
+      [{ LIVEJJIM_APP_ORIGIN: 'http://shop.example.com' }, HTTPS_ORIGIN_MESSAGE, ['shop.example.com']],
+      [{ LIVEJJIM_APP_ORIGIN: 'https://shop.example.com', LIVEJJIM_OPS_TOKEN: 'short-ops-secret' }, OPS_TOKEN_MESSAGE, ['short-ops-secret']],
+      [{ LIVEJJIM_APP_ORIGIN: 'https://shop.example.com', LIVEJJIM_TRUSTED_PROXIES: '9' }, TRUSTED_PROXIES_MESSAGE, []],
+      [{ LIVEJJIM_APP_ORIGIN: 'https://shop.example.com', LIVEJJIM_WEB_DIR: join(base, 'secret-missing-dir') }, WEB_DIR_MESSAGE, ['secret-missing-dir']],
+    ]
+    for (const [env, message, secrets] of cases) {
+      const result = await run(env)
+      expect(result.code, result.out).toBe(1)
+      expect(result.out).toContain(`시작하지 못했어요. ${message}`)
+      expect(result.out).not.toContain('시작했어요.')
+      for (const secret of [...secrets, key]) expect(result.out).not.toContain(secret)
+    }
+  }, 120_000)
 
   it('서버 조립도 짧은 운영 토큰·틀린 프록시 수를 받지 않는다', async () => {
     const database = await openTestDb()
