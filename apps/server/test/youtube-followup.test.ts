@@ -161,7 +161,7 @@ describe('AC-Y1-92 지금 연결한 채널의 방송에만 게시 (RA-Y1-003)', 
     expect(w.fake.comments).toEqual([])
   })
 
-  it('확인 중(SENDING)에 채널이 바뀐 감사는 확인을 마친 뒤 다시 시도에서 NOT_MY_CHANNEL, 방송 후 요약 댓글도 NOT_MY_CHANNEL — 게시 0번', async () => {
+  it('확인 중(SENDING)에 채널이 바뀐 감사는 이은 채널로 조회할 수 없어 확인하지 못함(UNCONFIRMED, I3 AC-I3-85), 방송 후 요약 댓글은 NOT_MY_CHANNEL — 게시 0번', async () => {
     const w = await world()
     const connected = await connectSeller(w, { publish: true })
     const { b } = await linkedBroadcast(w, connected, { settings: { ...NO_LABEL, 'thanks.videoComment': 'SUMMARY', 'thanks.batchWindowSec': 0 } })
@@ -178,7 +178,9 @@ describe('AC-Y1-92 지금 연결한 채널의 방송에만 게시 (RA-Y1-003)', 
     await enableConsent(w, connected.seller, 'LIVE_CHAT')
     await enableConsent(w, connected.seller, 'VIDEO_COMMENT')
     await runUntil(w, async () => (await rows(w, connected, b.date))[0]?.state === 'FAILED')
-    expect((await rows(w, connected, b.date))[0]).toMatchObject({ target: 'LIVE_CHAT', state: 'FAILED', reason: 'NOT_MY_CHANNEL' })
+    // I3 (AC-I3-85·D-I3-17 (1)·(2)): 확인 조회도 그 방송을 이은 채널(A)의 토큰으로만 한다 — 채널이 C로 바뀌면 조회할 수 없어(실패한 조회) 끝 조회 3번 뒤
+    // 확인하지 못함(UNCONFIRMED)이다. 다시 시도로 가지 않으니 다시 게시도 없다(전에는 C의 토큰으로 조회해 "못 찾음" → 다시 시도 → NOT_MY_CHANNEL)
+    expect((await rows(w, connected, b.date))[0]).toMatchObject({ target: 'LIVE_CHAT', state: 'FAILED', reason: 'UNCONFIRMED' })
     // 끝내고 10분 뒤 요약 댓글
     await w.timer.advance(11 * 60 * 1000)
     await run(w)
