@@ -136,3 +136,29 @@ describe('N2 옮기기 (AC-N2-25)', () => {
     expect(linked.status, linked.text).toBe(200)
   })
 })
+
+describe('N2 옮기기 수정(바·사)으로 생긴 구멍', () => {
+  it('TD-N2-004: 자정을 넘겨 이어지는 방송(DOMAIN_RULES "자정을 넘겨 끝난 방송도 그 방송의 날짜 하나")에서 인스타 라이브가 끊겨 다시 켜면, 다른 회차가 없어도 새 라이브로 옮기지 않아 다시 켠 뒤의 주문이 기록되지 않는다 (AC-N2-25 조건은 모두 맞음)', async () => {
+    const w = await world()
+    // 2026-10-19 23:00 KST에 방송 시작
+    w.clock.set(Date.UTC(2026, 9, 19, 14, 0, 0))
+    const { seller, account } = await connectedShop(w)
+    const api = client(w, seller.cookie)
+    const b = await liveBroadcast(w, seller)
+    await register(w, seller, b, 15, '핑크프릴', 10000)
+    expect((await api.post(`/api/broadcasts/${b}/live/wait`, { requestId: rid('w'), platform: 'INSTAGRAM' })).status).toBe(200)
+    const m = w.fake.startLive(account.id)
+    w.clock.set(Date.UTC(2026, 9, 19, 14, 30, 0))
+    expect((await sendComments(w, account, m, [{ id: '17900000000000401', igsid: '6024400000000009', username: 'hello.viewer', text: '안녕하세요' }])).status).toBe(200)
+    expect(((await api.get(`/api/broadcasts/${b}/live`)).body.link as { liveId: string }).liveId).toBe(m)
+    // 00:05 KST(다음 날) 휴대폰 통신이 끊겨 인스타 라이브가 끝났다 → 판매자가 바로 다시 켠다. 방송(회차 b)은 계속 진행 중이고 다른 회차는 없다
+    w.clock.set(Date.UTC(2026, 9, 19, 15, 5, 0))
+    w.fake.endLive(m)
+    const m2 = w.fake.startLive(account.id)
+    w.clock.set(Date.UTC(2026, 9, 19, 15, 6, 0))
+    expect((await sendComments(w, account, m2, [{ id: '17900000000000402', igsid: '6024400000000001', username: 'pink.mom', text: '15' }])).status).toBe(200)
+    // AC-N2-25: 늦지 않은 댓글, M2는 처음, 서버가 저절로 이은 끝나지 않은 실제 회차가 정확히 하나 → 옮기고 그 댓글부터 b에 기록한다
+    expect(((await api.get(`/api/broadcasts/${b}/live`)).body.link as { liveId: string }).liveId).toBe(m2)
+    expect((await chatEvents(w, seller.sellerId)).filter((event) => event.b === b).map((event) => event.id)).toContain('ig:17900000000000402')
+  })
+})
