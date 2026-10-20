@@ -369,5 +369,17 @@ cd apps/web && node e2e/serve.ts --port 5973 --api http://127.0.0.1:3900        
 - 바꾼 기존 시험 없음.
 - 검증(`E2E_PORT_OFFSET=800 pnpm verify`, 커밋 59356aa, 다른 작업 폴더 검증이 함께 돌아 부하 평균 약 27~37): typecheck(TS 439)·lint·golden(파일 26 · 파서 469 · 엔진 125 · 통과 594)·adversarial(39파일 804)·coverage(라인 100% · 분기 99.66%) 통과. test 실패 3(core engine-timing·server chat-messages 시간 초과·voice perf p99 — 부하, 따로 돌리면 chat-messages·voice 통과, engine-timing은 두 번 중 한 번 통과). e2e 통과 201 · 실패 5: I2 E2E는 TE-I2-001 포함 모두 통과. 실패는 받은 시각 `00:00:0x` 문자찜 넷(SA-I2-003 — main ad1bdb8·ac178c5의 test-e2e 고침이 이 트랙에 없음, KST 정오 뒤 실패)과 `s05/fill` p99(부하, SA-I2-004). 웹 단위 시험 29파일 474개.
 
+## 수정 라운드 2 (dev-web — SA-I2-003·GATE-I2-VERIFY)
+- 웹 코드는 바꾸지 않았다. 서버 수정 라운드 2(SA-I2-006·007·008)에 맞춰 화면을 확인했다.
+  - 설정 화면은 가게 이름 길이를 따로 따지지 않고 서버 칸 오류만 보인다 — 31~50자 이름의 판매자도 이름 그대로 계좌만 적어 저장된다(서버 `checkShopInput(body, currentName)`).
+  - 가져오기 창은 미리 보기 413 `FILE_TOO_LARGE`(파일 "파일 안의 내용이 너무 많아요…"·붙여 넣은 글 "붙여 넣은 내용이 너무 많아요…")와 등록 413의 `message`를 `RequestError`로 그대로 보인다. 같은 문장의 칸 오류는 겹쳐 보이지 않는다. 글을 고치거나 파일을 고르면 지난 미리 보기를 지우므로, 실패한 미리 보기 옆에 다른 입력의 "n개 등록하기"가 남지 않는다. 등록 본문은 서버가 잰 모양 그대로다(`{ requestId, rows: [{ no, name, price }] }`, 요청 번호 36자 ≤ 64).
+- **SA-I2-003**은 test-e2e 영역 파일이다(`tests/e2e/s06/support.ts`의 `smsUi`, `s06/attacks-r1.spec.ts`:172, `s06/sms.spec.ts`:191, `s06b/names.spec.ts`:50). 받은 시각을 `00:00:0x`로 고정해 두어, KST 정오 뒤에는 D-023에 따라 "내일"로 읽히고 늦은 시각 확인 창이 뜬다. 제품은 스펙대로 동작하고, 개발자는 `tests/**`를 쓰지 않는다(CLAUDE.md 절대 규칙 4). main의 `ad1bdb8`(`kstTimeAgo`)·`ac178c5`(names.spec)가 고친 것이라 합칠 때 풀린다. I2 웹 변경은 문자찜 화면(QuickInput·받은 시각 풀이)을 건드리지 않았다(`git diff 9f51ed9..HEAD -- apps/web` 확인).
+- 검증(`E2E_PORT_OFFSET=800 pnpm verify`, 커밋 7ba8577, KST 22:26 시작, 다른 작업 폴더(n2·n3·n5) 검증이 함께 돌아 부하 평균 10~36): EXIT=1.
+  - 통과: typecheck(TS 440)·lint·golden(파일 26 · 파서 469 · 엔진 125 · 통과 594)·adversarial(파일 40 · 808 모두 — 라운드 1의 TD-I2-004·007·008 포함)·coverage(라인 100% · 분기 99.66%).
+  - test: 2979 중 실패 4. 모두 웹 밖이고 I2가 건드리지 않은 시험이다.
+    - core `engine-timing`(8,000/2,000 비율 8.78 > 8)·`engine-properties-s03`(5초 초과): 부하가 내려간 틈에 혼자 다시 돌리니 둘 다 통과.
+    - server `chat-messages`(30초 초과)·voice `perf.test.ts` p99(114ms > 50ms): 부하 평균 36에서 혼자 다시 돌려도 실패. main은 voice 시간 시험을 D-902대로 `extract.perf.test.ts`로 게이트 밖에 두었고(df0f71b), 무거운 속성 시험 시간 제한을 올렸다(49ba408). 그래서 합칠 때 풀린다.
+  - e2e: 206 중 202 통과 · 실패 4 — SA-I2-003의 넷 그대로다. error-context에 "받은 시각(내일 00:00:01·00:00:07)이 지금보다 늦어요. 이대로 넣을까요?"가 남아 있다. attacks-r1 둘은 그 창 때문에 번호 칸이 비지 않았다("15"). I2 E2E는 모두 통과.
+
 ## 검증 (dev-web, `E2E_PORT_OFFSET=800 pnpm verify`)
 typecheck·lint·test(파일 135 · 테스트 2940)·golden(파일 26 · 파서 469 · 엔진 125 · 통과 594)·adversarial(799)·coverage 통과. e2e 165 통과 · 4 실패 — dev-server가 적은 것과 같은 넷(`s06/attacks-r1` 문자찜 결과 위치 375·1440, `s06/sms` AC-S06-14·81, `s06b/names` 받은 시각까지 같은 두 문자찜)이고 모두 받은 시각 `00:00:0x`를 KST 정오 뒤에 넣어 "받은 시각(내일 00:00:01)이 지금보다 늦어요" 창이 뜬 것(error-context 확인 — 문자찜 화면, 이번 웹 변경과 상관없음, test-e2e 영역). 웹 단위 시험 29파일 464개.
