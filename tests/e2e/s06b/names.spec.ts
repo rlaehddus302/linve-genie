@@ -169,4 +169,47 @@ test.describe('이름 표기 (AC-S06b-20)', () => {
     const text = await dlg.innerText()
     expect(text, '괄호가 겹친 이름 표기 (AC-S06b-20)').not.toContain(') (')
   })
+  // TE-S06b-004: "그래도 같은 표기가 둘 이상이면 생긴 순서로 둘째부터 · 2"(D-098)는 구분 글자를 붙인 이름끼리만 겹침을 본다.
+  // 구분 글자가 붙지 않은 이름(같은 표시 이름이 지금의 구매자 중 하나뿐)이 다른 구매자의 이름과 같은 글자여도 그대로 둔다.
+  test('TE-S06b-004: 합쳐진 "홍길동"(김철수 자세히의 떼어 내기)과 지금의 "홍길동"(목록)이 같은 이름으로 보이지 않는다', async ({ page }) => {
+    await login(page)
+    const { b, date } = await day(page)
+    const a = uniq('sim_hga_')
+    const bb = uniq('sim_hgb_')
+    const x = uniq('sim_kcs_')
+    await viewerClaim(page, b, '홍길동', '11', a)
+    await viewerClaim(page, b, '홍길동', '12', bb)
+    await viewerClaim(page, b, '김철수', '13', x)
+    await expect.poll(async () => (await scopeView(page, date, true)).buyers.length).toBe(3)
+    // 둘째 "홍길동"을 김철수에 합친다 (같은 사람의 다른 계정이라고 판매자가 판단)
+    expect((await writeEvent(page, { type: 'buyer.merge', from: bb, into: x, reason: '같은 사람' }, { date, rehearsal: true })).status).toBeLessThan(300)
+    await page.goto(`/buyers?date=${date}&rehearsal=true`)
+    const table = page.getByRole('table', { name: '구매자' })
+    await expect(table.getByRole('link')).toHaveCount(2)
+    const nameA = (await table.locator(`a.table-link[href*="buyer=${encodeURIComponent(a)}"]`).innerText()).trim()
+    // 김철수 자세히의 "합친 구매자" — 떼어 낼 사람의 이름
+    await page.goto(`/buyers?date=${date}&rehearsal=true&buyer=${encodeURIComponent(x)}`)
+    const merged = page.getByRole('region', { name: '구매자 자세히' }).getByRole('region', { name: '합친 구매자' }).getByRole('listitem')
+    await expect(merged).toHaveCount(1)
+    const nameB = (await merged.locator('span').first().innerText()).trim()
+    expect(nameB, `지금의 구매자 "${nameA}"와 합쳐진 구매자가 같은 이름 (D-098 " · 2")`).not.toBe(nameA)
+  })
+
+  test('TE-S06b-004: 구분 글자를 흉내 낸 닉네임 "홍길동 · 끝 1234"가 진짜 "홍길동 · 끝 1234"와 같은 이름으로 보이지 않는다', async ({ page }) => {
+    await login(page)
+    const { b, date } = await day(page)
+    const n = String(Math.floor(Math.random() * 9000) + 1000)
+    const real = `sim_real_${n}_1234`
+    const other = `sim_oth_${n}_5678`
+    const fake = `sim_fake_${n}_9999`
+    await viewerClaim(page, b, '홍길동', '11', real)
+    await viewerClaim(page, b, '홍길동', '12', other)
+    await viewerClaim(page, b, '홍길동 · 끝 1234', '13', fake)
+    await page.goto(`/buyers?date=${date}&rehearsal=true`)
+    const table = page.getByRole('table', { name: '구매자' })
+    await expect(table.getByRole('link')).toHaveCount(3)
+    const nameOf = async (id: string) => (await table.locator(`a.table-link[href*="buyer=${encodeURIComponent(id)}"]`).innerText()).trim()
+    expect(await nameOf(real)).toBe('홍길동 · 끝 1234')
+    expect(await nameOf(fake), '두 구매자가 같은 이름 (D-098 "그래도 같은 표기가 둘 이상이면 · 2")').not.toBe(await nameOf(real))
+  })
 })
