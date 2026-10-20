@@ -484,3 +484,57 @@ describe('AC-N3-16 계좌 암호문은 판매자·원천에 묶인다 (회귀)',
     expect(JSON.stringify(popbill.calls.slice(before))).not.toContain(accA.accountNumber)
   })
 })
+
+describe('TD-N3-003 입금자명의 짝 없는 서로게이트 글자 하나가 받아 오기·붙여넣기 전체를 막는다 (AC-N3-13·15, TD-N3-001과 같은 종류)', () => {
+  // cleanDepositName은 U+0000만 뺀다. 짝 없는 낮은 서로게이트(U+DC00~DFFF, JSON "\udc00" 이스케이프로 그대로 들어온다)가
+  // 한글 뒤에 오면 저장 질의(insert into deposits)가 실패해 같은 받아 오기·붙여넣기의 정상 입금까지 저장되지 않는다.
+  // (PGlite — 시험·E2E·LIVEJJIM_PGLITE_DIR 기동이 쓰는 DB. schema.ts 머리 주석도 서로게이트를 위험 글자로 적어 두었다.)
+  it('TD-N3-003: 계좌조회 응답의 한 줄 입금자명에 짝 없는 서로게이트(U+DC00)가 있어도 나머지 입금은 저장되고 원천이 막히지 않는다', async () => {
+    const popbill = new FakePopbillTransport()
+    h = await n3Harness({ deposits: { popbill } })
+    const a = await h.account('sur1')
+    h.clock.t += HOUR
+    const account = { corpNum: '1234567890', bankCode: '0004', accountNumber: '12345678901' }
+    popbill.register(account).addRows(account, [
+      { tid: 't1', trdt: '20261018203000', accIn: '14000', remark1: '김\uDC00영희' },
+      { tid: 't2', trdt: '20261018203100', accIn: '5000', remark1: '박철수' },
+    ])
+    const src = (await ok(dep(h.server, a.cookie).createSource({ kind: 'POPBILL', label: '국민', corpNum: account.corpNum, bank: account.bankCode, accountNumber: account.accountNumber }))).body.id as string
+    await h.server.deposits.runSource(a.sellerId, src)
+    const names = (await views(h.server, a.cookie)).map((v) => v.name)
+    expect(names).toContain('박철수')
+    const source = ((await ok(dep(h.server, a.cookie).sources())).body.sources as { id: string; lastError: string | null }[]).find((s) => s.id === src)
+    expect(source?.lastError).not.toBe('받은 내역을 저장하지 못했어요. 잠시 뒤에 다시 받아 올게요.')
+  })
+
+  it('TD-N3-003: 붙여넣기 미리 보기가 "새 입금"이라고 한 글(이름 칸에 U+DC00)을 넣으면 500이 아니고 미리 보기의 새 입금 수만큼 저장된다', async () => {
+    h = await n3Harness()
+    const a = await h.account('sur2')
+    h.clock.t += HOUR
+    const D = dep(h.server, a.cookie)
+    const text = '거래일시\t입금자명\t입금액\n2026-10-18 20:30\t김\uDC00영희\t14,000\n2026-10-18 20:31\t박철수\t5,000'
+    // 미리 보기가 "새 입금"이라고 한 줄 수 = 넣은 결과의 새 입금 수 (AC-N3-13 — 이름을 다듬든 읽지 못한 줄로 돌리든 둘이 같아야 한다)
+    const preview = await ok(D.preview(text))
+    const fresh = (preview.body.rows as { state: string }[]).filter((r) => r.state === 'NEW').length
+    expect(fresh).toBeGreaterThanOrEqual(1)
+    const res = await D.paste(text)
+    expect(res.status, res.text).toBe(200)
+    expect(res.body.new).toBe(fresh)
+    expect((await views(h.server, a.cookie)).map((v) => v.name)).toContain('박철수')
+    // 같은 글을 다시 넣으면 새 입금 0건 (미리 보기·줄 키·저장이 같은 이름을 본다)
+    const again = await ok(D.paste(text))
+    expect(again.body.new).toBe(0)
+  })
+
+  it('TD-N3-003: 시험용 입금 넣기(가짜 원천)도 같은 이름 다듬기를 거친다 — 서로게이트 줄이 다른 줄 저장을 막지 않는다', async () => {
+    h = await n3Harness()
+    const a = await h.account('sur3')
+    h.clock.t += HOUR
+    const src = await fakeSource(h.server, a.cookie)
+    await feed(h.server, a.cookie, a.sellerId, src, [
+      { key: 'f1', at: '2026-10-18 20:30', amount: 14_000, name: '김\uDC00영희' },
+      { key: 'f2', at: '2026-10-18 20:31', amount: 5_000, name: '박철수' },
+    ])
+    expect((await views(h.server, a.cookie)).map((v) => v.name)).toContain('박철수')
+  })
+})
