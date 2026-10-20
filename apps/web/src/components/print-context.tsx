@@ -79,7 +79,7 @@ export function usePrintState(): PrintSnapshot {
 }
 
 /**
- * 라벨 기능 켬/끔 (N4a, L-12 9): true 켬 · false 끔 · null 아직 모름(불러오는 중·불러오지 못함·앱이 저장소를 만들기 전).
+ * 라벨 기능 켬/끔 (N4a, L-13 9): true 켬 · false 끔 · null 아직 모름(불러오는 중·불러오지 못함·앱이 저장소를 만들기 전).
  * 라벨 조작은 true일 때만 보인다 — 꺼 둔 판매자의 화면에 라벨 버튼이 잠깐이라도 나타나지 않게(AC-N4a-18)
  */
 export function useLabelsEnabled(): boolean | null {

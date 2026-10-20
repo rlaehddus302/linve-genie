@@ -23,7 +23,7 @@ export interface QueueSummary {
   readonly printing: number
   /** 버릴 라벨 장 수 */
   readonly discard: number
-  /** 라벨 기능 켬(true)/끔(false) — 판매자 설정 (N4a, L-12 1). 화면은 이 값을 알기 전에는 라벨 조작을 숨긴다 */
+  /** 라벨 기능 켬(true)/끔(false) — 판매자 설정 (N4a, L-13 1). 화면은 이 값을 알기 전에는 라벨 조작을 숨긴다 */
   readonly labelsEnabled: boolean
 }
 

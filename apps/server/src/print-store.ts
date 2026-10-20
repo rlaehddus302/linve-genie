@@ -35,7 +35,7 @@ export async function readQueue(db: Db, sellerId: string): Promise<QueueRow | nu
 
 export type QueuePatch = Partial<Pick<QueueRow, 'deviceId' | 'deviceName' | 'printerConnected' | 'releasing' | 'paused' | 'backlog' | 'nextOrder' | 'frontOrder' | 'labelsEnabled'>>
 
-/** 라벨 기능이 꺼져 있는지 (잠그지 않고 읽는다 — 미리 거르기용. 줄이 없으면 켬, N4a L-12 1). 정하는 값은 잠근 줄의 labelsEnabled다 */
+/** 라벨 기능이 꺼져 있는지 (잠그지 않고 읽는다 — 미리 거르기용. 줄이 없으면 켬, N4a L-13 1). 정하는 값은 잠근 줄의 labelsEnabled다 */
 export async function labelsOff(db: Db, sellerId: string): Promise<boolean> {
   return (await readQueue(db, sellerId))?.labelsEnabled === false
 }
@@ -142,7 +142,7 @@ export async function createAutoJobs(
   const effects = await autoLabelEffects(tx, sellerId, scopeId, fromSeq, toSeq)
   if (effects.length === 0) return { labels: [], jobs: [] }
   const queue = await lockQueue(tx, sellerId, now)
-  // 라벨 기능이 꺼져 있으면 효과가 있어도 작업(·라벨 키)을 만들지 않는다 — 이 기록 트랜잭션 안에서 잠근 줄의 값으로 정한다 (N4a L-12 3, L-11 2, D-N4a-01).
+  // 라벨 기능이 꺼져 있으면 효과가 있어도 작업(·라벨 키)을 만들지 않는다 — 이 기록 트랜잭션 안에서 잠근 줄의 값으로 정한다 (N4a L-13 3, L-11 2, D-N4a-01).
   // 켬/끔을 바꾸는 요청도 같은 줄을 잠그므로, 바꾸기에 성공 응답이 나간 뒤 기록되는 이벤트는 반드시 바뀐 값을 따른다. 나중에 켜도 이 효과로 작업을 만들지 않는다
   if (!queue.labelsEnabled) return { labels: [], jobs: [] }
   const parsed = effects.map((row) => ({ row, effect: JSON.parse(row.body) as LabelEffectBody }))
@@ -201,7 +201,7 @@ export async function createAutoJobs(
 
 // ── 라벨 키 ──────────────────────────────────────────────────────────────
 
-/** 라벨 키를 효과와 묶는다 (아직 묶이지 않은 것만 — 켠 뒤 손으로 출력, N4a L-11 3·7, L-12 8) */
+/** 라벨 키를 효과와 묶는다 (아직 묶이지 않은 것만 — 켠 뒤 손으로 출력, N4a L-11 3·7, L-13 8) */
 export async function bindLabelEffect(tx: Db, sellerId: string, labelId: number, effectId: string): Promise<void> {
   await tx
     .update(printLabels)
@@ -463,7 +463,7 @@ export async function insertPrintRequest(tx: Db, sellerId: string, requestId: st
   await tx.insert(printRequests).values({ sellerId, requestId, result, createdAt: now })
 }
 
-// ── 라벨 기능 켬/끔 바꾼 기록 (N4a, L-12 2) ─────────────────────────────
+// ── 라벨 기능 켬/끔 바꾼 기록 (N4a, L-13 2) ─────────────────────────────
 
 export interface LabelSwitchRow {
   readonly id: number

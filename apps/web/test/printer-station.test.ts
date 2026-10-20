@@ -298,7 +298,7 @@ describe('출력 기기 되기 (AC-I1-10·23)', () => {
   })
 })
 
-describe('라벨 기능 켬/끔 (N4a, L-12 5·6, AC-N4a-17·18)', () => {
+describe('라벨 기능 켬/끔 (N4a, L-13 5·6, AC-N4a-17·18)', () => {
   const labelsEvent = (rev: number, enabled: boolean) => FakeEventSource.last.emit('labels', { rev, enabled, entry: { enabled, at: '2026-10-20T11:31:00.000Z', loginId: 'shop1' } })
 
   it('켬/끔을 모르면(그 칸이 없는 대기열 요약) 받지 않는다', async () => {

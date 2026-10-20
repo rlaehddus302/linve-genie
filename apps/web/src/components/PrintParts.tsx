@@ -194,7 +194,7 @@ export function QueueList() {
 }
 
 /**
- * 버릴 라벨 (AC-I1-24): "15번 · 우주천사 · 26.10.18 라벨을 버려 주세요"와 "버렸어요". 라벨 기능이 꺼져 있어도 남는다(L-12 4·9).
+ * 버릴 라벨 (AC-I1-24): "15번 · 우주천사 · 26.10.18 라벨을 버려 주세요"와 "버렸어요". 라벨 기능이 꺼져 있어도 남는다(L-13 4·9).
  * "버렸어요"는 알림 창(숫자 키로 고르는 목록)에서만 주 버튼이고, 라벨 화면에서는 보통 버튼이다 (AC-N4a-21)
  */
 export function DiscardList({ numbered = false }: { readonly numbered?: boolean }) {
@@ -238,7 +238,7 @@ export function PrintPauseDialog({ onClose }: { readonly onClose: () => void }) 
   const paused = print.overview?.queue.pause != null
   return (
     <Modal title="출력 멈춤" onClose={onClose}>
-      {/* 창이 열린 채 라벨 기능이 꺼지면 조치 대신 안내 (L-12 9) */}
+      {/* 창이 열린 채 라벨 기능이 꺼지면 조치 대신 안내 (L-13 9) */}
       {labels !== true ? <LabelsOffNote /> : paused ? <PausePanel /> : <p>지금은 출력이 멈추지 않았어요.</p>}
     </Modal>
   )

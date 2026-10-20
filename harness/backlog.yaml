@@ -269,7 +269,8 @@ sprints:
     devs: [server]
     tests: [domain]
     specIds: [YT-01, YT-02, YT-03, YT-04, YT-05, YT-06, YT-07, YT-08]
-    status: doing
+    status: done
+    note: "메인에 합침(2026-10-20). 화면 연결은 I3"
 
   - id: I1
     phase: 2
@@ -355,9 +356,17 @@ sprints:
       바이트 단위 골든(같은 그림 → 같은 바이트 열)과 가짜 기기로 시험한다. 같은 이름 다른 기기(Phomemo P12)는 고르지 않게 거른다.
       아이폰·인앱 브라우저는 직접 출력 불가 안내. 화면 연결(프린터 고르기 마법사)은 통합 스프린트에서.
     specIds: [PRT-01, PRT-02, LBL-06, LBL-12]
-    carryOver:
+    resolvedCarryOver:
       - "I1 통합 지적: packages/label/test/render.test.ts의 \"렌더 속도 (AC-P1-16)\"는 시간만 재므로 D-902대로 *.perf.test.ts로 옮긴다"
-    status: todo
+    status: done
+    note: >
+      메인에 합침(2026-10-20, 5f62377). Marklife YXQ(P50·S2·X2)·L11(P11·P12·P15·L13·LP90·LP15) 어댑터, 바우아토 실험 프로필, 모델 프로필, 테이프 템플릿,
+      바이트 골든 87. 감사 뒤 스펙 정리 D-N1-11(이름은 앞자리만)·D-N1-12(시간 초과 = 진행이 멈춘 20초)·D-N1-13(크레딧 없을 때 30ms 뒤 1초).
+      render.test 렌더 속도는 render.perf.test.ts로 옮겼다(carryOver 해결). packages/voice 시간 측정 시험도 D-902대로 extract.perf.test.ts로 나눴다(내용·기준 같음).
+      마지막 verify는 다른 트랙과 겹친 부하에서 서버 시간 초과 3건만 실패 — 단독 재실행 3/3 통과(N1이 바꾸지 않은 apps/server).
+    carryOver:
+      - "프린터 고르기 화면(마법사·라벨 설정에서 Marklife·바우아토 선택)은 통합 작업에서 연결한다"
+      - "HG-5 확인 목록 10번: 모델별 MTU·50×50 출력 시간을 실기기로 잰다"
 
   - id: N2
     phase: 5

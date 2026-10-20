@@ -1,4 +1,4 @@
-// 라벨 기능 켬/끔 — 출력 기록 저장소 (N4a, LABEL_RULES L-12, dev-notes "dev-server > 바뀐 계약" 1~3, AC-N4a-02·12·18·20):
+// 라벨 기능 켬/끔 — 출력 기록 저장소 (N4a, LABEL_RULES L-13, dev-notes "dev-server > 바뀐 계약" 1~3, AC-N4a-02·12·18·20):
 // 켬/끔의 원천은 대기열 요약의 labelsEnabled(처음 GET /api/print 한 번), 모르면 null. labels 알림은 바로 덮고, 설정 화면이 보는 동안은 바꾼 기록도 받는다.
 // 라벨 요청이 LABELS_OFF로 거절되면 그 문장을 남기고 꺼진 것으로 덮은 뒤 다시 받는다(저절로 다시 보내지 않는다).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

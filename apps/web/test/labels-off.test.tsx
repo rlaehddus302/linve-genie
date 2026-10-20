@@ -1,4 +1,4 @@
-// 라벨 끄기 모드 — 설정 화면·라벨 화면 (N4a, SPEC RCP-01·§7 화면 7·8, LABEL_RULES L-12, D-N4a-05·06,
+// 라벨 끄기 모드 — 설정 화면·라벨 화면 (N4a, SPEC RCP-01·§7 화면 7·8, LABEL_RULES L-13, D-N4a-05·06,
 // AC-N4a-10·11·12·13·16·18·19·20·21). 서버 계약은 harness/sprints/N4a/dev-notes.md "dev-server > 바뀐 계약".
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'

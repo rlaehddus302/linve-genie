@@ -243,14 +243,14 @@ export const printQueues = pgTable('print_queues', {
   rev: bigint('rev', { mode: 'number' }).notNull().default(0),
   updatedAt: timestamptz('updated_at').notNull(),
   /**
-   * 라벨 기능 켬/끔 (N4a, SPEC RCP-01, L-12 1·D-N4a-01). 기본 켬 — 줄이 없어도 켬. 판매 규칙 설정이 아니다(방송 스냅샷·엔진 입력에 들어가지 않는다).
+   * 라벨 기능 켬/끔 (N4a, SPEC RCP-01, L-13 1·D-N4a-01). 기본 켬 — 줄이 없어도 켬. 판매 규칙 설정이 아니다(방송 스냅샷·엔진 입력에 들어가지 않는다).
    * 이 줄을 잠근(lockQueue) 트랜잭션 안에서 읽고 바꾼다: 이벤트 기록의 효과 → 작업, 출력 요청 거절, 켜기·끄기가 같은 잠금으로 한 줄씩 처리된다
    */
   labelsEnabled: boolean('labels_enabled').notNull().default(true),
 })
 
 /**
- * 라벨 기능 켬/끔을 바꾼 기록 (N4a, L-12 2). 값이 실제로 바뀔 때마다 한 줄(바뀐 값·시각 UTC·바꾼 계정), 켬/끔을 바꾼 트랜잭션 안에서.
+ * 라벨 기능 켬/끔을 바꾼 기록 (N4a, L-13 2). 값이 실제로 바뀔 때마다 한 줄(바뀐 값·시각 UTC·바꾼 계정), 켬/끔을 바꾼 트랜잭션 안에서.
  * 지우지 않는다(지우는 API가 없다). 다른 판매자의 기록은 보이지 않는다(판매자 조건)
  */
 export const labelSwitches = pgTable(

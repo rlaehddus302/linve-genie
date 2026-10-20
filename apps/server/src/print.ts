@@ -5,7 +5,7 @@
 // - 출력함이 되면 그 라벨 키의 자동 출력 효과가 엔진에서 아직 실행 완료가 아닐 때 effect.labelPrinted를 같은 트랜잭션에서 기록한다(L-11 7).
 // - 판정은 하지 않는다. 엔진 상태는 코어 조회 함수로만 읽는다(label-data.ts).
 // - 로그에 라벨 데이터·닉네임·품종·기기 이름·가게 이름·템플릿·요청 본문을 남기지 않는다(L-11 16).
-// - 라벨 기능 켬/끔(N4a, L-12): 판매자 대기열 줄의 칸. 그 줄을 잠근 트랜잭션 안에서 읽고 바꾼다 — 꺼져 있으면 효과로 작업을 만들지 않고(createAutoJobs),
+// - 라벨 기능 켬/끔(N4a, L-13): 판매자 대기열 줄의 칸. 그 줄을 잠근 트랜잭션 안에서 읽고 바꾼다 — 꺼져 있으면 효과로 작업을 만들지 않고(createAutoJobs),
 //   출력을 새로 시작하거나 라벨을 새로 만드는 요청을 LABELS_OFF로 거절한다. 줄이거나 끝내는 요청·조회·폐기는 그대로다.
 import { randomBytes } from 'node:crypto'
 import { containsPhoneRun, currentBuyerOf, getProduct, listBroadcasts, listEffects, listProducts, type EngineState } from '@livejjim/core'
@@ -105,7 +105,7 @@ export const PRINT_MESSAGES = {
   templateInvalid: '라벨 설정에 고칠 곳이 있어요.',
   shopNameTooLong: '가게 이름은 40자 이하로 적어 주세요.',
   templateSaved: '라벨 설정을 저장했어요.',
-  /** 라벨 기능이 꺼져 있을 때 거절 (L-12 5, D-N4a-03) */
+  /** 라벨 기능이 꺼져 있을 때 거절 (L-13 5, D-N4a-03) */
   labelsOff: '라벨 기능이 꺼져 있어요. 설정에서 켠 뒤 다시 해 주세요.',
   /** 켬/끔 값이 불리언이 아님 */
   labelsInvalid: '라벨 기능은 켜기나 끄기로만 정할 수 있어요.',
@@ -190,11 +190,11 @@ export interface QueueSummary {
   readonly waiting: number
   readonly printing: number
   readonly discard: number
-  /** 라벨 기능 켬(true)/끔(false) — 기록이 없으면 켬 (N4a, L-12 1) */
+  /** 라벨 기능 켬(true)/끔(false) — 기록이 없으면 켬 (N4a, L-13 1) */
   readonly labelsEnabled: boolean
 }
 
-/** 라벨 기능 켬/끔을 바꾼 기록 한 줄 (N4a, L-12 2) */
+/** 라벨 기능 켬/끔을 바꾼 기록 한 줄 (N4a, L-13 2) */
 export interface LabelSwitchEntry {
   readonly enabled: boolean
   /** 바꾼 시각 (UTC ISO) */
@@ -322,7 +322,7 @@ const rejected = (status: number, code: Rejection['code'], message: string, extr
   rejection: rejection(status, code, message),
   ...(extra === undefined ? {} : { extra }),
 })
-/** 라벨 기능이 꺼져 있어 거절 (L-12 5) — 아무것도 기록하지 않는다 */
+/** 라벨 기능이 꺼져 있어 거절 (L-13 5) — 아무것도 기록하지 않는다 */
 const labelsOffRejected = (): ActionOutcome<never> => rejected(409, 'LABELS_OFF', PRINT_MESSAGES.labelsOff)
 
 const entryOf = (row: LabelSwitchRow): LabelSwitchEntry => ({ enabled: row.enabled, at: row.changedAt.toISOString(), loginId: row.loginId })
@@ -749,7 +749,7 @@ export class PrintService {
    * 이미 출력 기기인 기기가 다시 알리면 이름을 고치고 출력 그만하기를 거두며 멈춤을 바꾸지 않는다. 출력 기기가 되는 기기는 프린터가 연결돼 있다
    */
   async registerDevice(sellerId: string, deviceId: string, name: string, replace: boolean): Promise<ActionOutcome<{ queue: QueueSummary; waiting: number; backlog: boolean }>> {
-    // 라벨 기능이 꺼져 있으면 출력 기기를 정하지 않는다 (같은 기기의 다시 알림·바꾸기 포함, L-12 5)
+    // 라벨 기능이 꺼져 있으면 출력 기기를 정하지 않는다 (같은 기기의 다시 알림·바꾸기 포함, L-13 5)
     if (await labelsOff(this.#db, sellerId)) return labelsOffRejected()
     const now = this.#now()
     const touched: Touched = { jobs: [], labels: [] }
@@ -857,7 +857,7 @@ export class PrintService {
    */
   async restart(sellerId: string): Promise<ActionOutcome<{ queue: QueueSummary }>> {
     const current = await readQueue(this.#db, sellerId)
-    // 라벨 기능이 꺼져 있으면 멈춰 있지 않아도 거절한다 (L-12 5)
+    // 라벨 기능이 꺼져 있으면 멈춰 있지 않아도 거절한다 (L-13 5)
     if (current?.labelsEnabled === false) return labelsOffRejected()
     if (current?.paused == null) return { kind: 'ok', value: { queue: await this.summary(sellerId) } }
     const now = this.#now()
@@ -886,7 +886,7 @@ export class PrintService {
    */
   async claim(sellerId: string, deviceId: string): Promise<ClaimOutcome> {
     const current = await readQueue(this.#db, sellerId)
-    // 라벨 기능이 꺼져 있으면 받지 않는다 — 출력 기기가 아니어도 (L-12 5·6, 이미 받은 시도의 결과는 받는다)
+    // 라벨 기능이 꺼져 있으면 받지 않는다 — 출력 기기가 아니어도 (L-13 5·6, 이미 받은 시도의 결과는 받는다)
     if (current?.labelsEnabled === false) return { kind: 'labels_off' }
     // 출력 기기가 아니면 아무것도 쓰지 않는다 (대기열 줄도 만들지 않는다, AC-I1-06)
     if (current?.deviceId !== deviceId) return { kind: 'not_device' }
@@ -1105,9 +1105,9 @@ export class PrintService {
 
   /**
    * 라벨 출력 (손으로, L-11 3): 실제 범위의 지금 1등 찜, 그 라벨 키(찜, 지금 확정버전)에 작업이 하나도 없을 때만.
-   * 같은 요청 번호면 같은 결과. 엔진 기록이 아니라 5초 대기가 없다. 라벨 기능이 꺼져 있으면 거절(L-12 5).
+   * 같은 요청 번호면 같은 결과. 엔진 기록이 아니라 5초 대기가 없다. 라벨 기능이 꺼져 있으면 거절(L-13 5).
    * 그 라벨 키에 그 범위의 PRINT_PRODUCT_LABEL 효과가 있으면(라벨 기능을 끈 동안 나와 작업이 되지 않은 효과) 라벨 키를 그 효과와 묶는다 —
-   * 출력함이 되면 L-11 7대로 그 효과를 보고한다(N4a L-11 3·7, L-12 8, D-N4a-04)
+   * 출력함이 되면 L-11 7대로 그 효과를 보고한다(N4a L-11 3·7, L-13 8, D-N4a-04)
    */
   async printLabel(sellerId: string, accountId: string, requestId: string, b: string, claimId: string): Promise<ActionOutcome<{ jobs: JobView[] }>> {
     const prior = await this.#priorJobs(sellerId, requestId)
@@ -1415,7 +1415,7 @@ export class PrintService {
     value: unknown,
     version: number,
   ): Promise<ActionOutcome<{ template: LabelTemplate; version: number; warnings: { field: string; message: string }[]; message: string }>> {
-    // 라벨 기능이 꺼져 있으면 저장하지 않는다 (L-12 5 — 형식 검사보다 먼저)
+    // 라벨 기능이 꺼져 있으면 저장하지 않는다 (L-13 5 — 형식 검사보다 먼저)
     if (await labelsOff(this.#db, sellerId)) return labelsOffRejected()
     let text: string
     try {
@@ -1453,7 +1453,7 @@ export class PrintService {
     }
   }
 
-  // ── 라벨 기능 켬/끔 (N4a, L-12 1·2·6·7, D-N4a-01·02) ────────────────────
+  // ── 라벨 기능 켬/끔 (N4a, L-13 1·2·6·7, D-N4a-01·02) ────────────────────
 
   /** 지금 켬/끔·바꾼 기록 최근 20줄(새것 먼저)·대기 장 수. 아무것도 쓰지 않는다 (대기열 줄도 만들지 않는다) */
   async labelSettings(sellerId: string): Promise<LabelSettings> {
@@ -1465,8 +1465,8 @@ export class PrintService {
 
   /**
    * 켬/끔 바꾸기. 판매자 대기열 줄을 잠근 트랜잭션 안에서 지금 값과 비교해, 실제로 바뀔 때만 값을 바꾸고 바꾼 기록 한 줄을 남긴다(같은 값이면 아무것도 없다).
-   * 끌 때: 대기·출력 중 작업, 출력 기기, 멈춤을 바꾸지 않는다(L-12 6).
-   * 켤 때: 대기 작업이 있고 멈추지 않았거나 끊김 멈춤이면 판매자 멈춤 + 쌓인 라벨("출력 시작"), 손으로 푸는 멈춤이면 그대로, 대기 작업이 없으면 대기열을 바꾸지 않는다(L-12 7).
+   * 끌 때: 대기·출력 중 작업, 출력 기기, 멈춤을 바꾸지 않는다(L-13 6).
+   * 켤 때: 대기 작업이 있고 멈추지 않았거나 끊김 멈춤이면 판매자 멈춤 + 쌓인 라벨("출력 시작"), 손으로 푸는 멈춤이면 그대로, 대기 작업이 없으면 대기열을 바꾸지 않는다(L-13 7).
    * 커밋된 뒤에만 응답·알림(labels, print)이 나간다
    */
   async setLabels(sellerId: string, accountId: string, enabled: boolean): Promise<LabelSettings & { changed: boolean }> {

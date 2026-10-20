@@ -10,7 +10,7 @@
 //   채팅·문자찜 기록으로는 다시 받지 않는다. 자동 출력을 끈 방송에서 그 기록으로 생긴 1등은 작업이 없어 print 알림도 없으므로,
 //   상품 자세히가 1등 라벨 키가 없다고 알릴 때(ensureLabels) 한 번 다시 받는다.
 // - 리허설 범위에는 라벨이 없다(D-I1-08) — 조회하지 않는다.
-// - 라벨 기능 켬/끔(N4a, L-12): 대기열 요약의 `labelsEnabled`가 원천이다(처음 GET /api/print 한 번으로 안다). 실시간 `labels` 알림은 그 값을 바로 덮고
+// - 라벨 기능 켬/끔(N4a, L-13): 대기열 요약의 `labelsEnabled`가 원천이다(처음 GET /api/print 한 번으로 안다). 실시간 `labels` 알림은 그 값을 바로 덮고
 //   (뒤따르는 print 알림이 대기열 전체를 덮는다), 설정 화면이 보는 동안은 바꾼 기록도 받는다(GET /api/settings/labels — 보는 화면이 있는 동안만).
 //   모르는 동안(불러오는 중·불러오지 못함)은 null — 화면은 라벨 조작을 숨긴다. 라벨 요청이 `LABELS_OFF`로 거절되면(오래된 화면) 그 문장을 남기고
 //   꺼진 것으로 덮은 뒤 다시 받는다 — 저절로 다시 보내지 않는다(AC-N4a-20).
@@ -59,10 +59,10 @@ export interface PrintSnapshot {
   readonly labelsRefusal?: string | null
 }
 
-/** 거절 코드: 라벨 기능이 꺼져 있다 (L-12 5) */
+/** 거절 코드: 라벨 기능이 꺼져 있다 (L-13 5) */
 export const LABELS_OFF = 'LABELS_OFF'
 
-/** 라벨 기능 켬/끔 — 모르면 null (불러오는 중·불러오지 못함·옛 서버 응답): 화면은 라벨 조작을 숨긴다 (L-12 9, AC-N4a-18) */
+/** 라벨 기능 켬/끔 — 모르면 null (불러오는 중·불러오지 못함·옛 서버 응답): 화면은 라벨 조작을 숨긴다 (L-13 9, AC-N4a-18) */
 export function labelsEnabledOf(snapshot: Pick<PrintSnapshot, 'overview'>): boolean | null {
   const value: unknown = snapshot.overview?.queue.labelsEnabled
   return typeof value === 'boolean' ? value : null
@@ -471,7 +471,7 @@ export class PrintStore {
     return result
   }
 
-  // ── 라벨 기능 켬/끔 (N4a, L-12) ────────────────────────────────────────
+  // ── 라벨 기능 켬/끔 (N4a, L-13) ────────────────────────────────────────
 
   /**
    * 라벨 요청의 거절이 `LABELS_OFF`면(실시간 알림이 늦은 화면이 보낸 요청, AC-N4a-20): 그 문장을 남기고, 이 화면을 꺼진 상태로 덮은 뒤 다시 받는다.

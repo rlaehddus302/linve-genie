@@ -1,7 +1,7 @@
 // 라이브 콘솔 (SPEC §7 화면 2, AC-S05-02·10~15·21·22·30~35·40~42·54·62·63, AC-I1-30~34·36).
 // 빠른 입력·알림 띠는 위쪽에 늘 보인다. 현재 상품·상품 보드·채팅(·리허설 조작판)은 폭에 맞춰 나란히 또는 아래로.
 // 라벨 상태는 서버의 출력 기록(라벨 키마다)으로 보인다 — 리허설은 라벨이 없다. Alt+P(⌥P)는 현재 상품의 1등 라벨 다시 출력 창.
-// 라벨 기능이 꺼져 있거나 켬/끔을 아직 모르면(N4a, L-12 9, AC-N4a-14·18): 보드 라벨 상태·알림 "출력 멈춤"(Alt+1 순서에서도)·단축키 안내의 Alt+P가 빠지고,
+// 라벨 기능이 꺼져 있거나 켬/끔을 아직 모르면(N4a, L-13 9, AC-N4a-14·18): 보드 라벨 상태·알림 "출력 멈춤"(Alt+1 순서에서도)·단축키 안내의 Alt+P가 빠지고,
 // Alt+P는 창을 열지 않고 "라벨 쓰지 않음 — 설정에서 켤 수 있어요."를 알린다(빠른 입력칸 포커스 그대로). 버릴 라벨은 남는다.
 import { DEFAULT_SETTINGS, type SaleSettings } from '@livejjim/core'
 import type { CardRegistration, SuggestionCard } from '@livejjim/voice'
@@ -334,7 +334,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
 
   const names = useMemo(() => new BuyerNames(data.buyers, data.claims), [data.buyers, data.claims])
   const settingsOf = useCallback((id: string) => latest.current.data.broadcasts.get(id)?.settings ?? null, [])
-  // 라벨 상태는 서버의 출력 기록 (리허설 범위는 라벨이 없다 — 조회하지 않는다, D-I1-08). 라벨 기능이 꺼져 있거나 모르면 보지 않는다(L-12 9)
+  // 라벨 상태는 서버의 출력 기록 (리허설 범위는 라벨이 없다 — 조회하지 않는다, D-I1-08). 라벨 기능이 꺼져 있거나 모르면 보지 않는다(L-13 9)
   const labelsOn = useLabelsEnabled()
   const labelsOnRef = useRef(labelsOn)
   labelsOnRef.current = labelsOn

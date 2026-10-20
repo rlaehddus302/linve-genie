@@ -1,12 +1,14 @@
-// 라벨 골든 (AC-P1-01, D-P1-01): tests/golden/label/*.json의 모든 사례를 글 계산 순수 함수로 돌려 out과 깊은 같음으로 비교한다.
+// 라벨 골든 (AC-P1-01·AC-N1-02, D-P1-01·D-N1-03): tests/golden/label/*.json의 모든 사례를 글 계산 순수 함수로 돌려 out과 깊은 같음으로 비교한다.
 // 오류 사례는 글·그림을 만들지 않는지, 성공 사례는 렌더한 배치 결과의 글이 글 계산 값과 같은지(AC-P1-06)도 본다.
 // 골든 파일은 보호 경로라 고치지 않는다. 파일 수·사례 수는 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다.
+// N1: 사례 ID는 G-LBL-<세 자리> 또는 G-LBL-N1-<두 자리>, template에 size(그 크기의 기본 템플릿에서 시작 — README "size 덮어쓰기").
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_LABEL_SIZE,
   a4Layout,
+  canMakePackingLabel,
   computePackingText,
   computeProductText,
   defaultTemplate,
@@ -26,7 +28,9 @@ const CASE_KEYS = {
   size: ['id', 'title', 'refs', 'note', 'size', 'out'],
 } as const
 const REQUIRED = { product: ['id', 'title', 'refs', 'data', 'out'], packing: ['id', 'title', 'refs', 'data', 'out'], size: ['id', 'title', 'refs', 'size', 'out'] } as const
-const TEMPLATE_KEYS = { product: ['shopName', 'priceStyle', 'visible'], packing: ['shopName', 'perPage', 'visible'] } as const
+const TEMPLATE_KEYS = { product: ['size', 'shopName', 'priceStyle', 'visible'], packing: ['size', 'shopName', 'perPage', 'visible'] } as const
+/** 사례 ID: P1의 세 자리, 또는 병렬 스프린트 접두어 + 두 자리 (README "라벨 골든") */
+const CASE_ID = /^G-LBL-(?:\d{3}|N1-\d{2})$/
 const ERROR_CODES = ['INVALID_DATA', 'INVALID_TEMPLATE']
 
 type Kind = keyof typeof CASE_KEYS
@@ -63,13 +67,15 @@ function loadGolden(): GoldenFile[] {
       const at = `${where} ${String(c.id)}`
       for (const key of Object.keys(c)) if (!(CASE_KEYS[kind] as readonly string[]).includes(key)) throw new Error(`${at}: 모르는 키 ${key}`)
       for (const key of REQUIRED[kind]) if (!Object.hasOwn(c, key)) throw new Error(`${at}: ${key}가 없다`)
-      if (typeof c.id !== 'string' || !/^G-LBL-\d{3}$/.test(c.id)) throw new Error(`${at}: id 형식`)
+      if (typeof c.id !== 'string' || !CASE_ID.test(c.id)) throw new Error(`${at}: id 형식`)
       if (ids.has(c.id)) throw new Error(`${at}: 겹친 id`)
       ids.add(c.id)
       if (!Array.isArray(c.refs) || c.refs.length === 0) throw new Error(`${at}: refs가 비었다`)
       if (c.template !== undefined) {
         if (kind === 'size' || typeof c.template !== 'object' || c.template === null) throw new Error(`${at}: template 형식`)
         for (const key of Object.keys(c.template)) if (!(TEMPLATE_KEYS[kind] as readonly string[]).includes(key)) throw new Error(`${at}: 모르는 template 키 ${key}`)
+        const size = (c.template as Record<string, unknown>).size
+        if (size !== undefined && !isLabelSize(size)) throw new Error(`${at}: template.size가 L-1 목록 밖`)
       }
       const out = c.out as Record<string, unknown>
       if (typeof out !== 'object' || out === null) throw new Error(`${at}: out 형식`)
@@ -85,11 +91,24 @@ function loadGolden(): GoldenFile[] {
   })
 }
 
-/** 기본 템플릿(50×30)에 사례의 덮어쓸 값을 얹는다 */
+/**
+ * 기본 템플릿에 사례의 덮어쓸 값을 얹는다. size가 있으면 그 크기의 기본 템플릿에서 시작하고, 포장 템플릿이 없는 크기(작은 크기)면
+ * 50×30 기본 포장 템플릿의 size만 그 크기로 바꾼다(README "size 덮어쓰기" — 지어내는 템플릿이 하나로 정해지게).
+ */
 function templateFor(kind: 'product' | 'packing', overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  const base = structuredClone(defaultTemplate(kind)) as unknown as Record<string, unknown>
+  const size = overrides.size
+  const start =
+    size === undefined
+      ? defaultTemplate(kind)
+      : !isLabelSize(size)
+        ? { ...defaultTemplate(kind), size }
+        : kind === 'packing' && !canMakePackingLabel(size)
+          ? { ...defaultTemplate('packing'), size }
+          : defaultTemplate(kind, size)
+  const base = structuredClone(start) as unknown as Record<string, unknown>
   const items = base.items as Record<string, Record<string, unknown>>
   for (const [key, value] of Object.entries(overrides)) {
+    if (key === 'size') continue
     if (key === 'visible') {
       for (const [id, visible] of Object.entries(value as Record<string, unknown>)) items[id] = { ...(items[id] ?? {}), visible }
     } else base[key] = value
@@ -102,14 +121,21 @@ const TOO_WIDE_FOR_DEFAULT = ['G-LBL-013']
 
 const golden = loadGolden()
 
-describe('라벨 골든 (AC-P1-01)', () => {
-  it('파일 3개 · 사례 83개(상품 50 · 포장 29 · 크기 4)를 읽는다', () => {
-    expect(golden.map((g) => g.file)).toEqual(['packing.json', 'product.json', 'sizes.json'])
+describe('라벨 골든 (AC-P1-01·AC-N1-02)', () => {
+  it('파일 4개 · 사례 114개(상품 68 = 50 + 18 · 포장 34 · 크기 12)를 읽는다', () => {
+    expect(golden.map((g) => g.file)).toEqual(['packing.json', 'product-sized.json', 'product.json', 'sizes.json'])
     const count = (kind: Kind): number => golden.filter((g) => g.kind === kind).reduce((n, g) => n + g.cases.length, 0)
-    expect(count('product')).toBe(50)
-    expect(count('packing')).toBe(29)
-    expect(count('size')).toBe(4)
-    expect(golden.reduce((n, g) => n + g.cases.length, 0)).toBe(83)
+    expect(count('product')).toBe(68)
+    expect(golden.find((g) => g.file === 'product.json')?.cases).toHaveLength(50)
+    expect(golden.find((g) => g.file === 'product-sized.json')?.cases).toHaveLength(18)
+    expect(count('packing')).toBe(34)
+    expect(count('size')).toBe(12)
+    expect(golden.reduce((n, g) => n + g.cases.length, 0)).toBe(114)
+  })
+
+  it('사례 ID 형식: G-LBL-<세 자리> 또는 G-LBL-N1-<두 자리>만 받는다', () => {
+    for (const id of ['G-LBL-001', 'G-LBL-204', 'G-LBL-N1-01', 'G-LBL-N1-35']) expect(CASE_ID.test(id), id).toBe(true)
+    for (const id of ['G-LBL-01', 'G-LBL-0001', 'G-LBL-N1-1', 'G-LBL-N1-001', 'G-LBL-N2-01', 'G-PRT-N1-01', 'g-lbl-001']) expect(CASE_ID.test(id), id).toBe(false)
   })
 
   const env = nodeEnv()

@@ -1,4 +1,4 @@
-// 라벨 끄기 모드 — 콘솔·정산 자세히의 포장 라벨 (N4a, LABEL_RULES L-12 9·10, UX-05, D-N4a-05, AC-N4a-14·15·16·18·19·20).
+// 라벨 끄기 모드 — 콘솔·정산 자세히의 포장 라벨 (N4a, LABEL_RULES L-13 9·10, UX-05, D-N4a-05, AC-N4a-14·15·16·18·19·20).
 // 꺼져 있으면 보드 라벨 상태·상품 자세히의 라벨·Alt+P 창·알림 "출력 멈춤"·단축키 안내의 Alt+P가 빠지고, 라벨 자리에 "라벨 쓰지 않음" 안내 — 버릴 라벨은 남는다.
 // 켬/끔을 모르는 동안에도 라벨 조작을 보이지 않는다.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'

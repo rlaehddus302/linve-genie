@@ -1,4 +1,4 @@
-// N4a 라벨 기능 켬/끔 서버 규칙 (AC-N4a-01~07·41, SPEC RCP-01, LABEL_RULES L-12, L-11 2·3·7, D-N4a-01~04).
+// N4a 라벨 기능 켬/끔 서버 규칙 (AC-N4a-01~07·41, SPEC RCP-01, LABEL_RULES L-13, L-11 2·3·7, D-N4a-01~04).
 import { readFileSync } from 'node:fs'
 import type { PGlite } from '@electric-sql/pglite'
 import { sql } from 'drizzle-orm'
