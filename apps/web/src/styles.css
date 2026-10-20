@@ -1925,6 +1925,79 @@ html:has(.sms-submit-bar) {
   }
 }
 
+/* ── 여러 플랫폼·붙여넣기 (N2b-2, AC-N2b-2-60~68) ─────────────────
+ * 플랫폼 칸은 스크롤 영역이다. 고정 영역에는 한 줄 알림만(틱톡 알림 줄·인스타그램 알림). 긴 닉네임·댓글은 줄을 바꿔 375px에서도 가로로 넘치지 않는다. */
+.platform-panel .notice,
+.platform-panel .warning,
+.multi-platform-notice {
+  margin: 0;
+}
+
+.platform-alerts {
+  min-width: 0;
+}
+
+.platform-alert-line {
+  display: block;
+  inline-size: 100%;
+  min-height: 2.75rem;
+  font-size: 1rem;
+  text-align: start;
+  cursor: pointer;
+}
+
+.platform-notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.tag-platform {
+  border-style: dashed;
+}
+
+.paste-dialog,
+.paste-preview {
+  min-width: 0;
+}
+
+.paste-text {
+  inline-size: 100%;
+  min-height: 8rem;
+  resize: vertical;
+}
+
+.paste-rows,
+.paste-groups {
+  display: grid;
+  gap: 0.25rem;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.paste-row,
+.paste-groups > li {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.paste-row-order {
+  font-weight: 700;
+}
+
+.paste-line {
+  color: #3c4043;
+}
+
+.tiktok-notice-lines {
+  display: grid;
+  gap: 0.5rem;
+  padding-inline-start: 1.5rem;
+}
+
 /* ── 결과·안내의 뜻 (UX-01, D-102, AC-S06b-40) ────────────────
  * 결과 카드·안내 띠·창 안 알림은 종류를 data-tone으로 드러내고 색은 그 종류의 색이다. 늘 낱말과 함께(색만으로 구분하지 않는다).
  * success 성공(원하던 대로 됨) · warning 주의(확인이 필요함) · danger 위험(실패·막힘) · info 보통(정보). 글자 명암비 4.5:1 이상.

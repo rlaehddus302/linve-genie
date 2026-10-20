@@ -34,7 +34,8 @@ import type { ScopeData } from '../lib/scope-data.ts'
 import { useScopeStore } from '../lib/use-store.ts'
 import { useWide } from '../lib/use-wide.ts'
 import type { UndoQueue } from '../lib/undo-queue.ts'
-import { BUYER_KIND_WORD, ORIGIN_WORD, paymentWord } from '../lib/words.ts'
+import { ORIGIN_WORD, paymentWord } from '../lib/words.ts'
+import { buyerPlatformWord } from '../lib/platforms.ts'
 import { openBlockAction, openClaimAction } from './actions.ts'
 import { productLabel, type ConsoleApi } from './console-context.ts'
 import { ErrorNote } from './ErrorNote.tsx'
@@ -269,7 +270,7 @@ function BuyerCards({ api, label, rows, counts, onOpen }: { readonly api: Consol
         <li key={buyer.id}>
           <a className="list-link" href={routePath({ name: 'buyers', date: api.data.date, rehearsal: api.data.rehearsal, buyer: buyer.id })} onClick={(event) => linkClick(event, () => onOpen(buyer.id))}>
             <strong className="buyer-name">{api.names.name(buyer.id)}</strong>
-            <span className="tag">{BUYER_KIND_WORD[buyer.kind]}</span>
+            <span className="tag">{buyerPlatformWord(buyer)}</span>
             <span>
               {buyer.items.length}개 · {formatWon(buyer.subtotal)}
             </span>
@@ -309,7 +310,7 @@ function BuyerTable({ api, label, rows, counts, onOpen }: { readonly api: Consol
                   {api.names.name(buyer.id)}
                 </a>
               </td>
-              <td>{BUYER_KIND_WORD[buyer.kind]}</td>
+              <td>{buyerPlatformWord(buyer)}</td>
               <td className="num">{buyer.items.length}개</td>
               <td className="num">{formatWon(buyer.subtotal)}</td>
               <td>{payTag(api, buyer)}</td>
@@ -432,7 +433,7 @@ function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement }: 
       <dl className="facts">
         <div>
           <dt>종류</dt>
-          <dd>{BUYER_KIND_WORD[buyer.kind]}</dd>
+          <dd>{buyerPlatformWord(buyer)}</dd>
         </div>
         {history.length > 0 ? (
           <div>
@@ -589,7 +590,7 @@ function MergeSearchDialog({ api, opened, onClose, onChoose }: { readonly api: C
           <li key={hit.matched.id}>
             <button type="button" className="choice-button" onClick={() => onChoose(hit.matched)}>
               <strong>{api.names.name(hit.matched.id)}</strong>
-              <span className="tag">{BUYER_KIND_WORD[hit.matched.kind]}</span>
+              <span className="tag">{buyerPlatformWord(hit.matched)}</span>
               {distinguishWords(hit.matched, counts).map((word) => (
                 <span key={word}>{word}</span>
               ))}
@@ -671,10 +672,10 @@ function MergeDialog({ api, opened, otherId, intoId, onClose, onSwap, onDone, on
       <p className="merge-direction">
         <strong>
           남는 이름: {targetName}
-          {target === undefined ? '' : `(${BUYER_KIND_WORD[target.kind]})`}
+          {target === undefined ? '' : `(${buyerPlatformWord(target)})`}
         </strong>{' '}
         ← {api.names.name(fromId)}
-        {from === undefined ? '' : `(${BUYER_KIND_WORD[from.kind]})`}
+        {from === undefined ? '' : `(${buyerPlatformWord(from)})`}
       </p>
       <button type="button" className="button" onClick={() => onSwap(fromId)}>
         방향 바꾸기
