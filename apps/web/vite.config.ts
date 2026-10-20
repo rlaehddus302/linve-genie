@@ -2,12 +2,15 @@
 // 서버는 CORS를 내지 않으므로 화면과 API는 같은 출처로 띄운다: 개발·미리 보기 서버가 /api를 서버로 넘긴다(SSE 포함).
 // 서버 주소는 LIVEJJIM_API_URL(기본 http://localhost:3000). 서버의 LIVEJJIM_APP_ORIGIN은 이 화면 주소(예: http://localhost:5173)로 둔다.
 // PWA: 운영용 빌드가 끝나면 그 빌드의 앱 껍데기(index.html·해시가 붙은 파일·public의 매니페스트·아이콘) 목록으로 /sw.js를 만든다(D-093).
+// 음성: 운영용 빌드는 음성 조각 주소를 src/voice/load.ts에 넣어 준다 — 받지 못한 뒤 새 주소로 다시 받는다(TE-I4-002).
 import { createHash } from 'node:crypto'
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { join, relative, sep } from 'node:path'
+import { readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { join, posix, relative, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 import { serviceWorkerSource } from './pwa/service-worker.ts'
+import { VOICE_CHUNK_PLACEHOLDER } from './src/voice/chunk.ts'
 
 const apiTarget = process.env['LIVEJJIM_API_URL'] ?? 'http://localhost:3000'
 const proxy = { '/api': { target: apiTarget, changeOrigin: false } }
@@ -37,6 +40,49 @@ export function lazyChunks(bundle: Readonly<Record<string, { readonly type: stri
     for (const imported of bundle[fileName]?.imports ?? []) queue.push(imported)
   }
   return new Set(chunks.map(([fileName]) => fileName).filter((fileName) => !eager.has(fileName)))
+}
+
+function realPath(path: string): string {
+  try {
+    return realpathSync(path)
+  } catch {
+    return path
+  }
+}
+
+/** 음성 패키지 진입 파일 (그 동적 import가 만드는 조각을 찾는다) */
+const VOICE_ENTRY = realPath(fileURLToPath(new URL('../../packages/voice/src/index.ts', import.meta.url)))
+
+/** chunk에서 target 파일을 부르는 상대 주소 (같은 폴더면 "./파일") */
+export function chunkRelative(from: string, target: string): string {
+  const path = posix.relative(posix.dirname(from), target)
+  return path.startsWith('.') ? path : `./${path}`
+}
+
+/**
+ * 음성 조각 주소를 넣는다 (TE-I4-002): 자리 글자(VOICE_CHUNK_PLACEHOLDER)가 든 조각마다 그 조각에서 본 음성 조각의 상대 주소로 바꾼다.
+ * 크롬은 받지 못한 동적 import 주소를 다시 받지 않으므로 load.ts가 이 주소에 ?retry=N을 붙여 다시 받는다. 음성 조각이나 자리를 못 찾으면 빌드를 멈춘다.
+ */
+function voiceChunkAddress(): Plugin {
+  return {
+    name: 'livejjim-voice-chunk-address',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      const chunks = Object.values(bundle).flatMap((output) => (output.type === 'chunk' ? [output] : []))
+      const voice = chunks.filter((chunk) => chunk.facadeModuleId !== null && realPath(chunk.facadeModuleId) === VOICE_ENTRY)
+      if (voice.length !== 1 || voice[0] === undefined) {
+        this.error(`음성 조각을 하나로 찾지 못했다 (${String(voice.length)}개) — ${VOICE_ENTRY}`)
+      }
+      const target = voice[0].fileName
+      let filled = 0
+      for (const chunk of chunks) {
+        if (!chunk.code.includes(VOICE_CHUNK_PLACEHOLDER)) continue
+        chunk.code = chunk.code.replaceAll(VOICE_CHUNK_PLACEHOLDER, chunkRelative(chunk.fileName, target))
+        filled++
+      }
+      if (filled === 0) this.error(`음성 조각 주소 자리(${VOICE_CHUNK_PLACEHOLDER})가 든 조각이 없다 — src/voice/load.ts를 확인한다`)
+    },
+  }
 }
 
 /** 빌드 결과로 /sw.js를 쓴다 */
@@ -75,7 +121,7 @@ function serviceWorker(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), serviceWorker()],
+  plugins: [react(), voiceChunkAddress(), serviceWorker()],
   server: { proxy },
   preview: { proxy },
 })

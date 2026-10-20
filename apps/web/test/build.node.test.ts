@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { VOICE_CHUNK_PLACEHOLDER } from '../src/voice/chunk.ts'
 import { cssUrls, isExternalUrl, urlAttributes } from './urls.ts'
 
 const WEB_ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -167,6 +168,17 @@ describe('vite build', () => {
     expect(read(voice[0] as string)).toContain('ko-KR')
     // 첫 화면 html은 그 조각을 미리 받지 않는다 (modulepreload 없음)
     expect(read('index.html')).not.toContain(voice[0] as string)
+  })
+
+  it('TE-I4-002: 음성 조각 주소가 진입 조각에 들어가 있다 — 받지 못한 뒤 그 주소에 ?retry=N을 붙여 다시 받는다. 자리 글자는 남지 않는다', () => {
+    const marker = '음성 인식이 자꾸 끊겨요.'
+    const voice = lazyScripts().filter((file) => read(file).includes(marker))
+    expect(voice).toHaveLength(1)
+    const address = `./${(voice[0] as string).slice('assets/'.length)}`
+    for (const file of builtFiles().filter((f) => f.endsWith('.js'))) expect(read(file), file).not.toContain(VOICE_CHUNK_PLACEHOLDER)
+    // 진입 조각: 동적 import 한 번 + 다시 받을 주소 글자 한 번 (같은 폴더의 상대 주소)
+    const eager = eagerScripts().map(read).join('\n')
+    expect(eager.split(address).length - 1).toBeGreaterThanOrEqual(2)
   })
 
   it('운영용 빌드다 (React 개발 모드 코드가 들어가지 않는다)', () => {
