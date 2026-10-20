@@ -16,7 +16,7 @@
 | `src/json-stream.ts` | JSON 끌어오기 읽개(조각 글에서 키·값 하나씩 — 값 하나 길이 상한) | AC-I2-62 |
 | `src/work-pool.ts`·`src/work-worker.ts` | 무거운 파일 작업의 워커 스레드 풀(확인서 그림·PDF·전원 PDF·판매대장 엑셀·`.xlsx` 읽기) | AC-I2-10·11·20·51 |
 | `src/closing.ts` | `ClosingService` — 위를 엮는 서비스(가게 설정·확인서·판매대장·포장·라벨·지난 구매·가져오기·백업 상태·전체 내려받기) | 전부 |
-| `src/api.ts` | 새 경로(아래 표), 날짜 보기에 `packing` 칸, 가져오기(미리 보기·등록) 본문 3MB | 전부 |
+| `src/api.ts` | 새 경로(아래 표), 날짜 보기에 `packing` 칸, 가져오기 본문 상한(미리 보기 3MB·등록 6MB 남짓 — 수정 라운드 2) | 전부 |
 | `src/hub.ts` | seq 없는 이름 붙은 알림 `publishNamed(seller, 'packing' \| 'shop' \| 'generator', data)` | AC-I2-13·32 |
 | `src/writer.ts` | `withScope`(범위 줄 안 덧붙이기 기록 — 포장 명령), `forgetSeller`(복구 뒤 캐시 비우기) | AC-I2-31·62 |
 | `src/commands/restore.ts`·`restore-args.ts` | 복구·가져오기 명령 | AC-I2-62 |
@@ -35,7 +35,7 @@
 | 메서드·경로 | 요청 | 성공 응답 | 오류 |
 |---|---|---|---|
 | `GET /api/shop` | — | `{ shop: { name, bank, accountNumber, accountHolder, accountNote } }` (빈 칸은 `""`) | — |
-| `PUT /api/shop` | `{ name, bank, accountNumber, accountHolder, accountNote }` 다섯 칸 모두 문자열 | `{ shop }` + 실시간 `shop` 알림 | 400 `INVALID_INPUT`(칸별 `problems` — 계좌 일부만이면 message = "은행·계좌번호·예금주를 모두 적거나 모두 비워 주세요."), `UNKNOWN_FIELD` |
+| `PUT /api/shop` | `{ name, bank, accountNumber, accountHolder, accountNote }` 다섯 칸 모두 문자열. 가게 이름이 지금 이름과 같으면(앞뒤 공백을 지운 뒤) 길이를 다시 따지지 않는다 — 계정 만들기가 받은 31~50자 이름도 계좌만 적어 저장된다(SA-I2-006) | `{ shop }` + 실시간 `shop` 알림 | 400 `INVALID_INPUT`(칸별 `problems` — 계좌 일부만이면 message = "은행·계좌번호·예금주를 모두 적거나 모두 비워 주세요."), `UNKNOWN_FIELD` |
 | `GET /api/days/:date/receipt?buyer=` | (`&rehearsal=true`) | 확인서 데이터(문서 패키지 `ReceiptData` 그대로), 머리 `X-Receipt-Created-At: <UTC ms>` | 422 `NO_ITEMS` "구매 내역이 없어 확인서를 만들 수 없어요.", 500 `AMOUNT_MISMATCH`(문서 패키지 문장 + 서버 경보), 404 |
 | `GET /api/days/:date/receipt.pdf?buyer=` · `receipt.png?buyer=` | 같음 | 파일. 이름 `확인서-YYYY-MM-DD-<이름>.pdf/png`(리허설 `리허설-` 앞에), 머리 `X-Receipt-Created-At` | 같음 |
 | `GET /api/days/:date/receipts.pdf` | (`?rehearsal=true`) | 전원 PDF `확인서-YYYY-MM-DD-전원.pdf`, 머리 `X-Receipt-Count: n` | 422 `NO_ITEMS` "그 날짜에 구매 내역이 있는 구매자가 없어요.", 500, 404 |
@@ -47,8 +47,8 @@
 | `GET /api/days/:date/packing-label.png?buyer=&page=k` | k = 1부터 | 1비트 PNG(50×30 → 384×240점), 이름 `포장라벨-YYYY-MM-DD-<이름>-<k>of<n>.png` | 400 쪽 번호 |
 | `GET /api/days/:date/packing-label.pdf?buyer=` | — | 라벨 크기 PDF(모든 쪽), 이름 `포장라벨-YYYY-MM-DD-<이름>.pdf` | — |
 | `GET /api/days/:date/past?buyer=&before=YYYY-MM-DD` | 실제 범위만, `before` = 다음 쪽 | `{ date, buyer, items: PastItem[], more, next }` | 404(다른 판매자·리허설·모르는 구매자) |
-| `POST /api/broadcasts/:id/import/preview` | `{ text }` 또는 `{ file: { name, data(base64) } }` 하나 — 본문 상한 3MB | `{ broadcast, unit, maxNumber, error: 'EMPTY'\|'TOO_MANY'\|null, header, headerCells, rows: [{ line, no, name, price, text } \| { line, error, text }], register, problems }` | 409 `BROADCAST_ENDED` "끝난 방송에는 상품 목록을 가져올 수 없어요.", 413 `FILE_TOO_LARGE` "파일이 너무 커요(2MB까지).", 413 `FILE_TOO_LARGE` "파일 안의 내용이 너무 많아요. 번호·품종·가격 세 칸만 새 파일에 옮겨 다시 골라 주세요."(`.xlsx` 칸 글 200,000글자 초과·압축을 푼 크기·시트 수 상한), 400 `FILE_TYPE` "엑셀(.xlsx)이나 CSV 파일을 골라 주세요.", 400 `FILE_UNREADABLE` "파일을 읽지 못했어요. 엑셀에서 다시 저장해 주세요.", 413(글 200,000글자 초과), 429 `BUSY`, 404 |
-| `POST /api/broadcasts/:id/import` | `{ requestId, rows: [{ no, name, price }] }` 1~500개(미리 보기의 등록할 줄 그대로 — 품종은 정규화한 글) — 본문 상한 3MB(미리 보기와 같다, SA-I2-001) | `{ registered, seq }` (같은 요청 번호 = 처음 결과) | 409 `IMPORT_CHANGED` "그 사이에 바뀐 것이 있어요. 다시 확인해 주세요."(`problems[].field = rows.<i>`), 409 `BROADCAST_ENDED`, 400 형식, 404 |
+| `POST /api/broadcasts/:id/import/preview` | `{ text }` 또는 `{ file: { name, data(base64) } }` 하나 — 본문 상한 3MB(넘으면 413 `PAYLOAD_TOO_LARGE` "보낸 내용이 너무 커요. 파일은 2MB까지, 붙여 넣은 글은 200,000글자까지 가져올 수 있어요.") | `{ broadcast, unit, maxNumber, error: 'EMPTY'\|'TOO_MANY'\|null, header, headerCells, rows: [{ line, no, name, price, text } \| { line, error, text }], register, problems }` | 409 `BROADCAST_ENDED` "끝난 방송에는 상품 목록을 가져올 수 없어요.", 413 `FILE_TOO_LARGE` "파일이 너무 커요(2MB까지).", 413 `FILE_TOO_LARGE` "파일 안의 내용이 너무 많아요. 번호·품종·가격 세 칸만 새 파일에 옮겨 다시 골라 주세요."(`.xlsx` 칸 글 200,000글자 초과·압축을 푼 크기·시트 수 상한, 파일에서 나온 등록할 줄의 등록 본문이 등록 상한 초과 — SA-I2-007), 413 `FILE_TOO_LARGE` "붙여 넣은 내용이 너무 많아요. 번호·품종·가격 세 칸만 다시 복사해 붙여 넣어 주세요."(붙여 넣은 글 — 200,000글자 안이면 생기지 않는다), 400 `FILE_TYPE` "엑셀(.xlsx)이나 CSV 파일을 골라 주세요.", 400 `FILE_UNREADABLE` "파일을 읽지 못했어요. 엑셀에서 다시 저장해 주세요.", 413(글 200,000글자 초과), 429 `BUSY`, 404 |
+| `POST /api/broadcasts/:id/import` | `{ requestId, rows: [{ no, name, price }] }` 1~500개(미리 보기의 등록할 줄 그대로 — 품종은 정규화한 글) — 본문 상한 `3 × 2MB + 64KB`(2MB 파일에서 나온 품종의 최악 크기 — SA-I2-007, 넘으면 413 `PAYLOAD_TOO_LARGE` "등록할 내용이 너무 많아요. 번호·품종·가격 세 칸만 새 파일에 옮겨 다시 골라 주세요.") | `{ registered, seq }` (같은 요청 번호 = 처음 결과) | 409 `IMPORT_CHANGED` "그 사이에 바뀐 것이 있어요. 다시 확인해 주세요."(`problems[].field = rows.<i>`), 409 `BROADCAST_ENDED`, 400 형식, 404 |
 | `GET /api/backups` | — | `{ enabled, retentionDays: 30, lastSuccessAt(마지막 자동 백업, UTC ISO\|null), backups: [{ createdAt, size }] }`(최근 것부터) | — |
 | `GET /api/export/records.json.gz` | — | 백업과 같은 형식(gzip), 이름 `라이브찜-전체기록-YYYY-MM-DD.json.gz`(KST 오늘) | — |
 | `GET /api/export/ledger.xlsx` | — | 실제 범위 전체 기간 판매대장, 이름 `라이브찜-판매대장-전체-YYYY-MM-DD.xlsx` | 422 `NO_RECORDS` "아직 판매 기록이 없어요." |
@@ -238,6 +238,29 @@ typecheck(TS 파일 439)·lint·golden(파일 26 · 파서 469 · 엔진 125 · 
 - `i2-json-stream.test.ts`: 조각을 어디서 잘라도 같은 값(속성 시험), 잘못된 JSON·상한.
 - `i2-backup.test.ts` "RA-I2-005": 범위 둘(이벤트 약 2만 건) — 가장 긴 조각 = 한 묶음, 검사 중 `JSON.parse` 입력은 64KB 밑, 만드는 동안 이벤트 루프 멈춤이 짧다, 다른 서버로 복구·재생 검사 통과.
 - `i2-work.test.ts`: 작업 풀(다른 스레드·조각·시간 상한·메모리 상한·오류·판매자마다 동시 작업·줄·끊김 — `test/work-test-worker.ts`), 구매자 100명 전원 PDF·대장을 연달아 만드는 동안 이벤트 루프 멈춤 < max(250ms, 서버 스레드에서 그릴 때의 절반) (재 보니 멈춤 약 110ms · 서버 스레드에서 그리면 약 930ms).
+
+## 수정 라운드 2 (dev-server — SA-I2-006·007·008, TD-I2-008)
+
+### SA-I2-006 (TD-I2-004) 계정의 가게 이름(50자)과 가게 설정(1~30글자)
+- `PUT /api/shop`은 지금 저장된 가게 이름을 읽어 `checkShopInput(body, currentName)`에 넘긴다. 받은 이름(앞뒤 공백을 지운 값)이 지금 이름과 같으면 길이를 다시 따지지 않는다. 다른 이름으로 고치면 그대로 1~30글자, 빈 이름·제어 글자는 늘 거절.
+- 계정 만들기(`accounts.ts` 50 UTF-16 단위)는 바꾸지 않았다: 적대 시험 TD-I2-004가 33글자 이름의 계정 만들기가 성공한다고 단언하고(그 뒤 설정 저장을 본다), 이미 31~50자 이름으로 만든 판매자가 있을 수 있다. 상한을 하나로 맞추려면(계정 만들기도 30글자) spec-keeper가 그 시험과 함께 정해야 한다 — 지금 판매자에게 생기는 사고(계좌를 못 적어 확인서에 입금 계좌가 안 나옴)는 이 수정으로 없다.
+
+### SA-I2-007 (TD-I2-007) `.csv`·`.txt` 파일에서 나온 목록의 등록 본문
+- AC-I2-51은 파일을 2MB로만 묶고 글자 수 상한(200,000)은 붙여 넣은 글에만 둔다. 적대 시험 TD-I2-007도 2MB 안의 EUC-KR CSV(약 104만 글자)가 미리 보기 "500개 등록하기" → 등록 성공이어야 한다고 단언한다. 그래서 `.csv`·`.txt`에 200,000글자 상한을 더하지 않고 **등록 본문 상한을 2MB 파일에서 나올 수 있는 가장 큰 등록 본문보다 크게** 했다.
+  - 미리 보기 본문 상한 `IMPORT_PREVIEW_BODY_LIMIT_BYTES` = 3MB(그대로), 등록 본문 상한 `IMPORT_REGISTER_BODY_LIMIT_BYTES` = `3 × 2MB + 64KB`(둘 다 `import-files.ts`, `api.ts`가 경로마다 건다).
+  - 근거: 품종 JSON(UTF-8)은 원래 파일 바이트의 3배를 넘지 않는다 — EUC-KR 두 바이트 글자 → 3바이트(1.5배), EUC-KR로 읽지 못한 바이트(예 0xFF) → U+FFFD 3바이트(3배), UTF-8 `\`·`"` → 2바이트, NFC로 풀리는 글자 → 많아야 3배. 줄 머리 500개·요청 번호는 64KB 여유 안.
+- 미리 보기는 등록할 줄을 화면이 보내는 모양(`{ requestId(64자), rows: [{ no, name, price }] }`)으로 잰 UTF-8 바이트(`importRegisterBodyBytes`)가 등록 상한을 넘으면 "n개 등록하기"를 보이지 않고 413 `FILE_TOO_LARGE`(파일 "파일 안의 내용이 너무 많아요. 번호·품종·가격 세 칸만 새 파일에 옮겨 다시 골라 주세요.", 붙여 넣은 글 "붙여 넣은 내용이 너무 많아요. …")로 답한다 — 위 계산으로는 생기지 않지만 "미리 보기가 받은 목록은 늘 등록된다"를 코드로 지킨다.
+- 413 문장에서 "(2MB까지)"를 뺐다(본문 상한은 파일 크기가 아니다): 미리 보기 "보낸 내용이 너무 커요. 파일은 2MB까지, 붙여 넣은 글은 200,000글자까지 가져올 수 있어요.", 등록 "등록할 내용이 너무 많아요. 번호·품종·가격 세 칸만 새 파일에 옮겨 다시 골라 주세요."
+
+### SA-I2-008 (TD-I2-008) 여러 날짜 조회가 공용 범위 상태 캐시를 밀어냄
+- `ScopeWriter.readDetached(sellerId, date, rehearsal)`: 범위 줄(serial) 안에서, 메모리에 있으면 그 상태를 최신까지 따라잡아 쓰고, 없으면 스냅샷 + 뒤 이벤트로 임시 상태를 만들어 돌려준다 — 공용 상한 캐시(`#keep`)에 넣지 않는다.
+- 쓰는 곳: 판매대장(기간·전체 — `#ledgerRows` 날짜마다), 지난 구매의 다른 날짜(`PastDeps.readOther`). 보고 있는 날짜 하나(지난 구매의 기준 날짜, 확인서·포장 등 한 날짜 조회)는 지금처럼 보통 읽기다.
+- 그래서 한 판매자의 전체 판매대장이 방송 중인 다른 판매자의 범위 상태를 밀어내지 않고(D-096 원칙), 메모리도 한 번에 날짜 하나만큼만 잡는다(대장 행 생성기는 날짜마다 앞 상태를 놓는다).
+
+### 새 시험 (수정 라운드 2)
+- `i2-shop-receipts.test.ts` "SA-I2-006": 33글자 이름 계정 → 이름 그대로 + 계좌 저장(앞뒤 공백 포함), 다른 긴 이름 거절, 30글자 안으로 고친 뒤 긴 이름으로 되돌리기 거절, 빈 이름·제어 글자 거절.
+- `i2-import.test.ts` "SA-I2-007": 품종 JSON이 가장 커지는 2MB 파일 둘(EUC-KR로 읽지 못한 0xFF 바이트 = 3배, UTF-8 역슬래시 = 2배) — 미리 보기 500개 → 같은 줄 등록 성공, 잰 크기 = 실제 본문. `importRegisterBodyBytes` = 실제 JSON 바이트(따옴표·역슬래시·이모지·U+2028·조합 글자·큰 가격), 등록·미리 보기 본문 상한 초과의 413 문장.
+- `i2-ledger.test.ts` "TD-I2-008": 상한 4인 서버에서 판매자 B(지난 날짜 6일)의 기간 판매대장·전체 판매대장·지난 구매 뒤에도 판매자 A의 범위 상태가 같은 객체이고 캐시 크기가 늘지 않는다(수정 전 코드로 돌리면 실패함을 확인), `readDetached`의 두 경우(메모리에 있음 = 같은 객체, 없음 = 같은 상태의 임시 객체·캐시 그대로, 범위 없는 날짜 = 빈 상태).
 
 ## 스펙과 다른 점 (disputesWithSpec)
 
