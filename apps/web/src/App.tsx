@@ -291,9 +291,15 @@ export function App() {
   )
   return (
     <LeaveGuardContext.Provider value={register}>
-      {/* 출력 기록·이 기기의 프린터(PrintProvider)는 판매자 계정만 — 보조자는 출력을 쓰지 않는다(출력 API는 403, SYS-04).
-          요금 기능 설정(BillingConfigProvider)은 client-config에서 읽는다 — 보조자에게는 요금 메뉴·화면이 없다(요금 API는 403) */}
-      <BillingConfigProvider>{assistant ? shell : <PrintProvider>{shell}</PrintProvider>}</BillingConfigProvider>
+      {/* 출력 기록·이 기기의 프린터(PrintProvider)와 요금 기능 설정(BillingConfigProvider)은 판매자 계정만 — 보조자는 출력·요금을 쓰지 않는다
+          (출력·요금 API는 403, SYS-04). 보조자 화면은 다른 화면의 데이터를 부르지 않는다(AC-I3-63) */}
+      {assistant ? (
+        shell
+      ) : (
+        <BillingConfigProvider>
+          <PrintProvider>{shell}</PrintProvider>
+        </BillingConfigProvider>
+      )}
     </LeaveGuardContext.Provider>
   )
 }

@@ -1609,7 +1609,7 @@ html:has(.sms-submit-bar) {
     right: 0;
     bottom: 0;
     z-index: 15;
-    /* 메뉴(판매자 여섯 — AC-I1-20·AC-I3-44, 보조자 하나): 글자 길이만큼 나눠 "문자찜 입력"도 한 줄 */
+    /* 메뉴(판매자 여섯, 요금 기능이 켜지면 일곱 — AC-I1-20·AC-I3-44·AC-N5-50, 보조자 하나): 글자 길이만큼 나눠 "문자찜 입력"도 한 줄. 375px에서 일곱 칸 모두 폭 44px 이상 */
     display: flex;
     flex-wrap: nowrap;
     gap: 0;
