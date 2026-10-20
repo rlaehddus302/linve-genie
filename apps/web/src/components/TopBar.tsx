@@ -5,7 +5,7 @@ import type { MouseEvent } from 'react'
 import { useInstallHint, useUpdateNotice } from '../pwa/pwa.ts'
 import { printerStatusWord } from '../lib/print-words.ts'
 import { menuOf, routePath, type Navigate, type Route } from '../lib/router.ts'
-import { useDepositSignal } from './deposit-context.tsx'
+import { useDepositReview } from './deposit-context.tsx'
 import { usePrintApi, usePrintState } from './print-context.tsx'
 
 export interface TopBarProps {
@@ -38,7 +38,7 @@ function menuItems(route: Route, review: number | null): readonly MenuItem[] {
 
 export function TopBar({ shopName, onLogout, route, navigate }: TopBarProps) {
   const current = menuOf(route)
-  const deposits = useDepositSignal()
+  const review = useDepositReview()
   const go = (event: MouseEvent<HTMLAnchorElement>, to: Route) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
     event.preventDefault()
@@ -51,7 +51,7 @@ export function TopBar({ shopName, onLogout, route, navigate }: TopBarProps) {
         <p className="shop-name">{shopName}</p>
         <PrinterStatus onOpen={(event) => go(event, { name: 'labels' })} />
         <nav className="menu" aria-label="메뉴">
-          {menuItems(route, deposits.review).map((item) => (
+          {menuItems(route, review).map((item) => (
             <a key={item.key} className="menu-link" href={routePath(item.to)} aria-current={item.key === current ? 'page' : undefined} onClick={(event) => go(event, item.to)}>
               {item.label}
               {item.count === undefined ? null : (

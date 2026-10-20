@@ -34,8 +34,19 @@ export function useDepositStore(): DepositStore | null {
 const noop = () => () => {}
 const initial = () => INITIAL_SIGNAL
 
-/** 확인 필요 수·다시 받을 판 (앱이 아직 만들지 않았으면 처음 값) */
+/** 확인 필요 수·다시 받을 판 (앱이 아직 만들지 않았으면 처음 값) — 입금 확인 화면용. 판매 기록마다 바뀐다 */
 export function useDepositSignal(): DepositSignal {
   const store = useDepositStore()
   return useSyncExternalStore(store?.subscribe ?? noop, store?.getSnapshot ?? initial)
+}
+
+const NO_REVIEW = () => null
+
+/**
+ * 확인 필요 수만 (메뉴) — 수가 바뀔 때만 다시 그린다. 방송 중 판매 기록(change)마다 판이 오르므로
+ * 앱 전체에 있는 위 줄이 채팅마다 다시 그려지지 않게 수만 본다.
+ */
+export function useDepositReview(): number | null {
+  const store = useDepositStore()
+  return useSyncExternalStore(store?.subscribe ?? noop, store === null ? NO_REVIEW : () => store.getSnapshot().review)
 }
