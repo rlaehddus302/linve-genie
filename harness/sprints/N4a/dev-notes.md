@@ -138,3 +138,9 @@ LabelSwitchEntry = { enabled: boolean /* 바뀐 값 */, at: string /* UTC ISO �
 - `E2E_PORT_OFFSET=1300 pnpm verify`: typecheck·lint·test(3165)·golden(589)·adversarial(823)·coverage 통과, e2e 263 통과 · 2 실패 — `s06/phase1.spec.ts` AC-S06-90(구매자 표에 "합친 구매자 1명"이 10초 안에 안 나옴)·`s06b/merge.spec.ts:127`(시작 상태 API 합계 10000 ≠ 23000). 둘 다 라벨과 상관없는 구매자 합치기 흐름이고, 따로 다시 돌리면 9개 모두 통과(부하 평균 25~45에서 시간 초과·준비 경쟁). I1 E2E 42개도 따로 돌려 통과(AC-N4a-40).
 - `i1/files.spec.ts` AC-I1-41은 옵션 목록을 기다리지 않고 읽는다(`select.locator('option').allTextContents()` — 방송 목록 조회 전이면 빈 목록). 부하가 클 때 한 번 실패했고 따로 세 번은 통과 — test-e2e에게: `expect(select.locator('option', { hasText: '첫 방송 제목' })).toHaveCount(1)` 뒤에 읽으면 경쟁이 없다.
 - 실제 서버(E2E 서버 + 운영 빌드)로 두 기기 손 확인: PC 설정에서 끄기(숫자 키 1) → 휴대폰 메뉴 "라벨" 바로 사라짐, 끈 뒤 출력 기기 받기 요청 0번·시험용 프린터 그대로, 콘솔 Alt+P 안내·단축키 줄·보드, 상품 자세히 창이 열린 채 켜면 "라벨 출력" → 출력, 켠 뒤 새 1등 자동 출력. 375×812 설정·라벨 화면 가로 스크롤 없음.
+
+## 수정 라운드 1 — dev-core (SA-N4a-01 · GATE-N4a-VERIFY)
+- 원인: 실패 셋 모두 시간 제한(부하 평균 30~54, 다른 작업 폴더 4~5곳이 동시에 verify). `packages/**`는 BASE 이후 바뀐 것이 없다. N4a 서버 변경은 기록 트랜잭션에 새 조회를 더하지 않는다(`createAutoJobs`는 이미 잠그던 대기열 줄의 `labelsEnabled`만 본다).
+- coverage: 오케스트레이터의 D-906(main f4e5814, `vitest.coverage.config.ts` 시간 제한 30초)을 이 갈래에 그대로 가져왔다(`git cherry-pick -x`, [orch] 커밋 그대로). 시험·기준선·포함 범위는 그대로다.
+- `E2E_PORT_OFFSET=1300 pnpm verify` (025eda0, 부하 평균 20~54): typecheck·lint·golden(589)·adversarial(823)·e2e(304 모두 통과)·coverage(1403, 줄 100%·분기 99.66%) 통과. test 3165 중 1 실패 — `apps/server/test/changes.test.ts` AC-S05-61 무작위 속성 시험 60초 초과(서버 영역, 라벨과 무관). 같은 파일을 따로 돌리면 8/8 통과.
+- 남은 일: D-906대로 오케스트레이터가 다른 트랙 verify와 겹치지 않게 마지막 verify를 다시 돌리면 된다. 시간 제한을 늘리거나 시험을 고치지 않았다.
