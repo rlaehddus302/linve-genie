@@ -14,3 +14,10 @@
 
 ## 참고
 - `tests/adversarial`는 `apps/server` vitest 설정 밖이라 바깥 연결 막기 준비 파일이 깔리지 않는다. 이 폴더의 두 파일은 `installOutboundGuard('tiktok', …)`를 직접 깔고 막힌 시도 0을 확인한다.
+
+# 라운드 2
+
+## 다시 공격한 것
+- TD-N2b-1-004 고침(02a5d16) 확인: 응답 본문 메시지(`Invalid response from API: …`)에 라이브러리 정답 모양 그대로(`API Error 19881007 (user_not_found)`)·`captcha`·`blocked by TikTok`·`Unexpected server response: 403`을 심어도 NETWORK. 실제 감싸개 경로에서 RETRYING/NETWORK, 5초 뒤 다시 시도. 진짜 없는 사용자는 STOPPED/USER_NOT_FOUND, 1시간 동안 시도 1번 → **해결**(회귀로 남김: `failure-text-injection.test.ts` 라운드 2 블록).
+- 라이브러리 2.1.0의 다른 오류 문구에 사용자 자료가 섞이는 곳을 찾음: `fetch-room-info`의 `Failed to fetch room info. ${err.message}`(axios 오류 문구뿐), Euler `response.message`(서명 서비스 문구), SIGI_STATE 오류(고정 문구). 방송자가 쓴 글이 실리는 곳은 `Invalid response from API:` 하나였다 → 새 구멍 없음.
+- TD-N2b-1-003(조용히 멈춘 웹소켓)·TD-N2b-1-005(라이브러리 20초 시간 초과 뒤 늦게 열린 웹소켓): DECISIONS에 결정이 아직 없어 그대로 남김(스펙 확인 필요).

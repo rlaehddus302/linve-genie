@@ -12,7 +12,17 @@
 //   기대: 사용자 자료가 섞인 'Invalid response from API: …' 메시지는 USER_NOT_FOUND 근거가 아니다 → 그 밖(NETWORK), 다시 시도.
 //   (진짜 없는 사용자 `API Error 19881007 (user_not_found)`는 그대로 USER_NOT_FOUND여야 한다 — 회귀 확인을 같이 둔다.)
 import { describe, expect, it } from "vitest";
-import { classifyWebcastFailure } from "../../../apps/server/src/tiktok/index.ts";
+import {
+  checkTikTokTarget,
+  classifyWebcastFailure,
+  createTikTokConnection,
+  FakeTikTokClock,
+  flushTikTokTasks,
+  libraryWebcast,
+  readTikTokSettings,
+  type LibraryConnectionConstructor,
+  type LibraryConnectionLike,
+} from "../../../apps/server/src/tiktok/index.ts";
 
 /** 라이브러리 2.1.0 types/errors.js와 같은 이름·칸 (분류기는 생성자 이름 사슬로 본다) */
 class InvalidResponseError extends Error {
@@ -112,5 +122,94 @@ describe("TD-N2b-1-004: 방송자가 쓴 프로필 글이 USER_NOT_FOUND(다시 
         ]),
       ),
     ).toBe("USER_NOT_FOUND");
+  });
+});
+
+// ── 라운드 2 회귀: 고친 뒤(응답 본문 메시지는 문구를 보지 않음)에도 본문에 심은 '정답 모양'·차단 문구가 통하지 않는가 ──
+// 방송자가 소개 글에 라이브러리가 만드는 메시지 모양 자체를 적어 넣는 경우까지 본다. 본문 메시지는 맨 앞이 'Invalid response from API:'이므로
+// 맨 앞 고정 검사(API Error 19881007 ()와 차단 문구 검사 어디에도 걸리면 안 된다 → 그 밖(NETWORK), 다시 시도.
+describe("TD-N2b-1-004 회귀(라운드 2): 본문에 심은 정답 모양·차단 문구", () => {
+  it.each([
+    ["소개 글이 없는 사용자 메시지 그대로", { signature: "API Error 19881007 (user_not_found)" }],
+    ["닉네임이 없는 사용자 메시지 그대로", { nickname: "API Error 19881007 (" }],
+    ["소개 글에 captcha", { signature: "captcha 풀어야 들어와요" }],
+    ["소개 글에 blocked by TikTok", { signature: "I was blocked by TikTok once" }],
+    ["소개 글에 웹소켓 거부 문구", { signature: "Unexpected server response: 403" }],
+  ])("%s → NETWORK (USER_NOT_FOUND·BLOCKED 아님)", (_label, user) => {
+    expect(classifyWebcastFailure(apiNoRoom(user))).toBe("NETWORK");
+    expect(classifyWebcastFailure(allSourcesFailed(apiNoRoom(user)))).toBe("NETWORK");
+  });
+
+  it("실제 감싸개 경로: 소개 글에 없는 사용자 메시지를 적은 방송 전 판매자 → RETRYING/NETWORK, 5초 뒤 다시 시도", async () => {
+    let attempts = 0;
+    class NoRoomYet implements LibraryConnectionLike {
+      connect(): Promise<unknown> {
+        attempts += 1;
+        return Promise.reject(allSourcesFailed(apiNoRoom({ signature: "since 19881007 · API Error 19881007 (user_not_found)" })));
+      }
+      disconnect(): void {}
+      on(): unknown {
+        return undefined;
+      }
+    }
+    const checked = checkTikTokTarget("@seller_kim");
+    if (!checked.ok) throw new Error("준비");
+    const clock = new FakeTikTokClock(0);
+    const conn = createTikTokConnection({
+      sellerId: "seller-1",
+      target: checked.target,
+      webcast: libraryWebcast({ Connection: NoRoomYet as unknown as LibraryConnectionConstructor }),
+      onRecord: () => undefined,
+      settings: readTikTokSettings({ LIVEJJIM_TIKTOK_BETA: "on" }),
+      consent: async () => true,
+      clock,
+      log: () => undefined,
+    });
+    conn.start();
+    await flushTikTokTasks();
+    expect({ state: conn.status().state, reason: conn.status().reason }).toEqual({ state: "RETRYING", reason: "NETWORK" });
+    clock.advance(5_000);
+    await flushTikTokTasks();
+    expect(attempts).toBe(2);
+    conn.stop();
+  });
+
+  it("실제 감싸개 경로 회귀: 진짜 없는 사용자는 STOPPED/USER_NOT_FOUND이고 1시간 동안 다시 시도 없음", async () => {
+    let attempts = 0;
+    class Missing implements LibraryConnectionLike {
+      connect(): Promise<unknown> {
+        attempts += 1;
+        return Promise.reject(
+          new FetchIsLiveError([
+            new Error("Failed to extract the SIGI_STATE HTML tag, you might be blocked by TikTok."),
+            new InvalidResponseError("API Error 19881007 (user_not_found)", undefined),
+            new Error("Failed to extract Room ID from Euler."),
+          ]),
+        );
+      }
+      disconnect(): void {}
+      on(): unknown {
+        return undefined;
+      }
+    }
+    const checked = checkTikTokTarget("@no_such_seller");
+    if (!checked.ok) throw new Error("준비");
+    const clock = new FakeTikTokClock(0);
+    const conn = createTikTokConnection({
+      sellerId: "seller-1",
+      target: checked.target,
+      webcast: libraryWebcast({ Connection: Missing as unknown as LibraryConnectionConstructor }),
+      onRecord: () => undefined,
+      settings: readTikTokSettings({ LIVEJJIM_TIKTOK_BETA: "on" }),
+      consent: async () => true,
+      clock,
+      log: () => undefined,
+    });
+    conn.start();
+    await flushTikTokTasks();
+    expect({ state: conn.status().state, reason: conn.status().reason }).toEqual({ state: "STOPPED", reason: "USER_NOT_FOUND" });
+    clock.advance(3_600_000);
+    await flushTikTokTasks();
+    expect(attempts).toBe(1);
   });
 });
