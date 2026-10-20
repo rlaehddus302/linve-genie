@@ -14,7 +14,7 @@ import type { Db } from '../db/database.ts'
 import type { FieldProblem } from '../errors.ts'
 import { errorKind, type LogSink } from '../log.ts'
 import { unknownFieldProblems } from '../messages.ts'
-import { openText, sealText } from '../secrets.ts'
+import { openSellerText, sealSellerText } from '../secrets.ts'
 import type { Clock } from '../time.ts'
 import { WriteAbort, type Rejection, type TxHookContext } from '../writer.ts'
 import { DEFAULT_PRICE_TABLE, type PriceItem, type PriceTable } from './config.ts'
@@ -493,7 +493,7 @@ export class BillingService {
 
   #openBusiness(sellerId: string, sealed: string): { businessNumber: string; name: string | null; ceo: string | null; email: string | null } | null {
     try {
-      const parsed = JSON.parse(openText(this.#options.masterKey, BUSINESS_PURPOSE, sellerId, sealed)) as Record<string, unknown>
+      const parsed = JSON.parse(openSellerText(this.#options.masterKey, BUSINESS_PURPOSE, sellerId, sealed)) as Record<string, unknown>
       const text = (key: string) => (typeof parsed[key] === 'string' ? (parsed[key] as string) : null)
       const businessNumber = text('businessNumber')
       return businessNumber === null ? null : { businessNumber, name: text('name'), ceo: text('ceo'), email: text('email') }
@@ -737,7 +737,7 @@ export class BillingService {
               paymentId,
               kind: business !== null && (RECEIPT_KINDS as readonly string[]).includes(business.receiptKind) ? business.receiptKind : 'TAX_INVOICE',
               // 받는 쪽 = 그 순간 사업자 정보 (암호화한 그대로 — 나중에 바꿔도 이 요청은 그대로)
-              recipientSealed: business?.sealed ?? sealText(this.#options.masterKey, BUSINESS_PURPOSE, sellerId, '{}'),
+              recipientSealed: business?.sealed ?? sealSellerText(this.#options.masterKey, BUSINESS_PURPOSE, sellerId, '{}'),
               amount: current.amount,
               supply,
               vat,
@@ -1021,7 +1021,7 @@ export class BillingService {
       await lockBilling(tx, sellerId)
       await upsertBusiness(tx, {
         sellerId,
-        sealed: sealText(this.#options.masterKey, BUSINESS_PURPOSE, sellerId, JSON.stringify({ businessNumber, name, ceo, email })),
+        sealed: sealSellerText(this.#options.masterKey, BUSINESS_PURPOSE, sellerId, JSON.stringify({ businessNumber, name, ceo, email })),
         masked: maskBizno(businessNumber),
         receiptKind,
         updatedAt: now,
@@ -1256,7 +1256,7 @@ function bannerView(banner: ReturnType<typeof billingBanners>[number]): BannerVi
 
 /** 사업자등록번호를 받는 계정 명령용: 번호만 담은 사업자 정보 (상호·대표자는 화면에서 적는다) */
 export function sealedBusinessNumber(masterKey: Buffer, sellerId: string, formatted: string): { sealed: string; masked: string } {
-  return { sealed: sealText(masterKey, BUSINESS_PURPOSE, sellerId, JSON.stringify({ businessNumber: formatted, name: null, ceo: null, email: null })), masked: maskBizno(formatted) }
+  return { sealed: sealSellerText(masterKey, BUSINESS_PURPOSE, sellerId, JSON.stringify({ businessNumber: formatted, name: null, ceo: null, email: null })), masked: maskBizno(formatted) }
 }
 
 /** 받은 값이 JSON 객체인지 (요금 경로 공통) */

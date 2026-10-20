@@ -5,7 +5,7 @@
 import { formatWon } from '@livejjim/core'
 import { normalizeLoginId } from '../accounts.ts'
 import type { Db } from '../db/database.ts'
-import { openText } from '../secrets.ts'
+import { openSellerText } from '../secrets.ts'
 import { findAccountByLogin } from '../store.ts'
 import { HOUR_MS, type PassKind } from './rules.ts'
 import { BUSINESS_PURPOSE, checkOperatorGrant, operatorGrant } from './service.ts'
@@ -52,7 +52,7 @@ export async function operatorLists(db: Db, masterKey: Buffer, now: number): Pro
 
 function openRecipient(masterKey: Buffer, document: DocumentRow): DocumentToHandle['recipient'] {
   try {
-    const parsed = JSON.parse(openText(masterKey, BUSINESS_PURPOSE, document.sellerId, document.recipientSealed)) as Record<string, unknown>
+    const parsed = JSON.parse(openSellerText(masterKey, BUSINESS_PURPOSE, document.sellerId, document.recipientSealed)) as Record<string, unknown>
     const text = (key: string) => (typeof parsed[key] === 'string' ? (parsed[key] as string) : null)
     return { businessNumber: text('businessNumber') ?? '', name: text('name'), ceo: text('ceo'), email: text('email') }
   } catch {

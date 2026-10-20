@@ -76,7 +76,7 @@ export class SecretError extends Error {
  * 글을 마스터 키로 AES-256-GCM 암호화한다. 쓰임새(purpose)와 판매자 ID를 함께 묶는다 — 다른 판매자 행·다른 칸으로 옮기면 풀리지 않는다.
  * 결과: `v1.<iv>.<암호문>.<태그>` (base64url)
  */
-export function sealText(masterKey: Buffer, purpose: string, sellerId: string, text: string): string {
+export function sealSellerText(masterKey: Buffer, purpose: string, sellerId: string, text: string): string {
   const iv = randomBytes(12)
   const cipher = createCipheriv('aes-256-gcm', masterKey, iv)
   cipher.setAAD(Buffer.from(`livejjim/${purpose}/v1/${sellerId}`, 'utf8'))
@@ -84,8 +84,8 @@ export function sealText(masterKey: Buffer, purpose: string, sellerId: string, t
   return ['v1', iv.toString('base64url'), sealed.toString('base64url'), cipher.getAuthTag().toString('base64url')].join('.')
 }
 
-/** sealText로 만든 값을 푼다. 마스터 키·쓰임새·판매자가 다르거나 값이 손상되면 오류(메시지에 값 없음) */
-export function openText(masterKey: Buffer, purpose: string, sellerId: string, sealed: string): string {
+/** sealSellerText로 만든 값을 푼다. 마스터 키·쓰임새·판매자가 다르거나 값이 손상되면 오류(메시지에 값 없음) */
+export function openSellerText(masterKey: Buffer, purpose: string, sellerId: string, sealed: string): string {
   const parts = sealed.split('.')
   if (parts.length !== 4 || parts[0] !== 'v1') throw new SecretError('암호화한 글의 형식이 올바르지 않다')
   const [, ivText = '', dataText = '', tagText = ''] = parts
