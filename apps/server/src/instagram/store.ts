@@ -1,8 +1,8 @@
 // 인스타그램·라이브 연결 저장소 (SYS-02). 모든 질의에 판매자 ID 조건을 건다(웹훅의 계정 ID → 판매자 찾기만 예외 — 그 결과로 판매자를 정한다).
 // 트랜잭션 안에서는 트랜잭션 객체(tx)를 넘긴다.
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, ne, or, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
-import { accounts, broadcasts, events, igConnections, igDmRows, igDmSends, igOauthStates, liveLinks, liveRequests, liveUnlinked, outbox, scopes } from '../db/schema.ts'
+import { accounts, broadcasts, events, igConnections, igDmRows, igDmSends, igOauthStates, liveLinkMoves, liveLinks, liveRequests, liveUnlinked, outbox, scopes } from '../db/schema.ts'
 
 // ── 계정 연결 ────────────────────────────────────────────────────────────
 
@@ -352,6 +352,80 @@ export async function unlinkLink(db: Db, sellerId: string, linkId: number, accou
   return rows.length > 0
 }
 
+/**
+ * 이 판매자의 어느 회차에든(끊은 연결·끝난 회차·옮기기 전 라이브 포함) 이어진 적이 있는 라이브인지 (AC-N2-25 — 옛 라이브로 되돌아가거나 이미 쓴 라이브로 옮기지 않는다)
+ */
+export async function liveEverLinked(db: Db, sellerId: string, liveId: string): Promise<boolean> {
+  const linked = await db
+    .select({ id: liveLinks.id })
+    .from(liveLinks)
+    .where(and(eq(liveLinks.sellerId, sellerId), eq(liveLinks.liveId, liveId)))
+    .limit(1)
+  if (linked.length > 0) return true
+  const moved = await db
+    .select({ id: liveLinkMoves.id })
+    .from(liveLinkMoves)
+    .where(and(eq(liveLinkMoves.sellerId, sellerId), or(eq(liveLinkMoves.fromLiveId, liveId), eq(liveLinkMoves.toLiveId, liveId))))
+    .limit(1)
+  return moved.length > 0
+}
+
+/**
+ * 새 라이브로 옮길 수 있는 연결 (AC-N2-25 Given): 끝나지 않은 실제 회차의, 서버가 저절로 이었거나 옮긴(조치자 서버) 인스타그램 `LINKED` 연결로
+ * 같은 인스타 계정의 그 라이브가 아닌 라이브에 이어진 것
+ */
+export async function movableLinks(db: Db, sellerId: string, accountId: string, exceptLiveId: string): Promise<LinkRow[]> {
+  return linkQuery(db, sellerId)
+    .where(
+      and(
+        eq(liveLinks.sellerId, sellerId),
+        eq(liveLinks.platform, 'INSTAGRAM'),
+        eq(liveLinks.state, 'LINKED'),
+        eq(liveLinks.actor, 'server'),
+        eq(liveLinks.accountId, accountId),
+        ne(liveLinks.liveId, exceptLiveId),
+        isNull(broadcasts.endedAt),
+        eq(scopes.rehearsal, false),
+      ),
+    )
+    .orderBy(asc(liveLinks.id))
+}
+
+/** 연결을 새 라이브로 옮긴다 (그 연결이 아직 그 라이브에 서버가 이은 LINKED일 때만 — 조치자 서버, 이은 시각 = 옮긴 시각). 옮긴 기록도 남긴다. 옮겼으면 true */
+export async function moveLink(
+  db: Db,
+  row: { sellerId: string; linkId: number; broadcastId: string; fromLiveId: string; toLiveId: string; accountId: string; commentsBefore: number; now: Date },
+): Promise<boolean> {
+  const updated = await db
+    .update(liveLinks)
+    .set({ liveId: row.toLiveId, accountId: row.accountId, actor: 'server', actorAccountId: null, linkedAt: row.now })
+    .where(
+      and(
+        eq(liveLinks.sellerId, row.sellerId),
+        eq(liveLinks.id, row.linkId),
+        eq(liveLinks.state, 'LINKED'),
+        eq(liveLinks.actor, 'server'),
+        eq(liveLinks.liveId, row.fromLiveId),
+        eq(liveLinks.accountId, row.accountId),
+      ),
+    )
+    .returning({ id: liveLinks.id })
+  if (updated.length === 0) return false
+  await db.insert(liveLinkMoves).values({
+    sellerId: row.sellerId,
+    linkId: row.linkId,
+    broadcastId: row.broadcastId,
+    platform: 'INSTAGRAM',
+    fromLiveId: row.fromLiveId,
+    toLiveId: row.toLiveId,
+    accountId: row.accountId,
+    actor: 'server',
+    commentsBefore: row.commentsBefore,
+    movedAt: row.now,
+  })
+  return true
+}
+
 export async function bumpLinkCounter(db: Db, sellerId: string, linkId: number, counter: 'late' | 'malformed'): Promise<void> {
   const set = counter === 'late' ? { lateCount: sql`${liveLinks.lateCount} + 1` } : { malformedCount: sql`${liveLinks.malformedCount} + 1` }
   await db
@@ -360,13 +434,20 @@ export async function bumpLinkCounter(db: Db, sellerId: string, linkId: number, 
     .where(and(eq(liveLinks.sellerId, sellerId), eq(liveLinks.id, linkId)))
 }
 
-/** 회차에 기록한 인스타그램 댓글 수·마지막으로 받은 시각 (이벤트 기록의 `ig:` 채팅) */
-export async function liveChatStats(db: Db, sellerId: string, scopeId: string, broadcastId: string): Promise<{ count: number; lastAt: Date | null }> {
+/** 회차에 기록한 인스타그램 댓글 수·마지막으로 받은 시각 (이벤트 기록의 `ig:` 채팅). exceptMessageId가 있으면 그 댓글은 빼고 센다 */
+export async function liveChatStats(db: Db, sellerId: string, scopeId: string, broadcastId: string, exceptMessageId?: string): Promise<{ count: number; lastAt: Date | null }> {
   const rows = await db
     .select({ count: sql<number>`count(*)::int`, lastAt: sql<Date | null>`max(${events.receivedAt})` })
     .from(events)
     .where(
-      and(eq(events.sellerId, sellerId), eq(events.scopeId, scopeId), eq(events.type, 'chat'), eq(events.chatBroadcast, broadcastId), sql`${events.chatMessageId} LIKE 'ig:%'`),
+      and(
+        eq(events.sellerId, sellerId),
+        eq(events.scopeId, scopeId),
+        eq(events.type, 'chat'),
+        eq(events.chatBroadcast, broadcastId),
+        sql`${events.chatMessageId} LIKE 'ig:%'`,
+        exceptMessageId === undefined ? undefined : ne(events.chatMessageId, exceptMessageId),
+      ),
     )
   const row = rows[0]
   const lastAt = row?.lastAt ?? null

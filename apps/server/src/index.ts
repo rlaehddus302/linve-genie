@@ -190,7 +190,7 @@ export { CALLBACK_MESSAGES, InstagramConnections, type CallbackCode, type Connec
 export { DM_DEADLINE_MS, DM_REASON_MESSAGES, MAX_RETRIES, RESEND_MESSAGES, RETRY_DELAYS_S, SEND_LEASE_MS, InstagramDms, type DmReason, type DmRowView, type DmStatus } from './instagram/dm.ts'
 export { FakeMeta, type FakeAccount, type FakeAccountType, type FakeChange, type FakeDm, type FakeEntry, type FakeFault, type FakeLoginScenario, type FakeOp, type WebhookTarget } from './instagram/fake-meta.ts'
 export { ERROR_TABLE, MetaClient, classifyMetaError, type MetaFailure } from './instagram/meta.ts'
-export { NOTICE_MESSAGES, type LiveTimer } from './instagram/notices.ts'
+export { LIVE_MOVED_MESSAGE, liveMovedMessage, NOTICE_MESSAGES, type LiveTimer } from './instagram/notices.ts'
 export { DM_LINE_MAX, DM_LINES_MAX, FALLBACK_NICK, USERNAME_RE, dmLine, dmText, instagramNick } from './instagram/text.ts'
 export { LATE_AFTER_MS, WEBHOOK_BODY_LIMIT } from './instagram/webhook.ts'
 export type { InstagramModule } from './instagram/index.ts'

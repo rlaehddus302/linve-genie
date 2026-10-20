@@ -7,6 +7,8 @@
 //   text 그대로, owner = 보낸 사람이 연결 계정일 때만, publishedAt 없음(at = 서버 시계).
 // - 받은 순서대로 기록하고, 다룰 댓글이 모두 커밋된(또는 기록하지 않기로 정해진) 뒤에만 200. 저장이 실패하면 500(메타가 다시 보낸다 — 댓글 ID로 중복 없음).
 // - 중복: 이 판매자가 같은 ig: 댓글 ID를 이미 기록했으면(어느 회차든) 회차를 정하기 전에 아무 일도 하지 않는다(판매자 줄 안에서 본다).
+// - 옮기기(AC-N2-25, D-N2-16): 이어지지 않은 라이브의 늦지 않은 댓글이고 기다리는 회차가 없으면, 서버가 저절로 이은 같은 계정의 회차 하나를 그 라이브로 옮기고
+//   그 댓글부터 기록한다 — 옮기기와 그 댓글의 기록은 한 트랜잭션이다. 커밋된 뒤 연결 알림과 LIVE_MOVED(옮기기 전 그 방송에 기록한 댓글 수)를 보낸다.
 // - 웹훅 원문은 저장하지 않는다. 로그에는 코드·수만 남긴다(본문·username·IGSID·댓글 ID·미디어 ID·서명 없음).
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { hasControlChar } from '../api-fields.ts'
@@ -135,24 +137,45 @@ export class InstagramWebhook {
       // 이미 기록한 댓글(어느 회차든)이 다시 배달됐다 — 회차를 정하기 전에 거른다. 저절로 잇기·이어지지 않은 수 세기·알림 모두 없다
       // (AC-N2-33. 1부를 끝낸 뒤 다시 오면 기다리던 2부에 다시 기록되던 것, TD-N2-001)
       if (await igChatRecorded(this.#deps.db, sellerId, comment.id)) return 'done'
-      // 끝낸 회차에 들어가려던 댓글은 다시 정한다 (기다리는 회차가 있으면 거기로 — 1부·2부)
+      // 늦게 받은 댓글·entry.time이 없는 댓글은 옮기기를 일으키지 않는다 (AC-N2-25, D-N2-04 — 자동 동작을 막는 쪽으로만)
+      const fresh = sentAt !== null && !this.#isLate(sentAt)
+      // 끝낸 회차에 들어가려던 댓글·옮기지 못한 댓글은 다시 정한다 (기다리는 회차가 있으면 거기로 — 1부·2부)
       for (let attempt = 0; attempt < 3; attempt++) {
-        const target = await this.#deps.links.resolveTarget(sellerId, connection.accountId, comment.liveId)
-        if (target.kind !== 'linked') {
+        const target = await this.#deps.links.resolveTarget(sellerId, connection.accountId, comment.liveId, fresh)
+        if (target.kind === 'many' || target.kind === 'none') {
           await this.#unlinked(sellerId, comment.liveId, target.kind === 'many')
           return 'done'
         }
+        const move = target.kind === 'move' ? target : null
+        let movedBefore = 0
         const owner = comment.fromId === connection.accountId || (typeof comment.username === 'string' && comment.username.toLowerCase() === connection.username.toLowerCase())
-        const outcome = await this.#deps.service.ingestOpenChat(sellerId, {
-          b: target.broadcastId,
-          id: comment.id,
-          ch: comment.ch,
-          nick: instagramNick(comment.username),
-          text: comment.text,
-          ...(owner ? { owner: true } : {}),
-        })
+        const outcome = await this.#deps.service.ingestOpenChat(
+          sellerId,
+          {
+            b: target.broadcastId,
+            id: comment.id,
+            ch: comment.ch,
+            nick: instagramNick(comment.username),
+            text: comment.text,
+            ...(owner ? { owner: true } : {}),
+          },
+          move === null
+            ? {}
+            : {
+                guard: async (tx, scopeId, now) => {
+                  const before = await this.#deps.links.applyMove(tx, sellerId, move, scopeId, comment.id, now)
+                  if (before === null) return false
+                  movedBefore = before
+                  return true
+                },
+              },
+        )
         switch (outcome.status) {
           case 'recorded':
+            if (move !== null) {
+              this.#deps.links.moved(sellerId, move.broadcastId)
+              this.#deps.notices.moved(sellerId, move.broadcastId, { liveId: move.toLiveId, count: movedBefore })
+            }
             await this.#late(sellerId, target.linkId, target.broadcastId, sentAt)
             this.#deps.notices.collection(sellerId, target.broadcastId)
             return 'done'
@@ -161,14 +184,16 @@ export class InstagramWebhook {
             return 'done'
           case 'rejected':
             // 엔진 입력 검사에 걸린 댓글 (예: 받을 수 없는 글자) — 기록하지 않기로 정해진 것. 형식 틀린 댓글로 센다
-            await bumpLinkCounter(this.#deps.db, sellerId, target.linkId, 'malformed')
+            // (옮기려던 댓글이면 옮기지 않았으니 그 회차의 수에는 넣지 않는다 — 다음 늦지 않은 댓글에서 옮긴다)
+            if (move === null) await bumpLinkCounter(this.#deps.db, sellerId, target.linkId, 'malformed')
             await bumpSellerMalformed(this.#deps.db, sellerId)
             this.#deps.log({ level: 'warn', code: 'IG_COMMENT_SKIPPED' })
-            this.#deps.notices.collection(sellerId, target.broadcastId)
+            if (move === null) this.#deps.notices.collection(sellerId, target.broadcastId)
             return 'done'
           case 'save_failed':
             return 'save_failed'
           case 'ended':
+          case 'retry':
             continue
         }
       }
@@ -177,9 +202,14 @@ export class InstagramWebhook {
     })
   }
 
+  /** entry.time이 받은 시각보다 60초 넘게 이른지 (D-N2-04) */
+  #isLate(sentAt: number): boolean {
+    return this.#deps.clock.now() - sentAt > LATE_AFTER_MS
+  }
+
   /** 늦게 받은 댓글 (AC-N2-36): entry.time이 받은 시각보다 60초 넘게 이르면 세고 알린다(1분에 한 번까지) */
   async #late(sellerId: string, linkId: number, broadcastId: string, sentAt: number | null): Promise<void> {
-    if (sentAt === null || this.#deps.clock.now() - sentAt <= LATE_AFTER_MS) return
+    if (sentAt === null || !this.#isLate(sentAt)) return
     await bumpLinkCounter(this.#deps.db, sellerId, linkId, 'late')
     this.#deps.notices.notice(sellerId, 'LATE_COMMENTS', broadcastId, { broadcast: broadcastId })
   }

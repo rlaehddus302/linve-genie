@@ -1,4 +1,4 @@
--- N2: 플랫폼 라이브 연결·인스타그램 계정 연결·DM 발송 기록 (PLT-01·PLT-03, D-N2-01~D-N2-15). src/db/schema.ts와 같아야 한다(test/schema.test.ts가 대조한다).
+-- N2: 플랫폼 라이브 연결·옮긴 기록·인스타그램 계정 연결·DM 발송 기록 (PLT-01·PLT-03, D-N2-01~D-N2-16). src/db/schema.ts와 같아야 한다(test/schema.test.ts가 대조한다).
 -- 발송함(outbox) 표는 바꾸지 않는다(Y1 트랙과 겹치지 않게, D-N2-01). 모든 표에 판매자 ID가 있다(SYS-02). 토큰은 암호화한 값만, OAuth state는 해시만 둔다.
 CREATE TABLE "ig_connections" (
 	"seller_id" text PRIMARY KEY NOT NULL,
@@ -51,6 +51,20 @@ CREATE TABLE "live_links" (
 	"late_count" integer DEFAULT 0 NOT NULL,
 	"malformed_count" integer DEFAULT 0 NOT NULL,
 	"created_at" timestamp with time zone NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "live_link_moves" (
+	"id" bigserial PRIMARY KEY NOT NULL,
+	"seller_id" text NOT NULL,
+	"link_id" bigint NOT NULL,
+	"broadcast_id" text NOT NULL,
+	"platform" text NOT NULL,
+	"from_live_id" text NOT NULL,
+	"to_live_id" text NOT NULL,
+	"account_id" text NOT NULL,
+	"actor" text NOT NULL,
+	"comments_before" integer NOT NULL,
+	"moved_at" timestamp with time zone NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "live_unlinked" (
@@ -131,6 +145,9 @@ ALTER TABLE "live_links" ADD CONSTRAINT "live_links_seller_id_sellers_id_fk" FOR
 ALTER TABLE "live_links" ADD CONSTRAINT "live_links_broadcast_id_broadcasts_id_fk" FOREIGN KEY ("broadcast_id") REFERENCES "public"."broadcasts"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "live_links" ADD CONSTRAINT "live_links_actor_account_id_accounts_id_fk" FOREIGN KEY ("actor_account_id") REFERENCES "public"."accounts"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "live_links" ADD CONSTRAINT "live_links_unlinked_by_accounts_id_fk" FOREIGN KEY ("unlinked_by") REFERENCES "public"."accounts"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "live_link_moves" ADD CONSTRAINT "live_link_moves_seller_id_sellers_id_fk" FOREIGN KEY ("seller_id") REFERENCES "public"."sellers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "live_link_moves" ADD CONSTRAINT "live_link_moves_link_id_live_links_id_fk" FOREIGN KEY ("link_id") REFERENCES "public"."live_links"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "live_link_moves" ADD CONSTRAINT "live_link_moves_broadcast_id_broadcasts_id_fk" FOREIGN KEY ("broadcast_id") REFERENCES "public"."broadcasts"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "live_unlinked" ADD CONSTRAINT "live_unlinked_seller_id_sellers_id_fk" FOREIGN KEY ("seller_id") REFERENCES "public"."sellers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "live_requests" ADD CONSTRAINT "live_requests_seller_id_sellers_id_fk" FOREIGN KEY ("seller_id") REFERENCES "public"."sellers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "ig_dm_sends" ADD CONSTRAINT "ig_dm_sends_seller_id_sellers_id_fk" FOREIGN KEY ("seller_id") REFERENCES "public"."sellers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
@@ -143,6 +160,8 @@ CREATE INDEX "ig_oauth_states_seller_idx" ON "ig_oauth_states" USING btree ("sel
 CREATE UNIQUE INDEX "live_links_open_uq" ON "live_links" USING btree ("seller_id","broadcast_id") WHERE state <> 'UNLINKED';--> statement-breakpoint
 CREATE INDEX "live_links_broadcast_idx" ON "live_links" USING btree ("seller_id","broadcast_id");--> statement-breakpoint
 CREATE INDEX "live_links_live_idx" ON "live_links" USING btree ("seller_id","live_id");--> statement-breakpoint
+CREATE INDEX "live_link_moves_from_idx" ON "live_link_moves" USING btree ("seller_id","from_live_id");--> statement-breakpoint
+CREATE INDEX "live_link_moves_to_idx" ON "live_link_moves" USING btree ("seller_id","to_live_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "ig_dm_sends_active_uq" ON "ig_dm_sends" USING btree ("seller_id","scope_id","comment") WHERE state IN ('PENDING', 'SENDING', 'CONFIRMING');--> statement-breakpoint
 CREATE INDEX "ig_dm_sends_state_idx" ON "ig_dm_sends" USING btree ("state","next_at");--> statement-breakpoint
 CREATE INDEX "ig_dm_rows_status_idx" ON "ig_dm_rows" USING btree ("status","seller_id");--> statement-breakpoint

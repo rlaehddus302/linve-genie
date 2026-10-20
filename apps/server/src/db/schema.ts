@@ -504,6 +504,38 @@ export const liveLinks = pgTable(
   ],
 )
 
+/**
+ * 저절로 이은 연결을 같은 계정의 새 라이브로 옮긴 기록 (AC-N2-25, D-N2-16). 옮기기는 끊기가 아니다 — 연결 행(live_links)은 그대로 두고
+ * 라이브 ID·이은 시각만 바꾸며, 이전 라이브 ID·옮긴 시각·조치자(서버)는 여기에 남는다. "이어진 적이 있는 라이브"는 live_links.live_id와 이 표의 두 라이브 ID다.
+ */
+export const liveLinkMoves = pgTable(
+  'live_link_moves',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    linkId: bigint('link_id', { mode: 'number' })
+      .notNull()
+      .references(() => liveLinks.id),
+    broadcastId: text('broadcast_id')
+      .notNull()
+      .references(() => broadcasts.id),
+    platform: text('platform').notNull(),
+    /** 옮기기 전 라이브 ID · 옮긴 라이브 ID */
+    fromLiveId: text('from_live_id').notNull(),
+    toLiveId: text('to_live_id').notNull(),
+    /** 옮길 때의 인스타그램 계정 ID (옮기기 전과 같은 계정이어야 옮긴다) */
+    accountId: text('account_id').notNull(),
+    /** 조치자: server (판매자가 손으로 이은 연결은 옮기지 않는다) */
+    actor: text('actor').notNull(),
+    /** 옮기기 전까지 이 방송에 기록한 인스타그램 댓글 수 (알림 LIVE_MOVED의 N) */
+    commentsBefore: integer('comments_before').notNull(),
+    movedAt: timestamptz('moved_at').notNull(),
+  },
+  (t) => [index('live_link_moves_from_idx').on(t.sellerId, t.fromLiveId), index('live_link_moves_to_idx').on(t.sellerId, t.toLiveId)],
+)
+
 /** 이어지지 않은 라이브의 댓글 수 (라이브마다 수·처음·마지막 받은 시각만 — 본문·이름·IGSID·댓글 ID 없음, AC-N2-24) */
 export const liveUnlinked = pgTable(
   'live_unlinked',
@@ -651,6 +683,7 @@ export const schema = {
   igConnections,
   igOauthStates,
   liveLinks,
+  liveLinkMoves,
   liveUnlinked,
   liveRequests,
   igDmSends,
