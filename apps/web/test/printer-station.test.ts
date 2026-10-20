@@ -78,7 +78,17 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-async function start(options: { render?: () => Promise<{ ok: true; image: LabelBitmap } | { ok: false; error: { code: 'DOES_NOT_FIT'; message: string; item: string } }> } = {}): Promise<PrinterStation> {
+interface FakeWake {
+  release(): Promise<void>
+  addEventListener(type: 'release', listener: () => void): void
+}
+
+async function start(
+  options: {
+    render?: () => Promise<{ ok: true; image: LabelBitmap } | { ok: false; error: { code: 'DOES_NOT_FIT'; message: string; item: string } }>
+    wake?: () => Promise<FakeWake>
+  } = {},
+): Promise<PrinterStation> {
   store = new PrintStore({ openStream: () => new FakeEventSource('/api/stream') })
   station = new PrinterStation({
     store,
@@ -87,7 +97,7 @@ async function start(options: { render?: () => Promise<{ ok: true; image: LabelB
     detect: () => [],
     render: options.render ?? (async () => ({ ok: true, image: IMAGE })),
     renderTest: async () => ({ ok: true, image: IMAGE }),
-    requestWakeLock: null,
+    requestWakeLock: options.wake ?? null,
     today: () => DATE,
     exposeTestHandle: (value) => {
       handle = value
@@ -285,5 +295,74 @@ describe('출력 기기 되기 (AC-I1-10·23)', () => {
     server.on('POST', /^\/api\/print\/device$/, () => ({ status: 409, body: { error: { code: 'PRINT_DEVICE_TAKEN', message: '다른 기기에서 출력하고 있어요. 이 기기로 바꾸려면 바꾸기를 눌러 주세요.' }, device: { name: 'PC' } } }))
     const s = await start()
     expect(await s.become('휴대폰', false)).toEqual({ kind: 'taken', name: 'PC' })
+  })
+})
+
+describe('라벨 기능 켬/끔 (N4a, L-12 5·6, AC-N4a-17·18)', () => {
+  const labelsEvent = (rev: number, enabled: boolean) => FakeEventSource.last.emit('labels', { rev, enabled, entry: { enabled, at: '2026-10-20T11:31:00.000Z', loginId: 'shop1' } })
+
+  it('켬/끔을 모르면(그 칸이 없는 대기열 요약) 받지 않는다', async () => {
+    current = overview({ queue: { ...queue({ rev: 1, device: device(ME, { name: '휴대폰' }) }), labelsEnabled: undefined as unknown as boolean } })
+    claims = [claimed('j1')]
+    const s = await start()
+    await s.connect('test')
+    await flush()
+    expect(claimCalls()).toBe(0)
+  })
+
+  it('꺼져 있으면 받지 않고, 다시 켜졌다는 알림이 오면 그때 받는다', async () => {
+    current = overview({ queue: queue({ rev: 1, device: device(ME, { name: '휴대폰' }), labelsEnabled: false }) })
+    claims = [claimed('j1')]
+    const s = await start()
+    await s.connect('test')
+    await flush()
+    expect(claimCalls()).toBe(0)
+    labelsEvent(2, true)
+    await vi.waitFor(() => expect(results).toHaveLength(1))
+    expect(printer.printed).toHaveLength(1)
+  })
+
+  it('찍는 중에 꺼지면 받은 한 장은 마저 찍어 결과를 보내고, 다음 장은 받지 않는다 (프린터 그림 = 끄기 전에 받은 장 수)', async () => {
+    claims = [claimed('j1'), claimed('j2')]
+    printer.setBehavior(1, { delayMs: 150 })
+    const s = await start()
+    await s.connect('test')
+    await vi.waitFor(() => expect(s.getSnapshot().job).not.toBeNull())
+    labelsEvent(2, false)
+    await vi.waitFor(() => expect(results).toHaveLength(1))
+    await flush(5)
+    expect(results[0]).toEqual({ deviceId: ME, attempt: 'attempt-j1-0000', ok: true })
+    expect(claimCalls()).toBe(1)
+    expect(printer.printed).toHaveLength(1)
+  })
+
+  it('받기가 LABELS_OFF면(꺼진 것을 늦게 앎) 받기를 멈추고 다시 받는다 — 거절 문장은 남기지 않고 저절로 다시 받지 않는다', async () => {
+    server.on('POST', /^\/api\/print\/claim$/, () => {
+      current = overview({ queue: queue({ rev: 2, device: device(ME, { name: '휴대폰' }), labelsEnabled: false }) })
+      return { status: 409, body: { error: { code: 'LABELS_OFF', message: '라벨 기능이 꺼져 있어요. 설정에서 켠 뒤 다시 해 주세요.' } } }
+    })
+    const s = await start()
+    await s.connect('test')
+    await vi.waitFor(() => expect(store?.labelsEnabled).toBe(false))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(claimCalls()).toBe(1)
+    expect(store?.getSnapshot().labelsRefusal ?? null).toBeNull()
+  })
+
+  it('꺼진 동안은 화면 꺼짐 막기를 풀어 두고, 켜지면 다시 요청한다', async () => {
+    const released = vi.fn()
+    const requested = vi.fn()
+    const wake = async (): Promise<FakeWake> => {
+      requested()
+      return { release: async () => released(), addEventListener: () => {} }
+    }
+    const s = await start({ wake })
+    await vi.waitFor(() => expect(s.getSnapshot().wake).toBe('on'))
+    labelsEvent(2, false)
+    await vi.waitFor(() => expect(s.getSnapshot().wake).toBe('off'))
+    expect(released).toHaveBeenCalledTimes(1)
+    labelsEvent(3, true)
+    await vi.waitFor(() => expect(s.getSnapshot().wake).toBe('on'))
+    expect(requested).toHaveBeenCalledTimes(2)
   })
 })
