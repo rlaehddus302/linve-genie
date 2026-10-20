@@ -103,6 +103,70 @@ describe('AC-N1-31·55 어댑터로 연결 — 비슷한 이름은 WRONG_MODEL, 
   })
 })
 
+describe('AC-N1-72 · D-N1-11 앞자리 뒤의 글은 보지 않는다 — 고르기 창의 namePrefix 거르기와 같은 판단', () => {
+  it.each([
+    ['끝 공백', 'P12_ZA15B ', 'MARKLIFE_P12'],
+    ['앞자리만', 'S2_', 'MARKLIFE_S2'],
+    ['248자', `LP15_${'A'.repeat(243)}`, 'MARKLIFE_LP15'],
+    ['끝 탭·줄바꿈', 'X2_AB12\t\n', 'MARKLIFE_X2'],
+    ['P12_ + 1만 자', `P12_${'가'.repeat(10_000)}`, 'MARKLIFE_P12'],
+    ['P50_ + 이모지·폭 없는 공백', 'P50_🌵​', 'MARKLIFE_P50'],
+  ])('%s → %s', (_what, name, id) => {
+    expect(profileForDeviceName(name, ALL)?.id).toBe(id)
+  })
+
+  /** 어댑터가 고르기 창에 넘긴 거르기를 그대로 가져온다 */
+  async function filtersOf(profiles: readonly ModelProfile[]): Promise<string[]> {
+    const timer = new StepTimer()
+    const ble = new ManualBle({ name: 'P12_AB12', timer, onFlowStart: [[0x01, 0x04]] })
+    const adapter = createMarklifeAdapter({ environment: () => ble.environment, timer, profiles })
+    await adapter.connect('bluetooth')
+    return (ble.requests[0]?.filters ?? []).map((f) => f.namePrefix)
+  }
+
+  const nameArb = (prefixes: readonly string[]): fc.Arbitrary<string> =>
+    fc.oneof(
+      fc.tuple(fc.constantFrom(...prefixes), fc.string({ unit: 'binary', maxLength: 30 })).map(([p, t]) => p + t),
+      fc.tuple(fc.constantFrom(...prefixes), fc.constantFrom(' ', '  ', '\t', '\n', '\u00a0', '\u200b', '\u3000')).map(([p, t]) => p + 'AB12' + t),
+      fc.tuple(fc.constantFrom('', ' ', '\u200b', '\ufeff', 'x', 'Phomemo '), fc.constantFrom(...prefixes), fc.string({ maxLength: 8 })).map(([h, p, t]) => h + p + t),
+      fc.tuple(fc.constantFrom(...prefixes), fc.string({ maxLength: 8 })).map(([p, t]) => p.slice(0, -1) + t),
+      fc.string({ unit: 'binary', maxLength: 12 }),
+    )
+
+  it.each([
+    ['기본 목록', MARKLIFE_PROFILES],
+    ['기본 + 실험 목록', ALL],
+    ['실험 목록만', EXPERIMENTAL_PROFILES],
+  ] as const)('%s: 창에 보이는 이름이면 반드시 고르고, 안 보이는 이름은 고르지 않는다 (속성)', async (_what, profiles) => {
+    const filters = await filtersOf(profiles)
+    expect(filters).toEqual(profiles.map((p) => p.namePrefix))
+    fc.assert(
+      fc.property(nameArb(filters), (name) => {
+        const shown = filters.some((f) => name.startsWith(f))
+        const picked = profileForDeviceName(name, profiles)
+        expect(picked !== undefined, JSON.stringify(name)).toBe(shown)
+        if (picked) expect(name.startsWith(picked.namePrefix as string)).toBe(true)
+      }),
+      { numRuns: 500, seed: 0x4e3174 },
+    )
+  })
+
+  it('어댑터로 연결: 끝 공백·아주 긴 이름도 연결되고 그 프로필이다 (WRONG_MODEL 아님)', async () => {
+    for (const [name, id] of [
+      ['P12_ZA15B ', 'MARKLIFE_P12'],
+      [`LP15_${'A'.repeat(243)}`, 'MARKLIFE_LP15'],
+      ['S2_', 'MARKLIFE_S2'],
+    ] as const) {
+      const timer = new StepTimer()
+      const ble = new ManualBle({ name, timer, onFlowStart: [[0x01, 0x04]] })
+      const adapter = createMarklifeAdapter({ environment: () => ble.environment, timer })
+      expect(await adapter.connect('bluetooth'), name).toEqual({ ok: true })
+      expect(adapter.profile.id).toBe(id)
+      expect(adapter.state).toBe('CONNECTED')
+    }
+  })
+})
+
 describe('AC-N1-72·34 까닭 — 글자 그대로', () => {
   const IPHONE_KAKAO = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 KAKAOTALK 10.8.5'
   const ANDROID_KAKAO = 'Mozilla/5.0 (Linux; Android 14; SM-S921N Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/130.0.6723.58 Mobile Safari/537.36;KAKAOTALK 2410520'
