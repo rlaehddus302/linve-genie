@@ -242,7 +242,34 @@ export const printQueues = pgTable('print_queues', {
   /** 출력 기록이 바뀔 때마다 1씩 는다 (실시간 알림의 순서·빠짐 확인) */
   rev: bigint('rev', { mode: 'number' }).notNull().default(0),
   updatedAt: timestamptz('updated_at').notNull(),
+  /**
+   * 라벨 기능 켬/끔 (N4a, SPEC RCP-01, L-12 1·D-N4a-01). 기본 켬 — 줄이 없어도 켬. 판매 규칙 설정이 아니다(방송 스냅샷·엔진 입력에 들어가지 않는다).
+   * 이 줄을 잠근(lockQueue) 트랜잭션 안에서 읽고 바꾼다: 이벤트 기록의 효과 → 작업, 출력 요청 거절, 켜기·끄기가 같은 잠금으로 한 줄씩 처리된다
+   */
+  labelsEnabled: boolean('labels_enabled').notNull().default(true),
 })
+
+/**
+ * 라벨 기능 켬/끔을 바꾼 기록 (N4a, L-12 2). 값이 실제로 바뀔 때마다 한 줄(바뀐 값·시각 UTC·바꾼 계정), 켬/끔을 바꾼 트랜잭션 안에서.
+ * 지우지 않는다(지우는 API가 없다). 다른 판매자의 기록은 보이지 않는다(판매자 조건)
+ */
+export const labelSwitches = pgTable(
+  'label_switches',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** 바뀐 값 (true = 켬) */
+    enabled: boolean('enabled').notNull(),
+    /** 바꾼 계정 */
+    accountId: text('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    changedAt: timestamptz('changed_at').notNull(),
+  },
+  (t) => [index('label_switches_seller_idx').on(t.sellerId, t.id)],
+)
 
 /**
  * 라벨 키 (L-8, L-9, L-11). 상품 = (찜, 확정버전) — key `<찜>@<확정버전>`, 포장 = (포장, 지금의 구매자, 날짜) — key `packing:<구매자>`.
@@ -414,6 +441,7 @@ export const schema = {
   printAttempts,
   labelTemplates,
   printRequests,
+  labelSwitches,
 }
 
 /** 범위 직렬 처리용 어드바이저리 락 키 (범위 = 판매자·날짜·리허설인지, 범위 행이 생기기 전에도 같은 키). 실제 범위는 S04와 같은 키 */

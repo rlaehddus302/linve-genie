@@ -29,6 +29,13 @@
       "when": 1792972800000,
       "tag": "0003_i1_print",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793059200000,
+      "tag": "0004_n4a_label_switch",
+      "breakpoints": true
     }
   ]
 }
