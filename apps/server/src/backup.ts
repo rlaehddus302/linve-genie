@@ -45,6 +45,8 @@ import {
   loginLimits,
   outbox,
   packingRecords,
+  receiptLinkRequests,
+  receiptLinks,
   printAttempts,
   printJobs,
   printLabels,
@@ -1106,8 +1108,11 @@ const BATCH = 500
  * - 유튜브(Y1 — 채팅 본문·이름 chat_raw, 수집기·방송 잇기·우리 메시지·삭제·차단 알림): 범위를 참조한다 — 지운다. 채팅 본문·이름은 파일의 이벤트에서 다시 만든다.
  * - 인스타그램·라이브 연결(N2 — 감사 DM 행·발송, 라이브 연결·옮긴 기록, 이어지지 않은 댓글 수, 요청 번호): 범위·방송·발송함을 참조하거나 그 기록이다 — 지운다
  *   (복구한 지난 감사 DM을 다시 보내지 않는다).
+ * - 구매자 확인서 공유 링크·그 요청 번호(N4b D-N4b-06): 파일에 없다 — 지운다. 복구한 기록의 구매자 ID가 다른 사람을 가리킬 수 있어 복구 전에 만든 링크는 모두 열리지 않게 한다.
  */
 export const RESTORE_REPLACED_TABLES = [
+  receiptLinks,
+  receiptLinkRequests,
   igDmRows,
   igDmSends,
   liveLinkMoves,

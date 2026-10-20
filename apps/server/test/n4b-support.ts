@@ -1,8 +1,9 @@
 // N4b 서버 시험 도우미: JPEG 머리 읽기, ZIP 읽기(중앙 목록 — 이름·플래그·순서·내용), 날짜 하나에 여러 구매자 판매 넣기.
 import { inflateRawSync } from 'node:zlib'
+import type { PGlite } from '@electric-sql/pglite'
 import { expect } from 'vitest'
 import { chat, ok } from './i2-support.ts'
-import { createBroadcast, type Seller, type TestServer } from './support.ts'
+import { client, createBroadcast, rid, type Seller, type TestServer } from './support.ts'
 
 export interface JpegInfo {
   /** 나온 표시(마커) 차례 (FFxx의 xx) */
@@ -89,4 +90,36 @@ export async function sellMany(world: TestServer, seller: Seller, date: string, 
     }
   }
   return b
+}
+
+/** 공유 링크 API (판매자 세션) */
+export function linkApi(world: TestServer, cookie: string | null) {
+  const api = client(world, cookie)
+  return {
+    create: (date: string, buyer: string, requestId = rid('ln'), query = '') => api.post(`/api/days/${date}/receipt-links${query}`, { requestId, buyer }),
+    all: (date: string, requestId = rid('la'), query = '') => api.post(`/api/days/${date}/receipt-links/all${query}`, { requestId }),
+    revoke: (date: string, buyer: string, requestId = rid('lr'), query = '') => api.post(`/api/days/${date}/receipt-links/revoke${query}`, { requestId, buyer }),
+    list: (date: string, query = '') => api.get(`/api/days/${date}/receipt-links${query}`),
+    buyers: (date: string, query = '') => api.get(`/api/days/${date}/receipt-buyers${query}`),
+  }
+}
+
+/** 링크 주소의 토큰 */
+export function tokenOf(url: unknown): string {
+  expect(typeof url).toBe('string')
+  const match = /\/r\/([A-Za-z0-9_-]{43})$/.exec(url as string)
+  expect(match, String(url)).not.toBeNull()
+  return (match as RegExpExecArray)[1] as string
+}
+
+/** 로그인하지 않은 요청으로 링크 열기 */
+export async function openLink(world: TestServer, path: string, init: RequestInit = {}): Promise<{ status: number; headers: Headers; bytes: Uint8Array; text: string }> {
+  const response = await world.server.app.request(path, init)
+  const bytes = new Uint8Array(await response.arrayBuffer())
+  return { status: response.status, headers: response.headers, bytes, text: new TextDecoder().decode(bytes) }
+}
+
+/** 공유 링크 표 전체 (DB 행) */
+export async function linkRows(world: TestServer): Promise<Record<string, unknown>[]> {
+  return (await (world.database.pglite as PGlite).query<Record<string, unknown>>('select * from receipt_links order by created_at, id')).rows
 }

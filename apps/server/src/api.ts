@@ -24,6 +24,7 @@ import { DEVICE_ID_RE, type PrintService } from './print.ts'
 import { registerPrintRoutes } from './print-api.ts'
 import type { InstagramModule } from './instagram/index.ts'
 import { INSTAGRAM_PUBLIC_PATHS, registerLiveRoutes } from './instagram/routes.ts'
+import type { ReceiptLinkService } from './receipt-links.ts'
 import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.ts'
 import type { Actor, WriteOutcome, WriteResult } from './writer.ts'
 import { CALLBACK_PATH, registerYoutubeRoutes } from './youtube/routes.ts'
@@ -44,6 +45,8 @@ export interface ApiDeps {
   readonly service: Service
   /** 정산 마무리 (I2 — 가게 설정·확인서·판매대장·포장·지난 구매·가져오기·백업·내려받기) */
   readonly closing: ClosingService
+  /** 구매자 확인서 공유 링크 (N4b). 없으면 /api/days/:date/receipt-links 경로가 없다 */
+  readonly receiptLinks?: ReceiptLinkService
   readonly auth: Auth
   readonly hub: StreamHub
   /** 출력 기록과 출력 기기 (I1). 없으면 /api/print 경로가 없다 */
@@ -586,6 +589,69 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (!scope.ok) return scope.response
     return fileOf(await closing.batchJpgZip(sellerOf(c), scope.date, scope.rehearsal, c.req.raw.signal))
   })
+
+  // ── 영수증 보내기 (N4b — harness/sprints/N4b/dev-notes.md "API") ─────────
+  const links = deps.receiptLinks
+  if (links !== undefined) {
+    const linkOutcome = <T>(c: Context<Env>, outcome: Outcome<T>, body: (value: T) => Record<string, unknown>): Response => {
+      if (outcome.kind === 'not_found') return notFound()
+      if (outcome.kind === 'error') return problemResponse(outcome.error)
+      return c.json(body(outcome.value))
+    }
+    // 구매자 줄 (AC-N4b-32): 품목 있는 묶음마다 이름·끝자리·상품 수·최종 금액·입금 상태(확인서 데이터 그대로), 일괄 순서. 실제 범위면 링크 상태도
+    api.get('/days/:date/receipt-buyers', async (c) => {
+      const scope = scopeParams(c)
+      if (!scope.ok) return scope.response
+      const outcome = await closing.receiptBuyers(sellerOf(c), scope.date, scope.rehearsal)
+      if (outcome.kind !== 'ok') return linkOutcome(c, outcome, () => ({}))
+      const rows = outcome.value.rows
+      const statuses = scope.rehearsal ? null : await links.statuses(sellerOf(c), scope.date, rows.map((row) => row.buyer))
+      return c.json({ date: scope.date, rehearsal: scope.rehearsal, buyers: rows.map((row) => ({ ...row, link: statuses?.get(row.buyer) ?? null })) })
+    })
+    // 링크 목록 (AC-N4b-12): 리허설 범위는 빈 목록
+    api.get('/days/:date/receipt-links', async (c) => {
+      const scope = scopeParams(c)
+      if (!scope.ok) return scope.response
+      return linkOutcome(c, await links.list(sellerOf(c), scope.date, scope.rehearsal), (list) => ({ date: scope.date, rehearsal: scope.rehearsal, links: list }))
+    })
+    // 링크 만들기 (AC-N4b-10): { requestId, buyer }
+    api.post('/days/:date/receipt-links', async (c) => {
+      const input = body(c)
+      const requestId = requestIdOf(input)
+      if (requestId === null) return invalidRequestId()
+      const extra = onlyKeys(input, ['requestId', 'buyer'])
+      if (extra !== null) return extra
+      const buyer = buyerParam(typeof own(input, 'buyer') === 'string' ? (own(input, 'buyer') as string) : undefined)
+      if (!buyer.ok) return problemResponse(buyer.error)
+      const scope = scopeParams(c)
+      if (!scope.ok) return scope.response
+      return linkOutcome(c, await links.create(sellerOf(c), c.get('session').accountId, scope.date, scope.rehearsal, requestId, buyer.buyer), (value) => ({ date: scope.date, ...value }))
+    })
+    // 링크 전부 만들기 (AC-N4b-11): { requestId }
+    api.post('/days/:date/receipt-links/all', async (c) => {
+      const input = body(c)
+      const requestId = requestIdOf(input)
+      if (requestId === null) return invalidRequestId()
+      const extra = onlyKeys(input, ['requestId'])
+      if (extra !== null) return extra
+      const scope = scopeParams(c)
+      if (!scope.ok) return scope.response
+      return linkOutcome(c, await links.createAll(sellerOf(c), c.get('session').accountId, scope.date, scope.rehearsal, requestId), (value) => ({ date: scope.date, ...value }))
+    })
+    // 링크 끊기 (AC-N4b-13): { requestId, buyer }
+    api.post('/days/:date/receipt-links/revoke', async (c) => {
+      const input = body(c)
+      const requestId = requestIdOf(input)
+      if (requestId === null) return invalidRequestId()
+      const extra = onlyKeys(input, ['requestId', 'buyer'])
+      if (extra !== null) return extra
+      const buyer = buyerParam(typeof own(input, 'buyer') === 'string' ? (own(input, 'buyer') as string) : undefined)
+      if (!buyer.ok) return problemResponse(buyer.error)
+      const scope = scopeParams(c)
+      if (!scope.ok) return scope.response
+      return linkOutcome(c, await links.revoke(sellerOf(c), c.get('session').accountId, scope.date, scope.rehearsal, requestId, buyer.buyer), (value) => ({ date: scope.date, ...value }))
+    })
+  }
 
   // 판매대장 (AC-I2-20): ?from=&to=&b=<방송 ID>&b=… (b가 없으면 기간 안 모든 실제 방송)
   api.get('/ledger.xlsx', async (c) => {

@@ -104,6 +104,8 @@ export type ErrorCode =
   | 'NO_RECORDS'
   | 'BUSY'
   | 'FILE_FAILED'
+  // N4b 구매자 확인서 공유 링크 (harness/sprints/N4b/dev-notes.md)
+  | 'REHEARSAL_RECEIPT_LINK'
 
 export interface ErrorBody {
   readonly error: {

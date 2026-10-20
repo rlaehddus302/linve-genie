@@ -64,6 +64,13 @@
       "when": 1793404800000,
       "tag": "0008_i2_shop_packing_restore",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793491200000,
+      "tag": "0009_n4b_receipt_links",
+      "breakpoints": true
     }
   ]
 }
