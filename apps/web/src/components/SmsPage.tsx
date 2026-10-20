@@ -3,10 +3,12 @@
 // - 칸: 번호(숫자 키패드) · 받은 시각(비우면 서버가 도착 시각을 초까지) · 전화번호(뒤 4자리만 보인다) · 메모 · 구매자 고르기.
 // - "15번에 문자찜 넣기"는 바로 보낸다(5초 대기 없음) — 같은 요청 번호로 재시도, 결과 카드(찜의 지금 상태)·"찜 취소하기"(5초 뒤)·"같은 사람 하나 더".
 // - 보낸 뒤 칸을 모두 비운다(전화번호 원문을 화면 상태에 남기지 않는다). 아래에 고른 방송의 최근 문자찜 10개.
+// - I3: 30일이 지나 봉인한 날짜의 방송은 고를 수 없다(기본 방송으로도 고르지 않는다, AC-I3-41). 보조자 계정은 실제 방송만 고르고
+//   허용된 요청(방송 목록·범위 목록·범위 조회·실시간)만 보낸다(AC-I3-63).
 import { containsPhoneRun, normalizePhone, phoneLast4 } from '@livejjim/core'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
 import { get, isApiError, type ApiError } from '../api/client.ts'
-import type { BroadcastItem, Buyer, Claim, Product } from '../api/types.ts'
+import type { BroadcastItem, Buyer, Claim, DayRow, Product } from '../api/types.ts'
 import { distinguishWords, isActive, sameNameCounts, searchBuyers, smsHolder, channelTail } from '../lib/buyers.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
 import { claimWord, formatWon, productKey } from '../lib/derive.ts'
@@ -43,7 +45,21 @@ function digitsOnly(text: string): string {
   return text.replace(/[０-９]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0)).replace(/\D/g, '').slice(0, 4)
 }
 
-export function SmsPage({ navigate }: { readonly navigate: Navigate }) {
+/** 문자찜을 넣을 수 있는 방송: 봉인한 날짜 빼고, 보조자면 실제 방송만 */
+export function smsChoices(items: readonly BroadcastItem[], sealedDates: ReadonlySet<string>, assistant: boolean): BroadcastItem[] {
+  return items.filter((item) => !(sealedDates.has(item.date) && !item.rehearsal) && !(assistant && item.rehearsal))
+}
+
+async function sealedDates(): Promise<ReadonlySet<string>> {
+  try {
+    const { days } = await get<{ days: DayRow[] }>('/api/days')
+    return new Set(days.filter((day) => day.sealed === true).map((day) => day.date))
+  } catch {
+    return new Set()
+  }
+}
+
+export function SmsPage({ navigate, assistant = false }: { readonly navigate: Navigate; readonly assistant?: boolean }) {
   const [broadcasts, setBroadcasts] = useState<BroadcastItem[] | null>(null)
   const [listError, setListError] = useState<ApiError | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
@@ -53,13 +69,14 @@ export function SmsPage({ navigate }: { readonly navigate: Navigate }) {
   const load = useCallback(async (first: boolean) => {
     setListError(null)
     try {
-      const { broadcasts: items } = await get<{ broadcasts: BroadcastItem[] }>('/api/broadcasts')
+      const [{ broadcasts: all }, sealed] = await Promise.all([get<{ broadcasts: BroadcastItem[] }>('/api/broadcasts'), sealedDates()])
+      const items = smsChoices(all, sealed, assistant)
       setBroadcasts(sortBroadcasts(items))
       if (first) setSelected((current) => current ?? defaultSmsBroadcast(items)?.id ?? null)
     } catch (error) {
       if (isApiError(error)) setListError(error)
     }
-  }, [])
+  }, [assistant])
 
   useEffect(() => {
     void load(true)
@@ -115,7 +132,7 @@ export function SmsPage({ navigate }: { readonly navigate: Navigate }) {
           onChoose={choose}
           onClose={() => setChoosing(false)}
           onReload={() => void load(false)}
-          onHome={() => navigate({ name: 'home' })}
+          {...(assistant ? {} : { onHome: () => navigate({ name: 'home' }) })}
         />
       ) : null}
     </main>
@@ -148,7 +165,8 @@ function BroadcastChooser(props: {
   readonly onChoose: (id: string) => void
   readonly onClose: () => void
   readonly onReload: () => void
-  readonly onHome: () => void
+  /** 방송 목록으로 (보조자 계정은 없다) */
+  readonly onHome?: () => void
 }) {
   useEffect(() => {
     props.onReload()
@@ -158,10 +176,12 @@ function BroadcastChooser(props: {
     <Modal title="방송 고르기" onClose={props.onClose}>
       {props.items.length === 0 ? (
         <div className="stack-tight">
-          <p>아직 방송이 없어요. 방송 목록에서 먼저 방송을 시작해 주세요.</p>
-          <button type="button" className="button" onClick={props.onHome}>
-            방송 목록으로
-          </button>
+          <p>{props.onHome === undefined ? '문자찜을 넣을 방송이 없어요. 판매자가 방송을 시작하면 고를 수 있어요.' : '아직 방송이 없어요. 방송 목록에서 먼저 방송을 시작해 주세요.'}</p>
+          {props.onHome !== undefined ? (
+            <button type="button" className="button" onClick={props.onHome}>
+              방송 목록으로
+            </button>
+          ) : null}
         </div>
       ) : (
         <ul className="plain-list stack-tight" aria-label="방송">

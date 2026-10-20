@@ -2,9 +2,10 @@
 // - 날짜 하나(구매자 화면과 같은 고르기)의 묶음 목록(코어 listSettlements — 그날의 지금의 구매자마다)과 위 요약, 상태 거르기·이름 찾기.
 // - 자세히: 방송별 품목·합계, 계산 줄, 받은 금액·남은 금액·환불 필요, 기록 목록, 입력 넷(입금·배송비·할인/추가·환불) — 모두 확인 뒤 바로 보낸다.
 // - 금액 칸은 원 단위(AC-S06-36). 입금 날짜는 적은 때로 남는다(실제 입금일은 메모).
+// - I3: 봉인 예정 날짜면 "이 날짜 기록은 … 봉인돼요"(7일 전부터 경고 상자), 봉인한 날짜는 볼 수만 있다 — 입금·배송비·할인/추가·환불이 잠긴다 (AC-I3-40·41).
 import { containsPhoneRun, formatWon, type PaymentStatus } from '@livejjim/core'
 import { useMemo, useRef, useState } from 'react'
-import { isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
+import { ApiError, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
 import type { Claim, Settlement, WriteResult } from '../api/types.ts'
 import { claimsOf } from '../lib/buyers.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
@@ -22,7 +23,10 @@ import { AmountField, FieldNote, WriteError, serverProblem, useSender } from './
 import { LiveNotices } from './LiveNotices.tsx'
 import { Modal } from './Modal.tsx'
 import { ReasonField } from './ReasonField.tsx'
-import { ScopePicker, useScopeChoice } from './ScopePicker.tsx'
+import { Lock } from './Lock.tsx'
+import { ScopePicker, sealOf, useScopeChoice } from './ScopePicker.tsx'
+import { SealNotice } from './SealNotice.tsx'
+import { ReadOnlyContext } from '../lib/read-only.ts'
 
 export const REHEARSAL_SETTLEMENT = '리허설 — 실제 정산이 아니에요'
 export const PAYMENT_DATE_NOTE = '입금 날짜는 적은 때로 남아요. 실제 입금일이 다르면 메모에 적어 주세요.'
@@ -44,12 +48,14 @@ export function SettlementsPage({ route, navigate }: { readonly route: ScopeRout
   const scope = choice.scope
   const key = scope === null ? null : `${scope.date}|${String(scope.rehearsal)}`
   const { store, snapshot } = useScopeStore(key, () => ({ scope: scope ?? { date: '', rehearsal: false } }))
+  const seal = sealOf(choice.days, scope)
   return (
     <main className="page page-wide settlements-page">
       <h1>정산</h1>
       <div className="row scope-row">
         <ScopePicker route={route} navigate={navigate} days={choice.days} error={choice.error} onRetry={choice.retry} />
       </div>
+      <SealNotice sealAt={seal.sealAt} sealed={seal.sealed || snapshot.sealed} />
       {route.rehearsal ? (
         <p className="rehearsal-banner" role="note">
           {REHEARSAL_SETTLEMENT}
@@ -83,11 +89,12 @@ interface ReadyProps {
   readonly data: ScopeData
 }
 
-/** 정산 쓰기 (settlement.* — 날짜 범위로, 같은 요청 번호로 재시도 → 응답 seq까지 따라잡기) */
-function useCommand(store: ConsoleStore, data: ScopeData) {
+/** 정산 쓰기 (settlement.* — 날짜 범위로, 같은 요청 번호로 재시도 → 응답 seq까지 따라잡기). 봉인한 날짜는 보내지 않는다 */
+function useCommand(store: ConsoleStore, data: ScopeData, sealed: boolean) {
   return useMemo(
     () =>
       async (event: Readonly<Record<string, unknown>>, requestId: string = newRequestId()): Promise<WriteResult> => {
+        if (sealed) throw new ApiError({ status: 409, code: 'SEALED', message: '30일이 지난 방송 기록은 봉인되어 고칠 수 없어요.' })
         let result: WriteResult
         try {
           result = await withRetry(() => post<WriteResult>(withQuery('/api/events', { date: data.date, rehearsal: data.rehearsal }), { requestId, ...event }))
@@ -99,17 +106,17 @@ function useCommand(store: ConsoleStore, data: ScopeData) {
         await store.sync(result.seq)
         return result
       },
-    [store, data.date, data.rehearsal],
+    [store, data.date, data.rehearsal, sealed],
   )
 }
 
 function ReadySettlements({ route, navigate, store, snapshot, data }: ReadyProps) {
   const names = useMemo(() => new BuyerNames(data.buyers), [data.buyers])
-  const command = useCommand(store, data)
+  const command = useCommand(store, data, snapshot.sealed)
   const open = (buyer: string | undefined) => navigate({ name: 'settlements', date: data.date, rehearsal: data.rehearsal, ...(buyer === undefined ? {} : { buyer }) })
   const selected = route.buyer === undefined ? undefined : data.settlements.get(settlementKey({ buyer: data.buyers.get(route.buyer)?.current ?? route.buyer, date: data.date }))
   return (
-    <>
+    <ReadOnlyContext.Provider value={snapshot.sealed}>
       <div className="page-sticky">
         <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
       </div>
@@ -125,7 +132,7 @@ function ReadySettlements({ route, navigate, store, snapshot, data }: ReadyProps
       ) : (
         <SettlementDetail key={selected.buyer} data={data} names={names} settlement={selected} command={command} onBack={() => open(undefined)} />
       )}
-    </>
+    </ReadOnlyContext.Provider>
   )
 }
 
@@ -285,20 +292,22 @@ function SettlementDetail({ data, names, settlement, command, onBack }: DetailPr
         </p>
       </section>
 
-      <div className="row" role="group" aria-label="정산 입력">
-        <button type="button" className="button button-primary" onClick={() => setInput('payment')}>
-          입금 적기
-        </button>
-        <button type="button" className="button" onClick={() => setInput('shipping')}>
-          배송비 바꾸기
-        </button>
-        <button type="button" className="button" onClick={() => setInput('adjust')}>
-          할인·추가
-        </button>
-        <button type="button" className="button" onClick={() => setInput('refund')}>
-          환불 적기
-        </button>
-      </div>
+      <Lock>
+        <div className="row" role="group" aria-label="정산 입력">
+          <button type="button" className="button button-primary" onClick={() => setInput('payment')}>
+            입금 적기
+          </button>
+          <button type="button" className="button" onClick={() => setInput('shipping')}>
+            배송비 바꾸기
+          </button>
+          <button type="button" className="button" onClick={() => setInput('adjust')}>
+            할인·추가
+          </button>
+          <button type="button" className="button" onClick={() => setInput('refund')}>
+            환불 적기
+          </button>
+        </div>
+      </Lock>
 
       <section className="stack-tight" aria-label="정산 기록">
         <h3 className="sub-title">기록</h3>

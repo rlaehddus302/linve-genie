@@ -10,6 +10,9 @@ import { ErrorNote } from './ErrorNote.tsx'
 export interface DayOption {
   readonly date: string
   readonly rehearsal: boolean
+  /** 봉인 예정 시각 (유튜브 채팅이 있는 실제 날짜만, AC-I3-40) */
+  readonly sealAt?: string | null
+  readonly sealed?: boolean
 }
 
 interface DaysState {
@@ -27,7 +30,10 @@ export function useScopeChoice(route: ScopeRoute, navigate: Navigate): { readonl
     Promise.all([get<{ days: DayOption[] }>('/api/days'), get<{ days: DayOption[] }>('/api/days?rehearsal=true')]).then(
       ([real, rehearsal]) => {
         if (!alive) return
-        const days = [...real.days.map((day) => ({ date: day.date, rehearsal: false })), ...rehearsal.days.map((day) => ({ date: day.date, rehearsal: true }))]
+        const days = [
+          ...real.days.map((day) => ({ date: day.date, rehearsal: false, sealAt: day.sealAt ?? null, sealed: day.sealed === true })),
+          ...rehearsal.days.map((day) => ({ date: day.date, rehearsal: true })),
+        ]
         setState({ days, error: null })
       },
       (error: unknown) => {
@@ -55,6 +61,13 @@ export function useScopeChoice(route: ScopeRoute, navigate: Navigate): { readonl
 
   const scope: DayOption | null = route.date !== undefined ? { date: route.date, rehearsal: route.rehearsal } : null
   return { days, error: state.error, retry: () => setAttempt((n) => n + 1), scope }
+}
+
+/** 고른 날짜의 봉인 정보 (실제 날짜만) */
+export function sealOf(days: readonly DayOption[] | null, scope: DayOption | null): { readonly sealAt: string | null; readonly sealed: boolean } {
+  if (days === null || scope === null || scope.rehearsal) return { sealAt: null, sealed: false }
+  const day = days.find((item) => item.date === scope.date && !item.rehearsal)
+  return { sealAt: day?.sealAt ?? null, sealed: day?.sealed === true }
 }
 
 const keyOf = (day: DayOption) => `${day.date}|${day.rehearsal ? 'r' : ''}`

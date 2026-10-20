@@ -1,11 +1,25 @@
 // 방송 목록·새 방송·리허설 시작 (AC-S05-02, SPEC §7 화면 1, D-069·D-070·D-081).
 // 방송 설정 스냅샷은 서버가 판매자 설정으로 채운다 — 화면은 설정을 보내지 않는다.
+// I3: 실제 방송이 하나도 없고 시작 마법사 상태가 "처음"·"진행 중"이면 `/start`를 연다(AC-I3-50 — 이 주소로 왔을 때만).
+//     봉인 예정 날짜의 방송 줄에 "이 날짜 기록은 … 봉인돼요"(7일 전부터 경고 상자, AC-I3-40).
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
-import type { BroadcastItem, WriteResult } from '../api/types.ts'
+import type { BroadcastItem, DayRow, WizardState, WriteResult } from '../api/types.ts'
 import { dateWords, kstToday } from '../lib/kst.ts'
 import { routePath, type Navigate } from '../lib/router.ts'
 import { ErrorNote, FieldError } from './ErrorNote.tsx'
+import { SealNotice } from './SealNotice.tsx'
+
+/** 시작 마법사를 저절로 열까 (실제 방송이 없고 처음·진행 중일 때만) */
+async function shouldOpenWizard(items: readonly BroadcastItem[]): Promise<boolean> {
+  if (items.some((item) => !item.rehearsal)) return false
+  try {
+    const { wizard } = await get<{ wizard: WizardState }>('/api/wizard')
+    return wizard.status === 'NEW' || wizard.status === 'IN_PROGRESS'
+  } catch {
+    return false
+  }
+}
 
 export interface HomePageProps {
   readonly navigate: Navigate
@@ -21,6 +35,7 @@ export function sortBroadcasts(items: readonly BroadcastItem[]): BroadcastItem[]
 
 export function HomePage({ navigate }: HomePageProps) {
   const [broadcasts, setBroadcasts] = useState<BroadcastItem[] | null>(null)
+  const [seals, setSeals] = useState<ReadonlyMap<string, DayRow>>(new Map())
   const [loadError, setLoadError] = useState<ApiError | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [title, setTitle] = useState('')
@@ -31,18 +46,28 @@ export function HomePage({ navigate }: HomePageProps) {
   const titleField = useRef<HTMLInputElement>(null)
   const titleErrorId = useId()
 
-  const load = async () => {
+  const load = async (first = false) => {
     setLoadError(null)
     try {
       const { broadcasts: items } = await get<{ broadcasts: BroadcastItem[] }>('/api/broadcasts')
+      if (first && (await shouldOpenWizard(items))) {
+        navigate({ name: 'start' }, { replace: true })
+        return
+      }
       setBroadcasts(sortBroadcasts(items))
+      if (items.some((item) => !item.rehearsal)) {
+        get<{ days: DayRow[] }>('/api/days').then(
+          ({ days }) => setSeals(new Map(days.map((day) => [day.date, day]))),
+          () => {},
+        )
+      }
     } catch (error) {
       if (isApiError(error)) setLoadError(error)
     }
   }
 
   useEffect(() => {
-    void load()
+    void load(true)
   }, [])
 
   useEffect(() => {
@@ -140,6 +165,7 @@ export function HomePage({ navigate }: HomePageProps) {
                   <span className={item.ended ? 'tag' : 'tag tag-live'}>{item.ended ? '끝남' : '진행 중'}</span>
                   {item.rehearsal ? <span className="tag tag-rehearsal">리허설</span> : null}
                 </a>
+                {item.rehearsal ? null : <SealNotice sealAt={seals.get(item.date)?.sealAt} sealed={seals.get(item.date)?.sealed === true} />}
               </li>
             ))}
           </ul>
