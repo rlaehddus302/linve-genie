@@ -141,10 +141,18 @@ DmRowView = { id, broadcast, product /* 효과의 상품 키 */, buyer /* 효과
 | 그래프 오류 code 190·102 | 토큰 무효 | 연결 → 다시 연결 필요, 행 `WAITING(RECONNECT)` (기한까지) |
 | error_subcode 2018278 | 라이브 끝남 | `FAILED(LIVE_ENDED)` (시도 1번) |
 | error_subcode 2534023 | 이미 답장한 댓글 | `FAILED(ONE_REPLY)` (시도 1번) |
-| HTTP 429·5xx, code 4·17·32·613(속도 제한)·1·2(일시 오류), `is_transient: true`, 네트워크 오류 | 다시 시도 | `WAITING(RETRY)` 2·4·8·16·32초, 다섯 번 넘게 실패 → `FAILED(GAVE_UP)` |
+| HTTP 429·5xx, code 4·17·32·613(속도 제한)·1·2(일시 오류), `is_transient: true`, 요청을 보내기 전의 네트워크 오류(아래) | 다시 시도 | `WAITING(RETRY)` 2·4·8·16·32초, 다섯 번 넘게 실패 → `FAILED(GAVE_UP)` |
 | code 3·10·200~299 | 권한 없음 | `FAILED(NO_PERMISSION)` (시도 1번) |
 | 그 밖의 400대 | 받지 않음 | `FAILED(REJECTED)` (시도 1번) |
 | 보내기 10초 안에 응답 없음·연결 끊김 | 타임아웃 | `SENDING(CONFIRM)` → 대화 한 번 조회(30초): 있으면 `SENT`, 없으면 다시 시도, 조회 실패면 `FAILED(UNCONFIRMED)` |
+
+응답이 없는 실패의 분류(`isUnreached`·`UNREACHED_CODES` in `meta.ts`, TD-N2-002 수정). fetch(undici)의 `TypeError('fetch failed', { cause })`에서 원인(여러 주소를 시도했으면 `AggregateError.errors[]` 모두)을 본다.
+
+| 원인 | 뜻 | 개인 답장 | 그 밖의 호출(대화 조회·라이브 찾기 등) |
+|---|---|---|---|
+| `ECONNREFUSED`·`ENOTFOUND`·`EAI_AGAIN`·`EAI_FAIL`·`EAI_NONAME`·`EHOSTUNREACH`·`ENETUNREACH`·`ENETDOWN`·`EHOSTDOWN`·`EADDRNOTAVAIL`·`UND_ERR_CONNECT_TIMEOUT`, 또는 시스템 호출이 `connect`·`getaddrinfo`인 오류(원인이 모두 이것일 때만) | 요청을 보내기 전 — 메타에 닿지 않은 것이 확실 | `RETRY` (대화 조회 없이 2·4·8·16·32초) | `RETRY` |
+| 시간 제한(`TimeoutError`·`AbortError`) | 보냈을 수 있음 | `TIMEOUT` → 대화 조회로 확인 | 대화 조회는 `TIMEOUT`(→ `UNCONFIRMED`), 나머지 `RETRY` |
+| 그 밖(연결된 뒤 끊김 `ECONNRESET`·`EPIPE`·`UND_ERR_SOCKET`, 읽기 중 `ETIMEDOUT`, 원인 없음, 섞인 원인) | 보냈을 수 있음 | `TIMEOUT` → 대화 조회로 확인 | `RETRY` |
 
 ### 구현으로 정한 세부 (수용 기준 문장에 없는 것 — 스펙과 부딪치지 않는다고 봤다)
 - HTTP 상태: 업무 거절은 409(`NOT_CONFIGURED` 포함), 메타 일시 장애 `UNAVAILABLE`은 503, 입력 형식 400, 없음 404.
@@ -176,3 +184,14 @@ DmRowView = { id, broadcast, product /* 효과의 상품 키 */, buyer /* 효과
 
 ### pnpm verify (dev-server 끝)
 `E2E_PORT_OFFSET=1100 pnpm verify` — 통과 7 · 실패 0: typecheck(파일 484) · lint(0) · test(파일 139 · 테스트 3220) · golden(파일 27 · 파서 468 · 엔진 132 · 통과 600) · adversarial(파일 44 · 테스트 823) · e2e(265 통과) · coverage(라인 100% · 분기 99.66%).
+
+
+### 수정 라운드 1 (dev-server)
+- **SA-N2-001 · TD-N2-001 (FIXED)** 다시 배달된 댓글이 다른 회차에 다시 기록되거나 "이어진 방송 없음"으로 세지던 것. `webhook.ts #change`가 판매자 줄 안에서 회차를 정하기(`resolveTarget` — 저절로 잇기·이어지지 않은 수 세기) **전에** `igChatRecorded`(`store.ts`)로 이 판매자의 `events`에 같은 `ig:<댓글 ID>` 채팅이 어느 회차·날짜든 있는지 본다. 있으면 아무것도 하지 않는다(기록·저절로 잇기·수·알림 없음, 200). 다른 판매자의 같은 ID는 보지 않는다.
+  - 조회용 부분 인덱스 `events_ig_chat_idx (seller_id, chat_message_id) WHERE chat_message_id LIKE 'ig:%'` — 유튜브 채팅 쓰기에는 비용이 없다. N2 마이그레이션 `0004_n2_instagram.sql` 끝에 더했다(아직 합치지 않은 N2 전용 마이그레이션이라 새 번호를 만들지 않았다 — 이미 0004를 적용한 개발 DB가 있으면 인덱스만 빠진다, 정확성은 같다). `schema.ts`와 같다(schema.test가 대조).
+  - 시험: `live-links.test.ts` "1부에 기록한 댓글이 b1을 끝낸 뒤 다시 배달되면…"(본문을 바꿔 다시 와도 b2는 WAITING 그대로·기록·수·알림 없음, 그 뒤 새 댓글에서 b2가 저절로 이어짐 — AC-N2-22 1부·2부 유지), `instagram-webhook.test.ts` "이미 기록한 댓글을 거르는 것은 판매자 안에서만".
+- **SA-N2-002 · TD-N2-002 (FIXED)** 개인 답장의 연결 거절이 `UNCONFIRMED`로 멈추던 것. `MetaClient.#call`이 응답 없는 실패를 `timeout`·`unreached`(보내기 전 연결 오류)·`network`(그 밖)로 나누고, `privateReply`는 `unreached`를 `RETRY`(AC-N2-47 "네트워크 오류")로, 시간 제한·연결된 뒤 끊김만 `TIMEOUT`(AC-N2-48 "답이 없으면(또는 연결이 끊기면)")으로 준다. 표는 위 "응답이 없는 실패의 분류".
+  - 시험: `fake-meta.test.ts` 분류 표(연결 거절·DNS·경로 없음·연결 시간 초과·AggregateError / 연결 뒤 끊김·읽기 시간 초과·섞인 원인), `instagram-dm.test.ts` "보내기 연결 거절은 대화 조회 없이 WAITING(RETRY) → 2초 뒤 DM 1", "요청을 받은 뒤 끊기면(DROP) 대화 조회로 확인". 기존 `fake-meta` 오류 주입 시험의 `DROP → TIMEOUT`은 그대로 통과한다.
+  - **테스터에게(적대 시험 `dm-attacks.test.ts` TD-N2-002)**: 고친 뒤에도 이 시험 하나는 실패한다. 연결 거절을 **호출 2번**(`refuseConnections(…, 2)`)으로 주입하는데, 고친 흐름은 거절된 보내기 뒤에 대화 조회를 하지 않으므로(메타에 닿지 않은 것이 확실) 첫 drain에서 거절이 1번만 쓰이고, 남은 1번이 2초 뒤 다시 시도에 걸린다(→ `WAITING(RETRY)` 시도 2, 4초 뒤 보냄). 같은 시험을 그대로 따라 한 확인: drain1 뒤 거절 1·`[WAITING, RETRY]`, +2초 drain 뒤 거절 2·`[WAITING, RETRY]`·DM 0, +4초 drain 뒤 `[SENT]`·DM 1 — AC-N2-47의 2·4·8·16·32초 그대로다. 시험의 이야기("네트워크가 돌아오면 2초 뒤 다시 보낸다")와 맞추려면 거절 횟수를 1로 하거나 다시 시도를 4초 더 기다려야 한다. 적대 시험은 test-domain 소유라 고치지 않았다.
+- **RA-N2-001 (DISPUTED — 일부 고침, 나머지는 스펙 결정 필요)** 다시 배달된 댓글이 기다리던 2부를 옛 라이브에 잇던 경로는 위 SA-N2-001 수정으로 막혔다(이미 기록한 댓글은 회차를 정하기 전에 거른다). 남는 것 — b1을 끝낸 뒤 옛 라이브 M에 **새로** 달린 댓글이 기다리던 b2를 M에 잇는 것 — 은 스펙이 정한 동작이다: AC-N2-22 "시험(한 라이브로 1부·2부): b1이 M에 이어져 있고 b2가 기다리는 중 → b1을 끝냄 → 그 뒤 M의 댓글에서 b2가 M에 이어지고 그 댓글부터 b2에 기록된다", AC-N2-24 "회차 b를 끝내면 그 뒤 도착한 M의 댓글은 … 기다리는 회차가 있으면 거기에 잇는다". 그 뒤 새 라이브 M2의 댓글을 세기만 하는 것도 AC-N2-24("저절로 잇기도 되지 않으면 기록하지 않는다")다. 감사자가 낸 `entry.time` 조건은 D-N2-04("entry.time은 60초 넘게 늦은 댓글을 알리는 데만 쓴다")와 부딪친다. 그래서 조용히 바꾸지 않고 spec-keeper에게 아래를 제안한다(disputesWithSpec).
+  - 제안: "한 계정의 라이브는 한 번에 하나" 규칙으로 저절로 옮기기 — 이어지지 않은 라이브 M2의 댓글이 왔고, 판매자의 끝나지 않은 회차 중 **서버가 저절로 이은**(조치자 server) 회차가 같은 계정의 다른 라이브 M에 이어져 있으면, 그 판매자 줄 밖에서 `live_media`를 한 번 불러 M2가 진행 중이고 M이 진행 중이 아님을 확인한 뒤(실패·불확실하면 지금처럼 세기만) 그 연결을 M2로 옮기고(조치자 서버, 옮긴 시각 남김) 알림을 보낸다. 판매자가 손으로 이은 연결은 옮기지 않는다. 옮기기 전 M2 댓글은 지금처럼 세기만 한다(알림으로 안내). 메타 호출이 들어가므로 실패·지연·호출 횟수 제한을 함께 정해야 한다.
