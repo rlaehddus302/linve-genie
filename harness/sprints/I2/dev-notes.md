@@ -284,6 +284,7 @@ typecheck(TS 파일 440)·lint·golden(파일 26 · 파서 469 · 엔진 125 · 
   | `i2-shop-receipts` SA-I2-006 | 계정 만들기로 31자 넘는 이름 판매자를 만듦, 문장 "…1~30글자로…" | 30글자로 만든 뒤 DB에서 이름을 바꿔 흉내, 문장 "…1~30자로…", 이름 하나 모양도 단언 | D-I2-18 |
 - **새 시험**: `product-import.test.ts`(NAME_CONTROL 순서·recheckRows·빈 칸 줄·세 형식 같은 결과 속성 시험), `i2-import`(TD-I2-009 2MB CSV 500줄 → 200·NAME_CONTROL 500, 섞인 줄 등록 성공·제어 글자 등록 409, RA-I2-010 401), `i2-shop-receipts`(입구 셋 같은 규칙·31글자 계정 거절·그림 문자 30개), `i2-packing`(합치기·떼어 내기 409와 기록 그대로·리허설은 막지 않음·동시 포장 완료와 합치기, 저장 형식 `{ id, key }`·예전 형식은 다시 확인), `i2-backup`(백업 품목 형식·손상 품목 3종).
 - AC-I2-30 흐름 5의 "스펙과 다른 점"은 D-I2-19가 흐름 5·5b로 고쳐 풀렸다.
+- **TD-I2-010**: `import-files.ts` `readXlsxRowsBounded`는 행마다 셋째 칸(가격)까지 빈 글로 채운다 — 엑셀은 값 없는 칸을 시트 파일에 적지 않아 가격 칸만 빈 행이 `['5','라울']`(CELLS)이었다. 이제 같은 시트를 CSV로 저장한 `5,라울,`처럼 `PRICE_MISSING`. 새 시험 `i2-import` "TD-I2-010".
 
 ## 스펙과 다른 점 (disputesWithSpec)
 

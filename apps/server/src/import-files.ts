@@ -13,6 +13,8 @@ import type { SheetRow } from './product-import.ts'
 
 export const IMPORT_FILE_MAX_BYTES = 2 * 1024 * 1024
 export const IMPORT_TEXT_MAX_CHARS = 200_000
+/** 상품 줄의 칸 수 (번호·품종·가격, R-18 2) — .xlsx 행은 이만큼 빈 글로 채운다 */
+const IMPORT_COLUMNS = 3
 /**
  * 미리 보기 본문 상한: 2MB 파일의 base64(약 2.8MB)·붙여 넣은 글 200,000글자(JSON \u 이스케이프로 많아야 약 2.4MB)가 들어간다
  */
@@ -226,6 +228,9 @@ export async function readXlsxRowsBounded(bytes: Uint8Array): Promise<XlsxReadRe
       })
       if (extra !== null) cells.push(extra)
     }
+    // 엑셀은 값이 없는 칸을 시트 파일에 적지 않는다 — 셋째 칸(가격)까지 빈 글로 채운다. 같은 시트를 CSV로 저장한 글("5,라울,")과
+    // 같은 결과가 된다(가격 칸만 비면 PRICE_MISSING, CELLS가 아니다 — TD-I2-010, AC-I2-50 "같은 행은 같은 결과")
+    while (cells.length < IMPORT_COLUMNS) cells.push('')
     if (cells.some((cell) => normalizeText(cell) !== '')) filled++
     rows.push({ line: rowNumber, cells })
   })

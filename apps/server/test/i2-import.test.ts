@@ -248,6 +248,33 @@ describe('AC-I2-51 미리 보기 (기록하지 않는다)', () => {
     expect((await preview(world, seller, b, fileBody('많음.xlsx', many))).body).toMatchObject({ error: 'TOO_MANY', rows: [] })
   }, 120_000)
 
+  it('TD-I2-010: .xlsx 행은 셋째 칸(가격)까지 빈 글로 채운다 — 가격 칸만 빈 행은 같은 시트의 CSV("5,라울,")처럼 PRICE_MISSING, CELLS가 아니다', async () => {
+    const { world, seller, b } = await setup()
+    // 엑셀은 값이 없는 칸을 시트 파일에 적지 않는다: 행 2는 A·B만, 행 3은 A만, 행 4는 B만(번호 빈칸)
+    const bytes = rawXlsx([
+      xmlRow(1, [['A', '번호'], ['B', '품종'], ['C', '가격']]) + xmlRow(2, [['A', '5'], ['B', '라울']]) + xmlRow(3, [['A', '6']]) + xmlRow(4, [['B', '핑크']]) + xmlRow(5, [['A', '7'], ['B', '로라'], ['C', '9000']]),
+    ])
+    const read = await readXlsxRowsBounded(bytes)
+    expect(read.ok && read.rows.map((row) => row.cells)).toEqual([
+      ['번호', '품종', '가격'],
+      ['5', '라울', ''],
+      ['6', '', ''],
+      ['', '핑크', ''],
+      ['7', '로라', '9000'],
+    ])
+    const csv = Buffer.from('번호,품종,가격\r\n5,라울,\r\n6,,\r\n,핑크,\r\n7,로라,9000', 'utf8')
+    const rowsOf = (body: Record<string, unknown>) => (body.rows as { line: number; error?: string; no?: number }[]).map((row) => [row.line, row.error ?? row.no])
+    const fromXlsx = await preview(world, seller, b, fileBody('목록.xlsx', bytes))
+    const fromCsv = await preview(world, seller, b, fileBody('목록.csv', csv))
+    expect(rowsOf(fromXlsx.body)).toEqual([
+      [2, 'PRICE_MISSING'],
+      [3, 'PRICE_MISSING'],
+      [4, 'NUMBER_INVALID'],
+      [5, 7],
+    ])
+    expect(rowsOf(fromXlsx.body)).toEqual(rowsOf(fromCsv.body))
+  }, 120_000)
+
   it('끝난 방송 → "끝난 방송에는 상품 목록을 가져올 수 없어요."(미리 보기·등록), 리허설 방송은 된다, 없는 방송·다른 판매자의 방송 → 404', async () => {
     const { world, seller, b } = await setup()
     const other = await addSeller(world)
