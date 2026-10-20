@@ -76,7 +76,7 @@
 - 듣는 라이브러리 이벤트는 `chat`·`disconnected`(`ControlEvent.DISCONNECTED`)·`streamEnd`(`WebcastEvent.STREAM_END` — 제어 메시지 action 3·4)·`error`뿐이다.
 
 ## 실패 종류 대응표 (AC-N2b-1-35)
-연결 시도(`connect()`)의 거부 값을 `classifyWebcastFailure`가 가른다. 위에서부터 먼저 걸린 것. 오류 안쪽은 `FetchIsLiveError.errors[]`·`InvalidResponseError.requestErr`·표준 `cause`를 깊이 4·마디 32까지 따라간다.
+연결 시도(`connect()`)의 거부 값을 `classifyWebcastFailure`가 가른다. 위에서부터 먼저 걸린 것. 오류 안쪽은 `FetchIsLiveError.errors[]`·`InvalidResponseError.requestErr`·표준 `cause`를 깊이 4·마디 32까지 따라간다. 문구(오류의 `message`·문자열 거부 값)는 앞 2,000자만 본다. 문자열 거부 값은 4행(거부·한도·확인 문자 문구)에만 걸리고 그 밖은 5행 `NETWORK`다(수정 라운드 1, TD-N2b-1-001·SA-N2b-1-001).
 
 | 순서 | 라이브러리 2.1.0의 오류 (형 이름·칸) | 어디서 | 실패 종류 |
 |---|---|---|---|
@@ -86,7 +86,8 @@
 | 3 | `SignAPIError`와 그 하위 형 `SignatureRateLimitError`·`SignatureMissingTokensError`·`PremiumFeatureError`·`AuthenticatedWebSocketConnectionError` (생성자 이름 사슬로 봄) | 서명 서비스(Euler) 연결 실패·상태 오류·한도·토큰 없음·유료 기능 | `SIGN_FAILED` |
 | 4 | 칸 `response.status`가 403·429 (axios 오류) | 틱톡의 거부·요청 한도 | `BLOCKED` |
 | 4 | 메시지에 `captcha` 또는 `blocked by TikTok` | `fetch-room-info-html` — 확인 문자·차단 | `BLOCKED` |
-| 5 | 그 밖: 네트워크(`ECONNRESET`·`ETIMEDOUT`), 웹소켓 실패·시간 초과(문자열 거부 `Websocket connection failed…`·`Websocket not responding`), `MissingRoomIdError`, `InvalidResponseError('Missing cursor…')`, `AlreadyConnectingError`·`AlreadyConnectedError`, `FetchSignedWebSocketIdentityParameterError`(우리 옵션으로는 생기지 않는 매개변수 오류), `SchemaDecodeError`, 500 등 다른 HTTP 상태, 모르는 오류, 오류가 아닌 값(`undefined`·`null`·숫자·객체), 읽으면 오류가 나는 값 | | `NETWORK` |
+| 4 | **문자열 거부** `Websocket connection failed, Error: Unexpected server response: 403`·`… 429` (메시지·문자열에 `Unexpected server response: 403`·`429`, 또는 문자열 안의 `captcha`·`blocked by TikTok`) | `setupWebsocket` — 웹소켓 손잡기에서 틱톡의 거부·요청 한도. 라이브러리가 오류 객체가 아니라 문자열 `Websocket connection failed, ${err}`로 거부하고 ws 8.x가 `Unexpected server response: ${status}`를 낸다 | `BLOCKED` |
+| 5 | 그 밖: 네트워크(`ECONNRESET`·`ETIMEDOUT`), 웹소켓 실패·시간 초과(위 4행이 아닌 문자열 거부 — `Websocket connection failed, Error: Unexpected server response: 500`·`… getaddrinfo ENOTFOUND …`·`Websocket not responding`·빈 문자열), `MissingRoomIdError`, `InvalidResponseError('Missing cursor…')`, `AlreadyConnectingError`·`AlreadyConnectedError`, `FetchSignedWebSocketIdentityParameterError`(우리 옵션으로는 생기지 않는 매개변수 오류), `SchemaDecodeError`, 500 등 다른 HTTP 상태, 모르는 오류, 오류가 아닌 값(`undefined`·`null`·숫자·객체), 읽으면 오류가 나는 값 | | `NETWORK` |
 | — | 연결 객체의 20초 시간 초과, 클라이언트 만들기·`connect()`의 동기 예외 | 연결 객체 | `NETWORK` |
 
 - 연결된 뒤의 `error` 이벤트는 상태를 바꾸지 않고 로그 코드 `TIKTOK_LIBRARY_ERROR`만 남긴다. 실제로 끊기면 라이브러리가 `disconnected`를 내고 그것을 `NETWORK` 실패로 센다.
@@ -101,6 +102,8 @@
 ## 결정과 이유 (규칙 문장으로 정해지지 않은 구현 선택)
 1. **동의 확인 중의 상태는 `CONNECTING`이다.** 표에 "동의 확인 중" 상태가 없어서 "틱톡에 연결하는 중이에요"를 보인다. 동의 시간 초과(20초)는 동의 확인에만 걸고, 동의를 얻은 뒤 연결 시간 초과(20초)를 새로 건다 — 둘 다 늦으면 최대 40초 뒤에 실패로 본다. 동의 확인 중 `start()`는 아무 일도 없다(같은 순간 두 번 → 시도 하나).
 2. **방송 끝(`streamEnd`)**: `CONNECTED`에서 오면 `ENDED`이고 AC-N2b-1-37 문장 그대로("`stop()`이 아닌 이유로 끊기면") `missed`도 `true`로 둔다. `CONNECTING` 중에 오면 `ENDED`(`missed` 그대로). 화면에서 `ENDED`일 때 끊김 안내를 보일지는 N2b-2가 정한다.
+   - 제어 메시지 `action`(2.1.0 `ControlAction`): 1 `STREAM_PAUSED`·2 `STREAM_UNPAUSED`는 라이브러리가 `streamEnd`를 내지 않고 끊지도 않는다 → 받는 상태(`CONNECTED`) 그대로다(방송자가 앱을 잠깐 내리는 등 잠시 멈춤은 여기). 3 `STREAM_ENDED`·4 `STREAM_SUSPENDED`는 라이브러리가 똑같이 `streamEnd({ action })`를 내고 스스로 끊는다 → AC-N2b-1-33·D-N2b-1-05("방송 끝(`streamEnd`) = `ENDED`(다시 시도 없음)") 그대로 `ENDED`다. 시험: `tiktok-library.test.ts` "제어 메시지: 잠시 멈춤(1)·다시 이어짐(2)…".
+   - **스펙 확인 요청(TD-N2b-1-002, spec-keeper)**: 일시 중단(4)을 끝(3)과 다르게 다룰지(예: 받던 연결의 끊김처럼 `RETRYING`/`NETWORK`)는 스펙이 `streamEnd` 하나로 정해 두었으므로 개발자가 바꾸지 않았다. 4는 틱톡이 방송을 멈춘 경우(운영 조치 등)로 보이며 이어지는 방송인지는 실물 확인이 필요하다. 바꾸기로 하면 연결 객체의 `STREAM_END` 처리에서 `action === 4`만 끊김(`fail('NETWORK')`, `missed` true)으로 돌리면 되고, 가짜 웹캐스트에 일시 중단 조작을 더한다.
 3. **`USER_NOT_FOUND`도 실패 하나로 센다**(`failures` 1, `lastFailure` `USER_NOT_FOUND`).
 4. **`start()`는 `failures`·`lastFailure`·`missed`를 모두 비운다.** 판매자가 새로 켠 것이라 지난 실패를 이어 세지 않는다(AC-N2b-1-36 "연속 실패 0").
 5. **`counts.dropped`**는 `DUPLICATE` 말고의 모든 버림(`BAD_COMMENT_ID`·`BAD_USER_ID`·`NO_TEXT`·`TEXT_TOO_LONG`)이다. 지금 연결이 아닌 손잡이·`CONNECTED` 전·`stop()` 뒤의 댓글은 거르개에 넣지 않으므로 어느 수에도 들지 않는다.
