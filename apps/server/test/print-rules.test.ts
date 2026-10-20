@@ -320,6 +320,24 @@ describe('AC-I1-10 출력 기기', () => {
     expect((await expectOk(p.register(DEVICE_B, '휴대폰'))).body).toMatchObject({ backlog: false, queue: { pause: null } })
   })
 
+  it('출력 그만하기 뒤 같은 기기가 다시 "이 기기에서 출력"을 누르면 그만하기를 거두고, 그 장이 끝나도 출력 기기로 남는다 (TD-I1-002)', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller, { date: DAY })
+    const p = printApi(world, seller)
+    await becomeDevice(world, seller, DEVICE_A, '휴대폰')
+    await sale(world, seller, b.id, 1, 'UC_1', 'n1')
+    await sale(world, seller, b.id, 2, 'UC_2', 'n2')
+    const held = await p.claim(DEVICE_A)
+    expect((await expectOk(p.release())).body).toMatchObject({ queue: { device: { releasing: true } } })
+    const again = await expectOk(p.register(DEVICE_A, '휴대폰'))
+    expect(again.body).toMatchObject({ backlog: false, queue: { device: { id: DEVICE_A, releasing: false }, pause: null } })
+    expect(await p.done(DEVICE_A, held.job?.attempt ?? '')).toBe(true)
+    expect((await p.overview()).queue.device).toMatchObject({ id: DEVICE_A, releasing: false })
+    const next = await p.claim(DEVICE_A)
+    expect(next.job?.data.no).toBe(2)
+  })
+
   it('실시간 연결 여부: 출력 기기의 연결이 열리고 닫히면 다른 기기에 알린다 (AC-I1-15)', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)
@@ -396,6 +414,40 @@ describe('AC-I1-11 빼기·모두 빼기', () => {
     await expectOk(p.restart())
     expect((await p.overview()).queue.pause).toBeNull()
     expect((await p.api.post('/api/print/result', { deviceId: DEVICE_A, attempt: held.job?.attempt, ok: false, error: { code: 'WHATEVER' } })).status).toBe(400)
+  })
+
+  it('1등인데 받을 때 라벨 데이터를 만들 수 없으면(번호 10000 — L-3 밖) 폐기하지 않고 대기 맨 앞·시도 +1·라벨 오류 멈춤 (L-11 5, TD-I1-001)', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller, { date: DAY })
+    const p = printApi(world, seller)
+    await becomeDevice(world, seller)
+    // 채팅 파서는 10000을 찜으로 읽지 않는다 — 문자찜으로 1등을 만든다
+    await register(world, seller, b.id, 10000, '큰번호', 8000)
+    await expectOk(writeEvent(world, seller, { type: 'sms', b: b.id, no: 10000, received: '20:00' }))
+    await sale(world, seller, b.id, 2, 'UC_B', '김철수')
+    expect(await p.claim(DEVICE_A)).toEqual({ job: null, reason: 'PAUSED' })
+    let overview = await p.overview()
+    expect(overview.queue.pause).toEqual({ reason: 'LABEL_ERROR', message: '라벨을 만들지 못해 멈췄어요. 라벨 설정을 확인한 뒤 다시 시작해 주세요.', backlog: false })
+    expect(overview.jobs.map((job) => [job.label.no, job.status, job.voided, job.attempts, job.lastError?.code ?? null])).toEqual([
+      [10000, 'WAITING', false, 1, 'INVALID_DATA'],
+      [2, 'WAITING', false, 0, null],
+    ])
+    let labels = await p.labels()
+    expect(labels.labels.find((label) => label.no === 10000)).toMatchObject({ state: 'WAITING', voided: false, winner: true })
+    // 다시 시작해도 저절로 버리지 않는다 — 같은 장에서 다시 멈춘다
+    await expectOk(p.restart())
+    expect((await p.claim(DEVICE_A)).reason).toBe('PAUSED')
+    expect((await p.overview()).jobs[0]).toMatchObject({ attempts: 2, voided: false, status: 'WAITING' })
+    // 판매자가 그 장을 빼면 다음 장이 나온다
+    await expectOk(p.cancel(DAY, overview.jobs[0]?.id ?? ''))
+    await expectOk(p.restart())
+    const next = await p.claim(DEVICE_A)
+    expect(next.job?.data.no).toBe(2)
+    overview = await p.overview()
+    expect(overview.queue.discard).toBe(0)
+    labels = await p.labels()
+    expect(labels.labels.find((label) => label.no === 10000)).toMatchObject({ state: 'NOT_PRINTED', voided: false })
   })
 })
 

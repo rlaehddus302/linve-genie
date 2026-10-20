@@ -1,6 +1,7 @@
 // I1 서버 출력 기록 — 자동 작업·출력 기기·받기·결과·엔진 보고 (AC-I1-01·02·06·07·08·09·10, LABEL_RULES L-11 2·4·6·7·8·10).
 import { applyEvent, initEngine, listEffects, type EngineEvent, type EngineState } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
+import { RECLAIM_AFTER_MS } from '../src/print.ts'
 import { DAY, DEVICE_A, DEVICE_B, becomeDevice, chat, labelReports, printApi, register } from './print-support.ts'
 import { addSeller, client, createBroadcast, expectOk, newWorld, rid, writeEvent, type Seller, type TestServer } from './support.ts'
 
@@ -166,6 +167,103 @@ describe('AC-I1-07·09·10 결과·멈춤·출력 기기', () => {
     expect(await p.done(DEVICE_B, next.job?.attempt ?? '')).toBe(true)
     const labels = await p.labels()
     expect(labels.labels[0]).toMatchObject({ printed: 1, history: [{ device: '휴대폰' }] })
+  })
+
+  it('받기 응답을 잃은 같은 기기가 다시 받으면 같은 장을 새 표로 준다 — 다음 작업은 주지 않고, 데이터는 다시 받는 때의 것, 앞 표의 결과는 버림 (AC-I1-06·07, TE-I1-002)', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller, { date: DAY })
+    for (const no of [1, 2]) await register(world, seller, b.id, no, '구피', 10000)
+    const p = printApi(world, seller)
+    await becomeDevice(world, seller)
+    for (const no of [1, 2]) await chat(world, seller, b.id, `UC_${String(no)}`, `n${String(no)}`, String(no))
+    // 이 응답이 기기에 닿지 않았다고 본다 (서버는 출력 중으로 기록)
+    const lost = await p.claim(DEVICE_A)
+    expect(lost.job?.data.no).toBe(1)
+    // 겹쳐 온 같은 기기의 받기(시도를 준 지 2초 안)는 BUSY — 같은 장을 두 번 주지 않는다
+    world.clock.advance(RECLAIM_AFTER_MS - 1)
+    expect(await p.claim(DEVICE_A)).toEqual({ job: null, reason: 'BUSY' })
+    await expectOk(writeEvent(world, seller, { type: 'product.update', b: b.id, no: 1, name: '새품종' }))
+    // 화면은 받기 응답을 잃으면 3초 뒤 다시 받는다
+    world.clock.advance(3000)
+    const again = await p.claim(DEVICE_A)
+    expect(again.job?.id).toBe(lost.job?.id)
+    expect(again.job?.attempt).not.toBe(lost.job?.attempt)
+    expect(again.job?.data).toMatchObject({ no: 1, name: '새품종' })
+    const overview = await p.overview()
+    // 출력 중은 여전히 하나, 다음 작업(2번)은 대기 그대로
+    expect(overview.queue).toMatchObject({ printing: 1, waiting: 1, pause: null, device: { id: DEVICE_A, printerConnected: true } })
+    expect(overview.jobs.map((job) => [job.id, job.status])).toEqual([
+      [lost.job?.id, 'PRINTING'],
+      [expect.any(String), 'WAITING'],
+    ])
+    expect(overview.jobs[0]).toMatchObject({ attempts: 1, lastError: { code: 'DISCONNECTED', item: null } })
+    // 다른 기기는 여전히 받지 못한다
+    expect((await p.claimRaw(DEVICE_B)).status).toBe(409)
+    // 앞 표의 결과는 버리고, 새 표의 결과만 한 번 기록한다 (엔진 보고도 하나)
+    expect(await p.done(DEVICE_A, lost.job?.attempt ?? '')).toBe(false)
+    expect(await p.done(DEVICE_A, again.job?.attempt ?? '')).toBe(true)
+    expect(await p.done(DEVICE_A, again.job?.attempt ?? '')).toBe(false)
+    expect((await labelReports(world)).map((report) => report.effectId)).toEqual([lost.job?.id])
+    const next = await p.claim(DEVICE_A)
+    expect(next.job?.data.no).toBe(2)
+    expect(await p.done(DEVICE_A, next.job?.attempt ?? '')).toBe(true)
+    const labels = await p.labels()
+    expect(labels.labels.map((label) => [label.no, label.printed, label.state])).toEqual([
+      [1, 1, 'PRINTED'],
+      [2, 1, 'PRINTED'],
+    ])
+  })
+
+  it('받기 응답을 잃은 사이 그 1등이 취소됐으면 다시 받을 때 그 장은 출력 안 함 + 폐기, 승계자 라벨을 준다 (L-11 4·5)', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller, { date: DAY })
+    await register(world, seller, b.id, 15, '핑크프릴', 10000)
+    const p = printApi(world, seller)
+    await becomeDevice(world, seller)
+    await chat(world, seller, b.id, 'UC_A', '홍길동', '15')
+    await chat(world, seller, b.id, 'UC_B', '김철수', '15')
+    const lost = await p.claim(DEVICE_A)
+    await expectOk(writeEvent(world, seller, { type: 'host.cancel', b: b.id, no: 15, buyer: 'UC_A', reason: '구매자 요청' }))
+    world.clock.advance(RECLAIM_AFTER_MS)
+    const again = await p.claim(DEVICE_A)
+    expect(again.job?.id).not.toBe(lost.job?.id)
+    expect(again.job?.data).toMatchObject({ no: 15, buyer: { kind: 'youtube', name: '김철수' } })
+    expect(await p.done(DEVICE_A, lost.job?.attempt ?? '')).toBe(false)
+    expect(await p.done(DEVICE_A, again.job?.attempt ?? '')).toBe(true)
+    const overview = await p.overview()
+    expect(overview.queue).toMatchObject({ printing: 0, waiting: 0, discard: 0 })
+    const labels = await p.labels()
+    expect(labels.labels.map((label) => [label.key, label.state, label.printed])).toEqual([
+      [lost.job?.label.key, 'VOIDED', 0],
+      [again.job?.label.key, 'PRINTED', 1],
+    ])
+    expect((await labelReports(world)).map((report) => report.effectId)).toEqual([again.job?.id])
+  })
+
+  it('출력 그만하기를 기다리는 중 받기 응답을 잃은 기기가 다시 받으면 그 장은 대기 맨 앞, 출력 기기는 빈다 (L-11 10)', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller, { date: DAY })
+    await register(world, seller, b.id, 1)
+    const p = printApi(world, seller)
+    await becomeDevice(world, seller)
+    await chat(world, seller, b.id, 'UC_1', 'n1', '1')
+    const lost = await p.claim(DEVICE_A)
+    expect((await expectOk(p.release())).body).toMatchObject({ queue: { device: { id: DEVICE_A, releasing: true } } })
+    world.clock.advance(RECLAIM_AFTER_MS)
+    const refused = await p.claimRaw(DEVICE_A)
+    expect(refused.status).toBe(409)
+    expect(refused.body).toMatchObject({ error: { code: 'PRINT_NOT_DEVICE' } })
+    const overview = await p.overview()
+    expect(overview.queue).toMatchObject({ device: null, printing: 0, waiting: 1, pause: null })
+    expect(overview.jobs[0]).toMatchObject({ id: lost.job?.id, status: 'WAITING', attempts: 1, lastError: { code: 'DISCONNECTED' } })
+    expect(await p.done(DEVICE_A, lost.job?.attempt ?? '')).toBe(false)
+    // 다음 출력 기기가 이어서 찍는다 (새로 정함 — 쌓인 라벨은 출력 시작으로)
+    await becomeDevice(world, seller, DEVICE_B, 'PC')
+    const next = await p.claim(DEVICE_B)
+    expect(next.job?.id).toBe(lost.job?.id)
   })
 
   it('손으로 출력·다시 출력·빼기', async () => {

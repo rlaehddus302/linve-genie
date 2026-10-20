@@ -295,6 +295,11 @@ export const DEVICE_NAME_MAX = 20
 export const DEVICE_ID_RE = /^[A-Za-z0-9_-]{8,64}$/
 /** 받을 때 폐기한 작업을 건너뛰며 다음 작업을 찾는 횟수 상한 */
 const CLAIM_ROUNDS = 200
+/**
+ * 같은 기기가 출력 중인 장을 다시 받을 수 있게 되는 때 (그 시도를 준 뒤, 서버 시계). 그 전에 겹쳐 온 같은 기기의 받기는 BUSY —
+ * 동시에 거듭 온 요청이 같은 장을 여러 번 받아 겹쳐 찍지 않게 한다(AC-I1-06). 출력 기기 화면은 받기 응답을 잃으면 3초 뒤 다시 받는다
+ */
+export const RECLAIM_AFTER_MS = 2000
 
 /** 지우는 글자: 제어 문자(C0·C1)와 보이지 않는 서식 글자 (폭 없는 공백·방향 표시·줄 나눔 기호·BOM) */
 function isInvisible(code: number): boolean {
@@ -697,7 +702,7 @@ export class PrintService {
   /**
    * 출력 기기 되기. 출력 기기가 없으면 바로, 다른 기기면 replace 없이 거절(지금 출력 기기 이름을 extra로).
    * 바꾸면 이전 기기의 출력 중 작업은 대기 맨 앞(시도 +1, DISCONNECTED). 새로 정할 때 대기 작업이 있으면 판매자 멈춤(backlog)으로 시작.
-   * 이미 출력 기기인 기기가 다시 알리면 이름만 고치고 멈춤을 바꾸지 않는다. 출력 기기가 되는 기기는 프린터가 연결돼 있다
+   * 이미 출력 기기인 기기가 다시 알리면 이름을 고치고 출력 그만하기를 거두며 멈춤을 바꾸지 않는다. 출력 기기가 되는 기기는 프린터가 연결돼 있다
    */
   async registerDevice(sellerId: string, deviceId: string, name: string, replace: boolean): Promise<ActionOutcome<{ queue: QueueSummary; waiting: number; backlog: boolean }>> {
     const now = this.#now()
@@ -706,7 +711,8 @@ export class PrintService {
       const queue = await lockQueue(tx, sellerId, now)
       const counts = async () => queueCounts(tx, sellerId)
       if (queue.deviceId === deviceId) {
-        await updateQueue(tx, sellerId, { deviceName: name }, now)
+        // 같은 기기가 다시 "이 기기에서 출력"을 누르면 출력 그만하기를 거둔다(출력 중인 장이 끝나도 출력 기기로 남는다, L-11 10). 멈춤은 그대로
+        await updateQueue(tx, sellerId, { deviceName: name, releasing: false }, now)
         return { kind: 'ok' as const, backlog: false }
       }
       if (queue.deviceId !== null && !replace) return { kind: 'taken' as const, name: queue.deviceName ?? '' }
@@ -821,7 +827,9 @@ export class PrintService {
 
   /**
    * 출력 기기가 작업 하나를 받는다. 출력 기기가 아니면 not_device(아무것도 바뀌지 않는다). 멈춤·출력 중 작업이 있으면·대기가 없으면 none.
-   * 대기 맨 앞 작업의 라벨 키 찜이 그 확정버전의 1등이 아니면 폐기하고 다음 작업을 본다. 상품 라벨 데이터는 지금 상태로 만든다(구매자만 고정)
+   * 단 출력 중 작업의 열린 시도가 이 기기의 것이고 준 지 RECLAIM_AFTER_MS가 지났으면(받기 응답을 잃음) 그 시도를 끊김으로 끝내고 같은 장을 새 표로 다시 준다.
+   * 대기 맨 앞 작업의 라벨 키 찜이 그 확정버전의 1등이 아니면 폐기하고 다음 작업을 본다. 1등인데 데이터를 만들지 못하면 라벨 오류 멈춤.
+   * 상품 라벨 데이터는 지금 상태로 만든다(구매자만 고정)
    */
   async claim(sellerId: string, deviceId: string): Promise<ClaimOutcome> {
     // 출력 기기가 아니면 아무것도 쓰지 않는다 (대기열 줄도 만들지 않는다, AC-I1-06)
@@ -839,7 +847,23 @@ export class PrintService {
         const queue = await lockQueue(tx, sellerId, now)
         if (queue.deviceId !== deviceId) return { kind: 'not_device' as const }
         if (queue.paused !== null) return { kind: 'none' as const, reason: 'PAUSED' as const }
-        if ((await printingJob(tx, sellerId)) !== null) return { kind: 'none' as const, reason: 'BUSY' as const }
+        const printing = await printingJob(tx, sellerId)
+        if (printing !== null) {
+          const open = await openAttempt(tx, sellerId, printing.id)
+          if (open === null || open.deviceId !== deviceId || now.getTime() - open.startedAt.getTime() < RECLAIM_AFTER_MS) {
+            return { kind: 'none' as const, reason: 'BUSY' as const }
+          }
+          // 같은 기기가 출력 중인 장의 열린 시도를 가진 채 한참 뒤 다시 받는다 = 받기 응답을 잃었다(출력 기기는 결과를 보내기 전에는 받지 않는다).
+          // 그 시도를 끊김으로 끝내고(시도 +1) 그 장을 대기 맨 앞으로 돌린 뒤 다음 차례에 같은 장을 새 표로 준다 — 다음 작업이 아니다(AC-I1-06).
+          // 데이터·템플릿·1등 확인은 다시 받는 때의 규칙 그대로. 출력 그만하기를 기다리던 중이면 그 장의 결과가 정해졌으니 출력 기기를 비운다(L-11 10)
+          const patch: QueuePatch = {}
+          await this.#returnPrinting(tx, sellerId, queue, 'DISCONNECTED', now, patch)
+          touched.jobs.push(printing.id)
+          touched.labels.push(printing.labelId)
+          if (queue.releasing) Object.assign(patch, clearDevice(queue.paused as PauseReason | null))
+          await updateQueue(tx, sellerId, patch, now)
+          return queue.releasing ? { kind: 'not_device' as const } : { kind: 'retry' as const }
+        }
         const head = await headWaitingJob(tx, sellerId)
         if (head === null) return { kind: 'none' as const, reason: 'EMPTY' as const }
         if (peek === null || head.job.id !== peek.job.id) return { kind: 'retry' as const }
@@ -847,11 +871,8 @@ export class PrintService {
         const kind = job.kind as 'product' | 'packing'
         let data: ProductLabelData | PackingLabelData | null
         if (kind === 'product') {
-          data =
-            ctx === null || label.claim === null || label.version === null
-              ? null
-              : productLabelData(ctx.state, ctx.claims, { claim: label.claim, version: label.version, buyer: parseBuyer(label.buyer) })
-          if (data === null) {
+          const { claim, version } = label
+          if (ctx === null || claim === null || version === null || isWinnerOf(ctx.claims, claim, version) === null) {
             // 받을 때의 확인: 1등이 아니면 폐기하고 다음 작업 (L-11 4·5)
             const voided = await voidLabels(tx, sellerId, [label.id], now)
             touched.jobs.push(...voided.jobs)
@@ -859,6 +880,8 @@ export class PrintService {
             await updateQueue(tx, sellerId, {}, now)
             return { kind: 'retry' as const }
           }
+          // 1등인데 데이터를 만들지 못하면(L-3 범위 밖 번호 등) 폐기하지 않는다 — 아래 라벨 오류 멈춤 (L-11 5: 폐기는 1등이 아닐 때만)
+          data = productLabelData(ctx.state, ctx.claims, { claim, version, buyer: parseBuyer(label.buyer) })
         } else {
           data = job.data === null ? null : (JSON.parse(job.data) as PackingLabelData)
         }
