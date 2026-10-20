@@ -43,7 +43,10 @@ const hex = (b: Uint8Array | readonly number[]): string => Buffer.from(b).toStri
 
 class Reader {
   at = 0
-  constructor(readonly bytes: Uint8Array) {}
+  readonly bytes: Uint8Array
+  constructor(bytes: Uint8Array) {
+    this.bytes = bytes
+  }
   take(n: number): Uint8Array {
     if (this.at + n > this.bytes.length) throw new Error(`바이트가 모자라다: ${this.at}+${n} > ${this.bytes.length}`)
     const out = this.bytes.subarray(this.at, this.at + n)

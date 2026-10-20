@@ -1,6 +1,8 @@
 // N1 적대 테스트 도우미: 손으로 조종하는 Web Bluetooth 기기와 손으로 돌리는 타이머.
 // 제품의 가짜 기기(createFakeBluetooth)를 쓰지 않는다 — 알림 시각·쓰기 결과·끊김을 시험이 한 걸음씩 정한다.
-import { GATT_BUNDLES, type BluetoothDeviceLike, type BluetoothEnvironment, type BluetoothRequestOptions, type CharacteristicValueEvent, type GattCharacteristicLike, type GattServerLike, type PrinterTimer } from '@livejjim/printer'
+import { GATT_BUNDLES, type BluetoothDeviceLike, type BluetoothEnvironment, type BluetoothRequestOptions, type GattCharacteristicLike, type GattServerLike, type PrinterTimer } from '@livejjim/printer'
+
+type CharacteristicValueEvent = { readonly target?: unknown }
 
 export class StepTimer implements PrinterTimer {
   now = 0
@@ -48,10 +50,12 @@ class Char implements GattCharacteristicLike {
   readonly properties = { write: true, writeWithoutResponse: true, notify: true }
   private readonly listeners = new Set<Listener>()
   notifying = false
-  constructor(
-    readonly uuid: string,
-    private readonly owner: ManualBle,
-  ) {}
+  readonly uuid: string
+  private readonly owner: ManualBle
+  constructor(uuid: string, owner: ManualBle) {
+    this.uuid = uuid
+    this.owner = owner
+  }
   writeValueWithoutResponse(value: Uint8Array): Promise<void> {
     return this.owner.onWrite(this, value)
   }
@@ -96,7 +100,9 @@ export class ManualBle {
   readonly device: BluetoothDeviceLike
   private readonly service: string
 
-  constructor(private readonly options: ManualBleOptions) {
+  private readonly options: ManualBleOptions
+  constructor(options: ManualBleOptions) {
+    this.options = options
     const spec = GATT_BUNDLES[options.bundle ?? 'A']
     this.service = spec.service
     this.write = new Char(spec.write, this)

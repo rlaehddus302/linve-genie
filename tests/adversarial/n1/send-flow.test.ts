@@ -13,9 +13,9 @@ type Ev =
   | { t: 'credit'; n: number }
   | { t: 'mtu'; v: number }
   | { t: 'aa' }
-  | { t: 'other'; bytes: number[] }
+  | { t: 'other'; bytes: readonly number[] }
   | { t: 'drop' }
-  | { t: 'flowJunk'; bytes: number[] }
+  | { t: 'flowJunk'; bytes: readonly number[] }
 
 const evArb: fc.Arbitrary<Ev> = fc.oneof(
   { weight: 6, arbitrary: fc.record({ t: fc.constant('credit' as const), n: fc.oneof(fc.integer({ min: 0, max: 4 }), fc.integer({ min: 0, max: 255 })) }) },
