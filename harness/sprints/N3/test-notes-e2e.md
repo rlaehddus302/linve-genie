@@ -52,3 +52,18 @@
 
 ## 전체 실행 (`E2E_PORT_OFFSET=1200 pnpm verify`, 커밋 dc2b592)
 - typecheck·lint·golden·coverage 통과. test 실패 1(`packages/voice` perf.test AC-P2-07 p99 111ms > 50ms — 부하 시간 측정, N3 변경 밖), adversarial 실패 3(TD-N3-003 test-domain 실패 시험), e2e 통과 305·실패 1(`i4/voice-auto` AC-I4-31 — 위 TE-N3-004와 같은 원인)·돌지 않은 파일 1(`n3/remember.spec.ts` @fill — SA-N3-03).
+
+# 라운드 2 (test-e2e)
+
+## 이전 지적 다시 공격
+- **TE-N3-004 해결**: `n3/round1` TE-N3-004(시계 멈춤 + /api/days 붙잡기, 끈 채 말하고 기다리는 사이 자동 등록 켬) 통과. 미룬 문장이 온 때의 설정·번호 범위를 들고 간다(72272d1). 미룬 사이 끄면 켠 채 말한 문장도 자동 등록하지 않는 쪽은 web 단위 시험이 덮는다.
+- **TE-N3-002 그대로**: 스펙·결정 변경이 없다(문자 단골의 지난 날 묶음 때문에 SAME_NAME). spec-keeper 판단 대기.
+
+## SA-N3-03 기억한 입금자명 E2E를 게이트 안으로
+- `tests/e2e/n3/remember.spec.ts`에서 `@fill`을 뺐다. 채운 범위 대신 시험 모드 전용 `POST /api/deposits/test/chat`으로 지난 날짜(recentDate) 실제 방송에 시청자 채팅 찜을 만들어 유튜브 구매자 묶음을 쓴다(합계는 엔진 값을 읽는다 — 배송비 포함).
+- 테스트 계획 "다음 날짜 방송의 같은 이름 입금이 자동 확인"을 더했다: 같은 채널·닉네임으로 다른 날짜 방송에 새 묶음 → 같은 실명·그 묶음 합계 입금 = AUTO_APPLIED, 그 묶음 구매자.
+- 찾은 묶음은 정확히 1개여야 한다(닉네임이 고유) — 전에는 `.first()`였다.
+- `--repeat-each 2` 두 번 모두 통과.
+
+## 지적만 (시험 없음)
+- 붙여넣기 넣기 응답의 `failed`(저장하지 못한 줄 수)를 화면이 보이지 않는다(DepositPaste 결과 문장에 없음). 서버 다듬기로 E2E에서 저장 실패를 만들 길이 없어 재현 시험은 없다 — TE-N3-005(PLAUSIBLE).
