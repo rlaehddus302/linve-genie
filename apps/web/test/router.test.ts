@@ -13,12 +13,16 @@ describe('주소 ↔ 화면', () => {
     ['/settlements', '?date=2026-10-18&rehearsal=true', { name: 'settlements', date: '2026-10-18', rehearsal: true }],
     ['/settlements', '?date=어제&buyer=', { name: 'settlements', rehearsal: false }],
     ['/없는/주소', '', { name: 'home' }],
+    // 요금 (N5, AC-N5-50): 휴대폰 결제 창이 돌아온 주소의 결제 ID만 읽는다
+    ['/billing', '', { name: 'billing' }],
+    ['/billing/', '?paymentId=pay_AB12-x&code=FAILURE&message=%EC%8B%A4%ED%8C%A8', { name: 'billing', paymentId: 'pay_AB12-x' }],
+    ['/billing', '?paymentId=%3Cscript%3E', { name: 'billing' }],
   ])('%s%s', (path, search, route) => {
     expect(parseRoute(path, search)).toEqual(route)
   })
 
   it('새로고침·북마크해도 같은 화면 (주소 → 화면 → 주소)', () => {
-    for (const url of ['/', '/broadcasts/b%2F1', '/sms', '/buyers?date=2026-10-18&buyer=UC_A', '/settlements?date=2026-10-18&rehearsal=true&buyer=sms%3Ar1']) {
+    for (const url of ['/', '/broadcasts/b%2F1', '/sms', '/billing', '/billing?paymentId=pay_1', '/buyers?date=2026-10-18&buyer=UC_A', '/settlements?date=2026-10-18&rehearsal=true&buyer=sms%3Ar1']) {
       const [path, query] = url.split('?')
       expect(routePath(parseRoute(path ?? '', query === undefined ? '' : `?${query}`))).toBe(url)
     }
@@ -30,5 +34,6 @@ describe('주소 ↔ 화면', () => {
     expect(menuOf({ name: 'sms' })).toBe('sms')
     expect(menuOf({ name: 'buyers', rehearsal: false })).toBe('buyers')
     expect(menuOf({ name: 'settlements', rehearsal: true })).toBe('settlements')
+    expect(menuOf({ name: 'billing' })).toBe('billing')
   })
 })

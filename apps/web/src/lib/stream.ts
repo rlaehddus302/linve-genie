@@ -15,8 +15,8 @@ export interface EventSourceLike {
   close(): void
 }
 
-/** 받는 알림 종류 */
-export const STREAM_EVENTS = ['ready', 'change', 'generator', 'print'] as const
+/** 받는 알림 종류 (billing: 요금 알림 — 까닭만, N5 AC-N5-13) */
+export const STREAM_EVENTS = ['ready', 'change', 'generator', 'print', 'billing'] as const
 
 const CLOSED = 2
 const OPEN = 1
