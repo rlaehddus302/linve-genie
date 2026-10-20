@@ -1449,6 +1449,27 @@ html:has(.sms-submit-bar) {
   color: #5c0b0b;
 }
 
+/* 라벨 끄기 모드 (N4a, AC-N4a-10~14): 설정 화면의 "라벨" 절, 라벨 자리의 안내, 위 줄 "설정"(지금 화면이면 메뉴처럼 채운다) */
+.settings-link[aria-current='page'] {
+  color: #ffffff;
+  background-color: #0b57d0;
+  border-color: #0b57d0;
+}
+
+.switch-state {
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.switch-history {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.labels-off-note {
+  font-weight: 700;
+}
+
 .labels-page .card {
   display: grid;
   gap: 1rem;
