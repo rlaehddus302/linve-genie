@@ -4,6 +4,7 @@
 // changesWindow(증분 조회 기준점 수), generatorTimer·generatorSpeed(리허설 생성기 타이머·시험 속도), hostActionDelayMs(화면의 방송자 조치 대기 — E2E 기동만 줄인다),
 // testPrinter(시험 모드 신호 — 화면이 시험용 프린터를 켠다. E2E 기동만 켠다, 운영 기동은 production.ts가 늘 끈다 — I1 L-11 15).
 // I1: 출력 기록(PrintService)을 기록 경로의 같은 트랜잭션(txHook)에 잇고, 실시간 알림(print)·출력 기기 실시간 연결 여부를 허브에 잇는다.
+// N5: 요금(BillingService)을 새 실제 방송 시작·주문 건 쓰기(txHook)·라벨 장 쓰기(출력함 트랜잭션)에 잇고, 실시간 알림(billing)을 허브에 잇는다.
 import { applyEvent } from '@livejjim/core'
 import type { Hono } from 'hono'
 import { Auth } from './auth.ts'
@@ -21,6 +22,7 @@ import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
 import { systemClock, type Clock } from './time.ts'
 import { ViewCacheBudget } from './view-budget.ts'
+import { BillingService, DISABLED_BILLING, type BillingSetup } from './billing/service.ts'
 import { DEFAULT_RUNTIME_CACHE_MAX, ScopeWriter, type WriterHooks } from './writer.ts'
 
 /** 스냅샷 간격 상한 (AC-S04-28: 일정 이벤트 수, 최대 500) */
@@ -59,6 +61,11 @@ export interface ServerOptions {
   readonly hostActionDelayMs?: number
   /** 시험 모드 신호 (화면 설정 testPrinter — 시험용 프린터를 켠다). E2E 기동만 켠다. 기본 false (L-11 15, AC-I1-16) */
   readonly testPrinter?: boolean
+  /**
+   * 요금 (N5, BILLING_RULES). 없으면 꺼짐(기본 — 막지도 세지도 않고 요금 경로가 없다, BL-0 7).
+   * 운영 기동은 productionServerOptions가 환경변수로 만든다(시험 결제 없음). 시험·E2E는 testBilling()(가짜 결제 서버·가짜 발행기)
+   */
+  readonly billing?: BillingSetup
 }
 
 export interface LivejjimServer {
@@ -71,6 +78,8 @@ export interface LivejjimServer {
   readonly viewCaches: ViewCacheBudget
   /** 출력 기록과 출력 기기 (I1) */
   readonly print: PrintService
+  /** 요금 (N5) */
+  readonly billing: BillingService
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
   /** 실시간 연결을 닫고 리허설 생성기·타이머를 멈춘다 (DB는 닫지 않는다) */
@@ -111,6 +120,16 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const engine: EngineAdapter = options.engine ?? { applyEvent }
   const auth = new Auth({ db, clock, limitSecret: loginLimitSecret(masterKey), log, ...(options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost }) })
   let print: PrintService | null = null
+  let writerRef: ScopeWriter | null = null
+  const billing = new BillingService({
+    db,
+    setup: options.billing ?? DISABLED_BILLING,
+    clock,
+    masterKey,
+    log,
+    publish: (sellerId, data) => hub.publishBilling(sellerId, data),
+    readState: async (sellerId, date) => (await (writerRef as ScopeWriter).read(sellerId, date)).state,
+  })
   const hub = new StreamHub({
     heartbeatMs,
     sessionAlive: (hash) => auth.alive(hash),
@@ -140,9 +159,18 @@ export function createServer(options: ServerOptions): LivejjimServer {
       viewCaches.sweep()
     },
     onDrop: (runtime) => viewCaches.release(runtime),
-    // 효과 → 출력 작업·라벨 폐기를 이벤트 기록과 같은 트랜잭션에서 (L-11 2·5)
-    txHook: (tx, ctx) => (print as PrintService).txHook(tx, ctx),
+    // 효과 → 출력 작업·라벨 폐기를 이벤트 기록과 같은 트랜잭션에서 (L-11 2·5), 주문 건 쓰기도 같은 트랜잭션에서 (N5 BL-5 2)
+    txHook: async (tx, ctx) => {
+      const printed = await (print as PrintService).txHook(tx, ctx)
+      const billed = await billing.txHook(tx, ctx)
+      if (printed === null && billed === null) return null
+      return () => {
+        billed?.()
+        printed?.()
+      }
+    },
   })
+  writerRef = writer
   print = new PrintService({
     db,
     writer,
@@ -150,6 +178,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
     log,
     publish: (sellerId, data) => hub.publishPrint(sellerId, data),
     deviceLive: (sellerId, deviceId) => hub.deviceLive(sellerId, deviceId),
+    // 라벨 장 쓰기 (N5 BL-5 3): 상품 라벨 출력함과 같은 트랜잭션
+    onPrinted: billing.onLabelPrinted,
   })
   const printService = print
   const service = new Service({
@@ -161,11 +191,12 @@ export function createServer(options: ServerOptions): LivejjimServer {
     viewCaches,
     generatorSpeed,
     onGenerator: (sellerId, payload) => hub.publishGenerator(sellerId, payload),
+    billing,
     ...(options.generatorTimer === undefined ? {} : { generatorTimer: options.generatorTimer }),
   })
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
-    api: { service, auth, hub, print: printService, appOrigin: options.appOrigin, clientConfig: { hostActionDelayMs, testPrinter: options.testPrinter === true } },
+    api: { service, auth, hub, print: printService, billing, appOrigin: options.appOrigin, clientConfig: { hostActionDelayMs, testPrinter: options.testPrinter === true } },
   })
   return {
     app,
@@ -175,6 +206,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     auth,
     viewCaches,
     print: printService,
+    billing,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     close: () => {
       service.generators.closeAll()

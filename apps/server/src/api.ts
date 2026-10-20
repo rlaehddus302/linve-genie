@@ -17,6 +17,8 @@ import { unknownFieldProblems } from './messages.ts'
 import { DEVICE_ID_RE, type PrintService } from './print.ts'
 import { registerPrintRoutes } from './print-api.ts'
 import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.ts'
+import { WEBHOOK_PATH, registerBillingRoutes } from './billing/api.ts'
+import type { BillingService } from './billing/service.ts'
 import type { Actor, WriteOutcome, WriteResult } from './writer.ts'
 
 /** 요청 본문 상한 (AC-S04-34) */
@@ -33,6 +35,8 @@ export interface ApiDeps {
   readonly appOrigin: string
   /** 화면 설정 (방송자 조치 대기 시간 — 운영 5000, E2E 기동만 줄인다 / 시험 모드 신호 testPrinter — E2E 기동만 켠다, I1) */
   readonly clientConfig?: { readonly hostActionDelayMs: number; readonly testPrinter?: boolean }
+  /** 요금 (N5). 없거나 꺼져 있으면 /api/billing/**는 404 */
+  readonly billing?: BillingService
 }
 
 type Env = { Variables: { body: Record<string, unknown> | null; session: SessionContext } }
@@ -83,7 +87,7 @@ const NUMBER_RE = /^\d{1,9}$/
 /** 상품 ID (코어 listProducts의 id — 영문·숫자·'_'·'-' 1~64자) */
 const PRODUCT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 
-function outcomeResponse(c: Context, outcome: WriteOutcome): Response {
+function outcomeResponse(c: Context, outcome: WriteOutcome, extra: Readonly<Record<string, unknown>> = {}): Response {
   switch (outcome.kind) {
     case 'ok':
     case 'duplicate': {
@@ -92,7 +96,7 @@ function outcomeResponse(c: Context, outcome: WriteOutcome): Response {
       if (result.failed) {
         return apiError(500, 'PROCESSING_FAILED', '처리하지 못했어요. 확인 필요 목록에 남겼어요.', [], { date: result.date, seq: result.seq })
       }
-      return json(c, resultBody(result))
+      return json(c, { ...resultBody(result), ...extra })
     }
     case 'rejected':
       return apiError(outcome.rejection.status, outcome.rejection.code, outcome.rejection.message, outcome.rejection.problems)
@@ -106,6 +110,9 @@ function outcomeResponse(c: Context, outcome: WriteOutcome): Response {
 export function createApi(deps: ApiDeps): Hono<Env> {
   const { service, auth, hub } = deps
   const api = new Hono<Env>()
+  const billing = deps.billing?.enabled === true ? deps.billing : null
+  /** 요금 웹훅 (세션·Origin 없이 서명으로 확인 — 요금 기능이 켜져 있을 때만) */
+  const isWebhook = (c: Context) => billing !== null && c.req.method === 'POST' && c.req.path === WEBHOOK_PATH
 
   // 모든 응답: 캐시 금지 (개인 데이터)
   api.use(async (c, next) => {
@@ -113,10 +120,16 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     c.res.headers.set('Cache-Control', 'no-store')
   })
 
-  // 상태를 바꾸는 요청: Origin → 크기 → JSON (기록 전에 거른다)
+  // 요금 기능이 꺼져 있으면 요금 경로는 웹훅까지 모두 404 (세션·Origin 검사보다 먼저 — BL-0 7, AC-N5-11)
+  api.use(async (c, next) => {
+    if (billing === null && (c.req.path === '/api/billing' || c.req.path.startsWith('/api/billing/'))) return notFound()
+    return next()
+  })
+
+  // 상태를 바꾸는 요청: Origin → 크기 → JSON (기록 전에 거른다). 요금 웹훅은 Origin·JSON 읽기를 건너뛴다(서명은 받은 본문 그대로 확인)
   api.use(async (c, next) => {
     c.set('body', null)
-    if (!STATE_CHANGING.has(c.req.method)) return next()
+    if (!STATE_CHANGING.has(c.req.method) || isWebhook(c)) return next()
     if (c.req.header('origin') !== deps.appOrigin) return apiError(403, 'FORBIDDEN_ORIGIN', '허용하지 않은 곳에서 온 요청이에요.')
     const contentType = (c.req.header('content-type') ?? '').split(';')[0]?.trim().toLowerCase()
     if (contentType !== JSON_CONTENT_TYPE) return apiError(415, 'NOT_JSON', '보낸 내용의 형식이 올바르지 않아요.')
@@ -129,7 +142,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     }),
   )
   api.use(async (c, next) => {
-    if (!STATE_CHANGING.has(c.req.method)) return next()
+    if (!STATE_CHANGING.has(c.req.method) || isWebhook(c)) return next()
     let parsed: unknown
     try {
       parsed = JSON.parse(await c.req.text())
@@ -143,7 +156,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
 
   // 세션 (로그인·헬스체크 밖 전부)
   api.use(async (c, next) => {
-    if (PUBLIC_PATHS.has(`${c.req.method} ${c.req.path}`)) return next()
+    if (PUBLIC_PATHS.has(`${c.req.method} ${c.req.path}`) || isWebhook(c)) return next()
     const session = await auth.session(getCookie(c, SESSION_COOKIE))
     if (session === null) return unauthorized()
     c.set('session', session)
@@ -161,6 +174,17 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   const onlyKeys = (value: Record<string, unknown>, allowed: readonly string[]): Response | null => {
     const extra = ownKeys(value).filter((key) => !allowed.includes(key))
     return extra.length === 0 ? null : apiError(400, 'UNKNOWN_FIELD', '받을 수 없는 항목이 있어요.', unknownFieldProblems(extra))
+  }
+
+  /**
+   * 방송 만들기 응답의 요금 항목 (N5, AC-N5-20): 요금 기능이 켜져 있고 실제 방송이면 그 방송의 이용 방식·방송 일을 새로 썼는지.
+   * 이용 방식이 없는 방송(요금 기능을 켜기 전에 시작)은 null. 꺼져 있거나 리허설이면 항목이 없다. 같은 요청 번호의 재전송도 처음 결과와 같다
+   */
+  const billingOf = async (c: Context<Env>, result: WriteResult): Promise<Record<string, unknown>> => {
+    if (billing === null || result.type !== 'broadcast.start' || result.rehearsal || result.failed) return {}
+    const b = result.event.b
+    const mode = typeof b === 'string' ? await billing.modeOf(sellerOf(c), b) : null
+    return { billing: mode === null ? null : { mode: mode.mode, usedDay: mode.usedDay } }
   }
 
   api.get('/health', (c) => c.json({ status: 'ok' }))
@@ -200,7 +224,21 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   })
 
   // 화면 설정 (방송자 조치 대기 시간, D-083 — 운영 5000밀리초 / 시험 모드 신호 — 시험용 프린터를 켠다, E2E 기동만 true, L-11 15)
-  api.get('/client-config', (c) => c.json({ hostActionDelayMs: deps.clientConfig?.hostActionDelayMs ?? 5000, testPrinter: deps.clientConfig?.testPrinter === true }))
+  // 요금 (N5): 켜짐인지·시험 결제인지, 운영 결제일 때만 포트원 공개 값(상점 ID·채널 키). 비밀값은 없다
+  api.get('/client-config', (c) =>
+    c.json({
+      hostActionDelayMs: deps.clientConfig?.hostActionDelayMs ?? 5000,
+      testPrinter: deps.clientConfig?.testPrinter === true,
+      billing:
+        billing === null
+          ? { enabled: false, testPayment: false }
+          : {
+              enabled: true,
+              testPayment: billing.setup.test !== null,
+              ...(billing.setup.test === null && billing.setup.publicKeys !== null ? { storeId: billing.setup.publicKeys.storeId, channelKey: billing.setup.publicKeys.channelKey } : {}),
+            },
+    }),
+  )
 
   // ── 설정 (AC-S04-50) ──────────────────────────────────────────────────
   api.get('/settings', async (c) => c.json({ settings: await service.settings(sellerOf(c)) }))
@@ -217,12 +255,13 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     const requestId = requestIdOf(input)
     if (requestId === null) return invalidRequestId()
     const prior = await service.priorResult(sellerOf(c), requestId)
-    if (prior !== null) return outcomeResponse(c, { kind: 'duplicate', result: prior })
+    if (prior !== null) return outcomeResponse(c, { kind: 'duplicate', result: prior }, await billingOf(c, prior))
     const extra = onlyKeys(input, ['requestId', 'date', 'title', 'rehearsal'])
     if (extra !== null) return extra
     const parsed = Service.broadcastInput(input)
     if (!parsed.ok) return apiError(parsed.rejection.status, parsed.rejection.code, parsed.rejection.message, parsed.rejection.problems)
-    return outcomeResponse(c, await service.createBroadcast(sellerOf(c), actorOf(c), requestId, parsed))
+    const created = await service.createBroadcast(sellerOf(c), actorOf(c), requestId, parsed)
+    return outcomeResponse(c, created, created.kind === 'ok' ? await billingOf(c, created.result) : {})
   })
   api.post('/broadcasts/:id/end', async (c) => {
     const input = body(c)
@@ -392,6 +431,9 @@ export function createApi(deps: ApiDeps): Hono<Env> {
 
   // ── 출력 기록 (I1, LABEL_RULES L-11) ──────────────────────────────────
   if (deps.print !== undefined) registerPrintRoutes(api, deps.print)
+
+  // ── 요금 (N5, BILLING_RULES) — 켜져 있을 때만 ───────────────────────────
+  if (billing !== null) registerBillingRoutes(api, billing)
 
   api.notFound(() => notFound())
   return api

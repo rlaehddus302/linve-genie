@@ -52,6 +52,14 @@ export type ErrorCode =
   | 'INVALID_TEMPLATE'
   | 'TEMPLATE_TOO_LARGE'
   | 'TEMPLATE_CONFLICT'
+  // N5 요금 API (BILLING_RULES BL-4·BL-6·BL-7·BL-8)
+  | 'NO_PASS'
+  | 'TERMS_REQUIRED'
+  | 'ITEM_UNAVAILABLE'
+  | 'BUSINESS_REQUIRED'
+  | 'REFUND_NOT_ALLOWED'
+  | 'REFUND_IN_PROGRESS'
+  | 'REFUND_FAILED'
 
 export interface ErrorBody {
   readonly error: {

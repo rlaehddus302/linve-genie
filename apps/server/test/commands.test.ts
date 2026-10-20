@@ -81,9 +81,10 @@ describe('마이그레이션 명령 (AC-S04-20)', () => {
     const database = await openPglite(dir, { migrate: false })
     const tables = await database.pglite?.query<{ table_name: string }>(`select table_name from information_schema.tables where table_schema = 'public'`)
     await database.close()
-    // 스키마의 테이블이 모두 생겼다 (판매자·계정·로그인 시도 수·세션·범위·방송·이벤트·발송함·스냅샷 + I1 출력 기록: 대기열·라벨 키·작업·시도·라벨 템플릿·출력 요청 번호)
+    // 스키마의 테이블이 모두 생겼다 (판매자·계정·로그인 시도 수·세션·범위·방송·이벤트·발송함·스냅샷 + I1 출력 기록: 대기열·라벨 키·작업·시도·라벨 템플릿·출력 요청 번호
+    // + N5 요금: 이용권·회수·쓴 기록·이용 방식·결제 주문·사업자 정보·증빙 요청·요금 요청 번호)
     expect(tables?.rows.map((row) => row.table_name).sort()).toEqual(Object.values(schema).map((table) => getTableConfig(table).name).sort())
-    expect(tables?.rows).toHaveLength(15)
+    expect(tables?.rows).toHaveLength(23)
     const none = await run(script('commands/migrate.ts'), [], {})
     expect(none.code).toBe(1)
     expect(none.out).toContain('데이터베이스 연결 설정이 없어요')

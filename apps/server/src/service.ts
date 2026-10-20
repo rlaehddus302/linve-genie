@@ -63,6 +63,7 @@ import {
   type HistoryRow,
   type ScopeSeqRow,
 } from './store.ts'
+import type { BillingService } from './billing/service.ts'
 import { iso, kstDate, kstTime, type Clock } from './time.ts'
 import type { ViewCacheBudget } from './view-budget.ts'
 import { changeSet, fullView, messageLookup, type ChangeSet, type FullView, type MessageLookup } from './views.ts'
@@ -99,6 +100,8 @@ export interface ServiceOptions {
   readonly generatorSpeed?: number
   /** 리허설 생성기 상태가 바뀔 때 (SSE generator 알림) */
   readonly onGenerator?: (sellerId: string, payload: Readonly<Record<string, unknown>>) => void
+  /** 요금 (N5). 켜져 있으면 새 실제 방송 시작이 이용 방식을 같은 트랜잭션에서 정한다(BL-4) */
+  readonly billing?: BillingService
 }
 
 export type ChatIngestOutcome =
@@ -301,7 +304,10 @@ export class Service {
     const rehearsal = input.rehearsal === true
     const settings = resolveSettings(await this.#settingsOverride(db, sellerId))
     const b = ids.broadcast()
-    return writer.write({
+    // 요금 (N5, BL-4): 실제 방송이고 요금 기능이 켜져 있으면 broadcast.start·방송 행과 같은 트랜잭션에서 이용 방식을 정한다 — 없으면 422 NO_PASS로 전체를 되돌린다
+    const billing = !rehearsal && this.#options.billing?.enabled === true ? this.#options.billing : null
+    let billed = false
+    const outcome = await writer.write({
       sellerId,
       date,
       rehearsal,
@@ -337,8 +343,14 @@ export class Service {
         if (first === undefined || !first.changed) return
         const event = first.event as unknown as { b: string; date: string; title: string }
         await insertBroadcast(tx, { id: event.b, sellerId, scopeId, date: event.date, title: event.title, startSeq: first.seq, now })
+        if (billing !== null) {
+          await billing.decideStart(tx, { sellerId, scopeId, broadcastId: event.b, date: event.date, now })
+          billed = true
+        }
       },
     })
+    if (outcome.kind === 'ok' && billed) billing?.started(sellerId)
+    return outcome
   }
 
   /** 방송 만들기 요청 본문 검사 (날짜·제목·리허설인지) */

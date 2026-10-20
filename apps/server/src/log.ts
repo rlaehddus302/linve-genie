@@ -30,6 +30,11 @@ export type LogCode =
   | 'LOGIN_PRUNE_FAILED'
   | 'DRAFT_SKIPPED'
   | 'PRINT_NOTIFY_FAILED'
+  // N5 요금 (결제 ID·사업자 정보·조회 원문·비밀값은 남기지 않는다)
+  | 'BILLING_FAILED'
+  | 'PAYMENT_LOOKUP_FAILED'
+  | 'PAYMENT_CANCEL_FAILED'
+  | 'DOCUMENT_FAILED'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -45,6 +50,10 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   LOGIN_PRUNE_FAILED: '로그인 시도 기록을 정리하지 못했어요(로그인은 계속함)',
   DRAFT_SKIPPED: '서버가 덧붙이는 입력(차단 이어받기)이 입력 검사를 통과하지 못해 기록하지 않았어요',
   PRINT_NOTIFY_FAILED: '출력 기록 알림을 보내지 못했어요(기록은 저장됨)',
+  BILLING_FAILED: '요금 정보를 읽지 못했어요',
+  PAYMENT_LOOKUP_FAILED: '결제를 조회하지 못했어요(주문은 그대로)',
+  PAYMENT_CANCEL_FAILED: '결제를 취소하지 못했어요',
+  DOCUMENT_FAILED: '증빙을 발행·취소하지 못했어요(결제·이용권은 그대로)',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */

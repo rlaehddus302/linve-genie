@@ -398,6 +398,189 @@ export const printRequests = pgTable(
   (t) => [unique('print_requests_uq').on(t.sellerId, t.requestId)],
 )
 
+// ── 요금 (N5, BILLING_RULES BL-0~BL-8, D-N5-01~D-N5-14) ─────────────────────
+// 엔진 밖 서버 원장이다(BL-0 2). 이벤트·발송함·스냅샷·출력 작업 표는 바꾸지 않는다.
+// 이용권(billing_grants)·회수(billing_revocations)·쓴 기록(billing_usage)·이용 방식(billing_modes)은 덧붙이기만 한다(BL-0 4, BL-INV-5 —
+// 서버 소스에 이 표들의 UPDATE·DELETE가 없다). 결제 주문·증빙 요청은 상태 칸만 바뀐다.
+
+/** 이용권 부여 (BL-1). 결제 이용권은 결제 ID마다 하나(BL-INV-1 — payment_id 유일). 부여 시각 = 기록 시각 */
+export const billingGrants = pgTable(
+  'billing_grants',
+  {
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** FLAT_30D · DAYS · ORDERS · LABELS */
+    kind: text('kind').notNull(),
+    /** 정량만 1~100,000 (정액은 null) */
+    quantity: integer('quantity'),
+    /** PAYMENT · OPERATOR */
+    source: text('source').notNull(),
+    /** PAYMENT: 결제 ID */
+    paymentId: text('payment_id'),
+    /** OPERATOR: 사유 (휴대폰 번호 검사를 통과한 1~200자) */
+    reason: text('reason'),
+    at: timestamptz('at').notNull(),
+  },
+  (t) => [unique('billing_grants_payment_uq').on(t.paymentId), index('billing_grants_seller_idx').on(t.sellerId, t.at)],
+)
+
+/** 이용권 회수 (BL-7 환불). 이용권마다 많아야 하나. 지우거나 고치지 않는다 */
+export const billingRevocations = pgTable(
+  'billing_revocations',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    grantId: text('grant_id')
+      .notNull()
+      .references(() => billingGrants.id),
+    /** REFUND (지금은 이것 하나) */
+    reason: text('reason').notNull(),
+    at: timestamptz('at').notNull(),
+  },
+  (t) => [unique('billing_revocations_grant_uq').on(t.grantId), index('billing_revocations_seller_idx').on(t.sellerId)],
+)
+
+/**
+ * 쓴 기록 (BL-5). 멱등 키: DAYS `DAYS:<방송 ID>` · ORDERS `ORDERS:<범위 날짜>:<상품 ID>` · LABELS `LABELS:<범위 날짜>:<작업 ID>`.
+ * (판매자, 키)가 유일하다 — 같은 일은 한 번만 적는다. 돌려주지 않는다
+ */
+export const billingUsage = pgTable(
+  'billing_usage',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** DAYS · ORDERS · LABELS */
+    kind: text('kind').notNull(),
+    key: text('key').notNull(),
+    at: timestamptz('at').notNull(),
+    /** 쓴 방송 (DAYS: 시작한 방송, ORDERS: 상품의 방송, LABELS: 라벨의 방송) */
+    broadcastId: text('broadcast_id'),
+    /** 범위 날짜 (실제 범위) */
+    date: text('date'),
+    /** ORDERS: 상품 ID·그때 번호 / LABELS: 라벨의 번호 */
+    productId: text('product_id'),
+    productNo: integer('product_no'),
+    /** LABELS: 작업 ID */
+    jobId: text('job_id'),
+  },
+  (t) => [unique('billing_usage_key_uq').on(t.sellerId, t.key), index('billing_usage_seller_idx').on(t.sellerId, t.kind, t.at)],
+)
+
+/** 방송의 이용 방식 (BL-4). 새 실제 방송 시작과 같은 트랜잭션에서 한 번 정하고 바뀌지 않는다. 이용 방식이 없는 방송(리허설·요금 기능 꺼짐·N5 전)은 행이 없다 */
+export const billingModes = pgTable(
+  'billing_modes',
+  {
+    broadcastId: text('broadcast_id')
+      .primaryKey()
+      .references(() => broadcasts.id),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    scopeId: text('scope_id')
+      .notNull()
+      .references(() => scopes.id),
+    /** FLAT · DAY · ORDERS */
+    mode: text('mode').notNull(),
+    /** 이 시작이 방송 일 1을 썼는지 (BL-4 1.3) */
+    usedDay: boolean('used_day').notNull(),
+    at: timestamptz('at').notNull(),
+  },
+  (t) => [index('billing_modes_scope_idx').on(t.sellerId, t.scopeId)],
+)
+
+/**
+ * 결제 주문 (BL-6). 결제 ID = 서버가 만든 무작위 값. 금액 = 만들 때의 요금 표 가격 스냅샷.
+ * 상태: PENDING · FAILED · GRANTED · MISMATCH_CANCELLED · NEEDS_REVIEW · REFUNDED. 환불 중(결제 취소를 기다리는 동안)은 refund_hold_until까지 그 이용권을 쓰지 않는다
+ */
+export const billingOrders = pgTable(
+  'billing_orders',
+  {
+    paymentId: text('payment_id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    requestId: text('request_id').notNull(),
+    itemId: text('item_id').notNull(),
+    itemName: text('item_name').notNull(),
+    kind: text('kind').notNull(),
+    quantity: integer('quantity'),
+    amount: integer('amount').notNull(),
+    /** CARD · TRANSFER (만들 때 고른 수단) */
+    method: text('method').notNull(),
+    state: text('state').notNull(),
+    /** 결제 조회가 알려 준 수단 (부여 때) */
+    paidMethod: text('paid_method'),
+    createdAt: timestamptz('created_at').notNull(),
+    updatedAt: timestamptz('updated_at').notNull(),
+    grantedAt: timestamptz('granted_at'),
+    refundHoldUntil: timestamptz('refund_hold_until'),
+    refundedAt: timestamptz('refunded_at'),
+  },
+  (t) => [unique('billing_orders_request_uq').on(t.sellerId, t.requestId), index('billing_orders_seller_idx').on(t.sellerId, t.createdAt)],
+)
+
+/** 사업자 정보 (BL-8 1·2). 번호·상호·대표자·이메일은 마스터 키로 암호화한 JSON 하나로 둔다. 가린 번호 `123-45-*****`와 증빙 종류만 평문 */
+export const billingBusiness = pgTable('billing_business', {
+  sellerId: text('seller_id')
+    .primaryKey()
+    .references(() => sellers.id),
+  sealed: text('sealed').notNull(),
+  masked: text('masked').notNull(),
+  /** TAX_INVOICE · CASH_RECEIPT */
+  receiptKind: text('receipt_kind').notNull(),
+  updatedAt: timestamptz('updated_at').notNull(),
+})
+
+/** 증빙 요청 (BL-8 3~5): 계좌이체로 부여된 결제마다 하나. 받는 쪽은 그때의 사업자 정보(암호화). 취소 요청은 같은 줄의 cancel 칸 */
+export const billingDocuments = pgTable(
+  'billing_documents',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    paymentId: text('payment_id')
+      .notNull()
+      .references(() => billingOrders.paymentId),
+    /** TAX_INVOICE · CASH_RECEIPT */
+    kind: text('kind').notNull(),
+    recipientSealed: text('recipient_sealed').notNull(),
+    amount: integer('amount').notNull(),
+    supply: integer('supply').notNull(),
+    vat: integer('vat').notNull(),
+    /** PENDING 발행 대기 · ISSUED 발행됨 · FAILED 발행 실패 */
+    status: text('status').notNull(),
+    approval: text('approval'),
+    /** 취소: null · REQUESTED 취소 요청 · CANCELLED 취소됨 · FAILED */
+    cancel: text('cancel'),
+    createdAt: timestamptz('created_at').notNull(),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [unique('billing_documents_payment_uq').on(t.paymentId), index('billing_documents_seller_idx').on(t.sellerId)],
+)
+
+/** 요금 요청 번호 (환불·사업자 정보 — 같은 요청 번호면 처음 결과) */
+export const billingRequests = pgTable(
+  'billing_requests',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    requestId: text('request_id').notNull(),
+    kind: text('kind').notNull(),
+    result: text('result').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('billing_requests_uq').on(t.sellerId, t.requestId)],
+)
+
 export const schema = {
   sellers,
   accounts,
@@ -414,7 +597,18 @@ export const schema = {
   printAttempts,
   labelTemplates,
   printRequests,
+  billingGrants,
+  billingRevocations,
+  billingUsage,
+  billingModes,
+  billingOrders,
+  billingBusiness,
+  billingDocuments,
+  billingRequests,
 }
+
+/** 요금 직렬 처리용 어드바이저리 락 키 (판매자마다 하나 — 새 실제 방송 시작·환불·부여·결제 확인·쓰기를 차례로, BL-4 3·BL-7 4) */
+export const billingLockKey = (sellerId: string) => sql`hashtextextended(${`billing/${sellerId}`}, 0)`
 
 /** 범위 직렬 처리용 어드바이저리 락 키 (범위 = 판매자·날짜·리허설인지, 범위 행이 생기기 전에도 같은 키). 실제 범위는 S04와 같은 키 */
 export const scopeLockKey = (sellerId: string, date: string, rehearsal: boolean) =>
