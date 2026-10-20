@@ -36,6 +36,8 @@ export interface ApiDeps {
   readonly appOrigin: string
   /** 화면 설정 (방송자 조치 대기 시간 — 운영 5000, E2E 기동만 줄인다) */
   readonly clientConfig?: { readonly hostActionDelayMs: number }
+  /** E2E 기동만: 확인서 데이터 조회의 ?at=<UTC 밀리초> (AC-I2-15, ServerOptions.receiptAtParam) */
+  readonly receiptAtParam?: boolean
 }
 
 type Env = { Variables: { body: Record<string, unknown> | null; session: SessionContext } }
@@ -420,7 +422,10 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (!scope.ok) return scope.response
     const buyer = buyerParam(c.req.query('buyer'))
     if (!buyer.ok) return problemResponse(buyer.error)
-    const outcome = await closing.receipt(sellerOf(c), scope.date, scope.rehearsal, buyer.buyer)
+    // E2E 기동만 ?at= (그 PNG를 만든 시각 — 응답 머리 X-Receipt-Created-At)으로 같은 확인서 데이터를 다시 얻는다. 운영 서버는 이 값을 보지 않는다
+    const atText = deps.receiptAtParam === true ? c.req.query('at') : undefined
+    if (atText !== undefined && !/^[0-9]{1,15}$/.test(atText)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'at', message: '만든 시각을 확인해 주세요.' }])
+    const outcome = await closing.receipt(sellerOf(c), scope.date, scope.rehearsal, buyer.buyer, atText === undefined ? undefined : Number(atText))
     if (outcome.kind === 'not_found') return notFound()
     if (outcome.kind === 'error') return problemResponse(outcome.error)
     c.header('X-Receipt-Created-At', String(outcome.value.createdAt))

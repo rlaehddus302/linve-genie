@@ -1,10 +1,15 @@
 // E2E용 서버 기동 (AC-S05-91, AC-S05-64, AC-S06-73). 실제 비밀값·네트워크·도커가 필요 없다. 127.0.0.1에서만 연다.
 // - 메모리 PGlite + 마이그레이션, 그 자리에서 만든 시험용 마스터 키, 시험용 판매자 계정 하나(apps/server/e2e/account.json의 시험 값).
 // - 선택: 상품 500·채팅 1만 건을 채운 실제 범위(오늘, KST), 화면의 방송자 조치 대기 시간 줄이기 신호(GET /api/client-config), 리허설 생성기 시험 속도.
+// - I2: 백업 저장소 = 임시 폴더(또는 지정한 폴더), 시작할 때 시험 판매자의 자동 백업 하나(시각과 상관없이 — 설정 화면의 "마지막 자동 백업"이 늘 있게),
+//   확인서 데이터 조회의 ?at= (공유 그림 바이트를 같은 데이터의 Node 그림과 맞댈 때, AC-I2-15).
 // - 채우기는 기록 경로(ScopeWriter)를 그대로 탄다: 상품은 product.register(조치자 서버), 채팅은 가짜 채팅 생성기의 메시지(조치자 수집기).
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import type { Server } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createSellerAccount } from './accounts.ts'
+import { FolderBackupStorage } from './backup.ts'
 import { openPglite, type Database } from './db/database.ts'
 import { ChatMaker, generatorView } from './generator.ts'
 import { createNodeServer } from './node-server.ts'
@@ -110,6 +115,10 @@ export interface E2eOptions {
   readonly generatorSpeed?: number
   /** 시험 안에서 빠르게 (비밀번호 해시 비용) */
   readonly passwordCost?: PasswordCost
+  /** 백업 폴더 (없으면 임시 폴더를 만들고 끌 때 지운다) */
+  readonly backupDir?: string
+  /** 시작할 때 시험 판매자의 자동 백업을 하나 만든다 (기본 true) */
+  readonly initialBackup?: boolean
 }
 
 /** E2E 서버가 듣는 주소: 이 컴퓨터 안(IPv4 루프백)에서만 (AC-S06-73, D-096 — 모든 인터페이스 0.0.0.0·::이 아니다) */
@@ -121,6 +130,8 @@ export interface E2eServer {
   readonly account: E2eAccount
   readonly sellerId: string
   readonly fill: FillResult | null
+  /** 백업 폴더 (I2) */
+  readonly backupDir: string
   /** Node HTTP 서버 (열기는 listen으로) */
   readonly http: Server
   /** E2E_HOST(127.0.0.1)의 그 포트에서 연다 (0이면 빈 포트). 연 주소·포트를 돌려준다. 열지 못하면(포트를 이미 씀 등) 그 오류로 실패한다 */
@@ -131,11 +142,15 @@ export interface E2eServer {
 export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServer> {
   const database = await openPglite()
   const masterKey = generateMasterKey()
+  const ownBackupDir = options.backupDir === undefined
+  const backupDir = options.backupDir ?? mkdtempSync(join(tmpdir(), 'livejjim-e2e-backup-'))
   const server = createServer({
     database,
     masterKey,
     appOrigin: options.appOrigin ?? 'http://localhost:5173',
     log: () => {},
+    backupStorage: new FolderBackupStorage(backupDir),
+    receiptAtParam: true,
     ...(options.hostActionDelayMs === undefined ? {} : { hostActionDelayMs: options.hostActionDelayMs }),
     ...(options.generatorSpeed === undefined ? {} : { generatorSpeed: options.generatorSpeed }),
     ...(options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost }),
@@ -144,6 +159,8 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
   const created = await createSellerAccount(database.db, Buffer.from(masterKey, 'base64'), account, options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost })
   if (!created.ok) throw new Error(created.message)
   const fill = options.fill === undefined ? null : await fillScope(server, created.sellerId, options.fill)
+  if (options.initialBackup !== false) await server.backups.createNow(created.sellerId, 'daily')
+  server.backups.start()
   const http = createNodeServer({ app: server.app })
   return {
     server,
@@ -151,6 +168,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     account,
     sellerId: created.sellerId,
     fill,
+    backupDir,
     http,
     listen: (port) =>
       new Promise((resolve, reject) => {
@@ -171,6 +189,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
         else http.close(() => resolve())
       })
       await database.close()
+      if (ownBackupDir) rmSync(backupDir, { recursive: true, force: true })
     },
   }
 }

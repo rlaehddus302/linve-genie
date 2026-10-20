@@ -150,12 +150,13 @@ export class ClosingService {
    * 한 사람 확인서 데이터: 그 범위의 지금 엔진 상태·가게 설정·리허설 여부·서버 시계의 지금 시각으로 buildReceipt.
    * 품목이 없는 묶음·모르는 구매자 → NO_ITEMS(422), 줄 합 ≠ 코어 합계 → AMOUNT_MISMATCH(500, 경보)
    */
-  async receipt(sellerId: string, date: string, rehearsal: boolean, buyer: string): Promise<Outcome<{ receipt: ReceiptData; createdAt: number }>> {
+  async receipt(sellerId: string, date: string, rehearsal: boolean, buyer: string, at?: number): Promise<Outcome<{ receipt: ReceiptData; createdAt: number }>> {
     const runtime = await this.#scope(sellerId, date, rehearsal)
     if (runtime === null) return NOT_FOUND
     const { state } = runtime
     const shop = documentShop(await readShop(this.#deps.db, sellerId))
-    const createdAt = this.#deps.clock.now()
+    // 만든 시각 = 서버 시계 (at은 E2E 기동의 확인서 데이터 조회만 넘긴다 — AC-I2-15)
+    const createdAt = at ?? this.#deps.clock.now()
     const result = buildReceipt({ state, buyer, date, shop, rehearsal, createdAt })
     if (!result.ok) return this.#receiptError(date, result.error.code, result.error.message)
     return ok({ receipt: result.receipt, createdAt })

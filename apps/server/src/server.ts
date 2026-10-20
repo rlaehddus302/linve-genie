@@ -59,6 +59,11 @@ export interface ServerOptions {
   readonly backupStorage?: BackupStorage | null
   /** 자동 백업 확인 주기 (기본 5분) */
   readonly backupIntervalMs?: number
+  /**
+   * E2E 기동만: 확인서 데이터 조회가 ?at=<UTC 밀리초>를 받아 그 만든 시각으로 데이터를 낸다(AC-I2-15 — 공유 그림 바이트를 같은 데이터의 Node 그림과 맞댈 때).
+   * 운영 서버는 켜지 않는다(늘 서버 시계의 지금 시각). PDF·PNG·전원 PDF는 이 값과 상관없이 늘 지금 시각이다
+   */
+  readonly receiptAtParam?: boolean
 }
 
 export interface LivejjimServer {
@@ -152,7 +157,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const closing = new ClosingService({ db, writer, clock, hub, backups, log })
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
-    api: { service, closing, auth, hub, appOrigin: options.appOrigin, clientConfig: { hostActionDelayMs } },
+    api: { service, closing, auth, hub, appOrigin: options.appOrigin, clientConfig: { hostActionDelayMs }, receiptAtParam: options.receiptAtParam === true },
   })
   return {
     app,
