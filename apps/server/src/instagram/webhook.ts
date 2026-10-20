@@ -6,6 +6,7 @@
 // - 댓글 → chat (수집 경로·조치자 collector): id = ig:<댓글 ID>, ch = ig:<IGSID>, nick = username 그대로(모양이 아니면 시청자),
 //   text 그대로, owner = 보낸 사람이 연결 계정일 때만, publishedAt 없음(at = 서버 시계).
 // - 받은 순서대로 기록하고, 다룰 댓글이 모두 커밋된(또는 기록하지 않기로 정해진) 뒤에만 200. 저장이 실패하면 500(메타가 다시 보낸다 — 댓글 ID로 중복 없음).
+// - 중복: 이 판매자가 같은 ig: 댓글 ID를 이미 기록했으면(어느 회차든) 회차를 정하기 전에 아무 일도 하지 않는다(판매자 줄 안에서 본다).
 // - 웹훅 원문은 저장하지 않는다. 로그에는 코드·수만 남긴다(본문·username·IGSID·댓글 ID·미디어 ID·서명 없음).
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { hasControlChar } from '../api-fields.ts'
@@ -20,7 +21,7 @@ import type { InstagramSettings } from './config.ts'
 import type { InstagramConnections } from './connection.ts'
 import { constantTimeEqual } from './crypto.ts'
 import type { LiveNotices } from './notices.ts'
-import { bumpLinkCounter, bumpSellerMalformed, countUnlinked, type ConnectionRow } from './store.ts'
+import { bumpLinkCounter, bumpSellerMalformed, countUnlinked, igChatRecorded, type ConnectionRow } from './store.ts'
 import { instagramNick } from './text.ts'
 
 /** 웹훅 본문 상한 (1MB) */
@@ -131,6 +132,9 @@ export class InstagramWebhook {
         return 'done'
       }
       const comment = parsed.comment
+      // 이미 기록한 댓글(어느 회차든)이 다시 배달됐다 — 회차를 정하기 전에 거른다. 저절로 잇기·이어지지 않은 수 세기·알림 모두 없다
+      // (AC-N2-33. 1부를 끝낸 뒤 다시 오면 기다리던 2부에 다시 기록되던 것, TD-N2-001)
+      if (await igChatRecorded(this.#deps.db, sellerId, comment.id)) return 'done'
       // 끝낸 회차에 들어가려던 댓글은 다시 정한다 (기다리는 회차가 있으면 거기로 — 1부·2부)
       for (let attempt = 0; attempt < 3; attempt++) {
         const target = await this.#deps.links.resolveTarget(sellerId, connection.accountId, comment.liveId)

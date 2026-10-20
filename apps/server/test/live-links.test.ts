@@ -2,7 +2,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it } from 'vitest'
 import { PLATFORM_KEY_MAX, platformCapabilities, platformOfKey, prefixedKey } from '../src/platform.ts'
-import { chatEvents, connectedShop, igWorld, linkLive, liveBroadcast, register, sendComments, type IgWorld } from './instagram-support.ts'
+import { chatEvents, connectedShop, igWorld, linkLive, liveBroadcast, register, sendComments, webhookTarget, type IgWorld } from './instagram-support.ts'
 import { addSeller, client, rid } from './support.ts'
 
 let ig: IgWorld | null = null
@@ -315,6 +315,39 @@ describe('AC-N2-22 인스타그램 기다리기 — 첫 댓글에 저절로 잇�
     ])
     expect((await api.get(`/api/broadcasts/${b2}/live`)).body.link).toMatchObject({ state: 'LINKED', liveId: live, actor: { kind: 'server' } })
     expect((await api.get(`/api/broadcasts/${b1}/live`)).body.link).toMatchObject({ state: 'LINKED', collection: { state: 'FINISHED', message: '방송을 끝내 댓글 기록을 마쳤어요.' } })
+  })
+
+  it('1부에 기록한 댓글이 b1을 끝낸 뒤 다시 배달되면 기다리던 b2를 잇지 않고 기록·수·알림도 없다. 그 뒤 새 댓글에서 b2가 이어진다 (AC-N2-33, TD-N2-001)', async () => {
+    const w = await world()
+    const { seller, account } = await connectedShop(w)
+    const api = client(w, seller.cookie)
+    const b1 = await liveBroadcast(w, seller)
+    const b2 = await liveBroadcast(w, seller)
+    await register(w, seller, b1, 15, '1부 핑크프릴', 10000)
+    await register(w, seller, b2, 15, '2부 라울', 5000)
+    const live = w.fake.startLive(account.id)
+    await linkLive(w, seller, b1, live)
+    expect((await api.post(`/api/broadcasts/${b2}/live/wait`, { requestId: rid('w'), platform: 'INSTAGRAM' })).status).toBe(200)
+    const first = await sendComments(w, account, live, [{ id: '7001', igsid: '1', username: 'a', text: '15' }])
+    expect((await api.post(`/api/broadcasts/${b1}/end`, { requestId: rid('end') })).status).toBe(200)
+    const before = w.published.length
+    // 메타가 같은 본문을 다시 보낸다 (본문을 바꿔도 같다)
+    const changed = first.changes.map((change) => ({ ...change, value: { ...(change.value as object), text: '15 15' } }))
+    for (const changes of [first.changes, changed]) expect((await w.fake.deliver(webhookTarget(w), w.fake.payload([{ accountId: account.id, changes }]))).status).toBe(200)
+    expect((await chatEvents(w, seller.sellerId)).map((event) => [event.b, event.id])).toEqual([[b1, 'ig:7001']])
+    expect((await api.get(`/api/broadcasts/${b2}/live`)).body.link).toMatchObject({ state: 'WAITING', liveId: null })
+    expect((await api.get('/api/instagram/unlinked')).body.lives).toEqual([])
+    // 알림 없음: 이어지지 않은 댓글·저절로 잇기 모두 (b1을 끝낸 수집 상태 알림은 묶어 늦게 올 수 있어 빼고 본다)
+    expect(w.published.slice(before).filter((item) => item.data.kind === 'NOTICE' || item.data.kind === 'LINK')).toEqual([])
+    const view = (await api.get('/api/days/2026-10-19')).body as { products: { key: string; winners: string[]; waitlist: string[] }[] }
+    expect(view.products.find((product) => product.key === `${b2}/15`)).toMatchObject({ winners: [], waitlist: [] })
+    // 2부의 새 댓글에서는 평소대로 저절로 잇는다 (한 라이브로 1부·2부)
+    await sendComments(w, account, live, [{ id: '7002', igsid: '2', username: 'b', text: '15' }])
+    expect((await chatEvents(w, seller.sellerId)).map((event) => [event.b, event.id])).toEqual([
+      [b1, 'ig:7001'],
+      [b2, 'ig:7002'],
+    ])
+    expect((await api.get(`/api/broadcasts/${b2}/live`)).body.link).toMatchObject({ state: 'LINKED', liveId: live, actor: { kind: 'server' } })
   })
 })
 

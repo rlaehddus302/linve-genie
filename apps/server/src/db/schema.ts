@@ -162,6 +162,8 @@ export const events = pgTable(
     unique('events_sms_ref_uq').on(t.sellerId, t.smsRef),
     /** 채팅 이어 받기 (방송별 seq 뒤·앞, AC-S05-20) */
     index('events_chat_seq_idx').on(t.scopeId, t.chatBroadcast, t.seq),
+    /** 인스타그램 댓글 ID는 판매자 안에서 어느 회차든 한 번만 (다시 배달된 댓글을 회차를 정하기 전에 거른다, AC-N2-33, N2 TD-N2-001) */
+    index('events_ig_chat_idx').on(t.sellerId, t.chatMessageId).where(sql`chat_message_id LIKE 'ig:%'`),
   ],
 )
 

@@ -147,3 +147,5 @@ CREATE UNIQUE INDEX "ig_dm_sends_active_uq" ON "ig_dm_sends" USING btree ("selle
 CREATE INDEX "ig_dm_sends_state_idx" ON "ig_dm_sends" USING btree ("state","next_at");--> statement-breakpoint
 CREATE INDEX "ig_dm_rows_status_idx" ON "ig_dm_rows" USING btree ("status","seller_id");--> statement-breakpoint
 CREATE INDEX "ig_dm_rows_comment_idx" ON "ig_dm_rows" USING btree ("seller_id","scope_id","comment");
+--> statement-breakpoint
+CREATE INDEX "events_ig_chat_idx" ON "events" USING btree ("seller_id","chat_message_id") WHERE chat_message_id LIKE 'ig:%';

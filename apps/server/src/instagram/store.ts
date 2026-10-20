@@ -373,6 +373,20 @@ export async function liveChatStats(db: Db, sellerId: string, scopeId: string, b
   return { count: row?.count ?? 0, lastAt: lastAt === null ? null : new Date(lastAt) }
 }
 
+/**
+ * 이 판매자가 그 `ig:` 댓글을 이미 기록했는지 — 어느 회차·날짜든 (AC-N2-33 "다른 요청으로 다시 배달돼도 두 번째는 아무 일도 없다").
+ * 기존 유일 제약 events_chat_uq는 회차 단위라, 회차를 정하기(저절로 잇기·이어지지 않은 수 세기) 전에 이것으로 거른다 (TD-N2-001).
+ * 부분 인덱스 events_ig_chat_idx를 타도록 같은 조건(LIKE 'ig:%')을 함께 건다.
+ */
+export async function igChatRecorded(db: Db, sellerId: string, messageId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: events.id })
+    .from(events)
+    .where(and(eq(events.sellerId, sellerId), eq(events.chatMessageId, messageId), sql`chat_message_id LIKE 'ig:%'`))
+    .limit(1)
+  return rows.length > 0
+}
+
 /** 이어지지 않은 라이브의 댓글 하나를 센다. 센 뒤의 수를 돌려준다 */
 export async function countUnlinked(db: Db, sellerId: string, platform: string, liveId: string, now: Date): Promise<number> {
   const rows = await db
