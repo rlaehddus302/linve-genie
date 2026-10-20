@@ -317,7 +317,7 @@ describe('AC-N2-23 연결 끊기·다시 잇기', () => {
     expect(((await api.get('/api/instagram/unlinked')).body.lives as { count: number }[])[0]?.count).toBe(1)
     await linkLive(w, seller, b, live)
     // 같은 댓글이 다시 와도 두 번 기록되지 않는다
-    await w.fake.deliver((body, headers) => w.server.app.request('/webhooks/instagram', { method: 'POST', headers: { ...headers }, body }), w.fake.payload([{ accountId: account.id, changes: first.changes }]))
+    await w.fake.deliver(async (body, headers) => w.server.app.request('/webhooks/instagram', { method: 'POST', headers: { ...headers }, body }), w.fake.payload([{ accountId: account.id, changes: first.changes }]))
     expect((await chatEvents(w, seller.sellerId)).map((event) => event.text)).toEqual(['첫 댓글'])
     expect((await api.post(`/api/broadcasts/${b}/live/unlink`, { requestId: rid('u') })).status).toBe(200)
     expect((await api.post(`/api/broadcasts/${b}/live/unlink`, { requestId: rid('u') })).body.error).toEqual({ code: 'NOT_LINKED', message: '이어진 라이브가 없어요.' })

@@ -25,7 +25,7 @@ export interface IgWorld extends TestServer {
 }
 
 export async function igWorld(
-  options: { readonly login?: InstagramLogin; readonly timeouts?: Partial<InstagramTimeouts>; readonly configured?: boolean; readonly overrides?: Partial<ServerOptions> } = {},
+  options: { readonly login?: InstagramLogin; readonly timeouts?: Partial<InstagramTimeouts>; readonly configured?: boolean; readonly overrides?: Omit<Partial<ServerOptions>, 'clock'> } = {},
 ): Promise<IgWorld> {
   const clock = fakeClock()
   const fake = await FakeMeta.start({ now: () => clock.now() })
@@ -57,7 +57,7 @@ export async function igWorld(
 
 /** 웹훅을 받는 쪽 (포트 없이 app.request) */
 export function webhookTarget(world: TestServer): WebhookTarget {
-  return (body, headers) => world.server.app.request('/webhooks/instagram', { method: 'POST', headers: { ...headers }, body })
+  return async (body, headers) => world.server.app.request('/webhooks/instagram', { method: 'POST', headers: { ...headers }, body })
 }
 
 /** 연결 시작 → 가짜 승인 창 → 돌아오기. 화면 주소에 붙은 결과 코드를 돌려준다 */

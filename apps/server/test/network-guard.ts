@@ -23,7 +23,7 @@ export function installNetworkGuard(): void {
   const originalFetch = globalThis.fetch
   globalThis.fetch = ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-    let host = ''
+    let host: string
     try {
       host = new URL(url).hostname
     } catch {
