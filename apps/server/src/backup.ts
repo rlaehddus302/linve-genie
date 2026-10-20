@@ -145,7 +145,7 @@ export async function runBackup(options: BackupOptions): Promise<BackupResult> {
     if (value !== undefined) childEnv[key] = value
   }
   const ok = await runDump(command, ['--format=custom', '--no-password', `--file=${tempPath}`], childEnv, options.timeoutMs ?? BACKUP_TIMEOUT_MS)
-  let size = 0
+  let size: number
   try {
     size = ok ? (await stat(tempPath)).size : 0
   } catch {
