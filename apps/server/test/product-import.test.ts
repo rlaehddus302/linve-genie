@@ -129,8 +129,8 @@ describe('R-18 세부 — 코어 함수를 다시 쓴다', () => {
   })
 
   it('줄 나누기: 맨 앞 BOM 하나만 지우고, \\r\\n·\\n·\\r로 나누며 줄 번호는 빈 줄도 센다', () => {
-    expect(splitImportLines('﻿﻿a\r\nb\rc\n\nd')).toEqual([
-      { line: 1, text: '﻿a' },
+    expect(splitImportLines('\uFEFF\uFEFFa\r\nb\rc\n\nd')).toEqual([
+      { line: 1, text: '\uFEFFa' },
       { line: 2, text: 'b' },
       { line: 3, text: 'c' },
       { line: 4, text: '' },

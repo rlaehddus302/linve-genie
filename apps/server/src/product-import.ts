@@ -31,7 +31,7 @@ export const IMPORT_MAX_ROWS = 500
 const MIN_PRICE = 100
 const NUMBER_RE = /^([0-9]{1,4})(?: ?번)?$/
 const DIGIT_RE = /[0-9]/
-const BOM = '﻿'
+const BOM = '\uFEFF'
 
 interface ResolvedSettings {
   readonly unit: 'WON' | 'THOUSAND'
