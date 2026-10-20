@@ -335,6 +335,19 @@ export async function linksOfScope(db: Db, sellerId: string, date: string): Prom
   return rows as LinkRow[]
 }
 
+/** 구매자(채널)마다 입금 확인으로 적은 가장 늦은 묶음 날짜 — 기억한 입금자명의 구매자 표시 이름을 찾을 날짜 (RA-N3-003) */
+export async function latestLinkDates(db: Db, sellerId: string, buyers: readonly string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  if (buyers.length === 0) return out
+  const rows = await db
+    .select({ buyer: depositLinks.buyer, date: sql<string>`max(${depositLinks.date})` })
+    .from(depositLinks)
+    .where(and(eq(depositLinks.sellerId, sellerId), inArray(depositLinks.buyer, [...buyers])))
+    .groupBy(depositLinks.buyer)
+  for (const row of rows) if (typeof row.date === 'string') out.set(row.buyer, row.date)
+  return out
+}
+
 /** 입금 하나의 연결 전부 (적은 순서) */
 export async function linksOfDeposit(db: Db, sellerId: string, depositId: number): Promise<NewLink[]> {
   const rows = await db

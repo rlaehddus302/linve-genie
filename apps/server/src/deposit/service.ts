@@ -21,7 +21,7 @@ import { WriteAbort, type Rejection, type ScopeWriter, type WriteOutcome } from 
 import { openAccount, sealAccount } from './account-seal.ts'
 import { bundleOf, bundlesOf, buyerInfoOf, buyerLabel, previewPayment, type BundleFacts, type PaymentPreview, type StateAt } from './bundles.ts'
 import { addDays, kstDateOf, kstStartOf, parseOffsetIso } from './calendar.ts'
-import { evaluateDeposits, type Evaluation, type MatchDeposit, type ReviewReason } from './match.ts'
+import { MATCH_DAYS_BACK, evaluateDeposits, evaluateEach, type MatchDeposit, type ReviewReason } from './match.ts'
 import { normalizeDepositName } from './name.ts'
 import { DEPOSIT_AMOUNT_MAX, cleanDepositName, readPaste, type PasteRow } from './paste.ts'
 import { SOURCE_MESSAGES, SourceError, fetchPopbill, sourceErrorKind, withTimeout, type FetchResult, type FetchedRow, type PopbillTransport } from './popbill.ts'
@@ -42,6 +42,7 @@ import {
   insertName,
   insertRequest,
   insertSource,
+  latestLinkDates,
   linksOfScope,
   listDeposits,
   listNames,
@@ -86,6 +87,11 @@ export const LIST_LIMIT_MAX = 200
 export const BULK_MAX = 100
 /** 묶음 찾기 결과 수 */
 export const SEARCH_LIMIT = 50
+/** 날짜를 고르지 않은 묶음 찾기의 날짜 범위: 입금 날짜 60일 전 ~ 30일 뒤 (그 밖의 날짜는 날짜를 골라 찾는다 — RA-N3-003) */
+export const SEARCH_DAYS_BEFORE = 60
+export const SEARCH_DAYS_AFTER = 30
+/** 기억한 입금자명의 구매자 표시 이름을 찾는 최근 날짜 범위 (그 밖은 그 채널에 입금 확인으로 적은 가장 늦은 날짜를 본다) */
+export const NAMES_DAYS_BACK = 60
 /** 시험용 입금 넣기 한 번의 줄 수 */
 export const TEST_ROWS_MAX = 1000
 
@@ -721,13 +727,17 @@ export class DepositService {
     return { stored: inserted, existing: existingCount, old, future, auto, review: inserted.length - auto }
   }
 
-  /** 맞추기 재료: 관련 날짜 범위의 실제 범위 상태·묶음과 관련 날짜의 입금 (DP-4) */
+  /**
+   * 맞추기 재료 (DP-4): 입금 날짜 dd마다 [dd − 30일, dd]의 실제 범위 상태·묶음과 입금 날짜들의 입금(쌍둥이 후보).
+   * 읽는 날짜는 그 창들의 합집합뿐이다 — 가장 이른 입금 −30일부터 가장 늦은 입금까지 사이를 모두 읽지 않는다(RA-N3-003).
+   */
   async #context(sellerId: string, deposits: readonly DepositRow[], withEmpty: boolean): Promise<MatchContext> {
     const { db, writer } = this.#deps
-    const days = deposits.map((row) => kstDateOf(row.at.getTime())).sort()
-    const first = days[0] as string
-    const last = days.at(-1) as string
-    const dates = await realScopeDates(db, sellerId, addDays(first, -RECEIVE_DAYS_BACK), last)
+    const days = [...new Set(deposits.map((row) => kstDateOf(row.at.getTime())))].sort()
+    const windows = mergeRuns(days.map((day) => ({ from: addDays(day, -MATCH_DAYS_BACK), to: day })))
+    const first = windows[0] as DateRun
+    const last = windows.at(-1) as DateRun
+    const dates = (await realScopeDates(db, sellerId, first.from, last.to)).filter((date) => windows.some((run) => run.from <= date && date <= run.to))
     const remembered = await this.#remembered(sellerId)
     const states = new Map<string, StateAt>()
     const bundles: BundleFacts[] = []
@@ -737,9 +747,11 @@ export class DepositService {
       states.set(date, at)
       for (const bundle of bundlesOf(at, remembered)) if (withEmpty || bundle.items > 0) bundles.push(bundle)
     }
-    const from = kstStartOf(first) as number
-    const to = kstStartOf(addDays(last, 1)) as number
-    const sameDays = await depositsBetween(db, sellerId, new Date(from), new Date(to), null)
+    const sameDays: DepositRow[] = []
+    for (const run of mergeRuns(days.map((day) => ({ from: day, to: day })))) {
+      sameDays.push(...(await depositsBetween(db, sellerId, new Date(kstStartOf(run.from) as number), new Date(kstStartOf(addDays(run.to, 1)) as number), null)))
+    }
+    sameDays.sort((a, b) => a.no - b.no)
     return { states, bundles, byKey: new Map(bundles.map((bundle) => [bundle.key, bundle])), sameDays }
   }
 
@@ -967,9 +979,10 @@ export class DepositService {
   async #reviews(sellerId: string, rows: readonly DepositRow[]): Promise<Map<number, NonNullable<DepositView['review']>>> {
     const context = await this.#context(sellerId, rows, false)
     const out = new Map<number, NonNullable<DepositView['review']>>()
-    for (const row of rows) {
-      const earlier = context.sameDays.filter((other) => other.no < row.no).map(toMatch)
-      const result = evaluateDeposits({ bundles: context.bundles, earlier, incoming: [toMatch(row)] })[0] as Evaluation
+    // 묶음 이름 정규화는 한 번만 — 입금마다 따로 정한다(그 입금 자신은 빼고, 쌍둥이는 번호가 더 작은 입금)
+    const results = evaluateEach({ bundles: context.bundles, earlier: context.sameDays.map(toMatch), targets: rows.map(toMatch) })
+    for (const [index, row] of rows.entries()) {
+      const result = results[index] as (typeof results)[number]
       const preselect = result.preselect === null ? null : context.byKey.get(result.preselect)
       out.set(row.no, {
         reason: result.auto !== null ? 'ONE_MATCH' : (result.reason as ReviewReason),
@@ -1005,16 +1018,29 @@ export class DepositService {
   async searchBundles(sellerId: string, no: number, query: string, date: string | null): Promise<DepositOutcome<{ bundles: BundleView[] }>> {
     const deposit = await findDeposit(this.#deps.db, sellerId, no)
     if (deposit === null) return notFound()
-    const dates = date === null ? await realScopeDates(this.#deps.db, sellerId, null, null) : (await realScopeId(this.#deps.db, sellerId, date)) === null ? [] : [date]
+    // 날짜를 고르지 않으면 입금 날짜 60일 전 ~ 30일 뒤의 실제 범위만, 늦은 날짜부터 (RA-N3-003 — 판매자의 전 기간을 읽지 않는다). 더 먼 날짜는 날짜를 골라 찾는다
+    const depositDay = kstDateOf(deposit.at.getTime())
+    const dates =
+      date === null
+        ? (await realScopeDates(this.#deps.db, sellerId, addDays(depositDay, -SEARCH_DAYS_BEFORE), addDays(depositDay, SEARCH_DAYS_AFTER))).reverse()
+        : (await realScopeId(this.#deps.db, sellerId, date)) === null
+          ? []
+          : [date]
     const remembered = await this.#remembered(sellerId)
     const needle = query.trim().toLowerCase()
     const found: { bundle: BundleFacts; at: StateAt }[] = []
+    let owing = 0
     for (const day of dates) {
-      const runtime = await this.#deps.writer.read(sellerId, day, false)
+      // 메모리를 밀어내지 않는 읽기 — 지난 날짜를 훑어도 방송 중인 범위 상태가 그대로 남는다
+      const runtime = await this.#deps.writer.peek(sellerId, day, false)
       const at: StateAt = { date: day, state: runtime.state, seq: runtime.seq, lastAt: runtime.lastAt }
       for (const bundle of bundlesOf(at, remembered)) {
-        if (needle === '' || this.#bundleMatches(at, bundle, needle)) found.push({ bundle, at })
+        if (needle !== '' && !this.#bundleMatches(at, bundle, needle)) continue
+        found.push({ bundle, at })
+        if (bundle.total - bundle.received > 0) owing++
       }
+      // 남은 금액이 있는 묶음이 이미 50개면 더 이른 날짜의 묶음은 순서(남은 금액 있는 것 → 늦은 날짜)상 50개 안에 들 수 없다
+      if (owing >= SEARCH_LIMIT) break
     }
     found.sort((a, b) => {
       const owesA = a.bundle.total - a.bundle.received > 0 ? 0 : 1
@@ -1246,16 +1272,25 @@ export class DepositService {
     const rows = await listNames(this.#deps.db, sellerId)
     const displays = new Map<string, string>()
     const wanted = new Set(rows.map((row) => row.channel))
+    const lookIn = async (date: string): Promise<void> => {
+      // 메모리를 밀어내지 않는 읽기 (RA-N3-003)
+      const runtime = await this.#deps.writer.peek(sellerId, date, false)
+      for (const channel of wanted) {
+        const info = buyerInfoOf(runtime.state, channel)
+        if (info !== null && !displays.has(channel)) displays.set(channel, info.display)
+      }
+    }
     if (wanted.size > 0) {
-      const dates = await realScopeDates(this.#deps.db, sellerId, null, null)
+      // 최근 60일을 늦은 날짜부터 — 판매자의 전 기간을 거꾸로 읽지 않는다
+      const dates = await realScopeDates(this.#deps.db, sellerId, addDays(kstDateOf(this.#now()), -NAMES_DAYS_BACK), null)
       for (const date of [...dates].reverse()) {
-        const runtime = await this.#deps.writer.read(sellerId, date, false)
-        for (const channel of wanted) {
-          const info = buyerInfoOf(runtime.state, channel)
-          if (info !== null && !displays.has(channel)) displays.set(channel, info.display)
-        }
+        await lookIn(date)
         if (displays.size === wanted.size) break
       }
+      // 그 안에 없는 채널은 그 채널에 입금 확인으로 적은 가장 늦은 날짜에서 (채널마다 많아야 한 날짜)
+      const missing = [...wanted].filter((channel) => !displays.has(channel))
+      const linked = await latestLinkDates(this.#deps.db, sellerId, missing)
+      for (const date of new Set(linked.values())) await lookIn(date)
     }
     return {
       names: rows.map((row) => ({ id: row.id, name: row.name, buyerName: displays.get(row.channel) ?? `유튜브 끝 ${row.channel.slice(-4)}`, createdAt: row.createdAt.toISOString() })),
@@ -1299,6 +1334,24 @@ export class DepositService {
   runSource(sellerId: string, sourceId: string): Promise<void> {
     return this.#run(sellerId, sourceId, false)
   }
+}
+
+interface DateRun {
+  readonly from: string
+  readonly to: string
+}
+
+/** 날짜 구간들 → 겹치거나 맞닿은 구간을 합친 구간 (시작 날짜 순) */
+function mergeRuns(runs: readonly DateRun[]): DateRun[] {
+  const sorted = [...runs].sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0))
+  const out: DateRun[] = []
+  for (const run of sorted) {
+    const previous = out.at(-1)
+    if (previous !== undefined && run.from <= addDays(previous.to, 1)) {
+      if (run.to > previous.to) out[out.length - 1] = { from: previous.from, to: run.to }
+    } else out.push(run)
+  }
+  return out
 }
 
 function rejection(status: number, code: ErrorCode, message: string): Rejection {

@@ -93,3 +93,32 @@ describe('RA-S04-002 범위 상태 메모리 상한', () => {
     for (const runtimeCacheMax of [0, -1, 1.5, Number.NaN]) await expect(newWorld({ runtimeCacheMax })).rejects.toThrow('메모리에 두는 범위 수는 1 이상이어야 해요.')
   })
 })
+
+describe('RA-N3-003 메모리를 밀어내지 않는 읽기 (peek)', () => {
+  it('메모리에 없는 범위는 DB에서 불러와 read와 같은 상태를 주되 메모리에 두지 않는다. 메모리에 있으면 그 상태를 따라잡아 준다', async () => {
+    const world = await newWorld({ runtimeCacheMax: 1, snapshotEvery: 2 })
+    const seller = await addSeller(world)
+    const dates = ['2026-10-17', '2026-10-18']
+    for (const date of dates) {
+      const b = await createBroadcast(world, seller, { date })
+      await expectOk(writeEvent(world, seller, { type: 'product.register', b: b.id, no: 1, name: `상품 ${date}`, price: 1000, stock: 2 }))
+      await world.server.ingestChat(seller.sellerId, { b: b.id, id: `m-${date}`, ch: 'UC1', nick: '영희', text: '1' })
+    }
+    const writer = world.server.writer
+    expect(writer.cachedScopes).toBe(1)
+    // 10/18만 메모리에 있다 — 10/17을 peek해도 10/18은 그대로 남는다
+    const peeked = await writer.peek(seller.sellerId, '2026-10-17')
+    expect(writer.cachedScopes).toBe(1)
+    const cachedBefore = await writer.peek(seller.sellerId, '2026-10-18')
+    expect(writer.cachedScopes).toBe(1)
+    const read17 = await writer.read(seller.sellerId, '2026-10-17')
+    expect([peeked.seq, peeked.lastAt, JSON.stringify(peeked.state)]).toEqual([read17.seq, read17.lastAt, JSON.stringify(read17.state)])
+    // 이제 10/17이 메모리에 있고 10/18은 버려졌다 — 10/18 peek는 DB에서 불러온 같은 상태
+    const again18 = await writer.peek(seller.sellerId, '2026-10-18')
+    expect([again18.seq, JSON.stringify(again18.state)]).toEqual([cachedBefore.seq, JSON.stringify(cachedBefore.state)])
+    expect(writer.cachedScopes).toBe(1)
+    // 없는 날짜는 빈 상태 (메모리에 두지 않는다)
+    expect((await writer.peek(seller.sellerId, '2025-01-01')).scopeId).toBeNull()
+    expect(writer.cachedScopes).toBe(1)
+  })
+})

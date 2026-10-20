@@ -68,6 +68,19 @@ function byDateThenBuyer(a: Prepared, b: Prepared): number {
   return a.bundle.key < b.bundle.key ? -1 : a.bundle.key > b.bundle.key ? 1 : 0
 }
 
+/** 한 번 부를 동안 같은 이름을 다시 정규화하지 않는다 (입금·쌍둥이 후보 이름 — 결과는 normalizeDepositName 그대로) */
+function memoNormalize(): (name: string) => string {
+  const seen = new Map<string, string>()
+  return (name) => {
+    let normalized = seen.get(name)
+    if (normalized === undefined) {
+      normalized = normalizeDepositName(name)
+      seen.set(name, normalized)
+    }
+    return normalized
+  }
+}
+
 function prepare(bundles: readonly MatchBundle[]): Prepared[] {
   return bundles.map((bundle) => {
     const names = new Set<string>()
@@ -82,8 +95,8 @@ function prepare(bundles: readonly MatchBundle[]): Prepared[] {
 /**
  * 입금 하나를 정한다 (DP-5 표). received = 묶음 키 → 지금 받은 금액(자동으로 정한 입금을 더한 값), before = 이 입금보다 먼저 저장된 입금 전부(쌍둥이 후보).
  */
-function evaluate(prepared: readonly Prepared[], received: ReadonlyMap<string, number>, before: readonly MatchDeposit[], deposit: MatchDeposit): Evaluation {
-  const n = normalizeDepositName(deposit.name)
+function evaluate(prepared: readonly Prepared[], received: ReadonlyMap<string, number>, before: readonly MatchDeposit[], deposit: MatchDeposit, norm: (name: string) => string): Evaluation {
+  const n = norm(deposit.name)
   const a = deposit.amount
   const day = kstDateOf(deposit.at)
   const from = addDays(day, -MATCH_DAYS_BACK)
@@ -97,7 +110,7 @@ function evaluate(prepared: readonly Prepared[], received: ReadonlyMap<string, n
   let twin: number | null = null
   if (n !== '') {
     for (const other of before) {
-      if (other.amount === a && kstDateOf(other.at) === day && normalizeDepositName(other.name) === n && (twin === null || other.no < twin)) twin = other.no
+      if (other.amount === a && kstDateOf(other.at) === day && norm(other.name) === n && (twin === null || other.no < twin)) twin = other.no
     }
   }
   // 제안: 1단 = M, 2단 = A 중 M이 아닌 것, 3단 = 이름이 맞고 남은 금액이 다른 묶음
@@ -129,14 +142,36 @@ export function evaluateDeposits(input: { readonly bundles: readonly MatchBundle
   const received = new Map<string, number>()
   for (const item of prepared) received.set(item.bundle.key, item.bundle.received)
   const before: MatchDeposit[] = [...input.earlier]
+  const norm = memoNormalize()
   const out: Evaluation[] = []
   for (const deposit of input.incoming) {
-    const result = evaluate(prepared, received, before, deposit)
+    const result = evaluate(prepared, received, before, deposit, norm)
     if (result.auto !== null) received.set(result.auto, (received.get(result.auto) ?? 0) + deposit.amount)
     out.push(result)
     before.push(deposit)
   }
   return out
+}
+
+/**
+ * 확인 필요 입금마다 따로 정한다 (DP-5 "볼 때 다시 계산" — AC-N3-23): 받은 금액은 묶음의 지금 값 그대로(서로 더하지 않는다),
+ * 쌍둥이는 earlier 중 그 입금보다 번호가 작은 입금. 입금마다 evaluateDeposits({ earlier: 번호가 작은 것, incoming: [그 입금] })를 부른 것과 같은 결과이고,
+ * 묶음 이름 후보 정규화는 한 번만 한다(행 수 × 묶음 × 이름만큼 다시 정규화하지 않게 — RA-N3-003).
+ */
+export function evaluateEach(input: { readonly bundles: readonly MatchBundle[]; readonly earlier: readonly MatchDeposit[]; readonly targets: readonly MatchDeposit[] }): Evaluation[] {
+  const prepared = prepare(input.bundles)
+  const received = new Map<string, number>()
+  for (const item of prepared) received.set(item.bundle.key, item.bundle.received)
+  const norm = memoNormalize()
+  return input.targets.map((deposit) =>
+    evaluate(
+      prepared,
+      received,
+      input.earlier.filter((other) => other.no < deposit.no),
+      deposit,
+      norm,
+    ),
+  )
 }
 
 /** 골든 모양의 결과 (`out`): 자동 확인이면 { no, auto }, 아니면 { no, review, twin?, suggestions, preselect } */

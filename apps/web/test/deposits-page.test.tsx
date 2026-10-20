@@ -300,7 +300,7 @@ describe('다른 묶음 지정 (AC-N3-43)', () => {
     await flush(10)
     const dlg = dialog()
     const date = within(dlg).getByLabelText('날짜') as HTMLSelectElement
-    expect([...date.options].map((option) => option.textContent)).toEqual(['모든 날짜', '2026년 10월 18일(일)', '2026년 10월 17일(토)'])
+    expect([...date.options].map((option) => option.textContent)).toEqual(['입금 날짜 앞뒤 (60일 전 ~ 30일 뒤)', '2026년 10월 18일(일)', '2026년 10월 17일(토)'])
     fireEvent.change(within(dlg).getByLabelText('찾을 말 (구매자 이름·닉네임·메모·전화번호 뒤 4자리)'), { target: { value: '초록' } })
     fireEvent.change(date, { target: { value: '2026-10-17' } })
     await new Promise((resolve) => setTimeout(resolve, 300))

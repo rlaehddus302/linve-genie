@@ -336,6 +336,24 @@ export class ScopeWriter {
     })
   }
 
+  /**
+   * 최신 로그까지 따라잡은 범위 상태 (조회용, 메모리를 밀어내지 않는 읽기). 메모리에 있으면 read와 같고,
+   * 없으면 DB에서 불러오되 메모리에 두지 않는다 — 지난 날짜를 여럿 훑는 조회(입금 확인의 묶음 찾기·기억한 이름 표시)가
+   * 방송 중인 범위의 상태를 상한 밖으로 밀어내지 않게(RA-N3-003). 돌려준 상태를 고치면 안 된다.
+   */
+  peek(sellerId: string, date: string, rehearsal = false): Promise<ScopeRuntime> {
+    return this.serial(sellerId, date, rehearsal, async () => {
+      const cached = this.#runtimes.get(scopeKey(sellerId, date, rehearsal))
+      if (cached !== undefined) {
+        await catchUp(this.#options.db, cached, this.#options.engine, this.#options.log)
+        return cached
+      }
+      // 불러오기가 이미 로그 끝까지 재생한다
+      const window = this.#options.changesWindow ?? DEFAULT_CHANGES_WINDOW
+      return loadRuntime(this.#options.db, sellerId, date, rehearsal, this.#options.engine, this.#options.log, window)
+    })
+  }
+
   write(job: WriteJob): Promise<WriteOutcome> {
     return this.serial(job.sellerId, job.date, job.rehearsal, () => this.#write(job))
   }

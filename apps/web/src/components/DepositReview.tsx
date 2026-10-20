@@ -467,7 +467,7 @@ function BundleSearchDialog({ deposit, onClose, onPick }: { readonly deposit: De
         if (alive) setDays(result.days.map((day) => day.date).sort().reverse())
       },
       () => {
-        // 날짜 목록을 못 받아도 찾기는 된다 (모든 날짜)
+        // 날짜 목록을 못 받아도 찾기는 된다 (입금 날짜 앞뒤)
       },
     )
     return () => {
@@ -510,7 +510,8 @@ function BundleSearchDialog({ deposit, onClose, onPick }: { readonly deposit: De
         <div className="field">
           <label htmlFor={dateId}>날짜</label>
           <select id={dateId} className="input" value={date} onChange={(event) => setDate(event.target.value)}>
-            <option value="">모든 날짜</option>
+            {/* 날짜를 고르지 않으면 서버가 입금 날짜 60일 전 ~ 30일 뒤에서 찾는다 (RA-N3-003 — 더 먼 날짜는 날짜를 골라 찾는다) */}
+            <option value="">입금 날짜 앞뒤 (60일 전 ~ 30일 뒤)</option>
             {days.map((day) => (
               <option key={day} value={day}>
                 {dateLong(day)}
