@@ -67,10 +67,11 @@ export const CHAT_WORD = {
   owner: '방송자',
 } as const
 
-/** 조치자 낱말: 로그인 아이디 · 서버 · 수집기 */
+/** 조치자 낱말: 로그인 아이디 · 서버 · 수집기 · 입금 자동 확인(N3 — 입금 확인이 자동으로 적은 입금, AC-N3-20) */
 export function actorWord(actor: { readonly kind: string; readonly loginId: string | null }): string {
   if (actor.kind === 'account') return actor.loginId ?? '판매자'
   if (actor.kind === 'collector') return '수집기'
+  if (actor.kind === 'deposit') return '입금 자동 확인'
   return '서버'
 }
 

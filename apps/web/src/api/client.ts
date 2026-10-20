@@ -143,6 +143,11 @@ export function patch<T>(path: string, body: unknown, options?: RequestOptions):
   return request<T>('PATCH', path, body, options)
 }
 
+/** 지우기 — 서버는 상태를 바꾸는 요청의 본문을 JSON 객체로 받는다(빈 객체 `{}`도 보낸다) */
+export function del<T>(path: string, body: unknown = {}, options?: RequestOptions): Promise<T> {
+  return request<T>('DELETE', path, body, options)
+}
+
 /** 요청 번호: 쓰기 버튼을 누를 때마다 새로 만든다 (서버 형식 영문·숫자·'-' 1~64자) */
 export function newRequestId(): string {
   return crypto.randomUUID()
