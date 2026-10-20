@@ -1,0 +1,26 @@
+# 20. voice-extract 형식 계약 (P2, D-209 — README 파서 suite 표): settings는 maxNumber(1~9999)·dictionary(문자열 목록)만,
+#     out은 no(1 이상 정수)·name(빈 문자열 아닌 문자열)·price(100 이상 정수)·confidence(HIGH/LOW, 필수)만. 밖이면 읽기 오류.
+suite: voice-extract
+settings:
+  dictionary: 핑크프릴
+  maxNumber: 0
+  unit: WON
+cases:
+  - { in: "15번", out: { no: 15, confidence: HIGH, note: x } }
+  - { in: "15번", out: { no: 15 } }
+  - { in: "15번 50원", out: { price: 50, confidence: LOW } }
+  - { in: "15번", out: { name: "", confidence: LOW } }
+  - { in: "15번", out: { no: 0, confidence: MEDIUM } }
+  - { in: "15번", out: [15] }
+---
+suite: voice-extract
+settings:
+  dictionary: [핑크프릴, 15]
+cases:
+  - { in: "15번", out: { no: 15, confidence: LOW } }
+---
+suite: voice-extract
+settings:
+  maxNumber: 10000
+cases:
+  - { in: "15번", out: { no: 15, name: null, price: null, confidence: LOW } }

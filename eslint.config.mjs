@@ -158,6 +158,39 @@ const testOnlySyntax = [
   { selector: 'TemplateElement[value.cooked=/TEST_PHONE_SECRET/]', message: TEST_ONLY },
 ]
 
+/**
+ * 문서·음성 패키지 소스 (P2, AC-P2-40·D-205·D-207). 브라우저와 Node 둘 다에서 돈다 — Node 전용 모듈·전역을 쓰지 않는다(글꼴 바이트·연결·시계는 부르는 쪽이 넘긴다).
+ * 추출기·사전·카드·확인서·대장은 순수 함수다 — 시계·난수를 직접 읽지 않는다. 실행 환경의 언어·시간대에 따라 달라지는 정렬·표시를 쓰지 않는다(D-207, NFR-07).
+ */
+const P2_NODE = '문서·음성 패키지 소스는 브라우저와 Node 둘 다에서 돈다(AC-P2-40): Node 전용 모듈·전역을 쓰지 않는다. 필요한 값(글꼴 바이트·연결 함수)은 부르는 쪽이 넘긴다.'
+const P2_CLOCK = '문서·음성 패키지 소스는 시계를 직접 읽지 않는다(AC-P2-40): 시각·시계 함수는 부르는 쪽이 넘긴다.'
+const P2_RANDOM = '문서·음성 패키지 소스는 난수를 쓰지 않는다(AC-P2-40): 같은 입력이면 같은 결과.'
+const P2_LOCALE = '실행 환경의 언어·시간대에 따라 결과가 달라지는 API를 쓰지 않는다(D-207, NFR-07): 정렬은 코드 포인트, 날짜·시각은 KST로 직접 만든다.'
+const p2DeviceSourceRules = {
+  'no-restricted-imports': 'off',
+  '@typescript-eslint/no-restricted-imports': [
+    'error',
+    { paths: bareBuiltins.map((name) => ({ name, message: P2_NODE })), patterns: [{ regex: '^node:', message: P2_NODE }] },
+  ],
+  'no-restricted-globals': [
+    'error',
+    ...['process', 'require', 'module', 'Buffer', '__dirname', '__filename', 'global', 'setImmediate'].map((name) => ({ name, message: P2_NODE })),
+    { name: 'performance', message: P2_CLOCK },
+    { name: 'Intl', message: P2_LOCALE },
+  ],
+  'no-restricted-properties': [
+    'error',
+    { object: 'Date', property: 'now', message: P2_CLOCK },
+    { object: 'Math', property: 'random', message: P2_RANDOM },
+    ...['toLocaleString', 'toLocaleDateString', 'toLocaleTimeString', 'localeCompare'].map((property) => ({ property, message: P2_LOCALE })),
+  ],
+  'no-restricted-syntax': [
+    'error',
+    { selector: "NewExpression[callee.name='Date'][arguments.length=0]", message: P2_CLOCK },
+    { selector: "CallExpression[callee.name='Date']", message: P2_CLOCK },
+  ],
+}
+
 export default defineConfig(
   globalIgnores([
     '**/node_modules/',
@@ -263,5 +296,12 @@ export default defineConfig(
     rules: {
       'no-restricted-syntax': ['error', ...rawHtmlSyntax, ...testOnlySyntax],
     },
+  },
+
+  // 문서·음성 패키지 소스 (P2): 위 p2DeviceSourceRules
+  {
+    files: ['packages/{voice,documents}/src/**/*.{ts,tsx,mts,cts,js,mjs,cjs}'],
+    linterOptions: { noInlineConfig: true, reportUnusedDisableDirectives: 'error' },
+    rules: p2DeviceSourceRules,
   },
 )

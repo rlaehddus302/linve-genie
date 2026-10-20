@@ -1,0 +1,23 @@
+{
+  "name": "@livejjim/documents",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./fonts/Pretendard-Regular.ttf": "./fonts/Pretendard-Regular.ttf"
+  },
+  "dependencies": {
+    "@livejjim/core": "workspace:*",
+    "@pdf-lib/fontkit": "1.1.1",
+    "exceljs": "4.4.0",
+    "fflate": "0.8.3",
+    "pdf-lib": "1.17.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "fast-check": "4.10.2",
+    "pdfjs-dist": "6.4.299",
+    "vitest": "5.0.5"
+  }
+}

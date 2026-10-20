@@ -1,6 +1,6 @@
 // expect 비교 규칙 (README "파서 사례 형식", "`expect` 비교 규칙").
 // 적힌 것만 검사한다. 틀리면 Problem(경로·기대값·실제값)을 낸다. 비교가 하나라도 틀리면 불일치다.
-import { EMPTY_SETTLEMENT, EXPECT_KEYS, isPlainObject, type SuiteName } from './contract.ts'
+import { EMPTY_SETTLEMENT, EXPECT_KEYS, VOICE_EXTRACT_KEYS, isPlainObject, type SuiteName } from './contract.ts'
 import type { EffectView, GoldenSnapshot, MergeItemsView, MergePreviewView, Problem } from './types.ts'
 import type { EffectExpect, Expect, MergeItemsExpect, MergePreviewExpect } from './validate.ts'
 
@@ -69,6 +69,26 @@ export function compareParserOutput(suite: SuiteName, expected: unknown, actual:
             ...(want === undefined ? { message: 'out에 없는 키가 실제 결과에 있다' } : {}),
           })
         }
+      }
+      return problems
+    }
+    case 'voice-extract': {
+      // README: 실제 결과는 정확히 네 키 { no, name, price, confidence }이고 네 값이 모두 같아야 한다. out에 적지 않은 no·name·price = null
+      if (!isPlainObject(actual) || !isPlainObject(expected)) return [{ path: 'out', expected, actual, message: '결과가 맵이 아니다' }]
+      const problems: Problem[] = []
+      for (const key of Object.keys(actual)) {
+        if (!(VOICE_EXTRACT_KEYS as readonly string[]).includes(key)) {
+          problems.push({ path: `out.${key}`, expected: undefined, actual: actual[key], message: '실제 결과에 네 키(no·name·price·confidence) 밖의 키가 있다' })
+        }
+      }
+      for (const key of VOICE_EXTRACT_KEYS) {
+        const want = own(expected, key) ?? null
+        if (!Object.hasOwn(actual, key)) {
+          problems.push({ path: `out.${key}`, expected: want, actual: undefined, message: '실제 결과에 키가 없다' })
+          continue
+        }
+        const got = actual[key]
+        if (!deepEqual(want, got)) problems.push({ path: `out.${key}`, expected: want, actual: got })
       }
       return problems
     }
