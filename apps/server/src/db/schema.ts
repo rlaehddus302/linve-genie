@@ -1091,15 +1091,13 @@ export const billingUsage = pgTable(
 export const billingModes = pgTable(
   'billing_modes',
   {
-    broadcastId: text('broadcast_id')
-      .primaryKey()
-      .references(() => broadcasts.id),
+    /** 방송 ID — 방송 표를 외래 키로 잇지 않는다: 복구(I2)가 방송·범위 행을 지우고 다시 만들어도 이 원장 행은 남는다(덧붙이기만, BL-0 4) */
+    broadcastId: text('broadcast_id').primaryKey(),
     sellerId: text('seller_id')
       .notNull()
       .references(() => sellers.id),
-    scopeId: text('scope_id')
-      .notNull()
-      .references(() => scopes.id),
+    /** 시작할 때의 범위 ID (기록용 — 복구가 범위를 다시 만들면 바뀌므로 그 범위의 방송은 방송 표의 범위로 찾는다) */
+    scopeId: text('scope_id').notNull(),
     /** FLAT · DAY · ORDERS */
     mode: text('mode').notNull(),
     /** 이 시작이 방송 일 1을 썼는지 (BL-4 1.3) */

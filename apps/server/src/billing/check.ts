@@ -25,7 +25,9 @@ export async function checkBillingScope(db: Db, scope: BillingScope, state: Engi
   const modes = await db
     .select({ broadcastId: billingModes.broadcastId, mode: billingModes.mode, usedDay: billingModes.usedDay })
     .from(billingModes)
-    .where(and(eq(billingModes.sellerId, scope.sellerId), eq(billingModes.scopeId, scope.id)))
+    // 그 범위의 방송은 방송 표로 찾는다 — 복구(I2)가 범위를 새 ID로 다시 만들어도 같은 방송의 이용 방식이 이어진다
+    .innerJoin(broadcasts, and(eq(broadcasts.id, billingModes.broadcastId), eq(broadcasts.sellerId, scope.sellerId)))
+    .where(and(eq(billingModes.sellerId, scope.sellerId), eq(broadcasts.scopeId, scope.id)))
   if (scope.rehearsal) {
     // 리허설 방송에는 이용 방식이 없다 (BL-INV-6)
     for (const mode of modes) diffs.push(`MODE:${mode.broadcastId}`)

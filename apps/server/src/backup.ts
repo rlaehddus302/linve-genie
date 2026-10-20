@@ -28,6 +28,14 @@ import { canonicalJson, checkReplay, type ScopeCheck } from './check-replay.ts'
 import type { Db } from './db/database.ts'
 import {
   accounts,
+  billingBusiness,
+  billingDocuments,
+  billingGrants,
+  billingModes,
+  billingOrders,
+  billingRequests,
+  billingRevocations,
+  billingUsage,
   broadcasts,
   chatRaw,
   events,
@@ -1133,8 +1141,32 @@ export const RESTORE_REPLACED_TABLES = [
 /**
  * 복구가 그대로 두는 판매자 표: 판매자 행(가게 설정·판매 규칙 설정 칸만 파일의 것으로 바꾼다)·로그인 계정·세션 (AC-I2-62 "판매자 ID·로그인 계정·세션·전화번호 키는 그대로"),
  * 라벨 템플릿(I1 — 판매자 설정, 파일에 없다), 구글 연결·승인 요청·할당량 사용량(Y1 — 계정 연결과 그날 쓴 양, 파일에 없다), 인스타그램 연결·승인 요청(N2 — 계정 연결), 출력 대기열 줄·라벨 기능 켬/끔 기록(I1·N4a — 판매자 설정, 대기열의 출력 중·멈춤 상태는 복구가 지운다)
+ * 요금 원장(N5 — 이용권·회수·쓴 기록·방송의 이용 방식·결제 주문·사업자 정보·증빙 요청·요금 요청 번호): 돈이 오간 기록이라 판매자 백업 파일로 덮지 않는다.
+ *   파일에 없고(판매자가 고칠 수 있는 파일로 이용권을 늘리거나 결제·환불 기록을 지울 수 없게), 원장은 덧붙이기만 한다(BL-0 4 — 고치거나 지우는 코드가 없다).
+ *   이용 방식 행은 방송 ID로 남고 범위는 방송 표로 찾는다 — 복구가 범위를 새 ID로 다시 만들어도 같은 방송의 이용 방식이 이어진다.
+ *   복구한 날짜는 재생 무결성 검사의 요금 대조가 다를 수 있다(지운 출력 기록의 라벨 장 등) — 원장은 그대로 두고 검사 결과로 알린다.
  */
-export const RESTORE_KEPT_TABLES = [sellers, accounts, sessions, labelTemplates, youtubeConnections, youtubeOauthStates, youtubeQuota, igConnections, igOauthStates, printQueues, labelSwitches] as const
+export const RESTORE_KEPT_TABLES = [
+  sellers,
+  accounts,
+  sessions,
+  labelTemplates,
+  youtubeConnections,
+  youtubeOauthStates,
+  youtubeQuota,
+  igConnections,
+  igOauthStates,
+  printQueues,
+  labelSwitches,
+  billingGrants,
+  billingRevocations,
+  billingUsage,
+  billingModes,
+  billingOrders,
+  billingBusiness,
+  billingDocuments,
+  billingRequests,
+] as const
 /** 판매자 데이터가 아닌 표 (로그인 전 시도 수 — 판매자 ID가 없다) */
 export const RESTORE_UNRELATED_TABLES = [loginLimits] as const
 

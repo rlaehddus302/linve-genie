@@ -201,12 +201,16 @@ export async function modeOf(db: Db, sellerId: string, broadcastId: string): Pro
   return row === undefined ? null : { mode: row.mode as StartMode, usedDay: row.usedDay }
 }
 
-/** 그 범위의 방송 중 이용 방식이 주어진 것인 방송 ID */
+/**
+ * 그 범위의 방송 중 이용 방식이 주어진 것인 방송 ID. 범위는 방송 표로 찾는다(이용 방식 행의 scope_id가 아니다 —
+ * 복구(I2)가 범위를 새 ID로 다시 만들어도 같은 방송 ID의 이용 방식이 이어진다)
+ */
 export async function broadcastsWithMode(db: Db, sellerId: string, scopeId: string, modes: readonly StartMode[]): Promise<Map<string, StartMode>> {
   const rows = await db
     .select({ broadcastId: billingModes.broadcastId, mode: billingModes.mode })
     .from(billingModes)
-    .where(and(eq(billingModes.sellerId, sellerId), eq(billingModes.scopeId, scopeId), inArray(billingModes.mode, [...modes])))
+    .innerJoin(broadcasts, and(eq(broadcasts.id, billingModes.broadcastId), eq(broadcasts.sellerId, sellerId)))
+    .where(and(eq(billingModes.sellerId, sellerId), eq(broadcasts.scopeId, scopeId), inArray(billingModes.mode, [...modes])))
   return new Map(rows.map((row) => [row.broadcastId, row.mode as StartMode]))
 }
 
