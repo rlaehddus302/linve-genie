@@ -395,7 +395,7 @@ describe('AC-N2-37 수집 상태', () => {
       { igsid: '1', username: 'a', text: '하나' },
       { igsid: '2', username: 'b', text: '둘' },
     ])
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await new Promise((resolve) => setTimeout(resolve, 100))
     const link = (await api.get(`/api/broadcasts/${b}/live`)).body.link as { collection: Record<string, unknown> }
     expect(link.collection).toEqual({ platform: 'INSTAGRAM', state: 'LIVE', message: '댓글을 받는 중', liveId: live, lastCommentAt: new Date(Date.UTC(2026, 9, 19, 11, 0, 0)).toISOString(), comments: 2, late: 0, malformed: 0 })
     const collections = w.published.filter((item) => item.data.kind === 'COLLECTION')

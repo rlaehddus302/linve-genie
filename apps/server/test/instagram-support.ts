@@ -8,14 +8,6 @@ import { addSeller, client, fakeClock, newWorld, rid, type FakeClock, type Selle
 
 export const REDIRECT_URI = 'https://api.livejjim.test/api/instagram/callback'
 
-/** 기다리지 않는 알림 타이머 */
-export const immediateLiveTimer = {
-  schedule(_ms: number, fn: () => void): () => void {
-    const handle = setImmediate(fn)
-    return () => clearImmediate(handle)
-  },
-}
-
 export interface IgWorld extends TestServer {
   readonly fake: FakeMeta
   readonly clock: FakeClock
@@ -33,7 +25,8 @@ export async function igWorld(
     clock,
     instagram: options.configured === false ? null : fake.settings({ redirectUri: REDIRECT_URI, login: options.login ?? 'FACEBOOK', timeouts: { sendMs: 400, confirmMs: 400, requestMs: 2000, ...options.timeouts } }),
     dmAutoRun: false,
-    liveTimer: immediateLiveTimer,
+    // 수집 상태 알림은 묶어서 보낸다 (운영 1초 — 시험은 25밀리초로 줄인다)
+    collectionIntervalMs: 25,
     ...options.overrides,
   })
   const published: { sellerId: string; data: Record<string, unknown> }[] = []
