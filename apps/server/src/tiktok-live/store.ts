@@ -1,0 +1,235 @@
+// 틱톡 연결·동의·아이디·붙여넣기 요청 저장 (D-N2b-2-04·05·08). 모든 쿼리에 판매자 ID 조건을 건다(SYS-02).
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import type { Db } from '../db/database.ts'
+import { accounts, broadcasts, events, pasteRequests, scopes, tiktokAccounts, tiktokConsents, tiktokLinks } from '../db/schema.ts'
+
+// ── 아이디 ───────────────────────────────────────────────────────────────
+
+export async function findTiktokId(db: Db, sellerId: string): Promise<string | null> {
+  const rows = await db.select({ tiktokId: tiktokAccounts.tiktokId }).from(tiktokAccounts).where(eq(tiktokAccounts.sellerId, sellerId)).limit(1)
+  return rows[0]?.tiktokId ?? null
+}
+
+export async function saveTiktokId(db: Db, sellerId: string, tiktokId: string, accountId: string, now: Date): Promise<void> {
+  await db
+    .insert(tiktokAccounts)
+    .values({ sellerId, tiktokId, updatedAt: now, updatedBy: accountId })
+    .onConflictDoUpdate({ target: tiktokAccounts.sellerId, set: { tiktokId, updatedAt: now, updatedBy: accountId } })
+}
+
+export async function deleteTiktokId(db: Db, sellerId: string): Promise<void> {
+  await db.delete(tiktokAccounts).where(eq(tiktokAccounts.sellerId, sellerId))
+}
+
+// ── 동의 기록 ─────────────────────────────────────────────────────────────
+
+export interface ConsentRow {
+  readonly id: number
+  readonly on: boolean
+  readonly noticeVersion: string | null
+  readonly at: Date
+}
+
+/** 그 판매자의 마지막 동의 기록 (없으면 null) */
+export async function lastConsent(db: Db, sellerId: string): Promise<ConsentRow | null> {
+  const rows = await db
+    .select({ id: tiktokConsents.id, on: tiktokConsents.on, noticeVersion: tiktokConsents.noticeVersion, at: tiktokConsents.at })
+    .from(tiktokConsents)
+    .where(eq(tiktokConsents.sellerId, sellerId))
+    .orderBy(desc(tiktokConsents.id))
+    .limit(1)
+  return rows[0] ?? null
+}
+
+export async function consentByRequest(db: Db, sellerId: string, requestId: string): Promise<ConsentRow | null> {
+  const rows = await db
+    .select({ id: tiktokConsents.id, on: tiktokConsents.on, noticeVersion: tiktokConsents.noticeVersion, at: tiktokConsents.at })
+    .from(tiktokConsents)
+    .where(and(eq(tiktokConsents.sellerId, sellerId), eq(tiktokConsents.requestId, requestId)))
+    .limit(1)
+  return rows[0] ?? null
+}
+
+export async function insertConsent(db: Db, row: { sellerId: string; accountId: string; on: boolean; noticeVersion: string | null; requestId: string; at: Date }): Promise<void> {
+  await db.insert(tiktokConsents).values(row)
+}
+
+// ── 연결 ─────────────────────────────────────────────────────────────────
+
+export interface TiktokLinkRow {
+  readonly id: number
+  readonly sellerId: string
+  readonly broadcastId: string
+  readonly scopeId: string
+  readonly state: 'LINKED' | 'ENDED' | 'UNLINKED'
+  readonly tiktokId: string
+  readonly actorLoginId: string | null
+  readonly linkedAt: Date
+  readonly startedAt: Date
+  readonly endedAt: Date | null
+  readonly notRecorded: number
+  readonly saveFailed: number
+}
+
+const linkColumns = {
+  id: tiktokLinks.id,
+  sellerId: tiktokLinks.sellerId,
+  broadcastId: tiktokLinks.broadcastId,
+  scopeId: tiktokLinks.scopeId,
+  state: tiktokLinks.state,
+  tiktokId: tiktokLinks.tiktokId,
+  actorLoginId: accounts.loginId,
+  linkedAt: tiktokLinks.linkedAt,
+  startedAt: tiktokLinks.startedAt,
+  endedAt: tiktokLinks.endedAt,
+  notRecorded: tiktokLinks.notRecorded,
+  saveFailed: tiktokLinks.saveFailed,
+}
+
+const linkQuery = (db: Db) => db.select(linkColumns).from(tiktokLinks).leftJoin(accounts, eq(accounts.id, tiktokLinks.actorAccountId))
+const asRow = (row: Omit<TiktokLinkRow, 'state'> & { state: string }): TiktokLinkRow => row as TiktokLinkRow
+
+/** 회차의 마지막 틱톡 연결 기록 (어느 상태든, 없으면 null) */
+export async function latestTiktokLink(db: Db, sellerId: string, broadcastId: string): Promise<TiktokLinkRow | null> {
+  const rows = await linkQuery(db)
+    .where(and(eq(tiktokLinks.sellerId, sellerId), eq(tiktokLinks.broadcastId, broadcastId)))
+    .orderBy(desc(tiktokLinks.id))
+    .limit(1)
+  return rows[0] === undefined ? null : asRow(rows[0])
+}
+
+/** 판매자의 이어진(LINKED) 틱톡 연결 — 모든 회차를 통틀어 많아야 하나 */
+export async function sellerOpenTiktokLink(db: Db, sellerId: string): Promise<TiktokLinkRow | null> {
+  const rows = await linkQuery(db)
+    .where(and(eq(tiktokLinks.sellerId, sellerId), eq(tiktokLinks.state, 'LINKED')))
+    .limit(1)
+  return rows[0] === undefined ? null : asRow(rows[0])
+}
+
+export async function findTiktokLink(db: Db, sellerId: string, linkId: number): Promise<TiktokLinkRow | null> {
+  const rows = await linkQuery(db)
+    .where(and(eq(tiktokLinks.sellerId, sellerId), eq(tiktokLinks.id, linkId)))
+    .limit(1)
+  return rows[0] === undefined ? null : asRow(rows[0])
+}
+
+/** 그 회차에 틱톡 연결 기록이 있는지 (끊은 것 포함) */
+export async function tiktokEverLinked(db: Db, sellerId: string, broadcastId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: tiktokLinks.id })
+    .from(tiktokLinks)
+    .where(and(eq(tiktokLinks.sellerId, sellerId), eq(tiktokLinks.broadcastId, broadcastId)))
+    .limit(1)
+  return rows.length > 0
+}
+
+export async function insertTiktokLink(
+  db: Db,
+  row: { sellerId: string; broadcastId: string; scopeId: string; tiktokId: string; actorAccountId: string; now: Date },
+): Promise<number> {
+  const inserted = await db
+    .insert(tiktokLinks)
+    .values({
+      sellerId: row.sellerId,
+      broadcastId: row.broadcastId,
+      scopeId: row.scopeId,
+      state: 'LINKED',
+      tiktokId: row.tiktokId,
+      actorAccountId: row.actorAccountId,
+      linkedAt: row.now,
+      startedAt: row.now,
+      createdAt: row.now,
+    })
+    .returning({ id: tiktokLinks.id })
+  return inserted[0]?.id as number
+}
+
+export async function unlinkTiktokLink(db: Db, sellerId: string, linkId: number, accountId: string, now: Date): Promise<boolean> {
+  const rows = await db
+    .update(tiktokLinks)
+    .set({ state: 'UNLINKED', unlinkedAt: now, unlinkedBy: accountId })
+    .where(and(eq(tiktokLinks.sellerId, sellerId), eq(tiktokLinks.id, linkId), inArray(tiktokLinks.state, ['LINKED', 'ENDED'])))
+    .returning({ id: tiktokLinks.id })
+  return rows.length > 0
+}
+
+/** 다시 연결: 마지막으로 시작한 시각을 지금으로 (판매자마다 30초에 한 번 — 30초가 지났을 때만 바꾼다) */
+export async function markStarted(db: Db, sellerId: string, linkId: number, now: Date, notBefore: Date): Promise<boolean> {
+  const rows = await db
+    .update(tiktokLinks)
+    .set({ startedAt: now })
+    .where(and(eq(tiktokLinks.sellerId, sellerId), eq(tiktokLinks.id, linkId), eq(tiktokLinks.state, 'LINKED'), sql`${tiktokLinks.startedAt} <= ${notBefore}`))
+    .returning({ id: tiktokLinks.id })
+  return rows.length > 0
+}
+
+/** 회차를 끝냈다: 그 회차의 이어진 연결을 ENDED로 (같은 트랜잭션에서 — broadcast.end와 함께) */
+export async function endTiktokLinks(db: Db, sellerId: string, broadcastIds: readonly string[], now: Date): Promise<number[]> {
+  if (broadcastIds.length === 0) return []
+  const rows = await db
+    .update(tiktokLinks)
+    .set({ state: 'ENDED', endedAt: now })
+    .where(and(eq(tiktokLinks.sellerId, sellerId), inArray(tiktokLinks.broadcastId, [...broadcastIds]), eq(tiktokLinks.state, 'LINKED')))
+    .returning({ id: tiktokLinks.id })
+  return rows.map((row) => row.id)
+}
+
+export async function bumpTiktokCounter(db: Db, sellerId: string, linkId: number, counter: 'notRecorded' | 'saveFailed', by: number): Promise<void> {
+  if (by <= 0) return
+  const set = counter === 'notRecorded' ? { notRecorded: sql`${tiktokLinks.notRecorded} + ${by}` } : { saveFailed: sql`${tiktokLinks.saveFailed} + ${by}` }
+  await db
+    .update(tiktokLinks)
+    .set(set)
+    .where(and(eq(tiktokLinks.sellerId, sellerId), eq(tiktokLinks.id, linkId)))
+}
+
+/** 서버가 다시 켜질 때 이어받을 연결: 끝나지 않은 실제 회차의 이어진 틱톡 연결 */
+export async function resumableTiktokLinks(db: Db): Promise<TiktokLinkRow[]> {
+  const rows = await db
+    .select(linkColumns)
+    .from(tiktokLinks)
+    .leftJoin(accounts, eq(accounts.id, tiktokLinks.actorAccountId))
+    .innerJoin(broadcasts, and(eq(broadcasts.id, tiktokLinks.broadcastId), eq(broadcasts.sellerId, tiktokLinks.sellerId)))
+    .innerJoin(scopes, and(eq(scopes.id, broadcasts.scopeId), eq(scopes.sellerId, tiktokLinks.sellerId), eq(scopes.rehearsal, false)))
+    .where(and(eq(tiktokLinks.state, 'LINKED'), isNull(broadcasts.endedAt)))
+    .orderBy(asc(tiktokLinks.id))
+  return rows.map(asRow)
+}
+
+/** 이 회차에 기록한 틱톡 댓글 수·마지막으로 기록한 시각 */
+export async function tiktokChatStats(db: Db, sellerId: string, broadcastId: string): Promise<{ count: number; lastAt: Date | null }> {
+  const rows = await db
+    .select({ count: sql<number>`count(*)::int`, lastAt: sql<Date | null>`max(${events.receivedAt})` })
+    .from(events)
+    .where(and(eq(events.sellerId, sellerId), eq(events.chatBroadcast, broadcastId), sql`${events.chatMessageId} LIKE 'tt:%'`))
+  const row = rows[0]
+  const lastAt = row?.lastAt ?? null
+  return { count: row?.count ?? 0, lastAt: lastAt === null ? null : new Date(lastAt) }
+}
+
+/** 운영 상태: 이어진·끝낸 틱톡 연결 수 (판매자 정보 없이) */
+export async function tiktokLinkCounts(db: Db): Promise<Record<string, number>> {
+  const rows = await db
+    .select({ state: tiktokLinks.state, n: sql<number>`count(*)::int` })
+    .from(tiktokLinks)
+    .where(eq(tiktokLinks.state, 'LINKED'))
+    .groupBy(tiktokLinks.state)
+  const out: Record<string, number> = {}
+  for (const row of rows) out[row.state] = Number(row.n)
+  return out
+}
+
+// ── 붙여넣기 요청 ───────────────────────────────────────────────────────────
+
+export async function findPasteRequest(db: Db, sellerId: string, requestId: string): Promise<{ broadcastId: string; digest: string; result: string } | null> {
+  const rows = await db
+    .select({ broadcastId: pasteRequests.broadcastId, digest: pasteRequests.digest, result: pasteRequests.result })
+    .from(pasteRequests)
+    .where(and(eq(pasteRequests.sellerId, sellerId), eq(pasteRequests.requestId, requestId)))
+    .limit(1)
+  return rows[0] ?? null
+}
+
+export async function insertPasteRequest(db: Db, row: { sellerId: string; requestId: string; broadcastId: string; digest: string; result: string; now: Date }): Promise<void> {
+  await db.insert(pasteRequests).values({ sellerId: row.sellerId, requestId: row.requestId, broadcastId: row.broadcastId, digest: row.digest, result: row.result, createdAt: row.now })
+}

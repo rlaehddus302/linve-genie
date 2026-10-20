@@ -55,7 +55,7 @@ interface Pending {
 
 /** 리허설 생성기 상태 알림 (event: generator) · 유튜브 알림 (event: youtube — 연결·수집·발송함·할당량·삭제·차단, AC-Y1-05·27·28·39·52) · 출력 기록 알림 (event: print, I1) · 인스타그램·라이브 연결 알림 (event: instagram, N2) — seq가 없다 */
 export interface GeneratorNotice {
-  readonly kind: 'generator' | 'youtube' | 'print' | 'instagram'
+  readonly kind: 'generator' | 'youtube' | 'print' | 'instagram' | 'tiktok'
   readonly data: Readonly<Record<string, unknown>>
 }
 
@@ -173,6 +173,11 @@ export class StreamHub {
   /** 인스타그램 연결·라이브 연결·수집 상태·알림 문장·DM 행 알림 (그 판매자의 연결 전부, N2). 보조자 연결은 받지 않는다 — 보조자는 인스타그램 경로를 쓰지 않는다 (SYS-04) */
   publishInstagram(sellerId: string, data: Readonly<Record<string, unknown>>): void {
     this.#publishNamed(sellerId, { kind: 'instagram', data })
+  }
+
+  /** 틱톡 연결 알림 (그 판매자의 연결 전부, event: tiktok — N2b-2). data.kind = LINK (연결 보기) */
+  publishTiktok(sellerId: string, data: Readonly<Record<string, unknown>>): void {
+    this.#publishNamed(sellerId, { kind: 'tiktok', data })
   }
 
   #publishNamed(sellerId: string, notice: GeneratorNotice): void {

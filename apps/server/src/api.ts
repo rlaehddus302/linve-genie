@@ -21,6 +21,10 @@ import { DEVICE_ID_RE, type PrintService } from './print.ts'
 import { registerPrintRoutes } from './print-api.ts'
 import type { InstagramModule } from './instagram/index.ts'
 import { INSTAGRAM_PUBLIC_PATHS, registerLiveRoutes } from './instagram/routes.ts'
+import type { TikTokLive } from './tiktok-live/live.ts'
+import type { PasteService } from './tiktok-live/paste-service.ts'
+import { registerTiktokRoutes } from './tiktok-live/routes.ts'
+import type { Db } from './db/database.ts'
 import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.ts'
 import type { Actor, WriteOutcome, WriteResult } from './writer.ts'
 import { CALLBACK_PATH, registerYoutubeRoutes } from './youtube/routes.ts'
@@ -48,6 +52,8 @@ export interface ApiDeps {
   readonly sealer?: Sealer | null
   /** 믿는 앞단 프록시 수 (0~5, 기본 0 — X-Forwarded-For를 보지 않는다, AC-I3-66) */
   readonly trustedProxies?: number
+  /** 틱톡 연결·붙여넣기 (N2b-2). instagram과 함께 준다 — 회차 연결 조회가 플랫폼마다 */
+  readonly tiktok?: { readonly db: Db; readonly live: TikTokLive; readonly paste: PasteService }
 }
 
 /** TCP 연결 주소 (@hono/node-server가 넘기는 요청 정보). 프로세스 안 요청(시험의 app.request)은 env로 넣을 수 있고, 없으면 null */
@@ -501,7 +507,11 @@ export function createApi(deps: ApiDeps): Hono<Env> {
 
   // ── 플랫폼 공통 라이브 연결·인스타그램 (N2) ────────────────────────────
   // 플랫폼 능력 조회의 YOUTUBE.ready = 유튜브 연동 설정(Y1)이 있는지. 유튜브 잇기 자체는 /api/youtube 경로(Y1)가 맡는다
-  if (deps.instagram !== undefined) registerLiveRoutes(api, deps.instagram, auth, { youtube: deps.youtube !== undefined && deps.youtube !== null })
+  // 틱톡(N2b-2): 설정·연결 보기·다시 연결·붙여넣기. 잇기·끊기는 플랫폼 공통 경로(/broadcasts/:id/live/link·unlink, platform TIKTOK)
+  if (deps.instagram !== undefined && deps.tiktok !== undefined) {
+    registerLiveRoutes(api, deps.instagram, auth, { db: deps.tiktok.db, tiktok: deps.tiktok.live, youtubeReady: deps.youtube !== undefined && deps.youtube !== null })
+    registerTiktokRoutes(api, deps.tiktok.live, deps.tiktok.paste)
+  }
 
   api.notFound(() => notFound())
   return api

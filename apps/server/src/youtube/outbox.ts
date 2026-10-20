@@ -17,6 +17,7 @@
 // - 실패·재시도·건너뜀은 엔진 이벤트로 기록하지 않는다(effect.failed 없음, D-Y01).
 import { formatWon, getBroadcast, getBuyer, listClaims, listEffects, listProducts, type EngineEffect, type EngineState } from '@livejjim/core'
 import type { Db } from '../db/database.ts'
+import { INSTAGRAM_PREFIX, TIKTOK_PREFIX } from '../platform.ts'
 import { errorKind, type LogSink } from '../log.ts'
 import type { Actor, ScopeWriter } from '../writer.ts'
 import { ChannelMismatchError, YoutubeAccessError, googleFields, type ConsentTarget, type YoutubeConnections } from './connect.ts'
@@ -75,6 +76,9 @@ export const OUTBOX_REASON_MESSAGES = {
   SEALED: '30일이 지나 보내지 않았어요.',
   // 건너뜀
   CANCELLED: '확정이 풀린 판매라 보내지 않아요.',
+  // 건너뜀 — 여러 플랫폼 회차의 감사 경로 (D-N2b-2-09): 틱톡 구매자 · 유튜브를 이은 적 없는 회차의 유튜브·문자 구매자
+  NOT_SUPPORTED: '틱톡에는 감사 메시지를 보내지 않아요.',
+  NO_RECIPIENT: '이 방송에는 유튜브가 이어진 적이 없어 감사를 보내지 않았어요.',
   // 기다림
   WINDOW: '묶어서 보내려고 기다리는 중이에요.',
   RETRY: '다시 보내려고 기다리는 중이에요.',
@@ -1202,7 +1206,8 @@ export class OutboxRunner {
 
 /**
  * 방송 후 요약 줄 (AC-Y1-46): 그 방송의 확정 판매(지금 엔진 상태) — 번호 순, 같은 번호는 확정 순서.
- * 품종 = 지금 상품 이름, 가격 = 그 찜의 가격 스냅샷, 구매자 = 그 찜의 구매자 자신의 지금 표시 이름(문자 구매자·문자찜으로 생긴 찜은 늘 `문자찜`)
+ * 품종 = 지금 상품 이름, 가격 = 그 찜의 가격 스냅샷, 구매자 = 그 찜의 구매자 자신의 지금 표시 이름(문자 구매자·문자찜으로 생긴 찜은 늘 `문자찜`).
+ * 유튜브 발송함으로 가는 감사의 판매만 넣는다 — 찜의 구매자 자신이 인스타그램(ig:)·틱톡(tt:) 구매자인 판매는 넣지 않는다 (D-N2b-2-09, AC-N2b-2-12)
  */
 export function summaryLines(state: EngineState, broadcastId: string): SummaryLine[] {
   const products = listProducts(state).filter((product) => product.broadcast === broadcastId)
@@ -1212,6 +1217,7 @@ export function summaryLines(state: EngineState, broadcastId: string): SummaryLi
     for (const claimId of product.winnerClaims) {
       const claim = claims.get(claimId)
       if (claim === undefined || claim.status !== 'CONFIRMED') continue
+      if (claim.buyer.startsWith(INSTAGRAM_PREFIX) || claim.buyer.startsWith(TIKTOK_PREFIX)) continue
       const buyer = getBuyer(state, claim.buyer)
       const sms = claim.origin === 'sms' || buyer?.kind === 'sms'
       lines.push({ no: product.no, name: product.name, price: formatWon(claim.price ?? product.price), buyer: sms ? '문자찜' : (buyer?.display ?? '시청자') })

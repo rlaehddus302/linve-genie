@@ -26,6 +26,9 @@ const ASSISTANT_ROUTES: readonly { readonly method: 'GET' | 'POST'; readonly pat
   { method: 'GET', path: /^\/api\/stream$/ },
   { method: 'POST', path: /^\/api\/logout$/ },
   { method: 'POST', path: /^\/api\/events$/ },
+  // 댓글 붙여넣기 — 문자찜 입력과 같은 권한 (실제 회차만 — 리허설은 처리기가 403, D-N2b-2-08)
+  { method: 'POST', path: /^\/api\/broadcasts\/[^/]+\/paste\/preview$/ },
+  { method: 'POST', path: /^\/api\/broadcasts\/[^/]+\/paste$/ },
 ]
 
 /** 보조자 세션이 이 요청을 할 수 있는지 (경로·메서드, 리허설 범위 조회는 안 됨) */
