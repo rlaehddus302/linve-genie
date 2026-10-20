@@ -768,9 +768,19 @@ export class FakeGoogle {
     return index > chat.messages.length ? null : index
   }
 
-  #page(chat: Chat, from: number): { items: Record<string, unknown>[]; next: number } {
-    const slice = chat.messages.slice(from, from + this.pageSize)
+  /** 한 쪽: 요청한 최대 수(maxResults)와 이 서버의 쪽 크기 중 작은 것만큼 (실제 API처럼 최대 수를 따른다, AC-I3-86) */
+  #page(chat: Chat, from: number, maxResults?: number): { items: Record<string, unknown>[]; next: number } {
+    const size = maxResults === undefined ? this.pageSize : Math.min(this.pageSize, maxResults)
+    const slice = chat.messages.slice(from, from + size)
     return { items: slice.map((message) => resource(chat, message)), next: from + slice.length }
+  }
+
+  /** 요청의 maxResults (1~2000 정수가 아니면 없음) */
+  #maxResults(url: URL): number | undefined {
+    const raw = url.searchParams.get('maxResults')
+    if (raw === null || !/^\d{1,4}$/.test(raw)) return undefined
+    const value = Number(raw)
+    return value >= 1 && value <= 2000 ? value : undefined
   }
 
   #chatGate(res: ServerResponse, url: URL): Chat | null {
@@ -791,7 +801,7 @@ export class FakeGoogle {
     if (chat === null) return
     const from = this.#position(chat, url.searchParams.get('pageToken'))
     if (from === null) return googleError(res, 400, 'pageTokenInvalid', 'youtube.liveChat')
-    const page = this.#page(chat, from)
+    const page = this.#page(chat, from, this.#maxResults(url))
     if (chat.endedAt !== null && page.items.length === 0 && from >= chat.messages.length && url.searchParams.get('pageToken') !== null && this.#endedSent.has(`${chat.id}|${String(from)}`)) {
       return googleError(res, 403, 'liveChatEnded', 'youtube.liveChat')
     }
@@ -915,15 +925,19 @@ export class FakeGoogle {
     json(res, 200, resource(chat, message))
   }
 
+  /** 댓글 목록 (order=time 최신순): 최대 수(maxResults, 기본 20, 1~100)씩 쪽을 나누고 다음 쪽 지점(nextPageToken)을 준다 (AC-I3-86) */
   #commentsList(res: ServerResponse, url: URL): void {
     const videoId = url.searchParams.get('videoId') ?? ''
-    const items = this.comments
-      .filter((comment) => comment.videoId === videoId && !this.#hidden(comment.id))
-      .slice()
-      .reverse()
-      .slice(0, 100)
-      .map((comment) => this.#commentResource(comment))
-    json(res, 200, { kind: 'youtube#commentThreadListResponse', items })
+    const raw = url.searchParams.get('maxResults')
+    const size = raw !== null && /^\d{1,3}$/.test(raw) && Number(raw) >= 1 && Number(raw) <= 100 ? Number(raw) : 20
+    const token = url.searchParams.get('pageToken')
+    const match = token === null ? null : /^c(\d{1,9})$/.exec(token)
+    if (token !== null && match === null) return googleError(res, 400, 'invalidPageToken', 'youtube.commentThread')
+    const from = match === null ? 0 : Number(match[1])
+    const all = this.comments.filter((comment) => comment.videoId === videoId && !this.#hidden(comment.id)).reverse()
+    const items = all.slice(from, from + size).map((comment) => this.#commentResource(comment))
+    const next = from + size < all.length ? `c${String(from + size)}` : null
+    json(res, 200, { kind: 'youtube#commentThreadListResponse', ...(next === null ? {} : { nextPageToken: next }), pageInfo: { totalResults: all.length, resultsPerPage: size }, items })
   }
 
   #commentResource(comment: FakeComment): Record<string, unknown> {

@@ -2,6 +2,7 @@
 // 시험(단위·적대)은 PGlite로 열어 createServer(...).app.request(...)로 포트 없이 요청한다.
 // 시험용 주입점: clock(서버 시계), ids(ID 생성), hooks(저장 실패·응답 전 멈춤·스냅샷 실패), engine(엔진 감싸기), log(로그 수집), runtimeCacheMax(범위 상태 메모리 상한),
 // changesWindow(증분 조회 기준점 수), generatorTimer·generatorSpeed(리허설 생성기 타이머·시험 속도), hostActionDelayMs(화면의 방송자 조치 대기 — E2E 기동만 줄인다).
+import { readFileSync } from 'node:fs'
 import { applyEvent } from '@livejjim/core'
 import type { Hono } from 'hono'
 import { Auth } from './auth.ts'
@@ -10,16 +11,19 @@ import type { Database } from './db/database.ts'
 import { StreamHub } from './hub.ts'
 import { randomIds, type IdSource } from './ids.ts'
 import { errorKind, safeSink, stderrLog, type LogSink } from './log.ts'
+import { Alerter, WorkerHealth } from './ops.ts'
+import { collectorCounts, failedEventCount, outboxCounts, ping } from './ops-store.ts'
+import { createWebServer, webDirProblem } from './web.ts'
 import type { EngineAdapter } from './runtime.ts'
 import type { LoginLimitOptions } from './login-limit.ts'
 import { loginLimitSecret, readMasterKey, type PasswordCost } from './secrets.ts'
 import type { GeneratorTimer } from './generator.ts'
 import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
-import { systemClock, type Clock } from './time.ts'
+import { kstDate, systemClock, type Clock } from './time.ts'
 import { DEFAULT_RUNTIME_CACHE_MAX, ScopeWriter, type WriterHooks } from './writer.ts'
 import type { CollectorHooks } from './youtube/collector.ts'
-import type { OutboxHooks } from './youtube/outbox.ts'
+import type { OutboxHooks, OutboxTiming } from './youtube/outbox.ts'
 import { Sealer } from './youtube/seal.ts'
 import { YoutubeSystem, checkYoutubeConfig, type LinkHooks, type YoutubeConfig } from './youtube/system.ts'
 import { realTimer, type Timer } from './youtube/timer.ts'
@@ -30,6 +34,17 @@ export const MAX_SNAPSHOT_EVERY = 500
 export const DEFAULT_HEARTBEAT_MS = 15_000
 /** 화면이 방송자 조치(host.*)를 보내기 전에 기다리는 시간 — 운영 값 5초 (D-083, AC-S05-41) */
 export const HOST_ACTION_DELAY_MS = 5000
+/** 준비 확인: DB 질의가 이 안에 되어야 한다 (AC-I3-80) */
+export const READY_TIMEOUT_MS = 2000
+/** 서버 버전 (apps/server/package.json) — 운영 상태에 */
+export const SERVER_VERSION: string = (() => {
+  try {
+    const parsed = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version?: unknown }
+    return typeof parsed.version === 'string' ? parsed.version : 'unknown'
+  } catch {
+    return 'unknown'
+  }
+})()
 
 export interface ServerOptions {
   readonly database: Pick<Database, 'db'>
@@ -77,6 +92,16 @@ export interface ServerOptions {
   readonly loginLimits?: LoginLimitOptions
   /** 비밀번호 확인 함수 (시험이 호출 수·동시 수를 잰다) */
   readonly passwordVerifier?: (password: string, stored: string) => Promise<boolean>
+  /** 화면 빌드 폴더 — 같은 출처로 함께 낸다 (LIVEJJIM_WEB_DIR, AC-I3-70). 그 폴더에 index.html이 없으면 만들지 않는다 */
+  readonly webDir?: string
+  /** 운영 토큰 (LIVEJJIM_OPS_TOKEN, 32자 이상 — 없으면 /ops/status는 404, AC-I3-81) */
+  readonly opsToken?: string
+  /** 준비 확인 시간 제한 (기본 2000밀리초) */
+  readonly readyTimeoutMs?: number
+  /** 준비 확인 질의 (시험: 느린 질의 흉내) */
+  readonly dbPing?: () => Promise<void>
+  /** 발송함 시간 (E2E 기동만 줄인다 — AC-I3-93) */
+  readonly outboxTiming?: OutboxTiming
 }
 
 export interface LivejjimServer {
@@ -97,6 +122,10 @@ export interface LivejjimServer {
   stop(): Promise<void>
   /** 실시간 연결을 닫고 리허설 생성기·타이머·워커를 멈춘다 (DB는 닫지 않는다) */
   close(): void
+  /** 경보 기록 (AC-I3-82) */
+  readonly alerter: Alerter
+  /** 워커 건강 (AC-I3-81·82) */
+  readonly health: WorkerHealth
 }
 
 /** 마스터 키를 확인한다 (값은 오류 문장에 넣지 않는다) */
@@ -131,11 +160,27 @@ export function createServer(options: ServerOptions): LivejjimServer {
     if (problem !== null) throw new TypeError(problem)
   }
 
+  if (options.opsToken !== undefined && options.opsToken.trim().length < 32) throw new TypeError('운영 토큰은 32자 이상이어야 해요.')
+  if (options.webDir !== undefined && webDirProblem(options.webDir) !== null) throw new TypeError('화면 폴더에 index.html이 없어요.')
+  const readyTimeoutMs = options.readyTimeoutMs ?? READY_TIMEOUT_MS
+
   const db = options.database.db
   const clock = options.clock ?? systemClock
   const timer = options.timer ?? realTimer(clock)
   const ids: IdSource = { ...randomIds, ...options.ids }
-  const log = safeSink(options.log ?? stderrLog)
+  const baseLog = safeSink(options.log ?? stderrLog)
+  // 경보 (AC-I3-82): 남기던 로그에서 꺼내고(observe), 경보 자체는 그대로 기록에 쓴다
+  const alerter = new Alerter(baseLog, clock)
+  const log: LogSink = (record) => {
+    baseLog(record)
+    try {
+      alerter.observe(record)
+    } catch {
+      // 경보를 못 써도 처리는 계속한다
+    }
+  }
+  const health = new WorkerHealth(alerter, clock)
+  const startedAt = new Date(clock.now()).toISOString()
   const engine: EngineAdapter = options.engine ?? { applyEvent }
   const trustedProxies = options.trustedProxies ?? 0
   if (!Number.isSafeInteger(trustedProxies) || trustedProxies < 0 || trustedProxies > 5) throw new TypeError('믿는 프록시 수는 0~5여야 해요.')
@@ -193,6 +238,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
           ...(options.outboxHooks === undefined ? {} : { outboxHooks: options.outboxHooks }),
           ...(options.linkHooks === undefined ? {} : { linkHooks: options.linkHooks }),
           ...(options.collectorTiming === undefined ? {} : { collectorTiming: options.collectorTiming }),
+          ...(options.outboxTiming === undefined ? {} : { outboxTiming: options.outboxTiming }),
+          health,
         })
   const sealer = new Sealer({
     db,
@@ -201,10 +248,60 @@ export function createServer(options: ServerOptions): LivejjimServer {
     log,
     onSealed: (sellerId, date) => publishYoutube(sellerId, { kind: 'sealed', date }),
     ...(options.sealHooks === undefined ? {} : { hooks: options.sealHooks }),
+    onPass: (ok) => health.pass('sealer', ok),
   })
+  // DB가 시간 안에 답하는지 (준비 확인·운영 상태)
+  const dbAlive = async (): Promise<boolean> => {
+    const probe = (options.dbPing ?? (() => ping(db)))().then(
+      () => true,
+      () => false,
+    )
+    let handle: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<boolean>((resolve) => {
+      handle = setTimeout(() => resolve(false), readyTimeoutMs)
+      handle.unref?.()
+    })
+    const ok = await Promise.race([probe, late])
+    clearTimeout(handle)
+    return ok
+  }
+  const opsStatus = async (): Promise<Record<string, unknown>> => {
+    const now = clock.now()
+    const date = kstDate(now)
+    const dayStart = new Date(Date.parse(`${date}T00:00:00+09:00`))
+    const dbOk = await dbAlive()
+    const counts = async <T>(read: () => Promise<T>): Promise<T | null> => {
+      if (!dbOk) return null
+      try {
+        return await read()
+      } catch {
+        return null
+      }
+    }
+    return {
+      version: SERVER_VERSION,
+      startedAt,
+      db: dbOk ? 'ok' : 'unavailable',
+      workers: health.view(),
+      collectors: await counts(() => collectorCounts(db)),
+      outbox: await counts(async () => ({ date, ...(await outboxCounts(db, dayStart, new Date(dayStart.getTime() + 24 * 60 * 60 * 1000))) })),
+      failedEvents24h: await counts(() => failedEventCount(db, new Date(now - 24 * 60 * 60 * 1000))),
+      realtimeConnections: hub.size,
+      quota: youtube === null ? null : await counts(() => youtube.quota.projectToday()),
+      loginRejected: auth.loginRejections,
+    }
+  }
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
     api: { service, auth, hub, appOrigin: options.appOrigin, clientConfig: { hostActionDelayMs }, youtube, sealer, trustedProxies },
+    https: options.appOrigin.startsWith('https://'),
+    web: options.webDir === undefined ? null : createWebServer(options.webDir),
+    ready: async () => {
+      const ok = await dbAlive()
+      if (!ok) alerter.alert('DB_UNAVAILABLE')
+      return ok
+    },
+    ops: { token: options.opsToken === undefined ? null : options.opsToken.trim(), status: opsStatus },
   })
   const stop = async () => {
     await Promise.all([youtube?.stop(), sealer.stop()])
@@ -228,5 +325,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       hub.closeAll()
       void stop()
     },
+    alerter,
+    health,
   }
 }

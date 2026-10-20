@@ -126,6 +126,8 @@ export interface CollectorOptions {
   readonly leaseMs?: number
   readonly renewMs?: number
   readonly scanMs?: number
+  /** 찾기 바퀴마다 성공·실패 (워커 건강, AC-I3-82) */
+  readonly onPass?: (ok: boolean) => void
 }
 
 /** 수집기 하나가 지금 무엇을 할지 */
@@ -217,7 +219,9 @@ export class CollectorManager {
       while (!this.#stopped) {
         try {
           await this.scan()
+          this.#options.onPass?.(true)
         } catch (error) {
+          this.#options.onPass?.(false)
           this.#options.log({ level: 'error', code: 'WORKER_FAILED', errorKind: errorKind(error) })
         }
         if (this.#stopped) break

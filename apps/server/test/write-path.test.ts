@@ -299,7 +299,7 @@ describe('AC-S04-24 엔진이 처리하지 못한 입력', () => {
     expect(response.body).toEqual({ date: b.date, seq: 2, error: { code: 'PROCESSING_FAILED', message: '처리하지 못했어요. 확인 필요 목록에 남겼어요.' } })
     expect(await memoryState(world, seller.sellerId, b.date)).toBe(state)
     expect(await countRows(world.database, 'outbox')).toBe(0)
-    expect(world.logs).toContainEqual({ level: 'error', code: 'ENGINE_FAILED', date: b.date, seq: 2, errorKind: 'RangeError' })
+    expect(world.logs).toContainEqual({ level: 'error', code: 'ENGINE_FAILED', seller: seller.sellerId, date: b.date, seq: 2, errorKind: 'RangeError' })
     expect(JSON.stringify(world.logs)).not.toContain('9999')
     const view = await client(world, seller.cookie).get(`/api/days/${b.date}`)
     expect(view.body.attention).toEqual([{ seq: 2, message: FAILED_INPUT_MESSAGE }])

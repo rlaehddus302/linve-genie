@@ -151,6 +151,8 @@ export interface SealerOptions {
   /** 봉인했다 (SSE) */
   readonly onSealed: (sellerId: string, date: string) => void
   readonly hooks?: { readonly beforeCommit?: () => void | Promise<void> }
+  /** 바퀴마다 성공·실패 (워커 건강, AC-I3-82) */
+  readonly onPass?: (ok: boolean) => void
 }
 
 export class Sealer {
@@ -188,20 +190,28 @@ export class Sealer {
   async runOnce(): Promise<number> {
     const { db, timer, log } = this.#options
     const now = timer.now()
-    // 봉인 대상 후보 (판매자를 가리지 않고 할 일을 찾는다 — 이어서 쓰는 질의는 그 행의 판매자 ID를 건다)
-    const candidates = await db
-      .select({ id: scopes.id, sellerId: scopes.sellerId, date: scopes.date })
-      .from(scopes)
-      .where(and(eq(scopes.rehearsal, false), eq(scopes.youtubeChat, true), isNull(scopes.sealedAt)))
+    let failed = false
     let sealed = 0
-    for (const scope of candidates) {
-      if (sealAtOf(scope.date) > now) continue
-      try {
-        if (await this.seal(scope.sellerId, scope.id, scope.date)) sealed += 1
-      } catch (error) {
-        log({ level: 'error', code: 'SEAL_FAILED', seller: scope.sellerId, date: scope.date, errorKind: errorKind(error) })
+    try {
+      // 봉인 대상 후보 (판매자를 가리지 않고 할 일을 찾는다 — 이어서 쓰는 질의는 그 행의 판매자 ID를 건다)
+      const candidates = await db
+        .select({ id: scopes.id, sellerId: scopes.sellerId, date: scopes.date })
+        .from(scopes)
+        .where(and(eq(scopes.rehearsal, false), eq(scopes.youtubeChat, true), isNull(scopes.sealedAt)))
+      for (const scope of candidates) {
+        if (sealAtOf(scope.date) > now) continue
+        try {
+          if (await this.seal(scope.sellerId, scope.id, scope.date)) sealed += 1
+        } catch (error) {
+          failed = true
+          log({ level: 'error', code: 'SEAL_FAILED', seller: scope.sellerId, date: scope.date, errorKind: errorKind(error) })
+        }
       }
+    } catch (error) {
+      failed = true
+      log({ level: 'error', code: 'SEAL_FAILED', errorKind: errorKind(error) })
     }
+    this.#options.onPass?.(!failed)
     return sealed
   }
 

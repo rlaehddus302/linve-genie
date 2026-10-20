@@ -436,7 +436,7 @@ export class ScopeWriter {
         if (isNotImplemented(error)) return { rejection: { status: 422, code: 'NOT_SUPPORTED', message: '아직 지원하지 않는 기능이에요.', problems: [] } }
         if (isStateFormatError(error)) return { rejection: stateFormatRejection() }
         // 엔진이 예상하지 못한 오류: 실패 표시로 기록하고 상태는 그 전 그대로 (AC-S04-24)
-        log({ level: 'error', code: 'ENGINE_FAILED', date: job.date, seq, errorKind: errorKind(error) })
+        log({ level: 'error', code: 'ENGINE_FAILED', seller: job.sellerId, date: job.date, seq, errorKind: errorKind(error) })
         records.push({ event, seq, type: event.type, changed: false, failed: true, effects: [] })
         states.push(state)
       }

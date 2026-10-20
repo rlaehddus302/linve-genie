@@ -114,3 +114,47 @@ export function readYoutubeSetting(env: Readonly<Record<string, string | undefin
     },
   }
 }
+
+// ── I3: 배포·운영 (SYS-05, D-I3-12·13·16, AC-I3-72) ─────────────────────────
+
+export const HTTPS_ORIGIN_MESSAGE = '화면 앱 주소는 https://로 적어 주세요(내 컴퓨터 시험은 http://localhost만).'
+export const OPS_TOKEN_MESSAGE = '운영 토큰(LIVEJJIM_OPS_TOKEN)은 32자 이상으로 적어 주세요.'
+export const TRUSTED_PROXIES_MESSAGE = '믿는 프록시 수(LIVEJJIM_TRUSTED_PROXIES)는 0부터 5까지의 정수로 적어 주세요.'
+export const WEB_DIR_MESSAGE = '화면 폴더(LIVEJJIM_WEB_DIR)에 index.html이 없어요. 화면을 빌드한 폴더를 적어 주세요.'
+export const OPS_TOKEN_MIN = 32
+
+/** 운영 시작의 앱 주소: https만 (내 컴퓨터 시험은 http://localhost·http://127.0.0.1과 그 포트) — 보안 쿠키가 실리지 않는 http 운영을 막는다 */
+export function isProductionOrigin(origin: string): boolean {
+  if (origin.startsWith('https://')) return true
+  return /^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d{1,5})?$/.test(origin)
+}
+
+export interface DeploySetting {
+  /** 운영 토큰 (없으면 null — /ops/status는 404) */
+  readonly opsToken: string | null
+  /** 믿는 앞단 프록시 수 (0~5) */
+  readonly trustedProxies: number
+  /** 화면 빌드 폴더 (없으면 null — 화면을 내지 않는다) */
+  readonly webDir: string | null
+}
+
+export type DeploySettingResult = ({ readonly ok: true } & DeploySetting) | { readonly ok: false; readonly message: string }
+
+/**
+ * 운영 시작 검사 (AC-I3-72): 앱 주소 https · 운영 토큰 32자 이상(있으면) · 믿는 프록시 수 0~5 정수 · 화면 폴더에 index.html(있으면).
+ * webDirProblem은 폴더 확인 함수(파일 시스템 — 시험에서 바꾼다). 값은 문장에 넣지 않는다
+ */
+export function readDeploySetting(
+  env: Readonly<Record<string, string | undefined>>,
+  appOrigin: string,
+  webDirProblem: (dir: string) => string | null,
+): DeploySettingResult {
+  if (!isProductionOrigin(appOrigin)) return { ok: false, message: HTTPS_ORIGIN_MESSAGE }
+  const token = env['LIVEJJIM_OPS_TOKEN']?.trim() ?? ''
+  if (token !== '' && token.length < OPS_TOKEN_MIN) return { ok: false, message: OPS_TOKEN_MESSAGE }
+  const proxiesRaw = env['LIVEJJIM_TRUSTED_PROXIES']?.trim() ?? ''
+  if (proxiesRaw !== '' && !/^[0-5]$/.test(proxiesRaw)) return { ok: false, message: TRUSTED_PROXIES_MESSAGE }
+  const webDir = env['LIVEJJIM_WEB_DIR']?.trim() ?? ''
+  if (webDir !== '' && webDirProblem(webDir) !== null) return { ok: false, message: WEB_DIR_MESSAGE }
+  return { ok: true, opsToken: token === '' ? null : token, trustedProxies: proxiesRaw === '' ? 0 : Number(proxiesRaw), webDir: webDir === '' ? null : webDir }
+}

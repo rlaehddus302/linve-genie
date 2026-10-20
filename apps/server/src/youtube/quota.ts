@@ -51,17 +51,27 @@ export class QuotaMeter {
   readonly #onMode: (sellerId: string, mode: QuotaMode) => void
   /** 유튜브에 연결된 판매자 (연결됨·다시 연결 필요) */
   readonly #connected: () => Promise<readonly string[]>
+  /** 구글이 할당량 초과를 알렸다 (경보 QUOTA_EXCEEDED, AC-I3-82) */
+  readonly #onExceeded: (sellerId: string) => void
   /** 판매자에게 마지막으로 알린 모드 (이 서버에서) */
   readonly #modes = new Map<string, QuotaMode>()
   #day: string | null = null
   #sweptAt = Number.NEGATIVE_INFINITY
 
-  constructor(db: Db, settings: QuotaSettings, now: () => number, onMode: (sellerId: string, mode: QuotaMode) => void, connected: () => Promise<readonly string[]> = () => Promise.resolve([])) {
+  constructor(
+    db: Db,
+    settings: QuotaSettings,
+    now: () => number,
+    onMode: (sellerId: string, mode: QuotaMode) => void,
+    connected: () => Promise<readonly string[]> = () => Promise.resolve([]),
+    onExceeded: (sellerId: string) => void = () => {},
+  ) {
     this.#db = db
     this.#settings = settings
     this.#now = now
     this.#onMode = onMode
     this.#connected = connected
+    this.#onExceeded = onExceeded
   }
 
   get settings(): QuotaSettings {
@@ -89,7 +99,15 @@ export class QuotaMeter {
   /** 구글이 할당량 초과를 알렸다 (오늘은 멈춤, AC-Y1-52) */
   async markExceeded(sellerId: string): Promise<void> {
     await this.#add(sellerId, QUOTA_EXCEEDED_MARK, 1, 0)
+    this.#onExceeded(sellerId)
     await this.#checkMode(sellerId)
+  }
+
+  /** 오늘(태평양) 프로젝트 전체 사용·한도·초과 알림 여부 — 운영 상태용(판매자 숫자는 없다, AC-I3-81) */
+  async projectToday(): Promise<{ readonly day: string; readonly used: number; readonly limit: number; readonly exceeded: boolean }> {
+    const day = pacificDay(this.#now())
+    const usage = await this.#usage('', day)
+    return { day, used: usage.project, limit: this.#settings.limit, exceeded: usage.exceeded }
   }
 
   /** 판정해 마지막으로 알린 모드와 다르면(이 서버의 첫 판정 포함) 알린다 */

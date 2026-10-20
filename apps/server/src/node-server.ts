@@ -6,7 +6,7 @@ import { createServer, STATUS_CODES, type Server } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { getRequestListener, RequestError } from '@hono/node-server'
 import type { Hono } from 'hono'
-import { defaultLogError, safeLogger, type ErrorLogger } from './app.ts'
+import { SECURITY_HEADERS, defaultLogError, safeLogger, type ErrorLogger } from './app.ts'
 import { describeError, errorResponse, JSON_CONTENT_TYPE } from './errors.ts'
 
 export interface NodeServerOptions {
@@ -17,10 +17,11 @@ export interface NodeServerOptions {
 export function createNodeServer(options: NodeServerOptions): Server {
   const logError = safeLogger(options.logError ?? defaultLogError)
   const listener = getRequestListener(options.app.fetch, {
+    // 앱에 닿기 전의 오류 응답에도 보안 머리글 (AC-I3-71)
     errorHandler: (error) => {
-      if (error instanceof RequestError) return errorResponse(400)
+      if (error instanceof RequestError) return errorResponse(400, SECURITY_HEADERS)
       logError(error)
-      return errorResponse(500)
+      return errorResponse(500, SECURITY_HEADERS)
     },
   })
   // Host 헤더가 없는 HTTP/1.1 요청을 Node가 본문 없는 400으로 먼저 끊지 않게 한다.
@@ -52,6 +53,7 @@ export function rawErrorResponse(status: number): string {
     `HTTP/1.1 ${described.status} ${STATUS_CODES[described.status] ?? ''}`.trimEnd(),
     `Content-Type: ${JSON_CONTENT_TYPE}`,
     `Content-Length: ${Buffer.byteLength(json)}`,
+    ...Object.entries(SECURITY_HEADERS).map(([name, value]) => `${name}: ${value}`),
     'Connection: close',
     '',
     json,

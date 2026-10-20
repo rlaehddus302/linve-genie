@@ -2,7 +2,8 @@
 // 로그에는 정해진 코드와 범위·seq·오류 종류만 남긴다. 요청 본문·전화번호·키·메모·닉네임·채팅 본문·제목·사유·아이디·비밀번호·
 // 세션 값·비밀 키·오류 메시지(값이 들어 있을 수 있다)는 남기지 않는다. 그래서 기록 함수는 자유 문장을 받지 않는다.
 
-export type LogLevel = 'info' | 'warn' | 'error'
+/** alert = 운영자가 할 일이 있는 경보 (AC-I3-82) — JSON 한 줄로 쓴다 */
+export type LogLevel = 'info' | 'warn' | 'error' | 'alert'
 
 /** 로그 한 줄. 값은 모두 서버가 정한 것(코드·범위 날짜·seq·오류 종류 이름)이다 */
 export interface LogRecord {
@@ -22,6 +23,8 @@ export interface LogRecord {
   readonly status?: number
   /** 구글 오류 이유 코드 (quotaExceeded 같은 영문 코드만 — 형식이 다르면 남기지 않는다) */
   readonly reason?: string
+  /** 워커 이름 (경보 WORKER_FAILING — collector · outbox · sealer) */
+  readonly worker?: 'collector' | 'outbox' | 'sealer'
 }
 
 export type LogCode =
@@ -51,6 +54,12 @@ export type LogCode =
   | 'SEAL_FAILED'
   | 'SEALED'
   | 'WORKER_FAILED'
+  // I3 운영 (AC-I3-82): 다시 시도를 다 쓴 감사, 구글 할당량 초과, 경보 코드
+  | 'OUTBOX_GAVE_UP'
+  | 'QUOTA_EXCEEDED'
+  | 'WORKER_FAILING'
+  | 'BACKUP_FAILED'
+  | 'DB_UNAVAILABLE'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -80,6 +89,11 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   SEAL_FAILED: '30일 지난 범위를 봉인하지 못해 다음에 다시 해요',
   SEALED: '30일 지난 범위를 봉인했어요',
   WORKER_FAILED: '유튜브 작업 중 오류가 생겼어요',
+  OUTBOX_GAVE_UP: '감사 메시지를 여러 번 보내지 못해 그만두었어요',
+  QUOTA_EXCEEDED: '구글이 유튜브 할당량 초과를 알렸어요',
+  WORKER_FAILING: '워커가 연속으로 실패하고 있어요',
+  BACKUP_FAILED: '백업하지 못했어요',
+  DB_UNAVAILABLE: '데이터베이스에 닿지 않아요',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */
@@ -101,9 +115,25 @@ export function formatLog(record: LogRecord): string {
   return `[server] ${MESSAGES[record.code]} (${parts.join(' ')})`
 }
 
-/** 기본 기록: 표준 오류 출력에 한 줄 */
+const SELLER_RE = /^[A-Za-z0-9_-]{1,80}$/
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+const WORKERS = new Set(['collector', 'outbox', 'sealer'])
+
+/**
+ * 경보 한 줄 (AC-I3-82): `{"level":"alert","code":…,"count":…,"seller"?,"date"?,"worker"?}` — 정해진 코드·셈·서버가 만든 판매자 ID·범위 날짜·워커 이름만.
+ * 모양이 다른 값은 넣지 않는다
+ */
+export function formatAlert(record: LogRecord): string {
+  const out: Record<string, unknown> = { level: 'alert', code: record.code, count: record.count ?? 1 }
+  if (record.seller !== undefined && SELLER_RE.test(record.seller)) out.seller = record.seller
+  if (record.date !== undefined && DATE_RE.test(record.date)) out.date = record.date
+  if (record.worker !== undefined && WORKERS.has(record.worker)) out.worker = record.worker
+  return JSON.stringify(out)
+}
+
+/** 기본 기록: 표준 오류 출력에 한 줄 (경보는 JSON 한 줄) */
 export const stderrLog: LogSink = (record) => {
-  process.stderr.write(`${formatLog(record)}\n`)
+  process.stderr.write(`${record.level === 'alert' ? formatAlert(record) : formatLog(record)}\n`)
 }
 
 /** 기록하다 실패해도 처리는 계속한다 */

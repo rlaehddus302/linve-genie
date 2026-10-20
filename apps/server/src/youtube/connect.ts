@@ -42,6 +42,17 @@ export type CallbackResult = keyof typeof CALLBACK_MESSAGES
 export const RECONNECT_MESSAGE = '유튜브 연결을 다시 해 주세요.'
 export const NOT_CONNECTED_MESSAGE = '유튜브 채널을 먼저 연결해 주세요.'
 
+/**
+ * 토큰을 꺼내는 순간 연결의 채널이 그 방송을 이은 채널과 다르다 (D-I3-17 (1), AC-I3-85) — 그 요청을 보내지 않는다.
+ * 직전 확인과 사용 사이에 연결을 끊고 다른 채널을 이어도 다른 채널 이름으로 글이 나가지 않게
+ */
+export class ChannelMismatchError extends Error {
+  constructor() {
+    super('channel mismatch')
+    this.name = 'ChannelMismatchError'
+  }
+}
+
 /** 연결이 없거나 다시 연결해야 해서 유튜브를 부를 수 없다 */
 export class YoutubeAccessError extends Error {
   readonly status: Exclude<ConnectionStatus, 'CONNECTED'>
@@ -135,8 +146,8 @@ export function viewOf(row: ConnectionRow | null): ConnectionView {
 
 export class YoutubeConnections {
   readonly #options: ConnectionsOptions
-  /** 판매자별 진행 중인 새로 고침 (동시에 하나만) */
-  readonly #refreshing = new Map<string, Promise<string>>()
+  /** 판매자별 진행 중인 새로 고침 (동시에 하나만) — 새 토큰과 그 토큰의 채널 */
+  readonly #refreshing = new Map<string, Promise<{ readonly token: string; readonly channelId: string }>>()
 
   constructor(options: ConnectionsOptions) {
     this.#options = options
@@ -320,25 +331,36 @@ export class YoutubeConnections {
 
   /** 지금 쓸 접근 토큰 (만료 60초 안이면 새로 고친다) */
   async accessToken(sellerId: string): Promise<string> {
+    return (await this.#currentToken(sellerId, null)).token
+  }
+
+  /**
+   * 지금 쓸 접근 토큰과 그 토큰의 채널. channelId를 주면 연결의 채널이 그것과 다를 때 꺼내지 않는다(ChannelMismatchError) —
+   * 확인과 꺼내기를 같은 행 읽기에서 한다
+   */
+  async #currentToken(sellerId: string, channelId: string | null): Promise<{ readonly token: string; readonly channelId: string }> {
     const row = await this.row(sellerId)
     if (row === null) throw new YoutubeAccessError('NOT_CONNECTED')
+    if (channelId !== null && row.channelId !== channelId) throw new ChannelMismatchError()
     if (row.status !== 'CONNECTED') throw new YoutubeAccessError('RECONNECT_NEEDED')
     const now = this.#options.timer.now()
     if (row.accessEnc !== null && row.accessExpiresAt !== null && row.accessExpiresAt.getTime() - now > REFRESH_BEFORE_MS) {
       try {
-        return openText(this.#options.masterKey, tokenAad(sellerId, 'access'), row.accessEnc)
+        return { token: openText(this.#options.masterKey, tokenAad(sellerId, 'access'), row.accessEnc), channelId: row.channelId }
       } catch {
         await this.markReconnect(sellerId)
         throw new YoutubeAccessError('RECONNECT_NEEDED')
       }
     }
-    return this.#refresh(sellerId, null)
+    const refreshed = await this.#refresh(sellerId, null)
+    if (channelId !== null && refreshed.channelId !== channelId) throw new ChannelMismatchError()
+    return refreshed
   }
 
   /**
-   * 새로 고침 (동시에 하나만). stale을 주면(401을 받은 토큰) 그사이 다른 쪽이 이미 새로 고쳤으면 그 토큰을 쓴다
+   * 새로 고침 (동시에 하나만). stale을 주면(401을 받은 토큰) 그사이 다른 쪽이 이미 새로 고쳤으면 그 토큰을 쓴다. 새 토큰과 그 토큰의 채널(새로 고칠 때 읽은 연결의 채널)
    */
-  #refresh(sellerId: string, stale: string | null): Promise<string> {
+  #refresh(sellerId: string, stale: string | null): Promise<{ readonly token: string; readonly channelId: string }> {
     const running = this.#refreshing.get(sellerId)
     if (running !== undefined) return running
     const task = this.#doRefresh(sellerId, stale).finally(() => {
@@ -348,7 +370,7 @@ export class YoutubeConnections {
     return task
   }
 
-  async #doRefresh(sellerId: string, stale: string | null): Promise<string> {
+  async #doRefresh(sellerId: string, stale: string | null): Promise<{ readonly token: string; readonly channelId: string }> {
     const { masterKey, google, timer, db, log } = this.#options
     const row = await this.row(sellerId)
     if (row === null) throw new YoutubeAccessError('NOT_CONNECTED')
@@ -358,7 +380,7 @@ export class YoutubeConnections {
     if (row.accessEnc !== null && row.accessExpiresAt !== null && row.accessExpiresAt.getTime() - now > REFRESH_BEFORE_MS) {
       try {
         const current = openText(masterKey, tokenAad(sellerId, 'access'), row.accessEnc)
-        if (stale === null || current !== stale) return current
+        if (stale === null || current !== stale) return { token: current, channelId: row.channelId }
       } catch {
         // 풀 수 없으면 새로 고친다
       }
@@ -390,7 +412,7 @@ export class YoutubeConnections {
         updatedAt: new Date(timer.now()),
       })
       .where(and(eq(youtubeConnections.sellerId, sellerId), eq(youtubeConnections.channelId, row.channelId)))
-    return tokens.accessToken
+    return { token: tokens.accessToken, channelId: row.channelId }
   }
 
   /**
@@ -403,7 +425,27 @@ export class YoutubeConnections {
     } catch (error) {
       if (!(error instanceof GoogleError) || error.status !== 401) throw error
       const next = await this.#refresh(sellerId, token)
-      return call(next)
+      return call(next.token)
+    }
+  }
+
+  /**
+   * 그 채널의 토큰으로만 유튜브를 부른다 (D-I3-17 (1), AC-I3-85 — 발송함의 게시·확인 조회). 토큰을 꺼내는 순간(401 뒤 새로 고쳐 다시 꺼낼 때도)
+   * 연결의 채널이 channelId와 다르면 부르지 않고 ChannelMismatchError. beforeRetry는 401 뒤 새로 고치기 직전(시험 주입점)
+   */
+  async withChannelToken<T>(sellerId: string, channelId: string, call: (accessToken: string) => Promise<T>, beforeRetry?: () => void | Promise<void>): Promise<T> {
+    const current = await this.#currentToken(sellerId, channelId)
+    try {
+      return await call(current.token)
+    } catch (error) {
+      if (!(error instanceof GoogleError) || error.status !== 401) throw error
+      await beforeRetry?.()
+      const row = await this.row(sellerId)
+      if (row === null) throw new YoutubeAccessError('NOT_CONNECTED')
+      if (row.channelId !== channelId) throw new ChannelMismatchError()
+      const next = await this.#refresh(sellerId, current.token)
+      if (next.channelId !== channelId) throw new ChannelMismatchError()
+      return call(next.token)
     }
   }
 

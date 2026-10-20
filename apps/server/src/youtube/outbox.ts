@@ -18,7 +18,7 @@ import { formatWon, getBroadcast, getBuyer, listClaims, listEffects, listProduct
 import type { Db } from '../db/database.ts'
 import { errorKind, type LogSink } from '../log.ts'
 import type { Actor, ScopeWriter } from '../writer.ts'
-import { YoutubeAccessError, googleFields, type ConsentTarget, type YoutubeConnections } from './connect.ts'
+import { ChannelMismatchError, YoutubeAccessError, googleFields, type ConsentTarget, type YoutubeConnections } from './connect.ts'
 import { batchWindowOf } from './collector.ts'
 import { GoogleError, POST_TIMEOUT_MS, type GoogleClient } from './google.ts'
 import {
@@ -112,10 +112,35 @@ export const BATCH_MODE_WINDOW_SEC = 60
 export const SUMMARY_DELAY_MS = 10 * 60 * 1000
 /** 기다림을 다시 볼 간격 (연결·할당량) */
 const RECHECK_MS = 5000
+/** 한 시도의 확인 조회: 이른 조회 1번 + 끝 조회 3번까지, 같은 행의 조회 사이는 10초 이상 (D-I3-17 (3), AC-I3-87) */
+export const LOOKUP_INTERVAL_MS = 10_000
+/** 조회 한 번이 따라가는 쪽 수 상한 — 이만큼 보고도 그 시도 뒤의 글을 다 보지 못하면 실패한 조회 (D-I3-17 (2), AC-I3-86) */
+export const LOOKUP_MAX_PAGES = 5
+/** 조회 한 쪽의 최대 수: 실시간 채팅(요청한 수보다 적게 오면 끝까지 본 것) · 댓글(최신순) */
+export const LIVE_CHAT_LOOKUP_PAGE = 2000
+export const COMMENT_LOOKUP_PAGE = 50
+
+/** 발송함 시간 (운영 기본값 — E2E 기동만 줄인다, AC-I3-93) */
+export interface OutboxTiming {
+  /** 게시 응답 기다림 (기본 10초) */
+  readonly postTimeoutMs?: number
+  /** 타임아웃 확인 시간 (기본 30초) */
+  readonly confirmWindowMs?: number
+  /** 같은 행의 조회 사이 최소 간격 (기본 10초) */
+  readonly lookupIntervalMs?: number
+  /** 다시 시도 간격의 바탕 (기본 1000 — 2·4·8·16·32초) */
+  readonly retryBaseMs?: number
+  /** 실시간 채팅 조회 한 쪽의 최대 수 (기본 2000) */
+  readonly liveChatLookupPage?: number
+}
 
 export interface OutboxHooks {
   /** 게시 응답을 받은 직후·SENT로 적기 전 (시험: 던지면 서버가 죽은 것처럼 그 행을 SENDING인 채 둔다) */
   readonly afterPost?: (rowIds: readonly number[]) => void | Promise<void>
+  /** 직전 확인(연결·채널·동의)을 지나 SENDING을 잡은 뒤·토큰을 꺼내기 전 (시험: 여기서 연결을 끊고 다른 채널을 잇는다, AC-I3-85) */
+  readonly beforePost?: (rowIds: readonly number[]) => void | Promise<void>
+  /** 게시가 401을 받아 토큰을 새로 고치기 직전 (시험: 그사이 채널을 바꾼다, AC-I3-85) */
+  readonly beforeRetryToken?: () => void | Promise<void>
 }
 
 export interface OutboxOptions {
@@ -134,6 +159,10 @@ export interface OutboxOptions {
   readonly hooks?: OutboxHooks
   /** 기본 순회 간격 (밀리초, 기본 1000) */
   readonly tickMs?: number
+  /** 바퀴마다 성공·실패 (워커 건강 — 연속 3번 실패면 경보, AC-I3-82) */
+  readonly onPass?: (ok: boolean) => void
+  /** 시간 (E2E 기동만 줄인다) */
+  readonly timing?: OutboxTiming
 }
 
 export interface OutboxRowView {
@@ -226,6 +255,8 @@ export class OutboxRunner {
   #wake = new AbortController()
   #inflight = new AbortController()
   #running: Promise<void> | null = null
+  /** 이번 바퀴에 오류가 있었는지 */
+  #passFailed = false
 
   constructor(options: OutboxOptions) {
     this.#options = options
@@ -280,6 +311,7 @@ export class OutboxRunner {
   async runOnce(): Promise<void> {
     if (this.#running !== null) return this.#running
     this.#running = (async () => {
+      this.#passFailed = false
       const steps = [() => this.#options.quota.tick(), () => this.#intake(), () => this.#confirmAll(), () => this.#sendDue(), () => this.#reportAll(), () => this.#summaries()]
       for (const step of steps) {
         if (this.#killed) return
@@ -287,9 +319,11 @@ export class OutboxRunner {
           await step()
         } catch (error) {
           if (error instanceof Killed || this.#killed) return
+          this.#passFailed = true
           this.#options.log({ level: 'error', code: 'OUTBOX_ERROR', errorKind: errorKind(error) })
         }
       }
+      if (!this.#killed) this.#options.onPass?.(!this.#passFailed)
     })().finally(() => {
       this.#running = null
     })
@@ -298,6 +332,18 @@ export class OutboxRunner {
 
   #now(): Date {
     return new Date(this.#options.timer.now())
+  }
+
+  get #postTimeoutMs(): number {
+    return this.#options.timing?.postTimeoutMs ?? POST_TIMEOUT_MS
+  }
+
+  get #confirmWindowMs(): number {
+    return this.#options.timing?.confirmWindowMs ?? CONFIRM_WINDOW_MS
+  }
+
+  get #lookupIntervalMs(): number {
+    return this.#options.timing?.lookupIntervalMs ?? LOOKUP_INTERVAL_MS
   }
 
   async #update(row: Pick<RunnerRow, 'sellerId'>, ids: readonly number[], change: RowChange, expect?: Parameters<typeof updateRows>[5]): Promise<number[]> {
@@ -401,6 +447,7 @@ export class OutboxRunner {
             await this.#sendUnit(unit)
           } catch (error) {
             if (error instanceof Killed || this.#killed) return
+            this.#passFailed = true
             this.#options.log({ level: 'error', code: 'OUTBOX_ERROR', seller: unit[0]?.sellerId ?? '', errorKind: errorKind(error) })
           }
         }
@@ -562,9 +609,12 @@ export class OutboxRunner {
     }
     this.#publishRows(first.sellerId, first.date, ids, 'SENDING', null)
     const sending = rows.map((row) => ({ ...row, groupId, sentText: text, attemptAt: now, state: 'SENDING', reason: null, confirmTries: 0 }))
+    await this.#options.hooks?.beforePost?.(ids)
+    this.#check()
     let remoteId: string
     try {
-      const body = await this.#options.connections.withToken(first.sellerId, (token) =>
+      // 그 방송을 이은 채널의 토큰으로만 — 꺼내는 순간 채널이 다르면 보내지 않는다 (D-I3-17 (1), AC-I3-85)
+      const body = await this.#options.connections.withChannelToken(first.sellerId, link.channelId, (token) =>
         target === 'LIVE_CHAT'
           ? this.#options.google.api({
               sellerId: first.sellerId,
@@ -574,7 +624,7 @@ export class OutboxRunner {
               path: '/liveChat/messages',
               query: { part: 'snippet' },
               body: { snippet: { liveChatId: link.liveChatId, type: 'textMessageEvent', textMessageDetails: { messageText: text } } },
-              timeoutMs: POST_TIMEOUT_MS,
+              timeoutMs: this.#postTimeoutMs,
               signal: this.#inflight.signal,
             })
           : this.#options.google.api({
@@ -585,9 +635,10 @@ export class OutboxRunner {
               path: '/commentThreads',
               query: { part: 'snippet' },
               body: { snippet: { videoId: link.videoId, topLevelComment: { snippet: { textOriginal: text } } } },
-              timeoutMs: POST_TIMEOUT_MS,
+              timeoutMs: this.#postTimeoutMs,
               signal: this.#inflight.signal,
             }),
+        () => this.#options.hooks?.beforeRetryToken?.(),
       )
       this.#check()
       remoteId = typeof body.id === 'string' ? body.id : ''
@@ -618,6 +669,8 @@ export class OutboxRunner {
       const changed = await this.#update(first, ids, { state: 'FAILED', reason, nextAt: null, leaseOwner: null, leaseUntil: null }, { state: 'SENDING', leaseOwner: this.#options.owner })
       this.#publishRows(first.sellerId, first.date, changed, 'FAILED', reason)
     }
+    // 토큰을 꺼내는 순간 연결의 채널이 그 방송을 이은 채널과 달랐다 — 보내지 않았다 (묶음이면 함께, AC-I3-85)
+    if (error instanceof ChannelMismatchError) return fail('NOT_MY_CHANNEL')
     if (error instanceof YoutubeAccessError) return back('RECONNECT', RECHECK_MS)
     if (!(error instanceof GoogleError)) {
       log({ level: 'warn', code: 'OUTBOX_POST_FAILED', seller: first.sellerId, errorKind: errorKind(error) })
@@ -626,8 +679,9 @@ export class OutboxRunner {
     log({ level: 'warn', code: 'OUTBOX_POST_FAILED', seller: first.sellerId, ...googleFields(error) })
     // 응답을 모른다(타임아웃·연결 끊김): 바로 다시 보내지 않고 올라갔는지 확인한다
     if (error.kind === 'timeout' || error.kind === 'network') {
-      await this.#update(first, ids, { reason: 'CONFIRM', confirmUntil: new Date(now.getTime() + CONFIRM_WINDOW_MS) }, { state: 'SENDING', leaseOwner: this.#options.owner })
-      await this.#confirm(rows.map((row) => ({ ...row, reason: 'CONFIRM', confirmUntil: new Date(now.getTime() + CONFIRM_WINDOW_MS) })), link, target)
+      const confirmUntil = new Date(now.getTime() + this.#confirmWindowMs)
+      await this.#update(first, ids, { reason: 'CONFIRM', confirmUntil, nextAt: null }, { state: 'SENDING', leaseOwner: this.#options.owner })
+      await this.#confirm(rows.map((row) => ({ ...row, reason: 'CONFIRM', confirmUntil, nextAt: null })), link, target)
       return
     }
     const reason = error.reason
@@ -654,12 +708,13 @@ export class OutboxRunner {
     if (attempts > MAX_RETRIES) {
       const changed = await this.#update(first, ids, { state: 'FAILED', reason: 'GAVE_UP', attempts, nextAt: null, leaseOwner: null, leaseUntil: null, confirmUntil: null, confirmTries: 0 }, { state: 'SENDING' })
       this.#publishRows(first.sellerId, first.date, changed, 'FAILED', 'GAVE_UP')
+      if (changed.length > 0) this.#options.log({ level: 'warn', code: 'OUTBOX_GAVE_UP', seller: first.sellerId, date: first.date })
       return
     }
     const changed = await this.#update(
       first,
       ids,
-      { state: 'WAITING', reason: 'RETRY', attempts, nextAt: new Date(now.getTime() + 2 ** attempts * 1000), leaseOwner: null, leaseUntil: null, confirmUntil: null, confirmTries: 0 },
+      { state: 'WAITING', reason: 'RETRY', attempts, nextAt: new Date(now.getTime() + 2 ** attempts * (this.#options.timing?.retryBaseMs ?? 1000)), leaseOwner: null, leaseUntil: null, confirmUntil: null, confirmTries: 0 },
       { state: 'SENDING' },
     )
     this.#publishRows(first.sellerId, first.date, changed, 'WAITING', 'RETRY')
@@ -732,7 +787,7 @@ export class OutboxRunner {
         // 서버가 죽은 뒤 남은 행(임대 지남): 확인부터 한다. 임대를 넘겨받는다(한 문장). 게시 중에 죽은 행의 확인 시간은 그 시도의 타임아웃부터 30초 —
         // 임대(60초)가 지났으니 이미 끝났다: 바로 끝 조회부터 (AC-Y1-96)
         const until = new Date(now.getTime() + SENDING_LEASE_MS)
-        const confirmUntil = first.confirmUntil ?? (first.attemptAt === null ? now : new Date(first.attemptAt.getTime() + POST_TIMEOUT_MS + CONFIRM_WINDOW_MS))
+        const confirmUntil = first.confirmUntil ?? (first.attemptAt === null ? now : new Date(first.attemptAt.getTime() + this.#postTimeoutMs + this.#confirmWindowMs))
         const ids = group.map((row) => row.id)
         const claimed = await this.#update(first, ids, { reason: confirming ? first.reason : 'CONFIRM', confirmUntil, leaseOwner: this.#options.owner, leaseUntil: until }, { state: 'SENDING', ...(first.leaseOwner === null ? {} : { leaseOwner: first.leaseOwner }) })
         if (claimed.length !== ids.length) continue
@@ -766,38 +821,44 @@ export class OutboxRunner {
     // 확인이 길어져도(조회 시간 제한·끝 조회 다시 하기) 다른 실행기가 이 행을 넘겨받지 않게 임대를 늘린다
     const kept = await this.#update(first, ids, { leaseUntil: new Date(now + SENDING_LEASE_MS) }, { state: 'SENDING', leaseOwner: owner })
     if (kept.length !== ids.length) return
-    // 1. 수집기가 본 우리 메시지 (실시간 채팅, 바퀴마다)
+    // 1. 수집기가 본 우리 메시지 (실시간 채팅, 바퀴마다 — 유튜브를 부르지 않는다)
     if (target === 'LIVE_CHAT' && (await this.#claim(rows, link, target, [], 'SENDING')) !== 'none') return
+    // 같은 행의 조회 사이는 10초 이상 (AC-I3-87) — 확인 중인 행(SENDING)의 next_at = 다음 조회를 해도 되는 시각
+    if (first.nextAt !== null && now < first.nextAt.getTime()) return
+    const nextLookup = new Date(now + this.#lookupIntervalMs)
     const until = first.confirmUntil?.getTime() ?? 0
     if (now < until) {
       // 2. 이른 조회 (시도마다 한 번): 수집기가 LIVE가 아닌 실시간 채팅, 영상·요약 댓글
       if (first.reason !== 'CONFIRM') return
       if (target === 'LIVE_CHAT' && (await this.#options.collectorRunning(first.sellerId, link.id))) return
       const lookup = await this.#lookup(first, link, target)
-      await this.#update(first, ids, { reason: lookup === null ? 'CONFIRM_LIST_FAILED' : 'CONFIRM_LISTED' }, { state: 'SENDING', leaseOwner: owner })
+      await this.#update(first, ids, { reason: lookup === null ? 'CONFIRM_LIST_FAILED' : 'CONFIRM_LISTED', nextAt: nextLookup }, { state: 'SENDING', leaseOwner: owner })
       if (lookup !== null) await this.#claim(rows, link, target, lookup, 'SENDING')
       return
     }
-    // 3. 끝 조회 (확인 시간이 끝난 뒤): 성공한 조회로도 못 찾았을 때만 다시 게시한다
+    // 3. 끝 조회 (확인 시간이 끝난 뒤, 3번까지): 그 시도 뒤의 글을 모두 본 조회로도 못 찾았을 때만 다시 게시한다.
+    //    조회 실패·같은 글을 게시하는 중인 다른 묶음 때문에 짝짓기를 미룸은 모두 한 번으로 센다 — 3번 안에 정하지 못하면 UNCONFIRMED(다시 게시 없음)
     const lookup = await this.#lookup(first, link, target)
-    if (lookup === null) {
-      const tries = first.confirmTries + 1
-      if (tries < MAX_CONFIRM_TRIES) {
-        await this.#update(first, ids, { confirmTries: tries }, { state: 'SENDING', leaseOwner: owner })
-        return
-      }
-      // 확인하지 못했다: 다시 게시하지 않는다(두 번 게시보다 빠짐이 안전하다). 게시 보고도 하지 않는다 — 판매자가 유튜브를 보고 다시 보낸다
-      const changed = await this.#update(
-        first,
-        ids,
-        { state: 'FAILED', reason: 'UNCONFIRMED', confirmTries: tries, nextAt: null, leaseOwner: null, leaseUntil: null, confirmUntil: null },
-        { state: 'SENDING', leaseOwner: owner },
-      )
-      this.#publishRows(first.sellerId, first.date, changed, 'FAILED', 'UNCONFIRMED')
-      this.#options.log({ level: 'warn', code: 'OUTBOX_UNCONFIRMED', seller: first.sellerId })
+    const outcome = lookup === null ? 'failed' : await this.#claim(rows, link, target, lookup, 'SENDING')
+    if (outcome === 'sent' || outcome === 'gone') return
+    if (outcome === 'none') {
+      await this.#failAttempt(rows)
       return
     }
-    if ((await this.#claim(rows, link, target, lookup, 'SENDING')) === 'none') await this.#failAttempt(rows)
+    const tries = first.confirmTries + 1
+    if (tries < MAX_CONFIRM_TRIES) {
+      await this.#update(first, ids, { confirmTries: tries, nextAt: nextLookup }, { state: 'SENDING', leaseOwner: owner })
+      return
+    }
+    // 확인하지 못했다: 다시 게시하지 않는다(두 번 게시보다 빠짐이 안전하다). 게시 보고도 하지 않는다 — 판매자가 유튜브를 보고 다시 보낸다
+    const changed = await this.#update(
+      first,
+      ids,
+      { state: 'FAILED', reason: 'UNCONFIRMED', confirmTries: tries, nextAt: null, leaseOwner: null, leaseUntil: null, confirmUntil: null },
+      { state: 'SENDING', leaseOwner: owner },
+    )
+    this.#publishRows(first.sellerId, first.date, changed, 'FAILED', 'UNCONFIRMED')
+    if (changed.length > 0) this.#options.log({ level: 'warn', code: 'OUTBOX_UNCONFIRMED', seller: first.sellerId, date: first.date })
   }
 
   /**
@@ -827,49 +888,72 @@ export class OutboxRunner {
   }
 
   /**
-   * 최근 채팅(실시간 채팅)·최근 댓글(영상·요약 댓글) 조회 한 번 — 우리 채널이 쓴 같은 글 전부(그 시도 시작 − 5초 이후).
-   * 응답을 받아 항목을 끝까지 본 경우만 결과(빈 목록 포함)이고, 조회하지 못하면 null: 네트워크·시간 제한·5xx·429·속도 제한·할당량 초과·권한 없음·
-   * 401 뒤 새로 고침 실패, 다시 연결 필요, 할당량 멈춤이라 부르지 않음 (AC-Y1-96)
+   * 확인 조회 한 번 — 우리 채널이 쓴 같은 글 전부(그 시도 시작 − 5초 이후). 응답의 다음 쪽을 따라가 그 범위를 **모두 본** 경우만 결과다
+   * (D-I3-17 (2), AC-I3-86): 실시간 채팅은 받은 쪽이 꽉 차지 않을 때까지(요청한 최대 수보다 적게 옴), 댓글(최신순)은 기준 시각보다 이른 항목이
+   * 나올 때까지(다음 쪽이 없으면 끝), 많아야 5쪽. 5쪽으로 다 보지 못하면 실패한 조회(null)다. 쪽마다 할당량에 센다.
+   * 조회하지 못해도 null: 네트워크·시간 제한·5xx·429·속도 제한·할당량 초과·권한 없음·401 뒤 새로 고침 실패, 다시 연결 필요, 할당량 멈춤이라 부르지 않음,
+   * 그 방송을 이은 채널의 토큰을 꺼낼 수 없음(채널이 바뀜 — AC-I3-85)
    */
   async #lookup(row: RunnerRow, link: LinkRow, target: OutboxTarget): Promise<RemoteCandidate[] | null> {
     const { connections, google, quota, log } = this.#options
     const text = row.sentText ?? ''
     const since = row.attemptAt === null ? 0 : row.attemptAt.getTime() - CONFIRM_SLACK_MS
-    if ((await quota.mode(row.sellerId)) === 'PAUSED') return null
-    let body: Record<string, unknown>
-    try {
-      body = await connections.withToken(row.sellerId, (token) =>
-        target === 'LIVE_CHAT'
-          ? google.api({ sellerId: row.sellerId, method: 'liveChatMessages.list', accessToken: token, path: '/liveChat/messages', query: { liveChatId: link.liveChatId, part: 'snippet,authorDetails', maxResults: '2000' }, signal: this.#inflight.signal })
-          : google.api({ sellerId: row.sellerId, method: 'commentThreads.list', accessToken: token, path: '/commentThreads', query: { part: 'snippet', videoId: link.videoId, order: 'time', maxResults: '50' }, signal: this.#inflight.signal }),
-      )
-    } catch (error) {
-      log({ level: 'warn', code: 'YOUTUBE_API_FAILED', seller: row.sellerId, ...googleFields(error) })
-      if (error instanceof GoogleError && error.reason === 'quotaExceeded') await quota.markExceeded(row.sellerId)
-      return null
-    }
-    if (!Array.isArray(body.items)) return null
+    const pageSize = target === 'LIVE_CHAT' ? (this.#options.timing?.liveChatLookupPage ?? LIVE_CHAT_LOOKUP_PAGE) : COMMENT_LOOKUP_PAGE
     const found: RemoteCandidate[] = []
-    for (const item of body.items as Record<string, unknown>[]) {
-      if (typeof item.id !== 'string') continue
-      let author: unknown
-      let message: unknown
-      let published: number
-      if (target === 'LIVE_CHAT') {
-        const snippet = (item.snippet ?? {}) as Record<string, unknown>
-        author = ((item.authorDetails ?? {}) as Record<string, unknown>).channelId
-        message = ((snippet.textMessageDetails ?? {}) as Record<string, unknown>).messageText
-        published = Date.parse(typeof snippet.publishedAt === 'string' ? snippet.publishedAt : '')
-      } else {
-        const top = (((item.snippet ?? {}) as Record<string, unknown>).topLevelComment ?? {}) as Record<string, unknown>
-        const snippet = (top.snippet ?? {}) as Record<string, unknown>
-        author = ((snippet.authorChannelId ?? {}) as Record<string, unknown>).value
-        message = snippet.textOriginal
-        published = Date.parse(typeof snippet.publishedAt === 'string' ? snippet.publishedAt : '')
+    let pageToken: string | null = null
+    for (let page = 0; page < LOOKUP_MAX_PAGES; page++) {
+      if ((await quota.mode(row.sellerId)) === 'PAUSED') return null
+      let body: Record<string, unknown>
+      try {
+        const query: Record<string, string> =
+          target === 'LIVE_CHAT'
+            ? { liveChatId: link.liveChatId, part: 'snippet,authorDetails', maxResults: String(pageSize) }
+            : { part: 'snippet', videoId: link.videoId, order: 'time', maxResults: String(pageSize) }
+        if (pageToken !== null) query.pageToken = pageToken
+        body = await connections.withChannelToken(row.sellerId, link.channelId, (token) =>
+          google.api({
+            sellerId: row.sellerId,
+            method: target === 'LIVE_CHAT' ? 'liveChatMessages.list' : 'commentThreads.list',
+            accessToken: token,
+            path: target === 'LIVE_CHAT' ? '/liveChat/messages' : '/commentThreads',
+            query,
+            signal: this.#inflight.signal,
+          }),
+        )
+      } catch (error) {
+        log({ level: 'warn', code: 'YOUTUBE_API_FAILED', seller: row.sellerId, ...googleFields(error) })
+        if (error instanceof GoogleError && error.reason === 'quotaExceeded') await quota.markExceeded(row.sellerId)
+        return null
       }
-      if (author === link.channelId && message === text && Number.isFinite(published) && published >= since) found.push({ id: item.id, publishedAt: published })
+      if (!Array.isArray(body.items)) return null
+      const items = body.items as Record<string, unknown>[]
+      let reachedOlder = false
+      for (const item of items) {
+        if (typeof item.id !== 'string') continue
+        let author: unknown
+        let message: unknown
+        let published: number
+        if (target === 'LIVE_CHAT') {
+          const snippet = (item.snippet ?? {}) as Record<string, unknown>
+          author = ((item.authorDetails ?? {}) as Record<string, unknown>).channelId
+          message = ((snippet.textMessageDetails ?? {}) as Record<string, unknown>).messageText
+          published = Date.parse(typeof snippet.publishedAt === 'string' ? snippet.publishedAt : '')
+        } else {
+          const top = (((item.snippet ?? {}) as Record<string, unknown>).topLevelComment ?? {}) as Record<string, unknown>
+          const snippet = (top.snippet ?? {}) as Record<string, unknown>
+          author = ((snippet.authorChannelId ?? {}) as Record<string, unknown>).value
+          message = snippet.textOriginal
+          published = Date.parse(typeof snippet.publishedAt === 'string' ? snippet.publishedAt : '')
+          if (Number.isFinite(published) && published < since) reachedOlder = true
+        }
+        if (author === link.channelId && message === text && Number.isFinite(published) && published >= since) found.push({ id: item.id, publishedAt: published })
+      }
+      const next = typeof body.nextPageToken === 'string' && body.nextPageToken !== '' ? body.nextPageToken : null
+      // 그 시도 뒤의 글을 모두 봤다
+      if (target === 'LIVE_CHAT' ? items.length < pageSize || next === null : reachedOlder || next === null) return found
+      pageToken = next
     }
-    return found
+    return null
   }
 
   // ── 방송 후 요약 댓글 (AC-Y1-46) ──────────────────────────────────────

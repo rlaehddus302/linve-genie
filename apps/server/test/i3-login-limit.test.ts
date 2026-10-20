@@ -6,10 +6,10 @@ import { IpLimiter, VerifyGate, clientAddress, ipKey } from '../src/login-limit.
 import { formatLog } from '../src/log.ts'
 import { verifyPassword } from '../src/secrets.ts'
 import type { ServerOptions } from '../src/server.ts'
-import { ORIGIN, addSeller, client, createBroadcast, expectOk, fakeClock, newWorld, writeEvent, type TestServer } from './support.ts'
+import { ORIGIN, addSeller, client, createBroadcast, expectOk, fakeClock, newWorld, writeEvent, type FakeClock, type TestServer } from './support.ts'
 
 const worlds: TestServer[] = []
-async function world(overrides: Partial<ServerOptions> = {}): Promise<TestServer> {
+async function world(overrides: Partial<ServerOptions> & { clock?: FakeClock } = {}): Promise<TestServer> {
   const created = await newWorld(overrides)
   worlds.push(created)
   return created

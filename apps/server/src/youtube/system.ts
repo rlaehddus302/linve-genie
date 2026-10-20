@@ -14,7 +14,7 @@ import { uniqueViolation, type CommittedRecord, type ScopeWriter } from '../writ
 import { CollectorManager, collectorView, noticeView, type CollectorHooks, type CollectorView, type NoticeView } from './collector.ts'
 import { YoutubeAccessError, YoutubeConnections, googleFields, type ConnectionView, type SessionInfo } from './connect.ts'
 import { DEFAULT_COSTS, GOOGLE_ENDPOINTS, GoogleClient, GoogleError, type ApiMethod, type GoogleEndpoints } from './google.ts'
-import { OutboxRunner, type OutboxHooks } from './outbox.ts'
+import { OutboxRunner, type OutboxHooks, type OutboxTiming } from './outbox.ts'
 import { findRow, isOurPost } from './outbox-store.ts'
 import { DEFAULT_QUOTA, QuotaMeter, type QuotaSettings } from './quota.ts'
 import {
@@ -122,6 +122,10 @@ export interface YoutubeSystemOptions {
   readonly linkHooks?: LinkHooks
   /** 수집기 임대·순회 (시험에서 줄인다) */
   readonly collectorTiming?: { readonly leaseMs?: number; readonly renewMs?: number; readonly scanMs?: number }
+  /** 워커 건강 (바퀴마다 성공·실패 — 운영 상태·경보, AC-I3-81·82) */
+  readonly health?: { pass(worker: 'collector' | 'outbox', ok: boolean): void }
+  /** 발송함 시간 (E2E 기동만 줄인다 — AC-I3-93) */
+  readonly outboxTiming?: OutboxTiming
 }
 
 export class YoutubeSystem {
@@ -152,6 +156,7 @@ export class YoutubeSystem {
         this.outbox.notify()
       },
       () => connectedSellerIds(db),
+      (sellerId) => log({ level: 'warn', code: 'QUOTA_EXCEEDED', seller: sellerId }),
     )
     const endpoints = config.endpoints ?? GOOGLE_ENDPOINTS
     this.google = new GoogleClient({
@@ -193,6 +198,8 @@ export class YoutubeSystem {
         return row !== null && row.leaseUntil !== null && row.leaseUntil.getTime() > timer.now() && row.status === 'LIVE'
       },
       ...(options.outboxHooks === undefined ? {} : { hooks: options.outboxHooks }),
+      ...(options.outboxTiming === undefined ? {} : { timing: options.outboxTiming }),
+      onPass: (ok) => options.health?.pass('outbox', ok),
     })
     this.collectors = new CollectorManager({
       db,
@@ -209,6 +216,7 @@ export class YoutubeSystem {
       onChatEnded: (sellerId, link) => this.outbox.chatEnded(sellerId, link.broadcastId),
       ...(options.collectorHooks === undefined ? {} : { hooks: options.collectorHooks }),
       ...options.collectorTiming,
+      onPass: (ok) => options.health?.pass('collector', ok),
     })
   }
 
