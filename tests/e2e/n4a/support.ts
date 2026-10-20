@@ -49,9 +49,9 @@ export async function cleanupN4a(page: Page): Promise<void> {
   expect((ov.queue as unknown as { labelsEnabled: boolean }).labelsEnabled).toBe(true)
 }
 
-/** 위 줄 "설정" 링크 */
+/** 메뉴 "설정" — PC 위 줄 메뉴·휴대폰 아래 막대의 한 항목 (D-N4a-07) */
 export function settingsLink(page: Page) {
-  return page.getByRole('banner').getByRole('link', { name: '설정', exact: true })
+  return page.getByRole('navigation', { name: '메뉴' }).getByRole('link', { name: '설정', exact: true })
 }
 
 export function labelSection(page: Page) {
