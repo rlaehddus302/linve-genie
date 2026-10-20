@@ -13,15 +13,42 @@ import type { SheetRow } from './product-import.ts'
 
 export const IMPORT_FILE_MAX_BYTES = 2 * 1024 * 1024
 export const IMPORT_TEXT_MAX_CHARS = 200_000
+/**
+ * 미리 보기 본문 상한: 2MB 파일의 base64(약 2.8MB)·붙여 넣은 글 200,000글자(JSON \u 이스케이프로 많아야 약 2.4MB)가 들어간다
+ */
+export const IMPORT_PREVIEW_BODY_LIMIT_BYTES = 3 * 1024 * 1024
+/**
+ * 등록 본문 상한 (SA-I2-007): 등록할 줄은 미리 보기가 받은 글에서 나온 품종이다. .csv·.txt는 2MB 파일이면 글자 수를 따로 세지 않는다(AC-I2-51).
+ * 그 품종의 JSON(UTF-8) 크기는 원래 파일 바이트의 3배를 넘지 않는다 — EUC-KR 두 바이트 글자 → 3바이트, EUC-KR로 읽지 못한 한 바이트 → U+FFFD 3바이트,
+ * UTF-8 `\`·`"` 한 바이트 → 2바이트, 정규화(NFC)로 풀리는 글자 → 많아야 3배. 그래서 상한 = 2MB × 3 + 줄 머리(`{"no":…,"name":"","price":…}` 500개)·요청 번호 여유.
+ * 붙여 넣은 글·.xlsx 칸 글(200,000글자)에서 나온 품종은 이보다 훨씬 작다. 미리 보기는 실제 등록 본문 크기를 재서(importRegisterBodyBytes)
+ * 이 상한을 넘으면 등록할 수 있다고 보이지 않는다 — "n개 등록하기"를 보인 목록은 늘 등록 본문 상한 안이다
+ */
+export const IMPORT_REGISTER_BODY_LIMIT_BYTES = 3 * IMPORT_FILE_MAX_BYTES + 64 * 1024
+/** 요청 번호 최대 길이 (api-fields REQUEST_ID_RE) — 등록 본문 크기를 셀 때 가장 긴 요청 번호로 잡는다 */
+const REQUEST_ID_MAX_CHARS = 64
 
 export const IMPORT_FILE_MESSAGES = {
   tooLarge: '파일이 너무 커요(2MB까지).',
   type: '엑셀(.xlsx)이나 CSV 파일을 골라 주세요.',
   unreadable: '파일을 읽지 못했어요. 엑셀에서 다시 저장해 주세요.',
   textTooLong: '붙여 넣은 글이 너무 길어요(200,000글자까지).',
-  /** .xlsx 칸 글이 200,000글자를 넘음 (SA-I2-001) */
+  /** .xlsx 칸 글이 200,000글자를 넘음 (SA-I2-001), 파일에서 나온 등록할 줄이 등록 본문 상한을 넘음 (SA-I2-007) */
   sheetTooLong: '파일 안의 내용이 너무 많아요. 번호·품종·가격 세 칸만 새 파일에 옮겨 다시 골라 주세요.',
+  /** 붙여 넣은 글에서 나온 등록할 줄이 등록 본문 상한을 넘음 (SA-I2-007 — 200,000글자 안이면 생기지 않는다) */
+  pasteTooLong: '붙여 넣은 내용이 너무 많아요. 번호·품종·가격 세 칸만 다시 복사해 붙여 넣어 주세요.',
+  /** 미리 보기 본문이 상한을 넘음 (본문 상한 — 화면은 2MB 넘는 파일을 올리기 전에 막는다) */
+  previewBodyTooLarge: '보낸 내용이 너무 커요. 파일은 2MB까지, 붙여 넣은 글은 200,000글자까지 가져올 수 있어요.',
+  /** 등록 본문이 상한을 넘음 (미리 보기에서 본 목록이면 생기지 않는다) */
+  registerBodyTooLarge: '등록할 내용이 너무 많아요. 번호·품종·가격 세 칸만 새 파일에 옮겨 다시 골라 주세요.',
 } as const
+
+/** 등록 본문 `{ requestId, rows: [{ no, name, price }] }` JSON의 UTF-8 바이트 수 (화면이 보내는 모양 그대로, 요청 번호는 가장 긴 것으로) */
+export function importRegisterBodyBytes(rows: readonly { readonly no: number; readonly name: string; readonly price: number }[]): number {
+  let total = Buffer.byteLength(JSON.stringify({ requestId: 'x'.repeat(REQUEST_ID_MAX_CHARS), rows: [] }))
+  for (const [index, row] of rows.entries()) total += Buffer.byteLength(JSON.stringify({ no: row.no, name: row.name, price: row.price })) + (index > 0 ? 1 : 0)
+  return total
+}
 
 export type ImportFileKind = 'text' | 'xlsx'
 

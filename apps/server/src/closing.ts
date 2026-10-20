@@ -14,7 +14,7 @@ import { events, packingRecords } from './db/schema.ts'
 import type { ErrorCode, FieldProblem } from './errors.ts'
 import { MIME, documentFont, fileNamePart } from './files.ts'
 import type { StreamHub } from './hub.ts'
-import { IMPORT_FILE_MAX_BYTES, IMPORT_FILE_MESSAGES, IMPORT_TEXT_MAX_CHARS, decodeTextFile, importFileKind, type XlsxReadResult } from './import-files.ts'
+import { IMPORT_FILE_MAX_BYTES, IMPORT_FILE_MESSAGES, IMPORT_REGISTER_BODY_LIMIT_BYTES, IMPORT_TEXT_MAX_CHARS, decodeTextFile, importFileKind, importRegisterBodyBytes, type XlsxReadResult } from './import-files.ts'
 import type { LogSink } from './log.ts'
 import { phoneIdProblem, unknownFieldProblems } from './messages.ts'
 import {
@@ -556,6 +556,11 @@ export class ClosingService {
     const settings = { unit: target.unit, maxNumber: target.maxNumber, existing: target.existing }
     const result: ImportResult = source.kind === 'text' ? parseProductList(source.text, settings) : parseProductRows(source.rows, settings)
     if ('error' in result) return ok({ broadcast: b, unit: target.unit, maxNumber: target.maxNumber, error: result.error, header: null, headerCells: null, rows: [], register: 0, problems: 0 })
+    // 등록할 줄을 그대로 보낸 등록 본문이 등록 상한을 넘으면 "n개 등록하기"를 보이지 않는다 — 미리 보기가 받은 목록은 늘 등록된다 (SA-I2-007)
+    if (importRegisterBodyBytes(result.rows.flatMap((row) => ('error' in row ? [] : [row]))) > IMPORT_REGISTER_BODY_LIMIT_BYTES) {
+      const [field, message] = own(body, 'file') === undefined ? (['text', IMPORT_FILE_MESSAGES.pasteTooLong] as const) : (['file', IMPORT_FILE_MESSAGES.sheetTooLong] as const)
+      return problem(413, 'FILE_TOO_LARGE', message, [{ field, message }])
+    }
     const sheet = source.kind === 'rows' ? new Map(source.rows.map((row) => [row.line, row.cells])) : null
     const lineText = (line: number): string => (sheet === null ? (source.kind === 'text' ? (source.lines.get(line) ?? '') : '') : (sheet.get(line)?.join('\t') ?? ''))
     // 머리글 칸: 해석기와 같은 칸 나누기(따옴표 포함)·정규화

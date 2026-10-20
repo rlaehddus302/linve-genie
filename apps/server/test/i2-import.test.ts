@@ -3,7 +3,7 @@ import { listProducts } from '@livejjim/core'
 import { crc32, deflateRawSync } from 'node:zlib'
 import ExcelJS from 'exceljs'
 import { describe, expect, it } from 'vitest'
-import { IMPORT_FILE_MAX_BYTES, XLSX_LIMITS, readXlsxRowsBounded, scanXlsxZip } from '../src/import-files.ts'
+import { IMPORT_FILE_MAX_BYTES, IMPORT_PREVIEW_BODY_LIMIT_BYTES, IMPORT_REGISTER_BODY_LIMIT_BYTES, XLSX_LIMITS, importRegisterBodyBytes, readXlsxRowsBounded, scanXlsxZip } from '../src/import-files.ts'
 import { chat, ok, post } from './i2-support.ts'
 import { addSeller, client, countRows, createBroadcast, dumpAllTables, newWorld, rid, type Seller, type TestServer } from './support.ts'
 
@@ -351,6 +351,58 @@ describe('AC-I2-51 등록', () => {
     // 다른 쓰기 경로의 본문 상한(64KB)은 그대로
     const other = await post(world, seller, `/api/broadcasts/${b}/end`, { requestId: rid('end'), pad: 'x'.repeat(70 * 1024) })
     expect(other.status).toBe(413)
+  }, 60_000)
+
+  it('SA-I2-007: 2MB 안의 .csv는 글자 수를 따로 세지 않는다 — 품종 JSON이 가장 커지는 파일(EUC-KR로 읽지 못한 바이트 = U+FFFD 3바이트, UTF-8 역슬래시 = 2바이트)도 미리 보기 "500개 등록하기" → 같은 줄 등록', async () => {
+    const { world, seller } = await setup({ settings: { 'claim.maxNumber': 999 } })
+    const fill = (byte: number): Buffer => {
+      const lines: Buffer[] = []
+      for (let i = 1; i <= 500; i++) lines.push(Buffer.concat([Buffer.from(`${String(i)},`), Buffer.alloc(4184, byte), Buffer.from(',1000\n')]))
+      return Buffer.concat(lines)
+    }
+    for (const [fileName, bytes, factor] of [
+      ['읽지못함.csv', fill(0xff), 3],
+      ['역슬래시.txt', fill(0x5c), 2],
+    ] as const) {
+      expect(bytes.byteLength).toBeLessThanOrEqual(IMPORT_FILE_MAX_BYTES)
+      // 파일마다 새 방송 (같은 번호 1~500)
+      const b = (await createBroadcast(world, seller, { date: '2026-10-19' })).id
+      const shown = await preview(world, seller, b, fileBody(fileName, bytes))
+      expect(shown.status, shown.text.slice(0, 200)).toBe(200)
+      expect([shown.body.register, shown.body.problems]).toEqual([500, 0])
+      const rows = (shown.body.rows as { no: number; name: string; price: number }[]).map(({ no, name, price }) => ({ no, name, price }))
+      const body = { requestId: rid('imp'), rows }
+      // 등록 본문은 파일 바이트의 2~3배 — 미리 보기가 잰 크기와 같고, 등록 상한 안이다
+      const size = Buffer.byteLength(JSON.stringify(body))
+      expect(size).toBeGreaterThan(bytes.byteLength * (factor - 0.1))
+      expect(size).toBeLessThanOrEqual(importRegisterBodyBytes(rows))
+      expect(importRegisterBodyBytes(rows)).toBeLessThanOrEqual(IMPORT_REGISTER_BODY_LIMIT_BYTES)
+      const done = await post(world, seller, `/api/broadcasts/${b}/import`, body)
+      expect(done.status, done.text.slice(0, 200)).toBe(200)
+      expect(done.body).toMatchObject({ registered: 500 })
+    }
+  }, 120_000)
+
+  it('SA-I2-007: 등록 본문 크기 = 화면이 보내는 { requestId, rows } JSON의 UTF-8 바이트(가장 긴 요청 번호), 상한을 넘는 본문은 할 일을 적은 문장(413)', async () => {
+    const samples: { no: number; name: string; price: number }[][] = [
+      [],
+      [{ no: 1, name: '', price: 100 }],
+      [
+        { no: 15, name: '핑크"프릴\\ 🌵', price: 10000 },
+        { no: 16, name: '라울 금 가́', price: 8000 },
+        { no: 999, name: '�'.repeat(10), price: 9_007_199_254_740_991 },
+      ],
+    ]
+    for (const rows of samples) expect(importRegisterBodyBytes(rows)).toBe(Buffer.byteLength(JSON.stringify({ requestId: 'r'.repeat(64), rows })))
+    const { world, seller, b } = await setup()
+    // 등록 본문 상한을 넘으면 — 미리 보기에서 본 목록이면 생기지 않는다
+    const huge = await post(world, seller, `/api/broadcasts/${b}/import`, { requestId: rid('imp'), rows: [{ no: 1, name: '가'.repeat(Math.ceil(IMPORT_REGISTER_BODY_LIMIT_BYTES / 3) + 10), price: 1000 }] })
+    expect(huge.status).toBe(413)
+    expect(huge.body.error).toEqual({ code: 'PAYLOAD_TOO_LARGE', message: '등록할 내용이 너무 많아요. 번호·품종·가격 세 칸만 새 파일에 옮겨 다시 골라 주세요.' })
+    // 미리 보기 본문 상한(3MB)을 넘으면 — 화면은 2MB 넘는 파일을 올리기 전에 막는다
+    const big = await preview(world, seller, b, { text: 'x'.repeat(IMPORT_PREVIEW_BODY_LIMIT_BYTES) })
+    expect(big.status).toBe(413)
+    expect(big.body.error).toEqual({ code: 'PAYLOAD_TOO_LARGE', message: '보낸 내용이 너무 커요. 파일은 2MB까지, 붙여 넣은 글은 200,000글자까지 가져올 수 있어요.' })
   }, 60_000)
 
   it('SA-I2-001: .xlsx 칸 글도 붙여 넣은 글처럼 200,000글자까지 — 넘으면 쉬운 문장(413), 안이면 미리 보기·등록이 된다', async () => {

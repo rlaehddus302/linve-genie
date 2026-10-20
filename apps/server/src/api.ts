@@ -15,6 +15,7 @@ import { ClosingService, buyerParam, type ApiProblem, type FileResult, type Outc
 import { apiError, JSON_CONTENT_TYPE } from './errors.ts'
 import { MIME, fileResponse } from './files.ts'
 import type { StreamHub } from './hub.ts'
+import { IMPORT_FILE_MESSAGES, IMPORT_PREVIEW_BODY_LIMIT_BYTES, IMPORT_REGISTER_BODY_LIMIT_BYTES } from './import-files.ts'
 import { unknownFieldProblems } from './messages.ts'
 import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.ts'
 import type { Actor, WriteOutcome, WriteResult } from './writer.ts'
@@ -22,12 +23,11 @@ import type { Actor, WriteOutcome, WriteResult } from './writer.ts'
 /** 요청 본문 상한 (AC-S04-34) */
 export const BODY_LIMIT_BYTES = 64 * 1024
 /**
- * 상품 목록 가져오기 본문 상한 (I2 AC-I2-51): 미리 보기(파일 2MB의 base64·붙여 넣은 글 200,000글자)와 등록(미리 보기의 등록할 줄 1~500개) 둘 다.
- * 등록 본문은 미리 보기가 받은 글(붙여 넣은 글·파일의 칸 글 모두 200,000글자까지 — import-files.ts)에서 나온 품종이라
- * 글자마다 JSON 6바이트(\u 이스케이프)로 잡아도 약 1.3MB를 넘지 않는다 — 미리 보기가 "n개 등록하기"를 보인 목록은 늘 이 상한 안이다 (SA-I2-001)
+ * 상품 목록 가져오기 본문 상한 (I2 AC-I2-51): 미리 보기 3MB(파일 2MB의 base64·붙여 넣은 글 200,000글자), 등록 6MB 남짓(2MB 파일에서 나온 품종의 최악 크기 —
+ * import-files.ts IMPORT_REGISTER_BODY_LIMIT_BYTES). 미리 보기가 "n개 등록하기"를 보인 목록은 늘 등록 상한 안이다 (SA-I2-001·SA-I2-007)
  */
-export const IMPORT_BODY_LIMIT_BYTES = 3 * 1024 * 1024
-const IMPORT_PATH = /^\/api\/broadcasts\/[^/]+\/import(?:\/preview)?$/
+const IMPORT_PREVIEW_PATH = /^\/api\/broadcasts\/[^/]+\/import\/preview$/
+const IMPORT_REGISTER_PATH = /^\/api\/broadcasts\/[^/]+\/import$/
 const HISTORY_LIMIT_MAX = 500
 
 export interface ApiDeps {
@@ -131,10 +131,15 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (contentType !== JSON_CONTENT_TYPE) return apiError(415, 'NOT_JSON', '보낸 내용의 형식이 올바르지 않아요.')
     return next()
   })
-  // 본문 상한: 64KB, 상품 목록 가져오기(미리 보기·등록)만 3MB (I2, SA-I2-001)
+  // 본문 상한: 64KB, 상품 목록 가져오기 미리 보기만 3MB·등록만 6MB 남짓 (I2, SA-I2-001·SA-I2-007) — 넘으면 할 일을 적은 쉬운 문장
   const smallBody = bodyLimit({ maxSize: BODY_LIMIT_BYTES, onError: () => apiError(413, 'PAYLOAD_TOO_LARGE', '보낸 내용이 너무 커요.') })
-  const importBody = bodyLimit({ maxSize: IMPORT_BODY_LIMIT_BYTES, onError: () => apiError(413, 'PAYLOAD_TOO_LARGE', '보낸 내용이 너무 커요(2MB까지).') })
-  api.use((c, next) => (c.req.method === 'POST' && IMPORT_PATH.test(c.req.path) ? importBody(c, next) : smallBody(c, next)))
+  const previewBody = bodyLimit({ maxSize: IMPORT_PREVIEW_BODY_LIMIT_BYTES, onError: () => apiError(413, 'PAYLOAD_TOO_LARGE', IMPORT_FILE_MESSAGES.previewBodyTooLarge) })
+  const registerBody = bodyLimit({ maxSize: IMPORT_REGISTER_BODY_LIMIT_BYTES, onError: () => apiError(413, 'PAYLOAD_TOO_LARGE', IMPORT_FILE_MESSAGES.registerBodyTooLarge) })
+  api.use((c, next) => {
+    if (c.req.method === 'POST' && IMPORT_PREVIEW_PATH.test(c.req.path)) return previewBody(c, next)
+    if (c.req.method === 'POST' && IMPORT_REGISTER_PATH.test(c.req.path)) return registerBody(c, next)
+    return smallBody(c, next)
+  })
   api.use(async (c, next) => {
     if (!STATE_CHANGING.has(c.req.method)) return next()
     let parsed: unknown
