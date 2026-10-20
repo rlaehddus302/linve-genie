@@ -441,6 +441,24 @@ describe('AC-N3-30 실시간 · AC-N3-31 처리 기록 · AC-N3-32 정산 조회
   })
 })
 
+describe('AC-N3-32 증분 조회의 입금 연결', () => {
+  it('정산 묶음이 바뀐 증분에만 depositLinks(그 범위 전체)를 담고, 바뀌지 않았으면 담지 않는다', async () => {
+    const world = await depositWorld()
+    const seller = await addSeller(world)
+    const b = await basicSale(world, seller)
+    world.clock.advance(60_000)
+    const api = depositApi(world, seller)
+    const before = (await expectOk(api.day(DAY))).body as { seq: number; depositLinks: unknown[] }
+    expect(before.depositLinks).toEqual([])
+    await expectOk(api.paste(pasteText([{ at: '2026-10-19 12:00:30', name: '다육이맘', amount: 14_000 }])))
+    const changed = (await expectOk(api.api.get(`/api/days/${DAY}/changes?since=${String(before.seq)}`))).body as { seq: number; depositLinks?: { kind: string; deposit: { no: number } }[] }
+    expect(changed.depositLinks?.map((link) => [link.kind, link.deposit.no])).toEqual([['payment', 1]])
+    await register(world, seller, b.id, 16)
+    const quiet = (await expectOk(api.api.get(`/api/days/${DAY}/changes?since=${String(changed.seq)}`))).body as { depositLinks?: unknown }
+    expect('depositLinks' in quiet).toBe(false)
+  })
+})
+
 describe('AC-N3-33 묶음 찾기', () => {
   it('찾을 말(이름·메모·뒤 4자리·채널 끝 4자리)과 날짜로 실제 범위 묶음을, 남은 금액이 있는 것 먼저 · 날짜가 늦은 것 순으로 찾는다', async () => {
     const world = await depositWorld()

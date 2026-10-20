@@ -356,7 +356,9 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     const changes = await service.changes(sellerOf(c), date, rehearsal.value ?? false, Number(since))
     if (changes === null) return notFound()
     if (changes === 'resync') return apiError(410, 'RESYNC_REQUIRED', '바뀐 내용을 이어 받을 수 없어요. 전체를 다시 불러와 주세요.')
-    return c.json({ ...changes, depositLinks: await depositLinksOf(sellerOf(c), date, rehearsal.value ?? false) })
+    // 입금 연결은 정산 묶음이 바뀐 증분에만 담는다(그 범위 전체) — 입금 확인의 기록·되돌림은 늘 정산 기록을 바꾼다. 없으면 화면은 이전 값을 그대로 둔다
+    const settlementsChanged = changes.settlements.length > 0 || changes.removed.settlements.length > 0
+    return c.json(settlementsChanged ? { ...changes, depositLinks: await depositLinksOf(sellerOf(c), date, rehearsal.value ?? false) } : changes)
   })
   // 채팅 메시지 이어 받기 (AC-S05-20): after 뒤 / before 앞 / 둘 다 없으면 가장 최근. 개수 1~500(기본 100)
   api.get('/days/:date/messages', async (c) => {

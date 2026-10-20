@@ -83,7 +83,7 @@
 - 엔진에 적은 입금·환불은 기존 `change` 알림(범위 seq)으로 온다 — 정산 화면은 지금처럼 증분 조회.
 
 #### 정산 조회의 입금 연결 (AC-N3-32)
-- `GET /api/days/:date`와 `GET /api/days/:date/changes`의 응답에 `depositLinks: DepositLinkView[]`가 붙는다(전체 목록 — 증분이 아니다). 리허설 범위는 늘 `[]`.
+- `GET /api/days/:date` 응답에 늘 `depositLinks: DepositLinkView[]`(그 범위 전체)가 붙는다. `GET /api/days/:date/changes`는 정산 묶음이 바뀐 증분(`settlements`나 `removed.settlements`가 비지 않음)에만 `depositLinks`(그 범위 전체 — 증분이 아니다)를 담는다 — 없으면 화면은 이전 값을 그대로 둔다(입금 확인의 기록·되돌림은 늘 정산 기록을 바꾼다. 매 증분마다 질의하지 않으려고). 리허설 범위는 늘 `[]`.
 - `DepositLinkView = { seq, kind: 'payment'|'refund', auto, reverted, deposit: { no, name, at, precision, amount, source(원천 표시 이름), sourceKind } }` — 정산 기록(`settlements[].records[]`)의 `seq`와 같은 것에 붙인다. 메모 글을 읽지 않는다(손으로 같은 메모를 적은 입금에는 없다).
 - 표시: `kind: 'payment'` → `auto`면 "자동 입금 확인 · {name} · {at KST}", 아니면 "입금 내역으로 확인 · …". `kind: 'refund'` → "입금 확인 되돌림 · 입금 #{no}". `payment`이고 `reverted: false`면 "입금 확인 되돌리기" — `POST /api/deposits/{no}/revert`.
 
