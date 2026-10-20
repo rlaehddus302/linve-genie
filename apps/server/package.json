@@ -20,7 +20,8 @@
     "@livejjim/label": "workspace:*",
     "drizzle-orm": "0.45.3",
     "hono": "4.13.13",
-    "postgres": "3.4.9"
+    "postgres": "3.4.9",
+    "tiktok-live-connector": "2.1.0"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
