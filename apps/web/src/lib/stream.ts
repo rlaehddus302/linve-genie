@@ -16,7 +16,7 @@ export interface EventSourceLike {
 }
 
 /** 받는 알림 종류 */
-export const STREAM_EVENTS = ['ready', 'change', 'generator', 'print'] as const
+export const STREAM_EVENTS = ['ready', 'change', 'generator', 'print', 'labels'] as const
 
 const CLOSED = 2
 const OPEN = 1
