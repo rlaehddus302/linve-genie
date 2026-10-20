@@ -30,6 +30,11 @@ export type LogCode =
   | 'LOGIN_PRUNE_FAILED'
   | 'DRAFT_SKIPPED'
   | 'PRINT_NOTIFY_FAILED'
+  | 'IG_META_FAILED'
+  | 'IG_TOKEN_UNREADABLE'
+  | 'IG_COMMENT_SKIPPED'
+  | 'IG_DM_FAILED'
+  | 'IG_REPORT_FAILED'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -45,6 +50,11 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   LOGIN_PRUNE_FAILED: '로그인 시도 기록을 정리하지 못했어요(로그인은 계속함)',
   DRAFT_SKIPPED: '서버가 덧붙이는 입력(차단 이어받기)이 입력 검사를 통과하지 못해 기록하지 않았어요',
   PRINT_NOTIFY_FAILED: '출력 기록 알림을 보내지 못했어요(기록은 저장됨)',
+  IG_META_FAILED: '인스타그램(메타) 요청이 실패했어요',
+  IG_TOKEN_UNREADABLE: '인스타그램 토큰을 풀지 못해 연결을 다시 연결 필요로 바꿨어요',
+  IG_COMMENT_SKIPPED: '형식이 틀린 인스타그램 댓글을 기록하지 않고 셌어요',
+  IG_DM_FAILED: '인스타그램 DM 실행기에서 오류가 생겼어요(다음에 다시 해요)',
+  IG_REPORT_FAILED: '인스타그램 DM 게시 보고를 기록하지 못했어요(다음에 다시 해요)',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */

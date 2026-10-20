@@ -13,6 +13,8 @@ export interface AppOptions {
   readonly logError?: ErrorLogger
   /** /api 경로 (S04). 없으면 헬스체크만 있다 */
   readonly api?: ApiDeps
+  /** 웹훅 받는 경로 (/webhooks — 로그인·Origin 검사 밖, 서명으로만 받는다, N2) */
+  readonly webhooks?: Hono
 }
 
 /**
@@ -57,6 +59,7 @@ export function createApp(options: AppOptions = {}): Hono {
   app.all('/health', () => errorResponse(405, { Allow: HEALTH_ALLOW }))
 
   if (options.api !== undefined) app.route('/api', createApi(options.api))
+  if (options.webhooks !== undefined) app.route('/webhooks', options.webhooks)
 
   app.notFound(() => errorResponse(404))
 

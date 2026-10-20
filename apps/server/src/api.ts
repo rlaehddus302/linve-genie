@@ -16,6 +16,8 @@ import type { StreamHub } from './hub.ts'
 import { unknownFieldProblems } from './messages.ts'
 import { DEVICE_ID_RE, type PrintService } from './print.ts'
 import { registerPrintRoutes } from './print-api.ts'
+import type { InstagramModule } from './instagram/index.ts'
+import { INSTAGRAM_PUBLIC_PATHS, registerLiveRoutes } from './instagram/routes.ts'
 import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.ts'
 import type { Actor, WriteOutcome, WriteResult } from './writer.ts'
 
@@ -29,6 +31,8 @@ export interface ApiDeps {
   readonly hub: StreamHub
   /** 출력 기록과 출력 기기 (I1). 없으면 /api/print 경로가 없다 */
   readonly print?: PrintService
+  /** 인스타그램·플랫폼 공통 라이브 연결 (N2). 없으면 /api/platforms·/api/live·/api/instagram 경로가 없다 */
+  readonly instagram?: InstagramModule
   /** 화면 앱 주소 (Origin 검사, 예: https://app.livejjim.kr) */
   readonly appOrigin: string
   /** 화면 설정 (방송자 조치 대기 시간 — 운영 5000, E2E 기동만 줄인다 / 시험 모드 신호 testPrinter — E2E 기동만 켠다, I1) */
@@ -38,7 +42,8 @@ export interface ApiDeps {
 type Env = { Variables: { body: Record<string, unknown> | null; session: SessionContext } }
 
 const STATE_CHANGING = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
-const PUBLIC_PATHS = new Set(['POST /api/login', 'GET /api/health', 'HEAD /api/health'])
+// 로그인 없이 닿는 /api 경로: 로그인·헬스체크와 인스타그램 OAuth 돌아오는 주소(state로만 처리, N2 AC-N2-61)
+const PUBLIC_PATHS = new Set(['POST /api/login', 'GET /api/health', 'HEAD /api/health', ...INSTAGRAM_PUBLIC_PATHS])
 
 const notFound = () => apiError(404, 'NOT_FOUND', '찾을 수 없어요.')
 const unauthorized = () => apiError(401, 'UNAUTHORIZED', '로그인이 필요해요.')
@@ -392,6 +397,10 @@ export function createApi(deps: ApiDeps): Hono<Env> {
 
   // ── 출력 기록 (I1, LABEL_RULES L-11) ──────────────────────────────────
   if (deps.print !== undefined) registerPrintRoutes(api, deps.print)
+
+  // ── 플랫폼 공통 라이브 연결·인스타그램 (N2) ────────────────────────────
+  // 유튜브 잇기는 이 바탕에 없다(Y1) — 플랫폼 능력 조회의 YOUTUBE.ready는 아니오 (합칠 때 Y1 설정 여부로)
+  if (deps.instagram !== undefined) registerLiveRoutes(api, deps.instagram, auth, { youtube: false })
 
   api.notFound(() => notFound())
   return api
