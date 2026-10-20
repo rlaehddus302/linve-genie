@@ -42,7 +42,6 @@ import {
 import type { IdSource } from './ids.ts'
 import type { ScopeRuntime } from './runtime.ts'
 import { fieldMessage, phoneIdProblem, safeFieldName, unknownFieldProblems } from './messages.ts'
-import { SHOP_NAME_MAX, cleanDisplayName } from './accounts.ts'
 import { productOwners } from './product-history.ts'
 import { ASSISTANT_EVENT_TYPES, assistantCancelCheck, assistantForbidden } from './roles.ts'
 import { openSellerKey, phoneKeyOf } from './secrets.ts'
@@ -56,7 +55,6 @@ import {
   findSeller,
   findWizard,
   listAssistants,
-  updateSellerName,
   updateWizard,
   historyRows,
   insertBroadcast,
@@ -316,13 +314,7 @@ export class Service {
 
   // ── 가게 이름·시작 마법사 (AC-I3-47·50) ───────────────────────────────
 
-  /** 가게 이름 바꾸기 — 그 판매자의 이름만. 이름이 틀리면 null (받은 값은 로그에 남기지 않는다, D-073) */
-  async renameShop(sellerId: string, raw: unknown): Promise<string | null> {
-    const name = cleanDisplayName(raw, SHOP_NAME_MAX)
-    if (name === null) return null
-    if (!(await updateSellerName(this.#options.db, sellerId, name))) throw new Error('판매자가 없다')
-    return name
-  }
+  // 가게 이름 바꾸기는 I2와 합친 뒤 ClosingService.renameShop(shop.ts 규칙 — 가게 설정과 같은 상한, 가게 설정 알림)으로 옮겼다
 
   /** 판매자의 보조자 목록 (지우지 않은 것, AC-I3-60) */
   assistants(sellerId: string): Promise<AssistantRow[]> {

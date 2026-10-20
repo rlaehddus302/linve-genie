@@ -41,7 +41,7 @@ import {
 import { pastPurchases, type PastView } from './past.ts'
 import { IMPORT_MAX_ROWS, isNormalizedName, parseProductList, parseProductRows, recheckRows, splitCells, splitImportLines, type ImportResult, type RegisterRow } from './product-import.ts'
 import type { ScopeRuntime } from './runtime.ts'
-import { checkShopInput, documentShop, readShop, writeShop, type ShopView } from './shop.ts'
+import { checkShopInput, checkShopName, documentShop, readShop, writeShop, type ShopView } from './shop.ts'
 import { findBroadcast, listBroadcastRows, scopeSeqs } from './store.ts'
 import { kstDate, type Clock } from './time.ts'
 import { WorkBusy, WorkFailed, type WorkPools } from './work-pool.ts'
@@ -158,6 +158,19 @@ export class ClosingService {
     // 다른 기기 화면이 확인서 미리 보기를 새로 받는다 (AC-I2-13) — 값은 알림에 넣지 않는다
     this.#deps.hub.publishNamed(sellerId, 'shop', {})
     return { ok: true, shop: await readShop(this.#deps.db, sellerId) }
+  }
+
+  /**
+   * 가게 이름만 바꾸기 (PUT /api/shop { name } — I3 AC-I3-47 시작 마법사·가게 이름 칸). 상한은 가게 설정과 같다(checkShopName).
+   * 틀리면 null. 다른 기기 화면이 확인서 미리 보기를 새로 받게 가게 설정 알림을 보낸다 (AC-I2-13)
+   */
+  async renameShop(sellerId: string, raw: unknown): Promise<string | null> {
+    const current = await readShop(this.#deps.db, sellerId)
+    const name = checkShopName(raw, current.name)
+    if (name === null) return null
+    await writeShop(this.#deps.db, sellerId, { ...current, name })
+    this.#deps.hub.publishNamed(sellerId, 'shop', {})
+    return name
   }
 
   // ── 확인서 (AC-I2-10·11·12) ────────────────────────────────────────────
@@ -635,6 +648,9 @@ export class ClosingService {
         return NOT_FOUND
       case 'save_failed':
         return problem(500, 'SAVE_FAILED', '저장하지 못했어요. 다시 시도해 주세요.')
+      // 기록 경로의 '아무것도 쓰지 않음'은 채팅 묶음(chatBatch, Y1)에서만 생긴다 — 가져오기는 늘 한 줄 이상 쓴다. 생기면 이미 받은 입력으로 본다
+      case 'empty':
+        return problem(409, 'REQUEST_ERROR', '이미 받은 입력이에요.')
     }
   }
 

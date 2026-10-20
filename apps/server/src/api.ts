@@ -245,14 +245,19 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     return c.json({ seller: { name: session.sellerName }, loginId: session.loginId, role: assistant ? 'ASSISTANT' : 'SELLER', assistant: assistant ? { name: session.accountName ?? '' } : null })
   })
 
-  // ── 가게 이름 (AC-I3-47) ──────────────────────────────────────────────
+  // ── 가게 (I3 AC-I3-47 가게 이름 · I2 AC-I2-01 가게 설정) ──────────────────
+  // 본문이 { name } 하나면 가게 이름만(시작 마법사·가게 이름 칸 — 답은 { shop: { name } }), 아니면 가게 설정 다섯 칸(답은 다섯 칸).
+  // 가게 이름 상한은 가게 설정 규칙(shop.ts — 새 이름 1~30글자, 지금 이름 그대로면 길이를 다시 따지지 않음)이고 저장하면 가게 설정 알림(shop)을 보낸다
   api.put('/shop', async (c) => {
     const input = body(c)
-    const extra = onlyKeys(input, ['name'])
-    if (extra !== null) return extra
-    const name = await service.renameShop(sellerOf(c), own(input, 'name'))
-    if (name === null) return apiError(400, 'INVALID_INPUT', SHOP_NAME_MESSAGE, [{ field: 'name', message: SHOP_NAME_MESSAGE }])
-    return c.json({ shop: { name } })
+    if (ownKeys(input).length === 1 && Object.hasOwn(input, 'name')) {
+      const name = await closing.renameShop(sellerOf(c), own(input, 'name'))
+      if (name === null) return apiError(400, 'INVALID_INPUT', SHOP_NAME_MESSAGE, [{ field: 'name', message: SHOP_NAME_MESSAGE }])
+      return c.json({ shop: { name } })
+    }
+    const result = await closing.updateShop(sellerOf(c), input)
+    if (!result.ok) return apiError(result.rejection.status, result.rejection.code, result.rejection.message, result.rejection.problems)
+    return c.json({ shop: result.shop })
   })
 
   // ── 시작 마법사 상태 (AC-I3-50) ───────────────────────────────────────
@@ -517,13 +522,8 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     return { ok: true, date: scope.date }
   }
 
-  // 가게 설정 (AC-I2-01)
+  // 가게 설정 (AC-I2-01) — 바꾸기(PUT /api/shop)는 위 "가게"에서 가게 이름만과 함께 받는다
   api.get('/shop', async (c) => c.json({ shop: await closing.shop(sellerOf(c)) }))
-  api.put('/shop', async (c) => {
-    const result = await closing.updateShop(sellerOf(c), body(c))
-    if (!result.ok) return apiError(result.rejection.status, result.rejection.code, result.rejection.message, result.rejection.problems)
-    return c.json({ shop: result.shop })
-  })
 
   // 확인서 (AC-I2-10·11): 데이터(JSON = 확인서 데이터 그대로)·PDF·PNG·전원 PDF
   api.get('/days/:date/receipt', async (c) => {
