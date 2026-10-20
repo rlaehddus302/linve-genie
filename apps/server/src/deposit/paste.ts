@@ -10,6 +10,16 @@ export const DEPOSIT_AMOUNT_MAX = 100_000_000
 /** 입금자명 길이 상한 (코드 포인트) */
 export const DEPOSIT_NAME_MAX = 40
 
+/**
+ * 저장할 입금자명 (DP-1 "입금자명"·DP-2 4.3·AC-N3-15): 받은 글자에서 U+0000(NUL)만 빼고 앞뒤 공백을 뺀 뒤 앞 40자(코드 포인트).
+ * PostgreSQL text는 U+0000을 담지 못한다 — 그 글자가 든 이름 하나가 받아 오기·붙여넣기 한 번의 저장 트랜잭션 전체를 실패시키지 않게(TD-N3-001)
+ * 세 입구(팝빌 줄 옮기기·붙여넣기 읽기·시험용 줄)가 모두 이 함수 하나로 다듬는다. 그래서 미리 보기·줄 키·저장·맞추기가 같은 이름을 본다.
+ * 그 밖의 글자(다른 제어 문자·이모지·`=`로 시작하는 글)는 받은 그대로 둔다(화면은 글자로만 보인다).
+ */
+export function cleanDepositName(text: string): string {
+  return [...text.replaceAll('\u0000', '').trim()].slice(0, DEPOSIT_NAME_MAX).join('')
+}
+
 export type PastePrecision = 'second' | 'minute'
 
 export interface PasteRow {
@@ -19,7 +29,7 @@ export interface PasteRow {
   readonly at: string
   readonly precision: PastePrecision
   readonly amount: number
-  /** 이름 칸 값 (앞뒤 공백 뺌, 40자까지). 이름 칸이 없거나 비면 "" */
+  /** 이름 칸 값 (cleanDepositName — NUL 뺌, 앞뒤 공백 뺌, 40자까지). 이름 칸이 없거나 비면 "" */
   readonly name: string
   /** 잔액 칸 값 (금액 모양일 때만, 아니면 null) — 줄 키에만 쓴다 */
   readonly balance: number | null
@@ -233,7 +243,7 @@ export function readPaste(text: string): PasteResult {
       unreadable.push({ line, why: 'BAD_TIME' })
       continue
     }
-    const name = [...(cell('name') ?? '').trim()].slice(0, DEPOSIT_NAME_MAX).join('')
+    const name = cleanDepositName(cell('name') ?? '')
     const balance = readAmount(cell('balance') ?? '')
     rows.push({ line, at: time.at, precision: time.precision, amount: deposit, name, balance: balance === null ? null : balance.sign === '-' ? -balance.value : balance.value })
   }

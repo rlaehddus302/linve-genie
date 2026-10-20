@@ -7,7 +7,7 @@ import { createHash, createHmac } from 'node:crypto'
 import type { GeneratorTimer } from '../generator.ts'
 import type { AccountSecret } from './account-seal.ts'
 import { DAY_MS, isRealDate, kstDateOf, kstToMs } from './calendar.ts'
-import { DEPOSIT_AMOUNT_MAX, DEPOSIT_NAME_MAX } from './paste.ts'
+import { DEPOSIT_AMOUNT_MAX, cleanDepositName } from './paste.ts'
 
 /** 원천 오류 종류 (기술 상세 없이 문장 하나로 바꾼다) */
 export type SourceErrorKind = 'AUTH' | 'NO_KEY' | 'FORBIDDEN' | 'NOT_REGISTERED' | 'NETWORK' | 'TIMEOUT' | 'JOB_FAILED' | 'BAD_RESPONSE'
@@ -73,7 +73,7 @@ export interface FetchedRow {
   readonly at: number
   readonly precision: 'second' | 'minute'
   readonly amount: number
-  /** 입금자명 (앞뒤 공백 뺌, 40자까지) */
+  /** 입금자명 (cleanDepositName — NUL 뺌, 앞뒤 공백 뺌, 40자까지) */
   readonly name: string
 }
 
@@ -86,7 +86,7 @@ export interface FetchResult {
 const TID_RE = /^[\x21-\x7e]{1,100}$/
 const TRDT_RE = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/
 
-const cleanName = (value: unknown): string => (typeof value === 'string' ? [...value.trim()].slice(0, DEPOSIT_NAME_MAX).join('') : '')
+const cleanName = (value: unknown): string => (typeof value === 'string' ? cleanDepositName(value) : '')
 
 /** 팝빌 응답 한 줄 → 입금 / 건너뜀(입금액 0) / 읽지 못함 (AC-N3-15) */
 export function mapPopbillRow(raw: unknown): FetchedRow | 'SKIP' | 'MALFORMED' {

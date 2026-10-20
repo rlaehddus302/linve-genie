@@ -166,7 +166,7 @@ export { buildClaimIndex, contentKeyOf, currentLabelBuyer, isWinnerOf, packingLa
 export { productionServerOptions, type ProductionOptions } from './production.ts'
 // N3 입금 확인
 export { normalizeDepositName } from './deposit/name.ts'
-export { readPaste, PASTE_ROWS_MAX, DEPOSIT_AMOUNT_MAX, DEPOSIT_NAME_MAX, type PasteResult, type PasteRow } from './deposit/paste.ts'
+export { readPaste, cleanDepositName, PASTE_ROWS_MAX, DEPOSIT_AMOUNT_MAX, DEPOSIT_NAME_MAX, type PasteResult, type PasteRow } from './deposit/paste.ts'
 export { matchDeposits, evaluateDeposits, SUGGESTIONS_MAX, MATCH_DAYS_BACK, type MatchBundle, type MatchDeposit, type MatchOutcome, type Evaluation, type ReviewReason } from './deposit/match.ts'
 export { parseOffsetIso, kstDateOf, kstIso, addDays } from './deposit/calendar.ts'
 export {

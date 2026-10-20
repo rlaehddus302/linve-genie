@@ -8,6 +8,7 @@ import { createServer } from '../src/server.ts'
 import { addSeller, client, createBroadcast, dumpAllTables, expectOk, openTestDb, rid, startServer, writeEvent } from './support.ts'
 import { DAY, depositApi, depositWorld, deposits, kst, order, pasteText, register } from './deposit-support.ts'
 import { generateMasterKey } from '../src/secrets.ts'
+import { cleanDepositName, readPaste } from '../src/deposit/paste.ts'
 
 const ACCOUNT = { corpNum: '1234567890', bankCode: '0004', accountNumber: '110123456789' }
 
@@ -507,5 +508,67 @@ describe('AC-N3-17 시험 모드 가짜 원천', () => {
     const withKeys = productionServerOptions({ ...env, POPBILL_LINK_ID: 'LINK', POPBILL_SECRET_KEY: 'c2VjcmV0' }, database)
     expect(withKeys.ok && withKeys.options.deposits?.popbill !== null && withKeys.options.deposits?.popbill !== undefined).toBe(true)
     void rid
+  })
+})
+
+describe('TD-N3-001 입금자명의 NUL(U+0000) — 줄 하나가 받아 오기·붙여넣기 전체를 막지 않는다 (AC-N3-13·15, DP-1)', () => {
+  it('세 입구가 함께 쓰는 다듬기: NUL만 빼고 앞뒤 공백을 뺀 뒤 40자까지 — 다른 글자는 받은 그대로', () => {
+    expect(cleanDepositName('김\u0000영희')).toBe('김영희')
+    expect(cleanDepositName('\u0000 김영희 \u0000')).toBe('김영희')
+    expect(cleanDepositName('\u0000\u0000')).toBe('')
+    expect(cleanDepositName('김\u0007영희')).toBe('김\u0007영희')
+    expect(cleanDepositName(`${'가'.repeat(20)}\u0000${'나'.repeat(30)}`)).toBe(`${'가'.repeat(20)}${'나'.repeat(20)}`)
+    const read = readPaste('거래일시\t입금자명\t입금액\n2026-10-18 20:30\t김\u0000영희\t14,000')
+    expect('rows' in read && read.rows.map((row) => row.name)).toEqual(['김영희'])
+  })
+
+  it('계좌조회: 입금자명에 NUL이 있는 줄도 그 글자만 빼고 저장하고, 같은 받아 오기의 다른 입금도 저장한다(오류 문장 없음). 다시 받아 와도 한 번', async () => {
+    const world = await depositWorld()
+    const seller = await addSeller(world)
+    const api = depositApi(world, seller)
+    world.popbill.register(ACCOUNT)
+    world.popbill.addRows(ACCOUNT, [inRow('T1', '20261019103000', 14000, '김\u0000영희'), inRow('T2', '20261019103100', 5000, '박철수'), inRow('T3', '20261019103200', 3000, '\u0000', { remark2: '이\u0000민수' })])
+    const source = await popbillSource(api)
+    await expectOk(api.fetch(source.id))
+    expect((await deposits(api)).map((item) => [item.name, item.amount]).sort()).toEqual([
+      ['김영희', 14000],
+      ['박철수', 5000],
+      ['이민수', 3000],
+    ])
+    const view = ((await expectOk(api.sources())).body as { sources: { id: string; lastError: string | null; lastNew: number }[] }).sources.find((item) => item.id === source.id)
+    expect(view).toMatchObject({ lastError: null, lastNew: 3 })
+    await world.server.deposits.runSource(seller.sellerId, source.id)
+    expect(await deposits(api)).toHaveLength(3)
+  })
+
+  it('붙여넣기: 미리 보기가 "새 입금"이라고 한 글은 넣으면 그대로 저장된다(500 없음), 미리 보기·저장의 이름이 같고 다시 넣으면 이미 있는 입금', async () => {
+    const world = await depositWorld()
+    const seller = await addSeller(world)
+    world.clock.advance(60_000)
+    const api = depositApi(world, seller)
+    const text = '거래일시\t입금자명\t입금액\n2026-10-19 10:30\t김\u0000영희\t14,000\n2026-10-19 10:31\t박철수\t5,000'
+    const preview = (await expectOk(api.preview(text))).body as { rows: { name: string; state: string }[] }
+    expect(preview.rows.map((row) => [row.name, row.state])).toEqual([
+      ['김영희', 'NEW'],
+      ['박철수', 'NEW'],
+    ])
+    expect((await expectOk(api.paste(text))).body).toMatchObject({ new: 2, existing: 0 })
+    expect((await deposits(api)).map((item) => item.name).sort()).toEqual(['김영희', '박철수'])
+    expect(((await expectOk(api.preview(text))).body as { rows: { state: string }[] }).rows.map((row) => row.state)).toEqual(['EXISTING', 'EXISTING'])
+    expect((await expectOk(api.paste(text))).body).toMatchObject({ new: 0, existing: 2 })
+  })
+
+  it('시험용 입금 줄의 NUL도 같은 다듬기 — 다듬은 이름으로 맞춘다(자동 확인)', async () => {
+    const world = await depositWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller, { date: DAY })
+    await register(world, seller, b.id, 15)
+    await order(world, seller, b.id, 'UC_A', '다육이맘', '15')
+    world.clock.advance(60_000)
+    const api = depositApi(world, seller)
+    const fake = (await expectOk(api.createSource({ kind: 'FAKE' }))).body as { id: string }
+    await expectOk(api.testRows(fake.id, [{ key: 'k1', at: '2026-10-19T12:00:30+09:00', amount: 14_000, name: '다육\u0000이맘' }]))
+    await expectOk(api.fetch(fake.id))
+    expect((await deposits(api, 'AUTO_APPLIED')).map((item) => item.name)).toEqual(['다육이맘'])
   })
 })

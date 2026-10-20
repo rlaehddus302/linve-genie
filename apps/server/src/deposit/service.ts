@@ -23,7 +23,7 @@ import { bundleOf, bundlesOf, buyerInfoOf, buyerLabel, previewPayment, type Bund
 import { addDays, kstDateOf, kstStartOf, parseOffsetIso } from './calendar.ts'
 import { evaluateDeposits, type Evaluation, type MatchDeposit, type ReviewReason } from './match.ts'
 import { normalizeDepositName } from './name.ts'
-import { DEPOSIT_AMOUNT_MAX, DEPOSIT_NAME_MAX, readPaste, type PasteRow } from './paste.ts'
+import { DEPOSIT_AMOUNT_MAX, cleanDepositName, readPaste, type PasteRow } from './paste.ts'
 import { SOURCE_MESSAGES, SourceError, fetchPopbill, sourceErrorKind, withTimeout, type FetchResult, type FetchedRow, type PopbillTransport } from './popbill.ts'
 import {
   actionsOfDeposit,
@@ -552,7 +552,7 @@ export class DepositService {
     if (ms === null) return null
     if (typeof amount !== 'number' || !Number.isInteger(amount) || amount < 1 || amount > DEPOSIT_AMOUNT_MAX) return null
     if (typeof name !== 'string') return null
-    return { key, at: ms - (ms % 1000), precision: 'second', amount, name: [...name.trim()].slice(0, DEPOSIT_NAME_MAX).join('') }
+    return { key, at: ms - (ms % 1000), precision: 'second', amount, name: cleanDepositName(name) }
   }
 
   // ── 받아 오기 주기 ──────────────────────────────────────────────────────
