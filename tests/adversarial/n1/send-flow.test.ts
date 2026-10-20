@@ -1,13 +1,14 @@
 // N1 적대 테스트 (test-domain): 보내기 공격 (AC-N1-71, AC-N1-40~42, LABEL_RULES L-12 4·5).
 // 손으로 조종하는 기기(ble-mock.ts)에 무작위 크레딧 알림(`01 n`, n 0~255)·MTU 알림(`02 lo hi`)·`AA`·다른 알림·끊김을 무작위 시각에 섞는다.
-// 속성: (1) 조각은 늘 90바이트 이하이고, MTU 알림 뒤에는 MTU − 3 이하 (2) 크레딧 없이 나간 조각은 크레딧 0으로 1초 이상 기다린 뒤뿐
-// (3) 출력 OK면: 첫 조각 뒤 `AA`를 받았고, 조각을 이으면 작업 바이트와 같다 (4) `AA` 없이 OK가 되지 않는다
-// (5) 결과는 OK·DISCONNECTED·TIMEOUT 중 그 시점에 맞는 것 (6) 출력이 끝나면 남은 타이머가 없다
+// 속성: (1) 조각은 늘 90바이트 이하이고, MTU 알림 뒤에는 MTU − 3 이하 (2) 크레딧 없이 나간 조각은 출력 시작 1,000ms(첫 조각) 또는
+// 앞 조각의 쓰기가 끝나고 정확히 1,030ms(30ms 쉼 + 1초, D-N1-13) (3) 출력 OK면: 첫 조각 뒤 `AA`를 받았고, 조각을 이으면 작업 바이트와 같다
+// (4) `AA` 없이 OK가 되지 않는다 (5) 결과는 OK·DISCONNECTED·TIMEOUT 중 그 시점에 맞는 것 — TIMEOUT은 모든 조각을 쓰고 마지막 쓰기가 끝난 때부터
+// 정확히 20초(L-12 5 "진행이 멈춘 20초", D-N1-12. 이 기기의 쓰기는 바로 끝나므로 조각을 보내는 중에는 TIMEOUT이 없다) (6) 출력이 끝나면 남은 타이머가 없다
 import { createBitmap, setPixel, type LabelBitmap } from '@livejjim/label'
 import { MARKLIFE_P12, MARKLIFE_S2, buildPrintJob, createMarklifeAdapter, type ModelProfile, type PrinterResult } from '@livejjim/printer'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { ManualBle, StepTimer, flush } from './ble-mock.ts'
+import { ManualBle, StepTimer, flush, type Write } from './ble-mock.ts'
 
 type Ev =
   | { t: 'credit'; n: number }
@@ -44,7 +45,7 @@ function image(profile: ModelProfile, length: number, seed: number): LabelBitmap
 
 interface Model {
   credits: number
-  /** 마지막으로 크레딧이 0이 아니게 된 뒤, 또는 마지막 쓰기 뒤의 시각 — 크레딧 없이 쓰려면 여기서 1초가 지나야 한다 */
+  /** 마지막 쓰기가 끝난 시각(없으면 출력 시작) — 크레딧 없이 쓰려면 여기서 1,030ms(첫 조각은 출력 시작 1,000ms)가 지나야 한다 */
   zeroSince: number
   limit: number
 }
@@ -84,18 +85,20 @@ describe('AC-N1-71 보내기 — 무작위 알림·끊김 열', () => {
             /** 알림이 오기 전까지의 쓰기를 모델로 대조한다 */
             const checkWrites = (): void => {
               for (; checked < ble.writes.length; checked++) {
-                const w = ble.writes[checked] as { at: number; bytes: Uint8Array }
+                const w = ble.writes[checked] as Write
                 firstWriteAt ??= w.at
                 expect(w.bytes.length, `조각 ${checked} 크기`).toBeLessThanOrEqual(90)
                 expect(w.bytes.length, `조각 ${checked} MTU`).toBeLessThanOrEqual(model.limit)
                 if (model.credits > 0) model.credits--
-                else expect(w.at - model.zeroSince, `조각 ${checked}: 크레딧 없이 쓰려면 1초 기다림`).toBeGreaterThanOrEqual(1000)
-                model.zeroSince = w.at
+                else expect(w.at - model.zeroSince, `조각 ${checked}: 크레딧 없이 쓰려면 ${checked === 0 ? '출력 시작 1,000ms' : '앞 쓰기 끝 + 1,030ms'}`).toBe(checked === 0 ? 1000 : 1030)
+                model.zeroSince = w.endAt ?? w.at
               }
             }
             let result: PrinterResult | undefined
+            let resultAt = -1
             void adapter.print(img).then((r) => {
               result = r
+              resultAt = timer.now
             })
             await flush()
             checkWrites()
@@ -136,9 +139,11 @@ describe('AC-N1-71 보내기 — 무작위 알림·끊김 열', () => {
               await flush()
               checkWrites()
             }
-            // 끝까지 돌린다 (20초 시간 초과가 넉넉히 지나게)
-            for (let i = 0; i < 260 && !result; i++) {
-              await timer.advance(100)
+            // 끝까지 돌린다 — 시간 초과는 마지막 쓰기부터 20초이고 전체 상한이 없으므로(D-N1-12), 작은 MTU·크레딧 없음이면 오래 걸린다.
+            // 이제부터는 밖에서 알림을 보내지 않으므로 크게 돌려도 모델 대조가 같다
+            const cap = timer.now + 60_000 + (job.bytes.length + 1) * 1_100
+            while (!result && timer.now < cap) {
+              await timer.advance(10_000)
               checkWrites()
             }
             expect(result, '출력이 끝나지 않았다').toBeDefined()
@@ -158,9 +163,11 @@ describe('AC-N1-71 보내기 — 무작위 알림·끊김 열', () => {
             } else {
               expect(r.error.code).toBe('TIMEOUT')
               expect(droppedAt, '끊겼는데 TIMEOUT').toBeUndefined()
-              expect(timer.now).toBeGreaterThanOrEqual(20_000)
-              // 시간 초과가 맞다: 20초 전에 (AA + 모든 조각)이 갖춰지지 않았다
-              expect(firstAaAfterWrite === undefined || !allWritten || (ble.writes.at(-1)?.at ?? 0) >= 20_000 || (firstAaAfterWrite as number) >= 20_000).toBe(true)
+              // 쓰기가 바로 끝나는 기기라 TIMEOUT은 모든 조각을 쓴 뒤 AA를 기다리다 날 뿐이다 — 마지막 쓰기 끝에서 정확히 20초
+              expect(allWritten, '조각을 보내는 중에 TIMEOUT').toBe(true)
+              const lastEnd = ble.writes.at(-1)?.endAt as number
+              expect(resultAt - lastEnd, 'TIMEOUT은 마지막 쓰기가 끝나고 정확히 20,000ms').toBe(20_000)
+              expect(firstAaAfterWrite === undefined || (firstAaAfterWrite as number) >= resultAt, 'AA를 받고 다 썼는데 TIMEOUT').toBe(true)
               expect(adapter.state).toBe('CONNECTED')
             }
             // 출력이 끝나면 남은 타이머가 없다

@@ -1,8 +1,10 @@
 // N1 적대 테스트 (test-domain) 라운드 0 — 재현한 버그 (AC-N1-42·50, LABEL_RULES L-12 5·7).
 // TD-N1-001: 쓰기 오류(끊김)가 gattserverdisconnected 알림보다 먼저 오면 출력은 DISCONNECTED인데 상태는 PRINTING에 머문다.
 //            그 사이 판매자가 `다시 연결`을 누르면 연결 창을 열지 않고 OK, 다음 출력은 BUSY.
-// TD-N1-002: 가짜 기기 — 작업 중간에 TIMEOUT(크레딧 굶음)이 나면 다음 출력의 조각이 앞 시도에 이어 붙어 '출력마다' 기록이 깨지고,
+// TD-N1-002: 가짜 기기 — 작업 중간에 TIMEOUT이 나면 다음 출력의 조각이 앞 시도에 이어 붙어 '출력마다' 기록이 깨지고,
 //            다음 출력은 끝까지 받은 작업인데도 `AA`를 보내지 않아 늘 TIMEOUT이다.
+//            D-N1-12(진행이 멈춘 20초) 뒤로는 크레딧이 안 오는 것만으로 작업 중간 TIMEOUT이 나지 않는다(조각이 1.03초마다 나가 끝까지 간다).
+//            작업 중간 TIMEOUT은 쓰기가 멈출 때(가짜 기기 stallWriteAtPacket)만 나므로 그것으로 재현한다.
 import { createBitmap, setPixel, type LabelBitmap } from '@livejjim/label'
 import { MARKLIFE_S2, buildPrintJob, createFakeBluetooth, createMarklifeAdapter, type PrinterResult } from '@livejjim/printer'
 import { describe, expect, it } from 'vitest'
@@ -53,10 +55,32 @@ describe('AC-N1-42 끊김 — 쓰기 오류가 끊김 알림보다 먼저 온 �
 })
 
 describe('AC-N1-50 가짜 기기 — 출력마다 따로 기록한다', () => {
-  it('TD-N1-002: 작업 중간에 TIMEOUT이 난 뒤의 다음 출력은 새 시도로 기록되고, 끝까지 받으면 AA를 보내 출력 OK가 된다', async () => {
+  it('TD-N1-002 (D-N1-12 뒤): 크레딧이 전혀 안 오는 기기에서는 작업 중간 TIMEOUT이 없다 — 1.03초마다 끝까지 보내고 출력 OK, 시도 하나', async () => {
     const timer = new StepTimer()
-    // 크레딧을 전혀 보내지 않는 기기 → 1초마다 조각 하나 → 20초에 작업 중간 TIMEOUT
     const fake = createFakeBluetooth({ name: 'S2_FAKE01', timer, initialCredits: null, creditsPerPacket: 0 })
+    const adapter = createMarklifeAdapter({ environment: () => fake.environment, timer })
+    expect(await adapter.connect('bluetooth')).toEqual({ ok: true })
+    const img = noisy(240)
+    const job = buildPrintJob(MARKLIFE_S2, img)
+    if (!job.ok) throw new Error(job.code)
+    const chunks = Math.ceil(job.bytes.length / 90)
+    // 옛 규칙(출력 시작 20초)이면 반드시 중간에 끊기는 크기다
+    expect(1_000 + (chunks - 1) * 1_030).toBeGreaterThan(20_000)
+    let first: PrinterResult | undefined
+    void adapter.print(img).then((r) => (first = r))
+    for (let i = 0; i < 4_000 && !first; i++) await timer.advance(100)
+    expect(first).toEqual({ ok: true })
+    expect(fake.packets).toHaveLength(chunks)
+    expect(fake.attempts).toHaveLength(1)
+    expect(fake.attempts[0]).toMatchObject({ complete: true, acked: true })
+    expect(Buffer.from(fake.attempts[0]?.bytes ?? []).equals(Buffer.from(job.bytes))).toBe(true)
+    expect(timer.now).toBeGreaterThanOrEqual(1_000 + (chunks - 1) * 1_030)
+  })
+
+  it('TD-N1-002: 작업 중간에 TIMEOUT(쓰기 멈춤)이 난 뒤의 다음 출력은 새 시도로 기록되고, 끝까지 받으면 AA를 보내 출력 OK가 된다', async () => {
+    const timer = new StepTimer()
+    // 첫 출력의 6번째 조각 쓰기가 끝나지 않는다(연결은 그대로) → 5번째 쓰기가 끝나고 20초에 작업 중간 TIMEOUT
+    const fake = createFakeBluetooth({ name: 'S2_FAKE01', timer, initialCredits: null, creditsPerPacket: 0, jobs: { 1: { stallWriteAtPacket: 6 } } })
     const adapter = createMarklifeAdapter({ environment: () => fake.environment, timer })
     expect(await adapter.connect('bluetooth')).toEqual({ ok: true })
 
@@ -64,8 +88,12 @@ describe('AC-N1-50 가짜 기기 — 출력마다 따로 기록한다', () => {
     void adapter.print(noisy(240)).then((r) => (first = r))
     for (let i = 0; i < 300 && !first; i++) await timer.advance(100)
     expect(first).toEqual(expect.objectContaining({ ok: false, error: expect.objectContaining({ code: 'TIMEOUT' }) }))
+    // 5번째 조각(1,000 + 4 × 1,030 = 5,120ms)의 쓰기가 끝나고 20초
+    expect(timer.now).toBeGreaterThanOrEqual(25_120)
+    expect(timer.now).toBeLessThan(25_220)
     expect(fake.attempts).toHaveLength(1)
     expect(fake.attempts[0]?.complete).toBe(false)
+    expect(fake.attempts[0]?.packets).toHaveLength(5)
 
     // 다음 출력: 작은 그림 하나(조각 하나) — 크레딧을 넉넉히 준다
     const small = createBitmap(384, 16)
@@ -84,5 +112,10 @@ describe('AC-N1-50 가짜 기기 — 출력마다 따로 기록한다', () => {
     expect(attempt?.complete).toBe(true)
     expect(attempt?.acked).toBe(true)
     expect(second).toEqual({ ok: true })
+    // 앞 출력의 멈춘 쓰기가 이제 끝나도 기록·결과가 바뀌지 않는다
+    fake.releaseStalledWrites()
+    await timer.advance(30_000)
+    expect(fake.attempts).toHaveLength(2)
+    expect(fake.printed).toHaveLength(1)
   })
 })

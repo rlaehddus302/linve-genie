@@ -1,7 +1,8 @@
 // N1 적대 테스트 (test-domain): 어댑터 장면 공격 (AC-N1-23·30·33·42, LABEL_RULES L-12 3·5).
 // - import·어댑터 만들기만으로는 navigator를 읽지 않는다
 // - 거절되는 출력(넓은 그림·농도 밖·L-1 아닌 그림)은 한 조각도 보내지 않고 상태는 연결됨 그대로
-// - 출력 전(첫 조각 전 크레딧 기다림 중 포함)에 온 `AA`, 흐름 제어 특성으로 온 `AA`는 끝 알림이 아니다 → TIMEOUT
+// - 출력 전(첫 조각 전 크레딧 기다림 중 포함)에 온 `AA`, 흐름 제어 특성으로 온 `AA`는 끝 알림이 아니다 → 마지막 쓰기가 끝나고 20초에 TIMEOUT
+//   (L-12 5 "진행이 멈춘 20초", D-N1-12 — 전에는 출력 시작부터 20초를 가정했다)
 // - 시간 초과된 앞 출력의 늦은 `AA`가 출력 사이에 오면 다음 출력의 끝으로 세지 않는다
 import { createBitmap, setPixel } from '@livejjim/label'
 import { MARKLIFE_MESSAGES, MARKLIFE_P12, MARKLIFE_S2, buildPrintJob, type PrinterResult } from '@livejjim/printer'
@@ -30,6 +31,13 @@ async function run(ctx: Awaited<ReturnType<typeof setup>>, ms: number, onTick?: 
     onTick?.()
     await ctx.timer.advance(10)
   }
+}
+
+/** 마지막으로 쓰기가 끝난 시각 (L-12 5 — 시간 초과 20초는 여기부터 센다) */
+const lastWriteEnd = (ctx: Awaited<ReturnType<typeof setup>>): number => {
+  const end = ctx.ble.writes.at(-1)?.endAt
+  if (end === undefined) throw new Error('끝난 쓰기가 없다')
+  return end
 }
 
 describe('AC-N1-30 import·만들기만으로는 navigator를 읽지 않는다', () => {
@@ -77,16 +85,28 @@ describe('AC-N1-23 거절되는 출력은 한 조각도 보내지 않는다', ()
 })
 
 describe('AC-N1-42 끝 알림이 아닌 것', () => {
-  it('첫 조각 전(크레딧 기다림 중)에 온 AA는 세지 않는다 → 20초에 TIMEOUT', async () => {
+  it('첫 조각 전(크레딧 기다림 중)에 온 AA는 세지 않는다 → 마지막 쓰기가 끝나고 20초에 TIMEOUT (D-N1-12)', async () => {
     const ctx = await setup('S2_AB12', [])
+    const job = buildPrintJob(MARKLIFE_S2, s2Image())
+    if (!job.ok) throw new Error(job.code)
     let result: PrinterResult | undefined
     void ctx.adapter.print(s2Image()).then((r) => (result = r))
     await ctx.timer.advance(500)
     expect(ctx.ble.writes).toHaveLength(0)
     ctx.ble.sendNotify([0xaa])
-    await run(ctx, 20_000)
+    // 크레딧을 돌려주며 모두 보낸다
+    await run(ctx, 2_000)
+    expect(Buffer.from(ctx.ble.joined()).equals(Buffer.from(job.bytes))).toBe(true)
+    expect(ctx.ble.writes[0]?.at).toBe(500)
+    const last = lastWriteEnd(ctx)
+    // 출력 시작 20초(20,000ms)는 기준이 아니다 — 마지막 쓰기 끝 + 20,000ms 1ms 전까지는 PRINTING
+    await ctx.timer.advance(last + 20_000 - 1 - ctx.timer.now)
+    expect(result).toBeUndefined()
+    expect(ctx.adapter.state).toBe('PRINTING')
+    await ctx.timer.advance(1)
     expect(result).toMatchObject({ ok: false, error: { code: 'TIMEOUT' } })
     expect(ctx.adapter.state).toBe('CONNECTED')
+    expect(ctx.timer.pending).toBe(0)
   })
 
   it('흐름 제어 특성(ff03)으로 온 AA는 끝 알림이 아니다', async () => {
@@ -101,13 +121,18 @@ describe('AC-N1-42 끝 알림이 아닌 것', () => {
     const ctx = await setup()
     let first: PrinterResult | undefined
     void ctx.adapter.print(s2Image()).then((r) => (first = r))
-    await run(ctx, 20_100)
+    for (let i = 0; i < 3_000 && !first; i++) await run(ctx, 10)
     expect(first).toMatchObject({ ok: false, error: { code: 'TIMEOUT' } })
     ctx.ble.sendNotify([0xaa]) // 늦은 끝 알림
     await flush()
+    const from = ctx.ble.writes.length
     let second: PrinterResult | undefined
     void ctx.adapter.print(s2Image()).then((r) => (second = r))
-    await run(ctx, 21_000)
+    await run(ctx, 2_000)
+    expect(ctx.ble.writes.length).toBeGreaterThan(from)
+    expect(second).toBeUndefined()
+    const last = lastWriteEnd(ctx)
+    await run(ctx, last + 20_000 - ctx.timer.now)
     expect(second).toMatchObject({ ok: false, error: { code: 'TIMEOUT' } })
   })
 
