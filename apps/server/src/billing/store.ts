@@ -1,7 +1,7 @@
 // 요금 원장 저장소 (BILLING_RULES BL-0 2·4, BL-INV-5·8, SYS-02). 모든 질의에 판매자 ID 조건을 건다.
 // 이용권·회수·쓴 기록·이용 방식 표에는 넣기만 한다(UPDATE·DELETE 없음 — 시험이 소스를 검사한다).
 // 결제 주문·증빙 요청은 상태 칸만 바꾼다. 트랜잭션 안에서는 트랜잭션 객체(tx)를 넘긴다.
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
 import {
   billingBusiness,
@@ -34,7 +34,7 @@ export interface GrantRow {
   readonly at: Date
   /** 회수됨 */
   readonly revoked: boolean
-  /** 결제 이용권의 환불 중 기한 (그때까지 쓰지 않는다) */
+  /** 결제 이용권의 환불 중 표시 (있으면 지워질 때까지 쓰지 않는다 — 값은 결제 취소를 맡은 요청의 기한, RA-N5-01) */
   readonly refundHoldUntil: Date | null
 }
 
@@ -279,6 +279,24 @@ export async function ordersOf(db: Db, sellerId: string): Promise<OrderRow[]> {
 /** 운영자 목록: 확인 필요 주문·오래 결제 대기인 주문 (모든 판매자) */
 export async function ordersInState(db: Db, state: OrderState): Promise<OrderRow[]> {
   return db.select().from(billingOrders).where(eq(billingOrders.state, state)).orderBy(asc(billingOrders.createdAt))
+}
+
+/** 환불 중 표시가 있는 결제 완료 주문 (그 판매자 — 결제 내역을 열 때 결제 조회로 맞춘다, RA-N5-01) */
+export async function refundingOrders(db: Db, sellerId: string): Promise<OrderRow[]> {
+  return db
+    .select()
+    .from(billingOrders)
+    .where(and(eq(billingOrders.sellerId, sellerId), eq(billingOrders.state, 'GRANTED'), isNotNull(billingOrders.refundHoldUntil)))
+    .orderBy(asc(billingOrders.refundHoldUntil), asc(billingOrders.paymentId))
+}
+
+/** 운영자 목록: 환불 중 표시가 있는 결제 완료 주문 (모든 판매자, RA-N5-01) */
+export async function allRefundingOrders(db: Db): Promise<OrderRow[]> {
+  return db
+    .select()
+    .from(billingOrders)
+    .where(and(eq(billingOrders.state, 'GRANTED'), isNotNull(billingOrders.refundHoldUntil)))
+    .orderBy(asc(billingOrders.refundHoldUntil), asc(billingOrders.paymentId))
 }
 
 // ── 사업자 정보 ───────────────────────────────────────────────────────────

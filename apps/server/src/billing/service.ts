@@ -1,6 +1,8 @@
 // 요금 서비스 (BILLING_RULES BL-0~BL-9, D-N5-01~D-N5-14, AC-N5-10~15·20~27·30~41).
-// - 판단은 순수 함수 둘(rules.ts billingStatus·judgePayment)만 한다 — 새 실제 방송 시작·미리 보기·요금 상태·7일 환불·알림 띠는 billingStatus,
-//   결제 확인·다시 확인·웹훅은 judgePayment. 여기서는 원장을 읽어 넘기고 결과대로 적는다.
+// - 판단은 순수 함수 셋(rules.ts billingStatus·judgePayment·judgeGranted)만 한다 — 새 실제 방송 시작·미리 보기·요금 상태·7일 환불·알림 띠는 billingStatus,
+//   결제 확인·다시 확인·웹훅은 judgePayment, 이미 부여된 결제를 결제 조회로 다시 맞추는 일은 judgeGranted(RA-N5-01). 여기서는 원장을 읽어 넘기고 결과대로 적는다.
+// - 7일 환불은 결제 취소를 요청하기 전에 '환불 중'을 기록한다. 이 표시는 시간이 지나도 저절로 풀리지 않는다 — 결제 조회로 취소됐으면 환불함으로 마무리,
+//   그대로면 푼다. 취소 응답이 끊기거나 마무리 기록 전에 멈춰도 그동안 그 이용권으로 방송을 시작하지 않고, 결제 내역·웹훅·다시 환불이 맞춘다(RA-N5-01).
 // - 같은 판매자의 요금 쓰기(새 실제 방송 시작·환불·부여·결제 확인·주문 건/라벨 장 쓰기)는 판매자 요금 락(lockBilling)으로 차례로 처리한다.
 //   결제 조회·취소(외부 호출)는 트랜잭션 밖에서 하고, 결과를 적는 짧은 트랜잭션만 락을 잡는다(BL-6 7 — 조회가 멈춰도 판매 쓰기가 늦지 않다).
 // - 이용권은 판정을 바꾸지 않는다: 엔진 이벤트·상태·효과에 요금 정보를 넣지 않는다(BL-INV-7). 막는 곳은 새 실제 방송 시작 하나(BL-4).
@@ -18,7 +20,7 @@ import { WriteAbort, type Rejection, type TxHookContext } from '../writer.ts'
 import { DEFAULT_PRICE_TABLE, type PriceItem, type PriceTable } from './config.ts'
 import { RECEIPT_KINDS, noneIssuer, type DocumentIssuer, type DocumentRecipient, type ReceiptKind } from './documents.ts'
 import type { TestPayment } from './fake.ts'
-import { PAYMENT_ID_RE, checkWebhook, type PaymentGateway } from './portone.ts'
+import { PAYMENT_ID_RE, checkWebhook, type LookupResult, type PaymentGateway } from './portone.ts'
 import {
   DAY_WINDOW_MS,
   PASS_KINDS,
@@ -26,6 +28,7 @@ import {
   billingStatus,
   byCodeUnit,
   isQuantityKind,
+  judgeGranted,
   judgePayment,
   maskBizno,
   parseBizno,
@@ -33,6 +36,7 @@ import {
   type BillingStatus,
   type LedgerGrant,
   type LedgerUsage,
+  type LookedUpPayment,
   type OrderState,
   type PassKind,
   type PaymentAction,
@@ -61,6 +65,7 @@ import {
   orderSeller,
   ordersOf,
   readBusiness,
+  refundingOrders,
   updateDocument,
   updateOrder,
   upsertBusiness,
@@ -136,8 +141,13 @@ export function objectParticle(word: string): string {
 
 export const grantedMessage = (itemName: string): string => `결제했어요. ${itemName}${objectParticle(itemName)} 받았어요.`
 
-/** 환불 중 표시를 두는 시간 (결제 취소 요청 시간 제한보다 길게) */
+/**
+ * 환불 요청이 결제 취소를 맡는 기한 (결제 취소·결제 조회 시간 제한의 합보다 길게). 그동안 다른 환불 요청은 '처리하는 중'이고 다른 맞추기는 환불 중을 풀지 않는다.
+ * 기한이 지나도 환불 중 표시는 남는다 — 결제 조회로 맞춘 뒤에만 마무리하거나 푼다(RA-N5-01)
+ */
 export const REFUND_HOLD_MS = 60_000
+/** 결제 내역을 열 때 결제 조회로 맞추는 멈춘 환불 수 (응답이 늦어지지 않게) */
+export const REFUND_SETTLE_MAX = 3
 /** 결제 내역·쓴 내역 개수 (1~100) */
 export const BILLING_LIST_MAX = 100
 export const BILLING_LIST_DEFAULT = 50
@@ -343,10 +353,46 @@ export function stateMessage(state: OrderState, itemName: string): string {
   }
 }
 
+/** 환불함 응답 (처음 결과로 저장한다) */
+export interface RefundView {
+  readonly paymentId: string
+  readonly state: OrderState
+  readonly message: string
+}
+
+const refundedView = (paymentId: string): RefundView => ({ paymentId, state: 'REFUNDED', message: BILLING_MESSAGES.refunded })
+
+/**
+ * 부여된 결제를 결제 조회로 다시 맞춘 결과 (RA-N5-01)
+ * REFUNDED 환불함(이번에 마무리했거나 이미 환불함) · RELEASED 환불 중을 풀었다(취소가 실제로 안 됐다) · KEPT 환불 중 그대로(아직 모른다)
+ * · REVIEW 확인 필요로 올렸다 · IN_REVIEW 이미 확인 필요였다(취소를 맡은 요청에게만) · NONE 할 일 없음 · LOOKUP_FAILED 결제 조회 실패(아무것도 바꾸지 않았다)
+ */
+type Settled = 'REFUNDED' | 'RELEASED' | 'KEPT' | 'REVIEW' | 'IN_REVIEW' | 'NONE' | 'LOOKUP_FAILED'
+
+/** 결제 취소를 맡은 환불 요청의 응답 (맞춘 결과마다) */
+function refundOutcome(paymentId: string, settled: Settled): BillingOutcome<RefundView> {
+  switch (settled) {
+    case 'REFUNDED':
+      return { kind: 'ok', value: refundedView(paymentId) }
+    case 'RELEASED':
+    case 'NONE':
+      // 결제가 그대로다 — 아무것도 바꾸지 않았다 (BL-7 2)
+      return { kind: 'rejected', rejection: rejection(502, 'REFUND_FAILED', BILLING_MESSAGES.refundFailed) }
+    case 'REVIEW':
+    case 'IN_REVIEW':
+      return { kind: 'rejected', rejection: rejection(409, 'REFUND_IN_PROGRESS', BILLING_MESSAGES.review) }
+    case 'KEPT':
+    case 'LOOKUP_FAILED':
+      // 취소가 됐는지 아직 모른다 — 환불 중 그대로(그 이용권은 쓰지 않는다). 결제 내역·웹훅·다시 환불이 결제 조회로 맞춘다
+      return { kind: 'rejected', rejection: rejection(409, 'REFUND_IN_PROGRESS', BILLING_MESSAGES.refundBusy) }
+  }
+}
+
 /** 원장 → 순수 함수 입력. holdIgnore = 이 결제의 환불 중 표시는 보지 않는다(환불 판단 자신) */
 export function ledgerInput(grants: readonly GrantRow[], usage: { days: readonly Date[]; orders: number; labels: number }, flatStarts: readonly Date[], now: number, holdIgnore: string | null = null): StatusInput {
   const ledgerGrants: LedgerGrant[] = grants.map((grant) => {
-    const held = grant.refundHoldUntil !== null && grant.refundHoldUntil.getTime() > now && grant.paymentId !== holdIgnore
+    // 환불 중 표시는 시간이 지나도 저절로 풀지 않는다 — 결제가 취소됐는지 결제 조회로 확인하기 전까지 쓰지 않는다 (RA-N5-01)
+    const held = grant.refundHoldUntil !== null && grant.paymentId !== holdIgnore
     return {
       id: grant.id,
       kind: grant.kind,
@@ -640,17 +686,28 @@ export class BillingService {
 
   /**
    * 결제 확인·다시 확인·웹훅이 모두 부른다. 결제 조회 API로 다시 읽은 결과만 judgePayment에 넘긴다(화면·웹훅이 보낸 금액·상태는 입력이 아니다).
-   * 조회는 트랜잭션 밖. 결과를 적을 때 그 판매자의 요금 락 안에서 주문 상태를 다시 읽고 판단한다 — 동시에 여러 번 와도 부여는 하나(BL-INV-1)
+   * 조회는 트랜잭션 밖. 결과를 적을 때 그 판매자의 요금 락 안에서 주문 상태를 다시 읽고 판단한다 — 동시에 여러 번 와도 부여는 하나(BL-INV-1).
+   * 이미 부여된 결제는 결제 조회로 다시 맞춘다(judgeGranted — 멈춘 환불의 마무리·풀기, 밖에서 취소된 결제는 확인 필요, RA-N5-01)
    */
   async confirm(sellerId: string, paymentId: string): Promise<BillingOutcome<ConfirmView>> {
-    if (!PAYMENT_ID_RE.test(paymentId)) return { kind: 'not_found' }
+    return (await this.#confirm(sellerId, paymentId)).outcome
+  }
+
+  /** retry = 결제 조회가 실패해 나중에 다시 해야 한다 (웹훅은 503 — 포트원이 다시 보낸다) */
+  async #confirm(sellerId: string, paymentId: string): Promise<{ outcome: BillingOutcome<ConfirmView>; retry: boolean }> {
+    if (!PAYMENT_ID_RE.test(paymentId)) return { outcome: { kind: 'not_found' }, retry: false }
     const order = await findOrder(this.#db, sellerId, paymentId)
-    if (order === null) return { kind: 'not_found' }
-    if (order.state !== 'PENDING' && order.state !== 'FAILED') return { kind: 'ok', value: this.#confirmView(order, 'NONE') }
-    const looked = await this.#options.setup.gateway.lookup(paymentId)
+    if (order === null) return { outcome: { kind: 'not_found' }, retry: false }
+    if (order.state === 'GRANTED') {
+      const settled = await this.#settle(sellerId, paymentId, null)
+      const current = (await findOrder(this.#db, sellerId, paymentId)) as OrderRow
+      // 부여된 결제의 조회 실패는 판매자에게 알리지 않는다(결제 완료 그대로) — 웹훅만 다시 받는다
+      return { outcome: { kind: 'ok', value: this.#confirmView(current, settled === 'REVIEW' ? 'REVIEW' : 'NONE') }, retry: settled === 'LOOKUP_FAILED' }
+    }
+    if (order.state !== 'PENDING' && order.state !== 'FAILED') return { outcome: { kind: 'ok', value: this.#confirmView(order, 'NONE') }, retry: false }
+    const looked = await this.#lookup(paymentId)
     if (looked.kind === 'error') {
-      this.#options.log({ level: 'warn', code: 'PAYMENT_LOOKUP_FAILED' })
-      return { kind: 'ok', value: { ...this.#confirmView(order, 'LOOKUP_FAILED'), message: BILLING_MESSAGES.lookupFailed } }
+      return { outcome: { kind: 'ok', value: { ...this.#confirmView(order, 'LOOKUP_FAILED'), message: BILLING_MESSAGES.lookupFailed } }, retry: true }
     }
     const payment = looked.kind === 'found' ? looked.payment : null
     const now = new Date(this.#options.clock.now())
@@ -712,7 +769,103 @@ export class BillingService {
     if (judged.action === 'GRANT') this.#publish(sellerId, 'grant')
     else if (judged.action !== 'WAIT' && judged.action !== 'NONE') this.#publish(sellerId, 'order')
     const after = (await findOrder(this.#db, sellerId, paymentId)) as OrderRow
-    return { kind: 'ok', value: this.#confirmView(after, judged.action) }
+    return { outcome: { kind: 'ok', value: this.#confirmView(after, judged.action) }, retry: false }
+  }
+
+  /** 결제 조회 (실패는 'error' — 어댑터가 던져도 같다) */
+  async #lookup(paymentId: string): Promise<LookupResult> {
+    try {
+      const looked = await this.#options.setup.gateway.lookup(paymentId)
+      if (looked.kind === 'error') this.#options.log({ level: 'warn', code: 'PAYMENT_LOOKUP_FAILED' })
+      return looked
+    } catch (error) {
+      this.#options.log({ level: 'warn', code: 'PAYMENT_LOOKUP_FAILED', errorKind: errorKind(error) })
+      return { kind: 'error' }
+    }
+  }
+
+  /**
+   * 전액 결제 취소 요청. true = 취소됨. false = 모른다 — 실패·시간 초과·연결 끊김·'이미 취소됨' 응답 모두(취소는 됐는데 응답만 끊겼을 수 있다).
+   * false면 부른 쪽이 결제 조회로 확인한다(RA-N5-01)
+   */
+  async #cancel(paymentId: string, reason: string): Promise<boolean> {
+    try {
+      const result = await this.#options.setup.gateway.cancel(paymentId, reason)
+      if (result.kind === 'ok') return true
+      if (result.kind === 'error') this.#options.log({ level: 'warn', code: 'PAYMENT_CANCEL_FAILED' })
+    } catch (error) {
+      this.#options.log({ level: 'warn', code: 'PAYMENT_CANCEL_FAILED', errorKind: errorKind(error) })
+    }
+    return false
+  }
+
+  /**
+   * 부여된 결제(GRANTED)를 결제 조회로 다시 맞춘다 (RA-N5-01, judgeGranted). 조회는 트랜잭션 밖, 적는 것은 요금 락 안에서 주문을 다시 읽고 한다.
+   * owner = 결제 취소를 맡은 환불 요청(그 요청 번호로 처음 결과를 남긴다). cancelled = 그 요청의 취소가 성공했다(조회 없이 취소됨으로 본다)
+   */
+  async #settle(sellerId: string, paymentId: string, owner: { readonly requestId: string } | null, cancelled = false): Promise<Settled> {
+    const { storeId } = this.#options.setup
+    const looked: LookupResult = cancelled
+      ? { kind: 'found', payment: { status: 'CANCELLED', amount: null, currency: null, storeId, method: null } satisfies LookedUpPayment }
+      : await this.#lookup(paymentId)
+    const now = new Date(this.#options.clock.now())
+    const result = await this.#db.transaction(async (tx): Promise<{ settled: Settled; document: boolean }> => {
+      await lockBilling(tx, sellerId)
+      const current = await findOrder(tx, sellerId, paymentId, true)
+      if (current === null) return { settled: 'NONE', document: false }
+      if (current.state === 'REFUNDED') {
+        // 다른 맞추기(웹훅·결제 내역)가 먼저 마무리했다 — 취소를 맡은 요청의 결과도 환불함
+        if (owner !== null) await insertBillingRequest(tx, { sellerId, requestId: owner.requestId, kind: 'refund', result: JSON.stringify(refundedView(paymentId)), createdAt: now })
+        return { settled: owner === null ? 'NONE' : 'REFUNDED', document: false }
+      }
+      // 다른 맞추기(웹훅)가 먼저 확인 필요로 올렸다 — 취소를 맡은 요청에도 "운영자가 확인해요"(이미 올렸으니 다시 알리지 않는다)
+      if (current.state === 'NEEDS_REVIEW' && owner !== null) return { settled: 'IN_REVIEW', document: false }
+      if (current.state !== 'GRANTED') return { settled: 'NONE', document: false }
+      const hold = current.refundHoldUntil
+      if (looked.kind === 'error') {
+        // 모른다 — 환불 중이면 그대로 둔다. 맡은 요청은 기한을 지금으로 당겨 다음 맞추기(결제 내역·웹훅·다시 환불)가 바로 할 수 있게 한다
+        if (hold !== null && owner !== null) await updateOrder(tx, sellerId, paymentId, { refundHoldUntil: now }, now)
+        return { settled: 'LOOKUP_FAILED', document: false }
+      }
+      const action = judgeGranted({
+        refunding: hold !== null,
+        settled: owner !== null || (hold !== null && hold.getTime() <= now.getTime()),
+        payment: looked.kind === 'found' ? looked.payment : null,
+        storeId,
+      })
+      switch (action) {
+        case 'REFUND':
+          return { settled: 'REFUNDED', document: await this.#finishRefund(tx, sellerId, paymentId, owner?.requestId ?? null, now) }
+        case 'RELEASE':
+          await updateOrder(tx, sellerId, paymentId, { refundHoldUntil: null }, now)
+          return { settled: 'RELEASED', document: false }
+        case 'KEEP':
+          if (owner !== null) await updateOrder(tx, sellerId, paymentId, { refundHoldUntil: now }, now)
+          return { settled: 'KEPT', document: false }
+        case 'REVIEW':
+          // 환불 중 표시는 그대로 둔다(환불 중이었으면 그 이용권은 계속 쓰지 않는다). 운영자 목록에 보인다
+          await updateOrder(tx, sellerId, paymentId, { state: 'NEEDS_REVIEW' }, now)
+          return { settled: 'REVIEW', document: false }
+        case 'NONE':
+          return { settled: 'NONE', document: false }
+      }
+    })
+    if (result.settled === 'REFUNDED' && result.document) await this.#cancelDocument(sellerId, paymentId)
+    if (result.settled === 'REFUNDED') this.#publish(sellerId, 'revoke')
+    else if (result.settled === 'RELEASED' || result.settled === 'REVIEW') this.#publish(sellerId, 'order')
+    if (result.settled === 'REVIEW') this.#options.log({ level: 'warn', code: 'PAYMENT_REVIEW' })
+    return result.settled
+  }
+
+  /** 환불 마무리 (요금 락 안): 회수 기록·주문 환불함·환불 중 지움·증빙 취소 요청·처음 결과. 증빙 요청이 있었는지 돌려준다 */
+  async #finishRefund(tx: Db, sellerId: string, paymentId: string, requestId: string | null, at: Date): Promise<boolean> {
+    const grant = await grantOfPayment(tx, sellerId, paymentId)
+    if (grant !== null) await insertRevocation(tx, { sellerId, grantId: grant.id, reason: 'REFUND', at })
+    await updateOrder(tx, sellerId, paymentId, { state: 'REFUNDED', refundedAt: at, refundHoldUntil: null }, at)
+    const doc = await documentOf(tx, sellerId, paymentId)
+    if (doc !== null) await updateDocument(tx, sellerId, paymentId, { cancel: 'REQUESTED' }, at)
+    if (requestId !== null) await insertBillingRequest(tx, { sellerId, requestId, kind: 'refund', result: JSON.stringify(refundedView(paymentId)), createdAt: at })
+    return doc !== null
   }
 
   #confirmView(order: OrderRow, result: ConfirmResult): ConfirmView {
@@ -722,17 +875,11 @@ export class BillingService {
 
   /** 금액이 다른 결제의 전액 취소 (BL-6 4). 성공하면 금액이 달라 취소함, 실패하면 확인 필요로 둔다 */
   async #cancelMismatch(sellerId: string, paymentId: string): Promise<void> {
-    const { gateway } = this.#options.setup
-    let cancelled = false
-    try {
-      const result = await gateway.cancel(paymentId, '결제 금액 불일치')
-      if (result.kind === 'ok') cancelled = true
-      else if (result.kind === 'already') {
-        const looked = await gateway.lookup(paymentId)
-        cancelled = looked.kind === 'found' && looked.payment.status === 'CANCELLED'
-      }
-    } catch (error) {
-      this.#options.log({ level: 'warn', code: 'PAYMENT_CANCEL_FAILED', errorKind: errorKind(error) })
+    let cancelled = await this.#cancel(paymentId, '결제 금액 불일치')
+    if (!cancelled) {
+      // 취소는 됐는데 응답만 끊겼을 수 있다 — 결제 조회로 확인한다 (RA-N5-01)
+      const looked = await this.#lookup(paymentId)
+      cancelled = looked.kind === 'found' && looked.payment.status === 'CANCELLED'
     }
     if (!cancelled) {
       this.#options.log({ level: 'warn', code: 'PAYMENT_CANCEL_FAILED' })
@@ -774,7 +921,8 @@ export class BillingService {
 
   /**
    * 포트원 V2 웹훅. 서명·보낸 시각(±5분)·본문 형식이 맞을 때만 결제 ID를 꺼내 결제 확인과 같은 일을 한다(본문의 금액·상태·상점은 쓰지 않는다).
-   * 틀리면 400(아무것도 기록하지 않고 조회도 하지 않는다). 모르는 결제 ID는 200(있는지 알리지 않는다). 조회 실패는 503(포트원이 다시 보낸다)
+   * 틀리면 400(아무것도 기록하지 않고 조회도 하지 않는다). 모르는 결제 ID는 200(있는지 알리지 않는다). 조회 실패는 503(포트원이 다시 보낸다).
+   * 이미 부여된 결제의 웹훅(취소 알림 등)도 결제 조회로 다시 맞춘다 — 멈춘 환불의 마무리, 밖에서 취소된 결제는 확인 필요(RA-N5-01)
    */
   async webhook(headers: { get(name: string): string | null }, body: string): Promise<200 | 400 | 503> {
     const checked = checkWebhook(this.#options.setup.webhookSecret, headers, body, this.#options.clock.now())
@@ -782,73 +930,60 @@ export class BillingService {
     if (checked.paymentId === null || !PAYMENT_ID_RE.test(checked.paymentId)) return 200
     const sellerId = await orderSeller(this.#db, checked.paymentId)
     if (sellerId === null) return 200
-    const outcome = await this.confirm(sellerId, checked.paymentId)
-    return outcome.kind === 'ok' && outcome.value.result === 'LOOKUP_FAILED' ? 503 : 200
+    const { retry } = await this.#confirm(sellerId, checked.paymentId)
+    return retry ? 503 : 200
   }
 
-  // ── 7일 환불 (AC-N5-36) ──────────────────────────────────────────────
+  // ── 7일 환불 (AC-N5-36, RA-N5-01) ─────────────────────────────────────
 
-  async refund(sellerId: string, requestId: string, paymentId: string): Promise<BillingOutcome<{ paymentId: string; state: OrderState; message: string }>> {
+  /**
+   * 7일 환불 (BL-7 2). 1) 그 순간 다시 판단하고 '환불 중'을 기록한다 — 그 이용권은 이제 쓰지 않고, 시간이 지나도 저절로 풀리지 않는다.
+   * 2) 전액 결제 취소(트랜잭션 밖). 3) 취소됐으면 한 트랜잭션에서 회수·환불함·증빙 취소 요청.
+   * 취소 결과가 실패·시간 초과·연결 끊김·'이미 취소됨'이면 결제 조회로 확인한다 — 취소돼 있으면 3, 결제가 그대로면 환불 중만 풀고 "환불하지 못했어요"
+   * (아무것도 바뀌지 않음), 조회도 안 되면 환불 중 그대로 "환불을 처리하는 중이에요"(결제 내역·웹훅·다시 환불이 결제 조회로 맞춘다).
+   * 앞선 환불이 결과를 남기지 못하고 멈췄으면(결제 취소를 맡은 기한이 지남) 이 요청이 맡아 결제 조회로 먼저 맞춘다
+   */
+  async refund(sellerId: string, requestId: string, paymentId: string): Promise<BillingOutcome<RefundView>> {
     const prior = await findBillingRequest(this.#db, sellerId, requestId)
-    if (prior !== null) return { kind: 'ok', value: JSON.parse(prior.result) as { paymentId: string; state: OrderState; message: string } }
+    if (prior !== null) return { kind: 'ok', value: JSON.parse(prior.result) as RefundView }
     if (!PAYMENT_ID_RE.test(paymentId)) return { kind: 'not_found' }
     if ((await findOrder(this.#db, sellerId, paymentId)) === null) return { kind: 'not_found' }
-    const now = this.#options.clock.now()
-    // 1. 그 순간 다시 판단하고(billingStatus refundable) 환불 중으로 잡는다 — 그동안 이 이용권으로 방송을 시작하지 않는다
-    const held = await this.#db.transaction(async (tx): Promise<'refused' | 'busy' | 'held'> => {
-      await lockBilling(tx, sellerId)
-      const current = await findOrder(tx, sellerId, paymentId, true)
-      if (current === null || current.state !== 'GRANTED') return 'refused'
-      if (current.refundHoldUntil !== null && current.refundHoldUntil.getTime() > now) return 'busy'
-      const grant = await grantOfPayment(tx, sellerId, paymentId)
-      if (grant === null) return 'refused'
-      const { input } = await this.#input(tx, sellerId, now, paymentId)
-      if (!billingStatus(input).refundable.includes(grant.id)) return 'refused'
-      await updateOrder(tx, sellerId, paymentId, { refundHoldUntil: new Date(now + REFUND_HOLD_MS) }, new Date(now))
-      return 'held'
-    })
-    if (held === 'refused') return { kind: 'rejected', rejection: rejection(409, 'REFUND_NOT_ALLOWED', BILLING_MESSAGES.refundRefused) }
-    if (held === 'busy') return { kind: 'rejected', rejection: rejection(409, 'REFUND_IN_PROGRESS', BILLING_MESSAGES.refundBusy) }
-    this.#publish(sellerId, 'order')
-    // 2. 전액 결제 취소 (트랜잭션 밖)
-    const { gateway } = this.#options.setup
-    let cancelled = false
-    try {
-      const result = await gateway.cancel(paymentId, '7일 환불')
-      if (result.kind === 'ok') cancelled = true
-      else if (result.kind === 'already') {
-        const looked = await gateway.lookup(paymentId)
-        cancelled = looked.kind === 'found' && looked.payment.status === 'CANCELLED'
-      }
-    } catch (error) {
-      this.#options.log({ level: 'warn', code: 'PAYMENT_CANCEL_FAILED', errorKind: errorKind(error) })
-    }
-    const after = new Date(this.#options.clock.now())
-    if (!cancelled) {
-      // 취소가 실패하면 아무것도 바꾸지 않는다 (환불 중 표시만 푼다)
-      this.#options.log({ level: 'warn', code: 'PAYMENT_CANCEL_FAILED' })
-      await this.#db.transaction(async (tx) => {
+    const owner = { requestId }
+    for (let round = 0; round < 2; round += 1) {
+      const now = this.#options.clock.now()
+      // 1. 그 순간 다시 판단하고(billingStatus refundable) 환불 중으로 잡는다 — 요금 락으로 새 방송 시작과 차례로 (BL-7 4)
+      const step = await this.#db.transaction(async (tx): Promise<'refused' | 'busy' | 'held' | 'stale'> => {
         await lockBilling(tx, sellerId)
-        await updateOrder(tx, sellerId, paymentId, { refundHoldUntil: null }, after)
+        const current = await findOrder(tx, sellerId, paymentId, true)
+        if (current === null || current.state !== 'GRANTED') return 'refused'
+        const lease = new Date(now + REFUND_HOLD_MS)
+        if (current.refundHoldUntil !== null) {
+          if (current.refundHoldUntil.getTime() > now) return 'busy'
+          // 앞선 환불이 결과를 남기지 못했다 — 이 요청이 맡는다(다른 요청은 '처리하는 중')
+          await updateOrder(tx, sellerId, paymentId, { refundHoldUntil: lease }, new Date(now))
+          return 'stale'
+        }
+        const grant = await grantOfPayment(tx, sellerId, paymentId)
+        if (grant === null) return 'refused'
+        const { input } = await this.#input(tx, sellerId, now, paymentId)
+        if (!billingStatus(input).refundable.includes(grant.id)) return 'refused'
+        await updateOrder(tx, sellerId, paymentId, { refundHoldUntil: lease }, new Date(now))
+        return 'held'
       })
+      if (step === 'refused') return { kind: 'rejected', rejection: rejection(409, 'REFUND_NOT_ALLOWED', BILLING_MESSAGES.refundRefused) }
+      if (step === 'busy') return { kind: 'rejected', rejection: rejection(409, 'REFUND_IN_PROGRESS', BILLING_MESSAGES.refundBusy) }
+      if (step === 'stale') {
+        // 앞선 취소가 실제로 됐는지 먼저 맞춘다. 안 됐으면(환불 중을 풀었으면) 처음부터 다시 판단한다
+        const settled = await this.#settle(sellerId, paymentId, owner)
+        if (settled === 'RELEASED' && round === 0) continue
+        return refundOutcome(paymentId, settled)
+      }
       this.#publish(sellerId, 'order')
-      return { kind: 'rejected', rejection: rejection(502, 'REFUND_FAILED', BILLING_MESSAGES.refundFailed) }
+      // 2. 전액 결제 취소 (트랜잭션 밖) → 3. 결과를 적는다 (취소됐으면 마무리, 모르면 결제 조회로 확인)
+      const cancelled = await this.#cancel(paymentId, '7일 환불')
+      return refundOutcome(paymentId, await this.#settle(sellerId, paymentId, owner, cancelled))
     }
-    // 3. 한 트랜잭션에서 회수·환불함·증빙 취소 요청
-    const value = { paymentId, state: 'REFUNDED' as OrderState, message: BILLING_MESSAGES.refunded }
-    const hasDocument = await this.#db.transaction(async (tx) => {
-      await lockBilling(tx, sellerId)
-      const grant = await grantOfPayment(tx, sellerId, paymentId)
-      if (grant !== null) await insertRevocation(tx, { sellerId, grantId: grant.id, reason: 'REFUND', at: after })
-      await updateOrder(tx, sellerId, paymentId, { state: 'REFUNDED', refundedAt: after, refundHoldUntil: null }, after)
-      const doc = await documentOf(tx, sellerId, paymentId)
-      if (doc !== null) await updateDocument(tx, sellerId, paymentId, { cancel: 'REQUESTED' }, after)
-      await insertBillingRequest(tx, { sellerId, requestId, kind: 'refund', result: JSON.stringify(value), createdAt: after })
-      return doc !== null
-    })
-    if (hasDocument) await this.#cancelDocument(sellerId, paymentId)
-    this.#publish(sellerId, 'revoke')
-    return { kind: 'ok', value }
+    return { kind: 'rejected', rejection: rejection(409, 'REFUND_IN_PROGRESS', BILLING_MESSAGES.refundBusy) }
   }
 
   async #cancelDocument(sellerId: string, paymentId: string): Promise<void> {
@@ -899,6 +1034,7 @@ export class BillingService {
   // ── 결제 내역·쓴 내역 (AC-N5-14) ──────────────────────────────────────
 
   async payments(sellerId: string, cursor: { at: number; id: string } | null, limit: number): Promise<ListPage<PaymentItem>> {
+    if (cursor === null) await this.#settleStale(sellerId)
     const now = this.#options.clock.now()
     const { input, grants } = await this.#input(this.#db, sellerId, now)
     const refundable = new Set(billingStatus(input).refundable)
@@ -927,7 +1063,7 @@ export class BillingService {
           grantedAt: order.grantedAt?.toISOString() ?? null,
           refundedAt: order.refundedAt?.toISOString() ?? null,
           refundable: state === 'GRANTED' && grantId !== undefined && refundable.has(grantId),
-          refunding: order.refundHoldUntil !== null && order.refundHoldUntil.getTime() > now,
+          refunding: state === 'GRANTED' && order.refundHoldUntil !== null,
           document:
             doc === undefined
               ? null
@@ -953,6 +1089,25 @@ export class BillingService {
     const page = after.slice(0, limit)
     const last = page.at(-1)
     return { items: page.map((entry) => entry.item), next: after.length > limit && last !== undefined ? `${String(last.at)}.${last.id}` : null }
+  }
+
+  /**
+   * 결과를 남기지 못하고 멈춘 환불(결제 취소를 맡은 기한이 지난 환불 중)을 결제 조회로 맞춘다 — 많아야 REFUND_SETTLE_MAX건 (RA-N5-01).
+   * 결제 조회는 한꺼번에 해서 결제 내역이 늦어져도 조회 시간 제한 한 번만큼이다(적는 것은 요금 락으로 차례로)
+   */
+  async #settleStale(sellerId: string): Promise<void> {
+    const now = this.#options.clock.now()
+    const stale = (await refundingOrders(this.#db, sellerId)).filter((order) => order.refundHoldUntil !== null && order.refundHoldUntil.getTime() <= now)
+    await Promise.all(
+      stale.slice(0, REFUND_SETTLE_MAX).map(async (order) => {
+        try {
+          await this.#settle(sellerId, order.paymentId, null)
+        } catch (error) {
+          // 맞추지 못해도 내역은 보인다(환불 중 그대로)
+          this.#options.log({ level: 'warn', code: 'BILLING_FAILED', errorKind: errorKind(error) })
+        }
+      }),
+    )
   }
 
   async usage(sellerId: string, cursor: { at: number; id: string } | null, limit: number): Promise<ListPage<UsageItem>> {

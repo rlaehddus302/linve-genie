@@ -34,6 +34,7 @@ export type LogCode =
   | 'BILLING_FAILED'
   | 'PAYMENT_LOOKUP_FAILED'
   | 'PAYMENT_CANCEL_FAILED'
+  | 'PAYMENT_REVIEW'
   | 'DOCUMENT_FAILED'
 
 export type LogSink = (record: LogRecord) => void
@@ -53,6 +54,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   BILLING_FAILED: '요금 정보를 읽지 못했어요',
   PAYMENT_LOOKUP_FAILED: '결제를 조회하지 못했어요(주문은 그대로)',
   PAYMENT_CANCEL_FAILED: '결제를 취소하지 못했어요',
+  PAYMENT_REVIEW: '결제 완료였던 주문을 결제 조회로 맞추지 못해 확인 필요로 올렸어요(운영자 목록)',
   DOCUMENT_FAILED: '증빙을 발행·취소하지 못했어요(결제·이용권은 그대로)',
 }
 

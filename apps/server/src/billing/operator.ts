@@ -1,6 +1,7 @@
 // 운영자 명령의 일 (AC-N5-12, BL-1 출처·BL-8 5). 명령(commands/billing-grant.ts·billing-list.ts)과 시험이 쓴다.
 // - 이용권 부여: 판매자 로그인 아이디·종류·양·사유로 OPERATOR 이용권을 덧붙인다(명령마다 새 이용권).
-// - 목록: 확인 필요 결제, 1시간 넘게 결제 대기인 주문, 발행 대기·발행 실패·취소 요청 증빙(손으로 발행하는 데 필요한 사업자 정보 — 표준 출력에만, 서버 로그엔 없다).
+// - 목록: 확인 필요 결제(밖에서 취소된 결제 포함), 1시간 넘게 결제 대기인 주문, 결과를 남기지 못하고 멈춘 환불(RA-N5-01),
+//   발행 대기·발행 실패·취소 요청 증빙(손으로 발행하는 데 필요한 사업자 정보 — 표준 출력에만, 서버 로그엔 없다).
 import { formatWon } from '@livejjim/core'
 import { normalizeLoginId } from '../accounts.ts'
 import type { Db } from '../db/database.ts'
@@ -8,7 +9,7 @@ import { openText } from '../secrets.ts'
 import { findAccountByLogin } from '../store.ts'
 import { HOUR_MS, type PassKind } from './rules.ts'
 import { BUSINESS_PURPOSE, checkOperatorGrant, operatorGrant } from './service.ts'
-import { documentsToHandle, ordersInState, type DocumentRow, type OrderRow } from './store.ts'
+import { allRefundingOrders, documentsToHandle, ordersInState, type DocumentRow, type OrderRow } from './store.ts'
 
 export type GrantCommandResult = { readonly ok: true; readonly sellerId: string; readonly grantId: string; readonly kind: PassKind; readonly quantity: number | null } | { readonly ok: false; readonly message: string }
 
@@ -31,6 +32,8 @@ export interface DocumentToHandle {
 export interface OperatorLists {
   readonly review: readonly OrderRow[]
   readonly stalePending: readonly OrderRow[]
+  /** 환불 중인데 결제 취소를 맡은 기한이 지난 결제 (취소가 됐는지 결제 조회로 아직 맞추지 못했다 — 그 이용권은 쓰지 않는다) */
+  readonly stuckRefunds: readonly OrderRow[]
   readonly documents: readonly DocumentToHandle[]
 }
 
@@ -40,10 +43,11 @@ export const STALE_PENDING_MS = HOUR_MS
 export async function operatorLists(db: Db, masterKey: Buffer, now: number): Promise<OperatorLists> {
   const review = await ordersInState(db, 'NEEDS_REVIEW')
   const stalePending = (await ordersInState(db, 'PENDING')).filter((order) => order.createdAt.getTime() < now - STALE_PENDING_MS)
+  const stuckRefunds = (await allRefundingOrders(db)).filter((order) => order.refundHoldUntil !== null && order.refundHoldUntil.getTime() <= now)
   const documents = (await documentsToHandle(db)).map((document) => {
     return { document, recipient: openRecipient(masterKey, document) }
   })
-  return { review, stalePending, documents }
+  return { review, stalePending, stuckRefunds, documents }
 }
 
 function openRecipient(masterKey: Buffer, document: DocumentRow): DocumentToHandle['recipient'] {
@@ -68,6 +72,8 @@ export function formatOperatorLists(lists: OperatorLists): string[] {
   for (const row of lists.review) lines.push(`  ${order(row)}`)
   lines.push(`1시간 넘게 결제 대기 ${String(lists.stalePending.length)}건`)
   for (const row of lists.stalePending) lines.push(`  ${order(row)}`)
+  lines.push(`결과를 모르는 환불 ${String(lists.stuckRefunds.length)}건 (포트원 콘솔에서 취소됐는지 확인 — 판매자가 결제 내역을 열거나 웹훅이 오면 서버가 다시 맞춰요)`)
+  for (const row of lists.stuckRefunds) lines.push(`  ${order(row)} · 취소를 맡은 기한 ${row.refundHoldUntil?.toISOString() ?? ''}`)
   lines.push(`처리할 증빙 ${String(lists.documents.length)}건`)
   for (const { document, recipient } of lists.documents) {
     const state = document.cancel === null ? (DOC_STATUS[document.status] ?? document.status) : `${DOC_STATUS[document.status] ?? document.status} · ${CANCEL_STATUS[document.cancel] ?? document.cancel}`

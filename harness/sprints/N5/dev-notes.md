@@ -64,18 +64,24 @@ S04~I4 계약은 그대로이고 아래가 더해진다. **요금 기능은 기�
   - `state`: `PENDING` 결제 대기 · `FAILED` 결제 안 됨 · `GRANTED` 결제 완료 · `MISMATCH_CANCELLED` 금액이 달라 취소함 · `NEEDS_REVIEW` 확인 필요 · `REFUNDED` 환불함
   - `message`: BL-9 4 문장 — 결과가 `LOOKUP_FAILED`면 "결제를 확인하지 못했어요. 잠시 뒤 '다시 확인'을 눌러 주세요.", 아니면 **지금 주문 상태**의 문장: GRANTED "결제했어요. <항목 이름>을 받았어요."(을/를은 받침으로) · PENDING "결제를 확인하는 중이에요. 잠시 뒤 '다시 확인'을 눌러 주세요." · FAILED "결제가 되지 않았어요. 돈은 나가지 않았어요." · MISMATCH_CANCELLED "결제 금액이 주문과 달라 결제를 취소했어요. 다시 시도해 주세요." · NEEDS_REVIEW "결제를 자동으로 확인하지 못했어요. 운영자가 확인해요." · REFUNDED "환불했어요. 결제 수단으로 돌려드려요."
   - "다시 확인" 버튼은 `state`가 `PENDING`(기다림·조회 실패)일 때.
+  - 이미 결제 완료(`GRANTED`)인 주문도 결제 조회로 다시 맞춘다(RA-N5-01, 아래 6). 결과는 `NONE`(그대로·환불함으로 마무리·환불 중 풀기) 또는 `REVIEW`(밖에서 취소된 결제 → `NEEDS_REVIEW`). 조회가 실패해도 결제 완료 문장 그대로(판매자에게 알리지 않는다 — 웹훅만 503).
 - 금액이 다르면 서버가 전액 취소를 요청한다. 취소 요청 전에 주문을 `NEEDS_REVIEW`로 잡아 두므로 다시 확인·웹훅이 취소를 두 번 요청하지 않는다(취소가 성공하면 `MISMATCH_CANCELLED`, 실패하면 `NEEDS_REVIEW` 그대로 — 운영자 목록).
 
 #### 6. 7일 환불 `POST /api/billing/orders/:paymentId/refund` (AC-N5-36·54)
 - 본문 `{ requestId }` → 200 `{ paymentId, state: 'REFUNDED', message: '환불했어요. 결제 수단으로 돌려드려요.' }` (같은 요청 번호 재전송 = 처음 결과, 취소는 한 번)
 - 409 `REFUND_NOT_ALLOWED` "이 이용권은 환불할 수 없어요. 결제한 지 7일이 지났거나 이미 쓰기 시작했어요." (운영자 이용권·이미 환불·결제 완료가 아닌 주문도) · 502 `REFUND_FAILED` "환불하지 못했어요. 잠시 뒤 다시 해 주세요."(아무것도 바뀌지 않음) · 409 `REFUND_IN_PROGRESS` "환불을 처리하는 중이에요. 잠시 뒤 결제 내역을 확인해 주세요."(같은 결제의 환불이 진행 중 — **스펙에 없는 문장, 아래 "스펙에 없는 것" 참고**)
-- 차례 처리: 환불 판단을 한 순간부터 결제 취소 결과가 날 때까지(최대 60초) 그 이용권은 회수된 것으로 본다(새 방송 시작·미리 보기가 쓰지 않는다). 취소가 실패하면 되돌린다.
+- 차례 처리: 환불 판단을 한 순간 **환불 중**을 기록하고(결제 취소를 요청하기 전), 그때부터 그 이용권은 회수된 것으로 본다(새 방송 시작·미리 보기가 쓰지 않는다). **환불 중은 시간이 지나도 저절로 풀리지 않는다**(RA-N5-01).
+- 결제 취소 결과별(RA-N5-01 — 판단은 순수 함수 `judgeGranted`):
+  - 취소 성공 → 한 트랜잭션에서 회수·`REFUNDED`·환불 중 지움·증빙 취소 요청 → 200.
+  - 실패·시간 초과(10초)·연결 끊김·"이미 취소됨" → **결제 조회로 확인**: 취소돼 있으면 위와 같이 마무리 → 200 / 결제 그대로(`PAID`)면 환불 중만 풀고 502 `REFUND_FAILED`(아무것도 바뀌지 않음 — BL-7 2) / 조회도 안 되거나 결제가 없으면 환불 중 그대로 409 `REFUND_IN_PROGRESS` "환불을 처리하는 중이에요. 잠시 뒤 결제 내역을 확인해 주세요." / 부분 취소·모르는 상태면 `NEEDS_REVIEW`(환불 중 그대로) 409 `REFUND_IN_PROGRESS` "결제를 자동으로 확인하지 못했어요. 운영자가 확인해요." (취소를 기다리는 동안 웹훅이 먼저 확인 필요로 올린 경우도 같은 응답)
+- `refund_hold_until` = 환불 중 표시. 값은 **결제 취소를 맡은 요청의 기한**(지금 + 60초 — 취소·조회 시간 제한의 합보다 길다). 기한 안에는 다른 환불 요청이 409 `REFUND_IN_PROGRESS`이고 다른 맞추기가 환불 중을 풀지 않는다. 맡은 요청이 결과를 모른 채 끝나면 기한을 지금으로 당긴다.
+- 결과를 남기지 못한 환불(취소 응답이 끊김·조회도 실패·마무리 기록 전에 서버가 멈춤·DB 오류)은 다음 곳에서 결제 조회로 맞춘다: ① 결제 내역 첫 쪽(`GET /api/billing/payments`, 커서 없음)을 열 때 — 기한이 지난 환불 중을 많아야 3건(`REFUND_SETTLE_MAX`, 결제 조회는 한꺼번에 — 늦어져도 조회 시간 제한 한 번만큼) ② 그 결제의 웹훅(포트원 `Transaction.Cancelled` 등)·다시 확인 — 취소됐으면 기한과 상관없이 마무리 ③ 다시 환불(기한이 지났으면 그 요청이 맡아 먼저 맞추고, 결제 그대로면 환불 중을 푼 뒤 그 순간 다시 판단해 새로 취소한다). 운영자 `billing-list`에 "결과를 모르는 환불 N건".
 
 #### 7. 결제 내역 `GET /api/billing/payments?cursor=&limit=` (AC-N5-14·54)
 - `limit` 1~100(기본 50), `cursor` = 앞 응답의 `next`. 응답 `{ items, next: string|null }`, 최근 것 먼저(주문은 만든 시각, 운영자 이용권은 부여 시각).
 ```ts
 { type: 'order', paymentId, itemId, itemName, kind, quantity, amount, method: 'CARD'|'TRANSFER', paidMethod: string|null,
-  state, createdAt, grantedAt, refundedAt, refundable: boolean /* 그 순간 G-BIL refundable — "환불" 버튼 */, refunding: boolean,
+  state, createdAt, grantedAt, refundedAt, refundable: boolean /* 그 순간 G-BIL refundable — "환불" 버튼 */, refunding: boolean /* GRANTED이고 환불 중 표시가 있다(결과를 모르는 동안 계속 true) */,
   document: { kind: 'TAX_INVOICE'|'CASH_RECEIPT', status: 'PENDING'|'ISSUED'|'FAILED', approval: string|null /* TEST-… */,
               cancel: null|'REQUESTED'|'CANCELLED'|'FAILED' } | null /* 계좌이체만 */ }
 | { type: 'operator', grantId, kind, quantity, reason, at, revoked }   // "운영자가 준 이용권 · 사유"
@@ -103,14 +109,14 @@ S04~I4 계약은 그대로이고 아래가 더해진다. **요금 기능은 기�
 #### 11. 웹훅 `POST /api/billing/webhook` (AC-N5-32)
 - 세션·Origin 없이 받는다(64KB 제한). 포트원 V2 웹훅 = Standard Webhooks: 머리말 `webhook-id`·`webhook-timestamp`(초)·`webhook-signature`(`v1,<base64>` 여럿, 띄어쓰기로 나눔). 서명 = base64(HMAC-SHA256(`whsec_` 뒤 base64를 푼 키, `${id}.${timestamp}.${본문}`)). 보낸 시각이 서버 시각 ±5분 밖이면 거절.
 - 출처: 포트원 V2 개발자 문서 "웹훅 연동하기"(developers.portone.io/opi/ko/integration/webhook/readme-v2 — 서명 검증은 Standard Webhooks 규격 standardwebhooks.com을 따름). 시험 벡터: 비밀값 `whsec_` + base64(`test-secret-for-vector`), id `msg_vector_1`, timestamp `1792494000`, 본문 `apps/server/test/billing-portone.test.ts`의 `body` → `v1,W5T5soFGUpxF7X5f0OGPH9G48t3J09Tu78kS7XCHyaM=`.
-- 서명·시각·본문 형식이 틀리면 400(기록·조회 없음). 맞으면 본문 `data.paymentId`만 꺼내 결제 확인과 같은 일을 한다. 모르는 결제 ID(다른 판매자 것 포함 — 웹훅은 판매자를 모른다) 200 `{ ok: true }`, 조회 실패 503(포트원이 다시 보낸다), 그 밖 200 `{ ok: true }`. 응답에 주문 상태·판매자가 없다.
+- 서명·시각·본문 형식이 틀리면 400(기록·조회 없음). 맞으면 본문 `data.paymentId`만 꺼내 결제 확인과 같은 일을 한다(이미 부여된 결제도 결제 조회로 다시 맞춘다 — 환불 중이고 취소됐으면 환불함, 환불 중이 아닌데 취소됐으면 `NEEDS_REVIEW`, RA-N5-01). 모르는 결제 ID(다른 판매자 것 포함 — 웹훅은 판매자를 모른다) 200 `{ ok: true }`, 조회 실패 503(포트원이 다시 보낸다), 그 밖 200 `{ ok: true }`. 응답에 주문 상태·판매자가 없다.
 
 #### 12. 시험 결제 경로 — 시험 결제일 때만(`client-config.billing.testPayment`), 운영 구성에는 경로 자체가 없다 (AC-N5-40·58)
 | 경로 | 본문 | 뜻 |
 |---|---|---|
 | `POST /api/billing/test/payments/:paymentId` | `{ action: 'PAID'\|'FAILED'\|'CHANGED_AMOUNT', method?: 'CARD'\|'TRANSFER' (기본 CARD), amount? }` | 가짜 결제 서버에서 그 결제를 완료·실패·금액 바꿔 완료(주문 금액 − 1,000원). 시험 결제 창의 "결제 완료(카드)"·"결제 완료(계좌이체)"·"결제 실패"·"금액을 바꿔 결제" → 이 경로 다음에 확인 요청. "창 닫기"는 아무것도 부르지 않고 확인 요청만 |
 | `POST /api/billing/test/payments/:paymentId/webhook` | `{}` | 가짜 결제 서버가 서명한 `Transaction.Paid` 웹훅을 이 서버의 웹훅 처리에 넣는다 → `{ status: 200\|400\|503 }`. 먼저 `PAID`로 만들어 둔다 |
-| `PUT /api/billing/test/gateway` | `{ lookupFailure?, cancelFailure?, issueFailure? }` (모두 boolean) | 조회 실패·취소 실패·증빙 발행 실패 켜고 끄기 → 지금 값 |
+| `PUT /api/billing/test/gateway` | `{ lookupFailure?, cancelFailure?, cancelLost?, issueFailure? }` (모두 boolean) | 조회 실패·취소 실패(취소하지 않고 502)·**취소는 반영하고 응답만 502**(`cancelLost`, RA-N5-01)·증빙 발행 실패 켜고 끄기 → 지금 값 |
 | `POST /api/billing/test/grants` | `{ kind, quantity?, reason?, at? /* ISO, 지금~400일 전 */ }` | 시험용 운영자 이용권 (`at`을 과거로 — 예: 정액이 3일 남게 `at = 지금 − 27일`) → `{ grantId }` |
 - 다른 판매자의 결제 ID는 404.
 
@@ -130,7 +136,7 @@ S04~I4 계약은 그대로이고 아래가 더해진다. **요금 기능은 기�
 
 #### 15. 운영자 명령 (AC-N5-12)
 - `pnpm --filter @livejjim/server billing-grant --login 아이디 --kind FLAT_30D|DAYS|ORDERS|LABELS [--quantity 양] --reason "사유"` — OPERATOR 이용권(명령마다 새 장). 정량 1~100,000, 정액은 양 없이, 사유 1~200자·휴대폰 번호 거절. 출력에 사유를 쓰지 않는다.
-- `pnpm --filter @livejjim/server billing-list` — 확인 필요 결제, 1시간 넘게 결제 대기, 발행 대기·발행 실패·취소 요청 증빙(복호화한 사업자등록번호·상호·대표자·이메일·종류·공급가액·세액). 표준 출력에만. 마스터 키 필요.
+- `pnpm --filter @livejjim/server billing-list` — 확인 필요 결제(밖에서 취소된 결제 포함), 1시간 넘게 결제 대기, 결과를 모르는 환불(환불 중인데 맡은 기한이 지남 — RA-N5-01), 발행 대기·발행 실패·취소 요청 증빙(복호화한 사업자등록번호·상호·대표자·이메일·종류·공급가액·세액). 표준 출력에만. 마스터 키 필요.
 - `create-account … [--bizno 123-45-67890]` — 틀리면 "사업자등록번호를 다시 확인해 주세요."로 계정을 만들지 않는다. 번호만 암호화해 두고(상호·대표자는 화면), `business.complete = false`.
 - 재생 무결성 검사 `check-replay`가 요금도 대조한다(아래).
 
@@ -164,7 +170,9 @@ S04~I4 계약은 그대로이고 아래가 더해진다. **요금 기능은 기�
 - 지금: 시험 = `FakeIssuer`(바로 발행됨 `TEST-…`, 취소됨), 운영 = `noneIssuer`(발행 대기·취소 요청 — 운영자가 `billing-list`로 보고 손으로 발행).
 
 ### 시험용 기동과 주입점 (적대·E2E 시험)
-- 프로그램: `createServer({ …, billing: testBilling() })` — `testBilling({ enabled?, prices?, timeoutMs? })`가 가짜 결제 서버(`FakePortOne` — 포트원 V2 모양 Hono 앱, 서버의 `PortOneGateway`가 HTTP 모양 그대로 부른다)·가짜 발행기(`FakeIssuer`)·기본 요금 표·시험 웹훅 비밀값(`TEST_WEBHOOK_SECRET`)을 묶는다. `server.billing.setup.test.portone`으로 `pay(paymentId, amount, method)`·`fail`·`setStatus(paymentId, status, amount)`·`lookupFailure`·`cancelFailure`·`cancelCalls`·`lookups`·`requests`, `…test.issuer.fail`.
+- 프로그램: `createServer({ …, billing: testBilling() })` — `testBilling({ enabled?, prices?, timeoutMs? })`가 가짜 결제 서버(`FakePortOne` — 포트원 V2 모양 Hono 앱, 서버의 `PortOneGateway`가 HTTP 모양 그대로 부른다)·가짜 발행기(`FakeIssuer`)·기본 요금 표·시험 웹훅 비밀값(`TEST_WEBHOOK_SECRET`)을 묶는다. `server.billing.setup.test.portone`으로 `pay(paymentId, amount, method)`·`fail`·`setStatus(paymentId, status, amount)`·`lookupFailure`·`cancelFailure`·`cancelLost`(취소 반영 뒤 502)·`cancelDelayMs`(취소 반영 뒤 응답을 늦춤 — `timeoutMs`보다 길면 어댑터가 시간 초과를 받는다. 가짜 서버는 어댑터의 AbortSignal을 지킨다)·`cancelCalls`·`lookups`·`requests`, `…test.issuer.fail`.
+- 밖에서 취소된 결제: `portone.setStatus(paymentId, 'CANCELLED', amount)` 뒤 `signedWebhook(TEST_WEBHOOK_SECRET, paymentId, now, 'Transaction.Cancelled')`.
+- 마무리 기록 전에 멈춘 환불: `BillingSetup.gateway`를 `cancel`이 끝나지 않는 어댑터로 바꿔 끼운다(`apps/server/test/billing-refund-settle.test.ts`).
 - 서명한 웹훅: `signedWebhook(TEST_WEBHOOK_SECRET, paymentId, now, type?)` → `{ body, headers }` → `app.request('/api/billing/webhook', { method: 'POST', headers, body })`.
 - 운영자·시험 부여: `server.billing.grantByOperator(sellerId, { kind, quantity, reason, at? })`.
 - 결제 조회가 멈추는 경우: `BillingSetup.gateway`를 바꿔 끼운다(`apps/server/test/billing-payment.test.ts` "조회가 멈춰 있는 동안").
@@ -179,6 +187,7 @@ S04~I4 계약은 그대로이고 아래가 더해진다. **요금 기능은 기�
 - 409 `REFUND_IN_PROGRESS` "환불을 처리하는 중이에요. 잠시 뒤 결제 내역을 확인해 주세요." — 같은 결제의 환불이 결제 취소를 기다리는 동안 다른 환불 요청이 오면(두 번 누름·두 기기). 스펙 문장이 없어 새 문장을 썼다. 취소를 두 번 요청하지 않는 것이 목적이다.
 - 시험 결제 창 "금액을 바꿔 결제" = 주문 금액 − 1,000원(최소 1원).
 - 결제 확인 응답의 문장은 결과가 아니라 **확인 뒤 주문 상태**의 문장이다(이미 부여된 주문을 다시 확인하면 "결제했어요…" 그대로).
+- **RA-N5-01 (spec-keeper에게 DECISIONS·골든 제안)** — BL-7 2는 "취소가 실패하면 아무것도 바꾸지 않고"만 정하고, 취소 결과를 모르는 경우(응답 끊김·시간 초과·마무리 전 멈춤)와 밖에서 취소된 결제를 정하지 않았다. 판매자에게 안전한 쪽으로 이렇게 했다: ① 환불 중은 취소 요청 전에 기록하고 저절로 풀지 않는다 ② "실패"는 결제 조회로 결제가 그대로(`PAID`)임을 확인한 때만(그때 환불 중을 풀고 아무것도 바꾸지 않음) ③ 조회로 취소됨을 확인하면 환불함으로 마무리 ④ 모르면 환불 중 그대로 두고 결제 내역·웹훅·다시 환불이 맞춘다 ⑤ 우리 환불이 아닌 결제 취소(포트원 콘솔·PG)는 `NEEDS_REVIEW`로 올리고 이용권은 막지 않는다(판매자의 다음 방송을 갑자기 막지 않는다 — 운영자가 정한다). 판단은 순수 함수 `judgeGranted`(rules.ts, 서버 단위 시험 13사례) — G-BIL 골든으로 옮길지, ⑤에서 이용권도 막을지는 spec-keeper 판단.
 
 ## dev-web
 

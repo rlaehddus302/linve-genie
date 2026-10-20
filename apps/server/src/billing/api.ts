@@ -135,22 +135,24 @@ export function registerBillingRoutes(api: Hono<Env>, billing: BillingService): 
     return c.json({ status: await billing.testWebhook(order.paymentId) })
   })
 
-  /** 가짜 결제 서버: 조회 실패·취소 실패 켜고 끄기 */
+  /** 가짜 결제 서버: 조회 실패·취소 실패·취소는 되고 응답만 실패(cancelLost) 켜고 끄기 */
   api.put('/billing/test/gateway', async (c) => {
     const input = body(c)
-    const extra = onlyKeys(input, ['requestId', 'lookupFailure', 'cancelFailure', 'issueFailure'])
+    const extra = onlyKeys(input, ['requestId', 'lookupFailure', 'cancelFailure', 'cancelLost', 'issueFailure'])
     if (extra !== null) return extra
-    for (const key of ['lookupFailure', 'cancelFailure', 'issueFailure']) {
+    for (const key of ['lookupFailure', 'cancelFailure', 'cancelLost', 'issueFailure']) {
       const value = own(input, key)
       if (value !== undefined && typeof value !== 'boolean') return invalid(key, `${key}는 true나 false로 적어 주세요.`)
     }
     const lookup = own(input, 'lookupFailure')
     const cancel = own(input, 'cancelFailure')
+    const lost = own(input, 'cancelLost')
     const issue = own(input, 'issueFailure')
     if (typeof lookup === 'boolean') test.portone.lookupFailure = lookup
     if (typeof cancel === 'boolean') test.portone.cancelFailure = cancel
+    if (typeof lost === 'boolean') test.portone.cancelLost = lost
     if (typeof issue === 'boolean') test.issuer.fail = issue
-    return c.json({ lookupFailure: test.portone.lookupFailure, cancelFailure: test.portone.cancelFailure, issueFailure: test.issuer.fail })
+    return c.json({ lookupFailure: test.portone.lookupFailure, cancelFailure: test.portone.cancelFailure, cancelLost: test.portone.cancelLost, issueFailure: test.issuer.fail })
   })
 
   /** 시험용 이용권 부여 (운영자 이용권 — at을 과거로 줄 수 있다, 400일 전까지) */

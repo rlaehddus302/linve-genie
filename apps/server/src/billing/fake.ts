@@ -1,7 +1,9 @@
 // 시험 결제 (AC-N5-40, D-N5-08): 포트원 V2 모양의 가짜 결제 서버. 요금 기능을 켠 E2E 기동·서버 시험만 쓴다 — 운영 기동(productionServerOptions)에는 없다.
 // - 결제 조회 GET /payments/:id·전액 취소 POST /payments/:id/cancel을 포트원 V2와 같은 모양(Authorization 머리말·응답 칸)으로 한다.
 //   서버의 결제 어댑터(PortOneGateway)가 이 가짜 서버를 HTTP 모양 그대로 부른다(프로세스 안 요청 — 네트워크 없음).
-// - 시험 조작: 그 결제를 완료(카드·계좌이체)·실패·금액 바꿔 완료, 조회 실패 켜고 끄기, 취소 실패 켜고 끄기, 서명한 웹훅 만들기.
+// - 시험 조작: 그 결제를 완료(카드·계좌이체)·실패·금액 바꿔 완료, 조회 실패 켜고 끄기, 취소 실패 켜고 끄기,
+//   취소는 반영하고 응답만 실패(cancelLost)·늦게(cancelDelayMs — 어댑터 시간 제한을 넘기면 시간 초과), 서명한 웹훅 만들기.
+// - 어댑터의 시간 제한(AbortSignal)을 지킨다: 응답이 늦으면 어댑터는 시간 초과('error')를 받고, 가짜 서버 쪽 처리(취소 반영)는 그대로 남는다.
 import { Hono } from 'hono'
 import { DEFAULT_PRICE_TABLE, type PriceTable } from './config.ts'
 import { FakeIssuer } from './documents.ts'
@@ -31,7 +33,12 @@ export class FakePortOne {
   readonly app = new Hono()
   readonly #payments = new Map<string, FakePayment>()
   lookupFailure = false
+  /** 취소하지 않고 502 */
   cancelFailure = false
+  /** 취소는 반영하고 응답은 502 — 포트원은 취소했는데 우리 쪽 응답이 끊긴 경우 (RA-N5-01) */
+  cancelLost = false
+  /** 취소를 반영한 뒤 응답까지 기다리는 밀리초 (어댑터 시간 제한보다 길면 시간 초과) */
+  cancelDelayMs = 0
   /** 받은 취소 요청 수 (결제 ID마다 — 시험이 "취소를 한 번만 요청"을 센다) */
   readonly cancelCalls = new Map<string, number>()
   /** 받은 조회 요청 수 */
@@ -69,7 +76,7 @@ export class FakePortOne {
         method: { type: METHOD_TYPE[payment.method] },
       })
     })
-    this.app.post('/payments/:id/cancel', (c) => {
+    this.app.post('/payments/:id/cancel', async (c) => {
       const id = c.req.param('id')
       this.cancelCalls.set(id, (this.cancelCalls.get(id) ?? 0) + 1)
       if (this.cancelFailure) return c.json({ type: 'PG_PROVIDER', message: '시험용 취소 실패' }, 502)
@@ -78,6 +85,8 @@ export class FakePortOne {
       if (payment.status === 'CANCELLED') return c.json({ type: 'PAYMENT_ALREADY_CANCELLED', message: '이미 취소된 결제입니다.' }, 409)
       if (payment.status !== 'PAID') return c.json({ type: 'PAYMENT_NOT_PAID', message: '결제 완료 상태가 아닙니다.' }, 409)
       payment.status = 'CANCELLED'
+      if (this.cancelDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.cancelDelayMs))
+      if (this.cancelLost) return c.json({ type: 'INTERNAL', message: '시험용 응답 끊김(취소는 반영됨)' }, 502)
       return c.json({ cancellation: { status: 'SUCCEEDED', id: `cancel-${id}`, totalAmount: payment.amount } })
     })
   }
@@ -107,10 +116,33 @@ export class FakePortOne {
       storeId: this.storeId,
       apiSecret: this.apiSecret,
       baseUrl: FAKE_PORTONE_BASE,
-      fetch: (input, init) => Promise.resolve(this.app.request(input, init)),
+      fetch: (input, init) => withAbort(Promise.resolve(this.app.request(input, init)), init.signal ?? null),
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
     })
   }
+}
+
+/** 어댑터의 시간 제한을 지킨다 — 신호가 먼저 끝나면 실제 fetch처럼 거절한다(가짜 서버 쪽 처리는 그대로 끝까지 간다) */
+function withAbort(response: Promise<Response>, signal: AbortSignal | null): Promise<Response> {
+  if (signal === null) return response
+  return new Promise<Response>((resolve, reject) => {
+    const abort = () => reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'))
+    if (signal.aborted) {
+      abort()
+      return
+    }
+    signal.addEventListener('abort', abort, { once: true })
+    response.then(
+      (value) => {
+        signal.removeEventListener('abort', abort)
+        resolve(value)
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', abort)
+        reject(error instanceof Error ? error : new Error('fetch failed'))
+      },
+    )
+  })
 }
 
 /** 서명한 포트원 V2 웹훅 (본문·머리말) — 시험 웹훅 보내기 */

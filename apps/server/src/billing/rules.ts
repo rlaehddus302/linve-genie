@@ -3,6 +3,7 @@
 // - 금액은 정수 원이고 소수가 생기는 연산을 하지 않는다(절대 규칙 2).
 // - 새 실제 방송 시작(AC-N5-20)·미리 보기와 요금 상태(AC-N5-13)·7일 환불(AC-N5-36)·알림 띠(AC-N5-57 재료)는 모두 billingStatus 하나를 부른다.
 //   결제 확인·다시 확인·웹훅(AC-N5-31·32)은 모두 judgePayment 하나를 부른다. 판단을 다시 구현한 곳이 없다.
+//   이미 부여된 결제를 결제 조회로 다시 맞추는 일(환불 마무리·환불 중 풀기·밖에서 취소된 결제, RA-N5-01)은 judgeGranted 하나를 부른다.
 
 /** 시간 단위 (밀리초) */
 export const HOUR_MS = 60 * 60 * 1000
@@ -261,6 +262,42 @@ export function judgePayment(input: PaymentJudgeInput): PaymentJudgement {
   if (WAIT_STATUSES.has(payment.status)) return result('WAIT')
   if (FAIL_STATUSES.has(payment.status)) return result('FAIL')
   return result('REVIEW')
+}
+
+// ── 부여된 결제 다시 맞추기 (RA-N5-01 — BL-7 2 보강, 골든 없음: spec-keeper 확인 대기) ─────────
+
+/**
+ * 이미 부여된 결제(GRANTED)를 결제 조회 결과로 다시 맞출 때 할 일.
+ * - REFUND: 환불 중인데 결제가 취소돼 있다 → 회수·환불함으로 마무리 (취소는 됐는데 응답이 끊겼거나, 마무리 기록 전에 멈춘 경우)
+ * - RELEASE: 환불 중인데 결제가 그대로다(취소가 실제로 안 됐다) → 환불 중 표시만 푼다 (BL-7 2 "아무것도 바꾸지 않고")
+ * - KEEP: 아직 모른다(조회 결과 없음·다른 상점·취소를 맡은 요청이 아직 기다리는 중) → 환불 중 그대로 (이용권을 쓰지 않는다)
+ * - REVIEW: 우리 환불이 아닌데 결제가 취소됐거나, 부분 취소·모르는 상태 → 확인 필요 (운영자 목록, 자동으로 더 건드리지 않는다)
+ * - NONE: 결제 완료 그대로 — 할 일 없음
+ */
+export const GRANTED_ACTIONS = ['REFUND', 'RELEASE', 'KEEP', 'REVIEW', 'NONE'] as const
+export type GrantedAction = (typeof GRANTED_ACTIONS)[number]
+
+export interface GrantedJudgeInput {
+  /** 그 주문에 환불 중 표시가 있다 */
+  readonly refunding: boolean
+  /** 결제 취소를 맡은 환불 요청이 더는 기다리지 않는다 (맡은 기한이 지났거나, 맡은 요청 자신이 취소 시도를 마쳤다) */
+  readonly settled: boolean
+  /** 결제 조회 결과 (그 결제가 없으면 null) */
+  readonly payment: LookedUpPayment | null
+  /** 우리 상점 ID */
+  readonly storeId: string
+}
+
+/** 부여된 결제 다시 맞추기 판단 — 위에서부터 처음 맞는 규칙 */
+export function judgeGranted(input: GrantedJudgeInput): GrantedAction {
+  const { refunding, settled, payment, storeId } = input
+  if (payment === null || payment.storeId !== storeId) return refunding ? 'KEEP' : 'NONE'
+  if (payment.status === 'CANCELLED') return refunding ? 'REFUND' : 'REVIEW'
+  if (payment.status === 'PAID') {
+    if (!refunding) return 'NONE'
+    return settled ? 'RELEASE' : 'KEEP'
+  }
+  return 'REVIEW'
 }
 
 // ── 부가세 나누기 (BL-8 4, G-BIL vat) ────────────────────────────────────

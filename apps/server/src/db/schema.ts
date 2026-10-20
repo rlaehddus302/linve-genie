@@ -496,7 +496,9 @@ export const billingModes = pgTable(
 
 /**
  * 결제 주문 (BL-6). 결제 ID = 서버가 만든 무작위 값. 금액 = 만들 때의 요금 표 가격 스냅샷.
- * 상태: PENDING · FAILED · GRANTED · MISMATCH_CANCELLED · NEEDS_REVIEW · REFUNDED. 환불 중(결제 취소를 기다리는 동안)은 refund_hold_until까지 그 이용권을 쓰지 않는다
+ * 상태: PENDING · FAILED · GRANTED · MISMATCH_CANCELLED · NEEDS_REVIEW · REFUNDED.
+ * refund_hold_until = 환불 중 표시: 있으면 그 이용권을 쓰지 않는다(시간이 지나도 저절로 풀리지 않는다 — 결제 조회로 취소됐으면 환불함, 그대로면 풀기, RA-N5-01).
+ * 값은 결제 취소를 맡은 환불 요청의 기한이고, 지나면 다른 요청(결제 내역·웹훅·다시 환불)이 결제 조회로 맞춘다
  */
 export const billingOrders = pgTable(
   'billing_orders',
