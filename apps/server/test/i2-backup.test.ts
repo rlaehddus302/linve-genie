@@ -313,11 +313,13 @@ describe('AC-I2-61 매일 자동 백업·보관·상태', () => {
       const b = `b_perf_${String(day)}`
       await pg.query(`insert into scopes (id, seller_id, date, rehearsal, seq, created_at) values ($1, $2, $3, false, $4, now())`, [scopeId, seller.sellerId, `2026-10-${String(day).padStart(2, '0')}`, source.seq])
       await pg.query(
-        `insert into events (seller_id, scope_id, seq, type, body, at, received_at, actor, account_id, request_id, chat_broadcast, chat_message_id, sms_ref, changed, failed, digest)
-         select seller_id, $1, seq, type, replace(body, $2, $3), at, received_at, actor, account_id, null, case when chat_broadcast is null then null else $3 end, chat_message_id, sms_ref, changed, failed, digest
+        `insert into events (seller_id, scope_id, seq, type, body, at, received_at, actor, account_id, request_id, chat_broadcast, chat_message_id, sms_ref, changed, failed, digest, chat_source, raw)
+         select seller_id, $1, seq, type, replace(body, $2, $3), at, received_at, actor, account_id, null, case when chat_broadcast is null then null else $3 end, chat_message_id, sms_ref, changed, failed, digest, chat_source, raw
          from events where seller_id = $4 and scope_id = $5`,
         [scopeId, filled.broadcast, b, seller.sellerId, source.id],
       )
+      // 채팅 본문·이름은 Y1부터 chat_raw에 따로 있다(AC-Y1-60) — 이벤트 행과 함께 복사한다
+      await pg.query(`insert into chat_raw (seller_id, scope_id, seq, nick, text) select seller_id, $1, seq, nick, text from chat_raw where seller_id = $2 and scope_id = $3`, [scopeId, seller.sellerId, source.id])
     }
     const started = performance.now()
     const entry = await world.server.backups.createNow(seller.sellerId, 'daily')
@@ -340,11 +342,13 @@ describe('RA-I2-005 판매자 전체 역사를 글 하나로 만들지 않는다
     // 둘째 범위는 이벤트 행을 복사한다(방송 ID만 바꿔 — 성능 시험과 같은 방법). 요약값(digest)은 범위 ID에 기대므로 다시 계산하지 않아도 백업 형식에는 상관없다
     await pg.query(`insert into scopes (id, seller_id, date, rehearsal, seq, created_at) values ('scp_copy', $1, '2026-10-02', false, $2, now())`, [seller.sellerId, source.seq])
     await pg.query(
-      `insert into events (seller_id, scope_id, seq, type, body, at, received_at, actor, account_id, request_id, chat_broadcast, chat_message_id, sms_ref, changed, failed, digest)
-       select seller_id, 'scp_copy', seq, type, replace(body, $1, 'b_copy_2'), at, received_at, actor, account_id, null, case when chat_broadcast is null then null else 'b_copy_2' end, chat_message_id, sms_ref, changed, failed, digest
+      `insert into events (seller_id, scope_id, seq, type, body, at, received_at, actor, account_id, request_id, chat_broadcast, chat_message_id, sms_ref, changed, failed, digest, chat_source, raw)
+       select seller_id, 'scp_copy', seq, type, replace(body, $1, 'b_copy_2'), at, received_at, actor, account_id, null, case when chat_broadcast is null then null else 'b_copy_2' end, chat_message_id, sms_ref, changed, failed, digest, chat_source, raw
        from events where seller_id = $2 and scope_id = $3`,
       [filled.broadcast, seller.sellerId, source.id],
     )
+    // 채팅 본문·이름은 Y1부터 chat_raw에 따로 있다(AC-Y1-60) — 이벤트 행과 함께 복사한다
+    await pg.query(`insert into chat_raw (seller_id, scope_id, seq, nick, text) select seller_id, 'scp_copy', seq, nick, text from chat_raw where seller_id = $1 and scope_id = $2`, [seller.sellerId, source.id])
     let total = 0
     let longest = 0
     for await (const piece of backupPieces(world.database.db, seller.sellerId, world.clock.now())) {

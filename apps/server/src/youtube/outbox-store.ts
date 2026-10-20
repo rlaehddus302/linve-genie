@@ -10,8 +10,11 @@ import { SUMMARY_KIND } from './texts.ts'
 /** 실행기가 다루는 행의 종류 */
 const RUNNER_KINDS = ['POST_THANKS', SUMMARY_KIND]
 
-/** 모든 실행기 질의의 공통 조건: 실제 범위의 행만, 감사·요약 댓글만 */
-const REAL: SQL = and(eq(outbox.rehearsal, false), inArray(outbox.kind, RUNNER_KINDS)) as SQL
+/**
+ * 모든 실행기 질의의 공통 조건: 실제 범위의 행만(복구·가져오기가 다시 만든 행 restored는 빼고 — db/schema.ts executableOutbox와 같은 조건, D-I2-11·RA-I2-001),
+ * 감사·요약 댓글만. 복구로 다시 만든 지난 감사가 유튜브에 다시 올라가지 않게 한다
+ */
+const REAL: SQL = and(eq(outbox.rehearsal, false), eq(outbox.restored, false), inArray(outbox.kind, RUNNER_KINDS)) as SQL
 
 export interface RunnerRow {
   readonly id: number

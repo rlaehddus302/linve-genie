@@ -7,6 +7,9 @@
 //   요약값은 조각마다 이어 계산한다. 읽을 때(검사·복구)도 gzip 스트림을 조각으로 풀어 이벤트 하나씩 읽는다(json-stream.ts).
 //   그래서 파일 안 칸의 차례가 정해져 있다(형식 번호 2): 맨 위 format·version·createdAt·sellerId·shop·settings·scopes·packing·digest,
 //   범위 안 date·rehearsal·events·seq·broadcasts. 이벤트·포장 기록·방송 하나의 칸 차례는 상관없다.
+// - 채팅 본문·이름 (Y1 합친 뒤, AC-Y1-60): 서버는 채팅 이벤트의 본문(text)·이름(nick)을 chat_raw에 따로 둔다. 파일의 이벤트 본문은 Y1 전과 같은 모양 —
+//   따로 둔 값을 다시 합친 엔진 이벤트 그대로다(형식 번호 2 그대로). 복구는 채팅을 다시 떼어 chat_raw에 넣고, 실제 범위의 채팅은 유튜브 채팅(봉인 대상),
+//   리허설 범위의 채팅은 리허설 채팅으로 적는다(서버 수집 경로와 같은 규칙 — service.ts #recordChat).
 // - 범위마다 한 시점의 일관된 기록: 범위 행의 seq를 먼저 읽고 그 seq까지의 이벤트만 담는다(이벤트는 덧붙이기만, seq는 이벤트와 같은 트랜잭션에서 고친다).
 //   방송 목록은 그 이벤트로 정한다(broadcast.start·end가 상태를 바꾼 것 — 방송 목록 표와 같은 규칙). 긴 트랜잭션을 잡지 않아 판매(쓰기)를 막지 않는다.
 //   이벤트는 묶음(BACKUP_PAGE)마다 DB에서 읽고, 묶음 사이에 이벤트 루프에 차례를 넘긴다 — 만드는 동안 판정이 멈추지 않는다(RA-I2-003).
@@ -23,7 +26,34 @@ import { STATE_FORMAT, applyEvent, checkInvariants, checkSettings, isValidDate, 
 import { and, asc, eq, gt, inArray, lte, ne, sql } from 'drizzle-orm'
 import { canonicalJson, checkReplay, type ScopeCheck } from './check-replay.ts'
 import type { Db } from './db/database.ts'
-import { accounts, broadcasts, events, executableOutbox, loginLimits, outbox, packingRecords, scopeLockKey, scopes, sellers, sessions, snapshots } from './db/schema.ts'
+import {
+  accounts,
+  broadcasts,
+  chatRaw,
+  events,
+  executableOutbox,
+  labelTemplates,
+  loginLimits,
+  outbox,
+  packingRecords,
+  printAttempts,
+  printJobs,
+  printLabels,
+  printQueues,
+  printRequests,
+  scopeLockKey,
+  scopes,
+  sellers,
+  sessions,
+  snapshots,
+  youtubeCollectors,
+  youtubeConnections,
+  youtubeLinks,
+  youtubeNotices,
+  youtubeOauthStates,
+  youtubeOwnMessages,
+  youtubeQuota,
+} from './db/schema.ts'
 import type { IdSource } from './ids.ts'
 import { JsonPullReader, JsonStreamError } from './json-stream.ts'
 import { errorKind, type LogSink } from './log.ts'
@@ -31,8 +61,9 @@ import { PACKING_KINDS, PRODUCT_KEY_RE, type PackingKind } from './packing.ts'
 import { FAILED_INPUT_MESSAGE, emptyState, type AttentionItem } from './runtime.ts'
 import { sha256Hex } from './secrets.ts'
 import { readShop, shopJson, type ShopView } from './shop.ts'
+import { mergeRaw } from './store.ts'
 import { iso, kstDate, type Clock } from './time.ts'
-import { eventDigest } from './writer.ts'
+import { eventDigest, splitChatRaw } from './writer.ts'
 
 export const BACKUP_FORMAT = 'livejjim-seller-backup'
 /** 형식 번호 (2 = 칸 차례가 정해진 스트림 형식·이어 계산하는 요약값, RA-I2-005) */
@@ -279,13 +310,18 @@ export async function* backupPieces(db: Db, sellerId: string, now: number): Asyn
           requestId: events.requestId,
           changed: events.changed,
           failed: events.failed,
+          rawNick: chatRaw.nick,
+          rawText: chatRaw.text,
         })
         .from(events)
+        // 채팅의 따로 둔 본문·이름 (Y1, AC-Y1-60) — 파일에는 합친 본문을 쓴다
+        .leftJoin(chatRaw, and(eq(chatRaw.scopeId, events.scopeId), eq(chatRaw.seq, events.seq), eq(chatRaw.sellerId, events.sellerId)))
         .where(and(eq(events.sellerId, sellerId), eq(events.scopeId, scope.id), gt(events.seq, last), lte(events.seq, scope.seq)))
         .orderBy(asc(events.seq))
         .limit(BACKUP_PAGE)
       const pieces: string[] = []
-      for (const row of rows) {
+      for (const stored of rows) {
+        const row = { ...stored, body: mergeRaw(stored.body, stored.rawNick, stored.rawText) }
         if (!row.failed && row.changed && (row.type === 'broadcast.start' || row.type === 'broadcast.end')) {
           const event = JSON.parse(row.body) as { b: string; date?: string; title?: string; at: number }
           if (row.type === 'broadcast.start') {
@@ -1049,10 +1085,34 @@ const BATCH = 500
  * 복구·가져오기가 그 판매자의 행을 모두 지우고 파일로 다시 만드는 표 — 지우는 순서(다른 표를 참조하는 표가 먼저). D-I2-11, RA-I2-001.
  * 판매자 ID 칸이 있는 표는 모두 이 목록이나 RESTORE_KEPT_TABLES 중 하나에 있어야 하고, 범위·방송 등 이 목록의 표를 참조하는 표는 이 목록에 있어야 한다
  * (test/i2-restore-contract.test.ts가 마이그레이션을 적용한 실제 DB의 표·외래 키로 확인한다 — 다른 트랙의 표를 합치면 그 시험이 어디에 둘지 정하라고 알린다)
+ * 합칠 때(I1·Y1·I3) 더한 표:
+ * - 출력 기록(I1 — 시도·작업·라벨 키·출력 요청 번호·대기열): 범위를 참조하고 파일에 없다 — 지운다(복구한 기록의 효과는 다시 출력하지 않는다, restored).
+ *   대기열 줄은 처음 출력할 때 다시 생긴다 — 출력 기기는 다시 정한다.
+ * - 유튜브(Y1 — 채팅 본문·이름 chat_raw, 수집기·방송 잇기·우리 메시지·삭제·차단 알림): 범위를 참조한다 — 지운다. 채팅 본문·이름은 파일의 이벤트에서 다시 만든다.
  */
-export const RESTORE_REPLACED_TABLES = [packingRecords, outbox, snapshots, events, broadcasts, scopes] as const
-/** 복구가 그대로 두는 판매자 표: 판매자 행(가게 설정·판매 규칙 설정 칸만 파일의 것으로 바꾼다)·로그인 계정·세션 (AC-I2-62 "판매자 ID·로그인 계정·세션·전화번호 키는 그대로") */
-export const RESTORE_KEPT_TABLES = [sellers, accounts, sessions] as const
+export const RESTORE_REPLACED_TABLES = [
+  printAttempts,
+  printJobs,
+  printLabels,
+  printRequests,
+  printQueues,
+  youtubeOwnMessages,
+  youtubeNotices,
+  youtubeCollectors,
+  youtubeLinks,
+  chatRaw,
+  packingRecords,
+  outbox,
+  snapshots,
+  events,
+  broadcasts,
+  scopes,
+] as const
+/**
+ * 복구가 그대로 두는 판매자 표: 판매자 행(가게 설정·판매 규칙 설정 칸만 파일의 것으로 바꾼다)·로그인 계정·세션 (AC-I2-62 "판매자 ID·로그인 계정·세션·전화번호 키는 그대로"),
+ * 라벨 템플릿(I1 — 판매자 설정, 파일에 없다), 구글 연결·승인 요청·할당량 사용량(Y1 — 계정 연결과 그날 쓴 양, 파일에 없다)
+ */
+export const RESTORE_KEPT_TABLES = [sellers, accounts, sessions, labelTemplates, youtubeConnections, youtubeOauthStates, youtubeQuota] as const
 /** 판매자 데이터가 아닌 표 (로그인 전 시도 수 — 판매자 ID가 없다) */
 export const RESTORE_UNRELATED_TABLES = [loginLimits] as const
 
@@ -1126,29 +1186,34 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
         .where(eq(sellers.id, sellerId))
       const scopeIds = new Map<string, string>()
       // 지금 넣는 범위 (범위 행은 첫 이벤트에서 — 만든 시각 = 첫 이벤트의 도착 시각)
-      let current: { date: string; rehearsal: boolean; id: string; created: boolean } | null = null
+      let current: { date: string; rehearsal: boolean; id: string; created: boolean; youtubeChat: boolean } | null = null
       const eventRows = new Batcher<typeof events.$inferInsert>((rows) => tx.insert(events).values(rows))
+      const chatRawRows = new Batcher<typeof chatRaw.$inferInsert>((rows) => tx.insert(chatRaw).values(rows))
       const outboxRows = new Batcher<typeof outbox.$inferInsert>((rows) => tx.insert(outbox).values(rows))
       const packingBatch = new Batcher<typeof packingRecords.$inferInsert>((rows) => tx.insert(packingRecords).values(rows))
       const visitor: BackupVisitor = {
         scopeStart: async (date, rehearsal) => {
           const id = options.ids.scope()
           scopeIds.set(JSON.stringify([date, rehearsal]), id)
-          current = { date, rehearsal, id, created: false }
+          current = { date, rehearsal, id, created: false, youtubeChat: false }
         },
         event: async (event, changed, effects) => {
-          const scope = current as unknown as { date: string; rehearsal: boolean; id: string; created: boolean }
+          const scope = current as unknown as { date: string; rehearsal: boolean; id: string; created: boolean; youtubeChat: boolean }
           if (!scope.created) {
             await tx.insert(scopes).values({ id: scope.id, sellerId, date: scope.date, rehearsal: scope.rehearsal, seq: 0, createdAt: new Date(event.receivedAt) })
             scope.created = true
           }
           const body = JSON.parse(event.body) as Record<string, unknown>
+          // 채팅의 본문·이름은 chat_raw에 따로 둔다 (Y1, AC-Y1-60 — 기록 경로와 같은 모양). 실제 범위의 채팅 = 유튜브 채팅(봉인 대상, AC-Y1-61)
+          const split = event.type === 'chat' ? splitChatRaw(body) : null
+          const stored = split === null ? event.body : JSON.stringify(split.body)
+          if (event.type === 'chat' && !scope.rehearsal) scope.youtubeChat = true
           await eventRows.push({
             sellerId,
             scopeId: scope.id,
             seq: event.seq,
             type: event.type,
-            body: event.body,
+            body: stored,
             at: event.at,
             receivedAt: new Date(event.receivedAt),
             actor: event.actor,
@@ -1159,8 +1224,11 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
             smsRef: event.type === 'sms' && typeof body.ref === 'string' ? body.ref : null,
             changed,
             failed: event.failed,
-            digest: eventDigest(scope.id, event.seq, event.type, event.body, event.failed),
+            digest: eventDigest(scope.id, event.seq, event.type, stored, event.failed, split?.raw ?? null),
+            chatSource: event.type === 'chat' ? (scope.rehearsal ? 'rehearsal' : 'youtube') : null,
+            raw: split !== null,
           })
+          if (split !== null) await chatRawRows.push({ sellerId, scopeId: scope.id, seq: event.seq, nick: split.raw.nick, text: split.raw.text })
           // 다시 만든 발송함: 실행하지 않음 표시 (D-I2-11 — 지난 라벨·감사 메시지를 다시 내지 않는다)
           for (const effect of effects) {
             await outboxRows.push({ sellerId, scopeId: scope.id, effectId: effect.id, seq: event.seq, kind: effect.kind, body: JSON.stringify(effect), rehearsal: scope.rehearsal, restored: true, createdAt: now })
@@ -1168,10 +1236,11 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
           eventCount++
         },
         scopeEnd: async (seq, broadcastList, state, attention) => {
-          const scope = current as unknown as { date: string; rehearsal: boolean; id: string; created: boolean }
+          const scope = current as unknown as { date: string; rehearsal: boolean; id: string; created: boolean; youtubeChat: boolean }
           await eventRows.flush()
+          await chatRawRows.flush()
           await outboxRows.flush()
-          await tx.update(scopes).set({ seq }).where(and(eq(scopes.sellerId, sellerId), eq(scopes.id, scope.id)))
+          await tx.update(scopes).set({ seq, youtubeChat: scope.youtubeChat }).where(and(eq(scopes.sellerId, sellerId), eq(scopes.id, scope.id)))
           if (broadcastList.length > 0) {
             await tx.insert(broadcasts).values(
               broadcastList.map((broadcast) => ({

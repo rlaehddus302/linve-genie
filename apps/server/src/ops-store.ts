@@ -25,13 +25,13 @@ export async function collectorCounts(db: Db): Promise<Record<string, number | R
   return out
 }
 
-/** 발송함(실제 범위의 감사·요약 댓글) — 그 시각 범위에 생긴 행의 상태·이유별 수와, 지금 남은 일(WAITING·SENDING) 수 */
+/** 발송함(실제 범위의 감사·요약 댓글 — 복구로 다시 만든 행은 실행하지 않으므로 빼고, D-I2-11) — 그 시각 범위에 생긴 행의 상태·이유별 수와, 지금 남은 일(WAITING·SENDING) 수 */
 export async function outboxCounts(db: Db, from: Date, to: Date): Promise<{ byState: Record<string, Record<string, number>>; pending: { WAITING: number; SENDING: number } }> {
   const kinds = ['POST_THANKS', 'SUMMARY_COMMENT']
   const rows = await db
     .select({ state: outbox.state, reason: outbox.reason, n: sql<number>`count(*)::int` })
     .from(outbox)
-    .where(and(eq(outbox.rehearsal, false), inArray(outbox.kind, kinds), gte(outbox.createdAt, from), lt(outbox.createdAt, to)))
+    .where(and(eq(outbox.rehearsal, false), eq(outbox.restored, false), inArray(outbox.kind, kinds), gte(outbox.createdAt, from), lt(outbox.createdAt, to)))
     .groupBy(outbox.state, outbox.reason)
   const byState: Record<string, Record<string, number>> = {}
   for (const row of rows) {
@@ -44,7 +44,7 @@ export async function outboxCounts(db: Db, from: Date, to: Date): Promise<{ bySt
   const pendingRows = await db
     .select({ state: outbox.state, n: sql<number>`count(*)::int` })
     .from(outbox)
-    .where(and(eq(outbox.rehearsal, false), inArray(outbox.kind, kinds), inArray(outbox.state, ['WAITING', 'SENDING'])))
+    .where(and(eq(outbox.rehearsal, false), eq(outbox.restored, false), inArray(outbox.kind, kinds), inArray(outbox.state, ['WAITING', 'SENDING'])))
     .groupBy(outbox.state)
   const pending = { WAITING: 0, SENDING: 0 }
   for (const row of pendingRows) if (row.state === 'WAITING' || row.state === 'SENDING') pending[row.state] = Number(row.n)

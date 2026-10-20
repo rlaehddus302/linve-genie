@@ -83,6 +83,8 @@ export async function autoLabelEffects(db: Db, sellerId: string, scopeId: string
         eq(outbox.sellerId, sellerId),
         eq(outbox.scopeId, scopeId),
         eq(outbox.rehearsal, false),
+        // 복구·가져오기가 다시 만든 행이 아님 (db/schema.ts executableOutbox와 같은 조건, D-I2-11 — 지난 라벨을 다시 출력하지 않는다)
+        eq(outbox.restored, false),
         eq(outbox.kind, 'PRINT_PRODUCT_LABEL'),
         gte(outbox.seq, fromSeq),
         lte(outbox.seq, toSeq),
