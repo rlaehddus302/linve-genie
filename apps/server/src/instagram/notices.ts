@@ -1,5 +1,6 @@
 // 인스타그램 실시간 알림 (SSE event: instagram — AC-N2-15·24·25·36·37·51).
-// - 알림 문장 알림(UNLINKED_COMMENTS·MANY_WAITING·LATE_COMMENTS)은 처음 한 번과 그 뒤 1분에 한 번까지(서버 시계). LIVE_MOVED는 옮길 때마다 한 번.
+// - 알림 문장 알림(UNLINKED_COMMENTS·MANY_WAITING·LATE_COMMENTS·LIVE_NOT_MOVED)은 처음 한 번과 그 뒤 1분에 한 번까지(서버 시계). LIVE_MOVED는 옮길 때마다 한 번.
+// - LIVE_NOT_MOVED(AC-N2-25, D-N2-17)는 옮기기가 (바)·(사)로만 막힌 새 라이브 댓글 — UNLINKED_COMMENTS 대신 보낸다(라이브마다 같은 간격). 문장은 이유마다 다르다.
 // - 수집 상태 알림은 댓글마다가 아니라 묶어서 1초에 한 번까지(처음은 바로, 그 사이 바뀐 것은 1초 창 끝에 한 번).
 // - 여러 서버 인스턴스 사이의 알림 공유는 범위 밖(컨테이너 1개, hub.ts와 같다).
 import { errorKind, type LogSink } from '../log.ts'
@@ -11,7 +12,17 @@ export const NOTICE_MESSAGES = {
   LATE_COMMENTS: '인스타그램 댓글이 늦게 도착했어요. 순서가 실제와 다를 수 있어요.',
 } as const
 
-export type NoticeCode = keyof typeof NOTICE_MESSAGES
+/** 옮기기가 막힌 이유마다 문장 (AC-N2-25): OTHER_BROADCAST (바) 끝나지 않은 다른 실제 회차 · GAP (사) 마지막 활동에서 60분 넘게 떨어짐 */
+export const LIVE_NOT_MOVED_MESSAGES = {
+  OTHER_BROADCAST:
+    '새 인스타그램 라이브 댓글이 오고 있는데, 끝나지 않은 방송이 여럿이라 어느 방송에 이을지 몰라 기록하지 않고 있어요. 쓰지 않는 방송은 끝내고, 이어 갈 방송을 새 라이브에 이어 주세요.',
+  GAP: '새 인스타그램 라이브 댓글이 오고 있는데, 방송의 마지막 댓글과 1시간 넘게 떨어져 같은 방송인지 몰라 기록하지 않고 있어요. 이어 갈 방송을 새 라이브에 이어 주세요.',
+} as const
+
+export type LiveNotMovedReason = keyof typeof LIVE_NOT_MOVED_MESSAGES
+
+/** 1분 간격 알림 코드 (문장 하나짜리 셋 + 이유마다 문장인 LIVE_NOT_MOVED) */
+export type NoticeCode = keyof typeof NOTICE_MESSAGES | 'LIVE_NOT_MOVED'
 
 /** 저절로 이은 회차를 새 라이브로 옮김 (AC-N2-25) — 옮길 때마다 한 번. N이 0이면 첫 문장만 */
 export const LIVE_MOVED_MESSAGE = '인스타그램 라이브가 바뀌어 방송을 새 라이브에 다시 이었어요.'
@@ -71,14 +82,37 @@ export class LiveNotices {
     }
   }
 
-  /** 알림 문장 알림 (key마다 처음 한 번과 그 뒤 1분에 한 번까지). extra는 수 등 */
-  notice(sellerId: string, code: NoticeCode, key: string, extra: Readonly<Record<string, unknown>>): void {
+  /** (판매자, 코드, key)마다 처음 한 번과 그 뒤 1분에 한 번까지 — 보낼 차례면 true (그 시각을 적는다) */
+  #due(sellerId: string, code: NoticeCode, key: string): boolean {
     const id = JSON.stringify([sellerId, code, key])
     const now = this.#deps.clock.now()
     const last = this.#lastNotice.get(id)
-    if (last !== undefined && now - last < NOTICE_INTERVAL_MS) return
+    if (last !== undefined && now - last < NOTICE_INTERVAL_MS) return false
     this.#lastNotice.set(id, now)
+    return true
+  }
+
+  /** 알림 문장 알림 (key마다 처음 한 번과 그 뒤 1분에 한 번까지). extra는 수 등 */
+  notice(sellerId: string, code: keyof typeof NOTICE_MESSAGES, key: string, extra: Readonly<Record<string, unknown>>): void {
+    if (!this.#due(sellerId, code, key)) return
     this.#publish(sellerId, { kind: 'NOTICE', code, message: NOTICE_MESSAGES[code], ...extra })
+  }
+
+  /**
+   * 옮기기가 (바)·(사)로만 막힌 새 라이브의 댓글 (AC-N2-25, D-N2-17) — UNLINKED_COMMENTS 대신. 라이브(liveId)마다 처음 한 번과 그 뒤 1분에 한 번까지.
+   * broadcast = 옮기려던 회차, count = 그 라이브의 이어지지 않은 댓글 수, reason = OTHER_BROADCAST · GAP (둘 다면 GAP)
+   */
+  notMoved(sellerId: string, extra: { readonly broadcast: string; readonly liveId: string; readonly count: number; readonly reason: LiveNotMovedReason }): void {
+    if (!this.#due(sellerId, 'LIVE_NOT_MOVED', extra.liveId)) return
+    this.#publish(sellerId, {
+      kind: 'NOTICE',
+      code: 'LIVE_NOT_MOVED',
+      message: LIVE_NOT_MOVED_MESSAGES[extra.reason],
+      reason: extra.reason,
+      broadcast: extra.broadcast,
+      liveId: extra.liveId,
+      count: extra.count,
+    })
   }
 
   /** 라이브를 옮김 (AC-N2-25): 옮길 때마다 한 번 — 묶거나 거르지 않는다. count = 옮기기 전까지 그 방송에 기록한 인스타그램 댓글 수 */

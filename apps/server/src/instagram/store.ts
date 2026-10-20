@@ -440,6 +440,17 @@ export async function moveLink(
   return true
 }
 
+/** 그 연결의 마지막 옮기기 (AC-N2-03·25, D-N2-17 — 연결 조회 moved). 옮긴 적이 없으면 null. 연결마다 따로라 끊은 뒤 다시 이은 연결에는 이전 연결의 옮기기가 없다 */
+export async function lastMove(db: Db, sellerId: string, linkId: number): Promise<{ fromLiveId: string; movedAt: Date; comments: number } | null> {
+  const rows = await db
+    .select({ fromLiveId: liveLinkMoves.fromLiveId, movedAt: liveLinkMoves.movedAt, comments: liveLinkMoves.commentsBefore })
+    .from(liveLinkMoves)
+    .where(and(eq(liveLinkMoves.sellerId, sellerId), eq(liveLinkMoves.linkId, linkId)))
+    .orderBy(desc(liveLinkMoves.id))
+    .limit(1)
+  return rows[0] ?? null
+}
+
 export async function bumpLinkCounter(db: Db, sellerId: string, linkId: number, counter: 'late' | 'malformed'): Promise<void> {
   const set = counter === 'late' ? { lateCount: sql`${liveLinks.lateCount} + 1` } : { malformedCount: sql`${liveLinks.malformedCount} + 1` }
   await db

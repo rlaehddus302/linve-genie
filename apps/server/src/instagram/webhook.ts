@@ -9,10 +9,12 @@
 // - 중복: 이 판매자가 같은 ig: 댓글 ID를 이미 기록했으면(어느 회차든) 회차를 정하기 전에 아무 일도 하지 않는다(판매자 줄 안에서 본다).
 // - 옮기기(AC-N2-25, D-N2-16): 이어지지 않은 라이브의 늦지 않은 댓글이고 기다리는 회차가 없으면, 서버가 저절로 이은 같은 계정의 회차 하나를 그 라이브로 옮기고
 //   그 댓글부터 기록한다 — 옮기기와 그 댓글의 기록은 한 트랜잭션이다. 커밋된 뒤 연결 알림과 LIVE_MOVED(옮기기 전 그 방송에 기록한 댓글 수)를 보낸다.
+//   옮기기가 끝나지 않은 다른 실제 회차(바)·마지막 활동에서 60분 넘는 간격(사)으로만 막히면 기록하지 않고 세되, UNLINKED_COMMENTS 대신
+//   LIVE_NOT_MOVED(이유·옮기려던 회차·라이브·수)로 알린다(D-N2-17 — 그 회차는 "댓글을 받는 중"이라 "이어진 방송이 없어요"는 헷갈린다).
 // - 웹훅 원문은 저장하지 않는다. 로그에는 코드·수만 남긴다(본문·username·IGSID·댓글 ID·미디어 ID·서명 없음).
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { hasControlChar } from '../api-fields.ts'
-import type { LiveLinks } from '../live-links.ts'
+import type { LiveLinks, MoveBlocked } from '../live-links.ts'
 import type { LogSink } from '../log.ts'
 import { INSTAGRAM_PREFIX, prefixedKey } from '../platform.ts'
 import type { SellerLocks } from '../seller-locks.ts'
@@ -143,7 +145,7 @@ export class InstagramWebhook {
       for (let attempt = 0; attempt < 3; attempt++) {
         const target = await this.#deps.links.resolveTarget(sellerId, connection.accountId, comment.liveId, fresh)
         if (target.kind === 'many' || target.kind === 'none') {
-          await this.#unlinked(sellerId, comment.liveId, target.kind === 'many')
+          await this.#unlinked(sellerId, comment.liveId, target.kind === 'many' ? 'many' : target.blocked)
           return 'done'
         }
         const move = target.kind === 'move' ? target : null
@@ -197,7 +199,7 @@ export class InstagramWebhook {
             continue
         }
       }
-      await this.#unlinked(sellerId, comment.liveId, false)
+      await this.#unlinked(sellerId, comment.liveId, null)
       return 'done'
     })
   }
@@ -214,10 +216,14 @@ export class InstagramWebhook {
     this.#deps.notices.notice(sellerId, 'LATE_COMMENTS', broadcastId, { broadcast: broadcastId })
   }
 
-  /** 이어지지 않은 라이브의 댓글 (AC-N2-22·24): 기록하지 않고 수만 센다 */
-  async #unlinked(sellerId: string, liveId: string, many: boolean): Promise<void> {
+  /**
+   * 이어지지 않은 라이브의 댓글 (AC-N2-22·24·25): 기록하지 않고 수만 센다. 알림은 기다리는 회차가 둘 이상이면 MANY_WAITING,
+   * 옮기기가 (바)·(사)로만 막혔으면 LIVE_NOT_MOVED(key는 라이브 — UNLINKED_COMMENTS는 보내지 않는다), 그 밖에는 UNLINKED_COMMENTS
+   */
+  async #unlinked(sellerId: string, liveId: string, why: 'many' | MoveBlocked | null): Promise<void> {
     const count = await countUnlinked(this.#deps.db, sellerId, 'INSTAGRAM', liveId, new Date(this.#deps.clock.now()))
-    if (many) this.#deps.notices.notice(sellerId, 'MANY_WAITING', '', { liveId, count })
+    if (why === 'many') this.#deps.notices.notice(sellerId, 'MANY_WAITING', '', { liveId, count })
+    else if (why !== null) this.#deps.notices.notMoved(sellerId, { broadcast: why.broadcastId, liveId, count, reason: why.reason })
     else this.#deps.notices.notice(sellerId, 'UNLINKED_COMMENTS', liveId, { liveId, count })
   }
 

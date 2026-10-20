@@ -6,8 +6,11 @@
 // - 잇기·기다리기·끊기는 엔진 이벤트가 아니다 — 누가·언제는 live_links에 남는다(DAT-05). 같은 요청 번호는 한 번만 한다(처음 응답).
 // - 웹훅 댓글의 회차 정하기(resolveTarget): 그 라이브에 이어진 끝나지 않은 회차, 없으면 기다리는 끝나지 않은 회차가 정확히 하나일 때 저절로 잇는다(조치자 서버).
 //   기다리는 회차도 없으면, 서버가 저절로 이은(옮긴) 회차 하나를 같은 계정의 새 라이브로 옮긴다(AC-N2-25, D-N2-16 — 한 계정은 한 번에 라이브 하나).
-//   그 판매자에게 끝나지 않은 다른 실제 회차가 있거나(연결 없는 회차 포함) 그 회차의 방송 날짜가 댓글을 받은 날(KST)이 아니면 옮기지 않는다
-//   — 새 라이브가 어느 회차의 라이브인지 모호하다(SA-N2-004·TD-N2-003: 끝내지 않은 1부가 2부 라이브로 옮겨 가 2부 주문이 1부 같은 번호의 찜이 되던 것).
+//   다음 둘로는 옮기지 않고 막힌 이유를 돌려준다(D-N2-17 — 웹훅이 UNLINKED_COMMENTS 대신 LIVE_NOT_MOVED로 알린다. 둘 다면 GAP):
+//   (바) OTHER_BROADCAST: 그 판매자에게 그 회차 말고 끝나지 않은 실제 회차가 있다(리허설만 빼고 연결 없는 회차·손으로 이은 회차·날짜가 다른 회차 모두)
+//        — 새 라이브가 어느 회차의 라이브인지 모호하다(SA-N2-004·TD-N2-003: 끝내지 않은 1부가 2부 라이브로 옮겨 가 2부 주문이 1부 같은 번호의 찜이 되던 것).
+//   (사) GAP: 그 댓글을 받은 시각이 그 회차의 마지막 활동(마지막으로 기록한 인스타 댓글을 받은 시각과 이은·옮긴 시각 중 늦은 것)에서 60분 넘게 떨어졌다
+//        (60분 정각은 옮긴다). 서버 시계만 본다 — 방송 날짜·달력 날짜는 보지 않아 자정을 넘긴 방송의 다시 켜기도 옮긴다(TD-N2-004).
 //   옮기기는 그 댓글의 기록과 같은 트랜잭션에서 한다(applyMove) — 기록되지 않으면(끝난 회차 등) 옮기지도 않는다.
 import { getBroadcast } from '@livejjim/core'
 import { sql } from 'drizzle-orm'
@@ -15,13 +18,14 @@ import type { Db } from './db/database.ts'
 import { isPlatform, PLATFORM_MESSAGES, type LiveSource, type Platform } from './platform.ts'
 import type { SellerLocks } from './seller-locks.ts'
 import { findBroadcast } from './store.ts'
-import { kstDate, type Clock } from './time.ts'
+import type { Clock } from './time.ts'
 import type { ScopeWriter } from './writer.ts'
 import {
   autoLink,
   findRequest,
   insertLink,
   insertRequest,
+  lastMove,
   latestLink,
   linkedToLive,
   liveChatStats,
@@ -34,6 +38,7 @@ import {
   waitingLinks,
   type LinkRow,
 } from './instagram/store.ts'
+import { liveMovedMessage } from './instagram/notices.ts'
 
 export const LINK_MESSAGES = {
   REHEARSAL: '리허설 방송에는 라이브를 이을 수 없어요.',
@@ -76,6 +81,18 @@ export interface CollectionView {
   readonly malformed: number
 }
 
+/** 끊지 않은 연결의 마지막 옮기기 (AC-N2-03·25, D-N2-17 — SSE LIVE_MOVED를 놓쳐도 다시 볼 수 있게) */
+export interface MovedView {
+  /** 옮기기 전 라이브 ID */
+  readonly fromLiveId: string
+  /** 옮긴 시각 (UTC ISO) */
+  readonly movedAt: string
+  /** 옮기기 전까지 그 방송에 기록한 인스타그램 댓글 수 (그때 LIVE_MOVED의 N) */
+  readonly comments: number
+  /** 그때의 LIVE_MOVED 문장 */
+  readonly message: string
+}
+
 /** 회차의 라이브 연결 조회 (AC-N2-03) */
 export interface LinkView {
   readonly broadcast: string
@@ -91,6 +108,8 @@ export interface LinkView {
   /** 이을 때 연결돼 있던 인스타그램 계정 ID */
   readonly accountId: string | null
   readonly collection: CollectionView | null
+  /** 그 연결이 새 라이브로 옮겨진 적이 있으면 마지막 옮기기 (없거나 NONE이면 null — 연결마다 따로) */
+  readonly moved: MovedView | null
 }
 
 /** 저장해 두고 같은 요청 번호에 그대로 돌려주는 응답 */
@@ -130,12 +149,25 @@ export interface LiveMove {
   readonly accountId: string
 }
 
+/** 옮기기가 막힌 이유 (AC-N2-25, D-N2-17): (바) 끝나지 않은 다른 실제 회차 · (사) 마지막 활동에서 60분 넘게 떨어짐. 둘 다면 GAP */
+export type MoveBlockReason = 'OTHER_BROADCAST' | 'GAP'
+
+/** 다른 조건은 모두 맞는데 (바)·(사)로만 옮기지 못한 회차 */
+export interface MoveBlocked {
+  readonly broadcastId: string
+  readonly reason: MoveBlockReason
+}
+
+/** 옮기기 간격 (사): 마지막 활동에서 이만큼까지는 옮긴다 (60분 정각 포함, D-N2-17) */
+export const MOVE_GAP_MS = 60 * 60 * 1000
+
 /** 웹훅 댓글의 회차 */
 export type LiveTarget =
   | { readonly kind: 'linked'; readonly linkId: number; readonly broadcastId: string; readonly auto: boolean }
   | LiveMove
   | { readonly kind: 'many' }
-  | { readonly kind: 'none' }
+  /** 기록하지 않는다. blocked: 옮기기가 (바)·(사)로만 막혔으면 그 회차와 이유 (아니면 null) */
+  | { readonly kind: 'none'; readonly blocked: MoveBlocked | null }
 
 const LIVE_ID_RE = /^[A-Za-z0-9_-]{1,128}$/
 
@@ -177,19 +209,7 @@ export class LiveLinks {
   }
 
   async #view(sellerId: string, broadcastId: string, link: LinkRow | null): Promise<LinkView> {
-    if (link === null || (link.state !== 'WAITING' && link.state !== 'LINKED')) {
-      return { broadcast: broadcastId, platform: null, state: 'NONE', liveId: null, linkedAt: null, actor: null, accountId: null, collection: null }
-    }
-    return {
-      broadcast: broadcastId,
-      platform: isPlatform(link.platform) ? link.platform : null,
-      state: link.state === 'LINKED' ? 'LINKED' : 'WAITING',
-      liveId: link.state === 'LINKED' ? link.liveId : null,
-      linkedAt: link.linkedAt.toISOString(),
-      actor: { kind: link.actor === 'server' ? 'server' : 'account', loginId: link.actor === 'server' ? null : link.actorLoginId },
-      accountId: link.accountId,
-      collection: await this.collection(sellerId, link),
-    }
+    return this.#viewIn(this.#deps.db, sellerId, broadcastId, link)
   }
 
   /** 회차의 라이브 연결 (다른 판매자·없는 회차면 null — 404) */
@@ -299,9 +319,12 @@ export class LiveLinks {
     return outcome
   }
 
-  /** 트랜잭션 안에서 만드는 조회 (수집 상태는 같은 트랜잭션으로 읽는다) */
+  /** 연결 조회 (트랜잭션 안이면 tx — 수집 상태·마지막 옮기기를 같은 트랜잭션으로 읽는다) */
   async #viewIn(tx: Db, sellerId: string, broadcastId: string, link: LinkRow | null): Promise<LinkView> {
-    if (link === null || (link.state !== 'WAITING' && link.state !== 'LINKED')) return this.#view(sellerId, broadcastId, null)
+    if (link === null || (link.state !== 'WAITING' && link.state !== 'LINKED')) {
+      return { broadcast: broadcastId, platform: null, state: 'NONE', liveId: null, linkedAt: null, actor: null, accountId: null, collection: null, moved: null }
+    }
+    const move = await lastMove(tx, sellerId, link.id)
     return {
       broadcast: broadcastId,
       platform: isPlatform(link.platform) ? link.platform : null,
@@ -311,6 +334,7 @@ export class LiveLinks {
       actor: { kind: link.actor === 'server' ? 'server' : 'account', loginId: link.actor === 'server' ? null : link.actorLoginId },
       accountId: link.accountId,
       collection: await this.collection(sellerId, link, tx),
+      moved: move === null ? null : { fromLiveId: move.fromLiveId, movedAt: move.movedAt.toISOString(), comments: move.comments, message: liveMovedMessage(move.comments) },
     }
   }
 
@@ -348,7 +372,7 @@ export class LiveLinks {
    * 1. 그 라이브에 이어진 끝나지 않은 회차 → 그 회차
    * 2. 없으면 기다리는 끝나지 않은 실제 회차가 정확히 하나면 그 회차를 그 라이브에 잇는다(조치자 서버, 이은 시각 = 지금, 그때의 인스타 계정 ID). 둘 이상이면 many(잇지 않는다)
    * 3. 기다리는 회차도 없으면 옮길 수 있는지 본다(AC-N2-25) → move (아직 옮기지 않았다 — 그 댓글을 기록하는 트랜잭션에서 applyMove)
-   * 4. 아니면 none
+   * 4. 아니면 none. 옮기기가 (바)·(사)로만 막혔으면 blocked에 그 회차와 이유(D-N2-17 — 웹훅이 LIVE_NOT_MOVED로 알린다)
    * fresh: 그 댓글이 늦게 받은 댓글이 아니다(entry.time이 있고 받은 시각보다 60초 넘게 이르지 않다) — 아니면 옮기지 않는다(D-N2-04 — 자동 동작을 막는 쪽으로만)
    */
   async resolveTarget(sellerId: string, igAccountId: string, liveId: string, fresh: boolean): Promise<LiveTarget> {
@@ -362,8 +386,13 @@ export class LiveLinks {
       const waiting = await waitingLinks(tx, sellerId)
       if (waiting.length > 1) return { kind: 'many' }
       const only = waiting[0]
-      if (only === undefined) return (await this.#movable(tx, sellerId, igAccountId, liveId, fresh, now)) ?? { kind: 'none' }
-      if (!(await autoLink(tx, sellerId, only.id, liveId, igAccountId, now))) return { kind: 'none' }
+      if (only === undefined) {
+        // 이 댓글은 아직 기록하지 않았다(이미 기록한 댓글은 웹훅이 먼저 거른다) — 마지막 활동에 들어가지 않는다
+        const movable = await this.#movable(tx, sellerId, igAccountId, liveId, fresh, now, null)
+        if (movable === null) return { kind: 'none', blocked: null }
+        return movable.kind === 'move' ? movable : { kind: 'none', blocked: { broadcastId: movable.broadcastId, reason: movable.reason } }
+      }
+      if (!(await autoLink(tx, sellerId, only.id, liveId, igAccountId, now))) return { kind: 'none', blocked: null }
       return { kind: 'linked', linkId: only.id, broadcastId: only.broadcastId, auto: true }
     })
     if (target.kind === 'linked' && target.auto) this.#deps.onChange(sellerId, target.broadcastId)
@@ -371,32 +400,46 @@ export class LiveLinks {
   }
 
   /**
-   * 옮길 연결 (AC-N2-25): 늦지 않은 댓글이고, 그 라이브는 이 판매자의 어느 회차에도 이어진 적이 없으며,
-   * 서버가 저절로 이었거나 옮긴, 같은 계정의 다른 라이브에 이어진 끝나지 않은 실제 회차가 정확히 하나일 때. 아니면 null
-   * 그 회차가 있어도 옮기지 않는다(SA-N2-004·TD-N2-003 — 새 라이브가 어느 회차의 라이브인지 모호하면 자동 동작을 막는 쪽으로, D-N2-16):
-   * - 그 판매자에게 그 회차 말고 끝나지 않은 실제 회차가 하나라도 있다(기다리기도 잇기도 하지 않은 회차·다른 플랫폼 회차 포함) — 판매자가 새 회차를 만들어 두었다
-   * - 그 회차의 방송 날짜가 댓글을 받은 날(서버 시계, KST)이 아니다 — 어제 끝내지 않은 회차가 오늘 라이브로 옮겨 가지 않게
+   * 옮길 연결 (AC-N2-25, D-N2-16·17): 늦지 않은 댓글이고, 그 라이브는 이 판매자의 어느 회차에도 이어진 적이 없으며,
+   * 서버가 저절로 이었거나 옮긴, 같은 계정의 다른 라이브에 이어진 끝나지 않은 실제 회차가 정확히 하나일 때 그 회차를 옮긴다(move).
+   * 그 밖의 조건이 아니면 null. 그 조건은 모두 맞는데 아래로 막히면 blocked와 이유 — 둘 다면 GAP(다른 회차를 끝내도 저절로 옮겨지지 않으므로):
+   * - (사) GAP: 받은 시각(now) − 마지막 활동 시각 > 60분. 마지막 활동 시각 = 그 회차에 기록한 인스타그램 댓글 중 마지막 것을 받은 시각(어느 라이브의 댓글이든,
+   *   exceptCommentId — 지금 옮기며 기록하려는 그 댓글 — 은 뺀다)과 그 연결의 이은 시각(옮겼으면 마지막으로 옮긴 시각) 중 늦은 것.
+   *   서버 시계만 본다 — entry.time·방송 날짜·달력 날짜는 보지 않는다(자정을 넘긴 방송도 그 방송의 날짜 하나, R-12·D-022, TD-N2-004)
+   * - (바) OTHER_BROADCAST: 그 판매자에게 그 회차 말고 끝나지 않은 실제 회차가 하나라도 있다(리허설만 빼고 연결 없는 회차·손으로 이은 회차·다른 플랫폼 회차·
+   *   날짜가 다른 회차 모두) — 새 라이브가 어느 회차의 라이브인지 모호하다(SA-N2-004·TD-N2-003)
    */
-  async #movable(tx: Db, sellerId: string, igAccountId: string, liveId: string, fresh: boolean, now: Date): Promise<LiveMove | null> {
+  async #movable(
+    tx: Db,
+    sellerId: string,
+    igAccountId: string,
+    liveId: string,
+    fresh: boolean,
+    now: Date,
+    exceptCommentId: string | null,
+  ): Promise<LiveMove | ({ readonly kind: 'blocked' } & MoveBlocked) | null> {
     if (!fresh) return null
     if (await liveEverLinked(tx, sellerId, liveId)) return null
     const candidates = await movableLinks(tx, sellerId, igAccountId, liveId)
     const only = candidates[0]
     if (candidates.length !== 1 || only === undefined || only.liveId === null) return null
-    if (only.date !== kstDate(now.getTime())) return null
-    if (await otherOpenBroadcast(tx, sellerId, only.broadcastId)) return null
+    const lastChatAt = (await liveChatStats(tx, sellerId, only.scopeId, only.broadcastId, exceptCommentId ?? undefined)).lastAt
+    const lastActive = Math.max(only.linkedAt.getTime(), lastChatAt === null ? Number.NEGATIVE_INFINITY : lastChatAt.getTime())
+    if (now.getTime() - lastActive > MOVE_GAP_MS) return { kind: 'blocked', broadcastId: only.broadcastId, reason: 'GAP' }
+    if (await otherOpenBroadcast(tx, sellerId, only.broadcastId)) return { kind: 'blocked', broadcastId: only.broadcastId, reason: 'OTHER_BROADCAST' }
     return { kind: 'move', linkId: only.id, broadcastId: only.broadcastId, fromLiveId: only.liveId, toLiveId: liveId, accountId: igAccountId }
   }
 
   /**
    * 연결을 새 라이브로 옮긴다 (AC-N2-25) — 그 댓글의 chat을 넣은 기록 트랜잭션 안에서 부른다(같이 커밋되거나 같이 취소된다).
-   * 판매자 줄 밖의 다른 서버 인스턴스가 그사이 바꿨을 수 있어 잠금 안에서 조건을 다시 본다. 옮겼으면 옮기기 전까지 그 방송에 기록한 인스타그램 댓글 수, 못 옮기면 null
+   * 판매자 줄 밖의 다른 서버 인스턴스가 그사이 바꿨을 수 있어 잠금 안에서 조건을 다시 본다 — 이미 넣은 그 댓글(commentId)은 마지막 활동에서 뺀다(넣으면 간격이 늘 0이다).
+   * 옮겼으면 옮기기 전까지 그 방송에 기록한 인스타그램 댓글 수, 못 옮기면 null (웹훅은 회차를 다시 정한다 — 막혔으면 그때 이유가 나온다)
    */
   async applyMove(tx: Db, sellerId: string, move: LiveMove, scopeId: string, commentId: string, now: Date): Promise<number | null> {
     await tx.execute(sql`select pg_advisory_xact_lock(${lockKey(sellerId)})`)
     if ((await waitingLinks(tx, sellerId)).length > 0) return null
-    const again = await this.#movable(tx, sellerId, move.accountId, move.toLiveId, true, now)
-    if (again === null || again.linkId !== move.linkId || again.fromLiveId !== move.fromLiveId || again.broadcastId !== move.broadcastId) return null
+    const again = await this.#movable(tx, sellerId, move.accountId, move.toLiveId, true, now, commentId)
+    if (again === null || again.kind !== 'move' || again.linkId !== move.linkId || again.fromLiveId !== move.fromLiveId || again.broadcastId !== move.broadcastId) return null
     const before = (await liveChatStats(tx, sellerId, scopeId, move.broadcastId, commentId)).count
     const moved = await moveLink(tx, { sellerId, linkId: move.linkId, broadcastId: move.broadcastId, fromLiveId: move.fromLiveId, toLiveId: move.toLiveId, accountId: move.accountId, commentsBefore: before, now })
     return moved ? before : null
