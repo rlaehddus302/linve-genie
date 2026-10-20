@@ -58,6 +58,30 @@ export { DENSITY_BYTES, buildPrintJob, rotateClockwise, type JobErrorCode, type 
 export { MAX_DISTANCE, ZLIB_WINDOW_BITS, adler32, zlibWindow1K } from './deflate.ts'
 export { IN_APP_MARKERS, UNSUPPORTED_REASONS, unsupportedMessage, unsupportedReason, type UnsupportedReason } from './browser-support.ts'
 export {
+  GATT_BUNDLES,
+  MARKLIFE_OPTIONAL_SERVICES,
+  bluetoothEnvironment,
+  uuid16,
+  type BluetoothDeviceLike,
+  type BluetoothEnvironment,
+  type BluetoothLike,
+  type BluetoothRequestOptions,
+  type GattBundleId,
+  type GattCharacteristicLike,
+  type GattServerLike,
+  type GattServiceLike,
+} from './bluetooth.ts'
+export { MARKLIFE_DEFAULTS, createMarklifeAdapter, type MarklifeAdapter, type MarklifeAdapterOptions } from './marklife.ts'
+export {
+  createFakeBluetooth,
+  fakeJobLength,
+  type FakeAck,
+  type FakeAttempt,
+  type FakeBluetooth,
+  type FakeBluetoothOptions,
+  type FakeJobBehavior,
+} from './fake-bluetooth.ts'
+export {
   browserEnvironment,
   createB1Adapter,
   createNiimbotAdapter,

@@ -1,16 +1,38 @@
-// 어댑터 계약 시험 묶음 (AC-P1-40·42·43·44) — B1 어댑터(가짜 niimbluelib 클라이언트)와 가짜 프린터가 같은 묶음을 통과한다.
-// 마지막 줄 +1행은 B1 전용이라 이 묶음에서 빼고 b1.test.ts에서 본다.
+// 어댑터 계약 시험 묶음 (AC-P1-40·42·43·44, AC-N1-43) — B1 어댑터(가짜 niimbluelib 클라이언트)·가짜 프린터·Marklife 어댑터(가짜 블루투스 기기 —
+// YXQ 프로필 S2 하나와 L11 프로필 P12 하나)가 같은 묶음을 통과한다. 마지막 줄 +1행은 B1 전용이라 이 묶음에서 빼고 b1.test.ts에서 본다.
+// 모델마다 다른 것은 묶음의 입력으로만 받는다: 그 프로필에 맞는 그림, 헤드보다 넓은 그림, 농도 범위·문장(농도를 받지 않는 L11은 무엇을 넘겨도 보낸다).
+// Marklife 묶음의 타이머는 조각 사이 30ms를 바로 돌리는 PacedTimer다(정확한 간격은 marklife.test.ts).
 import type { LabelBitmap } from '@livejjim/label'
 import { describe, expect, it } from 'vitest'
-import { PRINTER_MESSAGES, createFakePrinter, createNiimbotAdapter, type ConnectionState, type PrinterAdapter } from '../src/index.ts'
-import { FakeNiimbotClient, ManualTimer, decodeEncoded, flush, sampleImage } from './fakes.ts'
+import {
+  MARKLIFE_P12,
+  MARKLIFE_S2,
+  PRINTER_MESSAGES,
+  createFakeBluetooth,
+  createFakePrinter,
+  createMarklifeAdapter,
+  createNiimbotAdapter,
+  type ConnectionState,
+  type ModelProfile,
+  type PrinterAdapter,
+} from '../src/index.ts'
+import { FakeNiimbotClient, ManualTimer, PacedTimer, decodeEncoded, decodeMarklifeJob, flush, sampleImage } from './fakes.ts'
 
 const TIMEOUT_MS = 5000
 
+/** 농도: 보내는 값·보내지 않는 값과 그 문장. null이면 농도를 받지 않는다(무엇을 넘겨도 보낸다) */
+type DensitySpec = { readonly valid: readonly number[]; readonly invalid: readonly number[]; readonly message: string } | null
+
+const NIIMBOT_DENSITY: DensitySpec = { valid: [1, 2, 3, 4, 5], invalid: [0, 6, 2.5, -1, Number.NaN], message: '인쇄 농도는 1~5 사이의 정수로 정해 주세요.' }
 
 interface Harness {
   readonly adapter: PrinterAdapter
   readonly timer: ManualTimer
+  /** 그 프로필에 맞는 시험 그림 */
+  image(seed?: number): LabelBitmap
+  /** 헤드보다 넓은 그림 */
+  tooWide(): LabelBitmap
+  readonly density: DensitySpec
   /** 프린터가 받은 그림 (끝까지 출력한 것, 받은 순서) */
   printed(): LabelBitmap[]
   /**
@@ -41,6 +63,9 @@ function b1Harness(): Harness {
   return {
     adapter,
     timer,
+    image: (seed = 1) => sampleImage(seed),
+    tooWide: () => sampleImage(1, 385, 240),
+    density: NIIMBOT_DENSITY,
     printed: () =>
       clients.flatMap((c) =>
         c.tasks
@@ -86,6 +111,9 @@ function fakeHarness(): Harness {
   return {
     adapter: printer,
     timer,
+    image: (seed = 1) => sampleImage(seed),
+    tooWide: () => sampleImage(1, 385, 240),
+    density: NIIMBOT_DENSITY,
     printed: () => printer.printed.map((r) => r.image),
     holdNextPrint: (ms = 1000) => {
       printer.setBehavior(printer.printCalls + 1, { delayMs: ms })
@@ -103,15 +131,62 @@ function fakeHarness(): Harness {
   }
 }
 
+/** Marklife 어댑터 + 가짜 블루투스 기기 (꾸러미 A, 첫 크레딧 `01 04`, 조각마다 `01 01`, 작업을 다 받으면 `AA`) */
+function marklifeHarness(profile: ModelProfile, deviceName: string, image: (seed: number) => LabelBitmap, tooWide: () => LabelBitmap, density: DensitySpec): () => Harness {
+  return () => {
+    const timer = new PacedTimer()
+    const fake = createFakeBluetooth({ name: deviceName, timer })
+    const adapter = createMarklifeAdapter({ environment: () => fake.environment, timer, printTimeoutMs: TIMEOUT_MS })
+    /** 지금 보내는 작업을 끝까지 받을 때까지 기다린다 (조각 간격은 PacedTimer가 바로 돌린다) */
+    const untilReceived = async (): Promise<void> => {
+      for (let i = 0; i < 400 && fake.attempts.at(-1)?.complete !== true; i++) await flush()
+      expect(fake.attempts.at(-1)?.complete).toBe(true)
+    }
+    return {
+      adapter,
+      timer,
+      image: (seed = 1) => image(seed),
+      tooWide,
+      density,
+      printed: () => fake.printed.map((bytes) => decodeMarklifeJob(bytes, profile)),
+      holdNextPrint: () => {
+        // 다음 작업은 다 받아도 `AA`를 붙잡아 둔다 — finish()가 보낸다
+        fake.setJob(fake.attempts.length + 1, { ack: 'hold' })
+        return {
+          finish: async () => {
+            await untilReceived()
+            fake.releaseAck()
+            await flush()
+          },
+          finishThenDisconnect: async () => {
+            // `AA`를 보낸 바로 그때(결과를 돌려주기 전에) 끊긴다
+            await untilReceived()
+            fake.releaseAck()
+            fake.disconnect()
+            await flush()
+          },
+        }
+      },
+      disconnectNow: () => fake.disconnect(),
+      failNextPrint: () => fake.setJob(fake.attempts.length + 1, { failWriteAtPacket: 1 }),
+    }
+  }
+}
+
+const S2_DENSITY: DensitySpec = { valid: [1, 2, 3], invalid: [0, 4, 6, 2.5, -1, Number.NaN], message: '인쇄 농도는 1~3 사이의 정수로 정해 주세요.' }
+
 for (const [name, make] of [
   ['B1 어댑터(가짜 niimbluelib 클라이언트)', b1Harness],
   ['가짜 프린터', fakeHarness],
+  ['Marklife 어댑터 S2(YXQ 2, 50×30)', marklifeHarness(MARKLIFE_S2, 'S2_1A2B_BLE', (seed) => sampleImage(seed), () => sampleImage(1, 385, 240), S2_DENSITY)],
+  // 테이프 12×40 = 320×96 그림 — 시계 방향 90도로 돌리면 96점 폭이다. 높이 97이면 돌린 폭 97 > 96
+  ['Marklife 어댑터 P12(L11, 테이프 12×40)', marklifeHarness(MARKLIFE_P12, 'P12_ZA15B', (seed) => sampleImage(seed, 320, 96), () => sampleImage(1, 320, 97), null)],
 ] as const) {
   describe(`어댑터 계약 — ${name}`, () => {
     it('처음은 끊김, 연결 전 출력은 NOT_CONNECTED("프린터를 먼저 연결해 주세요.")', async () => {
       const h = make()
       expect(h.adapter.state).toBe('DISCONNECTED')
-      const r = await h.adapter.print(sampleImage())
+      const r = await h.adapter.print(h.image())
       expect(!r.ok && r.error).toEqual({ code: 'NOT_CONNECTED', message: '프린터를 먼저 연결해 주세요.' })
       expect(h.printed()).toHaveLength(0)
     })
@@ -136,7 +211,7 @@ for (const [name, make] of [
       h.adapter.onStateChange((s) => seen.push(s))
       const hold = h.holdNextPrint()
       let settled = false
-      const image = sampleImage(3)
+      const image = h.image(3)
       const pending = h.adapter.print(image).then((r) => {
         settled = true
         return r
@@ -158,7 +233,7 @@ for (const [name, make] of [
       const seen: ConnectionState[] = []
       h.adapter.onStateChange((s) => seen.push(s))
       const hold = h.holdNextPrint()
-      const image = sampleImage(4)
+      const image = h.image(4)
       const pending = h.adapter.print(image)
       await flush()
       expect(h.adapter.state).toBe('PRINTING')
@@ -172,10 +247,10 @@ for (const [name, make] of [
       expect(Array.from(h.printed()[0]?.data ?? [])).toEqual(Array.from(image.data))
       expect(h.timer.pending).toBe(0)
       // 연결 전 출력은 여전히 NOT_CONNECTED, 다시 연결하면 다음 출력
-      const before = await h.adapter.print(sampleImage())
+      const before = await h.adapter.print(h.image())
       expect(!before.ok && before.error.code).toBe('NOT_CONNECTED')
       expect((await h.adapter.connect('bluetooth')).ok).toBe(true)
-      expect((await h.adapter.print(sampleImage(5))).ok).toBe(true)
+      expect((await h.adapter.print(h.image(5))).ok).toBe(true)
       expect(h.adapter.state).toBe('CONNECTED')
       expect(h.printed()).toHaveLength(2)
     })
@@ -184,32 +259,38 @@ for (const [name, make] of [
       const h = make()
       await h.adapter.connect('bluetooth')
       const hold = h.holdNextPrint()
-      const first = h.adapter.print(sampleImage())
+      const first = h.adapter.print(h.image())
       await flush()
-      const second = await h.adapter.print(sampleImage(2))
+      const second = await h.adapter.print(h.image(2))
       expect(!second.ok && second.error).toEqual({ code: 'BUSY', message: PRINTER_MESSAGES.BUSY })
       await hold.finish()
       expect((await first).ok).toBe(true)
       expect(h.printed()).toHaveLength(1)
     })
 
-    it('농도 1~5는 보내고, 0·6·소수는 보내지 않고 오류', async () => {
+    it('농도: 범위 안 정수는 보내고, 범위 밖·소수는 보내지 않고 오류 (농도를 받지 않는 프로필은 무엇을 넘겨도 보낸다)', async () => {
       const h = make()
       await h.adapter.connect('bluetooth')
-      for (const density of [0, 6, 2.5, -1, Number.NaN]) {
-        const r = await h.adapter.print(sampleImage(), { density })
+      if (h.density === null) {
+        const values = [undefined, 0, 1, 3, 6, 2.5, -1, Number.NaN]
+        for (const density of values) expect((await h.adapter.print(h.image(), density === undefined ? {} : { density })).ok, String(density)).toBe(true)
+        expect(h.printed()).toHaveLength(values.length)
+        return
+      }
+      for (const density of h.density.invalid) {
+        const r = await h.adapter.print(h.image(), { density })
         expect(!r.ok && r.error.code, String(density)).toBe('INVALID_DENSITY')
-        expect(!r.ok && r.error.message).toBe('인쇄 농도는 1~5 사이의 정수로 정해 주세요.')
+        expect(!r.ok && r.error.message).toBe(h.density.message)
       }
       expect(h.printed()).toHaveLength(0)
-      for (const density of [1, 2, 3, 4, 5]) expect((await h.adapter.print(sampleImage(), { density })).ok).toBe(true)
-      expect(h.printed()).toHaveLength(5)
+      for (const density of h.density.valid) expect((await h.adapter.print(h.image(), { density })).ok).toBe(true)
+      expect(h.printed()).toHaveLength(h.density.valid.length)
     })
 
-    it('폭 385점 이상의 그림은 보내지 않고 IMAGE_TOO_WIDE', async () => {
+    it('헤드보다 넓은 그림(B1·S2는 폭 385점, P12는 돌린 폭 97점)은 보내지 않고 IMAGE_TOO_WIDE', async () => {
       const h = make()
       await h.adapter.connect('bluetooth')
-      const r = await h.adapter.print(sampleImage(1, 385, 240))
+      const r = await h.adapter.print(h.tooWide())
       expect(!r.ok && r.error).toEqual({ code: 'IMAGE_TOO_WIDE', message: '라벨이 프린터보다 넓어요. 라벨 크기를 확인해 주세요.' })
       expect(h.printed()).toHaveLength(0)
       expect(h.adapter.state).toBe('CONNECTED')
@@ -219,7 +300,7 @@ for (const [name, make] of [
       const h = make()
       await h.adapter.connect('bluetooth')
       h.holdNextPrint()
-      const pending = h.adapter.print(sampleImage())
+      const pending = h.adapter.print(h.image())
       await flush()
       h.disconnectNow()
       const r = await pending
@@ -228,7 +309,7 @@ for (const [name, make] of [
       expect(h.printed()).toHaveLength(0)
       // 다시 연결하면 다시 출력할 수 있다
       expect((await h.adapter.connect('bluetooth')).ok).toBe(true)
-      expect((await h.adapter.print(sampleImage())).ok).toBe(true)
+      expect((await h.adapter.print(h.image())).ok).toBe(true)
       expect(h.printed()).toHaveLength(1)
     })
 
@@ -236,7 +317,7 @@ for (const [name, make] of [
       const h = make()
       await h.adapter.connect('bluetooth')
       h.failNextPrint()
-      const r = await h.adapter.print(sampleImage())
+      const r = await h.adapter.print(h.image())
       expect(!r.ok && r.error.code).toBe('PRINT_FAILED')
       expect(!r.ok && r.error.message).toBe(PRINTER_MESSAGES.PRINT_FAILED)
       expect(h.adapter.state).toBe('CONNECTED')
@@ -248,7 +329,7 @@ for (const [name, make] of [
       await h.adapter.connect('bluetooth')
       h.holdNextPrint(TIMEOUT_MS * 2)
       let settled = false
-      const pending = h.adapter.print(sampleImage()).then((r) => {
+      const pending = h.adapter.print(h.image()).then((r) => {
         settled = true
         return r
       })
@@ -263,7 +344,7 @@ for (const [name, make] of [
     it('받은 뒤 원본 그림을 바꿔도 기록은 그대로다', async () => {
       const h = make()
       await h.adapter.connect('bluetooth')
-      const image = sampleImage(5)
+      const image = h.image(5)
       const before = Array.from(image.data)
       expect((await h.adapter.print(image)).ok).toBe(true)
       image.data.fill(0xff)
@@ -273,7 +354,7 @@ for (const [name, make] of [
     it('끝난 출력은 시간 초과 타이머를 남기지 않는다', async () => {
       const h = make()
       await h.adapter.connect('bluetooth')
-      expect((await h.adapter.print(sampleImage())).ok).toBe(true)
+      expect((await h.adapter.print(h.image())).ok).toBe(true)
       expect(h.timer.pending).toBe(0)
     })
   })
