@@ -86,3 +86,45 @@ export function kstShort(value: string | number): string {
   const p = parts(shortFormat, ms)
   return `${String(Number(p.month ?? '0'))}/${String(Number(p.day ?? '0'))} ${p.hour ?? '00'}:${p.minute ?? '00'}`
 }
+
+const wordsFormat = new Intl.DateTimeFormat('en-GB', {
+  timeZone: KST_TIME_ZONE,
+  hourCycle: 'h23',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+})
+
+/** 시·분(·초) → "오후 8:01" / "오후 8:31:05" (12시간, 0시는 오전 12시) */
+function clockWords(hour: number, minute: string, second: string | null): string {
+  const half = hour < 12 ? '오전' : '오후'
+  const h = hour % 12 === 0 ? 12 : hour % 12
+  return `${half} ${String(h)}:${minute}${second === null ? '' : `:${second}`}`
+}
+
+/** UTC 시각 → KST "10월 25일 오후 8:01" (동의한 때·예정 시각·다시 채워지는 때) */
+export function kstDateTimeWords(value: string | number): string {
+  const ms = toMs(value)
+  if (!Number.isFinite(ms)) return ''
+  const p = parts(wordsFormat, ms)
+  return `${String(Number(p.month ?? '0'))}월 ${String(Number(p.day ?? '0'))}일 ${clockWords(Number(p.hour ?? '0'), p.minute ?? '00', null)}`
+}
+
+/** UTC 시각 → KST "오후 8:31:05" (마지막 채팅) */
+export function kstClockWords(value: string | number): string {
+  const ms = toMs(value)
+  if (!Number.isFinite(ms)) return ''
+  const p = parts(wordsFormat, ms)
+  return clockWords(Number(p.hour ?? '0'), p.minute ?? '00', p.second ?? '00')
+}
+
+/** UTC 시각 → KST "11월 25일 0시" (봉인 시각 — 분이 있으면 "0시 30분") */
+export function kstHourWords(value: string | number): string {
+  const ms = toMs(value)
+  if (!Number.isFinite(ms)) return ''
+  const p = parts(wordsFormat, ms)
+  const minute = Number(p.minute ?? '0')
+  return `${String(Number(p.month ?? '0'))}월 ${String(Number(p.day ?? '0'))}일 ${String(Number(p.hour ?? '0'))}시${minute === 0 ? '' : ` ${String(minute)}분`}`
+}

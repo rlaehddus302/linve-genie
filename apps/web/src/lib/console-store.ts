@@ -6,8 +6,13 @@
 //   서버가 "전체를 다시 받으세요"(410 RESYNC_REQUIRED)면 전체를 다시 받는다.
 // - 처음 불러오기·전체 다시 받기·따라잡기가 실패하면(네트워크·5xx) "최신으로 맞추지 못함"(stale)을 보이고 1초부터 두 배씩 최대 30초 간격으로
 //   화면이 열린 동안 계속 다시 시도한다. 새 알림이 오면 바로 다시 시도한다. 맞춰지면 stale이 풀린다 (AC-S06-41, RA-S05-004).
+// - 유튜브 알림(SSE `youtube`)은 같은 연결로 받아 화면 조각(콘솔 유튜브 칸·감사 메시지 목록)에 넘긴다. 끊겼다 다시 붙으면 그 조각들에
+//   "다시 받으세요"를 알린다(AC-I3-92).
+// - 봉인한 날짜(전체 조회의 sealed: true)는 증분 조회를 하지 않는다 — 410을 되풀이하지 않는다. 연 채 봉인되면(SSE `youtube` sealed)
+//   전체를 한 번 다시 받아 봉인한 장부를 보인다 (AC-I3-41, Y1 계약 5).
 import { get, isApiError, withQuery, type ApiError } from '../api/client.ts'
-import type { BroadcastItem, Changes, ChatMessage, FullView, GeneratorStatus, MessagesView, ScopeSeq } from '../api/types.ts'
+import type { BroadcastItem, Changes, ChatMessage, FullView, GeneratorStatus, MessagesView, ScopeSeq, YoutubeEvent } from '../api/types.ts'
+import { parseYoutubeEvent } from './live-events.ts'
 import { applyChanges, fromFull, type ScopeData } from './scope-data.ts'
 
 /** 처음 열 때 받는 최근 메시지 수 (그날 전체를 받지 않는다) */
@@ -47,6 +52,10 @@ export interface ConsoleSnapshot {
   readonly generator: GeneratorStatus | null
   /** 화면을 최신으로 맞추지 못해 다시 시도하는 중 (AC-S06-41) */
   readonly stale: boolean
+  /** 30일이 지나 봉인한 날짜 (볼 수만 있다, AC-I3-41) */
+  readonly sealed: boolean
+  /** 봉인한 날짜의 채팅 칸 문장 (서버 sealedMessage) */
+  readonly sealedMessage: string | null
 }
 
 export interface EventSourceLike {
@@ -84,6 +93,8 @@ const EMPTY: ConsoleSnapshot = {
   connection: 'connecting',
   generator: null,
   stale: false,
+  sealed: false,
+  sealedMessage: null,
 }
 
 /** 로딩 중 화면이 쓰는 빈 상태 */
@@ -143,6 +154,12 @@ export class ConsoleStore {
   #notified = 0
   /** 생성기 상태가 바뀐 횟수 (늦게 온 조회 결과가 새 상태를 덮지 않게) */
   #generatorVersion = 0
+  /** 유튜브 알림을 받는 화면 조각 */
+  readonly #youtube = new Set<(event: YoutubeEvent) => void>()
+  /** 끊겼다 다시 붙었을 때 다시 받을 화면 조각 */
+  readonly #reconnected = new Set<() => void>()
+  /** 받은 ready 수 (두 번째부터 다시 붙은 것) */
+  #readyCount = 0
 
   constructor(options: ConsoleStoreOptions) {
     if ((options.broadcastId === undefined) === (options.scope === undefined)) throw new Error('방송 또는 범위 하나로 연다')
@@ -159,6 +176,18 @@ export class ConsoleStore {
   }
 
   getSnapshot = (): ConsoleSnapshot => this.#snapshot
+
+  /** 유튜브 알림(SSE `youtube`)을 받는다. 돌려준 함수로 그만 받는다 */
+  onYoutube = (listener: (event: YoutubeEvent) => void): (() => void) => {
+    this.#youtube.add(listener)
+    return () => this.#youtube.delete(listener)
+  }
+
+  /** 실시간 연결이 끊겼다 다시 붙으면 부른다 (놓친 유튜브 상태 다시 받기) */
+  onReconnect = (listener: () => void): (() => void) => {
+    this.#reconnected.add(listener)
+    return () => this.#reconnected.delete(listener)
+  }
 
   #set(patch: Partial<ConsoleSnapshot>): void {
     if (this.#stopped) return
@@ -225,6 +254,8 @@ export class ConsoleStore {
     if (this.#retry !== undefined) this.#timer.clear(this.#retry)
     this.#unwatch?.()
     this.#listeners.clear()
+    this.#youtube.clear()
+    this.#reconnected.clear()
   }
 
   /** 실패 하나: "최신으로 맞추지 못함"을 보이고 간격을 늘려 다시 시도한다 */
@@ -311,19 +342,24 @@ export class ConsoleStore {
     if (!this.#withMessages || this.broadcastId === null) {
       const view = await get<FullView>(this.#path(''))
       const data = fromFull(view)
-      this.#set({ phase: 'ready', error: null, data })
-      if (this.#notified > data.seq) void this.catchUp()
+      this.#set({ phase: 'ready', error: null, data, sealed: view.sealed === true })
+      if (this.#notified > data.seq && view.sealed !== true) void this.catchUp()
       return
     }
     const b = this.broadcastId
     const latest = () => get<MessagesView>(this.#path('/messages', { b, limit: INITIAL_MESSAGES }))
     const [view, first] = await Promise.all([get<FullView>(this.#path('')), latest()])
     const data = fromFull(view)
+    if (view.sealed === true || first.sealed === true) {
+      // 봉인한 날짜: 채팅 내용은 지웠고 증분이 없다 — 따라잡지 않는다
+      this.#set({ phase: 'ready', error: null, data, messages: [], olderMessages: false, sealed: true, sealedMessage: first.sealedMessage ?? null })
+      return
+    }
     // 메시지 조회가 전체 조회보다 앞선 seq에서 끝났으면(그사이 채팅이 들어왔다) 그 사이의 채팅·바뀐 기록은 증분(전체 조회 seq 뒤)으로도
     // "이전 메시지 보기"(가장 오래된 메시지 앞)로도 받을 수 없다 — 전체 조회를 받은 뒤 최근 메시지를 다시 받는다(그 조회의 seq ≥ 전체 조회 seq)
     let messages = first
     for (let tries = 0; messages.seq < data.seq && tries < MESSAGES_RELOAD_TRIES && !this.#stopped; tries++) messages = await latest()
-    this.#set({ phase: 'ready', error: null, data, messages: messages.messages, olderMessages: messages.more })
+    this.#set({ phase: 'ready', error: null, data, messages: messages.messages, olderMessages: messages.more, sealed: false, sealedMessage: null })
     // 메시지 조회가 본 그 뒤의 변경, 알림으로 알고 있는 것은 증분으로
     if (messages.seq > data.seq || this.#notified > data.seq) void this.catchUp()
   }
@@ -354,6 +390,8 @@ export class ConsoleStore {
     stream.addEventListener('ready', (event) => {
       const data = parseData<{ scopes: ScopeSeq[] }>(event)
       this.#set({ connection: 'open' })
+      // 다시 붙음: 유튜브 상태(연결·수집·발송함·사용량·알림)는 seq가 없어 다시 받는다 (AC-I3-92)
+      if (++this.#readyCount > 1) for (const listener of [...this.#reconnected]) listener()
       const scope = this.scope
       // 생성기 상태는 seq 없는 알림으로만 오므로, 끊긴 사이의 시작·멈춤·다 보냄은 다시 붙을 때 조회로 받는다
       if (this.#snapshot.broadcast?.rehearsal === true) void this.#loadGenerator()
@@ -366,6 +404,14 @@ export class ConsoleStore {
       const scope = this.scope
       if (data === null || scope === null || data.date !== scope.date || data.rehearsal !== scope.rehearsal) return
       this.#notify(data.seq)
+    })
+    stream.addEventListener('youtube', (event) => {
+      const data = parseYoutubeEvent(event.data)
+      if (data === null) return
+      // 보는 날짜를 봉인했다: 전체를 한 번 다시 받아 봉인한 장부로 (증분 410을 되풀이하지 않는다, AC-I3-41)
+      const scope = this.scope
+      if (data.kind === 'sealed' && scope !== null && !scope.rehearsal && data.date === scope.date && !this.#snapshot.sealed) void this.#reload()
+      for (const listener of [...this.#youtube]) listener(data)
     })
     stream.addEventListener('generator', (event) => {
       const data = parseData<GeneratorStatus & { b: string }>(event)
@@ -395,6 +441,8 @@ export class ConsoleStore {
 
   #notify(seq: number): void {
     if (seq > this.#notified) this.#notified = seq
+    // 봉인한 날짜는 증분이 없다 (410을 되풀이하지 않는다)
+    if (this.#snapshot.sealed) return
     // 다시 시도하는 중이면 새 알림에 바로 다시 시도한다 (AC-S06-41)
     if (this.#snapshot.stale) {
       void this.retryNow()
@@ -423,7 +471,7 @@ export class ConsoleStore {
 
   async #fetchChanges(): Promise<void> {
     const data = this.#snapshot.data
-    if (data === null || this.#stopped) return
+    if (data === null || this.#stopped || this.#snapshot.sealed) return
     let changes: Changes
     try {
       changes = await get<Changes>(this.#path('/changes', { since: data.seq }))

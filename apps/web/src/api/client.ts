@@ -135,6 +135,14 @@ export function post<T>(path: string, body: unknown, options?: RequestOptions): 
   return request<T>('POST', path, body, options)
 }
 
+export function put<T>(path: string, body: unknown, options?: RequestOptions): Promise<T> {
+  return request<T>('PUT', path, body, options)
+}
+
+export function patch<T>(path: string, body: unknown, options?: RequestOptions): Promise<T> {
+  return request<T>('PATCH', path, body, options)
+}
+
 /** 요청 번호: 쓰기 버튼을 누를 때마다 새로 만든다 (서버 형식 영문·숫자·'-' 1~64자) */
 export function newRequestId(): string {
   return crypto.randomUUID()
