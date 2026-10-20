@@ -181,7 +181,7 @@ LIVEJJIM_PGLITE_DIR=… (또는 DATABASE_URL=…) LIVEJJIM_BACKUP_DIR=… \
 - 판매대장 창의 방송 목록은 기존 `GET /api/broadcasts`에서 `rehearsal === false`이고 기간 안인 것.
 - 오류는 늘 `{ error: { code, message, problems? } }` — 화면은 `message`를 그대로, 칸 오류는 `problems[].field` 옆에.
 
-## 검증 (`E2E_PORT_OFFSET=800 pnpm verify`, 마지막 실행)
+## 검증 (`E2E_PORT_OFFSET=800 pnpm verify`, dev-server 마지막 실행)
 
 typecheck·lint·golden(파일 26 · 파서 469 · 엔진 125 · 통과 594)·adversarial(799)·coverage 통과. 실패는 이 노트를 쓴 기계에서 다른 작업 폴더(main·i1·i3)의 검증이 함께 돌던 때다(부하 평균 20 넘음).
 - test: `apps/server/test/changes.test.ts` 덮기 시험 시간 초과(위 교체로 한도를 늘렸다), `packages/voice/test/perf.test.ts` p99 50ms(부하 — device 영역, 바꾸지 않았다). 앞 실행에서 한 번 `apps/server/test/sms-contract.test.ts`의 "DB 전체에 '5555'가 없다"가 실패했다 — 무작위 ID·요약값(hex)에 '5555'가 우연히 든 경우로 I2 변경과 상관없다(덤프에 새로 든 값은 `sellers.shop` `{}`뿐).
@@ -233,7 +233,7 @@ typecheck·lint·golden(파일 26 · 파서 469 · 엔진 125 · 통과 594)·ad
 
 **구매자 자세히(실제 범위)** `region "지난 구매"`: 항목 링크(→ `/settlements?date=<그날>&buyer=<그날 구매자>`) 글 = 날짜(연도·요일)·방송 제목들·"그날 이름 …"·"상품 n개 (15번 핑크프릴 10,000원 · …)"·"최종 …원"·입금 상태·포장 상태(송장)·까닭. 없으면 "다른 날의 구매 기록이 없어요.", 더 있으면 버튼 `더 보기`.
 
-**콘솔(끝나지 않은 방송)** 버튼 `상품 목록 가져오기` → `dialog "상품 목록 가져오기"`: 안내 문장, `textbox "붙여 넣기"`(처음 포커스), 파일 칸 `파일 고르기`(숨긴 `input[type=file]`의 label — `getByLabel('파일 고르기').setInputFiles(...)`), 버튼 `미리 보기`·`n개 등록하기`(주, n=0이면 잠금). 미리 보기 `region "미리 보기"`: "등록할 상품 n개 · 빼는 줄 m개", "머리글로 보고 뺀 줄: 1번 줄 (번호, 품종, 가격)", `table "가져올 상품"`(열 줄·번호·품종·가격·문제 — 문제 줄은 번호~가격 칸에 원래 줄 글, 문제 칸에 쉬운 말, 줄 `data-tone=warning`). 목록 문제 "가져올 상품이 없어요." / "한 번에 500개까지 가져올 수 있어요.". 성공 status "n개를 공개 전 상품으로 등록했어요.", 거절(409 IMPORT_CHANGED) → 같은 입력으로 새 미리 보기 + alert "그 사이에 바뀐 것이 있어요. 다시 확인해 주세요.". 닫으면 빠른 입력칸에 포커스.
+**콘솔(끝나지 않은 방송)** 버튼 `상품 목록 가져오기` → `dialog "상품 목록 가져오기"`: 안내 문장, `textbox "붙여 넣기"`(처음 포커스), 파일 칸 `파일 고르기`(숨긴 `input[type=file]`의 label — `getByLabel('파일 고르기').setInputFiles(...)`; 고르면 "고른 파일: 목록.xlsx"이고 붙여 넣은 글은 비운다 — 입력은 한 번에 하나, 글을 다시 치면 고른 파일을 버린다; 2MB 넘는 파일은 올리기 전에 alert "파일이 너무 커요(2MB까지)."), 버튼 `미리 보기`·`n개 등록하기`(주, n=0이면 잠금). 미리 보기 `region "미리 보기"`: "등록할 상품 n개 · 빼는 줄 m개", "머리글로 보고 뺀 줄: 1번 줄 (번호, 품종, 가격)", `table "가져올 상품"`(열 줄·번호·품종·가격·문제 — 문제 줄은 번호~가격 칸에 원래 줄 글, 문제 칸에 쉬운 말, 줄 `data-tone=warning`). 목록 문제 "가져올 상품이 없어요." / "한 번에 500개까지 가져올 수 있어요.". 성공 status "n개를 공개 전 상품으로 등록했어요.", 거절(409 IMPORT_CHANGED) → 같은 입력으로 새 미리 보기 + alert "그 사이에 바뀐 것이 있어요. 다시 확인해 주세요.". 닫으면 빠른 입력칸에 포커스.
 
 ## 결정 (규칙 문장으로 정해지지 않은 화면 선택)
 1. **공유/저장 버튼은 둘 중 하나** (AC-I2-13 "공유할 수 있는 기기면 '이미지 공유', 아니면 '이미지 저장'"): 공유 실패 때만 공유 기기에도 `이미지 저장`이 나온다. "세 버튼이 잠긴다"는 그 부분의 버튼 전부(PDF·공유/저장·실패 안내의 저장)로 읽었다.
@@ -261,3 +261,6 @@ pnpm --filter @livejjim/server e2e --port 3900 --origin http://localhost:5973 --
 cd apps/web && node e2e/serve.ts --port 5973 --api http://127.0.0.1:3900                             # 화면 (운영 빌드 + /api 프록시)
 ```
 실제 범위 판매는 화면/API의 문자찜(`type: 'sms'`, 전화번호 있으면 같은 구매자)과 `product.open`으로 만든다(채팅 찜은 리허설 생성기·시청자로 보내기만). E2E 묶음은 `E2E_PORT_OFFSET=800`이면 chromium 스택이 이 포트(3900·5973)를 쓴다 — 손으로 띄운 서버가 있으면 Playwright가 그대로 다시 쓰니 verify 전에 끈다.
+
+## 검증 (dev-web, `E2E_PORT_OFFSET=800 pnpm verify`)
+typecheck·lint·test(파일 135 · 테스트 2940)·golden(파일 26 · 파서 469 · 엔진 125 · 통과 594)·adversarial(799)·coverage 통과. e2e 165 통과 · 4 실패 — dev-server가 적은 것과 같은 넷(`s06/attacks-r1` 문자찜 결과 위치 375·1440, `s06/sms` AC-S06-14·81, `s06b/names` 받은 시각까지 같은 두 문자찜)이고 모두 받은 시각 `00:00:0x`를 KST 정오 뒤에 넣어 "받은 시각(내일 00:00:01)이 지금보다 늦어요" 창이 뜬 것(error-context 확인 — 문자찜 화면, 이번 웹 변경과 상관없음, test-e2e 영역). 웹 단위 시험 29파일 464개.
