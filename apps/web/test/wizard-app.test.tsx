@@ -249,6 +249,89 @@ describe('마법사 단계 (AC-I3-51~55)', () => {
       expect(server.callsTo('PATCH', /settings/)).toHaveLength(0)
     })
 
+    /**
+     * 화면이 바뀐 바로 그 순간(같은 틱 — React가 그린 뒤 늦게 도는 효과보다 먼저) 그 이름의 버튼을 누른다 (SA-I3-010).
+     * React는 그린 뒤 한 번 양보하고 효과를 돌린다 — 그 사이에 오는 누름을 흉내 낸다. 부하가 있을 때 생기던 일을 늘 일으킨다.
+     */
+    const clickOnceDrawn = (drawn: () => boolean, name: string) => {
+      let clicked = false
+      const observer = new MutationObserver(() => {
+        if (clicked || !drawn()) return
+        clicked = true
+        observer.disconnect()
+        screen.getByRole('button', { name }).click()
+      })
+      observer.observe(document.body, { subtree: true, childList: true, characterData: true })
+      return () => waitFor(() => expect(clicked).toBe(true))
+    }
+
+    it('2단계: 저장이 끝나 화면이 바뀐 바로 그 순간(같은 틱) "다음"을 눌러도 묻지 않는다 (SA-I3-010)', async () => {
+      wizard = { status: 'IN_PROGRESS', step: 2 }
+      await open('/start')
+      await editFee('3000')
+      const clicked = clickOnceDrawn(() => (document.body.textContent ?? '').includes('기본 배송비: 3,000원'), '다음')
+      fireEvent.click(screen.getByRole('button', { name: '저장' }))
+      await clicked()
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(await heading('3/5 프린터 연결')).toBeDefined()
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(server.callsTo('PATCH', /settings/).map((call) => call.body)).toEqual([{ settings: { 'shipping.baseFee': 3000 } }])
+      expect(wizard).toEqual({ status: 'IN_PROGRESS', step: 3 })
+    })
+
+    it('2단계: 저장 응답이 온 바로 그때(화면을 다시 그리기 전) "다음"을 눌러도 묻지 않는다 (SA-I3-010)', async () => {
+      let answer = () => {}
+      const answered = new Promise<void>((resolve) => {
+        answer = resolve
+      })
+      server.on('PATCH', /^\/api\/settings$/, async (call) => {
+        await answered
+        saved = { ...saved, ...(call.body?.settings as object) }
+        return { body: { settings: saved } }
+      })
+      wizard = { status: 'IN_PROGRESS', step: 2 }
+      await open('/start')
+      await editFee('3000')
+      fireEvent.click(screen.getByRole('button', { name: '저장' }))
+      await waitFor(() => expect(server.callsTo('PATCH', /settings/)).toHaveLength(1))
+      const next = screen.getByRole('button', { name: '다음' })
+      // act 안에서는 React가 다시 그리지 않는다 — 저장 응답을 다 받은 뒤, 그리기 전에 "다음"을 누른다
+      await act(async () => {
+        answer()
+        await flush()
+        next.click()
+      })
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(await heading('3/5 프린터 연결')).toBeDefined()
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(server.callsTo('PATCH', /settings/).map((call) => call.body)).toEqual([{ settings: { 'shipping.baseFee': 3000 } }])
+    })
+
+    it('2단계: 저장에 실패하면 그 값은 여전히 저장하지 않은 값 — "다음"이면 묻는다 (SA-I3-010)', async () => {
+      server.on('PATCH', /^\/api\/settings$/, () => apiError(400, 'INVALID_INPUT', '기본 배송비는 0~100,000원으로 적어 주세요.', [{ field: 'settings.shipping.baseFee', message: '기본 배송비는 0~100,000원으로 적어 주세요.' }]))
+      wizard = { status: 'IN_PROGRESS', step: 2 }
+      await open('/start')
+      await editFee('3000')
+      fireEvent.click(screen.getByRole('button', { name: '저장' }))
+      expect(await screen.findByText('기본 배송비는 0~100,000원으로 적어 주세요.')).toBeDefined()
+      fireEvent.click(screen.getByRole('button', { name: '다음' }))
+      expect(within(await dialog()).getByText('저장하지 않은 값이 있어요. 떠나면 저장하지 않아요.')).toBeDefined()
+      expect(screen.getByRole('heading', { name: '2/5 판매 규칙 확인', level: 2 })).toBeDefined()
+    })
+
+    it('1단계: 바꾼 이름을 저장하고 2단계가 그려진 바로 그 순간(같은 틱) "다음"을 눌러도 묻지 않는다 (SA-I3-010)', async () => {
+      await open('/start')
+      await heading('1/5 가게 이름')
+      fireEvent.change(screen.getByLabelText('가게 이름'), { target: { value: '새 가게' } })
+      const clicked = clickOnceDrawn(() => document.getElementById('wizard-step-title')?.textContent === '2/5 판매 규칙 확인', '다음')
+      fireEvent.click(screen.getByRole('button', { name: '다음' }))
+      await clicked()
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(await heading('3/5 프린터 연결')).toBeDefined()
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(server.callsTo('PUT', /^\/api\/shop$/).map((call) => call.body)).toEqual([{ name: '새 가게' }])
+    })
+
     it('1단계: 바꾼 이름이 있는 채 "나중에 할게요"·메뉴면 묻는다 ("다음"은 저장하므로 묻지 않는다)', async () => {
       await open('/start')
       await heading('1/5 가게 이름')

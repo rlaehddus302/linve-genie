@@ -7,7 +7,7 @@
 // - 4단계에서 구글로 갔다 오면 서버는 설정 화면 주소로 돌려보낸다 — 앱이 이 화면 4단계로 다시 보내고 결과 문장을 보인다.
 // - 단계가 바뀌면 포커스는 그 단계 제목으로. 키보드만으로 끝까지 갈 수 있다.
 import type { SaleSettings } from '@livejjim/core'
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { get, isApiError, newRequestId, post, put, withRetry, type ApiError } from '../api/client.ts'
 import type { WizardState, WriteResult } from '../api/types.ts'
 import { LEAVE_TITLE, UNSAVED_LEAVE, UNSAVED_QUESTION, useUnsavedGuard } from '../lib/leave-guard.ts'
@@ -44,6 +44,19 @@ export interface WizardPageProps {
 /** 칸이 "저장하지 않은 값이 있다/없다"를 알린다 (칸 이름 — 2단계는 설정 키, 1단계는 'shop') */
 type MarkUnsaved = (key: string, dirty: boolean) => void
 
+/**
+ * 이 칸의 "저장하지 않은 값 있음/없음"이 바뀌면 화면을 그리는 그 순간에 알린다 (SA-I3-010).
+ * 늦게 도는 효과(useEffect)에 맡기면, 그린 뒤 효과가 돌기 전에 누른 "다음"이 지난 표시를 보고 저장한 값을 묻는다 —
+ * 그래서 그리기와 같은 때(useLayoutEffect)에 알린다. 칸이 사라지면(단계를 옮김) 그때 뺀다.
+ * 값이 그대로면 다시 알리지 않는다 — "저장하지 않고 떠나기"로 지운 표시를 떠나는 동안 다시 그려도 되살리지 않는다.
+ */
+function useMarkUnsaved(onUnsaved: MarkUnsaved, key: string, dirty: boolean): void {
+  useLayoutEffect(() => {
+    onUnsaved(key, dirty)
+    return () => onUnsaved(key, false)
+  }, [onUnsaved, key, dirty])
+}
+
 const clampStep = (step: number | null | undefined): number => (typeof step === 'number' && Number.isInteger(step) && step >= 1 && step <= LAST ? step : 1)
 
 export function WizardPage({ route, navigate, shopName, onRenamed }: WizardPageProps) {
@@ -53,7 +66,7 @@ export function WizardPage({ route, navigate, shopName, onRenamed }: WizardPageP
   const [closing, setClosing] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
-  /** 저장하지 않은 값이 있는 칸 — 칸이 바뀔 때 알리고, 사라지면(단계를 옮김) 뺀다 */
+  /** 저장하지 않은 값이 있는 칸 — 칸이 그려질 때 알리고, 저장하면 그 자리에서, 사라지면(단계를 옮김) 뺀다 (SA-I3-010) */
   const unsaved = useRef(new Set<string>())
   const markUnsaved = useCallback<MarkUnsaved>((key, dirty) => {
     if (dirty) unsaved.current.add(key)
@@ -251,11 +264,7 @@ function ShopStep({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const id = useId()
-  const dirty = name !== shopName
-  useEffect(() => {
-    onUnsaved('shop', dirty)
-    return () => onUnsaved('shop', false)
-  }, [dirty, onUnsaved])
+  useMarkUnsaved(onUnsaved, 'shop', name !== shopName)
   const next = async () => {
     if (busy) return
     if (name === shopName) {
@@ -266,6 +275,8 @@ function ShopStep({
     setError(null)
     try {
       const { shop } = await put<{ shop: { name: string } }>('/api/shop', { name })
+      // 저장했다 — 다음 단계를 그리기 전에 누른 "다음"도 묻지 않게 그 자리에서 표시를 지운다 (SA-I3-010)
+      onUnsaved('shop', false)
       onRenamed(shop.name)
       onNext()
     } catch (caught) {
@@ -332,11 +343,9 @@ function RuleLine({
   const fields = useRef([field]).current
   const form = useRuleForm(fields, settings, onSaved, field.place === 'shipping' ? SAVED_SHIPPING_MESSAGE : SAVED_MESSAGE)
   const [editing, setEditing] = useState(false)
-  // 열린 칸에서 바꾼 값(저장 전·저장 실패)은 저장하지 않은 값 — "그만두기"·저장하면 없어진다
-  useEffect(() => {
-    onUnsaved(field.key, form.dirty)
-    return () => onUnsaved(field.key, false)
-  }, [field.key, form.dirty, onUnsaved])
+  // 열린 칸에서 바꾼 값(저장 전·저장 실패)은 저장하지 않은 값 — "그만두기"·저장하면(칸이 닫힘) 없어진다.
+  // 닫힌 칸은 보이는 값이 저장된 값이다 — 다시 "바꾸기"로 열었을 때 남은 값이 다르면 그때 다시 저장하지 않은 값이다
+  useMarkUnsaved(onUnsaved, field.key, editing && form.dirty)
   return (
     <li className="rule-line stack-tight">
       <div className="row">
@@ -359,7 +368,10 @@ function RuleLine({
               disabled={form.busy}
               onClick={() =>
                 void form.save().then((ok) => {
-                  if (ok) setEditing(false)
+                  if (!ok) return
+                  // 저장이 끝난 그 자리에서 표시를 지운다 — 화면을 다시 그리기 전에 "다음"을 눌러도 묻지 않는다 (SA-I3-010)
+                  onUnsaved(field.key, false)
+                  setEditing(false)
                 })
               }
             >
