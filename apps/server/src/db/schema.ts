@@ -5,8 +5,8 @@
 // - 시각은 UTC(timestamptz, 엔진 at은 UTC 밀리초)로 둔다(NFR-07).
 // - 전화번호 원문·정규화한 번호는 어디에도 두지 않는다. 판매자 전화번호 키는 마스터 키로 암호화한 값만 둔다(D-073).
 // - 이 파일과 마이그레이션이 어긋나지 않는지는 test/schema.test.ts가 실제 DB 구조와 대조한다.
-import { sql } from 'drizzle-orm'
-import { bigint, bigserial, boolean, index, integer, pgTable, primaryKey, text, timestamp, unique } from 'drizzle-orm/pg-core'
+import { and, eq, sql, type SQL } from 'drizzle-orm'
+import { bigint, bigserial, boolean, index, integer, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core'
 
 const timestamptz = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' })
 
@@ -105,12 +105,12 @@ export const scopes = pgTable(
 
 /**
  * 방송 목록 (방송 ID → 범위). broadcast.start·broadcast.end 이벤트와 같은 트랜잭션에서 쓴다.
- * 방송 ID는 판매자 안에서 유일하다 — 기본 키 (판매자, 방송) (I2: 다른 판매자로 가져온 기록의 방송 ID가 부딪치지 않게, D-I2-11·12)
+ * 방송 ID는 서버 전체에서 유일하다(기본 키 — 다른 표가 broadcasts(id)를 참조할 수 있다, RA-I2-002). 조회는 늘 판매자 ID와 함께 건다
  */
 export const broadcasts = pgTable(
   'broadcasts',
   {
-    id: text('id').notNull(),
+    id: text('id').primaryKey(),
     sellerId: text('seller_id')
       .notNull()
       .references(() => sellers.id),
@@ -124,7 +124,7 @@ export const broadcasts = pgTable(
     endedAt: timestamptz('ended_at'),
     createdAt: timestamptz('created_at').notNull(),
   },
-  (t) => [primaryKey({ name: 'broadcasts_pkey', columns: [t.sellerId, t.id] }), index('broadcasts_seller_idx').on(t.sellerId, t.date, t.startSeq)],
+  (t) => [index('broadcasts_seller_idx').on(t.sellerId, t.date, t.startSeq)],
 )
 
 /**
@@ -258,6 +258,13 @@ export const packingRecords = pgTable(
 )
 
 export const schema = { sellers, accounts, loginLimits, sessions, scopes, broadcasts, events, outbox, snapshots, packingRecords }
+
+/**
+ * 발송함 실행 대상 조건 (R-13, D-081, D-I2-11 — RA-I2-001): 실제 범위의 행이고 복구·가져오기가 다시 만든 행이 아니다.
+ * 발송함 행을 골라 실행하는 질의(라벨 출력·감사 메시지 게시 등 실행기)는 모두 이 조건을 건다 —
+ * test/i2-restore-contract.test.ts가 apps/server/src의 발송함 질의를 훑어 rehearsal 조건을 거는 곳이 restored 조건도 거는지 확인한다
+ */
+export const executableOutbox = and(eq(outbox.rehearsal, false), eq(outbox.restored, false)) as SQL
 
 /** 범위 직렬 처리용 어드바이저리 락 키 (범위 = 판매자·날짜·리허설인지, 범위 행이 생기기 전에도 같은 키). 실제 범위는 S04와 같은 키 */
 export const scopeLockKey = (sellerId: string, date: string, rehearsal: boolean) =>

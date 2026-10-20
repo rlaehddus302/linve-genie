@@ -97,26 +97,31 @@ describe('AC-I2-62 복구 명령 (운영자)', () => {
     expect(parseRestoreArgs(['--what', 'x'])).toMatchObject({ ok: false })
   })
 
-  it('명령으로 빈 판매자에 가져오고(종료 코드 0, 재생 검사 출력), 바꾸기 없이 기록 있는 판매자면 거절(1), 인자 오류는 2 — 출력에 기록 내용이 없다', async () => {
+  it('명령으로 빈 판매자에 가져오고(종료 코드 0, 재생 검사 출력), 바꾸기 없이 기록 있는 판매자면 거절(1), 같은 서버의 다른 판매자와 방송이 겹치면 거절(1), 인자 오류는 2 — 출력에 기록 내용이 없다', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'livejjim-restore-cmd-'))
     const backupDir = mkdtempSync(join(tmpdir(), 'livejjim-restore-bak-'))
     dirs.push(dir, backupDir)
-    const database = await openPglite(join(dir, 'db'))
     const { createSellerAccount } = await import('../src/accounts.ts')
     const { generateMasterKey } = await import('../src/secrets.ts')
     const masterKey = generateMasterKey()
-    const source = await createSellerAccount(database.db, Buffer.from(masterKey, 'base64'), { shopName: '원래 가게', loginId: 'srcshop', password: 'password-123' }, { passwordCost: FAST_COST })
-    const target = await createSellerAccount(database.db, Buffer.from(masterKey, 'base64'), { shopName: '빈 가게', loginId: 'dstshop', password: 'password-123' }, { passwordCost: FAST_COST })
-    if (!source.ok || !target.ok) throw new Error('계정')
+    // 원래 판매자는 다른 서버(DB)에 있다 — 방송 ID는 서버 전체에서 유일하다(RA-I2-002)
+    const sourceDb = await openPglite(join(dir, 'source-db'))
+    const source = await createSellerAccount(sourceDb.db, Buffer.from(masterKey, 'base64'), { shopName: '원래 가게', loginId: 'srcshop', password: 'password-123' }, { passwordCost: FAST_COST })
+    if (!source.ok) throw new Error('계정')
     const { startServer } = await import('./support.ts')
-    const world = startServer(database, masterKey)
+    const world = startServer(sourceDb, masterKey)
     const cookie = await (await import('./support.ts')).login(world, 'srcshop', 'password-123')
     const seller = { sellerId: source.sellerId, accountId: source.accountId, loginId: 'srcshop', password: 'password-123', cookie }
     const bc = (await createBroadcast(world, seller, { date: '2026-10-19' })).id
     await ok(world, seller, { type: 'product.register', b: bc, no: 1, name: '비밀상품', price: 1000 })
     await chat(world, seller, bc, 'm1', 'UC_A', '비밀닉', '1')
     const file = join(dir, 'backup.json.gz')
-    writeFileSync(file, encodeBackup(await buildBackup(database.db, source.sellerId, Date.now())))
+    writeFileSync(file, encodeBackup(await buildBackup(sourceDb.db, source.sellerId, Date.now())))
+    await sourceDb.close()
+    const database = await openPglite(join(dir, 'db'))
+    const target = await createSellerAccount(database.db, Buffer.from(masterKey, 'base64'), { shopName: '빈 가게', loginId: 'dstshop', password: 'password-123' }, { passwordCost: FAST_COST })
+    const second = await createSellerAccount(database.db, Buffer.from(masterKey, 'base64'), { shopName: '둘째 가게', loginId: 'dstshop2', password: 'password-123' }, { passwordCost: FAST_COST })
+    if (!target.ok || !second.ok) throw new Error('계정')
     await database.close()
     const script = fileURLToPath(new URL('../src/commands/restore.ts', import.meta.url))
     const run = (args: string[]) =>
@@ -139,6 +144,11 @@ describe('AC-I2-62 복구 명령 (운영자)', () => {
     expect(replaced.code, replaced.out).toBe(0)
     expect(replaced.out).toContain('지금 기록을 안전 백업으로 남겼어요: safety-')
     expect((await new FolderBackupStorage(backupDir).list(target.sellerId)).map((entry) => entry.kind)).toEqual(['safety'])
+    // 같은 서버의 다른 판매자로 같은 파일 → 방송 ID가 겹쳐 거절, 아무것도 바꾸지 않는다
+    const taken = await run(['--seller', second.sellerId, '--file', file])
+    expect(taken.code).toBe(1)
+    expect(taken.out).toContain('이 서버의 다른 판매자에게 같은 방송 기록이 있어 가져올 수 없어요. 아무것도 바꾸지 않았어요.')
+    expect(taken.out).not.toContain('비밀')
   }, 180_000)
 })
 

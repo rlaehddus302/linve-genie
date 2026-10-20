@@ -12,10 +12,10 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/p
 import { join } from 'node:path'
 import { gunzipSync, gzipSync } from 'node:zlib'
 import { STATE_FORMAT, applyEvent, checkInvariants, checkSettings, isValidDate, type EngineEffect, type EngineEvent, type EngineState } from '@livejjim/core'
-import { and, asc, eq, lte, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, lte, ne, sql } from 'drizzle-orm'
 import { canonicalJson, checkReplay, type ScopeCheck } from './check-replay.ts'
 import type { Db } from './db/database.ts'
-import { accounts, broadcasts, events, outbox, packingRecords, scopeLockKey, scopes, sellers, snapshots } from './db/schema.ts'
+import { accounts, broadcasts, events, executableOutbox, loginLimits, outbox, packingRecords, scopeLockKey, scopes, sellers, sessions, snapshots } from './db/schema.ts'
 import type { IdSource } from './ids.ts'
 import { errorKind, type LogSink } from './log.ts'
 import { PACKING_KINDS, PRODUCT_KEY_RE, type PackingKind } from './packing.ts'
@@ -674,6 +674,8 @@ export const RESTORE_MESSAGES = {
   noStorage: '백업 저장소가 정해지지 않아 안전 백업을 만들 수 없어요. LIVEJJIM_BACKUP_DIR을 적어 주세요.',
   safetyFailed: '안전 백업을 만들지 못해 복구를 멈췄어요. 아무것도 바꾸지 않았어요.',
   failed: '복구 중 문제가 생겨 멈췄어요. 아무것도 바꾸지 않았어요.',
+  /** 같은 서버의 다른 판매자에게 같은 방송 ID가 있음 (방송 ID는 서버 전체에서 유일 — RA-I2-002) */
+  broadcastTaken: '이 서버의 다른 판매자에게 같은 방송 기록이 있어 가져올 수 없어요. 아무것도 바꾸지 않았어요.',
 } as const
 
 export interface RestoreOptions {
@@ -703,6 +705,17 @@ export type RestoreOutcome =
 
 const BATCH = 500
 
+/**
+ * 복구·가져오기가 그 판매자의 행을 모두 지우고 파일로 다시 만드는 표 — 지우는 순서(다른 표를 참조하는 표가 먼저). D-I2-11, RA-I2-001.
+ * 판매자 ID 칸이 있는 표는 모두 이 목록이나 RESTORE_KEPT_TABLES 중 하나에 있어야 하고, 범위·방송 등 이 목록의 표를 참조하는 표는 이 목록에 있어야 한다
+ * (test/i2-restore-contract.test.ts가 마이그레이션을 적용한 실제 DB의 표·외래 키로 확인한다 — 다른 트랙의 표를 합치면 그 시험이 어디에 둘지 정하라고 알린다)
+ */
+export const RESTORE_REPLACED_TABLES = [packingRecords, outbox, snapshots, events, broadcasts, scopes] as const
+/** 복구가 그대로 두는 판매자 표: 판매자 행(가게 설정·판매 규칙 설정 칸만 파일의 것으로 바꾼다)·로그인 계정·세션 (AC-I2-62 "판매자 ID·로그인 계정·세션·전화번호 키는 그대로") */
+export const RESTORE_KEPT_TABLES = [sellers, accounts, sessions] as const
+/** 판매자 데이터가 아닌 표 (로그인 전 시도 수 — 판매자 ID가 없다) */
+export const RESTORE_UNRELATED_TABLES = [loginLimits] as const
+
 async function insertInBatches<T>(rows: readonly T[], insert: (batch: T[]) => Promise<unknown>): Promise<void> {
   for (let start = 0; start < rows.length; start += BATCH) await insert(rows.slice(start, start + BATCH))
 }
@@ -721,6 +734,7 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
   if (sellerRows.length === 0) return fail(RESTORE_MESSAGES.noSeller)
   const existing = await db.select({ date: scopes.date, rehearsal: scopes.rehearsal }).from(scopes).where(eq(scopes.sellerId, sellerId))
   if (existing.length > 0 && !options.replace) return fail(RESTORE_MESSAGES.needReplace)
+  if (await broadcastTaken(db, sellerId, file.scopes.flatMap((scope) => scope.broadcasts.map((broadcast) => broadcast.id)))) return fail(RESTORE_MESSAGES.broadcastTaken)
   let safety: string | null = null
   if (existing.length > 0) {
     if (options.storage === null) return fail(RESTORE_MESSAGES.noStorage)
@@ -746,12 +760,7 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
       }
       const nowExisting = await tx.select({ id: scopes.id }).from(scopes).where(eq(scopes.sellerId, sellerId))
       if (nowExisting.length > 0 && !options.replace) throw new RestoreAbort(RESTORE_MESSAGES.needReplace)
-      await tx.delete(packingRecords).where(eq(packingRecords.sellerId, sellerId))
-      await tx.delete(outbox).where(eq(outbox.sellerId, sellerId))
-      await tx.delete(snapshots).where(eq(snapshots.sellerId, sellerId))
-      await tx.delete(events).where(eq(events.sellerId, sellerId))
-      await tx.delete(broadcasts).where(eq(broadcasts.sellerId, sellerId))
-      await tx.delete(scopes).where(eq(scopes.sellerId, sellerId))
+      for (const table of RESTORE_REPLACED_TABLES) await tx.delete(table).where(eq(table.sellerId, sellerId))
       await tx
         .update(sellers)
         .set({ name: file.shop.name.trim(), shop: shopJson(file.shop), settings: JSON.stringify(file.settings) })
@@ -855,6 +864,19 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
   return { ok: true, scopes: replayed.length, events: eventCount, packing: file.packing.length, safety, checks }
 }
 
+/** 파일의 방송 ID 중 다른 판매자의 방송 ID와 같은 것이 있는가 (방송 기본 키는 서버 전체 — 같은 서버의 다른 판매자로 가져오기, RA-I2-002) */
+async function broadcastTaken(db: Db, sellerId: string, ids: readonly string[]): Promise<boolean> {
+  for (let start = 0; start < ids.length; start += BATCH) {
+    const rows = await db
+      .select({ id: broadcasts.id })
+      .from(broadcasts)
+      .where(and(inArray(broadcasts.id, ids.slice(start, start + BATCH)), ne(broadcasts.sellerId, sellerId)))
+      .limit(1)
+    if (rows.length > 0) return true
+  }
+  return false
+}
+
 class RestoreAbort extends Error {
   constructor(message: string) {
     super(message)
@@ -862,11 +884,11 @@ class RestoreAbort extends Error {
   }
 }
 
-/** 발송함 실행 대상 (I1·Y1 실행기가 쓸 조회 — 리허설 행과 복구로 다시 만든 행은 빠진다, D-081·D-I2-11) */
+/** 발송함 실행 대상 수 (실행기의 조건 executableOutbox — 리허설 행과 복구로 다시 만든 행은 빠진다, D-081·D-I2-11) */
 export async function executableOutboxCount(db: Db, sellerId: string): Promise<number> {
   const rows = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(outbox)
-    .where(and(eq(outbox.sellerId, sellerId), eq(outbox.rehearsal, false), eq(outbox.restored, false)))
+    .where(and(eq(outbox.sellerId, sellerId), executableOutbox))
   return rows[0]?.n ?? 0
 }

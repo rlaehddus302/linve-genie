@@ -41,6 +41,14 @@ async function backupWorld(start = kst('2026-10-17', '09:00:00')) {
   return { world, storage }
 }
 
+/**
+ * 다른 서버(다른 DB) — 같은 시각의 가짜 시계. 방송 ID는 서버 전체에서 유일해서(RA-I2-002) 다른 판매자로 가져오기는 원래 기록이 없는 서버에서 한다
+ * (같은 서버의 다른 판매자로 가져오기는 거절 — "같은 서버의 다른 판매자" 시험)
+ */
+async function otherServer(world: TestServer) {
+  return backupWorld(world.clock.now())
+}
+
 const decode = (bytes: Uint8Array): BackupFile => JSON.parse(gunzipSync(bytes).toString('utf8')) as BackupFile
 const reencode = (file: unknown): Uint8Array => new Uint8Array(gzipSync(Buffer.from(JSON.stringify(file), 'utf8')))
 
@@ -371,10 +379,11 @@ describe('AC-I2-62 복구·가져오기', () => {
     expect((await restore(world, seller.sellerId, bytes)).ok).toBe(false) // 기록이 있는 판매자 (바꾸기 없음)
   })
 
-  it('빈 판매자로 가져오기 → 조회가 원래 판매자와 같다(판매자 ID·계정 빼고), 다시 만든 발송함은 모두 실행하지 않음, 재생 검사 통과', async () => {
+  it('빈 판매자로 가져오기(다른 서버) → 조회가 원래 판매자와 같다(판매자 ID·계정 빼고), 다시 만든 발송함은 모두 실행하지 않음, 재생 검사 통과', async () => {
     const { world, seller, bytes } = await source()
-    const target = await addSeller(world)
-    const outcome = await restore(world, target.sellerId, bytes)
+    const other = await otherServer(world)
+    const target = await addSeller(other.world)
+    const outcome = await restore(other.world, target.sellerId, bytes)
     expect(outcome.ok).toBe(true)
     if (!outcome.ok) return
     expect(outcome.safety).toBeNull()
@@ -384,60 +393,80 @@ describe('AC-I2-62 복구·가져오기', () => {
       ['2026-10-19', false],
       ['2026-10-19', true],
     ])
-    world.server.writer.forgetSeller(target.sellerId)
-    expect(await allQueries(world, target, { withActors: false })).toBe(await allQueries(world, seller, { withActors: false }))
-    expect(await executableOutboxCount(world.database.db, target.sellerId)).toBe(0)
-    const rows = await world.database.pglite?.query<{ restored: boolean }>('select restored from outbox where seller_id = $1', [target.sellerId])
+    other.world.server.writer.forgetSeller(target.sellerId)
+    expect(await allQueries(other.world, target, { withActors: false })).toBe(await allQueries(world, seller, { withActors: false }))
+    expect(await executableOutboxCount(other.world.database.db, target.sellerId)).toBe(0)
+    const rows = await other.world.database.pglite?.query<{ restored: boolean }>('select restored from outbox where seller_id = $1', [target.sellerId])
     expect(rows?.rows.length).toBeGreaterThan(0)
     expect(rows?.rows.every((row) => row.restored)).toBe(true)
     // 조치자 계정이 그 판매자 계정에 없으면 계정 없이 (가져온 기록)
-    const history = (await client(world, target.cookie).get('/api/days/2026-10-19/history?limit=500')).body.events as { actor: { kind: string; loginId: string | null } }[]
+    const history = (await client(other.world, target.cookie).get('/api/days/2026-10-19/history?limit=500')).body.events as { actor: { kind: string; loginId: string | null } }[]
     expect(history.filter((event) => event.actor.kind === 'account').every((event) => event.actor.loginId === null)).toBe(true)
     // 원래 판매자의 발송함 실행 대상은 그대로 (다른 판매자의 기록은 바뀌지 않는다)
     expect(await executableOutboxCount(world.database.db, seller.sellerId)).toBeGreaterThan(0)
   })
 
-  it('기록이 있는 판매자: 바꾸기 없이 거절(아무것도 바꾸지 않음), 바꾸기 → 안전 백업을 먼저 쓰고 한 트랜잭션에 바꾼다. 저장소가 없으면 멈춘다', async () => {
+  it('같은 서버의 다른 판매자로 가져오기: 방송 ID가 그 서버의 다른 판매자 것과 같으면 아무것도 바꾸지 않고 거절 (방송 기본 키는 서버 전체 — RA-I2-002)', async () => {
     const { world, storage, seller, bytes } = await source()
-    const target = await addSeller(world)
-    const tb = (await createBroadcast(world, target, { date: '2026-10-25' })).id
-    await ok(world, target, { type: 'product.register', b: tb, no: 1, name: '지금 기록', price: 1000 })
+    const empty = await addSeller(world)
+    const busy = await addSeller(world)
+    const tb = (await createBroadcast(world, busy, { date: '2026-10-25' })).id
+    await ok(world, busy, { type: 'product.register', b: tb, no: 1, name: '지금 기록', price: 1000 })
     const before = await dumpAllTables(world.database)
-    const refused = await restore(world, target.sellerId, bytes, false, storage)
-    expect(refused).toEqual({ ok: false, reason: '기록이 있는 판매자예요. 바꾸려면 --replace를 붙여 주세요(지금 기록은 먼저 백업해요).' })
-    expect(await restore(world, target.sellerId, bytes, true, null)).toEqual({ ok: false, reason: '백업 저장소가 정해지지 않아 안전 백업을 만들 수 없어요. LIVEJJIM_BACKUP_DIR을 적어 주세요.' })
+    const message = '이 서버의 다른 판매자에게 같은 방송 기록이 있어 가져올 수 없어요. 아무것도 바꾸지 않았어요.'
+    expect(await restore(world, empty.sellerId, bytes)).toEqual({ ok: false, reason: message })
+    // 바꾸기여도 안전 백업을 쓰기 전에 거절한다
+    expect(await restore(world, busy.sellerId, bytes, true, storage)).toEqual({ ok: false, reason: message })
+    expect(await storage.list(busy.sellerId)).toEqual([])
     expect(await dumpAllTables(world.database)).toBe(before)
-    const replaced = await restore(world, target.sellerId, bytes, true, storage)
+    // 원래 판매자 자신에게 바꾸기 복구는 된다 (자기 방송 ID는 겹침이 아니다)
+    expect((await restore(world, seller.sellerId, bytes, true, storage)).ok).toBe(true)
+  })
+
+  it('기록이 있는 판매자: 바꾸기 없이 거절(아무것도 바꾸지 않음), 바꾸기 → 안전 백업을 먼저 쓰고 한 트랜잭션에 바꾼다. 저장소가 없으면 멈춘다', async () => {
+    const { world, seller, bytes } = await source()
+    const other = await otherServer(world)
+    const { storage } = other
+    const target = await addSeller(other.world)
+    const tb = (await createBroadcast(other.world, target, { date: '2026-10-25' })).id
+    await ok(other.world, target, { type: 'product.register', b: tb, no: 1, name: '지금 기록', price: 1000 })
+    const before = await dumpAllTables(other.world.database)
+    const refused = await restore(other.world, target.sellerId, bytes, false, storage)
+    expect(refused).toEqual({ ok: false, reason: '기록이 있는 판매자예요. 바꾸려면 --replace를 붙여 주세요(지금 기록은 먼저 백업해요).' })
+    expect(await restore(other.world, target.sellerId, bytes, true, null)).toEqual({ ok: false, reason: '백업 저장소가 정해지지 않아 안전 백업을 만들 수 없어요. LIVEJJIM_BACKUP_DIR을 적어 주세요.' })
+    expect(await dumpAllTables(other.world.database)).toBe(before)
+    const replaced = await restore(other.world, target.sellerId, bytes, true, storage)
     expect(replaced.ok).toBe(true)
     if (!replaced.ok) return
     expect(replaced.safety).toMatch(/^safety-/)
     const safety = checkBackupBytes(await storage.read(target.sellerId, replaced.safety ?? ''))
     expect(safety.ok && safety.value.file.scopes.map((scope) => scope.date)).toEqual(['2026-10-25'])
-    world.server.writer.forgetSeller(target.sellerId)
-    expect(((await client(world, target.cookie).get('/api/days')).body.days as { date: string }[]).map((day) => day.date)).toEqual(['2026-10-18', '2026-10-19'])
-    expect(await allQueries(world, target, { withActors: false })).toBe(await allQueries(world, seller, { withActors: false }))
+    other.world.server.writer.forgetSeller(target.sellerId)
+    expect(((await client(other.world, target.cookie).get('/api/days')).body.days as { date: string }[]).map((day) => day.date)).toEqual(['2026-10-18', '2026-10-19'])
+    expect(await allQueries(other.world, target, { withActors: false })).toBe(await allQueries(world, seller, { withActors: false }))
   })
 
   it('중간에 실패하면 아무것도 바뀌지 않는다', async () => {
-    const { world, storage, bytes } = await source()
-    const target = await addSeller(world)
-    const tb = (await createBroadcast(world, target, { date: '2026-10-25' })).id
-    await ok(world, target, { type: 'product.register', b: tb, no: 1, name: '지금 기록', price: 1000 })
-    const before = await dumpAllTables(world.database)
+    const { world, bytes } = await source()
+    const other = await otherServer(world)
+    const target = await addSeller(other.world)
+    const tb = (await createBroadcast(other.world, target, { date: '2026-10-25' })).id
+    await ok(other.world, target, { type: 'product.register', b: tb, no: 1, name: '지금 기록', price: 1000 })
+    const before = await dumpAllTables(other.world.database)
     const outcome = await restoreSeller({
-      db: world.database.db,
+      db: other.world.database.db,
       sellerId: target.sellerId,
       bytes,
       replace: true,
-      storage,
-      clock: world.clock,
+      storage: other.storage,
+      clock: other.world.clock,
       ids: randomIds,
       beforeCommit: () => {
         throw new Error('주입한 실패')
       },
     })
     expect(outcome).toEqual({ ok: false, reason: '복구 중 문제가 생겨 멈췄어요. 아무것도 바꾸지 않았어요.' })
-    expect(await dumpAllTables(world.database)).toBe(before)
+    expect(await dumpAllTables(other.world.database)).toBe(before)
   })
 
   it('판매자 ID·로그인 계정·세션·전화번호 키는 그대로 — 복구 뒤에도 로그인이 유지되고, 같은 전화번호의 새 문자찜이 복구한 문자 구매자와 이어진다', async () => {
@@ -515,10 +544,13 @@ describe('AC-I2-64 판매자 전체 내려받기 (JSON)', () => {
     const emptyChecked = checkBackupBytes(emptyFile.bytes)
     expect(emptyChecked.ok && emptyChecked.value.file.scopes).toEqual([])
     expect(emptyChecked.ok && emptyChecked.value.file.sellerId).toBe(empty.sellerId)
-    const imported = await restoreSeller({ db: world.database.db, sellerId: empty.sellerId, bytes: file.bytes, replace: false, storage: null, clock: world.clock, ids: randomIds })
+    // 빈 판매자(다른 서버 — 방송 ID는 서버 전체에서 유일, RA-I2-002)에 가져오면 조회가 같다
+    const other = await otherServer(world)
+    const fresh = await addSeller(other.world)
+    const imported = await restoreSeller({ db: other.world.database.db, sellerId: fresh.sellerId, bytes: file.bytes, replace: false, storage: null, clock: other.world.clock, ids: randomIds })
     expect(imported.ok).toBe(true)
-    world.server.writer.forgetSeller(empty.sellerId)
-    expect(await allQueries(world, empty, { withActors: false })).toBe(await allQueries(world, again, { withActors: false }))
+    other.world.server.writer.forgetSeller(fresh.sellerId)
+    expect(await allQueries(other.world, fresh, { withActors: false })).toBe(await allQueries(world, again, { withActors: false }))
     expect((await client(world, null).get('/api/export/records.json.gz')).status).toBe(401)
   })
 })

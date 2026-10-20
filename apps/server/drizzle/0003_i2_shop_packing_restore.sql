@@ -1,10 +1,10 @@
--- I2: 가게 설정(D-I2-02)·포장·배송 기록(D-I2-05)·복구로 다시 만든 발송함 표시(D-I2-11)·판매자마다의 방송 ID(가져오기, D-I2-11·12).
+-- I2: 가게 설정(D-I2-02)·포장·배송 기록(D-I2-05)·복구로 다시 만든 발송함 표시(D-I2-11).
 -- src/db/schema.ts와 같아야 한다(test/schema.test.ts가 대조한다). 기존 행: 가게 설정은 빈 값, 발송함은 실행 대상 그대로(restored = false).
--- 방송 ID는 판매자 안에서만 유일하면 된다(조회는 늘 판매자 ID와 함께) — 다른 판매자로 기록을 가져와도 방송 ID가 부딪치지 않게 기본 키를 (판매자, 방송)으로 바꾼다.
+-- 기존 표의 키·제약은 바꾸지 않는다(RA-I2-002): broadcasts 기본 키는 전역 (id) 그대로 — 다른 트랙이 broadcasts(id)를 참조한다.
+--   같은 서버의 다른 판매자로 가져올 때 방송 ID가 이미 있으면 복구 명령이 먼저 거절한다(아무것도 바꾸지 않음).
+-- 합칠 때(오케스트레이터): 이 파일은 칸·표를 더하기만 해서 다른 트랙 마이그레이션과 순서가 상관없다 — 번호(0003)만 다음 번호로 다시 매긴다.
 ALTER TABLE "sellers" ADD COLUMN "shop" text DEFAULT '{}' NOT NULL;--> statement-breakpoint
 ALTER TABLE "outbox" ADD COLUMN "restored" boolean DEFAULT false NOT NULL;--> statement-breakpoint
-ALTER TABLE "broadcasts" DROP CONSTRAINT "broadcasts_pkey";--> statement-breakpoint
-ALTER TABLE "broadcasts" ADD CONSTRAINT "broadcasts_pkey" PRIMARY KEY("seller_id","id");--> statement-breakpoint
 CREATE TABLE "packing_records" (
 	"id" bigserial PRIMARY KEY NOT NULL,
 	"seller_id" text NOT NULL,
