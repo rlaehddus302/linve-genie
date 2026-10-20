@@ -9,6 +9,16 @@ import { defineConfig } from 'vitest/config'
 
 const YOUTUBE_TESTS = 'test/youtube-*.test.ts'
 
+/**
+ * 명령행 `--exclude`(test·coverage 단계가 성능 시험 *.perf.test.*를 빼는 것, D-902)는 이 설정 안에 둔 프로젝트(server·server-youtube)에
+ * 저절로 이어지지 않는다(Vitest는 프로젝트를 담은 설정의 하위 프로젝트에 명령행 제외를 넘기지 않는다) — 여기서 그대로 잇는다.
+ * pnpm perf는 성능 시험 파일을 직접 고르고 --exclude를 주지 않으므로 그때는 아무것도 빼지 않는다.
+ */
+const cliExclude = process.argv.flatMap((arg, index, all) => {
+  if (arg === '--exclude') return all[index + 1] === undefined ? [] : [all[index + 1] as string]
+  return arg.startsWith('--exclude=') ? [arg.slice('--exclude='.length)] : []
+})
+
 const common = {
   root: import.meta.dirname,
   environment: 'node' as const,
@@ -21,8 +31,8 @@ const common = {
 export default defineConfig({
   test: {
     projects: [
-      { test: { ...common, name: 'server', include: ['test/**/*.test.ts'], exclude: [YOUTUBE_TESTS], sequence: { groupOrder: 1 } } },
-      { test: { ...common, name: 'server-youtube', include: [YOUTUBE_TESTS], sequence: { groupOrder: 2 } } },
+      { test: { ...common, name: 'server', include: ['test/**/*.test.ts'], exclude: [YOUTUBE_TESTS, ...cliExclude], sequence: { groupOrder: 1 } } },
+      { test: { ...common, name: 'server-youtube', include: [YOUTUBE_TESTS], exclude: cliExclude, sequence: { groupOrder: 2 } } },
     ],
   },
 })
