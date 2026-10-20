@@ -63,3 +63,7 @@
 - 보기 캐시 상한(AC-S06b-12) 화면 쪽: 한 범위를 PC로 연 채 다른 범위 6개를 조회해 캐시를 밀어낸 뒤 그 범위에 찜 → 증분으로 반영, 새로고침 뒤와 같은 표.
 - 합치기 미리 보기 방향 바꾸기 연타의 응답 순서 뒤바뀜: `useMergePreview`가 요청 번호·키로 늦은 응답을 버린다(코드 확인).
 - 결과 색 CSS: `[data-tone]` 규칙보다 구체적인 덮어쓰기 없음.
+
+## 전체 verify (라운드 1, E2E_PORT_OFFSET=900, 로그 scratchpad/verify-test-e2e-S06b-r1.log)
+- e2e: 169개 중 167 통과, 실패 2 = TE-S06b-004 두 개(일부러). TE-S06b-001·003 통과.
+- test 단계: 시간 제한·시간 비 시험 7개가 실패(core engine-timing·engine-properties-s03, server changes·schema) — 같은 기계에서 다른 작업 폴더가 함께 돌던 부하(load 7 이상). 그 파일만 다시 돌리면 모두 통과(21 + 16). 제품 결함 아님.
