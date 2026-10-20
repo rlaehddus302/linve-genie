@@ -334,8 +334,10 @@ describe('AC-N2b-2-45 방 ID를 얻지 못함 = 방송 전', () => {
     expect(classifyWebcastFailure(fakeLibraryError('BLOCKED'))).toBe('BLOCKED')
     expect(classifyWebcastFailure(fakeLibraryError('NETWORK'))).toBe('NETWORK')
     class FetchIsLiveError extends Error {
-      constructor(readonly errors: unknown[]) {
+      readonly errors: unknown[]
+      constructor(errors: unknown[]) {
         super('Failed to retrieve Room ID from all sources.')
+        this.errors = errors
       }
     }
     const two = new FetchIsLiveError([new Error('Failed to extract Room ID from HTML.'), new Error('Failed to extract Room ID from API.')])
