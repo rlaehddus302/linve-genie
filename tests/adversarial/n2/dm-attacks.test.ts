@@ -62,11 +62,14 @@ describe('N2 감사 DM 다시 시도', () => {
     const fault = refuseConnections((url) => url.startsWith(w.fake.url) && (url.includes('/messages') || url.includes('/conversations')), 2)
     expect((await sendComments(w, shop.account, live, [{ id: '501', igsid: '6024400000000001', username: 'pink.mom', text: '15' }])).status).toBe(200)
     await w.server.instagram.dms.drain()
-    expect(fault.refused()).toBeGreaterThanOrEqual(1)
+    // 보내기가 메타에 닿지 않은 것이 확실하므로 대화 조회도 하지 않는다 — 거절은 보내기 1번뿐
+    expect(fault.refused()).toBe(1)
     expect(w.fake.dms).toEqual([])
     const after = await rows(w, shop)
     expect(after.map((row) => [row.status, row.reason])).toEqual([['WAITING', 'RETRY']])
-    // 네트워크가 돌아오면 2초 뒤 다시 보낸다 — DM 1
+    // 네트워크가 돌아오면(거절 주입을 거둔다) 2초 뒤 다시 보낸다 — DM 1
+    restoreFetch?.()
+    restoreFetch = null
     w.clock.advance(2000)
     await w.server.instagram.dms.drain()
     expect(w.fake.dms.map((dm) => dm.commentId)).toEqual(['501'])

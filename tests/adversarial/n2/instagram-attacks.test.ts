@@ -110,3 +110,29 @@ describe('N2 재배달과 1부·2부', () => {
     expect(w.published.filter((item) => item.data.code === 'UNLINKED_COMMENTS')).toEqual([])
   })
 })
+
+describe('N2 옮기기 (AC-N2-25)', () => {
+  it('TD-N2-003: 1부를 끝내지 않은 채 2부 방송을 새로 만들고 새 라이브를 켜면, 2부 시청자의 댓글로 1부가 새 라이브에 옮겨져 1부 같은 번호(다른 상품)에 2부 시청자의 찜이 생기고 2부는 그 라이브에 이을 수 없다', async () => {
+    const w = await world()
+    const { seller, account } = await connectedShop(w)
+    const api = client(w, seller.cookie)
+    // 1부: 기다리기 → 1부 라이브 M의 첫 댓글로 저절로 이어짐 (조치자 서버)
+    const b1 = await liveBroadcast(w, seller)
+    await register(w, seller, b1, 15, '1부 핑크프릴', 10000)
+    expect((await api.post(`/api/broadcasts/${b1}/live/wait`, { requestId: rid('w'), platform: 'INSTAGRAM' })).status).toBe(200)
+    const m = w.fake.startLive(account.id)
+    expect((await sendComments(w, account, m, [{ id: '17900000000000301', igsid: '6024400000000009', username: 'hello.viewer', text: '안녕하세요' }])).status).toBe(200)
+    expect(((await api.get(`/api/broadcasts/${b1}/live`)).body.link as { liveId: string }).liveId).toBe(m)
+    // 판매자는 1부를 끝내는 것을 잊고 2부 방송을 새로 만들어 상품을 올린다 (방송마다 번호를 새로 쓴다)
+    const b2 = await liveBroadcast(w, seller)
+    await register(w, seller, b2, 15, '2부 라울', 5000)
+    // 2부 라이브 M2를 켰다. 판매자가 2부를 M2에 잇기 전에 2부 시청자 A의 "15"가 먼저 온다 (늦지 않은 댓글)
+    const m2 = w.fake.startLive(account.id)
+    expect((await sendComments(w, account, m2, [{ id: '17900000000000302', igsid: '6024400000000001', username: 'pink.mom', text: '15' }])).status).toBe(200)
+    // A는 2부 상품을 보고 주문했다 — 1부 15번(다른 상품)에 A의 찜이 생기면 안 된다
+    expect((await claimsOf(w, seller.cookie)).filter((claim) => claim.product === `${b1}/15`)).toEqual([])
+    // 판매자가 2부를 M2에 이을 수 있어야 한다
+    const linked = await api.post(`/api/broadcasts/${b2}/live/link`, { requestId: rid('link'), platform: 'INSTAGRAM', liveId: m2 })
+    expect(linked.status, linked.text).toBe(200)
+  })
+})
