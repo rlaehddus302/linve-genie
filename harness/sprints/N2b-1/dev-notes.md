@@ -76,18 +76,18 @@
 - 듣는 라이브러리 이벤트는 `chat`·`disconnected`(`ControlEvent.DISCONNECTED`)·`streamEnd`(`WebcastEvent.STREAM_END` — 제어 메시지 action 3·4)·`error`뿐이다.
 
 ## 실패 종류 대응표 (AC-N2b-1-35)
-연결 시도(`connect()`)의 거부 값을 `classifyWebcastFailure`가 가른다. 위에서부터 먼저 걸린 것. 오류 안쪽은 `FetchIsLiveError.errors[]`·`InvalidResponseError.requestErr`·표준 `cause`를 깊이 4·마디 32까지 따라간다. 문구(오류의 `message`·문자열 거부 값)는 앞 2,000자만 본다. 문자열 거부 값은 4행(거부·한도·확인 문자 문구)에만 걸리고 그 밖은 5행 `NETWORK`다(수정 라운드 1, TD-N2b-1-001·SA-N2b-1-001).
+연결 시도(`connect()`)의 거부 값을 `classifyWebcastFailure`가 가른다. 위에서부터 먼저 걸린 것. 오류 안쪽은 `FetchIsLiveError.errors[]`·`InvalidResponseError.requestErr`·표준 `cause`를 깊이 4·마디 32까지 따라간다. 문구(오류의 `message`·문자열 거부 값)는 앞 2,000자만 본다. 문자열 거부 값은 4행(거부·한도·확인 문자 문구)에만 걸리고 그 밖은 5행 `NETWORK`다(수정 라운드 1, TD-N2b-1-001·SA-N2b-1-001). 메시지가 `Invalid response from API:`로 시작하면(틱톡 응답 본문 전체를 실은 메시지) 그 메시지는 어떤 문구 검사에도 쓰지 않는다 — 방송자가 직접 쓴 닉네임·소개 글은 믿을 수 없는 입력(CLAUDE.md 규칙 7)이라 다시 시도 여부를 정하면 안 된다(수정 라운드 2, TD-N2b-1-004·SA-N2b-1-005). 형 이름·`response.status`·안쪽 오류는 그대로 본다.
 
 | 순서 | 라이브러리 2.1.0의 오류 (형 이름·칸) | 어디서 | 실패 종류 |
 |---|---|---|---|
 | 1 | `InvalidUniqueIdError` | 아이디 형식이 틀림 | `USER_NOT_FOUND` |
-| 1 | `InvalidResponseError` + 메시지에 `19881007` 또는 `user_not_found` (`API Error 19881007 (user_not_found)`) | `fetch-room-info-api-live` — 틱톡 API의 없는 사용자 | `USER_NOT_FOUND` |
+| 1 | `InvalidResponseError` + 메시지가 **맨 앞부터** `API Error 19881007 (`로 시작하거나 통째로 `API Error <수> (user_not_found)` (라이브러리가 틱톡 상태 코드로 만드는 `API Error ${statusCode} (${message})` 모양 — 실제로는 `API Error 19881007 (user_not_found)`). 메시지 중간의 `19881007`·`user_not_found`는 근거가 아니다(수정 라운드 2, TD-N2b-1-004·SA-N2b-1-005) | `fetch-room-info-api-live` — 틱톡 API의 없는 사용자 | `USER_NOT_FOUND` |
 | 2 | `UserOfflineError` | 방 정보 `status === 4` | `NOT_LIVE` |
 | 3 | `SignAPIError`와 그 하위 형 `SignatureRateLimitError`·`SignatureMissingTokensError`·`PremiumFeatureError`·`AuthenticatedWebSocketConnectionError` (생성자 이름 사슬로 봄) | 서명 서비스(Euler) 연결 실패·상태 오류·한도·토큰 없음·유료 기능 | `SIGN_FAILED` |
 | 4 | 칸 `response.status`가 403·429 (axios 오류) | 틱톡의 거부·요청 한도 | `BLOCKED` |
-| 4 | 메시지에 `captcha` 또는 `blocked by TikTok` | `fetch-room-info-html` — 확인 문자·차단 | `BLOCKED` |
+| 4 | 메시지에 `captcha` 또는 `blocked by TikTok` (아래 "응답 본문 메시지"는 빼고) | `fetch-room-info-html` — 확인 문자·차단 | `BLOCKED` |
 | 4 | **문자열 거부** `Websocket connection failed, Error: Unexpected server response: 403`·`… 429` (메시지·문자열에 `Unexpected server response: 403`·`429`, 또는 문자열 안의 `captcha`·`blocked by TikTok`) | `setupWebsocket` — 웹소켓 손잡기에서 틱톡의 거부·요청 한도. 라이브러리가 오류 객체가 아니라 문자열 `Websocket connection failed, ${err}`로 거부하고 ws 8.x가 `Unexpected server response: ${status}`를 낸다 | `BLOCKED` |
-| 5 | 그 밖: 네트워크(`ECONNRESET`·`ETIMEDOUT`), 웹소켓 실패·시간 초과(위 4행이 아닌 문자열 거부 — `Websocket connection failed, Error: Unexpected server response: 500`·`… getaddrinfo ENOTFOUND …`·`Websocket not responding`·빈 문자열), `MissingRoomIdError`, `InvalidResponseError('Missing cursor…')`, `AlreadyConnectingError`·`AlreadyConnectedError`, `FetchSignedWebSocketIdentityParameterError`(우리 옵션으로는 생기지 않는 매개변수 오류), `SchemaDecodeError`, 500 등 다른 HTTP 상태, 모르는 오류, 오류가 아닌 값(`undefined`·`null`·숫자·객체), 읽으면 오류가 나는 값 | | `NETWORK` |
+| 5 | 그 밖: **응답 본문 메시지** `InvalidResponseError('Invalid response from API: ${JSON.stringify(roomData)}')`(방 ID가 비어 있는 응답 — 방송 전인 사용자. 본문에 방송자가 쓴 닉네임·소개 글이 들어 있어 문구를 보지 않는다), 네트워크(`ECONNRESET`·`ETIMEDOUT`), 웹소켓 실패·시간 초과(위 4행이 아닌 문자열 거부 — `Websocket connection failed, Error: Unexpected server response: 500`·`… getaddrinfo ENOTFOUND …`·`Websocket not responding`·빈 문자열), `MissingRoomIdError`, `InvalidResponseError('Missing cursor…')`, `AlreadyConnectingError`·`AlreadyConnectedError`, `FetchSignedWebSocketIdentityParameterError`(우리 옵션으로는 생기지 않는 매개변수 오류), `SchemaDecodeError`, 500 등 다른 HTTP 상태, 모르는 오류, 오류가 아닌 값(`undefined`·`null`·숫자·객체), 읽으면 오류가 나는 값 | | `NETWORK` |
 | — | 연결 객체의 20초 시간 초과, 클라이언트 만들기·`connect()`의 동기 예외 | 연결 객체 | `NETWORK` |
 
 - 연결된 뒤의 `error` 이벤트는 상태를 바꾸지 않고 로그 코드 `TIKTOK_LIBRARY_ERROR`만 남긴다. 실제로 끊기면 라이브러리가 `disconnected`를 내고 그것을 `NETWORK` 실패로 센다.

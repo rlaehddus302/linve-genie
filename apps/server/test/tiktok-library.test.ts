@@ -313,8 +313,26 @@ describe('AC-N2b-1-21·22 실제 라이브러리 chat 이벤트 → 레코드', 
 
 describe('AC-N2b-1-35 라이브러리 오류 → 실패 종류 (대응표의 행마다)', () => {
   const axiosLike = (status: number | null, code?: string) => Object.assign(new Error(status === null ? 'socket hang up' : `Request failed with status code ${String(status)}`), { isAxiosError: true, code, ...(status === null ? {} : { response: { status } }) })
+  /** fetch-room-info-api-live: 방 ID가 비어 있는 응답(방송 전인 사용자) — 응답 본문 전체(방송자가 쓴 닉네임·소개 글)가 메시지에 실린다 */
+  const apiNoRoom = (user: Record<string, string>) =>
+    new InvalidResponseError(`Invalid response from API: ${JSON.stringify({ data: { user: { id: '7000000000000000001', uniqueId: 'seller_kim', roomId: '', ...user }, liveRoom: { status: 4 } }, extra: {}, message: '', statusCode: 0 })}`, undefined)
+  const allSources = (api: Error) => new FetchIsLiveError([new Error('Failed to extract Room ID from HTML.'), api, new Error('Failed to extract Room ID from Euler.')])
   const rows: Array<[string, unknown, string]> = [
     ['방송 중 아님 UserOfflineError', new UserOfflineError("The requested user isn't online :("), 'NOT_LIVE'],
+    // TD-N2b-1-004·SA-N2b-1-005: 없는 사용자는 라이브러리가 틱톡 상태 코드로 만든 `API Error …` 메시지의 맨 앞만 본다
+    ['없는 사용자: 틱톡 API 19881007 (문구가 다름)', new InvalidResponseError('API Error 19881007 (Unknown Error)'), 'USER_NOT_FOUND'],
+    ['없는 사용자: 틱톡 API 다른 코드 + user_not_found', new InvalidResponseError('API Error 10221 (user_not_found)'), 'USER_NOT_FOUND'],
+    ['API 오류 198810070처럼 다른 수', new InvalidResponseError('API Error 198810070 (unknown)'), 'NETWORK'],
+    ['API 오류 문구 뒤에 user_not_found가 덧붙음', new InvalidResponseError('API Error 10221 (user_not_found) extra'), 'NETWORK'],
+    ['API 오류 모양이 메시지 중간에만 있음', new InvalidResponseError('Failed to fetch room info. API Error 19881007 (user_not_found)'), 'NETWORK'],
+    ['InvalidResponseError가 아닌 오류의 API 오류 문구', new Error('API Error 19881007 (user_not_found)'), 'NETWORK'],
+    ['방송 전 응답 본문: 소개 글에 19881007', allSources(apiNoRoom({ nickname: '김사장 다육', signature: '다육 판매 since 19881007' })), 'NETWORK'],
+    ['방송 전 응답 본문: 닉네임 user not found', allSources(apiNoRoom({ nickname: 'User Not Found', signature: '' })), 'NETWORK'],
+    ['방송 전 응답 본문: 닉네임이 API 오류 모양', apiNoRoom({ nickname: 'API Error 19881007 (user_not_found)', signature: '' }), 'NETWORK'],
+    ['방송 전 응답 본문: 소개 글에 captcha·blocked by TikTok', allSources(apiNoRoom({ nickname: 'captcha', signature: 'blocked by TikTok' })), 'NETWORK'],
+    ['방송 전 응답 본문: 닉네임에 Unexpected server response: 403', apiNoRoom({ nickname: 'Unexpected server response: 403', signature: '' }), 'NETWORK'],
+    ['방송 전 응답 본문 + 진짜 없는 사용자 응답', new FetchIsLiveError([apiNoRoom({ nickname: '19881007' }), new InvalidResponseError('API Error 19881007 (user_not_found)')]), 'USER_NOT_FOUND'],
+    ['방송 전 응답 본문 + 틱톡의 차단 문구', new FetchIsLiveError([new Error('Failed to extract the SIGI_STATE HTML tag, you might be blocked by TikTok.'), apiNoRoom({ nickname: '19881007' })]), 'BLOCKED'],
     ['없는 사용자: 틱톡 API 19881007 user_not_found', new FetchIsLiveError([new Error('Failed to extract the LiveRoom object from SIGI_STATE.'), new InvalidResponseError('API Error 19881007 (user_not_found)'), new Error('Failed to extract Room ID from Euler.')]), 'USER_NOT_FOUND'],
     ['없는 사용자: 아이디 형식 InvalidUniqueIdError', new InvalidUniqueIdError("Missing or invalid value for 'uniqueId'."), 'USER_NOT_FOUND'],
     ['서명 서비스 상태 오류 SignAPIError', new SignAPIError(ErrorReason.SIGN_NOT_200, undefined, undefined, 'Unexpected sign server status 500.'), 'SIGN_FAILED'],
