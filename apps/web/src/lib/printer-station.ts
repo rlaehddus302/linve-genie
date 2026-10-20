@@ -143,6 +143,13 @@ export class PrinterStation {
   #wakeAsking = false
   #retryTimer: ReturnType<typeof setTimeout> | undefined = undefined
   #mine = false
+  /**
+   * 받기 응답을 잃었다(요청이 응답 없이 끊김, 또는 출력 중에 앱이 닫혀 받은 장이 기억에 없다): 서버는 그 장을 이 기기의 출력 중으로 적었을 수 있지만
+   * 이 기기는 받지 못했다 — 그 장의 결과는 이 기기가 다시 받아야만 정해진다(서버가 대기 맨 앞으로 돌리고 같은 장을 새 표로, L-11 4).
+   * 그래서 이 동안은 출력 그만하기를 기다리는 중에도 받기를 보낸다(그 장의 결과가 정해지면 서버가 출력 기기를 비운다, L-11 10·TE-I1-004).
+   * 서버가 아직 이르다(BUSY)고 하면 조금 뒤 다시. 응답을 받은 받기(작업·대기 없음)나 출력 기기가 아님이면 지운다
+   */
+  #lostClaim = false
 
   constructor(options: StationOptions) {
     this.#options = options
@@ -216,7 +223,11 @@ export class PrinterStation {
     const mine = this.isMine(queue)
     if (mine !== this.#mine) {
       this.#mine = mine
-      if (!mine) this.#reported = null
+      if (!mine) {
+        this.#reported = null
+        // 출력 기기가 아니게 됐다(바꾸기·그만하기): 서버가 이 기기의 출력 중 장을 대기 맨 앞으로 돌렸다
+        this.#lostClaim = false
+      }
     }
     if (!this.#recovered) {
       this.#recovered = true
@@ -229,6 +240,8 @@ export class PrinterStation {
   /** 처음: 앱이 출력 중에 닫혔던 시도를 끊김으로 알리고, 이 기기가 출력 기기인데 프린터가 이어져 있지 않으면 알린다 */
   async #recover(queue: QueueSummary): Promise<void> {
     const saved = savedAttempt()
+    // 이 기기(탭)가 출력 기기이고 서버에 출력 중 장이 있는데 받은 장의 기억이 없다 = 받기 응답을 받기 전에 앱이 닫혔다 (받기와 같은 차례로 바로잡는다)
+    if (this.isMine(queue) && queue.printing > 0 && (saved === null || saved.deviceId !== this.#options.deviceId)) this.#lostClaim = true
     if (saved !== null && saved.deviceId === this.#options.deviceId) {
       try {
         await post('/api/print/result', { deviceId: saved.deviceId, attempt: saved.attempt, ok: false, error: { code: 'DISCONNECTED' } })
@@ -377,7 +390,8 @@ export class PrinterStation {
       queue !== null &&
       this.isMine(queue) &&
       queue.pause === null &&
-      queue.device?.releasing !== true &&
+      // 출력 그만하기를 기다리는 중에는 새 장을 받지 않는다 — 단 받기 응답을 잃어 이 기기가 쥔 장이 없을 때는 그 장의 결과를 정하러 받는다(서버는 새 장을 주지 않고 비운다)
+      (queue.device?.releasing !== true || (this.#lostClaim && this.#snapshot.job === null && this.#pendingResult === null)) &&
       this.#adapter !== null &&
       this.#adapter.state === 'CONNECTED' &&
       !this.#snapshot.testing
@@ -405,21 +419,35 @@ export class PrinterStation {
           break
         }
         if (!this.#canClaim()) continue
-        let claimed: { job: ClaimedJob | null }
+        let claimed: { job: ClaimedJob | null; reason?: string }
         this.#set({ busy: true })
         try {
-          claimed = await post<{ job: ClaimedJob | null }>('/api/print/claim', { deviceId: this.#options.deviceId })
+          claimed = await post<{ job: ClaimedJob | null; reason?: string }>('/api/print/claim', { deviceId: this.#options.deviceId })
         } catch (error) {
           this.#set({ busy: false })
           if (!isApiError(error)) throw error
-          if (error.code === 'PRINT_NOT_DEVICE') void this.#options.store.reload()
-          else if (error.transient) this.#retryLater()
+          if (error.code === 'PRINT_NOT_DEVICE') {
+            this.#lostClaim = false
+            void this.#options.store.reload()
+          } else if (error.transient) {
+            // 응답을 잃었다: 서버가 그 장을 이 기기의 출력 중으로 적었을 수 있다
+            this.#lostClaim = true
+            this.#retryLater()
+          }
           break
         }
         if (claimed.job === null) {
           this.#set({ busy: false })
+          if (this.#lostClaim && claimed.reason === 'BUSY') {
+            // 서버가 잃은 장을 아직 이 기기의 출력 중으로 둔다(준 지 얼마 안 됨) → 조금 뒤 다시 (그사이 알림마다 거듭 받지 않는다)
+            this.#retryLater()
+            break
+          }
+          // 대기도 출력 중도 없으면 잃은 장이 없다
+          if (claimed.reason === 'EMPTY') this.#lostClaim = false
           continue
         }
+        this.#lostClaim = false
         try {
           await this.#printJob(claimed.job)
         } finally {

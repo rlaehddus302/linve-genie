@@ -169,6 +169,74 @@ describe('받기·찍기·결과 (L-11 4·6)', () => {
     expect(printer.printCalls).toBe(0)
   })
 
+  it('받기 응답을 잃은 뒤 출력 그만하기 — 쥔 장이 없으니 그 장을 정하러 다시 받는다(이르면 조금 뒤), 서버가 비우면 그친다 (L-11 10, TE-I1-004)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      // 서버 흉내: 첫 받기는 처리했지만(출력 중으로 적음) 응답이 끊긴다. 준 지 2초 전이면 BUSY,
+      // 그 뒤 그만하기를 기다리는 중이면 그 장을 대기 맨 앞으로 돌리고 출력 기기를 비운다(409)
+      let lostAt: number | null = null
+      let releasing = false
+      const replies: string[] = []
+      server.on('POST', /^\/api\/print\/claim$/, () => {
+        if (current.queue.device === null) return { status: 409, body: { error: { code: 'PRINT_NOT_DEVICE', message: '이 기기는 출력 기기가 아니에요.' } } }
+        if (lostAt === null) {
+          lostAt = Date.now()
+          replies.push('lost')
+          return { network: true }
+        }
+        if (Date.now() - lostAt < 2000) {
+          replies.push(releasing ? 'busy-releasing' : 'busy')
+          return { body: { job: null, reason: 'BUSY' } }
+        }
+        if (!releasing) throw new Error('그만하기 전에 다시 줄 일은 이 시험에 없다')
+        replies.push('cleared')
+        current = overview({ queue: queue({ rev: 3, device: null, waiting: 1 }) })
+        return { status: 409, body: { error: { code: 'PRINT_NOT_DEVICE', message: '이 기기는 출력 기기가 아니에요.' } } }
+      })
+      const s = await start()
+      await s.connect('test')
+      await vi.waitFor(() => expect(replies[0]).toBe('lost'))
+      // 출력 그만하기: 서버는 출력 중 장이 있으니 그만하기를 기다린다
+      releasing = true
+      current = overview({ queue: queue({ rev: 2, device: device(ME, { releasing: true }), printing: 1 }) })
+      FakeEventSource.last.emit('print', { rev: 2, queue: current.queue, jobs: [], labels: [] })
+      await vi.waitFor(() => expect(replies).toContain('busy-releasing'))
+      // 3초 뒤 다시 받기 → 서버가 그 장의 결과를 정하고(대기 맨 앞) 출력 기기를 비운다
+      await vi.advanceTimersByTimeAsync(3000)
+      await vi.waitFor(() => expect(replies.at(-1)).toBe('cleared'))
+      await vi.waitFor(() => expect(s.isMine()).toBe(false))
+      const calls = claimCalls()
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(claimCalls()).toBe(calls)
+      expect(printer.printCalls).toBe(0)
+      expect(results).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('출력 그만하기를 기다리는 중에는 새 장을 받지 않는다 — 받기 응답을 잃은 적이 없으면', async () => {
+    current = overview({ queue: queue({ device: device(ME, { releasing: true }), printing: 0, waiting: 2 }) })
+    claims = [claimed('j1')]
+    const s = await start()
+    await s.connect('test')
+    await flush()
+    expect(claimCalls()).toBe(0)
+  })
+
+  it('출력 중에 앱이 닫혀 받은 장의 기억이 없으면(출력 그만하기를 기다리는 중이라도) 그 장을 정하러 받는다', async () => {
+    current = overview({ queue: queue({ device: device(ME, { releasing: true }), printing: 1 }) })
+    server.on('POST', /^\/api\/print\/claim$/, () => {
+      current = overview({ queue: queue({ rev: 4, device: null, waiting: 1 }) })
+      return { status: 409, body: { error: { code: 'PRINT_NOT_DEVICE', message: '이 기기는 출력 기기가 아니에요.' } } }
+    })
+    const s = await start()
+    await s.connect('test')
+    await vi.waitFor(() => expect(claimCalls()).toBe(1))
+    await vi.waitFor(() => expect(s.isMine()).toBe(false))
+    expect(printer.printCalls).toBe(0)
+  })
+
   it('앱이 출력 중에 닫혔던 시도는 다음에 열 때 끊김으로 알린다(찍혔는지 모른다 — 대기 맨 앞으로)', async () => {
     saveAttempt({ deviceId: ME, attempt: 'attempt-lost-0000' })
     await start()
