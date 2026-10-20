@@ -233,7 +233,7 @@ export function ShopForm({ shopName, onRenamed }: { readonly shopName: string; r
       />
       <FieldError error={error} field="name" id={`${id}-error`} />
       <div className="row">
-        <button type="submit" className="button button-primary" disabled={busy}>
+        <button type="submit" className="button" disabled={busy}>
           저장
         </button>
       </div>

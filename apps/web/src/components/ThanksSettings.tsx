@@ -123,7 +123,7 @@ function ConsentControls({ youtube }: { readonly youtube: ConnectionHandle }) {
               {name} 자동 게시 끄기
             </button>
           ) : (
-            <button type="button" className="button button-primary" disabled={busy !== null || blocked !== null} onClick={() => setAsking(target)}>
+            <button type="button" className="button" disabled={busy !== null || blocked !== null} onClick={() => setAsking(target)}>
               {name} 자동 게시 켜기
             </button>
           )}

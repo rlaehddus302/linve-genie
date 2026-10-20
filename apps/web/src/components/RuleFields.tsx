@@ -168,13 +168,13 @@ export function useRuleForm(fields: readonly FieldDef[], saved: SaleSettings, on
   return { draft, set, dirty, busy, error, done, save, reset }
 }
 
-/** 칸 묶음 아래: 저장 버튼·문장·칸 밖 오류 */
+/** 칸 묶음 아래: 저장 버튼·문장·칸 밖 오류. 설정은 칸마다 저장이 있어 보조 버튼 모양(주 버튼은 화면에 하나까지, UX-01·D-102) */
 export function SaveRow({ form, fields, label = '저장' }: { readonly form: RuleForm; readonly fields: readonly FieldDef[]; readonly label?: string }) {
   const keys = fields.map((field) => `settings.${field.key}`)
   return (
     <div className="stack-tight">
       <div className="row">
-        <button type="button" className="button button-primary" disabled={form.busy} onClick={() => void form.save()}>
+        <button type="button" className="button" disabled={form.busy} onClick={() => void form.save()}>
           {form.busy ? '저장하는 중…' : label}
         </button>
       </div>

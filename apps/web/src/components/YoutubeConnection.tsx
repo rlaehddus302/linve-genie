@@ -123,7 +123,8 @@ export function CallbackResult({ code }: { readonly code: string | null }) {
 }
 
 /** "구글로 유튜브 연결하기"·"다시 연결하기" — 서버가 준 승인 주소로 최상위 이동 */
-export function ConnectButton({ label, from }: { readonly label: string; readonly from: GoogleReturn | null }) {
+// 주 버튼(채운 색)은 화면에 하나까지 (UX-01·D-102): 단계마다 할 일이 하나인 시작 마법사에서만 주 버튼, 칸마다 버튼이 있는 설정에서는 보조 버튼.
+export function ConnectButton({ label, from, primary }: { readonly label: string; readonly from: GoogleReturn | null; readonly primary: boolean }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const start = async () => {
@@ -142,7 +143,7 @@ export function ConnectButton({ label, from }: { readonly label: string; readonl
   return (
     <div className="stack-tight">
       <div className="row">
-        <button type="button" className="button button-primary" disabled={busy} onClick={() => void start()}>
+        <button type="button" className={primary ? 'button button-primary' : 'button'} disabled={busy} onClick={() => void start()}>
           {label}
         </button>
       </div>
@@ -192,7 +193,7 @@ export function YoutubeStatus({ handle, quota, navigate, place }: YoutubeStatusP
       <div className="stack">
         <p>유튜브 채널이 아직 연결되지 않았어요.</p>
         <PermissionGuide navigate={navigate} place={place} />
-        <ConnectButton label="구글로 유튜브 연결하기" from={from} />
+        <ConnectButton label="구글로 유튜브 연결하기" from={from} primary={place === 'wizard'} />
       </div>
     )
   }
@@ -211,7 +212,7 @@ export function YoutubeStatus({ handle, quota, navigate, place }: YoutubeStatusP
           </p>
           {consentOn ? <p>구글 화면에 글쓰기 권한도 함께 나와요. 빼고 허락하면 자동 게시가 꺼져요.</p> : null}
           <PermissionGuide navigate={navigate} place={place} />
-          <ConnectButton label="다시 연결하기" from={from} />
+          <ConnectButton label="다시 연결하기" from={from} primary={place === 'wizard'} />
         </>
       ) : (
         <ul className="plain-list">
