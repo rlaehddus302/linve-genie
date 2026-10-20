@@ -103,7 +103,7 @@ describe('AC-I3-60 보조자 만들기·목록', () => {
     const w = await world()
     const seller = await addSeller(w)
     const api = client(w, seller.cookie)
-    for (const name of ['', '   ', '가'.repeat(21), '엄\n마', '엄\u0007마', '엄\u202E마', '엄\u200B마', 3, null]) {
+    for (const name of ['', '   ', '가'.repeat(21), '엄\n마', '엄\u0007마', '엄\u202E마', '엄\u200B마', '엄\u2028마', '엄\u2029마', '엄\uD800마', '엄\uDC00', 3, null]) {
       const response = await api.post('/api/assistants', { name })
       expect(response.status, String(name)).toBe(400)
       expect(response.body).toEqual({ error: { code: 'INVALID_INPUT', message: '보조자 이름은 1~20자로 적어 주세요.', problems: [{ field: 'name', message: '보조자 이름은 1~20자로 적어 주세요.' }] } })
@@ -389,7 +389,8 @@ describe('AC-I3-47 가게 이름', () => {
     expect(((await client(w, b.cookie).get('/api/me')).body.seller as { name: string }).name).toBe(`가게 ${b.loginId}`)
     expect((await api.put('/api/shop', { name: '구피 010-1234-5678' })).status).toBe(200)
     expect((await api.put('/api/shop', { name: '🐟'.repeat(30) })).status).toBe(200)
-    for (const name of ['', '  ', '가'.repeat(31), '🐟'.repeat(31), '구피\n가게', '구피\t가게', '구피\u202E가게', '구\uFEFF피', 7, null, ['a']]) {
+    // 가운데의 줄 나눔(U+2028)·문단 나눔(U+2029)도 줄바꿈이고, 짝 없는 서로게이트는 글자가 아니다 (SA-I3-007)
+    for (const name of ['', '  ', '가'.repeat(31), '🐟'.repeat(31), '구피\n가게', '구피\t가게', '구피\u202E가게', '구\uFEFF피', '구피\u2028가게', '구피\u2029가게', '구피\uD800가게', '\uDFFF구피', 7, null, ['a']]) {
       const response = await api.put('/api/shop', { name })
       expect(response.status, JSON.stringify(name)).toBe(400)
       expect(response.body).toEqual({ error: { code: 'INVALID_INPUT', message: '가게 이름은 1~30자로 적어 주세요.', problems: [{ field: 'name', message: '가게 이름은 1~30자로 적어 주세요.' }] } })

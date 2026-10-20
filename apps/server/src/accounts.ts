@@ -62,8 +62,12 @@ export async function createSellerAccount(db: Db, masterKey: Buffer, input: NewA
 
 // ── 판매자가 화면에서 정하는 이름 (가게 이름 AC-I3-47 · 보조자 이름 AC-I3-60) ──────────────
 
-/** 줄바꿈·제어·서식 글자 (Unicode Cc·Cf — 방향 바꾸기 글자 U+202E·폭 없는 글자 포함) */
-const CONTROL_OR_FORMAT = /[\p{Cc}\p{Cf}]/u
+/**
+ * 줄바꿈·제어·서식 글자 (Unicode Cc·Cf — 방향 바꾸기 글자 U+202E·폭 없는 글자 포함)
+ * + 줄 나눔 글자 U+2028(Zl)·문단 나눔 글자 U+2029(Zp) — 이것도 줄바꿈이라 한 줄로 보여야 하는 위 줄·라벨이 두 줄이 된다 (SA-I3-007)
+ * + 짝 없는 서로게이트(Cs) — 글자가 아니다. `u` 플래그에서 짝 맞은 서로게이트(이모지)는 한 코드 포인트라 걸리지 않는다
+ */
+const CONTROL_OR_FORMAT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u
 
 /** 앞뒤 공백을 뺀 1~max자(코드 포인트)이고 제어·서식 글자가 없으면 그 값, 아니면 null. 휴대폰 번호 검사는 하지 않는다(D-I3-10) */
 export function cleanDisplayName(raw: unknown, max: number): string | null {
