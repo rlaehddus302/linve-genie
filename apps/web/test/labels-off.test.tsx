@@ -406,3 +406,32 @@ describe('라벨 화면 주 버튼은 지금 할 일 하나 (AC-N4a-21, D-N4a-06
     expect(primaryOutsideDialogs()).toEqual([])
   })
 })
+
+describe('시작 마법사 3단계 — 라벨 기능을 끈 판매자 (L-13 9, D-N4a-05·07)', () => {
+  const STEP = '3/5 프린터 연결'
+  beforeEach(() => {
+    server.on('GET', /^\/api\/wizard$/, () => ({ body: { wizard: { status: 'IN_PROGRESS', step: 3 } } })).on('PUT', /^\/api\/wizard$/, (call) => ({ body: { wizard: call.body } }))
+  })
+
+  it('꺼져 있으면 프린터 연결 칸 대신 "라벨 쓰지 않음" 안내만 — 연결·테스트 인쇄 버튼이 없다', async () => {
+    testPrinter = true
+    current = overview({ queue: queue({ labelsEnabled: false }) })
+    window.history.replaceState(null, '', '/start')
+    render(<App />)
+    await screen.findByRole('heading', { name: STEP, level: 2 })
+    await flush(10)
+    expect(screen.getByText(OFF_NOTE)).toBeTruthy()
+    expect(screen.queryByRole('region', { name: '프린터' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /연결|테스트 인쇄/ })).toBeNull()
+  })
+
+  it('켜져 있으면 I1 연결 칸을 그대로 끼운다', async () => {
+    testPrinter = true
+    window.history.replaceState(null, '', '/start')
+    render(<App />)
+    await screen.findByRole('heading', { name: STEP, level: 2 })
+    await flush(10)
+    expect(await screen.findByRole('region', { name: '프린터' })).toBeTruthy()
+    expect(screen.queryByText(OFF_NOTE)).toBeNull()
+  })
+})
