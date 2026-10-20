@@ -260,11 +260,11 @@ const golden = loadGolden(GOLDEN_DIR)
 const NAME_LIST: readonly ModelProfile[] = [...MARKLIFE_PROFILES, ...EXPERIMENTAL_PROFILES]
 
 describe('프린터 골든 (AC-N1-01)', () => {
-  it('파일 4개 · 사례 84개(작업 34 · 이름 24 · 프로필 11 · 브라우저 15)를 읽는다', () => {
+  it('파일 4개 · 사례 87개(작업 34 · 이름 27 · 프로필 11 · 브라우저 15 — 감사 뒤 이름 G-PRT-N1-76~78, D-N1-11)를 읽는다', () => {
     expect(golden.map((g) => g.file)).toEqual(['browser.json', 'job.json', 'name.json', 'profile.json'])
     const count = (kind: Kind): number => golden.filter((g) => g.kind === kind).reduce((n, g) => n + g.cases.length, 0)
-    expect([count('job'), count('name'), count('profile'), count('browser')]).toEqual([34, 24, 11, 15])
-    expect(golden.reduce((n, g) => n + g.cases.length, 0)).toBe(84)
+    expect([count('job'), count('name'), count('profile'), count('browser')]).toEqual([34, 27, 11, 15])
+    expect(golden.reduce((n, g) => n + g.cases.length, 0)).toBe(87)
   })
 
   for (const g of golden) {

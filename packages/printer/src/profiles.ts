@@ -103,8 +103,10 @@ export function printerProfile(id: string): ModelProfile | undefined {
 }
 
 /**
- * 이름으로 고르기 (L-12 3, G-PRT-N1-41~64): 기기 이름이 프로필의 이름 앞자리로 시작하면 그 프로필, 아니면 undefined.
- * 대소문자를 가리고 이름을 다듬지 않는다(앞 공백·전각 글자·폭 없는 공백이 끼면 고르지 않는다). 앞자리가 없는 프로필(B1)은 고르지 않는다.
+ * 이름으로 고르기 (L-12 3, G-PRT-N1-41~64·76~78, D-N1-11): 기기 이름이 프로필의 이름 앞자리로 시작하면 그 프로필, 아니면 undefined.
+ * 보는 것은 앞자리뿐이다 — 대소문자를 가리고 이름을 다듬지 않는다. 앞자리 앞에 무엇이 붙거나(앞 공백) 앞자리 안에 다른 글자가 끼면
+ * (전각 글자·폭 없는 공백) 고르지 않고, 앞자리 뒤의 글(끝 공백·길이)은 보지 않는다(`P12_ZA15B ` → P12, 아주 긴 `LP15_…` → LP15).
+ * 기기 고르기 창의 namePrefix 거르기와 같은 판단이라 창에 보인 기기가 이름 때문에 거절되지 않는다. 앞자리가 없는 프로필(B1)은 고르지 않는다.
  * 앞자리끼리 겹치지 않으므로 맞는 프로필은 많아야 하나다 — 그래도 둘 이상이면 고르지 않는다(지어내지 않는다).
  */
 export function profileForDeviceName(name: unknown, profiles: readonly ModelProfile[]): ModelProfile | undefined {
