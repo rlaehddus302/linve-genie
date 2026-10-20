@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadDocumentFont, renderReceiptPng, type ReceiptData } from '@livejjim/documents'
 import { afterAll, describe, expect, it } from 'vitest'
-import { FolderBackupStorage, buildBackup, encodeBackup } from '../src/backup.ts'
+import { FolderBackupStorage, createBackupBytes } from '../src/backup.ts'
 import { parseRestoreArgs } from '../src/commands/restore-args.ts'
 import { openPglite } from '../src/db/database.ts'
 import { startE2eServer } from '../src/e2e.ts'
@@ -116,7 +116,7 @@ describe('AC-I2-62 복구 명령 (운영자)', () => {
     await ok(world, seller, { type: 'product.register', b: bc, no: 1, name: '비밀상품', price: 1000 })
     await chat(world, seller, bc, 'm1', 'UC_A', '비밀닉', '1')
     const file = join(dir, 'backup.json.gz')
-    writeFileSync(file, encodeBackup(await buildBackup(sourceDb.db, source.sellerId, Date.now())))
+    writeFileSync(file, await createBackupBytes(sourceDb.db, source.sellerId, Date.now()))
     await sourceDb.close()
     const database = await openPglite(join(dir, 'db'))
     const target = await createSellerAccount(database.db, Buffer.from(masterKey, 'base64'), { shopName: '빈 가게', loginId: 'dstshop', password: 'password-123' }, { passwordCost: FAST_COST })

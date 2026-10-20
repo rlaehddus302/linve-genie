@@ -4,15 +4,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gunzipSync, gzipSync } from 'node:zlib'
 import ExcelJS from 'exceljs'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import {
+  BACKUP_PAGE,
   BACKUP_RETENTION_MS,
   FolderBackupStorage,
+  backupPieces,
   backupDigest,
   backupEventDigest,
-  buildBackup,
   checkBackupBytes,
-  encodeBackup,
+  createBackupBytes,
   executableOutboxCount,
   restoreSeller,
   type BackupFile,
@@ -119,9 +120,9 @@ describe('AC-I2-60 백업 파일 형식', () => {
     // 로그인 시도 기록이 남게 한 번 틀린다
     expect((await client(world, null).post('/api/login', { loginId: seller.loginId, password: 'wrong-password-1' })).status).toBe(401)
     world.clock.set(Date.UTC(2026, 9, 19, 19, 0, 0))
-    const file = await buildBackup(world.database.db, seller.sellerId, world.clock.now())
+    const file = decode(await createBackupBytes(world.database.db, seller.sellerId, world.clock.now()))
     expect(Object.keys(file)).toEqual(['format', 'version', 'createdAt', 'sellerId', 'shop', 'settings', 'scopes', 'packing', 'digest'])
-    expect(file).toMatchObject({ format: 'livejjim-seller-backup', version: 1, createdAt: '2026-10-19T19:00:00.000Z', sellerId: seller.sellerId, settings: { 'shipping.baseFee': 3500 } })
+    expect(file).toMatchObject({ format: 'livejjim-seller-backup', version: 2, createdAt: '2026-10-19T19:00:00.000Z', sellerId: seller.sellerId, settings: { 'shipping.baseFee': 3500 } })
     expect(file.shop).toEqual({ name: '초록다육', bank: '농협', accountNumber: '302-9988-7766-11', accountHolder: '김판매', accountNote: '입금자명은 닉네임으로 적어 주세요' })
     expect(file.scopes.map((scope) => [scope.date, scope.rehearsal])).toEqual([
       ['2026-10-18', false],
@@ -166,8 +167,8 @@ describe('AC-I2-60 백업 파일 형식', () => {
     const { world } = await backupWorld()
     const seller = await addSeller(world)
     await richSales(world, seller)
-    const a = await buildBackup(world.database.db, seller.sellerId, Date.UTC(2026, 9, 19, 19))
-    const b = await buildBackup(world.database.db, seller.sellerId, Date.UTC(2026, 9, 25, 19))
+    const a = decode(await createBackupBytes(world.database.db, seller.sellerId, Date.UTC(2026, 9, 19, 19)))
+    const b = decode(await createBackupBytes(world.database.db, seller.sellerId, Date.UTC(2026, 9, 25, 19)))
     expect({ ...a, createdAt: '' }).toEqual({ ...b, createdAt: '' })
     expect(a.digest).toBe(b.digest)
   })
@@ -194,7 +195,7 @@ describe('AC-I2-61 매일 자동 백업·보관·상태', () => {
     ])
     // 파일 이름에 판매자 이름·구매자 정보가 없다 — 판매자마다 따로(폴더 = 판매자 ID)
     for (const entry of list) expect(entry.name).toMatch(/^daily-\d{8}T\d{9}Z\.json\.gz$/)
-    expect(checkBackupBytes(await storage.read(seller.sellerId, list[0]?.name ?? '')).ok).toBe(true)
+    expect((await checkBackupBytes(await storage.read(seller.sellerId, list[0]?.name ?? ''))).ok).toBe(true)
   })
 
   it('켜 있다 꺼진 날(04:00 뒤 첫 확인이 다음 날 오후)도 그날 것이 없으면 만든다', async () => {
@@ -209,7 +210,7 @@ describe('AC-I2-61 매일 자동 백업·보관·상태', () => {
     const seller = await addSeller(world)
     const quiet = await addSeller(world)
     const now = kst('2026-10-20', '10:00:00')
-    const bytes = encodeBackup(await buildBackup(world.database.db, seller.sellerId, now))
+    const bytes = await createBackupBytes(world.database.db, seller.sellerId, now)
     await storage.write(seller.sellerId, 'daily', now - BACKUP_RETENTION_MS - 1, bytes)
     await storage.write(seller.sellerId, 'daily', now - BACKUP_RETENTION_MS, bytes)
     await storage.write(seller.sellerId, 'safety', now - 1000, bytes)
@@ -294,7 +295,7 @@ describe('AC-I2-61 매일 자동 백업·보관·상태', () => {
     for (let i = 0; i < 5; i++) backups.push(await world.server.backups.createNow(seller.sellerId, 'safety'))
     writing = false
     expect(await writes).toBeGreaterThan(0)
-    for (const entry of backups) expect(checkBackupBytes(await storage.read(seller.sellerId, entry.name)).ok).toBe(true)
+    for (const entry of backups) expect((await checkBackupBytes(await storage.read(seller.sellerId, entry.name))).ok).toBe(true)
   })
 
   it('성능: 범위 10개(범위마다 상품 500·채팅 1만 건) 판매자의 백업이 60초 안', async () => {
@@ -327,12 +328,65 @@ describe('AC-I2-61 매일 자동 백업·보관·상태', () => {
   }, 300_000)
 })
 
+describe('RA-I2-005 판매자 전체 역사를 글 하나로 만들지 않는다 (만들기·검사·복구 모두 조각으로)', () => {
+  it('범위 둘(이벤트 약 2만 건): 만들 때 글 조각은 이벤트 한 묶음 크기까지, 검사할 때 JSON.parse는 값 하나씩 — 그래도 다른 서버로 복구하면 같다', async () => {
+    const { world } = await backupWorld(kst('2026-10-01', '05:00:00'))
+    const seller = await addSeller(world)
+    const filled = await fillScope(world.server, seller.sellerId, { date: '2026-10-01', clock: world.clock, seed: 2 })
+    const pg = world.database.pglite
+    const source = (await pg?.query<{ id: string; seq: number }>(`select id, seq from scopes where seller_id = $1`, [seller.sellerId]))?.rows[0]
+    if (pg === undefined || pg === null || source === undefined) throw new Error('채운 범위가 없다')
+    // 둘째 범위는 이벤트 행을 복사한다(방송 ID만 바꿔 — 성능 시험과 같은 방법). 요약값(digest)은 범위 ID에 기대므로 다시 계산하지 않아도 백업 형식에는 상관없다
+    await pg.query(`insert into scopes (id, seller_id, date, rehearsal, seq, created_at) values ('scp_copy', $1, '2026-10-02', false, $2, now())`, [seller.sellerId, source.seq])
+    await pg.query(
+      `insert into events (seller_id, scope_id, seq, type, body, at, received_at, actor, account_id, request_id, chat_broadcast, chat_message_id, sms_ref, changed, failed, digest)
+       select seller_id, 'scp_copy', seq, type, replace(body, $1, 'b_copy_2'), at, received_at, actor, account_id, null, case when chat_broadcast is null then null else 'b_copy_2' end, chat_message_id, sms_ref, changed, failed, digest
+       from events where seller_id = $2 and scope_id = $3`,
+      [filled.broadcast, seller.sellerId, source.id],
+    )
+    let total = 0
+    let longest = 0
+    for await (const piece of backupPieces(world.database.db, seller.sellerId, world.clock.now())) {
+      total += piece.length
+      longest = Math.max(longest, piece.length)
+    }
+    expect(source.seq * 2).toBeGreaterThan(20_000)
+    expect(total).toBeGreaterThan(5_000_000)
+    // 가장 긴 조각 = 이벤트 한 묶음(BACKUP_PAGE건) — 기록 전체 길이와 상관없다
+    expect(longest).toBeLessThan(BACKUP_PAGE * 1200)
+    expect(longest * 4).toBeLessThan(total)
+    const bytes = await createBackupBytes(world.database.db, seller.sellerId, world.clock.now())
+    const parse = vi.spyOn(JSON, 'parse')
+    let checked: Awaited<ReturnType<typeof checkBackupBytes>>
+    try {
+      checked = await checkBackupBytes(bytes)
+    } finally {
+      parse.mockRestore()
+    }
+    expect(checked.ok, checked.ok ? '' : checked.reason).toBe(true)
+    const longestParsed = Math.max(...parse.mock.calls.map((call) => (typeof call[0] === 'string' ? call[0].length : 0)))
+    expect(longestParsed).toBeLessThan(64 * 1024)
+    expect(checked.ok && checked.value.file.scopes.map((scope) => [scope.date, scope.events])).toEqual([
+      ['2026-10-01', source.seq],
+      ['2026-10-02', source.seq],
+    ])
+    // 다른 서버의 빈 판매자로 복구 (파일을 두 번 조각으로 읽는다 — 검사·넣기) → 재생 검사 통과, 범위·이벤트 수가 같다
+    const other = await otherServer(world)
+    const target = await addSeller(other.world)
+    const restored = await restoreSeller({ db: other.world.database.db, sellerId: target.sellerId, bytes, replace: false, storage: null, clock: other.world.clock, ids: randomIds })
+    expect(restored.ok).toBe(true)
+    if (!restored.ok) return
+    expect([restored.scopes, restored.events]).toEqual([2, source.seq * 2])
+    expect(restored.checks.every((check) => check.ok)).toBe(true)
+  }, 300_000)
+})
+
 describe('AC-I2-62 복구·가져오기', () => {
   async function source() {
     const { world, storage } = await backupWorld()
     const seller = await addSeller(world)
     await richSales(world, seller)
-    const bytes = encodeBackup(await buildBackup(world.database.db, seller.sellerId, world.clock.now()))
+    const bytes = await createBackupBytes(world.database.db, seller.sellerId, world.clock.now())
     return { world, storage, seller, bytes }
   }
   const restore = (world: TestServer, sellerId: string, bytes: Uint8Array, replace = false, storage: BackupStorage | null = null) =>
@@ -363,12 +417,22 @@ describe('AC-I2-62 복구·가져오기', () => {
         }),
         /다시 계산하지 못했어요/,
       ],
-      [fix((copy) => ((copy as { version: number }).version = 2)), /형식 번호/],
+      [fix((copy) => ((copy as { version: number }).version = 1)), /형식 번호/],
       [new Uint8Array(Buffer.from('not gzip')), /gzip/],
       [fix((copy) => (copy.scopes as unknown[]).push(structuredClone(copy.scopes[0]))), /두 번 있어요/],
       [fix((copy) => ((copy.settings as Record<string, unknown>)['claim.maxNumber'] = 0)), /판매 규칙 설정/],
       [fix((copy) => ((copy.packing[1] as { kind: string }).kind = 'UNPACKED')), /포장 기록 2번/],
       [fix((copy) => ((copy as { format: string }).format = 'other')), /형식 이름/],
+      // 형식 번호 2: 칸의 차례가 정해져 있다(조각으로 읽는다 — RA-I2-005), 모르는 칸·잘린 파일·뒤에 남은 글
+      [
+        fix((copy) => {
+          ;(copy as unknown as { scopes: unknown[] }).scopes = copy.scopes.map(({ date, rehearsal, events: list, seq, broadcasts }) => ({ events: list, date, rehearsal, seq, broadcasts }))
+        }),
+        /범위의 형식이 올바르지 않아요/,
+      ],
+      [fix((copy) => ((copy as Record<string, unknown>).extra = 1)), /칸이 형식과 달라요/],
+      [bytes.slice(0, bytes.length - 40), /gzip/],
+      [new Uint8Array(gzipSync(Buffer.concat([gunzipSync(bytes), Buffer.from(' {}')]))), /JSON이 아니에요/],
     ]
     for (const [corrupt, reason] of cases) {
       const outcome = await restore(world, target.sellerId, corrupt)
@@ -439,7 +503,7 @@ describe('AC-I2-62 복구·가져오기', () => {
     expect(replaced.ok).toBe(true)
     if (!replaced.ok) return
     expect(replaced.safety).toMatch(/^safety-/)
-    const safety = checkBackupBytes(await storage.read(target.sellerId, replaced.safety ?? ''))
+    const safety = await checkBackupBytes(await storage.read(target.sellerId, replaced.safety ?? ''))
     expect(safety.ok && safety.value.file.scopes.map((scope) => scope.date)).toEqual(['2026-10-25'])
     other.world.server.writer.forgetSeller(target.sellerId)
     expect(((await client(other.world, target.cookie).get('/api/days')).body.days as { date: string }[]).map((day) => day.date)).toEqual(['2026-10-18', '2026-10-19'])
@@ -536,12 +600,12 @@ describe('AC-I2-64 판매자 전체 내려받기 (JSON)', () => {
     expect(file.headers.get('content-type')).toBe('application/gzip')
     expect(file.headers.get('cache-control')).toBe('no-store')
     expect(decodeURIComponent(/filename\*=UTF-8''(.+)$/.exec(file.headers.get('content-disposition') ?? '')?.[1] ?? '')).toBe('라이브찜-전체기록-2026-10-21.json.gz')
-    const checked = checkBackupBytes(file.bytes)
+    const checked = await checkBackupBytes(file.bytes)
     expect(checked.ok).toBe(true)
     expect(checked.ok && checked.value.file.sellerId).toBe(seller.sellerId)
     const empty = await addSeller(world)
     const emptyFile = await getFile(world, empty.cookie, '/api/export/records.json.gz')
-    const emptyChecked = checkBackupBytes(emptyFile.bytes)
+    const emptyChecked = await checkBackupBytes(emptyFile.bytes)
     expect(emptyChecked.ok && emptyChecked.value.file.scopes).toEqual([])
     expect(emptyChecked.ok && emptyChecked.value.file.sellerId).toBe(empty.sellerId)
     // 빈 판매자(다른 서버 — 방송 ID는 서버 전체에서 유일, RA-I2-002)에 가져오면 조회가 같다

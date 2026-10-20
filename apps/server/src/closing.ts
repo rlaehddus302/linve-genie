@@ -8,7 +8,7 @@ import { buildLedger, buildReceipt, ledgerToXlsx, renderBatchPdf, renderReceiptP
 import type { PackingLabelData } from '@livejjim/label'
 import { and, asc, eq, gte, sql } from 'drizzle-orm'
 import { hasControlChar, isPlainObject, own, ownKeys } from './api-fields.ts'
-import { buildBackup, encodeBackup, type BackupScheduler, type BackupStatus } from './backup.ts'
+import { createBackupBytes, type BackupScheduler, type BackupStatus } from './backup.ts'
 import type { Db } from './db/database.ts'
 import { events, packingRecords } from './db/schema.ts'
 import type { ErrorCode, FieldProblem } from './errors.ts'
@@ -271,7 +271,8 @@ export class ClosingService {
   /** 판매자 전체 기록 JSON (백업과 같은 형식, gzip — D-I2-12). 기록이 없어도 빈 기록으로 만든다 */
   async exportRecords(sellerId: string): Promise<Outcome<FileResult>> {
     const now = this.#deps.clock.now()
-    const bytes = encodeBackup(await buildBackup(this.#deps.db, sellerId, now))
+    // 글 조각을 gzip 스트림에 이어 쓴다 — 전체 역사를 글 하나로 만들지 않고, 이벤트 묶음 사이에 판정 요청이 끼어든다 (RA-I2-003·005)
+    const bytes = await createBackupBytes(this.#deps.db, sellerId, now)
     const today = kstDate(now)
     return ok({ bytes, type: MIME.gzip, fileName: `라이브찜-전체기록-${today}.json.gz`, fallback: `livejjim-records-${today}.json.gz` })
   }
