@@ -37,12 +37,12 @@
 
 | 뜻 | 경로 | 요청 | 응답 |
 |---|---|---|---|
-| 입금 목록 | `GET /api/deposits?status=REVIEW&before=<번호>&limit=1~200` | status 기본 `REVIEW`, limit 기본 50 | `{ deposits: DepositView[], more, review }` (번호 내림차순, 다음 쪽은 `before=마지막 번호`) |
+| 입금 목록 | `GET /api/deposits?status=REVIEW&before=<번호>&limit=1~200` | status 기본 `REVIEW`, 쉼표로 여럿(예 `AUTO_APPLIED,APPLIED` — 자동 확인됨·확인함 목록), limit 기본 50 | `{ deposits: DepositView[], more, review }` (번호 내림차순, 다음 쪽은 `before=마지막 번호`) |
 | 확인 필요 수 | `GET /api/deposits/count` | — | `{ review }` (메뉴 "입금 확인 3") |
 | 입금 하나 | `GET /api/deposits/:no` | — | `{ deposit: DepositView + actions }` — `actions: [{ action: RECEIVED·AUTO·CONFIRM·IGNORE·REOPEN·REVERT, actor: { kind: 'account'\|'auto', loginId }, at, date, buyer, buyerName, seq }]` 시간 순. `auto`는 "입금 자동 확인" |
 | 붙여넣기 미리 보기 | `POST /api/deposits/paste/preview` | `{ text }` | `{ rows: [{ line, at(KST +09:00), precision, amount, name, balance, state: NEW·EXISTING·OLD·FUTURE }], skipped: [{ line, why: 'NOT_DEPOSIT' }], unreadable: [{ line, why: BAD_AMOUNT·BAD_TIME }] }` — 아무것도 기록하지 않음 |
 | 붙여넣기 넣기 | `POST /api/deposits/paste` | `{ requestId, text }` | `{ read, skipped, unreadable: [{ line, why }], new, existing, old, future, auto, review }` → "새 입금 {new}건 — 자동 확인 {auto}건, 확인 필요 {review}건 (이미 있던 입금 {existing}건)" |
-| 확정 | `POST /api/deposits/:no/confirm` | `{ requestId, date, buyer, remaining, remember? }` (`remaining` = 화면이 본 남은 금액) | `{ deposit: { no, status: 'APPLIED', applied: { date, buyer, buyerName, seq } } }` |
+| 확정 | `POST /api/deposits/:no/confirm` | `{ requestId, date, buyer, remaining, remember? }` (`remaining` = 화면이 본 남은 금액) | `{ deposit: { no, status: 'APPLIED', applied: { date, buyer, buyerName, seq, beforeSale } } }` — `beforeSale: true`면 판매 전 입금(막지 않음) |
 | 무시 · 다시 확인 필요로 | `POST /api/deposits/:no/ignore` · `/reopen` | `{ requestId }` | `{ deposit: { no, status, applied: null } }` |
 | 되돌리기 | `POST /api/deposits/:no/revert` | `{ requestId }` | `{ deposit: { no, status: 'REVIEW', applied: null }, refund: { date, seq } }` |
 | 한꺼번에 | `POST /api/deposits/bulk` | `{ requestId, items: [{ no, action: 'confirm'\|'ignore', date?, buyer?, remaining?, remember? }] }` (1~100) | `{ results: [{ no, ok: true, deposit } \| { no, ok: false, status, error: { code, message } }] }` 항목 순서 |

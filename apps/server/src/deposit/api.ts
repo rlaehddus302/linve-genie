@@ -64,17 +64,20 @@ export function registerDepositRoutes(api: Hono<Env>, deposits: DepositService):
   }
 
   // ── 목록·수 ──────────────────────────────────────────────────────────────
-  // ?status=REVIEW|AUTO_APPLIED|APPLIED|IGNORED (기본 REVIEW) &before=<입금 번호> &limit=1~200 (기본 50)
+  // ?status=REVIEW|AUTO_APPLIED|APPLIED|IGNORED (기본 REVIEW, 쉼표로 여럿 — 예: AUTO_APPLIED,APPLIED) &before=<입금 번호> &limit=1~200 (기본 50)
   api.get('/deposits', async (c) => {
     const status = c.req.query('status') ?? 'REVIEW'
+    const statuses = status.split(',')
     const before = c.req.query('before')
     const limit = c.req.query('limit') ?? String(LIST_LIMIT_DEFAULT)
     const problems: FieldProblem[] = []
-    if (!(DEPOSIT_STATUSES as readonly string[]).includes(status)) problems.push({ field: 'status', message: '상태를 골라 주세요.' })
+    if (statuses.length > DEPOSIT_STATUSES.length || new Set(statuses).size !== statuses.length || !statuses.every((item) => (DEPOSIT_STATUSES as readonly string[]).includes(item))) {
+      problems.push({ field: 'status', message: '상태를 골라 주세요.' })
+    }
     if (before !== undefined && !NO_RE.test(before)) problems.push({ field: 'before', message: '이어 받을 입금 번호를 1 이상의 정수로 적어 주세요.' })
     if (!/^\d{1,3}$/.test(limit) || Number(limit) < 1 || Number(limit) > LIST_LIMIT_MAX) problems.push({ field: 'limit', message: '개수는 1~200으로 적어 주세요.' })
     if (problems.length > 0) return invalid(problems)
-    return c.json(await deposits.list(sellerOf(c), status as DepositStatus, before === undefined ? null : Number(before), Number(limit)))
+    return c.json(await deposits.list(sellerOf(c), statuses as DepositStatus[], before === undefined ? null : Number(before), Number(limit)))
   })
 
   api.get('/deposits/count', async (c) => c.json(await deposits.count(sellerOf(c))))

@@ -180,12 +180,12 @@ export async function depositsByNos(db: Db, sellerId: string, nos: readonly numb
   return rows as DepositRow[]
 }
 
-/** 상태별 목록: 입금 번호 내림차순, before(그 번호 앞)부터 limit개 (하나 더 읽어 더 있는지 알린다) */
-export async function listDeposits(db: Db, sellerId: string, status: DepositStatus, before: number | null, limit: number): Promise<{ rows: DepositRow[]; more: boolean }> {
+/** 상태별 목록(상태 하나 이상): 입금 번호 내림차순, before(그 번호 앞)부터 limit개 (하나 더 읽어 더 있는지 알린다) */
+export async function listDeposits(db: Db, sellerId: string, statuses: readonly DepositStatus[], before: number | null, limit: number): Promise<{ rows: DepositRow[]; more: boolean }> {
   const rows = (await db
     .select(depositColumns)
     .from(deposits)
-    .where(and(eq(deposits.sellerId, sellerId), eq(deposits.status, status), before === null ? undefined : lt(deposits.no, before)))
+    .where(and(eq(deposits.sellerId, sellerId), inArray(deposits.status, [...statuses]), before === null ? undefined : lt(deposits.no, before)))
     .orderBy(desc(deposits.no))
     .limit(limit + 1)) as DepositRow[]
   return { rows: rows.slice(0, limit), more: rows.length > limit }
@@ -306,8 +306,8 @@ export interface LinkRow extends NewLink {
   readonly sourceLabel: string
 }
 
-/** 그 범위의 입금 연결 (seq 순) */
-export async function linksOfScope(db: Db, sellerId: string, scopeId: string): Promise<LinkRow[]> {
+/** 그 날짜 실제 범위의 입금 연결 (seq 순) — 범위 표와 이어 한 번에 읽는다 */
+export async function linksOfScope(db: Db, sellerId: string, date: string): Promise<LinkRow[]> {
   const rows = await db
     .select({
       depositId: depositLinks.depositId,
@@ -327,9 +327,10 @@ export async function linksOfScope(db: Db, sellerId: string, scopeId: string): P
       sourceLabel: depositSources.label,
     })
     .from(depositLinks)
+    .innerJoin(scopes, and(eq(scopes.id, depositLinks.scopeId), eq(scopes.sellerId, sellerId), eq(scopes.date, date), eq(scopes.rehearsal, false)))
     .innerJoin(deposits, and(eq(deposits.id, depositLinks.depositId), eq(deposits.sellerId, sellerId)))
     .innerJoin(depositSources, and(eq(depositSources.id, deposits.sourceId), eq(depositSources.sellerId, sellerId)))
-    .where(and(eq(depositLinks.sellerId, sellerId), eq(depositLinks.scopeId, scopeId)))
+    .where(eq(depositLinks.sellerId, sellerId))
     .orderBy(asc(depositLinks.seq))
   return rows as LinkRow[]
 }

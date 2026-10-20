@@ -199,7 +199,12 @@ export interface DepositDetail extends DepositView {
 
 /** 처리 결과 (확정·무시·다시 확인 필요로·되돌리기 — 같은 요청 번호의 재전송도 같은 모양) */
 export interface ActionResult {
-  readonly deposit: { readonly no: number; readonly status: DepositStatus; readonly applied: { readonly date: string; readonly buyer: string; readonly buyerName: string; readonly seq: number } | null }
+  readonly deposit: {
+    readonly no: number
+    readonly status: DepositStatus
+    /** 확정: 적은 묶음. beforeSale = 입금 시각이 그 묶음의 판매보다 먼저 ("입금 시각이 이 묶음의 판매보다 먼저예요." — 막지는 않는다) */
+    readonly applied: { readonly date: string; readonly buyer: string; readonly buyerName: string; readonly seq: number; readonly beforeSale?: boolean } | null
+  }
   /** 되돌리기: 적은 환불 기록 */
   readonly refund?: { readonly date: string; readonly seq: number }
 }
@@ -779,9 +784,24 @@ export class DepositService {
   async #applyAuto(sellerId: string, deposit: DepositRow, bundle: BundleFacts): Promise<boolean> {
     await this.#deps.options.hooks?.beforeAuto?.(sellerId, deposit.no)
     const turn = deposit.turn + 1
+    let outcome: WriteOutcome
+    try {
+      outcome = await this.#writeAuto(sellerId, deposit, bundle, turn)
+    } catch (error) {
+      // 커밋 뒤 응답 전에 멈춘 경우 등 — 이 입금은 처리하지 않은 것으로 보고 뒤 입금은 지금 상태로 다시 맞춘다 (적혔다면 입금 상태도 같은 트랜잭션에서 바뀌었다)
+      this.#deps.log({ level: 'warn', code: 'DEPOSIT_APPLY_FAILED', date: bundle.date, errorKind: errorKind(error) })
+      return false
+    }
+    if (outcome.kind === 'ok') return true
+    if (outcome.kind !== 'rejected') this.#deps.log({ level: 'warn', code: 'DEPOSIT_APPLY_FAILED', date: bundle.date, errorKind: outcome.kind })
+    return false
+  }
+
+  /** 자동 확인의 엔진 기록 (마지막 확인·입금 상태·연결·처리 기록을 같은 트랜잭션에서) */
+  #writeAuto(sellerId: string, deposit: DepositRow, bundle: BundleFacts, turn: number): Promise<WriteOutcome> {
     const requestId = `dep-${String(deposit.no)}-pay-${String(turn)}`
     let buyer = bundle.buyer
-    const outcome = await this.#deps.writer.write({
+    return this.#deps.writer.write({
       sellerId,
       date: bundle.date,
       rehearsal: false,
@@ -810,9 +830,6 @@ export class DepositService {
         await insertActions(tx, sellerId, [{ depositId: deposit.id, action: 'AUTO', accountId: null, date: bundle.date, buyer, scopeId, seq: record.seq }], now)
       },
     })
-    if (outcome.kind === 'ok') return true
-    if (outcome.kind !== 'rejected') this.#deps.log({ level: 'warn', code: 'DEPOSIT_APPLY_FAILED', date: bundle.date, errorKind: outcome.kind })
-    return false
   }
 
   // ── 붙여넣기 (DP-2, AC-N3-13) ───────────────────────────────────────────
@@ -864,9 +881,9 @@ export class DepositService {
 
   // ── 목록·하나 (AC-N3-23·31) ─────────────────────────────────────────────
 
-  /** 상태별 목록 (입금 번호 내림차순, before 앞부터 limit개) */
-  async list(sellerId: string, status: DepositStatus, before: number | null, limit: number): Promise<{ deposits: DepositView[]; more: boolean; review: number }> {
-    const { rows, more } = await listDeposits(this.#deps.db, sellerId, status, before, limit)
+  /** 상태별 목록 (상태 하나 이상 — 예: 자동 확인됨·확인함을 함께, 입금 번호 내림차순, before 앞부터 limit개) */
+  async list(sellerId: string, statuses: readonly DepositStatus[], before: number | null, limit: number): Promise<{ deposits: DepositView[]; more: boolean; review: number }> {
+    const { rows, more } = await listDeposits(this.#deps.db, sellerId, statuses, before, limit)
     return { deposits: await this.#views(sellerId, rows), more, review: await reviewCount(this.#deps.db, sellerId) }
   }
 
@@ -1094,6 +1111,7 @@ export class DepositService {
     const turn = deposit.turn + 1
     const engineRequestId = `dep-${String(no)}-pay-${String(turn)}`
     const norm = normalizeDepositName(deposit.name)
+    const beforeSaleOf = (bundle: BundleFacts): boolean => bundle.saleAt !== null && deposit.at.getTime() < bundle.saleAt
     let chosen: BundleFacts | null = null
     let label = ''
     const outcome = await writer.write({
@@ -1129,14 +1147,14 @@ export class DepositService {
           await insertName(tx, sellerId, { channel: bundle.buyer, norm, name: deposit.name }, now)
         }
         if (requestId !== null) {
-          const body: ActionResult = { deposit: { no, status: 'APPLIED', applied: { date: input.date, buyer: bundle.buyer, buyerName: label, seq: record.seq } } }
+          const body: ActionResult = { deposit: { no, status: 'APPLIED', applied: { date: input.date, buyer: bundle.buyer, buyerName: label, seq: record.seq, beforeSale: beforeSaleOf(bundle) } } }
           await insertRequest(tx, sellerId, requestId, { status: 200, body: body as unknown as Record<string, unknown> }, now)
         }
       },
     })
     if (outcome.kind === 'ok') {
       const bundle = chosen as unknown as BundleFacts
-      return { ok: true, value: { deposit: { no, status: 'APPLIED', applied: { date: input.date, buyer: bundle.buyer, buyerName: label, seq: outcome.result.seq } } } }
+      return { ok: true, value: { deposit: { no, status: 'APPLIED', applied: { date: input.date, buyer: bundle.buyer, buyerName: label, seq: outcome.result.seq, beforeSale: beforeSaleOf(bundle) } } } }
     }
     return this.#writeFailure(outcome)
   }
@@ -1253,9 +1271,7 @@ export class DepositService {
 
   /** 그 날짜 실제 범위의 입금 연결 (서버의 (범위, seq) 기록 — 메모 글을 읽지 않는다). 리허설 범위에는 없다 */
   async linksForDay(sellerId: string, date: string): Promise<DepositLinkView[]> {
-    const scopeId = await realScopeId(this.#deps.db, sellerId, date)
-    if (scopeId === null) return []
-    const rows = await linksOfScope(this.#deps.db, sellerId, scopeId)
+    const rows = await linksOfScope(this.#deps.db, sellerId, date)
     const reverted = new Set(rows.filter((row) => row.kind === 'refund').map((row) => `${String(row.depositId)}:${String(row.turn)}`))
     return rows.map((row) => ({
       seq: row.seq,

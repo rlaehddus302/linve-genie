@@ -487,7 +487,49 @@ describe('AC-N3-33 묶음 찾기', () => {
     await expectOk(api.paste(pasteText([{ at: '2026-10-19 11:00:00', name: '다육이맘', amount: 14_000 }])))
     const found = (await expectOk(api.bundles(1, '다육'))).body as { bundles: { beforeSale: boolean }[] }
     expect(found.bundles[0]?.beforeSale).toBe(true)
-    await expectOk(api.confirm(1, { date: DAY, buyer: 'UC_A', remaining: 14_000 }))
+    const confirmed = await expectOk(api.confirm(1, { date: DAY, buyer: 'UC_A', remaining: 14_000 }))
+    expect(confirmed.body).toMatchObject({ deposit: { status: 'APPLIED', applied: { beforeSale: true } } })
+  })
+})
+
+describe('목록·자동 확인 중 멈춤', () => {
+  it('상태를 쉼표로 여럿 고르면 함께 번호 내림차순 (자동 확인됨·확인함), 이어 받기 before·limit', async () => {
+    const world = await depositWorld()
+    const seller = await addSeller(world)
+    await basicSale(world, seller)
+    world.clock.advance(60_000)
+    const api = depositApi(world, seller)
+    await expectOk(api.paste(pasteText([{ at: '2026-10-19 12:00:10', name: '다육이맘', amount: 14_000 }, { at: '2026-10-19 12:00:20', name: '갑', amount: 1 }, { at: '2026-10-19 12:00:30', name: '을', amount: 2 }])))
+    await expectOk(api.confirm(2, { date: DAY, buyer: 'UC_A', remaining: 0 }))
+    const both = (await expectOk(api.list('AUTO_APPLIED,APPLIED'))).body as { deposits: { no: number; status: string }[]; more: boolean }
+    expect(both.deposits.map((item) => [item.no, item.status])).toEqual([
+      [2, 'APPLIED'],
+      [1, 'AUTO_APPLIED'],
+    ])
+    const page = (await expectOk(api.list('AUTO_APPLIED,APPLIED', '&limit=1&before=2'))).body as { deposits: { no: number }[]; more: boolean }
+    expect(page.deposits.map((item) => item.no)).toEqual([1])
+    for (const bad of ['REVIEW,REVIEW', 'REVIEW,', 'review']) expect((await api.list(bad)).status).toBe(400)
+  })
+
+  it('자동 확인을 적고 응답 전에 멈춰도 받은 입금 요약은 돌아오고, 입금 상태는 적은 기록과 함께 바뀌어 있다', async () => {
+    let crash = true
+    const world = await depositWorld({
+      hooks: {
+        afterCommit: (records) => {
+          if (crash && records.some((record) => record.type === 'settlement.payment')) {
+            crash = false
+            throw new Error('응답 전에 멈춤')
+          }
+        },
+      },
+    })
+    const seller = await addSeller(world)
+    await basicSale(world, seller)
+    world.clock.advance(60_000)
+    const api = depositApi(world, seller)
+    await expectOk(api.paste(pasteText([{ at: '2026-10-19 12:00:10', name: '다육이맘', amount: 14_000 }])))
+    expect((await deposits(api, 'AUTO_APPLIED')).map((item) => item.no)).toEqual([1])
+    expect(await settlementEvents(world, seller)).toHaveLength(1)
   })
 })
 
