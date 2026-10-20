@@ -275,6 +275,34 @@ describe('줄의 링크 조치 (AC-N4b-33·34)', () => {
     expect(document.activeElement).toBe(field)
   })
 
+  it('TE-N4b-002: 다른 기기에서 가게 이름을 바꾸면(가게 설정 알림) 복사 글도 서버의 새 가게 이름 — 빈 이름이면 로그인 정보의 이름', async () => {
+    const engine = new EngineServer(BASE, { ended: ['b1'] })
+    const receipts = new FakeReceipts(engine)
+    receipts.links.set('c1', { buyer: 'c1', status: 'ACTIVE', url: 'http://localhost/r/abc', expiresAt: EXPIRES, revokedAt: null })
+    let shopName = '구피 가게'
+    engine.server.on('GET', /^\/api\/shop$/, () => ({ body: { shop: { name: shopName, bank: '', accountNumber: '', accountHolder: '', accountNote: '' } } }))
+    vi.stubGlobal('fetch', engine.server.fetch)
+    const writeText = stubClipboard(async () => {})
+    render(<Harness initial={{ name: 'receipts', id: 'b1' }} />)
+    await flush(15)
+    expect(engine.server.callsTo('GET', /^\/api\/shop$/)).toHaveLength(1)
+    shopName = '초록다육'
+    act(() => FakeEventSource.last.emit('shop', {}))
+    await flush(15)
+    expect(engine.server.callsTo('GET', /^\/api\/shop$/)).toHaveLength(2)
+    fireEvent.click(within(row('가나')).getByRole('button', { name: '링크 복사' }))
+    await flush(5)
+    expect(writeText).toHaveBeenLastCalledWith('초록다육 구매 내역 확인서예요. 11월 2일 (월)까지 열 수 있어요. http://localhost/r/abc')
+
+    // 서버가 빈 이름을 주면(그럴 일은 없지만) 앞서 읽은 이름 그대로
+    shopName = ''
+    act(() => FakeEventSource.last.emit('shop', {}))
+    await flush(15)
+    fireEvent.click(within(row('가나')).getByRole('button', { name: '링크 복사' }))
+    await flush(5)
+    expect(writeText).toHaveBeenLastCalledWith('초록다육 구매 내역 확인서예요. 11월 2일 (월)까지 열 수 있어요. http://localhost/r/abc')
+  })
+
   it('링크 보내기: 글 공유를 받는 기기만 — 같은 글(text)만 넘기고 파일은 없다, 닫으면 아무 안내도 없다', async () => {
     const share = vi.fn(async () => {
       throw new DOMException('닫음', 'AbortError')

@@ -139,19 +139,48 @@ interface RowsState {
   readonly reload: () => void
   /** 조치 응답의 링크로 줄을 바로 바꾼다 (다시 받기를 기다리지 않는다) */
   readonly applyLinks: (links: readonly ReceiptLink[]) => void
+  /** 서버에서 다시 읽은 지금 가게 이름 (아직 못 읽었으면 null — 로그인 정보의 이름을 쓴다) */
+  readonly shopName: string | null
 }
 
-/** 구매자 줄 받기: trigger가 바뀌거나 reload를 부르면 다시 받는다. 늦게 온 앞 응답은 버린다 */
-function useReceiptRows(date: string, rehearsal: boolean, trigger: string): RowsState {
+/** 지금 가게 이름 (GET /api/shop). 받지 못하면 null — 줄 받기를 막지 않는다 */
+async function readShopName(): Promise<string | null> {
+  try {
+    const { shop } = await get<{ shop: { name: string } }>('/api/shop')
+    return typeof shop.name === 'string' && shop.name !== '' ? shop.name : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 구매자 줄 받기: trigger가 바뀌거나 reload를 부르면 다시 받는다. 늦게 온 앞 응답은 버린다.
+ * 가게 설정이 바뀌면(shopVersion — 다른 기기에서 바꾼 것 포함) 줄보다 먼저 가게 이름을 다시 읽는다:
+ * 복사·공유 글의 가게 이름이 구매자 문서(/r/<토큰>, 서버의 지금 가게 이름)와 같아야 한다 (AC-N4b-33, TE-N4b-002).
+ * 줄과 이름을 한 번에 바꾸므로 새 줄이 보이면 글도 새 이름이다.
+ */
+function useReceiptRows(date: string, rehearsal: boolean, trigger: string, shopVersion: number): RowsState {
   const [rows, setRows] = useState<readonly ReceiptBuyerRow[] | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
+  const [shopName, setShopName] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
   const version = useRef(0)
+  /** 가게 이름을 마지막으로 읽은 shopVersion (처음엔 읽은 적 없음) */
+  const shopRead = useRef<number | null>(null)
   useEffect(() => {
     const mine = ++version.current
-    get<ReceiptBuyers>(withQuery(`/api/days/${date}/receipt-buyers`, { rehearsal })).then(
-      (result) => {
+    const fresh = shopRead.current === shopVersion ? Promise.resolve(undefined) : readShopName()
+    const load = async () => {
+      const name = await fresh
+      return { name, result: await get<ReceiptBuyers>(withQuery(`/api/days/${date}/receipt-buyers`, { rehearsal })) }
+    }
+    load().then(
+      ({ name, result }) => {
         if (mine !== version.current) return
+        if (typeof name === 'string') {
+          shopRead.current = shopVersion
+          setShopName(name)
+        }
         setRows(result.buyers)
         setError(null)
       },
@@ -160,13 +189,13 @@ function useReceiptRows(date: string, rehearsal: boolean, trigger: string): Rows
         setError(caught)
       },
     )
-  }, [date, rehearsal, trigger, attempt])
+  }, [date, rehearsal, trigger, attempt, shopVersion])
   const reload = useCallback(() => setAttempt((n) => n + 1), [])
   const applyLinks = useCallback((links: readonly ReceiptLink[]) => {
     const byBuyer = new Map(links.map((link) => [link.buyer, link]))
     setRows((current) => current?.map((row) => (byBuyer.has(row.buyer) ? { ...row, link: byBuyer.get(row.buyer) ?? row.link } : row)) ?? current)
   }, [])
-  return { rows, error, reload, applyLinks }
+  return { rows, error, reload, applyLinks, shopName }
 }
 
 interface ReadyProps {
@@ -180,10 +209,11 @@ interface ReadyProps {
   readonly shopName: string
 }
 
-function ReadyReceipts({ broadcastId, title, rehearsal, data, snapshot, onRetry, consoleLink, shopName }: ReadyProps) {
+function ReadyReceipts({ broadcastId, title, rehearsal, data, snapshot, onRetry, consoleLink, shopName: loginShopName }: ReadyProps) {
   const date = data.date
   const signature = useMemo(() => receiptRowsSignature(data), [data])
-  const { rows, error, reload, applyLinks } = useReceiptRows(date, rehearsal, `${signature}|${String(snapshot.shopVersion)}`)
+  const { rows, error, reload, applyLinks, shopName: freshShopName } = useReceiptRows(date, rehearsal, signature, snapshot.shopVersion)
+  const shopName = freshShopName ?? loginShopName
   const names = useMemo(() => new BuyerNames(data.buyers, data.claims), [data.buyers, data.claims])
   const sameDay = [...data.broadcasts.values()].some((item) => item.id !== broadcastId)
   const [allBusy, setAllBusy] = useState(false)
