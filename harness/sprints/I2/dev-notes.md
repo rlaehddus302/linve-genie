@@ -19,6 +19,7 @@
 | `src/writer.ts` | `withScope`(범위 줄 안 덧붙이기 기록 — 포장 명령), `forgetSeller`(복구 뒤 캐시 비우기) | AC-I2-31·62 |
 | `src/commands/restore.ts`·`restore-args.ts` | 복구·가져오기 명령 | AC-I2-62 |
 | `src/e2e.ts`·`commands/e2e-server.ts` | 백업 폴더·시작 백업·`?at=` | AC-I2-15·65 |
+| `test/i2-*.test.ts`·`test/i2-support.ts`·`test/product-import.test.ts` | 서버 시험(PGlite·가짜 시계·임시 폴더): 가게 설정·확인서(G-ENG-201·202를 서버 쓰기 경로로)·전원 PDF·금액 불일치(코어 getSettlement 가짜)·판매대장·포장 흐름 1~7·명령·실시간·라벨·지난 구매·가져오기(EUC-KR·BOM·.xlsx 픽스처는 시험이 만든다)·백업 형식·자동 백업·보관·복구(손상 파일 10종·중간 실패·바꾸기)·리허설·전체 내려받기·격리·로그·복구 명령(자식 프로세스)·E2E 기동. 성능 기준(전원 PDF 30초·대장 31일 20초·지난 구매 2초·가져오기 1초/2초·백업 60초)도 여기서 잰다 | 전부 |
 | `drizzle/0003_i2_shop_packing_restore.sql` | `sellers.shop`, `packing_records`, `outbox.restored`, `broadcasts` 기본 키 (판매자, 방송) | — |
 | 의존성 | `apps/server`: `@livejjim/documents`·`@livejjim/label`(workspace), `exceljs` 4.4.0(문서 패키지와 같은 판) | — |
 | `.env.example` | `LIVEJJIM_BACKUP_DIR` | AC-I2-61 |
@@ -134,6 +135,10 @@ LIVEJJIM_PGLITE_DIR=… (또는 DATABASE_URL=…) LIVEJJIM_BACKUP_DIR=… \
 | `src/ledger.ts` | `LedgerInput.shipping?: (buyer, date) => string`, `LedgerRow.shipping: string`(넘기지 않으면 `''`) — 묶음마다 한 번 묻는다 | D-I2-05 |
 | `src/index.ts` | 새 이름 내보내기 | — |
 | `test/i2.test.ts` (새) | 일괄 순서(가람·🌵가람·나비, G-ENG-202), 금지 글자(특정 글자·속성 시험 — 임의 UTF-16 단위), 배송 칸 입력 | AC-I2-12·21·33 |
+
+### 루트 공용 파일
+- `vitest.config.ts`: `projects`에 `apps/server/vitest.i2.config.ts`를 더했다. I2 서버 시험(`apps/server/test/i2-*.test.ts` — 문서 그리기·엑셀·큰 범위 채우기)이 서버 프로젝트(`groupOrder 1`)가 끝난 뒤 `server-i2` 묶음(`groupOrder 2`)으로 돈다. 같이 돌면 서버 프로젝트의 응답 지연 시험(`changes.test.ts`의 덮기·p99 300ms, `latency.test.ts`)이 CPU를 다투다 흔들렸다. `apps/server/vitest.config.ts`는 그 파일들을 `exclude`한다 — 시험 파일은 그대로 한 번씩 돈다(test 단계의 파일 대조와 맞다).
+- `pnpm-lock.yaml`: `apps/server`의 새 의존성.
 
 ## 바꾼 기존 시험 (교체 — 약화 아님)
 | 시험 | 전 | 후 | 이유 |
