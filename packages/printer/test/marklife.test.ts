@@ -666,6 +666,24 @@ describe('가짜 Web Bluetooth 기기 (AC-N1-50)', () => {
   })
 })
 
+describe('화면 문장 (AC-N1-62)', () => {
+  it('새 문장·프로필 화면 이름·대체 경로 앱은 쉬운 한국어이고, 브랜드·모델 이름을 빼면 영어·개발 용어가 없다', () => {
+    const BRANDS = /Marklife|NIIMBOT|Luck Jingle|\b(?:B1|P50|S2|X2|P11|P12|P15|L13|LP90|LP15)\b/g
+    const sentences = [
+      ...Object.values(MARKLIFE_MESSAGES),
+      ...(['IOS', 'IN_APP', 'OTHER'] as const).flatMap((reason) => [unsupportedMessage(reason, 'Marklife 앱'), unsupportedMessage(reason, 'Luck Jingle 앱')]),
+    ]
+    for (const text of sentences) {
+      expect(text, text).toMatch(/[가-힣].*[.요]$/)
+      expect(text.replace(BRANDS, ''), text).not.toMatch(/[A-Za-z_]/)
+    }
+    // 화면 이름·대체 경로 앱은 브랜드·모델 이름과 쉬운 낱말뿐이다 (`Marklife P12`, `바우아토 스티코팝`, `Luck Jingle 앱`)
+    for (const text of [...MARKLIFE_PROFILES, ...EXPERIMENTAL_PROFILES].flatMap((p) => [p.displayName, p.fallbackApp])) {
+      expect(text.replace(BRANDS, '').trim(), text).toMatch(/^[가-힣 ]*$/)
+    }
+  })
+})
+
 describe('보내기 기본값 (AC-N1-63 기록과 같다)', () => {
   it('시간 초과 20초 · 간격 30ms · 조각 90바이트 · 크레딧 기다림 1초 · 크레딧 상한 4', () => {
     expect({ ...MARKLIFE_DEFAULTS }).toEqual({ printTimeoutMs: 20_000, packetIntervalMs: 30, maxPacketBytes: 90, creditWaitMs: 1000, maxCredits: 4 })
