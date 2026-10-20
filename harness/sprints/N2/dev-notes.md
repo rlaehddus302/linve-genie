@@ -173,3 +173,6 @@ DmRowView = { id, broadcast, product /* 효과의 상품 키 */, buyer /* 효과
 - 기록 경로 `txHook`은 출력 기록(`print.txHook`)과 인스타그램 DM 행(`instagram.txHook`)을 차례로 부른다(`server.ts`). Y1 발송함 실행기를 더할 때 같은 자리에 잇는다.
 - `/webhooks` 경로를 `createApp`에 붙였다(`app.ts` `webhooks` 옵션) — Y1에 웹훅이 생기면 같은 Hono에 더한다. `/api` `PUBLIC_PATHS`에 `GET /api/instagram/callback`.
 - SSE 알림 종류 `instagram`(`hub.publishInstagram`).
+
+### pnpm verify (dev-server 끝)
+`E2E_PORT_OFFSET=1100 pnpm verify` — 통과 7 · 실패 0: typecheck(파일 484) · lint(0) · test(파일 139 · 테스트 3220) · golden(파일 27 · 파서 468 · 엔진 132 · 통과 600) · adversarial(파일 44 · 테스트 823) · e2e(265 통과) · coverage(라인 100% · 분기 99.66%).
