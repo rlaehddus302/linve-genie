@@ -20,6 +20,7 @@ Y1 계약(`harness/sprints/Y1/dev-notes.md` "화면(I3)에게" 1~8)은 그대로
 | `POST /api/assistants/:id/delete` `{}` | `{ ok: true }` — 그 보조자의 모든 세션이 끝나고(다음 요청 401) 열린 실시간 연결은 바로 닫힌다. 남의·없는·이미 지운 보조자는 404 |
 
 - 오류: 이름이 틀리면(앞뒤 공백을 뺀 1~20자, 줄바꿈·제어·서식 글자 없음) 400 `INVALID_INPUT` "보조자 이름은 1~20자로 적어 주세요."(problems `name`) · 여섯째 409 `ASSISTANT_LIMIT` "보조자는 5명까지 만들 수 있어요."
+- 보조자의 실시간 연결(`GET /api/stream`)은 범위 변경 알림(`ready`·`change`)만 받는다 — 유튜브(`youtube`)·리허설 생성기(`generator`) 알림은 판매자 연결에만 간다.
 - 보조자 세션이 쓸 수 있는 것(그 밖은 모두 403 `ASSISTANT_FORBIDDEN` "보조자 계정으로는 할 수 없는 일이에요." — 아무것도 기록하지 않는다):
   `GET /api/me` · `GET /api/client-config` · `GET /api/broadcasts` · `GET /api/days`·`GET /api/days/:date`·`GET /api/days/:date/changes`(실제 범위만 — `?rehearsal=true`는 403) · `GET /api/stream` · `POST /api/logout` ·
   `POST /api/events`의 `type: 'sms'`(실제 방송만)와 `type: 'host.cancel'`(그 번호에서 그 구매자의 지금 찜이 문자찜으로 생긴 찜일 때만 — 아니면 403).
@@ -74,5 +75,62 @@ Y1 계약(`harness/sprints/Y1/dev-notes.md` "화면(I3)에게" 1~8)은 그대로
 
 시험용 조작 경로(E2E 서버에만, JSON POST, 세션 필요 없음 — 127.0.0.1에서만 열린다):
 - `POST /_e2e/sellers {}` → `{ loginId, password, shopName }` — 방송이 하나도 없는 새 판매자 계정(마법사·보조자 시험). 비밀번호는 시험 값.
-- `POST /_e2e/dates { loginId, kind: 'sealed'｜'sealSoon'｜'youtube', date? }` → `{ date, broadcast }` — 그 판매자의 실제 방송(제목 "지난 방송")을 그 날짜에 만들고 유튜브 채팅 하나를 받아(봉인 대상) 둔다. `sealed`면 바로 봉인, `sealSoon`이면 날짜 기본값 = 오늘(KST) − 24일(봉인 7일 전 안), `youtube`면 날짜 기본값 = 오늘 − 3일(봉인 예정만 보임).
+- `POST /_e2e/dates { loginId, kind: 'sealed'｜'sealSoon'｜'youtube', date? }` → `{ date, broadcast, sealed }` — 그 판매자의 실제 방송(제목 "지난 방송")을 그 날짜에 만들고 유튜브 채팅 하나를 받아(봉인 대상) 둔다. `sealed`면 바로 봉인, `sealSoon`이면 날짜 기본값 = 오늘(KST) − 24일(봉인 7일 전 안), `youtube`면 날짜 기본값 = 오늘 − 3일(봉인 예정만 보임).
 - `POST /_e2e/seal { loginId, date }` → `{ sealed: boolean }` — 그 날짜(실제 범위)를 지금 봉인한다(열린 화면이 봉인되는 시험 — SSE `sealed`).
+- E2E 서버는 로그인 IP 한도를 넓혀 둔다(모든 브라우저 로그인이 127.0.0.1에서 온다). 전체 동시 한도·아이디 잠금은 그대로다.
+- `--youtube fake`면 발송함의 확인 조회 한 쪽 크기 = 가짜 서버의 쪽 크기(200)다(꽉 찬 쪽인지 바르게 안다).
+- 서버가 화면을 함께 내는 묶음: `--web-dir <apps/web/dist 절대 경로> --origin http://localhost:<그 서버 포트>` — 브라우저가 서버 주소를 바로 연다(화면 서버 없음). 화면 빌드는 묶음을 띄우기 전에 해 둔다.
+
+### 만든 것 (AC별)
+| AC | 무엇 | 어디 |
+|---|---|---|
+| 36 | 게시됨 확인(묶음 모두 SENT·게시 보고 조치자 = 판매자)·알림에서 빼기, `OutboxRowView` 칸 셋, 다시 보내면 뺌 표시 지움 | `youtube/outbox.ts`·`outbox-store.ts`·`routes.ts` |
+| 47·50 | 가게 이름 `PUT /api/shop`, 마법사 상태 `GET·PUT /api/wizard` (판매자 표 `wizard_status`·`wizard_step`) | `service.ts`·`api.ts`·`accounts.ts`(`cleanDisplayName`) |
+| 60~62 | 보조자 만들기·목록·지우기(행은 남기고 `deleted_at`, 세션·SSE 끊기), 허용 목록(기본 거부) | `accounts.ts`·`auth.ts`·`roles.ts`·`api.ts`·`store.ts` |
+| 66·67 | 로그인 IP 한도·전체 동시 한도 | `login-limit.ts`·`auth.ts`·`api.ts` |
+| 70·71 | 화면 같은 출처(`LIVEJJIM_WEB_DIR`)·보안 머리글·CSP·HSTS | `web.ts`·`app.ts`·`node-server.ts` |
+| 72 | 운영 시작 검사(앱 주소 https·운영 토큰·프록시 수·화면 폴더) | `config.ts`(`readDeploySetting`)·`main.ts` |
+| 73·74·83 | `Dockerfile`·`.dockerignore`·`.env.example`·`docs/DEPLOY.md` | 저장소 루트 |
+| 75 | 백업 명령 `backup` | `backup.ts`·`commands/backup.ts` |
+| 80~82 | `/health/ready`·`/ops/status`·경보 기록·워커 건강 | `ops.ts`·`ops-store.ts`·`server.ts`·`log.ts` |
+| 85~88 | 채널에 묶인 토큰(`withChannelToken`)·조회 쪽 따라가기(5쪽)·조회 1+3·간격 10초·가짜 서버 쪽 나누기 | `youtube/connect.ts`·`outbox.ts`·`fake-google.ts` |
+| 93 | E2E 시험용 선택·`/_e2e/*` | `e2e.ts`·`commands/e2e-server.ts` |
+| 95 | 골든 합계 23·385·122·507 | `packages/core/test/golden/core-adapter.test.ts` (그 밖의 코어는 손대지 않음) |
+| 97 | 새 API 격리·공통 규칙 | 시험 `i3-accounts`·`youtube-i3-outbox` |
+
+- **스키마**: 마이그레이션 `0004_i3_ui.sql` — `accounts.role`(기본 `SELLER`)·`name`·`deleted_at`, `sellers.wizard_status`(기본 `NEW`)·`wizard_step`, `outbox.confirmed_by`·`confirm_request_id`(판매자·요청 번호 유일)·`dismissed_at`·`dismissed_by`. 새 표는 없다(표 17개 그대로). 병렬 트랙(i1 `0003_i1_print.sql` 등)과 번호가 겹치면 합칠 때 오케스트레이터가 정리한다.
+
+### 결정과 이유 (규칙 문장 안에서의 구현 선택)
+1. **보조자 지우기는 행을 남기고 `deleted_at`만 적는다** — 이벤트의 조치자(`events.account_id`)가 계정 행을 외래 키로 가리켜 지울 수 없고, 남겨야 "같은 아이디는 다시 만들어지지 않는다"(AC-I3-62)가 된다. 지운 계정은 로그인·세션 조회에서 없는 것과 같다. 운영자 명령 `create-account`도 지운 계정의 아이디를 받지 않는다.
+2. **보조자의 이벤트 쓰기**: 종류를 요청 번호보다 먼저 본다(허용 밖 종류는 요청 번호가 없어도 403). 같은 요청 번호의 처음 결과는 그 종류가 문자찜·방송자 취소일 때만 돌려준다(판매자의 다른 조치 결과를 요청 번호로 꺼내 보지 못하게). 방송자 취소의 "문자찜으로 생긴 찜"은 기록 트랜잭션 안의 지금 상태에서 코어 `activeClaimId`·`listClaims`로 본다(AC-I3-99). 보조자는 리허설 방송에 쓰지 못한다.
+3. **보조자의 실시간 연결은 이름 붙은 알림(유튜브·생성기)을 받지 않는다** — 허용 목록에 유튜브 경로가 없는데 SSE로 채널 이름·시청자 이름이 흘러가지 않게.
+4. **로그인 IP 한도**: 받은 시도만 센다(막힌 시도는 세지 않는다 — 가장 오래된 시도가 10분을 넘기면 다시 받는다). 연결 주소를 모르는 요청(프로세스 안 `app.request` — 운영에는 없다)은 IP 한도를 걸지 않는다. 믿는 프록시가 알린 값이 IP가 아니면 연결 주소로 센다.
+5. **전체 동시 한도**는 아이디 잠금 확인 + 비밀번호 확인 구간을 감싼다(순서 IP → 전체 → 잠금 → 확인). 막힌 요청은 아이디 실패로 세지 않는다.
+6. **게시됨 확인의 게시 보고**: 행에 확인한 계정(`confirmed_by`)을 적고 보고는 실행기의 보고와 같은 요청 번호(`ytsent-<행>`)로 쓴다 — 확인 응답이 쓰든 다음 바퀴의 실행기가 쓰든 조치자는 그 판매자 계정이고 한 번만 기록된다.
+7. **알림에서 빼기**는 처음 뺀 시각·계정을 지킨다(다시 빼도 같은 결과). 그 행을 다시 보내면 표시를 지운다 — 또 실패하면 새 실패로 알린다.
+8. **보조자 쿠키로 유튜브 돌아오는 주소**(세션을 강제하지 않는 공개 경로)도 403 — "유튜브 모든 경로"(AC-I3-61).
+9. **경보는 남기던 로그에서 꺼낸다**(`Alerter.observe`) — 각 모듈이 경보를 따로 부르지 않아 빠질 곳이 적다. 이를 위해 `ENGINE_FAILED` 로그에 서버가 만든 판매자 ID를 붙였고(같은 판매자 묶음), `OUTBOX_GAVE_UP`·`QUOTA_EXCEEDED` 로그를 새로 남긴다. 수집 멈춤 경보는 저절로 이어받지 않는 이유(채팅 꺼짐·권한 없음·채팅 없음)만이다.
+10. **워커 실패 = 바퀴 실패**: 발송함은 바퀴 안의 어떤 단계·묶음에서든 오류가 나면, 수집기는 찾기 바퀴가 던지면, 봉인은 한 범위라도 실패하면 그 바퀴를 실패로 센다.
+11. **운영 상태의 "오늘 발송함"** = 실제 범위의 감사·요약 행 중 오늘(KST 0시~24시)에 생긴 것의 상태·이유별 수, "남은 일"은 날짜와 상관없는 지금의 WAITING·SENDING 수. 수집 상태는 STARTING·RETRYING·STOPPED를 이유별로(나머지는 수만). 할당량은 프로젝트 합계만(판매자 숫자 없음).
+12. **확인 조회의 "모두 봄"(AC-I3-86)**: 실시간 채팅은 받은 쪽이 요청한 최대 수보다 적거나 다음 쪽이 없으면, 댓글은 기준 시각보다 이른 항목이 나오거나 다음 쪽이 없으면 끝까지 본 것이다. 가짜 서버는 이제 `maxResults`를 따른다(서버 쪽 크기 상한과 작은 쪽) — 실제 API처럼. 시험·E2E는 확인 조회 한 쪽 크기를 가짜 서버의 상한 이하로 둔다(`OutboxTiming.liveChatLookupPage`).
+13. **조회 횟수(AC-I3-87)**: 바퀴마다 하는 "수집기가 본 우리 메시지" 확인은 유튜브를 부르지 않아 세지 않는다(같은 글을 게시하는 중인 다른 묶음이 있으면 거기서 기다린다 — 그 묶음의 응답은 10초 안에 끝나고 임대는 60초). 이른 조회 1번 + 끝 조회 3번(조회 실패·짝짓기 미룸 모두 1번)이고, 확인 중인 행의 `next_at`을 "다음 조회를 해도 되는 시각"으로 써서 10초 간격을 지킨다(새 칸 없음).
+14. **채널에 묶인 토큰(AC-I3-85)**: 토큰을 꺼내는 행 읽기에서 채널을 같이 보고, 새로 고친 토큰도 그 토큰을 만든 연결의 채널을 함께 돌려받아 견준다. 다르면 게시는 `FAILED(NOT_MY_CHANNEL)`(보내는 중인 그 묶음), 조회는 실패한 조회.
+15. **배포**: 이미지의 `pg_dump`는 데비안 bookworm의 PostgreSQL 15 클라이언트다 — DB가 16 이상이면 같은 메이저의 `pg_dump`가 있는 곳에서 돌리라고 문서에 적었다. `.env.example`의 `PORT=3000`을 `PORT=`로 비웠다(AC-I3-74 "값이 비어 있다" — 서버는 비우면 3000). 이미지에는 pnpm이 없어 문서의 컨테이너 명령은 `node apps/server/src/commands/<이름>.ts`다.
+16. **운영 시작의 화면 폴더 검사**는 `createServer`도 한 번 더 한다(조립을 다른 곳에서 해도 index.html 없는 폴더로 서버가 뜨지 않게). 운영 토큰 32자·프록시 수 0~5도 같다.
+
+### 바꾼 기존 테스트 (약화 아님 — 계약이 바뀌었다)
+| 원래 (파일) | 바뀐 뒤 | 근거 |
+|---|---|---|
+| 로그인 응답 `{ seller, loginId }`·내 정보 `{ seller, loginId }` (`auth.test.ts` 두 곳) | `role: 'SELLER'`(내 정보는 `assistant: null`도) | AC-I3-61·63 |
+| E2E 기동의 내 정보 (`e2e.test.ts`) | 같은 칸 더함 | AC-I3-61 |
+| `ENGINE_FAILED` 로그 기록 모양 (`write-path.test.ts`) | `seller`(서버가 만든 판매자 ID) 더함 | AC-I3-82 (경보는 같은 판매자로 묶는다) |
+| 발송함 행 모양 (`youtube-outbox.test.ts` AC-Y1-39) | `confirmedBySeller`·`dismissed`·`dismissedAt` 더함 | AC-I3-36 |
+| AC-Y1-92 "확인 중(SENDING)에 채널이 바뀐 감사 → 다시 시도에서 NOT_MY_CHANNEL" (`youtube-followup.test.ts`) | → `UNCONFIRMED` (게시 0번·요약 댓글 NOT_MY_CHANNEL은 그대로) | AC-I3-85·86 / D-I3-17 (1)(2): 확인 조회도 이은 채널(A)의 토큰으로만 — C로 바뀌면 조회할 수 없어 "모름"이다. 전에는 C의 토큰으로 조회해 "못 찾음" → 다시 시도로 갔다 |
+| 골든 합계 (`core-adapter.test.ts`) | 파일 23 · 파서 385 · 엔진 122 · 통과 507 | AC-I3-95 (G-ENG-701) |
+
+### 시험 (내 영역, 새 파일 9개)
+`i3-accounts`(보조자·허용 목록 전 경로 훑기·가게 이름·마법사·공통 규칙) · `i3-login-limit` · `i3-deploy`(화면·머리글·시작 검사·준비 확인·운영 상태·경보) · `i3-deploy-files`(Dockerfile·.dockerignore·.env.example·DEPLOY.md 맞대기) · `i3-backup`(가짜 pg_dump) · `i3-e2e-server` · `youtube-i3-outbox`(게시됨 확인·알림에서 빼기) · `youtube-i3-followup`(AC-I3-85~88) · `youtube-i3-ops`(유튜브 경보·운영 상태).
+
+### disputesWithSpec
+- **AC-I3-88 "기다리는 중에 채널을 바꾸면 그 행은 다음 차례에 FAILED(NOT_MY_CHANNEL)"**: 실제로 채널을 바꾸는 길은 "연결 끊기 → 다른 채널 연결"뿐이고(같은 판매자가 다른 채널로 다시 승인하면 `CHANNEL_MISMATCH`), **끊기는 그때 기다리던 행을 모두 `FAILED(NO_CONSENT)`로 바꾼다**(Y1 계약 "끊으면 동의도 꺼진다… 기다리던 행은 '자동 게시에 동의하기 전의 감사예요.'", AC-Y1-06·D-Y12). 그래서 실제 흐름의 결과는 `NO_CONSENT`이고, `NOT_MY_CHANNEL`은 끊기의 정리를 거치지 않고 연결의 채널이 바뀐 경합(다른 서버)에서만 나온다. 시험은 둘 다 넣었다: 연결 행의 채널만 바꾼 경합 → 다음 차례 `NOT_MY_CHANNEL`·게시 0번(네 이유 모두), 실제 흐름(끊기 → C 연결·동의) → `NO_CONSENT`·게시 0번(네 이유 모두). 어느 쪽이든 다른 채널로 게시는 0번이다(안전 조건). 기준 문장을 "끊기의 정리를 거치지 않은 채널 변경"으로 고칠지 spec-keeper 판정을 바란다 — 구현은 끊기의 동작(Y1 계약)을 바꾸지 않았다.
+- (참고, 다툼 아님) AC-Y1-92의 "보내는 중 행은 확인을 마치고 확인 실패 뒤 다시 시도할 때 NOT_MY_CHANNEL"은 AC-I3-85·86으로 결과가 `UNCONFIRMED`가 된다(위 표). 게시 0번은 그대로다.
