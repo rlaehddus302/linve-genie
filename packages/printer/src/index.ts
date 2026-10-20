@@ -1,4 +1,5 @@
-// @livejjim/printer — 프린터 어댑터·B1·가짜 프린터·출력 대기열·실행기 (P1, LABEL_RULES L-7·L-8·L-10).
+// @livejjim/printer — 프린터 어댑터·B1·Marklife·바우아토·가짜 프린터·가짜 블루투스 기기·출력 대기열·실행기
+// (P1·N1, LABEL_RULES L-7·L-8·L-10·L-12).
 // 그림 형식은 @livejjim/label의 LabelBitmap 하나다(줄 순서, 한 줄 ceil(width/8)바이트, 왼쪽 점이 높은 비트, 1 = 검정).
 export {
   B1_PROFILE,
@@ -6,26 +7,56 @@ export {
   CONNECTION_STATE_NAMES,
   DEFAULT_PRINT_TIMEOUT_MS,
   ENABLED_PROFILES,
+  PRINTER_PROTOCOLS,
   systemTimer,
   withBlankRows,
+  type AdapterProfile,
   type ConnectionMethod,
   type ConnectionState,
+  type DensityRange,
+  type ModelProfile,
   type PrintOptions,
   type PrinterAdapter,
   type PrinterProfile,
+  type PrinterProtocol,
+  type PrinterRotate,
   type PrinterTimer,
 } from './adapter.ts'
 export {
+  MARKLIFE_MESSAGES,
   PRINTER_ERROR_CODES,
   PRINTER_MESSAGES,
   RECONNECT_ACTION,
   describeCause,
   printerError,
+  printerErrorWithMessage,
+  type MarklifeErrorCode,
   type PrinterError,
   type PrinterErrorCode,
   type PrinterResult,
   type PrinterTableErrorCode,
 } from './errors.ts'
+export {
+  BAUATO_PPA2L,
+  EXPERIMENTAL_PROFILES,
+  MARKLIFE_L13,
+  MARKLIFE_LP15,
+  MARKLIFE_LP90,
+  MARKLIFE_P11,
+  MARKLIFE_P12,
+  MARKLIFE_P15,
+  MARKLIFE_P50,
+  MARKLIFE_PROFILES,
+  MARKLIFE_S2,
+  MARKLIFE_X2,
+  PRINTER_PROFILES,
+  labelSizesFor,
+  printerProfile,
+  profileForDeviceName,
+} from './profiles.ts'
+export { DENSITY_BYTES, buildPrintJob, rotateClockwise, type JobErrorCode, type JobResult } from './job.ts'
+export { MAX_DISTANCE, ZLIB_WINDOW_BITS, adler32, zlibWindow1K } from './deflate.ts'
+export { IN_APP_MARKERS, UNSUPPORTED_REASONS, unsupportedMessage, unsupportedReason, type UnsupportedReason } from './browser-support.ts'
 export {
   browserEnvironment,
   createB1Adapter,
