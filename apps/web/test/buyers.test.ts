@@ -142,9 +142,56 @@ describe('구매자 이름 표기 하나 (AC-S06b-20, D-098)', () => {
     // 하나를 김철수에 합치면 지금의 구매자 중 홍길동은 둘 — 합쳐진 구매자도 같은 이름 수(2)로 구분 글자가 붙는다
     const merged = nameOf([...events, chat('m4', 'UC_kim0001', '김철수', '안녕'), { type: 'buyer.merge', from: 'UC_third5555', into: 'UC_kim0001', reason: '같은 사람' }])
     expect(['UC_hong1234', 'UC_other9876', 'UC_third5555', 'UC_kim0001'].map(merged)).toEqual(['홍길동 · 끝 1234', '홍길동 · 끝 9876', '홍길동 · 끝 5555', '김철수'])
-    // 둘을 합쳐 지금의 구매자 홍길동이 하나가 되면 그 이름 그대로 (합쳐진 쪽도)
+    // 둘을 합쳐 지금의 구매자 홍길동이 하나가 되면 구분 글자는 없다 — 그래도 표기가 같은 셋은 생긴 순서로 " · 2", " · 3"
+    // (홍길동 자세히의 "합친 구매자" 둘이 같은 이름이면 엉뚱한 쪽을 떼어 낸다 — D-098 이유, SA-S06b-002)
     const one = nameOf([...events, { type: 'buyer.merge', from: 'UC_other9876', into: 'UC_hong1234', reason: '같은 사람' }, { type: 'buyer.merge', from: 'UC_third5555', into: 'UC_hong1234', reason: '같은 사람' }])
-    expect(['UC_hong1234', 'UC_other9876', 'UC_third5555'].map(one)).toEqual(['홍길동', '홍길동', '홍길동'])
+    expect(['UC_hong1234', 'UC_other9876', 'UC_third5555'].map(one)).toEqual(['홍길동', '홍길동 · 2', '홍길동 · 3'])
+  })
+
+  it('SA-S06b-002 ①: 지금의 "홍길동"과 다른 구매자에 합쳐진 "홍길동"은 같은 이름이 아니다 — 생긴 순서로 둘째가 " · 2"', () => {
+    const name = nameOf([
+      register(11, 'a', 10000),
+      register(12, 'b', 10000),
+      register(13, 'c', 10000),
+      chat('m1', 'UC_hga0001', '홍길동', '11'),
+      chat('m2', 'UC_hgb0002', '홍길동', '12'),
+      chat('m3', 'UC_kcs0003', '김철수', '13'),
+      { type: 'buyer.merge', from: 'UC_hgb0002', into: 'UC_kcs0003', reason: '같은 사람' },
+    ])
+    // 지금의 구매자 중 홍길동은 하나 — 구분 글자 없이, 겹치는 표기만 번호
+    expect(['UC_hga0001', 'UC_hgb0002', 'UC_kcs0003'].map(name)).toEqual(['홍길동', '홍길동 · 2', '김철수'])
+  })
+
+  it('SA-S06b-002 ②: 구분 글자를 흉내 낸 닉네임 "홍길동 · 끝 1234"는 진짜 "홍길동 · 끝 1234"와 다른 이름', () => {
+    const events = [
+      register(11, 'a', 10000),
+      chat('m1', 'UC_real1234', '홍길동', '11'),
+      chat('m2', 'UC_other5678', '홍길동', '11'),
+      chat('m3', 'UC_fake9999', '홍길동 · 끝 1234', '11'),
+    ]
+    const name = nameOf(events)
+    expect(['UC_real1234', 'UC_other5678', 'UC_fake9999'].map(name)).toEqual(['홍길동 · 끝 1234', '홍길동 · 끝 5678', '홍길동 · 끝 1234 · 2'])
+    // 흉내 낸 쪽이 먼저 생겼으면 그쪽이 먼저 — 진짜 쪽이 " · 2" (생긴 순서, D-098). 어느 쪽이든 두 이름은 다르다
+    const first = nameOf([register(11, 'a', 10000), chat('m3', 'UC_fake9999', '홍길동 · 끝 1234', '11'), chat('m1', 'UC_real1234', '홍길동', '11'), chat('m2', 'UC_other5678', '홍길동', '11')])
+    expect(['UC_fake9999', 'UC_real1234', 'UC_other5678'].map(first)).toEqual(['홍길동 · 끝 1234', '홍길동 · 끝 1234 · 2', '홍길동 · 끝 5678'])
+  })
+
+  it('SA-S06b-002: 화면에서 같아 보이는 표기(공백 여러 칸·보이지 않는 글자·한글 채움 문자)도 겹친 것 — 붙인 번호도 다른 표기와 겹치지 않는다', () => {
+    const name = nameOf([
+      register(11, 'a', 10000),
+      chat('m1', 'UC_aaa0001', '하늘', '11'),
+      chat('m2', 'UC_bbb0002', '하늘 · 2', '11'),
+      chat('m3', 'UC_ccc0003', '\u3164하늘', '안녕'), // 한글 채움 문자는 빈칸으로 보인다
+      chat('m4', 'UC_ddd0004', '하늘\u200b', '안녕'), // 폭 없는 공백
+      chat('m5', 'UC_eee0005', '하늘  ·  2', '안녕'), // HTML은 공백 여러 칸을 한 칸으로 그린다
+    ])
+    expect(name('UC_aaa0001')).toBe('하늘')
+    expect(name('UC_bbb0002')).toBe('하늘 · 2')
+    // "하늘"로 보인다 → 번호. " · 2"는 이미 다른 구매자의 표기라 " · 3", 그다음은 " · 4"
+    expect(name('UC_ccc0003')).toBe('\u3164하늘 · 3')
+    expect(name('UC_ddd0004')).toBe('하늘\u200b · 4')
+    // "하늘 · 2"로 보인다 → " · 2"
+    expect(name('UC_eee0005')).toBe('하늘  ·  2 · 2')
   })
 })
 

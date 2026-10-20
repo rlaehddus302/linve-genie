@@ -76,6 +76,10 @@ function tagOf(buyer: Buyer, smsTimes: ReadonlyMap<string, string>): string {
  * - 둘 이상이면 `표시 이름 · 구분 글자`(유튜브 "끝 1234", 문자 "뒤 4자리 5678", 전화번호 없는 문자 "문자 20:01:05").
  *   합쳐진 구매자도 같은 규칙이고 "같은 이름 수"는 지금의 구매자 기준.
  * - 그래도 같은 표기가 둘 이상이면 생긴 순서(범위 조회의 구매자 순서 = 처음 기록된 순서)로 둘째부터 " · 2", " · 3".
+ *   구분 글자가 붙었든 아니든, 합쳐진 구매자든 아니든 그날 모든 구매자의 마지막 표기끼리 본다 — 두 구매자가 한 이름으로 보이면
+ *   엉뚱한 쪽과 합치거나 입금을 적거나 떼어 낸다(D-098 이유, SA-S06b-002). 예: 지금의 "홍길동"과 김철수에 합쳐진 "홍길동",
+ *   구분 글자를 흉내 낸 닉네임 "홍길동 · 끝 1234"와 진짜 "홍길동 · 끝 1234".
+ *   겹침은 화면에 보이는 모양으로 본다(sameLook) — 공백 여러 칸·보이지 않는 글자·호환 글자로만 다른 표기도 겹친 것이다.
  * 문자 구매자 ID·전화번호 원문은 넣지 않는다(AC-S06-80·81).
  */
 export function buyerLabels(buyers: ReadonlyMap<string, Buyer>, claims: ReadonlyMap<string, Claim>): Map<string, string> {
@@ -86,18 +90,36 @@ export function buyerLabels(buyers: ReadonlyMap<string, Buyer>, claims: Readonly
   for (const buyer of buyers.values()) if (buyer.kind === 'sms' && buyer.phoneLast4 === null && tagged(buyer)) wanted.add(buyer.id)
   const smsTimes = smsCreatedTimes(buyers, claims, wanted)
   const labels = new Map<string, string>()
-  const used = new Map<string, number>()
+  /** 이미 정한 표기의 보이는 모양 */
+  const taken = new Set<string>()
+  /** 표기(보이는 모양)마다 다음에 붙여 볼 번호 */
+  const nextNo = new Map<string, number>()
   for (const buyer of buyers.values()) {
-    if (!tagged(buyer)) {
-      labels.set(buyer.id, buyer.display)
-      continue
+    const base = tagged(buyer) ? `${buyer.display}${NAME_JOIN}${tagOf(buyer, smsTimes)}` : buyer.display
+    const baseLook = sameLook(base)
+    let label = base
+    if (taken.has(baseLook)) {
+      let n = nextNo.get(baseLook) ?? 2
+      while (taken.has(sameLook(`${base}${NAME_JOIN}${String(n)}`))) n++
+      nextNo.set(baseLook, n + 1)
+      label = `${base}${NAME_JOIN}${String(n)}`
     }
-    const base = `${buyer.display}${NAME_JOIN}${tagOf(buyer, smsTimes)}`
-    const n = (used.get(base) ?? 0) + 1
-    used.set(base, n)
-    labels.set(buyer.id, n === 1 ? base : `${base}${NAME_JOIN}${String(n)}`)
+    taken.add(sameLook(label))
+    labels.set(buyer.id, label)
   }
   return labels
+}
+
+/**
+ * 화면에서 같은 글자로 보이는지 견줄 모양: 호환 글자(NFKC)를 맞추고, 보이지 않는 글자(서식 글자 \p{Cf}, 빈칸으로 보이는
+ * 한글 채움 문자 U+115F·U+1160·U+3164·U+FFA0)를 빼고, 공백 여러 칸을 한 칸으로(HTML은 한 칸으로 그린다).
+ */
+function sameLook(label: string): string {
+  return label
+    .normalize('NFKC')
+    .replace(/[\p{Cf}ᅟᅠㅤﾠ]/gu, '')
+    .replace(/\s+/gu, ' ')
+    .trim()
 }
 
 /** 구매자 이름 표기 (buyerLabels)를 ID로 찾는다 */
