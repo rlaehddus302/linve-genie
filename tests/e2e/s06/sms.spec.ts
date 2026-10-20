@@ -3,10 +3,21 @@
 import { test, expect, type Page } from '@playwright/test'
 import {
   history, login, openNewBroadcast, openSms, postJson, registerApi, scopeView, smsApi, smsField, smsUi, uniqueDate, viewerClaim, writeEvent,
+  kstTimeAgo,
 } from './support.ts'
 
 function uniq(prefix: string): string {
   return `${prefix}${String(Math.floor(Math.random() * 1e6))}`
+}
+
+/** 입력 시각(지금)에 가장 가까운 날의 그 시각 (D-023) → "10/20" */
+function kstMonthDayNearest(hms: string): string {
+  const now = Date.now()
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(now))
+  const base = Date.parse(`${today}T${hms}+09:00`)
+  const best = [-1, 0, 1].map((d) => base + d * 86_400_000).sort((a, b) => Math.abs(a - now) - Math.abs(b - now) || b - a)[0]!
+  const md = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric' }).format(new Date(best))
+  return md
 }
 
 async function rehearsalWithTitle(page: Page, title: string): Promise<{ b: string; date: string }> {
@@ -27,7 +38,7 @@ test.describe('문자찜 입력', () => {
     try {
       await page.goto('/sms')
       const region = page.getByRole('region', { name: '고른 방송' })
-      await expect(region).toContainText(`${title} · 12/30(수)`)
+      await expect(region).toContainText(`${title} · 2099년 12월 30일(수)`)
       await expect(region).toContainText('진행 중')
       await expect(smsField(page, '번호')).toBeFocused()
       // 다른 기기에서 끝냄
@@ -190,20 +201,23 @@ test.describe('문자찜 입력', () => {
     await registerApi(page, b, 15, '핑크프릴', 10000)
     await registerApi(page, b, 16, '로즈', 5000)
     await openSms(page, title)
+    // 받은 시각: 지금보다 1분 이른 한국 시각 — 고정 시각은 정오 뒤 '내일'로 읽혀 확인 창이 뜬다(D-023, SA-I4-009)
+    const received = kstTimeAgo(60)
     await smsField(page, '번호').fill('15')
-    await smsField(page, '받은 시각').fill('00:00:01')
+    await smsField(page, '받은 시각').fill(received)
     await smsField(page, '전화번호').fill('010-1234-5678')
     await smsField(page, '메모').fill('김씨')
     await smsField(page, '번호').press('Enter')
     const result = page.getByRole('region', { name: '넣은 결과' })
-    await expect(result).toContainText('15번 · 문자찜(김씨) · 1등 · 받은 시각 00:00:01')
+    // 받은 시각의 날짜는 입력 시각에 가장 가까운 날 (D-023, AC-S06b-31 — 교체: 날짜가 붙었다)
+    await expect(result).toContainText(`15번 · 문자찜(김씨) · 1등 · 받은 시각 ${kstMonthDayNearest(received)} ${received}`)
     await expect(result).toContainText('뒤 4자리 5678')
     for (const name of ['번호', '받은 시각', '전화번호', '메모'] as const) await expect(smsField(page, name)).toHaveValue('')
     await expect(smsField(page, '번호')).toBeFocused()
     // 같은 사람 하나 더 → 고른 구매자, 받은 시각은 방금 값, 전화번호는 다시 채우지 않음
     await result.getByRole('button', { name: '같은 사람 하나 더' }).click()
     await expect(page.getByRole('group', { name: '고른 구매자' })).toContainText('문자찜(김씨)')
-    await expect(smsField(page, '받은 시각')).toHaveValue('00:00:01')
+    await expect(smsField(page, '받은 시각')).toHaveValue(received)
     await expect(smsField(page, '전화번호')).toHaveValue('')
     await expect(smsField(page, '전화번호')).toBeDisabled()
     await expect(page.getByText('구매자를 골랐으면 전화번호는 쓰지 않아요')).toBeVisible()

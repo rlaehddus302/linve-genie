@@ -9,14 +9,14 @@
 import { NotImplementedError } from '../not-implemented.ts'
 import { parseChat } from '../parse/chat.ts'
 import { checkSettings, resolveSettings } from '../settings.ts'
-import { CorruptStateError, Draft, claimNumber, messageKey, ownGet, slotKey, type ClaimDraft, type SlotDraft } from './draft.ts'
+import { CorruptStateError, Draft, claimNumber, messageKey, ownGet, slotKey, type ClaimDraft } from './draft.ts'
 import { receivedOf, receivedOfMembers } from './ledger.ts'
+import { activeClaimsOf, applyMerge, planMerge } from './merge.ts'
 import { emptyPMap, pdelete, pget, pkeys, pset } from './pmap.ts'
 import {
   SMS_NAME,
   activeClaim,
   clearWaitlist,
-  compareClaims,
   confirm,
   decide,
   detach,
@@ -24,7 +24,6 @@ import {
   enter,
   finish,
   groupReceived,
-  isActive,
   isLocked,
   labelPrinted,
   openPending,
@@ -49,7 +48,6 @@ import type {
   BuyerUnmergeEvent,
   ChatEvent,
   ClaimOrigin,
-  ClaimRecord,
   EffectReportEvent,
   EngineEvent,
   EngineSetup,
@@ -561,66 +559,12 @@ function block(d: Draft, e: HostBlockEvent): void {
   }
 }
 
-// ── 구매자 합치기 (R-11, D-057) ──────────────────────────────────────────
+// ── 구매자 합치기 (R-11, D-057, D-100) ──────────────────────────────────
 
-/** 합친 결과 한 상품에 활성 찜이 둘이면 앞선 쪽: 확정 > 충돌 > 대기(앞 순번) > 보류(판정 순위) */
-const STATUS_ORDER: Readonly<Record<string, number>> = { CONFIRMED: 0, CONFLICT: 1, WAITLISTED: 2, PENDING: 3 }
-
-function aheadOf(d: Draft, slot: SlotDraft, a: ClaimRecord | ClaimDraft, b: ClaimRecord | ClaimDraft): boolean {
-  // 둘 다 활성 찜이다
-  const byStatus = (ownGet(STATUS_ORDER, a.status) as number) - (ownGet(STATUS_ORDER, b.status) as number)
-  if (byStatus !== 0) return byStatus < 0
-  if (a.status === 'WAITLISTED') return slot.waitlist.indexOf(a.id) < slot.waitlist.indexOf(b.id)
-  return compareClaims(d, a, b) < 0
-}
-
-/** 지금의 구매자 아래(자신 포함)의 활성 찜 */
-function activeClaimsOf(d: Draft, members: readonly string[]): (ClaimRecord | ClaimDraft)[] {
-  const out: (ClaimRecord | ClaimDraft)[] = []
-  for (const member of members) {
-    for (const id of d.claimIdsOf(member)) {
-      const claim = d.readClaim(id)
-      if (claim !== undefined && isActive(claim.status)) out.push(claim)
-    }
-  }
-  return out
-}
-
+/** 막는 조건과 "앞선 쪽" 순서는 미리 보기(previewMerge)와 같은 계획 함수(merge.ts)로 정한다. 막히면 아무 일도 없다 */
 function merge(d: Draft, e: BuyerMergeEvent): void {
-  const from = d.readBuyer(e.from)
-  if (from === undefined || d.readBuyer(e.into) === undefined || e.from === e.into || from.parent !== null) return
-  const target = d.root(e.into)
-  // 고리 금지: into의 지금의 구매자가 from이면 into는 from 아래에 있다
-  if (target === e.from) return
-  const moving = activeClaimsOf(d, d.members(e.from))
-  // 확정 찜이 둘이 되는 상품이 하나라도 있으면 합치기 전체가 아무 일도 없다
-  for (const claim of moving) {
-    if (claim.status !== 'CONFIRMED') continue
-    const other = pget((d.readSlot(claim.key) as SlotDraft).active, target)
-    if (other !== undefined && d.readClaim(other)?.status === 'CONFIRMED') return
-  }
-  d.knownBuyer(e.from).parent = e.into
-  d.knownBuyer(e.into).children.push(e.from)
-  // from 나무의 활성 표시(from 키)를 지금의 구매자로 옮기고, 겹치면 앞선 쪽만 남기고 나머지는 DUPLICATE (효과 없음)
-  for (const claim of moving) {
-    const slot = d.slot(claim.b, claim.no)
-    const otherId = pget(slot.active, target)
-    slot.active = pdelete(slot.active, e.from)
-    if (otherId === undefined) {
-      slot.active = pset(slot.active, target, claim.id)
-      continue
-    }
-    const other = d.readClaim(otherId)
-    if (other === undefined) throw new CorruptStateError(`활성 찜 ${otherId}가 없다`)
-    const [keep, drop] = aheadOf(d, slot, claim, other) ? [claim, other] : [other, claim]
-    slot.active = pset(slot.active, target, keep.id)
-    detach(drop, slot)
-    const dropped = d.claim(drop.id)
-    dropped.status = 'DUPLICATE'
-    dropped.reason = null
-    dropped.request = null
-    settleAwaiting(slot)
-  }
+  const plan = planMerge(d, e.from, e.into)
+  if (plan.blocked === null) applyMerge(d, e.from, e.into, plan)
 }
 
 function unmerge(d: Draft, e: BuyerUnmergeEvent): void {

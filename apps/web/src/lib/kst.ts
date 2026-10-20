@@ -65,9 +65,27 @@ export function dateWithWeekday(date: string): string {
   return `${String(Number(m[2]))}/${String(Number(m[3]))}(${WEEKDAYS[day] ?? ''})`
 }
 
-/** 방송 이름 "1부 · 10/18(토)" */
+/** `YYYY-MM-DD` → `2026년 10월 18일` (정산 묶음 이름) */
+export function dateYear(date: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  if (!m) return date
+  return `${String(Number(m[1]))}년 ${String(Number(m[2]))}월 ${String(Number(m[3]))}일`
+}
+
+/**
+ * `YYYY-MM-DD` → `2026년 10월 18일(일)` — 날짜 고르기·방송 고르기는 늘 연도와 요일까지 (AC-S06b-22, D-101).
+ * 범위 날짜는 이미 KST 날짜라 그 날짜 자체로 요일을 정한다(브라우저 시간대와 상관없다).
+ */
+export function dateLong(date: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  if (!m) return date
+  const day = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay()
+  return `${dateYear(date)}(${WEEKDAYS[day] ?? ''})`
+}
+
+/** 방송 이름 "1부 · 2026년 10월 18일(일)" (문자찜 화면의 방송 고르기·고른 방송, AC-S06b-22) */
 export function broadcastWords(title: string, date: string): string {
-  return `${title} · ${dateWithWeekday(date)}`
+  return `${title} · ${dateLong(date)}`
 }
 
 const shortFormat = new Intl.DateTimeFormat('en-GB', {
@@ -127,4 +145,32 @@ export function kstHourWords(value: string | number): string {
   const p = parts(wordsFormat, ms)
   const minute = Number(p.minute ?? '0')
   return `${String(Number(p.month ?? '0'))}월 ${String(Number(p.day ?? '0'))}일 ${String(Number(p.hour ?? '0'))}시${minute === 0 ? '' : ` ${String(minute)}분`}`
+}
+
+const stampFormat = new Intl.DateTimeFormat('en-GB', {
+  timeZone: KST_TIME_ZONE,
+  hourCycle: 'h23',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+})
+
+/**
+ * 받은 시각에 날짜를 붙여 "10/18 20:01:05" (분까지만 적었으면 "10/18 20:01") — KST (AC-S06b-31, D-102).
+ * 날짜는 엔진이 R-6(D-023)으로 정한 날(문자찜 찜의 순위 시각)이다: 00:01에 넣은 "23:59"는 전날.
+ */
+export function kstStamp(value: string | number, minute = false): string {
+  const ms = toMs(value)
+  if (!Number.isFinite(ms)) return ''
+  const p = parts(stampFormat, ms)
+  const clock = `${p.hour ?? '00'}:${p.minute ?? '00'}${minute ? '' : `:${p.second ?? '00'}`}`
+  return `${String(Number(p.month ?? '0'))}/${String(Number(p.day ?? '0'))} ${clock}`
+}
+
+/** UTC 시각 → KST `HH:MM` (출력 이력 "20:01 휴대폰") */
+export function kstHm(value: string | number): string {
+  const time = kstTime(value)
+  return time === '' ? '' : time.slice(0, 5)
 }

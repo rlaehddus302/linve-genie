@@ -9,6 +9,8 @@
 //   | chromium-youtube    | 5176  | 3103  | 4100        | --youtube fake --outbox-fast yes (I3: 연결·잇기·수집·발송함)      | 제목에 @youtube            |
 //   | chromium-quota      | 5177  | 3104  | 4101        | 위 + --youtube-quota-budget 400 (묶음 < 20%·멈춤 < 5%)            | 제목에 @quota              |
 //   | chromium-served     | (3105)| 3105  | —           | --web-dir(서버가 화면을 같은 출처로 함께 냄 — 보안 머리글·CSP)     | 제목에 @served             |
+//   | chromium-no-test-printer | 5178 | 3106 | —      | --test-printer no(시험 모드 끔 — 운영처럼 시험용 프린터 없음, AC-I1-50) | 제목에 @no-test-printer    |
+// - 시험용 프린터(I1): E2E 서버는 기본으로 시험 모드다(화면 연결 방법에 "시험용 프린터 — 실제로 출력되지 않아요"와 window.livejjimTestPrinter 손잡이).
 // - 가짜 유튜브 묶음(AC-I3-93): 가짜 구글·유튜브 서버가 127.0.0.1:<가짜 유튜브 포트>에 함께 뜬다(조작은 POST /_fake/*, 상태 GET /_fake/state —
 //   harness/sprints/Y1/dev-notes.md "화면(I3)에게" 8). 시험은 STACKS의 youtube 포트를 쓴다(fakeYoutubeUrl). 실제 구글 주소로는 나가지 않는다.
 // - 서버가 화면을 내는 묶음(AC-I3-70·71): 화면 서버 없이 브라우저가 서버 주소를 바로 연다. 띄우기 전에 화면을 운영용으로 빌드한다
@@ -59,7 +61,13 @@ export const E2E_QUOTA_BUDGET = 400
 const youtubeArgs = (port: number) => `--youtube fake --youtube-port ${String(port)} --outbox-fast yes`
 
 export const STACKS: readonly Stack[] = [
-  { name: 'chromium', web: 5173 + offset, api: 3100 + offset, serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`, grepInvert: /@prod-delay|@fill|@youtube|@quota|@served/ },
+  {
+    name: 'chromium',
+    web: 5173 + offset,
+    api: 3100 + offset,
+    serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`,
+    grepInvert: /@prod-delay|@fill|@youtube|@quota|@served|@no-test-printer/,
+  },
   { name: 'chromium-prod-delay', web: 5174 + offset, api: 3101 + offset, serverArgs: `--chat-speed ${chatSpeed}`, grep: /@prod-delay/ },
   { name: 'chromium-fill', web: 5175 + offset, api: 3102 + offset, serverArgs: `--fill yes --host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`, grep: /@fill/ },
   {
@@ -79,6 +87,7 @@ export const STACKS: readonly Stack[] = [
     grep: /@quota/,
   },
   { name: 'chromium-served', web: 3105 + offset, api: 3105 + offset, served: true, serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed} --web-dir "${SERVED_WEB_DIR}"`, grep: /@served/ },
+  { name: 'chromium-no-test-printer', web: 5178 + offset, api: 3106 + offset, serverArgs: `--test-printer no --host-delay-ms ${hostDelay}`, grep: /@no-test-printer/ },
 ]
 
 /** 그 프로젝트의 가짜 유튜브 주소 (가짜 유튜브 묶음이 아니면 null) — 시험이 /_fake/*를 부를 때 */

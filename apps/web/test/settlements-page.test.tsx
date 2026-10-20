@@ -125,7 +125,7 @@ describe('입금·환불 (AC-S06-32·35, G-ENG-172)', () => {
     await open()
     const detail = await openDetail('가나')
     fireEvent.click(within(detail).getByRole('button', { name: '입금 적기' }))
-    const dialog = await screen.findByRole('dialog', { name: '입금 적기' })
+    const dialog = await screen.findByRole('dialog', { name: /^입금 적기 · / })
     expect((within(dialog).getByLabelText('입금 금액') as HTMLInputElement).value).toBe('34000')
     expect(dialog.textContent).toContain('34,000원')
     expect(dialog.textContent).toContain('입금 날짜는 적은 때로 남아요. 실제 입금일이 다르면 메모에 적어 주세요.')
@@ -139,7 +139,7 @@ describe('입금·환불 (AC-S06-32·35, G-ENG-172)', () => {
     await open([register(15, '핑크프릴', 10000), chat('m1', 'c1', '가나', '15')])
     const detail = await openDetail('가나')
     fireEvent.click(within(detail).getByRole('button', { name: '입금 적기' }))
-    let dialog = await screen.findByRole('dialog', { name: '입금 적기' })
+    let dialog = await screen.findByRole('dialog', { name: /^입금 적기 · / })
     fireEvent.change(within(dialog).getByLabelText('입금 금액'), { target: { value: '140,000' } })
     fireEvent.click(within(dialog).getByRole('button', { name: '입금 적기' }))
     dialog = await screen.findByRole('dialog', { name: '입금 금액 확인' })
@@ -149,7 +149,7 @@ describe('입금·환불 (AC-S06-32·35, G-ENG-172)', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '140,000원 적기' }))
     await waitFor(() => expect(screen.getByRole('region', { name: '정산 자세히' }).textContent).toContain('과입금(환불 필요 126,000원)'))
     fireEvent.click(screen.getByRole('button', { name: '환불 적기' }))
-    dialog = await screen.findByRole('dialog', { name: '환불 적기' })
+    dialog = await screen.findByRole('dialog', { name: /^환불 적기 · / })
     expect((within(dialog).getByLabelText('환불 금액') as HTMLInputElement).value).toBe('126000')
     expect(dialog.textContent).toContain('입금을 잘못 적었으면 같은 금액을 환불로 적어 바로잡아요.')
     fireEvent.change(within(dialog).getByLabelText('환불 금액'), { target: { value: '140001' } })
@@ -169,7 +169,7 @@ describe('입금·환불 (AC-S06-32·35, G-ENG-172)', () => {
   it('금액 칸은 원 단위: 14 → 14원, 1만 4천 → 14,000원, 읽지 못하면 문장', async () => {
     await open()
     fireEvent.click(within(await openDetail('가나')).getByRole('button', { name: '입금 적기' }))
-    const dialog = await screen.findByRole('dialog', { name: '입금 적기' })
+    const dialog = await screen.findByRole('dialog', { name: /^입금 적기 · / })
     const input = within(dialog).getByLabelText('입금 금액')
     fireEvent.change(input, { target: { value: '14' } })
     expect(dialog.textContent).toContain('14원')
@@ -187,7 +187,7 @@ describe('배송비·할인/추가 (AC-S06-33·34, G-ENG-173)', () => {
     await open()
     const detail = await openDetail('가나')
     fireEvent.click(within(detail).getByRole('button', { name: '배송비 바꾸기' }))
-    let dialog = await screen.findByRole('dialog', { name: '배송비 바꾸기' })
+    let dialog = await screen.findByRole('dialog', { name: /^배송비 바꾸기 · / })
     expect(within(dialog).queryByLabelText('기본 배송비로')).toBeNull()
     fireEvent.click(within(dialog).getByLabelText('직접 수령'))
     expect(dialog.textContent).toContain('배송비 4,000원 → 0원, 최종 34,000원 → 30,000원')
@@ -200,7 +200,7 @@ describe('배송비·할인/추가 (AC-S06-33·34, G-ENG-173)', () => {
     await waitFor(() => expect(screen.getByRole('region', { name: '정산 자세히' }).textContent).toContain('배송비 7,000원(배송비 직접 정함)'))
     expect(engine.posts.at(-1)).toMatchObject({ type: 'settlement.shippingOverride', buyer: 'c1', mode: 'FIXED', amount: 7000 })
     fireEvent.click(screen.getByRole('button', { name: '배송비 바꾸기' }))
-    dialog = await screen.findByRole('dialog', { name: '배송비 바꾸기' })
+    dialog = await screen.findByRole('dialog', { name: /^배송비 바꾸기 · / })
     fireEvent.click(within(dialog).getByLabelText('기본 배송비로'))
     expect(dialog.textContent).toContain('배송비 7,000원 → 4,000원')
   })
@@ -209,7 +209,7 @@ describe('배송비·할인/추가 (AC-S06-33·34, G-ENG-173)', () => {
     await open()
     const detail = await openDetail('가나')
     fireEvent.click(within(detail).getByRole('button', { name: '할인·추가' }))
-    const dialog = await screen.findByRole('dialog', { name: '할인·추가' })
+    const dialog = await screen.findByRole('dialog', { name: /^할인·추가 · / })
     fireEvent.change(within(dialog).getByLabelText('할인 금액'), { target: { value: '3000' } })
     expect(dialog.textContent).toContain('최종 34,000원 → 31,000원')
     fireEvent.change(within(dialog).getByLabelText('할인 금액'), { target: { value: '50000' } })
@@ -233,7 +233,7 @@ describe('쓰기 오류 (AC-S06-82)', () => {
   async function openPayment() {
     await open()
     fireEvent.click(within(await openDetail('가나')).getByRole('button', { name: '입금 적기' }))
-    return screen.findByRole('dialog', { name: '입금 적기' })
+    return screen.findByRole('dialog', { name: /^입금 적기 · / })
   }
 
   it('SAVE_FAILED: 같은 요청 번호로 저절로 다시 보내고, 그래도 안 되면 "저장하지 못했어요" → "다시 보내기"도 같은 요청 번호 — 한 번만 기록', async () => {
@@ -244,7 +244,7 @@ describe('쓰기 오류 (AC-S06-82)', () => {
     expect(sent).toHaveLength(4)
     expect(engine.posts).toHaveLength(0)
     fireEvent.click(within(dialog).getByRole('button', { name: '다시 보내기' }))
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: '입금 적기' })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /^입금 적기 · / })).toBeNull())
     expect(new Set(sent).size).toBe(1)
     expect(engine.posts.filter((post) => post.type === 'settlement.payment')).toHaveLength(1)
     await waitFor(() => expect(screen.getByRole('region', { name: '정산 자세히' }).textContent).toContain('입금 완료'))
@@ -273,7 +273,7 @@ describe('쓰기 오류 (AC-S06-82)', () => {
   it('서버 문제(problems)는 그 칸 아래: 환불 사유', async () => {
     await open([...BASE, { type: 'settlement.payment', buyer: 'c2', date: DATE, amount: 11000 }])
     fireEvent.click(within(await openDetail('다라')).getByRole('button', { name: '환불 적기' }))
-    const dialog = await screen.findByRole('dialog', { name: '환불 적기' })
+    const dialog = await screen.findByRole('dialog', { name: /^환불 적기 · / })
     fireEvent.change(within(dialog).getByLabelText('환불 금액'), { target: { value: '1000' } })
     fireEvent.change(within(dialog).getByLabelText('사유'), { target: { value: '환불함' } })
     failWrites(1, apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'reason', message: '사유를 다시 적어 주세요.', hint: '200자까지 적을 수 있어요.' }]))
@@ -283,5 +283,139 @@ describe('쓰기 오류 (AC-S06-82)', () => {
     const reason = within(dialog).getByLabelText('사유')
     expect(reason.getAttribute('aria-describedby') ?? '').toContain(note.id)
     expect(engine.posts.filter((post) => post.type === 'settlement.refund')).toHaveLength(0)
+  })
+})
+
+describe('입력 창 머리·입금 상태 미리 보기·입금 상한 (AC-S06b-23, G-ENG-177)', () => {
+  /** 다라: 7,000 + 기본 배송비 4,000 = 11,000 입금 완료 (G-ENG-177의 "입금 완료 묶음") */
+  const PAID = [...BASE, { type: 'settlement.payment', buyer: 'c2', date: DATE, amount: 11000 }]
+  const preview = (dialog: HTMLElement) => within(dialog).getByText(/^입금 상태: /)
+
+  it('네 입력 창의 머리: "입금 적기 · 가나 · 2026년 10월 19일 묶음"과 "최종 · 받은 금액 · 남은 금액"', async () => {
+    await open()
+    const detail = await openDetail('가나')
+    for (const word of ['입금 적기', '배송비 바꾸기', '할인·추가', '환불 적기']) {
+      fireEvent.click(within(detail).getByRole('button', { name: word }))
+      const dialog = await screen.findByRole('dialog', { name: `${word} · 가나 · 2026년 10월 19일 묶음` })
+      expect(within(dialog).getByText('최종 34,000원 · 받은 금액 0원 · 남은 금액 34,000원')).toBeDefined()
+      fireEvent.click(within(dialog).getByRole('button', { name: '닫기' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    }
+  })
+
+  it('입금: 남은 금액이면 "미입금 → 입금 완료"(보통), 더 많으면 "미입금 → 과입금(환불 필요 6,000원)"(주의) — 저장 뒤 "입금을 적었어요"(성공)', async () => {
+    await open()
+    fireEvent.click(within(await openDetail('가나')).getByRole('button', { name: '입금 적기' }))
+    const dialog = await screen.findByRole('dialog', { name: /^입금 적기 · / })
+    expect(preview(dialog).textContent).toBe('입금 상태: 미입금 → 입금 완료')
+    expect(preview(dialog).getAttribute('data-tone')).toBe('info')
+    fireEvent.change(within(dialog).getByLabelText('입금 금액'), { target: { value: '40000' } })
+    expect(preview(dialog).textContent).toBe('입금 상태: 미입금 → 과입금(환불 필요 6,000원)')
+    expect(preview(dialog).getAttribute('data-tone')).toBe('warning')
+    fireEvent.change(within(dialog).getByLabelText('입금 금액'), { target: { value: '34000' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '입금 적기' }))
+    const saved = await screen.findByText('입금을 적었어요')
+    expect(saved.getAttribute('data-tone')).toBe('success')
+  })
+
+  it('입금 상한: 100,000,001원이면 "입금은 1원~100,000,000원으로 적어 주세요."를 칸 아래에 보이고 보내지 않는다 — 100,000,000원은 된다', async () => {
+    await open()
+    fireEvent.click(within(await openDetail('가나')).getByRole('button', { name: '입금 적기' }))
+    const dialog = await screen.findByRole('dialog', { name: /^입금 적기 · / })
+    const amount = within(dialog).getByLabelText('입금 금액')
+    fireEvent.change(amount, { target: { value: '100000001' } })
+    const note = within(dialog).getByText('입금은 1원~100,000,000원으로 적어 주세요.')
+    expect(amount.getAttribute('aria-describedby') ?? '').toContain(note.id)
+    fireEvent.click(within(dialog).getByRole('button', { name: '입금 적기' }))
+    await flush()
+    expect(engine.posts).toHaveLength(0)
+    expect(screen.queryByRole('dialog', { name: '입금 금액 확인' })).toBeNull()
+    fireEvent.change(amount, { target: { value: '100000000' } })
+    expect(within(dialog).queryByText('입금은 1원~100,000,000원으로 적어 주세요.')).toBeNull()
+  })
+
+  it('G-ENG-177: 입금 완료 묶음에서 "직접 수령" → "입금 완료 → 과입금(환불 필요 4,000원)"(주의), 저장 뒤 할인 1,000원 → "과입금(환불 필요 4,000원) → 과입금(환불 필요 5,000원)"', async () => {
+    await open(PAID)
+    const detail = await openDetail('다라')
+    fireEvent.click(within(detail).getByRole('button', { name: '배송비 바꾸기' }))
+    let dialog = await screen.findByRole('dialog', { name: /^배송비 바꾸기 · / })
+    fireEvent.click(within(dialog).getByLabelText('직접 수령'))
+    expect(preview(dialog).textContent).toBe('입금 상태: 입금 완료 → 과입금(환불 필요 4,000원)')
+    expect(preview(dialog).getAttribute('data-tone')).toBe('warning')
+    fireEvent.click(within(dialog).getByRole('button', { name: '배송비 바꾸기' }))
+    expect((await screen.findByText('배송비를 바꿨어요')).getAttribute('data-tone')).toBe('success')
+    // 저장 뒤에는 서버 값
+    await waitFor(() => expect(detail.textContent).toContain('과입금(환불 필요 4,000원)'))
+    fireEvent.click(within(detail).getByRole('button', { name: '할인·추가' }))
+    dialog = await screen.findByRole('dialog', { name: /^할인·추가 · / })
+    fireEvent.change(within(dialog).getByLabelText('할인 금액'), { target: { value: '1000' } })
+    expect(preview(dialog).textContent).toBe('입금 상태: 과입금(환불 필요 4,000원) → 과입금(환불 필요 5,000원)')
+    expect(preview(dialog).getAttribute('data-tone')).toBe('warning')
+  })
+
+  it('G-ENG-177: 입금 완료(조정 합 0)에서 추가 3,000원 → "입금 완료 → 부분 입금", 바뀌지 않으면 "입금 상태: 그대로(미입금)"', async () => {
+    await open(PAID)
+    fireEvent.click(within(await openDetail('다라')).getByRole('button', { name: '할인·추가' }))
+    const dialog = await screen.findByRole('dialog', { name: /^할인·추가 · / })
+    fireEvent.click(within(dialog).getByLabelText('추가'))
+    fireEvent.change(within(dialog).getByLabelText('추가 금액'), { target: { value: '3000' } })
+    expect(preview(dialog).textContent).toBe('입금 상태: 입금 완료 → 부분 입금')
+    expect(preview(dialog).getAttribute('data-tone')).toBe('info')
+    cleanup()
+    await open()
+    fireEvent.click(within(await openDetail('가나')).getByRole('button', { name: '할인·추가' }))
+    const other = await screen.findByRole('dialog', { name: /^할인·추가 · / })
+    fireEvent.change(within(other).getByLabelText('할인 금액'), { target: { value: '1000' } })
+    expect(preview(other).textContent).toBe('입금 상태: 그대로(미입금)')
+  })
+
+  it('환불: 과입금 11,000원 환불 → "과입금(환불 필요 11,000원) → 미입금"', async () => {
+    await open([...PAID, { type: 'host.cancel', b: 'b1', no: 40, buyer: 'c2', reason: '시청자 요청' }])
+    fireEvent.click(within(await openDetail('다라')).getByRole('button', { name: '환불 적기' }))
+    const dialog = await screen.findByRole('dialog', { name: /^환불 적기 · / })
+    expect(preview(dialog).textContent).toBe('입금 상태: 과입금(환불 필요 11,000원) → 미입금')
+  })
+})
+
+describe('주 버튼은 지금 할 일 하나 (AC-S06b-24, D-101)', () => {
+  const primaries = (detail: HTMLElement) => [...detail.querySelectorAll('.button-primary')].map((button) => button.textContent)
+
+  it('미입금·부분 입금이면 "입금 적기", 과입금이면 "환불 적기", 입금 완료면 없다', async () => {
+    await open([
+      ...BASE,
+      register(42, '진주', 6000),
+      chat('m7', 'c4', '사아', '42'),
+      { type: 'settlement.payment', buyer: 'c2', date: DATE, amount: 11000 },
+      { type: 'settlement.payment', buyer: 'c4', date: DATE, amount: 20000 },
+    ])
+    expect(primaries(await openDetail('가나'))).toEqual(['입금 적기'])
+    fireEvent.click(screen.getByRole('button', { name: '정산 목록으로' }))
+    expect(primaries(await openDetail('마바'))).toEqual(['입금 적기'])
+    fireEvent.click(screen.getByRole('button', { name: '정산 목록으로' }))
+    expect(primaries(await openDetail('다라'))).toEqual([])
+    fireEvent.click(screen.getByRole('button', { name: '정산 목록으로' }))
+    expect(primaries(await openDetail('사아'))).toEqual(['환불 적기'])
+  })
+})
+
+describe('PC는 표 (AC-S06b-21, D-101)', () => {
+  it('48rem 이상이면 열 머리가 있는 표 — 한 줄 = 한 묶음, 금액 열 오른쪽, 이름 칸 링크로 자세히', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(min-width: 48rem)', media: query, addEventListener: () => {}, removeEventListener: () => {} }))
+    await open()
+    const table = screen.getByRole('table', { name: '정산 묶음' })
+    const heads = within(table).getAllByRole('columnheader')
+    expect(heads.map((th) => th.textContent)).toEqual(['이름', '상품 수', '상품 합계', '배송비', '조정', '최종 금액', '받은 금액', '입금 상태'])
+    expect(heads.every((th) => th.getAttribute('scope') === 'col')).toBe(true)
+    const rows = within(table).getAllByRole('row').slice(1)
+    expect(rows.map((row) => within(row).getAllByRole('cell').map((cell) => cell.textContent))).toEqual([
+      ['가나', '3개', '30,000원', '4,000원', '0원', '34,000원', '0원', '미입금'],
+      ['다라', '1개', '7,000원', '4,000원', '0원', '11,000원', '0원', '미입금'],
+      ['마바', '1개', '3,000원', '4,000원', '0원', '7,000원', '3,000원', '부분 입금'],
+    ])
+    expect(within(rows[0] as HTMLElement).getAllByRole('cell')[2]?.className).toContain('num')
+    expect(screen.queryByRole('list', { name: '정산 묶음' })).toBeNull()
+    fireEvent.click(within(rows[1] as HTMLElement).getByRole('link', { name: '다라' }))
+    await flush()
+    expect(screen.getByRole('region', { name: '정산 자세히' }).textContent).toContain('다라')
   })
 })

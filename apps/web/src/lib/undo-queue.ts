@@ -1,7 +1,8 @@
 // 되돌리기 (UX-06, D-083, AC-S05-40·41·42).
 // - 방송자 조치(host.* 12종): 누를 때 요청 번호를 만들고, 정한 시간(운영 5초) 뒤에 보낸다. 그 안에 되돌리면 보내지 않는다.
 //   여러 개면 각자 자기 시간 뒤에 누른 순서대로 보낸다. 화면을 닫거나 로그인이 풀리면(cancelAll) 기다리던 조치는 보내지 않는다.
-// - 떠날지 묻는 동안(pause)은 기다리는 조치의 시계를 멈춘다 — 판매자가 고르기 전에 보내지 않는다. 닫으면(resume) 남은 시간부터 다시 흐르고,
+// - 떠날지 묻는 동안(pause)은 기다리는 조치의 시계를 멈춘다 — 판매자가 고르기 전에 보내지 않는다. 닫으면(resume) 멈췄던 조치마다
+//   대기 시간 전체(운영 5초)를 처음부터 다시 기다린다 — 창을 오래 열어 둔 뒤에도 되돌릴 틈이 남는다(D-103, AC-S06b-42).
 //   "보내지 않고 떠나기"(discardWaiting)면 기다리던 조치를 모두 보내지 않는다(같은 화면 안의 이동이어도) (D-083, AC-S06-01).
 // - 상품 등록: 바로 기록하고, 5초 동안 "되돌리기"(판매 종료)를 보인다 — 되돌리는 일은 화면이 넘긴 함수가 한다.
 // - Ctrl+Z는 가장 최근의 되돌릴 수 있는 것(기다리는 조치 또는 5초 안의 등록)을 되돌린다.
@@ -366,7 +367,10 @@ export class UndoQueue {
     this.#emit()
   }
 
-  /** 묻기를 닫았다: 멈췄던 조치가 남은 시간부터 다시 흐른다 */
+  /**
+   * 묻기를 닫았다(머무르기): 멈췄던 조치마다 대기 시간 전체를 처음부터 다시 기다린다 — 남은 시간이 얼마였든, 창을 얼마나 열었든 (D-103).
+   * 되돌리기 띠도 처음 값부터 센다.
+   */
   resume(): void {
     if (!this.#paused) return
     this.#paused = false
@@ -375,9 +379,8 @@ export class UndoQueue {
     for (const entry of this.#items.values()) {
       const item = entry.item
       if (item.kind !== 'action' || item.pausedLeft === null) continue
-      const left = item.pausedLeft
-      entry.item = { ...item, deadline: now + left, pausedLeft: null }
-      if (item.status === 'waiting') entry.timer = this.#timer.set(() => this.#fire(item.id), left)
+      entry.item = { ...item, deadline: now + this.delayMs, pausedLeft: null }
+      if (item.status === 'waiting') entry.timer = this.#timer.set(() => this.#fire(item.id), this.delayMs)
     }
     this.#emit()
   }

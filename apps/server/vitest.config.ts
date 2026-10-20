@@ -15,7 +15,7 @@ const common = {
   // 실제 구글로 나가는 요청을 막는다 (AC-Y1-72)
   setupFiles: ['test/setup-network-guard.ts'],
   // PGlite를 여는 시험이 많아 기본 5초보다 넉넉히 둔다 (지연 시험은 자체 시간 제한)
-  testTimeout: 30_000,
+  testTimeout: 60_000, // 무거운 속성 시험이 병렬 부하에서 기본값을 넘긴다 — 걸린 시간은 성능 시험(*.perf.test.ts)이 따로 잰다 (D-902)
 }
 
 export default defineConfig({

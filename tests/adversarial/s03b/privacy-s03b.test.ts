@@ -189,7 +189,7 @@ describe('서버 흉내 로그: 상태·효과·ID·조회에 번호 없음, 키
       }),
       { numRuns: 300, seed: 61 },
     )
-  })
+  }, 60_000)
 
   it('필드 이름 변형(Phone·PHONE·phoneNumber·tel·중첩)은 엔진이 쓰지 않고 상태에 남지 않는다', () => {
     let state = initEngine({ broadcasts: [B1], settings: {} })

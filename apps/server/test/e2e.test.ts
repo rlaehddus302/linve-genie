@@ -35,7 +35,7 @@ describe('AC-S05-91 E2E 서버 기동 (프로그램)', () => {
       expect((view.broadcasts as { title: string }[]).map((b) => b.title)).toEqual(['채운 방송'])
       const history = (await get('/api/days/2026-10-19/history?limit=500')).events as { type: string; actor: { kind: string } }[]
       expect(new Set(history.filter((e) => e.type === 'chat').map((e) => e.actor.kind))).toEqual(new Set(['collector']))
-      expect(await get('/api/client-config')).toEqual({ hostActionDelayMs: 300 })
+      expect(await get('/api/client-config')).toEqual({ hostActionDelayMs: 300, testPrinter: true })
     } finally {
       await e2e.close()
     }
@@ -45,7 +45,7 @@ describe('AC-S05-91 E2E 서버 기동 (프로그램)', () => {
     expect(HOST_ACTION_DELAY_MS).toBe(5000)
     const world = await newWorld()
     const seller = await addSeller(world)
-    expect((await client(world, seller.cookie).get('/api/client-config')).body).toEqual({ hostActionDelayMs: 5000 })
+    expect((await client(world, seller.cookie).get('/api/client-config')).body).toEqual({ hostActionDelayMs: 5000, testPrinter: false })
     expect((await client(world, null).get('/api/client-config')).status).toBe(401)
     await expect(newWorld({ hostActionDelayMs: 5001 })).rejects.toThrow(/0~5000/)
     await expect(newWorld({ hostActionDelayMs: -1 })).rejects.toThrow(/0~5000/)
@@ -148,7 +148,7 @@ describe('AC-S05-91 E2E 서버 기동 명령', () => {
       expect(login.status).toBe(200)
       const cookie = /lj_session=[^;]+/.exec(login.headers.get('set-cookie') ?? '')?.[0] ?? ''
       const config = await fetch(`http://127.0.0.1:${String(port)}/api/client-config`, { headers: { Cookie: cookie } })
-      expect(await config.json()).toEqual({ hostActionDelayMs: 200 })
+      expect(await config.json()).toEqual({ hostActionDelayMs: 200, testPrinter: true })
     } finally {
       child.kill('SIGTERM')
     }

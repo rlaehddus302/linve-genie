@@ -252,7 +252,7 @@ describe('키 오타는 어디에 있든 읽기 오류 (AC-S00-22 범주 2·5·1
       }),
       { numRuns: 300 },
     )
-  })
+  }, 60_000)
 
   it.each([
     ['상품 상태 SOLDOUT', ['expect', 'products', 'b1/15', 'status'], 'SOLDOUT'],
@@ -391,7 +391,7 @@ describe('허용 목록 (AC-S00-23) — 회귀', () => {
       expect(report.totals.notImplementedDisallowed - base.totals.notImplementedDisallowed, suite).toBe(notImplemented)
       if (notImplemented > 0) expect(report.ok, suite).toBe(false)
     }
-  })
+  }, 60_000)
 })
 
 describe('결정성 (AC-S00-27) — 회귀', () => {
@@ -598,7 +598,7 @@ describe('CLI 우회 없음 (AC-S00-23, AC-S00-27 출력 결정성) — 회귀',
       expect(variant.status).toBe(base.status)
       expect(withoutTiming(variant.stdout)).toBe(withoutTiming(base.stdout))
     }
-  })
+  }, 120_000)
 
   it.each([['--allow-all'], ['tests/golden'], ['--', 'x']])('CLI·pnpm 단계·verify는 인자를 거부한다: %s', (...args) => {
     expect(node([CLI, ...args]).status).toBe(2)

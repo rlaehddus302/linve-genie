@@ -4,6 +4,8 @@
 // S06: 상품 ID 조치 기록(productOwners), 범위별 보기 캐시(StateCache·newViewCaches), 생성기 판매자당 하나(GENERATOR_RECORDS_MAX), E2E 127.0.0.1(E2E_HOST).
 // Y1: 유튜브 연동 — 가짜 구글·유튜브 서버(FakeGoogle), 주입 시계(ManualTimer), 글 다루기(이름 정리·묶음·주소 읽기·요약), 할당량·태평양 날짜,
 //     시험의 구글 주소 막기(installGoogleBlock), 봉인(Sealer). 서버 조립은 createServer({ youtube, timer, instanceName, … }).
+// S06b: 합치기 미리 보기 조회(MergePreviewView), 문자찜 응답 buyer, 보기 캐시 상한(ViewCacheBudget — 판매자마다 4·서버 전체 32·10분).
+// I1: 서버 출력 기록(PrintService·createAutoJobs·autoLabelEffects), 라벨 데이터(L-9), 운영 설정 조립(productionServerOptions — 시험 모드 신호 없음).
 export { createApp, defaultLogError, type AppOptions, type ErrorLogger } from './app.ts'
 export { DEFAULT_PORT, readAppOrigin, readDatabaseSetting, readPort, type DatabaseSetting, type OriginSetting, type PortSetting } from './config.ts'
 export {
@@ -38,6 +40,7 @@ export {
   CHANGES_MESSAGES_LIMIT,
   FAKE_CHANNEL_RE,
   INHERITED_BLOCK_REASON,
+  MERGE_PREVIEW_ID_MAX,
   MESSAGES_LIMIT_DEFAULT,
   MESSAGES_LIMIT_MAX,
   Service,
@@ -46,6 +49,7 @@ export {
   type ChangesView,
   type ChatIngestOutcome,
   type HistoryItem,
+  type MergePreviewView,
   type ProductFilter,
   type ProductIdFilter,
   type MessageItem,
@@ -54,7 +58,19 @@ export {
 } from './service.ts'
 export { StreamHub, type GeneratorNotice, type ScopeSeq, type StreamNotice } from './hub.ts'
 export { DEFAULT_CHANGES_WINDOW, FAILED_INPUT_MESSAGE, REPLAY_SKIPPED_MESSAGE, type AttentionItem, type EngineAdapter, type ScopeRuntime, type StatePoint } from './runtime.ts'
-export { ScopeWriter, eventDigest, scopeKey, type Actor, type CommittedRecord, type WriteOutcome, type WriteResult, type WriterHooks } from './writer.ts'
+export {
+  ScopeWriter,
+  WriteAbort,
+  eventDigest,
+  scopeKey,
+  type Actor,
+  type CommittedRecord,
+  type TxHook,
+  type TxHookContext,
+  type WriteOutcome,
+  type WriteResult,
+  type WriterHooks,
+} from './writer.ts'
 // S05 리허설·증분 조회·E2E 기동
 export {
   ChatGenerators,
@@ -79,9 +95,12 @@ export {
   type StopReason,
 } from './generator.ts'
 export {
+  CLAIM_INDEX_CACHE_MAX,
+  claimIndex,
   MESSAGE_LOOKUP_CACHE_MAX,
   VIEW_INDEX_CACHE_MAX,
   VIEW_LISTS,
+  clearViewCaches,
   newViewCaches,
   type ChangeSet,
   type FullView,
@@ -90,6 +109,14 @@ export {
   type ViewList,
 } from './views.ts'
 export { StateCache } from './state-cache.ts'
+export {
+  VIEW_CACHE_IDLE_MS,
+  VIEW_CACHE_SCOPES_MAX,
+  VIEW_CACHE_SCOPES_PER_SELLER,
+  ViewCacheBudget,
+  type ViewCacheBudgetOptions,
+  type ViewScope,
+} from './view-budget.ts'
 export { productOwners, type ActionRow, type CurrentProduct } from './product-history.ts'
 export { E2E_ACCOUNT_FILE, E2E_HOST, fillScope, readE2eAccount, startE2eServer, type E2eAccount, type E2eOptions, type E2eServer, type FillOptions, type FillResult } from './e2e.ts'
 export { generateMasterKey, phoneKeyOf, readMasterKey, DEFAULT_PASSWORD_COST, type PasswordCost } from './secrets.ts'
@@ -185,3 +212,45 @@ export { BlockedRequestError, GOOGLE_HOST_RE, blockedRequests, installGoogleBloc
 export { SEALED_MESSAGE, splitChatRaw, type ChatSource } from './writer.ts'
 export { mergeRaw } from './store.ts'
 export { type ChatBatchOutcome, type CollectedChat } from './service.ts'
+// I1 출력 기록
+export {
+  DEVICE_ID_RE,
+  DEVICE_NAME_MAX,
+  LABEL_ERROR_CODES,
+  PAUSE_MESSAGES,
+  PRINTER_ERROR_CODES,
+  PRINT_MESSAGES,
+  PrintService,
+  SHOP_NAME_MAX,
+  TEMPLATE_MAX_BYTES,
+  cleanDeviceName,
+  isKnownErrorCode,
+  jobWord,
+  pauseForError,
+  type ActionOutcome,
+  type ClaimOutcome,
+  type ClaimedJob,
+  type JobView,
+  type LabelRef,
+  type LabelState,
+  type LabelView,
+  type PrintOptions,
+  type QueueSummary,
+  type ResultInput,
+} from './print.ts'
+export {
+  autoLabelEffects,
+  createAutoJobs,
+  lockQueue,
+  readQueue,
+  type JobReason,
+  type JobRow,
+  type JobStatus,
+  type LabelEffectBody,
+  type LabelEffectRow,
+  type LabelRow,
+  type PauseReason,
+  type QueueRow,
+} from './print-store.ts'
+export { buildClaimIndex, contentKeyOf, currentLabelBuyer, isWinnerOf, packingLabelData, productLabelBuyer, productLabelData, type ClaimIndex } from './label-data.ts'
+export { productionServerOptions, type ProductionOptions } from './production.ts'

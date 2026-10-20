@@ -1,0 +1,61 @@
+# S06b 보강 — S06 감사 지적을 닫으며 화면이 기대는 엔진 동작을 고정한다 (ORD-08, BUY-02, STL-02, STL-03, STL-07, R-4, R-11, R-12, D-051, D-058, D-061, D-099, D-101).
+# 새 판정·정산 규칙은 없다.
+# - G-ENG-176 (SA-S06-008, D-099): 찜을 만들지 않은 문자찜의 구매자는 엔진이 정한 구매자(전화번호 키)다. 뒤 4자리만 같은 다른 번호의 두 사람이
+#   같은 상품에 모두 찜했어도 하나로 정해진다 — 서버의 문자찜 쓰기 응답 `buyer`(코어 buyerOfRef)는 이 sms:<ref> 풀이와 같다.
+# - G-ENG-177 (UX-S06-006, D-101): 입금이 아닌 기록(배송비 예외·조정)도 입금 상태를 바꾼다(입금 완료 → 과입금·환불 필요 → 부분 입금).
+#   정산 입력 창의 미리 보기가 이 변화를 보여야 한다.
+# 기본 설정: 접수순(ARRIVAL), 대기 한도 5, 자동 승계, 기본 배송비 4,000, 무료 기준 없음, 확정마다 라벨 1 + 감사 1.
+id: G-ENG-176
+title: 뒤 4자리만 같은 다른 번호 두 문자 구매자가 같은 상품에 모두 찜했을 때, 한 사람의 번호로 다시 온 문자찜은 그 사람(전화번호 키)으로 정해지고 새 찜이 생기지 않는다
+refs: [ORD-08, BUY-02, R-4, R-11, DAT-06, D-051, D-061, D-099]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:10", type: sms, b: b1, ref: s1, no: 15, received: "20:00:05", phone: "010-1111-5678", memo: 김씨 }   # 키 K1 → 새 문자 구매자 X(뒤 4자리 5678) → 15번 1등 (찜 1)
+  - { at: "20:00:20", type: sms, b: b1, ref: s2, no: 15, received: "20:00:15", phone: "010-2222-5678", memo: 박씨 }   # 다른 번호 K2 → 새 문자 구매자 Y(뒤 4자리도 5678) → 15번 대기 1순위 (찜 2)
+  # Y의 번호(형식만 다름) → K2 → Y. Y는 15번에 활성 찜(대기)이 있다 → R-4 4번 줄 → 새 찜 없음. 정한 구매자는 Y이지 1등인 X가 아니다
+  - { at: "20:00:30", type: sms, b: b1, ref: s3, no: 15, received: "20:00:25", phone: "01022225678" }
+  - { at: "20:00:40", type: sms, b: b1, ref: s4, no: 16, received: "20:00:35", phone: "010 1111 5678" }               # K1 → X → 16번 1등 (찜 3)
+expect:
+  claimCount: 3
+  sameBuyer: [["sms:s2", "sms:s3"], ["sms:s1", "sms:s4"]]
+  products:
+    b1/15: { status: SOLD, winner: "sms:s1", waitlist: ["sms:s2"] }
+    b1/16: { status: SOLD, winner: "sms:s1" }
+  claims:
+    - { product: b1/15, buyer: "sms:s3", status: WAITLISTED }      # sms:s3이 정한 구매자(Y)의 15번 찜 = 대기 → 화면 "이미 찜한 구매자라 … (지금 대기 1번)"
+  buyers:
+    "sms:s1": { items: [b1/15, b1/16], subtotal: 15000, display: 문자찜(김씨), phoneLast4: "5678" }   # 10,000 + 5,000
+    "sms:s2": { items: [], subtotal: 0, display: 문자찜(박씨), phoneLast4: "5678" }                   # 뒤 4자리가 같아도 X와 다른 구매자, 메모 없는 s3은 이름을 바꾸지 않는다
+  effectCounts: { POST_THANKS: 2, PRINT_PRODUCT_LABEL: 2 }          # 확정 둘(X 15·16)
+---
+id: G-ENG-177
+title: 정산 입력 미리 보기가 보일 입금 상태 변화 — 입금 완료 뒤 직접 수령·할인은 과입금(환불 필요)을 만들고, 기본 배송비로 되돌리기·추가는 다시 입금 완료·부분 입금으로 바꾼다
+refs: [STL-02, STL-03, STL-07, R-12, INV-6, D-058, D-092, D-101]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }                     # 10,000 + 배송비 4,000 = 14,000
+  - { at: "21:00:00", type: settlement.payment, buyer: UC_A, date: 2026-10-18, amount: 14000 }           # 받은 14,000 = 최종 → 입금 완료
+  - { type: assert, expect: { settlements: { UC_A@2026-10-18: { subtotal: 10000, shipping: 4000, adjustments: 0, total: 14000, refundDue: 0, payment: PAID } } } }
+  # 직접 수령 → 배송비 0 → 최종 10,000 < 받은 14,000 → 과입금, 환불 필요 4,000
+  - { at: "21:00:10", type: settlement.shippingOverride, buyer: UC_A, date: 2026-10-18, mode: PICKUP }
+  - { type: assert, expect: { settlements: { UC_A@2026-10-18: { shipping: 0, total: 10000, refundDue: 4000, payment: OVERPAID } } } }
+  # 할인 1,000 → 최종 9,000 → 환불 필요 5,000
+  - { at: "21:00:20", type: settlement.adjust, buyer: UC_A, date: 2026-10-18, amount: -1000, reason: 단골 할인 }
+  - { type: assert, expect: { settlements: { UC_A@2026-10-18: { adjustments: -1000, total: 9000, refundDue: 5000, payment: OVERPAID } } } }
+  # 예외 지우기 → 기본 배송비 4,000 → 10,000 + 4,000 − 1,000 = 13,000 → 환불 필요 1,000
+  - { at: "21:00:30", type: settlement.shippingOverride, buyer: UC_A, date: 2026-10-18, mode: DEFAULT }
+  - { type: assert, expect: { settlements: { UC_A@2026-10-18: { shipping: 4000, total: 13000, refundDue: 1000, payment: OVERPAID } } } }
+  # 추가 1,000 → 조정 합 0 → 14,000 = 받은 금액 → 입금 완료
+  - { at: "21:00:40", type: settlement.adjust, buyer: UC_A, date: 2026-10-18, amount: 1000, reason: 포장 추가 }
+  - { type: assert, expect: { settlements: { UC_A@2026-10-18: { adjustments: 0, total: 14000, refundDue: 0, payment: PAID } } } }
+  # 추가 3,000(도서산간) → 17,000 > 받은 14,000 → 부분 입금
+  - { at: "21:00:50", type: settlement.adjust, buyer: UC_A, date: 2026-10-18, amount: 3000, reason: 도서산간 }
+  - { type: assert, expect: { settlements: { UC_A@2026-10-18: { adjustments: 3000, total: 17000, refundDue: 0, payment: PARTIAL } } } }
+  # 남은 3,000 입금 → 17,000 → 입금 완료
+  - { at: "21:01:00", type: settlement.payment, buyer: UC_A, date: 2026-10-18, amount: 3000, memo: "10/18 국민" }
+expect:
+  settlements:
+    UC_A@2026-10-18: { subtotal: 10000, shipping: 4000, adjustments: 3000, total: 17000, refundDue: 0, payment: PAID }

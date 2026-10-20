@@ -63,7 +63,7 @@ describe('코어 순수성 린트 (AC-S00-05) — 회귀', () => {
       const messages = await lint(code, `packages/core/src/__probe__.${ext}`)
       expect(pureErrors(messages).length, `${ext}: ${JSON.stringify(messages.map((m) => m.message))}`).toBeGreaterThan(0)
     }
-  })
+  }, 60_000)
 
   it('하위 폴더와 .js 파일도 같다', async () => {
     expect(pureErrors(await lint('export const f = (): number => Date.now()\n', 'packages/core/src/deep/er/__probe__.ts')).length).toBeGreaterThan(0)

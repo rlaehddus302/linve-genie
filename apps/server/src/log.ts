@@ -60,6 +60,7 @@ export type LogCode =
   | 'WORKER_FAILING'
   | 'BACKUP_FAILED'
   | 'DB_UNAVAILABLE'
+  | 'PRINT_NOTIFY_FAILED'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -94,6 +95,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   WORKER_FAILING: '워커가 연속으로 실패하고 있어요',
   BACKUP_FAILED: '백업하지 못했어요',
   DB_UNAVAILABLE: '데이터베이스에 닿지 않아요',
+  PRINT_NOTIFY_FAILED: '출력 기록 알림을 보내지 못했어요(기록은 저장됨)',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */

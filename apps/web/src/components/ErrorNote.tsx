@@ -13,7 +13,7 @@ export interface ErrorNoteProps {
 export function ErrorNote({ error, omitFields = [], onRetry, retryLabel = '다시 보내기' }: ErrorNoteProps) {
   const problems = error.problems.filter((problem) => problem.field === null || !omitFields.includes(problem.field))
   return (
-    <div className="error-note" role="alert">
+    <div className="error-note" role="alert" data-tone="danger">
       <p>{error.message}</p>
       {problems.length > 0 ? (
         <ul className="plain-list">

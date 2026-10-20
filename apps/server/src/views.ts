@@ -4,6 +4,7 @@
 //   만드는 방식 그대로 성립한다(규칙마다 무엇이 바뀌는지 따로 계산하지 않는다). 값이 같은 항목은 넣지 않는다.
 // - 상태 하나의 조회 결과(항목·JSON)는 그 범위 실행 상태의 작은 캐시(범위마다 최근 상태 8개)에 둔다: 지금 상태와 바로 앞 상태를 여러 화면이 같이 쓴다.
 //   판매자·범위가 함께 쓰는 캐시는 없다 — 한 판매자의 조회가 다른 판매자의 캐시 항목을 밀어내지 않는다(AC-S06-72, D-096).
+//   보기 캐시를 가진 범위 수는 view-budget.ts가 묶는다(판매자마다 최근 조회 4개·서버 전체 32개·마지막 조회 뒤 10분, AC-S06b-12, D-104).
 import {
   listBroadcasts,
   listBuyers,
@@ -18,6 +19,7 @@ import {
   type EngineState,
   type MessageInfo,
 } from '@livejjim/core'
+import { buildClaimIndex, type ClaimIndex } from './label-data.ts'
 import type { AttentionItem, ScopeRuntime } from './runtime.ts'
 import { StateCache } from './state-cache.ts'
 import { withIsoTimes } from './time.ts'
@@ -79,6 +81,8 @@ function buildIndex(state: EngineState): ViewIndex {
 /** 범위마다 두는 보기 계산 캐시 크기 (최근 상태 수) */
 export const VIEW_INDEX_CACHE_MAX = 8
 export const MESSAGE_LOOKUP_CACHE_MAX = 4
+/** 라벨(I1)이 쓰는 찜 색인 캐시 크기 */
+export const CLAIM_INDEX_CACHE_MAX = 4
 
 /** 범위 실행 상태 하나의 보기 계산 캐시 (ScopeRuntime.views) */
 export interface ViewCaches {
@@ -86,10 +90,28 @@ export interface ViewCaches {
   readonly index: StateCache<ViewIndex>
   /** 메시지 조회·증분 조회의 메시지 기록 */
   readonly messages: StateCache<MessageLookup>
+  /** 찜 ID → 코어 찜 조회 결과 (출력 기록 — 라벨 데이터·1등 확인, I1) */
+  readonly claims: StateCache<ClaimIndex>
 }
 
 export function newViewCaches(): ViewCaches {
-  return { index: new StateCache<ViewIndex>(VIEW_INDEX_CACHE_MAX), messages: new StateCache<MessageLookup>(MESSAGE_LOOKUP_CACHE_MAX) }
+  return {
+    index: new StateCache<ViewIndex>(VIEW_INDEX_CACHE_MAX),
+    messages: new StateCache<MessageLookup>(MESSAGE_LOOKUP_CACHE_MAX),
+    claims: new StateCache<ClaimIndex>(CLAIM_INDEX_CACHE_MAX),
+  }
+}
+
+/** 그 범위 실행 상태의 캐시로 상태 하나의 찜 색인을 본다 */
+export function claimIndex(runtime: Pick<ScopeRuntime, 'views'>, state: EngineState): ClaimIndex {
+  return runtime.views.claims.get(state, buildClaimIndex)
+}
+
+/** 범위 하나의 보기 캐시를 비운다 (보기 캐시 상한·안 쓰는 범위 비우기, AC-S06b-12 — 범위 실행 상태는 그대로) */
+export function clearViewCaches(views: ViewCaches): void {
+  views.index.clear()
+  views.messages.clear()
+  views.claims.clear()
 }
 
 /** 범위 전체 조회 (GET /api/days/:date) */

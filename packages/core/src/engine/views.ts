@@ -7,6 +7,7 @@ import { DEFAULT_SETTINGS, type SaleSettings } from '../settings.ts'
 import { Draft, ownSet } from './draft.ts'
 import { groupEntries, settle } from './ledger.ts'
 import { pentries, pget, pkeys, pvalues } from './pmap.ts'
+import { applyMerge, planMerge } from './merge.ts'
 import { isActive, isLocked, sortedPending } from './rules.ts'
 import type {
   BroadcastDetails,
@@ -18,6 +19,9 @@ import type {
   ClaimRecord,
   EffectInfo,
   EngineState,
+  MergeDuplicate,
+  MergeItems,
+  MergePreview,
   MessageInfo,
   PendingInfo,
   PriceChange,
@@ -38,7 +42,8 @@ function reader(state: EngineState): Draft {
   return new Draft(state, { seq: 0, at: 0 })
 }
 
-function broadcastOrder(state: EngineState): (a: SlotRecord, b: SlotRecord) => number {
+/** 방송 선언 순서·번호 순 (번호·찜 공통) */
+function broadcastOrder(state: EngineState): (a: { readonly b: string; readonly no: number }, b: { readonly b: string; readonly no: number }) => number {
   const index = new Map(state.broadcasts.map((broadcast, i) => [broadcast.id, i]))
   return (a, b) => (index.get(a.b) as number) - (index.get(b.b) as number) || a.no - b.no
 }
@@ -234,6 +239,41 @@ export function listBuyers(state: EngineState): BuyerInfo[] {
 /** 지금의 구매자 (엔진이 모르는 구매자면 null) */
 export function currentBuyerOf(state: EngineState, id: string): string | null {
   return pget(state.buyers, id) === undefined ? null : reader(state).root(id)
+}
+
+// ── 합치기 미리 보기 (R-11 "미리 보기", BUY-03, D-100) ──────────────────
+
+/** 확정 찜의 상품 키(생성 순서)와 합 — buyerInfo의 items·subtotal과 같은 계산 */
+function itemsOf(state: EngineState, members: readonly string[]): MergeItems {
+  const items = confirmedClaims(state, members)
+  return { items: items.map((claim) => claimKey(state, claim)), subtotal: items.reduce((sum, claim) => sum + (claim.price as number), 0) }
+}
+
+/**
+ * buyer.merge(from, into)를 지금 상태에 적용하면 일어날 일 (순수 조회 — 넘긴 상태를 바꾸지 않는다).
+ * from·into는 buyer.merge와 같이 구매자 자신의 ID다. 판정과 같은 계획 함수(planMerge)로 막힘·남는 찜을 정하고,
+ * 막히지 않으면 그 계획을 작업 사본에 실제로 적용한 상태에서 합친 뒤의 구매자를 읽는다 — applyEvent(buyer.merge)의 결과와 같다.
+ */
+export function previewMerge(state: EngineState, from: string, into: string): MergePreview {
+  const r = reader(state)
+  const plan = planMerge(r, from, into)
+  const byPlace = broadcastOrder(state)
+  const members = pget(state.buyers, from) === undefined ? [] : r.members(from)
+  const moving = { buyers: members, ...itemsOf(state, members) }
+  if (plan.blocked !== null) {
+    const bothConfirmed = [...plan.bothConfirmed].sort(byPlace).map((claim) => claimKey(state, claim))
+    return { from, into, blocked: plan.blocked, target: plan.target, bothConfirmed, moving, after: null, duplicates: [] }
+  }
+  const duplicates = plan.steps
+    .flatMap(({ keep, drop }) => (drop === null ? [] : [{ keep, drop }]))
+    .sort((a, b) => byPlace(a.drop, b.drop))
+    .map(({ keep, drop }): MergeDuplicate => ({ claim: drop.id, product: claimKey(state, drop), buyer: drop.buyer, status: drop.status as MergeDuplicate['status'], keep: keep.id }))
+  // 같은 계획을 새 작업 사본에 적용해 합친 뒤의 구매자를 읽는다 (넘긴 상태는 그대로 — 작업 사본은 바뀐 기록만 새로 만든다)
+  const draft = new Draft(state, { seq: 0, at: 0 })
+  applyMerge(draft, from, into, plan)
+  const next = draft.commit().state
+  const after = itemsOf(next, reader(next).members(plan.target))
+  return { from, into, blocked: null, target: plan.target, bothConfirmed: [], moving, after, duplicates }
 }
 
 /** 문자찜 ref → 그 ref의 처음 문자찜이 정한 구매자 자신 (받지 않은 ref, 구매자를 정하지 않은 문자찜(모르는 지정 구매자)이면 null) */

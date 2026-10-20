@@ -84,6 +84,13 @@ export interface WriteResult {
   readonly effects: readonly string[]
   readonly broadcast?: { readonly id: string; readonly date: string; readonly title: string; readonly rehearsal: boolean }
   readonly message?: { readonly id: string; readonly channel: string }
+  /** 문자찜 응답만: 정규화한 번호의 뒤 4자리 (번호가 없거나 휴대폰 번호 모양이 아니면 null) */
+  readonly phoneLast4?: string | null
+  /**
+   * 문자찜 응답만: 그 문자찜이 정한 구매자 자신의 ID (코어 buyerOfRef — 지금의 구매자가 아니다). 정하지 못했으면 null.
+   * 같은 요청 번호의 재전송도 같은 값 (AC-S06b-11, D-099)
+   */
+  readonly buyer?: string | null
 }
 
 /** 범위 조회의 목록 이름 (증분 조회가 같은 이름으로 덮는다) */

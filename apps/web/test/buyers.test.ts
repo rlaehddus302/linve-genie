@@ -1,8 +1,9 @@
-// 구매자 화면 값 (AC-S06-20·21·23, BUY-01 AC2, BUY-03, R-11, D-090·D-091). 실제 코어로 만든 범위 조회에서 고른다.
-// 합치기 미리 보기(중복으로 정리될 찜·막는 경우)는 실제 엔진에 buyer.merge를 넣은 결과와 맞대어 본다.
+// 구매자 화면 값 (AC-S06-20·21·23, AC-S06b-20·30·33, BUY-01 AC2, BUY-03, R-11, D-090·D-091·D-098~D-100). 실제 코어로 만든 범위 조회에서 고른다.
+// 합치기 미리 보기는 서버 응답 모양(코어 previewMerge 결과)을 낱말로 바꾸는 것만 본다 — 화면은 R-11을 계산하지 않는다.
+import { previewMerge } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
 import type { Buyer } from '../src/api/types.ts'
-import { buyerList, defaultInto, distinguishWords, planMerge, sameNameCounts, searchBuyers, smsHolder, topicParticle } from '../src/lib/buyers.ts'
+import { buyerList, defaultInto, distinguishWords, mergeWords, objectParticle, sameNameCounts, searchBuyers, topicParticle } from '../src/lib/buyers.ts'
 import { BuyerNames } from '../src/lib/derive.ts'
 import { fromFull } from '../src/lib/scope-data.ts'
 import { chat, dataOf, register, run, sms, viewOf } from './engine.ts'
@@ -74,25 +75,134 @@ describe('구매자 목록 (AC-S06-20)', () => {
     expect([buyer?.items.length, buyer?.subtotal]).toEqual([3, 30000])
   })
 
-  it('구분 표시: 같은 닉네임이면 "같은 닉네임 n명"·채널 끝 4자리, 문자 구매자는 "뒤 4자리"', () => {
+  it('구분 표시: 같은 닉네임이면 "같은 닉네임 n명" — 구분 글자(끝 1234·뒤 4자리)는 이름에 있다 (D-098)', () => {
     const twins = dataOf([register(15, 'a', 10000), chat('m1', 'UC_aaa1111', '하늘', '15'), chat('m2', 'UC_bbb2222', '하늘', '안녕')])
     const counts = sameNameCounts(twins.buyers)
     const [first] = buyerList(twins.buyers, { all: false, sort: 'name' })
-    expect(distinguishWords(first as Buyer, counts)).toEqual(['같은 닉네임 2명', '끝 1111'])
+    expect(distinguishWords(first as Buyer, counts)).toEqual(['같은 닉네임 2명'])
+    expect(new BuyerNames(twins.buyers, twins.claims).name('UC_aaa1111')).toBe('하늘 · 끝 1111')
     const smsBuyer = data.buyers.get('sms:r1') as Buyer
-    expect(distinguishWords(smsBuyer, sameNameCounts(data.buyers))).toEqual(['뒤 4자리 5678'])
-  })
-
-  it('전화번호 없는 문자 구매자가 같은 이름이면 ID 대신 차례로 구분한다 (AC-S06-80)', () => {
-    const two = dataOf([register(15, 'a', 10000), sms('rA', 15), sms('rB', 15)])
-    const names = new BuyerNames(two.buyers)
-    expect(names.name('sms:rA')).toBe('문자찜 (1번째 문자)')
-    expect(names.name('sms:rB')).toBe('문자찜 (2번째 문자)')
-    expect(names.name('sms:rA')).not.toContain('rA')
+    expect(distinguishWords(smsBuyer, sameNameCounts(data.buyers))).toEqual([])
   })
 })
 
-describe('합치기 미리 보기 (AC-S06-23, D-091) = 실제 엔진 결과', () => {
+describe('구매자 이름 표기 하나 (AC-S06b-20, D-098)', () => {
+  const nameOf = (events: Record<string, unknown>[]) => {
+    const data = dataOf(events)
+    const names = new BuyerNames(data.buyers, data.claims)
+    return (id: string) => names.name(id)
+  }
+
+  it('겹침 없음: 같은 표시 이름이 하나뿐이면 표시 이름 그대로 (유튜브·문자·뒤 4자리가 있어도)', () => {
+    const name = nameOf(BASE)
+    expect(['UC_hong1234', 'UC_kim5555', 'sms:r1', 'sms:r3'].map(name)).toEqual(['홍길동', '김철수', '문자찜(김씨)', '문자찜'])
+    expect(name('없는구매자')).toBe('알 수 없는 구매자')
+  })
+
+  it('유튜브: 같은 닉네임 둘이면 "홍길동 · 끝 1234"(채널 ID 끝 4자리)', () => {
+    const name = nameOf([register(15, 'a', 10000), chat('m1', 'UC_hong1234', '홍길동', '15'), chat('m2', 'UC_other9876', '홍길동', '안녕')])
+    expect([name('UC_hong1234'), name('UC_other9876')]).toEqual(['홍길동 · 끝 1234', '홍길동 · 끝 9876'])
+  })
+
+  it('뒤 4자리가 있는 문자 구매자: "문자찜(김씨) · 뒤 4자리 5678"', () => {
+    const name = nameOf([register(15, 'a', 10000), sms('rA', 15, { phoneKey: 'phonekey-aaaaaaaaaaaaaaaa', phoneLast4: '5678', memo: '김씨' }), sms('rB', 15, { phoneKey: 'phonekey-bbbbbbbbbbbbbbbb', phoneLast4: '1111', memo: '김씨' })])
+    expect([name('sms:rA'), name('sms:rB')]).toEqual(['문자찜(김씨) · 뒤 4자리 5678', '문자찜(김씨) · 뒤 4자리 1111'])
+  })
+
+  it('전화번호 없는 문자 구매자: 그 구매자를 만든 문자찜의 받은 시각 "문자 20:01:05", 분까지 적었으면 "문자 20:01" — "번째 문자"·겹친 괄호 없음', () => {
+    const name = nameOf([register(15, 'a', 10000), sms('rA', 15, { memo: '김씨', received: '20:01:05' }), sms('rB', 15, { memo: '김씨', received: '20:02' }), sms('rC', 16, { memo: '박씨' })])
+    expect([name('sms:rA'), name('sms:rB'), name('sms:rC')]).toEqual(['문자찜(김씨) · 문자 20:01:05', '문자찜(김씨) · 문자 20:02', '문자찜(박씨)'])
+    for (const id of ['sms:rA', 'sms:rB']) {
+      expect(name(id)).not.toContain('번째 문자')
+      expect(name(id)).not.toContain(') (')
+      expect(name(id)).not.toContain('rA')
+    }
+  })
+
+  it('받은 시각까지 같으면 생긴 순서로 둘째부터 " · 2", " · 3"', () => {
+    const name = nameOf([register(15, 'a', 10000), sms('rA', 15, { received: '20:01:05' }), sms('rB', 15, { received: '20:01:05' }), sms('rC', 15, { received: '20:01:05' })])
+    expect([name('sms:rA'), name('sms:rB'), name('sms:rC')]).toEqual(['문자찜 · 문자 20:01:05', '문자찜 · 문자 20:01:05 · 2', '문자찜 · 문자 20:01:05 · 3'])
+  })
+
+  it('받은 시각은 KST 그대로 — 실행 환경 시간대(Pacific/Honolulu)와 상관없다', () => {
+    const name = nameOf([register(15, 'a', 10000), sms('rA', 15, { received: '23:59:30' }), sms('rB', 15, { received: '00:00:10' })])
+    expect([name('sms:rA'), name('sms:rB')]).toEqual(['문자찜 · 문자 23:59:30', '문자찜 · 문자 00:00:10'])
+  })
+
+  it('합쳐진 구매자: 같은 규칙이고 "같은 이름 수"는 지금의 구매자 기준', () => {
+    const events = [
+      register(15, 'a', 10000),
+      register(16, 'b', 20000),
+      chat('m1', 'UC_hong1234', '홍길동', '15'),
+      chat('m2', 'UC_other9876', '홍길동', '16'),
+      chat('m3', 'UC_third5555', '홍길동', '안녕'),
+    ]
+    // 셋 다 지금의 구매자 — 모두 구분 글자
+    expect(['UC_hong1234', 'UC_other9876', 'UC_third5555'].map(nameOf(events))).toEqual(['홍길동 · 끝 1234', '홍길동 · 끝 9876', '홍길동 · 끝 5555'])
+    // 하나를 김철수에 합치면 지금의 구매자 중 홍길동은 둘 — 합쳐진 구매자도 같은 이름 수(2)로 구분 글자가 붙는다
+    const merged = nameOf([...events, chat('m4', 'UC_kim0001', '김철수', '안녕'), { type: 'buyer.merge', from: 'UC_third5555', into: 'UC_kim0001', reason: '같은 사람' }])
+    expect(['UC_hong1234', 'UC_other9876', 'UC_third5555', 'UC_kim0001'].map(merged)).toEqual(['홍길동 · 끝 1234', '홍길동 · 끝 9876', '홍길동 · 끝 5555', '김철수'])
+    // 둘을 합쳐 지금의 구매자 홍길동이 하나가 되면 구분 글자는 없다 — 그래도 표기가 같은 셋은 생긴 순서로 " · 2", " · 3"
+    // (홍길동 자세히의 "합친 구매자" 둘이 같은 이름이면 엉뚱한 쪽을 떼어 낸다 — D-098 이유, SA-S06b-002)
+    const one = nameOf([...events, { type: 'buyer.merge', from: 'UC_other9876', into: 'UC_hong1234', reason: '같은 사람' }, { type: 'buyer.merge', from: 'UC_third5555', into: 'UC_hong1234', reason: '같은 사람' }])
+    expect(['UC_hong1234', 'UC_other9876', 'UC_third5555'].map(one)).toEqual(['홍길동', '홍길동 · 2', '홍길동 · 3'])
+  })
+
+  it('SA-S06b-002 ①: 지금의 "홍길동"과 다른 구매자에 합쳐진 "홍길동"은 같은 이름이 아니다 — 생긴 순서로 둘째가 " · 2"', () => {
+    const name = nameOf([
+      register(11, 'a', 10000),
+      register(12, 'b', 10000),
+      register(13, 'c', 10000),
+      chat('m1', 'UC_hga0001', '홍길동', '11'),
+      chat('m2', 'UC_hgb0002', '홍길동', '12'),
+      chat('m3', 'UC_kcs0003', '김철수', '13'),
+      { type: 'buyer.merge', from: 'UC_hgb0002', into: 'UC_kcs0003', reason: '같은 사람' },
+    ])
+    // 지금의 구매자 중 홍길동은 하나 — 구분 글자 없이, 겹치는 표기만 번호
+    expect(['UC_hga0001', 'UC_hgb0002', 'UC_kcs0003'].map(name)).toEqual(['홍길동', '홍길동 · 2', '김철수'])
+  })
+
+  it('SA-S06b-002 ②: 구분 글자를 흉내 낸 닉네임 "홍길동 · 끝 1234"는 진짜 "홍길동 · 끝 1234"와 다른 이름', () => {
+    const events = [
+      register(11, 'a', 10000),
+      chat('m1', 'UC_real1234', '홍길동', '11'),
+      chat('m2', 'UC_other5678', '홍길동', '11'),
+      chat('m3', 'UC_fake9999', '홍길동 · 끝 1234', '11'),
+    ]
+    const name = nameOf(events)
+    expect(['UC_real1234', 'UC_other5678', 'UC_fake9999'].map(name)).toEqual(['홍길동 · 끝 1234', '홍길동 · 끝 5678', '홍길동 · 끝 1234 · 2'])
+    // 흉내 낸 쪽이 먼저 생겼으면 그쪽이 먼저 — 진짜 쪽이 " · 2" (생긴 순서, D-098). 어느 쪽이든 두 이름은 다르다
+    const first = nameOf([register(11, 'a', 10000), chat('m3', 'UC_fake9999', '홍길동 · 끝 1234', '11'), chat('m1', 'UC_real1234', '홍길동', '11'), chat('m2', 'UC_other5678', '홍길동', '11')])
+    expect(['UC_fake9999', 'UC_real1234', 'UC_other5678'].map(first)).toEqual(['홍길동 · 끝 1234', '홍길동 · 끝 1234 · 2', '홍길동 · 끝 5678'])
+  })
+
+  it('SA-S06b-002: 화면에서 같아 보이는 표기(공백 여러 칸·보이지 않는 글자·한글 채움 문자)도 겹친 것 — 붙인 번호도 다른 표기와 겹치지 않는다', () => {
+    const name = nameOf([
+      register(11, 'a', 10000),
+      chat('m1', 'UC_aaa0001', '하늘', '11'),
+      chat('m2', 'UC_bbb0002', '하늘 · 2', '11'),
+      chat('m3', 'UC_ccc0003', '\u3164하늘', '안녕'), // 한글 채움 문자는 빈칸으로 보인다
+      chat('m4', 'UC_ddd0004', '하늘\u200b', '안녕'), // 폭 없는 공백
+      chat('m5', 'UC_eee0005', '하늘  ·  2', '안녕'), // HTML은 공백 여러 칸을 한 칸으로 그린다
+    ])
+    expect(name('UC_aaa0001')).toBe('하늘')
+    expect(name('UC_bbb0002')).toBe('하늘 · 2')
+    // "하늘"로 보인다 → 번호. " · 2"는 이미 다른 구매자의 표기라 " · 3", 그다음은 " · 4"
+    expect(name('UC_ccc0003')).toBe('\u3164하늘 · 3')
+    expect(name('UC_ddd0004')).toBe('하늘\u200b · 4')
+    // "하늘 · 2"로 보인다 → " · 2"
+    expect(name('UC_eee0005')).toBe('하늘  ·  2 · 2')
+  })
+})
+
+describe('합치기 미리 보기 낱말 (AC-S06b-33, D-100) — 서버 응답(코어 previewMerge)을 낱말로만', () => {
+  /** 서버와 같이: 그 상태로 코어 previewMerge를 부른 결과 */
+  const previewOf = (events: Record<string, unknown>[], from: string, into: string) => {
+    const { state, seq } = run(events)
+    const data = fromFull(viewOf(state, seq))
+    return { data, names: new BuyerNames(data.buyers, data.claims), preview: previewMerge(state, from, into) }
+  }
+
   it('방향 기본: 하나만 유튜브면 유튜브 쪽이 남고, 아니면 자세히를 연 구매자', () => {
     const data = dataOf(BASE)
     const hong = data.buyers.get('UC_hong1234') as Buyer
@@ -103,109 +213,53 @@ describe('합치기 미리 보기 (AC-S06-23, D-091) = 실제 엔진 결과', ()
     expect(defaultInto(kim, hong).id).toBe('UC_kim5555')
   })
 
-  it('두 사람 모두 활성 찜인 상품: 앞선 쪽(1등 > 대기)이 남고 나머지는 중복 — 미리 보기 문장과 엔진의 DUPLICATE가 같다', () => {
-    const { state, seq } = run(BASE)
-    const data = fromFull(viewOf(state, seq))
-    const names = new BuyerNames(data.buyers)
-    const plan = planMerge(data, names, 'sms:r1', 'UC_hong1234', label)
-    expect(plan?.blocks).toEqual([])
-    expect(plan?.duplicates.map((line) => line.text)).toEqual(['15번: 문자찜(김씨)의 대기 1번 찜이 중복으로 정리돼요', '16번: 홍길동의 대기 1번 찜이 중복으로 정리돼요'])
-    expect([plan?.movingCount, plan?.movingTotal, plan?.afterTotal]).toEqual([1, 20000, 30000])
-    // 실제 합치기
-    const after = run([...BASE, { type: 'buyer.merge', from: 'sms:r1', into: 'UC_hong1234', reason: '같은 사람' }])
-    expect(after.changed).toBe(true)
-    const merged = fromFull(viewOf(after.state, after.seq))
-    const duplicates = [...merged.claims.values()].filter((claim) => claim.status === 'DUPLICATE').map((claim) => claim.id).sort()
-    expect(duplicates).toEqual((plan?.duplicates ?? []).map((line) => line.claim.id).sort())
-    expect(merged.buyers.get('UC_hong1234')?.subtotal).toBe(plan?.afterTotal)
+  it('막히지 않음: 옮길 찜 수·합계, 합친 뒤 합계(after.subtotal), 중복 문장(대기 순번은 그 찜 ID로 범위 조회에서)', () => {
+    const { data, names, preview } = previewOf(BASE, 'sms:r1', 'UC_hong1234')
+    const words = mergeWords(data, names, preview, label)
+    expect(words.blocks).toEqual([])
+    expect([words.movingCount, words.movingTotal, words.afterTotal]).toEqual([1, 20000, 30000])
+    expect(words.duplicates.map((line) => line.text)).toEqual(['15번: 문자찜(김씨)의 대기 1번 찜이 중복으로 정리돼요', '16번: 홍길동의 대기 1번 찜이 중복으로 정리돼요'])
+    expect(words.duplicates.map((line) => line.claim)).toEqual(preview.duplicates.map((item) => item.claim))
   })
 
-  it('두 사람 모두 1등인 상품이 있으면 막는다 → 엔진도 아무 일도 없다 (G-ENG-171)', () => {
-    const events = [register(30, '재고둘', 7000), { type: 'product.update', b: 'b1', no: 30, stock: 2 }, chat('m9', 'UC_hong1234', '홍길동', '30'), sms('r9', 30, { phoneKey: KEY_A, phoneLast4: '5678' })]
-    const { state, seq } = run([...BASE, ...events])
-    const data = fromFull(viewOf(state, seq))
-    const plan = planMerge(data, new BuyerNames(data.buyers), 'sms:r1', 'UC_hong1234', label)
-    expect(plan?.blocks).toEqual([{ kind: 'bothWinners', products: [{ product: 'b1/30', broadcast: 'b1', no: 30, text: '30번에 두 사람 모두 1등이에요. 먼저 한 사람의 찜을 취소해 주세요.' }] }])
-    expect(plan?.afterTotal).toBeNull()
-    expect(run([...BASE, ...events, { type: 'buyer.merge', from: 'sms:r1', into: 'UC_hong1234', reason: '같은 사람' }]).changed).toBe(false)
+  it('BOTH_CONFIRMED: 상품마다 "18번에 두 사람 모두 1등이에요…"와 그 상품, 합친 뒤 합계 없음', () => {
+    const events = [...BASE, register(30, '재고둘', 7000), { type: 'product.update', b: 'b1', no: 30, stock: 2 }, chat('m9', 'UC_hong1234', '홍길동', '30'), sms('r9', 30, { phoneKey: KEY_A, phoneLast4: '5678' })]
+    const { data, names, preview } = previewOf(events, 'sms:r1', 'UC_hong1234')
+    expect(preview.blocked).toBe('BOTH_CONFIRMED')
+    const words = mergeWords(data, names, preview, label)
+    expect(words.blocks).toEqual([{ text: '30번에 두 사람 모두 1등이에요. 먼저 한 사람의 찜을 취소해 주세요.', product: { key: 'b1/30', broadcast: 'b1', no: 30 } }])
+    expect(words.afterTotal).toBeNull()
+    expect(words.duplicates).toEqual([])
   })
 
-  it('옮겨 갈 구매자가 이미 합쳐져 있음 / 고리', () => {
+  it('FROM_MERGED · CYCLE · SAME_BUYER · UNKNOWN_BUYER 문장 (TE-S06-002: 막히면 합친 뒤 합계 없음)', () => {
     const merged = [...BASE, { type: 'buyer.merge', from: 'sms:r3', into: 'UC_kim5555', reason: '같은 사람' }]
-    const data = dataOf(merged)
-    const names = new BuyerNames(data.buyers)
-    expect(planMerge(data, names, 'sms:r3', 'UC_hong1234', label)?.blocks).toEqual([{ kind: 'fromMerged', text: '문자찜은 이미 김철수에 합쳐져 있어요. 먼저 떼어 내 주세요.' }])
-    expect(run([...merged, { type: 'buyer.merge', from: 'sms:r3', into: 'UC_hong1234', reason: 'x' }]).changed).toBe(false)
-    expect(planMerge(data, names, 'UC_kim5555', 'sms:r3', label)?.blocks).toEqual([{ kind: 'cycle', text: '문자찜은 이미 김철수에 합쳐져 있어요.' }])
-    expect(run([...merged, { type: 'buyer.merge', from: 'UC_kim5555', into: 'sms:r3', reason: 'x' }]).changed).toBe(false)
+    const fromMerged = previewOf(merged, 'sms:r3', 'UC_hong1234')
+    expect(mergeWords(fromMerged.data, fromMerged.names, fromMerged.preview, label)).toMatchObject({ blocks: [{ text: '문자찜은 이미 김철수에 합쳐져 있어요. 먼저 떼어 내 주세요.' }], afterTotal: null })
+    const cycle = previewOf(merged, 'UC_kim5555', 'sms:r3')
+    expect(mergeWords(cycle.data, cycle.names, cycle.preview, label)).toMatchObject({ blocks: [{ text: '문자찜은 이미 김철수에 합쳐져 있어요.' }], afterTotal: null })
+    const same = previewOf(merged, 'UC_kim5555', 'UC_kim5555')
+    expect(mergeWords(same.data, same.names, same.preview, label).blocks).toEqual([{ text: '같은 구매자끼리는 합칠 수 없어요.' }])
+    const unknown = previewOf(merged, 'UC_kim5555', 'UC_nobody')
+    expect(mergeWords(unknown.data, unknown.names, unknown.preview, label).blocks).toEqual([{ text: '구매자를 찾지 못했어요. 화면을 새로 불러와 주세요.' }])
   })
 
-  it('TE-S06-002: 막히면 합친 뒤 합계가 없다 — 이미 남는 쪽에 합쳐진 구매자(합친 금액을 두 번 세지 않는다)·고리·같은 구매자', () => {
-    // 김철수에 문자 구매자(sms:r1, 16번 1등 20,000원)를 합쳐 둔 상태: 김철수 합계에 r1의 금액이 이미 들어 있다
-    const merged = [...BASE, { type: 'buyer.merge', from: 'sms:r1', into: 'UC_kim5555', reason: '같은 사람' }]
-    const data = dataOf(merged)
-    const names = new BuyerNames(data.buyers)
-    const kim = data.buyers.get('UC_kim5555') as Buyer
-    expect([kim.subtotal, data.buyers.get('sms:r1')?.subtotal]).toEqual([25000, 20000])
-    // 김철수 자세히에서 r1을 고름(남는 쪽 = 김철수): 막힘, 합친 뒤 합계 없음 (예전: 25,000 + 20,000 = 45,000으로 보임)
-    const fromMerged = planMerge(data, names, 'sms:r1', 'UC_kim5555', label)
-    expect(fromMerged?.blocks.map((block) => block.kind)).toEqual(['fromMerged'])
-    expect(fromMerged?.afterTotal).toBeNull()
-    expect(run([...merged, { type: 'buyer.merge', from: 'sms:r1', into: 'UC_kim5555', reason: 'x' }]).changed).toBe(false)
-    // 방향을 바꾸면 고리 — 남는 쪽(r1의 지금의 구매자)이 곧 김철수
-    const cycle = planMerge(data, names, 'UC_kim5555', 'sms:r1', label)
-    expect(cycle?.blocks.map((block) => block.kind)).toEqual(['cycle'])
-    expect(cycle?.afterTotal).toBeNull()
-    expect(planMerge(data, names, 'UC_kim5555', 'UC_kim5555', label)?.afterTotal).toBeNull()
-    // 막히지 않으면 엔진의 합친 뒤 합계와 같다
-    const open = planMerge(data, names, 'UC_hong1234', 'UC_kim5555', label)
-    expect(open?.blocks).toEqual([])
-    expect(open?.afterTotal).toBe(25000 + 10000)
-    const after = run([...merged, { type: 'buyer.merge', from: 'UC_hong1234', into: 'UC_kim5555', reason: '같은 사람' }])
-    expect(after.changed).toBe(true)
-    expect(fromFull(viewOf(after.state, after.seq)).buyers.get('UC_kim5555')?.subtotal).toBe(open?.afterTotal)
+  it('범위 조회에 아직 없는 찜이면 응답의 상태로 낱말 (대기 순번 없이)', () => {
+    const { data, names, preview } = previewOf(BASE, 'sms:r1', 'UC_hong1234')
+    const claims = new Map(data.claims)
+    for (const item of preview.duplicates) claims.delete(item.claim)
+    const words = mergeWords({ ...data, claims }, names, preview, label)
+    expect(words.duplicates.map((line) => line.text)).toEqual(['15번: 문자찜(김씨)의 대기 찜이 중복으로 정리돼요', '16번: 홍길동의 대기 찜이 중복으로 정리돼요'])
   })
 
-  it('은/는', () => {
+  it('은/는·을/를: 끝 글자의 받침, 숫자는 읽는 소리 ("· 2" → 이, "20:01:05" → 오)', () => {
     expect(topicParticle('홍길동')).toBe('은')
     expect(topicParticle('문자찜(김씨)')).toBe('는')
+    expect(topicParticle('홍길동 · 끝 1234')).toBe('는')
+    expect(topicParticle('문자찜 · 문자 20:01:05 · 3')).toBe('은')
+    expect(topicParticle('문자찜 · 뒤 4자리 5678')).toBe('은')
     expect(topicParticle('abc')).toBe('은(는)')
-  })
-})
-
-describe('찜이 생기지 않은 문자찜이 정한 구매자 (AC-S06-14, TE-S06-001) = 엔진이 찜을 만들지 않은 까닭', () => {
-  it('전화번호로 이은 구매자: 엔진이 찜을 만들지 않았으면(같은 사람 반복) 뒤 4자리가 같은 문자 구매자 중 그 상품에 활성 찜이 있는 사람', () => {
-    const again = sms('r9', 16, { phoneKey: KEY_A, phoneLast4: '5678' })
-    const after = run([...BASE, again])
-    const data = fromFull(viewOf(after.state, after.seq))
-    // 엔진: 찜을 만들지 않았다 (r9의 찜이 없다)
-    expect([...data.claims.values()].some((claim) => claim.seq === after.seq)).toBe(false)
-    const holder = smsHolder(data, 'b1/16', null, '5678')
-    expect(holder?.buyer).toBe('sms:r1')
-    expect(holder?.claim.status).toBe('CONFIRMED')
-    // 다른 번호(뒤 4자리 1111)는 16에 찜이 없다
-    expect(smsHolder(data, 'b1/16', null, '1111')).toBeUndefined()
-    // 전화번호도 지정 구매자도 없으면 정할 것이 없다
-    expect(smsHolder(data, 'b1/16', null, null)).toBeUndefined()
-  })
-
-  it('지정 구매자: 그 구매자(합쳐져 있으면 지금의 구매자)의 활성 찜', () => {
-    const data = dataOf([...BASE, { type: 'buyer.merge', from: 'sms:r3', into: 'UC_kim5555', reason: '같은 사람' }])
-    expect(smsHolder(data, 'b1/15', 'UC_hong1234', null)?.claim.currentBuyer).toBe('UC_hong1234')
-    expect(smsHolder(data, 'b1/17', 'sms:r3', null)).toMatchObject({ buyer: 'sms:r3', claim: { currentBuyer: 'UC_kim5555' } })
-    expect(smsHolder(data, 'b1/16', 'UC_kim5555', null)).toBeUndefined()
-  })
-
-  it('같은 뒤 4자리의 문자 구매자 여럿이 한 사람에 합쳐져 있으면 그 지금의 구매자, 서로 다른 사람이면 정하지 않는다', () => {
-    const KEY_C = 'phonekey-cccccccccccc'
-    const two = [...BASE, sms('r7', 17, { phoneKey: KEY_C, phoneLast4: '5678' })]
-    // r1(16 1등)과 r7(17 대기) — 다른 사람, 17에는 r7과 김철수: 뒤 4자리 5678 중 17에 찜이 있는 사람은 r7 하나
-    expect(smsHolder(dataOf(two), 'b1/17', null, '5678')?.buyer).toBe('sms:r7')
-    // 둘 다 15에 찜 → 누구인지 정하지 않는다
-    const both = [...two, sms('r8', 15, { phoneKey: KEY_C, phoneLast4: '5678' })]
-    expect(smsHolder(dataOf(both), 'b1/15', null, '5678')).toBeUndefined()
-    // r7을 r1에 합치면(같은 사람) 15의 활성 찜은 한 사람(r1의 지금의 구매자) — 문자 구매자가 둘이라 지금의 구매자로
-    const merged = dataOf([...both, { type: 'buyer.merge', from: 'sms:r7', into: 'sms:r1', reason: '같은 사람' }])
-    expect(smsHolder(merged, 'b1/15', null, '5678')?.buyer).toBe('sms:r1')
+    expect(objectParticle('홍길동 · 끝 1232')).toBe('를')
+    expect(objectParticle('김철수')).toBe('를')
   })
 })

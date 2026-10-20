@@ -254,9 +254,9 @@ p {
 
 .warning {
   padding: 0.5rem 0.75rem;
-  border-left: 4px solid #a50e0e;
-  background-color: #fce8e6;
-  color: #5c0b0b;
+  border-left: 4px solid #8a6100;
+  background-color: #fef7e0;
+  color: #3d2b00;
 }
 
 .field-error {
@@ -899,6 +899,34 @@ p {
   table-layout: fixed;
 }
 
+/* 휴대폰 조치 기록 (AC-S06b-41, D-102): 기록마다 한 묶음(시각 · 조치 · 대상 · 사유 · 조치자). 낱말은 중간에서 꺾이지 않는다 */
+.history-list {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.history-entry {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid #c4c7c5;
+  border-radius: 0.5rem;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+.history-entry > span + span::before {
+  content: '· ';
+  color: #5f6368;
+}
+
+.history-entry .history-time {
+  font-weight: 700;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
 /* 조치 기록의 시각은 잘리지 않는다 (AC-S06-66 012): 칸 폭을 글자에 맞추고 시각은 끊지 않는다 */
 .history {
   table-layout: auto;
@@ -907,6 +935,11 @@ p {
 .history .history-time {
   overflow-wrap: normal;
   word-break: normal;
+}
+
+/* 열 머리 낱말("조치자")은 중간에서 꺾지 않는다 (TE-S06b-001과 같은 원인 — body의 overflow-wrap: anywhere) */
+.history th {
+  overflow-wrap: normal;
 }
 
 .compare th,
@@ -945,6 +978,18 @@ p {
 .choice-button:hover,
 .choice-button[aria-pressed='true'] {
   border-color: #0b57d0;
+}
+
+/* 고른 항목 (AC-S06b-32): 테두리 색만이 아니라 다른 배경과 "✓ 고름" 글자 */
+.choice-button[aria-pressed='true'] {
+  border-width: 3px;
+  background-color: #e8f0fe;
+  color: #041e49;
+}
+
+.chosen-mark {
+  font-weight: 800;
+  color: #041e49;
 }
 
 .list-link {
@@ -1041,10 +1086,10 @@ html:has(.sms-submit-bar) {
   display: grid;
   gap: 0.5rem;
   padding: 0.75rem 1rem;
-  border: 2px solid #137333;
+  border: 2px solid #5f6368;
   border-radius: 0.5rem;
-  background-color: #e6f4ea;
-  color: #0d3b1e;
+  background-color: #f8f9fa;
+  color: #1a1a1a;
 }
 
 .amount-row {
@@ -1067,6 +1112,103 @@ html:has(.sms-submit-bar) {
 .settlement-card {
   align-items: flex-start;
   block-size: 100%;
+}
+
+/* PC 목록 표 (AC-S06b-21, D-101): 열 머리, 금액 열 오른쪽, 줄 높이 44px 이상(이름 칸 링크). 표는 48rem 이상에서만 그린다(휴대폰은 카드).
+ * 줄바꿈 (TE-S06b-001): 금액은 늘 "1,238,000원" 한 덩어리 — 숫자 중간·"원" 앞에서 줄을 바꾸지 않는다.
+ * body의 overflow-wrap: anywhere는 표의 자동 폭 계산에서 칸의 최소 폭을 글자 하나로 줄여, 태블릿 폭에서 금액이 숫자 중간에서 꺾였다.
+ * 그래서 표 칸은 띄어쓰기에서만 줄을 바꾸고(낱말은 body의 keep-all 그대로), 금액 칸과 금액(.won)은 한 줄이다.
+ * 띄어쓰기 없는 긴 닉네임이 들어가는 이름 칸만 아무 데서나 꺾는다 — 좁아지면 이름 칸이 줄을 더 쓴다. */
+.list-table {
+  inline-size: 100%;
+  border-collapse: collapse;
+}
+
+.list-table th,
+.list-table td {
+  padding: 0 0.5rem;
+  border-bottom: 1px solid #c4c7c5;
+  text-align: left;
+  vertical-align: middle;
+  overflow-wrap: normal;
+}
+
+.list-table thead th {
+  border-bottom: 2px solid #5f6368;
+  background-color: #f8f9fa;
+}
+
+.list-table tbody tr:hover {
+  background-color: #f4f8ff;
+}
+
+.list-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.list-table .cell-name {
+  overflow-wrap: anywhere;
+}
+
+/* 그래도 금액이 다 들어가지 않을 만큼 좁으면(아주 큰 금액) 표만 옆으로 밀어 본다 — 화면 전체는 가로로 밀리지 않는다 */
+.table-scroll {
+  overflow-x: auto;
+}
+
+/* 한 줄 고정·최소 폭은 표를 그리는 폭(48rem 이상)에서만 — 휴대폰(375px)에는 닿지 않는다 */
+@media (min-width: 48rem) {
+  .list-table td.num,
+  .list-table .won {
+    white-space: nowrap;
+  }
+
+  /* 배송비 예외 낱말("직접 수령 0원")은 띄어쓰기에서 꺾을 수 있다 — 금액은 .won으로 한 덩어리 */
+  .list-table td.num-words {
+    white-space: normal;
+  }
+
+  .list-table thead th {
+    white-space: nowrap;
+  }
+
+  .list-table .cell-name {
+    min-inline-size: 6rem;
+  }
+}
+
+/* 태블릿 폭(48rem~74.99rem): 열 여덟 개가 가로 밀기 없이 들어가게 글자 16px(기본 글자 16px 이상 그대로)·칸 여백을 줄이고 열 머리도 꺾는다 */
+@media (min-width: 48rem) and (max-width: 74.99rem) {
+  .list-table {
+    font-size: 1rem;
+  }
+
+  .list-table th,
+  .list-table td {
+    padding: 0 0.375rem;
+  }
+
+  .list-table thead th {
+    white-space: normal;
+  }
+}
+
+.table-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  font-weight: 700;
+  color: #0b4fb3;
+}
+
+.cell-marks {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+}
+
+.input-amounts {
+  font-weight: 700;
 }
 
 .choice-list-plain {
@@ -1102,6 +1244,358 @@ html:has(.sms-submit-bar) {
   color: #5b2a86;
 }
 
+/* ── 음성 칸 (VOC-01·04, D-I4-03·04·05, AC-I4-50) ─────────────
+ * PC(폭 768px 이상, 화면이 정한다)에선 음성 칸이 빠른 입력칸과 함께 고정 영역에 있다(console-sticky-voice) — Enter 대상 카드가 늘 보이게.
+ * 넓으면 두 칸(빠른 입력 | 음성)으로 놓아 고정 영역이 화면 높이 절반을 넘지 않게 하고, 카드가 넘치면 카드 칸 안에서 스크롤한다.
+ * 휴대폰에선 음성 칸이 고정 영역 밖이다(고정 영역 35% 그대로, D-094). 상태는 색 + 글자("확인 필요"·"Enter 등록").
+ */
+.console-sticky-quick {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.voice {
+  display: grid;
+  gap: 0.375rem;
+  min-width: 0;
+  align-content: start;
+}
+
+.voice-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  align-items: center;
+}
+
+.voice-state {
+  font-weight: 700;
+  color: #0d652d;
+}
+
+.voice-sent {
+  flex: 1 1 12rem;
+  color: #3c4043;
+}
+
+.voice-interim {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  overflow: hidden;
+  color: #3c4043;
+}
+
+.voice-error {
+  color: #a50e0e;
+  font-weight: 700;
+}
+
+.voice-info {
+  color: #6b4e00;
+  font-weight: 700;
+}
+
+.voice-cards {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.voice-card {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  border: 2px solid #0b57d0;
+  border-radius: 0.5rem;
+  background-color: #f4f8fe;
+  color: #041e49;
+}
+
+/* 확인 필요(LOW): 점선 테두리 + "확인 필요" 글자 */
+.voice-card-low {
+  border-style: dashed;
+  border-color: #8a6100;
+  background-color: #fffbf0;
+  color: #2b1f00;
+}
+
+.voice-card-body {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+.voice-card-text {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.5rem;
+  align-items: center;
+}
+
+.voice-card-heard {
+  font-size: 1rem;
+  color: #3c4043;
+}
+
+.voice-card-auto {
+  font-weight: 700;
+  color: #0b4fb3;
+}
+
+.voice-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.voice-fix {
+  flex: 1 1 100%;
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+}
+
+.voice-extras {
+  display: grid;
+  gap: 0.5rem;
+  align-content: start;
+}
+
+.voice-settings {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.voice-seconds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.voice-seconds .input {
+  max-width: 6rem;
+}
+
+.voice-heard-list {
+  margin: 0;
+  padding-left: 1.75rem;
+  user-select: text;
+}
+
+/* PC: 음성 칸 높이에 상한을 두고 카드가 넘치면 카드 칸 안에서 스크롤 — 고정 영역이 화면 높이 절반을 넘지 않는다 */
+.console-sticky-voice .voice {
+  display: flex;
+  flex-direction: column;
+  max-height: max(10rem, calc(50vh - 13rem));
+}
+
+.console-sticky-voice .voice > * {
+  flex: none;
+}
+
+.console-sticky-voice .voice > .voice-cards {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (min-width: 64rem) {
+  .console-sticky-voice {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 1rem;
+    align-items: start;
+  }
+
+  .console-sticky-voice > .connection-banner {
+    grid-column: 1 / -1;
+  }
+
+  /* 두 칸: 음성 칸만으로 화면 높이 절반 - 고정 영역 위아래 여백 */
+  .console-sticky-voice .voice {
+    max-height: calc(50vh - 1.5rem);
+  }
+}
+
+/* ── 라벨·출력 (I1, AC-I1-20~27·30~35·62) ─────────────────── */
+
+/* 화면 읽기 프로그램에만 읽히는 글 (칸 이름을 구분 — "가게 이름 켜기") */
+.sr-only {
+  position: absolute;
+  max-width: 1px;
+  max-height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  border: 0;
+}
+
+/* 프린터 상태 (모든 화면 위, AC-I1-34): 글자로 — 누르면 라벨 화면 */
+.printer-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0.25rem 0.75rem;
+  border: 2px solid #5f6368;
+  border-radius: 0.5rem;
+  color: #1a1a1a;
+  background-color: #ffffff;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.printer-status-alert {
+  border-color: #a50e0e;
+  background-color: #fce8e6;
+  color: #5c0b0b;
+}
+
+.labels-page .card {
+  display: grid;
+  gap: 1rem;
+}
+
+.fieldset {
+  margin: 0;
+  padding: 0.5rem 0.75rem 0.75rem;
+  border: 1px solid #c4c7c5;
+  border-radius: 0.5rem;
+  min-width: 0;
+}
+
+.fieldset legend {
+  font-weight: 700;
+  padding: 0 0.25rem;
+}
+
+.input-short {
+  max-width: 8rem;
+}
+
+/* 멈춤 띠 (AC-I1-24): 까닭 문장과 할 일 — 휴대폰에서도 잘리지 않는다 */
+.pause-band {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+  padding: 0.75rem 1rem;
+  border: 2px solid #a50e0e;
+  border-radius: 0.5rem;
+  background-color: #fce8e6;
+  color: #3b0707;
+}
+
+.pause-message {
+  font-weight: 700;
+}
+
+.job-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.job-row {
+  display: grid;
+  gap: 0.25rem;
+  justify-items: start;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #c4c7c5;
+  border-radius: 0.5rem;
+}
+
+.job-main {
+  overflow-wrap: anywhere;
+}
+
+.job-error {
+  color: #a50e0e;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.tag-printing {
+  border-color: #0b57d0;
+  background-color: #d3e3fd;
+  color: #041e49;
+}
+
+.tag-discard {
+  border-color: #a50e0e;
+  background-color: #fce8e6;
+  color: #a50e0e;
+}
+
+.device-status {
+  justify-items: start;
+}
+
+/* 라벨 설정: PC는 칸과 미리 보기를 나란히, 휴대폰은 아래로 */
+.label-editor {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+}
+
+.item-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  align-items: center;
+}
+
+.item-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.item-size {
+  padding: 0 0.25rem;
+  text-align: center;
+}
+
+/* 라벨 그림: 50mm 라벨 틀 안의 가운데 48mm, 점이 흐려지지 않게 */
+.label-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  border: 2px dashed #5f6368;
+  border-radius: 0.5rem;
+  background-color: #ffffff;
+}
+
+.label-canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  background-color: #ffffff;
+}
+
+.label-frame .label-canvas {
+  outline: 1px solid #c4c7c5;
+}
+
+.label-box {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid #c4c7c5;
+  border-radius: 0.5rem;
+}
+
+.label-pages {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+}
+
 /* ── 휴대폰 (375px 기준, AC-S06-02·61) ───────────────────── */
 
 @media (max-width: 47.99rem) {
@@ -1115,10 +1609,9 @@ html:has(.sms-submit-bar) {
     right: 0;
     bottom: 0;
     z-index: 15;
-    display: grid;
-    /* 메뉴 수(판매자 5 · 보조자 1)만큼 같은 폭 (AC-I3-44) */
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(0, 1fr);
+    /* 메뉴(판매자 여섯 — AC-I1-20·AC-I3-44, 보조자 하나): 글자 길이만큼 나눠 "문자찜 입력"도 한 줄 */
+    display: flex;
+    flex-wrap: nowrap;
     gap: 0;
     padding: 0.25rem 0.125rem calc(0.25rem + env(safe-area-inset-bottom));
     border-top: 1px solid #c4c7c5;
@@ -1127,10 +1620,15 @@ html:has(.sms-submit-bar) {
 
   /* 다섯 칸에서 "문자찜 입력"이 두 줄이 되어도 누르는 곳 높이(44px) 안에 들어가게 — 글자는 16px 그대로 */
   .menu-link {
+    flex: 1 1 auto;
     padding: 0.25rem 0.125rem;
     letter-spacing: -0.02em;
     font-size: 1rem;
     line-height: 1.2;
+  }
+
+  .label-editor {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .console {
@@ -1139,6 +1637,10 @@ html:has(.sms-submit-bar) {
 
   .console-sticky {
     padding: 0.375rem 0;
+    gap: 0.375rem;
+  }
+
+  .console-sticky-quick {
     gap: 0.375rem;
   }
 
@@ -1395,4 +1897,58 @@ html:has(.sms-submit-bar) {
 .policy-page ul {
   margin: 0;
   padding-left: 1.25rem;
+}
+
+/* 고정 영역에 안내가 없으면 자리를 차지하지 않는다 */
+.page-sticky:empty {
+  display: none;
+}
+
+/* PC 목록 (AC-S06b-21): 1440×900에서 표 줄이 스크롤 없이 8줄 이상 보이게 위쪽을 줄인다 — 정산 요약은 한두 줄 */
+@media (min-width: 48rem) {
+  .page-wide {
+    padding-top: 1rem;
+  }
+
+  .settlement-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.5rem;
+    align-items: baseline;
+    padding: 0.5rem 1rem;
+  }
+
+  .settlement-summary .facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.5rem;
+  }
+}
+
+/* ── 결과·안내의 뜻 (UX-01, D-102, AC-S06b-40) ────────────────
+ * 결과 카드·안내 띠·창 안 알림은 종류를 data-tone으로 드러내고 색은 그 종류의 색이다. 늘 낱말과 함께(색만으로 구분하지 않는다).
+ * success 성공(원하던 대로 됨) · warning 주의(확인이 필요함) · danger 위험(실패·막힘) · info 보통(정보). 글자 명암비 4.5:1 이상.
+ * 같은 무게의 클래스 색(.notice·.warning·.error-note·.sms-result·.undo-item)보다 뒤에 두어 이것이 이긴다. */
+[data-tone='success'] {
+  border-color: #137333;
+  background-color: #e6f4ea;
+  color: #0d3b1e;
+}
+
+[data-tone='warning'] {
+  border-color: #8a6100;
+  background-color: #fef7e0;
+  color: #3d2b00;
+}
+
+[data-tone='danger'] {
+  border-color: #a50e0e;
+  background-color: #fce8e6;
+  color: #3b0707;
+}
+
+[data-tone='info'] {
+  border-color: #0b57d0;
+  background-color: #e8f0fe;
+  color: #041e49;
 }

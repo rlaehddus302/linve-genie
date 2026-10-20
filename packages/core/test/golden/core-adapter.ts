@@ -1,10 +1,12 @@
 // 실제 코어(@livejjim/core)를 골든 러너의 GoldenCore 모양으로 감싼다.
-// - 파서(S01)는 코어 결과를 바꾸지 않고 그대로 넘긴다(AC-S01-04).
+// - 파서(S01)는 코어 결과를 바꾸지 않고 그대로 넘긴다(AC-S01-04). 음성 문장 추출(P2, D-209)은 packages/voice 추출기 결과를 그대로 넘긴다.
 // - 엔진(S02·S03, AC-S02-91·AC-S03-91)은 이름·모양만 바꾼다. 판정·합계·정산·효과 상태는 다시 계산하지 않고 조회 함수 결과를 그대로 옮긴다.
 // - 이벤트의 구매자 키(buyer·replace·from·into)는 그 키의 구매자 자신의 ID로 바꿔 넘긴다(`sms:<ref>` → 그 ref의 처음 문자찜이 정한 구매자, README "이벤트 안의 구매자 키").
 // - 문자찜의 phone(판매자가 적은 글자 그대로)은 서버처럼 phoneKey·phoneLast4로 바꿔 넘기고 phone은 넘기지 않는다(README "규칙", D-061, phone-key.ts).
 // - 관찰 스냅샷의 구매자는 지금의 구매자다. buyerKeys = 키 → 지금의 구매자.
 // - broadcast.start·broadcast.end는 그대로 넘기고(사본도), 관찰 스냅샷의 방송은 listBroadcasts의 날짜·제목·끝남이다(S04, AC-S04-91).
+// - 합치기 미리 보기(S06b, D-100)는 코어 previewMerge 결과에서 비교할 필드(막힘·확정 둘·옮길 찜·합친 뒤·중복의 상품·구매자 자신·상태)만 옮긴다.
+//   러너는 from·into를 관찰 스냅샷의 buyerSelf(키 → 구매자 자신, buyerIdOf와 같은 풀이)로 풀어 넘긴다.
 // - 효과 보고 이벤트의 (상품, 구매자[, 대상]) → 효과 ID 연결은 README 규칙("가장 최근에 나온, 취소되지 않은 해당 효과",
 //   상품 키는 효과가 나온 때의 것, 구매자는 지금의 구매자로 비교)대로 조회 함수로 찾는다.
 import {
@@ -26,12 +28,16 @@ import {
   parseChat,
   parseKoreanNumber,
   parseQuickInput,
+  previewMerge,
   type EngineEvent,
   type EngineState,
 } from '@livejjim/core'
+// 음성 추출기 (P2, D-209): 추출기는 packages/voice에 있다. 코어 src는 음성 패키지에 기대지 않고, 골든 어댑터(시험 코드)만 부른다.
+// 워크스페이스 의존으로 적으면 core ↔ voice가 서로 기대는 고리가 되어(voice는 코어 파서를 쓴다) 상대 경로로 추출 모듈만 가져온다.
+import { extractVoice } from '../../../voice/src/extract.ts'
 import { SMS_PREFIX } from './contract.ts'
 import { smsPhoneFields } from './phone-key.ts'
-import type { BroadcastView, BuyerView, ClaimView, EffectView, GoldenCore, GoldenEvent, GoldenSnapshot, ProductView, SettlementView } from './types.ts'
+import type { BroadcastView, BuyerView, ClaimView, EffectView, GoldenCore, GoldenEvent, GoldenSnapshot, MergePreviewView, ProductView, SettlementView } from './types.ts'
 
 /** 이벤트 안의 구매자 키 필드 (README "이벤트 안의 구매자 키") */
 const BUYER_KEY_FIELDS = ['buyer', 'replace', 'from', 'into'] as const
@@ -127,8 +133,12 @@ export function toSnapshot(state: EngineState): GoldenSnapshot {
   const buyerKeys: Record<string, string> = {}
   for (const buyer of buyers) if (buyer.kind === 'youtube') buyerKeys[buyer.id] = buyer.current
   for (const ref of listSmsRefs(state)) buyerKeys[`${SMS_PREFIX}${ref.ref}`] = ref.currentBuyer
+  // 같은 키 → 그 키의 구매자 자신 (이벤트의 구매자 키와 같은 풀이 buyerIdOf, S06b mergePreviews)
+  const buyerSelf: Record<string, string> = {}
+  for (const key of Object.keys(buyerKeys)) buyerSelf[key] = buyerIdOf(state, key)
   return {
     buyerKeys,
+    buyerSelf,
     broadcasts,
     products,
     buyers: buyerViews,
@@ -140,17 +150,32 @@ export function toSnapshot(state: EngineState): GoldenSnapshot {
   }
 }
 
+/** 코어 previewMerge 결과 → 골든 비교 모양 (이름·모양만 바꾼다 — 찜 ID·남는 찜·옮길 구매자 목록·target은 비교하지 않아 뺀다) */
+export function toMergePreviewView(state: EngineState, from: string, into: string): MergePreviewView {
+  const preview = previewMerge(state, from, into)
+  return {
+    blocked: preview.blocked,
+    bothConfirmed: preview.bothConfirmed,
+    moving: { items: preview.moving.items, subtotal: preview.moving.subtotal },
+    after: preview.after === null ? null : { items: preview.after.items, subtotal: preview.after.subtotal },
+    duplicates: preview.duplicates.map(({ product, buyer, status }) => ({ product, buyer, status })),
+  }
+}
+
 export const realCore: GoldenCore = {
   parser: {
     chat: (text, settings) => parseChat(text, settings),
     amount: (text, settings) => parseAmount(text, settings),
     koreanNumber: (text) => parseKoreanNumber(text),
     quickInput: (text, settings) => parseQuickInput(text, settings),
+    // 결과를 바꾸지 않고 그대로 넘긴다. price.unit은 넘기지 않는다 — 추출은 원 단위(R-17 4, D-202)
+    voiceExtract: (text, settings, dictionary) => extractVoice(text, { maxNumber: settings['claim.maxNumber'], dictionary }),
   },
   engine: {
     start: (setup) => initEngine(setup),
     apply: (state, event) => applyEvent(state as EngineState, toEngineEvent(state as EngineState, event)),
     observe: (state) => toSnapshot(state as EngineState),
     invariants: (state) => checkInvariants(state as EngineState),
+    previewMerge: (state, from, into) => toMergePreviewView(state as EngineState, from, into),
   },
 }

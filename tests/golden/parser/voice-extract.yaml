@@ -1,0 +1,143 @@
+# P2 — 음성 문장 추출 (VOC-02·VOC-03, DOMAIN_RULES R-17, D-202·D-203). 방송자가 말한 문장 하나(음성 인식 최종 결과) → { 번호, 품종, 가격, 신뢰도 }
+# 판단 기준: 애매하면 그 칸을 비운다(null). 카드는 바로 등록하지 않고 방송자가 확인하므로(VOC-04), 틀린 값을 채우는 것보다 빈칸이 안전하다.
+# 신뢰도 HIGH = 번호·가격·품종이 모두 있고 품종이 사전과 정확히 같다(공백만 다름) — 자동 확정(설정, 기본 꺼짐)은 HIGH일 때만.
+# 금액은 R-14를 원 단위로 읽는다(price.unit과 무관, D-202). 숫자만 있는 묶음(`10000`, `10`)은 가격으로 보지 않는다.
+# 품종 유사도 = 1 − 자모 편집 거리 / 긴 쪽 자모 수 (공백 지우고 NFD로 푼 코드 포인트 하나 = 자모 하나). 0.8 이상(거리 × 5 ≤ 긴 쪽 자모 수)만 맞춘다.
+#   자모 수 예: 핑(핑 3) 크(크 2) 프(프 2) 릴(릴 3) → 핑크프릴 10. 라(라 2) 울(울 3) → 라울 5. 벨루가 = 3+2+2 = 7. 로라 = 2+2 = 4.
+suite: voice-extract
+settings:
+  dictionary: [핑크프릴, "핑크프릴 금", "방울복랑 금", 라울, 왕비뇌신금, 블루엘프, 레티지아, 십이지권, 천사의눈물, 벨루가, 로라]
+cases:
+  # ── 기본: 번호(N번)·품종(사전)·가격(말 금액) 모두 → HIGH
+  - { in: "15번 핑크프릴 만오천 원", out: { no: 15, name: 핑크프릴, price: 15000, confidence: HIGH } }
+  - { in: "십오번 핑크프릴 만 오천 원", out: { no: 15, name: 핑크프릴, price: 15000, confidence: HIGH } }        # 한자어 수사 번호(R-15)
+  - { in: "15번 핑크 프릴 1만 5천 원", out: { no: 15, name: 핑크프릴, price: 15000, confidence: HIGH } }       # 품종은 공백을 지우고 비교, 사전 모양으로 돌려준다
+  - { in: "이번엔 15번 핑크프릴이에요 만오천 원에 드릴게요", out: { no: 15, name: 핑크프릴, price: 15000, confidence: HIGH } }  # '이번엔'은 번호 아님, 끝말(이에요·에) 떼기
+  - { in: "15번, 핑크프릴, 만 오천 원.", out: { no: 15, name: 핑크프릴, price: 15000, confidence: HIGH } }    # 토큰 끝 문장 부호(. , ? ! ~)는 지운다
+  - { in: "15 번 라울 오천 원이요", out: { no: 15, name: 라울, price: 5000, confidence: HIGH } }               # 띄어 쓴 '번'
+  - { in: "15번엔 핑크프릴 만원", out: { no: 15, name: 핑크프릴, price: 10000, confidence: HIGH } }            # '번' 뒤 끝말(엔)
+  - { in: "194번 왕비뇌신금 팔천 원", out: { no: 194, name: 왕비뇌신금, price: 8000, confidence: HIGH } }
+  - { in: "31번 방울복랑 금 15,000원", out: { no: 31, name: "방울복랑 금", price: 15000, confidence: HIGH } }  # 숫자 금액도 '원'이 붙으면 말 금액
+  - { in: "백오번 블루엘프 칠천 원", out: { no: 105, name: 블루엘프, price: 7000, confidence: HIGH } }         # 번호는 글자 그대로(R-15: 백오 = 105)
+  - { in: "15번 천사의눈물 삼만 원", out: { no: 15, name: 천사의눈물, price: 30000, confidence: HIGH } }       # '천사'의 '천'은 금액이 아니다(토큰 전체가 R-14로 읽혀야 금액)
+  - { in: "１５번 핑크프릴 만원", out: { no: 15, name: 핑크프릴, price: 10000, confidence: HIGH } }            # 전각 숫자(R-3 정규화)
+  - { in: "오늘 첫 번째 상품이에요 15번 라울 오천 원", out: { no: 15, name: 라울, price: 5000, confidence: HIGH } }  # '번째'는 번호 표시가 아니다
+  - { in: "15번 라울 오천 원 3개 남았어요", out: { no: 15, name: 라울, price: 5000, confidence: HIGH } }      # '3개'는 금액 글자만으로 된 토큰이 아니다
+  # 같은 번호·같은 가격을 되풀이하는 것은 애매하지 않다
+  - { in: "15번이요 15번 핑크프릴 만원", out: { no: 15, name: 핑크프릴, price: 10000, confidence: HIGH } }
+  - { in: "15번 핑크프릴 만원 만원", out: { no: 15, name: 핑크프릴, price: 10000, confidence: HIGH } }
+  - { in: "15번 핑크프릴 오천 원 오천 원", out: { no: 15, name: 핑크프릴, price: 5000, confidence: HIGH } }   # 뒤 '오천 원'도 가격 묶음이라 조각이 아니다
+
+  # ── 번호 (R-17 3): 숫자 1~4자리 또는 한자어 수사 + '번'. 서로 다른 번호가 둘 이상이거나 범위(1..maxNumber) 밖이면 null
+  - { in: "한 번 더 보여 드릴게요", out: { confidence: LOW } }                                     # 고유어 '한 번'은 횟수
+  - { in: "이번 상품은 진짜 예뻐요", out: { confidence: LOW } }                                    # '이번'(이번에)은 2번이 아니다
+  - { in: "이 번 라울 만원", out: { name: 라울, price: 10000, confidence: LOW } }                  # 띄어 쓴 '이 번'도 번호로 보지 않는다
+  - { in: "열다섯 번 핑크프릴 만원", out: { name: 핑크프릴, price: 10000, confidence: LOW } }       # 고유어 수사는 번호가 아니다(횟수와 구별 불가)
+  - { in: "15번째 핑크프릴 만원", out: { name: 핑크프릴, price: 10000, confidence: LOW } }
+  - { in: "세 번째 상품 만원", out: { price: 10000, confidence: LOW } }
+  - { in: "15번 16번 만원", out: { price: 10000, confidence: LOW } }                              # 서로 다른 번호 둘 → 애매
+  - { in: "1000번 핑크프릴 만원", out: { name: 핑크프릴, price: 10000, confidence: LOW } }         # maxNumber(999) 밖
+  - { in: "일번 라울 오천 원", out: { no: 1, name: 라울, price: 5000, confidence: HIGH } }
+
+  # ── 가격 (R-17 4): 말 금액(원 또는 한글 수·단위가 있는 묶음) 하나, 100원 이상. 숫자만 있는 묶음은 가격이 아니다
+  - { in: "15번 핑크프릴 10000", out: { no: 15, name: 핑크프릴, confidence: LOW } }
+  - { in: "15번 핑크프릴 10", out: { no: 15, name: 핑크프릴, confidence: LOW } }                  # 천원 단위로 추측하지 않는다
+  - { in: "15번 핑크프릴 십", out: { no: 15, name: 핑크프릴, confidence: LOW } }                  # 10원 → 100원 미만이라 가격 아님
+  - { in: "15번 핑크프릴 99원", out: { no: 15, name: 핑크프릴, confidence: LOW } }
+  - { in: "15번 라울 0원", out: { no: 15, name: 라울, confidence: LOW } }
+  - { in: "15번 핑크프릴 백 원", out: { no: 15, name: 핑크프릴, price: 100, confidence: HIGH } }  # 하한 100원 경계
+  - { in: "15번 핑크프릴 만오", out: { no: 15, name: 핑크프릴, confidence: LOW } }                # R-14 D-032: '만오'는 줄임말인지 애매 → 금액 아님
+  - { in: "15번 핑크프릴 만이천오백 원", out: { no: 15, name: 핑크프릴, price: 12500, confidence: HIGH } }
+  - { in: "15번 핑크프릴 1.5만 원", out: { no: 15, name: 핑크프릴, price: 15000, confidence: HIGH } }
+  - { in: "15번 핑크프릴 만원이요", out: { no: 15, name: 핑크프릴, price: 10000, confidence: HIGH } }    # 끝말 '이요'를 떼고 읽는다
+  - { in: "15번 라울 오천원짜리", out: { no: 15, name: 라울, price: 5000, confidence: HIGH } }
+  - { in: "15번 핑크프릴 만오천원에", out: { no: 15, name: 핑크프릴, price: 15000, confidence: HIGH } }
+  - { in: "15번 핑크프릴 만 원 하던 거 오천 원에", out: { no: 15, name: 핑크프릴, confidence: LOW } }   # 서로 다른 가격 둘 → 애매
+  # 금액 조각 (R-17 4, D-048과 같은 취지): 띄어 쓴 한 금액의 일부일 수 있는 이웃 토큰이 있으면 가격을 비운다
+  - { in: "15번 핑크프릴 1만 500", out: { no: 15, name: 핑크프릴, confidence: LOW } }             # '1만' 뒤 '500'(원으로 끝나지 않은 묶음 뒤의 금액 글자 토큰)
+  - { in: "15번 핑크프릴 이 만원짜리", out: { no: 15, name: 핑크프릴, confidence: LOW } }         # 단위로 시작하는 '만원' 앞의 '이'(이만 원일 수도)
+  - { in: "15번 핑크프릴 2 만원", out: { no: 15, name: 핑크프릴, confidence: LOW } }
+  - { in: "15번 핑크프릴 오 천 원", out: { no: 15, name: 핑크프릴, confidence: LOW } }
+  - { in: "15번 핑크프릴 만원 이 가격에 드려요", out: { no: 15, name: 핑크프릴, price: 10000, confidence: HIGH } }  # '원'으로 끝난 묶음 뒤는 보지 않는다
+
+  # ── 품종 (R-17 5): 사전에서 유사도 0.8 이상으로 가장 가까운 이름. 정확히 같지 않으면 LOW
+  - { in: "15번 핑크푸릴 만원", out: { no: 15, name: 핑크프릴, price: 10000, confidence: LOW } }   # 푸/프 중성 하나 다름: 거리 1, 1×5 ≤ 10 → 0.9
+  - { in: "15번 나울 오천 원", out: { no: 15, name: 라울, price: 5000, confidence: LOW } }         # 나/라 초성 하나: 거리 1, 1×5 ≤ 5 → 0.8 (경계)
+  - { in: "15번 벨루 만원", out: { no: 15, price: 10000, confidence: LOW } }                      # 벨루(5) vs 벨루가(7): 거리 2, 2×5 > 7 → 맞추지 않음
+  - { in: "15번 로나 만원", out: { no: 15, price: 10000, confidence: LOW } }                      # 로나 vs 로라(4): 거리 1, 1×5 > 4 → 짧은 이름은 한 글자만 달라도 맞추지 않음
+  - { in: "15번 벨루가 만원", out: { no: 15, name: 벨루가, price: 10000, confidence: HIGH } }      # 이름 끝 '가'를 떼지 않은 모양도 비교한다
+  - { in: "15번 라울이랑 만원", out: { no: 15, name: 라울, price: 10000, confidence: HIGH } }
+  - { in: "15번 십이 지권 만원", out: { no: 15, name: 십이지권, price: 10000, confidence: HIGH } }  # '십이'(12원)는 가격이 아니므로 품종 토큰으로 남는다
+  - { in: "15번 핑크프릴 금 만원", out: { no: 15, name: "핑크프릴 금", price: 10000, confidence: HIGH } }   # 같은 유사도(1)의 '핑크프릴'·'핑크프릴 금' → 다른 것을 모두 품는 긴 이름
+  - { in: "15번 핑크프릴 금이에요 만원", out: { no: 15, name: "핑크프릴 금", price: 10000, confidence: HIGH } }
+  - { in: "15번 핑크프릴 라울 만원", out: { no: 15, price: 10000, confidence: LOW } }              # 서로 품지 않는 두 이름 → 애매
+  - { in: "15번 핑크프릴 만오천 15번 라울 오천 원", out: { no: 15, confidence: LOW } }            # 이름 둘·가격 둘 → 둘 다 비움
+  - { in: "15번 만원", out: { no: 15, price: 10000, confidence: LOW } }
+  - { in: "핑크프릴 만오천 원", out: { name: 핑크프릴, price: 15000, confidence: LOW } }            # 번호 없음 → LOW (카드는 품종·가격이 둘 다 있어 만든다 — D-204)
+
+  # ── 이상한 입력: 예외 없이 빈 결과
+  - { in: "", out: { confidence: LOW } }
+  - { in: "   ", out: { confidence: LOW } }
+  - { in: "<b>15번</b> 만원", out: { price: 10000, confidence: LOW } }                            # 글자를 바꾸지 않는다. '<b>15번</b>'은 번호 표시가 아니다
+  - { in: "15번 라울 공짜", out: { no: 15, name: 라울, confidence: LOW } }
+---
+# 번호 범위는 claim.maxNumber를 따른다
+suite: voice-extract
+settings:
+  maxNumber: 50
+  dictionary: [라울]
+cases:
+  - { in: "50번 라울 만원", out: { no: 50, name: 라울, price: 10000, confidence: HIGH } }
+  - { in: "51번 라울 만원", out: { name: 라울, price: 10000, confidence: LOW } }
+---
+# 사전 다루기 (R-17 5, D-203): 공백만 다른 이름은 앞의 것 하나(판매 이력이 기본 사전보다 앞), 공백 뺀 1글자 이름은 넣지 않는다, 사전이 비면 품종 없음
+suite: voice-extract
+settings:
+  dictionary: ["핑크 프릴", 핑크프릴, 금, 라울]
+cases:
+  - { in: "15번 핑크프릴 만원", out: { no: 15, name: "핑크 프릴", price: 10000, confidence: HIGH } }   # 사전에 먼저 적힌 모양
+  - { in: "15번 금 만원", out: { no: 15, price: 10000, confidence: LOW } }
+---
+suite: voice-extract
+settings:
+  dictionary: [핑크프릴, 핑크프린]
+cases:
+  # 핑크프리 vs 핑크프릴·핑크프린: 둘 다 종성 하나 차이(거리 1, 10자모) → 0.9로 같고 서로 품지 않음 → 애매
+  - { in: "15번 핑크프리 만원", out: { no: 15, price: 10000, confidence: LOW } }
+---
+suite: voice-extract
+settings:
+  dictionary: []
+cases:
+  - { in: "15번 핑크프릴 만오천 원", out: { no: 15, price: 15000, confidence: LOW } }
+---
+# 문장 길이 상한 (R-17 1): 정규화한 문장이 300글자(코드 포인트)를 넘으면 아무것도 뽑지 않는다.
+# 첫 사례 = '15번 핑크프릴 만오천 원 '(15글자) + '자' 285개 = 300글자 → 평소대로. 둘째 = '자' 286개 = 301글자 → 전부 null.
+suite: voice-extract
+settings:
+  dictionary: [핑크프릴]
+cases:
+  - { in: "15번 핑크프릴 만오천 원 자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자", out: { no: 15, name: 핑크프릴, price: 15000, confidence: HIGH } }
+  - { in: "15번 핑크프릴 만오천 원 자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자자", out: { confidence: LOW } }
+---
+# I4 — 끊어 말한 번호 (R-17 3·4, TD-P2-002, D-I4-01). 번호 표시의 X 바로 앞 토큰(그대로)을 X 앞에 공백 없이 붙인 글이 R-15로 읽히면
+# 번호를 끊어 말했거나 인식이 갈랐을 수 있다 → 그런 표시가 하나라도 있으면 no·price 모두 null(그래서 LOW, 자동 확정 없음). 품종은 평소대로.
+# 이 규칙이 없을 때(P2 구현)의 결과를 오른쪽 주석에 적었다 — 대부분 엉뚱한 번호의 HIGH였다.
+# 품종 계산: 번호 표시 토큰·가격 묶음 토큰을 뺀 덩어리에서 사전 이름과 정확히 같은 창 하나(앞 조각 '1'·'십'·'이'·'백'은 사전 이름과 맞지 않는다).
+suite: voice-extract
+settings:
+  dictionary: [핑크프릴, 라울, 블루엘프]
+cases:
+  - { in: "1 5번 핑크프릴 만오천 원", out: { name: 핑크프릴, confidence: LOW } }           # '1'+'5' = '15'(R-15 15). 규칙 없으면 5번·15,000원 HIGH
+  - { in: "1, 5번 라울 만원", out: { name: 라울, confidence: LOW } }                      # 토큰 끝 ','를 지우면 '1' — 같다. 규칙 없으면 5번·10,000원 HIGH
+  - { in: "1 5 번 라울 만원", out: { name: 라울, confidence: LOW } }                      # 띄어 쓴 '5 번'의 X '5' 앞 '1' → '15'. 규칙 없으면 5번 HIGH
+  - { in: "십 오번 라울 오천 원", out: { name: 라울, confidence: LOW } }                  # '십'+'오' = '십오'(15). 규칙 없으면 5번·5,000원 HIGH
+  - { in: "이 십 번 블루엘프 칠천 원", out: { name: 블루엘프, confidence: LOW } }          # '십 번'의 X '십' 앞 '이' → '이십'(20). 규칙 없으면 10번 HIGH
+  - { in: "이 십오번 핑크프릴 만원", out: { name: 핑크프릴, confidence: LOW } }            # '이'+'십오' = '이십오'(25). 규칙 없으면 15번 HIGH
+  - { in: "백 오번 라울", out: { name: 라울, confidence: LOW } }                           # '백'+'오' = '백오'(105). 규칙 없으면 5번·'백'=100원 HIGH (가격도 비우는 이유)
+  - { in: "2 15번 핑크프릴 만원", out: { name: 핑크프릴, confidence: LOW } }               # '2'+'15' = '215'. 규칙 없으면 15번 HIGH
+  - { in: "백 이십 삼번 라울 만원", out: { name: 라울, confidence: LOW } }                 # '이십'+'삼' = '이십삼'(23). 가격 묶음 '백 이십'(120)·'만원'은 그래도 품종 창에서 빠진다. 규칙 없으면 3번
+  - { in: "15번 1 5번 핑크프릴 만원", out: { name: 핑크프릴, confidence: LOW } }           # 끊어 말한 표시가 하나라도 있으면 비운다('15번'이 따로 있어도). 규칙 없으면 가격 10,000원
+  # 앞 토큰을 붙인 글이 R-15로 읽히지 않으면 해당 없다 — 흔한 말버릇 뒤의 번호는 그대로
+  - { in: "이 15번 핑크프릴 만원", out: { no: 15, name: 핑크프릴, price: 10000, confidence: HIGH } }   # '이15'는 수가 아니다('이 15번' = 이 15번 상품)
+  - { in: "네 15번 라울 오천 원", out: { no: 15, name: 라울, price: 5000, confidence: HIGH } }        # '네15'는 수가 아니다

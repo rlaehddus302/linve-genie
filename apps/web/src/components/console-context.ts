@@ -2,6 +2,7 @@
 import type { SaleSettings } from '@livejjim/core'
 import { createContext, useContext } from 'react'
 import type { ApiError } from '../api/client.ts'
+import type { LabelView } from '../api/print-types.ts'
 import type { WriteResult } from '../api/types.ts'
 import type { BuyerNames } from '../lib/derive.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
@@ -33,6 +34,11 @@ export type Dialog =
   | { readonly kind: 'youtubeAuthorize'; readonly url: string }
   /** 유튜브 방송 연결 끊기 확인 (AC-I3-26) */
   | { readonly kind: 'youtubeUnlink' }
+  /** 출력 멈춤·버릴 라벨 (알림 띠, AC-I1-32) */
+  | { readonly kind: 'printPause' }
+  | { readonly kind: 'discard' }
+  /** Alt+P: 그 상품의 1등 라벨 다시 출력 (AC-I1-33) */
+  | { readonly kind: 'reprint'; readonly product: string | null }
 
 /** 사유를 받는 조치 (AC-S05-34) */
 export interface ReasonSpec {
@@ -96,6 +102,8 @@ export interface ConsoleApi {
   readonly sealed: boolean
   readonly data: ScopeData
   readonly names: BuyerNames
+  /** 라벨 키 → 서버의 라벨 상태 (실제 범위만 — 리허설·콘솔 밖 화면은 없다, AC-I1-30) */
+  readonly labels?: ReadonlyMap<string, LabelView>
   /** 보내기 전(5초 대기 중)인 찜 ID·상품 키 */
   readonly waiting: { readonly claims: ReadonlySet<string>; readonly products: ReadonlySet<string> }
   readonly delayMs: number
@@ -128,4 +136,11 @@ export function productLabel(api: Pick<ConsoleApi, 'b' | 'data'>, broadcast: str
   if (broadcast === api.b) return `${String(no)}번`
   const title = api.data.broadcasts.get(broadcast)?.title
   return title === undefined ? `${String(no)}번` : `${title} ${String(no)}번`
+}
+
+const NO_LABELS: ReadonlyMap<string, LabelView> = new Map()
+
+/** 콘솔의 라벨 상태 (없으면 빈 목록) */
+export function consoleLabels(api: Pick<ConsoleApi, 'labels'>): ReadonlyMap<string, LabelView> {
+  return api.labels ?? NO_LABELS
 }

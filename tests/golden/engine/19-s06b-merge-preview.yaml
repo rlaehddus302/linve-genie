@@ -1,0 +1,145 @@
+# S06b 보강 — 합치기 미리 보기(코어 순수 조회 previewMerge)가 R-11 "구매자 합치기"와 같은 답을 내는지 고정한다 (BUY-03, R-11, D-057, D-091, D-100).
+# 새 판정 규칙은 없다. 화면이 R-11을 다시 구현하던 미리 보기(RA-S06-003)를 코어 조회로 옮기며, 그 조회의 답을 여기 고정한다.
+# expect의 mergePreviews는 그 시점 상태에서 previewMerge(from, into)를 부른 결과다(README "추가 검사 키"). 미리 보기는 상태를 바꾸지 않는다.
+# - blocked: 위에서부터 처음 맞는 것 — UNKNOWN_BUYER(엔진이 모르는 구매자) → SAME_BUYER → FROM_MERGED(옮길 구매자가 이미 합쳐져 있음)
+#   → CYCLE(남는 쪽의 지금의 구매자가 옮길 구매자) → BOTH_CONFIRMED(확정 찜이 둘이 되는 상품) → null(합칠 수 있음)
+# - moving: 옮길 구매자와 그 아래 합쳐 있던 구매자 전부의 확정 찜. after: 합친 뒤 지금의 구매자(남는 쪽의 지금의 구매자)의 확정 찜, 막히면 null.
+# - duplicates: 합치면 DUPLICATE가 될 찜(앞선 쪽 = 확정 > 충돌 > 대기 앞 순번 > 보류 판정 순위가 남는다), 막히면 []. buyer는 그 찜의 구매자 자신.
+# 기본 설정: 접수순(ARRIVAL), 대기 한도 5, 자동 승계, 기본 배송비 4,000, 무료 기준 없음, 확정마다 라벨 1 + 감사 1.
+id: G-ENG-174
+title: 합치기 미리 보기 — 막히는 다섯 경우(모르는 구매자·같은 구매자·이미 합쳐짐·고리·두 사람 모두 1등), 막히지 않을 때 옮길 찜·합친 뒤 합계·중복으로 정리될 찜. 미리 본 대로 합쳐진다. 합쳐진 구매자에게 합치면 그 지금의 구매자로 간다
+refs: [BUY-03, BUY-04, R-11, R-12, D-057, D-091, D-100]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:02", type: product.register, b: b1, no: 17, name: 성미인, price: 8000 }
+  - { at: "20:00:03", type: product.register, b: b1, no: 18, name: 블루버드, price: 6000, stock: 2 }
+  - { at: "20:00:04", type: product.register, b: b1, no: 19, name: 금황성, price: 7000, stock: 2 }
+  - { at: "20:00:10", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15 18 19" }                              # A: 15번 1등, 18번 1등(재고 2 중 1), 19번 1등(재고 2 중 1)
+  - { at: "20:00:12", type: chat, b: b1, id: m2, ch: UC_B, nick: 영희, text: "16" }                                      # B: 16번 1등
+  - { at: "20:00:20", type: sms, b: b1, ref: s1, no: 18, received: "20:00:15", phone: "010-1111-2222", memo: 김씨 }     # 새 문자 구매자 X: 18번 1등(2 중 2) → 판매 완료
+  - { at: "20:00:21", type: sms, b: b1, ref: s2, no: 19, received: "20:00:16", phone: "01011112222", memo: 김씨 }       # 같은 번호 → X: 19번 1등(2 중 2) → 판매 완료
+  - { at: "20:00:22", type: sms, b: b1, ref: s3, no: 16, received: "20:00:17", phone: "010 1111 2222" }                 # 같은 번호 → X: 16번은 B가 1등 → X 대기 1순위
+  - { at: "20:00:23", type: chat, b: b1, id: m3, ch: UC_A, nick: 홍길동, text: "16" }                                   # A 16번 대기 2순위
+  - { at: "20:00:30", type: sms, b: b1, ref: s4, no: 17, received: "20:00:25" }                                          # 새 문자 구매자 Y(전화번호·메모 없음): 17번 1등
+  - { at: "20:00:31", type: chat, b: b1, id: m4, ch: UC_C, nick: 철수, text: "안녕하세요" }                              # C 기록(찜 없음)
+  - type: assert
+    expect:
+      products:
+        b1/16: { winner: UC_B, waitlist: ["sms:s1", UC_A] }
+        b1/18: { status: SOLD, winners: [UC_A, "sms:s1"] }
+        b1/19: { status: SOLD, winners: [UC_A, "sms:s1"] }
+      buyers:
+        UC_A: { items: [b1/15, b1/18, b1/19], subtotal: 23000 }                     # 10,000 + 6,000 + 7,000
+        "sms:s1": { items: [b1/18, b1/19], subtotal: 13000, display: 문자찜(김씨) }   # 6,000 + 7,000
+        UC_B: { items: [b1/16], subtotal: 5000 }
+        "sms:s4": { items: [b1/17], subtotal: 8000, display: 문자찜 }
+      sameBuyer: [["sms:s1", "sms:s2", "sms:s3"]]
+      mergePreviews:
+        # X → A: 18·19번에 두 사람 모두 1등 → 막힘. 막히면 합친 뒤 합계·중복은 없다(16번의 대기 겹침도 보이지 않는다)
+        - { from: "sms:s1", into: UC_A, blocked: BOTH_CONFIRMED, bothConfirmed: [b1/18, b1/19], moving: { items: [b1/18, b1/19], subtotal: 13000 }, after: null, duplicates: [] }
+        # 방향을 바꿔도 같은 상품에서 막힌다. 옮길 쪽은 A: 10,000 + 6,000 + 7,000 = 23,000
+        - { from: UC_A, into: "sms:s1", blocked: BOTH_CONFIRMED, bothConfirmed: [b1/18, b1/19], moving: { items: [b1/15, b1/18, b1/19], subtotal: 23000 }, after: null, duplicates: [] }
+        # Y → B: 겹치는 상품 없음 → B 5,000 + Y 8,000 = 13,000
+        - { from: "sms:s4", into: UC_B, blocked: null, bothConfirmed: [], moving: { items: [b1/17], subtotal: 8000 }, after: { items: [b1/16, b1/17], subtotal: 13000 }, duplicates: [] }
+        # sms:s2 키 = X 자신 → B: 16번은 B 1등 > X 대기 → X의 대기 찜이 중복. 합친 뒤 B 5,000 + X 13,000 = 18,000
+        - { from: "sms:s2", into: UC_B, blocked: null, bothConfirmed: [], moving: { items: [b1/18, b1/19], subtotal: 13000 }, after: { items: [b1/16, b1/18, b1/19], subtotal: 18000 }, duplicates: [{ product: b1/16, buyer: "sms:s1", status: WAITLISTED }] }
+        # 찜 없는 시청자 C → A: 옮길 것 없음, 합친 뒤 = A 그대로 23,000
+        - { from: UC_C, into: UC_A, blocked: null, bothConfirmed: [], moving: { items: [], subtotal: 0 }, after: { items: [b1/15, b1/18, b1/19], subtotal: 23000 }, duplicates: [] }
+        - { from: UC_A, into: UC_A, blocked: SAME_BUYER, after: null, duplicates: [] }
+        - { from: UC_Z, into: UC_A, blocked: UNKNOWN_BUYER, after: null, duplicates: [] }                               # 엔진이 모르는 채널
+        - { from: UC_A, into: UC_Z, blocked: UNKNOWN_BUYER, after: null, duplicates: [] }
+  # 미리 본 대로 합치기는 아무 일도 없다 (R-11 확정 찜이 둘이 되는 상품) — X는 따로 남는다
+  - { at: "21:00:00", type: buyer.merge, from: "sms:s1", into: UC_A, reason: 같은 사람 }
+  - type: assert
+    expect:
+      buyers:
+        UC_A: { items: [b1/15, b1/18, b1/19], subtotal: 23000 }
+        "sms:s1": { items: [b1/18, b1/19], subtotal: 13000 }
+  # 막힘 풀기: X의 18번, A의 19번을 취소 → 두 상품 모두 1등 하나(재고 2 중 1), 대기 없음 → 판매 중
+  - { at: "21:01:00", type: host.cancel, b: b1, no: 18, buyer: "sms:s1", reason: 같은 사람 중복 }
+  - { at: "21:01:10", type: host.cancel, b: b1, no: 19, buyer: UC_A, reason: 같은 사람 중복 }
+  - type: assert
+    expect:
+      products:
+        b1/18: { status: OPEN, winners: [UC_A] }
+        b1/19: { status: OPEN, winners: ["sms:s1"] }
+      mergePreviews:
+        # 이제 합칠 수 있다. X 확정 = 19번 7,000. 합친 뒤 A 15·18(16,000) + X 19(7,000) = 23,000.
+        # 16번: X 대기 1순위가 A 대기 2순위보다 앞선다 → A의 대기 찜이 중복
+        - { from: "sms:s1", into: UC_A, blocked: null, bothConfirmed: [], moving: { items: [b1/19], subtotal: 7000 }, after: { items: [b1/15, b1/18, b1/19], subtotal: 23000 }, duplicates: [{ product: b1/16, buyer: UC_A, status: WAITLISTED }] }
+  - { at: "21:02:00", type: buyer.merge, from: "sms:s1", into: UC_A, reason: 같은 사람 }
+expect:
+  # 미리 본 그대로: A의 16번 대기 찜이 중복(가장 최근 = A 자신의 찜), 16번 대기는 X의 찜 하나(지금의 구매자 A)
+  products:
+    b1/16: { status: SOLD, winner: UC_B, waitlist: [UC_A] }
+    b1/18: { status: OPEN, winners: [UC_A] }
+    b1/19: { status: OPEN, winners: [UC_A] }
+  claims:
+    - { product: b1/16, buyer: UC_A, status: DUPLICATE }
+    - { product: b1/18, buyer: "sms:s1", status: CANCELLED }        # 지금의 구매자 A의 18번 찜 중 가장 최근 = X의 취소된 찜
+  buyers:
+    UC_A: { items: [b1/15, b1/18, b1/19], subtotal: 23000, display: 홍길동 }      # = 미리 보기의 after
+    "sms:s4": { items: [b1/17], subtotal: 8000, display: 문자찜, phoneLast4: null }
+  sameBuyer: [[UC_A, "sms:s1", "sms:s2", "sms:s3"]]
+  settlements:
+    UC_A@2026-10-18: { subtotal: 23000, shipping: 4000, total: 27000, payment: UNPAID }   # 23,000 + 배송비 한 번 4,000
+  mergePreviews:
+    # X는 이미 A에 합쳐져 있다 → 먼저 떼어 내야 한다. 옮길 쪽 = X 자신의 확정(19번 7,000)
+    - { from: "sms:s1", into: UC_B, blocked: FROM_MERGED, moving: { items: [b1/19], subtotal: 7000 }, after: null, duplicates: [] }
+    # 남는 쪽 X의 지금의 구매자가 A 자신 → 고리
+    - { from: UC_A, into: "sms:s1", blocked: CYCLE, after: null, duplicates: [] }
+    # A(그 아래 X 포함)를 B에: 옮길 쪽 15·18(A)·19(X) = 23,000. 16번은 B 1등 > X 대기 → X의 대기 찜이 중복. 합친 뒤 23,000 + 5,000 = 28,000
+    - { from: UC_A, into: UC_B, blocked: null, bothConfirmed: [], moving: { items: [b1/15, b1/18, b1/19], subtotal: 23000 }, after: { items: [b1/15, b1/16, b1/18, b1/19], subtotal: 28000 }, duplicates: [{ product: b1/16, buyer: "sms:s1", status: WAITLISTED }] }
+    # 합쳐진 X에게 Y를 합치면 X의 지금의 구매자 A로 간다: 23,000 + 8,000 = 31,000
+    - { from: "sms:s4", into: "sms:s1", blocked: null, bothConfirmed: [], moving: { items: [b1/17], subtotal: 8000 }, after: { items: [b1/15, b1/17, b1/18, b1/19], subtotal: 31000 }, duplicates: [] }
+  claimCount: 9                                                     # A 15·18·19·16, B 16, X 18·19·16, Y 17
+  # 확정 7번(A 15·18·19, B 16, X 18·19, Y 17) → 라벨 7 + 감사 7. 취소 둘은 출력 보고가 없어 폐기 라벨 없음. 합치기·미리 보기는 효과를 내지 않는다
+  effectCounts: { POST_THANKS: 7, PRINT_PRODUCT_LABEL: 7, VOID_LABEL: 0 }
+---
+id: G-ENG-175
+title: 합치기 미리 보기의 중복 정리 순서 — 1등 > 충돌 > 대기, 보류끼리는 판정 순위(R-6, 실제 시각순). 방향을 바꿔도 남는 찜은 같다. 미리 본 대로 대기·보류 찜이 중복이 되고 충돌은 남는다
+refs: [BUY-03, ORD-09, ORD-10, R-5, R-6, R-7, R-11, D-052, D-053, D-057, D-100]
+settings: { contention.policy: RECEIVED_TIME, contention.sameMinuteTieBreaker: HOST }
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }
+  - { at: "20:00:20", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "16" }                 # A 16번 1등 (게시 20:00:20)
+  # 분까지만 적은 문자 "20:00" → 구간 [20:00:00, 20:01:00)에 A의 20:00:20 → 동률 → HOST → 잠금과 상관없이 충돌 (R-7 6). 새 문자 구매자 X
+  - { at: "20:00:50", type: sms, b: b1, ref: s1, no: 16, received: "20:00", memo: 김씨 }
+  # 충돌 중인 상품의 새 찜은 대기 자리로 (R-7 7) → B 대기 1순위
+  - { at: "20:00:55", type: chat, b: b1, id: m2, ch: UC_B, nick: 영희, text: "16" }
+  # 20번은 아직 없음 → 보류. B: 실제 시각 20:00:56(게시), seq 5
+  - { at: "20:00:56", type: chat, b: b1, id: m3, ch: UC_B, nick: 영희, text: "20" }
+  # X를 고른 문자찜 20번 → 보류. 실제 시각 20:00:40(초까지 적음) < B 20:00:56 → 판정 순위는 X가 앞선다 (seq는 B가 앞서지만 RECEIVED_TIME)
+  - { at: "20:00:58", type: sms, b: b1, ref: s2, no: 20, received: "20:00:40", buyer: "sms:s1" }
+  - type: assert
+    expect:
+      products:
+        b1/16: { status: SOLD, winner: UC_A, waitlist: [UC_B], conflict: true }
+      claims:
+        - { product: b1/16, buyer: "sms:s1", status: CONFLICT }
+      pending: { b1/20: ["sms:s1", UC_B] }
+      mergePreviews:
+        # B → X: 16번 X 충돌 > B 대기 → B의 대기 찜이 중복. 20번 보류끼리 → 판정 순위가 앞선 X가 남고 B의 보류 찜이 중복. 확정 찜은 둘 다 없다
+        - { from: UC_B, into: "sms:s1", blocked: null, bothConfirmed: [], moving: { items: [], subtotal: 0 }, after: { items: [], subtotal: 0 }, duplicates: [{ product: b1/16, buyer: UC_B, status: WAITLISTED }, { product: b1/20, buyer: UC_B, status: PENDING }] }
+        # 방향을 바꿔도 남는 찜은 "앞선 쪽"이라 같다
+        - { from: "sms:s1", into: UC_B, blocked: null, bothConfirmed: [], moving: { items: [], subtotal: 0 }, after: { items: [], subtotal: 0 }, duplicates: [{ product: b1/16, buyer: UC_B, status: WAITLISTED }, { product: b1/20, buyer: UC_B, status: PENDING }] }
+        # X → A: 16번 A 1등 > X 충돌 → X의 충돌 찜이 중복. 20번은 A에 찜이 없어 겹치지 않는다. 합친 뒤 A 5,000
+        - { from: "sms:s1", into: UC_A, blocked: null, bothConfirmed: [], moving: { items: [], subtotal: 0 }, after: { items: [b1/16], subtotal: 5000 }, duplicates: [{ product: b1/16, buyer: "sms:s1", status: CONFLICT }] }
+  - { at: "20:01:00", type: buyer.merge, from: UC_B, into: "sms:s1", reason: 같은 사람 }
+expect:
+  # 미리 본 그대로: B의 16번 대기·20번 보류 찜이 중복. 16번 대기는 비고 X의 충돌은 남는다. 20번 보류는 X 하나
+  products:
+    b1/16: { status: SOLD, winner: UC_A, waitlist: [], conflict: true }
+  pending: { b1/20: ["sms:s1"] }
+  claims:
+    - { product: b1/16, buyer: UC_B, status: DUPLICATE }       # 지금의 구매자 X의 16번 찜 중 가장 최근 = B의 찜(seq 4)
+  sameBuyer: [[UC_B, "sms:s1", "sms:s2"]]
+  claimCount: 5                                                 # A 16, X 16·20, B 16·20 — 합치기는 찜을 만들지 않는다
+  mergePreviews:
+    - { from: UC_B, into: UC_A, blocked: FROM_MERGED, moving: { items: [], subtotal: 0 }, after: null, duplicates: [] }
+    # X(그 아래 B 포함) → A: 활성 찜은 X의 16번 충돌·20번 보류뿐(B의 찜은 중복). 16번 A 1등 > X 충돌 → X의 충돌 찜이 중복
+    - { from: "sms:s1", into: UC_A, blocked: null, bothConfirmed: [], moving: { items: [], subtotal: 0 }, after: { items: [b1/16], subtotal: 5000 }, duplicates: [{ product: b1/16, buyer: "sms:s1", status: CONFLICT }] }
+  effectCounts: { POST_THANKS: 1, PRINT_PRODUCT_LABEL: 1 }      # 확정은 A의 16번 하나

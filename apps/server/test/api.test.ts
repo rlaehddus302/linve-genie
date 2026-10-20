@@ -115,7 +115,19 @@ describe('AC-S04-51 이벤트 쓰기 API', () => {
     const b = await createBroadcast(world, seller)
     await expectOk(writeEvent(world, seller, { type: 'product.register', b: b.id, no: 1, name: 'a', price: 1000 }))
     const sms = await expectOk(writeEvent(world, seller, { type: 'sms', b: b.id, no: 1, received: '11:59' }))
-    expect(sms.body).toEqual({ date: b.date, rehearsal: false, seq: 3, type: 'sms', changed: true, effects: ['c1:PRINT_PRODUCT_LABEL:-:1', 'c1:POST_THANKS:LIVE_CHAT:1'], phoneLast4: null })
+    // 문자찜 응답에는 그 문자찜이 정한 구매자 자신(buyer)이 더해졌다 (AC-S06b-11) — 전화번호 없는 새 문자 구매자 = sms:<서버가 만든 ref>
+    const smsClaimBuyer = listClaims((await world.server.writer.read(seller.sellerId, b.date)).state).find((claim) => claim.seq === 3)?.buyer
+    expect(smsClaimBuyer).toMatch(/^sms:[a-z]+$/)
+    expect(sms.body).toEqual({
+      date: b.date,
+      rehearsal: false,
+      seq: 3,
+      type: 'sms',
+      changed: true,
+      effects: ['c1:PRINT_PRODUCT_LABEL:-:1', 'c1:POST_THANKS:LIVE_CHAT:1'],
+      phoneLast4: null,
+      buyer: smsClaimBuyer,
+    })
     const outboxIds = (await world.database.pglite?.query<{ effect_id: string }>(`select effect_id from outbox where seq = 3 order by id`))?.rows.map((row) => row.effect_id)
     expect(outboxIds).toEqual(sms.body.effects)
     const noop = await expectOk(writeEvent(world, seller, { type: 'host.cancel', b: b.id, no: 99, buyer: 'UC1', reason: '없는 상품' }))

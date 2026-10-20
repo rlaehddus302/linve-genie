@@ -233,7 +233,7 @@ describe('등록 되돌리기 (AC-S05-40)', () => {
 })
 
 describe('떠날지 묻는 동안 (AC-S06-01, D-083, UX-S06-001·TE-S06-003)', () => {
-  it('pause: 시계가 멈춰 대기 시간이 지나도 보내지 않고, 남은 시간을 보인다. resume: 남은 시간부터 다시 흘러 그 뒤에 보낸다', async () => {
+  it('pause: 시계가 멈춰 대기 시간이 지나도 보내지 않고, 남은 시간을 보인다. resume: 대기 시간 전체(5초)를 처음부터 다시 기다린 뒤 보낸다 (D-103)', async () => {
     const { timer, queue } = setup()
     const send = vi.fn(async (_requestId: string) => result())
     const item = queue.add({ label: '15번 홍길동 취소', send })
@@ -247,14 +247,42 @@ describe('떠날지 묻는 동안 (AC-S06-01, D-083, UX-S06-001·TE-S06-003)', (
     expect(queue.waitingCount).toBe(1)
     queue.resume()
     expect(queue.paused).toBe(false)
-    expect(queue.getSnapshot()[0]).toMatchObject({ status: 'waiting', pausedLeft: null, deadline: timer.now + 2000 })
-    timer.advance(1999)
+    expect(queue.getSnapshot()[0]).toMatchObject({ status: 'waiting', pausedLeft: null, deadline: timer.now + 5000 })
+    timer.advance(4999)
     await flush()
     expect(send).not.toHaveBeenCalled()
     timer.advance(1)
     await flush()
     expect(send).toHaveBeenCalledWith(item.requestId)
     expect(queue.getSnapshot()[0]).toMatchObject({ status: 'done' })
+  })
+
+  it('AC-S06b-42: 남은 0.3초에서 멈춤 → 1분 뒤 닫기 → 0.3초 뒤에는 보내지 않고 5초 뒤에 보낸다. 그동안 되돌리면 보내지 않는다', async () => {
+    const { timer, queue } = setup()
+    const send = vi.fn(async (_requestId: string) => result())
+    const first = queue.add({ label: '15번 취소', send })
+    const second = queue.add({ label: '16번 차단', send })
+    timer.advance(4700)
+    queue.pause()
+    expect(queue.getSnapshot().map((entry) => entry.kind === 'action' && entry.pausedLeft)).toEqual([300, 300])
+    timer.advance(60_000)
+    queue.resume()
+    // 되돌리기 띠는 처음 값(5초)부터 센다
+    expect(queue.getSnapshot().map((entry) => entry.deadline - timer.now)).toEqual([5000, 5000])
+    timer.advance(300)
+    await flush()
+    expect(send).not.toHaveBeenCalled()
+    expect(queue.undo(second.id)).toBe(true)
+    timer.advance(4699)
+    await flush()
+    expect(send).not.toHaveBeenCalled()
+    timer.advance(1)
+    await flush()
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(send).toHaveBeenCalledWith(first.requestId)
+    timer.advance(10_000)
+    await flush()
+    expect(send).toHaveBeenCalledTimes(1)
   })
 
   it('멈춘 동안 더한 조치도 기다리고, 두 번 멈추거나 멈추지 않은 채 다시 흐르게 해도 그대로다', async () => {

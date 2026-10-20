@@ -1,8 +1,8 @@
 // expect 비교 규칙 (README "파서 사례 형식", "`expect` 비교 규칙").
 // 적힌 것만 검사한다. 틀리면 Problem(경로·기대값·실제값)을 낸다. 비교가 하나라도 틀리면 불일치다.
-import { EMPTY_SETTLEMENT, EXPECT_KEYS, isPlainObject, type SuiteName } from './contract.ts'
-import type { EffectView, GoldenSnapshot, Problem } from './types.ts'
-import type { EffectExpect, Expect } from './validate.ts'
+import { EMPTY_SETTLEMENT, EXPECT_KEYS, VOICE_EXTRACT_KEYS, isPlainObject, type SuiteName } from './contract.ts'
+import type { EffectView, GoldenSnapshot, MergeItemsView, MergePreviewView, Problem } from './types.ts'
+import type { EffectExpect, Expect, MergeItemsExpect, MergePreviewExpect } from './validate.ts'
 
 function own<T>(record: Readonly<Record<string, T>> | undefined, key: string): T | undefined {
   return record !== undefined && Object.hasOwn(record, key) ? record[key] : undefined
@@ -69,6 +69,26 @@ export function compareParserOutput(suite: SuiteName, expected: unknown, actual:
             ...(want === undefined ? { message: 'out에 없는 키가 실제 결과에 있다' } : {}),
           })
         }
+      }
+      return problems
+    }
+    case 'voice-extract': {
+      // README: 실제 결과는 정확히 네 키 { no, name, price, confidence }이고 네 값이 모두 같아야 한다. out에 적지 않은 no·name·price = null
+      if (!isPlainObject(actual) || !isPlainObject(expected)) return [{ path: 'out', expected, actual, message: '결과가 맵이 아니다' }]
+      const problems: Problem[] = []
+      for (const key of Object.keys(actual)) {
+        if (!(VOICE_EXTRACT_KEYS as readonly string[]).includes(key)) {
+          problems.push({ path: `out.${key}`, expected: undefined, actual: actual[key], message: '실제 결과에 네 키(no·name·price·confidence) 밖의 키가 있다' })
+        }
+      }
+      for (const key of VOICE_EXTRACT_KEYS) {
+        const want = own(expected, key) ?? null
+        if (!Object.hasOwn(actual, key)) {
+          problems.push({ path: `out.${key}`, expected: want, actual: undefined, message: '실제 결과에 키가 없다' })
+          continue
+        }
+        const got = actual[key]
+        if (!deepEqual(want, got)) problems.push({ path: `out.${key}`, expected: want, actual: got })
       }
       return problems
     }
@@ -148,11 +168,62 @@ function maxMatching(left: number, right: number, edge: (i: number, j: number) =
   return matchOfLeft
 }
 
+/** 구매자 키 → 구매자 자신의 ID (S06b `mergePreviews`). 풀리지 않는 키는 그대로 (README `mergePreviews` 비교 규칙의 from·into) */
+export function buyerSelfOf(snapshot: GoldenSnapshot, key: string): string {
+  return own(snapshot.buyerSelf, key) ?? key
+}
+
+/** 적은 필드만: items는 집합(순서 무관, 정확히 같음), subtotal은 같은 값 */
+function compareMergeItems(want: MergeItemsExpect, actual: MergeItemsView, base: string, push: (problem: Problem) => void): void {
+  if (want.items !== undefined && !(isStringArray(actual.items) && sameMultiset(want.items, actual.items))) {
+    push({ path: `${base}.items`, expected: want.items, actual: actual.items, message: '순서 무관 비교' })
+  }
+  if (want.subtotal !== undefined && want.subtotal !== actual.subtotal) push({ path: `${base}.subtotal`, expected: want.subtotal, actual: actual.subtotal })
+}
+
+/**
+ * `mergePreviews` 항목 하나 (README `mergePreviews` 비교 규칙, S06b, D-100). 적은 필드만 비교한다.
+ * duplicates는 { product, buyer, status } 집합이고 buyer는 구매자 자신으로 풀어 비교한다(지금의 구매자로 풀지 않는다).
+ */
+function compareMergePreview(want: MergePreviewExpect, actual: MergePreviewView | undefined, base: string, snapshot: GoldenSnapshot, push: (problem: Problem) => void): void {
+  if (actual === undefined) {
+    push({ path: base, expected: want, actual: undefined, message: '합치기 미리 보기 결과가 없다' })
+    return
+  }
+  if (want.blocked !== undefined && want.blocked !== actual.blocked) push({ path: `${base}.blocked`, expected: want.blocked, actual: actual.blocked })
+  if (want.bothConfirmed !== undefined && !(isStringArray(actual.bothConfirmed) && sameMultiset(want.bothConfirmed, actual.bothConfirmed))) {
+    push({ path: `${base}.bothConfirmed`, expected: want.bothConfirmed, actual: actual.bothConfirmed, message: '순서 무관 비교' })
+  }
+  if (want.moving !== undefined) compareMergeItems(want.moving, actual.moving, `${base}.moving`, push)
+  if (want.after !== undefined) {
+    if (want.after === null || actual.after === null) {
+      if (want.after !== actual.after) {
+        push({ path: `${base}.after`, expected: want.after, actual: actual.after, message: want.after === null ? '막혀서 합친 뒤가 없어야 한다' : '막혀서 합친 뒤가 없다' })
+      }
+    } else compareMergeItems(want.after, actual.after, `${base}.after`, push)
+  }
+  if (want.duplicates !== undefined) {
+    const line = (product: string, buyer: string, status: string): string => JSON.stringify([product, buyer, status])
+    const wantKeys = want.duplicates.map((d) => line(d.product, buyerSelfOf(snapshot, d.buyer), d.status))
+    const actualKeys = actual.duplicates.map((d) => line(d.product, d.buyer, d.status))
+    if (!sameMultiset(wantKeys, actualKeys)) {
+      push({ path: `${base}.duplicates`, expected: want.duplicates, actual: actual.duplicates, message: '중복이 될 찜 전체와 정확히 같아야 한다 (순서 무관, 구매자는 찜의 구매자 자신)' })
+    }
+  }
+}
+
+/** expect와 함께 비교하는, 스냅샷 밖에서 코어에 물어 얻은 값 */
+export interface ExpectExtras {
+  /** expect.mergePreviews 항목마다 코어 previewMerge 결과 (같은 순서) */
+  readonly mergePreviews?: readonly MergePreviewView[]
+}
+
 /**
  * expect 전체를 스냅샷과 비교한다.
  * @param where 중간 검사면 `events[n]`, 마지막 expect면 undefined
+ * @param extras 스냅샷 밖의 조회 결과 (합치기 미리 보기 — 러너가 그 시점 상태로 부른 것)
  */
-export function compareExpect(expect: Expect, snapshot: GoldenSnapshot, where?: string): Problem[] {
+export function compareExpect(expect: Expect, snapshot: GoldenSnapshot, where?: string, extras: ExpectExtras = {}): Problem[] {
   const problems: Problem[] = []
   const resolver = new Resolver(snapshot)
   const push = (problem: Problem): void => {
@@ -367,6 +438,10 @@ export function compareExpect(expect: Expect, snapshot: GoldenSnapshot, where?: 
         const wantKeys = want.map((r) => `${r.product}\u0000${resolver.one(r.buyer) ?? ''}`)
         const actualKeys = actual.map((r) => `${r.product}\u0000${r.buyer}`)
         if (!sameMultiset(wantKeys, actualKeys)) push({ path: 'cancelRequests', expected: want, actual, message: '처리 대기 요청 전체와 정확히 같아야 한다 (순서 무관)' })
+        break
+      }
+      case 'mergePreviews': {
+        for (const [i, entry] of (expect.mergePreviews ?? []).entries()) compareMergePreview(entry, extras.mergePreviews?.[i], `mergePreviews[${i}]`, snapshot, push)
         break
       }
     }

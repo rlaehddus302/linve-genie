@@ -2,6 +2,7 @@
 // 범위 = (판매자, 날짜, 리허설인지) (D-081). 날짜로 범위를 고르는 조회·쓰기는 리허설을 명시해야 리허설 범위이고, 적지 않으면 실제 범위다.
 // 방송이 있는 입력은 그 방송의 범위로 간다.
 import {
+  buyerOfRef,
   checkSettings,
   containsPhoneRun,
   getBroadcast,
@@ -14,7 +15,9 @@ import {
   normalizePhone,
   parseChat,
   phoneLast4,
+  previewMerge,
   resolveSettings,
+  type MergePreview,
   type SaleSettings,
 } from '@livejjim/core'
 import { randomBytes } from 'node:crypto'
@@ -38,7 +41,7 @@ import {
 } from './generator.ts'
 import type { IdSource } from './ids.ts'
 import type { ScopeRuntime } from './runtime.ts'
-import { fieldMessage, safeFieldName, unknownFieldProblems } from './messages.ts'
+import { fieldMessage, phoneIdProblem, safeFieldName, unknownFieldProblems } from './messages.ts'
 import { SHOP_NAME_MAX, cleanDisplayName } from './accounts.ts'
 import { productOwners } from './product-history.ts'
 import { ASSISTANT_EVENT_TYPES, assistantCancelCheck, assistantForbidden } from './roles.ts'
@@ -70,6 +73,7 @@ import {
   type ScopeSeqRow,
 } from './store.ts'
 import { iso, kstDate, kstTime, type Clock } from './time.ts'
+import type { ViewCacheBudget } from './view-budget.ts'
 import { changeSet, fullView, messageLookup, type ChangeSet, type FullView, type MessageLookup } from './views.ts'
 import { resultOf, type Actor, type ChatSource, type Draft, type Rejection, type ScopeWriter, type WriteOutcome, type WriteResult } from './writer.ts'
 import { sanitizeNick } from './youtube/texts.ts'
@@ -102,6 +106,8 @@ export const VIEWER_NICK_MAX = 30
 export const VIEWER_TEXT_MAX = 200
 /** 가짜 채널 ID (실제 유튜브 채널 ID `UC…` 24자와 겹치지 않는다, D-082) */
 export const FAKE_CHANNEL_RE = /^sim_[A-Za-z0-9_-]{1,40}$/
+/** 합치기 미리 보기의 구매자 ID 길이 상한 (AC-S06b-10, 글자 수 = 코드 포인트) */
+export const MERGE_PREVIEW_ID_MAX = 128
 
 export interface ServiceOptions {
   readonly db: Db
@@ -109,6 +115,8 @@ export interface ServiceOptions {
   readonly masterKey: Buffer
   readonly clock: Clock
   readonly ids: IdSource
+  /** 보기 캐시 상한 (판매자마다 4·서버 전체 32·10분, AC-S06b-12) — 보기 캐시를 쓰는 조회마다 알린다 */
+  readonly viewCaches: ViewCacheBudget
   /** 리허설 생성기 타이머 (기본 실제 타이머) */
   readonly generatorTimer?: GeneratorTimer
   /** 리허설 생성기 시험 속도 (타이머 간격을 나누는 값, 기본 1) */
@@ -144,6 +152,13 @@ export type ChatBatchOutcome =
   /** guard가 거절했다 (그 연결을 그사이 끊음) */
   | { readonly status: 'unlinked' }
   | { readonly status: 'save_failed' }
+/** 합치기 미리 보기 (GET /api/days/:date/merge-preview, AC-S06b-10) — preview는 응답 seq까지 적용한 상태의 코어 previewMerge 결과 그대로 */
+export interface MergePreviewView {
+  readonly date: string
+  readonly rehearsal: boolean
+  readonly seq: number
+  readonly preview: MergePreview
+}
 
 /** 채팅 메시지 한 건 (AC-S05-20) */
 export interface MessageItem {
@@ -343,7 +358,20 @@ export class Service {
   /** 그 요청 번호로 이미 기록한 결과 (없으면 null). 같은 요청 번호면 내용이 달라도 처음 결과를 돌려준다 */
   async priorResult(sellerId: string, requestId: string): Promise<WriteResult | null> {
     const record = await eventByRequestId(this.#options.db, sellerId, requestId)
-    return record === null ? null : resultOf(this.#options.db, sellerId, record)
+    return record === null ? null : this.#withSmsBuyer(sellerId, await resultOf(this.#options.db, sellerId, record))
+  }
+
+  /**
+   * 다시 돌려주는 문자찜 결과에 그 문자찜이 정한 구매자를 붙인다 (재전송 응답의 buyer, AC-S06b-11, D-099).
+   * 문자찜 ref → 구매자는 그 ref를 처음 받을 때 한 번만 기록되고 바뀌지 않는다(R-11, D-067 — 같은 ref가 다시 오면 아무 일도 없다).
+   * 그래서 그 범위의 지금 상태에서 읽어도 처음 응답(그 이벤트를 적용한 뒤 상태)과 같은 값이다. 문자찜이 아니거나 실패 표시면 그대로
+   */
+  async #withSmsBuyer(sellerId: string, result: WriteResult): Promise<WriteResult> {
+    if (result.type !== 'sms' || result.failed) return result
+    const ref = result.event.ref
+    if (typeof ref !== 'string') return { ...result, smsBuyer: null }
+    const runtime = await this.#options.writer.read(sellerId, result.date, result.rehearsal)
+    return { ...result, smsBuyer: buyerOfRef(runtime.state, ref) }
   }
 
   // ── 방송 만들기·끝내기 (AC-S04-21·27) ─────────────────────────────────
@@ -537,7 +565,20 @@ export class Service {
         },
       ],
     })
-    return { kind: 'phone', outcome, phoneLast4: normalized === null ? null : phoneLast4(normalized) }
+    return { kind: 'phone', outcome: await this.#smsOutcome(sellerId, outcome, ref), phoneLast4: normalized === null ? null : phoneLast4(normalized) }
+  }
+
+  /**
+   * 문자찜 쓰기 결과에 그 문자찜이 정한 구매자를 붙인다 (응답 buyer, AC-S06b-11, D-099).
+   * 기록했으면 그 이벤트를 적용한 뒤 상태의 코어 buyerOfRef(ref), 같은 요청 번호의 처음 결과면 그 결과의 ref로 같은 값을 읽는다
+   */
+  async #smsOutcome(sellerId: string, outcome: WriteOutcome, ref: string): Promise<WriteOutcome> {
+    if (outcome.kind === 'ok') {
+      const after = outcome.states[0]
+      return { ...outcome, result: { ...outcome.result, smsBuyer: after === undefined ? null : buyerOfRef(after, ref) } }
+    }
+    if (outcome.kind === 'duplicate' && outcome.result !== null) return { kind: 'duplicate', result: await this.#withSmsBuyer(sellerId, outcome.result) }
+    return outcome
   }
 
   /** 문자찜 ref (영문만이라 휴대폰 번호가 들어갈 수 없다. 바꿔 끼운 ID 생성기가 숫자를 섞어도 번호가 들어 있으면 — 코어 입력 오류와 같은 판단 containsPhoneRun — 다시 만든다) */
@@ -805,7 +846,34 @@ export class Service {
     }
     const runtime = await this.#options.writer.read(sellerId, date, rehearsal)
     if (runtime.seq === 0) return null
+    this.#options.viewCaches.use(runtime)
     return fullView(runtime)
+  }
+
+  /** 합치기 미리 보기 검색값 검사 (구매자 ID 두 개 — 형식만 본다. 범위에 없는 ID는 코어가 UNKNOWN_BUYER로 답한다) */
+  static mergePreviewInput(from: string | undefined, into: string | undefined): { ok: true; from: string; into: string } | { ok: false; rejection: Rejection } {
+    const problems: FieldProblem[] = []
+    const check = (field: 'from' | 'into', value: string | undefined, message: string): void => {
+      if (value === undefined || value === '' || charCount(value) > MERGE_PREVIEW_ID_MAX || hasControlChar(value)) problems.push({ field, message })
+      // 휴대폰 번호처럼 보이는 ID는 D-079 ⑥ 문장 (값은 되돌려 보내지 않는다)
+      else if (looksLikePhoneId(value)) problems.push(phoneIdProblem(field))
+    }
+    check('from', from, '옮길 구매자를 골라 주세요.')
+    check('into', into, fieldMessage('into'))
+    if (problems.length > 0 || from === undefined || into === undefined) return { ok: false, rejection: invalidInput(problems) }
+    return { ok: true, from, into }
+  }
+
+  /**
+   * 합치기 미리 보기 (AC-S06b-10, D-100): 그 범위의 지금 상태로 코어 previewMerge를 부른 결과 그대로와 그 상태의 seq.
+   * 없는 범위(다른 판매자의 범위 포함)면 null(404). 아무것도 기록하지 않는다
+   */
+  async mergePreview(sellerId: string, date: string, rehearsal: boolean, from: string, into: string): Promise<MergePreviewView | null> {
+    const runtime = await this.#options.writer.read(sellerId, date, rehearsal)
+    // runtime은 쓰기와 같이 쓰는 객체다 — seq와 상태를 함께 잡아 그 상태로 계산한다(previewMerge는 동기라 그 사이 바뀌지 않는다)
+    const { seq, state } = runtime
+    if (seq === 0) return null
+    return { date, rehearsal, seq, preview: previewMerge(state, from, into) }
   }
 
   /**
@@ -818,6 +886,7 @@ export class Service {
     if ((await this.sealed(sellerId, date, rehearsal)) !== null) return 'resync'
     const runtime = await this.#options.writer.read(sellerId, date, rehearsal)
     if (runtime.seq === 0 || runtime.scopeId === null) return null
+    this.#options.viewCaches.use(runtime)
     const set = changeSet(runtime, since)
     if (set === null) return 'resync'
     const { touchedMessages, ...rest } = set
@@ -864,6 +933,8 @@ export class Service {
 
   /** 채팅 이벤트 행 → 메시지 항목 (주문·취소·무시·바꾼 번호는 엔진 기록, 언급은 그 방송 설정의 parseChat) */
   #messageItems(runtime: ScopeRuntime, state: ScopeStateLike, rows: readonly ChatRow[]): MessageItem[] {
+    // 채팅 행을 기다리는 사이 다른 조회가 이 범위의 캐시를 비웠을 수 있다 — 쓰기 직전에 다시 알린다
+    this.#options.viewCaches.use(runtime)
     const lookup: MessageLookup = messageLookup(runtime, state)
     const settingsOf = new Map<string, SaleSettings | null>()
     const settings = (b: string): SaleSettings | null => {

@@ -201,7 +201,7 @@ function fakeApi(view: FullView): ConsoleApi & { readonly queued: HostActionInpu
     ended: false,
     sealed: false,
     data,
-    names: new BuyerNames(data.buyers),
+    names: new BuyerNames(data.buyers, data.claims),
     waiting: { claims: new Set(), products: new Set() },
     delayMs: 5000,
     settingsOf: (id) => data.broadcasts.get(id)?.settings ?? null,

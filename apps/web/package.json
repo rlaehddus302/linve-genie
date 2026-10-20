@@ -11,6 +11,9 @@
   },
   "dependencies": {
     "@livejjim/core": "workspace:*",
+    "@livejjim/label": "workspace:*",
+    "@livejjim/printer": "workspace:*",
+    "@livejjim/voice": "workspace:*",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },

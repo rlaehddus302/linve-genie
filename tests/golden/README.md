@@ -11,8 +11,10 @@
 | `parser/chat.yaml` | 채팅 메시지 → 주문/취소/언급 (R-3). Y1 보강: 발송함이 게시하는 감사 문구(한 건·묶음)는 STRICT에서 주문이 아니다(D-Y04·D-Y07) |
 | `parser/amount.yaml` | 한글·숫자 금액 → 원 (빠른 입력·음성 공용), 한글 수사 → 정수 |
 | `parser/quick-input.yaml` | 빠른 입력 한 줄 → 번호·품종·가격 |
-| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13). `08-time.yaml`은 시각 해석(D-022, D-023), `09-host-and-product.yaml`은 방송자 조치·상품 명령 세부(S02, D-039~D-043·D-049). S03 보강: `10-sms.yaml` 문자찜 구매자(D-051), `11-received-time.yaml` 실제 시각순·역전·충돌·메시지 변환(D-052~D-054), `12-product-edit.yaml` 상품 수정·번호 변경(D-055·D-056), `13-merge-settlement.yaml` 구매자 합치기·정산(D-057·D-058). S03b 보강: `14-core-cleanup.yaml` 전화번호 키·문자찜 재전송·메시지 변환·시청자 취소·충돌 중 배정·확정버전 순서·충돌이 풀릴 때 대기 넘침(D-061~D-068). S04 보강: `15-broadcast.yaml` 방송 시작·종료와 방송마다의 설정 스냅샷(D-069·D-070), `16-s04-rules.yaml` 취소 메시지 변환 금지·대기 한도 0의 승계 묻기(D-076·D-077), S04 마무리 G-ENG-166 전화번호가 아닌 숫자는 받는다(D-079·D-080). S05 보강: `17-s05-console.yaml` 라이브 콘솔이 기대는 동작 — 등록 되돌리기(판매 종료)·5초 뒤 보낸 방송자 조치(D-083, 새 규칙 없음). S06 보강: `18-s06-sms-buyers-settlement.yaml` 문자찜 입력·구매자·정산 화면이 기대는 동작 — 수신 시각 기본값(초까지)·지정 구매자·끝난 방송의 늦은 문자찜·합치기가 막히는 경우와 중복·입금 바로잡기·떼어 내기가 막히는 경우·배송비 예외와 조정(D-089~D-092, 새 규칙 없음). Y1 보강(병렬 트랙 — 번호는 G-ENG-401부터): `19-y1-youtube.yaml` 유튜브 서버가 기대는 동작 — 묶음 감사의 효과마다 게시 보고·영상 댓글 보고도 잠금·게시 직전 취소된 효과, 끊겼다 이어받은 채팅의 접수순 판정과 겹친 사본(D-Y04·D-Y06·D-Y07, 새 규칙 없음). I3 보강(번호는 G-ENG-701부터 — 러너 형식이 `G-ENG-` + 세 자리라 `G-ENG-I3-…`은 쓰지 않는다, D-I3-18): `22-i3-settings.yaml` 설정 화면·시작 마법사가 기대는 동작 — 감사 메시지(`thanks.liveChat`·`thanks.videoComment`)·대기·승계·자동 출력·배송비를 바꾸고 같은 날 2부를 시작해도 1부 상품은 1부 스냅샷으로 판정·효과, 그날 배송비는 첫 방송 것(D-070·D-I3-08, 새 규칙 없음) |
+| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13). `08-time.yaml`은 시각 해석(D-022, D-023), `09-host-and-product.yaml`은 방송자 조치·상품 명령 세부(S02, D-039~D-043·D-049). S03 보강: `10-sms.yaml` 문자찜 구매자(D-051), `11-received-time.yaml` 실제 시각순·역전·충돌·메시지 변환(D-052~D-054), `12-product-edit.yaml` 상품 수정·번호 변경(D-055·D-056), `13-merge-settlement.yaml` 구매자 합치기·정산(D-057·D-058). S03b 보강: `14-core-cleanup.yaml` 전화번호 키·문자찜 재전송·메시지 변환·시청자 취소·충돌 중 배정·확정버전 순서·충돌이 풀릴 때 대기 넘침(D-061~D-068). S04 보강: `15-broadcast.yaml` 방송 시작·종료와 방송마다의 설정 스냅샷(D-069·D-070), `16-s04-rules.yaml` 취소 메시지 변환 금지·대기 한도 0의 승계 묻기(D-076·D-077), S04 마무리 G-ENG-166 전화번호가 아닌 숫자는 받는다(D-079·D-080). S05 보강: `17-s05-console.yaml` 라이브 콘솔이 기대는 동작 — 등록 되돌리기(판매 종료)·5초 뒤 보낸 방송자 조치(D-083, 새 규칙 없음). S06 보강: `18-s06-sms-buyers-settlement.yaml` 문자찜 입력·구매자·정산 화면이 기대는 동작 — 수신 시각 기본값(초까지)·지정 구매자·끝난 방송의 늦은 문자찜·합치기가 막히는 경우와 중복·입금 바로잡기·떼어 내기가 막히는 경우·배송비 예외와 조정(D-089~D-092, 새 규칙 없음). S06b 보강: `19-s06b-merge-preview.yaml` 합치기 미리 보기(코어 `previewMerge`, 새 검사 키 `mergePreviews`)가 R-11과 같은 답 — 막히는 다섯 경우·옮길 찜·합친 뒤 합계·중복 정리 순서(D-100), `20-s06b-sms-buyer-payment.yaml` 뒤 4자리만 같은 두 문자 구매자에서 문자찜이 정한 구매자(D-099)·입금이 아닌 기록이 바꾸는 입금 상태(D-101) (새 규칙 없음). I1 보강: `21-i1-labels.yaml` 라벨·출력 화면 통합이 기대는 동작 — 라벨 키 = (찜, 확정버전)·출력 보고 잠금·품종·가격 변경은 효과 없음·재고 2의 라벨 키·방송마다의 자동 출력·포장 라벨 효과 없음·합치기는 라벨을 폐기하지 않음(D-I1-02·D-I1-04, 새 규칙 없음). Y1 보강(병렬 트랙 — 번호는 G-ENG-401부터): `19-y1-youtube.yaml` 유튜브 서버가 기대는 동작 — 묶음 감사의 효과마다 게시 보고·영상 댓글 보고도 잠금·게시 직전 취소된 효과, 끊겼다 이어받은 채팅의 접수순 판정과 겹친 사본(D-Y04·D-Y06·D-Y07, 새 규칙 없음). I3 보강(번호는 G-ENG-701부터 — 러너 형식이 `G-ENG-` + 세 자리라 `G-ENG-I3-…`은 쓰지 않는다, D-I3-18): `22-i3-settings.yaml` 설정 화면·시작 마법사가 기대는 동작 — 감사 메시지(`thanks.liveChat`·`thanks.videoComment`)·대기·승계·자동 출력·배송비를 바꾸고 같은 날 2부를 시작해도 1부 상품은 1부 스냅샷으로 판정·효과, 그날 배송비는 첫 방송 것(D-070·D-I3-08, 새 규칙 없음) |
+| `parser/voice-extract.yaml` | 음성 문장 하나 → 번호·품종·가격·신뢰도 (R-17, P2 — D-202·D-203·D-209, I4 보강 — 끊어 말한 번호 D-I4-01). 추출기는 `packages/voice`에 있고 이 러너가 부른다 |
 | `known-unimplemented.yaml` | **예약 파일.** 알려진 미구현 허용 목록 (D-020). 골든 시나리오가 아니다 |
+| `label/*.json` | 라벨 글·쪽 나누기·크기 (LABEL_RULES L-1~L-5, P1, D-P1-01). **JSON이라 코어 골든 러너는 읽지 않는다**(`*.yaml`만 읽는다). `packages/label` 단위 테스트가 읽는다 — 아래 "라벨 골든" |
 
 ## 러너가 읽는 범위 (D-020, D-021)
 
@@ -56,6 +58,7 @@ cases:
 | `amount` | `unit`(`price.unit`: `WON`/`THOUSAND`) | 0 이상 정수(원) 또는 `null`(해석 실패) |
 | `korean-number` | 없음 | 1 이상 정수 또는 `null` |
 | `quick-input` | `unit`(`price.unit`) | 성공 `{ no, name, price }` 정확히 세 키. 실패 `{ error, no?, name? }`, `error` ∈ `PRICE_MISSING`·`NUMBER_MISSING`·`EMPTY`·`NUMBER_INVALID`·`PRICE_TOO_LOW`. **`out`에 없는 키는 실제 결과에도 없어야 한다**(`undefined`는 없음으로 본다) |
+| `voice-extract` (P2, D-209) | `maxNumber`(`claim.maxNumber`, 1~9999), `dictionary`(품종 사전 — 문자열 목록, 0개 이상, 생략하면 빈 목록. DOMAIN_RULES 설정표 키가 아니라 이 suite의 입력이다. 기본 사전은 쓰지 않는다) | `out` 키는 `no`(1 이상 정수)·`name`(빈 문자열이 아닌 문자열)·`price`(100 이상 정수)·`confidence`(`HIGH`/`LOW`, **필수**)만. `no`·`name`·`price`는 적지 않거나 `null`이면 `null`. 실제 결과는 정확히 네 키 `{ no, name, price, confidence }`(값이 없으면 `null`)이고 네 값이 모두 같아야 한다. 규칙은 DOMAIN_RULES R-17 |
 
 사례의 키는 `in`(문자열)과 `out`뿐이다.
 
@@ -107,6 +110,7 @@ expect:
 | `settlements.<k>.adjustments` / `refundDue` | 조정 합계 / 환불 필요 금액 |
 | `pendingEffects` | 아직 실행 대상(취소·SKIPPED 아님)인 효과의 정확한 목록. `confirmVersion` = 그 상품의 몇 번째 확정인지(1부터) |
 | `broadcasts.<b>` | 방송 하나의 `date`·`title`·`ended`(끝났는지) (S04, D-070) |
+| `mergePreviews` | 그 시점 상태에서 코어 순수 조회 `previewMerge(from, into)`를 부른 결과 목록 — 합치기 미리 보기(R-11 "구매자 합치기", S06b, D-100). 항목마다 `from`·`into`(필수)와 선택 `blocked`·`bothConfirmed`·`moving`·`after`·`duplicates` |
 
 **중간 검사**: 이벤트 목록 안에 `{ type: assert, expect: {...} }`를 넣으면 그 시점의 상태를 검사한다. 중간 검사가 틀리면 마지막 `expect`가 맞아도 시나리오는 실패다.
 
@@ -204,14 +208,39 @@ expect:
 | └ `payment` | `UNPAID`·`PARTIAL`·`PAID`·`OVERPAID` |
 | `effects` | 적은 항목마다, 지금까지 나온 효과(실행·취소 여부 무관) 중 적은 필드가 모두 같은 것이 **서로 다른 효과로 하나씩** 있어야 함. 순서 무관. 효과의 상품 키·문구는 효과가 나온 때의 것이다(번호를 바꿔도 그대로, `VOID_LABEL`은 폐기할 라벨과 같은 상품 키). 효과의 구매자는 지금의 구매자로 푼다 |
 | `effectCounts` | 종류별로 지금까지 나온 효과 수가 정확히 같음(0이면 하나도 없어야 함) |
-| `pendingEffects` | 아직 실행 대상인 효과(나왔고, 취소·SKIPPED가 아니고, 실행 완료 보고가 없는 것) **전체**와 적은 필드 기준으로 정확히 같은 목록. 순서 무관. `VOID_LABEL`은 완료 보고 이벤트가 아직 없어(S08) 나온 뒤 계속 실행 대상이다. 엔진은 `NOTIFY`를 내지 않는다(D-044) |
+| `pendingEffects` | 아직 실행 대상인 효과(나왔고, 취소·SKIPPED가 아니고, 실행 완료 보고가 없는 것) **전체**와 적은 필드 기준으로 정확히 같은 목록. 순서 무관. `VOID_LABEL`은 엔진에 완료 보고 이벤트가 없어 나온 뒤 계속 실행 대상이다 — 폐기 표시의 실행 기록은 서버 출력 대기열이 가진다(I1, D-I1-02). 엔진은 `NOTIFY`·`PRINT_PACKING_LABEL`을 내지 않는다(D-044, D-I1-02) |
 | `claims` | 적은 항목마다 (상품 키, 구매자)의 **가장 최근** 찜의 `status`와 (적었으면) `reason`. 상품 키는 상품이 아직 없어도 된다(보류 찜). 찜의 상품 키는 지금의 상품 키다(번호를 바꾸면 그 상품의 찜은 새 번호로, 원래 번호에 남은 보류 찜은 원래 번호로 — D-056). 구매자는 지금의 구매자로 풀어 비교하므로, 합친 구매자의 찜은 합친 쪽의 키로도 찾힌다(가장 최근 = 가장 나중에 생긴 찜) |
 | `pending` | 번호별 보류 찜의 구매자, 판정 순위(R-6) 순서대로 정확히 같음. `[]` = 없음 |
 | `sameBuyer` | 묶음마다 모든 키가 같은 구매자로 풀림 |
 | `claimCount` | 생성된 찜 수(상태 무관). 재수신 메시지와 R-4 4번 줄(같은 사람 반복)은 찜을 만들지 않는다 |
 | `cancelRequests` | 처리 대기 중인 시청자 취소 요청 전체와 정확히 같음. 순서 무관 |
 | `broadcasts.<b>` | 선언된 방송(`broadcasts` 목록 또는 `broadcast.start`)만 적을 수 있다. 적은 필드만 비교: `date`(`YYYY-MM-DD`)·`title`(문자열) = 처음 선언한 값(사본은 바꾸지 않는다), `ended`(불리언) = `broadcast.end`를 받았는지 |
+| `mergePreviews` | (S06b, D-100) 항목마다 코어 `previewMerge`를 그 시점 상태(중간 검사면 그 자리, 마지막 `expect`면 모든 이벤트 뒤)로 부르고 적은 필드만 비교한다. 미리 보기는 상태를 바꾸지 않는다(부른 뒤에도 같은 상태 — 러너가 확인한다). 항목에 이 표에 없는 키가 있으면 읽기 오류 |
+| └ `from` / `into` | 필수. 구매자 키 — `buyer.merge`의 `from`·`into`처럼 **그 키의 구매자 자신**으로 풀어 넘긴다(ID 칸 — 휴대폰 번호면 읽기 오류). 유튜브 채널 ID는 그대로 넘기므로 이벤트에 나온 적 없는 채널(`UC_Z`)은 엔진이 모르는 구매자다. 구매자를 정하지 않은 `sms:<ref>`(모르는 지정 구매자·없는 ref)는 키 그대로 넘긴다(엔진이 모르는 구매자) |
+| └ `blocked` | `null`(합칠 수 있음) 또는 막힘 이유 하나: `UNKNOWN_BUYER`(둘 중 하나를 엔진이 모름) → `SAME_BUYER`(같은 구매자) → `FROM_MERGED`(옮길 구매자가 이미 다른 구매자에 합쳐져 있음) → `CYCLE`(남는 쪽의 지금의 구매자가 옮길 구매자) → `BOTH_CONFIRMED`(확정 찜이 둘이 되는 상품이 있음). 위에서부터 처음 맞는 것 |
+| └ `bothConfirmed` | 옮길 쪽과 남는 쪽(남는 쪽의 지금의 구매자와 그 아래 전부)이 모두 확정 찜을 가진 상품 키 집합. 순서 무관, 정확히 같음. `blocked`가 `BOTH_CONFIRMED`가 아니면 `[]` |
+| └ `moving` | `{ items, subtotal }` — 옮길 구매자와 그 아래 합쳐 있던 구매자 전부의 확정 찜 상품 키 집합(순서 무관, 정확히 같음)과 가격 스냅샷 합(= 그 구매자의 `buyers.<b>.items`·`subtotal`). 엔진이 모르는 구매자면 `{ items: [], subtotal: 0 }` |
+| └ `after` | 막히면 `null`. 아니면 `{ items, subtotal }` — 합친 뒤의 지금의 구매자(남는 쪽의 지금의 구매자)의 확정 찜 상품 키 집합과 합. `buyer.merge`를 실제로 적용한 뒤의 그 구매자 조회와 같아야 한다 |
+| └ `duplicates` | 막히면 `[]`. 아니면 합치면 `DUPLICATE`가 될 찜 **전체** `[{ product, buyer, status }]`, 순서 무관, 정확히 같음. `product` = 지금의 상품 키, `buyer` = 그 찜의 **구매자 자신**(키를 구매자 자신으로 풀어 비교 — 지금의 구매자로 풀지 않는다), `status` = 지금 상태(`CONFLICT`·`WAITLISTED`·`PENDING` — 남는 찜은 R-11 "앞선 쪽": 확정 > 충돌 > 대기 앞 순번 > 보류 판정 순위). `buyer.merge`를 실제로 적용하면 바로 이 찜들이 `DUPLICATE`가 된다 |
 
 **열거값**: 찜 상태 `PENDING`·`CONFIRMED`·`WAITLISTED`·`REJECTED`·`CANCELLED`·`CONFLICT`·`DUPLICATE` / 거절 사유 `BLOCKED`·`UNOPENED`·`NOT_ON_SALE`·`SOLD_OUT`·`EXPIRED`·`WAITLIST_CLEARED`·`BY_HOST`·`RENUMBERED` / 효과 `PRINT_PRODUCT_LABEL`·`PRINT_PACKING_LABEL`·`POST_THANKS`·`VOID_LABEL`·`NOTIFY` / 대상 `LIVE_CHAT`·`VIDEO_COMMENT`.
 
 **구매자 키**: `sms:`로 시작하지 않으면 유튜브 채널 ID, `sms:<ref>`는 그 `ref`의 (처음) 문자찜이 만든(또는 `buyer`로 지정한, 같은 전화번호로 이은) 구매자. 상품 키 `<방송>/<번호>`의 방송은 선언된 방송이어야 한다.
+
+## 라벨 골든 (`label/*.json`, P1 — D-P1-01)
+
+라벨 패키지가 찍는 **글**(항목마다의 값, 포장 라벨의 쪽 나누기)과 **라벨 크기**를 고정한다. 규칙 문장은 `docs/spec/LABEL_RULES.md`다. 글꼴로 그린 점 배치는 기기·글꼴 판에 따라 흔들리므로 골든으로 고정하지 않고 수용 기준의 배치 검사로 본다(L-5 배치 결과).
+
+- **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. `packages/label`의 단위 테스트가 이 폴더의 모든 `*.json`을 읽어 라벨 패키지의 순수 함수(글 계산 — L-0 2)로 돌리고 `out`과 비교한다(`pnpm test` 단계). 그 테스트는 파일 수와 사례 수 합계를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다.
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `product`·`packing`·`size`. 모르는 키·모르는 `kind`는 테스트 실패(읽기 오류)다. 보이지 않는 글자는 `\uXXXX`로 적는다.
+- **사례 공통 키**: `id`(`G-LBL-` + 세 자리, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `out`.
+- `out`이 `{ "error": <코드> }`면 그 사례는 그 오류여야 하고 라벨(글·그림)을 만들지 않아야 한다. 코드: `INVALID_DATA`(라벨 데이터 형식 위반 — L-3·L-4 표 밖의 칸 포함), `INVALID_TEMPLATE`(템플릿 검사 위반 — L-5).
+
+| `kind` | 사례 키 | `out` (오류가 아닐 때) |
+|---|---|---|
+| `product` | `data`(L-3 라벨 데이터 그대로), 선택 `template` = 기본 템플릿(50×30 상품)에 덮어쓸 값: `shopName`(문자열), `priceStyle`(`THOUSAND`/`WON`), `visible`(항목 ID → 불리언) | `{ "items": { 항목 ID: 값 } }` — 찍는 항목만, 정확히 같은 키 집합. 값은 L-3 "값" 열의 글(캡션·머리글 꾸밈 `-…-` 빼고, 다듬은 뒤, 그리기 전 — 글꼴에 없는 글자도 그대로) |
+| `packing` | `data`(L-4 라벨 데이터 그대로), 선택 `template` = 기본 템플릿(50×30 포장)에 덮어쓸 값: `shopName`, `perPage`(정수), `visible` | `{ "common": { 항목 ID: 값 }, "pages": [ { "page": "k/n", "broadcast"?: 제목, "numbers": [정수…] } ] }` — `common`은 `shop`·`date`·`buyer`·`count`·`subtotal` 중 찍는 것만(정확히 같은 키 집합), `pages`는 쪽 순서대로 정확히 같다. `broadcast`는 방송이 둘 이상일 때만 있다 |
+| `size` | `size`(`"<폭>x<높이>"` mm) | `{ "width", "height", "a4PerPage", "default" }` — 그 크기의 기본 템플릿(상품)으로 만든 그림의 점 수, A4 모아찍기 한 장의 라벨 수(L-6), 기본 크기인지. 목록 밖 크기는 `INVALID_TEMPLATE` |
+
+- 기본 템플릿의 값: 크기 50×30, `shopName` 빈 글, `priceStyle` `THOUSAND`, 포장 `perPage` 10, 모든 항목 켬. `visible`에 없는 항목은 기본(켬) 그대로다.
+- 항목 ID: 상품 `shop`·`number`·`price`·`date`·`name`·`buyer`, 포장 `shop`·`date`·`buyer`·`page`·`broadcast`·`count`·`subtotal`·`numbers` (L-3·L-4 표).

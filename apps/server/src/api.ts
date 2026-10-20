@@ -1,5 +1,5 @@
-// /api 경로 (AC-S04-40·41·42·50~52·60, AC-S05-20·35·50~52·60·61·91, AC-S06-70·71). 계약은 harness/sprints/S04/dev-notes.md "dev-server > 웹(S05)에게"와
-// harness/sprints/S05/dev-notes.md "dev-server > 화면(dev-web)에게", harness/sprints/S06/dev-notes.md "바뀐 계약"에 적었다.
+// /api 경로 (AC-S04-40·41·42·50~52·60, AC-S05-20·35·50~52·60·61·91, AC-S06-70·71, AC-S06b-10·11). 계약은 harness/sprints/S04/dev-notes.md "dev-server > 웹(S05)에게"와
+// harness/sprints/S05/dev-notes.md "dev-server > 화면(dev-web)에게", harness/sprints/S06/dev-notes.md·harness/sprints/S06b/dev-notes.md "바뀐 계약"에 적었다.
 // - 범위 = (날짜, 리허설인지). 날짜로 범위를 고르는 경로는 ?rehearsal=true를 적어야 리허설 범위이고, 적지 않으면 실제 범위다 (D-081).
 // - 상태를 바꾸는 요청(POST·PUT·PATCH·DELETE): Origin이 설정한 앱 주소와 같아야 하고(403), 본문은 JSON 객체만(415·400), 64KB 이하(413).
 // - 로그인·헬스체크 밖은 세션이 필요하다(401). 다른 판매자의 자원은 404(있는지 알리지 않는다).
@@ -17,6 +17,8 @@ import type { StreamHub } from './hub.ts'
 import { LOGIN_BUSY_MESSAGE, LOGIN_RATE_LIMITED_MESSAGE, clientAddress } from './login-limit.ts'
 import { unknownFieldProblems } from './messages.ts'
 import { ASSISTANT_EVENT_TYPES, ASSISTANT_FORBIDDEN_MESSAGE, assistantMayCall } from './roles.ts'
+import { DEVICE_ID_RE, type PrintService } from './print.ts'
+import { registerPrintRoutes } from './print-api.ts'
 import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.ts'
 import type { Actor, WriteOutcome, WriteResult } from './writer.ts'
 import { CALLBACK_PATH, registerYoutubeRoutes } from './youtube/routes.ts'
@@ -31,10 +33,12 @@ export interface ApiDeps {
   readonly service: Service
   readonly auth: Auth
   readonly hub: StreamHub
+  /** 출력 기록과 출력 기기 (I1). 없으면 /api/print 경로가 없다 */
+  readonly print?: PrintService
   /** 화면 앱 주소 (Origin 검사, 예: https://app.livejjim.kr) */
   readonly appOrigin: string
-  /** 화면 설정 (방송자 조치 대기 시간 — 운영 5000, E2E 기동만 줄인다) */
-  readonly clientConfig?: { readonly hostActionDelayMs: number }
+  /** 화면 설정 (방송자 조치 대기 시간 — 운영 5000, E2E 기동만 줄인다 / 시험 모드 신호 testPrinter — E2E 기동만 켠다, I1) */
+  readonly clientConfig?: { readonly hostActionDelayMs: number; readonly testPrinter?: boolean }
   /** 유튜브 연동 (Y1, 설정이 없으면 null — 그 API는 503) */
   readonly youtube?: YoutubeSystem | null
   readonly sealer?: Sealer | null
@@ -77,7 +81,11 @@ function resultBody(result: WriteResult): Record<string, unknown> {
   }
   const event = result.event
   if (result.type === 'broadcast.start') body.broadcast = { id: event.b, date: event.date, title: event.title, rehearsal: result.rehearsal }
-  if (result.type === 'sms') body.phoneLast4 = typeof event.phoneLast4 === 'string' ? event.phoneLast4 : null
+  if (result.type === 'sms') {
+    body.phoneLast4 = typeof event.phoneLast4 === 'string' ? event.phoneLast4 : null
+    // 그 문자찜이 정한 구매자 자신 (AC-S06b-11, D-099 — 처음 응답과 재전송 응답이 같다)
+    body.buyer = result.smsBuyer ?? null
+  }
   // 시청자로 보내기 (서버가 만든 메시지 ID와 쓴 가짜 채널)
   if (result.type === 'chat') body.message = { id: event.id, channel: event.ch }
   return body
@@ -276,8 +284,8 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     return c.json({ ok: true })
   })
 
-  // 화면 설정 (방송자 조치 대기 시간, D-083 — 운영 5000밀리초)
-  api.get('/client-config', (c) => c.json({ hostActionDelayMs: deps.clientConfig?.hostActionDelayMs ?? 5000 }))
+  // 화면 설정 (방송자 조치 대기 시간, D-083 — 운영 5000밀리초 / 시험 모드 신호 — 시험용 프린터를 켠다, E2E 기동만 true, L-11 15)
+  api.get('/client-config', (c) => c.json({ hostActionDelayMs: deps.clientConfig?.hostActionDelayMs ?? 5000, testPrinter: deps.clientConfig?.testPrinter === true }))
 
   // ── 설정 (AC-S04-50) ──────────────────────────────────────────────────
   api.get('/settings', async (c) => c.json({ settings: await service.settings(sellerOf(c)) }))
@@ -409,6 +417,17 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     const events = await service.history(sellerOf(c), date, Number(after), Math.min(Number(limit), HISTORY_LIMIT_MAX), rehearsal.value ?? false, product)
     return events === null ? notFound() : c.json({ date, rehearsal: rehearsal.value ?? false, events })
   })
+  // 합치기 미리 보기 (AC-S06b-10, D-100): 그 범위의 지금 상태로 코어 previewMerge. 다른 판매자·없는 범위는 날짜 조회와 같은 404, 아무것도 기록하지 않는다
+  api.get('/days/:date/merge-preview', async (c) => {
+    const date = c.req.param('date')
+    if (!isValidDate(date)) return notFound()
+    const rehearsal = rehearsalOf(c)
+    if (!rehearsal.ok) return rehearsal.response
+    const input = Service.mergePreviewInput(c.req.query('from'), c.req.query('into'))
+    if (!input.ok) return apiError(input.rejection.status, input.rejection.code, input.rejection.message, input.rejection.problems)
+    const view = await service.mergePreview(sellerOf(c), date, rehearsal.value ?? false, input.from, input.into)
+    return view === null ? notFound() : c.json(view)
+  })
   // 증분 조회 (AC-S05-61, D-085): since 뒤로 바뀐 것. 줄 수 없는 since면 410 RESYNC_REQUIRED("전체를 다시 받으세요")
   api.get('/days/:date/changes', async (c) => {
     const date = c.req.param('date')
@@ -456,15 +475,25 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   })
 
   // ── 실시간 (AC-S04-60) ────────────────────────────────────────────────
+  // ?device=<기기 ID>: 그 기기의 실시간 연결로 센다 (출력 기기 "연결됨/끊김", I1 AC-I1-10)
   api.get('/stream', async (c) => {
     const session = c.get('session')
+    const device = c.req.query('device')
+    if (device !== undefined && !DEVICE_ID_RE.test(device)) {
+      return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'device', message: "기기 ID는 영문·숫자·'_'·'-'로 된 8~64자여야 해요." }])
+    }
     // 연결을 먼저 등록한 뒤 범위별 seq를 읽는다 — 그 사이 커밋된 변경도 알림으로 받는다 (RA-S04-003)
-    // 보조자 연결은 유튜브·리허설 생성기 알림을 받지 않는다 (범위 변경 알림만 — 문자찜 입력 화면이 쓰는 것)
-    return hub.open(session.sellerId, session.tokenHash, () => service.scopes(session.sellerId), { named: session.role !== 'ASSISTANT' })
+    // 보조자 연결은 유튜브·리허설 생성기·출력 기록 알림을 받지 않는다 (범위 변경 알림만 — 문자찜 입력 화면이 쓰는 것).
+    // 보조자는 출력 기기가 될 수 없으므로(출력 API는 403) 기기 ID도 받지 않는다
+    const assistant = session.role === 'ASSISTANT'
+    return hub.open(session.sellerId, session.tokenHash, () => service.scopes(session.sellerId), { named: !assistant, deviceId: assistant ? null : (device ?? null) })
   })
 
   // ── 유튜브 (Y1) ──────────────────────────────────────────────────────
   registerYoutubeRoutes(api, { service, auth, youtube: deps.youtube ?? null, sealer: deps.sealer ?? null })
+
+  // ── 출력 기록 (I1, LABEL_RULES L-11) ──────────────────────────────────
+  if (deps.print !== undefined) registerPrintRoutes(api, deps.print)
 
   api.notFound(() => notFound())
   return api

@@ -1,8 +1,10 @@
-// 라이브 콘솔 (SPEC §7 화면 2, AC-S05-02·10~15·21·22·30~35·40~42·54·62·63).
+// 라이브 콘솔 (SPEC §7 화면 2, AC-S05-02·10~15·21·22·30~35·40~42·54·62·63, AC-I1-30~34·36).
 // 빠른 입력·알림 띠는 위쪽에 늘 보인다. 현재 상품·상품 보드·채팅(·리허설 조작판)은 폭에 맞춰 나란히 또는 아래로.
 // I3: 유튜브 칸(스크롤 영역)·수집 멈춤 경고·사용량 알림(고정 영역)·알림 띠 "감사 실패"·감사 메시지 목록 (AC-I3-20~38),
 //     봉인한 날짜는 볼 수만 있다 — 쓰기 칸·버튼이 잠기고 눌러도 요청을 보내지 않는다 (AC-I3-41).
-import type { SaleSettings } from '@livejjim/core'
+// 라벨 상태는 서버의 출력 기록(라벨 키마다)으로 보인다 — 리허설은 라벨이 없다. Alt+P(⌥P)는 현재 상품의 1등 라벨 다시 출력 창.
+import { DEFAULT_SETTINGS, type SaleSettings } from '@livejjim/core'
+import type { CardRegistration, SuggestionCard } from '@livejjim/voice'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ApiError, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
 import type { ChatMessage, Product, WriteResult } from '../api/types.ts'
@@ -12,25 +14,35 @@ import { useUndoQueue } from '../lib/host-delay.ts'
 import { dateWords } from '../lib/kst.ts'
 import { useLeaveGuard } from '../lib/leave-guard.ts'
 import { ReadOnlyContext } from '../lib/read-only.ts'
-import { changedFields, decideFixForm, decideQuickInput, quickSettings, type QuickDecision } from '../lib/quick.ts'
+import { changedFields, decideFixForm, decideQuickInput, editQuestion, quickSettings, type QuickDecision } from '../lib/quick.ts'
 import { routePath, type Navigate } from '../lib/router.ts'
 import { useScopeStore } from '../lib/use-store.ts'
+import { useWide } from '../lib/use-wide.ts'
 import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
+import { cardLine, enterBadgeCard } from '../lib/voice.ts'
+import { VOICE_IDLE, VoiceController, type RegisterSource, type VoiceSnapshot } from '../voice/controller.ts'
+import { fetchPastNames } from '../voice/history.ts'
+import { loadVoice } from '../voice/load.ts'
+import { readConsent, readSettings, writeConsent, writeSettings } from '../voice/storage.ts'
 import { AssignDialog, ConfirmDialog, ConvertDialog, EditDialog, ReasonDialog } from './ActionDialogs.tsx'
 import { AttentionDialog, CancelRequestDialog, ConflictDialog, PendingDialog, SuccessionDialog } from './AlertDialogs.tsx'
-import { AlertStrip, firstAlert, type AlertKind } from './AlertStrip.tsx'
+import { AlertStrip, firstAlert, type AlertKind, type PrintAlerts } from './AlertStrip.tsx'
 import { ChatPanel } from './ChatPanel.tsx'
 import { AuthorizeDialog, CollectorWarningBar, OutboxDialog, QuotaToast, UnlinkDialog, YoutubeContext, YoutubePanel, useConsoleYoutube } from './ConsoleYoutube.tsx'
 import { Lock } from './Lock.tsx'
 import { SealedNotice } from './SealNotice.tsx'
-import { ConsoleContext, useConsoleApi, type ConsoleApi, type Dialog, type HostActionInput } from './console-context.ts'
+import { ConsoleContext, consoleLabels, productLabel, useConsoleApi, type ConsoleApi, type Dialog, type HostActionInput } from './console-context.ts'
 import { ErrorNote } from './ErrorNote.tsx'
+import { ReprintDialog } from './LabelParts.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
 import { ProductBoard, CurrentProduct } from './ProductBoard.tsx'
+import { usePrintState, useScopeLabels } from './print-context.tsx'
+import { DiscardDialog, PrintPauseDialog } from './PrintParts.tsx'
 import { ProductDetail } from './ProductDetail.tsx'
 import { QuickInput, type EditAsk, type FixState, type Registration } from './QuickInput.tsx'
 import { RehearsalPanel } from './RehearsalPanel.tsx'
 import { NOT_APPLIED_MESSAGE, UndoBar, secondsWord } from './UndoBar.tsx'
+import { VoiceConsentDialog, VoiceExtras, VoiceLive, VoiceToggle, voiceLiveShown } from './VoicePanel.tsx'
 
 export interface ConsolePageProps {
   readonly broadcastId: string
@@ -41,6 +53,33 @@ export interface ConsolePageProps {
 }
 
 const NO_ITEMS: readonly UndoItem[] = []
+const noSubscribe = () => () => {}
+const idleVoice = (): VoiceSnapshot => VOICE_IDLE
+
+/** 등록 경로에 넘긴 한 줄 (빠른 입력·고치기 칸·음성 카드) */
+interface RegRequest {
+  readonly requestId: string
+  readonly line: string
+  readonly no: number
+  readonly name: string
+  readonly price: number
+  readonly fromFix: boolean
+  /** 차례에서 그 번호가 이미 있을 때 "고칠까요?" 대신 (음성 자동 확정 — 창을 띄우지 않는다, D-I4-05) */
+  readonly onExists?: (product: Product) => void
+  /** 다시 보내기로 고칠 수 없는 실패·기록되지 않음 (음성 카드는 카드를 되살린다) */
+  readonly onFailed?: () => void
+}
+
+/** 등록 경로의 선택 (음성 카드) */
+interface RegHooks {
+  readonly onExists?: (product: Product) => void
+  readonly onFailed?: () => void
+}
+
+/** 창이 열려 있다 (콘솔 창·음성 안내 창·떠날지 묻는 창) */
+function anyDialogOpen(): boolean {
+  return document.querySelector('[role="dialog"]') !== null
+}
 
 export function ConsolePage(props: ConsolePageProps) {
   const { store, snapshot } = useScopeStore(props.broadcastId, () => ({ broadcastId: props.broadcastId }))
@@ -123,8 +162,48 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   /** 앞 등록 응답을 기다리며 판단을 미룬 줄 수 */
   const waitingLines = useRef(0)
   const regId = useRef(1)
-  const regRequests = useRef(new Map<number, { requestId: string; line: string; no: number; name: string; price: number; fromFix: boolean }>())
+  const regRequests = useRef(new Map<number, RegRequest>())
   const [alertsOpen, setAlertsOpen] = useState(false)
+  const wide = useWide()
+  const wideRef = useRef(wide)
+  wideRef.current = wide
+
+  // ── 음성 (VOC-01·04·05, D-I4-03~06·09) ────────────────────────────────
+  // 콘솔마다 하나. "음성 켜기"를 누르기 전에는 음성 코드·인식 객체·마이크·이력 조회가 없다. 콘솔을 떠나면 인식을 멈춘다.
+  const currentNames = useMemo(() => [...data.products.values()].map((product) => product.name), [data.products])
+  const currentNamesRef = useRef(currentNames)
+  currentNamesRef.current = currentNames
+  const voiceActions = useRef<{ register: (card: SuggestionCard, registration: CardRegistration, source: RegisterSource) => void; focusQuick: () => void }>({
+    register: () => {},
+    focusQuick: () => {},
+  })
+  const [voice, setVoice] = useState<VoiceController | null>(null)
+  useEffect(() => {
+    const controller = new VoiceController({
+      load: loadVoice,
+      now: () => Date.now(),
+      maxNumber: () => latest.current.data.broadcasts.get(b)?.settings['claim.maxNumber'] ?? DEFAULT_SETTINGS['claim.maxNumber'],
+      currentNames: () => currentNamesRef.current,
+      products: () => {
+        const numbers = new Map<number, boolean>()
+        for (const product of (store.getSnapshot().data ?? latest.current.data).products.values()) {
+          if (product.broadcast === b) numbers.set(product.no, product.status === 'CLOSED')
+        }
+        return numbers
+      },
+      fetchHistory: () => fetchPastNames({ date: broadcast.date, rehearsal: broadcast.rehearsal }),
+      dialogOpen: () => dialogCount.current > 0 || anyDialogOpen(),
+      readConsent,
+      writeConsent,
+      readSettings,
+      writeSettings: (settings) => writeSettings(settings),
+      register: (card, registration, source) => voiceActions.current.register(card, registration, source),
+      focusQuick: () => voiceActions.current.focusQuick(),
+    })
+    setVoice(controller)
+    return () => controller.dispose()
+  }, [b, store, broadcast.date, broadcast.rehearsal])
+  const voiceSnapshot = useSyncExternalStore(voice?.subscribe ?? noSubscribe, voice?.getSnapshot ?? idleVoice)
 
   // 5초 대기 중인 방송자 조치가 있으면 다른 화면으로 가기 전에 묻는다 (AC-S06-01, D-083)
   useLeaveGuard(queue)
@@ -254,8 +333,16 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     return { claims, products }
   }, [items])
 
-  const names = useMemo(() => new BuyerNames(data.buyers), [data.buyers])
+  const names = useMemo(() => new BuyerNames(data.buyers, data.claims), [data.buyers, data.claims])
   const settingsOf = useCallback((id: string) => latest.current.data.broadcasts.get(id)?.settings ?? null, [])
+  // 라벨 상태는 서버의 출력 기록 (리허설 범위는 라벨이 없다 — 조회하지 않는다, D-I1-08)
+  const labelState = useScopeLabels(broadcast.rehearsal ? null : broadcast.date)
+  const labels = labelState.labels
+  const print = usePrintState()
+  const queueSummary = print.overview?.queue ?? null
+  const printAlerts: PrintAlerts = useMemo(() => ({ pause: queueSummary?.pause?.message ?? null, discard: queueSummary?.discard ?? 0 }), [queueSummary])
+  const printAlertsRef = useRef(printAlerts)
+  printAlertsRef.current = printAlerts
 
   const api: ConsoleApi = useMemo(
     () => ({
@@ -266,6 +353,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       sealed,
       data,
       names,
+      labels,
       waiting,
       delayMs: queue.delayMs,
       settingsOf,
@@ -277,7 +365,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       fillQuick,
       select: setSelected,
     }),
-    [b, broadcast.date, broadcast.rehearsal, ended, sealed, data, names, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command, fillQuick],
+    [b, broadcast.date, broadcast.rehearsal, ended, sealed, data, names, labels, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command, fillQuick],
   )
 
   // ── 빠른 입력 (AC-S05-10~13, D-084) ──────────────────────────────────
@@ -352,11 +440,15 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         setRegistrations((list) => list.filter((item) => item.id !== id))
       }
       // 앞 줄이 같은 번호를 등록했으면(또는 다른 기기가) 등록 대신 묻는다
+      const exists = (product: Product) => {
+        if (request.onExists !== undefined) request.onExists(product)
+        else askEdit(product, request.name, request.price, request.line)
+      }
       if (first) {
         const existing = findProduct(request.no)
         if (existing !== undefined) {
           remove()
-          askEdit(existing, request.name, request.price, request.line)
+          exists(existing)
           return
         }
       }
@@ -368,7 +460,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         if (!result.changed) {
           // 그사이 다른 곳에서 같은 번호가 생겼다: 등록되지 않았으니 묻는다
           const existing = findProduct(request.no)
-          if (existing !== undefined) askEdit(existing, request.name, request.price, request.line)
+          if (existing !== undefined) exists(existing)
+          else request.onFailed?.()
           return
         }
         clearLine(request.line)
@@ -383,26 +476,91 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         } else {
           remove()
           setQuickError(error)
+          request.onFailed?.()
         }
       }
     },
     [askEdit, b, clearLine, findProduct, queue, undoRegistration, write],
   )
 
-  const startRegistration = useCallback((line: string, no: number, name: string, price: number, fromFix: boolean): number => {
+  const startRegistration = useCallback((line: string, no: number, name: string, price: number, fromFix: boolean, hooks: RegHooks = {}): number => {
     const id = regId.current++
-    regRequests.current.set(id, { requestId: newRequestId(), line, no, name, price, fromFix })
+    regRequests.current.set(id, { requestId: newRequestId(), line, no, name, price, fromFix, ...hooks })
     setRegistrations((list) => [...list, { id, line, no, status: 'sending', error: null }])
     return id
   }, [])
 
   const enqueueRegistration = useCallback(
-    (line: string, no: number, name: string, price: number, fromFix: boolean) => {
-      const id = startRegistration(line, no, name, price, fromFix)
+    (line: string, no: number, name: string, price: number, fromFix: boolean, hooks: RegHooks = {}) => {
+      const id = startRegistration(line, no, name, price, fromFix, hooks)
       chain.current = chain.current.then(() => runRegistration(id, true))
     },
     [runRegistration, startRegistration],
   )
+
+  // ── 음성 카드 등록 (PRD-06, D-I4-03·05): 빠른 입력과 같은 등록 경로 ───
+
+  /** 카드 → 등록 경로 (Enter·"등록"·자동 확정). 자동 확정은 차례에서 번호가 생겼으면 창 없이 카드로 돌려놓는다 */
+  const registerVoiceCard = useCallback(
+    (card: SuggestionCard, registration: CardRegistration, source: RegisterSource) => {
+      const { no, name, price } = registration
+      enqueueRegistration(cardLine(no, name, price), no, name, price, false, {
+        ...(source === 'auto' ? { onExists: (product: Product) => voice?.restore(card, { note: editQuestion(product.no, product.status === 'CLOSED') }) } : {}),
+        onFailed: () => voice?.restore(card, { touched: true }),
+      })
+      if (source === 'click') focusQuick()
+    },
+    [enqueueRegistration, focusQuick, voice],
+  )
+  voiceActions.current = { register: registerVoiceCard, focusQuick }
+
+  /** 카드 고치기 칸의 Enter: 빠른 입력 고치기 칸과 같은 해석 (decideFixForm — 그 방송의 price.unit) */
+  const submitCardForm = useCallback(
+    (id: string) => {
+      if (voice === null || settings === null) return
+      const form = voice.getSnapshot().forms.get(id)
+      if (form === undefined) return
+      const decision = decideFixForm(form, quickSettings(settings), findProduct)
+      switch (decision.kind) {
+        case 'fix':
+          voice.formProblem(id, decision.message, decision.focus)
+          return
+        case 'register': {
+          const card = voice.take(id)
+          if (card === undefined) return
+          const { no, name, price } = decision
+          enqueueRegistration(cardLine(no, name, price), no, name, price, false, {
+            onFailed: () => voice.restore({ ...card, no, name: name === '' ? null : name, price }, { touched: true }),
+          })
+          focusQuick()
+          return
+        }
+        case 'edit': {
+          if (voice.take(id) === undefined) return
+          askEdit(decision.product, decision.name, decision.price, cardLine(decision.no, decision.name, decision.price))
+          return
+        }
+        default:
+          return
+      }
+    },
+    [askEdit, enqueueRegistration, findProduct, focusQuick, settings, voice],
+  )
+
+  /** 카드의 "등록": 고치기 칸이 열려 있으면 그 칸의 값으로 */
+  const registerCardClick = useCallback(
+    (id: string) => {
+      if (voice === null) return
+      if (voice.getSnapshot().forms.has(id)) submitCardForm(id)
+      else voice.confirm(id, 'click')
+    },
+    [submitCardForm, voice],
+  )
+
+  // 창이 닫히면 미룬 자동 확정을 다시 본다 (D-I4-05)
+  useEffect(() => {
+    voice?.refresh()
+  }, [voice, dialogs.length])
 
   const retryRegistration = useCallback(
     (id: number) => {
@@ -489,6 +647,11 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   const onEnter = useCallback(
     (line: string) => {
       if (settings === null) return
+      // 빈 칸의 Enter = 맨 앞 음성 카드 (PC, 맨 앞이 된 지 1초 뒤, 창·카드 고치기 칸이 닫혀 있을 때 — D-I4-03). 글자가 있으면 늘 빠른 입력이다
+      if (voice !== null && voice.enter(line, { wide: wideRef.current, dialogOpen: dialogCount.current > 0 || anyDialogOpen() })) {
+        setQuickError(null)
+        return
+      }
       setQuickError(null)
       // 칸의 글자를 골라 둔다: 다음 줄을 바로 치면 그 글자가 바뀌고 뒤에 이어 붙지 않는다(응답이 늦어도, TE-S05-001). 판단은 친 줄로 한다
       const input = quickRef.current
@@ -505,7 +668,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         return handleDecision(decideQuickInput(line, snapshotSettings, findProduct), line, false, true)
       })
     },
-    [findProduct, handleDecision, settings],
+    [findProduct, handleDecision, settings, voice],
   )
 
   const onFixSubmit = useCallback(() => {
@@ -536,8 +699,14 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       }
       if (event.altKey && !mod && (event.code === 'Digit1' || event.key === '1')) {
         event.preventDefault()
-        const kind = firstAlert(alertCounts(latest.current.data), thanksFailed.current)
+        const kind = firstAlert(alertCounts(latest.current.data), printAlertsRef.current, thanksFailed.current)
         if (kind !== null) openAlert(kind)
+        return
+      }
+      // Alt+P(⌥P): 현재 상품의 1등 라벨 다시 출력 — 빠른 입력칸에 글자(π 등)가 들어가지 않는다 (AC-I1-33)
+      if (event.altKey && !mod && !event.shiftKey && (event.code === 'KeyP' || event.key === 'p' || event.key === 'P' || event.key === 'π')) {
+        event.preventDefault()
+        setDialogs([{ kind: 'reprint', product: currentKey.current }])
         return
       }
       if (event.key === 'Escape') {
@@ -546,13 +715,18 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           closeTop()
           return
         }
+        // 음성 안내 창 (포커스가 창 밖에 있어도 Esc로 닫는다 — 꺼진 그대로)
+        if (voice !== null && voice.getSnapshot().phase === 'consent') {
+          voice.declineConsent()
+          return
+        }
         setFix(null)
         quickRef.current?.focus()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [closeTop, openAlert, queue])
+  }, [closeTop, openAlert, queue, voice])
 
   // ── 방송 끝내기 (AC-S05-02) ───────────────────────────────────────────
 
@@ -575,6 +749,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   }, [b, closeAll, openDialog, store])
 
   const current = (selected === null ? undefined : data.products.get(selected)) ?? latestProduct(data, b)
+  const currentKey = useRef<string | null>(null)
+  currentKey.current = current?.key ?? null
 
   const messagesById = useMemo(() => new Map(snapshot.messages.map((message) => [message.id, message])), [snapshot.messages])
 
@@ -601,6 +777,24 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   }, [items, queue.delayMs])
 
   const topDialog = dialogs.at(-1)
+
+  // 음성 칸: "Enter 등록"은 지금 빈 빠른 입력칸의 Enter가 등록할 카드에만 (D-I4-03)
+  const enterBadge =
+    voice === null
+      ? null
+      : enterBadgeCard({
+          line: quickText,
+          cards: voiceSnapshot.cards,
+          front: voiceSnapshot.front,
+          now: voiceSnapshot.now,
+          wide,
+          dialogOpen: dialogs.length > 0 || voiceSnapshot.phase === 'consent',
+          editing: new Set(voiceSnapshot.forms.keys()),
+        })
+  const voiceLive =
+    voice !== null && voiceLiveShown(voiceSnapshot) ? (
+      <VoiceLive voice={voice} snapshot={voiceSnapshot} badge={enterBadge} onSubmitForm={submitCardForm} onRegister={registerCardClick} />
+    ) : null
 
   return (
     <ConsoleContext.Provider value={api}>
@@ -637,36 +831,42 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
                 방송 끝내기
               </button>
             )}
+            {voice !== null ? <VoiceToggle voice={voice} snapshot={voiceSnapshot} ready={settings !== null} /> : null}
           </div>
         </div>
         {endError !== null ? <ErrorNote error={endError} /> : null}
         {sealed ? <SealedNotice /> : null}
-        <div className="console-sticky">
+        <div className={voiceLive !== null && wide ? 'console-sticky console-sticky-voice' : 'console-sticky'}>
           <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
           <CollectorWarningBar navigate={navigate} ended={ended || sealed} />
           <QuotaToast />
-          <AlertStrip counts={counts} thanksFailed={yt.thanksFailed} onOpen={openAlert} expanded={alertsOpen} onToggle={() => setAlertsOpen((open) => !open)} />
-          <Lock className="lock-quick">
-          <QuickInput
-            value={quickText}
-            onChange={setQuickText}
-            inputRef={quickRef}
-            onEnter={onEnter}
-            fix={fix}
-            onFixChange={(patch) => setFix((value) => (value === null ? value : { ...value, ...patch }))}
-            onFixSubmit={onFixSubmit}
-            onFixClose={closeFix}
-            registrations={registrations}
-            onRetry={retryRegistration}
-            asks={asks}
-            onAsk={openAsk}
-            onAskDismiss={removeAsk}
-            onAskRegister={registerAsk}
-            error={quickError}
-          />
-          </Lock>
-          <UndoBar items={items} queue={queue} />
+          <div className="console-sticky-quick">
+            <AlertStrip counts={counts} print={printAlerts} thanksFailed={yt.thanksFailed} onOpen={openAlert} expanded={alertsOpen} onToggle={() => setAlertsOpen((open) => !open)} />
+            <Lock className="lock-quick">
+              <QuickInput
+                value={quickText}
+                onChange={setQuickText}
+                inputRef={quickRef}
+                onEnter={onEnter}
+                fix={fix}
+                onFixChange={(patch) => setFix((value) => (value === null ? value : { ...value, ...patch }))}
+                onFixSubmit={onFixSubmit}
+                onFixClose={closeFix}
+                registrations={registrations}
+                onRetry={retryRegistration}
+                asks={asks}
+                onAsk={openAsk}
+                onAskDismiss={removeAsk}
+                onAskRegister={registerAsk}
+                error={quickError}
+              />
+            </Lock>
+            <UndoBar items={items} queue={queue} />
+          </div>
+          {wide ? voiceLive : null}
         </div>
+        {wide ? null : voiceLive}
+        {wide || voice === null ? null : <VoiceExtras voice={voice} snapshot={voiceSnapshot} />}
         <div className="console-grid">
           <div className="console-side">
             {broadcast.rehearsal ? (
@@ -676,6 +876,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
                 onGenerator={(status) => store.setGenerator(status)}
                 onWritten={(result) => void store.sync(result.seq)}
                 onOpenBroadcast={(id) => navigate({ name: 'console', id })}
+                primary={fix === null && asks.length === 0}
               />
             ) : null}
             <CurrentProduct product={current} onOpen={(key) => openDialog({ kind: 'product', key })} />
@@ -686,6 +887,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
               onOpenOutbox={() => openDialog({ kind: 'outbox' })}
               onUnlink={() => openDialog({ kind: 'youtubeUnlink' })}
             />
+            {wide && voice !== null ? <VoiceExtras voice={voice} snapshot={voiceSnapshot} /> : null}
           </div>
           <ProductBoard
             onOpen={(key) => {
@@ -702,8 +904,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
             sealedMessage={snapshot.sealedMessage}
           />
         </div>
-        <p className="shortcuts">단축키: Enter 등록·찾기 · Esc 창 닫기 · Ctrl+Z(⌘Z) 되돌리기 · Alt+1(⌥1) 첫 알림 열기 · 1·2·3 창 안의 선택</p>
+        <p className="shortcuts">단축키: Enter 등록·찾기 · Esc 창 닫기 · Ctrl+Z(⌘Z) 되돌리기 · Alt+1(⌥1) 첫 알림 열기 · Alt+P(⌥P) 라벨 다시 출력 · 1·2·3 창 안의 선택</p>
       </main>
+      {voice !== null && voiceSnapshot.phase === 'consent' ? <VoiceConsentDialog voice={voice} /> : null}
       {topDialog !== undefined ? (
         <DialogView
           key={dialogs.length}
@@ -777,7 +980,32 @@ function DialogView({ dialog, messageOf, onClose, onEditDone, onEditUnchanged }:
       return <AuthorizeDialog url={dialog.url} onClose={onClose} />
     case 'youtubeUnlink':
       return <UnlinkDialog onClose={onClose} />
+    case 'printPause':
+      return <PrintPauseDialog onClose={onClose} />
+    case 'discard':
+      return <DiscardDialog onClose={onClose} />
+    case 'reprint':
+      return <ReprintHost productKey={dialog.product} onClose={onClose} />
   }
+}
+
+/** Alt+P 창 (AC-I1-33): 현재 상품의 1등 라벨 */
+function ReprintHost({ productKey: key, onClose }: { readonly productKey: string | null; readonly onClose: () => void }) {
+  const api = useConsoleApi()
+  const product = key === null ? undefined : api.data.products.get(key)
+  const winners = product === undefined ? [] : product.winnerClaims.map((id) => api.data.claims.get(id)).filter((claim) => claim !== undefined)
+  return (
+    <ReprintDialog
+      product={product}
+      winners={winners}
+      labels={consoleLabels(api)}
+      rehearsal={api.rehearsal}
+      date={api.date}
+      title={product === undefined ? '' : productLabel(api, product.broadcast, product.no)}
+      nameOf={(claim) => api.names.name(claim.currentBuyer)}
+      onClose={onClose}
+    />
+  )
 }
 
 function ProductDetailHost({ productKey: key, onClose }: { readonly productKey: string; readonly onClose: () => void }) {

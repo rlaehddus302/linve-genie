@@ -1,7 +1,7 @@
 // 골든 러너의 공개 타입. 러너는 코어를 이 인터페이스(GoldenCore)로만 부른다.
 // 실제 코어는 core-adapter.ts가 이 모양으로 감싸고, 러너 자체 테스트는 가짜 코어를 넣는다.
 import type { SettingsOverride } from '@livejjim/core'
-import type { ClaimStatus, EffectKind, PaymentStatus, ProductStatus, RejectReason, SuiteName, Target } from './contract.ts'
+import type { ClaimStatus, EffectKind, MergeBlockReason, MergeDuplicateStatus, PaymentStatus, ProductStatus, RejectReason, SuiteName, Target } from './contract.ts'
 
 // ── 코어 → 러너 ──────────────────────────────────────────────────────────
 
@@ -11,6 +11,8 @@ export interface GoldenParserCore {
   amount(text: string, settings: SettingsOverride): unknown
   koreanNumber(text: string): unknown
   quickInput(text: string, settings: SettingsOverride): unknown
+  /** 음성 문장 추출 (P2, D-209 — 추출기는 packages/voice에 있고 어댑터가 부른다). dictionary는 suite의 품종 사전(사본) */
+  voiceExtract(text: string, settings: SettingsOverride, dictionary: readonly string[]): unknown
 }
 
 export interface GoldenBroadcast {
@@ -57,6 +59,11 @@ export interface GoldenEngineCore {
   observe(state: unknown): GoldenSnapshot
   /** 불변식 INV-1~12 검사 자리 (S02에서 붙인다). 위반은 불일치로 센다. */
   invariants?(state: unknown, snapshot: GoldenSnapshot): readonly InvariantViolation[]
+  /**
+   * 합치기 미리 보기 (S06b, D-100 — expect의 `mergePreviews`). from·into는 러너가 구매자 자신의 ID로 푼 값(풀리지 않는 키는 그대로).
+   * 상태를 바꾸면 안 된다(러너가 확인한다). 없으면 `mergePreviews`를 적은 시나리오는 미구현이다.
+   */
+  previewMerge?(state: unknown, from: string, into: string): MergePreviewView
 }
 
 export interface GoldenCore {
@@ -129,9 +136,29 @@ export interface ClaimView {
   readonly reason?: RejectReason
 }
 
+/** 합치기 미리 보기 결과 (S06b, D-100). 구매자는 모두 구매자 자신의 ID, 상품은 지금의 상품 키 */
+export interface MergePreviewView {
+  readonly blocked: MergeBlockReason | null
+  readonly bothConfirmed: readonly string[]
+  readonly moving: MergeItemsView
+  readonly after: MergeItemsView | null
+  readonly duplicates: readonly { readonly product: string; readonly buyer: string; readonly status: MergeDuplicateStatus }[]
+}
+
+export interface MergeItemsView {
+  /** 확정 찜의 상품 키 */
+  readonly items: readonly string[]
+  readonly subtotal: number
+}
+
 export interface GoldenSnapshot {
   /** 구매자 키 → 지금의 구매자 ID (합치기·전화번호 연결 반영) */
   readonly buyerKeys: Readonly<Record<string, string>>
+  /**
+   * 구매자 키 → 그 키의 구매자 자신의 ID (합치기 전 — S06b `mergePreviews`의 from·into·duplicates[].buyer).
+   * 없거나 키가 없으면 그 키를 그대로 쓴다(README "이벤트 안의 구매자 키"처럼 풀리지 않는 키는 그대로)
+   */
+  readonly buyerSelf?: Readonly<Record<string, string>>
   /** 방송 ID → 방송 (선언된 방송 전부, S04) */
   readonly broadcasts: Readonly<Record<string, BroadcastView>>
   /** 지금의 상품 키 `<방송>/<번호>` → 상품 */

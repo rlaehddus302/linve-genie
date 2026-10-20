@@ -30,13 +30,40 @@ export function UndoBar({ items, queue }: { readonly items: readonly UndoItem[];
     <section className="undo-bar" aria-label="보내기 전 조치">
       <ul className="plain-list stack-tight">
         {items.map((item) => (
-          <li key={item.id} className="undo-item">
+          <li key={item.id} className="undo-item" data-tone={undoTone(item)}>
             <UndoLine item={item} queue={queue} now={now} />
           </li>
         ))}
       </ul>
     </section>
   )
+}
+
+/** 띠 한 줄의 뜻 (D-102): 보내기 전은 주의, 보냄·되돌림 완료는 성공, 적용 안 됨은 주의, 저장 실패는 위험, 그 밖은 보통 */
+export function undoTone(item: UndoItem): 'success' | 'warning' | 'danger' | 'info' {
+  if (item.kind === 'registration') {
+    switch (item.status) {
+      case 'undone':
+        return 'success'
+      case 'blocked':
+        return 'warning'
+      case 'failed':
+        return 'danger'
+      default:
+        return 'info'
+    }
+  }
+  switch (item.status) {
+    case 'waiting':
+    case 'notApplied':
+      return 'warning'
+    case 'done':
+      return 'success'
+    case 'failed':
+      return 'danger'
+    default:
+      return 'info'
+  }
 }
 
 function UndoLine({ item, queue, now }: { readonly item: UndoItem; readonly queue: UndoQueue; readonly now: number }) {
@@ -106,7 +133,7 @@ function UndoLine({ item, queue, now }: { readonly item: UndoItem; readonly queu
             {item.error?.problems.map((problem) => ` ${problem.message}${problem.hint !== undefined ? ` ${problem.hint}` : ''}`).join('')}
           </span>
           {item.reopenLabel !== null ? (
-            <button type="button" className="button button-primary" aria-label={`${item.label} ${item.reopenLabel}`} onClick={() => queue.reopen(item.id)}>
+            <button type="button" className="button" aria-label={`${item.label} ${item.reopenLabel}`} onClick={() => queue.reopen(item.id)}>
               {item.reopenLabel}
             </button>
           ) : null}

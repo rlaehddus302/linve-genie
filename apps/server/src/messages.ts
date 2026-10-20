@@ -71,6 +71,11 @@ function phoneProblem(field: string, type: unknown): FieldProblem {
   return hint === undefined ? { field, message: PHONE_NUMBER_MESSAGE } : { field, message: PHONE_NUMBER_MESSAGE, hint }
 }
 
+/** ID 칸(조회 검색값 포함 — 합치기 미리 보기의 from·into)의 휴대폰 번호 문제: D-079 ⑥ 문장과 그 칸의 다음 할 일. 값은 담지 않는다 */
+export function phoneIdProblem(field: string): FieldProblem {
+  return phoneProblem(field, null)
+}
+
 /**
  * 코어 입력 문제 → 쉬운 문제 (필드마다 하나). 휴대폰 번호 문제는 코어가 붙인 `code: 'PHONE_NUMBER'`로만 고른다(값을 다시 판단하지 않는다, AC-S04-22).
  * 설정 문제(`settings.<키>`)는 호출하는 쪽이 checkSettings 문장을 쓴다

@@ -58,14 +58,14 @@ describe('AC-S06-16 문자찜 쓰기 계약', () => {
     expect(await countRows(world.database, 'events')).toBe(before)
   })
 
-  it('응답: date·rehearsal·seq·type·changed·effects·phoneLast4(전화번호가 없거나 읽지 못하면 null). 같은 요청 번호는 한 번만 기록', async () => {
+  it('응답: date·rehearsal·seq·type·changed·effects·phoneLast4(전화번호가 없거나 읽지 못하면 null)·buyer(AC-S06b-11). 같은 요청 번호는 한 번만 기록', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)
     const b = await createBroadcast(world, seller, { date: DAY })
     await expectOk(writeEvent(world, seller, { type: 'product.register', b: b.id, no: 15, name: '핑크프릴', price: 10000 }))
     const api = client(world, seller.cookie)
     const withPhone = await expectOk(api.post('/api/events', { requestId: 'sms-a', type: 'sms', b: b.id, no: 15, phone: '010-1234-5678', memo: '김씨' }))
-    expect(Object.keys(withPhone.body).sort()).toEqual(['changed', 'date', 'effects', 'phoneLast4', 'rehearsal', 'seq', 'type'])
+    expect(Object.keys(withPhone.body).sort()).toEqual(['buyer', 'changed', 'date', 'effects', 'phoneLast4', 'rehearsal', 'seq', 'type'])
     expect(withPhone.body).toMatchObject({ date: DAY, rehearsal: false, seq: 3, type: 'sms', changed: true, phoneLast4: '5678' })
     const noPhone = await expectOk(api.post('/api/events', { requestId: 'sms-b', type: 'sms', b: b.id, no: 15 }))
     expect(noPhone.body).toMatchObject({ seq: 4, changed: true, phoneLast4: null })

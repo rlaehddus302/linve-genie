@@ -770,3 +770,54 @@ export interface InvariantViolation {
   readonly id: string
   readonly message: string
 }
+
+// ── 합치기 미리 보기 (R-11 "미리 보기", BUY-03, D-100) ──────────────────
+
+/**
+ * buyer.merge가 아무 일도 하지 않는 이유. 위에서부터 처음 맞는 것:
+ * 둘 중 하나를 엔진이 모름 → 같은 구매자 → from이 이미 다른 구매자에 합쳐져 있음 → into의 지금의 구매자가 from(고리) → 확정 찜이 둘이 되는 상품
+ */
+export type MergeBlockReason = 'UNKNOWN_BUYER' | 'SAME_BUYER' | 'FROM_MERGED' | 'CYCLE' | 'BOTH_CONFIRMED'
+
+/** 합치면 DUPLICATE가 될 찜 하나 */
+export interface MergeDuplicate {
+  /** DUPLICATE가 될 찜 ID */
+  readonly claim: string
+  /** 지금의 상품 키 */
+  readonly product: string
+  /** 그 찜의 구매자 자신 (지금의 구매자가 아니다) */
+  readonly buyer: string
+  /** 지금 상태 — 확정 찜은 DUPLICATE가 되지 않는다 */
+  readonly status: 'CONFLICT' | 'WAITLISTED' | 'PENDING'
+  /** 그 상품에 남는 찜 ID (R-11 "앞선 쪽": 확정 > 충돌 > 대기 앞 순번 > 보류 판정 순위 — 방향과 상관없다) */
+  readonly keep: string
+}
+
+/** 확정 찜의 상품 키와 가격 스냅샷 합 */
+export interface MergeItems {
+  /** 확정 찜의 상품 키, 찜 생성 순서 (getBuyer·listBuyers의 items와 같은 순서) */
+  readonly items: readonly string[]
+  readonly subtotal: number
+}
+
+/**
+ * previewMerge(state, from, into)의 결과 — buyer.merge(from, into)를 지금 상태에 적용하면 일어날 일.
+ * 막히지 않으면(blocked = null) applyEvent의 결과와 같다: DUPLICATE가 되는 찜 = duplicates의 claim, 그 뒤 getBuyer(target)의 items·subtotal = after.
+ */
+export interface MergePreview {
+  /** 넘긴 그대로 (구매자 자신의 ID) */
+  readonly from: string
+  readonly into: string
+  /** null = 합칠 수 있다 */
+  readonly blocked: MergeBlockReason | null
+  /** 합친 뒤의 지금의 구매자 = into의 지금의 구매자 (into를 모르면 null) */
+  readonly target: string | null
+  /** from 쪽(from과 그 아래 전부)과 target 쪽이 모두 확정 찜을 가진 상품 키, 방송 선언 순서·번호 순. blocked가 BOTH_CONFIRMED가 아니면 빈 목록 */
+  readonly bothConfirmed: readonly string[]
+  /** 옮길 쪽: from과 그 아래 합쳐 있던 구매자 전부의 ID(from 먼저)와 그 확정 찜. 모르는 구매자면 빈 목록·0 */
+  readonly moving: MergeItems & { readonly buyers: readonly string[] }
+  /** 합친 뒤 target의 확정 찜. 막히면 null */
+  readonly after: MergeItems | null
+  /** 합치면 DUPLICATE가 될 찜, 상품 키(방송 선언 순서·번호) 순. 막히면 빈 목록 */
+  readonly duplicates: readonly MergeDuplicate[]
+}

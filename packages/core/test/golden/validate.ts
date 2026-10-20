@@ -12,6 +12,11 @@ import {
   EFFECT_KINDS,
   EVENT_SPECS,
   EXPECT_KEYS,
+  MERGE_BLOCK_REASONS,
+  MERGE_DUPLICATE_EXPECT_KEYS,
+  MERGE_DUPLICATE_STATUSES,
+  MERGE_ITEMS_EXPECT_KEYS,
+  MERGE_PREVIEW_EXPECT_KEYS,
   PAYMENT_STATUSES,
   PRODUCT_EXPECT_KEYS,
   PRODUCT_KEY_RE,
@@ -26,6 +31,9 @@ import {
   SUITES,
   SUITE_SETTINGS,
   TARGETS,
+  VOICE_CONFIDENCES,
+  VOICE_DICTIONARY_KEY,
+  VOICE_EXTRACT_KEYS,
   anyInt,
   bool,
   intAtLeast,
@@ -40,6 +48,8 @@ import {
   type ClaimStatus,
   type EffectKind,
   type FieldKind,
+  type MergeBlockReason,
+  type MergeDuplicateStatus,
   type PaymentStatus,
   type ProductStatus,
   type RejectReason,
@@ -104,6 +114,22 @@ export interface BroadcastExpect {
   readonly ended?: boolean
 }
 
+export interface MergeItemsExpect {
+  readonly items?: readonly string[]
+  readonly subtotal?: number
+}
+
+/** `mergePreviews` 항목 (S06b, D-100). from·into는 구매자 키(러너가 구매자 자신으로 푼다), 나머지는 적은 것만 비교 */
+export interface MergePreviewExpect {
+  readonly from: string
+  readonly into: string
+  readonly blocked?: MergeBlockReason | null
+  readonly bothConfirmed?: readonly string[]
+  readonly moving?: MergeItemsExpect
+  readonly after?: MergeItemsExpect | null
+  readonly duplicates?: readonly { readonly product: string; readonly buyer: string; readonly status: MergeDuplicateStatus }[]
+}
+
 export interface Expect {
   readonly broadcasts?: Readonly<Record<string, BroadcastExpect>>
   readonly products?: Readonly<Record<string, ProductExpect>>
@@ -117,6 +143,7 @@ export interface Expect {
   readonly sameBuyer?: readonly (readonly string[])[]
   readonly claimCount?: number
   readonly cancelRequests?: readonly { readonly product: string; readonly buyer: string }[]
+  readonly mergePreviews?: readonly MergePreviewExpect[]
 }
 
 export interface ParserCase {
@@ -131,6 +158,8 @@ export interface ParserSuiteDoc {
   readonly suite: SuiteName
   /** DOMAIN_RULES 키(점 표기)로 바꾼 설정 */
   readonly settings: SettingsOverride
+  /** voice-extract의 품종 사전 (settings.dictionary, 생략하면 빈 목록). 다른 suite에는 없다 (P2, D-209) */
+  readonly dictionary?: readonly string[]
   readonly cases: readonly ParserCase[]
 }
 
@@ -276,6 +305,50 @@ function checkEffectEntry(c: Checker, ctx: ScenarioContext, path: readonly PathS
   if (hasValue(value, 'buyer')) checkBuyerKey(c, ctx, [...path, 'buyer'], value.buyer)
   if (hasValue(value, 'text')) c.value([...path, 'text'], value.text, str)
   if (hasValue(value, 'confirmVersion')) c.value([...path, 'confirmVersion'], value.confirmVersion, intAtLeast(1))
+}
+
+/**
+ * `mergePreviews[i].from`·`into` (README `mergePreviews` 비교 규칙): 구매자 키이고 판매자가 적는 ID 칸이다 — 휴대폰 번호면 읽기 오류(notPhoneId).
+ * 엔진이 모르는 구매자도 적을 수 있다: 이벤트에 나온 적 없는 채널, 구매자를 정하지 않은 `sms:<ref>`(모르는 지정 구매자·없는 ref)는 키 그대로 넘긴다.
+ */
+function checkPreviewBuyer(c: Checker, path: readonly PathSegment[], value: unknown): void {
+  if (typeof value !== 'string' || value === '' || value.trim() !== value) {
+    c.fail(path, `구매자 키는 앞뒤 공백 없는 문자열이어야 한다 (값: ${showValue(value)})`)
+    return
+  }
+  c.value(path, value, notPhoneId)
+}
+
+function checkMergeItems(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], value: unknown): void {
+  if (!c.object(path, value)) return
+  c.keys(path, value, MERGE_ITEMS_EXPECT_KEYS, [], '합치기 미리 보기 찜 키')
+  if (hasValue(value, 'items') && c.array([...path, 'items'], value.items)) {
+    value.items.forEach((item, i) => checkProductKey(c, ctx, [...path, 'items', i], item))
+  }
+  if (hasValue(value, 'subtotal')) c.value([...path, 'subtotal'], value.subtotal, intAtLeast(0))
+}
+
+function checkMergePreview(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], value: unknown): void {
+  if (!c.object(path, value)) return
+  c.keys(path, value, MERGE_PREVIEW_EXPECT_KEYS, ['from', 'into'], '합치기 미리 보기 키')
+  if (hasValue(value, 'from')) checkPreviewBuyer(c, [...path, 'from'], value.from)
+  if (hasValue(value, 'into')) checkPreviewBuyer(c, [...path, 'into'], value.into)
+  if (hasValue(value, 'blocked') && value.blocked !== null) c.value([...path, 'blocked'], value.blocked, oneOf(MERGE_BLOCK_REASONS))
+  if (hasValue(value, 'bothConfirmed') && c.array([...path, 'bothConfirmed'], value.bothConfirmed)) {
+    value.bothConfirmed.forEach((item, i) => checkProductKey(c, ctx, [...path, 'bothConfirmed', i], item))
+  }
+  if (hasValue(value, 'moving')) checkMergeItems(c, ctx, [...path, 'moving'], value.moving)
+  if (hasValue(value, 'after') && value.after !== null) checkMergeItems(c, ctx, [...path, 'after'], value.after)
+  if (hasValue(value, 'duplicates') && c.array([...path, 'duplicates'], value.duplicates)) {
+    value.duplicates.forEach((entry, i) => {
+      const ep = [...path, 'duplicates', i]
+      if (!c.object(ep, entry)) return
+      c.keys(ep, entry, MERGE_DUPLICATE_EXPECT_KEYS, MERGE_DUPLICATE_EXPECT_KEYS, '중복 찜 키')
+      if (hasValue(entry, 'product')) checkProductKey(c, ctx, [...ep, 'product'], entry.product)
+      if (hasValue(entry, 'buyer')) checkBuyerKey(c, ctx, [...ep, 'buyer'], entry.buyer)
+      if (hasValue(entry, 'status')) c.value([...ep, 'status'], entry.status, oneOf(MERGE_DUPLICATE_STATUSES))
+    })
+  }
 }
 
 function checkExpect(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], value: unknown): void {
@@ -436,6 +509,11 @@ function checkExpect(c: Checker, ctx: ScenarioContext, path: readonly PathSegmen
       })
     }
   }
+
+  if (hasValue(value, 'mergePreviews')) {
+    const p = [...path, 'mergePreviews']
+    if (c.array(p, value.mergePreviews)) value.mergePreviews.forEach((entry, i) => checkMergePreview(c, ctx, [...p, i], entry))
+  }
 }
 
 // ── 설정 ─────────────────────────────────────────────────────────────────
@@ -499,7 +577,23 @@ function checkSuiteOut(c: Checker, suite: SuiteName, path: readonly PathSegment[
       }
       return
     }
+    case 'voice-extract': {
+      // README: 키는 no·name·price·confidence만, confidence 필수. no·name·price는 적지 않거나 null이면 null
+      if (!c.object(path, out)) return
+      c.keys(path, out, VOICE_EXTRACT_KEYS, ['confidence'], 'voice-extract out 키')
+      if (hasValue(out, 'no') && out.no !== null) c.value([...path, 'no'], out.no, intAtLeast(1))
+      if (hasValue(out, 'name') && out.name !== null) c.value([...path, 'name'], out.name, nonEmptyStr)
+      if (hasValue(out, 'price') && out.price !== null) c.value([...path, 'price'], out.price, intAtLeast(100))
+      if (hasValue(out, 'confidence')) c.value([...path, 'confidence'], out.confidence, oneOf(VOICE_CONFIDENCES))
+      return
+    }
   }
+}
+
+/** 문자열 목록 (voice-extract 품종 사전) */
+const stringList: ValueCheck = (value) => {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) return `문자열 목록이어야 한다 (값: ${showValue(value)})`
+  return undefined
 }
 
 function validateSuite(raw: Record<string, unknown>): ValidationResult {
@@ -514,8 +608,13 @@ function validateSuite(raw: Record<string, unknown>): ValidationResult {
   const suite = suiteValue as SuiteName
   const mapping = SUITE_SETTINGS[suite]
   const settings: Record<string, unknown> = {}
+  let dictionary: readonly string[] | undefined = suite === 'voice-extract' ? [] : undefined
   if (hasValue(raw, 'settings') && c.object(['settings'], raw.settings)) {
     for (const [key, setting] of Object.entries(raw.settings)) {
+      if (suite === 'voice-extract' && key === VOICE_DICTIONARY_KEY) {
+        if (c.value(['settings', key], setting, stringList)) dictionary = Object.freeze([...(setting as string[])])
+        continue
+      }
       const domainKey = Object.hasOwn(mapping, key) ? mapping[key] : undefined
       const check = domainKey === undefined ? undefined : SETTING_CHECKS[domainKey]
       if (domainKey === undefined || check === undefined) {
@@ -537,7 +636,7 @@ function validateSuite(raw: Record<string, unknown>): ValidationResult {
     })
   }
   if (c.issues.length > 0) return { ok: false, label: suite, issues: c.issues }
-  return { ok: true, doc: { kind: 'suite', suite, settings: settings as SettingsOverride, cases } }
+  return { ok: true, doc: { kind: 'suite', suite, settings: settings as SettingsOverride, ...(dictionary === undefined ? {} : { dictionary }), cases } }
 }
 
 // ── 엔진 시나리오 ────────────────────────────────────────────────────────

@@ -1,7 +1,9 @@
 // 화면 단위 시험 도우미: 실제 코어 엔진으로 도는 가짜 서버 (한 날짜·실제 범위, 방송 b1·b2).
 // 서버 계약(harness/sprints/S04·S05·S06 dev-notes)의 모양대로 범위 조회·증분 조회·쓰기를 흉내 낸다 — 쓰기마다 SSE change 알림.
 // 문자찜: ref는 서버가 만들고, phone은 정규화해 phoneKey·phoneLast4만 엔진에 넣는다(원문은 버린다), received를 비우면 '10:00:00'.
-import { applyEvent, containsPhoneRun, isValidReceivedTime, normalizePhone, phoneLast4, type EngineState, type SettingsOverride } from '@livejjim/core'
+//   응답의 buyer는 그 이벤트를 적용한 뒤 상태의 코어 buyerOfRef (S06b 서버 계약, D-099).
+// 합치기 미리 보기 GET /api/days/:date/merge-preview?from=&into= — 지금 상태로 코어 previewMerge, { date, rehearsal, seq, preview } (D-100).
+import { applyEvent, buyerOfRef, containsPhoneRun, isValidReceivedTime, normalizePhone, phoneLast4, previewMerge, type EngineState, type SettingsOverride } from '@livejjim/core'
 import type { Changes, WriteResult } from '../src/api/types.ts'
 import { settlementKey } from '../src/lib/scope-data.ts'
 import { T0, run, viewOf } from './engine.ts'
@@ -39,7 +41,7 @@ export class EngineServer {
   /** 받아 기록한 쓰기 (요청 본문) */
   readonly posts: Record<string, unknown>[] = []
   readonly #states: EngineState[]
-  readonly #results = new Map<string, WriteResult & { phoneLast4?: string | null }>()
+  readonly #results = new Map<string, WriteResult>()
   #refs = 0
   /** 다음 쓰기를 이 응답으로 대신한다 (한 번) */
   failNext: Reply | null = null
@@ -70,6 +72,7 @@ export class EngineServer {
         body: { generator: { running: false, sent: 0, total: 0, perSecond: 0, seed: null, duplicates: 0, failed: 0, stopReason: null } },
       }))
       .on('GET', new RegExp(`^/api/days/${DATE}/messages\\?`), () => ({ body: { date: DATE, rehearsal: false, seq: this.seq, messages: [], more: false } }))
+      .on('GET', new RegExp(`^/api/days/${DATE}/merge-preview\\?`), (call) => this.mergePreview(call.path))
       .on('POST', /^\/api\/events/, (call) => this.#post(call.body ?? {}))
   }
 
@@ -118,6 +121,7 @@ export class EngineServer {
     this.posts.push(body)
     let event: Record<string, unknown> = input
     let last4: string | null | undefined
+    let ref: string | undefined
     if (input.type === 'sms') {
       if (typeof input.memo === 'string' && containsPhoneRun(input.memo)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'memo', message: PHONE_SENTENCE }])
       if (input.received !== undefined && !isValidReceivedTime(input.received)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'received', message: '받은 시각을 확인해 주세요.' }])
@@ -125,9 +129,10 @@ export class EngineServer {
       const normalized = typeof phone === 'string' ? normalizePhone(phone) : null
       last4 = normalized === null ? null : phoneLast4(normalized)
       this.#refs++
+      ref = `r${String(this.#refs)}`
       event = {
         ...rest,
-        ref: `r${String(this.#refs)}`,
+        ref,
         received: input.received ?? '10:00:00',
         ...(normalized === null ? {} : { phoneKey: `phonekey-${normalized}`, phoneLast4: last4 }),
       }
@@ -136,10 +141,39 @@ export class EngineServer {
       if (typeof event[field] === 'string' && containsPhoneRun(event[field])) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field, message: PHONE_SENTENCE }])
     }
     const changed = this.#apply(event)
-    const result = { date: DATE, rehearsal: false, seq: this.seq, type: String(input.type), changed, effects: [], ...(last4 === undefined ? {} : { phoneLast4: last4 }) }
+    const result: WriteResult = {
+      date: DATE,
+      rehearsal: false,
+      seq: this.seq,
+      type: String(input.type),
+      changed,
+      effects: [],
+      ...(last4 === undefined ? {} : { phoneLast4: last4 }),
+      ...(ref === undefined ? {} : { buyer: buyerOfRef(this.state, ref) }),
+    }
     this.#results.set(String(requestId), result)
     queueMicrotask(() => this.#notify(String(input.type)))
     return { body: result }
+  }
+
+  /** 받은 합치기 미리 보기 조회 수 */
+  previews = 0
+  /** 다음 합치기 미리 보기 조회를 이 응답으로 대신한다 (한 번) */
+  failNextPreview: Reply | null = null
+
+  /** 합치기 미리 보기: 지금 상태로 코어 previewMerge (서버와 같다) */
+  mergePreview(path: string): Reply {
+    this.previews++
+    if (this.failNextPreview !== null) {
+      const reply = this.failNextPreview
+      this.failNextPreview = null
+      return reply
+    }
+    const params = new URLSearchParams(path.slice(path.indexOf('?') + 1))
+    const from = params.get('from') ?? ''
+    const into = params.get('into') ?? ''
+    if (from === '' || into === '') return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: from === '' ? 'from' : 'into', message: '구매자를 골라 주세요.' }])
+    return { body: { date: DATE, rehearsal: false, seq: this.seq, preview: previewMerge(this.state, from, into) } }
   }
 
   /** 서버 증분 조회와 같은 방식 (키로 비교, 값이 같은 항목은 빼고, 사라진 키) */

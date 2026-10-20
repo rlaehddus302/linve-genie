@@ -60,6 +60,11 @@ function parseWon(text: string): number {
   return Number(text.replace(/[^\d−-]/g, '').replace('−', '-'))
 }
 
+/** 이름 표기의 구분 글자를 뗀다 (D-098): "홍길동 · 끝 1234" · "문자찜(김씨) · 뒤 4자리 5678" · "문자찜(김씨) · 문자 20:01:05" (+ " · 2") */
+function stripTag(name: string): string {
+  return name.replace(/ · (끝 \S+|뒤 4자리 \d{4}|문자 [\d:]+)( · \d+)?$/, '')
+}
+
 test('AC-S06-90: 리허설 + 휴대폰 문자찜 + 구매자 합치기 + 정산 입력 → PC 보드·구매자·정산 = 코어 재생', async ({ page, browser }) => {
   test.setTimeout(420_000)
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -139,6 +144,9 @@ test('AC-S06-90: 리허설 + 휴대폰 문자찜 + 구매자 합치기 + 정산 
   let mergeDlg = mobile.getByRole('dialog', { name: '구매자 합치기' })
   await expect(mergeDlg).toContainText('남는 이름: 단골손님(유튜브)')
   const mergeButton = mergeDlg.getByRole('button', { name: '합치기', exact: true })
+  // 미리 보기는 서버에서 받는다 — 받는 동안 "합치기"가 잠겨 있으므로 받은 뒤에 막힘을 본다 (AC-S06b-33 — 교체)
+  await expect(mergeDlg.getByText(/미리 보기를 (새로 )?받는 중이에요/)).toHaveCount(0)
+  await expect(mergeDlg.getByRole('alert').or(mergeDlg.getByText(/^옮겨 갈 확정 찜/))).toBeVisible()
   if (await mergeButton.isDisabled()) {
     await mergeDlg.getByRole('button', { name: /자세히$/ }).first().click()
     const prod = mobile.getByRole('dialog', { name: /자세히$/ })
@@ -146,17 +154,18 @@ test('AC-S06-90: 리허설 + 휴대폰 문자찜 + 구매자 합치기 + 정산 
     await mobile.keyboard.press('1')
     await mobile.keyboard.press('Enter')
     await expect(mobile.getByRole('region', { name: '보내기 전 조치' }).getByText(/초 뒤 보내요/)).toHaveCount(0, { timeout: 15_000 })
-    await detail.getByRole('button', { name: '다른 구매자와 합치기' }).click()
-    await mobile.getByLabel('합칠 구매자 찾기').fill('단골')
-    await mobile.getByRole('list', { name: '합칠 구매자' }).getByRole('button', { name: /단골손님/ }).click()
+    // 상품 자세히는 열린 채 — "합치기로 돌아가기" (AC-S06b-34 — 교체)
+    await prod.getByRole('button', { name: '합치기로 돌아가기' }).click()
     mergeDlg = mobile.getByRole('dialog', { name: '구매자 합치기' })
+    await expect(mergeButton).toBeEnabled()
   }
   await mergeDlg.getByRole('button', { name: '1 같은 사람' }).click()
   await mergeDlg.getByRole('button', { name: '합치기', exact: true }).click()
   await expect(mobile.getByText('합쳤어요')).toBeVisible()
   // 휴대폰 합치기가 PC 구매자 목록에 (PC를 구매자 화면으로)
   await page.goto(`/buyers?date=${date}&rehearsal=true`)
-  await expect(page.getByRole('region', { name: '구매자 목록' }).getByRole('list', { name: '구매자' }).getByRole('link', { name: /단골손님/ })).toContainText('합친 구매자 1명')
+  // PC는 표 (AC-S06b-21 — 교체)
+  await expect(page.getByRole('region', { name: '구매자 목록' }).getByRole('table', { name: '구매자' }).getByRole('row').filter({ has: page.getByRole('link', { name: /단골손님/ }) })).toContainText('합친 구매자 1명')
 
   // ── 휴대폰 정산: 입금 5건(하나는 오타 → 환불), 직접 수령 하나, 할인 하나 ──
   await mobile.goto(`/settlements?date=${date}&rehearsal=true`)
@@ -256,7 +265,7 @@ test('AC-S06-90: 리허설 + 휴대폰 문자찜 + 구매자 합치기 + 정산 
   }
   const uiBuyers = (await buyerList.getByRole('link').allInnerTexts()).map((t) => {
     const m = /(\d+)개 · ([\d,]+)원/.exec(t)
-    return `${t.split('\n')[0]!.trim()}|${m?.[1] ?? '?'}|${m?.[2] ?? '?'}`
+    return `${stripTag(t.split('\n')[0]!.trim())}|${m?.[1] ?? '?'}|${m?.[2] ?? '?'}`
   }).sort()
   const expectBuyers = replayBuyers.filter((x) => x.mergedInto === null && x.items.length > 0)
     .map((x) => `${x.display}|${String(x.items.length)}|${formatWon(x.subtotal).replace('원', '')}`).sort()
@@ -267,8 +276,8 @@ test('AC-S06-90: 리허설 + 휴대폰 문자찜 + 구매자 합치기 + 정산 
   const cardList = mobile.getByRole('list', { name: '정산 묶음' })
   await expect(cardList.getByRole('link').first()).toBeVisible()
   const uiCards = (await cardList.getByRole('link').allInnerTexts()).map((t) => {
-    // 이름 뒤의 구분 "(끝 1234)"는 떼고 비교한다 (같은 닉네임 구분 표시)
-    const name = t.split('\n')[0]!.trim().replace(/ \(끝 [^)]+\)$/, '')
+    // 이름 뒤의 구분 " · 끝 1234"는 떼고 비교한다 (같은 표시 이름 구분 — D-098 이름 표기로 교체)
+    const name = stripTag(t.split('\n')[0]!.trim())
     const sub = /상품 (\d+)개 · ([\d,]+)원/.exec(t)
     const total = /최종 ([\d,]+)원/.exec(t)
     const received = /받은 금액 ([\d,]+)원/.exec(t)

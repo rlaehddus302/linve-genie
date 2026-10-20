@@ -2,6 +2,8 @@
 // - 묻는 길: 메뉴·링크·화면 안의 이동(구매자 목록 ↔ 자세히, 날짜 바꾸기), 브라우저 뒤로·앞으로(앱이 묻는다), 새로고침·탭 닫기(브라우저가 묻는다).
 // - 묻는 동안은 대기 시계를 멈춘다(hold) — 판매자가 고르기 전에 보내지 않는다. "닫기"면 다시 흐르고(release),
 //   "보내지 않고 떠나기"면 그 화면의 기다리던 조치를 보내지 않는다(discard). 화면이 내려가는지(언마운트)에 기대지 않는다.
+// - 닫으면 멈췄던 조치는 대기 시간 전체를 다시 기다린다(D-103). 처음 연 화면(앱 안에 뒤로 갈 기록이 없음)에 보내기 전인 조치가 생기면
+//   앱이 같은 주소의 기록을 하나 더 쌓아 뒤로 가기가 앱을 떠나지 않고 묻게 한다(subscribe로 조치가 생기는 때를 안다).
 import { createContext, useContext, useEffect, useRef } from 'react'
 import type { UndoQueue } from './undo-queue.ts'
 
@@ -17,6 +19,8 @@ export interface LeaveGuard {
   /** 묻는 문장·떠나기 버튼 (없으면 5초 대기 조치의 문장 — 설정 화면은 "저장하지 않은 값"을 묻는다, AC-I3-46) */
   readonly question?: string
   readonly leaveLabel?: string
+  /** 보내기 전인 조치가 바뀔 때 알린다 (돌려준 함수로 그만 듣는다) */
+  readonly subscribe?: (listener: () => void) => () => void
 }
 
 /** 화면이 자기 확인을 등록한다 (앱이 하나 둔다). 돌려준 함수로 뺀다 */
@@ -33,6 +37,7 @@ export function queueLeaveGuard(queue: UndoQueue): LeaveGuard {
     discard: () => {
       queue.discardWaiting()
     },
+    subscribe: (listener) => queue.subscribe(listener),
   }
 }
 

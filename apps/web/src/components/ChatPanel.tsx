@@ -119,7 +119,7 @@ export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertN
         ))}
       </ol>
       {unseen > 0 ? (
-        <button type="button" className="button button-primary new-messages" onClick={toBottom}>
+        <button type="button" className="button new-messages" onClick={toBottom}>
           새 메시지 {unseen}개
         </button>
       ) : null}

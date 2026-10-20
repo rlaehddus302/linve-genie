@@ -7,6 +7,8 @@
 // - 연결 순서 (RA-S04-003·SA-S04-005): 연결을 먼저 등록해 알림을 모으기 시작한 뒤 범위별 seq를 읽는다. 읽는 동안 커밋된 변경도
 //   놓치지 않는다. ready의 seq에 이미 들어 있는 알림(그 범위의 seq 이하)은 서버가 거른다 — 같은 변경이 ready와 change로 두 번 오지 않는다.
 //   한 범위의 seq는 늘기만 하므로 "ready의 seq 이하는 버린다"는 언제나 안전하다.
+// - 출력 기록이 바뀌면(I1, L-11) print 알림을 보낸다(기록 seq가 아니라 출력 기록의 rev — 바뀐 작업·라벨 키와 대기열 요약만, 대기열 전체가 아니다).
+//   연결이 출력 기기 ID를 밝히면(?device=) 그 기기의 실시간 연결이 열려 있는지 안다 — 열리고 닫힐 때 onDevice로 알린다(다른 기기의 "연결됨/끊김").
 
 const encoder = new TextEncoder()
 
@@ -31,6 +33,8 @@ interface Connection {
   readonly sessionHash: string
   /** 이름 붙은 알림(유튜브·리허설 생성기)을 받는지 — 보조자 연결은 받지 않는다 (AC-I3-61: 보조자는 유튜브·리허설을 쓰지 않는다) */
   readonly named: boolean
+  /** 이 연결이 밝힌 기기 ID (출력 기기 실시간 연결 여부, I1). 없으면 null */
+  readonly deviceId: string | null
   readonly controller: ReadableStreamDefaultController<Uint8Array>
   /** ready에 보낸 범위별 seq (키 = 날짜·리허설인지) — 그 이하의 알림은 이미 반영된 것이라 보내지 않는다 */
   readonly baseline: ReadonlyMap<string, number>
@@ -48,9 +52,9 @@ interface Pending {
   closed: boolean
 }
 
-/** 리허설 생성기 상태 알림 (event: generator) · 유튜브 알림 (event: youtube — 연결·수집·발송함·할당량·삭제·차단, AC-Y1-05·27·28·39·52) */
+/** 리허설 생성기 상태 알림 (event: generator) · 유튜브 알림 (event: youtube — 연결·수집·발송함·할당량·삭제·차단, AC-Y1-05·27·28·39·52) · 출력 기록 알림 (event: print, I1) — seq가 없다 */
 export interface GeneratorNotice {
-  readonly kind: 'generator' | 'youtube'
+  readonly kind: 'generator' | 'youtube' | 'print'
   readonly data: Readonly<Record<string, unknown>>
 }
 
@@ -61,6 +65,8 @@ export interface HubOptions {
   readonly heartbeatMs: number
   /** 하트비트 때 세션이 아직 유효한지 (만료면 연결을 닫는다) */
   readonly sessionAlive: (sessionHash: string) => Promise<boolean>
+  /** 기기 ID를 밝힌 연결이 열리거나 닫혔다 (출력 기기 실시간 연결 여부, I1) */
+  readonly onDevice?: (sellerId: string, deviceId: string) => void
 }
 
 export class StreamHub {
@@ -83,8 +89,14 @@ export class StreamHub {
    * 읽는 동안 모인 알림 중 ready에 없는 것(그 날짜의 seq보다 큰 것)을 차례로 보낸 응답을 돌려준다 (RA-S04-003).
    * 읽기가 실패하면 등록을 지우고 오류를 그대로 던진다. 읽는 동안 로그아웃·종료되면 ready 없이 닫힌 응답이다
    */
-  async open(sellerId: string, sessionHash: string, readScopes: () => Promise<readonly ScopeSeq[]>, options: { readonly named?: boolean } = {}): Promise<Response> {
+  async open(
+    sellerId: string,
+    sessionHash: string,
+    readScopes: () => Promise<readonly ScopeSeq[]>,
+    options: { readonly named?: boolean; readonly deviceId?: string | null } = {},
+  ): Promise<Response> {
     const named = options.named ?? true
+    const deviceId = options.deviceId ?? null
     const pending: Pending = { sellerId, sessionHash, named, notices: [], closed: false }
     this.#pending.add(pending)
     let scopes: readonly ScopeSeq[]
@@ -104,13 +116,14 @@ export class StreamHub {
           return
         }
         const baseline = new Map(scopes.map((scope) => [scopeOf(scope), scope.seq]))
-        const live: Connection = { sellerId, sessionHash, named, controller, baseline, nextId: 1, closed: false }
+        const live: Connection = { sellerId, sessionHash, named, deviceId, controller, baseline, nextId: 1, closed: false }
         connection = live
         this.#write(live, `retry: 3000\nevent: ready\ndata: ${JSON.stringify({ scopes })}\n\n`)
         for (const notice of pending.notices) this.#send(live, notice)
         if (live.closed) return
         this.#connections.add(live)
         this.#ensureTimer()
+        if (deviceId !== null) this.#deviceChanged(sellerId, deviceId)
       },
       cancel: () => {
         if (connection !== null) this.#drop(connection)
@@ -151,9 +164,28 @@ export class StreamHub {
     this.#publishNamed(sellerId, { kind: 'youtube', data })
   }
 
+  /** 출력 기록 알림 (그 판매자의 연결 전부, I1). 보조자 연결은 받지 않는다 — 보조자는 출력을 쓰지 않는다 (SYS-04) */
+  publishPrint(sellerId: string, data: Readonly<Record<string, unknown>>): void {
+    this.#publishNamed(sellerId, { kind: 'print', data })
+  }
+
   #publishNamed(sellerId: string, notice: GeneratorNotice): void {
     for (const pending of this.#pending) if (pending.sellerId === sellerId && pending.named) pending.notices.push(notice)
     for (const connection of [...this.#connections]) if (connection.sellerId === sellerId && connection.named) this.#send(connection, notice)
+  }
+
+  /** 그 기기 ID를 밝힌 실시간 연결이 지금 열려 있는지 (출력 기기의 "연결됨/끊김", I1) */
+  deviceLive(sellerId: string, deviceId: string): boolean {
+    for (const connection of this.#connections) if (connection.sellerId === sellerId && connection.deviceId === deviceId && !connection.closed) return true
+    return false
+  }
+
+  #deviceChanged(sellerId: string, deviceId: string): void {
+    try {
+      this.#options.onDevice?.(sellerId, deviceId)
+    } catch {
+      // 알림 실패는 연결에 영향을 주지 않는다
+    }
   }
 
   /** 알림 하나. ready에 이미 반영된 변경(그 범위의 ready seq 이하)은 보내지 않는다 */
@@ -220,9 +252,10 @@ export class StreamHub {
   }
 
   #drop(connection: Connection): void {
+    const wasLive = this.#connections.delete(connection)
     connection.closed = true
-    this.#connections.delete(connection)
     if (this.#connections.size === 0) this.#stopTimer()
+    if (wasLive && connection.deviceId !== null) this.#deviceChanged(connection.sellerId, connection.deviceId)
   }
 
   #ensureTimer(): void {

@@ -13,6 +13,7 @@ import { existsSync } from 'node:fs'
 import { DEFAULT_PORT, readAppOrigin, readDatabaseSetting, readDeploySetting, readPort, readYoutubeSetting } from './config.ts'
 import { createNodeServer } from './node-server.ts'
 import { openDatabaseFromEnv } from './commands/shared.ts'
+import { productionServerOptions } from './production.ts'
 import { readMasterKey } from './secrets.ts'
 import { createServer } from './server.ts'
 import { webDirProblem } from './web.ts'
@@ -63,10 +64,16 @@ if (database === null) {
   process.exit(1)
 }
 
+// 운영 옵션은 productionServerOptions로만 만든다 — 시험 모드 신호(시험용 프린터)는 늘 꺼져 있다 (AC-I1-16).
+// 그 위에 배포·운영 설정(I3, AC-I3-72)과 유튜브 연동(Y1)을 더한다 — 둘 다 위에서 이미 확인했다
+const assembled = productionServerOptions(process.env, database)
+if (!assembled.ok) {
+  complain(`시작하지 못했어요. ${assembled.message}`)
+  await database.close()
+  process.exit(1)
+}
 const livejjim = createServer({
-  database,
-  masterKey: masterKey.key,
-  appOrigin: origin.origin,
+  ...assembled.options,
   trustedProxies: deploy.trustedProxies,
   ...(deploy.opsToken === null ? {} : { opsToken: deploy.opsToken }),
   ...(deploy.webDir === null ? {} : { webDir: deploy.webDir }),

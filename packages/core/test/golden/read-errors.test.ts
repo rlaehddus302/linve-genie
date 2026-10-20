@@ -414,14 +414,65 @@ const CASES: Readonly<Record<string, { category: string; loaded?: number; errors
       },
     ],
   },
+  '20-merge-previews.yaml': {
+    category: '20. mergePreviews — 맵이 아닌 항목, from·into 없음·휴대폰 번호·빈 키, 표에 없는 키, 열거값 밖의 blocked·status, 정수가 아닌 subtotal, 선언하지 않은 방송, 목록이 아님 (S06b, D-100)',
+    errors: [
+      {
+        doc: 1,
+        label: 'G-ENG-901',
+        issues: [
+          ['events[1].expect.mergePreviews[0]', '맵이어야 한다'],
+          ['events[1].expect.mergePreviews[1]', "필수 합치기 미리 보기 키 'from'가 없다"],
+          ['events[1].expect.mergePreviews[2]', "필수 합치기 미리 보기 키 'into'가 없다"],
+          ['events[1].expect.mergePreviews[3].note', "모르는 합치기 미리 보기 키 'note'"],
+          ['events[1].expect.mergePreviews[4].blocked', 'UNKNOWN_BUYER / SAME_BUYER / FROM_MERGED / CYCLE / BOTH_CONFIRMED 중 하나여야 한다 (값: "MERGED")'],
+          ['events[1].expect.mergePreviews[5].from', '휴대폰 번호로 된 키다 — 판매자가 적는 구매자·메시지 ID 칸에는 전화번호를 적지 않는다 (값: "010-5151-6161")'],
+          ['events[1].expect.mergePreviews[6].into', '(값: "01051516162")'],
+          ['events[1].expect.mergePreviews[7].moving.subtotal', '0 이상 정수여야 한다'],
+          ['events[1].expect.mergePreviews[8].after.total', "모르는 합치기 미리 보기 찜 키 'total'"],
+          ['events[1].expect.mergePreviews[8].after.items[0]', "선언하지 않은 방송 'b9'"],
+          ['events[1].expect.mergePreviews[9].duplicates[0].status', 'CONFLICT / WAITLISTED / PENDING 중 하나여야 한다 (값: "CONFIRMED")'],
+          ['events[1].expect.mergePreviews[10].duplicates[0]', "필수 중복 찜 키 'status'가 없다"],
+          ['events[1].expect.mergePreviews[11].bothConfirmed', '목록이어야 한다'],
+          ['events[1].expect.mergePreviews[12].from', '구매자 키는 앞뒤 공백 없는 문자열이어야 한다'],
+          ['events[1].expect.mergePreviews[13].duplicates[0].buyer', "시나리오에 ref 'zz'인 문자찜이 없다"],
+          ['expect.mergePreviews', '목록이어야 한다'],
+        ],
+      },
+    ],
+  },
+  '20-voice-extract.yaml': {
+    // P2 (D-209): 러너가 voice-extract suite를 안다 — 형식 계약 밖은 읽기 오류
+    category: '20. voice-extract settings·out 형식 위반 (모르는 키, confidence 빠짐, price 100 미만, 빈 품종, 목록이 아닌 사전)',
+    errors: [
+      {
+        doc: 1,
+        label: 'voice-extract',
+        issues: [
+          ['settings.dictionary', '문자열 목록이어야 한다'],
+          ['settings.maxNumber', '1 이상 9999 이하 정수'],
+          ['settings.unit', "suite 'voice-extract'에 없는 설정 키 'unit'"],
+          ['cases[0].out.note', "모르는 voice-extract out 키 'note'"],
+          ['cases[1].out', "필수 voice-extract out 키 'confidence'"],
+          ['cases[2].out.price', '100 이상 정수'],
+          ['cases[3].out.name', '빈 문자열이 아닌 문자열'],
+          ['cases[4].out.no', '1 이상 정수'],
+          ['cases[4].out.confidence', 'HIGH / LOW 중 하나'],
+          ['cases[5].out', '맵이어야 한다'],
+        ],
+      },
+      { doc: 2, label: 'voice-extract', issues: [['settings.dictionary', '문자열 목록이어야 한다']] },
+      { doc: 3, label: 'voice-extract', issues: [['settings.maxNumber', '1 이상 9999 이하 정수']] },
+    ],
+  },
 }
 
 describe('형식 계약 위반 = 읽기 오류 (AC-S00-22)', () => {
-  it('fixtures/read-errors의 모든 파일에 기대값이 있다 (범주 1~19)', () => {
+  it('fixtures/read-errors의 모든 파일에 기대값이 있다 (범주 1~20 — 20번은 S06b mergePreviews와 P2 voice-extract 두 파일)', () => {
     const files = readdirSync(DIR).filter((f) => f.endsWith('.yaml'))
     expect(files.sort()).toEqual(Object.keys(CASES).sort())
     const categories = new Set(Object.values(CASES).map((c) => Number(c.category.split('.')[0])))
-    expect([...categories].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19])
+    expect([...categories].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
   })
 
   for (const [file, { category, loaded = 0, errors }] of Object.entries(CASES)) {

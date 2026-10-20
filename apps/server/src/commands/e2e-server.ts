@@ -1,9 +1,10 @@
 // E2E용 서버 기동 명령 (AC-S05-91): pnpm --filter @livejjim/server e2e [--port 3100 (0이면 빈 포트)] [--origin http://localhost:5173] [--fill yes]
-//   [--fill-products 500] [--fill-chats 10000] [--host-delay-ms 5000] [--chat-speed 1] [--youtube fake] [--youtube-port 4100]
+//   [--fill-products 500] [--fill-chats 10000] [--host-delay-ms 5000] [--chat-speed 1] [--test-printer yes|no] [--youtube fake] [--youtube-port 4100]
 // - 메모리 PGlite + 마이그레이션, 그 자리에서 만든 시험용 마스터 키, 시험용 판매자 계정(apps/server/e2e/account.json). 끄면 데이터는 사라진다.
 // - --fill yes: 상품 500·채팅 1만 건을 채운 실제 범위(오늘, KST) — 화면 반영 1초 시험(AC-S05-64)용. 채우기가 끝난 뒤에 포트를 연다.
 // - --host-delay-ms: 화면이 방송자 조치를 보내기 전에 기다리는 시간(GET /api/client-config, 운영 값 5000). E2E에서만 줄인다.
 // - --chat-speed: 리허설 가짜 채팅 생성기의 간격을 이 값으로 나눈다(시험 속도, 운영 1).
+// - --test-printer: 시험 모드 신호(화면이 시험용 프린터를 켠다 — GET /api/client-config testPrinter, I1). 기본 yes, no면 끈다(AC-I1-50).
 // - --youtube fake: 가짜 구글·유튜브 서버를 127.0.0.1의 --youtube-port(기본 0 = 빈 포트)에 함께 띄우고 서버가 그 주소를 쓴다(AC-Y1-81).
 //   조작은 http://127.0.0.1:<그 포트>/_fake/* (harness/sprints/Y1/dev-notes.md "화면(I3)에게"). 워커(수집기·발송함·봉인)도 돈다.
 // - I3 시험용 선택 (AC-I3-93, harness/sprints/I3/dev-notes.md "화면에게" 8 — 운영 시작 main에는 없다):
@@ -19,7 +20,21 @@ import { complain, parseArgs, say } from './shared.ts'
 
 const DEFAULT_E2E_PORT = 3100
 
-const args = parseArgs(process.argv.slice(2), ['port', 'origin', 'fill', 'fill-products', 'fill-chats', 'host-delay-ms', 'chat-speed', 'youtube', 'youtube-port', 'youtube-quota-budget', 'outbox-fast', 'web-dir'])
+const args = parseArgs(process.argv.slice(2), [
+  'port',
+  'origin',
+  'fill',
+  'fill-products',
+  'fill-chats',
+  'host-delay-ms',
+  'chat-speed',
+  'test-printer',
+  'youtube',
+  'youtube-port',
+  'youtube-quota-budget',
+  'outbox-fast',
+  'web-dir',
+])
 if (!args.ok) {
   complain(args.message)
   process.exit(2)
@@ -42,6 +57,7 @@ const products = intArg('fill-products', 1, 999)
 const chats = intArg('fill-chats', 0, 100_000)
 const hostDelay = intArg('host-delay-ms', 0, 5000)
 const chatSpeed = intArg('chat-speed', 1, 1000)
+const testPrinterFlag = values.get('test-printer')
 const youtubeFlag = values.get('youtube')
 const youtubePort = intArg('youtube-port', 0, 65_535)
 const quotaBudget = intArg('youtube-quota-budget', 1, 1_000_000)
@@ -57,13 +73,14 @@ if (
   youtubePort === null ||
   quotaBudget === null ||
   (fillFlag !== undefined && fillFlag !== 'yes' && fillFlag !== 'no') ||
+  (testPrinterFlag !== undefined && testPrinterFlag !== 'yes' && testPrinterFlag !== 'no') ||
   (youtubeFlag !== undefined && youtubeFlag !== 'fake' && youtubeFlag !== 'no') ||
   (outboxFast !== undefined && outboxFast !== 'yes' && outboxFast !== 'no') ||
   (webDir !== undefined && webDirProblem(webDir) !== null)
 ) {
   complain(
-    '인자를 확인해 주세요. --port 0~65535, --fill yes|no, --fill-products 1~999, --fill-chats 0~100000, --host-delay-ms 0~5000, --chat-speed 1~1000, --youtube fake|no, --youtube-port 0~65535, ' +
-      '--youtube-quota-budget 1~1000000, --outbox-fast yes|no, --web-dir <index.html이 있는 화면 빌드 폴더>',
+    '인자를 확인해 주세요. --port 0~65535, --fill yes|no, --fill-products 1~999, --fill-chats 0~100000, --host-delay-ms 0~5000, --chat-speed 1~1000, --test-printer yes|no, ' +
+      '--youtube fake|no, --youtube-port 0~65535, --youtube-quota-budget 1~1000000, --outbox-fast yes|no, --web-dir <index.html이 있는 화면 빌드 폴더>',
   )
   process.exit(2)
 }
@@ -81,6 +98,7 @@ const e2e = await startE2eServer({
   ...(fill === undefined ? {} : { fill }),
   ...(hostDelay === undefined ? {} : { hostActionDelayMs: hostDelay }),
   ...(chatSpeed === undefined ? {} : { generatorSpeed: chatSpeed }),
+  testPrinter: testPrinterFlag !== 'no',
   ...(youtubeFlag === 'fake' ? { youtube: { ...(youtubePort === undefined ? {} : { port: youtubePort }), ...(quotaBudget === undefined ? {} : { quotaBudget }) } } : {}),
   ...(outboxFast === 'yes' ? { outboxFast: true } : {}),
   ...(webDir === undefined ? {} : { webDir }),
@@ -94,7 +112,7 @@ try {
   const web = webDir === undefined ? '' : ' · 화면 함께 냄'
   say(
     `E2E 서버를 시작했어요. http://${opened.host}:${String(opened.port)} · 화면 주소 ${origin} · 시험 계정 ${e2e.account.loginId} · ${filled} · ` +
-      `방송자 조치 대기 ${String(hostDelay ?? 5000)}ms${youtube}${web} · 준비 ${String(Date.now() - started)}ms`,
+      `방송자 조치 대기 ${String(hostDelay ?? 5000)}ms · 시험용 프린터 ${testPrinterFlag === 'no' ? '끔' : '켬'}${youtube}${web} · 준비 ${String(Date.now() - started)}ms`,
   )
   e2e.http.on('error', () => {
     complain('서버에 문제가 생겨 멈췄어요.')

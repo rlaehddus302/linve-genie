@@ -173,6 +173,8 @@ function head(name) {
     `[역할] ${name} — 규칙: .claude/agents/${name}.md (시스템 프롬프트로 이미 받았다면 다시 읽지 않아도 된다).`,
     `[스프린트] ${S} — 정의: harness/backlog.yaml 의 ${S} 항목. 작업 폴더: ${DIR}/. 이번 스프린트 개발 영역: ${DEVS.join(', ')} / 테스트: ${TESTS.join(', ') || '없음'}`,
     `[속도] 작업 중에는 필요한 검사만 돌린다(pnpm typecheck · pnpm lint · pnpm test · 바뀐 패키지의 vitest · 해당 골든/적대/E2E 파일). 약 8분 걸리는 전체 pnpm verify는 일을 끝낼 때 한 번만 돌린다(감사자의 게이트는 예외).`,
+    `[번호] 이 스프린트에서 새로 쓰는 번호에는 스프린트 접두어를 붙인다 — 결정 D-${S}-01…, 엔진 골든 G-ENG-${S}-01…, 수용 기준 AC-${S}-01…. 다른 스프린트가 병렬로 돌며 같은 숫자를 쓸 수 있기 때문이다.`,
+    `[보고] 보고서·요약 파일(report 등)을 따로 쓰지 말고 결과는 응답으로 돌려준다. 리포트는 오케스트레이터가 쓴다. acceptance·dev-notes·test-notes 같은 작업 문서는 써도 된다.`,
     `[진행 방식] 사용자는 자율 진행을 원한다. 질문하지 말고 스펙과 판매자 안전을 기준으로 스스로 판단해 끝까지 진행한다.`,
   ].join('\n')
 }
@@ -373,8 +375,6 @@ const result = {
   traceability: (r.spec && r.spec.traceability) || [],
   testsAdded: Object.values(r.tests).flatMap((x) => (x && x.testsAdded) || []),
 }
-await agent(
-  `너는 하네스 리포터다. 아래 결과로 ${DIR}/report.md 를 한국어로 작성하라. 구성: 결과(${status}) 한 줄 → 영역별로 만든 것 → 남은 blocker/major → 자율 결정·사용자 확인 필요 사항 → minor/nit 백로그 → 추적성 표 → 다음 스프린트 제안.\n그리고 harness/backlog.yaml 의 ${S} 항목 status 를 ${status === 'PASS' ? 'done' : status.toLowerCase()} 로 바꾸고, minor/nit 는 같은 파일의 techDebt 목록에 "ID: 제목" 형태로 추가하라.\n그 두 파일만 수정하고 [harness] ${S}: report 로 커밋하라.\n\n${j(result)}`,
-  { phase: 'Report', label: 'report', effort: 'low' },
-)
+// 리포트·백로그 갱신은 오케스트레이터(메인 세션)가 이 결과로 직접 쓴다 — 서브에이전트는 보고서 파일을 쓰지 않는다(플랫폼 규칙).
+log(`결과 ${status} — 리포트는 오케스트레이터가 작성`)
 return result

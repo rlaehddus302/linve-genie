@@ -3,6 +3,7 @@
 import { DEFAULT_SETTINGS, settle, type PaymentStatus, type SaleSettings, type SettlementEntry, type SettlementTotals } from '@livejjim/core'
 import type { Settlement } from '../api/types.ts'
 import type { ScopeData } from './scope-data.ts'
+import { paymentWord } from './words.ts'
 
 /** 정산이 쓰는 설정: 그날 첫 방송의 설정 스냅샷 (코어 settlementSettings와 같다) */
 export function settlementSettings(data: ScopeData): SaleSettings {
@@ -40,16 +41,44 @@ function entriesOf(settlement: Settlement): SettlementEntry[] {
 export type PreviewEntry =
   | { readonly kind: 'shipping'; readonly mode: 'DEFAULT' | 'PICKUP' | 'COMBINED' | 'FIXED'; readonly amount: number | null }
   | { readonly kind: 'adjust'; readonly amount: number }
+  | { readonly kind: 'payment'; readonly amount: number }
+  | { readonly kind: 'refund'; readonly amount: number }
 
-/** 기록 하나를 더했을 때의 묶음 금액 (보내기 전 미리 보기, AC-S06-33·34) */
+/** 기록 하나를 더했을 때의 묶음 금액 (보내기 전 미리 보기, AC-S06-33·34, AC-S06b-23) — 코어 settle(R-12) */
 export function previewWith(data: ScopeData, settlement: Settlement, entry: PreviewEntry): SettlementTotals {
   const entries = entriesOf(settlement)
   const seq = entries.reduce((max, item) => Math.max(max, item.seq), 0) + 1
-  const extra: SettlementEntry =
-    entry.kind === 'shipping'
-      ? { kind: 'shipping', mode: entry.mode, amount: entry.amount, seq, at: 0 }
-      : { kind: 'adjust', amount: entry.amount, reason: '미리 보기', seq, at: 0 }
+  let extra: SettlementEntry
+  switch (entry.kind) {
+    case 'shipping':
+      extra = { kind: 'shipping', mode: entry.mode, amount: entry.amount, seq, at: 0 }
+      break
+    case 'adjust':
+      extra = { kind: 'adjust', amount: entry.amount, reason: '미리 보기', seq, at: 0 }
+      break
+    case 'payment':
+      extra = { kind: 'payment', amount: entry.amount, memo: null, seq, at: 0 }
+      break
+    case 'refund':
+      extra = { kind: 'refund', amount: entry.amount, reason: '미리 보기', seq, at: 0 }
+      break
+  }
   return settle(settlementSettings(data), settlement.subtotal, settlement.items.length, [...entries, extra])
+}
+
+export interface PaymentChange {
+  /** "입금 상태: 입금 완료 → 과입금(환불 필요 4,000원)" 또는 "입금 상태: 그대로(미입금)" */
+  readonly text: string
+  /** 과입금이 새로 생기거나 환불 필요가 늘었다 — 주의 색 (D-101·D-102) */
+  readonly warning: boolean
+}
+
+/** 입금 상태 변화 (AC-S06b-23, D-101): 지금(서버 값) → 미리 보기(코어 settle) */
+export function paymentChange(before: Pick<Settlement, 'payment' | 'refundDue'>, after: Pick<SettlementTotals, 'payment' | 'refundDue'>): PaymentChange {
+  const from = paymentWord(before.payment, before.refundDue)
+  const to = paymentWord(after.payment, after.refundDue)
+  const warning = after.payment === 'OVERPAID' && (before.payment !== 'OVERPAID' || after.refundDue > before.refundDue)
+  return { text: from === to ? `입금 상태: 그대로(${from})` : `입금 상태: ${from} → ${to}`, warning }
 }
 
 export interface SettlementSummary {

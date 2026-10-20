@@ -1,24 +1,30 @@
-// 정산 (SPEC §7 화면 4, STL-01·02·03·07·09, R-12, D-058, D-092, AC-S06-30~36).
+// 정산 (SPEC §7 화면 4, STL-01·02·03·07·09, R-12, D-058, D-092, D-101, AC-S06-30~36, AC-S06b-21·23·24·40).
 // - 날짜 하나(구매자 화면과 같은 고르기)의 묶음 목록(코어 listSettlements — 그날의 지금의 구매자마다)과 위 요약, 상태 거르기·이름 찾기.
+//   PC(48rem 이상)는 열 머리가 있는 표, 휴대폰은 카드 (D-101).
 // - 자세히: 방송별 품목·합계, 계산 줄, 받은 금액·남은 금액·환불 필요, 기록 목록, 입력 넷(입금·배송비·할인/추가·환불) — 모두 확인 뒤 바로 보낸다.
-// - 금액 칸은 원 단위(AC-S06-36). 입금 날짜는 적은 때로 남는다(실제 입금일은 메모).
+//   주 버튼은 지금 할 일 하나: 미입금·부분 입금이면 "입금 적기", 과입금이면 "환불 적기", 입금 완료면 없다 (D-101).
+// - 입력 창 머리: "입금 적기 · 홍길동 · 2026년 10월 18일 묶음"과 "최종 · 받은 금액 · 남은 금액". 보내기 전 미리 보기에 입금 상태 변화(코어 settle).
+// - 금액 칸은 원 단위(AC-S06-36), 입금은 1원~100,000,000원(화면만의 오타 막기). 입금 날짜는 적은 때로 남는다(실제 입금일은 메모).
+// - 자세히의 포장 라벨(AC-I1-35): 쪽마다 미리 보기·출력·그림 파일·PDF·재출력 필요. 리허설 범위는 라벨이 없다(AC-I1-36).
 // - I3: 봉인 예정 날짜면 "이 날짜 기록은 … 봉인돼요"(7일 전부터 경고 상자), 봉인한 날짜는 볼 수만 있다 — 입금·배송비·할인/추가·환불이 잠긴다 (AC-I3-40·41).
 import { containsPhoneRun, formatWon, type PaymentStatus } from '@livejjim/core'
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState, type MouseEvent } from 'react'
 import { ApiError, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
 import type { Claim, Settlement, WriteResult } from '../api/types.ts'
 import { claimsOf } from '../lib/buyers.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
 import { BuyerNames } from '../lib/derive.ts'
-import { kstShort } from '../lib/kst.ts'
+import { dateYear, kstShort } from '../lib/kst.ts'
 import { ADJUST_RANGE, PAYMENT_RANGE, SHIPPING_RANGE, readAmount, refundRange } from '../lib/money.ts'
 import { routePath, type Navigate, type ScopeRoute } from '../lib/router.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
 import { settlementKey } from '../lib/scope-data.ts'
-import { filterSettlements, previewWith, remainingOf, sortSettlements, summarize, type PaymentFilter } from '../lib/settlement.ts'
+import { filterSettlements, paymentChange, previewWith, remainingOf, sortSettlements, summarize, type PaymentFilter, type PreviewEntry } from '../lib/settlement.ts'
 import { useScopeStore } from '../lib/use-store.ts'
+import { useWide } from '../lib/use-wide.ts'
 import { PAYMENT_WORD, SHIPPING_WORD, paymentWord, recordKindWord, signedWon } from '../lib/words.ts'
 import { ErrorNote } from './ErrorNote.tsx'
+import { PackingLabels } from './LabelParts.tsx'
 import { AmountField, FieldNote, WriteError, serverProblem, useSender } from './forms.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
 import { Modal } from './Modal.tsx'
@@ -111,7 +117,7 @@ function useCommand(store: ConsoleStore, data: ScopeData, sealed: boolean) {
 }
 
 function ReadySettlements({ route, navigate, store, snapshot, data }: ReadyProps) {
-  const names = useMemo(() => new BuyerNames(data.buyers), [data.buyers])
+  const names = useMemo(() => new BuyerNames(data.buyers, data.claims), [data.buyers, data.claims])
   const command = useCommand(store, data, snapshot.sealed)
   const open = (buyer: string | undefined) => navigate({ name: 'settlements', date: data.date, rehearsal: data.rehearsal, ...(buyer === undefined ? {} : { buyer }) })
   const selected = route.buyer === undefined ? undefined : data.settlements.get(settlementKey({ buyer: data.buyers.get(route.buyer)?.current ?? route.buyer, date: data.date }))
@@ -143,6 +149,7 @@ function shippingWords(settlement: Settlement): string {
 }
 
 function SettlementList({ data, names, onOpen }: { readonly data: ScopeData; readonly names: BuyerNames; readonly onOpen: (buyer: string) => void }) {
+  const wide = useWide()
   const [filter, setFilter] = useState<PaymentFilter>('ALL')
   const [query, setQuery] = useState('')
   const all = useMemo(() => [...data.settlements.values()].filter((item) => item.date === data.date), [data.settlements, data.date])
@@ -152,7 +159,7 @@ function SettlementList({ data, names, onOpen }: { readonly data: ScopeData; rea
   const statusLine = (['UNPAID', 'PARTIAL', 'PAID', 'OVERPAID'] as const satisfies readonly PaymentStatus[]).map((status) => `${PAYMENT_WORD[status]} ${String(summary.byStatus[status])}`).join(' · ')
   return (
     <section className="stack" aria-label="정산 목록">
-      <section className="card stack-tight" aria-label="정산 요약">
+      <section className="card stack-tight settlement-summary" aria-label="정산 요약">
         <p>
           묶음 {summary.count}개 · {statusLine}
         </p>
@@ -189,37 +196,119 @@ function SettlementList({ data, names, onOpen }: { readonly data: ScopeData; rea
         </div>
       </div>
       {list.length === 0 ? <p>{all.length === 0 ? '그날 정산할 묶음이 없어요.' : '맞는 묶음이 없어요.'}</p> : null}
-      <ul className="plain-list settlement-grid" aria-label="정산 묶음">
-        {list.map((item) => (
-          <li key={item.buyer}>
-            <a
-              className="list-link settlement-card"
-              href={routePath({ name: 'settlements', date: data.date, rehearsal: data.rehearsal, buyer: item.buyer })}
-              onClick={(event) => {
-                if (event.button !== 0 || event.metaKey || event.ctrlKey) return
-                event.preventDefault()
-                onOpen(item.buyer)
-              }}
-            >
-              <strong className="buyer-name">{names.name(item.buyer)}</strong>
-              <span className={`tag pay-${item.payment}`}>{paymentWord(item.payment, item.refundDue)}</span>
-              <span>상품 {item.items.length}개 · {formatWon(item.subtotal)}</span>
-              <span>배송비 {shippingWords(item)}</span>
-              <span>조정 {signedWon(item.adjustments)}</span>
-              <span>최종 {formatWon(item.total)}</span>
-              <span>받은 금액 {formatWon(item.received)}</span>
-            </a>
-          </li>
-        ))}
-      </ul>
+      {wide ? <SettlementTable data={data} names={names} list={list} onOpen={onOpen} /> : <SettlementCards data={data} names={names} list={list} onOpen={onOpen} />}
     </section>
   )
 }
 
-// ── 자세히 (AC-S06-31) ──────────────────────────────────────────────────
+interface RowsProps {
+  readonly data: ScopeData
+  readonly names: BuyerNames
+  readonly list: readonly Settlement[]
+  readonly onOpen: (buyer: string) => void
+}
+
+/** 왼쪽 단추만 화면 안에서 연다 (새 탭·창은 브라우저가) */
+function linkClick(event: MouseEvent<HTMLAnchorElement>, go: () => void): void {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+  event.preventDefault()
+  go()
+}
+
+/** 휴대폰: 카드 (AC-S06-30 그대로) */
+function SettlementCards({ data, names, list, onOpen }: RowsProps) {
+  return (
+    <ul className="plain-list settlement-grid" aria-label="정산 묶음">
+      {list.map((item) => (
+        <li key={item.buyer}>
+          <a
+            className="list-link settlement-card"
+            href={routePath({ name: 'settlements', date: data.date, rehearsal: data.rehearsal, buyer: item.buyer })}
+            onClick={(event) => linkClick(event, () => onOpen(item.buyer))}
+          >
+            <strong className="buyer-name">{names.name(item.buyer)}</strong>
+            <span className={`tag pay-${item.payment}`}>{paymentWord(item.payment, item.refundDue)}</span>
+            <span>상품 {item.items.length}개 · {formatWon(item.subtotal)}</span>
+            <span>배송비 {shippingWords(item)}</span>
+            <span>조정 {signedWon(item.adjustments)}</span>
+            <span>최종 {formatWon(item.total)}</span>
+            <span>받은 금액 {formatWon(item.received)}</span>
+          </a>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/** PC: 열 머리가 있는 표 — 한 줄 = 한 묶음, 금액 열은 오른쪽, 이름 칸의 링크로 자세히 (AC-S06b-21) */
+function SettlementTable({ data, names, list, onOpen }: RowsProps) {
+  return (
+    <div className="table-scroll">
+      <table className="list-table" aria-label="정산 묶음">
+        <thead>
+          <tr>
+            <th scope="col">이름</th>
+            <th scope="col" className="num">
+              상품 수
+            </th>
+            <th scope="col" className="num">
+              상품 합계
+            </th>
+            <th scope="col" className="num">
+              배송비
+            </th>
+            <th scope="col" className="num">
+              조정
+            </th>
+            <th scope="col" className="num">
+              최종 금액
+            </th>
+            <th scope="col" className="num">
+              받은 금액
+            </th>
+            <th scope="col">입금 상태</th>
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((item) => (
+            <tr key={item.buyer}>
+              <td className="cell-name">
+                <a className="table-link" href={routePath({ name: 'settlements', date: data.date, rehearsal: data.rehearsal, buyer: item.buyer })} onClick={(event) => linkClick(event, () => onOpen(item.buyer))}>
+                  {names.name(item.buyer)}
+                </a>
+              </td>
+              <td className="num">{item.items.length}개</td>
+              <td className="num">{formatWon(item.subtotal)}</td>
+              <td className="num num-words">
+                {item.shippingOverride === null ? null : `${SHIPPING_WORD[item.shippingOverride]} `}
+                <span className="won">{formatWon(item.shipping)}</span>
+              </td>
+              <td className="num">{signedWon(item.adjustments)}</td>
+              <td className="num">{formatWon(item.total)}</td>
+              <td className="num">{formatWon(item.received)}</td>
+              <td>
+                <span className={`tag pay-${item.payment}`}>{paymentWord(item.payment, item.refundDue)}</span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ── 자세히 (AC-S06-31, AC-S06b-23·24) ──────────────────────────────────
 
 type Command = (event: Readonly<Record<string, unknown>>, requestId?: string) => Promise<WriteResult>
 type InputKind = 'payment' | 'shipping' | 'adjust' | 'refund'
+
+/** 입력 창 이름 (동사) */
+const INPUT_TITLE: Readonly<Record<InputKind, string>> = {
+  payment: '입금 적기',
+  shipping: '배송비 바꾸기',
+  adjust: '할인·추가',
+  refund: '환불 적기',
+}
 
 interface DetailProps {
   readonly data: ScopeData
@@ -229,8 +318,24 @@ interface DetailProps {
   readonly onBack: () => void
 }
 
+/** 저장 결과 안내 (D-102): 저장 완료는 성공, 엔진이 받지 않았으면 주의 */
+interface Saved {
+  readonly text: string
+  readonly tone: 'success' | 'warning'
+}
+
+export const NOT_APPLIED_SETTLEMENT = '적용되지 않았어요. 지금 상태를 확인해 주세요.'
+
+/** 지금 할 일 (주 버튼, D-101): 미입금·부분 입금이면 입금, 과입금이면 환불, 입금 완료면 없다 */
+export function primaryInput(payment: PaymentStatus): InputKind | null {
+  if (payment === 'UNPAID' || payment === 'PARTIAL') return 'payment'
+  if (payment === 'OVERPAID') return 'refund'
+  return null
+}
+
 function SettlementDetail({ data, names, settlement, command, onBack }: DetailProps) {
   const [input, setInput] = useState<InputKind | null>(null)
+  const [saved, setSaved] = useState<Saved | null>(null)
   const buyer = data.buyers.get(settlement.buyer)
   const claims = useMemo(() => claimsOf(data, settlement.buyer).filter((claim) => claim.status === 'CONFIRMED'), [data, settlement.buyer])
   const groups = useMemo(() => {
@@ -241,6 +346,16 @@ function SettlementDetail({ data, names, settlement, command, onBack }: DetailPr
   }, [claims, data.broadcasts])
   const remaining = remainingOf(settlement)
   const empty = settlement.items.length === 0
+  const primary = primaryInput(settlement.payment)
+  const openInput = (kind: InputKind) => {
+    setSaved(null)
+    setInput(kind)
+  }
+  const done = (result: WriteResult, text: string) => {
+    setInput(null)
+    setSaved(result.changed ? { text, tone: 'success' } : { text: NOT_APPLIED_SETTLEMENT, tone: 'warning' })
+  }
+  const dialogProps = { data, names, settlement, command, onClose: () => setInput(null), onDone: done }
   return (
     <section className="stack settlement-detail" aria-label="정산 자세히">
       <button type="button" className="button back-button" onClick={onBack}>
@@ -251,6 +366,11 @@ function SettlementDetail({ data, names, settlement, command, onBack }: DetailPr
       <p>
         <span className={`tag pay-${settlement.payment}`}>{paymentWord(settlement.payment, settlement.refundDue)}</span>
       </p>
+      {saved !== null ? (
+        <p className="notice" role="status" data-tone={saved.tone}>
+          {saved.text}
+        </p>
+      ) : null}
 
       <section className="stack-tight" aria-label="품목">
         <h3 className="sub-title">품목</h3>
@@ -292,20 +412,16 @@ function SettlementDetail({ data, names, settlement, command, onBack }: DetailPr
         </p>
       </section>
 
+      <PackingLabels date={settlement.date} buyer={settlement.buyer} rehearsal={data.rehearsal} />
+
+      {/* 주 버튼은 지금 할 일 하나 (D-101). 봉인한 날짜는 잠긴다 (AC-I3-41) */}
       <Lock>
         <div className="row" role="group" aria-label="정산 입력">
-          <button type="button" className="button button-primary" onClick={() => setInput('payment')}>
-            입금 적기
-          </button>
-          <button type="button" className="button" onClick={() => setInput('shipping')}>
-            배송비 바꾸기
-          </button>
-          <button type="button" className="button" onClick={() => setInput('adjust')}>
-            할인·추가
-          </button>
-          <button type="button" className="button" onClick={() => setInput('refund')}>
-            환불 적기
-          </button>
+          {(['payment', 'shipping', 'adjust', 'refund'] as const).map((kind) => (
+            <button key={kind} type="button" className={kind === primary ? 'button button-primary' : 'button'} onClick={() => openInput(kind)}>
+              {INPUT_TITLE[kind]}
+            </button>
+          ))}
         </div>
       </Lock>
 
@@ -332,23 +448,52 @@ function SettlementDetail({ data, names, settlement, command, onBack }: DetailPr
         </ul>
       </section>
 
-      {input === 'payment' ? <PaymentDialog settlement={settlement} command={command} onClose={() => setInput(null)} /> : null}
-      {input === 'shipping' ? <ShippingDialog data={data} settlement={settlement} command={command} onClose={() => setInput(null)} /> : null}
-      {input === 'adjust' ? <AdjustDialog data={data} settlement={settlement} command={command} onClose={() => setInput(null)} /> : null}
-      {input === 'refund' ? <RefundDialog settlement={settlement} command={command} onClose={() => setInput(null)} /> : null}
+      {input === 'payment' ? <PaymentDialog {...dialogProps} /> : null}
+      {input === 'shipping' ? <ShippingDialog {...dialogProps} /> : null}
+      {input === 'adjust' ? <AdjustDialog {...dialogProps} /> : null}
+      {input === 'refund' ? <RefundDialog {...dialogProps} /> : null}
     </section>
   )
 }
 
 interface InputDialogProps {
+  readonly data: ScopeData
+  readonly names: BuyerNames
   readonly settlement: Settlement
   readonly command: Command
   readonly onClose: () => void
+  /** 저장됨 (안내 글자) */
+  readonly onDone: (result: WriteResult, text: string) => void
+}
+
+/** 입력 창 머리 (AC-S06b-23): "입금 적기 · 홍길동 · 2026년 10월 18일 묶음" */
+export function inputTitle(kind: InputKind, name: string, date: string): string {
+  return `${INPUT_TITLE[kind]} · ${name} · ${dateYear(date)} 묶음`
+}
+
+/** 머리 아래 줄: "최종 33,000원 · 받은 금액 0원 · 남은 금액 33,000원" */
+function AmountsLine({ settlement }: { readonly settlement: Settlement }) {
+  return (
+    <p className="input-amounts">
+      최종 {formatWon(settlement.total)} · 받은 금액 {formatWon(settlement.received)} · 남은 금액 {formatWon(remainingOf(settlement))}
+    </p>
+  )
+}
+
+/** 보내기 전 미리 보기의 입금 상태 변화 (AC-S06b-23): 과입금이 새로 생기거나 환불 필요가 늘면 주의 */
+function PaymentPreview({ data, settlement, entry }: { readonly data: ScopeData; readonly settlement: Settlement; readonly entry: PreviewEntry | null }) {
+  if (entry === null) return null
+  const change = paymentChange(settlement, previewWith(data, settlement, entry))
+  return (
+    <p className="notice payment-change" role="status" data-tone={change.warning ? 'warning' : 'info'}>
+      {change.text}
+    </p>
+  )
 }
 
 // ── 입금 (AC-S06-32) ────────────────────────────────────────────────────
 
-function PaymentDialog({ settlement, command, onClose }: InputDialogProps) {
+function PaymentDialog({ data, names, settlement, command, onClose, onDone }: InputDialogProps) {
   const remaining = remainingOf(settlement)
   const [amount, setAmount] = useState(remaining > 0 ? String(remaining) : '')
   const [memo, setMemo] = useState('')
@@ -358,10 +503,11 @@ function PaymentDialog({ settlement, command, onClose }: InputDialogProps) {
   const sender = useSender(command)
   const read = readAmount(amount, PAYMENT_RANGE)
   const memoProblem = memo.trim() !== '' && containsPhoneRun(memo) ? PHONE_IN_TEXT : null
+  const title = inputTitle('payment', names.name(settlement.buyer), settlement.date)
 
   const send = async (value: number) => {
     const result = await sender.send({ type: 'settlement.payment', buyer: settlement.buyer, date: settlement.date, amount: value, ...(memo.trim() === '' ? {} : { memo: memo.trim() }) })
-    if (result !== null) onClose()
+    if (result !== null) onDone(result, '입금을 적었어요')
   }
   const submit = () => {
     setTried(true)
@@ -395,6 +541,7 @@ function PaymentDialog({ settlement, command, onClose }: InputDialogProps) {
         <p>
           남은 금액({formatWon(remaining)})과 달라요. {formatWon(confirming)}으로 적을까요?
         </p>
+        <PaymentPreview data={data} settlement={settlement} entry={{ kind: 'payment', amount: confirming }} />
         {sender.busy ? <p role="status">보내는 중…</p> : null}
         {sender.error !== null ? <WriteError error={sender.error} onRetry={() => void send(confirming)} omitFields={['memo', 'amount']} /> : null}
         {serverProblem(sender.error, 'memo') !== null ? <p className="field-error">{serverProblem(sender.error, 'memo')}</p> : null}
@@ -404,7 +551,7 @@ function PaymentDialog({ settlement, command, onClose }: InputDialogProps) {
   return (
     <Modal
       key="form"
-      title="입금 적기"
+      title={title}
       onClose={onClose}
       actions={
         <button type="button" className="button button-primary" disabled={sender.busy} onClick={submit}>
@@ -419,10 +566,9 @@ function PaymentDialog({ settlement, command, onClose }: InputDialogProps) {
           submit()
         }}
       >
-        <p>
-          남은 금액 {formatWon(remaining)} · 최종 {formatWon(settlement.total)} · 받은 금액 {formatWon(settlement.received)}
-        </p>
+        <AmountsLine settlement={settlement} />
         <AmountField label="입금 금액" value={amount} onChange={setAmount} range={PAYMENT_RANGE} showEmpty={tried} inputRef={amountField} serverMessage={serverProblem(sender.error, 'amount')} />
+        <PaymentPreview data={data} settlement={settlement} entry={read.kind === 'ok' ? { kind: 'payment', amount: read.amount } : null} />
         <div className="field">
           <label htmlFor="payment-memo">메모(선택)</label>
           <input id="payment-memo" className="input" autoComplete="off" placeholder="10/18 국민" value={memo} onChange={(event) => setMemo(event.target.value)} />
@@ -440,7 +586,7 @@ function PaymentDialog({ settlement, command, onClose }: InputDialogProps) {
 
 type ShippingChoice = 'DEFAULT' | 'PICKUP' | 'COMBINED' | 'FIXED'
 
-function ShippingDialog({ data, settlement, command, onClose }: InputDialogProps & { readonly data: ScopeData }) {
+function ShippingDialog({ data, names, settlement, command, onClose, onDone }: InputDialogProps) {
   const [mode, setMode] = useState<ShippingChoice | null>(null)
   const [amount, setAmount] = useState('')
   const [tried, setTried] = useState(false)
@@ -448,17 +594,18 @@ function ShippingDialog({ data, settlement, command, onClose }: InputDialogProps
   const choices: ShippingChoice[] = [...(settlement.shippingOverride === null ? [] : (['DEFAULT'] as const)), 'PICKUP', 'COMBINED', 'FIXED']
   const read = readAmount(amount, SHIPPING_RANGE)
   const fixedAmount = mode === 'FIXED' && read.kind === 'ok' ? read.amount : null
-  const preview = mode === null || (mode === 'FIXED' && fixedAmount === null) ? null : previewWith(data, settlement, { kind: 'shipping', mode, amount: mode === 'FIXED' ? fixedAmount : null })
+  const entry: PreviewEntry | null = mode === null || (mode === 'FIXED' && fixedAmount === null) ? null : { kind: 'shipping', mode, amount: mode === 'FIXED' ? fixedAmount : null }
+  const preview = entry === null ? null : previewWith(data, settlement, entry)
   const submit = async () => {
     setTried(true)
     if (mode === null || (mode === 'FIXED' && fixedAmount === null)) return
     const result = await sender.send({ type: 'settlement.shippingOverride', buyer: settlement.buyer, date: settlement.date, mode, ...(mode === 'FIXED' ? { amount: fixedAmount } : {}) })
-    if (result !== null) onClose()
+    if (result !== null) onDone(result, '배송비를 바꿨어요')
   }
   const word = (choice: ShippingChoice) => (choice === 'DEFAULT' ? '기본 배송비로' : SHIPPING_WORD[choice])
   return (
     <Modal
-      title="배송비 바꾸기"
+      title={inputTitle('shipping', names.name(settlement.buyer), settlement.date)}
       onClose={onClose}
       actions={
         <button type="button" className="button button-primary" disabled={sender.busy || mode === null} onClick={() => void submit()}>
@@ -466,6 +613,7 @@ function ShippingDialog({ data, settlement, command, onClose }: InputDialogProps
         </button>
       }
     >
+      <AmountsLine settlement={settlement} />
       <p>
         지금 배송비 {shippingWords(settlement)}
       </p>
@@ -479,10 +627,11 @@ function ShippingDialog({ data, settlement, command, onClose }: InputDialogProps
       </div>
       {mode === 'FIXED' ? <AmountField label="배송비 금액" value={amount} onChange={setAmount} range={SHIPPING_RANGE} showEmpty={tried} serverMessage={serverProblem(sender.error, 'amount')} /> : null}
       {preview !== null ? (
-        <p className="notice" role="status">
+        <p className="notice" role="status" data-tone="info">
           배송비 {formatWon(settlement.shipping)} → {formatWon(preview.shipping)}, 최종 {formatWon(settlement.total)} → {formatWon(preview.total)}
         </p>
       ) : null}
+      <PaymentPreview data={data} settlement={settlement} entry={entry} />
       {sender.error !== null ? <WriteError error={sender.error} onRetry={() => void submit()} omitFields={['amount']} /> : null}
     </Modal>
   )
@@ -490,7 +639,7 @@ function ShippingDialog({ data, settlement, command, onClose }: InputDialogProps
 
 // ── 할인·추가 (AC-S06-34) ───────────────────────────────────────────────
 
-function AdjustDialog({ data, settlement, command, onClose }: InputDialogProps & { readonly data: ScopeData }) {
+function AdjustDialog({ data, names, settlement, command, onClose, onDone }: InputDialogProps) {
   const [sign, setSign] = useState<'minus' | 'plus'>('minus')
   const [amount, setAmount] = useState('')
   const [reason, setReason] = useState('')
@@ -501,7 +650,8 @@ function AdjustDialog({ data, settlement, command, onClose }: InputDialogProps &
   const sender = useSender(command)
   const read = readAmount(amount, ADJUST_RANGE)
   const signed = read.kind === 'ok' ? (sign === 'minus' ? -read.amount : read.amount) : null
-  const preview = signed === null ? null : previewWith(data, settlement, { kind: 'adjust', amount: signed })
+  const entry: PreviewEntry | null = signed === null ? null : { kind: 'adjust', amount: signed }
+  const preview = entry === null ? null : previewWith(data, settlement, entry)
   const floored = preview !== null && settlement.items.length > 0 && settlement.subtotal + preview.shipping + preview.adjustments < 0
   const reasonProblem = reason.trim() !== '' && containsPhoneRun(reason) ? PHONE_IN_TEXT : null
   const verb = sign === 'minus' ? '할인 적기' : '추가 적기'
@@ -516,11 +666,11 @@ function AdjustDialog({ data, settlement, command, onClose }: InputDialogProps &
     }
     if (reasonProblem !== null) return
     const result = await sender.send({ type: 'settlement.adjust', buyer: settlement.buyer, date: settlement.date, amount: signed, reason: value })
-    if (result !== null) onClose()
+    if (result !== null) onDone(result, signed < 0 ? '할인을 적었어요' : '추가를 적었어요')
   }
   return (
     <Modal
-      title="할인·추가"
+      title={inputTitle('adjust', names.name(settlement.buyer), settlement.date)}
       onClose={onClose}
       actions={
         <button ref={submitButton} type="button" className="button button-primary" disabled={sender.busy} onClick={() => void submit()}>
@@ -528,6 +678,7 @@ function AdjustDialog({ data, settlement, command, onClose }: InputDialogProps &
         </button>
       }
     >
+      <AmountsLine settlement={settlement} />
       <div className="row" role="radiogroup" aria-label="할인 또는 추가">
         <label className="choice">
           <input type="radio" name="adjust-sign" checked={sign === 'minus'} onChange={() => setSign('minus')} />
@@ -540,11 +691,16 @@ function AdjustDialog({ data, settlement, command, onClose }: InputDialogProps &
       </div>
       <AmountField label={sign === 'minus' ? '할인 금액' : '추가 금액'} value={amount} onChange={setAmount} range={ADJUST_RANGE} showEmpty={tried} serverMessage={serverProblem(sender.error, 'amount')} />
       {preview !== null ? (
-        <p className="notice" role="status">
+        <p className="notice" role="status" data-tone="info">
           최종 {formatWon(settlement.total)} → {formatWon(preview.total)}
         </p>
       ) : null}
-      {floored ? <p className="warning">할인이 금액보다 커서 최종 금액은 0원이에요.</p> : null}
+      <PaymentPreview data={data} settlement={settlement} entry={entry} />
+      {floored ? (
+        <p className="warning" data-tone="warning">
+          할인이 금액보다 커서 최종 금액은 0원이에요.
+        </p>
+      ) : null}
       <ReasonField
         value={reason}
         onChange={(value) => {
@@ -566,7 +722,7 @@ function AdjustDialog({ data, settlement, command, onClose }: InputDialogProps &
 
 // ── 환불 (AC-S06-35) ────────────────────────────────────────────────────
 
-function RefundDialog({ settlement, command, onClose }: InputDialogProps) {
+function RefundDialog({ data, names, settlement, command, onClose, onDone }: InputDialogProps) {
   const [amount, setAmount] = useState(settlement.payment === 'OVERPAID' && settlement.refundDue > 0 ? String(settlement.refundDue) : '')
   const [reason, setReason] = useState('')
   const [empty, setEmpty] = useState(false)
@@ -588,11 +744,11 @@ function RefundDialog({ settlement, command, onClose }: InputDialogProps) {
     }
     if (reasonProblem !== null) return
     const result = await sender.send({ type: 'settlement.refund', buyer: settlement.buyer, date: settlement.date, amount: read.amount, reason: value })
-    if (result !== null) onClose()
+    if (result !== null) onDone(result, '환불을 적었어요')
   }
   return (
     <Modal
-      title="환불 적기"
+      title={inputTitle('refund', names.name(settlement.buyer), settlement.date)}
       onClose={onClose}
       actions={
         <button ref={submitButton} type="button" className="button button-primary" disabled={sender.busy} onClick={() => void submit()}>
@@ -600,11 +756,10 @@ function RefundDialog({ settlement, command, onClose }: InputDialogProps) {
         </button>
       }
     >
-      <p>
-        받은 금액 {formatWon(settlement.received)}
-        {settlement.refundDue > 0 ? ` · 환불 필요 ${formatWon(settlement.refundDue)}` : ''}
-      </p>
+      <AmountsLine settlement={settlement} />
+      {settlement.refundDue > 0 ? <p>환불 필요 {formatWon(settlement.refundDue)}</p> : null}
       <AmountField label="환불 금액" value={amount} onChange={setAmount} range={range} showEmpty={tried} serverMessage={serverProblem(sender.error, 'amount')} />
+      <PaymentPreview data={data} settlement={settlement} entry={read.kind === 'ok' ? { kind: 'refund', amount: read.amount } : null} />
       <p className="hint">{REFUND_NOTE}</p>
       <ReasonField
         value={reason}

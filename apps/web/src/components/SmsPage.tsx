@@ -1,19 +1,21 @@
-// 문자찜 입력 (SPEC §7 화면 6, ORD-08, BUY-02, R-0 5, R-1, R-5, R-6, R-11, D-023, D-089, AC-S06-10~15).
+// 문자찜 입력 (SPEC §7 화면 6, ORD-08, BUY-02, R-0 5, R-1, R-5, R-6, R-11, D-023, D-089, D-099, D-102, AC-S06-10~15, AC-S06b-22·30·31·32·40).
 // - 방송: 끝나지 않은 실제 방송 중 가장 최근 것이 기본(날짜가 늦은 것, 같으면 나중에 만든 것). 없으면 직접 고른다. 고른 방송은 화면을 연 동안 그대로다.
 // - 칸: 번호(숫자 키패드) · 받은 시각(비우면 서버가 도착 시각을 초까지) · 전화번호(뒤 4자리만 보인다) · 메모 · 구매자 고르기.
 // - "15번에 문자찜 넣기"는 바로 보낸다(5초 대기 없음) — 같은 요청 번호로 재시도, 결과 카드(찜의 지금 상태)·"찜 취소하기"(5초 뒤)·"같은 사람 하나 더".
+//   찜이 생기지 않았으면 쓰기 응답의 buyer(엔진이 정한 구매자 자신, D-099)로 "이미 찜한 구매자라…"와 "같은 사람 하나 더"를 정한다 — 뒤 4자리로 짐작하지 않는다.
+// - 받은 시각은 날짜와 함께 "10/18 20:01:05"(엔진이 R-6으로 정한 날, KST). 방송 고르기의 날짜는 연도·요일까지, 고른 방송은 "✓ 고름".
 // - 보낸 뒤 칸을 모두 비운다(전화번호 원문을 화면 상태에 남기지 않는다). 아래에 고른 방송의 최근 문자찜 10개.
 // - I3: 30일이 지나 봉인한 날짜의 방송은 고를 수 없다(기본 방송으로도 고르지 않는다, AC-I3-41). 보조자 계정은 실제 방송만 고르고
 //   허용된 요청(방송 목록·범위 목록·범위 조회·실시간)만 보낸다(AC-I3-63).
-import { containsPhoneRun, normalizePhone, phoneLast4 } from '@livejjim/core'
+import { containsPhoneRun, normalizePhone, phoneLast4, type ClaimStatus } from '@livejjim/core'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
 import { get, isApiError, type ApiError } from '../api/client.ts'
 import type { BroadcastItem, Buyer, Claim, DayRow, Product } from '../api/types.ts'
-import { distinguishWords, isActive, sameNameCounts, searchBuyers, smsHolder, channelTail } from '../lib/buyers.ts'
+import { activeClaimOf, distinguishWords, isActive, sameNameCounts, searchBuyers } from '../lib/buyers.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
 import { claimWord, formatWon, productKey } from '../lib/derive.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
-import { broadcastWords, kstTime } from '../lib/kst.ts'
+import { broadcastWords, kstStamp } from '../lib/kst.ts'
 import { RECEIVED_HELP, RECEIVED_INVALID, readReceived, receivedWords } from '../lib/received.ts'
 import type { Navigate } from '../lib/router.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
@@ -97,7 +99,7 @@ export function SmsPage({ navigate, assistant = false }: { readonly navigate: Na
       <h1>문자찜 입력</h1>
       <section className="sms-broadcast card" aria-label="고른 방송">
         {item === null || item === undefined ? (
-          <p className="warning" role="status">
+          <p className="warning" role="status" data-tone="warning">
             {NO_BROADCAST}
           </p>
         ) : (
@@ -114,7 +116,9 @@ export function SmsPage({ navigate, assistant = false }: { readonly navigate: Na
       ) : store !== null && queue !== null && snapshot.data !== null ? (
         <ReadySms key={selected} b={selected} item={item} store={store} snapshot={snapshot} data={snapshot.data} queue={queue} focusSignal={focusSignal} />
       ) : snapshot.phase === 'missing' ? (
-        <p className="warning">그 방송을 찾지 못했어요. "방송 바꾸기"로 다시 골라 주세요.</p>
+        <p className="warning" data-tone="warning">
+          그 방송을 찾지 못했어요. "방송 바꾸기"로 다시 골라 주세요.
+        </p>
       ) : snapshot.phase === 'error' && snapshot.error !== null ? (
         <ErrorNote error={snapshot.error} onRetry={() => window.location.reload()} retryLabel="다시 열기" />
       ) : (
@@ -187,10 +191,12 @@ function BroadcastChooser(props: {
         <ul className="plain-list stack-tight" aria-label="방송">
           {props.items.map((item) => (
             <li key={item.id}>
+              {/* 고른 방송은 테두리 색만이 아니라 "✓ 고름" 글자와 다른 배경, aria-pressed (AC-S06b-32) */}
               <button type="button" className="choice-button" aria-pressed={item.id === props.selected} onClick={() => props.onChoose(item.id)}>
                 <strong>{broadcastWords(item.title, item.date)}</strong>
                 <span className={item.ended ? 'tag' : 'tag tag-live'}>{item.ended ? '끝남' : '진행 중'}</span>
                 {item.rehearsal ? <span className="tag tag-rehearsal">리허설</span> : null}
+                {item.id === props.selected ? <span className="chosen-mark">✓ 고름</span> : null}
               </button>
             </li>
           ))}
@@ -251,7 +257,11 @@ function ProductPreview({ api, no }: { readonly api: ConsoleApi; readonly no: nu
   return (
     <div className="sms-preview" role="status" aria-label="번호의 상품">
       <p>{productLine(api, product)}</p>
-      {note !== null ? <p className="warning">{note}</p> : null}
+      {note !== null ? (
+        <p className="warning" data-tone="warning">
+          {note}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -263,7 +273,7 @@ interface SentResult {
   /** 칸에 쳤던 받은 시각 글자 (같은 사람 하나 더) */
   readonly receivedText: string
   readonly phoneLast4: string | null
-  /** 지정 구매자 (고르지 않았으면 null) */
+  /** 쓰기 응답의 buyer: 그 문자찜이 정한 구매자 자신 (정하지 못했으면 null, D-099) */
   readonly buyer: string | null
 }
 
@@ -327,14 +337,13 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
     }
     const written = await sender.send(event)
     if (written === null) return
-    const last4 = (written as { phoneLast4?: unknown }).phoneLast4
     setResult({
       seq: written.seq,
       no: number,
       b: api.b,
       receivedText: received,
-      phoneLast4: typeof last4 === 'string' ? last4 : normalized === null ? null : phoneLast4(normalized),
-      buyer,
+      phoneLast4: typeof written.phoneLast4 === 'string' ? written.phoneLast4 : normalized === null ? null : phoneLast4(normalized),
+      buyer: typeof written.buyer === 'string' ? written.buyer : null,
     })
     // 보낸 뒤 칸을 모두 비우고 번호 칸으로 (전화번호 원문을 남기지 않는다, AC-S06-13·81)
     setNo('')
@@ -544,7 +553,11 @@ function BuyerChooser({
           고른 구매자: <strong>{api.names.name(buyer.id)}</strong> <span className="tag">{BUYER_KIND_WORD[buyer.kind]}</span>
           {buyer.blocked ? <span className="tag tag-alert">차단</span> : null}
         </p>
-        {buyer.blocked ? <p className="warning">차단된 구매자라 넣으면 거절돼요.</p> : null}
+        {buyer.blocked ? (
+          <p className="warning" data-tone="warning">
+            차단된 구매자라 넣으면 거절돼요.
+          </p>
+        ) : null}
         <button type="button" className="button" onClick={onClear}>
           고른 구매자 지우기
         </button>
@@ -589,7 +602,6 @@ function BuyerChooser({
                 {distinguishWords(hit.current, counts).map((word) => (
                   <span key={word}>{word}</span>
                 ))}
-                {hit.current.kind === 'youtube' && (counts.get(hit.current.display) ?? 0) < 2 ? <span>끝 {channelTail(hit.current)}</span> : null}
                 {hit.current.blocked ? <span className="tag tag-alert">차단</span> : null}
                 {hit.matched.id !== hit.current.id ? <span>{`${api.names.name(hit.matched.id)} — ${api.names.name(hit.current.id)}에 합쳐짐`}</span> : null}
               </button>
@@ -602,8 +614,23 @@ function BuyerChooser({
   )
 }
 
+/** 결과·안내의 종류 (D-102): 1등은 성공, 대기·보류는 보통, 충돌·거절(품절·판매 중 아님·차단)은 주의 */
+export function claimTone(status: ClaimStatus): 'success' | 'warning' | 'info' {
+  switch (status) {
+    case 'CONFIRMED':
+      return 'success'
+    case 'CONFLICT':
+    case 'REJECTED':
+      return 'warning'
+    default:
+      return 'info'
+  }
+}
+
 /**
- * 보낸 결과 (AC-S06-14). 찜이 생기지 않았으면 그 문자찜이 정한 구매자(지정 구매자·전화번호로 이은 구매자)가 그 번호에 활성 찜이 있는지 본다.
+ * 보낸 결과 (AC-S06-14, AC-S06b-30·31·40). 찜이 생겼으면 응답 seq의 찜. 생기지 않았으면 응답의 buyer(엔진이 정한 구매자 자신, D-099)의
+ * 지금의 구매자가 그 상품에 가진 활성 찜으로 "이미 찜한 구매자라…", 없거나 buyer가 null이면 "새 찜이 생기지 않았어요…".
+ * "같은 사람 하나 더"는 응답의 buyer로 채운다(null이면 버튼이 없다).
  * 번호 칸 바로 위에 둔다 — 보낸 뒤 칸이 비고 번호 칸으로 가도 결과가 첫 화면에 보인다(UX-S06-002).
  */
 function ResultCard({ api, result, onSame }: { readonly api: ConsoleApi; readonly result: SentResult; readonly onSame: (buyer: string, received: string) => void }) {
@@ -611,27 +638,22 @@ function ResultCard({ api, result, onSame }: { readonly api: ConsoleApi; readonl
     for (const item of api.data.claims.values()) if (item.seq === result.seq && item.origin === 'sms') return item
     return undefined
   }, [api.data.claims, result.seq])
-  const holder = claim === undefined ? smsHolder(api.data, productKey(result.b, result.no), result.buyer, result.phoneLast4) : undefined
-  // 처음 찾은 구매자를 둔다 — 그 찜이 나중에 끝나도 "같은 사람 하나 더"는 같은 사람
-  const [linked, setLinked] = useState<string | null>(null)
-  const found = holder?.buyer ?? null
-  useEffect(() => {
-    if (found !== null) setLinked((current) => current ?? found)
-  }, [found])
+  const who = result.buyer ?? claim?.buyer ?? null
   let body: string
-  let who: string | null = result.buyer ?? found ?? linked
+  let tone: 'success' | 'warning' | 'info'
   if (claim !== undefined) {
-    const received = claim.received ?? kstTime(claim.rankTime)
-    body = `${String(claim.no)}번 · ${api.names.name(claim.currentBuyer)} · ${claimWord(api.data, claim)} · 받은 시각 ${received}`
-    who = claim.buyer
+    body = `${String(claim.no)}번 · ${api.names.name(claim.currentBuyer)} · ${claimWord(api.data, claim)} · 받은 시각 ${kstStamp(claim.rankTime, claim.rankMinute)}`
+    tone = claimTone(claim.status)
   } else {
+    const holder = result.buyer === null ? undefined : activeClaimOf(api.data, result.buyer, productKey(result.b, result.no))
     body =
       holder !== undefined
-        ? `${String(result.no)}번 · 이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 ${claimWord(api.data, holder.claim)})`
+        ? `${String(result.no)}번 · 이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 ${claimWord(api.data, holder)})`
         : `${String(result.no)}번 · 새 찜이 생기지 않았어요. 지금 상태를 확인해 주세요.`
+    tone = 'warning'
   }
   return (
-    <section className="sms-result" aria-label="넣은 결과">
+    <section className="sms-result" aria-label="넣은 결과" data-tone={tone}>
       <p role="status">
         <strong>{body}</strong>
         {result.phoneLast4 !== null ? <span> · 뒤 4자리 {result.phoneLast4}</span> : null}
@@ -643,7 +665,7 @@ function ResultCard({ api, result, onSame }: { readonly api: ConsoleApi; readonl
           </button>
         ) : null}
         {who !== null ? (
-          <button type="button" className="button button-primary" onClick={() => onSame(who, result.receivedText)}>
+          <button type="button" className="button" onClick={() => onSame(who, result.receivedText)}>
             같은 사람 하나 더
           </button>
         ) : null}
@@ -670,7 +692,7 @@ function RecentSms({ api }: { readonly api: ConsoleApi }) {
           return (
             <li key={claim.id} className="claim-row">
               <p>
-                <strong>{claim.no}번</strong> {name} · {api.names.name(claim.currentBuyer)} · {claim.received ?? kstTime(claim.rankTime)} ·{' '}
+                <strong>{claim.no}번</strong> {name} · {api.names.name(claim.currentBuyer)} · {kstStamp(claim.rankTime, claim.rankMinute)} ·{' '}
                 <span className="tag">{claimWord(api.data, claim)}</span>
                 {api.waiting.claims.has(claim.id) ? <span className="tag tag-waiting">보내기 전</span> : null}
               </p>

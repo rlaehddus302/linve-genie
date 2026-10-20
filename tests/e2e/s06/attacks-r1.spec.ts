@@ -4,6 +4,7 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import {
   history, login, menu, openNewBroadcast, openSms, registerApi, scopeView, smsApi, smsField, smsUi, uniqueDate, untilElapsed, viewerClaim, writeEvent,
+  kstTimeAgo,
 } from './support.ts'
 
 function uniq(prefix: string): string {
@@ -180,7 +181,7 @@ test.describe('문자찜 결과 위치 (UX-S06-002)', () => {
       const b = await openNewBroadcast(page, { date, rehearsal: true, title })
       await registerApi(page, b, 15, '핑크프릴', 10000)
       await openSms(page, title)
-      await smsUi(page, { no: 15, phone: '010-4321-8765', memo: '위치', received: '00:00:01' })
+      await smsUi(page, { no: 15, phone: '010-4321-8765', memo: '위치', received: kstTimeAgo(60) })
       await expect(page.getByRole('region', { name: '넣은 결과' })).toBeInViewport({ ratio: 1 })
       await expect(smsField(page, '번호')).toBeInViewport({ ratio: 1 })
       await expect(smsField(page, '번호')).toBeFocused()
@@ -340,7 +341,7 @@ test.describe('채운 범위 목록 그리기 (AC-S06-20·30, SA-S06-005)', () =
       await nav.getByRole('link', { name: link, exact: true }).click()
       await full
       const t0 = Date.now()
-      await expect(page.getByRole('list', { name: listName, exact: true }).getByRole('link').first()).toBeVisible()
+      await expect(page.getByRole('table', { name: listName, exact: true }).getByRole('link').first()).toBeVisible() // PC는 표 (AC-S06b-21 — 교체)
       const took = Date.now() - t0
       console.log(`${link} 목록 그리기 ${String(took)}ms`)
       expect(took, `${link} 목록 그리기`).toBeLessThan(1000)
@@ -352,7 +353,7 @@ test.describe('채운 범위 목록 그리기 (AC-S06-20·30, SA-S06-005)', () =
     const t1 = Date.now()
     await all.check()
     await expect(all).toBeChecked()
-    await expect(page.getByRole('list', { name: '구매자', exact: true }).getByRole('link').first()).toBeVisible()
+    await expect(page.getByRole('table', { name: '구매자', exact: true }).getByRole('link').first()).toBeVisible()
     const took = Date.now() - t1
     console.log(`찜 없는 구매자도 보기 ${String(took)}ms`)
     expect(took).toBeLessThan(1000)

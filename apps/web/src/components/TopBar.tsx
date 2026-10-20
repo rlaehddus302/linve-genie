@@ -1,9 +1,11 @@
-// 화면 위 줄 (AC-S05-01, AC-S06-01·51·52, AC-I3-44·63): 가게 이름, 메뉴("방송"·"문자찜 입력"·"구매자"·"정산"·"설정" — 지금 화면은 aria-current="page"),
-// 앱 설치 안내, 로그아웃, 새 버전 안내. 메뉴는 PC에서 위 줄에, 휴대폰에서는 아래 고정 막대로 보인다(같은 메뉴, CSS가 자리만 바꾼다).
-// 보조자 계정은 가게 이름 + "보조자", 메뉴는 "문자찜 입력"뿐이다.
+// 화면 위 줄 (AC-S05-01, AC-S06-01·51·52, AC-I1-20·34, AC-I3-44·63): 가게 이름, 프린터 상태(누르면 라벨 화면), 메뉴("방송"·"문자찜 입력"·"구매자"·"정산"·"라벨"·"설정" —
+// 지금 화면은 aria-current="page"), 앱 설치 안내, 로그아웃, 새 버전 안내. 메뉴는 PC에서 위 줄에, 휴대폰에서는 아래 고정 막대로 보인다(같은 메뉴, CSS가 자리만 바꾼다).
+// 보조자 계정은 가게 이름 + "보조자", 메뉴는 "문자찜 입력"뿐이다(프린터 상태도 없다 — 보조자는 출력을 쓰지 않는다).
 import type { MouseEvent } from 'react'
 import { useInstallHint, useUpdateNotice } from '../pwa/pwa.ts'
+import { printerStatusWord } from '../lib/print-words.ts'
 import { menuOf, routePath, type Navigate, type Route } from '../lib/router.ts'
+import { usePrintApi, usePrintState } from './print-context.tsx'
 
 export interface TopBarProps {
   readonly shopName: string
@@ -29,6 +31,7 @@ function menuItems(route: Route, assistant: boolean): readonly MenuItem[] {
     { key: 'sms', label: '문자찜 입력', to: { name: 'sms' } },
     { key: 'buyers', label: '구매자', to: { name: 'buyers', ...scope } },
     { key: 'settlements', label: '정산', to: { name: 'settlements', ...scope } },
+    { key: 'labels', label: '라벨', to: { name: 'labels' } },
     { key: 'settings', label: '설정', to: { name: 'settings' } },
   ]
 }
@@ -48,6 +51,7 @@ export function TopBar({ shopName, assistant = false, onLogout, route, navigate 
           {shopName}
           {assistant ? <span className="tag tag-assistant">보조자</span> : null}
         </p>
+        {assistant ? null : <PrinterStatus onOpen={(event) => go(event, { name: 'labels' })} />}
         <nav className={assistant ? 'menu menu-single' : 'menu'} aria-label="메뉴">
           {menuItems(route, assistant).map((item) => (
             <a key={item.key} className="menu-link" href={routePath(item.to)} aria-current={item.key === current ? 'page' : undefined} onClick={(event) => go(event, item.to)}>
@@ -67,13 +71,27 @@ export function TopBar({ shopName, assistant = false, onLogout, route, navigate 
   )
 }
 
+/** 프린터 상태 (AC-I1-34): "프린터 PC · 연결됨 · 대기 2장" / "출력 기기 없음 · 대기 3장" / "출력 멈춤 · 대기 5장" — 누르면 라벨 화면 */
+function PrinterStatus({ onOpen }: { readonly onOpen: (event: MouseEvent<HTMLAnchorElement>) => void }) {
+  const api = usePrintApi()
+  const print = usePrintState()
+  if (api === null) return null
+  const queue = print.overview?.queue ?? null
+  const paused = queue?.pause != null
+  return (
+    <a className={paused ? 'printer-status printer-status-alert' : 'printer-status'} href={routePath({ name: 'labels' })} onClick={onOpen}>
+      {printerStatusWord(queue)}
+    </a>
+  )
+}
+
 /** "앱으로 설치" (브라우저가 설치를 제안할 수 있을 때만) */
 function InstallButton() {
   const hint = useInstallHint()
   if (!hint.canInstall) return null
   return (
     <span className="install row">
-      <button type="button" className="button button-primary" onClick={() => void hint.install()}>
+      <button type="button" className="button" onClick={() => void hint.install()}>
         앱으로 설치
       </button>
       <button type="button" className="button" aria-label="앱 설치 안내 닫기" onClick={hint.dismiss}>

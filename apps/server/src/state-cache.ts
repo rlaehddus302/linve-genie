@@ -1,6 +1,7 @@
 // 상태(불변 객체) → 계산한 값 캐시. 가장 최근에 쓴 몇 개만 둔다.
 // 범위 실행 상태(ScopeRuntime)마다 하나씩 둔다 — 모든 판매자가 함께 쓰는 캐시는 없다(AC-S06-72, D-096).
 // 범위 실행 상태가 메모리에서 내려가면(writer의 상한·forget) 그 캐시도 함께 사라진다.
+// 보기 캐시를 가진 범위 수는 ViewCacheBudget이 묶는다(판매자마다 4·서버 전체 32·10분, AC-S06b-12, D-104) — 넘으면 clear()로 비운다.
 import type { EngineState } from '@livejjim/core'
 
 export class StateCache<T> {
@@ -28,6 +29,11 @@ export class StateCache<T> {
       this.#entries.delete(oldest)
     }
     return value
+  }
+
+  /** 둔 것을 모두 비운다 (계산 횟수는 이어 센다 — 다시 조회하면 다시 계산한다) */
+  clear(): void {
+    this.#entries.clear()
   }
 
   /** 지금 둔 상태 수 */

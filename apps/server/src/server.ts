@@ -1,7 +1,9 @@
 // 서버 조립 (S04·S05): DB·마스터 키·앱 주소를 받아 기록 경로·서비스·로그인·실시간 알림·리허설 생성기·HTTP 앱을 만든다.
 // 시험(단위·적대)은 PGlite로 열어 createServer(...).app.request(...)로 포트 없이 요청한다.
 // 시험용 주입점: clock(서버 시계), ids(ID 생성), hooks(저장 실패·응답 전 멈춤·스냅샷 실패), engine(엔진 감싸기), log(로그 수집), runtimeCacheMax(범위 상태 메모리 상한),
-// changesWindow(증분 조회 기준점 수), generatorTimer·generatorSpeed(리허설 생성기 타이머·시험 속도), hostActionDelayMs(화면의 방송자 조치 대기 — E2E 기동만 줄인다).
+// changesWindow(증분 조회 기준점 수), generatorTimer·generatorSpeed(리허설 생성기 타이머·시험 속도), hostActionDelayMs(화면의 방송자 조치 대기 — E2E 기동만 줄인다),
+// testPrinter(시험 모드 신호 — 화면이 시험용 프린터를 켠다. E2E 기동만 켠다, 운영 기동은 production.ts가 늘 끈다 — I1 L-11 15).
+// I1: 출력 기록(PrintService)을 기록 경로의 같은 트랜잭션(txHook)에 잇고, 실시간 알림(print)·출력 기기 실시간 연결 여부를 허브에 잇는다.
 import { readFileSync } from 'node:fs'
 import { applyEvent } from '@livejjim/core'
 import type { Hono } from 'hono'
@@ -18,9 +20,12 @@ import type { EngineAdapter } from './runtime.ts'
 import type { LoginLimitOptions } from './login-limit.ts'
 import { loginLimitSecret, readMasterKey, type PasswordCost } from './secrets.ts'
 import type { GeneratorTimer } from './generator.ts'
+import { PrintService } from './print.ts'
+import { readQueue } from './print-store.ts'
 import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
 import { kstDate, systemClock, type Clock } from './time.ts'
+import { ViewCacheBudget } from './view-budget.ts'
 import { DEFAULT_RUNTIME_CACHE_MAX, ScopeWriter, type WriterHooks } from './writer.ts'
 import type { CollectorHooks } from './youtube/collector.ts'
 import type { OutboxHooks, OutboxTiming } from './youtube/outbox.ts'
@@ -102,6 +107,8 @@ export interface ServerOptions {
   readonly dbPing?: () => Promise<void>
   /** 발송함 시간 (E2E 기동만 줄인다 — AC-I3-93) */
   readonly outboxTiming?: OutboxTiming
+  /** 시험 모드 신호 (화면 설정 testPrinter — 시험용 프린터를 켠다). E2E 기동만 켠다. 기본 false (L-11 15, AC-I1-16) */
+  readonly testPrinter?: boolean
 }
 
 export interface LivejjimServer {
@@ -110,6 +117,10 @@ export interface LivejjimServer {
   readonly writer: ScopeWriter
   readonly hub: StreamHub
   readonly auth: Auth
+  /** 보기 캐시 상한 (판매자마다 4·서버 전체 32·10분, AC-S06b-12 — 시험·점검용) */
+  readonly viewCaches: ViewCacheBudget
+  /** 출력 기록과 출력 기기 (I1) */
+  readonly print: PrintService
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
   /** 유튜브 연동 (설정이 있을 때만) */
@@ -193,7 +204,20 @@ export function createServer(options: ServerOptions): LivejjimServer {
     ...(options.loginLimits === undefined ? {} : { loginLimits: options.loginLimits }),
     ...(options.passwordVerifier === undefined ? {} : { verify: options.passwordVerifier }),
   })
-  const hub = new StreamHub({ heartbeatMs, sessionAlive: (hash) => auth.alive(hash) })
+  let print: PrintService | null = null
+  const hub = new StreamHub({
+    heartbeatMs,
+    sessionAlive: (hash) => auth.alive(hash),
+    // 출력 기기의 실시간 연결이 열리고 닫히면 다른 기기에 대기열 요약을 알린다 (AC-I1-10·15)
+    onDevice: (sellerId, deviceId) => {
+      void readQueue(db, sellerId)
+        .then((queue) => {
+          if (queue?.deviceId === deviceId) print?.notifyQueue(sellerId)
+        })
+        .catch((error: unknown) => log({ level: 'warn', code: 'PRINT_NOTIFY_FAILED', errorKind: errorKind(error) }))
+    },
+  })
+  const viewCaches = new ViewCacheBudget({ now: () => clock.now() })
   const writer = new ScopeWriter({
     db,
     engine,
@@ -207,14 +231,29 @@ export function createServer(options: ServerOptions): LivejjimServer {
     onCommit: (sellerId, date, rehearsal, records) => {
       hub.publish(sellerId, records.map((record) => ({ date, rehearsal, seq: record.seq, type: record.type })))
       youtube?.onCommit(sellerId, rehearsal, records)
+      // 마지막 조회 뒤 10분이 지난 범위의 보기 캐시를 비운다 (커밋 뒤 — 항목이 많아야 33개, AC-S06b-12)
+      viewCaches.sweep()
     },
+    onDrop: (runtime) => viewCaches.release(runtime),
+    // 효과 → 출력 작업·라벨 폐기를 이벤트 기록과 같은 트랜잭션에서 (L-11 2·5)
+    txHook: (tx, ctx) => (print as PrintService).txHook(tx, ctx),
   })
+  print = new PrintService({
+    db,
+    writer,
+    clock,
+    log,
+    publish: (sellerId, data) => hub.publishPrint(sellerId, data),
+    deviceLive: (sellerId, deviceId) => hub.deviceLive(sellerId, deviceId),
+  })
+  const printService = print
   const service = new Service({
     db,
     writer,
     masterKey,
     clock,
     ids,
+    viewCaches,
     generatorSpeed,
     onGenerator: (sellerId, payload) => hub.publishGenerator(sellerId, payload),
     ...(options.generatorTimer === undefined ? {} : { generatorTimer: options.generatorTimer }),
@@ -293,7 +332,17 @@ export function createServer(options: ServerOptions): LivejjimServer {
   }
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
-    api: { service, auth, hub, appOrigin: options.appOrigin, clientConfig: { hostActionDelayMs }, youtube, sealer, trustedProxies },
+    api: {
+      service,
+      auth,
+      hub,
+      print: printService,
+      appOrigin: options.appOrigin,
+      clientConfig: { hostActionDelayMs, testPrinter: options.testPrinter === true },
+      youtube,
+      sealer,
+      trustedProxies,
+    },
     https: options.appOrigin.startsWith('https://'),
     web: options.webDir === undefined ? null : createWebServer(options.webDir),
     ready: async () => {
@@ -314,6 +363,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
     auth,
     youtube,
     sealer,
+    viewCaches,
+    print: printService,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     start: () => {
       youtube?.start()
@@ -322,6 +373,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     stop,
     close: () => {
       service.generators.closeAll()
+      printService.close()
       hub.closeAll()
       void stop()
     },
