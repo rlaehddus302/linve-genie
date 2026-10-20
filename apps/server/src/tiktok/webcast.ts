@@ -4,9 +4,14 @@
 // 글을 올리는 조작은 경계에 없다(읽기 전용, D-904).
 import type { TikTokLibraryOptions } from './settings.ts'
 
-/** 연결 관리가 듣는 라이브러리 이벤트 이름. 그 밖의 이벤트(선물·좋아요·입장·팔로우·공유·이모트·시청자 수·대결 등)는 듣지 않는다 */
+/**
+ * 연결 관리가 듣는 라이브러리 이벤트 이름. 그 밖의 이벤트(선물·좋아요·입장·팔로우·공유·이모트·시청자 수·대결 등)는 내용을 듣지 않는다.
+ * DATA(`websocketData`)는 라이브러리 2.1.0이 웹소켓으로 받은 모든 자료마다 내는 이벤트다(ControlEvent.WEBSOCKET_DATA — 댓글이 아닌 이벤트·방 정보·
+ * 하트비트 응답 포함). 내용은 보지 않고 "자료가 왔다"로만 써서 멈춘 연결을 알아본다(D-N2b-2-11 (가)).
+ */
 export const WEBCAST_EVENTS = Object.freeze({
   CHAT: 'chat',
+  DATA: 'websocketData',
   DISCONNECTED: 'disconnected',
   STREAM_END: 'streamEnd',
   ERROR: 'error',

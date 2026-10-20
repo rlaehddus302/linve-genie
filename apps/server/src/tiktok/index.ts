@@ -23,6 +23,11 @@ export {
   TIKTOK_CONNECT_TIMEOUT_MS,
   TIKTOK_CONSENT_TIMEOUT_MS,
   TIKTOK_GIVE_UP_AFTER,
+  TIKTOK_LOG_PER_WINDOW,
+  TIKTOK_LOG_WINDOW_MS,
+  TIKTOK_NOT_LIVE_GIVE_UP_MS,
+  TIKTOK_NOT_LIVE_RETRY_MS,
+  TIKTOK_STALL_MS,
   TIKTOK_RETRY_DELAYS_MS,
   TIKTOK_STABLE_MS,
   type TikTokConnection,
@@ -37,13 +42,21 @@ export {
   FakeWebcastHandle,
   fakeChatEvent,
   fakeLibraryError,
+  fakeNoRoomError,
   flushTikTokTasks,
   type FakeAccountState,
   type FakeChatFields,
   type FakeHandleState,
 } from './fake.ts'
 export { classifyWebcastFailure, TIKTOK_FAILURE_KINDS, type TikTokFailureKind, type TikTokRetryKind } from './failure.ts'
-export { libraryWebcast, type LibraryConnectionConstructor, type LibraryConnectionLike, type LibraryWebcastOptions } from './library.ts'
+export {
+  createTikTokAttemptLimiter,
+  TIKTOK_ATTEMPT_WINDOW_MS,
+  TIKTOK_ATTEMPTS_PER_WINDOW,
+  UNLIMITED_TIKTOK_ATTEMPTS,
+  type TikTokAttemptLimiter,
+} from './limiter.ts'
+export { libraryWebcast, TIKTOK_LINGER_WAIT_MS, type LibraryConnectionConstructor, type LibraryConnectionLike, type LibraryWebcastOptions } from './library.ts'
 export {
   TIKTOK_MISSED_MESSAGE,
   TIKTOK_STATES,
