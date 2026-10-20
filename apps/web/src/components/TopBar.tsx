@@ -1,10 +1,12 @@
-// 화면 위 줄 (AC-S05-01, AC-S06-01·51·52, AC-I1-20·34): 가게 이름, 프린터 상태(누르면 라벨 화면), 메뉴("방송"·"문자찜 입력"·"구매자"·"정산"·"라벨" —
-// 지금 화면은 aria-current="page"), 앱 설치 안내, 로그아웃, 새 버전 안내. 메뉴는 PC에서 위 줄에, 휴대폰에서는 아래 고정 막대로 보인다(같은 메뉴, CSS가 자리만 바꾼다).
+// 화면 위 줄 (AC-S05-01, AC-S06-01·51·52, AC-I1-20·34, AC-N4a-10·13·18): 가게 이름, 프린터 상태(누르면 라벨 화면), 메뉴("방송"·"문자찜 입력"·"구매자"·"정산"·"라벨" —
+// 지금 화면은 aria-current="page"), 앱 설치 안내, "설정"(로그아웃 옆 — 휴대폰에서도 위 줄, 아래 메뉴 막대에는 넣지 않는다), 로그아웃, 새 버전 안내.
+// 메뉴는 PC에서 위 줄에, 휴대폰에서는 아래 고정 막대로 보인다(같은 메뉴, CSS가 자리만 바꾼다).
+// 라벨 기능이 꺼져 있거나 켬/끔을 아직 모르면 프린터 상태와 메뉴 "라벨"을 보이지 않는다(L-12 9) — 다른 메뉴는 그대로다.
 import type { MouseEvent } from 'react'
 import { useInstallHint, useUpdateNotice } from '../pwa/pwa.ts'
 import { printerStatusWord } from '../lib/print-words.ts'
 import { menuOf, routePath, type Navigate, type Route } from '../lib/router.ts'
-import { usePrintApi, usePrintState } from './print-context.tsx'
+import { useLabelsEnabled, usePrintApi, usePrintState } from './print-context.tsx'
 
 export interface TopBarProps {
   readonly shopName: string
@@ -19,20 +21,21 @@ interface MenuItem {
   readonly to: Route
 }
 
-/** 구매자·정산 사이를 오가면 고른 날짜·리허설을 이어 간다 */
-function menuItems(route: Route): readonly MenuItem[] {
+/** 구매자·정산 사이를 오가면 고른 날짜·리허설을 이어 간다. 메뉴 "라벨"은 라벨 기능이 켜져 있을 때만 */
+function menuItems(route: Route, labels: boolean): readonly MenuItem[] {
   const scope = route.name === 'buyers' || route.name === 'settlements' ? { ...(route.date === undefined ? {} : { date: route.date }), rehearsal: route.rehearsal } : { rehearsal: false }
   return [
     { key: 'broadcasts', label: '방송', to: { name: 'home' } },
     { key: 'sms', label: '문자찜 입력', to: { name: 'sms' } },
     { key: 'buyers', label: '구매자', to: { name: 'buyers', ...scope } },
     { key: 'settlements', label: '정산', to: { name: 'settlements', ...scope } },
-    { key: 'labels', label: '라벨', to: { name: 'labels' } },
+    ...(labels ? [{ key: 'labels', label: '라벨', to: { name: 'labels' } } as const] : []),
   ]
 }
 
 export function TopBar({ shopName, onLogout, route, navigate }: TopBarProps) {
   const current = menuOf(route)
+  const labels = useLabelsEnabled() === true
   const go = (event: MouseEvent<HTMLAnchorElement>, to: Route) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
     event.preventDefault()
@@ -43,9 +46,9 @@ export function TopBar({ shopName, onLogout, route, navigate }: TopBarProps) {
       <UpdateBanner />
       <header className="topbar">
         <p className="shop-name">{shopName}</p>
-        <PrinterStatus onOpen={(event) => go(event, { name: 'labels' })} />
+        {labels ? <PrinterStatus onOpen={(event) => go(event, { name: 'labels' })} /> : null}
         <nav className="menu" aria-label="메뉴">
-          {menuItems(route).map((item) => (
+          {menuItems(route, labels).map((item) => (
             <a key={item.key} className="menu-link" href={routePath(item.to)} aria-current={item.key === current ? 'page' : undefined} onClick={(event) => go(event, item.to)}>
               {item.label}
             </a>
@@ -53,6 +56,14 @@ export function TopBar({ shopName, onLogout, route, navigate }: TopBarProps) {
         </nav>
         <div className="topbar-actions">
           <InstallButton />
+          <a
+            className="button settings-link"
+            href={routePath({ name: 'settings' })}
+            aria-current={current === 'settings' ? 'page' : undefined}
+            onClick={(event) => go(event, { name: 'settings' })}
+          >
+            설정
+          </a>
           <button type="button" className="button" onClick={onLogout}>
             로그아웃
           </button>
