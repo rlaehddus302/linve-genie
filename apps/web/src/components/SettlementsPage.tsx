@@ -5,10 +5,12 @@
 //   주 버튼은 지금 할 일 하나: 미입금·부분 입금이면 "입금 적기", 과입금이면 "환불 적기", 입금 완료면 없다 (D-101).
 // - 입력 창 머리: "입금 적기 · 홍길동 · 2026년 10월 18일 묶음"과 "최종 · 받은 금액 · 남은 금액". 보내기 전 미리 보기에 입금 상태 변화(코어 settle).
 // - 금액 칸은 원 단위(AC-S06-36), 입금은 1원~100,000,000원(화면만의 오타 막기). 입금 날짜는 적은 때로 남는다(실제 입금일은 메모).
+// - I2: 목록 위 "전원 확인서 PDF (n명)"·"판매대장 엑셀"(실제 범위 — 리허설이면 안내 한 줄), 실제 범위의 줄·자세히에 포장·배송 상태 말(송장번호),
+//   자세히의 "구매 내역 확인서"(미리 보기·PDF·공유/저장) (AC-I2-13·14·22·33).
 import { containsPhoneRun, formatWon, type PaymentStatus } from '@livejjim/core'
 import { useMemo, useRef, useState, type MouseEvent } from 'react'
 import { isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
-import type { Claim, Settlement, WriteResult } from '../api/types.ts'
+import type { Claim, PackingWord, Settlement, WriteResult } from '../api/types.ts'
 import { claimsOf } from '../lib/buyers.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
 import { BuyerNames } from '../lib/derive.ts'
@@ -17,15 +19,20 @@ import { ADJUST_RANGE, PAYMENT_RANGE, SHIPPING_RANGE, readAmount, refundRange } 
 import { routePath, type Navigate, type ScopeRoute } from '../lib/router.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
 import { settlementKey } from '../lib/scope-data.ts'
+import { PACKING_TONE, packingWords } from '../lib/packing.ts'
 import { filterSettlements, paymentChange, previewWith, remainingOf, sortSettlements, summarize, type PaymentFilter, type PreviewEntry } from '../lib/settlement.ts'
+import { receiptSignature, useClosingSignature, usePackingList } from '../lib/use-packing.ts'
 import { useScopeStore } from '../lib/use-store.ts'
 import { useWide } from '../lib/use-wide.ts'
 import { PAYMENT_WORD, SHIPPING_WORD, paymentWord, recordKindWord, signedWon } from '../lib/words.ts'
 import { ErrorNote } from './ErrorNote.tsx'
+import { DownloadButton } from './downloads.tsx'
 import { AmountField, FieldNote, WriteError, serverProblem, useSender } from './forms.tsx'
+import { LedgerDialog } from './LedgerDialog.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
 import { Modal } from './Modal.tsx'
 import { ReasonField } from './ReasonField.tsx'
+import { ReceiptSection } from './ReceiptSection.tsx'
 import { ScopePicker, useScopeChoice } from './ScopePicker.tsx'
 
 export const REHEARSAL_SETTLEMENT = '리허설 — 실제 정산이 아니에요'
@@ -34,6 +41,15 @@ export const REFUND_NOTE = '입금을 잘못 적었으면 같은 금액을 환�
 export const PHONE_IN_TEXT = '전화번호처럼 보이는 숫자(010-…)가 있어요. 빼고 적어 주세요.'
 export const ADJUST_REASONS: readonly string[] = ['단골 할인', '포장 추가', '도서산간']
 export const REFUND_REASONS: readonly string[] = ['환불함', '입금액 잘못 적음']
+export const NO_RECEIPT_BUYERS = '구매 내역이 있는 구매자가 없어요.'
+export const REHEARSAL_NO_LEDGER = '리허설 기록은 판매대장에 넣지 않아요.'
+
+/** 묶음의 포장·배송 상태 (실제 범위 — 받지 못했으면 없음) */
+interface PackingMark {
+  readonly status: PackingWord
+  readonly invoice: string | null
+}
+type PackingMarks = ReadonlyMap<string, PackingMark> | null
 
 const FILTERS: readonly { readonly key: PaymentFilter; readonly word: string }[] = [
   { key: 'ALL', word: '전체' },
@@ -110,6 +126,10 @@ function useCommand(store: ConsoleStore, data: ScopeData) {
 function ReadySettlements({ route, navigate, store, snapshot, data }: ReadyProps) {
   const names = useMemo(() => new BuyerNames(data.buyers, data.claims), [data.buyers, data.claims])
   const command = useCommand(store, data)
+  // 포장·배송 상태 (실제 범위만, AC-I2-33): 품목·묶음이 바뀌거나 포장 알림이 오면 다시 받는다. 받지 못하면 상태 칸을 그리지 않는다
+  const signature = useClosingSignature(data)
+  const packing = usePackingList(data.rehearsal ? null : data.date, `${signature}|${String(snapshot.packingVersion)}`)
+  const marks: PackingMarks = useMemo(() => (packing.entries === null ? null : new Map(packing.entries.map((entry) => [entry.buyer, { status: entry.status, invoice: entry.invoice }]))), [packing.entries])
   const open = (buyer: string | undefined) => navigate({ name: 'settlements', date: data.date, rehearsal: data.rehearsal, ...(buyer === undefined ? {} : { buyer }) })
   const selected = route.buyer === undefined ? undefined : data.settlements.get(settlementKey({ buyer: data.buyers.get(route.buyer)?.current ?? route.buyer, date: data.date }))
   return (
@@ -118,7 +138,7 @@ function ReadySettlements({ route, navigate, store, snapshot, data }: ReadyProps
         <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
       </div>
       {route.buyer === undefined ? (
-        <SettlementList data={data} names={names} onOpen={open} />
+        <SettlementList data={data} names={names} marks={marks} onOpen={open} />
       ) : selected === undefined ? (
         <div className="stack-tight">
           <p>그 구매자의 정산 묶음이 없어요.</p>
@@ -127,7 +147,16 @@ function ReadySettlements({ route, navigate, store, snapshot, data }: ReadyProps
           </button>
         </div>
       ) : (
-        <SettlementDetail key={selected.buyer} data={data} names={names} settlement={selected} command={command} onBack={() => open(undefined)} />
+        <SettlementDetail
+          key={selected.buyer}
+          data={data}
+          names={names}
+          settlement={selected}
+          command={command}
+          onBack={() => open(undefined)}
+          mark={marks?.get(selected.buyer) ?? null}
+          receiptSignature={`${receiptSignature(data, selected)}|${String(snapshot.shopVersion)}`}
+        />
       )}
     </>
   )
@@ -139,8 +168,9 @@ function shippingWords(settlement: Settlement): string {
   return settlement.shippingOverride === null ? formatWon(settlement.shipping) : `${SHIPPING_WORD[settlement.shippingOverride]} ${formatWon(settlement.shipping)}`
 }
 
-function SettlementList({ data, names, onOpen }: { readonly data: ScopeData; readonly names: BuyerNames; readonly onOpen: (buyer: string) => void }) {
+function SettlementList({ data, names, marks, onOpen }: { readonly data: ScopeData; readonly names: BuyerNames; readonly marks: PackingMarks; readonly onOpen: (buyer: string) => void }) {
   const wide = useWide()
+  const [ledger, setLedger] = useState(false)
   const [filter, setFilter] = useState<PaymentFilter>('ALL')
   const [query, setQuery] = useState('')
   const all = useMemo(() => [...data.settlements.values()].filter((item) => item.date === data.date), [data.settlements, data.date])
@@ -148,6 +178,7 @@ function SettlementList({ data, names, onOpen }: { readonly data: ScopeData; rea
   const summary = useMemo(() => summarize(all), [all])
   const list = useMemo(() => sortSettlements(filterSettlements(all, filter, query, nameOf), nameOf), [all, filter, query, names])
   const statusLine = (['UNPAID', 'PARTIAL', 'PAID', 'OVERPAID'] as const satisfies readonly PaymentStatus[]).map((status) => `${PAYMENT_WORD[status]} ${String(summary.byStatus[status])}`).join(' · ')
+  const receiptCount = all.filter((item) => item.items.length > 0).length
   return (
     <section className="stack" aria-label="정산 목록">
       <section className="card stack-tight settlement-summary" aria-label="정산 요약">
@@ -185,9 +216,28 @@ function SettlementList({ data, names, onOpen }: { readonly data: ScopeData; rea
           <label htmlFor="settlement-search">이름 찾기</label>
           <input id="settlement-search" className="input" type="search" autoComplete="off" value={query} onChange={(event) => setQuery(event.target.value)} />
         </div>
+        {/* 정산 문서 (AC-I2-14·22): 같은 줄에 두어 PC 표가 위로 밀리지 않게 */}
+        <div className="row closing-actions" role="group" aria-label="정산 문서">
+          <DownloadButton
+            label={`전원 확인서 PDF (${String(receiptCount)}명)`}
+            busyText={`확인서 ${String(receiptCount)}명을 만드는 중이에요…`}
+            path={withQuery(`/api/days/${data.date}/receipts.pdf`, { rehearsal: data.rehearsal })}
+            fallbackName={`receipts-${data.date}.pdf`}
+            disabled={receiptCount === 0}
+          />
+          {receiptCount === 0 ? <span className="hint">{NO_RECEIPT_BUYERS}</span> : null}
+          {data.rehearsal ? (
+            <span className="hint">{REHEARSAL_NO_LEDGER}</span>
+          ) : (
+            <button type="button" className="button" onClick={() => setLedger(true)}>
+              판매대장 엑셀
+            </button>
+          )}
+        </div>
       </div>
       {list.length === 0 ? <p>{all.length === 0 ? '그날 정산할 묶음이 없어요.' : '맞는 묶음이 없어요.'}</p> : null}
-      {wide ? <SettlementTable data={data} names={names} list={list} onOpen={onOpen} /> : <SettlementCards data={data} names={names} list={list} onOpen={onOpen} />}
+      {wide ? <SettlementTable data={data} names={names} list={list} marks={marks} onOpen={onOpen} /> : <SettlementCards data={data} names={names} list={list} marks={marks} onOpen={onOpen} />}
+      {ledger ? <LedgerDialog date={data.date} onClose={() => setLedger(false)} /> : null}
     </section>
   )
 }
@@ -196,7 +246,18 @@ interface RowsProps {
   readonly data: ScopeData
   readonly names: BuyerNames
   readonly list: readonly Settlement[]
+  /** 포장·배송 상태 (실제 범위에서 받았을 때만) */
+  readonly marks: PackingMarks
   readonly onOpen: (buyer: string) => void
+}
+
+/** 포장·배송 상태 꼬리표 (색 + 글자, D-102) */
+function PackingTag({ mark }: { readonly mark: PackingMark }) {
+  return (
+    <span className="tag packing-tag" data-tone={PACKING_TONE[mark.status]}>
+      {packingWords(mark.status, mark.invoice)}
+    </span>
+  )
 }
 
 /** 왼쪽 단추만 화면 안에서 연다 (새 탭·창은 브라우저가) */
@@ -207,7 +268,7 @@ function linkClick(event: MouseEvent<HTMLAnchorElement>, go: () => void): void {
 }
 
 /** 휴대폰: 카드 (AC-S06-30 그대로) */
-function SettlementCards({ data, names, list, onOpen }: RowsProps) {
+function SettlementCards({ data, names, list, marks, onOpen }: RowsProps) {
   return (
     <ul className="plain-list settlement-grid" aria-label="정산 묶음">
       {list.map((item) => (
@@ -224,6 +285,7 @@ function SettlementCards({ data, names, list, onOpen }: RowsProps) {
             <span>조정 {signedWon(item.adjustments)}</span>
             <span>최종 {formatWon(item.total)}</span>
             <span>받은 금액 {formatWon(item.received)}</span>
+            {marks?.get(item.buyer) !== undefined ? <PackingTag mark={marks.get(item.buyer) as PackingMark} /> : null}
           </a>
         </li>
       ))}
@@ -232,7 +294,7 @@ function SettlementCards({ data, names, list, onOpen }: RowsProps) {
 }
 
 /** PC: 열 머리가 있는 표 — 한 줄 = 한 묶음, 금액 열은 오른쪽, 이름 칸의 링크로 자세히 (AC-S06b-21) */
-function SettlementTable({ data, names, list, onOpen }: RowsProps) {
+function SettlementTable({ data, names, list, marks, onOpen }: RowsProps) {
   return (
     <div className="table-scroll">
       <table className="list-table" aria-label="정산 묶음">
@@ -258,6 +320,7 @@ function SettlementTable({ data, names, list, onOpen }: RowsProps) {
               받은 금액
             </th>
             <th scope="col">입금 상태</th>
+            {marks !== null ? <th scope="col">포장·배송</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -280,6 +343,7 @@ function SettlementTable({ data, names, list, onOpen }: RowsProps) {
               <td>
                 <span className={`tag pay-${item.payment}`}>{paymentWord(item.payment, item.refundDue)}</span>
               </td>
+              {marks !== null ? <td>{marks.get(item.buyer) !== undefined ? <PackingTag mark={marks.get(item.buyer) as PackingMark} /> : null}</td> : null}
             </tr>
           ))}
         </tbody>
@@ -307,6 +371,10 @@ interface DetailProps {
   readonly settlement: Settlement
   readonly command: Command
   readonly onBack: () => void
+  /** 포장·배송 상태 (실제 범위에서 받았을 때만) */
+  readonly mark: PackingMark | null
+  /** 확인서에 닿는 자료의 모양 (바뀌면 미리 보기를 새로 받는다) */
+  readonly receiptSignature: string
 }
 
 /** 저장 결과 안내 (D-102): 저장 완료는 성공, 엔진이 받지 않았으면 주의 */
@@ -324,7 +392,7 @@ export function primaryInput(payment: PaymentStatus): InputKind | null {
   return null
 }
 
-function SettlementDetail({ data, names, settlement, command, onBack }: DetailProps) {
+function SettlementDetail({ data, names, settlement, command, onBack, mark, receiptSignature }: DetailProps) {
   const [input, setInput] = useState<InputKind | null>(null)
   const [saved, setSaved] = useState<Saved | null>(null)
   const buyer = data.buyers.get(settlement.buyer)
@@ -354,8 +422,9 @@ function SettlementDetail({ data, names, settlement, command, onBack }: DetailPr
       </button>
       <h2 className="section-title">{names.name(settlement.buyer)}</h2>
       {buyer !== undefined && buyer.merged.length > 0 ? <p>합친 구매자: {buyer.merged.map((id) => names.name(id)).join(', ')}</p> : null}
-      <p>
+      <p className="row">
         <span className={`tag pay-${settlement.payment}`}>{paymentWord(settlement.payment, settlement.refundDue)}</span>
+        {mark !== null ? <PackingTag mark={mark} /> : null}
       </p>
       {saved !== null ? (
         <p className="notice" role="status" data-tone={saved.tone}>
@@ -411,6 +480,8 @@ function SettlementDetail({ data, names, settlement, command, onBack }: DetailPr
           </button>
         ))}
       </div>
+
+      <ReceiptSection date={settlement.date} rehearsal={data.rehearsal} buyer={settlement.buyer} hasItems={settlement.items.length > 0} signature={receiptSignature} />
 
       <section className="stack-tight" aria-label="정산 기록">
         <h3 className="sub-title">기록</h3>
