@@ -15,6 +15,7 @@
 | `parser/voice-extract.yaml` | 음성 문장 하나 → 번호·품종·가격·신뢰도 (R-17, P2 — D-202·D-203·D-209, I4 보강 — 끊어 말한 번호 D-I4-01). 추출기는 `packages/voice`에 있고 이 러너가 부른다 |
 | `known-unimplemented.yaml` | **예약 파일.** 알려진 미구현 허용 목록 (D-020). 골든 시나리오가 아니다 |
 | `label/*.json` | 라벨 글·쪽 나누기·크기 (LABEL_RULES L-1~L-5, P1, D-P1-01). **JSON이라 코어 골든 러너는 읽지 않는다**(`*.yaml`만 읽는다). `packages/label` 단위 테스트가 읽는다 — 아래 "라벨 골든" |
+| `tiktok/*.json` | 틱톡 아이디·방송 주소 해석, 웹캐스트 댓글 → 공통 댓글 레코드·중복 제거 (PLT-02, N2b-1, D-N2b-1-02~04). **JSON이라 코어 골든 러너는 읽지 않는다**. `apps/server` 시험이 읽는다 — 아래 "틱톡 골든" |
 
 ## 러너가 읽는 범위 (D-020, D-021)
 
@@ -244,3 +245,21 @@ expect:
 
 - 기본 템플릿의 값: 크기 50×30, `shopName` 빈 글, `priceStyle` `THOUSAND`, 포장 `perPage` 10, 모든 항목 켬. `visible`에 없는 항목은 기본(켬) 그대로다.
 - 항목 ID: 상품 `shop`·`number`·`price`·`date`·`name`·`buyer`, 포장 `shop`·`date`·`buyer`·`page`·`broadcast`·`count`·`subtotal`·`numbers` (L-3·L-4 표).
+
+## 틱톡 골든 (`tiktok/*.json`, N2b-1 — D-N2b-1-02~04·D-N2b-1-07)
+
+틱톡 연결 모듈(`apps/server/src/tiktok/**`)의 두 해석기를 고정한다: 판매자가 넣은 **틱톡 아이디·방송 주소 한 줄 → 연결할 아이디**, **웹캐스트 댓글 → 공통 댓글 레코드(또는 버림)**. 연결·다시 연결·상태 문장은 시계에 기대므로 골든이 아니라 수용 기준(`harness/sprints/N2b-1/acceptance.md`)의 통합 시험으로 본다.
+
+- **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. `apps/server`의 시험이 이 폴더의 모든 `*.json`을 읽어 틱톡 모듈의 순수 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 그 시험은 파일 수와 사례 수 합계를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다.
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `target`·`comment`. 모르는 키·모르는 `kind`는 시험 실패(읽기 오류)다. 보이지 않는 글자는 `\uXXXX`로 적는다.
+- **사례 공통 키**: `id`(`G-TTK-` + 스프린트 + `-` + 두 자리 이상 숫자, 예 `G-TTK-N2b-1-01`, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `out`.
+
+| `kind` | 사례 키 | `out` |
+|---|---|---|
+| `target` | `in`(문자열 — 판매자가 넣은 한 줄 그대로) | 성공 `{ "uniqueId": 아이디 }`, 실패 `{ "error": 코드 }` — 정확히 한 키. 코드: `EMPTY`(비었음)·`INVALID`(아이디·틱톡 주소가 아님)·`SHORT_LINK`(짧은 공유 주소 — 열어 보지 않는다). 해석 규칙은 D-N2b-1-02와 파일의 `about` |
+| `comment` | `target`(연결한 아이디 — `target` 해석이 돌려준 모양), `events`(1개 이상: `{ "receivedAt", "raw" }`) | `events`와 같은 길이의 목록. 항목마다 `{ "record": 레코드 }` 또는 `{ "drop": 코드 }` |
+
+- `comment` 사례는 사례마다 `target`으로 **새 거르개**(중복 기억이 빈 것)를 만들고 `events`를 순서대로 넣는다. `receivedAt`은 오프셋 `Z`가 붙은 ISO 8601(밀리초까지) — 시험이 `new Date(receivedAt)`로 바꿔 넘긴다. `raw`는 라이브러리 `chat` 이벤트에서 꺼낸 값을 흉내 낸 객체로, 키는 `msgId`·`userId`·`uniqueId`·`nickname`·`comment`·`createTime`만 쓸 수 있다(모두 선택, 값은 아무 JSON 값 — 틀린 형식이 버림 사례다). 키가 없는 것과 `null`은 둘 다 "값 없음"이다.
+- 레코드 = 정확히 일곱 키 `{ "platform": "TIKTOK", "commentId", "userId", "nickname", "text", "receivedAt", "owner" }`. `commentId`·`userId`는 0으로 시작하지 않는 양의 10진 문자열(1~32자리), `receivedAt`은 `toISOString()` 모양(UTC, 밀리초), `owner`는 불리언.
+- 버림 코드(이 순서로 검사, 처음 걸린 것): `BAD_COMMENT_ID`·`BAD_USER_ID`·`NO_TEXT`·`TEXT_TOO_LONG`·`DUPLICATE`. 버린 댓글의 ID는 중복 기억에 넣지 않는다.
+- JSON 숫자는 읽는 순간 double이 된다 — 2^53을 넘는 숫자 ID가 안전 정수가 아니어서 버려지는 것도 골든이 고정한다(G-TTK-N2b-1-44). `bigint`와 라이브러리의 64비트 정수 객체는 JSON으로 적을 수 없어 서버 단위 시험(AC-N2b-1-21)이 본다. 2,000자를 넘는 `target` 입력도 단위 시험이 본다.
