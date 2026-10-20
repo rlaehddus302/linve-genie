@@ -18,7 +18,7 @@ import { errorKind, type LogSink } from '../log.ts'
 import { sha256Hex } from '../secrets.ts'
 import type { Clock } from '../time.ts'
 import { WriteAbort, type Rejection, type ScopeWriter, type WriteOutcome } from '../writer.ts'
-import { openAccount, sealAccount } from './account-seal.ts'
+import { corpKeyOf, openAccount, sealAccount } from './account-seal.ts'
 import { bundleOf, bundlesOf, buyerInfoOf, buyerLabel, previewPayment, type BundleFacts, type PaymentPreview, type StateAt } from './bundles.ts'
 import { addDays, kstDateOf, kstStartOf, parseOffsetIso } from './calendar.ts'
 import { MATCH_DAYS_BACK, evaluateDeposits, evaluateEach, type MatchDeposit, type ReviewReason } from './match.ts'
@@ -27,6 +27,8 @@ import { DEPOSIT_AMOUNT_MAX, cleanDepositName, readPaste, type PasteRow } from '
 import { SOURCE_MESSAGES, SourceError, fetchPopbill, sourceErrorKind, withTimeout, type FetchResult, type FetchedRow, type PopbillTransport } from './popbill.ts'
 import {
   actionsOfDeposit,
+  bindCorpKey,
+  corpKeyOfSeller,
   depositsBetween,
   depositsByNos,
   enabledFetchSources,
@@ -52,6 +54,7 @@ import {
   realScopeDates,
   realScopeId,
   reviewCount,
+  sellerOfCorpKey,
   setDepositState,
   updateSource,
   deleteName,
@@ -444,6 +447,12 @@ export class DepositService {
       for (const field of ['corpNum', 'bank', 'accountNumber'] as const) if (input[field] !== undefined) problems.push({ field, message: '시험용 원천에는 계좌를 적지 않아요.' })
     }
     if (problems.length > 0) return invalid(problems)
+    // 사업자번호는 판매자에게 묶인 것만 (RA-N3-001): 이 계정에 묶인 다른 번호거나 다른 계정에 묶인 번호면 만들지 않는다.
+    // 묶기는 팝빌이 그 번호로 처음 답한 때(받아 오기·계좌 관리 주소 성공) 한다 — 잘못 적은 번호가 묶여 버리지 않게
+    if (account !== null) {
+      const use = await this.#corpUse(sellerId, account.corpNum)
+      if (use !== 'OK') return fail(409, 'CORP_NOT_ALLOWED', SOURCE_MESSAGES[use])
+    }
     const id = `dsrc_${randomUUID()}`
     const now = new Date(this.#now())
     await insertSource(this.#deps.db, {
@@ -526,10 +535,15 @@ export class DepositService {
       corpNum = typeof input.corpNum === 'string' ? input.corpNum.replace(/[\s-]/g, '') : ''
       if (!/^\d{10}$/.test(corpNum)) return invalid([{ field: 'corpNum', message: '사업자번호는 숫자 10자리로 적어 주세요.' }])
     }
+    // 팝빌 계좌 관리 주소는 그 사업자로 로그인된 주소다 — 이 판매자에게 묶인(또는 아무에게도 묶이지 않은) 사업자번호로만 연다 (RA-N3-001)
+    const use = await this.#corpUse(sellerId, corpNum)
+    if (use !== 'OK') return fail(409, 'CORP_NOT_ALLOWED', SOURCE_MESSAGES[use])
     try {
       const timeout = this.#deps.options.callTimeoutMs ?? SOURCE_CALL_TIMEOUT_MS
       const url = await withTimeout(this.#waitTimer, timeout, () => transport.getBankAccountMgtURL({ corpNum }))
       if (typeof url !== 'string' || !/^https:\/\//.test(url)) throw new SourceError('BAD_RESPONSE')
+      // 팝빌이 그 번호로 답했다 — 이 판매자에게 묶는다. 그사이 다른 판매자가 묶었으면 주소를 주지 않는다
+      if (!(await this.#bindCorp(sellerId, corpNum))) return fail(409, 'CORP_NOT_ALLOWED', SOURCE_MESSAGES.CORP_TAKEN)
       return { ok: true, value: { url } }
     } catch (error) {
       const kind = sourceErrorKind(error)
@@ -667,7 +681,10 @@ export class DepositService {
     } catch {
       throw new SourceError('NO_KEY')
     }
-    return fetchPopbill(
+    // 사업자번호가 이 판매자에게 묶인 것인지 팝빌을 부르기 전에 본다 (RA-N3-001 — 원천을 만든 뒤 다른 판매자가 그 번호를 묶었을 수 있다)
+    const use = await this.#corpUse(row.sellerId, account.corpNum)
+    if (use !== 'OK') throw new SourceError(use)
+    const fetched = await fetchPopbill(
       {
         transport,
         now: () => this.#now(),
@@ -678,6 +695,27 @@ export class DepositService {
       },
       account,
     )
+    // 팝빌이 그 번호로 답했다 — 처음이면 이 판매자에게 묶는다. 그사이 다른 판매자가 묶었으면 받은 줄을 버린다(저장하지 않는다)
+    if (!(await this.#bindCorp(row.sellerId, account.corpNum))) throw new SourceError('CORP_TAKEN')
+    return fetched
+  }
+
+  /**
+   * 사업자번호를 이 판매자가 쓸 수 있는지 (RA-N3-001, SYS-02): 서버는 연동 키 하나로 모든 판매자를 대신해 팝빌을 부르고 토큰은 사업자번호로 받는다 —
+   * 사업자번호가 그 판매자의 것인지 서버가 지켜야 다른 판매자의 팝빌 계좌 관리 화면·입금 내역에 닿지 않는다.
+   * 판매자마다 사업자번호 하나, 사업자번호마다 판매자 하나. 이 판매자에게 묶였으면 그 번호만, 아무에게도 묶이지 않았으면 쓸 수 있다
+   */
+  async #corpUse(sellerId: string, corpNum: string): Promise<'OK' | 'CORP_TAKEN' | 'CORP_MISMATCH'> {
+    const key = corpKeyOf(this.#deps.masterKey, corpNum)
+    const mine = await corpKeyOfSeller(this.#deps.db, sellerId)
+    if (mine !== null) return mine === key ? 'OK' : 'CORP_MISMATCH'
+    const owner = await sellerOfCorpKey(this.#deps.db, key)
+    return owner === null || owner === sellerId ? 'OK' : 'CORP_TAKEN'
+  }
+
+  /** 팝빌이 그 사업자번호로 답한 뒤 이 판매자에게 묶는다 (이미 묶였으면 그대로). 이 판매자에게 묶였는지 */
+  #bindCorp(sellerId: string, corpNum: string): Promise<boolean> {
+    return bindCorpKey(this.#deps.db, sellerId, corpKeyOf(this.#deps.masterKey, corpNum), new Date(this.#now()))
   }
 
   // ── 저장과 자동 확인 (DP-1·DP-5·DP-6·DP-7) ─────────────────────────────────

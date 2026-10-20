@@ -10,7 +10,8 @@ import { getTableConfig } from 'drizzle-orm/pg-core'
 import { openPglite } from '../src/db/database.ts'
 import { schema } from '../src/db/schema.ts'
 import { generateMasterKey } from '../src/secrets.ts'
-import { login, startServer } from './support.ts'
+import { createSellerAccount } from '../src/accounts.ts'
+import { FAST_COST, login, startServer } from './support.ts'
 
 const dirs: string[] = []
 afterAll(() => {
@@ -82,9 +83,10 @@ describe('마이그레이션 명령 (AC-S04-20)', () => {
     const tables = await database.pglite?.query<{ table_name: string }>(`select table_name from information_schema.tables where table_schema = 'public'`)
     await database.close()
     // 스키마의 테이블이 모두 생겼다 (판매자·계정·로그인 시도 수·세션·범위·방송·이벤트·발송함·스냅샷 + I1 출력 기록: 대기열·라벨 키·작업·시도·라벨 템플릿·출력 요청 번호
-    // + N3 입금 확인: 원천·입금·연결·처리 기록·기억한 입금자명·요청 번호 — 표가 늘어 15 → 21로 교체)
+    // + N3 입금 확인: 원천·입금·연결·처리 기록·기억한 입금자명·요청 번호 — 표가 늘어 15 → 21로 교체
+    // + N3 RA-N3-001 판매자에게 묶인 팝빌 사업자번호 — 21 → 22로 교체)
     expect(tables?.rows.map((row) => row.table_name).sort()).toEqual(Object.values(schema).map((table) => getTableConfig(table).name).sort())
-    expect(tables?.rows).toHaveLength(21)
+    expect(tables?.rows).toHaveLength(22)
     const none = await run(script('commands/migrate.ts'), [], {})
     expect(none.code).toBe(1)
     expect(none.out).toContain('데이터베이스 연결 설정이 없어요')
@@ -109,6 +111,54 @@ describe('서버 시작 거절 (AC-S04-20·32)', () => {
       expect(result.out).toMatch(message)
       expect(result.out).not.toContain('시작했어요.')
       for (const secret of secrets) expect(result.out).not.toContain(secret)
+    }
+  }, 120_000)
+})
+
+describe('팝빌 사업자번호 묶기 명령 (RA-N3-001)', () => {
+  it('운영자가 판매자에게 사업자번호를 묶고 푼다 — 판매자마다 하나, 번호마다 한 판매자. 출력에 사업자번호·키가 없다', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'livejjim-corp-'))
+    dirs.push(dir)
+    const masterKey = generateMasterKey()
+    const env = { LIVEJJIM_PGLITE_DIR: dir, LIVEJJIM_MASTER_KEY: masterKey }
+    const setup = await openPglite(dir)
+    try {
+      for (const loginId of ['corpa', 'corpb']) expect((await createSellerAccount(setup.db, Buffer.from(masterKey, 'base64'), { shopName: loginId, loginId, password: 'correct-horse-1' }, { passwordCost: FAST_COST })).ok).toBe(true)
+    } finally {
+      await setup.close()
+    }
+    const corp = (args: string[]) => run(script('commands/popbill-corp.ts'), args, env)
+    const outputs: string[] = []
+    const bindA = await corp(['--login', 'corpa', '--corp', '123-45-67890'])
+    outputs.push(bindA.out)
+    expect(bindA.code, bindA.out).toBe(0)
+    expect(bindA.out).toContain('사업자번호를 묶었어요.')
+    const again = await corp(['--login', 'corpa', '--corp', '1234567890'])
+    expect(again.out).toContain('이미 이 계정에 묶인 사업자번호예요.')
+    const takenByA = await corp(['--login', 'corpb', '--corp', '1234567890'])
+    outputs.push(takenByA.out)
+    expect(takenByA.code).toBe(1)
+    expect(takenByA.out).toContain('이 사업자번호는 다른 계정에 묶여 있어요.')
+    const second = await corp(['--login', 'corpa', '--corp', '2222222222'])
+    expect(second.code).toBe(1)
+    expect(second.out).toContain('이 계정은 다른 사업자번호에 묶여 있어요.')
+    expect((await corp(['--login', 'corpa', '--clear', 'yes'])).out).toContain('사업자번호 묶음을 풀었어요.')
+    const bindB = await corp(['--login', 'corpb', '--corp', '1234567890'])
+    expect(bindB.code, bindB.out).toBe(0)
+    for (const bad of [['--login', 'corpa'], ['--login', 'corpa', '--corp', '12345'], ['--login', 'nobody', '--corp', '1234567890'], ['--login', 'corpa', '--corp', '1234567890', '--clear', 'yes']]) expect((await corp(bad)).code, bad.join(' ')).toBe(1)
+    for (const out of outputs) {
+      expect(out).not.toContain('1234567890')
+      expect(out).not.toContain(masterKey)
+    }
+    const database = await openPglite(dir)
+    try {
+      const rows = await database.pglite?.query<{ seller_id: string; corp_key: string }>(`select b.seller_id, b.corp_key from deposit_corp_bindings b`)
+      expect(rows?.rows).toHaveLength(1)
+      expect(JSON.stringify(rows?.rows)).not.toContain('1234567890')
+      const owner = await database.pglite?.query<{ login_id: string }>(`select a.login_id from deposit_corp_bindings b join accounts a on a.seller_id = b.seller_id`)
+      expect(owner?.rows.map((row) => row.login_id)).toEqual(['corpb'])
+    } finally {
+      await database.close()
     }
   }, 120_000)
 })

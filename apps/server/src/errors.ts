@@ -69,6 +69,7 @@ export type ErrorCode =
   | 'SOURCE_DISABLED'
   | 'SOURCE_FAILED'
   | 'FETCH_TOO_SOON'
+  | 'CORP_NOT_ALLOWED'
 
 export interface ErrorBody {
   readonly error: {

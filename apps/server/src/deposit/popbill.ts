@@ -10,7 +10,7 @@ import { DAY_MS, isRealDate, kstDateOf, kstToMs } from './calendar.ts'
 import { DEPOSIT_AMOUNT_MAX, cleanDepositName } from './paste.ts'
 
 /** 원천 오류 종류 (기술 상세 없이 문장 하나로 바꾼다) */
-export type SourceErrorKind = 'AUTH' | 'NO_KEY' | 'FORBIDDEN' | 'NOT_REGISTERED' | 'NETWORK' | 'TIMEOUT' | 'JOB_FAILED' | 'BAD_RESPONSE'
+export type SourceErrorKind = 'AUTH' | 'NO_KEY' | 'FORBIDDEN' | 'NOT_REGISTERED' | 'NETWORK' | 'TIMEOUT' | 'JOB_FAILED' | 'BAD_RESPONSE' | 'CORP_TAKEN' | 'CORP_MISMATCH'
 
 /** 원천 오류 (메시지에 값을 넣지 않는다 — 종류만) */
 export class SourceError extends Error {
@@ -32,6 +32,9 @@ export const SOURCE_MESSAGES: Readonly<Record<SourceErrorKind | 'MALFORMED', str
   TIMEOUT: '은행에서 내역을 받아 오는 데 시간이 오래 걸려요. 잠시 뒤에 다시 받아 올게요.',
   JOB_FAILED: '은행에서 내역을 받아 오지 못했어요. 잠시 뒤에 다시 받아 올게요.',
   BAD_RESPONSE: '팝빌에서 받은 내역을 읽지 못했어요. 잠시 뒤에 다시 받아 올게요.',
+  // 사업자번호가 이 판매자에게 묶인 것이 아니다 (RA-N3-001) — 다른 계정이 쓰는지는 밝히지 않는 문장
+  CORP_TAKEN: '이 사업자번호는 이 계정에서 쓸 수 없어요. 사업자번호를 확인해 주세요.',
+  CORP_MISMATCH: '이 계정에 연결한 사업자번호와 달라요. 사업자번호를 확인해 주세요.',
   MALFORMED: '읽지 못한 내역이 있어요',
 }
 
@@ -124,6 +127,8 @@ export interface PopbillFetchOptions {
 export const POPBILL_PER_PAGE = 1000
 /** 쪽 수 상한 (쪽이 끝나지 않는 응답을 끊는다) */
 export const POPBILL_MAX_PAGES = 100
+/** 사업자번호마다 둔 팝빌 토큰 수 상한 (넘으면 가장 오래 둔 것부터 버린다 — RA-N3-001: 끝없이 늘지 않게) */
+export const POPBILL_TOKEN_CACHE_MAX = 256
 
 const yyyymmdd = (date: string): string => date.replace(/-/g, '')
 
@@ -285,7 +290,16 @@ export function popbillHttpTransport(keys: PopbillKeys, options: { readonly fetc
     const record = typeof result === 'object' && result !== null ? (result as Record<string, unknown>) : {}
     const sessionToken = record['session_token']
     if (typeof sessionToken !== 'string' || sessionToken === '') throw new SourceError('AUTH')
-    tokens.set(corpNum, { token: sessionToken, until: now() + 10 * 60_000 })
+    // 만료된 토큰을 치우고, 그래도 상한이면 가장 오래 둔 것부터 버린다
+    const at = now()
+    for (const [key, value] of tokens) if (value.until <= at) tokens.delete(key)
+    tokens.delete(corpNum)
+    while (tokens.size >= POPBILL_TOKEN_CACHE_MAX) {
+      const oldest = tokens.keys().next()
+      if (oldest.done === true) break
+      tokens.delete(oldest.value)
+    }
+    tokens.set(corpNum, { token: sessionToken, until: at + 10 * 60_000 })
     return sessionToken
   }
 

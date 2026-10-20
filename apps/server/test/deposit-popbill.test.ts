@@ -1,7 +1,7 @@
 // AC-N3-15·16: 팝빌 응답 한 줄 옮기기, 연동 키 읽기, 실제 팝빌 전송(가짜 fetch로 — 네트워크 없음)의 인증·오류 종류·값을 담지 않는 오류.
 import { describe, expect, it } from 'vitest'
 import { kstToMs } from '../src/deposit/calendar.ts'
-import { SourceError, mapPopbillRow, popbillHttpTransport, readPopbillKeys } from '../src/deposit/popbill.ts'
+import { POPBILL_TOKEN_CACHE_MAX, SourceError, mapPopbillRow, popbillHttpTransport, readPopbillKeys } from '../src/deposit/popbill.ts'
 
 describe('팝빌 응답 한 줄 → 입금 (AC-N3-15)', () => {
   it('tid = 외부 키, trdt(yyyyMMddHHmmss, KST, 초) = 거래 시각, accIn = 금액, remark1(비면 remark2) = 입금자명', () => {
@@ -115,5 +115,37 @@ describe('실제 팝빌 전송 (가짜 fetch)', () => {
         make(async (url) => (url.includes('auth.linkhub') ? { ok: true, status: 200, json: async () => ({ session_token: 't' }) } : { ok: false, status: 500, json: async () => ({ code: -99, message: '비밀 응답' }) })).requestJob(job),
       ),
     ).toBe('BAD_RESPONSE')
+  })
+})
+
+describe('RA-N3-001 실제 팝빌 전송의 토큰 보관 상한', () => {
+  it(`사업자번호마다 둔 토큰은 ${String(POPBILL_TOKEN_CACHE_MAX)}개까지 — 넘으면 가장 오래 둔 것부터 버리고(다시 받는다), 만료된 것은 치운다`, async () => {
+    let clock = Date.UTC(2026, 9, 19, 3)
+    const tokenCalls: string[] = []
+    const transport = popbillHttpTransport(
+      { linkId: 'LINKID', secretKey: Buffer.from('secret-key').toString('base64'), testBed: true },
+      {
+        now: () => clock,
+        fetch: async (url, init) => {
+          if (url.startsWith('https://auth.linkhub.co.kr/')) {
+            tokenCalls.push(JSON.parse(init.body ?? '{}').access_id as string)
+            return { ok: true, status: 200, json: async () => ({ session_token: 'tok' }) }
+          }
+          return { ok: true, status: 200, json: async () => ({ url: 'https://popbill.example/mgt' }) }
+        },
+      },
+    )
+    const corp = (i: number) => String(1_000_000_000 + i)
+    for (let i = 0; i <= POPBILL_TOKEN_CACHE_MAX; i++) await transport.getBankAccountMgtURL({ corpNum: corp(i) })
+    expect(tokenCalls).toHaveLength(POPBILL_TOKEN_CACHE_MAX + 1)
+    // 가장 오래 둔 0번은 버려졌다 — 다시 받는다. 가장 늦게 둔 것은 그대로
+    await transport.getBankAccountMgtURL({ corpNum: corp(POPBILL_TOKEN_CACHE_MAX) })
+    expect(tokenCalls).toHaveLength(POPBILL_TOKEN_CACHE_MAX + 1)
+    await transport.getBankAccountMgtURL({ corpNum: corp(0) })
+    expect(tokenCalls).toHaveLength(POPBILL_TOKEN_CACHE_MAX + 2)
+    // 10분이 지나면 다시 받는다
+    clock += 10 * 60_000
+    await transport.getBankAccountMgtURL({ corpNum: corp(0) })
+    expect(tokenCalls).toHaveLength(POPBILL_TOKEN_CACHE_MAX + 3)
   })
 })

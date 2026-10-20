@@ -1,7 +1,7 @@
 // 계좌조회 원천의 사업자번호·은행·계좌번호 암호화 (DP-1 "비밀값", DAT-06, D-073 방식, AC-N3-16).
 // 서버 마스터 키로 AES-256-GCM 암호화하고 판매자 ID·원천 ID를 추가 인증 데이터로 묶는다 — 다른 판매자(또는 다른 원천) 행으로 옮기면 풀리지 않는다.
 // 오류 메시지에 값을 넣지 않는다. 계좌 비밀번호·빠른조회 아이디/비밀번호·생년월일은 받지도 두지도 않는다(D-N3-09).
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto'
 import { SecretError } from '../secrets.ts'
 
 const AAD = 'livejjim/deposit-account/v1/'
@@ -41,4 +41,15 @@ export function openAccount(masterKey: Buffer, sellerId: string, sourceId: strin
   if (!Array.isArray(parsed) || parsed.length !== 3 || !parsed.every((value) => typeof value === 'string')) throw new SecretError('계좌 정보 형식이 올바르지 않다')
   const [corpNum, bank, accountNumber] = parsed as [string, string, string]
   return { corpNum, bank, accountNumber }
+}
+
+const CORP_KEY_INFO = 'livejjim/popbill-corp-key/v1'
+
+/**
+ * 사업자번호 키 (RA-N3-001): HMAC-SHA256(마스터 키에서 나눈 키, 사업자번호 10자리)의 base64url. 판매자 사이에 같은 사업자번호인지만 알아본다 —
+ * DB에서 사업자번호로 되돌릴 수 없고(마스터 키 없이 사전 대입 불가), 마스터 키가 같으면 인스턴스·재시작마다 같다
+ */
+export function corpKeyOf(masterKey: Buffer, corpNum: string): string {
+  const secret = createHmac('sha256', masterKey).update(CORP_KEY_INFO, 'utf8').digest()
+  return createHmac('sha256', secret).update(corpNum, 'utf8').digest('base64url')
 }

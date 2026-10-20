@@ -572,3 +572,90 @@ describe('TD-N3-001 입금자명의 NUL(U+0000) — 줄 하나가 받아 오기�
     expect((await deposits(api, 'AUTO_APPLIED')).map((item) => item.name)).toEqual(['다육이맘'])
   })
 })
+
+describe('RA-N3-001 팝빌 사업자번호는 판매자에게 묶인다 (DP-1 비밀값, SYS-02)', () => {
+  const X = { corpNum: '1111111111', bankCode: '0004', accountNumber: '11110000111' }
+  const TAKEN = '이 사업자번호는 이 계정에서 쓸 수 없어요. 사업자번호를 확인해 주세요.'
+  const MISMATCH = '이 계정에 연결한 사업자번호와 달라요. 사업자번호를 확인해 주세요.'
+  const sourceOf = (api: ReturnType<typeof depositApi>, account: typeof X) => api.createSource({ kind: 'POPBILL', label: '국민', corpNum: account.corpNum, bank: account.bankCode, accountNumber: account.accountNumber })
+  const manage = (api: ReturnType<typeof depositApi>, corpNum: string) => api.api.post('/api/deposits/popbill/manage-url', { corpNum })
+
+  it('팝빌이 처음 답한 판매자(받아 오기 성공)에게 묶이고, 다른 판매자는 그 번호로 원천도 계좌 관리 주소도 얻지 못한다 — 팝빌을 부르지도 않는다', async () => {
+    const world = await depositWorld()
+    const a = depositApi(world, await addSeller(world))
+    const b = depositApi(world, await addSeller(world))
+    world.popbill.register(X).addRows(X, [inRow('T1', '20261019103000', 14000, '김영희')])
+    const source = (await expectOk(sourceOf(a, X))).body as { id: string }
+    await expectOk(a.fetch(source.id))
+    expect((await deposits(a)).map((item) => item.name)).toEqual(['김영희'])
+    const before = world.popbill.calls.length
+    const created = await sourceOf(b, X)
+    expect(created.status).toBe(409)
+    expect(created.body).toEqual({ error: { code: 'CORP_NOT_ALLOWED', message: TAKEN } })
+    const url = await manage(b, '111-11-11111')
+    expect(url.status).toBe(409)
+    expect(url.body).toEqual({ error: { code: 'CORP_NOT_ALLOWED', message: TAKEN } })
+    expect(world.popbill.calls.slice(before)).toEqual([])
+    expect(await deposits(b)).toEqual([])
+    // 묶은 값은 되돌릴 수 없는 키뿐 — 사업자번호 평문이 DB에 없다
+    expect(await dumpAllTables(world.database)).not.toContain(X.corpNum)
+    // 묶인 판매자는 그대로 쓴다
+    expect((await expectOk(manage(a, X.corpNum))).body).toEqual({ url: `${FAKE_POPBILL_MGT_URL}?TG=BankAccount` })
+  })
+
+  it('계좌 관리 주소를 받으면 묶인다(그 뒤 다른 판매자는 거절). 판매자마다 사업자번호 하나 — 묶인 판매자가 다른 번호를 쓰면 거절', async () => {
+    const world = await depositWorld()
+    const a = depositApi(world, await addSeller(world))
+    const b = depositApi(world, await addSeller(world))
+    await expectOk(manage(a, X.corpNum))
+    expect((await sourceOf(b, X)).body).toEqual({ error: { code: 'CORP_NOT_ALLOWED', message: TAKEN } })
+    expect((await manage(b, X.corpNum)).status).toBe(409)
+    const other = { corpNum: '2222222222', bankCode: '0088', accountNumber: '22220000222' }
+    expect((await sourceOf(a, other)).body).toEqual({ error: { code: 'CORP_NOT_ALLOWED', message: MISMATCH } })
+    expect((await manage(a, other.corpNum)).body).toEqual({ error: { code: 'CORP_NOT_ALLOWED', message: MISMATCH } })
+    // b는 아직 묶이지 않았다 — 다른 번호는 쓸 수 있다
+    await expectOk(manage(b, other.corpNum))
+    expect(((await expectOk(a.sources())).body as { sources: unknown[] }).sources).toEqual([])
+  })
+
+  it('팝빌이 답하지 않은 번호(잘못 적은 번호·등록 안 된 계좌·실패)는 묶이지 않는다 — 고쳐 적은 번호로 다시 연결할 수 있다', async () => {
+    const world = await depositWorld()
+    const a = depositApi(world, await addSeller(world))
+    const typo = { ...X, corpNum: '1111111112' }
+    const wrong = (await expectOk(sourceOf(a, typo))).body as { id: string }
+    await expectOk(a.fetch(wrong.id))
+    const failed = ((await expectOk(a.sources())).body as { sources: { id: string; lastError: string | null }[] }).sources.find((item) => item.id === wrong.id)
+    expect(failed?.lastError).toBe('팝빌에 등록되지 않은 계좌예요. 팝빌 계좌 관리에서 등록해 주세요.')
+    world.popbill.fail('getBankAccountMgtURL', 'AUTH')
+    expect((await manage(a, '3333333333')).status).toBe(503)
+    world.popbill.fail('getBankAccountMgtURL', null)
+    world.popbill.register(X)
+    const right = (await expectOk(sourceOf(a, X))).body as { id: string }
+    await expectOk(a.fetch(right.id))
+    const ok = ((await expectOk(a.sources())).body as { sources: { id: string; lastError: string | null; lastFetchedAt: string | null }[] }).sources.find((item) => item.id === right.id)
+    expect(ok?.lastError).toBeNull()
+    expect(ok?.lastFetchedAt).not.toBeNull()
+    // 이제 X에 묶였다 — 잘못 적은 번호의 원천은 팝빌을 부르지 않고 "달라요" 문장
+    world.clock.advance(61_000)
+    const before = world.popbill.calls.length
+    await expectOk(a.fetch(wrong.id))
+    expect(world.popbill.calls.slice(before)).toEqual([])
+    const after = ((await expectOk(a.sources())).body as { sources: { id: string; lastError: string | null }[] }).sources.find((item) => item.id === wrong.id)
+    expect(after?.lastError).toBe(MISMATCH)
+  })
+
+  it('원천을 만든 뒤 다른 판매자가 그 번호를 먼저 묶으면, 받아 오기는 팝빌을 부르지 않고 아무것도 저장하지 않는다', async () => {
+    const world = await depositWorld()
+    const a = depositApi(world, await addSeller(world))
+    const b = depositApi(world, await addSeller(world))
+    world.popbill.register(X).addRows(X, [inRow('T1', '20261019103000', 14000, '김영희')])
+    const source = (await expectOk(sourceOf(a, X))).body as { id: string }
+    await expectOk(manage(b, X.corpNum))
+    const before = world.popbill.calls.length
+    await expectOk(a.fetch(source.id))
+    expect(world.popbill.calls.slice(before)).toEqual([])
+    expect(await deposits(a)).toEqual([])
+    const view = ((await expectOk(a.sources())).body as { sources: { id: string; lastError: string | null }[] }).sources.find((item) => item.id === source.id)
+    expect(view?.lastError).toBe(TAKEN)
+  })
+})

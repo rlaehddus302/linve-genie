@@ -102,4 +102,12 @@ CREATE UNIQUE INDEX "deposit_sources_paste_uq" ON "deposit_sources" USING btree 
 CREATE INDEX "deposits_status_idx" ON "deposits" USING btree ("seller_id","status","no");--> statement-breakpoint
 CREATE INDEX "deposits_at_idx" ON "deposits" USING btree ("seller_id","at");--> statement-breakpoint
 CREATE INDEX "deposit_links_deposit_idx" ON "deposit_links" USING btree ("deposit_id");--> statement-breakpoint
-CREATE INDEX "deposit_actions_deposit_idx" ON "deposit_actions" USING btree ("deposit_id","id");
+CREATE INDEX "deposit_actions_deposit_idx" ON "deposit_actions" USING btree ("deposit_id","id");--> statement-breakpoint
+CREATE TABLE "deposit_corp_bindings" (
+	"seller_id" text PRIMARY KEY NOT NULL,
+	"corp_key" text NOT NULL,
+	"created_at" timestamp with time zone NOT NULL,
+	CONSTRAINT "deposit_corp_bindings_corp_uq" UNIQUE("corp_key")
+);
+--> statement-breakpoint
+ALTER TABLE "deposit_corp_bindings" ADD CONSTRAINT "deposit_corp_bindings_seller_id_sellers_id_fk" FOREIGN KEY ("seller_id") REFERENCES "public"."sellers"("id") ON DELETE no action ON UPDATE no action;

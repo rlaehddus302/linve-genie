@@ -553,6 +553,23 @@ export const depositNames = pgTable(
   (t) => [unique('deposit_names_uq').on(t.sellerId, t.channel, t.norm)],
 )
 
+/**
+ * 판매자에게 묶인 팝빌 사업자번호 (RA-N3-001, DP-1 "비밀값", SYS-02). 서버는 연동 키 하나로 모든 판매자를 대신해 팝빌을 부르므로
+ * 사업자번호가 그 판매자의 것인지 서버가 지킨다: 판매자마다 하나, 사업자번호마다 한 판매자. 평문은 두지 않는다 —
+ * corp_key = HMAC(마스터 키에서 나눈 키, 사업자번호) (판매자 사이의 같은 값만 알아본다, 되돌릴 수 없다)
+ */
+export const depositCorpBindings = pgTable(
+  'deposit_corp_bindings',
+  {
+    sellerId: text('seller_id')
+      .primaryKey()
+      .references(() => sellers.id),
+    corpKey: text('corp_key').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('deposit_corp_bindings_corp_uq').on(t.corpKey)],
+)
+
 /** 입금 확인 화면 요청 번호 (붙여넣기 넣기·확정·무시·다시 확인 필요로·되돌리기·한꺼번에 — 같은 요청 번호면 처음 결과, DP-6) */
 export const depositRequests = pgTable(
   'deposit_requests',
@@ -590,6 +607,7 @@ export const schema = {
   depositLinks,
   depositActions,
   depositNames,
+  depositCorpBindings,
   depositRequests,
 }
 

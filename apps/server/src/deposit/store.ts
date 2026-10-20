@@ -2,7 +2,7 @@
 // 트랜잭션 안에서는 트랜잭션 객체(tx)를 넘긴다(PGlite는 연결이 하나라 트랜잭션 밖 객체를 쓰면 기다리다 멈춘다).
 import { and, asc, count, desc, eq, gt, gte, inArray, lt, lte, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
-import { accounts, depositActions, depositLinks, depositLockKey, depositNames, depositRequests, deposits, depositSources, scopes } from '../db/schema.ts'
+import { accounts, depositActions, depositCorpBindings, depositLinks, depositLockKey, depositNames, depositRequests, deposits, depositSources, scopes } from '../db/schema.ts'
 
 export type DepositStatus = 'REVIEW' | 'AUTO_APPLIED' | 'APPLIED' | 'IGNORED'
 export type SourceKind = 'POPBILL' | 'PASTE' | 'FAKE'
@@ -484,6 +484,32 @@ export async function insertRequest(tx: Db, sellerId: string, requestId: string,
     .values({ sellerId, requestId, result: JSON.stringify(result), createdAt: now })
     .onConflictDoNothing({ target: [depositRequests.sellerId, depositRequests.requestId] })
     .returning({ id: depositRequests.id })
+  return rows.length > 0
+}
+
+// ── 판매자에게 묶인 팝빌 사업자번호 (RA-N3-001) ─────────────────────────────
+
+/** 그 판매자에게 묶인 사업자번호 키 (없으면 null) */
+export async function corpKeyOfSeller(db: Db, sellerId: string): Promise<string | null> {
+  const rows = await db.select({ corpKey: depositCorpBindings.corpKey }).from(depositCorpBindings).where(eq(depositCorpBindings.sellerId, sellerId)).limit(1)
+  return rows[0]?.corpKey ?? null
+}
+
+/** 그 사업자번호 키가 묶인 판매자 (없으면 null) */
+export async function sellerOfCorpKey(db: Db, corpKey: string): Promise<string | null> {
+  const rows = await db.select({ sellerId: depositCorpBindings.sellerId }).from(depositCorpBindings).where(eq(depositCorpBindings.corpKey, corpKey)).limit(1)
+  return rows[0]?.sellerId ?? null
+}
+
+/** 판매자에게 사업자번호 키를 묶는다 (판매자마다 하나, 키마다 한 판매자 — 이미 있으면 그대로). 묶은 뒤 그 판매자의 키가 이 키인지 */
+export async function bindCorpKey(db: Db, sellerId: string, corpKey: string, now: Date): Promise<boolean> {
+  await db.insert(depositCorpBindings).values({ sellerId, corpKey, createdAt: now }).onConflictDoNothing()
+  return (await corpKeyOfSeller(db, sellerId)) === corpKey
+}
+
+/** 판매자에게 묶인 사업자번호를 푼다 (운영자 명령만 — 판매자 API는 없다). 풀었는지 */
+export async function unbindCorp(db: Db, sellerId: string): Promise<boolean> {
+  const rows = await db.delete(depositCorpBindings).where(eq(depositCorpBindings.sellerId, sellerId)).returning({ sellerId: depositCorpBindings.sellerId })
   return rows.length > 0
 }
 

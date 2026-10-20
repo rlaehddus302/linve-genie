@@ -11,6 +11,7 @@
     "migrate": "node src/commands/migrate.ts",
     "create-account": "node src/commands/create-account.ts",
     "check-replay": "node src/commands/check-replay.ts",
+    "popbill-corp": "node src/commands/popbill-corp.ts",
     "e2e": "node src/commands/e2e-server.ts"
   },
   "dependencies": {
