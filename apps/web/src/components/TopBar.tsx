@@ -1,11 +1,14 @@
-// 화면 위 줄 (AC-S05-01, AC-S06-01·51·52): 가게 이름, 메뉴("방송"·"문자찜 입력"·"구매자"·"정산" — 지금 화면은 aria-current="page"),
+// 화면 위 줄 (AC-S05-01, AC-S06-01·51·52, AC-I3-44·63): 가게 이름, 메뉴("방송"·"문자찜 입력"·"구매자"·"정산"·"설정" — 지금 화면은 aria-current="page"),
 // 앱 설치 안내, 로그아웃, 새 버전 안내. 메뉴는 PC에서 위 줄에, 휴대폰에서는 아래 고정 막대로 보인다(같은 메뉴, CSS가 자리만 바꾼다).
+// 보조자 계정은 가게 이름 + "보조자", 메뉴는 "문자찜 입력"뿐이다.
 import type { MouseEvent } from 'react'
 import { useInstallHint, useUpdateNotice } from '../pwa/pwa.ts'
 import { menuOf, routePath, type Navigate, type Route } from '../lib/router.ts'
 
 export interface TopBarProps {
   readonly shopName: string
+  /** 보조자 계정 (메뉴는 문자찜 입력뿐) */
+  readonly assistant?: boolean
   readonly onLogout: () => void
   readonly route: Route
   readonly navigate: Navigate
@@ -18,17 +21,19 @@ interface MenuItem {
 }
 
 /** 구매자·정산 사이를 오가면 고른 날짜·리허설을 이어 간다 */
-function menuItems(route: Route): readonly MenuItem[] {
+function menuItems(route: Route, assistant: boolean): readonly MenuItem[] {
+  if (assistant) return [{ key: 'sms', label: '문자찜 입력', to: { name: 'sms' } }]
   const scope = route.name === 'buyers' || route.name === 'settlements' ? { ...(route.date === undefined ? {} : { date: route.date }), rehearsal: route.rehearsal } : { rehearsal: false }
   return [
     { key: 'broadcasts', label: '방송', to: { name: 'home' } },
     { key: 'sms', label: '문자찜 입력', to: { name: 'sms' } },
     { key: 'buyers', label: '구매자', to: { name: 'buyers', ...scope } },
     { key: 'settlements', label: '정산', to: { name: 'settlements', ...scope } },
+    { key: 'settings', label: '설정', to: { name: 'settings' } },
   ]
 }
 
-export function TopBar({ shopName, onLogout, route, navigate }: TopBarProps) {
+export function TopBar({ shopName, assistant = false, onLogout, route, navigate }: TopBarProps) {
   const current = menuOf(route)
   const go = (event: MouseEvent<HTMLAnchorElement>, to: Route) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
@@ -39,9 +44,12 @@ export function TopBar({ shopName, onLogout, route, navigate }: TopBarProps) {
     <>
       <UpdateBanner />
       <header className="topbar">
-        <p className="shop-name">{shopName}</p>
-        <nav className="menu" aria-label="메뉴">
-          {menuItems(route).map((item) => (
+        <p className="shop-name">
+          {shopName}
+          {assistant ? <span className="tag tag-assistant">보조자</span> : null}
+        </p>
+        <nav className={assistant ? 'menu menu-single' : 'menu'} aria-label="메뉴">
+          {menuItems(route, assistant).map((item) => (
             <a key={item.key} className="menu-link" href={routePath(item.to)} aria-current={item.key === current ? 'page' : undefined} onClick={(event) => go(event, item.to)}>
               {item.label}
             </a>

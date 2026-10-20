@@ -1,6 +1,7 @@
 // 창 (AC-S05-42, D-087): 처음 포커스는 아무것도 바꾸지 않는 "닫기"(또는 "아니요"), Esc로 닫기, Tab은 창 안에서만 돈다,
 // 번호 붙은 선택 버튼은 숫자 키 1·2·3으로도 누른다(글 칸에 포커스가 있을 때는 글자 그대로).
 import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
+import { useReadOnly } from '../lib/read-only.ts'
 
 export interface ModalProps {
   readonly title: string
@@ -13,9 +14,11 @@ export interface ModalProps {
   /** 닫기 버튼 글자 (기본 "닫기") */
   readonly closeLabel?: string
   readonly wide?: boolean
+  /** 볼 수만 있는 화면(봉인한 날짜)에서도 안의 버튼을 잠그지 않는다 — 창이 스스로 쓰기 버튼을 잠글 때 (기본 잠금, AC-I3-41) */
+  readonly unlocked?: boolean
 }
 
-const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+const FOCUSABLE = 'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
 
 function isTextField(element: Element | null): boolean {
   if (element === null) return false
@@ -24,7 +27,8 @@ function isTextField(element: Element | null): boolean {
   return !['button', 'checkbox', 'radio', 'submit', 'reset'].includes(element.type)
 }
 
-export function Modal({ title, onClose, initialFocus, children, actions, closeLabel = '닫기', wide = false }: ModalProps) {
+export function Modal({ title, onClose, initialFocus, children, actions, closeLabel = '닫기', wide = false, unlocked = false }: ModalProps) {
+  const readOnly = useReadOnly() && !unlocked
   const titleId = useId()
   const panel = useRef<HTMLDivElement>(null)
   const closeButton = useRef<HTMLButtonElement>(null)
@@ -78,12 +82,26 @@ export function Modal({ title, onClose, initialFocus, children, actions, closeLa
         <h2 id={titleId} className="modal-title">
           {title}
         </h2>
-        <div className="modal-body">{children}</div>
+        <div className="modal-body">
+          {readOnly ? (
+            <fieldset className="lock" disabled>
+              {children}
+            </fieldset>
+          ) : (
+            children
+          )}
+        </div>
         <div className="modal-actions">
           <button ref={closeButton} type="button" className="button" onClick={onClose}>
             {closeLabel}
           </button>
-          {actions}
+          {readOnly && actions !== undefined ? (
+            <fieldset className="lock lock-inline" disabled>
+              {actions}
+            </fieldset>
+          ) : (
+            actions
+          )}
         </div>
       </div>
     </div>
