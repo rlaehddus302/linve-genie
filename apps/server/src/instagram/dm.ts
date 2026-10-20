@@ -19,9 +19,9 @@ import type { LinkOutcome } from '../live-links.ts'
 import type { Clock } from '../time.ts'
 import { claimIndex } from '../views.ts'
 import type { ScopeWriter, TxHookContext } from '../writer.ts'
+import type { ThanksSender, ThanksSendResult } from '../platform.ts'
 import type { InstagramSettings } from './config.ts'
-import type { ApiConnection, InstagramConnections } from './connection.ts'
-import type { MetaClient, MetaResult } from './meta.ts'
+import type { InstagramConnections } from './connection.ts'
 import type { LiveTimer } from './notices.ts'
 import {
   activeSend,
@@ -135,7 +135,8 @@ export interface DmDeps {
   readonly clock: Clock
   readonly log: LogSink
   readonly settings: InstagramSettings | null
-  readonly meta: MetaClient | null
+  /** 감사 보내기 어댑터 (인스타그램: 개인 답장·대화 조회 — adapters.ts) */
+  readonly sender: ThanksSender
   readonly connections: InstagramConnections
   readonly timer: LiveTimer
   /** 실행기를 스스로 돌린다 (운영·E2E). 시험은 끄고 drain()을 부른다 */
@@ -326,7 +327,7 @@ export class InstagramDms {
   }
 
   async #pass(): Promise<number> {
-    if (this.#deps.meta === null) return 0
+    if (!this.#deps.connections.configured) return 0
     const { db } = this.#deps
     let work = 0
     const now = this.#now()
@@ -345,7 +346,7 @@ export class InstagramDms {
         const sending = rows.filter((row) => row.status === 'SENDING').map((row) => row.id)
         await updateDmRows(db, send.sellerId, sending, { reason: 'CONFIRM' }, now)
         this.#notify(send.sellerId, sending)
-        await this.#confirm(send.sellerId, send.id, null)
+        await this.#confirm(send.sellerId, send.id)
       })
     }
     for (const group of await dueDmGroups(db, now, 50)) {
@@ -374,8 +375,6 @@ export class InstagramDms {
   /** 댓글 묶음 하나를 보낸다 (AC-N2-43·45·47) */
   async #attempt(group: DmGroup): Promise<void> {
     const { db, writer, connections } = this.#deps
-    const meta = this.#deps.meta
-    if (meta === null) return
     const api = await connections.api(group.sellerId)
     const runtime = await writer.read(group.sellerId, group.date, false)
     const effects = this.#effects(runtime.state)
@@ -468,17 +467,17 @@ export class InstagramDms {
     })
     this.#notify(group.sellerId, touched)
     if (claimed === null || !api.ok) return
-    const result = await meta.privateReply(api.conn, claimed.commentId, claimed.text)
-    await this.#settle(group.sellerId, claimed.sendId, api, result)
+    const result = await this.#deps.sender.send(group.sellerId, claimed.commentId, claimed.text)
+    await this.#settle(group.sellerId, claimed.sendId, result)
   }
 
   /** 보내기 결과 처리 */
-  async #settle(sellerId: string, sendId: number, api: ApiConnection, result: MetaResult<string>): Promise<void> {
-    if (result.ok) return this.#sent(sellerId, sendId, result.value)
+  async #settle(sellerId: string, sendId: number, result: ThanksSendResult): Promise<void> {
+    if (result.ok) return this.#sent(sellerId, sendId, result.messageId)
     const now = this.#now()
     const { db } = this.#deps
     const sending = (await rowsOfSend(db, sellerId, sendId)).filter((row) => row.status === 'SENDING').map((row) => row.id)
-    switch (result.failure) {
+    switch (result.kind) {
       case 'TIMEOUT': {
         // 바로 다시 보내지 않고 대화를 한 번 조회해 확인한다 (AC-N2-48)
         await db.transaction(async (tx) => {
@@ -486,12 +485,12 @@ export class InstagramDms {
           await updateDmRows(tx, sellerId, sending, { reason: 'CONFIRM' }, now)
         })
         this.#notify(sellerId, sending)
-        return this.#confirm(sellerId, sendId, api)
+        return this.#confirm(sellerId, sendId)
       }
       case 'RETRY':
         return this.#retry(sellerId, sendId)
       case 'TOKEN_INVALID': {
-        await this.#deps.connections.markReconnect(sellerId)
+        // 어댑터가 연결을 "다시 연결 필요"로 바꿨다 — 기한까지 기다린다
         await db.transaction(async (tx) => {
           await updateSend(tx, sellerId, sendId, { state: 'PENDING', nextAt: null, leaseUntil: null }, now)
           await updateDmRows(tx, sellerId, sending, { status: 'WAITING', reason: 'RECONNECT' }, now)
@@ -500,7 +499,7 @@ export class InstagramDms {
         return
       }
       default:
-        return this.#fail(sellerId, sendId, result.failure)
+        return this.#fail(sellerId, sendId, result.kind)
     }
   }
 
@@ -557,23 +556,14 @@ export class InstagramDms {
     this.kick()
   }
 
-  /** 타임아웃 확인 (AC-N2-48): 대화를 한 번 조회한다. 같은 글이 있으면 SENT, 없으면 실패 한 번, 조회 실패면 UNCONFIRMED */
-  async #confirm(sellerId: string, sendId: number, api: ApiConnection | null): Promise<void> {
-    const meta = this.#deps.meta
+  /** 타임아웃 확인 (AC-N2-48): 대화를 한 번 조회한다. 그 시도 시작 − 5초 뒤의 같은 글이 있으면 SENT, 없으면 실패 한 번, 조회 실패면 UNCONFIRMED */
+  async #confirm(sellerId: string, sendId: number): Promise<void> {
     const send = await findSend(this.#deps.db, sellerId, sendId)
     if (send === null) return
-    const connection = api ?? (await this.#deps.connections.api(sellerId))
-    if (meta === null || send.text === null || send.startedAt === null || !connection.ok) return this.#fail(sellerId, sendId, 'UNCONFIRMED')
-    const result = await meta.conversation(connection.conn, send.igsid)
-    if (!result.ok) {
-      this.#deps.log({ level: 'warn', code: 'IG_META_FAILED', errorKind: result.failure })
-      if (result.failure === 'TOKEN_INVALID') await this.#deps.connections.markReconnect(sellerId)
-      return this.#fail(sellerId, sendId, 'UNCONFIRMED')
-    }
-    const since = send.startedAt.getTime() - CONFIRM_SLACK_MS
-    const ours = new Set([connection.conn.accountId, ...(connection.conn.pageId === null ? [] : [connection.conn.pageId])])
-    const found = result.value.find((message) => ours.has(message.fromId) && message.text === send.text && message.createdAt !== null && message.createdAt >= since)
-    if (found !== undefined) return this.#sent(sellerId, sendId, found.id)
+    if (send.text === null || send.startedAt === null) return this.#fail(sellerId, sendId, 'UNCONFIRMED')
+    const found = await this.#deps.sender.confirm(sellerId, send.igsid, send.text, send.startedAt.getTime() - CONFIRM_SLACK_MS)
+    if (found === 'FAILED') return this.#fail(sellerId, sendId, 'UNCONFIRMED')
+    if (found !== null) return this.#sent(sellerId, sendId, found)
     return this.#retry(sellerId, sendId)
   }
 

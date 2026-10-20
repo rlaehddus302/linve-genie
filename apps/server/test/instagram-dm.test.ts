@@ -156,6 +156,30 @@ describe('AC-N2-41 DM 자동 발송 동의', () => {
   })
 })
 
+describe('AC-N2-16·23 끊기와 기다리던 DM 행', () => {
+  it('인스타 연결을 끊으면 기다리던 행은 FAILED(NO_CONSENT), 라이브 연결을 끊으면 그 회차의 기다리던 행은 FAILED(NO_LINK)', async () => {
+    const w = await world()
+    const s = await setup(w)
+    const api = client(w, s.seller.cookie)
+    await comment(w, s, '651', '1', 'buyer.one', '15')
+    expect((await api.post(`/api/broadcasts/${s.b}/live/unlink`, { requestId: rid('u') })).status).toBe(200)
+    expect((await rows(w, s)).map((row) => [row.status, row.reason, row.message])).toEqual([['FAILED', 'NO_LINK', '이어진 인스타그램 라이브가 없어요.']])
+    await linkLive(w, s.seller, s.b, s.live)
+    await comment(w, s, '652', '2', 'buyer.two', '28')
+    expect((await api.post('/api/instagram/disconnect', {})).status).toBe(200)
+    expect((await rows(w, s)).map((row) => [row.comment, row.status, row.reason])).toEqual([
+      ['ig:651', 'FAILED', 'NO_LINK'],
+      ['ig:652', 'FAILED', 'NO_CONSENT'],
+    ])
+    await drain(w)
+    expect(w.fake.dms).toEqual([])
+    // 이미 기록한 채팅·판정은 그대로, 같은 계정으로 다시 연결하면 그 회차에 이어서 기록한다
+    expect(await connectInstagram(w, s.seller, { accounts: [s.account.id] })).toBe('CONNECTED')
+    await comment(w, s, '653', '3', 'buyer.three', '안녕')
+    expect((await w.database.pglite?.query<{ n: number }>(`select count(*)::int as n from events where type = 'chat' and seller_id = $1`, [s.seller.sellerId]))?.rows[0]?.n).toBe(3)
+  })
+})
+
 describe('AC-N2-42 받는 댓글·보내지 않는 경우 (G-ENG-N2-02)', () => {
   it('"15 28"·변환·승계는 그 댓글에 DM 하나씩, 문자찜·직접 배정은 건너뜀, 취소 전후 댓글 101에 DM 1개', async () => {
     const w = await world()
@@ -627,6 +651,19 @@ describe('AC-N2-50 수동 재전송', () => {
     expect((await api.post(`/api/instagram/dms/${String(unconfirmed.id)}/resend`, { requestId: rid('rs') })).body.result).toBe('QUEUED')
     await drain(w)
     expect(w.fake.dms.map((dm) => dm.commentId)).toEqual(['1503'])
+  })
+
+  it('고른 행의 효과가 이미 완료면 "이미 보낸 감사예요."', async () => {
+    const w = await world()
+    const s = await setup(w, { consent: false })
+    await comment(w, s, '1510', '1', 'pink.mom', '15')
+    const row = (await rows(w, s))[0] as RowView
+    const state = (await w.server.writer.read(s.seller.sellerId, '2026-10-19')).state
+    const effectId = listEffects(state).find((effect) => effect.kind === 'POST_THANKS')?.id as string
+    expect((await w.server.writer.write({ sellerId: s.seller.sellerId, date: '2026-10-19', rehearsal: false, createScope: false, requestId: null, build: () => [{ fields: { type: 'effect.thanksSent', effectId }, actor: { kind: 'server' } }] })).kind).toBe('ok')
+    const result = await client(w, s.seller.cookie).post(`/api/instagram/dms/${String(row.id)}/resend`, { requestId: rid('rs') })
+    expect([result.status, result.body.result, result.body.message]).toEqual([200, 'ALREADY_SENT', '이미 보낸 감사예요.'])
+    expect(w.fake.dms).toEqual([])
   })
 
   it('연결·권한·이어진 라이브·같은 계정이 있어야 하고, 다른 판매자의 행은 404, 라이브가 끝났으면 LIVE_ENDED', async () => {

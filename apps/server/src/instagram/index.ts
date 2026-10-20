@@ -3,11 +3,12 @@
 import type { Db } from '../db/database.ts'
 import { LiveLinks, type InstagramPort, type LinkView } from '../live-links.ts'
 import type { LogSink } from '../log.ts'
-import type { LiveItem } from '../platform.ts'
+import type { LiveSource, ThanksSender } from '../platform.ts'
 import { SellerLocks } from '../seller-locks.ts'
 import type { Service } from '../service.ts'
 import type { Clock } from '../time.ts'
 import type { ScopeWriter, TxHook } from '../writer.ts'
+import { instagramLiveSource, instagramThanksSender } from './adapters.ts'
 import type { InstagramSettings } from './config.ts'
 import { InstagramConnections } from './connection.ts'
 import { InstagramDms } from './dm.ts'
@@ -43,10 +44,13 @@ export interface InstagramModule {
   readonly webhook: InstagramWebhook
   readonly dms: InstagramDms
   readonly notices: LiveNotices
+  /** 플랫폼 공통 어댑터 모양의 인스타그램 구현 (AC-N2-04) */
+  readonly liveSource: LiveSource
+  readonly thanksSender: ThanksSender
   /** 기록 경로의 같은 트랜잭션에서 부른다 (DM 행 만들기·끝낸 회차의 수집 상태 알림) */
   readonly txHook: TxHook
   /** 진행 중 라이브 (메타 live_media) */
-  liveNow(sellerId: string): ReturnType<InstagramPort['liveNow']>
+  liveNow: LiveSource['liveNow']
   close(): void
 }
 
@@ -85,19 +89,9 @@ export function createInstagram(options: InstagramModuleOptions): InstagramModul
     onConsentOff: (tx, sellerId, now) => (dms as InstagramDms).onConsentOff(tx, sellerId, now),
   })
 
-  const liveNow = async (sellerId: string): Promise<{ readonly ok: true; readonly lives: readonly LiveItem[] } | { readonly ok: false; readonly failure: 'NOT_CONFIGURED' | 'NOT_CONNECTED' | 'RECONNECT_NEEDED' | 'UNAVAILABLE' }> => {
-    const api = await connections.api(sellerId)
-    if (!api.ok) return { ok: false, failure: api.failure }
-    if (meta === null) return { ok: false, failure: 'NOT_CONFIGURED' }
-    const result = await meta.liveMedia(api.conn)
-    if (result.ok) return { ok: true, lives: result.value }
-    log({ level: 'warn', code: 'IG_META_FAILED', errorKind: result.failure })
-    if (result.failure === 'TOKEN_INVALID') {
-      await connections.markReconnect(sellerId)
-      return { ok: false, failure: 'RECONNECT_NEEDED' }
-    }
-    return { ok: false, failure: 'UNAVAILABLE' }
-  }
+  const liveSource = instagramLiveSource(connections, meta, log)
+  const thanksSender = instagramThanksSender(connections, meta, log)
+  const liveNow = liveSource.liveNow
 
   const port: InstagramPort = {
     configured: connections.configured,
@@ -144,7 +138,7 @@ export function createInstagram(options: InstagramModuleOptions): InstagramModul
     clock,
     log,
     settings,
-    meta,
+    sender: thanksSender,
     connections,
     timer,
     autoRun: options.dmAutoRun ?? true,
@@ -175,6 +169,8 @@ export function createInstagram(options: InstagramModuleOptions): InstagramModul
     webhook,
     dms: dmRunner,
     notices: liveNotices,
+    liveSource,
+    thanksSender,
     txHook,
     liveNow,
     close: () => {

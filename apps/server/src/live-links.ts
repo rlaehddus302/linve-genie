@@ -8,7 +8,7 @@
 import { getBroadcast } from '@livejjim/core'
 import { sql } from 'drizzle-orm'
 import type { Db } from './db/database.ts'
-import { isPlatform, PLATFORM_MESSAGES, type LiveItem, type Platform } from './platform.ts'
+import { isPlatform, PLATFORM_MESSAGES, type LiveSource, type Platform } from './platform.ts'
 import type { SellerLocks } from './seller-locks.ts'
 import { findBroadcast } from './store.ts'
 import type { Clock } from './time.ts'
@@ -95,7 +95,7 @@ export interface LinkOutcome {
 export interface InstagramPort {
   readonly configured: boolean
   connection(sellerId: string, db?: Db): Promise<{ readonly status: string; readonly accountId: string } | null>
-  liveNow(sellerId: string): Promise<{ readonly ok: true; readonly lives: readonly LiveItem[] } | { readonly ok: false; readonly failure: 'NOT_CONFIGURED' | 'NOT_CONNECTED' | 'RECONNECT_NEEDED' | 'UNAVAILABLE' }>
+  liveNow: LiveSource['liveNow']
 }
 
 export interface LiveLinksDeps {

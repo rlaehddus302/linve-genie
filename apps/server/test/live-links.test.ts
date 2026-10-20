@@ -1,4 +1,5 @@
 // N2 플랫폼 공통 연결·라이브 잇기 (AC-N2-01~04·20~24·37, D-N2-02·D-N2-05·D-N2-08·D-N2-12).
+import { readdirSync, readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it } from 'vitest'
 import { PLATFORM_KEY_MAX, platformCapabilities, platformOfKey, prefixedKey } from '../src/platform.ts'
 import { chatEvents, connectedShop, igWorld, linkLive, liveBroadcast, register, sendComments, type IgWorld } from './instagram-support.ts'
@@ -148,6 +149,23 @@ describe('AC-N2-04 틱톡 자리', () => {
     expect(w.fake.calls.length).toBe(calls)
     const rows = await w.database.pglite?.query<{ n: number }>(`select count(*)::int as n from live_links`)
     expect(rows?.rows[0]?.n).toBe(0)
+  })
+})
+
+describe('AC-N2-04 어댑터 모양', () => {
+  it('댓글 원천·감사 보내기는 플랫폼 공통 어댑터 모양이고 인스타그램이 첫 구현이다, 틱톡 구현은 없다', async () => {
+    const w = await world()
+    const module = w.server.instagram
+    expect(module.liveSource.platform).toBe('INSTAGRAM')
+    expect(module.thanksSender.platform).toBe('INSTAGRAM')
+    const shop = await connectedShop(w)
+    const live = w.fake.startLive(shop.account.id)
+    expect(await module.liveSource.liveNow(shop.seller.sellerId)).toEqual({ ok: true, lives: [{ id: live, startedAt: w.clock.now() }] })
+    const source = readFileSync(new URL('../src/platform.ts', import.meta.url), 'utf8')
+    expect(source).toMatch(/export interface LiveSource/)
+    expect(source).toMatch(/export interface ThanksSender/)
+    const files = readdirSync(new URL('../src/', import.meta.url), { recursive: true }).map(String)
+    expect(files.filter((file) => /tiktok/i.test(file))).toEqual([])
   })
 })
 

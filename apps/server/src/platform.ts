@@ -109,7 +109,7 @@ export interface LiveItem {
 }
 
 /** 외부 호출 결과의 실패 종류 (플랫폼 공통) */
-export type PlatformFailure = 'NOT_CONNECTED' | 'RECONNECT_NEEDED' | 'UNAVAILABLE'
+export type PlatformFailure = 'NOT_CONFIGURED' | 'NOT_CONNECTED' | 'RECONNECT_NEEDED' | 'UNAVAILABLE'
 
 /** 댓글 원천 — 라이브 찾기 (댓글 받기는 플랫폼이 밀어 주는 웹훅이 수집 함수로 넘긴다) */
 export interface LiveSource {
