@@ -80,7 +80,7 @@ await adapter.print(image)                // fake.printed에 작업 바이트가
 - 이름이 켠 프로필과 맞지 않으면 GATT에 연결하지 않고(`gatt.disconnect()`만 부르고) `WRONG_MODEL`. 기술 상세에 기기 이름을 넣지 않는다.
 - 쓰기 오류가 났는데 연결이 살아 있으면 `PRINT_FAILED`(상태 연결됨), 끊겨 있으면 `DISCONNECTED`.
 - 출력 중 판매자가 연결 끊기를 누르면 그 출력은 `DISCONNECTED`.
-- 작업 바이트의 거절 순서는 B1과 같다: 농도 → 그림 형식 → 헤드 폭.
+- 작업 바이트의 거절 순서: 그림 형식(`PRINT_FAILED`) → 헤드 폭(`IMAGE_TOO_WIDE` — 농도와 상관없이 언제나, AC-N1-70) → 농도(`INVALID_DENSITY`). B1 어댑터(농도 → 형식 → 폭)와 순서가 다르다 — 둘 다 틀린 그림은 화면이 크기 목록·농도 범위로 미리 막는다.
 - 가짜 기기는 작업을 다 받았는지를 래스터 머리(YXQ 길이 칸·L11 폭×높이)로 계산하고, 다 받은 그 쓰기 안에서 `AA`를 보낸다(마지막 쓰기가 끝나기 전에 오는 경우). 이름표에 없는 기기 이름이면 `protocol`을 알려 줘야 한다.
 
 ### pnpm verify 결과

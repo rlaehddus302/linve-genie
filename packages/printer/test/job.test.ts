@@ -248,4 +248,18 @@ describe('작업 바이트의 거절 (AC-N1-23)', () => {
     ]
     for (const image of bad) for (const profile of PROFILES) expect(buildPrintJob(profile, image as LabelBitmap), JSON.stringify(image)).toEqual({ ok: false, code: 'PRINT_FAILED' })
   })
+
+  it('헤드보다 넓으면 농도와 상관없이 언제나 IMAGE_TOO_WIDE (형식이 틀린 그림만 PRINT_FAILED가 먼저)', () => {
+    for (const density of [undefined, 0, 2, 4, 2.5]) {
+      for (const [profile, image] of [
+        [MARKLIFE_S2, createBitmap(392, 8)],
+        [MARKLIFE_X2, createBitmap(400, 1)],
+        [MARKLIFE_P12, createBitmap(8, 97)],
+        [BAUATO_PPA2L, createBitmap(392, 8)],
+      ] as const) {
+        expect(buildPrintJob(profile, image, density === undefined ? {} : { density }), `${profile.id} ${String(density)}`).toEqual({ ok: false, code: 'IMAGE_TOO_WIDE' })
+      }
+    }
+    expect(buildPrintJob(MARKLIFE_S2, { width: 392, height: 8, data: new Uint8Array(1) }, { density: 9 })).toEqual({ ok: false, code: 'PRINT_FAILED' })
+  })
 })

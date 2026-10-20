@@ -87,13 +87,17 @@ function l11Raster(widthBytes: number, height: number, rows: Uint8Array): Uint8A
 }
 
 /**
- * 작업 바이트 (L-12 2). 거절(바이트 없음): 농도가 방식의 범위(1~3 정수) 밖이면 INVALID_DENSITY(농도를 받지 않는 방식은 넘겨도 쓰지 않는다),
- * 그림이 L-1 형식이 아니면 PRINT_FAILED, 보낼 그림(돌린 뒤)의 폭이 헤드보다 넓으면 IMAGE_TOO_WIDE.
- * 좁은 그림은 채우지 않고 그 폭 그대로 보낸다. NIIMBOT B1 바이트는 niimbluelib이 만든다(이 함수가 아니다 — RangeError).
+ * 작업 바이트 (L-12 2). 거절(바이트 없음)은 이 순서로 본다: 그림이 L-1 형식이 아니면 PRINT_FAILED, 보낼 그림(돌린 뒤)의 폭이 헤드보다
+ * 넓으면 IMAGE_TOO_WIDE(농도와 상관없이 언제나 — AC-N1-70), 농도가 방식의 범위(1~3 정수) 밖이면 INVALID_DENSITY(농도를 받지 않는
+ * 방식은 넘겨도 쓰지 않는다). 좁은 그림은 채우지 않고 그 폭 그대로 보낸다. NIIMBOT B1 바이트는 niimbluelib이 만든다(RangeError).
  */
 export function buildPrintJob(profile: ModelProfile, image: LabelBitmap, options: PrintOptions = {}): JobResult {
   if (profile.protocol === 'NIIMBOT_B1') throw new RangeError('NIIMBOT B1 작업은 niimbluelib이 만든다')
   const protocol = profile.protocol
+  if (!isLabelBitmap(image)) return { ok: false, code: 'PRINT_FAILED' }
+  // 돌린 폭 = 받은 그림의 높이 (돌리기 전에 거른다 — 넓은 그림을 돌리느라 일하지 않게)
+  const sendWidth = profile.rotate === 'CW90' ? image.height : image.width
+  if (sendWidth > profile.headDots) return { ok: false, code: 'IMAGE_TOO_WIDE' }
   const densityBytes = DENSITY_BYTES[protocol]
   let densityByte = 0
   if (densityBytes !== null) {
@@ -104,9 +108,7 @@ export function buildPrintJob(profile: ModelProfile, image: LabelBitmap, options
     }
     densityByte = densityBytes[density - 1] as number
   }
-  if (!isLabelBitmap(image)) return { ok: false, code: 'PRINT_FAILED' }
   const send = profile.rotate === 'CW90' ? rotateClockwise(image) : image
-  if (send.width > profile.headDots) return { ok: false, code: 'IMAGE_TOO_WIDE' }
   const widthBytes = bytesPerRow(send.width)
   // 돌린 그림은 이미 새 바이트다. 돌리지 않으면 복사한 뒤 남는 비트를 지운다(받은 그림은 바꾸지 않는다)
   const rows = cleanRows(send)
