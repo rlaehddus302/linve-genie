@@ -5,6 +5,8 @@
 // 더해서 이벤트 행의 요약값(digest)으로 기록이 바뀌었는지 보고, 표시 없는 재생 오류도 불일치로 본다.
 // S05: 범위 행의 지금 seq(D-085)가 이벤트 기록의 마지막 seq와 같은지 대조한다(다르면 '범위 seq' 불일치 — 마지막 이벤트가 사라진 것도 잡는다).
 // 리허설 범위(D-081)도 똑같이 검사한다.
+// N5: 요금 대조 — 재생한 상태·출력 기록으로 다시 계산한 주문 건·라벨 장·방송 일 쓴 기록이 원장과 같은지, 리허설·이용 방식 없는 방송의 쓴 기록이 없는지
+// (billing/check.ts). 다르면 '요금' 불일치이고 그 키(방송·상품·작업 ID)를 알린다.
 // 결과는 범위마다 한 줄이고, 이벤트 내용·개인정보는 넣지 않는다(범위·seq·부분 이름·개수만).
 import { STATE_FORMAT, applyEvent, checkInvariants, type EngineEvent, type EngineState } from '@livejjim/core'
 import { and, asc, eq } from 'drizzle-orm'
@@ -12,8 +14,9 @@ import type { Db } from './db/database.ts'
 import { events, outbox, scopes, snapshots } from './db/schema.ts'
 import { FAILED_INPUT_MESSAGE, REPLAY_SKIPPED_MESSAGE, emptyState, type AttentionItem } from './runtime.ts'
 import { eventDigest } from './writer.ts'
+import { checkBillingScope } from './billing/check.ts'
 
-export type CheckPart = 'seq' | '범위 seq' | '이벤트' | '재생 오류' | '스냅샷' | '발송함' | '불변식'
+export type CheckPart = 'seq' | '범위 seq' | '이벤트' | '재생 오류' | '스냅샷' | '발송함' | '불변식' | '요금'
 
 export interface ScopeCheck {
   readonly sellerId: string
@@ -29,6 +32,8 @@ export interface ScopeCheck {
   readonly failedMarked: number
   /** 처음 다른 곳 (모두 같으면 null) */
   readonly firstDiff: { readonly seq: number; readonly part: CheckPart } | null
+  /** 요금 대조에서 다른 키 (N5 — 방송·상품·작업 ID만) */
+  readonly billing: readonly string[]
 }
 
 export interface CheckFilter {
@@ -38,7 +43,7 @@ export interface CheckFilter {
   readonly rehearsal?: boolean
 }
 
-const PART_ORDER: readonly CheckPart[] = ['seq', '범위 seq', '이벤트', '재생 오류', '스냅샷', '발송함', '불변식']
+const PART_ORDER: readonly CheckPart[] = ['seq', '범위 seq', '이벤트', '재생 오류', '스냅샷', '발송함', '불변식', '요금']
 
 /** 키를 정렬한 JSON (객체 키 순서와 상관없이 같은 값이면 같은 문자열) */
 export function canonicalJson(value: unknown): string {
@@ -154,6 +159,10 @@ async function checkScope(db: Db, scope: { id: string; sellerId: string; date: s
   // (3) 불변식
   if (checkInvariants(state).length > 0) diff(lastSeq, '불변식')
 
+  // (N5) 요금 대조
+  const billing = await checkBillingScope(db, scope, state)
+  if (billing.length > 0) diff(lastSeq, '요금')
+
   const first = diffs.sort((a, b) => a.seq - b.seq || PART_ORDER.indexOf(a.part) - PART_ORDER.indexOf(b.part))[0] ?? null
   return {
     sellerId: scope.sellerId,
@@ -166,6 +175,7 @@ async function checkScope(db: Db, scope: { id: string; sellerId: string; date: s
     outbox: outboxRows.length,
     failedMarked: eventRows.filter((row) => row.failed).length,
     firstDiff: first,
+    billing,
   }
 }
 
@@ -173,6 +183,7 @@ async function checkScope(db: Db, scope: { id: string; sellerId: string; date: s
 export function formatCheck(check: ScopeCheck): string {
   const counts = `이벤트 ${String(check.events)} · 스냅샷 ${String(check.snapshots)} · 발송함 ${String(check.outbox)} · 실패 표시 ${String(check.failedMarked)}`
   const other = check.otherFormatSnapshots > 0 ? ` · 형식이 다른 스냅샷 ${String(check.otherFormatSnapshots)}(대조 안 함)` : ''
-  const verdict = check.firstDiff === null ? '일치' : `불일치 — 처음 다른 곳: seq ${String(check.firstDiff.seq)} (${check.firstDiff.part})`
+  const keys = check.billing.length === 0 ? '' : ` · 요금 키 ${check.billing.slice(0, 5).join(', ')}${check.billing.length > 5 ? ` 외 ${String(check.billing.length - 5)}개` : ''}`
+  const verdict = check.firstDiff === null ? '일치' : `불일치 — 처음 다른 곳: seq ${String(check.firstDiff.seq)} (${check.firstDiff.part})${keys}`
   return `판매자 ${check.sellerId} · ${check.date}${check.rehearsal ? ' 리허설' : ''} · ${verdict} (${counts}${other})`
 }

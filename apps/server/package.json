@@ -11,7 +11,9 @@
     "migrate": "node src/commands/migrate.ts",
     "create-account": "node src/commands/create-account.ts",
     "check-replay": "node src/commands/check-replay.ts",
-    "e2e": "node src/commands/e2e-server.ts"
+    "e2e": "node src/commands/e2e-server.ts",
+    "billing-grant": "node src/commands/billing-grant.ts",
+    "billing-list": "node src/commands/billing-list.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "0.5.8",
