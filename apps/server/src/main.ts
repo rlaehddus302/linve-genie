@@ -54,6 +54,8 @@ if (database === null) {
 const backupDir = readBackupDir(process.env)
 const livejjim = createServer({ database, masterKey: masterKey.key, appOrigin: origin.origin, backupStorage: backupDir === null ? null : new FolderBackupStorage(backupDir) })
 livejjim.backups.start()
+// 확인서 미리 보기 워커를 미리 띄운다 (첫 미리 보기가 워커를 띄우는 시간을 기다리지 않게 — RA-I2-003)
+livejjim.work.receipts.warm()
 const server = createNodeServer({ app: livejjim.app })
 
 // PORT 환경변수 값은 로그에 찍지 않는다. 기본값일 때만 번호를 보여 준다.

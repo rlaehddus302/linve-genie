@@ -19,6 +19,7 @@ import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
 import { systemClock, type Clock } from './time.ts'
 import { ViewCacheBudget } from './view-budget.ts'
+import { sharedWorkPools, type WorkPools } from './work-pool.ts'
 import { DEFAULT_RUNTIME_CACHE_MAX, ScopeWriter, type WriterHooks } from './writer.ts'
 
 /** 스냅샷 간격 상한 (AC-S04-28: 일정 이벤트 수, 최대 500) */
@@ -64,6 +65,10 @@ export interface ServerOptions {
    * 운영 서버는 켜지 않는다(늘 서버 시계의 지금 시각). PDF·PNG·전원 PDF는 이 값과 상관없이 늘 지금 시각이다
    */
   readonly receiptAtParam?: boolean
+  /** 무거운 파일 작업의 워커 풀 (기본: 프로세스에 하나 — RA-I2-003). 시험은 작은 풀을 넣을 수 있다 */
+  readonly work?: WorkPools
+  /** 자동 백업: 서버를 켠 뒤 첫 확인까지 (기본 3분, RA-I2-003) */
+  readonly backupStartDelayMs?: number
 }
 
 export interface LivejjimServer {
@@ -78,6 +83,8 @@ export interface LivejjimServer {
   readonly closing: ClosingService
   /** 매일 자동 백업 (I2 D-I2-10 — 시작은 backups.start(), 시험은 check()를 직접 부른다) */
   readonly backups: BackupScheduler
+  /** 무거운 파일 작업의 워커 풀 (확인서 그림·PDF·전원 PDF·판매대장 엑셀·.xlsx 읽기) */
+  readonly work: WorkPools
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
   /** 실시간 연결을 닫고 리허설 생성기·타이머·자동 백업 확인을 멈춘다 (DB는 닫지 않는다) */
@@ -153,8 +160,10 @@ export function createServer(options: ServerOptions): LivejjimServer {
     clock,
     log,
     ...(options.backupIntervalMs === undefined ? {} : { intervalMs: options.backupIntervalMs }),
+    ...(options.backupStartDelayMs === undefined ? {} : { startDelayMs: options.backupStartDelayMs }),
   })
-  const closing = new ClosingService({ db, writer, clock, hub, backups, log })
+  const work = options.work ?? sharedWorkPools()
+  const closing = new ClosingService({ db, writer, clock, hub, backups, log, work })
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
     api: { service, closing, auth, hub, appOrigin: options.appOrigin, clientConfig: { hostActionDelayMs }, receiptAtParam: options.receiptAtParam === true },
@@ -168,6 +177,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     viewCaches,
     closing,
     backups,
+    work,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     close: () => {
       service.generators.closeAll()

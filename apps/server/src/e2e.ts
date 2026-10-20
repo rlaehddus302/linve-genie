@@ -161,6 +161,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
   const fill = options.fill === undefined ? null : await fillScope(server, created.sellerId, options.fill)
   if (options.initialBackup !== false) await server.backups.createNow(created.sellerId, 'daily')
   server.backups.start()
+  server.work.receipts.warm()
   const http = createNodeServer({ app: server.app })
   return {
     server,

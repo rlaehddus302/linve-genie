@@ -1,8 +1,9 @@
 // AC-I2-51 상품 목록 가져오기 — 미리 보기·등록 (PRD-05, R-18, D-I2-09)
 import { listProducts } from '@livejjim/core'
+import { crc32, deflateRawSync } from 'node:zlib'
 import ExcelJS from 'exceljs'
 import { describe, expect, it } from 'vitest'
-import { IMPORT_FILE_MAX_BYTES } from '../src/import-files.ts'
+import { IMPORT_FILE_MAX_BYTES, XLSX_LIMITS, readXlsxRowsBounded, scanXlsxZip } from '../src/import-files.ts'
 import { chat, ok, post } from './i2-support.ts'
 import { addSeller, client, countRows, createBroadcast, dumpAllTables, newWorld, rid, type Seller, type TestServer } from './support.ts'
 
@@ -40,6 +41,63 @@ async function xlsx(rows: unknown[][], extra?: (sheet: ExcelJS.Worksheet, workbo
   extra?.(sheet, workbook)
   return new Uint8Array((await workbook.xlsx.writeBuffer()) as ArrayBuffer)
 }
+
+/** 손으로 만든 zip (저장·deflate) — 압축률이 큰 항목·잘린 파일처럼 엑셀이 만들지 않는 파일을 시험한다 */
+function zip(entries: { name: string; data: Buffer; store?: boolean }[]): Buffer {
+  const locals: Buffer[] = []
+  const centrals: Buffer[] = []
+  let offset = 0
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name, 'utf8')
+    const body = entry.store === true ? entry.data : deflateRawSync(entry.data)
+    const crc = crc32(entry.data)
+    const local = Buffer.alloc(30)
+    local.writeUInt32LE(0x04034b50, 0)
+    local.writeUInt16LE(20, 4)
+    local.writeUInt16LE(entry.store === true ? 0 : 8, 8)
+    local.writeUInt32LE(crc, 14)
+    local.writeUInt32LE(body.length, 18)
+    local.writeUInt32LE(entry.data.length, 22)
+    local.writeUInt16LE(name.length, 26)
+    const central = Buffer.alloc(46)
+    central.writeUInt32LE(0x02014b50, 0)
+    central.writeUInt16LE(20, 4)
+    central.writeUInt16LE(20, 6)
+    central.writeUInt16LE(entry.store === true ? 0 : 8, 10)
+    central.writeUInt32LE(crc, 16)
+    central.writeUInt32LE(body.length, 20)
+    central.writeUInt32LE(entry.data.length, 24)
+    central.writeUInt16LE(name.length, 28)
+    central.writeUInt32LE(offset, 42)
+    locals.push(local, name, body)
+    centrals.push(central, name)
+    offset += local.length + name.length + body.length
+  }
+  const directory = Buffer.concat(centrals)
+  const end = Buffer.alloc(22)
+  end.writeUInt32LE(0x06054b50, 0)
+  end.writeUInt16LE(entries.length, 8)
+  end.writeUInt16LE(entries.length, 10)
+  end.writeUInt32LE(directory.length, 12)
+  end.writeUInt32LE(offset, 16)
+  return Buffer.concat([...locals, directory, end])
+}
+
+/** 시트 XML(행들)로 .xlsx를 만든다 (엑셀이 여는 가장 작은 꾸러미) + 덧붙일 항목 */
+function rawXlsx(sheets: string[], extra: { name: string; data: Buffer }[] = []): Buffer {
+  const names = sheets.map((_, i) => `<sheet name="S${String(i + 1)}" sheetId="${String(i + 1)}" r:id="rId${String(i + 1)}"/>`).join('')
+  const rels = sheets.map((_, i) => `<Relationship Id="rId${String(i + 1)}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${String(i + 1)}.xml"/>`).join('')
+  const overrides = sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${String(i + 1)}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')
+  return zip([
+    { name: '[Content_Types].xml', data: Buffer.from(`<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${overrides}</Types>`) },
+    { name: '_rels/.rels', data: Buffer.from(`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`) },
+    { name: 'xl/workbook.xml', data: Buffer.from(`<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${names}</sheets></workbook>`) },
+    { name: 'xl/_rels/workbook.xml.rels', data: Buffer.from(`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels}</Relationships>`) },
+    ...sheets.map((rows, i) => ({ name: `xl/worksheets/sheet${String(i + 1)}.xml`, data: Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rows}</sheetData></worksheet>`) })),
+    ...extra,
+  ])
+}
+const xmlRow = (r: number, cells: [string, string][]) => `<row r="${String(r)}">${cells.map(([column, value]) => `<c r="${column}${String(r)}" t="inlineStr"><is><t>${value}</t></is></c>`).join('')}</row>`
 
 async function setup(options: { rehearsal?: boolean; settings?: Record<string, unknown> } = {}) {
   const world = await newWorld()
@@ -142,6 +200,53 @@ describe('AC-I2-51 미리 보기 (기록하지 않는다)', () => {
     const exact = await preview(world, seller, b, fileBody('ok.csv', new Uint8Array(IMPORT_FILE_MAX_BYTES).fill(0x31)))
     expect(exact.status, exact.text).toBe(200)
   })
+
+  it('RA-I2-004: .xlsx는 압축을 푼 크기·시트 수 상한 안에서만 연다 — 2MB 안의 압축 폭탄·시트 수백 개는 쉬운 문장(413), 잘린 zip은 읽지 못함', async () => {
+    const { world, seller, b } = await setup()
+    const good = rawXlsx([xmlRow(1, [['A', '15'], ['B', '핑크'], ['C', '10000']])])
+    expect(scanXlsxZip(good)).toEqual({ ok: true })
+    expect((await preview(world, seller, b, fileBody('작은.xlsx', good))).body.rows).toEqual([{ line: 1, no: 15, name: '핑크', price: 10000, text: '15\t핑크\t10000' }])
+    // 같은 글자만 반복한 큰 항목: 풀면 64MB, 압축하면 수십 KB
+    const bomb = rawXlsx([xmlRow(1, [['A', '15'], ['B', '핑크'], ['C', '10000']])], [{ name: 'xl/media/pad.bin', data: Buffer.alloc(64 * 1024 * 1024, 0x41) }])
+    expect(bomb.byteLength).toBeLessThan(IMPORT_FILE_MAX_BYTES)
+    expect(scanXlsxZip(bomb)).toEqual({ ok: false, reason: 'tooBig' })
+    const tooBig = await preview(world, seller, b, fileBody('폭탄.xlsx', bomb))
+    expect(tooBig.status).toBe(413)
+    expect(tooBig.body.error).toMatchObject({ code: 'FILE_TOO_LARGE', message: '파일 안의 내용이 너무 많아요. 번호·품종·가격 세 칸만 새 파일에 옮겨 다시 골라 주세요.' })
+    // 첫 시트가 크면(압축을 푼 시트 XML이 상한을 넘으면) 마찬가지
+    const hugeSheet = rawXlsx([`${xmlRow(1, [['A', '1'], ['B', '핑크'], ['C', '1000']])}<!--${'A'.repeat(XLSX_LIMITS.unzippedBytes)}-->`])
+    expect(hugeSheet.byteLength).toBeLessThan(IMPORT_FILE_MAX_BYTES)
+    expect(scanXlsxZip(hugeSheet)).toEqual({ ok: false, reason: 'tooBig' })
+    // 시트 수 상한
+    const sheets = rawXlsx(Array.from({ length: XLSX_LIMITS.sheets + 1 }, () => xmlRow(1, [['A', '1']])))
+    expect(scanXlsxZip(sheets)).toEqual({ ok: false, reason: 'tooBig' })
+    expect((await preview(world, seller, b, fileBody('시트많음.xlsx', sheets))).status).toBe(413)
+    // 잘린 zip·zip이 아닌 파일은 읽지 못함
+    expect(scanXlsxZip(good.subarray(0, good.byteLength - 30))).toEqual({ ok: false, reason: 'unreadable' })
+    const cut = await preview(world, seller, b, fileBody('잘림.xlsx', good.subarray(0, 200)))
+    expect(cut.body.error).toMatchObject({ code: 'FILE_UNREADABLE', message: '파일을 읽지 못했어요. 엑셀에서 다시 저장해 주세요.' })
+    // 판정은 그대로 된다 (서버가 멈추거나 죽지 않았다)
+    expect((await register(world, seller, b, [{ no: 15, name: '핑크', price: 10000 }])).status).toBe(200)
+  }, 120_000)
+
+  it('RA-I2-004: 칸은 32칸까지만 글로 만들고(그 뒤 글은 하나만 — 결과 CELLS는 같다), 상품 줄 500을 넘는 것이 확실하면 더 읽지 않는다(TOO_MANY)', async () => {
+    const { world, seller, b } = await setup()
+    // 둘째 행: 맨 끝 열(XFD)에 글 — 칸 16384개를 만들지 않고 CELLS
+    const wide = rawXlsx([xmlRow(1, [['A', '15'], ['B', '핑크'], ['C', '10000']]) + xmlRow(2, [['A', '16'], ['B', '라울'], ['C', '8000'], ['XFD', '메모']]) + xmlRow(3, [['A', '17'], ['B', '로라'], ['C', '9000']])])
+    const read = await readXlsxRowsBounded(wide)
+    expect(read.ok && read.rows.map((row) => row.cells.length)).toEqual([3, XLSX_LIMITS.columns + 1, 3])
+    const shown = await preview(world, seller, b, fileBody('넓음.xlsx', wide))
+    expect((shown.body.rows as { line: number; error?: string }[]).map((row) => [row.line, row.error ?? null])).toEqual([
+      [1, null],
+      [2, 'CELLS'],
+      [3, null],
+    ])
+    // 1만 행 — 502행만 읽고 TOO_MANY
+    const many = rawXlsx([Array.from({ length: 10_000 }, (_, i) => xmlRow(i + 1, [['A', String(i + 1)], ['B', '핑크'], ['C', '1000']])).join('')])
+    const manyRead = await readXlsxRowsBounded(many)
+    expect(manyRead.ok && manyRead.rows.length).toBe(XLSX_LIMITS.rows)
+    expect((await preview(world, seller, b, fileBody('많음.xlsx', many))).body).toMatchObject({ error: 'TOO_MANY', rows: [] })
+  }, 120_000)
 
   it('끝난 방송 → "끝난 방송에는 상품 목록을 가져올 수 없어요."(미리 보기·등록), 리허설 방송은 된다, 없는 방송·다른 판매자의 방송 → 404', async () => {
     const { world, seller, b } = await setup()

@@ -441,19 +441,19 @@ export function createApi(deps: ApiDeps): Hono<Env> {
       if (!scope.ok) return scope.response
       const buyer = buyerParam(c.req.query('buyer'))
       if (!buyer.ok) return problemResponse(buyer.error)
-      return fileOf(await closing.receiptFile(sellerOf(c), scope.date, scope.rehearsal, buyer.buyer, kind))
+      return fileOf(await closing.receiptFile(sellerOf(c), scope.date, scope.rehearsal, buyer.buyer, kind, c.req.raw.signal))
     })
   }
   api.get('/days/:date/receipts.pdf', async (c) => {
     const scope = scopeParams(c)
     if (!scope.ok) return scope.response
-    return fileOf(await closing.batchPdf(sellerOf(c), scope.date, scope.rehearsal))
+    return fileOf(await closing.batchPdf(sellerOf(c), scope.date, scope.rehearsal, c.req.raw.signal))
   })
 
   // 판매대장 (AC-I2-20): ?from=&to=&b=<방송 ID>&b=… (b가 없으면 기간 안 모든 실제 방송)
   api.get('/ledger.xlsx', async (c) => {
     const picked = c.req.queries('b')
-    return fileOf(await closing.ledger(sellerOf(c), c.req.query('from'), c.req.query('to'), picked === undefined ? null : picked))
+    return fileOf(await closing.ledger(sellerOf(c), c.req.query('from'), c.req.query('to'), picked === undefined ? null : picked, c.req.raw.signal))
   })
 
   // 포장·배송 (AC-I2-30~32)
@@ -531,7 +531,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
 
   // 상품 목록 가져오기 (AC-I2-51): 미리 보기(기록하지 않음)·등록(한 트랜잭션)
   api.post('/broadcasts/:id/import/preview', async (c) => {
-    const outcome = await closing.importPreview(sellerOf(c), c.req.param('id'), body(c))
+    const outcome = await closing.importPreview(sellerOf(c), c.req.param('id'), body(c), c.req.raw.signal)
     if (outcome.kind === 'not_found') return notFound()
     if (outcome.kind === 'error') return problemResponse(outcome.error)
     return c.json(outcome.value)
@@ -551,7 +551,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   // 백업 상태·전체 내려받기 (AC-I2-61·64) — 백업 파일 내용을 내려받는 API는 없다
   api.get('/backups', async (c) => c.json(await closing.backupStatus(sellerOf(c))))
   api.get('/export/records.json.gz', async (c) => fileOf(await closing.exportRecords(sellerOf(c))))
-  api.get('/export/ledger.xlsx', async (c) => fileOf(await closing.exportLedger(sellerOf(c))))
+  api.get('/export/ledger.xlsx', async (c) => fileOf(await closing.exportLedger(sellerOf(c), c.req.raw.signal)))
 
   // ── 실시간 (AC-S04-60) ────────────────────────────────────────────────
   api.get('/stream', async (c) => {

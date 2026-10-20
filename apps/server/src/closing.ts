@@ -3,8 +3,8 @@
 // - 가게 설정, 확인서(데이터·PDF·PNG·전원 PDF), 판매대장 엑셀, 포장·배송(상태·명령·라벨), 지난 구매, 상품 목록 가져오기(미리 보기·등록), 백업 상태, 전체 내려받기.
 // - 판매자 ID 조건은 늘 세션의 판매자다. 없는 범위·다른 판매자의 자원은 404(있는지 드러내지 않는다).
 // - 문서·파일 내용, 파일 이름, 송장번호, 가게 설정 값, 가져오기 글은 로그에 남기지 않는다(로그는 정해진 코드·날짜뿐).
-import { containsPhoneRun, currentBuyerOf, getBroadcast, getBuyer, isValidDate, listProducts, looksLikePhoneId, normalizeText, type EngineState } from '@livejjim/core'
-import { buildLedger, buildReceipt, ledgerToXlsx, renderBatchPdf, renderReceiptPdf, renderReceiptPng, type ReceiptData } from '@livejjim/documents'
+import { containsPhoneRun, currentBuyerOf, getBroadcast, getBuyer, isValidDate, listBroadcasts, listProducts, looksLikePhoneId, normalizeText, type EngineState } from '@livejjim/core'
+import { buildLedger, buildReceipt, buildReceipts, type LedgerRow, type ReceiptData } from '@livejjim/documents'
 import type { PackingLabelData } from '@livejjim/label'
 import { and, asc, eq, gte, sql } from 'drizzle-orm'
 import { hasControlChar, isPlainObject, own, ownKeys } from './api-fields.ts'
@@ -14,7 +14,7 @@ import { events, packingRecords } from './db/schema.ts'
 import type { ErrorCode, FieldProblem } from './errors.ts'
 import { MIME, documentFont, fileNamePart } from './files.ts'
 import type { StreamHub } from './hub.ts'
-import { IMPORT_FILE_MAX_BYTES, IMPORT_FILE_MESSAGES, IMPORT_TEXT_MAX_CHARS, decodeTextFile, importFileKind, readXlsxRows } from './import-files.ts'
+import { IMPORT_FILE_MAX_BYTES, IMPORT_FILE_MESSAGES, IMPORT_TEXT_MAX_CHARS, decodeTextFile, importFileKind, type XlsxReadResult } from './import-files.ts'
 import type { LogSink } from './log.ts'
 import { phoneIdProblem, unknownFieldProblems } from './messages.ts'
 import {
@@ -44,6 +44,7 @@ import type { ScopeRuntime } from './runtime.ts'
 import { checkShopInput, documentShop, readShop, writeShop, type ShopView } from './shop.ts'
 import { findBroadcast, listBroadcastRows, scopeSeqs } from './store.ts'
 import { kstDate, type Clock } from './time.ts'
+import { WorkBusy, WorkFailed, type WorkPools } from './work-pool.ts'
 import type { Actor, Rejection, ScopeWriter, WriteOutcome } from './writer.ts'
 
 export interface ClosingDeps {
@@ -53,6 +54,8 @@ export interface ClosingDeps {
   readonly hub: StreamHub
   readonly backups: BackupScheduler
   readonly log: LogSink
+  /** 무거운 파일 작업을 맡길 워커 풀 (RA-I2-003 — 확인서 그림·PDF·전원 PDF·판매대장 엑셀·.xlsx 읽기는 판정과 다른 스레드에서) */
+  readonly work: WorkPools
 }
 
 /** 화면에 돌려줄 오류 (쉬운 문장 — 받은 값은 담지 않는다) */
@@ -95,7 +98,17 @@ export const LABEL_NO_ITEMS_MESSAGE = '담을 상품이 없어 포장 라벨을 
 export const LABEL_FAILED_MESSAGE = '포장 라벨을 만들지 못했어요. 고객센터에 알려 주세요.'
 export const IMPORT_ENDED_MESSAGE = '끝난 방송에는 상품 목록을 가져올 수 없어요.'
 export const IMPORT_CHANGED_MESSAGE = '그 사이에 바뀐 것이 있어요. 다시 확인해 주세요.'
+/** 그 판매자의 파일 작업이 밀려 있음 (판매자마다 동시 작업 상한·줄 길이 상한 — RA-I2-003) */
+export const WORK_BUSY_MESSAGE = '지금 다른 파일을 만들고 있어요. 잠시 뒤 다시 눌러 주세요.'
+/** 워커가 파일을 만들지 못함 (시간·메모리 상한 등) */
+export const WORK_FAILED_MESSAGE = '파일을 만들지 못했어요. 잠시 뒤 다시 눌러 주세요.'
 const BUYER_ID_MAX = 128
+
+/** 요청이 끊기면 아직 시작하지 않은 작업을 뺀다 */
+const signalOf = (signal: AbortSignal | undefined): { signal?: AbortSignal } => (signal === undefined ? {} : { signal })
+
+/** 범위 상태의 방송 ID (선언 순) */
+const listBroadcastIds = (state: EngineState): string[] => listBroadcasts(state).map((broadcast) => broadcast.id)
 
 /** 'YYYY-MM-DD' 두 날짜 사이의 날 수 (둘 다 포함) */
 function daysBetween(from: string, to: string): number {
@@ -117,6 +130,8 @@ export function buyerParam(value: string | undefined): { ok: true; buyer: string
 
 export class ClosingService {
   readonly #deps: ClosingDeps
+  /** 전체 기록을 만드는 중인 판매자 */
+  readonly #exporting = new Set<string>()
 
   constructor(deps: ClosingDeps) {
     this.#deps = deps
@@ -172,12 +187,17 @@ export class ClosingService {
   }
 
   /** 한 사람 확인서 PDF·PNG (같은 확인서 데이터·같은 내장 글꼴). 이름 D-I2-01 */
-  async receiptFile(sellerId: string, date: string, rehearsal: boolean, buyer: string, kind: 'pdf' | 'png'): Promise<Outcome<FileResult>> {
+  async receiptFile(sellerId: string, date: string, rehearsal: boolean, buyer: string, kind: 'pdf' | 'png', signal?: AbortSignal): Promise<Outcome<FileResult>> {
     const outcome = await this.receipt(sellerId, date, rehearsal, buyer)
     if (outcome.kind !== 'ok') return outcome
     const { receipt, createdAt } = outcome.value
     const font = documentFont()
-    const bytes = kind === 'pdf' ? await renderReceiptPdf(receipt, font) : renderReceiptPng(receipt, font)
+    // 그리기는 작업 워커에서 (같은 확인서 데이터·같은 내장 글꼴 — 바이트가 같다, AC-I2-15)
+    const rendered = await this.#work(sellerId, date, () =>
+      kind === 'pdf' ? this.#deps.work.receipts.run<Uint8Array>(sellerId, 'receiptPdf', { receipts: [receipt] }, signalOf(signal)) : this.#deps.work.receipts.run<Uint8Array>(sellerId, 'receiptPng', { receipt }, signalOf(signal)),
+    )
+    if (rendered.kind !== 'ok') return rendered
+    const bytes = rendered.value
     const prefix = rehearsal ? '리허설-' : ''
     return ok({
       bytes,
@@ -189,16 +209,21 @@ export class ClosingService {
     })
   }
 
-  /** 전원 확인서 PDF (renderBatchPdf — 찍힌 이름 순, 구매자마다 새 쪽). 이름 `확인서-YYYY-MM-DD-전원.pdf` */
-  async batchPdf(sellerId: string, date: string, rehearsal: boolean): Promise<Outcome<FileResult>> {
+  /**
+   * 전원 확인서 PDF (문서 패키지 renderBatchPdf와 같은 결과 — buildReceipts(찍힌 이름 순) → renderReceiptsPdf, 구매자마다 새 쪽). 이름 `확인서-YYYY-MM-DD-전원.pdf`.
+   * 확인서 데이터는 여기서 만들고(범위 상태를 워커로 복제하지 않는다) PDF 그리기만 작업 워커에서 한다
+   */
+  async batchPdf(sellerId: string, date: string, rehearsal: boolean, signal?: AbortSignal): Promise<Outcome<FileResult>> {
     const runtime = await this.#scope(sellerId, date, rehearsal)
     if (runtime === null) return NOT_FOUND
     const shop = documentShop(await readShop(this.#deps.db, sellerId))
     const createdAt = this.#deps.clock.now()
-    const result = await renderBatchPdf({ state: runtime.state, date, shop, rehearsal, createdAt }, documentFont())
+    const result = buildReceipts({ state: runtime.state, date, shop, rehearsal, createdAt }, documentFont())
     if (!result.ok) return this.#receiptError(date, result.error.code, result.error.message)
+    const rendered = await this.#work(sellerId, date, () => this.#deps.work.documents.run<Uint8Array>(sellerId, 'receiptPdf', { receipts: result.receipts }, signalOf(signal)))
+    if (rendered.kind !== 'ok') return rendered
     return ok({
-      bytes: result.pdf,
+      bytes: rendered.value,
       type: MIME.pdf,
       fileName: `${rehearsal ? '리허설-' : ''}확인서-${date}-전원.pdf`,
       fallback: `${rehearsal ? 'rehearsal-' : ''}receipts-${date}-all.pdf`,
@@ -208,36 +233,58 @@ export class ClosingService {
 
   // ── 판매대장 (AC-I2-20·21·33) ──────────────────────────────────────────
 
-  /** 실제 범위들의 대장 엑셀 (배송 칸 = 그 묶음의 포장·배송 상태 말) */
-  async #ledgerFile(sellerId: string, dates: readonly string[], from: string, to: string, selected: readonly string[] | null): Promise<Uint8Array> {
-    const scopeList: { state: EngineState; rehearsal: false }[] = []
-    const words = new Map<string, Map<string, { readonly status: PackingWord; readonly invoice: string | null }>>()
+  /**
+   * 실제 범위들의 대장 행 — 날짜마다 그 범위 하나로 buildLedger (배송 칸 = 그 묶음의 포장·배송 상태 말).
+   * 범위마다 방송 날짜 = 범위 날짜라, 날짜 순으로 이어 붙인 행 = 여러 범위를 한 번에 넘긴 buildLedger의 행(방송 날짜 → 선언 순 → 번호 → 확정 순)이다.
+   * 범위 상태를 한꺼번에 메모리에 두지 않고, 날짜 사이마다 이벤트 루프에 차례를 넘긴다 (RA-I2-003)
+   */
+  async *#ledgerRows(sellerId: string, dates: readonly string[], from: string, to: string, selected: readonly string[] | null): AsyncGenerator<LedgerRow[]> {
     for (const date of dates) {
       const runtime = await this.#deps.writer.read(sellerId, date, false)
       if (runtime.seq === 0 || runtime.scopeId === null) continue
       const { state, scopeId } = runtime
-      scopeList.push({ state, rehearsal: false })
-      words.set(date, packingStatusByBuyer(state, date, await packingRows(this.#deps.db, sellerId, scopeId)))
+      const words: Map<string, { readonly status: PackingWord; readonly invoice: string | null }> = packingStatusByBuyer(state, date, await packingRows(this.#deps.db, sellerId, scopeId))
+      const own = selected === null ? null : listBroadcastIds(state).filter((id) => selected.includes(id))
+      if (own !== null && own.length === 0) continue
+      const result = buildLedger({
+        scopes: [{ state, rehearsal: false }],
+        from,
+        to,
+        broadcasts: own,
+        shipping: (buyer) => {
+          const word = words.get(buyer)
+          return word === undefined ? '포장 대기' : ledgerShippingWord(word.status, word.invoice)
+        },
+      })
+      if (!result.ok) throw new Error('대장 행을 만들지 못했다')
+      yield [...result.rows]
     }
-    const result = buildLedger({
-      scopes: scopeList,
-      from,
-      to,
-      broadcasts: selected,
-      shipping: (buyer, date) => {
-        const word = words.get(date)?.get(buyer)
-        return word === undefined ? '포장 대기' : ledgerShippingWord(word.status, word.invoice)
-      },
-    })
-    if (!result.ok) throw new Error('대장 행을 만들지 못했다')
-    return ledgerToXlsx(result.rows)
+  }
+
+  /** 대장 엑셀 바이트 (엑셀 쓰기는 작업 워커에서 — 행은 날짜마다 조각으로 보낸다) */
+  #ledgerFile(sellerId: string, dates: readonly string[], from: string, to: string, selected: readonly string[] | null, signal?: AbortSignal): Promise<Outcome<Uint8Array>> {
+    return this.#work(sellerId, to, () => this.#deps.work.documents.run<Uint8Array>(sellerId, 'ledgerXlsx', null, { chunks: this.#ledgerRows(sellerId, dates, from, to, selected), ...signalOf(signal) }))
+  }
+
+  /** 작업 워커에 맡기기: 밀려 있으면 429(쉬운 문장), 워커가 못 끝내면 500(경보 — 판매자 ID·까닭 종류·날짜만) */
+  async #work<T>(sellerId: string, date: string | null, task: () => Promise<T>): Promise<Outcome<T>> {
+    try {
+      return ok(await task())
+    } catch (error) {
+      if (error instanceof WorkBusy) return problem(429, 'BUSY', WORK_BUSY_MESSAGE)
+      if (error instanceof WorkFailed) {
+        this.#deps.log({ level: error.reason === 'aborted' ? 'info' : 'error', code: 'DOCUMENT_WORK_FAILED', seller: sellerId, ...(date === null ? {} : { date }), errorKind: error.reason })
+        return problem(500, 'FILE_FAILED', WORK_FAILED_MESSAGE)
+      }
+      throw error
+    }
   }
 
   /**
    * 판매대장 엑셀 (D-I2-03): 기간(시작·끝 포함, 366일까지)과 고른 방송(없으면 전부). 그 판매자의 실제 범위만 읽는다.
    * 고른 방송이 기간 안 그 판매자의 실제 방송이 아니면(없는 것·남의 것·리허설·기간 밖) 모두 같은 문장
    */
-  async ledger(sellerId: string, from: string | undefined, to: string | undefined, selected: readonly string[] | null): Promise<Outcome<FileResult>> {
+  async ledger(sellerId: string, from: string | undefined, to: string | undefined, selected: readonly string[] | null, signal?: AbortSignal): Promise<Outcome<FileResult>> {
     const problems: FieldProblem[] = []
     if (from === undefined || !isValidDate(from)) problems.push({ field: 'from', message: LEDGER_MESSAGES.date })
     if (to === undefined || !isValidDate(to)) problems.push({ field: 'to', message: LEDGER_MESSAGES.date })
@@ -250,20 +297,23 @@ export class ClosingService {
     if (real.length === 0) return problem(422, 'NO_BROADCASTS', LEDGER_MESSAGES.empty)
     const picked = selected === null ? real : real.filter((row) => selected.includes(row.id))
     const dates = [...new Set(picked.map((row) => row.date))].sort()
-    const bytes = await this.#ledgerFile(sellerId, dates, from, to, selected)
+    const file = await this.#ledgerFile(sellerId, dates, from, to, selected, signal)
+    if (file.kind !== 'ok') return file
     const span = from === to ? from : `${from}-${to}`
-    return ok({ bytes, type: MIME.xlsx, fileName: `판매대장-${span}.xlsx`, fallback: `ledger-${span}.xlsx` })
+    return ok({ bytes: file.value, type: MIME.xlsx, fileName: `판매대장-${span}.xlsx`, fallback: `ledger-${span}.xlsx` })
   }
 
   // ── 전체 내려받기 (AC-I2-64) ───────────────────────────────────────────
 
   /** 실제 범위 전체 기간의 판매대장 (366일 상한 없음). 실제 범위가 없으면 파일 없이 */
-  async exportLedger(sellerId: string): Promise<Outcome<FileResult>> {
+  async exportLedger(sellerId: string, signal?: AbortSignal): Promise<Outcome<FileResult>> {
     const dates = (await scopeSeqs(this.#deps.db, sellerId, false)).map((row) => row.date).sort()
     const first = dates[0]
     const last = dates.at(-1)
     if (first === undefined || last === undefined) return problem(422, 'NO_RECORDS', NO_RECORDS_MESSAGE)
-    const bytes = await this.#ledgerFile(sellerId, dates, first, last, null)
+    const file = await this.#ledgerFile(sellerId, dates, first, last, null, signal)
+    if (file.kind !== 'ok') return file
+    const bytes = file.value
     const today = kstDate(this.#deps.clock.now())
     return ok({ bytes, type: MIME.xlsx, fileName: `라이브찜-판매대장-전체-${today}.xlsx`, fallback: `livejjim-ledger-all-${today}.xlsx` })
   }
@@ -271,8 +321,16 @@ export class ClosingService {
   /** 판매자 전체 기록 JSON (백업과 같은 형식, gzip — D-I2-12). 기록이 없어도 빈 기록으로 만든다 */
   async exportRecords(sellerId: string): Promise<Outcome<FileResult>> {
     const now = this.#deps.clock.now()
-    // 글 조각을 gzip 스트림에 이어 쓴다 — 전체 역사를 글 하나로 만들지 않고, 이벤트 묶음 사이에 판정 요청이 끼어든다 (RA-I2-003·005)
-    const bytes = await createBackupBytes(this.#deps.db, sellerId, now)
+    // 판매자마다 한 번에 하나 (같은 판매자가 여러 번 눌러도 서버 일이 쌓이지 않게 — RA-I2-003)
+    if (this.#exporting.has(sellerId)) return problem(429, 'BUSY', WORK_BUSY_MESSAGE)
+    this.#exporting.add(sellerId)
+    let bytes: Uint8Array
+    try {
+      // 글 조각을 gzip 스트림에 이어 쓴다 — 전체 역사를 글 하나로 만들지 않고, 이벤트 묶음 사이에 판정 요청이 끼어든다 (RA-I2-003·005)
+      bytes = await createBackupBytes(this.#deps.db, sellerId, now)
+    } finally {
+      this.#exporting.delete(sellerId)
+    }
     const today = kstDate(now)
     return ok({ bytes, type: MIME.gzip, fileName: `라이브찜-전체기록-${today}.json.gz`, fallback: `livejjim-records-${today}.json.gz` })
   }
@@ -446,8 +504,8 @@ export class ClosingService {
     }
   }
 
-  /** 미리 보기 본문: { text } 또는 { file: { name, data(base64) } } 하나 */
-  static async importSource(body: Record<string, unknown>): Promise<{ ok: true; kind: 'text'; text: string; lines: Map<number, string> } | { ok: true; kind: 'rows'; rows: { line: number; cells: string[] }[] } | { ok: false; error: ApiProblem }> {
+  /** 미리 보기 본문: { text } 또는 { file: { name, data(base64) } } 하나. .xlsx는 작업 워커가 상한을 걸고 읽는다 (RA-I2-004) */
+  async #importSource(sellerId: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<{ ok: true; kind: 'text'; text: string; lines: Map<number, string> } | { ok: true; kind: 'rows'; rows: { line: number; cells: string[] }[] } | { ok: false; error: ApiProblem }> {
     const extra = ownKeys(body).filter((key) => key !== 'text' && key !== 'file')
     if (extra.length > 0) return { ok: false, error: { status: 400, code: 'UNKNOWN_FIELD', message: '받을 수 없는 항목이 있어요.', problems: unknownFieldProblems(extra) } }
     const text = own(body, 'text')
@@ -476,8 +534,11 @@ export class ClosingService {
       const decoded = decodeTextFile(bytes)
       return { ok: true, kind: 'text', text: decoded, lines: new Map(splitImportLines(decoded).map((line) => [line.line, line.text])) }
     }
-    const read = await readXlsxRows(bytes)
-    if (!read.ok && read.reason === 'tooLong') {
+    const worked = await this.#work(sellerId, null, () => this.#deps.work.sheets.run<XlsxReadResult>(sellerId, 'xlsxRows', { bytes }, { transfer: [bytes.buffer as ArrayBuffer], ...signalOf(signal) }))
+    if (worked.kind === 'error' && worked.error.code === 'BUSY') return { ok: false, error: worked.error }
+    // 워커가 시간·메모리 상한에 걸렸으면 읽지 못한 파일이다
+    const read: XlsxReadResult = worked.kind === 'ok' ? worked.value : { ok: false, reason: 'unreadable' }
+    if (!read.ok && (read.reason === 'tooLong' || read.reason === 'tooBig')) {
       return { ok: false, error: { status: 413, code: 'FILE_TOO_LARGE', message: IMPORT_FILE_MESSAGES.sheetTooLong, problems: [{ field: 'file', message: IMPORT_FILE_MESSAGES.sheetTooLong }] } }
     }
     if (!read.ok) return { ok: false, error: { status: 400, code: 'FILE_UNREADABLE', message: IMPORT_FILE_MESSAGES.unreadable, problems: [{ field: 'file', message: IMPORT_FILE_MESSAGES.unreadable }] } }
@@ -485,11 +546,11 @@ export class ClosingService {
   }
 
   /** 미리 보기 (기록하지 않는다): R-18 결과 + 줄마다 원래 줄 글 + 등록할 줄 수·문제 줄 수 */
-  async importPreview(sellerId: string, b: string, body: Record<string, unknown>): Promise<Outcome<ImportPreview>> {
+  async importPreview(sellerId: string, b: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<Outcome<ImportPreview>> {
     const target = await this.#importTarget(sellerId, b)
     if (target === null) return NOT_FOUND
     if (target === 'ended') return problem(409, 'BROADCAST_ENDED', IMPORT_ENDED_MESSAGE)
-    const source = await ClosingService.importSource(body)
+    const source = await this.#importSource(sellerId, body, signal)
     if (!source.ok) return { kind: 'error', error: source.error }
     const settings = { unit: target.unit, maxNumber: target.maxNumber, existing: target.existing }
     const result: ImportResult = source.kind === 'text' ? parseProductList(source.text, settings) : parseProductRows(source.rows, settings)

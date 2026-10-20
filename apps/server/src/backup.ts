@@ -881,11 +881,14 @@ export interface BackupSchedulerOptions {
   readonly clock: Clock
   readonly log: LogSink
   readonly intervalMs?: number
+  /** 켠 뒤 첫 확인까지 (기본 BACKUP_START_DELAY_MS) */
+  readonly startDelayMs?: number
 }
 
 export class BackupScheduler {
   readonly #options: BackupSchedulerOptions
   #timer: ReturnType<typeof setInterval> | null = null
+  #first: ReturnType<typeof setTimeout> | null = null
   #running: Promise<unknown> | null = null
 
   constructor(options: BackupSchedulerOptions) {
@@ -900,20 +903,26 @@ export class BackupScheduler {
     return this.#options.storage
   }
 
-  /** 켤 때 한 번, 그 뒤 주기마다 확인한다. 저장소가 없으면 시작 경보만 남긴다(판매는 그대로) */
+  /**
+   * 켠 뒤 잠시(startDelayMs, 기본 3분) 기다렸다 한 번, 그 뒤 주기마다 확인한다 — 판매 중에 다시 켜도 켜자마자 모든 판매자의 백업을 몰아 만들지 않는다(RA-I2-003).
+   * 저장소가 없으면 시작 경보만 남긴다(판매는 그대로)
+   */
   start(): void {
     if (this.#options.storage === null) {
       this.#options.log({ level: 'warn', code: 'BACKUP_DISABLED' })
       return
     }
     if (this.#timer !== null) return
-    void this.check()
+    this.#first = setTimeout(() => void this.check(), this.#options.startDelayMs ?? BACKUP_START_DELAY_MS)
+    this.#first.unref?.()
     this.#timer = setInterval(() => void this.check(), this.#options.intervalMs ?? BACKUP_CHECK_INTERVAL_MS)
     this.#timer.unref?.()
   }
 
   stop(): void {
+    if (this.#first !== null) clearTimeout(this.#first)
     if (this.#timer !== null) clearInterval(this.#timer)
+    this.#first = null
     this.#timer = null
   }
 

@@ -36,6 +36,7 @@ export type LogCode =
   | 'BACKUP_DISABLED'
   | 'BACKUP_FAILED'
   | 'BACKUP_PRUNE_FAILED'
+  | 'DOCUMENT_WORK_FAILED'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -55,6 +56,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   BACKUP_DISABLED: '백업 저장소가 정해지지 않아 자동 백업이 꺼져 있어요',
   BACKUP_FAILED: '판매자 백업을 만들지 못했어요(다음 확인 때 다시 해요)',
   BACKUP_PRUNE_FAILED: '오래된 백업을 지우지 못했어요(다음 확인 때 다시 해요)',
+  DOCUMENT_WORK_FAILED: '파일 작업 워커가 일을 끝내지 못했어요(시간·메모리 상한·끊긴 요청 등 — 서버 판정은 그대로)',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */

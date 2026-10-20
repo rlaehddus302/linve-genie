@@ -46,6 +46,8 @@ export type ErrorCode =
   | 'FILE_TYPE'
   | 'FILE_UNREADABLE'
   | 'NO_RECORDS'
+  | 'BUSY'
+  | 'FILE_FAILED'
 
 export interface ErrorBody {
   readonly error: {
