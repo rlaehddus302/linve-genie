@@ -5,6 +5,7 @@
 // - 시험 조작: 채널·브랜드 채널·방송(진행 중·예정·끝남, 채팅 꺼짐) 만들기, 예정 방송 시작하기, 시청자 메시지·슈퍼챗·멤버십 축하·삭제·차단 넣기, 채팅 끝내기,
 //   오류 넣기(5xx·429·rateLimitExceeded·quotaExceeded·응답 없음·게시는 받고 응답 없음·스트림 중간 끊김·pageTokenInvalid·invalid_grant·liveChatEnded),
 //   스트림이 응답 하나만 주고 닫히기(streamOnce), 게시한 글을 조회(list)에 늦게 보이기(postsHiddenForMs),
+//   지점 없는 요청(list·streamList)은 실제 API처럼 최근 메시지(backlogSize개)부터 주고, 스트림은 연결하면 첫 응답 묶음(새 메시지가 없으면 빈 묶음)을 바로 쓴다,
 //   게시된 메시지·댓글·호출 횟수·호출 시각 보기. 우리 채널이 게시한 메시지는 그 채팅에 작성자 = 우리 채널로 다시 나온다(AC-Y1-26).
 // - 같은 프로세스의 시험은 메서드로, 다른 프로세스(E2E·화면 시험)는 /_fake/* JSON 경로로 조작한다(dev-notes "화면(I3)에게").
 import { createHash, randomBytes } from 'node:crypto'
@@ -136,6 +137,8 @@ export interface FakeOptions {
   readonly pollingIntervalMillis?: number
   /** 한 응답에 담는 메시지 수 (기본 200) */
   readonly pageSize?: number
+  /** 지점 없는 요청이 돌려주는 최근 메시지 수 (기본 2000) — 실제 API처럼 채팅 처음부터가 아니라 최근 것부터 준다 (RA-I3-001) */
+  readonly backlogSize?: number
   /** 포트 (기본 0 = 빈 포트) */
   readonly port?: number
 }
@@ -205,6 +208,10 @@ export class FakeGoogle {
   #url = ''
   pollingIntervalMillis: number
   pageSize: number
+  /** 지점 없는 요청(list·streamList)이 돌려주는 최근 메시지 수 — 채팅이 이보다 길면 앞부분은 지점 없이 볼 수 없다 (실제 API, RA-I3-001) */
+  backlogSize: number
+  /** 스트림을 열면 새 메시지가 없어도 첫 응답 묶음(빈 items·nextPageToken)을 바로 쓴다 (실제 streamList, 기본 켬 — 끄면 메시지가 올 때까지 묶음 없음, AC-I3-24) */
+  streamGreeting = true
 
   readonly #accounts: string[] = []
   readonly #channels = new Map<string, FakeChannel>()
@@ -241,6 +248,7 @@ export class FakeGoogle {
     this.#expiresIn = options.expiresIn ?? 3600
     this.pollingIntervalMillis = options.pollingIntervalMillis ?? 1000
     this.pageSize = options.pageSize ?? 200
+    this.backlogSize = options.backlogSize ?? 2000
     this.#events.setMaxListeners(0)
     this.#server = createServer((req, res) => {
       this.#handle(req, res).catch(() => {
@@ -759,9 +767,9 @@ export class FakeGoogle {
     json(res, 200, { kind: 'youtube#videoListResponse', items })
   }
 
-  /** 지점(pageToken) → 메시지 위치. 형식이 틀리면 null (pageTokenInvalid) */
+  /** 지점(pageToken) → 메시지 위치. 지점이 없으면 최근 backlogSize개의 처음(실제 API — 채팅 처음이 아니다). 형식이 틀리면 null (pageTokenInvalid) */
   #position(chat: Chat, token: string | null): number | null {
-    if (token === null || token === '') return 0
+    if (token === null || token === '') return Math.max(0, chat.messages.length - Math.max(0, this.backlogSize))
     const match = /^p(\d{1,9})$/.exec(token)
     if (match === null) return null
     const index = Number(match[1])
@@ -888,10 +896,12 @@ export class FakeGoogle {
           this.#endedSent.add(`${chat.id}|${String(position)}`)
           break
         }
-        if (this.streamOnce) {
-          // 응답 하나만: 새 메시지가 없으면 빈 응답을 주고 닫는다
+        if (this.streamOnce || (first && this.streamGreeting && !cut)) {
+          // 새 메시지가 없다: 연결 직후의 첫 응답은 빈 묶음(실제 streamList), 응답 하나만이면 빈 응답을 주고 닫는다
           res.write(`${first ? '' : ',\n'}${JSON.stringify({ kind: 'youtube#liveChatMessageListResponse', nextPageToken: `p${String(position)}`, items: [] })}`)
-          break
+          first = false
+          if (this.streamOnce) break
+          continue
         }
         await new Promise<void>((resolve) => wake.once('wake', () => resolve()))
       }
@@ -1025,6 +1035,8 @@ export class FakeGoogle {
           if (typeof input.pollingIntervalMillis === 'number') this.pollingIntervalMillis = input.pollingIntervalMillis
           if (typeof input.streamOnce === 'boolean') this.streamOnce = input.streamOnce
           if (typeof input.postsHiddenForMs === 'number') this.postsHiddenForMs = input.postsHiddenForMs
+          if (typeof input.backlogSize === 'number') this.backlogSize = input.backlogSize
+          if (typeof input.streamGreeting === 'boolean') this.streamGreeting = input.streamGreeting
           return json(res, 200, { ok: true })
         case 'POST /_fake/fail': {
           const fault = input.fault as FakeFault

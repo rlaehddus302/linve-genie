@@ -3,7 +3,7 @@
 import { applyEvent, getProduct, initEngine, listClaims, type EngineEvent, type EngineState } from '@livejjim/core'
 import { afterEach, describe, expect, it } from 'vitest'
 import { checkReplay } from '../src/check-replay.ts'
-import { MERGED_BODY, RAW_JOIN, client, expectOk, writeEvent } from './support.ts'
+import { MERGED_BODY, RAW_JOIN, client, createBroadcast, expectOk, writeEvent } from './support.ts'
 import { connectSeller, linkedBroadcast, sibling, until, youtubeWorld, type YoutubeWorld } from './youtube-support.ts'
 
 const worlds: YoutubeWorld[] = []
@@ -184,6 +184,58 @@ describe('AC-Y1-23 이어받기 — 누락·중복 없음', () => {
     expect(w.fake.calls('liveChatMessages.streamList')).toBeGreaterThanOrEqual(7)
     expect(await collector(w, connected.seller.cookie, b.id)).toMatchObject({ recorded: 2000 })
   }, 120_000)
+})
+
+describe('AC-I3-24·TE-I3-001 조용한 채팅 — 스트림이 열리면 채팅을 받는 중', () => {
+  /** 그 판매자에게 보낸 유튜브 알림(SSE)을 모은다 */
+  function watchYoutube(w: YoutubeWorld): Record<string, unknown>[] {
+    const seen: Record<string, unknown>[] = []
+    const hub = w.server.hub
+    const original = hub.publishYoutube.bind(hub)
+    hub.publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => {
+      seen.push({ ...data })
+      original(sellerId, data)
+    }
+    return seen
+  }
+
+  it('채팅이 하나도 없는 라이브: 가짜가 첫 응답 묶음을 쓰지 않아도 스트림이 열리면 LIVE("채팅을 받는 중") + collector 알림, 받은 채팅 0개. 끊긴 뒤 다시 열려도(여전히 조용) LIVE', async () => {
+    const w = await world()
+    // 수집기 몫만 본다: 새 메시지가 없으면 스트림에 응답 묶음이 하나도 오지 않는다
+    w.fake.streamGreeting = false
+    const connected = await connectSeller(w)
+    const { b, liveChatId } = await linkedBroadcast(w, connected)
+    const seen = watchYoutube(w)
+    w.server.youtube?.collectors.start()
+    await until(w, async () => (await collector(w, connected.seller.cookie, b.id)).status === 'LIVE')
+    expect(await collector(w, connected.seller.cookie, b.id)).toMatchObject({ status: 'LIVE', statusMessage: '채팅을 받는 중', reason: null, recorded: 0, lastMessageAt: null, mode: 'STREAM' })
+    expect(w.fake.openStreams.get(liveChatId)).toBe(1)
+    expect(seen.filter((data) => data.kind === 'collector').at(-1)).toMatchObject({ broadcast: b.id, collector: { status: 'LIVE', statusMessage: '채팅을 받는 중', recorded: 0 } })
+    // 스트림이 끊긴다 → 다시 연결하는 중 → 다시 열리면(메시지는 여전히 없음) 채팅을 받는 중
+    w.fake.dropStreams()
+    await until(w, async () => (await collector(w, connected.seller.cookie, b.id)).status === 'RETRYING')
+    await until(w, async () => (await collector(w, connected.seller.cookie, b.id)).status === 'LIVE', { step: 1000, max: 40 })
+    expect(seen.filter((data) => data.kind === 'collector').map((data) => (data.collector as { status: string }).status).slice(-2)).toEqual(['RETRYING', 'LIVE'])
+    // 시청자 채팅이 오면 받은 수가 는다
+    w.fake.addMessage(liveChatId, { author: 'UCa', name: '가', text: '안녕하세요', publishedAt: w.timer.now() + 1 })
+    await until(w, async () => (await collector(w, connected.seller.cookie, b.id)).recorded === 1, { step: 250 })
+    expect(await collector(w, connected.seller.cookie, b.id)).toMatchObject({ status: 'LIVE', recorded: 1 })
+    await w.server.youtube?.collectors.stop()
+  })
+
+  it('예정 방송이 시작되면(시작 뒤 채팅이 아직 없어도) 그 확인 바퀴에서 스트림을 열고 LIVE — 가짜는 실제 streamList처럼 연결 직후 빈 첫 응답을 준다', async () => {
+    const w = await world()
+    const connected = await connectSeller(w)
+    const b = await createBroadcast(w, connected.seller)
+    const upcoming = w.fake.addBroadcast(connected.channel.id, { status: 'upcoming' })
+    expect((await client(w, connected.seller.cookie).post(`/api/broadcasts/${b.id}/youtube`, { requestId: 'quiet-up', video: upcoming.videoId })).status).toBe(200)
+    w.server.youtube?.collectors.start()
+    await until(w, async () => (await collector(w, connected.seller.cookie, b.id)).reason === 'NOT_STARTED')
+    w.fake.startBroadcast(upcoming.videoId, w.timer.now())
+    await until(w, async () => (await collector(w, connected.seller.cookie, b.id)).status === 'LIVE', { step: 1000, max: 60 })
+    expect(await collector(w, connected.seller.cookie, b.id)).toMatchObject({ status: 'LIVE', statusMessage: '채팅을 받는 중', reason: null, reasonMessage: null, recorded: 0 })
+    await w.server.youtube?.collectors.stop()
+  })
 })
 
 describe('AC-Y1-24 끊김·오류·다시 시작', () => {
@@ -400,6 +452,8 @@ describe('AC-Y1-29 많은 채팅 (NFR-04)', () => {
     for (let no = 1; no <= 20; no++) await expectOk(writeEvent(w, connected.seller, { type: 'product.register', b: b.id, no, name: `상품${String(no)}`, price: 1000 * no }))
     w.fake.pageSize = 500
     w.server.youtube?.collectors.start()
+    // 수집기가 붙은 뒤에 몰린다 (지점 없는 첫 연결은 실제 API처럼 최근 메시지만 준다 — RA-I3-001)
+    await until(w, () => (w.fake.openStreams.get(liveChatId) ?? 0) > 0)
     const sent: string[] = []
     for (let second = 0; second < 200; second++) {
       for (let i = 0; i < 50; i++) {

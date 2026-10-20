@@ -261,8 +261,11 @@ export class GoogleClient {
     liveChatId: string
     pageToken: string | null
     signal: AbortSignal
-    /** 스트림이 열렸다(응답 머리를 받음) — 수집기가 다시 열기 간격을 이 때부터 잰다 (AC-Y1-94) */
-    onOpen?: () => void
+    /**
+     * 스트림이 열렸다(응답 머리를 받음, 첫 응답 묶음 전) — 수집기가 다시 열기 간격을 이 때부터 재고, 채팅이 조용해도 "채팅을 받는 중"으로 적는다
+     * (AC-Y1-94, AC-I3-24). 던지면 본문을 읽지 않고 그 오류를 던진다
+     */
+    onOpen?: () => void | Promise<void>
   }): AsyncGenerator<Record<string, unknown>> {
     await this.#options.meter(input.sellerId, 'liveChatMessages.streamList')
     let response: Response
@@ -288,7 +291,12 @@ export class GoogleClient {
       }
       throw new GoogleError('http', response.status, reasonOf(body))
     }
-    input.onOpen?.()
+    try {
+      await input.onOpen?.()
+    } catch (error) {
+      await response.body?.cancel().catch(() => {})
+      throw error
+    }
     if (response.body === null) return
     const splitter = new JsonObjectSplitter()
     const decoder = new TextDecoder()

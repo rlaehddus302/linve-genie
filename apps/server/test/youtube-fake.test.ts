@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
 import { startE2eServer, type E2eServer } from '../src/e2e.ts'
 import { FakeGoogle } from '../src/youtube/fake-google.ts'
+import { JsonObjectSplitter } from '../src/youtube/google.ts'
 import { FAST_COST } from './support.ts'
 
 const fakes: FakeGoogle[] = []
@@ -108,6 +109,47 @@ describe('AC-Y1-80 가짜 구글·유튜브 서버', () => {
     expect(await call(`/liveChat/messages?liveChatId=${live.liveChatId as string}&pageToken=p3`)).toMatchObject({ status: 403, body: { error: { errors: [{ reason: 'liveChatEnded' }] } } })
     expect(fake.calls('liveChatMessages.list')).toBe(5)
     expect(fake.calls('liveChatMessages.insert')).toBe(1)
+  })
+
+  it('RA-I3-001·AC-I3-24: 지점 없는 요청은 실제 API처럼 최근 메시지(backlogSize개)부터 — 다음 쪽은 그 뒤로만. 스트림은 연결하면 첫 응답 묶음(새 메시지가 없으면 빈 묶음)을 바로 쓴다', async () => {
+    const fake = await start()
+    const account = fake.addAccount()
+    const channel = fake.addChannel(account, '채널')
+    fake.approval = { account, channel: channel.id }
+    const { verifier, challenge } = pkce()
+    const back = await authorize(fake, challenge)
+    const access = (await token(fake, { grant_type: 'authorization_code', code: back.searchParams.get('code') ?? '', code_verifier: verifier, redirect_uri: 'https://app.test/cb' })).body.access_token as string
+    const headers = { Authorization: `Bearer ${access}` }
+    const live = fake.addBroadcast(channel.id, { status: 'live' })
+    const liveChatId = live.liveChatId as string
+    // 스트림: 메시지가 없어도 연결하자마자 빈 첫 응답, 메시지가 오면 다음 응답
+    const controller = new AbortController()
+    const stream = await fetch(`${fake.endpoints().apiBase}/liveChat/messages/stream?liveChatId=${liveChatId}&part=snippet`, { headers, signal: controller.signal })
+    expect(stream.status).toBe(200)
+    const reader = (stream.body as ReadableStream<Uint8Array>).getReader()
+    const splitter = new JsonObjectSplitter()
+    const decoder = new TextDecoder()
+    const nextObject = async (): Promise<Record<string, unknown>> => {
+      for (;;) {
+        const chunk = await reader.read()
+        if (chunk.done) throw new Error('스트림이 끝났다')
+        const [object] = splitter.push(decoder.decode(chunk.value, { stream: true }))
+        if (object !== undefined) return object
+      }
+    }
+    expect(await nextObject()).toMatchObject({ kind: 'youtube#liveChatMessageListResponse', nextPageToken: 'p0', items: [] })
+    fake.addMessage(liveChatId, { author: 'UCv', name: '시청자', text: '15' })
+    expect(await nextObject()).toMatchObject({ nextPageToken: 'p1', items: [{ snippet: { textMessageDetails: { messageText: '15' } } }] })
+    controller.abort()
+    // 목록: 지점 없이 부르면 최근 backlogSize개부터
+    fake.backlogSize = 5
+    for (let i = 0; i < 9; i++) fake.addMessage(liveChatId, { author: `UC${String(i)}`, name: `시청자${String(i)}`, text: `채팅 ${String(i)}` })
+    const list = async (query: string) => (await (await fetch(`${fake.endpoints().apiBase}/liveChat/messages?liveChatId=${liveChatId}&part=snippet${query}`, { headers })).json()) as { items: { snippet: { textMessageDetails: { messageText: string } } }[]; nextPageToken: string }
+    const first = await list('')
+    expect(first.items.map((item) => item.snippet.textMessageDetails.messageText)).toEqual(['채팅 4', '채팅 5', '채팅 6', '채팅 7', '채팅 8'])
+    expect(first.nextPageToken).toBe('p10')
+    // 지점이 있으면 그 자리부터 (앞부분도 지점으로는 읽힌다)
+    expect((await list('&pageToken=p1')).items).toHaveLength(9)
   })
 
   it('다른 프로세스용 조작 경로 (/_fake/*)', async () => {

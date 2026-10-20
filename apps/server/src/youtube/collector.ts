@@ -1,6 +1,7 @@
 // 유튜브 채팅 수집기 (AC-Y1-20~29, D-Y04·D-Y05·D-Y10).
 // - 채팅 원천(ChatSource)은 하나의 모양(지점 → 응답 묶음·다음 지점·끝남 신호·오류)이고 구현이 셋이다: streamList(기본) · list 폴링(대체) · 시험용 가짜.
 //   수집 관리자·이어받기·기록 코드는 셋에 똑같다. 실제 어댑터는 가짜 서버에 실제 통신 방식(HTTP·스트림)으로 붙는다.
+// - 상태 (AC-I3-24): 스트림이 열리면(HTTP 200 — 첫 응답 묶음 전) 채팅을 받는 중(LIVE)이다. 폴링은 빈 목록이어도 받은 응답이면 LIVE.
 // - streamList가 응답을 하나도 받지 못한 채 연속 3번 실패하거나 지원하지 않는다고 하면(404·501·UNIMPLEMENTED) 폴링으로 바꿔 같은 지점부터 이어 간다.
 // - 호출 간격 (AC-Y1-94, D-Y1-04): 한 수집기의 채팅 호출(스트림 열기·폴링) 사이는 늘 2초 이상(401 뒤 새로 고쳐 한 번 더 하는 것만 예외).
 //   폴링은 앞 응답을 받은 뒤 max(pollingIntervalMillis, 2초)(없거나 숫자가 아니면 5초), 스트림은 앞 스트림을 연 때부터 5초 뒤에 다시 연다.
@@ -465,9 +466,11 @@ export class CollectorManager {
           } else {
             let first = !ctx.row.firstDone
             await this.#options.connections.withToken(ctx.row.sellerId, async (token) => {
-              const opened = () => {
+              const opened = async () => {
                 // 다시 열기는 이 스트림이 열린 때부터 5초 뒤 (AC-Y1-94)
                 nextCallAt = Math.max(nextCallAt, timer.now() + STREAM_REOPEN_MS)
+                // 첫 응답 묶음 전이어도(채팅이 조용해도) 채팅을 받는 중 (AC-I3-24)
+                await this.#opened(ctx)
               }
               for await (const response of this.#options.google.stream({ sellerId: ctx.row.sellerId, accessToken: token, liveChatId: link.liveChatId, pageToken: ctx.row.pageToken, signal: attempt.signal, onOpen: opened })) {
                 received += 1
@@ -609,6 +612,22 @@ export class CollectorManager {
     // 시작하기 전에 끝났다
     await this.#chatEnded(row, link)
     return 'stop'
+  }
+
+  /**
+   * 스트림이 열렸다(HTTP 200, 첫 응답 묶음 전) — 시작하는 중·다시 연결하는 중이면 채팅을 받는 중(LIVE)으로 적고 알린다 (AC-I3-24, YT-03).
+   * 채팅이 조용하면 응답 묶음이 한참 오지 않으므로 묶음을 기다리면 판매자는 연결이 안 붙은 줄 안다. 연결을 끊었으면 다시 계산, 임대를 잃었으면 멈춘다
+   */
+  async #opened(ctx: Context): Promise<void> {
+    const row = ctx.row
+    if (row.status === 'LIVE' && row.reason === null) return
+    const { db, timer, owner } = this.#options
+    const current = await linkById(db, row.sellerId, row.linkId)
+    if (current === null || current.unlinkedAt !== null) throw new Recheck()
+    const saved = await updateCollector(db, row.sellerId, row.linkId, { status: 'LIVE', reason: null, resumeAt: null }, new Date(timer.now()), owner)
+    if (!saved) throw new StopRun()
+    ctx.row = { ...row, status: 'LIVE', reason: null, resumeAt: null }
+    await this.#publish(row)
   }
 
   async #toPoll(row: CollectorRow): Promise<void> {
