@@ -2,6 +2,8 @@
 // - 로그인·Origin·JSON·크기 검사는 /api 공통 미들웨어가 먼저 한다. 다른 판매자의 작업·방송은 없는 것과 같은 404다.
 // - 받은 값은 오류 응답에 되돌려 보내지 않는다(문제에는 칸 이름과 서버가 정한 문장만).
 // - 출력·다시 출력·포장 라벨 요청은 요청 번호(requestId)로 한 번만 만든다. 엔진 기록이 아니어서 5초 대기 없이 바로 처리된다.
+// - 라벨 기능 켬/끔 (N4a, L-12): GET·PUT /api/settings/labels. 꺼져 있으면 출력을 새로 시작하거나 라벨을 새로 만드는 요청은 409 LABELS_OFF.
+//   계약은 harness/sprints/N4a/dev-notes.md "dev-server > 바뀐 계약". 켬/끔 요청 본문·로그인 아이디는 로그에 남기지 않는다(NFR-06).
 import { isValidDate } from '@livejjim/core'
 import type { Context, Hono } from 'hono'
 import { REQUEST_ID_RE, hasControlChar, own, ownKeys } from './api-fields.ts'
@@ -55,6 +57,17 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
     if (raw === 'true') return apiError(422, 'PRINT_REHEARSAL', PRINT_MESSAGES.rehearsal)
     return 'bad'
   }
+
+  // ── 라벨 기능 켬/끔 (N4a, RCP-01, L-12 1·2) — 판매 규칙 설정(/api/settings)과 따로 ──
+  api.get('/settings/labels', async (c) => c.json(await print.labelSettings(sellerOf(c))))
+  api.put('/settings/labels', async (c) => {
+    const input = body(c)
+    const extra = onlyKeys(input, ['enabled'])
+    if (extra !== null) return extra
+    const enabled = own(input, 'enabled')
+    if (typeof enabled !== 'boolean') return invalid([{ field: 'enabled', message: PRINT_MESSAGES.labelsInvalid }])
+    return c.json(await print.setLabels(sellerOf(c), accountOf(c), enabled))
+  })
 
   // ── 조회 ─────────────────────────────────────────────────────────────────
   api.get('/print', async (c) => c.json(await print.overview(sellerOf(c))))
@@ -145,6 +158,7 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
     const deviceId = deviceIdOf(input)
     if (deviceId === null) return badDevice()
     const claimed = await print.claim(sellerOf(c), deviceId)
+    if (claimed.kind === 'labels_off') return apiError(409, 'LABELS_OFF', PRINT_MESSAGES.labelsOff)
     if (claimed.kind === 'not_device') return apiError(409, 'PRINT_NOT_DEVICE', PRINT_MESSAGES.notDevice)
     if (claimed.kind === 'none') return c.json({ job: null, reason: claimed.reason })
     return c.json({ job: claimed.job })

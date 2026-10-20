@@ -52,6 +52,8 @@ export type ErrorCode =
   | 'INVALID_TEMPLATE'
   | 'TEMPLATE_TOO_LARGE'
   | 'TEMPLATE_CONFLICT'
+  // N4a 라벨 기능 끄기 (LABEL_RULES L-12 5)
+  | 'LABELS_OFF'
 
 export interface ErrorBody {
   readonly error: {

@@ -9,6 +9,7 @@
 //   한 범위의 seq는 늘기만 하므로 "ready의 seq 이하는 버린다"는 언제나 안전하다.
 // - 출력 기록이 바뀌면(I1, L-11) print 알림을 보낸다(기록 seq가 아니라 출력 기록의 rev — 바뀐 작업·라벨 키와 대기열 요약만, 대기열 전체가 아니다).
 //   연결이 출력 기기 ID를 밝히면(?device=) 그 기기의 실시간 연결이 열려 있는지 안다 — 열리고 닫힐 때 onDevice로 알린다(다른 기기의 "연결됨/끊김").
+// - 라벨 기능 켬/끔이 바뀌면(N4a, L-12) labels 알림을 보낸다(바뀐 값·바꾼 기록 한 줄·그때의 출력 기록 rev).
 
 const encoder = new TextEncoder()
 
@@ -49,9 +50,9 @@ interface Pending {
   closed: boolean
 }
 
-/** 리허설 생성기 상태 알림 (event: generator), 출력 기록 알림 (event: print, I1) — seq가 없다 */
+/** 리허설 생성기 상태 알림 (event: generator), 출력 기록 알림 (event: print, I1), 라벨 기능 켬/끔 알림 (event: labels, N4a) — seq가 없다 */
 export interface GeneratorNotice {
-  readonly kind: 'generator' | 'print'
+  readonly kind: 'generator' | 'print' | 'labels'
   readonly data: Readonly<Record<string, unknown>>
 }
 
@@ -152,6 +153,11 @@ export class StreamHub {
   /** 출력 기록 알림 (그 판매자의 연결 전부, I1) */
   publishPrint(sellerId: string, data: Readonly<Record<string, unknown>>): void {
     this.#publishKind(sellerId, { kind: 'print', data })
+  }
+
+  /** 라벨 기능 켬/끔이 바뀜 (그 판매자의 연결 전부, N4a L-12 9) */
+  publishLabels(sellerId: string, data: Readonly<Record<string, unknown>>): void {
+    this.#publishKind(sellerId, { kind: 'labels', data })
   }
 
   #publishKind(sellerId: string, notice: GeneratorNotice): void {
