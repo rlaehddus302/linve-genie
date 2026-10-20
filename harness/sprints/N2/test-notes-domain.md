@@ -67,3 +67,28 @@
 ## 결과 (de6c762 뒤)
 - `npx vitest run --config vitest.adversarial.config.ts tests/adversarial/n2` — 3파일 42개 모두 통과(instagram-attacks 7·dm-attacks 3·live-move-gap-attacks 32). 새 실패 시험 없음.
 - resolvedIds: TD-N2-004. 남은 것: TD-N2-005(minor, 스펙 확인 필요 — spec-keeper에게).
+
+# 라운드 4 (D-N2-18 — 옮기기 조건 (아) 이은·옮긴 시각에서 60초, TOO_SOON, 851bb0f)
+
+## 이전 지적
+- TD-N2-005 — 고쳐짐(spec 16be0dd D-N2-18 → dev 851bb0f). 재현 시험 ⑫를 `live-move-too-soon-attacks.test.ts` "TD-N2-005 ⑫"로 남김 — 통과.
+- 기존 적대 시험 중 이은·옮긴 뒤 60초 안에 옮기던 것은 없었다(모두 몇 분 뒤). 바꾼 시험 없음. TD-N2-003 시험(같은 시각 옮기기)은 막히는 것만 보므로 이유가 OTHER_BROADCAST여도 그대로 통과.
+
+## 새 공격 — `live-move-too-soon-attacks.test.ts` 35개 (모두 통과 — 새 버그 없음, 회귀로 남김)
+- 60초 경계: 저절로 이은 시각·옮긴 시각을 20:00:00.250에 두고 −1ms·정각은 TOO_SOON(LIVE_NOT_MOVED·b·M2·수·문장, UNLINKED_COMMENTS·LIVE_MOVED 없음, 찜 없음), +1ms는 옮김. 기준은 마지막 활동이 아니라 이은 시각(이은 뒤 M 댓글이 59.999초까지 와도 60.001초에 옮김), 기다리기로 정한 시각이 아님, 처음 이은 시각이 아니라 옮긴 시각.
+- entry.time 어긋남: 메타 시계 +90초(이은 지 30초 → TOO_SOON, 60.001초 → 옮김), +1시간(60초 정각 → TOO_SOON), −59초(늦지 않음, entry.time으로 재면 1초 → 60.001초에 옮김). (마)·(아)가 틈 없이 맞물림: 이은 시각에 쓴 옛 라이브 댓글은 60,000ms에 TOO_SOON, 60,001ms에 늦은 댓글(UNLINKED_COMMENTS).
+- 연속 다시 켜기: ⑫(TD-N2-005, 옮긴 지 40초의 옛 라이브 M 댓글은 TOO_SOON이 아니라 UNLINKED_COMMENTS), 세 번(M4 첫 댓글 먼저, 끝난 M2·M3 댓글이 늦지 않게·늦게 섞여 옴 → b는 M4에만, 라이브마다 TOO_SOON 알림 하나), 네 번 반대 순서(⑯ 확장 — 끝난 M2로 먼저 옮겨져도 M3·M4로 가지 않고 60.001초 뒤 방송 중 M5로, 끝난 라이브에 머문 시간 60.001초), 네 번 진짜 빠른 다시 켜기(다시 켤 때마다 첫 1분 TOO_SOON, 60.001초에 옮김, LIVE_MOVED 넷, moved는 마지막 것).
+- 한 웹훅·동시: [M3, M2] 한 묶음(앞이 옮기고 뒤는 같은 ms라 TOO_SOON, 30초 뒤 묶음은 M2만 TOO_SOON·알림 없음), entry 둘(entry.time 다름), 기다리는 b와 [M, M2](저절로 이은 바로 그 ms → TOO_SOON), 동시 두 웹훅(M2·M3 → 옮기기 한 번, 다른 쪽 TOO_SOON).
+- 기록 트랜잭션 안 다시 확인: 같은 DB의 둘째 서버 인스턴스. A가 M3 댓글로 옮기기로 정한 뒤(resolveTarget을 감싸 끼움) B가 M2 댓글로 b를 옮겨 커밋 → A의 applyMove가 바뀐 이은 시각을 보고 막고, 다시 정해 TOO_SOON. M3 댓글은 기록 안 함.
+- 이유 순서: ⑮(가) 다른 회차 c(연결 없음·손으로 이음·전날)가 있으면 OTHER_BROADCAST, c를 끝내면 TOO_SOON, 60초 뒤 옮김. 이은 지 59초에는 GAP가 나오지 않음. 그 밖의 조건(늦은 댓글·entry.time 없음·손으로 이은 b·끝난 회차에 이어졌던 라이브·후보 둘)은 이은 지 30초여도 UNLINKED_COMMENTS. ⑦ 기다리는 회차가 있으면 이은 지 10초여도 그 회차를 잇는다.
+- 알림 간격: TOO_SOON 알림은 라이브마다 1분에 한 번(같은 라이브는 하나, 다른 라이브는 따로, 옮긴 뒤 새 창에서 1분 지난 라이브는 다시). 고치는 길: 막힌 뒤 끊고 M2에 이으면 LIVE_TAKEN 아님.
+- 속성(fast-check, seed 20261020, 14회): 라이브 2~4번 다시 켜기(앞 라이브가 끝나고 1초 넘게 지나 켬), entry.time = 쓴 시각, 배달 지연 0~90초, 받은 순서로 처리. 댓글마다 스펙 모형(지금 라이브 → 기록, 이어진 적 있음·늦음 → 기록 안 함, 이은·옮긴 지 ≤ 60,000ms → 기록 안 함, 아니면 옮김)과 같고, 라이브 순번은 줄지 않으며(끝난 라이브로 되돌아가지 않음), 방송 중 라이브에 이어지면 떠나지 않고, 끝에 61초 뒤 방송 중 라이브 댓글이 b를 데려온다. LIVE_NOT_MOVED는 모두 TOO_SOON.
+- 민감도 확인: 같은 시험을 16be0dd의 서버 코드(조건 (아) 전)에 돌리면 35개 중 24개 실패, 속성은 3번째에 TD-N2-005 반례(옮긴 뒤 33.9초에 배달된 끝난 라이브 댓글이 b를 되돌림)로 줄어든다.
+
+## 확인만 하고 시험을 두지 않은 것
+- 메타 시계가 우리 서버보다 몇십 초 빠르면 이은 시각보다 먼저 쓴 끝난 라이브 댓글이 60초 넘게 늦게 와도 늦은 댓글이 아니어서 b를 옮길 수 있다. D-N2-18 "남는 위험"(entry.time이 쓴 시각이 아닐 때)과 같은 계열이고, 실제 서버 시계 차이는 1초 안이라 지적하지 않는다(HG-N2 확인 목록 8에서 받은 시각과 entry.time의 차이를 본다).
+- 이어지지 않은 수(`/api/instagram/unlinked`)는 그 라이브가 나중에 옮겨 이어져도 남는다(D-N2-17부터 같음, 스펙에 지우라는 말 없음).
+
+## 결과 (cf94302 뒤)
+- `npx vitest run --config vitest.adversarial.config.ts tests/adversarial/n2` — 4파일 77개 모두 통과(instagram-attacks 7·dm-attacks 3·live-move-gap-attacks 32·live-move-too-soon-attacks 35). 새 실패 시험 없음.
+- resolvedIds: TD-N2-005. 남은 지적 없음.
