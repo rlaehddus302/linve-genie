@@ -1604,21 +1604,26 @@ html:has(.sms-submit-bar) {
     right: 0;
     bottom: 0;
     z-index: 15;
-    /* 메뉴 여섯 개(AC-I1-20, N3): 글자 길이만큼 나눠 "문자찜 입력"도 한 줄 */
-    display: flex;
-    flex-wrap: nowrap;
+    /* 메뉴 여섯 개(AC-I1-20, N3 "입금 확인 3"): 칸마다 바닥 폭 44px(누르는 곳, UX-04 — 막대 폭의 1/6을 넘지 않아 가로로 넘치지 않는다)을
+     * 먼저 주고, 남는 폭은 한 줄이 될 때까지 긴 항목에, 그다음은 고르게 나눈다. 375px(수 네 자리까지)·360px(두 자리까지)에서
+     * 한 줄(막대 53px), 더 좁으면 띄어쓰기에서만 두 줄이 되고 "방송"·"정산"·"라벨"은 44px 아래로 줄지 않는다(TE-N3-001). */
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(min(2.75rem, 100% / 6), auto);
     gap: 0;
     padding: 0.25rem 0.125rem calc(0.25rem + env(safe-area-inset-bottom));
     border-top: 1px solid #c4c7c5;
     background-color: #f8f9fa;
   }
 
-  /* 메뉴 여섯 개(N3 "입금 확인 3"): 글자 16px로 375px 폭에 한 줄 — 더 좁으면 띄어쓰기에서 두 줄 */
+  /* 휴대폰에는 마우스 올림이 없어 투명 테두리(2px)를 빼고 그 폭을 글자에 준다 — 지금 화면은 파란 바탕·흰 글자 그대로.
+   * 낱말 가운데서는 끊지 않는다(본문의 overflow-wrap: anywhere를 끔): "문자찜"이 "문자/찜"으로 갈라지지 않게. */
   .menu-link {
-    flex: 1 1 auto;
     padding: 0.25rem 0.125rem;
+    border-width: 0;
     font-size: 1rem;
     letter-spacing: -0.02em;
+    overflow-wrap: normal;
   }
 
   .menu-count {
