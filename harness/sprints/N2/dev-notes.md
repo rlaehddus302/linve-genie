@@ -47,8 +47,13 @@
 PlatformCapability = { platform: 'YOUTUBE'|'INSTAGRAM'|'TIKTOK', ready: boolean, receivedTime: boolean, thanks: 'PUBLIC_CHAT'|'DM_PER_COMMENT'|'NONE', videoComment: boolean,
   reasons: { ready?, receivedTime?, thanks?, videoComment? } /* 쓸 수 없는 것마다 문장 */ }
 LinkView = { broadcast, platform: 'INSTAGRAM'|null, state: 'NONE'|'WAITING'|'LINKED', liveId /* LINKED일 때 */, linkedAt /* 이은(기다리기로 정한) 시각 */,
-  actor: { kind: 'account'|'server' /* 저절로 이음·옮김 */, loginId } | null, accountId /* 이을 때 연결돼 있던 인스타 계정 ID */, collection: CollectionView | null }
+  actor: { kind: 'account'|'server' /* 저절로 이음·옮김 */, loginId } | null, accountId /* 이을 때 연결돼 있던 인스타 계정 ID */, collection: CollectionView | null,
+  moved: MovedView | null /* 이 연결의 마지막 옮기기 — 옮긴 적 없음·NONE(끊음)·기다리는 중이면 null (D-N2-17, RA-N2-006) */ }
 // 서버가 새 라이브로 옮긴 연결(AC-N2-25): liveId = 새 라이브, linkedAt = 옮긴 시각, actor = server. 수집 상태의 수는 옮기기 전 것을 이어 센다
+MovedView = { fromLiveId /* 옮기기 전 라이브 ID */, movedAt /* 옮긴 시각 UTC ISO */, comments /* 옮기기 전까지 이 방송에 기록한 인스타 댓글 수 = 그때 LIVE_MOVED의 N */,
+  message /* 그때의 LIVE_MOVED 문장 그대로 (liveMovedMessage(comments)) */ }
+// moved는 연결(행)마다 따로다: 다시 옮기면 마지막 옮기기(M2 → M3)만, 끊은 뒤 다시 이은 연결에는 이전 연결의 옮기기가 없다(null). 회차를 끝낸 뒤 조회에도 남는다.
+// SSE LIVE_MOVED를 놓쳐도(화면을 늦게 열거나 다시 연결) 연결 조회·연결 목록(GET /api/live)·LINK·COLLECTION 알림의 link.moved로 다시 볼 수 있다 — 화면은 이것으로 "옮겼어요, 댓글 N개 확인" 표시를 되살린다
 CollectionView = { platform: 'INSTAGRAM', state: 'WAITING'|'LIVE'|'FINISHED'|'STOPPED', message /* 아래 문장 */, liveId, lastCommentAt, comments, late, malformed }
 ```
 수집 상태 문장: `WAITING` "인스타그램 라이브를 기다리는 중이에요. 라이브를 시작하면 첫 댓글부터 받아요." · `LIVE` "댓글을 받는 중" · `FINISHED` "방송을 끝내 댓글 기록을 마쳤어요." · `STOPPED` "인스타그램 연결이 끊겨 댓글을 받지 않아요."
@@ -112,7 +117,15 @@ DmRowView = { id, broadcast, product /* 효과의 상품 키 */, buyer /* 효과
 - `{ kind: 'LINK', broadcast, link: LinkView }` — 잇기·기다리기·끊기·저절로 잇기·새 라이브로 옮기기
 - `{ kind: 'COLLECTION', broadcast, link: LinkView }` — 수집 상태·수가 바뀜(묶어서 1초에 한 번까지, 처음은 바로)
 - `{ kind: 'NOTICE', code: 'UNLINKED_COMMENTS', message, liveId, count }` · `{ kind: 'NOTICE', code: 'MANY_WAITING', message, liveId, count }` · `{ kind: 'NOTICE', code: 'LATE_COMMENTS', message, broadcast }` — 처음 한 번과 그 뒤 1분에 한 번까지
-- `{ kind: 'NOTICE', code: 'LIVE_MOVED', message, broadcast, liveId /* 새 라이브 */, count /* 옮기기 전 그 방송에 기록한 인스타 댓글 수 */ }` — 옮길 때마다 한 번(묶지 않는다). 문장 "인스타그램 라이브가 바뀌어 방송을 새 라이브에 다시 이었어요. 그 전 라이브에서 이 방송에 기록한 댓글 N개를 확인해 주세요."(N이 0이면 첫 문장만, `liveMovedMessage`). 판매자가 그 댓글들을 확인·취소하도록 이끈다
+- `{ kind: 'NOTICE', code: 'LIVE_MOVED', message, broadcast, liveId /* 새 라이브 */, count /* 옮기기 전 그 방송에 기록한 인스타 댓글 수 */ }` — 옮길 때마다 한 번(묶지 않는다). 문장 "인스타그램 라이브가 바뀌어 방송을 새 라이브에 다시 이었어요. 그 전 라이브에서 이 방송에 기록한 댓글 N개를 확인해 주세요."(N이 0이면 첫 문장만, `liveMovedMessage`). 판매자가 그 댓글들을 확인·취소하도록 이끈다. 같은 내용이 연결 조회의 `moved`에 남는다(위 `MovedView`)
+- `{ kind: 'NOTICE', code: 'LIVE_NOT_MOVED', message, reason: 'OTHER_BROADCAST'|'GAP', broadcast /* 옮기려던 회차 b — 지금도 옛 라이브에 이어져 있다 */, liveId /* 새 라이브 M2 */, count /* M2의 이어지지 않은 댓글 수 */ }` — 저절로 이은 회차 b를 새 라이브로 옮기려 했는데 (바)·(사)로만 막혔다(AC-N2-25, D-N2-17). M2 댓글은 기록하지 않고 세기만 한다. 그 댓글에는 `UNLINKED_COMMENTS`를 보내지 않는다. 라이브(M2)마다 처음 한 번과 그 뒤 1분에 한 번까지. 둘 다 걸리면 `reason`은 `GAP`이다. 문장(`LIVE_NOT_MOVED_MESSAGES`):
+  - `OTHER_BROADCAST` (바 — b 말고 끝나지 않은 실제 회차가 있음, 리허설 제외): "새 인스타그램 라이브 댓글이 오고 있는데, 끝나지 않은 방송이 여럿이라 어느 방송에 이을지 몰라 기록하지 않고 있어요. 쓰지 않는 방송은 끝내고, 이어 갈 방송을 새 라이브에 이어 주세요."
+  - `GAP` (사 — b의 마지막 활동에서 60분 넘게 떨어짐): "새 인스타그램 라이브 댓글이 오고 있는데, 방송의 마지막 댓글과 1시간 넘게 떨어져 같은 방송인지 몰라 기록하지 않고 있어요. 이어 갈 방송을 새 라이브에 이어 주세요."
+  - **막힌 뒤 고치는 길 — 새 API 없이 지금 있는 잇기·끊기·끝내기로 된다. 화면은 이 순서로 안내한다** (`liveId`는 알림의 M2, `GET /api/instagram/lives`에도 있다):
+    1. 이어 갈 방송이 b(알림의 `broadcast`)면: `POST /api/broadcasts/:b/live/unlink` → `POST /api/broadcasts/:b/live/link { platform: 'INSTAGRAM', liveId: M2 }`. 끊지 않고 이으면 `ALREADY_LINKED` "… 먼저 연결을 끊어 주세요."가 순서를 알려 준다. M2는 이어진 적이 없어 `LIVE_TAKEN`이 아니다. 끊으면 b의 기다리던 DM 행은 `FAILED(NO_LINK)`가 된다(옛 라이브 M은 이미 끝나 어차피 보낼 수 없다). 손으로 이었으므로 그 뒤 다시 켜기는 옮기지 않고 `UNLINKED_COMMENTS`로 알린다.
+    2. 이어 갈 방송이 다른 회차 c면: c를 M2에 잇거나(`…/c/live/link`) 기다리기로 둔다(`…/c/live/wait`). 기다리기면 M2의 다음 댓글에서 c가 저절로 이어진다(기다리는 회차가 옮기기보다 먼저).
+    3. `OTHER_BROADCAST`로만 막혔고 다른 회차가 쓰지 않는 방송이면: 그 회차를 끝낸다(`POST /api/broadcasts/:id/end`). 그러면 M2의 다음 늦지 않은 댓글(b의 마지막 활동에서 60분 안)에서 b를 저절로 옮기고 `LIVE_MOVED`가 온다. `GAP`이면 끝내도 옮겨지지 않으므로 1·2만 안내한다.
+    4. 막힌 동안의 M2 댓글은 기록하지 않았고 되살리지 않는다(D-N2-08 — 수·처음·마지막 받은 시각만 `GET /api/instagram/unlinked`에 있다).
 - `{ kind: 'DM', date, rows: DmRowView[] }` — 행 상태가 바뀜(같은 `id`로 덮는다)
 
 인스타그램 댓글은 기존 `change` 알림(채팅 이벤트)·메시지 조회로 그대로 온다 — `id`·`channel`이 `ig:`로 시작하면 인스타그램(플랫폼 이름은 키 접두어 하나로 정한다, D-N2-15). 기존 구매자·메시지 조회 응답은 바꾸지 않았다.
@@ -220,3 +233,14 @@ DmRowView = { id, broadcast, product /* 효과의 상품 키 */, buyer /* 효과
   - **spec-keeper에게**: acceptance AC-N2-25 "아래를 모두 만족하면" 목록과 "시험(옮기지 않음)"에, D-N2-16 "옮기기" 조건에 (바)·(사)를 더해야 코드와 문장이 맞는다(위 문장 그대로 — 리허설 회차는 세지 않음, 날짜는 `broadcasts.date` 대 받은 날 KST). 이 라운드 시작 때 스펙 커밋이 없어 감사자 제안 문장대로 구현했다.
 - **GATE-N2-VERIFY** adversarial 실패(TD-N2-003)는 위 수정으로 해결. `packages/voice` perf(AC-P2-07 p99 61.2ms)는 N2와 상관없는 부하 탓(다른 스프린트와 함께 돎) — 아래 verify 결과 참고.
 - **pnpm verify (수정 라운드 3 끝, 커밋 bcdd9cf)** `E2E_PORT_OFFSET=1100 pnpm verify` — 통과 6 · 실패 1: typecheck(파일 487) · lint(0) · test(파일 140 · 테스트 3244 — `packages/voice` perf AC-P2-07 포함 통과) · golden(파일 27 · 파서 468 · 엔진 132 · 통과 600) · adversarial(파일 46 · 테스트 832 — TD-N2-003 포함 모두 통과) · e2e(파일 42 · 통과 265) 통과. coverage는 `packages/core/test/unit/engine-properties-s03.test.ts` AC-S03-92 무작위 속성 시험이 5초 시간 제한에 걸려 실패했다(부하 평균 약 24 — 다른 스프린트와 함께 돎, N2는 `packages/core/src`를 바꾸지 않았다). `pnpm coverage`만 다시 돌려 통과(라인 100% · 분기 99.66%). 보호 경로 게이트(`check-protected.mjs 39d9ac6`) 통과.
+
+### 수정 라운드 4 (dev-server — 분쟁 판정 D-N2-17 반영: SA-N2-005 · SA-N2-006 · TD-N2-004 · RA-N2-006, 그리고 SA-N2-007)
+- **SA-N2-005 · SA-N2-006 · TD-N2-004 (FIXED)** 옮기기 (사)의 "방송 날짜 ≠ 받은 날(KST)"을 없애고 60분 간격으로 바꿨다(D-N2-17). 자정을 넘긴 방송에서 라이브를 다시 켜면 옮긴다.
+  - `LiveLinks.#movable`(`src/live-links.ts`): 그 밖의 조건(늦지 않은 댓글·이어진 적 없는 라이브·후보 하나)이 맞으면 먼저 (사) — 받은 시각(서버 시계 `now`) − max(`liveChatStats(…, exceptCommentId).lastAt` = b에 기록한 인스타 댓글 중 마지막 것을 받은 시각(어느 라이브든), `only.linkedAt` = 이은·마지막으로 옮긴 시각) > `MOVE_GAP_MS`(3,600,000)이면 `GAP`. 다음 (바) `otherOpenBroadcast`면 `OTHER_BROADCAST`. 그래서 둘 다면 `GAP`. `entry.time`·방송 날짜·달력 날짜는 보지 않는다(`kstDate` import 제거).
+  - 기록 트랜잭션 안의 다시 확인(`applyMove`)은 이미 넣은 그 댓글(`commentId`)을 마지막 활동에서 뺀다 — 빼지 않으면 간격이 늘 0이라 회차를 정한 뒤 60분을 넘겨도 옮긴다(시험으로 확인: 빼지 않게 바꾸면 새 시험이 실패한다).
+  - `resolveTarget`은 막힌 경우 `{ kind: 'none', blocked: { broadcastId, reason } }`(그 밖의 none은 `blocked: null`). 웹훅 `#unlinked`는 `blocked`가 있으면 `UNLINKED_COMMENTS` 대신 `LiveNotices.notMoved`(`LIVE_NOT_MOVED`, key = 라이브, 1분 간격)를 보낸다. 세는 것은 같다(`countUnlinked`). 기록 트랜잭션 안에서 막혀 `retry`된 댓글도 다시 정할 때 이유가 나와 같은 알림이 간다.
+  - `notices.ts`: `NoticeCode`에 `LIVE_NOT_MOVED`, 이유별 문장 `LIVE_NOT_MOVED_MESSAGES`(AC-N2-25 그대로). 1분 간격 판단은 `#due`로 나눠 `notice`·`notMoved`가 같이 쓴다.
+- **RA-N2-006 (FIXED)** `LinkView.moved`(`MovedView` — 위 "화면에게"), `store.ts lastMove(db, seller, linkId)`(그 연결 행의 `live_link_moves` 마지막 줄). `#view`는 `#viewIn(this.#deps.db, …)`로 합쳤다(조회·목록·잇기 응답·LINK·COLLECTION 알림이 같은 모양). 표·마이그레이션은 바꾸지 않았다(판매자 조건으로 기존 `(seller_id, …)` 인덱스를 탄다 — 옮기기 기록은 판매자마다 몇 줄).
+- **SA-N2-007 (FIXED, minor)** `test/instagram-support.ts`의 기본 시간 제한을 `TEST_TIMEOUTS`(요청·보내기·대화 조회 5초)로 두고, 가짜 서버가 응답하지 않는(HANG·HANG_AFTER) 시험 5개(AC-N2-48 가·나·라, AC-N2-50 UNCONFIRMED, AC-N2-60 로그)만 `SHORT_SEND_TIMEOUT`(보내기 400ms — 대화 조회는 5초 그대로)을 쓴다. 다시 띄운 서버(AC-N2-48 다·AC-N2-51)도 `TEST_TIMEOUTS`. 시간 초과 시험은 그대로이고 기대값은 바꾸지 않았다. 적대 시험(`igWorld()` 기본값)은 HANG을 쓰지 않아 영향이 없다.
+- 바꾼 시험(`live-move.test.ts`, 기대값 변경은 D-N2-17에 따른 교체): ⑨ 날짜 시험 둘 → 60분 경계(20:00:00 마지막 댓글, 21:00:01 `GAP`·21:00:00 옮김), ①② 시계를 T0+30분으로(전에는 T0에서 9시간 뒤라 이제 `GAP`), ⑧·⑧' 막힌 알림 `UNLINKED_COMMENTS` → `LIVE_NOT_MOVED(OTHER_BROADCAST)`. ①③④⑤에는 `LIVE_NOT_MOVED`가 아니라 `UNLINKED_COMMENTS`인지 더했다. 새 시험(+11, 모두 28): ⑧ 가·나·다(연결 없음·손으로 이음·전날 회차 — 1분 간격, c를 끝내면 옮김), 고치는 길(끊지 않고 이으면 `ALREADY_LINKED` → 끊고 M2에 잇기), ⑨', ⑩ 사흘 뒤 `GAP`, ⑪ 둘 다면 `GAP`(c를 끝내도 그대로 → 끊고 잇기), 자정을 넘긴 다시 켜기(TD-N2-004 시나리오), `moved`(1부·2부 뒤·다시 옮김·끊음·다시 이음·기다리기·끝낸 뒤·목록), 트랜잭션 안 다시 확인이 지금 댓글을 빼는지(60분 1ms `retry` → 다시 정하면 `blocked GAP`, 60분 정각 옮김). live-links·instagram-webhook 시험에는 (바)·(사)로 막힌 경우가 없어 바꿀 것이 없었다.
+- 확인(커밋 de6c762·54a2069, 다른 작업 폴더가 함께 돌아 부하 평균 약 30~40 — 오케스트레이터 지시로 전체 `pnpm verify`는 돌리지 않았다): `pnpm typecheck` 통과(설정 15 · 파일 488) · `pnpm lint` 통과(오류 0 · 경고 0) · 서버 시험(`TZ=Pacific/Honolulu npx vitest run --project server`, perf 제외) 파일 42 · 테스트 539 중 537 통과, 실패 2는 `changes.test.ts` AC-S05-61·`chat-messages.test.ts` AC-S05-20 무작위 속성 시험의 60초 시간 제한(부하) — 두 파일만 다시 돌려 15개 모두 통과(15초). 앞선 한 번은 `instagram-webhook.test.ts` AC-N2-33 500개 시험이 같은 이유로 60초를 넘겼고 따로 돌리면 3초에 통과한다. `live-move.test.ts` 28개 통과. 적대 시험 `npx vitest run --config vitest.adversarial.config.ts tests/adversarial/n2` 파일 3 · 테스트 42 모두 통과(TD-N2-004, test-domain의 새 `live-move-gap-attacks.test.ts` 포함).
