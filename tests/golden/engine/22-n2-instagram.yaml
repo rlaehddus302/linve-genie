@@ -1,0 +1,196 @@
+# N2 보강 — 인스타그램 라이브 댓글이 기대는 엔진 동작 (PLT-01, PLT-03, YT-04, YT-06, ORD-02, ORD-09, R-4, R-6, R-11, R-13, D-N2-02~D-N2-04).
+# 새 엔진 규칙은 없다(N2는 dev-core가 없다). 서버가 인스타그램 댓글을 수집 경로의 `chat` 이벤트로 바꿀 때 기대는 것을 고정한다:
+#   - 키 접두어(D-N2-02): 채널 키 `ch` = `ig:<IGSID>`, 메시지 ID `id` = `ig:<댓글 ID>`. 엔진은 유튜브 채널 ID와 똑같이 다룬다(구매자 종류 'youtube' = 채팅 구매자).
+#     숫자만인 IGSID가 휴대폰 번호 모양이어도 접두어 때문에 판매자가 고르는 ID 칸 검사(looksLikePhoneId)에 걸리지 않는다.
+#   - 닉네임 = 인스타그램 username 그대로(`.`·`_` 포함, D-N2-03). 감사 문구의 구매자 이름도 그 username이다(R-13).
+#   - `publishedAt`이 없다(D-N2-04) — 댓글마다의 게시 시각이 없어 서버 도착 시각(`at`)이 그 자리다. 인스타 방송은 접수순(ARRIVAL)만 쓴다.
+#   - 같은 댓글 ID가 다시 배달되면(웹훅 재시도) 본문이 달라도 아무 일도 없다(INV-3·INV-12).
+#   - 감사 효과는 찜마다 하나다. 한 댓글의 두 번호는 한 이벤트에서 효과 둘 — 서버가 그 댓글에 DM 하나로 모은다(D-N2-09, 서버 몫이라 골든 밖).
+# 기본 설정: 접수순, 대기 한도 5, 자동 승계, 방송자 채팅 무시, 확정마다 라벨 1 + 감사(실시간) 1, 배송비 4,000.
+# 기대값은 손으로 계산했다. 계산은 줄마다 주석.
+id: G-ENG-N2-01
+title: 인스타그램 댓글 — ig 접두어 키·username·게시 시각 없음으로도 유튜브 채팅과 같게 판정하고, 같은 댓글의 재배달·방송자 댓글·다른 사람을 부른 댓글은 찜을 만들지 않는다
+refs: [PLT-01, PLT-03, ORD-01, ORD-02, ORD-03, ORD-06, BUY-01, YT-04, R-3, R-4, R-5, R-11, R-13, INV-3, INV-12, D-045, D-N2-02, D-N2-03, D-N2-04]
+broadcasts: [{ id: b1, date: 2026-10-20, title: 인스타 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }                                           # seq 1
+  - { at: "20:00:01", type: chat, b: b1, id: "ig:17900000000000001", ch: "ig:6024400000000001", nick: pink.mom, text: "15" }          # seq 2. A 15번 확정(1) — 라벨 A1, 감사 A1 (찜 1)
+  - { at: "20:00:02", type: chat, b: b1, id: "ig:17900000000000002", ch: "ig:6024400000000002", nick: dayook_lover, text: "15번❤️" }  # seq 3. 꼬리 이모지 주문 → 대기 [B] (찜 2)
+  # 같은 댓글 ID의 재배달(웹훅 재시도) — 본문이 달라도 재수신이라 아무 일도 없다(취소 요청도 없음)
+  - { at: "20:00:03", type: chat, b: b1, id: "ig:17900000000000001", ch: "ig:6024400000000001", nick: pink.mom, text: "15 취소" }     # seq 4
+  # 판매자 계정의 댓글(서버가 owner로 표시) — claim.ignoreOwner(기본 예) → 아무 일도 없다
+  - { at: "20:00:04", type: chat, b: b1, id: "ig:17900000000000003", ch: "ig:6024400000000099", nick: my.shop, text: "15", owner: true }  # seq 5
+  # 다른 사람을 부른 댓글 — STRICT 문법 밖 → 언급만. C는 구매자로 기록된다(R-4 머리말 3)
+  - { at: "20:00:05", type: chat, b: b1, id: "ig:17900000000000004", ch: "ig:6024400000000003", nick: cactus_kim, text: "@pink.mom 15번" }  # seq 6
+  - { at: "20:00:06", type: chat, b: b1, id: "ig:17900000000000005", ch: "ig:6024400000000003", nick: cactus_kim, text: "16" }        # seq 7. 16번 없음 → 보류 [C] (찜 3)
+  - type: assert
+    expect:
+      products: { b1/15: { status: SOLD, winner: "ig:6024400000000001", waitlist: ["ig:6024400000000002"] } }
+      pending: { b1/16: ["ig:6024400000000003"] }
+      claimCount: 3                                     # 재배달·방송자 댓글·언급은 찜 없음
+      cancelRequests: []
+  # 16번 공개: C의 보류 찜 at 20:00:06 ≥ 20:00:20 − 30초 = 19:59:50 → 판정 → C 16번 확정(1) — 라벨 C1, 감사 C1
+  - { at: "20:00:20", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }                                               # seq 8
+  # B가 username을 바꿔 16번 — 닉네임 갱신, 16번은 SOLD → 대기 [B] (B의 15번 대기 찜은 다른 상품이라 4번 줄 아님) (찜 4)
+  - { at: "20:00:30", type: chat, b: b1, id: "ig:17900000000000006", ch: "ig:6024400000000002", nick: dayook.lover2, text: "16" }     # seq 9
+expect:
+  products:
+    b1/15: { status: SOLD, winner: "ig:6024400000000001", waitlist: ["ig:6024400000000002"] }
+    b1/16: { status: SOLD, winner: "ig:6024400000000003", waitlist: ["ig:6024400000000002"] }
+  pending: { b1/16: [] }
+  claims:
+    - { product: b1/15, buyer: "ig:6024400000000001", status: CONFIRMED }
+    - { product: b1/15, buyer: "ig:6024400000000002", status: WAITLISTED }
+    - { product: b1/16, buyer: "ig:6024400000000002", status: WAITLISTED }
+    - { product: b1/16, buyer: "ig:6024400000000003", status: CONFIRMED }
+  buyers:
+    "ig:6024400000000001": { items: [b1/15], subtotal: 10000, display: pink.mom, nameHistory: [pink.mom] }
+    "ig:6024400000000002": { items: [], subtotal: 0, display: dayook.lover2, nameHistory: [dayook_lover, dayook.lover2] }
+    "ig:6024400000000003": { items: [b1/16], subtotal: 5000, display: cactus_kim, nameHistory: [cactus_kim] }
+  claimCount: 4                                         # A 15 · B 15 · C 16 · B 16
+  settlements:
+    "ig:6024400000000001@2026-10-20": { subtotal: 10000, shipping: 4000, total: 14000, payment: UNPAID }
+    "ig:6024400000000003@2026-10-20": { subtotal: 5000, shipping: 4000, total: 9000, payment: UNPAID }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "ig:6024400000000001", text: "15번 핑크프릴 10,000원 pink.mom님 구매 감사합니다", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/16, buyer: "ig:6024400000000003", text: "16번 라울 5,000원 cactus_kim님 구매 감사합니다", confirmVersion: 1 }
+  effectCounts: { POST_THANKS: 2, PRINT_PRODUCT_LABEL: 2, VOID_LABEL: 0 }   # A1·C1 각각 라벨 1 + 감사 1
+---
+id: G-ENG-N2-02
+title: 감사 DM이 기대는 효과 — 한 댓글의 두 번호는 한 이벤트에서 효과 둘, 게시 보고 뒤 취소해도 보낸 감사는 그대로이고 승계자에게 새 감사, 메시지 변환·문자찜·직접 배정 찜도 감사 효과를 낸다
+refs: [PLT-01, YT-04, YT-06, ORD-07, ORD-08, ORD-12, R-4, R-7, R-8, R-9, R-13, INV-11, D-044, D-062, D-079, D-N2-02, D-N2-09, D-N2-10]
+broadcasts: [{ id: b1, date: 2026-10-20, title: 인스타 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }      # seq 1
+  - { at: "20:00:01", type: product.register, b: b1, no: 28, name: 라울, price: 5000 }           # seq 2
+  - { at: "20:00:02", type: product.register, b: b1, no: 31, name: 방울복랑 금, price: 15000 }    # seq 3
+  # 댓글 하나 "15 28" → 번호마다 나온 순서대로 R-4: A 15번 확정(1)·A 28번 확정(1). 한 이벤트에서 라벨 2 + 감사 2 (찜 1·2)
+  - { at: "20:00:05", type: chat, b: b1, id: "ig:17900000000000101", ch: "ig:6024400000000001", nick: pink.mom, text: "15 28" }   # seq 4
+  - type: assert
+    expect:
+      effectCounts: { POST_THANKS: 2, PRINT_PRODUCT_LABEL: 2 }
+      pendingEffects:
+        - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: "ig:6024400000000001", confirmVersion: 1 }
+        - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "ig:6024400000000001", text: "15번 핑크프릴 10,000원 pink.mom님 구매 감사합니다", confirmVersion: 1 }
+        - { kind: PRINT_PRODUCT_LABEL, product: b1/28, buyer: "ig:6024400000000001", confirmVersion: 1 }
+        - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/28, buyer: "ig:6024400000000001", text: "28번 라울 5,000원 pink.mom님 구매 감사합니다", confirmVersion: 1 }
+  # B의 IGSID는 숫자만이고 휴대폰 번호 모양이다 — 채널 키 `ig:01012345678`은 영문이 섞여 ID 칸 검사에 걸리지 않는다(아래 host.confirm)
+  - { at: "20:00:06", type: chat, b: b1, id: "ig:17900000000000102", ch: "ig:01012345678", nick: cactus_kim, text: "15" }         # seq 5. 대기 [B] (찜 3)
+  - { at: "20:00:07", type: chat, b: b1, id: "ig:17900000000000103", ch: "ig:6024400000000003", nick: succulent.jj, text: "31번이요ㅎ 제가 살게요" }  # seq 6. 언급 [31] — C 기록
+  - { at: "20:00:08", type: chat, b: b1, id: "ig:17900000000000104", ch: "ig:6024400000000004", nick: dduk.mom, text: "안녕하세요" }  # seq 7. 주문 아님 — D 기록
+  # 메시지 변환: 주문도 취소도 아니었던 댓글 → C 31번 확정(1) (순위 재료 = 원래 댓글 seq 6). 감사 대상 댓글 = 그 댓글 (찜 4)
+  - { at: "20:00:20", type: host.convertMessage, b: b1, msg: "ig:17900000000000103", no: 31, reason: 댓글 확인 }                   # seq 8
+  # 서버가 댓글 101에 DM 하나(15번·28번 두 줄)를 보내고 효과마다 게시 보고 → 감사 A15·A28 실행 완료, A15·A28 잠금
+  - { at: "20:00:25", type: effect.thanksSent, b: b1, no: 15, buyer: "ig:6024400000000001" }                                      # seq 9
+  - { at: "20:00:25", type: effect.thanksSent, b: b1, no: 28, buyer: "ig:6024400000000001" }                                      # seq 10
+  # A 15번 방송자 취소(잠금과 상관없음): A15 CANCELLED — 미실행 라벨 A15 취소(출력 보고 없음 → 폐기 없음), 보낸 감사 A15는 그대로(지우지 않음).
+  # 자동 승계: 대기 1순위 B 15번 확정(2) — 라벨 B2, 감사 B2 (B의 감사 대상 댓글 = 102, 아직 DM 없음)
+  - { at: "20:01:00", type: host.cancel, b: b1, no: 15, buyer: "ig:6024400000000001", reason: 구매자 요청 }                       # seq 11
+  - { at: "20:01:10", type: product.register, b: b1, no: 40, name: 미니마, price: 800 }                                           # seq 12
+  # 문자찜 → 새 문자 구매자 s1 40번 확정(1) — 감사 문구는 "문자찜"(서버: 댓글이 없어 DM 대상 없음)
+  - { at: "20:01:20", type: sms, b: b1, ref: s1, no: 40, received: "20:01" }                                                       # seq 13
+  - { at: "20:01:30", type: product.register, b: b1, no: 41, name: 성미인, price: 8000 }                                           # seq 14
+  # 직접 배정: D는 댓글을 쓴 적 있는 구매자 → 새 확정 찜 41번(1) (서버: 그 찜을 만든 댓글이 없어 DM 대상 없음)
+  - { at: "20:01:40", type: host.assign, b: b1, no: 41, buyer: "ig:6024400000000004", reason: 댓글로 주문 확인 }                  # seq 15
+  # ID 칸(buyer)에 숫자만인 IGSID를 접두어와 함께 — 휴대폰 번호 ID로 보지 않는다(D-079 ④, D-N2-02). B 15번 잠금만, 효과 없음
+  - { at: "20:02:00", type: host.confirm, b: b1, no: 15, buyer: "ig:01012345678" }                                                # seq 16
+expect:
+  products:
+    b1/15: { status: SOLD, winner: "ig:01012345678", waitlist: [] }
+    b1/28: { status: SOLD, winner: "ig:6024400000000001" }
+    b1/31: { status: SOLD, winner: "ig:6024400000000003" }
+    b1/40: { status: SOLD, winner: "sms:s1" }
+    b1/41: { status: SOLD, winner: "ig:6024400000000004" }
+  claims:
+    - { product: b1/15, buyer: "ig:6024400000000001", status: CANCELLED }
+    - { product: b1/15, buyer: "ig:01012345678", status: CONFIRMED }
+    - { product: b1/31, buyer: "ig:6024400000000003", status: CONFIRMED }
+    - { product: b1/41, buyer: "ig:6024400000000004", status: CONFIRMED }
+  buyers:
+    "ig:6024400000000001": { items: [b1/28], subtotal: 5000, display: pink.mom }
+    "ig:01012345678": { items: [b1/15], subtotal: 10000, display: cactus_kim }
+    "ig:6024400000000003": { items: [b1/31], subtotal: 15000, display: succulent.jj }
+    "ig:6024400000000004": { items: [b1/41], subtotal: 8000, display: dduk.mom }
+    "sms:s1": { items: [b1/40], subtotal: 800, display: 문자찜 }
+  claimCount: 6                                         # A15 · A28 · B15 · C31(변환) · s1 40 · D41(배정)
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "ig:6024400000000001", text: "15번 핑크프릴 10,000원 pink.mom님 구매 감사합니다", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/28, buyer: "ig:6024400000000001", text: "28번 라울 5,000원 pink.mom님 구매 감사합니다", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/31, buyer: "ig:6024400000000003", text: "31번 방울복랑 금 15,000원 succulent.jj님 구매 감사합니다", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "ig:01012345678", text: "15번 핑크프릴 10,000원 cactus_kim님 구매 감사합니다", confirmVersion: 2 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/40, buyer: "sms:s1", text: "40번 미니마 800원 문자찜님 구매 감사합니다", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/41, buyer: "ig:6024400000000004", text: "41번 성미인 8,000원 dduk.mom님 구매 감사합니다", confirmVersion: 1 }
+  effectCounts: { POST_THANKS: 6, PRINT_PRODUCT_LABEL: 6, VOID_LABEL: 0 }   # 확정 6번(A15·A28·C31·B15·s1 40·D41)마다 라벨 1 + 감사 1. 라벨 A15는 출력 전 취소라 폐기 없음
+  pendingEffects:                                       # 라벨 A15는 취소, 감사 A15·A28은 실행 완료 → 빠짐
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/28, buyer: "ig:6024400000000001", confirmVersion: 1 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/31, buyer: "ig:6024400000000003", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/31, buyer: "ig:6024400000000003", confirmVersion: 1 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: "ig:01012345678", confirmVersion: 2 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "ig:01012345678", confirmVersion: 2 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/40, buyer: "sms:s1", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/40, buyer: "sms:s1", confirmVersion: 1 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/41, buyer: "ig:6024400000000004", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/41, buyer: "ig:6024400000000004", confirmVersion: 1 }
+---
+id: G-ENG-N2-03
+title: 같은 날 유튜브 1부(실제 시각순)·인스타 2부(접수순)가 한 범위 — 방송마다 판정 기준이 따로이고, 같은 닉네임이어도 플랫폼이 다르면 다른 구매자, 합치면 정산 묶음 하나(배송비 한 번)
+refs: [PLT-01, PLT-03, ORD-09, BUY-01, BUY-03, STL-01, STL-02, R-0, R-6, R-7, R-11, R-12, D-052, D-057, D-069, D-070, D-N2-02, D-N2-05]
+broadcasts: []
+events:
+  # 1부(유튜브): 실제 시각순. 서버처럼 broadcast.start로 선언 — 스냅샷 = 기본값 위에 contention.policy만
+  - { at: "19:00:00", type: broadcast.start, b: b1, date: 2026-10-20, title: 유튜브 1부, settings: { contention.policy: RECEIVED_TIME } }   # seq 1
+  - { at: "19:00:10", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }                                   # seq 2
+  - { at: "19:00:20", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }                                         # seq 3. A 확정(1), publishedAt = 19:00:20 (찜 1)
+  # 늦게 입력한 선순위 문자찜: 수신 19:00:15(초까지 — 정확한 시각) < A의 19:00:20 → 앞선다. A는 잠금 전 → 자동 역전(R-7):
+  # s1 확정(2), A는 대기 1순위. A의 미실행 라벨·감사(1)는 취소(출력 전 → 폐기 없음). s1 라벨·감사(2) (찜 2)
+  - { at: "19:00:40", type: sms, b: b1, ref: s1, no: 15, received: "19:00:15" }                                              # seq 4
+  # 2부(인스타그램): 설정을 덮어쓰지 않음 → 접수순(ARRIVAL, 기본). 인스타 방송은 이 값만 쓸 수 있다(서버가 막는다 — D-N2-05)
+  - { at: "20:00:00", type: broadcast.start, b: b2, date: 2026-10-20, title: 인스타 2부 }                                       # seq 5
+  - { at: "20:00:10", type: product.register, b: b2, no: 15, name: 라울, price: 5000 }                                        # seq 6. 번호는 방송 안에서만 유일
+  # 인스타 구매자 — 닉네임이 1부의 유튜브 A와 같아도 채널 키가 달라 다른 사람(BUY-01 AC2). 게시 시각 없음(D-N2-04) → 확정(1) (찜 3)
+  - { at: "20:00:20", type: chat, b: b2, id: "ig:17900000000000201", ch: "ig:6024400000000001", nick: 홍길동, text: "15" }     # seq 7
+  # 같은 모양의 늦게 입력한 선순위 문자찜이지만 2부는 접수순 → 순위 = seq → 대기 [s2]. 1등은 바뀌지 않는다(ORD-09 AC1) (찜 4)
+  - { at: "20:00:40", type: sms, b: b2, ref: s2, no: 15, received: "20:00:15" }                                              # seq 8
+  # 같은 사람이 다시 "15" → 활성 찜 있음 → 새 찜 없음(R-4 4번 줄)
+  - { at: "20:01:00", type: chat, b: b2, id: "ig:17900000000000202", ch: "ig:6024400000000001", nick: 홍길동, text: "15" }     # seq 9
+  - type: assert
+    expect:
+      products:
+        b1/15: { status: SOLD, winner: "sms:s1", waitlist: [UC_A] }
+        b2/15: { status: SOLD, winner: "ig:6024400000000001", waitlist: ["sms:s2"] }
+      buyers:
+        UC_A: { items: [], subtotal: 0, display: 홍길동 }
+        "ig:6024400000000001": { items: [b2/15], subtotal: 5000, display: 홍길동 }
+      claimCount: 4
+      settlements:
+        "UC_A@2026-10-20": { subtotal: 0, shipping: 0, total: 0, payment: UNPAID }                  # 품목 없음 → 0
+        "ig:6024400000000001@2026-10-20": { subtotal: 5000, shipping: 4000, total: 9000, payment: UNPAID }
+  # 판매자가 같은 사람으로 확인해 인스타 구매자를 유튜브 구매자에 합친다 (ID 칸 from = ig 접두어 키)
+  - { at: "20:05:00", type: buyer.merge, from: "ig:6024400000000001", into: UC_A, reason: 같은 사람(인스타·유튜브) }             # seq 10
+expect:
+  sameBuyer: [["ig:6024400000000001", UC_A]]
+  products:
+    b1/15: { status: SOLD, winner: "sms:s1", waitlist: [UC_A] }
+    b2/15: { status: SOLD, winner: "ig:6024400000000001", waitlist: ["sms:s2"] }
+  claims:
+    - { product: b1/15, buyer: UC_A, status: WAITLISTED }
+    - { product: b2/15, buyer: "ig:6024400000000001", status: CONFIRMED }
+    - { product: b2/15, buyer: "sms:s2", status: WAITLISTED }
+  buyers:
+    UC_A: { items: [b2/15], subtotal: 5000, byBroadcast: { b2: 5000 }, display: 홍길동 }      # 지금의 구매자 UC_A = UC_A + 인스타 구매자
+    "sms:s1": { items: [b1/15], subtotal: 10000, display: 문자찜 }
+  settlements:
+    "UC_A@2026-10-20": { subtotal: 5000, shipping: 4000, total: 9000, payment: UNPAID }      # 배송비는 그날 첫 방송(1부) 스냅샷의 기본 4,000, 묶음당 한 번
+    "sms:s1@2026-10-20": { subtotal: 10000, shipping: 4000, total: 14000, payment: UNPAID }
+    "sms:s2@2026-10-20": { subtotal: 0, shipping: 0, total: 0, payment: UNPAID }              # 대기만 → 품목 없음
+  claimCount: 4
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, text: "15번 핑크프릴 10,000원 홍길동님 구매 감사합니다", confirmVersion: 1 }   # 역전으로 취소됨(나온 효과로는 남는다)
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:s1", text: "15번 핑크프릴 10,000원 문자찜님 구매 감사합니다", confirmVersion: 2 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b2/15, buyer: "ig:6024400000000001", text: "15번 라울 5,000원 홍길동님 구매 감사합니다", confirmVersion: 1 }
+  effectCounts: { POST_THANKS: 3, PRINT_PRODUCT_LABEL: 3, VOID_LABEL: 0 }
+  pendingEffects:                                       # A의 1부 라벨·감사(1)는 역전으로 취소 → 빠짐
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: "sms:s1", confirmVersion: 2 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:s1", confirmVersion: 2 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b2/15, buyer: "ig:6024400000000001", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b2/15, buyer: "ig:6024400000000001", confirmVersion: 1 }

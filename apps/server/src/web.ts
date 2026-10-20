@@ -51,9 +51,9 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = {
 const NO_CACHE_FILES = new Set(['index.html', 'sw.js', 'manifest.webmanifest'])
 export const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable'
 
-/** 서버가 내지 않는(화면으로 넘기지 않는) 경로 */
+/** 서버가 내지 않는(화면으로 넘기지 않는) 경로 — 웹훅 받는 주소 /webhooks(N2)도 */
 export function isServerPath(path: string): boolean {
-  return path === '/api' || path.startsWith('/api/') || path === '/health' || path.startsWith('/health/') || path === '/ops' || path.startsWith('/ops/')
+  return path === '/api' || path.startsWith('/api/') || path === '/health' || path.startsWith('/health/') || path === '/ops' || path.startsWith('/ops/') || path === '/webhooks' || path.startsWith('/webhooks/')
 }
 
 /** 화면 폴더 확인 (운영 시작 검사, AC-I3-72): 그 폴더에 index.html이 있어야 한다 */

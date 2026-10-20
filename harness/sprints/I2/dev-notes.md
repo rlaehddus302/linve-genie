@@ -22,7 +22,7 @@
 | `src/commands/restore.ts`·`restore-args.ts` | 복구·가져오기 명령 | AC-I2-62 |
 | `src/e2e.ts`·`commands/e2e-server.ts` | 백업 폴더·시작 백업·`?at=` | AC-I2-15·65 |
 | `test/i2-*.test.ts`·`test/i2-support.ts`·`test/product-import.test.ts` | 서버 시험(PGlite·가짜 시계·임시 폴더): 가게 설정·확인서(G-ENG-201·202를 서버 쓰기 경로로)·전원 PDF·금액 불일치(코어 getSettlement 가짜)·판매대장·포장 흐름 1~7·명령·실시간·라벨·지난 구매·가져오기(EUC-KR·BOM·.xlsx 픽스처는 시험이 만든다)·백업 형식·자동 백업·보관·복구(손상 파일 10종·중간 실패·바꾸기)·리허설·전체 내려받기·격리·로그·복구 명령(자식 프로세스)·E2E 기동. 성능 기준(전원 PDF 30초·대장 31일 20초·지난 구매 2초·가져오기 1초/2초·백업 60초)도 여기서 잰다 | 전부 |
-| `drizzle/0006_i2_shop_packing_restore.sql` (합칠 때 I1 0003·Y1 0004·I3 0005 뒤로 번호를 옮김) | `sellers.shop`, `packing_records`, `outbox.restored` (더하기만 — 기존 표의 키·제약은 그대로, RA-I2-002) | — |
+| `drizzle/0007_i2_shop_packing_restore.sql` (합칠 때 I1 0003·Y1 0004·I3 0005·N2 0006 뒤로 번호를 옮김) | `sellers.shop`, `packing_records`, `outbox.restored` (더하기만 — 기존 표의 키·제약은 그대로, RA-I2-002) | — |
 | 의존성 | `apps/server`: `@livejjim/documents`·`@livejjim/label`(workspace), `exceljs` 4.4.0(문서 패키지와 같은 판) | — |
 | `.env.example` | `LIVEJJIM_BACKUP_DIR` | AC-I2-61 |
 

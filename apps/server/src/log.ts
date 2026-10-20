@@ -61,6 +61,11 @@ export type LogCode =
   | 'BACKUP_FAILED'
   | 'DB_UNAVAILABLE'
   | 'PRINT_NOTIFY_FAILED'
+  | 'IG_META_FAILED'
+  | 'IG_TOKEN_UNREADABLE'
+  | 'IG_COMMENT_SKIPPED'
+  | 'IG_DM_FAILED'
+  | 'IG_REPORT_FAILED'
   // 틱톡 연결 모듈 (N2b-1, D-N2b-1-08): 정해진 코드·실패 종류·개수만. 댓글·닉네임·아이디·판매자 틱톡 아이디·오류 메시지·서명 키는 남기지 않는다
   | 'TIKTOK_BETA_INVALID'
   | 'TIKTOK_CONNECT_FAILED'
@@ -112,6 +117,11 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   BACKUP_FAILED: '백업하지 못했어요(운영 백업 명령은 종료 코드 1 · 판매자 자동 백업은 다음 확인 때 다시 해요)',
   DB_UNAVAILABLE: '데이터베이스에 닿지 않아요',
   PRINT_NOTIFY_FAILED: '출력 기록 알림을 보내지 못했어요(기록은 저장됨)',
+  IG_META_FAILED: '인스타그램(메타) 요청이 실패했어요',
+  IG_TOKEN_UNREADABLE: '인스타그램 토큰을 풀지 못해 연결을 다시 연결 필요로 바꿨어요',
+  IG_COMMENT_SKIPPED: '형식이 틀린 인스타그램 댓글을 기록하지 않고 셌어요',
+  IG_DM_FAILED: '인스타그램 DM 실행기에서 오류가 생겼어요(다음에 다시 해요)',
+  IG_REPORT_FAILED: '인스타그램 DM 게시 보고를 기록하지 못했어요(다음에 다시 해요)',
   TIKTOK_BETA_INVALID: '틱톡 베타 스위치 값을 알아볼 수 없어 끔으로 봤어요',
   TIKTOK_CONNECT_FAILED: '틱톡 연결 시도가 실패했어요',
   TIKTOK_DISCONNECTED: '받던 틱톡 연결이 끊겼어요',

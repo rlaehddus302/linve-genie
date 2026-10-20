@@ -9,7 +9,6 @@ process.env.TZ = TEST_TIME_ZONE
 
 export default defineConfig({
   test: {
-    // apps/server/vitest.i2.config.ts: I2 서버 시험을 서버 프로젝트 다음에 따로 돌린다 (그 파일 머리말)
-    projects: ['packages/*', 'apps/*', 'apps/server/vitest.i2.config.ts'],
+    projects: ['packages/*', 'apps/*'],
   },
 })

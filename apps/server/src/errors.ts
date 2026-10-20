@@ -80,6 +80,11 @@ export type ErrorCode =
   | 'INVALID_TEMPLATE'
   | 'TEMPLATE_TOO_LARGE'
   | 'TEMPLATE_CONFLICT'
+  // N2 인스타그램·라이브 연결 API
+  | 'NOT_CONFIGURED'
+  | 'NOT_CONNECTED'
+  | 'RECONNECT_NEEDED'
+  | 'UNAVAILABLE'
   // I2 API (harness/sprints/I2/dev-notes.md)
   | 'NO_ITEMS'
   | 'AMOUNT_MISMATCH'

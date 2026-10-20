@@ -4,7 +4,7 @@
 // 실행기는 감사(POST_THANKS)와 방송 후 요약 댓글(SUMMARY_COMMENT) 행만 다룬다. 라벨 행(PRINT_PRODUCT_LABEL·VOID_LABEL)은 건드리지 않는다(S08).
 import { and, asc, eq, gte, inArray, isNull, lte, notInArray, or, sql, type SQL } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
-import { outbox, scopes, youtubeOwnMessages } from '../db/schema.ts'
+import { igDmRows, outbox, scopes, youtubeOwnMessages } from '../db/schema.ts'
 import { SUMMARY_KIND } from './texts.ts'
 
 /** 실행기가 다루는 행의 종류 */
@@ -89,10 +89,20 @@ const select = (db: Db) =>
     .from(outbox)
     .innerJoin(scopes, and(eq(scopes.id, outbox.scopeId), eq(scopes.sellerId, outbox.sellerId), eq(scopes.rehearsal, false)))
 
-/** 실행기가 아직 보지 않은 감사 행 (효과가 나온 순서) */
+/**
+ * 실행기가 아직 보지 않은 감사 행 (효과가 나온 순서). 인스타그램 회차의 감사 행(같은 트랜잭션에서 DM 행이 생긴 것, N2)은 인스타그램 DM 실행기 몫이라
+ * 집지 않는다 — 유튜브 실행기가 집으면 DM은 보냈는데 "이어진 유튜브 방송이 없어요"로 실패가 거짓으로 남는다 (N2 합치기, D-N2-01·D-N2-09)
+ */
 export function newThanksRows(db: Db, limit = 500): Promise<RunnerRow[]> {
   return select(db)
-    .where(and(REAL, isNull(outbox.state), eq(outbox.kind, 'POST_THANKS')))
+    .where(
+      and(
+        REAL,
+        isNull(outbox.state),
+        eq(outbox.kind, 'POST_THANKS'),
+        sql`not exists (select 1 from ${igDmRows} where ${igDmRows.outboxId} = ${outbox.id} and ${igDmRows.sellerId} = ${outbox.sellerId})`,
+      ),
+    )
     .orderBy(asc(outbox.id))
     .limit(limit)
 }

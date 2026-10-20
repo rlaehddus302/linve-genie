@@ -785,7 +785,7 @@ function validateScenario(raw: Record<string, unknown>): ValidationResult {
   const c = new Checker()
   const label = typeof raw.id === 'string' ? raw.id : undefined
   c.keys([], raw, ['id', 'title', 'refs', 'settings', 'broadcasts', 'events', 'expect'], ['id', 'title', 'refs', 'broadcasts', 'events', 'expect'])
-  c.value(['id'], raw.id, (v) => (typeof v === 'string' && SCENARIO_ID_RE.test(v) ? undefined : `시나리오 ID 형식 오류 ${showValue(v)} (G-ENG-세 자리)`))
+  c.value(['id'], raw.id, (v) => (typeof v === 'string' && SCENARIO_ID_RE.test(v) ? undefined : `시나리오 ID 형식 오류 ${showValue(v)} (G-ENG-세 자리 또는 G-ENG-<스프린트 ID>-두 자리)`))
   if (hasValue(raw, 'title')) c.value(['title'], raw.title, nonEmptyStr)
   if (hasValue(raw, 'refs') && c.array(['refs'], raw.refs, 1)) {
     raw.refs.forEach((ref, i) => c.value(['refs', i], ref, nonEmptyStr))

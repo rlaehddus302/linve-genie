@@ -23,6 +23,10 @@ import type { LoginLimitOptions } from './login-limit.ts'
 import { loginLimitSecret, readMasterKey, type PasswordCost } from './secrets.ts'
 import type { GeneratorTimer } from './generator.ts'
 import { PrintService } from './print.ts'
+import type { InstagramSettings } from './instagram/config.ts'
+import { createInstagram, type InstagramModule } from './instagram/index.ts'
+import type { LiveTimer } from './instagram/notices.ts'
+import { createWebhookApp } from './instagram/routes.ts'
 import { readQueue } from './print-store.ts'
 import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
@@ -112,6 +116,14 @@ export interface ServerOptions {
   readonly outboxTiming?: OutboxTiming
   /** 시험 모드 신호 (화면 설정 testPrinter — 시험용 프린터를 켠다). E2E 기동만 켠다. 기본 false (L-11 15, AC-I1-16) */
   readonly testPrinter?: boolean
+  /** 인스타그램 연동 설정 (N2). 없으면 인스타그램 기능은 NOT_CONFIGURED, 웹훅은 503 (AC-N2-17) */
+  readonly instagram?: InstagramSettings | null
+  /** 인스타그램 알림·DM 실행기 예약 (시험은 기다리지 않는 타이머를 넣는다) */
+  readonly liveTimer?: LiveTimer
+  /** DM 실행기를 스스로 돌린다 (기본 true. 시험은 끄고 instagram.dms.drain()을 부른다) */
+  readonly dmAutoRun?: boolean
+  /** 수집 상태 알림 간격 (기본 1000밀리초 — 시험만 줄인다) */
+  readonly collectionIntervalMs?: number
   /** 백업 저장소 (I2 D-I2-10 — 없으면 자동 백업이 꺼진다. 판매는 그대로) */
   readonly backupStorage?: BackupStorage | null
   /** 자동 백업 확인 주기 (기본 5분) */
@@ -137,6 +149,8 @@ export interface LivejjimServer {
   readonly viewCaches: ViewCacheBudget
   /** 출력 기록과 출력 기기 (I1) */
   readonly print: PrintService
+  /** 인스타그램 계정 연결·라이브 연결·웹훅·감사 DM (N2) */
+  readonly instagram: InstagramModule
   /** 정산 마무리 (I2) */
   readonly closing: ClosingService
   /** 매일 자동 백업 (I2 D-I2-10 — 시작은 backups.start(), 시험은 check()를 직접 부른다) */
@@ -227,6 +241,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     ...(options.passwordVerifier === undefined ? {} : { verify: options.passwordVerifier }),
   })
   let print: PrintService | null = null
+  let instagram: InstagramModule | null = null
   const hub = new StreamHub({
     heartbeatMs,
     sessionAlive: (hash) => auth.alive(hash),
@@ -257,8 +272,17 @@ export function createServer(options: ServerOptions): LivejjimServer {
       viewCaches.sweep()
     },
     onDrop: (runtime) => viewCaches.release(runtime),
-    // 효과 → 출력 작업·라벨 폐기를 이벤트 기록과 같은 트랜잭션에서 (L-11 2·5)
-    txHook: (tx, ctx) => (print as PrintService).txHook(tx, ctx),
+    // 효과 → 출력 작업·라벨 폐기(L-11 2·5), 인스타그램 회차의 감사 효과 → DM 행(N2)을 이벤트 기록과 같은 트랜잭션에서
+    txHook: async (tx, ctx) => {
+      const printed = await (print as PrintService).txHook(tx, ctx)
+      const dm = await (instagram as InstagramModule).txHook(tx, ctx)
+      if (printed === null) return dm
+      if (dm === null) return printed
+      return () => {
+        printed()
+        dm()
+      }
+    },
   })
   print = new PrintService({
     db,
@@ -362,6 +386,21 @@ export function createServer(options: ServerOptions): LivejjimServer {
       loginRejected: auth.loginRejections,
     }
   }
+  instagram = createInstagram({
+    db,
+    writer,
+    service,
+    clock,
+    log,
+    masterKey,
+    appOrigin: options.appOrigin,
+    settings: options.instagram ?? null,
+    publish: (sellerId, data) => hub.publishInstagram(sellerId, data),
+    ...(options.liveTimer === undefined ? {} : { timer: options.liveTimer }),
+    ...(options.dmAutoRun === undefined ? {} : { dmAutoRun: options.dmAutoRun }),
+    ...(options.collectionIntervalMs === undefined ? {} : { collectionIntervalMs: options.collectionIntervalMs }),
+  })
+  const instagramModule = instagram
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
     api: {
@@ -370,6 +409,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       auth,
       hub,
       print: printService,
+      instagram: instagramModule,
       appOrigin: options.appOrigin,
       clientConfig: { hostActionDelayMs, testPrinter: options.testPrinter === true },
       receiptAtParam: options.receiptAtParam === true,
@@ -385,6 +425,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       return ok
     },
     ops: { token: options.opsToken === undefined ? null : options.opsToken.trim(), status: opsStatus },
+    webhooks: createWebhookApp(instagramModule),
   })
   const stop = async () => {
     await Promise.all([youtube?.stop(), sealer.stop()])
@@ -399,6 +440,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     sealer,
     viewCaches,
     print: printService,
+    instagram: instagramModule,
     closing,
     backups,
     work,
@@ -411,6 +453,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     close: () => {
       service.generators.closeAll()
       printService.close()
+      instagramModule.close()
       hub.closeAll()
       backups.stop()
       void stop()

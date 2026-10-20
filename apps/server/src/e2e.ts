@@ -5,6 +5,9 @@
 // - I2: 백업 저장소 = 임시 폴더(또는 지정한 폴더), 시작할 때 시험 판매자의 자동 백업 하나(시각과 상관없이 — 설정 화면의 "마지막 자동 백업"이 늘 있게),
 //   확인서 데이터 조회의 ?at= (공유 그림 바이트를 같은 데이터의 Node 그림과 맞댈 때, AC-I2-15).
 // - 채우기는 기록 경로(ScopeWriter)를 그대로 탄다: 상품은 product.register(조치자 서버), 채팅은 가짜 채팅 생성기의 메시지(조치자 수집기).
+// - 선택: 가짜 메타 서버(instagram: true, N2 AC-N2-70) — 127.0.0.1의 빈 포트에 띄우고 서버의 인스타그램 설정을 그 주소로 둔다.
+//   돌아오는 주소는 화면 주소 + /api/instagram/callback(화면 개발 서버가 /api를 이 서버로 넘긴다), 웹훅은 이 서버의 /webhooks/instagram으로 보낸다.
+//   운영 기동(main.ts)에는 없다 — 시험 모드에서만.
 // - I3 시험용 선택(AC-I3-93 — 운영 시작 main에는 없다): 유튜브 할당량 예산 줄이기, 발송함 시간 줄이기, 화면 폴더(같은 출처로 화면을 함께 냄),
 //   시험용 조작 경로 /_e2e/*(새 판매자 계정·봉인 시험 날짜·지금 봉인) — 이 기동에서만 앞에 붙는다(서버 앱에는 없다).
 import { randomBytes, randomInt } from 'node:crypto'
@@ -19,6 +22,7 @@ import { FolderBackupStorage } from './backup.ts'
 import { openPglite, type Database } from './db/database.ts'
 import { ChatMaker, generatorView } from './generator.ts'
 import { createNodeServer } from './node-server.ts'
+import { FakeMeta } from './instagram/fake-meta.ts'
 import { generateMasterKey, type PasswordCost } from './secrets.ts'
 import { createServer, type LivejjimServer } from './server.ts'
 import { findAccountByLogin } from './store.ts'
@@ -130,6 +134,8 @@ export interface E2eOptions {
   readonly backupDir?: string
   /** 시작할 때 시험 판매자의 자동 백업을 하나 만든다 (기본 true) */
   readonly initialBackup?: boolean
+  /** 가짜 메타 서버를 함께 띄우고 인스타그램을 그 주소로 연결한다 (기본 false, N2) */
+  readonly instagram?: boolean
   /**
    * 가짜 구글·유튜브 서버와 함께 띄운다 (AC-Y1-81, D-Y13). 127.0.0.1의 그 포트(0이면 빈 포트)에서 열고 서버가 그 주소를 쓴다.
    * 돌아오는 주소는 화면 주소를 거친다(<화면>/api/youtube/oauth/callback — 화면이 /api를 서버로 넘긴다), 연결 뒤 화면 주소는 <화면>/settings/youtube.
@@ -239,6 +245,8 @@ export interface E2eServer {
   readonly fakeGoogle: FakeGoogle | null
   /** Node HTTP 서버 (열기는 listen으로) */
   readonly http: Server
+  /** 함께 띄운 가짜 메타 서버 (instagram: true일 때만) */
+  readonly fakeMeta: FakeMeta | null
   /** E2E_HOST(127.0.0.1)의 그 포트에서 연다 (0이면 빈 포트). 연 주소·포트를 돌려준다. 열지 못하면(포트를 이미 씀 등) 그 오류로 실패한다 */
   listen(port: number): Promise<{ readonly host: string; readonly port: number }>
   close(): Promise<void>
@@ -250,6 +258,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
   const ownBackupDir = options.backupDir === undefined
   const backupDir = options.backupDir ?? mkdtempSync(join(tmpdir(), 'livejjim-e2e-backup-'))
   const appOrigin = options.appOrigin ?? 'http://localhost:5173'
+  const fakeMeta = options.instagram === true ? await FakeMeta.start() : null
   const fakeGoogle =
     options.youtube === undefined
       ? null
@@ -262,6 +271,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     database,
     masterKey,
     appOrigin,
+    ...(fakeMeta === null ? {} : { instagram: fakeMeta.settings({ redirectUri: `${appOrigin}/api/instagram/callback` }) }),
     log: () => {},
     backupStorage: new FolderBackupStorage(backupDir),
     receiptAtParam: true,
@@ -311,6 +321,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     backupDir,
     fakeGoogle,
     http,
+    fakeMeta,
     listen: (port) =>
       new Promise((resolve, reject) => {
         const failed = (error: Error) => reject(error)
@@ -319,7 +330,11 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
           http.off('error', failed)
           const address = http.address()
           if (typeof address !== 'object' || address === null) reject(new Error('듣는 주소를 알 수 없다'))
-          else resolve({ host: address.address, port: address.port })
+          else {
+            // 가짜 메타 서버가 서명한 웹훅을 이 서버로 보낸다 (/_fake/comments)
+            if (fakeMeta !== null) fakeMeta.webhookUrl = `http://${address.address}:${String(address.port)}/webhooks/instagram`
+            resolve({ host: address.address, port: address.port })
+          }
         })
       }),
     close: async () => {
@@ -331,6 +346,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
         if (!http.listening) resolve()
         else http.close(() => resolve())
       })
+      await fakeMeta?.close()
       await database.close()
       if (ownBackupDir) rmSync(backupDir, { recursive: true, force: true })
     },

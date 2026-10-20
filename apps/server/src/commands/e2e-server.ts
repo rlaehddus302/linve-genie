@@ -1,5 +1,5 @@
 // E2E용 서버 기동 명령 (AC-S05-91): pnpm --filter @livejjim/server e2e [--port 3100 (0이면 빈 포트)] [--origin http://localhost:5173] [--fill yes]
-//   [--fill-products 500] [--fill-chats 10000] [--host-delay-ms 5000] [--chat-speed 1] [--test-printer yes|no] [--youtube fake] [--youtube-port 4100]
+//   [--fill-products 500] [--fill-chats 10000] [--host-delay-ms 5000] [--chat-speed 1] [--test-printer yes|no] [--youtube fake] [--youtube-port 4100] [--instagram yes|no]
 // - 메모리 PGlite + 마이그레이션, 그 자리에서 만든 시험용 마스터 키, 시험용 판매자 계정(apps/server/e2e/account.json). 끄면 데이터는 사라진다.
 // - --fill yes: 상품 500·채팅 1만 건을 채운 실제 범위(오늘, KST) — 화면 반영 1초 시험(AC-S05-64)용. 채우기가 끝난 뒤에 포트를 연다.
 // - --host-delay-ms: 화면이 방송자 조치를 보내기 전에 기다리는 시간(GET /api/client-config, 운영 값 5000). E2E에서만 줄인다.
@@ -10,6 +10,7 @@
 // - I3 시험용 선택 (AC-I3-93, harness/sprints/I3/dev-notes.md "화면에게" 8 — 운영 시작 main에는 없다):
 //   --youtube-quota-budget n(유튜브 할당량 판매자 예산·프로젝트 한도) · --outbox-fast yes(발송함 시간 줄이기) · --web-dir <폴더>(서버가 화면을 같은 출처로 함께 낸다).
 //   시험용 조작 경로 POST /_e2e/sellers · /_e2e/dates · /_e2e/seal (이 서버 주소, JSON).
+// - --instagram yes: 가짜 메타 서버를 함께 띄우고 인스타그램 연동을 그 주소로 둔다(N2 — 조작 주소 /_fake/*, harness/sprints/N2/dev-notes.md "화면에게"). 기본 no.
 // - --backup-dir: 백업 폴더(I2). 적지 않으면 임시 폴더를 만들고 끌 때 지운다. 시작할 때 시험 판매자의 자동 백업 하나를 만든다.
 // - 환경변수 PORT·LIVEJJIM_APP_ORIGIN도 읽는다(인자가 우선). .env는 읽지 않는다(실제 비밀값이 필요 없다).
 // - 127.0.0.1에서만 연다(모든 인터페이스가 아니다, AC-S06-73). 헬스체크·프록시는 http://127.0.0.1:<포트>로.
@@ -35,6 +36,7 @@ const args = parseArgs(process.argv.slice(2), [
   'youtube-quota-budget',
   'outbox-fast',
   'web-dir',
+  'instagram',
   'backup-dir',
 ])
 if (!args.ok) {
@@ -65,6 +67,7 @@ const youtubePort = intArg('youtube-port', 0, 65_535)
 const quotaBudget = intArg('youtube-quota-budget', 1, 1_000_000)
 const outboxFast = values.get('outbox-fast')
 const webDir = values.get('web-dir')
+const instagramFlag = values.get('instagram')
 
 if (
   portArg === null ||
@@ -78,11 +81,12 @@ if (
   (testPrinterFlag !== undefined && testPrinterFlag !== 'yes' && testPrinterFlag !== 'no') ||
   (youtubeFlag !== undefined && youtubeFlag !== 'fake' && youtubeFlag !== 'no') ||
   (outboxFast !== undefined && outboxFast !== 'yes' && outboxFast !== 'no') ||
-  (webDir !== undefined && webDirProblem(webDir) !== null)
+  (webDir !== undefined && webDirProblem(webDir) !== null) ||
+  (instagramFlag !== undefined && instagramFlag !== 'yes' && instagramFlag !== 'no')
 ) {
   complain(
     '인자를 확인해 주세요. --port 0~65535, --fill yes|no, --fill-products 1~999, --fill-chats 0~100000, --host-delay-ms 0~5000, --chat-speed 1~1000, --test-printer yes|no, ' +
-      '--youtube fake|no, --youtube-port 0~65535, --youtube-quota-budget 1~1000000, --outbox-fast yes|no, --web-dir <index.html이 있는 화면 빌드 폴더>',
+      '--youtube fake|no, --youtube-port 0~65535, --youtube-quota-budget 1~1000000, --outbox-fast yes|no, --web-dir <index.html이 있는 화면 빌드 폴더>, --instagram yes|no',
   )
   process.exit(2)
 }
@@ -104,6 +108,7 @@ const e2e = await startE2eServer({
   ...(youtubeFlag === 'fake' ? { youtube: { ...(youtubePort === undefined ? {} : { port: youtubePort }), ...(quotaBudget === undefined ? {} : { quotaBudget }) } } : {}),
   ...(outboxFast === 'yes' ? { outboxFast: true } : {}),
   ...(webDir === undefined ? {} : { webDir }),
+  instagram: instagramFlag === 'yes',
   ...(values.get('backup-dir') === undefined ? {} : { backupDir: values.get('backup-dir') as string }),
 })
 
@@ -112,10 +117,11 @@ try {
   const opened = await e2e.listen(port)
   const filled = e2e.fill === null ? '채우기 없음' : `채운 범위 ${e2e.fill.date} · 상품 ${String(e2e.fill.products)} · 채팅 ${String(e2e.fill.chats)}`
   const youtube = e2e.fakeGoogle === null ? '' : ` · 가짜 유튜브 ${e2e.fakeGoogle.url}`
+  const meta = e2e.fakeMeta === null ? '' : ` · 가짜 메타 ${e2e.fakeMeta.url}`
   const web = webDir === undefined ? '' : ' · 화면 함께 냄'
   say(
     `E2E 서버를 시작했어요. http://${opened.host}:${String(opened.port)} · 화면 주소 ${origin} · 시험 계정 ${e2e.account.loginId} · ${filled} · ` +
-      `방송자 조치 대기 ${String(hostDelay ?? 5000)}ms · 시험용 프린터 ${testPrinterFlag === 'no' ? '끔' : '켬'}${youtube}${web} · 준비 ${String(Date.now() - started)}ms`,
+      `방송자 조치 대기 ${String(hostDelay ?? 5000)}ms · 시험용 프린터 ${testPrinterFlag === 'no' ? '끔' : '켬'}${youtube}${meta}${web} · 준비 ${String(Date.now() - started)}ms`,
   )
   e2e.http.on('error', () => {
     complain('서버에 문제가 생겨 멈췄어요.')
