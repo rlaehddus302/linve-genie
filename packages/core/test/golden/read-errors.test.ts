@@ -465,14 +465,49 @@ const CASES: Readonly<Record<string, { category: string; loaded?: number; errors
       { doc: 3, label: 'voice-extract', issues: [['settings.maxNumber', '1 이상 9999 이하 정수']] },
     ],
   },
+  '21-product-import.yaml': {
+    // I2 (D-I2-09): 러너가 product-import suite를 안다 — 형식 계약 밖은 읽기 오류 (dev-server가 코어 시험 영역에 최소로 더함)
+    category: '21. product-import settings·out 형식 위반 (모르는 키, 목록이 아닌 existing, rows 없음, error와 rows 함께, 모르는 오류 값, line 0, price 100 미만, 줄 키 빠짐·더함)',
+    errors: [
+      {
+        doc: 1,
+        label: 'product-import',
+        issues: [
+          ['settings.existing', '1 이상 정수 목록이어야 한다'],
+          ['settings.dictionary', "suite 'product-import'에 없는 설정 키 'dictionary'"],
+          ['cases[0].out.note', "모르는 product-import out 키 'note'"],
+          ['cases[1].out', "필수 product-import out 키 'rows'가 없다"],
+          ['cases[2].out.rows', "모르는 product-import 전체 문제 out 키 'rows'"],
+          ['cases[3].out.error', 'EMPTY / TOO_MANY 중 하나여야 한다'],
+          ['cases[4].out.rows[0].error', 'CELLS / NUMBER_INVALID / DUPLICATE / EXISTS / NAME_PHONE / PRICE_MISSING / PRICE_INVALID / PRICE_TOO_LOW 중 하나여야 한다'],
+          ['cases[5].out.rows[0].line', '1 이상 정수여야 한다'],
+          ['cases[6].out.rows[0].price', '100 이상 정수여야 한다'],
+          ['cases[7].out.rows[0]', "필수 product-import 등록 줄 키 'line'가 없다"],
+          ['cases[7].out.rows[0]', "필수 product-import 등록 줄 키 'name'가 없다"],
+          ['cases[7].out.rows[0]', "필수 product-import 등록 줄 키 'price'가 없다"],
+          ['cases[8].out.header', '1 이상 정수여야 한다'],
+          ['cases[9].out.rows[0].no', "모르는 product-import 문제 줄 키 'no'"],
+        ],
+      },
+      {
+        doc: 2,
+        label: 'product-import',
+        issues: [
+          ['settings.unit', 'WON / THOUSAND 중 하나여야 한다'],
+          ['settings.maxNumber', '1 이상 9999 이하 정수'],
+          ['settings.existing', '1 이상 정수 목록이어야 한다'],
+        ],
+      },
+    ],
+  },
 }
 
 describe('형식 계약 위반 = 읽기 오류 (AC-S00-22)', () => {
-  it('fixtures/read-errors의 모든 파일에 기대값이 있다 (범주 1~20 — 20번은 S06b mergePreviews와 P2 voice-extract 두 파일)', () => {
+  it('fixtures/read-errors의 모든 파일에 기대값이 있다 (범주 1~21 — 20번은 S06b mergePreviews와 P2 voice-extract 두 파일, 21번은 I2 product-import)', () => {
     const files = readdirSync(DIR).filter((f) => f.endsWith('.yaml'))
     expect(files.sort()).toEqual(Object.keys(CASES).sort())
     const categories = new Set(Object.values(CASES).map((c) => Number(c.category.split('.')[0])))
-    expect([...categories].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
+    expect([...categories].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21])
   })
 
   for (const [file, { category, loaded = 0, errors }] of Object.entries(CASES)) {

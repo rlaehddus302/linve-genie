@@ -655,15 +655,17 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
 
 // I2 바탕 합치기(S06b + P2): 골든이 늘어 합계를 바꿨다(교체 — 약화 아님). S06b(19·20번 엔진 파일, G-ENG-174~177)와
 // P2(parser/voice-extract.yaml 69사례, engine/19-p2-documents.yaml G-ENG-201·202)를 함께 센다.
-describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 합계)', () => {
-  it('파일 25 · 파서 448 · 엔진 125 · 통과 573, 나머지 0', () => {
+// I2(AC-I2-50·90): 골든이 늘어 합계를 다시 바꿨다(교체 — 약화 아님). 파일 25 → 26(parser/product-import.yaml),
+// 파서 448 → 469(product-import 21사례, 실제 해석 함수 apps/server/src/product-import.ts), 엔진 125 그대로, 통과 573 → 594.
+describe('실제 tests/golden 전체를 실제 코어로 (AC-I2-90 합계, S06b + P2 합계에서 교체)', () => {
+  it('파일 26 · 파서 469 · 엔진 125 · 통과 594, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
-      files: 25,
-      parserCases: 448,
+      files: 26,
+      parserCases: 469,
       scenarios: 125,
-      pass: 573,
+      pass: 594,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,

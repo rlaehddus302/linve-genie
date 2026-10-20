@@ -64,6 +64,7 @@ function runParserCase(
   settings: object,
   testCase: ParserCase,
   dictionary: readonly string[] = [],
+  existing: readonly number[] = [],
 ): { status: ItemStatus; problems: Problem[] } {
   let actual: unknown
   try {
@@ -84,6 +85,10 @@ function runParserCase(
       case 'voice-extract':
         // 사전은 사례마다 사본을 넘긴다 — 추출기가 바꿔도 다음 사례에 번지지 않게
         actual = core.parser.voiceExtract(testCase.input, copy, [...dictionary])
+        break
+      case 'product-import':
+        // 이미 있는 번호도 사례마다 사본을 넘긴다 — 해석기가 바꿔도 다음 사례에 번지지 않게 (I2, D-I2-09)
+        actual = core.parser.productImport(testCase.input, copy, [...existing])
         break
     }
   } catch (error) {
@@ -429,7 +434,7 @@ export function runGoldenSources(options: RunGoldenSourcesOptions): GoldenReport
     if (doc.kind === 'suite') {
       const listed = allowlist.suites.has(doc.suite)
       for (const testCase of doc.cases) {
-        const { status, problems } = runParserCase(options.core, doc.suite, doc.settings, testCase, doc.dictionary)
+        const { status, problems } = runParserCase(options.core, doc.suite, doc.settings, testCase, doc.dictionary, doc.existing)
         items.push({
           kind: 'parser',
           file: entry.file,
