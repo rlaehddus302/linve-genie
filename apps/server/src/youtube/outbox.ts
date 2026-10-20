@@ -347,6 +347,16 @@ export class OutboxRunner {
     return this.#options.timing?.lookupIntervalMs ?? LOOKUP_INTERVAL_MS
   }
 
+  /**
+   * 같은 행의 다음 조회를 해도 되는 시각 — 확인 조회(#lookup)가 **돌아온 직후**의 시계부터 잰다 (AC-I3-87, SA-I3-009).
+   * 확인을 시작할 때 읽은 시각부터 재면, 그 뒤 임대 늘리기·수집기 확인·할당량·토큰(DB)과 요청이 도는 사이 시계가 간 만큼
+   * 유튜브가 실제로 받은 두 조회 사이가 10초보다 짧아진다. 돌아온 시각은 그 조회의 마지막 요청을 유튜브가 받은 시각보다 늦으므로
+   * 다음 조회(그 시각 이후에 시작)까지는 늘 간격 이상이다
+   */
+  #nextLookup(): Date {
+    return new Date(this.#options.timer.now() + this.#lookupIntervalMs)
+  }
+
   async #update(row: Pick<RunnerRow, 'sellerId'>, ids: readonly number[], change: RowChange, expect?: Parameters<typeof updateRows>[5]): Promise<number[]> {
     this.#check()
     return updateRows(this.#options.db, row.sellerId, ids, change, this.#now(), expect)
@@ -826,13 +836,13 @@ export class OutboxRunner {
     if (target === 'LIVE_CHAT' && (await this.#claim(rows, link, target, [], 'SENDING')) !== 'none') return
     // 같은 행의 조회 사이는 10초 이상 (AC-I3-87) — 확인 중인 행(SENDING)의 next_at = 다음 조회를 해도 되는 시각
     if (first.nextAt !== null && now < first.nextAt.getTime()) return
-    const nextLookup = new Date(now + this.#lookupIntervalMs)
     const until = first.confirmUntil?.getTime() ?? 0
     if (now < until) {
       // 2. 이른 조회 (시도마다 한 번): 수집기가 LIVE가 아닌 실시간 채팅, 영상·요약 댓글
       if (first.reason !== 'CONFIRM') return
       if (target === 'LIVE_CHAT' && (await this.#options.collectorRunning(first.sellerId, link.id))) return
       const lookup = await this.#lookup(first, link, target)
+      const nextLookup = this.#nextLookup()
       await this.#update(first, ids, { reason: lookup === null || !lookup.complete ? 'CONFIRM_LIST_FAILED' : 'CONFIRM_LISTED', nextAt: nextLookup }, { state: 'SENDING', leaseOwner: owner })
       if (lookup !== null) await this.#claim(rows, link, target, lookup.found, 'SENDING')
       return
@@ -841,6 +851,7 @@ export class OutboxRunner {
     //    조회 실패·같은 글을 게시하는 중인 다른 묶음 때문에 짝짓기를 미룸은 모두 한 번으로 센다 — 3번 안에 정하지 못하면 UNCONFIRMED(다시 게시 없음)
     //    다 보지 못한 조회(실시간 채팅의 첫 쪽이 기준 시각까지 거슬러 가지 못함·5쪽 상한)는 찾은 글로 짝지을 수는 있어도, 못 찾음은 실패한 조회다 (RA-I3-001)
     const lookup = await this.#lookup(first, link, target)
+    const nextLookup = this.#nextLookup()
     const claimed = lookup === null ? 'failed' : await this.#claim(rows, link, target, lookup.found, 'SENDING')
     const outcome = claimed === 'none' && lookup !== null && !lookup.complete ? 'failed' : claimed
     if (outcome === 'sent' || outcome === 'gone') return

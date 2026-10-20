@@ -335,6 +335,101 @@ describe('AC-I3-87 조회 간격·횟수', () => {
     const reports = await w.database.pglite?.query<{ n: number }>(`select count(*)::int as n from events where type = 'effect.thanksSent'`)
     expect(reports?.rows[0]?.n).toBe(0)
   })
+
+  /**
+   * SA-I3-009: 확인 조회가 유튜브에 닿기 전(임대 늘리기·수집기 확인·할당량·토큰 DB 읽기·요청이 도는 사이)에 시계가 앞으로 가는 경우.
+   * 정한 번째 조회(1부터)의 요청만 유튜브에 닿기 전에 시계를 옮긴다 — 그 조회는 늦게, 다음 조회는 늦지 않게 닿아 간격이 줄어드는 경우를 그대로 만든다.
+   * 시계는 이 지연과 시험의 1초 걸음으로만 간다(drive 없이 — 같은 결과가 매번 나온다)
+   */
+  function lagBeforeLookup(lags: Readonly<Record<number, number>>) {
+    let target: YoutubeWorld | null = null
+    let seen = 0
+    const applied: number[] = []
+    const youtubeFetch: typeof fetch = async (input, init) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      const lookup = (init?.method ?? 'GET') === 'GET' && (url.pathname.endsWith('/liveChat/messages') || url.pathname.endsWith('/commentThreads'))
+      if (lookup && target !== null) {
+        seen += 1
+        const lag = lags[seen]
+        if (lag !== undefined) {
+          await target.timer.advance(lag)
+          applied.push(seen)
+        }
+      }
+      return fetch(input, init)
+    }
+    return {
+      youtubeFetch,
+      attach: (w: YoutubeWorld) => {
+        target = w
+      },
+      applied,
+    }
+  }
+
+  /** 2분 동안 1초씩 실행기를 돌린다 (drive 없이 — 한 바퀴 안에서는 넣은 지연 말고는 시계가 가지 않는다) */
+  async function twoMinutesStepwise(w: YoutubeWorld) {
+    const start = w.timer.now()
+    while (w.timer.now() - start < 2 * 60 * 1000) {
+      await w.timer.advance(1000)
+      await youtubeOf(w).outbox.runOnce()
+    }
+  }
+
+  const listOf = (target: 'LIVE_CHAT' | 'VIDEO_COMMENT') => (target === 'LIVE_CHAT' ? 'liveChatMessages.list' : 'commentThreads.list')
+  const insertOf = (target: 'LIVE_CHAT' | 'VIDEO_COMMENT') => (target === 'LIVE_CHAT' ? 'liveChatMessages.insert' : 'commentThreads.insert')
+
+  /** 게시 연결이 끊겨(올라갔는지 모름) 바로 확인으로 가고, 조회는 모두 503 — 이른 조회 1 + 끝 조회 3이 모두 실패한다. 첫 바퀴도 시계를 옮기지 않는다 */
+  async function unknownPost(w: YoutubeWorld, target: 'LIVE_CHAT' | 'VIDEO_COMMENT') {
+    const { connected, b } = await oneSale(w, { target })
+    w.fake.fail(insertOf(target), { kind: 'reset' })
+    w.fake.fail(listOf(target), { status: 503 }, 10)
+    await sale(w, connected, b.id, 'c1')
+    await youtubeOf(w).outbox.runOnce()
+    expect(w.fake.calls(insertOf(target))).toBe(1)
+    return { connected, b }
+  }
+
+  const lagCases = [
+    { name: '끝 조회', lags: { 2: 4000 }, timing: {} },
+    { name: '이른 조회(확인 시간 5초)', lags: { 1: 4000 }, timing: { confirmWindowMs: 5000 } },
+  ] as const
+  for (const target of ['LIVE_CHAT', 'VIDEO_COMMENT'] as const) {
+    for (const item of lagCases) {
+      it(`${target}: ${item.name}가 유튜브에 닿기 전에 시계가 4초 가도 그 조회와 다음 조회 사이는 유튜브가 받은 시각으로 10초 이상 — 실패한 조회 4번(이른 1 + 끝 3) 뒤 UNCONFIRMED, 다시 게시 없음 (SA-I3-009)`, async () => {
+        const lag = lagBeforeLookup(item.lags)
+        const w = await world({ overrides: { youtubeFetch: lag.youtubeFetch, outboxTiming: item.timing } })
+        lag.attach(w)
+        const { connected, b } = await unknownPost(w, target)
+        await twoMinutesStepwise(w)
+        expect(lag.applied).toEqual(Object.keys(item.lags).map(Number))
+        const times = w.fake.callTimes.filter((call) => call.method === listOf(target)).map((call) => call.at)
+        expect(times).toHaveLength(4)
+        for (const gap of spacing(times)) expect(gap).toBeGreaterThanOrEqual(10_000)
+        expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'FAILED', reason: 'UNCONFIRMED' })
+        expect(w.fake.calls(insertOf(target))).toBe(1)
+      })
+    }
+  }
+
+  it('영상 댓글: 짝짓기가 미뤄진 끝 조회가 유튜브에 닿기 전에 시계가 4초 가도 다음 끝 조회는 유튜브가 받은 시각으로 10초 뒤 — 이른 1 + 끝 3 뒤 UNCONFIRMED (SA-I3-009)', async () => {
+    const lag = lagBeforeLookup({ 2: 4000 })
+    const w = await world({ overrides: { youtubeFetch: lag.youtubeFetch } })
+    lag.attach(w)
+    const { connected, b, ids } = await deferredPair(w, 'VIDEO_COMMENT')
+    // 첫 게시는 받아들여지고 응답이 없다 — 그 시도의 시간 제한(10초)까지 시계를 옮겨 이른 조회까지 한 바퀴를 끝낸다
+    const pass = youtubeOf(w).outbox.runOnce()
+    await until(w, () => w.fake.calls('commentThreads.insert') === 1, { max: 4000 })
+    await w.timer.advance(10_000)
+    await pass
+    await twoMinutesStepwise(w)
+    expect(lag.applied).toEqual([2])
+    const times = w.fake.callTimes.filter((call) => call.method === 'commentThreads.list').map((call) => call.at)
+    expect(times).toHaveLength(4)
+    for (const gap of spacing(times)) expect(gap).toBeGreaterThanOrEqual(10_000)
+    expect((await rows(w, connected, b.date)).find((row) => row.id === ids[0])).toMatchObject({ state: 'FAILED', reason: 'UNCONFIRMED' })
+    expect(w.fake.calls('commentThreads.insert')).toBe(1)
+  })
 })
 
 describe('AC-I3-88 기다리는 중에 채널이 바뀐 행', () => {
