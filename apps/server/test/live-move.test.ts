@@ -1,12 +1,15 @@
-// N2 저절로 이은 회차를 같은 계정의 새 라이브로 옮기기 (AC-N2-25·03·22·24·33, D-N2-16·D-N2-17, 수정 라운드 1 RA-N2-001·수정 라운드 3).
+// N2 저절로 이은 회차를 같은 계정의 새 라이브로 옮기기 (AC-N2-25·03·22·24·33, D-N2-16·D-N2-17·D-N2-18, 수정 라운드 1 RA-N2-001·수정 라운드 3·수정 라운드 5).
 // 한 인스타그램 계정은 라이브를 한 번에 하나만 한다 — 이어지지 않은 새 라이브의 늦지 않은 댓글은 옛 라이브가 끝났다는 증거다.
-// 옮기지 않는 조건 (바) 끝나지 않은 다른 실제 회차 · (사) 마지막 활동에서 60분 넘는 간격 — 막히면 LIVE_NOT_MOVED(이유), 연결 조회에 마지막 옮기기 moved.
+// 옮기지 않는 조건 (바) 끝나지 않은 다른 실제 회차 · (사) 마지막 활동에서 60분 넘는 간격 · (아) 이은·옮긴 시각에서 60초 안 —
+// 막히면 LIVE_NOT_MOVED(이유 GAP → OTHER_BROADCAST → TOO_SOON 순서로 하나), 연결 조회에 마지막 옮기기 moved.
 // 수정 라운드 3(D-N2-17)에서 (사)가 "방송 날짜 = 받은 날(KST)"에서 60분 간격으로 바뀌어, 날짜 시험(⑨)을 60분 경계로 바꾸고
 // 시계를 몇 시간 옮기던 시험(①②)은 마지막 활동에서 60분 안으로 옮겼다. (바)·(사)로 막힌 경우의 알림 기대는 UNLINKED_COMMENTS에서 LIVE_NOT_MOVED로 바꿨다.
+// 수정 라운드 5(D-N2-18)에서 (아)가 더해져, 이은·옮긴 뒤 60초 안에 옮기던 시험(다시 켜기·⑧ 손으로 이은 다른 회차·옮긴 사실 남기기·기록 트랜잭션 다시 확인)은
+// 시계를 60초 넘게(61초) 옮긴다 — 규칙 변경에 따른 교체이고 같은 것을 시험한다. (아)의 시험은 ⑫~⑯.
 // 가짜 메타 서버(실제 HTTP)·주입한 시계.
 import { afterEach, describe, expect, it } from 'vitest'
-import { MOVE_GAP_MS } from '../src/live-links.ts'
-import { LIVE_MOVED_MESSAGE, LIVE_NOT_MOVED_MESSAGES, liveMovedMessage } from '../src/instagram/notices.ts'
+import { MOVE_GAP_MS, MOVE_SETTLE_MS } from '../src/live-links.ts'
+import { LIVE_MOVED_MESSAGE, LIVE_NOT_MOVED_MESSAGES, liveMovedMessage, NOTICE_MESSAGES, type LiveNotMovedReason } from '../src/instagram/notices.ts'
 import { chatEvents, connectedShop, connectInstagram, igWorld, linkLive, liveBroadcast, register, sendComments, webhookTarget, type IgWorld } from './instagram-support.ts'
 import { client, rid, T0, type Seller } from './support.ts'
 
@@ -21,6 +24,10 @@ async function world(): Promise<IgWorld> {
 }
 
 const at = (h: number, m: number, s = 0) => Date.UTC(2026, 9, 19, h, m, s)
+/** 2026-10-19 KST 시각 (ms까지) */
+const kst = (h: number, m: number, s = 0, ms = 0) => Date.UTC(2026, 9, 19, h - 9, m, s, ms)
+/** 이은·옮긴 뒤 60초를 넘긴 시간 — (아)에 걸리지 않게 (D-N2-18) */
+const SETTLED = MOVE_SETTLE_MS + 1000
 
 interface LinkBody {
   readonly state: string
@@ -75,8 +82,8 @@ function noticesSince(w: IgWorld, from: number): Record<string, unknown>[] {
   return w.published.slice(from).map((item) => item.data).filter((data) => data.kind === 'NOTICE')
 }
 
-/** (바)·(사)로 막힌 알림의 모양 (AC-N2-25) */
-function notMoved(reason: 'OTHER_BROADCAST' | 'GAP', broadcast: string, liveId: string, count: number): Record<string, unknown> {
+/** (바)·(사)·(아)로 막힌 알림의 모양 (AC-N2-25) */
+function notMoved(reason: LiveNotMovedReason, broadcast: string, liveId: string, count: number): Record<string, unknown> {
   return { kind: 'NOTICE', code: 'LIVE_NOT_MOVED', message: LIVE_NOT_MOVED_MESSAGES[reason], reason, broadcast, liveId, count }
 }
 
@@ -189,10 +196,12 @@ describe('AC-N2-25 저절로 이은 회차를 같은 계정의 새 라이브로 
     const w = await world()
     const { seller, account, b, m } = await autoLinked(w)
     const m2 = w.fake.startLive(account.id)
+    // 이은·옮긴 뒤 60초를 넘겨 받은 댓글이어야 옮긴다 (아, D-N2-18)
+    w.clock.advance(SETTLED)
     await sendComments(w, account, m2, [{ id: '9001', igsid: '6024400000000001', username: 'a', text: '15' }])
     expect(await linkOf(w, seller, b)).toMatchObject({ liveId: m2, actor: { kind: 'server' } })
     const m3 = w.fake.startLive(account.id)
-    w.clock.advance(1000)
+    w.clock.advance(SETTLED)
     await sendComments(w, account, m3, [{ id: '9002', igsid: '6024400000000002', username: 'b', text: '안녕' }])
     expect(await linkOf(w, seller, b)).toMatchObject({ liveId: m3, linkedAt: new Date(w.clock.now()).toISOString(), collection: { state: 'LIVE', liveId: m3, comments: 3 } })
     expect((await moves(w, seller.sellerId)).map((row) => [row.from, row.to, row.before])).toEqual([
@@ -380,9 +389,9 @@ describe('AC-N2-25 저절로 이은 회차를 같은 계정의 새 라이브로 
     expect(await unlinkedOf(w, seller)).toEqual({ [m2]: 1 })
     expect(await moves(w, seller.sellerId)).toEqual([])
     expect(noticesSince(w, published)).toEqual([notMoved('OTHER_BROADCAST', b, m2, 1)])
-    // 다른 실제 회차를 끝냄 (리허설 회차는 끝내지 않은 채) → M2의 늦지 않은 다음 댓글에서 b를 M2로 옮긴다
+    // 다른 실제 회차를 끝냄 (리허설 회차는 끝내지 않은 채) → M2의 늦지 않은 다음 댓글에서 b를 M2로 옮긴다 (b를 이은 지 60초 넘게 — 아)
     await end(w, seller, c)
-    w.clock.advance(1000)
+    w.clock.advance(SETTLED)
     await sendComments(w, account, m2, [{ id: '9512', igsid: '6024400000000002', username: 'b', text: '15' }])
     expect(await linkOf(w, seller, b)).toMatchObject({ state: 'LINKED', liveId: m2, actor: { kind: 'server' } })
     expect((await chatEvents(w, seller.sellerId)).filter((event) => event.b === b).map((event) => event.id)).toEqual([expect.stringMatching(/^ig:/), 'ig:9512'])
@@ -580,13 +589,13 @@ describe('AC-N2-25 저절로 이은 회차를 같은 계정의 새 라이브로 
     const api = client(w, seller.cookie)
     expect((await linkOf(w, seller, b)).moved).toBeNull()
     const m2 = w.fake.startLive(account.id)
-    w.clock.advance(1000)
+    w.clock.advance(SETTLED)
     await sendComments(w, account, m2, [{ id: '9681', igsid: '6024400000000001', username: 'a', text: '안녕' }])
-    expect((await linkOf(w, seller, b)).moved).toEqual({ fromLiveId: m, movedAt: new Date(T0 + 1000).toISOString(), comments: 1, message: liveMovedMessage(1) })
+    expect((await linkOf(w, seller, b)).moved).toEqual({ fromLiveId: m, movedAt: new Date(T0 + SETTLED).toISOString(), comments: 1, message: liveMovedMessage(1) })
     const m3 = w.fake.startLive(account.id)
-    w.clock.advance(1000)
+    w.clock.advance(SETTLED)
     await sendComments(w, account, m3, [{ id: '9682', igsid: '6024400000000002', username: 'b', text: '안녕' }])
-    const last = { fromLiveId: m2, movedAt: new Date(T0 + 2000).toISOString(), comments: 2, message: liveMovedMessage(2) }
+    const last = { fromLiveId: m2, movedAt: new Date(T0 + 2 * SETTLED).toISOString(), comments: 2, message: liveMovedMessage(2) }
     expect((await linkOf(w, seller, b)).moved).toEqual(last)
     expect(((await api.get('/api/live')).body.links as { moved: unknown }[]).map((link) => link.moved)).toEqual([last])
     // 끊으면 NONE·null, 다시 이어도(새 연결) null
@@ -634,6 +643,7 @@ describe('AC-N2-25 저절로 이은 회차를 같은 계정의 새 라이브로 
     const { seller, account, b, m } = await autoLinked(w)
     const links = w.server.instagram.links
     const m2 = w.fake.startLive(account.id)
+    w.clock.advance(SETTLED)
     const target = await links.resolveTarget(seller.sellerId, account.id, m2, true)
     expect(target).toMatchObject({ kind: 'move', broadcastId: b, fromLiveId: m, toLiveId: m2 })
     if (target.kind !== 'move') return
@@ -681,5 +691,249 @@ describe('AC-N2-25 저절로 이은 회차를 같은 계정의 새 라이브로 
     // 기록 경로는 멀쩡하다 — 같은 댓글을 다시 넣으면 기록된다
     expect((await w.server.service.ingestOpenChat(seller.sellerId, { b, id: 'ig:9401', ch: 'ig:6024400000000001', nick: 'a', text: '15' }, { guard: async () => true })).status).toBe('recorded')
     expect((await chatEvents(w, seller.sellerId)).map((event) => event.id)).toContain('ig:9401')
+  })
+})
+
+describe('AC-N2-25 (아) 이은·옮긴 뒤 60초 안의 다른 라이브 댓글로는 옮기지 않는다 — 빠르게 두 번 다시 켜기와 늦은 배달 (D-N2-18, TD-N2-005)', () => {
+  /** entry.time (초) */
+  const sec = (time: number) => Math.floor(time / 1000)
+
+  /** 회차 b(15·16·17·18번 판매 중, 다른 회차 없음)를 기다리기로 두고 linkAt에 M의 첫 댓글로 저절로 잇는다 (조치자 서버) */
+  async function waitingShop(w: IgWorld, linkAt: number) {
+    w.clock.set(linkAt - 5 * 60 * 1000)
+    const { seller, account } = await connectedShop(w)
+    const b = await liveBroadcast(w, seller)
+    await register(w, seller, b, 15, '라울', 5000)
+    await register(w, seller, b, 16, '핑크프릴', 10000)
+    await register(w, seller, b, 17, '홍옥', 3000)
+    await register(w, seller, b, 18, '산세베리아', 8000)
+    await wait(w, seller, b)
+    const m = w.fake.startLive(account.id)
+    w.clock.set(linkAt)
+    expect((await sendComments(w, account, m, [{ id: '9800', igsid: '6024400000000090', username: 'hello.viewer', text: '안녕하세요' }])).status).toBe(200)
+    expect(await linkOf(w, seller, b)).toMatchObject({ state: 'LINKED', liveId: m, linkedAt: new Date(linkAt).toISOString(), actor: { kind: 'server' } })
+    return { seller, account, b, m }
+  }
+
+  /** ⑫·⑯ 준비: b가 19:50:00에 M에 저절로 이어졌고 M의 마지막 댓글을 20:05:50에 기록했다. 판매자가 M → M2 → M3로 빠르게 다시 켰고 M2 댓글은 아직 하나도 오지 않았다 */
+  async function quickRestarts(w: IgWorld) {
+    const shop = await waitingShop(w, kst(19, 50))
+    w.clock.set(kst(20, 5, 50))
+    expect((await sendComments(w, shop.account, shop.m, [{ id: '9801', igsid: '6024400000000091', username: 'm.viewer', text: '잘 보고 있어요' }])).status).toBe(200)
+    w.fake.endLive(shop.m)
+    const m2 = w.fake.startLive(shop.account.id)
+    w.fake.endLive(m2)
+    const m3 = w.fake.startLive(shop.account.id)
+    return { ...shop, m2, m3 }
+  }
+
+  it('TOO_SOON 문장 (AC-N2-25)', () => {
+    expect(LIVE_NOT_MOVED_MESSAGES.TOO_SOON).toBe(
+      '방송을 방금 인스타그램 라이브에 이어서, 1분 동안은 다른 라이브에서 온 댓글을 기록하지 않아요. 1분이 지나도 지금 방송 중인 라이브의 댓글이 기록되지 않으면 방송을 그 라이브에 다시 이어 주세요.',
+    )
+    expect(MOVE_SETTLE_MS).toBe(60_000)
+  })
+
+  it('⑫ TD-N2-005 재현: 20:06:30 M3 "15"로 b가 M3에 옮겨진 뒤 20:06:40에 늦게 배달된 끝난 라이브 M2의 "16"(entry.time 20:06:00 — 늦은 댓글 아님)은 b를 M2로 되돌리지 않는다 — TOO_SOON, 세기만, 16번 찜 없음. 20:07:00 M3 "17"은 b에 기록돼 17번 1등', async () => {
+    const w = await world()
+    const { seller, account, b, m, m2, m3 } = await quickRestarts(w)
+    // 20:06:30.000 M3 "15"(entry.time 20:06:30) → b가 M3으로 옮겨진다 (이은 지 16분 30초)
+    w.clock.set(kst(20, 6, 30))
+    let published = w.published.length
+    await sendComments(w, account, m3, [{ id: '9811', igsid: '6024400000000001', username: 'buyer.fifteen', text: '15' }], { time: sec(kst(20, 6, 30)) })
+    expect(await linkOf(w, seller, b)).toMatchObject({ liveId: m3, linkedAt: new Date(kst(20, 6, 30)).toISOString(), moved: { fromLiveId: m, comments: 2 } })
+    expect(noticesSince(w, published).map((data) => data.code)).toEqual(['LIVE_MOVED'])
+    expect(await winners(w, seller, `${b}/15`)).toEqual(['ig:6024400000000001'])
+
+    // 20:06:40.000 M2 "16"(entry.time 20:06:00 — 40초 이르니 늦은 댓글이 아니고, M2는 이어진 적이 없다) → (아)로 옮기지 않는다
+    w.clock.set(kst(20, 6, 40))
+    published = w.published.length
+    expect((await sendComments(w, account, m2, [{ id: '9812', igsid: '6024400000000002', username: 'buyer.sixteen', text: '16' }], { time: sec(kst(20, 6, 0)) })).status).toBe(200)
+    expect(await linkOf(w, seller, b)).toMatchObject({ state: 'LINKED', liveId: m3, linkedAt: new Date(kst(20, 6, 30)).toISOString(), moved: { fromLiveId: m } })
+    expect((await chatEvents(w, seller.sellerId)).map((event) => event.id)).not.toContain('ig:9812')
+    expect(await unlinkedOf(w, seller)).toEqual({ [m2]: 1 })
+    expect(await winners(w, seller, `${b}/16`)).toEqual([])
+    // 알림은 LIVE_NOT_MOVED(TOO_SOON, broadcast b, liveId M2) 하나 — 그 댓글에 UNLINKED_COMMENTS·LIVE_MOVED 없음
+    expect(noticesSince(w, published)).toEqual([notMoved('TOO_SOON', b, m2, 1)])
+
+    // 20:07:00.000 M3 "17" → b에 기록돼 17번 1등 (방송 중인 라이브의 주문이 사라지지 않는다)
+    w.clock.set(kst(20, 7))
+    await sendComments(w, account, m3, [{ id: '9813', igsid: '6024400000000003', username: 'buyer.seventeen', text: '17' }])
+    expect(await winners(w, seller, `${b}/17`)).toEqual(['ig:6024400000000003'])
+    expect((await chatEvents(w, seller.sellerId)).map((event) => event.id)).toEqual(['ig:9800', 'ig:9801', 'ig:9811', 'ig:9813'])
+    expect(await linkOf(w, seller, b)).toMatchObject({ liveId: m3, moved: { fromLiveId: m } })
+    expect((await moves(w, seller.sellerId)).map((row) => [row.from, row.to])).toEqual([[m, m3]])
+    expect(await unlinkedOf(w, seller)).toEqual({ [m2]: 1 })
+  })
+
+  it('⑬ 60초 경계: 20:00:00.000에 M → M2로 옮긴 뒤 M2를 바로 끄고 M3을 켬 — M3 "16"(30초)·"17"(정확히 60,000ms)은 옮기지 않고 세기만(LIVE_NOT_MOVED는 1분에 한 번), "18"(60,001ms)에서 옮긴다. "16"·"17"은 되살리지 않는다', async () => {
+    const w = await world()
+    const { seller, account, b, m } = await waitingShop(w, kst(19, 50))
+    w.fake.endLive(m)
+    const m2 = w.fake.startLive(account.id)
+    w.clock.set(kst(20, 0))
+    await sendComments(w, account, m2, [{ id: '9821', igsid: '6024400000000001', username: 'buyer.fifteen', text: '15' }])
+    expect(await linkOf(w, seller, b)).toMatchObject({ liveId: m2, linkedAt: new Date(kst(20, 0)).toISOString() })
+    expect(await winners(w, seller, `${b}/15`)).toEqual(['ig:6024400000000001'])
+    w.fake.endLive(m2)
+    const m3 = w.fake.startLive(account.id)
+    const published = w.published.length
+
+    // 20:00:30.000 M3 "16" → 옮기지 않음 (TOO_SOON, 이어지지 않은 수(M3) 1, LIVE_NOT_MOVED 한 번)
+    w.clock.set(kst(20, 0, 30))
+    await sendComments(w, account, m3, [{ id: '9822', igsid: '6024400000000002', username: 'buyer.sixteen', text: '16' }])
+    expect(await linkOf(w, seller, b)).toMatchObject({ liveId: m2 })
+    expect(await unlinkedOf(w, seller)).toEqual({ [m3]: 1 })
+    expect(noticesSince(w, published)).toEqual([notMoved('TOO_SOON', b, m3, 1)])
+
+    // 20:01:00.000 (옮긴 시각에서 정확히 60,000ms) M3 "17" → 옮기지 않음, 수 2, 첫 알림에서 1분이 안 돼 알림 없음
+    w.clock.set(kst(20, 1))
+    expect(kst(20, 1) - kst(20, 0)).toBe(MOVE_SETTLE_MS)
+    await sendComments(w, account, m3, [{ id: '9823', igsid: '6024400000000003', username: 'buyer.seventeen', text: '17' }])
+    expect(await linkOf(w, seller, b)).toMatchObject({ liveId: m2 })
+    expect(await unlinkedOf(w, seller)).toEqual({ [m3]: 2 })
+    expect(noticesSince(w, published)).toEqual([notMoved('TOO_SOON', b, m3, 1)])
+
+    // 20:01:00.001 M3 "18" → b가 M3으로 옮겨지고 "18"이 기록돼 18번 1등, LIVE_MOVED, 이은 시각 20:01:00.001
+    w.clock.set(kst(20, 1, 0, 1))
+    await sendComments(w, account, m3, [{ id: '9824', igsid: '6024400000000004', username: 'buyer.eighteen', text: '18' }])
+    expect(await linkOf(w, seller, b)).toMatchObject({
+      state: 'LINKED',
+      liveId: m3,
+      linkedAt: new Date(kst(20, 1, 0, 1)).toISOString(),
+      actor: { kind: 'server' },
+      moved: { fromLiveId: m2, movedAt: new Date(kst(20, 1, 0, 1)).toISOString(), comments: 2 },
+    })
+    expect(await winners(w, seller, `${b}/18`)).toEqual(['ig:6024400000000004'])
+    expect(noticesSince(w, published)).toEqual([notMoved('TOO_SOON', b, m3, 1), { kind: 'NOTICE', code: 'LIVE_MOVED', message: liveMovedMessage(2), broadcast: b, liveId: m3, count: 2 }])
+    // 막힌 동안의 "16"·"17"은 기록되지 않았고 되살리지 않는다
+    expect((await chatEvents(w, seller.sellerId)).map((event) => event.id)).toEqual(['ig:9800', 'ig:9821', 'ig:9824'])
+    expect(await winners(w, seller, `${b}/16`)).toEqual([])
+    expect(await winners(w, seller, `${b}/17`)).toEqual([])
+    expect((await moves(w, seller.sellerId)).map((row) => [row.from, row.to])).toEqual([
+      [m, m2],
+      [m2, m3],
+    ])
+  })
+
+  it('⑭ 저절로 이은 직후: 20:00:00.000에 M의 첫 댓글로 저절로 이어진 뒤 M2 댓글을 20:00:45에 받으면 TOO_SOON(60초 정각도), 20:01:00.001에 받으면 옮긴다', async () => {
+    const w = await world()
+    const { seller, account, b, m } = await waitingShop(w, kst(20, 0))
+    const m2 = w.fake.startLive(account.id)
+    const published = w.published.length
+    w.clock.set(kst(20, 0, 45))
+    await sendComments(w, account, m2, [{ id: '9831', igsid: '6024400000000001', username: 'a', text: '15' }])
+    expect(await linkOf(w, seller, b)).toMatchObject({ liveId: m, linkedAt: new Date(kst(20, 0)).toISOString(), moved: null })
+    expect(await unlinkedOf(w, seller)).toEqual({ [m2]: 1 })
+    expect(noticesSince(w, published)).toEqual([notMoved('TOO_SOON', b, m2, 1)])
+    // 이은 시각에서 정확히 60초 — 저절로 이은 직후도 옮긴 직후와 같다
+    w.clock.set(kst(20, 1))
+    await sendComments(w, account, m2, [{ id: '9832', igsid: '6024400000000002', username: 'b', text: '15' }])
+    expect(await linkOf(w, seller, b)).toMatchObject({ liveId: m })
+    expect(await unlinkedOf(w, seller)).toEqual({ [m2]: 2 })
+    // 60,001ms → 옮긴다
+    w.clock.set(kst(20, 1, 0, 1))
+    await sendComments(w, account, m2, [{ id: '9833', igsid: '6024400000000003', username: 'c', text: '15' }])
+    expect(await linkOf(w, seller, b)).toMatchObject({ liveId: m2, linkedAt: new Date(kst(20, 1, 0, 1)).toISOString(), moved: { fromLiveId: m, comments: 1 } })
+    expect(await winners(w, seller, `${b}/15`)).toEqual(['ig:6024400000000003'])
+    expect(noticesSince(w, published).map((data) => data.code)).toEqual(['LIVE_NOT_MOVED', 'LIVE_MOVED'])
+  })
+
+  it.each([
+    ['가', 'b는 저절로 이었고 그 전부터 b 말고 끝나지 않은 실제 회차 c(연결 없음)가 있음 → OTHER_BROADCAST(TOO_SOON 아님)'],
+    ['나', 'M2 댓글의 entry.time이 받은 시각보다 61초 이름 → 늦은 댓글이라 그 밖의 조건이 아니므로 UNLINKED_COMMENTS(LIVE_NOT_MOVED 없음)'],
+    ['다', 'b를 판매자가 손으로 이었음 → UNLINKED_COMMENTS'],
+  ] as const)('⑮(%s) 이유 순서·다른 조건과 함께 — b를 이은 지 30초에 M2 댓글: %s. b는 그대로, 그 댓글은 기록하지 않고 이어지지 않은 수(M2) 1', async (kind, _what) => {
+    const w = await world()
+    w.clock.set(kst(19, 55))
+    const { seller, account } = await connectedShop(w)
+    const b = await liveBroadcast(w, seller)
+    await register(w, seller, b, 15, '라울', 5000)
+    const m = w.fake.startLive(account.id)
+    if (kind === '다') {
+      w.clock.set(kst(20, 0))
+      await linkLive(w, seller, b, m)
+    } else {
+      // (가) 기다리기 전부터 끝나지 않은 실제 회차 c가 있다 (연결 없음 — 기다리는 회차는 b 하나라 저절로 이어진다)
+      if (kind === '가') await liveBroadcast(w, seller)
+      await wait(w, seller, b)
+      w.clock.set(kst(20, 0))
+      await sendComments(w, account, m, [{ id: '9840', igsid: '6024400000000090', username: 'hello.viewer', text: '안녕하세요' }])
+    }
+    expect(await linkOf(w, seller, b)).toMatchObject({ state: 'LINKED', liveId: m, linkedAt: new Date(kst(20, 0)).toISOString(), actor: { kind: kind === '다' ? 'account' : 'server' } })
+    w.fake.endLive(m)
+    const m2 = w.fake.startLive(account.id)
+    w.clock.set(kst(20, 0, 30))
+    const published = w.published.length
+    const options = kind === '나' ? { time: sec(kst(20, 0, 30) - 61_000) } : {}
+    expect((await sendComments(w, account, m2, [{ id: '9841', igsid: '6024400000000001', username: 'a', text: '15' }], options)).status).toBe(200)
+    expect(await linkOf(w, seller, b)).toMatchObject({ state: 'LINKED', liveId: m, moved: null })
+    expect((await chatEvents(w, seller.sellerId)).map((event) => event.id)).not.toContain('ig:9841')
+    expect(await winners(w, seller, `${b}/15`)).toEqual([])
+    expect(await unlinkedOf(w, seller)).toEqual({ [m2]: 1 })
+    expect(await moves(w, seller.sellerId)).toEqual([])
+    if (kind === '가') expect(noticesSince(w, published)).toEqual([notMoved('OTHER_BROADCAST', b, m2, 1)])
+    else expect(noticesSince(w, published)).toEqual([{ kind: 'NOTICE', code: 'UNLINKED_COMMENTS', message: NOTICE_MESSAGES.UNLINKED_COMMENTS, liveId: m2, count: 1 }])
+  })
+
+  it('⑯ 배달 순서가 반대(끝난 라이브 댓글이 먼저): ⑫와 같은 준비에서 M2 "16"(entry.time 20:06:00)을 20:06:29에 먼저 받으면 b가 M2로 옮겨지고(16번 1등), 20:06:30 M3 "15"는 TOO_SOON, 20:07:29.001 M3 "17"에서 M3으로 옮겨진다 — 끝난 라이브에 머무는 시간은 60초를 넘지 않는다', async () => {
+    const w = await world()
+    const { seller, account, b, m, m2, m3 } = await quickRestarts(w)
+    const published = w.published.length
+    // 20:06:29.000 M2 "16" → M2는 M보다 새 라이브이고 조건을 모두 만족 — 규칙대로 옮긴다
+    w.clock.set(kst(20, 6, 29))
+    await sendComments(w, account, m2, [{ id: '9861', igsid: '6024400000000002', username: 'buyer.sixteen', text: '16' }], { time: sec(kst(20, 6, 0)) })
+    expect(await linkOf(w, seller, b)).toMatchObject({ liveId: m2, linkedAt: new Date(kst(20, 6, 29)).toISOString(), moved: { fromLiveId: m, comments: 2 } })
+    expect(await winners(w, seller, `${b}/16`)).toEqual(['ig:6024400000000002'])
+    // 20:06:30.000 M3 "15" → TOO_SOON (15번 찜 없음)
+    w.clock.set(kst(20, 6, 30))
+    await sendComments(w, account, m3, [{ id: '9862', igsid: '6024400000000001', username: 'buyer.fifteen', text: '15' }])
+    expect(await linkOf(w, seller, b)).toMatchObject({ liveId: m2 })
+    expect(await winners(w, seller, `${b}/15`)).toEqual([])
+    expect(await unlinkedOf(w, seller)).toEqual({ [m3]: 1 })
+    // 20:07:29.001 (M2로 옮긴 시각에서 60,001ms) M3 "17" → b가 M3으로 옮겨지고 "17" 기록
+    w.clock.set(kst(20, 7, 29, 1))
+    expect(kst(20, 7, 29, 1) - kst(20, 6, 29)).toBe(MOVE_SETTLE_MS + 1)
+    await sendComments(w, account, m3, [{ id: '9863', igsid: '6024400000000003', username: 'buyer.seventeen', text: '17' }])
+    expect(await linkOf(w, seller, b)).toMatchObject({ liveId: m3, linkedAt: new Date(kst(20, 7, 29, 1)).toISOString(), moved: { fromLiveId: m2, comments: 3 } })
+    expect(await winners(w, seller, `${b}/17`)).toEqual(['ig:6024400000000003'])
+    expect((await chatEvents(w, seller.sellerId)).map((event) => event.id)).toEqual(['ig:9800', 'ig:9801', 'ig:9861', 'ig:9863'])
+    expect(noticesSince(w, published).map((data) => [data.code, data.reason ?? null, data.liveId])).toEqual([
+      ['LIVE_MOVED', null, m2],
+      ['LIVE_NOT_MOVED', 'TOO_SOON', m3],
+      ['LIVE_MOVED', null, m3],
+    ])
+    expect((await moves(w, seller.sellerId)).map((row) => [row.from, row.to])).toEqual([
+      [m, m2],
+      [m2, m3],
+    ])
+  })
+
+  it('기록 트랜잭션 안의 다시 확인도 (아)를 본다 — 회차를 정할 때 옮길 수 있었어도 기록하는 시각이 이은 시각에서 60초 안이면 옮기지 않고(retry), 회차를 다시 정하면 TOO_SOON', async () => {
+    const w = await world()
+    const { seller, account, b, m } = await autoLinked(w)
+    const links = w.server.instagram.links
+    const m2 = w.fake.startLive(account.id)
+    w.clock.set(T0 + MOVE_SETTLE_MS + 1)
+    const target = await links.resolveTarget(seller.sellerId, account.id, m2, true)
+    expect(target).toMatchObject({ kind: 'move', broadcastId: b, fromLiveId: m, toLiveId: m2 })
+    if (target.kind !== 'move') return
+    const ingest = (id: string) =>
+      w.server.service.ingestOpenChat(
+        seller.sellerId,
+        { b, id, ch: 'ig:6024400000000001', nick: 'a', text: '15' },
+        { guard: async (tx, scopeId, now) => (await links.applyMove(tx, seller.sellerId, target, scopeId, id, now)) !== null },
+      )
+    // 기록하는 시각을 이은 시각에서 정확히 60초로 (시계를 되돌려 다시 확인에서만 걸리게 한다)
+    w.clock.set(T0 + MOVE_SETTLE_MS)
+    expect(await ingest('ig:9871')).toEqual({ status: 'retry' })
+    expect(await linkOf(w, seller, b)).toMatchObject({ liveId: m, moved: null })
+    expect(await moves(w, seller.sellerId)).toEqual([])
+    expect((await chatEvents(w, seller.sellerId)).map((event) => event.id)).not.toContain('ig:9871')
+    expect(await links.resolveTarget(seller.sellerId, account.id, m2, true)).toEqual({ kind: 'none', blocked: { broadcastId: b, reason: 'TOO_SOON' } })
+    // 60,001ms면 옮긴다
+    w.clock.set(T0 + MOVE_SETTLE_MS + 1)
+    expect((await ingest('ig:9872')).status).toBe('recorded')
+    expect(await linkOf(w, seller, b)).toMatchObject({ liveId: m2, linkedAt: new Date(T0 + MOVE_SETTLE_MS + 1).toISOString(), moved: { fromLiveId: m, comments: 1 } })
   })
 })

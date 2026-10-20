@@ -6,11 +6,15 @@
 // - 잇기·기다리기·끊기는 엔진 이벤트가 아니다 — 누가·언제는 live_links에 남는다(DAT-05). 같은 요청 번호는 한 번만 한다(처음 응답).
 // - 웹훅 댓글의 회차 정하기(resolveTarget): 그 라이브에 이어진 끝나지 않은 회차, 없으면 기다리는 끝나지 않은 회차가 정확히 하나일 때 저절로 잇는다(조치자 서버).
 //   기다리는 회차도 없으면, 서버가 저절로 이은(옮긴) 회차 하나를 같은 계정의 새 라이브로 옮긴다(AC-N2-25, D-N2-16 — 한 계정은 한 번에 라이브 하나).
-//   다음 둘로는 옮기지 않고 막힌 이유를 돌려준다(D-N2-17 — 웹훅이 UNLINKED_COMMENTS 대신 LIVE_NOT_MOVED로 알린다. 둘 다면 GAP):
-//   (바) OTHER_BROADCAST: 그 판매자에게 그 회차 말고 끝나지 않은 실제 회차가 있다(리허설만 빼고 연결 없는 회차·손으로 이은 회차·날짜가 다른 회차 모두)
-//        — 새 라이브가 어느 회차의 라이브인지 모호하다(SA-N2-004·TD-N2-003: 끝내지 않은 1부가 2부 라이브로 옮겨 가 2부 주문이 1부 같은 번호의 찜이 되던 것).
+//   다음 셋으로는 옮기지 않고 막힌 이유를 돌려준다(D-N2-17·18 — 웹훅이 UNLINKED_COMMENTS 대신 LIVE_NOT_MOVED로 알린다).
+//   이유가 여럿이면 하나만, GAP → OTHER_BROADCAST → TOO_SOON 순서다(판매자가 손을 써야 풀리는 이유가 먼저 — TOO_SOON은 기다리면 풀린다):
 //   (사) GAP: 그 댓글을 받은 시각이 그 회차의 마지막 활동(마지막으로 기록한 인스타 댓글을 받은 시각과 이은·옮긴 시각 중 늦은 것)에서 60분 넘게 떨어졌다
 //        (60분 정각은 옮긴다). 서버 시계만 본다 — 방송 날짜·달력 날짜는 보지 않아 자정을 넘긴 방송의 다시 켜기도 옮긴다(TD-N2-004).
+//   (바) OTHER_BROADCAST: 그 판매자에게 그 회차 말고 끝나지 않은 실제 회차가 있다(리허설만 빼고 연결 없는 회차·손으로 이은 회차·날짜가 다른 회차 모두)
+//        — 새 라이브가 어느 회차의 라이브인지 모호하다(SA-N2-004·TD-N2-003: 끝내지 않은 1부가 2부 라이브로 옮겨 가 2부 주문이 1부 같은 번호의 찜이 되던 것).
+//   (아) TOO_SOON: 그 댓글을 받은 시각이 그 연결의 이은 시각(옮겼으면 마지막으로 옮긴 시각)에서 60초 안이다(60초 정각도 옮기지 않고 60,001ms부터 옮긴다).
+//        서버 시계만 본다 — entry.time은 늦은 댓글 판단에만 쓴다. 빠르게 두 번 다시 켤 때(M → M2 → M3) 늦게 배달된 끝난 라이브 M2의 댓글이
+//        방송 중인 M3에서 b를 M2로 되돌리지 않게 한다(TD-N2-005). 막힌 라이브는 "이어진 적 있는 라이브"가 아니다 — 60초가 지나면 그 라이브의 다음 댓글에서 옮긴다.
 //   옮기기는 그 댓글의 기록과 같은 트랜잭션에서 한다(applyMove) — 기록되지 않으면(끝난 회차 등) 옮기지도 않는다.
 import { getBroadcast } from '@livejjim/core'
 import { sql } from 'drizzle-orm'
@@ -149,10 +153,13 @@ export interface LiveMove {
   readonly accountId: string
 }
 
-/** 옮기기가 막힌 이유 (AC-N2-25, D-N2-17): (바) 끝나지 않은 다른 실제 회차 · (사) 마지막 활동에서 60분 넘게 떨어짐. 둘 다면 GAP */
-export type MoveBlockReason = 'OTHER_BROADCAST' | 'GAP'
+/**
+ * 옮기기가 막힌 이유 (AC-N2-25, D-N2-17·18): (사) GAP 마지막 활동에서 60분 넘게 떨어짐 · (바) OTHER_BROADCAST 끝나지 않은 다른 실제 회차 ·
+ * (아) TOO_SOON 이은·옮긴 시각에서 60초 안. 여럿이면 하나만, GAP → OTHER_BROADCAST → TOO_SOON 순서
+ */
+export type MoveBlockReason = 'GAP' | 'OTHER_BROADCAST' | 'TOO_SOON'
 
-/** 다른 조건은 모두 맞는데 (바)·(사)로만 옮기지 못한 회차 */
+/** 다른 조건은 모두 맞는데 (바)·(사)·(아)로만 옮기지 못한 회차 */
 export interface MoveBlocked {
   readonly broadcastId: string
   readonly reason: MoveBlockReason
@@ -161,12 +168,15 @@ export interface MoveBlocked {
 /** 옮기기 간격 (사): 마지막 활동에서 이만큼까지는 옮긴다 (60분 정각 포함, D-N2-17) */
 export const MOVE_GAP_MS = 60 * 60 * 1000
 
+/** 옮기기 (아): 이은·옮긴 시각에서 이만큼까지는 옮기지 않는다 (60초 정각 포함 — 60,001ms부터 옮긴다, D-N2-18) */
+export const MOVE_SETTLE_MS = 60_000
+
 /** 웹훅 댓글의 회차 */
 export type LiveTarget =
   | { readonly kind: 'linked'; readonly linkId: number; readonly broadcastId: string; readonly auto: boolean }
   | LiveMove
   | { readonly kind: 'many' }
-  /** 기록하지 않는다. blocked: 옮기기가 (바)·(사)로만 막혔으면 그 회차와 이유 (아니면 null) */
+  /** 기록하지 않는다. blocked: 옮기기가 (바)·(사)·(아)로만 막혔으면 그 회차와 이유 (아니면 null) */
   | { readonly kind: 'none'; readonly blocked: MoveBlocked | null }
 
 const LIVE_ID_RE = /^[A-Za-z0-9_-]{1,128}$/
@@ -372,7 +382,7 @@ export class LiveLinks {
    * 1. 그 라이브에 이어진 끝나지 않은 회차 → 그 회차
    * 2. 없으면 기다리는 끝나지 않은 실제 회차가 정확히 하나면 그 회차를 그 라이브에 잇는다(조치자 서버, 이은 시각 = 지금, 그때의 인스타 계정 ID). 둘 이상이면 many(잇지 않는다)
    * 3. 기다리는 회차도 없으면 옮길 수 있는지 본다(AC-N2-25) → move (아직 옮기지 않았다 — 그 댓글을 기록하는 트랜잭션에서 applyMove)
-   * 4. 아니면 none. 옮기기가 (바)·(사)로만 막혔으면 blocked에 그 회차와 이유(D-N2-17 — 웹훅이 LIVE_NOT_MOVED로 알린다)
+   * 4. 아니면 none. 옮기기가 (바)·(사)·(아)로만 막혔으면 blocked에 그 회차와 이유(D-N2-17·18 — 웹훅이 LIVE_NOT_MOVED로 알린다)
    * fresh: 그 댓글이 늦게 받은 댓글이 아니다(entry.time이 있고 받은 시각보다 60초 넘게 이르지 않다) — 아니면 옮기지 않는다(D-N2-04 — 자동 동작을 막는 쪽으로만)
    */
   async resolveTarget(sellerId: string, igAccountId: string, liveId: string, fresh: boolean): Promise<LiveTarget> {
@@ -400,14 +410,19 @@ export class LiveLinks {
   }
 
   /**
-   * 옮길 연결 (AC-N2-25, D-N2-16·17): 늦지 않은 댓글이고, 그 라이브는 이 판매자의 어느 회차에도 이어진 적이 없으며,
+   * 옮길 연결 (AC-N2-25, D-N2-16·17·18): 늦지 않은 댓글이고, 그 라이브는 이 판매자의 어느 회차에도 이어진 적이 없으며,
    * 서버가 저절로 이었거나 옮긴, 같은 계정의 다른 라이브에 이어진 끝나지 않은 실제 회차가 정확히 하나일 때 그 회차를 옮긴다(move).
-   * 그 밖의 조건이 아니면 null. 그 조건은 모두 맞는데 아래로 막히면 blocked와 이유 — 둘 다면 GAP(다른 회차를 끝내도 저절로 옮겨지지 않으므로):
+   * 그 밖의 조건이 아니면 null. 그 조건은 모두 맞는데 아래로 막히면 blocked와 이유 — 여럿이면 이 순서로 처음 걸린 하나(GAP → OTHER_BROADCAST → TOO_SOON):
    * - (사) GAP: 받은 시각(now) − 마지막 활동 시각 > 60분. 마지막 활동 시각 = 그 회차에 기록한 인스타그램 댓글 중 마지막 것을 받은 시각(어느 라이브의 댓글이든,
    *   exceptCommentId — 지금 옮기며 기록하려는 그 댓글 — 은 뺀다)과 그 연결의 이은 시각(옮겼으면 마지막으로 옮긴 시각) 중 늦은 것.
-   *   서버 시계만 본다 — entry.time·방송 날짜·달력 날짜는 보지 않는다(자정을 넘긴 방송도 그 방송의 날짜 하나, R-12·D-022, TD-N2-004)
+   *   서버 시계만 본다 — entry.time·방송 날짜·달력 날짜는 보지 않는다(자정을 넘긴 방송도 그 방송의 날짜 하나, R-12·D-022, TD-N2-004).
+   *   (바)·(사)를 둘 다 만족하지 않아도 GAP다(다른 회차를 끝내도 저절로 옮겨지지 않으므로)
    * - (바) OTHER_BROADCAST: 그 판매자에게 그 회차 말고 끝나지 않은 실제 회차가 하나라도 있다(리허설만 빼고 연결 없는 회차·손으로 이은 회차·다른 플랫폼 회차·
    *   날짜가 다른 회차 모두) — 새 라이브가 어느 회차의 라이브인지 모호하다(SA-N2-004·TD-N2-003)
+   * - (아) TOO_SOON: 받은 시각(now) − 그 연결의 이은 시각(옮겼으면 마지막으로 옮긴 시각, linkedAt) ≤ 60초. 60초 정각도 막고 60,001ms부터 옮긴다.
+   *   서버 시계만 본다 — entry.time은 위 늦은 댓글 판단(fresh)에만 쓴다. 이은·옮긴 시각보다 먼저 쓴 옛 라이브 댓글이 늦은 댓글이 아니려면
+   *   이은·옮긴 뒤 60초 안에 와야 하므로 여기서 막힌다(TD-N2-005 — 빠르게 두 번 다시 켤 때 끝난 라이브로 되돌아가지 않게). 기다리면 풀린다.
+   *   (사)와 함께 걸리지 않는다(이은 지 60초 안이면 마지막 활동도 60초 안). 기록 트랜잭션 안의 다시 확인(applyMove)도 같은 판단을 거친다
    */
   async #movable(
     tx: Db,
@@ -427,12 +442,14 @@ export class LiveLinks {
     const lastActive = Math.max(only.linkedAt.getTime(), lastChatAt === null ? Number.NEGATIVE_INFINITY : lastChatAt.getTime())
     if (now.getTime() - lastActive > MOVE_GAP_MS) return { kind: 'blocked', broadcastId: only.broadcastId, reason: 'GAP' }
     if (await otherOpenBroadcast(tx, sellerId, only.broadcastId)) return { kind: 'blocked', broadcastId: only.broadcastId, reason: 'OTHER_BROADCAST' }
+    if (now.getTime() - only.linkedAt.getTime() <= MOVE_SETTLE_MS) return { kind: 'blocked', broadcastId: only.broadcastId, reason: 'TOO_SOON' }
     return { kind: 'move', linkId: only.id, broadcastId: only.broadcastId, fromLiveId: only.liveId, toLiveId: liveId, accountId: igAccountId }
   }
 
   /**
    * 연결을 새 라이브로 옮긴다 (AC-N2-25) — 그 댓글의 chat을 넣은 기록 트랜잭션 안에서 부른다(같이 커밋되거나 같이 취소된다).
-   * 판매자 줄 밖의 다른 서버 인스턴스가 그사이 바꿨을 수 있어 잠금 안에서 조건을 다시 본다 — 이미 넣은 그 댓글(commentId)은 마지막 활동에서 뺀다(넣으면 간격이 늘 0이다).
+   * 판매자 줄 밖의 다른 서버 인스턴스가 그사이 바꿨을 수 있어 잠금 안에서 조건을 다시 본다((바)·(사)·(아) 모두 — 그사이 다른 인스턴스가 옮겼으면 (아)·연결 비교로 막힌다).
+   * 이미 넣은 그 댓글(commentId)은 마지막 활동에서 뺀다(넣으면 간격이 늘 0이다).
    * 옮겼으면 옮기기 전까지 그 방송에 기록한 인스타그램 댓글 수, 못 옮기면 null (웹훅은 회차를 다시 정한다 — 막혔으면 그때 이유가 나온다)
    */
   async applyMove(tx: Db, sellerId: string, move: LiveMove, scopeId: string, commentId: string, now: Date): Promise<number | null> {

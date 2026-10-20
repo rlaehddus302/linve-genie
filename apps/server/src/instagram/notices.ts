@@ -1,6 +1,7 @@
 // 인스타그램 실시간 알림 (SSE event: instagram — AC-N2-15·24·25·36·37·51).
 // - 알림 문장 알림(UNLINKED_COMMENTS·MANY_WAITING·LATE_COMMENTS·LIVE_NOT_MOVED)은 처음 한 번과 그 뒤 1분에 한 번까지(서버 시계). LIVE_MOVED는 옮길 때마다 한 번.
-// - LIVE_NOT_MOVED(AC-N2-25, D-N2-17)는 옮기기가 (바)·(사)로만 막힌 새 라이브 댓글 — UNLINKED_COMMENTS 대신 보낸다(라이브마다 같은 간격). 문장은 이유마다 다르다.
+// - LIVE_NOT_MOVED(AC-N2-25, D-N2-17·18)는 옮기기가 (바)·(사)·(아)로만 막힌 새 라이브 댓글 — UNLINKED_COMMENTS 대신 보낸다(라이브마다 같은 간격).
+//   문장은 이유마다 다르고, 이유가 여럿이면 하나만 준다: GAP → OTHER_BROADCAST → TOO_SOON 순서(판매자가 손을 써야 풀리는 이유가 먼저).
 // - 수집 상태 알림은 댓글마다가 아니라 묶어서 1초에 한 번까지(처음은 바로, 그 사이 바뀐 것은 1초 창 끝에 한 번).
 // - 여러 서버 인스턴스 사이의 알림 공유는 범위 밖(컨테이너 1개, hub.ts와 같다).
 import { errorKind, type LogSink } from '../log.ts'
@@ -12,11 +13,16 @@ export const NOTICE_MESSAGES = {
   LATE_COMMENTS: '인스타그램 댓글이 늦게 도착했어요. 순서가 실제와 다를 수 있어요.',
 } as const
 
-/** 옮기기가 막힌 이유마다 문장 (AC-N2-25): OTHER_BROADCAST (바) 끝나지 않은 다른 실제 회차 · GAP (사) 마지막 활동에서 60분 넘게 떨어짐 */
+/**
+ * 옮기기가 막힌 이유마다 문장 (AC-N2-25): OTHER_BROADCAST (바) 끝나지 않은 다른 실제 회차 · GAP (사) 마지막 활동에서 60분 넘게 떨어짐 ·
+ * TOO_SOON (아) 이은·옮긴 시각에서 60초 안(기다리면 풀린다, D-N2-18)
+ */
 export const LIVE_NOT_MOVED_MESSAGES = {
   OTHER_BROADCAST:
     '새 인스타그램 라이브 댓글이 오고 있는데, 끝나지 않은 방송이 여럿이라 어느 방송에 이을지 몰라 기록하지 않고 있어요. 쓰지 않는 방송은 끝내고, 이어 갈 방송을 새 라이브에 이어 주세요.',
   GAP: '새 인스타그램 라이브 댓글이 오고 있는데, 방송의 마지막 댓글과 1시간 넘게 떨어져 같은 방송인지 몰라 기록하지 않고 있어요. 이어 갈 방송을 새 라이브에 이어 주세요.',
+  TOO_SOON:
+    '방송을 방금 인스타그램 라이브에 이어서, 1분 동안은 다른 라이브에서 온 댓글을 기록하지 않아요. 1분이 지나도 지금 방송 중인 라이브의 댓글이 기록되지 않으면 방송을 그 라이브에 다시 이어 주세요.',
 } as const
 
 export type LiveNotMovedReason = keyof typeof LIVE_NOT_MOVED_MESSAGES
@@ -99,8 +105,8 @@ export class LiveNotices {
   }
 
   /**
-   * 옮기기가 (바)·(사)로만 막힌 새 라이브의 댓글 (AC-N2-25, D-N2-17) — UNLINKED_COMMENTS 대신. 라이브(liveId)마다 처음 한 번과 그 뒤 1분에 한 번까지.
-   * broadcast = 옮기려던 회차, count = 그 라이브의 이어지지 않은 댓글 수, reason = OTHER_BROADCAST · GAP (둘 다면 GAP)
+   * 옮기기가 (바)·(사)·(아)로만 막힌 새 라이브의 댓글 (AC-N2-25, D-N2-17·18) — UNLINKED_COMMENTS 대신. 라이브(liveId)마다 처음 한 번과 그 뒤 1분에 한 번까지.
+   * broadcast = 옮기려던 회차, count = 그 라이브의 이어지지 않은 댓글 수, reason = GAP · OTHER_BROADCAST · TOO_SOON (여럿이면 이 순서로 하나 — live-links #movable이 정한다)
    */
   notMoved(sellerId: string, extra: { readonly broadcast: string; readonly liveId: string; readonly count: number; readonly reason: LiveNotMovedReason }): void {
     if (!this.#due(sellerId, 'LIVE_NOT_MOVED', extra.liveId)) return

@@ -184,7 +184,7 @@ export {
   type ThanksSendResult,
   type ThanksSender,
 } from './platform.ts'
-export { COLLECTION_MESSAGES, LINK_MESSAGES, LiveLinks, MOVE_GAP_MS, type CollectionView, type LinkOutcome, type LinkView, type MoveBlockReason, type MovedView } from './live-links.ts'
+export { COLLECTION_MESSAGES, LINK_MESSAGES, LiveLinks, MOVE_GAP_MS, MOVE_SETTLE_MS, type CollectionView, type LinkOutcome, type LinkView, type MoveBlockReason, type MovedView } from './live-links.ts'
 export { DEFAULT_SCOPES, DEFAULT_TIMEOUTS, META_ENDPOINTS, instagramSettings, readInstagramConfig, type InstagramEndpoints, type InstagramLogin, type InstagramSettings, type InstagramTimeouts } from './instagram/config.ts'
 export { CALLBACK_MESSAGES, InstagramConnections, type CallbackCode, type ConnectionView } from './instagram/connection.ts'
 export { DM_DEADLINE_MS, DM_REASON_MESSAGES, MAX_RETRIES, RESEND_MESSAGES, RETRY_DELAYS_S, SEND_LEASE_MS, InstagramDms, type DmReason, type DmRowView, type DmStatus } from './instagram/dm.ts'
