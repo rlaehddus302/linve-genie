@@ -212,3 +212,9 @@ Y1 계약(`harness/sprints/Y1/dev-notes.md` "화면(I3)에게" 1~8)은 그대로
 ### disputesWithSpec
 1. **AC-I3-25 "restartable이면 '채팅 다시 받기'"**: 서버는 멈춤 이유 `RECONNECT`(·`NOT_CONNECTED`)에도 `restartable: true`를 준다(`collectorView`: QUOTA·끝 이유만 뺀다). 그런데 Y1 계약 3은 "RECONNECT·NOT_CONNECTED·NOT_MY_CHANNEL·QUOTA는 조건이 풀리면 저절로 이어받는다. CHAT_DISABLED·FORBIDDEN·CHAT_NOT_FOUND는 판매자가 다시 시작"이다. 화면은 다시 연결해야 하는 이유에는 "다시 연결하기"만 보인다(누르면 같은 이유로 바로 다시 멈춘다). spec-keeper가 (가) 화면 그대로 (나) 서버 `restartable`을 수동 이유 셋으로 좁힘 중 판정해 주면 좋겠다 — 어느 쪽이든 판매자 안전에는 차이가 없다.
 2. (참고) AC-I3-51·52 "요청을 보내지 않는다"와 AC-I3-50 "단계를 옮길 때 서버에 적는다"는 위 결정 1로 읽었다(단계 기록은 보낸다).
+
+### verify (dev-web)
+- `E2E_PORT_OFFSET=700 pnpm verify` (커밋 ed2c6df): **7단계 모두 통과** — typecheck(설정 8 · TS 파일 362) · lint(0·0) · test(파일 114 · 2403) · golden(파일 23 · 파서 385 · 엔진 122 · 통과 507) · adversarial(파일 36 · 660) · e2e(파일 22 · 통과 133 — 새 묶음 셋도 함께 떴다, I3 E2E 파일은 test-e2e 몫이라 아직 없음) · coverage(라인 100% · 분기 99.65%).
+- 그 전 실행 셋에서 한 번씩 나온 실패는 모두 같은 시각 다른 작업 폴더(i1·i4)가 함께 돌아 부하가 높을 때(load 14~19)의 시간 기준 시험이었고, 따로 돌리면 통과한다(내 영역 밖 — 결과의 othersFailures): 서버 `changes.test.ts` 증분 조회 p99 300.67ms > 300ms·무작위 순서 시험 30초 넘김, 서버 `youtube-i3-followup.test.ts` AC-I3-87 "조회 간격 ≥ 10초"가 9000ms, 코어 `engine-timing.test.ts` 비율 8.79 > 8, E2E `s06/phase1.spec.ts` AC-S06-90(생성기 1,000건 뒤 단골손님에게 확정 찜이 남지 않아 기본 목록에 없음 — 시험 데이터 흐름).
+- 한 번은 내 실수로 lint가 실패했다: 서버가 화면을 내는 묶음의 빌드를 `test-results/` 아래에 두어 다음 verify의 lint가 빌드 결과물(.js)을 검사했다 → `node_modules/.cache/livejjim-e2e/served-web`으로 옮김(커밋 ed2c6df).
+- 보호 경로 게이트 `node scripts/harness/check-protected.mjs f55a18e` 통과.
