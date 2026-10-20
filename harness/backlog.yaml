@@ -253,7 +253,8 @@ sprints:
     devs: [device]
     tests: [domain]
     specIds: [LBL-01, LBL-02, LBL-03, LBL-04, LBL-05, LBL-06, LBL-07, LBL-08, LBL-11, LBL-12]
-    status: doing
+    status: done
+    note: 트랙 FAIL은 S00 적대 시험 시간 초과 하나(병렬 부하, P1 결함 없음) → D-901, i1·i2에 합침
   - id: P2
     phase: 2
     title: 문서·음성 패키지 (병렬 트랙 worktree p2, 브랜치 track/p2-docs-voice)
@@ -443,3 +444,7 @@ techDebt:
   - "SA-S06b-001: vitest.adversarial.config.ts가 스프린트 중 바뀌었고 기록되지 않은 D-901을 근거로 듦"
   - "TE-S06b-002: 이름이 유일한 문자 구매자는 목록 어디에도 전화 뒤 4자리가 보이지 않음(스펙 확인 필요)"
   - "TE-S06b-005: 합치기 창이 '남는 이름: 문자찜(김씨)(문자)'로 괄호를 더함(스펙 확인 필요)"
+  - "SA-P1-005: S00 골든 CLI 결정성 시험(5000ms)이 adversarial 단계 안의 경합만으로 시간 초과"
+  - "SA-P1-006: LABEL_RULES에 없는 동작 여섯 가지(INVALID_DENSITY·LABEL_ERROR 멈춤·폐기 뒤 작업·… 불가 상자·G-LBL-013·테스트 라벨 목록 밖 크기) spec 확정 필요"
+  - "TD-P1-004: 스펙 확인 필요 — 출력 전 거절(BUSY·INVALID_DENSITY)이 프린터 오류로 대기열을 멈추고 시도 횟수 +1"
+  - "TD-P1-005: 스펙 확인 필요 — 투명 닉네임(U+3164 등)이 '이름 없음'이 아니라 빈 칸으로 찍힘"

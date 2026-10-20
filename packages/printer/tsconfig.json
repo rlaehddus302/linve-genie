@@ -1,0 +1,8 @@
+// 프린터 패키지 (브라우저에서 돈다). Node 타입 없이 검사한다 — 브라우저 API는 DOM 타입으로, 기능 감지 뒤에만 쓴다.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM"]
+  },
+  "include": ["src/**/*.ts"]
+}

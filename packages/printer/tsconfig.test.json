@@ -1,0 +1,9 @@
+// 프린터 시험·도구 설정. Node 타입을 쓴다.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM"],
+    "types": ["node"]
+  },
+  "include": ["*.ts", "src/**/*.ts", "test/**/*.ts"]
+}
