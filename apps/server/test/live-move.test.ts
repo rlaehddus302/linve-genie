@@ -303,6 +303,102 @@ describe('AC-N2-25 저절로 이은 회차를 같은 계정의 새 라이브로 
     expect(await moves(w, seller.sellerId)).toEqual([])
   })
 
+  it('옮기지 않음 ⑧ 끝나지 않은 다른 실제 회차가 있음(1부를 끝내지 않고 2부를 만듦, 2부는 아직 잇지 않음) — 2부 시청자의 "15"가 1부 15번(다른 상품)의 찜이 되지 않고 세기만, 판매자는 2부를 새 라이브에 이을 수 있다 (SA-N2-004·TD-N2-003)', async () => {
+    const w = await world()
+    const { seller, account, b, m } = await autoLinked(w)
+    await register(w, seller, b, 15, '1부 핑크프릴', 10000)
+    const c = await liveBroadcast(w, seller)
+    await register(w, seller, c, 15, '2부 라울', 5000)
+    w.fake.endLive(m)
+    const m2 = w.fake.startLive(account.id)
+    const published = w.published.length
+    expect((await sendComments(w, account, m2, [{ id: '9501', igsid: '6024400000000001', username: 'pink.mom', text: '15' }])).status).toBe(200)
+    expect(await linkOf(w, seller, b)).toMatchObject({ state: 'LINKED', liveId: m })
+    expect(await linkOf(w, seller, c)).toMatchObject({ state: 'NONE' })
+    expect(await winners(w, seller, `${b}/15`)).toEqual([])
+    expect((await chatEvents(w, seller.sellerId)).map((event) => event.id)).not.toContain('ig:9501')
+    expect(await unlinkedOf(w, seller)).toEqual({ [m2]: 1 })
+    expect(await moves(w, seller.sellerId)).toEqual([])
+    const after = w.published.slice(published).map((item) => item.data)
+    expect(after.filter((data) => data.code === 'LIVE_MOVED')).toEqual([])
+    expect(after.find((data) => data.code === 'UNLINKED_COMMENTS')).toMatchObject({ liveId: m2, count: 1 })
+    // 판매자가 2부를 M2에 잇는다 (LIVE_TAKEN 아님) → 그 뒤 M2 댓글은 2부에
+    await linkLive(w, seller, c, m2)
+    await sendComments(w, account, m2, [{ id: '9502', igsid: '6024400000000002', username: 'raoul.fan', text: '15' }])
+    expect(await winners(w, seller, `${c}/15`)).toEqual(['ig:6024400000000002'])
+    expect(await winners(w, seller, `${b}/15`)).toEqual([])
+    expect(await linkOf(w, seller, b)).toMatchObject({ liveId: m })
+  })
+
+  it('옮기지 않음 ⑧ 다른 회차가 손으로 이은 연결이어도 — 다른 회차를 끝내면 다음 늦지 않은 댓글에서 옮긴다. 리허설 회차는 막지 않는다', async () => {
+    const w = await world()
+    const { seller, account, b, m } = await autoLinked(w)
+    const api = client(w, seller.cookie)
+    expect((await api.post('/api/broadcasts', { requestId: rid('bc'), date: '2026-10-19', rehearsal: true })).status).toBe(200)
+    const c = await liveBroadcast(w, seller)
+    const n = w.fake.startLive(account.id)
+    await linkLive(w, seller, c, n)
+    const m2 = w.fake.startLive(account.id)
+    await sendComments(w, account, m2, [{ id: '9511', igsid: '6024400000000001', username: 'a', text: '15' }])
+    expect(await linkOf(w, seller, b)).toMatchObject({ liveId: m })
+    expect(await linkOf(w, seller, c)).toMatchObject({ liveId: n, actor: { kind: 'account' } })
+    expect(await unlinkedOf(w, seller)).toEqual({ [m2]: 1 })
+    expect(await moves(w, seller.sellerId)).toEqual([])
+    // 다른 실제 회차를 끝냄 (리허설 회차는 끝내지 않은 채) → M2의 늦지 않은 다음 댓글에서 b를 M2로 옮긴다
+    await end(w, seller, c)
+    w.clock.advance(1000)
+    await sendComments(w, account, m2, [{ id: '9512', igsid: '6024400000000002', username: 'b', text: '15' }])
+    expect(await linkOf(w, seller, b)).toMatchObject({ state: 'LINKED', liveId: m2, actor: { kind: 'server' } })
+    expect((await chatEvents(w, seller.sellerId)).filter((event) => event.b === b).map((event) => event.id)).toEqual([expect.stringMatching(/^ig:/), 'ig:9512'])
+    expect((await moves(w, seller.sellerId)).map((row) => [row.broadcast, row.from, row.to])).toEqual([[b, m, m2]])
+  })
+
+  it('옮기지 않음 ⑨ 그 회차의 방송 날짜가 댓글을 받은 날(KST)이 아님 — 어제 끝내지 않은 회차가 오늘 라이브로 옮겨 가지 않는다 (SA-N2-004)', async () => {
+    const w = await world()
+    const { seller, account, b, m } = await autoLinked(w)
+    await register(w, seller, b, 15, '어제 핑크프릴', 10000)
+    w.fake.endLive(m)
+    // 2026-10-20 00:00:00 KST (b의 방송 날짜는 2026-10-19)
+    w.clock.set(Date.UTC(2026, 9, 19, 15, 0, 0))
+    const m2 = w.fake.startLive(account.id)
+    expect((await sendComments(w, account, m2, [{ id: '9601', igsid: '6024400000000001', username: 'a', text: '15' }])).status).toBe(200)
+    expect(await linkOf(w, seller, b)).toMatchObject({ state: 'LINKED', liveId: m })
+    expect(await winners(w, seller, `${b}/15`)).toEqual([])
+    expect(await unlinkedOf(w, seller)).toEqual({ [m2]: 1 })
+    expect(await moves(w, seller.sellerId)).toEqual([])
+    expect(w.published.filter((item) => item.data.code === 'LIVE_MOVED')).toEqual([])
+  })
+
+  it('⑨ 경계: 같은 날 23:59:59(KST)에 받은 새 라이브 댓글은 옮긴다', async () => {
+    const w = await world()
+    const { seller, account, b, m } = await autoLinked(w)
+    w.fake.endLive(m)
+    w.clock.set(Date.UTC(2026, 9, 19, 14, 59, 59))
+    const m2 = w.fake.startLive(account.id)
+    await sendComments(w, account, m2, [{ id: '9611', igsid: '6024400000000001', username: 'a', text: '15' }])
+    expect(await linkOf(w, seller, b)).toMatchObject({ liveId: m2, linkedAt: new Date(Date.UTC(2026, 9, 19, 14, 59, 59)).toISOString() })
+    expect(await moves(w, seller.sellerId)).toHaveLength(1)
+  })
+
+  it('기록 트랜잭션 안의 다시 확인: 회차를 정한 뒤 옮기기 전에 다른 실제 회차가 생기면 옮기지 않는다(retry)', async () => {
+    const w = await world()
+    const { seller, account, b, m } = await autoLinked(w)
+    const links = w.server.instagram.links
+    const m2 = w.fake.startLive(account.id)
+    const target = await links.resolveTarget(seller.sellerId, account.id, m2, true)
+    expect(target).toMatchObject({ kind: 'move', broadcastId: b, fromLiveId: m, toLiveId: m2 })
+    if (target.kind !== 'move') return
+    await liveBroadcast(w, seller)
+    const outcome = await w.server.service.ingestOpenChat(
+      seller.sellerId,
+      { b, id: 'ig:9621', ch: 'ig:6024400000000001', nick: 'a', text: '15' },
+      { guard: async (tx, scopeId, now) => (await links.applyMove(tx, seller.sellerId, target, scopeId, 'ig:9621', now)) !== null },
+    )
+    expect(outcome).toEqual({ status: 'retry' })
+    expect(await linkOf(w, seller, b)).toMatchObject({ liveId: m })
+    expect(await moves(w, seller.sellerId)).toEqual([])
+  })
+
   it('끝난 회차는 옮기지 않는다 — 끝낸 뒤 새 라이브 댓글은 세기만', async () => {
     const w = await world()
     const { seller, account, b, m } = await autoLinked(w)

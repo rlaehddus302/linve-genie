@@ -391,6 +391,20 @@ export async function movableLinks(db: Db, sellerId: string, accountId: string, 
     .orderBy(asc(liveLinks.id))
 }
 
+/**
+ * 이 판매자에게 그 회차 말고 끝나지 않은 실제 회차(리허설 아님)가 있는지 — 라이브 연결이 없거나(기다리기도 잇기도 하지 않은 회차),
+ * 플랫폼이 무엇이든 센다 (AC-N2-25 옮기지 않음: 새 라이브가 어느 회차의 라이브인지 모호하다, SA-N2-004·TD-N2-003)
+ */
+export async function otherOpenBroadcast(db: Db, sellerId: string, exceptBroadcastId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: broadcasts.id })
+    .from(broadcasts)
+    .innerJoin(scopes, and(eq(scopes.id, broadcasts.scopeId), eq(scopes.sellerId, sellerId)))
+    .where(and(eq(broadcasts.sellerId, sellerId), ne(broadcasts.id, exceptBroadcastId), isNull(broadcasts.endedAt), eq(scopes.rehearsal, false)))
+    .limit(1)
+  return rows.length > 0
+}
+
 /** 연결을 새 라이브로 옮긴다 (그 연결이 아직 그 라이브에 서버가 이은 LINKED일 때만 — 조치자 서버, 이은 시각 = 옮긴 시각). 옮긴 기록도 남긴다. 옮겼으면 true */
 export async function moveLink(
   db: Db,

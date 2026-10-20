@@ -6,6 +6,8 @@
 // - 잇기·기다리기·끊기는 엔진 이벤트가 아니다 — 누가·언제는 live_links에 남는다(DAT-05). 같은 요청 번호는 한 번만 한다(처음 응답).
 // - 웹훅 댓글의 회차 정하기(resolveTarget): 그 라이브에 이어진 끝나지 않은 회차, 없으면 기다리는 끝나지 않은 회차가 정확히 하나일 때 저절로 잇는다(조치자 서버).
 //   기다리는 회차도 없으면, 서버가 저절로 이은(옮긴) 회차 하나를 같은 계정의 새 라이브로 옮긴다(AC-N2-25, D-N2-16 — 한 계정은 한 번에 라이브 하나).
+//   그 판매자에게 끝나지 않은 다른 실제 회차가 있거나(연결 없는 회차 포함) 그 회차의 방송 날짜가 댓글을 받은 날(KST)이 아니면 옮기지 않는다
+//   — 새 라이브가 어느 회차의 라이브인지 모호하다(SA-N2-004·TD-N2-003: 끝내지 않은 1부가 2부 라이브로 옮겨 가 2부 주문이 1부 같은 번호의 찜이 되던 것).
 //   옮기기는 그 댓글의 기록과 같은 트랜잭션에서 한다(applyMove) — 기록되지 않으면(끝난 회차 등) 옮기지도 않는다.
 import { getBroadcast } from '@livejjim/core'
 import { sql } from 'drizzle-orm'
@@ -13,7 +15,7 @@ import type { Db } from './db/database.ts'
 import { isPlatform, PLATFORM_MESSAGES, type LiveSource, type Platform } from './platform.ts'
 import type { SellerLocks } from './seller-locks.ts'
 import { findBroadcast } from './store.ts'
-import type { Clock } from './time.ts'
+import { kstDate, type Clock } from './time.ts'
 import type { ScopeWriter } from './writer.ts'
 import {
   autoLink,
@@ -27,6 +29,7 @@ import {
   movableLinks,
   moveLink,
   openLinks,
+  otherOpenBroadcast,
   unlinkLink,
   waitingLinks,
   type LinkRow,
@@ -359,7 +362,7 @@ export class LiveLinks {
       const waiting = await waitingLinks(tx, sellerId)
       if (waiting.length > 1) return { kind: 'many' }
       const only = waiting[0]
-      if (only === undefined) return (await this.#movable(tx, sellerId, igAccountId, liveId, fresh)) ?? { kind: 'none' }
+      if (only === undefined) return (await this.#movable(tx, sellerId, igAccountId, liveId, fresh, now)) ?? { kind: 'none' }
       if (!(await autoLink(tx, sellerId, only.id, liveId, igAccountId, now))) return { kind: 'none' }
       return { kind: 'linked', linkId: only.id, broadcastId: only.broadcastId, auto: true }
     })
@@ -370,13 +373,18 @@ export class LiveLinks {
   /**
    * 옮길 연결 (AC-N2-25): 늦지 않은 댓글이고, 그 라이브는 이 판매자의 어느 회차에도 이어진 적이 없으며,
    * 서버가 저절로 이었거나 옮긴, 같은 계정의 다른 라이브에 이어진 끝나지 않은 실제 회차가 정확히 하나일 때. 아니면 null
+   * 그 회차가 있어도 옮기지 않는다(SA-N2-004·TD-N2-003 — 새 라이브가 어느 회차의 라이브인지 모호하면 자동 동작을 막는 쪽으로, D-N2-16):
+   * - 그 판매자에게 그 회차 말고 끝나지 않은 실제 회차가 하나라도 있다(기다리기도 잇기도 하지 않은 회차·다른 플랫폼 회차 포함) — 판매자가 새 회차를 만들어 두었다
+   * - 그 회차의 방송 날짜가 댓글을 받은 날(서버 시계, KST)이 아니다 — 어제 끝내지 않은 회차가 오늘 라이브로 옮겨 가지 않게
    */
-  async #movable(tx: Db, sellerId: string, igAccountId: string, liveId: string, fresh: boolean): Promise<LiveMove | null> {
+  async #movable(tx: Db, sellerId: string, igAccountId: string, liveId: string, fresh: boolean, now: Date): Promise<LiveMove | null> {
     if (!fresh) return null
     if (await liveEverLinked(tx, sellerId, liveId)) return null
     const candidates = await movableLinks(tx, sellerId, igAccountId, liveId)
     const only = candidates[0]
     if (candidates.length !== 1 || only === undefined || only.liveId === null) return null
+    if (only.date !== kstDate(now.getTime())) return null
+    if (await otherOpenBroadcast(tx, sellerId, only.broadcastId)) return null
     return { kind: 'move', linkId: only.id, broadcastId: only.broadcastId, fromLiveId: only.liveId, toLiveId: liveId, accountId: igAccountId }
   }
 
@@ -387,7 +395,7 @@ export class LiveLinks {
   async applyMove(tx: Db, sellerId: string, move: LiveMove, scopeId: string, commentId: string, now: Date): Promise<number | null> {
     await tx.execute(sql`select pg_advisory_xact_lock(${lockKey(sellerId)})`)
     if ((await waitingLinks(tx, sellerId)).length > 0) return null
-    const again = await this.#movable(tx, sellerId, move.accountId, move.toLiveId, true)
+    const again = await this.#movable(tx, sellerId, move.accountId, move.toLiveId, true, now)
     if (again === null || again.linkId !== move.linkId || again.fromLiveId !== move.fromLiveId || again.broadcastId !== move.broadcastId) return null
     const before = (await liveChatStats(tx, sellerId, scopeId, move.broadcastId, commentId)).count
     const moved = await moveLink(tx, { sellerId, linkId: move.linkId, broadcastId: move.broadcastId, fromLiveId: move.fromLiveId, toLiveId: move.toLiveId, accountId: move.accountId, commentsBefore: before, now })
