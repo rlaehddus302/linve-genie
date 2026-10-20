@@ -4,10 +4,10 @@
 
 ### 만든 것 (파일)
 - `apps/server/src/platform.ts` — 플랫폼 값(`YOUTUBE`·`INSTAGRAM`·`TIKTOK`)·키 접두어(`ig:`·`tt:`·`sms:`)·`platformOfKey`·`prefixedKey`(256자)·능력 표·공통 어댑터 모양(`LiveSource`·`ThanksSender`).
-- `apps/server/src/live-links.ts` — 회차의 라이브 연결(기다리기·잇기·끊기·저절로 잇기·수집 상태). `apps/server/src/seller-locks.ts` — 판매자마다 한 줄 처리(프로세스 안).
+- `apps/server/src/live-links.ts` — 회차의 라이브 연결(기다리기·잇기·끊기·저절로 잇기·새 라이브로 옮기기·수집 상태). `apps/server/src/seller-locks.ts` — 판매자마다 한 줄 처리(프로세스 안).
 - `apps/server/src/instagram/` — `config.ts`(설정)·`meta.ts`(메타 HTTP 어댑터·오류 분류)·`adapters.ts`(공통 어댑터의 인스타그램 구현)·`crypto.ts`(토큰 암호화·state 해시)·`connection.ts`(계정 연결·동의)·`webhook.ts`·`dm.ts`(DM 실행기)·`notices.ts`(SSE)·`routes.ts`·`store.ts`·`text.ts`·`fake-meta.ts`(가짜 메타 서버)·`index.ts`(조립).
-- `Service.ingestOpenChat` — `ingestChat`과 같은 기록(허용 필드·조치자 `collector`·같은 메시지 ID 한 번)이고, 그 방송이 이미 끝났으면(같은 범위 줄 안에서 판단) 기록하지 않는다.
-- 마이그레이션 `0004_n2_instagram.sql` — `ig_connections`·`ig_oauth_states`·`live_links`·`live_unlinked`·`live_requests`·`ig_dm_sends`·`ig_dm_rows`. **발송함 `outbox` 표는 그대로**(D-N2-01). DM 행은 발송함 POST_THANKS 행이 생기는 같은 트랜잭션(`ScopeWriter.txHook` — 출력 기록과 함께)에서 만든다.
+- `Service.ingestOpenChat` — `ingestChat`과 같은 기록(허용 필드·조치자 `collector`·같은 메시지 ID 한 번)이고, 그 방송이 이미 끝났으면(같은 범위 줄 안에서 판단) 기록하지 않는다. `guard`를 주면 그 chat을 넣은 같은 트랜잭션에서 부르고, false면 기록을 취소하고 `retry`(라이브 옮기기 — AC-N2-25).
+- 마이그레이션 `0004_n2_instagram.sql` — `ig_connections`·`ig_oauth_states`·`live_links`·`live_link_moves`(수정 라운드 2 — 옮긴 기록)·`live_unlinked`·`live_requests`·`ig_dm_sends`·`ig_dm_rows`. **발송함 `outbox` 표는 그대로**(D-N2-01). DM 행은 발송함 POST_THANKS 행이 생기는 같은 트랜잭션(`ScopeWriter.txHook` — 출력 기록과 함께)에서 만든다.
 - 골든 러너 `SCENARIO_ID_RE` 한 줄·오류 문장(AC-N2-80), 러너 자체 시험 `scenario-id.test.ts`, 합계 교체(AC-N2-81).
 
 ### 화면에게 (AC-N2-71)
@@ -47,7 +47,8 @@
 PlatformCapability = { platform: 'YOUTUBE'|'INSTAGRAM'|'TIKTOK', ready: boolean, receivedTime: boolean, thanks: 'PUBLIC_CHAT'|'DM_PER_COMMENT'|'NONE', videoComment: boolean,
   reasons: { ready?, receivedTime?, thanks?, videoComment? } /* 쓸 수 없는 것마다 문장 */ }
 LinkView = { broadcast, platform: 'INSTAGRAM'|null, state: 'NONE'|'WAITING'|'LINKED', liveId /* LINKED일 때 */, linkedAt /* 이은(기다리기로 정한) 시각 */,
-  actor: { kind: 'account'|'server' /* 저절로 이음 */, loginId } | null, accountId /* 이을 때 연결돼 있던 인스타 계정 ID */, collection: CollectionView | null }
+  actor: { kind: 'account'|'server' /* 저절로 이음·옮김 */, loginId } | null, accountId /* 이을 때 연결돼 있던 인스타 계정 ID */, collection: CollectionView | null }
+// 서버가 새 라이브로 옮긴 연결(AC-N2-25): liveId = 새 라이브, linkedAt = 옮긴 시각, actor = server. 수집 상태의 수는 옮기기 전 것을 이어 센다
 CollectionView = { platform: 'INSTAGRAM', state: 'WAITING'|'LIVE'|'FINISHED'|'STOPPED', message /* 아래 문장 */, liveId, lastCommentAt, comments, late, malformed }
 ```
 수집 상태 문장: `WAITING` "인스타그램 라이브를 기다리는 중이에요. 라이브를 시작하면 첫 댓글부터 받아요." · `LIVE` "댓글을 받는 중" · `FINISHED` "방송을 끝내 댓글 기록을 마쳤어요." · `STOPPED` "인스타그램 연결이 끊겨 댓글을 받지 않아요."
@@ -108,9 +109,10 @@ DmRowView = { id, broadcast, product /* 효과의 상품 키 */, buyer /* 효과
 #### 4. 실시간 (`GET /api/stream`) — 새 이벤트 `event: instagram` (seq·id 없음)
 `data.kind`로 나눈다:
 - `{ kind: 'CONNECTION', connection: ConnectionView }` — 연결 상태가 바뀜(연결·다시 연결 필요·끊김·동의)
-- `{ kind: 'LINK', broadcast, link: LinkView }` — 잇기·기다리기·끊기·저절로 잇기
+- `{ kind: 'LINK', broadcast, link: LinkView }` — 잇기·기다리기·끊기·저절로 잇기·새 라이브로 옮기기
 - `{ kind: 'COLLECTION', broadcast, link: LinkView }` — 수집 상태·수가 바뀜(묶어서 1초에 한 번까지, 처음은 바로)
 - `{ kind: 'NOTICE', code: 'UNLINKED_COMMENTS', message, liveId, count }` · `{ kind: 'NOTICE', code: 'MANY_WAITING', message, liveId, count }` · `{ kind: 'NOTICE', code: 'LATE_COMMENTS', message, broadcast }` — 처음 한 번과 그 뒤 1분에 한 번까지
+- `{ kind: 'NOTICE', code: 'LIVE_MOVED', message, broadcast, liveId /* 새 라이브 */, count /* 옮기기 전 그 방송에 기록한 인스타 댓글 수 */ }` — 옮길 때마다 한 번(묶지 않는다). 문장 "인스타그램 라이브가 바뀌어 방송을 새 라이브에 다시 이었어요. 그 전 라이브에서 이 방송에 기록한 댓글 N개를 확인해 주세요."(N이 0이면 첫 문장만, `liveMovedMessage`). 판매자가 그 댓글들을 확인·취소하도록 이끈다
 - `{ kind: 'DM', date, rows: DmRowView[] }` — 행 상태가 바뀜(같은 `id`로 덮는다)
 
 인스타그램 댓글은 기존 `change` 알림(채팅 이벤트)·메시지 조회로 그대로 온다 — `id`·`channel`이 `ig:`로 시작하면 인스타그램(플랫폼 이름은 키 접두어 하나로 정한다, D-N2-15). 기존 구매자·메시지 조회 응답은 바꾸지 않았다.
@@ -165,13 +167,13 @@ DmRowView = { id, broadcast, product /* 효과의 상품 키 */, buyer /* 효과
 - 한 댓글의 기다리는 행이 5줄을 넘으면 앞 5줄만 그 DM으로 보낸다(나머지는 그 뒤 `ONE_REPLY`) — 메시지 하나의 번호 상한(D-034)이 5라 정상적인 경우엔 생기지 않는다.
 
 ### 바꾼 기존 시험 (AC-N2-82)
-- `apps/server/test/commands.test.ts` 마이그레이션 명령의 표 수 15 → 22 (교체 — N2 표 일곱이 더해짐, 같은 줄의 스키마 대조는 그대로).
+- `apps/server/test/commands.test.ts` 마이그레이션 명령의 표 수 15 → 22 → 23 (교체 — N2 표 일곱, 수정 라운드 2에 옮긴 기록 표 하나가 더해짐, 같은 줄의 스키마 대조는 그대로).
 - `packages/core/test/golden/core-adapter.test.ts` 합계 "파일 26 · 파서 460 · 엔진 129 · 통과 589" → "파일 27 · 파서 468 · 엔진 132 · 통과 600" (AC-N2-81, 교체).
 - 코어 시험 코드: `packages/core/test/golden/contract.ts` `SCENARIO_ID_RE` 한 줄, `validate.ts` 오류 문장(두 형식을 말한다). 새 러너 자체 시험 `scenario-id.test.ts`.
 - `apps/server/vitest.config.ts`에 `setupFiles: ['test/network-guard.ts']`(네트워크 가드, AC-N2-62).
 
 ### 테스터에게
-- `@livejjim/server` 진입점이 N2 묶음을 내보낸다: `FakeMeta`·`instagramSettings`·`readInstagramConfig`·`MetaClient`·`classifyMetaError`·`ERROR_TABLE`·`platformOfKey`·`prefixedKey`·`platformCapabilities`·`dmLine`·`dmText`·`instagramNick`·문장 표(`LINK_MESSAGES`·`COLLECTION_MESSAGES`·`CALLBACK_MESSAGES`·`DM_REASON_MESSAGES`·`RESEND_MESSAGES`·`NOTICE_MESSAGES`)·숫자(`RETRY_DELAYS_S`·`DM_DEADLINE_MS`·`SEND_LEASE_MS`·`WEBHOOK_BODY_LIMIT`·`LATE_AFTER_MS`). 서버 옵션: `createServer({ instagram: fake.settings({ redirectUri }), dmAutoRun: false, collectionIntervalMs, liveTimer })` → `server.instagram.dms.drain()`·`server.instagram.connections`·`server.instagram.links`·`server.hub.publishInstagram`.
+- `@livejjim/server` 진입점이 N2 묶음을 내보낸다: `FakeMeta`·`instagramSettings`·`readInstagramConfig`·`MetaClient`·`classifyMetaError`·`ERROR_TABLE`·`platformOfKey`·`prefixedKey`·`platformCapabilities`·`dmLine`·`dmText`·`instagramNick`·문장 표(`LINK_MESSAGES`·`COLLECTION_MESSAGES`·`CALLBACK_MESSAGES`·`DM_REASON_MESSAGES`·`RESEND_MESSAGES`·`NOTICE_MESSAGES`·`LIVE_MOVED_MESSAGE`·`liveMovedMessage`)·숫자(`RETRY_DELAYS_S`·`DM_DEADLINE_MS`·`SEND_LEASE_MS`·`WEBHOOK_BODY_LIMIT`·`LATE_AFTER_MS`). 서버 옵션: `createServer({ instagram: fake.settings({ redirectUri }), dmAutoRun: false, collectionIntervalMs, liveTimer })` → `server.instagram.dms.drain()`·`server.instagram.connections`·`server.instagram.links`·`server.hub.publishInstagram`.
 - 도우미: `apps/server/test/instagram-support.ts` — `igWorld()`(가짜 메타 서버 + 서버, 같은 주입 시계, DM 실행기는 `dmAutoRun: false` — `server.instagram.dms.drain()`으로 돌린다), `connectedShop`·`connectInstagram`·`callback`·`liveBroadcast`·`linkLive`·`register`·`sendComments`·`webhookTarget`·`chatEvents`.
 - 네트워크 가드: `apps/server/test/network-guard.ts`의 `installNetworkGuard()`·`blockedConnections`(적대 시험 설정은 오케스트레이터 소유라 직접 걸지 않았다 — 적대 시험 파일이 `import '../../../apps/server/test/network-guard.ts'`로 걸 수 있다).
 - 가짜 서버: `FakeMeta.start({ now })` → `addAccount`·`setLogin`·`authorize(url)`·`startLive`·`endLive`·`comment`·`payload`·`sign`·`deliver(target, body, { signature })`·`fail(op, fault, times)`·`invalidateTokens`·`count(op)`·`dms`·`subscriptions`·`issuedTokens`.
@@ -196,3 +198,15 @@ DmRowView = { id, broadcast, product /* 효과의 상품 키 */, buyer /* 효과
 - **RA-N2-001 (DISPUTED — 일부 고침, 나머지는 스펙 결정 필요)** 다시 배달된 댓글이 기다리던 2부를 옛 라이브에 잇던 경로는 위 SA-N2-001 수정으로 막혔다(이미 기록한 댓글은 회차를 정하기 전에 거른다). 남는 것 — b1을 끝낸 뒤 옛 라이브 M에 **새로** 달린 댓글이 기다리던 b2를 M에 잇는 것 — 은 스펙이 정한 동작이다: AC-N2-22 "시험(한 라이브로 1부·2부): b1이 M에 이어져 있고 b2가 기다리는 중 → b1을 끝냄 → 그 뒤 M의 댓글에서 b2가 M에 이어지고 그 댓글부터 b2에 기록된다", AC-N2-24 "회차 b를 끝내면 그 뒤 도착한 M의 댓글은 … 기다리는 회차가 있으면 거기에 잇는다". 그 뒤 새 라이브 M2의 댓글을 세기만 하는 것도 AC-N2-24("저절로 잇기도 되지 않으면 기록하지 않는다")다. 감사자가 낸 `entry.time` 조건은 D-N2-04("entry.time은 60초 넘게 늦은 댓글을 알리는 데만 쓴다")와 부딪친다. 그래서 조용히 바꾸지 않고 spec-keeper에게 아래를 제안한다(disputesWithSpec).
   - 제안: "한 계정의 라이브는 한 번에 하나" 규칙으로 저절로 옮기기 — 이어지지 않은 라이브 M2의 댓글이 왔고, 판매자의 끝나지 않은 회차 중 **서버가 저절로 이은**(조치자 server) 회차가 같은 계정의 다른 라이브 M에 이어져 있으면, 그 판매자 줄 밖에서 `live_media`를 한 번 불러 M2가 진행 중이고 M이 진행 중이 아님을 확인한 뒤(실패·불확실하면 지금처럼 세기만) 그 연결을 M2로 옮기고(조치자 서버, 옮긴 시각 남김) 알림을 보낸다. 판매자가 손으로 이은 연결은 옮기지 않는다. 옮기기 전 M2 댓글은 지금처럼 세기만 한다(알림으로 안내). 메타 호출이 들어가므로 실패·지연·호출 횟수 제한을 함께 정해야 한다.
 - **pnpm verify (수정 라운드 1 끝, 커밋 b8ab2df)** `E2E_PORT_OFFSET=1100 pnpm verify` — 통과 6 · 실패 1: typecheck(파일 486) · lint(0) · test(파일 139 · 테스트 3227) · golden(파일 27 · 파서 468 · 엔진 132 · 통과 600) · e2e(파일 42 · 통과 265) · coverage(라인 100% · 분기 99.66%) 통과, adversarial(파일 46 · 테스트 831 · 실패 1) 실패. 실패 1건은 위 "테스터에게"의 TD-N2-002 시험 주입 횟수다 — 이 시험의 버그 확인 단언(첫 drain 뒤 `[WAITING, RETRY]`, 68행)은 통과하고 72행(2초 뒤 DM 1)에서 남은 두 번째 거절에 걸린다. TD-N2-001 두 시험은 통과한다. 보호 경로 게이트(`check-protected.mjs 39d9ac6`) 통과.
+
+### 수정 라운드 2 (dev-server — 분쟁 판정 반영, RA-N2-001 UPHOLD → D-N2-16, AC-N2-25·33)
+- **RA-N2-001 (FIXED)** 저절로 이은 회차가 옛 라이브에 남아 새 라이브의 2부 첫 주문이 세기만 되던 것. AC-N2-25(새)대로 서버가 저절로 이은 연결을 같은 계정의 새 라이브로 옮긴다. AC-N2-33(이미 기록한 댓글은 어느 회차든 회차를 정하기 전에 거른다)은 수정 라운드 1의 `igChatRecorded` 거르기 그대로이고, 거른 댓글은 옮기기도 일으키지 않는다(시험으로 확인).
+  - 회차 정하기(`LiveLinks.resolveTarget(seller, igAccountId, liveId, fresh)`): ① 그 라이브에 이어진 끝나지 않은 회차 ② 기다리는 회차 하나 → 저절로 잇기, 둘 이상 → `MANY_WAITING` ③ **기다리는 회차가 없으면** 옮길 수 있는지(`#movable`): 늦지 않은 댓글(`fresh` = `entry.time`이 있고 숫자이며 받은 시각보다 60초 넘게 이르지 않음 — 웹훅이 정한다), 그 라이브가 이 판매자의 어느 연결에도(끊은 연결·끝난 회차·옮기기 전 라이브 포함 — `live_links.live_id`와 `live_link_moves`의 두 라이브 ID) 없었음, 후보(`movableLinks`: 끝나지 않은 실제 회차·인스타그램·`LINKED`·조치자 `server`·연결 계정 ID = `entry[].id`·다른 라이브)가 정확히 하나 → `move` ④ 아니면 `none`(지금처럼 세고 `UNLINKED_COMMENTS`).
+  - 옮기기는 **그 댓글의 기록과 한 트랜잭션**이다: 웹훅이 `Service.ingestOpenChat(…, { guard })`로 넘기고, 기록 트랜잭션(범위 잠금 안, chat을 넣은 뒤 `afterInsert`)에서 `LiveLinks.applyMove`가 판매자 라이브 잠금(`pg_advisory_xact_lock`)을 잡고 조건을 **다시** 본 뒤 `live_links` 행의 `live_id`·`linked_at`(= 옮긴 시각)만 바꾸고(같은 행이라 늦게 받은·형식 틀린 수가 이어진다) `live_link_moves`에 이전·새 라이브 ID·계정 ID·조치자 `server`·옮기기 전 기록한 인스타 댓글 수(그 댓글 뺌)·옮긴 시각을 남긴다. 조건이 깨졌으면(다른 서버 인스턴스가 그사이 바꿈) 기록을 취소하고 `retry` → 회차를 다시 정한다. 그 회차가 그사이 끝났으면 기록 경로가 `ended`를 주므로 옮기지도 않는다(끝난 회차·동시에 끝나는 회차는 옮기지 않는다). 기록이 커밋된 뒤에만 `LINK` 알림·`LIVE_MOVED`(N)·수집 상태 알림을 보낸다.
+  - 잠금 순서: 기록 트랜잭션은 범위 잠금 → 판매자 라이브 잠금. 라이브 잠금을 잡은 쪽(잇기·끊기·저절로 잇기)은 범위 잠금을 잡지 않는다 — 교착 없음. 프로세스 안에서는 웹훅·잇기·끊기가 판매자 줄(`SellerLocks`)로 차례를 지킨다.
+  - 끊기가 아니다: `onUnlink`를 부르지 않으므로 기다리던 DM 행은 그대로(`FAILED(NO_LINK)` 아님). 엔진 이벤트도 아니다 — 범위 seq는 그 댓글의 chat 하나만 는다. 메타 `live_media`는 다시 부르지 않는다(D-N2-16).
+  - 옮기려던 댓글이 엔진 입력 검사에 걸리면(웹훅 경로에서는 사실상 생기지 않는다 — 모양 검사가 먼저 거른다) 옮기지 않고 판매자 단위 형식 틀린 수만 센다. 다음 늦지 않은 댓글에서 옮긴다.
+  - 새 표 `live_link_moves`(판매자·연결·회차 외래 키, `(seller_id, from_live_id)`·`(seller_id, to_live_id)` 인덱스) — 아직 합치지 않은 N2 전용 마이그레이션 `0004`에 더했다(수정 라운드 1의 인덱스와 같은 이유). `schema.ts`와 같다(schema.test 대조).
+  - 시험 `apps/server/test/live-move.test.ts`(12): 판정 문장의 시나리오(따로 켠 두 라이브 1부·2부 — "감사합니다"로 b2가 M에 저절로 이어짐 → "20" 1등·DM 행 → M2 "15"로 옮김·15번 1등·LIVE_MOVED N = 2·연결 조회·수집 상태·옮긴 기록·seq +1·DM 행이 NO_LINK 아님 → 그 뒤 M "16"은 세기만), 다시 켠 라이브로 또 옮기기·옛 라이브로 되돌아가지 않음, 옮기지 않음 ①61초 늦음(60초는 옮김) ②`entry.time` 없음·숫자 아님 ③이어진 적 있는 라이브(끝난 회차) ④손으로 이은 연결(`UNLINKED_COMMENTS`) ⑤후보 둘 ⑥다른 계정으로 다시 연결 ⑦기다리는 회차가 먼저(둘이면 `MANY_WAITING`), 끝난 회차, 다시 배달된 댓글, `guard` false면 기록 취소·`retry`, 문장.
+  - **테스터에게**: 공격 관점(acceptance "옮기기")에 쓸 것 — `sendComments(…, { time })`로 `entry.time`, `fake.payload` JSON에서 `time`을 지워 없는 경우, `live_link_moves` 표(옮긴 기록), SSE `LIVE_MOVED`, `server.service.ingestOpenChat(seller, chat, { guard })`(옮기기 트랜잭션 실패 흉내). 가짜 서버는 한 계정에 라이브 둘을 동시에 켤 수 있다(목록 시험용) — 실제로는 안 된다(HG-N2 7).
+- **pnpm verify (수정 라운드 2 끝, 커밋 0c54a60)** `E2E_PORT_OFFSET=1100 pnpm verify` — 통과 5 · 실패 2: typecheck(파일 487) · lint(0) · golden(파일 27 · 파서 468 · 엔진 132 · 통과 600) · e2e(파일 42 · 통과 265) · coverage(라인 100% · 분기 99.66%) 통과. test(파일 140 · 테스트 3239 · 실패 1)는 `changes.test.ts` AC-S05-61 무작위 속성 시험이 60초 시간 제한에 걸린 것(다른 스프린트와 함께 도는 부하 — 그 파일만 다시 돌리면 13초에 통과, 이어서 `pnpm test`를 다시 돌려 파일 140 · 테스트 3239 모두 통과). adversarial(파일 46 · 테스트 831 · 실패 1)은 수정 라운드 1과 같은 `dm-attacks.test.ts` TD-N2-002 시험 주입 횟수(위 "테스터에게" — test-domain 몫). 새 시험 `live-move.test.ts` 12개와 N2 적대 시험의 나머지(TD-N2-001 포함)는 통과.
