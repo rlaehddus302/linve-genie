@@ -318,7 +318,11 @@ export const EMPTY_SETTLEMENT = {
   payment: 'UNPAID',
 } as const
 
-export const SCENARIO_ID_RE = /^G-ENG-\d{3}$/
+/**
+ * 시나리오 ID: `G-ENG-` + 세 자리, 또는 병렬 트랙 스프린트가 쓰는 `G-ENG-<스프린트 ID>-<두 자리>`
+ * (스프린트 ID = 영문 대문자 하나 뒤 영문·숫자 1~3자, 예: G-ENG-N3-01 — README "시나리오 키", N3 D-N3-01·AC-N3-04)
+ */
+export const SCENARIO_ID_RE = /^G-ENG-(?:\d{3}|[A-Z][A-Za-z0-9]{1,3}-\d{2})$/
 export const BROADCAST_ID_RE = /^[^\s/@]+$/
 export const PRODUCT_KEY_RE = /^([^\s/@]+)\/([1-9]\d*)$/
 export const SMS_PREFIX = 'sms:'

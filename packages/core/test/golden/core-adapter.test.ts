@@ -653,18 +653,18 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
   })
 })
 
-// 합치기(S06b + P2 + I4 + I1): 골든이 늘어 합계를 바꿨다(교체 — 약화 아님). S06b(19·20번 엔진 파일, G-ENG-174~177),
+// 합치기(S06b + P2 + I4 + I1) + N3: 골든이 늘어 합계를 바꿨다(교체 — 약화 아님). S06b(19·20번 엔진 파일, G-ENG-174~177),
 // P2(parser/voice-extract.yaml, engine/19-p2-documents.yaml G-ENG-201·202), I4(voice-extract 끊어 말한 번호 사례),
-// I1(engine/21-i1-labels.yaml G-ENG-301~304, AC-I1-80)을 함께 센다.
-describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 합계)', () => {
-  it('파일 26 · 파서 460 · 엔진 129 · 통과 589, 나머지 0', () => {
+// I1(engine/21-i1-labels.yaml G-ENG-301~304, AC-I1-80), N3(engine/22-n3-deposits.yaml G-ENG-N3-01·02, AC-N3-04 — deposit/*.json은 러너가 읽지 않는다)을 함께 센다.
+describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + N3 합계)', () => {
+  it('파일 27 · 파서 460 · 엔진 131 · 통과 591, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
-      files: 26,
+      files: 27,
       parserCases: 460,
-      scenarios: 129,
-      pass: 589,
+      scenarios: 131,
+      pass: 591,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,
