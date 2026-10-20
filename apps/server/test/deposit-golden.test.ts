@@ -202,16 +202,26 @@ describe('결정성 — 시계·시간대와 상관없다 (AC-N3-02·05)', () =>
   })
 
   it('이름 정규화(NFKC)는 name.ts 한 곳에만 있다 — 다른 곳은 normalizeDepositName을 부른다 (AC-N3-01)', () => {
+    // 예외 하나: 화면 이름 표기(BUY-01, D-098)의 "같은 모양" 비교(bundles.ts sameLook) — 공백을 한 칸으로 줄일 뿐 지우지 않아 DP-3이 아니다
+    const allowed = new Map([[join('deposit', 'bundles.ts'), /\.replace\(\/\\s\+\/gu, ' '\)/]])
     const offenders: string[] = []
+    const callers: string[] = []
     const walk = (dir: string) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const full = join(dir, entry.name)
         if (entry.isDirectory()) walk(full)
-        else if (entry.name.endsWith('.ts') && !full.endsWith(join('deposit', 'name.ts')) && /NFKC/.test(readFileSync(full, 'utf8'))) offenders.push(full)
+        else if (entry.name.endsWith('.ts') && !full.endsWith(join('deposit', 'name.ts'))) {
+          const text = readFileSync(full, 'utf8')
+          const exception = [...allowed].find(([file]) => full.endsWith(file))
+          if (/NFKC/.test(text) && (exception === undefined || !exception[1].test(text) || (text.match(/NFKC/g) ?? []).length !== 1)) offenders.push(full)
+          if (text.includes('normalizeDepositName(')) callers.push(entry.name)
+        }
       }
     }
     walk(SRC_DIR)
     expect(offenders).toEqual([])
+    // 맞추기·붙여넣기 줄 키·기억한 입금자명 저장이 같은 함수를 부른다
+    expect(callers).toEqual(expect.arrayContaining(['match.ts', 'service.ts']))
   })
 })
 

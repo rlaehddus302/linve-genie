@@ -2,6 +2,8 @@
 // - 메모리 PGlite + 마이그레이션, 그 자리에서 만든 시험용 마스터 키, 시험용 판매자 계정 하나(apps/server/e2e/account.json의 시험 값).
 // - 선택: 상품 500·채팅 1만 건을 채운 실제 범위(오늘, KST), 화면의 방송자 조치 대기 시간 줄이기 신호(GET /api/client-config), 리허설 생성기 시험 속도.
 // - 시험 모드 신호(GET /api/client-config testPrinter — 화면이 시험용 프린터를 켠다, I1 L-11 15): E2E 기동은 기본으로 켠다(testPrinter: false로 끌 수 있다).
+// - 입금 확인 시험 모드(N3 D-N3-12): 가짜 원천·시험용 입금 넣기(POST /api/deposits/test/rows)를 기본으로 켠다(testDeposits: false로 끈다).
+//   받아 오기 주기는 기본 1초(depositPollMs), "지금 받아 오기" 간격은 운영 값 60초(depositRefetchMs로 줄인다). 팝빌 연동 키는 없다(계좌조회 원천은 "준비 중").
 // - 채우기는 기록 경로(ScopeWriter)를 그대로 탄다: 상품은 product.register(조치자 서버), 채팅은 가짜 채팅 생성기의 메시지(조치자 수집기).
 import { readFileSync } from 'node:fs'
 import type { Server } from 'node:http'
@@ -113,7 +115,16 @@ export interface E2eOptions {
   readonly passwordCost?: PasswordCost
   /** 시험 모드 신호 — 화면이 시험용 프린터를 켠다 (기본 true. 운영 기동에는 없다, AC-I1-16·50) */
   readonly testPrinter?: boolean
+  /** 입금 확인 시험 모드 — 가짜 원천·시험용 입금 넣기 (기본 true. 운영 기동에는 없다, AC-N3-17) */
+  readonly testDeposits?: boolean
+  /** 가짜·계좌조회 원천의 받아 오기 주기 (밀리초, 100~300000, 기본 1000 — E2E 기동만) */
+  readonly depositPollMs?: number
+  /** "지금 받아 오기" 간격 (밀리초, 0~60000, 기본 60000) */
+  readonly depositRefetchMs?: number
 }
+
+/** E2E 기동의 받아 오기 주기 기본값 (밀리초) */
+export const E2E_DEPOSIT_POLL_MS = 1000
 
 /** E2E 서버가 듣는 주소: 이 컴퓨터 안(IPv4 루프백)에서만 (AC-S06-73, D-096 — 모든 인터페이스 0.0.0.0·::이 아니다) */
 export const E2E_HOST = '127.0.0.1'
@@ -143,6 +154,12 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     ...(options.generatorSpeed === undefined ? {} : { generatorSpeed: options.generatorSpeed }),
     ...(options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost }),
     testPrinter: options.testPrinter ?? true,
+    deposits: {
+      testMode: options.testDeposits ?? true,
+      popbill: null,
+      pollMs: options.depositPollMs ?? E2E_DEPOSIT_POLL_MS,
+      ...(options.depositRefetchMs === undefined ? {} : { refetchGapMs: options.depositRefetchMs }),
+    },
   })
   const account = readE2eAccount()
   const created = await createSellerAccount(database.db, Buffer.from(masterKey, 'base64'), account, options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost })

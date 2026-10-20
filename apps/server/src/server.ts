@@ -4,6 +4,8 @@
 // changesWindow(증분 조회 기준점 수), generatorTimer·generatorSpeed(리허설 생성기 타이머·시험 속도), hostActionDelayMs(화면의 방송자 조치 대기 — E2E 기동만 줄인다),
 // testPrinter(시험 모드 신호 — 화면이 시험용 프린터를 켠다. E2E 기동만 켠다, 운영 기동은 production.ts가 늘 끈다 — I1 L-11 15).
 // I1: 출력 기록(PrintService)을 기록 경로의 같은 트랜잭션(txHook)에 잇고, 실시간 알림(print)·출력 기기 실시간 연결 여부를 허브에 잇는다.
+// N3: 입금 확인(DepositService — 원천·받아 오기 주기·자동 확인·확인 필요)을 기록 경로와 실시간 알림(deposit)에 잇는다.
+//   deposits.testMode(가짜 원천·시험용 입금 넣기)는 E2E 기동만 켠다 — 운영 기동은 production.ts가 늘 끈다(D-N3-12).
 import { applyEvent } from '@livejjim/core'
 import type { Hono } from 'hono'
 import { Auth } from './auth.ts'
@@ -16,6 +18,7 @@ import type { EngineAdapter } from './runtime.ts'
 import { loginLimitSecret, readMasterKey, type PasswordCost } from './secrets.ts'
 import type { GeneratorTimer } from './generator.ts'
 import { PrintService } from './print.ts'
+import { DepositService, type DepositOptions } from './deposit/service.ts'
 import { readQueue } from './print-store.ts'
 import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
@@ -59,6 +62,8 @@ export interface ServerOptions {
   readonly hostActionDelayMs?: number
   /** 시험 모드 신호 (화면 설정 testPrinter — 시험용 프린터를 켠다). E2E 기동만 켠다. 기본 false (L-11 15, AC-I1-16) */
   readonly testPrinter?: boolean
+  /** 입금 확인 설정 (N3): 시험 모드(가짜 원천 — E2E 기동만)·팝빌 전송(연동 키가 있을 때)·주기 덮어쓰기(E2E 기동만)·시험용 타이머 */
+  readonly deposits?: DepositOptions
 }
 
 export interface LivejjimServer {
@@ -71,6 +76,8 @@ export interface LivejjimServer {
   readonly viewCaches: ViewCacheBudget
   /** 출력 기록과 출력 기기 (I1) */
   readonly print: PrintService
+  /** 입금 확인 (N3) */
+  readonly deposits: DepositService
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
   /** 실시간 연결을 닫고 리허설 생성기·타이머를 멈춘다 (DB는 닫지 않는다) */
@@ -163,10 +170,21 @@ export function createServer(options: ServerOptions): LivejjimServer {
     onGenerator: (sellerId, payload) => hub.publishGenerator(sellerId, payload),
     ...(options.generatorTimer === undefined ? {} : { generatorTimer: options.generatorTimer }),
   })
+  const deposits = new DepositService({
+    db,
+    writer,
+    clock,
+    masterKey,
+    log,
+    publish: (sellerId, data) => hub.publishDeposit(sellerId, data),
+    options: options.deposits ?? {},
+  })
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
-    api: { service, auth, hub, print: printService, appOrigin: options.appOrigin, clientConfig: { hostActionDelayMs, testPrinter: options.testPrinter === true } },
+    api: { service, auth, hub, print: printService, deposits, appOrigin: options.appOrigin, clientConfig: { hostActionDelayMs, testPrinter: options.testPrinter === true } },
   })
+  // 저장된 켜진 원천의 받아 오기 주기를 건다 (실패해도 서버는 뜬다 — 원천 실패는 판매를 멈추지 않는다, DP-0 5)
+  deposits.start()
   return {
     app,
     service,
@@ -175,10 +193,12 @@ export function createServer(options: ServerOptions): LivejjimServer {
     auth,
     viewCaches,
     print: printService,
+    deposits,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     close: () => {
       service.generators.closeAll()
       printService.close()
+      deposits.close()
       hub.closeAll()
     },
   }

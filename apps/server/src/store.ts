@@ -367,7 +367,7 @@ export interface NewEventRow {
   readonly body: string
   readonly at: number
   readonly receivedAt: Date
-  readonly actor: 'account' | 'server' | 'collector'
+  readonly actor: 'account' | 'server' | 'collector' | 'deposit'
   readonly accountId: string | null
   readonly requestId: string | null
   readonly chatBroadcast: string | null

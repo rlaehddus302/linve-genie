@@ -4,6 +4,7 @@
 // S06: 상품 ID 조치 기록(productOwners), 범위별 보기 캐시(StateCache·newViewCaches), 생성기 판매자당 하나(GENERATOR_RECORDS_MAX), E2E 127.0.0.1(E2E_HOST).
 // S06b: 합치기 미리 보기 조회(MergePreviewView), 문자찜 응답 buyer, 보기 캐시 상한(ViewCacheBudget — 판매자마다 4·서버 전체 32·10분).
 // I1: 서버 출력 기록(PrintService·createAutoJobs·autoLabelEffects), 라벨 데이터(L-9), 운영 설정 조립(productionServerOptions — 시험 모드 신호 없음).
+// N3: 입금 확인(DepositService), 순수 함수 셋(normalizeDepositName·readPaste·matchDeposits), 팝빌 어댑터·가짜 팝빌 전송(FakePopbillTransport — 시험용).
 export { createApp, defaultLogError, type AppOptions, type ErrorLogger } from './app.ts'
 export { DEFAULT_PORT, readAppOrigin, readDatabaseSetting, readPort, type DatabaseSetting, type OriginSetting, type PortSetting } from './config.ts'
 export {
@@ -163,3 +164,48 @@ export {
 } from './print-store.ts'
 export { buildClaimIndex, contentKeyOf, currentLabelBuyer, isWinnerOf, packingLabelData, productLabelBuyer, productLabelData, type ClaimIndex } from './label-data.ts'
 export { productionServerOptions, type ProductionOptions } from './production.ts'
+// N3 입금 확인
+export { normalizeDepositName } from './deposit/name.ts'
+export { readPaste, PASTE_ROWS_MAX, DEPOSIT_AMOUNT_MAX, DEPOSIT_NAME_MAX, type PasteResult, type PasteRow } from './deposit/paste.ts'
+export { matchDeposits, evaluateDeposits, SUGGESTIONS_MAX, MATCH_DAYS_BACK, type MatchBundle, type MatchDeposit, type MatchOutcome, type Evaluation, type ReviewReason } from './deposit/match.ts'
+export { parseOffsetIso, kstDateOf, kstIso, addDays } from './deposit/calendar.ts'
+export {
+  DepositService,
+  DEPOSIT_MESSAGES,
+  RECEIVE_DAYS_BACK,
+  RECEIVE_FUTURE_MS,
+  REFETCH_GAP_MS,
+  POPBILL_JOB_TIMEOUT_MS,
+  SOURCE_CALL_TIMEOUT_MS,
+  pasteRowKeys,
+  type ActionResult,
+  type BulkResult,
+  type BundleView,
+  type DepositDetail,
+  type DepositLinkView,
+  type DepositOptions,
+  type DepositOutcome,
+  type DepositView,
+  type IngestSummary,
+  type PastePreview,
+  type PasteSummary,
+  type SourceView,
+} from './deposit/service.ts'
+export {
+  SOURCE_MESSAGES,
+  SourceError,
+  fetchPopbill,
+  mapPopbillRow,
+  popbillHttpTransport,
+  readPopbillKeys,
+  POPBILL_PER_PAGE,
+  POPBILL_MAX_PAGES,
+  type FetchedRow,
+  type PopbillKeys,
+  type PopbillTransport,
+  type SourceErrorKind,
+} from './deposit/popbill.ts'
+export { FakePopbillTransport, FAKE_POPBILL_MGT_URL, type FakePopbillAccount, type FakePopbillRow } from './deposit/popbill-fake.ts'
+export { openAccount, sealAccount, type AccountSecret } from './deposit/account-seal.ts'
+export { DEPOSIT_STATUSES, type DepositStatus, type SourceKind } from './deposit/store.ts'
+export { DEPOSIT_REQUEST_PREFIX } from './api.ts'

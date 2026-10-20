@@ -30,6 +30,10 @@ export type LogCode =
   | 'LOGIN_PRUNE_FAILED'
   | 'DRAFT_SKIPPED'
   | 'PRINT_NOTIFY_FAILED'
+  | 'DEPOSIT_FETCH_FAILED'
+  | 'DEPOSIT_SAVE_FAILED'
+  | 'DEPOSIT_APPLY_FAILED'
+  | 'DEPOSIT_NOTIFY_FAILED'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -45,6 +49,10 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   LOGIN_PRUNE_FAILED: '로그인 시도 기록을 정리하지 못했어요(로그인은 계속함)',
   DRAFT_SKIPPED: '서버가 덧붙이는 입력(차단 이어받기)이 입력 검사를 통과하지 못해 기록하지 않았어요',
   PRINT_NOTIFY_FAILED: '출력 기록 알림을 보내지 못했어요(기록은 저장됨)',
+  DEPOSIT_FETCH_FAILED: '입금 원천에서 받아 오지 못했어요(다음 주기에 다시 함)',
+  DEPOSIT_SAVE_FAILED: '받은 입금을 저장하지 못했어요(다음 주기에 다시 함)',
+  DEPOSIT_APPLY_FAILED: '입금 자동 확인을 적지 못해 확인 필요로 남겼어요',
+  DEPOSIT_NOTIFY_FAILED: '입금 확인 알림을 보내지 못했어요(기록은 저장됨)',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */

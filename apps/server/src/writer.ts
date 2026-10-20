@@ -32,8 +32,8 @@ import {
 } from './store.ts'
 import type { Clock } from './time.ts'
 
-/** 누가 보낸 입력인지 (DAT-05) */
-export type Actor = { readonly kind: 'account'; readonly accountId: string } | { readonly kind: 'server' } | { readonly kind: 'collector' }
+/** 누가 보낸 입력인지 (DAT-05). deposit = 입금 자동 확인 (N3 DP-6 — 이력의 "누가"에 "입금 자동 확인") */
+export type Actor = { readonly kind: 'account'; readonly accountId: string } | { readonly kind: 'server' } | { readonly kind: 'collector' } | { readonly kind: 'deposit' }
 
 /** 기록하지 않고 돌려보내는 이유 (4xx) */
 export interface Rejection {
