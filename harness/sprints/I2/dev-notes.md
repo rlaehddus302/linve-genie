@@ -7,24 +7,28 @@
 | 파일 | 내용 | 수용 기준 |
 |---|---|---|
 | `src/product-import.ts` | R-18 해석 순수 함수 `parseProductList(text, { unit, maxNumber, existing })`·`.xlsx` 행 입구 `parseProductRows(rows, settings)`·등록 직전 다시 검사 `recheckRows`·`isNormalizedName`·`splitImportLines`·`splitCells`. `@livejjim/core`만 import(정규화·금액·휴대폰 번호 = `normalizeText`·`parseAmount`·`containsPhoneRun`) | AC-I2-50 |
-| `src/import-files.ts` | `.csv`·`.txt` → 글(UTF-8, BOM 제거, 올바르지 않으면 EUC-KR), `.xlsx` → 첫 시트 행(수 = `String(n)`, 수식 = 저장된 계산 값, 날짜 = `YYYY-MM-DD`(UTC 칸), 빈 칸 = `''`, 줄 번호 = 행 번호) | AC-I2-51 |
+| `src/import-files.ts` | `.csv`·`.txt` → 글(UTF-8, BOM 제거, 올바르지 않으면 EUC-KR), `.xlsx` → 첫 시트 행(수 = `String(n)`, 수식 = 저장된 계산 값, 날짜 = `YYYY-MM-DD`(UTC 칸), 빈 칸 = `''`, 줄 번호 = 행 번호). `.xlsx`는 zip 목록을 직접 읽어 상한 안에서만 연다(`scanXlsxZip`·`readXlsxRowsBounded` — 아래 "수정 라운드 1") | AC-I2-51 |
 | `src/shop.ts` | 가게 설정 검사·읽기·쓰기(`sellers.name` + `sellers.shop` JSON), 문서 패키지 모양 `documentShop` | AC-I2-01 |
 | `src/files.ts` | 문서 글꼴(Pretendard, 한 번 읽음), 파일 이름 `<이름>` 다듬기 `fileNamePart`, `Content-Disposition`(UTF-8 `filename*` + ASCII 대체), 파일 응답 | AC-I2-10·81 |
 | `src/packing.ts` | 포장 기록 재생·상태 말·묶음 보기(`packingEntry`·`packingEntries`·`packingStatusByBuyer`)·명령 판단(`decidePacking`)·송장번호(`readInvoice`)·포장 라벨 데이터(L-9)·렌더 | AC-I2-30~34 |
 | `src/past.ts` | 지난 구매(표지 = 채널 ID·전화번호 키, 한 번만 따라감, 20개씩) | AC-I2-40 |
-| `src/backup.ts` | 백업 파일 만들기·검사·재생, 폴더 저장소(`FolderBackupStorage`), 매일 자동 백업(`BackupScheduler`), 복구·가져오기(`restoreSeller`), 발송함 실행 대상 수(`executableOutboxCount`) | AC-I2-60~64 |
+| `src/backup.ts` | 백업 파일 만들기(`createBackupBytes` — 조각 글을 gzip 스트림에)·검사(`checkBackupBytes` — 조각으로 읽기)·재생, 폴더 저장소(`FolderBackupStorage`), 매일 자동 백업(`BackupScheduler`), 복구·가져오기(`restoreSeller`), 복구가 다루는 표 목록(`RESTORE_*_TABLES`), 발송함 실행 대상 수(`executableOutboxCount`) | AC-I2-60~64 |
+| `src/json-stream.ts` | JSON 끌어오기 읽개(조각 글에서 키·값 하나씩 — 값 하나 길이 상한) | AC-I2-62 |
+| `src/work-pool.ts`·`src/work-worker.ts` | 무거운 파일 작업의 워커 스레드 풀(확인서 그림·PDF·전원 PDF·판매대장 엑셀·`.xlsx` 읽기) | AC-I2-10·11·20·51 |
 | `src/closing.ts` | `ClosingService` — 위를 엮는 서비스(가게 설정·확인서·판매대장·포장·라벨·지난 구매·가져오기·백업 상태·전체 내려받기) | 전부 |
-| `src/api.ts` | 새 경로(아래 표), 날짜 보기에 `packing` 칸, 가져오기 미리 보기만 본문 3MB | 전부 |
+| `src/api.ts` | 새 경로(아래 표), 날짜 보기에 `packing` 칸, 가져오기(미리 보기·등록) 본문 3MB | 전부 |
 | `src/hub.ts` | seq 없는 이름 붙은 알림 `publishNamed(seller, 'packing' \| 'shop' \| 'generator', data)` | AC-I2-13·32 |
 | `src/writer.ts` | `withScope`(범위 줄 안 덧붙이기 기록 — 포장 명령), `forgetSeller`(복구 뒤 캐시 비우기) | AC-I2-31·62 |
 | `src/commands/restore.ts`·`restore-args.ts` | 복구·가져오기 명령 | AC-I2-62 |
 | `src/e2e.ts`·`commands/e2e-server.ts` | 백업 폴더·시작 백업·`?at=` | AC-I2-15·65 |
 | `test/i2-*.test.ts`·`test/i2-support.ts`·`test/product-import.test.ts` | 서버 시험(PGlite·가짜 시계·임시 폴더): 가게 설정·확인서(G-ENG-201·202를 서버 쓰기 경로로)·전원 PDF·금액 불일치(코어 getSettlement 가짜)·판매대장·포장 흐름 1~7·명령·실시간·라벨·지난 구매·가져오기(EUC-KR·BOM·.xlsx 픽스처는 시험이 만든다)·백업 형식·자동 백업·보관·복구(손상 파일 10종·중간 실패·바꾸기)·리허설·전체 내려받기·격리·로그·복구 명령(자식 프로세스)·E2E 기동. 성능 기준(전원 PDF 30초·대장 31일 20초·지난 구매 2초·가져오기 1초/2초·백업 60초)도 여기서 잰다 | 전부 |
-| `drizzle/0003_i2_shop_packing_restore.sql` | `sellers.shop`, `packing_records`, `outbox.restored`, `broadcasts` 기본 키 (판매자, 방송) | — |
+| `drizzle/0003_i2_shop_packing_restore.sql` | `sellers.shop`, `packing_records`, `outbox.restored` (더하기만 — 기존 표의 키·제약은 그대로, RA-I2-002) | — |
 | 의존성 | `apps/server`: `@livejjim/documents`·`@livejjim/label`(workspace), `exceljs` 4.4.0(문서 패키지와 같은 판) | — |
 | `.env.example` | `LIVEJJIM_BACKUP_DIR` | AC-I2-61 |
 
 ## API (web·tester에게 — 모두 세션 필요(401), `Cache-Control: no-store`, 다른 판매자의 자원은 404)
+
+파일을 만드는 경로(확인서 PDF·PNG, 전원 PDF, 판매대장, 전체 판매대장·전체 기록, `.xlsx` 미리 보기)는 작업이 밀리면 429 `BUSY` "지금 다른 파일을 만들고 있어요. 잠시 뒤 다시 눌러 주세요.", 워커가 끝내지 못하면 500 `FILE_FAILED` "파일을 만들지 못했어요. 잠시 뒤 다시 눌러 주세요."(RA-I2-003 — "수정 라운드 1").
 
 `?rehearsal=true`는 날짜 경로의 리허설 범위(적지 않으면 실제 범위). 구매자 ID는 검색값 `buyer`(합쳐진 구매자 ID면 지금의 구매자로 푼다 — 포장 명령만 예외). 휴대폰 번호 모양의 구매자 값은 400(D-079 ⑥ 문장).
 
@@ -43,8 +47,8 @@
 | `GET /api/days/:date/packing-label.png?buyer=&page=k` | k = 1부터 | 1비트 PNG(50×30 → 384×240점), 이름 `포장라벨-YYYY-MM-DD-<이름>-<k>of<n>.png` | 400 쪽 번호 |
 | `GET /api/days/:date/packing-label.pdf?buyer=` | — | 라벨 크기 PDF(모든 쪽), 이름 `포장라벨-YYYY-MM-DD-<이름>.pdf` | — |
 | `GET /api/days/:date/past?buyer=&before=YYYY-MM-DD` | 실제 범위만, `before` = 다음 쪽 | `{ date, buyer, items: PastItem[], more, next }` | 404(다른 판매자·리허설·모르는 구매자) |
-| `POST /api/broadcasts/:id/import/preview` | `{ text }` 또는 `{ file: { name, data(base64) } }` 하나 — 본문 상한 3MB | `{ broadcast, unit, maxNumber, error: 'EMPTY'\|'TOO_MANY'\|null, header, headerCells, rows: [{ line, no, name, price, text } \| { line, error, text }], register, problems }` | 409 `BROADCAST_ENDED` "끝난 방송에는 상품 목록을 가져올 수 없어요.", 413 `FILE_TOO_LARGE` "파일이 너무 커요(2MB까지).", 400 `FILE_TYPE` "엑셀(.xlsx)이나 CSV 파일을 골라 주세요.", 400 `FILE_UNREADABLE` "파일을 읽지 못했어요. 엑셀에서 다시 저장해 주세요.", 413(글 200,000글자 초과), 404 |
-| `POST /api/broadcasts/:id/import` | `{ requestId, rows: [{ no, name, price }] }` 1~500개(미리 보기의 등록할 줄 그대로 — 품종은 정규화한 글) | `{ registered, seq }` (같은 요청 번호 = 처음 결과) | 409 `IMPORT_CHANGED` "그 사이에 바뀐 것이 있어요. 다시 확인해 주세요."(`problems[].field = rows.<i>`), 409 `BROADCAST_ENDED`, 400 형식, 404 |
+| `POST /api/broadcasts/:id/import/preview` | `{ text }` 또는 `{ file: { name, data(base64) } }` 하나 — 본문 상한 3MB | `{ broadcast, unit, maxNumber, error: 'EMPTY'\|'TOO_MANY'\|null, header, headerCells, rows: [{ line, no, name, price, text } \| { line, error, text }], register, problems }` | 409 `BROADCAST_ENDED` "끝난 방송에는 상품 목록을 가져올 수 없어요.", 413 `FILE_TOO_LARGE` "파일이 너무 커요(2MB까지).", 413 `FILE_TOO_LARGE` "파일 안의 내용이 너무 많아요. 번호·품종·가격 세 칸만 새 파일에 옮겨 다시 골라 주세요."(`.xlsx` 칸 글 200,000글자 초과·압축을 푼 크기·시트 수 상한), 400 `FILE_TYPE` "엑셀(.xlsx)이나 CSV 파일을 골라 주세요.", 400 `FILE_UNREADABLE` "파일을 읽지 못했어요. 엑셀에서 다시 저장해 주세요.", 413(글 200,000글자 초과), 429 `BUSY`, 404 |
+| `POST /api/broadcasts/:id/import` | `{ requestId, rows: [{ no, name, price }] }` 1~500개(미리 보기의 등록할 줄 그대로 — 품종은 정규화한 글) — 본문 상한 3MB(미리 보기와 같다, SA-I2-001) | `{ registered, seq }` (같은 요청 번호 = 처음 결과) | 409 `IMPORT_CHANGED` "그 사이에 바뀐 것이 있어요. 다시 확인해 주세요."(`problems[].field = rows.<i>`), 409 `BROADCAST_ENDED`, 400 형식, 404 |
 | `GET /api/backups` | — | `{ enabled, retentionDays: 30, lastSuccessAt(마지막 자동 백업, UTC ISO\|null), backups: [{ createdAt, size }] }`(최근 것부터) | — |
 | `GET /api/export/records.json.gz` | — | 백업과 같은 형식(gzip), 이름 `라이브찜-전체기록-YYYY-MM-DD.json.gz`(KST 오늘) | — |
 | `GET /api/export/ledger.xlsx` | — | 실제 범위 전체 기간 판매대장, 이름 `라이브찜-판매대장-전체-YYYY-MM-DD.xlsx` | 422 `NO_RECORDS` "아직 판매 기록이 없어요." |
@@ -68,27 +72,32 @@
 
 명령은 범위 줄(엔진 쓰기와 같은 줄) 안에서 범위 어드바이저리 락을 잡은 트랜잭션으로 검사·기록한다 — 엔진 이벤트·범위 seq·정산 금액은 바뀌지 않는다.
 
-## 백업 파일 형식 (gzip JSON 하나, `format: "livejjim-seller-backup"`, `version: 1`)
+## 백업 파일 형식 (gzip JSON 하나, `format: "livejjim-seller-backup"`, `version: 2` — RA-I2-005)
 
 ```
-{ format, version, createdAt(UTC ISO), sellerId,
+{ format, version: 2, createdAt(UTC ISO), sellerId,
   shop: { name, bank, accountNumber, accountHolder, accountNote },
   settings: { …판매 규칙 설정 덮어쓰기(점 표기) },
-  scopes: [ { date, rehearsal, seq,
-              broadcasts: [ { id, date, title, startSeq, endedAt(ISO|null), createdAt(ISO) } ],
-              events: [ { seq, type, body(엔진 이벤트 JSON 문자열), at, receivedAt(ISO), actor('account'|'server'|'collector'), accountId, requestId, failed, digest } ] } ],
+  scopes: [ { date, rehearsal,
+              events: [ { seq, type, body(엔진 이벤트 JSON 문자열), at, receivedAt(ISO), actor('account'|'server'|'collector'), accountId, requestId, failed, digest } ],
+              seq,
+              broadcasts: [ { id, date, title, startSeq, endedAt(ISO|null), createdAt(ISO) } ] } ],
   packing: [ { date, buyer, kind, items, invoice, accountId, requestId, createdAt(ISO) } ],
   digest }
 ```
-- 범위 순서 = 날짜 → 실제 먼저, 이벤트 = seq 순, 포장 = 기록 순. 범위마다 범위 행의 seq를 먼저 읽고 그 seq까지 담는다(긴 트랜잭션 없음 — 쓰기를 막지 않는다).
-- 방송 목록은 그 이벤트로 정한다(`broadcast.start`·`end`가 상태를 바꾼 것, 끝난 시각 = end 이벤트의 at) — 방송 표와 같은 규칙.
-- 이벤트 `digest` = SHA-256(JSON `[date, rehearsal, seq, type, body, failed]`) (범위 ID에 기대지 않아 다른 판매자로도 가져온다). 파일 `digest` = SHA-256(만든 시각·digest를 뺀 내용의 키 정렬 JSON) — 같은 기록이면 만든 시각 말고 같은 내용·같은 digest.
+- **칸의 차례가 정해져 있다(형식 번호 2)**: 맨 위 `format·version·createdAt·sellerId·shop·settings·scopes·packing·digest`, 범위 안 `date·rehearsal·events·seq·broadcasts`. 이벤트·방송·포장 기록 하나 안의 칸 차례는 상관없다. 차례가 다르거나 모르는 칸이 있으면 "백업 파일의 칸이 형식과 달라요." / "범위의 형식이 올바르지 않아요." — 판매자의 전체 역사를 글 하나로 만들지 않고 조각으로 쓰고 읽기 때문이다(V8 문자열 한도 약 512MB).
+- 만들기(`createBackupBytes(db, sellerId, now)`): 범위마다 범위 행의 seq를 먼저 읽고 그 seq까지의 이벤트를 2,000건씩(`BACKUP_PAGE`) 읽어 조각 글을 gzip 스트림(스레드 풀)에 이어 쓴다. 묶음 사이에 이벤트 루프에 차례를 넘긴다(긴 트랜잭션 없음 — 쓰기를 막지 않는다). 기록이 없는 범위 행(seq 0)은 넣지 않는다. 가장 긴 조각 = 이벤트 한 묶음.
+- 범위 순서 = 날짜 → 실제 먼저, 이벤트 = seq 순, 포장 = 기록 순. 방송 목록은 그 이벤트로 정한다(`broadcast.start`·`end`가 상태를 바꾼 것, 끝난 시각 = end 이벤트의 at) — 방송 표와 같은 규칙.
+- 이벤트 `digest` = SHA-256(JSON `[date, rehearsal, seq, type, body, failed]`) (범위 ID에 기대지 않아 다른 서버로도 가져온다).
+- 파일 `digest`(형식 번호 2) = 내용을 파일 차례대로 조각으로 나눠 조각마다 정규 JSON(키 정렬)+`\n`을 이어 넣은 SHA-256: `["format", …]`·`["version", 2]`·`["sellerId", …]`·`["shop", …]`·`["settings", …]`·범위마다 `["scope", date, rehearsal]`·이벤트마다 그 이벤트·`["scopeEnd", seq, broadcasts]`·포장 기록마다 `["packing", 기록]`·`["end", 범위 수, 포장 기록 수]`. 만든 시각·digest 칸은 넣지 않는다 — 같은 기록이면 만든 시각과 상관없이 같은 내용·같은 digest(`BackupDigest`, `backupDigest(file)`).
+- 읽기(`checkBackupBytes(bytes)` — 비동기): gzip을 조각으로 풀어 JSON 끌어오기 읽개(`json-stream.ts`)로 키·값 하나씩 읽는다. 이벤트는 하나씩 검사·재생한다(범위 하나의 상태만 메모리). 값 하나의 글 길이 상한 64MB. 결과의 `file`은 요약(범위마다 날짜·리허설·seq·이벤트 수·방송 목록, 포장 기록 수) — 이벤트 내용은 담지 않는다.
 - 넣지 않는다: 비밀번호 해시·로그인 아이디·세션·로그인 시도 기록·판매자 전화번호 키(암호문)·마스터 키·스냅샷·발송함. `accountId`는 서버가 만든 불투명 ID다(로그인 아이디 아님).
+- 형식 번호 1(I2 첫 구현 — 운영에 나간 적 없음)은 읽지 않는다: "이 서버가 읽을 수 없는 형식 번호예요(2만 읽어요)."
 
 ## 매일 자동 백업
 
 - 저장소 = 어댑터 `BackupStorage`. 이번에는 폴더 저장소 `LIVEJJIM_BACKUP_DIR/<판매자 ID>/<종류>-<UTC 시각>.json.gz`(종류 `daily`·`safety`). 파일 이름에 판매자 이름·구매자 정보 없음. 임시 이름에 쓰고 바꾼다.
-- **확인 주기 5분**(`BACKUP_CHECK_INTERVAL_MS`), 켤 때 한 번 바로. 판매자마다 그날(KST) 04:00이 지났고 그날 04:00 뒤의 `daily`가 없으면 하나 만든다(기록 없는 판매자도). 확인마다 보관 정리: 만든 지 30×24시간이 지난 파일을 지우되 판매자마다 가장 최근 파일 하나는 남긴다(종류와 상관없이).
+- **확인 주기 5분**(`BACKUP_CHECK_INTERVAL_MS`), 켠 뒤 첫 확인은 3분 뒤(`BACKUP_START_DELAY_MS` — 판매 중에 다시 켜도 켜자마자 모든 판매자 백업을 몰아 만들지 않는다, RA-I2-003). 판매자마다 그날(KST) 04:00이 지났고 그날 04:00 뒤의 `daily`가 없으면 하나 만든다(기록 없는 판매자도). 확인마다 보관 정리: 만든 지 30×24시간이 지난 파일을 지우되 판매자마다 가장 최근 파일 하나는 남긴다(종류와 상관없이).
 - 한 판매자가 실패해도 다음 판매자로 간다 — 경보 `BACKUP_FAILED`(판매자 ID·오류 종류만), 다음 확인 때 다시. 저장소가 없으면 시작 경보 `BACKUP_DISABLED` "백업 저장소가 정해지지 않아 자동 백업이 꺼져 있어요."(판매는 그대로, `GET /api/backups` → `enabled: false`).
 - 시험은 `server.backups.check()`를 가짜 시계로 직접 부른다(`createServer({ backupStorage, clock })`).
 
@@ -99,8 +108,10 @@ LIVEJJIM_PGLITE_DIR=… (또는 DATABASE_URL=…) LIVEJJIM_BACKUP_DIR=… \
   pnpm --filter @livejjim/server restore --seller <판매자 ID> --file <파일.json.gz> [--replace]
 ```
 - 검사(하나라도 어긋나면 아무것도 바꾸지 않음, 종료 코드 1): 형식 이름·번호, gzip·JSON, 파일 요약값, 이벤트마다 요약값, 범위마다 seq 1부터 빈틈없음·범위 seq = 마지막 seq, (날짜, 리허설) 겹침, 범위마다 처음부터 재생(실패 표시는 건너뜀 — 본문과 칸(type·seq·at) 일치, 입력 오류·형식 오류 없음, 불변식), 방송 목록 = 이벤트로 정한 것, 판매 규칙 설정 `checkSettings`(MANUAL 거절), 포장 기록 형식·차례·요청 번호 중복·날짜가 실제 범위.
-- 기록이 없는 판매자면 가져온다. 기록이 있으면 `--replace`가 있을 때만: 먼저 지금 기록의 안전 백업(`safety-…`)을 백업 저장소에 쓰고(저장소가 없거나 실패하면 멈춤) 한 트랜잭션에 그 판매자의 범위·방송·이벤트·스냅샷·발송함·포장 기록·가게 설정(이름 포함)·판매 규칙 설정을 바꾼다. 트랜잭션 안에서 그 판매자의 범위 락을 모두 잡는다.
-- 재생으로 스냅샷(범위마다 마지막 seq 하나)·발송함을 다시 만들고 발송함은 모두 `restored = true`(실행하지 않음). 실행기(I1·Y1)의 실행 대상 조회는 `rehearsal = false AND restored = false`여야 한다 — `executableOutboxCount`가 그 조건이다(합칠 때 오케스트레이터가 지키게 한다, D-I2-11).
+- 파일의 방송 ID가 **그 서버의 다른 판매자** 방송 ID와 같으면 아무것도 바꾸지 않고 거절(종료 코드 1): "이 서버의 다른 판매자에게 같은 방송 기록이 있어 가져올 수 없어요. 아무것도 바꾸지 않았어요." — 방송 기본 키는 서버 전체에서 유일하다(RA-I2-002). 같은 서버에서 다른 판매자로 옮기는 일은 없고, 다른 서버(I3 이관 등)나 기록을 잃은 같은 판매자에게 가져온다.
+- 기록이 없는 판매자면 가져온다. 기록이 있으면 `--replace`가 있을 때만: 먼저 지금 기록의 안전 백업(`safety-…`)을 백업 저장소에 쓰고(저장소가 없거나 실패하면 멈춤) 한 트랜잭션에 그 판매자의 범위·방송·이벤트·스냅샷·발송함·포장 기록·가게 설정(이름 포함)·판매 규칙 설정을 바꾼다. 트랜잭션 안에서 그 판매자의 범위 락을 모두 잡는다. 지우는 표는 `RESTORE_REPLACED_TABLES`(지우는 순서), 그대로 두는 표는 `RESTORE_KEPT_TABLES`(판매자 행·계정·세션) — 아래 "합칠 때".
+- 파일은 두 번 읽는다(둘 다 조각으로): 처음은 검사만, 두 번째는 트랜잭션 안에서 검사하며 넣는다(이벤트·발송함 500건씩).
+- 재생으로 스냅샷(범위마다 마지막 seq 하나)·발송함을 다시 만들고 발송함은 모두 `restored = true`(실행하지 않음). 실행기(I1·Y1)의 실행 대상 조회는 `executableOutbox`(db/schema.ts — `rehearsal = false AND restored = false`) 조건을 건다. `test/i2-restore-contract.test.ts`가 `apps/server/src`에서 `outbox.rehearsal` 조건을 거는 파일이 `restored`(또는 `executableOutbox`)도 거는지 훑는다 — 합친 뒤 걸리면 그 질의에 조건을 더한다(D-I2-11, RA-I2-001).
 - 이벤트의 계정이 그 서버의 그 판매자 계정에 없으면 계정 없이(`accountId = null` → 조치 기록의 `actor = { kind: 'account', loginId: null }` — 화면은 "가져온 기록"으로 보인다). 판매자 ID·계정·세션·전화번호 키는 그대로.
 - 끝나면 그 판매자에 재생 무결성 검사를 돌려 출력한다(모두 일치해야 0). **서버가 켜져 있으면 다시 켠다**(메모리의 범위 상태 — 같은 프로세스 안 시험은 `server.writer.forgetSeller(sellerId)`).
 - 출력: 쉬운 문장·판매자 ID·날짜·seq·개수·안전 백업 파일 이름뿐(기록 내용·개인정보 없음). 인자·설정 오류는 2.
@@ -166,8 +177,62 @@ LIVEJJIM_PGLITE_DIR=… (또는 DATABASE_URL=…) LIVEJJIM_BACKUP_DIR=… \
 8. **지난 구매 후보 거르기**: 표지마다 DB에서 먼저 후보 날짜를 고른다(채팅 본문 `"ch":"<채널>"`·문자찜 본문 `"phoneKey":"<키>"`를 `strpos`로 — 판매자 ID 조건·실제 범위·보고 있는 날짜 밖). 그다음 그 날짜 범위 상태(코어 조회)로 확인한다: 채널 → 그날의 유튜브 구매자, 전화번호 키 → 그날 그 키의 문자찜이 **만든** 문자 구매자(`sms:<그 ref>`가 그날 구매자로 있을 때만 — 지정 구매자로 간 문자찜은 만든 구매자가 아니다). 같은 날 여러 묶음은 이름 → ID 순.
 9. **백업 주기·보관 정리 대상**: 보관 정리는 종류(`daily`·`safety`)와 상관없이 같은 규칙. "마지막 자동 백업" = 가장 최근 `daily`.
 10. **복구 스냅샷**: 범위마다 마지막 seq 하나만 쓴다(재생 검사가 그 스냅샷을 재생 상태와 대조한다).
-11. **방송 표 기본 키를 (판매자, 방송)으로**: 같은 서버의 빈 판매자로 가져오기(AC-I2-64)에서 원래 판매자의 방송 ID와 부딪쳤다. 방송 조회는 처음부터 판매자 ID를 함께 건다.
+11. ~~방송 표 기본 키를 (판매자, 방송)으로~~ → **되돌림(RA-I2-002)**: 다른 트랙이 `broadcasts(id)`를 외래 키로 참조한다(합친 뒤 마이그레이션이 깨진다). 기본 키는 전역 `(id)` 그대로이고, 같은 서버의 다른 판매자와 방송 ID가 겹치는 가져오기는 복구 명령이 먼저 거절한다. 빈 판매자로 가져오기 시험(AC-I2-64)은 원래 판매자가 없는 다른 서버(다른 DB)로 한다 — 같은 서버로 가져오기는 거절 시험이 따로 있다.
 12. **E2E `?at=`**: 위 "E2E 서버 설정". 고정 시계 E2E 묶음을 따로 두는 것보다 화면 동작을 건드리지 않고 같은 데이터를 결정적으로 얻는다.
+
+## 수정 라운드 1 (dev-server — SA-I2-001, RA-I2-001~005)
+
+### SA-I2-001 (TD-I2-001) 가져오기 등록 본문 상한
+- `POST /api/broadcasts/:id/import`도 미리 보기와 같은 3MB(`IMPORT_BODY_LIMIT_BYTES`). 다른 쓰기 경로는 64KB 그대로.
+- `.xlsx`도 붙여 넣은 글과 같은 200,000글자 상한(행을 탭 글로 이은 길이)을 둔다 — 넘으면 413 `FILE_TOO_LARGE` "파일 안의 내용이 너무 많아요. 번호·품종·가격 세 칸만 새 파일에 옮겨 다시 골라 주세요." 그래서 미리 보기가 "n개 등록하기"를 보인 목록의 등록 본문은 늘 상한 안이다(글자마다 JSON 6바이트로 잡아도 약 1.3MB).
+
+### RA-I2-002 broadcasts 기본 키
+- 마이그레이션 0003은 칸·표를 더하기만 한다(기존 표의 키·제약을 바꾸지 않는다 — `i2-restore-contract.test.ts`가 파일을 훑어 확인, `broadcasts(id)` 참조 표를 만들어 본다).
+- **합칠 때(오케스트레이터)**: 마이그레이션 번호 0003은 main의 `0003_i1_print.sql` 등과 겹친다 — 이 파일은 다른 트랙 마이그레이션과 순서가 상관없으니 다음 번호로 다시 매기고 저널을 고친다.
+
+### RA-I2-001 복구가 다루는 표·발송함 실행 조건 (합칠 때 계약)
+- `backup.ts`: `RESTORE_REPLACED_TABLES`(지우고 파일로 다시 만드는 표 — 지우는 순서) = packing_records·outbox·snapshots·events·broadcasts·scopes, `RESTORE_KEPT_TABLES` = sellers·accounts·sessions, `RESTORE_UNRELATED_TABLES` = login_limits.
+- `test/i2-restore-contract.test.ts`: 마이그레이션을 적용한 실제 DB의 표가 모두 셋 중 하나에만 있는지, 판매자 ID 칸이 있는 표가 앞의 둘 중 하나인지, 바꾸는 표를 참조하는 외래 키가 모두 바꾸는 표에서 오고 지우는 순서가 맞는지 확인한다.
+- **합칠 때 이 시험이 실패하면**: main(I1)의 `print_labels`·`print_jobs`(scopes 참조)·`print_attempts`(print_jobs 참조)는 복구가 범위를 지울 때 함께 지워야 하는 표다 → `RESTORE_REPLACED_TABLES` 앞쪽(참조하는 표 먼저: print_attempts → print_jobs → print_labels → … → scopes)에 둔다. `print_queues`·`label_templates`(판매자 설정)는 `RESTORE_KEPT_TABLES`. `print_requests`·N2 `live_links`(broadcasts 참조)·N3 `deposit_links`·`deposit_actions`도 같은 기준(범위·방송·이벤트를 참조하면 바꾸는 표, 판매자 설정이면 그대로 두는 표). 백업 파일에 없는 표를 바꾸는 표에 두면 복구 뒤 그 기록이 비는 것을 받아들이는 결정이다 — 남겨야 하면 백업 형식에 더해야 한다.
+- 발송함 실행 조건 `executableOutbox`(db/schema.ts). 같은 시험이 `apps/server/src`에서 `outbox.rehearsal` 조건을 거는 파일이 `outbox.restored`나 `executableOutbox`도 거는지 확인한다. **합칠 때 걸릴 곳**: main `print-store.ts`의 `autoLabelEffects`(`eq(outbox.rehearsal, false)`), I3 `youtube/outbox-store.ts`의 `REAL` — `executableOutbox`를 더한다.
+
+### RA-I2-005 백업 형식 번호 2
+- 위 "백업 파일 형식". API: `createBackupBytes(db, sellerId, now)`(바이트), `backupPieces`(조각 글 — 시험용), `checkBackupBytes(bytes)`(비동기, 요약), `backupDigest(file)`(메모리 객체의 요약값 — 시험이 고친 파일을 다시 요약할 때). `buildBackup`·`encodeBackup`은 없앴다.
+- 복구도 조각으로 두 번 읽는다(검사 → 트랜잭션 안에서 넣기).
+
+### RA-I2-003 무거운 파일 작업은 워커 스레드로
+- `work-pool.ts`: 풀 셋(프로세스에 하나 — `sharedWorkPools()`, 서버 옵션 `work`로 바꿀 수 있다).
+  | 풀 | 일 | 워커 | 시간 상한 | 힙 상한 | 판매자마다 동시 | 줄 |
+  |---|---|---|---|---|---|---|
+  | `receipts` | 확인서 한 장 그림·PDF | 1 | 30초 | 512MB | 8 | 64 |
+  | `documents` | 전원 확인서 PDF·판매대장 엑셀(기간·전체) | min(2, CPU-1) | 300초 | 2048MB | 2 | 16 |
+  | `sheets` | 상품 목록 `.xlsx` 읽기 | 1 | 15초 | 512MB | 2 | 8 |
+- 서버 스레드에 남는 일: 확인서 데이터(`buildReceipt(s)` — 찍힌 이름 순은 그대로), 대장 행(날짜마다 범위 하나로 `buildLedger` — 날짜 순으로 이으면 여러 범위를 한 번에 넘긴 결과와 같다; 날짜마다 조각으로 워커에 보낸다). 그리기·엑셀 쓰기·`.xlsx` 풀기는 워커(`work-worker.ts` — 문서 패키지 함수 그대로라 바이트가 같다, AC-I2-15).
+- 판매자마다 동시 작업 상한·줄 상한을 넘으면 **429 `BUSY` "지금 다른 파일을 만들고 있어요. 잠시 뒤 다시 눌러 주세요."**. 워커가 시간·메모리 상한에 걸리면 그 워커만 끝나고 **500 `FILE_FAILED` "파일을 만들지 못했어요. 잠시 뒤 다시 눌러 주세요."**(경보 `DOCUMENT_WORK_FAILED` — 판매자 ID·까닭 종류·날짜만). `.xlsx` 읽기 워커가 상한에 걸리면 "파일을 읽지 못했어요…". 요청이 끊기면(브라우저가 미리 보기 요청을 버리면) 아직 시작하지 않은 작업은 줄에서 뺀다.
+- 전체 기록(JSON)은 판매자마다 한 번에 하나(겹치면 429 `BUSY`). 서버 스레드에서 만들지만 이벤트 2,000건마다 차례를 넘기고 gzip은 스레드 풀이다.
+- 운영 서버·E2E 서버는 켤 때 `receipts` 워커 하나를 미리 띄운다(`work.receipts.warm()`). 쉬는 워커는 2분 뒤 끝난다.
+- 웹(dev-web)에게: 새 오류 코드 `BUSY`(429)·`FILE_FAILED`(500)는 서버 문장을 그대로 보이면 된다(화면 변경 없음).
+- 남은 것: 상품 목록 등록 500줄은 R-18 11("한 요청, 한 트랜잭션")이라 그 범위 줄에서 한 번에 기록한다(다른 판매자·다른 날짜 범위는 막지 않는다).
+
+### RA-I2-004 `.xlsx` 상한
+- `scanXlsxZip`: zip 끝 디렉터리·중앙 디렉터리·로컬 머리를 직접 읽고 항목마다 `inflateRawSync(maxOutputLength)`로 풀어 본다 — 선언된 크기를 믿지 않는다. 압축을 푼 크기 합 16MB·항목 2,000개·시트 64개(`XLSX_LIMITS`)를 넘으면 413(위 문장), 암호·zip64·모르는 압축·잘린 파일은 "파일을 읽지 못했어요…".
+- `readXlsxRowsBounded`: 칸은 32칸까지만 글로 만들고, 그 뒤에 글이 있으면 그중 하나만 붙인다(R-18 2 — 넷째 칸부터 빈 칸을 지우고 칸 수를 보므로 결과가 같다 — 미리 보기의 그 줄 글은 짧아진다). 빈칸이 아닌 행 502개(머리글 1 + 상품 줄 501)를 읽으면 더 읽지 않는다(TOO_MANY가 확실).
+- 이 읽기는 `sheets` 워커(15초·512MB)에서 돈다 — 상한을 빠져나간 파일도 서버 스레드를 멈추거나 죽이지 못한다.
+
+### 바꾼 기존 시험 (교체 — 약화 아님)
+| 시험 | 전 | 후 | 이유 |
+|---|---|---|---|
+| `i2-backup.test.ts` 빈 판매자로 가져오기·기록 있는 판매자 바꾸기·중간 실패·AC-I2-64 가져오기 | 같은 서버의 다른 판매자 | 원래 판매자가 없는 다른 서버(같은 시각 가짜 시계)의 판매자 — 단언은 그대로 | RA-I2-002: 같은 서버의 다른 판매자로 가져오기는 이제 거절(새 시험 "같은 서버의 다른 판매자로 가져오기"가 거절·아무것도 안 바뀜·안전 백업 안 씀을 단언) |
+| `i2-backup.test.ts` 손상 파일 "형식 번호" | `version = 2` | `version = 1` (지금 형식이 2) | RA-I2-005 형식 번호 2 — 읽을 수 없는 번호라는 뜻은 같다. 칸 차례·모르는 칸·잘린 gzip·뒤에 남은 글 사례를 더했다 |
+| `i2-backup.test.ts` 형식 단언 | `version: 1`, `buildBackup` 객체 | `version: 2`, `createBackupBytes` 바이트를 푼 객체(같은 칸·같은 차례) | 서버가 실제로 쓰는 길을 시험 |
+| `i2-isolation.test.ts` 복구 명령 | 원래 판매자·대상 판매자가 같은 DB | 원래 판매자는 다른 DB, 대상 DB에 판매자 둘 — 같은 단언 + 둘째 판매자로 같은 파일 → 방송 겹침 거절(종료 코드 1) | RA-I2-002 |
+
+### 새 시험
+- `i2-import.test.ts`: SA-I2-001 200,000글자에 가까운 500줄(이모지 품종) 등록·`.xlsx` 200,000글자 상한, RA-I2-004 압축 폭탄·큰 시트·시트 수·잘린 zip·넓은 행(XFD)·1만 행.
+- `i2-restore-contract.test.ts`: RA-I2-001·002 계약(위).
+- `i2-json-stream.test.ts`: 조각을 어디서 잘라도 같은 값(속성 시험), 잘못된 JSON·상한.
+- `i2-backup.test.ts` "RA-I2-005": 범위 둘(이벤트 약 2만 건) — 가장 긴 조각 = 한 묶음, 검사 중 `JSON.parse` 입력은 64KB 밑, 만드는 동안 이벤트 루프 멈춤이 짧다, 다른 서버로 복구·재생 검사 통과.
+- `i2-work.test.ts`: 작업 풀(다른 스레드·조각·시간 상한·메모리 상한·오류·판매자마다 동시 작업·줄·끊김 — `test/work-test-worker.ts`), 구매자 100명 전원 PDF·대장을 연달아 만드는 동안 이벤트 루프 멈춤 < max(250ms, 서버 스레드에서 그릴 때의 절반) (재 보니 멈춤 약 110ms · 서버 스레드에서 그리면 약 930ms).
 
 ## 스펙과 다른 점 (disputesWithSpec)
 
