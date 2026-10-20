@@ -70,13 +70,40 @@ export function describeCause(cause: unknown): string | undefined {
 }
 
 export function printerError(code: PrinterErrorCode, cause?: unknown): PrinterError {
+  return printerErrorWithMessage(code, PRINTER_MESSAGES[code], cause)
+}
+
+/** 코드 + 정한 문장으로 오류를 만든다 (어댑터마다 문장이 다른 코드 — L-12 6). 끊김이면 `다시 연결` 단추가 붙는다 */
+export function printerErrorWithMessage(code: PrinterErrorCode, message: string, cause?: unknown): PrinterError {
   const detail = describeCause(cause)
   return {
     code,
-    message: PRINTER_MESSAGES[code],
+    message,
     ...(code === 'DISCONNECTED' ? { action: RECONNECT_ACTION } : {}),
     ...(detail === undefined ? {} : { detail }),
   }
+}
+
+/** Marklife·바우아토 어댑터가 쓰는 코드 — PORT_BUSY(USB)는 쓰지 않는다 (L-12 6) */
+export type MarklifeErrorCode = Exclude<PrinterErrorCode, 'PORT_BUSY'>
+
+/**
+ * Marklife·바우아토 어댑터의 문장 (L-12 6 — 글자 그대로). NIIMBOT·B1을 말하지 않는다. 문장이 다른 것은 NOT_SELECTED·WRONG_MODEL·
+ * INVALID_DENSITY이고 나머지는 L-7 표 그대로다. UNSUPPORTED는 까닭에 따라 다르므로 unsupportedMessage(까닭, 앱)로 만든다
+ * (여기 값은 까닭 OTHER + Marklife 앱). B1 어댑터의 문장(PRINTER_MESSAGES)은 바꾸지 않는다.
+ */
+export const MARKLIFE_MESSAGES: Readonly<Record<MarklifeErrorCode, string>> = {
+  UNSUPPORTED: '이 브라우저에서는 프린터에 바로 연결할 수 없어요. 라벨을 그림 파일로 저장해 Marklife 앱에서 인쇄해 주세요.',
+  NOT_SELECTED: '프린터를 고르지 않았어요. 다시 연결을 누르고 목록에서 프린터를 골라 주세요.',
+  BLUETOOTH_OFF: PRINTER_MESSAGES.BLUETOOTH_OFF,
+  WRONG_MODEL: '연결할 수 없는 프린터예요. 목록에 있는 프린터를 골라 주세요.',
+  DISCONNECTED: PRINTER_MESSAGES.DISCONNECTED,
+  NOT_CONNECTED: PRINTER_MESSAGES.NOT_CONNECTED,
+  BUSY: PRINTER_MESSAGES.BUSY,
+  IMAGE_TOO_WIDE: PRINTER_MESSAGES.IMAGE_TOO_WIDE,
+  TIMEOUT: PRINTER_MESSAGES.TIMEOUT,
+  PRINT_FAILED: PRINTER_MESSAGES.PRINT_FAILED,
+  INVALID_DENSITY: '인쇄 농도는 1~3 사이의 정수로 정해 주세요.',
 }
 
 export function fail(code: PrinterErrorCode, cause?: unknown): PrinterResult {
