@@ -409,6 +409,60 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     expect(left.voice.getSnapshot().cards).toEqual([])
   })
 
+  it('미룬 문장은 온 때의 설정으로 카드가 된다 — 끈 채 말하고 기다리는 사이 자동 등록을 켜도 자동 등록하지 않는다 (TE-N3-004, AC-I4-31)', async () => {
+    const h = harness()
+    const history = pendingHistory(h)
+    await turnOn(h)
+    FakeRecognition.last.say('15번 라울 만원')
+    h.voice.setAutoConfirm(true)
+    history.resolve([])
+    await settle()
+    expect(h.voice.getSnapshot().cards.map((card) => [card.no, card.autoConfirmAt])).toEqual([[15, null]])
+    vi.advanceTimersByTime(60_000)
+    expect(h.registered).toEqual([])
+    // 켠 뒤에 말한 문장은 자동 등록 기다림
+    FakeRecognition.last.say('16번 라울 만원')
+    expect(h.voice.getSnapshot().cards[0]).toMatchObject({ no: 16, autoConfirmAt: Date.now() + 5000 })
+  })
+
+  it('켠 채 말한 미룬 문장도 기다리는 사이 자동 등록을 끄면 자동 등록하지 않는다(다시 켜도), 켠 채 그대로면 카드가 보인 때부터 정한 시간 전부를 기다린다', async () => {
+    const auto = { 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5 }
+    const h = harness({ readSettings: () => auto })
+    const history = pendingHistory(h)
+    await turnOn(h)
+    FakeRecognition.last.say('15번 라울 만원')
+    h.voice.setAutoConfirm(false)
+    h.voice.setAutoConfirm(true)
+    history.resolve([])
+    await settle()
+    expect(h.voice.getSnapshot().cards.map((card) => [card.no, card.autoConfirmAt])).toEqual([[15, null]])
+
+    const kept = harness({ readSettings: () => auto })
+    pendingHistory(kept)
+    await turnOn(kept)
+    FakeRecognition.last.say('17번 라울 만원')
+    vi.advanceTimersByTime(HISTORY_WAIT_MS)
+    expect(kept.voice.getSnapshot().cards[0]).toMatchObject({ no: 17, autoConfirmAt: Date.now() + 5000 })
+  })
+
+  it('미룬 문장은 온 때의 번호 범위로 읽는다', async () => {
+    let max = 20
+    const h = harness({ maxNumber: () => max })
+    const history = pendingHistory(h)
+    await turnOn(h)
+    FakeRecognition.last.say('25번 라울 만원')
+    max = 999
+    history.resolve([])
+    await settle()
+    const wide = harness()
+    pendingHistory(wide)
+    await turnOn(wide)
+    FakeRecognition.last.say('25번 라울 만원')
+    vi.advanceTimersByTime(HISTORY_WAIT_MS)
+    // 범위 20에서 읽은 결과는 범위 999에서 읽은 결과와 같지 않다 (온 때의 범위를 쓴다)
+    expect(h.voice.getSnapshot().cards.map((card) => card.no)).not.toEqual(wide.voice.getSnapshot().cards.map((card) => card.no))
+  })
+
   it('끈 뒤에 온 결과는 자막·기록·카드를 만들지 않는다 (stop을 부른다)', async () => {
     const h = harness()
     await turnOn(h)
