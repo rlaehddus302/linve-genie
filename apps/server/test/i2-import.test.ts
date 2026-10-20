@@ -228,6 +228,38 @@ describe('AC-I2-51 등록', () => {
     expect((view.claims as { status: string }[]).map((claim) => claim.status)).toEqual(['CONFIRMED'])
   })
 
+  it('SA-I2-001: 미리 보기가 받은 목록은 늘 등록 본문 상한 안 — 200,000글자를 거의 채운 500줄(품종 글자마다 4바이트)도 등록된다', async () => {
+    const { world, seller, b } = await setup({ settings: { 'claim.maxNumber': 999 } })
+    // 줄마다 "번호\t품종\t1000" — 품종은 이모지(UTF-8 4바이트) 385글자, 전체 글은 200,000글자 안
+    const name = '🌵'.repeat(385)
+    const text = Array.from({ length: 500 }, (_, i) => `${String(i + 1)}\t${name}\t1000`).join('\n')
+    expect([...text].length).toBeLessThanOrEqual(200_000)
+    const shown = await preview(world, seller, b, { text })
+    expect(shown.status, shown.text.slice(0, 200)).toBe(200)
+    expect([shown.body.register, shown.body.problems]).toEqual([500, 0])
+    const rows = (shown.body.rows as { no: number; name: string; price: number }[]).map(({ no, name: n, price }) => ({ no, name: n, price }))
+    const body = { requestId: rid('imp'), rows }
+    expect(Buffer.byteLength(JSON.stringify(body))).toBeGreaterThan(700_000)
+    const done = await post(world, seller, `/api/broadcasts/${b}/import`, body)
+    expect(done.status, done.text.slice(0, 200)).toBe(200)
+    expect(done.body).toMatchObject({ registered: 500 })
+    // 다른 쓰기 경로의 본문 상한(64KB)은 그대로
+    const other = await post(world, seller, `/api/broadcasts/${b}/end`, { requestId: rid('end'), pad: 'x'.repeat(70 * 1024) })
+    expect(other.status).toBe(413)
+  }, 60_000)
+
+  it('SA-I2-001: .xlsx 칸 글도 붙여 넣은 글처럼 200,000글자까지 — 넘으면 쉬운 문장(413), 안이면 미리 보기·등록이 된다', async () => {
+    const { world, seller, b } = await setup({ settings: { 'claim.maxNumber': 999 } })
+    const long = await preview(world, seller, b, fileBody('긴.xlsx', await xlsx(Array.from({ length: 500 }, (_, i) => [i + 1, '가'.repeat(400), 1000]))))
+    expect(long.status).toBe(413)
+    expect(long.body.error).toMatchObject({ code: 'FILE_TOO_LARGE', message: '파일 안의 내용이 너무 많아요. 번호·품종·가격 세 칸만 새 파일에 옮겨 다시 골라 주세요.' })
+    const fits = await preview(world, seller, b, fileBody('맞음.xlsx', await xlsx(Array.from({ length: 500 }, (_, i) => [i + 1, '가'.repeat(380), 1000]))))
+    expect(fits.status, fits.text.slice(0, 200)).toBe(200)
+    expect(fits.body.register).toBe(500)
+    const rows = (fits.body.rows as { no: number; name: string; price: number }[]).map(({ no, name, price }) => ({ no, name, price }))
+    expect((await register(world, seller, b, rows)).body).toMatchObject({ registered: 500 })
+  }, 60_000)
+
   it('성능: 500줄 미리 보기 1초 안, 등록 2초 안', async () => {
     const { world, seller, b } = await setup({ settings: { 'claim.maxNumber': 999 } })
     const text = Array.from({ length: 500 }, (_, i) => `${String(i + 1)}\t품종 ${String(i)}\t${String(1000 + i)}원`).join('\n')

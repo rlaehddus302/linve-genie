@@ -475,9 +475,12 @@ export class ClosingService {
       const decoded = decodeTextFile(bytes)
       return { ok: true, kind: 'text', text: decoded, lines: new Map(splitImportLines(decoded).map((line) => [line.line, line.text])) }
     }
-    const rows = await readXlsxRows(bytes)
-    if (rows === null) return { ok: false, error: { status: 400, code: 'FILE_UNREADABLE', message: IMPORT_FILE_MESSAGES.unreadable, problems: [{ field: 'file', message: IMPORT_FILE_MESSAGES.unreadable }] } }
-    return { ok: true, kind: 'rows', rows: rows.map((row) => ({ line: row.line, cells: [...row.cells] })) }
+    const read = await readXlsxRows(bytes)
+    if (!read.ok && read.reason === 'tooLong') {
+      return { ok: false, error: { status: 413, code: 'FILE_TOO_LARGE', message: IMPORT_FILE_MESSAGES.sheetTooLong, problems: [{ field: 'file', message: IMPORT_FILE_MESSAGES.sheetTooLong }] } }
+    }
+    if (!read.ok) return { ok: false, error: { status: 400, code: 'FILE_UNREADABLE', message: IMPORT_FILE_MESSAGES.unreadable, problems: [{ field: 'file', message: IMPORT_FILE_MESSAGES.unreadable }] } }
+    return { ok: true, kind: 'rows', rows: read.rows.map((row) => ({ line: row.line, cells: [...row.cells] })) }
   }
 
   /** 미리 보기 (기록하지 않는다): R-18 결과 + 줄마다 원래 줄 글 + 등록할 줄 수·문제 줄 수 */

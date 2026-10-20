@@ -2,6 +2,7 @@
 // - .csv·.txt: UTF-8(맨 앞 BOM 허용)로 읽고, 올바른 UTF-8이 아니면 EUC-KR(CP949 — 한국어 윈도우 엑셀이 저장한 CSV)로 읽는다.
 // - .xlsx: 첫 시트의 행마다 칸 값을 글로 — 수 = 쉼표 없는 십진수(10000·8.5), 수식 = 저장된 계산 값, 날짜 = YYYY-MM-DD, 빈 칸 = 빈 글. 줄 번호 = 행 번호.
 // - 파일 내용은 로그에 남기지 않는다(AC-I2-81). 2MB를 넘는 파일은 읽지 않는다.
+// - .xlsx 칸 글도 붙여 넣은 글과 같은 200,000글자 상한이다(행을 탭 글로 이은 길이 — SA-I2-001): 미리 보기가 받은 목록의 등록 본문이 늘 등록 본문 상한 안에 든다.
 import ExcelJS from 'exceljs'
 import type { SheetRow } from './product-import.ts'
 
@@ -13,6 +14,8 @@ export const IMPORT_FILE_MESSAGES = {
   type: '엑셀(.xlsx)이나 CSV 파일을 골라 주세요.',
   unreadable: '파일을 읽지 못했어요. 엑셀에서 다시 저장해 주세요.',
   textTooLong: '붙여 넣은 글이 너무 길어요(200,000글자까지).',
+  /** .xlsx 칸 글이 200,000글자를 넘음 (SA-I2-001) */
+  sheetTooLong: '파일 안의 내용이 너무 많아요. 번호·품종·가격 세 칸만 새 파일에 옮겨 다시 골라 주세요.',
 } as const
 
 export type ImportFileKind = 'text' | 'xlsx'
@@ -56,21 +59,50 @@ function cellText(value: unknown): string {
   return ''
 }
 
-/** .xlsx 바이트 → 첫 시트의 행 (칸이 없는 행은 빠진다 — 해석기가 빈 줄처럼 건너뛴다). 열리지 않으면 null */
-export async function readXlsxRows(bytes: Uint8Array): Promise<SheetRow[] | null> {
+/** 행들을 탭 글로 이은 길이 (코드 포인트 — 붙여 넣은 글의 200,000글자와 같은 셈: 칸 사이 탭·줄 사이 줄바꿈 포함) */
+export function sheetTextLength(rows: readonly SheetRow[]): number {
+  let length = 0
+  for (const row of rows) {
+    length += row.cells.length // 칸 사이 탭 (칸 수 - 1) + 줄바꿈 1
+    for (const cell of row.cells) {
+      length += cell.length
+      // 짝을 이룬 서로게이트는 한 글자
+      for (let i = 0; i < cell.length - 1; i++) {
+        const code = cell.charCodeAt(i)
+        if (code >= 0xd800 && code <= 0xdbff) {
+          const next = cell.charCodeAt(i + 1)
+          if (next >= 0xdc00 && next <= 0xdfff) {
+            length--
+            i++
+          }
+        }
+      }
+    }
+  }
+  return length
+}
+
+export type XlsxReadResult = { readonly ok: true; readonly rows: SheetRow[] } | { readonly ok: false; readonly reason: 'unreadable' | 'tooLong' }
+
+/**
+ * .xlsx 바이트 → 첫 시트의 행 (칸이 없는 행은 빠진다 — 해석기가 빈 줄처럼 건너뛴다).
+ * 열리지 않으면 unreadable, 행을 탭 글로 이은 길이가 200,000글자를 넘으면 tooLong
+ */
+export async function readXlsxRows(bytes: Uint8Array): Promise<XlsxReadResult> {
   const workbook = new ExcelJS.Workbook()
   try {
     await workbook.xlsx.load(Buffer.from(bytes) as unknown as ArrayBuffer)
   } catch {
-    return null
+    return { ok: false, reason: 'unreadable' }
   }
   const sheet = workbook.worksheets[0]
-  if (sheet === undefined) return []
+  if (sheet === undefined) return { ok: true, rows: [] }
   const rows: SheetRow[] = []
   sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
     const cells: string[] = []
     for (let column = 1; column <= row.cellCount; column++) cells.push(cellText(row.getCell(column).value))
     rows.push({ line: rowNumber, cells })
   })
-  return rows
+  if (sheetTextLength(rows) > IMPORT_TEXT_MAX_CHARS) return { ok: false, reason: 'tooLong' }
+  return { ok: true, rows }
 }
