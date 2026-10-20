@@ -64,7 +64,8 @@
 
 ### 구조
 
-- `apps/web/src/voice/load.ts` — `@livejjim/voice`를 부르는 **유일한 곳**(동적 `import('@livejjim/voice')`, 실패하면 다음에 다시). 다른 파일은 `import type`만(AC-I4-04 경계 시험 통과).
+- `apps/web/src/voice/load.ts` — `@livejjim/voice`를 부르는 **유일한 곳**(동적 `import('@livejjim/voice')`, 실패하면 다음에 새 주소로 다시 — 아래 "수정 라운드 1" 3). 다른 파일은 `import type`만(AC-I4-04 경계 시험 통과).
+- `apps/web/src/voice/chunk.ts` — 음성 조각 주소 자리 글자 `VOICE_CHUNK_PLACEHOLDER`(운영용 빌드가 `vite.config.ts` `voiceChunkAddress`로 채운다).
 - `apps/web/src/voice/controller.ts` — `VoiceController`(콘솔마다 하나, 떠나면 `dispose` → 인식 `stop`). 켜기·안내 창·엔진 상태·자막·들린 말 기록·카드 목록·고치기 칸·자동 확정 타이머·판매 이력 사전. 인식 문장은 이 객체 메모리에만 있다. 시각은 `host.now()`(콘솔은 `Date.now`), 기다림은 브라우저 `setTimeout` — `page.clock`으로 당길 수 있다. 시험용 갈림길·전역 훅 없음.
 - `apps/web/src/voice/storage.ts` — 그 기기 저장소 키 `livejjim.voiceConsent`(값 `yes`), `livejjim.voiceSettings`(JSON `{"voice.autoConfirm": boolean, "voice.autoConfirmSec": number}` — 읽은 값은 `resolveVoiceSettings`로). 읽기·쓰기 예외면 확인 없음(다음에도 창)·설정 기본값.
 - `apps/web/src/voice/history.ts` — 판매 이력: `GET /api/days`(실제 범위 목록) → `pickHistoryDays` → 날짜마다 `GET /api/days/:date`(실제)의 상품 이름. 음성을 켤 때 한 번(성공하면 그 콘솔에선 다시 받지 않고, 실패하면 다음에 켤 때 다시). 하나라도 실패하면 실패(404는 빈 날).
@@ -92,7 +93,9 @@
 5. **카드 "등록"을 고치기 칸이 열린 채 누르면** 그 칸의 값으로(칸의 Enter와 같다). "고치기"를 다시 누르면 칸을 닫는다.
 6. **"고치기"의 커서**: 번호 → 품종 → 가격 중 첫 빈 칸, 없으면 번호(AC-I4-23 "비어 있는 칸이 있으면 그 칸 중 처음"). 등록하려다 연 칸은 빠진 칸(번호 없음 → 번호, 가격 없음 → 가격).
 7. **같은 날짜 안의 이름 순서**: 서버가 준 상품 순서 그대로(스펙은 날짜 순서만 정했다).
-8. **음성 코드를 받지 못함**: "음성 기능을 불러오지 못했어요. 인터넷 연결을 확인하고 다시 켜 주세요." — 꺼진 그대로, 다시 누르면 다시 받는다(스펙에 없는 문장, D-205 문장과 겹치지 않게).
+8. **음성 코드를 받지 못함**: "음성 기능을 불러오지 못했어요. 인터넷 연결을 확인하고 다시 켜 주세요." — 꺼진 그대로, 다시 누르면 다시 받는다(스펙에 없는 문장, D-205 문장과 겹치지 않게). 다시 받을 때는 새 주소(`?retry=N`)로 받는다(수정 라운드 1 3).
+11. **"음성: 다시 시작 중"을 적어도 1초**(`RESTART_LABEL_MS`): 엔진은 다시 시작하자마자 같은 순간에 듣는 중을 알리므로 그대로 그리면 한 번도 보이지 않는다(AC-I4-12 "거친다"). 1초 안에 최종 결과가 오면 바로 "듣는 중", 1초 안에 또 끊기면 그때부터 다시 1초, 끄거나 오류로 멈추면 버린다.
+12. **자동 확정은 기다림이 끝난 카드를 모두 그 순간에**: `decideAutoConfirm`은 한 번에 하나를 고르므로 컨트롤러가 등록할 때마다 다시 본다(한 카드는 한 번만 넘긴다). 확정할 수 없는 카드(그 사이 번호 범위가 줄었다 등)는 칸을 열지 않고 그 카드의 자동 확정만 끈다(다시 넘기지 않는다).
 9. **자동 확정의 창 판단**: 콘솔 창·음성 안내 창·떠날지 묻는 창 모두 — 화면에 `role="dialog"`가 있으면 미루고, 미룬 동안 250ms마다·창이 닫힐 때 다시 본다.
 10. **기다리는 시간 칸**: 글 칸 + 숫자 키패드. 정수·소수 글자만 수로 읽고 나머지는 NaN — 받을지는 `checkVoiceSettings`가 정한다(값은 그대로, 문장만).
 
@@ -103,6 +106,20 @@
   - 바꾼 것: "PWA (AC-S06-50·51) … /sw.js가 그 빌드의 앱 껍데기만 저장" 시험의 "빌드의 해시가 붙은 파일이 모두 들어 있다" → "누를 때만 받는 조각은 **들어 있지 않고**(그런 조각이 하나 이상 있다), 나머지는 모두 들어 있다". 나머지 검사(적힌 파일이 모두 있음·/api 없음·버전)는 그대로.
   - 더한 것: "AC-I4-10: 첫 화면이 받는 JS(index.html이 부르는 스크립트와 그 정적 import를 꼬리까지)에 D-205 문장 '음성 인식이 자꾸 끊겨요.'·기본 사전 이름이 없고, 그 문장은 따로 받는 조각 하나에 있으며(그 조각에 `ko-KR`), index.html은 그 조각을 미리 받지 않는다".
 
+### 수정 라운드 1 (SA-I4-001~003, TD-I4-001, TE-I4-001·002)
+
+1. **TD-I4-001·SA-I4-001 기다림이 함께 끝난 둘째 카드** — `controller.ts`
+   - `#autoConfirm`: 등록할 때마다 `decideAutoConfirm`을 다시 불러 기다림이 끝난 카드를 모두 그 순간에 넘긴다(한 카드는 한 번 — `tried`). `decideAutoConfirm`의 "한 장씩" 계약은 그대로다.
+   - `#schedule`: `nextWake`(앞으로 올 시각만)에 더해 `#ripeAuto` — 기다림이 이미 끝난 열린 카드가 있으면 `decideAutoConfirm`으로 보고, 등록·"고칠까요?"할 것이 있으면 0ms, 창이 열려 미뤘으면 250ms마다. 다시 보기 전에 인식 결과 같은 다른 일로 타이머를 다시 잡아도(배경 탭에서 타이머가 늦는 경우) 끝난 카드를 놓치지 않는다. 바쁜 반복 없음: 0ms는 등록·"고칠까요?"로 반드시 바뀌는 카드가 있을 때만이고, 자동 확정의 `confirm` 실패는 늘 그 카드의 자동 확정을 끈다.
+   - `refresh(deferred)` 인자는 없앴다(창 미룸을 `#schedule`이 스스로 본다).
+   - **시험 한 곳이 스스로 어긋남(test-domain 몫)**: `tests/adversarial/i4/voice-controller-auto.test.ts` 둘째 시험 99행 `expect(registered).toHaveLength(1)`은 T0+5초(15번·16번 모두 자동 확정 시각) 순간에 하나만 등록됐다고 본다. 첫째 시험(같은 두 카드, 같은 순간에 둘 다 — AC-I4-31 "만든 시각 + 5초에 등록된다")과 함께 맞출 수 있는 구현이 없다(차이는 맨 앞 LOW 카드뿐). 고친 뒤 이 줄만 `Received 2`로 실패하고, 그 시험의 나머지(1분 뒤 [15,16])와 다른 세 시험은 통과한다. 99행을 `[15, 16]`으로 바꾸거나 지워 달라고 요청한다.
+2. **TE-I4-001·SA-I4-002 "다시 시작 중"이 그려지지 않음** — `controller.ts` `#onState`: RESTARTING을 받으면 `RESTART_LABEL_MS`(1초) 동안 그 글자를 두고, 그 사이 온 LISTENING은 그 뒤에 그린다(정한 것 11). P2 엔진 계약·E2E 가짜는 그대로다.
+3. **TE-I4-002·SA-I4-003 받지 못한 뒤 다시 켜도 받지 않음** — 크로미움은 받지 못한 모듈 주소를 모듈 지도에 실패로 남겨 같은 주소의 `import()`를 다시 받지 않는다.
+   - `vite.config.ts` `voiceChunkAddress`(운영용 빌드만): `generateBundle`에서 음성 패키지 진입 파일(`packages/voice/src/index.ts`)의 조각을 찾아, 자리 글자가 든 조각마다 그 조각에서 본 상대 주소(예 `./src-abc.js`)로 바꾼다. 음성 조각이 하나가 아니거나 자리가 없으면 빌드를 멈춘다.
+   - `load.ts`: 처음은 그대로 `import('@livejjim/voice')`, 받지 못한 뒤에는 `retryAddress(N)` = 그 조각 주소를 `import.meta.url`에서 풀고 `?retry=N`을 붙인 새 주소로 `import()`. 주소가 같은 출처의 `.js`가 아니면(개발 서버·시험 — 자리 글자 그대로) 같은 import를 다시 부른다. 다시 받은 조각의 정적 import(진입 조각)는 같은 주소라 같은 모듈이다.
+   - 서비스 워커는 음성 조각을 저장하지 않으므로(위) `?retry=N` 요청은 네트워크로 간다. 경계 시험(동적 import 한 파일)은 그대로 통과한다 — 두 번째 `import()`의 인자는 글자가 아닌 주소 값이다.
+   - 시험: `apps/web/test/voice-load.test.ts`(주소 만들기·거절), `build.node.test.ts` "TE-I4-002"(진입 조각에 음성 조각 주소가 동적 import 밖에 한 번 더 있고 자리 글자가 어디에도 없다).
+
 ### 단위 시험
 
-- `apps/web/test/voice.test.ts`(순수 함수 23), `voice-controller.test.ts`(컨트롤러 28 — 실제 음성 모듈 + 가짜 인식 객체 + 가짜 시계), `console-voice.test.tsx`(콘솔 17 — 실제 코어 가짜 서버 + 가짜 인식 객체). 모두 `TZ=Pacific/Honolulu`에서 돈다.
+- `apps/web/test/voice.test.ts`(순수 함수 23), `voice-controller.test.ts`(컨트롤러 34 — 실제 음성 모듈 + 가짜 인식 객체 + 가짜 시계; 수정 라운드 1에서 다시 시작 중 2·자동 확정 4 더함), `voice-load.test.ts`(다시 받을 주소 3), `console-voice.test.tsx`(콘솔 17 — 실제 코어 가짜 서버 + 가짜 인식 객체). 모두 `TZ=Pacific/Honolulu`에서 돈다.
