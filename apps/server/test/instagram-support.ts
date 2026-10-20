@@ -4,7 +4,7 @@ import { expect } from 'vitest'
 import type { InstagramLogin, InstagramTimeouts } from '../src/instagram/config.ts'
 import { FakeMeta, type FakeAccount, type FakeAccountType, type FakeChange, type WebhookTarget } from '../src/instagram/fake-meta.ts'
 import type { ServerOptions } from '../src/server.ts'
-import { addSeller, client, fakeClock, newWorld, rid, type FakeClock, type Seller, type TestServer } from './support.ts'
+import { MERGED_BODY, RAW_JOIN, addSeller, client, fakeClock, newWorld, rid, type FakeClock, type Seller, type TestServer } from './support.ts'
 
 export const REDIRECT_URI = 'https://api.livejjim.test/api/instagram/callback'
 
@@ -141,7 +141,7 @@ export async function sendComments(
 
 /** 범위의 채팅 이벤트 본문 (기록 순서) */
 export async function chatEvents(ig: TestServer, sellerId: string): Promise<Record<string, unknown>[]> {
-  const rows = await ig.database.pglite?.query<{ body: string }>(`select body from events where seller_id = $1 and type = 'chat' order by scope_id, seq`, [sellerId])
+  const rows = await ig.database.pglite?.query<{ body: string }>(`select ${MERGED_BODY} as body from events e ${RAW_JOIN} where e.seller_id = $1 and e.type = 'chat' order by e.scope_id, e.seq`, [sellerId])
   return (rows?.rows ?? []).map((row) => JSON.parse(row.body) as Record<string, unknown>)
 }
 

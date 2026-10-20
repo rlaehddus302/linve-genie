@@ -12,6 +12,7 @@ import { apiError, JSON_CONTENT_TYPE } from '../errors.ts'
 import type { LinkOutcome } from '../live-links.ts'
 import { unknownFieldProblems } from '../messages.ts'
 import { platformCapabilities } from '../platform.ts'
+import { ASSISTANT_FORBIDDEN_MESSAGE } from '../roles.ts'
 import { CALLBACK_MESSAGES } from './connection.ts'
 import type { InstagramModule } from './index.ts'
 import { WEBHOOK_BODY_LIMIT } from './webhook.ts'
@@ -94,6 +95,8 @@ export function registerLiveRoutes(api: Hono<Env>, instagram: InstagramModule, a
   // 돌아오기 (로그인 없이 닿는다 — state로만 처리, 결과는 코드로만 화면 주소에 붙인다)
   api.get('/instagram/callback', async (c) => {
     const found = await auth.session(getCookie(c, SESSION_COOKIE))
+    // 보조자 계정은 인스타그램 경로를 쓰지 않는다 (AC-I3-61 — 세션을 강제하지 않는 이 경로도, 유튜브 돌아오는 주소와 같게)
+    if (found?.role === 'ASSISTANT') return apiError(403, 'ASSISTANT_FORBIDDEN', ASSISTANT_FORBIDDEN_MESSAGE)
     const code = await connections.callback(
       { ...queryOf(c, 'code'), ...queryOf(c, 'state'), ...queryOf(c, 'error') },
       found === null ? null : { sellerId: found.sellerId, accountId: found.accountId, tokenHash: found.tokenHash },

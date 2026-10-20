@@ -164,8 +164,14 @@ describe('AC-N2-04 어댑터 모양', () => {
     const source = readFileSync(new URL('../src/platform.ts', import.meta.url), 'utf8')
     expect(source).toMatch(/export interface LiveSource/)
     expect(source).toMatch(/export interface ThanksSender/)
+    // 합친 뒤(N2 + N2b-1): 틱톡 연결 모듈은 따로 묶음 src/tiktok/**에만 있고(D-N2b-1-08 — 판정 연결은 N2b-2) 플랫폼 공통 어댑터의 틱톡 구현은 없다
     const files = readdirSync(new URL('../src/', import.meta.url), { recursive: true }).map(String)
-    expect(files.filter((file) => /tiktok/i.test(file))).toEqual([])
+    expect(files.filter((file) => /tiktok/i.test(file) && !/^tiktok([\\/]|$)/.test(file))).toEqual([])
+    for (const file of files.filter((name) => /^tiktok[\\/].+\.ts$/.test(name))) {
+      const code = readFileSync(new URL(`../src/${file.replaceAll('\\', '/')}`, import.meta.url), 'utf8')
+      expect(code, file).not.toMatch(/\b(LiveSource|ThanksSender)\b/)
+    }
+    expect(readFileSync(new URL('../src/platform.ts', import.meta.url), 'utf8')).not.toMatch(/from '\.\/tiktok/)
   })
 })
 

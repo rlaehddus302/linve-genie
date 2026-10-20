@@ -2,7 +2,7 @@
 import { applyEvent, initEngine, listBuyers, listClaims, listEffects, listProducts, type EngineEvent, type EngineState } from '@livejjim/core'
 import { afterEach, describe, expect, it } from 'vitest'
 import { chatEvents, connectedShop, igWorld, linkLive, liveBroadcast, register, sendComments, webhookTarget, type IgWorld } from './instagram-support.ts'
-import { client, rid } from './support.ts'
+import { MERGED_BODY, RAW_JOIN, client, rid } from './support.ts'
 
 let ig: IgWorld | null = null
 afterEach(async () => {
@@ -19,7 +19,7 @@ const post = (w: IgWorld, body: string | Uint8Array, headers: Record<string, str
 /** 기록된 로그를 코어로 다시 재생한 상태 (INV-4) */
 async function replay(w: IgWorld, sellerId: string, date = '2026-10-19'): Promise<EngineState> {
   const rows = await w.database.pglite?.query<{ body: string; failed: boolean }>(
-    `select e.body, e.failed from events e join scopes s on s.id = e.scope_id where e.seller_id = $1 and s.date = $2 and s.rehearsal = false order by e.seq`,
+    `select ${MERGED_BODY} as body, e.failed from events e join scopes s on s.id = e.scope_id ${RAW_JOIN} where e.seller_id = $1 and s.date = $2 and s.rehearsal = false order by e.seq`,
     [sellerId, date],
   )
   let state = initEngine({ broadcasts: [], settings: {} })
