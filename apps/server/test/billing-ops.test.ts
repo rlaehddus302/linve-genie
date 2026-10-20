@@ -113,6 +113,37 @@ describe('AC-N5-11 운영 설정·스위치·기동 거부', () => {
   })
 })
 
+describe('AC-N5-11·40 E2E 기동', () => {
+  it('startE2eServer({ billing: true })는 시험 결제로 켜고, 기본은 꺼짐', async () => {
+    const { startE2eServer, readE2eAccount } = await import('../src/e2e.ts')
+    const loginTo = async (app: { request: (path: string, init: RequestInit) => Response | Promise<Response> }, loginId: string, password: string) => {
+      const response = await app.request('/api/login', { method: 'POST', headers: { Origin: 'http://localhost:5173', 'Content-Type': 'application/json' }, body: JSON.stringify({ loginId, password }) })
+      return /lj_session=[^;]+/.exec(response.headers.get('set-cookie') ?? '')?.[0] ?? ''
+    }
+    const account = readE2eAccount()
+    const on = await startE2eServer({ billing: true, passwordCost: FAST_COST })
+    try {
+      const cookie = await loginTo(on.server.app, account.loginId, account.password)
+      const config = (await (await on.server.app.request('/api/client-config', { headers: { Cookie: cookie } })).json()) as Record<string, unknown>
+      expect(config.billing).toEqual({ enabled: true, testPayment: true })
+      const granted = await on.server.app.request('/api/billing/test/grants', { method: 'POST', headers: { Cookie: cookie, Origin: 'http://localhost:5173', 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'DAYS', quantity: 1 }) })
+      expect(granted.status).toBe(200)
+      const view = (await (await on.server.app.request('/api/billing', { headers: { Cookie: cookie } })).json()) as { balances: Record<string, number>; items: unknown[] }
+      expect(view.balances.DAYS).toBe(1)
+      expect(view.items).toHaveLength(7)
+    } finally {
+      await on.close()
+    }
+    const off = await startE2eServer({ passwordCost: FAST_COST })
+    try {
+      const cookie = await loginTo(off.server.app, account.loginId, account.password)
+      expect((await off.server.app.request('/api/billing', { headers: { Cookie: cookie } })).status).toBe(404)
+    } finally {
+      await off.close()
+    }
+  })
+})
+
 describe('AC-N5-12 운영자 명령', () => {
   it('이용권 부여: 아이디·종류·양·사유(휴대폰 번호 거절). 같은 명령 두 번 = 두 장', async () => {
     const world = await billingWorld()
