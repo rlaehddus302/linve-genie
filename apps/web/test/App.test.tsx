@@ -39,7 +39,7 @@ function visibleLatin(container: HTMLElement): string[] {
 }
 
 describe('로그인 화면 (AC-S05-01)', () => {
-  it('로그인하지 않았으면 아이디·비밀번호 칸과 "로그인" 버튼이 보이고 가입 화면·링크는 없다', async () => {
+  it('로그인하지 않았으면 아이디·비밀번호 칸과 "로그인" 버튼이 보이고 가입 화면·링크는 없다 (링크는 정책 초안 둘뿐 — AC-I3-77)', async () => {
     loggedOut()
     render(<App />)
     expect(await screen.findByRole('button', { name: '로그인' })).toBeDefined()
@@ -47,7 +47,11 @@ describe('로그인 화면 (AC-S05-01)', () => {
     const password = screen.getByLabelText('비밀번호') as HTMLInputElement
     expect(password.type).toBe('password')
     expect(screen.queryByText(/가입/)).toBeNull()
-    expect(screen.queryAllByRole('link')).toHaveLength(0)
+    const links = screen.queryAllByRole('link').map((link) => [link.textContent, link.getAttribute('href')])
+    expect(links).toEqual([
+      ['개인정보처리방침', '/privacy'],
+      ['이용약관', '/terms'],
+    ])
   })
 
   it('틀리면 서버 문장을 그대로 보이고 아이디는 남는다', async () => {

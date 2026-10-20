@@ -1,7 +1,7 @@
 // 콘솔 밖 화면(문자찜 입력·구매자)의 방송자 조치 (AC-S06-14·15·22, D-083): 찜 취소·차단은 콘솔과 같이 사유 창 → 5초 뒤 보냄,
 // 되돌리기 띠, 화면을 떠나면 보내지 않음(떠나기 전에 묻는다). 콘솔의 조치 함수(actions.ts)를 그대로 쓰도록 같은 모양(ConsoleApi)을 만든다.
 import { useCallback, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
+import { ApiError, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
 import type { WriteResult } from '../api/types.ts'
 import type { ConsoleStore } from '../lib/console-store.ts'
 import { BuyerNames } from '../lib/derive.ts'
@@ -20,6 +20,8 @@ export interface HostActionsInput {
   /** 그 화면이 고른 방송 (없으면 빈 글자 — 상품 이름에 방송 제목을 붙인다) */
   readonly b: string
   readonly ended: boolean
+  /** 봉인한 날짜 — 쓰기를 보내지 않는다 (AC-I3-41) */
+  readonly sealed?: boolean
 }
 
 const NO_ITEMS: readonly UndoItem[] = []
@@ -36,7 +38,7 @@ export interface HostActions {
   readonly dialog: ReactNode
 }
 
-export function useHostActions({ store, data, queue, date, rehearsal, b, ended }: HostActionsInput): HostActions {
+export function useHostActions({ store, data, queue, date, rehearsal, b, ended, sealed = false }: HostActionsInput): HostActions {
   const items = useSyncExternalStore(queue.subscribe, queue.getSnapshot) ?? NO_ITEMS
   const [dialogs, setDialogs] = useState<Dialog[]>([])
 
@@ -60,6 +62,7 @@ export function useHostActions({ store, data, queue, date, rehearsal, b, ended }
 
   const command = useCallback(
     async (event: Readonly<Record<string, unknown>>, requestId: string = newRequestId()): Promise<WriteResult> => {
+      if (sealed) throw new ApiError({ status: 409, code: 'SEALED', message: '30일이 지난 방송 기록은 봉인되어 고칠 수 없어요.' })
       let result: WriteResult
       try {
         result = await withRetry(() => post<WriteResult>(pathFor(event), { requestId, ...event }))
@@ -70,11 +73,12 @@ export function useHostActions({ store, data, queue, date, rehearsal, b, ended }
       await store.sync(result.seq)
       return result
     },
-    [followFailure, pathFor, store],
+    [followFailure, pathFor, store, sealed],
   )
 
   const queueHost = useCallback(
     (input: HostActionInput) => {
+      if (sealed) return
       const reopen = input.reopen
       queue.add({
         label: input.label,
@@ -95,7 +99,7 @@ export function useHostActions({ store, data, queue, date, rehearsal, b, ended }
         },
       })
     },
-    [followFailure, pathFor, queue, store],
+    [followFailure, pathFor, queue, store, sealed],
   )
 
   const waiting = useMemo(() => {
@@ -118,6 +122,7 @@ export function useHostActions({ store, data, queue, date, rehearsal, b, ended }
       date,
       rehearsal,
       ended,
+      sealed,
       data,
       names,
       waiting,
@@ -131,7 +136,7 @@ export function useHostActions({ store, data, queue, date, rehearsal, b, ended }
       fillQuick: () => {},
       select: () => {},
     }),
-    [b, date, rehearsal, ended, data, names, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command],
+    [b, date, rehearsal, ended, sealed, data, names, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command],
   )
 
   const top = dialogs.at(-1)

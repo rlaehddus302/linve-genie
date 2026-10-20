@@ -9,17 +9,23 @@ import { isValidDate } from '@livejjim/core'
 import { Hono, type Context } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { getCookie } from 'hono/cookie'
+import { ASSISTANT_LIMIT, ASSISTANT_LIMIT_MESSAGE, ASSISTANT_NAME_MESSAGE, SHOP_NAME_MESSAGE } from './accounts.ts'
 import { REQUEST_ID_RE, isPlainObject, own, ownKeys } from './api-fields.ts'
 import { CLEAR_SESSION_COOKIE, SESSION_COOKIE, sessionCookie, type Auth, type SessionContext } from './auth.ts'
 import { apiError, JSON_CONTENT_TYPE } from './errors.ts'
 import type { StreamHub } from './hub.ts'
+import { LOGIN_BUSY_MESSAGE, LOGIN_RATE_LIMITED_MESSAGE, clientAddress } from './login-limit.ts'
 import { unknownFieldProblems } from './messages.ts'
+import { ASSISTANT_EVENT_TYPES, ASSISTANT_FORBIDDEN_MESSAGE, assistantMayCall } from './roles.ts'
 import { DEVICE_ID_RE, type PrintService } from './print.ts'
 import { registerPrintRoutes } from './print-api.ts'
 import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.ts'
 import { WEBHOOK_PATH, registerBillingRoutes } from './billing/api.ts'
 import type { BillingService } from './billing/service.ts'
 import type { Actor, WriteOutcome, WriteResult } from './writer.ts'
+import { CALLBACK_PATH, registerYoutubeRoutes } from './youtube/routes.ts'
+import type { Sealer } from './youtube/seal.ts'
+import type { YoutubeSystem } from './youtube/system.ts'
 
 /** 요청 본문 상한 (AC-S04-34) */
 export const BODY_LIMIT_BYTES = 64 * 1024
@@ -37,15 +43,29 @@ export interface ApiDeps {
   readonly clientConfig?: { readonly hostActionDelayMs: number; readonly testPrinter?: boolean }
   /** 요금 (N5). 없거나 꺼져 있으면 /api/billing/**는 404 */
   readonly billing?: BillingService
+  /** 유튜브 연동 (Y1, 설정이 없으면 null — 그 API는 503) */
+  readonly youtube?: YoutubeSystem | null
+  readonly sealer?: Sealer | null
+  /** 믿는 앞단 프록시 수 (0~5, 기본 0 — X-Forwarded-For를 보지 않는다, AC-I3-66) */
+  readonly trustedProxies?: number
 }
 
-type Env = { Variables: { body: Record<string, unknown> | null; session: SessionContext } }
+/** TCP 연결 주소 (@hono/node-server가 넘기는 요청 정보). 프로세스 안 요청(시험의 app.request)은 env로 넣을 수 있고, 없으면 null */
+export function connectionAddress(c: Context): string | null {
+  const env = c.env as { incoming?: { socket?: { remoteAddress?: unknown } }; server?: { incoming?: { socket?: { remoteAddress?: unknown } } } } | undefined
+  const address = env?.incoming?.socket?.remoteAddress ?? env?.server?.incoming?.socket?.remoteAddress
+  return typeof address === 'string' && address !== '' ? address : null
+}
+
+export type Env = { Variables: { body: Record<string, unknown> | null; session: SessionContext } }
 
 const STATE_CHANGING = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
-const PUBLIC_PATHS = new Set(['POST /api/login', 'GET /api/health', 'HEAD /api/health'])
+/** 세션을 강제하지 않는 경로. 유튜브 돌아오는 주소는 세션 쿠키와 state로 판매자를 정하고, 없으면 화면으로 돌려보낸다(AC-Y1-02) */
+const PUBLIC_PATHS = new Set(['POST /api/login', 'GET /api/health', 'HEAD /api/health', `GET ${CALLBACK_PATH}`])
 
 const notFound = () => apiError(404, 'NOT_FOUND', '찾을 수 없어요.')
 const unauthorized = () => apiError(401, 'UNAUTHORIZED', '로그인이 필요해요.')
+const assistantForbidden = () => apiError(403, 'ASSISTANT_FORBIDDEN', ASSISTANT_FORBIDDEN_MESSAGE)
 const invalidRequestId = () =>
   apiError(400, 'INVALID_REQUEST_ID', '요청 번호가 없거나 형식이 올바르지 않아요.', [{ field: 'requestId', message: "요청 번호는 영문·숫자·'_'·'-'로 된 1~64자여야 해요." }])
 
@@ -104,6 +124,8 @@ function outcomeResponse(c: Context, outcome: WriteOutcome, extra: Readonly<Reco
       return notFound()
     case 'save_failed':
       return apiError(500, 'SAVE_FAILED', '저장하지 못했어요. 다시 시도해 주세요.')
+    case 'empty':
+      return apiError(409, 'REQUEST_ERROR', '이미 받은 입력이에요.')
   }
 }
 
@@ -160,6 +182,8 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     const session = await auth.session(getCookie(c, SESSION_COOKIE))
     if (session === null) return unauthorized()
     c.set('session', session)
+    // 보조자 계정: 허용 목록 밖은 모두 403 — 처리기에 닿기 전에(아무것도 기록하지 않는다, AC-I3-61). 목록은 roles.ts(기본 거부)
+    if (session.role === 'ASSISTANT' && !assistantMayCall(c.req.method, c.req.path, c.req.query('rehearsal'))) return assistantForbidden()
     await next()
     if (session.refreshedCookie !== null) c.res.headers.append('Set-Cookie', session.refreshedCookie)
   })
@@ -202,12 +226,16 @@ export function createApi(deps: ApiDeps): Hono<Env> {
         ...(typeof password === 'string' ? [] : [{ field: 'password', message: '비밀번호를 적어 주세요.' }]),
       ])
     }
-    const outcome = await auth.login(loginId, password)
+    // 로그인 시도를 센 주소: 연결 주소(믿는 프록시가 있으면 X-Forwarded-For의 오른쪽에서 n번째) — 로그·응답에 남기지 않는다
+    const address = clientAddress(connectionAddress(c), c.req.header('x-forwarded-for'), deps.trustedProxies ?? 0)
+    const outcome = await auth.login(loginId, password, address)
+    if (outcome.kind === 'rate_limited') return apiError(429, 'LOGIN_RATE_LIMITED', LOGIN_RATE_LIMITED_MESSAGE)
+    if (outcome.kind === 'busy') return apiError(429, 'LOGIN_BUSY', LOGIN_BUSY_MESSAGE)
     if (outcome.kind === 'locked') return apiError(429, 'LOGIN_LOCKED', '로그인을 여러 번 틀려서 잠시 막아 두었어요. 15분 뒤에 다시 해 주세요.')
     if (outcome.kind === 'failed') return apiError(401, 'LOGIN_FAILED', '아이디나 비밀번호가 맞지 않아요.')
     const session = await auth.session(outcome.token)
     c.header('Set-Cookie', sessionCookie(outcome.token))
-    return c.json({ seller: { name: session?.sellerName ?? '' }, loginId: outcome.loginId })
+    return c.json({ seller: { name: session?.sellerName ?? '' }, loginId: outcome.loginId, role: session?.role ?? 'SELLER' })
   })
 
   api.post('/logout', async (c) => {
@@ -218,9 +246,66 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     return c.json({ ok: true })
   })
 
+  // 내 정보: 가게 이름·아이디·역할 (보조자면 그 이름도, AC-I3-61·63)
   api.get('/me', (c) => {
     const session = c.get('session')
-    return c.json({ seller: { name: session.sellerName }, loginId: session.loginId })
+    const assistant = session.role === 'ASSISTANT'
+    return c.json({ seller: { name: session.sellerName }, loginId: session.loginId, role: assistant ? 'ASSISTANT' : 'SELLER', assistant: assistant ? { name: session.accountName ?? '' } : null })
+  })
+
+  // ── 가게 이름 (AC-I3-47) ──────────────────────────────────────────────
+  api.put('/shop', async (c) => {
+    const input = body(c)
+    const extra = onlyKeys(input, ['name'])
+    if (extra !== null) return extra
+    const name = await service.renameShop(sellerOf(c), own(input, 'name'))
+    if (name === null) return apiError(400, 'INVALID_INPUT', SHOP_NAME_MESSAGE, [{ field: 'name', message: SHOP_NAME_MESSAGE }])
+    return c.json({ shop: { name } })
+  })
+
+  // ── 시작 마법사 상태 (AC-I3-50) ───────────────────────────────────────
+  api.get('/wizard', async (c) => c.json({ wizard: await service.wizard(sellerOf(c)) }))
+  api.put('/wizard', async (c) => {
+    const input = body(c)
+    const extra = onlyKeys(input, ['status', 'step'])
+    if (extra !== null) return extra
+    const wizard = await service.setWizard(sellerOf(c), input)
+    if (wizard === null) {
+      return apiError(400, 'INVALID_INPUT', '마법사 상태를 확인해 주세요.', [
+        { field: 'status', message: "상태는 'NEW'·'IN_PROGRESS'·'DONE'·'DISMISSED' 중 하나로 적어 주세요." },
+        { field: 'step', message: "단계는 진행 중('IN_PROGRESS')일 때만 1~5의 정수로 적어 주세요." },
+      ])
+    }
+    return c.json({ wizard })
+  })
+
+  // ── 보조자 계정 (AC-I3-60·62 — 판매자 계정만, 보조자 세션은 위에서 403) ────
+  api.get('/assistants', async (c) => {
+    const list = await service.assistants(sellerOf(c))
+    return c.json({ assistants: list.map((row) => ({ id: row.id, name: row.name, loginId: row.loginId, createdAt: row.createdAt.toISOString() })), limit: ASSISTANT_LIMIT })
+  })
+  api.post('/assistants', async (c) => {
+    const input = body(c)
+    const extra = onlyKeys(input, ['name'])
+    if (extra !== null) return extra
+    const created = await auth.createAssistant(sellerOf(c), own(input, 'name'))
+    if (!created.ok) {
+      if (created.reason === 'limit') return apiError(409, 'ASSISTANT_LIMIT', ASSISTANT_LIMIT_MESSAGE)
+      if (created.reason === 'name') return apiError(400, 'INVALID_INPUT', ASSISTANT_NAME_MESSAGE, [{ field: 'name', message: ASSISTANT_NAME_MESSAGE }])
+      return notFound()
+    }
+    const { assistant, password } = created
+    // 비밀번호는 이 응답에만 (DB엔 해시만, 로그 없음)
+    return c.json({ assistant: { id: assistant.id, name: assistant.name, loginId: assistant.loginId, createdAt: assistant.createdAt.toISOString() }, password })
+  })
+  api.post('/assistants/:id/delete', async (c) => {
+    const extra = onlyKeys(body(c), [])
+    if (extra !== null) return extra
+    const hashes = await auth.deleteAssistant(sellerOf(c), c.req.param('id'))
+    if (hashes === null) return notFound()
+    // 그 보조자의 열린 실시간 연결을 바로 닫는다 (다음 요청은 401)
+    for (const hash of hashes) hub.closeSession(hash)
+    return c.json({ ok: true })
   })
 
   // 화면 설정 (방송자 조치 대기 시간, D-083 — 운영 5000밀리초 / 시험 모드 신호 — 시험용 프린터를 켠다, E2E 기동만 true, L-11 15)
@@ -277,14 +362,24 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   // ── 이벤트 쓰기 (AC-S04-31·51) ────────────────────────────────────────
   api.post('/events', async (c) => {
     const input = body(c)
+    // 보조자: 문자찜·방송자 취소만 (종류를 먼저 본다 — 그 밖은 요청 번호와 상관없이 403, 아무것도 기록하지 않는다, AC-I3-61)
+    const assistant = c.get('session').role === 'ASSISTANT'
+    if (assistant) {
+      const type = own(input, 'type')
+      if (typeof type !== 'string' || !ASSISTANT_EVENT_TYPES.includes(type)) return assistantForbidden()
+    }
     const requestId = requestIdOf(input)
     if (requestId === null) return invalidRequestId()
     // 같은 요청 번호로 이미 기록했으면(내용이 달라도) 처음 결과 (AC-S04-25). 동시에 온 경우는 기록 경로가 트랜잭션 안에서 다시 확인한다
     const prior = await service.priorResult(sellerOf(c), requestId)
-    if (prior !== null) return outcomeResponse(c, { kind: 'duplicate', result: prior })
+    if (prior !== null) {
+      // 보조자에게는 문자찜·방송자 취소의 결과만 다시 보여 준다 (판매자의 다른 조치 결과를 요청 번호로 꺼내 보지 못하게)
+      if (assistant && !ASSISTANT_EVENT_TYPES.includes(prior.type)) return assistantForbidden()
+      return outcomeResponse(c, { kind: 'duplicate', result: prior })
+    }
     const rehearsal = rehearsalOf(c)
     if (!rehearsal.ok) return rehearsal.response
-    const outcome = await service.writeEvent(sellerOf(c), actorOf(c), requestId, input, c.req.query('date'), rehearsal.value)
+    const outcome = await service.writeEvent(sellerOf(c), actorOf(c), requestId, input, c.req.query('date'), rehearsal.value, { assistant })
     return outcomeResponse(c, outcome.kind === 'phone' ? outcome.outcome : outcome)
   })
 
@@ -324,7 +419,8 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   api.get('/days', async (c) => {
     const rehearsal = rehearsalOf(c)
     if (!rehearsal.ok) return rehearsal.response
-    return c.json({ days: await service.scopes(sellerOf(c), rehearsal.value ?? false) })
+    // 범위마다 봉인 예정 시각(sealAt)·봉인 여부 (AC-Y1-62)
+    return c.json({ days: await service.days(sellerOf(c), rehearsal.value ?? false) })
   })
   api.get('/days/:date', async (c) => {
     const date = c.req.param('date')
@@ -426,8 +522,14 @@ export function createApi(deps: ApiDeps): Hono<Env> {
       return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'device', message: "기기 ID는 영문·숫자·'_'·'-'로 된 8~64자여야 해요." }])
     }
     // 연결을 먼저 등록한 뒤 범위별 seq를 읽는다 — 그 사이 커밋된 변경도 알림으로 받는다 (RA-S04-003)
-    return hub.open(session.sellerId, session.tokenHash, () => service.scopes(session.sellerId), device ?? null)
+    // 보조자 연결은 유튜브·리허설 생성기·출력 기록 알림을 받지 않는다 (범위 변경 알림만 — 문자찜 입력 화면이 쓰는 것).
+    // 보조자는 출력 기기가 될 수 없으므로(출력 API는 403) 기기 ID도 받지 않는다
+    const assistant = session.role === 'ASSISTANT'
+    return hub.open(session.sellerId, session.tokenHash, () => service.scopes(session.sellerId), { named: !assistant, deviceId: assistant ? null : (device ?? null) })
   })
+
+  // ── 유튜브 (Y1) ──────────────────────────────────────────────────────
+  registerYoutubeRoutes(api, { service, auth, youtube: deps.youtube ?? null, sealer: deps.sealer ?? null })
 
   // ── 출력 기록 (I1, LABEL_RULES L-11) ──────────────────────────────────
   if (deps.print !== undefined) registerPrintRoutes(api, deps.print)

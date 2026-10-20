@@ -2,7 +2,8 @@
 // 로그에는 정해진 코드와 범위·seq·오류 종류만 남긴다. 요청 본문·전화번호·키·메모·닉네임·채팅 본문·제목·사유·아이디·비밀번호·
 // 세션 값·비밀 키·오류 메시지(값이 들어 있을 수 있다)는 남기지 않는다. 그래서 기록 함수는 자유 문장을 받지 않는다.
 
-export type LogLevel = 'info' | 'warn' | 'error'
+/** alert = 운영자가 할 일이 있는 경보 (AC-I3-82) — JSON 한 줄로 쓴다 */
+export type LogLevel = 'info' | 'warn' | 'error' | 'alert'
 
 /** 로그 한 줄. 값은 모두 서버가 정한 것(코드·범위 날짜·seq·오류 종류 이름)이다 */
 export interface LogRecord {
@@ -16,6 +17,14 @@ export interface LogRecord {
   readonly errorKind?: string
   /** 개수 같은 숫자 */
   readonly count?: number
+  /** 판매자 ID (유튜브 워커 — 판매자 ID는 서버가 만든 값이다) */
+  readonly seller?: string
+  /** HTTP 상태 (유튜브 오류) */
+  readonly status?: number
+  /** 구글 오류 이유 코드 (quotaExceeded 같은 영문 코드만 — 형식이 다르면 남기지 않는다) */
+  readonly reason?: string
+  /** 워커 이름 (경보 WORKER_FAILING — collector · outbox · sealer) */
+  readonly worker?: 'collector' | 'outbox' | 'sealer'
 }
 
 export type LogCode =
@@ -29,7 +38,40 @@ export type LogCode =
   | 'STREAM_FAILED'
   | 'LOGIN_PRUNE_FAILED'
   | 'DRAFT_SKIPPED'
+  // Y1 유튜브 (AC-Y1-70): 종류·HTTP 상태·구글 오류 이유·판매자·범위만 남긴다
+  | 'YOUTUBE_CONNECT_FAILED'
+  | 'YOUTUBE_REFRESH_FAILED'
+  | 'YOUTUBE_RECONNECT_NEEDED'
+  | 'YOUTUBE_REVOKE_FAILED'
+  | 'YOUTUBE_API_FAILED'
+  | 'COLLECTOR_ERROR'
+  | 'COLLECTOR_STOPPED'
+  | 'COLLECTOR_SAVE_FAILED'
+  | 'OUTBOX_POST_FAILED'
+  | 'OUTBOX_REPORT_FAILED'
+  | 'OUTBOX_UNCONFIRMED'
+  | 'OUTBOX_ERROR'
+  | 'SEAL_FAILED'
+  | 'SEALED'
+  | 'WORKER_FAILED'
+  // I3 운영 (AC-I3-82): 다시 시도를 다 쓴 감사, 구글 할당량 초과, 경보 코드
+  | 'OUTBOX_GAVE_UP'
+  | 'QUOTA_EXCEEDED'
+  | 'WORKER_FAILING'
+  | 'BACKUP_FAILED'
+  | 'DB_UNAVAILABLE'
   | 'PRINT_NOTIFY_FAILED'
+  // 틱톡 연결 모듈 (N2b-1, D-N2b-1-08): 정해진 코드·실패 종류·개수만. 댓글·닉네임·아이디·판매자 틱톡 아이디·오류 메시지·서명 키는 남기지 않는다
+  | 'TIKTOK_BETA_INVALID'
+  | 'TIKTOK_CONNECT_FAILED'
+  | 'TIKTOK_DISCONNECTED'
+  | 'TIKTOK_GAVE_UP'
+  | 'TIKTOK_CONSENT_FAILED'
+  | 'TIKTOK_LIBRARY_ERROR'
+  | 'TIKTOK_LATE_CLOSED'
+  | 'TIKTOK_RECORD_FAILED'
+  | 'TIKTOK_STATUS_FAILED'
+  | 'TIKTOK_EVENT_FAILED'
   // N5 요금 (결제 ID·사업자 정보·조회 원문·비밀값은 남기지 않는다)
   | 'BILLING_FAILED'
   | 'PAYMENT_LOOKUP_FAILED'
@@ -50,7 +92,37 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   STREAM_FAILED: '실시간 연결에 보내지 못했어요',
   LOGIN_PRUNE_FAILED: '로그인 시도 기록을 정리하지 못했어요(로그인은 계속함)',
   DRAFT_SKIPPED: '서버가 덧붙이는 입력(차단 이어받기)이 입력 검사를 통과하지 못해 기록하지 않았어요',
+  YOUTUBE_CONNECT_FAILED: '유튜브 연결을 마치지 못했어요',
+  YOUTUBE_REFRESH_FAILED: '유튜브 접근 토큰을 새로 고치지 못했어요',
+  YOUTUBE_RECONNECT_NEEDED: '유튜브 연결을 다시 해야 해요',
+  YOUTUBE_REVOKE_FAILED: '구글에 토큰 폐기를 요청하지 못했어요(연결은 끊음)',
+  YOUTUBE_API_FAILED: '유튜브 호출이 실패했어요',
+  COLLECTOR_ERROR: '채팅 수집 중 오류가 생겨 다시 연결해요',
+  COLLECTOR_STOPPED: '채팅 수집을 멈췄어요',
+  COLLECTOR_SAVE_FAILED: '받은 채팅을 저장하지 못해 이어받기 지점을 남기지 않았어요',
+  OUTBOX_POST_FAILED: '감사 메시지를 게시하지 못했어요',
+  OUTBOX_REPORT_FAILED: '게시 보고를 기록하지 못해 다시 할게요(다시 게시하지 않음)',
+  OUTBOX_UNCONFIRMED: '감사가 올라갔는지 확인하지 못해 다시 게시하지 않았어요',
+  OUTBOX_ERROR: '발송함 처리 중 오류가 생겼어요',
+  SEAL_FAILED: '30일 지난 범위를 봉인하지 못해 다음에 다시 해요',
+  SEALED: '30일 지난 범위를 봉인했어요',
+  WORKER_FAILED: '유튜브 작업 중 오류가 생겼어요',
+  OUTBOX_GAVE_UP: '감사 메시지를 여러 번 보내지 못해 그만두었어요',
+  QUOTA_EXCEEDED: '구글이 유튜브 할당량 초과를 알렸어요',
+  WORKER_FAILING: '워커가 연속으로 실패하고 있어요',
+  BACKUP_FAILED: '백업하지 못했어요',
+  DB_UNAVAILABLE: '데이터베이스에 닿지 않아요',
   PRINT_NOTIFY_FAILED: '출력 기록 알림을 보내지 못했어요(기록은 저장됨)',
+  TIKTOK_BETA_INVALID: '틱톡 베타 스위치 값을 알아볼 수 없어 끔으로 봤어요',
+  TIKTOK_CONNECT_FAILED: '틱톡 연결 시도가 실패했어요',
+  TIKTOK_DISCONNECTED: '받던 틱톡 연결이 끊겼어요',
+  TIKTOK_GAVE_UP: '틱톡 다시 연결을 멈췄어요',
+  TIKTOK_CONSENT_FAILED: '틱톡 사용 동의를 확인하지 못해 끔으로 봤어요',
+  TIKTOK_LIBRARY_ERROR: '틱톡 연결기가 오류를 알렸어요(연결은 그대로)',
+  TIKTOK_LATE_CLOSED: '버린 틱톡 연결 시도가 늦게 이어져 바로 닫았어요',
+  TIKTOK_RECORD_FAILED: '틱톡 댓글을 받는 쪽에서 오류가 났어요(연결은 계속함)',
+  TIKTOK_STATUS_FAILED: '틱톡 연결 상태를 받는 쪽에서 오류가 났어요(연결은 계속함)',
+  TIKTOK_EVENT_FAILED: '틱톡 이벤트를 처리하지 못해 건너뛰었어요(연결은 계속함)',
   BILLING_FAILED: '요금 정보를 읽지 못했어요',
   PAYMENT_LOOKUP_FAILED: '결제를 조회하지 못했어요(주문은 그대로)',
   PAYMENT_CANCEL_FAILED: '결제를 취소하지 못했어요',
@@ -70,13 +142,32 @@ export function formatLog(record: LogRecord): string {
   if (record.date !== undefined) parts.push(`date=${record.date}`)
   if (record.seq !== undefined) parts.push(`seq=${String(record.seq)}`)
   if (record.count !== undefined) parts.push(`count=${String(record.count)}`)
+  if (record.seller !== undefined && /^[A-Za-z0-9_-]{1,80}$/.test(record.seller)) parts.push(`seller=${record.seller}`)
+  if (record.status !== undefined) parts.push(`status=${String(record.status)}`)
+  if (record.reason !== undefined && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(record.reason)) parts.push(`reason=${record.reason}`)
   if (record.errorKind !== undefined) parts.push(`kind=${record.errorKind}`)
   return `[server] ${MESSAGES[record.code]} (${parts.join(' ')})`
 }
 
-/** 기본 기록: 표준 오류 출력에 한 줄 */
+const SELLER_RE = /^[A-Za-z0-9_-]{1,80}$/
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+const WORKERS = new Set(['collector', 'outbox', 'sealer'])
+
+/**
+ * 경보 한 줄 (AC-I3-82): `{"level":"alert","code":…,"count":…,"seller"?,"date"?,"worker"?}` — 정해진 코드·셈·서버가 만든 판매자 ID·범위 날짜·워커 이름만.
+ * 모양이 다른 값은 넣지 않는다
+ */
+export function formatAlert(record: LogRecord): string {
+  const out: Record<string, unknown> = { level: 'alert', code: record.code, count: record.count ?? 1 }
+  if (record.seller !== undefined && SELLER_RE.test(record.seller)) out.seller = record.seller
+  if (record.date !== undefined && DATE_RE.test(record.date)) out.date = record.date
+  if (record.worker !== undefined && WORKERS.has(record.worker)) out.worker = record.worker
+  return JSON.stringify(out)
+}
+
+/** 기본 기록: 표준 오류 출력에 한 줄 (경보는 JSON 한 줄) */
 export const stderrLog: LogSink = (record) => {
-  process.stderr.write(`${formatLog(record)}\n`)
+  process.stderr.write(`${record.level === 'alert' ? formatAlert(record) : formatLog(record)}\n`)
 }
 
 /** 기록하다 실패해도 처리는 계속한다 */

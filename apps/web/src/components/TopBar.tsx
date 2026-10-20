@@ -1,6 +1,7 @@
-// 화면 위 줄 (AC-S05-01, AC-S06-01·51·52, AC-I1-20·34): 가게 이름, 프린터 상태(누르면 라벨 화면), 메뉴("방송"·"문자찜 입력"·"구매자"·"정산"·"라벨" —
+// 화면 위 줄 (AC-S05-01, AC-S06-01·51·52, AC-I1-20·34, AC-I3-44·63): 가게 이름, 프린터 상태(누르면 라벨 화면), 메뉴("방송"·"문자찜 입력"·"구매자"·"정산"·"라벨"·"설정" —
 // 지금 화면은 aria-current="page"), 앱 설치 안내, 로그아웃, 새 버전 안내. 메뉴는 PC에서 위 줄에, 휴대폰에서는 아래 고정 막대로 보인다(같은 메뉴, CSS가 자리만 바꾼다).
-// 요금 기능이 켜져 있으면 메뉴 끝에 "요금"(N5, AC-N5-50). 꺼져 있으면 메뉴가 그대로다.
+// 요금 기능이 켜져 있으면 판매자 메뉴 끝("설정" 뒤)에 "요금"(N5, AC-N5-50). 꺼져 있으면 메뉴가 그대로다.
+// 보조자 계정은 가게 이름 + "보조자", 메뉴는 "문자찜 입력"뿐이다(프린터 상태도 없다 — 보조자는 출력을 쓰지 않는다).
 import type { MouseEvent } from 'react'
 import { useInstallHint, useUpdateNotice } from '../pwa/pwa.ts'
 import { printerStatusWord } from '../lib/print-words.ts'
@@ -10,6 +11,8 @@ import { usePrintApi, usePrintState } from './print-context.tsx'
 
 export interface TopBarProps {
   readonly shopName: string
+  /** 보조자 계정 (메뉴는 문자찜 입력뿐) */
+  readonly assistant?: boolean
   readonly onLogout: () => void
   readonly route: Route
   readonly navigate: Navigate
@@ -21,8 +24,9 @@ interface MenuItem {
   readonly to: Route
 }
 
-/** 구매자·정산 사이를 오가면 고른 날짜·리허설을 이어 간다. billing = 요금 기능이 켜져 있다 */
-function menuItems(route: Route, billing = false): readonly MenuItem[] {
+/** 구매자·정산 사이를 오가면 고른 날짜·리허설을 이어 간다. billing = 요금 기능이 켜져 있다(보조자에게는 요금 메뉴가 없다 — 요금·결제는 판매자만) */
+function menuItems(route: Route, assistant: boolean, billing = false): readonly MenuItem[] {
+  if (assistant) return [{ key: 'sms', label: '문자찜 입력', to: { name: 'sms' } }]
   const scope = route.name === 'buyers' || route.name === 'settlements' ? { ...(route.date === undefined ? {} : { date: route.date }), rehearsal: route.rehearsal } : { rehearsal: false }
   return [
     { key: 'broadcasts', label: '방송', to: { name: 'home' } },
@@ -30,11 +34,12 @@ function menuItems(route: Route, billing = false): readonly MenuItem[] {
     { key: 'buyers', label: '구매자', to: { name: 'buyers', ...scope } },
     { key: 'settlements', label: '정산', to: { name: 'settlements', ...scope } },
     { key: 'labels', label: '라벨', to: { name: 'labels' } },
+    { key: 'settings', label: '설정', to: { name: 'settings' } },
     ...(billing ? [{ key: 'billing', label: '요금', to: { name: 'billing' } } satisfies MenuItem] : []),
   ]
 }
 
-export function TopBar({ shopName, onLogout, route, navigate }: TopBarProps) {
+export function TopBar({ shopName, assistant = false, onLogout, route, navigate }: TopBarProps) {
   const billing = useBillingConfig()?.enabled === true
   const current = menuOf(route)
   const go = (event: MouseEvent<HTMLAnchorElement>, to: Route) => {
@@ -46,10 +51,13 @@ export function TopBar({ shopName, onLogout, route, navigate }: TopBarProps) {
     <>
       <UpdateBanner />
       <header className="topbar">
-        <p className="shop-name">{shopName}</p>
-        <PrinterStatus onOpen={(event) => go(event, { name: 'labels' })} />
-        <nav className="menu" aria-label="메뉴">
-          {menuItems(route, billing).map((item) => (
+        <p className="shop-name">
+          {shopName}
+          {assistant ? <span className="tag tag-assistant">보조자</span> : null}
+        </p>
+        {assistant ? null : <PrinterStatus onOpen={(event) => go(event, { name: 'labels' })} />}
+        <nav className={assistant ? 'menu menu-single' : 'menu'} aria-label="메뉴">
+          {menuItems(route, assistant, billing).map((item) => (
             <a key={item.key} className="menu-link" href={routePath(item.to)} aria-current={item.key === current ? 'page' : undefined} onClick={(event) => go(event, item.to)}>
               {item.label}
             </a>

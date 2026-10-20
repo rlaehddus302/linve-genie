@@ -1,0 +1,122 @@
+// Y1 적대 테스트 (test-domain): 감사 발송함 — 잘못된 게시·두 번 게시 (AC-Y1-32·33·36·38·39·42).
+// 판정은 코어 상태(취소·완료)로, 게시는 가짜 서버가 받은 글로 센다.
+import { afterEach, describe, expect, it } from 'vitest'
+import { NO_LABEL, api, approve, callback, chat, connect, drive, eventTypes, linked, outbox, ok, product, rows, until, world, writeEvent, type World } from './helpers.ts'
+
+let w: World | null = null
+afterEach(async () => {
+  await w?.close()
+  w = null
+})
+
+describe('발송함 — 보내기 직전 확인은 정말 "직전"이어야 한다 (R-13, AC-Y1-32)', () => {
+  it('TD-Y1-001: 같은 방송의 앞 메시지가 응답 없이 10초 걸리는 동안 확정이 풀린 판매는 뒤이어 게시되지 않는다', async () => {
+    w = await world()
+    const c = await connect(w, { publish: 'LIVE_CHAT' })
+    const { b } = await linked(w, c, { settings: { ...NO_LABEL, 'thanks.batchWindowSec': 0 } })
+    await product(w, c, b.id, 15, '핑크프릴', 10000)
+    await product(w, c, b.id, 16, '라울', 5000)
+    await chat(w, c, b.id, 'm15', 'UC_A', '홍길동', '15')
+    await chat(w, c, b.id, 'm16', 'UC_B', '김철수', '16')
+    // 첫 게시(15번)는 유튜브가 받지 않고 응답도 없다 (타임아웃 10초)
+    w.fake.fail('liveChatMessages.insert', { kind: 'hang' })
+    const running = outbox(w).runOnce()
+    const fake = w.fake
+    await until(w, () => fake.calls('liveChatMessages.insert') >= 1)
+    // 그 사이 판매자가 16번 김철수의 찜을 취소한다 (확정이 풀림)
+    await ok(writeEvent(w, c, { type: 'host.cancel', b: b.id, no: 16, buyer: 'UC_B', reason: '취소' }))
+    await drive(w, running)
+    // 16번 감사는 이제 취소된 효과다 — 공개 채팅에 "김철수님 구매 감사합니다"가 올라가면 안 된다
+    expect(w.fake.posted.map((post) => post.text)).not.toContain('16번 라울 5,000원 김철수님 구매 감사합니다')
+    const list = await rows(w, c, b.date)
+    expect(list.find((row) => row.buyer === 'UC_B')?.state).toBe('SKIPPED')
+  }, 60_000)
+})
+
+describe('발송함 — 공개 문구 (AC-Y1-22·33)', () => {
+  it('TD-Y1-002(회귀): 줄바꿈·멘션·주소·방향 바꾸기가 든 닉네임과 줄바꿈 든 품종 → 게시 글은 한 줄, @·주소 점이 없다', async () => {
+    w = await world()
+    const c = await connect(w, { publish: 'LIVE_CHAT' })
+    const { b } = await linked(w, c, { settings: { ...NO_LABEL, 'thanks.batchWindowSec': 0 } })
+    await product(w, c, b.id, 15, '핑크\n프릴', 10000)
+    await chat(w, c, b.id, 'n1', 'UC_N', '@everyone\n‮bit.ly/free 무료', '15')
+    await drive(w, outbox(w).runOnce())
+    const texts = w.fake.posted.map((post) => post.text)
+    expect(texts).toHaveLength(1)
+    const text = texts[0] ?? ''
+    expect(text).not.toMatch(/[\n\r@＠.]/)
+    expect(text).not.toContain('‮')
+    expect(text).toBe('15번 핑크 프릴 10,000원 everyone bit·ly/free 무료님 구매 감사합니다')
+  }, 60_000)
+})
+
+describe('발송함 — 두 번 게시 없음 (AC-Y1-36·38·39)', () => {
+  it('TD-Y1-003(회귀): 묶음 메시지를 유튜브가 받고 응답이 없을 때(수집기 없음) 확인으로 SENT — 같은 묶음 글은 1개, 보고는 효과마다 1개', async () => {
+    w = await world()
+    const c = await connect(w, { publish: 'LIVE_CHAT' })
+    const { b, liveChatId } = await linked(w, c, { settings: { ...NO_LABEL, 'thanks.batchWindowSec': 10 } })
+    await product(w, c, b.id, 15, '핑크프릴', 10000)
+    await product(w, c, b.id, 16, '라울', 5000)
+    await chat(w, c, b.id, 'a1', 'UC_A', '홍길동', '15')
+    await chat(w, c, b.id, 'a2', 'UC_B', '김철수', '16')
+    await outbox(w).runOnce()
+    await w.timer.advance(10_000)
+    w.fake.fail('liveChatMessages.insert', { kind: 'acceptHang' })
+    await drive(w, outbox(w).runOnce())
+    await drive(w, outbox(w).runOnce())
+    await drive(w, outbox(w).runOnce())
+    const batch = '15번 핑크프릴 10,000원 홍길동님, 16번 라울 5,000원 김철수님 구매 감사합니다'
+    expect(w.fake.messages(liveChatId).filter((message) => message.text === batch)).toHaveLength(1)
+    const list = await rows(w, c, b.date)
+    expect(list.map((row) => row.state)).toEqual(['SENT', 'SENT'])
+    expect((await eventTypes(w)).filter((type) => type === 'effect.thanksSent')).toHaveLength(2)
+  }, 60_000)
+})
+
+describe('발송함 — 동의를 끈 뒤에는 자동으로 게시하지 않는다 (AC-Y1-31, D-Y12)', () => {
+  it('TD-Y1-007: 게시 요청이 응답 없이 확인 중(SENDING)일 때 판매자가 실시간 채팅 동의를 끄면, 확인 실패 뒤 다시 시도로 게시하지 않는다(NO_CONSENT)', async () => {
+    w = await world()
+    const c = await connect(w, { publish: 'LIVE_CHAT' })
+    const { b } = await linked(w, c, { settings: { ...NO_LABEL, 'thanks.batchWindowSec': 0 } })
+    await product(w, c, b.id, 15, '핑크프릴', 10000)
+    await chat(w, c, b.id, 'k1', 'UC_A', '홍길동', '15')
+    // 유튜브가 받지 않고 응답도 없다 → 타임아웃 → 확인 중
+    w.fake.fail('liveChatMessages.insert', { kind: 'hang' })
+    await drive(w, outbox(w).runOnce())
+    expect((await rows(w, c, b.date))[0]?.state).toBe('SENDING')
+    // 판매자가 자동 게시 동의를 끈다
+    const off = await api(w.server, c.seller.cookie).put('/api/youtube/consent', { target: 'LIVE_CHAT', enabled: false })
+    expect(off.status, off.text).toBe(200)
+    // 확인 시간(30초)이 지나고 다시 시도 시각이 와도 게시하지 않는다
+    for (let i = 0; i < 30; i++) {
+      await w.timer.advance(2000)
+      await drive(w, outbox(w).runOnce())
+    }
+    expect(w.fake.posted).toEqual([])
+    const row = (await rows(w, c, b.date))[0]
+    expect([row?.state, row?.reason]).toEqual(['FAILED', 'NO_CONSENT'])
+  }, 60_000)
+})
+
+describe('연결 — 같은 채널로 다시 연결 (AC-Y1-04·05·31)', () => {
+  it('TD-Y1-008: 게시 동의를 켠 판매자가 "다시 연결 필요" 뒤 같은 채널로 다시 연결하면, 동의가 켜져 보이는데 게시 권한이 없는 상태가 되지 않는다', async () => {
+    w = await world()
+    const c = await connect(w, { publish: 'LIVE_CHAT' })
+    await linked(w, c, { settings: NO_LABEL })
+    // 사용자가 구글에서 권한을 거둠 → 다음 새로 고침이 invalid_grant → 다시 연결 필요
+    w.fake.revokeAll()
+    await w.timer.advance(3_600_000)
+    await drive(w, outbox(w).runOnce())
+    const client = api(w.server, c.seller.cookie)
+    await client.get('/api/youtube/live-broadcasts')
+    expect(((await client.get('/api/youtube/connection')).body.connection as { status: string }).status).toBe('RECONNECT_NEEDED')
+    // 연결 화면의 "다시 연결" (같은 채널)
+    w.fake.approval = { account: c.account, channel: c.channel.id }
+    const started = await client.post('/api/youtube/connection/start', {})
+    expect(await callback(w.server, c.seller.cookie, await approve(started.body.authorizeUrl as string))).toBe('connected')
+    const connection = (await client.get('/api/youtube/connection')).body.connection as { status: string; permissions: { publish: boolean }; consent: { liveChat: { enabled: boolean } } }
+    expect(connection.status).toBe('CONNECTED')
+    // 동의가 켜져 보이면 게시 권한도 있어야 한다 (권한 없이 켜진 동의 = 모든 감사가 조용히 NO_PERMISSION)
+    expect(connection.consent.liveChat.enabled && !connection.permissions.publish).toBe(false)
+  }, 60_000)
+})

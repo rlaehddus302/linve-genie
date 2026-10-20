@@ -8,14 +8,16 @@
 
 | 경로 | 내용 |
 |---|---|
-| `parser/chat.yaml` | 채팅 메시지 → 주문/취소/언급 (R-3) |
+| `parser/chat.yaml` | 채팅 메시지 → 주문/취소/언급 (R-3). Y1 보강: 발송함이 게시하는 감사 문구(한 건·묶음)는 STRICT에서 주문이 아니다(D-Y04·D-Y07) |
 | `parser/amount.yaml` | 한글·숫자 금액 → 원 (빠른 입력·음성 공용), 한글 수사 → 정수 |
 | `parser/quick-input.yaml` | 빠른 입력 한 줄 → 번호·품종·가격 |
-| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13). `08-time.yaml`은 시각 해석(D-022, D-023), `09-host-and-product.yaml`은 방송자 조치·상품 명령 세부(S02, D-039~D-043·D-049). S03 보강: `10-sms.yaml` 문자찜 구매자(D-051), `11-received-time.yaml` 실제 시각순·역전·충돌·메시지 변환(D-052~D-054), `12-product-edit.yaml` 상품 수정·번호 변경(D-055·D-056), `13-merge-settlement.yaml` 구매자 합치기·정산(D-057·D-058). S03b 보강: `14-core-cleanup.yaml` 전화번호 키·문자찜 재전송·메시지 변환·시청자 취소·충돌 중 배정·확정버전 순서·충돌이 풀릴 때 대기 넘침(D-061~D-068). S04 보강: `15-broadcast.yaml` 방송 시작·종료와 방송마다의 설정 스냅샷(D-069·D-070), `16-s04-rules.yaml` 취소 메시지 변환 금지·대기 한도 0의 승계 묻기(D-076·D-077), S04 마무리 G-ENG-166 전화번호가 아닌 숫자는 받는다(D-079·D-080). S05 보강: `17-s05-console.yaml` 라이브 콘솔이 기대는 동작 — 등록 되돌리기(판매 종료)·5초 뒤 보낸 방송자 조치(D-083, 새 규칙 없음). S06 보강: `18-s06-sms-buyers-settlement.yaml` 문자찜 입력·구매자·정산 화면이 기대는 동작 — 수신 시각 기본값(초까지)·지정 구매자·끝난 방송의 늦은 문자찜·합치기가 막히는 경우와 중복·입금 바로잡기·떼어 내기가 막히는 경우·배송비 예외와 조정(D-089~D-092, 새 규칙 없음). S06b 보강: `19-s06b-merge-preview.yaml` 합치기 미리 보기(코어 `previewMerge`, 새 검사 키 `mergePreviews`)가 R-11과 같은 답 — 막히는 다섯 경우·옮길 찜·합친 뒤 합계·중복 정리 순서(D-100), `20-s06b-sms-buyer-payment.yaml` 뒤 4자리만 같은 두 문자 구매자에서 문자찜이 정한 구매자(D-099)·입금이 아닌 기록이 바꾸는 입금 상태(D-101) (새 규칙 없음). I1 보강: `21-i1-labels.yaml` 라벨·출력 화면 통합이 기대는 동작 — 라벨 키 = (찜, 확정버전)·출력 보고 잠금·품종·가격 변경은 효과 없음·재고 2의 라벨 키·방송마다의 자동 출력·포장 라벨 효과 없음·합치기는 라벨을 폐기하지 않음(D-I1-02·D-I1-04, 새 규칙 없음). N5 보강: `22-n5-billing.yaml` 요금(주문 건권)이 기대는 확정 횟수 — 승계·취소로 줄지 않음·재고 2·등록만·판매 종료·번호 변경·같은 날 다른 방송·끝낸 방송의 늦은 문자찜·합치기(새 검사 키 `products.<p>.confirmVersion`, D-N5-05·D-N5-14, 새 규칙 없음) |
+| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13). `08-time.yaml`은 시각 해석(D-022, D-023), `09-host-and-product.yaml`은 방송자 조치·상품 명령 세부(S02, D-039~D-043·D-049). S03 보강: `10-sms.yaml` 문자찜 구매자(D-051), `11-received-time.yaml` 실제 시각순·역전·충돌·메시지 변환(D-052~D-054), `12-product-edit.yaml` 상품 수정·번호 변경(D-055·D-056), `13-merge-settlement.yaml` 구매자 합치기·정산(D-057·D-058). S03b 보강: `14-core-cleanup.yaml` 전화번호 키·문자찜 재전송·메시지 변환·시청자 취소·충돌 중 배정·확정버전 순서·충돌이 풀릴 때 대기 넘침(D-061~D-068). S04 보강: `15-broadcast.yaml` 방송 시작·종료와 방송마다의 설정 스냅샷(D-069·D-070), `16-s04-rules.yaml` 취소 메시지 변환 금지·대기 한도 0의 승계 묻기(D-076·D-077), S04 마무리 G-ENG-166 전화번호가 아닌 숫자는 받는다(D-079·D-080). S05 보강: `17-s05-console.yaml` 라이브 콘솔이 기대는 동작 — 등록 되돌리기(판매 종료)·5초 뒤 보낸 방송자 조치(D-083, 새 규칙 없음). S06 보강: `18-s06-sms-buyers-settlement.yaml` 문자찜 입력·구매자·정산 화면이 기대는 동작 — 수신 시각 기본값(초까지)·지정 구매자·끝난 방송의 늦은 문자찜·합치기가 막히는 경우와 중복·입금 바로잡기·떼어 내기가 막히는 경우·배송비 예외와 조정(D-089~D-092, 새 규칙 없음). S06b 보강: `19-s06b-merge-preview.yaml` 합치기 미리 보기(코어 `previewMerge`, 새 검사 키 `mergePreviews`)가 R-11과 같은 답 — 막히는 다섯 경우·옮길 찜·합친 뒤 합계·중복 정리 순서(D-100), `20-s06b-sms-buyer-payment.yaml` 뒤 4자리만 같은 두 문자 구매자에서 문자찜이 정한 구매자(D-099)·입금이 아닌 기록이 바꾸는 입금 상태(D-101) (새 규칙 없음). I1 보강: `21-i1-labels.yaml` 라벨·출력 화면 통합이 기대는 동작 — 라벨 키 = (찜, 확정버전)·출력 보고 잠금·품종·가격 변경은 효과 없음·재고 2의 라벨 키·방송마다의 자동 출력·포장 라벨 효과 없음·합치기는 라벨을 폐기하지 않음(D-I1-02·D-I1-04, 새 규칙 없음). Y1 보강(병렬 트랙 — 번호는 G-ENG-401부터): `19-y1-youtube.yaml` 유튜브 서버가 기대는 동작 — 묶음 감사의 효과마다 게시 보고·영상 댓글 보고도 잠금·게시 직전 취소된 효과, 끊겼다 이어받은 채팅의 접수순 판정과 겹친 사본(D-Y04·D-Y06·D-Y07, 새 규칙 없음). I3 보강(번호는 G-ENG-701부터 — 러너 형식이 `G-ENG-` + 세 자리라 `G-ENG-I3-…`은 쓰지 않는다, D-I3-18): `22-i3-settings.yaml` 설정 화면·시작 마법사가 기대는 동작 — 감사 메시지(`thanks.liveChat`·`thanks.videoComment`)·대기·승계·자동 출력·배송비를 바꾸고 같은 날 2부를 시작해도 1부 상품은 1부 스냅샷으로 판정·효과, 그날 배송비는 첫 방송 것(D-070·D-I3-08, 새 규칙 없음). N5 보강: `22-n5-billing.yaml` 요금(주문 건권)이 기대는 확정 횟수 — 승계·취소로 줄지 않음·재고 2·등록만·판매 종료·번호 변경·같은 날 다른 방송·끝낸 방송의 늦은 문자찜·합치기(새 검사 키 `products.<p>.confirmVersion`, D-N5-05·D-N5-14, 새 규칙 없음) |
 | `parser/voice-extract.yaml` | 음성 문장 하나 → 번호·품종·가격·신뢰도 (R-17, P2 — D-202·D-203·D-209, I4 보강 — 끊어 말한 번호 D-I4-01). 추출기는 `packages/voice`에 있고 이 러너가 부른다 |
 | `known-unimplemented.yaml` | **예약 파일.** 알려진 미구현 허용 목록 (D-020). 골든 시나리오가 아니다 |
 | `billing/*.json` | 요금 — 상태(정액제 기간 사슬·정량 잔량·새 실제 방송의 이용 방식·7일 환불 가능)·결제 확인 판단·부가세 나누기·사업자등록번호 읽기 (BILLING_RULES BL-2·BL-3·BL-4·BL-6·BL-7·BL-8, N5, D-N5-01). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "요금 골든" |
 | `label/*.json` | 라벨 글·쪽 나누기·크기 (LABEL_RULES L-1~L-5, P1, D-P1-01). **JSON이라 코어 골든 러너는 읽지 않는다**(`*.yaml`만 읽는다). `packages/label` 단위 테스트가 읽는다 — 아래 "라벨 골든" |
+| `printer/*.json` | 프린터 작업 바이트·기기 이름으로 고르기·프로필 표·바로 연결할 수 없는 브라우저의 까닭 (LABEL_RULES L-7·L-12, N1 — D-N1-01·09). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/printer` 단위 테스트가 읽는다 — 아래 "프린터 골든" |
+| `tiktok/*.json` | 틱톡 아이디·방송 주소 해석, 웹캐스트 댓글 → 공통 댓글 레코드·중복 제거 (PLT-02, N2b-1, D-N2b-1-02~04). **JSON이라 코어 골든 러너는 읽지 않는다**. `apps/server` 시험이 읽는다 — 아래 "틱톡 골든" |
 
 ## 러너가 읽는 범위 (D-020, D-021)
 
@@ -178,7 +180,7 @@ expect:
   - **글 칸**: `sms`의 `ref`·`memo`, `settlement.payment`의 `memo`, 모든 사유(`reason` — `host.*`·`buyer.*`·`settlement.adjust`·`settlement.refund`), `broadcast.start`의 `title`, `product.register`·`product.update`의 `name`. 숫자 덩어리(이어 적은 숫자, 전각은 반각) 사이에 구분자(공백·문장 부호·기호·이모지·보이지 않는 글자, 한글 자모 `ㅡ`·`ㅣ`·`ㆍ`)만 있으면 이어진 배열이다. (가) 덩어리 하나가 `01X`(X는 `0`·`1`·`6`·`7`·`8`·`9`)로 시작하는 10~11자리 전체이거나, (나) `01X` 세 자리 덩어리 바로 뒤에 이어진 덩어리들을 붙여 정확히 7~8자리가 되는 곳이 있으면 번호다. 읽기 오류: `"010-1234-5678"`, `"김영희 010 1234 5678"`, `"01012345678"`, `"3시,010,1234,5678"`, `"010-1234-5678 2개"`, `"3시 010ㅡ1234ㅡ5678"`, `"０１０-１２３４-５６７８"`, `ref` `"s01012345678"`. 받는다: `"01/05 3개 25,000원"`, `"01/05 구피 30종 1000원"`, `"1234-5678"`(`010`을 뺀 8자리), `"3시 15번 2개"`, `"101동 1203호"`, `"r-20261018-0001"`, `"+82 10-1234-5678"`(국가 번호 표기) — G-ENG-166.
   - **ID 칸**: `buyer`(`host.*`·`sms`·`settlement.*` — 효과 보고 `effect.*`의 `buyer`는 빼고: 엔진에는 효과 ID로 넘긴다), `buyer.merge`의 `from`·`into`, `buyer.unmerge`의 `from`, `host.assign`의 `replace`, `host.convertMessage`의 `msg`. 값 전체가 숫자와 구분자(위와 같다)로만 되어 있고 코어 `normalizePhone`의 결과가 있으면 읽기 오류다(`"010-5151-6161"`, `"01051516162"`, `"010 5151 6163"`). 영문 같은 글자가 하나라도 섞인 키(`UC_A`, `sms:s1`, `"UC01012345678abcdEFGH_-"`)는 받는다 — G-ENG-166.
   - 시청자 쪽 값(`chat`의 `id`·`ch`·`nick`·`text`)과 `phone`은 이 검사를 하지 않는다.
-- R-1의 나머지(`effect.failed`, 포장·배송 상태)는 처음 쓰는 스프린트에서 spec-keeper가 이 표에 추가한다. (`host.assign`·`host.reopen`·`host.dismissCancel`은 S02에서, `broadcast.start`·`broadcast.end`는 S04에서 추가 — D-041~D-043, D-070)
+- R-1의 나머지(포장·배송 상태)는 처음 쓰는 스프린트에서 spec-keeper가 이 표에 추가한다. `effect.failed`는 쓰지 않는다(게시 실패는 발송함 상태로만, D-Y01) — 골든에 적으면 읽기 오류다. (`host.assign`·`host.reopen`·`host.dismissCancel`은 S02에서, `broadcast.start`·`broadcast.end`는 S04에서 추가 — D-041~D-043, D-070)
 - **이벤트 안의 구매자 키** (S03, D-057): `buyer.merge`의 `from`·`into`, `buyer.unmerge`의 `from`은 그 키의 구매자 자신(합치기 전)을 가리킨다. 그 밖의 이벤트(`host.*`의 `buyer`·`replace`, `sms`의 `buyer`, `settlement.*`의 `buyer`)도 그 키의 구매자 자신으로 엔진에 넘기고, 엔진이 지금의 구매자(합친 결과)로 풀어 판정·대상 찾기를 한다. `sms:<ref>`는 그 `ref`의 문자찜이 정한 구매자다(지정 구매자, 같은 전화번호로 이어진 구매자, 새 문자 구매자 — DOMAIN_RULES R-11). 키를 구매자 ID로 바꾸는 일은 코어 어댑터가 한다. 이벤트 전체가 아무 일도 없었던 문자찜(모르는 지정 구매자)의 `sms:<ref>`는 풀리지 않는다. 같은 `ref`의 재전송 사본이 있으면 `sms:<ref>`는 그 `ref`의 처음 문자찜으로 정한다(사본은 아무것도 바꾸지 않는다, D-067).
 - 효과 보고(`effect.labelPrinted` / `effect.thanksSent`)는 그 (상품, 구매자[, 대상])의 가장 최근에 나온, 취소되지 않은 해당 효과의 실행 완료로 본다. 상품 키는 효과가 나온 때의 키, 구매자는 지금의 구매자로 풀어 비교한다(S03). 그런 효과가 없으면 러너 오류. 엔진에는 그 효과의 ID로 넘긴다(R-13 "효과 보고" — 바꾸는 일은 코어 어댑터가 한다). 이미 실행 완료된 효과도 "취소되지 않은" 효과이므로 같은 보고를 두 번 적을 수 있다(두 번째는 아무 일도 없어야 한다, INV-11).
 
@@ -236,17 +238,62 @@ expect:
 
 - **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. `packages/label`의 단위 테스트가 이 폴더의 모든 `*.json`을 읽어 라벨 패키지의 순수 함수(글 계산 — L-0 2)로 돌리고 `out`과 비교한다(`pnpm test` 단계). 그 테스트는 파일 수와 사례 수 합계를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다.
 - **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `product`·`packing`·`size`. 모르는 키·모르는 `kind`는 테스트 실패(읽기 오류)다. 보이지 않는 글자는 `\uXXXX`로 적는다.
-- **사례 공통 키**: `id`(`G-LBL-` + 세 자리, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `out`.
+- **사례 공통 키**: `id`(`G-LBL-` + 세 자리, 또는 병렬 스프린트가 더한 `G-LBL-<스프린트>-` + 두 자리 — 예 `G-LBL-N1-01`. 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `out`.
 - `out`이 `{ "error": <코드> }`면 그 사례는 그 오류여야 하고 라벨(글·그림)을 만들지 않아야 한다. 코드: `INVALID_DATA`(라벨 데이터 형식 위반 — L-3·L-4 표 밖의 칸 포함), `INVALID_TEMPLATE`(템플릿 검사 위반 — L-5).
 
 | `kind` | 사례 키 | `out` (오류가 아닐 때) |
 |---|---|---|
-| `product` | `data`(L-3 라벨 데이터 그대로), 선택 `template` = 기본 템플릿(50×30 상품)에 덮어쓸 값: `shopName`(문자열), `priceStyle`(`THOUSAND`/`WON`), `visible`(항목 ID → 불리언) | `{ "items": { 항목 ID: 값 } }` — 찍는 항목만, 정확히 같은 키 집합. 값은 L-3 "값" 열의 글(캡션·머리글 꾸밈 `-…-` 빼고, 다듬은 뒤, 그리기 전 — 글꼴에 없는 글자도 그대로) |
-| `packing` | `data`(L-4 라벨 데이터 그대로), 선택 `template` = 기본 템플릿(50×30 포장)에 덮어쓸 값: `shopName`, `perPage`(정수), `visible` | `{ "common": { 항목 ID: 값 }, "pages": [ { "page": "k/n", "broadcast"?: 제목, "numbers": [정수…] } ] }` — `common`은 `shop`·`date`·`buyer`·`count`·`subtotal` 중 찍는 것만(정확히 같은 키 집합), `pages`는 쪽 순서대로 정확히 같다. `broadcast`는 방송이 둘 이상일 때만 있다 |
-| `size` | `size`(`"<폭>x<높이>"` mm) | `{ "width", "height", "a4PerPage", "default" }` — 그 크기의 기본 템플릿(상품)으로 만든 그림의 점 수, A4 모아찍기 한 장의 라벨 수(L-6), 기본 크기인지. 목록 밖 크기는 `INVALID_TEMPLATE` |
+| `product` | `data`(L-3 라벨 데이터 그대로), 선택 `template` = 기본 템플릿(50×30 상품)에 덮어쓸 값: `size`(L-1 크기 ID — N1), `shopName`(문자열), `priceStyle`(`THOUSAND`/`WON`), `visible`(항목 ID → 불리언) | `{ "items": { 항목 ID: 값 } }` — 찍는 항목만, 정확히 같은 키 집합. 값은 L-3 "값" 열의 글(캡션·머리글 꾸밈 `-…-` 빼고, 다듬은 뒤, 그리기 전 — 글꼴에 없는 글자도 그대로) |
+| `packing` | `data`(L-4 라벨 데이터 그대로), 선택 `template` = 기본 템플릿(50×30 포장)에 덮어쓸 값: `size`(L-1 크기 ID — N1), `shopName`, `perPage`(정수), `visible` | `{ "common": { 항목 ID: 값 }, "pages": [ { "page": "k/n", "broadcast"?: 제목, "numbers": [정수…] } ] }` — `common`은 `shop`·`date`·`buyer`·`count`·`subtotal` 중 찍는 것만(정확히 같은 키 집합), `pages`는 쪽 순서대로 정확히 같다. `broadcast`는 방송이 둘 이상일 때만 있다 |
+| `size` | `size`(L-1 크기 ID — `"<폭>x<높이>"` mm 또는 테이프 `"tape<테이프 폭>x<길이>"` — N1) | `{ "width", "height", "a4PerPage", "default" }` — 그 크기의 기본 템플릿(상품)으로 만든 그림의 점 수, A4 모아찍기 한 장의 라벨 수(L-6), 기본 크기인지. 목록 밖 크기는 `INVALID_TEMPLATE` |
 
 - 기본 템플릿의 값: 크기 50×30, `shopName` 빈 글, `priceStyle` `THOUSAND`, 포장 `perPage` 10, 모든 항목 켬. `visible`에 없는 항목은 기본(켬) 그대로다.
+- **`size` 덮어쓰기 (N1, D-N1-03)**: `template.size`가 있으면 그 크기의 기본 템플릿(상품 또는 포장)에서 시작해 나머지 값(`shopName`·`priceStyle`·`perPage`·`visible`)을 덮어쓴다. 작은 크기(50×15·테이프 세 가지)의 기본 상품 템플릿은 `shop`·`date`·`name`이 꺼져 있다(L-5). 포장 템플릿이 없는 크기(작은 크기)를 포장 사례의 `size`로 주면, 50×30 기본 포장 템플릿의 `size`만 그 크기로 바꾼 템플릿을 검사해 `INVALID_TEMPLATE`이어야 한다(테스트가 지어내는 템플릿이 하나로 정해지게).
+- 파일(N1 뒤): `product.json`(상품 50) · `product-sized.json`(크기를 고른 상품 18 — N1) · `packing.json`(포장 29 + N1 5) · `sizes.json`(크기 4 + N1 8) — 파일 4 · 사례 114. 테스트는 이 수를 고정값으로 단언한다.
 - 항목 ID: 상품 `shop`·`number`·`price`·`date`·`name`·`buyer`, 포장 `shop`·`date`·`buyer`·`page`·`broadcast`·`count`·`subtotal`·`numbers` (L-3·L-4 표).
+
+## 프린터 골든 (`printer/*.json`, N1 — D-N1-01·09)
+
+프린터 패키지가 프린터로 보내는 **바이트**, 블루투스 기기 **이름으로 프로필 고르기**, **프로필 표**, **바로 연결할 수 없는 브라우저의 까닭**을 고정한다. 규칙 문장은 `docs/spec/LABEL_RULES.md` L-7·L-12다.
+
+- **누가 읽나**: 코어 골든 러너는 읽지 않는다(`*.yaml`만). `packages/printer` 단위 테스트가 이 폴더의 모든 `*.json`을 읽어 프린터 패키지의 순수 함수(작업 바이트 만들기·이름으로 고르기·프로필 목록·까닭 판단)로 돌리고 `out`과 비교한다(`pnpm test` 단계). 파일 수·사례 수 합계를 고정값으로 단언한다 — 지금 파일 4(`browser.json` 15 · `job.json` 34 · `name.json` 27 · `profile.json` 11) · 사례 87(N1 감사 뒤 `name` 3사례 G-PRT-N1-76~78을 더함 — D-N1-11, 기존 사례는 그대로).
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `job`·`name`·`profile`·`browser`. 모르는 키·모르는 `kind`·겹친 `id`는 테스트 실패(읽기 오류)다.
+- **사례 공통 키**: `id`(`G-PRT-N1-` + 두 자리, 이 폴더 전체에서 유일 — 다음 스프린트는 `G-PRT-<스프린트>-`), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `out`.
+
+| `kind` | 사례 키 | `out` |
+|---|---|---|
+| `job` | `profile`(프로필 ID), `image`(아래 그림), 선택 `options` = `{ "density": 수 }` | 성공 `{ "bytes": [조각…] }` — 만든 바이트가 조각을 차례로 이어 붙인 것과 **처음부터 끝까지** 같아야 한다(앞뒤에 남는 바이트 없음). 실패 `{ "error": 코드 }` — 코드 ∈ `IMAGE_TOO_WIDE`·`INVALID_DENSITY`·`PRINT_FAILED`, 바이트를 만들지 않는다 |
+| `name` | `name`(기기 이름 글 — 그대로 넘긴다. 앞뒤 공백도 지우지 않는다) | `{ "profile": 프로필 ID 또는 null }` — 목록은 Marklife 9종 + 바우아토(실험적) 전부 |
+| `profile` | `profile`(프로필 ID) | 그 프로필의 칸 `maker`·`displayName`·`protocol`·`dpi`·`headDots`·`rotate`·`sizes`·`defaultSize`·`density`(`{ min, max, default }` 또는 null)·`experimental`·`fallbackApp`·`namePrefix`(글 또는 null)와 깊은 같음(이 열두 칸이 모두 있어야 한다) |
+| `browser` | `ua`(사용자 에이전트 글), 선택 `maxTouchPoints`(정수, 없으면 0) | `{ "reason": 까닭 }` — 까닭 ∈ `IOS`·`IN_APP`·`OTHER` |
+
+**그림** (`image`): `{ "width", "height", "rows" }` — `rows`는 줄마다 16진 글 하나(공백 허용), 한 줄 = `ceil(width/8)`바이트(L-1 형식: 왼쪽 점이 높은 비트, 1 = 검정). 폭 밖의 남는 비트는 아무 값이어도 점이 아니다 — 보내는 줄의 남는 비트는 늘 0이다(L-12 2). 또는 `{ "width", "height", "fill" }` — `width`는 8의 배수, `fill` ∈ `white`(모두 흰색)·`black`(모두 검정)·`border`(맨 위·맨 아래 줄과 맨 왼쪽·맨 오른쪽 열만 검정).
+
+**조각** (`out.bytes`의 원소):
+- 16진 글(공백 허용) — 그 바이트 그대로.
+- `{ "yxqRaster": { "widthBytes", "height", "rows" | "fill" } }` — `1F 10` + `widthBytes`(BE16) + `height`(BE16) + 압축 길이 L(BE32) + 압축 바이트 L개. 압축 바이트는 ① 첫 바이트(CMF)가 `28`(deflate, 창 1KiB), ② (CMF×256 + FLG)가 31의 배수이고 사전 비트(FDICT)가 0, ③ 창 1KiB(windowBits 10)로 풀면 오류 없이 `rows`(또는 `fill`을 `widthBytes×8`×`height` 그림으로 만든 줄)를 이어 붙인 바이트와 정확히 같고, ④ 풀기가 L바이트에서 정확히 끝난다(Adler-32 포함). 압축 바이트 자체는 비교하지 않는다(D-N1-09 — 압축기마다 다르다. 같은 그림이면 같은 바이트인지는 AC-N1-20).
+- `{ "rawRaster": { "widthBytes", "height", "rows" | "fill" } }` — `1D 76 30 00` + `widthBytes`(LE16) + `height`(LE16) + 줄 바이트 그대로(`widthBytes × height`바이트, 길이 칸 없음).
+
+- 프로필 ID: `NIIMBOT_B1`, `MARKLIFE_P50`·`MARKLIFE_S2`·`MARKLIFE_X2`(YXQ), `MARKLIFE_P11`·`MARKLIFE_P12`·`MARKLIFE_P15`·`MARKLIFE_L13`·`MARKLIFE_LP90`·`MARKLIFE_LP15`(L11), `BAUATO_PPA2L`(실험적). `job` 사례에 `NIIMBOT_B1`은 쓰지 않는다(B1 바이트는 niimbluelib이 만든다 — L-7).
+- 열거값: `protocol` ∈ `NIIMBOT_B1`·`MARKLIFE_YXQ2`·`MARKLIFE_YXQ3`·`MARKLIFE_YXQ8`·`MARKLIFE_L11`, `rotate` ∈ `NONE`·`CW90`.
+
+## 틱톡 골든 (`tiktok/*.json`, N2b-1 — D-N2b-1-02~04·D-N2b-1-07)
+
+틱톡 연결 모듈(`apps/server/src/tiktok/**`)의 두 해석기를 고정한다: 판매자가 넣은 **틱톡 아이디·방송 주소 한 줄 → 연결할 아이디**, **웹캐스트 댓글 → 공통 댓글 레코드(또는 버림)**. 연결·다시 연결·상태 문장은 시계에 기대므로 골든이 아니라 수용 기준(`harness/sprints/N2b-1/acceptance.md`)의 통합 시험으로 본다.
+
+- **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. `apps/server`의 시험이 이 폴더의 모든 `*.json`을 읽어 틱톡 모듈의 순수 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 그 시험은 파일 수와 사례 수 합계를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다.
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `target`·`comment`. 모르는 키·모르는 `kind`는 시험 실패(읽기 오류)다. 보이지 않는 글자는 `\uXXXX`로 적는다.
+- **사례 공통 키**: `id`(`G-TTK-` + 스프린트 + `-` + 두 자리 이상 숫자, 예 `G-TTK-N2b-1-01`, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `out`.
+
+| `kind` | 사례 키 | `out` |
+|---|---|---|
+| `target` | `in`(문자열 — 판매자가 넣은 한 줄 그대로) | 성공 `{ "uniqueId": 아이디 }`, 실패 `{ "error": 코드 }` — 정확히 한 키. 코드: `EMPTY`(비었음)·`INVALID`(아이디·틱톡 주소가 아님)·`SHORT_LINK`(짧은 공유 주소 — 열어 보지 않는다). 해석 규칙은 D-N2b-1-02와 파일의 `about` |
+| `comment` | `target`(연결한 아이디 — `target` 해석이 돌려준 모양), `events`(1개 이상: `{ "receivedAt", "raw" }`) | `events`와 같은 길이의 목록. 항목마다 `{ "record": 레코드 }` 또는 `{ "drop": 코드 }` |
+
+- `comment` 사례는 사례마다 `target`으로 **새 거르개**(중복 기억이 빈 것)를 만들고 `events`를 순서대로 넣는다. `receivedAt`은 오프셋 `Z`가 붙은 ISO 8601(밀리초까지) — 시험이 `new Date(receivedAt)`로 바꿔 넘긴다. `raw`는 라이브러리 `chat` 이벤트에서 꺼낸 값을 흉내 낸 객체로, 키는 `msgId`·`userId`·`uniqueId`·`nickname`·`comment`·`createTime`만 쓸 수 있다(모두 선택, 값은 아무 JSON 값 — 틀린 형식이 버림 사례다). 키가 없는 것과 `null`은 둘 다 "값 없음"이다.
+- 레코드 = 정확히 일곱 키 `{ "platform": "TIKTOK", "commentId", "userId", "nickname", "text", "receivedAt", "owner" }`. `commentId`·`userId`는 0으로 시작하지 않는 양의 10진 문자열(1~32자리), `receivedAt`은 `toISOString()` 모양(UTC, 밀리초), `owner`는 불리언.
+- 버림 코드(이 순서로 검사, 처음 걸린 것): `BAD_COMMENT_ID`·`BAD_USER_ID`·`NO_TEXT`·`TEXT_TOO_LONG`·`DUPLICATE`. 버린 댓글의 ID는 중복 기억에 넣지 않는다.
+- JSON 숫자는 읽는 순간 double이 된다 — 2^53을 넘는 숫자 ID가 안전 정수가 아니어서 버려지는 것도 골든이 고정한다(G-TTK-N2b-1-44). `bigint`와 라이브러리의 64비트 정수 객체는 JSON으로 적을 수 없어 서버 단위 시험(AC-N2b-1-21)이 본다. 2,000자를 넘는 `target` 입력도 단위 시험이 본다.
 
 ## 요금 골든 (`billing/*.json`, N5 — D-N5-01)
 

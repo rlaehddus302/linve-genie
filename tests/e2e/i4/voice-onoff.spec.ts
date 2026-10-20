@@ -24,11 +24,13 @@ import {
 test.describe('I4 음성 켜기·끄기', () => {
   test('AC-I4-10: 누르기 전에는 인식 객체·getUserMedia·이력 조회·음성 조각이 없고, 새로 고침·다른 화면에 다녀오면 꺼져 있다', async ({ page }) => {
     await installFakeSpeech(page)
-    const requests = recordRequests(page)
     const chunks = recordVoiceChunk(page)
     await login(page)
     const date = uniqueDate()
     const b = await openNewBroadcast(page, { date, rehearsal: true })
+    // 이력 조회(/api/days)는 콘솔을 연 뒤부터 센다 — 방송 목록(홈)은 봉인 예고를 보이려고 /api/days를 부른다(I3, AC-I3-40).
+    // openNewBroadcast는 콘솔 주소로 새로 열므로(page.goto) 홈의 요청은 그 전에 끝난다. 콘솔에서 누르기 전 0번·켠 뒤 1번은 그대로 본다.
+    const requests = recordRequests(page)
     const toggle = page.getByRole('button', { name: '음성 켜기', exact: true })
     await expect(toggle).toBeEnabled()
     // 화면이 자리를 잡을 시간 (상태로 기다릴 수 없는 "하지 않음" 확인 — 보드가 그려진 뒤)

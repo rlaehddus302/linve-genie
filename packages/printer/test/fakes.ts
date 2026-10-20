@@ -1,6 +1,7 @@
-// 시험용 가짜 niimbluelib 클라이언트·손으로 돌리는 타이머·인쇄 그림 풀기.
+// 시험용 가짜 niimbluelib 클라이언트·손으로 돌리는 타이머·인쇄 그림 풀기·Marklife 작업 바이트 풀기.
+import { inflateSync } from 'node:zlib'
 import type { EncodedImage } from '@mmote/niimbluelib'
-import { createBitmap, setPixel, type LabelBitmap } from '@livejjim/label'
+import { createBitmap, getPixel, setPixel, type LabelBitmap } from '@livejjim/label'
 import type { NiimbotClientLike, NiimbotPrintTaskLike, NiimbotTaskOptions, PrinterTimer } from '../src/index.ts'
 
 /** 손으로 돌리는 타이머 — 시각을 읽지 않는다 */
@@ -206,4 +207,67 @@ export function sampleImage(seed = 1, width = 384, height = 240): LabelBitmap {
   const image = createBitmap(width, height)
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if ((x * 7 + y * 13 + seed) % 11 === 0) setPixel(image, x, y, true)
   return image
+}
+
+/**
+ * 짧은 지연(autoBelowMs 미만 — 조각 사이 30ms 등)은 마이크로태스크로 바로 돌리고, 긴 지연(1초 크레딧 기다림·시간 초과·늦은 끝 알림)은
+ * 손으로 돌릴 때까지 붙잡아 두는 타이머. 어댑터 계약 묶음(contract.test.ts)이 Marklife 어댑터를 B1과 같은 시험으로 돌릴 때 쓴다 —
+ * 조각 간격의 정확한 시간은 marklife.test.ts가 ManualTimer로 따로 본다. 시각을 읽지 않는다.
+ */
+export class PacedTimer extends ManualTimer {
+  private readonly autoBelowMs: number
+  private readonly quick = new Map<number, boolean>()
+  private quickId = 1_000_000
+
+  constructor(autoBelowMs = 1000) {
+    super()
+    this.autoBelowMs = autoBelowMs
+  }
+
+  override setTimeout(fn: () => void, ms: number): unknown {
+    if (ms >= this.autoBelowMs) return super.setTimeout(fn, ms)
+    const id = this.quickId++
+    this.quick.set(id, true)
+    queueMicrotask(() => {
+      if (!this.quick.delete(id)) return
+      fn()
+    })
+    return id
+  }
+
+  override clearTimeout(handle: unknown): void {
+    if (typeof handle === 'number' && this.quick.delete(handle)) return
+    super.clearTimeout(handle)
+  }
+
+  override get pending(): number {
+    return super.pending + this.quick.size
+  }
+}
+
+/** Marklife 작업 바이트 → 받은 그림 (확인용 — YXQ는 node:zlib 창 10으로 풀고, CW90은 되돌린다). 폭이 8의 배수인 그림만 그대로 되돌린다 */
+export function decodeMarklifeJob(bytes: Uint8Array, profile: { readonly protocol: string; readonly rotate: string }): LabelBitmap {
+  let widthBytes: number
+  let height: number
+  let rows: Uint8Array
+  if (profile.protocol === 'MARKLIFE_L11') {
+    const at = 19
+    widthBytes = (bytes[at + 4] as number) | ((bytes[at + 5] as number) << 8)
+    height = (bytes[at + 6] as number) | ((bytes[at + 7] as number) << 8)
+    rows = bytes.slice(at + 8, at + 8 + widthBytes * height)
+  } else {
+    const at = profile.protocol === 'MARKLIFE_YXQ2' ? 8 : 21
+    widthBytes = ((bytes[at + 2] as number) << 8) | (bytes[at + 3] as number)
+    height = ((bytes[at + 4] as number) << 8) | (bytes[at + 5] as number)
+    const length = (((bytes[at + 6] as number) << 24) | ((bytes[at + 7] as number) << 16) | ((bytes[at + 8] as number) << 8) | (bytes[at + 9] as number)) >>> 0
+    rows = new Uint8Array(inflateSync(bytes.subarray(at + 10, at + 10 + length), { windowBits: 10 }))
+  }
+  const sent: LabelBitmap = { width: widthBytes * 8, height, data: rows }
+  if (profile.rotate !== 'CW90') return sent
+  // 보낸 그림 (rx, ry) = 받은 그림 (ry, H−1−rx) → 받은 그림 (x, y) = 보낸 그림 (H−1−y, x)
+  const W = height
+  const H = widthBytes * 8
+  const out = createBitmap(W, H)
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (getPixel(sent, H - 1 - y, x)) setPixel(out, x, y, true)
+  return out
 }

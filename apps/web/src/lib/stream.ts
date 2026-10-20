@@ -1,5 +1,6 @@
 // 실시간 연결 하나를 화면 전체가 함께 쓴다 (D-075·D-085, I1 AC-I1-15·23).
-// - 한 페이지에 SSE 연결은 하나다: 범위 저장소(콘솔·정산…)와 출력 기록(앱 전체 — 프린터 상태·알림·출력 기기)이 같은 연결의 알림을 나눠 받는다.
+// - 한 페이지에 SSE 연결은 하나다: 범위 저장소(콘솔·정산…)와 출력 기록(앱 전체 — 프린터 상태·알림·출력 기기), 유튜브 알림(설정·마법사·콘솔 유튜브 칸, I3)이
+//   같은 연결의 알림을 나눠 받는다.
 //   브라우저의 같은 주소 연결 수 상한(HTTP/1.1 여섯 개)을 실시간 연결이 다 쓰지 않게 한다.
 // - 연결은 이 기기의 기기 ID를 밝힌다(`?device=`) — 이 기기가 출력 기기면 다른 기기에 "연결됨/끊김"이 이것으로 보인다(L-11 10).
 // - 보는 쪽(view)마다 EventSource와 같은 모양을 준다. 늦게 붙은 쪽에는 지금까지 받은 범위별 seq로 ready를 한 번 다시 준다
@@ -16,7 +17,7 @@ export interface EventSourceLike {
 }
 
 /** 받는 알림 종류 (billing: 요금 알림 — 까닭만, N5 AC-N5-13) */
-export const STREAM_EVENTS = ['ready', 'change', 'generator', 'print', 'billing'] as const
+export const STREAM_EVENTS = ['ready', 'change', 'generator', 'print', 'youtube', 'billing'] as const
 
 const CLOSED = 2
 const OPEN = 1
