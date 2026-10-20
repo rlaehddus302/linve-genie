@@ -3,6 +3,9 @@
 // - 실시간: 페이지의 실시간 연결(lib/stream.ts)의 `print` 알림으로 바뀐 작업·라벨 키만 덮는다. 순서는 연결을 먼저 연 뒤 조회하고,
 //   조회보다 오래된 판(rev)의 알림은 버린다. 판이 둘 이상 뛰면(놓쳤을 수 있다) 조금 뒤 전체를 다시 받는다. 다시 붙으면(ready) 다시 받는다.
 // - 범위의 라벨 상태(GET /api/print/labels?date=)·포장 라벨(GET /api/print/packing)은 보는 화면이 있는 동안만 받는다.
+//   라벨 상태 응답에는 판이 없다 — 조회가 도는 사이 print 알림으로 받은 라벨 키는 응답보다 새것일 수 있으므로 응답 위에 다시 덮는다
+//   (느린 망에서 늦게 온 응답이 그사이 받은 "출력함"을 "출력 중"으로 되돌리지 않게, TE-I1-001). 알림의 라벨은 한 연결로 순서대로 오므로
+//   대기열 판과 상관없이 온 순서대로 덮는다.
 //   "재출력 필요"는 범위 기록(품종·가격·묶음 변경)으로도 바뀌고 그때는 print 알림이 없다 — 그 날짜의 change 알림이 오면 다시 받는다.
 // - 리허설 범위에는 라벨이 없다(D-I1-08) — 조회하지 않는다.
 import { get, isApiError, post, withQuery, type ApiError } from '../api/client.ts'
@@ -124,6 +127,11 @@ interface Watched<S> {
   reload: unknown
 }
 
+interface WatchedLabels extends Watched<LabelsSnapshot> {
+  /** 지금 도는 조회를 보낸 뒤 print 알림으로 받은 라벨 (라벨 키 → 상태). 조회가 돌지 않으면 null */
+  fresh: Map<string, LabelView> | null
+}
+
 const EMPTY_LABELS: LabelsSnapshot = { phase: 'loading', error: null, labels: new Map() }
 const EMPTY_PACKING: PackingSnapshot = { phase: 'loading', error: null, view: null }
 
@@ -142,7 +150,7 @@ export class PrintStore {
   #reconnect: unknown = undefined
   /** 처음 조회가 끝나기 전에 온 알림 */
   #buffer: QueueNotice[] = []
-  readonly #labels = new Map<string, Watched<LabelsSnapshot>>()
+  readonly #labels = new Map<string, WatchedLabels>()
   readonly #packing = new Map<string, Watched<PackingSnapshot> & { readonly date: string; readonly buyer: string }>()
 
   constructor(options: PrintStoreOptions) {
@@ -229,11 +237,10 @@ export class PrintStore {
       return
     }
     const overview = this.#snapshot.overview
-    if (overview === null) {
-      this.#buffer.push(notice)
-      return
-    }
-    this.#applyNotice(overview, notice)
+    if (overview === null) this.#buffer.push(notice)
+    else this.#applyNotice(overview, notice)
+    // 라벨은 대기열 판과 따로 덮는다 (오래된 판이라 대기열은 버려도, 라벨 상태 조회는 그보다 먼저였을 수 있다)
+    for (const label of notice.labels) this.#upsertLabel(label)
   }
 
   #applyNotice(overview: PrintOverview, notice: QueueNotice): void {
@@ -247,7 +254,6 @@ export class PrintStore {
         discard: mergeDiscardJobs(overview.discard, notice.jobs),
       },
     })
-    for (const label of notice.labels) this.#upsertLabel(label)
   }
 
   /** 서버 응답의 대기열 요약 (조치 뒤 바로 보이게 — 알림도 곧 온다) */
@@ -370,7 +376,7 @@ export class PrintStore {
   watchLabels(date: string, listener: () => void): () => void {
     let entry = this.#labels.get(date)
     if (entry === undefined) {
-      entry = { snapshot: EMPTY_LABELS, listeners: new Set(), count: 0, loading: false, again: false, reload: undefined }
+      entry = { snapshot: EMPTY_LABELS, listeners: new Set(), count: 0, loading: false, again: false, reload: undefined, fresh: null }
       this.#labels.set(date, entry)
       void this.#loadLabels(date)
     }
@@ -402,9 +408,14 @@ export class PrintStore {
     try {
       do {
         entry.again = false
+        const fresh = new Map<string, LabelView>()
+        entry.fresh = fresh
         try {
           const view = await get<{ date: string; labels: LabelView[] }>(withQuery('/api/print/labels', { date }))
-          entry.snapshot = { phase: 'ready', error: null, labels: new Map(view.labels.map((label) => [label.key, label])) }
+          const labels = new Map(view.labels.map((label) => [label.key, label]))
+          // 보낸 뒤 받은 알림의 라벨이 응답보다 새것이다 (응답에는 판이 없다)
+          for (const [key, label] of fresh) labels.set(key, label)
+          entry.snapshot = { phase: 'ready', error: null, labels }
         } catch (error) {
           if (!isApiError(error)) throw error
           if (error.status === 404) entry.snapshot = { phase: 'missing', error: null, labels: new Map() }
@@ -414,11 +425,13 @@ export class PrintStore {
       } while (entry.again && !this.#stopped && this.#labels.get(date) === entry)
     } finally {
       entry.loading = false
+      entry.fresh = null
     }
   }
 
   #upsertLabel(label: LabelView): void {
     const entry = this.#labels.get(label.date)
+    entry?.fresh?.set(label.key, label)
     if (entry !== undefined && entry.snapshot.phase === 'ready') {
       const labels = new Map(entry.snapshot.labels)
       labels.set(label.key, label)

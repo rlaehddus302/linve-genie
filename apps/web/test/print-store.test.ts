@@ -1,7 +1,7 @@
 // 출력 기록 저장소 (AC-I1-15·24·30, dev-notes "실시간"): 연결을 먼저 열고 조회, 오래된 판(rev)의 알림은 버리고, 판이 뛰면 다시 받는다.
 // 바뀐 작업만 덮는다(대기열 전체를 다시 받지 않는다). 라벨 상태는 보는 날짜만, 그 날짜의 change 알림이면 다시 받는다(재출력 필요).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { PrintOverview } from '../src/api/print-types.ts'
+import type { LabelView, PrintOverview } from '../src/api/print-types.ts'
 import { PrintStore, mergeActiveJobs, mergeDiscardJobs } from '../src/lib/print-store.ts'
 import { device, job, labelView, overview, queue, templates } from './print-support.ts'
 import { DATE, FakeEventSource, FakeServer, flush } from './support.ts'
@@ -141,6 +141,53 @@ describe('라벨 상태 (AC-I1-12·30)', () => {
     await new Promise((resolve) => setTimeout(resolve, 400))
     expect(labelCalls()).toBe(2)
     stop()
+    expect(seen).toHaveBeenCalled()
+  })
+
+  it('느린 망 (TE-I1-001): 조회를 보낸 뒤 받은 print 알림의 라벨이 늦게 온 응답에 덮이지 않는다 — 다시 받기·처음 받기·오래된 판 알림 모두', async () => {
+    // 응답은 보낸 때의 서버 상태(출력 중)이고, 손으로 풀 때까지 오지 않는다
+    const pending: (() => void)[] = []
+    let state: Partial<LabelView> = { state: 'PRINTING', word: '출력 중', printed: 0 }
+    server.on('GET', /^\/api\/print\/labels\?date=/, () => {
+      const body = { date: DATE, labels: [labelView('c1@1', state), labelView('c2@1', { state: 'WAITING', word: '라벨 대기' })] }
+      return new Promise((resolve) => pending.push(() => resolve({ body })))
+    })
+    const s = await started()
+    const seen = vi.fn()
+    s.watchLabels(DATE, seen)
+    await flush()
+    expect(s.labelsSnapshot(DATE).phase).toBe('loading')
+    // 처음 조회가 도는 사이 출력함 알림 — 아직 보일 것이 없어도 기억했다가 응답 위에 덮는다
+    notify({ rev: 6, queue: queue({ rev: 6 }), jobs: [], labels: [labelView('c1@1', { state: 'PRINTED', word: '라벨 출력됨', printed: 1 })] })
+    pending.shift()?.()
+    await vi.waitFor(() => expect(s.labelsSnapshot(DATE).phase).toBe('ready'))
+    expect(s.labelsSnapshot(DATE).labels.get('c1@1')?.word).toBe('라벨 출력됨')
+    expect(s.labelsSnapshot(DATE).labels.get('c2@1')?.word).toBe('라벨 대기')
+
+    // 조치 뒤 다시 받기: 보낸 뒤 c2가 출력 중 → 출력함 (응답은 보낸 때의 "라벨 대기")
+    state = { state: 'PRINTED', word: '라벨 출력됨', printed: 1 }
+    s.refreshLabels(DATE)
+    await flush()
+    notify({ rev: 7, queue: queue({ rev: 7 }), jobs: [], labels: [labelView('c2@1', { state: 'PRINTING', word: '출력 중' })] })
+    notify({ rev: 8, queue: queue({ rev: 8 }), jobs: [], labels: [labelView('c2@1', { state: 'PRINTED', word: '라벨 출력됨', printed: 1 })] })
+    expect(s.labelsSnapshot(DATE).labels.get('c2@1')?.word).toBe('라벨 출력됨')
+    pending.shift()?.()
+    await vi.waitFor(() => expect(server.callsTo('GET', /^\/api\/print\/labels/)).toHaveLength(2))
+    await flush()
+    expect(s.labelsSnapshot(DATE).labels.get('c2@1')?.word).toBe('라벨 출력됨')
+    expect(s.labelsSnapshot(DATE).labels.get('c1@1')?.word).toBe('라벨 출력됨')
+
+    // 다음 조회는 그 알림을 다시 덮지 않는다 (응답이 더 새것 — 재출력 필요는 print 알림 없이 바뀐다)
+    s.refreshLabels(DATE)
+    await flush()
+    pending.shift()?.()
+    await flush()
+    expect(s.labelsSnapshot(DATE).labels.get('c2@1')?.word).toBe('라벨 대기')
+
+    // 대기열은 버리는 오래된 판의 알림이라도 라벨은 덮는다
+    notify({ rev: 3, queue: queue({ rev: 3, waiting: 9 }), jobs: [], labels: [labelView('c2@1', { state: 'PRINTED', word: '라벨 출력됨', printed: 1 })] })
+    expect(s.getSnapshot().overview?.queue.waiting).not.toBe(9)
+    expect(s.labelsSnapshot(DATE).labels.get('c2@1')?.word).toBe('라벨 출력됨')
     expect(seen).toHaveBeenCalled()
   })
 
