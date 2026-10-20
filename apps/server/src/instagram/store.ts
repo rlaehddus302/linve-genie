@@ -673,7 +673,7 @@ export interface DmGroup {
 }
 
 /**
- * 실행기가 집는 댓글 묶음 (AC-N2-40): 발송함 행이 실제 범위(rehearsal = false — 조건에 고정, 바꾸는 매개변수 없음)의 POST_THANKS이고
+ * 실행기가 집는 댓글 묶음 (AC-N2-40): 발송함 행이 실제 범위(rehearsal = false — 조건에 고정, 바꾸는 매개변수 없음)이고 복구로 다시 만든 행이 아닌(restored = false, D-I2-14) POST_THANKS이고
  * (DM 행은 인스타그램 회차의 POST_THANKS 행에만 생긴다) 기다리는(WAITING) 행이 있으며, 그 댓글의 진행 중 발송이 보내는 중·확인 중이 아니고
  * 다시 시도 시각이 되었으며, "다시 연결 필요"로 기다리는 행은 연결됨일 때만
  */
@@ -682,7 +682,7 @@ export async function dueDmGroups(db: Db, now: Date, limit: number): Promise<DmG
   const rows = await db
     .selectDistinct({ sellerId: igDmRows.sellerId, scopeId: igDmRows.scopeId, date: igDmRows.date, broadcastId: igDmRows.broadcastId, comment: igDmRows.comment })
     .from(igDmRows)
-    .innerJoin(outbox, and(eq(outbox.id, igDmRows.outboxId), eq(outbox.sellerId, igDmRows.sellerId), eq(outbox.rehearsal, false), eq(outbox.kind, 'POST_THANKS')))
+    .innerJoin(outbox, and(eq(outbox.id, igDmRows.outboxId), eq(outbox.sellerId, igDmRows.sellerId), eq(outbox.rehearsal, false), eq(outbox.restored, false), eq(outbox.kind, 'POST_THANKS')))
     .where(
       and(
         eq(igDmRows.status, 'WAITING'),
