@@ -133,3 +133,8 @@ LabelSwitchEntry = { enabled: boolean /* 바뀐 값 */, at: string /* UTC ISO �
 
 ### 시험 (내 영역)
 - `test/label-switch-store.test.ts` 11개(켬/끔 알기·모름·labels 알림·늦은 조회·판 뜀·LABELS_OFF 거절과 지우기·받기 거절·설정 보기·PUT·조회 중 알림), `test/labels-off.test.tsx` 20개(설정 화면 AC-N4a-10·11·12, 라벨 화면 13·16·19·18·20, 주 버튼 21 (가)~(라)), `test/console-labels-off.test.tsx` 12개(AC-N4a-14·15·18·19·20), `test/printer-station.test.ts` +5개(AC-N4a-17·18), `test/pwa.test.tsx` +3개(AC-N4a-10·13·18).
+
+### 검증 (dev-web, 커밋 8969e2e 위)
+- `E2E_PORT_OFFSET=1300 pnpm verify`: typecheck·lint·test(3165)·golden(589)·adversarial(823)·coverage 통과, e2e 263 통과 · 2 실패 — `s06/phase1.spec.ts` AC-S06-90(구매자 표에 "합친 구매자 1명"이 10초 안에 안 나옴)·`s06b/merge.spec.ts:127`(시작 상태 API 합계 10000 ≠ 23000). 둘 다 라벨과 상관없는 구매자 합치기 흐름이고, 따로 다시 돌리면 9개 모두 통과(부하 평균 25~45에서 시간 초과·준비 경쟁). I1 E2E 42개도 따로 돌려 통과(AC-N4a-40).
+- `i1/files.spec.ts` AC-I1-41은 옵션 목록을 기다리지 않고 읽는다(`select.locator('option').allTextContents()` — 방송 목록 조회 전이면 빈 목록). 부하가 클 때 한 번 실패했고 따로 세 번은 통과 — test-e2e에게: `expect(select.locator('option', { hasText: '첫 방송 제목' })).toHaveCount(1)` 뒤에 읽으면 경쟁이 없다.
+- 실제 서버(E2E 서버 + 운영 빌드)로 두 기기 손 확인: PC 설정에서 끄기(숫자 키 1) → 휴대폰 메뉴 "라벨" 바로 사라짐, 끈 뒤 출력 기기 받기 요청 0번·시험용 프린터 그대로, 콘솔 Alt+P 안내·단축키 줄·보드, 상품 자세히 창이 열린 채 켜면 "라벨 출력" → 출력, 켠 뒤 새 1등 자동 출력. 375×812 설정·라벨 화면 가로 스크롤 없음.
