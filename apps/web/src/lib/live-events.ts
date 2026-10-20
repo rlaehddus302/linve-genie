@@ -1,9 +1,12 @@
 // 범위 저장소를 쓰지 않는 화면(설정·시작 마법사)의 실시간 알림 (AC-I3-04·13·37·92, Y1 계약 6).
 // SSE `youtube`(연결·사용량 등)를 받아 넘기고, 끊겼다 다시 붙으면(두 번째 `ready`부터) 그사이 놓친 상태를 다시 받으라고 알린다.
 // 브라우저가 다시 붙지 않는 닫힘(세션 만료 등)이면 조금 뒤 새로 연다. 화면이 내려가면 닫는다.
+// 연결은 페이지의 실시간 연결 하나를 함께 쓴다(출력 기록·범위 저장소와 같은 연결, lib/stream.ts — 기기 ID를 밝힌다).
 import { useEffect, useRef } from 'react'
 import type { YoutubeEvent } from '../api/types.ts'
 import type { EventSourceLike } from './console-store.ts'
+import { streamUrl } from './device.ts'
+import { sharedStream } from './stream.ts'
 
 const REOPEN_MS = 2000
 
@@ -31,7 +34,7 @@ export class LiveEvents {
   #ready = 0
   #stopped = false
 
-  constructor(handlers: () => LiveHandlers, open: (url: string) => EventSourceLike = (url) => new EventSource(url, { withCredentials: true })) {
+  constructor(handlers: () => LiveHandlers, open: (url: string) => EventSourceLike = () => sharedStream(streamUrl).open()) {
     this.#handlers = handlers
     this.#open = open
   }
