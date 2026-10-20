@@ -11,9 +11,10 @@
 | `parser/chat.yaml` | 채팅 메시지 → 주문/취소/언급 (R-3) |
 | `parser/amount.yaml` | 한글·숫자 금액 → 원 (빠른 입력·음성 공용), 한글 수사 → 정수 |
 | `parser/quick-input.yaml` | 빠른 입력 한 줄 → 번호·품종·가격 |
-| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13). `08-time.yaml`은 시각 해석(D-022, D-023), `09-host-and-product.yaml`은 방송자 조치·상품 명령 세부(S02, D-039~D-043·D-049). S03 보강: `10-sms.yaml` 문자찜 구매자(D-051), `11-received-time.yaml` 실제 시각순·역전·충돌·메시지 변환(D-052~D-054), `12-product-edit.yaml` 상품 수정·번호 변경(D-055·D-056), `13-merge-settlement.yaml` 구매자 합치기·정산(D-057·D-058). S03b 보강: `14-core-cleanup.yaml` 전화번호 키·문자찜 재전송·메시지 변환·시청자 취소·충돌 중 배정·확정버전 순서·충돌이 풀릴 때 대기 넘침(D-061~D-068). S04 보강: `15-broadcast.yaml` 방송 시작·종료와 방송마다의 설정 스냅샷(D-069·D-070), `16-s04-rules.yaml` 취소 메시지 변환 금지·대기 한도 0의 승계 묻기(D-076·D-077), S04 마무리 G-ENG-166 전화번호가 아닌 숫자는 받는다(D-079·D-080). S05 보강: `17-s05-console.yaml` 라이브 콘솔이 기대는 동작 — 등록 되돌리기(판매 종료)·5초 뒤 보낸 방송자 조치(D-083, 새 규칙 없음). S06 보강: `18-s06-sms-buyers-settlement.yaml` 문자찜 입력·구매자·정산 화면이 기대는 동작 — 수신 시각 기본값(초까지)·지정 구매자·끝난 방송의 늦은 문자찜·합치기가 막히는 경우와 중복·입금 바로잡기·떼어 내기가 막히는 경우·배송비 예외와 조정(D-089~D-092, 새 규칙 없음). S06b 보강: `19-s06b-merge-preview.yaml` 합치기 미리 보기(코어 `previewMerge`, 새 검사 키 `mergePreviews`)가 R-11과 같은 답 — 막히는 다섯 경우·옮길 찜·합친 뒤 합계·중복 정리 순서(D-100), `20-s06b-sms-buyer-payment.yaml` 뒤 4자리만 같은 두 문자 구매자에서 문자찜이 정한 구매자(D-099)·입금이 아닌 기록이 바꾸는 입금 상태(D-101) (새 규칙 없음). I1 보강: `21-i1-labels.yaml` 라벨·출력 화면 통합이 기대는 동작 — 라벨 키 = (찜, 확정버전)·출력 보고 잠금·품종·가격 변경은 효과 없음·재고 2의 라벨 키·방송마다의 자동 출력·포장 라벨 효과 없음·합치기는 라벨을 폐기하지 않음(D-I1-02·D-I1-04, 새 규칙 없음) |
+| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13). `08-time.yaml`은 시각 해석(D-022, D-023), `09-host-and-product.yaml`은 방송자 조치·상품 명령 세부(S02, D-039~D-043·D-049). S03 보강: `10-sms.yaml` 문자찜 구매자(D-051), `11-received-time.yaml` 실제 시각순·역전·충돌·메시지 변환(D-052~D-054), `12-product-edit.yaml` 상품 수정·번호 변경(D-055·D-056), `13-merge-settlement.yaml` 구매자 합치기·정산(D-057·D-058). S03b 보강: `14-core-cleanup.yaml` 전화번호 키·문자찜 재전송·메시지 변환·시청자 취소·충돌 중 배정·확정버전 순서·충돌이 풀릴 때 대기 넘침(D-061~D-068). S04 보강: `15-broadcast.yaml` 방송 시작·종료와 방송마다의 설정 스냅샷(D-069·D-070), `16-s04-rules.yaml` 취소 메시지 변환 금지·대기 한도 0의 승계 묻기(D-076·D-077), S04 마무리 G-ENG-166 전화번호가 아닌 숫자는 받는다(D-079·D-080). S05 보강: `17-s05-console.yaml` 라이브 콘솔이 기대는 동작 — 등록 되돌리기(판매 종료)·5초 뒤 보낸 방송자 조치(D-083, 새 규칙 없음). S06 보강: `18-s06-sms-buyers-settlement.yaml` 문자찜 입력·구매자·정산 화면이 기대는 동작 — 수신 시각 기본값(초까지)·지정 구매자·끝난 방송의 늦은 문자찜·합치기가 막히는 경우와 중복·입금 바로잡기·떼어 내기가 막히는 경우·배송비 예외와 조정(D-089~D-092, 새 규칙 없음). S06b 보강: `19-s06b-merge-preview.yaml` 합치기 미리 보기(코어 `previewMerge`, 새 검사 키 `mergePreviews`)가 R-11과 같은 답 — 막히는 다섯 경우·옮길 찜·합친 뒤 합계·중복 정리 순서(D-100), `20-s06b-sms-buyer-payment.yaml` 뒤 4자리만 같은 두 문자 구매자에서 문자찜이 정한 구매자(D-099)·입금이 아닌 기록이 바꾸는 입금 상태(D-101) (새 규칙 없음). I1 보강: `21-i1-labels.yaml` 라벨·출력 화면 통합이 기대는 동작 — 라벨 키 = (찜, 확정버전)·출력 보고 잠금·품종·가격 변경은 효과 없음·재고 2의 라벨 키·방송마다의 자동 출력·포장 라벨 효과 없음·합치기는 라벨을 폐기하지 않음(D-I1-02·D-I1-04, 새 규칙 없음). N3 보강: `22-n3-deposits.yaml` 입금 확인이 기대는 동작 — 입금 확인으로 적은 입금도 잠금·되돌리기(같은 금액 환불)로 받은 금액이 0이면 잠금이 풀림·남은 금액(최종 − 받은 금액)의 변화(D-N3-05, 새 규칙 없음) |
 | `parser/voice-extract.yaml` | 음성 문장 하나 → 번호·품종·가격·신뢰도 (R-17, P2 — D-202·D-203·D-209, I4 보강 — 끊어 말한 번호 D-I4-01). 추출기는 `packages/voice`에 있고 이 러너가 부른다 |
 | `known-unimplemented.yaml` | **예약 파일.** 알려진 미구현 허용 목록 (D-020). 골든 시나리오가 아니다 |
+| `deposit/*.json` | 입금 확인 — 이름 정규화·붙여넣기 읽기·입금 맞추기 (DEPOSIT_RULES DP-2·DP-3·DP-5, N3, D-N3-01). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "입금 골든" |
 | `label/*.json` | 라벨 글·쪽 나누기·크기 (LABEL_RULES L-1~L-5, P1, D-P1-01). **JSON이라 코어 골든 러너는 읽지 않는다**(`*.yaml`만 읽는다). `packages/label` 단위 테스트가 읽는다 — 아래 "라벨 골든" |
 
 ## 러너가 읽는 범위 (D-020, D-021)
@@ -90,7 +91,7 @@ expect:
   pending: { b1/16: [UC_D] }  # 보류 중인 찜
 ```
 
-- 시나리오 키: `id`(`G-ENG-` + 세 자리, 전체에서 유일), `title`, `refs`(1개 이상), `broadcasts`(0개 이상, 각 `{ id, date: YYYY-MM-DD, title }` — S04부터 빈 목록 `[]`도 된다: 서버처럼 빈 엔진에서 시작해 `broadcast.start`로 방송을 선언한다), `events`, `expect`, 선택 `settings`.
+- 시나리오 키: `id`(`G-ENG-` + 세 자리, 또는 병렬 트랙 스프린트가 쓰는 `G-ENG-<스프린트 ID>-<두 자리>` — 스프린트 ID는 영문 대문자 하나 뒤에 영문·숫자 1~3자, 예: `G-ENG-N3-01`, N3 D-N3-01. 전체에서 유일), `title`, `refs`(1개 이상), `broadcasts`(0개 이상, 각 `{ id, date: YYYY-MM-DD, title }` — S04부터 빈 목록 `[]`도 된다: 서버처럼 빈 엔진에서 시작해 `broadcast.start`로 방송을 선언한다), `events`, `expect`, 선택 `settings`.
 - `settings`는 DOMAIN_RULES 기본값 위에 덮어쓰며, `broadcasts` 목록의 방송(시작 때 선언한 방송)에 시작 시점 스냅샷으로 적용된다. `broadcast.start`로 선언한 방송은 그 이벤트의 `settings`(DOMAIN_RULES 기본값 위 — 시나리오 `settings`와 상관없다)를 쓴다 (S04, D-070).
 
 **추가 검사 키** (`expect` 안, 필요할 때만)
@@ -244,3 +245,21 @@ expect:
 
 - 기본 템플릿의 값: 크기 50×30, `shopName` 빈 글, `priceStyle` `THOUSAND`, 포장 `perPage` 10, 모든 항목 켬. `visible`에 없는 항목은 기본(켬) 그대로다.
 - 항목 ID: 상품 `shop`·`number`·`price`·`date`·`name`·`buyer`, 포장 `shop`·`date`·`buyer`·`page`·`broadcast`·`count`·`subtotal`·`numbers` (L-3·L-4 표).
+
+## 입금 골든 (`deposit/*.json`, N3 — D-N3-01)
+
+입금 확인(PAY-01)의 순수 함수 셋을 고정한다. 규칙 문장은 `docs/spec/DEPOSIT_RULES.md`다(이름 정규화 DP-3, 붙여넣기 읽기 DP-2, 입금 맞추기 DP-5). 판정 엔진이 아니라 서버의 규칙이라 엔진 골든(YAML)과 따로 둔다.
+
+- **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. 서버(`apps/server`)의 단위 시험이 이 폴더의 모든 `*.json`을 읽어 서버의 순수 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 그 시험은 파일 수와 사례 수 합계를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다. 미구현을 허용하는 장치가 없다(`known-unimplemented.yaml`의 대상이 아니다).
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `name`·`paste`·`match`. 모르는 키·모르는 `kind`는 시험 실패(읽기 오류)다. 보이지 않는 글자는 `\uXXXX`로 적는다.
+- **사례 공통 키**: `id`(`G-DEP-` + 세 자리, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `out`.
+- 시각은 오프셋을 적은 ISO 8601(`2026-10-18T21:03:15+09:00`)이고, 결과는 실행 환경의 시간대와 상관없어야 한다(서버 시험도 `TZ`를 바꿔 돌린다).
+
+| `kind` | 사례 키 | `out` |
+|---|---|---|
+| `name` | `in`(문자열) | 정규화한 문자열(DP-3). 빈 글이면 `""` |
+| `paste` | `in`(붙여넣은 글 그대로 — 줄바꿈·탭·BOM 포함) | `{ "rows": [ { "line", "at", "precision", "amount", "name", "balance" } ], "skipped": [ { "line", "why": "NOT_DEPOSIT" } ], "unreadable": [ { "line", "why": "BAD_AMOUNT" \| "BAD_TIME" } ] }` — 셋 다 줄 순서, 정확히 같음. `at` = `YYYY-MM-DDTHH:MM:SS+09:00`, `precision` = `second`/`minute`, `balance` = 정수 또는 `null`. 또는 `{ "error": "NO_HEADER" \| "TOO_MANY_ROWS" }`(아무 줄도 읽지 않음) |
+| `match` | `bundles`(후보가 될 수 있는 묶음 `{ key, buyer, date, names, total, received, saleAt }` — `key` = `<지금의 구매자>@<날짜>`, `names` = 이름 후보(정규화 전 글, 함수가 DP-3으로 정규화), `saleAt` = 판매 시각 ISO 또는 품목이 없으면 `null`), `earlier`(이미 저장된 입금 `{ no, at, amount, name }`, 0개 이상), `incoming`(새 입금, 같은 모양 — 이 순서대로 정한다) | `incoming`마다 하나씩, 같은 순서: `{ "no", "auto": 묶음 키 }`(자동 확인) 또는 `{ "no", "review": 사유, "twin"?: 가장 앞선 쌍둥이 입금 번호(`POSSIBLE_DUPLICATE`일 때만, 그때는 필수), "suggestions": [묶음 키 …](순서대로, 5개까지), "preselect": 묶음 키 또는 null }`. 사유 ∈ `POSSIBLE_DUPLICATE`·`SAME_NAME`·`MULTIPLE`·`NAME_MISMATCH`·`AMOUNT_MISMATCH`·`NO_MATCH` (`ONE_MATCH`는 볼 때 다시 계산한 결과의 화면 사유라 골든에 나오지 않는다) |
+
+- `match`의 함수는 후보 묶음의 날짜 범위(입금 날짜 − 30일 ~ 입금 날짜)와 판매 시각(≤ 입금 시각)도 거른다(DP-4). 리허설 범위·이름 후보 모으기(닉네임 이력·문자찜 메모·기억한 입금자명)는 서버가 함수를 부르기 전에 하는 일이라 이 골든이 아니라 서버 시험·E2E가 본다.
+- 자동 확인한 입금은 그 묶음의 `received`에 금액을 더한 뒤 다음 입금을 정한다(DP-5) — 사례 G-DEP-106·111·113.
