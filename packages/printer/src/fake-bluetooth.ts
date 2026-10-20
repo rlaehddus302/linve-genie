@@ -421,7 +421,9 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
     }
     if (behavior?.stallWriteAtPacket === attempt.writes) {
       // 쓰기가 끝나지 않는다 — 연결은 그대로, 그 조각은 받지 않는다. 이 작업은 여기서 닫는다(다음 출력은 새 시도로 센다).
-      // 멈춘 쓰기를 끝내 준 뒤 어댑터가 이 작업의 다음 조각을 보내면(그러면 안 된다) 작업 시작 바이트가 아닌 조각으로 시작하는 새 시도가 된다
+      // 이 설정은 '끝내 전달되지 않는 쓰기'만 흉내 낸다. 시간 초과(L-12 5) 뒤에 멈춘 쓰기를 끝내 주면 어댑터는 다음 조각을 보내지 않아야 한다.
+      // 시간 초과 전에 끝내 주면 그것은 진행이라 어댑터가 다음 조각을 보내는 것이 맞지만, 이 작업은 이미 닫혀서 그 조각은 시작 바이트가 아닌 새 시도로 기록된다
+      // — '늦게 끝나지만 전달되는 쓰기'는 이 설정으로 흉내 낼 수 없다(TD-N1-005)
       closeOpen()
       return new Promise<void>((resolve, reject) => {
         stalled.push({ resolve, reject })
