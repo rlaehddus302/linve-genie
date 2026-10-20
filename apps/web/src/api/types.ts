@@ -342,3 +342,173 @@ export interface AssistantItem {
   readonly loginId: string
   readonly createdAt: string
 }
+
+// ── 여러 플랫폼·인스타그램·틱톡 (harness/sprints/N2/dev-notes.md "화면에게", N2b-2 dev-notes "화면에게") ──────
+
+export type PlatformName = 'YOUTUBE' | 'INSTAGRAM' | 'TIKTOK'
+
+/** 플랫폼 능력 (GET /api/platforms) — 쓸 수 없는 것마다 서버 문장 */
+export interface PlatformCapability {
+  readonly platform: PlatformName
+  readonly ready: boolean
+  readonly receivedTime: boolean
+  readonly thanks: string
+  readonly videoComment: boolean
+  readonly reasons: { readonly ready?: string; readonly receivedTime?: string; readonly thanks?: string; readonly videoComment?: string }
+}
+
+/** 인스타그램 수집 상태 */
+export interface InstagramCollection {
+  readonly platform: PlatformName
+  readonly state: 'WAITING' | 'LIVE' | 'FINISHED' | 'STOPPED'
+  readonly message: string
+  readonly liveId: string | null
+  readonly lastCommentAt: string | null
+  readonly comments: number
+  readonly late: number
+  readonly malformed: number
+}
+
+/** 인스타그램 연결의 마지막 옮기기 */
+export interface InstagramMoved {
+  readonly fromLiveId: string
+  readonly movedAt: string
+  readonly comments: number
+  readonly message: string
+}
+
+/** 회차의 인스타그램 연결 (GET /api/broadcasts/:id/live 의 link) */
+export interface InstagramLinkView {
+  readonly broadcast: string
+  readonly platform: PlatformName | null
+  readonly state: 'NONE' | 'WAITING' | 'LINKED'
+  readonly liveId: string | null
+  readonly linkedAt: string | null
+  readonly actor: { readonly kind: string; readonly loginId: string | null } | null
+  readonly accountId: string | null
+  readonly collection: InstagramCollection | null
+  readonly moved: InstagramMoved | null
+}
+
+/** 회차의 끊지 않은 연결 하나 (플랫폼마다) */
+export interface PlatformLinkItem {
+  readonly broadcast: string
+  readonly platform: PlatformName | null
+  readonly state: string
+}
+
+/** GET /api/broadcasts/:id/live */
+export interface BroadcastLive {
+  readonly link: InstagramLinkView
+  readonly links: readonly PlatformLinkItem[]
+}
+
+/** 인스타그램 계정 연결 (토큰·만료 시각은 없다) */
+export interface InstagramConnection {
+  readonly configured: boolean
+  readonly status: 'NOT_CONNECTED' | 'CONNECTED' | 'RECONNECT_NEEDED'
+  readonly login: string | null
+  readonly account: { readonly id: string; readonly username: string; readonly type: string | null } | null
+  readonly permissions: { readonly comments: boolean; readonly messages: boolean }
+  readonly consent: { readonly on: boolean; readonly by: string | null; readonly at: string | null }
+}
+
+/** 내 인스타그램 라이브 한 줄 (GET /api/instagram/lives) */
+export interface InstagramLive {
+  readonly id: string
+  readonly startedAt: string | null
+  /** 이미 이어진 이 판매자의 끝나지 않은 회차 */
+  readonly broadcast: string | null
+}
+
+/** 감사 DM 한 줄 (보내지 못한 수만 센다) */
+export interface InstagramDmRow {
+  readonly id: number
+  readonly broadcast: string | null
+  readonly status: 'WAITING' | 'SENDING' | 'SENT' | 'SKIPPED' | 'FAILED'
+  readonly reason: string | null
+}
+
+/** SSE `instagram` 알림 */
+export type InstagramEvent =
+  | { readonly kind: 'CONNECTION'; readonly connection: InstagramConnection }
+  | { readonly kind: 'LINK' | 'COLLECTION'; readonly broadcast: string; readonly link: InstagramLinkView }
+  | { readonly kind: 'NOTICE'; readonly code: string; readonly message: string; readonly broadcast?: string; readonly liveId?: string; readonly count?: number }
+  | { readonly kind: 'DM'; readonly date: string; readonly rows: readonly InstagramDmRow[] }
+
+/** 틱톡 수집 상태 (연결 모듈 상태 + 이 회차에 기록한 수) */
+export interface TikTokCollection {
+  /** IDLE·CONNECTING·CONNECTED·RETRYING·STOPPED·ENDED·OFF, 회차를 끝냈으면 FINISHED */
+  readonly state: string
+  readonly reason: string | null
+  readonly message: string
+  readonly failures: number
+  readonly nextAttemptAt: string | null
+  readonly missed: boolean
+  readonly missedMessage: string | null
+  readonly comments: number
+  readonly lastCommentAt: string | null
+  readonly notRecorded: number
+  readonly saveFailed: number
+}
+
+/** 회차의 틱톡 연결 (GET /api/broadcasts/:id/tiktok) */
+export interface TikTokLinkView {
+  readonly broadcast: string
+  readonly platform: 'TIKTOK'
+  readonly state: 'NONE' | 'LINKED'
+  readonly linkedAt: string | null
+  readonly actor: { readonly kind: string; readonly loginId: string | null } | null
+  readonly tiktokId: string | null
+  readonly collection: TikTokCollection | null
+}
+
+/** 틱톡 위험 고지 (판은 화면에 보이지 않는 값) */
+export interface TikTokNotice {
+  readonly version: string
+  readonly title: string
+  readonly lines: readonly string[]
+  readonly checkbox: string
+  readonly button: string
+}
+
+/** 설정의 "틱톡 라이브(베타)" (GET /api/tiktok) */
+export interface TikTokSettings {
+  readonly operator: boolean
+  readonly operatorMessage: string | null
+  readonly notice: TikTokNotice
+  readonly consent: { readonly on: boolean; readonly at: string; readonly version: string | null } | null
+  readonly tiktokId: string | null
+}
+
+/** SSE `tiktok` 알림 */
+export interface TikTokEvent {
+  readonly kind: 'LINK'
+  readonly broadcast: string
+  readonly link: TikTokLinkView
+}
+
+/** 붙여넣기 줄 결과 */
+export interface PasteRowView {
+  readonly line: number
+  readonly nickname?: string
+  readonly text?: string
+  readonly result: string
+  readonly numbers: readonly number[]
+  readonly message: string
+}
+
+export interface PasteGroupView {
+  readonly nickname: string
+  readonly lines: readonly number[]
+  readonly claims: number
+  readonly message: string | null
+}
+
+/** 붙여넣기 미리 보기 (넣기는 added가 더해진다) */
+export interface PastePlanView {
+  readonly rows: readonly PasteRowView[]
+  readonly groups: readonly PasteGroupView[]
+  readonly total: number
+  readonly added?: number
+}

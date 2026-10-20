@@ -2,6 +2,7 @@
 //   `/` 방송 목록(홈) · `/broadcasts/<방송 ID>` 그 방송의 콘솔 · `/sms` 문자찜 입력
 //   `/buyers` 구매자 · `/settlements` 정산 — 고른 날짜·리허설·구매자는 검색값(`?date=2026-10-18&rehearsal=true&buyer=UC_A`)
 //   `/settings` 설정 · `/settings/youtube` 설정의 유튜브 칸(구글에서 돌아오면 `?youtube=<결과>` — 화면이 보인 뒤 지운다)
+//   `/settings/instagram`·`/settings/tiktok` 설정의 인스타그램·틱톡 칸 — 인스타그램에서 돌아온 `?instagram=<결과>`(경로 `/`여도)는 인스타그램 칸으로 (N2b-2)
 //   `/start` 시작 마법사 · `/privacy` 개인정보처리방침(초안) · `/terms` 이용약관(초안) — 둘은 로그인 없이 열린다
 //   구매자 자세히의 합치기 창: 상대·방향은 `merge`(상대 구매자 ID)·`into`(남는 쪽 구매자 ID), 막힘에서 연 상품 자세히는 `product`(상품 키)
 //   — 상품 자세히에 갔다 와도(브라우저 뒤로 가기 포함) 같은 합치기 창이 다시 열린다 (AC-S06b-34, D-102).
@@ -28,12 +29,16 @@ export interface ScopeRoute {
 
 const SCOPE_PARAMS = ['buyer', 'merge', 'into', 'product'] as const
 
+export type SettingsSection = 'youtube' | 'instagram' | 'tiktok'
+
 export interface SettingsRoute {
   readonly name: 'settings'
   /** 열자마자 보이게 할 칸 */
-  readonly section?: 'youtube'
+  readonly section?: SettingsSection
   /** 구글에서 돌아온 결과 코드 (`?youtube=`) */
   readonly youtubeResult?: string
+  /** 인스타그램에서 돌아온 결과 코드 (`?instagram=` — 서버의 돌아오는 경로가 `/`여도 설정의 인스타그램 칸으로, N2b-2) */
+  readonly instagramResult?: string
 }
 
 export interface StartRoute {
@@ -87,8 +92,15 @@ export function parseRoute(pathname: string, search = ''): Route {
   const path = pathname.replace(/\/+$/, '')
   const youtube = new URLSearchParams(search).get('youtube')
   const result = youtube !== null && youtube !== '' ? { youtubeResult: youtube } : {}
+  const instagram = new URLSearchParams(search).get('instagram')
+  // 인스타그램 연결을 마치고 돌아온 주소 (서버 LIVEJJIM_IG_RETURN_PATH — 기본 `/`): 설정의 인스타그램 칸에서 결과를 보인다
+  if (instagram !== null && instagram !== '' && (path === '' || path === '/settings' || path === '/settings/instagram')) {
+    return { name: 'settings', section: 'instagram', instagramResult: instagram }
+  }
   if (path === '/settings') return { name: 'settings', ...result }
   if (path === '/settings/youtube') return { name: 'settings', section: 'youtube', ...result }
+  if (path === '/settings/instagram') return { name: 'settings', section: 'instagram' }
+  if (path === '/settings/tiktok') return { name: 'settings', section: 'tiktok' }
   if (path === '/start') return { name: 'start', ...result }
   if (path === '/privacy') return { name: 'privacy' }
   if (path === '/terms') return { name: 'terms' }
@@ -110,7 +122,8 @@ export function routePath(route: Route): string {
     case 'labels':
       return '/labels'
     case 'settings': {
-      const base = route.section === 'youtube' ? '/settings/youtube' : '/settings'
+      const base = route.section === undefined ? '/settings' : `/settings/${route.section}`
+      if (route.instagramResult !== undefined) return `${base}?${new URLSearchParams({ instagram: route.instagramResult }).toString()}`
       return route.youtubeResult === undefined ? base : `${base}?${new URLSearchParams({ youtube: route.youtubeResult }).toString()}`
     }
     case 'start':
