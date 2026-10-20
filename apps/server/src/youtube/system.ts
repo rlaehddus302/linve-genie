@@ -16,6 +16,7 @@ import { YoutubeAccessError, YoutubeConnections, googleFields, type ConnectionVi
 import { DEFAULT_COSTS, GOOGLE_ENDPOINTS, GoogleClient, GoogleError, type ApiMethod, type GoogleEndpoints } from './google.ts'
 import { OutboxRunner, type OutboxHooks, type OutboxTiming } from './outbox.ts'
 import { findRow, isOurPost } from './outbox-store.ts'
+import { latestLink as liveLink } from '../instagram/store.ts'
 import { DEFAULT_QUOTA, QuotaMeter, type QuotaSettings } from './quota.ts'
 import {
   activeLink,
@@ -309,6 +310,12 @@ export class YoutubeSystem {
   /**
    * 잇기 (AC-Y1-12). 조건을 모두 만족할 때만 잇고 바로 수집을 시작한다. 같은 요청 번호로 두 번 보내도 한 번만 잇는다
    */
+  /** 그 회차에 다른 플랫폼(인스타그램)의 끊지 않은 라이브 연결이 있는지 (N2 live_links) */
+  async #otherPlatform(db: Db, sellerId: string, b: string): Promise<boolean> {
+    const other = await liveLink(db, sellerId, b)
+    return other !== null && other.state !== 'UNLINKED'
+  }
+
   async link(session: SessionInfo, b: string, video: string, requestId: string): Promise<LinkOutcome> {
     const { db, timer } = this.#options
     const sellerId = session.sellerId
@@ -322,6 +329,8 @@ export class YoutubeSystem {
     if (await this.#sealed(sellerId, row)) return { kind: 'rejected', status: 409, code: 'SEALED' }
     if (row.endedAt !== null) return { kind: 'rejected', status: 409, code: 'BROADCAST_ENDED' }
     if ((await activeLink(db, sellerId, b)) !== null) return { kind: 'rejected', status: 409, code: 'ALREADY_LINKED' }
+    // 한 회차 한 플랫폼: 인스타그램 라이브가 이어져 있거나 기다리는 중이어도 막는다 (PLT-01, N2 합치기)
+    if (await this.#otherPlatform(db, sellerId, b)) return { kind: 'rejected', status: 409, code: 'ALREADY_LINKED' }
     const connection = await this.connections.status(sellerId)
     if (connection.status === 'NOT_CONNECTED' || connection.channel === null) return { kind: 'rejected', status: 409, code: 'YOUTUBE_NOT_CONNECTED' }
     if (connection.status === 'RECONNECT_NEEDED') return { kind: 'rejected', status: 409, code: 'YOUTUBE_RECONNECT_NEEDED' }
@@ -353,6 +362,7 @@ export class YoutubeSystem {
       refused = await db.transaction(async (tx): Promise<LinkCode | null> => {
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`livejjim/youtube-link/${sellerId}`}, 0))`)
         if ((await activeLink(tx, sellerId, b)) !== null) return 'ALREADY_LINKED'
+        if (await this.#otherPlatform(tx, sellerId, b)) return 'ALREADY_LINKED'
         if ((await findBroadcast(tx, sellerId, b))?.endedAt != null) return 'BROADCAST_ENDED'
         const others = (await openLinksForVideo(tx, sellerId, [videoId])).filter((other) => other.broadcastId !== b)
         if (others.length > 0) return 'VIDEO_IN_USE'

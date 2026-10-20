@@ -4,7 +4,7 @@
 // 그래서 다른 프로젝트가 끝난 뒤에 돈다(groupOrder). 서로의 결과·대상 파일은 그대로다.
 // Y1: 유튜브 시험(가짜 서버·채팅 1만 건 수집 등)은 CPU를 많이 써서 서버의 지연 측정 시험(증분 조회 p99)과 같은 시간에 돌면 흔들린다.
 // 그래서 서버 시험이 끝난 뒤에 따로 돈다(server-youtube, groupOrder 2). 대상 파일은 그대로 모두 돈다(test 단계가 파일 목록을 대조한다).
-// 모든 서버 시험은 실제 구글 주소로 나가는 요청을 막는다(setupFiles, AC-Y1-72).
+// 모든 서버 시험은 실제 구글·틱톡·메타 주소로 나가는 요청을 막는다(setupFiles, AC-Y1-72·AC-N2b-1-04·AC-N2-62).
 import { defineConfig } from 'vitest/config'
 
 const YOUTUBE_TESTS = 'test/youtube-*.test.ts'
@@ -22,8 +22,9 @@ const cliExclude = process.argv.flatMap((arg, index, all) => {
 const common = {
   root: import.meta.dirname,
   environment: 'node' as const,
-  // 실제 구글로 나가는 요청을 막는다 (AC-Y1-72). 틱톡·서명 서비스로 나가는 연결도 막고, 막힌 시도가 있으면 그 시험 파일을 실패시킨다 (N2b-1, AC-N2b-1-04)
-  setupFiles: ['test/setup-network-guard.ts', 'test/setup-outbound-guard.ts'],
+  // 실제 구글로 나가는 요청을 막는다 (AC-Y1-72). 틱톡·서명 서비스로 나가는 연결도 막고, 막힌 시도가 있으면 그 시험 파일을 실패시킨다 (N2b-1, AC-N2b-1-04).
+  // 실제 메타 주소로 나가는 연결도 막는다 (N2 AC-N2-62)
+  setupFiles: ['test/setup-network-guard.ts', 'test/setup-outbound-guard.ts', 'test/network-guard.ts'],
   // PGlite를 여는 시험이 많아 기본 5초보다 넉넉히 둔다 (지연 시험은 자체 시간 제한)
   testTimeout: 60_000, // 무거운 속성 시험이 병렬 부하에서 기본값을 넘긴다 — 걸린 시간은 성능 시험(*.perf.test.ts)이 따로 잰다 (D-902)
 }

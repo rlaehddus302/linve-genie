@@ -19,6 +19,8 @@ import { unknownFieldProblems } from './messages.ts'
 import { ASSISTANT_EVENT_TYPES, ASSISTANT_FORBIDDEN_MESSAGE, assistantMayCall } from './roles.ts'
 import { DEVICE_ID_RE, type PrintService } from './print.ts'
 import { registerPrintRoutes } from './print-api.ts'
+import type { InstagramModule } from './instagram/index.ts'
+import { INSTAGRAM_PUBLIC_PATHS, registerLiveRoutes } from './instagram/routes.ts'
 import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.ts'
 import type { Actor, WriteOutcome, WriteResult } from './writer.ts'
 import { CALLBACK_PATH, registerYoutubeRoutes } from './youtube/routes.ts'
@@ -35,6 +37,8 @@ export interface ApiDeps {
   readonly hub: StreamHub
   /** 출력 기록과 출력 기기 (I1). 없으면 /api/print 경로가 없다 */
   readonly print?: PrintService
+  /** 인스타그램·플랫폼 공통 라이브 연결 (N2). 없으면 /api/platforms·/api/live·/api/instagram 경로가 없다 */
+  readonly instagram?: InstagramModule
   /** 화면 앱 주소 (Origin 검사, 예: https://app.livejjim.kr) */
   readonly appOrigin: string
   /** 화면 설정 (방송자 조치 대기 시간 — 운영 5000, E2E 기동만 줄인다 / 시험 모드 신호 testPrinter — E2E 기동만 켠다, I1) */
@@ -56,8 +60,8 @@ export function connectionAddress(c: Context): string | null {
 export type Env = { Variables: { body: Record<string, unknown> | null; session: SessionContext } }
 
 const STATE_CHANGING = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
-/** 세션을 강제하지 않는 경로. 유튜브 돌아오는 주소는 세션 쿠키와 state로 판매자를 정하고, 없으면 화면으로 돌려보낸다(AC-Y1-02) */
-const PUBLIC_PATHS = new Set(['POST /api/login', 'GET /api/health', 'HEAD /api/health', `GET ${CALLBACK_PATH}`])
+/** 세션을 강제하지 않는 경로. 유튜브 돌아오는 주소는 세션 쿠키와 state로 판매자를 정하고, 없으면 화면으로 돌려보낸다(AC-Y1-02). 인스타그램 OAuth 돌아오는 주소는 state로만 처리한다(N2 AC-N2-61) */
+const PUBLIC_PATHS = new Set(['POST /api/login', 'GET /api/health', 'HEAD /api/health', `GET ${CALLBACK_PATH}`, ...INSTAGRAM_PUBLIC_PATHS])
 
 const notFound = () => apiError(404, 'NOT_FOUND', '찾을 수 없어요.')
 const unauthorized = () => apiError(401, 'UNAUTHORIZED', '로그인이 필요해요.')
@@ -494,6 +498,10 @@ export function createApi(deps: ApiDeps): Hono<Env> {
 
   // ── 출력 기록 (I1, LABEL_RULES L-11) ──────────────────────────────────
   if (deps.print !== undefined) registerPrintRoutes(api, deps.print)
+
+  // ── 플랫폼 공통 라이브 연결·인스타그램 (N2) ────────────────────────────
+  // 플랫폼 능력 조회의 YOUTUBE.ready = 유튜브 연동 설정(Y1)이 있는지. 유튜브 잇기 자체는 /api/youtube 경로(Y1)가 맡는다
+  if (deps.instagram !== undefined) registerLiveRoutes(api, deps.instagram, auth, { youtube: deps.youtube !== undefined && deps.youtube !== null })
 
   api.notFound(() => notFound())
   return api

@@ -75,7 +75,7 @@ import {
 import { iso, kstDate, kstTime, type Clock } from './time.ts'
 import type { ViewCacheBudget } from './view-budget.ts'
 import { changeSet, fullView, messageLookup, type ChangeSet, type FullView, type MessageLookup } from './views.ts'
-import { resultOf, type Actor, type ChatSource, type Draft, type Rejection, type ScopeWriter, type WriteOutcome, type WriteResult } from './writer.ts'
+import { resultOf, WriteAbort, type Actor, type ChatSource, type Draft, type Rejection, type ScopeWriter, type WriteOutcome, type WriteResult } from './writer.ts'
 import { sanitizeNick } from './youtube/texts.ts'
 import { SEALED_CHAT_MESSAGE, sealAtOf, sealedView } from './youtube/seal.ts'
 
@@ -601,6 +601,53 @@ export class Service {
     const checked = await this.#chatInput(sellerId, input)
     if ('status' in checked) return checked
     return ingestOutcome(await this.#recordChat(sellerId, checked.row, checked.fields, null))
+  }
+
+  /**
+   * 인스타그램 댓글 수집 (N2, AC-N2-24·32): ingestChat과 같은 기록(허용 필드·같은 기록 경로·조치자 collector·같은 (판매자, 방송, 메시지 ID)는 한 번만)이고,
+   * 그 방송이 이미 끝났으면(broadcast.end가 기록됨) 기록하지 않고 'ended' — 끝내기와 같은 범위 줄 안에서 판단한다(끝낸 뒤 도착한 댓글은 그 방송에 들어가지 않는다).
+   * guard가 있으면 그 chat을 넣은 같은 트랜잭션에서 부른다(라이브 연결 옮기기, AC-N2-25). false면 기록을 취소하고 'retry' — 회차를 다시 정한다
+   */
+  async ingestOpenChat(
+    sellerId: string,
+    input: unknown,
+    options: { readonly guard?: (tx: Db, scopeId: string, now: Date) => Promise<boolean> } = {},
+  ): Promise<ChatIngestOutcome | { readonly status: 'ended' } | { readonly status: 'retry' }> {
+    const checked = await this.#chatInput(sellerId, input)
+    if ('status' in checked) return checked
+    const { row, fields } = checked
+    if (row.endedAt !== null) return { status: 'ended' }
+    const chat = { b: row.id, id: fields.id as string }
+    const guard = options.guard
+    let ended = false
+    let retry = false
+    const outcome = await this.#options.writer.write({
+      sellerId,
+      date: row.date,
+      rehearsal: row.rehearsal,
+      createScope: false,
+      requestId: null,
+      chat,
+      build: (ctx) => {
+        if (getBroadcast(ctx.state, row.id)?.ended === true) {
+          ended = true
+          return rejection(409, 'BROADCAST_ENDED', '끝난 방송이에요.')
+        }
+        return [{ fields, actor: { kind: 'collector' }, chat }]
+      },
+      ...(guard === undefined
+        ? {}
+        : {
+            afterInsert: async (tx: Db, scopeId: string, _records: unknown, now: Date) => {
+              if (await guard(tx, scopeId, now)) return
+              retry = true
+              throw new WriteAbort({ kind: 'not_found' })
+            },
+          }),
+    })
+    if (ended) return { status: 'ended' }
+    if (retry) return { status: 'retry' }
+    return ingestOutcome(outcome)
   }
 
   /** 수집 함수 입력 검사 (필드·방송) */

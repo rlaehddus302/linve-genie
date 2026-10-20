@@ -7,6 +7,7 @@
 // - 연결 순서 (RA-S04-003·SA-S04-005): 연결을 먼저 등록해 알림을 모으기 시작한 뒤 범위별 seq를 읽는다. 읽는 동안 커밋된 변경도
 //   놓치지 않는다. ready의 seq에 이미 들어 있는 알림(그 범위의 seq 이하)은 서버가 거른다 — 같은 변경이 ready와 change로 두 번 오지 않는다.
 //   한 범위의 seq는 늘기만 하므로 "ready의 seq 이하는 버린다"는 언제나 안전하다.
+// - 인스타그램 연결·라이브 연결·수집 상태·알림 문장·DM 행이 바뀌면(N2) instagram 알림을 보낸다(data.kind로 나눈다 — dev-notes N2 "화면에게").
 // - 출력 기록이 바뀌면(I1, L-11) print 알림을 보낸다(기록 seq가 아니라 출력 기록의 rev — 바뀐 작업·라벨 키와 대기열 요약만, 대기열 전체가 아니다).
 //   연결이 출력 기기 ID를 밝히면(?device=) 그 기기의 실시간 연결이 열려 있는지 안다 — 열리고 닫힐 때 onDevice로 알린다(다른 기기의 "연결됨/끊김").
 // - 라벨 기능 켬/끔이 바뀌면(N4a, L-13) labels 알림을 보낸다(바뀐 값·바꾼 기록 한 줄·그때의 출력 기록 rev).
@@ -53,9 +54,9 @@ interface Pending {
   closed: boolean
 }
 
-/** 리허설 생성기 상태 알림 (event: generator) · 유튜브 알림 (event: youtube — 연결·수집·발송함·할당량·삭제·차단, AC-Y1-05·27·28·39·52) · 출력 기록 알림 (event: print, I1) · 라벨 기능 켬/끔 알림 (event: labels, N4a) — seq가 없다 */
+/** 리허설 생성기 상태 알림 (event: generator) · 유튜브 알림 (event: youtube — 연결·수집·발송함·할당량·삭제·차단, AC-Y1-05·27·28·39·52) · 출력 기록 알림 (event: print, I1) · 인스타그램·라이브 연결 알림 (event: instagram, N2) · 라벨 기능 켬/끔 알림 (event: labels, N4a) — seq가 없다 */
 export interface GeneratorNotice {
-  readonly kind: 'generator' | 'youtube' | 'print' | 'labels'
+  readonly kind: 'generator' | 'youtube' | 'print' | 'instagram' | 'labels'
   readonly data: Readonly<Record<string, unknown>>
 }
 
@@ -168,6 +169,11 @@ export class StreamHub {
   /** 출력 기록 알림 (그 판매자의 연결 전부, I1). 보조자 연결은 받지 않는다 — 보조자는 출력을 쓰지 않는다 (SYS-04) */
   publishPrint(sellerId: string, data: Readonly<Record<string, unknown>>): void {
     this.#publishNamed(sellerId, { kind: 'print', data })
+  }
+
+  /** 인스타그램 연결·라이브 연결·수집 상태·알림 문장·DM 행 알림 (그 판매자의 연결 전부, N2). 보조자 연결은 받지 않는다 — 보조자는 인스타그램 경로를 쓰지 않는다 (SYS-04) */
+  publishInstagram(sellerId: string, data: Readonly<Record<string, unknown>>): void {
+    this.#publishNamed(sellerId, { kind: 'instagram', data })
   }
 
   /** 라벨 기능 켬/끔이 바뀜 (그 판매자의 연결 전부 — 보조자 연결도 받는다: 메뉴의 라벨 칸을 숨기고 보이는 규칙이 모든 화면에 같아야 한다, N4a L-13 9) */

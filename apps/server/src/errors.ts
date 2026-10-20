@@ -80,6 +80,11 @@ export type ErrorCode =
   | 'INVALID_TEMPLATE'
   | 'TEMPLATE_TOO_LARGE'
   | 'TEMPLATE_CONFLICT'
+  // N2 인스타그램·라이브 연결 API
+  | 'NOT_CONFIGURED'
+  | 'NOT_CONNECTED'
+  | 'RECONNECT_NEEDED'
+  | 'UNAVAILABLE'
   // N4a 라벨 기능 끄기 (LABEL_RULES L-13 5)
   | 'LABELS_OFF'
 
