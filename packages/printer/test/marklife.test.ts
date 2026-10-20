@@ -8,14 +8,18 @@ import {
   MARKLIFE_DEFAULTS,
   MARKLIFE_MESSAGES,
   MARKLIFE_P12,
+  MARKLIFE_P50,
   MARKLIFE_PROFILES,
   MARKLIFE_S2,
+  MARKLIFE_X2,
   PRINTER_MESSAGES,
   buildPrintJob,
   createFakeBluetooth,
   createMarklifeAdapter,
+  fakeJobStartAt,
   unsupportedMessage,
   type ConnectionState,
+  type FakeBluetooth,
   type FakeBluetoothOptions,
   type MarklifeAdapterOptions,
   type ModelProfile,
@@ -79,6 +83,22 @@ const jobBytes = (profile: ModelProfile, image: LabelBitmap): Uint8Array => {
   if (!job.ok) throw new Error(job.code)
   return job.bytes
 }
+
+/** 작업 바이트를 size바이트 조각으로 나눈다 */
+const chunks = (bytes: Uint8Array, size: number): Uint8Array[] => Array.from({ length: Math.ceil(bytes.length / size) }, (_, i) => bytes.slice(i * size, (i + 1) * size))
+
+/** 어댑터 없이 가짜 기기의 쓰기 특성(꾸러미 A ff02)에 바로 쓴다 */
+async function directWriter(fake: FakeBluetooth): Promise<(packet: Uint8Array) => Promise<void>> {
+  const device = await fake.bluetooth.requestDevice({ filters: [], optionalServices: [SERVICE_A] })
+  const server = await device.gatt?.connect()
+  const service = await server?.getPrimaryService(SERVICE_A)
+  const write = await service?.getCharacteristic('0000ff02-0000-1000-8000-00805f9b34fb')
+  const fn = write?.writeValueWithoutResponse?.bind(write)
+  if (!fn) throw new Error('쓰기 특성이 없다')
+  return (packet) => fn(packet)
+}
+
+type MarklifeProtocol = Parameters<typeof fakeJobStartAt>[0]
 
 /** 출력이 끝날 때까지 타이머를 30ms씩 돌린다 */
 async function runUntil(timer: ManualTimer, settled: () => boolean, stepMs = 30, maxMs = 60_000): Promise<void> {
@@ -594,6 +614,43 @@ describe('AA 끝 알림 — 라벨이 조용히 빠지지 않는다 (AC-N1-42)',
     expect(timer.pending).toBe(0)
   })
 
+  it('쓰기 거절이 끊김 알림보다 먼저 와도 결과·상태 모두 DISCONNECTED — 다음 출력은 BUSY가 아니고, 다시 연결은 고르기 창을 다시 연다 (SA-N1-001)', async () => {
+    const { adapter, fake, timer, states } = setup()
+    await adapter.connect('bluetooth')
+    const p = track(adapter.print(noisy(384, 240)))
+    await timer.advance(60)
+    expect(fake.packets.length).toBeGreaterThan(0)
+    // 연결은 이미 없어 다음 쓰기는 거절되지만 gattserverdisconnected 알림은 오지 않았다
+    fake.disconnect({ notice: false })
+    await runUntil(timer, p.done)
+    expect(await p.promise).toEqual({ ok: false, error: { code: 'DISCONNECTED', message: '프린터 연결이 끊겼어요.', action: '다시 연결' } })
+    expect(adapter.state).toBe('DISCONNECTED')
+    expect(states.at(-1)).toBe('DISCONNECTED')
+    expect(adapter.bundle).toBeNull()
+    expect(timer.pending).toBe(0)
+    expect(await adapter.print(border())).toMatchObject({ ok: false, error: { code: 'NOT_CONNECTED' } })
+    expect(await adapter.connect('bluetooth')).toEqual({ ok: true })
+    expect(fake.requests).toHaveLength(2)
+    expect(adapter.state).toBe('CONNECTED')
+    const again = track(adapter.print(border()))
+    await runUntil(timer, again.done)
+    expect(await again.promise).toEqual({ ok: true })
+    expect(fake.printed).toHaveLength(1)
+  })
+
+  it('모든 조각을 쓴 뒤 끊김 알림 없이 연결이 없어진 채 20초가 지나면 TIMEOUT이 아니라 DISCONNECTED, 상태도 DISCONNECTED', async () => {
+    const { adapter, fake, timer } = setup({ ack: 'hold' })
+    await adapter.connect('bluetooth')
+    const p = track(adapter.print(border()))
+    await runUntil(timer, () => fake.attempts[0]?.complete === true)
+    await flush()
+    fake.disconnect({ notice: false })
+    await timer.advance(20_000)
+    expect(await p.promise).toMatchObject({ ok: false, error: { code: 'DISCONNECTED', action: '다시 연결' } })
+    expect(adapter.state).toBe('DISCONNECTED')
+    expect(timer.pending).toBe(0)
+  })
+
   it('모든 조각을 보낸 뒤 AA 전에 끊겨도 DISCONNECTED, AA를 받은 뒤의 끊김은 출력 OK', async () => {
     const before = setup({ ack: 'hold' })
     await before.adapter.connect('bluetooth')
@@ -638,6 +695,83 @@ describe('가짜 Web Bluetooth 기기 (AC-N1-50)', () => {
     packet.fill(9)
     expect(Array.from(fake.packets[0] ?? [])).toEqual([1, 2, 3])
     expect(fake.attempts[0]).toMatchObject({ index: 1, complete: false, acked: false })
+  })
+
+  it('작업 중간에 TIMEOUT이 난 뒤의 다음 출력은 새 시도로 센다 — 끝까지 받으면 AA를 보내 출력 OK (SA-N1-002)', async () => {
+    // 크레딧을 보내지 않는 기기: 조각이 1초마다 하나라 20초에 작업 중간 TIMEOUT
+    const { adapter, fake, timer } = setup({ initialCredits: null, creditsPerPacket: 0 })
+    await adapter.connect('bluetooth')
+    const first = track(adapter.print(noisy(384, 240)))
+    await runUntil(timer, first.done, 100)
+    expect(await first.promise).toMatchObject({ ok: false, error: { code: 'TIMEOUT' } })
+    expect(fake.attempts).toHaveLength(1)
+    expect(fake.attempts[0]).toMatchObject({ index: 1, complete: false, acked: false })
+    const image = border(384, 16)
+    const second = track(adapter.print(image))
+    for (let t = 0; t < 60_000 && !second.done(); t += 100) {
+      fake.sendFlow([0x01, 0x04])
+      await timer.advance(100)
+    }
+    expect(await second.promise).toEqual({ ok: true })
+    expect(fake.attempts).toHaveLength(2)
+    expect(fake.attempts[1]).toMatchObject({ index: 2, complete: true, acked: true })
+    expect(Array.from(fake.attempts[1]?.bytes ?? [])).toEqual(Array.from(jobBytes(MARKLIFE_S2, image)))
+    expect(fake.printed).toHaveLength(1)
+  })
+
+  it('앞 작업을 중간에 그만두면 다음 작업은 새 시도 — 방식 넷 × 조각 1·5·20·90바이트 × 빠진 바이트 수, 앞 시도는 AA 없이 닫힌다', async () => {
+    const cases: readonly [ModelProfile, string, LabelBitmap, LabelBitmap][] = [
+      [MARKLIFE_S2, 'S2_X', noisy(384, 24, 1), noisy(384, 12, 2)],
+      [MARKLIFE_P50, 'P50_X', noisy(384, 24, 3), noisy(384, 12, 4)],
+      [MARKLIFE_X2, 'X2_X', noisy(384, 24, 5), noisy(384, 12, 6)],
+      [MARKLIFE_P12, 'P12_X', noisy(64, 96, 7), noisy(40, 96, 8)],
+      [BAUATO_PPA2L, 'PPA2_X', noisy(384, 16, 9), noisy(384, 8, 10)],
+    ]
+    for (const [profile, name, imageA, imageB] of cases) {
+      const a = jobBytes(profile, imageA)
+      const b = jobBytes(profile, imageB)
+      for (const size of [1, 5, 20, 90]) {
+        // 빠진 바이트가 시작 바이트보다 적으면 다음 작업의 앞 바이트로 앞 작업 길이가 채워진다 — 그래도 앞 작업을 끝났다고 하지 않는다
+        for (const missing of [1, 3, 9, 40]) {
+          const label = `${profile.id} 조각 ${size} 빠짐 ${missing}`
+          const fake = createFakeBluetooth({ name, timer: new ManualTimer() })
+          const write = await directWriter(fake)
+          for (const packet of chunks(a.slice(0, a.length - missing), size)) await write(packet)
+          for (const packet of chunks(b, size)) await write(packet)
+          expect(fake.attempts.map((x) => [x.index, x.complete, x.acked]), label).toEqual([
+            [1, false, false],
+            [2, true, true],
+          ])
+          expect(Array.from(fake.attempts[0]?.bytes ?? []), label).toEqual(Array.from(a.slice(0, a.length - missing)))
+          expect(Array.from(fake.attempts[1]?.bytes ?? []), label).toEqual(Array.from(b))
+          expect(concat(fake.attempts[1]?.packets ?? []), label).toEqual(b)
+          expect(fake.printed, label).toHaveLength(1)
+        }
+      }
+    }
+  })
+
+  it('작업 시작 바이트: 작업 첫 자리에서만 yes, 작업 안 다른 자리는 모두 no(끝까지 받으면 가리지 못한 후보가 남지 않는다), 짧으면 maybe', () => {
+    const cases: readonly [ModelProfile, LabelBitmap][] = [
+      [MARKLIFE_S2, noisy(384, 24, 11)],
+      [MARKLIFE_P50, border(384, 40)],
+      [MARKLIFE_X2, noisy(384, 24, 12)],
+      [MARKLIFE_P12, border(320, 96)],
+      [BAUATO_PPA2L, noisy(384, 16, 13)],
+    ]
+    for (const [profile, image] of cases) {
+      const protocol = profile.protocol as MarklifeProtocol
+      for (const density of profile.density ? [1, 2, 3] : [undefined]) {
+        const job = buildPrintJob(profile, image, density === undefined ? {} : { density })
+        if (!job.ok) throw new Error(job.code)
+        const bytes = job.bytes
+        expect(fakeJobStartAt(protocol, bytes, 0), profile.id).toBe('yes')
+        expect(fakeJobStartAt(protocol, bytes.slice(0, 3), 0), profile.id).toBe('maybe')
+        const inside = Array.from({ length: bytes.length - 1 }, (_, i) => fakeJobStartAt(protocol, bytes, i + 1))
+        expect(inside.every((r) => r === 'no'), profile.id).toBe(true)
+      }
+    }
+    expect(fakeJobStartAt('MARKLIFE_YXQ2', new Uint8Array([0x1f, 0x71]), 0)).toBe('no')
   })
 
   it('작업의 끝을 래스터 머리로 계산해 AA를 보낸다 — 고르기 창 닫기·블루투스 꺼짐·연결 실패를 미리 정할 수 있다', async () => {

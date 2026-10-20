@@ -34,7 +34,7 @@
 | 이름으로 고르기 | `profileForDeviceName(name, profiles)` → 프로필 / undefined (대소문자 가림, 다듬지 않음) | |
 | Marklife 어댑터 | `createMarklifeAdapter({ profiles?, environment?, timer?, printTimeoutMs?, packetIntervalMs?, maxPacketBytes?, creditWaitMs? })` → `PrinterAdapter` + `profile: ModelProfile`(연결한 기기의 프로필) + `bundle: 'A' \| 'C' \| null` · `bluetoothEnvironment()`(부를 때 navigator 읽음) · `MARKLIFE_DEFAULTS` | `MarklifeAdapter`·`MarklifeAdapterOptions`·`BluetoothEnvironment`·`BluetoothLike` 등 Web Bluetooth 모양 |
 | 까닭·문장 | `unsupportedReason(userAgent, maxTouchPoints)` → `'IOS' \| 'IN_APP' \| 'OTHER'` · `unsupportedMessage(reason, app)` · `MARKLIFE_MESSAGES`(코드 → 문장, L-12 6) · `IN_APP_MARKERS` | `UnsupportedReason`·`MarklifeErrorCode` |
-| 가짜 기기 | `createFakeBluetooth({ name?, bundle?: 'A' \| 'C' \| 'none', missingCharacteristics?, available?, hasAvailability?, chooser?: 'pick' \| 'cancel', respectFilters?, connectFails?, initialCredits?(기본 4, null = 안 보냄), creditsPerPacket?(기본 1), mtu?, ack?: 'send' \| 'none' \| 'hold' \| { delayMs } \| { bytes }, jobs?: { [n]: { ack?, disconnectAtPacket?, failWriteAtPacket? } }, protocol?, timer?, userAgent? })` → `bluetooth`(navigator.bluetooth 자리)·`environment`(어댑터 environment 자리)·`requests`·`packets`·`attempts`·`printed`·`connected`·`connectCount`·`notifying`·`disconnect()`·`sendNotify(bytes)`·`sendFlow(bytes)`·`releaseAck()`·`setJob(n, b)`·`setAvailable`·`setChooser`·`setConnectFails` · `fakeJobLength(protocol, bytes)` | `FakeBluetooth`·`FakeBluetoothOptions`·`FakeAttempt`·`FakeAck`·`FakeJobBehavior` |
+| 가짜 기기 | `createFakeBluetooth({ name?, bundle?: 'A' \| 'C' \| 'none', missingCharacteristics?, available?, hasAvailability?, chooser?: 'pick' \| 'cancel', respectFilters?, connectFails?, initialCredits?(기본 4, null = 안 보냄), creditsPerPacket?(기본 1), mtu?, ack?: 'send' \| 'none' \| 'hold' \| { delayMs } \| { bytes }, jobs?: { [n]: { ack?, disconnectAtPacket?, failWriteAtPacket? } }, protocol?, timer?, userAgent? })` → `bluetooth`(navigator.bluetooth 자리)·`environment`(어댑터 environment 자리)·`requests`·`packets`·`attempts`·`printed`·`connected`·`connectCount`·`notifying`·`disconnect({ notice? })`(notice false = 끊김 알림 없이 연결만 없앤다)·`sendNotify(bytes)`·`sendFlow(bytes)`·`releaseAck()`·`setJob(n, b)`·`setAvailable`·`setChooser`·`setConnectFails` · `fakeJobLength(protocol, bytes)` · `fakeJobStartAt(protocol, bytes, at)`('yes'·'no'·'maybe') | `FakeBluetooth`·`FakeBluetoothOptions`·`FakeAttempt`·`FakeAck`·`FakeJobBehavior` |
 | 어댑터 계약 | `PrinterAdapter.profile`의 타입이 `AdapterProfile`(`displayName`·`dpi`·`headDots`·`density \| null`)로 넓어졌다 — B1·가짜 프린터는 그대로 `PrinterProfile`을 돌려준다 | `AdapterProfile` |
 
 **라벨 (`@livejjim/label`)**: `ALL_LABEL_SIZES` · `TAPE_LABEL_SIZES` · `SMALL_LABEL_SIZES` · `PACKING_LABEL_SIZES` · `isTapeSize` · `isSmallLabelSize` · `canMakePackingLabel` · `labelSizeName` · `TAPE_HEAD_DOTS` · `NO_PACKING_TEMPLATE` · `TEMPLATE_MESSAGES.packingSize` · `TEST_LABEL_SMALL_HANGUL`. `LabelSizeId`는 8개 크기 전체로 넓어졌다(`LABEL_SIZES`의 원소 타입은 그대로 세 개). 프로필마다의 크기 목록은 프로필의 `sizes`다.
@@ -79,9 +79,17 @@ await adapter.print(image)                // fake.printed에 작업 바이트가
 - GATT 꾸러미 A는 `ff02`·`ff01`·`ff03`이 모두 있어야 쓴다. 하나라도 없으면 C를 보고, C도 없으면 끊고 `WRONG_MODEL`(그 사이 연결이 끊겼으면 `DISCONNECTED`). 알림 켜기(`startNotifications`)가 실패하면 연결 실패(`DISCONNECTED`).
 - 이름이 켠 프로필과 맞지 않으면 GATT에 연결하지 않고(`gatt.disconnect()`만 부르고) `WRONG_MODEL`. 기술 상세에 기기 이름을 넣지 않는다.
 - 쓰기 오류가 났는데 연결이 살아 있으면 `PRINT_FAILED`(상태 연결됨), 끊겨 있으면 `DISCONNECTED`.
+- 출력이 끝나지 않았을 때(쓰기 거절·시간 초과) `gatt.connected`가 false면 끊김 알림(`gattserverdisconnected`)이 아직 안 왔어도 끊김으로 본다: 결과 `DISCONNECTED`, 연결을 내려놓고 상태도 `DISCONNECTED`(SA-N1-001). 그래서 `다시 연결`은 고르기 창부터 다시 열고, 다음 출력은 `BUSY`가 아니라 `NOT_CONNECTED`다. 20초가 지났을 때 연결이 이미 없으면 `TIMEOUT`이 아니라 `DISCONNECTED`다(L-12 5 '그 전에 연결이 끊기면').
 - 출력 중 판매자가 연결 끊기를 누르면 그 출력은 `DISCONNECTED`.
 - 작업 바이트의 거절 순서: 그림 형식(`PRINT_FAILED`) → 헤드 폭(`IMAGE_TOO_WIDE` — 농도와 상관없이 언제나, AC-N1-70) → 농도(`INVALID_DENSITY`). B1 어댑터(농도 → 형식 → 폭)와 순서가 다르다 — 둘 다 틀린 그림은 화면이 크기 목록·농도 범위로 미리 막는다.
 - 가짜 기기는 작업을 다 받았는지를 래스터 머리(YXQ 길이 칸·L11 폭×높이)로 계산하고, 다 받은 그 쓰기 안에서 `AA`를 보낸다(마지막 쓰기가 끝나기 전에 오는 경우). 이름표에 없는 기기 이름이면 `protocol`을 알려 줘야 한다.
+- 가짜 기기는 작업의 시작을 방식마다의 시작 바이트(머리 명령 전부 + 래스터 명령, 농도 자리는 아무 값 — YXQ 2 10바이트, YXQ 3·8 23바이트, L11 23바이트)로 알아본다(SA-N1-002). 어댑터가 작업 중간에 그만둔(TIMEOUT) 시도는 다음 작업의 시작을 받으면 끝까지 받지 못한 시도로 닫고, 다음 출력은 새 시도로 센다. 어댑터와 따로 신호를 주고받지 않는다. 조각이 시작 바이트보다 짧으면(MTU 알림) 여러 조각에 걸쳐 본다 — 아직 가리지 못한 시작 후보가 작업 끝 안쪽에 있으면 `AA`를 미룬다(앞 작업 길이가 다음 작업 바이트로 채워져 거짓 `AA`가 나가지 않게). 방식마다 끝 바이트가 시작 바이트와 어긋나므로 작업 하나를 끝까지 받으면 후보는 늘 가려진다(단위 시험으로 고정).
+
+### 수정 라운드 1
+- SA-N1-001(TD-N1-001): `print()`가 끝나지 않은 출력(쓰기 거절·시간 초과)에서 연결이 없으면(`gatt.connected` false) `drop(link)` 뒤 `DISCONNECTED`를 돌려준다. 쓰기 오류 갈래와 한 갈래로 합쳤다.
+- SA-N1-002(TD-N1-002): 가짜 기기가 시작 바이트로 새 작업을 알아본다(위 "그 밖에 정한 것").
+- 단위 시험(packages/printer/test/marklife.test.ts): 쓰기 거절이 끊김 알림보다 먼저(결과·상태 DISCONNECTED, 다음 출력 NOT_CONNECTED, 다시 연결은 고르기 창 2번째), 조각을 다 쓴 뒤 조용히 끊긴 채 20초(DISCONNECTED), 작업 중간 TIMEOUT 뒤 다음 출력(새 시도·AA·OK), S2·P50·X2·P12·바우아토 × 조각 1·5·20·90바이트 × 빠진 바이트 1·3·9·40(앞 시도는 AA 없이 닫힘, 뒤 시도는 작업 바이트와 같음), 시작 바이트는 작업 안 다른 자리에서 늘 'no'.
+- SA-N1-003(부하로 인한 서버·음성 시간 초과)은 이 스프린트가 바꾸지 않은 파일이다 — 부하가 낮을 때 verify를 다시 돌려 판정한다.
 
 ### pnpm verify 결과 (`E2E_PORT_OFFSET=1000 pnpm verify`, 마지막 커밋 기준)
 - 통과: lint · test(파일 137 · 테스트 3337) · golden(589) · e2e(파일 42 · 265) · coverage(라인 100% · 분기 99.66%).

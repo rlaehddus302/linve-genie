@@ -75,6 +75,7 @@ export { MARKLIFE_DEFAULTS, createMarklifeAdapter, type MarklifeAdapter, type Ma
 export {
   createFakeBluetooth,
   fakeJobLength,
+  fakeJobStartAt,
   type FakeAck,
   type FakeAttempt,
   type FakeBluetooth,

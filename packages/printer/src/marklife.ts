@@ -438,11 +438,14 @@ export function createMarklifeAdapter(options: MarklifeAdapterOptions = {}): Mar
         if (current === link) box.set('CONNECTED')
         return OK
       }
-      if (outcome.kind === 'disconnected' || current !== link) return fail('DISCONNECTED')
-      if (outcome.kind === 'error' && !link.gatt.connected) {
-        // 끊김 알림보다 쓰기 오류가 먼저 왔다 — 끊김으로 본다
+      const cause = outcome.kind === 'error' ? outcome.error : undefined
+      // 다른 곳(끊김 알림·연결 끊기)에서 이미 이 연결을 내려놓았다 — 상태도 그쪽이 정했다
+      if (current !== link) return fail('DISCONNECTED', cause)
+      if (outcome.kind === 'disconnected' || !link.gatt.connected) {
+        // 끊김 알림(gattserverdisconnected)보다 쓰기 거절·시간 초과가 먼저 왔다 — 끊김으로 보고 상태도 끊김으로 둔다
+        // (L-12 5 "그 전에 연결이 끊기면 DISCONNECTED", L-7 상태 계약: 결과가 끊김이면 상태도 끊김, 다시 연결은 고르기 창부터)
         drop(link)
-        return fail('DISCONNECTED', outcome.error)
+        return fail('DISCONNECTED', cause)
       }
       box.set('CONNECTED')
       if (outcome.kind === 'timeout') return fail('TIMEOUT')

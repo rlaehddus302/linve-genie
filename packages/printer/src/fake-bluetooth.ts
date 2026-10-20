@@ -4,6 +4,8 @@
 // 기기 이름, 꾸러미(A·C·없음), 고르기 창 닫기, 블루투스 꺼짐, 연결 실패, 첫 크레딧(`01 04` — 안 보냄 포함)과 조각마다 보충할 크레딧,
 // MTU 알림, `AA`(보냄·안 보냄·n ms 늦게·붙잡아 두기·다른 바이트), n번째 조각에서 끊김·쓰기 오류를 미리 정할 수 있다.
 // 시각·난수를 쓰지 않는다(지연은 주입한 타이머). 작업의 끝은 받은 바이트의 래스터 머리로 계산한다(작업을 다 받아야 `AA`를 보낸다).
+// 작업의 시작은 방식마다의 시작 바이트로 알아본다 — 어댑터가 작업 중간에 그만둔(TIMEOUT) 시도는 다음 작업의 시작을 받으면 닫고,
+// 다음 출력은 새 시도로 센다(어댑터와 가짜 기기 사이에 따로 신호가 없다).
 import { systemTimer, type PrinterProtocol, type PrinterTimer } from './adapter.ts'
 import {
   GATT_BUNDLES,
@@ -97,8 +99,11 @@ export interface FakeBluetooth {
   readonly connectCount: number
   /** 알림을 켠 특성 (16비트 UUID 글 — `ff01` 등) */
   readonly notifying: readonly string[]
-  /** 프린터 쪽에서 끊긴다 */
-  disconnect(): void
+  /**
+   * 프린터 쪽에서 끊긴다. notice가 false면 gattserverdisconnected 알림을 보내지 않는다 —
+   * 연결은 이미 없어 쓰기는 거절되는데 끊김 알림은 아직 오지 않은 순간(쓰기 거절이 먼저 오는 경우)을 흉내 낸다.
+   */
+  disconnect(options?: { readonly notice?: boolean }): void
   /** 알림 특성(ff01/fd02)으로 보낸다 */
   sendNotify(bytes: readonly number[]): void
   /** 흐름 제어 특성(ff03)으로 보낸다 */
@@ -118,6 +123,39 @@ class FakeError extends Error {
     super(message)
     this.name = name
   }
+}
+
+/** 아무 값이나 받는 자리 (농도) */
+const ANY = -1
+const zeros = (n: number): number[] => Array.from({ length: n }, () => 0x00)
+
+/**
+ * 방식마다 작업이 시작하는 바이트 (L-12 2의 순서: 머리 명령 전부 + 래스터 명령 — 농도 자리는 아무 값).
+ * 래스터 명령까지 맞춰 보므로 압축한 줄 가운데에서 우연히 맞을 일이 사실상 없다. 끝 바이트(`1D 0C 10 FF F1 45`·`… 1F 11 50`)는
+ * 어느 방식의 시작 바이트와도 어긋나므로, 작업 하나를 끝까지 받으면 그 안의 시작 후보는 모두 가려진다.
+ */
+const JOB_START: Readonly<Record<Exclude<PrinterProtocol, 'NIIMBOT_B1'>, readonly number[]>> = (() => {
+  const yxq38 = [0x1f, 0x80, 0x02, 0x20, 0x1f, 0x70, 0x02, ANY, ...zeros(6), 0x1f, 0xc0, 0x01, 0x00, 0x1f, 0x11, 0x51, 0x1f, 0x10]
+  return {
+    MARKLIFE_YXQ2: [0x1f, 0x70, 0x01, ANY, 0x10, 0xff, 0xf1, 0x02, 0x1f, 0x10],
+    MARKLIFE_YXQ3: yxq38,
+    MARKLIFE_YXQ8: yxq38,
+    MARKLIFE_L11: [...zeros(15), 0x10, 0xff, 0xf1, 0x02, 0x1d, 0x76, 0x30, 0x00],
+  }
+})()
+
+/**
+ * bytes의 at 자리부터가 작업 시작 바이트인지: 'yes'(모두 맞음) · 'no'(어긋남) · 'maybe'(받은 데까지는 맞는데 아직 짧다).
+ * 조각이 시작 바이트보다 짧을 수 있어(MTU 알림) 여러 조각에 걸쳐 본다.
+ */
+export function fakeJobStartAt(protocol: Exclude<PrinterProtocol, 'NIIMBOT_B1'>, bytes: Uint8Array, at: number): 'yes' | 'no' | 'maybe' {
+  const start = JOB_START[protocol]
+  const n = Math.min(start.length, bytes.length - at)
+  for (let i = 0; i < n; i++) {
+    const want = start[i] as number
+    if (want !== ANY && bytes[at + i] !== want) return 'no'
+  }
+  return n === start.length ? 'yes' : 'maybe'
 }
 
 /** 받은 바이트로 작업 길이를 계산한다 (래스터 머리를 아직 못 받았으면 undefined, 꼴이 틀리면 NaN) */
@@ -163,6 +201,8 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
     acked: boolean
     /** 이 작업에서 쓰기를 부른 횟수 (끊김·오류로 받지 않은 조각 포함) */
     writes: number
+    /** 아직 가리지 못한 새 작업 시작 후보 — 받은 데까지는 시작 바이트와 맞는 조각 경계 (조각 번호, 바이트 자리) */
+    starts: { readonly packet: number; readonly at: number }[]
   }
   const attempts: MutableAttempt[] = []
   let open: MutableAttempt | undefined
@@ -252,13 +292,13 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
     open = undefined
   }
 
-  const dropConnection = (): void => {
+  const dropConnection = (notice = true): void => {
     if (!connected) return
     connected = false
     notifying.clear()
     held = undefined
     closeOpen()
-    for (const listener of [...deviceListeners]) listener()
+    if (notice) for (const listener of [...deviceListeners]) listener()
   }
 
   const server: GattServerLike = {
@@ -306,9 +346,51 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
     else sendAck(attempt, ack.bytes)
   }
 
+  /** 열린 시도를 조각 경계 start에서 나눈다 — 앞은 끝까지 받지 못한 시도로 닫고, 그 뒤 조각으로 새 시도를 연다 */
+  const splitAt = (attempt: MutableAttempt, start: MutableAttempt['starts'][number]): MutableAttempt => {
+    const next: MutableAttempt = {
+      index: attempts.length + 1,
+      packets: attempt.packets.slice(start.packet),
+      bytes: attempt.bytes.slice(start.at),
+      complete: false,
+      acked: false,
+      writes: attempt.packets.length - start.packet,
+      starts: attempt.starts.filter((s) => s.packet > start.packet).map((s) => ({ packet: s.packet - start.packet, at: s.at - start.at })),
+    }
+    attempt.packets = attempt.packets.slice(0, start.packet)
+    attempt.bytes = attempt.bytes.slice(0, start.at)
+    attempt.starts = []
+    attempts.push(next)
+    open = next
+    return next
+  }
+
+  /**
+   * 조각을 받은 뒤: 여러 조각에 걸쳐 보이게 된 새 작업의 시작에서 나누고, 작업을 끝까지 받았으면 끝 알림을 낸다.
+   * 작업 끝 안쪽에 아직 가리지 못한 시작 후보가 있으면 다음 조각을 기다린다 — 앞 작업 머리로 잰 길이를 다음 작업의 바이트로
+   * 채워 거짓으로 `AA`를 보내지 않게(출력하지 않은 라벨이 출력함으로 가지 않게, D-N1-06).
+   */
+  const settle = (first: MutableAttempt): void => {
+    let attempt = first
+    for (;;) {
+      const current = attempt
+      current.starts = current.starts.filter((s) => fakeJobStartAt(protocol, current.bytes, s.at) !== 'no')
+      const found = current.starts.find((s) => fakeJobStartAt(protocol, current.bytes, s.at) === 'yes')
+      if (!found) break
+      attempt = splitAt(current, found)
+    }
+    const total = fakeJobLength(protocol, attempt.bytes)
+    if (total === undefined || Number.isNaN(total) || attempt.bytes.length < total) return
+    if (attempt.starts.some((s) => s.at < total)) return
+    onComplete(attempt)
+  }
+
   const onPacket = (packet: Uint8Array): Promise<void> => {
+    // 끝까지 받지 못한 시도(어댑터가 TIMEOUT으로 그만뒀다)에 새 작업의 첫 조각이 오면 그 시도를 닫는다 — 출력마다 따로 센다(L-12 7).
+    // 어댑터가 따로 알려 주지 않는다: 진짜 프린터처럼 받은 바이트만 본다
+    if (open && fakeJobStartAt(protocol, packet, 0) === 'yes') closeOpen()
     if (!open) {
-      open = { index: attempts.length + 1, packets: [], bytes: new Uint8Array(0), complete: false, acked: false, writes: 0 }
+      open = { index: attempts.length + 1, packets: [], bytes: new Uint8Array(0), complete: false, acked: false, writes: 0, starts: [] }
       attempts.push(open)
     }
     const attempt = open
@@ -324,14 +406,15 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
       return Promise.reject(new FakeError('NotSupportedError', '쓰기 오류'))
     }
     packets.push(packet)
+    // 조각이 시작 바이트보다 짧으면(MTU 알림) 이 조각만으로 가리지 못한다 — 후보로 두고 뒤 조각과 함께 본다
+    if (attempt.packets.length > 0 && fakeJobStartAt(protocol, packet, 0) !== 'no') attempt.starts.push({ packet: attempt.packets.length, at: attempt.bytes.length })
     attempt.packets.push(packet)
     const joined = new Uint8Array(attempt.bytes.length + packet.length)
     joined.set(attempt.bytes)
     joined.set(packet, attempt.bytes.length)
     attempt.bytes = joined
     if (creditsPerPacket > 0) flowChar?.emit([0x01, creditsPerPacket & 0xff])
-    const total = fakeJobLength(protocol, attempt.bytes)
-    if (total !== undefined && !Number.isNaN(total) && attempt.bytes.length >= total) onComplete(attempt)
+    settle(attempt)
     return Promise.resolve()
   }
 
@@ -375,7 +458,7 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
     get notifying() {
       return [...notifying].sort()
     },
-    disconnect: () => dropConnection(),
+    disconnect: (opts) => dropConnection(opts?.notice ?? true),
     sendNotify: (bytes) => notifyChar?.emit(bytes),
     sendFlow: (bytes) => flowChar?.emit(bytes),
     releaseAck: () => {
