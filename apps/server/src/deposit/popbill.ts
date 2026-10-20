@@ -76,7 +76,7 @@ export interface FetchedRow {
   readonly at: number
   readonly precision: 'second' | 'minute'
   readonly amount: number
-  /** 입금자명 (cleanDepositName — NUL 뺌, 앞뒤 공백 뺌, 40자까지) */
+  /** 입금자명 (cleanDepositName — 짝 없는 서로게이트는 U+FFFD, NUL 뺌, 앞뒤 공백 뺌, 40자까지) */
   readonly name: string
 }
 

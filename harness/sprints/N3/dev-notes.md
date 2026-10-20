@@ -151,6 +151,20 @@
 - **dev-web에게**: 계좌 연동 폼·계좌 관리 버튼은 409 `CORP_NOT_ALLOWED`의 `error.message`를 지금처럼 그대로 보이면 된다(문장 하나). 화면 변경은 날짜 고르기 낱말 하나뿐이다.
 - **test-domain·test-e2e에게**: 같은 세계에서 두 판매자가 같은 사업자번호로 계좌조회를 만들면 이제 두 번째는 409다(처음 판매자가 받아 오기에 성공한 뒤). E2E 기동에는 팝빌 키가 없어 영향이 없다. `server.writer.peek(seller, date)`은 메모리를 밀어내지 않는 읽기다.
 
+### 수정 라운드 2 (dev-server)
+- **TD-N3-003 · SA-N3-08 입금자명의 짝 없는 서로게이트**
+  - `cleanDepositName`이 먼저 `toWellFormed()`로 짝 없는 서로게이트(U+D800~U+DFFF 홀로)를 U+FFFD로 바꾼 뒤 NUL을 뺀다. 세 입구가 이 함수 하나를 쓰므로 미리 보기·줄 키·저장·맞추기가 같은 이름을 본다. 짝이 맞는 글자(이모지 등)는 그대로다.
+  - **그물**: `#ingest`가 새 줄을 저장점(SAVEPOINT) 안에서 한 번에 저장하고, 실패하면 그 저장점만 되돌린 뒤 한 줄씩 저장점을 두고 다시 저장한다. DB가 받지 못한 줄만 건너뛰고(`failed`) 나머지는 저장·맞춘다. 번호는 저장된 줄에만 차례로 붙인다(빈 번호 없음). 로그는 `DEPOSIT_ROW_SAVE_RETRY`·`DEPOSIT_ROW_SAVE_FAILED`(오류 종류만 — 이름·금액 없음).
+  - 계약 추가: 붙여넣기 넣기 응답 `PasteSummary`에 `failed`(저장하지 못한 줄 수, 보통 0)가 생겼다. 계좌조회·시험용 원천은 `failed > 0`이면 원천 오류 문장 "읽지 못한 내역이 있어요"(malformed와 같은 문장). 화면은 아직 `failed`를 보이지 않는다 — dev-web이 넣기 결과 문장에 "저장하지 못한 줄 N건"을 덧붙이면 좋다(0이면 생략).
+  - **spec-keeper 판단 요청 (DP-1 "받은 글자 그대로"의 예외)**: DB(text)가 담지 못하는 두 가지만 바꾼다 — U+0000은 뺀다(TD-N3-001), 짝 없는 서로게이트는 U+FFFD로 바꾼다(TD-N3-003). 둘 다 정상 은행 내역에는 나오지 않는 글자이고, 그 줄을 버리면 정상 입금 하나를 확인 필요에서도 못 보게 되므로 글자만 고쳐 저장하는 쪽을 골랐다. DP-1 또는 DECISIONS에 한 줄로 적어 주길 요청한다.
+  - 시험: `deposit-sources.test.ts` "TD-N3-003·SA-N3-08" 넷(다듬기, 계좌조회, 붙여넣기 `failed: 0`, 그물 — 다듬기를 거치지 않는 `server.deposits.ingest`에 NUL 이름을 넣어 저장 실패를 만들고 나머지 두 줄이 1·2번으로 저장됨). 적대 `server-n3.test.ts` TD-N3-003 셋 통과.
+- **SA-N3-03 실제 범위 유튜브 구매자를 만드는 시험 경로**
+  - 새 경로 `POST /api/deposits/test/chat { b, id, ch, nick, text }` — 입금 시험 모드(E2E 기동 기본 켬)에서만 붙고 운영 기동에는 경로가 없다(404, AC-N3-17과 같은 방식). 서버 수집 함수 `ingestChat`(조치자 수집기)을 그대로 불러 **실제 방송**에도 채팅 찜을 남긴다 → 그 채널의 유튜브 구매자 묶음이 생긴다.
+  - 응답: 기록 `200 { recorded: true, date, seq, changed }`, 같은 (방송, 메시지 ID) 다시 `200 { recorded: false }`, 모르는 항목 400 `UNKNOWN_FIELD`, 칸 오류 400 `INVALID_INPUT`, 다른 판매자·없는 방송 404, 저장 실패 500.
+  - **test-e2e에게**: `remember.spec.ts`를 @fill 없이 기본 chromium 묶음에서 돌릴 수 있다. 흐름 예: `POST /api/broadcasts { requestId, date: 오늘 }`(실제 방송) → `POST /api/events { requestId, type: 'product.register', b, no, price, name }`(상품) → `POST /api/deposits/test/chat { b, id: uniq, ch: 'UC_…', nick: 고유 닉네임, text: '<상품 번호>' }` → `/api/days/<오늘>`에 kind `youtube` 구매자·묶음. 묶음 합계에는 배송비가 더해진다(엔진 값 그대로 읽을 것).
+  - 시험: `deposit-sources.test.ts` "SA-N3-03" 하나, 운영 기동 404 한 줄.
+- **SA-N3-06(부하로 흔들린 test 단계 2건)·SA-N3-09(TE-N3-004 음성)**: 서버 원인이 아니다 — 아래 응답 참고.
+
 ## dev-web
 
 ### 한 일 (요약)

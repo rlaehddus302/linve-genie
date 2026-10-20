@@ -409,6 +409,30 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   // ── 입금 확인 (N3, DEPOSIT_RULES) ─────────────────────────────────────
   if (deps.deposits !== undefined) registerDepositRoutes(api, deps.deposits)
 
+  // 시험용 시청자 채팅 (입금 확인 시험 모드에서만 — 운영 기동에는 경로 자체가 없다, 404. SA-N3-03·D-N3-12).
+  // 실제 방송에도 유튜브 구매자를 만들 수 있게(기억한 입금자명 흐름 E2E, AC-N3-42·46) 수집 함수(ingestChat, 조치자 수집기)를 그대로 부른다.
+  // 입력 { b, id, ch, nick, text } — 같은 (방송, 메시지 ID)는 한 번만 기록한다. 리허설 방송이면 그 리허설 범위로 간다
+  if (deps.deposits?.testMode === true) {
+    api.post('/deposits/test/chat', async (c) => {
+      const input = c.get('body') ?? {}
+      const extra = onlyKeys(input, ['b', 'id', 'ch', 'nick', 'text'])
+      if (extra !== null) return extra
+      const outcome = await service.ingestChat(sellerOf(c), input)
+      switch (outcome.status) {
+        case 'recorded':
+          return c.json({ recorded: true, date: outcome.date, seq: outcome.seq, changed: outcome.changed })
+        case 'duplicate':
+          return c.json({ recorded: false })
+        case 'rejected':
+          return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', outcome.problems)
+        case 'not_found':
+          return notFound()
+        case 'save_failed':
+          return apiError(500, 'SAVE_FAILED', '저장하지 못했어요. 다시 시도해 주세요.')
+      }
+    })
+  }
+
   api.notFound(() => notFound())
   return api
 }

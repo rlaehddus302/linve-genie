@@ -222,6 +222,8 @@ export interface IngestSummary {
   /** 새로 저장한 입금 번호 (번호 순) */
   readonly stored: readonly number[]
   readonly existing: number
+  /** 저장하지 못한 줄 (DB가 받지 못한 줄 — 그 줄만 건너뛰고 나머지는 저장했다, SA-N3-08) */
+  readonly failed: number
   readonly old: number
   readonly future: number
   readonly auto: number
@@ -237,6 +239,8 @@ export interface PasteSummary {
   readonly unreadable: readonly { readonly line: number; readonly why: 'BAD_AMOUNT' | 'BAD_TIME' }[]
   readonly new: number
   readonly existing: number
+  /** 저장하지 못한 줄 수 (보통 0 — SA-N3-08) */
+  readonly failed: number
   readonly old: number
   readonly future: number
   readonly auto: number
@@ -666,7 +670,7 @@ export class DepositService {
       return
     }
     const now = new Date(this.#now())
-    const lastError = fetched.malformed > 0 ? SOURCE_MESSAGES.MALFORMED : null
+    const lastError = fetched.malformed > 0 || summary.failed > 0 ? SOURCE_MESSAGES.MALFORMED : null
     await updateSource(db, sellerId, id, { lastFetchedAt: now, lastError, lastErrorAt: lastError === null ? null : now, lastNew: summary.stored.length }, now)
     if (manual || summary.stored.length > 0 || row.lastError !== lastError) this.#notify(sellerId, summary.stored, [id])
   }
@@ -742,16 +746,37 @@ export class DepositService {
     }
     const ordered = kept.map((row, index) => ({ row, index })).sort((a, b) => a.row.at - b.row.at || a.index - b.index)
     const now = new Date(nowMs)
+    let failed = 0
     const inserted = await db.transaction(async (tx) => {
       await lockSellerDeposits(tx, sellerId)
       const existing = await existingKeys(tx, sellerId, source.id, [...keys])
-      let next = (await maxDepositNo(tx, sellerId)) + 1
+      const first = (await maxDepositNo(tx, sellerId)) + 1
       const fresh: NewDeposit[] = []
       for (const { row } of ordered) {
         if (existing.has(row.key)) continue
-        fresh.push({ no: next++, sourceId: source.id, externalKey: row.key, at: new Date(row.at), precision: row.precision, amount: row.amount, name: row.name })
+        fresh.push({ no: first + fresh.length, sourceId: source.id, externalKey: row.key, at: new Date(row.at), precision: row.precision, amount: row.amount, name: row.name })
       }
-      const done = await insertDeposits(tx, sellerId, fresh, now)
+      let done: { id: number; no: number }[]
+      try {
+        // 한 번에 저장 — 실패하면 이 저장점만 되돌리고 한 줄씩 다시 저장한다
+        done = await tx.transaction((inner) => insertDeposits(inner, sellerId, fresh, now))
+      } catch (error) {
+        // 그물(SA-N3-08): DB가 받지 못하는 줄 하나가 같은 받아 오기·붙여넣기의 다른 줄까지 버리지 않게, 그 줄만 건너뛰고(failed) 나머지는 저장한다.
+        // 번호는 저장된 줄에만 차례로 다시 붙인다(빈 번호 없음). 이름·금액은 기록에 남기지 않는다
+        this.#deps.log({ level: 'error', code: 'DEPOSIT_ROW_SAVE_RETRY', errorKind: errorKind(error) })
+        done = []
+        let next = first
+        for (const row of fresh) {
+          try {
+            const one = await tx.transaction((inner) => insertDeposits(inner, sellerId, [{ ...row, no: next }], now))
+            done.push(...one)
+            next += one.length
+          } catch (rowError) {
+            failed++
+            this.#deps.log({ level: 'error', code: 'DEPOSIT_ROW_SAVE_FAILED', errorKind: errorKind(rowError) })
+          }
+        }
+      }
       await insertActions(
         tx,
         sellerId,
@@ -760,9 +785,9 @@ export class DepositService {
       )
       return done.map((item) => item.no).sort((a, b) => a - b)
     })
-    const existingCount = kept.length - inserted.length
+    const existingCount = kept.length - inserted.length - failed
     const auto = inserted.length === 0 ? 0 : await this.#autoConfirm(sellerId, inserted)
-    return { stored: inserted, existing: existingCount, old, future, auto, review: inserted.length - auto }
+    return { stored: inserted, existing: existingCount, failed, old, future, auto, review: inserted.length - auto }
   }
 
   /**
@@ -918,6 +943,7 @@ export class DepositService {
         unreadable: read.unreadable,
         new: summary.stored.length,
         existing: summary.existing,
+        failed: summary.failed,
         old: summary.old,
         future: summary.future,
         auto: summary.auto,

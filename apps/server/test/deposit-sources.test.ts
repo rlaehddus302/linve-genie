@@ -501,6 +501,7 @@ describe('AC-N3-17 시험 모드 가짜 원천', () => {
     const seller = await addSeller(world)
     const api = client(world, seller.cookie)
     expect((await api.post('/api/deposits/test/rows', { source: 'x', rows: [] })).status).toBe(404)
+    expect((await api.post('/api/deposits/test/chat', { b: 'x', id: 'm1', ch: 'UC1', nick: 'n', text: '1' })).status).toBe(404)
     const fake = await api.post('/api/deposits/sources', { kind: 'FAKE', label: '시험' })
     expect(fake.status).toBe(400)
     expect((await expectOk(api.get('/api/deposits/sources'))).body).toMatchObject({ testMode: false, popbill: false, sources: [] })
@@ -570,6 +571,89 @@ describe('TD-N3-001 입금자명의 NUL(U+0000) — 줄 하나가 받아 오기�
     await expectOk(api.testRows(fake.id, [{ key: 'k1', at: '2026-10-19T12:00:30+09:00', amount: 14_000, name: '다육\u0000이맘' }]))
     await expectOk(api.fetch(fake.id))
     expect((await deposits(api, 'AUTO_APPLIED')).map((item) => item.name)).toEqual(['다육이맘'])
+  })
+})
+
+describe('TD-N3-003·SA-N3-08 입금자명의 짝 없는 서로게이트 — 줄 하나가 받아 오기·붙여넣기 전체를 막지 않는다 (AC-N3-13·15, DP-1)', () => {
+  it('다듬기: 짝 없는 서로게이트는 U+FFFD로 바꾸고, 짝이 맞는 글자(이모지)는 그대로', () => {
+    expect(cleanDepositName('김\uDC00영희')).toBe('김\uFFFD영희')
+    expect(cleanDepositName('김\uD800')).toBe('김\uFFFD')
+    expect(cleanDepositName('다육🌵맘')).toBe('다육🌵맘')
+    expect(cleanDepositName('\uDC00\u0000 김영희')).toBe('\uFFFD 김영희')
+  })
+
+  it('계좌조회: 서로게이트가 든 줄도 저장하고, 같은 받아 오기의 다른 입금도 저장한다(오류 문장 없음)', async () => {
+    const world = await depositWorld()
+    const seller = await addSeller(world)
+    const api = depositApi(world, seller)
+    world.popbill.register(ACCOUNT)
+    world.popbill.addRows(ACCOUNT, [inRow('T1', '20261019103000', 14000, '김\uDC00영희'), inRow('T2', '20261019103100', 5000, '박철수')])
+    const source = await popbillSource(api)
+    await expectOk(api.fetch(source.id))
+    expect((await deposits(api)).map((item) => [item.name, item.amount]).sort()).toEqual([
+      ['김\uFFFD영희', 14000],
+      ['박철수', 5000],
+    ])
+    const view = ((await expectOk(api.sources())).body as { sources: { id: string; lastError: string | null }[] }).sources.find((item) => item.id === source.id)
+    expect(view).toMatchObject({ lastError: null })
+  })
+
+  it('붙여넣기: 미리 보기 "새 입금" 두 줄은 넣으면 두 줄 다 저장된다(500 없음)', async () => {
+    const world = await depositWorld()
+    const seller = await addSeller(world)
+    world.clock.advance(60_000)
+    const api = depositApi(world, seller)
+    const text = '거래일시\t입금자명\t입금액\n2026-10-19 10:30\t김\uDC00영희\t14,000\n2026-10-19 10:31\t박철수\t5,000'
+    const preview = (await expectOk(api.preview(text))).body as { rows: { name: string; state: string }[] }
+    expect(preview.rows.map((row) => [row.name, row.state])).toEqual([
+      ['김\uFFFD영희', 'NEW'],
+      ['박철수', 'NEW'],
+    ])
+    expect((await expectOk(api.paste(text))).body).toMatchObject({ new: 2, existing: 0, failed: 0 })
+  })
+
+  it('그물: DB가 받지 못하는 줄이 다듬기를 지나 들어와도 그 줄만 건너뛰고(failed) 나머지는 빈 번호 없이 저장한다', async () => {
+    const world = await depositWorld()
+    const seller = await addSeller(world)
+    world.clock.advance(60_000)
+    const api = depositApi(world, seller)
+    const fake = (await expectOk(api.createSource({ kind: 'FAKE' }))).body as { id: string }
+    const at = (iso: string) => Date.parse(iso)
+    // 서버 안 입구(ingest)는 다듬기를 거치지 않는다 — NUL 이름으로 저장 실패를 일부러 만든다
+    const summary = await world.server.deposits.ingest(seller.sellerId, fake.id, [
+      { key: 'k1', at: at('2026-10-19T10:30:00+09:00'), precision: 'second', amount: 14_000, name: '김\u0000영희' },
+      { key: 'k2', at: at('2026-10-19T10:31:00+09:00'), precision: 'second', amount: 5_000, name: '박철수' },
+      { key: 'k3', at: at('2026-10-19T10:32:00+09:00'), precision: 'second', amount: 3_000, name: '이민수' },
+    ])
+    expect(summary).toMatchObject({ stored: [1, 2], failed: 1, existing: 0 })
+    expect((await deposits(api)).map((item) => [item.no, item.name]).sort()).toEqual([
+      [1, '박철수'],
+      [2, '이민수'],
+    ])
+    expect(world.logs.some((line) => JSON.stringify(line).includes('DEPOSIT_ROW_SAVE_FAILED'))).toBe(true)
+    expect(JSON.stringify(world.logs)).not.toContain('박철수')
+  })
+})
+
+describe('SA-N3-03 시험용 시청자 채팅 (시험 모드에서만, D-N3-12) — 실제 방송에 유튜브 구매자를 만든다', () => {
+  it('실제 방송에 수집 함수와 같은 기록(조치자 수집기)으로 찜이 남고 유튜브 구매자 묶음이 생긴다. 같은 메시지는 한 번, 모르는 항목·다른 판매자 방송은 거절', async () => {
+    const world = await depositWorld()
+    const seller = await addSeller(world)
+    const other = await addSeller(world)
+    const b = await createBroadcast(world, seller, { date: DAY })
+    await register(world, seller, b.id, 15)
+    const api = depositApi(world, seller)
+    const chat = { b: b.id, id: 'tm-1', ch: 'UC_TEST', nick: '다육이맘', text: '15' }
+    expect((await expectOk(api.api.post('/api/deposits/test/chat', chat))).body).toMatchObject({ recorded: true, date: DAY })
+    expect((await expectOk(api.api.post('/api/deposits/test/chat', chat))).body).toEqual({ recorded: false })
+    const day = (await expectOk(api.day(DAY))).body as { buyers: { id: string; kind: string; display: string }[]; settlements: { buyer: string; total: number }[] }
+    expect(day.buyers.find((item) => item.id === 'UC_TEST')).toMatchObject({ kind: 'youtube', display: '다육이맘' })
+    expect(day.settlements.find((item) => item.buyer === 'UC_TEST')).toMatchObject({ total: 14_000 }) // 상품 10,000 + 배송비 4,000
+    const unknown = await api.api.post('/api/deposits/test/chat', { ...chat, id: 'tm-2', owner: true })
+    expect(unknown.status).toBe(400)
+    expect((unknown.body as { error: { code: string } }).error.code).toBe('UNKNOWN_FIELD')
+    expect((await depositApi(world, other).api.post('/api/deposits/test/chat', { ...chat, id: 'tm-3' })).status).toBe(404)
+    expect((await api.api.post('/api/deposits/test/chat', { ...chat, id: '' })).status).toBe(400)
   })
 })
 
