@@ -40,7 +40,8 @@ export function chosenBundle(deposit: DepositView, picked: string | undefined): 
 export function ReviewTab({ onNotice }: { readonly onNotice: (notice: Notice | null) => void }) {
   const signal = useDepositSignal()
   const store = useDepositStore()
-  const list = useDepositList(['REVIEW'], [signal.tick, signal.scopeTick])
+  // 입금 알림은 바로, 판매 기록(묶음 상태가 바뀜 — 사유·제안을 볼 때 다시 계산)은 1초 뒤 (DP-5)
+  const list = useDepositList(['REVIEW'], [signal.tick], [signal.scopeTick])
   /** 입금 번호 → 판매자가 고른 제안 묶음 키 */
   const [picked, setPicked] = useState<ReadonlyMap<number, string>>(new Map())
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set())

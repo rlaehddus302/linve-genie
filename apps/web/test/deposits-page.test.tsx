@@ -83,6 +83,20 @@ describe('주소·메뉴·실시간 (AC-N3-40)', () => {
     expect(card(1)).toBeDefined()
   })
 
+  it('실제 범위의 판매 기록(change)이 오면 1초 뒤 확인 필요를 다시 받는다(사유·제안은 볼 때 다시 계산) — 리허설 기록은 아니다', async () => {
+    await open([deposit(1)])
+    const lists = () => api.server.callsTo('GET', /^\/api\/deposits\?/).length
+    const before = lists()
+    stream.emit('change', { date: D_DATE, rehearsal: true, seq: 5 })
+    await new Promise((resolve) => setTimeout(resolve, 1100))
+    await flush()
+    expect(lists()).toBe(before)
+    for (let seq = 6; seq < 10; seq++) stream.emit('change', { date: D_DATE, rehearsal: false, seq })
+    await new Promise((resolve) => setTimeout(resolve, 1100))
+    await flush()
+    expect(lists()).toBe(before + 1)
+  })
+
   it('확인 필요가 없으면 메뉴에 수를 붙이지 않는다', async () => {
     await open([])
     expect(within(screen.getByRole('navigation', { name: '메뉴' })).getByRole('link', { name: '입금 확인' }).textContent).toBe('입금 확인')

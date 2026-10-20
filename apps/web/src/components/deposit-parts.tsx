@@ -27,8 +27,10 @@ import { Modal } from './Modal.tsx'
 export const PAGE_SIZE = 50
 /** 다시 받기 상한 (서버 limit 1~200) */
 const RELOAD_MAX = 200
-/** 알림이 몰릴 때 한 번만 다시 받도록 기다리는 시간 */
+/** 입금 알림 뒤 다시 받기까지 (그사이 알림은 한 번으로 — 기다림을 늘리지 않으므로 알림이 이어져도 이 시간 안에 받는다) */
 export const RELOAD_DELAY_MS = 150
+/** 범위 기록(change) 뒤 다시 받기까지 — 방송 중 채팅마다 확인 필요 목록을 다시 계산하지 않게 길게 */
+export const SLOW_RELOAD_DELAY_MS = 1000
 
 export const depositLabel = (no: number): string => `입금 #${String(no)}`
 
@@ -77,10 +79,11 @@ export interface DepositListApi extends ListState {
 }
 
 /**
- * 상태별 입금 목록. triggers의 값이 바뀌면(알림 판) 조금 뒤 다시 받는다. 응답의 확인 필요 수는 메뉴 수에 덮는다.
- * 늦게 온 응답이 나중 응답을 덮지 않게 요청마다 번호를 붙인다.
+ * 상태별 입금 목록. triggers의 값이 바뀌면(입금 알림 판) 조금 뒤, slow의 값이 바뀌면(범위 기록 판) 1초 뒤 다시 받는다.
+ * 기다리는 동안 온 알림은 그 한 번에 합친다(기다림을 늘리지 않는다 — 알림이 끊이지 않아도 늦어지지 않는다).
+ * 응답의 확인 필요 수는 메뉴 수에 덮는다. 늦게 온 응답이 나중 응답을 덮지 않게 요청마다 번호를 붙인다.
  */
-export function useDepositList(statuses: readonly DepositStatus[], triggers: readonly number[]): DepositListApi {
+export function useDepositList(statuses: readonly DepositStatus[], triggers: readonly number[], slow: readonly number[] = []): DepositListApi {
   const store = useDepositStore()
   const storeRef = useRef(store)
   storeRef.current = store
@@ -137,18 +140,32 @@ export function useDepositList(statuses: readonly DepositStatus[], triggers: rea
     void reload()
   }, [reload])
 
-  // 알림 판이 바뀌면 조금 뒤 한 번 (처음 값은 건너뛴다)
+  // 판이 바뀌면 조금 뒤 한 번 (처음 값은 건너뛴다). 더 이른 다시 받기가 잡혀 있으면 그것으로 합친다
+  const due = useRef(0)
+  const schedule = useCallback((delay: number) => {
+    const at = Date.now() + delay
+    if (timer.current !== undefined && due.current <= at) return
+    if (timer.current !== undefined) clearTimeout(timer.current)
+    due.current = at
+    timer.current = setTimeout(() => {
+      timer.current = undefined
+      void reloadRef.current()
+    }, delay)
+  }, [])
   const key = triggers.join(',')
   const seen = useRef(key)
   useEffect(() => {
     if (seen.current === key) return
     seen.current = key
-    if (timer.current !== undefined) clearTimeout(timer.current)
-    timer.current = setTimeout(() => {
-      timer.current = undefined
-      void reloadRef.current()
-    }, RELOAD_DELAY_MS)
-  }, [key])
+    schedule(RELOAD_DELAY_MS)
+  }, [key, schedule])
+  const slowKey = slow.join(',')
+  const slowSeen = useRef(slowKey)
+  useEffect(() => {
+    if (slowSeen.current === slowKey) return
+    slowSeen.current = slowKey
+    schedule(SLOW_RELOAD_DELAY_MS)
+  }, [slowKey, schedule])
   useEffect(
     () => () => {
       if (timer.current !== undefined) clearTimeout(timer.current)
