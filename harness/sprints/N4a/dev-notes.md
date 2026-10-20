@@ -50,3 +50,31 @@ LabelSwitchEntry = { enabled: boolean /* 바뀐 값 */, at: string /* UTC ISO �
 - 출력 기기 화면: `labels` 알림(`enabled: false`) 또는 `queue.labelsEnabled: false`를 받으면 새 받기를 멈추고, 이미 받은 한 장은 마저 출력해 `POST /api/print/result`를 보낸다. `claim`이 409 `LABELS_OFF`를 받아도 같다(늦게 안 경우).
 - 오래된 화면이 라벨 요청을 보내 409 `LABELS_OFF`를 받으면 그 문장을 보이고 켬/끔을 다시 불러온다(저절로 다시 보내지 않는다).
 - E2E가 켬/끔을 바꿀 때는 `PUT /api/settings/labels`를 쓰면 된다(`Origin`은 앱 주소, JSON).
+
+### 만든 것 (apps/server)
+- 마이그레이션 `drizzle/0004_n4a_label_switch.sql`(새 파일 하나): `print_queues.labels_enabled boolean not null default true`(지금 값 — 이 칸이 생기기 전의 줄도 켬), 새 표 `label_switches`(바꾼 기록: 판매자·바뀐 값·바꾼 계정·시각, 지우지 않는다). `src/db/schema.ts`와 같다(`test/schema.test.ts`). `sellers.settings`·`outbox`는 바꾸지 않았다.
+- `print-store.ts`: `createAutoJobs`가 잠근 대기열 줄의 `labelsEnabled`가 끔이면 라벨 키·작업을 만들지 않는다(이벤트 기록 트랜잭션 안 — txHook은 미리 읽은 값을 받지 않는다). `labelsOff`(미리 거르기용 읽기), `bindLabelEffect`, `insertLabelSwitch`, `labelSwitchHistory`.
+- `print.ts`: `QueueSummary.labelsEnabled`, `labelSettings`·`setLabels`(켜기·끄기·이력·알림, 켤 때 쌓인 라벨 멈춤), 7가지 요청의 `LABELS_OFF` 거절(미리 거르기 + 잠근 트랜잭션 안에서 다시 확인), 손으로 출력의 효과 묶기.
+- `print-api.ts`: `GET·PUT /api/settings/labels`, `claim`의 `LABELS_OFF`. `hub.ts`: `publishLabels`(event `labels`). `errors.ts`: `LABELS_OFF`.
+
+### 규칙 문장 안에서 정한 것 (구현 선택)
+- **지금 값을 판매자 대기열 줄의 칸에 둔다**: 출력 기록을 바꾸는 트랜잭션(효과 → 작업, 손으로 출력·다시 출력·포장, 받기, 결과, 출력 기기, 다시 시작, 템플릿 저장)이 모두 이 줄을 먼저 `FOR UPDATE`로 잠근다. 켜기·끄기도 같은 줄을 잠그므로 "바꾸기 응답 뒤에 기록된 이벤트는 바뀐 값을 따른다"(L-12 3)가 잠금 하나로 지켜지고, 잠금 순서가 늘 같아 교착이 없다. 따로 표를 두면 두 줄을 잠가야 해 순서를 맞춰야 한다.
+- **꺼져 있으면 라벨 키도 만들지 않는다**: 끈 동안 1등이 된 상품은 라벨 키가 없어 `GET /api/print/labels`가 I1처럼 "작업 없는 지금 1등"(`state: 'NONE'`, `canPrint: true`)으로 보인다. 켠 뒤 "라벨 출력"이 처음 라벨 키를 만들고 구매자는 그 순간의 L-9 구매자다(L-11 3).
+- **손으로 출력의 효과 묶기**는 그 범위의 엔진 상태에서 `listEffects`로 (찜, 확정버전)의 `PRINT_PRODUCT_LABEL`을 찾는다(코어 조회 함수 — 서버가 판정하지 않는다). L-11 3 문장대로 켬/끔 이력과 상관없이 묶는다 — 켜 둔 채 자동 출력하는 판매자는 그 라벨 키에 자동 작업이 이미 있어 "라벨 출력"이 `PRINT_LABEL_EXISTS`이므로 I1 동작은 바뀌지 않는다. 라벨 키가 이미 있고 효과가 묶이지 않았으면 그때 묶는다.
+- **거절의 차례**: 같은 요청 번호의 처음 결과(I1) → 리허설·없는 방송 → `LABELS_OFF` → 그 밖 I1 거절(1등 아님 등). 템플릿 저장은 형식 검사보다 `LABELS_OFF`가 먼저, `claim`은 출력 기기가 아니어도 `LABELS_OFF`, `restart`는 멈춰 있지 않아도 `LABELS_OFF`.
+- **같은 값 끄기/켜기**: 대기열 줄이 없는 판매자의 "켜기"는 줄도 만들지 않는다(조회·같은 값 요청이 아무것도 쓰지 않는다). 응답 `changed: false`.
+- **켤 때 쌓인 라벨**: 대기 작업이 있고 멈추지 않았거나 끊김 멈춤이면 `paused = SELLER, backlog = true`(출력 기기가 없어도). 출력 시작(`restart`)은 I1 그대로 — 출력 기기의 프린터가 끊겨 있으면 끊김 멈춤으로 바뀐다.
+- **끈 동안 받기 응답을 잃은 장**: 꺼져 있으면 받기를 거절하므로 I1의 "같은 기기가 2초 뒤 다시 받기 = 같은 장을 새 표로"가 켜질 때까지 일어나지 않는다. 그 장은 켤 때까지 출력 중으로 남고, 켠 뒤 같은 기기의 받기에서 I1대로 되돌아 다시 나온다(빠지지 않는다). 같은 까닭으로 끈 동안 "출력 그만하기"를 누른 출력 기기는 그 장의 결과가 올 때까지 "그만하는 중"이다.
+
+### 바꾼 기존 시험 (교체 — 약화 아님)
+- `test/commands.test.ts`: 마이그레이션 명령 뒤 표 수 15 → 16(새 표 `label_switches`). 표 이름 목록은 여전히 스키마 전체와 대조한다.
+- `test/print-support.ts`: 출력 개요 타입에 `labelsEnabled` 칸.
+
+### 시험 (내 영역)
+- `test/label-switch.test.ts` 22개 — AC-N4a-01(기본 켬·I1 판매자·마이그레이션 기본값·`/api/settings`에 없음·`broadcast.start` 키 같음·재시작·격리), 02(바뀔 때만 이력·20줄·지우는 경로 없음·본문 검사·공통 검사·동시 12번·실시간 두 연결·다른 판매자 없음·로그), 03(결정적 ID 두 세계에 같은 순서 — 첫 판정·문자찜·직접 배정·승계·재고 늘림 — 엔진 상태·이벤트·발송함 같고 작업만 다름, 알림 없음, 켬→끔→켬→끔 바꾼 때부터, 재전송, 트랜잭션 안 읽기 — 소스 검사 + 같은 트랜잭션에서 끈 값 + 기록 도중 끄기), 04(폐기·버릴 라벨·승계자 작업 없음·꺼진 채 버렸어요), 05(거절 11가지·표 그대로·리허설 먼저·켠 뒤 같은 요청 번호·켜 있을 때 처리한 요청 번호·받는 요청), 06(끌 때 대기 그대로·받기 거절·출력함 보고·켤 때 쌓인 라벨·출력 순서·실패·끊김·판매자 멈춤·대기 없음), 07(켠 뒤 손으로 출력 보고 한 번·재전송·다시 출력·재시작·잠금/비교: 자동 출력을 끈 방송은 보고 없음/취소·승계된 찜 거절), 41(격리).
+
+### test-e2e에게
+- 켜기·끄기: `PUT /api/settings/labels {enabled}` (`Origin` 앱 주소). 지금 값·이력: `GET /api/settings/labels`, 또는 `GET /api/print`의 `queue.labelsEnabled`.
+- **시험 계정 하나를 모든 E2E가 함께 쓴다** — 끈 채로 끝내면 뒤 시험(I1·S05·S06)의 라벨 화면·출력이 모두 사라진다. 시험 끝에 I1 정리(출력 그만하기 → 모두 빼기 → 버렸어요 → 다시 시작)에 더해 **`PUT /api/settings/labels {enabled:true}`** 를 하고, 켜면서 대기 작업이 있으면 판매자 멈춤(쌓인 라벨)이 되므로 그 뒤 모두 빼기·다시 시작 순서로 정리해 주세요(켜기 → 모두 빼기 → 다시 시작).
+- 켬/끔 조회를 늦추는 시험(AC-N4a-18·32)은 서버에 손잡이가 없다 — Playwright `page.route('**/api/settings/labels', …)`·`'**/api/print'`로 응답을 늦춘다. 화면이 켬/끔을 어느 조회로 아는지는 dev-web 절을 본다.
+- 끈 동안 효과는 발송함(`outbox`)·엔진 효과로만 남는다 — 감사 메시지 효과 확인은 `GET /api/days/:date`의 `effects`(종류 `POST_THANKS`)로.
