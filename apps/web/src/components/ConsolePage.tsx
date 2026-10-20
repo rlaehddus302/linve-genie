@@ -19,6 +19,7 @@ import { AlertStrip, firstAlert, type AlertKind } from './AlertStrip.tsx'
 import { ChatPanel } from './ChatPanel.tsx'
 import { ConsoleContext, useConsoleApi, type ConsoleApi, type Dialog, type HostActionInput } from './console-context.ts'
 import { ErrorNote } from './ErrorNote.tsx'
+import { ImportDialog } from './ImportDialog.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
 import { ProductBoard, CurrentProduct } from './ProductBoard.tsx'
 import { ProductDetail } from './ProductDetail.tsx'
@@ -617,9 +618,15 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
                 끝난 방송이에요
               </p>
             ) : (
-              <button type="button" className="button" onClick={endBroadcast}>
-                방송 끝내기
-              </button>
+              <>
+                {/* 상품 목록 가져오기 (I2 AC-I2-52) — 끝난 방송에는 없다 */}
+                <button type="button" className="button" onClick={() => openDialog({ kind: 'import' })}>
+                  상품 목록 가져오기
+                </button>
+                <button type="button" className="button" onClick={endBroadcast}>
+                  방송 끝내기
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -680,6 +687,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         <DialogView
           key={dialogs.length}
           dialog={topDialog}
+          broadcastId={b}
+          onSync={(seq) => store.sync(seq)}
           messageOf={(id) => messagesById.get(id)}
           onClose={closeTop}
           onEditDone={(product, line, ask) => {
@@ -701,14 +710,19 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
 
 interface DialogViewProps {
   readonly dialog: Dialog
+  readonly broadcastId: string
+  /** 쓰기 응답 seq까지 화면을 따라잡는다 */
+  readonly onSync: (seq: number) => Promise<void>
   readonly messageOf: (id: string) => ChatMessage | undefined
   readonly onClose: () => void
   readonly onEditDone: (product: Product, line: string | null, ask: number | undefined) => void
   readonly onEditUnchanged: (product: Product, ask: number | undefined) => void
 }
 
-function DialogView({ dialog, messageOf, onClose, onEditDone, onEditUnchanged }: DialogViewProps) {
+function DialogView({ dialog, broadcastId, onSync, messageOf, onClose, onEditDone, onEditUnchanged }: DialogViewProps) {
   switch (dialog.kind) {
+    case 'import':
+      return <ImportDialog broadcastId={broadcastId} onClose={onClose} onRegistered={onSync} />
     case 'product':
       return <ProductDetailHost productKey={dialog.key} onClose={onClose} />
     case 'edit':

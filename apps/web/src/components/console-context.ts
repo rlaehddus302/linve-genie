@@ -27,6 +27,8 @@ export type Dialog =
   | { readonly kind: 'assign'; readonly spec: AssignSpec }
   | { readonly kind: 'convert'; readonly messageId: string }
   | { readonly kind: 'confirm'; readonly spec: ConfirmSpec }
+  /** 상품 목록 가져오기 (I2 AC-I2-52) */
+  | { readonly kind: 'import' }
 
 /** 사유를 받는 조치 (AC-S05-34) */
 export interface ReasonSpec {
