@@ -2,12 +2,24 @@
 // - "음성 켜기"를 누를 때 음성 모듈을 불러오고(그 전엔 음성 코드·인식 객체·마이크·이력 조회 없음), 그 기기에서 처음이면 안내 창을 거쳐 Web Speech를 시작한다.
 // - 중간 결과는 자막 한 줄, 최종 결과는 "들린 말 기록"(최근 20개)과 카드. 인식 문장은 이 객체(탭 메모리)에만 있다 — 서버·저장소·콘솔 로그로 보내지 않는다.
 // - 카드 등록은 콘솔이 넘긴 등록 경로(빠른 입력과 같은 product.register)로만 한다. 한 카드는 등록 경로에 한 번만 넘긴다(목록에서 먼저 뺀다).
-// - 자동 확정은 켜진 동안·창이 닫힌 동안만, 기다림이 지난 카드를 하나씩 등록한다. 끄면 모든 카드의 자동 확정이 멈춘다.
+// - 자동 확정은 켜진 동안·창이 닫힌 동안만, 기다림이 지난 카드를 모두(하나씩 차례로) 등록한다. 끄면 모든 카드의 자동 확정이 멈춘다.
 // 시각은 host.now()(콘솔은 Date.now), 기다림은 브라우저 타이머 — 시험이 시계를 당길 수 있다.
 import { formatWon } from '@livejjim/core'
 import type { CardRegistration, SpeechEngine, SpeechError, SpeechResult, SpeechState, SuggestionCard, VarietyDictionary, VoiceSettings } from '@livejjim/voice'
 import { editQuestion } from '../lib/quick.ts'
-import { decideAutoConfirm, decideVoiceEnter, enterReady, historyNames, nextFront, nextWake, parseSecondsText, pushHeard, type FrontMark, type HeardLine } from '../lib/voice.ts'
+import {
+  decideAutoConfirm,
+  decideVoiceEnter,
+  enterReady,
+  historyNames,
+  nextFront,
+  nextWake,
+  parseSecondsText,
+  pushHeard,
+  type AutoConfirmDecision,
+  type FrontMark,
+  type HeardLine,
+} from '../lib/voice.ts'
 import type { VoiceModule } from './load.ts'
 
 export type VoicePhase = 'off' | 'loading' | 'consent' | 'on'
@@ -116,6 +128,11 @@ export const VOICE_IDLE: VoiceSnapshot = {
 
 /** 창이 열려 미룬 자동 확정을 다시 보는 간격 */
 const DEFERRED_POLL_MS = 250
+/**
+ * "음성: 다시 시작 중"을 적어도 이만큼 보인다 (AC-I4-12). 엔진은 다시 시작하자마자 같은 순간에 듣는 중을 알리므로 그대로 그리면 한 번도 보이지 않는다.
+ * 그 사이 최종 결과가 오면(다시 듣고 있다) 바로 "듣는 중"으로 바꾼다.
+ */
+export const RESTART_LABEL_MS = 1000
 
 type HistoryState = { readonly state: 'idle' | 'loading' | 'failed'; readonly past: readonly PastDay[] } | { readonly state: 'done'; readonly past: readonly PastDay[] }
 
@@ -135,6 +152,10 @@ export class VoiceController {
   #module: VoiceModule | null = null
   #engine: SpeechEngine | null = null
   #timer: ReturnType<typeof setTimeout> | null = null
+  /** "다시 시작 중"을 보이는 동안 (끝나면 엔진이 듣는 중이면 "듣는 중"으로) */
+  #restartTimer: ReturnType<typeof setTimeout> | null = null
+  /** 엔진이 마지막으로 알린 상태가 듣는 중이다 */
+  #engineListening = false
   #disposed = false
   #nextCard = 1
   #nextHeard = 1
@@ -225,6 +246,7 @@ export class VoiceController {
     this.#disposed = true
     if (this.#timer !== null) clearTimeout(this.#timer)
     this.#timer = null
+    this.#releaseRestart()
     this.#engine?.stop()
     this.#listeners.clear()
   }
@@ -247,6 +269,7 @@ export class VoiceController {
   #start(): void {
     const engine = this.#engine
     if (engine === null) return
+    this.#releaseRestart()
     this.#set({ phase: 'on', error: null, interim: null, stateLabel: this.#label('LISTENING') })
     engine.start()
     if (this.#phase() === 'on') this.#loadHistory()
@@ -255,6 +278,7 @@ export class VoiceController {
   }
 
   #becomeOff(): void {
+    this.#releaseRestart()
     const cards = this.#snapshot.cards.map((card) => (card.autoConfirmAt === null ? card : { ...card, autoConfirmAt: null }))
     this.#set({ phase: 'off', stateLabel: null, interim: null, tooSoon: false, cards })
   }
@@ -265,9 +289,36 @@ export class VoiceController {
   }
 
   #onState(state: SpeechState): void {
+    this.#engineListening = state === 'LISTENING'
     if (this.#disposed || this.#snapshot.phase !== 'on') return
-    if (state === 'LISTENING' || state === 'RESTARTING') this.#set({ stateLabel: this.#label(state) })
-    else this.#becomeOff()
+    if (state === 'RESTARTING') {
+      this.#holdRestart()
+      this.#set({ stateLabel: this.#label('RESTARTING') })
+    } else if (state === 'LISTENING') {
+      // "다시 시작 중"을 보이는 동안이면 그 시간이 지난 뒤에 바꾼다
+      if (this.#restartTimer === null) this.#set({ stateLabel: this.#label('LISTENING') })
+    } else this.#becomeOff()
+  }
+
+  /** "다시 시작 중"을 RESTART_LABEL_MS 동안 둔다 (다시 끊기면 그때부터 다시 잰다) */
+  #holdRestart(): void {
+    this.#releaseRestart()
+    this.#restartTimer = setTimeout(() => {
+      this.#restartTimer = null
+      if (!this.#disposed && this.#snapshot.phase === 'on' && this.#engineListening) this.#set({ stateLabel: this.#label('LISTENING') })
+    }, RESTART_LABEL_MS)
+  }
+
+  #releaseRestart(): void {
+    if (this.#restartTimer !== null) clearTimeout(this.#restartTimer)
+    this.#restartTimer = null
+  }
+
+  /** 최종 결과가 왔다 — "다시 시작 중"을 보이는 중이고 엔진이 듣는 중이면 바로 "듣는 중"으로 (그릴 것 없으면 빈 조각) */
+  #listeningAgain(): Partial<VoiceSnapshot> {
+    if (this.#restartTimer === null || !this.#engineListening) return {}
+    this.#releaseRestart()
+    return { stateLabel: this.#label('LISTENING') }
   }
 
   #onError(error: SpeechError): void {
@@ -282,19 +333,20 @@ export class VoiceController {
       return
     }
     const heard = pushHeard(this.#snapshot.heard, { id: this.#nextHeard++, text: result.text })
+    const label = this.#listeningAgain()
     const module = this.#module
     const settings = this.#snapshot.settings
     if (module === null || settings === null) {
-      this.#set({ interim: null, heard })
+      this.#set({ ...label, interim: null, heard })
       return
     }
     const extraction = module.extractVoice(result.text, { maxNumber: this.#host.maxNumber(), dictionary: this.#prepared(module) })
     const card = module.createCard({ id: `voice-${String(this.#nextCard++)}`, extraction, text: result.text, createdAt: this.#host.now(), settings })
     if (card === null) {
-      this.#set({ interim: null, heard })
+      this.#set({ ...label, interim: null, heard })
       return
     }
-    this.#set({ interim: null, heard, cards: module.addCard(this.#snapshot.cards, card).filter(isOpen) })
+    this.#set({ ...label, interim: null, heard, cards: module.addCard(this.#snapshot.cards, card).filter(isOpen) })
   }
 
   // ── 판매 이력 사전 (D-I4-06) ────────────────────────────────────────
@@ -375,12 +427,12 @@ export class VoiceController {
     if (module === null || card === undefined) return
     const result = module.confirmCard(card, { maxNumber: this.#host.maxNumber(), existingNumbers: [] })
     if (!result.ok) {
-      if (result.reason === 'NOT_OPEN' || result.reason === 'NUMBER_EXISTS') return
       if (source === 'auto') {
-        // 자동 확정은 칸을 열지 않는다 — 그 카드의 자동 확정만 끈다
+        // 자동 확정은 칸을 열지 않는다 — 그 카드의 자동 확정만 끈다 (등록하지 못한 카드를 다시 자동 확정하려고 하지 않는다)
         this.#replace({ ...card, autoConfirmAt: null })
         return
       }
+      if (result.reason === 'NOT_OPEN' || result.reason === 'NUMBER_EXISTS') return
       this.openForm(id, { focus: result.reason === 'PRICE_MISSING' || result.reason === 'PRICE_TOO_LOW' ? 'price' : 'no', message: result.message })
       return
     }
@@ -504,20 +556,43 @@ export class VoiceController {
 
   // ── 시각·자동 확정 (D-204, D-I4-05) ────────────────────────────────
 
-  /** 창이 닫혔거나 상품이 바뀌었을 때: 미룬 자동 확정을 다시 본다 */
+  /** 창이 닫혔거나 상품이 바뀌었을 때·기다림이 끝났을 때: 자동 확정을 다시 본다 */
   refresh(): void {
     if (this.#disposed) return
-    const deferred = this.#autoConfirm()
+    this.#autoConfirm()
     // 맨 앞 카드의 "Enter 등록"이 보이면 "새 카드가 방금 나왔어요…"는 할 일을 다 했다
     const tooSoon = this.#snapshot.tooSoon && !enterReady(this.#snapshot.front, this.#host.now())
-    this.#set({ tooSoon }, deferred)
+    this.#set({ tooSoon })
   }
 
-  /** 기다림이 끝난 카드를 하나 등록한다. 창이 열려 미뤘으면 true */
-  #autoConfirm(): boolean {
+  /**
+   * 기다림이 끝난 카드를 모두 등록한다. decideAutoConfirm은 한 번에 하나(기다림이 가장 먼저 끝난 것)를 고르므로 등록한 뒤 남은 카드를 다시 본다 —
+   * 기다림이 같은 순간에 끝난 카드 둘도 그 순간에 함께 등록된다(AC-I4-31). 한 카드는 등록 경로에 한 번만 넘긴다(confirm이 목록에서 빼거나 자동 확정을 끈다).
+   */
+  #autoConfirm(): void {
+    const tried = new Set<string>()
+    for (;;) {
+      const auto = this.#decideAuto()
+      if (auto === null) return
+      const { decision, products } = auto
+      if (decision.blocked.length > 0) {
+        // 그 순간 번호가 있으면 등록하지 않고 카드에 "고칠까요?" — 창은 띄우지 않는다 (D-I4-05)
+        const notes = new Map(this.#snapshot.notes)
+        for (const card of decision.blocked) if (card.no !== null) notes.set(card.id, editQuestion(card.no, products.get(card.no) === true))
+        this.#set({ cards: decision.cards, notes })
+      }
+      const due = decision.due
+      if (due === null || tried.has(due.id)) return
+      tried.add(due.id)
+      this.confirm(due.id, 'auto')
+    }
+  }
+
+  /** 지금 자동 확정 판단 (음성 모듈·설정·카드가 없으면 null) */
+  #decideAuto(): { readonly decision: AutoConfirmDecision; readonly products: ReadonlyMap<number, boolean> } | null {
     const module = this.#module
     const snapshot = this.#snapshot
-    if (module === null || snapshot.settings === null || snapshot.cards.length === 0) return false
+    if (module === null || snapshot.settings === null || snapshot.cards.length === 0) return null
     const products = this.#host.products()
     const decision = decideAutoConfirm(
       {
@@ -530,17 +605,23 @@ export class VoiceController {
       },
       module.checkAutoConfirm,
     )
-    if (decision.blocked.length > 0) {
-      // 그 순간 번호가 있으면 등록하지 않고 카드에 "고칠까요?" — 창은 띄우지 않는다 (D-I4-05)
-      const notes = new Map(snapshot.notes)
-      for (const card of decision.blocked) if (card.no !== null) notes.set(card.id, editQuestion(card.no, products.get(card.no) === true))
-      this.#set({ cards: decision.cards, notes })
-    }
-    if (decision.due !== null) this.confirm(decision.due.id, 'auto')
-    return decision.deferred
+    return { decision, products }
   }
 
-  #set(patch: Partial<VoiceSnapshot>, deferred = false): void {
+  /**
+   * 기다림이 이미 끝난 카드가 있으면 그 판단: 'now' = 바로 다시 볼 것(등록하거나 "고칠까요?"), 'deferred' = 창이 열려 미룸, 없으면 null.
+   * nextWake는 앞으로 올 시각만 보므로, 다시 보기 전에 다른 일(인식 결과 등)로 타이머를 다시 잡아도 기다림이 끝난 카드를 놓치지 않게 따로 본다.
+   */
+  #ripeAuto(): 'now' | 'deferred' | null {
+    const now = this.#snapshot.now
+    if (!this.#snapshot.cards.some((card) => isOpen(card) && card.autoConfirmAt !== null && card.autoConfirmAt <= now)) return null
+    const decision = this.#decideAuto()?.decision
+    if (decision === undefined) return null
+    if (decision.deferred) return 'deferred'
+    return decision.due !== null || decision.blocked.length > 0 ? 'now' : null
+  }
+
+  #set(patch: Partial<VoiceSnapshot>): void {
     if (this.#disposed) return
     const now = this.#host.now()
     let next: VoiceSnapshot = { ...this.#snapshot, ...patch, now }
@@ -554,16 +635,17 @@ export class VoiceController {
       next = { ...next, front, forms, notes, tooSoon }
     }
     this.#snapshot = next
-    this.#schedule(deferred)
+    this.#schedule()
     for (const listener of [...this.#listeners]) listener()
   }
 
-  #schedule(deferred: boolean): void {
+  #schedule(): void {
     if (this.#timer !== null) clearTimeout(this.#timer)
     this.#timer = null
     if (this.#disposed) return
     const wake = nextWake(this.#snapshot.cards, this.#snapshot.front, this.#snapshot.now)
-    const delay = deferred ? Math.min(wake ?? DEFERRED_POLL_MS, DEFERRED_POLL_MS) : wake
+    const ripe = this.#ripeAuto()
+    const delay = ripe === 'now' ? 0 : ripe === 'deferred' ? Math.min(wake ?? DEFERRED_POLL_MS, DEFERRED_POLL_MS) : wake
     if (delay === null) return
     this.#timer = setTimeout(() => {
       this.#timer = null

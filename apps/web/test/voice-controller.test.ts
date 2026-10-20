@@ -2,7 +2,7 @@
 import * as voiceModule from '@livejjim/voice'
 import type { CardRegistration, SuggestionCard, VoiceSettings } from '@livejjim/voice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { HISTORY_FAILED, TOO_SOON, VOICE_LOAD_FAILED, VoiceController, type PastDay, type VoiceHost } from '../src/voice/controller.ts'
+import { HISTORY_FAILED, RESTART_LABEL_MS, TOO_SOON, VOICE_LOAD_FAILED, VoiceController, type PastDay, type VoiceHost } from '../src/voice/controller.ts'
 
 const T0 = Date.UTC(2026, 9, 20, 1, 0, 0)
 
@@ -30,6 +30,12 @@ class FakeRecognition {
   }
   abort(): void {
     this.aborts++
+  }
+  /** 최종 결과 여러 개를 한 이벤트로 (크롬은 이어 말하면 한 onresult에 최종 결과를 여럿 담는다) */
+  sayAll(...texts: string[]): void {
+    const from = this.results.length
+    for (const text of texts) this.results.push({ isFinal: true, length: 1, 0: { transcript: text } })
+    this.onresult?.({ resultIndex: from, results: this.results })
   }
   say(text: string, final = true): void {
     this.results.push({ isFinal: final, length: 1, 0: { transcript: text } })
@@ -241,6 +247,41 @@ describe('상태·오류 (AC-I4-12, D-205)', () => {
     FakeRecognition.last.end()
     expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', error: '음성 인식이 자꾸 끊겨요. 마이크를 확인하고 다시 켜 주세요.' })
   })
+
+  it('"다시 시작 중"은 엔진이 같은 순간에 다시 들어도 1초 동안 보이고, 그 사이 최종 결과가 오면 바로 "듣는 중" (AC-I4-12, TE-I4-001)', async () => {
+    const h = harness()
+    await turnOn(h)
+    FakeRecognition.last.end()
+    expect(FakeRecognition.all).toHaveLength(2)
+    expect(h.voice.getSnapshot().stateLabel).toBe('음성: 다시 시작 중')
+    vi.advanceTimersByTime(RESTART_LABEL_MS - 1)
+    expect(h.voice.getSnapshot().stateLabel).toBe('음성: 다시 시작 중')
+    vi.advanceTimersByTime(1)
+    expect(h.voice.getSnapshot().stateLabel).toBe('음성: 듣는 중')
+    // 보이는 동안 다시 끊기면 그때부터 다시 잰다
+    FakeRecognition.last.end()
+    vi.advanceTimersByTime(RESTART_LABEL_MS - 200)
+    FakeRecognition.last.end()
+    vi.advanceTimersByTime(RESTART_LABEL_MS - 1)
+    expect(h.voice.getSnapshot().stateLabel).toBe('음성: 다시 시작 중')
+    // 최종 결과 = 다시 듣고 있다
+    FakeRecognition.last.say('안녕하세요')
+    expect(h.voice.getSnapshot().stateLabel).toBe('음성: 듣는 중')
+    // 끈 뒤에 남은 기다림이 글자를 되살리지 않는다
+    FakeRecognition.last.end()
+    h.voice.turnOff()
+    vi.advanceTimersByTime(RESTART_LABEL_MS)
+    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', stateLabel: null })
+  })
+
+  it('오류로 멈추면 "다시 시작 중" 기다림도 버린다', async () => {
+    const h = harness()
+    await turnOn(h)
+    FakeRecognition.last.end()
+    FakeRecognition.last.fail('audio-capture')
+    vi.advanceTimersByTime(RESTART_LABEL_MS)
+    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', stateLabel: null, error: '마이크를 찾지 못했어요. 마이크 연결을 확인해 주세요.' })
+  })
 })
 
 describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
@@ -443,6 +484,65 @@ describe('자동 확정 (AC-I4-30·31, D-I4-05)', () => {
     h.dialog = false
     vi.advanceTimersByTime(300)
     expect(h.registered).toHaveLength(1)
+  })
+
+  it('기다림이 같은 순간에 끝난 카드 둘은 그 순간에 함께 등록된다 — 더 새 LOW 카드가 맨 앞이어도 (AC-I4-31, TD-I4-001)', async () => {
+    const h = harness({ readSettings: () => AUTO })
+    await turnOn(h)
+    FakeRecognition.last.sayAll('15번 핑크프릴 만오천 원', '16번 라울 오천 원')
+    vi.advanceTimersByTime(500)
+    FakeRecognition.last.say('블루엘프 칠천 원') // 번호 없음 — 맨 앞, 자동 확정 없음
+    expect(h.voice.getSnapshot().cards).toHaveLength(3)
+    vi.advanceTimersByTime(4499)
+    expect(h.registered).toEqual([])
+    vi.advanceTimersByTime(1)
+    expect(h.registered.map((item) => [item.registration.no, item.source]).sort()).toEqual([
+      [15, 'auto'],
+      [16, 'auto'],
+    ])
+    vi.advanceTimersByTime(60_000)
+    expect(h.registered).toHaveLength(2)
+  })
+
+  it('창이 열린 동안 기다림이 지난 카드 둘: 창이 닫혀 다시 보면 둘 다 바로 등록된다 (D-I4-05, TD-I4-001)', async () => {
+    const h = harness({ readSettings: () => AUTO })
+    await turnOn(h)
+    FakeRecognition.last.say('15번 핑크프릴 만오천 원')
+    vi.advanceTimersByTime(500)
+    FakeRecognition.last.say('16번 라울 오천 원')
+    vi.advanceTimersByTime(500)
+    FakeRecognition.last.say('블루엘프 칠천 원')
+    h.dialog = true
+    vi.advanceTimersByTime(7000)
+    expect(h.registered).toEqual([])
+    h.dialog = false
+    h.voice.refresh()
+    expect(h.registered.map((item) => item.registration.no)).toEqual([15, 16])
+  })
+
+  it('기다림이 끝난 뒤 타이머가 돌기 전에 다른 일(인식 결과)로 타이머를 다시 잡아도 그 카드를 놓치지 않는다 (TD-I4-001)', async () => {
+    const h = harness({ readSettings: () => AUTO })
+    await turnOn(h)
+    FakeRecognition.last.say('15번 핑크프릴 만오천 원')
+    // 시계만 간다 — 배경 탭처럼 타이머가 늦는 경우
+    vi.setSystemTime(T0 + 5200)
+    FakeRecognition.last.say('안녕하세요')
+    expect(h.registered).toEqual([])
+    vi.advanceTimersByTime(0)
+    expect(h.registered.map((item) => item.registration.no)).toEqual([15])
+  })
+
+  it('기다림이 끝났는데 확정할 수 없는 카드(그 사이 번호 범위가 줄었다)는 칸을 열지 않고 자동 확정만 끈다 — 다시 넘기지 않고 타이머도 남지 않는다', async () => {
+    let max = 999
+    const h = harness({ readSettings: () => AUTO, maxNumber: () => max })
+    await turnOn(h)
+    FakeRecognition.last.say('15번 핑크프릴 만오천 원')
+    max = 10
+    vi.advanceTimersByTime(5000)
+    expect(h.registered).toEqual([])
+    expect(h.voice.getSnapshot().cards.map((card) => card.autoConfirmAt)).toEqual([null])
+    expect(h.voice.getSnapshot().forms.size).toBe(0)
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('그 순간 그 번호가 있으면 등록 없이 카드에 "고칠까요?"를 붙이고 자동 확정을 끈다', async () => {
