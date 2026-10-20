@@ -1,5 +1,5 @@
 // E2E용 서버 기동 명령 (AC-S05-91): pnpm --filter @livejjim/server e2e [--port 3100 (0이면 빈 포트)] [--origin http://localhost:5173] [--fill yes]
-//   [--fill-products 500] [--fill-chats 10000] [--host-delay-ms 5000] [--chat-speed 1] [--test-printer yes|no] [--youtube fake] [--youtube-port 4100] [--instagram yes|no] [--tiktok yes|no]
+//   [--fill-products 500] [--fill-chats 10000] [--host-delay-ms 5000] [--chat-speed 1] [--test-printer yes|no] [--youtube fake] [--youtube-port 4100] [--instagram yes|no] [--instagram-port 4300] [--tiktok yes|no]
 // - 메모리 PGlite + 마이그레이션, 그 자리에서 만든 시험용 마스터 키, 시험용 판매자 계정(apps/server/e2e/account.json). 끄면 데이터는 사라진다.
 // - --fill yes: 상품 500·채팅 1만 건을 채운 실제 범위(오늘, KST) — 화면 반영 1초 시험(AC-S05-64)용. 채우기가 끝난 뒤에 포트를 연다.
 // - --host-delay-ms: 화면이 방송자 조치를 보내기 전에 기다리는 시간(GET /api/client-config, 운영 값 5000). E2E에서만 줄인다.
@@ -37,6 +37,7 @@ const args = parseArgs(process.argv.slice(2), [
   'outbox-fast',
   'web-dir',
   'instagram',
+  'instagram-port',
   'tiktok',
 ])
 if (!args.ok) {
@@ -68,6 +69,7 @@ const quotaBudget = intArg('youtube-quota-budget', 1, 1_000_000)
 const outboxFast = values.get('outbox-fast')
 const webDir = values.get('web-dir')
 const instagramFlag = values.get('instagram')
+const instagramPort = intArg('instagram-port', 0, 65_535)
 const tiktokFlag = values.get('tiktok')
 
 if (
@@ -77,6 +79,7 @@ if (
   hostDelay === null ||
   chatSpeed === null ||
   youtubePort === null ||
+  instagramPort === null ||
   quotaBudget === null ||
   (fillFlag !== undefined && fillFlag !== 'yes' && fillFlag !== 'no') ||
   (testPrinterFlag !== undefined && testPrinterFlag !== 'yes' && testPrinterFlag !== 'no') ||
@@ -88,7 +91,7 @@ if (
 ) {
   complain(
     '인자를 확인해 주세요. --port 0~65535, --fill yes|no, --fill-products 1~999, --fill-chats 0~100000, --host-delay-ms 0~5000, --chat-speed 1~1000, --test-printer yes|no, ' +
-      '--youtube fake|no, --youtube-port 0~65535, --youtube-quota-budget 1~1000000, --outbox-fast yes|no, --web-dir <index.html이 있는 화면 빌드 폴더>, --instagram yes|no, --tiktok yes|no',
+      '--youtube fake|no, --youtube-port 0~65535, --youtube-quota-budget 1~1000000, --outbox-fast yes|no, --web-dir <index.html이 있는 화면 빌드 폴더>, --instagram yes|no, --instagram-port 0~65535, --tiktok yes|no',
   )
   process.exit(2)
 }
@@ -111,6 +114,7 @@ const e2e = await startE2eServer({
   ...(outboxFast === 'yes' ? { outboxFast: true } : {}),
   ...(webDir === undefined ? {} : { webDir }),
   instagram: instagramFlag === 'yes',
+  ...(instagramPort === undefined ? {} : { instagramPort }),
   tiktok: tiktokFlag === 'yes',
 })
 

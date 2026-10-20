@@ -102,6 +102,8 @@ export interface FakeMetaOptions {
   readonly now?: () => number
   /** 웹훅을 보낼 주소 (E2E — /_fake/comments가 쓴다) */
   readonly webhookUrl?: string
+  /** 127.0.0.1의 이 포트에서 연다 (기본 0 = 빈 포트 — E2E가 조작 주소를 알도록 정할 수 있다, N2b-2) */
+  readonly port?: number
 }
 
 /** 웹훅 한 변경 */
@@ -186,12 +188,12 @@ export class FakeMeta {
     })
   }
 
-  /** 127.0.0.1의 빈 포트에서 연다 */
+  /** 127.0.0.1의 빈 포트(또는 options.port)에서 연다 */
   static async start(options: FakeMetaOptions = {}): Promise<FakeMeta> {
     const fake = new FakeMeta(options)
     await new Promise<void>((resolve, reject) => {
       fake.#server.once('error', reject)
-      fake.#server.listen(0, '127.0.0.1', () => {
+      fake.#server.listen(options.port ?? 0, '127.0.0.1', () => {
         fake.#server.off('error', reject)
         const address = fake.#server.address()
         if (typeof address === 'object' && address !== null) fake.#url = `http://127.0.0.1:${String(address.port)}`

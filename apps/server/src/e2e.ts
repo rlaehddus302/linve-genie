@@ -130,6 +130,8 @@ export interface E2eOptions {
   readonly testPrinter?: boolean
   /** 가짜 메타 서버를 함께 띄우고 인스타그램을 그 주소로 연결한다 (기본 false, N2) */
   readonly instagram?: boolean
+  /** 가짜 메타 서버 포트 (기본 0 = 빈 포트 — E2E 시험이 /_fake/*를 부르도록 정한다, N2b-2) */
+  readonly instagramPort?: number
   /**
    * 가짜 구글·유튜브 서버와 함께 띄운다 (AC-Y1-81, D-Y13). 127.0.0.1의 그 포트(0이면 빈 포트)에서 열고 서버가 그 주소를 쓴다.
    * 돌아오는 주소는 화면 주소를 거친다(<화면>/api/youtube/oauth/callback — 화면이 /api를 서버로 넘긴다), 연결 뒤 화면 주소는 <화면>/settings/youtube.
@@ -326,7 +328,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
   const database = await openPglite()
   const masterKey = generateMasterKey()
   const appOrigin = options.appOrigin ?? 'http://localhost:5173'
-  const fakeMeta = options.instagram === true ? await FakeMeta.start() : null
+  const fakeMeta = options.instagram === true ? await FakeMeta.start(options.instagramPort === undefined ? {} : { port: options.instagramPort }) : null
   const fakeGoogle =
     options.youtube === undefined
       ? null
