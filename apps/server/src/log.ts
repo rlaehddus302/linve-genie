@@ -30,6 +30,17 @@ export type LogCode =
   | 'LOGIN_PRUNE_FAILED'
   | 'DRAFT_SKIPPED'
   | 'PRINT_NOTIFY_FAILED'
+  // 틱톡 연결 모듈 (N2b-1, D-N2b-1-08): 정해진 코드·실패 종류·개수만. 댓글·닉네임·아이디·판매자 틱톡 아이디·오류 메시지·서명 키는 남기지 않는다
+  | 'TIKTOK_BETA_INVALID'
+  | 'TIKTOK_CONNECT_FAILED'
+  | 'TIKTOK_DISCONNECTED'
+  | 'TIKTOK_GAVE_UP'
+  | 'TIKTOK_CONSENT_FAILED'
+  | 'TIKTOK_LIBRARY_ERROR'
+  | 'TIKTOK_LATE_CLOSED'
+  | 'TIKTOK_RECORD_FAILED'
+  | 'TIKTOK_STATUS_FAILED'
+  | 'TIKTOK_EVENT_FAILED'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -45,6 +56,16 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   LOGIN_PRUNE_FAILED: '로그인 시도 기록을 정리하지 못했어요(로그인은 계속함)',
   DRAFT_SKIPPED: '서버가 덧붙이는 입력(차단 이어받기)이 입력 검사를 통과하지 못해 기록하지 않았어요',
   PRINT_NOTIFY_FAILED: '출력 기록 알림을 보내지 못했어요(기록은 저장됨)',
+  TIKTOK_BETA_INVALID: '틱톡 베타 스위치 값을 알아볼 수 없어 끔으로 봤어요',
+  TIKTOK_CONNECT_FAILED: '틱톡 연결 시도가 실패했어요',
+  TIKTOK_DISCONNECTED: '받던 틱톡 연결이 끊겼어요',
+  TIKTOK_GAVE_UP: '틱톡 다시 연결을 멈췄어요',
+  TIKTOK_CONSENT_FAILED: '틱톡 사용 동의를 확인하지 못해 끔으로 봤어요',
+  TIKTOK_LIBRARY_ERROR: '틱톡 연결기가 오류를 알렸어요(연결은 그대로)',
+  TIKTOK_LATE_CLOSED: '버린 틱톡 연결 시도가 늦게 이어져 바로 닫았어요',
+  TIKTOK_RECORD_FAILED: '틱톡 댓글을 받는 쪽에서 오류가 났어요(연결은 계속함)',
+  TIKTOK_STATUS_FAILED: '틱톡 연결 상태를 받는 쪽에서 오류가 났어요(연결은 계속함)',
+  TIKTOK_EVENT_FAILED: '틱톡 이벤트를 처리하지 못해 건너뛰었어요(연결은 계속함)',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */
