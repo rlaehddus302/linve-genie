@@ -16,6 +16,8 @@ export interface LogRecord {
   readonly errorKind?: string
   /** 개수 같은 숫자 */
   readonly count?: number
+  /** 판매자 ID (백업 경보 — 판매자 이름·구매자 정보가 아니라 서버가 만든 ID) */
+  readonly seller?: string
 }
 
 export type LogCode =
@@ -29,6 +31,11 @@ export type LogCode =
   | 'STREAM_FAILED'
   | 'LOGIN_PRUNE_FAILED'
   | 'DRAFT_SKIPPED'
+  | 'DOCUMENT_MISMATCH'
+  | 'LABEL_INVALID'
+  | 'BACKUP_DISABLED'
+  | 'BACKUP_FAILED'
+  | 'BACKUP_PRUNE_FAILED'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -43,6 +50,11 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   STREAM_FAILED: '실시간 연결에 보내지 못했어요',
   LOGIN_PRUNE_FAILED: '로그인 시도 기록을 정리하지 못했어요(로그인은 계속함)',
   DRAFT_SKIPPED: '서버가 덧붙이는 입력(차단 이어받기)이 입력 검사를 통과하지 못해 기록하지 않았어요',
+  DOCUMENT_MISMATCH: '확인서 금액이 정산 금액과 맞지 않아 문서를 만들지 않았어요',
+  LABEL_INVALID: '포장 라벨 데이터가 형식 검사를 통과하지 못해 라벨을 만들지 않았어요',
+  BACKUP_DISABLED: '백업 저장소가 정해지지 않아 자동 백업이 꺼져 있어요',
+  BACKUP_FAILED: '판매자 백업을 만들지 못했어요(다음 확인 때 다시 해요)',
+  BACKUP_PRUNE_FAILED: '오래된 백업을 지우지 못했어요(다음 확인 때 다시 해요)',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */
@@ -57,6 +69,7 @@ export function formatLog(record: LogRecord): string {
   if (record.date !== undefined) parts.push(`date=${record.date}`)
   if (record.seq !== undefined) parts.push(`seq=${String(record.seq)}`)
   if (record.count !== undefined) parts.push(`count=${String(record.count)}`)
+  if (record.seller !== undefined) parts.push(`seller=${record.seller}`)
   if (record.errorKind !== undefined) parts.push(`kind=${record.errorKind}`)
   return `[server] ${MESSAGES[record.code]} (${parts.join(' ')})`
 }

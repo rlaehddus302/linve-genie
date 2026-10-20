@@ -11,7 +11,9 @@ import { bodyLimit } from 'hono/body-limit'
 import { getCookie } from 'hono/cookie'
 import { REQUEST_ID_RE, isPlainObject, own, ownKeys } from './api-fields.ts'
 import { CLEAR_SESSION_COOKIE, SESSION_COOKIE, sessionCookie, type Auth, type SessionContext } from './auth.ts'
+import { ClosingService, buyerParam, type ApiProblem, type FileResult, type Outcome } from './closing.ts'
 import { apiError, JSON_CONTENT_TYPE } from './errors.ts'
+import { MIME, fileResponse } from './files.ts'
 import type { StreamHub } from './hub.ts'
 import { unknownFieldProblems } from './messages.ts'
 import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.ts'
@@ -19,10 +21,15 @@ import type { Actor, WriteOutcome, WriteResult } from './writer.ts'
 
 /** 요청 본문 상한 (AC-S04-34) */
 export const BODY_LIMIT_BYTES = 64 * 1024
+/** 상품 목록 가져오기 미리 보기 본문 상한 (I2 AC-I2-51 — 파일 2MB의 base64·붙여 넣은 글 200,000글자) */
+export const IMPORT_BODY_LIMIT_BYTES = 3 * 1024 * 1024
+const IMPORT_PREVIEW_PATH = /^\/api\/broadcasts\/[^/]+\/import\/preview$/
 const HISTORY_LIMIT_MAX = 500
 
 export interface ApiDeps {
   readonly service: Service
+  /** 정산 마무리 (I2 — 가게 설정·확인서·판매대장·포장·지난 구매·가져오기·백업·내려받기) */
+  readonly closing: ClosingService
   readonly auth: Auth
   readonly hub: StreamHub
   /** 화면 앱 주소 (Origin 검사, 예: https://app.livejjim.kr) */
@@ -100,7 +107,7 @@ function outcomeResponse(c: Context, outcome: WriteOutcome): Response {
 }
 
 export function createApi(deps: ApiDeps): Hono<Env> {
-  const { service, auth, hub } = deps
+  const { service, closing, auth, hub } = deps
   const api = new Hono<Env>()
 
   // 모든 응답: 캐시 금지 (개인 데이터)
@@ -118,12 +125,10 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (contentType !== JSON_CONTENT_TYPE) return apiError(415, 'NOT_JSON', '보낸 내용의 형식이 올바르지 않아요.')
     return next()
   })
-  api.use(
-    bodyLimit({
-      maxSize: BODY_LIMIT_BYTES,
-      onError: () => apiError(413, 'PAYLOAD_TOO_LARGE', '보낸 내용이 너무 커요.'),
-    }),
-  )
+  // 본문 상한: 64KB, 상품 목록 가져오기 미리 보기만 3MB (I2)
+  const smallBody = bodyLimit({ maxSize: BODY_LIMIT_BYTES, onError: () => apiError(413, 'PAYLOAD_TOO_LARGE', '보낸 내용이 너무 커요.') })
+  const importBody = bodyLimit({ maxSize: IMPORT_BODY_LIMIT_BYTES, onError: () => apiError(413, 'PAYLOAD_TOO_LARGE', '보낸 내용이 너무 커요(2MB까지).') })
+  api.use((c, next) => (c.req.method === 'POST' && IMPORT_PREVIEW_PATH.test(c.req.path) ? importBody(c, next) : smallBody(c, next)))
   api.use(async (c, next) => {
     if (!STATE_CHANGING.has(c.req.method)) return next()
     let parsed: unknown
@@ -289,7 +294,10 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     const rehearsal = rehearsalOf(c)
     if (!rehearsal.ok) return rehearsal.response
     const view = await service.scopeView(sellerOf(c), date, rehearsal.value ?? false)
-    return view === null ? notFound() : c.json(view)
+    if (view === null) return notFound()
+    // 실제 범위: 묶음마다 포장·배송 상태 (I2 AC-I2-33 — 리허설 범위에는 없다)
+    if (rehearsal.value === true) return c.json(view)
+    return c.json({ ...view, packing: await closing.packingSummary(sellerOf(c), date) })
   })
   api.get('/days/:date/history', async (c) => {
     const date = c.req.param('date')
@@ -373,6 +381,168 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     })
     return view === null ? notFound() : c.json(view)
   })
+
+  // ── I2 정산 마무리 (harness/sprints/I2/dev-notes.md "API") ─────────────
+  const problemResponse = (error: ApiProblem): Response => apiError(error.status, error.code, error.message, error.problems ?? [], error.extra ?? {})
+  const fileOf = (outcome: Outcome<FileResult>): Response => {
+    if (outcome.kind === 'not_found') return notFound()
+    if (outcome.kind === 'error') return problemResponse(outcome.error)
+    const file = outcome.value
+    return fileResponse(file.bytes, file.type, file.fileName, file.fallback, file.headers)
+  }
+  /** 날짜 경로와 ?rehearsal= (확인서는 리허설 범위도 된다) */
+  const scopeParams = (c: Context<Env>): { ok: true; date: string; rehearsal: boolean } | { ok: false; response: Response } => {
+    const date = c.req.param('date') ?? ''
+    if (!isValidDate(date)) return { ok: false, response: notFound() }
+    const rehearsal = rehearsalOf(c)
+    if (!rehearsal.ok) return rehearsal
+    return { ok: true, date, rehearsal: rehearsal.value ?? false }
+  }
+  /** 포장·라벨·지난 구매는 실제 범위만 — ?rehearsal=true면 날짜 조회처럼 404 (AC-I2-30) */
+  const realScope = (c: Context<Env>): { ok: true; date: string } | { ok: false; response: Response } => {
+    const scope = scopeParams(c)
+    if (!scope.ok) return scope
+    if (scope.rehearsal) return { ok: false, response: notFound() }
+    return { ok: true, date: scope.date }
+  }
+
+  // 가게 설정 (AC-I2-01)
+  api.get('/shop', async (c) => c.json({ shop: await closing.shop(sellerOf(c)) }))
+  api.put('/shop', async (c) => {
+    const result = await closing.updateShop(sellerOf(c), body(c))
+    if (!result.ok) return apiError(result.rejection.status, result.rejection.code, result.rejection.message, result.rejection.problems)
+    return c.json({ shop: result.shop })
+  })
+
+  // 확인서 (AC-I2-10·11): 데이터(JSON = 확인서 데이터 그대로)·PDF·PNG·전원 PDF
+  api.get('/days/:date/receipt', async (c) => {
+    const scope = scopeParams(c)
+    if (!scope.ok) return scope.response
+    const buyer = buyerParam(c.req.query('buyer'))
+    if (!buyer.ok) return problemResponse(buyer.error)
+    const outcome = await closing.receipt(sellerOf(c), scope.date, scope.rehearsal, buyer.buyer)
+    if (outcome.kind === 'not_found') return notFound()
+    if (outcome.kind === 'error') return problemResponse(outcome.error)
+    c.header('X-Receipt-Created-At', String(outcome.value.createdAt))
+    return c.json(outcome.value.receipt)
+  })
+  for (const kind of ['pdf', 'png'] as const) {
+    api.get(`/days/:date/receipt.${kind}`, async (c) => {
+      const scope = scopeParams(c)
+      if (!scope.ok) return scope.response
+      const buyer = buyerParam(c.req.query('buyer'))
+      if (!buyer.ok) return problemResponse(buyer.error)
+      return fileOf(await closing.receiptFile(sellerOf(c), scope.date, scope.rehearsal, buyer.buyer, kind))
+    })
+  }
+  api.get('/days/:date/receipts.pdf', async (c) => {
+    const scope = scopeParams(c)
+    if (!scope.ok) return scope.response
+    return fileOf(await closing.batchPdf(sellerOf(c), scope.date, scope.rehearsal))
+  })
+
+  // 판매대장 (AC-I2-20): ?from=&to=&b=<방송 ID>&b=… (b가 없으면 기간 안 모든 실제 방송)
+  api.get('/ledger.xlsx', async (c) => {
+    const picked = c.req.queries('b')
+    return fileOf(await closing.ledger(sellerOf(c), c.req.query('from'), c.req.query('to'), picked === undefined ? null : picked))
+  })
+
+  // 포장·배송 (AC-I2-30~32)
+  api.get('/days/:date/packing', async (c) => {
+    const scope = realScope(c)
+    if (!scope.ok) return scope.response
+    const list = await closing.packingList(sellerOf(c), scope.date)
+    return list === null ? notFound() : c.json(list)
+  })
+  api.post('/days/:date/packing', async (c) => {
+    const input = body(c)
+    const requestId = requestIdOf(input)
+    if (requestId === null) return invalidRequestId()
+    const scope = realScope(c)
+    if (!scope.ok) return scope.response
+    const parsed = ClosingService.packingInput(input)
+    if (!parsed.ok) return problemResponse(parsed.error)
+    const outcome = await closing.packingCommand(sellerOf(c), c.get('session').accountId, scope.date, requestId, parsed)
+    if (outcome.kind === 'not_found') return notFound()
+    if (outcome.kind === 'error') return problemResponse(outcome.error)
+    return c.json({ date: scope.date, entry: outcome.value.entry, recorded: outcome.value.recorded })
+  })
+
+  // 포장 라벨 (AC-I2-34): 데이터(JSON)·쪽 그림(PNG, ?page=1부터)·라벨 PDF. 아무것도 기록하지 않고 출력 작업을 만들지 않는다
+  api.get('/days/:date/packing-label', async (c) => {
+    const scope = realScope(c)
+    if (!scope.ok) return scope.response
+    const buyer = buyerParam(c.req.query('buyer'))
+    if (!buyer.ok) return problemResponse(buyer.error)
+    const outcome = await closing.packingLabel(sellerOf(c), scope.date, buyer.buyer)
+    if (outcome.kind === 'not_found') return notFound()
+    if (outcome.kind === 'error') return problemResponse(outcome.error)
+    return c.json({ date: scope.date, buyer: outcome.value.buyer, data: outcome.value.data, pages: outcome.value.pages.length })
+  })
+  api.get('/days/:date/packing-label.png', async (c) => {
+    const scope = realScope(c)
+    if (!scope.ok) return scope.response
+    const buyer = buyerParam(c.req.query('buyer'))
+    if (!buyer.ok) return problemResponse(buyer.error)
+    const pageText = c.req.query('page') ?? '1'
+    if (!/^[1-9][0-9]{0,3}$/.test(pageText)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'page', message: '쪽 번호를 확인해 주세요.' }])
+    const outcome = await closing.packingLabel(sellerOf(c), scope.date, buyer.buyer)
+    if (outcome.kind === 'not_found') return notFound()
+    if (outcome.kind === 'error') return problemResponse(outcome.error)
+    const page = Number(pageText)
+    const bytes = outcome.value.pages[page - 1]
+    if (bytes === undefined) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'page', message: '쪽 번호를 확인해 주세요.' }])
+    const n = outcome.value.pages.length
+    return fileResponse(bytes, MIME.png, `포장라벨-${scope.date}-${outcome.value.name}-${String(page)}of${String(n)}.png`, `packing-label-${scope.date}-${String(page)}of${String(n)}.png`)
+  })
+  api.get('/days/:date/packing-label.pdf', async (c) => {
+    const scope = realScope(c)
+    if (!scope.ok) return scope.response
+    const buyer = buyerParam(c.req.query('buyer'))
+    if (!buyer.ok) return problemResponse(buyer.error)
+    const outcome = await closing.packingLabel(sellerOf(c), scope.date, buyer.buyer)
+    if (outcome.kind === 'not_found') return notFound()
+    if (outcome.kind === 'error') return problemResponse(outcome.error)
+    const pdf = outcome.value.pdf()
+    if (pdf === null) return apiError(500, 'LABEL_INVALID', '포장 라벨을 만들지 못했어요. 고객센터에 알려 주세요.')
+    return fileResponse(pdf, MIME.pdf, `포장라벨-${scope.date}-${outcome.value.name}.pdf`, `packing-label-${scope.date}.pdf`)
+  })
+
+  // 지난 구매 (AC-I2-40): ?buyer=&before=YYYY-MM-DD(다음 쪽)
+  api.get('/days/:date/past', async (c) => {
+    const scope = realScope(c)
+    if (!scope.ok) return scope.response
+    const buyer = buyerParam(c.req.query('buyer'))
+    if (!buyer.ok) return problemResponse(buyer.error)
+    const before = c.req.query('before')
+    if (before !== undefined && !isValidDate(before)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'before', message: "날짜는 '2026-10-18'처럼 적어 주세요." }])
+    const view = await closing.past(sellerOf(c), scope.date, buyer.buyer, before ?? null)
+    return view === null ? notFound() : c.json(view)
+  })
+
+  // 상품 목록 가져오기 (AC-I2-51): 미리 보기(기록하지 않음)·등록(한 트랜잭션)
+  api.post('/broadcasts/:id/import/preview', async (c) => {
+    const outcome = await closing.importPreview(sellerOf(c), c.req.param('id'), body(c))
+    if (outcome.kind === 'not_found') return notFound()
+    if (outcome.kind === 'error') return problemResponse(outcome.error)
+    return c.json(outcome.value)
+  })
+  api.post('/broadcasts/:id/import', async (c) => {
+    const input = body(c)
+    const requestId = requestIdOf(input)
+    if (requestId === null) return invalidRequestId()
+    const parsed = ClosingService.importRows(input)
+    if (!parsed.ok) return problemResponse(parsed.error)
+    const outcome = await closing.importRegister(sellerOf(c), actorOf(c), c.req.param('id'), requestId, parsed.rows)
+    if (outcome.kind === 'not_found') return notFound()
+    if (outcome.kind === 'error') return problemResponse(outcome.error)
+    return c.json(outcome.value)
+  })
+
+  // 백업 상태·전체 내려받기 (AC-I2-61·64) — 백업 파일 내용을 내려받는 API는 없다
+  api.get('/backups', async (c) => c.json(await closing.backupStatus(sellerOf(c))))
+  api.get('/export/records.json.gz', async (c) => fileOf(await closing.exportRecords(sellerOf(c))))
+  api.get('/export/ledger.xlsx', async (c) => fileOf(await closing.exportLedger(sellerOf(c))))
 
   // ── 실시간 (AC-S04-60) ────────────────────────────────────────────────
   api.get('/stream', async (c) => {

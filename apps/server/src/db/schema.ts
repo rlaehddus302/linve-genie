@@ -6,7 +6,7 @@
 // - 전화번호 원문·정규화한 번호는 어디에도 두지 않는다. 판매자 전화번호 키는 마스터 키로 암호화한 값만 둔다(D-073).
 // - 이 파일과 마이그레이션이 어긋나지 않는지는 test/schema.test.ts가 실제 DB 구조와 대조한다.
 import { sql } from 'drizzle-orm'
-import { bigint, bigserial, boolean, index, integer, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core'
+import { bigint, bigserial, boolean, index, integer, pgTable, primaryKey, text, timestamp, unique } from 'drizzle-orm/pg-core'
 
 const timestamptz = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' })
 
@@ -19,6 +19,11 @@ export const sellers = pgTable('sellers', {
   /** 판매 규칙 설정 덮어쓰기(JSON 객체 문자열). 빠진 키는 DOMAIN_RULES 기본값 */
   settings: text('settings').notNull().default('{}'),
   createdAt: timestamptz('created_at').notNull(),
+  /**
+   * 가게 설정 (I2 D-I2-02, 이벤트 로그 밖): 입금 계좌(은행·계좌번호·예금주 — 셋 다 있거나 셋 다 빈 값)·안내 문장의 JSON 객체 문자열.
+   * 가게 이름은 name 칸이다(화면 위 가게 이름과 같은 값)
+   */
+  shop: text('shop').notNull().default('{}'),
 })
 
 /** 로그인 계정 (D-074). 비밀번호는 scrypt 해시만 둔다. 연속 실패·잠금은 login_limits에 둔다 */
@@ -98,11 +103,14 @@ export const scopes = pgTable(
   (t) => [unique('scopes_seller_date_rehearsal_uq').on(t.sellerId, t.date, t.rehearsal)],
 )
 
-/** 방송 목록 (방송 ID → 범위). broadcast.start·broadcast.end 이벤트와 같은 트랜잭션에서 쓴다 */
+/**
+ * 방송 목록 (방송 ID → 범위). broadcast.start·broadcast.end 이벤트와 같은 트랜잭션에서 쓴다.
+ * 방송 ID는 판매자 안에서 유일하다 — 기본 키 (판매자, 방송) (I2: 다른 판매자로 가져온 기록의 방송 ID가 부딪치지 않게, D-I2-11·12)
+ */
 export const broadcasts = pgTable(
   'broadcasts',
   {
-    id: text('id').primaryKey(),
+    id: text('id').notNull(),
     sellerId: text('seller_id')
       .notNull()
       .references(() => sellers.id),
@@ -116,7 +124,7 @@ export const broadcasts = pgTable(
     endedAt: timestamptz('ended_at'),
     createdAt: timestamptz('created_at').notNull(),
   },
-  (t) => [index('broadcasts_seller_idx').on(t.sellerId, t.date, t.startSeq)],
+  (t) => [primaryKey({ name: 'broadcasts_pkey', columns: [t.sellerId, t.id] }), index('broadcasts_seller_idx').on(t.sellerId, t.date, t.startSeq)],
 )
 
 /**
@@ -185,6 +193,11 @@ export const outbox = pgTable(
     /** 리허설 범위의 효과 (실행하지 않는다 — 유튜브 게시·라벨 자동 출력 없음, D-081) */
     rehearsal: boolean('rehearsal').notNull().default(false),
     createdAt: timestamptz('created_at').notNull(),
+    /**
+     * 복구·가져오기가 재생으로 다시 만든 효과 (I2 D-I2-11): 실행하지 않는다 — 지난 라벨·감사 메시지를 다시 내지 않는다.
+     * 실행기(I1·Y1)의 실행 대상 조회는 rehearsal = false AND restored = false 행만 본다(executableOutboxRows)
+     */
+    restored: boolean('restored').notNull().default(false),
   },
   (t) => [unique('outbox_effect_uq').on(t.sellerId, t.scopeId, t.effectId), index('outbox_scope_seq_idx').on(t.scopeId, t.seq)],
 )
@@ -211,7 +224,40 @@ export const snapshots = pgTable(
   (t) => [unique('snapshots_scope_seq_uq').on(t.scopeId, t.seq)],
 )
 
-export const schema = { sellers, accounts, loginLimits, sessions, scopes, broadcasts, events, outbox, snapshots }
+/**
+ * 포장·배송 기록 (STL-08, I2 D-I2-05): 엔진 이벤트가 아니라 서버가 덧붙이기만 하는 기록이다(고치거나 지우지 않는다 — 복구 명령만 예외, D-I2-11).
+ * (판매자, 실제 범위 날짜, 그때 지금의 구매자 ID)마다 차례로 읽어 상태를 계산한다. 리허설 범위에는 쓰지 않는다
+ */
+export const packingRecords = pgTable(
+  'packing_records',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    scopeId: text('scope_id')
+      .notNull()
+      .references(() => scopes.id),
+    /** 묶음 날짜 YYYY-MM-DD (실제 범위) */
+    date: text('date').notNull(),
+    /** 기록할 때의 지금의 구매자 ID (그 ID의 묶음에만 보인다) */
+    buyer: text('buyer').notNull(),
+    /** PACKED(포장 완료) · UNPACKED(포장 취소) · SHIPPED(배송 완료) · UNSHIPPED(배송 취소) */
+    kind: text('kind').notNull(),
+    /** 포장 완료의 담은 품목 = 상품 키(`<방송 ID>/<번호>`) 목록 JSON (다른 종류는 null) */
+    items: text('items'),
+    /** 배송 완료의 송장번호(숫자만, 없으면 null) */
+    invoice: text('invoice'),
+    /** 누가 (로그인 계정 — 가져온 기록의 계정이 이 서버에 없으면 null) */
+    accountId: text('account_id').references(() => accounts.id),
+    requestId: text('request_id'),
+    /** 언제 (서버 도착 시각 UTC) */
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('packing_request_uq').on(t.sellerId, t.requestId), index('packing_scope_idx').on(t.sellerId, t.scopeId, t.id)],
+)
+
+export const schema = { sellers, accounts, loginLimits, sessions, scopes, broadcasts, events, outbox, snapshots, packingRecords }
 
 /** 범위 직렬 처리용 어드바이저리 락 키 (범위 = 판매자·날짜·리허설인지, 범위 행이 생기기 전에도 같은 키). 실제 범위는 S04와 같은 키 */
 export const scopeLockKey = (sellerId: string, date: string, rehearsal: boolean) =>

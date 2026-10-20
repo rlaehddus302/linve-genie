@@ -32,6 +32,20 @@ export type ErrorCode =
   | 'RESYNC_REQUIRED'
   // S06 API (AC-S06-71)
   | 'GENERATOR_RUNNING_ELSEWHERE'
+  // I2 API (harness/sprints/I2/dev-notes.md)
+  | 'NO_ITEMS'
+  | 'AMOUNT_MISMATCH'
+  | 'LABEL_INVALID'
+  | 'PERIOD_INVALID'
+  | 'NO_BROADCASTS'
+  | 'PACKING_STATE'
+  | 'ITEMS_CHANGED'
+  | 'IMPORT_CHANGED'
+  | 'IMPORT_EMPTY'
+  | 'FILE_TOO_LARGE'
+  | 'FILE_TYPE'
+  | 'FILE_UNREADABLE'
+  | 'NO_RECORDS'
 
 export interface ErrorBody {
   readonly error: {

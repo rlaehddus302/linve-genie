@@ -7,7 +7,8 @@
 // - Ctrl+C(SIGINT)·SIGTERM이면 새 연결을 받지 않고 진행 중인 요청을 마친 뒤 종료 코드 0으로 끝난다.
 //   한 번 더 누르면 바로 끝낸다.
 import { existsSync } from 'node:fs'
-import { DEFAULT_PORT, readAppOrigin, readDatabaseSetting, readPort } from './config.ts'
+import { FolderBackupStorage } from './backup.ts'
+import { DEFAULT_PORT, readAppOrigin, readBackupDir, readDatabaseSetting, readPort } from './config.ts'
 import { createNodeServer } from './node-server.ts'
 import { openDatabaseFromEnv } from './commands/shared.ts'
 import { readMasterKey } from './secrets.ts'
@@ -49,7 +50,10 @@ if (database === null) {
   process.exit(1)
 }
 
-const livejjim = createServer({ database, masterKey: masterKey.key, appOrigin: origin.origin })
+// 백업 저장소 (I2 D-I2-10): LIVEJJIM_BACKUP_DIR 폴더. 없으면 자동 백업이 꺼진다는 경보만 남기고 판매는 그대로 한다
+const backupDir = readBackupDir(process.env)
+const livejjim = createServer({ database, masterKey: masterKey.key, appOrigin: origin.origin, backupStorage: backupDir === null ? null : new FolderBackupStorage(backupDir) })
+livejjim.backups.start()
 const server = createNodeServer({ app: livejjim.app })
 
 // PORT 환경변수 값은 로그에 찍지 않는다. 기본값일 때만 번호를 보여 준다.

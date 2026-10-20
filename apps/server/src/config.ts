@@ -1,4 +1,4 @@
-// 서버 설정 (AC-S00-07, AC-S00-42, AC-S04-20). 환경변수: PORT, DATABASE_URL 또는 LIVEJJIM_PGLITE_DIR, LIVEJJIM_MASTER_KEY, LIVEJJIM_APP_ORIGIN.
+// 서버 설정 (AC-S00-07, AC-S00-42, AC-S04-20). 환경변수: PORT, DATABASE_URL 또는 LIVEJJIM_PGLITE_DIR, LIVEJJIM_MASTER_KEY, LIVEJJIM_APP_ORIGIN, LIVEJJIM_BACKUP_DIR(I2).
 // 오류 메시지에 환경변수 값을 넣지 않는다(기동 로그에 값을 찍지 않는다).
 
 export const DEFAULT_PORT = 3000
@@ -52,4 +52,12 @@ export function readAppOrigin(env: Readonly<Record<string, string | undefined>>)
   if (origin === '') return { ok: false, message: '화면 앱 주소(LIVEJJIM_APP_ORIGIN)가 없어요.' }
   if (!/^https?:\/\/[^/\s]+$/.test(origin)) return { ok: false, message: '화면 앱 주소(LIVEJJIM_APP_ORIGIN)는 https://example.com 처럼 경로 없이 적어 주세요.' }
   return { ok: true, origin }
+}
+
+// ── I2: 백업 저장소 (D-I2-10) ───────────────────────────────────────────
+
+/** 백업 폴더 (LIVEJJIM_BACKUP_DIR). 없으면 null — 자동 백업이 꺼진다(시작 경보, 판매는 그대로). 값은 출력하지 않는다 */
+export function readBackupDir(env: Readonly<Record<string, string | undefined>>): string | null {
+  const dir = env['LIVEJJIM_BACKUP_DIR']?.trim() ?? ''
+  return dir === '' ? null : dir
 }

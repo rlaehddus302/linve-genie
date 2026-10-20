@@ -6,6 +6,8 @@ import { applyEvent } from '@livejjim/core'
 import type { Hono } from 'hono'
 import { Auth } from './auth.ts'
 import { createApp } from './app.ts'
+import { BackupScheduler, type BackupStorage } from './backup.ts'
+import { ClosingService } from './closing.ts'
 import type { Database } from './db/database.ts'
 import { StreamHub } from './hub.ts'
 import { randomIds, type IdSource } from './ids.ts'
@@ -53,6 +55,10 @@ export interface ServerOptions {
   readonly generatorSpeed?: number
   /** 화면이 방송자 조치를 보내기 전에 기다리는 시간 (0~5000밀리초, 기본 5000 — E2E 기동만 줄인다, D-083) */
   readonly hostActionDelayMs?: number
+  /** 백업 저장소 (I2 D-I2-10 — 없으면 자동 백업이 꺼진다. 판매는 그대로) */
+  readonly backupStorage?: BackupStorage | null
+  /** 자동 백업 확인 주기 (기본 5분) */
+  readonly backupIntervalMs?: number
 }
 
 export interface LivejjimServer {
@@ -63,9 +69,13 @@ export interface LivejjimServer {
   readonly auth: Auth
   /** 보기 캐시 상한 (판매자마다 4·서버 전체 32·10분, AC-S06b-12 — 시험·점검용) */
   readonly viewCaches: ViewCacheBudget
+  /** 정산 마무리 (I2) */
+  readonly closing: ClosingService
+  /** 매일 자동 백업 (I2 D-I2-10 — 시작은 backups.start(), 시험은 check()를 직접 부른다) */
+  readonly backups: BackupScheduler
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
-  /** 실시간 연결을 닫고 리허설 생성기·타이머를 멈춘다 (DB는 닫지 않는다) */
+  /** 실시간 연결을 닫고 리허설 생성기·타이머·자동 백업 확인을 멈춘다 (DB는 닫지 않는다) */
   close(): void
 }
 
@@ -132,9 +142,17 @@ export function createServer(options: ServerOptions): LivejjimServer {
     onGenerator: (sellerId, payload) => hub.publishGenerator(sellerId, payload),
     ...(options.generatorTimer === undefined ? {} : { generatorTimer: options.generatorTimer }),
   })
+  const backups = new BackupScheduler({
+    db,
+    storage: options.backupStorage ?? null,
+    clock,
+    log,
+    ...(options.backupIntervalMs === undefined ? {} : { intervalMs: options.backupIntervalMs }),
+  })
+  const closing = new ClosingService({ db, writer, clock, hub, backups, log })
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
-    api: { service, auth, hub, appOrigin: options.appOrigin, clientConfig: { hostActionDelayMs } },
+    api: { service, closing, auth, hub, appOrigin: options.appOrigin, clientConfig: { hostActionDelayMs } },
   })
   return {
     app,
@@ -143,10 +161,13 @@ export function createServer(options: ServerOptions): LivejjimServer {
     hub,
     auth,
     viewCaches,
+    closing,
+    backups,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     close: () => {
       service.generators.closeAll()
       hub.closeAll()
+      backups.stop()
     },
   }
 }

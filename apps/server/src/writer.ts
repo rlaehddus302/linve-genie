@@ -297,6 +297,29 @@ export class ScopeWriter {
     return this.serial(job.sellerId, job.date, job.rehearsal, () => this.#write(job))
   }
 
+  /**
+   * 범위 줄(serial) 안에서 최신 로그까지 따라잡은 범위 상태로 task를 부른다 (I2 포장·배송 기록 — 엔진 이벤트가 아닌 덧붙이기 기록, D-I2-05).
+   * 같은 범위의 엔진 기록과 겹치지 않는다(같은 줄). task는 트랜잭션 안에서 범위 어드바이저리 락을 잡은 뒤 catchUpIn(tx)로
+   * 다른 인스턴스가 쓴 이벤트까지 따라잡고 판단한다. 범위 상태는 커밋된 이벤트로만 바뀐다(task가 상태를 바꾸지 않는다)
+   */
+  withScope<T>(sellerId: string, date: string, rehearsal: boolean, task: (runtime: ScopeRuntime, catchUpIn: (tx: Db) => Promise<void>) => Promise<T>): Promise<T> {
+    return this.serial(sellerId, date, rehearsal, async () => {
+      const runtime = await this.runtime(sellerId, date, rehearsal)
+      const { engine, log } = this.#options
+      await catchUp(this.#options.db, runtime, engine, log)
+      this.#keep(runtime)
+      return task(runtime, async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(${scopeLockKey(sellerId, date, rehearsal)})`)
+        await catchUp(tx, runtime, engine, log)
+      })
+    })
+  }
+
+  /** 그 판매자의 범위 상태를 모두 메모리에서 내린다 (복구·가져오기 뒤 — 다음에 DB에서 다시 불러온다, D-I2-11) */
+  forgetSeller(sellerId: string): void {
+    for (const [key, runtime] of [...this.#runtimes]) if (runtime.sellerId === sellerId) this.#drop(key, runtime)
+  }
+
   async #write(job: WriteJob): Promise<WriteOutcome> {
     const { db, engine, log } = this.#options
     for (let attempt = 0; attempt < MAX_SEQ_RETRIES; attempt++) {
