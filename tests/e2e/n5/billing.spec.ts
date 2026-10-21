@@ -3,7 +3,8 @@
 // 그래서 이 파일의 시험은 선언 순서(이용권 없음 → 주문 건권 → 사업자 정보·결제 실패 → 계좌이체·환불 → 방송 일권 → 정액제)로 상태를 쌓는다.
 // 각 시험은 시작할 때 요금 상태로 전제를 확인한다(앞 시험이 실패해 전제가 다르면 전제 단언에서 바로 실패).
 // 기대 문장·숫자는 BILLING_RULES BL-9와 시험이 넣은 값(산 양·부여 시각)으로 계산한다 — 화면 구현을 보고 정하지 않는다.
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
+import { closeMore, expectPhoneBar, expectTarget, moreLinks, openMore } from '../menu.ts'
 import {
   DAY_MS,
   LOOKUP_FAILED,
@@ -38,9 +39,10 @@ test.describe('@billing N5 요금 흐름', () => {
     const s = await billingStatus(page)
     expect(s.start.allowed, '전제: 이용권 없음').toBe(false)
 
-    // 메뉴 끝에 "요금"
+    // PC 메뉴: 새 메뉴 "요금"은 "설정" 바로 앞, "설정"이 늘 마지막 (D-NAV-01, AC-NAV-09)
     const links = menu(page).getByRole('link')
-    await expect(links.last()).toHaveText('요금')
+    await expect(links.last()).toHaveText('설정')
+    await expect(links.nth(-2)).toHaveText('요금')
 
     // 홈 띠 (BL-9 1) + 요금 화면 열기 하나
     const banners = page.getByRole('region', { name: '요금 알림' })
@@ -426,11 +428,18 @@ test.describe('@billing N5 요금 흐름', () => {
       )
       expect(small).toEqual([])
 
-      // 메뉴 여섯 개가 한 줄, 각 44px 이상
-      const menuBoxes = await menu(mobile).getByRole('link').evaluateAll((els) => els.map((el) => { const r = el.getBoundingClientRect(); return { top: Math.round(r.top), h: r.height, w: r.width } }))
-      expect(menuBoxes).toHaveLength(6)
-      expect(new Set(menuBoxes.map((b) => b.top)).size).toBe(1)
-      for (const b of menuBoxes) expect(Math.min(b.h, b.w)).toBeGreaterThanOrEqual(44)
+      // 휴대폰 메뉴 (D-NAV-01, 요금 켜짐에서 AC-NAV-01·02 다시 확인 — AC-NAV-09): 막대는 다섯 칸 한 줄 그대로("방송"·"문자찜 입력"·"구매자"·"정산"·"더보기", 44px),
+      // "요금"은 더보기 목록의 "설정" 바로 앞 — 목록 "입금 확인"·"포장"·"라벨"(켜짐일 때만)·"요금"·"설정", 한 줄에 하나·44px·16px
+      await expectPhoneBar(mobile)
+      await openMore(mobile)
+      await expect(moreLinks(mobile)).toHaveText(await phoneMoreNames(mobile))
+      for (const link of await moreLinks(mobile).all()) {
+        await expectTarget(mobile, link)
+        expect(await link.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16)
+      }
+      await expect(moreLinks(mobile).filter({ hasText: '요금' })).toHaveAttribute('aria-current', 'page')
+      await noHorizontalScroll(mobile)
+      await closeMore(mobile)
 
       // 사업자 정보 칸 (바꾸기) — 번호 칸은 숫자 키패드
       await mobile.getByRole('button', { name: '바꾸기' }).click()
@@ -462,3 +471,11 @@ test.describe('@billing N5 요금 흐름', () => {
     }
   })
 })
+
+/** 요금 켜짐 휴대폰 더보기 목록 (AC-NAV-02·09): 라벨 기능 켬/끔은 서버 설정을 읽어 정한다(꺼짐이면 "라벨"을 만들지 않는다 — L-13 9) */
+async function phoneMoreNames(page: Page): Promise<string[]> {
+  const res = await page.request.get('/api/settings/labels')
+  expect(res.status(), await res.text()).toBe(200)
+  const { enabled } = (await res.json()) as { enabled: boolean }
+  return ['입금 확인', '포장', ...(enabled ? ['라벨'] : []), '요금', '설정']
+}
