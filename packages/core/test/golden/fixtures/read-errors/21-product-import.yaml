@@ -1,0 +1,25 @@
+# 21. product-import 형식 계약 (I2, D-I2-09 — README 파서 suite 표): settings는 unit·maxNumber(1~9999)·existing(1 이상 정수 목록)만,
+#     out은 { error }(EMPTY·TOO_MANY) 하나 또는 { header?, rows }(줄은 { line, no, name, price } 또는 { line, error } — 정확히 그 키). 밖이면 읽기 오류.
+suite: product-import
+settings:
+  existing: "3"
+  dictionary: [핑크]
+cases:
+  - { in: "15,핑크,10000", out: { rows: [], note: x } }
+  - { in: "15,핑크,10000", out: { header: 1 } }
+  - { in: "", out: { error: EMPTY, rows: [] } }
+  - { in: "", out: { error: BLANK } }
+  - { in: "15,핑크,10000", out: { rows: [{ line: 1, error: WRONG }] } }
+  - { in: "15,핑크,10000", out: { rows: [{ line: 0, no: 15, name: 핑크, price: 10000 }] } }
+  - { in: "15,핑크,50원", out: { rows: [{ line: 1, no: 15, name: 핑크, price: 50 }] } }
+  - { in: "15,핑크,10000", out: { rows: [{ no: 15 }] } }
+  - { in: "15,핑크,10000", out: { header: 0, rows: [] } }
+  - { in: "15,핑크,10000", out: { rows: [{ line: 1, error: CELLS, no: 15 }] } }
+---
+suite: product-import
+settings:
+  unit: YEN
+  maxNumber: 10000
+  existing: [3, 0]
+cases:
+  - { in: "", out: { error: EMPTY } }

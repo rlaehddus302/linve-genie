@@ -2,6 +2,7 @@
 // - 커밋된 이벤트마다 그 판매자의 모든 연결에 (범위 날짜, 리허설인지, seq, 이벤트 종류) 알림을 보낸다. 커밋 전·거른 입력·중복 입력은 알림이 없다.
 //   범위는 날짜와 리허설인지로 알린다(D-081, AC-S05-50) — 같은 날 실제 범위와 리허설 범위의 seq는 따로다.
 // - 리허설 가짜 채팅 생성기의 상태가 바뀌면(시작·보냄·멈춤) generator 알림을 보낸다(AC-S05-54, 기록이 아니라 seq가 없다).
+// - I2: 포장·배송 기록이 저장되면 packing 알림({ date, buyer }), 가게 설정이 바뀌면 shop 알림({})을 보낸다(AC-I2-32·13 — 엔진 기록이 아니라 seq가 없다).
 // - 다른 판매자의 연결은 아무것도 받지 않는다. 하트비트는 30초 이내 간격. 로그아웃·세션 만료면 그 세션의 연결을 닫는다.
 // - 여러 서버 인스턴스 사이의 알림 공유는 범위 밖(컨테이너 1개).
 // - 연결 순서 (RA-S04-003·SA-S04-005): 연결을 먼저 등록해 알림을 모으기 시작한 뒤 범위별 seq를 읽는다. 읽는 동안 커밋된 변경도
@@ -10,6 +11,7 @@
 // - 인스타그램 연결·라이브 연결·수집 상태·알림 문장·DM 행이 바뀌면(N2) instagram 알림을 보낸다(data.kind로 나눈다 — dev-notes N2 "화면에게").
 // - 출력 기록이 바뀌면(I1, L-11) print 알림을 보낸다(기록 seq가 아니라 출력 기록의 rev — 바뀐 작업·라벨 키와 대기열 요약만, 대기열 전체가 아니다).
 //   연결이 출력 기기 ID를 밝히면(?device=) 그 기기의 실시간 연결이 열려 있는지 안다 — 열리고 닫힐 때 onDevice로 알린다(다른 기기의 "연결됨/끊김").
+// - 라벨 기능 켬/끔이 바뀌면(N4a, L-13) labels 알림을 보낸다(바뀐 값·바꾼 기록 한 줄·그때의 출력 기록 rev).
 
 const encoder = new TextEncoder()
 
@@ -53,9 +55,9 @@ interface Pending {
   closed: boolean
 }
 
-/** 리허설 생성기 상태 알림 (event: generator) · 유튜브 알림 (event: youtube — 연결·수집·발송함·할당량·삭제·차단, AC-Y1-05·27·28·39·52) · 출력 기록 알림 (event: print, I1) · 인스타그램·라이브 연결 알림 (event: instagram, N2) — seq가 없다 */
+/** 리허설 생성기 상태 알림 (event: generator) · 유튜브 알림 (event: youtube — 연결·수집·발송함·할당량·삭제·차단, AC-Y1-05·27·28·39·52) · 출력 기록 알림 (event: print, I1) · I2 포장·배송(event: packing)·가게 설정(event: shop) 알림 · 인스타그램 알림 (event: instagram, N2) · 라벨 기능 켬/끔 (event: labels, N4a) · 틱톡 연결 알림 (event: tiktok, N2b-2) — seq가 없다 */
 export interface GeneratorNotice {
-  readonly kind: 'generator' | 'youtube' | 'print' | 'instagram' | 'tiktok'
+  readonly kind: 'generator' | 'youtube' | 'print' | 'packing' | 'shop' | 'instagram' | 'labels' | 'tiktok'
   readonly data: Readonly<Record<string, unknown>>
 }
 
@@ -178,6 +180,21 @@ export class StreamHub {
   /** 틱톡 연결 알림 (그 판매자의 연결 전부, event: tiktok — N2b-2). data.kind = LINK (연결 보기) */
   publishTiktok(sellerId: string, data: Readonly<Record<string, unknown>>): void {
     this.#publishNamed(sellerId, { kind: 'tiktok', data })
+  }
+
+  /** I2 포장·배송(packing, AC-I2-32)·가게 설정(shop, AC-I2-13) 알림 (그 판매자의 연결 전부 — 다른 판매자의 연결은 받지 않는다). 보조자 연결은 받지 않는다 — 보조자는 포장·설정을 쓰지 않는다 (SYS-04) */
+  publishNamed(sellerId: string, kind: 'packing' | 'shop', data: Readonly<Record<string, unknown>>): void {
+    this.#publishNamed(sellerId, { kind, data })
+  }
+
+  /** 라벨 기능 켬/끔이 바뀜 (그 판매자의 연결 전부 — 보조자 연결도 받는다: 메뉴의 라벨 칸을 숨기고 보이는 규칙이 모든 화면에 같아야 한다, N4a L-13 9) */
+  publishLabels(sellerId: string, data: Readonly<Record<string, unknown>>): void {
+    this.#publishKind(sellerId, { kind: 'labels', data })
+  }
+
+  #publishKind(sellerId: string, notice: GeneratorNotice): void {
+    for (const pending of this.#pending) if (pending.sellerId === sellerId) pending.notices.push(notice)
+    for (const connection of [...this.#connections]) if (connection.sellerId === sellerId) this.#send(connection, notice)
   }
 
   #publishNamed(sellerId: string, notice: GeneratorNotice): void {

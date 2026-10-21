@@ -7,6 +7,7 @@
 //   상품 자세히(product)에 갔다 와도(합치기로 돌아가기·브라우저 뒤로 가기) 같은 창이 다시 열리고 미리 보기를 지금 상태로 새로 받는다 (D-102).
 // - 떼어 내기(바로)·차단(사유, 5초 뒤 — 콘솔과 같은 조치).
 // - 전화번호는 뒤 4자리만(원문은 저장하지 않는다, D-073).
+// - 실제 범위의 자세히에는 "지난 구매"(채널 ID·전화번호 키로 이은 다른 날짜의 묶음 — 누르면 그 날짜의 정산 자세히, I2 AC-I2-41).
 // - I3: 봉인 예정 날짜면 "이 날짜 기록은 … 봉인돼요"(7일 전부터 경고 상자), 봉인한 날짜는 볼 수만 있다 — 합치기·떼어 내기·차단이 잠긴다 (AC-I3-40·41).
 import { useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import type { Buyer, Claim } from '../api/types.ts'
@@ -44,6 +45,7 @@ import { useHostActions } from './host-actions.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
 import { Modal } from './Modal.tsx'
 import { ReasonField } from './ReasonField.tsx'
+import { PastPurchases } from './PastPurchases.tsx'
 import { Lock } from './Lock.tsx'
 import { ScopePicker, sealOf, useScopeChoice } from './ScopePicker.tsx'
 import { SealNotice } from './SealNotice.tsx'
@@ -220,6 +222,7 @@ function ReadyBuyers({ route, navigate, store, snapshot, data, queue }: ReadyPro
             setSearching(true)
           }}
           onSettlement={(buyer) => navigate({ name: 'settlements', date: data.date, rehearsal: data.rehearsal, buyer })}
+          onPast={(date, buyer) => navigate({ name: 'settlements', date, rehearsal: false, buyer })}
           onUnmerged={() => setNotice(UNMERGED_NOTICE)}
         />
       )}
@@ -406,9 +409,11 @@ interface DetailProps {
   readonly onMerge: () => void
   readonly onUnmerged: () => void
   readonly onSettlement: (buyer: string) => void
+  /** 지난 구매 항목 → 그 날짜의 정산 자세히 */
+  readonly onPast: (date: string, buyer: string) => void
 }
 
-function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement }: DetailProps) {
+function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement, onPast }: DetailProps) {
   const [unmerging, setUnmerging] = useState<string | null>(null)
   const names = api.names
   const current = buyer.mergedInto === null ? buyer : (api.data.buyers.get(buyer.current) ?? buyer)
@@ -554,6 +559,8 @@ function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement }: 
           정산 자세히
         </button>
       </section>
+
+      {api.data.rehearsal ? null : <PastPurchases date={api.data.date} buyer={current.id} refreshKey={current.merged.join(',')} onOpen={onPast} />}
 
       {unmerging !== null ? (
         <UnmergeDialog

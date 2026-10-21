@@ -16,7 +16,7 @@ import {
   type SettlementInfo,
 } from '@livejjim/core'
 import { formatKoreanDate, formatKstDateTime, isDateString, isEpochMs } from './kst.ts'
-import { compareCodePoints } from './text.ts'
+import { compareCodePoints, printedName, stripInvisible } from './text.ts'
 
 export const RECEIPT_TITLE = '구매 내역 확인서'
 export const REHEARSAL_TITLE = '구매 내역 확인서 (리허설)'
@@ -275,17 +275,25 @@ export function buildReceipt(input: ReceiptInput): ReceiptResult {
   return receiptOf(input, root)
 }
 
+/** 글자를 빼는 글꼴 (DocumentFont.sanitize — 전원 일괄 순서를 찍힌 이름으로 정할 때) */
+export interface NameSanitizer {
+  sanitize(text: string): string
+}
+
 /**
- * 전원 일괄 (D-207): 그 날짜에 품목이 있는 묶음 전부, 표시 이름의 코드 포인트 순 → 같으면 구매자 ID 순(Intl·localeCompare를 쓰지 않는다).
- * 품목 없는 묶음(과입금 등)은 빠진다. 하나라도 줄 합이 맞지 않으면 전체를 만들지 않는다(틀린 숫자를 내보내지 않는다).
+ * 전원 일괄 (D-207, I2 D-I2-04): 그 날짜에 품목이 있는 묶음 전부, 확인서에 **찍힌** 구매자 이름(글꼴로 그릴 수 없는 글자·제어 글자를 뺀 뒤,
+ * 비면 "(이름 없음)")의 코드 포인트 순 → 같으면 구매자 ID 순(Intl·localeCompare를 쓰지 않는다). 글꼴을 넘기지 않으면 제어·서식 글자만 뺀 이름으로 정한다
+ * (전원 PDF는 renderBatchPdf가 그리는 글꼴을 넘긴다). 품목 없는 묶음(과입금 등)은 빠진다.
+ * 하나라도 줄 합이 맞지 않으면 전체를 만들지 않는다(틀린 숫자를 내보내지 않는다).
  */
-export function buildReceipts(scope: ReceiptScope): ReceiptsResult {
+export function buildReceipts(scope: ReceiptScope, font?: NameSanitizer | null): ReceiptsResult {
   const problem = checkScope(scope)
   if (problem !== null) return { ok: false, error: problem }
+  const sanitize = font === undefined || font === null ? stripInvisible : (text: string) => font.sanitize(text)
   const roots = listSettlements(scope.state)
     .filter((settlement) => settlement.date === scope.date && settlement.items.length > 0)
-    .map((settlement) => ({ id: settlement.buyer, display: getBuyer(scope.state, settlement.buyer)?.display ?? '' }))
-    .sort((a, b) => compareCodePoints(a.display, b.display) || compareCodePoints(a.id, b.id))
+    .map((settlement) => ({ id: settlement.buyer, printed: printedName(getBuyer(scope.state, settlement.buyer)?.display ?? '', sanitize) }))
+    .sort((a, b) => compareCodePoints(a.printed, b.printed) || compareCodePoints(a.id, b.id))
   if (roots.length === 0) return fail('NO_ITEMS', '그 날짜에 구매 내역이 있는 구매자가 없어요.')
   const receipts: ReceiptData[] = []
   for (const root of roots) {

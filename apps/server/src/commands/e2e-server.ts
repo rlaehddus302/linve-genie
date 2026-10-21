@@ -12,6 +12,7 @@
 //   시험용 조작 경로 POST /_e2e/sellers · /_e2e/dates · /_e2e/seal (이 서버 주소, JSON).
 // - --instagram yes: 가짜 메타 서버를 함께 띄우고 인스타그램 연동을 그 주소로 둔다(N2 — 조작 주소 /_fake/*, harness/sprints/N2/dev-notes.md "화면에게"). 기본 no.
 // - --tiktok yes: 가짜 웹캐스트로 틱톡 라이브 베타를 켠다(운영자 스위치 켬, N2b-2 — 조작 주소 /_e2e/tiktok/*, harness/sprints/N2b-2/dev-notes.md "화면에게"). 기본 no.
+// - --backup-dir: 백업 폴더(I2). 적지 않으면 임시 폴더를 만들고 끌 때 지운다. 시작할 때 시험 판매자의 자동 백업 하나를 만든다.
 // - 환경변수 PORT·LIVEJJIM_APP_ORIGIN도 읽는다(인자가 우선). .env는 읽지 않는다(실제 비밀값이 필요 없다).
 // - 127.0.0.1에서만 연다(모든 인터페이스가 아니다, AC-S06-73). 헬스체크·프록시는 http://127.0.0.1:<포트>로.
 // 포트를 연 뒤 "E2E 서버를 시작했어요. http://127.0.0.1:<포트> · …" 한 줄을 표준 출력에 쓴다. 비밀번호·마스터 키는 출력하지 않는다.
@@ -39,6 +40,7 @@ const args = parseArgs(process.argv.slice(2), [
   'instagram',
   'instagram-port',
   'tiktok',
+  'backup-dir',
 ])
 if (!args.ok) {
   complain(args.message)
@@ -116,6 +118,7 @@ const e2e = await startE2eServer({
   instagram: instagramFlag === 'yes',
   ...(instagramPort === undefined ? {} : { instagramPort }),
   tiktok: tiktokFlag === 'yes',
+  ...(values.get('backup-dir') === undefined ? {} : { backupDir: values.get('backup-dir') as string }),
 })
 
 // 127.0.0.1에서만 연다 (AC-S06-73, D-096 — 같은 네트워크의 다른 기기가 시험 계정·시험 데이터에 닿지 않게)

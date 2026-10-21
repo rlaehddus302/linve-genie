@@ -95,6 +95,25 @@ export type ErrorCode =
   | 'NOT_CONNECTED'
   | 'RECONNECT_NEEDED'
   | 'UNAVAILABLE'
+  // N4a 라벨 기능 끄기 (LABEL_RULES L-13 5)
+  | 'LABELS_OFF'
+  // I2 API (harness/sprints/I2/dev-notes.md)
+  | 'NO_ITEMS'
+  | 'AMOUNT_MISMATCH'
+  | 'LABEL_INVALID'
+  | 'PERIOD_INVALID'
+  | 'NO_BROADCASTS'
+  | 'PACKING_STATE'
+  | 'ITEMS_CHANGED'
+  | 'PACKING_RECORDED'
+  | 'IMPORT_CHANGED'
+  | 'IMPORT_EMPTY'
+  | 'FILE_TOO_LARGE'
+  | 'FILE_TYPE'
+  | 'FILE_UNREADABLE'
+  | 'NO_RECORDS'
+  | 'BUSY'
+  | 'FILE_FAILED'
 
 export interface ErrorBody {
   readonly error: {

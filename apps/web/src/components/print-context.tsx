@@ -5,7 +5,7 @@ import { claimDeviceId, deviceId, streamUrl } from '../lib/device.ts'
 import { kstToday } from '../lib/kst.ts'
 import { labelEnv } from '../lib/label-env.ts'
 import { renderJob, renderTest } from '../lib/label-render.ts'
-import { PrintStore, type LabelsSnapshot, type PackingSnapshot, type PrintSnapshot } from '../lib/print-store.ts'
+import { PrintStore, labelsEnabledOf, type LabelSettingsSnapshot, type LabelsSnapshot, type PackingSnapshot, type PrintSnapshot } from '../lib/print-store.ts'
 import { PrinterStation, browserWakeLock, type StationSnapshot, type TestPrinterHandle } from '../lib/printer-station.ts'
 import { sharedStream } from '../lib/stream.ts'
 
@@ -78,6 +78,14 @@ export function usePrintState(): PrintSnapshot {
   return useSyncExternalStore(api?.store.subscribe ?? noop, api?.store.getSnapshot ?? (() => LOADING))
 }
 
+/**
+ * 라벨 기능 켬/끔 (N4a, L-13 9): true 켬 · false 끔 · null 아직 모름(불러오는 중·불러오지 못함·앱이 저장소를 만들기 전).
+ * 라벨 조작은 true일 때만 보인다 — 꺼 둔 판매자의 화면에 라벨 버튼이 잠깐이라도 나타나지 않게(AC-N4a-18)
+ */
+export function useLabelsEnabled(): boolean | null {
+  return labelsEnabledOf(usePrintState())
+}
+
 const NO_STATION = () => null
 
 /** 이 기기의 프린터 */
@@ -99,6 +107,21 @@ export function useScopeLabels(date: string | null): LabelsSnapshot {
   }, [store, date])
   if (store === null || date === null) return EMPTY_LABELS
   return store.labelsSnapshot(date)
+}
+
+const EMPTY_SETTINGS: LabelSettingsSnapshot = { phase: 'loading', error: null, settings: null }
+
+/** 설정 화면의 라벨 기능 설정·바꾼 기록 (보는 동안 실시간으로 바뀐다) */
+export function useLabelSettings(): LabelSettingsSnapshot {
+  const api = usePrintApi()
+  const store = api?.store ?? null
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (store === null) return
+    return store.watchLabelSettings(() => setTick((n) => n + 1))
+  }, [store])
+  if (store === null) return EMPTY_SETTINGS
+  return store.labelSettingsSnapshot()
 }
 
 const EMPTY_PACKING: PackingSnapshot = { phase: 'loading', error: null, view: null }

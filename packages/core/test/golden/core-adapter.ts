@@ -1,5 +1,6 @@
 // 실제 코어(@livejjim/core)를 골든 러너의 GoldenCore 모양으로 감싼다.
 // - 파서(S01)는 코어 결과를 바꾸지 않고 그대로 넘긴다(AC-S01-04). 음성 문장 추출(P2, D-209)은 packages/voice 추출기 결과를 그대로 넘긴다.
+//   상품 목록 가져오기(I2, D-I2-09)는 apps/server의 해석 함수 결과를 그대로 넘긴다.
 // - 엔진(S02·S03, AC-S02-91·AC-S03-91)은 이름·모양만 바꾼다. 판정·합계·정산·효과 상태는 다시 계산하지 않고 조회 함수 결과를 그대로 옮긴다.
 // - 이벤트의 구매자 키(buyer·replace·from·into)는 그 키의 구매자 자신의 ID로 바꿔 넘긴다(`sms:<ref>` → 그 ref의 처음 문자찜이 정한 구매자, README "이벤트 안의 구매자 키").
 // - 문자찜의 phone(판매자가 적은 글자 그대로)은 서버처럼 phoneKey·phoneLast4로 바꿔 넘기고 phone은 넘기지 않는다(README "규칙", D-061, phone-key.ts).
@@ -35,6 +36,9 @@ import {
 // 음성 추출기 (P2, D-209): 추출기는 packages/voice에 있다. 코어 src는 음성 패키지에 기대지 않고, 골든 어댑터(시험 코드)만 부른다.
 // 워크스페이스 의존으로 적으면 core ↔ voice가 서로 기대는 고리가 되어(voice는 코어 파서를 쓴다) 상대 경로로 추출 모듈만 가져온다.
 import { extractVoice } from '../../../voice/src/extract.ts'
+// 상품 목록 가져오기 해석 함수 (I2, D-I2-09): 서버(apps/server)의 순수 함수다(코어만 import). 코어 src는 서버에 기대지 않고, 골든 어댑터(시험 코드)만
+// 상대 경로로 그 모듈 하나를 부른다 — 워크스페이스 의존으로 적으면 core ↔ server가 서로 기대는 고리가 된다(D-209와 같은 방식).
+import { parseProductList } from '../../../../apps/server/src/product-import.ts'
 import { SMS_PREFIX } from './contract.ts'
 import { smsPhoneFields } from './phone-key.ts'
 import type { BroadcastView, BuyerView, ClaimView, EffectView, GoldenCore, GoldenEvent, GoldenSnapshot, MergePreviewView, ProductView, SettlementView } from './types.ts'
@@ -170,6 +174,8 @@ export const realCore: GoldenCore = {
     quickInput: (text, settings) => parseQuickInput(text, settings),
     // 결과를 바꾸지 않고 그대로 넘긴다. price.unit은 넘기지 않는다 — 추출은 원 단위(R-17 4, D-202)
     voiceExtract: (text, settings, dictionary) => extractVoice(text, { maxNumber: settings['claim.maxNumber'], dictionary }),
+    // 결과를 바꾸지 않고 그대로 넘긴다. 빠진 설정은 해석 함수가 DOMAIN_RULES 기본값(THOUSAND·999)을 쓴다
+    productImport: (text, settings, existing) => parseProductList(text, { unit: settings['price.unit'], maxNumber: settings['claim.maxNumber'], existing }),
   },
   engine: {
     start: (setup) => initEngine(setup),

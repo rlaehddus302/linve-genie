@@ -53,7 +53,7 @@
 | `LIVEJJIM_IG_FB_DIALOG_URL` | 선택 | (비움) | 페이스북 로그인 승인 창 주소 — 보통 비워 둔다 | 주소 모양이 아니면 시작하지 않는다 |
 | `LIVEJJIM_IG_IG_AUTHORIZE_URL` | 선택 | (비움) | 인스타그램 로그인 승인 창 주소 — 보통 비워 둔다 | 주소 모양이 아니면 시작하지 않는다 |
 | `LIVEJJIM_IG_IG_TOKEN_URL` | 선택 | (비움) | 인스타그램 로그인 토큰 주소 — 보통 비워 둔다 | 주소 모양이 아니면 시작하지 않는다 |
-| `LIVEJJIM_BACKUP_DIR` | 백업이면 필수 | `/backups` | 백업 명령이 덤프를 둘 폴더(미리 만들어 둔다) | 없으면 백업이 실패한다(경보 `BACKUP_FAILED`) |
+| `LIVEJJIM_BACKUP_DIR` | 백업이면 필수 | `/backups` | 백업 명령이 덤프를 둘 폴더(미리 만들어 둔다). 서버도 이 폴더의 판매자 ID 하위 폴더에 매일 판매자 백업을 둔다(I2 D-I2-10·D-I2-16 — 서버 컨테이너에도 같은 폴더를 붙인다) | 없으면 백업 명령이 실패하고(경보 `BACKUP_FAILED`) 서버의 판매자 자동 백업은 꺼진다(시작 경보, 판매는 그대로) |
 | `LIVEJJIM_PG_DUMP` | 선택 | `/usr/lib/postgresql/17/bin/pg_dump` | 백업에 쓸 `pg_dump` 경로(기본 `pg_dump`) | DB보다 낮은 버전이면 백업이 실패한다 |
 
 ## 3. 처음 배포

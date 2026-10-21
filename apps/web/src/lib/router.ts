@@ -1,12 +1,14 @@
 // 화면 주소 (AC-S05-01, AC-S06-01, D-094, AC-I3-44·50·77):
 //   `/` 방송 목록(홈) · `/broadcasts/<방송 ID>` 그 방송의 콘솔 · `/sms` 문자찜 입력
 //   `/buyers` 구매자 · `/settlements` 정산 — 고른 날짜·리허설·구매자는 검색값(`?date=2026-10-18&rehearsal=true&buyer=UC_A`)
+//   `/packing` 포장 모드 — 고른 날짜(실제 범위만)·연 구매자는 검색값(`?date=2026-10-18&buyer=UC_A`) (I2 AC-I2-35)
 //   `/settings` 설정 · `/settings/youtube` 설정의 유튜브 칸(구글에서 돌아오면 `?youtube=<결과>` — 화면이 보인 뒤 지운다)
 //   `/settings/instagram`·`/settings/tiktok` 설정의 인스타그램·틱톡 칸 — 인스타그램에서 돌아온 `?instagram=<결과>`(경로 `/`여도)는 인스타그램 칸으로 (N2b-2)
 //   `/start` 시작 마법사 · `/privacy` 개인정보처리방침(초안) · `/terms` 이용약관(초안) — 둘은 로그인 없이 열린다
 //   구매자 자세히의 합치기 창: 상대·방향은 `merge`(상대 구매자 ID)·`into`(남는 쪽 구매자 ID), 막힘에서 연 상품 자세히는 `product`(상품 키)
 //   — 상품 자세히에 갔다 와도(브라우저 뒤로 가기 포함) 같은 합치기 창이 다시 열린다 (AC-S06b-34, D-102).
 //   `/labels` 라벨(프린터·출력 대기열·버릴 라벨·출력 이력·라벨 설정·내보내기, I1 AC-I1-20)
+//   `/settings` 설정에는 "라벨" 절도 있다 — 라벨 기능 켜기/끄기·바꾼 기록 (N4a AC-N4a-10)
 // 전화번호·메모·사유는 주소에 넣지 않는다(AC-S06-81) — 구매자 ID·상품 키만. 새로고침·북마크해도 같은 화면이다.
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -30,6 +32,14 @@ export interface ScopeRoute {
 const SCOPE_PARAMS = ['buyer', 'merge', 'into', 'product'] as const
 
 export type SettingsSection = 'youtube' | 'instagram' | 'tiktok'
+
+/** 포장 모드 (I2 AC-I2-35): 실제 범위만 — 리허설 표시가 없다 */
+export interface PackingRoute {
+  readonly name: 'packing'
+  readonly date?: string
+  /** 체크리스트를 연 구매자 (지금의 구매자 ID) */
+  readonly buyer?: string
+}
 
 export interface SettingsRoute {
   readonly name: 'settings'
@@ -55,6 +65,7 @@ export type Route =
   | { readonly name: 'sms' }
   | { readonly name: 'labels' }
   | ScopeRoute
+  | PackingRoute
   | SettingsRoute
   | StartRoute
   | { readonly name: 'privacy' }
@@ -78,6 +89,17 @@ function scopeRoute(name: ScopeRouteName, search: string): ScopeRoute {
     if (value !== null && value !== '') out[key] = value
   }
   return out
+}
+
+function packingRoute(search: string): PackingRoute {
+  const params = new URLSearchParams(search)
+  const date = params.get('date')
+  const buyer = params.get('buyer')
+  return {
+    name: 'packing',
+    ...(date !== null && DATE_RE.test(date) ? { date } : {}),
+    ...(buyer !== null && buyer !== '' ? { buyer } : {}),
+  }
 }
 
 export function parseRoute(pathname: string, search = ''): Route {
@@ -108,6 +130,7 @@ export function parseRoute(pathname: string, search = ''): Route {
   if (path === '/labels') return { name: 'labels' }
   if (path === '/buyers') return scopeRoute('buyers', search)
   if (path === '/settlements') return scopeRoute('settlements', search)
+  if (path === '/packing') return packingRoute(search)
   return { name: 'home' }
 }
 
@@ -144,11 +167,18 @@ export function routePath(route: Route): string {
       const query = params.toString()
       return query === '' ? `/${route.name}` : `/${route.name}?${query}`
     }
+    case 'packing': {
+      const params = new URLSearchParams()
+      if (route.date !== undefined) params.set('date', route.date)
+      if (route.buyer !== undefined) params.set('buyer', route.buyer)
+      const query = params.toString()
+      return query === '' ? '/packing' : `/packing?${query}`
+    }
   }
 }
 
-/** 메뉴 항목 (AC-S06-01, AC-I1-20, AC-I3-44): 지금 화면이 어느 메뉴에 속하는지 */
-export type MenuKey = 'broadcasts' | 'sms' | 'buyers' | 'settlements' | 'labels' | 'settings'
+/** 메뉴 항목 (AC-S06-01, AC-I1-20, AC-I3-44, I2 AC-I2-35): 지금 화면이 어느 메뉴에 속하는지 */
+export type MenuKey = 'broadcasts' | 'sms' | 'buyers' | 'settlements' | 'packing' | 'labels' | 'settings'
 
 /** 메뉴에 없는 화면(시작 마법사·정책 페이지)은 null */
 export function menuOf(route: Route): MenuKey | null {
@@ -162,6 +192,8 @@ export function menuOf(route: Route): MenuKey | null {
       return 'buyers'
     case 'settlements':
       return 'settlements'
+    case 'packing':
+      return 'packing'
     case 'labels':
       return 'labels'
     case 'settings':

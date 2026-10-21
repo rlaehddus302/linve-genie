@@ -17,7 +17,7 @@ export interface LogRecord {
   readonly errorKind?: string
   /** 개수 같은 숫자 */
   readonly count?: number
-  /** 판매자 ID (유튜브 워커 — 판매자 ID는 서버가 만든 값이다) */
+  /** 판매자 ID (유튜브 워커·판매자 백업 경보 — 판매자 ID는 서버가 만든 값이다. 판매자 이름·구매자 정보가 아니다) */
   readonly seller?: string
   /** HTTP 상태 (유튜브 오류) */
   readonly status?: number
@@ -79,6 +79,11 @@ export type LogCode =
   | 'TIKTOK_RECORD_FAILED'
   | 'TIKTOK_STATUS_FAILED'
   | 'TIKTOK_EVENT_FAILED'
+  | 'DOCUMENT_MISMATCH'
+  | 'LABEL_INVALID'
+  | 'BACKUP_DISABLED'
+  | 'BACKUP_PRUNE_FAILED'
+  | 'DOCUMENT_WORK_FAILED'
   // 틱톡 N2b-2 (D-N2b-2-05·06·11): 멈춘 연결, 라이브러리 환경 변수(변수 이름만 reason에), 댓글 기록 실패·기록하지 않음
   | 'TIKTOK_STALLED'
   | 'TIKTOK_LIBRARY_ENV'
@@ -119,7 +124,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   OUTBOX_GAVE_UP: '감사 메시지를 여러 번 보내지 못해 그만두었어요',
   QUOTA_EXCEEDED: '구글이 유튜브 할당량 초과를 알렸어요',
   WORKER_FAILING: '워커가 연속으로 실패하고 있어요',
-  BACKUP_FAILED: '백업하지 못했어요',
+  BACKUP_FAILED: '백업하지 못했어요(운영 백업 명령은 종료 코드 1 · 판매자 자동 백업은 다음 확인 때 다시 해요)',
   DB_UNAVAILABLE: '데이터베이스에 닿지 않아요',
   PRINT_NOTIFY_FAILED: '출력 기록 알림을 보내지 못했어요(기록은 저장됨)',
   IG_META_FAILED: '인스타그램(메타) 요청이 실패했어요',
@@ -137,6 +142,11 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   TIKTOK_RECORD_FAILED: '틱톡 댓글을 받는 쪽에서 오류가 났어요(연결은 계속함)',
   TIKTOK_STATUS_FAILED: '틱톡 연결 상태를 받는 쪽에서 오류가 났어요(연결은 계속함)',
   TIKTOK_EVENT_FAILED: '틱톡 이벤트를 처리하지 못해 건너뛰었어요(연결은 계속함)',
+  DOCUMENT_MISMATCH: '확인서 금액이 정산 금액과 맞지 않아 문서를 만들지 않았어요',
+  LABEL_INVALID: '포장 라벨 데이터가 형식 검사를 통과하지 못해 라벨을 만들지 않았어요',
+  BACKUP_DISABLED: '백업 저장소가 정해지지 않아 자동 백업이 꺼져 있어요',
+  BACKUP_PRUNE_FAILED: '오래된 백업을 지우지 못했어요(다음 확인 때 다시 해요)',
+  DOCUMENT_WORK_FAILED: '파일 작업 워커가 일을 끝내지 못했어요(시간·메모리 상한·끊긴 요청 등 — 서버 판정은 그대로)',
   TIKTOK_STALLED: '받던 틱톡 연결에서 2분 동안 아무 자료가 오지 않아 끊긴 것으로 보고 다시 연결해요',
   TIKTOK_LIBRARY_ENV: '틱톡 연결기가 스스로 읽는 환경 변수가 있어 틱톡 베타를 끈 것으로 봤어요(그 변수를 지워 주세요)',
   TIKTOK_SAVE_FAILED: '틱톡 댓글을 기록하지 못했어요(연결은 계속함)',

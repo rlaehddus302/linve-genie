@@ -39,6 +39,8 @@ export type Dialog =
   | { readonly kind: 'discard' }
   /** Alt+P: 그 상품의 1등 라벨 다시 출력 (AC-I1-33) */
   | { readonly kind: 'reprint'; readonly product: string | null }
+  /** 상품 목록 가져오기 (I2 AC-I2-52) */
+  | { readonly kind: 'import' }
 
 /** 사유를 받는 조치 (AC-S05-34) */
 export interface ReasonSpec {

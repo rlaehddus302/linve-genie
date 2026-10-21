@@ -1,4 +1,4 @@
-// 글자 도구: 코드 포인트 순 비교(D-207 — Intl·localeCompare 대신), 제어 글자 빼기.
+// 글자 도구: 코드 포인트 순 비교(D-207 — Intl·localeCompare 대신), 제어 글자 빼기, 찍힌 구매자 이름(D-I2-04), 엑셀 글 칸 금지 글자 빼기(D-I2-03).
 
 /** 코드 포인트 순 비교 (UTF-16 코드 단위 순과 다르다 — 보조 평면 글자) */
 export function compareCodePoints(a: string, b: string): number {
@@ -21,4 +21,43 @@ const INVISIBLE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/gu
 
 export function stripInvisible(text: string): string {
   return text.normalize('NFC').replace(INVISIBLE, '')
+}
+
+/** 구매자 이름이 비어 찍히면 쓰는 글 (D-207) */
+export const NO_NAME = '(이름 없음)'
+
+/**
+ * 확인서에 실제로 찍히는 구매자 이름 (D-I2-04): 그릴 수 없는 글자·제어 글자를 뺀 뒤(sanitize — 글꼴의 DocumentFont.sanitize,
+ * 글꼴이 없으면 제어·서식 글자만 빼는 stripInvisible) 공백을 한 칸으로 줄이고, 비면 "(이름 없음)". 배치(layout)와 전원 일괄 순서가 같은 함수를 쓴다
+ */
+export function printedName(text: string, sanitize: (text: string) => string = stripInvisible): string {
+  return (
+    sanitize(typeof text === 'string' ? text : '')
+      .split(' ')
+      .filter((part) => part !== '')
+      .join(' ') || NO_NAME
+  )
+}
+
+/**
+ * 엑셀 글 칸에 쓸 수 없는 글자 (D-I2-03, TD-P2-003): 제어 글자 U+0000~U+001F(탭·줄바꿈·CR 포함)·U+007F~U+009F,
+ * U+FFFE·U+FFFF, 짝 없는 서로게이트. XML 1.0이 받지 않는 글자가 하나라도 있으면 파일 전체가 열리지 않으므로 그 글자만 뺀다
+ */
+export function stripXlsxForbidden(text: string): string {
+  let out = ''
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i)
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f) || code === 0xfffe || code === 0xffff) continue
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = text.charCodeAt(i + 1)
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        out += text.slice(i, i + 2)
+        i++
+      }
+      continue // 짝 없는 앞 서로게이트
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) continue // 짝 없는 뒤 서로게이트
+    out += text[i]
+  }
+  return out
 }

@@ -2,6 +2,8 @@
 // - 메모리 PGlite + 마이그레이션, 그 자리에서 만든 시험용 마스터 키, 시험용 판매자 계정 하나(apps/server/e2e/account.json의 시험 값).
 // - 선택: 상품 500·채팅 1만 건을 채운 실제 범위(오늘, KST), 화면의 방송자 조치 대기 시간 줄이기 신호(GET /api/client-config), 리허설 생성기 시험 속도.
 // - 시험 모드 신호(GET /api/client-config testPrinter — 화면이 시험용 프린터를 켠다, I1 L-11 15): E2E 기동은 기본으로 켠다(testPrinter: false로 끌 수 있다).
+// - I2: 백업 저장소 = 임시 폴더(또는 지정한 폴더), 시작할 때 시험 판매자의 자동 백업 하나(시각과 상관없이 — 설정 화면의 "마지막 자동 백업"이 늘 있게),
+//   확인서 데이터 조회의 ?at= (공유 그림 바이트를 같은 데이터의 Node 그림과 맞댈 때, AC-I2-15).
 // - 채우기는 기록 경로(ScopeWriter)를 그대로 탄다: 상품은 product.register(조치자 서버), 채팅은 가짜 채팅 생성기의 메시지(조치자 수집기).
 // - 선택: 가짜 메타 서버(instagram: true, N2 AC-N2-70) — 127.0.0.1의 빈 포트에 띄우고 서버의 인스타그램 설정을 그 주소로 둔다.
 //   돌아오는 주소는 화면 주소 + /api/instagram/callback(화면 개발 서버가 /api를 이 서버로 넘긴다), 웹훅은 이 서버의 /webhooks/instagram으로 보낸다.
@@ -11,11 +13,14 @@
 // - 선택: 가짜 웹캐스트(tiktok: true, N2b-2 AC-N2b-2-73·80) — 틱톡 운영자 스위치를 켜고 연결 객체가 가짜 웹캐스트를 쓴다.
 //   시험이 댓글·끊김·막힘을 넣는 경로 /_e2e/tiktok/*는 이 기동에서만 있다(운영 서버 시작 경로에는 없다 — 운영은 실제 감싸개 libraryWebcast()).
 import { randomBytes, randomInt } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import type { Server } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Hono } from 'hono'
 import { createSellerAccount } from './accounts.ts'
 import { isValidDate } from '@livejjim/core'
+import { FolderBackupStorage } from './backup.ts'
 import { openPglite, type Database } from './db/database.ts'
 import { ChatMaker, generatorView } from './generator.ts'
 import { createNodeServer } from './node-server.ts'
@@ -128,6 +133,10 @@ export interface E2eOptions {
   readonly passwordCost?: PasswordCost
   /** 시험 모드 신호 — 화면이 시험용 프린터를 켠다 (기본 true. 운영 기동에는 없다, AC-I1-16·50) */
   readonly testPrinter?: boolean
+  /** 백업 폴더 (없으면 임시 폴더를 만들고 끌 때 지운다) */
+  readonly backupDir?: string
+  /** 시작할 때 시험 판매자의 자동 백업을 하나 만든다 (기본 true) */
+  readonly initialBackup?: boolean
   /** 가짜 메타 서버를 함께 띄우고 인스타그램을 그 주소로 연결한다 (기본 false, N2) */
   readonly instagram?: boolean
   /** 가짜 메타 서버 포트 (기본 0 = 빈 포트 — E2E 시험이 /_fake/*를 부르도록 정한다, N2b-2) */
@@ -311,6 +320,8 @@ export interface E2eServer {
   readonly account: E2eAccount
   readonly sellerId: string
   readonly fill: FillResult | null
+  /** 백업 폴더 (I2) */
+  readonly backupDir: string
   /** 가짜 구글·유튜브 서버 (youtube를 주었을 때만) */
   readonly fakeGoogle: FakeGoogle | null
   /** Node HTTP 서버 (열기는 listen으로) */
@@ -327,6 +338,8 @@ export interface E2eServer {
 export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServer> {
   const database = await openPglite()
   const masterKey = generateMasterKey()
+  const ownBackupDir = options.backupDir === undefined
+  const backupDir = options.backupDir ?? mkdtempSync(join(tmpdir(), 'livejjim-e2e-backup-'))
   const appOrigin = options.appOrigin ?? 'http://localhost:5173'
   const fakeMeta = options.instagram === true ? await FakeMeta.start(options.instagramPort === undefined ? {} : { port: options.instagramPort }) : null
   const fakeGoogle =
@@ -344,6 +357,8 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     appOrigin,
     ...(fakeMeta === null ? {} : { instagram: fakeMeta.settings({ redirectUri: `${appOrigin}/api/instagram/callback` }) }),
     log: () => {},
+    backupStorage: new FolderBackupStorage(backupDir),
+    receiptAtParam: true,
     // E2E는 모든 브라우저 로그인이 한 주소(127.0.0.1 — 화면 서버의 /api 넘기기)에서 온다. 시험 수십 개가 같은 IP 한도(10분 20번)에 걸리지 않게
     // E2E 기동만 IP 한도를 넓힌다(운영 main은 기본값 — 로그인 제한 동작은 서버 시험 i3-login-limit이 확인한다)
     loginLimits: { ipMaxAttempts: 1_000_000 },
@@ -377,6 +392,9 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
   // 저절로 연다, AC-I3-50). 마법사 시험은 POST /_e2e/sellers의 새 판매자(처음)로 한다 (dev-web, I3 dev-notes)
   await server.service.setWizard(created.sellerId, { status: 'DONE' })
   const fill = options.fill === undefined ? null : await fillScope(server, created.sellerId, options.fill)
+  if (options.initialBackup !== false) await server.backups.createNow(created.sellerId, 'daily')
+  server.backups.start()
+  server.work.receipts.warm()
   if (fakeGoogle !== null) server.start()
   const http = createNodeServer({ app: e2eControl(server, database, Buffer.from(masterKey, 'base64'), options.passwordCost, fakeWebcast) })
   return {
@@ -385,6 +403,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     account,
     sellerId: created.sellerId,
     fill,
+    backupDir,
     fakeGoogle,
     http,
     fakeMeta,
@@ -415,6 +434,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
       })
       await fakeMeta?.close()
       await database.close()
+      if (ownBackupDir) rmSync(backupDir, { recursive: true, force: true })
     },
   }
 }

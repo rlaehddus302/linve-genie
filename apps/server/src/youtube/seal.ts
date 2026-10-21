@@ -241,6 +241,8 @@ export class Sealer {
               eq(outbox.sellerId, sellerId),
               eq(outbox.scopeId, scopeId),
               eq(outbox.rehearsal, false),
+              // 복구로 다시 만든 행은 실행하지 않는 행이라 상태를 붙이지 않는다 (D-I2-11) — 게시 문구는 아래에서 모든 행을 지운다
+              eq(outbox.restored, false),
               inArray(outbox.kind, ['POST_THANKS', 'SUMMARY_COMMENT']),
               sql`(${outbox.state} is null or ${outbox.state} in ('WAITING', 'SENDING'))`,
             ),

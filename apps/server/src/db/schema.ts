@@ -5,7 +5,7 @@
 // - 시각은 UTC(timestamptz, 엔진 at은 UTC 밀리초)로 둔다(NFR-07).
 // - 전화번호 원문·정규화한 번호는 어디에도 두지 않는다. 판매자 전화번호 키는 마스터 키로 암호화한 값만 둔다(D-073).
 // - 이 파일과 마이그레이션이 어긋나지 않는지는 test/schema.test.ts가 실제 DB 구조와 대조한다.
-import { sql } from 'drizzle-orm'
+import { and, eq, sql, type SQL } from 'drizzle-orm'
 import { bigint, bigserial, boolean, index, integer, pgTable, text, timestamp, unique, uniqueIndex } from 'drizzle-orm/pg-core'
 
 const timestamptz = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' })
@@ -23,6 +23,11 @@ export const sellers = pgTable('sellers', {
   wizardStatus: text('wizard_status').notNull().default('NEW'),
   /** 진행 중인 단계 1~5 (IN_PROGRESS일 때만) */
   wizardStep: integer('wizard_step'),
+  /**
+   * 가게 설정 (I2 D-I2-02, 이벤트 로그 밖): 입금 계좌(은행·계좌번호·예금주 — 셋 다 있거나 셋 다 빈 값)·안내 문장의 JSON 객체 문자열.
+   * 가게 이름은 name 칸이다(화면 위 가게 이름과 같은 값)
+   */
+  shop: text('shop').notNull().default('{}'),
 })
 
 /**
@@ -120,7 +125,10 @@ export const scopes = pgTable(
   (t) => [unique('scopes_seller_date_rehearsal_uq').on(t.sellerId, t.date, t.rehearsal)],
 )
 
-/** 방송 목록 (방송 ID → 범위). broadcast.start·broadcast.end 이벤트와 같은 트랜잭션에서 쓴다 */
+/**
+ * 방송 목록 (방송 ID → 범위). broadcast.start·broadcast.end 이벤트와 같은 트랜잭션에서 쓴다.
+ * 방송 ID는 서버 전체에서 유일하다(기본 키 — 다른 표가 broadcasts(id)를 참조할 수 있다, RA-I2-002). 조회는 늘 판매자 ID와 함께 건다
+ */
 export const broadcasts = pgTable(
   'broadcasts',
   {
@@ -258,6 +266,11 @@ export const outbox = pgTable(
     /** 알림에서 뺀 시각·계정 (상태·이유는 그대로, 다시 보내면 지운다) */
     dismissedAt: timestamptz('dismissed_at'),
     dismissedBy: text('dismissed_by'),
+    /**
+     * 복구·가져오기가 재생으로 다시 만든 효과 (I2 D-I2-11): 실행하지 않는다 — 지난 라벨·감사 메시지를 다시 내지 않는다.
+     * 실행기(I1·Y1)의 실행 대상 조회는 rehearsal = false AND restored = false 행만 본다(executableOutboxRows)
+     */
+    restored: boolean('restored').notNull().default(false),
   },
   (t) => [
     unique('outbox_effect_uq').on(t.sellerId, t.scopeId, t.effectId),
@@ -521,7 +534,34 @@ export const printQueues = pgTable('print_queues', {
   /** 출력 기록이 바뀔 때마다 1씩 는다 (실시간 알림의 순서·빠짐 확인) */
   rev: bigint('rev', { mode: 'number' }).notNull().default(0),
   updatedAt: timestamptz('updated_at').notNull(),
+  /**
+   * 라벨 기능 켬/끔 (N4a, SPEC RCP-01, L-13 1·D-N4a-01). 기본 켬 — 줄이 없어도 켬. 판매 규칙 설정이 아니다(방송 스냅샷·엔진 입력에 들어가지 않는다).
+   * 이 줄을 잠근(lockQueue) 트랜잭션 안에서 읽고 바꾼다: 이벤트 기록의 효과 → 작업, 출력 요청 거절, 켜기·끄기가 같은 잠금으로 한 줄씩 처리된다
+   */
+  labelsEnabled: boolean('labels_enabled').notNull().default(true),
 })
+
+/**
+ * 라벨 기능 켬/끔을 바꾼 기록 (N4a, L-13 2). 값이 실제로 바뀔 때마다 한 줄(바뀐 값·시각 UTC·바꾼 계정), 켬/끔을 바꾼 트랜잭션 안에서.
+ * 지우지 않는다(지우는 API가 없다). 다른 판매자의 기록은 보이지 않는다(판매자 조건)
+ */
+export const labelSwitches = pgTable(
+  'label_switches',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** 바뀐 값 (true = 켬) */
+    enabled: boolean('enabled').notNull(),
+    /** 바꾼 계정 */
+    accountId: text('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    changedAt: timestamptz('changed_at').notNull(),
+  },
+  (t) => [index('label_switches_seller_idx').on(t.sellerId, t.id)],
+)
 
 /**
  * 라벨 키 (L-8, L-9, L-11). 상품 = (찜, 확정버전) — key `<찜>@<확정버전>`, 포장 = (포장, 지금의 구매자, 날짜) — key `packing:<구매자>`.
@@ -1035,6 +1075,39 @@ export const pasteRequests = pgTable(
   (t) => [unique('paste_requests_uq').on(t.sellerId, t.requestId)],
 )
 
+/**
+ * 포장·배송 기록 (STL-08, I2 D-I2-05): 엔진 이벤트가 아니라 서버가 덧붙이기만 하는 기록이다(고치거나 지우지 않는다 — 복구 명령만 예외, D-I2-11).
+ * (판매자, 실제 범위 날짜, 그때 지금의 구매자 ID)마다 차례로 읽어 상태를 계산한다. 리허설 범위에는 쓰지 않는다
+ */
+export const packingRecords = pgTable(
+  'packing_records',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    scopeId: text('scope_id')
+      .notNull()
+      .references(() => scopes.id),
+    /** 묶음 날짜 YYYY-MM-DD (실제 범위) */
+    date: text('date').notNull(),
+    /** 기록할 때의 지금의 구매자 ID (그 ID의 묶음에만 보인다) */
+    buyer: text('buyer').notNull(),
+    /** PACKED(포장 완료) · UNPACKED(포장 취소) · SHIPPED(배송 완료) · UNSHIPPED(배송 취소) */
+    kind: text('kind').notNull(),
+    /** 포장 완료의 담은 품목 = 상품 키(`<방송 ID>/<번호>`) 목록 JSON (다른 종류는 null) */
+    items: text('items'),
+    /** 배송 완료의 송장번호(숫자만, 없으면 null) */
+    invoice: text('invoice'),
+    /** 누가 (로그인 계정 — 가져온 기록의 계정이 이 서버에 없으면 null) */
+    accountId: text('account_id').references(() => accounts.id),
+    requestId: text('request_id'),
+    /** 언제 (서버 도착 시각 UTC) */
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('packing_request_uq').on(t.sellerId, t.requestId), index('packing_scope_idx').on(t.sellerId, t.scopeId, t.id)],
+)
+
 export const schema = {
   sellers,
   accounts,
@@ -1071,7 +1144,16 @@ export const schema = {
   tiktokConsents,
   tiktokAccounts,
   pasteRequests,
+  labelSwitches,
+  packingRecords,
 }
+
+/**
+ * 발송함 실행 대상 조건 (R-13, D-081, D-I2-11 — RA-I2-001): 실제 범위의 행이고 복구·가져오기가 다시 만든 행이 아니다.
+ * 발송함 행을 골라 실행하는 질의(라벨 출력·감사 메시지 게시 등 실행기)는 모두 이 조건을 건다 —
+ * test/i2-restore-contract.test.ts가 apps/server/src의 발송함 질의를 훑어 rehearsal 조건을 거는 곳이 restored 조건도 거는지 확인한다
+ */
+export const executableOutbox = and(eq(outbox.rehearsal, false), eq(outbox.restored, false)) as SQL
 
 /** 범위 직렬 처리용 어드바이저리 락 키 (범위 = 판매자·날짜·리허설인지, 범위 행이 생기기 전에도 같은 키). 실제 범위는 S04와 같은 키 */
 export const scopeLockKey = (sellerId: string, date: string, rehearsal: boolean) =>

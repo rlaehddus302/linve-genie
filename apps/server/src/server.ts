@@ -4,11 +4,14 @@
 // changesWindow(증분 조회 기준점 수), generatorTimer·generatorSpeed(리허설 생성기 타이머·시험 속도), hostActionDelayMs(화면의 방송자 조치 대기 — E2E 기동만 줄인다),
 // testPrinter(시험 모드 신호 — 화면이 시험용 프린터를 켠다. E2E 기동만 켠다, 운영 기동은 production.ts가 늘 끈다 — I1 L-11 15).
 // I1: 출력 기록(PrintService)을 기록 경로의 같은 트랜잭션(txHook)에 잇고, 실시간 알림(print)·출력 기기 실시간 연결 여부를 허브에 잇는다.
+// N4a: 라벨 기능 켬/끔 알림(labels)을 허브에 잇는다.
 import { readFileSync } from 'node:fs'
 import { applyEvent } from '@livejjim/core'
 import type { Hono } from 'hono'
 import { Auth } from './auth.ts'
 import { createApp } from './app.ts'
+import { BackupScheduler, type BackupStorage } from './backup.ts'
+import { ClosingService } from './closing.ts'
 import type { Database } from './db/database.ts'
 import { StreamHub } from './hub.ts'
 import { randomIds, type IdSource } from './ids.ts'
@@ -37,6 +40,7 @@ import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
 import { kstDate, systemClock, type Clock } from './time.ts'
 import { ViewCacheBudget } from './view-budget.ts'
+import { sharedWorkPools, type WorkPools } from './work-pool.ts'
 import { DEFAULT_RUNTIME_CACHE_MAX, ScopeWriter, type WriterHooks } from './writer.ts'
 import type { CollectorHooks } from './youtube/collector.ts'
 import type { OutboxHooks, OutboxTiming } from './youtube/outbox.ts'
@@ -143,6 +147,19 @@ export interface ServerOptions {
     readonly limiter?: TikTokAttemptLimiter
     readonly noticeVersion?: string
   }
+  /** 백업 저장소 (I2 D-I2-10 — 없으면 자동 백업이 꺼진다. 판매는 그대로) */
+  readonly backupStorage?: BackupStorage | null
+  /** 자동 백업 확인 주기 (기본 5분) */
+  readonly backupIntervalMs?: number
+  /**
+   * E2E 기동만: 확인서 데이터 조회가 ?at=<UTC 밀리초>를 받아 그 만든 시각으로 데이터를 낸다(AC-I2-15 — 공유 그림 바이트를 같은 데이터의 Node 그림과 맞댈 때).
+   * 운영 서버는 켜지 않는다(늘 서버 시계의 지금 시각). PDF·PNG·전원 PDF는 이 값과 상관없이 늘 지금 시각이다
+   */
+  readonly receiptAtParam?: boolean
+  /** 무거운 파일 작업의 워커 풀 (기본: 프로세스에 하나 — RA-I2-003). 시험은 작은 풀을 넣을 수 있다 */
+  readonly work?: WorkPools
+  /** 자동 백업: 서버를 켠 뒤 첫 확인까지 (기본 3분, RA-I2-003) */
+  readonly backupStartDelayMs?: number
 }
 
 export interface LivejjimServer {
@@ -161,6 +178,12 @@ export interface LivejjimServer {
   readonly tiktok: TikTokLive
   /** 댓글 붙여넣기 (N2b-2) */
   readonly paste: PasteService
+  /** 정산 마무리 (I2) */
+  readonly closing: ClosingService
+  /** 매일 자동 백업 (I2 D-I2-10 — 시작은 backups.start(), 시험은 check()를 직접 부른다) */
+  readonly backups: BackupScheduler
+  /** 무거운 파일 작업의 워커 풀 (확인서 그림·PDF·전원 PDF·판매대장 엑셀·.xlsx 읽기) */
+  readonly work: WorkPools
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
   /** 유튜브 연동 (설정이 있을 때만) */
@@ -171,7 +194,7 @@ export interface LivejjimServer {
   start(): void
   /** 워커를 멈춘다 (임대를 놓는다) */
   stop(): Promise<void>
-  /** 실시간 연결을 닫고 리허설 생성기·타이머·워커를 멈춘다 (DB는 닫지 않는다) */
+  /** 실시간 연결을 닫고 리허설 생성기·타이머·워커·자동 백업 확인을 멈춘다 (DB는 닫지 않는다) */
   close(): void
   /** 경보 기록 (AC-I3-82) */
   readonly alerter: Alerter
@@ -300,6 +323,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     clock,
     log,
     publish: (sellerId, data) => hub.publishPrint(sellerId, data),
+    publishLabels: (sellerId, data) => hub.publishLabels(sellerId, data),
     deviceLive: (sellerId, deviceId) => hub.deviceLive(sellerId, deviceId),
   })
   const printService = print
@@ -314,6 +338,16 @@ export function createServer(options: ServerOptions): LivejjimServer {
     onGenerator: (sellerId, payload) => hub.publishGenerator(sellerId, payload),
     ...(options.generatorTimer === undefined ? {} : { generatorTimer: options.generatorTimer }),
   })
+  const backups = new BackupScheduler({
+    db,
+    storage: options.backupStorage ?? null,
+    clock,
+    log,
+    ...(options.backupIntervalMs === undefined ? {} : { intervalMs: options.backupIntervalMs }),
+    ...(options.backupStartDelayMs === undefined ? {} : { startDelayMs: options.backupStartDelayMs }),
+  })
+  const work = options.work ?? sharedWorkPools()
+  const closing = new ClosingService({ db, writer, clock, hub, backups, log, work })
   const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)
   const youtube: YoutubeSystem | null =
     options.youtube === undefined
@@ -426,6 +460,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
     api: {
       service,
+      closing,
       auth,
       hub,
       print: printService,
@@ -433,6 +468,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       tiktok: { db, live: tiktokLive, paste },
       appOrigin: options.appOrigin,
       clientConfig: { hostActionDelayMs, testPrinter: options.testPrinter === true },
+      receiptAtParam: options.receiptAtParam === true,
       youtube,
       sealer,
       trustedProxies,
@@ -463,6 +499,9 @@ export function createServer(options: ServerOptions): LivejjimServer {
     instagram: instagramModule,
     tiktok: tiktokLive,
     paste,
+    closing,
+    backups,
+    work,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     start: () => {
       youtube?.start()
@@ -477,6 +516,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       instagramModule.close()
       tiktokLive.close()
       hub.closeAll()
+      backups.stop()
       void stop()
     },
     alerter,

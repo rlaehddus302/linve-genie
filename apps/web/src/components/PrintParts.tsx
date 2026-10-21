@@ -17,8 +17,9 @@ import {
   reconnectThereMessage,
 } from '../lib/print-words.ts'
 import { ErrorNote } from './ErrorNote.tsx'
+import { LabelsOffNote } from './LabelsOff.tsx'
 import { Modal } from './Modal.tsx'
-import { usePrintApi, usePrintState, useStationState } from './print-context.tsx'
+import { useLabelsEnabled, usePrintApi, usePrintState, useStationState } from './print-context.tsx'
 
 /** 서버 거절 문장 (끊김 멈춤의 "다시 시작"은 출력 기기 이름을 넣는다) */
 function actionError(error: ApiError): ApiError {
@@ -192,7 +193,10 @@ export function QueueList() {
   )
 }
 
-/** 버릴 라벨 (AC-I1-24): "15번 · 우주천사 · 26.10.18 라벨을 버려 주세요"와 "버렸어요" */
+/**
+ * 버릴 라벨 (AC-I1-24): "15번 · 우주천사 · 26.10.18 라벨을 버려 주세요"와 "버렸어요". 라벨 기능이 꺼져 있어도 남는다(L-13 4·9).
+ * "버렸어요"는 알림 창(숫자 키로 고르는 목록)에서만 주 버튼이고, 라벨 화면에서는 보통 버튼이다 (AC-N4a-21)
+ */
 export function DiscardList({ numbered = false }: { readonly numbered?: boolean }) {
   const print = usePrintState()
   const action = usePrintAction()
@@ -211,7 +215,7 @@ export function DiscardList({ numbered = false }: { readonly numbered?: boolean 
             ) : null}
             <button
               type="button"
-              className="button button-primary"
+              className={numbered ? 'button button-primary' : 'button'}
               data-key={numbered && index < 9 ? String(index + 1) : undefined}
               disabled={action.busy}
               onClick={() => void action.run('/api/print/jobs/discard', { date: job.date, id: job.id })}
@@ -230,10 +234,12 @@ export function DiscardList({ numbered = false }: { readonly numbered?: boolean 
 /** 알림 띠 "출력 멈춤"의 창 (AC-I1-32): 멈춘 까닭과 할 일 — 처음 포커스 "닫기", 1 = 다시 시작·출력 시작·다시 연결 */
 export function PrintPauseDialog({ onClose }: { readonly onClose: () => void }) {
   const print = usePrintState()
+  const labels = useLabelsEnabled()
   const paused = print.overview?.queue.pause != null
   return (
     <Modal title="출력 멈춤" onClose={onClose}>
-      {paused ? <PausePanel /> : <p>지금은 출력이 멈추지 않았어요.</p>}
+      {/* 창이 열린 채 라벨 기능이 꺼지면 조치 대신 안내 (L-13 9) */}
+      {labels !== true ? <LabelsOffNote /> : paused ? <PausePanel /> : <p>지금은 출력이 멈추지 않았어요.</p>}
     </Modal>
   )
 }

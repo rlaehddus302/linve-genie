@@ -54,6 +54,13 @@ export interface ConsoleSnapshot {
   readonly generator: GeneratorStatus | null
   /** 화면을 최신으로 맞추지 못해 다시 시도하는 중 (AC-S06-41) */
   readonly stale: boolean
+  /**
+   * 보는 실제 범위의 포장 기록이 바뀐 횟수 (SSE `packing` — I2 AC-I2-32). 포장 상태는 증분 조회에 없으므로 화면은 이 값이 바뀌면
+   * 포장 목록을 다시 받는다. 다시 붙을 때(놓친 알림이 있을 수 있다)도 늘린다.
+   */
+  readonly packingVersion: number
+  /** 가게 설정이 바뀐 횟수 (SSE `shop` — I2 AC-I2-13: 확인서 미리 보기를 다시 받는다). 다시 붙을 때도 늘린다 */
+  readonly shopVersion: number
   /** 30일이 지나 봉인한 날짜 (볼 수만 있다, AC-I3-41) */
   readonly sealed: boolean
   /** 봉인한 날짜의 채팅 칸 문장 (서버 sealedMessage) */
@@ -89,6 +96,8 @@ const EMPTY: ConsoleSnapshot = {
   connection: 'connecting',
   generator: null,
   stale: false,
+  packingVersion: 0,
+  shopVersion: 0,
   sealed: false,
   sealedMessage: null,
 }
@@ -395,9 +404,13 @@ export class ConsoleStore {
     this.#stream = stream
     stream.addEventListener('ready', (event) => {
       const data = parseData<{ scopes: ScopeSeq[] }>(event)
-      this.#set({ connection: 'open' })
+      this.#readyCount += 1
+      const again = this.#readyCount > 1
+      // 다시 붙었다(I2): 끊긴 사이의 포장·가게 설정 알림(seq 없음)은 다시 오지 않는다 — 그 화면들이 다시 받게 한다
+      if (again) this.#set({ connection: 'open', packingVersion: this.#snapshot.packingVersion + 1, shopVersion: this.#snapshot.shopVersion + 1 })
+      else this.#set({ connection: 'open' })
       // 다시 붙음: 유튜브 상태(연결·수집·발송함·사용량·알림)는 seq가 없어 다시 받는다 (AC-I3-92)
-      if (++this.#readyCount > 1) for (const listener of [...this.#reconnected]) listener()
+      if (again) for (const listener of [...this.#reconnected]) listener()
       const scope = this.scope
       // 생성기 상태는 seq 없는 알림으로만 오므로, 끊긴 사이의 시작·멈춤·다 보냄은 다시 붙을 때 조회로 받는다
       if (this.#snapshot.broadcast?.rehearsal === true) void this.#loadGenerator()
@@ -410,6 +423,15 @@ export class ConsoleStore {
       const scope = this.scope
       if (data === null || scope === null || data.date !== scope.date || data.rehearsal !== scope.rehearsal) return
       this.#notify(data.seq)
+    })
+    stream.addEventListener('packing', (event) => {
+      const data = parseData<{ date: string; buyer: string }>(event)
+      const scope = this.scope
+      if (data === null || scope === null || scope.rehearsal || data.date !== scope.date) return
+      this.#set({ packingVersion: this.#snapshot.packingVersion + 1 })
+    })
+    stream.addEventListener('shop', () => {
+      this.#set({ shopVersion: this.#snapshot.shopVersion + 1 })
     })
     stream.addEventListener('youtube', (event) => {
       const data = parseYoutubeEvent(event.data)

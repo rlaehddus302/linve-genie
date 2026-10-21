@@ -174,3 +174,43 @@ export function kstHm(value: string | number): string {
   const time = kstTime(value)
   return time === '' ? '' : time.slice(0, 5)
 }
+
+const minuteFormat = new Intl.DateTimeFormat('en-GB', {
+  timeZone: KST_TIME_ZONE,
+  hourCycle: 'h23',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
+/**
+ * UTC 시각 → KST "2026년 10월 20일 (화) 04:00" (설정 화면의 백업 시각, I2 AC-I2-65). 읽을 수 없는 값이면 빈 글자.
+ * 요일은 그 KST 날짜 자체로 정한다(브라우저 시간대와 상관없다).
+ */
+export function kstDateTimeLong(value: string | number): string {
+  const ms = toMs(value)
+  if (!Number.isFinite(ms)) return ''
+  const p = parts(minuteFormat, ms)
+  const date = `${p.year ?? ''}-${p.month ?? ''}-${p.day ?? ''}`
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  if (!m) return ''
+  const day = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay()
+  return `${dateYear(date)} (${WEEKDAYS[day] ?? ''}) ${p.hour ?? '00'}:${p.minute ?? '00'}`
+}
+
+/**
+ * UTC 시각 → KST `2026-10-20 (화) 20:31` — 연도·요일까지 (D-102). 라벨 기능을 바꾼 기록(AC-N4a-12).
+ * 요일은 KST 날짜 자체로 정한다(브라우저 시간대와 상관없다). 읽을 수 없는 값이면 빈 글자
+ */
+export function kstDayMinute(value: string | number): string {
+  const ms = toMs(value)
+  if (!Number.isFinite(ms)) return ''
+  const p = parts(minuteFormat, ms)
+  const year = Number(p.year ?? '0')
+  const month = Number(p.month ?? '0')
+  const day = Number(p.day ?? '0')
+  const weekday = WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()] ?? ''
+  return `${p.year ?? ''}-${p.month ?? ''}-${p.day ?? ''} (${weekday}) ${p.hour ?? '00'}:${p.minute ?? '00'}`
+}

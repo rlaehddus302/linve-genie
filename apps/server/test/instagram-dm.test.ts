@@ -139,7 +139,7 @@ describe('AC-N2-40 실행기가 집는 행', () => {
     expect(body).not.toMatch(/rehearsal(?!, false\))/)
     const w = await world()
     const columns = await w.database.pglite?.query<{ column_name: string }>(`select column_name from information_schema.columns where table_name = 'outbox' order by ordinal_position`)
-    // 합친 뒤(N2 + Y1·I3): 발송함 열은 main의 것(Y1 0004 발송함 상태 열·I3 0005 정리 열) 그대로 — N2는 열을 더하지 않는다(D-N2-01)
+    // 합친 뒤(N2 + Y1·I3 + I2): 발송함 열은 main의 것(Y1 0004 발송함 상태 열·I3 0005 정리 열)과 I2 0007의 restored — N2는 열을 더하지 않는다(D-N2-01)
     expect(columns?.rows.map((row) => row.column_name)).toEqual([
       'id',
       'seller_id',
@@ -175,6 +175,8 @@ describe('AC-N2-40 실행기가 집는 행', () => {
       'confirm_request_id',
       'dismissed_at',
       'dismissed_by',
+      // I2 합치기: 복구로 다시 만든 행 표시 (I2 0007, D-I2-11·D-I2-14 — 실행기는 restored = false도 건다)
+      'restored',
     ])
   })
 })

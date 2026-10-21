@@ -1,21 +1,33 @@
 // 설정 (SPEC §7 화면 8, D-I3-08·D-I3-10, AC-I3-44~47·01~05·10~14·37·64).
-// 칸: 가게 · 판매 규칙(자주 쓰는 칸 + "더 보기") · 배송비 · 구매 감사 메시지 · 유튜브 · 인스타그램 · 틱톡 라이브(베타) · 보조자 · 그 밖. 칸마다 "저장"(바뀐 키만).
+// 칸: 가게 · 판매 규칙(자주 쓰는 칸 + "더 보기") · 배송비 · 구매 감사 메시지 · 라벨 · 유튜브 · 인스타그램 · 틱톡 라이브(베타) · 보조자 · 그 밖. 칸마다 "저장"(바뀐 키만).
+// - "라벨" 칸은 라벨 기능 켜기/끄기·바꾼 기록이다(N4a AC-N4a-10, D-N4a-05) — 저장 버튼 없이 누르면 바로 바뀐다(끌 때는 묻는다).
 // - N2b-2: `/settings/instagram`·`/settings/tiktok`은 그 칸이 보이게 연다. 인스타그램에서 돌아온 결과(`?instagram=`)는 한 번 보이고 주소에서 지운다.
 // - `/settings/youtube`는 같은 화면에서 유튜브 칸이 보이게(스크롤·포커스) 연다. 구글에서 돌아온 결과(`?youtube=`)는 한 번 보이고 주소에서 지운다.
 // - 끝나지 않은 실제 방송이 있으면 위에 "진행 중인 방송에는 바뀐 규칙이 적용되지 않아요."
 // - 저장하지 않은 값이 있으면 다른 화면으로 가기 전에 같은 떠나기 창이 묻는다.
 // - 유튜브 연결·동의·사용량은 실시간 알림으로 1초 안에 바뀐다(다른 기기 포함). 끊겼다 이어지면 다시 받는다.
+// I2 (STL-04, DAT-03·04, D-I2-02·D-I2-10~12, AC-I2-02·65) — 합친 화면(main I3 + I2)에서 양쪽 칸을 모두 둔다:
+// - 가게: "가게 이름"(위 줄 이름 — 시작 마법사와 같은 값)·"은행"·"계좌번호"·"예금주"·"입금 안내 문장"과 "저장". 칸 아래에 확인서에 나올 모양을 미리 보인다
+//   (`농협 302-9988-7766-11 (예금주 김판매)`와 안내 문장 — 계좌가 없으면 "확인서에 입금 계좌가 나오지 않아요."). 저장되면 "저장했어요."이고 위 가게 이름이 바로 바뀐다.
+//   계좌 칸을 아직 받지 못했으면(불러오는 중·실패) 가게 이름만 저장한다(PUT /api/shop { name }).
+// - 백업: 마지막 자동 백업 시각(KST)·보관 기간·보관 중인 백업 목록(만든 시각·크기). 꺼져 있거나 마지막 성공이 26시간보다 오래되면 주의 안내.
+//   복구·백업 파일 내려받기 버튼은 없다(운영자에게 날짜를 알려 되돌린다 — D-I2-11).
+// - 전체 기록 내려받기: "전체 기록(JSON)"·"전체 판매대장(엑셀)" — 만드는 동안 그 버튼이 잠기고 "만드는 중이에요…".
 import type { SaleSettings } from '@livejjim/core'
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { get, isApiError, put, type ApiError } from '../api/client.ts'
-import type { BroadcastItem } from '../api/types.ts'
+import type { BackupStatus, BroadcastItem, Shop } from '../api/types.ts'
+import { sizeWords } from '../lib/files.ts'
+import { kstDateTimeLong } from '../lib/kst.ts'
 import { useUnsavedGuard } from '../lib/leave-guard.ts'
 import { useLiveEvents } from '../lib/live-events.ts'
 import { routePath, type Navigate, type Route, type SettingsRoute } from '../lib/router.ts'
 import { fieldsAt, ONGOING_NOTICE, SAVED_MESSAGE, SAVED_SHIPPING_MESSAGE } from '../lib/settings-fields.ts'
 import { hasChannel } from '../lib/youtube.ts'
 import { AssistantsSection } from './AssistantsSection.tsx'
-import { ErrorNote, FieldError } from './ErrorNote.tsx'
+import { DownloadButton } from './downloads.tsx'
+import { ErrorNote, RequestError } from './ErrorNote.tsx'
+import { LabelSwitchSection } from './LabelSwitchSection.tsx'
 import { RuleField, SaveRow, settingProblem, useRuleForm } from './RuleFields.tsx'
 import { ThanksSettings, useThanksForm } from './ThanksSettings.tsx'
 import { InstagramCallbackResult, InstagramSettings, TikTokSettingsSection, useInstagramConnection, useTikTokSettings } from './PlatformSettings.tsx'
@@ -27,6 +39,44 @@ const RULE_FIELDS = [...BASIC_FIELDS, ...MORE_FIELDS]
 const SHIPPING_FIELDS = fieldsAt('shipping')
 
 export const SHOP_SAVED = '저장했어요.'
+/** 가게 칸 저장 성공 (I2 이름 — SHOP_SAVED와 같은 글) */
+export const SAVED = SHOP_SAVED
+export const NO_ACCOUNT_ON_RECEIPT = '확인서에 입금 계좌가 나오지 않아요.'
+/** 계좌 칸을 일부만 적었을 때 미리 보기 (서버 거절 문장과 다른 글 — 같은 글이 두 번 보이지 않게) */
+export const ACCOUNT_INCOMPLETE = '은행·계좌번호·예금주가 모두 있어야 확인서에 계좌가 나와요.'
+export const BACKUP_STOPPED = '자동 백업이 멈췄어요. 운영자에게 알려 주세요.'
+export const RESTORE_HINT = '백업 시점으로 되돌리려면 운영자에게 날짜를 알려 주세요.'
+export const EXPORT_WARNING = '구매자 닉네임·메모·전화번호 끝자리가 들어 있어요. 파일을 다른 사람에게 보내지 마세요.'
+/** 마지막 자동 백업이 이보다 오래되면 멈춘 것으로 본다 (AC-I2-65) */
+export const BACKUP_STALE_MS = 26 * 60 * 60 * 1000
+
+const FIELDS = [
+  { key: 'name', label: '가게 이름', placeholder: '초록다육' },
+  { key: 'bank', label: '은행', placeholder: '농협' },
+  { key: 'accountNumber', label: '계좌번호', placeholder: '302-9988-7766-11' },
+  { key: 'accountHolder', label: '예금주', placeholder: '김판매' },
+  { key: 'accountNote', label: '입금 안내 문장', placeholder: '입금자명은 닉네임으로 적어 주세요' },
+] as const satisfies readonly { readonly key: keyof Shop; readonly label: string; readonly placeholder: string }[]
+
+/** 확인서에 나올 입금 계좌 (문서 패키지와 같은 모양: "은행 계좌번호 (예금주 이름)") — 셋 다 있을 때만 */
+export function accountPreview(shop: Shop): { readonly text: string; readonly note: string | null } | 'none' | 'partial' {
+  const bank = shop.bank.trim()
+  const number = shop.accountNumber.trim()
+  const holder = shop.accountHolder.trim()
+  const filled = [bank, number, holder].filter((value) => value !== '').length
+  if (filled === 0) return 'none'
+  if (filled < 3) return 'partial'
+  const note = shop.accountNote.trim()
+  return { text: `${bank} ${number} (예금주 ${holder})`, note: note === '' ? null : note }
+}
+
+/** 자동 백업이 멈췄는가: 꺼져 있거나, 성공이 없거나, 마지막 성공이 26시간보다 오래됐다 */
+export function backupStopped(status: Pick<BackupStatus, 'enabled' | 'lastSuccessAt'>, now: number = Date.now()): boolean {
+  if (!status.enabled || status.lastSuccessAt === null) return true
+  const at = Date.parse(status.lastSuccessAt)
+  return !Number.isFinite(at) || now - at > BACKUP_STALE_MS
+}
+
 
 export interface SettingsPageProps {
   readonly route: SettingsRoute
@@ -101,6 +151,7 @@ export function SettingsPage({ route, navigate, shopName, onRenamed }: SettingsP
         <ShopForm shopName={shopName} onRenamed={onRenamed} />
       </SettingsSection>
       {settings !== null ? <RuleSections settings={settings} onSaved={setSettings} youtube={youtube} /> : null}
+      <LabelSwitchSection />
       <SettingsSection title="유튜브" focus={route.section === 'youtube' && (settings !== null || loadError !== null)}>
         <CallbackResult code={result} />
         <YoutubeStatus handle={youtube} quota={quota.quota} navigate={navigate} place="settings" />
@@ -115,6 +166,8 @@ export function SettingsPage({ route, navigate, shopName, onRenamed }: SettingsP
       <SettingsSection title="보조자">
         <AssistantsSection />
       </SettingsSection>
+      <BackupSection />
+      <ExportSection />
       <SettingsSection title="그 밖">
         <ul className="plain-list link-list">
           <li>
@@ -198,24 +251,65 @@ function SettingsSection({ title, focus = false, children }: { readonly title: s
   )
 }
 
-/** 가게 이름 (AC-I3-47): 저장하면 이 기기의 위 줄이 바로 바뀐다 */
-export function ShopForm({ shopName, onRenamed }: { readonly shopName: string; readonly onRenamed: (name: string) => void }) {
-  const [name, setName] = useState(shopName)
+const EMPTY_ACCOUNT = { bank: '', accountNumber: '', accountHolder: '', accountNote: '' } as const
+
+/**
+ * 가게 (I3 AC-I3-47 가게 이름 + I2 AC-I2-02 입금 계좌·안내 문장): 저장하면 이 기기의 위 줄이 바로 바뀐다.
+ * shopName(로그인 정보의 가게 이름)이 있으면 가게 이름 칸은 바로 보이고, 계좌 칸은 GET /api/shop을 받은 뒤 보인다.
+ * 계좌 칸을 받았으면 다섯 칸을 함께(PUT /api/shop 다섯 칸), 아직이면 가게 이름만(PUT /api/shop { name }) 저장한다.
+ * 칸 문제는 그 칸 옆에, 칸 밖 문장(계좌 일부만 등)은 아래에 — 같은 문장을 두 번 보이지 않는다
+ */
+export function ShopForm({ shopName, onRenamed }: { readonly shopName?: string; readonly onRenamed: (name: string) => void }) {
+  const id = useId()
+  const [draft, setDraft] = useState<Shop>({ name: shopName ?? '', ...EMPTY_ACCOUNT })
+  const [loaded, setLoaded] = useState<Shop | null>(null)
+  const [loadError, setLoadError] = useState<ApiError | null>(null)
+  const [attempt, setAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const [done, setDone] = useState(false)
-  const id = useId()
-  const dirty = name !== shopName
+  const savedName = loaded?.name ?? shopName ?? ''
+  const dirty = loaded === null ? draft.name !== savedName : FIELDS.some((field) => draft[field.key] !== loaded[field.key])
   useUnsavedGuard(dirty)
+
+  useEffect(() => {
+    let alive = true
+    setLoadError(null)
+    get<{ shop: Shop }>('/api/shop').then(
+      (result) => {
+        if (!alive) return
+        setLoaded(result.shop)
+        // 받기 전에 고친 가게 이름은 그대로 둔다
+        setDraft((current) => ({ ...result.shop, name: current.name !== (shopName ?? '') && shopName !== undefined ? current.name : result.shop.name }))
+      },
+      (caught: unknown) => {
+        if (alive && isApiError(caught)) setLoadError(caught)
+      },
+    )
+    return () => {
+      alive = false
+    }
+    // shopName은 처음 값만 쓴다 (저장 뒤 바뀐 이름으로 다시 받지 않는다)
+  }, [attempt])
+
+  const change = (key: keyof Shop, value: string) => {
+    setDone(false)
+    setDraft((current) => ({ ...current, [key]: value }))
+  }
+
   const save = async () => {
     if (busy) return
     setBusy(true)
     setError(null)
     setDone(false)
     try {
-      const { shop } = await put<{ shop: { name: string } }>('/api/shop', { name })
+      const { shop } = await put<{ shop: Partial<Shop> & { name: string } }>('/api/shop', loaded === null ? { name: draft.name } : draft)
+      if (loaded !== null) {
+        const full: Shop = { ...EMPTY_ACCOUNT, ...shop }
+        setLoaded(full)
+        setDraft(full)
+      } else setDraft((current) => ({ ...current, name: shop.name }))
       onRenamed(shop.name)
-      setName(shop.name)
       setDone(true)
     } catch (caught) {
       if (!isApiError(caught)) throw caught
@@ -224,40 +318,82 @@ export function ShopForm({ shopName, onRenamed }: { readonly shopName: string; r
       setBusy(false)
     }
   }
+
+  if (shopName === undefined && loaded === null) {
+    return loadError !== null ? <RequestError error={loadError} onRetry={() => setAttempt((n) => n + 1)} retryLabel="다시 불러오기" /> : <p role="status">불러오는 중…</p>
+  }
+  const shown = loaded === null ? FIELDS.filter((field) => field.key === 'name') : FIELDS
+  const preview = loaded === null ? null : accountPreview(draft)
+  const fieldKeys: readonly string[] = FIELDS.map((field) => field.key)
+  // 칸 밖 문장: 칸 옆에 같은 문장이 이미 있으면 다시 보이지 않는다
+  const outside = error !== null && !fieldKeys.some((key) => error.problemFor(key)?.message === error.message)
   return (
     <form
-      className="stack-tight"
+      className="stack"
       onSubmit={(event) => {
         event.preventDefault()
         void save()
       }}
     >
-      <label className="field" htmlFor={id}>
-        <span>가게 이름</span>
-      </label>
-      <input
-        id={id}
-        className="input"
-        autoComplete="organization"
-        value={name}
-        aria-describedby={error?.problemFor('name') !== undefined ? `${id}-error` : undefined}
-        onChange={(event) => {
-          setName(event.target.value)
-          setDone(false)
-        }}
-      />
-      <FieldError error={error} field="name" id={`${id}-error`} />
+      {shown.map((field) => {
+        const problem = error?.problemFor(field.key)
+        return (
+          <div key={field.key} className="field">
+            <label htmlFor={`${id}-${field.key}`}>{field.label}</label>
+            <input
+              id={`${id}-${field.key}`}
+              className="input"
+              autoComplete={field.key === 'name' ? 'organization' : 'off'}
+              inputMode={field.key === 'accountNumber' ? 'numeric' : undefined}
+              placeholder={field.placeholder}
+              value={draft[field.key]}
+              aria-invalid={problem !== undefined}
+              aria-describedby={problem === undefined ? undefined : `${id}-${field.key}-error`}
+              onChange={(event) => change(field.key, event.target.value)}
+            />
+            {problem !== undefined ? (
+              <p className="field-error" role="alert" id={`${id}-${field.key}-error`}>
+                {problem.message}
+              </p>
+            ) : null}
+          </div>
+        )
+      })}
+      {loaded === null ? (
+        loadError !== null ? (
+          <RequestError error={loadError} onRetry={() => setAttempt((n) => n + 1)} retryLabel="다시 불러오기" />
+        ) : (
+          <p role="status">입금 계좌를 불러오는 중…</p>
+        )
+      ) : (
+        <section className="receipt-account stack-tight" aria-label="확인서에 나올 모양">
+          <h3 className="sub-title">확인서에 나올 모양</h3>
+          {preview === 'none' ? <p>{NO_ACCOUNT_ON_RECEIPT}</p> : null}
+          {preview === 'partial' ? (
+            <p className="warning" data-tone="warning">
+              {ACCOUNT_INCOMPLETE}
+            </p>
+          ) : null}
+          {preview !== null && typeof preview === 'object' ? (
+            <div className="quote">
+              <p>{preview.text}</p>
+              {preview.note !== null ? <p>{preview.note}</p> : null}
+            </div>
+          ) : null}
+        </section>
+      )}
       <div className="row">
-        <button type="submit" className="button button-primary" disabled={busy}>
+        <button type="submit" className="button" disabled={busy}>
           저장
         </button>
+        {busy ? <span role="status">저장하는 중…</span> : null}
       </div>
       {done ? (
-        <p className="notice" role="status">
+        <p className="notice" role="status" data-tone="success">
           {SHOP_SAVED}
         </p>
       ) : null}
-      {error !== null && error.problemFor('name') === undefined ? <ErrorNote error={error} /> : null}
+      {outside ? <RequestError error={error} omitFields={fieldKeys} /> : null}
     </form>
   )
 }
@@ -276,5 +412,81 @@ export function SpaLink({ navigate, to, children, className }: { readonly naviga
     >
       {children}
     </a>
+  )
+}
+
+/** 백업 (I2 AC-I2-65) */
+export function BackupSection() {
+  const id = useId()
+  const [status, setStatus] = useState<BackupStatus | null>(null)
+  const [error, setError] = useState<ApiError | null>(null)
+  const [attempt, setAttempt] = useState(0)
+
+  useEffect(() => {
+    let alive = true
+    setError(null)
+    get<BackupStatus>('/api/backups').then(
+      (result) => {
+        if (alive) setStatus(result)
+      },
+      (caught: unknown) => {
+        if (alive && isApiError(caught)) setError(caught)
+      },
+    )
+    return () => {
+      alive = false
+    }
+  }, [attempt])
+
+  return (
+    <section className="card stack-tight" aria-labelledby={`${id}-title`}>
+      <h2 id={`${id}-title`} className="section-title">
+        백업
+      </h2>
+      {error !== null ? <RequestError error={error} onRetry={() => setAttempt((n) => n + 1)} retryLabel="다시 불러오기" /> : null}
+      {status === null && error === null ? <p role="status">불러오는 중…</p> : null}
+      {status !== null ? (
+        <>
+          {backupStopped(status) ? (
+            <p className="notice" role="alert" data-tone="warning">
+              {BACKUP_STOPPED}
+            </p>
+          ) : null}
+          <p>마지막 자동 백업: {status.lastSuccessAt === null ? '없음' : kstDateTimeLong(status.lastSuccessAt)}</p>
+          <p>백업은 {String(status.retentionDays)}일 동안 보관해요.</p>
+          {status.backups.length > 0 ? (
+            <ul className="plain-list backup-list" aria-label="보관 중인 백업">
+              {status.backups.map((backup) => (
+                <li key={backup.createdAt}>
+                  {kstDateTimeLong(backup.createdAt)} · {sizeWords(backup.size)}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>보관 중인 백업이 없어요.</p>
+          )}
+          <p className="hint">{RESTORE_HINT}</p>
+        </>
+      ) : null}
+    </section>
+  )
+}
+
+/** 전체 기록 내려받기 (I2 AC-I2-66) */
+export function ExportSection() {
+  const id = useId()
+  return (
+    <section className="card stack-tight" aria-labelledby={`${id}-title`}>
+      <h2 id={`${id}-title`} className="section-title">
+        전체 기록 내려받기
+      </h2>
+      <p className="warning" data-tone="warning">
+        {EXPORT_WARNING}
+      </p>
+      <div className="stack-tight">
+        <DownloadButton label="전체 기록(JSON)" busyText="만드는 중이에요…" path="/api/export/records.json.gz" fallbackName="livejjim-records.json.gz" />
+        <DownloadButton label="전체 판매대장(엑셀)" busyText="만드는 중이에요…" path="/api/export/ledger.xlsx" fallbackName="livejjim-ledger.xlsx" />
+      </div>
+    </section>
   )
 }

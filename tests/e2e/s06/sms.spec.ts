@@ -3,6 +3,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import {
   history, login, openNewBroadcast, openSms, postJson, registerApi, scopeView, smsApi, smsField, smsUi, uniqueDate, viewerClaim, writeEvent,
+  kstTimeAgo,
 } from './support.ts'
 
 function uniq(prefix: string): string {
@@ -10,7 +11,8 @@ function uniq(prefix: string): string {
 }
 
 /** 입력 시각(지금)에 가장 가까운 날의 그 시각 (D-023) → "10/20" */
-function kstMonthDayNearest(hms: string, now = Date.now()): string {
+function kstMonthDayNearest(hms: string): string {
+  const now = Date.now()
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(now))
   const base = Date.parse(`${today}T${hms}+09:00`)
   const best = [-1, 0, 1].map((d) => base + d * 86_400_000).sort((a, b) => Math.abs(a - now) - Math.abs(b - now) || b - a)[0]!
@@ -188,10 +190,6 @@ test.describe('문자찜 입력', () => {
   })
 
   test('AC-S06-14·81: 바로 보내기 → 결과 카드 → 칸 비움 → 같은 사람 하나 더 (전화번호 다시 채우지 않음)', async ({ page }) => {
-    // 받은 시각 00:00:01이 "오늘"로 읽히게 브라우저 시계를 KST 06:00으로 (낮 12시가 넘으면 "내일"로 읽혀 확인 창이 뜬다 — 시각에 기대지 않게)
-    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-    const frozen = new Date(`${today}T06:00:00+09:00`)
-    await page.clock.install({ time: frozen })
     const logs: string[] = []
     page.on('console', (m) => logs.push(m.text()))
     await login(page)
@@ -200,8 +198,8 @@ test.describe('문자찜 입력', () => {
     await registerApi(page, b, 15, '핑크프릴', 10000)
     await registerApi(page, b, 16, '로즈', 5000)
     await openSms(page, title)
-    // 받은 시각: 브라우저 시계(KST 06:00)보다 1분 이른 한국 시각 — 실제 시각으로 계산하면 06:01 뒤에는 브라우저 '지금'보다 늦어 확인 창이 뜬다(D-023, SA-I4-009, TE-N2b-2-005)
-    const received = '05:59:00'
+    // 받은 시각: 지금보다 1분 이른 한국 시각 — 고정 시각은 정오 뒤 '내일'로 읽혀 확인 창이 뜬다(D-023, SA-I4-009)
+    const received = kstTimeAgo(60)
     await smsField(page, '번호').fill('15')
     await smsField(page, '받은 시각').fill(received)
     await smsField(page, '전화번호').fill('010-1234-5678')
@@ -209,7 +207,7 @@ test.describe('문자찜 입력', () => {
     await smsField(page, '번호').press('Enter')
     const result = page.getByRole('region', { name: '넣은 결과' })
     // 받은 시각의 날짜는 입력 시각에 가장 가까운 날 (D-023, AC-S06b-31 — 교체: 날짜가 붙었다)
-    await expect(result).toContainText(`15번 · 문자찜(김씨) · 1등 · 받은 시각 ${kstMonthDayNearest(received, frozen.getTime())} ${received}`)
+    await expect(result).toContainText(`15번 · 문자찜(김씨) · 1등 · 받은 시각 ${kstMonthDayNearest(received)} ${received}`)
     await expect(result).toContainText('뒤 4자리 5678')
     for (const name of ['번호', '받은 시각', '전화번호', '메모'] as const) await expect(smsField(page, name)).toHaveValue('')
     await expect(smsField(page, '번호')).toBeFocused()
