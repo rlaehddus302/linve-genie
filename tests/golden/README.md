@@ -8,13 +8,13 @@
 
 | 경로 | 내용 |
 |---|---|
-| `parser/chat.yaml` | 채팅 메시지 → 주문/취소/언급 (R-3). Y1 보강: 발송함이 게시하는 감사 문구(한 건·묶음)는 STRICT에서 주문이 아니다(D-Y04·D-Y07). N2 사례: 인스타그램 댓글 모양 — 다른 계정을 부른 `@이름`·해시태그 `#`가 섞인 댓글은 주문·취소가 아니다(언급), 줄을 바꾼 번호는 띄어 쓴 번호와 같다(D-N2-02, 새 규칙 없음) |
+| `parser/chat.yaml` | 채팅 메시지 → 주문/취소/언급 (R-3). Y1 보강: 발송함이 게시하는 감사 문구(한 건·묶음)는 STRICT에서 주문이 아니다(D-Y04·D-Y07). N2 사례: 인스타그램 댓글 모양 — 다른 계정을 부른 `@이름`·해시태그 `#`가 섞인 댓글은 주문·취소가 아니다(언급), 줄을 바꾼 번호는 띄어 쓴 번호와 같다(D-N2-02, 새 규칙 없음). O0 사례(마지막 문서 7개): 옵션 방송 모양 댓글(`초코 과자 3`·`반바지 M`·`아이폰 17 프로`·`11 2개`)은 STRICT에서 주문이 아니다(CMT-07, 새 규칙 없음) |
 | `parser/amount.yaml` | 한글·숫자 금액 → 원 (빠른 입력·음성 공용), 한글 수사 → 정수 |
 | `parser/quick-input.yaml` | 빠른 입력 한 줄 → 번호·품종·가격 |
-| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13). `08-time.yaml`은 시각 해석(D-022, D-023), `09-host-and-product.yaml`은 방송자 조치·상품 명령 세부(S02, D-039~D-043·D-049). S03 보강: `10-sms.yaml` 문자찜 구매자(D-051), `11-received-time.yaml` 실제 시각순·역전·충돌·메시지 변환(D-052~D-054), `12-product-edit.yaml` 상품 수정·번호 변경(D-055·D-056), `13-merge-settlement.yaml` 구매자 합치기·정산(D-057·D-058). S03b 보강: `14-core-cleanup.yaml` 전화번호 키·문자찜 재전송·메시지 변환·시청자 취소·충돌 중 배정·확정버전 순서·충돌이 풀릴 때 대기 넘침(D-061~D-068). S04 보강: `15-broadcast.yaml` 방송 시작·종료와 방송마다의 설정 스냅샷(D-069·D-070), `16-s04-rules.yaml` 취소 메시지 변환 금지·대기 한도 0의 승계 묻기(D-076·D-077), S04 마무리 G-ENG-166 전화번호가 아닌 숫자는 받는다(D-079·D-080). S05 보강: `17-s05-console.yaml` 라이브 콘솔이 기대는 동작 — 등록 되돌리기(판매 종료)·5초 뒤 보낸 방송자 조치(D-083, 새 규칙 없음). S06 보강: `18-s06-sms-buyers-settlement.yaml` 문자찜 입력·구매자·정산 화면이 기대는 동작 — 수신 시각 기본값(초까지)·지정 구매자·끝난 방송의 늦은 문자찜·합치기가 막히는 경우와 중복·입금 바로잡기·떼어 내기가 막히는 경우·배송비 예외와 조정(D-089~D-092, 새 규칙 없음). S06b 보강: `19-s06b-merge-preview.yaml` 합치기 미리 보기(코어 `previewMerge`, 새 검사 키 `mergePreviews`)가 R-11과 같은 답 — 막히는 다섯 경우·옮길 찜·합친 뒤 합계·중복 정리 순서(D-100), `20-s06b-sms-buyer-payment.yaml` 뒤 4자리만 같은 두 문자 구매자에서 문자찜이 정한 구매자(D-099)·입금이 아닌 기록이 바꾸는 입금 상태(D-101) (새 규칙 없음). I1 보강: `21-i1-labels.yaml` 라벨·출력 화면 통합이 기대는 동작 — 라벨 키 = (찜, 확정버전)·출력 보고 잠금·품종·가격 변경은 효과 없음·재고 2의 라벨 키·방송마다의 자동 출력·포장 라벨 효과 없음·합치기는 라벨을 폐기하지 않음(D-I1-02·D-I1-04, 새 규칙 없음). Y1 보강(병렬 트랙 — 번호는 G-ENG-401부터): `19-y1-youtube.yaml` 유튜브 서버가 기대는 동작 — 묶음 감사의 효과마다 게시 보고·영상 댓글 보고도 잠금·게시 직전 취소된 효과, 끊겼다 이어받은 채팅의 접수순 판정과 겹친 사본(D-Y04·D-Y06·D-Y07, 새 규칙 없음). I3 보강(번호는 G-ENG-701부터 — 러너 형식이 `G-ENG-` + 세 자리라 `G-ENG-I3-…`은 쓰지 않는다, D-I3-18): `22-i3-settings.yaml` 설정 화면·시작 마법사가 기대는 동작 — 감사 메시지(`thanks.liveChat`·`thanks.videoComment`)·대기·승계·자동 출력·배송비를 바꾸고 같은 날 2부를 시작해도 1부 상품은 1부 스냅샷으로 판정·효과, 그날 배송비는 첫 방송 것(D-070·D-I3-08, 새 규칙 없음). N2 보강: `22-n2-instagram.yaml` 인스타그램 라이브 댓글이 기대는 동작 — `ig:` 접두어 키·username·게시 시각 없는 `chat`이 유튜브 채팅과 같게 판정되고 재배달·판매자 댓글·부르기 댓글은 찜이 없음, 한 댓글 두 번호의 감사 효과·게시 보고 뒤 취소·승계·메시지 변환·문자찜·직접 배정의 감사 효과(서버 DM의 재료), 같은 날 유튜브(실제 시각순)·인스타(접수순) 회차와 플랫폼 사이 합치기(G-ENG-N2-01~03, D-N2-02~D-N2-05·D-N2-09, 새 규칙 없음) |
+| `engine/*.yaml` | 이벤트 순서 → 판정·합계·효과 (R-4~R-13). `08-time.yaml`은 시각 해석(D-022, D-023), `09-host-and-product.yaml`은 방송자 조치·상품 명령 세부(S02, D-039~D-043·D-049). S03 보강: `10-sms.yaml` 문자찜 구매자(D-051), `11-received-time.yaml` 실제 시각순·역전·충돌·메시지 변환(D-052~D-054), `12-product-edit.yaml` 상품 수정·번호 변경(D-055·D-056), `13-merge-settlement.yaml` 구매자 합치기·정산(D-057·D-058). S03b 보강: `14-core-cleanup.yaml` 전화번호 키·문자찜 재전송·메시지 변환·시청자 취소·충돌 중 배정·확정버전 순서·충돌이 풀릴 때 대기 넘침(D-061~D-068). S04 보강: `15-broadcast.yaml` 방송 시작·종료와 방송마다의 설정 스냅샷(D-069·D-070), `16-s04-rules.yaml` 취소 메시지 변환 금지·대기 한도 0의 승계 묻기(D-076·D-077), S04 마무리 G-ENG-166 전화번호가 아닌 숫자는 받는다(D-079·D-080). S05 보강: `17-s05-console.yaml` 라이브 콘솔이 기대는 동작 — 등록 되돌리기(판매 종료)·5초 뒤 보낸 방송자 조치(D-083, 새 규칙 없음). S06 보강: `18-s06-sms-buyers-settlement.yaml` 문자찜 입력·구매자·정산 화면이 기대는 동작 — 수신 시각 기본값(초까지)·지정 구매자·끝난 방송의 늦은 문자찜·합치기가 막히는 경우와 중복·입금 바로잡기·떼어 내기가 막히는 경우·배송비 예외와 조정(D-089~D-092, 새 규칙 없음). S06b 보강: `19-s06b-merge-preview.yaml` 합치기 미리 보기(코어 `previewMerge`, 새 검사 키 `mergePreviews`)가 R-11과 같은 답 — 막히는 다섯 경우·옮길 찜·합친 뒤 합계·중복 정리 순서(D-100), `20-s06b-sms-buyer-payment.yaml` 뒤 4자리만 같은 두 문자 구매자에서 문자찜이 정한 구매자(D-099)·입금이 아닌 기록이 바꾸는 입금 상태(D-101) (새 규칙 없음). I1 보강: `21-i1-labels.yaml` 라벨·출력 화면 통합이 기대는 동작 — 라벨 키 = (찜, 확정버전)·출력 보고 잠금·품종·가격 변경은 효과 없음·재고 2의 라벨 키·방송마다의 자동 출력·포장 라벨 효과 없음·합치기는 라벨을 폐기하지 않음(D-I1-02·D-I1-04, 새 규칙 없음). Y1 보강(병렬 트랙 — 번호는 G-ENG-401부터): `19-y1-youtube.yaml` 유튜브 서버가 기대는 동작 — 묶음 감사의 효과마다 게시 보고·영상 댓글 보고도 잠금·게시 직전 취소된 효과, 끊겼다 이어받은 채팅의 접수순 판정과 겹친 사본(D-Y04·D-Y06·D-Y07, 새 규칙 없음). I3 보강(번호는 G-ENG-701부터 — 러너 형식이 `G-ENG-` + 세 자리라 `G-ENG-I3-…`은 쓰지 않는다, D-I3-18): `22-i3-settings.yaml` 설정 화면·시작 마법사가 기대는 동작 — 감사 메시지(`thanks.liveChat`·`thanks.videoComment`)·대기·승계·자동 출력·배송비를 바꾸고 같은 날 2부를 시작해도 1부 상품은 1부 스냅샷으로 판정·효과, 그날 배송비는 첫 방송 것(D-070·D-I3-08, 새 규칙 없음). N2 보강: `22-n2-instagram.yaml` 인스타그램 라이브 댓글이 기대는 동작 — `ig:` 접두어 키·username·게시 시각 없는 `chat`이 유튜브 채팅과 같게 판정되고 재배달·판매자 댓글·부르기 댓글은 찜이 없음, 한 댓글 두 번호의 감사 효과·게시 보고 뒤 취소·승계·메시지 변환·문자찜·직접 배정의 감사 효과(서버 DM의 재료), 같은 날 유튜브(실제 시각순)·인스타(접수순) 회차와 플랫폼 사이 합치기(G-ENG-N2-01~03, D-N2-02~D-N2-05·D-N2-09, 새 규칙 없음). O1 보강(옵션 방송 — 번호는 `G-ENG-O1-<두 자리>`): `23-o1-options.yaml` 변형마다 재고·1등·대기·승계, 수량·`STOCK_SHORT`·수량 2 이상은 대기 없음, 옵션 가격 차이·찜 금액 = 단가 × 수량, 공개 때 `OPTION_MISSING`, 확인 필요 바로잡기(원래 순위, 1등을 밀어내지 않음)·지우기, 지금 상품(`product.focus`, 15초 유예), 시청자 취소 요청, 메시지 변환은 충돌 없음, 문자찜·직접 배정의 옵션·수량, 옵션 바꾸기(G-ENG-O1-01~10, R-19·R-20, D-O-02~D-O-14·D-O1-01~D-O1-10). O0 다육 회귀: `23-o0-strict-regression.yaml` 번호로만 받기 방송의 상품명·옵션·수량 모양 댓글은 찜이 아니다(G-ENG-O0-01, CMT-07, 새 규칙 없음) |
 | `parser/voice-extract.yaml` | 음성 문장 하나 → 번호·품종·가격·신뢰도 (R-17, P2 — D-202·D-203·D-209, I4 보강 — 끊어 말한 번호 D-I4-01). 추출기는 `packages/voice`에 있고 이 러너가 부른다 |
 | `parser/product-import.yaml` | 상품 목록 글(엑셀 복사·CSV) → 머리글 줄·줄마다 등록할 번호·품종·가격 또는 문제 (R-18, I2 — D-I2-09). 해석 함수는 서버(`apps/server`)의 순수 함수이고 이 러너가 부른다. I2 마지막 감사 보강: 칸이 모두 빈 줄(`,,`)은 건너뜀(D-I2-21), 품종의 제어 글자는 `NAME_CONTROL`(D-I2-17) |
-| `drafts/o1/*.draft` | **초안 — 러너가 읽지 않는다**(이름이 `.yaml`·`.yml`로 끝나지 않는다, D-O-01). O0(업종 확장 설계)이 쓴 옵션 방송 골든(R-19·R-20): `comment-options.yaml.draft`(새 suite `comment-options` — 파일 머리말에 형식 계약 초안), `engine-23-o1-options.yaml.draft`(G-ENG-O1-01~07 — 머리말에 새 이벤트 필드·`expect` 키 초안), 그리고 지금 코어로 통과하는 다육 방식 회귀 `chat-strict-regression.yaml.draft`·`engine-23-o0-strict-regression.yaml.draft`(G-ENG-O0-01). 새 어휘는 러너가 알기 전까지 읽기 오류라 허용 목록으로 가릴 수 없고, 회귀 골든은 코어 단위 시험이 골든 합계를 고정해 두어 개발자 없이 늘릴 수 없어 O1 시작 때 spec-keeper가 `parser/`·`engine/`으로 옮기고 이 README 계약에 어휘를 넣는다 |
+| `parser/comment-options.yaml` | 옵션 방송의 채팅 한 줄 → 주문(번호·옵션·수량)/취소/확인 필요/언급 (R-20, O1 — D-O-07~D-O-10·D-O1-09). 인식 함수는 코어 `parseOptionComment`이고 이 러너가 부른다. O0 초안(`drafts/o1/`, D-O-01)을 O1 시작 때 옮겼다 |
 | `known-unimplemented.yaml` | **예약 파일.** 알려진 미구현 허용 목록 (D-020). 골든 시나리오가 아니다 |
 | `label/*.json` | 라벨 글·쪽 나누기·크기 (LABEL_RULES L-1~L-5, P1, D-P1-01). **JSON이라 코어 골든 러너는 읽지 않는다**(`*.yaml`만 읽는다). `packages/label` 단위 테스트가 읽는다 — 아래 "라벨 골든" |
 | `printer/*.json` | 프린터 작업 바이트·기기 이름으로 고르기·프로필 표·바로 연결할 수 없는 브라우저의 까닭 (LABEL_RULES L-7·L-12, N1 — D-N1-01·09). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/printer` 단위 테스트가 읽는다 — 아래 "프린터 골든" |
@@ -64,6 +64,7 @@ cases:
 | `quick-input` | `unit`(`price.unit`) | 성공 `{ no, name, price }` 정확히 세 키. 실패 `{ error, no?, name? }`, `error` ∈ `PRICE_MISSING`·`NUMBER_MISSING`·`EMPTY`·`NUMBER_INVALID`·`PRICE_TOO_LOW`. **`out`에 없는 키는 실제 결과에도 없어야 한다**(`undefined`는 없음으로 본다) |
 | `voice-extract` (P2, D-209) | `maxNumber`(`claim.maxNumber`, 1~9999), `dictionary`(품종 사전 — 문자열 목록, 0개 이상, 생략하면 빈 목록. DOMAIN_RULES 설정표 키가 아니라 이 suite의 입력이다. 기본 사전은 쓰지 않는다) | `out` 키는 `no`(1 이상 정수)·`name`(빈 문자열이 아닌 문자열)·`price`(100 이상 정수)·`confidence`(`HIGH`/`LOW`, **필수**)만. `no`·`name`·`price`는 적지 않거나 `null`이면 `null`. 실제 결과는 정확히 네 키 `{ no, name, price, confidence }`(값이 없으면 `null`)이고 네 값이 모두 같아야 한다. 규칙은 DOMAIN_RULES R-17 |
 | `product-import` (I2, D-I2-09) | `unit`(`price.unit`), `maxNumber`(`claim.maxNumber`, 1~9999), `existing`(그 방송에 이미 있는 상품 번호 — 1 이상 정수 목록, 0개 이상, 생략하면 빈 목록. DOMAIN_RULES 설정표 키가 아니라 이 suite의 입력이다) | `out`은 둘 중 하나다. ① `{ error }` 하나만 — `error` ∈ `EMPTY`·`TOO_MANY`. ② `{ header?, rows }` — `header` = 머리글로 본 줄 번호(1 이상 정수) 또는 `null`(적지 않으면 `null`), `rows`(필수, 목록) = 상품 줄마다 `{ line, no, name, price }`(정확히 네 키 — `line`·`no` 1 이상 정수, `name` 문자열(빈 문자열 가능), `price` 100 이상 정수) 또는 `{ line, error }`(정확히 두 키 — `error` ∈ `CELLS`·`NUMBER_INVALID`·`DUPLICATE`·`EXISTS`·`NAME_CONTROL`·`NAME_PHONE`·`PRICE_MISSING`·`PRICE_INVALID`·`PRICE_TOO_LOW` — `NAME_CONTROL`은 I2 마지막 감사 D-I2-17). 실제 결과와 `header`·줄 순서·줄마다의 키와 값이 모두 같아야 한다(실제 결과에 다른 키가 있거나 키가 빠지면 불일치). 규칙은 DOMAIN_RULES R-18 |
+| `comment-options` (O1, D-O1-09) | `maxNumber`(`claim.maxNumber`, 1~9999), `maxQuantity`(`claim.maxQuantity`, 1~99), 선택 `multiNumber`(`claim.multiNumber`, 기본 `ALL`) — 판매 방식은 늘 `OPTIONS`(이 suite에 `parseMode`는 없다). 문서에 이 suite의 입력 두 개가 더 있다(DOMAIN_RULES 설정표 키가 아니다): `catalog`(필수, 목록 — 그 방송의 판매 종료가 아닌 상품. 항목 `{ no, name, aliases?, options? }`, `no` 1 이상 정수(서로 다름), `name` 문자열, `aliases` 문자열 목록, `options` = `[{ name, choices: [{ label, aliases?, price? }] }]` — 모양·개수·글자 제한·비교 글자 겹침 금지는 R-19 "옵션 모델"과 같고 어기면 읽기 오류. `price`는 결과에 영향이 없다), `focus`(필수 — `null` 또는 `{ no, ageSec }`: 지금 상품의 번호(`catalog`에 있어야 한다)와 정해진 뒤 지난 초(0 이상 정수 = 채팅 `at` − 지금 상품을 정한 이벤트 `at`)) | `out` 키는 `orders`·`cancels`·`mentions`·`review`만, 많아야 하나만 비어 있지 않다. 없는 키 = 빈 값. `orders` = `[{ no, options?, qty }]` 메시지 순서 — `qty`(1 이상 정수)는 늘 적고, `options`(항목 이름 → 선택지 `label`)는 옵션 상품이면 모든 항목(선택지 하나뿐인 항목 포함), 옵션 없는 상품이면 적지 않는다. `cancels`·`mentions` = 1 이상 정수 배열, 메시지 순서. `review` = `{ reason, no?, options?, qty? }` — `reason` ∈ `OPTION_MISSING`·`OPTION_CONFLICT`·`UNKNOWN_WORD`·`QTY_INVALID`·`NUMBER_AMBIGUOUS`·`PRODUCT_AMBIGUOUS`·`MULTI_PRODUCT`·`FOCUS_CHANGED`, `no`·`options`·`qty`는 **읽은 것만**(못 읽었으면 적지 않는다 — 실제 결과에도 없어야 한다), `options`는 읽은 항목만. 비교는 정확히 같음(키·값·순서). 규칙은 DOMAIN_RULES R-20 |
 
 사례의 키는 `in`(문자열)과 `out`뿐이다.
 
@@ -103,6 +104,9 @@ expect:
 | 키 | 뜻 |
 |---|---|
 | `products.<p>.winners` | 재고 2 이상일 때 확정 구매자 목록(순서 무관) |
+| `products.<p>.confirmedUnits` | (O1, R-19) 그 상품 모든 변형의 확정 수량(확정 찜 수량의 합) |
+| `variants` | (O1, R-19) 변형 키 `"<방송>/<번호>#<옵션 글>"`(따옴표로)마다 `status`·`winner`·`winners`·`waitlist`·`stock`·`confirmedUnits` |
+| `reviews` | (O1, R-20 7) 확인 필요 항목 **전체** `[{ item, reason, buyer, product?, options?, qty? }]` |
 | `products.<p>.exists: false` | 그 번호의 상품이 없어야 함 |
 | `products.<p>.price` / `priceHistory` | 현재 가격 / `[{from, to}]` 이력 |
 | `buyers.<b>.byBroadcast` | 방송별 상품 합계 `{ b1: 20000, ... }` |
@@ -154,23 +158,26 @@ expect:
 |---|---|---|
 | `broadcast.start` | `b`(빈 문자열이 아닌 방송 ID), `date`(`YYYY-MM-DD`), `title`(문자열 — 글 칸: 휴대폰 번호가 있으면 읽기 오류, 아래 "판매자가 적는 칸의 휴대폰 번호") | `settings`(설정 키 → 값. 아래 "설정 키"의 키·값·범위만, DOMAIN_RULES 기본값 위에 덮어쓴다. 없으면 기본값. `settlement.groupBy: MANUAL`은 엔진 미구현이라 쓰지 않는다) (S04, D-070) |
 | `broadcast.end` | `b` | (S04, D-070) |
-| `product.register` | `b`, `no`(1 이상), `name`(빈 문자열 가능 — 글 칸), `price`(0 이상 정수) | `stock`(1 이상, 기본 1), `status`(`OPEN` 기본 / `READY`) |
+| `product.register` | `b`, `no`(1 이상), `name`(빈 문자열 가능 — 글 칸), `price`(0 이상 정수) | `stock`(1 이상, 기본 1 — 옵션 상품이면 `stocks`에 적지 않은 변형마다의 재고), `status`(`OPEN` 기본 / `READY`). 옵션 방송만(O1, R-19, D-O1-03): `aliases`(상품 별칭 — 문자열 목록 0~10개, 글 칸), `options`(`[{ name, choices: [{ label, aliases?, price? }] }]` — 항목 0~3개·선택지 1~20개·별칭 0~10개·글자 1~10/1~20자·`/`·`#`·제어 글자 없음·`price` 정수 −1,000,000~1,000,000·변형 100개까지·한 상품 안 비교 글자 겹침 없음·변형 단가 0 이상. 이름·별칭은 모두 글 칸), `stocks`(옵션 글 → 0 이상 정수. 키는 그 상품의 변형 옵션 글이어야 하고 `options` 없이 쓰지 않는다). 어기거나 옵션 방송이 아닌 방송에 쓰면 읽기 오류 |
 | `product.open` / `product.hold` / `product.close` | `b`, `no` | |
-| `product.update` | `b`, `no` | `name`(글 칸), `price`, `stock`, `applyTo`(`NEW_ONLY` 기본 / `UNPAID_CLAIMS`) |
+| `product.update` | `b`, `no` | `name`(글 칸), `price`, `stock`, `applyTo`(`NEW_ONLY` 기본 / `UNPAID_CLAIMS`). 옵션 방송만(O1, R-19 "옵션 바꾸기"): `aliases`, `options`(바꾼 뒤의 전체 목록 — 모양은 `product.register`와 같다), `stocks`(옵션 글 → 0 이상 정수, 키는 바꾼 뒤의 변형). 찜이 있을 때 막히는 바꾸기는 읽기 오류가 아니라 엔진에서 아무 일도 없다 |
 | `product.renumber` | `b`, `from`, `to` | |
+| `product.focus` | `b`, `no` | (O1, R-20 6 — 옵션 방송만) |
 | `chat` | `b`, `id`(메시지 ID), `ch`(채널 ID), `nick`, `text` | `owner`(불리언, 기본 false), `publishedAt` |
-| `sms` | `b`, `ref`(영문·숫자·`_`·`-` 1~64자. 다시 적으면 재전송 사본, S03b. 글 칸), `no`, `received` | `memo`(글 칸), `phone`(판매자가 적은 글자 그대로 — 러너가 `phoneKey`·`phoneLast4`로 바꿔 넘긴다, S03b. 번호는 이 칸에만 적는다), `buyer`(지정 구매자 키 — ID 칸). `ref`·`memo`에 휴대폰 번호가 있거나 `buyer`가 휴대폰 번호면 읽기 오류다(아래 "판매자가 적는 칸의 휴대폰 번호", S04 마무리 D-079·D-080 — D-073의 "숫자만 모은 것이 번호 모양" 판단은 쓰지 않는다) |
-| `host.cancel` / `host.reject` / `host.promote` | `b`, `no`, `buyer`, `reason` | |
-| `host.confirm` / `host.approveCancel` / `host.dismissCancel` | `b`, `no`, `buyer` | `reason` |
-| `host.assign` | `b`, `no`, `buyer`, `reason` | `replace`(구매자 키 — 교체할 지금 1등), `replaceTo`(`WAITLIST`/`CANCEL`). 둘은 함께 쓴다(하나만 있으면 읽기 오류. 엔진에서도 입력 오류, D-065) |
-| `host.reopen` | `b`, `no`, `reason` | |
+| `sms` | `b`, `ref`(영문·숫자·`_`·`-` 1~64자. 다시 적으면 재전송 사본, S03b. 글 칸), `no`, `received` | `memo`(글 칸), `phone`(판매자가 적은 글자 그대로 — 러너가 `phoneKey`·`phoneLast4`로 바꿔 넘긴다, S03b. 번호는 이 칸에만 적는다), `buyer`(지정 구매자 키 — ID 칸). `ref`·`memo`에 휴대폰 번호가 있거나 `buyer`가 휴대폰 번호면 읽기 오류다(아래 "판매자가 적는 칸의 휴대폰 번호", S04 마무리 D-079·D-080 — D-073의 "숫자만 모은 것이 번호 모양" 판단은 쓰지 않는다). 옵션 방송만(O1, R-19): `qty`(1 이상 `claim.maxQuantity` 이하 정수, 기본 1), `options`(항목 이름 → 선택지 `label` — 그 상품이 있으면 모든 항목, 없으면 쓰지 않는다) |
+| `host.cancel` / `host.reject` / `host.promote` | `b`, `no`, `buyer`, `reason` | `options`(O1 — 옵션 상품의 변형 고르기, R-19) |
+| `host.confirm` / `host.approveCancel` / `host.dismissCancel` | `b`, `no`, `buyer` | `reason`, `options`(O1 — 변형 고르기) |
+| `host.assign` | `b`, `no`, `buyer`, `reason` | `replace`(구매자 키 — 교체할 지금 1등), `replaceTo`(`WAITLIST`/`CANCEL`). 둘은 함께 쓴다(하나만 있으면 읽기 오류. 엔진에서도 입력 오류, D-065). 옵션 방송만(O1, R-19): `qty`(1 이상 `claim.maxQuantity` 이하, 기본 1), `options`(옵션 상품이면 모든 항목) |
+| `host.reopen` | `b`, `no`, `reason` | `options`(O1 — 옵션 상품이면 다시 열 변형, R-19) |
 | `host.resolveConflict` | `b`, `no`, `decision`(`KEEP`/`SWITCH`) | `reason` |
 | `host.convertMessage` | `b`, `msg`(메시지 ID), `no` | `reason` |
+| `host.resolveReview` | `b`, `item`(확인 필요 항목의 출처 — 메시지 ID 또는 `sms:<ref>`), `no`, `qty`(1 이상 `claim.maxQuantity` 이하) | `options`(옵션 상품이면 모든 항목, 아니면 쓰지 않는다), `reason` (O1, R-20 7 — 옵션 방송만) |
+| `host.dismissReview` | `b`, `item` | `reason` (O1, R-20 7 — 옵션 방송만) |
 | `host.blockBuyer` / `host.unblockBuyer` | `buyer`, `reason` | |
 | `buyer.merge` | `from`, `into`, `reason` | |
 | `buyer.unmerge` | `from`, `reason` | |
-| `effect.labelPrinted` | `b`, `no`, `buyer` | |
-| `effect.thanksSent` | `b`, `no`, `buyer` | `target`(`LIVE_CHAT` 기본 / `VIDEO_COMMENT`) |
+| `effect.labelPrinted` | `b`, `no`, `buyer` | `options`(O1 — 옵션 상품이면 그 변형 찜의 효과) |
+| `effect.thanksSent` | `b`, `no`, `buyer` | `target`(`LIVE_CHAT` 기본 / `VIDEO_COMMENT`), `options`(O1 — 변형) |
 | `settlement.shippingOverride` | `buyer`, `date`, `mode`(`PICKUP`/`COMBINED`/`FIXED`/`DEFAULT`) | `amount`(0 이상. `FIXED`일 때 필수, 그 밖에는 쓰지 않는다). `DEFAULT` = 예외 지우기 (S03, D-058) |
 | `settlement.adjust` | `buyer`, `date`, `amount`(정수, 음수 가능), `reason` | |
 | `settlement.payment` | `buyer`, `date`, `amount`(1 이상) | `memo`(글 칸 — 휴대폰 번호가 있으면 읽기 오류) |
@@ -184,11 +191,12 @@ expect:
 - 포장·배송 상태는 엔진 이벤트가 아니다(서버 기록 — R-1, D-I2-05) — 이 표에 없고 쓰면 읽기 오류다. `effect.failed`는 쓰지 않는다(게시 실패는 발송함 상태로만, D-Y01) — 골든에 적으면 읽기 오류다. (`host.assign`·`host.reopen`·`host.dismissCancel`은 S02에서, `broadcast.start`·`broadcast.end`는 S04에서 추가 — D-041~D-043, D-070)
 - **이벤트 안의 구매자 키** (S03, D-057): `buyer.merge`의 `from`·`into`, `buyer.unmerge`의 `from`은 그 키의 구매자 자신(합치기 전)을 가리킨다. 그 밖의 이벤트(`host.*`의 `buyer`·`replace`, `sms`의 `buyer`, `settlement.*`의 `buyer`)도 그 키의 구매자 자신으로 엔진에 넘기고, 엔진이 지금의 구매자(합친 결과)로 풀어 판정·대상 찾기를 한다. `sms:<ref>`는 그 `ref`의 문자찜이 정한 구매자다(지정 구매자, 같은 전화번호로 이어진 구매자, 새 문자 구매자 — DOMAIN_RULES R-11). 키를 구매자 ID로 바꾸는 일은 코어 어댑터가 한다. 이벤트 전체가 아무 일도 없었던 문자찜(모르는 지정 구매자)의 `sms:<ref>`는 풀리지 않는다. 같은 `ref`의 재전송 사본이 있으면 `sms:<ref>`는 그 `ref`의 처음 문자찜으로 정한다(사본은 아무것도 바꾸지 않는다, D-067).
 - 효과 보고(`effect.labelPrinted` / `effect.thanksSent`)는 그 (상품, 구매자[, 대상])의 가장 최근에 나온, 취소되지 않은 해당 효과의 실행 완료로 본다. 상품 키는 효과가 나온 때의 키, 구매자는 지금의 구매자로 풀어 비교한다(S03). 그런 효과가 없으면 러너 오류. 엔진에는 그 효과의 ID로 넘긴다(R-13 "효과 보고" — 바꾸는 일은 코어 어댑터가 한다). 이미 실행 완료된 효과도 "취소되지 않은" 효과이므로 같은 보고를 두 번 적을 수 있다(두 번째는 아무 일도 없어야 한다, INV-11).
+- **옵션 방송** (O1, R-19·R-20, D-O1-01~D-O1-10): `options`는 항목 이름 → 선택지 `label`의 맵이다(같은 상품의 항목·선택지여야 한다 — 아니면 읽기 오류). 옵션 방송(`claim.parseMode: OPTIONS`)이 아닌 방송에 옵션 방송만의 필드·이벤트를 쓰면 읽기 오류다(엔진에서는 입력 오류 — 골든은 `checkEvent`를 통과한 로그만 적는다). 효과 보고에 `options`를 적으면 그 (상품, 구매자, 변형) 찜의 효과에서 위 규칙대로 고르고, 적지 않으면 지금처럼 (상품, 구매자)에서 고른다 — 한 구매자가 한 상품에 변형 찜을 둘 이상 가지면 골든은 `options`를 적는다.
 
 ## 설정 키 (형식 계약)
 
 `settings`(시나리오의 `settings`와 `broadcast.start`의 `settings`)의 키는 DOMAIN_RULES 설정표의 키만 쓴다. 값도 표의 선택지와 "설정값 범위"(DOMAIN_RULES 설정표 아래, S04, D-071) 안의 값만 쓴다. 밖이면 읽기 오류다.
-`claim.parseMode`, `claim.multiNumber`, `claim.maxNumber`, `claim.ignoreOwner`, `claim.preOpenWindowSec`, `waitlist.max`, `cancel.buyerChat`, `cancel.succession`, `contention.policy`, `contention.sameMinuteTieBreaker`, `price.unit`, `shipping.baseFee`, `shipping.freeThreshold`(정수 또는 `null`), `settlement.groupBy`, `print.autoOnConfirm`, `thanks.liveChat`, `thanks.videoComment`, `thanks.batchWindowSec`.
+`claim.parseMode`(`STRICT`·`LOOSE`·`OPTIONS` — `OPTIONS`와 `contention.policy: RECEIVED_TIME`을 함께 쓰면 읽기 오류, O1), `claim.maxQuantity`(정수 1~99, O1), `claim.multiNumber`, `claim.maxNumber`, `claim.ignoreOwner`, `claim.preOpenWindowSec`, `waitlist.max`, `cancel.buyerChat`, `cancel.succession`, `contention.policy`, `contention.sameMinuteTieBreaker`, `price.unit`, `shipping.baseFee`, `shipping.freeThreshold`(정수 또는 `null`), `settlement.groupBy`, `print.autoOnConfirm`, `thanks.liveChat`, `thanks.videoComment`, `thanks.batchWindowSec`.
 
 ## `expect` 비교 규칙 (형식 계약)
 
@@ -202,9 +210,12 @@ expect:
 | └ `conflict` | 충돌 표시 여부 |
 | └ `exists` | 그 번호의 상품 기록이 있는지(`CLOSED`도 있는 것으로 본다) |
 | └ `price` / `priceHistory` | 현재 가격 / 가격 변경 이력 `[{ from, to }]` 시간순, 정확히 같음 |
+| └ `confirmedUnits` | (O1) 그 상품 모든 변형의 확정 수량 합(옵션 없는 상품은 확정 찜 수량의 합) |
+| (옵션 상품) | (O1, D-O1-01) 옵션 항목이 있는 상품에는 `status`·`exists`·`price`·`priceHistory`·`confirmedUnits`만 적는다. `winner`·`winners`·`waitlist`·`conflict`를 적으면 러너 오류다(늘 실패 — 변형마다 `variants`로 적는다). `status`는 판매 중이면 모든 변형이 `SOLD`일 때 `SOLD`, 아니면 `OPEN` |
+| `variants."<방송>/<번호>#<옵션 글>"` | (O1, R-19 "변형과 재고 단위") 지금 그 번호를 가진 상품의 그 변형(옵션 글 = 선택지 `label`을 항목 순서대로 `/`로 이은 글). 키는 따옴표로 적는다. 그런 변형이 없으면 불일치. 적은 필드만 비교: `status`(상품이 판매 중(`OPEN`·`SOLD`)이면 그 변형의 확정 수량 = 재고일 때 `SOLD`, 아니면 `OPEN`. 판매 중이 아니면 상품 상태 `READY`·`HOLD`·`CLOSED` — D-O1-01), `winner`·`winners`·`waitlist`(상품과 같은 뜻, 그 변형의 찜만), `stock`(그 변형 재고, 0 이상), `confirmedUnits`(그 변형 확정 찜 수량의 합) |
 | `buyers.<키>` | 키를 지금의 구매자로 풀어서(합치기·전화번호 연결 반영) 비교 |
-| └ `items` | 확정 찜의 상품 키 집합. 순서 무관, 정확히 같음 |
-| └ `subtotal` | 확정 찜 가격 스냅샷의 합 |
+| └ `items` | 확정 찜의 상품 키 집합. 순서 무관, 정확히 같음. 옵션 상품의 찜은 변형 키(`b1/21#M` — D-O1-02), 옵션 없는 상품은 상품 키 |
+| └ `subtotal` | 확정 찜 가격 스냅샷의 합. O1부터 찜 금액(단가 스냅샷 × 수량)의 합 — 수량 1이면 같다 |
 | └ `byBroadcast` | 방송별 합계. 확정 찜이 있는 방송 전부와 정확히 같음 |
 | └ `display` / `nameHistory` | 표시 이름 / 닉네임이 바뀔 때마다 쌓인 목록(처음 것 포함, 시간순, 연속 중복 없음) |
 | └ `phoneLast4` | 지금의 구매자 자신의 전화번호 뒤 4자리(숫자 4자리 문자열). 그 구매자를 만든 문자찜의 `phoneLast4`이고, 유튜브 구매자와 전화번호 없이 만든 문자 구매자는 `null` (S03b, D-061) |
@@ -214,12 +225,13 @@ expect:
 | `effects` | 적은 항목마다, 지금까지 나온 효과(실행·취소 여부 무관) 중 적은 필드가 모두 같은 것이 **서로 다른 효과로 하나씩** 있어야 함. 순서 무관. 효과의 상품 키·문구는 효과가 나온 때의 것이다(번호를 바꿔도 그대로, `VOID_LABEL`은 폐기할 라벨과 같은 상품 키). 효과의 구매자는 지금의 구매자로 푼다 |
 | `effectCounts` | 종류별로 지금까지 나온 효과 수가 정확히 같음(0이면 하나도 없어야 함) |
 | `pendingEffects` | 아직 실행 대상인 효과(나왔고, 취소·SKIPPED가 아니고, 실행 완료 보고가 없는 것) **전체**와 적은 필드 기준으로 정확히 같은 목록. 순서 무관. `VOID_LABEL`은 엔진에 완료 보고 이벤트가 없어 나온 뒤 계속 실행 대상이다 — 폐기 표시의 실행 기록은 서버 출력 대기열이 가진다(I1, D-I1-02). 엔진은 `NOTIFY`·`PRINT_PACKING_LABEL`을 내지 않는다(D-044, D-I1-02) |
-| `claims` | 적은 항목마다 (상품 키, 구매자)의 **가장 최근** 찜의 `status`와 (적었으면) `reason`. 상품 키는 상품이 아직 없어도 된다(보류 찜). 찜의 상품 키는 지금의 상품 키다(번호를 바꾸면 그 상품의 찜은 새 번호로, 원래 번호에 남은 보류 찜은 원래 번호로 — D-056). 구매자는 지금의 구매자로 풀어 비교하므로, 합친 구매자의 찜은 합친 쪽의 키로도 찾힌다(가장 최근 = 가장 나중에 생긴 찜) |
+| `claims` | 적은 항목마다 (상품 키, 구매자)의 **가장 최근** 찜의 `status`와 (적었으면) `reason`. 상품 키는 상품이 아직 없어도 된다(보류 찜). 찜의 상품 키는 지금의 상품 키다(번호를 바꾸면 그 상품의 찜은 새 번호로, 원래 번호에 남은 보류 찜은 원래 번호로 — D-056). 구매자는 지금의 구매자로 풀어 비교하므로, 합친 구매자의 찜은 합친 쪽의 키로도 찾힌다(가장 최근 = 가장 나중에 생긴 찜). O1: 찜의 상품 키는 옵션을 가진 찜이면 변형 키, 옵션이 없는 찜(옵션 상품을 가리킨 번호만의 보류 찜 포함)이면 상품 키다(D-O1-02). 선택 `qty`(1 이상 정수)를 적으면 그 찜의 수량도 비교한다 |
 | `pending` | 번호별 보류 찜의 구매자, 판정 순위(R-6) 순서대로 정확히 같음. `[]` = 없음 |
 | `sameBuyer` | 묶음마다 모든 키가 같은 구매자로 풀림 |
 | `claimCount` | 생성된 찜 수(상태 무관). 재수신 메시지와 R-4 4번 줄(같은 사람 반복)은 찜을 만들지 않는다 |
-| `cancelRequests` | 처리 대기 중인 시청자 취소 요청 전체와 정확히 같음. 순서 무관 |
+| `cancelRequests` | 처리 대기 중인 시청자 취소 요청 전체와 정확히 같음. 순서 무관. `product`는 상품 키다(옵션 방송에서 변형을 정하지 않은 요청 — R-20 8, D-O1-02) |
 | `broadcasts.<b>` | 선언된 방송(`broadcasts` 목록 또는 `broadcast.start`)만 적을 수 있다. 적은 필드만 비교: `date`(`YYYY-MM-DD`)·`title`(문자열) = 처음 선언한 값(사본은 바꾸지 않는다), `ended`(불리언) = `broadcast.end`를 받았는지 |
+| `reviews` | (O1, R-20 7, D-O1-08·D-O1-10) 확인 필요 항목 **전체**와 정확히 같은 목록, **순서도 같다**(원래 순위 = 출처 입력(원래 메시지·문자찜)의 도착 순서 `seq`). 항목마다 `item`(출처 — 메시지 ID 또는 `sms:<ref>`)·`reason`·`buyer`(지금의 구매자로 풀어 비교)는 필수, `product`(상품 키 — 그 항목이 가리킨 지금의 상품)·`options`(읽은 항목만, 항목 이름 → `label`)·`qty`는 **읽은 것만** 적고 적지 않은 것은 실제 항목에도 없어야 한다. 문자찜에 적은 `qty`·`options`는 읽은 것이다. `reason` ∈ `OPTION_MISSING`·`OPTION_CONFLICT`·`UNKNOWN_WORD`·`QTY_INVALID`·`NUMBER_AMBIGUOUS`·`PRODUCT_AMBIGUOUS`·`MULTI_PRODUCT`·`FOCUS_CHANGED`·`STOCK_SHORT`. `[]` = 없음 |
 | `mergePreviews` | (S06b, D-100) 항목마다 코어 `previewMerge`를 그 시점 상태(중간 검사면 그 자리, 마지막 `expect`면 모든 이벤트 뒤)로 부르고 적은 필드만 비교한다. 미리 보기는 상태를 바꾸지 않는다(부른 뒤에도 같은 상태 — 러너가 확인한다). 항목에 이 표에 없는 키가 있으면 읽기 오류 |
 | └ `from` / `into` | 필수. 구매자 키 — `buyer.merge`의 `from`·`into`처럼 **그 키의 구매자 자신**으로 풀어 넘긴다(ID 칸 — 휴대폰 번호면 읽기 오류). 유튜브 채널 ID는 그대로 넘기므로 이벤트에 나온 적 없는 채널(`UC_Z`)은 엔진이 모르는 구매자다. 구매자를 정하지 않은 `sms:<ref>`(모르는 지정 구매자·없는 ref)는 키 그대로 넘긴다(엔진이 모르는 구매자) |
 | └ `blocked` | `null`(합칠 수 있음) 또는 막힘 이유 하나: `UNKNOWN_BUYER`(둘 중 하나를 엔진이 모름) → `SAME_BUYER`(같은 구매자) → `FROM_MERGED`(옮길 구매자가 이미 다른 구매자에 합쳐져 있음) → `CYCLE`(남는 쪽의 지금의 구매자가 옮길 구매자) → `BOTH_CONFIRMED`(확정 찜이 둘이 되는 상품이 있음). 위에서부터 처음 맞는 것 |
@@ -228,7 +240,7 @@ expect:
 | └ `after` | 막히면 `null`. 아니면 `{ items, subtotal }` — 합친 뒤의 지금의 구매자(남는 쪽의 지금의 구매자)의 확정 찜 상품 키 집합과 합. `buyer.merge`를 실제로 적용한 뒤의 그 구매자 조회와 같아야 한다 |
 | └ `duplicates` | 막히면 `[]`. 아니면 합치면 `DUPLICATE`가 될 찜 **전체** `[{ product, buyer, status }]`, 순서 무관, 정확히 같음. `product` = 지금의 상품 키, `buyer` = 그 찜의 **구매자 자신**(키를 구매자 자신으로 풀어 비교 — 지금의 구매자로 풀지 않는다), `status` = 지금 상태(`CONFLICT`·`WAITLISTED`·`PENDING` — 남는 찜은 R-11 "앞선 쪽": 확정 > 충돌 > 대기 앞 순번 > 보류 판정 순위). `buyer.merge`를 실제로 적용하면 바로 이 찜들이 `DUPLICATE`가 된다 |
 
-**열거값**: 찜 상태 `PENDING`·`CONFIRMED`·`WAITLISTED`·`REJECTED`·`CANCELLED`·`CONFLICT`·`DUPLICATE` / 거절 사유 `BLOCKED`·`UNOPENED`·`NOT_ON_SALE`·`SOLD_OUT`·`EXPIRED`·`WAITLIST_CLEARED`·`BY_HOST`·`RENUMBERED` / 효과 `PRINT_PRODUCT_LABEL`·`PRINT_PACKING_LABEL`·`POST_THANKS`·`VOID_LABEL`·`NOTIFY` / 대상 `LIVE_CHAT`·`VIDEO_COMMENT`.
+**열거값**: 찜 상태 `PENDING`·`CONFIRMED`·`WAITLISTED`·`REJECTED`·`CANCELLED`·`CONFLICT`·`DUPLICATE` / 거절 사유 `BLOCKED`·`UNOPENED`·`NOT_ON_SALE`·`SOLD_OUT`·`EXPIRED`·`WAITLIST_CLEARED`·`BY_HOST`·`RENUMBERED`·`OPTION_MISSING`(O1 — 공개 때 옵션이 필요한 보류 찜, R-19) / 효과 `PRINT_PRODUCT_LABEL`·`PRINT_PACKING_LABEL`·`POST_THANKS`·`VOID_LABEL`·`NOTIFY` / 대상 `LIVE_CHAT`·`VIDEO_COMMENT` / 확인 필요 사유(O1)는 위 `reviews` 줄.
 
 **구매자 키**: `sms:`로 시작하지 않으면 채팅 채널 키 — 유튜브 채널 ID 또는 플랫폼 접두어가 붙은 키(인스타그램 `ig:<IGSID>`, N2, D-N2-02. 러너는 유튜브 채널 ID와 똑같이 그대로 넘긴다), `sms:<ref>`는 그 `ref`의 (처음) 문자찜이 만든(또는 `buyer`로 지정한, 같은 전화번호로 이은) 구매자. 상품 키 `<방송>/<번호>`의 방송은 선언된 방송이어야 한다.
 

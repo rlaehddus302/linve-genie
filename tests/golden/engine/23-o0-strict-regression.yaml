@@ -1,8 +1,7 @@
-# O0 초안 — O1 시작 때 tests/golden/engine/23-o0-strict-regression.yaml로 옮긴다(D-O-01). 지금 코어로 통과한다(O0에서 임시로 넣어 확인).
-# 지금 넣지 않는 까닭은 chat-strict-regression.yaml.draft 머리말과 같다(core-adapter.test.ts의 골든 합계 고정).
+# O0이 쓴 다육 방식 회귀 초안(engine-23-o0-strict-regression.yaml.draft)을 O1 시작 때 옮겼다(D-O-01). 기대값은 그대로다.
 # O0 — 다육 방식(STRICT, 기본) 회귀 고정 (CMT-07, R-3, R-4, D-O-02). 새 규칙은 없다(지금 코어로 통과).
 # 업종 확장(R-19·R-20)은 claim.parseMode=OPTIONS 방송에서만 켜진다. 기본 방송에서는 상품명·옵션·수량 모양 댓글이 찜을 만들지 않고,
-# 재고 2 이상 상품도 지금처럼 번호 댓글 하나 = 1개다. 옵션 방송의 시나리오 초안은 tests/golden/drafts/o1/ (D-O-01).
+# 재고 2 이상 상품도 지금처럼 번호 댓글 하나 = 1개다. 옵션 방송의 시나리오는 23-o1-options.yaml (D-O-01).
 id: G-ENG-O0-01
 title: 번호로만 받기(기본) 방송 — 상품명·옵션·수량 모양 댓글은 찜이 아니다
 refs: [CMT-07, ORD-01, R-3, R-4]

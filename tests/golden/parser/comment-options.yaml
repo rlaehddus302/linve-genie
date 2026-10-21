@@ -1,18 +1,7 @@
-# O0 초안 — 댓글 옵션 인식 (DOMAIN_RULES R-20, SPEC CMT-01~CMT-05, D-O-07~D-O-10)
-# 러너가 읽지 않는 .draft 파일이다(D-O-01): 새 suite·어휘는 러너가 알기 전까지 '읽기 오류'라 허용 목록으로도 가릴 수 없다.
-# O1 시작 때 spec-keeper가 tests/golden/parser/comment-options.yaml로 옮기고 README 형식 계약(아래 형식)을 넣는다.
-#
-# 형식 (O1에서 README에 넣을 계약 초안)
-#   suite: comment-options
-#   settings: { maxNumber, maxQuantity }        # claim.maxNumber(기본 999)·claim.maxQuantity(기본 10)
-#   catalog: 상품 목록(판매 종료가 아닌 상품) — { no, name, aliases?, options? }
-#            options: [{ name, choices: [{ label, aliases?, price? }] }]  (price는 이 suite에선 결과에 영향 없음)
-#   focus: { no, ageSec } 또는 null           # 지금 상품과, 정해진 뒤 지난 초(채팅 at − 지금 상품을 정한 이벤트 at)
-#   cases: [{ in, out }]
-#   out 키: orders([{ no, options?, qty }] — 메시지 순서), cancels, mentions(1 이상 정수 목록), review({ reason, no?, options?, qty? }).
-#           없는 키 = 빈 값. options = { 항목 이름: 선택지 label }. review의 options·qty는 '읽은 것'만(못 읽었으면 적지 않는다).
-#           orders의 qty는 늘 적는다(안 쓰면 1). 많아야 한 키만 비어 있지 않다.
-#   reason ∈ OPTION_MISSING · OPTION_CONFLICT · UNKNOWN_WORD · QTY_INVALID · NUMBER_AMBIGUOUS · PRODUCT_AMBIGUOUS · MULTI_PRODUCT · FOCUS_CHANGED
+# O1 — 댓글 옵션 인식 (DOMAIN_RULES R-20, SPEC CMT-01~CMT-05, D-O-07~D-O-10)
+# O0 초안(tests/golden/drafts/o1/comment-options.yaml.draft, 89사례)을 O1 시작 때 옮겼다(D-O-01). 기대값은 그대로다.
+# 형식은 tests/golden/README.md "파서 사례 형식"의 comment-options 줄(입력 catalog·focus, out 키 orders·cancels·mentions·review).
+# 허용 목록에는 넣지 않는다 — O1 범위라 O1 끝에는 모두 통과해야 한다.
 #
 # 기대값은 R-20의 순서로 손으로 따라가 정했다: 2 번호 문법 먼저 → 3 상품 후보(가 이름 / 나 맨 앞 번호 / 다 지금 상품) → 4 옵션(숫자 먼저) → 수량 → 꼬리 → 남은 말 → 5 해석 고르기·검사.
 ---
