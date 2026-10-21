@@ -36,6 +36,9 @@ export {
 } from './auth.ts'
 export { API_EVENTS, CHAT_FIELDS, REQUEST_ID_RE, type ApiEventSpec } from './api-fields.ts'
 export { BODY_LIMIT_BYTES, type ApiDeps } from './api.ts'
+export { OPTION_MESSAGES, OPTION_EVENT_TYPES } from './messages-options.ts'
+export { SALE_MODES, SALE_MODE_MESSAGE, withSaleMode, type SaleMode } from './service.ts'
+export type { ReviewItem, ReviewsView } from './reviews.ts'
 export { checkReplay, formatCheck, canonicalJson, type CheckFilter, type CheckPart, type ScopeCheck } from './check-replay.ts'
 export {
   CHANGES_MESSAGES_LIMIT,
