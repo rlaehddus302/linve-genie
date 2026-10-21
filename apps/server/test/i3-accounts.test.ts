@@ -168,6 +168,9 @@ describe('AC-I3-61 보조자 권한 — 허용 목록 밖은 기본으로 막힘
     'GET /api/stream',
     'POST /api/logout',
     'POST /api/events',
+    // N2b-2(D-N2b-2-08, AC-N2b-2-59): 댓글 붙여넣기는 문자찜 입력과 같은 권한 — 보조자도 (실제 회차만). 바꾼 기존 시험(dev-notes)
+    'POST /api/broadcasts/x1/paste/preview',
+    'POST /api/broadcasts/x1/paste',
   ])
   /** 세션을 강제하지 않는 공개 경로 (로그인·헬스체크) — 보조자 쿠키가 있어도 그대로 */
   const PUBLIC = new Set(['POST /api/login', 'GET /api/health'])

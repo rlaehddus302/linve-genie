@@ -2,6 +2,7 @@
 // 빠른 입력·알림 띠는 위쪽에 늘 보인다. 현재 상품·상품 보드·채팅(·리허설 조작판)은 폭에 맞춰 나란히 또는 아래로.
 // I3: 유튜브 칸(스크롤 영역)·수집 멈춤 경고·사용량 알림(고정 영역)·알림 띠 "감사 실패"·감사 메시지 목록 (AC-I3-20~38),
 //     봉인한 날짜는 볼 수만 있다 — 쓰기 칸·버튼이 잠기고 눌러도 요청을 보내지 않는다 (AC-I3-41).
+// N2b-2: 인스타그램·틱톡 칸(스크롤 영역)·여러 플랫폼 도착순 안내·틱톡 알림 줄·인스타그램 알림·붙여넣기 결과(알림 띠 맨 앞 — 고정 영역에 줄을 더하지 않는다)·댓글 붙여넣기 창·채팅 줄 플랫폼 글자.
 // 라벨 상태는 서버의 출력 기록(라벨 키마다)으로 보인다 — 리허설은 라벨이 없다. Alt+P(⌥P)는 현재 상품의 1등 라벨 다시 출력 창.
 // N4b: 끝난 방송(봉인한 날짜 포함)의 콘솔은 주 버튼 "영수증 보내기" 하나 → `/broadcasts/<ID>/receipts` (AC-N4b-30, D-N4b-04). 방송 중에는 없다.
 // 라벨 기능이 꺼져 있거나 켬/끔을 아직 모르면(N4a, L-13 9, AC-N4a-14·18): 보드 라벨 상태·알림 "출력 멈춤"(Alt+1 순서에서도)·단축키 안내의 Alt+P가 빠지고,
@@ -32,6 +33,7 @@ import { AssignDialog, ConfirmDialog, ConvertDialog, EditDialog, ReasonDialog } 
 import { AttentionDialog, CancelRequestDialog, ConflictDialog, PendingDialog, SuccessionDialog } from './AlertDialogs.tsx'
 import { AlertStrip, firstAlert, type AlertKind, type PrintAlerts } from './AlertStrip.tsx'
 import { ChatPanel } from './ChatPanel.tsx'
+import { MultiPlatformNotice, PlatformPanels, platformLeads, useConsolePlatforms } from './ConsolePlatforms.tsx'
 import { AuthorizeDialog, CollectorWarningBar, OutboxDialog, QuotaToast, UnlinkDialog, YoutubeContext, YoutubePanel, useConsoleYoutube } from './ConsoleYoutube.tsx'
 import { Lock } from './Lock.tsx'
 import { SealedNotice } from './SealNotice.tsx'
@@ -47,6 +49,8 @@ import { ProductDetail } from './ProductDetail.tsx'
 import { QuickInput, type EditAsk, type FixState, type Registration } from './QuickInput.tsx'
 import { RehearsalPanel } from './RehearsalPanel.tsx'
 import { NOT_APPLIED_MESSAGE, UndoBar, secondsWord } from './UndoBar.tsx'
+import { PasteDialog } from './PasteDialog.tsx'
+import { chatPlatformTags } from '../lib/platforms.ts'
 import { VoiceConsentDialog, VoiceExtras, VoiceLive, VoiceToggle, voiceLiveShown } from './VoicePanel.tsx'
 
 export interface ConsolePageProps {
@@ -153,6 +157,23 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   const yt = useConsoleYoutube({ store, broadcastId, date: broadcast.date, rehearsal: broadcast.rehearsal, lastMessageSeq: snapshot.messages.at(-1)?.seq ?? 0 })
   const thanksFailed = useRef(yt.thanksFailed)
   thanksFailed.current = yt.thanksFailed
+  // 인스타그램·틱톡 (N2b-2): 플랫폼 칸·알림 줄·붙여넣기 창
+  const live = useConsolePlatforms({ store, broadcastId, date: broadcast.date, rehearsal: broadcast.rehearsal, lastMessageSeq: snapshot.messages.at(-1)?.seq ?? 0 })
+  const [pasteOpen, setPasteOpen] = useState(false)
+  const [pasteNote, setPasteNote] = useState<string | null>(null)
+  // 붙여 넣던 글은 창을 닫아도 남는다 (넣기를 마치면 비운다 — UX-N2b-2-01)
+  const [pasteDraft, setPasteDraft] = useState('')
+  useEffect(() => {
+    if (pasteNote === null) return
+    const timer = setTimeout(() => setPasteNote(null), 10_000)
+    return () => clearTimeout(timer)
+  }, [pasteNote])
+  const openPaste = useCallback(() => {
+    setPasteNote(null)
+    setPasteOpen(true)
+  }, [])
+  const youtubeLinked = yt.enabled && yt.link?.link !== null && yt.link?.link !== undefined
+  const platformTags = useMemo(() => chatPlatformTags(snapshot.messages, live.otherLinked), [snapshot.messages, live.otherLinked])
 
   // 최신 자료를 비동기 흐름(등록 순서 대기 등)에서 읽는다
   const latest = useRef(snapshot)
@@ -900,7 +921,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           <CollectorWarningBar navigate={navigate} ended={ended || sealed} />
           <QuotaToast />
           <div className="console-sticky-quick">
-            <AlertStrip counts={counts} print={printAlerts} thanksFailed={yt.thanksFailed} onOpen={openAlert} expanded={alertsOpen} onToggle={() => setAlertsOpen((open) => !open)} />
+            <AlertStrip
+              leads={platformLeads({ live, sealed, onPaste: openPaste, pasteNote })}
+              counts={counts} print={printAlerts} thanksFailed={yt.thanksFailed} onOpen={openAlert} expanded={alertsOpen} onToggle={() => setAlertsOpen((open) => !open)} />
             <Lock className="lock-quick">
               <QuickInput
                 value={quickText}
@@ -944,6 +967,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
               />
             ) : null}
             <CurrentProduct product={current} onOpen={(key) => openDialog({ kind: 'product', key })} />
+            <MultiPlatformNotice count={live.linkedCount + (youtubeLinked ? 1 : 0)} />
             <YoutubePanel
               navigate={navigate}
               ended={ended}
@@ -951,6 +975,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
               onOpenOutbox={() => openDialog({ kind: 'outbox' })}
               onUnlink={() => openDialog({ kind: 'youtubeUnlink' })}
             />
+            <PlatformPanels live={live} broadcastId={b} navigate={navigate} ended={ended} sealed={sealed} onPaste={openPaste} />
             {wide && voice !== null ? <VoiceExtras voice={voice} snapshot={voiceSnapshot} /> : null}
           </div>
           <ProductBoard
@@ -966,11 +991,25 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
             onLoadOlder={() => void store.loadOlder()}
             convertNotes={convertNotes}
             sealedMessage={snapshot.sealedMessage}
+            platformTags={platformTags}
           />
         </div>
         <p className="shortcuts">{shortcutsWord(labelsOn === true)}</p>
       </main>
       {voice !== null && voiceSnapshot.phase === 'consent' ? <VoiceConsentDialog voice={voice} /> : null}
+      {pasteOpen ? (
+        <PasteDialog
+          broadcastId={b}
+          draft={pasteDraft}
+          onDraftChange={setPasteDraft}
+          onClose={() => setPasteOpen(false)}
+          onDone={(message) => {
+            setPasteDraft('')
+            setPasteOpen(false)
+            setPasteNote(message)
+          }}
+        />
+      ) : null}
       {topDialog !== undefined ? (
         <DialogView
           key={dialogs.length}

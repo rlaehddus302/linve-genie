@@ -78,6 +78,16 @@ export type ErrorCode =
   | 'PRINT_STALE'
   | 'PRINT_NO_REPORT'
   | 'INVALID_TEMPLATE'
+  // N2b-2 틱톡·붙여넣기 (AC-N2b-2-21·24·30·34·56·57)
+  | 'NOTHING_TO_ADD'
+  | 'REQUEST_REUSED'
+  | 'TOO_LONG'
+  | 'TOO_MANY_LINES'
+  | 'INVALID_TIKTOK_ID'
+  | 'NOTICE_CHANGED'
+  | 'TIKTOK_LINKED'
+  | 'TIKTOK_IN_USE'
+  | 'TOO_SOON'
   | 'TEMPLATE_TOO_LARGE'
   | 'TEMPLATE_CONFLICT'
   // N2 인스타그램·라이브 연결 API

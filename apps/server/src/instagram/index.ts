@@ -34,6 +34,8 @@ export interface InstagramModuleOptions {
   readonly dmAutoRun?: boolean
   /** 수집 상태 알림 간격 (기본 1000밀리초) */
   readonly collectionIntervalMs?: number
+  /** 판매자마다 한 줄 (라이브 연결 — 틱톡과 같은 것을 나눈다, D-N2b-2-01). 없으면 새로 만든다 */
+  readonly locks?: SellerLocks
 }
 
 export interface InstagramModule {
@@ -58,7 +60,7 @@ export function createInstagram(options: InstagramModuleOptions): InstagramModul
   const { db, writer, service, clock, log, settings } = options
   const timer = options.timer ?? realLiveTimer
   const meta = settings === null ? null : new MetaClient(settings)
-  const locks = new SellerLocks()
+  const locks = options.locks ?? new SellerLocks()
   // 서로 부르는 묶음이라 나중에 채운다
   let links: LiveLinks | null = null
   let dms: InstagramDms | null = null

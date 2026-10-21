@@ -29,6 +29,11 @@ const BLOCKED_STATUS: ReadonlySet<number> = new Set([403, 429])
  * 문자열 `Websocket connection failed, ${err}`로 거부하고, ws 8.x는 101이 아닌 응답에 `Unexpected server response: ${status}`를 낸다.
  */
 const BLOCKED_HANDSHAKE_TEXT = /Unexpected server response: (?:403|429)\b/
+/**
+ * 방 ID를 얻지 못함 (D-N2b-2-11 (바), SA-N2b-1-008): 라이브러리 2.1.0 fetchRoomId가 세 방법(HTML·API·Euler)마다 방 ID가 비어 낸 오류 문구.
+ * 세 방법 모두 이 모양이면 방송 중이 아니라는 뜻이라 NOT_LIVE다(틀려도 다시 확인하므로 멈추지 않는다). 하나라도 다른 오류면 이 판단을 하지 않는다
+ */
+const NO_ROOM_MESSAGE = /^Failed to extract Room ID from (HTML|API|Euler)\.$/
 /** 문구를 볼 때 앞에서부터 읽는 길이 */
 const MAX_TEXT = 2000
 
@@ -38,6 +43,7 @@ const MAX_DEPTH = 4
 interface Signals {
   userNotFound: boolean
   notLive: boolean
+  noRoom: boolean
   sign: boolean
   blocked: boolean
 }
@@ -80,6 +86,22 @@ function blockedText(text: string): boolean {
   return BLOCKED_TEXT.test(text) || BLOCKED_HANDSHAKE_TEXT.test(text)
 }
 
+/** 세 방법(HTML·API·Euler) 모두 "방 ID를 얻지 못함"인가 — 다른 오류(없는 사용자·막힘·네트워크)가 하나라도 섞이면 아니다 */
+function noRoomFromAll(errors: readonly unknown[]): boolean {
+  if (errors.length !== 3) return false
+  const sources = new Set<string>()
+  for (const inner of errors) {
+    if (typeof inner !== 'object' || inner === null) return false
+    const names = typeNames(inner)
+    if (!names.has('Error') || names.size !== 1) return false
+    const message = readField(inner, 'message')
+    const match = typeof message === 'string' ? NO_ROOM_MESSAGE.exec(message) : null
+    if (match === null || match[1] === undefined) return false
+    sources.add(match[1])
+  }
+  return sources.size === 3
+}
+
 function visit(value: unknown, depth: number, seen: Set<object>, signals: Signals): void {
   if (typeof value === 'string') {
     // 오류 객체가 아닌 문자열 거부 (웹소켓 손잡기 실패·응답 없음). 거부·한도·확인 문자 문구만 보고 그 밖은 NETWORK로 둔다
@@ -103,6 +125,7 @@ function visit(value: unknown, depth: number, seen: Set<object>, signals: Signal
   if ((status !== null && BLOCKED_STATUS.has(status)) || blockedText(text)) signals.blocked = true
   // 여러 경로를 시도한 끝의 오류(FetchIsLiveError.errors), 감싼 요청 오류(InvalidResponseError.requestErr), 표준 cause
   const errors = readField(value, 'errors')
+  if (Array.isArray(errors) && depth === 0 && names.has('FetchIsLiveError') && noRoomFromAll(errors)) signals.noRoom = true
   if (Array.isArray(errors)) for (const inner of errors.slice(0, MAX_NODES)) visit(inner, depth + 1, seen, signals)
   visit(readField(value, 'requestErr'), depth + 1, seen, signals)
   visit(readField(value, 'cause'), depth + 1, seen, signals)
@@ -110,20 +133,20 @@ function visit(value: unknown, depth: number, seen: Set<object>, signals: Signal
 
 /**
  * 연결 시도의 실패(거부된 값)를 실패 종류로 바꾼다. 어떤 값이 와도 예외를 던지지 않는다.
- * 우선순위: 없는 사용자 → 방송 중 아님 → 서명 서비스 → 틱톡의 거부·한도·확인 문자 → 그 밖(네트워크·시간 초과·모르는 오류·오류가 아닌 값).
+ * 우선순위: 없는 사용자 → 방송 중 아님(방 ID를 얻지 못함 포함) → 서명 서비스 → 틱톡의 거부·한도·확인 문자 → 그 밖(네트워크·시간 초과·모르는 오류·오류가 아닌 값).
  * 문자열 거부 값(라이브러리의 웹소켓 손잡기 실패)은 거부·한도·확인 문자 문구일 때만 BLOCKED이고 그 밖은 NETWORK다.
  * 틱톡 응답 본문을 실은 메시지(`Invalid response from API: …` — 방송 전인 사용자 등)는 문구를 보지 않는다: 방송자가 쓴 닉네임·소개 글이
  * 다시 시도 여부를 정하면 안 된다(TD-N2b-1-004). 그런 오류는 그 밖(NETWORK)이 되어 다시 시도한다.
  */
 export function classifyWebcastFailure(error: unknown): TikTokFailureKind {
-  const signals: Signals = { userNotFound: false, notLive: false, sign: false, blocked: false }
+  const signals: Signals = { userNotFound: false, notLive: false, noRoom: false, sign: false, blocked: false }
   try {
     visit(error, 0, new Set(), signals)
   } catch {
     return 'NETWORK'
   }
   if (signals.userNotFound) return 'USER_NOT_FOUND'
-  if (signals.notLive) return 'NOT_LIVE'
+  if (signals.notLive || signals.noRoom) return 'NOT_LIVE'
   if (signals.sign) return 'SIGN_FAILED'
   if (signals.blocked) return 'BLOCKED'
   return 'NETWORK'

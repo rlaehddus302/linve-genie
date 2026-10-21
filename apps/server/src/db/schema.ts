@@ -198,6 +198,7 @@ export const events = pgTable(
     index('events_chat_seq_idx').on(t.scopeId, t.chatBroadcast, t.seq),
     /** 인스타그램 댓글 ID는 판매자 안에서 어느 회차든 한 번만 (다시 배달된 댓글을 회차를 정하기 전에 거른다, AC-N2-33, N2 TD-N2-001) */
     index('events_ig_chat_idx').on(t.sellerId, t.chatMessageId).where(sql`chat_message_id LIKE 'ig:%'`),
+    index('events_tt_chat_idx').on(t.sellerId, t.chatBroadcast).where(sql`chat_message_id LIKE 'tt:%'`),
   ],
 )
 
@@ -783,7 +784,7 @@ export const igOauthStates = pgTable(
 
 /**
  * 회차의 라이브 연결 기록 (PLT-03, D-N2-08). 상태: WAITING 기다리는 중 · LINKED 이어짐 · UNLINKED 끊음.
- * 회차마다 끊지 않은 연결(WAITING·LINKED)은 하나뿐이다(부분 유일 인덱스). 잇기는 엔진 이벤트가 아니다 — 누가·언제는 여기 남는다(DAT-05)
+ * 회차·플랫폼마다 끊지 않은 연결(WAITING·LINKED)은 하나뿐이다(부분 유일 인덱스 — N2b-2부터 플랫폼마다, D-N2b-2-01). 지금은 인스타그램만 이 표를 쓴다. 잇기는 엔진 이벤트가 아니다 — 누가·언제는 여기 남는다(DAT-05)
  */
 export const liveLinks = pgTable(
   'live_links',
@@ -814,7 +815,8 @@ export const liveLinks = pgTable(
     createdAt: timestamptz('created_at').notNull(),
   },
   (t) => [
-    uniqueIndex('live_links_open_uq').on(t.sellerId, t.broadcastId).where(sql`state <> 'UNLINKED'`),
+    // 회차·플랫폼마다 끊지 않은 연결 하나 (동시 송출, D-N2b-2-01)
+    uniqueIndex('live_links_open_uq').on(t.sellerId, t.broadcastId, t.platform).where(sql`state <> 'UNLINKED'`),
     index('live_links_broadcast_idx').on(t.sellerId, t.broadcastId),
     index('live_links_live_idx').on(t.sellerId, t.liveId),
   ],
@@ -978,6 +980,99 @@ export const igDmRows = pgTable(
     index('ig_dm_rows_status_idx').on(t.status, t.sellerId),
     index('ig_dm_rows_comment_idx').on(t.sellerId, t.scopeId, t.comment),
   ],
+)
+
+/**
+ * 회차의 틱톡 연결 (PLT-02, D-N2b-2-05). 상태: LINKED 이어짐 · ENDED 회차를 끝내 기록을 마침(보기는 남는다) · UNLINKED 끊음.
+ * 판매자의 이어진(LINKED) 틱톡 연결은 모든 회차를 통틀어 하나다(부분 유일 인덱스 — 판매자 아이디가 하나라서). 잇기는 엔진 이벤트가 아니다 — 누가·언제는 여기 남는다(DAT-05).
+ * 틱톡 아이디는 공개값이지만 로그·오류에 쓰지 않는다
+ */
+export const tiktokLinks = pgTable(
+  'tiktok_links',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    broadcastId: text('broadcast_id')
+      .notNull()
+      .references(() => broadcasts.id),
+    scopeId: text('scope_id')
+      .notNull()
+      .references(() => scopes.id),
+    state: text('state').notNull(),
+    /** 이을 때의 틱톡 아이디 (판매자 설정에서 — 이어진 동안은 바꿀 수 없다) */
+    tiktokId: text('tiktok_id').notNull(),
+    actorAccountId: text('actor_account_id').references(() => accounts.id),
+    linkedAt: timestamptz('linked_at').notNull(),
+    /** 마지막으로 연결을 시작한 시각 (잇기·다시 연결 — 다시 연결은 30초에 한 번) */
+    startedAt: timestamptz('started_at').notNull(),
+    endedAt: timestamptz('ended_at'),
+    unlinkedAt: timestamptz('unlinked_at'),
+    unlinkedBy: text('unlinked_by').references(() => accounts.id),
+    /** 이어진 동안이 아니라 기록하지 않은 댓글 수 · 저장하지 못한 댓글 수 */
+    notRecorded: integer('not_recorded').notNull().default(0),
+    saveFailed: integer('save_failed').notNull().default(0),
+    /** 판매자가 "확인했어요"로 본 저장 실패 수 (D-N2b-2-16) — 알림은 saveFailed > saveFailedSeen일 때만 */
+    saveFailedSeen: integer('save_failed_seen').notNull().default(0),
+    /** 엔진 입력 검사에 걸려 기록하지 않은 댓글 수 (D-N2b-2-17) — notRecorded와 따로 */
+    skipped: integer('skipped').notNull().default(0),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('tiktok_links_open_uq').on(t.sellerId, t.broadcastId).where(sql`state = 'LINKED'`),
+    uniqueIndex('tiktok_links_seller_uq').on(t.sellerId).where(sql`state = 'LINKED'`),
+    index('tiktok_links_broadcast_idx').on(t.sellerId, t.broadcastId),
+  ],
+)
+
+/** 틱톡 사용 동의 기록 (D-904, D-N2b-2-04, DAT-05). 켬·끔을 한 줄씩 쌓는다(고치거나 지우지 않는다) — 지금 상태 = 그 판매자의 마지막 줄 */
+export const tiktokConsents = pgTable(
+  'tiktok_consents',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    on: boolean('on').notNull(),
+    /** 켤 때 읽은 위험 고지 판 (끌 때는 null) */
+    noticeVersion: text('notice_version'),
+    requestId: text('request_id').notNull(),
+    at: timestamptz('at').notNull(),
+  },
+  (t) => [unique('tiktok_consents_request_uq').on(t.sellerId, t.requestId), index('tiktok_consents_seller_idx').on(t.sellerId, t.id)],
+)
+
+/** 판매자의 틱톡 아이디 하나 (checkTikTokTarget으로 해석한 값) */
+export const tiktokAccounts = pgTable('tiktok_accounts', {
+  sellerId: text('seller_id')
+    .primaryKey()
+    .references(() => sellers.id),
+  tiktokId: text('tiktok_id').notNull(),
+  updatedAt: timestamptz('updated_at').notNull(),
+  updatedBy: text('updated_by').references(() => accounts.id),
+})
+
+/** 댓글 붙여넣기 넣기 요청 (D-N2b-2-08): 같은 요청 번호는 같은 글일 때만 처음 응답을 돌려준다 — 글은 두지 않고 요약값만 */
+export const pasteRequests = pgTable(
+  'paste_requests',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    requestId: text('request_id').notNull(),
+    broadcastId: text('broadcast_id').notNull(),
+    /** (회차, 글)의 요약값 */
+    digest: text('digest').notNull(),
+    /** 처음 응답 JSON */
+    result: text('result').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('paste_requests_uq').on(t.sellerId, t.requestId)],
 )
 
 /**
@@ -1465,6 +1560,10 @@ export const schema = {
   liveRequests,
   igDmSends,
   igDmRows,
+  tiktokLinks,
+  tiktokConsents,
+  tiktokAccounts,
+  pasteRequests,
   labelSwitches,
   packingRecords,
   billingGrants,

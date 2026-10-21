@@ -1,0 +1,259 @@
+{
+  "kind": "chat",
+  "about": "틱톡 공통 댓글 레코드(N2b-1, 일곱 칸) → 서버가 기록하는 chat 이벤트의 다섯 칸 { id, ch, nick, text, owner } (PLT-02, N2b-2, D-N2b-2-03). id = \"tt:\" + commentId, ch = \"tt:\" + userId(숫자로 바꾸지 않음), nick = D-Y05 이름 정리(sanitizeNick), text = 그대로, owner = 그대로. publishedAt은 넣지 않는다(엔진은 at = 서버 도착 시각). b·type·at은 서버가 붙이므로 비교하지 않는다. 서버 시험이 읽는다 — README \"틱톡 골든\".",
+  "cases": [
+    {
+      "id": "G-TTK-N2b-2-23",
+      "title": "레코드 → chat 다섯 칸",
+      "refs": [
+        "PLT-02",
+        "D-N2b-2-03",
+        "D-Y05"
+      ],
+      "note": "id = tt: + 댓글 ID, ch = tt: + 사용자 ID, 닉네임 정리, 본문 그대로, owner 그대로. receivedAt은 이벤트의 at(서버가 붙임)이라 여기 없음",
+      "in": {
+        "platform": "TIKTOK",
+        "commentId": "7301000000000000001",
+        "userId": "7101000000000000001",
+        "nickname": "홍길동",
+        "text": "15",
+        "receivedAt": "2026-10-21T11:00:00.000Z",
+        "owner": false
+      },
+      "out": {
+        "id": "tt:7301000000000000001",
+        "ch": "tt:7101000000000000001",
+        "nick": "홍길동",
+        "text": "15",
+        "owner": false
+      }
+    },
+    {
+      "id": "G-TTK-N2b-2-24",
+      "title": "방송자 댓글은 owner true 그대로",
+      "refs": [
+        "PLT-02",
+        "D-N2b-2-03",
+        "D-Y05"
+      ],
+      "in": {
+        "platform": "TIKTOK",
+        "commentId": "7301000000000000001",
+        "userId": "7101000000000000001",
+        "nickname": "다육이네",
+        "text": "15",
+        "receivedAt": "2026-10-21T11:00:00.000Z",
+        "owner": true
+      },
+      "out": {
+        "id": "tt:7301000000000000001",
+        "ch": "tt:7101000000000000001",
+        "nick": "다육이네",
+        "text": "15",
+        "owner": true
+      }
+    },
+    {
+      "id": "G-TTK-N2b-2-25",
+      "title": "2^53보다 큰 ID도 글자 그대로 접두어만",
+      "refs": [
+        "PLT-02",
+        "D-N2b-2-03",
+        "D-Y05"
+      ],
+      "in": {
+        "platform": "TIKTOK",
+        "commentId": "9223372036854775807",
+        "userId": "7234567890123456789",
+        "nickname": "홍길동",
+        "text": "15",
+        "receivedAt": "2026-10-21T11:00:00.000Z",
+        "owner": false
+      },
+      "out": {
+        "id": "tt:9223372036854775807",
+        "ch": "tt:7234567890123456789",
+        "nick": "홍길동",
+        "text": "15",
+        "owner": false
+      }
+    },
+    {
+      "id": "G-TTK-N2b-2-26",
+      "title": "닉네임 정리 — @ 지움·점은 ·",
+      "refs": [
+        "PLT-02",
+        "D-N2b-2-03",
+        "D-Y05"
+      ],
+      "in": {
+        "platform": "TIKTOK",
+        "commentId": "7301000000000000001",
+        "userId": "7101000000000000001",
+        "nickname": "@pink.mom",
+        "text": "15",
+        "receivedAt": "2026-10-21T11:00:00.000Z",
+        "owner": false
+      },
+      "out": {
+        "id": "tt:7301000000000000001",
+        "ch": "tt:7101000000000000001",
+        "nick": "pink·mom",
+        "text": "15",
+        "owner": false
+      }
+    },
+    {
+      "id": "G-TTK-N2b-2-27",
+      "title": "닉네임 정리 — 전각 ＠·마침표 。",
+      "refs": [
+        "PLT-02",
+        "D-N2b-2-03",
+        "D-Y05"
+      ],
+      "in": {
+        "platform": "TIKTOK",
+        "commentId": "7301000000000000001",
+        "userId": "7101000000000000001",
+        "nickname": "＠홍。길동",
+        "text": "15",
+        "receivedAt": "2026-10-21T11:00:00.000Z",
+        "owner": false
+      },
+      "out": {
+        "id": "tt:7301000000000000001",
+        "ch": "tt:7101000000000000001",
+        "nick": "홍·길동",
+        "text": "15",
+        "owner": false
+      }
+    },
+    {
+      "id": "G-TTK-N2b-2-28",
+      "title": "닉네임 정리 — 공백 문자는 한 칸, 앞뒤 공백 지움",
+      "refs": [
+        "PLT-02",
+        "D-N2b-2-03",
+        "D-Y05"
+      ],
+      "note": "탭 둘 → 공백 한 칸, 끝의 전각 공백(U+3000)은 공백 문자 → 지움",
+      "in": {
+        "platform": "TIKTOK",
+        "commentId": "7301000000000000001",
+        "userId": "7101000000000000001",
+        "nickname": "홍\t\t길동　",
+        "text": "15",
+        "receivedAt": "2026-10-21T11:00:00.000Z",
+        "owner": false
+      },
+      "out": {
+        "id": "tt:7301000000000000001",
+        "ch": "tt:7101000000000000001",
+        "nick": "홍 길동",
+        "text": "15",
+        "owner": false
+      }
+    },
+    {
+      "id": "G-TTK-N2b-2-29",
+      "title": "닉네임 정리 — 보이지 않는 글자만이면 시청자",
+      "refs": [
+        "PLT-02",
+        "D-N2b-2-03",
+        "D-Y05"
+      ],
+      "in": {
+        "platform": "TIKTOK",
+        "commentId": "7301000000000000001",
+        "userId": "7101000000000000001",
+        "nickname": "​‍",
+        "text": "15",
+        "receivedAt": "2026-10-21T11:00:00.000Z",
+        "owner": false
+      },
+      "out": {
+        "id": "tt:7301000000000000001",
+        "ch": "tt:7101000000000000001",
+        "nick": "시청자",
+        "text": "15",
+        "owner": false
+      }
+    },
+    {
+      "id": "G-TTK-N2b-2-30",
+      "title": "빈 닉네임은 시청자",
+      "refs": [
+        "PLT-02",
+        "D-N2b-2-03",
+        "D-Y05"
+      ],
+      "in": {
+        "platform": "TIKTOK",
+        "commentId": "7301000000000000001",
+        "userId": "7101000000000000001",
+        "nickname": "",
+        "text": "15",
+        "receivedAt": "2026-10-21T11:00:00.000Z",
+        "owner": false
+      },
+      "out": {
+        "id": "tt:7301000000000000001",
+        "ch": "tt:7101000000000000001",
+        "nick": "시청자",
+        "text": "15",
+        "owner": false
+      }
+    },
+    {
+      "id": "G-TTK-N2b-2-31",
+      "title": "긴 닉네임(64자까지 오는 레코드)은 앞 30자 + …",
+      "refs": [
+        "PLT-02",
+        "D-N2b-2-03",
+        "D-Y05"
+      ],
+      "note": "35자 → 앞 30자 + \"…\"",
+      "in": {
+        "platform": "TIKTOK",
+        "commentId": "7301000000000000001",
+        "userId": "7101000000000000001",
+        "nickname": "가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사",
+        "text": "15",
+        "receivedAt": "2026-10-21T11:00:00.000Z",
+        "owner": false
+      },
+      "out": {
+        "id": "tt:7301000000000000001",
+        "ch": "tt:7101000000000000001",
+        "nick": "가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나…",
+        "text": "15",
+        "owner": false
+      }
+    },
+    {
+      "id": "G-TTK-N2b-2-32",
+      "title": "본문은 줄바꿈·앞뒤 공백까지 그대로(파서가 읽는다)",
+      "refs": [
+        "PLT-02",
+        "D-N2b-2-03",
+        "D-Y05"
+      ],
+      "in": {
+        "platform": "TIKTOK",
+        "commentId": "7301000000000000001",
+        "userId": "7101000000000000001",
+        "nickname": "홍길동",
+        "text": "  15번\n주세요  ",
+        "receivedAt": "2026-10-21T11:00:00.000Z",
+        "owner": false
+      },
+      "out": {
+        "id": "tt:7301000000000000001",
+        "ch": "tt:7101000000000000001",
+        "nick": "홍길동",
+        "text": "  15번\n주세요  ",
+        "owner": false
+      }
+    }
+  ]
+}

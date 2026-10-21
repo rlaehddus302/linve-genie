@@ -332,8 +332,11 @@ export const EMPTY_SETTLEMENT = {
   payment: 'UNPAID',
 } as const
 
-/** 시나리오 ID (README 형식 계약, D-N2-13): `G-ENG-` + 세 자리, 또는 `G-ENG-<스프린트 ID>-<두 자리>` (스프린트 ID = 영문 대문자로 시작하는 영문·숫자 1~8자) */
-export const SCENARIO_ID_RE = /^G-ENG-(?:\d{3}|[A-Z][A-Za-z0-9]{0,7}-\d{2})$/
+/**
+ * 시나리오 ID (README 형식 계약, D-N2-13·D-N2b-2-12): `G-ENG-` + 세 자리, 또는 `G-ENG-<스프린트 ID>-<두 자리>`
+ * (스프린트 ID = 영문 대문자로 시작하는 영문·숫자 1~8자, 뒤에 `-` + 숫자 1~2자리를 한 번 붙일 수 있다 — 예 `N2-01`, `N2b-2-01`)
+ */
+export const SCENARIO_ID_RE = /^G-ENG-(?:\d{3}|[A-Z][A-Za-z0-9]{0,7}(?:-[0-9]{1,2})?-\d{2})$/
 export const BROADCAST_ID_RE = /^[^\s/@]+$/
 export const PRODUCT_KEY_RE = /^([^\s/@]+)\/([1-9]\d*)$/
 export const SMS_PREFIX = 'sms:'

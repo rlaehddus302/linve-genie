@@ -1763,6 +1763,11 @@ html:has(.sms-submit-bar) {
     max-height: none;
   }
 
+  /* 띠 맨 앞의 긴 문장(플랫폼 줄)에 밀려 "알림 N 펼치기"가 여러 줄로 눌리지 않게 */
+  .alert-bar .alert-toggle {
+    flex: none;
+  }
+
   .undo-item {
     padding: 0.125rem 0.5rem;
     gap: 0.25rem 0.5rem;
@@ -2114,6 +2119,138 @@ html:has(.sms-submit-bar) {
   padding-bottom: 0.25rem;
 }
 
+/* ── 여러 플랫폼·붙여넣기 (N2b-2, AC-N2b-2-60~68) ─────────────────
+ * 플랫폼 칸은 스크롤 영역이다. 고정 영역에는 한 줄 알림만(틱톡 알림 줄·인스타그램 알림). 긴 닉네임·댓글은 줄을 바꿔 375px에서도 가로로 넘치지 않는다. */
+.platform-panel .notice,
+.platform-panel .warning,
+.multi-platform-notice {
+  margin: 0;
+}
+
+/* 알림 띠 맨 앞의 플랫폼 줄 (틱톡 알림 줄·인스타그램 알림·붙여넣기 결과) — 고정 영역에 줄을 더하지 않는다(UX-04 35%) */
+.alert-lead-button {
+  max-inline-size: 100%;
+  text-align: start;
+}
+
+.alert-lead-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.alert-lead-note {
+  margin: 0;
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  padding: 0 0.75rem;
+  border: 2px solid #146c2e;
+  border-radius: 0.5rem;
+  background-color: #e6f4ea;
+  color: #0d3d1b;
+  font-weight: 700;
+}
+
+/* 틱톡 저장 실패 줄 옆 "확인했어요" (D-N2b-2-16) — 한 줄 안에서 글이 줄고 단추는 그대로(44px) */
+.alert-lead-with-action {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  max-inline-size: 100%;
+}
+
+.alert-lead-with-action .alert-lead-button {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.alert-lead-action {
+  flex: 0 0 auto;
+}
+
+.platform-notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 휴대폰: 접힌 띠 한 줄에 들어가게 긴 문장은 말줄임(전문은 단추 이름·"펼치기"·플랫폼 칸) */
+@media (max-width: 47.99rem) {
+  .alert-lead {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-inline-size: 100%;
+  }
+
+  .alert-bar:not(.alert-bar-open) .alert-lead-button {
+    inline-size: 100%;
+    justify-content: flex-start;
+  }
+
+  /* 한 줄로 자르고 말줄임 (줄바꿈 금지 대신 줄 수 제한 — 375px 가로 넘침 없음) */
+  .alert-bar:not(.alert-bar-open) .alert-lead-text,
+  .alert-bar:not(.alert-bar-open) .alert-lead-note {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+    overflow: hidden;
+  }
+
+  .alert-bar:not(.alert-bar-open) .alert-lead-note {
+    line-height: 2.5rem;
+    min-height: 0;
+    max-block-size: 2.75rem;
+  }
+}
+
+.tag-platform {
+  border-style: dashed;
+}
+
+.paste-dialog,
+.paste-preview {
+  min-width: 0;
+}
+
+.paste-text {
+  inline-size: 100%;
+  min-height: 8rem;
+  resize: vertical;
+}
+
+.paste-rows,
+.paste-groups {
+  display: grid;
+  gap: 0.25rem;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.paste-row,
+.paste-groups > li {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.paste-row-order {
+  font-weight: 700;
+}
+
+.paste-line {
+  color: #3c4043;
+}
+
+.tiktok-notice-lines {
+  display: grid;
+  gap: 0.5rem;
+  padding-inline-start: 1.5rem;
+}
+
 /* ── 입금 확인 (N3, AC-N3-40~50) ─────────────────────────────
  * 메뉴의 확인 필요 수는 글자로("입금 확인 3") — 둥근 바탕은 덧붙인 표시일 뿐 색만으로 알리지 않는다.
  * 목록은 PC(48rem 이상) 표, 휴대폰 카드(입금마다 한 묶음). 누르는 곳 44px, 글자 16px 이상, 마우스를 올려야만 보이는 조작 없음.
@@ -2307,6 +2444,18 @@ html:has(.sms-submit-bar) {
   border-color: #0b57d0;
   background-color: #e8f0fe;
   color: #041e49;
+}
+
+/* 붙여넣기 겹친 줄 (AC-N2b-2-69): 서버 문장은 결과 문장 아래 줄, 색만으로 구분하지 않는다(문장 + 고르기) */
+.paste-overlap {
+  display: grid;
+  gap: 0.25rem;
+  margin-block-start: 0.25rem;
+  font-weight: 400;
+}
+
+.paste-overlap-message {
+  color: #8a3d00;
 }
 
 /* ── I2 정산 마무리: 확인서·판매대장·포장·설정·가져오기 (AC-I2-02·13·22·35~39·52·65) ── */

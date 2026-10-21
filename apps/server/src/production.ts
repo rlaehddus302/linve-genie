@@ -20,11 +20,15 @@ import { readInstagramConfig } from './instagram/config.ts'
 import { readMasterKey } from './secrets.ts'
 import { popbillHttpTransport, readPopbillKeys } from './deposit/popbill.ts'
 import type { ServerOptions } from './server.ts'
+import { readTikTokSettings } from './tiktok/index.ts'
+import { TIKTOK_LIBRARY_ENV_NAMES } from './tiktok-live/live.ts'
 
 export type ProductionOptions = { readonly ok: true; readonly options: ServerOptions } | { readonly ok: false; readonly message: string }
 
 /**
- * 환경변수(LIVEJJIM_MASTER_KEY·LIVEJJIM_APP_ORIGIN·LIVEJJIM_IG_*·요금 설정·LIVEJJIM_POPBILL_LINK_ID·LIVEJJIM_POPBILL_SECRET_KEY·LIVEJJIM_POPBILL_TEST_BED)와 연 DB로 운영 서버 옵션을 만든다.
+ * 환경변수(LIVEJJIM_MASTER_KEY·LIVEJJIM_APP_ORIGIN·LIVEJJIM_IG_*·LIVEJJIM_TIKTOK_*·요금 설정·LIVEJJIM_POPBILL_LINK_ID·LIVEJJIM_POPBILL_SECRET_KEY·LIVEJJIM_POPBILL_TEST_BED)와 연 DB로 운영 서버 옵션을 만든다.
+ * 틱톡 연결 라이브러리가 스스로 읽는 환경 변수(SIGN_API_URL·SIGN_API_KEY·WHITELIST_AUTHENTICATED_SESSION_ID_HOST)는 비어 있는지만 본다 —
+ * 하나라도 있으면 틱톡을 끈 것으로 보고 서버가 경고를 남긴다(값은 읽지 않는다, D-N2b-2-06). 운영 기동은 실제 감싸개(libraryWebcast)를 쓴다(서버 기본값).
  * 그 밖의 환경변수는 읽지 않는다. readFile은 요금 표 파일 읽기 (시험에서 바꿔 끼운다)
  */
 export function productionServerOptions(
@@ -51,6 +55,7 @@ export function productionServerOptions(
     publicKeys: enabled ? { storeId: portone.storeId, channelKey: portone.channelKey } : null,
     test: null,
   }
+  const libraryEnv = TIKTOK_LIBRARY_ENV_NAMES.filter((name) => (env[name] ?? '').trim() !== '')
   const popbill = readPopbillKeys(env)
   return {
     ok: true,
@@ -60,6 +65,8 @@ export function productionServerOptions(
       appOrigin: origin.origin,
       testPrinter: false,
       instagram: instagram.settings,
+      ...(instagram.warning === undefined ? {} : { startupWarnings: [instagram.warning] }),
+      tiktok: { settings: readTikTokSettings(env), libraryEnv },
       deposits: { testMode: false, popbill: popbill === null ? null : popbillHttpTransport(popbill) },
       billing,
     },

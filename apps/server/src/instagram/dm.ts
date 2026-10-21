@@ -1,5 +1,6 @@
 // 인스타그램 감사 DM 실행기 (YT-04, YT-06, R-13 "인스타그램 회차의 감사", INV-11, D-N2-01·D-N2-09·D-N2-10, AC-N2-40~52).
-// - DM 행은 인스타그램 회차(가장 최근 연결 기록의 플랫폼)의 실제 범위 발송함 POST_THANKS 행마다 그 효과가 기록되는 같은 트랜잭션에서 만든다.
+// - DM 행은 찜의 구매자 자신이 인스타그램 구매자(ig:)인 실제 범위 발송함 POST_THANKS 행마다 그 효과가 기록되는 같은 트랜잭션에서 만든다(N2b-2, D-N2b-2-09 —
+//   N2의 "회차의 가장 최근 연결 기록이 인스타그램"에서 바뀜. 여러 플랫폼 회차의 감사는 구매자 자신의 플랫폼으로만).
 //   발송함 표의 열은 더하거나 고치지 않는다 — DM 상태는 ig_dm_rows·ig_dm_sends에 따로 둔다(D-N2-01). 리허설 범위에는 행을 만들지 않고,
 //   실행기가 행을 고르는 조회(dueDmGroups)는 발송함 rehearsal = false를 조건에 고정한다(바꾸는 매개변수 없음).
 // - 받는 곳 = 그 찜을 만든 댓글(채팅 주문·메시지 변환 찜의 `ig:` 메시지). 그 밖은 SKIPPED(NO_RECIPIENT), 영상 댓글 효과는 SKIPPED(NOT_SUPPORTED).
@@ -19,7 +20,7 @@ import type { LinkOutcome } from '../live-links.ts'
 import type { Clock } from '../time.ts'
 import { claimIndex } from '../views.ts'
 import type { ScopeWriter, TxHookContext } from '../writer.ts'
-import type { ThanksSender, ThanksSendResult } from '../platform.ts'
+import { INSTAGRAM_PREFIX, type ThanksSender, type ThanksSendResult } from '../platform.ts'
 import type { InstagramSettings } from './config.ts'
 import type { InstagramConnections } from './connection.ts'
 import type { LiveTimer } from './notices.ts'
@@ -42,7 +43,6 @@ import {
   insertRequest,
   insertSend,
   latestLink,
-  latestPlatforms,
   leaseExpiredSends,
   outboxIds,
   rowsOfComment,
@@ -184,7 +184,8 @@ export class InstagramDms {
 
   /**
    * 이벤트 기록과 같은 트랜잭션에서 부른다 (ScopeWriter txHook). 리허설 범위는 아무것도 하지 않는다.
-   * 그 기록의 POST_THANKS 효과 중 회차의 가장 최근 연결 기록이 인스타그램인 것마다 DM 행 하나
+   * 그 기록의 POST_THANKS 효과 중 찜의 구매자 자신이 인스타그램 구매자(ig:)인 것마다 DM 행 하나 — 여러 플랫폼 회차의 감사 경로(R-13, D-N2b-2-09).
+   * 그 밖의 구매자는 thanks-route.ts가 정한다(유튜브 발송함 또는 건너뜀)
    */
   readonly txHook = async (tx: Db, ctx: TxHookContext): Promise<(() => void) | null> => {
     if (ctx.rehearsal) return null
@@ -192,8 +193,7 @@ export class InstagramDms {
     const items: { index: number; ord: number; effect: (typeof records)[number]['effects'][number]; seq: number }[] = []
     records.forEach((record, index) => record.effects.forEach((effect, ord) => effect.kind === 'POST_THANKS' && items.push({ index, ord, effect, seq: record.seq })))
     if (items.length === 0) return null
-    const platforms = await latestPlatforms(tx, sellerId, [...new Set(items.map((item) => item.effect.broadcast))])
-    const instagram = items.filter((item) => platforms.get(item.effect.broadcast) === 'INSTAGRAM')
+    const instagram = items.filter((item) => item.effect.buyer.startsWith(INSTAGRAM_PREFIX))
     if (instagram.length === 0) return null
     const connection = await findConnection(tx, sellerId)
     const ids = await outboxIds(tx, sellerId, scopeId, instagram.map((item) => item.effect.id))

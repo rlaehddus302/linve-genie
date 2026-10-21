@@ -12,7 +12,7 @@
 //   전체를 한 번 다시 받아 봉인한 장부를 보인다 (AC-I3-41, Y1 계약 5).
 import { get, isApiError, withQuery, type ApiError } from '../api/client.ts'
 import type { BroadcastItem, Changes, ChatMessage, FullView, GeneratorStatus, MessagesView, ScopeSeq, YoutubeEvent } from '../api/types.ts'
-import { parseYoutubeEvent } from './live-events.ts'
+import { parsePlatformEvent, parseYoutubeEvent, type PlatformStreamEvent } from './live-events.ts'
 import { streamUrl } from './device.ts'
 import { applyChanges, fromFull, type ScopeData } from './scope-data.ts'
 import { sharedStream, type EventSourceLike } from './stream.ts'
@@ -161,6 +161,8 @@ export class ConsoleStore {
   #generatorVersion = 0
   /** 유튜브 알림을 받는 화면 조각 */
   readonly #youtube = new Set<(event: YoutubeEvent) => void>()
+  /** 인스타그램·틱톡 알림을 받는 화면 조각 (N2b-2) */
+  readonly #platform = new Set<(event: PlatformStreamEvent) => void>()
   /** 끊겼다 다시 붙었을 때 다시 받을 화면 조각 */
   readonly #reconnected = new Set<() => void>()
   /** 받은 ready 수 (두 번째부터 다시 붙은 것) */
@@ -187,6 +189,12 @@ export class ConsoleStore {
   onYoutube = (listener: (event: YoutubeEvent) => void): (() => void) => {
     this.#youtube.add(listener)
     return () => this.#youtube.delete(listener)
+  }
+
+  /** 인스타그램·틱톡 알림(SSE `instagram`·`tiktok`)을 받는다. 돌려준 함수로 그만 받는다 */
+  onPlatform = (listener: (event: PlatformStreamEvent) => void): (() => void) => {
+    this.#platform.add(listener)
+    return () => this.#platform.delete(listener)
   }
 
   /** 실시간 연결이 끊겼다 다시 붙으면 부른다 (놓친 유튜브 상태 다시 받기) */
@@ -261,6 +269,7 @@ export class ConsoleStore {
     this.#unwatch?.()
     this.#listeners.clear()
     this.#youtube.clear()
+    this.#platform.clear()
     this.#reconnected.clear()
   }
 
@@ -432,6 +441,13 @@ export class ConsoleStore {
       if (data.kind === 'sealed' && scope !== null && !scope.rehearsal && data.date === scope.date && !this.#snapshot.sealed) void this.#reload()
       for (const listener of [...this.#youtube]) listener(data)
     })
+    for (const type of ['instagram', 'tiktok'] as const) {
+      stream.addEventListener(type, (event) => {
+        const data = parsePlatformEvent(type, event.data)
+        if (data === null) return
+        for (const listener of [...this.#platform]) listener(data)
+      })
+    }
     stream.addEventListener('generator', (event) => {
       const data = parseData<GeneratorStatus & { b: string }>(event)
       if (data !== null && this.broadcastId !== null && data.b === this.broadcastId) this.#setGenerator(data)

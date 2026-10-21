@@ -1,15 +1,22 @@
-// 틱톡 골든 시험 (N2b-1, AC-N2b-1-10·20·90, D-N2b-1-07). tests/golden/tiktok/의 모든 *.json을 읽어
+// 틱톡 골든 시험 (N2b-1, AC-N2b-1-10·20·90, D-N2b-1-07 · N2b-2, AC-N2b-2-50·55·91 — kind chat·paste). tests/golden/tiktok/의 모든 *.json을 읽어
 // tests/golden/README.md "틱톡 골든" 형식 계약을 검사하고(모르는 키·모르는 kind·id 형식·겹친 id·빈 refs·out 모양·events와 out 길이), 사례를 모두 돌린다.
 // 합계를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다. 골든 파일은 고치지 않는다(spec-keeper 소유).
 import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { createCommentFilter, parseTikTokTarget } from '../src/tiktok/index.ts'
+import { createCommentFilter, parseTikTokTarget, type TikTokCommentRecord } from '../src/tiktok/index.ts'
+import { tiktokChatFields } from '../src/tiktok-live/chat.ts'
+import { parsePaste } from '../src/tiktok-live/paste.ts'
 
 const DIR = new URL('../../../tests/golden/tiktok/', import.meta.url)
 
 const FILE_KEYS = ['kind', 'about', 'cases']
 const COMMON_KEYS = ['id', 'title', 'refs', 'note', 'out']
-const CASE_KEYS: Record<string, readonly string[]> = { target: [...COMMON_KEYS, 'in'], comment: [...COMMON_KEYS, 'target', 'events'] }
+const CASE_KEYS: Record<string, readonly string[]> = { target: [...COMMON_KEYS, 'in'], comment: [...COMMON_KEYS, 'target', 'events'], chat: [...COMMON_KEYS, 'in'], paste: [...COMMON_KEYS, 'in'] }
+const KINDS = ['target', 'comment', 'chat', 'paste'] as const
+type Kind = (typeof KINDS)[number]
+const CHAT_KEYS = ['id', 'ch', 'nick', 'text', 'owner']
+const PASTE_ERRORS = new Set(['TOO_LONG', 'TOO_MANY_LINES'])
+const PASTE_LINE_ERRORS = new Set(['NO_NICKNAME', 'PHONE_NUMBER', 'NO_TEXT', 'TEXT_TOO_LONG'])
 const RAW_KEYS = new Set(['msgId', 'userId', 'uniqueId', 'nickname', 'comment', 'createTime'])
 const RECORD_KEYS = ['platform', 'commentId', 'userId', 'nickname', 'text', 'receivedAt', 'owner']
 const TARGET_ERRORS = new Set(['EMPTY', 'INVALID', 'SHORT_LINK'])
@@ -23,7 +30,7 @@ const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && 
 
 interface Loaded {
   readonly file: string
-  readonly kind: 'target' | 'comment'
+  readonly kind: Kind
   readonly cases: readonly Json[]
 }
 
@@ -38,7 +45,7 @@ function contractProblems(files: readonly { file: string; data: unknown }[]): st
     }
     for (const key of Object.keys(data)) if (!FILE_KEYS.includes(key)) problems.push(`${file}: 모르는 키 ${key}`)
     const kind = data['kind']
-    if (kind !== 'target' && kind !== 'comment') {
+    if (typeof kind !== 'string' || !(KINDS as readonly string[]).includes(kind)) {
       problems.push(`${file}: 모르는 kind`)
       continue
     }
@@ -60,7 +67,35 @@ function contractProblems(files: readonly { file: string; data: unknown }[]): st
       const refs = c['refs']
       if (!Array.isArray(refs) || refs.length === 0 || !refs.every((r) => typeof r === 'string' && r !== '')) problems.push(`${at}: refs`)
       if ('note' in c && typeof c['note'] !== 'string') problems.push(`${at}: note`)
-      if (kind === 'target') {
+      if (kind === 'chat') {
+        if (!isRecord(c['in'])) problems.push(`${at}: in 레코드 모양`)
+        const out = c['out']
+        const ok =
+          isObj(out) &&
+          Object.keys(out).length === CHAT_KEYS.length &&
+          CHAT_KEYS.every((k) => k in out) &&
+          ['id', 'ch', 'nick', 'text'].every((k) => typeof out[k] === 'string') &&
+          typeof out['owner'] === 'boolean'
+        if (!ok) problems.push(`${at}: out 모양`)
+      } else if (kind === 'paste') {
+        if (typeof c['in'] !== 'string') problems.push(`${at}: in`)
+        const out = c['out']
+        let ok = false
+        if (isObj(out) && Object.keys(out).length === 1) {
+          if ('error' in out) ok = typeof out['error'] === 'string' && PASTE_ERRORS.has(out['error'])
+          else if (Array.isArray(out['rows']))
+            ok = out['rows'].every(
+              (row: unknown) =>
+                isObj(row) &&
+                typeof row['line'] === 'number' &&
+                Number.isInteger(row['line']) &&
+                row['line'] >= 1 &&
+                ((Object.keys(row).length === 3 && typeof row['nickname'] === 'string' && typeof row['text'] === 'string') ||
+                  (Object.keys(row).length === 2 && typeof row['error'] === 'string' && PASTE_LINE_ERRORS.has(row['error']))),
+            )
+        }
+        if (!ok) problems.push(`${at}: out 모양`)
+      } else if (kind === 'target') {
         if (typeof c['in'] !== 'string') problems.push(`${at}: in`)
         const out = c['out']
         const ok =
@@ -94,8 +129,19 @@ function contractProblems(files: readonly { file: string; data: unknown }[]): st
               if (typeof o['drop'] !== 'string' || !DROPS.has(o['drop'])) problems.push(`${where}: 버림 코드`)
               return
             }
-            const r = o['record']
-            const ok =
+            if (!isRecord(o['record'])) problems.push(`${where}: 레코드 모양`)
+          })
+        }
+      }
+      return undefined
+    })
+  }
+  return problems
+}
+
+/** 공통 댓글 레코드 모양 (정확히 일곱 칸) */
+function isRecord(r: unknown): boolean {
+  return (
               isObj(r) &&
               Object.keys(r).length === RECORD_KEYS.length &&
               RECORD_KEYS.every((k) => k in r) &&
@@ -109,14 +155,7 @@ function contractProblems(files: readonly { file: string; data: unknown }[]): st
               typeof r['receivedAt'] === 'string' &&
               ISO_MS_RE.test(r['receivedAt']) &&
               typeof r['owner'] === 'boolean'
-            if (!ok) problems.push(`${where}: 레코드 모양`)
-          })
-        }
-      }
-      return undefined
-    })
-  }
-  return problems
+  )
 }
 
 const fileNames = readdirSync(DIR)
@@ -125,22 +164,27 @@ const fileNames = readdirSync(DIR)
 const rawFiles = fileNames.map((file) => ({ file, data: JSON.parse(readFileSync(new URL(file, DIR), 'utf8')) as unknown }))
 const loaded: Loaded[] = rawFiles.filter((f): f is { file: string; data: Json } => isObj(f.data)).map((f) => ({
   file: f.file,
-  kind: f.data['kind'] as 'target' | 'comment',
+  kind: f.data['kind'] as Kind,
   cases: (f.data['cases'] as Json[]) ?? [],
 }))
 const targetCases = loaded.filter((f) => f.kind === 'target').flatMap((f) => f.cases)
 const commentCases = loaded.filter((f) => f.kind === 'comment').flatMap((f) => f.cases)
+const chatCases = loaded.filter((f) => f.kind === 'chat').flatMap((f) => f.cases)
+const pasteCases = loaded.filter((f) => f.kind === 'paste').flatMap((f) => f.cases)
 
 describe('AC-N2b-1-90 틱톡 골든 형식 계약과 합계', () => {
   it('README 형식 계약을 지킨다', () => {
     expect(contractProblems(rawFiles)).toEqual([])
   })
 
-  it('합계: 파일 2 · 사례 58(target 40 · comment 18) · 댓글 65', () => {
-    expect(fileNames).toEqual(['comment.json', 'target.json'])
-    expect(targetCases.length + commentCases.length).toBe(58)
+  // N2b-2(AC-N2b-2-91): chat 10 · paste 22를 더했다 — 파일 2 → 4, 사례 58 → 90 (교체 — 약화 아님)
+  it('합계: 파일 4 · 사례 90(target 40 · comment 18 · chat 10 · paste 22) · 댓글 65', () => {
+    expect(fileNames).toEqual(['chat.json', 'comment.json', 'paste.json', 'target.json'])
+    expect(targetCases.length + commentCases.length + chatCases.length + pasteCases.length).toBe(90)
     expect(targetCases).toHaveLength(40)
     expect(commentCases).toHaveLength(18)
+    expect(chatCases).toHaveLength(10)
+    expect(pasteCases).toHaveLength(22)
     expect(commentCases.reduce((sum, c) => sum + (c['events'] as unknown[]).length, 0)).toBe(65)
   })
 
@@ -156,6 +200,16 @@ describe('AC-N2b-1-90 틱톡 골든 형식 계약과 합계', () => {
     }
     expect(contractProblems([{ file: 'a.json', data: { kind: 'target', about: '', cases: [good] } }])).toEqual([])
     expect(contractProblems([{ file: 'a.json', data: { kind: 'comment', about: '', cases: [goodComment] } }])).toEqual([])
+    const goodChat = {
+      id: 'G-TTK-N2b-2-90',
+      title: 't',
+      refs: ['PLT-02'],
+      in: { platform: 'TIKTOK', commentId: '1', userId: '2', nickname: 'a', text: '15', receivedAt: '2026-10-20T11:00:00.000Z', owner: false },
+      out: { id: 'tt:1', ch: 'tt:2', nick: 'a', text: '15', owner: false },
+    }
+    const goodPaste = { id: 'G-TTK-N2b-2-91', title: 't', refs: ['PLT-02'], in: 'a: 1', out: { rows: [{ line: 1, nickname: 'a', text: '1' }, { line: 2, error: 'NO_TEXT' }] } }
+    expect(contractProblems([{ file: 'a.json', data: { kind: 'chat', about: '', cases: [goodChat] } }])).toEqual([])
+    expect(contractProblems([{ file: 'a.json', data: { kind: 'paste', about: '', cases: [goodPaste] } }])).toEqual([])
     const bad: Array<[string, unknown]> = [
       ['모르는 파일 키', { kind: 'target', about: '', cases: [good], extra: 1 }],
       ['모르는 kind', { kind: 'label', about: '', cases: [good] }],
@@ -170,6 +224,12 @@ describe('AC-N2b-1-90 틱톡 골든 형식 계약과 합계', () => {
       ['시각 형식', { kind: 'comment', about: '', cases: [{ ...goodComment, events: [{ receivedAt: '2026-10-20T11:00:00Z', raw: {} }] }] }],
       ['레코드 여덟 칸', { kind: 'comment', about: '', cases: [{ ...goodComment, out: [{ record: { platform: 'TIKTOK', commentId: '1', userId: '1', nickname: '', text: 'a', receivedAt: '2026-10-20T11:00:00.000Z', owner: false, extra: 1 } }] }] }],
       ['모르는 버림 코드', { kind: 'comment', about: '', cases: [{ ...goodComment, out: [{ drop: 'SPAM' }] }] }],
+      ['chat out 여섯 칸', { kind: 'chat', about: '', cases: [{ ...goodChat, out: { ...goodChat.out, publishedAt: 1 } }] }],
+      ['chat in 레코드 아님', { kind: 'chat', about: '', cases: [{ ...goodChat, in: { platform: 'TIKTOK' } }] }],
+      ['paste 모르는 줄 오류', { kind: 'paste', about: '', cases: [{ ...goodPaste, out: { rows: [{ line: 1, error: 'NOPE' }] } }] }],
+      ['paste 모르는 전체 오류', { kind: 'paste', about: '', cases: [{ ...goodPaste, out: { error: 'NOPE' } }] }],
+      ['paste 줄 번호 0', { kind: 'paste', about: '', cases: [{ ...goodPaste, out: { rows: [{ line: 0, nickname: 'a', text: '1' }] } }] }],
+      ['paste 모르는 사례 키', { kind: 'paste', about: '', cases: [{ ...goodPaste, target: 'x' }] }],
     ]
     for (const [label, data] of bad) expect(contractProblems([{ file: 'a.json', data }]).length, label).toBeGreaterThan(0)
   })
@@ -191,6 +251,25 @@ describe('AC-N2b-1-20 댓글 → 공통 레코드 골든 (G-TTK-N2b-1-41~58)', (
       const actual = events.map((e) => filter.accept(e.raw, new Date(e.receivedAt)))
       expect(actual).toEqual(c['out'])
       for (const outcome of actual) if ('record' in outcome) expect(Object.keys(outcome.record)).toEqual(RECORD_KEYS)
+    })
+  }
+})
+
+describe('AC-N2b-2-50 레코드 → chat 다섯 칸 골든 (G-TTK-N2b-2-23~32)', () => {
+  for (const c of chatCases) {
+    it(`${String(c['id'])} ${String(c['title'])}`, () => {
+      const actual = tiktokChatFields(c['in'] as TikTokCommentRecord)
+      expect(actual).toEqual(c['out'])
+      expect(Object.keys(actual)).toEqual(CHAT_KEYS)
+      expect(actual).not.toHaveProperty('publishedAt')
+    })
+  }
+})
+
+describe('AC-N2b-2-55 붙여넣기 줄 읽기 골든 (G-TTK-N2b-2-01~22)', () => {
+  for (const c of pasteCases) {
+    it(`${String(c['id'])} ${String(c['title'])}`, () => {
+      expect(parsePaste(c['in'] as string)).toEqual(c['out'])
     })
   }
 })

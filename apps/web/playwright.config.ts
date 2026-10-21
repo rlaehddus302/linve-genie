@@ -11,8 +11,12 @@
 //   | chromium-served     | (3105)| 3105  | —           | --web-dir(서버가 화면을 같은 출처로 함께 냄 — 보안 머리글·CSP)     | 제목에 @served             |
 //   | chromium-no-test-printer | 5178 | 3106 | —      | --test-printer no(시험 모드 끔 — 운영처럼 시험용 프린터 없음, AC-I1-50) | 제목에 @no-test-printer    |
 //   | chromium-billing    | 5179  | 3107  | —           | --billing yes(요금 기능 켬 + 시험 결제 — 가짜 결제 서버·가짜 발행기, N5 AC-N5-11·40) | 제목에 @billing |
+//   | chromium-multi      | 5180  | 3108  | 4102        | 가짜 유튜브 + --instagram yes(가짜 메타 4103) + --tiktok yes(가짜 웹캐스트) — N2b-2 동시 송출 | 제목에 @multi |
 // - 요금 기능(N5): 기본 묶음들은 요금 기능이 꺼진 서버다(메뉴 "요금" 없음 — AC-N5-50의 꺼진 서버 시험은 기본 묶음에서 돈다).
 //   요금을 켠 시험은 제목에 @billing을 달아 chromium-billing에서만 돈다(실행마다 빈 메모리 DB — 시험 계정은 이용권 없이 시작한다).
+// - 여러 플랫폼 묶음(N2b-2 AC-N2b-2-80): 가짜 메타 서버는 127.0.0.1:<instagram 포트>(조작 POST /_fake/* — N2 dev-notes "화면에게" 7, fakeMetaUrl),
+//   틱톡은 가짜 웹캐스트(운영자 스위치 켬) — 조작은 그 묶음 서버 주소의 POST /_e2e/tiktok/*(N2b-2 dev-notes "화면에게" 6). 인스타그램 연결을 마치면
+//   서버가 화면 주소 `/?instagram=<결과>`로 돌려보내고 화면이 설정의 인스타그램 칸으로 연다.
 // - 시험용 프린터(I1): E2E 서버는 기본으로 시험 모드다(화면 연결 방법에 "시험용 프린터 — 실제로 출력되지 않아요"와 window.livejjimTestPrinter 손잡이).
 // - 가짜 유튜브 묶음(AC-I3-93): 가짜 구글·유튜브 서버가 127.0.0.1:<가짜 유튜브 포트>에 함께 뜬다(조작은 POST /_fake/*, 상태 GET /_fake/state —
 //   harness/sprints/Y1/dev-notes.md "화면(I3)에게" 8). 시험은 STACKS의 youtube 포트를 쓴다(fakeYoutubeUrl). 실제 구글 주소로는 나가지 않는다.
@@ -54,6 +58,8 @@ export interface Stack {
   readonly youtube?: number
   /** 서버가 화면 빌드를 같은 출처로 함께 낸다 (화면 서버 없음, AC-I3-70) */
   readonly served?: boolean
+  /** 가짜 메타 서버 포트 (N2b-2 — 여러 플랫폼 묶음만) */
+  readonly instagram?: number
 }
 
 /** 서버가 화면을 내는 묶음의 화면 빌드 폴더 (실행마다 다시 빌드한다 — 빌드 결과물이 린트 범위에 들어가지 않게 node_modules/.cache 아래) */
@@ -69,7 +75,7 @@ export const STACKS: readonly Stack[] = [
     web: 5173 + offset,
     api: 3100 + offset,
     serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`,
-    grepInvert: /@prod-delay|@fill|@youtube|@quota|@served|@no-test-printer|@billing/,
+    grepInvert: /@prod-delay|@fill|@youtube|@quota|@served|@no-test-printer|@billing|@multi/,
   },
   { name: 'chromium-prod-delay', web: 5174 + offset, api: 3101 + offset, serverArgs: `--chat-speed ${chatSpeed}`, grep: /@prod-delay/ },
   { name: 'chromium-fill', web: 5175 + offset, api: 3102 + offset, serverArgs: `--fill yes --host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`, grep: /@fill/ },
@@ -92,11 +98,32 @@ export const STACKS: readonly Stack[] = [
   { name: 'chromium-served', web: 3105 + offset, api: 3105 + offset, served: true, serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed} --web-dir "${SERVED_WEB_DIR}"`, grep: /@served/ },
   { name: 'chromium-no-test-printer', web: 5178 + offset, api: 3106 + offset, serverArgs: `--test-printer no --host-delay-ms ${hostDelay}`, grep: /@no-test-printer/ },
   { name: 'chromium-billing', web: 5179 + offset, api: 3107 + offset, serverArgs: `--billing yes --host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`, grep: /@billing/ },
+  {
+    name: 'chromium-multi',
+    web: 5180 + offset,
+    api: 3108 + offset,
+    youtube: 4102 + offset,
+    instagram: 4103 + offset,
+    serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed} ${youtubeArgs(4102 + offset)} --instagram yes --instagram-port ${String(4103 + offset)} --tiktok yes`,
+    grep: /@multi/,
+  },
 ]
 
 /** 그 프로젝트의 가짜 유튜브 주소 (가짜 유튜브 묶음이 아니면 null) — 시험이 /_fake/*를 부를 때 */
 export function fakeYoutubeUrl(project: string): string | null {
   const port = STACKS.find((stack) => stack.name === project)?.youtube
+  return port === undefined ? null : `http://${E2E_HOST}:${String(port)}`
+}
+
+/** 그 프로젝트의 가짜 메타 주소 (여러 플랫폼 묶음이 아니면 null) — 시험이 /_fake/*를 부를 때 */
+export function fakeMetaUrl(project: string): string | null {
+  const port = STACKS.find((stack) => stack.name === project)?.instagram
+  return port === undefined ? null : `http://${E2E_HOST}:${String(port)}`
+}
+
+/** 그 프로젝트의 서버 주소 (시험이 /_e2e/*를 부를 때 — 틱톡 가짜 웹캐스트 조작) */
+export function e2eServerUrl(project: string): string | null {
+  const port = STACKS.find((stack) => stack.name === project)?.api
   return port === undefined ? null : `http://${E2E_HOST}:${String(port)}`
 }
 

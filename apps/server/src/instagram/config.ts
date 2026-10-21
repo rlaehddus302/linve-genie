@@ -4,6 +4,7 @@
 //   LIVEJJIM_IG_RETURN_PATH(연결을 마친 뒤 화면 주소의 경로, 기본 '/'), 주소 덮어쓰기 LIVEJJIM_IG_GRAPH_URL·LIVEJJIM_IG_IG_GRAPH_URL·
 //   LIVEJJIM_IG_FB_DIALOG_URL·LIVEJJIM_IG_IG_AUTHORIZE_URL·LIVEJJIM_IG_IG_TOKEN_URL(시험·스테이징용 — 기본은 메타 주소).
 // - 앱 ID·앱 시크릿·확인 토큰·돌아오는 주소 중 하나라도 없으면 "설정 없음"이다: 인스타그램 기능은 NOT_CONFIGURED, 웹훅은 503.
+// - 돌아오는 주소·메타 주소가 https가 아니면(내 컴퓨터 시험 주소 http://localhost·127.0.0.1·[::1] 제외) 설정 없음 + 경고 INSTAGRAM_CONFIG_INSECURE (N2b-2, D-N2b-2-10).
 // - 메타 API의 권한 이름·주소·오류 코드는 2026-10 메타 문서 기준의 기본값이다 — 메타가 이름을 바꿔도 판정·기록 규칙은 그대로다.
 // - 오류 문장에 환경변수 값을 넣지 않는다. 비밀값은 어떤 응답·로그에도 나가지 않는다.
 
@@ -72,7 +73,24 @@ export interface InstagramSettings {
   readonly timeouts: InstagramTimeouts
 }
 
-export type InstagramConfigResult = { readonly ok: true; readonly settings: InstagramSettings | null } | { readonly ok: false; readonly message: string }
+export type InstagramConfigResult =
+  | { readonly ok: true; readonly settings: InstagramSettings | null; readonly warning?: 'INSTAGRAM_CONFIG_INSECURE' }
+  | { readonly ok: false; readonly message: string }
+
+/** 내 컴퓨터 시험 주소 (http 허용 — SYS-05와 같은 기준) */
+const LOCAL_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]'])
+
+/** https 주소이거나 내 컴퓨터 시험 주소(http://localhost·127.0.0.1·[::1])인가 (D-N2b-2-10) */
+export function secureInstagramUrl(value: string): boolean {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    return false
+  }
+  if (url.protocol === 'https:') return true
+  return url.protocol === 'http:' && LOCAL_HOSTS.has(url.hostname)
+}
 
 const URL_RE = /^https?:\/\/[^\s]+$/
 
@@ -108,6 +126,8 @@ export function readInstagramConfig(env: Readonly<Record<string, string | undefi
     igToken: endpoint('LIVEJJIM_IG_IG_TOKEN_URL', META_ENDPOINTS.igToken),
   }
   if (Object.values(endpoints).some((value) => value === null)) return { ok: false, message: '인스타그램 메타 주소 설정(LIVEJJIM_IG_*_URL)은 http(s):// 주소여야 해요.' }
+  // 토큰이 오가는 주소가 https가 아니면 인스타그램을 끈 것으로 본다 — 서버는 정상으로 시작한다(경고 코드만, 값 없이) (D-N2b-2-10, AC-N2b-2-71)
+  if (![redirectUri, ...Object.values(endpoints)].every((value) => value !== null && secureInstagramUrl(value))) return { ok: true, settings: null, warning: 'INSTAGRAM_CONFIG_INSECURE' }
   return {
     ok: true,
     settings: {

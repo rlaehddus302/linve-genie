@@ -13,6 +13,8 @@
 //   운영 기동(main.ts)에는 없다 — 시험 모드에서만.
 // - I3 시험용 선택(AC-I3-93 — 운영 시작 main에는 없다): 유튜브 할당량 예산 줄이기, 발송함 시간 줄이기, 화면 폴더(같은 출처로 화면을 함께 냄),
 //   시험용 조작 경로 /_e2e/*(새 판매자 계정·봉인 시험 날짜·지금 봉인) — 이 기동에서만 앞에 붙는다(서버 앱에는 없다).
+// - 선택: 가짜 웹캐스트(tiktok: true, N2b-2 AC-N2b-2-73·80) — 틱톡 운영자 스위치를 켜고 연결 객체가 가짜 웹캐스트를 쓴다.
+//   시험이 댓글·끊김·막힘을 넣는 경로 /_e2e/tiktok/*는 이 기동에서만 있다(운영 서버 시작 경로에는 없다 — 운영은 실제 감싸개 libraryWebcast()).
 import { randomBytes, randomInt } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import type { Server } from 'node:http'
@@ -27,6 +29,7 @@ import { openPglite, type Database } from './db/database.ts'
 import { ChatMaker, generatorView } from './generator.ts'
 import { createNodeServer } from './node-server.ts'
 import { FakeMeta } from './instagram/fake-meta.ts'
+import { FakeWebcast, readTikTokSettings, type FakeAccountState, type TikTokFailureKind } from './tiktok/index.ts'
 import { generateMasterKey, type PasswordCost } from './secrets.ts'
 import { createServer, type LivejjimServer } from './server.ts'
 import { findAccountByLogin } from './store.ts'
@@ -142,6 +145,8 @@ export interface E2eOptions {
   readonly initialBackup?: boolean
   /** 가짜 메타 서버를 함께 띄우고 인스타그램을 그 주소로 연결한다 (기본 false, N2) */
   readonly instagram?: boolean
+  /** 가짜 메타 서버 포트 (기본 0 = 빈 포트 — E2E 시험이 /_fake/*를 부르도록 정한다, N2b-2) */
+  readonly instagramPort?: number
   /**
    * 가짜 구글·유튜브 서버와 함께 띄운다 (AC-Y1-81, D-Y13). 127.0.0.1의 그 포트(0이면 빈 포트)에서 열고 서버가 그 주소를 쓴다.
    * 돌아오는 주소는 화면 주소를 거친다(<화면>/api/youtube/oauth/callback — 화면이 /api를 서버로 넘긴다), 연결 뒤 화면 주소는 <화면>/settings/youtube.
@@ -152,6 +157,8 @@ export interface E2eOptions {
   readonly outboxFast?: boolean
   /** 화면 빌드 폴더 — 서버가 같은 출처로 함께 낸다 (AC-I3-70) */
   readonly webDir?: string
+  /** 가짜 웹캐스트로 틱톡 라이브 베타를 켠다 (운영자 스위치 켬 — N2b-2). 조작은 /_e2e/tiktok/* */
+  readonly tiktok?: boolean
   /** 입금 확인 시험 모드 — 가짜 원천·시험용 입금 넣기 (기본 true. 운영 기동에는 없다, AC-N3-17) */
   readonly testDeposits?: boolean
   /** 가짜·계좌조회 원천의 받아 오기 주기 (밀리초, 100~300000, 기본 1000 — E2E 기동만) */
@@ -183,7 +190,7 @@ function daysBefore(date: string, days: number): string {
  * - POST /_e2e/seal { loginId, date } → { sealed } — 그 날짜(실제 범위)를 지금 봉인 (열린 화면이 봉인되는 시험)
  * 그 밖의 요청은 서버 앱으로 그대로 (요청 정보 env도 — 로그인 IP 한도)
  */
-export function e2eControl(server: LivejjimServer, database: Database, masterKey: Buffer, passwordCost?: PasswordCost): Hono {
+export function e2eControl(server: LivejjimServer, database: Database, masterKey: Buffer, passwordCost?: PasswordCost, webcast?: FakeWebcast | null): Hono {
   const control = new Hono()
   const read = async (request: Request): Promise<Record<string, unknown>> => {
     try {
@@ -238,10 +245,83 @@ export function e2eControl(server: LivejjimServer, database: Database, masterKey
     const scopeId = await server.service.scopeId(sellerId, date)
     return c.json({ sealed: scopeId === null ? false : await server.sealer.seal(sellerId, scopeId, date) })
   })
+  if (webcast !== undefined && webcast !== null) registerTiktokControl(control, webcast, read)
   control.all('*', (c) => server.app.fetch(c.req.raw, c.env))
   return control
 }
 
+const TIKTOK_ACCOUNT_STATES: readonly FakeAccountState[] = ['LIVE', 'OFFLINE', 'MISSING']
+const TIKTOK_FAILURES: readonly TikTokFailureKind[] = ['NETWORK', 'NOT_LIVE', 'BLOCKED', 'SIGN_FAILED', 'USER_NOT_FOUND']
+
+/**
+ * 가짜 웹캐스트 조작 (N2b-2 — E2E 기동에서만). JSON POST, 세션 필요 없음. 아이디(uniqueId)는 판매자가 설정에 넣은 틱톡 아이디(소문자):
+ * - POST /_e2e/tiktok/account { uniqueId, state: LIVE|OFFLINE|MISSING } — 그 아이디의 방송 상태 (처음은 MISSING)
+ * - POST /_e2e/tiktok/comment { uniqueId, msgId?, userId, viewer?, nickname, comment } — 그 방송에 열린 연결로 댓글 하나 (viewer = 쓴 사람의 아이디 — 방송자 본인이면 uniqueId와 같게)
+ * - POST /_e2e/tiktok/data { uniqueId } — 댓글이 아닌 자료(방 정보) 하나 (멈춘 연결 보기 시계를 되돌린다)
+ * - POST /_e2e/tiktok/drop { uniqueId } — 열린 연결을 끊는다(틱톡 쪽 끊김)
+ * - POST /_e2e/tiktok/fail { kind, times? } — 다음 연결 시도 times번(기본 1)을 그 종류로 실패시킨다 (막힘 = BLOCKED)
+ * - POST /_e2e/tiktok/block { uniqueId, times? } — 막힘: 열린 연결을 끊고 다음 시도 times번(기본 9)을 BLOCKED로
+ * - POST /_e2e/tiktok/end { uniqueId } — 방송 끝
+ * - GET  /_e2e/tiktok/state — { attempts, open, maxOpen }
+ */
+function registerTiktokControl(control: Hono, webcast: FakeWebcast, read: (request: Request) => Promise<Record<string, unknown>>): void {
+  let nextMsg = 7_309_000_000_000_000_000n
+  const idOf = (body: Record<string, unknown>): string | null => (typeof body.uniqueId === 'string' && body.uniqueId !== '' ? body.uniqueId : null)
+  control.post('/_e2e/tiktok/account', async (c) => {
+    const body = await read(c.req.raw)
+    const id = idOf(body)
+    const state = body.state
+    if (id === null || typeof state !== 'string' || !TIKTOK_ACCOUNT_STATES.includes(state as FakeAccountState)) return c.json({ error: 'input' }, 400)
+    webcast.account(id, state as FakeAccountState)
+    return c.json({ ok: true })
+  })
+  control.post('/_e2e/tiktok/comment', async (c) => {
+    const body = await read(c.req.raw)
+    const id = idOf(body)
+    if (id === null) return c.json({ error: 'input' }, 400)
+    nextMsg += 1n
+    const msgId = typeof body.msgId === 'string' ? body.msgId : nextMsg.toString()
+    const open = webcast.openHandles(id)
+    webcast.broadcast(id, { msgId, userId: body.userId, uniqueId: body.viewer ?? `viewer_${String(body.userId)}`, nickname: body.nickname, comment: body.comment })
+    return c.json({ msgId, delivered: open.length })
+  })
+  control.post('/_e2e/tiktok/data', async (c) => {
+    const id = idOf(await read(c.req.raw))
+    if (id === null) return c.json({ error: 'input' }, 400)
+    for (const handle of webcast.openHandles(id)) handle.emit('roomUser', { viewerCount: 1 })
+    return c.json({ ok: true })
+  })
+  control.post('/_e2e/tiktok/drop', async (c) => {
+    const id = idOf(await read(c.req.raw))
+    if (id === null) return c.json({ error: 'input' }, 400)
+    for (const handle of webcast.openHandles(id)) handle.drop()
+    return c.json({ ok: true })
+  })
+  control.post('/_e2e/tiktok/fail', async (c) => {
+    const body = await read(c.req.raw)
+    const kind = body.kind
+    const times = typeof body.times === 'number' && Number.isInteger(body.times) && body.times >= 1 && body.times <= 100 ? body.times : 1
+    if (typeof kind !== 'string' || !TIKTOK_FAILURES.includes(kind as TikTokFailureKind)) return c.json({ error: 'input' }, 400)
+    webcast.failNext(kind as TikTokFailureKind, times)
+    return c.json({ ok: true })
+  })
+  control.post('/_e2e/tiktok/block', async (c) => {
+    const body = await read(c.req.raw)
+    const id = idOf(body)
+    if (id === null) return c.json({ error: 'input' }, 400)
+    const times = typeof body.times === 'number' && Number.isInteger(body.times) && body.times >= 1 && body.times <= 100 ? body.times : 9
+    webcast.failNext('BLOCKED', times)
+    for (const handle of webcast.openHandles(id)) handle.drop()
+    return c.json({ ok: true })
+  })
+  control.post('/_e2e/tiktok/end', async (c) => {
+    const id = idOf(await read(c.req.raw))
+    if (id === null) return c.json({ error: 'input' }, 400)
+    for (const handle of webcast.openHandles(id)) handle.endStream()
+    return c.json({ ok: true })
+  })
+  control.get('/_e2e/tiktok/state', (c) => c.json({ attempts: webcast.attempts, open: webcast.openCount, maxOpen: webcast.maxOpen }))
+}
 /** E2E 기동의 받아 오기 주기 기본값 (밀리초) */
 export const E2E_DEPOSIT_POLL_MS = 1000
 
@@ -262,6 +342,8 @@ export interface E2eServer {
   readonly http: Server
   /** 함께 띄운 가짜 메타 서버 (instagram: true일 때만) */
   readonly fakeMeta: FakeMeta | null
+  /** 가짜 웹캐스트 (tiktok: true일 때만) */
+  readonly fakeWebcast: FakeWebcast | null
   /** E2E_HOST(127.0.0.1)의 그 포트에서 연다 (0이면 빈 포트). 연 주소·포트를 돌려준다. 열지 못하면(포트를 이미 씀 등) 그 오류로 실패한다 */
   listen(port: number): Promise<{ readonly host: string; readonly port: number }>
   close(): Promise<void>
@@ -273,7 +355,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
   const ownBackupDir = options.backupDir === undefined
   const backupDir = options.backupDir ?? mkdtempSync(join(tmpdir(), 'livejjim-e2e-backup-'))
   const appOrigin = options.appOrigin ?? 'http://localhost:5173'
-  const fakeMeta = options.instagram === true ? await FakeMeta.start() : null
+  const fakeMeta = options.instagram === true ? await FakeMeta.start(options.instagramPort === undefined ? {} : { port: options.instagramPort }) : null
   const fakeGoogle =
     options.youtube === undefined
       ? null
@@ -282,6 +364,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
           pollingIntervalMillis: options.youtube.pollingIntervalMillis ?? 1000,
         })
   const budget = options.youtube?.quotaBudget
+  const fakeWebcast = options.tiktok === true ? new FakeWebcast() : null
   const server = createServer({
     database,
     masterKey,
@@ -315,6 +398,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     ...(options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost }),
     testPrinter: options.testPrinter ?? true,
     ...(options.billing === true ? { billing: testBilling() } : {}),
+    ...(fakeWebcast === null ? {} : { tiktok: { settings: readTikTokSettings({ LIVEJJIM_TIKTOK_BETA: 'on' }), webcast: fakeWebcast.factory } }),
     deposits: {
       testMode: options.testDeposits ?? true,
       popbill: null,
@@ -333,7 +417,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
   server.backups.start()
   server.work.receipts.warm()
   if (fakeGoogle !== null) server.start()
-  const http = createNodeServer({ app: e2eControl(server, database, Buffer.from(masterKey, 'base64'), options.passwordCost) })
+  const http = createNodeServer({ app: e2eControl(server, database, Buffer.from(masterKey, 'base64'), options.passwordCost, fakeWebcast) })
   return {
     server,
     database,
@@ -344,6 +428,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     fakeGoogle,
     http,
     fakeMeta,
+    fakeWebcast,
     listen: (port) =>
       new Promise((resolve, reject) => {
         const failed = (error: Error) => reject(error)

@@ -41,11 +41,11 @@
 | `LIVEJJIM_GOOGLE_REVOKE_URL` | 선택 | (비움) | 구글 토큰 폐기 주소 — 보통 비워 둔다 | |
 | `LIVEJJIM_YOUTUBE_API_URL` | 선택 | (비움) | 유튜브 Data API 주소 — 보통 비워 둔다 | |
 | `LIVEJJIM_TIKTOK_BETA` | 선택 | `on` | 틱톡 라이브 베타(읽기 전용, D-904) 운영자 전체 스위치. `on`일 때만 켜고, 비우거나 `off`면 끔 | 상용 출시 전 법률 검토 뒤에 켠다. `on`·`off`·빈 값이 아니면 끔으로 보고 경고 `TIKTOK_BETA_INVALID`를 남긴다 |
-| `LIVEJJIM_TIKTOK_SIGN_API_KEY` | 선택 | (비움) | 틱톡 서명 서비스 키 — 보통 비워 둔다. 값은 로그·화면에 나오지 않는다 | 연결 라이브러리가 따로 읽는 `SIGN_API_URL`·`SIGN_API_KEY`는 운영 환경에 두지 않는다(서명 키가 다른 주소로 갈 수 있다) |
+| `LIVEJJIM_TIKTOK_SIGN_API_KEY` | 선택 | (비움) | 틱톡 서명 서비스 키 — 보통 비워 둔다. 값은 로그·화면에 나오지 않는다 | 두지 마세요: 연결 라이브러리가 스스로 읽는 `SIGN_API_URL`·`SIGN_API_KEY`·`WHITELIST_AUTHENTICATED_SESSION_ID_HOST`(서명 키·판매자 아이디가 다른 주소로 갈 수 있다). 하나라도 있으면 서버는 정상으로 시작하되 틱톡을 끈 것으로 보고 경고 `TIKTOK_LIBRARY_ENV`(변수 이름만)를 남긴다 |
 | `LIVEJJIM_IG_APP_ID` | 선택 | `123456789012345` | 메타 개발자 앱 ID(4-1절). 앱 ID·앱 시크릿·확인 토큰·돌아오는 주소 넷 중 하나라도 비면 인스타그램 연동을 하지 않는다 | 인스타그램 기능만 꺼진다(화면에 "연동이 아직 준비되지 않았어요", 웹훅 주소는 503) |
 | `LIVEJJIM_IG_APP_SECRET` | 인스타그램이면 필수 | (메타가 준 값) | 메타 앱 시크릿 — 웹훅 서명을 확인하고 토큰을 받는 데 쓴다. 값은 로그·응답에 나오지 않는다 | 틀리면 모든 웹훅이 401이라 댓글을 받지 못한다. 새면 메타 앱 설정에서 새로 만든다 |
 | `LIVEJJIM_IG_VERIFY_TOKEN` | 인스타그램이면 필수 | (직접 만든 긴 무작위 값) | 웹훅 확인 토큰. `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`로 만들어 메타 앱의 웹훅 설정에도 같은 값을 넣는다 | 다르면 메타가 웹훅 주소를 등록하지 못한다 |
-| `LIVEJJIM_IG_REDIRECT_URI` | 인스타그램이면 필수 | `https://app.example.com/api/instagram/callback` | 메타에 등록한 돌아오는 주소 하나(4-1절) | 메타에 등록한 값과 다르면 연결이 실패한다. 주소 모양이 아니면 시작하지 않는다 |
+| `LIVEJJIM_IG_REDIRECT_URI` | 인스타그램이면 필수 | `https://app.example.com/api/instagram/callback` | 메타에 등록한 돌아오는 주소 하나(4-1절) | 메타에 등록한 값과 다르면 연결이 실패한다. 주소 모양이 아니면 시작하지 않는다. `https://`가 아니면(내 컴퓨터 시험 주소 `http://localhost`·`127.0.0.1`·`[::1]` 제외 — 메타 주소 덮어쓰기도 같다) 인스타그램을 끈 것으로 보고 경고 `INSTAGRAM_CONFIG_INSECURE`를 남긴다(서버는 시작한다) |
 | `LIVEJJIM_IG_LOGIN` | 선택 | `FACEBOOK` | 로그인 방식: `FACEBOOK`(기본 — 페이스북 페이지에 이은 인스타그램 프로페셔널 계정) 또는 `INSTAGRAM` | 둘이 아니면 시작하지 않는다 |
 | `LIVEJJIM_IG_SCOPES` | 선택 | (비움) | 권한 목록 덮어쓰기(쉼표 목록) — 보통 비워 둔다(로그인 방식의 기본 권한: 댓글 읽기·메시지 보내기) | 권한이 모자라면 연결 뒤 댓글 받기·감사 DM이 되지 않는다 |
 | `LIVEJJIM_IG_RETURN_PATH` | 선택 | `/` | 연결을 마친 뒤 판매자를 보낼 화면 경로(기본 `/`, 결과는 `?instagram=코드`) | `/`로 시작하지 않으면 시작하지 않는다 |

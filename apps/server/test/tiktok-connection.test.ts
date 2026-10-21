@@ -145,14 +145,15 @@ describe('AC-N2b-1-31 다시 시도 시간표', () => {
     await runSchedule('NETWORK')
   })
 
-  for (const kind of ['NOT_LIVE', 'BLOCKED', 'SIGN_FAILED'] as const) {
+  // N2b-2(D-N2b-2-11 (라), AC-N2b-2-43)가 NOT_LIVE를 이 시간표에서 뺐다 — 1분마다 60분, 연속 실패 수에 넣지 않음 (바꾼 기존 시험, dev-notes. 새 시간표는 tiktok-n2b2-connection.test.ts)
+  for (const kind of ['BLOCKED', 'SIGN_FAILED'] as const) {
     it(`${kind}도 같은 시간표, reason만 그 종류`, async () => {
       await runSchedule(kind)
     })
   }
 
   it('종류가 섞여도 연속 실패 수는 이어서 센다', async () => {
-    const kinds: TikTokRetryKind[] = ['NETWORK', 'BLOCKED', 'NOT_LIVE', 'SIGN_FAILED']
+    const kinds: TikTokRetryKind[] = ['NETWORK', 'BLOCKED', 'SIGN_FAILED']
     await runSchedule((attempt) => kinds[(attempt - 1) % kinds.length] ?? 'NETWORK')
   })
 

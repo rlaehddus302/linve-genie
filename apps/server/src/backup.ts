@@ -60,6 +60,7 @@ import {
   loginLimits,
   outbox,
   packingRecords,
+  pasteRequests,
   receiptLinkRequests,
   receiptLinks,
   printAttempts,
@@ -72,6 +73,9 @@ import {
   sellers,
   sessions,
   snapshots,
+  tiktokAccounts,
+  tiktokConsents,
+  tiktokLinks,
   youtubeCollectors,
   youtubeConnections,
   youtubeLinks,
@@ -1124,6 +1128,10 @@ const BATCH = 500
  * - 인스타그램·라이브 연결(N2 — 감사 DM 행·발송, 라이브 연결·옮긴 기록, 이어지지 않은 댓글 수, 요청 번호): 범위·방송·발송함을 참조하거나 그 기록이다 — 지운다
  *   (복구한 지난 감사 DM을 다시 보내지 않는다).
  * - 구매자 확인서 공유 링크·그 요청 번호(N4b D-N4b-06): 파일에 없다 — 지운다. 복구한 기록의 구매자 ID가 다른 사람을 가리킬 수 있어 복구 전에 만든 링크는 모두 열리지 않게 한다.
+ * 합칠 때(N2b-2) 더한 표 — N2와 같은 기준(회차에 딸린 연결·요청 번호는 지우고, 판매자 계정 쪽 설정은 둔다):
+ * - 틱톡 연결(tiktok_links — 회차·범위를 참조하는 회차별 연결과 기록하지 않은·저장 실패 수): 라이브 연결(live_links)처럼 지운다. 파일에 없고,
+ *   복구한 지난 회차를 다시 잇지 않는다. 복구 명령은 서버를 다시 켜므로 이어받기(resume)가 지운 연결을 다시 열지 않는다.
+ * - 붙여넣기 요청 번호(paste_requests — 회차의 넣기 응답 요약): 라이브 요청 번호(live_requests)처럼 지운다.
  * - 입금 확인(N3 — 입금과 엔진 기록의 연결 deposit_links, 처리 기록 deposit_actions): 범위를 참조하므로 이 목록에서 지우지만, 판매자가 한 일의 기록이라
  *   버리지 않는다 — 지우기 전에 읽어 두었다가 파일로 다시 만든 범위에 다시 넣는다(restoreDepositRecords). 처리 기록은 모두 그대로(범위만 새 범위로),
  *   연결은 다시 만든 범위의 그 seq에 그 입금의 엔진 기록(요청 번호 dep-<번호>-pay|rev-<차례>)이 있을 때만 남긴다.
@@ -1139,6 +1147,8 @@ export const RESTORE_REPLACED_TABLES = [
   liveLinks,
   liveUnlinked,
   liveRequests,
+  tiktokLinks,
+  pasteRequests,
   printAttempts,
   printJobs,
   printLabels,
@@ -1157,7 +1167,7 @@ export const RESTORE_REPLACED_TABLES = [
 ] as const
 /**
  * 복구가 그대로 두는 판매자 표: 판매자 행(가게 설정·판매 규칙 설정 칸만 파일의 것으로 바꾼다)·로그인 계정·세션 (AC-I2-62 "판매자 ID·로그인 계정·세션·전화번호 키는 그대로"),
- * 라벨 템플릿(I1 — 판매자 설정, 파일에 없다), 구글 연결·승인 요청·할당량 사용량(Y1 — 계정 연결과 그날 쓴 양, 파일에 없다), 인스타그램 연결·승인 요청(N2 — 계정 연결), 출력 대기열 줄·라벨 기능 켬/끔 기록(I1·N4a — 판매자 설정, 대기열의 출력 중·멈춤 상태는 복구가 지운다),
+ * 라벨 템플릿(I1 — 판매자 설정, 파일에 없다), 구글 연결·승인 요청·할당량 사용량(Y1 — 계정 연결과 그날 쓴 양, 파일에 없다), 인스타그램 연결·승인 요청(N2 — 계정 연결), 틱톡 아이디·틱톡 사용 동의 기록(N2b-2 — 인스타그램 연결처럼 계정 쪽 설정이고, 동의 기록은 덧붙이기만 하는 기록이라 지우지 않는다 DAT-05), 출력 대기열 줄·라벨 기능 켬/끔 기록(I1·N4a — 판매자 설정, 대기열의 출력 중·멈춤 상태는 복구가 지운다),
  * 입금 확인(N3 — 원천·입금·기억한 입금자명·묶인 사업자번호·화면 요청 번호: 엔진 밖 기록이라 파일에 없다. 입금 번호를 다시 쓰지 않게 그대로 두고,
  * 입금 상태만 다시 만든 엔진 기록에 맞춘다 — 반영한 입금 기록이 파일에 없으면 확인 필요로, restoreDepositRecords),
  * 요금 원장(N5 — 이용권·회수·쓴 기록·방송의 이용 방식·결제 주문·사업자 정보·증빙 요청·요금 요청 번호): 돈이 오간 기록이라 판매자 백업 파일로 덮지 않는다.
@@ -1175,6 +1185,8 @@ export const RESTORE_KEPT_TABLES = [
   youtubeQuota,
   igConnections,
   igOauthStates,
+  tiktokAccounts,
+  tiktokConsents,
   printQueues,
   labelSwitches,
   billingGrants,

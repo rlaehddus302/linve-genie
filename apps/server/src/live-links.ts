@@ -1,7 +1,8 @@
 // 회차의 라이브 연결 — 플랫폼 공통 (PLT-03, D-N2-05·D-N2-08·D-N2-12, AC-N2-03·04·20~24·37).
-// - 회차마다 끊지 않은 연결(WAITING 기다리는 중·LINKED 이어짐)은 하나뿐이다(DB 부분 유일 인덱스 + 판매자마다 한 줄 처리).
-// - 받지 않는 경우(아무것도 바꾸지 않는다): 다른 판매자·없는 회차 404, 리허설 REHEARSAL, 끝난 회차 ENDED, 이미 연결 ALREADY_LINKED,
-//   틱톡 PLATFORM_NOT_SUPPORTED(어떤 외부 주소도 부르지 않는다), 인스타그램 설정 없음 NOT_CONFIGURED,
+// - 회차·플랫폼마다 끊지 않은 연결(WAITING 기다리는 중·LINKED 이어짐)은 하나뿐이다(DB 부분 유일 인덱스 + 판매자마다 한 줄 처리 — 동시 송출, D-N2b-2-01).
+//   이 표는 인스타그램이 쓴다. 유튜브는 youtube_links, 틱톡은 tiktok_links(같은 판매자 잠금). 다른 플랫폼이 이어져 있어도 막지 않는다.
+// - 받지 않는 경우(아무것도 바꾸지 않는다): 다른 판매자·없는 회차 404, 리허설 REHEARSAL, 끝난 회차 ENDED, 같은 플랫폼 이미 연결 ALREADY_LINKED,
+//   인스타그램 설정 없음 NOT_CONFIGURED,
 //   실제 시각순 스냅샷 회차 RECEIVED_TIME_NOT_ALLOWED, 연결 없음 NOT_CONNECTED, 진행 중 내 라이브가 아님 NOT_LIVE, 다른 회차에 이어진 라이브 LIVE_TAKEN.
 // - 잇기·기다리기·끊기는 엔진 이벤트가 아니다 — 누가·언제는 live_links에 남는다(DAT-05). 같은 요청 번호는 한 번만 한다(처음 응답).
 // - 웹훅 댓글의 회차 정하기(resolveTarget): 그 라이브에 이어진 끝나지 않은 회차, 없으면 기다리는 끝나지 않은 회차가 정확히 하나일 때 저절로 잇는다(조치자 서버).
@@ -19,10 +20,9 @@
 import { getBroadcast } from '@livejjim/core'
 import { sql } from 'drizzle-orm'
 import type { Db } from './db/database.ts'
-import { isPlatform, PLATFORM_MESSAGES, type LiveSource, type Platform } from './platform.ts'
-import type { SellerLocks } from './seller-locks.ts'
+import { alreadyLinkedMessage, isPlatform, PLATFORM_MESSAGES, type LiveSource, type Platform } from './platform.ts'
+import { sellerLinkLockKey, type SellerLocks } from './seller-locks.ts'
 import { findBroadcast } from './store.ts'
-import { activeLink as youtubeLink } from './youtube/store.ts'
 import type { Clock } from './time.ts'
 import type { ScopeWriter } from './writer.ts'
 import {
@@ -48,14 +48,13 @@ import { liveMovedMessage } from './instagram/notices.ts'
 export const LINK_MESSAGES = {
   REHEARSAL: '리허설 방송에는 라이브를 이을 수 없어요.',
   ENDED: '끝난 방송에는 라이브를 이을 수 없어요.',
-  ALREADY_LINKED: '이 방송에는 이미 라이브가 이어져 있어요. 먼저 연결을 끊어 주세요.',
+  ALREADY_LINKED: alreadyLinkedMessage('INSTAGRAM'),
   RECEIVED_TIME_NOT_ALLOWED: "인스타그램 라이브는 실제 시각순으로 판정할 수 없어요. 판매 규칙을 '접수순'으로 바꾼 뒤 새 방송을 시작해 주세요.",
   NOT_LIVE: '진행 중인 내 인스타그램 라이브만 이을 수 있어요.',
   LIVE_TAKEN: '이미 다른 방송에 이어진 인스타그램 라이브예요.',
   NOT_CONNECTED: '인스타그램 계정을 먼저 연결해 주세요.',
   RECONNECT_NEEDED: '인스타그램 연결을 다시 해 주세요.',
   NOT_CONFIGURED: PLATFORM_MESSAGES.instagramNotConfigured,
-  PLATFORM_NOT_SUPPORTED: PLATFORM_MESSAGES.tiktokNotSupported,
   PLATFORM_NOT_READY: PLATFORM_MESSAGES.youtubeNotReady,
   NOT_LINKED: '이어진 라이브가 없어요.',
   UNAVAILABLE: '인스타그램에서 라이브 목록을 받지 못했어요. 잠시 뒤 다시 해 주세요.',
@@ -185,7 +184,7 @@ const LIVE_ID_RE = /^[A-Za-z0-9_-]{1,128}$/
 const fail = (status: number, code: LinkErrorCode): LinkOutcome => ({ status, body: { error: { code, message: LINK_MESSAGES[code] } } })
 const notFound: LinkOutcome = { status: 404, body: { error: { code: 'NOT_FOUND', message: '찾을 수 없어요.' } } }
 
-const lockKey = (sellerId: string) => sql`hashtextextended(${`live-link/${sellerId}`}, 0)`
+const lockKey = sellerLinkLockKey
 
 export class LiveLinks {
   readonly #deps: LiveLinksDeps
@@ -258,15 +257,12 @@ export class LiveLinks {
     const broadcast = await findBroadcast(this.#deps.db, sellerId, broadcastId)
     if (broadcast === null) return notFound
     if (!isPlatform(platform)) return { status: 400, body: { error: { code: 'INVALID_INPUT', message: '입력한 내용을 확인해 주세요.', problems: [{ field: 'platform', message: "플랫폼은 'INSTAGRAM'·'YOUTUBE'·'TIKTOK' 중 하나예요." }] } } }
-    if (platform === 'TIKTOK') return fail(409, 'PLATFORM_NOT_SUPPORTED')
-    if (platform === 'YOUTUBE') return fail(409, 'PLATFORM_NOT_READY')
+    if (platform !== 'INSTAGRAM') return fail(409, 'PLATFORM_NOT_READY')
     if (!this.#deps.instagram.configured) return fail(409, 'NOT_CONFIGURED')
     if (broadcast.rehearsal) return fail(409, 'REHEARSAL')
     if (broadcast.endedAt !== null) return fail(409, 'ENDED')
     const open = await latestLink(this.#deps.db, sellerId, broadcastId)
     if (open !== null && open.state !== 'UNLINKED') return fail(409, 'ALREADY_LINKED')
-    // 한 회차 한 플랫폼: 유튜브 방송이 이어져 있어도 막는다 (PLT-01, N2 합치기 — acceptance "합칠 때 맞출 것" 2)
-    if ((await youtubeLink(this.#deps.db, sellerId, broadcastId)) !== null) return fail(409, 'ALREADY_LINKED')
     // 그 회차의 설정 스냅샷 (broadcast.start) — 실제 시각순이면 이을 수 없다 (D-N2-05)
     const state = (await this.#deps.writer.read(sellerId, broadcast.date, false)).state
     if (getBroadcast(state, broadcastId)?.settings['contention.policy'] === 'RECEIVED_TIME') return fail(409, 'RECEIVED_TIME_NOT_ALLOWED')
@@ -319,7 +315,6 @@ export class LiveLinks {
       await tx.execute(sql`select pg_advisory_xact_lock(${lockKey(sellerId)})`)
       const open = await latestLink(tx, sellerId, broadcastId)
       if (open !== null && open.state !== 'UNLINKED') return fail(409, 'ALREADY_LINKED')
-      if ((await youtubeLink(tx, sellerId, broadcastId)) !== null) return fail(409, 'ALREADY_LINKED')
       if (liveId !== null && (await linkedToLive(tx, sellerId, liveId)).length > 0) return fail(409, 'LIVE_TAKEN')
       const connection = await this.#deps.instagram.connection(sellerId, tx)
       if (connection === null) return fail(409, 'NOT_CONNECTED')
