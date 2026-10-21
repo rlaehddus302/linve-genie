@@ -12,6 +12,7 @@ import { DepositStore } from '../src/lib/deposit-store.ts'
 import { parseRoute, routePath, type DepositTab, type Route } from '../src/lib/router.ts'
 import { DepositServer, D_DATE, bundle, deposit, source } from './deposit-server.ts'
 import { FakeEventSource, apiError, flush } from './support.ts'
+import { menuNav, openMore } from './menu-support.ts'
 
 let api: DepositServer
 let stream: FakeEventSource
@@ -69,7 +70,10 @@ describe('주소·메뉴·실시간 (AC-N3-40)', () => {
 
   it('메뉴 "입금 확인 2"(수는 글자로), 지금 화면은 aria-current — 다른 기기의 처리 알림으로 목록·수가 바로 바뀐다', async () => {
     await open([deposit(1), deposit(2)])
-    const menuLink = within(screen.getByRole('navigation', { name: '메뉴' })).getByRole('link', { name: '입금 확인 2' })
+    // 휴대폰(D-NAV-01): "더보기"가 지금 위치이고 수는 붙이지 않는다 — 수는 목록 안 "입금 확인 2"에서 (AC-NAV-04·05)
+    const more = within(menuNav()).getByRole('button', { name: '더보기' })
+    expect(more.getAttribute('aria-current')).toBe('page')
+    const menuLink = within(openMore()).getByRole('link', { name: '입금 확인 2' })
     expect(menuLink.getAttribute('aria-current')).toBe('page')
     expect(menuLink.getAttribute('href')).toBe('/deposits')
     expect(screen.getByRole('tab', { name: '확인 필요 2' }).getAttribute('aria-selected')).toBe('true')
@@ -78,7 +82,9 @@ describe('주소·메뉴·실시간 (AC-N3-40)', () => {
     api.deposits[1] = { ...(api.deposits[1] as DepositView), status: 'APPLIED' }
     stream.emit('deposit', { deposits: [2], review: 1, sources: [] })
     await flush()
-    expect(within(screen.getByRole('navigation', { name: '메뉴' })).getByRole('link', { name: '입금 확인 1' })).toBeDefined()
+    // 열어 둔 목록의 수가 바로 바뀐다 (AC-NAV-05), "더보기" 이름은 그대로
+    expect(within(within(menuNav()).getByRole('list')).getByRole('link', { name: '입금 확인 1' })).toBeDefined()
+    expect(more.textContent).toBe('더보기')
     await waitFor(() => expect(screen.queryByRole('listitem', { name: '입금 #2' })).toBeNull())
     expect(card(1)).toBeDefined()
   })
@@ -100,7 +106,7 @@ describe('주소·메뉴·실시간 (AC-N3-40)', () => {
 
   it('확인 필요가 없으면 메뉴에 수를 붙이지 않는다', async () => {
     await open([])
-    expect(within(screen.getByRole('navigation', { name: '메뉴' })).getByRole('link', { name: '입금 확인' }).textContent).toBe('입금 확인')
+    expect(within(openMore()).getByRole('link', { name: '입금 확인' }).textContent).toBe('입금 확인')
     expect(screen.getByText('확인할 입금이 없어요.')).toBeDefined()
   })
 })

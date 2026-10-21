@@ -95,6 +95,8 @@ describe('앱 설치 (AC-S06-52)', () => {
  * 메뉴 "라벨"·프린터 상태는 켬/끔을 안 뒤 켜져 있을 때만 보인다 (AC-N4a-13·18)
  */
 async function topBarWithLabels(labelsEnabled: boolean | null, route: Route, navigate: Navigate = () => {}) {
+  // PC 폭(48rem 이상) — 모든 메뉴가 위 줄에 (휴대폰 모양은 phone-menu.test.tsx, D-NAV-01)
+  vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(min-width: 48rem)', media: query, addEventListener: () => {}, removeEventListener: () => {} }))
   const { TopBar } = await import('../src/components/TopBar.tsx')
   const { PrintContext } = await import('../src/components/print-context.tsx')
   const { PrintStore } = await import('../src/lib/print-store.ts')
@@ -110,7 +112,7 @@ async function topBarWithLabels(labelsEnabled: boolean | null, route: Route, nav
   )
 }
 
-describe('메뉴 (AC-S06-01, AC-I1-20, AC-I3-44, AC-N4a-10·13·18, AC-N3-40)', () => {
+describe('PC 메뉴 (AC-S06-01, AC-I1-20, AC-I3-44, AC-N4a-10·13·18, AC-N3-40, AC-NAV-08 — 더보기 없음)', () => {
   it('"방송"·"문자찜 입력"·"구매자"·"정산"·"입금 확인"(AC-N3-40)·"포장"(I2 AC-I2-35)·"라벨"(AC-I1-20)·"설정"(AC-I3-44), 지금 화면은 aria-current="page" — 구매자·정산 사이는 고른 날짜를 이어 간다', async () => {
     const navigate = vi.fn()
     await topBarWithLabels(true, { name: 'buyers', date: '2026-10-18', rehearsal: true }, navigate)
@@ -128,6 +130,7 @@ describe('메뉴 (AC-S06-01, AC-I1-20, AC-I3-44, AC-N4a-10·13·18, AC-N3-40)', 
     fireEvent.click(links[1] as HTMLAnchorElement)
     expect(navigate).toHaveBeenCalledWith({ name: 'sms' })
     expect(screen.getByRole('link', { name: '출력 기기 없음' }).getAttribute('href')).toBe('/labels')
+    expect(screen.queryByRole('button', { name: '더보기' })).toBeNull()
   })
 
   it('"설정"은 메뉴 항목 하나 — 누르면 /settings, 그 화면이면 aria-current="page". 위 줄에 따로 "설정" 링크를 두지 않는다 (AC-I3-44, D-N4a-07)', async () => {
