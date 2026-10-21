@@ -480,8 +480,10 @@ function update(d: Draft, e: ProductUpdateEvent): void {
     for (const id of unit.winners) {
       const record = d.readClaim(id)
       if (record === undefined) throw new CorruptStateError(`확정 찜 ${id}가 없다`)
+      // 가격 변경 = 이 이벤트로 그 찜 변형의 단가가 바뀌었다 (상품 가격 또는 가격 차이 — R-10, R-19 "가격")
       const newPrice = unitPrice(next, record.variant)
-      const reprice = e.applyTo === 'UNPAID_CLAIMS' && record.price !== newPrice && groupReceived(d, record) === 0
+      const changed = newPrice !== unitPrice(product, record.variant)
+      const reprice = changed && e.applyTo === 'UNPAID_CLAIMS' && record.price !== newPrice && groupReceived(d, record) === 0
       if (!reprice && name === undefined) continue
       const printed = labelPrinted(d, record)
       if (!reprice && !printed) continue
