@@ -48,7 +48,7 @@ export function FocusButton({ product }: { readonly product: Product }) {
         type="button"
         className="button button-small"
         disabled={busy}
-        aria-label={`${String(product.no)}번 지금 상품으로`}
+        aria-label={`지금 상품으로 — ${String(product.no)}번`}
         onClick={() => {
           setBusy(true)
           setError(null)
@@ -203,7 +203,7 @@ const BoardItem = memo(function BoardItem({ product, onOpen }: { readonly produc
         <div className="row board-extra">
           <FocusButton product={product} />
           {product.hasOptions ? (
-            <button type="button" className="button button-small" aria-expanded={open} aria-label={`${String(product.no)}번 변형 ${open ? '접기' : '펼치기'}`} onClick={() => setOpen((value) => !value)}>
+            <button type="button" className="button button-small" aria-expanded={open} aria-label={`변형 ${open ? '접기' : '펼치기'} — ${String(product.no)}번`} onClick={() => setOpen((value) => !value)}>
               {open ? '변형 접기' : `변형 ${String(product.variants.length)}개 펼치기`}
             </button>
           ) : null}
@@ -221,7 +221,7 @@ const BoardItem = memo(function BoardItem({ product, onOpen }: { readonly produc
 export function VariantLines({ product }: { readonly product: Product }) {
   const api = useConsoleApi()
   return (
-    <ul className="plain-list variant-lines" aria-label={`${String(product.no)}번 변형`}>
+    <ul className="plain-list variant-lines" aria-label={`변형 — ${String(product.no)}번`}>
       {product.variants.map((variant) => {
         const winners = variant.winnerClaims
           .map((id) => api.data.claims.get(id))

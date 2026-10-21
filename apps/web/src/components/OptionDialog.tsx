@@ -358,8 +358,8 @@ function ItemFields({ index, item, locked, baseCount, problem, bulk, onBulk, onA
             }}
           />
         </label>
-        <button type="button" className="button button-small" disabled={bulk.trim() === ''} onClick={onAddBulk}>
-          넣기
+        <button type="button" className="button button-small" disabled={bulk.trim() === ''} aria-label={`항목 ${String(n)} 선택지 한 번에 더하기`} onClick={onAddBulk}>
+          한 번에 더하기
         </button>
       </div>
     </fieldset>
