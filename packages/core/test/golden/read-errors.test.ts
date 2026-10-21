@@ -346,7 +346,7 @@ const CASES: Readonly<Record<string, { category: string; loaded?: number; errors
           ['events[3].settings.waitlist.maxx', "모르는 설정 키 'waitlist.maxx'"],
           ['events[3].settings.waitlist.max', '0 이상 100 이하 정수여야 한다 (값: 101)'],
           ['events[3].settings.shipping.freeThreshold', '0 이상 100000000 이하 정수 또는 null이어야 한다 (값: -1)'],
-          ['events[3].settings.claim.parseMode', 'STRICT / LOOSE 중 하나'],
+          ['events[3].settings.claim.parseMode', 'STRICT / LOOSE / OPTIONS 중 하나'],
           ['events[4].settings', '맵이어야 한다'],
           ['events[5].at2', "모르는 필드 'at2'"],
         ],

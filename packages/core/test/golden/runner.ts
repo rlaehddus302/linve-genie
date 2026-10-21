@@ -65,6 +65,7 @@ function runParserCase(
   testCase: ParserCase,
   dictionary: readonly string[] = [],
   existing: readonly number[] = [],
+  inputs: { readonly catalog?: readonly unknown[]; readonly focus?: unknown } = {},
 ): { status: ItemStatus; problems: Problem[] } {
   let actual: unknown
   try {
@@ -89,6 +90,11 @@ function runParserCase(
       case 'product-import':
         // 이미 있는 번호도 사례마다 사본을 넘긴다 — 해석기가 바꿔도 다음 사례에 번지지 않게 (I2, D-I2-09)
         actual = core.parser.productImport(testCase.input, copy, [...existing])
+        break
+      case 'comment-options':
+        // 상품 목록·지금 상품도 사례마다 사본을 넘긴다 (O1, D-O1-09). 코어에 인식 함수가 없으면 미구현
+        if (core.parser.commentOptions === undefined) throw new NotImplementedError('댓글 옵션 인식(comment-options, O1)')
+        actual = core.parser.commentOptions(testCase.input, copy, structuredClone(inputs.catalog ?? []), structuredClone(inputs.focus ?? null))
         break
     }
   } catch (error) {
@@ -434,7 +440,7 @@ export function runGoldenSources(options: RunGoldenSourcesOptions): GoldenReport
     if (doc.kind === 'suite') {
       const listed = allowlist.suites.has(doc.suite)
       for (const testCase of doc.cases) {
-        const { status, problems } = runParserCase(options.core, doc.suite, doc.settings, testCase, doc.dictionary, doc.existing)
+        const { status, problems } = runParserCase(options.core, doc.suite, doc.settings, testCase, doc.dictionary, doc.existing, { catalog: doc.catalog, focus: doc.focus })
         items.push({
           kind: 'parser',
           file: entry.file,

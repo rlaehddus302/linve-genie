@@ -15,6 +15,11 @@ export interface GoldenParserCore {
   voiceExtract(text: string, settings: SettingsOverride, dictionary: readonly string[]): unknown
   /** 상품 목록 가져오기 (I2, D-I2-09 — 해석 함수는 apps/server에 있고 어댑터가 부른다). existing은 suite의 이미 있는 번호(사본) */
   productImport(text: string, settings: SettingsOverride, existing: readonly number[]): unknown
+  /**
+   * 옵션 방송의 댓글 옵션 인식 (O1, D-O1-09 — 코어 parseOptionComment). catalog·focus는 문서의 입력(사본).
+   * 결과는 out 모양 `{ orders?, cancels?, mentions?, review? }`(빈 값은 키 없음)으로 돌려준다
+   */
+  commentOptions?(text: string, settings: SettingsOverride, catalog: readonly unknown[], focus: unknown): unknown
 }
 
 export interface GoldenBroadcast {
@@ -95,6 +100,31 @@ export interface ProductView {
   readonly conflict: boolean
   readonly price: number
   readonly priceHistory: readonly { readonly from: number; readonly to: number }[]
+  /** (O1) 모든 변형의 확정 수량 합 (옵션 없는 상품은 확정 찜 수량의 합). 없으면 확정 구매자 수로 본다 */
+  readonly confirmedUnits?: number
+  /** (O1) 옵션 항목이 있는 상품인지 — 상품 단위 winner·waitlist를 적으면 러너 오류다(D-O1-01) */
+  readonly hasOptions?: boolean
+}
+
+/** (O1, R-19) 변형 하나 */
+export interface VariantView {
+  readonly status: ProductStatus
+  readonly winners: readonly string[]
+  readonly waitlist: readonly string[]
+  readonly stock: number
+  readonly confirmedUnits: number
+}
+
+/** (O1, R-20 7) 확인 필요 항목 하나 — 원래 순위 순 */
+export interface ReviewView {
+  readonly item: string
+  readonly reason: string
+  /** 지금의 구매자 */
+  readonly buyer: string
+  /** 읽은 것만 (없으면 키 없음) */
+  readonly product?: string
+  readonly options?: Readonly<Record<string, string>>
+  readonly qty?: number
 }
 
 export interface BuyerView {
@@ -136,6 +166,8 @@ export interface ClaimView {
   readonly buyer: string
   readonly status: ClaimStatus
   readonly reason?: RejectReason
+  /** (O1) 수량 (없으면 1) */
+  readonly qty?: number
 }
 
 /** 합치기 미리 보기 결과 (S06b, D-100). 구매자는 모두 구매자 자신의 ID, 상품은 지금의 상품 키 */
@@ -176,6 +208,10 @@ export interface GoldenSnapshot {
   /** 상품 키 → 보류 찜 구매자 ID (판정 순위 순) */
   readonly pending: Readonly<Record<string, readonly string[]>>
   readonly cancelRequests: readonly { readonly product: string; readonly buyer: string }[]
+  /** (O1) 변형 키 `<방송>/<번호>#<옵션 글>` → 변형 (없으면 변형이 없다) */
+  readonly variants?: Readonly<Record<string, VariantView>>
+  /** (O1) 확인 필요 항목 전체, 원래 순위 순 (없으면 빈 목록) */
+  readonly reviews?: readonly ReviewView[]
 }
 
 // ── 러너 → 사용자 ────────────────────────────────────────────────────────

@@ -6,7 +6,17 @@ import {
   BROADCAST_EXPECT_KEYS,
   BROADCAST_ID_RE,
   BUYER_EXPECT_KEYS,
+  CHAT_PARSE_MODES,
   CLAIM_EXPECT_KEYS,
+  COMMENT_OPTIONS_INPUT_KEYS,
+  COMMENT_OPTIONS_OUT_KEYS,
+  OPTION_ONLY_EVENTS,
+  OPTION_ONLY_FIELD_KINDS,
+  PARSE_REVIEW_REASONS,
+  REVIEW_EXPECT_KEYS,
+  REVIEW_REASONS,
+  VARIANT_EXPECT_KEYS,
+  VARIANT_KEY_RE,
   CLAIM_STATUSES,
   EFFECT_EXPECT_KEYS,
   EFFECT_KINDS,
@@ -63,6 +73,7 @@ import {
   type ValueCheck,
 } from './contract.ts'
 import { isShortAt, isValidReceived, parseDate, resolveAt } from './time.ts'
+import { checkOptionItems, checkPick, checkProductAliases, checkStocks, mergeCatalog, type CatalogItem } from './validate-options.ts'
 import type { GoldenBroadcast, GoldenEvent, GoldenSetup } from './types.ts'
 import type { PathSegment } from './yaml.ts'
 
@@ -77,6 +88,27 @@ export interface ProductExpect {
   readonly exists?: boolean
   readonly price?: number
   readonly priceHistory?: readonly { readonly from: number; readonly to: number }[]
+  readonly confirmedUnits?: number
+}
+
+/** `variants."<방송>/<번호>#<옵션 글>"` (O1) */
+export interface VariantExpect {
+  readonly status?: ProductStatus
+  readonly winner?: string | null
+  readonly winners?: readonly string[]
+  readonly waitlist?: readonly string[]
+  readonly stock?: number
+  readonly confirmedUnits?: number
+}
+
+/** `reviews[i]` (O1) — 읽은 것만 적는다 */
+export interface ReviewExpect {
+  readonly item: string
+  readonly reason: string
+  readonly buyer: string
+  readonly product?: string
+  readonly options?: Readonly<Record<string, string>>
+  readonly qty?: number
 }
 
 export interface BuyerExpect {
@@ -111,6 +143,7 @@ export interface ClaimExpect {
   readonly buyer: string
   readonly status: ClaimStatus
   readonly reason?: RejectReason
+  readonly qty?: number
 }
 
 export interface BroadcastExpect {
@@ -149,6 +182,8 @@ export interface Expect {
   readonly claimCount?: number
   readonly cancelRequests?: readonly { readonly product: string; readonly buyer: string }[]
   readonly mergePreviews?: readonly MergePreviewExpect[]
+  readonly variants?: Readonly<Record<string, VariantExpect>>
+  readonly reviews?: readonly ReviewExpect[]
 }
 
 export interface ParserCase {
@@ -167,6 +202,9 @@ export interface ParserSuiteDoc {
   readonly dictionary?: readonly string[]
   /** product-import의 이미 있는 번호 (settings.existing, 생략하면 빈 목록). 다른 suite에는 없다 (I2, D-I2-09) */
   readonly existing?: readonly number[]
+  /** comment-options의 입력 (O1, D-O1-09): 상품 목록과 지금 상품. 다른 suite에는 없다 */
+  readonly catalog?: readonly unknown[]
+  readonly focus?: unknown
   readonly cases: readonly ParserCase[]
 }
 
@@ -219,6 +257,10 @@ interface ScenarioContext {
   readonly dates: ReadonlySet<string>
   /** 방송 날짜가 하나뿐이면 그 날짜 (방송 없는 이벤트의 짧은 at 기준) */
   readonly singleDate: string | undefined
+  /** 방송 → 옵션 방송인지·최대 수량 (O1 — 시작 설정과 broadcast.start 설정) */
+  readonly modes: Map<string, { readonly options: boolean; readonly maxQuantity: number }>
+  /** 상품 키 → 그동안 적힌 옵션 항목 (O1 — 등록·수정의 합집합, 번호 변경이면 새 번호로) */
+  readonly catalog: Map<string, CatalogItem>
 }
 
 class Checker {
@@ -283,6 +325,28 @@ function checkProductKey(c: Checker, ctx: ScenarioContext, path: readonly PathSe
   return true
 }
 
+/** 찜·품목의 키: 상품 키 또는 변형 키 `<방송>/<번호>#<옵션 글>` (O1, D-O1-02) */
+function checkClaimKey(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], value: unknown): value is string {
+  if (typeof value === 'string' && value.includes('#')) {
+    const m = VARIANT_KEY_RE.exec(value)
+    if (!m) return c.fail(path, `변형 키 형식 오류 '${value}' ('<방송>/<번호>#<옵션 글>')`)
+    if (!ctx.broadcasts.has(m[1] ?? '')) return c.fail(path, `변형 키 '${value}': 선언하지 않은 방송 '${m[1] ?? ''}'`)
+    return true
+  }
+  return checkProductKey(c, ctx, path, value)
+}
+
+/** 확인 필요 항목의 출처: 시나리오의 채팅 메시지 ID 또는 `sms:<ref>` */
+function checkReviewItem(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], value: unknown): void {
+  if (typeof value !== 'string' || value === '') {
+    c.fail(path, `확인 필요 항목의 출처는 메시지 ID 또는 'sms:<ref>'여야 한다 (값: ${showValue(value)})`)
+    return
+  }
+  if (value.startsWith(SMS_PREFIX)) {
+    if (!ctx.smsRefs.has(value.slice(SMS_PREFIX.length))) c.fail(path, `시나리오에 없는 문자찜 '${value}'`)
+  } else if (!ctx.messageIds.has(value)) c.fail(path, `시나리오에 없는 채팅 메시지 ID ${showValue(value)}`)
+}
+
 function checkBuyerList(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], value: unknown, minLength = 0): boolean {
   if (!c.array(path, value, minLength)) return false
   let ok = true
@@ -330,7 +394,7 @@ function checkMergeItems(c: Checker, ctx: ScenarioContext, path: readonly PathSe
   if (!c.object(path, value)) return
   c.keys(path, value, MERGE_ITEMS_EXPECT_KEYS, [], '합치기 미리 보기 찜 키')
   if (hasValue(value, 'items') && c.array([...path, 'items'], value.items)) {
-    value.items.forEach((item, i) => checkProductKey(c, ctx, [...path, 'items', i], item))
+    value.items.forEach((item, i) => checkClaimKey(c, ctx, [...path, 'items', i], item))
   }
   if (hasValue(value, 'subtotal')) c.value([...path, 'subtotal'], value.subtotal, intAtLeast(0))
 }
@@ -394,6 +458,7 @@ function checkExpect(c: Checker, ctx: ScenarioContext, path: readonly PathSegmen
         if (hasValue(product, 'conflict')) c.value([...kp, 'conflict'], product.conflict, bool)
         if (hasValue(product, 'exists')) c.value([...kp, 'exists'], product.exists, bool)
         if (hasValue(product, 'price')) c.value([...kp, 'price'], product.price, intAtLeast(0))
+        if (hasValue(product, 'confirmedUnits')) c.value([...kp, 'confirmedUnits'], product.confirmedUnits, intAtLeast(0))
         if (hasValue(product, 'priceHistory')) {
           const hp = [...kp, 'priceHistory']
           if (c.array(hp, product.priceHistory)) {
@@ -418,7 +483,7 @@ function checkExpect(c: Checker, ctx: ScenarioContext, path: readonly PathSegmen
         if (!c.object(kp, buyer)) continue
         c.keys(kp, buyer, BUYER_EXPECT_KEYS, [], '구매자 expect 키')
         if (hasValue(buyer, 'items') && c.array([...kp, 'items'], buyer.items)) {
-          buyer.items.forEach((item, i) => checkProductKey(c, ctx, [...kp, 'items', i], item))
+          buyer.items.forEach((item, i) => checkClaimKey(c, ctx, [...kp, 'items', i], item))
         }
         if (hasValue(buyer, 'subtotal')) c.value([...kp, 'subtotal'], buyer.subtotal, intAtLeast(0))
         if (hasValue(buyer, 'byBroadcast') && c.object([...kp, 'byBroadcast'], buyer.byBroadcast)) {
@@ -479,10 +544,11 @@ function checkExpect(c: Checker, ctx: ScenarioContext, path: readonly PathSegmen
         const ep = [...p, i]
         if (!c.object(ep, entry)) return
         c.keys(ep, entry, CLAIM_EXPECT_KEYS, ['product', 'buyer', 'status'])
-        if (hasValue(entry, 'product')) checkProductKey(c, ctx, [...ep, 'product'], entry.product)
+        if (hasValue(entry, 'product')) checkClaimKey(c, ctx, [...ep, 'product'], entry.product)
         if (hasValue(entry, 'buyer')) checkBuyerKey(c, ctx, [...ep, 'buyer'], entry.buyer)
         if (hasValue(entry, 'status')) c.value([...ep, 'status'], entry.status, oneOf(CLAIM_STATUSES))
         if (hasValue(entry, 'reason')) c.value([...ep, 'reason'], entry.reason, oneOf(REJECT_REASONS))
+        if (hasValue(entry, 'qty')) c.value([...ep, 'qty'], entry.qty, intAtLeast(1))
       })
     }
   }
@@ -511,7 +577,7 @@ function checkExpect(c: Checker, ctx: ScenarioContext, path: readonly PathSegmen
         const ep = [...p, i]
         if (!c.object(ep, entry)) return
         c.keys(ep, entry, ['product', 'buyer'], ['product', 'buyer'])
-        if (hasValue(entry, 'product')) checkProductKey(c, ctx, [...ep, 'product'], entry.product)
+        if (hasValue(entry, 'product')) checkClaimKey(c, ctx, [...ep, 'product'], entry.product)
         if (hasValue(entry, 'buyer')) checkBuyerKey(c, ctx, [...ep, 'buyer'], entry.buyer)
       })
     }
@@ -521,9 +587,59 @@ function checkExpect(c: Checker, ctx: ScenarioContext, path: readonly PathSegmen
     const p = [...path, 'mergePreviews']
     if (c.array(p, value.mergePreviews)) value.mergePreviews.forEach((entry, i) => checkMergePreview(c, ctx, [...p, i], entry))
   }
+
+  // O1: 변형 (키는 따옴표로 적은 변형 키)
+  if (hasValue(value, 'variants')) {
+    const p = [...path, 'variants']
+    if (c.object(p, value.variants)) {
+      for (const [key, variant] of Object.entries(value.variants)) {
+        const kp = [...p, key]
+        const m = VARIANT_KEY_RE.exec(key)
+        if (!m) c.fail(kp, `변형 키 형식 오류 '${key}' ('"<방송>/<번호>#<옵션 글>"' — 따옴표로 적는다)`)
+        else if (!ctx.broadcasts.has(m[1] ?? '')) c.fail(kp, `변형 키 '${key}': 선언하지 않은 방송 '${m[1] ?? ''}'`)
+        if (!c.object(kp, variant)) continue
+        c.keys(kp, variant, VARIANT_EXPECT_KEYS, [], '변형 expect 키')
+        if (hasValue(variant, 'status')) c.value([...kp, 'status'], variant.status, oneOf(PRODUCT_STATUSES))
+        if (hasValue(variant, 'winner') && variant.winner !== null) checkBuyerKey(c, ctx, [...kp, 'winner'], variant.winner)
+        if (hasValue(variant, 'winners')) checkBuyerList(c, ctx, [...kp, 'winners'], variant.winners)
+        if (hasValue(variant, 'waitlist')) checkBuyerList(c, ctx, [...kp, 'waitlist'], variant.waitlist)
+        if (hasValue(variant, 'stock')) c.value([...kp, 'stock'], variant.stock, intAtLeast(0))
+        if (hasValue(variant, 'confirmedUnits')) c.value([...kp, 'confirmedUnits'], variant.confirmedUnits, intAtLeast(0))
+      }
+    }
+  }
+
+  // O1: 확인 필요 항목 전체 (원래 순위 순)
+  if (hasValue(value, 'reviews')) {
+    const p = [...path, 'reviews']
+    if (c.array(p, value.reviews)) {
+      value.reviews.forEach((entry, i) => {
+        const ep = [...p, i]
+        if (!c.object(ep, entry)) return
+        c.keys(ep, entry, REVIEW_EXPECT_KEYS, ['item', 'reason', 'buyer'], '확인 필요 expect 키')
+        if (hasValue(entry, 'item')) checkReviewItem(c, ctx, [...ep, 'item'], entry.item)
+        if (hasValue(entry, 'reason')) c.value([...ep, 'reason'], entry.reason, oneOf(REVIEW_REASONS))
+        if (hasValue(entry, 'buyer')) checkBuyerKey(c, ctx, [...ep, 'buyer'], entry.buyer)
+        if (hasValue(entry, 'product')) checkProductKey(c, ctx, [...ep, 'product'], entry.product)
+        if (hasValue(entry, 'options')) {
+          if (c.object([...ep, 'options'], entry.options)) {
+            for (const [name, label] of Object.entries(entry.options)) c.value([...ep, 'options', name], label, str)
+          }
+        }
+        if (hasValue(entry, 'qty')) c.value([...ep, 'qty'], entry.qty, intAtLeast(0))
+      })
+    }
+  }
 }
 
 // ── 설정 ─────────────────────────────────────────────────────────────────
+
+/** 함께 쓸 수 없는 설정 (README "설정 키", O1): 옵션 방송은 접수순만 — OPTIONS와 RECEIVED_TIME을 함께 쓰면 읽기 오류 */
+function checkSettingsCombination(c: Checker, path: readonly PathSegment[], value: Record<string, unknown>): void {
+  if (value['claim.parseMode'] === 'OPTIONS' && value['contention.policy'] === 'RECEIVED_TIME') {
+    c.fail([...path, 'contention.policy'], `claim.parseMode: OPTIONS(옵션 방송)는 contention.policy: RECEIVED_TIME과 함께 쓸 수 없다 (D-O-02)`)
+  }
+}
 
 function checkScenarioSettings(c: Checker, value: unknown): SettingsOverride {
   if (value === undefined) return {}
@@ -537,7 +653,14 @@ function checkScenarioSettings(c: Checker, value: unknown): SettingsOverride {
     }
     if (c.value(['settings', key], setting, check)) out[key] = setting
   }
+  checkSettingsCombination(c, ['settings'], value)
   return out as SettingsOverride
+}
+
+/** 설정의 옵션 방송 여부와 최대 수량 (기본값: STRICT, 10) */
+function modeOf(settings: Record<string, unknown>): { readonly options: boolean; readonly maxQuantity: number } {
+  const max = settings['claim.maxQuantity']
+  return { options: settings['claim.parseMode'] === 'OPTIONS', maxQuantity: typeof max === 'number' ? max : 10 }
 }
 
 // ── 파서 suite ───────────────────────────────────────────────────────────
@@ -594,6 +717,35 @@ function checkSuiteOut(c: Checker, suite: SuiteName, path: readonly PathSegment[
       if (hasValue(out, 'confidence')) c.value([...path, 'confidence'], out.confidence, oneOf(VOICE_CONFIDENCES))
       return
     }
+    case 'comment-options': {
+      // README (O1, D-O1-09): out 키는 orders·cancels·mentions·review만, 많아야 하나만 비어 있지 않다
+      if (!c.object(path, out)) return
+      c.keys(path, out, COMMENT_OPTIONS_OUT_KEYS, [], 'comment-options out 키')
+      const filled = COMMENT_OPTIONS_OUT_KEYS.filter((key) => hasValue(out, key) && !(Array.isArray(out[key]) && (out[key] as unknown[]).length === 0))
+      if (filled.length > 1) c.fail(path, `orders·cancels·mentions·review 중 많아야 하나만 비어 있지 않다 (${filled.join('·')})`)
+      if (hasValue(out, 'cancels')) c.value([...path, 'cancels'], out.cancels, intArray(1))
+      if (hasValue(out, 'mentions')) c.value([...path, 'mentions'], out.mentions, intArray(1))
+      if (hasValue(out, 'orders') && c.array([...path, 'orders'], out.orders)) {
+        out.orders.forEach((order, i) => {
+          const op = [...path, 'orders', i]
+          if (!c.object(op, order)) return
+          c.keys(op, order, ['no', 'options', 'qty'], ['no', 'qty'], 'comment-options 주문 키')
+          if (hasValue(order, 'no')) c.value([...op, 'no'], order.no, intAtLeast(1))
+          if (hasValue(order, 'qty')) c.value([...op, 'qty'], order.qty, intAtLeast(1))
+          if (hasValue(order, 'options')) checkStringMap(c, [...op, 'options'], order.options)
+        })
+      }
+      if (hasValue(out, 'review') && c.object([...path, 'review'], out.review)) {
+        const rp = [...path, 'review']
+        const review = out.review
+        c.keys(rp, review, ['reason', 'no', 'options', 'qty'], ['reason'], 'comment-options 확인 필요 키')
+        if (hasValue(review, 'reason')) c.value([...rp, 'reason'], review.reason, oneOf(PARSE_REVIEW_REASONS))
+        if (hasValue(review, 'no')) c.value([...rp, 'no'], review.no, intAtLeast(1))
+        if (hasValue(review, 'qty')) c.value([...rp, 'qty'], review.qty, intAtLeast(0))
+        if (hasValue(review, 'options')) checkStringMap(c, [...rp, 'options'], review.options)
+      }
+      return
+    }
     case 'product-import': {
       // README (I2, D-I2-09): ① { error } 하나만 — EMPTY·TOO_MANY ② { header?, rows } — 줄은 { line, no, name, price } 또는 { line, error } (정확히 그 키)
       if (!c.object(path, out)) return
@@ -625,6 +777,43 @@ function checkSuiteOut(c: Checker, suite: SuiteName, path: readonly PathSegment[
   }
 }
 
+/** 항목 이름 → 선택지 label 맵 (comment-options의 options) */
+function checkStringMap(c: Checker, path: readonly PathSegment[], value: unknown): void {
+  if (!c.object(path, value)) return
+  for (const [key, label] of Object.entries(value)) c.value([...path, key], label, str)
+}
+
+/**
+ * comment-options의 입력 (README 파서 suite 표, O1 D-O1-09): catalog(필수 — 판매 종료가 아닌 상품 { no, name, aliases?, options? },
+ * no는 서로 다른 1 이상 정수, 옵션 모양은 R-19와 같다)와 focus(필수 — null 또는 { no, ageSec }, no는 catalog에 있다)
+ */
+function checkCommentOptionsInputs(c: Checker, raw: Record<string, unknown>): { readonly catalog: readonly unknown[]; readonly focus: unknown } {
+  const nos = new Set<number>()
+  if (!hasValue(raw, 'catalog')) c.fail([], `필수 키 'catalog'가 없다`)
+  else if (c.array(['catalog'], raw.catalog)) {
+    raw.catalog.forEach((entry, i) => {
+      const p = ['catalog', i]
+      if (!c.object(p, entry)) return
+      c.keys(p, entry, ['no', 'name', 'aliases', 'options'], ['no', 'name'], 'catalog 상품 키')
+      if (hasValue(entry, 'no') && c.value([...p, 'no'], entry.no, intAtLeast(1))) {
+        if (nos.has(entry.no as number)) c.fail([...p, 'no'], `catalog의 번호가 겹친다 (${String(entry.no)})`)
+        nos.add(entry.no as number)
+      }
+      if (hasValue(entry, 'name')) c.value([...p, 'name'], entry.name, str)
+      if (hasValue(entry, 'aliases')) checkProductAliases(c, [...p, 'aliases'], entry.aliases)
+      if (hasValue(entry, 'options')) checkOptionItems(c, [...p, 'options'], entry.options, undefined)
+    })
+  }
+  if (!hasValue(raw, 'focus')) c.fail([], `필수 키 'focus'가 없다`)
+  else if (raw.focus !== null && c.object(['focus'], raw.focus)) {
+    const focus = raw.focus
+    c.keys(['focus'], focus, ['no', 'ageSec'], ['no', 'ageSec'], 'focus 키')
+    if (hasValue(focus, 'no') && c.value(['focus', 'no'], focus.no, intAtLeast(1)) && !nos.has(focus.no as number)) c.fail(['focus', 'no'], `catalog에 없는 번호 ${String(focus.no)}`)
+    if (hasValue(focus, 'ageSec')) c.value(['focus', 'ageSec'], focus.ageSec, intAtLeast(0))
+  }
+  return { catalog: Array.isArray(raw.catalog) ? structuredClone(raw.catalog) : [], focus: structuredClone(raw.focus ?? null) }
+}
+
 /** 문자열 목록 (voice-extract 품종 사전) */
 const stringList: ValueCheck = (value) => {
   if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) return `문자열 목록이어야 한다 (값: ${showValue(value)})`
@@ -633,7 +822,8 @@ const stringList: ValueCheck = (value) => {
 
 function validateSuite(raw: Record<string, unknown>): ValidationResult {
   const c = new Checker()
-  c.keys([], raw, ['suite', 'settings', 'cases'], ['suite', 'cases'])
+  const commentOptions = raw.suite === 'comment-options'
+  c.keys([], raw, ['suite', 'settings', 'cases', ...(commentOptions ? COMMENT_OPTIONS_INPUT_KEYS : [])], ['suite', 'cases'])
   const suiteValue = raw.suite
   const label = typeof suiteValue === 'string' ? suiteValue : undefined
   if (typeof suiteValue !== 'string' || !(SUITES as readonly string[]).includes(suiteValue)) {
@@ -656,7 +846,8 @@ function validateSuite(raw: Record<string, unknown>): ValidationResult {
         continue
       }
       const domainKey = Object.hasOwn(mapping, key) ? mapping[key] : undefined
-      const check = domainKey === undefined ? undefined : SETTING_CHECKS[domainKey]
+      // chat suite의 parseMode는 STRICT·LOOSE만 — 옵션 방송의 인식은 comment-options suite (D-O1-09)
+      const check = domainKey === undefined ? undefined : domainKey === 'claim.parseMode' ? oneOf(CHAT_PARSE_MODES) : SETTING_CHECKS[domainKey]
       if (domainKey === undefined || check === undefined) {
         c.fail(['settings', key], `suite '${suite}'에 없는 설정 키 '${key}'`)
         continue
@@ -664,6 +855,7 @@ function validateSuite(raw: Record<string, unknown>): ValidationResult {
       if (c.value(['settings', key], setting, check)) settings[domainKey] = setting
     }
   }
+  const inputs = commentOptions ? checkCommentOptionsInputs(c, raw) : undefined
   const cases: ParserCase[] = []
   if (hasValue(raw, 'cases') && c.array(['cases'], raw.cases)) {
     raw.cases.forEach((entry, i) => {
@@ -678,7 +870,15 @@ function validateSuite(raw: Record<string, unknown>): ValidationResult {
   if (c.issues.length > 0) return { ok: false, label: suite, issues: c.issues }
   return {
     ok: true,
-    doc: { kind: 'suite', suite, settings: settings as SettingsOverride, ...(dictionary === undefined ? {} : { dictionary }), ...(existing === undefined ? {} : { existing }), cases },
+    doc: {
+      kind: 'suite',
+      suite,
+      settings: settings as SettingsOverride,
+      ...(dictionary === undefined ? {} : { dictionary }),
+      ...(existing === undefined ? {} : { existing }),
+      ...(inputs === undefined ? {} : { catalog: inputs.catalog, focus: inputs.focus }),
+      cases,
+    },
   }
 }
 
@@ -688,7 +888,7 @@ function validateSuite(raw: Record<string, unknown>): ValidationResult {
 const broadcastId: ValueCheck = (v) => (typeof v === 'string' && BROADCAST_ID_RE.test(v) ? undefined : `방송 ID는 공백·'/'·'@' 없는 문자열이어야 한다 (값: ${showValue(v)})`)
 
 /** 시작 때 선언한 방송(broadcasts 목록 — S04부터 빈 목록도 된다)과 이벤트 사전 조사 */
-function collectContext(c: Checker, raw: Record<string, unknown>): { readonly ctx: ScenarioContext; readonly initial: readonly GoldenBroadcast[] } {
+function collectContext(c: Checker, raw: Record<string, unknown>, settings: SettingsOverride): { readonly ctx: ScenarioContext; readonly initial: readonly GoldenBroadcast[] } {
   const broadcasts = new Map<string, GoldenBroadcast>()
   if (hasValue(raw, 'broadcasts') && c.array(['broadcasts'], raw.broadcasts)) {
     raw.broadcasts.forEach((entry, i) => {
@@ -722,7 +922,9 @@ function collectContext(c: Checker, raw: Record<string, unknown>): { readonly ct
     }
   }
   const singleDate = dates.size === 1 ? [...dates][0] : undefined
-  return { ctx: { broadcasts, smsRefs, messageIds, dates, singleDate }, initial: [...broadcasts.values()] }
+  const startMode = modeOf(settings as Record<string, unknown>)
+  const modes = new Map([...broadcasts.keys()].map((id) => [id, startMode]))
+  return { ctx: { broadcasts, smsRefs, messageIds, dates, singleDate, modes, catalog: new Map() }, initial: [...broadcasts.values()] }
 }
 
 /** broadcast.start의 settings: 설정 키 → 값 (README "설정 키" — 키·값·범위 밖은 읽기 오류) */
@@ -733,6 +935,7 @@ function checkEventSettings(c: Checker, path: readonly PathSegment[], value: unk
     if (!check) c.fail([...path, key], `모르는 설정 키 '${key}'`)
     else c.value([...path, key], setting, check)
   }
+  checkSettingsCombination(c, path, value)
 }
 
 function checkField(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], kind: FieldKind, value: unknown): void {
@@ -778,7 +981,61 @@ function checkField(c: Checker, ctx: ScenarioContext, path: readonly PathSegment
     case 'value':
       c.value(path, value, kind.check)
       return
+    case 'reviewItem':
+      checkReviewItem(c, ctx, path, value)
+      return
+    case 'aliases':
+    case 'optionItems':
+    case 'stocks':
+    case 'pick':
+    case 'qty':
+      // 방송(옵션 방송인지)과 상품(항목·선택지)이 필요해 checkOptionEvent가 본다
+      return
   }
+}
+
+/**
+ * 옵션 방송 어휘 (README "옵션 방송", O1): 옵션 방송이 아닌 방송에 옵션 방송만의 필드·이벤트를 쓰면 읽기 오류.
+ * 옵션 항목·별칭·변형 재고·고른 옵션(같은 상품의 항목·선택지)·수량(1~claim.maxQuantity)을 본다. 시나리오의 상품 옵션을 적힌 순서대로 모은다.
+ */
+function checkOptionEvent(c: Checker, ctx: ScenarioContext, path: readonly PathSegment[], type: string, spec: EventSpecLike, entry: Record<string, unknown>): void {
+  const used = [...Object.entries(spec.required), ...Object.entries(spec.optional)].filter(([field, kind]) => OPTION_ONLY_FIELD_KINDS.has(kind.kind) && hasValue(entry, field))
+  const mode = typeof entry.b === 'string' ? ctx.modes.get(entry.b) : undefined
+  if (type === 'product.renumber' && typeof entry.b === 'string') {
+    const from = ctx.catalog.get(`${entry.b}/${String(entry.from)}`)
+    if (from !== undefined && !ctx.catalog.has(`${entry.b}/${String(entry.to)}`)) {
+      ctx.catalog.set(`${entry.b}/${String(entry.to)}`, from)
+      ctx.catalog.delete(`${entry.b}/${String(entry.from)}`)
+    }
+  }
+  if (mode === undefined) return
+  if (!mode.options) {
+    if (OPTION_ONLY_EVENTS.has(type)) c.fail([...path, 'type'], `${type}은 옵션 방송(claim.parseMode: OPTIONS)에서만 쓴다`)
+    for (const [field] of used) c.fail([...path, field], `${field}은 옵션 방송(claim.parseMode: OPTIONS)에서만 쓴다`)
+    return
+  }
+  const key = `${entry.b as string}/${String(entry.no)}`
+  const known = ctx.catalog.get(key)
+  if (type === 'product.register' || type === 'product.update') {
+    const price = typeof entry.price === 'number' ? entry.price : undefined
+    const items = hasValue(entry, 'options') ? checkOptionItems(c, [...path, 'options'], entry.options, type === 'product.register' ? price : undefined) : undefined
+    if (hasValue(entry, 'aliases')) checkProductAliases(c, [...path, 'aliases'], entry.aliases)
+    const after = items ?? (type === 'product.update' ? known : undefined)
+    if (hasValue(entry, 'stocks')) checkStocks(c, [...path, 'stocks'], entry.stocks, after)
+    if (items !== undefined && items.items.length > 0 && (type === 'product.update' || !ctx.catalog.has(key))) ctx.catalog.set(key, mergeCatalog(known, items))
+    return
+  }
+  if (hasValue(entry, 'qty')) {
+    c.value([...path, 'qty'], entry.qty, (v) =>
+      typeof v === 'number' && Number.isSafeInteger(v) && v >= 1 && v <= mode.maxQuantity ? undefined : `qty는 1 이상 ${String(mode.maxQuantity)} 이하 정수여야 한다 (claim.maxQuantity, 값: ${showValue(v)})`,
+    )
+  }
+  if (hasValue(entry, 'options')) checkPick(c, [...path, 'options'], entry.options, known, true)
+}
+
+interface EventSpecLike {
+  readonly required: Readonly<Record<string, FieldKind>>
+  readonly optional: Readonly<Record<string, FieldKind>>
 }
 
 function validateScenario(raw: Record<string, unknown>): ValidationResult {
@@ -791,7 +1048,7 @@ function validateScenario(raw: Record<string, unknown>): ValidationResult {
     raw.refs.forEach((ref, i) => c.value(['refs', i], ref, nonEmptyStr))
   }
   const settings = checkScenarioSettings(c, raw.settings)
-  const { ctx, initial } = collectContext(c, raw)
+  const { ctx, initial } = collectContext(c, raw, settings)
 
   const steps: ScenarioStep[] = []
   let seq = 0
@@ -825,6 +1082,7 @@ function validateScenario(raw: Record<string, unknown>): ValidationResult {
         const present = ASSIGN_REPLACE_FIELDS.filter((field) => hasValue(entry, field))
         if (present.length === 1) c.fail(p, `host.assign의 replace와 replaceTo는 함께 쓴다 ('${present[0] ?? ''}'만 있다)`)
       }
+      checkOptionEvent(c, ctx, p, type as string, spec, entry)
 
       // 시각: 짧은 형식은 그 이벤트의 방송 날짜, broadcast.start는 그 이벤트의 date(사본도 같다), 방송 없는 이벤트는 하나뿐인 방송 날짜
       const starting = type === 'broadcast.start'
@@ -864,6 +1122,7 @@ function validateScenario(raw: Record<string, unknown>): ValidationResult {
       // 새 방송 선언: 이 이벤트 뒤의 이벤트·검사가 그 방송을 쓸 수 있다. 이미 선언한 방송이면 사본 — 처음 선언한 날짜·제목 그대로
       if (starting && startDate !== undefined && typeof entry.b === 'string' && BROADCAST_ID_RE.test(entry.b) && typeof entry.title === 'string' && !ctx.broadcasts.has(entry.b)) {
         ctx.broadcasts.set(entry.b, { id: entry.b, date: startDate, title: entry.title })
+        ctx.modes.set(entry.b, modeOf(isPlainObject(entry.settings) ? entry.settings : {}))
       }
 
       seq += 1

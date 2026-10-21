@@ -11,6 +11,8 @@ import {
   PRODUCT_KEY_RE,
   PRODUCT_STATUSES,
   REJECT_REASONS,
+  REVIEW_REASONS,
+  VARIANT_KEY_RE,
   TARGETS,
   isPlainObject,
   showValue,
@@ -19,7 +21,7 @@ import { parseDate } from './time.ts'
 
 export const SNAPSHOT_KEYS = ['buyerKeys', 'broadcasts', 'products', 'buyers', 'settlements', 'effects', 'claims', 'pending', 'cancelRequests'] as const
 /** 있어도 되는 최상위 키 (S06b — 구매자 키 → 구매자 자신의 ID) */
-export const OPTIONAL_SNAPSHOT_KEYS = ['buyerSelf'] as const
+export const OPTIONAL_SNAPSHOT_KEYS = ['buyerSelf', 'variants', 'reviews'] as const
 /** 합치기 미리 보기 결과의 키 (S06b, D-100) */
 export const MERGE_PREVIEW_VIEW_KEYS = ['blocked', 'bothConfirmed', 'moving', 'after', 'duplicates'] as const
 const MERGE_ITEMS_VIEW_KEYS = ['items', 'subtotal'] as const
@@ -27,10 +29,14 @@ const MERGE_DUPLICATE_VIEW_KEYS = ['product', 'buyer', 'status'] as const
 export const EFFECT_STATUSES = ['PENDING', 'DONE', 'CANCELLED', 'SKIPPED'] as const
 const BROADCAST_VIEW_KEYS = ['date', 'title', 'ended'] as const
 const PRODUCT_VIEW_KEYS = ['status', 'winners', 'waitlist', 'conflict', 'price', 'priceHistory'] as const
+/** 상품에 있어도 되는 키 (O1) */
+const OPTIONAL_PRODUCT_VIEW_KEYS = ['confirmedUnits', 'hasOptions'] as const
+const VARIANT_VIEW_KEYS = ['status', 'winners', 'waitlist', 'stock', 'confirmedUnits'] as const
+const REVIEW_VIEW_KEYS = ['item', 'reason', 'buyer', 'product', 'options', 'qty'] as const
 const BUYER_VIEW_KEYS = ['display', 'nameHistory', 'items', 'subtotal', 'byBroadcast', 'phoneLast4'] as const
 const SETTLEMENT_VIEW_KEYS = ['subtotal', 'shipping', 'adjustments', 'total', 'refundDue', 'payment'] as const
 const EFFECT_VIEW_KEYS = ['kind', 'status', 'target', 'product', 'buyer', 'text', 'confirmVersion'] as const
-const CLAIM_VIEW_KEYS = ['product', 'buyer', 'status', 'reason'] as const
+const CLAIM_VIEW_KEYS = ['product', 'buyer', 'status', 'reason', 'qty'] as const
 
 class Issues {
   readonly found: string[] = []
@@ -84,6 +90,11 @@ class Issues {
     if (!PRODUCT_KEY_RE.test(value)) this.fail(path, `상품 키 형식 오류 '${value}' ('<방송>/<번호>')`)
   }
 
+  /** 찜·품목의 키: 상품 키 또는 변형 키 (O1, D-O1-02) */
+  claimKey(path: string, value: string): void {
+    if (!PRODUCT_KEY_RE.test(value) && !VARIANT_KEY_RE.test(value)) this.fail(path, `상품 키 형식 오류 '${value}' ('<방송>/<번호>' 또는 변형 키 '<방송>/<번호>#<옵션 글>')`)
+  }
+
   /** 있으면 검사 */
   optional(value: Record<string, unknown>, key: string, check: (v: unknown) => void): void {
     if (Object.hasOwn(value, key) && value[key] !== undefined) check(value[key])
@@ -122,7 +133,11 @@ export function snapshotIssues(snapshot: unknown): string[] {
     for (const [key, product] of Object.entries(snapshot.products)) {
       const p = `products.${key}`
       c.productKey(p, key)
-      if (!c.record(p, product, PRODUCT_VIEW_KEYS)) continue
+      if (!c.record(p, product, [...PRODUCT_VIEW_KEYS, ...OPTIONAL_PRODUCT_VIEW_KEYS], PRODUCT_VIEW_KEYS)) continue
+      c.optional(product, 'confirmedUnits', (v) => c.int(`${p}.confirmedUnits`, v, 0))
+      c.optional(product, 'hasOptions', (v) => {
+        if (typeof v !== 'boolean') c.fail(`${p}.hasOptions`, `true 또는 false여야 한다 (값: ${showValue(v)})`)
+      })
       c.optional(product, 'status', (v) => c.oneOf(`${p}.status`, v, PRODUCT_STATUSES))
       c.optional(product, 'winners', (v) => c.strings(`${p}.winners`, v))
       c.optional(product, 'waitlist', (v) => c.strings(`${p}.waitlist`, v))
@@ -148,7 +163,7 @@ export function snapshotIssues(snapshot: unknown): string[] {
       if (!c.record(p, buyer, BUYER_VIEW_KEYS)) continue
       c.optional(buyer, 'display', (v) => c.str(`${p}.display`, v))
       c.optional(buyer, 'nameHistory', (v) => c.strings(`${p}.nameHistory`, v))
-      c.optional(buyer, 'items', (v) => c.strings(`${p}.items`, v, (ip, key) => c.productKey(ip, key)))
+      c.optional(buyer, 'items', (v) => c.strings(`${p}.items`, v, (ip, key) => c.claimKey(ip, key)))
       c.optional(buyer, 'subtotal', (v) => c.int(`${p}.subtotal`, v, 0))
       c.optional(buyer, 'phoneLast4', (v) => {
         if (v !== null && (typeof v !== 'string' || !/^[0-9]{4}$/.test(v))) c.fail(`${p}.phoneLast4`, `숫자 4자리 문자열 또는 null이어야 한다 (값: ${showValue(v)})`)
@@ -194,10 +209,11 @@ export function snapshotIssues(snapshot: unknown): string[] {
     snapshot.claims.forEach((claim, i) => {
       const p = `claims[${String(i)}]`
       if (!c.record(p, claim, CLAIM_VIEW_KEYS, ['product', 'buyer', 'status'])) return
-      c.optional(claim, 'product', (v) => (typeof v === 'string' ? c.productKey(`${p}.product`, v) : c.str(`${p}.product`, v)))
+      c.optional(claim, 'product', (v) => (typeof v === 'string' ? c.claimKey(`${p}.product`, v) : c.str(`${p}.product`, v)))
       c.optional(claim, 'buyer', (v) => c.str(`${p}.buyer`, v))
       c.optional(claim, 'status', (v) => c.oneOf(`${p}.status`, v, CLAIM_STATUSES))
       c.optional(claim, 'reason', (v) => c.oneOf(`${p}.reason`, v, REJECT_REASONS))
+      c.optional(claim, 'qty', (v) => c.int(`${p}.qty`, v, 1))
     })
   }
 
@@ -212,8 +228,37 @@ export function snapshotIssues(snapshot: unknown): string[] {
     snapshot.cancelRequests.forEach((request, i) => {
       const p = `cancelRequests[${String(i)}]`
       if (!c.record(p, request, ['product', 'buyer'])) return
-      c.optional(request, 'product', (v) => (typeof v === 'string' ? c.productKey(`${p}.product`, v) : c.str(`${p}.product`, v)))
+      c.optional(request, 'product', (v) => (typeof v === 'string' ? c.claimKey(`${p}.product`, v) : c.str(`${p}.product`, v)))
       c.optional(request, 'buyer', (v) => c.str(`${p}.buyer`, v))
+    })
+  }
+
+  // O1: 변형·확인 필요 항목
+  if (has('variants') && c.record('variants', snapshot.variants)) {
+    for (const [key, variant] of Object.entries(snapshot.variants)) {
+      const p = `variants.${key}`
+      if (!VARIANT_KEY_RE.test(key)) c.fail(p, `변형 키 형식 오류 '${key}'`)
+      if (!c.record(p, variant, VARIANT_VIEW_KEYS)) continue
+      c.optional(variant, 'status', (v) => c.oneOf(`${p}.status`, v, PRODUCT_STATUSES))
+      c.optional(variant, 'winners', (v) => c.strings(`${p}.winners`, v))
+      c.optional(variant, 'waitlist', (v) => c.strings(`${p}.waitlist`, v))
+      c.optional(variant, 'stock', (v) => c.int(`${p}.stock`, v, 0))
+      c.optional(variant, 'confirmedUnits', (v) => c.int(`${p}.confirmedUnits`, v, 0))
+    }
+  }
+  if (has('reviews') && c.array('reviews', snapshot.reviews)) {
+    snapshot.reviews.forEach((review, i) => {
+      const p = `reviews[${String(i)}]`
+      if (!c.record(p, review, REVIEW_VIEW_KEYS, ['item', 'reason', 'buyer'])) return
+      c.optional(review, 'item', (v) => c.str(`${p}.item`, v))
+      c.optional(review, 'reason', (v) => c.oneOf(`${p}.reason`, v, REVIEW_REASONS))
+      c.optional(review, 'buyer', (v) => c.str(`${p}.buyer`, v))
+      c.optional(review, 'product', (v) => (typeof v === 'string' ? c.productKey(`${p}.product`, v) : c.str(`${p}.product`, v)))
+      c.optional(review, 'options', (v) => {
+        if (!c.record(`${p}.options`, v)) return
+        for (const [name, label] of Object.entries(v)) c.str(`${p}.options.${name}`, label)
+      })
+      c.optional(review, 'qty', (v) => c.int(`${p}.qty`, v, 0))
     })
   }
   return c.found

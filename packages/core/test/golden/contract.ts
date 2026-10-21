@@ -5,7 +5,7 @@
 import { containsPhoneRun, looksLikePhoneId } from '@livejjim/core'
 import { YamlFloat } from './yaml.ts'
 
-export const SUITES = ['chat', 'amount', 'korean-number', 'quick-input', 'voice-extract', 'product-import'] as const
+export const SUITES = ['chat', 'amount', 'korean-number', 'quick-input', 'voice-extract', 'product-import', 'comment-options'] as const
 export type SuiteName = (typeof SUITES)[number]
 
 /** suite별 settings 키 → DOMAIN_RULES 키 */
@@ -16,7 +16,33 @@ export const SUITE_SETTINGS: Readonly<Record<SuiteName, Readonly<Record<string, 
   'quick-input': { unit: 'price.unit' },
   'voice-extract': { maxNumber: 'claim.maxNumber' },
   'product-import': { unit: 'price.unit', maxNumber: 'claim.maxNumber' },
+  // 판매 방식은 늘 OPTIONS다 — 이 suite에 parseMode는 없다 (O1, D-O1-09)
+  'comment-options': { maxNumber: 'claim.maxNumber', maxQuantity: 'claim.maxQuantity', multiNumber: 'claim.multiNumber' },
 }
+
+/** chat suite의 parseMode는 STRICT·LOOSE만 (옵션 방송의 인식은 comment-options suite, D-O1-09) */
+export const CHAT_PARSE_MODES = ['STRICT', 'LOOSE'] as const
+
+/** comment-options의 입력 두 개 (README 파서 suite 표 — DOMAIN_RULES 설정표 키가 아니라 문서 맨 위 키) */
+export const COMMENT_OPTIONS_INPUT_KEYS = ['catalog', 'focus'] as const
+/** comment-options out 키 — 많아야 하나만 비어 있지 않다 */
+export const COMMENT_OPTIONS_OUT_KEYS = ['orders', 'cancels', 'mentions', 'review'] as const
+/** 확인 필요 사유 (README reviews 줄, O1). STOCK_SHORT는 엔진만(인식 함수는 내지 않는다) */
+export const PARSE_REVIEW_REASONS = ['OPTION_MISSING', 'OPTION_CONFLICT', 'UNKNOWN_WORD', 'QTY_INVALID', 'NUMBER_AMBIGUOUS', 'PRODUCT_AMBIGUOUS', 'MULTI_PRODUCT', 'FOCUS_CHANGED'] as const
+export const REVIEW_REASONS = [...PARSE_REVIEW_REASONS, 'STOCK_SHORT'] as const
+
+/** 옵션 모델의 제한 (README product.register 행, DOMAIN_RULES R-19 "옵션 모델") — 코어 상수를 쓰지 않고 README대로 적는다 */
+export const OPTION_RULES = Object.freeze({
+  items: 3,
+  itemName: 10,
+  choices: 20,
+  label: 20,
+  aliases: 10,
+  price: 1_000_000,
+  variants: 100,
+  productAliases: 10,
+  productAlias: 20,
+})
 
 /**
  * voice-extract의 품종 사전 (README 파서 suite 표, P2 D-209): DOMAIN_RULES 설정표 키가 아니라 이 suite의 입력이다.
@@ -55,6 +81,8 @@ export const REJECT_REASONS = [
   'WAITLIST_CLEARED',
   'BY_HOST',
   'RENUMBERED',
+  // O1 — 공개 때 옵션이 필요한 보류 찜 (R-19)
+  'OPTION_MISSING',
 ] as const
 export const EFFECT_KINDS = ['PRINT_PRODUCT_LABEL', 'PRINT_PACKING_LABEL', 'POST_THANKS', 'VOID_LABEL', 'NOTIFY'] as const
 export const TARGETS = ['LIVE_CHAT', 'VIDEO_COMMENT'] as const
@@ -159,7 +187,8 @@ export { show as showValue }
 // ── 설정 키 (README "설정 키", DOMAIN_RULES 설정표·"설정값 범위" D-071) ────
 // 코어 checkSettings를 쓰지 않고 README대로 따로 적는다 — 러너가 코어의 검사를 그대로 따라 하면 코어가 틀려도 잡지 못한다.
 export const SETTING_CHECKS: Readonly<Record<string, ValueCheck>> = {
-  'claim.parseMode': oneOf(['STRICT', 'LOOSE']),
+  'claim.parseMode': oneOf(['STRICT', 'LOOSE', 'OPTIONS']),
+  'claim.maxQuantity': intRange(1, 99),
   'claim.multiNumber': oneOf(['ALL', 'FIRST', 'IGNORE']),
   'claim.maxNumber': intRange(1, 9999),
   'claim.ignoreOwner': bool,
@@ -197,6 +226,13 @@ export type FieldKind =
   | { readonly kind: 'received' }
   | { readonly kind: 'at' }
   | { readonly kind: 'value'; readonly check: ValueCheck }
+  /** O1 옵션 방송만: 상품 별칭·옵션 항목·변형 재고·고른 옵션·수량·확인 필요 항목의 출처 (validate가 방송·상품 문맥으로 검사한다) */
+  | { readonly kind: 'aliases' }
+  | { readonly kind: 'optionItems' }
+  | { readonly kind: 'stocks' }
+  | { readonly kind: 'pick' }
+  | { readonly kind: 'qty' }
+  | { readonly kind: 'reviewItem' }
 
 const F = {
   b: { kind: 'broadcast' },
@@ -214,7 +250,18 @@ const F = {
   no: { kind: 'value', check: intAtLeast(1) },
   reason: { kind: 'value', check: (value: unknown) => nonEmptyStr(value) ?? noPhoneInText(value) },
   v: (check: ValueCheck): FieldKind => ({ kind: 'value', check }),
+  aliases: { kind: 'aliases' },
+  optionItems: { kind: 'optionItems' },
+  stocks: { kind: 'stocks' },
+  pick: { kind: 'pick' },
+  qty: { kind: 'qty' },
+  reviewItem: { kind: 'reviewItem' },
 } as const
+
+/** 옵션 방송만 쓰는 필드 (README "옵션 방송", D-O-02) — 다른 방송에 쓰면 읽기 오류 */
+export const OPTION_ONLY_FIELD_KINDS: ReadonlySet<FieldKind['kind']> = new Set(['aliases', 'optionItems', 'stocks', 'pick', 'qty'])
+/** 옵션 방송만 쓰는 이벤트 */
+export const OPTION_ONLY_EVENTS: ReadonlySet<string> = new Set(['product.focus', 'host.resolveReview', 'host.dismissReview'])
 
 export interface EventSpec {
   readonly required: Readonly<Record<string, FieldKind>>
@@ -229,8 +276,8 @@ const spec = (required: Record<string, FieldKind>, optional: Record<string, Fiel
   hasBroadcast: 'b' in required,
 })
 
-const hostWithBuyer = spec({ b: F.b, no: F.no, buyer: F.buyer, reason: F.reason })
-const hostConfirmLike = spec({ b: F.b, no: F.no, buyer: F.buyer }, { reason: F.reason })
+const hostWithBuyer = spec({ b: F.b, no: F.no, buyer: F.buyer, reason: F.reason }, { options: F.pick })
+const hostConfirmLike = spec({ b: F.b, no: F.no, buyer: F.buyer }, { reason: F.reason, options: F.pick })
 /** host.assign의 교체 대상(replace)과 교체 방법(replaceTo)은 함께 쓴다 (README 이벤트 표, D-042). 하나만 있으면 validate에서 읽기 오류 */
 export const ASSIGN_REPLACE_FIELDS = ['replace', 'replaceTo'] as const
 const productByNo = spec({ b: F.b, no: F.no })
@@ -242,23 +289,32 @@ export const EVENT_SPECS: Readonly<Record<string, EventSpec>> = {
   'broadcast.end': spec({ b: F.b }),
   'product.register': spec(
     { b: F.b, no: F.no, name: F.v(freeText), price: F.v(intAtLeast(0)) },
-    { stock: F.v(intAtLeast(1)), status: F.v(oneOf(['OPEN', 'READY'])) },
+    { stock: F.v(intAtLeast(1)), status: F.v(oneOf(['OPEN', 'READY'])), aliases: F.aliases, options: F.optionItems, stocks: F.stocks },
   ),
   'product.open': productByNo,
   'product.hold': productByNo,
   'product.close': productByNo,
   'product.update': spec(
     { b: F.b, no: F.no },
-    { name: F.v(freeText), price: F.v(intAtLeast(0)), stock: F.v(intAtLeast(1)), applyTo: F.v(oneOf(['NEW_ONLY', 'UNPAID_CLAIMS'])) },
+    {
+      name: F.v(freeText),
+      price: F.v(intAtLeast(0)),
+      stock: F.v(intAtLeast(1)),
+      applyTo: F.v(oneOf(['NEW_ONLY', 'UNPAID_CLAIMS'])),
+      aliases: F.aliases,
+      options: F.optionItems,
+      stocks: F.stocks,
+    },
   ),
   'product.renumber': spec({ b: F.b, from: F.no, to: F.no }),
+  'product.focus': spec({ b: F.b, no: F.no }),
   chat: spec(
     { b: F.b, id: F.v(nonEmptyStr), ch: F.channel, nick: F.v(nonEmptyStr), text: F.v(str) },
     { owner: F.v(bool), publishedAt: F.at },
   ),
   sms: spec(
     { b: F.b, ref: F.smsRef, no: F.no, received: F.received },
-    { memo: F.v((value) => str(value) ?? notPhoneShaped(value)), phone: F.v(str), buyer: F.buyer },
+    { memo: F.v((value) => str(value) ?? notPhoneShaped(value)), phone: F.v(str), buyer: F.buyer, qty: F.qty, options: F.pick },
   ),
   'host.cancel': hostWithBuyer,
   'host.reject': hostWithBuyer,
@@ -266,16 +322,21 @@ export const EVENT_SPECS: Readonly<Record<string, EventSpec>> = {
   'host.confirm': hostConfirmLike,
   'host.approveCancel': hostConfirmLike,
   'host.dismissCancel': hostConfirmLike,
-  'host.assign': spec({ b: F.b, no: F.no, buyer: F.buyer, reason: F.reason }, { replace: F.buyer, replaceTo: F.v(oneOf(['WAITLIST', 'CANCEL'])) }),
-  'host.reopen': spec({ b: F.b, no: F.no, reason: F.reason }),
+  'host.assign': spec(
+    { b: F.b, no: F.no, buyer: F.buyer, reason: F.reason },
+    { replace: F.buyer, replaceTo: F.v(oneOf(['WAITLIST', 'CANCEL'])), qty: F.qty, options: F.pick },
+  ),
+  'host.reopen': spec({ b: F.b, no: F.no, reason: F.reason }, { options: F.pick }),
   'host.resolveConflict': spec({ b: F.b, no: F.no, decision: F.v(oneOf(['KEEP', 'SWITCH'])) }, { reason: F.reason }),
   'host.convertMessage': spec({ b: F.b, msg: F.message, no: F.no }, { reason: F.reason }),
+  'host.resolveReview': spec({ b: F.b, item: F.reviewItem, no: F.no, qty: F.qty }, { options: F.pick, reason: F.reason }),
+  'host.dismissReview': spec({ b: F.b, item: F.reviewItem }, { reason: F.reason }),
   'host.blockBuyer': blockLike,
   'host.unblockBuyer': blockLike,
   'buyer.merge': spec({ from: F.buyer, into: F.buyer, reason: F.reason }),
   'buyer.unmerge': spec({ from: F.buyer, reason: F.reason }),
-  'effect.labelPrinted': spec({ b: F.b, no: F.no, buyer: F.effectBuyer }),
-  'effect.thanksSent': spec({ b: F.b, no: F.no, buyer: F.effectBuyer }, { target: F.v(oneOf(TARGETS)) }),
+  'effect.labelPrinted': spec({ b: F.b, no: F.no, buyer: F.effectBuyer }, { options: F.pick }),
+  'effect.thanksSent': spec({ b: F.b, no: F.no, buyer: F.effectBuyer }, { target: F.v(oneOf(TARGETS)), options: F.pick }),
   'settlement.shippingOverride': spec(
     { buyer: F.buyer, date: F.date, mode: F.v(oneOf(['PICKUP', 'COMBINED', 'FIXED', 'DEFAULT'])) },
     { amount: F.v(intAtLeast(0)) },
@@ -300,12 +361,20 @@ export const EXPECT_KEYS = [
   'cancelRequests',
   'broadcasts',
   'mergePreviews',
+  'variants',
+  'reviews',
 ] as const
-export const PRODUCT_EXPECT_KEYS = ['status', 'winner', 'winners', 'waitlist', 'conflict', 'exists', 'price', 'priceHistory'] as const
+export const PRODUCT_EXPECT_KEYS = ['status', 'winner', 'winners', 'waitlist', 'conflict', 'exists', 'price', 'priceHistory', 'confirmedUnits'] as const
+/** 옵션 상품에 적으면 러너 오류인 상품 단위 키 (D-O1-01 — 변형마다 variants로 적는다) */
+export const PRODUCT_UNIT_ONLY_KEYS = ['winner', 'winners', 'waitlist', 'conflict'] as const
+/** `variants."<방송>/<번호>#<옵션 글>"` (O1, R-19) */
+export const VARIANT_EXPECT_KEYS = ['status', 'winner', 'winners', 'waitlist', 'stock', 'confirmedUnits'] as const
+/** `reviews[i]` (O1, R-20 7) — item·reason·buyer 필수, 나머지는 읽은 것만 */
+export const REVIEW_EXPECT_KEYS = ['item', 'reason', 'buyer', 'product', 'options', 'qty'] as const
 export const BUYER_EXPECT_KEYS = ['items', 'subtotal', 'byBroadcast', 'display', 'nameHistory', 'phoneLast4'] as const
 export const SETTLEMENT_EXPECT_KEYS = ['subtotal', 'shipping', 'adjustments', 'total', 'refundDue', 'payment'] as const
 export const EFFECT_EXPECT_KEYS = ['kind', 'target', 'product', 'buyer', 'text', 'confirmVersion'] as const
-export const CLAIM_EXPECT_KEYS = ['product', 'buyer', 'status', 'reason'] as const
+export const CLAIM_EXPECT_KEYS = ['product', 'buyer', 'status', 'reason', 'qty'] as const
 /** `broadcasts.<b>` (S04, D-070) */
 export const BROADCAST_EXPECT_KEYS = ['date', 'title', 'ended'] as const
 /** `mergePreviews` 항목 (S06b, D-100). from·into는 필수 */
@@ -336,6 +405,8 @@ export const EMPTY_SETTLEMENT = {
 export const SCENARIO_ID_RE = /^G-ENG-(?:\d{3}|[A-Z][A-Za-z0-9]{0,7}-\d{2})$/
 export const BROADCAST_ID_RE = /^[^\s/@]+$/
 export const PRODUCT_KEY_RE = /^([^\s/@]+)\/([1-9]\d*)$/
+/** 변형 키 `<방송>/<번호>#<옵션 글>` (O1, R-19 — 옵션 글은 선택지 label을 항목 순서대로 '/'로) */
+export const VARIANT_KEY_RE = /^([^\s/@]+)\/([1-9]\d*)#(.+)$/
 export const SMS_PREFIX = 'sms:'
 /** 문자찜 ref 형식: 영문·숫자·`_`·`-`로 된 1~64자 (README sms 행, DOMAIN_RULES R-1, D-061). 같은 ref를 다시 적으면 재전송 사본(D-067) */
 export const SMS_REF_RE = /^[A-Za-z0-9_-]{1,64}$/

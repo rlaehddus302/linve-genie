@@ -1,6 +1,6 @@
 // expect 비교 규칙 (README "파서 사례 형식", "`expect` 비교 규칙").
 // 적힌 것만 검사한다. 틀리면 Problem(경로·기대값·실제값)을 낸다. 비교가 하나라도 틀리면 불일치다.
-import { EMPTY_SETTLEMENT, EXPECT_KEYS, VOICE_EXTRACT_KEYS, isPlainObject, type SuiteName } from './contract.ts'
+import { COMMENT_OPTIONS_OUT_KEYS, EMPTY_SETTLEMENT, EXPECT_KEYS, PRODUCT_UNIT_ONLY_KEYS, VOICE_EXTRACT_KEYS, isPlainObject, type SuiteName } from './contract.ts'
 import type { EffectView, GoldenSnapshot, MergeItemsView, MergePreviewView, Problem } from './types.ts'
 import type { EffectExpect, Expect, MergeItemsExpect, MergePreviewExpect } from './validate.ts'
 
@@ -94,7 +94,31 @@ export function compareParserOutput(suite: SuiteName, expected: unknown, actual:
     }
     case 'product-import':
       return compareProductImport(expected, actual)
+    case 'comment-options':
+      return compareCommentOptions(expected, actual)
   }
+}
+
+/**
+ * comment-options (O1, D-O1-09 — README 파서 suite 표): out 키는 orders·cancels·mentions·review만. 없는 키 = 빈 값.
+ * 비교는 정확히 같음 — 주문은 메시지 순서·키·값, 적지 않은 options·review의 no·options·qty는 실제 결과에도 없어야 한다.
+ * 맵(options)의 키 순서는 보지 않는다(같은 키·값 집합).
+ */
+function compareCommentOptions(expected: unknown, actual: unknown): Problem[] {
+  if (!isPlainObject(actual) || !isPlainObject(expected)) return [{ path: 'out', expected, actual, message: '결과가 맵이 아니다' }]
+  const problems: Problem[] = []
+  for (const key of Object.keys(actual)) {
+    if (!(COMMENT_OPTIONS_OUT_KEYS as readonly string[]).includes(key)) problems.push({ path: `out.${key}`, expected: undefined, actual: actual[key], message: '실제 결과에 orders·cancels·mentions·review 밖의 키가 있다' })
+  }
+  for (const key of ['orders', 'cancels', 'mentions'] as const) {
+    const want = own(expected, key) ?? []
+    const got = own(actual, key) ?? []
+    if (!Array.isArray(got) || !deepEqual(want, got)) problems.push({ path: `out.${key}`, expected: want, actual: got })
+  }
+  const wantReview = own(expected, 'review')
+  const gotReview = own(actual, 'review')
+  if (!deepEqual(wantReview ?? null, gotReview ?? null)) problems.push({ path: 'out.review', expected: wantReview, actual: gotReview })
+  return problems
 }
 
 /** 키 집합까지 정확히 같은가 (undefined 값도 키로 센다 — README: 실제 결과에 다른 키가 있거나 키가 빠지면 불일치) */
@@ -253,6 +277,14 @@ function compareMergePreview(want: MergePreviewExpect, actual: MergePreviewView 
   }
 }
 
+/** 옵션 상품에 상품 단위 1등·대기·충돌을 적었다 — 러너 오류로 센다 (D-O1-01) */
+export class OptionProductKeyError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'OptionProductKeyError'
+  }
+}
+
 /** expect와 함께 비교하는, 스냅샷 밖에서 코어에 물어 얻은 값 */
 export interface ExpectExtras {
   /** expect.mergePreviews 항목마다 코어 previewMerge 결과 (같은 순서) */
@@ -328,7 +360,14 @@ export function compareExpect(expect: Expect, snapshot: GoldenSnapshot, where?: 
             else if (!deepEqual(ids, product.waitlist)) push({ path: `${base}.waitlist`, expected: want.waitlist, actual: product.waitlist, message: '1순위부터 순서까지 같아야 한다' })
           }
           if (want.conflict !== undefined && want.conflict !== product.conflict) push({ path: `${base}.conflict`, expected: want.conflict, actual: product.conflict })
+          // 옵션 상품의 상품 단위 1등·대기·충돌은 뜻이 없다 — 적으면 러너 오류 (D-O1-01, 변형마다 variants로 적는다)
+          const unitOnly = PRODUCT_UNIT_ONLY_KEYS.filter((field) => want[field] !== undefined)
+          if (product.hasOptions === true && unitOnly.length > 0) throw new OptionProductKeyError(`${base}: 옵션 상품에는 ${unitOnly.join('·')}를 적지 않는다 — 변형마다 variants로 적는다 (D-O1-01)`)
           if (want.price !== undefined && want.price !== product.price) push({ path: `${base}.price`, expected: want.price, actual: product.price })
+          if (want.confirmedUnits !== undefined) {
+            const units = product.confirmedUnits ?? product.winners.length
+            if (want.confirmedUnits !== units) push({ path: `${base}.confirmedUnits`, expected: want.confirmedUnits, actual: units })
+          }
           if (want.priceHistory !== undefined && !deepEqual(want.priceHistory, product.priceHistory)) {
             push({ path: `${base}.priceHistory`, expected: want.priceHistory, actual: product.priceHistory })
           }
@@ -439,6 +478,7 @@ export function compareExpect(expect: Expect, snapshot: GoldenSnapshot, where?: 
           }
           if (latest.status !== entry.status) push({ path: `${base}.status`, expected: entry.status, actual: latest.status })
           if (entry.reason !== undefined && latest.reason !== entry.reason) push({ path: `${base}.reason`, expected: entry.reason, actual: latest.reason })
+          if (entry.qty !== undefined && (latest.qty ?? 1) !== entry.qty) push({ path: `${base}.qty`, expected: entry.qty, actual: latest.qty ?? 1 })
         }
         break
       }
@@ -483,6 +523,67 @@ export function compareExpect(expect: Expect, snapshot: GoldenSnapshot, where?: 
       }
       case 'mergePreviews': {
         for (const [i, entry] of (expect.mergePreviews ?? []).entries()) compareMergePreview(entry, extras.mergePreviews?.[i], `mergePreviews[${i}]`, snapshot, push)
+        break
+      }
+      case 'variants': {
+        // 적은 필드만. 그런 변형이 없으면 불일치 (README variants 비교 규칙, O1)
+        for (const [key, want] of Object.entries(expect.variants ?? {})) {
+          const base = `variants.${key}`
+          const variant = own(snapshot.variants, key)
+          if (variant === undefined) {
+            push({ path: base, expected: want, actual: undefined, message: '그 변형이 없다' })
+            continue
+          }
+          if (want.status !== undefined && want.status !== variant.status) push({ path: `${base}.status`, expected: want.status, actual: variant.status })
+          if (want.winner !== undefined) {
+            if (want.winner === null) {
+              if (variant.winners.length !== 0) push({ path: `${base}.winner`, expected: null, actual: variant.winners, message: '확정 구매자가 없어야 한다' })
+            } else {
+              const id = resolver.one(want.winner)
+              if (id === undefined) push({ path: `${base}.winner`, expected: want.winner, actual: variant.winners, message: unresolved([want.winner]) })
+              else if (variant.winners.length !== 1 || variant.winners[0] !== id) push({ path: `${base}.winner`, expected: want.winner, actual: variant.winners })
+            }
+          }
+          if (want.winners !== undefined) {
+            const { ids, missing } = resolver.list(want.winners)
+            if (missing.length > 0) push({ path: `${base}.winners`, expected: want.winners, actual: variant.winners, message: unresolved(missing) })
+            else if (!sameMultiset(ids, variant.winners)) push({ path: `${base}.winners`, expected: want.winners, actual: variant.winners, message: '순서 무관 비교' })
+          }
+          if (want.waitlist !== undefined) {
+            const { ids, missing } = resolver.list(want.waitlist)
+            if (missing.length > 0) push({ path: `${base}.waitlist`, expected: want.waitlist, actual: variant.waitlist, message: unresolved(missing) })
+            else if (!deepEqual(ids, variant.waitlist)) push({ path: `${base}.waitlist`, expected: want.waitlist, actual: variant.waitlist, message: '1순위부터 순서까지 같아야 한다' })
+          }
+          if (want.stock !== undefined && want.stock !== variant.stock) push({ path: `${base}.stock`, expected: want.stock, actual: variant.stock })
+          if (want.confirmedUnits !== undefined && want.confirmedUnits !== variant.confirmedUnits) push({ path: `${base}.confirmedUnits`, expected: want.confirmedUnits, actual: variant.confirmedUnits })
+        }
+        break
+      }
+      case 'reviews': {
+        // 전체·순서까지 같다. 적지 않은 product·options·qty는 실제 항목에도 없어야 한다 (README reviews 비교 규칙, O1)
+        if (expect.reviews === undefined) break
+        const want = expect.reviews
+        const actual = snapshot.reviews ?? []
+        const { missing } = resolver.list(want.map((entry) => entry.buyer))
+        if (missing.length > 0) {
+          push({ path: 'reviews', expected: want, actual, message: unresolved(missing) })
+          break
+        }
+        const normalized = want.map((entry) => ({ ...entry, buyer: resolver.one(entry.buyer) as string }))
+        const same =
+          normalized.length === actual.length &&
+          normalized.every((entry, i) => {
+            const got = actual[i] as NonNullable<GoldenSnapshot['reviews']>[number]
+            return (
+              entry.item === got.item &&
+              entry.reason === got.reason &&
+              entry.buyer === got.buyer &&
+              entry.product === got.product &&
+              deepEqual(entry.options, got.options) &&
+              entry.qty === got.qty
+            )
+          })
+        if (!same) push({ path: 'reviews', expected: want, actual, message: '확인 필요 항목 전체와 순서까지 같아야 한다 (적지 않은 칸은 실제 항목에도 없어야 한다)' })
         break
       }
     }

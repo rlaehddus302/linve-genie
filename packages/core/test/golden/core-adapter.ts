@@ -23,8 +23,10 @@ import {
   listEffects,
   listPending,
   listProducts,
+  listReviews,
   listSettlements,
   listSmsRefs,
+  parseOptionComment,
   parseAmount,
   parseChat,
   parseKoreanNumber,
@@ -32,6 +34,9 @@ import {
   previewMerge,
   type EngineEvent,
   type EngineState,
+  type OptionCatalogEntry,
+  type OptionCommentResult,
+  type OptionFocus,
 } from '@livejjim/core'
 // 음성 추출기 (P2, D-209): 추출기는 packages/voice에 있다. 코어 src는 음성 패키지에 기대지 않고, 골든 어댑터(시험 코드)만 부른다.
 // 워크스페이스 의존으로 적으면 core ↔ voice가 서로 기대는 고리가 되어(voice는 코어 파서를 쓴다) 상대 경로로 추출 모듈만 가져온다.
@@ -41,7 +46,7 @@ import { extractVoice } from '../../../voice/src/extract.ts'
 import { parseProductList } from '../../../../apps/server/src/product-import.ts'
 import { SMS_PREFIX } from './contract.ts'
 import { smsPhoneFields } from './phone-key.ts'
-import type { BroadcastView, BuyerView, ClaimView, EffectView, GoldenCore, GoldenEvent, GoldenSnapshot, MergePreviewView, ProductView, SettlementView } from './types.ts'
+import type { BroadcastView, BuyerView, ClaimView, EffectView, GoldenCore, GoldenEvent, GoldenSnapshot, MergePreviewView, ProductView, ReviewView, SettlementView, VariantView } from './types.ts'
 
 /** 이벤트 안의 구매자 키 필드 (README "이벤트 안의 구매자 키") */
 const BUYER_KEY_FIELDS = ['buyer', 'replace', 'from', 'into'] as const
@@ -62,8 +67,16 @@ export function reportTarget(state: EngineState, event: GoldenEvent): string | u
   const target = event.type === 'effect.thanksSent' ? (typeof event.target === 'string' ? event.target : 'LIVE_CHAT') : null
   const product = `${String(event.b)}/${String(event.no)}`
   const buyer = currentBuyerOf(state, buyerIdOf(state, String(event.buyer)))
+  // options를 적으면 그 변형 찜의 효과에서 고른다 (README "옵션 방송", O1 AC-O1-33). 효과는 상품 키를 가지고, 찜이 변형을 안다
+  const pick = event.options as Readonly<Record<string, string>> | undefined
+  const variantOfClaim = new Map(listClaims(state).map((claim) => [claim.id, claim.options]))
+  const sameVariant = (claim: string): boolean => {
+    if (pick === undefined) return true
+    const options = variantOfClaim.get(claim) ?? null
+    return options !== null && options.length === Object.keys(pick).length && options.every(([name, label]) => pick[name] === label)
+  }
   return listEffects(state).findLast(
-    (effect) => effect.kind === kind && effect.product === product && effect.currentBuyer === buyer && effect.target === target && effect.status !== 'CANCELLED',
+    (effect) => effect.kind === kind && effect.product === product && effect.currentBuyer === buyer && effect.target === target && effect.status !== 'CANCELLED' && sameVariant(effect.claim),
   )?.id
 }
 
@@ -92,6 +105,7 @@ export function toSnapshot(state: EngineState): GoldenSnapshot {
   for (const broadcast of listBroadcasts(state)) broadcasts[broadcast.id] = { date: broadcast.date, title: broadcast.title, ended: broadcast.ended }
   const buyers = listBuyers(state)
   const products: Record<string, ProductView> = {}
+  const variants: Record<string, VariantView> = {}
   for (const product of listProducts(state)) {
     products[product.key] = {
       status: product.status,
@@ -100,6 +114,11 @@ export function toSnapshot(state: EngineState): GoldenSnapshot {
       conflict: product.conflict,
       price: product.price,
       priceHistory: product.priceHistory.map(({ from, to }) => ({ from, to })),
+      confirmedUnits: product.confirmedUnits,
+      hasOptions: product.hasOptions,
+    }
+    for (const variant of product.variants) {
+      variants[variant.key] = { status: variant.status, winners: variant.winners, waitlist: variant.waitlist, stock: variant.stock, confirmedUnits: variant.confirmedUnits }
     }
   }
   const buyerViews: Record<string, BuyerView> = {}
@@ -129,7 +148,18 @@ export function toSnapshot(state: EngineState): GoldenSnapshot {
     }),
   )
   const claims = listClaims(state).map(
-    (claim): ClaimView => ({ product: claim.product, buyer: claim.currentBuyer, status: claim.status, ...(claim.reason === null ? {} : { reason: claim.reason }) }),
+    (claim): ClaimView => ({ product: claim.key, buyer: claim.currentBuyer, status: claim.status, ...(claim.reason === null ? {} : { reason: claim.reason }), qty: claim.qty }),
+  )
+  // 확인 필요 항목: 읽은 것만 (못 읽은 칸은 키 없음), 원래 순위 순
+  const reviews = listReviews(state).map(
+    (review): ReviewView => ({
+      item: review.item,
+      reason: review.reason,
+      buyer: review.currentBuyer,
+      ...(review.product === null ? {} : { product: review.product }),
+      ...(review.options === null ? {} : { options: Object.fromEntries(review.options) }),
+      ...(review.qty === null ? {} : { qty: review.qty }),
+    }),
   )
   const pending: Record<string, readonly string[]> = {}
   for (const entry of listPending(state)) pending[entry.product] = entry.buyers
@@ -151,6 +181,18 @@ export function toSnapshot(state: EngineState): GoldenSnapshot {
     claims,
     pending,
     cancelRequests: listCancelRequests(state).map((request) => ({ product: request.product, buyer: request.currentBuyer })),
+    variants,
+    reviews,
+  }
+}
+
+/** 인식 결과 → comment-options out 모양 (빈 값은 키 없음 — 결과를 다시 계산하지 않는다) */
+export function toCommentOptionsOut(result: OptionCommentResult): Record<string, unknown> {
+  return {
+    ...(result.orders.length === 0 ? {} : { orders: result.orders }),
+    ...(result.cancels.length === 0 ? {} : { cancels: result.cancels }),
+    ...(result.mentions.length === 0 ? {} : { mentions: result.mentions }),
+    ...(result.review === null ? {} : { review: result.review }),
   }
 }
 
@@ -176,6 +218,8 @@ export const realCore: GoldenCore = {
     voiceExtract: (text, settings, dictionary) => extractVoice(text, { maxNumber: settings['claim.maxNumber'], dictionary }),
     // 결과를 바꾸지 않고 그대로 넘긴다. 빠진 설정은 해석 함수가 DOMAIN_RULES 기본값(THOUSAND·999)을 쓴다
     productImport: (text, settings, existing) => parseProductList(text, { unit: settings['price.unit'], maxNumber: settings['claim.maxNumber'], existing }),
+    // 결과를 바꾸지 않고 out 모양으로만 옮긴다 (O1, D-O1-09)
+    commentOptions: (text, settings, catalog, focus) => toCommentOptionsOut(parseOptionComment(text, catalog as readonly OptionCatalogEntry[], focus as OptionFocus | null, settings)),
   },
   engine: {
     start: (setup) => initEngine(setup),
