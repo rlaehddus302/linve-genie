@@ -142,6 +142,44 @@ describe('AC-O3-04 수량 붙은 가격의 보장값', () => {
   for (const size of BIG) for (const c of bigCases) it(`${size} ${c.text}`, () => check(size, c))
   for (const size of SMALL_LABEL_SIZES) for (const c of smallCases) it(`${size} ${c.text}`, () => check(size, c))
 
+  // 숫자 모양 (TD-O3-001·SA-O3-001): 내장 글꼴은 숫자 폭이 같지 않다(`0`·`4`가 `9`보다 넓다). 같은 글자 수의 값을 숫자마다(0~9) 돌린다.
+  // 수량 첫 자리·금액 첫 자리는 0이 될 수 없어 1로 둔다 — 나머지 자리를 모두 그 숫자로 채운 값이 그 숫자의 최악값이다.
+  const sameDigits = (digits: number, d: number): number => Number(String(Math.max(1, d)) + String(d).repeat(digits - 1))
+  const digitCases = (qtyDigits: number, wonDigits: number, style: 'WON' | 'THOUSAND'): { price: number; qty: number }[] => {
+    const out: { price: number; qty: number }[] = []
+    for (let d = 0; d <= 9; d++) {
+      for (let e = 0; e <= 9; e++) {
+        const qty = qtyDigits === 1 ? Math.max(2, d) : sameDigits(2, d)
+        const won = sameDigits(wonDigits, e)
+        out.push({ qty, price: style === 'THOUSAND' ? Math.max(1000, Math.floor(won / 1000) * 1000) : won })
+      }
+    }
+    return out
+  }
+  const checkDigits = (size: LabelSizeId, style: 'WON' | 'THOUSAND', cases: readonly { price: number; qty: number }[]): void => {
+    const failed: string[] = []
+    for (const c of cases) {
+      const r = renderProductLabel(env, { ...defaultTemplate('product', size), priceStyle: style }, product({ no: 9999, price: c.price, qty: c.qty, variant: '105/검정색' }))
+      const price = r.ok ? r.layout.items.find((i) => i.id === 'price') : undefined
+      if (!r.ok || price === undefined || price.method === 'truncated' || price.fontSize < 20) failed.push(`${String(c.qty)}개 ${String(c.price)}`)
+    }
+    expect(failed, `${size} ${style}`).toEqual([])
+  }
+  // 천원 표기 `9개 9,999 천원`(수량 한 자리·금액 일곱 자리)·`99개 999 천원`(두 자리·여섯 자리), 원 표기 여섯 자리 글(`9개 99,999원`·`99개 9,999원` —
+  // `9개 999,999원`보다 짧은 값이라 L-5가 이미 보장한다)은 어느 숫자로도 들어간다.
+  for (const size of BIG) {
+    it(`${size} 숫자 0~9: 천원 표기 보장값과 원 표기 여섯 자리 글`, () => {
+      checkDigits(size, 'THOUSAND', [...digitCases(1, 7, 'THOUSAND'), ...digitCases(2, 6, 'THOUSAND')])
+      checkDigits(size, 'WON', [...digitCases(1, 5, 'WON'), ...digitCases(2, 4, 'WON')])
+    })
+  }
+  for (const size of SMALL_LABEL_SIZES) {
+    it(`${size} 숫자 0~9: 작은 템플릿 보장값 \`99개 99,999,999원\`·\`99개 99,999 천원\``, () => {
+      checkDigits(size, 'WON', digitCases(2, 8, 'WON'))
+      checkDigits(size, 'THOUSAND', digitCases(2, 8, 'THOUSAND'))
+    })
+  }
+
   it('그보다 긴 값(50×30 `10개 120,000원`)은 잘린 글 없이 DOES_NOT_FIT(price)', () => {
     const r = renderProductLabel(env, { ...defaultTemplate('product'), priceStyle: 'WON' }, product({ price: 120_000, qty: 10 }))
     expect(r.ok).toBe(false)
