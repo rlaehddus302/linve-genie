@@ -4,7 +4,7 @@
 // - 판매자 ID 조건은 늘 세션의 판매자다. 없는 범위·다른 판매자의 자원은 404(있는지 드러내지 않는다).
 // - 문서·파일 내용, 파일 이름, 송장번호, 가게 설정 값, 가져오기 글은 로그에 남기지 않는다(로그는 정해진 코드·날짜뿐).
 import { containsPhoneRun, currentBuyerOf, getBroadcast, getBuyer, isValidDate, listBroadcasts, listProducts, looksLikePhoneId, normalizeText, type EngineState } from '@livejjim/core'
-import { buildLedger, buildReceipt, buildReceipts, type LedgerRow, type ReceiptData } from '@livejjim/documents'
+import { buildLedger, buildReceipt, buildReceipts, type ReceiptData } from '@livejjim/documents'
 import type { PackingLabelData } from '@livejjim/label'
 import { and, asc, eq, gte, sql } from 'drizzle-orm'
 import { hasControlChar, isPlainObject, own, ownKeys } from './api-fields.ts'
@@ -46,7 +46,7 @@ import type { ScopeRuntime } from './runtime.ts'
 import { checkShopInput, checkShopName, documentShop, readShop, writeShop, type ShopView } from './shop.ts'
 import { findBroadcast, listBroadcastRows, scopeSeqs } from './store.ts'
 import { kstDate, type Clock } from './time.ts'
-import { WorkBusy, WorkFailed, type WorkPools } from './work-pool.ts'
+import { WorkBusy, WorkFailed, type LedgerChunk, type WorkPools } from './work-pool.ts'
 import type { Actor, Rejection, ScopeWriter, WriteOutcome } from './writer.ts'
 
 export interface ClosingDeps {
@@ -255,7 +255,7 @@ export class ClosingService {
    * 범위 상태를 한꺼번에 메모리에 두지 않고, 날짜 사이마다 이벤트 루프에 차례를 넘긴다 (RA-I2-003).
    * 날짜마다 범위 상태는 공용 캐시에 넣지 않는 읽기(readDetached)로 불러온다 — 전체 판매대장이 방송 중인 다른 판매자의 범위 상태를 밀어내지 않는다 (TD-I2-008)
    */
-  async *#ledgerRows(sellerId: string, dates: readonly string[], from: string, to: string, selected: readonly string[] | null): AsyncGenerator<LedgerRow[]> {
+  async *#ledgerRows(sellerId: string, dates: readonly string[], from: string, to: string, selected: readonly string[] | null): AsyncGenerator<LedgerChunk> {
     for (const date of dates) {
       const runtime = await this.#deps.writer.readDetached(sellerId, date, false)
       if (runtime.seq === 0 || runtime.scopeId === null) continue
@@ -274,7 +274,8 @@ export class ClosingService {
         },
       })
       if (!result.ok) throw new Error('대장 행을 만들지 못했다')
-      yield [...result.rows]
+      // 열 모양(D-O3-07): 날짜 중 하나라도 옵션 방송을 담으면 대장 전체가 옵션·수량·단가 열 — 워커가 조각마다의 options를 OR로 모은다
+      yield { rows: [...result.rows], options: result.options }
     }
   }
 

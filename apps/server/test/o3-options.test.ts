@@ -335,6 +335,33 @@ describe('AC-O3-23 포장 뒤 수량이 바뀌면 "포장 다시 확인"', () =>
   })
 })
 
+describe('AC-O3-24 여러 날짜 판매대장의 열 모양 (D-O3-07)', () => {
+  it('다육만 있는 날짜 + 상품 없는 옵션 방송만 있는 날짜 → 대장 전체가 옵션·수량·단가 열, 다육 행은 옵션 빈칸·수량 1·단가 = 가격. 다육 날짜만이면 11열', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    at(world, D, '19:59:00')
+    const b = (await createBroadcast(world, seller, { date: D, title: '1부' })).id
+    at(world, D, '20:00:00')
+    await ok(world, seller, { type: 'product.register', b, no: 7, name: '핑크프릴', price: 8000 })
+    at(world, D, '20:00:05')
+    await chat(world, seller, b, 'm1', 'UC_A', '홍길동', '7')
+    const D2 = '2026-10-26'
+    at(world, D2, '20:59:00')
+    await settings(world, seller, { 'claim.parseMode': 'OPTIONS' })
+    await createBroadcast(world, seller, { date: D2, title: '의류' })
+    const both = await readSheet((await getFile(world, seller.cookie, `/api/ledger.xlsx?from=${D}&to=${D2}`)).bytes)
+    expect(both).toEqual([
+      ['방송 날짜', '회차', '상품 번호', '품종', '옵션', '수량', '단가', '가격', '구매자', '채널', '찜 시각', '상태', '입금', '배송'],
+      [D, '1부', 7, '핑크프릴', '', 1, 8000, 8000, '홍길동', '유튜브', `${D} 20:00:05`, '1등', '미입금', '포장 대기'],
+    ])
+    const plain = await readSheet((await getFile(world, seller.cookie, `/api/ledger.xlsx?from=${D}&to=${D}`)).bytes)
+    expect(plain).toEqual([
+      ['방송 날짜', '회차', '상품 번호', '품종', '가격', '구매자', '채널', '찜 시각', '상태', '입금', '배송'],
+      [D, '1부', 7, '핑크프릴', 8000, '홍길동', '유튜브', `${D} 20:00:05`, '1등', '미입금', '포장 대기'],
+    ])
+  })
+})
+
 describe('AC-O3-23 백업 — 변형 키·수량을 적은 포장 기록도 백업·복원된다', () => {
   it('옵션 묶음 포장 완료 → 백업 → 빈 판매자로 복원 → 같은 포장 상태(포장 완료), 기록 품목에 변형 키·수량', async () => {
     const world = await newWorld()

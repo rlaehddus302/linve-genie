@@ -2,8 +2,8 @@
 // 판정·DB·네트워크에는 손대지 않는다. 받은 값으로 파일 바이트(또는 읽은 행)를 만들어 돌려줄 뿐이다. 작업 내용은 출력하지 않는다.
 // 무거운 모듈은 그 작업이 처음 올 때 읽는다(.xlsx 읽기 워커가 PDF 모듈을 읽지 않게).
 import { parentPort } from 'node:worker_threads'
-import type { LedgerRow, ReceiptData } from '@livejjim/documents'
-import type { WorkKind } from './work-pool.ts'
+import type { ReceiptData } from '@livejjim/documents'
+import type { LedgerChunk, WorkKind } from './work-pool.ts'
 
 interface Request {
   readonly id: number
@@ -29,10 +29,14 @@ const handlers: Readonly<Record<WorkKind, Handler>> = {
     const { documentFont } = await import('./files.ts')
     return renderReceiptPng((input as { receipt: ReceiptData }).receipt, documentFont())
   },
-  /** 판매대장 엑셀: 조각(날짜마다의 행)을 이어 문서 패키지 ledgerToXlsx */
+  /** 판매대장 엑셀: 조각(날짜마다의 행)을 이어 문서 패키지 ledgerToXlsx. 열 모양은 조각 중 하나라도 옵션이면 옵션·수량·단가 열 (D-O3-07) */
   ledgerXlsx: async (_input, chunks) => {
     const { ledgerToXlsx } = await import('@livejjim/documents')
-    return ledgerToXlsx((chunks as LedgerRow[][]).flat())
+    const list = chunks as readonly LedgerChunk[]
+    return ledgerToXlsx(
+      list.flatMap((chunk) => chunk.rows),
+      list.some((chunk) => chunk.options),
+    )
   },
   /** 상품 목록 .xlsx → 첫 시트의 행 (압축 해제·시트·행·칸 상한 — import-files.ts) */
   xlsxRows: async (input) => {
