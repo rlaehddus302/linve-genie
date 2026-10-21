@@ -3,6 +3,10 @@
 // - 글을 고치면 미리 보기를 다시 해야 넣을 수 있다(고친 글은 새 요청 번호).
 // - 넣기: 한 번 누르면 단추가 잠긴다. 응답이 없어 다시 보내도 같은 요청 번호 — 찜이 둘 생기지 않는다(서버가 처음 응답을 돌려준다).
 //   끝나면 "찜 N개를 넣었어요."를 부른 쪽에 넘기고 창을 닫는다.
+// - 겹친 줄(AC-N2b-2-69, D-N2b-2-14): 서버가 준 `overlapMessage`를 결과 문장 아래에 그대로 보이고 그 줄에 "그래도 넣기"(기본 꺼짐).
+//   N = total + 고른 줄의 overlaps 수(고르기를 바꿔도 미리 보기를 다시 하지 않는다). 넣기는 고른 줄 번호를 includeOverlaps로 보낸다.
+//   처음 넣기를 누른 뒤에는 고르기를 잠근다 — 다시 보내는 넣기는 같은 요청 번호·같은 고르기(다르면 서버가 REQUEST_REUSED).
+//   끝 안내는 넣기 응답에서 빠진 겹친 번호 수 M이 있으면 "… 이미 있는 찜 M개는 넣지 않았어요."를 붙인다.
 // - 키보드(UX-N2b-2-01): 미리 보기가 끝나면 포커스가 "찜 N개 넣기"로 간다(넣을 찜이 있을 때). 보는 동안 "미리 보기"는 잠그지 않고 aria-busy —
 //   포커스가 창 밖으로 빠져 "닫기"로 가지 않게. 글 칸에서 Ctrl+Enter(⌘Enter)는 미리 보기, 미리 본 뒤면 넣기.
 //   붙여 넣던 글은 부른 쪽(draft)에 남아 창을 닫았다 다시 열어도 그대로다.
@@ -11,7 +15,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
 import type { PastePlanView } from '../api/types.ts'
 import { groupDigits } from '../lib/money.ts'
-import { PASTE_GUIDE, PASTE_STALE, pasteButtonLabel, pasteDoneMessage, pasteGroupMessage } from '../lib/platforms.ts'
+import { PASTE_GUIDE, PASTE_INCLUDE_OVERLAP, PASTE_STALE, pasteButtonLabel, pasteDoneMessage, pasteGroupMessage, pasteOverlapCount } from '../lib/platforms.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { Modal } from './Modal.tsx'
 
@@ -30,7 +34,13 @@ interface Previewed {
   readonly plan: PastePlanView
   /** 이 글로 넣을 때 쓸 요청 번호 (같은 글이면 다시 보내도 같다) */
   readonly requestId: string
+  /** "그래도 넣기"를 고른 줄 번호 */
+  readonly include: ReadonlySet<number>
+  /** 이 요청 번호로 넣기를 한 번이라도 보냈다 — 고르기를 잠근다 */
+  readonly sent: boolean
 }
+
+const NO_LINES: ReadonlySet<number> = new Set()
 
 export function PasteDialog({ broadcastId, onClose, onDone, draft = '', onDraftChange }: PasteDialogProps) {
   const [text, setTextState] = useState(draft)
@@ -54,7 +64,9 @@ export function PasteDialog({ broadcastId, onClose, onDone, draft = '', onDraftC
 
   const stale = previewed !== null && previewed.text !== text
   const plan = previewed?.plan ?? null
-  const total = plan?.total ?? 0
+  const include = previewed?.include ?? NO_LINES
+  const locked = previewed?.sent === true
+  const total = plan === null ? 0 : plan.total + pasteOverlapCount(plan.rows, include)
   const canSend = previewed !== null && !stale && total > 0 && !sending
 
   useEffect(() => {
@@ -73,7 +85,12 @@ export function PasteDialog({ broadcastId, onClose, onDone, draft = '', onDraftC
       const result = await withRetry(() => post<PastePlanView>(`${base}/paste/preview`, { text: current }))
       // 같은 글을 다시 미리 보면 요청 번호를 그대로 둔다 (응답 없이 끝난 넣기를 다시 보내도 한 번만)
       focusSend.current = true
-      setPreviewed((before) => ({ text: current, plan: result, requestId: before !== null && before.text === current ? before.requestId : newRequestId() }))
+      // 고르기도 같은 글이면 그대로(이미 보낸 요청 번호는 같은 고르기로만 다시 보낼 수 있다)
+      setPreviewed((before) =>
+        before !== null && before.text === current
+          ? { ...before, plan: result }
+          : { text: current, plan: result, requestId: newRequestId(), include: NO_LINES, sent: false },
+      )
     } catch (caught) {
       if (!isApiError(caught)) throw caught
       setPreviewed(null)
@@ -87,11 +104,13 @@ export function PasteDialog({ broadcastId, onClose, onDone, draft = '', onDraftC
     if (!canSend || previewed === null || sendingRef.current) return
     sendingRef.current = true
     const { requestId, text: body } = previewed
+    const includeOverlaps = [...previewed.include].sort((a, b) => a - b)
+    setPreviewed({ ...previewed, sent: true })
     setSending(true)
     setSendError(null)
     try {
-      const result = await withRetry(() => post<PastePlanView>(`${base}/paste`, { requestId, text: body }))
-      onDone(pasteDoneMessage(result.added ?? result.total))
+      const result = await withRetry(() => post<PastePlanView>(`${base}/paste`, { requestId, text: body, includeOverlaps }))
+      onDone(pasteDoneMessage(result.added ?? result.total, pasteOverlapCount(result.rows)))
     } catch (caught) {
       if (!isApiError(caught)) throw caught
       setSendError(caught)
@@ -99,6 +118,16 @@ export function PasteDialog({ broadcastId, onClose, onDone, draft = '', onDraftC
       sendingRef.current = false
       setSending(false)
     }
+  }
+
+  const toggleInclude = (line: number, on: boolean) => {
+    setPreviewed((before) => {
+      if (before === null || before.sent) return before
+      const next = new Set(before.include)
+      if (on) next.add(line)
+      else next.delete(line)
+      return { ...before, include: next }
+    })
   }
 
   const onTextKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -147,19 +176,29 @@ export function PasteDialog({ broadcastId, onClose, onDone, draft = '', onDraftC
             {PASTE_STALE}
           </p>
         ) : null}
-        {plan !== null && !stale ? <PastePreview plan={plan} /> : null}
+        {plan !== null && !stale ? <PastePreview plan={plan} total={total} include={include} locked={locked || sending} onInclude={toggleInclude} /> : null}
         {sendError !== null ? <ErrorNote error={sendError} {...(sendError.transient ? { onRetry: () => void send() } : {})} /> : null}
       </div>
     </Modal>
   )
 }
 
-/** 미리 보기: 줄 결과 + 같은 닉네임 묶음 */
-export function PastePreview({ plan }: { readonly plan: PastePlanView }) {
+export interface PastePreviewProps {
+  readonly plan: PastePlanView
+  /** 넣을 찜 수 (고른 줄의 겹친 번호 포함) */
+  readonly total?: number
+  readonly include?: ReadonlySet<number>
+  /** 처음 넣기를 누른 뒤 — 고르기 잠금 */
+  readonly locked?: boolean
+  readonly onInclude?: (line: number, on: boolean) => void
+}
+
+/** 미리 보기: 줄 결과(겹친 줄은 서버 문장 + "그래도 넣기") + 같은 닉네임 묶음 */
+export function PastePreview({ plan, total = plan.total, include = NO_LINES, locked = false, onInclude }: PastePreviewProps) {
   const many = plan.groups.filter((group) => group.lines.length > 1)
   return (
     <div className="stack-tight paste-preview" role="group" aria-label="미리 보기">
-      <p role="status">넣을 찜 {groupDigits(plan.total)}개</p>
+      <p role="status">넣을 찜 {groupDigits(total)}개</p>
       <ol className="plain-list paste-rows" aria-label="줄마다 결과">
         {plan.rows.map((row) => (
           <li key={row.line} className={row.result === 'ORDER' ? 'paste-row paste-row-order' : 'paste-row'}>
@@ -170,6 +209,20 @@ export function PastePreview({ plan }: { readonly plan: PastePlanView }) {
               </>
             ) : null}
             <span>{row.message}</span>
+            {row.overlaps !== undefined && row.overlaps.length > 0 && row.overlapMessage !== undefined ? (
+              <span className="paste-overlap">
+                <span className="paste-overlap-message">{row.overlapMessage}</span>
+                <label className="choice">
+                  <input
+                    type="checkbox"
+                    checked={include.has(row.line)}
+                    disabled={locked || onInclude === undefined}
+                    onChange={(event) => onInclude?.(row.line, event.target.checked)}
+                  />
+                  <span>{PASTE_INCLUDE_OVERLAP}</span>
+                </label>
+              </span>
+            ) : null}
           </li>
         ))}
       </ol>

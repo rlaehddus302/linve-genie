@@ -496,6 +496,10 @@ export interface PasteRowView {
   readonly result: string
   readonly numbers: readonly number[]
   readonly message: string
+  /** 같은 닉네임의 활성 찜이 이미 있어 기본으로 넣지 않는 번호 (D-N2b-2-14, 겹친 줄만) */
+  readonly overlaps?: readonly number[]
+  /** "{번호}번은 같은 닉네임의 찜이 이미 있어 넣지 않아요." (overlaps가 있을 때만) */
+  readonly overlapMessage?: string
 }
 
 export interface PasteGroupView {

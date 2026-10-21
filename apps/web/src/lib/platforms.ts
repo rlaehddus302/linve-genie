@@ -72,13 +72,16 @@ export function tiktokReconnectable(collection: TikTokCollection | null): boolea
 
 /**
  * 댓글이 들어오지 않는 상태 — "댓글 붙여넣기"가 주 단추, 알림 띠 한 줄 (AC-N2b-2-62).
- * `missed`(끊긴 동안 받지 못했을 수 있음)는 지금 댓글을 받고 있지 않을 때만 센다: 저절로 다시 붙어 `CONNECTED`가 되면
- * 댓글이 다시 들어오므로 "들어오지 않아요. 붙여 넣어 주세요"를 띄우지 않는다 — 그 말대로 이미 들어온 댓글을 붙여 넣으면
- * 같은 시청자가 틱톡·문자 두 구매자로 찜한다(SA-N2b-2-006·TE-N2b-2-004·UX-N2b-2-02, 스펙 확인 요청은 dev-notes(화면)).
- * 그때 칸에는 서버의 `missedMessage`("끊긴 동안의 틱톡 댓글은 받지 못했을 수 있어요. 틱톡 앱에서 확인해 주세요.")가 경고로 남는다.
+ * - 저장하지 못한 틱톡 댓글(`saveFailed > 0`)이 있으면 상태와 상관없이 센다(수정 2, SA-N2b-2-009·TE-N2b-2-007, RA-N2b-2-02):
+ *   받는 중(`CONNECTED`)에도 그 댓글은 어디에도 기록되지 않아 판매자가 붙여 넣어야만 찜이 된다(겹칠 기록이 없다).
+ * - `missed`(끊긴 동안 받지 못했을 수 있음)는 지금 댓글을 받고 있지 않을 때만 센다: 저절로 다시 붙어 `CONNECTED`가 되면
+ *   댓글이 다시 들어오므로 "들어오지 않아요. 붙여 넣어 주세요"를 띄우지 않는다 — 그 말대로 이미 들어온 댓글을 붙여 넣으면
+ *   같은 시청자가 틱톡·문자 두 구매자로 찜한다(SA-N2b-2-006·TE-N2b-2-004·UX-N2b-2-02, 스펙 확인 요청은 dev-notes(화면) 4).
+ *   그때 칸에는 서버의 `missedMessage`가 경고로 남는다.
  */
 export function tiktokNeedsPaste(collection: TikTokCollection | null): boolean {
   if (collection === null || collection.state === 'FINISHED') return false
+  if (collection.saveFailed > 0) return true
   if (collection.missed && collection.state !== 'CONNECTED') return true
   if (collection.state === 'STOPPED' || collection.state === 'OFF') return true
   return collection.state === 'RETRYING' && (collection.reason === 'BLOCKED' || collection.reason === 'SIGN_FAILED')
@@ -150,6 +153,20 @@ export function pasteButtonLabel(total: number): string {
   return `찜 ${String(total)}개 넣기`
 }
 
-export function pasteDoneMessage(added: number): string {
-  return `찜 ${String(added)}개를 넣었어요.`
+/** 넣기 끝 안내 (AC-N2b-2-69) — skipped = 넣기 응답에서 겹쳐 빠진 번호 수, 0이면 앞 문장만 */
+export function pasteDoneMessage(added: number, skipped = 0): string {
+  const done = `찜 ${String(added)}개를 넣었어요.`
+  return skipped > 0 ? `${done} 이미 있는 찜 ${String(skipped)}개는 넣지 않았어요.` : done
+}
+
+export const PASTE_INCLUDE_OVERLAP = '그래도 넣기'
+
+/** 줄들의 겹친 번호 수 합 (lines가 있으면 그 줄만) */
+export function pasteOverlapCount(rows: readonly { readonly line: number; readonly overlaps?: readonly number[] }[], lines?: ReadonlySet<number>): number {
+  let count = 0
+  for (const row of rows) {
+    if (lines !== undefined && !lines.has(row.line)) continue
+    count += row.overlaps?.length ?? 0
+  }
+  return count
 }

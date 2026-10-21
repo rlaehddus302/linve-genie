@@ -2071,3 +2071,15 @@ html:has(.sms-submit-bar) {
   background-color: #e8f0fe;
   color: #041e49;
 }
+
+/* 붙여넣기 겹친 줄 (AC-N2b-2-69): 서버 문장은 결과 문장 아래 줄, 색만으로 구분하지 않는다(문장 + 고르기) */
+.paste-overlap {
+  display: grid;
+  gap: 0.25rem;
+  margin-block-start: 0.25rem;
+  font-weight: 400;
+}
+
+.paste-overlap-message {
+  color: #8a3d00;
+}
