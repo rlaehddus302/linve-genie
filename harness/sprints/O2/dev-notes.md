@@ -63,6 +63,7 @@
     - 그 변형에 그 구매자의 활성 찜이 있음
     - 수량이 남은 수량보다 큼
 - 여러 줄은 원래 순서(목록 순서)로 하나씩 보낸다. 서버 묶음 API는 없다.
+- 문자찜 결과(AC-O2-40): 응답은 지금 모양 그대로다(`seq`·`buyer`·`phoneLast4`). 찜이 생겼는지는 범위 조회의 `claims`에서 `origin === 'sms' && seq === 응답 seq`인 찜으로 본다. 그런 찜이 없고 `GET /api/reviews?broadcast=`에 `seq === 응답 seq`인 항목이 있으면 "찜이 생기지 않았어요 — 확인 필요로 보냈어요"다. 확인 필요 항목의 `seq`는 그 문자찜 이벤트의 seq다.
 - 보조자(ASSISTANT): 지금처럼 `sms`·`host.cancel`만 쓴다. `product.focus`·바로잡기·지우기·`GET /api/reviews`는 403이다. 보조자의 `host.cancel`은 문자찜으로 생긴 **그 변형** 찜일 때만 된다.
 
 #### 4. 입력 오류 문장 (D-O2-13) — 400 `{ error: { code: 'INVALID_INPUT', message: '입력한 내용을 확인해 주세요.', problems: [{ field, message }] } }`
