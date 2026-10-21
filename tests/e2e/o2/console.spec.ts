@@ -11,8 +11,11 @@ import {
   buyerName,
   chat,
   createBroadcast,
+  SMS_TO_REVIEW,
   history,
   login,
+  todayKst,
+  smsField,
   openOptionBroadcast,
   oscope,
   productOf,
@@ -432,4 +435,41 @@ test('TE-O2-003: 옵션 상품의 가격을 1등 찜이 있을 때 바꾸면 "�
   const apply = page.getByRole('dialog', { name: '확정된 찜에도 새 가격을 적용할까요?' })
   await expect(apply).toBeVisible()
   await expect(apply.getByText(/이미 1등인 찜 1개의 가격도/)).toBeVisible()
+})
+
+test('AC-O2-25·30: 실제 옵션 방송의 문자찜 확인 필요 — 홈 "확인 필요 1건"·콘솔 알림 띠, 목록엔 뒤 4자리만, 주문으로 보내면 문자찜 찜', async ({ page }) => {
+  await loginNewSeller(page)
+  const title = `실제 옵션 ${crypto.randomUUID().slice(0, 8)}`
+  const { b, date } = await createBroadcast(page, { rehearsal: false, saleMode: 'OPTIONS', title, date: todayKst() })
+  await registerOptions(page, b, { no: 21, name: '반바지', price: 15000, options: SIZES })
+  // 새 판매자의 하나뿐인 실제 방송이라 문자찜 화면이 처음부터 고른다
+  await page.goto('/sms')
+  await expect(page.getByRole('region', { name: '고른 방송' })).toContainText(title)
+  await expect(page.getByRole('region', { name: '최근 넣은 문자찜' })).toBeVisible()
+  await smsField(page, '번호').fill('21')
+  await smsField(page, '전화번호').fill('010-2345-6789')
+  await page.getByRole('region', { name: '문자찜 넣기' }).getByRole('radiogroup', { name: '사이즈' }).getByRole('radio', { name: 'M · 남은 1개' }).check()
+  await page.getByRole('region', { name: '문자찜 넣기' }).getByLabel('수량', { exact: true }).fill('3')
+  await page.getByRole('button', { name: '21번에 문자찜 넣기' }).click()
+  await expect(page.getByRole('region', { name: '넣은 결과' })).toContainText(SMS_TO_REVIEW)
+  await page.goto('/')
+  const link = page.getByRole('link', { name: '확인 필요 1건' })
+  await expect(link).toBeVisible()
+  await expect(page.getByRole('link', { name: /^리허설 확인 필요/ })).toHaveCount(0)
+  await page.goto(`/broadcasts/${encodeURIComponent(b)}`)
+  await expect(page.getByRole('region', { name: '알림' }).getByRole('button', { name: '확인 필요 1건' })).toBeVisible()
+  await page.goto('/')
+  await link.click()
+  await expect(page.getByRole('heading', { name: '확인 필요', level: 1 })).toBeVisible()
+  const line = page.getByRole('list', { name: '확인 필요 목록' }).getByRole('listitem', { name: '1번째 줄', exact: true })
+  await expect(line).toContainText('뒤 4자리 6789')
+  await expect(line).toContainText('남은 수량 부족')
+  await expect(page.locator('main')).not.toContainText(/2345|010-?2345/)
+  await expect(line.getByLabel('사이즈')).toHaveValue('M')
+  await expect(line.getByLabel('수량')).toHaveValue('3')
+  await line.getByLabel('수량').fill('1')
+  await line.getByRole('button', { name: '1번째 줄 주문으로' }).click()
+  await expect(page.getByRole('list', { name: '확인 필요 목록' }).getByRole('listitem')).toHaveCount(0, { timeout: 15_000 })
+  const [claim] = await waitClaims(page, date, false, b, 1)
+  expect([claim!.origin, claim!.variant, claim!.qty, claim!.status]).toEqual(['sms', 'M', 1, 'CONFIRMED'])
 })
