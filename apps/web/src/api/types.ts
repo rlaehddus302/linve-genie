@@ -8,6 +8,8 @@ import type {
   PaymentStatus,
   PendingInfo,
   ProductInfo,
+  ReviewInfo,
+  ReviewReason,
   SettlementInfo,
 } from '@livejjim/core'
 
@@ -140,6 +142,50 @@ export interface ChatMessage {
   readonly converted: readonly number[]
   readonly claims: readonly string[]
   readonly failed: boolean
+  /** 옵션 방송의 메시지만: 그 메시지로 생긴 찜 (D-O2-12 "주문 21번 M ×2") — 번호 방송의 메시지에는 없다 */
+  readonly optionOrders?: readonly ChatOptionOrder[]
+  /** 옵션 방송의 메시지만: 그 메시지의 남은 확인 필요 항목 (지우거나 바로잡으면 null) */
+  readonly review?: ChatReview | null
+}
+
+export interface ChatOptionOrder {
+  readonly claim: string
+  readonly no: number
+  /** 옵션 글 (옵션 없는 상품이면 null) */
+  readonly variant: string | null
+  readonly qty: number
+}
+
+export interface ChatReview {
+  readonly reason: ReviewReason
+  readonly no: number | null
+  readonly options: readonly (readonly [string, string])[] | null
+  readonly qty: number | null
+}
+
+/** 확인 필요 항목 하나 (GET /api/reviews — O2 dev-notes "화면에게" 5) */
+export interface ReviewItem extends IsoTimes<ReviewInfo> {
+  readonly date: string
+  readonly rehearsal: boolean
+  readonly broadcastDate: string
+  readonly broadcastTitle: string
+  /** 지금의 구매자 표시 이름 (신뢰할 수 없는 글) */
+  readonly buyerName: string
+  /** 댓글 글(채팅) 또는 메모(문자찜) — 신뢰할 수 없는 글 */
+  readonly text: string | null
+  /** 문자찜의 받은 시각 글 */
+  readonly received: string | null
+  /** 문자찜의 전화번호 뒤 4자리 */
+  readonly phoneLast4: string | null
+}
+
+/** 확인 필요 조회 (GET /api/reviews[?broadcast=][&rehearsal=true]) */
+export interface ReviewsView {
+  readonly rehearsal: boolean
+  readonly reviews: readonly ReviewItem[]
+  readonly products: readonly Product[]
+  readonly broadcasts: readonly BroadcastView[]
+  readonly scopes: readonly ScopeSeq[]
 }
 
 /** 증분 조회 (GET /api/days/:date/changes?since=N) */

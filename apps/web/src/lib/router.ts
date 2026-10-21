@@ -54,8 +54,16 @@ export interface StartRoute {
   readonly youtubeResult?: string
 }
 
+/** 확인 필요 목록 (SPEC §7 화면 11, D-O2-03): 메뉴에 없고 콘솔 알림 띠·홈 링크로 연다. 고른 방송은 `?broadcast=`, 리허설은 `?rehearsal=true` */
+export interface ReviewsRoute {
+  readonly name: 'reviews'
+  readonly broadcast?: string
+  readonly rehearsal: boolean
+}
+
 export type Route =
   | { readonly name: 'home' }
+  | ReviewsRoute
   | { readonly name: 'console'; readonly id: string }
   | { readonly name: 'sms' }
   | { readonly name: 'labels' }
@@ -119,6 +127,11 @@ export function parseRoute(pathname: string, search = ''): Route {
   if (path === '/buyers') return scopeRoute('buyers', search)
   if (path === '/settlements') return scopeRoute('settlements', search)
   if (path === '/packing') return packingRoute(search)
+  if (path === '/reviews') {
+    const params = new URLSearchParams(search)
+    const broadcast = params.get('broadcast')
+    return { name: 'reviews', ...(broadcast !== null && broadcast !== '' ? { broadcast } : {}), rehearsal: params.get('rehearsal') === 'true' }
+  }
   return { name: 'home' }
 }
 
@@ -161,6 +174,13 @@ export function routePath(route: Route): string {
       const query = params.toString()
       return query === '' ? '/packing' : `/packing?${query}`
     }
+    case 'reviews': {
+      const params = new URLSearchParams()
+      if (route.broadcast !== undefined) params.set('broadcast', route.broadcast)
+      if (route.rehearsal) params.set('rehearsal', 'true')
+      const query = params.toString()
+      return query === '' ? '/reviews' : `/reviews?${query}`
+    }
   }
 }
 
@@ -172,6 +192,7 @@ export function menuOf(route: Route): MenuKey | null {
   switch (route.name) {
     case 'home':
     case 'console':
+    case 'reviews':
       return 'broadcasts'
     case 'sms':
       return 'sms'

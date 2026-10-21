@@ -145,13 +145,37 @@ export class BuyerNames {
   }
 }
 
-/** 대기 순번 (1부터, 대기 찜이 아니면 null) */
+/** 대기 순번 (1부터, 대기 찜이 아니면 null). 옵션을 가진 찜은 그 변형의 대기 순번 (D-O1-01) */
 export function waitPosition(data: ScopeData, claim: Claim): number | null {
   if (claim.status !== 'WAITLISTED') return null
   const product = data.products.get(claim.product)
   if (product === undefined) return null
-  const index = product.waitlistClaims.indexOf(claim.id)
+  const list = claim.variant === null ? product.waitlistClaims : (variantOf(product, claim)?.waitlistClaims ?? [])
+  const index = list.indexOf(claim.id)
   return index < 0 ? null : index + 1
+}
+
+/** 찜의 변형 (옵션 없는 찜이면 undefined) */
+export function variantOf(product: Product, claim: Pick<Claim, 'key' | 'variant'>): Product['variants'][number] | undefined {
+  if (claim.variant === null) return undefined
+  return product.variants.find((variant) => variant.key === claim.key || variant.text === claim.variant)
+}
+
+/** 옵션 방송인가 (그 방송 설정 스냅샷의 claim.parseMode — D-O2-02·03) */
+export function isOptionBroadcast(data: Pick<ScopeData, 'broadcasts'>, b: string): boolean {
+  return data.broadcasts.get(b)?.settings['claim.parseMode'] === 'OPTIONS'
+}
+
+/** 찜 이름 뒤의 옵션 글·수량: " M", " L ×2" (옵션 없는 수량 1이면 빈 글) */
+export function claimOptionWords(claim: Pick<Claim, 'variant' | 'qty'>): string {
+  const variant = claim.variant === null ? '' : ` ${claim.variant}`
+  return claim.qty > 1 ? `${variant} ×${String(claim.qty)}` : variant
+}
+
+/** 찜 조치 이벤트에 붙일 변형 (옵션을 가진 찜만 — R-19 "찜을 가리키는 방송자 조치", D-O1-02) */
+export function claimOptionsField(claim: Pick<Claim, 'options'>): { readonly options?: Readonly<Record<string, string>> } {
+  if (claim.options === null || claim.options.length === 0) return {}
+  return { options: Object.fromEntries(claim.options.map(([name, label]) => [name, label])) }
 }
 
 /** 찜의 지금 상태 낱말 (1등 · 대기 n번 · 보류 · 충돌 · …) */

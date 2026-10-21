@@ -3,7 +3,7 @@
 // 브라우저가 다시 붙지 않는 닫힘(세션 만료 등)이면 조금 뒤 새로 연다. 화면이 내려가면 닫는다.
 // 연결은 페이지의 실시간 연결 하나를 함께 쓴다(출력 기록·범위 저장소와 같은 연결, lib/stream.ts — 기기 ID를 밝힌다).
 import { useEffect, useRef } from 'react'
-import type { YoutubeEvent } from '../api/types.ts'
+import type { ScopeSeq, YoutubeEvent } from '../api/types.ts'
 import type { EventSourceLike } from './console-store.ts'
 import { streamUrl } from './device.ts'
 import { sharedStream } from './stream.ts'
@@ -14,6 +14,8 @@ export interface LiveHandlers {
   readonly onYoutube?: (event: YoutubeEvent) => void
   /** 끊겼다 다시 붙음 — 열린 화면의 상태를 다시 받는다 (놓친 알림 따라잡기) */
   readonly onReconnect?: () => void
+  /** 범위 기록이 늘었다 (SSE `change` — 확인 필요 목록이 다시 읽는다, D-O2-14) */
+  readonly onChange?: (change: ScopeSeq & { readonly type: string }) => void
 }
 
 export function parseYoutubeEvent(raw: unknown): YoutubeEvent | null {
@@ -50,6 +52,16 @@ export class LiveEvents {
     stream.addEventListener('youtube', (event) => {
       const data = parseYoutubeEvent(event.data)
       if (data !== null) this.#handlers().onYoutube?.(data)
+    })
+    stream.addEventListener('change', (event) => {
+      const handler = this.#handlers().onChange
+      if (handler === undefined) return
+      try {
+        const data = JSON.parse(String(event.data)) as ScopeSeq & { type: string }
+        if (typeof data === 'object' && data !== null && typeof data.date === 'string') handler(data)
+      } catch {
+        // 읽지 못한 알림은 버린다 (다음 알림·다시 붙을 때 다시 읽는다)
+      }
     })
     stream.onerror = () => {
       if (this.#stopped || this.#stream !== stream || stream.readyState !== 2) return

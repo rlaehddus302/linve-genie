@@ -1,5 +1,5 @@
 // 화면 낱말 (UX-01, D-088, AC-S05-70). 엔진 영어 값은 이 표의 낱말로만 보인다.
-import { formatWon, type BuyerKind, type ClaimOrigin, type ClaimReason, type ClaimStatus, type PaymentStatus, type ProductStatus, type ShippingMode } from '@livejjim/core'
+import { formatWon, type BuyerKind, type ClaimOrigin, type ClaimReason, type ClaimStatus, type PaymentStatus, type ProductStatus, type ReviewReason, type ShippingMode } from '@livejjim/core'
 
 export const PRODUCT_STATUS_WORD: Readonly<Record<ProductStatus, string>> = {
   READY: '공개 전',
@@ -19,8 +19,8 @@ export const REJECT_REASON_WORD: Readonly<Record<ClaimReason, string>> = {
   WAITLIST_CLEARED: '대기 정리',
   BY_HOST: '무효',
   RENUMBERED: '번호 바뀜',
-  // O1: 공개될 때 옵션(사이즈·색상 등)을 고르지 않은 찜 — 확인 필요로 간다 (O2가 화면 낱말을 다듬는다)
-  OPTION_MISSING: '옵션 없음',
+  // O1: 공개될 때 옵션(사이즈·색상 등)을 고르지 않은 찜 — 확인 필요로 간다 (D-O2-12)
+  OPTION_MISSING: '옵션 빠짐',
 }
 
 const CLAIM_STATUS_WORD: Readonly<Record<Exclude<ClaimStatus, 'WAITLISTED' | 'REJECTED'>, string>> = {
@@ -61,13 +61,50 @@ export const LABEL_WORD = {
   reprint: '재출력 필요',
 } as const
 
-/** 채팅 표시 낱말 (D-088) */
+/** 채팅 표시 낱말 (D-088, D-O2-12 — 옵션 방송의 "확인 필요") */
 export const CHAT_WORD = {
   order: '주문',
   cancel: '취소',
   mention: '언급',
   owner: '방송자',
 } as const
+
+/** 옵션 방송 채팅 패널의 종류 낱말 "확인 필요" (D-O2-12) */
+export const CHAT_REVIEW_WORD = '확인 필요'
+
+/** 확인 필요 사유 낱말 (D-O2-12) — 엔진 열거값 전체를 덮는다 */
+export const REVIEW_REASON_WORD: Readonly<Record<ReviewReason, string>> = {
+  OPTION_MISSING: '옵션 빠짐',
+  OPTION_CONFLICT: '옵션이 둘',
+  UNKNOWN_WORD: '모르는 말',
+  QTY_INVALID: '수량 확인',
+  NUMBER_AMBIGUOUS: '숫자가 애매함',
+  PRODUCT_AMBIGUOUS: '상품이 애매함',
+  MULTI_PRODUCT: '상품이 여럿',
+  FOCUS_CHANGED: '지금 상품이 막 바뀜',
+  STOCK_SHORT: '남은 수량 부족',
+}
+
+/** 판매 방식 (OPT-04, D-O2-01): 설정 claim.parseMode가 OPTIONS면 "상품명·옵션도 받기" */
+export type SaleMode = 'NUMBERS' | 'OPTIONS'
+
+export const SALE_MODE_WORD: Readonly<Record<SaleMode, string>> = {
+  NUMBERS: '번호로만 받기',
+  OPTIONS: '상품명·옵션도 받기',
+}
+
+/** 판매 방식 칸의 선택지 낱말 (설정·시작 마법사·방송 시작 창) */
+export const SALE_MODE_CHOICE: Readonly<Record<SaleMode, string>> = {
+  NUMBERS: '번호로만 받기 (다육 등 — 기본)',
+  OPTIONS: '상품명·옵션도 받기 (의류·식품·케이스 등)',
+}
+
+export const saleModeOf = (settings: { readonly 'claim.parseMode': string } | null | undefined): SaleMode =>
+  settings?.['claim.parseMode'] === 'OPTIONS' ? 'OPTIONS' : 'NUMBERS'
+
+/** 옵션 방식이면 겨루기는 접수순으로 고정 (R-19 "판매 방식", D-O2-01) */
+export const OPTIONS_ARRIVAL_NOTE = '상품명·옵션도 받기는 먼저 들어온 순서로만 판정해요.'
+export const OPTIONS_ARRIVAL_WORD = '먼저 들어온 순서(접수순)'
 
 /** 조치자 낱말: 로그인 아이디 · 서버 · 수집기 */
 export function actorWord(actor: { readonly kind: string; readonly loginId: string | null }): string {
@@ -115,6 +152,12 @@ export function actionWord(type: string, fields: Readonly<Record<string, unknown
       return '차단'
     case 'host.unblockBuyer':
       return '차단 풀기'
+    case 'product.focus':
+      return '지금 상품'
+    case 'host.resolveReview':
+      return '확인 필요 바로잡기'
+    case 'host.dismissReview':
+      return '주문 아님'
     default:
       return '조치'
   }
