@@ -27,7 +27,7 @@ import {
   type BuyerSort,
 } from '../lib/buyers.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
-import { claimWord, formatWon, type BuyerNames } from '../lib/derive.ts'
+import { claimOptionWords, claimWord, formatWon, type BuyerNames } from '../lib/derive.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
 import { PREVIEW_FAILED, PREVIEW_LOADING, PREVIEW_REFRESHING, useMergePreview } from '../lib/merge-preview.ts'
 import { routePath, type Navigate, type ScopeRoute } from '../lib/router.ts'
@@ -517,7 +517,7 @@ function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement, on
                   const name = product === undefined ? '' : product.name.trim() === '' ? '품종 미입력' : product.name
                   return (
                     <li key={claim.id}>
-                      {claim.no}번 {name} {claim.price === null ? '' : formatWon(claim.price)} · {ORIGIN_WORD[claim.origin]}
+                      {claim.no}번{claimOptionWords(claim)} {name} {(claim.amount ?? claim.price) === null ? '' : formatWon(claim.amount ?? claim.price ?? 0)} · {ORIGIN_WORD[claim.origin]}
                       {claim.buyer !== current.id ? ` · ${names.name(claim.buyer)}` : ''}
                     </li>
                   )
@@ -538,7 +538,8 @@ function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement, on
           <ul className="plain-list">
             {others.map((claim) => (
               <li key={claim.id}>
-                {productLabel(api, claim.broadcast, claim.no)} {claimWord(api.data, claim)}
+                {productLabel(api, claim.broadcast, claim.no)}
+                {claimOptionWords(claim)} {claimWord(api.data, claim)}
               </li>
             ))}
           </ul>

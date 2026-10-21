@@ -183,7 +183,7 @@ export function HomePage({ navigate }: HomePageProps) {
                 이 방송 시작하기
               </button>
               <button type="button" className="button" disabled={busy} onClick={() => void create({ rehearsal: true, ...modeField() })}>
-                이 판매 방식으로 리허설 해 보기
+                이 판매 방식으로 리허설 시작
               </button>
             </div>
           </form>
