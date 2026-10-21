@@ -394,6 +394,36 @@ describe('AC-O2-24 옵션 방송 채팅 항목', () => {
   })
 })
 
+describe('SA-O2-03 바로잡아 찜이 생긴 옵션 방송 메시지는 주문 메시지다 (D-076)', () => {
+  it('확인 필요를 M으로 바로잡으면 order=true·orders=[21] — 화면이 찜으로 바꾸기를 다시 보이지 않는다. 지운 항목은 주문이 아니다', async () => {
+    const { world, seller, b } = await optionWorld()
+    await world.server.ingestChat(seller.sellerId, { b: b.id, id: 'm1', ch: 'UC1', nick: '홍길동', text: '반바지' })
+    await world.server.ingestChat(seller.sellerId, { b: b.id, id: 'm3', ch: 'UC3', nick: '이영희', text: '반바지' })
+    await expectOk(writeEvent(world, seller, { type: 'product.focus', b: b.id, no: 21 }))
+    await expectOk(writeEvent(world, seller, { type: 'host.resolveReview', b: b.id, no: 21, item: 'm1', qty: 1, options: { 사이즈: 'M' } }))
+    await expectOk(writeEvent(world, seller, { type: 'host.dismissReview', b: b.id, item: 'm3', reason: '주문 아님' }))
+    const messages = (await expectOk(client(world, seller.cookie).get(`/api/days/${b.date}/messages`))).body.messages as Record<string, unknown>[]
+    const byId = new Map(messages.map((message) => [message.id, message]))
+    expect(byId.get('m1')).toMatchObject({ order: true, orders: [21], optionOrders: [{ no: 21, variant: 'M', qty: 1 }], review: null })
+    expect(byId.get('m3')).toMatchObject({ order: false, orders: [], optionOrders: [], review: null })
+  })
+})
+
+describe('RA-O2-01 확인 필요 조회는 채팅 수와 상관없이 방송 표로 옵션 방송만 고른다', () => {
+  it('번호 방송·옵션 방송·리허설 옵션 방송이 섞여도 옵션 방송의 범위만, 채팅을 많이 받아도 같은 결과', async () => {
+    const { world, seller, b } = await optionWorld()
+    const numbers = await broadcast(world, seller)
+    await expectOk(writeEvent(world, seller, { type: 'product.register', b: numbers.id, no: 1, name: '라울', price: 8000 }))
+    for (let i = 0; i < 30; i++) await world.server.ingestChat(seller.sellerId, { b: numbers.id, id: `n${String(i)}`, ch: `UCn${String(i)}`, nick: 'n', text: '1' })
+    await world.server.ingestChat(seller.sellerId, { b: b.id, id: 'm1', ch: 'UC1', nick: '홍길동', text: '반바지' })
+    const api = client(world, seller.cookie)
+    const real = await expectOk(api.get('/api/reviews'))
+    expect((real.body.reviews as { item: string }[]).map((review) => review.item)).toEqual(['m1'])
+    expect((real.body.scopes as { date: string; rehearsal: boolean }[]).map((scope) => [scope.date, scope.rehearsal])).toEqual([[b.date, false]])
+    expect((await expectOk(api.get('/api/reviews?rehearsal=true'))).body.scopes).toEqual([])
+  })
+})
+
 describe('AC-O2-32 실시간 반영', () => {
   it('확인 필요가 되는 댓글·지우기·지금 상품마다 change 알림이 가고, 증분 조회는 바뀐 메시지를 다시 준다', async () => {
     const { world, seller, b } = await optionWorld()

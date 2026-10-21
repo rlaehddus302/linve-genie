@@ -1057,6 +1057,9 @@ export class Service {
         })
         const review = row.failed ? undefined : lookup.reviewByKey.get(key)
         const reread = parseOptionComment(event.text, catalog(event.b), null, snapshot)
+        // 주문 여부는 그 메시지로 생긴 찜이 있는지로 본다 (SA-O2-03, D-076) — 받을 때 확인 필요였다가 바로잡아 찜이 생긴 메시지도
+        // 주문 메시지다. 그래야 채팅 패널이 '찜으로 바꾸기'를 다시 보이지 않아 같은 메시지로 두 번째 찜이 생기지 않는다.
+        const optionOrder = order || optionOrders.length > 0
         return {
           id: event.id,
           broadcast: event.b,
@@ -1068,9 +1071,9 @@ export class Service {
           at: iso(event.at),
           publishedAt: iso(info?.publishedAt ?? event.publishedAt ?? event.at),
           ignored: info?.ignored ?? false,
-          order,
+          order: optionOrder,
           cancel,
-          orders: order ? [...new Set(optionOrders.map((item) => item.no))] : [],
+          orders: [...new Set(optionOrders.map((item) => item.no))],
           cancels: cancel ? [...reread.cancels] : [],
           mentions: [...reread.mentions],
           converted: info === undefined ? [] : [...info.converted],

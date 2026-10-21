@@ -742,13 +742,18 @@ export async function chatRowsByIds(db: Db, sellerId: string, scopeId: string, k
  * 상품명·옵션도 받는 방송(시작 이벤트의 설정 스냅샷 claim.parseMode=OPTIONS)이 있는 범위 (날짜·리허설인지), 날짜·실제 먼저 순.
  * 확인 필요 항목은 옵션 방송에만 생긴다(R-20 7) — 확인 필요 목록은 이 범위들만 읽는다. rehearsal을 주면 그쪽 범위만
  */
+//
+// 읽기 비용 (RA-O2-01): 판매자의 이벤트 전체를 훑지 않는다. 방송 표(broadcasts_seller_idx: 판매자·날짜·start_seq)로 방송을 고르고,
+// 그 방송의 시작 이벤트 한 줄만 (범위, seq) 유일 색인으로 집어 설정 스냅샷을 읽는다 — 비용은 판매자의 방송 수에 비례한다(채팅 수와 무관).
+// 봉인·지난 날짜도 범위에 남긴다 — 남은 확인 필요 항목을 목록에서 숨기지 않는다(판매자 안전).
 export async function optionScopes(db: Db, sellerId: string, rehearsal?: boolean): Promise<{ date: string; rehearsal: boolean; scopeId: string }[]> {
   const rows = await db
-    .select({ body: events.body, date: scopes.date, rehearsal: scopes.rehearsal, scopeId: events.scopeId })
-    .from(events)
-    .innerJoin(scopes, and(eq(scopes.id, events.scopeId), eq(scopes.sellerId, sellerId)))
-    .where(and(eq(events.sellerId, sellerId), eq(events.type, 'broadcast.start'), eq(events.changed, true), rehearsal === undefined ? undefined : eq(scopes.rehearsal, rehearsal)))
-    .orderBy(asc(scopes.date), asc(scopes.rehearsal))
+    .select({ body: events.body, date: scopes.date, rehearsal: scopes.rehearsal, scopeId: broadcasts.scopeId })
+    .from(broadcasts)
+    .innerJoin(scopes, and(eq(scopes.id, broadcasts.scopeId), eq(scopes.sellerId, sellerId)))
+    .innerJoin(events, and(eq(events.scopeId, broadcasts.scopeId), eq(events.seq, broadcasts.startSeq), eq(events.sellerId, sellerId)))
+    .where(and(eq(broadcasts.sellerId, sellerId), eq(events.type, 'broadcast.start'), eq(events.changed, true), rehearsal === undefined ? undefined : eq(scopes.rehearsal, rehearsal)))
+    .orderBy(asc(scopes.date), asc(scopes.rehearsal), asc(broadcasts.startSeq))
   const out = new Map<string, { date: string; rehearsal: boolean; scopeId: string }>()
   for (const row of rows) {
     let mode: unknown
