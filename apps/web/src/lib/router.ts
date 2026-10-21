@@ -61,7 +61,7 @@ export interface StartRoute {
   readonly name: 'start'
   /** "시작 마법사 다시 하기": 상태와 상관없이 1단계부터 (주소에 적지 않는다) */
   readonly fresh?: boolean
-  /** 마법사 4단계에서 구글로 갔다가 돌아온 결과 코드 (`?youtube=`) */
+  /** 마법사 3단계에서 구글로 갔다가 돌아온 결과 코드 (`?youtube=`) */
   readonly youtubeResult?: string
 }
 

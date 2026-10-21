@@ -7,15 +7,17 @@
 // 확인 필요 입금이 있으면 "입금 확인 3"처럼 수를 글자로 붙인다(색만으로 알리지 않는다).
 // 보조자 계정은 가게 이름 + "보조자", 메뉴는 "문자찜 입력"뿐이다(프린터 상태·더보기도 없다 — 보조자는 출력·입금 확인을 쓰지 않는다).
 // 라벨 기능이 꺼져 있거나 켬/끔을 아직 모르면 프린터 상태와 메뉴 "라벨"을 만들지 않는다(L-13 9) — "설정"을 비롯한 다른 메뉴는 그대로다.
+// 이 기기가 출력 기기이고 끊김으로 멈췄으면 프린터 상태 옆에 보통 버튼 "다시 연결" — 한 번 누르면 마지막으로 쓴 연결 방법으로 그 누름 안에서 다시 잇는다
+// (D-WIZ-01, AC-WIZ-04). 다른 기기·그 방법이 없는 브라우저·손으로 푸는 멈춤이면 버튼 없이 상태를 눌러 라벨 화면으로 간다. 저절로 다시 잇지 않는다.
 // 라벨 켬/끔을 바꾸는 "설정"은 메뉴 항목 하나다(I3 AC-I3-44 — N4a의 위 줄 "설정" 링크는 합치며 메뉴 항목으로 모았다, D-N4a-07).
 import { useEffect, useId, useRef, useState, type MouseEvent } from 'react'
 import { useInstallHint, useUpdateNotice } from '../pwa/pwa.ts'
-import { printerStatusWord } from '../lib/print-words.ts'
+import { PRINT_ACTION, printerStatusWord } from '../lib/print-words.ts'
 import { menuAll, menuLayout, type MenuItem } from '../lib/menu.ts'
 import { menuOf, routePath, type MenuKey, type Navigate, type Route } from '../lib/router.ts'
 import { useWide } from '../lib/use-wide.ts'
 import { useDepositReview } from './deposit-context.tsx'
-import { useLabelsEnabled, usePrintApi, usePrintState } from './print-context.tsx'
+import { useLabelsEnabled, usePrintApi, usePrintState, useStationState } from './print-context.tsx'
 
 export interface TopBarProps {
   readonly shopName: string
@@ -155,17 +157,48 @@ function PhoneMenu({ bar, more, current, go, routeKey }: { readonly bar: readonl
   )
 }
 
-/** 프린터 상태 (AC-I1-34): "프린터 PC · 연결됨 · 대기 2장" / "출력 기기 없음 · 대기 3장" / "출력 멈춤 · 대기 5장" — 누르면 라벨 화면 */
+/**
+ * 프린터 상태 (AC-I1-34): "프린터 PC · 연결됨 · 대기 2장" / "출력 기기 없음 · 대기 3장" / "출력 멈춤 · 대기 5장" — 누르면 라벨 화면.
+ * 끊김 멈춤이고 이 기기가 출력 기기이며 마지막 연결 방법이 이 브라우저에 있으면 옆에 "다시 연결"(AC-WIZ-04)
+ */
 function PrinterStatus({ onOpen }: { readonly onOpen: (event: MouseEvent<HTMLAnchorElement>) => void }) {
   const api = usePrintApi()
   const print = usePrintState()
+  const station = useStationState()
+  const [busy, setBusy] = useState(false)
+  /** 이 버튼으로 다시 이으려다 실패했다 — 그 오류 문장은 이 버튼 옆에만 보인다(라벨 화면 멈춤 띠의 같은 문장과 겹치지 않게) */
+  const [mineError, setMineError] = useState<unknown>(null)
   if (api === null) return null
   const queue = print.overview?.queue ?? null
   const paused = queue?.pause != null
+  const canReconnect = queue?.pause?.reason === 'DISCONNECTED' && api.station.isMine(queue) && api.station.canReconnect
+  const reconnect = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const ok = await api.station.reconnect()
+      setMineError(ok ? null : api.station.getSnapshot().connectError)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const failed = canReconnect && mineError !== null && station !== null && station.connectError === mineError ? station.connectError : null
   return (
-    <a className={paused ? 'printer-status printer-status-alert' : 'printer-status'} href={routePath({ name: 'labels' })} onClick={onOpen}>
-      {printerStatusWord(queue)}
-    </a>
+    <span className="printer-status-group">
+      <a className={paused ? 'printer-status printer-status-alert' : 'printer-status'} href={routePath({ name: 'labels' })} onClick={onOpen}>
+        {printerStatusWord(queue)}
+      </a>
+      {canReconnect ? (
+        <button type="button" className="button" disabled={busy || station?.connecting === true} onClick={() => void reconnect()}>
+          {PRINT_ACTION.reconnect}
+        </button>
+      ) : null}
+      {failed !== null ? (
+        <span className="field-error printer-status-error" role="alert">
+          {failed.message}
+        </span>
+      ) : null}
+    </span>
   )
 }
 

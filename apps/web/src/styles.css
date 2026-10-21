@@ -1448,6 +1448,17 @@ html:has(.sms-submit-bar) {
   text-decoration: none;
 }
 
+.printer-status-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.printer-status-error {
+  flex-basis: 100%;
+}
+
 .printer-status-alert {
   border-color: #a50e0e;
   background-color: #fce8e6;

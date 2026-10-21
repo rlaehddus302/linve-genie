@@ -75,15 +75,19 @@ describe('시작 마법사가 열리는 때 (AC-I3-50)', () => {
     const title = await heading('1/5 가게 이름')
     expect(window.location.pathname).toBe('/start')
     await waitFor(() => expect(document.activeElement).toBe(title))
-    for (const step of ['1/5 가게 이름', '2/5 판매 규칙 확인', '3/5 프린터 연결', '4/5 유튜브 연결', '5/5 리허설 해 보기']) {
+    for (const step of ['1/5 가게 이름', '2/5 판매 규칙 확인', '3/5 유튜브 연결', '4/5 프린터 연결', '5/5 리허설 해 보기']) {
       expect(within(screen.getByRole('list', { name: '단계' })).getByText(step)).toBeDefined()
     }
   })
 
-  it('"진행 중"이면 그 단계부터', async () => {
+  it('"진행 중"이면 그 단계부터 — 저장된 번호는 새 순서의 번호로 그대로 읽는다 (D-WIZ-01, AC-WIZ-02)', async () => {
     wizard = { status: 'IN_PROGRESS', step: 3 }
     await open('/')
-    expect(await heading('3/5 프린터 연결')).toBeDefined()
+    expect(await heading('3/5 유튜브 연결')).toBeDefined()
+    cleanup()
+    wizard = { status: 'IN_PROGRESS', step: 4 }
+    await open('/')
+    expect(await heading('4/5 프린터 연결')).toBeDefined()
   })
 
   it('실제 방송이 있거나, 마침·닫음이면 열지 않는다. 다른 주소로 바로 들어오면 상태를 묻지도 않는다', async () => {
@@ -120,11 +124,27 @@ describe('마법사 단계 (AC-I3-51~55)', () => {
     expect(screen.getByText('바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.')).toBeDefined()
     expect(screen.getByText('다른 규칙은 설정에서 바꿀 수 있어요.')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: '다음' }))
-    expect(await heading('3/5 프린터 연결')).toBeDefined()
+    expect(await heading('3/5 유튜브 연결')).toBeDefined()
     expect(server.callsTo('PATCH', /settings/)).toHaveLength(0)
-    expect(screen.getByText('라벨 프린터(NIIMBOT B1)는 라벨·프린터 화면에서 연결하고 테스트 인쇄를 해요. 프린터가 없어도 판매·정산은 그대로 돼요.')).toBeDefined()
+    expect(screen.getByText('감사 메시지 자동 게시는 설정에서 따로 켤 수 있어요.')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: '이전' }))
     expect(await heading('2/5 판매 규칙 확인')).toBeDefined()
+  })
+
+  it('단계 순서: "다음"은 가게 이름 → 판매 규칙 → 유튜브 → 프린터 → 리허설, "이전"은 거꾸로 — 제목에 포커스 (D-WIZ-01, AC-WIZ-01)', async () => {
+    const order = ['1/5 가게 이름', '2/5 판매 규칙 확인', '3/5 유튜브 연결', '4/5 프린터 연결', '5/5 리허설 해 보기']
+    await open('/start')
+    await heading(order[0] as string)
+    for (const next of order.slice(1)) {
+      fireEvent.click(screen.getByRole('button', { name: '다음' }))
+      const title = await heading(next)
+      await waitFor(() => expect(document.activeElement).toBe(title))
+    }
+    for (const prev of [...order].reverse().slice(1)) {
+      fireEvent.click(screen.getByRole('button', { name: '이전' }))
+      const title = await heading(prev)
+      await waitFor(() => expect(document.activeElement).toBe(title))
+    }
   })
 
   it('1단계: 바꾼 이름이 틀리면 다음 단계로 가지 않는다, 맞으면 저장하고 위 줄이 바뀐다', async () => {
@@ -194,7 +214,7 @@ describe('마법사 단계 (AC-I3-51~55)', () => {
       expect(await screen.findByText('기본 배송비: 3,000원')).toBeDefined()
       expect(server.callsTo('PATCH', /settings/).map((call) => call.body)).toEqual([{ settings: { 'shipping.baseFee': 3000 } }])
       fireEvent.click(screen.getByRole('button', { name: '다음' }))
-      expect(await heading('3/5 프린터 연결')).toBeDefined()
+      expect(await heading('3/5 유튜브 연결')).toBeDefined()
       expect(screen.queryByRole('dialog')).toBeNull()
     })
 
@@ -204,12 +224,12 @@ describe('마법사 단계 (AC-I3-51~55)', () => {
       await editFee('3000')
       fireEvent.click(screen.getByRole('button', { name: '다음' }))
       fireEvent.click(within(await dialog()).getByRole('button', { name: '저장하지 않고 떠나기' }))
-      expect(await heading('3/5 프린터 연결')).toBeDefined()
+      expect(await heading('3/5 유튜브 연결')).toBeDefined()
       expect(server.callsTo('PATCH', /settings/)).toHaveLength(0)
       fireEvent.click(screen.getByRole('button', { name: '이전' }))
       expect(await screen.findByText('기본 배송비: 4,000원')).toBeDefined()
       fireEvent.click(screen.getByRole('button', { name: '다음' }))
-      expect(await heading('3/5 프린터 연결')).toBeDefined()
+      expect(await heading('3/5 유튜브 연결')).toBeDefined()
     })
 
     it('2단계: "이전"·"나중에 할게요"도 묻는다 — 나중에 할게요를 떠나면 상태 "닫음" → 방송 목록(앱 창이 다시 묻지 않는다)', async () => {
@@ -244,7 +264,7 @@ describe('마법사 단계 (AC-I3-51~55)', () => {
       fireEvent.click(screen.getByRole('button', { name: '그만두기' }))
       fireEvent.click(screen.getByRole('button', { name: '1등이 취소되면 바꾸기' }))
       fireEvent.click(screen.getByRole('button', { name: '다음' }))
-      expect(await heading('3/5 프린터 연결')).toBeDefined()
+      expect(await heading('3/5 유튜브 연결')).toBeDefined()
       expect(screen.queryByRole('dialog')).toBeNull()
       expect(server.callsTo('PATCH', /settings/)).toHaveLength(0)
     })
@@ -273,7 +293,7 @@ describe('마법사 단계 (AC-I3-51~55)', () => {
       fireEvent.click(screen.getByRole('button', { name: '저장' }))
       await clicked()
       expect(screen.queryByRole('dialog')).toBeNull()
-      expect(await heading('3/5 프린터 연결')).toBeDefined()
+      expect(await heading('3/5 유튜브 연결')).toBeDefined()
       expect(screen.queryByRole('dialog')).toBeNull()
       expect(server.callsTo('PATCH', /settings/).map((call) => call.body)).toEqual([{ settings: { 'shipping.baseFee': 3000 } }])
       expect(wizard).toEqual({ status: 'IN_PROGRESS', step: 3 })
@@ -302,7 +322,7 @@ describe('마법사 단계 (AC-I3-51~55)', () => {
         next.click()
       })
       expect(screen.queryByRole('dialog')).toBeNull()
-      expect(await heading('3/5 프린터 연결')).toBeDefined()
+      expect(await heading('3/5 유튜브 연결')).toBeDefined()
       expect(screen.queryByRole('dialog')).toBeNull()
       expect(server.callsTo('PATCH', /settings/).map((call) => call.body)).toEqual([{ settings: { 'shipping.baseFee': 3000 } }])
     })
@@ -327,7 +347,7 @@ describe('마법사 단계 (AC-I3-51~55)', () => {
       fireEvent.click(screen.getByRole('button', { name: '다음' }))
       await clicked()
       expect(screen.queryByRole('dialog')).toBeNull()
-      expect(await heading('3/5 프린터 연결')).toBeDefined()
+      expect(await heading('3/5 유튜브 연결')).toBeDefined()
       expect(screen.queryByRole('dialog')).toBeNull()
       expect(server.callsTo('PUT', /^\/api\/shop$/).map((call) => call.body)).toEqual([{ name: '새 가게' }])
     })
@@ -351,10 +371,10 @@ describe('마법사 단계 (AC-I3-51~55)', () => {
     })
   })
 
-  it('4단계: 준비 안 된 서버면 안내 + 다음, 자동 게시 동의는 묻지 않는다 / 연결됐으면 채널 이름', async () => {
-    wizard = { status: 'IN_PROGRESS', step: 4 }
+  it('3단계: 준비 안 된 서버면 안내 + 다음, 자동 게시 동의는 묻지 않는다 / 연결됐으면 채널 이름', async () => {
+    wizard = { status: 'IN_PROGRESS', step: 3 }
     await open('/start')
-    await heading('4/5 유튜브 연결')
+    await heading('3/5 유튜브 연결')
     expect(await screen.findByText('유튜브 연동을 준비하지 않은 서버예요.')).toBeDefined()
     expect(screen.getByText('감사 메시지 자동 게시는 설정에서 따로 켤 수 있어요.')).toBeDefined()
     expect(screen.queryByRole('button', { name: /자동 게시/ })).toBeNull()
@@ -366,22 +386,27 @@ describe('마법사 단계 (AC-I3-51~55)', () => {
     expect(screen.queryByRole('button', { name: '연결 끊기' })).toBeNull()
   })
 
-  it('4단계에서 구글로 갔다 오면(설정 주소로 돌아옴) 마법사 4단계에 결과 문장', async () => {
+  it('3단계에서 구글로 갔다 오면(설정 주소로 돌아옴) 저장된 단계와 상관없이 마법사 3단계에 결과 문장 — "다음"은 4/5 프린터 (AC-WIZ-02)', async () => {
     youtube = connection({ status: 'NOT_CONNECTED', channel: null })
     const assigned: string[] = []
     setTopLevelNavigation((url) => assigned.push(url))
     server.on('POST', /^\/api\/youtube\/connection\/start$/, () => ({ body: { authorizeUrl: 'http://127.0.0.1:4100/o/oauth2/v2/auth?state=s' } }))
-    wizard = { status: 'IN_PROGRESS', step: 4 }
+    wizard = { status: 'IN_PROGRESS', step: 3 }
     await open('/start')
     fireEvent.click(await screen.findByRole('button', { name: '구글로 유튜브 연결하기' }))
     await waitFor(() => expect(assigned).toHaveLength(1))
     cleanup()
     youtube = connection()
+    // 서버에는 다른 단계가 적혀 있어도(예전 순서의 4단계) 돌아온 직후엔 3단계다
+    wizard = { status: 'IN_PROGRESS', step: 5 }
     await open('/settings/youtube?youtube=connected')
     expect(await screen.findByText('유튜브 채널을 연결했어요.')).toBeDefined()
-    expect(screen.getByRole('heading', { name: '4/5 유튜브 연결', level: 2 })).toBeDefined()
+    expect(screen.getByRole('heading', { name: '3/5 유튜브 연결', level: 2 })).toBeDefined()
     await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe('/start'))
     expect(window.sessionStorage.length).toBe(0)
+    await waitFor(() => expect(wizard).toEqual({ status: 'IN_PROGRESS', step: 3 }))
+    fireEvent.click(screen.getByRole('button', { name: '다음' }))
+    expect(await heading('4/5 프린터 연결')).toBeDefined()
   })
 
   it('5단계: "리허설 시작하기"는 두 번 눌러도 리허설 방송 하나 → 마침 → 그 리허설 콘솔', async () => {
