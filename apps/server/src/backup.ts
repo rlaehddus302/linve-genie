@@ -25,6 +25,7 @@ import { createGunzip, createGzip } from 'node:zlib'
 import { STATE_FORMAT, applyEvent, checkInvariants, checkSettings, isValidDate, type EngineEffect, type EngineEvent, type EngineState } from '@livejjim/core'
 import { and, asc, eq, gt, inArray, lte, ne, sql } from 'drizzle-orm'
 import { canonicalJson, checkReplay, type ScopeCheck } from './check-replay.ts'
+import { SALE_MODE_NOT_YET_BACKUP_MESSAGE, usesNotYetSaleMode } from './sale-mode.ts'
 import type { Db } from './db/database.ts'
 import {
   accounts,
@@ -560,6 +561,8 @@ class ScopeReplay {
     if (!isObject(parsed) || parsed.type !== event.type || parsed.seq !== event.seq || parsed.at !== event.at) {
       return invalid(`범위 ${this.#where}의 seq ${String(event.seq)} 이벤트 본문이 기록 칸과 맞지 않아요.`)
     }
+    // 방송 설정 스냅샷의 옵션 방송도 막는다 (RA-O1-01) — O2에서 풂
+    if (event.type === 'broadcast.start' && isObject(parsed.settings) && usesNotYetSaleMode(parsed.settings)) invalid(SALE_MODE_NOT_YET_BACKUP_MESSAGE)
     let result: { state: EngineState; effects: readonly EngineEffect[] }
     try {
       result = applyEvent(this.state, parsed as unknown as EngineEvent)
@@ -727,6 +730,8 @@ async function walkBackup(bytes: Uint8Array, visitor: BackupVisitor = {}): Promi
     if (!isObject(settings)) invalid(MESSAGES.settings)
     const settingsObject = settings as Record<string, unknown>
     if (checkSettings(settingsObject).length > 0 || settingsObject['settlement.groupBy'] === 'MANUAL') invalid(MESSAGES.settingsCheck)
+    // 옵션 방송은 아직 서버·화면·라벨이 모른다 (RA-O1-01) — O2에서 풂
+    if (usesNotYetSaleMode(settingsObject)) invalid(SALE_MODE_NOT_YET_BACKUP_MESSAGE)
     const digest = new BackupDigest()
     digest.header({ format: BACKUP_FORMAT, version: BACKUP_VERSION, sellerId, shop, settings })
     await visitor.header?.({ sellerId: sellerId as string, shop: shop as ShopView, settings: settingsObject })
