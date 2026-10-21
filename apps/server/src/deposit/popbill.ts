@@ -229,12 +229,12 @@ export interface PopbillKeys {
   readonly testBed: boolean
 }
 
-/** 연동 키 읽기 (POPBILL_LINK_ID·POPBILL_SECRET_KEY·POPBILL_TEST_BED). 둘 중 하나라도 없으면 null — 값은 어디에도 찍지 않는다 */
+/** 연동 키 읽기 (LIVEJJIM_POPBILL_LINK_ID·LIVEJJIM_POPBILL_SECRET_KEY·LIVEJJIM_POPBILL_TEST_BED). 둘 중 하나라도 없으면 null — 값은 어디에도 찍지 않는다 */
 export function readPopbillKeys(env: Readonly<Record<string, string | undefined>>): PopbillKeys | null {
-  const linkId = env['POPBILL_LINK_ID']?.trim() ?? ''
-  const secretKey = env['POPBILL_SECRET_KEY']?.trim() ?? ''
+  const linkId = env['LIVEJJIM_POPBILL_LINK_ID']?.trim() ?? ''
+  const secretKey = env['LIVEJJIM_POPBILL_SECRET_KEY']?.trim() ?? ''
   if (linkId === '' || secretKey === '') return null
-  return { linkId, secretKey, testBed: env['POPBILL_TEST_BED']?.trim() === 'true' }
+  return { linkId, secretKey, testBed: env['LIVEJJIM_POPBILL_TEST_BED']?.trim() === 'true' }
 }
 
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>

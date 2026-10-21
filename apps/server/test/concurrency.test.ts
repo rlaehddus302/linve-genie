@@ -3,11 +3,11 @@ import { applyEvent, checkInvariants, getProduct, getSettlement, initEngine, typ
 import { describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
 import { uniqueViolation } from '../src/writer.ts'
-import { addSeller, client, countRows, createBroadcast, expectOk, newWorld, rid, startServer, writeEvent, type TestServer } from './support.ts'
+import { MERGED_BODY, RAW_JOIN, addSeller, client, countRows, createBroadcast, expectOk, newWorld, rid, startServer, writeEvent, type TestServer } from './support.ts'
 
 async function replay(world: TestServer, date: string): Promise<{ state: EngineState; seqs: number[] }> {
   const result = await world.database.pglite?.query<{ seq: number; body: string; failed: boolean }>(
-    `select e.seq, e.body, e.failed from events e join scopes s on s.id = e.scope_id where s.date = $1 order by e.seq`,
+    `select e.seq, ${MERGED_BODY} as body, e.failed from events e ${RAW_JOIN} join scopes s on s.id = e.scope_id where s.date = $1 order by e.seq`,
     [date],
   )
   let state = initEngine({ broadcasts: [], settings: {} })

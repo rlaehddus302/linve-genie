@@ -5,7 +5,7 @@
 import { containsPhoneRun, looksLikePhoneId } from '@livejjim/core'
 import { YamlFloat } from './yaml.ts'
 
-export const SUITES = ['chat', 'amount', 'korean-number', 'quick-input', 'voice-extract'] as const
+export const SUITES = ['chat', 'amount', 'korean-number', 'quick-input', 'voice-extract', 'product-import'] as const
 export type SuiteName = (typeof SUITES)[number]
 
 /** suite별 settings 키 → DOMAIN_RULES 키 */
@@ -15,6 +15,7 @@ export const SUITE_SETTINGS: Readonly<Record<SuiteName, Readonly<Record<string, 
   'korean-number': {},
   'quick-input': { unit: 'price.unit' },
   'voice-extract': { maxNumber: 'claim.maxNumber' },
+  'product-import': { unit: 'price.unit', maxNumber: 'claim.maxNumber' },
 }
 
 /**
@@ -26,6 +27,19 @@ export const VOICE_DICTIONARY_KEY = 'dictionary'
 /** voice-extract out 키 (README: confidence 필수, 실제 결과는 정확히 네 키) */
 export const VOICE_EXTRACT_KEYS = ['no', 'name', 'price', 'confidence'] as const
 export const VOICE_CONFIDENCES = ['HIGH', 'LOW'] as const
+
+/**
+ * product-import의 이미 있는 번호 (README 파서 suite 표, I2 D-I2-09): DOMAIN_RULES 설정표 키가 아니라 이 suite의 입력이다.
+ * 1 이상 정수 목록(0개 이상), 생략하면 빈 목록.
+ */
+export const PRODUCT_IMPORT_EXISTING_KEY = 'existing'
+/** product-import out: 전체 문제 ({ error } 하나만) */
+export const PRODUCT_IMPORT_LIST_ERRORS = ['EMPTY', 'TOO_MANY'] as const
+/** product-import out: 줄마다의 문제 ({ line, error }) */
+export const PRODUCT_IMPORT_ROW_ERRORS = ['CELLS', 'NUMBER_INVALID', 'DUPLICATE', 'EXISTS', 'NAME_CONTROL', 'NAME_PHONE', 'PRICE_MISSING', 'PRICE_INVALID', 'PRICE_TOO_LOW'] as const
+/** product-import 줄 키: 등록할 값은 정확히 네 키, 문제는 정확히 두 키 */
+export const PRODUCT_IMPORT_ROW_KEYS = ['line', 'no', 'name', 'price'] as const
+export const PRODUCT_IMPORT_ERROR_ROW_KEYS = ['line', 'error'] as const
 
 export const QUICK_INPUT_ERRORS = ['PRICE_MISSING', 'NUMBER_MISSING', 'EMPTY', 'NUMBER_INVALID', 'PRICE_TOO_LOW'] as const
 
@@ -318,11 +332,8 @@ export const EMPTY_SETTLEMENT = {
   payment: 'UNPAID',
 } as const
 
-/**
- * 시나리오 ID: `G-ENG-` + 세 자리, 또는 병렬 트랙 스프린트가 쓰는 `G-ENG-<스프린트 ID>-<두 자리>`
- * (스프린트 ID = 영문 대문자 하나 뒤 영문·숫자 1~3자, 예: G-ENG-N3-01 — README "시나리오 키", N3 D-N3-01·AC-N3-04)
- */
-export const SCENARIO_ID_RE = /^G-ENG-(?:\d{3}|[A-Z][A-Za-z0-9]{1,3}-\d{2})$/
+/** 시나리오 ID (README 형식 계약, D-N2-13): `G-ENG-` + 세 자리, 또는 `G-ENG-<스프린트 ID>-<두 자리>` (스프린트 ID = 영문 대문자로 시작하는 영문·숫자 1~8자) */
+export const SCENARIO_ID_RE = /^G-ENG-(?:\d{3}|[A-Z][A-Za-z0-9]{0,7}-\d{2})$/
 export const BROADCAST_ID_RE = /^[^\s/@]+$/
 export const PRODUCT_KEY_RE = /^([^\s/@]+)\/([1-9]\d*)$/
 export const SMS_PREFIX = 'sms:'

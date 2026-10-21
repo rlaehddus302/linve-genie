@@ -19,6 +19,11 @@ import {
   MERGE_PREVIEW_EXPECT_KEYS,
   PAYMENT_STATUSES,
   PRODUCT_EXPECT_KEYS,
+  PRODUCT_IMPORT_ERROR_ROW_KEYS,
+  PRODUCT_IMPORT_EXISTING_KEY,
+  PRODUCT_IMPORT_LIST_ERRORS,
+  PRODUCT_IMPORT_ROW_ERRORS,
+  PRODUCT_IMPORT_ROW_KEYS,
   PRODUCT_KEY_RE,
   PRODUCT_STATUSES,
   QUICK_INPUT_ERRORS,
@@ -160,6 +165,8 @@ export interface ParserSuiteDoc {
   readonly settings: SettingsOverride
   /** voice-extract의 품종 사전 (settings.dictionary, 생략하면 빈 목록). 다른 suite에는 없다 (P2, D-209) */
   readonly dictionary?: readonly string[]
+  /** product-import의 이미 있는 번호 (settings.existing, 생략하면 빈 목록). 다른 suite에는 없다 (I2, D-I2-09) */
+  readonly existing?: readonly number[]
   readonly cases: readonly ParserCase[]
 }
 
@@ -587,6 +594,34 @@ function checkSuiteOut(c: Checker, suite: SuiteName, path: readonly PathSegment[
       if (hasValue(out, 'confidence')) c.value([...path, 'confidence'], out.confidence, oneOf(VOICE_CONFIDENCES))
       return
     }
+    case 'product-import': {
+      // README (I2, D-I2-09): ① { error } 하나만 — EMPTY·TOO_MANY ② { header?, rows } — 줄은 { line, no, name, price } 또는 { line, error } (정확히 그 키)
+      if (!c.object(path, out)) return
+      if (hasValue(out, 'error')) {
+        c.keys(path, out, ['error'], ['error'], 'product-import 전체 문제 out 키')
+        c.value([...path, 'error'], out.error, oneOf(PRODUCT_IMPORT_LIST_ERRORS))
+        return
+      }
+      c.keys(path, out, ['header', 'rows'], ['rows'], 'product-import out 키')
+      if (hasValue(out, 'header') && out.header !== null) c.value([...path, 'header'], out.header, intAtLeast(1))
+      if (!hasValue(out, 'rows') || !c.array([...path, 'rows'], out.rows)) return
+      out.rows.forEach((row, i) => {
+        const p = [...path, 'rows', i]
+        if (!c.object(p, row)) return
+        if (hasValue(row, 'error')) {
+          c.keys(p, row, PRODUCT_IMPORT_ERROR_ROW_KEYS, PRODUCT_IMPORT_ERROR_ROW_KEYS, 'product-import 문제 줄 키')
+          if (hasValue(row, 'line')) c.value([...p, 'line'], row.line, intAtLeast(1))
+          c.value([...p, 'error'], row.error, oneOf(PRODUCT_IMPORT_ROW_ERRORS))
+          return
+        }
+        c.keys(p, row, PRODUCT_IMPORT_ROW_KEYS, PRODUCT_IMPORT_ROW_KEYS, 'product-import 등록 줄 키')
+        if (hasValue(row, 'line')) c.value([...p, 'line'], row.line, intAtLeast(1))
+        if (hasValue(row, 'no')) c.value([...p, 'no'], row.no, intAtLeast(1))
+        if (hasValue(row, 'name')) c.value([...p, 'name'], row.name, str)
+        if (hasValue(row, 'price')) c.value([...p, 'price'], row.price, intAtLeast(100))
+      })
+      return
+    }
   }
 }
 
@@ -609,10 +644,15 @@ function validateSuite(raw: Record<string, unknown>): ValidationResult {
   const mapping = SUITE_SETTINGS[suite]
   const settings: Record<string, unknown> = {}
   let dictionary: readonly string[] | undefined = suite === 'voice-extract' ? [] : undefined
+  let existing: readonly number[] | undefined = suite === 'product-import' ? [] : undefined
   if (hasValue(raw, 'settings') && c.object(['settings'], raw.settings)) {
     for (const [key, setting] of Object.entries(raw.settings)) {
       if (suite === 'voice-extract' && key === VOICE_DICTIONARY_KEY) {
         if (c.value(['settings', key], setting, stringList)) dictionary = Object.freeze([...(setting as string[])])
+        continue
+      }
+      if (suite === 'product-import' && key === PRODUCT_IMPORT_EXISTING_KEY) {
+        if (c.value(['settings', key], setting, intArray(1))) existing = Object.freeze([...(setting as number[])])
         continue
       }
       const domainKey = Object.hasOwn(mapping, key) ? mapping[key] : undefined
@@ -636,7 +676,10 @@ function validateSuite(raw: Record<string, unknown>): ValidationResult {
     })
   }
   if (c.issues.length > 0) return { ok: false, label: suite, issues: c.issues }
-  return { ok: true, doc: { kind: 'suite', suite, settings: settings as SettingsOverride, ...(dictionary === undefined ? {} : { dictionary }), cases } }
+  return {
+    ok: true,
+    doc: { kind: 'suite', suite, settings: settings as SettingsOverride, ...(dictionary === undefined ? {} : { dictionary }), ...(existing === undefined ? {} : { existing }), cases },
+  }
 }
 
 // ── 엔진 시나리오 ────────────────────────────────────────────────────────
@@ -742,7 +785,7 @@ function validateScenario(raw: Record<string, unknown>): ValidationResult {
   const c = new Checker()
   const label = typeof raw.id === 'string' ? raw.id : undefined
   c.keys([], raw, ['id', 'title', 'refs', 'settings', 'broadcasts', 'events', 'expect'], ['id', 'title', 'refs', 'broadcasts', 'events', 'expect'])
-  c.value(['id'], raw.id, (v) => (typeof v === 'string' && SCENARIO_ID_RE.test(v) ? undefined : `시나리오 ID 형식 오류 ${showValue(v)} (G-ENG-세 자리 또는 G-ENG-<스프린트>-두 자리)`))
+  c.value(['id'], raw.id, (v) => (typeof v === 'string' && SCENARIO_ID_RE.test(v) ? undefined : `시나리오 ID 형식 오류 ${showValue(v)} (G-ENG-세 자리 또는 G-ENG-<스프린트 ID>-두 자리)`))
   if (hasValue(raw, 'title')) c.value(['title'], raw.title, nonEmptyStr)
   if (hasValue(raw, 'refs') && c.array(['refs'], raw.refs, 1)) {
     raw.refs.forEach((ref, i) => c.value(['refs', i], ref, nonEmptyStr))

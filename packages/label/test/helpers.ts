@@ -12,6 +12,17 @@ export function nodeEnv(): LabelRenderEnv {
 /** 판매자 샘플 (G-LBL-001) */
 export const SAMPLE_PRODUCT = { no: 194, name: '왕비뇌신금', price: 8000, date: '2026-10-08', buyer: { kind: 'youtube', name: '우주천사' } } as const
 
+/** 렌더 속도 시험(AC-P1-16)의 서로 다른 상품 라벨 30장 중 i번째(0부터) 데이터 */
+export function thirtyLabelData(i: number) {
+  return {
+    no: 100 + i,
+    name: `왕비뇌신금 ${String(i)}호 아주 긴 품종 이름 금황환 핑크프릴`.slice(0, 5 + i),
+    price: 8000 + i * 500,
+    date: '2026-10-08',
+    buyer: { kind: 'youtube', name: `구매자${String(i)}` },
+  } as const
+}
+
 /** 포장 라벨 보통 데이터 (G-LBL-101) */
 export const SAMPLE_PACKING = {
   date: '2026-10-18',

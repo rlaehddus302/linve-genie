@@ -127,6 +127,8 @@ export function client(world: TestServer, cookie: string | null) {
       toJson(await world.server.app.request(path, { method: 'POST', headers: headers({ Origin: ORIGIN, 'Content-Type': 'application/json' }), body: JSON.stringify(body) })),
     patch: async (path: string, body: unknown) =>
       toJson(await world.server.app.request(path, { method: 'PATCH', headers: headers({ Origin: ORIGIN, 'Content-Type': 'application/json' }), body: JSON.stringify(body) })),
+    put: async (path: string, body: unknown) =>
+      toJson(await world.server.app.request(path, { method: 'PUT', headers: headers({ Origin: ORIGIN, 'Content-Type': 'application/json' }), body: JSON.stringify(body) })),
     raw: (path: string, init: RequestInit) => world.server.app.request(path, { ...init, headers: { ...headers(), ...(init.headers as Record<string, string> | undefined) } }),
   }
 }
@@ -288,3 +290,10 @@ export function sseReader(response: Response) {
     cancel: () => reader.cancel(),
   }
 }
+
+/**
+ * 이벤트 본문 SQL 조각 (AC-Y1-60): Y1부터 채팅의 본문·이름은 chat_raw에 따로 둔다 — 시험이 DB 로그를 직접 재생할 때 둘을 합친다.
+ * `from events e ${RAW_JOIN}`과 함께 `${MERGED_BODY} as body`로 쓴다
+ */
+export const RAW_JOIN = 'left join chat_raw r on r.scope_id = e.scope_id and r.seq = e.seq and r.seller_id = e.seller_id'
+export const MERGED_BODY = `case when e.raw then (e.body::jsonb || jsonb_build_object('nick', r.nick, 'text', r.text))::text else e.body end`

@@ -23,6 +23,8 @@ export interface QueueSummary {
   readonly printing: number
   /** 버릴 라벨 장 수 */
   readonly discard: number
+  /** 라벨 기능 켬(true)/끔(false) — 판매자 설정 (N4a, L-13 1). 화면은 이 값을 알기 전에는 라벨 조작을 숨긴다 */
+  readonly labelsEnabled: boolean
 }
 
 export interface LabelRef {
@@ -123,6 +125,34 @@ export interface PackingView {
   readonly buyer: string
   readonly data: PackingLabelData | null
   readonly label: LabelView
+}
+
+/** 라벨 기능을 바꾼 기록 한 줄 (N4a — harness/sprints/N4a/dev-notes.md "dev-server > 바뀐 계약" 1) */
+export interface LabelSwitchEntry {
+  /** 바뀐 값 */
+  readonly enabled: boolean
+  /** UTC ISO */
+  readonly at: string
+  /** 바꾼 계정의 로그인 아이디 */
+  readonly loginId: string
+}
+
+/** GET·PUT /api/settings/labels */
+export interface LabelSettings {
+  readonly enabled: boolean
+  /** 최근 20줄, 새것 먼저 */
+  readonly history: readonly LabelSwitchEntry[]
+  /** 지금 대기 작업 장 수 */
+  readonly waiting: number
+  /** 이 값을 읽은 때의 출력 기록 판 (queue.rev와 같은 수) */
+  readonly rev: number
+}
+
+/** 실시간 labels 알림 — 켬/끔이 실제로 바뀌었다 (이어서 print 알림이 온다) */
+export interface LabelsNotice {
+  readonly rev: number
+  readonly enabled: boolean
+  readonly entry: LabelSwitchEntry
 }
 
 export interface ClientConfig {

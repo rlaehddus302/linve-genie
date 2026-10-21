@@ -57,9 +57,10 @@ export type BatchPdfResult =
   | { readonly ok: true; readonly pdf: Uint8Array; readonly receipts: readonly ReceiptData[] }
   | { readonly ok: false; readonly error: ReceiptError }
 
-/** 전원 일괄 PDF (D-207): 그 날짜 품목이 있는 묶음 전부, 표시 이름의 코드 포인트 순. 품목 없는 묶음은 빠진다 */
+/** 전원 일괄 PDF (D-207, I2 D-I2-04): 그 날짜 품목이 있는 묶음 전부, 이 글꼴로 찍힌 구매자 이름의 코드 포인트 순. 품목 없는 묶음은 빠진다 */
 export async function renderBatchPdf(scope: ReceiptScope, fontSource: FontSource): Promise<BatchPdfResult> {
-  const built = buildReceipts(scope)
+  const font = asDocumentFont(fontSource)
+  const built = buildReceipts(scope, font)
   if (!built.ok) return built
-  return { ok: true, pdf: await renderReceiptsPdf(built.receipts, fontSource), receipts: built.receipts }
+  return { ok: true, pdf: await renderReceiptsPdf(built.receipts, font), receipts: built.receipts }
 }

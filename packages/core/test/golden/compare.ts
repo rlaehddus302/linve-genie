@@ -92,7 +92,48 @@ export function compareParserOutput(suite: SuiteName, expected: unknown, actual:
       }
       return problems
     }
+    case 'product-import':
+      return compareProductImport(expected, actual)
   }
+}
+
+/** 키 집합까지 정확히 같은가 (undefined 값도 키로 센다 — README: 실제 결과에 다른 키가 있거나 키가 빠지면 불일치) */
+function sameKeysAndValues(want: Record<string, unknown>, got: Record<string, unknown>): boolean {
+  const wantKeys = Object.keys(want).sort()
+  const gotKeys = Object.keys(got).sort()
+  return deepEqual(wantKeys, gotKeys) && wantKeys.every((key) => deepEqual(want[key], got[key]))
+}
+
+/**
+ * product-import (I2, D-I2-09 — README 파서 suite 표): out은 { error } 하나 또는 { header?, rows }(적지 않은 header = null).
+ * 실제 결과와 header·줄 순서·줄마다의 키와 값이 모두 같아야 한다. 실제 결과에 다른 키가 있거나 키가 빠지면 불일치다
+ */
+function compareProductImport(expected: unknown, actual: unknown): Problem[] {
+  if (!isPlainObject(actual) || !isPlainObject(expected)) return [{ path: 'out', expected, actual, message: '결과가 맵이 아니다' }]
+  if (Object.hasOwn(expected, 'error')) {
+    return sameKeysAndValues({ error: expected.error }, actual) ? [] : [{ path: 'out', expected: { error: expected.error }, actual, message: '결과가 { error } 하나가 아니거나 값이 다르다' }]
+  }
+  const problems: Problem[] = []
+  for (const key of Object.keys(actual)) {
+    if (key !== 'header' && key !== 'rows') problems.push({ path: `out.${key}`, expected: undefined, actual: actual[key], message: '실제 결과에 header·rows 밖의 키가 있다' })
+  }
+  const wantHeader = own(expected, 'header') ?? null
+  if (!Object.hasOwn(actual, 'header')) problems.push({ path: 'out.header', expected: wantHeader, actual: undefined, message: '실제 결과에 키가 없다' })
+  else if (!deepEqual(wantHeader, actual.header)) problems.push({ path: 'out.header', expected: wantHeader, actual: actual.header })
+  const wantRows = Array.isArray(expected.rows) ? (expected.rows as unknown[]) : []
+  const gotRows = actual.rows
+  if (!Array.isArray(gotRows)) {
+    problems.push({ path: 'out.rows', expected: wantRows, actual: gotRows, message: '실제 결과의 rows가 목록이 아니다' })
+    return problems
+  }
+  if (gotRows.length !== wantRows.length) problems.push({ path: 'out.rows', expected: `${String(wantRows.length)}줄`, actual: `${String(gotRows.length)}줄`, message: '줄 수가 다르다' })
+  const n = Math.max(wantRows.length, gotRows.length)
+  for (let i = 0; i < n; i++) {
+    const want = wantRows[i]
+    const got: unknown = gotRows[i]
+    if (!isPlainObject(want) || !isPlainObject(got) || !sameKeysAndValues(want, got)) problems.push({ path: `out.rows[${String(i)}]`, expected: want, actual: got })
+  }
+  return problems
 }
 
 // ── 엔진 ─────────────────────────────────────────────────────────────────

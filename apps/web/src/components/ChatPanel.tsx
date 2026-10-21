@@ -16,6 +16,8 @@ export interface ChatPanelProps {
   readonly onLoadOlder: () => void
   /** 메시지 ID → 5초 대기 중이거나 보낸 변환 결과 문장 */
   readonly convertNotes: ReadonlyMap<string, string>
+  /** 봉인한 날짜: 채팅 내용을 지웠다는 서버 문장 (AC-I3-41) */
+  readonly sealedMessage?: string | null
 }
 
 const BOTTOM_SLACK = 24
@@ -37,7 +39,7 @@ export function highlightMentions(text: string, mentions: readonly number[]): Re
   })
 }
 
-export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertNotes }: ChatPanelProps) {
+export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertNotes, sealedMessage = null }: ChatPanelProps) {
   const api = useConsoleApi()
   const list = useRef<HTMLOListElement>(null)
   const atBottom = useRef(true)
@@ -99,7 +101,7 @@ export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertN
         </button>
       ) : null}
       <ol ref={list} className="chat-list" aria-label="채팅 메시지" onScroll={onScroll} tabIndex={0}>
-        {messages.length === 0 ? <li className="chat-empty">아직 채팅이 없어요.</li> : null}
+        {messages.length === 0 ? <li className="chat-empty">{sealedMessage ?? '아직 채팅이 없어요.'}</li> : null}
         {messages.map((message) => (
           <ChatRow
             key={message.id}

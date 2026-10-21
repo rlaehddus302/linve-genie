@@ -508,7 +508,7 @@ describe('AC-N3-17 시험 모드 가짜 원천', () => {
     expect(fake.status).toBe(400)
     expect((await expectOk(api.get('/api/deposits/sources'))).body).toMatchObject({ testMode: false, popbill: false, sources: [] })
     server.close()
-    const withKeys = productionServerOptions({ ...env, POPBILL_LINK_ID: 'LINK', POPBILL_SECRET_KEY: 'c2VjcmV0' }, database)
+    const withKeys = productionServerOptions({ ...env, LIVEJJIM_POPBILL_LINK_ID: 'LINK', LIVEJJIM_POPBILL_SECRET_KEY: 'c2VjcmV0' }, database)
     expect(withKeys.ok && withKeys.options.deposits?.popbill !== null && withKeys.options.deposits?.popbill !== undefined).toBe(true)
     void rid
   })

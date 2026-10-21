@@ -101,7 +101,7 @@
   - 가짜 원천: `POST /api/deposits/sources { kind: 'FAKE', label? }`(기본 표시 이름 "시험용 입금") → `POST /api/deposits/test/rows`로 줄을 넣으면 다음 주기(1초)나 지금 받아 오기에서 계좌조회와 같은 저장·맞추기 흐름. 넣은 줄은 그 원천이 받아 갈 때마다 다시 보이므로(은행처럼) 같은 `key`는 한 번만 저장된다.
   - 이 트랙은 `E2E_PORT_OFFSET=1200`. Playwright 설정(`apps/web/playwright.config.ts`)은 dev-web·tester 몫이라 손대지 않았다.
 - 서버 시험·적대 시험(PGlite): `createServer({ ..., deposits: { testMode: true, popbill: new FakePopbillTransport(), timer, waitTimer, popbillPollMs, callTimeoutMs, refetchGapMs, pollMs, hooks: { beforeAuto } } })`. `FakePopbillTransport`(`register(account)`, `addRows(account, rows)`, `fail(method, kind|'HANG')`, `pollsBeforeDone`, `onPoll`, `jobFails`, `loopPages`, `pageSize`, `calls`). 손으로 돌리는 주기 타이머는 `timer`, 받아 오기 안의 대기·시간 제한은 `waitTimer`(기본 실제 타이머 — 응답하지 않는 원천은 30초 뒤 끊는다). `server.deposits.ingest(seller, sourceId, rows)`·`server.deposits.runSource(seller, sourceId)`로 받아 오기 없이 흐름을 부를 수 있다. 시험 도우미는 `apps/server/test/deposit-support.ts`.
-- 운영 기동: `productionServerOptions`가 `deposits: { testMode: false, popbill: 연동 키 ? popbillHttpTransport : null }`를 만든다. 환경 변수 `POPBILL_LINK_ID`·`POPBILL_SECRET_KEY`(둘 다 있어야), 선택 `POPBILL_TEST_BED=true`(`.env.example`).
+- 운영 기동: `productionServerOptions`가 `deposits: { testMode: false, popbill: 연동 키 ? popbillHttpTransport : null }`를 만든다. 환경 변수 `LIVEJJIM_POPBILL_LINK_ID`·`LIVEJJIM_POPBILL_SECRET_KEY`(둘 다 있어야), 선택 `LIVEJJIM_POPBILL_TEST_BED=true`(`.env.example`).
 
 ### 판단한 것 (스펙이 정하지 않은 세부 — 판매자 안전 쪽으로)
 1. 붙여넣기 2,000줄 상한은 **빈 줄을 세지 않은** 머리글 아래 줄 수다(DP-2 4 "모든 칸이 빈 줄은 건너뛰고 세지 않는다"와 같은 셈 — 끝 줄바꿈 하나로 2,001이 되지 않게).

@@ -11,17 +11,22 @@
     "migrate": "node src/commands/migrate.ts",
     "create-account": "node src/commands/create-account.ts",
     "check-replay": "node src/commands/check-replay.ts",
+    "backup": "node src/commands/backup.ts",
+    "e2e": "node src/commands/e2e-server.ts",
     "popbill-corp": "node src/commands/popbill-corp.ts",
-    "e2e": "node src/commands/e2e-server.ts"
+    "restore": "node src/commands/restore.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "0.5.8",
     "@hono/node-server": "2.1.5",
     "@livejjim/core": "workspace:*",
+    "@livejjim/documents": "workspace:*",
     "@livejjim/label": "workspace:*",
     "drizzle-orm": "0.45.3",
+    "exceljs": "4.4.0",
     "hono": "4.13.13",
-    "postgres": "3.4.9"
+    "postgres": "3.4.9",
+    "tiktok-live-connector": "2.1.0"
   },
   "devDependencies": {
     "@types/node": "24.19.2",

@@ -57,7 +57,8 @@ describe('판매자 전화번호 키 (AC-S04-32, D-073)', () => {
     // 다른 마스터 키로는 풀리지 않는다
     expect(() => openSellerKey(Buffer.from(generateMasterKey(), 'base64'), 'sel_a', sealed)).toThrow()
     // 손상된 값
-    expect(() => openSellerKey(master, 'sel_a', sealed.slice(0, -2) + 'AA')).toThrow()
+    // (끝 두 글자가 이미 'AA'면 바꾼 것이 없으므로 다른 글자로 — 256번에 한 번 꼴로 통과하던 시험을 고정한다)
+    expect(() => openSellerKey(master, 'sel_a', sealed.slice(0, -2) + (sealed.endsWith('AA') ? 'BA' : 'AA'))).toThrow()
     expect(() => openSellerKey(master, 'sel_a', 'v2.a.b.c')).toThrow()
   })
 

@@ -4,6 +4,7 @@
 import type { PGlite } from '@electric-sql/pglite'
 import { applyEvent, getSettlement, initEngine, type EngineEvent, type EngineState } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
+import { mergeRaw } from '../src/store.ts'
 import { addSeller, createBroadcast, writeEvent } from './support.ts'
 import { DAY, depositApi, depositWorld, deposits, order, pasteText, register } from './deposit-support.ts'
 
@@ -82,14 +83,16 @@ describe('무작위 처리 열 뒤의 불변식 (DP-INV-1~4)', () => {
       }
       // 범위 이벤트 기록을 코어로 재생해 센다
       const pg = world.database.pglite as PGlite
-      const rows = (await pg.query<{ body: string; rehearsal: boolean; failed: boolean }>(
-        `select e.body, s.rehearsal, e.failed from events e join scopes s on s.id = e.scope_id where e.seller_id = $1 order by s.rehearsal, e.seq`,
+      // 합치기(N3 + Y1): 유튜브 채팅의 본문·이름은 chat_raw에 따로 둔다(AC-Y1-60) — 서버 재생 검사(check-replay)처럼 합쳐 재생한다
+      const rows = (await pg.query<{ body: string; rehearsal: boolean; failed: boolean; nick: string | null; text: string | null }>(
+        `select e.body, s.rehearsal, e.failed, r.nick, r.text from events e join scopes s on s.id = e.scope_id
+         left join chat_raw r on r.scope_id = e.scope_id and r.seq = e.seq where e.seller_id = $1 order by s.rehearsal, e.seq`,
         [seller.sellerId],
       )).rows
       let state: EngineState = initEngine({ broadcasts: [], settings: {} })
       const net = new Map<number, number>()
       for (const row of rows) {
-        const event = JSON.parse(row.body) as EngineEvent & { memo?: string; reason?: string }
+        const event = JSON.parse(mergeRaw(row.body, row.nick, row.text)) as EngineEvent & { memo?: string; reason?: string }
         if (row.rehearsal) {
           expect(memoNo(event.memo ?? event.reason), '리허설 범위에 입금 확인 기록').toBeNull()
           continue

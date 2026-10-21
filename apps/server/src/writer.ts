@@ -19,13 +19,18 @@ import { DEFAULT_CHANGES_WINDOW, FAILED_INPUT_MESSAGE, catchUp, loadRuntime, rec
 import { sha256Hex } from './secrets.ts'
 import {
   chatEventSeq,
+  existingChatIds,
   effectIdsAt,
   ensureScope,
   eventByRequestId,
+  insertChatRaw,
   insertEvents,
   insertOutbox,
   insertSnapshot,
+  markYoutubeChat,
+  scopeSealedAt,
   setScopeSeq,
+  type ChatRawRow,
   type NewEventRow,
   type NewOutboxRow,
   type RequestRecord,
@@ -34,6 +39,12 @@ import type { Clock } from './time.ts'
 
 /** 누가 보낸 입력인지 (DAT-05). deposit = 입금 자동 확인 (N3 DP-6 — 이력의 "누가"에 "입금 자동 확인") */
 export type Actor = { readonly kind: 'account'; readonly accountId: string } | { readonly kind: 'server' } | { readonly kind: 'collector' } | { readonly kind: 'deposit' }
+
+/** 채팅이 어디서 왔는지 (AC-Y1-60): 유튜브 수집기 · 리허설(생성기·시청자로 보내기) · 그 밖(시험 채우기 등) */
+export type ChatSource = 'youtube' | 'rehearsal' | 'other'
+
+/** 봉인한 범위에 쓰려 할 때 (AC-Y1-62) */
+export const SEALED_MESSAGE = '30일이 지난 방송 기록은 봉인되어 고칠 수 없어요.'
 
 /** 기록하지 않고 돌려보내는 이유 (4xx) */
 export interface Rejection {
@@ -58,6 +69,8 @@ export interface Draft {
    * 거른 이벤트는 seq를 쓰지 않는다(뒤 이벤트가 그 seq를 받는다)
    */
   readonly skipIfInvalid?: boolean
+  /** 채팅이 어디서 왔는지 (채팅만, 기본 other). 본문·이름은 이벤트 기록 본문과 따로 둔다 (AC-Y1-60) */
+  readonly source?: ChatSource
 }
 
 export interface BuildContext {
@@ -66,6 +79,8 @@ export interface BuildContext {
   readonly isNewScope: boolean
   /** 첫 이벤트가 받을 at (서버 시계, 범위 안에서 줄지 않음) */
   readonly at: number
+  /** chatBatch로 넘긴 메시지 중 이미 기록된 메시지 ID (트랜잭션 안에서 읽은 것) */
+  readonly existingChats: ReadonlySet<string>
 }
 
 export interface WriteJob {
@@ -77,6 +92,13 @@ export interface WriteJob {
   readonly createScope: boolean
   readonly requestId: string | null
   readonly chat?: { readonly b: string; readonly id: string }
+  /** 여러 채팅을 한 번에 쓸 때 (유튜브 수집기의 한 응답): 이미 기록된 메시지 ID를 트랜잭션 안에서 읽어 build에 넘긴다 */
+  readonly chatBatch?: { readonly b: string; readonly ids: readonly string[] }
+  /**
+   * 범위 락을 잡은 트랜잭션 안에서 쓰기 전에 더 확인할 것 (유튜브 수집기: 그 연결이 아직 이어져 있는지 — 다른 서버가 끊었으면 쓰지 않는다).
+   * 거절이면 아무것도 쓰지 않는다. runtime = 락을 잡고 최신 로그까지 따라잡은 범위 상태(scopeId·state — 합치기 전 포장 기록 검사, D-I2-20)
+   */
+  readonly guard?: (tx: Db, runtime: Pick<ScopeRuntime, 'scopeId' | 'state'>) => Promise<Rejection | null>
   /** 트랜잭션 전에 미리 읽을 것 (차단 이어받기 목록). 범위가 새로울 때만 부른다 */
   readonly prepare?: () => Promise<unknown>
   /** 쓸 이벤트들. 첫 이벤트가 요청의 결과(요청 번호)다 */
@@ -127,6 +149,8 @@ export type WriteOutcome =
   | { readonly kind: 'rejected'; readonly rejection: Rejection }
   | { readonly kind: 'not_found' }
   | { readonly kind: 'save_failed' }
+  /** 아무것도 쓰지 않았다 (chatBatch의 메시지가 모두 이미 기록됨) */
+  | { readonly kind: 'empty' }
 
 /** 시험용 주입점 */
 export interface WriterHooks {
@@ -228,8 +252,12 @@ export function uniqueViolation(error: unknown): string | null {
   return null
 }
 
-export function eventDigest(scopeId: string, seq: number, type: string, body: string, failed: boolean): string {
-  return sha256Hex(JSON.stringify([scopeId, seq, type, body, failed]))
+/**
+ * 기록 요약값. 본문·이름을 따로 둔 채팅(AC-Y1-60)은 그 둘도 함께 묶는다 — 따로 둔 값을 고치면 재생 검사가 그 seq를 잡는다
+ */
+export function eventDigest(scopeId: string, seq: number, type: string, body: string, failed: boolean, raw?: { readonly nick: string; readonly text: string } | null): string {
+  if (raw === undefined || raw === null) return sha256Hex(JSON.stringify([scopeId, seq, type, body, failed]))
+  return sha256Hex(JSON.stringify([scopeId, seq, type, body, failed, raw.nick, raw.text]))
 }
 
 /** 범위(판매자, 날짜, 리허설인지)마다 한 줄로 처리하는 기록기 */
@@ -337,25 +365,56 @@ export class ScopeWriter {
   }
 
   /**
-   * 최신 로그까지 따라잡은 범위 상태 (조회용, 메모리를 밀어내지 않는 읽기). 메모리에 있으면 read와 같고,
-   * 없으면 DB에서 불러오되 메모리에 두지 않는다 — 지난 날짜를 여럿 훑는 조회(입금 확인의 묶음 찾기·기억한 이름 표시)가
-   * 방송 중인 범위의 상태를 상한 밖으로 밀어내지 않게(RA-N3-003). 돌려준 상태를 고치면 안 된다.
+   * 여러 날짜를 훑는 조회용 범위 상태 (기간·전체 판매대장, 지난 구매의 다른 날짜 — TD-I2-008·SA-I2-008).
+   * 메모리에 있으면 그 상태를 최신 로그까지 따라잡아 쓰고, 없으면 스냅샷 + 뒤 이벤트로 임시 상태를 만들어 돌려주되 메모리에 두지 않는다.
+   * 모든 판매자가 함께 쓰는 상한 캐시에 넣지 않으므로, 한 판매자가 지난 날짜를 아무리 많이 읽어도 방송 중인 다른 판매자의 범위 상태를 밀어내지 않고
+   * 메모리도 한 번에 그 날짜 하나만큼만 잡는다(D-096의 원칙). 같은 범위의 쓰기와 겹치지 않게 범위 줄 안에서 읽는다. 돌려준 상태는 읽기만 한다.
    */
-  peek(sellerId: string, date: string, rehearsal = false): Promise<ScopeRuntime> {
+  readDetached(sellerId: string, date: string, rehearsal = false): Promise<ScopeRuntime> {
     return this.serial(sellerId, date, rehearsal, async () => {
+      const { db, engine, log } = this.#options
       const cached = this.#runtimes.get(scopeKey(sellerId, date, rehearsal))
       if (cached !== undefined) {
-        await catchUp(this.#options.db, cached, this.#options.engine, this.#options.log)
+        await catchUp(db, cached, engine, log)
         return cached
       }
-      // 불러오기가 이미 로그 끝까지 재생한다
-      const window = this.#options.changesWindow ?? DEFAULT_CHANGES_WINDOW
-      return loadRuntime(this.#options.db, sellerId, date, rehearsal, this.#options.engine, this.#options.log, window)
+      return loadRuntime(db, sellerId, date, rehearsal, engine, log, this.#options.changesWindow ?? DEFAULT_CHANGES_WINDOW)
     })
+  }
+
+  /**
+   * 입금 확인의 묶음 찾기·기억한 이름 표시가 지난 날짜를 여럿 훑을 때 쓰는 이름 (N3 RA-N3-003) — readDetached와 같다:
+   * 메모리를 밀어내지 않는 읽기라 방송 중인 범위의 상태를 상한 밖으로 밀어내지 않는다. 돌려준 상태를 고치면 안 된다.
+   */
+  peek(sellerId: string, date: string, rehearsal = false): Promise<ScopeRuntime> {
+    return this.readDetached(sellerId, date, rehearsal)
   }
 
   write(job: WriteJob): Promise<WriteOutcome> {
     return this.serial(job.sellerId, job.date, job.rehearsal, () => this.#write(job))
+  }
+
+  /**
+   * 범위 줄(serial) 안에서 최신 로그까지 따라잡은 범위 상태로 task를 부른다 (I2 포장·배송 기록 — 엔진 이벤트가 아닌 덧붙이기 기록, D-I2-05).
+   * 같은 범위의 엔진 기록과 겹치지 않는다(같은 줄). task는 트랜잭션 안에서 범위 어드바이저리 락을 잡은 뒤 catchUpIn(tx)로
+   * 다른 인스턴스가 쓴 이벤트까지 따라잡고 판단한다. 범위 상태는 커밋된 이벤트로만 바뀐다(task가 상태를 바꾸지 않는다)
+   */
+  withScope<T>(sellerId: string, date: string, rehearsal: boolean, task: (runtime: ScopeRuntime, catchUpIn: (tx: Db) => Promise<void>) => Promise<T>): Promise<T> {
+    return this.serial(sellerId, date, rehearsal, async () => {
+      const runtime = await this.runtime(sellerId, date, rehearsal)
+      const { engine, log } = this.#options
+      await catchUp(this.#options.db, runtime, engine, log)
+      this.#keep(runtime)
+      return task(runtime, async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(${scopeLockKey(sellerId, date, rehearsal)})`)
+        await catchUp(tx, runtime, engine, log)
+      })
+    })
+  }
+
+  /** 그 판매자의 범위 상태를 모두 메모리에서 내린다 (복구·가져오기 뒤 — 다음에 DB에서 다시 불러온다, D-I2-11) */
+  forgetSeller(sellerId: string): void {
+    for (const [key, runtime] of [...this.#runtimes]) if (runtime.sellerId === sellerId) this.#drop(key, runtime)
   }
 
   async #write(job: WriteJob): Promise<WriteOutcome> {
@@ -382,14 +441,33 @@ export class ScopeWriter {
             const existing = await eventByRequestId(tx, job.sellerId, job.requestId)
             if (existing !== null) throw new Abort({ kind: 'duplicate', result: await resultOf(tx, job.sellerId, existing) })
           }
+          // 봉인한 범위는 읽기만 된다 (AC-Y1-62). 봉인 작업도 같은 락을 잡는다
+          if (runtime.scopeId !== null && (await scopeSealedAt(tx, job.sellerId, runtime.scopeId)) !== null) {
+            throw new Abort({ kind: 'rejected', rejection: { status: 409, code: 'SEALED', message: SEALED_MESSAGE, problems: [] } })
+          }
+          if (job.guard !== undefined) {
+            const refused = await job.guard(tx, runtime)
+            if (refused !== null) throw new Abort({ kind: 'rejected', rejection: refused })
+          }
           if (job.chat !== undefined && (await chatEventSeq(tx, job.sellerId, job.chat.b, job.chat.id)) !== null) {
             throw new Abort({ kind: 'duplicate', result: null })
           }
-          const computed = this.#compute(job, runtime, prepared)
+          const existingChats = job.chatBatch === undefined ? new Set<string>() : await existingChatIds(tx, job.sellerId, job.chatBatch.b, job.chatBatch.ids)
+          const computed = this.#compute(job, runtime, prepared, existingChats)
           if ('rejection' in computed) throw new Abort({ kind: 'rejected', rejection: computed.rejection })
+          if (computed.records.length === 0) throw new Abort({ kind: 'empty' })
           const now = new Date(this.#options.clock.now())
           const scopeId = runtime.scopeId ?? (await ensureScope(tx, job.sellerId, job.date, job.rehearsal, this.#options.ids.scope(), now))
-          await insertEvents(tx, computed.records.map((record, index) => eventRow(job, scopeId, record, computed.drafts[index] as Draft, now)))
+          const rows = computed.records.map((record, index) => eventRow(job, scopeId, record, computed.drafts[index] as Draft, now))
+          await insertEvents(
+            tx,
+            rows.map((row) => row.event),
+          )
+          await insertChatRaw(
+            tx,
+            rows.flatMap((row) => (row.raw === null ? [] : [row.raw])),
+          )
+          if (!job.rehearsal && rows.some((row) => row.event.chatSource === 'youtube')) await markYoutubeChat(tx, job.sellerId, scopeId)
           await insertOutbox(tx, computed.records.flatMap((record) => outboxRows(job, scopeId, record, now)))
           // 범위의 지금 seq — 실패 표시 이벤트도 seq를 쓴다 (AC-S05-60)
           await setScopeSeq(tx, job.sellerId, scopeId, computed.seq)
@@ -437,10 +515,11 @@ export class ScopeWriter {
     job: WriteJob,
     runtime: ScopeRuntime,
     prepared: unknown,
+    existingChats: ReadonlySet<string>,
   ): { records: CommittedRecord[]; states: EngineState[]; drafts: readonly Draft[]; state: EngineState; seq: number; lastAt: number } | { rejection: Rejection } {
     const { engine, log, clock } = this.#options
     const firstAt = Math.max(clock.now(), runtime.lastAt)
-    const drafts = job.build({ state: runtime.state, isNewScope: runtime.seq === 0, at: firstAt }, prepared)
+    const drafts = job.build({ state: runtime.state, isNewScope: runtime.seq === 0, at: firstAt, existingChats }, prepared)
     if (!Array.isArray(drafts)) return { rejection: drafts as Rejection }
     let state = runtime.state
     let seq = runtime.seq
@@ -480,7 +559,7 @@ export class ScopeWriter {
         if (isNotImplemented(error)) return { rejection: { status: 422, code: 'NOT_SUPPORTED', message: '아직 지원하지 않는 기능이에요.', problems: [] } }
         if (isStateFormatError(error)) return { rejection: stateFormatRejection() }
         // 엔진이 예상하지 못한 오류: 실패 표시로 기록하고 상태는 그 전 그대로 (AC-S04-24)
-        log({ level: 'error', code: 'ENGINE_FAILED', date: job.date, seq, errorKind: errorKind(error) })
+        log({ level: 'error', code: 'ENGINE_FAILED', seller: job.sellerId, date: job.date, seq, errorKind: errorKind(error) })
         records.push({ event, seq, type: event.type, changed: false, failed: true, effects: [] })
         states.push(state)
       }
@@ -575,25 +654,42 @@ function stateFormatRejection(): Rejection {
   return { status: 409, code: 'STATE_FORMAT', message: '저장된 상태를 다시 불러오는 중이에요. 잠시 뒤 다시 시도해 주세요.', problems: [] }
 }
 
-function eventRow(job: WriteJob, scopeId: string, record: CommittedRecord, draft: Draft, now: Date): NewEventRow {
-  const body = JSON.stringify(record.event)
+/** 채팅 이벤트의 본문·이름을 떼어 낸다 (AC-Y1-60). 둘 다 글자일 때만 — 아니면 그대로 둔다 */
+export function splitChatRaw(event: Readonly<Record<string, unknown>>): { body: Record<string, unknown>; raw: { nick: string; text: string } } | null {
+  if (event.type !== 'chat' || typeof event.nick !== 'string' || typeof event.text !== 'string') return null
+  const body: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(event)) {
+    if (key === 'nick' || key === 'text') continue
+    Object.defineProperty(body, key, { value, enumerable: true, writable: true, configurable: true })
+  }
+  return { body, raw: { nick: event.nick, text: event.text } }
+}
+
+function eventRow(job: WriteJob, scopeId: string, record: CommittedRecord, draft: Draft, now: Date): { event: NewEventRow; raw: ChatRawRow | null } {
+  const split = splitChatRaw(record.event as unknown as Record<string, unknown>)
+  const body = JSON.stringify(split === null ? record.event : split.body)
   return {
-    sellerId: job.sellerId,
-    scopeId,
-    seq: record.seq,
-    type: record.type,
-    body,
-    at: record.event.at,
-    receivedAt: now,
-    actor: draft.actor.kind,
-    accountId: draft.actor.kind === 'account' ? draft.actor.accountId : null,
-    requestId: draft.requestId ?? null,
-    chatBroadcast: draft.chat?.b ?? null,
-    chatMessageId: draft.chat?.id ?? null,
-    smsRef: draft.smsRef ?? null,
-    changed: record.changed,
-    failed: record.failed,
-    digest: eventDigest(scopeId, record.seq, record.type, body, record.failed),
+    event: {
+      sellerId: job.sellerId,
+      scopeId,
+      seq: record.seq,
+      type: record.type,
+      body,
+      at: record.event.at,
+      receivedAt: now,
+      actor: draft.actor.kind,
+      accountId: draft.actor.kind === 'account' ? draft.actor.accountId : null,
+      requestId: draft.requestId ?? null,
+      chatBroadcast: draft.chat?.b ?? null,
+      chatMessageId: draft.chat?.id ?? null,
+      smsRef: draft.smsRef ?? null,
+      changed: record.changed,
+      failed: record.failed,
+      digest: eventDigest(scopeId, record.seq, record.type, body, record.failed, split?.raw ?? null),
+      chatSource: record.type === 'chat' ? (draft.source ?? 'other') : null,
+      raw: split !== null,
+    },
+    raw: split === null ? null : { sellerId: job.sellerId, scopeId, seq: record.seq, nick: split.raw.nick, text: split.raw.text },
   }
 }
 

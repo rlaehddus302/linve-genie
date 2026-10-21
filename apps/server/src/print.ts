@@ -5,6 +5,8 @@
 // - 출력함이 되면 그 라벨 키의 자동 출력 효과가 엔진에서 아직 실행 완료가 아닐 때 effect.labelPrinted를 같은 트랜잭션에서 기록한다(L-11 7).
 // - 판정은 하지 않는다. 엔진 상태는 코어 조회 함수로만 읽는다(label-data.ts).
 // - 로그에 라벨 데이터·닉네임·품종·기기 이름·가게 이름·템플릿·요청 본문을 남기지 않는다(L-11 16).
+// - 라벨 기능 켬/끔(N4a, L-13): 판매자 대기열 줄의 칸. 그 줄을 잠근 트랜잭션 안에서 읽고 바꾼다 — 꺼져 있으면 효과로 작업을 만들지 않고(createAutoJobs),
+//   출력을 새로 시작하거나 라벨을 새로 만드는 요청을 LABELS_OFF로 거절한다. 줄이거나 끝내는 요청·조회·폐기는 그대로다.
 import { randomBytes } from 'node:crypto'
 import { containsPhoneRun, currentBuyerOf, getProduct, listBroadcasts, listEffects, listProducts, type EngineState } from '@livejjim/core'
 import {
@@ -25,6 +27,7 @@ import { contentKeyOf, currentLabelBuyer, isWinnerOf, packingLabelData, productL
 import { errorKind, type LogSink } from './log.ts'
 import {
   activeJobs,
+  bindLabelEffect,
   cancelWaiting,
   createAutoJobs,
   discardJobs,
@@ -36,11 +39,14 @@ import {
   headWaitingJob,
   insertAttempt,
   insertJobs,
+  insertLabelSwitch,
   insertLabels,
   insertPrintRequest,
   jobsOfLabels,
   jobsWithLabels,
+  labelSwitchHistory,
   labelsByIds,
+  labelsOff,
   liveProductLabels,
   lockQueue,
   openAttempt,
@@ -58,6 +64,7 @@ import {
   type JobWithLabel,
   type LabelEffectBody,
   type LabelRow,
+  type LabelSwitchRow,
   type PauseReason,
   type QueuePatch,
   type QueueRow,
@@ -98,6 +105,10 @@ export const PRINT_MESSAGES = {
   templateInvalid: '라벨 설정에 고칠 곳이 있어요.',
   shopNameTooLong: '가게 이름은 40자 이하로 적어 주세요.',
   templateSaved: '라벨 설정을 저장했어요.',
+  /** 라벨 기능이 꺼져 있을 때 거절 (L-13 5, D-N4a-03) */
+  labelsOff: '라벨 기능이 꺼져 있어요. 설정에서 켠 뒤 다시 해 주세요.',
+  /** 켬/끔 값이 불리언이 아님 */
+  labelsInvalid: '라벨 기능은 켜기나 끄기로만 정할 수 있어요.',
 } as const
 
 /** 작업 상태 낱말 (D-I1-08) */
@@ -179,7 +190,32 @@ export interface QueueSummary {
   readonly waiting: number
   readonly printing: number
   readonly discard: number
+  /** 라벨 기능 켬(true)/끔(false) — 기록이 없으면 켬 (N4a, L-13 1) */
+  readonly labelsEnabled: boolean
 }
+
+/** 라벨 기능 켬/끔을 바꾼 기록 한 줄 (N4a, L-13 2) */
+export interface LabelSwitchEntry {
+  readonly enabled: boolean
+  /** 바꾼 시각 (UTC ISO) */
+  readonly at: string
+  /** 바꾼 계정의 로그인 아이디 */
+  readonly loginId: string
+}
+
+/** 라벨 기능 설정 보기 (GET·PUT /api/settings/labels) */
+export interface LabelSettings {
+  readonly enabled: boolean
+  /** 바꾼 기록 최근 LABEL_HISTORY_LIMIT줄, 새것 먼저 */
+  readonly history: LabelSwitchEntry[]
+  /** 지금 대기 작업 장 수 (끄기 확인 창) */
+  readonly waiting: number
+  /** 읽은 때의 출력 기록 판 */
+  readonly rev: number
+}
+
+/** 바꾼 기록을 보이는 줄 수 (AC-N4a-02·12) */
+export const LABEL_HISTORY_LIMIT = 20
 
 export interface LabelRef {
   /** 라벨 키 (상품 `<찜>@<확정버전>`, 포장 `packing:<구매자>`) */
@@ -262,6 +298,7 @@ export interface ClaimedJob {
 
 export type ClaimOutcome =
   | { readonly kind: 'not_device' }
+  | { readonly kind: 'labels_off' }
   | { readonly kind: 'none'; readonly reason: 'PAUSED' | 'BUSY' | 'EMPTY' }
   | { readonly kind: 'job'; readonly job: ClaimedJob }
 
@@ -285,6 +322,10 @@ const rejected = (status: number, code: Rejection['code'], message: string, extr
   rejection: rejection(status, code, message),
   ...(extra === undefined ? {} : { extra }),
 })
+/** 라벨 기능이 꺼져 있어 거절 (L-13 5) — 아무것도 기록하지 않는다 */
+const labelsOffRejected = (): ActionOutcome<never> => rejected(409, 'LABELS_OFF', PRINT_MESSAGES.labelsOff)
+
+const entryOf = (row: LabelSwitchRow): LabelSwitchEntry => ({ enabled: row.enabled, at: row.changedAt.toISOString(), loginId: row.loginId })
 
 /** 템플릿 JSON 상한 (L-11 13) */
 export const TEMPLATE_MAX_BYTES = 16 * 1024
@@ -350,6 +391,8 @@ export interface PrintOptions {
   readonly log: LogSink
   /** 실시간 알림 (event: print) */
   readonly publish: (sellerId: string, data: Readonly<Record<string, unknown>>) => void
+  /** 라벨 기능 켬/끔 알림 (event: labels, N4a) */
+  readonly publishLabels?: (sellerId: string, data: Readonly<Record<string, unknown>>) => void
   /** 그 기기의 실시간 연결이 열려 있는지 */
   readonly deviceLive: (sellerId: string, deviceId: string) => boolean
 }
@@ -512,6 +555,7 @@ export class PrintService {
             },
       pause: paused === null ? null : { reason: paused, message: PAUSE_MESSAGES[paused], backlog: queue?.backlog === true },
       ...counts,
+      labelsEnabled: queue?.labelsEnabled ?? true,
     }
   }
 
@@ -705,10 +749,13 @@ export class PrintService {
    * 이미 출력 기기인 기기가 다시 알리면 이름을 고치고 출력 그만하기를 거두며 멈춤을 바꾸지 않는다. 출력 기기가 되는 기기는 프린터가 연결돼 있다
    */
   async registerDevice(sellerId: string, deviceId: string, name: string, replace: boolean): Promise<ActionOutcome<{ queue: QueueSummary; waiting: number; backlog: boolean }>> {
+    // 라벨 기능이 꺼져 있으면 출력 기기를 정하지 않는다 (같은 기기의 다시 알림·바꾸기 포함, L-13 5)
+    if (await labelsOff(this.#db, sellerId)) return labelsOffRejected()
     const now = this.#now()
     const touched: Touched = { jobs: [], labels: [] }
     const outcome = await this.#db.transaction(async (tx) => {
       const queue = await lockQueue(tx, sellerId, now)
+      if (!queue.labelsEnabled) return { kind: 'off' as const }
       const counts = async () => queueCounts(tx, sellerId)
       if (queue.deviceId === deviceId) {
         // 같은 기기가 다시 "이 기기에서 출력"을 누르면 출력 그만하기를 거둔다(출력 중인 장이 끝나도 출력 기기로 남는다, L-11 10). 멈춤은 그대로
@@ -734,6 +781,7 @@ export class PrintService {
       await updateQueue(tx, sellerId, patch, now)
       return { kind: 'ok' as const, backlog }
     })
+    if (outcome.kind === 'off') return labelsOffRejected()
     if (outcome.kind === 'taken') return rejected(409, 'PRINT_DEVICE_TAKEN', PRINT_MESSAGES.deviceTaken, { device: { name: outcome.name } })
     this.#notify(sellerId, touched)
     const queue = await this.summary(sellerId)
@@ -808,16 +856,21 @@ export class PrintService {
    * 출력 기기의 프린터가 끊겨 있으면 끊김 멈춤으로 바뀐다
    */
   async restart(sellerId: string): Promise<ActionOutcome<{ queue: QueueSummary }>> {
-    if ((await readQueue(this.#db, sellerId))?.paused == null) return { kind: 'ok', value: { queue: await this.summary(sellerId) } }
+    const current = await readQueue(this.#db, sellerId)
+    // 라벨 기능이 꺼져 있으면 멈춰 있지 않아도 거절한다 (L-13 5)
+    if (current?.labelsEnabled === false) return labelsOffRejected()
+    if (current?.paused == null) return { kind: 'ok', value: { queue: await this.summary(sellerId) } }
     const now = this.#now()
     const blocked = await this.#db.transaction(async (tx) => {
       const queue = await lockQueue(tx, sellerId, now)
+      if (!queue.labelsEnabled) return 'off' as const
       if (queue.paused === 'DISCONNECTED') return { name: queue.deviceName ?? '' }
       if (queue.paused === null) return null
       const paused = queue.deviceId !== null && !queue.printerConnected ? 'DISCONNECTED' : null
       await updateQueue(tx, sellerId, { paused, backlog: false }, now)
       return null
     })
+    if (blocked === 'off') return labelsOffRejected()
     if (blocked !== null) return rejected(409, 'PRINT_RECONNECT_REQUIRED', PRINT_MESSAGES.reconnect, { device: { name: blocked.name } })
     this.#notify(sellerId, { jobs: [], labels: [] })
     return { kind: 'ok', value: { queue: await this.summary(sellerId) } }
@@ -832,8 +885,11 @@ export class PrintService {
    * 상품 라벨 데이터는 지금 상태로 만든다(구매자만 고정)
    */
   async claim(sellerId: string, deviceId: string): Promise<ClaimOutcome> {
+    const current = await readQueue(this.#db, sellerId)
+    // 라벨 기능이 꺼져 있으면 받지 않는다 — 출력 기기가 아니어도 (L-13 5·6, 이미 받은 시도의 결과는 받는다)
+    if (current?.labelsEnabled === false) return { kind: 'labels_off' }
     // 출력 기기가 아니면 아무것도 쓰지 않는다 (대기열 줄도 만들지 않는다, AC-I1-06)
-    if ((await readQueue(this.#db, sellerId))?.deviceId !== deviceId) return { kind: 'not_device' }
+    if (current?.deviceId !== deviceId) return { kind: 'not_device' }
     for (let round = 0; round < CLAIM_ROUNDS; round++) {
       const peek = await headWaitingJob(this.#db, sellerId)
       let ctx: StateContext | null = null
@@ -845,6 +901,7 @@ export class PrintService {
       const touched: Touched = { jobs: [], labels: [] }
       const outcome: ClaimOutcome | { kind: 'retry' } = await this.#db.transaction(async (tx) => {
         const queue = await lockQueue(tx, sellerId, now)
+        if (!queue.labelsEnabled) return { kind: 'labels_off' as const }
         if (queue.deviceId !== deviceId) return { kind: 'not_device' as const }
         if (queue.paused !== null) return { kind: 'none' as const, reason: 'PAUSED' as const }
         const printing = await printingJob(tx, sellerId)
@@ -1048,7 +1105,9 @@ export class PrintService {
 
   /**
    * 라벨 출력 (손으로, L-11 3): 실제 범위의 지금 1등 찜, 그 라벨 키(찜, 지금 확정버전)에 작업이 하나도 없을 때만.
-   * 같은 요청 번호면 같은 결과. 엔진 기록이 아니라 5초 대기가 없다
+   * 같은 요청 번호면 같은 결과. 엔진 기록이 아니라 5초 대기가 없다. 라벨 기능이 꺼져 있으면 거절(L-13 5).
+   * 그 라벨 키에 그 범위의 PRINT_PRODUCT_LABEL 효과가 있으면(라벨 기능을 끈 동안 나와 작업이 되지 않은 효과) 라벨 키를 그 효과와 묶는다 —
+   * 출력함이 되면 L-11 7대로 그 효과를 보고한다(N4a L-11 3·7, L-13 8, D-N4a-04)
    */
   async printLabel(sellerId: string, accountId: string, requestId: string, b: string, claimId: string): Promise<ActionOutcome<{ jobs: JobView[] }>> {
     const prior = await this.#priorJobs(sellerId, requestId)
@@ -1056,6 +1115,7 @@ export class PrintService {
     const scope = await this.#broadcastScope(sellerId, b)
     if (scope === null) return { kind: 'not_found' }
     if (scope === 'rehearsal') return rejected(422, 'PRINT_REHEARSAL', PRINT_MESSAGES.rehearsal)
+    if (await labelsOff(this.#db, sellerId)) return labelsOffRejected()
     const { date } = scope
     let created: string[] = []
     const outcome = await this.#options.writer.withState(sellerId, date, false, async (runtime): Promise<ActionOutcome<null>> => {
@@ -1065,20 +1125,24 @@ export class PrintService {
       if (info === undefined || info.broadcast !== b) return { kind: 'not_found' }
       if (info.status !== 'CONFIRMED' || info.confirmVersion === null) return rejected(409, 'PRINT_NOT_WINNER', PRINT_MESSAGES.notWinner)
       const scopeId = runtime.scopeId
-      const key = `${claimId}@${String(info.confirmVersion)}`
+      const version = info.confirmVersion
+      const key = `${claimId}@${String(version)}`
       const now = this.#now()
       const buyer = JSON.stringify(productLabelBuyer(runtime.state, info))
+      // 이 라벨 키의 자동 출력 효과 (실제 범위의 엔진 상태 — 리허설 범위는 위에서 거절했다)
+      const effectId = listEffects(runtime.state).find((effect) => effect.kind === 'PRINT_PRODUCT_LABEL' && effect.claim === claimId && effect.confirmVersion === version)?.id ?? null
       return this.#db.transaction(async (tx): Promise<ActionOutcome<null>> => {
         if ((await findPrintRequest(tx, sellerId, requestId)) !== null) return { kind: 'ok', value: null }
         const queue = await lockQueue(tx, sellerId, now)
+        if (!queue.labelsEnabled) return labelsOffRejected()
         let label = await findLabel(tx, sellerId, scopeId, key)
         if (label !== null && (await jobsOfLabels(tx, sellerId, [label.id])).length > 0) return rejected(409, 'PRINT_LABEL_EXISTS', PRINT_MESSAGES.labelExists)
         if (label === null) {
-          await insertLabels(tx, [
-            { sellerId, scopeId, date, key, kind: 'product', claim: claimId, version: info.confirmVersion, broadcast: info.broadcast, no: info.no, buyer, effectId: null, createdAt: now },
-          ])
+          await insertLabels(tx, [{ sellerId, scopeId, date, key, kind: 'product', claim: claimId, version, broadcast: info.broadcast, no: info.no, buyer, effectId, createdAt: now }])
           label = await findLabel(tx, sellerId, scopeId, key)
           if (label === null) throw new Error('라벨 키를 만들지 못했다')
+        } else if (label.effectId === null && effectId !== null) {
+          await bindLabelEffect(tx, sellerId, label.id, effectId)
         }
         const jobId = newJobId('m')
         await insertJobs(tx, [
@@ -1120,6 +1184,7 @@ export class PrintService {
     const scope = await this.#broadcastScope(sellerId, b)
     if (scope === null) return { kind: 'not_found' }
     if (scope === 'rehearsal') return rejected(422, 'PRINT_REHEARSAL', PRINT_MESSAGES.rehearsal)
+    if (await labelsOff(this.#db, sellerId)) return labelsOffRejected()
     const { date } = scope
     let created: string[] = []
     const touched: Touched = { jobs: [], labels: [] }
@@ -1133,6 +1198,7 @@ export class PrintService {
       return this.#db.transaction(async (tx): Promise<ActionOutcome<null>> => {
         if ((await findPrintRequest(tx, sellerId, requestId)) !== null) return { kind: 'ok', value: null }
         const queue = await lockQueue(tx, sellerId, now)
+        if (!queue.labelsEnabled) return labelsOffRejected()
         let label: LabelRow | null
         if (version !== null) label = await findLabel(tx, sellerId, scopeId, `${claimId}@${String(version)}`)
         else {
@@ -1189,6 +1255,7 @@ export class PrintService {
   async printPacking(sellerId: string, accountId: string, requestId: string, date: string, buyerId: string): Promise<ActionOutcome<{ jobs: JobView[] }>> {
     const prior = await this.#priorJobs(sellerId, requestId)
     if (prior !== null) return { kind: 'ok', value: { jobs: prior } }
+    if (await labelsOff(this.#db, sellerId)) return labelsOffRejected()
     let created: string[] = []
     const outcome = await this.#options.writer.withState(sellerId, date, false, async (runtime): Promise<ActionOutcome<null>> => {
       if (runtime.scopeId === null || runtime.seq === 0) return { kind: 'not_found' }
@@ -1201,6 +1268,7 @@ export class PrintService {
       return this.#db.transaction(async (tx): Promise<ActionOutcome<null>> => {
         if ((await findPrintRequest(tx, sellerId, requestId)) !== null) return { kind: 'ok', value: null }
         const queue = await lockQueue(tx, sellerId, now)
+        if (!queue.labelsEnabled) return labelsOffRejected()
         const template = await this.#template(tx, sellerId, 'packing')
         const text = computePackingText(template, current.data)
         if (!text.ok) return rejected(409, 'PRINT_NO_ITEMS', PRINT_MESSAGES.noItems)
@@ -1347,6 +1415,8 @@ export class PrintService {
     value: unknown,
     version: number,
   ): Promise<ActionOutcome<{ template: LabelTemplate; version: number; warnings: { field: string; message: string }[]; message: string }>> {
+    // 라벨 기능이 꺼져 있으면 저장하지 않는다 (L-13 5 — 형식 검사보다 먼저)
+    if (await labelsOff(this.#db, sellerId)) return labelsOffRejected()
     let text: string
     try {
       text = JSON.stringify(value)
@@ -1365,7 +1435,8 @@ export class PrintService {
     const template = checked.template
     const now = this.#now()
     const saved = await this.#db.transaction(async (tx) => {
-      await lockQueue(tx, sellerId, now)
+      const queue = await lockQueue(tx, sellerId, now)
+      if (!queue.labelsEnabled) return 'off' as const
       const row = await readTemplate(tx, sellerId, kind, true)
       const current = row?.version ?? 0
       if (version !== current) return null
@@ -1373,12 +1444,57 @@ export class PrintService {
       await updateQueue(tx, sellerId, {}, now)
       return current + 1
     })
+    if (saved === 'off') return labelsOffRejected()
     if (saved === null) return rejected(409, 'TEMPLATE_CONFLICT', PRINT_MESSAGES.templateConflict)
     if (!this.#closed) this.#options.publish(sellerId, { template: { kind, version: saved } })
     return {
       kind: 'ok',
       value: { template, version: saved, warnings: checked.warnings.map((warning) => ({ field: templateField(warning.path), message: warning.message })), message: PRINT_MESSAGES.templateSaved },
     }
+  }
+
+  // ── 라벨 기능 켬/끔 (N4a, L-13 1·2·6·7, D-N4a-01·02) ────────────────────
+
+  /** 지금 켬/끔·바꾼 기록 최근 20줄(새것 먼저)·대기 장 수. 아무것도 쓰지 않는다 (대기열 줄도 만들지 않는다) */
+  async labelSettings(sellerId: string): Promise<LabelSettings> {
+    const queue = await readQueue(this.#db, sellerId)
+    const { waiting } = await queueCounts(this.#db, sellerId)
+    const history = await labelSwitchHistory(this.#db, sellerId, LABEL_HISTORY_LIMIT)
+    return { enabled: queue?.labelsEnabled ?? true, history: history.map(entryOf), waiting, rev: queue?.rev ?? 0 }
+  }
+
+  /**
+   * 켬/끔 바꾸기. 판매자 대기열 줄을 잠근 트랜잭션 안에서 지금 값과 비교해, 실제로 바뀔 때만 값을 바꾸고 바꾼 기록 한 줄을 남긴다(같은 값이면 아무것도 없다).
+   * 끌 때: 대기·출력 중 작업, 출력 기기, 멈춤을 바꾸지 않는다(L-13 6).
+   * 켤 때: 대기 작업이 있고 멈추지 않았거나 끊김 멈춤이면 판매자 멈춤 + 쌓인 라벨("출력 시작"), 손으로 푸는 멈춤이면 그대로, 대기 작업이 없으면 대기열을 바꾸지 않는다(L-13 7).
+   * 커밋된 뒤에만 응답·알림(labels, print)이 나간다
+   */
+  async setLabels(sellerId: string, accountId: string, enabled: boolean): Promise<LabelSettings & { changed: boolean }> {
+    const current = await readQueue(this.#db, sellerId)
+    // 줄이 없으면 켬이다 — 켜기는 바꿀 것이 없다 (대기열 줄도 만들지 않는다)
+    if (current === null && enabled) return { ...(await this.labelSettings(sellerId)), changed: false }
+    const now = this.#now()
+    const changed = await this.#db.transaction(async (tx) => {
+      const queue = await lockQueue(tx, sellerId, now)
+      if (queue.labelsEnabled === enabled) return null
+      const patch: QueuePatch = { labelsEnabled: enabled }
+      if (enabled) {
+        const { waiting } = await queueCounts(tx, sellerId)
+        if (waiting > 0 && (queue.paused === null || queue.paused === 'DISCONNECTED')) {
+          patch.paused = 'SELLER'
+          patch.backlog = true
+        }
+      }
+      const rev = await updateQueue(tx, sellerId, patch, now)
+      const id = await insertLabelSwitch(tx, sellerId, enabled, accountId, now)
+      return { rev, id }
+    })
+    if (changed === null) return { ...(await this.labelSettings(sellerId)), changed: false }
+    const [row] = await labelSwitchHistory(this.#db, sellerId, 1, changed.id)
+    if (!this.#closed && row !== undefined) this.#options.publishLabels?.(sellerId, { rev: changed.rev, enabled, entry: entryOf(row) })
+    // 대기열 요약(labelsEnabled·켤 때의 멈춤)도 출력 알림 순서대로 알린다
+    this.#notify(sellerId, { jobs: [], labels: [] })
+    return { ...(await this.labelSettings(sellerId)), changed: true }
   }
 
   // ── 시험·점검 ─────────────────────────────────────────────────────────────

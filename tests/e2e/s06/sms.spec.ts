@@ -190,6 +190,9 @@ test.describe('문자찜 입력', () => {
   })
 
   test('AC-S06-14·81: 바로 보내기 → 결과 카드 → 칸 비움 → 같은 사람 하나 더 (전화번호 다시 채우지 않음)', async ({ page }) => {
+    // 받은 시각 00:00:01이 "오늘"로 읽히게 브라우저 시계를 KST 06:00으로 (낮 12시가 넘으면 "내일"로 읽혀 확인 창이 뜬다 — 시각에 기대지 않게)
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+    await page.clock.install({ time: new Date(`${today}T06:00:00+09:00`) })
     const logs: string[] = []
     page.on('console', (m) => logs.push(m.text()))
     await login(page)

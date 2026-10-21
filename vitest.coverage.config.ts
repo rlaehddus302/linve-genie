@@ -16,6 +16,9 @@ export default defineConfig({
   test: {
     name: 'core-coverage',
     root: import.meta.dirname,
+    // 코어 단위 시험 설정(packages/core/vitest.config.ts)과 같은 시간 제한 — 여러 작업 폴더가 동시에 돌 때 속성 시험이 5초 기본값에 걸리지 않게 (D-906)
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     include: ['packages/core/test/**/*.test.ts'],
     coverage: {
       enabled: true,

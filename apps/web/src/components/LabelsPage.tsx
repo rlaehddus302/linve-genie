@@ -1,10 +1,15 @@
-// 라벨 화면 `/labels` (SPEC §7 화면 7, LBL-03~08·10, UX-02의 프린터 단계, AC-I1-20~27·40~42·50·62).
+// 라벨 화면 `/labels` (SPEC §7 화면 7, LBL-03~08·10, UX-02의 프린터 단계, AC-I1-20~27·40~42·50·62, AC-N4a-13·16·18·21).
 // 프린터(연결 마법사·테스트 인쇄·농도·출력 기기), 출력 대기열(멈춤 띠·빼기), 버릴 라벨, 출력 이력, 라벨 설정(상품·포장·자동 출력), 내보내기(A4 PDF·그림 파일).
+// - 라벨 기능이 꺼져 있으면(L-13 9) 제목 "라벨"과 "라벨 쓰지 않음 — 설정에서 켤 수 있어요."·"설정" 링크만 — 버릴 라벨이 있으면 그 절만 남는다.
+//   켬/끔을 아직 모르는 동안(불러오는 중·불러오지 못함)은 라벨 조작을 하나도 보이지 않는다(AC-N4a-18).
+// - 주 버튼(.button-primary)은 창 밖에 많아야 하나 — 지금 할 일 (UX-01, D-N4a-06, AC-N4a-21): 이 기기에서 누를 수 있는 멈춤 띠의 조치가 먼저,
+//   아니면 프린터 단계의 다음 할 일(연결 전: 첫 연결 방법 → 연결 뒤: 테스트 인쇄 → 테스트 결과 "예" 뒤: 이 기기에서 출력). 이 기기가 이미 출력 기기면
+//   프린터 단계에 주 버튼이 없다. "버렸어요"·"라벨 설정 저장"은 이 화면에서 늘 보통 버튼이다(알림 창의 "버렸어요"는 그대로 주 버튼).
 import { a4Layout, type LabelBitmap } from '@livejjim/label'
 import { CONNECTION_STATE_NAMES, PRINTER_MESSAGES, RECONNECT_ACTION, type PrinterError } from '@livejjim/printer'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { get, isApiError, patch, type ApiError } from '../api/client.ts'
-import type { LabelView } from '../api/print-types.ts'
+import type { LabelView, QueueSummary } from '../api/print-types.ts'
 import type { BroadcastItem, FullView } from '../api/types.ts'
 import { DENSITY_MAX, DENSITY_MIN, cleanDeviceName, savedDeviceName } from '../lib/device.ts'
 import { dateWords, kstToday } from '../lib/kst.ts'
@@ -13,11 +18,13 @@ import { canShareFile, downloadBytes, shareBytes } from '../lib/label-files.ts'
 import { a4PdfBytes, broadcastA4Name, labelErrorMessage, pngBytes, productPngName, renderJob, renderProduct, waitingA4Name } from '../lib/label-render.ts'
 import { KEEP_SCREEN_ON, PRINT_ACTION, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, replaceQuestion } from '../lib/print-words.ts'
 import type { PrinterMethod } from '../lib/printer-station.ts'
+import type { Navigate } from '../lib/router.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { LabelSettings } from './LabelSettings.tsx'
+import { LabelsOffNote } from './LabelsOff.tsx'
 import { Modal } from './Modal.tsx'
 import { DiscardList, PausePanel, QueueList, usePrintAction } from './PrintParts.tsx'
-import { FONT_ERROR, usePrintApi, usePrintState, useScopeLabels, useStationState } from './print-context.tsx'
+import { FONT_ERROR, useLabelsEnabled, usePrintApi, usePrintState, useScopeLabels, useStationState } from './print-context.tsx'
 
 /** 연결 방법 단추 글 (AC-I1-21) */
 export const METHOD_WORD: Readonly<Record<PrinterMethod, string>> = {
@@ -36,12 +43,73 @@ export const TEST_HELP: readonly string[] = [
 const EXPORT_ID = 'label-export'
 const PRINTER_ID = 'label-printer'
 
-export function LabelsPage() {
+/**
+ * 이 기기에서 누를 수 있는 멈춤 띠의 조치가 보이는가 (AC-N4a-21 우선순위 1): 손으로 푸는 멈춤·쌓인 라벨이면 "다시 시작"·"출력 시작",
+ * 끊김 멈춤이면 출력 기기에서만 "다시 연결"(다른 기기는 문장뿐)
+ */
+export function pauseActionHere(queue: QueueSummary | null, mine: boolean): boolean {
+  if (queue === null || queue.pause === null) return false
+  return queue.pause.reason !== 'DISCONNECTED' || mine
+}
+
+export function LabelsPage({ navigate }: { readonly navigate?: Navigate }) {
+  const labels = useLabelsEnabled()
+  if (labels !== true) {
+    return (
+      <main className="page page-wide labels-page">
+        <h1>라벨</h1>
+        {labels === false ? <LabelsOffBody {...(navigate === undefined ? {} : { navigate })} /> : <LabelsUnknown />}
+      </main>
+    )
+  }
+  return <LabelsOnPage />
+}
+
+/** 켬/끔을 아직 모른다: 라벨 조작 없이 기다린다 (불러오지 못했으면 다시 시도) */
+function LabelsUnknown() {
+  const api = usePrintApi()
+  const print = usePrintState()
+  if (print.phase === 'error' && print.error !== null) return <ErrorNote error={print.error} onRetry={() => void api?.store.reload()} retryLabel="다시 시도" />
+  return <p role="status">불러오는 중…</p>
+}
+
+/** 꺼져 있다 (AC-N4a-13·16): 안내와 "설정" 링크, 버릴 라벨이 있으면 그 절 */
+function LabelsOffBody({ navigate }: { readonly navigate?: Navigate }) {
+  const discardId = useId()
+  const print = usePrintState()
+  const discard = print.overview?.discard ?? []
+  const open = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (navigate === undefined || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    event.preventDefault()
+    navigate({ name: 'settings' })
+  }
+  return (
+    <>
+      <LabelsOffNote onSettings={open} />
+      {discard.length > 0 ? (
+        <section className="card stack" aria-labelledby={discardId}>
+          <h2 id={discardId} className="section-title">
+            버릴 라벨
+          </h2>
+          <DiscardList />
+        </section>
+      ) : null}
+    </>
+  )
+}
+
+function LabelsOnPage() {
   const ids = { queue: useId(), discard: useId(), history: useId(), settings: useId() }
+  const api = usePrintApi()
+  const print = usePrintState()
+  const queue = print.overview?.queue ?? null
+  const mine = api?.station.isMine(queue) ?? false
+  // 멈춤 띠의 조치가 보이면 그것이 주 버튼 — 프린터 단계는 모두 보통 버튼 (AC-N4a-21)
+  const stepPrimary = !pauseActionHere(queue, mine)
   return (
     <main className="page page-wide labels-page">
       <h1>라벨</h1>
-      <PrinterSection />
+      <PrinterSection stepPrimary={stepPrimary} />
       <section className="card stack" aria-labelledby={ids.queue}>
         <h2 id={ids.queue} className="section-title">
           출력 대기열
@@ -90,17 +158,31 @@ function PrinterErrorView({ error, onRetry }: { readonly error: PrinterError; re
   )
 }
 
-function PrinterSection() {
+/**
+ * 프린터 칸: 연결 마법사(연결 방법 → 프린터 고르기 → 연결됨 → 테스트 인쇄 → "이 기기에서 출력"), 출력 기기 표시.
+ * 시작 마법사 3단계(UX-02, D-I1-06·D-I3-01)도 이 칸을 그대로 끼운다 — 그때(inWizard)는 제목이 단계 제목 아래(h3)이고,
+ * 이 브라우저가 연결할 수 없으면 안내만 보인다(그림 파일 저장은 라벨 화면의 내보내기에 있다).
+ * stepPrimary: 이 단계가 주 버튼을 가질 수 있나 — 라벨 화면에서 멈춤 띠의 조치가 보이면 아니다 (AC-N4a-21)
+ */
+export function PrinterSection({ inWizard = false, stepPrimary = true }: { readonly inWizard?: boolean; readonly stepPrimary?: boolean }) {
   const titleId = useId()
   const api = usePrintApi()
   const print = usePrintState()
   const station = useStationState()
+  /** 테스트 결과 "또렷하게 보이나요?"의 답 — "예" 뒤에는 "이 기기에서 출력"이 다음 할 일이다 */
+  const [answer, setAnswer] = useState<'yes' | 'no' | null>(null)
+  // 연결이 끊기면 테스트 결과의 답도 지난 일이다 (다시 연결한 직후의 다음 할 일은 테스트 인쇄)
+  const linked = station?.connection === 'CONNECTED' || station?.connection === 'PRINTING'
+  useEffect(() => {
+    if (!linked) setAnswer(null)
+  }, [linked])
+  const Title = inWizard ? 'h3' : 'h2'
   if (api === null || station === null) {
     return (
       <section id={PRINTER_ID} className="card stack" aria-labelledby={titleId}>
-        <h2 id={titleId} className="section-title">
+        <Title id={titleId} className="section-title">
           프린터
-        </h2>
+        </Title>
         <p role="status">불러오는 중…</p>
       </section>
     )
@@ -113,19 +195,24 @@ function PrinterSection() {
   const unsupported = methods.length === 0
   const connect = (method: PrinterMethod) => void api.station.connect(method)
   const lastMethod = station.method
+  // 이 기기가 이미 출력 기기면 프린터 단계에 주 버튼이 없다 (AC-N4a-21)
+  const primary = stepPrimary && !mine
+  const testAnswered = answer === 'yes' && station.testPrinted
   return (
     <section id={PRINTER_ID} className="card stack" aria-labelledby={titleId}>
-      <h2 id={titleId} className="section-title">
+      <Title id={titleId} className="section-title">
         프린터
-      </h2>
+      </Title>
       <DeviceStatus />
       {unsupported ? (
         <div className="notice stack-tight" role="note">
           <p>{PRINTER_MESSAGES.UNSUPPORTED}</p>
           <p>이 기기는 출력 기기가 될 수 없어요.</p>
-          <a className="button" href={`#${EXPORT_ID}`}>
-            그림 파일로 저장하기
-          </a>
+          {inWizard ? null : (
+            <a className="button" href={`#${EXPORT_ID}`}>
+              그림 파일로 저장하기
+            </a>
+          )}
         </div>
       ) : (
         <>
@@ -136,7 +223,7 @@ function PrinterSection() {
           {!connected ? (
             <div className="row" role="group" aria-label="연결 방법">
               {methods.map((method) => (
-                <button key={method} type="button" className={method === methods[0] ? 'button button-primary' : 'button'} disabled={station.connecting} onClick={() => connect(method)}>
+                <button key={method} type="button" className={primary && method === methods[0] ? 'button button-primary' : 'button'} disabled={station.connecting} onClick={() => connect(method)}>
                   {METHOD_WORD[method]}
                 </button>
               ))}
@@ -146,8 +233,8 @@ function PrinterSection() {
             <p role="status">{lastMethod === 'test' ? '연결하는 중…' : '연결하는 중… 브라우저 창에서 프린터(B1)를 골라 주세요.'}</p>
           ) : null}
           {station.connectError !== null && !connected ? <PrinterErrorView error={station.connectError} {...(lastMethod !== null && methods.includes(lastMethod) ? { onRetry: () => connect(lastMethod) } : {})} /> : null}
-          {connected ? <ConnectedPrinter /> : null}
-          {connected && !mine ? <BecomeDevice /> : null}
+          {connected ? <ConnectedPrinter answer={answer} onAnswer={setAnswer} primary={primary && !testAnswered} /> : null}
+          {connected && !mine ? <BecomeDevice primary={primary && testAnswered} /> : null}
           {testMode ? <TestHandlePanel /> : null}
         </>
       )}
@@ -198,12 +285,18 @@ function DeviceStatus() {
   )
 }
 
+interface ConnectedPrinterProps {
+  readonly answer: 'yes' | 'no' | null
+  readonly onAnswer: (answer: 'yes' | 'no' | null) => void
+  /** "테스트 인쇄"가 지금 할 일 (주 버튼) */
+  readonly primary: boolean
+}
+
 /** 연결된 프린터: 테스트 인쇄·결과 확인·농도·연결 끊기 (AC-I1-22) */
-function ConnectedPrinter() {
+function ConnectedPrinter({ answer, onAnswer: setAnswer, primary }: ConnectedPrinterProps) {
   const api = usePrintApi()
   const print = usePrintState()
   const station = useStationState()
-  const [answer, setAnswer] = useState<'yes' | 'no' | null>(null)
   const densityId = useId()
   if (api === null || station === null) return null
   const busy = station.busy || station.job !== null || station.connection === 'PRINTING'
@@ -215,7 +308,7 @@ function ConnectedPrinter() {
   return (
     <div className="stack-tight">
       <div className="row">
-        <button type="button" className="button button-primary" disabled={busy || station.testing} aria-describedby={busy ? 'test-busy' : undefined} onClick={test}>
+        <button type="button" className={primary ? 'button button-primary' : 'button'} disabled={busy || station.testing} aria-describedby={busy ? 'test-busy' : undefined} onClick={test}>
           {station.testing ? '테스트 인쇄 중…' : '테스트 인쇄'}
         </button>
         <button type="button" className="button" onClick={() => void api.station.disconnect()}>
@@ -269,8 +362,8 @@ function ConnectedPrinter() {
   )
 }
 
-/** "이 기기에서 출력" (기기 이름 칸, 다른 기기가 출력 기기면 바꿀지 묻는다 — 처음 포커스 "닫기", 1 = 바꾸기) */
-function BecomeDevice() {
+/** "이 기기에서 출력" (기기 이름 칸, 다른 기기가 출력 기기면 바꿀지 묻는다 — 처음 포커스 "닫기", 1 = 바꾸기). primary: 지금 할 일(테스트 결과 "예" 뒤) */
+function BecomeDevice({ primary }: { readonly primary: boolean }) {
   const api = usePrintApi()
   const print = usePrintState()
   const nameId = useId()
@@ -319,7 +412,7 @@ function BecomeDevice() {
         ) : null}
       </div>
       <div className="row">
-        <button type="button" className="button button-primary" disabled={busy} onClick={() => void become(false)}>
+        <button type="button" className={primary ? 'button button-primary' : 'button'} disabled={busy} onClick={() => void become(false)}>
           {PRINT_ACTION.thisDevice}
         </button>
       </div>

@@ -2,8 +2,8 @@
 import { getSettlement, listSettlements, type EngineState } from '@livejjim/core'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { LEGAL_NOTICE, buildReceipt, buildReceipts, type ReceiptData, type ShopSettings } from '../src/index.ts'
-import { play, playLoosely, randomEvents, replayGolden, sale, type EventInput } from './helpers.ts'
+import { LEGAL_NOTICE, buildReceipt, buildReceipts, loadDocumentFont, type ReceiptData, type ShopSettings } from '../src/index.ts'
+import { fontBytes, play, playLoosely, randomEvents, replayGolden, sale, type EventInput } from './helpers.ts'
 
 const SHOP: ShopSettings = { name: '초록다육', account: { bank: '농협', number: '302-9988-7766-11', holder: '김판매' }, accountNote: '입금자명은 닉네임으로 적어 주세요' }
 /** 2026-10-18T14:30:00Z = KST 23:30 */
@@ -254,10 +254,15 @@ describe('AC-P2-24 전원 일괄 데이터 — 순서와 빠지는 묶음', () =
     expect(result.receipts[1]?.phoneLast4).toBe('5432')
   })
 
-  it('순서는 코드 포인트 순(보조 평면 글자 포함), 같으면 구매자 ID 순', () => {
+  // I2 (D-I2-04, TD-P2-004)에서 교체: 순서의 키가 원문 표시 이름에서 "찍힌 이름"으로 바뀌었다(harness/sprints/I2/dev-notes.md 교체 목록).
+  // 글꼴을 넘기면 그 글꼴로 그릴 수 없는 🌵가 빠진 '선인장'으로 정렬되고(￠는 Pretendard에 있다), 넘기지 않으면 제어·서식 글자만 뺀 이름이다.
+  it('순서는 찍힌 이름의 코드 포인트 순(보조 평면 글자 포함), 같으면 구매자 ID 순', () => {
     const state = play([...sale(1, 'UC_2', '같은이름'), ...sale(2, 'UC_1', '같은이름'), ...sale(3, 'UC_3', '\u{1F335}선인장'), ...sale(4, 'UC_4', '￠가'), ...sale(5, 'UC_5', 'Zed'), ...sale(6, 'UC_6', '가나')])
-    const result = buildReceipts({ state, date: '2026-10-18', rehearsal: false, createdAt: CREATED })
-    expect(result.ok && result.receipts.map((r) => r.lines[0]?.no)).toEqual([5, 6, 2, 1, 4, 3])
+    const scope = { state, date: '2026-10-18', rehearsal: false, createdAt: CREATED }
+    const withFont = buildReceipts(scope, loadDocumentFont(fontBytes()))
+    expect(withFont.ok && withFont.receipts.map((r) => r.lines[0]?.no)).toEqual([5, 6, 2, 1, 3, 4])
+    const withoutFont = buildReceipts(scope)
+    expect(withoutFont.ok && withoutFont.receipts.map((r) => r.lines[0]?.no)).toEqual([5, 6, 2, 1, 4, 3])
   })
 
   it('품목이 있는 묶음이 없으면 쉬운 오류', () => {

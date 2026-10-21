@@ -28,11 +28,19 @@ export type Dialog =
   | { readonly kind: 'assign'; readonly spec: AssignSpec }
   | { readonly kind: 'convert'; readonly messageId: string }
   | { readonly kind: 'confirm'; readonly spec: ConfirmSpec }
+  /** 감사 메시지 목록 (AC-I3-31) */
+  | { readonly kind: 'outbox' }
+  /** 글쓰기 권한 받으러 구글로 가기 (다시 보내기 409 NO_PERMISSION, AC-I3-34) */
+  | { readonly kind: 'youtubeAuthorize'; readonly url: string }
+  /** 유튜브 방송 연결 끊기 확인 (AC-I3-26) */
+  | { readonly kind: 'youtubeUnlink' }
   /** 출력 멈춤·버릴 라벨 (알림 띠, AC-I1-32) */
   | { readonly kind: 'printPause' }
   | { readonly kind: 'discard' }
   /** Alt+P: 그 상품의 1등 라벨 다시 출력 (AC-I1-33) */
   | { readonly kind: 'reprint'; readonly product: string | null }
+  /** 상품 목록 가져오기 (I2 AC-I2-52) */
+  | { readonly kind: 'import' }
 
 /** 사유를 받는 조치 (AC-S05-34) */
 export interface ReasonSpec {
@@ -62,6 +70,10 @@ export interface ConfirmSpec {
   readonly message: string
   readonly confirmLabel: string
   readonly onConfirm: () => Promise<void> | void
+  /** 아무것도 바꾸지 않는 버튼 (처음 포커스, 기본 "닫기") */
+  readonly closeLabel?: string
+  /** 확인 버튼 모양 (기본 위험 — 빨강) */
+  readonly tone?: 'danger' | 'primary'
 }
 
 /** 5초 뒤에 보내는 방송자 조치 */
@@ -88,6 +100,8 @@ export interface ConsoleApi {
   readonly date: string
   readonly rehearsal: boolean
   readonly ended: boolean
+  /** 30일이 지나 봉인한 날짜 — 볼 수만 있다 (쓰기는 보내지 않는다, AC-I3-41) */
+  readonly sealed: boolean
   readonly data: ScopeData
   readonly names: BuyerNames
   /** 라벨 키 → 서버의 라벨 상태 (실제 범위만 — 리허설·콘솔 밖 화면은 없다, AC-I1-30) */

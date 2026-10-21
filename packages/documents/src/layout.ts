@@ -4,6 +4,7 @@
 // 글자는 그리기 전에 글꼴로 그릴 수 있는 글자만 남긴다(D-207 ③). 긴 품종·이름은 칸 안에서 줄을 바꿔 다 보인다(자르지 않는다).
 import type { DocumentFont } from './font.ts'
 import type { ReceiptData } from './receipt.ts'
+import { printedName } from './text.ts'
 
 /** A4 세로 (pt) */
 export const PAGE_WIDTH = 595.28
@@ -16,7 +17,6 @@ export const CONTENT_WIDTH = PAGE_WIDTH - MARGIN_X * 2
 const SIZE = { title: 20, body: 10.5, total: 12, small: 8.5 } as const
 const LINE = 1.5
 const RULE = 0.6
-const NO_NAME = '(이름 없음)'
 const NO_TITLE = '(제목 없음)'
 
 export type TextRole = 'content' | 'notice' | 'pageNumber'
@@ -180,7 +180,8 @@ function receiptBlocks(receipt: ReceiptData, font: DocumentFont, pageBodyHeight:
   const info: FlowRow[] = []
   const shop = receipt.shopName === null ? '' : clean(receipt.shopName)
   if (shop !== '') info.push(infoRow('가게', shop))
-  info.push(infoRow('구매자', clean(receipt.buyerName) || NO_NAME))
+  // 찍힌 구매자 이름 = 전원 일괄 순서의 키 (I2 D-I2-04 — 같은 함수)
+  info.push(infoRow('구매자', printedName(receipt.buyerName, (text) => font.sanitize(text))))
   if (receipt.phoneLast4 !== null) info.push(infoRow('휴대폰 끝자리', clean(receipt.phoneLast4)))
   info.push(infoRow('주문 날짜', receipt.orderDate))
   info.push(infoRow('방송 회차', receipt.sessions.map((session) => clean(session) || NO_TITLE).join(', ')))

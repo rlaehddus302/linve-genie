@@ -3,6 +3,8 @@
 // - Alt+P 창: 현재 상품의 1등 라벨 다시 출력(작업이 없으면 처음 출력) — 처음 포커스 "닫기", 1 = 출력.
 // - 정산 자세히: 포장 라벨 쪽마다 미리 보기·"포장 라벨 출력"·그림 파일(쪽마다)·PDF·재출력 필요.
 // - 리허설은 라벨이 없다: 그 자리에 "리허설 방송은 라벨을 출력하지 않아요."
+// - 라벨 기능이 꺼져 있으면(N4a, L-13 9·10) 라벨 자리에 "라벨 쓰지 않음 — 설정에서 켤 수 있어요."만 — 미리 보기·상태·이력·출력·그림 파일·PDF가 없다.
+//   리허설은 그 문장도 없다(라벨 문장이 아예 없다). 켬/끔을 아직 모르면 라벨 자리를 비워 둔다(AC-N4a-18). 창이 열린 채 꺼지면 창은 그대로 두고 라벨 부분만 바꾼다.
 // - 출력·다시 출력·포장 라벨은 엔진 기록이 아니어서 5초 대기 없이 바로 보낸다(같은 요청 번호로 재시도 — 서버는 한 번만 만든다).
 import type { PackingLabelData, ProductLabelData } from '@livejjim/label'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -27,7 +29,8 @@ import { NO_WINNER_LABEL, PRINT_ACTION, REHEARSAL_NO_LABELS, historyWord } from 
 import { ErrorNote } from './ErrorNote.tsx'
 import { LabelImage } from './LabelImage.tsx'
 import { Modal } from './Modal.tsx'
-import { FONT_ERROR, useLabelEnv, usePackingLabel, usePrintApi, usePrintState, type EnvState } from './print-context.tsx'
+import { LabelsOffNote } from './LabelsOff.tsx'
+import { FONT_ERROR, useLabelEnv, useLabelsEnabled, usePackingLabel, usePrintApi, usePrintState, type EnvState } from './print-context.tsx'
 
 /** 1등 찜의 라벨 키 `<찜>@<확정버전>` */
 export const labelKeyOf = (claim: Pick<Claim, 'id' | 'confirmVersion'>): string | null => (claim.confirmVersion === null ? null : `${claim.id}@${String(claim.confirmVersion)}`)
@@ -99,9 +102,10 @@ export interface ProductLabelsProps {
 export function ProductLabels({ product, winners, labels, rehearsal, date, nameOf }: ProductLabelsProps) {
   const env = useLabelEnv()
   const api = usePrintApi()
+  const enabled = useLabelsEnabled()
   const store = api?.store ?? null
   // 라벨 상태에 없는 1등 라벨 키 (자동 출력을 끈 방송에서 채팅·문자찜으로 생긴 1등 — 작업이 없어 print 알림이 없다): 한 번 다시 받는다 (AC-I1-31)
-  const missing = rehearsal
+  const missing = rehearsal || enabled !== true
     ? ''
     : winners
         .map((claim) => labelKeyOf(claim))
@@ -112,6 +116,16 @@ export function ProductLabels({ product, winners, labels, rehearsal, date, nameO
     store.ensureLabels(date, missing.split('\n'))
     // labels: 처음 조회가 끝나 라벨 상태가 바뀌면 다시 본다 (저장소가 키마다 한 번만 다시 받는다)
   }, [store, date, missing, labels])
+  if (enabled !== true) {
+    // 모름·리허설: 라벨 자리를 비운다. 꺼짐: 라벨이 있던 자리에 안내 한 번 (AC-N4a-14)
+    if (enabled === null || rehearsal) return null
+    return (
+      <section className="stack-tight" aria-label="라벨">
+        <h3 className="sub-title">라벨</h3>
+        <LabelsOffNote />
+      </section>
+    )
+  }
   if (rehearsal) {
     return (
       <section className="stack-tight" aria-label="라벨">
@@ -219,6 +233,15 @@ export interface ReprintDialogProps {
 
 export function ReprintDialog({ product, winners, labels, rehearsal, date, title, nameOf, onClose }: ReprintDialogProps) {
   const request = useLabelRequest()
+  const enabled = useLabelsEnabled()
+  if (enabled !== true) {
+    // 콘솔은 꺼져 있으면 이 창을 열지 않는다 — 열린 채 꺼지면 창은 그대로 두고 안내만 (포커스를 빼앗지 않는다, AC-N4a-18)
+    return (
+      <Modal title="라벨 다시 출력" onClose={onClose}>
+        <LabelsOffNote />
+      </Modal>
+    )
+  }
   if (rehearsal || product === undefined || winners.length === 0) {
     return (
       <Modal title="라벨 다시 출력" onClose={onClose}>
@@ -287,6 +310,17 @@ export function ReprintDialog({ product, winners, labels, rehearsal, date, title
 // ── 정산 자세히의 포장 라벨 (AC-I1-35) ────────────────────────────────────
 
 export function PackingLabels({ date, buyer, rehearsal }: { readonly date: string; readonly buyer: string; readonly rehearsal: boolean }) {
+  const enabled = useLabelsEnabled()
+  if (enabled !== true) {
+    // 모름·리허설: 비운다. 꺼짐: 포장 라벨 자리에 안내 (AC-N4a-15)
+    if (enabled === null || rehearsal) return null
+    return (
+      <section className="stack-tight" aria-label="포장 라벨">
+        <h3 className="sub-title">포장 라벨</h3>
+        <LabelsOffNote />
+      </section>
+    )
+  }
   if (rehearsal) {
     return (
       <section className="stack-tight" aria-label="포장 라벨">

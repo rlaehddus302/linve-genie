@@ -7,6 +7,8 @@
 //   상품 자세히(product)에 갔다 와도(합치기로 돌아가기·브라우저 뒤로 가기) 같은 창이 다시 열리고 미리 보기를 지금 상태로 새로 받는다 (D-102).
 // - 떼어 내기(바로)·차단(사유, 5초 뒤 — 콘솔과 같은 조치).
 // - 전화번호는 뒤 4자리만(원문은 저장하지 않는다, D-073).
+// - 실제 범위의 자세히에는 "지난 구매"(채널 ID·전화번호 키로 이은 다른 날짜의 묶음 — 누르면 그 날짜의 정산 자세히, I2 AC-I2-41).
+// - I3: 봉인 예정 날짜면 "이 날짜 기록은 … 봉인돼요"(7일 전부터 경고 상자), 봉인한 날짜는 볼 수만 있다 — 합치기·떼어 내기·차단이 잠긴다 (AC-I3-40·41).
 import { useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import type { Buyer, Claim } from '../api/types.ts'
 import {
@@ -42,7 +44,11 @@ import { useHostActions } from './host-actions.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
 import { Modal } from './Modal.tsx'
 import { ReasonField } from './ReasonField.tsx'
-import { ScopePicker, useScopeChoice } from './ScopePicker.tsx'
+import { PastPurchases } from './PastPurchases.tsx'
+import { Lock } from './Lock.tsx'
+import { ScopePicker, sealOf, useScopeChoice } from './ScopePicker.tsx'
+import { SealNotice } from './SealNotice.tsx'
+import { ReadOnlyContext } from '../lib/read-only.ts'
 import { UndoBar } from './UndoBar.tsx'
 
 /** 목록을 나눠 그리는 크기 (상품 500·채팅 1만 범위에서도 멈추지 않게, AC-S06-20) */
@@ -60,6 +66,7 @@ export function BuyersPage({ route, navigate }: { readonly route: ScopeRoute; re
   const key = scope === null ? null : `${scope.date}|${String(scope.rehearsal)}`
   const { store, snapshot } = useScopeStore(key, () => ({ scope: scope ?? { date: '', rehearsal: false } }))
   const queue = useUndoQueue()
+  const seal = sealOf(choice.days, scope)
   return (
     <main className="page page-wide buyers-page">
       <h1>구매자</h1>
@@ -67,6 +74,7 @@ export function BuyersPage({ route, navigate }: { readonly route: ScopeRoute; re
         <ScopePicker route={route} navigate={navigate} days={choice.days} error={choice.error} onRetry={choice.retry} />
         {route.rehearsal ? <span className="tag tag-rehearsal">리허설</span> : null}
       </div>
+      <SealNotice sealAt={seal.sealAt} sealed={seal.sealed || snapshot.sealed} />
       <p className="hint">{MERGE_SAME_DAY}</p>
       {scope === null ? (
         choice.days !== null ? <p>아직 판매 기록이 없어요.</p> : null
@@ -104,7 +112,7 @@ interface MergeTarget {
 }
 
 function ReadyBuyers({ route, navigate, store, snapshot, data, queue }: ReadyProps) {
-  const host = useHostActions({ store, data, queue, date: data.date, rehearsal: data.rehearsal, b: '', ended: false })
+  const host = useHostActions({ store, data, queue, date: data.date, rehearsal: data.rehearsal, b: '', ended: false, sealed: snapshot.sealed })
   const [notice, setNotice] = useState<string | null>(null)
   const [searching, setSearching] = useState(false)
   const base: ScopeRoute = { name: 'buyers', date: data.date, rehearsal: data.rehearsal }
@@ -137,7 +145,9 @@ function ReadyBuyers({ route, navigate, store, snapshot, data, queue }: ReadyPro
   })
 
   let routeDialog: ReactNode = null
-  if (selected !== undefined && merge !== null && route.product !== undefined) {
+  if (snapshot.sealed) {
+    // 봉인한 날짜는 볼 수만 있다 — 주소에 합치기 창(merge·into·product)이 남아 있어도 열지 않는다 (AC-I3-41)
+  } else if (selected !== undefined && merge !== null && route.product !== undefined) {
     routeDialog = (
       <ProductWinnersDialog
         api={host.api}
@@ -181,7 +191,7 @@ function ReadyBuyers({ route, navigate, store, snapshot, data, queue }: ReadyPro
   }
 
   return (
-    <>
+    <ReadOnlyContext.Provider value={snapshot.sealed}>
       <div className="page-sticky">
         <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
         <UndoBar items={host.items} queue={queue} />
@@ -211,12 +221,13 @@ function ReadyBuyers({ route, navigate, store, snapshot, data, queue }: ReadyPro
             setSearching(true)
           }}
           onSettlement={(buyer) => navigate({ name: 'settlements', date: data.date, rehearsal: data.rehearsal, buyer })}
+          onPast={(date, buyer) => navigate({ name: 'settlements', date, rehearsal: false, buyer })}
           onUnmerged={() => setNotice(UNMERGED_NOTICE)}
         />
       )}
       {/* 사유·확인 창(찜 취소·차단)이 열리면 그 창만 — 아래 창이 포커스를 가져가지 않게 */}
       {host.dialog ?? routeDialog}
-    </>
+    </ReadOnlyContext.Provider>
   )
 }
 
@@ -397,9 +408,11 @@ interface DetailProps {
   readonly onMerge: () => void
   readonly onUnmerged: () => void
   readonly onSettlement: (buyer: string) => void
+  /** 지난 구매 항목 → 그 날짜의 정산 자세히 */
+  readonly onPast: (date: string, buyer: string) => void
 }
 
-function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement }: DetailProps) {
+function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement, onPast }: DetailProps) {
   const [unmerging, setUnmerging] = useState<string | null>(null)
   const names = api.names
   const current = buyer.mergedInto === null ? buyer : (api.data.buyers.get(buyer.current) ?? buyer)
@@ -458,17 +471,19 @@ function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement }: 
         </p>
       ) : null}
 
-      {/* 주 버튼 없음 (D-101): 합치기는 보통 버튼, 차단은 위험 버튼 모양 */}
-      <div className="row">
-        {buyer.mergedInto === null ? (
-          <button type="button" className="button" onClick={onMerge}>
-            다른 구매자와 합치기
+      {/* 주 버튼 없음 (D-101): 합치기는 보통 버튼, 차단은 위험 버튼 모양. 봉인한 날짜는 잠긴다 (AC-I3-41) */}
+      <Lock>
+        <div className="row">
+          {buyer.mergedInto === null ? (
+            <button type="button" className="button" onClick={onMerge}>
+              다른 구매자와 합치기
+            </button>
+          ) : null}
+          <button type="button" className={buyer.blocked ? 'button' : 'button button-danger'} onClick={() => openBlockAction(api, buyer.id, !buyer.blocked)}>
+            {buyer.blocked ? '차단 풀기' : '차단하기'}
           </button>
-        ) : null}
-        <button type="button" className={buyer.blocked ? 'button' : 'button button-danger'} onClick={() => openBlockAction(api, buyer.id, !buyer.blocked)}>
-          {buyer.blocked ? '차단 풀기' : '차단하기'}
-        </button>
-      </div>
+        </div>
+      </Lock>
 
       {current.merged.length > 0 && buyer.mergedInto === null ? (
         <section className="stack-tight" aria-label="합친 구매자">
@@ -477,9 +492,11 @@ function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement }: 
             {current.merged.map((id) => (
               <li key={id} className="row claim-row">
                 <span>{names.name(id)}</span>
-                <button type="button" className="button" aria-label={`${names.name(id)} 떼어 내기`} onClick={() => setUnmerging(id)}>
-                  떼어 내기
-                </button>
+                <Lock className="lock-inline">
+                  <button type="button" className="button" aria-label={`${names.name(id)} 떼어 내기`} onClick={() => setUnmerging(id)}>
+                    떼어 내기
+                  </button>
+                </Lock>
               </li>
             ))}
           </ul>
@@ -541,6 +558,8 @@ function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement }: 
           정산 자세히
         </button>
       </section>
+
+      {api.data.rehearsal ? null : <PastPurchases date={api.data.date} buyer={current.id} refreshKey={current.merged.join(',')} onOpen={onPast} />}
 
       {unmerging !== null ? (
         <UnmergeDialog

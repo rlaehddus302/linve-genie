@@ -2,12 +2,20 @@
 // 브라우저가 없으면: pnpm exec playwright install chromium (이 저장소의 @playwright/test 1.62.1 = chromium-1234)
 //
 // 서버와 화면을 묶음(stack)마다 하나씩 띄운다. 화면은 운영용 빌드 + Vite 미리 보기, /api는 같은 출처로 E2E 서버에 넘긴다.
-//   | 프로젝트            | 화면  | 서버  | 서버 옵션                                        | 고르는 시험                     |
-//   | chromium            | 5173  | 3100  | 방송자 조치 대기 E2E_HOST_DELAY_MS(기본 2000)    | 아래 태그가 없는 시험 전부      |
-//   | chromium-prod-delay | 5174  | 3101  | 운영 값 5000 (대기 줄이지 않음)                  | 제목에 @prod-delay              |
-//   | chromium-fill       | 5175  | 3102  | --fill yes(오늘 실제 범위 상품 500·채팅 1만)     | 제목에 @fill                    |
-//   | chromium-no-test-printer | 5176 | 3103 | --test-printer no(시험 모드 끔 — 운영처럼 시험용 프린터 없음, AC-I1-50) | 제목에 @no-test-printer |
+//   | 프로젝트            | 화면  | 서버  | 가짜 유튜브 | 서버 옵션                                                         | 고르는 시험                |
+//   | chromium            | 5173  | 3100  | —           | 방송자 조치 대기 E2E_HOST_DELAY_MS(기본 2000), 유튜브 준비 안 됨  | 아래 태그가 없는 시험 전부 |
+//   | chromium-prod-delay | 5174  | 3101  | —           | 운영 값 5000 (대기 줄이지 않음)                                   | 제목에 @prod-delay         |
+//   | chromium-fill       | 5175  | 3102  | —           | --fill yes(오늘 실제 범위 상품 500·채팅 1만)                      | 제목에 @fill               |
+//   | chromium-youtube    | 5176  | 3103  | 4100        | --youtube fake --outbox-fast yes (I3: 연결·잇기·수집·발송함)      | 제목에 @youtube            |
+//   | chromium-quota      | 5177  | 3104  | 4101        | 위 + --youtube-quota-budget 400 (묶음 < 20%·멈춤 < 5%)            | 제목에 @quota              |
+//   | chromium-served     | (3105)| 3105  | —           | --web-dir(서버가 화면을 같은 출처로 함께 냄 — 보안 머리글·CSP)     | 제목에 @served             |
+//   | chromium-no-test-printer | 5178 | 3106 | —      | --test-printer no(시험 모드 끔 — 운영처럼 시험용 프린터 없음, AC-I1-50) | 제목에 @no-test-printer    |
 // - 시험용 프린터(I1): E2E 서버는 기본으로 시험 모드다(화면 연결 방법에 "시험용 프린터 — 실제로 출력되지 않아요"와 window.livejjimTestPrinter 손잡이).
+// - 가짜 유튜브 묶음(AC-I3-93): 가짜 구글·유튜브 서버가 127.0.0.1:<가짜 유튜브 포트>에 함께 뜬다(조작은 POST /_fake/*, 상태 GET /_fake/state —
+//   harness/sprints/Y1/dev-notes.md "화면(I3)에게" 8). 시험은 STACKS의 youtube 포트를 쓴다(fakeYoutubeUrl). 실제 구글 주소로는 나가지 않는다.
+// - 서버가 화면을 내는 묶음(AC-I3-70·71): 화면 서버 없이 브라우저가 서버 주소를 바로 연다. 띄우기 전에 화면을 운영용으로 빌드한다
+//   (node_modules/.cache/livejjim-e2e/served-web — 린트·git이 보지 않는 곳). 서버 --origin = 그 서버 주소.
+// - E2E 서버의 시험용 조작 POST /_e2e/sellers·/_e2e/dates·/_e2e/seal은 모든 묶음의 서버 주소에서 쓸 수 있다(I3 dev-notes "화면에게" 8).
 // - 리허설 생성기 시험 속도 E2E_CHAT_SPEED(기본 20 — 초당 50 설정이면 초당 1,000).
 // - 포트가 겹치면 E2E_PORT_OFFSET(예: 100)으로 모두 옮긴다.
 // - 시험 계정: apps/server/e2e/account.json (loginId e2e-shop / password e2e-pass-1234, 가게 이름 "시험 가게").
@@ -31,21 +39,62 @@ const listen = (port: number) => `http://${E2E_HOST}:${String(port)}`
 /** 브라우저가 여는 주소 (= 서버 --origin) */
 const browserOrigin = (port: number) => `http://localhost:${String(port)}`
 
-interface Stack {
+export interface Stack {
   readonly name: string
+  /** 브라우저가 여는 포트 (서버가 화면을 내는 묶음이면 서버 포트와 같다) */
   readonly web: number
   readonly api: number
   readonly serverArgs: string
   readonly grep?: RegExp
   readonly grepInvert?: RegExp
+  /** 가짜 구글·유튜브 서버 포트 (I3 — 가짜 유튜브 묶음만) */
+  readonly youtube?: number
+  /** 서버가 화면 빌드를 같은 출처로 함께 낸다 (화면 서버 없음, AC-I3-70) */
+  readonly served?: boolean
 }
 
+/** 서버가 화면을 내는 묶음의 화면 빌드 폴더 (실행마다 다시 빌드한다 — 빌드 결과물이 린트 범위에 들어가지 않게 node_modules/.cache 아래) */
+export const SERVED_WEB_DIR = fileURLToPath(new URL('../../node_modules/.cache/livejjim-e2e/served-web', import.meta.url))
+/** 작은 할당량 묶음의 예산 (게시 20 · 목록 조회 5 · 댓글 50 단위) */
+export const E2E_QUOTA_BUDGET = 400
+
+const youtubeArgs = (port: number) => `--youtube fake --youtube-port ${String(port)} --outbox-fast yes`
+
 export const STACKS: readonly Stack[] = [
-  { name: 'chromium', web: 5173 + offset, api: 3100 + offset, serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`, grepInvert: /@prod-delay|@fill|@no-test-printer/ },
+  {
+    name: 'chromium',
+    web: 5173 + offset,
+    api: 3100 + offset,
+    serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`,
+    grepInvert: /@prod-delay|@fill|@youtube|@quota|@served|@no-test-printer/,
+  },
   { name: 'chromium-prod-delay', web: 5174 + offset, api: 3101 + offset, serverArgs: `--chat-speed ${chatSpeed}`, grep: /@prod-delay/ },
   { name: 'chromium-fill', web: 5175 + offset, api: 3102 + offset, serverArgs: `--fill yes --host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`, grep: /@fill/ },
-  { name: 'chromium-no-test-printer', web: 5176 + offset, api: 3103 + offset, serverArgs: `--test-printer no --host-delay-ms ${hostDelay}`, grep: /@no-test-printer/ },
+  {
+    name: 'chromium-youtube',
+    web: 5176 + offset,
+    api: 3103 + offset,
+    youtube: 4100 + offset,
+    serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed} ${youtubeArgs(4100 + offset)}`,
+    grep: /@youtube/,
+  },
+  {
+    name: 'chromium-quota',
+    web: 5177 + offset,
+    api: 3104 + offset,
+    youtube: 4101 + offset,
+    serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed} ${youtubeArgs(4101 + offset)} --youtube-quota-budget ${String(E2E_QUOTA_BUDGET)}`,
+    grep: /@quota/,
+  },
+  { name: 'chromium-served', web: 3105 + offset, api: 3105 + offset, served: true, serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed} --web-dir "${SERVED_WEB_DIR}"`, grep: /@served/ },
+  { name: 'chromium-no-test-printer', web: 5178 + offset, api: 3106 + offset, serverArgs: `--test-printer no --host-delay-ms ${hostDelay}`, grep: /@no-test-printer/ },
 ]
+
+/** 그 프로젝트의 가짜 유튜브 주소 (가짜 유튜브 묶음이 아니면 null) — 시험이 /_fake/*를 부를 때 */
+export function fakeYoutubeUrl(project: string): string | null {
+  const port = STACKS.find((stack) => stack.name === project)?.youtube
+  return port === undefined ? null : `http://${E2E_HOST}:${String(port)}`
+}
 
 export default defineConfig({
   testDir: fileURLToPath(new URL('../../tests/e2e', import.meta.url)),
@@ -71,20 +120,33 @@ export default defineConfig({
     ...(stack.grep === undefined ? {} : { grep: stack.grep }),
     ...(stack.grepInvert === undefined ? {} : { grepInvert: stack.grepInvert }),
   })),
-  webServer: STACKS.flatMap((stack) => [
-    {
-      command: `pnpm --filter @livejjim/server e2e --port ${String(stack.api)} --origin ${browserOrigin(stack.web)} ${stack.serverArgs}`,
-      url: `${listen(stack.api)}/api/health`,
-      reuseExistingServer: reuse,
-      timeout: 120_000,
-      stdout: 'pipe' as const,
-    },
-    {
-      command: `node e2e/serve.ts --port ${String(stack.web)} --api ${listen(stack.api)}`,
-      url: listen(stack.web),
-      reuseExistingServer: reuse,
-      timeout: 120_000,
-      stdout: 'pipe' as const,
-    },
-  ]),
+  webServer: STACKS.flatMap((stack) =>
+    stack.served === true
+      ? [
+          {
+            // 화면을 운영용으로 빌드한 뒤 서버가 그 폴더를 같은 출처로 낸다
+            command: `node e2e/build.ts --out "${SERVED_WEB_DIR}" && pnpm --filter @livejjim/server e2e --port ${String(stack.api)} --origin ${browserOrigin(stack.web)} ${stack.serverArgs}`,
+            url: `${listen(stack.api)}/api/health`,
+            reuseExistingServer: reuse,
+            timeout: 180_000,
+            stdout: 'pipe' as const,
+          },
+        ]
+      : [
+          {
+            command: `pnpm --filter @livejjim/server e2e --port ${String(stack.api)} --origin ${browserOrigin(stack.web)} ${stack.serverArgs}`,
+            url: `${listen(stack.api)}/api/health`,
+            reuseExistingServer: reuse,
+            timeout: 120_000,
+            stdout: 'pipe' as const,
+          },
+          {
+            command: `node e2e/serve.ts --port ${String(stack.web)} --api ${listen(stack.api)}`,
+            url: listen(stack.web),
+            reuseExistingServer: reuse,
+            timeout: 120_000,
+            stdout: 'pipe' as const,
+          },
+        ],
+  ),
 })

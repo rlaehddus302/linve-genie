@@ -71,7 +71,8 @@ describe('템플릿 JSON과 검사 (AC-P1-20)', () => {
   it('모르는 칸 · 목록 밖 크기 · 모르는 가격 표기 · perPage 범위 밖 · 형식 번호', () => {
     const t = clone(defaultTemplate('product'))
     expect(problems({ ...t, align: 'left' })).toContain('라벨 설정에 알 수 없는 값이 있어요.')
-    expect(problems({ ...t, size: '40x30' })).toEqual(['쓸 수 없는 라벨 크기예요. 50×30, 50×20, 50×40 중에서 골라 주세요.'])
+    // 크기 오류 문장은 목록을 늘어놓지 않는다 (L-5, AC-N1-10 — 크기가 프린터마다 다르다)
+    expect(problems({ ...t, size: '40x30' })).toEqual(['쓸 수 없는 라벨 크기예요. 라벨 크기 목록에서 다시 골라 주세요.'])
     expect(problems({ ...t, priceStyle: 'MAN' })).toEqual(['가격 표기 방법을 다시 골라 주세요.'])
     expect(problems({ ...t, format: 2 })).toEqual(['라벨 설정 형식을 읽을 수 없어요.'])
     expect(problems({ ...t, kind: 'sticker' })).toEqual(['라벨 종류를 읽을 수 없어요.'])

@@ -105,6 +105,48 @@ export function kstShort(value: string | number): string {
   return `${String(Number(p.month ?? '0'))}/${String(Number(p.day ?? '0'))} ${p.hour ?? '00'}:${p.minute ?? '00'}`
 }
 
+const wordsFormat = new Intl.DateTimeFormat('en-GB', {
+  timeZone: KST_TIME_ZONE,
+  hourCycle: 'h23',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+})
+
+/** 시·분(·초) → "오후 8:01" / "오후 8:31:05" (12시간, 0시는 오전 12시) */
+function clockWords(hour: number, minute: string, second: string | null): string {
+  const half = hour < 12 ? '오전' : '오후'
+  const h = hour % 12 === 0 ? 12 : hour % 12
+  return `${half} ${String(h)}:${minute}${second === null ? '' : `:${second}`}`
+}
+
+/** UTC 시각 → KST "10월 25일 오후 8:01" (동의한 때·예정 시각·다시 채워지는 때) */
+export function kstDateTimeWords(value: string | number): string {
+  const ms = toMs(value)
+  if (!Number.isFinite(ms)) return ''
+  const p = parts(wordsFormat, ms)
+  return `${String(Number(p.month ?? '0'))}월 ${String(Number(p.day ?? '0'))}일 ${clockWords(Number(p.hour ?? '0'), p.minute ?? '00', null)}`
+}
+
+/** UTC 시각 → KST "오후 8:31:05" (마지막 채팅) */
+export function kstClockWords(value: string | number): string {
+  const ms = toMs(value)
+  if (!Number.isFinite(ms)) return ''
+  const p = parts(wordsFormat, ms)
+  return clockWords(Number(p.hour ?? '0'), p.minute ?? '00', p.second ?? '00')
+}
+
+/** UTC 시각 → KST "11월 25일 0시" (봉인 시각 — 분이 있으면 "0시 30분") */
+export function kstHourWords(value: string | number): string {
+  const ms = toMs(value)
+  if (!Number.isFinite(ms)) return ''
+  const p = parts(wordsFormat, ms)
+  const minute = Number(p.minute ?? '0')
+  return `${String(Number(p.month ?? '0'))}월 ${String(Number(p.day ?? '0'))}일 ${String(Number(p.hour ?? '0'))}시${minute === 0 ? '' : ` ${String(minute)}분`}`
+}
+
 const stampFormat = new Intl.DateTimeFormat('en-GB', {
   timeZone: KST_TIME_ZONE,
   hourCycle: 'h23',
@@ -131,4 +173,44 @@ export function kstStamp(value: string | number, minute = false): string {
 export function kstHm(value: string | number): string {
   const time = kstTime(value)
   return time === '' ? '' : time.slice(0, 5)
+}
+
+const minuteFormat = new Intl.DateTimeFormat('en-GB', {
+  timeZone: KST_TIME_ZONE,
+  hourCycle: 'h23',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
+/**
+ * UTC 시각 → KST "2026년 10월 20일 (화) 04:00" (설정 화면의 백업 시각, I2 AC-I2-65). 읽을 수 없는 값이면 빈 글자.
+ * 요일은 그 KST 날짜 자체로 정한다(브라우저 시간대와 상관없다).
+ */
+export function kstDateTimeLong(value: string | number): string {
+  const ms = toMs(value)
+  if (!Number.isFinite(ms)) return ''
+  const p = parts(minuteFormat, ms)
+  const date = `${p.year ?? ''}-${p.month ?? ''}-${p.day ?? ''}`
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  if (!m) return ''
+  const day = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay()
+  return `${dateYear(date)} (${WEEKDAYS[day] ?? ''}) ${p.hour ?? '00'}:${p.minute ?? '00'}`
+}
+
+/**
+ * UTC 시각 → KST `2026-10-20 (화) 20:31` — 연도·요일까지 (D-102). 라벨 기능을 바꾼 기록(AC-N4a-12).
+ * 요일은 KST 날짜 자체로 정한다(브라우저 시간대와 상관없다). 읽을 수 없는 값이면 빈 글자
+ */
+export function kstDayMinute(value: string | number): string {
+  const ms = toMs(value)
+  if (!Number.isFinite(ms)) return ''
+  const p = parts(minuteFormat, ms)
+  const year = Number(p.year ?? '0')
+  const month = Number(p.month ?? '0')
+  const day = Number(p.day ?? '0')
+  const weekday = WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()] ?? ''
+  return `${p.year ?? ''}-${p.month ?? ''}-${p.day ?? ''} (${weekday}) ${p.hour ?? '00'}:${p.minute ?? '00'}`
 }

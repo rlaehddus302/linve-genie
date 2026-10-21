@@ -1336,6 +1336,9 @@ export class DepositService {
         return notFound()
       case 'save_failed':
         return fail(500, 'SAVE_FAILED', DEPOSIT_MESSAGES.writeFailed)
+      // 'empty'는 채팅 묶음 기록(chatBatch, Y1)만 낸다 — 입금 확인은 늘 기록 하나를 적는다. 왔다면 저장하지 못한 것으로 본다 (합치기 N3 + main)
+      case 'empty':
+        return fail(500, 'SAVE_FAILED', DEPOSIT_MESSAGES.writeFailed)
     }
   }
 

@@ -33,27 +33,62 @@ async function sms(mobile: Page, no: number, fill: { phone?: string; memo?: stri
   await expect(mobile.getByRole('region', { name: '넣은 결과' })).toContainText(`${String(no)}번`)
 }
 
-/** PC 알림 띠의 충돌·취소 요청·승계 결정을 하나 처리 (S05 rehearsal-full과 같은 방식) */
-async function handleOne(page: Page): Promise<boolean> {
+/** 창이 열렸는데 그 사이 알림이 없어졌을 때 보이는 빈 문장 (AlertDialogs) */
+const EMPTY_ALERT = /^지금 (정할 충돌|처리할 취소 요청|정할 승계)이 없어요\.$/
+
+/**
+ * PC 알림 띠의 충돌·취소 요청·승계 결정을 하나 처리 (S05 rehearsal-full과 같은 방식).
+ * 시험 경쟁 수정(SA-N4a-04, D-087): 앞 조치를 보낸 뒤 증분 동기화가 오기까지 띠는 지난 수를 잠깐 보인다.
+ * 센 뒤 누르기 전에 그 알림이 없어지면 Alt+1이 창을 열지 않는 게 맞고(D-087), 연 뒤 없어지면 창이 빈 문장을 보인다.
+ * 그래서 다시 센다. 띠에 처리할 알림이 남아 있는데 세 번 모두 창이 없으면 여전히 실패다.
+ * 돌려주는 값: 'handled' 하나 처리 · 'gone' 연 창이 빈 문장이라 닫음(다시 셀 것) · false 처리할 알림 없음
+ */
+async function handleOne(page: Page): Promise<'handled' | 'gone' | false> {
   const strip = page.getByRole('region', { name: '알림' })
   const actionable = strip.getByRole('button', { name: /^(충돌|취소 요청|승계 결정 필요) \d+$/ })
-  if ((await actionable.count()) === 0) return false
-  await page.getByLabel('빠른 입력').focus()
-  await page.keyboard.press('Alt+1')
+  const pending = page.getByRole('region', { name: '보내기 전 조치' }).getByText(/초 뒤 보내요|보내는 중/)
   const dlg = page.getByRole('dialog')
-  await expect(dlg).toBeVisible()
+  // 앞 조치가 서버에 닿을 때까지 — "초 뒤 보내요"가 사라진 것은 보내기 시작일 뿐이다(그 뒤 "보내는 중…")
+  await expect(pending).toHaveCount(0, { timeout: 15_000 })
+  for (let tries = 1; ; tries += 1) {
+    if ((await actionable.count()) === 0) return false
+    await page.getByLabel('빠른 입력').focus()
+    await page.keyboard.press('Alt+1')
+    if (await dlg.waitFor({ state: 'visible', timeout: 3_000 }).then(() => true, () => false)) break
+    if (tries === 3) {
+      await expect(dlg).toBeVisible()
+      break
+    }
+  }
+  const empty = dlg.getByText(EMPTY_ALERT)
+  const closeEmpty = async (): Promise<'gone'> => {
+    // 빈 창에서는 아무 조치도 보내지 않았다
+    expect(await page.getByRole('region', { name: '보내기 전 조치' }).getByText(/초 뒤 보내요/).count()).toBe(0)
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    return 'gone'
+  }
+  if (await empty.isVisible()) return closeEmpty()
   const title = await dlg.getByRole('heading').first().innerText()
   if (title.startsWith('승계 결정')) {
-    await dlg.getByRole('button', { name: /^1 .*1등으로$/ }).click()
+    // 제목을 읽은 뒤 승계가 없어지면 버튼 대신 빈 문장이 보인다
+    const clicked = await dlg.getByRole('button', { name: /^1 .*1등으로$/ }).click({ timeout: 3_000 }).then(() => true, () => false)
+    if (!clicked) {
+      await expect(empty).toBeVisible()
+      return closeEmpty()
+    }
     const reason = page.getByRole('dialog').last()
     await reason.getByLabel('사유').fill('시청자 요청')
     await reason.getByLabel('사유').press('Enter')
   } else {
     await page.keyboard.press('1')
+    // 연 뒤 "1" 전에 알림이 없어졌으면 창은 빈 문장으로 남는다("1"이 누를 버튼이 없다). 내용 있는 창은 닫혀야 한다
+    await expect(page.getByRole('dialog').filter({ hasNot: page.getByText(EMPTY_ALERT) })).toHaveCount(0)
+    if ((await page.getByRole('dialog').count()) > 0) return closeEmpty()
   }
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByRole('region', { name: '보내기 전 조치' }).getByText(/초 뒤 보내요/)).toHaveCount(0, { timeout: 15_000 })
-  return true
+  return 'handled'
 }
 
 function parseWon(text: string): number {

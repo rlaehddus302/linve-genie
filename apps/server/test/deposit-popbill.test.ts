@@ -40,12 +40,12 @@ describe('팝빌 응답 한 줄 → 입금 (AC-N3-15)', () => {
 })
 
 describe('연동 키 (AC-N3-15·16)', () => {
-  it('POPBILL_LINK_ID·POPBILL_SECRET_KEY가 둘 다 있어야 한다', () => {
+  it('LIVEJJIM_POPBILL_LINK_ID·LIVEJJIM_POPBILL_SECRET_KEY가 둘 다 있어야 한다', () => {
     expect(readPopbillKeys({})).toBeNull()
-    expect(readPopbillKeys({ POPBILL_LINK_ID: 'L' })).toBeNull()
-    expect(readPopbillKeys({ POPBILL_SECRET_KEY: 'S' })).toBeNull()
-    expect(readPopbillKeys({ POPBILL_LINK_ID: ' L ', POPBILL_SECRET_KEY: 'S' })).toEqual({ linkId: 'L', secretKey: 'S', testBed: false })
-    expect(readPopbillKeys({ POPBILL_LINK_ID: 'L', POPBILL_SECRET_KEY: 'S', POPBILL_TEST_BED: 'true' })?.testBed).toBe(true)
+    expect(readPopbillKeys({ LIVEJJIM_POPBILL_LINK_ID: 'L' })).toBeNull()
+    expect(readPopbillKeys({ LIVEJJIM_POPBILL_SECRET_KEY: 'S' })).toBeNull()
+    expect(readPopbillKeys({ LIVEJJIM_POPBILL_LINK_ID: ' L ', LIVEJJIM_POPBILL_SECRET_KEY: 'S' })).toEqual({ linkId: 'L', secretKey: 'S', testBed: false })
+    expect(readPopbillKeys({ LIVEJJIM_POPBILL_LINK_ID: 'L', LIVEJJIM_POPBILL_SECRET_KEY: 'S', LIVEJJIM_POPBILL_TEST_BED: 'true' })?.testBed).toBe(true)
   })
 })
 

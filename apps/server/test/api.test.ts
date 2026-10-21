@@ -154,8 +154,9 @@ describe('AC-S04-51 이벤트 쓰기 API', () => {
     await expectOk(writeEvent(world, seller, { type: 'settlement.payment', buyer: 'UC1', date: '2026-10-18', amount: 1000, memo: '입금자 김영희' }, '2026-10-18'))
     expect((await client(world, seller.cookie).get('/api/days')).body).toEqual({
       days: [
-        { date: '2026-10-18', rehearsal: false, seq: 4 },
-        { date: '2026-10-19', rehearsal: false, seq: 1 },
+        // Y1: 범위마다 봉인 예정 시각·봉인 여부 (AC-Y1-62) — 10/18은 유튜브 채팅(실제 범위 채팅)이 있어 10/18 + 30일 0시(KST)
+        { date: '2026-10-18', rehearsal: false, seq: 4, sealAt: '2026-11-16T15:00:00.000Z', sealed: false },
+        { date: '2026-10-19', rehearsal: false, seq: 1, sealAt: null, sealed: false },
       ],
     })
     void b19
@@ -245,10 +246,15 @@ describe('AC-S04-52 조회·이력 API', () => {
         effects: listEffects(state),
         cancelRequests: listCancelRequests(state),
         attention: [],
+        // I2 (AC-I2-33): 실제 범위의 날짜 보기에는 묶음마다 포장·배송 상태가 있다 — 기록이 없으면 포장 대기 (교체 목록: harness/sprints/I2/dev-notes.md)
+        packing: listSettlements(state)
+          .filter((settlement) => settlement.date === b.date && settlement.items.length > 0)
+          .map((settlement) => ({ buyer: settlement.buyer, status: '포장 대기', invoice: null })),
       }),
       // N3(AC-N3-32): 실제 범위 조회에는 입금 연결이 붙는다 (입금 확인으로 적은 기록이 없으면 빈 목록) — 계약 변경에 따른 교체
       depositLinks: [],
     })
+    expect((view.body.packing as unknown[]).length).toBeGreaterThan(0)
     expect(JSON.parse(view.text)).toEqual(view.body)
     expect((view.body.claims as { at: string }[])[0]?.at).toBe(new Date(T0).toISOString())
     expect(view.headers.get('cache-control')).toBe('no-store')
