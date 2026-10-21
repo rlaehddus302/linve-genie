@@ -50,6 +50,8 @@ export const TIKTOK_NO_ID = '설정에서 내 틱톡 아이디를 먼저 넣어 
 /** 알림 띠 한 줄 (AC-N2b-2-62) */
 export const TIKTOK_PASTE_ALERT = '틱톡 댓글이 들어오지 않아요. 댓글을 직접 붙여 넣어 주세요.'
 export const TIKTOK_UNLINK_QUESTION = '끊으면 이 방송의 틱톡 댓글을 더 받지 않아요. 이미 받은 찜은 그대로예요.'
+/** 저장 실패 알림을 끄는 단추 (D-N2b-2-16) — 알림 띠와 틱톡 칸 */
+export const TIKTOK_SAVE_FAILED_SEEN = '확인했어요'
 export const TIKTOK_OFF_QUESTION = '끄면 틱톡 댓글을 바로 그만 받아요. 끌까요?'
 
 /** 판매자의 틱톡 동의가 지금 판으로 켜져 있는가 */
@@ -70,18 +72,25 @@ export function tiktokReconnectable(collection: TikTokCollection | null): boolea
   return collection !== null && ['RETRYING', 'STOPPED', 'ENDED', 'OFF'].includes(collection.state)
 }
 
+/** 아직 확인하지 않은 저장 실패 수 (D-N2b-2-16) — saveFailed − saveFailedSeen, 0 아래로는 내려가지 않는다 */
+export function tiktokUnseenSaveFailed(collection: TikTokCollection | null): number {
+  if (collection === null || collection.state === 'FINISHED') return 0
+  return Math.max(0, collection.saveFailed - collection.saveFailedSeen)
+}
+
 /**
- * 댓글이 들어오지 않는 상태 — "댓글 붙여넣기"가 주 단추, 알림 띠 한 줄 (AC-N2b-2-62).
- * - 저장하지 못한 틱톡 댓글(`saveFailed > 0`)이 있으면 상태와 상관없이 센다(수정 2, SA-N2b-2-009·TE-N2b-2-007, RA-N2b-2-02):
+ * 댓글이 들어오지 않는 상태 — "댓글 붙여넣기"가 주 단추, 알림 띠 한 줄 (AC-N2b-2-62, D-N2b-2-15·16).
+ * - 아직 확인하지 않은 저장 실패(`saveFailed > saveFailedSeen`)가 있으면 상태와 상관없이 센다(SA-N2b-2-009·TE-N2b-2-007, RA-N2b-2-02):
  *   받는 중(`CONNECTED`)에도 그 댓글은 어디에도 기록되지 않아 판매자가 붙여 넣어야만 찜이 된다(겹칠 기록이 없다).
- * - `missed`(끊긴 동안 받지 못했을 수 있음)는 지금 댓글을 받고 있지 않을 때만 센다: 저절로 다시 붙어 `CONNECTED`가 되면
+ *   판매자가 "확인했어요"를 누르면 그때 본 수까지 꺼지고, 그 뒤 새로 늘면 다시 뜬다(D-N2b-2-16).
+ * - `missed`(끊긴 동안 받지 못했을 수 있음)는 지금 댓글을 받고 있지 않을 때만 센다(D-N2b-2-15): 저절로 다시 붙어 `CONNECTED`가 되면
  *   댓글이 다시 들어오므로 "들어오지 않아요. 붙여 넣어 주세요"를 띄우지 않는다 — 그 말대로 이미 들어온 댓글을 붙여 넣으면
- *   같은 시청자가 틱톡·문자 두 구매자로 찜한다(SA-N2b-2-006·TE-N2b-2-004·UX-N2b-2-02, 스펙 확인 요청은 dev-notes(화면) 4).
- *   그때 칸에는 서버의 `missedMessage`가 경고로 남는다.
+ *   같은 시청자가 틱톡·문자 두 구매자로 찜한다(SA-N2b-2-006·TE-N2b-2-004·UX-N2b-2-02).
+ *   그때 칸에는 서버의 `missedMessage`가 경고로 남는다(끄는 단추 없음).
  */
 export function tiktokNeedsPaste(collection: TikTokCollection | null): boolean {
   if (collection === null || collection.state === 'FINISHED') return false
-  if (collection.saveFailed > 0) return true
+  if (tiktokUnseenSaveFailed(collection) > 0) return true
   if (collection.missed && collection.state !== 'CONNECTED') return true
   if (collection.state === 'STOPPED' || collection.state === 'OFF') return true
   return collection.state === 'RETRYING' && (collection.reason === 'BLOCKED' || collection.reason === 'SIGN_FAILED')

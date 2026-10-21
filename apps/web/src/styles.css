@@ -1962,6 +1962,24 @@ html:has(.sms-submit-bar) {
   font-weight: 700;
 }
 
+/* 틱톡 저장 실패 줄 옆 "확인했어요" (D-N2b-2-16) — 한 줄 안에서 글이 줄고 단추는 그대로(44px) */
+.alert-lead-with-action {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  max-inline-size: 100%;
+}
+
+.alert-lead-with-action .alert-lead-button {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.alert-lead-action {
+  flex: 0 0 auto;
+}
+
 .platform-notice {
   display: flex;
   flex-wrap: wrap;

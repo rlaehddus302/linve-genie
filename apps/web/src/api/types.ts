@@ -450,6 +450,10 @@ export interface TikTokCollection {
   readonly lastCommentAt: string | null
   readonly notRecorded: number
   readonly saveFailed: number
+  /** 판매자가 "확인했어요"로 본 저장 실패 수 (D-N2b-2-16, 처음 0) — 알림은 saveFailed > saveFailedSeen일 때만 */
+  readonly saveFailedSeen: number
+  /** 입력 검사에 걸려 기록하지 않은 댓글 수 (D-N2b-2-17, 운영 확인용 — 화면에 보이지 않는다) */
+  readonly skipped: number
 }
 
 /** 회차의 틱톡 연결 (GET /api/broadcasts/:id/tiktok) */

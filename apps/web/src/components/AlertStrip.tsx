@@ -43,6 +43,8 @@ export interface AlertLead {
   readonly onClick?: () => void
   /** 덜 급한 알림(인스타그램 알림)은 연한 색 */
   readonly soft?: boolean
+  /** 그 줄 옆의 작은 단추 (틱톡 저장 실패 "확인했어요" — D-N2b-2-16) */
+  readonly action?: { readonly label: string; readonly onClick: () => void; readonly busy?: boolean }
 }
 
 export interface AlertStripProps {
@@ -80,7 +82,7 @@ export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanks
         ) : (
           <ul className="alerts-list">
             {leads.map((lead) => (
-              <li key={lead.key} className="alert-lead">
+              <li key={lead.key} className={lead.action !== undefined ? 'alert-lead alert-lead-with-action' : 'alert-lead'}>
                 {lead.onClick !== undefined ? (
                   <button type="button" className={lead.soft === true ? 'button alert-item alert-soft alert-lead-button' : 'button alert-item alert-lead-button'} onClick={lead.onClick}>
                     <span className="alert-lead-text">{lead.text}</span>
@@ -90,6 +92,11 @@ export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanks
                     {lead.text}
                   </p>
                 )}
+                {lead.action !== undefined ? (
+                  <button type="button" className="button alert-lead-action" aria-busy={lead.action.busy === true} disabled={lead.action.busy === true} onClick={lead.action.onClick}>
+                    {lead.action.label}
+                  </button>
+                ) : null}
               </li>
             ))}
             {shown.map((item) => (

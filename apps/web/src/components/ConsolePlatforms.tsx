@@ -4,6 +4,8 @@
 // - 고정 영역에 줄을 더하지 않는다(UX-04 35%, TE-N2b-2-001): 틱톡 알림 줄(누르면 붙여넣기 창)·인스타그램 알림(LIVE_MOVED 등 — 문장 그대로,
 //   누르면 인스타그램 칸의 알림 목록으로)·붙여넣기 결과는 알림 띠 맨 앞 항목이다(platformLeads). 휴대폰에서는 띠와 함께 한 줄로 접힌다.
 //   인스타그램 알림의 "닫기"는 인스타그램 칸의 알림 목록에 있다.
+// - 틱톡 저장 실패(확인하지 않은 수 = saveFailed − saveFailedSeen)가 있으면 알림 띠 줄 옆과 틱톡 칸에 "확인했어요"(D-N2b-2-16) —
+//   누르면 보던 saveFailed를 upTo로 보낸다. 끊긴 동안의 missed(CONNECTED)는 칸 경고만이고 끄는 단추가 없다(D-N2b-2-15).
 // - 쓰기 응답(잇기·끊기·다시 연결)은 그사이 SSE로 더 새 상태가 오지 않았을 때만 넣는다 — 왔으면 서버 상태를 다시 받는다(TE-N2b-2-003).
 // - 실시간: 범위 저장소의 같은 연결로 SSE `instagram`·`tiktok`을 받는다(새로 고침 없이). 끊겼다 이어지면 모두 다시 받는다.
 //   댓글 수는 알림마다 오지 않으므로 새 채팅이 들어오면 모아서 한 번 다시 받는다.
@@ -24,12 +26,14 @@ import {
   MULTI_PLATFORM_NOTICE,
   REHEARSAL_LIVE,
   TIKTOK_PASTE_ALERT,
+  TIKTOK_SAVE_FAILED_SEEN,
   TIKTOK_UNLINK_QUESTION,
   failedDmCount,
   failedDmMessage,
   tiktokBlocker,
   tiktokNeedsPaste,
   tiktokReconnectable,
+  tiktokUnseenSaveFailed,
 } from '../lib/platforms.ts'
 import { routePath, type Navigate, type SettingsSection } from '../lib/router.ts'
 import { ErrorNote } from './ErrorNote.tsx'
@@ -81,6 +85,10 @@ export interface ConsolePlatforms {
   acceptTtLink(view: TikTokLinkView, stamp: number): void
   dismissNotice(id: number): void
   reload(): Promise<void>
+  /** 저장 실패 "확인했어요" (D-N2b-2-16) — upTo = 화면이 보고 있던 saveFailed */
+  ackTtSaveFailed(upTo: number): Promise<void>
+  readonly ttSeenBusy: boolean
+  readonly ttSeenError: ApiError | null
 }
 
 export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastMessageSeq }: ConsolePlatformsInput): ConsolePlatforms {
@@ -94,6 +102,9 @@ export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastM
   const [ttLink, setTtLinkState] = useState<TikTokLinkView | null>(null)
   const [dms, setDms] = useState<readonly InstagramDmRow[]>([])
   const [notices, setNotices] = useState<readonly PlatformNotice[]>([])
+  const [ttSeenBusy, setTtSeenBusy] = useState(false)
+  const [ttSeenError, setTtSeenError] = useState<ApiError | null>(null)
+  const ttSeenSending = useRef(false)
   const alive = useRef(true)
   const noticeId = useRef(1)
   const igVersion = useRef(0)
@@ -257,6 +268,34 @@ export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastM
 
   const dismissNotice = useCallback((id: number) => setNotices((list) => list.filter((item) => item.id !== id)), [])
 
+  // 저장 실패 확인 (D-N2b-2-16): 서버는 max(지금, min(upTo, saveFailed))로 적는다 — 같은 요청을 다시 보내도 같다(자동 다시 보내기 안전)
+  const ackTtSaveFailed = useCallback(
+    async (upTo: number) => {
+      if (ttSeenSending.current) return
+      ttSeenSending.current = true
+      setTtSeenBusy(true)
+      setTtSeenError(null)
+      const stamp = ttVersion.current
+      try {
+        const { link } = await withRetry(() => post<{ link: TikTokLinkView }>(`${base}/tiktok/save-failed-seen`, { upTo }))
+        acceptTtLink(link, stamp)
+      } catch (error) {
+        if (!isApiError(error)) throw error
+        if (alive.current) setTtSeenError(error)
+      } finally {
+        ttSeenSending.current = false
+        if (alive.current) setTtSeenBusy(false)
+      }
+    },
+    [base, acceptTtLink],
+  )
+
+  // 확인할 저장 실패가 없어지면(응답·SSE) 앞선 확인 오류는 지운다
+  const unseen = tiktokUnseenSaveFailed(ttLink?.state === 'LINKED' ? ttLink.collection : null)
+  useEffect(() => {
+    if (unseen === 0) setTtSeenError(null)
+  }, [unseen])
+
   return {
     enabled,
     platforms,
@@ -278,6 +317,9 @@ export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastM
     acceptTtLink,
     dismissNotice,
     reload,
+    ackTtSaveFailed,
+    ttSeenBusy,
+    ttSeenError,
   }
 }
 
@@ -303,7 +345,15 @@ function showInstagramNotices(): void {
 export function platformLeads({ live, sealed, onPaste, pasteNote }: { readonly live: ConsolePlatforms; readonly sealed: boolean; readonly onPaste: () => void; readonly pasteNote: string | null }): AlertLead[] {
   const leads: AlertLead[] = []
   if (pasteNote !== null) leads.push({ key: 'paste-note', text: pasteNote })
-  if (!sealed && tiktokTrouble(live)) leads.push({ key: 'tiktok', text: TIKTOK_PASTE_ALERT, onClick: onPaste })
+  if (!sealed && tiktokTrouble(live)) {
+    // 확인하지 않은 저장 실패가 있으면 그 줄 옆에 "확인했어요" (D-N2b-2-16)
+    const collection = live.ttLink?.collection ?? null
+    const action =
+      collection !== null && tiktokUnseenSaveFailed(collection) > 0
+        ? { label: TIKTOK_SAVE_FAILED_SEEN, onClick: () => void live.ackTtSaveFailed(collection.saveFailed), busy: live.ttSeenBusy }
+        : undefined
+    leads.push({ key: 'tiktok', text: TIKTOK_PASTE_ALERT, onClick: onPaste, ...(action !== undefined ? { action } : {}) })
+  }
   const notice = live.notices.at(-1)
   if (notice !== undefined) leads.push({ key: 'instagram', text: notice.message, onClick: showInstagramNotices, soft: true })
   return leads
@@ -648,6 +698,20 @@ function TikTokPanel({ live, broadcastId, navigate, ended, sealed, onPaste }: Pl
                 <strong>{collection.message}</strong>
               </p>
               {collection.missed && collection.missedMessage !== null ? <p className="warning">{collection.missedMessage}</p> : null}
+              {!sealed && tiktokUnseenSaveFailed(collection) > 0 ? (
+                <div className="row">
+                  <button
+                    type="button"
+                    className="button"
+                    aria-busy={live.ttSeenBusy}
+                    disabled={live.ttSeenBusy}
+                    onClick={() => void live.ackTtSaveFailed(collection.saveFailed)}
+                  >
+                    {TIKTOK_SAVE_FAILED_SEEN}
+                  </button>
+                </div>
+              ) : null}
+              {live.ttSeenError !== null ? <ErrorNote error={live.ttSeenError} /> : null}
               <p>받은 댓글 {groupDigits(collection.comments)}개</p>
               {collection.lastCommentAt !== null ? <p>마지막 댓글 {kstClockWords(collection.lastCommentAt)}</p> : null}
             </>

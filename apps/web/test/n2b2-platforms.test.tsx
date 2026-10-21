@@ -13,6 +13,7 @@ import {
   TIKTOK_NO_CONSENT,
   TIKTOK_NO_ID,
   TIKTOK_PASTE_ALERT,
+  TIKTOK_SAVE_FAILED_SEEN,
   buyerPlatformWord,
   chatPlatformTags,
   failedDmCount,
@@ -23,6 +24,7 @@ import {
   tiktokBlocker,
   tiktokNeedsPaste,
   tiktokReconnectable,
+  tiktokUnseenSaveFailed,
 } from '../src/lib/platforms.ts'
 import { parseRoute, routePath, type Navigate } from '../src/lib/router.ts'
 import { DATE, FakeEventSource, FakeServer, apiError, broadcastItem, broadcastView, connection, emptyChanges, flush, fullView, message, type Reply } from './support.ts'
@@ -84,6 +86,8 @@ const ttCollection = (patch: Partial<TikTokCollection> = {}): TikTokCollection =
   lastCommentAt: null,
   notRecorded: 0,
   saveFailed: 0,
+  saveFailedSeen: 0,
+  skipped: 0,
   ...patch,
 })
 const ttNone: TikTokLinkView = { broadcast: 'b1', platform: 'TIKTOK', state: 'NONE', linkedAt: null, actor: null, tiktokId: null, collection: null }
@@ -218,6 +222,17 @@ describe('플랫폼 낱말·판단 (platforms.ts)', () => {
     expect(tiktokNeedsPaste(ttCollection({ saveFailed: 3, missed: true }))).toBe(true)
     expect(tiktokNeedsPaste(ttCollection({ saveFailed: 1 }))).toBe(true)
     expect(tiktokNeedsPaste(ttCollection({ state: 'FINISHED', saveFailed: 3, missed: true }))).toBe(false)
+    // 확인한 저장 실패는 세지 않는다 — saveFailed > saveFailedSeen일 때만 (D-N2b-2-16)
+    expect(tiktokNeedsPaste(ttCollection({ saveFailed: 3, saveFailedSeen: 3 }))).toBe(false)
+    expect(tiktokNeedsPaste(ttCollection({ saveFailed: 5, saveFailedSeen: 3 }))).toBe(true)
+    // CONNECTED + missed(끊긴 동안)만 남으면 칸 경고만 (D-N2b-2-15)
+    expect(tiktokNeedsPaste(ttCollection({ saveFailed: 3, saveFailedSeen: 3, missed: true }))).toBe(false)
+    // 받지 않는 중이면 확인과 상관없이
+    expect(tiktokNeedsPaste(ttCollection({ state: 'STOPPED', saveFailed: 3, saveFailedSeen: 3 }))).toBe(true)
+    expect(tiktokUnseenSaveFailed(ttCollection({ saveFailed: 5, saveFailedSeen: 3 }))).toBe(2)
+    expect(tiktokUnseenSaveFailed(ttCollection({ saveFailed: 3, saveFailedSeen: 5 }))).toBe(0)
+    expect(tiktokUnseenSaveFailed(ttCollection({ state: 'FINISHED', saveFailed: 3 }))).toBe(0)
+    expect(tiktokUnseenSaveFailed(null)).toBe(0)
   })
 
   it('인스타그램: 보내지 못한 DM 수·결과 문장, 붙여넣기 묶음 문장', () => {
@@ -530,6 +545,8 @@ describe('콘솔 — 틱톡 칸 (AC-62)', () => {
     await openConsole()
     expect(within(ttPanel()).getByText('끊긴 동안의 틱톡 댓글은 받지 못했을 수 있어요. 틱톡 앱에서 확인해 주세요.')).toBeDefined()
     expect(screen.queryByRole('button', { name: TIKTOK_PASTE_ALERT })).toBeNull()
+    // 이 경고를 끄는 단추는 없다 (D-N2b-2-15)
+    expect(screen.queryByRole('button', { name: TIKTOK_SAVE_FAILED_SEEN })).toBeNull()
     expect(within(ttPanel()).getByRole('button', { name: '댓글 붙여넣기' }).className).not.toContain('button-primary')
   })
 
@@ -539,6 +556,46 @@ describe('콘솔 — 틱톡 칸 (AC-62)', () => {
     expect(within(ttPanel()).getByText('저장하지 못한 틱톡 댓글이 3개 있어요. 틱톡 앱에서 확인해 댓글을 붙여 넣어 주세요.')).toBeDefined()
     expect(screen.getByRole('button', { name: TIKTOK_PASTE_ALERT })).toBeDefined()
     expect(within(ttPanel()).getByRole('button', { name: '댓글 붙여넣기' }).className).toContain('button-primary')
+  })
+
+  it('확인하지 않은 저장 실패: 알림 띠·틱톡 칸에 "확인했어요" → 보던 saveFailed를 upTo로 보내고 알림이 사라진다, 다시 늘면 다시 뜬다 (D-N2b-2-16)', async () => {
+    const SAVE_FAILED_3 = '저장하지 못한 틱톡 댓글이 3개 있어요. 틱톡 앱에서 확인해 댓글을 붙여 넣어 주세요.'
+    const SAVE_FAILED_2 = '저장하지 못한 틱톡 댓글이 2개 있어요. 틱톡 앱에서 확인해 댓글을 붙여 넣어 주세요.'
+    ttLink = ttLinked({ saveFailed: 3, missed: true, missedMessage: SAVE_FAILED_3 })
+    const seen: Record<string, unknown>[] = []
+    server.on('POST', /^\/api\/broadcasts\/b1\/tiktok\/save-failed-seen$/, (call) => {
+      seen.push(call.body ?? {})
+      const upTo = Number(call.body?.upTo)
+      const failed = upTo >= 5 ? 5 : 3
+      return { body: { link: ttLinked({ saveFailed: failed, saveFailedSeen: upTo }) } }
+    })
+    await openConsole()
+    const strip = () => document.getElementById('alerts') as HTMLElement
+    expect(within(strip()).getByRole('button', { name: TIKTOK_PASTE_ALERT })).toBeDefined()
+    expect(within(strip()).getByRole('button', { name: TIKTOK_SAVE_FAILED_SEEN })).toBeDefined()
+    expect(within(ttPanel()).getByRole('button', { name: TIKTOK_SAVE_FAILED_SEEN })).toBeDefined()
+    fireEvent.click(within(strip()).getByRole('button', { name: TIKTOK_SAVE_FAILED_SEEN }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: TIKTOK_PASTE_ALERT })).toBeNull())
+    expect(seen).toEqual([{ upTo: 3 }])
+    expect(screen.queryByRole('button', { name: TIKTOK_SAVE_FAILED_SEEN })).toBeNull()
+    expect(within(ttPanel()).queryByText(SAVE_FAILED_3)).toBeNull()
+    expect(within(ttPanel()).getByRole('button', { name: '댓글 붙여넣기' }).className).not.toContain('button-primary')
+    // 그 뒤 2개가 더 늘면 다시 뜬다 (N = 확인하지 않은 수 — 서버 문장 그대로)
+    act(() => FakeEventSource.last.emit('tiktok', { kind: 'LINK', broadcast: 'b1', link: ttLinked({ saveFailed: 5, saveFailedSeen: 3, missed: true, missedMessage: SAVE_FAILED_2 }) }))
+    expect(within(ttPanel()).getByText(SAVE_FAILED_2)).toBeDefined()
+    expect(within(strip()).getByRole('button', { name: TIKTOK_PASTE_ALERT })).toBeDefined()
+    fireEvent.click(within(ttPanel()).getByRole('button', { name: TIKTOK_SAVE_FAILED_SEEN }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: TIKTOK_PASTE_ALERT })).toBeNull())
+    expect(seen).toEqual([{ upTo: 3 }, { upTo: 5 }])
+  })
+
+  it('"확인했어요"가 거절되면 서버 문장, 알림은 그대로 (D-N2b-2-16)', async () => {
+    ttLink = ttLinked({ saveFailed: 1, missed: true, missedMessage: '저장하지 못한 틱톡 댓글이 1개 있어요. 틱톡 앱에서 확인해 댓글을 붙여 넣어 주세요.' })
+    server.on('POST', /^\/api\/broadcasts\/b1\/tiktok\/save-failed-seen$/, () => apiError(409, 'NOT_LINKED', '이어진 틱톡 라이브가 없어요.'))
+    await openConsole()
+    fireEvent.click(within(ttPanel()).getByRole('button', { name: TIKTOK_SAVE_FAILED_SEEN }))
+    expect(await within(ttPanel()).findByText('이어진 틱톡 라이브가 없어요.')).toBeDefined()
+    expect(screen.getByRole('button', { name: TIKTOK_PASTE_ALERT })).toBeDefined()
   })
 
   it('늦게 도착한 잇기 응답은 그사이 SSE로 온 새 상태를 덮지 않는다 — 서버 상태를 다시 받는다 (TE-N2b-2-003)', async () => {
