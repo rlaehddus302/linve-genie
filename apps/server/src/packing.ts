@@ -140,7 +140,7 @@ export function ledgerShippingWord(word: PackingWord, invoice: string | null): s
 export const PRODUCT_KEY_RE = /^([^\s/@]+)\/([1-9][0-9]{0,8})$/
 
 /** 품목 키 = 상품 키 또는 변형 키 `<방송 ID>/<번호>#<옵션 글>` (O3 — 옵션 글은 제어 글자 없는 1~200자) */
-export const ITEM_KEY_RE = /^([^\s/@]+)\/([1-9][0-9]{0,8})(?:#([^\u0000-\u001f\u007f]{1,200}))?$/
+export const ITEM_KEY_RE = /^([^\s/@]+)\/([1-9][0-9]{0,8})(?:#([^\p{Cc}]{1,200}))?$/u
 
 export interface PackingItem {
   /** 상품 ID (번호를 바꿔도 그대로, D-I2-19) */

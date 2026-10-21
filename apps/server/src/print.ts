@@ -8,7 +8,7 @@
 // - 라벨 기능 켬/끔(N4a, L-13): 판매자 대기열 줄의 칸. 그 줄을 잠근 트랜잭션 안에서 읽고 바꾼다 — 꺼져 있으면 효과로 작업을 만들지 않고(createAutoJobs),
 //   출력을 새로 시작하거나 라벨을 새로 만드는 요청을 LABELS_OFF로 거절한다. 줄이거나 끝내는 요청·조회·폐기는 그대로다.
 import { randomBytes } from 'node:crypto'
-import { containsPhoneRun, currentBuyerOf, getProduct, listBroadcasts, listEffects, listProducts, type EngineState } from '@livejjim/core'
+import { containsPhoneRun, currentBuyerOf, getProduct, listBroadcasts, listEffects, listProducts, type EngineState, type ProductInfo } from '@livejjim/core'
 import {
   computePackingText,
   defaultTemplate,
@@ -74,6 +74,11 @@ import { findBroadcast } from './store.ts'
 import type { Clock } from './time.ts'
 import { claimIndex } from './views.ts'
 import { WriteAbort, type Rejection, type ScopeWriter, type TxHookContext } from './writer.ts'
+
+/** 그 상품의 지금 1등 찜 전부 — 옵션 상품의 1등은 변형마다에만 있다(D-O1-01), 상품 자신의 winnerClaims는 빈 목록 (O3) */
+export function winnerClaimsOf(product: Pick<ProductInfo, 'winnerClaims' | 'variants'>): string[] {
+  return [...product.winnerClaims, ...product.variants.flatMap((variant) => variant.winnerClaims)]
+}
 
 // ── 문장 (LABEL_RULES L-8·L-11, acceptance AC-I1-09·11·13·14 — 화면에 그대로 쓴다) ──
 
@@ -476,7 +481,8 @@ export class PrintService {
             const slot = `${label.broadcast ?? ''}/${String(label.no)}`
             let list = winners.get(slot)
             if (list === undefined) {
-              list = getProduct(final, label.broadcast ?? '', label.no ?? 0)?.winnerClaims ?? []
+              const product = getProduct(final, label.broadcast ?? '', label.no ?? 0)
+              list = product === null ? [] : winnerClaimsOf(product)
               winners.set(slot, list)
             }
             if (!list.includes(label.claim ?? '')) toVoid.add(label.id)
@@ -707,7 +713,7 @@ export class PrintService {
     const views = await this.#labelViews(sellerId, rows, contexts)
     const known = new Set(rows.filter((row) => row.kind === 'product').map((row) => row.key))
     for (const product of listProducts(state)) {
-      for (const claimId of product.winnerClaims) {
+      for (const claimId of winnerClaimsOf(product)) {
         const info = ctx.claims.get(claimId)
         if (info === undefined || info.confirmVersion === null) continue
         const key = `${claimId}@${String(info.confirmVersion)}`
