@@ -1136,7 +1136,7 @@ export const depositActions = pgTable(
       .references(() => deposits.id),
     /** RECEIVED · AUTO · CONFIRM · IGNORE · REOPEN · REVERT */
     action: text('action').notNull(),
-    /** account(로그인 계정) · auto(입금 자동 확인) */
+    /** account(로그인 계정) · auto(입금 자동 확인) · server(복구가 입금 상태를 다시 만든 엔진 기록에 맞춤) */
     actor: text('actor').notNull(),
     accountId: text('account_id').references(() => accounts.id),
     /** 묶음 날짜·구매자, 엔진 기록 범위·seq (해당할 때만) */

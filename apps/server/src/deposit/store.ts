@@ -400,7 +400,8 @@ export async function insertActions(tx: Db, sellerId: string, actions: readonly 
 
 export interface ActionRow {
   readonly action: DepositAction
-  readonly actor: 'account' | 'auto'
+  /** account(로그인 계정) · auto(입금 자동 확인) · server(복구가 입금 상태를 다시 만든 엔진 기록에 맞춤 — I2 합치기) */
+  readonly actor: 'account' | 'auto' | 'server'
   readonly loginId: string | null
   readonly date: string | null
   readonly buyer: string | null

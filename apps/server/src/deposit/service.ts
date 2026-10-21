@@ -197,7 +197,7 @@ export interface DepositView {
 export interface DepositDetail extends DepositView {
   readonly actions: readonly {
     readonly action: string
-    readonly actor: { readonly kind: 'account' | 'auto'; readonly loginId: string | null }
+    readonly actor: { readonly kind: 'account' | 'auto' | 'server'; readonly loginId: string | null }
     readonly at: string
     readonly date: string | null
     readonly buyer: string | null
