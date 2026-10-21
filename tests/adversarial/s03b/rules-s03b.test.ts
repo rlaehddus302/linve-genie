@@ -266,10 +266,11 @@ describe('재고 늘림 다중 확정의 확정버전·효과 ID (AC-S03b-30)', 
   })
 })
 
-describe('시작 상태 (형식 STATE_FORMAT — S04에서 4로 올랐다, D-072)', () => {
-  it('새 상태는 지금 형식(STATE_FORMAT = 4)이고 JSON 왕복 뒤에도 같은 결과를 낸다', () => {
+describe('시작 상태 (형식 STATE_FORMAT — S04에서 4, O1에서 5로 올랐다, D-072·AC-O1-30)', () => {
+  it('새 상태는 지금 형식(STATE_FORMAT = 5)이고 JSON 왕복 뒤에도 같은 결과를 낸다', () => {
     const state = initEngine({ broadcasts: [B1], settings: {} })
-    expect(STATE_FORMAT).toBe(4)
+    // O1이 옵션 방송 칸(변형·수량·확인 필요·지금 상품)을 더해 형식 판을 올렸다. 형식 4 이어 쓰기는 o1/strict-regression이 본다
+    expect(STATE_FORMAT).toBe(5)
     expect(state.format).toBe(STATE_FORMAT)
   })
 })
