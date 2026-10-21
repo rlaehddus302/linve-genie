@@ -6,7 +6,7 @@
 // - DP-INV-2: 자동 입금 확인 기록은 그 기록 직전 묶음 남은 금액 = 입금 금액이고 품목이 있다 (안 받은 돈을 받았다고 적지 않음)
 // - DP-INV-3: 리허설 범위에 입금 확인 기록이 없다 · DP-INV-4: (판매자, 원천, 외부 키) 유일
 import { applyEvent, getSettlement, initEngine, type EngineEvent, type EngineState } from '@livejjim/core'
-import type { LivejjimServer } from '@livejjim/server'
+import { mergeRaw, type LivejjimServer } from '@livejjim/server'
 import fc from 'fast-check'
 import { afterEach, describe, expect, it } from 'vitest'
 import { call, event, rid } from '../s04/helpers.ts'
@@ -164,8 +164,9 @@ describe('무작위 처리 열 — 두 인스턴스·합치기·손 기록을 �
         const pg = h.database.pglite
         if (pg === null) throw new Error('PGlite가 아니다')
         const rows = (
-          await pg.query<{ body: string; rehearsal: boolean; failed: boolean; date: string }>(
-            `select e.body, s.rehearsal, e.failed, s.date from events e join scopes s on s.id = e.scope_id where e.seller_id = $1 order by s.rehearsal, s.date, e.seq`,
+          await pg.query<{ body: string; rehearsal: boolean; failed: boolean; date: string; nick: string | null; text: string | null }>(
+            // Y1: 채팅 이름·본문은 chat_raw에 따로 있다 — 합쳐 재생한다 (check-replay와 같은 방식)
+            `select e.body, s.rehearsal, e.failed, s.date, r.nick, r.text from events e join scopes s on s.id = e.scope_id left join chat_raw r on r.scope_id = e.scope_id and r.seq = e.seq and r.seller_id = e.seller_id where e.seller_id = $1 order by s.rehearsal, s.date, e.seq`,
             [a.sellerId],
           )
         ).rows
@@ -173,7 +174,7 @@ describe('무작위 처리 열 — 두 인스턴스·합치기·손 기록을 �
         const net = new Map<number, number>()
         const all = await views(h.server, a.cookie)
         for (const row of rows) {
-          const e = JSON.parse(row.body) as EngineEvent & { memo?: string; reason?: string; buyer?: string; date?: string; amount?: number }
+          const e = JSON.parse(mergeRaw(row.body, row.nick, row.text)) as EngineEvent & { memo?: string; reason?: string; buyer?: string; date?: string; amount?: number }
           const no = depositNoOf({ seq: 0, type: e.type, actor: { kind: '', loginId: null }, reason: null, fields: e as unknown as Record<string, unknown> })
           if (row.rehearsal) {
             expect(no, 'DP-INV-3 리허설 범위에 입금 확인 기록').toBeNull()
