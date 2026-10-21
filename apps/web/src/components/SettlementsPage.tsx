@@ -548,7 +548,8 @@ function SettlementDetail({ data, names, settlement, command, sync, onBack, mark
                   {record.buyer !== settlement.buyer ? ` · ${names.name(record.buyer)}` : ''}
                 </p>
                 {link !== undefined && link.kind === 'payment' && !link.reverted ? (
-                  <div>
+                  // 봉인한 날짜는 되돌리기도 잠근다 (AC-I3-41 — 환불 기록을 새로 적는 일이다)
+                  <Lock>
                     <button
                       type="button"
                       className="button"
@@ -559,7 +560,7 @@ function SettlementDetail({ data, names, settlement, command, sync, onBack, mark
                     >
                       입금 확인 되돌리기
                     </button>
-                  </div>
+                  </Lock>
                 ) : null}
               </li>
             )
