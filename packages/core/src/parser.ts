@@ -4,3 +4,14 @@ export { parseChat, type ChatParseResult } from './parse/chat.ts'
 export { parseAmount } from './parse/amount.ts'
 export { parseKoreanNumber } from './parse/korean-number.ts'
 export { parseQuickInput, type QuickInputError, type QuickInputResult } from './parse/quick-input.ts'
+// 옵션 방송의 댓글 옵션 인식 (R-20, O1) — 순수·전체 함수
+export {
+  parseOptionComment,
+  FOCUS_GRACE_SEC,
+  type OptionCatalogEntry,
+  type OptionCommentResult,
+  type OptionFocus,
+  type OptionOrder,
+  type OptionReview,
+  type OptionReviewReason,
+} from './parse/options.ts'

@@ -15,9 +15,10 @@ function sourceFiles(dir: string): string[] {
 }
 
 describe('DEFAULT_SETTINGS — DOMAIN_RULES 판매 규칙 설정표 기본값', () => {
-  it('설정표의 18개 키와 기본값', () => {
+  it('설정표의 19개 키와 기본값 (O1: claim.maxQuantity 10)', () => {
     expect(DEFAULT_SETTINGS).toEqual({
       'claim.parseMode': 'STRICT',
+      'claim.maxQuantity': 10,
       'claim.multiNumber': 'ALL',
       'claim.maxNumber': 999,
       'claim.ignoreOwner': true,

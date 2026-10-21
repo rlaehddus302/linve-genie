@@ -3,7 +3,10 @@
  * 기본값은 이 파일의 `DEFAULT_SETTINGS` 한 곳에서만 정의한다. 파서·엔진·서버는 `resolveSettings`로 채워 쓴다.
  */
 export interface SaleSettings {
-  'claim.parseMode': 'STRICT' | 'LOOSE'
+  /** OPTIONS = 상품명·옵션·수량도 읽는 옵션 방송 (R-19·R-20, O1, D-O-02) */
+  'claim.parseMode': 'STRICT' | 'LOOSE' | 'OPTIONS'
+  /** 댓글·문자찜·직접 배정 한 건의 최대 수량 — 옵션 방송만 쓴다 (R-19 "수량", O1, D-O-06) */
+  'claim.maxQuantity': number
   'claim.multiNumber': 'ALL' | 'FIRST' | 'IGNORE'
   'claim.maxNumber': number
   'claim.ignoreOwner': boolean
@@ -31,6 +34,7 @@ export type SettingsOverride = Partial<SaleSettings>
 /** DOMAIN_RULES 설정표의 기본값. 코어 전체에서 이 객체 하나만 기본값을 정한다(AC-S01-01). */
 export const DEFAULT_SETTINGS: Readonly<SaleSettings> = Object.freeze({
   'claim.parseMode': 'STRICT',
+  'claim.maxQuantity': 10,
   'claim.multiNumber': 'ALL',
   'claim.maxNumber': 999,
   'claim.ignoreOwner': true,
@@ -90,7 +94,8 @@ const int = (min: number, max: number, nullable = false): SettingRule => ({ kind
 
 /** 키마다 받는 값. 선택지는 설정표, 정수 범위는 "설정값 범위" 표 그대로다 */
 const SETTING_RULES: Readonly<Record<SettingKey, SettingRule>> = {
-  'claim.parseMode': choice('STRICT', 'LOOSE'),
+  'claim.parseMode': choice('STRICT', 'LOOSE', 'OPTIONS'),
+  'claim.maxQuantity': int(1, 99),
   'claim.multiNumber': choice('ALL', 'FIRST', 'IGNORE'),
   'claim.maxNumber': int(1, 9999),
   'claim.ignoreOwner': YES_NO,
@@ -157,6 +162,11 @@ export function checkSettings(override: unknown): SettingsProblem[] {
     }
     const message = ruleProblem(rule, (override as Record<string, unknown>)[name])
     if (message !== null) problems.push({ key: name, message })
+  }
+  // 함께 쓸 수 없는 값 (설정값 범위 표, D-O-02): 옵션 방송은 접수순만 — 실제 시각순과 함께면 문제다(어느 한쪽만이면 기본값과 겹치지 않는다)
+  const record = override as Record<string, unknown>
+  if (Object.hasOwn(record, 'claim.parseMode') && Object.hasOwn(record, 'contention.policy') && record['claim.parseMode'] === 'OPTIONS' && record['contention.policy'] === 'RECEIVED_TIME') {
+    problems.push({ key: 'contention.policy', message: '상품명·옵션도 받는 방송은 들어온 순서로만 판정해요' })
   }
   return problems
 }

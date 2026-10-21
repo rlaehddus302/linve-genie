@@ -278,6 +278,27 @@ function endsWithSignal(s: string, picked: PartEnd, parts: readonly PartEnd[], i
   return hasEndSignal(s, picked.end, isVisibleTail) || (longest !== picked.end && hasEndSignal(s, longest, isVisibleTail))
 }
 
+// ── 옵션 방송 인식(R-20)이 함께 쓰는 도구 ─────────────────────────────────
+
+/** 주문 꼬리말 (R-3 문법) — 길이 내림차순. 옵션 댓글 인식(R-20 4-3)의 끝 꼬리말 */
+export const CLAIM_TAIL_WORDS: readonly string[] = CLAIM_WORDS
+
+/** 주문 꼬리의 글자인가: 기호·허용 목록 그림 이모지·그림 이모지 수식 문자 (R-3 세부 "꼬리 기호", D-033) */
+export function isClaimTailChar(codePoint: number): boolean {
+  return isEmojiModifier(codePoint) || isVisibleClaimTail(codePoint)
+}
+
+/** 정규화한 글에 금액 덩어리(천 단위 쉼표 묶음 전체·숫자.숫자, R-3 세부 "금액 모양")가 있는가 */
+export function hasAmountChunk(normalized: string): boolean {
+  return scanDigitRuns(normalized).some((run) => run.amount)
+}
+
+/** 질문 기호 ? ？ ❓ ❔ ⁉ 가 어디에든 있는가 (R-20 9) */
+export function hasQuestionMark(text: string): boolean {
+  for (const char of text) if (QUESTION_MARKS.has(char.codePointAt(0) as number)) return true
+  return false
+}
+
 // ── 공개 함수 ────────────────────────────────────────────────────────────
 
 const result = (claims: number[], cancels: number[], mentions: number[]): ChatParseResult => ({ claims, cancels, mentions })
