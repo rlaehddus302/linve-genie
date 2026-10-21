@@ -7,7 +7,7 @@ import type { AlertCounts } from '../lib/derive.ts'
 import { PRINT_ALERT_WORD } from '../lib/print-words.ts'
 import { ALERT_WORD } from '../lib/words.ts'
 
-export type AlertKind = 'conflict' | 'cancelRequests' | 'succession' | 'printPause' | 'discard' | 'pending' | 'attention' | 'thanks'
+export type AlertKind = 'conflict' | 'cancelRequests' | 'succession' | 'printPause' | 'discard' | 'pending' | 'attention' | 'thanks' | 'reviews'
 
 /** 알림 띠 낱말 "감사 실패" (AC-I3-30) */
 export const THANKS_FAILED_WORD = '감사 실패'
@@ -37,13 +37,15 @@ export interface AlertStripProps {
   readonly print?: PrintAlerts
   /** 감사 실패 수 (리허설·유튜브 없는 서버는 0) */
   readonly thanksFailed?: number
+  /** 이 방송의 확인 필요 항목 수 (옵션 방송만 — "확인 필요 n건", 누르면 확인 필요 목록, D-O2-03) */
+  readonly reviews?: number
   readonly onOpen: (kind: AlertKind) => void
   /** 휴대폰에서 펼쳤는가 */
   readonly expanded?: boolean
   readonly onToggle?: () => void
 }
 
-export function AlertStrip({ counts, print = NO_PRINT_ALERTS, thanksFailed = 0, onOpen, expanded = false, onToggle }: AlertStripProps) {
+export function AlertStrip({ counts, print = NO_PRINT_ALERTS, thanksFailed = 0, reviews = 0, onOpen, expanded = false, onToggle }: AlertStripProps) {
   const items: { kind: AlertKind; word: string; count: number; text?: string }[] = [
     { kind: 'conflict', word: ALERT_WORD.conflict, count: counts.conflict },
     { kind: 'cancelRequests', word: ALERT_WORD.cancelRequest, count: counts.cancelRequest },
@@ -53,6 +55,7 @@ export function AlertStrip({ counts, print = NO_PRINT_ALERTS, thanksFailed = 0, 
     { kind: 'pending', word: ALERT_WORD.pending, count: counts.pending },
     { kind: 'attention', word: ALERT_WORD.attention, count: counts.attention },
     { kind: 'thanks', word: THANKS_FAILED_WORD, count: thanksFailed },
+    { kind: 'reviews', word: ALERT_WORD.attention, count: reviews, text: `${ALERT_WORD.attention} ${String(reviews)}건` },
   ]
   const shown = items.filter((item) => item.count > 0)
   const total = shown.reduce((sum, item) => sum + item.count, 0)

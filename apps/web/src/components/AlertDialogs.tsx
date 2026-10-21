@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { get, withQuery } from '../api/client.ts'
 import type { CancelRequest, Claim, HistoryItem, Product } from '../api/types.ts'
-import { claimWord, orphanPending } from '../lib/derive.ts'
+import { claimOptionWords, claimOptionsField, claimWord, orphanPending, variantOf } from '../lib/derive.ts'
 import { kstTime } from '../lib/kst.ts'
 import { ORIGIN_WORD, REJECT_REASON_WORD } from '../lib/words.ts'
 import { openReopenAction, openReasonAction } from './actions.ts'
@@ -104,7 +104,7 @@ export function successionNote(api: ConsoleApi, product: Product | undefined, cl
   if (product === undefined || claim === undefined || claim.status !== 'CONFIRMED') return null
   const settings = api.settingsOf(product.broadcast)
   const mode = settings?.['cancel.succession'] ?? 'AUTO'
-  const waitlist = product.waitlist.length
+  const waitlist = claim.variant === null ? product.waitlist.length : (variantOf(product, claim)?.waitlist.length ?? 0)
   if (waitlist === 0) return '승인하면 1등 자리가 비고 다시 판매 중이 돼요.'
   if (mode === 'REOPEN') return `승인하면 대기자 ${String(waitlist)}명이 모두 정리되고 다시 판매 중이 돼요.`
   if (mode === 'ASK' && settings?.['waitlist.max'] !== 0) return '승인하면 대기자 중 누구를 1등으로 올릴지 정해야 해요(승계 결정 필요).'
@@ -122,7 +122,92 @@ export function CancelRequestDialog({ onClose }: { readonly onClose: () => void 
       </Modal>
     )
   }
+  if (request.chooseVariant) return <ChooseVariantBody key={request.claim} request={request} count={requests.length} onClose={onClose} />
   return <CancelRequestBody key={request.claim} request={request} count={requests.length} onClose={onClose} />
+}
+
+/**
+ * 변형을 정하지 않은 취소 요청 (D-O-13, D-O2-09, AC-O2-44): 그 구매자의 그 상품 활성 찜을 옵션 글·상태·수량과 함께 보이고 하나를 고르게 한다.
+ * 처음엔 아무것도 고르지 않고 처음 포커스는 "닫기". "고른 찜 취소"는 고른 뒤에만 — host.approveCancel에 그 변형의 options.
+ * "취소하지 않기"는 요청 전체를 지운다(host.dismissCancel — 첫 찜의 options, 아무 찜도 취소되지 않는다).
+ */
+function ChooseVariantBody({ request, count, onClose }: { readonly request: CancelRequest; readonly count: number; readonly onClose: () => void }) {
+  const api = useConsoleApi()
+  const [chosen, setChosen] = useState<string | null>(null)
+  const choices = request.choices.map((id) => api.data.claims.get(id)).filter((claim): claim is Claim => claim !== undefined)
+  const first = choices[0]
+  const product = api.data.products.get(request.product) ?? (first === undefined ? undefined : api.data.products.get(first.product))
+  const time = useSeqTime(api, request.seq)
+  const b = first?.broadcast ?? product?.broadcast ?? api.b
+  const no = first?.no ?? product?.no ?? 0
+  const label = productLabel(api, b, no)
+  const name = api.names.name(request.currentBuyer)
+  const picked = choices.find((claim) => claim.id === chosen)
+  const approve = () => {
+    if (picked === undefined) return
+    api.queueHost({
+      label: `${label}${claimOptionWords(picked)} ${name} 취소 승인`,
+      event: { type: 'host.approveCancel', b, no, buyer: request.currentBuyer, ...claimOptionsField(picked) },
+      claims: [request.claim, picked.id],
+      products: [request.product],
+    })
+    api.closeAll()
+  }
+  const dismiss = () => {
+    api.queueHost({
+      label: `${label} ${name} 취소하지 않기`,
+      event: { type: 'host.dismissCancel', b, no, buyer: request.currentBuyer, ...(first === undefined ? {} : claimOptionsField(first)) },
+      claims: [request.claim],
+      products: [request.product],
+    })
+    api.closeAll()
+  }
+  const note = successionNote(api, product, picked)
+  return (
+    <Modal
+      title={`취소 요청 — ${label} ${nameOf(product)}`}
+      onClose={onClose}
+      actions={
+        <>
+          <button type="button" className="button button-danger" disabled={picked === undefined} onClick={approve}>
+            고른 찜 취소
+          </button>
+          <button type="button" className="button" onClick={dismiss}>
+            취소하지 않기
+          </button>
+        </>
+      }
+    >
+      {count > 1 ? <p className="hint">취소 요청 {count}개 중 첫 번째예요.</p> : null}
+      <p>
+        {name}님이 어느 옵션을 취소할지 적지 않았어요. 취소할 찜을 골라 주세요. (요청 시각 {time ?? '불러오는 중…'})
+      </p>
+      <fieldset className="stack-tight">
+        <legend>취소할 찜</legend>
+        <div className="choice-list">
+          {choices.map((claim) => {
+            const left = product === undefined ? undefined : variantOf(product, claim)
+            return (
+              <label key={claim.id} className="choice">
+                <input type="radio" name={`cancel-choice-${request.claim}`} checked={chosen === claim.id} onChange={() => setChosen(claim.id)} />
+                <span>
+                  {claim.variant ?? '옵션 없음'}
+                  {claim.qty > 1 ? ` ×${String(claim.qty)}` : ''} · {claimWord(api.data, claim)}
+                  {left !== undefined && left.waitlist.length > 0 && claim.status === 'CONFIRMED' ? ` · 대기 ${String(left.waitlist.length)}명` : ''}
+                </span>
+              </label>
+            )
+          })}
+        </div>
+      </fieldset>
+      {picked === undefined ? <p className="hint">찜을 고르면 "고른 찜 취소"를 누를 수 있어요.</p> : null}
+      {note !== null ? (
+        <p className="warning" data-tone="warning">
+          {note}
+        </p>
+      ) : null}
+    </Modal>
+  )
 }
 
 function CancelRequestBody({ request, count, onClose }: { readonly request: CancelRequest; readonly count: number; readonly onClose: () => void }) {
@@ -137,7 +222,7 @@ function CancelRequestBody({ request, count, onClose }: { readonly request: Canc
   const decide = (type: 'host.approveCancel' | 'host.dismissCancel') => {
     api.queueHost({
       label: `${label} ${name} ${type === 'host.approveCancel' ? '취소 승인' : '취소 요청 무시'}`,
-      event: { type, b, no, buyer: request.currentBuyer },
+      event: { type, b, no, buyer: request.currentBuyer, ...(claim === undefined ? {} : claimOptionsField(claim)) },
       claims: [request.claim],
       products: [request.product],
     })

@@ -2,6 +2,7 @@
 // 같은 창을 친 사유와 서버 문장으로 다시 연다(D-079 ⑥) — 판매자가 치는 중이면 되돌리기 띠의 "사유 고치기"로.
 import type { ApiError } from '../api/client.ts'
 import type { Claim, Product } from '../api/types.ts'
+import { claimOptionWords, claimOptionsField } from '../lib/derive.ts'
 import { productLabel, type ConsoleApi } from './console-context.ts'
 
 export interface ReasonActionInput {
@@ -49,14 +50,15 @@ export const CLAIM_ACTION_WORDS = {
 export function openClaimAction(api: ConsoleApi, claim: Claim, type: 'host.cancel' | 'host.reject' | 'host.promote'): void {
   const { word, verb } = CLAIM_ACTION_WORDS[type]
   const name = api.names.name(claim.currentBuyer)
-  const label = `${productLabel(api, claim.broadcast, claim.no)} ${name} ${word}`
+  const label = `${productLabel(api, claim.broadcast, claim.no)}${claimOptionWords(claim)} ${name} ${word}`
   openReasonAction(api, {
     title: label,
     submitLabel: verb,
     label,
     claims: [claim.id],
     products: [claim.product],
-    build: (reason) => ({ type, b: claim.broadcast, no: claim.no, buyer: claim.currentBuyer, reason }),
+    // 옵션을 가진 찜은 그 변형을 함께 보낸다 — 같은 구매자의 다른 변형 찜은 그대로 (AC-O2-43)
+    build: (reason) => ({ type, b: claim.broadcast, no: claim.no, buyer: claim.currentBuyer, ...claimOptionsField(claim), reason }),
   })
 }
 

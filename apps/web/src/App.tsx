@@ -25,6 +25,7 @@ import { RefusalReset } from './components/LabelsOff.tsx'
 import { LoginPage } from './components/LoginPage.tsx'
 import { Modal } from './components/Modal.tsx'
 import { PackingPage } from './components/PackingPage.tsx'
+import { ReviewsPage } from './components/ReviewsPage.tsx'
 import { PrivacyPage, TermsPage } from './components/PolicyPages.tsx'
 import { PrintProvider } from './components/print-context.tsx'
 import { SettingsPage } from './components/SettingsPage.tsx'
@@ -342,6 +343,8 @@ function Screen({ route, navigate, me, onRenamed }: ScreenProps) {
       return <SettlementsPage route={route} navigate={navigate} />
     case 'packing':
       return <PackingPage route={route} navigate={navigate} />
+    case 'reviews':
+      return <ReviewsPage route={route} navigate={navigate} />
     case 'labels':
       return <LabelsPage navigate={navigate} />
     case 'settings':

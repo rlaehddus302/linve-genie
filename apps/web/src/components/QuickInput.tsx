@@ -65,6 +65,12 @@ export interface QuickInputProps {
   /** "등록하기": 그 번호에 상품이 없어졌을 때 친 줄로 등록한다 (AC-S06-67) */
   readonly onAskRegister: (id: number) => void
   readonly error: ApiError | null
+  /** 옵션 방송만: "옵션 추가" 버튼과 붙은 옵션 요약 (D-O2-05). 번호 방송에는 없다 */
+  readonly options?: {
+    readonly summary: string | null
+    readonly onOpen: () => void
+    readonly onClear: () => void
+  }
 }
 
 export function QuickInput(props: QuickInputProps) {
@@ -126,12 +132,29 @@ export function QuickInput(props: QuickInputProps) {
           onChange={(event) => props.onChange(event.target.value)}
           onKeyDown={onKeyDown}
         />
+        {props.options !== undefined ? (
+          <button type="button" className="button" onClick={props.options.onOpen}>
+            옵션 추가
+          </button>
+        ) : null}
         {sending ? (
           <span className="quick-status" role="status">
             등록하는 중…
           </span>
         ) : null}
       </div>
+      {props.options !== undefined && props.options.summary !== null ? (
+        <div className="row quick-options" role="group" aria-label="붙은 옵션">
+          <span role="status">{props.options.summary}</span>
+          <span className="hint">Enter로 등록하면 함께 들어가요</span>
+          <button type="button" className="button button-small" onClick={props.options.onOpen}>
+            옵션 고치기
+          </button>
+          <button type="button" className="button button-small" onClick={props.options.onClear}>
+            옵션 떼기
+          </button>
+        </div>
+      ) : null}
       <p id="quick-help" className="hint quick-help">
         번호 품종 가격을 적고 Enter. 번호만 적으면 그 상품을 찾아요.
       </p>

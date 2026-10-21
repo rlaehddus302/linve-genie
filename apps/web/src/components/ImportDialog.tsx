@@ -6,11 +6,12 @@
 //   거절되면(그 사이 바뀜) 같은 글·파일로 새 미리 보기를 받고 "그 사이에 바뀐 것이 있어요. 다시 확인해 주세요."
 // - 같은 줄을 다시 보내면(연결이 끊긴 뒤) 같은 요청 번호 — 두 번 등록되지 않는다. 창을 닫으면 포커스는 빠른 입력칸으로(콘솔이 한다).
 import { formatWon } from '@livejjim/core'
-import { useId, useRef, useState } from 'react'
+import { useContext, useId, useRef, useState } from 'react'
 import { isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
 import type { ImportPreview, ImportRowError } from '../api/types.ts'
 import { fileBase64 } from '../lib/files.ts'
 import { RequestError } from './ErrorNote.tsx'
+import { ConsoleContext } from './console-context.ts'
 import { Modal } from './Modal.tsx'
 
 export const IMPORT_GUIDE = '엑셀에서 번호·품종·가격 세 칸을 복사해 붙여 넣거나 파일을 골라 주세요.'
@@ -20,6 +21,8 @@ export const IMPORT_TOO_MANY = '한 번에 500개까지 가져올 수 있어요.
 /** 파일 크기 상한 (서버와 같은 2MB — 큰 파일은 올리기 전에 막는다) */
 export const IMPORT_FILE_MAX_BYTES = 2 * 1024 * 1024
 export const IMPORT_FILE_TOO_LARGE = '파일이 너무 커요(2MB까지).'
+/** 옵션 방송의 가져오기 안내 (D-O2-15) — 가져오기는 옵션 없이 등록한다 */
+export const IMPORT_OPTIONS_NOTE = "옵션은 가져온 뒤 상품마다 '옵션 고치기'로 넣어 주세요 — 찜이 들어오기 전에요."
 
 /** 줄 문제의 말 (AC-I2-52) — 번호 범위는 그 방송의 최대 번호 */
 export function importProblemWords(error: ImportRowError, maxNumber: number): string {
@@ -159,6 +162,7 @@ export function ImportDialog({ broadcastId, onClose, onRegistered }: ImportDialo
     }
   }
 
+  const optionBroadcast = useContext(ConsoleContext)?.options === true
   const listError = preview?.error === 'EMPTY' ? IMPORT_EMPTY : preview?.error === 'TOO_MANY' ? IMPORT_TOO_MANY : null
   const count = preview === null ? 0 : preview.register
 
@@ -180,6 +184,11 @@ export function ImportDialog({ broadcastId, onClose, onRegistered }: ImportDialo
       }
     >
       <p>{IMPORT_GUIDE}</p>
+      {optionBroadcast ? (
+        <p className="warning" role="note" data-tone="warning">
+          {IMPORT_OPTIONS_NOTE}
+        </p>
+      ) : null}
       <div className="field">
         <label htmlFor={`${id}-text`}>붙여 넣기</label>
         <textarea

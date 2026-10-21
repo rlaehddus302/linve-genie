@@ -7,13 +7,15 @@
 // - 보낸 뒤 칸을 모두 비운다(전화번호 원문을 화면 상태에 남기지 않는다). 아래에 고른 방송의 최근 문자찜 10개.
 // - I3: 30일이 지나 봉인한 날짜의 방송은 고를 수 없다(기본 방송으로도 고르지 않는다, AC-I3-41). 보조자 계정은 실제 방송만 고르고
 //   허용된 요청(방송 목록·범위 목록·범위 조회·실시간)만 보낸다(AC-I3-63).
-import { containsPhoneRun, normalizePhone, phoneLast4, type ClaimStatus } from '@livejjim/core'
+import { DEFAULT_SETTINGS, containsPhoneRun, normalizePhone, phoneLast4, type ClaimStatus } from '@livejjim/core'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
 import { get, isApiError, type ApiError } from '../api/client.ts'
-import type { BroadcastItem, Buyer, Claim, DayRow, Product } from '../api/types.ts'
+import type { BroadcastItem, Buyer, Claim, DayRow, Product, ReviewsView } from '../api/types.ts'
+import { qtyProblemWords, readQty, variantTextOf } from '../lib/options.ts'
+import { reviewsPath } from '../lib/reviews.ts'
 import { activeClaimOf, distinguishWords, isActive, sameNameCounts, searchBuyers } from '../lib/buyers.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
-import { claimWord, formatWon, productKey } from '../lib/derive.ts'
+import { claimOptionWords, claimWord, formatWon, isOptionBroadcast, productKey } from '../lib/derive.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
 import { broadcastWords, kstStamp } from '../lib/kst.ts'
 import { RECEIVED_HELP, RECEIVED_INVALID, readReceived, receivedWords } from '../lib/received.ts'
@@ -36,6 +38,10 @@ export const PHONE_UNREADABLE = '휴대폰 번호로 읽지 못했어요. 고치
 export const MEMO_HAS_PHONE = '전화번호처럼 보이는 숫자(010-…)가 있어요. 빼고 적어 주세요.'
 export const NO_BROADCAST = '문자찜을 넣을 방송을 골라 주세요.'
 export const REHEARSAL_WARNING = '리허설 방송이에요 — 실제 판매에 들어가지 않아요'
+/** 옵션 방송인데 아직 없는 번호 (R-19 문자찜 — 번호·수량만 보류, D-O2-08) */
+export const OPTIONS_LATER = '상품을 등록하면 옵션을 고를 수 있어요'
+/** 찜이 생기지 않고 확인 필요로 간 문자찜 (AC-O2-40) */
+export const SENT_TO_REVIEW = '찜이 생기지 않았어요 — 확인 필요로 보냈어요'
 
 /** 처음 고를 방송 (R-0 5, D-089): 끝나지 않은 실제 방송 중 가장 최근 것 */
 export function defaultSmsBroadcast(items: readonly BroadcastItem[]): BroadcastItem | null {
@@ -236,6 +242,11 @@ function ReadySms({ b, item, store, snapshot, data, queue, focusSignal }: ReadyS
 
 /** 지금 상품 한 줄 (AC-S06-11): "15번 핑크프릴 10,000원 · 판매 완료 · 1등 홍길동 · 대기 2" */
 function productLine(api: ConsoleApi, product: Product): string {
+  if (product.hasOptions) {
+    const name = product.name.trim() === '' ? '품종 미입력' : product.name
+    const remaining = product.variants.reduce((sum, variant) => sum + Math.max(0, variant.remaining), 0)
+    return `${String(product.no)}번 ${name} ${formatWon(product.price)} · ${PRODUCT_STATUS_WORD[product.status]} · 변형 ${String(product.variants.length)}개 · 남은 ${String(remaining)}`
+  }
   const winners = product.winners.length === 0 ? '아직 없음' : product.winners.map((id) => api.names.name(id)).join(', ')
   const name = product.name.trim() === '' ? '품종 미입력' : product.name
   return `${String(product.no)}번 ${name} ${formatWon(product.price)} · ${PRODUCT_STATUS_WORD[product.status]} · 1등 ${winners} · 대기 ${String(product.waitlist.length)}`
@@ -293,6 +304,9 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
   const [phone, setPhone] = useState('')
   const [memo, setMemo] = useState('')
   const [buyer, setBuyer] = useState<string | null>(null)
+  /** 옵션 방송: 고른 옵션(처음엔 고르지 않음)·수량(처음 1) — D-O2-08 */
+  const [picks, setPicks] = useState<Readonly<Record<string, string>>>({})
+  const [qtyText, setQtyText] = useState('1')
   const [tried, setTried] = useState(false)
   const [late, setLate] = useState<{ words: string } | null>(null)
   const [result, setResult] = useState<SentResult | null>(null)
@@ -321,6 +335,21 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
   const memoProblem = memo.trim() !== '' && containsPhoneRun(memo) ? MEMO_HAS_PHONE : null
   const chosen = buyer === null || api === undefined ? undefined : api.data.buyers.get(buyer)
   const label = number !== null && numberProblem === null ? `${String(number)}번에 문자찜 넣기` : '문자찜 넣기'
+  const optionMode = api !== undefined && isOptionBroadcast(api.data, api.b)
+  const product = api === undefined || number === null || numberProblem !== null ? undefined : api.data.products.get(productKey(api.b, number))
+  const maxQty = (api === undefined ? null : api.settingsOf(api.b)?.['claim.maxQuantity']) ?? DEFAULT_SETTINGS['claim.maxQuantity']
+  const qty = optionMode ? readQty(qtyText, maxQty) : 1
+  const qtyProblem = optionMode && qty === null ? qtyProblemWords(maxQty) : null
+  // 선택지 하나뿐인 항목은 자동, 그 밖은 판매자가 고른다
+  const effectivePicks: Record<string, string> = {}
+  if (optionMode && product !== undefined) {
+    for (const item of product.options) {
+      const pickedLabel = picks[item.name]
+      if (pickedLabel !== undefined && item.choices.some((choice) => choice.label === pickedLabel)) effectivePicks[item.name] = pickedLabel
+      else if (item.choices.length === 1 && item.choices[0] !== undefined) effectivePicks[item.name] = item.choices[0].label
+    }
+  }
+  const optionsMissing = optionMode && product !== undefined && product.hasOptions && variantTextOf(product, effectivePicks) === null
 
   const send = async () => {
     if (api === undefined || number === null) return
@@ -334,6 +363,8 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
       ...(buyer === null && phone.trim() !== '' ? { phone: phone.trim() } : {}),
       ...(memo.trim() === '' ? {} : { memo: memo.trim() }),
       ...(buyer === null ? {} : { buyer }),
+      ...(optionMode ? { qty: qty ?? 1 } : {}),
+      ...(optionMode && product !== undefined && product.hasOptions ? { options: { ...effectivePicks } } : {}),
     }
     const written = await sender.send(event)
     if (written === null) return
@@ -351,6 +382,8 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
     setPhone('')
     setMemo('')
     setBuyer(null)
+    setPicks({})
+    setQtyText('1')
     setTried(false)
     // 결과 카드는 번호 칸 바로 위 — 화면 맨 위로 올려 결과와 번호 칸이 함께 보이게 (UX-S06-002)
     const page = document.scrollingElement ?? document.documentElement
@@ -366,7 +399,7 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
       noField.current?.focus()
       return
     }
-    if (receivedProblem !== null || phoneProblem !== null || memoProblem !== null) return
+    if (receivedProblem !== null || phoneProblem !== null || memoProblem !== null || qtyProblem !== null || optionsMissing) return
     const current = readReceived(received, Date.now())
     if (current.kind === 'ok' && current.late) {
       setLate({ words: receivedWords(current) })
@@ -380,6 +413,8 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
     setPhone('')
     setReceived(receivedText)
     setNo('')
+    setPicks({})
+    setQtyText('1')
     noField.current?.focus()
   }
 
@@ -408,6 +443,19 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
           <FieldNote id={`${noId}-error`} message={numberProblem ?? (tried && number === null ? '번호를 적어 주세요.' : serverProblem(serverError, 'no'))} />
           {api !== undefined && number !== null && numberProblem === null ? <ProductPreview api={api} no={number} /> : null}
         </div>
+
+        {optionMode && number !== null && numberProblem === null ? (
+          <OptionQtyFields
+            product={product}
+            picks={effectivePicks}
+            onPick={(name, value) => setPicks((current) => ({ ...current, [name]: value }))}
+            qtyText={qtyText}
+            onQty={setQtyText}
+            qtyProblem={qtyProblem ?? serverProblem(serverError, 'qty')}
+            optionsProblem={tried && optionsMissing ? '옵션을 모두 골라 주세요.' : serverProblem(serverError, 'options')}
+            disabled={disabled}
+          />
+        ) : null}
 
         <div className="stack-tight">
           <div className="field">
@@ -491,9 +539,9 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
         {/* 보내기 막대: 화면 아래에 붙어 있어 칸을 채우는 동안 늘 보인다. 보내는 중·저장 실패도 여기 (UX-S06-002) */}
         <div className="sms-submit-bar">
           {/* 다시 보내기: 칸은 그대로라 같은 내용 → 같은 요청 번호 (한 번만 기록) */}
-          {serverError !== null ? <WriteError error={serverError} onRetry={() => void send()} omitFields={['no', 'received', 'phone', 'memo', 'buyer']} /> : null}
+          {serverError !== null ? <WriteError error={serverError} onRetry={() => void send()} omitFields={['no', 'received', 'phone', 'memo', 'buyer', 'qty', 'options']} /> : null}
           <div className="row">
-            <button type="submit" className="button button-primary sms-submit" disabled={disabled || number === null || sender.busy}>
+            <button type="submit" className="button button-primary sms-submit" disabled={disabled || number === null || sender.busy || optionsMissing || qtyProblem !== null}>
               {label}
             </button>
             {sender.busy ? <span role="status">보내는 중…</span> : null}
@@ -639,11 +687,15 @@ function ResultCard({ api, result, onSame }: { readonly api: ConsoleApi; readonl
     return undefined
   }, [api.data.claims, result.seq])
   const who = result.buyer ?? claim?.buyer ?? null
+  const reviewed = useSentToReview(api, result, claim === undefined)
   let body: string
   let tone: 'success' | 'warning' | 'info'
   if (claim !== undefined) {
-    body = `${String(claim.no)}번 · ${api.names.name(claim.currentBuyer)} · ${claimWord(api.data, claim)} · 받은 시각 ${kstStamp(claim.rankTime, claim.rankMinute)}`
+    body = `${String(claim.no)}번${claimOptionWords(claim)} · ${api.names.name(claim.currentBuyer)} · ${claimWord(api.data, claim)} · 받은 시각 ${kstStamp(claim.rankTime, claim.rankMinute)}`
     tone = claimTone(claim.status)
+  } else if (reviewed) {
+    body = `${String(result.no)}번 · ${SENT_TO_REVIEW}`
+    tone = 'warning'
   } else {
     const holder = result.buyer === null ? undefined : activeClaimOf(api.data, result.buyer, productKey(result.b, result.no))
     body =
@@ -692,7 +744,10 @@ function RecentSms({ api }: { readonly api: ConsoleApi }) {
           return (
             <li key={claim.id} className="claim-row">
               <p>
-                <strong>{claim.no}번</strong> {name} · {api.names.name(claim.currentBuyer)} · {kstStamp(claim.rankTime, claim.rankMinute)} ·{' '}
+                <strong>
+                  {claim.no}번{claimOptionWords(claim)}
+                </strong>{' '}
+                {name} · {api.names.name(claim.currentBuyer)} · {kstStamp(claim.rankTime, claim.rankMinute)} ·{' '}
                 <span className="tag">{claimWord(api.data, claim)}</span>
                 {api.waiting.claims.has(claim.id) ? <span className="tag tag-waiting">보내기 전</span> : null}
               </p>
@@ -706,5 +761,93 @@ function RecentSms({ api }: { readonly api: ConsoleApi }) {
         })}
       </ul>
     </section>
+  )
+}
+
+/**
+ * 옵션 방송에서 찜이 생기지 않은 문자찜이 확인 필요로 갔는지 (AC-O2-40, 서버 계약 3): 그 방송의 확인 필요에 같은 seq 항목이 있으면 참.
+ * 보조자는 확인 필요를 볼 수 없다(403) — 그때는 거짓(지금 문장).
+ */
+function useSentToReview(api: ConsoleApi, result: SentResult, missing: boolean): boolean {
+  const [found, setFound] = useState(false)
+  const option = isOptionBroadcast(api.data, result.b)
+  useEffect(() => {
+    if (!missing || !option) return
+    let alive = true
+    get<ReviewsView>(reviewsPath({ broadcast: result.b, rehearsal: api.rehearsal })).then(
+      (view) => {
+        if (alive) setFound(view.reviews.some((item) => item.seq === result.seq))
+      },
+      () => {},
+    )
+    return () => {
+      alive = false
+    }
+  }, [missing, option, result.b, result.seq, api.rehearsal])
+  return missing && found
+}
+
+/**
+ * 옵션 방송의 옵션·수량 칸 (D-O2-08, AC-O2-40·41): 상품이 없으면 안내와 수량만, 옵션 없는 상품이면 수량만,
+ * 옵션 상품이면 항목마다 선택지(처음엔 고르지 않음 — 선택지 옆 "남은 n개")와 수량(처음 1, 숫자 키패드).
+ */
+function OptionQtyFields(props: {
+  readonly product: Product | undefined
+  readonly picks: Readonly<Record<string, string>>
+  readonly onPick: (name: string, value: string) => void
+  readonly qtyText: string
+  readonly onQty: (text: string) => void
+  readonly qtyProblem: string | null
+  readonly optionsProblem: string | null
+  readonly disabled: boolean
+}) {
+  const qtyId = useId()
+  const { product, picks } = props
+  return (
+    <div className="stack-tight sms-options">
+      {product === undefined ? (
+        <p className="hint" role="note">
+          {OPTIONS_LATER}
+        </p>
+      ) : null}
+      {product?.hasOptions === true
+        ? product.options.map((item) => (
+            <fieldset key={item.name} className="rule-choice" role="radiogroup" aria-label={item.name} disabled={props.disabled}>
+              <legend>{item.name}</legend>
+              <div className="choice-list">
+                {item.choices.map((choice) => {
+                  const text = variantTextOf(product, { ...picks, [item.name]: choice.label })
+                  const left = text === null ? undefined : product.variants.find((variant) => variant.text === text)?.remaining
+                  return (
+                    <label key={choice.label} className="choice">
+                      <input type="radio" name={`sms-option-${item.name}`} checked={picks[item.name] === choice.label} onChange={() => props.onPick(item.name, choice.label)} />
+                      <span>
+                        {choice.label}
+                        {left === undefined ? '' : ` · 남은 ${String(left)}개`}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            </fieldset>
+          ))
+        : null}
+      <FieldNote id={`${qtyId}-options`} message={props.optionsProblem} />
+      <div className="field">
+        <label htmlFor={qtyId}>수량</label>
+        <input
+          id={qtyId}
+          className="input input-number"
+          inputMode="numeric"
+          autoComplete="off"
+          value={props.qtyText}
+          disabled={props.disabled}
+          aria-invalid={props.qtyProblem !== null}
+          aria-describedby={`${qtyId}-error`}
+          onChange={(event) => props.onQty(event.target.value.replace(/\D/g, '').slice(0, 3))}
+        />
+      </div>
+      <FieldNote id={`${qtyId}-error`} message={props.qtyProblem} />
+    </div>
   )
 }

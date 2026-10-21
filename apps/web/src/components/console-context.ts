@@ -41,6 +41,10 @@ export type Dialog =
   | { readonly kind: 'reprint'; readonly product: string | null }
   /** 상품 목록 가져오기 (I2 AC-I2-52) */
   | { readonly kind: 'import' }
+  /** 빠른 입력 줄에 붙일 "옵션 추가" (옵션 방송, D-O2-05) */
+  | { readonly kind: 'options' }
+  /** 상품 상세의 "옵션 고치기" (D-O2-11) */
+  | { readonly kind: 'editOptions'; readonly product: string }
 
 /** 사유를 받는 조치 (AC-S05-34) */
 export interface ReasonSpec {
@@ -61,8 +65,17 @@ export interface AssignSpec {
   readonly buyer?: string
   /** 정해진 교체 대상 (1등의 "다른 사람으로 바꾸기") */
   readonly replace?: string
-  readonly initial?: { readonly buyer?: string; readonly replace?: string; readonly replaceTo?: 'WAITLIST' | 'CANCEL'; readonly reason?: string }
+  readonly initial?: {
+    readonly buyer?: string
+    readonly replace?: string
+    readonly replaceTo?: 'WAITLIST' | 'CANCEL'
+    readonly reason?: string
+    readonly options?: Readonly<Record<string, string>>
+    readonly qty?: string
+  }
   readonly error?: ApiError | null
+  /** 옵션 상품: 정해진 변형 (대기자 "1등으로"·1등 "다른 사람으로 바꾸기" — 그 찜의 변형, D-O2-08) */
+  readonly options?: Readonly<Record<string, string>>
 }
 
 export interface ConfirmSpec {
@@ -123,6 +136,8 @@ export interface ConsoleApi {
   fillQuick(text: string): void
   /** 현재 상품을 바꾼다 */
   select(key: string): void
+  /** 옵션 방송인가 (D-O2-03 — 옵션 칸·지금 상품·확인 필요는 옵션 방송에서만) */
+  readonly options?: boolean
 }
 
 export const ConsoleContext = createContext<ConsoleApi | null>(null)

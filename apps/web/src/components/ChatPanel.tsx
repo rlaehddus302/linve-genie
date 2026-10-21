@@ -2,11 +2,13 @@
 // - 오래된 것 위·새것 아래. 시각(KST), 닉네임, 본문. 주문·취소·언급·방송자 표시는 색과 글자를 함께.
 // - 본문·닉네임은 React 기본 이스케이프로만 보인다(HTML로 해석하지 않는다).
 // - 맨 아래를 보고 있으면 새 메시지를 따라 내려가고, 위로 올려 보는 중이면 자리를 지키고 "새 메시지 n개"를 보인다.
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ChatMessage } from '../api/types.ts'
-import { claimWord } from '../lib/derive.ts'
+import { compareChars } from '@livejjim/core'
+import type { Product } from '../api/types.ts'
+import { claimOptionWords, claimWord } from '../lib/derive.ts'
 import { kstTime } from '../lib/kst.ts'
-import { CHAT_WORD } from '../lib/words.ts'
+import { CHAT_REVIEW_WORD, CHAT_WORD, REVIEW_REASON_WORD } from '../lib/words.ts'
 import { useConsoleApi } from './console-context.ts'
 
 export interface ChatPanelProps {
@@ -18,6 +20,31 @@ export interface ChatPanelProps {
   readonly convertNotes: ReadonlyMap<string, string>
   /** 봉인한 날짜: 채팅 내용을 지웠다는 서버 문장 (AC-I3-41) */
   readonly sealedMessage?: string | null
+  /** 옵션 방송: 확인 필요 메시지의 "확인 필요에서 고르기" (확인 필요 목록을 연다) */
+  readonly onReview?: (messageId: string) => void
+}
+
+/** 옵션 방송의 메시지 표시 (D-O2-12, AC-O2-24) — 서버가 준 optionOrders·review가 있는 메시지만 */
+export interface OptionLook {
+  /** "주문 21번 M"·"주문 21번 L ×2" */
+  readonly orders: readonly string[]
+  /** "확인 필요 · 옵션 빠짐" (남은 확인 필요가 없으면 null) */
+  readonly review: string | null
+  /** 상품(이름·별칭·번호)을 말한 잡담 — "언급" */
+  readonly mention: boolean
+  /** 옵션 상품을 말했다 (찜으로 바꾸기로는 옵션을 고를 수 없다) */
+  readonly optionProduct: boolean
+}
+
+/** 옵션 방송 메시지의 표시: 주문은 서버 optionOrders, 확인 필요는 review, 언급은 번호 언급 또는 이 방송 상품의 이름·별칭이 들어간 글 */
+export function optionLook(message: ChatMessage, products: readonly Pick<Product, 'no' | 'name' | 'aliases' | 'hasOptions'>[]): OptionLook | null {
+  if (message.optionOrders === undefined) return null
+  const orders = message.optionOrders.map((order) => `${CHAT_WORD.order} ${String(order.no)}번${order.variant === null ? '' : ` ${order.variant}`}${order.qty > 1 ? ` ×${String(order.qty)}` : ''}`)
+  const review = message.review == null ? null : `${CHAT_REVIEW_WORD} · ${REVIEW_REASON_WORD[message.review.reason]}`
+  const text = compareChars(message.text)
+  const named = products.filter((product) => message.mentions.includes(product.no) || [product.name, ...product.aliases].some((word) => compareChars(word).length >= 2 && text.includes(compareChars(word))))
+  const mention = orders.length === 0 && review === null && !message.cancel && !message.ignored && (message.mentions.length > 0 || named.length > 0)
+  return { orders, review, mention, optionProduct: named.some((product) => product.hasOptions) || (message.review != null) }
 }
 
 const BOTTOM_SLACK = 24
@@ -39,7 +66,7 @@ export function highlightMentions(text: string, mentions: readonly number[]): Re
   })
 }
 
-export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertNotes, sealedMessage = null }: ChatPanelProps) {
+export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertNotes, sealedMessage = null, onReview }: ChatPanelProps) {
   const api = useConsoleApi()
   const list = useRef<HTMLOListElement>(null)
   const atBottom = useRef(true)
@@ -84,6 +111,8 @@ export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertN
 
   const { openDialog, data } = api
   const onConvert = useCallback((id: string) => openDialog({ kind: 'convert', messageId: id }), [openDialog])
+  const products = useMemo(() => [...data.products.values()].filter((product) => product.broadcast === api.b), [data.products, api.b])
+  const looks = useMemo(() => new Map(messages.map((message) => [message.id, optionLook(message, products)])), [messages, products])
 
   const toBottom = () => {
     const element = list.current
@@ -109,12 +138,14 @@ export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertN
             claimText={message.claims
               .map((id) => {
                 const claim = data.claims.get(id)
-                return claim === undefined ? '' : `${String(claim.no)}번 ${claimWord(data, claim)}`
+                return claim === undefined ? '' : `${String(claim.no)}번${claimOptionWords(claim)} ${claimWord(data, claim)}`
               })
               .filter((word) => word !== '')
               .join('|')}
             note={convertNotes.get(message.id)}
             onConvert={onConvert}
+            look={looks.get(message.id) ?? null}
+            onReview={onReview}
           />
         ))}
       </ol>
@@ -138,11 +169,15 @@ interface ChatRowProps {
   readonly claimText: string
   readonly note: string | undefined
   readonly onConvert: (id: string) => void
+  /** 옵션 방송 메시지의 표시 (번호 방송은 null — 지금 모양 그대로) */
+  readonly look: OptionLook | null
+  readonly onReview: ((id: string) => void) | undefined
 }
 
-const ChatRow = memo(function ChatRow({ message, claimText, note, onConvert }: ChatRowProps) {
+const ChatRow = memo(
+  function ChatRow({ message, claimText, note, onConvert, look, onReview }: ChatRowProps) {
   const claimWords = claimText === '' ? [] : claimText.split('|')
-  const mentioned = message.mentions.length > 0
+  const mentioned = look === null ? message.mentions.length > 0 : look.mention
   const classes = ['chat-row']
   if (message.order) classes.push('chat-order')
   if (message.cancel) classes.push('chat-cancel')
@@ -154,11 +189,19 @@ const ChatRow = memo(function ChatRow({ message, claimText, note, onConvert }: C
       <p className="chat-line">
         <time dateTime={message.publishedAt}>{kstTime(message.publishedAt)}</time> <strong className="chat-nick">{message.nick}</strong>
         {message.owner ? <span className="tag tag-owner">{CHAT_WORD.owner}</span> : null}
-        {message.order ? (
+        {look !== null
+          ? look.orders.map((word, index) => (
+              <span key={index} className="tag tag-order">
+                {word}
+              </span>
+            ))
+          : null}
+        {look === null && message.order ? (
           <span className="tag tag-order">
             {CHAT_WORD.order} {message.orders.join(', ')}
           </span>
         ) : null}
+        {look?.review != null ? <span className="tag tag-alert">{look.review}</span> : null}
         {message.cancel ? (
           <span className="tag tag-cancel">
             {CHAT_WORD.cancel} {message.cancels.join(', ')}
@@ -178,11 +221,18 @@ const ChatRow = memo(function ChatRow({ message, claimText, note, onConvert }: C
           {note !== undefined ? <span className="tag tag-waiting">{note}</span> : null}
         </p>
       ) : null}
-      {canConvert(message) ? (
+      {look?.review != null && onReview !== undefined ? (
+        <button type="button" className="button button-small chat-convert" onClick={() => onReview(message.id)}>
+          확인 필요에서 고르기
+        </button>
+      ) : null}
+      {/* 확인 필요 메시지·옵션 상품을 말한 메시지에는 없다 — 찜으로 바꾸기로는 옵션을 고를 수 없다 (D-O2-12) */}
+      {canConvert(message) && !(look !== null && (look.review !== null || look.optionProduct)) ? (
         <button type="button" className="button button-small chat-convert" onClick={() => onConvert(message.id)}>
           찜으로 바꾸기
         </button>
       ) : null}
     </li>
   )
-})
+  },
+)

@@ -11,7 +11,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { ApiError, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
 import type { ChatMessage, Product, WriteResult } from '../api/types.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
-import { BuyerNames, alertCounts, latestProduct, productKey } from '../lib/derive.ts'
+import { BuyerNames, alertCounts, isOptionBroadcast, latestProduct, productKey } from '../lib/derive.ts'
+import { EMPTY_DRAFT, optionSummary, type OptionDraft, type OptionPayload } from '../lib/options.ts'
+import { useReviews } from '../lib/reviews.ts'
+import { SALE_MODE_WORD } from '../lib/words.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
 import { dateWords } from '../lib/kst.ts'
 import { LABELS_OFF_NOTE } from '../lib/print-words.ts'
@@ -39,7 +42,9 @@ import { ErrorNote } from './ErrorNote.tsx'
 import { ImportDialog } from './ImportDialog.tsx'
 import { ReprintDialog } from './LabelParts.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
-import { ProductBoard, CurrentProduct } from './ProductBoard.tsx'
+import { ProductBoard, CurrentProduct, FocusBanner } from './ProductBoard.tsx'
+import { EditOptionsHost } from './ProductOptions.tsx'
+import { OptionDialog } from './OptionDialog.tsx'
 import { useLabelsEnabled, usePrintState, useScopeLabels } from './print-context.tsx'
 import { DiscardDialog, PrintPauseDialog } from './PrintParts.tsx'
 import { ProductDetail } from './ProductDetail.tsx'
@@ -77,6 +82,9 @@ interface RegRequest {
   readonly name: string
   readonly price: number
   readonly fromFix: boolean
+  /** 빠른 입력 줄에 붙인 옵션·별칭·변형 재고 (옵션 방송 — product.register 한 번에 함께, D-O2-05) */
+  readonly extra?: OptionPayload
+  readonly draftOf?: OptionDraft
   /** 차례에서 그 번호가 이미 있을 때 "고칠까요?" 대신 (음성 자동 확정 — 창을 띄우지 않는다, D-I4-05) */
   readonly onExists?: (product: Product) => void
   /** 다시 보내기로 고칠 수 없는 실패·기록되지 않음 (음성 카드는 카드를 되살린다) */
@@ -87,6 +95,8 @@ interface RegRequest {
 interface RegHooks {
   readonly onExists?: (product: Product) => void
   readonly onFailed?: () => void
+  readonly extra?: OptionPayload
+  readonly draftOf?: OptionDraft
 }
 
 /** 창이 열려 있다 (콘솔 창·음성 안내 창·떠날지 묻는 창) */
@@ -145,6 +155,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   const b = broadcastId
   const view = data.broadcasts.get(b)
   const settings: SaleSettings | null = view?.settings ?? null
+  // 옵션 방송 (방송 시작 스냅샷 — D-O2-02·03): 옵션 칸·지금 상품·확인 필요는 이 방송에서만 보인다
+  const optionMode = isOptionBroadcast(data, broadcastId)
   const ended = view?.ended ?? broadcast.ended
   const title = view?.title ?? broadcast.title
   const sealed = snapshot.sealed
@@ -166,6 +178,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   const [asks, setAsks] = useState<EditAsk[]>([])
   const askId = useRef(1)
   const [quickError, setQuickError] = useState<ApiError | null>(null)
+  /** 빠른 입력 줄에 붙인 옵션 (등록하면 비운다 — 다음 상품에 따라가지 않게, D-O2-05) */
+  const [attached, setAttached] = useState<{ readonly draft: OptionDraft; readonly payload: OptionPayload } | null>(null)
+  const attachedRef = useRef(attached)
+  attachedRef.current = attached
   const [selected, setSelected] = useState<string | null>(null)
   const [dialogs, setDialogs] = useState<Dialog[]>([])
   const dialogCount = useRef(0)
@@ -398,8 +414,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       command,
       fillQuick,
       select: setSelected,
+      options: optionMode,
     }),
-    [b, broadcast.date, broadcast.rehearsal, ended, sealed, data, names, labels, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command, fillQuick],
+    [b, broadcast.date, broadcast.rehearsal, ended, sealed, data, names, labels, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command, fillQuick, optionMode],
   )
 
   // ── 빠른 입력 (AC-S05-10~13, D-084) ──────────────────────────────────
@@ -488,7 +505,16 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       }
       setRegistrations((list) => list.map((item) => (item.id === id ? { ...item, status: 'sending', error: null } : item)))
       try {
-        const result = await write(request.requestId, { type: 'product.register', b, no: request.no, name: request.name, price: request.price })
+        const extra = request.extra
+        const result = await write(request.requestId, {
+          type: 'product.register',
+          b,
+          no: request.no,
+          name: request.name,
+          price: request.price,
+          ...(extra === undefined || extra.options.length === 0 ? {} : { options: extra.options, stocks: extra.stocks }),
+          ...(extra === undefined || extra.aliases.length === 0 ? {} : { aliases: extra.aliases }),
+        })
         remove()
         const key = productKey(b, request.no)
         if (!result.changed) {
@@ -511,6 +537,11 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           remove()
           setQuickError(error)
           request.onFailed?.()
+        }
+        // 등록하지 못했으면 붙였던 옵션을 되살린다 (다시 Enter하면 같이 간다)
+        if (request.extra !== undefined && !error.transient) {
+          const extra = request.extra
+          setAttached((current) => current ?? { draft: request.draftOf ?? EMPTY_DRAFT, payload: extra })
         }
       }
     },
@@ -637,11 +668,18 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         case 'register': {
           if (fromFix) setFix(null)
           focusQuick()
+          // 붙인 옵션은 이 등록 한 번에 함께 보내고 비운다 (D-O2-05)
+          const option = attachedRef.current
+          const hooks: RegHooks = option === null ? {} : { extra: option.payload, draftOf: option.draft }
+          if (option !== null) {
+            attachedRef.current = null
+            setAttached(null)
+          }
           if (!inChain) {
-            enqueueRegistration(line, decision.no, decision.name, decision.price, fromFix)
+            enqueueRegistration(line, decision.no, decision.name, decision.price, fromFix, hooks)
             return undefined
           }
-          const id = startRegistration(line, decision.no, decision.name, decision.price, fromFix)
+          const id = startRegistration(line, decision.no, decision.name, decision.price, fromFix, hooks)
           return runRegistration(id, true)
         }
         case 'edit':
@@ -718,7 +756,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   // ── 단축키 (AC-S05-42, D-087) ────────────────────────────────────────
 
   const counts = useMemo(() => alertCounts(data), [data])
-  const openAlert = useCallback((kind: AlertKind) => setDialogs([kind === 'thanks' ? { kind: 'outbox' } : { kind }]), [])
+  // 이 방송의 확인 필요 (옵션 방송만 — D-O2-03·14). 띠를 누르면 /reviews가 이 방송으로 걸러져 열린다
+  const reviews = useReviews(optionMode ? { broadcast: b, rehearsal: broadcast.rehearsal } : null)
+  const reviewCount = optionMode ? (reviews.view?.reviews.length ?? 0) : 0
+  const openAlert = useCallback((kind: Exclude<AlertKind, 'reviews'>) => setDialogs([kind === 'thanks' ? { kind: 'outbox' } : { kind }]), [])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -734,7 +775,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       if (event.altKey && !mod && (event.code === 'Digit1' || event.key === '1')) {
         event.preventDefault()
         const kind = firstAlert(alertCounts(latest.current.data), printAlertsRef.current, thanksFailed.current)
-        if (kind !== null) openAlert(kind)
+        if (kind !== null && kind !== 'reviews') openAlert(kind)
         return
       }
       // Alt+P(⌥P): 현재 상품의 1등 라벨 다시 출력 — 빠른 입력칸에 글자(π 등)가 들어가지 않는다 (AC-I1-33)
@@ -849,6 +890,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           <h1 className="console-title">
             {title} <span className="console-date">{dateWords(broadcast.date)}</span>
             {broadcast.rehearsal ? <span className="tag tag-rehearsal">리허설</span> : null}
+            {/* 옵션 방송은 판매 방식을 늘 보인다 — 방송 중에는 바꾸지 않는다 (D-O2-02) */}
+            {optionMode ? <span className="tag tag-mode">{SALE_MODE_WORD.OPTIONS}</span> : null}
           </h1>
           <div className="row">
             <a
@@ -886,7 +929,16 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           <CollectorWarningBar navigate={navigate} ended={ended || sealed} />
           <QuotaToast />
           <div className="console-sticky-quick">
-            <AlertStrip counts={counts} print={printAlerts} thanksFailed={yt.thanksFailed} onOpen={openAlert} expanded={alertsOpen} onToggle={() => setAlertsOpen((open) => !open)} />
+            <AlertStrip
+              counts={counts}
+              print={printAlerts}
+              thanksFailed={yt.thanksFailed}
+              reviews={reviewCount}
+              onOpen={(kind) => (kind === 'reviews' ? navigate({ name: 'reviews', broadcast: b, rehearsal: broadcast.rehearsal }) : openAlert(kind))}
+              expanded={alertsOpen}
+              onToggle={() => setAlertsOpen((open) => !open)}
+            />
+            {optionMode ? <FocusBanner /> : null}
             <Lock className="lock-quick">
               <QuickInput
                 value={quickText}
@@ -904,6 +956,20 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
                 onAskDismiss={removeAsk}
                 onAskRegister={registerAsk}
                 error={quickError}
+                {...(optionMode
+                  ? {
+                      options: {
+                        summary:
+                          attached === null
+                            ? null
+                            : [attached.payload.options.length > 0 ? optionSummary(attached.payload.options) : null, attached.payload.aliases.length > 0 ? `상품 별칭: ${attached.payload.aliases.join(', ')}` : null]
+                                .filter((part) => part !== null)
+                                .join(' · '),
+                        onOpen: () => openDialog({ kind: 'options' }),
+                        onClear: () => setAttached(null),
+                      },
+                    }
+                  : {})}
               />
             </Lock>
             <UndoBar items={items} queue={queue} />
@@ -952,6 +1018,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
             onLoadOlder={() => void store.loadOlder()}
             convertNotes={convertNotes}
             sealedMessage={snapshot.sealedMessage}
+            {...(optionMode ? { onReview: () => navigate({ name: 'reviews', broadcast: b, rehearsal: broadcast.rehearsal }) } : {})}
           />
         </div>
         <p className="shortcuts">{shortcutsWord(labelsOn === true)}</p>
@@ -976,6 +1043,17 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
             setSelected(product.key)
             setDialogs([{ kind: 'product', key: product.key }])
           }}
+          optionDraft={attached?.draft ?? EMPTY_DRAFT}
+          quickPrice={() => {
+            if (settings === null) return null
+            const decision = decideQuickInput(quickTextRef.current, quickSettings(settings), findProduct)
+            return decision.kind === 'register' ? decision.price : null
+          }}
+          onAttach={(payload, draft) => {
+            // 아무것도 넣지 않았으면 붙이지 않는다
+            setAttached(payload.options.length === 0 && payload.aliases.length === 0 ? null : { payload, draft })
+            closeTop()
+          }}
         />
       ) : null}
       </ReadOnlyContext.Provider>
@@ -985,6 +1063,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
 }
 
 interface DialogViewProps {
+  readonly optionDraft: OptionDraft
+  /** 빠른 입력 줄에서 읽은 가격 (단가를 보인다) */
+  readonly quickPrice: () => number | null
+  readonly onAttach: (payload: OptionPayload, draft: OptionDraft) => void
   readonly dialog: Dialog
   readonly broadcastId: string
   /** 쓰기 응답 seq까지 화면을 따라잡는다 */
@@ -995,8 +1077,12 @@ interface DialogViewProps {
   readonly onEditUnchanged: (product: Product, ask: number | undefined) => void
 }
 
-function DialogView({ dialog, broadcastId, onSync, messageOf, onClose, onEditDone, onEditUnchanged }: DialogViewProps) {
+function DialogView({ dialog, broadcastId, onSync, messageOf, onClose, onEditDone, onEditUnchanged, optionDraft, quickPrice, onAttach }: DialogViewProps) {
   switch (dialog.kind) {
+    case 'options':
+      return <OptionDialog title="옵션 추가" initial={optionDraft} price={quickPrice()} submitLabel="옵션 넣기" onSubmit={onAttach} onClose={onClose} />
+    case 'editOptions':
+      return <EditOptionsHost productKey={dialog.product} onClose={onClose} />
     case 'import':
       return <ImportDialog broadcastId={broadcastId} onClose={onClose} onRegistered={onSync} />
     case 'product':

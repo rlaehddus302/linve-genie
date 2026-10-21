@@ -5,7 +5,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { get, isApiError, newRequestId, withQuery, type ApiError } from '../api/client.ts'
 import type { Claim, HistoryItem, Product } from '../api/types.ts'
-import { claimWord, formatWon } from '../lib/derive.ts'
+import { claimOptionWords, claimOptionsField, claimWord, formatWon } from '../lib/derive.ts'
+import { optionSummary } from '../lib/options.ts'
 import { kstTime } from '../lib/kst.ts'
 import { useWide } from '../lib/use-wide.ts'
 import { ORIGIN_WORD, PRODUCT_STATUS_WORD, actionWord, actorWord } from '../lib/words.ts'
@@ -13,6 +14,7 @@ import { openBlockAction, openClaimAction } from './actions.ts'
 import { consoleLabels, productLabel, useConsoleApi } from './console-context.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { ProductLabels } from './LabelParts.tsx'
+import { FocusButton } from './ProductBoard.tsx'
 import { Modal } from './Modal.tsx'
 
 export function ProductDetail({ productKey, onClose, onEdit }: { readonly productKey: string; readonly onClose: () => void; readonly onEdit: (product: Product) => void }) {
@@ -39,8 +41,10 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
     for (const claim of api.data.claims.values()) if (claim.product === product.key) out.push(claim)
     return out
   }, [api.data.claims, product.key])
-  const winners = product.winnerClaims.map((id) => api.data.claims.get(id)).filter((claim): claim is Claim => claim !== undefined)
-  const waitlist = product.waitlistClaims.map((id) => api.data.claims.get(id)).filter((claim): claim is Claim => claim !== undefined)
+  const claimsOf = (ids: readonly string[]) => ids.map((id) => api.data.claims.get(id)).filter((claim): claim is Claim => claim !== undefined)
+  // 옵션 상품의 1등·대기는 변형에 있다 (D-O1-01) — 라벨 칸은 모든 변형의 1등
+  const winners = product.hasOptions ? product.variants.flatMap((variant) => claimsOf(variant.winnerClaims)) : claimsOf(product.winnerClaims)
+  const waitlist = claimsOf(product.waitlistClaims)
   const open = claims.filter((claim) => claim.status === 'PENDING' || claim.status === 'CONFLICT')
   const ended = claims.filter((claim) => claim.status === 'CANCELLED' || claim.status === 'REJECTED' || claim.status === 'DUPLICATE').sort((a, b) => b.seq - a.seq)
   const requests = [...api.data.cancelRequests.values()].filter((request) => request.product === product.key)
@@ -81,8 +85,20 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
         </div>
         <div>
           <dt>재고</dt>
-          <dd>{product.stock}개</dd>
+          <dd>{product.hasOptions ? '옵션별' : `${String(product.stock)}개`}</dd>
         </div>
+        {product.hasOptions ? (
+          <div>
+            <dt>옵션</dt>
+            <dd>{optionSummary(product.options)}</dd>
+          </div>
+        ) : null}
+        {product.aliases.length > 0 ? (
+          <div>
+            <dt>상품 별칭</dt>
+            <dd>{product.aliases.join(', ')}</dd>
+          </div>
+        ) : null}
         <div>
           <dt>상태</dt>
           <dd>
@@ -95,8 +111,26 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
       </dl>
 
       {/* 찜이 먼저: 창의 "닫기"(처음 포커스)에서 Tab 한 번이면 1등 찜의 "찜 취소하기" (AC-S06-63) */}
-      <ClaimSection title="1등" claims={winners} product={product} />
-      <ClaimSection title="대기" claims={waitlist} product={product} />
+      {product.hasOptions ? (
+        product.variants.map((variant) => {
+          const full = variant.confirmedUnits >= variant.stock
+          return (
+            <section key={variant.key} className="stack-tight variant-section" aria-label={`${variant.text} 변형`}>
+              <h3 className="sub-title">
+                {variant.text} · <span className={`tag status-${variant.status}`}>{PRODUCT_STATUS_WORD[variant.status]}</span> · {formatWon(variant.price)} · 남은 {variant.remaining}개 (재고{' '}
+                {variant.stock})
+              </h3>
+              <ClaimSection title={`${variant.text} 1등`} claims={claimsOf(variant.winnerClaims)} product={product} full={full} empty="아직 없음" />
+              <ClaimSection title={`${variant.text} 대기`} claims={claimsOf(variant.waitlistClaims)} product={product} full={full} />
+            </section>
+          )
+        })
+      ) : (
+        <>
+          <ClaimSection title="1등" claims={winners} product={product} />
+          <ClaimSection title="대기" claims={waitlist} product={product} />
+        </>
+      )}
       <ClaimSection title="보류·충돌 찜" claims={open} product={product} />
 
       <ProductLabels
@@ -153,6 +187,13 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
           <button type="button" className="button" disabled={busy} onClick={() => onEdit(product)}>
             고치기
           </button>
+          {/* 옵션 방송만: 옵션 고치기·지금 상품으로 (D-O2-03·10·11) */}
+          {api.options === true ? (
+            <button type="button" className="button" disabled={busy} onClick={() => api.openDialog({ kind: 'editOptions', product: product.key })}>
+              옵션 고치기
+            </button>
+          ) : null}
+          <FocusButton product={product} />
           <button
             type="button"
             className="button"
@@ -227,13 +268,28 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
   )
 }
 
-function ClaimSection({ title, claims, product }: { readonly title: string; readonly claims: readonly Claim[]; readonly product: Product }) {
+function ClaimSection({
+  title,
+  claims,
+  product,
+  full,
+  empty,
+}: {
+  readonly title: string
+  readonly claims: readonly Claim[]
+  readonly product: Product
+  /** 자리가 다 찼나 (옵션 상품은 그 변형) */
+  readonly full?: boolean
+  /** 비었을 때 보일 글 (없으면 칸을 숨긴다 — "1등"은 늘 "아직 없음") */
+  readonly empty?: string
+}) {
   if (claims.length === 0) {
-    if (title === '1등') {
+    const words = empty ?? (title === '1등' ? '아직 없음' : undefined)
+    if (words !== undefined) {
       return (
         <section className="stack-tight" aria-label={title}>
           <h3 className="sub-title">{title}</h3>
-          <p>아직 없음</p>
+          <p>{words}</p>
         </section>
       )
     }
@@ -246,24 +302,26 @@ function ClaimSection({ title, claims, product }: { readonly title: string; read
       </h3>
       <ul className="plain-list stack-tight">
         {claims.map((claim) => (
-          <ClaimRow key={claim.id} claim={claim} product={product} />
+          <ClaimRow key={claim.id} claim={claim} product={product} full={full ?? product.winners.length >= product.stock} />
         ))}
       </ul>
     </section>
   )
 }
 
-function ClaimRow({ claim, product }: { readonly claim: Claim; readonly product: Product }) {
+function ClaimRow({ claim, product, full }: { readonly claim: Claim; readonly product: Product; readonly full: boolean }) {
   const api = useConsoleApi()
   const name = api.names.name(claim.currentBuyer)
   const self = api.data.buyers.get(claim.buyer)
   const blocked = self?.blocked === true
   const waiting = api.waiting.claims.has(claim.id)
-  const full = product.winners.length >= product.stock
+  const pick = claimOptionsField(claim)
   return (
     <li className="claim-row">
       <p>
-        <strong>{name}</strong> <span className="tag">{claimWord(api.data, claim)}</span> <span>{ORIGIN_WORD[claim.origin]}</span>{' '}
+        <strong>{name}</strong>
+        {claim.variant !== null || claim.qty > 1 ? <span className="claim-option">{claimOptionWords(claim)}</span> : null} <span className="tag">{claimWord(api.data, claim)}</span>{' '}
+        <span>{ORIGIN_WORD[claim.origin]}</span>{' '}
         <span>{kstTime(claim.rankTime)}</span>
         {claim.locked ? <span className="tag">잠금</span> : null}
         {claim.cancelRequested ? <span className="tag tag-alert">취소 요청</span> : null}
@@ -286,8 +344,8 @@ function ClaimRow({ claim, product }: { readonly claim: Claim; readonly product:
             type="button"
             className="button button-small"
             onClick={() => {
-              const label = `${productLabel(api, claim.broadcast, claim.no)} ${name} 확인(잠금)`
-              api.queueHost({ label, event: { type: 'host.confirm', b: claim.broadcast, no: claim.no, buyer: claim.currentBuyer }, claims: [claim.id], products: [claim.product] })
+              const label = `${productLabel(api, claim.broadcast, claim.no)}${claimOptionWords(claim)} ${name} 확인(잠금)`
+              api.queueHost({ label, event: { type: 'host.confirm', b: claim.broadcast, no: claim.no, buyer: claim.currentBuyer, ...pick }, claims: [claim.id], products: [claim.product] })
               api.closeAll()
             }}
           >
@@ -299,7 +357,7 @@ function ClaimRow({ claim, product }: { readonly claim: Claim; readonly product:
             type="button"
             className="button button-small"
             disabled={product.conflict}
-            onClick={() => api.openDialog({ kind: 'assign', spec: { product: product.key, replace: claim.currentBuyer } })}
+            onClick={() => api.openDialog({ kind: 'assign', spec: { product: product.key, replace: claim.currentBuyer, ...pick } })}
           >
             다른 사람으로 바꾸기
           </button>
@@ -311,7 +369,7 @@ function ClaimRow({ claim, product }: { readonly claim: Claim; readonly product:
             disabled={full && product.conflict}
             onClick={() =>
               full
-                ? api.openDialog({ kind: 'assign', spec: { product: product.key, buyer: claim.currentBuyer } })
+                ? api.openDialog({ kind: 'assign', spec: { product: product.key, buyer: claim.currentBuyer, ...pick } })
                 : openClaimAction(api, claim, 'host.promote')
             }
           >

@@ -5,6 +5,7 @@ import { useMemo, useRef, useState } from 'react'
 import { isApiError, type ApiError } from '../api/client.ts'
 import type { Buyer, ChatMessage, Product } from '../api/types.ts'
 import { formatWon, productKey } from '../lib/derive.ts'
+import { pickFor, qtyProblemWords, readQty, variantTextOf } from '../lib/options.ts'
 import { changedFields, editQuestion } from '../lib/quick.ts'
 import { PRODUCT_STATUS_WORD } from '../lib/words.ts'
 import { useConsoleApi, type AssignSpec, type ConfirmSpec, type ReasonSpec } from './console-context.ts'
@@ -180,9 +181,15 @@ export function ConvertDialog({ message, onClose }: { readonly message: ChatMess
 export function AssignDialog({ spec, onClose }: { readonly spec: AssignSpec; readonly onClose: () => void }) {
   const api = useConsoleApi()
   const product = api.data.products.get(spec.product)
-  const [search, setSearch] = useState('')
+  // 옵션 상품 (D-O2-08): 변형 고르기(처음엔 비움 — 선택지 하나뿐인 항목만 자동)·수량(처음 1). 정해진 찜의 변형이면 그 변형
+  const [picks, setPicks] = useState<Readonly<Record<string, string>>>(() => spec.options ?? spec.initial?.options ?? pickFor(product, []))
+  const [qtyText, setQtyText] = useState(spec.initial?.qty ?? '1')
+  const variantText = product?.hasOptions === true ? variantTextOf(product, picks) : null
+  const variant = variantText === null ? undefined : product?.variants.find((item) => item.text === variantText)
+  const slotWinners = product?.hasOptions === true ? (variant?.winners ?? []) : (product?.winners ?? [])
+  const [replace, setReplace] = useState<string | undefined>(spec.replace ?? spec.initial?.replace ?? (product?.hasOptions !== true && product?.winners.length === 1 ? product.winners[0] : undefined))
   const [buyer, setBuyer] = useState<string | undefined>(spec.buyer ?? spec.initial?.buyer)
-  const [replace, setReplace] = useState<string | undefined>(spec.replace ?? spec.initial?.replace ?? (product?.winners.length === 1 ? product.winners[0] : undefined))
+  const [search, setSearch] = useState('')
   const [replaceTo, setReplaceTo] = useState<'WAITLIST' | 'CANCEL'>(spec.initial?.replaceTo ?? 'WAITLIST')
   const [reason, setReason] = useState(spec.initial?.reason ?? '')
   const [empty, setEmpty] = useState(false)
@@ -194,13 +201,13 @@ export function AssignDialog({ spec, onClose }: { readonly spec: AssignSpec; rea
     const out: Buyer[] = []
     const query = search.trim()
     for (const item of api.data.buyers.values()) {
-      if (item.mergedInto !== null || product?.winners.includes(item.id) === true) continue
+      if (item.mergedInto !== null || slotWinners.includes(item.id)) continue
       if (query !== '' && !item.display.includes(query)) continue
       out.push(item)
       if (out.length >= 30) break
     }
     return out
-  }, [api.data.buyers, search, product])
+  }, [api.data.buyers, search, slotWinners])
 
   if (product === undefined) {
     return (
@@ -209,12 +216,24 @@ export function AssignDialog({ spec, onClose }: { readonly spec: AssignSpec; rea
       </Modal>
     )
   }
-  const full = product.winners.length >= product.stock
+  const optionProduct = product.hasOptions
+  const maxQty = api.settingsOf(product.broadcast)?.['claim.maxQuantity'] ?? 10
+  const qty = optionProduct ? readQty(qtyText, maxQty) : 1
+  // 고른 변형이 남은 수량보다 많으면 교체 고르기 (그 변형의 1등 중에서)
+  const full = optionProduct ? variant !== undefined && qty !== null && qty > variant.remaining : product.winners.length >= product.stock
   const needsReplace = spec.replace !== undefined || full
   const title = spec.replace !== undefined ? `${String(product.no)}번 1등 바꾸기` : spec.buyer !== undefined ? `${String(product.no)}번 1등으로` : `${String(product.no)}번 직접 배정`
 
   const submit = () => {
     setProblem(null)
+    if (optionProduct && variant === undefined) {
+      setProblem(`${product.options.filter((item) => picks[item.name] === undefined).map((item) => item.name).join('·')}을(를) 골라 주세요.`)
+      return
+    }
+    if (optionProduct && qty === null) {
+      setProblem(qtyProblemWords(maxQty))
+      return
+    }
     if (buyer === undefined) {
       setProblem('배정할 구매자를 골라 주세요.')
       return
@@ -231,10 +250,19 @@ export function AssignDialog({ spec, onClose }: { readonly spec: AssignSpec; rea
     }
     const buyerName = api.names.name(buyer)
     const replaceWords = needsReplace && replace !== undefined ? ` (${api.names.name(replace)} ${replaceTo === 'WAITLIST' ? '대기로' : '취소'})` : ''
-    const fields = { buyer, replace, replaceTo, reason: value }
+    const fields = { buyer, replace, replaceTo, reason: value, ...(optionProduct ? { options: picks, qty: qtyText } : {}) }
+    const optionWords = optionProduct ? ` ${variantText ?? ''}${qty !== null && qty > 1 ? ` ×${String(qty)}` : ''}` : ''
     api.queueHost({
-      label: `${String(product.no)}번 ${buyerName} 직접 배정${replaceWords}`,
-      event: { type: 'host.assign', b: product.broadcast, no: product.no, buyer, reason: value, ...(needsReplace && replace !== undefined ? { replace, replaceTo } : {}) },
+      label: `${String(product.no)}번${optionWords} ${buyerName} 직접 배정${replaceWords}`,
+      event: {
+        type: 'host.assign',
+        b: product.broadcast,
+        no: product.no,
+        buyer,
+        reason: value,
+        ...(optionProduct ? { options: { ...picks }, qty: qty ?? 1 } : {}),
+        ...(needsReplace && replace !== undefined ? { replace, replaceTo } : {}),
+      },
       products: [product.key],
       reopen: { label: '배정 고치기', open: (error) => api.openDialog({ kind: 'assign', spec: { ...spec, initial: fields, error } }) },
     })
@@ -260,6 +288,40 @@ export function AssignDialog({ spec, onClose }: { readonly spec: AssignSpec; rea
         </p>
       ) : (
         <>
+          {optionProduct ? (
+            <fieldset className="stack-tight">
+              <legend>옵션·수량</legend>
+              {product.options.map((item) => (
+                <label key={item.name} className="field">
+                  <span>{item.name}</span>
+                  <select
+                    className="input"
+                    value={picks[item.name] ?? ''}
+                    disabled={spec.options !== undefined}
+                    onChange={(event) => {
+                      const next = { ...picks }
+                      if (event.target.value === '') delete next[item.name]
+                      else next[item.name] = event.target.value
+                      setPicks(next)
+                      setReplace(undefined)
+                    }}
+                  >
+                    <option value="">고르기</option>
+                    {item.choices.map((choice) => (
+                      <option key={choice.label} value={choice.label}>
+                        {choice.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+              <label className="field">
+                <span>수량</span>
+                <input className="input input-number" inputMode="numeric" autoComplete="off" value={qtyText} onChange={(event) => setQtyText(event.target.value.replace(/\D/g, '').slice(0, 3))} />
+              </label>
+              {variant !== undefined ? <p>남은 {variant.remaining}개</p> : null}
+            </fieldset>
+          ) : null}
           {spec.buyer !== undefined ? (
             <p>1등으로 올릴 사람: {api.names.name(spec.buyer)}</p>
           ) : (
@@ -287,7 +349,7 @@ export function AssignDialog({ spec, onClose }: { readonly spec: AssignSpec; rea
                 <p>{api.names.name(spec.replace)}</p>
               ) : (
                 <div className="choice-list">
-                  {product.winners.map((id) => (
+                  {slotWinners.map((id) => (
                     <label key={id} className="choice">
                       <input type="radio" name="assign-replace" checked={replace === id} onChange={() => setReplace(id)} />
                       <span>{api.names.name(id)}</span>
