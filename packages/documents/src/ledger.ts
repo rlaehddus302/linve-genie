@@ -16,7 +16,7 @@ import {
   type ProductStatus,
   type SaleSettings,
 } from '@livejjim/core'
-import { compareCodePoints } from './text.ts'
+import { compareCodePoints, optionText } from './text.ts'
 import { formatKstLedgerTime, isDateString } from './kst.ts'
 
 /** 첫 줄 열 이름 (SPEC STL-06, 이 순서·글자 그대로) */
@@ -80,7 +80,7 @@ export interface LedgerInput {
   readonly shipping?: ((buyer: string, date: string) => string) | null
 }
 
-export type LedgerErrorCode = 'INVALID_INPUT' | 'PERIOD_INVALID' | 'REHEARSAL' | 'UNKNOWN_BROADCAST'
+export type LedgerErrorCode = 'INVALID_INPUT' | 'PERIOD_INVALID' | 'REHEARSAL' | 'UNKNOWN_BROADCAST' | 'AMOUNT_MISSING'
 
 export interface LedgerError {
   readonly code: LedgerErrorCode
@@ -164,7 +164,8 @@ function claimRow(
   }
   if (!options) return row
   // 금액은 코어 값 그대로: 단가 = 단가 스냅샷, 가격 = 찜 금액(ClaimInfo.amount) — 대장이 곱하지 않는다 (D-208)
-  return { ...row, price: claim.amount as number, variant: claim.variant ?? '', qty: claim.qty, unitPrice: claim.price as number }
+  // 옵션 글은 L-2로 다듬은 글 — 확인서·라벨과 같은 글 (D-O3-13)
+  return { ...row, price: claim.amount as number, variant: claim.variant === null ? '' : optionText(claim.variant), qty: claim.qty, unitPrice: claim.price as number }
 }
 
 /** 옵션 방송인가 (claim.parseMode=OPTIONS 스냅샷, D-O3-07) */
@@ -258,6 +259,8 @@ export function buildLedger(input: LedgerInput): LedgerResult {
         rows.push(options ? { ...empty, variant: '', qty: '', unitPrice: '' } : empty)
         continue
       }
+      // 찜 금액·단가 스냅샷은 코어 값만 — 확정 찜에 없으면 대장을 만들지 않는다(가격 스냅샷·단가 × 수량으로 채우지 않는다, D-O3-15)
+      if (winners.some((claim) => !Number.isSafeInteger(claim.amount) || !Number.isSafeInteger(claim.price))) return fail('AMOUNT_MISSING', '판매 금액을 확인할 수 없어 판매대장을 만들지 않았어요.')
       for (const claim of winners) rows.push(claimRow(state, broadcast, product.name, claim, payments, shippingOf, options))
     }
   }

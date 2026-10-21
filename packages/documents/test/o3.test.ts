@@ -1,6 +1,7 @@
-// O3 확인서·판매대장의 옵션 글·수량 (AC-O3-11~13 — SPEC STL-04·STL-06 옵션, R-19 "표시", D-O3-05~08).
+// O3 확인서·판매대장의 옵션 글·수량 (AC-O3-11~14 — SPEC STL-04·STL-06 옵션, R-19 "표시", D-O3-05~08).
 // 상태는 엔진 골든 G-ENG-O3-01(engine/24-o3-labels-documents.yaml)을 실제 코어에 재생한 것.
-import { getSettlement, listBuyers } from '@livejjim/core'
+import { getSettlement, listBuyers, listClaims, listProducts, type ClaimInfo } from '@livejjim/core'
+import { computeProductText, defaultTemplate, trimLabelText } from '../../label/src/index.ts'
 import { describe, expect, it } from 'vitest'
 import {
   LEDGER_COLUMNS,
@@ -15,13 +16,14 @@ import {
   ledgerToXlsx,
   linesMatchSettlement,
   loadDocumentFont,
+  optionText,
   renderBatchPdf,
   renderReceiptPdf,
   renderReceiptPng,
   type LayoutText,
   type ReceiptData,
 } from '../src/index.ts'
-import { decodePng, fontBytes, pdfText, readXlsx, replayGolden } from './helpers.ts'
+import { decodePng, fontBytes, pdfText, play, readXlsx, replayGolden } from './helpers.ts'
 
 const O3 = replayGolden('G-ENG-O3-01', 'engine/24-o3-labels-documents.yaml')
 const DATE = '2026-10-25'
@@ -195,5 +197,63 @@ describe('AC-O3-13 판매대장 열과 행', () => {
     expect(cells?.[4]?.type).toBe('String')
     expect(cells?.[3]?.value).toBe('<b>반바지</b>')
     expect(sheet?.rows.flat().some((c) => c.type === 'Formula')).toBe(false)
+  })
+})
+
+describe('AC-O3-14 확인서 빈 품종의 옵션 글·옵션 글 다듬기 (D-O3-13)', () => {
+  const ZWSP = '​'
+  const state = play([
+    { type: 'broadcast.start', b: 'b2', date: '2026-10-18', title: '의류', settings: { 'claim.parseMode': 'OPTIONS' } },
+    { type: 'product.register', b: 'b2', no: 31, name: '', price: 10000, stock: 3, options: [{ name: '사이즈', choices: [{ label: 'S' }, { label: 'M' }] }] },
+    { type: 'product.register', b: 'b2', no: 32, name: '반바지', price: 5000, options: [{ name: '사이즈', choices: [{ label: ` L${ZWSP} ` }] }] },
+    { type: 'product.register', b: 'b2', no: 33, name: '', price: 3000, stock: 1 },
+    { type: 'sms', b: 'b2', ref: 's1', no: 31, received: '20:00', memo: '가', phone: '010-1111-2222', options: { 사이즈: 'M' }, qty: 1 },
+    { type: 'sms', b: 'b2', ref: 's2', no: 31, received: '20:00', memo: '나', phone: '010-3333-4444', options: { 사이즈: 'M' }, qty: 2 },
+    { type: 'sms', b: 'b2', ref: 's3', no: 32, received: '20:00', memo: '다', phone: '010-5555-6666', options: { 사이즈: ` L${ZWSP} ` }, qty: 1 },
+    { type: 'sms', b: 'b2', ref: 's4', no: 33, received: '20:00', memo: '라', phone: '010-7777-8888' },
+  ])
+  const day = '2026-10-18'
+  const claims = listClaims(state)
+  const buyerOf = (no: number, qty = 1): string => (claims.find((claim) => claim.no === no && claim.qty === qty) as ClaimInfo).currentBuyer
+  const linesOf = (buyer: string): string[] => {
+    const result = buildReceipt({ state, buyer, date: day, rehearsal: false, createdAt: CREATED })
+    if (!result.ok) throw new Error(result.error.message)
+    return result.receipt.lines.map((line) => line.name)
+  }
+  /** 같은 찜의 상품 라벨 품종 자리 글 (라벨 패키지 L-3) */
+  const labelName = (claim: ClaimInfo): string => {
+    const product = listProducts(state).find((item) => item.key === claim.product)
+    const data = { no: claim.no, name: product?.name ?? '', price: claim.amount as number, ...(claim.variant === null ? {} : { variant: claim.variant }), ...(claim.qty >= 2 ? { qty: claim.qty } : {}), date: day, buyer: { kind: 'sms' } }
+    const text = computeProductText(defaultTemplate('product', '50x30'), data)
+    if (!text.ok) throw new Error(text.error.message)
+    return text.text.items.name ?? ''
+  }
+
+  it('품종이 빈 옵션 찜은 옵션 글만 (`M`·`M (10,000원 × 2개)`), 품종도 옵션도 없으면 `품종 미입력` — 라벨 품종 자리와 같은 글', () => {
+    expect(linesOf(buyerOf(31))).toEqual(['M'])
+    expect(linesOf(buyerOf(31, 2))).toEqual(['M (10,000원 × 2개)'])
+    expect(linesOf(buyerOf(33))).toEqual(['품종 미입력'])
+    for (const claim of claims.filter((item) => item.no === 31)) expect(linesOf(claim.currentBuyer)[0]?.startsWith(labelName(claim))).toBe(true)
+    expect(labelName(claims.find((claim) => claim.no === 31) as ClaimInfo)).toBe('M')
+  })
+
+  it('옵션 글은 L-2로 다듬은 글 — 확인서 품종 칸·판매대장 옵션 칸 = 라벨 품종 자리의 옵션 글', () => {
+    const shorts = claims.find((claim) => claim.no === 32) as ClaimInfo
+    expect(shorts.variant).toBe(` L${ZWSP} `)
+    expect(linesOf(shorts.currentBuyer)).toEqual(['반바지 L'])
+    expect(labelName(shorts)).toBe('반바지 L')
+    const ledger = buildLedger({ scopes: [{ state, rehearsal: false }], from: day, to: day })
+    if (!ledger.ok) throw new Error(ledger.error.message)
+    expect(ledger.rows.filter((row) => row.status === '1등').map((row) => [row.no, row.name, row.variant, row.qty])).toEqual([
+      [31, '', 'M', 1],
+      [31, '', 'M', 2],
+      [32, '반바지', 'L', 1],
+      [33, '', '', 1],
+    ])
+    // 다듬기 규칙은 라벨 패키지 trimLabelText와 같다
+    for (const text of [` L${ZWSP} `, '　흰색 / 대형\t', 'é', '‮105/검정﻿', '  ', 'M']) expect(optionText(text)).toBe(trimLabelText(text))
+    expect(itemText('', ` L${ZWSP} `, 5000, 1)).toBe('L')
+    expect(itemText('  ', null, 0, 1)).toBe('품종 미입력')
+    expect(itemText('반바지', `${ZWSP} `, 5000, 3)).toBe('반바지 (5,000원 × 3개)')
   })
 })

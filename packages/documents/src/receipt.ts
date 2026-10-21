@@ -16,7 +16,7 @@ import {
   type SettlementInfo,
 } from '@livejjim/core'
 import { formatKoreanDate, formatKstDateTime, isDateString, isEpochMs } from './kst.ts'
-import { compareCodePoints, printedName, stripInvisible } from './text.ts'
+import { compareCodePoints, optionText, printedName, stripInvisible } from './text.ts'
 
 export const RECEIPT_TITLE = '구매 내역 확인서'
 export const REHEARSAL_TITLE = '구매 내역 확인서 (리허설)'
@@ -217,7 +217,7 @@ function receiptOf(scope: ReceiptScope, root: string): ReceiptResult {
     const price = claim.amount
     if (unit === null || price === null) return fail('AMOUNT_MISMATCH', MISMATCH_MESSAGE)
     const name = (productNames.get(claim.product) ?? '').trim()
-    lines.push({ session: titleOf.get(claim.broadcast) ?? '', no: claim.no, name: itemText(name === '' ? EMPTY_VARIETY : name, claim.variant, unit, claim.qty), price, priceText: formatWon(price) })
+    lines.push({ session: titleOf.get(claim.broadcast) ?? '', no: claim.no, name: itemText(name, claim.variant, unit, claim.qty), price, priceText: formatWon(price) })
     itemCount += claim.qty
   }
   // INV-5와 같은 조건: 줄 가격의 합 = 코어 상품 합계, 줄 수 = 코어 품목 수. 다르면 만들지 않는다(표시에 쓰지 않는 검사)
@@ -262,12 +262,15 @@ function receiptOf(scope: ReceiptScope, root: string): ReceiptResult {
 }
 
 /**
- * 확인서 품종 칸 글 (SPEC STL-04 옵션, R-19 "표시", D-O3-05): `{품종}[ {옵션 글}][ ({단가} × {수량}개)]`.
- * 옵션 글은 코어 ClaimInfo.variant 그대로(코어가 만든 글 — 감사 문구와 같은 글), 괄호는 수량 2 이상일 때만. 단가 × 수량은 글로만 보이고 계산하지 않는다
+ * 확인서 품종 칸 글 (SPEC STL-04 옵션, R-19 "표시", D-O3-05·D-O3-13): `{품종}[ {옵션 글}][ ({단가} × {수량}개)]`.
+ * 품종 칸 = 다듬은 품종과 옵션 글을 공백 하나로 이은 글 — 품종이 비면 옵션 글만(라벨 L-3과 같다), 둘 다 비면 `품종 미입력`.
+ * 옵션 글은 코어 ClaimInfo.variant를 LABEL_RULES L-2로 다듬은 글(라벨과 같은 글 — optionText). 괄호는 수량 2 이상일 때만. 단가 × 수량은 글로만 보이고 계산하지 않는다
  */
 export function itemText(name: string, variant: string | null, unitPrice: number, qty: number): string {
-  const withVariant = variant === null || variant.trim() === '' ? name : `${name} ${variant.trim()}`
-  return qty >= 2 ? `${withVariant} (${formatWon(unitPrice)} × ${String(qty)}개)` : withVariant
+  const variety = name.trim()
+  const option = variant === null ? '' : optionText(variant)
+  const head = [variety, option].filter((part) => part !== '').join(' ') || EMPTY_VARIETY
+  return qty >= 2 ? `${head} (${formatWon(unitPrice)} × ${String(qty)}개)` : head
 }
 
 /** 줄과 코어 묶음이 맞는가 (줄 수 = 품목 수, 줄 가격 합 = 상품 합계) — 확인서를 만들지 말지 정하는 검사일 뿐 표시에 쓰지 않는다 */

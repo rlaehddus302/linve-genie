@@ -64,5 +64,5 @@ export {
   type LedgerScope,
 } from './ledger.ts'
 export { ledgerToXlsx } from './xlsx.ts'
-export { NO_NAME, compareCodePoints, printedName, stripInvisible, stripXlsxForbidden } from './text.ts'
+export { NO_NAME, compareCodePoints, optionText, printedName, stripInvisible, stripXlsxForbidden } from './text.ts'
 export { formatKoreanDate, formatKstDateTime, formatKstLedgerTime } from './kst.ts'
