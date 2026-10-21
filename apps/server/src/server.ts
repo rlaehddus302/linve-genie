@@ -5,6 +5,8 @@
 // testPrinter(시험 모드 신호 — 화면이 시험용 프린터를 켠다. E2E 기동만 켠다, 운영 기동은 production.ts가 늘 끈다 — I1 L-11 15).
 // I1: 출력 기록(PrintService)을 기록 경로의 같은 트랜잭션(txHook)에 잇고, 실시간 알림(print)·출력 기기 실시간 연결 여부를 허브에 잇는다.
 // N5: 요금(BillingService)을 새 실제 방송 시작·주문 건 쓰기(txHook)·라벨 장 쓰기(출력함 트랜잭션)에 잇고, 실시간 알림(billing)을 허브에 잇는다.
+// N3: 입금 확인(DepositService — 원천·받아 오기 주기·자동 확인·확인 필요)을 기록 경로와 실시간 알림(deposit)에 잇는다.
+//   deposits.testMode(가짜 원천·시험용 입금 넣기)는 E2E 기동만 켠다 — 운영 기동은 production.ts가 늘 끈다(D-N3-12).
 // N4a: 라벨 기능 켬/끔 알림(labels)을 허브에 잇는다.
 import { readFileSync } from 'node:fs'
 import { applyEvent } from '@livejjim/core'
@@ -29,6 +31,7 @@ import type { InstagramSettings } from './instagram/config.ts'
 import { createInstagram, type InstagramModule } from './instagram/index.ts'
 import type { LiveTimer } from './instagram/notices.ts'
 import { createWebhookApp } from './instagram/routes.ts'
+import { DepositService, type DepositOptions } from './deposit/service.ts'
 import { readQueue } from './print-store.ts'
 import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
@@ -145,6 +148,8 @@ export interface ServerOptions {
   readonly work?: WorkPools
   /** 자동 백업: 서버를 켠 뒤 첫 확인까지 (기본 3분, RA-I2-003) */
   readonly backupStartDelayMs?: number
+  /** 입금 확인 설정 (N3): 시험 모드(가짜 원천 — E2E 기동만)·팝빌 전송(연동 키가 있을 때)·주기 덮어쓰기(E2E 기동만)·시험용 타이머 */
+  readonly deposits?: DepositOptions
 }
 
 export interface LivejjimServer {
@@ -167,6 +172,8 @@ export interface LivejjimServer {
   readonly backups: BackupScheduler
   /** 무거운 파일 작업의 워커 풀 (확인서 그림·PDF·전원 PDF·판매대장 엑셀·.xlsx 읽기) */
   readonly work: WorkPools
+  /** 입금 확인 (N3) */
+  readonly deposits: DepositService
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
   /** 유튜브 연동 (설정이 있을 때만) */
@@ -427,6 +434,15 @@ export function createServer(options: ServerOptions): LivejjimServer {
     ...(options.collectionIntervalMs === undefined ? {} : { collectionIntervalMs: options.collectionIntervalMs }),
   })
   const instagramModule = instagram
+  const deposits = new DepositService({
+    db,
+    writer,
+    clock,
+    masterKey,
+    log,
+    publish: (sellerId, data) => hub.publishDeposit(sellerId, data),
+    options: options.deposits ?? {},
+  })
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
     api: {
@@ -437,6 +453,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       print: printService,
       billing,
       instagram: instagramModule,
+      deposits,
       appOrigin: options.appOrigin,
       clientConfig: { hostActionDelayMs, testPrinter: options.testPrinter === true },
       receiptAtParam: options.receiptAtParam === true,
@@ -454,6 +471,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
     ops: { token: options.opsToken === undefined ? null : options.opsToken.trim(), status: opsStatus },
     webhooks: createWebhookApp(instagramModule),
   })
+  // 저장된 켜진 원천의 받아 오기 주기를 건다 (실패해도 서버는 뜬다 — 원천 실패는 판매를 멈추지 않는다, DP-0 5)
+  deposits.start()
   const stop = async () => {
     await Promise.all([youtube?.stop(), sealer.stop()])
   }
@@ -472,6 +491,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     closing,
     backups,
     work,
+    deposits,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     start: () => {
       youtube?.start()
@@ -482,6 +502,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       service.generators.closeAll()
       printService.close()
       instagramModule.close()
+      deposits.close()
       hub.closeAll()
       backups.stop()
       void stop()

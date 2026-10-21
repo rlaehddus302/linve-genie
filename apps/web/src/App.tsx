@@ -1,6 +1,7 @@
-// 앱 (AC-S05-01·02, AC-S06-01, AC-S06b-42·43, AC-I1-20, AC-N4a-10, I2 AC-I2-02·35): 로그인 확인 → 메뉴(방송·문자찜 입력·구매자·정산·포장·라벨·설정)와 그 화면.
+// 앱 (AC-S05-01·02, AC-S06-01, AC-S06b-42·43, AC-I1-20, AC-N4a-10, I2 AC-I2-02·35, AC-N3-40): 로그인 확인 → 메뉴(방송·문자찜 입력·구매자·정산·입금 확인·포장·라벨·설정)와 그 화면.
 // 라벨 기능이 꺼져 있으면 메뉴 "라벨"이 숨고 라벨 화면은 안내만 보인다(N4a L-13 9).
 // 로그인한 동안 출력 기록·이 기기의 프린터(PrintProvider)는 앱 전체에 하나다 — 화면을 옮겨도 출력 기기의 출력이 이어진다(AC-I1-23).
+// 입금 확인 신호(DepositProvider — 메뉴의 확인 필요 수)도 앱 전체에 하나다(판매자 계정만 — 보조자는 입금 확인 API가 403).
 // 설정에서 가게 이름을 저장하면 화면 위 가게 이름이 바로 바뀐다.
 // 쓰는 중에 세션이 끝나면(어떤 API든 401) 로그인 화면으로 가고, 다시 로그인하면 보던 화면(주소·검색값 그대로)으로 돌아간다.
 // 그때 화면이 닫히며 5초 대기 중이던 방송자 조치는 보내지 않는다(D-083).
@@ -21,6 +22,8 @@ import { BillingConfigProvider, useBillingConfigState } from './components/billi
 import { BillingPage } from './components/BillingPage.tsx'
 import { BuyersPage } from './components/BuyersPage.tsx'
 import { ConsolePage } from './components/ConsolePage.tsx'
+import { DepositProvider } from './components/deposit-context.tsx'
+import { DepositsPage } from './components/DepositsPage.tsx'
 import { ErrorNote } from './components/ErrorNote.tsx'
 import { HomePage } from './components/HomePage.tsx'
 import { LabelsPage } from './components/LabelsPage.tsx'
@@ -296,13 +299,15 @@ export function App() {
   )
   return (
     <LeaveGuardContext.Provider value={register}>
-      {/* 출력 기록·이 기기의 프린터(PrintProvider)와 요금 기능 설정(BillingConfigProvider)은 판매자 계정만 — 보조자는 출력·요금을 쓰지 않는다
-          (출력·요금 API는 403, SYS-04). 보조자 화면은 다른 화면의 데이터를 부르지 않는다(AC-I3-63) */}
+      {/* 출력 기록·이 기기의 프린터(PrintProvider)·입금 확인 신호(DepositProvider)·요금 기능 설정(BillingConfigProvider)은 판매자 계정만 —
+          보조자는 출력·입금 확인·요금을 쓰지 않는다(그 API는 403, SYS-04). 보조자 화면은 다른 화면의 데이터를 부르지 않는다(AC-I3-63) */}
       {assistant ? (
         shell
       ) : (
         <BillingConfigProvider>
-          <PrintProvider>{shell}</PrintProvider>
+          <PrintProvider>
+            <DepositProvider>{shell}</DepositProvider>
+          </PrintProvider>
         </BillingConfigProvider>
       )}
     </LeaveGuardContext.Provider>
@@ -364,6 +369,8 @@ function Screen({ route, navigate, me, onRenamed }: ScreenProps) {
       return <PrivacyPage />
     case 'terms':
       return <TermsPage />
+    case 'deposits':
+      return <DepositsPage route={route} navigate={navigate} />
     case 'home':
       return <HomePage navigate={navigate} />
   }

@@ -37,8 +37,8 @@ import {
 } from './store.ts'
 import type { Clock } from './time.ts'
 
-/** 누가 보낸 입력인지 (DAT-05) */
-export type Actor = { readonly kind: 'account'; readonly accountId: string } | { readonly kind: 'server' } | { readonly kind: 'collector' }
+/** 누가 보낸 입력인지 (DAT-05). deposit = 입금 자동 확인 (N3 DP-6 — 이력의 "누가"에 "입금 자동 확인") */
+export type Actor = { readonly kind: 'account'; readonly accountId: string } | { readonly kind: 'server' } | { readonly kind: 'collector' } | { readonly kind: 'deposit' }
 
 /** 채팅이 어디서 왔는지 (AC-Y1-60): 유튜브 수집기 · 리허설(생성기·시청자로 보내기) · 그 밖(시험 채우기 등) */
 export type ChatSource = 'youtube' | 'rehearsal' | 'other'
@@ -380,6 +380,14 @@ export class ScopeWriter {
       }
       return loadRuntime(db, sellerId, date, rehearsal, engine, log, this.#options.changesWindow ?? DEFAULT_CHANGES_WINDOW)
     })
+  }
+
+  /**
+   * 입금 확인의 묶음 찾기·기억한 이름 표시가 지난 날짜를 여럿 훑을 때 쓰는 이름 (N3 RA-N3-003) — readDetached와 같다:
+   * 메모리를 밀어내지 않는 읽기라 방송 중인 범위의 상태를 상한 밖으로 밀어내지 않는다. 돌려준 상태를 고치면 안 된다.
+   */
+  peek(sellerId: string, date: string, rehearsal = false): Promise<ScopeRuntime> {
+    return this.readDetached(sellerId, date, rehearsal)
   }
 
   write(job: WriteJob): Promise<WriteOutcome> {

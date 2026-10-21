@@ -9,6 +9,7 @@ import type { PrintOverview } from '../src/api/print-types.ts'
 import { setLabelEnv } from '../src/lib/label-env.ts'
 import { device, job, jsdomLabelEnv, overview, queue, templates } from './print-support.ts'
 import { DATE, FakeEventSource, FakeServer, flush } from './support.ts'
+import { menuNav, openMore } from './menu-support.ts'
 
 let server: FakeServer
 let current: PrintOverview
@@ -50,8 +51,8 @@ async function openLabels(): Promise<HTMLElement> {
 describe('메뉴·프린터 상태 (AC-I1-20·34)', () => {
   it('메뉴 "라벨"이 지금 화면이고, 위 줄에 프린터 상태가 글자로 — 작업이 없으면 "출력 기기 없음"만', async () => {
     await openLabels()
-    const menu = screen.getByRole('navigation', { name: '메뉴' })
-    expect(within(menu).getByRole('link', { name: '라벨' }).getAttribute('aria-current')).toBe('page')
+    expect(within(menuNav()).getByRole('button', { name: '더보기' }).getAttribute('aria-current')).toBe('page')
+    expect(within(openMore()).getByRole('link', { name: '라벨' }).getAttribute('aria-current')).toBe('page')
     expect(screen.getByRole('link', { name: '출력 기기 없음' }).getAttribute('href')).toBe('/labels')
   })
 

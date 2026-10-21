@@ -5,6 +5,8 @@
 // - 로그인·헬스체크 밖은 세션이 필요하다(401). 다른 판매자의 자원은 404(있는지 알리지 않는다).
 // - 다른 출처를 허용하는 CORS 헤더를 내지 않는다. 모든 응답은 Cache-Control: no-store.
 // - 받은 값은 오류 응답에 되돌려 보내지 않는다(문제에는 필드 이름과 서버가 정한 문장만).
+// - N3: /api/deposits 경로(deposit/api.ts). 날짜 범위 조회(/days/:date·/changes)에 입금 연결(depositLinks)을 붙인다(AC-N3-32).
+//   엔진 요청 번호 `dep-`는 입금 확인이 쓴다(dep-<번호>-pay-<차례>) — 화면 이벤트 쓰기의 요청 번호로는 받지 않는다(같은 번호로 미리 막지 못하게).
 import { isValidDate } from '@livejjim/core'
 import { Hono, type Context } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
@@ -27,6 +29,8 @@ import { INSTAGRAM_PUBLIC_PATHS, registerLiveRoutes } from './instagram/routes.t
 import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.ts'
 import { WEBHOOK_PATH, registerBillingRoutes } from './billing/api.ts'
 import type { BillingService } from './billing/service.ts'
+import { registerDepositRoutes } from './deposit/api.ts'
+import type { DepositService } from './deposit/service.ts'
 import type { Actor, WriteOutcome, WriteResult } from './writer.ts'
 import { CALLBACK_PATH, registerYoutubeRoutes } from './youtube/routes.ts'
 import type { Sealer } from './youtube/seal.ts'
@@ -52,6 +56,8 @@ export interface ApiDeps {
   readonly print?: PrintService
   /** 인스타그램·플랫폼 공통 라이브 연결 (N2). 없으면 /api/platforms·/api/live·/api/instagram 경로가 없다 */
   readonly instagram?: InstagramModule
+  /** 입금 확인 (N3). 없으면 /api/deposits 경로가 없고 날짜 범위 조회에 입금 연결이 없다 */
+  readonly deposits?: DepositService
   /** 화면 앱 주소 (Origin 검사, 예: https://app.livejjim.kr) */
   readonly appOrigin: string
   /** 화면 설정 (방송자 조치 대기 시간 — 운영 5000, E2E 기동만 줄인다 / 시험 모드 신호 testPrinter — E2E 기동만 켠다, I1) */
@@ -121,6 +127,8 @@ function rehearsalOf(c: Context): { ok: true; value: boolean | undefined } | { o
 }
 
 const NUMBER_RE = /^\d{1,9}$/
+/** 입금 확인이 엔진에 쓰는 요청 번호 앞머리 (DP-6 — dep-<번호>-pay-<차례>·dep-<번호>-rev-<차례>) */
+export const DEPOSIT_REQUEST_PREFIX = 'dep-'
 /** 상품 ID (코어 listProducts의 id — 영문·숫자·'_'·'-' 1~64자) */
 const PRODUCT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 
@@ -233,8 +241,11 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   const sellerOf = (c: Context<Env>) => c.get('session').sellerId
   const requestIdOf = (value: Record<string, unknown>): string | null => {
     const id = own(value, 'requestId')
-    return typeof id === 'string' && REQUEST_ID_RE.test(id) ? id : null
+    return typeof id === 'string' && REQUEST_ID_RE.test(id) && !id.startsWith(DEPOSIT_REQUEST_PREFIX) ? id : null
   }
+  /** 실제 범위 조회에 붙이는 입금 연결 (리허설 범위는 빈 목록 — AC-N3-32) */
+  const depositLinksOf = async (sellerId: string, date: string, rehearsal: boolean) =>
+    deps.deposits === undefined || rehearsal ? [] : await deps.deposits.linksForDay(sellerId, date)
   const onlyKeys = (value: Record<string, unknown>, allowed: readonly string[]): Response | null => {
     const extra = ownKeys(value).filter((key) => !allowed.includes(key))
     return extra.length === 0 ? null : apiError(400, 'UNKNOWN_FIELD', '받을 수 없는 항목이 있어요.', unknownFieldProblems(extra))
@@ -474,9 +485,10 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (!rehearsal.ok) return rehearsal.response
     const view = await service.scopeView(sellerOf(c), date, rehearsal.value ?? false)
     if (view === null) return notFound()
+    const depositLinks = await depositLinksOf(sellerOf(c), date, rehearsal.value ?? false)
     // 실제 범위: 묶음마다 포장·배송 상태 (I2 AC-I2-33 — 리허설 범위에는 없다)
-    if (rehearsal.value === true) return c.json(view)
-    return c.json({ ...view, packing: await closing.packingSummary(sellerOf(c), date) })
+    if (rehearsal.value === true) return c.json({ ...view, depositLinks })
+    return c.json({ ...view, packing: await closing.packingSummary(sellerOf(c), date), depositLinks })
   })
   api.get('/days/:date/history', async (c) => {
     const date = c.req.param('date')
@@ -528,7 +540,9 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     const changes = await service.changes(sellerOf(c), date, rehearsal.value ?? false, Number(since))
     if (changes === null) return notFound()
     if (changes === 'resync') return apiError(410, 'RESYNC_REQUIRED', '바뀐 내용을 이어 받을 수 없어요. 전체를 다시 불러와 주세요.')
-    return c.json(changes)
+    // 입금 연결은 정산 묶음이 바뀐 증분에만 담는다(그 범위 전체) — 입금 확인의 기록·되돌림은 늘 정산 기록을 바꾼다. 없으면 화면은 이전 값을 그대로 둔다
+    const settlementsChanged = changes.settlements.length > 0 || changes.removed.settlements.length > 0
+    return c.json(settlementsChanged ? { ...changes, depositLinks: await depositLinksOf(sellerOf(c), date, rehearsal.value ?? false) } : changes)
   })
   // 채팅 메시지 이어 받기 (AC-S05-20): after 뒤 / before 앞 / 둘 다 없으면 가장 최근. 개수 1~500(기본 100)
   api.get('/days/:date/messages', async (c) => {
@@ -747,6 +761,33 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   if (deps.instagram !== undefined) registerLiveRoutes(api, deps.instagram, auth, { youtube: deps.youtube !== undefined && deps.youtube !== null })
   // ── 요금 (N5, BILLING_RULES) — 켜져 있을 때만 ───────────────────────────
   if (billing !== null) registerBillingRoutes(api, billing)
+
+  // ── 입금 확인 (N3, DEPOSIT_RULES) ─────────────────────────────────────
+  if (deps.deposits !== undefined) registerDepositRoutes(api, deps.deposits)
+
+  // 시험용 시청자 채팅 (입금 확인 시험 모드에서만 — 운영 기동에는 경로 자체가 없다, 404. SA-N3-03·D-N3-12).
+  // 실제 방송에도 유튜브 구매자를 만들 수 있게(기억한 입금자명 흐름 E2E, AC-N3-42·46) 수집 함수(ingestChat, 조치자 수집기)를 그대로 부른다.
+  // 입력 { b, id, ch, nick, text } — 같은 (방송, 메시지 ID)는 한 번만 기록한다. 리허설 방송이면 그 리허설 범위로 간다
+  if (deps.deposits?.testMode === true) {
+    api.post('/deposits/test/chat', async (c) => {
+      const input = c.get('body') ?? {}
+      const extra = onlyKeys(input, ['b', 'id', 'ch', 'nick', 'text'])
+      if (extra !== null) return extra
+      const outcome = await service.ingestChat(sellerOf(c), input)
+      switch (outcome.status) {
+        case 'recorded':
+          return c.json({ recorded: true, date: outcome.date, seq: outcome.seq, changed: outcome.changed })
+        case 'duplicate':
+          return c.json({ recorded: false })
+        case 'rejected':
+          return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', outcome.problems)
+        case 'not_found':
+          return notFound()
+        case 'save_failed':
+          return apiError(500, 'SAVE_FAILED', '저장하지 못했어요. 다시 시도해 주세요.')
+      }
+    })
+  }
 
   api.notFound(() => notFound())
   return api

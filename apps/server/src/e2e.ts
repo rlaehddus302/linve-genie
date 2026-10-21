@@ -5,6 +5,8 @@
 // - 요금 기능(N5, AC-N5-11·40): 기본 꺼짐. billing: true면 시험 결제(가짜 결제 서버·가짜 발행기)와 BL-1 기본 요금 표로 켠다.
 // - I2: 백업 저장소 = 임시 폴더(또는 지정한 폴더), 시작할 때 시험 판매자의 자동 백업 하나(시각과 상관없이 — 설정 화면의 "마지막 자동 백업"이 늘 있게),
 //   확인서 데이터 조회의 ?at= (공유 그림 바이트를 같은 데이터의 Node 그림과 맞댈 때, AC-I2-15).
+// - 입금 확인 시험 모드(N3 D-N3-12): 가짜 원천·시험용 입금 넣기(POST /api/deposits/test/rows)를 기본으로 켠다(testDeposits: false로 끈다).
+//   받아 오기 주기는 기본 1초(depositPollMs), "지금 받아 오기" 간격은 운영 값 60초(depositRefetchMs로 줄인다). 팝빌 연동 키는 없다(계좌조회 원천은 "준비 중").
 // - 채우기는 기록 경로(ScopeWriter)를 그대로 탄다: 상품은 product.register(조치자 서버), 채팅은 가짜 채팅 생성기의 메시지(조치자 수집기).
 // - 선택: 가짜 메타 서버(instagram: true, N2 AC-N2-70) — 127.0.0.1의 빈 포트에 띄우고 서버의 인스타그램 설정을 그 주소로 둔다.
 //   돌아오는 주소는 화면 주소 + /api/instagram/callback(화면 개발 서버가 /api를 이 서버로 넘긴다), 웹훅은 이 서버의 /webhooks/instagram으로 보낸다.
@@ -150,6 +152,12 @@ export interface E2eOptions {
   readonly outboxFast?: boolean
   /** 화면 빌드 폴더 — 서버가 같은 출처로 함께 낸다 (AC-I3-70) */
   readonly webDir?: string
+  /** 입금 확인 시험 모드 — 가짜 원천·시험용 입금 넣기 (기본 true. 운영 기동에는 없다, AC-N3-17) */
+  readonly testDeposits?: boolean
+  /** 가짜·계좌조회 원천의 받아 오기 주기 (밀리초, 100~300000, 기본 1000 — E2E 기동만) */
+  readonly depositPollMs?: number
+  /** "지금 받아 오기" 간격 (밀리초, 0~60000, 기본 60000) */
+  readonly depositRefetchMs?: number
 }
 
 /** E2E의 발송함 시간 (게시 응답 3초 · 확인 시간 5초 · 끝 조회 간격 2초 · 다시 시도 0.5·1·2…초) */
@@ -234,6 +242,9 @@ export function e2eControl(server: LivejjimServer, database: Database, masterKey
   return control
 }
 
+/** E2E 기동의 받아 오기 주기 기본값 (밀리초) */
+export const E2E_DEPOSIT_POLL_MS = 1000
+
 /** E2E 서버가 듣는 주소: 이 컴퓨터 안(IPv4 루프백)에서만 (AC-S06-73, D-096 — 모든 인터페이스 0.0.0.0·::이 아니다) */
 export const E2E_HOST = '127.0.0.1'
 
@@ -304,6 +315,12 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     ...(options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost }),
     testPrinter: options.testPrinter ?? true,
     ...(options.billing === true ? { billing: testBilling() } : {}),
+    deposits: {
+      testMode: options.testDeposits ?? true,
+      popbill: null,
+      pollMs: options.depositPollMs ?? E2E_DEPOSIT_POLL_MS,
+      ...(options.depositRefetchMs === undefined ? {} : { refetchGapMs: options.depositRefetchMs }),
+    },
   })
   const account = readE2eAccount()
   const created = await createSellerAccount(database.db, Buffer.from(masterKey, 'base64'), account, options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost })

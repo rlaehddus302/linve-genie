@@ -3,6 +3,7 @@
 // 모든 E2E가 시험 계정 하나를 함께 쓴다 — 시험마다 끝에 cleanupN4a로 라벨 기능을 켠 채 출력 기록을 비운다.
 import { expect, type Page } from '@playwright/test'
 import { cleanupPrint, printOverview } from '../i1/support.ts'
+import { openMore } from '../menu.ts'
 
 export * from '../i1/support.ts'
 
@@ -49,7 +50,7 @@ export async function cleanupN4a(page: Page): Promise<void> {
   expect((ov.queue as unknown as { labelsEnabled: boolean }).labelsEnabled).toBe(true)
 }
 
-/** 메뉴 "설정" — PC 위 줄 메뉴·휴대폰 아래 막대의 한 항목 (D-N4a-07) */
+/** 메뉴 "설정" — PC 위 줄 메뉴·휴대폰 "더보기" 목록의 한 항목 (D-N4a-07, D-NAV-01 — 휴대폰은 openMore 뒤에 보인다) */
 export function settingsLink(page: Page) {
   return page.getByRole('navigation', { name: '메뉴' }).getByRole('link', { name: '설정', exact: true })
 }
@@ -60,6 +61,7 @@ export function labelSection(page: Page) {
 
 /** 앱 안 이동으로 설정 화면 (전체 새로고침은 프린터 연결을 버린다) */
 export async function gotoSettings(page: Page): Promise<void> {
+  await openMore(page)
   await settingsLink(page).click()
   await expect(page.getByRole('heading', { name: '설정', level: 1 })).toBeVisible()
   await expect(labelSection(page).getByText(/^라벨 기능: (켜짐|꺼짐)$/)).toBeVisible()
