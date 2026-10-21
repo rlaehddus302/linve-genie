@@ -2,7 +2,7 @@
 // 휴대폰(폭 48rem = 768px 미만)은 아래 막대 다섯 칸 — 링크 "방송"·"문자찜 입력"·"구매자"·"정산" + 버튼 "더보기".
 // 나머지 메뉴("입금 확인"·"포장"·"라벨"·"설정")는 "더보기" 목록 안에 있고, 닫힌 목록은 그리지 않는다.
 // 그래서 휴대폰에서 막대 밖 메뉴를 찾거나 누르거나 셀 때는 먼저 목록을 연다. PC는 모든 메뉴가 위 줄에 있다.
-import { expect, type Locator, type Page } from '@playwright/test'
+import { expect, type Locator, type Page, type Route } from '@playwright/test'
 
 /** 막대 앞 네 칸 (휴대폰에서 늘 보이는 링크) */
 export const BAR_LINKS = ['방송', '문자찜 입력', '구매자', '정산'] as const
@@ -97,4 +97,32 @@ export async function expectPhoneBar(page: Page): Promise<void> {
   const tops: number[] = []
   for (const cell of barCells(page)) tops.push((await expectTarget(page, cell)).y)
   for (const top of tops) expect(Math.abs(top - tops[0]!), '다섯 칸이 한 줄').toBeLessThanOrEqual(1)
+}
+
+/** 수를 알려 주는 두 주소 (unroute는 같은 함수로 찾으므로 하나를 함께 쓴다) */
+const reviewUrls = (url: URL): boolean => url.pathname === '/api/deposits/count' || url.pathname === '/api/deposits'
+const reviewRoutes = new WeakMap<Page, (route: Route) => Promise<void>>()
+
+/**
+ * 확인 필요 입금 수를 서버가 review라고 말하는 것처럼 흉내 낸다 (null이면 흉내를 거둔다).
+ * 메뉴의 수는 GET /api/deposits/count만이 아니라 입금 확인 화면의 목록 응답(GET /api/deposits의 review)으로도 바뀐다 —
+ * 수만 흉내 내면 `/deposits`에서 목록 응답의 실제 수가 늦게 와 흉내 낸 수를 덮는다(두 응답 중 늦게 온 쪽). 그래서 둘 다 같은 수로.
+ */
+export async function fakeReviewCount(page: Page, review: number | null): Promise<void> {
+  const previous = reviewRoutes.get(page)
+  if (previous !== undefined) {
+    await page.unroute(reviewUrls, previous)
+    reviewRoutes.delete(page)
+  }
+  if (review === null) return
+  const handler = async (route: Route): Promise<void> => {
+    const url = new URL(route.request().url())
+    if (route.request().method() !== 'GET') return route.fallback()
+    if (url.pathname === '/api/deposits/count') return route.fulfill({ json: { review } })
+    const response = await route.fetch()
+    const body = (await response.json()) as Record<string, unknown>
+    return route.fulfill({ response, json: { ...body, review } })
+  }
+  reviewRoutes.set(page, handler)
+  await page.route(reviewUrls, handler)
 }

@@ -117,7 +117,13 @@ test.describe('AC-N4b-33 복사하는 글의 가게 이름', () => {
       const row = buyerRow(phone, '문자찜')
       await row.getByRole('button', { name: '링크 만들기' }).click()
       await expect(row.getByRole('button', { name: '링크 복사' })).toBeVisible()
-      const fetched = phone.waitForResponse((r) => r.url().includes('/receipt-buyers'))
+      // 가게 설정이 바뀌면 화면은 가게 이름(GET /api/shop)을 다시 읽은 뒤 줄을 받는다 — 그 다음 줄 응답을 기다린다.
+      // (아무 줄 응답이나 기다리면, 다른 알림(입금 확인 등)으로 먼저 다시 받은 줄 응답에 걸려 이름을 읽기 전에 복사한다)
+      let shopRead = false
+      const fetched = phone.waitForResponse((r) => {
+        if (r.request().method() === 'GET' && new URL(r.url()).pathname === '/api/shop') shopRead = true
+        return shopRead && r.url().includes('/receipt-buyers')
+      })
       await setShop(page, { name: '초록다육' })
       await fetched
       await row.getByRole('button', { name: '링크 복사' }).click()

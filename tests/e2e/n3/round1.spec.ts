@@ -6,7 +6,7 @@
 import { test, expect, type Page, type Route } from '@playwright/test'
 import { deposit, depositOne, depositRow, fakeSource, history, kstDate, kstIso, login, noHorizontalScroll, phoneLike, scopeView, smsSale, todayKst, uniq } from './support.ts'
 import { card, installFakeSpeech, openNewBroadcast, registerApi, speak, turnOnVoice, uniqueDate, voiceRegion } from '../i4/support.ts'
-import { closeMore, expectPhoneBar, moreButton, moreLinks, openMore } from '../menu.ts'
+import { closeMore, expectPhoneBar, fakeReviewCount, moreButton, moreLinks, openMore } from '../menu.ts'
 import { cleanupPrint } from '../i1/support.ts'
 
 // 출력 기록은 판매자 단위 — 판매(1등)가 만든 라벨 작업을 남기면 뒤 시험(N4a 등)의 출력 기기가 쌓인 라벨로 멈춘다 (i1 support "시험끼리 출력 기록이 섞이지 않게")
@@ -227,7 +227,7 @@ test.describe('휴대폰 메뉴 — 확인 필요 수가 커도 (수정 라운�
     await login(page)
     const phone = await phoneLike(browser, page)
     // 수는 서버가 주는 값 — 확인 필요 1234건을 흉내 낸다
-    await phone.route((url) => url.pathname === '/api/deposits/count', (route) => route.fulfill({ json: { review: 1234 } }))
+    await fakeReviewCount(phone, 1234)
     for (const path of ['/sms', '/deposits', '/settlements']) {
       await phone.goto(path)
       // AC-NAV-01·10: 막대는 ['방송','문자찜 입력','구매자','정산','더보기'] 한 줄·44px·화면 안 ("더보기"에는 수를 붙이지 않는다)
