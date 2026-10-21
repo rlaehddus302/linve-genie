@@ -216,7 +216,7 @@ test.describe('음성 — 이력을 받는 동안 미룬 문장과 자동 등록
 })
 
 test.describe('휴대폰 메뉴 — 확인 필요 수가 커도 (수정 라운드 1, TE-N3-001)', () => {
-  test('375×812에서 "입금 확인 1234"여도 여섯 항목이 한 줄·모두 44×44px 이상·가로 스크롤 없음 (AC-N3-49·40, UX-04)', async ({ page, browser }) => {
+  test('375×812에서 "입금 확인 1234"여도 모든 메뉴 항목이 한 줄·모두 44×44px 이상·가로 스크롤 없음 (AC-N3-49·40, UX-04)', async ({ page, browser }) => {
     await login(page)
     const phone = await phoneLike(browser, page)
     // 수는 서버가 주는 값 — 확인 필요 1234건을 흉내 낸다
@@ -225,7 +225,10 @@ test.describe('휴대폰 메뉴 — 확인 필요 수가 커도 (수정 라운�
       await phone.goto(path)
       const links = menu(phone).getByRole('link')
       await expect(links.filter({ hasText: '입금 확인 1234' })).toHaveCount(1)
-      await expect(links).toHaveCount(6)
+      // 칸 수를 고정하지 않고 실제 메뉴 이름을 순서대로 본다 (합친 뒤 '포장'·'라벨'·'설정'이 늘었다 — '라벨'은 라벨 기능이 켜져 있을 때만)
+      const names = (await links.allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim())
+      const full = ['방송', '문자찜 입력', '구매자', '정산', '입금 확인 1234', '포장', '라벨', '설정']
+      expect([full, full.filter((n) => n !== '라벨')], path).toContainEqual(names)
       const boxes: { text: string; x: number; y: number; w: number; h: number }[] = []
       for (const link of await links.all()) {
         const box = (await link.boundingBox())!
