@@ -31,6 +31,7 @@ export const PASTE_MESSAGES = {
   TOO_LONG: '한 번에 20,000자까지 붙여 넣을 수 있어요. 나눠서 넣어 주세요.',
   TOO_MANY_LINES: '한 번에 200줄까지 붙여 넣을 수 있어요. 나눠서 넣어 주세요.',
   NOTHING_TO_ADD: '넣을 찜이 없어요.',
+  OVERLAP_SUFFIX: '은 같은 닉네임의 찜이 이미 있어 넣지 않아요.',
   SAME_NICKNAME: '같은 닉네임은 한 구매자로 넣어요',
 } as const
 
@@ -95,6 +96,10 @@ export interface PasteLineView {
   /** 넣을 번호 (주문 줄만, 파서가 낸 순서) */
   readonly numbers: readonly number[]
   readonly message: string
+  /** 같은 닉네임의 활성 찜이 이미 있어 넣지 않는 번호 (D-N2b-2-14 — 겹친 번호가 있는 주문 줄만, numbers 안의 순서) */
+  readonly overlaps?: readonly number[]
+  /** "{번호}번은 같은 닉네임의 찜이 이미 있어 넣지 않아요." (overlaps가 있을 때만) */
+  readonly overlapMessage?: string
 }
 
 export interface PasteGroup {
@@ -153,4 +158,81 @@ export function classifyPaste(rows: readonly PasteRow[], settings: SaleSettings)
     message: group.lines.length > 1 ? PASTE_MESSAGES.SAME_NICKNAME : null,
   }))
   return { rows: views, groups: list, total: list.reduce((sum, group) => sum + group.claims, 0) }
+}
+
+// ── 이미 들어온 찜과 겹치는 줄 (D-N2b-2-14, AC-N2b-2-54) ──────────────────
+
+/** 활성 찜 = 확정·대기·보류·충돌 (R-6 4번 줄, 코어 isActive와 같은 뜻) */
+const ACTIVE = new Set(['CONFIRMED', 'WAITLISTED', 'PENDING', 'CONFLICT'])
+
+/** 겹침을 볼 찜 하나: 그 회차의 번호와 그 찜을 만든 입력의 seq */
+export interface OverlapCandidate {
+  readonly no: number
+  readonly seq: number
+}
+
+/** 그 회차의 주문 번호에 걸린 활성 찜 (번호 = 지금의 상품 키 번호). 이름을 찾을 입력의 seq와 함께 */
+export function overlapCandidates(
+  claims: readonly { readonly broadcast: string; readonly no: number; readonly status: string; readonly seq: number }[],
+  broadcastId: string,
+  plan: PastePlan,
+): OverlapCandidate[] {
+  const wanted = new Set<number>()
+  for (const row of plan.rows) if (row.result === 'ORDER') for (const no of row.numbers) wanted.add(no)
+  return claims.filter((claim) => claim.broadcast === broadcastId && wanted.has(claim.no) && ACTIVE.has(claim.status)).map((claim) => ({ no: claim.no, seq: claim.seq }))
+}
+
+function overlapMessage(numbers: readonly number[]): string {
+  return `${numbers.map((no) => `${String(no)}번`).join('·')}${PASTE_MESSAGES.OVERLAP_SUFFIX}`
+}
+
+/**
+ * 겹침을 반영한 계획: 주문 줄의 번호 중 그 회차에 같은 번호·같은 정리한 닉네임(입력 이름을 같은 정리로 — 글자 그대로 같음)의 활성 찜이 있으면 겹침.
+ * includeLines에 든 줄은 겹친 번호도 넣는다(겹침 표시 없음). 겹친 번호는 넣을 찜 수·묶음에서 빠진다(묶음은 넣을 번호가 있는 줄만).
+ * 한 번 넣기 안의 같은 닉네임·같은 번호는 겹침이 아니다(아직 기록 전 — 엔진이 DUPLICATE로 막는다)
+ */
+export function applyOverlaps(
+  plan: PastePlan,
+  candidates: readonly OverlapCandidate[],
+  names: ReadonlyMap<number, string>,
+  includeLines: ReadonlySet<number>,
+): PastePlan {
+  const byNumber = new Map<number, Set<string>>()
+  for (const candidate of candidates) {
+    const raw = names.get(candidate.seq)
+    if (raw === undefined) continue
+    const name = cleanNick(raw)
+    if (name === '') continue
+    const set = byNumber.get(candidate.no) ?? new Set<string>()
+    set.add(name)
+    byNumber.set(candidate.no, set)
+  }
+  const groups = new Map<string, { lines: number[]; claims: number }>()
+  const rows = plan.rows.map((row): PasteLineView => {
+    if (row.result !== 'ORDER' || row.nickname === undefined) return row
+    const nickname = row.nickname
+    const overlaps = includeLines.has(row.line) ? [] : row.numbers.filter((no) => byNumber.get(no)?.has(nickname) === true)
+    const kept = row.numbers.length - overlaps.length
+    if (kept > 0) {
+      const group = groups.get(nickname) ?? { lines: [], claims: 0 }
+      group.lines.push(row.line)
+      group.claims += kept
+      groups.set(nickname, group)
+    }
+    return overlaps.length === 0 ? row : { ...row, overlaps, overlapMessage: overlapMessage(overlaps) }
+  })
+  const list: PasteGroup[] = [...groups].map(([nickname, group]) => ({
+    nickname,
+    lines: group.lines,
+    claims: group.claims,
+    message: group.lines.length > 1 ? PASTE_MESSAGES.SAME_NICKNAME : null,
+  }))
+  return { rows, groups: list, total: list.reduce((sum, group) => sum + group.claims, 0) }
+}
+
+/** 넣을 번호 (겹친 번호를 뺀 것, 줄 안 순서) */
+export function insertNumbers(row: PasteLineView): readonly number[] {
+  if (row.overlaps === undefined || row.overlaps.length === 0) return row.numbers
+  const skip = new Set(row.overlaps)
+  return row.numbers.filter((no) => !skip.has(no))
 }

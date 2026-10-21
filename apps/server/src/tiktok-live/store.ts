@@ -1,7 +1,7 @@
 // 틱톡 연결·동의·아이디·붙여넣기 요청 저장 (D-N2b-2-04·05·08). 모든 쿼리에 판매자 ID 조건을 건다(SYS-02).
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
-import { accounts, broadcasts, events, pasteRequests, scopes, tiktokAccounts, tiktokConsents, tiktokLinks } from '../db/schema.ts'
+import { accounts, broadcasts, chatRaw, events, pasteRequests, scopes, tiktokAccounts, tiktokConsents, tiktokLinks } from '../db/schema.ts'
 
 // ── 아이디 ───────────────────────────────────────────────────────────────
 
@@ -232,4 +232,47 @@ export async function findPasteRequest(db: Db, sellerId: string, requestId: stri
 
 export async function insertPasteRequest(db: Db, row: { sellerId: string; requestId: string; broadcastId: string; digest: string; result: string; now: Date }): Promise<void> {
   await db.insert(pasteRequests).values({ sellerId: row.sellerId, requestId: row.requestId, broadcastId: row.broadcastId, digest: row.digest, result: row.result, createdAt: row.now })
+}
+
+// ── 붙여넣기 겹침 (D-N2b-2-14, AC-N2b-2-54) ─────────────────────────────
+
+/**
+ * 찜을 만든 입력의 이름: 그 범위(판매자·날짜·실제/리허설)에서 seq가 주어진 것 중 채팅이면 댓글 단 사람 닉네임(따로 둔 이름 — 없으면 본문),
+ * 문자찜이면 메모. 정리하지 않은 값 그대로 돌려준다(정리는 부르는 쪽). 다른 종류·이름 없는 입력은 넣지 않는다. 봉인으로 이름을 지운 채팅은 없음
+ */
+export async function inputNamesBySeq(db: Db, sellerId: string, date: string, rehearsal: boolean, seqs: readonly number[]): Promise<Map<number, string>> {
+  const out = new Map<number, string>()
+  if (seqs.length === 0) return out
+  const unique = [...new Set(seqs)]
+  for (let start = 0; start < unique.length; start += 500) {
+    const rows = await db
+      .select({ seq: events.seq, type: events.type, body: events.body, raw: events.raw, rawNick: chatRaw.nick })
+      .from(events)
+      .innerJoin(scopes, and(eq(scopes.id, events.scopeId), eq(scopes.sellerId, events.sellerId)))
+      .leftJoin(chatRaw, and(eq(chatRaw.scopeId, events.scopeId), eq(chatRaw.seq, events.seq), eq(chatRaw.sellerId, events.sellerId)))
+      .where(
+        and(
+          eq(events.sellerId, sellerId),
+          eq(scopes.date, date),
+          eq(scopes.rehearsal, rehearsal),
+          inArray(events.seq, unique.slice(start, start + 500)),
+          inArray(events.type, ['chat', 'sms']),
+          eq(events.failed, false),
+        ),
+      )
+    for (const row of rows) {
+      const name = row.type === 'chat' ? (row.raw ? row.rawNick : nameField(row.body, 'nick')) : nameField(row.body, 'memo')
+      if (typeof name === 'string') out.set(row.seq, name)
+    }
+  }
+  return out
+}
+
+function nameField(body: string, key: 'nick' | 'memo'): string | null {
+  try {
+    const value = (JSON.parse(body) as Record<string, unknown>)[key]
+    return typeof value === 'string' ? value : null
+  } catch {
+    return null
+  }
 }

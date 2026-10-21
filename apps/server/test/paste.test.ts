@@ -190,7 +190,8 @@ describe('AC-N2b-2-58 다른 구매자에게 저절로 잇지 않는다', () => 
     await tiktokComment(w, tiktokId, { userId: '7101000000000000101', uniqueId: 'hong', nickname: '홍길동', comment: '16' })
     const api = client(w, seller.cookie)
     expect((await api.post(`/api/broadcasts/${b}/paste`, { requestId: rid('p'), text: '홍길동: 15' })).status).toBe(200)
-    expect((await api.post(`/api/broadcasts/${b}/paste`, { requestId: rid('p'), text: '홍길동: 15' })).status).toBe(200)
+    // 두 번째는 앞선 붙여넣기와 겹친다 — "그래도 넣기"로 넣는다 (D-N2b-2-14). 넣어도 앞 구매자에 잇지 않는다
+    expect((await api.post(`/api/broadcasts/${b}/paste`, { requestId: rid('p'), text: '홍길동: 15', includeOverlaps: [1] })).status).toBe(200)
     const smsBodies = (await w.database.pglite?.query<{ body: string }>(`select body from events where seller_id = $1 and type = 'sms' order by seq`, [seller.sellerId]))?.rows.map((row) => JSON.parse(row.body) as Record<string, unknown>) ?? []
     expect(smsBodies.every((body) => body.buyer === undefined)).toBe(true)
     const state = (await w.server.writer.read(seller.sellerId, DATE)).state

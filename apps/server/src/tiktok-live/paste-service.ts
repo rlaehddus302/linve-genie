@@ -7,8 +7,11 @@
 // - 붙여 넣은 글은 저장하지 않는다(요약값만 — 같은 요청 번호에 다른 글인지 보려고). 로그·오류 응답에 쓰지 않는다.
 //   재전송 응답용으로 두는 결과도 닉네임·댓글을 뺀 뼈대(줄 번호·결과 코드·번호·안내 문구·넣은 수)뿐이다. 같은 요청 번호 재전송은
 //   요약값이 같아 같은 글이 오므로, 닉네임·댓글은 그 글을 다시 읽어 줄 번호로 채운다 (DAT-06·D-079, SA/RA-N2b-2-01).
+// - 겹침 (D-N2b-2-14, AC-N2b-2-54): 그 회차(같은 범위)의 그 번호에 활성 찜이 있고 그 찜을 만든 입력의 이름(채팅 = 닉네임, 문자찜 = 메모 — 같은 정리)이
+//   줄의 정리한 닉네임과 같으면 그 번호는 기본으로 넣지 않는다. 넣기는 고른 줄(includeOverlaps)의 겹친 번호도 넣는다.
+//   넣기는 락 안에서 겹침을 다시 본다(그 사이 들어온 채팅도). 요약값에 고른 줄을 넣는다 — 같은 요청 번호에 고르기만 달라도 REQUEST_REUSED.
 import { createHash } from 'node:crypto'
-import { getBroadcast } from '@livejjim/core'
+import { getBroadcast, listClaims, type EngineState } from '@livejjim/core'
 import type { Db } from '../db/database.ts'
 import type { LinkOutcome } from '../live-links.ts'
 import { ASSISTANT_FORBIDDEN_MESSAGE } from '../roles.ts'
@@ -16,8 +19,8 @@ import { sha256Hex } from '../secrets.ts'
 import { findBroadcast, type BroadcastRow } from '../store.ts'
 import { kstTime } from '../time.ts'
 import type { Actor, Draft, Rejection, ScopeWriter } from '../writer.ts'
-import { classifyPaste, parsePaste, PASTE_MESSAGES, type PasteLineView, type PastePlan, type PasteRow } from './paste.ts'
-import { findPasteRequest, insertPasteRequest } from './store.ts'
+import { applyOverlaps, classifyPaste, insertNumbers, overlapCandidates, parsePaste, PASTE_MESSAGES, type OverlapCandidate, type PasteLineView, type PastePlan, type PasteRow } from './paste.ts'
+import { findPasteRequest, inputNamesBySeq, insertPasteRequest } from './store.ts'
 
 export interface PasteServiceOptions {
   readonly db: Db
@@ -54,7 +57,13 @@ interface StoredInsert {
 
 export function pasteSkeleton(plan: PastePlan, added: number): StoredInsert {
   return {
-    rows: plan.rows.map((row) => ({ line: row.line, result: row.result, numbers: row.numbers, message: row.message })),
+    rows: plan.rows.map((row) => ({
+      line: row.line,
+      result: row.result,
+      numbers: row.numbers,
+      message: row.message,
+      ...(row.overlaps === undefined ? {} : { overlaps: row.overlaps, overlapMessage: row.overlapMessage }),
+    })),
     groups: plan.groups.map((group) => ({ lines: group.lines, claims: group.claims, message: group.message })),
     total: plan.total,
     added,
@@ -67,10 +76,18 @@ export function pasteRehydrate(stored: StoredInsert, parsed: readonly PasteRow[]
   for (const row of parsed) if (!('error' in row)) byLine.set(row.line, { nickname: row.nickname, text: row.text })
   const rows: PasteLineView[] = stored.rows.map((row) => {
     const source = row.result === 'ORDER' || row.result === 'CANCEL_NOT_SUPPORTED' || row.result === 'NOT_ORDER' ? byLine.get(row.line) : undefined
-    return source === undefined ? { ...row } : { line: row.line, nickname: source.nickname, text: source.text, result: row.result, numbers: row.numbers, message: row.message }
+    if (source === undefined) return { ...row }
+    const { line, result, numbers, message, ...overlap } = row
+    return { line, nickname: source.nickname, text: source.text, result, numbers, message, ...overlap }
   })
   const groups = stored.groups.map((group) => ({ nickname: byLine.get(group.lines[0] as number)?.nickname ?? '', lines: group.lines, claims: group.claims, message: group.message }))
   return { rows, groups, total: stored.total, added: stored.added }
+}
+
+/** 겹침 재료: 그 번호의 활성 찜과 그 찜을 만든 입력의 이름 (seq → 이름) */
+interface OverlapInputs {
+  readonly candidates: readonly OverlapCandidate[]
+  readonly names: ReadonlyMap<number, string>
 }
 
 export class PasteService {
@@ -97,14 +114,36 @@ export class PasteService {
     const state = (await this.#options.writer.read(sellerId, row.date, row.rehearsal)).state
     const settings = getBroadcast(state, broadcastId)?.settings
     if (settings === undefined) return notFound
-    return { status: 200, body: planBody(classifyPaste(parsed.rows, settings)) }
+    const plan = classifyPaste(parsed.rows, settings)
+    const candidates = overlapCandidates(listClaims(state), broadcastId, plan)
+    const names = await inputNamesBySeq(this.#options.db, sellerId, row.date, row.rehearsal, candidates.map((candidate) => candidate.seq))
+    return { status: 200, body: planBody(applyOverlaps(plan, candidates, names, new Set())) }
+  }
+
+  /** 락 안에서 따라잡은 상태로 겹침 재료를 읽는다 (넣기의 guard — build는 같은 상태를 받는다) */
+  async #overlapInputs(tx: Db, state: EngineState, sellerId: string, row: BroadcastRow, broadcastId: string, rows: readonly PasteRow[]): Promise<OverlapInputs | null> {
+    const settings = getBroadcast(state, broadcastId)?.settings
+    if (settings === undefined) return null
+    const candidates = overlapCandidates(listClaims(state), broadcastId, classifyPaste(rows, settings))
+    const names = await inputNamesBySeq(tx, sellerId, row.date, row.rehearsal, candidates.map((candidate) => candidate.seq))
+    return { candidates, names }
   }
 
   /** 넣기 (AC-N2b-2-57): 번호마다 문자찜 — 한 트랜잭션. 같은 요청 번호는 같은 글일 때 처음 응답, 다른 글이면 REQUEST_REUSED */
-  async insert(sellerId: string, actor: Actor, requestId: string, broadcastId: string, text: string, assistant: boolean): Promise<LinkOutcome> {
+  async insert(
+    sellerId: string,
+    actor: Actor,
+    requestId: string,
+    broadcastId: string,
+    text: string,
+    assistant: boolean,
+    includeOverlaps: readonly number[] = [],
+  ): Promise<LinkOutcome> {
     const row = await this.#broadcast(sellerId, broadcastId, assistant)
     if ('status' in row) return row
-    const digest = sha256Hex(JSON.stringify(['paste', broadcastId, text]))
+    const include = [...new Set(includeOverlaps)].sort((a, b) => a - b)
+    // 고른 줄이 없으면 예전 요약값과 같다 (고른 줄이 있을 때만 더한다)
+    const digest = sha256Hex(JSON.stringify(include.length === 0 ? ['paste', broadcastId, text] : ['paste', broadcastId, text, include]))
     const again = async (): Promise<LinkOutcome> => {
       const prior = await findPasteRequest(this.#options.db, sellerId, requestId)
       if (prior !== null && prior.broadcastId === broadcastId && prior.digest === digest) {
@@ -120,17 +159,23 @@ export class PasteService {
     if ('error' in parsed) return error(400, parsed.error, PASTE_MESSAGES[parsed.error])
     let result: LinkOutcome | null = null
     let stored: StoredInsert | null = null
+    let overlap: OverlapInputs | null = null
     const outcome = await this.#options.writer.write({
       sellerId,
       date: row.date,
       rehearsal: row.rehearsal,
       createScope: false,
       requestId,
+      guard: async (tx, state) => {
+        overlap = await this.#overlapInputs(tx, state, sellerId, row, broadcastId, parsed.rows)
+        return null
+      },
       build: (ctx) => {
         // 그때의 회차 스냅샷으로 다시 읽는다 (미리 보기와 넣기 사이에 바뀌었어도 지금 것)
         const settings = getBroadcast(ctx.state, broadcastId)?.settings
         if (settings === undefined) return rejection(404, 'NOT_FOUND', '찾을 수 없어요.')
-        const plan = classifyPaste(parsed.rows, settings)
+        const inputs = overlap as OverlapInputs | null
+        const plan = applyOverlaps(classifyPaste(parsed.rows, settings), inputs?.candidates ?? [], inputs?.names ?? new Map(), new Set(include))
         if (plan.total === 0) return rejection(409, 'NOTHING_TO_ADD', PASTE_MESSAGES.NOTHING_TO_ADD)
         // 수신 시각 = 넣기를 받은 서버 시각 (KST HH:MM:SS, 한 번 넣기에 같은 값 — D-089)
         const received = kstTime(ctx.at)
@@ -139,7 +184,9 @@ export class PasteService {
         for (const line of plan.rows) {
           if (line.result !== 'ORDER' || line.nickname === undefined) continue
           const nickname = line.nickname
+          const keep = new Set(insertNumbers(line))
           line.numbers.forEach((no, index) => {
+            if (!keep.has(no)) return
             const ref = pasteRef(sellerId, requestId, line.line, index + 1)
             const first = firstRef.get(nickname)
             if (first === undefined) firstRef.set(nickname, ref)

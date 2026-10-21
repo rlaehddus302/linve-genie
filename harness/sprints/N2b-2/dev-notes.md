@@ -31,6 +31,12 @@
 12. 다시 연결 30초 한도는 `tiktok_links.started_at`(잇기·다시 연결 때 적음)으로 본다 — 서버가 둘이어도·다시 켜져도 같다.
 13. **틱톡 댓글 저장 실패**(수정 1, RA-N2b-2-02): 묶음을 바로 버리지 않고 바로 한 번 + 0.3초·1.5초 뒤 다시 쓴다(`TIKTOK_SAVE_RETRY_MS`, 기다리는 동안 새 댓글은 대기열 뒤라 받은 순서 그대로). 끝내 못 쓰면 `saveFailed`를 세고 SSE `tiktok`(LINK)을 보낸다. 연결 보기는 `saveFailed > 0`이면 `missed: true`, `missedMessage` = "저장하지 못한 틱톡 댓글이 N개 있어요. 틱톡 앱에서 확인해 댓글을 붙여 넣어 주세요." — 화면은 지금 그대로 알림 줄·"댓글 붙여넣기" 주 단추를 띄운다(`tiktokNeedsPaste`가 `missed`를 본다).
 
+14. **붙여넣기 겹침**(라운드 1 분쟁 판정, RA-N2b-2-03 → D-N2b-2-14, AC-N2b-2-54): 미리 보기·넣기가 주문 줄의 번호마다 그 회차의 활성 찜(확정·대기·보류·충돌, 번호 = 지금의 상품 키)을 엔진 `listClaims`로 찾고, 그 찜의 `seq`(채팅·변환 = 원래 채팅, 문자찜 = 그 문자찜)로 기록을 읽어 입력 이름을 얻는다(`store.ts inputNamesBySeq` — 채팅은 따로 둔 이름 `chat_raw.nick`, 문자찜은 본문 `memo`, 실패 표시 이벤트 제외, 같은 범위만). 이름은 `cleanNick`으로 정리해 줄의 정리한 닉네임과 글자 그대로 비교한다. 직접 배정(`host.assign`)·봉인으로 이름을 지운 채팅은 이름이 없어 겹치지 않는다.
+   - 넣기는 범위 락 안에서 다시 본다: 기록 경로 `guard`가 이제 `(tx, state)`를 받는다(락 안에서 따라잡은 상태 = build가 받는 상태). 붙여넣기는 guard에서 이름을 읽고 build에서 겹침을 반영한다(그 사이 들어온 채팅도 겹침).
+   - 응답: 겹친 줄에만 `overlaps`(빠진 번호, 줄 안 순서)·`overlapMessage`("15번은 같은 닉네임의 찜이 이미 있어 넣지 않아요." — 여럿이면 "15번·28번은 …"). `numbers`·`message`("15번 찜")는 그대로. `total`·`groups`는 겹친 번호를 뺀 넣을 찜 수(묶음은 넣을 번호가 남은 줄만). 넣기 응답의 `overlaps`는 실제로 빠진 번호뿐이다 — "그래도 넣기"로 고른 줄에는 없다.
+   - `includeOverlaps`(넣기만, 줄 번호 정수 ≥1 목록, 200개까지 — 아니면 400 `INVALID_INPUT` 칸 `includeOverlaps`). 요약값에 정렬·중복 없앤 목록을 더한다(빈 목록이면 예전 요약값 그대로) — 같은 요청 번호에 고르기만 달라도 `REQUEST_REUSED`. 재전송은 처음 응답 그대로(겹침을 다시 보지 않음). 뼈대 저장에 `overlaps`·`overlapMessage`도 둔다(번호뿐 — 닉네임 없음).
+   - ref는 줄 안 원래 순서 그대로(`pst…-줄-순서`, 빠진 번호의 순서는 비운다) — 고르기가 달라도 같은 줄·번호는 같은 ref.
+
 ## 바꾼 기존 시험 (스펙 변경에 따른 교체 — 약화 아님)
 
 | 시험 | 바뀐 것 | 근거 |
@@ -91,8 +97,13 @@
   - `groups[]`: `{ nickname, lines, claims, message }` — `lines.length > 1`이면 "같은 닉네임 {N}줄은 한 구매자로 넣어요"(화면 문장, N = `lines.length`).
   - `total` = 넣을 찜 수 → 주 단추 "찜 {total}개 넣기"(0이면 누를 수 없음).
   - 전체 거절 400 `TOO_LONG`·`TOO_MANY_LINES`.
-- 넣기 `POST /api/broadcasts/:id/paste { requestId, text }` → `{ rows, groups, total, added }` — "찜 {added}개를 넣었어요." 같은 요청 번호로 다시 보내면 같은 응답(찜 둘 없음). 409 `NOTHING_TO_ADD` "넣을 찜이 없어요."·`REQUEST_REUSED`(글을 고쳤으면 새 요청 번호로).
+- 넣기 `POST /api/broadcasts/:id/paste { requestId, text, includeOverlaps? }` → `{ rows, groups, total, added }` — "찜 {added}개를 넣었어요." 같은 요청 번호로 다시 보내면 같은 응답(찜 둘 없음). 409 `NOTHING_TO_ADD` "넣을 찜이 없어요."·`REQUEST_REUSED`(글을 고쳤으면 새 요청 번호로).
   - **글을 고치면 미리 보기를 다시 하고 새 요청 번호를 만든다.**
+- **겹친 줄 (AC-N2b-2-69, D-N2b-2-14)** — 미리 보기·넣기 응답의 `rows[]`에 겹친 줄만 `overlaps: number[]`·`overlapMessage`가 더 있다. `overlapMessage`를 결과 문장 아래에 글자 그대로, 그 줄에 "그래도 넣기" 체크 상자(기본 꺼짐).
+  - 미리 보기 `total`은 겹친 번호를 뺀 수다. 화면의 N = `total` + (고른 줄의 `overlaps.length` 합) — 고르기를 바꿔도 미리 보기를 다시 하지 않는다.
+  - 넣기는 고른 줄 번호를 `includeOverlaps: number[]`로 보낸다(없으면 빈 목록과 같다). 처음 넣기를 누른 뒤에는 고르기를 잠그고, 다시 보내는 넣기는 같은 요청 번호·같은 `includeOverlaps`(다르면 409 `REQUEST_REUSED`).
+  - 끝 안내: M = 넣기 응답 `rows`의 `overlaps.length` 합(그 사이 들어온 채팅으로 빠진 번호 포함, 고른 줄은 0). M > 0이면 "찜 {added}개를 넣었어요. 이미 있는 찜 {M}개는 넣지 않았어요.", 0이면 앞 문장만.
+  - 겹침만 남아 넣을 것이 없으면 넣기가 409 `NOTHING_TO_ADD`다(미리 보기 뒤에 채팅이 들어온 경우).
 
 ### 5. 채팅·구매자 플랫폼 표시
 키 접두어로 안다(`platform.ts platformOfKey`): `ig:` 인스타그램 · `tt:` 틱톡 · `sms:` 문자 · 그 밖 유튜브. 채팅 메시지 `id`, 구매자 `id`.

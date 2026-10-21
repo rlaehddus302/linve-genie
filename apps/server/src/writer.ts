@@ -96,9 +96,9 @@ export interface WriteJob {
   readonly chatBatch?: { readonly b: string; readonly ids: readonly string[] }
   /**
    * 범위 락을 잡은 트랜잭션 안에서 쓰기 전에 더 확인할 것 (유튜브 수집기: 그 연결이 아직 이어져 있는지 — 다른 서버가 끊었으면 쓰지 않는다).
-   * 거절이면 아무것도 쓰지 않는다
+   * 거절이면 아무것도 쓰지 않는다. state = 락 안에서 따라잡은 지금 범위 상태 (build가 받는 것과 같다 — 붙여넣기 겹침이 그 찜의 입력 이름을 읽는다, D-N2b-2-14)
    */
-  readonly guard?: (tx: Db) => Promise<Rejection | null>
+  readonly guard?: (tx: Db, state: EngineState) => Promise<Rejection | null>
   /** 트랜잭션 전에 미리 읽을 것 (차단 이어받기 목록). 범위가 새로울 때만 부른다 */
   readonly prepare?: () => Promise<unknown>
   /** 쓸 이벤트들. 첫 이벤트가 요청의 결과(요청 번호)다 */
@@ -397,7 +397,7 @@ export class ScopeWriter {
             throw new Abort({ kind: 'rejected', rejection: { status: 409, code: 'SEALED', message: SEALED_MESSAGE, problems: [] } })
           }
           if (job.guard !== undefined) {
-            const refused = await job.guard(tx)
+            const refused = await job.guard(tx, runtime.state)
             if (refused !== null) throw new Abort({ kind: 'rejected', rejection: refused })
           }
           if (job.chat !== undefined && (await chatEventSeq(tx, job.sellerId, job.chat.b, job.chat.id)) !== null) {

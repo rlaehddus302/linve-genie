@@ -9,6 +9,7 @@ import type { LinkOutcome } from '../live-links.ts'
 import { unknownFieldProblems } from '../messages.ts'
 import type { TikTokLive } from './live.ts'
 import type { PasteService } from './paste-service.ts'
+import { PASTE_LINES_MAX } from './paste.ts'
 
 type Env = { Variables: { body: Record<string, unknown> | null; session: SessionContext } }
 
@@ -88,10 +89,17 @@ export function registerTiktokRoutes(api: Hono<Env>, tiktok: TikTokLive, paste: 
     const input = body(c)
     const requestId = requestIdOf(input)
     if (requestId === null) return invalidRequestId()
-    const extra = onlyKeys(input, ['requestId', 'text'])
+    const extra = onlyKeys(input, ['requestId', 'text', 'includeOverlaps'])
     if (extra !== null) return extra
     const text = textOf(input)
     if (typeof text !== 'string') return text
-    return outcomeResponse(await paste.insert(session(c).sellerId, { kind: 'account', accountId: session(c).accountId }, requestId, c.req.param('id'), text, assistant(c)))
+    // "그래도 넣기"로 고른 줄 번호 (D-N2b-2-14) — 없으면 빈 목록
+    const include = own(input, 'includeOverlaps')
+    if (include !== undefined && !(Array.isArray(include) && include.length <= PASTE_LINES_MAX && include.every((line) => Number.isSafeInteger(line) && (line as number) >= 1))) {
+      return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'includeOverlaps', message: '고른 줄을 확인해 주세요.' }])
+    }
+    return outcomeResponse(
+      await paste.insert(session(c).sellerId, { kind: 'account', accountId: session(c).accountId }, requestId, c.req.param('id'), text, assistant(c), (include ?? []) as number[]),
+    )
   })
 }
