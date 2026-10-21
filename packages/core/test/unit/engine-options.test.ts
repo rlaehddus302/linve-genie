@@ -249,13 +249,16 @@ describe('AC-O1-07 옵션 바꾸기', () => {
       { options: [{ name: '크기', choices: [{ label: 'S' }, { label: 'M' }, { label: 'L' }] }] },
       { options: [...SIZE, { name: '색상', choices: [{ label: '흰색' }] }] },
       { options: [{ name: '사이즈', choices: [{ label: 'XS' }, { label: 'S' }, { label: 'M' }, { label: 'L' }] }] },
+      // 기존 선택지의 별칭 바꾸기 (AC-O1-07 — 받는 것은 선택지 더하기·가격 차이·변형 재고뿐)
+      { options: [{ name: '사이즈', choices: [{ label: 'S', aliases: ['에스'] }, { label: 'M', aliases: ['엠'] }, { label: 'L' }] }] },
+      { options: [{ name: '사이즈', choices: [{ label: 'S' }, { label: 'M', aliases: ['미디움'], price: 500 }, { label: 'L' }] }] },
     ]) {
       const before = play(base, OPTIONS).state
       const after = applyEvent(before, ev(update(blocked) as unknown as Record<string, unknown>)).state
       expect(after).toBe(before)
     }
     const { state } = play(
-      [...base, update({ options: [{ name: '사이즈', choices: [{ label: 'S' }, { label: 'M', aliases: ['미디움'], price: 500 }, { label: 'L' }, { label: 'XL', price: 1000 }] }], stocks: { XL: 0 } })],
+      [...base, update({ options: [{ name: '사이즈', choices: [{ label: 'S' }, { label: 'M', aliases: ['엠'], price: 500 }, { label: 'L' }, { label: 'XL', aliases: ['엑스라지'], price: 1000 }] }], stocks: { XL: 0 } })],
       OPTIONS,
     )
     expect(getProduct(state, 'b1', 21)?.variants.map((v) => [v.text, v.stock, v.price, v.status])).toEqual([
@@ -288,7 +291,7 @@ describe('AC-O1-07 옵션 바꾸기', () => {
         chat('UC_A', '반바지 M 2개'.replace(' 2개', '')),
         chat('UC_B', '반바지 S'),
         { type: 'settlement.payment', buyer: 'UC_B', date: '2026-10-18', amount: 1000 } as EventInput,
-        update({ applyTo: 'UNPAID_CLAIMS', options: [{ name: '사이즈', choices: [{ label: 'S', price: 300 }, { label: 'M', price: 700 }, { label: 'L' }] }] }),
+        update({ applyTo: 'UNPAID_CLAIMS', options: [{ name: '사이즈', choices: [{ label: 'S', price: 300 }, { label: 'M', aliases: ['엠'], price: 700 }, { label: 'L' }] }] }),
       ],
       OPTIONS,
     )
@@ -460,6 +463,55 @@ describe('공개 전 찜 (R-19 "공개 전 찜") — 변형 하나뿐인 상품,
     )
     expect(claimsOf(state)).toEqual([{ key: 'b1/21#M', buyer: 'UC_A', status: 'REJECTED', reason: 'OPTION_MISSING', qty: 1 }])
     expect(listReviews(state).map((r) => [r.item, r.reason, r.product])).toEqual([['mA', 'OPTION_MISSING', 'b1/21']])
+    expect(checkInvariants(state)).toEqual([])
+  })
+})
+
+describe('번호를 바꾼 뒤 남은 변형 보류 찜의 자리 (R-10 1, R-5, R-9 — SA-O1-03)', () => {
+  const renumber = (from: number, to: number): EventInput => ({ type: 'product.renumber', b: 'b1', from, to }) as EventInput
+  const slotUnits = (state: EngineState, no: number): string[] => (pget(state.slots, `b1/${String(no)}`) as SlotRecord).units.map((unit) => unit.text)
+
+  it('자리는 남되 조회의 변형에는 나오지 않고, 찜이 끝나면 자리도 지워진다', () => {
+    const orphan = [shorts({ status: 'READY' }), chat('UC_A', '반바지 M'), chat('UC_A', '반바지 L'), renumber(21, 25)]
+    const { state } = play(orphan, OPTIONS)
+    expect(slotUnits(state, 21)).toEqual(['M', 'L'])
+    expect(slotUnits(state, 25)).toEqual(['S', 'M', 'L'])
+    expect(checkInvariants(state)).toEqual([])
+    // 새 상품을 21에 등록해도 보류 찜의 자리는 남지만 새 상품의 변형은 새 상품 것만
+    const tee = { type: 'product.register', b: 'b1', no: 21, name: '티', price: 5000, status: 'READY', options: [{ name: '색', choices: [{ label: '흰' }, { label: 'M' }] }] } as EventInput
+    const { state: again } = play([...orphan, tee], OPTIONS)
+    expect(slotUnits(again, 21)).toEqual(['흰', 'M', 'L'])
+    expect(getProduct(again, 'b1', 21)?.variants.map((v) => v.text)).toEqual(['흰', 'M'])
+    // 상품 수정도 자리를 지우지 않는다
+    const { state: updated } = play([...orphan, tee, { type: 'product.update', b: 'b1', no: 21, price: 6000 } as EventInput], OPTIONS)
+    expect(slotUnits(updated, 21)).toEqual(['흰', 'M', 'L'])
+    // 변형이 둘이라 옵션 없는 취소는 고르는 요청, 고른 취소는 그 찜만 — 남은 찜이 끝나면 자리도 없다
+    const cancelled = play([...orphan, { type: 'host.cancel', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r' } as EventInput], OPTIONS)
+    expect(claimsOf(cancelled.state).map((c) => c.status)).toEqual(['PENDING', 'PENDING'])
+    const blocked = play([...orphan, { type: 'host.blockBuyer', buyer: 'UC_A', reason: '사유' } as EventInput], OPTIONS)
+    expect(claimsOf(blocked.state).map((c) => [c.key, c.status, c.reason])).toEqual([
+      ['b1/21#M', 'REJECTED', 'BLOCKED'],
+      ['b1/21#L', 'REJECTED', 'BLOCKED'],
+    ])
+    expect(slotUnits(blocked.state, 21)).toEqual([])
+    expect(checkInvariants(blocked.state)).toEqual([])
+    // 공개(새 상품에 L이 없다): M은 새 상품의 변형으로 판정, L은 OPTION_MISSING — 끝난 L의 자리는 지워진다
+    const { state: opened } = play([...orphan, tee, { type: 'product.open', b: 'b1', no: 21 } as EventInput], OPTIONS)
+    expect(claimsOf(opened).map((c) => [c.key, c.status, c.reason])).toEqual([
+      ['b1/21#M', 'CONFIRMED', null],
+      ['b1/21#L', 'REJECTED', 'OPTION_MISSING'],
+    ])
+    expect(slotUnits(opened, 21)).toEqual(['흰', 'M'])
+    expect(checkInvariants(opened)).toEqual([])
+  })
+
+  it('보류 찜이 남은 번호로 다른 상품이 옮겨 와도 그 자리는 남는다', () => {
+    const { state } = play(
+      [shorts({ status: 'READY' }), chat('UC_A', '반바지 L'), renumber(21, 25), { type: 'product.register', b: 'b1', no: 30, name: '치마', price: 9000, status: 'READY', options: [{ name: '색', choices: [{ label: '빨강' }, { label: '파랑' }] }] } as EventInput, renumber(30, 21)],
+      OPTIONS,
+    )
+    expect(slotUnits(state, 21)).toEqual(['빨강', '파랑', 'L'])
+    expect(getProduct(state, 'b1', 21)?.variants.map((v) => v.text)).toEqual(['빨강', '파랑'])
     expect(checkInvariants(state)).toEqual([])
   })
 })

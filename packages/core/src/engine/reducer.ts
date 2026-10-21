@@ -356,11 +356,46 @@ function register(d: Draft, e: ProductRegisterEvent): void {
   const options = e.options ?? []
   const variants = variantStocks(options, e.stocks, () => stock)
   slot.product = { id, name: e.name, price: e.price, stock, phase, priceHistory: [], nameHistory: [], aliases: [...(e.aliases ?? [])], options, variants }
-  slot.units = variants.map(({ text }) => ({ ...emptyUnit(text), winners: [], waitlist: [] }))
+  slot.units = withPendingUnits(d, slot, variants.map(({ text }) => ({ ...emptyUnit(text), winners: [], waitlist: [] })))
   d.setProductKey(id, slot.key)
   if (phase === 'SELLING') {
     setFocus(d, e.b, id)
     openPending(d, slot, e.at, openHooks(d, e.no))
+  }
+}
+
+/** 그 번호의 보류 찜이 가진 옵션 글 (변형 보류 찜만) */
+function pendingTexts(d: Draft, slot: SlotDraft): Set<string> {
+  const out = new Set<string>()
+  for (const id of pkeys(slot.pending)) {
+    const claim = d.readClaim(id)
+    if (claim === undefined) throw new CorruptStateError(`보류 찜 ${id}가 없다`)
+    if (claim.variant !== null) out.add(claim.variant)
+  }
+  return out
+}
+
+/**
+ * 새 변형 자리 목록 + 그 상품에 없는 변형을 가진 보류 찜의 자리 (지금 자리 그대로, 지금 순서).
+ * 번호를 바꾸거나 새 상품을 등록해도 번호 a에 남은 변형 보류 찜(R-10 1)은 자리가 있어야 차단·합치기·취소로 끝낼 수 있다.
+ * 그런 자리는 보류 찜만 가리킨다(확정·대기·충돌 없음). 조회의 변형 목록에는 나오지 않는다(상품 변형만).
+ */
+function withPendingUnits(d: Draft, slot: SlotDraft, units: SlotDraft['units']): SlotDraft['units'] {
+  const kept = new Set(units.map((unit) => unit.text))
+  const orphans = slot.units.filter((unit) => !kept.has(unit.text))
+  if (orphans.length === 0) return units
+  const texts = pendingTexts(d, slot)
+  return [...units, ...orphans.filter((unit) => texts.has(unit.text))]
+}
+
+/** 상품 변형이 아닌 자리는 그 변형의 보류 찜이 모두 끝나면 지운다 (이벤트 끝에, 고친 번호만) */
+function pruneUnits(d: Draft): void {
+  for (const slot of d.touchedSlots()) {
+    const variants = slot.product?.variants ?? []
+    const isVariant = (text: string): boolean => variants.some((variant) => variant.text === text)
+    if (slot.units.every((unit) => isVariant(unit.text))) continue
+    const texts = pendingTexts(d, slot)
+    slot.units = slot.units.filter((unit) => isVariant(unit.text) || texts.has(unit.text))
   }
 }
 
@@ -412,14 +447,21 @@ function normalizeItem(item: OptionItem): unknown {
 }
 
 /**
- * 찜이 있을 때 받는 옵션 바꾸기 (R-19 "옵션 바꾸기", D-O-14): 항목은 같은 이름·같은 순서, 기존 선택지는 같은 이름·같은 순서로 그대로 있고
- * 새 선택지는 끝에만 더한다. 가격 차이·별칭은 바꿀 수 있다(찜이 가리키는 변형이 사라지거나 뜻이 바뀌지 않는다).
+ * 찜이 있을 때 받는 옵션 바꾸기 (R-19 "옵션 바꾸기", D-O-14, AC-O1-07): 항목은 같은 이름·같은 순서, 기존 선택지는 같은 이름·같은 별칭·같은 순서로
+ * 그대로 있고 새 선택지(별칭 포함)는 끝에만 더한다. 기존 선택지에서 바꿀 수 있는 것은 가격 차이뿐이다("선택지 더하기와 선택지 가격 차이 바꾸기만").
  */
 function onlyAdditions(before: readonly OptionItem[], after: readonly OptionItem[]): boolean {
   if (before.length !== after.length) return false
   return before.every((item, i) => {
     const next = after[i] as OptionItem
-    return next.name === item.name && next.choices.length >= item.choices.length && item.choices.every((choice, j) => (next.choices[j] as { readonly label: string }).label === choice.label)
+    return (
+      next.name === item.name &&
+      next.choices.length >= item.choices.length &&
+      item.choices.every((choice, j) => {
+        const changed = next.choices[j] as OptionItem['choices'][number]
+        return changed.label === choice.label && JSON.stringify(changed.aliases ?? []) === JSON.stringify(choice.aliases ?? [])
+      })
+    )
   })
 }
 
@@ -444,6 +486,7 @@ function update(d: Draft, e: ProductUpdateEvent): void {
   const aliases = e.aliases !== undefined && JSON.stringify(e.aliases) !== JSON.stringify(product.aliases) ? [...e.aliases] : undefined
   const slot = current
   const draftSlot = (): SlotDraft => d.slot(e.b, e.no)
+  // 찜이 있으면 옵션은 선택지 더하기·가격 차이만 (상품 별칭은 옵션이 아니라 받는다 — dev-notes, spec-keeper 확인 부탁)
   if (options !== undefined && !onlyAdditions(product.options, options) && hasClaims(d, current, product)) return
   const nextOptions = options ?? product.options
   const optioned = nextOptions.length > 0
@@ -473,7 +516,7 @@ function update(d: Draft, e: ProductUpdateEvent): void {
     variants,
   }
   // 변형 판정 자리: 남는 변형은 그대로, 새 변형은 빈 자리 (빼는 바꾸기는 찜이 없을 때만 받았다)
-  target.units = variants.map(({ text }) => target.units.find((unit) => unit.text === text) ?? { ...emptyUnit(text), winners: [], waitlist: [] })
+  target.units = withPendingUnits(d, target, variants.map(({ text }) => target.units.find((unit) => unit.text === text) ?? { ...emptyUnit(text), winners: [], waitlist: [] }))
   const next = target.product
   // 지금 확정 찜: UNPAID_CLAIMS면 입금 전(묶음 받은 금액 0) 찜의 단가를 새 단가로, 출력된 라벨이 있으면 재출력 필요
   for (const unit of unitsOf(target)) {
@@ -539,10 +582,11 @@ function renumber(d: Draft, e: ProductRenumberEvent): void {
   const to = d.slot(e.b, e.to)
   to.product = product
   to.version = from.version
-  to.units = product.variants.map(({ text }) => ({ ...emptyUnit(text), winners: [], waitlist: [] }))
+  to.units = withPendingUnits(d, to, product.variants.map(({ text }) => ({ ...emptyUnit(text), winners: [], waitlist: [] })))
   from.product = null
   from.version = 0
-  from.units = []
+  // 번호 a에 남은 변형 보류 찜의 자리는 남긴다(빈 자리) — 차단·합치기·취소·무효·시청자 취소가 그 찜을 찾고 끝낼 수 있게 (R-10 1, R-5)
+  from.units = withPendingUnits(d, from, [])
   from.requests = []
   d.setProductKey(product.id, to.key)
   if (product.phase === 'SELLING') openPending(d, to, e.at, openHooks(d, e.to))
@@ -1146,5 +1190,6 @@ export function applyEvent(state: EngineState, event: EngineEvent): ApplyResult 
   const draft = new Draft(state, event)
   handler(draft, event)
   pruneRequests(draft)
+  pruneUnits(draft)
   return draft.commit()
 }
