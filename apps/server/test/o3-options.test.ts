@@ -9,6 +9,9 @@ import { pdfPageTexts } from '../../../packages/documents/test/helpers.ts'
 import { listClaims, type ClaimInfo } from '@livejjim/core'
 import { createBackupBytes, restoreSeller } from '../src/backup.ts'
 import { randomIds } from '../src/ids.ts'
+import { eventsAfter, scopeRow } from '../src/store.ts'
+import { summaryLines } from '../src/youtube/outbox.ts'
+import { buildLedger, confirmTimes } from '../src/youtube/seal.ts'
 import { packingBroadcasts } from '../src/label-data.ts'
 import { parsePackedItems, packedItemsJson, packingWord, pairText, readPackedItem, replayPacking } from '../src/packing.ts'
 import { at, chat, getFile, ok, pack, pngHeader } from './i2-support.ts'
@@ -471,5 +474,43 @@ describe('AC-O3-24 문서 내보내기·출력은 같은 데이터', () => {
     expect(label.status).toBe(200)
     const labelPdf = await getFile(world, seller.cookie, `/api/days/${D}/packing-label.pdf?buyer=UC_A`)
     expect(labelPdf.status).toBe(200)
+  })
+})
+
+describe('RA-O3-001 옵션 상품의 1등 — 봉인 장부의 확정 시각·방송 후 요약 줄', () => {
+  it('봉인 장부(D-012): 옵션 상품 찜도 확정 시각이 남는다 — 모든 확정 판매의 confirmedAt이 그 찜이 1등이 된 이벤트 시각', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const { b2 } = await sellO3(world, seller)
+    const scope = await scopeRow(world.database.db, seller.sellerId, D)
+    expect(scope).not.toBeNull()
+    const { state, times } = confirmTimes(await eventsAfter(world.database.db, seller.sellerId, scope?.id ?? '', 0))
+    const ledger = buildLedger(D, state, times, Date.parse('2026-11-25T00:00:00Z'))
+    const kst = (time: string): string => new Date(Date.parse(`${D}T${time}+09:00`)).toISOString()
+    const sales = ledger.sales.map((sale) => ({ no: sale.no, buyerName: sale.buyerName, confirmedAt: sale.confirmedAt }))
+    expect(sales).toHaveLength(7)
+    for (const sale of sales) expect(sale.confirmedAt, JSON.stringify(sale)).not.toBeNull()
+    const byKey = new Map(ledger.sales.map((sale) => [String(listClaims(state).find((claim) => claim.id === sale.id)?.key), sale.confirmedAt]))
+    expect(byKey.get(`${b2}/21#M`)).toBe(kst('21:00:05'))
+    expect(byKey.get(`${b2}/21#L`)).toBe(kst('21:00:06'))
+    expect(byKey.get(`${b2}/22#105/검정색`)).toBe(kst('21:00:07'))
+    expect(byKey.get(`${b2}/22#100/흰색`)).toBe(kst('21:00:10'))
+  })
+
+  it('방송 후 요약 줄(AC-Y1-46): 옵션 상품 판매도 들어가고, 가격은 찜 금액(단가 × 수량). 다육 방송 줄은 그대로', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const { b1, b2 } = await sellO3(world, seller)
+    const { state } = await world.server.writer.read(seller.sellerId, D)
+    expect(summaryLines(state, b1)).toEqual([{ no: 7, name: '핑크프릴', price: '8,000원', buyer: '홍길동' }])
+    expect(summaryLines(state, b2)).toEqual([
+      { no: 11, name: '초코 과자', price: '6,000원', buyer: '홍길동' },
+      { no: 11, name: '초코 과자', price: '2,000원', buyer: '김철수' },
+      { no: 21, name: '반바지', price: '10,000원', buyer: '홍길동' },
+      { no: 21, name: '반바지', price: '10,000원', buyer: '홍길동' },
+      // 같은 번호는 순위 재료 순: 문자찜은 받은 분(21:00)의 시작이 실제 시각이라 21:00:07 채팅보다 앞 (옵션 없는 상품의 1등 순서와 같은 기준)
+      { no: 22, name: '반팔티', price: '15,000원', buyer: '문자찜' },
+      { no: 22, name: '반팔티', price: '34,000원', buyer: '홍길동' },
+    ])
   })
 })

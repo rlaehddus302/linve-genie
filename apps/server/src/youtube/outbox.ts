@@ -48,6 +48,7 @@ import type { QuotaMeter } from './quota.ts'
 import { activeLink, insertOwnMessage, latestLink, markChatEnded, markSummaryDone, summaryCandidates, type LinkRow } from './store.ts'
 import { SUMMARY_KIND, batchMessages, commentText, liveChatText, summaryComments, type SummaryLine } from './texts.ts'
 import type { Timer } from './timer.ts'
+import { winnerClaimsOf } from '../winners.ts'
 
 export type OutboxState = 'WAITING' | 'SENDING' | 'SENT' | 'SKIPPED' | 'FAILED'
 export type OutboxTarget = 'LIVE_CHAT' | 'VIDEO_COMMENT' | 'SUMMARY'
@@ -1202,19 +1203,24 @@ export class OutboxRunner {
 
 /**
  * 방송 후 요약 줄 (AC-Y1-46): 그 방송의 확정 판매(지금 엔진 상태) — 번호 순, 같은 번호는 확정 순서.
- * 품종 = 지금 상품 이름, 가격 = 그 찜의 가격 스냅샷, 구매자 = 그 찜의 구매자 자신의 지금 표시 이름(문자 구매자·문자찜으로 생긴 찜은 늘 `문자찜`)
+ * 옵션 상품은 변형마다의 1등(D-O1-01, winnerClaimsOf). 품종 = 지금 상품 이름, 가격 = 그 찜의 찜 금액(단가 스냅샷 × 수량, R-13), 구매자 = 그 찜의 구매자 자신의 지금 표시 이름(문자 구매자·문자찜으로 생긴 찜은 늘 `문자찜`)
  */
 export function summaryLines(state: EngineState, broadcastId: string): SummaryLine[] {
   const products = listProducts(state).filter((product) => product.broadcast === broadcastId)
   const claims = new Map(listClaims(state).map((claim) => [claim.id, claim]))
   const lines: SummaryLine[] = []
   for (const product of [...products].sort((a, b) => a.no - b.no)) {
-    for (const claimId of product.winnerClaims) {
+    // 옵션 상품은 변형마다의 1등을 모아 순위 재료(실제 시각 → seq) 순으로 — 같은 번호는 확정 순서. 옵션 없는 상품은 상품의 1등 순서 그대로
+    const winners = winnerClaimsOf(product).flatMap((claimId) => {
       const claim = claims.get(claimId)
-      if (claim === undefined || claim.status !== 'CONFIRMED') continue
+      return claim === undefined ? [] : [claim]
+    })
+    if (product.variants.length > 0) winners.sort((a, b) => a.rankTime - b.rankTime || a.seq - b.seq)
+    for (const claim of winners) {
+      if (claim.status !== 'CONFIRMED') continue
       const buyer = getBuyer(state, claim.buyer)
       const sms = claim.origin === 'sms' || buyer?.kind === 'sms'
-      lines.push({ no: product.no, name: product.name, price: formatWon(claim.price ?? product.price), buyer: sms ? '문자찜' : (buyer?.display ?? '시청자') })
+      lines.push({ no: product.no, name: product.name, price: formatWon(claim.amount ?? (claim.price ?? product.price) * claim.qty), buyer: sms ? '문자찜' : (buyer?.display ?? '시청자') })
     }
   }
   return lines

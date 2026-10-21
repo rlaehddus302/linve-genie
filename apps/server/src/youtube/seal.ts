@@ -25,6 +25,7 @@ import { emptyState } from '../runtime.ts'
 import { sha256Hex } from '../secrets.ts'
 import { eventsAfter } from '../store.ts'
 import { iso, withIsoTimes } from '../time.ts'
+import { winnerClaimsOf } from '../winners.ts'
 import type { ScopeWriter } from '../writer.ts'
 import { kstMidnightAfter, type Timer } from './timer.ts'
 
@@ -53,7 +54,7 @@ export interface Ledger {
 }
 
 /** 확정 시각: 찜이 상품의 확정 목록에 들어간 이벤트의 at (다시 확정되면 그때) */
-function confirmTimes(rows: readonly { body: string; failed: boolean }[]): { state: EngineState; times: Map<string, number> } {
+export function confirmTimes(rows: readonly { body: string; failed: boolean }[]): { state: EngineState; times: Map<string, number> } {
   let state = emptyState()
   const lastWinners = new Map<string, Set<string>>()
   const times = new Map<string, number>()
@@ -80,10 +81,12 @@ function confirmTimes(rows: readonly { body: string; failed: boolean }[]): { sta
       }
     }
     if (b === null || ['host.blockBuyer', 'host.unblockBuyer', 'buyer.merge', 'buyer.unmerge', 'broadcast.end'].includes(String(event.type))) all = true
-    const products = all ? listProducts(state) : numbers.flatMap((no) => (b === null ? [] : [getProduct(state, b, no)])).filter((item) => item !== null)
+    // 옵션 방송의 채팅은 번호가 아닌 상품 이름·옵션 글로 찜한다(D-O1) — 번호 파서로는 상품을 못 찾으니 그 방송의 상품 전부를 본다
+    const optionsChat = event.type === 'chat' && b !== null && getBroadcast(state, b)?.settings['claim.parseMode'] === 'OPTIONS'
+    const products = all ? listProducts(state) : optionsChat ? listProducts(state).filter((product) => product.broadcast === b) : numbers.flatMap((no) => (b === null ? [] : [getProduct(state, b, no)])).filter((item) => item !== null)
     for (const product of products) {
       if (product === null) continue
-      const winners = new Set(product.winnerClaims)
+      const winners = new Set(winnerClaimsOf(product))
       const before = lastWinners.get(product.id) ?? new Set<string>()
       for (const claim of winners) if (!before.has(claim)) times.set(claim, at)
       lastWinners.set(product.id, winners)

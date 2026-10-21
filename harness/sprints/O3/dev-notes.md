@@ -75,3 +75,12 @@
   - 작은 템플릿(`99개 99,999,999원`·`99개 99,999 천원`): 숫자와 상관없이 통과한다.
 - 제안: L-5 O3 문장과 AC-O3-04에 있는 큰 템플릿의 원 표기 보장값을 `9개 99,999원`·`99개 9,999원`으로 바꾼다. 천원 표기와 작은 템플릿 보장값은 그대로 둔다. 그러면 TD-O3-001 적대 시험 사례(`3개 300,000원` 등)는 "그보다 긴 값"이 되어 `DOES_NOT_FIT`이 맞는 결과가 된다. 판매자에게는 천원 표기(기본값)를 쓰면 들어간다고 안내한다.
 - 단위 시험: `packages/label/test/o3.test.ts`의 AC-O3-04에 숫자 0~9를 모두 도는 시험을 넣었다. 천원 표기 보장값, 원 표기 6자리 글, 작은 템플릿 보장값이 대상이다. 스펙이 바뀌면 `bigCases`의 원 표기 두 줄(`9개 999,999원`·`99개 99,999원`)을 새 값으로 바꾼다.
+
+## dev-server 수정 라운드 1 — RA-O3-001
+
+- `winnerClaimsOf`를 `apps/server/src/winners.ts`로 옮겼다(`print.ts`는 다시 내보낸다). 출력·봉인·요약이 같은 함수를 쓴다.
+- 봉인 장부(`youtube/seal.ts` `confirmTimes`, 이제 export): 상품의 1등 집합 = `winnerClaimsOf(product)`. 옵션 방송(방송 설정 `claim.parseMode=OPTIONS`)의 채팅은 번호 파서로 상품을 못 찾으므로 그 방송 상품 전부를 본다. → 옵션 판매의 `confirmedAt`이 남는다.
+- 방송 후 요약(`youtube/outbox.ts` `summaryLines`): 옵션 상품 판매를 넣고, 가격은 찜 금액 `claim.amount`(없으면 단가 × 수량). 옵션 상품의 같은 번호 줄은 순위 재료(rankTime → seq) 순 — 옵션 없는 상품의 1등 순서와 같은 기준(문자찜은 받은 분의 시작 시각).
+- spec-keeper에게: 요약 댓글 줄에 옵션 글·수량을 R-13 문구 규칙대로 넣을지 정해 주세요. 지금 줄은 `번호 품종 금액 구매자` 그대로이고 옵션 글·수량은 없다(금액은 찜 금액).
+- 시험: `apps/server/test/o3-options.test.ts` "RA-O3-001" 두 개(장부 confirmedAt 7건 모두 값·변형별 시각, 요약 줄 b1·b2).
+- 웹(ProductDetail·ConsolePage·BuyersPage·AlertDialogs·LabelParts)의 `product.winnerClaims`만 보는 곳은 O2/O4 몫이라 그대로다.
