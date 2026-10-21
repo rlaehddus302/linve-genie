@@ -13,7 +13,7 @@ import type { LinkOutcome } from '../live-links.ts'
 import { errorKind, type LogSink } from '../log.ts'
 import type { PlatformCapability } from '../platform.ts'
 import { sellerLinkLockKey, type SellerLocks } from '../seller-locks.ts'
-import { findBroadcast } from '../store.ts'
+import { existingChatIds, findBroadcast } from '../store.ts'
 import type { Clock } from '../time.ts'
 import {
   checkTikTokTarget,
@@ -43,6 +43,7 @@ import {
   insertTiktokLink,
   lastConsent,
   latestTiktokLink,
+  markSaveFailedSeen,
   markStarted,
   resumableTiktokLinks,
   saveTiktokId,
@@ -64,6 +65,8 @@ export const TIKTOK_RECORD_BATCH = 200
  * 저장 실패 때 다시 쓰기 전 기다림 (ms) — 바로 한 번, 그 뒤 이 간격으로 더 (RA-N2b-2-02).
  * 틱톡은 다시 가져올 수 없어 짧은 DB 끊김에 묶음을 버리지 않는다. 기다리는 동안 새 댓글은 대기열 뒤에 쌓여 받은 순서가 지켜진다
  */
+/** 연결 보기의 수(integer 열)가 담을 수 있는 가장 큰 값 — 확인 요청의 upTo를 여기까지로 자른다 */
+export const TIKTOK_COUNTER_MAX = 2_147_483_647
 export const TIKTOK_SAVE_RETRY_MS: readonly number[] = [0, 300, 1_500]
 /** 저장하지 못한 댓글이 있을 때 함께 보일 문장 (알림 줄·"댓글 붙여넣기" 주 단추가 같이 뜬다) */
 export const tiktokSaveFailedMessage = (count: number): string => `저장하지 못한 틱톡 댓글이 ${String(count)}개 있어요. 틱톡 앱에서 확인해 댓글을 붙여 넣어 주세요.`
@@ -108,6 +111,10 @@ export interface TikTokCollectionView {
   /** 이어진 동안이 아니라(끊는 중·끝낸 뒤) 기록하지 않은 댓글 수 · 저장하지 못한 댓글 수 */
   readonly notRecorded: number
   readonly saveFailed: number
+  /** 판매자가 "확인했어요"로 본 저장 실패 수 (D-N2b-2-16) — 저장 실패 알림은 saveFailed > saveFailedSeen일 때만 */
+  readonly saveFailedSeen: number
+  /** 엔진 입력 검사에 걸려 기록하지 않은 댓글 수 (D-N2b-2-17) — 운영 확인용, 화면에 보이지 않는다 */
+  readonly skipped: number
 }
 
 /** 회차의 틱톡 연결 보기 (AC-N2b-2-31) */
@@ -305,10 +312,14 @@ export class TikTokLive {
       lastCommentAt: stats.lastAt === null ? null : stats.lastAt.toISOString(),
       notRecorded: link.notRecorded,
       saveFailed: link.saveFailed,
+      saveFailedSeen: link.saveFailedSeen,
+      skipped: link.skipped,
     }
-    // 저장하지 못한 댓글이 있으면 끊긴 동안과 같이 "받지 못했을 수 있음"을 켠다 — 판매자가 붙여넣기로 채운다 (RA-N2b-2-02)
-    const lost = link.saveFailed > 0
-    const lostMessage = lost ? tiktokSaveFailedMessage(link.saveFailed) : null
+    // 판매자가 아직 확인하지 않은 저장 실패가 있으면 끊긴 동안과 같이 "받지 못했을 수 있음"을 켠다 — 판매자가 붙여넣기로 채운다
+    // (RA-N2b-2-02). 문장의 수 = 확인하지 않은 수 (D-N2b-2-16)
+    const unseen = Math.max(0, link.saveFailed - link.saveFailedSeen)
+    const lost = unseen > 0
+    const lostMessage = lost ? tiktokSaveFailedMessage(unseen) : null
     let collection: TikTokCollectionView
     if (link.state === 'ENDED') {
       collection = { state: 'FINISHED', reason: null, message: TIKTOK_MESSAGES.FINISHED, failures: 0, nextAttemptAt: null, missed: false, missedMessage: null, ...counts }
@@ -505,6 +516,19 @@ export class TikTokLive {
     })
   }
 
+  /**
+   * 저장 실패 확인 (AC-N2b-2-74, D-N2b-2-16): saveFailedSeen = max(지금, min(upTo, saveFailed)). 같은 요청 두 번 = 같은 결과.
+   * 다른 판매자·없는 회차 404, 이어진 틱톡 연결이 없으면 409 NOT_LINKED. 바꾼 뒤 SSE로 보기를 보낸다
+   */
+  async markSaveFailedSeen(sellerId: string, broadcastId: string, upTo: number): Promise<LinkOutcome> {
+    const broadcast = await findBroadcast(this.#options.db, sellerId, broadcastId)
+    if (broadcast === null) return notFound
+    const linkId = await markSaveFailedSeen(this.#options.db, sellerId, broadcastId, Math.min(upTo, TIKTOK_COUNTER_MAX))
+    if (linkId === null) return fail(409, 'NOT_LINKED')
+    this.#publish(sellerId, broadcastId)
+    return { status: 200, body: { link: await this.#viewOf(sellerId, broadcastId, await findTiktokLink(this.#options.db, sellerId, linkId)) } }
+  }
+
   // ── 회차를 끝내면 멈춤 (기록 경로 txHook) ──────────────────────────────
 
   /**
@@ -545,10 +569,14 @@ export class TikTokLive {
   /** 받은 순서대로 한 트랜잭션에 기록한다. 이어진 동안·끝나지 않은 회차만 — 아니면 기록하지 않고 센다 */
   async #record(entry: Entry, batch: readonly TikTokCommentRecord[]): Promise<void> {
     const { sellerId, linkId, broadcastId: b, date } = entry
-    /** 기록하려던 수 (이미 기록돼 빠진 중복 뺌) — 입력 검사로 빠진 수를 센다 */
-    let drafted = 0
-    const write = () =>
-      this.#options.writer.write({
+    /**
+     * 기록하려던 수 (이미 기록된 같은 메시지 ID를 뺀 것, AC-N2b-2-52) — build가 돈 시도에서만 정해진다(아니면 null).
+     * 기록한 수와의 차 = 엔진 입력 검사로 건너뛴 수(skipIfInvalid, D-N2b-2-17)
+     */
+    let drafted: number | null = null
+    const write = () => {
+      drafted = null
+      return this.#options.writer.write({
         sellerId,
         date,
         rehearsal: false,
@@ -574,6 +602,7 @@ export class TikTokLive {
           return drafts
         },
       })
+    }
     let outcome = await write()
     // 락 밖 경합(다른 쪽이 같은 메시지를 먼저 기록)·저장 실패는 다시 — 경합이면 이미 기록된 것으로 빠진다.
     // 저장 실패는 잠깐 기다렸다가 몇 번 더 (짧은 DB 끊김에 선착순 찜을 버리지 않는다, RA-N2b-2-02)
@@ -583,10 +612,17 @@ export class TikTokLive {
       outcome = await write()
     }
     try {
-      if (outcome.kind === 'ok') {
-        await bumpTiktokCounter(this.#options.db, sellerId, linkId, 'notRecorded', drafted - outcome.records.length)
+      const built = drafted as number | null
+      if (outcome.kind === 'ok' || outcome.kind === 'empty') {
+        // 기록하지 않은 나머지는 입력 검사로 건너뛴 것 — notRecorded(끊기·끝내기 뒤)와 따로 센다 (D-N2b-2-17, AC-N2b-2-75)
+        const skipped = (built ?? 0) - (outcome.kind === 'ok' ? outcome.records.length : 0)
+        if (skipped > 0) {
+          this.#options.log({ level: 'warn', code: 'TIKTOK_SKIPPED', seller: sellerId, count: skipped })
+          await bumpTiktokCounter(this.#options.db, sellerId, linkId, 'skipped', skipped)
+        }
       } else if (outcome.kind === 'rejected' || outcome.kind === 'not_found') {
-        await bumpTiktokCounter(this.#options.db, sellerId, linkId, 'notRecorded', batch.length)
+        // 끊기·끝내기 뒤가 된 댓글 (AC-N2b-2-51). 이미 기록된 같은 메시지 ID는 세지 않는다 (AC-N2b-2-52)
+        await bumpTiktokCounter(this.#options.db, sellerId, linkId, 'notRecorded', await this.#unrecorded(sellerId, b, batch))
       } else if (outcome.kind === 'save_failed' || outcome.kind === 'duplicate') {
         this.#options.log({ level: 'error', code: 'TIKTOK_SAVE_FAILED', seller: sellerId, count: batch.length })
         await bumpTiktokCounter(this.#options.db, sellerId, linkId, 'saveFailed', batch.length)
@@ -596,6 +632,13 @@ export class TikTokLive {
     } catch (error) {
       this.#options.log({ level: 'error', code: 'TIKTOK_SAVE_FAILED', seller: sellerId, errorKind: errorKind(error) })
     }
+  }
+
+  /** 묶음 중 아직 기록되지 않은 서로 다른 메시지 수 (이미 기록된 같은 메시지 ID·묶음 안의 겹침은 빼고) */
+  async #unrecorded(sellerId: string, b: string, batch: readonly TikTokCommentRecord[]): Promise<number> {
+    const ids = [...new Set(batch.map((record) => tiktokChatFields(record).id))]
+    const existing = await existingChatIds(this.#options.db, sellerId, b, ids)
+    return ids.filter((id) => !existing.has(id)).length
   }
 
   /** 기록 대기열이 빌 때까지 (시험·종료) */

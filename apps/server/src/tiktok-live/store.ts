@@ -69,6 +69,8 @@ export interface TiktokLinkRow {
   readonly endedAt: Date | null
   readonly notRecorded: number
   readonly saveFailed: number
+  readonly saveFailedSeen: number
+  readonly skipped: number
 }
 
 const linkColumns = {
@@ -84,6 +86,8 @@ const linkColumns = {
   endedAt: tiktokLinks.endedAt,
   notRecorded: tiktokLinks.notRecorded,
   saveFailed: tiktokLinks.saveFailed,
+  saveFailedSeen: tiktokLinks.saveFailedSeen,
+  skipped: tiktokLinks.skipped,
 }
 
 const linkQuery = (db: Db) => db.select(linkColumns).from(tiktokLinks).leftJoin(accounts, eq(accounts.id, tiktokLinks.actorAccountId))
@@ -174,13 +178,34 @@ export async function endTiktokLinks(db: Db, sellerId: string, broadcastIds: rea
   return rows.map((row) => row.id)
 }
 
-export async function bumpTiktokCounter(db: Db, sellerId: string, linkId: number, counter: 'notRecorded' | 'saveFailed', by: number): Promise<void> {
+export type TiktokCounter = 'notRecorded' | 'saveFailed' | 'skipped'
+
+export async function bumpTiktokCounter(db: Db, sellerId: string, linkId: number, counter: TiktokCounter, by: number): Promise<void> {
   if (by <= 0) return
-  const set = counter === 'notRecorded' ? { notRecorded: sql`${tiktokLinks.notRecorded} + ${by}` } : { saveFailed: sql`${tiktokLinks.saveFailed} + ${by}` }
+  const set =
+    counter === 'notRecorded'
+      ? { notRecorded: sql`${tiktokLinks.notRecorded} + ${by}` }
+      : counter === 'saveFailed'
+        ? { saveFailed: sql`${tiktokLinks.saveFailed} + ${by}` }
+        : { skipped: sql`${tiktokLinks.skipped} + ${by}` }
   await db
     .update(tiktokLinks)
     .set(set)
     .where(and(eq(tiktokLinks.sellerId, sellerId), eq(tiktokLinks.id, linkId)))
+}
+
+/**
+ * 저장 실패 확인 (D-N2b-2-16): 그 회차의 이어진(LINKED) 연결의 saveFailedSeen = max(지금, min(upTo, saveFailed)).
+ * 한 문장으로 바꿔 동시에 늘어나는 saveFailed와 겹쳐도 확인 수가 실패 수를 넘지 않고 줄지 않는다(같은 요청 두 번 = 같은 결과).
+ * 이어진 연결이 없으면 null
+ */
+export async function markSaveFailedSeen(db: Db, sellerId: string, broadcastId: string, upTo: number): Promise<number | null> {
+  const rows = await db
+    .update(tiktokLinks)
+    .set({ saveFailedSeen: sql`greatest(${tiktokLinks.saveFailedSeen}, least(${upTo}::int, ${tiktokLinks.saveFailed}))` })
+    .where(and(eq(tiktokLinks.sellerId, sellerId), eq(tiktokLinks.broadcastId, broadcastId), eq(tiktokLinks.state, 'LINKED')))
+    .returning({ id: tiktokLinks.id })
+  return rows[0]?.id ?? null
 }
 
 /** 서버가 다시 켜질 때 이어받을 연결: 끝나지 않은 실제 회차의 이어진 틱톡 연결 */

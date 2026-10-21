@@ -68,6 +68,18 @@ export function registerTiktokRoutes(api: Hono<Env>, tiktok: TikTokLive, paste: 
     return outcomeResponse(await tiktok.reconnect(session(c).sellerId, c.req.param('id')))
   })
 
+  // ── 저장 실패 확인 (AC-N2b-2-74, D-N2b-2-16) — 판매자만(보조자 허용 목록 밖 → 403) ─────────
+  api.post('/broadcasts/:id/tiktok/save-failed-seen', async (c) => {
+    const input = body(c)
+    const extra = onlyKeys(input, ['upTo'])
+    if (extra !== null) return extra
+    const upTo = own(input, 'upTo')
+    if (typeof upTo !== 'number' || !Number.isSafeInteger(upTo) || upTo < 0) {
+      return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'upTo', message: '확인한 수를 0 이상의 정수로 보내 주세요.' }])
+    }
+    return outcomeResponse(await tiktok.markSaveFailedSeen(session(c).sellerId, c.req.param('id'), upTo))
+  })
+
   // ── 댓글 붙여넣기 (AC-N2b-2-56~59) — 보조자도 (실제 회차만) ─────────────
   const textOf = (input: Record<string, unknown>): string | Response => {
     const text = own(input, 'text')

@@ -36,6 +36,10 @@
    - 응답: 겹친 줄에만 `overlaps`(빠진 번호, 줄 안 순서)·`overlapMessage`("15번은 같은 닉네임의 찜이 이미 있어 넣지 않아요." — 여럿이면 "15번·28번은 …"). `numbers`·`message`("15번 찜")는 그대로. `total`·`groups`는 겹친 번호를 뺀 넣을 찜 수(묶음은 넣을 번호가 남은 줄만). 넣기 응답의 `overlaps`는 실제로 빠진 번호뿐이다 — "그래도 넣기"로 고른 줄에는 없다.
    - `includeOverlaps`(넣기만, 줄 번호 정수 ≥1 목록, 200개까지 — 아니면 400 `INVALID_INPUT` 칸 `includeOverlaps`). 요약값에 정렬·중복 없앤 목록을 더한다(빈 목록이면 예전 요약값 그대로) — 같은 요청 번호에 고르기만 달라도 `REQUEST_REUSED`. 재전송은 처음 응답 그대로(겹침을 다시 보지 않음). 뼈대 저장에 `overlaps`·`overlapMessage`도 둔다(번호뿐 — 닉네임 없음).
    - ref는 줄 안 원래 순서 그대로(`pst…-줄-순서`, 빠진 번호의 순서는 비운다) — 고르기가 달라도 같은 줄·번호는 같은 ref.
+15. **저장 실패 확인**(D-N2b-2-16, AC-N2b-2-74): `tiktok_links.save_failed_seen`(기본 0, 마이그레이션 `0008_n2b2_tiktok_seen`). 연결 보기의 저장 실패 몫 `missed`·`missedMessage`는 `saveFailed > saveFailedSeen`일 때만, 문장의 N = `saveFailed − saveFailedSeen`. 끊김 몫(`status.missed` → "끊긴 동안의 …")은 그대로 — 둘 다면 저장 실패 문장이 먼저(지금과 같음). 확인은 UPDATE 한 문장 `greatest(seen, least(upTo, save_failed))` + `state = 'LINKED'` 조건이라 락 없이 실패 수 증가와 겹쳐도 넘거나 줄지 않는다. `upTo`는 열 범위(2^31−1)로 자른다(안전한 정수면 거절하지 않음). 이어진 연결이 없으면(잇기 전·끊음·끝냄) 409 `NOT_LINKED`.
+   - **보조자는 403**(허용 목록에 넣지 않음, I3 규칙): "확인했어요"는 콘솔 알림 띠·틱톡 칸에만 있고 문자찜 화면에는 없다.
+16. **건너뛴 댓글 수**(D-N2b-2-17, AC-N2b-2-75): `tiktok_links.skipped`(같은 마이그레이션). 기록 결과가 `ok`·`empty`면 `build`가 만든 초안 수 − 기록 수 = 입력 검사로 건너뛴 수 → `skipped`(전에는 `ok`일 때 `notRecorded`에 섞였고, 모두 걸려 `empty`면 세지 않았다). 로그 `TIKTOK_SKIPPED`(판매자·수만). `rejected`·`not_found`(끊기·끝내기 뒤)는 `notRecorded`에 — 이제 묶음 수가 아니라 아직 기록되지 않은 서로 다른 메시지 ID 수(이미 기록된 같은 ID는 세지 않음, AC-N2b-2-52).
+   - **합칠 때**: main에 `0007_n4a_label_switch`·`0008_i2_shop_packing_restore`가 있어 이 트랙의 `0007_n2b2_tiktok`·`0008_n2b2_tiktok_seen`과 번호가 겹친다 — 합치는 쪽이 번호·`_journal`을 다시 매긴다(내용은 서로 다른 표라 순서는 상관없다).
 
 ## 바꾼 기존 시험 (스펙 변경에 따른 교체 — 약화 아님)
 
@@ -82,10 +86,12 @@
 - 틱톡 보기 `GET /api/broadcasts/:id/tiktok` → `{ link: TikTokLinkView }`:
   ```
   { broadcast, platform:'TIKTOK', state:'NONE'|'LINKED', linkedAt, actor:{kind:'account',loginId}, tiktokId,
-    collection: { state, reason, message, failures, nextAttemptAt, missed, missedMessage, comments, lastCommentAt, notRecorded, saveFailed } | null }
+    collection: { state, reason, message, failures, nextAttemptAt, missed, missedMessage, comments, lastCommentAt, notRecorded, saveFailed, saveFailedSeen, skipped } | null }
   ```
   `collection.state` = `IDLE`·`CONNECTING`·`CONNECTED`·`RETRYING`·`STOPPED`·`ENDED`·`OFF`, 회차를 끝냈으면 `FINISHED`. `message`를 글자 그대로, `missed`면 `missedMessage`도.
-  - 알림 띠·주 단추 "댓글 붙여넣기" 조건(AC-62): `RETRYING`의 `BLOCKED`·`SIGN_FAILED`, `STOPPED`, `OFF`, `missed`.
+  - 알림 띠·주 단추 "댓글 붙여넣기" 조건(AC-62, D-N2b-2-15·16): `RETRYING`의 `BLOCKED`·`SIGN_FAILED`, `STOPPED`, `OFF`, `CONNECTED`가 아니면서 `missed`, 확인하지 않은 저장 실패 `saveFailed > saveFailedSeen`.
+  - 저장 실패의 `missed`·`missedMessage`는 서버가 이미 확인하지 않은 수로 정한다(N = `saveFailed − saveFailedSeen`). `skipped`(입력 검사로 건너뛴 수)는 보이지 않는다(D-N2b-2-17).
+- 저장 실패 확인 `POST /api/broadcasts/:id/tiktok/save-failed-seen { upTo }`(`upTo` = 화면이 보고 있던 `saveFailed`, 요청 번호 없음 — 같은 값 다시 보내도 같다) → `{ link }`. `saveFailedSeen = max(지금, min(upTo, saveFailed))`. 400 `INVALID_INPUT`(칸 `upTo` — 0 이상 정수 아님)·`UNKNOWN_FIELD`, 404(다른 판매자·없는 회차), 409 `NOT_LINKED`, 보조자 403. 바꾼 뒤 SSE `tiktok`(LINK)도 간다.
   - "다시 연결" 보이기: `RETRYING`·`STOPPED`·`ENDED`·`OFF`.
 - 다시 연결 `POST /api/broadcasts/:id/tiktok/reconnect {}` → `{ link }`, 409 `TOO_SOON` "잠시 뒤 다시 눌러 주세요."·`NOT_LINKED`·`ENDED`.
 - SSE `event: tiktok` `data: { kind: 'LINK', broadcast, link: TikTokLinkView }` — 상태가 바뀔 때·잇기·끊기·끝내기. 댓글 수는 알림마다 오지 않는다 — 필요하면 보기 조회.

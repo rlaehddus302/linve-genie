@@ -83,6 +83,7 @@ export type LogCode =
   | 'TIKTOK_STALLED'
   | 'TIKTOK_LIBRARY_ENV'
   | 'TIKTOK_SAVE_FAILED'
+  | 'TIKTOK_SKIPPED'
   | 'TIKTOK_RESUME_FAILED'
   // 인스타그램 설정 주소가 https가 아님 (D-N2b-2-10)
   | 'INSTAGRAM_CONFIG_INSECURE'
@@ -139,6 +140,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   TIKTOK_STALLED: '받던 틱톡 연결에서 2분 동안 아무 자료가 오지 않아 끊긴 것으로 보고 다시 연결해요',
   TIKTOK_LIBRARY_ENV: '틱톡 연결기가 스스로 읽는 환경 변수가 있어 틱톡 베타를 끈 것으로 봤어요(그 변수를 지워 주세요)',
   TIKTOK_SAVE_FAILED: '틱톡 댓글을 기록하지 못했어요(연결은 계속함)',
+  TIKTOK_SKIPPED: '틱톡 댓글이 입력 검사를 통과하지 못해 기록하지 않았어요(수만 셈)',
   TIKTOK_RESUME_FAILED: '서버를 다시 켠 뒤 틱톡 연결을 이어받지 못했어요',
   INSTAGRAM_CONFIG_INSECURE: '인스타그램 주소 설정이 https가 아니라 인스타그램 연동을 끈 것으로 봤어요',
 }

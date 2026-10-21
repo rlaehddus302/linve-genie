@@ -973,6 +973,10 @@ export const tiktokLinks = pgTable(
     /** 이어진 동안이 아니라 기록하지 않은 댓글 수 · 저장하지 못한 댓글 수 */
     notRecorded: integer('not_recorded').notNull().default(0),
     saveFailed: integer('save_failed').notNull().default(0),
+    /** 판매자가 "확인했어요"로 본 저장 실패 수 (D-N2b-2-16) — 알림은 saveFailed > saveFailedSeen일 때만 */
+    saveFailedSeen: integer('save_failed_seen').notNull().default(0),
+    /** 엔진 입력 검사에 걸려 기록하지 않은 댓글 수 (D-N2b-2-17) — notRecorded와 따로 */
+    skipped: integer('skipped').notNull().default(0),
     createdAt: timestamptz('created_at').notNull(),
   },
   (t) => [
