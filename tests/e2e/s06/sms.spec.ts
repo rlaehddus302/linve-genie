@@ -190,7 +190,6 @@ test.describe('문자찜 입력', () => {
   })
 
   test('AC-S06-14·81: 바로 보내기 → 결과 카드 → 칸 비움 → 같은 사람 하나 더 (전화번호 다시 채우지 않음)', async ({ page }) => {
-    // 브라우저 시계는 고정하지 않는다: 받은 시각이 '지금보다 1분 이른 KST'(kstTimeAgo)라 벽시계와 같은 시계여야 한다 — 06:00 고정과 섞이면 06시 뒤에 받은 시각이 '미래'로 읽힌다
     const logs: string[] = []
     page.on('console', (m) => logs.push(m.text()))
     await login(page)
