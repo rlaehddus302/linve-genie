@@ -4,13 +4,19 @@
 // - 개인정보: 엔진에는 전화번호 원문이 없다. 구매자의 전화번호 정보는 뒤 4자리뿐이고, 전화번호 키는 보이지 않는다(R-11, ORD-08 AC4, D-061).
 // - 정산 설정(배송비·무료 기준)은 그 날짜의 첫 방송(선언 순서)의 스냅샷이다(D-070).
 import { DEFAULT_SETTINGS, type SaleSettings } from '../settings.ts'
-import { Draft, ownSet } from './draft.ts'
+import { pairsOfText } from '../options.ts'
+import { Draft, ownSet, unitKeyOf, variantActiveKey } from './draft.ts'
 import { groupEntries, settle } from './ledger.ts'
 import { pentries, pget, pkeys, pvalues } from './pmap.ts'
 import { applyMerge, planMerge } from './merge.ts'
-import { isActive, isLocked, sortedPending } from './rules.ts'
+import { isActive, isLocked, sortedPending, stockOf, unitPrice } from './rules.ts'
 import type {
   BroadcastDetails,
+  FocusInfo,
+  ReviewInfo,
+  ReviewRecord,
+  UnitRecord,
+  VariantInfo,
   BroadcastRecord,
   BuyerInfo,
   BuyerRecord,
@@ -56,7 +62,17 @@ const priceChanges = (history: readonly PriceChange[]): PriceChangeInfo[] => his
 
 // ── 방송 (D-070) ─────────────────────────────────────────────────────────
 
-function broadcastDetails(broadcast: BroadcastRecord): BroadcastDetails {
+/** 지금 상품 (옵션 방송, R-20 6) — 상품 ID를 지금의 상품 키로 */
+function focusInfo(state: EngineState, broadcast: BroadcastRecord): FocusInfo | null {
+  if (broadcast.focus === null) return null
+  const key = pget(state.products, broadcast.focus.pid)
+  if (key === undefined) return null
+  const slot = pget(state.slots, key)
+  if (slot === undefined) return null
+  return { product: key, no: slot.no, productId: broadcast.focus.pid, at: broadcast.focus.at }
+}
+
+function broadcastDetails(state: EngineState, broadcast: BroadcastRecord): BroadcastDetails {
   return {
     id: broadcast.id,
     date: broadcast.date,
@@ -64,18 +80,19 @@ function broadcastDetails(broadcast: BroadcastRecord): BroadcastDetails {
     ended: broadcast.endedAt !== null,
     endedAt: broadcast.endedAt,
     settings: { ...broadcast.settings },
+    focus: focusInfo(state, broadcast),
   }
 }
 
-/** 선언된 방송 전부, 선언 순서 (ID·날짜·제목·끝났는지·끝난 시각·설정 스냅샷) */
+/** 선언된 방송 전부, 선언 순서 (ID·날짜·제목·끝났는지·끝난 시각·설정 스냅샷·지금 상품) */
 export function listBroadcasts(state: EngineState): BroadcastDetails[] {
-  return state.broadcasts.map(broadcastDetails)
+  return state.broadcasts.map((broadcast) => broadcastDetails(state, broadcast))
 }
 
 /** 선언된 방송 하나 (선언하지 않은 방송이면 null) */
 export function getBroadcast(state: EngineState, id: string): BroadcastDetails | null {
   const broadcast = state.broadcasts.find((item) => item.id === id)
-  return broadcast === undefined ? null : broadcastDetails(broadcast)
+  return broadcast === undefined ? null : broadcastDetails(state, broadcast)
 }
 
 /**
@@ -92,8 +109,47 @@ export function productStatus(product: Pick<ProductRecord, 'phase' | 'stock'>, c
   return confirmed >= product.stock ? 'SOLD' : 'OPEN'
 }
 
+/** 확정 찜 수량의 합 */
+function unitsOf(state: EngineState, winners: readonly string[]): number {
+  return winners.reduce((sum, id) => sum + claimOf(state, id).qty, 0)
+}
+
+/**
+ * 변형 상태 (D-O1-01): 판매 중이면 확정 수량 = 재고(재고 0 변형은 처음부터)일 때 SOLD, 아니면 OPEN. 판매 중이 아니면 상품 상태
+ */
+export function variantStatus(product: Pick<ProductRecord, 'phase'>, stock: number, confirmed: number): ProductStatus {
+  if (product.phase !== 'SELLING') return product.phase
+  return confirmed >= stock ? 'SOLD' : 'OPEN'
+}
+
+function variantInfo(state: EngineState, r: Draft, slot: SlotRecord, product: ProductRecord, unit: UnitRecord): VariantInfo {
+  const current = (id: string): string => r.root(claimOf(state, id).buyer)
+  const stock = stockOf(product, unit.text)
+  const confirmed = unitsOf(state, unit.winners)
+  return {
+    key: unitKeyOf(slot.key, unit.text),
+    text: unit.text,
+    options: pairsOfText(product.options, unit.text),
+    status: variantStatus(product, stock, confirmed),
+    stock,
+    confirmedUnits: confirmed,
+    remaining: stock - confirmed,
+    price: unitPrice(product, unit.text),
+    winners: unit.winners.map(current),
+    winnerClaims: [...unit.winners],
+    waitlist: unit.waitlist.map(current),
+    waitlistClaims: [...unit.waitlist],
+    awaitingSuccession: unit.awaiting,
+    conflict: unit.conflict !== null,
+  }
+}
+
 function productInfo(state: EngineState, r: Draft, slot: SlotRecord, product: ProductRecord): ProductInfo {
   const current = (id: string): string => r.root(claimOf(state, id).buyer)
+  const variants = slot.units.map((unit) => variantInfo(state, r, slot, product, unit))
+  const confirmed = unitsOf(state, slot.winners) + variants.reduce((sum, variant) => sum + variant.confirmedUnits, 0)
+  // 옵션 상품: 판매 중이면 모든 변형이 SOLD일 때 SOLD, 아니면 OPEN (R-19 "변형과 재고 단위")
+  const status = product.options.length === 0 ? productStatus(product, confirmed) : product.phase !== 'SELLING' ? product.phase : variants.every((variant) => variant.status === 'SOLD') ? 'SOLD' : 'OPEN'
   return {
     key: slot.key,
     id: product.id,
@@ -102,7 +158,7 @@ function productInfo(state: EngineState, r: Draft, slot: SlotRecord, product: Pr
     name: product.name,
     price: product.price,
     stock: product.stock,
-    status: productStatus(product, slot.winners.length),
+    status,
     winners: slot.winners.map(current),
     winnerClaims: [...slot.winners],
     waitlist: slot.waitlist.map(current),
@@ -114,6 +170,11 @@ function productInfo(state: EngineState, r: Draft, slot: SlotRecord, product: Pr
     priceHistory: priceChanges(product.priceHistory),
     nameHistory: product.nameHistory.map(({ from, to, at }) => ({ from, to, at })),
     confirmVersion: slot.version,
+    aliases: [...product.aliases],
+    options: product.options,
+    hasOptions: product.options.length > 0,
+    confirmedUnits: confirmed,
+    variants,
   }
 }
 
@@ -132,12 +193,20 @@ export function listProducts(state: EngineState): ProductInfo[] {
 }
 
 /** 찜의 지금 상품 키: 상품에 붙은 찜은 그 상품의 지금 번호, 아니면 생긴 번호 (D-056) */
-function claimKey(state: EngineState, claim: ClaimRecord): string {
+function productKeyOf(state: EngineState, claim: ClaimRecord): string {
   return claim.pid === null ? claim.key : (pget(state.products, claim.pid) as string)
 }
 
+/** 찜의 키: 옵션을 가진 찜은 변형 키, 아니면 상품 키 (D-O1-02) */
+function claimKey(state: EngineState, claim: ClaimRecord): string {
+  return unitKeyOf(productKeyOf(state, claim), claim.variant)
+}
+
+/** 찜 금액 = 단가 스냅샷 × 수량 */
+const amount = (claim: ClaimRecord): number => (claim.price as number) * claim.qty
+
 function claimInfo(state: EngineState, r: Draft, claim: ClaimRecord): ClaimInfo {
-  const key = claimKey(state, claim)
+  const key = productKeyOf(state, claim)
   const at = key.lastIndexOf('/')
   const confirmed = claim.status === 'CONFIRMED'
   return {
@@ -162,6 +231,11 @@ function claimInfo(state: EngineState, r: Draft, claim: ClaimRecord): ClaimInfo 
     cancelRequested: claim.request !== null && isActive(claim.status),
     reprintNeeded: confirmed && claim.reprint,
     priceHistory: priceChanges(claim.priceHistory),
+    key: unitKeyOf(key, claim.variant),
+    qty: claim.qty,
+    variant: claim.variant,
+    options: claim.options,
+    amount: claim.price === null ? null : amount(claim),
   }
 }
 
@@ -203,7 +277,7 @@ function buyerInfo(state: EngineState, r: Draft, buyer: BuyerRecord): BuyerInfo 
   const items = confirmedClaims(state, members)
   const byBroadcast: Record<string, number> = {}
   for (const broadcast of state.broadcasts) {
-    const amounts = items.filter((claim) => claim.b === broadcast.id).map((claim) => claim.price as number)
+    const amounts = items.filter((claim) => claim.b === broadcast.id).map(amount)
     if (amounts.length > 0) ownSet(byBroadcast, broadcast.id, amounts.reduce((sum, price) => sum + price, 0))
   }
   return {
@@ -216,7 +290,7 @@ function buyerInfo(state: EngineState, r: Draft, buyer: BuyerRecord): BuyerInfo 
     nameHistory: buyer.names,
     phoneLast4: buyer.phoneLast4,
     items: items.map((claim) => claimKey(state, claim)),
-    subtotal: items.reduce((sum, claim) => sum + (claim.price as number), 0),
+    subtotal: items.reduce((sum, claim) => sum + amount(claim), 0),
     byBroadcast,
     blocked: pget(state.blocked, buyer.id) === true,
   }
@@ -246,7 +320,7 @@ export function currentBuyerOf(state: EngineState, id: string): string | null {
 /** 확정 찜의 상품 키(생성 순서)와 합 — buyerInfo의 items·subtotal과 같은 계산 */
 function itemsOf(state: EngineState, members: readonly string[]): MergeItems {
   const items = confirmedClaims(state, members)
-  return { items: items.map((claim) => claimKey(state, claim)), subtotal: items.reduce((sum, claim) => sum + (claim.price as number), 0) }
+  return { items: items.map((claim) => claimKey(state, claim)), subtotal: items.reduce((sum, claim) => sum + amount(claim), 0) }
 }
 
 /**
@@ -293,7 +367,7 @@ export function listSmsRefs(state: EngineState): SmsRefInfo[] {
 
 function settlementInfo(state: EngineState, r: Draft, root: string, date: string, items: readonly ClaimRecord[]): SettlementInfo {
   const entries = groupEntries(r, root, date)
-  const subtotal = items.reduce((sum, claim) => sum + (claim.price as number), 0)
+  const subtotal = items.reduce((sum, claim) => sum + amount(claim), 0)
   const totals = settle(
     settlementSettings(state, date),
     subtotal,
@@ -396,19 +470,79 @@ export function listEffects(state: EngineState): EffectInfo[] {
     }))
 }
 
-/** 처리 대기 중인 시청자 취소 요청 (활성 찜에 걸린 것만), 요청 순서 (요청은 채팅 하나에 하나라 seq가 겹치지 않는다) */
-export function listCancelRequests(state: EngineState): CancelRequestInfo[] {
-  const r = reader(state)
-  return pvalues(state.claims)
-    .filter((claim) => claim.request !== null && isActive(claim.status))
-    .sort((a, b) => (a.request as number) - (b.request as number))
-    .map((claim) => ({ product: claimKey(state, claim), buyer: claim.buyer, currentBuyer: r.root(claim.buyer), claim: claim.id, seq: claim.request as number }))
+/** 그 번호에서 그 채널 자신의 활성 찜 ID (번호 자신 + 변형마다), 생성 순서 */
+function ownActiveClaims(state: EngineState, r: Draft, slot: SlotRecord, buyer: string): string[] {
+  const root = r.root(buyer)
+  const ids = [pget(slot.active, root), ...slot.units.map((unit) => pget(slot.variantActive, variantActiveKey(root, unit.text)))]
+  return ids
+    .filter((id): id is string => id !== undefined && claimOf(state, id).buyer === buyer)
+    .sort((a, b) => claimOf(state, a).n - claimOf(state, b).n)
 }
 
-/** 그 번호에서 구매자(지금의 구매자로 푼다)의 활성 찜 ID (없으면 null) */
-export function activeClaimId(state: EngineState, broadcast: string, no: number, buyer: string): string | null {
+/**
+ * 처리 대기 중인 시청자 취소 요청 (활성 찜에 걸린 것만), 요청 순서 (요청은 채팅 하나에 하나라 seq가 겹치지 않는다).
+ * 변형을 정하지 않은 요청(옵션 상품, R-20 8)은 상품 키·choices(그 채널의 활성 찜)와 함께 — 판매자가 변형을 고른다
+ */
+export function listCancelRequests(state: EngineState): CancelRequestInfo[] {
+  const r = reader(state)
+  const out: CancelRequestInfo[] = pvalues(state.claims)
+    .filter((claim) => claim.request !== null && isActive(claim.status))
+    .map((claim) => ({ product: claimKey(state, claim), buyer: claim.buyer, currentBuyer: r.root(claim.buyer), claim: claim.id, seq: claim.request as number, chooseVariant: false, choices: [claim.id] }))
+  for (const slot of pvalues(state.slots)) {
+    for (const request of slot.requests) {
+      out.push({
+        product: slot.key,
+        buyer: request.buyer,
+        currentBuyer: r.root(request.buyer),
+        claim: `request:${slot.key}:${request.buyer}`,
+        seq: request.seq,
+        chooseVariant: true,
+        choices: ownActiveClaims(state, r, slot, request.buyer),
+      })
+    }
+  }
+  return out.sort((a, b) => a.seq - b.seq || (a.claim < b.claim ? -1 : 1))
+}
+
+/**
+ * 그 번호에서 구매자(지금의 구매자로 푼다)의 활성 찜 ID (없으면 null).
+ * variant(옵션 글)를 주면 그 변형의 활성 찜, 주지 않으면 번호 자신의 활성 찜(옵션 없는 상품·번호만 쓴 보류 찜)
+ */
+export function activeClaimId(state: EngineState, broadcast: string, no: number, buyer: string, variant: string | null = null): string | null {
   const slot = pget(state.slots, `${broadcast}/${String(no)}`)
-  return (slot === undefined ? undefined : pget(slot.active, reader(state).root(buyer))) ?? null
+  if (slot === undefined) return null
+  const root = reader(state).root(buyer)
+  return (variant === null ? pget(slot.active, root) : pget(slot.variantActive, variantActiveKey(root, variant))) ?? null
+}
+
+// ── 확인 필요 (R-20 7, O1) ───────────────────────────────────────────────
+
+function reviewInfo(state: EngineState, r: Draft, review: ReviewRecord): ReviewInfo {
+  const key = review.pid === null ? undefined : pget(state.products, review.pid)
+  const product = review.no === null ? null : (key ?? `${review.b}/${String(review.no)}`)
+  const no = product === null ? null : Number(product.slice(product.lastIndexOf('/') + 1))
+  return {
+    broadcast: review.b,
+    item: review.item,
+    buyer: review.buyer,
+    currentBuyer: r.root(review.buyer),
+    reason: review.reason,
+    product,
+    no,
+    options: review.options,
+    qty: review.qty,
+    seq: review.seq,
+    at: review.at,
+    origin: review.origin,
+  }
+}
+
+/** 확인 필요 항목 전부, 원래 순위(출처 입력의 도착 순서 seq) 순 — 모든 방송을 한 목록으로 (D-O1-10) */
+export function listReviews(state: EngineState): ReviewInfo[] {
+  const r = reader(state)
+  return pvalues(state.reviews)
+    .sort((a, b) => a.seq - b.seq || (a.item < b.item ? -1 : 1))
+    .map((review) => reviewInfo(state, r, review))
 }
 
 // ── 차단·메시지 (D-086, dev-server가 더한 순수 조회 — 상태를 읽기만 한다) ──────────────

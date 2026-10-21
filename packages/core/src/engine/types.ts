@@ -1,12 +1,24 @@
 // 판정 엔진의 공개 타입 (R-1 이벤트, 상태, 효과, 조회 결과). AC-S02-01, AC-S03-01.
 // 상태는 JSON으로 직렬화할 수 있는 순수 데이터다: 객체·배열·문자열·유한한 수·불리언·null만 쓴다(undefined 값 없음, AC-S02-02).
+import type { OptionItem, OptionPick } from '../options.ts'
 import type { SaleSettings, SettingsOverride } from '../settings.ts'
 import type { PMap } from './pmap.ts'
 
 // ── 열거값 (tests/golden/README "열거값") ────────────────────────────────
 
 export type ClaimStatus = 'PENDING' | 'CONFIRMED' | 'WAITLISTED' | 'REJECTED' | 'CANCELLED' | 'CONFLICT' | 'DUPLICATE'
-export type ClaimReason = 'BLOCKED' | 'UNOPENED' | 'NOT_ON_SALE' | 'SOLD_OUT' | 'EXPIRED' | 'WAITLIST_CLEARED' | 'BY_HOST' | 'RENUMBERED'
+export type ClaimReason = 'BLOCKED' | 'UNOPENED' | 'NOT_ON_SALE' | 'SOLD_OUT' | 'EXPIRED' | 'WAITLIST_CLEARED' | 'BY_HOST' | 'RENUMBERED' | 'OPTION_MISSING'
+/** 확인 필요 사유 (R-20 5·7, R-19 "수량"·"공개 전 찜", O1) */
+export type ReviewReason =
+  | 'OPTION_MISSING'
+  | 'OPTION_CONFLICT'
+  | 'UNKNOWN_WORD'
+  | 'QTY_INVALID'
+  | 'NUMBER_AMBIGUOUS'
+  | 'PRODUCT_AMBIGUOUS'
+  | 'MULTI_PRODUCT'
+  | 'FOCUS_CHANGED'
+  | 'STOCK_SHORT'
 export type ProductStatus = 'READY' | 'OPEN' | 'SOLD' | 'HOLD' | 'CLOSED'
 export type EffectKind = 'PRINT_PRODUCT_LABEL' | 'PRINT_PACKING_LABEL' | 'POST_THANKS' | 'VOID_LABEL' | 'NOTIFY'
 export type ThanksTarget = 'LIVE_CHAT' | 'VIDEO_COMMENT'
@@ -40,12 +52,20 @@ export interface EngineSetup {
   readonly settings: SettingsOverride
 }
 
+/** 지금 상품 (R-20 6, D-O-09·D-O1-06): 상품 ID(번호를 바꾸면 따라간다)와 정한 이벤트의 시각 */
+export interface FocusRecord {
+  readonly pid: string
+  readonly at: number
+}
+
 /** 방송 기록 (선언 순서로 상태에 남는다, D-070) */
 export interface BroadcastRecord extends BroadcastInfo {
   /** 설정 스냅샷 = DOMAIN_RULES 기본값 위에 덮어쓴 값. 판정은 그 방송의 스냅샷으로, 정산 설정은 그 날짜 첫 방송의 스냅샷으로 한다 */
   readonly settings: SaleSettings
   /** broadcast.end를 받은 시각(그 이벤트의 at, UTC 밀리초). 끝나지 않았으면 null */
   readonly endedAt: number | null
+  /** 지금 상품 — 옵션 방송만 정한다(다른 방송은 늘 null) */
+  readonly focus: FocusRecord | null
 }
 
 // ── 이벤트 (R-1, tests/golden/README "이벤트 종류와 필드") ────────────────
@@ -89,10 +109,16 @@ export interface ProductRegisterEvent extends EventBase {
   readonly name: string
   /** 정수 원, 0 이상 */
   readonly price: number
-  /** 1 이상, 기본 1 */
+  /** 1 이상, 기본 1 — 옵션 상품이면 stocks에 적지 않은 변형마다의 재고 */
   readonly stock?: number
   /** 기본 OPEN */
   readonly status?: 'OPEN' | 'READY'
+  /** 상품 별칭 0~10개 (옵션 방송만, R-19) */
+  readonly aliases?: readonly string[]
+  /** 옵션 항목 0~3개 (옵션 방송만, R-19) */
+  readonly options?: readonly OptionItem[]
+  /** 옵션 글 → 변형 재고(0 이상). 키는 그 상품의 변형이어야 한다 (옵션 방송만, D-O1-03) */
+  readonly stocks?: Readonly<Record<string, number>>
 }
 
 export interface ProductCommandEvent extends EventBase {
@@ -111,6 +137,17 @@ export interface ProductUpdateEvent extends EventBase {
   readonly stock?: number
   /** 가격 적용 범위, 기본 NEW_ONLY */
   readonly applyTo?: 'NEW_ONLY' | 'UNPAID_CLAIMS'
+  /** 옵션 방송만 (R-19 "옵션 바꾸기", D-O-14): 상품 별칭·바꾼 뒤의 옵션 전체·변형 재고 */
+  readonly aliases?: readonly string[]
+  readonly options?: readonly OptionItem[]
+  readonly stocks?: Readonly<Record<string, number>>
+}
+
+/** 지금 상품 정하기 (R-20 6, D-O1-06 — 옵션 방송만) */
+export interface ProductFocusEvent extends EventBase {
+  readonly type: 'product.focus'
+  readonly b: string
+  readonly no: number
 }
 
 /** 번호 변경 (R-10, D-056) */
@@ -159,6 +196,10 @@ export interface SmsEvent extends EventBase {
   readonly phoneLast4?: string
   /** 지정 구매자 ID */
   readonly buyer?: string
+  /** 수량 1~claim.maxQuantity (옵션 방송만, 기본 1) */
+  readonly qty?: number
+  /** 고른 옵션 — 상품이 있으면 모든 항목, 없으면 쓰지 않는다 (옵션 방송만) */
+  readonly options?: OptionPick
 }
 
 export interface HostClaimEvent extends EventBase {
@@ -167,6 +208,8 @@ export interface HostClaimEvent extends EventBase {
   readonly no: number
   readonly buyer: string
   readonly reason: string
+  /** 옵션 상품의 변형 고르기 (옵션 방송만, R-19 "수량" 방송자 조치) */
+  readonly options?: OptionPick
 }
 
 export interface HostClaimOptionalReasonEvent extends EventBase {
@@ -175,6 +218,7 @@ export interface HostClaimOptionalReasonEvent extends EventBase {
   readonly no: number
   readonly buyer: string
   readonly reason?: string
+  readonly options?: OptionPick
 }
 
 export interface HostAssignEvent extends EventBase {
@@ -186,6 +230,10 @@ export interface HostAssignEvent extends EventBase {
   /** 교체할 지금 1등의 구매자 ID. replaceTo와 함께 쓴다 (한쪽만 있으면 입력 오류, D-065) */
   readonly replace?: string
   readonly replaceTo?: 'WAITLIST' | 'CANCEL'
+  /** 수량 1~claim.maxQuantity (옵션 방송만, 기본 1) */
+  readonly qty?: number
+  /** 옵션 상품이면 모든 항목 (옵션 방송만) */
+  readonly options?: OptionPick
 }
 
 export interface HostReopenEvent extends EventBase {
@@ -193,6 +241,30 @@ export interface HostReopenEvent extends EventBase {
   readonly b: string
   readonly no: number
   readonly reason: string
+  /** 옵션 상품이면 다시 열 변형 (옵션 방송만) */
+  readonly options?: OptionPick
+}
+
+/** 확인 필요 바로잡기 (R-20 7, D-O-10·D-O1-04 — 옵션 방송만): 원래 메시지(입력)의 순위로 판정, 1등을 밀어내지 않는다 */
+export interface HostResolveReviewEvent extends EventBase {
+  readonly type: 'host.resolveReview'
+  readonly b: string
+  /** 확인 필요 항목의 출처 — 메시지 ID 또는 `sms:<ref>` */
+  readonly item: string
+  readonly no: number
+  /** 1~claim.maxQuantity */
+  readonly qty: number
+  /** 옵션 상품이면 모든 항목, 아니면 쓰지 않는다 */
+  readonly options?: OptionPick
+  readonly reason?: string
+}
+
+/** 확인 필요 지우기 (R-20 7 — 옵션 방송만): 주문이 아닌 것으로 정한다 */
+export interface HostDismissReviewEvent extends EventBase {
+  readonly type: 'host.dismissReview'
+  readonly b: string
+  readonly item: string
+  readonly reason?: string
 }
 
 /** 충돌 결정 (R-7 7, D-053) */
@@ -292,6 +364,7 @@ export type EngineEvent =
   | ProductCommandEvent
   | ProductUpdateEvent
   | ProductRenumberEvent
+  | ProductFocusEvent
   | ChatEvent
   | SmsEvent
   | HostClaimEvent
@@ -300,6 +373,8 @@ export type EngineEvent =
   | HostReopenEvent
   | HostResolveConflictEvent
   | HostConvertMessageEvent
+  | HostResolveReviewEvent
+  | HostDismissReviewEvent
   | HostBlockEvent
   | BuyerMergeEvent
   | BuyerUnmergeEvent
@@ -372,15 +447,30 @@ export interface NameChange {
   readonly at: number
 }
 
+/** 변형 하나의 재고 (R-19 "변형과 재고 단위") */
+export interface VariantStock {
+  /** 옵션 글 (`흰색/대형`) */
+  readonly text: string
+  /** 0 이상 — 0이면 처음부터 다 팔린 것과 같다 */
+  readonly stock: number
+}
+
 export interface ProductRecord {
   /** 상품 ID (`p1`부터). 번호를 바꿔도 그대로다 (D-056) */
   readonly id: string
   readonly name: string
   readonly price: number
+  /** 옵션 없는 상품의 재고(1 이상). 옵션 상품이면 변형 재고를 정할 때의 기본값(stocks에 적지 않은 변형) */
   readonly stock: number
   readonly phase: ProductPhase
   readonly priceHistory: readonly PriceChange[]
   readonly nameHistory: readonly NameChange[]
+  /** 상품 별칭 (R-19, 옵션 방송) */
+  readonly aliases: readonly string[]
+  /** 옵션 항목 (없으면 빈 목록 — 변형은 상품 자신 하나) */
+  readonly options: readonly OptionItem[]
+  /** 변형마다의 재고, 항목 순서·선택지 순서 (옵션이 없으면 빈 목록) */
+  readonly variants: readonly VariantStock[]
 }
 
 /** 방송의 번호 하나 (상품이 아직 없어도 보류 찜이 있으면 생긴다) */
@@ -402,8 +492,33 @@ export interface SlotRecord {
   readonly awaiting: boolean
   /** 충돌 찜 ID (상품마다 하나, R-7 7) */
   readonly conflict: string | null
-  /** 지금 상품의 확정 횟수 = 마지막 확정버전 (R-13). 번호를 바꾸면 상품과 함께 옮긴다 */
+  /** 지금 상품의 확정 횟수 = 마지막 확정버전 (R-13). 번호를 바꾸면 상품과 함께 옮긴다. 옵션 상품도 상품마다 센다 */
   readonly version: number
+  /** 옵션 상품의 변형마다의 판정 자리 (확정·대기·승계 결정 필요·충돌). 옵션이 없으면 빈 목록 — 위 winners·waitlist가 그 자리다 */
+  readonly units: readonly UnitRecord[]
+  /** 변형을 가진 찜의 활성 표시: JSON.stringify([지금의 구매자, 옵션 글]) → 찜 ID (INV-2는 변형마다) */
+  readonly variantActive: PMap<string>
+  /** 변형을 정하지 않은 시청자 취소 요청 (그 채널이 변형 찜을 둘 이상 가질 때, R-20 8). 요청 순서 */
+  readonly requests: readonly CancelRequestRecord[]
+}
+
+/** 옵션 상품의 변형 하나의 판정 자리 (R-19 "판정 단위는 변형이다") */
+export interface UnitRecord {
+  /** 옵션 글 */
+  readonly text: string
+  /** 확정 찜 ID, 확정된 순서 */
+  readonly winners: readonly string[]
+  /** 대기 찜 ID, 1순위부터 (모두 수량 1 — INV-O1) */
+  readonly waitlist: readonly string[]
+  readonly awaiting: boolean
+  readonly conflict: string | null
+}
+
+/** 변형을 정하지 않은 시청자 취소 요청 */
+export interface CancelRequestRecord {
+  /** 요청한 채널 (구매자 자신) */
+  readonly buyer: string
+  readonly seq: number
 }
 
 export interface ClaimRecord {
@@ -448,6 +563,14 @@ export interface ClaimRecord {
   readonly reprint: boolean
   /** 찜별 가격 이력 (UNPAID_CLAIMS로 스냅샷이 바뀐 때) */
   readonly priceHistory: readonly PriceChange[]
+  /** 수량 (1 이상, 옵션 방송만 1이 아닐 수 있다 — R-19 "수량"). 찜 금액 = price × qty */
+  readonly qty: number
+  /** 수량을 댓글·입력에 적었는지 (확인 필요 항목의 읽은 것, D-O1-08) */
+  readonly qtyWritten: boolean
+  /** 옵션 글 — 옵션을 가진 찜만 (없으면 null: 옵션 없는 상품, 번호만 쓴 보류 찜, D-O1-02) */
+  readonly variant: string | null
+  /** 고른 옵션 `[항목 이름, label]`, 항목 순서 (variant와 함께) */
+  readonly options: readonly (readonly [string, string])[] | null
 }
 
 export interface BuyerRecord {
@@ -506,6 +629,36 @@ export interface MessageRecord {
   readonly cancel: boolean
   /** 주문도 취소도 아니었던 메시지를 찜으로 바꾼 번호 (번호마다 한 번) */
   readonly converted: readonly number[]
+  /** 받을 때 확인 필요 항목이 된 메시지 (옵션 방송, R-20 7). 메시지 변환을 하지 않는다 (D-O1-07) */
+  readonly review: boolean
+}
+
+/** 확인 필요 항목 (R-20 7, D-O-10·D-O1-08·D-O1-10) — 찜이 아니다(재고·합계·효과에 들어가지 않는다, INV-O2) */
+export interface ReviewRecord {
+  readonly b: string
+  /** 출처 — 메시지 ID 또는 `sms:<ref>` */
+  readonly item: string
+  /** 구매자 자신 */
+  readonly buyer: string
+  readonly reason: ReviewReason
+  /** 읽은 번호 (못 읽었으면 null) */
+  readonly no: number | null
+  /** 읽은 번호의 상품 ID (그때 있던 상품 — 번호를 바꾸면 따라간다) */
+  readonly pid: string | null
+  /** 읽은 옵션 `[항목 이름, label]` (읽은 항목만, 없으면 null) */
+  readonly options: readonly (readonly [string, string])[] | null
+  /** 읽은 수량 (안 썼으면 null) */
+  readonly qty: number | null
+  /** 원래 순위 재료 (출처 입력의 seq·at·실제 시각) */
+  readonly seq: number
+  readonly at: number
+  readonly time: number
+  readonly minute: boolean
+  /** 출처 입력: chat이면 메시지 키, sms면 ref와 원문 수신 시각 */
+  readonly origin: 'chat' | 'sms'
+  readonly message: string | null
+  readonly ref: string | null
+  readonly received: string | null
 }
 
 /** 정산 기록 한 줄 (R-12) — 적힌 구매자 자신에 붙는다 */
@@ -525,10 +678,11 @@ export interface LedgerRecord {
 
 export interface EngineState {
   /**
-   * 상태 형식 번호 (S03 = 2, S03b = 3, S04 = 4: 방송마다 설정 스냅샷·끝난 시각, 시작 설정 칸 없앰, 취소 메시지 표시).
-   * applyEvent·checkEvent는 다른 형식을 받으면 StateFormatError를 던진다(D-072)
+   * 상태 형식 번호 (S03 = 2, S03b = 3, S04 = 4: 방송마다 설정 스냅샷·끝난 시각, 시작 설정 칸 없앰, 취소 메시지 표시,
+   * O1 = 5: 옵션·변형·수량·확인 필요·지금 상품). applyEvent·checkEvent는 다른 형식을 받으면 StateFormatError를 던진다(D-072).
+   * 형식 4의 상태는 upgradeState로 5로 바꿔 이어 쓸 수 있다
    */
-  readonly format: 4
+  readonly format: 5
   /** 방송 기록, 선언 순서 (시작 때 선언한 방송 → broadcast.start 순) */
   readonly broadcasts: readonly BroadcastRecord[]
   readonly counters: { readonly claims: number; readonly effects: number; readonly buyers: number; readonly products: number }
@@ -549,6 +703,8 @@ export interface EngineState {
   readonly effects: PMap<EffectRecord>
   /** JSON.stringify([구매자 자신, 날짜]) → 정산 기록 */
   readonly ledger: PMap<LedgerRecord>
+  /** JSON.stringify([방송, 출처]) → 확인 필요 항목 (O1, R-20 7) */
+  readonly reviews: PMap<ReviewRecord>
 }
 
 // ── 조회 결과 ────────────────────────────────────────────────────────────
@@ -564,6 +720,18 @@ export interface BroadcastDetails {
   readonly endedAt: number | null
   /** 그 방송의 설정 스냅샷 (모든 키) */
   readonly settings: SaleSettings
+  /** 지금 상품 (옵션 방송, R-20 6). 없으면 null */
+  readonly focus: FocusInfo | null
+}
+
+/** 지금 상품 조회 */
+export interface FocusInfo {
+  /** 지금의 상품 키 (번호를 바꾸면 따라간다) */
+  readonly product: string
+  readonly no: number
+  readonly productId: string
+  /** 정한 이벤트의 시각 (UTC 밀리초) — 채팅 at과의 차이가 15초 미만이면 이름 없는 옵션 댓글은 확인 필요 */
+  readonly at: number
 }
 
 export interface PriceChangeInfo {
@@ -605,6 +773,40 @@ export interface ProductInfo {
   readonly nameHistory: readonly NameChangeInfo[]
   /** 지금까지의 확정 횟수 */
   readonly confirmVersion: number
+  /** 상품 별칭 (옵션 방송) */
+  readonly aliases: readonly string[]
+  /** 옵션 항목 (없으면 빈 목록). 옵션 상품의 1등·대기·충돌은 variants에만 있다 — winners·waitlist는 빈 목록 (D-O1-01) */
+  readonly options: readonly OptionItem[]
+  /** 옵션 항목이 있는지 */
+  readonly hasOptions: boolean
+  /** 모든 변형의 확정 수량 합 (옵션 없는 상품은 확정 찜 수량의 합) */
+  readonly confirmedUnits: number
+  /** 변형, 항목 순서·선택지 순서 (옵션이 없으면 빈 목록) */
+  readonly variants: readonly VariantInfo[]
+}
+
+/** 변형 하나 (R-19 "변형과 재고 단위", D-O1-01) */
+export interface VariantInfo {
+  /** 변형 키 `<방송>/<번호>#<옵션 글>` */
+  readonly key: string
+  /** 옵션 글 `흰색/대형` */
+  readonly text: string
+  /** 고른 옵션 `[항목 이름, label]`, 항목 순서 */
+  readonly options: readonly (readonly [string, string])[]
+  /** 판매 중이면 확정 수량 = 재고일 때 SOLD, 아니면 OPEN. 판매 중이 아니면 상품 상태 */
+  readonly status: ProductStatus
+  readonly stock: number
+  readonly confirmedUnits: number
+  /** 남은 수량 = 재고 − 확정 수량 */
+  readonly remaining: number
+  /** 단가 = 상품 가격 + 가격 차이 합 */
+  readonly price: number
+  readonly winners: readonly string[]
+  readonly winnerClaims: readonly string[]
+  readonly waitlist: readonly string[]
+  readonly waitlistClaims: readonly string[]
+  readonly awaitingSuccession: boolean
+  readonly conflict: boolean
 }
 
 export interface ClaimInfo {
@@ -639,6 +841,40 @@ export interface ClaimInfo {
   readonly reprintNeeded: boolean
   /** 찜별 가격 이력 (UNPAID_CLAIMS) */
   readonly priceHistory: readonly PriceChangeInfo[]
+  /** 찜의 키: 옵션을 가진 찜은 변형 키, 아니면 상품 키 (D-O1-02) */
+  readonly key: string
+  /** 수량 (옵션 방송만 1이 아닐 수 있다) */
+  readonly qty: number
+  /** 옵션 글 (옵션을 가진 찜만, 아니면 null) */
+  readonly variant: string | null
+  /** 고른 옵션 `[항목 이름, label]` (옵션을 가진 찜만) */
+  readonly options: readonly (readonly [string, string])[] | null
+  /** 찜 금액 = 단가 스냅샷 × 수량 (확정된 적 없으면 null) */
+  readonly amount: number | null
+}
+
+/** 확인 필요 항목 조회 (R-20 7, listReviews) — 원래 순위(출처 입력의 도착 순서) */
+export interface ReviewInfo {
+  readonly broadcast: string
+  /** 출처 — 메시지 ID 또는 `sms:<ref>` */
+  readonly item: string
+  /** 구매자 자신 */
+  readonly buyer: string
+  /** 지금의 구매자 */
+  readonly currentBuyer: string
+  readonly reason: ReviewReason
+  /** 읽은 번호의 지금 상품 키 (읽은 번호가 없으면 null) */
+  readonly product: string | null
+  readonly no: number | null
+  /** 읽은 옵션 `[항목 이름, label]` (읽은 항목만) */
+  readonly options: readonly (readonly [string, string])[] | null
+  /** 읽은 수량 */
+  readonly qty: number | null
+  /** 원래 순위 재료 seq·at */
+  readonly seq: number
+  readonly at: number
+  /** 출처 입력 종류 */
+  readonly origin: 'chat' | 'sms'
 }
 
 export interface PendingInfo {
@@ -726,10 +962,19 @@ export interface EffectInfo {
 }
 
 export interface CancelRequestInfo {
+  /** 찜의 키 (변형을 정하지 않은 요청이면 상품 키 — R-20 8, D-O1-02) */
   readonly product: string
   readonly buyer: string
   readonly currentBuyer: string
+  /**
+   * 요청이 걸린 찜 ID. 변형을 정하지 않은 요청(그 채널의 변형 찜이 둘 이상, R-20 8)이면 찜이 하나로 정해지지 않아
+   * 요청 하나를 가리키는 키 `request:<상품 키>:<구매자 자신>`이다 — 판매자가 choices 중 변형을 골라(options) 승인·무시한다
+   */
   readonly claim: string
+  /** 변형을 정하지 않은 요청인지 */
+  readonly chooseVariant: boolean
+  /** 변형을 정하지 않은 요청이면 그 채널 자신의 그 상품 활성 찜 ID(생성 순서), 아니면 [claim] */
+  readonly choices: readonly string[]
   /** 요청을 받은 seq */
   readonly seq: number
 }

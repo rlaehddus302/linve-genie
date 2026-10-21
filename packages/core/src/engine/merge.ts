@@ -1,9 +1,9 @@
 // 구매자 합치기 (R-11 "구매자 합치기"·"미리 보기", D-057, D-100).
 // 판정(buyer.merge 처리)과 순수 조회(previewMerge)가 같은 계획 함수 planMerge를 쓴다 — 막는 조건과 "앞선 쪽" 순서를 두 번 구현하지 않는다.
 // planMerge는 작업 사본을 읽기만 하고, applyMerge가 그 계획대로 작업 사본을 바꾼다.
-import { CorruptStateError, ownGet, type ClaimDraft, type Draft, type SlotDraft } from './draft.ts'
-import { pdelete, pget, pset } from './pmap.ts'
-import { compareClaims, detach, isActive, settleAwaiting } from './rules.ts'
+import { CorruptStateError, Unit, ownGet, variantActiveKey, type ClaimDraft, type Draft, type SlotDraft } from './draft.ts'
+import { pdelete, pset } from './pmap.ts'
+import { activeIdIn, compareClaims, detach, isActive, settleAwaiting, unitRecordOf } from './rules.ts'
 import type { ClaimRecord, MergeBlockReason, SlotRecord } from './types.ts'
 
 type AnyClaim = ClaimRecord | ClaimDraft
@@ -16,7 +16,11 @@ function aheadOf(d: Draft, slot: AnySlot, a: AnyClaim, b: AnyClaim): boolean {
   // 둘 다 활성 찜이다
   const byStatus = (ownGet(STATUS_ORDER, a.status) as number) - (ownGet(STATUS_ORDER, b.status) as number)
   if (byStatus !== 0) return byStatus < 0
-  if (a.status === 'WAITLISTED') return slot.waitlist.indexOf(a.id) < slot.waitlist.indexOf(b.id)
+  if (a.status === 'WAITLISTED') {
+    // 같은 자리(번호·변형)의 두 대기 찜 — 앞 순번
+    const waitlist = unitRecordOf(slot, a.variant)?.waitlist ?? []
+    return waitlist.indexOf(a.id) < waitlist.indexOf(b.id)
+  }
   return compareClaims(d, a, b) < 0
 }
 
@@ -63,7 +67,7 @@ export function planMerge(d: Draft, from: string, into: string): MergePlan {
   // 고리 금지: into의 지금의 구매자가 from이면 into는 from 아래에 있다
   if (target === from) return { blocked: 'CYCLE', target, bothConfirmed: [] }
   const moving = activeClaimsOf(d, d.members(from))
-  const activeOf = (claim: AnyClaim): string | undefined => pget((d.readSlot(claim.key) as AnySlot).active, target)
+  const activeOf = (claim: AnyClaim): string | undefined => activeIdIn(d, d.readSlot(claim.key) as AnySlot, claim.variant, target)
   // 확정 찜이 둘이 되는 상품이 하나라도 있으면 합치기 전체가 아무 일도 없다
   const bothConfirmed = moving.filter((claim) => {
     if (claim.status !== 'CONFIRMED') return false
@@ -90,13 +94,15 @@ export function applyMerge(d: Draft, from: string, into: string, plan: MergePlan
   d.knownBuyer(into).children.push(from)
   for (const { claim, keep, drop } of plan.steps) {
     const slot = d.slot(claim.b, claim.no)
-    slot.active = pset(pdelete(slot.active, from), plan.target, keep.id)
+    if (claim.variant === null) slot.active = pset(pdelete(slot.active, from), plan.target, keep.id)
+    else slot.variantActive = pset(pdelete(slot.variantActive, variantActiveKey(from, claim.variant)), variantActiveKey(plan.target, claim.variant), keep.id)
     if (drop === null) continue
-    detach(drop, slot)
+    const unit = new Unit(slot, claim.variant)
+    detach(drop, unit)
     const dropped = d.claim(drop.id)
     dropped.status = 'DUPLICATE'
     dropped.reason = null
     dropped.request = null
-    settleAwaiting(slot)
+    settleAwaiting(d, unit)
   }
 }

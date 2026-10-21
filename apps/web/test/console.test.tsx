@@ -425,6 +425,12 @@ function claim(id: string, buyer: string, status: Claim['status']): Claim {
     cancelRequested: false,
     reprintNeeded: false,
     priceHistory: [],
+    // O1: 옵션 방송의 찜 칸 (옵션 없는 수량 1 찜)
+    key: 'b1/15',
+    qty: 1,
+    variant: null,
+    options: null,
+    amount: status === 'CONFIRMED' ? 10000 : null,
   }
 }
 

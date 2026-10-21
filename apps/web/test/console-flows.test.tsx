@@ -171,6 +171,12 @@ function claim(id: string, buyer: string, status: Claim['status'], patch: Partia
     cancelRequested: false,
     reprintNeeded: false,
     priceHistory: [],
+    // O1: 옵션 방송의 찜 칸 (옵션 없는 수량 1 찜)
+    key: 'b1/15',
+    qty: 1,
+    variant: null,
+    options: null,
+    amount: status === 'CONFIRMED' ? 10000 : null,
     ...patch,
   }
 }
@@ -530,7 +536,7 @@ describe('알림 창 (AC-S05-30·32·33)', () => {
       { id: 'c2', display: '김철수' },
     ]
     model.claims = [claim('k1', 'c1', 'CONFIRMED', { cancelRequested: true }), claim('k2', 'c2', 'WAITLISTED')]
-    model.cancelRequests = [{ product: 'b1/15', buyer: 'c1', currentBuyer: 'c1', claim: 'k1', seq: 3 }]
+    model.cancelRequests = [{ product: 'b1/15', buyer: 'c1', currentBuyer: 'c1', claim: 'k1', seq: 3, chooseVariant: false, choices: ['k1'] }]
     model.history = [historyItem(3, 'chat', { b: 'b1' }, { at: '2026-10-19T01:00:05.000Z' })]
     await openConsole()
     fireEvent.click(within(screen.getByRole('region', { name: '알림' })).getByRole('button', { name: '취소 요청 1' }))
@@ -560,7 +566,7 @@ describe('알림 창 (AC-S05-30·32·33)', () => {
       broadcasts: [broadcastView({ settings: { ...DEFAULT_SETTINGS, 'cancel.succession': succession } })],
       products: [product(15, { winners: ['c1'], winnerClaims: ['k1'], waitlist, waitlistClaims: waitlist.map((id) => `w${id}`) })],
       claims: [claim('k1', 'c1', 'CONFIRMED', { cancelRequested: true })],
-      cancelRequests: [{ product: 'b1/15', buyer: 'c1', currentBuyer: 'c1', claim: 'k1', seq: 3 }],
+      cancelRequests: [{ product: 'b1/15', buyer: 'c1', currentBuyer: 'c1', claim: 'k1', seq: 3, chooseVariant: false, choices: ['k1'] }],
       buyers: fullBuyers(['c1', '홍길동']),
     })
     render(

@@ -2,6 +2,7 @@
 export { initEngine, applyEvent } from './engine/reducer.ts'
 export { checkEvent, InvalidEventError, isInvalidEvent, EVENT_TYPES } from './engine/validate.ts'
 export { STATE_FORMAT, StateFormatError, isStateFormatError } from './engine/state-format.ts'
+export { upgradeState } from './engine/upgrade.ts'
 export { checkInvariants } from './engine/invariants.ts'
 export { CorruptStateError } from './engine/draft.ts'
 export { normalizePhone, phoneLast4, containsPhoneRun, looksLikePhoneId, containsPhoneNumber } from './engine/phone.ts'
@@ -29,6 +30,8 @@ export {
   productStatus,
   listBlocked,
   listMessages,
+  listReviews,
+  variantStatus,
 } from './engine/views.ts'
 export type * from './engine/types.ts'
 export type { PMap } from './engine/pmap.ts'

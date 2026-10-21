@@ -14,6 +14,7 @@ import { ownGet } from './draft.ts'
 import { containsPhoneRun, looksLikePhoneId } from './phone.ts'
 import { assertStateFormat } from './state-format.ts'
 import { isValidDate, isValidReceivedTime } from './time.ts'
+import { checkAliasesShape, checkOptionContext, checkOptionsShape, checkPickShape, checkStocksShape } from './validate-options.ts'
 import type { EngineState, EventProblem } from './types.ts'
 
 /** 입력 오류 (NotImplementedError와 구별되는 오류 하나, D-050). 판별은 isInvalidEvent로 한다 */
@@ -110,12 +111,35 @@ interface Spec {
   readonly extra?: (event: Readonly<Record<string, unknown>>) => EventProblem | null
   /** 필드 안쪽 검사 (늘 본다) — 필드 이름은 `필드.안쪽 키` */
   readonly nested?: (event: Readonly<Record<string, unknown>>) => EventProblem[]
+  /** 필드 안쪽의 판매자가 적는 글 칸 [필드, 값] (옵션 이름·별칭) — 기록 전 검사가 휴대폰 번호를 본다 */
+  readonly texts?: (event: Readonly<Record<string, unknown>>) => [string, string][]
 }
 
 const BY_PRODUCT = { [BROADCAST]: id, no }
 const BY_CLAIM = { [BROADCAST]: id, no, buyer: typedId }
 const HOST_REASON = { ...BY_CLAIM, reason }
 const LEDGER = { buyer: typedId, date }
+
+/** 모양은 nested에서 본다 (옵션 항목·별칭·변형 재고·고른 옵션 — validate-options.ts) */
+const nestedShape: Check = () => null
+const quantity: Check = (v) => (isInt(v, 1) ? null : '수량은 1 이상 정수여야 한다')
+
+/** 옵션 방송의 상품 등록·수정 필드 (R-19, D-O-04·D-O1-03): 모양과 글 칸 */
+function productOptionShapes(e: Readonly<Record<string, unknown>>): EventProblem[] {
+  return [
+    ...(e.options === undefined ? [] : checkOptionsShape(e.options).problems),
+    ...(e.aliases === undefined ? [] : checkAliasesShape(e.aliases).problems),
+    ...(e.stocks === undefined ? [] : checkStocksShape(e.stocks)),
+  ]
+}
+
+function productOptionTexts(e: Readonly<Record<string, unknown>>): [string, string][] {
+  return [...(e.options === undefined ? [] : checkOptionsShape(e.options).texts), ...(e.aliases === undefined ? [] : checkAliasesShape(e.aliases).texts)]
+}
+
+const pickShape = (e: Readonly<Record<string, unknown>>): EventProblem[] => (e.options === undefined ? [] : checkPickShape(e.options))
+const PRODUCT_OPTIONS = { aliases: nestedShape, options: nestedShape, stocks: nestedShape }
+const PICK = { options: nestedShape }
 
 /** 설정 스냅샷: 객체(배열·null 아님). 키·값·범위는 nested에서 checkSettings로 (D-071) */
 const settingsShape: Check = (v) => (typeof v === 'object' && v !== null && !Array.isArray(v) ? null : '설정 스냅샷은 키와 값을 짝지은 객체여야 한다')
@@ -132,29 +156,48 @@ const SPECS: Readonly<Record<string, Spec>> = {
     },
   },
   'broadcast.end': { required: { [BROADCAST]: id } },
-  'product.register': { required: { ...BY_PRODUCT, name: freeText, price: money }, optional: { stock, status: oneOf('OPEN', 'READY') } },
+  'product.register': {
+    required: { ...BY_PRODUCT, name: freeText, price: money },
+    optional: { stock, status: oneOf('OPEN', 'READY'), ...PRODUCT_OPTIONS },
+    nested: productOptionShapes,
+    texts: productOptionTexts,
+  },
   'product.open': { required: BY_PRODUCT },
   'product.hold': { required: BY_PRODUCT },
   'product.close': { required: BY_PRODUCT },
-  'product.update': { required: BY_PRODUCT, optional: { name: freeText, price: money, stock, applyTo: oneOf('NEW_ONLY', 'UNPAID_CLAIMS') } },
+  'product.update': {
+    required: BY_PRODUCT,
+    optional: { name: freeText, price: money, stock, applyTo: oneOf('NEW_ONLY', 'UNPAID_CLAIMS'), ...PRODUCT_OPTIONS },
+    nested: productOptionShapes,
+    texts: productOptionTexts,
+  },
   'product.renumber': { required: { [BROADCAST]: id, from: no, to: no } },
+  'product.focus': { required: BY_PRODUCT },
   chat: { required: { [BROADCAST]: id, id, ch: channel, nick: text, text }, optional: { owner: bool, publishedAt: time } },
   sms: {
     required: { [BROADCAST]: id, ref: smsRef, no, received },
-    optional: { memo, phoneKey, phoneLast4, buyer: typedId },
+    optional: { memo, phoneKey, phoneLast4, buyer: typedId, qty: quantity, ...PICK },
     pairs: [['phoneKey', 'phoneLast4']],
+    nested: pickShape,
     forbidden: { phone: '전화번호 원문은 엔진에 넣지 않는다 — 서버가 정규화해 phoneKey·phoneLast4로 바꿔 넣는다 (D-061)' },
   },
-  'host.cancel': { required: HOST_REASON },
-  'host.reject': { required: HOST_REASON },
-  'host.promote': { required: HOST_REASON },
-  'host.confirm': { required: BY_CLAIM, optional: { reason } },
-  'host.approveCancel': { required: BY_CLAIM, optional: { reason } },
-  'host.dismissCancel': { required: BY_CLAIM, optional: { reason } },
-  'host.assign': { required: HOST_REASON, optional: { replace: typedId, replaceTo: oneOf('WAITLIST', 'CANCEL') }, pairs: [['replace', 'replaceTo']] },
-  'host.reopen': { required: { ...BY_PRODUCT, reason } },
+  'host.cancel': { required: HOST_REASON, optional: PICK, nested: pickShape },
+  'host.reject': { required: HOST_REASON, optional: PICK, nested: pickShape },
+  'host.promote': { required: HOST_REASON, optional: PICK, nested: pickShape },
+  'host.confirm': { required: BY_CLAIM, optional: { reason, ...PICK }, nested: pickShape },
+  'host.approveCancel': { required: BY_CLAIM, optional: { reason, ...PICK }, nested: pickShape },
+  'host.dismissCancel': { required: BY_CLAIM, optional: { reason, ...PICK }, nested: pickShape },
+  'host.assign': {
+    required: HOST_REASON,
+    optional: { replace: typedId, replaceTo: oneOf('WAITLIST', 'CANCEL'), qty: quantity, ...PICK },
+    pairs: [['replace', 'replaceTo']],
+    nested: pickShape,
+  },
+  'host.reopen': { required: { ...BY_PRODUCT, reason }, optional: PICK, nested: pickShape },
   'host.resolveConflict': { required: { ...BY_PRODUCT, decision: oneOf('KEEP', 'SWITCH') }, optional: { reason } },
   'host.convertMessage': { required: { [BROADCAST]: id, msg: typedId, no }, optional: { reason } },
+  'host.resolveReview': { required: { ...BY_PRODUCT, item: id, qty: quantity }, optional: { reason, ...PICK }, nested: pickShape },
+  'host.dismissReview': { required: { [BROADCAST]: id, item: id }, optional: { reason } },
   'host.blockBuyer': { required: { buyer: typedId, reason } },
   'host.unblockBuyer': { required: { buyer: typedId, reason } },
   'buyer.merge': { required: { from: typedId, into: typedId, reason } },
@@ -270,5 +313,11 @@ function inspect(state: EngineState, event: unknown, withPhone: boolean): Inspec
   }
   const extra = problems.length === 0 ? (spec.extra?.(record) ?? null) : null
   if (extra !== null) problems.push(extra)
+  // 옵션 방송 (R-19·R-20): 옵션 방송인지, 그 상품의 항목·변형과 맞는지, 수량 상한 — 상태를 본다
+  if (problems.length === 0) problems.push(...checkOptionContext(state, type, record))
+  // 필드 안쪽의 판매자가 적는 글 칸 (옵션 이름·별칭)의 휴대폰 번호 — 기록 전 검사만
+  if (withPhone && problems.length === 0) {
+    for (const [field, value] of spec.texts?.(record) ?? []) if (containsPhoneRun(value)) phone.push({ field, message: PHONE_IN_TEXT, code: 'PHONE_NUMBER' })
+  }
   return { problems, phone }
 }

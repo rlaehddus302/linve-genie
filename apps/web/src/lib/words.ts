@@ -19,6 +19,8 @@ export const REJECT_REASON_WORD: Readonly<Record<ClaimReason, string>> = {
   WAITLIST_CLEARED: '대기 정리',
   BY_HOST: '무효',
   RENUMBERED: '번호 바뀜',
+  // O1: 공개될 때 옵션(사이즈·색상 등)을 고르지 않은 찜 — 확인 필요로 간다 (O2가 화면 낱말을 다듬는다)
+  OPTION_MISSING: '옵션 없음',
 }
 
 const CLAIM_STATUS_WORD: Readonly<Record<Exclude<ClaimStatus, 'WAITLISTED' | 'REJECTED'>, string>> = {

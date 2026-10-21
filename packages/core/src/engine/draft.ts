@@ -9,6 +9,7 @@ import { emptyPMap, pdelete, pget, phas, pkeys, pset, type PMap } from './pmap.t
 import type {
   BroadcastRecord,
   BuyerRecord,
+  CancelRequestRecord,
   ClaimRecord,
   EffectRecord,
   EngineEffect,
@@ -17,9 +18,20 @@ import type {
   MessageRecord,
   PriceChange,
   ProductRecord,
+  ReviewRecord,
   SettlementEntry,
   SlotRecord,
+  UnitRecord,
 } from './types.ts'
+
+/** 변형 하나의 판정 자리 작업 사본 */
+export interface UnitRecordDraft {
+  text: string
+  winners: string[]
+  waitlist: string[]
+  awaiting: boolean
+  conflict: string | null
+}
 
 export interface SlotDraft {
   key: string
@@ -33,6 +45,118 @@ export interface SlotDraft {
   awaiting: boolean
   conflict: string | null
   version: number
+  units: UnitRecordDraft[]
+  variantActive: PMap<string>
+  requests: CancelRequestRecord[]
+}
+
+/** 변형 활성 표시의 키: JSON.stringify([지금의 구매자, 옵션 글]) — 구매자 ID가 어떤 글자여도 겹치지 않는다 */
+export function variantActiveKey(root: string, text: string): string {
+  return JSON.stringify([root, text])
+}
+
+/** 변형 키 `<방송>/<번호>#<옵션 글>` (R-19) */
+export function unitKeyOf(key: string, text: string | null): string {
+  return text === null ? key : `${key}#${text}`
+}
+
+/** 빈 변형 판정 자리 */
+export function emptyUnit(text: string): UnitRecord {
+  return { text, winners: [], waitlist: [], awaiting: false, conflict: null }
+}
+
+/**
+ * 판정 자리 하나 — 옵션 없는 상품(또는 번호만의 찜)이면 번호 자신, 옵션 상품이면 변형 하나 (R-19 "판정 단위는 변형이다").
+ * 규칙 함수(rules.ts)는 이 자리 위에서 돈다: 확정·대기·승계 결정 필요·충돌은 자리마다, 확정버전·보류 찜은 번호(상품)마다다.
+ * 값을 담지 않고 번호의 작업 사본을 가리키기만 한다(상태에 들어가지 않는다).
+ */
+export class Unit {
+  readonly slot: SlotDraft
+  /** 옵션 글 (번호 자신이면 null) */
+  readonly text: string | null
+
+  constructor(slot: SlotDraft, text: string | null) {
+    this.slot = slot
+    this.text = text
+  }
+
+  private get record(): UnitRecordDraft | SlotDraft {
+    if (this.text === null) return this.slot
+    const found = this.slot.units.find((unit) => unit.text === this.text)
+    if (found === undefined) throw new CorruptStateError(`${this.slot.key}: 변형 '${this.text}'의 판정 자리가 없다`)
+    return found
+  }
+
+  /** 상품 키 (효과·이력의 상품 키 — 변형을 가리지 않는다, D-O1-02) */
+  get key(): string {
+    return this.slot.key
+  }
+
+  /** 찜의 키 — 변형이면 변형 키 */
+  get unitKey(): string {
+    return unitKeyOf(this.slot.key, this.text)
+  }
+
+  get b(): string {
+    return this.slot.b
+  }
+
+  get no(): number {
+    return this.slot.no
+  }
+
+  get product(): ProductRecord | null {
+    return this.slot.product
+  }
+
+  /** 상품마다의 확정버전 (변형을 가리지 않는다, R-13) */
+  get version(): number {
+    return this.slot.version
+  }
+
+  set version(value: number) {
+    this.slot.version = value
+  }
+
+  get pending(): PMap<true> {
+    return this.slot.pending
+  }
+
+  set pending(value: PMap<true>) {
+    this.slot.pending = value
+  }
+
+  get winners(): string[] {
+    return this.record.winners
+  }
+
+  set winners(value: string[]) {
+    this.record.winners = value
+  }
+
+  get waitlist(): string[] {
+    return this.record.waitlist
+  }
+
+  set waitlist(value: string[]) {
+    this.record.waitlist = value
+  }
+
+  get awaiting(): boolean {
+    return this.record.awaiting
+  }
+
+  set awaiting(value: boolean) {
+    this.record.awaiting = value
+  }
+
+  get conflict(): string | null {
+    return this.record.conflict
+  }
+
+  set conflict(value: string | null) {
+    this.record.conflict = value
+  }
 }
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] }
@@ -121,6 +245,7 @@ export class Draft {
   private readonly effects = new Map<string, EffectDraft>()
   private readonly messages = new Map<string, MessageDraft>()
   private readonly ledger = new Map<string, LedgerDraft>()
+  private readonly reviews = new Map<string, ReviewRecord | null>()
   private readonly refs = new Map<string, string | null>()
   private readonly phoneKeys = new Map<string, string>()
   private readonly productKeys = new Map<string, string>()
@@ -192,6 +317,27 @@ export class Draft {
     return this.ledger.get(key) ?? pget(this.base.ledger, key)
   }
 
+  /** 확인 필요 항목 (JSON.stringify([방송, 출처])) — 지웠거나 없으면 undefined */
+  readReview(key: string): ReviewRecord | undefined {
+    if (this.reviews.has(key)) return this.reviews.get(key) ?? undefined
+    return pget(this.base.reviews, key)
+  }
+
+  /** 확인 필요 항목을 넣거나(record) 지운다(null) */
+  setReview(key: string, record: ReviewRecord | null): void {
+    this.reviews.set(key, record)
+  }
+
+  /** 이 이벤트에서 고친 번호 작업 사본 전부 (끝에 변형을 정하지 않은 취소 요청을 정리한다) */
+  touchedSlots(): SlotDraft[] {
+    return [...this.slots.values()]
+  }
+
+  /** 판정 자리 (번호의 작업 사본 위). text = null이면 번호 자신 */
+  unit(b: string, no: number, text: string | null): Unit {
+    return new Unit(this.slot(b, no), text)
+  }
+
   /** 받은 ref면 그 문자찜이 정한 구매자(정하지 않았으면 null), 받지 않은 ref면 undefined */
   readRef(ref: string): string | null | undefined {
     return this.refs.has(ref) ? this.refs.get(ref) : pget(this.base.refs, ref)
@@ -245,8 +391,29 @@ export class Draft {
     return draftIn(this.slots, key, () => {
       const base = pget(this.base.slots, key)
       return base === undefined
-        ? { key, b, no, product: null, winners: [], waitlist: [], pending: emptyPMap(), active: emptyPMap(), awaiting: false, conflict: null, version: 0 }
-        : { ...base, winners: [...base.winners], waitlist: [...base.waitlist] }
+        ? {
+            key,
+            b,
+            no,
+            product: null,
+            winners: [],
+            waitlist: [],
+            pending: emptyPMap(),
+            active: emptyPMap(),
+            awaiting: false,
+            conflict: null,
+            version: 0,
+            units: [],
+            variantActive: emptyPMap(),
+            requests: [],
+          }
+        : {
+            ...base,
+            winners: [...base.winners],
+            waitlist: [...base.waitlist],
+            units: base.units.map((unit) => ({ ...unit, winners: [...unit.winners], waitlist: [...unit.waitlist] })),
+            requests: [...base.requests],
+          }
     })
   }
 
@@ -351,6 +518,11 @@ export class Draft {
     return `p${String(++this.counters.products)}`
   }
 
+  /** 상품 ID → 지금의 상품 키 (없으면 undefined) */
+  readProductKey(pid: string): string | undefined {
+    return this.productKeys.get(pid) ?? pget(this.base.products, pid)
+  }
+
   setProductKey(pid: string, key: string): void {
     this.productKeys.set(pid, key)
   }
@@ -375,7 +547,7 @@ export class Draft {
 
   commit(): { state: EngineState; effects: EngineEffect[] } {
     const base = this.base
-    const tables = [this.slots, this.claims, this.buyers, this.effects, this.messages, this.ledger, this.refs, this.phoneKeys, this.productKeys, this.blockedChanges]
+    const tables = [this.slots, this.claims, this.buyers, this.effects, this.messages, this.ledger, this.reviews, this.refs, this.phoneKeys, this.productKeys, this.blockedChanges]
     if (this.broadcastList === null && tables.every((table) => table.size === 0)) return { state: base, effects: [] }
     const put = <V>(map: PMap<V>, changes: ReadonlyMap<string, V>): PMap<V> => {
       let out = map
@@ -384,6 +556,8 @@ export class Draft {
     }
     let blocked = base.blocked
     for (const [key, value] of this.blockedChanges) blocked = value ? pset(blocked, key, true) : pdelete(blocked, key)
+    let reviews = base.reviews
+    for (const [key, value] of this.reviews) reviews = value === null ? pdelete(reviews, key) : pset(reviews, key, value)
     return {
       state: {
         ...base,
@@ -399,6 +573,7 @@ export class Draft {
         claims: put<ClaimRecord>(base.claims, this.claims),
         effects: put<EffectRecord>(base.effects, this.effects),
         ledger: put<LedgerRecord>(base.ledger, this.ledger),
+        reviews,
       },
       effects: this.emitted,
     }

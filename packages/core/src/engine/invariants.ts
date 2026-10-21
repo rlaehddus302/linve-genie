@@ -4,6 +4,7 @@
 // 찜을 한 번 돌며 번호별·구매자별로 모으고, 번호·구매자를 한 번씩 본다(구매자×찜 이중 순회, 번호별 펼침 복사 없음).
 // 목록이 찜 상태와 정확히 같으면 그 목록에 끝난 찜이 있을 수 없으므로, 끝난 찜(INV-9)은 어긋난 목록만 다시 본다.
 // 이벤트 사이의 불변식(INV-3·4·8·10·11·12)은 두 상태·로그를 비교해야 해서 속성 테스트가 본다.
+import { variantActiveKey } from './draft.ts'
 import { pentries, pget, pkeys, pvalues } from './pmap.ts'
 import { isActive } from './rules.ts'
 import type { ClaimRecord, EngineState, InvariantViolation, SlotRecord } from './types.ts'
@@ -27,51 +28,106 @@ interface Context {
   readonly out: InvariantViolation[]
 }
 
-function checkSlot(slot: SlotRecord, claims: readonly ClaimRecord[], { root, lookup, out }: Context): void {
-  const where = `상품 ${slot.key}`
-  const stock = slot.product?.stock ?? 0
+interface UnitView {
+  readonly text: string | null
+  readonly winners: readonly string[]
+  readonly waitlist: readonly string[]
+  readonly conflict: string | null
+}
+
+/** 판정 자리 하나 (번호 자신 또는 변형): INV-1·INV-7·INV-O1·R-7·INV-9 */
+function checkUnit(unit: UnitView, claims: readonly ClaimRecord[], stock: number, where: string, { lookup, out }: Context): void {
   const confirmed: string[] = []
   const waiting: string[] = []
   const conflicts: string[] = []
-  const active: ClaimRecord[] = []
-  const pending = new Set<string>()
+  let units = 0
   for (const claim of claims) {
-    if (claim.status === 'CONFIRMED') confirmed.push(claim.id)
-    else if (claim.status === 'WAITLISTED') waiting.push(claim.id)
-    else if (claim.status === 'CONFLICT') conflicts.push(claim.id)
-    else if (claim.status === 'PENDING') pending.add(claim.id)
-    if (isActive(claim.status)) active.push(claim)
+    if (claim.status === 'CONFIRMED') {
+      confirmed.push(claim.id)
+      units += claim.qty
+    } else if (claim.status === 'WAITLISTED') {
+      waiting.push(claim.id)
+      // INV-O1: 대기 찜의 수량은 늘 1
+      if (claim.qty !== 1) out.push({ id: 'INV-O1', message: `${where}: 대기 찜 ${claim.id}의 수량이 ${String(claim.qty)}이다` })
+    } else if (claim.status === 'CONFLICT') conflicts.push(claim.id)
   }
-  // INV-1: 확정 찜 수 ≤ 재고, 확정 목록 = 확정 상태인 찜
-  if (slot.winners.length > stock) out.push({ id: 'INV-1', message: `${where}: 확정 ${String(slot.winners.length)}명 > 재고 ${String(stock)}` })
-  const winnersOk = sameSet(slot.winners, confirmed)
+  // 확정 수량을 보이는 말: 모두 수량 1이면 지금처럼 'n명', 아니면 '수량 n'
+  const shown = units === confirmed.length ? `${String(units)}명` : `수량 ${String(units)}`
+  // INV-1: 확정 수량(확정 찜 수량의 합) ≤ 재고, 확정 목록 = 확정 상태인 찜
+  if (units > stock) out.push({ id: 'INV-1', message: `${where}: 확정 ${shown} > 재고 ${String(stock)}` })
+  const winnersOk = sameSet(unit.winners, confirmed)
   if (!winnersOk) out.push({ id: 'INV-1', message: `${where}: 확정 목록과 찜 상태가 다르다` })
   // INV-7: 대기 순번 1..n 빈틈없음 = 대기 목록이 대기 상태인 찜 전부와 정확히 같고 겹치지 않는다
-  const waitlistOk = sameSet(slot.waitlist, waiting)
+  const waitlistOk = sameSet(unit.waitlist, waiting)
   if (!waitlistOk) out.push({ id: 'INV-7', message: `${where}: 대기 목록과 대기 상태인 찜이 다르다` })
-  // INV-2: 한 구매자(지금의 구매자) 한 번호 활성 찜 ≤ 1 (충돌 찜 포함), 보류 목록·활성 표시 = 찜 상태
-  // (영속 맵은 키마다 찾지 않고 한 번에 훑어 맞춰 본다)
-  const pendingOk = slot.pending.size === pending.size && pkeys(slot.pending).every((id) => pending.has(id))
-  if (!pendingOk) out.push({ id: 'INV-2', message: `${where}: 보류 목록과 보류 상태인 찜이 다르다` })
-  const owners = new Map<string, string>()
-  for (const claim of active) owners.set(root(claim.buyer), claim.id)
-  if (owners.size !== active.length) out.push({ id: 'INV-2', message: `${where}: 한 구매자에게 활성 찜이 둘 이상이다` })
-  const indexOk = slot.active.size === active.length && owners.size === active.length && pentries(slot.active).every(([owner, id]) => owners.get(owner) === id)
-  if (!indexOk) out.push({ id: 'INV-2', message: `${where}: 활성 찜 표시가 찜 상태와 다르다` })
-  // R-7 7: 충돌은 상품마다 하나, 충돌 표시 ⇔ 충돌 찜, 충돌 찜이 있으면 확정 수 = 재고
-  const marked = slot.conflict === null ? [] : [slot.conflict]
+  // R-7 7: 충돌은 자리마다 하나, 충돌 표시 ⇔ 충돌 찜, 충돌 찜이 있으면 확정 수량 = 재고
+  const marked = unit.conflict === null ? [] : [unit.conflict]
   const conflictOk = conflicts.length <= 1 && sameSet(marked, conflicts)
   if (!conflictOk) out.push({ id: 'R-7', message: `${where}: 충돌 표시와 충돌 찜이 다르다 (찜 ${String(conflicts.length)}개)` })
-  if (slot.conflict !== null && slot.winners.length !== stock) out.push({ id: 'R-7', message: `${where}: 충돌 중인데 확정 ${String(slot.winners.length)}명 ≠ 재고 ${String(stock)}` })
-  // INV-9: 취소·거절·중복 찜은 확정·대기·보류·충돌 자리(합계의 바탕)에 없다 — 어긋난 목록만 다시 본다
-  if (winnersOk && waitlistOk && pendingOk && conflictOk) return
+  if (unit.conflict !== null && units !== stock) out.push({ id: 'R-7', message: `${where}: 충돌 중인데 확정 ${shown} ≠ 재고 ${String(stock)}` })
+  // INV-9: 취소·거절·중복 찜은 확정·대기·충돌 자리(합계의 바탕)에 없다 — 어긋난 목록만 다시 본다
+  if (winnersOk && waitlistOk && conflictOk) return
   const byId = lookup()
-  const suspects = [...(winnersOk ? [] : slot.winners), ...(waitlistOk ? [] : slot.waitlist), ...(pendingOk ? [] : pkeys(slot.pending)), ...(conflictOk ? [] : marked)]
+  const suspects = [...(winnersOk ? [] : unit.winners), ...(waitlistOk ? [] : unit.waitlist), ...(conflictOk ? [] : marked)]
   const ended = suspects.filter((id) => {
     const claim = byId.get(id)
     return claim !== undefined && !isActive(claim.status)
   })
   if (ended.length > 0) out.push({ id: 'INV-9', message: `${where}: 끝난 찜이 목록에 남아 있다 (${ended.join(', ')})` })
+}
+
+/** 자리의 재고 (옵션 없는 상품은 상품 재고, 변형은 변형 재고, 상품이 없거나 옵션 상품의 번호 자신은 0) */
+function stockIn(slot: SlotRecord, text: string | null): number {
+  const product = slot.product
+  if (product === null) return 0
+  if (text === null) return product.options.length === 0 ? product.stock : 0
+  return product.variants.find((variant) => variant.text === text)?.stock ?? 0
+}
+
+function checkSlot(slot: SlotRecord, claims: readonly ClaimRecord[], context: Context): void {
+  const { root, lookup, out } = context
+  const where = `상품 ${slot.key}`
+  const pending = new Set<string>()
+  const byUnit = new Map<string | null, ClaimRecord[]>()
+  const plainActive = new Map<string, string>()
+  const variantActive = new Map<string, string>()
+  let plainCount = 0
+  let variantCount = 0
+  const texts = new Set(slot.units.map((unit) => unit.text))
+  for (const claim of claims) {
+    if (claim.status === 'PENDING') pending.add(claim.id)
+    const group = byUnit.get(claim.variant)
+    if (group === undefined) byUnit.set(claim.variant, [claim])
+    else group.push(claim)
+    if (!isActive(claim.status)) continue
+    if (claim.variant === null) {
+      plainCount++
+      plainActive.set(root(claim.buyer), claim.id)
+    } else {
+      variantCount++
+      variantActive.set(variantActiveKey(root(claim.buyer), claim.variant), claim.id)
+      // 보류 찜 밖의 변형 찜은 그 상품의 변형 자리에 있어야 한다
+      if (claim.status !== 'PENDING' && !texts.has(claim.variant)) out.push({ id: 'INV-2', message: `${where}: 찜 ${claim.id}의 변형 '${claim.variant}' 자리가 없다` })
+    }
+  }
+  checkUnit({ text: null, winners: slot.winners, waitlist: slot.waitlist, conflict: slot.conflict }, byUnit.get(null) ?? [], stockIn(slot, null), where, context)
+  for (const unit of slot.units) checkUnit(unit, byUnit.get(unit.text) ?? [], stockIn(slot, unit.text), `${where}#${unit.text}`, context)
+  // INV-2: 한 구매자(지금의 구매자) 한 자리 활성 찜 ≤ 1 (충돌 찜 포함), 보류 목록·활성 표시 = 찜 상태
+  // (영속 맵은 키마다 찾지 않고 한 번에 훑어 맞춰 본다)
+  const pendingOk = slot.pending.size === pending.size && pkeys(slot.pending).every((id) => pending.has(id))
+  if (!pendingOk) {
+    out.push({ id: 'INV-2', message: `${where}: 보류 목록과 보류 상태인 찜이 다르다` })
+    const byId = lookup()
+    const ended = pkeys(slot.pending).filter((id) => {
+      const claim = byId.get(id)
+      return claim !== undefined && !isActive(claim.status)
+    })
+    if (ended.length > 0) out.push({ id: 'INV-9', message: `${where}: 끝난 찜이 보류 목록에 남아 있다 (${ended.join(', ')})` })
+  }
+  if (plainActive.size !== plainCount || variantActive.size !== variantCount) out.push({ id: 'INV-2', message: `${where}: 한 구매자에게 활성 찜이 둘 이상이다` })
+  const plainOk = slot.active.size === plainCount && plainActive.size === plainCount && pentries(slot.active).every(([owner, id]) => plainActive.get(owner) === id)
+  const variantOk = slot.variantActive.size === variantCount && variantActive.size === variantCount && pentries(slot.variantActive).every(([owner, id]) => variantActive.get(owner) === id)
+  if (!plainOk || !variantOk) out.push({ id: 'INV-2', message: `${where}: 활성 찜 표시가 찜 상태와 다르다` })
 }
 
 /** 위반 목록 (없으면 빈 배열) */
@@ -107,7 +163,9 @@ export function checkInvariants(state: EngineState): InvariantViolation[] {
     const group = bySlot.get(claim.key)
     if (group === undefined) bySlot.set(claim.key, [claim])
     else group.push(claim)
-    if (claim.status === 'CONFIRMED') confirmedSum.set(claim.buyer, (confirmedSum.get(claim.buyer) ?? 0) + (claim.price as number))
+    // INV-5: 찜 금액 = 단가 스냅샷 × 수량
+    if (claim.status === 'CONFIRMED') confirmedSum.set(claim.buyer, (confirmedSum.get(claim.buyer) ?? 0) + (claim.price as number) * claim.qty)
+    if (!Number.isSafeInteger(claim.qty) || claim.qty < 1) out.push({ id: 'INV-6', message: `찜 ${claim.id} 수량이 1 이상의 정수가 아니다 (값: ${String(claim.qty)})` })
     if (claim.price !== null && !isMoney(claim.price)) out.push({ id: 'INV-6', message: `찜 ${claim.id} 가격 스냅샷이 0 이상의 정수가 아니다 (값: ${String(claim.price)})` })
     if (anyBlocked && (claim.status === 'WAITLISTED' || claim.status === 'PENDING' || claim.status === 'CONFLICT') && pget(state.blocked, claim.buyer) === true) {
       out.push({ id: 'R-9', message: `찜 ${claim.id}: 차단 중인 구매자 ${claim.buyer}의 ${claim.status} 찜` })
@@ -123,6 +181,12 @@ export function checkInvariants(state: EngineState): InvariantViolation[] {
   // 번호 기록이 없는 찜은 거절된 찜뿐이다(차단·판매 아님 등으로 번호를 만들지 않았다)
   for (const orphans of bySlot.values()) {
     for (const claim of orphans) if (isActive(claim.status)) out.push({ id: 'INV-2', message: `찜 ${claim.id}: 번호 ${claim.key} 기록 없이 활성이다` })
+  }
+
+  // INV-O2: 확인 필요 항목은 찜이 아니다 — 재고·합계·효과에 들어가지 않는다(찜·효과 ID가 없다). 항목은 형식만 본다
+  for (const review of pvalues(state.reviews)) {
+    if (pget(state.buyers, review.buyer) === undefined) out.push({ id: 'INV-O2', message: `확인 필요 ${review.item}: 엔진이 모르는 구매자 ${review.buyer}` })
+    if (review.qty !== null && !(Number.isSafeInteger(review.qty) && review.qty >= 0)) out.push({ id: 'INV-O2', message: `확인 필요 ${review.item}: 읽은 수량이 0 이상의 정수가 아니다` })
   }
 
   // INV-5: 구매자 합계 = 확정 찜 가격 스냅샷의 합 (자신의 찜. 지금의 구매자 합계는 합쳐진 구매자 것을 더한 것이다)

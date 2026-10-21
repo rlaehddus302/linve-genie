@@ -60,7 +60,7 @@ describe('상품·찜·보류 조회', () => {
   })
 
   it('취소 요청·활성 찜 ID', () => {
-    expect(listCancelRequests(state)).toEqual([{ product: 'b1/15', buyer: 'B', currentBuyer: 'B', claim: 'c3', seq: 9 }])
+    expect(listCancelRequests(state)).toEqual([{ product: 'b1/15', buyer: 'B', currentBuyer: 'B', claim: 'c3', seq: 9, chooseVariant: false, choices: ['c3'] }])
     expect(activeClaimId(state, 'b1', 15, 'B')).toBe('c3')
     expect(activeClaimId(state, 'b1', 15, 'Z')).toBeNull()
     expect(activeClaimId(state, 'b1', 77, 'B')).toBeNull()

@@ -87,7 +87,9 @@ describe('AC-S04-51 이벤트 쓰기 API', () => {
     expect(types).toContain('sms')
     expect(types).toHaveLength(6 + 12 + 4 + 2 + 1)
     for (const type of types) expect(EVENT_TYPES).toContain(type)
-    for (const type of EVENT_TYPES) if (!types.includes(type)) expect(['broadcast.start', 'broadcast.end', 'chat', 'effect.labelPrinted', 'effect.thanksSent']).toContain(type)
+    // O1: 옵션 방송 이벤트(지금 상품·확인 필요 바로잡기·지우기)는 엔진만 먼저 처리한다 — 쓰기 API는 O2가 연다
+    const engineOnly = ['broadcast.start', 'broadcast.end', 'chat', 'effect.labelPrinted', 'effect.thanksSent', 'product.focus', 'host.resolveReview', 'host.dismissReview']
+    for (const type of EVENT_TYPES) if (!types.includes(type)) expect(engineOnly).toContain(type)
   })
 
   it('요청 필드 표는 코어 이벤트 표와 같다 (서버가 받는 필드는 코어도 받고, 코어 필수 필드는 서버도 받는다)', () => {

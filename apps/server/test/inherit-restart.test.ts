@@ -1,5 +1,5 @@
 // AC-S04-27 차단 이어받기, AC-S04-28 재시작·스냅샷·형식
-import { applyEvent, getBuyer, listClaims, type EngineEvent } from '@livejjim/core'
+import { STATE_FORMAT, applyEvent, getBuyer, listClaims, type EngineEvent } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
 import { INHERITED_BLOCK_REASON } from '../src/service.ts'
 import { addSeller, client, countRows, createBroadcast, expectOk, fakeClock, newWorld, startServer, writeEvent, type Seller, type TestServer } from './support.ts'
@@ -151,8 +151,9 @@ describe('AC-S04-28 재시작·스냅샷·형식', () => {
     const { world, seller, b } = await busyScope(5)
     const rows = await world.database.pglite?.query<{ seq: number; format: number }>(`select seq, format from snapshots order by seq`)
     expect(rows?.rows).toEqual([
-      { seq: 5, format: 4 },
-      { seq: 10, format: 4 },
+      // 형식 번호는 코어의 지금 형식 (O1에서 5)
+      { seq: 5, format: STATE_FORMAT },
+      { seq: 10, format: STATE_FORMAT },
     ])
     await expectOk(client(world, seller.cookie).post(`/api/broadcasts/${b.id}/end`, { requestId: 'end-1' }))
     const after = await world.database.pglite?.query<{ seq: number }>(`select seq from snapshots order by seq`)

@@ -320,8 +320,8 @@ describe('initEngine', () => {
     const settings = { 'waitlist.max': 2 }
     const state = initEngine({ broadcasts: [B1, { id: 'b2', date: '2026-10-19', title: '2부' }], settings })
     expect(state.broadcasts).toEqual([
-      { ...B1, settings: { ...DEFAULT_SETTINGS, 'waitlist.max': 2 }, endedAt: null },
-      { id: 'b2', date: '2026-10-19', title: '2부', settings: { ...DEFAULT_SETTINGS, 'waitlist.max': 2 }, endedAt: null },
+      { ...B1, settings: { ...DEFAULT_SETTINGS, 'waitlist.max': 2 }, endedAt: null, focus: null },
+      { id: 'b2', date: '2026-10-19', title: '2부', settings: { ...DEFAULT_SETTINGS, 'waitlist.max': 2 }, endedAt: null, focus: null },
     ])
     expect(settings).toEqual({ 'waitlist.max': 2 })
   })

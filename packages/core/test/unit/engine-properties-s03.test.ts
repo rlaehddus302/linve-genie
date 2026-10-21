@@ -790,7 +790,7 @@ function checkStep(scenario: Scenario, prev: EngineState, event: EngineEvent, ne
     if (existing !== null) expect(next, `${where}: 이미 선언한 방송의 broadcast.start가 상태를 바꿨다 (D-070)`).toBe(prev)
     else {
       // 새 방송: 선언 순서 끝에 더해지고 스냅샷은 기본값 위에 그 이벤트의 설정, 나머지 조회는 그대로
-      expect(listBroadcasts(next), where).toEqual([...listBroadcasts(prev), { id: event.b, date: event.date, title: event.title, ended: false, endedAt: null, settings: resolveSettings(event.settings) }])
+      expect(listBroadcasts(next), where).toEqual([...listBroadcasts(prev), { id: event.b, date: event.date, title: event.title, ended: false, endedAt: null, settings: resolveSettings(event.settings), focus: null }])
       expect(json(observe(next)), where).toBe(json(observe(prev)))
     }
   }

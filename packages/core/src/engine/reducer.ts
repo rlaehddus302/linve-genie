@@ -6,35 +6,49 @@
 // - 처음 쓰는 스프린트가 따로 있는 기능(effect.failed, settlement.groupBy=MANUAL)은 NotImplementedError로 알린다.
 // - 상태 형식이 지금 코어와 다르면 StateFormatError를 던진다(D-072).
 // - 판정 설정은 그 메시지·찜·상품이 속한 방송의 스냅샷이다(D-070). 방송은 initEngine의 시작 목록이나 broadcast.start로 선언한다.
+// - 옵션 방송(claim.parseMode=OPTIONS, R-19·R-20 — O1): 판정 단위는 변형(판정 자리 Unit), 찜에는 수량이 있고, 댓글은 parseOptionComment로 읽는다.
+//   애매한 댓글·모자란 수량·공개 때 옵션이 없는 보류 찜은 찜이 아니라 확인 필요 항목이 된다(재고·합계·효과에 들어가지 않는다, INV-O2).
 import { NotImplementedError } from '../not-implemented.ts'
+import { OPTION_TEXT_SEPARATOR, pickIndexes, variantTexts, type OptionItem, type OptionPick } from '../options.ts'
 import { parseChat } from '../parse/chat.ts'
+import { parseOptionComment, type OptionCatalogEntry, type OptionFocus } from '../parse/options.ts'
 import { checkSettings, resolveSettings } from '../settings.ts'
-import { CorruptStateError, Draft, claimNumber, messageKey, ownGet, slotKey, type ClaimDraft } from './draft.ts'
+import { CorruptStateError, Draft, Unit, claimNumber, emptyUnit, messageKey, ownGet, slotKey, unitKeyOf, variantActiveKey, type ClaimDraft, type SlotDraft } from './draft.ts'
 import { receivedOf, receivedOfMembers } from './ledger.ts'
 import { activeClaimsOf, applyMerge, planMerge } from './merge.ts'
-import { emptyPMap, pdelete, pget, pkeys, pset } from './pmap.ts'
+import { emptyPMap, pdelete, pget, pkeys, pset, pvalues } from './pmap.ts'
 import {
   SMS_NAME,
   activeClaim,
+  activeIdIn,
   clearWaitlist,
+  compareClaims,
   confirm,
   decide,
   detach,
   displace,
   enter,
+  fillFromWaitlist,
   finish,
   groupReceived,
   isLocked,
+  isOptionBroadcast,
   labelPrinted,
   openPending,
+  queue,
   release,
   releaseConflict,
   resolveKeep,
   resolveSwitch,
   settleAwaiting,
+  stockOf,
+  confirmedUnits,
+  succession,
   trimWaitlist,
   unconfirm,
+  unitPrice,
   voidLabel,
+  type OpenHooks,
 } from './rules.ts'
 import { STATE_FORMAT, assertStateFormat } from './state-format.ts'
 import { resolveReceivedTime, type ReceivedTime } from './time.ts'
@@ -48,6 +62,7 @@ import type {
   BuyerUnmergeEvent,
   ChatEvent,
   ClaimOrigin,
+  ClaimRecord,
   EffectReportEvent,
   EngineEvent,
   EngineSetup,
@@ -57,20 +72,29 @@ import type {
   HostClaimEvent,
   HostClaimOptionalReasonEvent,
   HostConvertMessageEvent,
+  HostDismissReviewEvent,
   HostReopenEvent,
   HostResolveConflictEvent,
+  HostResolveReviewEvent,
   ProductCommandEvent,
+  ProductFocusEvent,
   ProductRecord,
   ProductRegisterEvent,
   ProductRenumberEvent,
   ProductUpdateEvent,
+  ReviewReason,
+  ReviewRecord,
   SettlementAdjustEvent,
   SettlementEntry,
   SettlementPaymentEvent,
   SettlementRefundEvent,
   SettlementShippingEvent,
   SmsEvent,
+  VariantStock,
 } from './types.ts'
+
+type AnyClaim = ClaimRecord | ClaimDraft
+type OptionPairs = readonly (readonly [string, string])[]
 
 // ── 시작 ─────────────────────────────────────────────────────────────────
 
@@ -95,7 +119,7 @@ export function initEngine(setup: EngineSetup): EngineState {
   const broadcasts = setup.broadcasts.map(({ id, date, title }) => {
     if (typeof id !== 'string' || id === '' || seen.has(id)) throw new TypeError(`방송 ID는 겹치지 않는 빈 문자열이 아닌 값이어야 한다 (값: ${String(id)})`)
     seen.add(id)
-    return { id, date, title, settings, endedAt: null }
+    return { id, date, title, settings, endedAt: null, focus: null }
   })
   return {
     format: STATE_FORMAT,
@@ -111,7 +135,29 @@ export function initEngine(setup: EngineSetup): EngineState {
     claims: emptyPMap(),
     effects: emptyPMap(),
     ledger: emptyPMap(),
+    reviews: emptyPMap(),
   }
+}
+
+// ── 옵션 도우미 ──────────────────────────────────────────────────────────
+
+/** 고른 옵션(검사를 통과한 맵) → 옵션 글과 쌍 목록. 옵션 없는 상품이면 null */
+function variantOf(product: ProductRecord | null | undefined, pick: OptionPick | undefined): { readonly text: string; readonly pairs: OptionPairs } | null {
+  if (product === null || product === undefined || product.options.length === 0 || pick === undefined) return null
+  const indexes = pickIndexes(product.options, pick)
+  if (indexes === null) throw new CorruptStateError(`상품 ${product.id}: 고른 옵션이 항목과 맞지 않는다 (입력 검사를 거치지 않았다)`)
+  const pairs = product.options.map((item, i) => [item.name, (item.choices[indexes[i] as number] as { readonly label: string }).label] as const)
+  return { text: pairs.map(([, label]) => label).join(OPTION_TEXT_SEPARATOR), pairs }
+}
+
+/** 판정 자리 (찜이 있는 번호·변형) */
+function unitOfClaim(d: Draft, claim: AnyClaim): Unit {
+  return d.unit(claim.b, claim.no, claim.variant)
+}
+
+/** 확인 필요 항목의 키 */
+function reviewKey(b: string, item: string): string {
+  return JSON.stringify([b, item])
 }
 
 // ── 새 찜 ────────────────────────────────────────────────────────────────
@@ -129,25 +175,24 @@ interface ClaimSource {
   readonly message: string | null
   readonly ref: string | null
   readonly received: string | null
+  /** 옵션 글·고른 옵션 (옵션을 가진 찜만) */
+  readonly variant: string | null
+  readonly options: OptionPairs | null
+  readonly qty: number
+  readonly qtyWritten: boolean
+  /** 확인 필요로 보낼 때의 출처 (메시지 ID 또는 `sms:<ref>`) — 없으면 확인 필요를 만들지 않는다 */
+  readonly item: string | null
 }
 
-/**
- * R-4로 판정해 새 찜을 만든다. 4번 줄(같은 사람 반복)이면 찜을 만들지 않고 null.
- * 거절(차단·판매 아님)은 번호에 아무것도 남기지 않는다 — 상품도 보류 찜도 없는 번호 기록을 새로 만들지 않는다.
- */
-function makeClaim(d: Draft, source: ClaimSource): ClaimDraft | null {
-  const key = slotKey(source.b, source.no)
-  const current = d.readSlot(key)
-  const outcome = decide(d, current, source.buyer)
-  if (outcome.kind === 'none') return null
-  const claim = d.newClaim({
+function newClaimFields(source: ClaimSource): Omit<ClaimDraft, 'id' | 'n'> {
+  return {
     seq: source.seq,
     at: source.at,
     time: source.time,
     minute: source.minute,
     b: source.b,
     no: source.no,
-    key,
+    key: slotKey(source.b, source.no),
     pid: null,
     buyer: source.buyer,
     origin: source.origin,
@@ -163,14 +208,92 @@ function makeClaim(d: Draft, source: ClaimSource): ClaimDraft | null {
     effects: [],
     reprint: false,
     priceHistory: [],
-  })
+    qty: source.qty,
+    qtyWritten: source.qtyWritten,
+    variant: source.variant,
+    options: source.options === null ? null : source.options.map(([name, label]) => [name, label] as const),
+  }
+}
+
+/**
+ * 확인 필요 항목을 만든다 (R-20 7). 같은 출처는 하나만 — 이미 있으면 아무것도 하지 않는다.
+ * 읽은 것: 번호(그때의 상품 ID와 함께)·읽은 옵션·쓴 수량 (D-O1-08). 순위 재료는 출처 입력의 것.
+ */
+function addReview(
+  d: Draft,
+  source: Pick<ClaimSource, 'b' | 'buyer' | 'seq' | 'at' | 'time' | 'minute' | 'message' | 'ref' | 'received'> & { readonly origin: 'chat' | 'sms'; readonly item: string },
+  reason: ReviewReason,
+  read: { readonly no: number | null; readonly options: OptionPairs | null; readonly qty: number | null },
+): void {
+  const key = reviewKey(source.b, source.item)
+  if (d.readReview(key) !== undefined) return
+  const pid = read.no === null ? null : (d.readSlot(slotKey(source.b, read.no))?.product?.id ?? null)
+  const record: ReviewRecord = {
+    b: source.b,
+    item: source.item,
+    buyer: source.buyer,
+    reason,
+    no: read.no,
+    pid,
+    options: read.options === null || read.options.length === 0 ? null : read.options.map(([name, label]) => [name, label] as const),
+    qty: read.qty,
+    seq: source.seq,
+    at: source.at,
+    time: source.time,
+    minute: source.minute,
+    origin: source.origin,
+    message: source.message,
+    ref: source.ref,
+    received: source.received,
+  }
+  d.setReview(key, record)
+}
+
+/** 찜의 출처 (확인 필요 항목의 item): 채팅·변환은 메시지 ID, 문자찜은 `sms:<ref>` */
+function itemOfClaim(claim: AnyClaim): { readonly origin: 'chat' | 'sms'; readonly item: string } | null {
+  if (claim.origin === 'sms' && claim.ref !== null) return { origin: 'sms', item: `sms:${claim.ref}` }
+  if ((claim.origin === 'chat' || claim.origin === 'convert') && claim.message !== null) return { origin: 'chat', item: (JSON.parse(claim.message) as [string, string])[1] }
+  return null
+}
+
+/** 공개 순간 판정하지 않은 보류 찜의 확인 필요 (R-19 "공개 전 찜", R-19 "수량") */
+function openHooks(d: Draft, no: number): OpenHooks {
+  const fromClaim = (claim: ClaimDraft, reason: ReviewReason, read: { readonly no: number | null; readonly options: OptionPairs | null; readonly qty: number | null }): void => {
+    const item = itemOfClaim(claim)
+    if (item === null) return
+    addReview(d, { ...claim, ...item }, reason, read)
+  }
+  return {
+    // 번호만 쓴 보류 찜: 읽은 것 = 번호(문자찜이면 적은 수량도)
+    optionMissing: (claim) => fromClaim(claim, 'OPTION_MISSING', { no, options: null, qty: claim.qtyWritten ? claim.qty : null }),
+    stockShort: (claim) => fromClaim(claim, 'STOCK_SHORT', { no, options: claim.options, qty: claim.qty }),
+  }
+}
+
+/**
+ * R-4로 판정해 새 찜을 만든다. 4번 줄(같은 사람 반복)이면 찜을 만들지 않고 null.
+ * 수량이 남은 수량보다 많으면(수량 2 이상) 찜을 만들지 않고 확인 필요(STOCK_SHORT)로 보낸다 — null.
+ * 거절(차단·판매 아님)은 번호에 아무것도 남기지 않는다 — 상품도 보류 찜도 없는 번호 기록을 새로 만들지 않는다.
+ */
+function makeClaim(d: Draft, source: ClaimSource): ClaimDraft | null {
+  const key = slotKey(source.b, source.no)
+  const current = d.readSlot(key)
+  const outcome = decide(d, current, source.variant, source.buyer, source.qty)
+  if (outcome.kind === 'none') return null
+  if (outcome.kind === 'review') {
+    if (source.item !== null && (source.origin === 'chat' || source.origin === 'sms')) {
+      addReview(d, { ...source, origin: source.origin, item: source.item }, outcome.reason, { no: source.no, options: source.options, qty: source.qty })
+    }
+    return null
+  }
+  const claim = d.newClaim(newClaimFields(source))
   if (outcome.kind === 'reject') {
     claim.status = 'REJECTED'
     claim.reason = outcome.reason
     claim.pid = current?.product?.id ?? null
     return claim
   }
-  enter(d, claim, d.slot(source.b, source.no), outcome)
+  enter(d, claim, d.unit(source.b, source.no, source.variant), outcome)
   return claim
 }
 
@@ -183,7 +306,7 @@ function makeClaim(d: Draft, source: ClaimSource): ClaimDraft | null {
  */
 function startBroadcast(d: Draft, e: BroadcastStartEvent): void {
   if (d.readBroadcast(e.b) !== undefined) return
-  d.addBroadcast({ id: e.b, date: e.date, title: e.title, settings: resolveSettings(e.settings ?? {}), endedAt: null })
+  d.addBroadcast({ id: e.b, date: e.date, title: e.title, settings: resolveSettings(e.settings ?? {}), endedAt: null, focus: null })
 }
 
 /** broadcast.end: 끝난 시각(at)만 남긴다. 판정·정산·효과는 바뀌지 않는다. 이미 끝난 방송이면 아무 일도 없다 */
@@ -193,16 +316,57 @@ function endBroadcast(d: Draft, e: BroadcastEndEvent): void {
   d.replaceBroadcast({ ...broadcast, endedAt: d.at })
 }
 
+// ── 지금 상품 (R-20 6, D-O-09·D-O1-06) ──────────────────────────────────
+
+/** 지금 상품을 그 상품으로 (옵션 방송만). 이미 지금 상품이면 정한 시각 그대로 — 15초 유예가 다시 생기지 않는다 */
+function setFocus(d: Draft, b: string, pid: string): void {
+  if (!isOptionBroadcast(d, b)) return
+  const broadcast = d.broadcastOf(b)
+  if (broadcast.focus?.pid === pid) return
+  d.replaceBroadcast({ ...broadcast, focus: { pid, at: d.at } })
+}
+
+/** 지금 상품을 없앤다 (pid가 주어지면 그 상품이 지금 상품일 때만) */
+function clearFocus(d: Draft, b: string, pid?: string): void {
+  const broadcast = d.broadcastOf(b)
+  if (broadcast.focus === null || (pid !== undefined && broadcast.focus.pid !== pid)) return
+  d.replaceBroadcast({ ...broadcast, focus: null })
+}
+
+/** product.focus: READY·판매 중 상품이면 지금 상품, 없는 번호·HOLD·CLOSED면 지금 상품을 없앤다 (D-O1-06) */
+function focus(d: Draft, e: ProductFocusEvent): void {
+  const product = d.readSlot(slotKey(e.b, e.no))?.product ?? null
+  if (product === null || product.phase === 'HOLD' || product.phase === 'CLOSED') clearFocus(d, e.b)
+  else setFocus(d, e.b, product.id)
+}
+
 // ── 상품 명령 (R-2 "상품 명령 세부", D-039) ──────────────────────────────
+
+/** 옵션 항목과 변형 재고로 변형 목록 (항목 순서·선택지 순서). 옵션이 없으면 빈 목록 */
+function variantStocks(options: readonly OptionItem[], stocks: Readonly<Record<string, number>> | undefined, base: (text: string) => number): VariantStock[] {
+  return variantTexts(options).map((text) => ({ text, stock: stocks !== undefined && Object.hasOwn(stocks, text) ? (stocks[text] as number) : base(text) }))
+}
 
 function register(d: Draft, e: ProductRegisterEvent): void {
   if (d.readSlot(slotKey(e.b, e.no))?.product) return
   const slot = d.slot(e.b, e.no)
   const phase = e.status === 'READY' ? 'READY' : 'SELLING'
   const id = d.newProductId()
-  slot.product = { id, name: e.name, price: e.price, stock: e.stock ?? 1, phase, priceHistory: [], nameHistory: [] }
+  const stock = e.stock ?? 1
+  const options = e.options ?? []
+  const variants = variantStocks(options, e.stocks, () => stock)
+  slot.product = { id, name: e.name, price: e.price, stock, phase, priceHistory: [], nameHistory: [], aliases: [...(e.aliases ?? [])], options, variants }
+  slot.units = variants.map(({ text }) => ({ ...emptyUnit(text), winners: [], waitlist: [] }))
   d.setProductKey(id, slot.key)
-  if (phase === 'SELLING') openPending(d, slot, e.at)
+  if (phase === 'SELLING') {
+    setFocus(d, e.b, id)
+    openPending(d, slot, e.at, openHooks(d, e.no))
+  }
+}
+
+/** 판정 자리 전부 (옵션 상품이면 변형마다, 그리고 번호 자신) */
+function unitsOf(slot: SlotDraft): Unit[] {
+  return [new Unit(slot, null), ...slot.units.map((unit) => new Unit(slot, unit.text))]
 }
 
 function productCommand(d: Draft, e: ProductCommandEvent): void {
@@ -214,70 +378,135 @@ function productCommand(d: Draft, e: ProductCommandEvent): void {
     if (phase === 'SELLING') return
     const slot = d.slot(e.b, e.no)
     slot.product = { ...product, phase: 'SELLING' }
-    openPending(d, slot, e.at)
+    setFocus(d, e.b, product.id)
+    openPending(d, slot, e.at, openHooks(d, e.no))
     return
   }
   if (e.type === 'product.hold') {
     if (phase !== 'SELLING') return
     d.slot(e.b, e.no).product = { ...product, phase: 'HOLD' }
+    clearFocus(d, e.b, product.id)
     return
   }
-  // close: 확정·대기 찜이 없을 때만(충돌 찜은 확정이 찼을 때만 있다). 그 번호의 보류 찜은 REJECTED(NOT_ON_SALE)
-  if (phase === 'CLOSED' || current.winners.length > 0 || current.waitlist.length > 0) return
+  // close: 어느 자리(변형)에도 확정·대기 찜이 없을 때만(충돌 찜은 확정이 찼을 때만 있다). 그 번호의 보류 찜은 REJECTED(NOT_ON_SALE)
+  const busy = current.winners.length > 0 || current.waitlist.length > 0 || current.units.some((unit) => unit.winners.length > 0 || unit.waitlist.length > 0)
+  if (phase === 'CLOSED' || busy) return
   const slot = d.slot(e.b, e.no)
   slot.product = { ...product, phase: 'CLOSED' }
+  clearFocus(d, e.b, product.id)
   const ids = pkeys(slot.pending).sort((a, b) => claimNumber(a) - claimNumber(b))
   slot.pending = emptyPMap()
-  for (const id of ids) finish(d, d.claim(id), slot, 'REJECTED', 'NOT_ON_SALE')
+  for (const id of ids) {
+    const claim = d.claim(id)
+    finish(d, claim, new Unit(slot, claim.variant), 'REJECTED', 'NOT_ON_SALE')
+  }
 }
 
-/** 상품 수정 (R-10, D-055): 적힌 값을 한 번에. 재고를 확정 수보다 작게 하면 이벤트 전체가 아무 일도 없다 */
+/** 두 옵션 항목 목록이 같은가 (이름·선택지·별칭·가격 차이) */
+function sameOptions(a: readonly OptionItem[], b: readonly OptionItem[]): boolean {
+  return JSON.stringify(a.map(normalizeItem)) === JSON.stringify(b.map(normalizeItem))
+}
+
+function normalizeItem(item: OptionItem): unknown {
+  return [item.name, item.choices.map((choice) => [choice.label, choice.aliases ?? [], choice.price ?? 0])]
+}
+
+/**
+ * 찜이 있을 때 받는 옵션 바꾸기 (R-19 "옵션 바꾸기", D-O-14): 항목은 같은 이름·같은 순서, 기존 선택지는 같은 이름·같은 순서로 그대로 있고
+ * 새 선택지는 끝에만 더한다. 가격 차이·별칭은 바꿀 수 있다(찜이 가리키는 변형이 사라지거나 뜻이 바뀌지 않는다).
+ */
+function onlyAdditions(before: readonly OptionItem[], after: readonly OptionItem[]): boolean {
+  if (before.length !== after.length) return false
+  return before.every((item, i) => {
+    const next = after[i] as OptionItem
+    return next.name === item.name && next.choices.length >= item.choices.length && item.choices.every((choice, j) => (next.choices[j] as { readonly label: string }).label === choice.label)
+  })
+}
+
+/** 그 상품에 찜이 하나라도 있는가 (어떤 상태든 — 끝난 찜도, 그 번호의 보류 찜도) */
+function hasClaims(d: Draft, slot: { readonly pending: { readonly size: number } }, product: ProductRecord): boolean {
+  return slot.pending.size > 0 || pvalues(d.base.claims).some((claim) => claim.pid === product.id)
+}
+
+/**
+ * 상품 수정 (R-10, D-055, 옵션 방송은 R-19 "옵션 바꾸기"·"가격"): 적힌 값을 한 번에.
+ * 하나라도 받을 수 없으면(재고·변형 재고를 확정 수량보다 작게, 찜이 있는데 막힌 옵션 바꾸기) 이벤트 전체가 아무 일도 없다.
+ * - 옵션 상품의 stock은 stocks에 적지 않은 변형마다의 재고다(등록과 같다 — 적지 않으면 변형 재고 그대로).
+ * - 가격 변경 = 상품 가격이나 가격 차이를 바꿔 변형 단가가 바뀌는 것. UNPAID_CLAIMS면 입금 전 확정 찜의 단가를 그 변형의 새 단가로.
+ */
 function update(d: Draft, e: ProductUpdateEvent): void {
   const current = d.readSlot(slotKey(e.b, e.no))
   const product = current?.product
   if (current === undefined || product === null || product === undefined) return
   const name = e.name !== undefined && e.name !== product.name ? e.name : undefined
   const price = e.price !== undefined && e.price !== product.price ? e.price : undefined
-  const stock = e.stock !== undefined && e.stock !== product.stock ? e.stock : undefined
-  if (stock !== undefined && stock < current.winners.length) return
-  if (name === undefined && price === undefined && stock === undefined) return
-  const slot = d.slot(e.b, e.no)
+  const options = e.options !== undefined && !sameOptions(e.options, product.options) ? e.options : undefined
+  const aliases = e.aliases !== undefined && JSON.stringify(e.aliases) !== JSON.stringify(product.aliases) ? [...e.aliases] : undefined
+  const slot = current
+  const draftSlot = (): SlotDraft => d.slot(e.b, e.no)
+  if (options !== undefined && !onlyAdditions(product.options, options) && hasClaims(d, current, product)) return
+  const nextOptions = options ?? product.options
+  const optioned = nextOptions.length > 0
+  // 변형 재고: stocks에 적은 값, 아니면 stock(적었으면), 아니면 지금 변형 재고(새 변형이면 기본 재고)
+  const variants = optioned
+    ? variantStocks(nextOptions, e.stocks, (text) => e.stock ?? product.variants.find((variant) => variant.text === text)?.stock ?? product.stock)
+    : []
+  const stock = !optioned && e.stock !== undefined && e.stock !== product.stock ? e.stock : undefined
+  // 확정 수량보다 작은 재고는 받지 않는다 (이벤트 전체가 아무 일도 없다)
+  if (stock !== undefined && stock < confirmedUnits(d, slot.winners)) return
+  for (const unit of slot.units) {
+    const next = variants.find((variant) => variant.text === unit.text)
+    if ((next?.stock ?? 0) < confirmedUnits(d, unit.winners)) return
+  }
+  const stocksChanged = optioned && JSON.stringify(variants) !== JSON.stringify(product.variants)
+  const defaultStock = optioned && e.stock !== undefined && e.stock !== product.stock ? e.stock : undefined
+  if (name === undefined && price === undefined && stock === undefined && options === undefined && aliases === undefined && !stocksChanged && defaultStock === undefined) return
+  const target = draftSlot()
   const change = { seq: d.seq, at: d.at }
-  slot.product = {
+  target.product = {
     ...product,
     ...(name === undefined ? {} : { name, nameHistory: [...product.nameHistory, { from: product.name, to: name, ...change }] }),
     ...(price === undefined ? {} : { price, priceHistory: [...product.priceHistory, { from: product.price, to: price, ...change }] }),
+    ...(stock === undefined && defaultStock === undefined ? {} : { stock: (stock ?? defaultStock) as number }),
+    ...(aliases === undefined ? {} : { aliases }),
+    ...(options === undefined ? {} : { options: nextOptions }),
+    variants,
   }
-  // 지금 확정 찜: UNPAID_CLAIMS면 입금 전(묶음 받은 금액 0) 찜의 스냅샷을 새 가격으로, 출력된 라벨이 있으면 재출력 필요
-  const toUnpaid = price !== undefined && e.applyTo === 'UNPAID_CLAIMS'
-  for (const id of slot.winners) {
-    const record = d.readClaim(id)
-    if (record === undefined) throw new CorruptStateError(`확정 찜 ${id}가 없다`)
-    const reprice = toUnpaid && record.price !== price && groupReceived(d, record) === 0
-    if (!reprice && name === undefined) continue
-    const printed = labelPrinted(d, record)
-    if (!reprice && !printed) continue
-    const claim = d.claim(id)
-    if (reprice) {
-      const from = claim.price as number
-      claim.price = price
-      claim.priceHistory.push({ from, to: price, ...change })
-      d.knownBuyer(claim.buyer).subtotal += price - from
+  // 변형 판정 자리: 남는 변형은 그대로, 새 변형은 빈 자리 (빼는 바꾸기는 찜이 없을 때만 받았다)
+  target.units = variants.map(({ text }) => target.units.find((unit) => unit.text === text) ?? { ...emptyUnit(text), winners: [], waitlist: [] })
+  const next = target.product
+  // 지금 확정 찜: UNPAID_CLAIMS면 입금 전(묶음 받은 금액 0) 찜의 단가를 새 단가로, 출력된 라벨이 있으면 재출력 필요
+  for (const unit of unitsOf(target)) {
+    for (const id of unit.winners) {
+      const record = d.readClaim(id)
+      if (record === undefined) throw new CorruptStateError(`확정 찜 ${id}가 없다`)
+      const newPrice = unitPrice(next, record.variant)
+      const reprice = e.applyTo === 'UNPAID_CLAIMS' && record.price !== newPrice && groupReceived(d, record) === 0
+      if (!reprice && name === undefined) continue
+      const printed = labelPrinted(d, record)
+      if (!reprice && !printed) continue
+      const claim = d.claim(id)
+      if (reprice) {
+        const from = claim.price as number
+        claim.price = newPrice
+        claim.priceHistory.push({ from, to: newPrice, ...change })
+        d.knownBuyer(claim.buyer).subtotal += (newPrice - from) * claim.qty
+      }
+      if (printed) claim.reprint = true
     }
-    if (printed) claim.reprint = true
   }
-  if (stock !== undefined) {
-    const added = stock - product.stock
-    slot.product = { ...slot.product, stock }
-    // 늘린 수만큼 대기 1순위부터 대기 순번 순서로 확정(확정버전도 이 순서, D-066). 충돌이 있으면 먼저 풀리고 넘침 정리는 확정한 뒤에 한다(D-068).
-    // 승계 결정 필요 자리는 방송자 결정으로 남긴다
+  // 재고 늘림: 늘린 수만큼(대기가 그보다 적으면 대기 전부) 대기 1순위부터 대기 순번 순서로 확정(확정버전도 이 순서, D-066).
+  // 충돌이 있으면 먼저 풀리고 넘침 정리는 확정한 뒤에 한다(D-068). 승계 결정 필요 자리는 방송자 결정으로 남긴다
+  for (const unit of unitsOf(target)) {
+    const before = unit.text === null ? (optioned ? 0 : product.stock) : (product.variants.find((variant) => variant.text === unit.text)?.stock ?? 0)
+    const added = stockOf(next, unit.text) - before
     if (added > 0) {
-      releaseConflict(d, slot)
-      for (let i = 0; i < added && slot.waitlist.length > 0; i++) confirm(d, d.claim(slot.waitlist.shift() as string), slot, slot.product)
-      trimWaitlist(d, slot)
+      releaseConflict(d, unit)
+      fillFromWaitlist(d, unit, next, added)
+      trimWaitlist(d, unit)
     }
+    settleAwaiting(d, unit)
   }
-  settleAwaiting(slot)
 }
 
 /** 번호 변경 (R-10, D-056) */
@@ -287,32 +516,58 @@ function renumber(d: Draft, e: ProductRenumberEvent): void {
   if (d.readSlot(slotKey(e.b, e.to))?.product) return
   const from = d.slot(e.b, e.from)
   const product = from.product as ProductRecord
-  // a의 확정·대기·충돌 찜은 잠금·입금과 상관없이 REJECTED(RENUMBERED). 승계 없음. 번호 a의 보류 찜은 그대로
-  for (const id of [...from.winners]) {
-    const claim = d.claim(id)
-    unconfirm(d, claim, from)
-    finish(d, claim, from, 'REJECTED', 'RENUMBERED')
+  // a의 확정·대기·충돌 찜은 잠금·입금과 상관없이 REJECTED(RENUMBERED). 승계 없음. 번호 a의 보류 찜은 그대로 (변형 자리마다)
+  for (const unit of unitsOf(from)) {
+    for (const id of [...unit.winners]) {
+      const claim = d.claim(id)
+      unconfirm(d, claim, unit)
+      finish(d, claim, unit, 'REJECTED', 'RENUMBERED')
+    }
+    const waiting = unit.waitlist
+    unit.waitlist = []
+    for (const id of waiting) finish(d, d.claim(id), unit, 'REJECTED', 'RENUMBERED')
+    if (unit.conflict !== null) {
+      const id = unit.conflict
+      unit.conflict = null
+      finish(d, d.claim(id), unit, 'REJECTED', 'RENUMBERED')
+    }
+    unit.awaiting = false
   }
-  const waiting = from.waitlist
-  from.waitlist = []
-  for (const id of waiting) finish(d, d.claim(id), from, 'REJECTED', 'RENUMBERED')
-  if (from.conflict !== null) {
-    const id = from.conflict
-    from.conflict = null
-    finish(d, d.claim(id), from, 'REJECTED', 'RENUMBERED')
-  }
-  from.awaiting = false
-  // 상품은 품종·가격·재고·상태·이력·확정버전을 가지고 b로
+  // 상품은 품종·가격·재고·옵션·상태·이력·확정버전을 가지고 b로 (지금 상품도 상품 ID로 따라간다 — 정한 시각 그대로)
   const to = d.slot(e.b, e.to)
   to.product = product
   to.version = from.version
+  to.units = product.variants.map(({ text }) => ({ ...emptyUnit(text), winners: [], waitlist: [] }))
   from.product = null
   from.version = 0
+  from.units = []
+  from.requests = []
   d.setProductKey(product.id, to.key)
-  if (product.phase === 'SELLING') openPending(d, to, e.at)
+  if (product.phase === 'SELLING') openPending(d, to, e.at, openHooks(d, e.to))
 }
 
-// ── 채팅 (R-4 머리말 "채팅 메시지에서 찜까지", D-045) ────────────────────
+// ── 채팅 (R-4 머리말 "채팅 메시지에서 찜까지", D-045, 옵션 방송은 R-20) ───
+
+/** 옵션 방송 인식의 상품 목록: 그 방송의 판매 종료가 아닌 상품(공개 전 포함), 번호 순 */
+function catalogOf(d: Draft, b: string): OptionCatalogEntry[] {
+  const out: OptionCatalogEntry[] = []
+  for (const slot of pvalues(d.base.slots)) {
+    const product = slot.product
+    if (slot.b !== b || product === null || product.phase === 'CLOSED') continue
+    out.push({ no: slot.no, name: product.name, aliases: product.aliases, options: product.options })
+  }
+  return out.sort((a, b2) => a.no - b2.no)
+}
+
+/** 지금 상품과 지난 초 (채팅 at − 정한 이벤트 at). 일시 중지·판매 종료 상품이면 없음 */
+function focusOf(d: Draft, b: string): OptionFocus | null {
+  const record = d.broadcastOf(b).focus
+  if (record === null) return null
+  const key = d.readProductKey(record.pid)
+  const slot = key === undefined ? undefined : d.readSlot(key)
+  if (slot?.product === null || slot === undefined || slot.product.phase === 'HOLD' || slot.product.phase === 'CLOSED') return null
+  return { no: slot.no, ageSec: (d.at - record.at) / 1000 }
+}
 
 function chat(d: Draft, e: ChatEvent): void {
   const key = messageKey(e.b, e.id)
@@ -322,14 +577,11 @@ function chat(d: Draft, e: ChatEvent): void {
   const settings = d.settingsOf(e.b)
   const ignored = e.owner === true && settings['claim.ignoreOwner']
   const published = e.publishedAt ?? d.at
-  const message = { ch: e.ch, seq: d.seq, at: d.at, publishedAt: published, ignored, order: false, cancel: false, converted: [] }
+  const message = { ch: e.ch, seq: d.seq, at: d.at, publishedAt: published, ignored, order: false, cancel: false, converted: [], review: false }
   if (ignored) {
     d.newMessage(key, message)
     return
   }
-  // 그 방송 설정으로 R-3. 주문·취소 번호를 하나라도 읽었으면 "주문·취소였던 메시지" — 받을 때의 해석으로 정하고 나중에 다시 읽지 않는다 (D-062, D-076)
-  const parsed = parseChat(e.text, settings)
-  d.newMessage(key, { ...message, order: parsed.claims.length > 0, cancel: parsed.cancels.length > 0 })
   // ③ 구매자 기록·닉네임 갱신 (R-11, 주문이 아닌 메시지도)
   const known = d.readBuyer(e.ch)
   if (known === undefined) d.newBuyer(e.ch, 'youtube', e.nick, null)
@@ -338,27 +590,75 @@ function chat(d: Draft, e: ChatEvent): void {
     buyer.display = e.nick
     buyer.names.push(e.nick)
   }
-  // ④ 주문 번호마다 나온 순서대로 R-4, 취소는 R-8, 언급은 아무것도 바꾸지 않는다
-  for (const no of parsed.claims) {
-    makeClaim(d, { b: e.b, no, buyer: e.ch, origin: 'chat', seq: d.seq, at: d.at, time: published, minute: false, message: key, ref: null, received: null })
+  const base = { b: e.b, buyer: e.ch, origin: 'chat' as const, seq: d.seq, at: d.at, time: published, minute: false, message: key, ref: null, received: null, item: e.id }
+  if (settings['claim.parseMode'] === 'OPTIONS') {
+    // 옵션 방송 (R-20): 번호 문법 먼저 → 상품 → 옵션 → 수량. 받을 때의 해석으로 주문·취소·확인 필요를 정하고 나중에 다시 읽지 않는다
+    const parsed = parseOptionComment(e.text, catalogOf(d, e.b), focusOf(d, e.b), settings)
+    d.newMessage(key, { ...message, order: parsed.orders.length > 0, cancel: parsed.cancels.length > 0, review: parsed.review !== null })
+    for (const order of parsed.orders) {
+      const product = d.readSlot(slotKey(e.b, order.no))?.product
+      const variant = variantOf(product, order.options)
+      makeClaim(d, { ...base, no: order.no, variant: variant?.text ?? null, options: variant?.pairs ?? null, qty: order.qty, qtyWritten: order.qty !== 1 })
+    }
+    for (const no of parsed.cancels) viewerCancel(d, e.b, no, e.ch)
+    if (parsed.review !== null) {
+      const { reason, no, options, qty } = parsed.review
+      const product = no === undefined ? null : (d.readSlot(slotKey(e.b, no))?.product ?? null)
+      const pairs = options === undefined || product === null ? null : product.options.filter((item) => Object.hasOwn(options, item.name)).map((item) => [item.name, options[item.name] as string] as const)
+      addReview(d, { ...base, origin: 'chat' }, reason, { no: no ?? null, options: pairs, qty: qty ?? null })
+    }
+    return
   }
+  // 그 방송 설정으로 R-3. 주문·취소 번호를 하나라도 읽었으면 "주문·취소였던 메시지" — 받을 때의 해석으로 정하고 나중에 다시 읽지 않는다 (D-062, D-076)
+  const parsed = parseChat(e.text, settings)
+  d.newMessage(key, { ...message, order: parsed.claims.length > 0, cancel: parsed.cancels.length > 0 })
+  // ④ 주문 번호마다 나온 순서대로 R-4, 취소는 R-8, 언급은 아무것도 바꾸지 않는다
+  for (const no of parsed.claims) makeClaim(d, { ...base, no, variant: null, options: null, qty: 1, qtyWritten: false })
   for (const no of parsed.cancels) viewerCancel(d, e.b, no, e.ch)
+}
+
+/** 그 번호에서 지금의 구매자의 활성 찜 전부 (번호 자신 + 변형마다), 생성 순서 */
+function activeClaimsIn(d: Draft, b: string, no: number, buyer: string): AnyClaim[] {
+  const key = slotKey(b, no)
+  const slot = d.readSlot(key)
+  if (slot === undefined) return []
+  const out: AnyClaim[] = []
+  for (const text of [null, ...slot.units.map((unit) => unit.text)]) {
+    const claim = activeClaim(d, key, text, buyer)
+    if (claim !== undefined) out.push(claim)
+  }
+  return out.sort((a, b2) => a.n - b2.n)
 }
 
 /**
  * R-8 "시청자 채팅 취소"·"대상 찾기"·"취소 요청 세부" (D-043, D-063). 잠금은 확정 찜에만 있고 입금 기록을 포함한다.
  * 그 번호에서 지금의 구매자의 활성 찜이 그 채널 자신의 찜(구매자 자신이 그 채널)일 때만 — 합친 다른 구매자의 찜이면 무시한다.
+ * 옵션 상품(R-20 8, D-O-13): 그 채널 자신의 그 상품 활성 찜(모든 변형)이 하나면 R-8 그대로, 둘 이상이면 AUTO여도 변형을 정하지 않은 요청.
  */
 function viewerCancel(d: Draft, b: string, no: number, channel: string): void {
   const mode = d.settingsOf(b)['cancel.buyerChat']
   if (mode === 'OFF') return
-  const current = activeClaim(d, slotKey(b, no), channel)
-  if (current === undefined || current.buyer !== channel) return
+  const own = activeClaimsIn(d, b, no, channel).filter((claim) => claim.buyer === channel)
+  if (own.length === 0) return
+  if (own.length > 1) {
+    if (d.readSlot(slotKey(b, no))?.requests.some((request) => request.buyer === channel) === true) return
+    d.slot(b, no).requests.push({ buyer: channel, seq: d.seq })
+    return
+  }
+  const current = own[0] as AnyClaim
   if (mode === 'AUTO' && !isLocked(d, current)) {
-    release(d, d.claim(current.id), d.slot(b, no), 'CANCELLED', null)
+    release(d, d.claim(current.id), unitOfClaim(d, current), 'CANCELLED', null)
     return
   }
   if (current.request === null) d.claim(current.id).request = d.seq
+}
+
+/** 변형을 정하지 않은 요청은 그 채널의 그 상품 활성 찜이 모두 끝나면 사라진다 (D-043과 같은 뜻) */
+function pruneRequests(d: Draft): void {
+  for (const slot of d.touchedSlots()) {
+    if (slot.requests.length === 0) continue
+    slot.requests = slot.requests.filter((request) => activeClaimsIn(d, slot.b, slot.no, request.buyer).some((claim) => claim.buyer === request.buyer))
+  }
 }
 
 // ── 문자찜 (R-11 "문자찜 구매자 정하기", D-051) ──────────────────────────
@@ -398,132 +698,199 @@ function sms(d: Draft, e: SmsEvent): void {
   }
   // 형식은 구조 검사(checkShape)가 이미 확인했다
   const received = resolveReceivedTime(e.received, d.at) as ReceivedTime
-  makeClaim(d, { b: e.b, no: e.no, buyer, origin: 'sms', seq: d.seq, at: d.at, time: received.time, minute: received.minute, message: null, ref: e.ref, received: e.received })
+  const variant = variantOf(d.readSlot(slotKey(e.b, e.no))?.product, e.options)
+  makeClaim(d, {
+    b: e.b,
+    no: e.no,
+    buyer,
+    origin: 'sms',
+    seq: d.seq,
+    at: d.at,
+    time: received.time,
+    minute: received.minute,
+    message: null,
+    ref: e.ref,
+    received: e.received,
+    variant: variant?.text ?? null,
+    options: variant?.pairs ?? null,
+    qty: e.qty ?? 1,
+    qtyWritten: e.qty !== undefined,
+    item: `sms:${e.ref}`,
+  })
 }
 
-// ── 방송자 조치 (R-7, R-8, R-9, D-040~D-043, D-053, D-054) ───────────────
+// ── 방송자 조치 (R-7, R-8, R-9, D-040~D-043, D-053, D-054, 옵션 방송은 R-19 "수량") ──
+
+/**
+ * 찜을 가리키는 방송자 조치의 대상 (R-19 "수량" 방송자 조치): options가 있으면 그 변형의 활성 찜.
+ * 없으면 번호 자신의 활성 찜, 옵션 상품이면 그 구매자의 그 상품 활성 찜이 하나뿐일 때만 그 찜(둘 이상이면 없음).
+ */
+function targetOf(d: Draft, e: { readonly b: string; readonly no: number; readonly buyer: string; readonly options?: OptionPick }): AnyClaim | undefined {
+  const key = slotKey(e.b, e.no)
+  const slot = d.readSlot(key)
+  if (e.options !== undefined) {
+    const variant = variantOf(slot?.product, e.options)
+    return variant === null ? undefined : activeClaim(d, key, variant.text, e.buyer)
+  }
+  if (slot === undefined || slot.units.length === 0) return activeClaim(d, key, null, e.buyer)
+  const all = activeClaimsIn(d, e.b, e.no, e.buyer)
+  return all.length === 1 ? all[0] : undefined
+}
 
 /** host.cancel → CANCELLED, host.reject → REJECTED(BY_HOST). 지금의 구매자의 활성 찜이 없으면 아무 일도 없다 */
 function hostRelease(d: Draft, e: HostClaimEvent): void {
-  const current = activeClaim(d, slotKey(e.b, e.no), e.buyer)
+  const current = targetOf(d, e)
   if (current === undefined) return
   const [status, reason] = e.type === 'host.reject' ? (['REJECTED', 'BY_HOST'] as const) : (['CANCELLED', null] as const)
-  release(d, d.claim(current.id), d.slot(e.b, e.no), status, reason)
+  release(d, d.claim(current.id), unitOfClaim(d, current), status, reason)
 }
 
-/** host.promote: 자리가 비어 있고 대상이 대기 찜일 때만 확정 (대기 몇 순위든) */
+/** host.promote: 자리가 비어 있고(남은 수량 1 이상) 대상이 대기 찜일 때만 확정 (대기 몇 순위든) */
 function promote(d: Draft, e: HostClaimEvent): void {
-  const key = slotKey(e.b, e.no)
-  const now = d.readSlot(key)
-  const current = activeClaim(d, key, e.buyer)
-  if (now === undefined || current?.status !== 'WAITLISTED') return
+  const current = targetOf(d, e)
+  if (current?.status !== 'WAITLISTED') return
   // 대기 찜이 있는 번호에는 상품이 있다 (대기는 판매 중인 상품에서 생기고, 대기가 남은 상품은 닫히지 않는다)
-  const product = now.product as ProductRecord
-  if (now.winners.length >= product.stock) return
-  const slot = d.slot(e.b, e.no)
-  slot.waitlist.splice(slot.waitlist.indexOf(current.id), 1)
-  confirm(d, d.claim(current.id), slot, product)
-  settleAwaiting(slot)
+  const slot = d.readSlot(slotKey(current.b, current.no)) as NonNullable<ReturnType<Draft['readSlot']>>
+  const product = slot.product as ProductRecord
+  const record = current.variant === null ? slot : (slot.units.find((unit) => unit.text === current.variant) as NonNullable<(typeof slot.units)[number]>)
+  if (stockOf(product, current.variant) - confirmedUnits(d, record.winners) < current.qty) return
+  const unit = unitOfClaim(d, current)
+  unit.waitlist.splice(unit.waitlist.indexOf(current.id), 1)
+  confirm(d, d.claim(current.id), unit, product)
+  settleAwaiting(d, unit)
+}
+
+/** 변형을 정하지 않은 그 채널의 요청 */
+function hasProductRequest(d: Draft, claim: AnyClaim): boolean {
+  return d.readSlot(slotKey(claim.b, claim.no))?.requests.some((request) => request.buyer === claim.buyer) === true
+}
+
+function dropProductRequest(d: Draft, claim: AnyClaim): void {
+  if (!hasProductRequest(d, claim)) return
+  const slot = d.slot(claim.b, claim.no)
+  slot.requests = slot.requests.filter((request) => request.buyer !== claim.buyer)
 }
 
 /** host.confirm: 확정 찜에 잠금만 건다 (R-7.3). host.approveCancel·host.dismissCancel: 처리 대기 요청이 있을 때만 */
 function claimAction(d: Draft, e: HostClaimOptionalReasonEvent): void {
-  const current = activeClaim(d, slotKey(e.b, e.no), e.buyer)
+  const current = targetOf(d, e)
   if (current === undefined) return
   if (e.type === 'host.confirm') {
     if (current.status === 'CONFIRMED' && !current.locked) d.claim(current.id).locked = true
     return
   }
-  if (current.request === null) return
+  if (current.request === null && !hasProductRequest(d, current)) return
+  dropProductRequest(d, current)
   if (e.type === 'host.dismissCancel') d.claim(current.id).request = null
-  else release(d, d.claim(current.id), d.slot(e.b, e.no), 'CANCELLED', null)
+  else release(d, d.claim(current.id), unitOfClaim(d, current), 'CANCELLED', null)
 }
 
-/** host.reopen: "승계 결정 필요" 표시가 있을 때만 REOPEN 규칙 (D-041) */
+/** host.reopen: "승계 결정 필요" 표시가 있을 때만 REOPEN 규칙 (D-041). 옵션 상품이면 options로 변형을 고른다(없으면 아무 일도 없다) */
 function reopen(d: Draft, e: HostReopenEvent): void {
-  if (d.readSlot(slotKey(e.b, e.no))?.awaiting !== true) return
-  clearWaitlist(d, d.slot(e.b, e.no))
+  const key = slotKey(e.b, e.no)
+  const slot = d.readSlot(key)
+  if (slot === undefined) return
+  const variant = variantOf(slot.product, e.options)
+  if (variant === null && slot.units.length > 0) return
+  const text = variant?.text ?? null
+  const record = text === null ? slot : slot.units.find((unit) => unit.text === text)
+  if (record?.awaiting !== true) return
+  clearWaitlist(d, d.unit(e.b, e.no, text))
 }
 
 /**
- * host.assign: 직접 배정·1등 교체 (R-9, D-042). 구매자는 지금의 구매자로 본다.
- * 충돌 중인 상품이면 교체가 있든 없든 아무 일도 없다 — 방송자는 충돌부터 정한다 (D-064). replace·replaceTo 한쪽만은 입력 오류다(checkShape, D-065).
+ * host.assign: 직접 배정·1등 교체 (R-9, D-042, 옵션 방송은 R-19 "수량"·D-O1-05). 구매자는 지금의 구매자로 본다.
+ * 충돌 중인 자리면 교체가 있든 없든 아무 일도 없다 — 방송자는 충돌부터 정한다 (D-064). replace·replaceTo 한쪽만은 입력 오류다(checkShape, D-065).
+ * 빈 자리 = 배정 수량 ≤ 남은 수량. 교체는 밀려나는 1등의 수량을 더해 본다. 수량 2 이상 1등의 WAITLIST 교체는 아무 일도 없다(대기하지 않는다).
+ * 교체 뒤에도 남은 수량이 있으면(밀려난 수량 > 배정 수량) 승계 규칙을 그대로 적용한다 — 확정이 풀린 것과 같다(D-O1-05).
  */
 function assign(d: Draft, e: HostAssignEvent): void {
   const key = slotKey(e.b, e.no)
   const current = d.readSlot(key)
   const product = current?.product
-  if (current === undefined || product === null || product === undefined || product.phase !== 'SELLING' || current.conflict !== null) return
+  if (current === undefined || product === null || product === undefined || product.phase !== 'SELLING') return
+  const variant = variantOf(product, e.options)
+  if (product.options.length > 0 && variant === null) return
+  const text = variant?.text ?? null
+  const record = text === null ? current : current.units.find((unit) => unit.text === text)
+  if (record === undefined || record.conflict !== null) return
   if (d.readBuyer(e.buyer) === undefined) return
   const { replace, replaceTo } = e
-  const own = activeClaim(d, key, e.buyer)
+  const qty = e.qty ?? 1
+  const own = activeClaim(d, key, text, e.buyer)
   if (own !== undefined && own.status !== 'WAITLISTED') return
+  const remaining = stockOf(product, text) - confirmedUnits(d, record.winners)
   let target: ClaimDraft | undefined
   if (replace !== undefined) {
-    const winner = activeClaim(d, key, replace)
+    const winner = activeClaim(d, key, text, replace)
     if (winner?.status !== 'CONFIRMED') return
+    if (replaceTo === 'WAITLIST' && winner.qty >= 2) return
+    if (qty > remaining + winner.qty) return
     target = d.claim(winner.id)
-  } else if (current.winners.length >= product.stock) return
-  const slot = d.slot(e.b, e.no)
+  } else if (qty > remaining) return
+  const unit = d.unit(e.b, e.no, text)
   // 그 구매자의 대기 찜이 있으면 먼저 대기에서 빠져 확정된다(새 찜 없음, INV-2). 없으면 새 확정 찜(순위 = 이 조치, R-6)
   let claim: ClaimDraft
   if (own === undefined) {
-    claim = d.newClaim({
-      seq: d.seq,
-      at: d.at,
-      time: d.at,
-      minute: false,
-      b: e.b,
-      no: e.no,
-      key,
-      pid: null,
-      buyer: e.buyer,
-      origin: 'assign',
-      message: null,
-      ref: null,
-      received: null,
-      status: 'PENDING',
-      reason: null,
-      price: null,
-      version: null,
-      locked: false,
-      request: null,
-      effects: [],
-      reprint: false,
-      priceHistory: [],
-    })
+    claim = d.newClaim(
+      newClaimFields({
+        b: e.b,
+        no: e.no,
+        buyer: e.buyer,
+        origin: 'assign',
+        seq: d.seq,
+        at: d.at,
+        time: d.at,
+        minute: false,
+        message: null,
+        ref: null,
+        received: null,
+        variant: text,
+        options: variant?.pairs ?? null,
+        qty,
+        qtyWritten: e.qty !== undefined,
+        item: null,
+      }),
+    )
   } else {
-    slot.waitlist.splice(slot.waitlist.indexOf(own.id), 1)
+    unit.waitlist.splice(unit.waitlist.indexOf(own.id), 1)
     claim = d.claim(own.id)
+    if (e.qty !== undefined && claim.qty !== qty) {
+      claim.qty = qty
+      claim.qtyWritten = true
+    }
   }
   if (target !== undefined) {
-    unconfirm(d, target, slot)
-    if (replaceTo === 'CANCEL') finish(d, target, slot, 'CANCELLED', null)
+    unconfirm(d, target, unit)
+    if (replaceTo === 'CANCEL') finish(d, target, unit, 'CANCELLED', null)
   }
-  confirm(d, claim, slot, product)
+  confirm(d, claim, unit, product)
   // 교체된 1등은 대기 1순위 (차단 중이면 REJECTED(BLOCKED), D-049). 넘치면 맨 끝 대기자부터 품절
-  if (target !== undefined && replaceTo === 'WAITLIST') displace(d, target, slot)
-  trimWaitlist(d, slot)
-  settleAwaiting(slot)
+  if (target !== undefined && replaceTo === 'WAITLIST') displace(d, target, unit)
+  if (target !== undefined && replaceTo === 'CANCEL' && target.qty > qty) succession(d, unit, product)
+  trimWaitlist(d, unit)
+  settleAwaiting(d, unit)
 }
 
 /** host.resolveConflict (R-7 7): KEEP = c를 대기 자리에, SWITCH = c 확정·가장 뒤 1등 → 대기 1순위. 충돌이 없으면 아무 일도 없다 */
 function resolveConflict(d: Draft, e: HostResolveConflictEvent): void {
   if ((d.readSlot(slotKey(e.b, e.no))?.conflict ?? null) === null) return
-  const slot = d.slot(e.b, e.no)
-  if (e.decision === 'KEEP') resolveKeep(d, slot)
-  else resolveSwitch(d, slot)
-  settleAwaiting(slot)
+  const unit = d.unit(e.b, e.no, null)
+  if (e.decision === 'KEEP') resolveKeep(d, unit)
+  else resolveSwitch(d, unit)
+  settleAwaiting(d, unit)
 }
 
 /**
  * host.convertMessage (R-7 4, D-054, D-062, D-076): 그 방송에서 받은 주문도 취소도 아니었던 메시지를 찜으로. 구매자 = 메시지 채널, 순위 재료·at = 원래 메시지.
  * 모르는 메시지·무시한 방송자 메시지·주문이나 취소였던 메시지(어느 번호로든)·이미 그 번호로 바꾼 메시지는 아무 일도 없다.
+ * 옵션 방송(R-20 7, D-O1-07): 옵션 상품을 가리키거나 받을 때 확인 필요 항목이 된 메시지면 아무 일도 없다. 수량 1, 1등을 밀어내지 않는다(rules contend).
  */
 function convert(d: Draft, e: HostConvertMessageEvent): void {
   const key = messageKey(e.b, e.msg)
   const message = d.readMessage(key)
-  if (message === undefined || message.ignored || message.order || message.cancel || message.converted.includes(e.no)) return
+  if (message === undefined || message.ignored || message.order || message.cancel || message.review || message.converted.includes(e.no)) return
+  if ((d.readSlot(slotKey(e.b, e.no))?.product?.options.length ?? 0) > 0) return
   const claim = makeClaim(d, {
     b: e.b,
     no: e.no,
@@ -536,8 +903,82 @@ function convert(d: Draft, e: HostConvertMessageEvent): void {
     message: key,
     ref: null,
     received: null,
+    variant: null,
+    options: null,
+    qty: 1,
+    qtyWritten: false,
+    item: null,
   })
   if (claim !== null) d.message(key).converted.push(e.no)
+}
+
+/**
+ * host.resolveReview (R-20 7, D-O-10·D-O1-04): 확인 필요 항목을 그 구매자의 찜으로. 순위 재료·at = 원래 메시지(입력).
+ * 아무 일도 없는 경우(항목이 남는다): 항목 없음, 상품이 판매 중 아님(READY·HOLD·CLOSED), 같은 자리에 그 구매자의 활성 찜이 있음,
+ * 수량 2 이상인데 남은 수량이 모자라거나 앞선 대기자가 있음(승계 결정 필요 자리도 같다).
+ * 그 밖: 차단된 구매자면 REJECTED(BLOCKED). 승계 결정 필요 자리의 수량 1은 대기 자리. 1등을 밀어내지 않는다 — 수량 ≤ 남은 수량이고
+ * 순위가 앞선 대기자가 없으면 확정, 아니면 수량 1은 대기 자리(넘치면 맨 끝 품절). 찜이 생기면 항목이 사라진다.
+ */
+function resolveReview(d: Draft, e: HostResolveReviewEvent): void {
+  const rkey = reviewKey(e.b, e.item)
+  const review = d.readReview(rkey)
+  if (review === undefined) return
+  const key = slotKey(e.b, e.no)
+  const slot = d.readSlot(key)
+  const product = slot?.product
+  if (slot === undefined || product === null || product === undefined || product.phase !== 'SELLING') return
+  const variant = variantOf(product, e.options)
+  const text = variant?.text ?? null
+  if (activeIdIn(d, slot, text, review.buyer) !== undefined) return
+  const fields = (): Omit<ClaimDraft, 'id' | 'n'> =>
+    newClaimFields({
+      b: e.b,
+      no: e.no,
+      buyer: review.buyer,
+      origin: review.origin,
+      seq: review.seq,
+      at: review.at,
+      time: review.time,
+      minute: review.minute,
+      message: review.message,
+      ref: review.ref,
+      received: review.received,
+      variant: text,
+      options: variant?.pairs ?? null,
+      qty: e.qty,
+      qtyWritten: true,
+      item: null,
+    })
+  if (d.isBlocked(review.buyer)) {
+    const claim = d.newClaim(fields())
+    claim.status = 'REJECTED'
+    claim.reason = 'BLOCKED'
+    claim.pid = product.id
+    d.setReview(rkey, null)
+    return
+  }
+  const record = text === null ? slot : (slot.units.find((unit) => unit.text === text) as NonNullable<typeof slot.units[number]>)
+  const remaining = stockOf(product, text) - confirmedUnits(d, record.winners)
+  const material = { seq: review.seq, time: review.time, minute: review.minute, n: Number.POSITIVE_INFINITY, b: e.b }
+  const ahead = record.waitlist.some((id) => {
+    const other = d.readClaim(id)
+    if (other === undefined) throw new CorruptStateError(`대기 찜 ${id}가 없다`)
+    return compareClaims(d, other, material) < 0
+  })
+  const confirmNow = !record.awaiting && e.qty <= remaining && !ahead
+  if (!confirmNow && e.qty >= 2) return
+  const unit = d.unit(e.b, e.no, text)
+  const claim = d.newClaim(fields())
+  if (confirmNow) confirm(d, claim, unit, product)
+  else queue(d, claim, unit)
+  settleAwaiting(d, unit)
+  d.setReview(rkey, null)
+}
+
+/** host.dismissReview (R-20 7): 주문이 아닌 것으로 정하고 항목을 지운다. 없는 항목이면 아무 일도 없다 */
+function dismissReview(d: Draft, e: HostDismissReviewEvent): void {
+  const key = reviewKey(e.b, e.item)
+  if (d.readReview(key) !== undefined) d.setReview(key, null)
 }
 
 /** host.blockBuyer: 그 구매자 자신의 대기·보류·충돌 찜은 모두 REJECTED(BLOCKED), 확정 찜은 그대로 (D-040). unblock: 새 찜만 다시 받는다 */
@@ -552,10 +993,10 @@ function block(d: Draft, e: HostBlockEvent): void {
   for (const id of d.claimIdsOf(e.buyer)) {
     const record = d.readClaim(id)
     if (record === undefined || (record.status !== 'WAITLISTED' && record.status !== 'PENDING' && record.status !== 'CONFLICT')) continue
-    const slot = d.slot(record.b, record.no)
-    detach(record, slot)
-    finish(d, d.claim(id), slot, 'REJECTED', 'BLOCKED')
-    settleAwaiting(slot)
+    const unit = unitOfClaim(d, record)
+    detach(record, unit)
+    finish(d, d.claim(id), unit, 'REJECTED', 'BLOCKED')
+    settleAwaiting(d, unit)
   }
 }
 
@@ -586,8 +1027,14 @@ function unmerge(d: Draft, e: BuyerUnmergeEvent): void {
   // 떨어진 쪽 활성 찜의 표시를 from으로 (DUPLICATE는 돌아오지 않는다)
   for (const claim of activeClaimsOf(d, part)) {
     const slot = d.slot(claim.b, claim.no)
-    if (pget(slot.active, oldRoot) !== claim.id) throw new CorruptStateError(`${slot.key}: 찜 ${claim.id}의 활성 표시가 없다`)
-    slot.active = pset(pdelete(slot.active, oldRoot), e.from, claim.id)
+    if (claim.variant === null) {
+      if (pget(slot.active, oldRoot) !== claim.id) throw new CorruptStateError(`${slot.key}: 찜 ${claim.id}의 활성 표시가 없다`)
+      slot.active = pset(pdelete(slot.active, oldRoot), e.from, claim.id)
+    } else {
+      const before = variantActiveKey(oldRoot, claim.variant)
+      if (pget(slot.variantActive, before) !== claim.id) throw new CorruptStateError(`${unitKeyOf(slot.key, claim.variant)}: 찜 ${claim.id}의 활성 표시가 없다`)
+      slot.variantActive = pset(pdelete(slot.variantActive, before), variantActiveKey(e.from, claim.variant), claim.id)
+    }
   }
 }
 
@@ -651,6 +1098,7 @@ const HANDLERS: Readonly<Record<string, (d: Draft, event: never) => void>> = {
   'product.close': productCommand,
   'product.update': update,
   'product.renumber': renumber,
+  'product.focus': focus,
   chat,
   sms,
   'host.cancel': hostRelease,
@@ -663,6 +1111,8 @@ const HANDLERS: Readonly<Record<string, (d: Draft, event: never) => void>> = {
   'host.reopen': reopen,
   'host.resolveConflict': resolveConflict,
   'host.convertMessage': convert,
+  'host.resolveReview': resolveReview,
+  'host.dismissReview': dismissReview,
   'host.blockBuyer': block,
   'host.unblockBuyer': block,
   'buyer.merge': merge,
@@ -693,5 +1143,6 @@ export function applyEvent(state: EngineState, event: EngineEvent): ApplyResult 
   const handler = ownGet(HANDLERS, type as string) as (d: Draft, event: EngineEvent) => void
   const draft = new Draft(state, event)
   handler(draft, event)
+  pruneRequests(draft)
   return draft.commit()
 }

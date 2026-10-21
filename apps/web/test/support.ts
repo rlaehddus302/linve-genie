@@ -128,7 +128,7 @@ export function broadcastItem(patch: Partial<BroadcastItem> = {}): BroadcastItem
 }
 
 export function broadcastView(patch: Partial<BroadcastView> = {}): BroadcastView {
-  return { id: 'b1', date: DATE, title: '1부', ended: false, endedAt: null, settings: { ...DEFAULT_SETTINGS }, ...patch }
+  return { id: 'b1', date: DATE, title: '1부', ended: false, endedAt: null, settings: { ...DEFAULT_SETTINGS }, focus: null, ...patch }
 }
 
 export function product(no: number, patch: Partial<Product> = {}): Product {
@@ -152,6 +152,12 @@ export function product(no: number, patch: Partial<Product> = {}): Product {
     priceHistory: [],
     nameHistory: [],
     confirmVersion: 0,
+    // O1: 옵션 상품 칸 (옵션 없는 상품)
+    aliases: [],
+    options: [],
+    hasOptions: false,
+    confirmedUnits: 0,
+    variants: [],
     ...patch,
   }
 }

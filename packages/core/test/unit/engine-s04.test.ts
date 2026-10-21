@@ -87,7 +87,7 @@ describe('AC-S04-01 broadcast.start — 새 방송 선언', () => {
     expect(listBroadcasts(empty)).toEqual([])
     expectInvalid(empty, { type: 'product.register', b: 'b1', no: 15, name: '핑크프릴', price: 10000 }, 'b')
     const { state } = server([start('b1'), register(15), chat('A', '15')])
-    expect(listBroadcasts(state)).toEqual([{ id: 'b1', date: '2026-10-18', title: 'b1부', ended: false, endedAt: null, settings: DEFAULT_SETTINGS }])
+    expect(listBroadcasts(state)).toEqual([{ id: 'b1', date: '2026-10-18', title: 'b1부', ended: false, endedAt: null, settings: DEFAULT_SETTINGS, focus: null }])
     expect(getProduct(state, 'b1', 15)?.winners).toEqual(['A'])
   })
 
@@ -100,7 +100,7 @@ describe('AC-S04-01 broadcast.start — 새 방송 선언', () => {
       ['b2', '2026-10-19', 5, 4000, 'RECEIVED_TIME'],
       ['b3', '2026-10-18', 5, 4000, 'ARRIVAL'],
     ])
-    expect(getBroadcast(state, 'b2')).toEqual({ id: 'b2', date: '2026-10-19', title: 'b2부', ended: false, endedAt: null, settings: resolveSettings({ 'contention.policy': 'RECEIVED_TIME' }) })
+    expect(getBroadcast(state, 'b2')).toEqual({ id: 'b2', date: '2026-10-19', title: 'b2부', ended: false, endedAt: null, settings: resolveSettings({ 'contention.policy': 'RECEIVED_TIME' }), focus: null })
     expect(getBroadcast(state, 'b9')).toBeNull()
   })
 
@@ -879,13 +879,15 @@ describe('AC-S04-08 상태 형식 확인', () => {
   const event = { seq: 9, at: T0 + 9000, type: 'chat', b: 'b1', id: 'x9', ch: 'B', nick: 'b', text: '15' } as EngineEvent
 
   it('지금 형식 번호를 내보내고, 새 상태·JSON 왕복한 상태는 그 형식이다', () => {
-    expect(STATE_FORMAT).toBe(4)
+    expect(STATE_FORMAT).toBe(5)
     expect(state.format).toBe(STATE_FORMAT)
     expect(() => applyEvent(JSON.parse(json(state)) as EngineState, event)).not.toThrow()
   })
 
   it.each([
     ['이전 형식 3', { ...state, format: 3 }, 3, '받은 형식: 3'],
+    // O1: 형식 4(옵션 방송 전)는 upgradeState로 바꿔 쓴다 — 그대로 넘기면 다른 형식이다
+    ['이전 형식 4', { ...state, format: 4 }, 4, '받은 형식: 4'],
     ['형식 없음', (({ format: _f, ...rest }) => rest)(state), null, '형식 번호 없음'],
     ['형식이 문자열', { ...state, format: '4' }, null, '형식 번호 없음'],
     ['null', null, null, '상태가 객체가 아님'],
@@ -905,9 +907,9 @@ describe('AC-S04-08 상태 형식 확인', () => {
       expect(isInvalidEvent(thrown)).toBe(false)
       expect(isNotImplemented(thrown)).toBe(false)
       expect((thrown as StateFormatError).received).toBe(received)
-      expect((thrown as StateFormatError).supported).toBe(4)
+      expect((thrown as StateFormatError).supported).toBe(5)
       expect((thrown as StateFormatError).message).toContain(shown)
-      expect((thrown as StateFormatError).message).toContain('지원 형식: 4')
+      expect((thrown as StateFormatError).message).toContain('지원 형식: 5')
     }
     expect(json(wrong)).toBe(before)
     expect(isStateFormatError(new Error('상태 형식이 다르다'))).toBe(false)
