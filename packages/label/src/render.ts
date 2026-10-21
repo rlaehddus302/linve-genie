@@ -378,26 +378,34 @@ function truncateOneLine(p: Painter, spec: ItemSpec, cap: readonly string[], g: 
   return { size: s, method: 'truncated', lines: [{ graphemes: make(k), indent: 0 }], valueLines: [join(shown)] }
 }
 
-/** 번호 목록 (L-5 맞추기 4): `, ` 뒤에서만 줄을 바꾸고, minFontSize로도 안 맞으면 DOES_NOT_FIT */
+/**
+ * 번호 목록 (L-5 맞추기 4): `, ` 뒤와 옵션 항목 안의 공백에서만 줄을 바꾸고(글자 사이는 아님), minFontSize로도 안 맞으면 DOES_NOT_FIT.
+ * 글을 공백으로 나눈 낱말을 앞에서부터 채운다 — 정수 번호만 있으면 낱말 = `번호,`라 O3 전의 `, ` 뒤 줄 바꿈과 같은 줄이 된다(AC-O3-02).
+ * 옵션 항목 글(`22 105/검정색 ×2`)의 공백은 모두 그 항목 안의 공백이다.
+ */
 function placeList(p: Painter, spec: ItemSpec): Placement | LabelError {
   const tokens = spec.tokens ?? []
   const { box } = spec
+  const words = tokens.flatMap((token, i) => {
+    const parts = token.split(' ')
+    if (i < tokens.length - 1) parts[parts.length - 1] = `${parts[parts.length - 1] as string},`
+    return parts
+  })
   const wrap = (s: number): string[] | undefined => {
     const lines: string[] = []
     let current: string[] = []
-    for (let i = 0; i < tokens.length; i++) {
-      const tail = i < tokens.length - 1 ? ',' : ''
-      const tryLine = [...current, tokens[i] as string]
-      if (p.extent(s, splitGraphemes(tryLine.join(', ') + tail)) <= box.width) {
+    for (const word of words) {
+      const tryLine = [...current, word]
+      if (p.extent(s, splitGraphemes(tryLine.join(' '))) <= box.width) {
         current = tryLine
         continue
       }
       if (current.length === 0) return undefined
-      lines.push(`${current.join(', ')},`)
-      current = [tokens[i] as string]
-      if (p.extent(s, splitGraphemes((tokens[i] as string) + tail)) > box.width) return undefined
+      lines.push(current.join(' '))
+      current = [word]
+      if (p.extent(s, splitGraphemes(word)) > box.width) return undefined
     }
-    if (current.length > 0) lines.push(current.join(', '))
+    if (current.length > 0) lines.push(current.join(' '))
     return lines.length * p.lineHeight(s) <= box.height ? lines : undefined
   }
   for (let s = box.fontSize; s >= box.minFontSize; s--) {

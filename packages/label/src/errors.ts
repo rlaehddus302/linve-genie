@@ -51,6 +51,8 @@ const DATA_FIELD_NAMES: Readonly<Record<string, string>> = {
   buyer: '구매자',
   broadcasts: '방송',
   subtotal: '상품 합계',
+  variant: '옵션',
+  qty: '수량',
 }
 
 export const LABEL_MESSAGES = {
