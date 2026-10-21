@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>연습용 시청자 채팅</title>
+<style>
+  body { font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; margin: 0; padding: 16px; background: #f6f7f4; color: #222; font-size: 18px; }
+  main { max-width: 560px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 8px 0 4px; }
+  p.help { color: #555; margin: 0 0 16px; line-height: 1.5; }
+  section { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  h2 { font-size: 19px; margin: 0 0 12px; }
+  label { display: block; margin: 8px 0 4px; font-weight: 600; }
+  input, select { width: 100%; box-sizing: border-box; font-size: 18px; padding: 10px; border: 1px solid #bbb; border-radius: 8px; }
+  button { margin-top: 12px; width: 100%; font-size: 19px; padding: 14px; border: 0; border-radius: 10px; background: #2f7d32; color: #fff; font-weight: 700; cursor: pointer; }
+  button.second { background: #5c6bc0; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+  ol { padding-left: 20px; margin: 0; max-height: 240px; overflow: auto; }
+  li { margin: 4px 0; }
+  #status { min-height: 24px; color: #2f7d32; font-weight: 600; }
+  #status.bad { color: #c62828; }
+</style>
+</head>
+<body>
+<main>
+  <h1>연습용 시청자 채팅</h1>
+  <p class="help">가짜 유튜브 "연습 라이브"에 시청자가 채팅을 쓴 것처럼 넣어요. 라이브찜 방송 화면에서 유튜브 "연습 라이브"를 이어 둔 뒤에 쓰세요. 실제 유튜브에는 아무것도 올라가지 않아요.</p>
+
+  <section>
+    <h2>한 사람이 채팅 쓰기</h2>
+    <label for="name">시청자 이름</label>
+    <select id="name"></select>
+    <label for="text">채팅 내용 (예: 1번 찜)</label>
+    <input id="text" value="1번 찜" autocomplete="off">
+    <button id="send" type="button">채팅 보내기</button>
+  </section>
+
+  <section>
+    <h2>여러 사람이 한꺼번에 찜 (선착순 연습)</h2>
+    <div class="row">
+      <div><label for="no">상품 번호</label><input id="no" type="number" min="1" max="999" value="1"></div>
+      <div><label for="count">몇 명</label><input id="count" type="number" min="2" max="8" value="3"></div>
+    </div>
+    <button id="rush" class="second" type="button">한꺼번에 찜 보내기</button>
+  </section>
+
+  <div id="status" role="status"></div>
+  <section>
+    <h2>보낸 채팅</h2>
+    <ol id="log"></ol>
+  </section>
+</main>
+<script>
+  const VIEWERS = "__VIEWERS__"
+  const nameBox = document.getElementById('name')
+  for (const viewer of VIEWERS) {
+    const option = document.createElement('option')
+    option.textContent = viewer
+    option.value = viewer
+    nameBox.append(option)
+  }
+  const status = document.getElementById('status')
+  const log = document.getElementById('log')
+  function show(text, bad) {
+    status.textContent = text
+    status.className = bad ? 'bad' : ''
+  }
+  async function send(messages) {
+    try {
+      const response = await fetch('/_try/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messages }) })
+      if (!response.ok) throw new Error()
+      for (const message of messages) {
+        const item = document.createElement('li')
+        item.textContent = message.name + ': ' + message.text
+        log.prepend(item)
+      }
+      show('보냈어요. 라이브찜 방송 화면에 몇 초 안에 나타나요.', false)
+    } catch {
+      show('보내지 못했어요. 연습 모드가 켜져 있는지 확인해 주세요.', true)
+    }
+  }
+  document.getElementById('send').addEventListener('click', () => {
+    const text = document.getElementById('text').value.trim()
+    if (text === '') return show('채팅 내용을 적어 주세요.', true)
+    void send([{ name: nameBox.value, text }])
+  })
+  document.getElementById('rush').addEventListener('click', () => {
+    const no = Number(document.getElementById('no').value)
+    const count = Math.min(8, Math.max(2, Number(document.getElementById('count').value) || 3))
+    if (!Number.isInteger(no) || no < 1) return show('상품 번호를 적어 주세요.', true)
+    const start = Math.floor(Math.random() * VIEWERS.length)
+    const messages = Array.from({ length: count }, (_, i) => ({ name: VIEWERS[(start + i) % VIEWERS.length], text: no + '번 찜' }))
+    void send(messages)
+  })
+</script>
+</body>
+</html>
