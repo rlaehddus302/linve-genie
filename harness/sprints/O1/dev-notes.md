@@ -113,3 +113,12 @@
 | SA-O1-05 | 거절 사유 열거값은 스펙 몫(D-O1-11 대기). 정해지면 `rules.ts` `openPending`의 `'SOLD_OUT'` 한 곳과 `ClaimReason`만 바꾸면 된다 |
 | TD-O1-004 | R-20 5대로 동작(코드 버그 아님) — spec-keeper 결정 대기 |
 
+
+## 수정 라운드 2 (dev-core)
+
+| 지적 | 처리 |
+|---|---|
+| SA-O1-03 (TD-O1-002 남은 부분) | 새 `engine/leftover.ts` `leftoverVariant(slot, readClaim, pick)` — 그 번호의 보류 찜 가운데 옵션 쌍(`claim.options`)이 고른 옵션과 똑같은(항목 수·이름·label) 변형 찜의 옵션 글. 입력 검사(`validate-options.ts` 찜을 가리키는 조치 = `host.cancel`·`reject`·`promote`·`confirm`·`approveCancel`·`dismissCancel`·`reopen`)는 그 번호 상품의 옵션과 안 맞아도(상품 없음·다른 상품·옵션 없는 상품) 이 함수가 찾으면 받는다. 엔진은 `pickedVariant` — 상품 변형이면 그 변형, 아니면 같은 함수로 남은 찜의 변형(`targetOf`, `reopen`). 맞는 찜이 없으면 지금처럼 입력 오류. 같은 함수라 받는 입력과 찾는 찜이 어긋나지 않는다(받았는데 엔진이 `CorruptStateError`를 내는 일 없음). 단위 시험: `engine-options.test.ts` "남은 변형 보류 찜을 옵션으로 골라 끝내기" |
+| SA-O1-01 · 02 | 그대로 골든(spec-keeper 몫). `core-adapter.test.ts` 합계 시험(통과 742)과 coverage 실패는 이 두 골든 불일치에서 온다 |
+| SA-O1-05 | D-O1-11이 아직 없다. 골든 README 열거값(거절 사유)에 새 값이 없어 코어가 혼자 값을 만들지 않는다. 정해지면 `rules.ts` `openPending`의 한 줄과 `ClaimReason`만 바꾼다 |
+| TD-O1-004 | R-20 5 "그 밖(옵션 없는 상품, 남은 말 둘 이상, 지금 상품 후보뿐)은 그 밖(언급)이다" 그대로 — spec-keeper 결정 대기 |

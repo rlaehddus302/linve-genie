@@ -14,6 +14,7 @@ import { parseChat } from '../parse/chat.ts'
 import { parseOptionComment, type OptionCatalogEntry, type OptionFocus } from '../parse/options.ts'
 import { checkSettings, resolveSettings } from '../settings.ts'
 import { CorruptStateError, Draft, Unit, claimNumber, emptyUnit, messageKey, ownGet, slotKey, unitKeyOf, variantActiveKey, type ClaimDraft, type SlotDraft } from './draft.ts'
+import { leftoverVariant } from './leftover.ts'
 import { receivedOf, receivedOfMembers } from './ledger.ts'
 import { activeClaimsOf, applyMerge, planMerge } from './merge.ts'
 import { emptyPMap, pdelete, pget, pkeys, pset, pvalues } from './pmap.ts'
@@ -148,6 +149,16 @@ function variantOf(product: ProductRecord | null | undefined, pick: OptionPick |
   if (indexes === null) throw new CorruptStateError(`상품 ${product.id}: 고른 옵션이 항목과 맞지 않는다 (입력 검사를 거치지 않았다)`)
   const pairs = product.options.map((item, i) => [item.name, (item.choices[indexes[i] as number] as { readonly label: string }).label] as const)
   return { text: pairs.map(([, label]) => label).join(OPTION_TEXT_SEPARATOR), pairs }
+}
+
+/**
+ * 찜을 가리키는 방송자 조치의 고른 옵션 → 변형 (R-19 "찜을 가리키는 방송자 조치").
+ * 그 번호 상품의 변형이면 그 변형, 아니면 그 번호에 남은 변형 보류 찜(R-10 1)의 옵션 쌍과 같은 변형. 둘 다 아니면 null.
+ */
+function pickedVariant(d: Draft, slot: ReturnType<Draft['readSlot']>, pick: OptionPick): { readonly text: string } | null {
+  const product = slot?.product
+  if (product !== null && product !== undefined && product.options.length > 0 && pickIndexes(product.options, pick) !== null) return variantOf(product, pick)
+  return leftoverVariant(slot, (id) => d.readClaim(id), pick)
 }
 
 /** 판정 자리 (찜이 있는 번호·변형) */
@@ -775,7 +786,7 @@ function targetOf(d: Draft, e: { readonly b: string; readonly no: number; readon
   const key = slotKey(e.b, e.no)
   const slot = d.readSlot(key)
   if (e.options !== undefined) {
-    const variant = variantOf(slot?.product, e.options)
+    const variant = pickedVariant(d, slot, e.options)
     return variant === null ? undefined : activeClaim(d, key, variant.text, e.buyer)
   }
   if (slot === undefined || slot.units.length === 0) return activeClaim(d, key, null, e.buyer)
@@ -836,7 +847,7 @@ function reopen(d: Draft, e: HostReopenEvent): void {
   const key = slotKey(e.b, e.no)
   const slot = d.readSlot(key)
   if (slot === undefined) return
-  const variant = variantOf(slot.product, e.options)
+  const variant = e.options === undefined ? null : pickedVariant(d, slot, e.options)
   if (variant === null && slot.units.length > 0) return
   const text = variant?.text ?? null
   const record = text === null ? slot : slot.units.find((unit) => unit.text === text)

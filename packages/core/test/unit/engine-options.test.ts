@@ -516,6 +516,75 @@ describe('번호를 바꾼 뒤 남은 변형 보류 찜의 자리 (R-10 1, R-5, 
   })
 })
 
+describe('남은 변형 보류 찜을 옵션으로 골라 끝내기 (R-5, R-10 1, R-19 "찜을 가리키는 방송자 조치", R-20 8 — SA-O1-03)', () => {
+  const renumber = (from: number, to: number): EventInput => ({ type: 'product.renumber', b: 'b1', from, to }) as EventInput
+  const orphan = [shorts({ status: 'READY' }), chat('UC_A', '반바지 M'), chat('UC_A', '반바지 L'), renumber(21, 25)]
+  const keyed = (state: EngineState) => claimsOf(state).map((c) => [c.key, c.status, c.reason])
+  const hostOn = (type: string, options: Record<string, string>, no = 21) =>
+    (type === 'host.reopen' ? { type, b: 'b1', no, reason: 'r', options } : { type, b: 'b1', no, buyer: 'UC_A', reason: 'r', options }) as EventInput
+
+  it('상품이 없는 번호: 남은 찜의 옵션과 같으면 받고 그 찜만 끝낸다. 다른 옵션·항목 수가 다르면 지금처럼 입력 오류', () => {
+    const { state } = play(orphan, OPTIONS)
+    expect(problemsOf(state, { type: 'host.cancel', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r', options: { 사이즈: 'M' } })).toEqual([])
+    expect(problemsOf(state, { type: 'host.reject', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r', options: { 사이즈: 'S' } })).toEqual(['options'])
+    expect(problemsOf(state, { type: 'host.reject', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r', options: { 사이즈: 'M', 색: '흰' } })).toEqual(['options'])
+    expect(problemsOf(state, { type: 'host.reject', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r', options: { 크기: 'M' } })).toEqual(['options'])
+    expect(problemsOf(state, { type: 'host.reject', b: 'b1', no: 22, buyer: 'UC_A', reason: 'r', options: { 사이즈: 'M' } })).toEqual(['options'])
+    const rejected = play([...orphan, hostOn('host.reject', { 사이즈: 'L' })], OPTIONS).state
+    expect(keyed(rejected)).toEqual([
+      ['b1/21#M', 'PENDING', 'UNOPENED'],
+      ['b1/21#L', 'REJECTED', 'BY_HOST'],
+    ])
+    expect(checkInvariants(rejected)).toEqual([])
+    // 다른 구매자에게 적으면 아무 일도 없다
+    const other = play([...orphan, { type: 'host.cancel', b: 'b1', no: 21, buyer: 'UC_B', reason: 'r', options: { 사이즈: 'M' } } as EventInput], OPTIONS).state
+    expect(keyed(other).map((c) => c[1])).toEqual(['PENDING', 'PENDING'])
+    // 찜을 바꾸지 않는 조치(승계 다시 열기·대기 올리기·잠금)는 아무 일도 없다
+    for (const type of ['host.reopen', 'host.promote', 'host.confirm', 'host.dismissCancel']) {
+      const after = play([...orphan, hostOn(type, { 사이즈: 'M' })], OPTIONS).state
+      expect(keyed(after).map((c) => c[1])).toEqual(['PENDING', 'PENDING'])
+    }
+  })
+
+  it('다른 옵션 상품이 옮겨 온 번호: 그 상품의 옵션이 아니어도 남은 찜의 옵션이면 받는다. 그 상품의 옵션은 그 상품 변형으로', () => {
+    const skirt = { type: 'product.register', b: 'b1', no: 30, name: '치마', price: 9000, status: 'READY', options: [{ name: '색', choices: [{ label: '빨강' }, { label: '파랑' }] }] } as EventInput
+    const events = [...orphan, skirt, renumber(30, 21)]
+    const { state } = play(events, OPTIONS)
+    expect(problemsOf(state, { type: 'host.cancel', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r', options: { 사이즈: 'M' } })).toEqual([])
+    expect(problemsOf(state, { type: 'host.cancel', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r', options: { 색: '빨강' } })).toEqual([])
+    expect(problemsOf(state, { type: 'host.cancel', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r', options: { 사이즈: 'S' } })).toEqual(['options'])
+    const cancelled = play([...events, hostOn('host.cancel', { 사이즈: 'M' }), hostOn('host.cancel', { 색: '빨강' })], OPTIONS).state
+    expect(keyed(cancelled)).toEqual([
+      ['b1/21#M', 'CANCELLED', null],
+      ['b1/21#L', 'PENDING', 'UNOPENED'],
+    ])
+    expect(checkInvariants(cancelled)).toEqual([])
+    // 옵션 없는 상품이 옮겨 와도 같다
+    const plain = { type: 'product.register', b: 'b1', no: 30, name: '양말', price: 3000, status: 'READY' } as EventInput
+    const plainEvents = [...orphan, plain, renumber(30, 21)]
+    expect(problemsOf(play(plainEvents, OPTIONS).state, { type: 'host.cancel', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r', options: { 사이즈: 'L' } })).toEqual([])
+    expect(keyed(play([...plainEvents, hostOn('host.cancel', { 사이즈: 'L' })], OPTIONS).state)).toEqual([
+      ['b1/21#M', 'PENDING', 'UNOPENED'],
+      ['b1/21#L', 'CANCELLED', null],
+    ])
+  })
+
+  it('시청자 "21 취소"(AUTO)의 변형 고르는 요청을 옵션으로 승인하면 그 찜만 취소, 요청은 사라진다', () => {
+    const auto = { ...OPTIONS, 'cancel.buyerChat': 'AUTO' } as const
+    const asked = [...orphan, chat('UC_A', '21 취소')]
+    const { state } = play(asked, auto)
+    expect(listCancelRequests(state).map((r) => [r.product, r.buyer, r.chooseVariant])).toEqual([['b1/21', 'UC_A', true]])
+    expect(problemsOf(state, { type: 'host.approveCancel', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r', options: { 사이즈: 'M' } })).toEqual([])
+    const approved = play([...asked, hostOn('host.approveCancel', { 사이즈: 'M' })], auto).state
+    expect(keyed(approved)).toEqual([
+      ['b1/21#M', 'CANCELLED', null],
+      ['b1/21#L', 'PENDING', 'UNOPENED'],
+    ])
+    expect(listCancelRequests(approved)).toEqual([])
+    expect(checkInvariants(approved)).toEqual([])
+  })
+})
+
 describe('지금 상품 (R-20 6, D-O1-06)', () => {
   it('없는 번호·HOLD·CLOSED의 focus는 지금 상품을 없애고, 일시 중지·판매 종료도 없앤다. 다른 방송은 따로다', () => {
     const at = (state: EngineState) => getBroadcast(state, 'b1')?.focus ?? null
