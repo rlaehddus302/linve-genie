@@ -8,6 +8,8 @@
 //   — 상품 자세히에 갔다 와도(브라우저 뒤로 가기 포함) 같은 합치기 창이 다시 열린다 (AC-S06b-34, D-102).
 //   `/labels` 라벨(프린터·출력 대기열·버릴 라벨·출력 이력·라벨 설정·내보내기, I1 AC-I1-20)
 //   `/settings` 설정에는 "라벨" 절도 있다 — 라벨 기능 켜기/끄기·바꾼 기록 (N4a AC-N4a-10)
+//   `/deposits` 입금 확인(N3, AC-N3-40) — 보는 목록은 검색값 `tab`(확인 필요는 적지 않는다): done 자동 확인됨·확인함 · ignored 무시함 · paste 붙여넣기 · sources 계좌 연동.
+//   입금자명·금액은 주소에 넣지 않는다.
 // 전화번호·메모·사유는 주소에 넣지 않는다(AC-S06-81) — 구매자 ID·상품 키만. 새로고침·북마크해도 같은 화면이다.
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -29,6 +31,15 @@ export interface ScopeRoute {
 }
 
 const SCOPE_PARAMS = ['buyer', 'merge', 'into', 'product'] as const
+
+/** 입금 확인 화면의 목록 (N3) */
+export const DEPOSIT_TABS = ['review', 'done', 'ignored', 'paste', 'sources'] as const
+export type DepositTab = (typeof DEPOSIT_TABS)[number]
+
+export interface DepositsRoute {
+  readonly name: 'deposits'
+  readonly tab: DepositTab
+}
 
 /** 포장 모드 (I2 AC-I2-35): 실제 범위만 — 리허설 표시가 없다 */
 export interface PackingRoute {
@@ -66,6 +77,7 @@ export type Route =
   | StartRoute
   | { readonly name: 'privacy' }
   | { readonly name: 'terms' }
+  | DepositsRoute
 
 /** 로그인 없이 여는 화면 (AC-I3-77) */
 export const isPublicRoute = (route: Route): boolean => route.name === 'privacy' || route.name === 'terms'
@@ -125,6 +137,10 @@ export function parseRoute(pathname: string, search = ''): Route {
   if (path === '/terms') return { name: 'terms' }
   if (path === '/sms') return { name: 'sms' }
   if (path === '/labels') return { name: 'labels' }
+  if (path === '/deposits') {
+    const tab = new URLSearchParams(search).get('tab')
+    return { name: 'deposits', tab: (DEPOSIT_TABS as readonly string[]).includes(tab ?? '') ? (tab as DepositTab) : 'review' }
+  }
   if (path === '/buyers') return scopeRoute('buyers', search)
   if (path === '/settlements') return scopeRoute('settlements', search)
   if (path === '/packing') return packingRoute(search)
@@ -153,6 +169,8 @@ export function routePath(route: Route): string {
       return '/privacy'
     case 'terms':
       return '/terms'
+    case 'deposits':
+      return route.tab === 'review' ? '/deposits' : `/deposits?tab=${route.tab}`
     case 'buyers':
     case 'settlements': {
       const params = new URLSearchParams()
@@ -175,8 +193,8 @@ export function routePath(route: Route): string {
   }
 }
 
-/** 메뉴 항목 (AC-S06-01, AC-I1-20, AC-I3-44, I2 AC-I2-35): 지금 화면이 어느 메뉴에 속하는지 */
-export type MenuKey = 'broadcasts' | 'sms' | 'buyers' | 'settlements' | 'packing' | 'labels' | 'settings'
+/** 메뉴 항목 (AC-S06-01, AC-I1-20, AC-I3-44, I2 AC-I2-35, AC-N3-40): 지금 화면이 어느 메뉴에 속하는지 */
+export type MenuKey = 'broadcasts' | 'sms' | 'buyers' | 'settlements' | 'deposits' | 'packing' | 'labels' | 'settings'
 
 /** 메뉴에 없는 화면(시작 마법사·정책 페이지)은 null */
 export function menuOf(route: Route): MenuKey | null {
@@ -195,6 +213,8 @@ export function menuOf(route: Route): MenuKey | null {
       return 'packing'
     case 'labels':
       return 'labels'
+    case 'deposits':
+      return 'deposits'
     case 'settings':
       return 'settings'
     case 'start':

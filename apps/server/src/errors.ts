@@ -106,6 +106,24 @@ export type ErrorCode =
   | 'FILE_FAILED'
   // N4b 구매자 확인서 공유 링크 (harness/sprints/N4b/dev-notes.md)
   | 'REHEARSAL_RECEIPT_LINK'
+  // N3 입금 확인 API (DEPOSIT_RULES DP-1·DP-2·DP-6)
+  | 'BUNDLE_CHANGED'
+  | 'DEPOSIT_APPLIED'
+  | 'DEPOSIT_IGNORED'
+  | 'DEPOSIT_NOT_REVIEW'
+  | 'DEPOSIT_NOT_IGNORED'
+  | 'DEPOSIT_NOT_APPLIED'
+  | 'DEPOSIT_CHANGED'
+  | 'REFUND_RECORDED'
+  | 'DUPLICATE_ITEM'
+  | 'PASTE_NO_HEADER'
+  | 'PASTE_TOO_MANY_ROWS'
+  | 'POPBILL_NOT_READY'
+  | 'SOURCE_NO_FETCH'
+  | 'SOURCE_DISABLED'
+  | 'SOURCE_FAILED'
+  | 'FETCH_TOO_SOON'
+  | 'CORP_NOT_ALLOWED'
 
 export interface ErrorBody {
   readonly error: {

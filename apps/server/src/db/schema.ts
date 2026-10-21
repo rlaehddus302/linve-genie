@@ -171,7 +171,7 @@ export const events = pgTable(
     at: bigint('at', { mode: 'number' }).notNull(),
     /** 서버 도착 시각 (UTC, DAT-05 "언제") */
     receivedAt: timestamptz('received_at').notNull(),
-    /** 조치자 종류: account(로그인 계정) · server(서버) · collector(채팅 수집기) (DAT-05 "누가") */
+    /** 조치자 종류: account(로그인 계정) · server(서버) · collector(채팅 수집기) · deposit(입금 자동 확인, N3) (DAT-05 "누가") */
     actor: text('actor').notNull(),
     accountId: text('account_id').references(() => accounts.id),
     requestId: text('request_id'),
@@ -1062,6 +1062,194 @@ export const receiptLinkRequests = pgTable(
   (t) => [unique('receipt_link_requests_uq').on(t.sellerId, t.requestId)],
 )
 
+// ── 입금 확인 (N3, DEPOSIT_RULES DP-1·DP-6, D-N3-05·D-N3-06·D-N3-09·D-N3-10) ─────────────
+// 이벤트·발송함·스냅샷·출력 표는 바꾸지 않는다 — 입금 내역은 엔진 밖 이 표들에 둔다(DP-0 3). 모든 표에 판매자 ID가 있다(SYS-02).
+// 계좌 비밀번호·빠른조회 아이디/비밀번호·생년월일을 두는 칸은 없다(받지 않는다, D-N3-09). 입금·처리 기록·원천을 지우는 API는 없다.
+
+/**
+ * 입금 원천 (DP-1): 계좌조회 POPBILL · 붙여넣기 PASTE(판매자마다 하나, 서버가 둔다) · 가짜 FAKE(시험 모드에서만).
+ * 계좌조회의 사업자번호·은행·계좌번호는 account_enc에 서버 마스터 키로 암호화해 둔다(판매자·원천에 묶음 — 다른 행으로 옮기면 풀리지 않는다, D-073 방식)
+ */
+export const depositSources = pgTable(
+  'deposit_sources',
+  {
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** POPBILL · PASTE · FAKE */
+    kind: text('kind').notNull(),
+    /** 표시 이름 (예: "국민 1234", "붙여넣기") */
+    label: text('label').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    /** 받아 오기 주기 (분, 1~5 — 계좌조회·가짜) */
+    intervalMin: integer('interval_min').notNull().default(5),
+    /** 계좌조회: 사업자번호·은행·계좌번호 JSON을 AES-256-GCM으로 암호화한 값 (그 밖의 원천은 null) */
+    accountEnc: text('account_enc'),
+    /** 마지막으로 받아 온 시각 (성공) */
+    lastFetchedAt: timestamptz('last_fetched_at'),
+    /** 마지막 오류 문장 (쉬운 한국어 한 문장 — 기술 상세 없음). 성공하면 지운다(읽지 못한 내역이 있으면 그 문장) */
+    lastError: text('last_error'),
+    lastErrorAt: timestamptz('last_error_at'),
+    /** 마지막 받아 오기의 새 입금 수 */
+    lastNew: integer('last_new'),
+    createdAt: timestamptz('created_at').notNull(),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [index('deposit_sources_seller_idx').on(t.sellerId), uniqueIndex('deposit_sources_paste_uq').on(t.sellerId).where(sql`kind = 'PASTE'`)],
+)
+
+/**
+ * 입금 (DP-1). 입금 번호 no는 판매자마다 1부터 이어서 센다(다시 켜도 같은 번호를 두 번 쓰지 않는다).
+ * 같은 입금은 한 번: (판매자, 원천, 외부 키) 유일 제약(DP-INV-4). 외부 키 = 팝빌 tid · 붙여넣기 줄 키의 해시 · 시험이 준 키.
+ * 상태: REVIEW 확인 필요 · AUTO_APPLIED 자동 확인됨 · APPLIED 확인함 · IGNORED 무시함 (DP-6).
+ * 입금자명은 받은 글자 그대로(앞뒤 공백 뺌, 40자까지) — 이벤트 로그에는 넣지 않는다(DP-INV-5). 잔액·적요는 두지 않는다
+ */
+export const deposits = pgTable(
+  'deposits',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    no: integer('no').notNull(),
+    sourceId: text('source_id')
+      .notNull()
+      .references(() => depositSources.id),
+    externalKey: text('external_key').notNull(),
+    /** 거래 시각 (UTC — 분까지만 있으면 그 분의 0초) */
+    at: timestamptz('at').notNull(),
+    /** second · minute */
+    precision: text('precision').notNull(),
+    amount: integer('amount').notNull(),
+    name: text('name').notNull(),
+    status: text('status').notNull(),
+    /** 반영 차례 (엔진 요청 번호 dep-<번호>-pay-<차례>·dep-<번호>-rev-<차례>의 차례 — 반영할 때마다 1씩 는다) */
+    turn: integer('turn').notNull().default(0),
+    /** 지금 반영 중인 묶음 (자동 확인됨·확인함일 때만): 날짜·입금 기록의 구매자·그 범위 seq */
+    appliedDate: text('applied_date'),
+    appliedBuyer: text('applied_buyer'),
+    appliedSeq: integer('applied_seq'),
+    /** 저장한 시각 (서버 시계) */
+    receivedAt: timestamptz('received_at').notNull(),
+    /** 마지막 처리 시각 (자동 확인·확정·무시·다시 확인 필요로·되돌리기) */
+    handledAt: timestamptz('handled_at'),
+  },
+  (t) => [
+    unique('deposits_no_uq').on(t.sellerId, t.no),
+    unique('deposits_external_uq').on(t.sellerId, t.sourceId, t.externalKey),
+    index('deposits_status_idx').on(t.sellerId, t.status, t.no),
+    index('deposits_at_idx').on(t.sellerId, t.at),
+  ],
+)
+
+/** 입금과 엔진 기록의 연결 (범위, seq) — 입금 확인이 적은 입금 기록(payment)과 되돌림 기록(refund). 메모 글을 읽어 잇지 않는다(DP-0 3) */
+export const depositLinks = pgTable(
+  'deposit_links',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    depositId: bigint('deposit_id', { mode: 'number' })
+      .notNull()
+      .references(() => deposits.id),
+    scopeId: text('scope_id')
+      .notNull()
+      .references(() => scopes.id),
+    date: text('date').notNull(),
+    seq: integer('seq').notNull(),
+    /** payment · refund */
+    kind: text('kind').notNull(),
+    /** 반영 차례 (되돌림은 되돌린 반영의 차례) */
+    turn: integer('turn').notNull(),
+    /** 기록의 구매자 (구매자 자신) */
+    buyer: text('buyer').notNull(),
+    /** 자동 확인으로 적은 입금인지 */
+    auto: boolean('auto').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('deposit_links_seq_uq').on(t.sellerId, t.scopeId, t.seq), index('deposit_links_deposit_idx').on(t.depositId)],
+)
+
+/** 입금 처리 기록 (DAT-05, DP-6): 받음·자동 확인·확정·무시·다시 확인 필요로·되돌리기마다 누가·언제·무엇을. 지우는 API가 없다 */
+export const depositActions = pgTable(
+  'deposit_actions',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    depositId: bigint('deposit_id', { mode: 'number' })
+      .notNull()
+      .references(() => deposits.id),
+    /** RECEIVED · AUTO · CONFIRM · IGNORE · REOPEN · REVERT */
+    action: text('action').notNull(),
+    /** account(로그인 계정) · auto(입금 자동 확인) · server(복구가 입금 상태를 다시 만든 엔진 기록에 맞춤) */
+    actor: text('actor').notNull(),
+    accountId: text('account_id').references(() => accounts.id),
+    /** 묶음 날짜·구매자, 엔진 기록 범위·seq (해당할 때만) */
+    date: text('date'),
+    buyer: text('buyer'),
+    scopeId: text('scope_id').references(() => scopes.id),
+    seq: integer('seq'),
+    /** 서버 시각 (UTC) */
+    at: timestamptz('at').notNull(),
+  },
+  (t) => [index('deposit_actions_deposit_idx').on(t.depositId, t.id)],
+)
+
+/** 기억한 입금자명 (DP-4 3, DP-6, D-N3-03): 유튜브 구매자(채널)에만. 같은 (채널, 정규화 이름)은 한 번만. 판매자가 지울 수 있다 */
+export const depositNames = pgTable(
+  'deposit_names',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    channel: text('channel').notNull(),
+    /** DP-3 정규화한 이름 */
+    norm: text('norm').notNull(),
+    /** 받은 글자 그대로 */
+    name: text('name').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('deposit_names_uq').on(t.sellerId, t.channel, t.norm)],
+)
+
+/**
+ * 판매자에게 묶인 팝빌 사업자번호 (RA-N3-001, DP-1 "비밀값", SYS-02). 서버는 연동 키 하나로 모든 판매자를 대신해 팝빌을 부르므로
+ * 사업자번호가 그 판매자의 것인지 서버가 지킨다: 판매자마다 하나, 사업자번호마다 한 판매자. 평문은 두지 않는다 —
+ * corp_key = HMAC(마스터 키에서 나눈 키, 사업자번호) (판매자 사이의 같은 값만 알아본다, 되돌릴 수 없다)
+ */
+export const depositCorpBindings = pgTable(
+  'deposit_corp_bindings',
+  {
+    sellerId: text('seller_id')
+      .primaryKey()
+      .references(() => sellers.id),
+    corpKey: text('corp_key').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('deposit_corp_bindings_corp_uq').on(t.corpKey)],
+)
+
+/** 입금 확인 화면 요청 번호 (붙여넣기 넣기·확정·무시·다시 확인 필요로·되돌리기·한꺼번에 — 같은 요청 번호면 처음 결과, DP-6) */
+export const depositRequests = pgTable(
+  'deposit_requests',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    requestId: text('request_id').notNull(),
+    /** 처음 결과 JSON ({ status, body }) */
+    result: text('result').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('deposit_requests_uq').on(t.sellerId, t.requestId)],
+)
+
 export const schema = {
   sellers,
   accounts,
@@ -1098,6 +1286,13 @@ export const schema = {
   packingRecords,
   receiptLinks,
   receiptLinkRequests,
+  depositSources,
+  deposits,
+  depositLinks,
+  depositActions,
+  depositNames,
+  depositCorpBindings,
+  depositRequests,
 }
 
 /**
@@ -1110,3 +1305,6 @@ export const executableOutbox = and(eq(outbox.rehearsal, false), eq(outbox.resto
 /** 범위 직렬 처리용 어드바이저리 락 키 (범위 = 판매자·날짜·리허설인지, 범위 행이 생기기 전에도 같은 키). 실제 범위는 S04와 같은 키 */
 export const scopeLockKey = (sellerId: string, date: string, rehearsal: boolean) =>
   sql`hashtextextended(${rehearsal ? `${sellerId}/${date}/rehearsal` : `${sellerId}/${date}`}, 0)`
+
+/** 판매자 입금 처리 직렬화용 어드바이저리 락 키 (입금 저장·번호 붙이기 — 여러 인스턴스에서도 번호가 겹치지 않게, DP-7) */
+export const depositLockKey = (sellerId: string) => sql`hashtextextended(${`${sellerId}/deposits`}, 0)`

@@ -82,6 +82,12 @@ export type LogCode =
   | 'BACKUP_DISABLED'
   | 'BACKUP_PRUNE_FAILED'
   | 'DOCUMENT_WORK_FAILED'
+  | 'DEPOSIT_FETCH_FAILED'
+  | 'DEPOSIT_SAVE_FAILED'
+  | 'DEPOSIT_ROW_SAVE_RETRY'
+  | 'DEPOSIT_ROW_SAVE_FAILED'
+  | 'DEPOSIT_APPLY_FAILED'
+  | 'DEPOSIT_NOTIFY_FAILED'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -137,6 +143,12 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   BACKUP_DISABLED: '백업 저장소가 정해지지 않아 자동 백업이 꺼져 있어요',
   BACKUP_PRUNE_FAILED: '오래된 백업을 지우지 못했어요(다음 확인 때 다시 해요)',
   DOCUMENT_WORK_FAILED: '파일 작업 워커가 일을 끝내지 못했어요(시간·메모리 상한·끊긴 요청 등 — 서버 판정은 그대로)',
+  DEPOSIT_FETCH_FAILED: '입금 원천에서 받아 오지 못했어요(다음 주기에 다시 함)',
+  DEPOSIT_SAVE_FAILED: '받은 입금을 저장하지 못했어요(다음 주기에 다시 함)',
+  DEPOSIT_ROW_SAVE_RETRY: '받은 입금을 한 번에 저장하지 못해 한 줄씩 다시 저장해요',
+  DEPOSIT_ROW_SAVE_FAILED: '받은 입금 한 줄을 저장하지 못해 그 줄만 건너뛰었어요',
+  DEPOSIT_APPLY_FAILED: '입금 자동 확인을 적지 못해 확인 필요로 남겼어요',
+  DEPOSIT_NOTIFY_FAILED: '입금 확인 알림을 보내지 못했어요(기록은 저장됨)',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */

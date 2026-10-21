@@ -10,6 +10,7 @@ import type {
   ProductInfo,
   SettlementInfo,
 } from '@livejjim/core'
+import type { DepositLinkView } from './deposit-types.ts'
 
 type TimeKey = 'at' | 'endedAt' | 'rankTime'
 
@@ -118,6 +119,8 @@ export interface FullView extends ViewItems {
   /** 30일이 지나 봉인한 날짜 (봉인한 장부 — 쓰기·증분 조회 없음, Y1 계약 5) */
   readonly sealed?: boolean
   readonly sealedAt?: string
+  /** 그 범위 정산 기록의 입금 연결 (N3 AC-N3-32 — 서버는 늘 담는다, 리허설 범위는 []) */
+  readonly depositLinks?: readonly DepositLinkView[]
 }
 
 /** 채팅 메시지 한 건 (메시지 조회·증분 조회) */
@@ -161,6 +164,8 @@ export interface Changes extends ViewItems {
   }
   readonly messages: readonly ChatMessage[]
   readonly messagesMore: boolean
+  /** 정산 묶음이 바뀐 증분에만 그 범위의 입금 연결 전체 (N3 — 없으면 이전 값 그대로) */
+  readonly depositLinks?: readonly DepositLinkView[]
 }
 
 export interface MessagesView {

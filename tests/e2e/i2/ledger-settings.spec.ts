@@ -1,6 +1,7 @@
 // 판매대장 창 (AC-I2-22·33), 설정 화면 (AC-I2-02·65), 지난 구매 (AC-I2-41), 다시 보기 (AC-I2-55) — test-e2e.
 import { test, expect, type Page } from '@playwright/test'
-import { dateLongKo, downloadBytes, login, menu, noHorizontalScroll, packingCommand, packingList, pay, phoneLike, postJson, realDay, registerApi, resetShop, scopeView, smsApi, uniqueDate, xlsxRows } from './support.ts'
+import { dateLongKo, downloadBytes, login, noHorizontalScroll, packingCommand, packingList, pay, phoneLike, postJson, realDay, registerApi, resetShop, scopeView, smsApi, uniqueDate, xlsxRows } from './support.ts'
+import { clickMenu } from '../menu.ts'
 
 const COLUMNS = ['방송 날짜', '회차', '상품 번호', '품종', '가격', '구매자', '채널', '찜 시각', '상태', '입금', '배송']
 
@@ -63,7 +64,7 @@ test.describe('설정 화면 (AC-I2-02·65)', () => {
     await login(page)
     const phone = await phoneLike(browser, page)
     try {
-      await menu(phone).getByRole('link', { name: '설정' }).click()
+      await clickMenu(phone, '설정') // 휴대폰은 "더보기" 목록 안 (D-NAV-01)
       await expect(phone).toHaveURL(/\/settings$/)
       const preview = phone.getByRole('region', { name: '확인서에 나올 모양' })
       await expect(phone.getByLabel('가게 이름')).toHaveValue('시험 가게')
