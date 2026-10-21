@@ -21,13 +21,14 @@ import { kstDateTimeLong } from '../lib/kst.ts'
 import { useUnsavedGuard } from '../lib/leave-guard.ts'
 import { useLiveEvents } from '../lib/live-events.ts'
 import { routePath, type Navigate, type Route, type SettingsRoute } from '../lib/router.ts'
+import { saleModeOf } from '../lib/words.ts'
 import { fieldsAt, ONGOING_NOTICE, SAVED_MESSAGE, SAVED_SHIPPING_MESSAGE } from '../lib/settings-fields.ts'
 import { hasChannel } from '../lib/youtube.ts'
 import { AssistantsSection } from './AssistantsSection.tsx'
 import { DownloadButton } from './downloads.tsx'
 import { ErrorNote, RequestError } from './ErrorNote.tsx'
 import { LabelSwitchSection } from './LabelSwitchSection.tsx'
-import { RuleField, SaveRow, settingProblem, useRuleForm } from './RuleFields.tsx'
+import { FixedArrivalField, RuleField, SaleModeField, SaveRow, settingProblem, useRuleForm } from './RuleFields.tsx'
 import { ThanksSettings, useThanksForm } from './ThanksSettings.tsx'
 import { CallbackResult, useQuota, useYoutubeConnection, YoutubeStatus } from './YoutubeConnection.tsx'
 
@@ -180,11 +181,23 @@ function RuleSections({ settings, onSaved, youtube }: { readonly settings: SaleS
   const thanks = useThanksForm(settings, onSaved)
   const [more, setMore] = useState(false)
   const moreId = useId()
+  const options = saleModeOf({ 'claim.parseMode': String(rules.draft['claim.parseMode']) }) === 'OPTIONS'
   useUnsavedGuard(rules.dirty || shipping.dirty || thanks.dirty)
   return (
     <>
       <SettingsSection title="판매 규칙">
         <p className="hint">바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.</p>
+        {/* 판매 방식 (D-O2-01): 옵션 방식이면 겨루기를 접수순으로 함께 바꾼다 — 함께 둘 수 없는 값(옵션 + 실제 시각순)을 고를 수 없게 */}
+        <SaleModeField
+          value={options ? 'OPTIONS' : 'NUMBERS'}
+          onChange={(mode) => {
+            if (mode === 'OPTIONS') {
+              rules.set('claim.parseMode', 'OPTIONS')
+              rules.set('contention.policy', 'ARRIVAL')
+            } else rules.set('claim.parseMode', 'STRICT')
+          }}
+          problem={settingProblem(rules.error, 'claim.parseMode')}
+        />
         {BASIC_FIELDS.map((field) => (
           <RuleField key={field.key} field={field} value={rules.draft[field.key]} onChange={(value) => rules.set(field.key, value)} problem={settingProblem(rules.error, field.key)} />
         ))}
@@ -193,9 +206,14 @@ function RuleSections({ settings, onSaved, youtube }: { readonly settings: SaleS
             더 보기 (잘 모르면 그대로 두세요)
           </button>
           <div id={moreId} className="stack" hidden={!more}>
-            {MORE_FIELDS.map((field) => (
-              <RuleField key={field.key} field={field} value={rules.draft[field.key]} onChange={(value) => rules.set(field.key, value)} problem={settingProblem(rules.error, field.key)} />
-            ))}
+            {MORE_FIELDS.map((field) =>
+              // 옵션 방식: 엄격/느슨 칸은 없고, 겨루기 칸은 고를 수 없는 글 (D-O2-01)
+              options && field.key === 'claim.parseMode' ? null : options && field.key === 'contention.policy' ? (
+                <FixedArrivalField key={field.key} label={field.label} />
+              ) : (
+                <RuleField key={field.key} field={field} value={rules.draft[field.key]} onChange={(value) => rules.set(field.key, value)} problem={settingProblem(rules.error, field.key)} />
+              ),
+            )}
           </div>
         </div>
         <SaveRow form={rules} fields={RULE_FIELDS} />

@@ -4,6 +4,7 @@ import type { SaleSettings } from '@livejjim/core'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { isApiError, patch, type ApiError } from '../api/client.ts'
 import { changedSettings, draftOf, fieldWarning, type Draft, type FieldDef } from '../lib/settings-fields.ts'
+import { OPTIONS_ARRIVAL_NOTE, OPTIONS_ARRIVAL_WORD, SALE_MODE_CHOICE, type SaleMode } from '../lib/words.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 
 export interface RuleFieldProps {
@@ -72,6 +73,56 @@ export function RuleField({ field, value, onChange, problem, disabled = false }:
         {field.kind === 'money' ? <span>원</span> : null}
       </span>
       <Problem id={problemId} text={problem} />
+    </div>
+  )
+}
+
+/**
+ * "판매 방식" 칸 (OPT-04, D-O2-01): 번호로만 받기(기본) / 상품명·옵션도 받기. 저장 값은 claim.parseMode 하나(STRICT·LOOSE·OPTIONS)다 —
+ * 칸 묶음이 그 값을 들고 있고, 이 칸은 둘 중 하나로만 보인다. 옵션 방식이면 겨루기는 접수순으로 고정한다는 안내를 함께 보인다.
+ */
+export function SaleModeField({
+  value,
+  onChange,
+  problem,
+  disabled = false,
+}: {
+  readonly value: SaleMode
+  readonly onChange: (mode: SaleMode) => void
+  readonly problem?: string | undefined
+  readonly disabled?: boolean
+}) {
+  const id = useId()
+  return (
+    <fieldset className="rule-choice" role="radiogroup" aria-label="판매 방식" disabled={disabled}>
+      <legend>판매 방식</legend>
+      <div className="choice-list">
+        {(['NUMBERS', 'OPTIONS'] as const).map((mode) => (
+          <label key={mode} className="choice">
+            <input type="radio" name={`${id}-sale-mode`} value={mode} checked={value === mode} onChange={() => onChange(mode)} />
+            <span>{SALE_MODE_CHOICE[mode]}</span>
+          </label>
+        ))}
+      </div>
+      {value === 'OPTIONS' ? (
+        <p className="hint" role="note">
+          {OPTIONS_ARRIVAL_NOTE}
+        </p>
+      ) : null}
+      <Problem id={`${id}-problem`} text={problem} />
+    </fieldset>
+  )
+}
+
+/** 옵션 방식일 때의 겨루기 칸: 고를 수 없는 글 (D-O2-01) */
+export function FixedArrivalField({ label }: { readonly label: string }) {
+  return (
+    <div className="stack-tight" role="group" aria-label={label}>
+      <p className="field-label">{label}</p>
+      <p>
+        <strong>{OPTIONS_ARRIVAL_WORD}</strong>
+      </p>
+      <p className="hint">{OPTIONS_ARRIVAL_NOTE}</p>
     </div>
   )
 }

@@ -8,14 +8,15 @@
 // - 단계가 바뀌면 포커스는 그 단계 제목으로. 키보드만으로 끝까지 갈 수 있다.
 import type { SaleSettings } from '@livejjim/core'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import { get, isApiError, newRequestId, post, put, withRetry, type ApiError } from '../api/client.ts'
+import { get, isApiError, newRequestId, patch, post, put, withRetry, type ApiError } from '../api/client.ts'
 import type { WizardState, WriteResult } from '../api/types.ts'
 import { LEAVE_TITLE, UNSAVED_LEAVE, UNSAVED_QUESTION, useUnsavedGuard } from '../lib/leave-guard.ts'
 import type { Navigate, StartRoute } from '../lib/router.ts'
 import { fieldOf, SAVED_MESSAGE, SAVED_SHIPPING_MESSAGE, valueWords, type FieldDef, type RuleKey } from '../lib/settings-fields.ts'
 import { ErrorNote, FieldError } from './ErrorNote.tsx'
 import { Modal } from './Modal.tsx'
-import { RuleField, settingProblem, useRuleForm } from './RuleFields.tsx'
+import { RuleField, SaleModeField, settingProblem, useRuleForm } from './RuleFields.tsx'
+import { saleModeOf, type SaleMode } from '../lib/words.ts'
 import { PrinterStep } from './wizard/PrinterStep.tsx'
 import { CallbackResult, useYoutubeConnection, YoutubeStatus } from './YoutubeConnection.tsx'
 
@@ -316,6 +317,7 @@ function ShopStep({
 function RulesStep({ settings, onSaved, onUnsaved }: { readonly settings: SaleSettings; readonly onSaved: (settings: SaleSettings) => void; readonly onUnsaved: MarkUnsaved }) {
   return (
     <div className="stack">
+      <SaleModeLine settings={settings} onSaved={onSaved} />
       <ul className="plain-list rule-lines">
         {RULE_LINES.map((line) => (
           <RuleLine key={line.key} label={line.label} field={fieldOf(line.key)} settings={settings} onSaved={onSaved} onUnsaved={onUnsaved} />
@@ -323,6 +325,44 @@ function RulesStep({ settings, onSaved, onUnsaved }: { readonly settings: SaleSe
       </ul>
       <p>바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.</p>
       <p>다른 규칙은 설정에서 바꿀 수 있어요.</p>
+    </div>
+  )
+}
+
+/**
+ * 판매 방식 (AC-O2-04, D-O2-01): 설정 화면과 같은 두 선택. 고르면 바로 저장한다 — "다음"을 눌렀을 때 이미 저장돼 있다(바꾸지 않으면 요청 없음).
+ * 상품명·옵션도 받기면 겨루기를 접수순으로 함께 저장한다(옵션 + 실제 시각순은 함께 둘 수 없다).
+ */
+function SaleModeLine({ settings, onSaved }: { readonly settings: SaleSettings; readonly onSaved: (settings: SaleSettings) => void }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<ApiError | null>(null)
+  const [done, setDone] = useState(false)
+  const choose = async (mode: SaleMode) => {
+    if (busy || mode === saleModeOf(settings)) return
+    setBusy(true)
+    setError(null)
+    setDone(false)
+    try {
+      const changes = mode === 'OPTIONS' ? { 'claim.parseMode': 'OPTIONS', 'contention.policy': 'ARRIVAL' } : { 'claim.parseMode': 'STRICT' }
+      const result = await patch<{ settings: SaleSettings }>('/api/settings', { settings: changes })
+      onSaved(result.settings)
+      setDone(true)
+    } catch (caught) {
+      if (!isApiError(caught)) throw caught
+      setError(caught)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="stack-tight">
+      <SaleModeField value={saleModeOf(settings)} onChange={(mode) => void choose(mode)} disabled={busy} problem={settingProblem(error, 'claim.parseMode') ?? settingProblem(error, 'contention.policy')} />
+      {done ? (
+        <p className="notice" role="status">
+          {SAVED_MESSAGE}
+        </p>
+      ) : null}
+      {error !== null && settingProblem(error, 'claim.parseMode') === undefined && settingProblem(error, 'contention.policy') === undefined ? <ErrorNote error={error} /> : null}
     </div>
   )
 }
