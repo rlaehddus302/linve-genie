@@ -3,6 +3,7 @@
 // - PC(48rem 이상)는 이 순서 그대로 모두 위 줄에. 휴대폰은 아래 막대 다섯 칸(앞 네 칸 + "더보기"), 나머지는 "더보기" 목록에 같은 순서로.
 // - 새 메뉴 기본 규칙(D-NAV-01 (9)): 새 메뉴는 `moreItems` 안에 더한다 — 그러면 PC는 "설정" 바로 앞, 휴대폰은 목록의 "설정" 바로 앞에 저절로 들어간다.
 //   막대의 앞 네 칸(`barItems`)은 바꾸지 않는다 — 바꾸려면 새 결정이 필요하다. "설정"은 `settingsItem` 하나로 늘 맨 뒤다.
+// - 요금(N5)은 이 규칙대로 목록 끝("설정" 바로 앞)에 — 요금 기능이 켜져 있을 때만(AC-NAV-09).
 // - 보조자는 "문자찜 입력" 한 칸, 더보기 없음.
 import type { MenuKey, Route } from './router.ts'
 
@@ -21,6 +22,8 @@ export interface MenuInput {
   readonly labels: boolean
   /** 확인 필요 입금 수 (모르면 null) */
   readonly review: number | null
+  /** 요금 기능이 켜져 있다 (N5, AC-N5-50 — 켜져 있을 때만 "요금". 보조자에게는 없다) */
+  readonly billing?: boolean
 }
 
 export interface MenuLayout {
@@ -56,6 +59,7 @@ function moreItems(input: MenuInput): readonly MenuItem[] {
     { key: 'deposits', label: '입금 확인', to: { name: 'deposits', tab: 'review' }, ...(input.review !== null && input.review > 0 ? { count: input.review } : {}) },
     { key: 'packing', label: '포장', to: { name: 'packing', ...(realDate === undefined ? {} : { date: realDate }) } },
     ...(input.labels ? [{ key: 'labels', label: '라벨', to: { name: 'labels' } } as const] : []),
+    ...(input.billing === true ? [{ key: 'billing', label: '요금', to: { name: 'billing' } } as const] : []),
   ]
 }
 

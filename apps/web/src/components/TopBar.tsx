@@ -6,6 +6,7 @@
 //   지금 화면이 목록 안이면 "더보기"와 그 항목이 aria-current="page". "더보기"에는 수를 붙이지 않는다 — "입금 확인 3"은 목록 안에서 보인다.
 // 확인 필요 입금이 있으면 "입금 확인 3"처럼 수를 글자로 붙인다(색만으로 알리지 않는다).
 // 보조자 계정은 가게 이름 + "보조자", 메뉴는 "문자찜 입력"뿐이다(프린터 상태·더보기도 없다 — 보조자는 출력·입금 확인을 쓰지 않는다).
+// 요금 기능이 켜져 있으면 판매자 메뉴에 "요금"(N5, AC-N5-50) — 새 메뉴 규칙(D-NAV-01 (9))대로 더보기 목록·PC 모두 "설정" 바로 앞(AC-NAV-09). 꺼져 있으면 메뉴가 그대로다.
 // 라벨 기능이 꺼져 있거나 켬/끔을 아직 모르면 프린터 상태와 메뉴 "라벨"을 만들지 않는다(L-13 9) — "설정"을 비롯한 다른 메뉴는 그대로다.
 // 라벨 켬/끔을 바꾸는 "설정"은 메뉴 항목 하나다(I3 AC-I3-44 — N4a의 위 줄 "설정" 링크는 합치며 메뉴 항목으로 모았다, D-N4a-07).
 import { useEffect, useId, useRef, useState, type MouseEvent } from 'react'
@@ -15,6 +16,7 @@ import { menuAll, menuLayout, type MenuItem } from '../lib/menu.ts'
 import { menuOf, routePath, type MenuKey, type Navigate, type Route } from '../lib/router.ts'
 import { useWide } from '../lib/use-wide.ts'
 import { useDepositReview } from './deposit-context.tsx'
+import { useBillingConfig } from './billing-context.tsx'
 import { useLabelsEnabled, usePrintApi, usePrintState } from './print-context.tsx'
 
 export interface TopBarProps {
@@ -30,6 +32,7 @@ type Go = (event: MouseEvent<HTMLAnchorElement>, to: Route) => void
 
 export function TopBar({ shopName, assistant = false, onLogout, route, navigate }: TopBarProps) {
   const review = useDepositReview()
+  const billing = useBillingConfig()?.enabled === true
   const labels = useLabelsEnabled() === true
   const wide = useWide()
   const go: Go = (event, to) => {
@@ -37,7 +40,7 @@ export function TopBar({ shopName, assistant = false, onLogout, route, navigate 
     event.preventDefault()
     navigate(to)
   }
-  const layout = menuLayout({ route, assistant, labels, review })
+  const layout = menuLayout({ route, assistant, labels, review, billing })
   const current = menuOf(route)
   return (
     <>

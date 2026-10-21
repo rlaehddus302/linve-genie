@@ -42,14 +42,34 @@ function wideScreen(): void {
 const dialog = () => screen.getByRole('dialog')
 
 describe('메뉴·주소 (AC-N5-50)', () => {
-  it('요금 기능이 켜져 있으면 메뉴 끝에 "요금"이 있고 /billing이 요금 화면이다', async () => {
+  // 메뉴 순서는 D-NAV-01: 새 메뉴 "요금"은 PC·휴대폰 더보기 목록 모두 "설정" 바로 앞(AC-NAV-09) — N5 합치기(main 066480c)로 "메뉴 끝" 계약을 교체
+  it('PC: 요금 기능이 켜져 있으면 "설정" 바로 앞에 "요금"이 있고 /billing이 요금 화면이다', async () => {
+    wideScreen()
     await openBilling()
     const menu = screen.getByRole('navigation', { name: '메뉴' })
     const links = within(menu).getAllByRole('link')
-    expect(links.map((link) => link.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '포장', '라벨', '설정', '요금'])
+    expect(links.map((link) => link.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '입금 확인', '포장', '라벨', '요금', '설정'])
     expect(within(menu).getByRole('link', { name: '요금' }).getAttribute('href')).toBe('/billing')
     expect(within(menu).getByRole('link', { name: '요금' }).getAttribute('aria-current')).toBe('page')
     expect(screen.getByRole('heading', { name: '요금', level: 1 })).toBeTruthy()
+  })
+
+  it('휴대폰: 막대는 다섯 칸 그대로, "요금"은 더보기 목록의 "설정" 바로 앞 — 요금 화면이면 "더보기"와 "요금"이 지금 위치', async () => {
+    await openBilling()
+    const menu = screen.getByRole('navigation', { name: '메뉴' })
+    expect([...menu.children].filter((el) => el.matches('a, button')).map((cell) => cell.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '더보기'])
+    const more = within(menu).getByRole('button', { name: '더보기' })
+    expect(more.getAttribute('aria-current')).toBe('page')
+    fireEvent.click(more)
+    const list = within(menu).getByRole('list')
+    expect(within(list).getAllByRole('link').map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
+      ['입금 확인', '/deposits'],
+      ['포장', '/packing'],
+      ['라벨', '/labels'],
+      ['요금', '/billing'],
+      ['설정', '/settings'],
+    ])
+    expect(within(list).getByRole('link', { name: '요금' }).getAttribute('aria-current')).toBe('page')
   })
 
   it.each([
@@ -59,8 +79,12 @@ describe('메뉴·주소 (AC-N5-50)', () => {
     fake.config = config as unknown as Record<string, unknown>
     render(<App />)
     expect(await screen.findByRole('heading', { name: '찾을 수 없는 화면이에요.' })).toBeTruthy()
+    // 휴대폰(D-NAV-01): 막대 다섯 칸, 더보기 목록에 "요금"이 없다
     const menu = screen.getByRole('navigation', { name: '메뉴' })
-    expect(within(menu).getAllByRole('link').map((link) => link.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '포장', '라벨', '설정'])
+    expect([...menu.children].filter((el) => el.matches('a, button')).map((cell) => cell.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '더보기'])
+    fireEvent.click(within(menu).getByRole('button', { name: '더보기' }))
+    expect(within(within(menu).getByRole('list')).getAllByRole('link').map((link) => link.textContent)).toEqual(['입금 확인', '포장', '라벨', '설정'])
+    fireEvent.click(within(menu).getByRole('button', { name: '더보기' }))
     fireEvent.click(screen.getByRole('link', { name: '방송 목록으로' }))
     expect(await screen.findByRole('heading', { name: '방송 목록' })).toBeTruthy()
     expect(fake.server.callsTo('GET', /^\/api\/billing/)).toHaveLength(0)

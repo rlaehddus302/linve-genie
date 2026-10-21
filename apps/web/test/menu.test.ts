@@ -36,6 +36,17 @@ describe('메뉴 정의 (D-NAV-01)', () => {
     expect(routePath(rehearsal.more[1]!.to)).toBe('/packing')
   })
 
+  it('요금 기능이 켜지면 "요금"은 더보기 목록 끝("설정" 바로 앞)·PC도 "설정" 앞, 막대 네 칸은 그대로 (N5 AC-N5-50, AC-NAV-09)', () => {
+    const on = menuLayout(input({ billing: true, review: 3 }))
+    expect(names(on.bar)).toEqual(['방송', '문자찜 입력', '구매자', '정산'])
+    expect(names(on.more)).toEqual(['입금 확인 3', '포장', '라벨', '요금', '설정'])
+    expect(routePath(on.more.at(-2)!.to)).toBe('/billing')
+    expect(names(menuAll(on))).toEqual(['방송', '문자찜 입력', '구매자', '정산', '입금 확인 3', '포장', '라벨', '요금', '설정'])
+    expect(names(menuLayout(input({ billing: true, labels: false })).more)).toEqual(['입금 확인', '포장', '요금', '설정'])
+    expect(names(menuLayout(input({ billing: false })).more)).toEqual(['입금 확인', '포장', '라벨', '설정'])
+    expect(menuLayout(input({ assistant: true, billing: true }))).toEqual({ bar: [{ key: 'sms', label: '문자찜 입력', to: { name: 'sms' } }], more: [] })
+  })
+
   it('보조자는 "문자찜 입력" 한 칸, 더보기 목록 없음', () => {
     const layout = menuLayout(input({ assistant: true, review: 3 }))
     expect(names(layout.bar)).toEqual(['문자찜 입력'])
