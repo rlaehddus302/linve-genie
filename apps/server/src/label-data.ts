@@ -4,6 +4,8 @@
 // - 상품 라벨의 구매자 규칙(첫 작업 때): 문자찜으로 생긴 찜이거나 찜의 구매자 자신이 문자 구매자면 { kind: 'sms' },
 //   아니면 { kind: 'youtube', name: 찜의 구매자 자신의 지금 표시 이름 } — 합친 상대의 이름이 아니다.
 // - 포장 라벨: (지금의 구매자, 날짜) 정산 묶음 — 그날 방송 선언 순서대로 1등 상품 번호, 코어 정산의 상품 합계, 지금의 구매자 표시 이름.
+// - 옵션 방송 (O3, D-O3-01·03): 상품 라벨 price = 찜 금액, variant = 옵션 글(있을 때만), qty = 수량(2 이상일 때만).
+//   포장 라벨은 변형마다 항목(같은 변형은 수량을 더함), 옵션 없는 수량 1은 정수 번호 그대로.
 // - 데이터에는 L-3·L-4 칸만 있다(메모·전화번호·뒤 4자리·채널 ID 없음). 만든 데이터는 checkProductData·checkPackingData로 확인한다.
 import {
   currentBuyerOf,
@@ -16,7 +18,7 @@ import {
   type ClaimInfo,
   type EngineState,
 } from '@livejjim/core'
-import { checkPackingData, checkProductData, labelContentKey, type LabelBuyer, type PackingLabelData, type ProductLabelData } from '@livejjim/label'
+import { checkPackingData, checkProductData, labelContentKey, type LabelBuyer, type PackingEntry, type PackingLabelData, type ProductLabelData } from '@livejjim/label'
 
 /** 찜 ID → 코어 조회 결과 (상태 하나에 한 번 만든다 — 범위 실행 상태의 보기 캐시에 둔다) */
 export type ClaimIndex = ReadonlyMap<string, ClaimInfo>
@@ -61,9 +63,60 @@ export function productLabelData(state: EngineState, claims: ClaimIndex, label: 
   const product = getProduct(state, info.broadcast, info.no)
   const broadcast = getBroadcast(state, info.broadcast)
   if (product === null || broadcast === null) return null
-  const data = { no: info.no, name: product.name, price: info.price ?? product.price, date: broadcast.date, buyer: label.buyer }
+  // 가격 = 찜 금액(단가 스냅샷 × 수량, ClaimInfo.amount — 옵션 없는 수량 1 찜은 가격 스냅샷 그대로). 옵션 글은 있을 때만, 수량은 2 이상일 때만 (L-9 O3, D-O3-01)
+  const price = info.amount ?? (info.price ?? product.price) * info.qty
+  const data = {
+    no: info.no,
+    name: product.name,
+    price,
+    ...(info.variant === null ? {} : { variant: info.variant }),
+    ...(info.qty >= 2 ? { qty: info.qty } : {}),
+    date: broadcast.date,
+    buyer: label.buyer,
+  }
   const checked = checkProductData(data)
   return checked.ok ? checked.data : null
+}
+
+/**
+ * 포장 라벨의 방송 항목 (L-9, L-4, O3 D-O3-03) — 지금의 구매자 root의 그 날짜 확정 찜(합친 구매자 포함)을 방송 선언 순서로.
+ * 한 방송 안은 번호 순, 같은 번호는 상품의 변형 순서(항목 순서·선택지 순서). 같은 (번호, 옵션 글)의 찜은 수량을 더한 한 항목.
+ * 옵션 없는 수량 1 항목은 정수 번호(O3 전과 같은 값), 아니면 `{ no, variant?, qty? }`
+ */
+export function packingBroadcasts(state: EngineState, root: string, date: string, claims: Iterable<ClaimInfo> = listClaims(state)): { title: string; numbers: PackingEntry[] }[] {
+  const broadcasts = listBroadcasts(state).filter((broadcast) => broadcast.date === date)
+  const order = new Map(broadcasts.map((broadcast, i) => [broadcast.id, i]))
+  const groups = new Map<string, { b: string; no: number; variant: string | null; qty: number; rank: number }>()
+  const variantRank = new Map<string, Map<string, number>>()
+  const rankOf = (claim: ClaimInfo): number => {
+    if (claim.variant === null) return -1
+    let ranks = variantRank.get(claim.product)
+    if (ranks === undefined) {
+      ranks = new Map((getProduct(state, claim.broadcast, claim.no)?.variants ?? []).map((variant, i) => [variant.text, i]))
+      variantRank.set(claim.product, ranks)
+    }
+    return ranks.get(claim.variant) ?? Number.MAX_SAFE_INTEGER
+  }
+  for (const claim of claims) {
+    if (claim.status !== 'CONFIRMED' || claim.currentBuyer !== root || !order.has(claim.broadcast)) continue
+    const key = JSON.stringify([claim.broadcast, claim.no, claim.variant])
+    const group = groups.get(key)
+    if (group === undefined) groups.set(key, { b: claim.broadcast, no: claim.no, variant: claim.variant, qty: claim.qty, rank: rankOf(claim) })
+    else group.qty += claim.qty
+  }
+  const sorted = [...groups.values()].sort((x, y) => (order.get(x.b) as number) - (order.get(y.b) as number) || x.no - y.no || x.rank - y.rank || ((x.variant ?? '') < (y.variant ?? '') ? -1 : 1))
+  const out: { title: string; numbers: PackingEntry[] }[] = []
+  let last: string | null = null
+  for (const group of sorted) {
+    if (group.b !== last) {
+      out.push({ title: (getBroadcast(state, group.b) as { title: string }).title, numbers: [] })
+      last = group.b
+    }
+    const entry: PackingEntry =
+      group.variant === null && group.qty === 1 ? group.no : { no: group.no, ...(group.variant === null ? {} : { variant: group.variant }), ...(group.qty === 1 ? {} : { qty: group.qty }) }
+    ;(out[out.length - 1] as { numbers: PackingEntry[] }).numbers.push(entry)
+  }
+  return out
 }
 
 /** 포장 라벨 데이터 (L-9, L-4) — (지금의 구매자, 날짜) 정산 묶음. 1등 상품이 없으면 null */
@@ -72,19 +125,7 @@ export function packingLabelData(state: EngineState, buyerId: string, date: stri
   if (root === null) return null
   const settlement = getSettlement(state, root, date)
   if (settlement.items.length === 0) return null
-  const numbers = new Map<string, number[]>()
-  for (const key of settlement.items) {
-    const split = key.lastIndexOf('/')
-    const b = key.slice(0, split)
-    const no = Number(key.slice(split + 1))
-    const list = numbers.get(b)
-    if (list === undefined) numbers.set(b, [no])
-    else list.push(no)
-  }
-  const broadcasts = listBroadcasts(state)
-    .filter((broadcast) => broadcast.date === date && numbers.has(broadcast.id))
-    .map((broadcast) => ({ title: broadcast.title, numbers: [...(numbers.get(broadcast.id) as number[])].sort((a, b) => a - b) }))
-  const data = { date, buyer: currentLabelBuyer(state, root), broadcasts, subtotal: settlement.subtotal }
+  const data = { date, buyer: currentLabelBuyer(state, root), broadcasts: packingBroadcasts(state, root, date), subtotal: settlement.subtotal }
   const checked = checkPackingData(data)
   return checked.ok ? { root, data: checked.data } : null
 }

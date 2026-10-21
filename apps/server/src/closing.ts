@@ -20,7 +20,6 @@ import { phoneIdProblem, unknownFieldProblems } from './messages.ts'
 import {
   PACKING_ACTIONS,
   PACKING_MESSAGES,
-  PRODUCT_KEY_RE,
   decidePacking,
   packedItemsJson,
   labelPdf,
@@ -33,11 +32,13 @@ import {
   packingRows,
   packingStatusByBuyer,
   readInvoice,
+  readSentItem,
   renderPacking,
   replayPacking,
   type PackingAction,
   type PackingEntry,
   type PackingWord,
+  type SentItem,
 } from './packing.ts'
 import { pastPurchases, type PastView } from './past.ts'
 import { IMPORT_MAX_ROWS, isNormalizedName, parseProductList, parseProductRows, recheckRows, splitCells, splitImportLines, type ImportResult, type RegisterRow } from './product-import.ts'
@@ -374,7 +375,7 @@ export class ClosingService {
   }
 
   /** 포장 명령 본문 검사: { requestId, buyer, action, items?(포장 완료), invoice?(배송 완료) } */
-  static packingInput(body: Record<string, unknown>): { ok: true; buyer: string; action: PackingAction; items: string[]; invoice: string | null } | { ok: false; error: ApiProblem } {
+  static packingInput(body: Record<string, unknown>): { ok: true; buyer: string; action: PackingAction; items: SentItem[]; invoice: string | null } | { ok: false; error: ApiProblem } {
     const extra = ownKeys(body).filter((key) => !['requestId', 'buyer', 'action', 'items', 'invoice'].includes(key))
     if (extra.length > 0) return { ok: false, error: { status: 400, code: 'UNKNOWN_FIELD', message: '받을 수 없는 항목이 있어요.', problems: unknownFieldProblems(extra) } }
     const action = own(body, 'action')
@@ -385,12 +386,14 @@ export class ClosingService {
     if (!buyer.ok) return buyer
     const items = own(body, 'items')
     const invoice = own(body, 'invoice')
-    let list: string[] = []
+    let list: SentItem[] = []
     if (action === 'pack') {
-      if (!Array.isArray(items) || items.length > 2000 || !items.every((key) => typeof key === 'string' && PRODUCT_KEY_RE.test(key)) || new Set(items).size !== items.length) {
+      // 원소 = 품목 키 글, 또는 { key, qty }(화면이 본 수량 — O3 D-O3-10). 키는 겹치지 않는다
+      const read = Array.isArray(items) && items.length <= 2000 ? (items as unknown[]).map(readSentItem) : null
+      if (read === null || read.some((item) => item === null) || new Set(read.map((item) => (typeof item === 'string' ? item : (item as { key: string }).key))).size !== read.length) {
         return { ok: false, error: { status: 400, code: 'INVALID_INPUT', message: '입력한 내용을 확인해 주세요.', problems: [{ field: 'items', message: '담은 상품을 확인해 주세요.' }] } }
       }
-      list = [...(items as string[])]
+      list = read as SentItem[]
     } else if (items !== undefined) {
       return { ok: false, error: { status: 400, code: 'UNKNOWN_FIELD', message: '받을 수 없는 항목이 있어요.', problems: [{ field: 'items', message: '받을 수 없는 항목이에요.' }] } }
     }
@@ -414,7 +417,7 @@ export class ClosingService {
     accountId: string,
     date: string,
     requestId: string,
-    input: { buyer: string; action: PackingAction; items: readonly string[]; invoice: string | null },
+    input: { buyer: string; action: PackingAction; items: readonly SentItem[]; invoice: string | null },
   ): Promise<Outcome<{ entry: PackingEntry; recorded: boolean }>> {
     if (!isValidDate(date)) return NOT_FOUND
     const { db, writer, clock } = this.#deps
@@ -437,7 +440,7 @@ export class ClosingService {
         const rows = await packingRows(tx, sellerId, scopeId, input.buyer)
         const current = packingEntry(state, date, input.buyer, rows)
         // 지금 품목 = (상품 ID, 상품 키) 쌍 — 보낸 키 목록이 지금 키와 같으면 서버가 상품 ID를 붙여 기록한다 (D-I2-19)
-        const decision = decidePacking(replayPacking(rows), current.items.map((item) => ({ id: item.id, key: item.key })), input.action, input.items, input.invoice)
+        const decision = decidePacking(replayPacking(rows), current.items.map((item) => ({ id: item.id, key: item.key, qty: item.qty })), input.action, input.items, input.invoice)
         if (decision.kind === 'reject') return problem(409, decision.code, decision.message, [], { entry: current })
         if (decision.kind === 'same') return ok({ entry: current, recorded: false, buyer: input.buyer })
         const inserted = await tx
