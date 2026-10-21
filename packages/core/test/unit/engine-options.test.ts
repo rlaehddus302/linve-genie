@@ -386,6 +386,23 @@ describe('AC-O1-14 직접 배정·문자찜의 옵션·수량', () => {
   })
 })
 
+describe('다육 회귀 — 승계는 풀린 수량만큼', () => {
+  it('교체 WAITLIST로 빈 자리와 대기가 함께 있을 때 1등 취소는 한 명만 승계한다 (원래 비어 있던 자리는 그대로)', () => {
+    const { state } = play([
+      { type: 'product.register', b: 'b1', no: 1, name: '다육', price: 1000, stock: 2 } as EventInput,
+      chat('UC_X', '안녕'),
+      chat('UC_Y', '안녕'),
+      chat('UC_A', '1'),
+      { type: 'host.assign', b: 'b1', no: 1, buyer: 'UC_X', reason: 'r', replace: 'UC_A', replaceTo: 'WAITLIST' } as EventInput,
+      { type: 'host.assign', b: 'b1', no: 1, buyer: 'UC_Y', reason: 'r', replace: 'UC_X', replaceTo: 'WAITLIST' } as EventInput,
+      { type: 'host.cancel', b: 'b1', no: 1, buyer: 'UC_Y', reason: 'r' } as EventInput,
+    ])
+    // 재고 2: Y 확정·X·A 대기·빈 자리 1 → Y 취소로 풀린 1자리만 대기 1순위 X가 채운다
+    expect(getProduct(state, 'b1', 1)).toMatchObject({ winners: ['UC_X'], waitlist: ['UC_A'], status: 'OPEN' })
+    expect(listClaims(state).map((c) => c.confirmVersion)).toEqual([1, 4, 3])
+  })
+})
+
 describe('공개 전 찜 (R-19 "공개 전 찜") — 변형 하나뿐인 상품, 수량 모자람, 번호를 바꾼 뒤 남은 변형 찜', () => {
   it('변형이 하나뿐이면 번호만 쓴 찜도 그 변형으로 판정한다. 같은 사람의 같은 변형 찜이 이미 있으면 뒤 찜은 중복', () => {
     const one: readonly OptionItem[] = [{ name: '구성', choices: [{ label: '5켤레' }] }]

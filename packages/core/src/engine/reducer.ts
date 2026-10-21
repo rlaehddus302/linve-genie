@@ -869,7 +869,7 @@ function assign(d: Draft, e: HostAssignEvent): void {
   confirm(d, claim, unit, product)
   // 교체된 1등은 대기 1순위 (차단 중이면 REJECTED(BLOCKED), D-049). 넘치면 맨 끝 대기자부터 품절
   if (target !== undefined && replaceTo === 'WAITLIST') displace(d, target, unit)
-  if (target !== undefined && replaceTo === 'CANCEL' && target.qty > qty) succession(d, unit, product)
+  if (target !== undefined && replaceTo === 'CANCEL' && target.qty > qty) succession(d, unit, product, target.qty - qty)
   trimWaitlist(d, unit)
   settleAwaiting(d, unit)
 }

@@ -469,17 +469,18 @@ export function fillFromWaitlist(d: Draft, unit: Unit, product: ProductRecord, l
 }
 
 /**
- * R-8 cancel.succession — 확정 찜이 풀린 뒤(남은 수량이 생겼다).
- * AUTO는 풀린 수량만큼 대기 1순위부터 확정한다(R-19 — 수량 1 찜 하나가 풀리면 한 명).
+ * R-8 cancel.succession — 확정 찜이 풀린 뒤(풀린 수량 released만큼 남은 수량이 생겼다).
+ * AUTO는 풀린 수량만큼(많아야 released명) 대기 1순위부터 확정한다(R-19 "승계·재고 늘림" — 수량 1 찜 하나가 풀리면 지금처럼 한 명.
+ * 교체 WAITLIST로 원래 비어 있던 자리는 승계로 채우지 않는다 — 다육 방송의 지금 동작 그대로).
  * 대기 한도 0이면 ASK는 AUTO와 같다 (D-077 — 그때 대기에 있는 것은 자리가 비어 풀린 충돌 찜뿐이고, 물을 것 없이 그 찜이 빈 자리를 채운다)
  */
-export function succession(d: Draft, unit: Unit, product: ProductRecord): void {
+export function succession(d: Draft, unit: Unit, product: ProductRecord, released: number): void {
   if (unit.waitlist.length === 0) return
   const settings = d.settingsOf(unit.b)
   const mode = settings['cancel.succession']
   if (mode === 'REOPEN') clearWaitlist(d, unit)
   else if (mode === 'ASK' && waitlistLimit(settings) > 0) unit.awaiting = true
-  else fillFromWaitlist(d, unit, product)
+  else fillFromWaitlist(d, unit, product, released)
 }
 
 /** 대기·보류·충돌 목록에서 뺀다 (상태는 부르는 쪽이 정한다) */
@@ -500,7 +501,7 @@ export function release(d: Draft, claim: ClaimDraft, unit: Unit, status: 'CANCEL
   finish(d, claim, unit, status, reason)
   if (was === 'CONFIRMED' && unit.product !== null) {
     releaseConflict(d, unit)
-    succession(d, unit, unit.product)
+    succession(d, unit, unit.product, claim.qty)
     // AUTO는 빠진 만큼 들어와 남는 넘침이 없고, ASK는 빈 자리가 방송자 결정으로 남아 한도를 넘는 맨 끝이 품절, REOPEN은 이미 비었다
     trimWaitlist(d, unit)
   }
