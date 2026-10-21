@@ -84,7 +84,12 @@ export function emptyRuntime(sellerId: string, date: string, rehearsal = false, 
 export function touchedMessage(event: unknown): { b: string; id: string } | null {
   if (typeof event !== 'object' || event === null) return null
   const record = event as Record<string, unknown>
-  return record.type === 'host.convertMessage' && typeof record.b === 'string' && typeof record.msg === 'string' ? { b: record.b, id: record.msg } : null
+  if (record.type === 'host.convertMessage' && typeof record.b === 'string' && typeof record.msg === 'string') return { b: record.b, id: record.msg }
+  // 확인 필요 항목 바로잡기·지우기 (O2): 채팅 출처 항목이면 그 메시지의 기록(확인 필요·주문)이 바뀐다. 문자찜 출처(`sms:<ref>`)는 메시지가 아니다
+  if ((record.type === 'host.resolveReview' || record.type === 'host.dismissReview') && typeof record.b === 'string' && typeof record.item === 'string' && !record.item.startsWith('sms:')) {
+    return { b: record.b, id: record.item }
+  }
+  return null
 }
 
 /** 지금 상태를 기준점으로 남긴다 (창을 넘으면 가장 오래된 것부터 버린다) */

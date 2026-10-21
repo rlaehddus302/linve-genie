@@ -348,7 +348,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (requestId === null) return invalidRequestId()
     const prior = await service.priorResult(sellerOf(c), requestId)
     if (prior !== null) return outcomeResponse(c, { kind: 'duplicate', result: prior })
-    const extra = onlyKeys(input, ['requestId', 'date', 'title', 'rehearsal'])
+    const extra = onlyKeys(input, ['requestId', 'date', 'title', 'rehearsal', 'saleMode'])
     if (extra !== null) return extra
     const parsed = Service.broadcastInput(input)
     if (!parsed.ok) return apiError(parsed.rejection.status, parsed.rejection.code, parsed.rejection.message, parsed.rejection.problems)
@@ -418,6 +418,18 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (extra !== null) return extra
     const status = await service.stopGenerator(sellerOf(c), c.req.param('id'))
     return status === null ? notFound() : c.json({ generator: status })
+  })
+
+  // ── 확인 필요 목록 (O2 AC-O2-30, D-O2-14) ──────────────────────────────
+  // 적지 않으면 실제 범위만, ?rehearsal=true면 리허설 범위만(D-081). ?broadcast=<ID>면 그 방송만 — 다른 판매자의·없는·리허설인지가 다른 방송은 404.
+  // 쓰기(바로잡기·지우기·지금 상품)는 POST /api/events (host.resolveReview·host.dismissReview·product.focus)
+  api.get('/reviews', async (c) => {
+    const rehearsal = rehearsalOf(c)
+    if (!rehearsal.ok) return rehearsal.response
+    const broadcast = c.req.query('broadcast')
+    if (broadcast !== undefined && (broadcast === '' || broadcast.length > 64)) return notFound()
+    const view = await service.reviews(sellerOf(c), { rehearsal: rehearsal.value ?? false, ...(broadcast === undefined ? {} : { broadcast }) })
+    return view === null ? notFound() : c.json(view)
   })
 
   // ── 조회 (AC-S04-52) ──────────────────────────────────────────────────

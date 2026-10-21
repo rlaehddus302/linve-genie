@@ -14,10 +14,12 @@ import {
   listMessages,
   listPending,
   listProducts,
+  listReviews,
   listSettlements,
   type ClaimInfo,
   type EngineState,
   type MessageInfo,
+  type ReviewInfo,
 } from '@livejjim/core'
 import { buildClaimIndex, type ClaimIndex } from './label-data.ts'
 import type { AttentionItem, ScopeRuntime } from './runtime.ts'
@@ -240,19 +242,27 @@ export interface MessageLookup {
   readonly byKey: ReadonlyMap<string, MessageInfo>
   /** 메시지 seq → 그 메시지로 생긴 찜 ID (채팅 찜·메시지 변환 찜 — 찜의 순위 재료 seq가 그 메시지의 seq, R-6), 생성 순서 */
   readonly claimsBySeq: ReadonlyMap<number, readonly string[]>
+  /** 그 찜들의 코어 찜 조회 결과 (채팅 찜·메시지 변환 찜 — 옵션 방송 채팅 패널의 "주문 21번 M ×2", O2) */
+  readonly claimById: ReadonlyMap<string, ClaimInfo>
+  /** JSON.stringify([방송, 메시지 ID]) → 그 메시지의 남은 확인 필요 항목 (채팅 출처만, O2) */
+  readonly reviewByKey: ReadonlyMap<string, ReviewInfo>
 }
 
 function buildMessageLookup(state: EngineState): MessageLookup {
   const byKey = new Map<string, MessageInfo>()
   for (const message of listMessages(state)) byKey.set(JSON.stringify([message.broadcast, message.id]), message)
   const claimsBySeq = new Map<number, string[]>()
+  const claimById = new Map<string, ClaimInfo>()
+  const reviewByKey = new Map<string, ReviewInfo>()
+  for (const review of listReviews(state)) if (review.origin === 'chat') reviewByKey.set(JSON.stringify([review.broadcast, review.item]), review)
   for (const claim of listClaims(state) as ClaimInfo[]) {
     if (claim.origin !== 'chat' && claim.origin !== 'convert') continue
+    claimById.set(claim.id, claim)
     const list = claimsBySeq.get(claim.seq)
     if (list === undefined) claimsBySeq.set(claim.seq, [claim.id])
     else list.push(claim.id)
   }
-  return { byKey, claimsBySeq }
+  return { byKey, claimsBySeq, claimById, reviewByKey }
 }
 
 /** 그 범위 실행 상태의 캐시로 상태 하나의 메시지 기록을 본다 (state는 그 범위의 지금 상태나 조회가 잡아 둔 상태) */

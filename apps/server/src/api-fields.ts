@@ -12,25 +12,34 @@ export interface ApiEventSpec {
 
 const BY_PRODUCT = ['b', 'no']
 const BY_CLAIM = ['b', 'no', 'buyer', 'reason']
+/** 옵션 방송(claim.parseMode=OPTIONS)의 칸 (O2, R-19·R-20 — 번호 방송이면 코어 checkEvent가 막고 서버는 기록하지 않는다, D-O2-13) */
+const PRODUCT_OPTIONS = ['aliases', 'options', 'stocks']
+/** 찜을 가리키는 방송자 조치의 변형 고르기 (R-19 "찜을 가리키는 방송자 조치", D-O1-02) */
+const PICK = ['options']
 
 export const API_EVENTS: Readonly<Record<string, ApiEventSpec>> = {
-  'product.register': { broadcast: true, fields: [...BY_PRODUCT, 'name', 'price', 'stock', 'status'] },
+  'product.register': { broadcast: true, fields: [...BY_PRODUCT, 'name', 'price', 'stock', 'status', ...PRODUCT_OPTIONS] },
   'product.open': { broadcast: true, fields: BY_PRODUCT },
   'product.hold': { broadcast: true, fields: BY_PRODUCT },
   'product.close': { broadcast: true, fields: BY_PRODUCT },
-  'product.update': { broadcast: true, fields: [...BY_PRODUCT, 'name', 'price', 'stock', 'applyTo'] },
+  'product.update': { broadcast: true, fields: [...BY_PRODUCT, 'name', 'price', 'stock', 'applyTo', ...PRODUCT_OPTIONS] },
   'product.renumber': { broadcast: true, fields: ['b', 'from', 'to'] },
-  sms: { broadcast: true, fields: ['b', 'no', 'received', 'memo', 'phone', 'buyer'] },
-  'host.cancel': { broadcast: true, fields: BY_CLAIM },
-  'host.reject': { broadcast: true, fields: BY_CLAIM },
-  'host.promote': { broadcast: true, fields: BY_CLAIM },
-  'host.confirm': { broadcast: true, fields: BY_CLAIM },
-  'host.approveCancel': { broadcast: true, fields: BY_CLAIM },
-  'host.dismissCancel': { broadcast: true, fields: BY_CLAIM },
-  'host.assign': { broadcast: true, fields: [...BY_CLAIM, 'replace', 'replaceTo'] },
-  'host.reopen': { broadcast: true, fields: [...BY_PRODUCT, 'reason'] },
+  // O2: 지금 상품 정하기 (옵션 방송만, 화면은 5초 대기 없이 바로 보낸다 — D-O2-10)
+  'product.focus': { broadcast: true, fields: BY_PRODUCT },
+  sms: { broadcast: true, fields: ['b', 'no', 'received', 'memo', 'phone', 'buyer', 'qty', ...PICK] },
+  'host.cancel': { broadcast: true, fields: [...BY_CLAIM, ...PICK] },
+  'host.reject': { broadcast: true, fields: [...BY_CLAIM, ...PICK] },
+  'host.promote': { broadcast: true, fields: [...BY_CLAIM, ...PICK] },
+  'host.confirm': { broadcast: true, fields: [...BY_CLAIM, ...PICK] },
+  'host.approveCancel': { broadcast: true, fields: [...BY_CLAIM, ...PICK] },
+  'host.dismissCancel': { broadcast: true, fields: [...BY_CLAIM, ...PICK] },
+  'host.assign': { broadcast: true, fields: [...BY_CLAIM, 'replace', 'replaceTo', 'qty', ...PICK] },
+  'host.reopen': { broadcast: true, fields: [...BY_PRODUCT, 'reason', ...PICK] },
   'host.resolveConflict': { broadcast: true, fields: [...BY_PRODUCT, 'decision', 'reason'] },
   'host.convertMessage': { broadcast: true, fields: ['b', 'msg', 'no', 'reason'] },
+  // O2: 확인 필요 항목 바로잡기·지우기 (옵션 방송만, D-O2-14 — 여러 줄은 화면이 원래 순서로 하나씩)
+  'host.resolveReview': { broadcast: true, fields: [...BY_PRODUCT, 'item', 'qty', 'reason', ...PICK] },
+  'host.dismissReview': { broadcast: true, fields: ['b', 'item', 'reason'] },
   'host.blockBuyer': { broadcast: false, fields: ['buyer', 'reason'] },
   'host.unblockBuyer': { broadcast: false, fields: ['buyer', 'reason'] },
   'buyer.merge': { broadcast: false, fields: ['from', 'into', 'reason'] },

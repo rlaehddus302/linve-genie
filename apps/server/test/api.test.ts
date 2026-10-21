@@ -78,17 +78,20 @@ describe('AC-S04-50 판매 규칙 설정 읽기·바꾸기', () => {
 })
 
 describe('AC-S04-51 이벤트 쓰기 API', () => {
-  it('화면이 보낼 수 있는 종류는 product.*(6)·sms·host.*(12)·buyer.merge/unmerge·settlement.*(4) — 모두 엔진이 처리하는 종류다', () => {
+  // O2(AC-O2-31, D-O2-14): 옵션 방송 이벤트(지금 상품 product.focus·확인 필요 바로잡기 host.resolveReview·지우기 host.dismissReview)의 쓰기 API를 열었다 — product.* 6 → 7, host.* 12 → 14 (교체)
+  it('화면이 보낼 수 있는 종류는 product.*(7)·sms·host.*(14)·buyer.merge/unmerge·settlement.*(4) — 모두 엔진이 처리하는 종류다', () => {
     const types = Object.keys(API_EVENTS)
-    expect(types.filter((type) => type.startsWith('product.'))).toHaveLength(6)
-    expect(types.filter((type) => type.startsWith('host.'))).toHaveLength(12)
+    expect(types.filter((type) => type.startsWith('product.'))).toHaveLength(7)
+    expect(types.filter((type) => type.startsWith('host.'))).toHaveLength(14)
     expect(types.filter((type) => type.startsWith('settlement.'))).toHaveLength(4)
     expect(types.filter((type) => type.startsWith('buyer.')).sort()).toEqual(['buyer.merge', 'buyer.unmerge'])
     expect(types).toContain('sms')
-    expect(types).toHaveLength(6 + 12 + 4 + 2 + 1)
+    expect(types).toContain('product.focus')
+    expect(types).toContain('host.resolveReview')
+    expect(types).toContain('host.dismissReview')
+    expect(types).toHaveLength(7 + 14 + 4 + 2 + 1)
     for (const type of types) expect(EVENT_TYPES).toContain(type)
-    // O1: 옵션 방송 이벤트(지금 상품·확인 필요 바로잡기·지우기)는 엔진만 먼저 처리한다 — 쓰기 API는 O2가 연다
-    const engineOnly = ['broadcast.start', 'broadcast.end', 'chat', 'effect.labelPrinted', 'effect.thanksSent', 'product.focus', 'host.resolveReview', 'host.dismissReview']
+    const engineOnly = ['broadcast.start', 'broadcast.end', 'chat', 'effect.labelPrinted', 'effect.thanksSent']
     for (const type of EVENT_TYPES) if (!types.includes(type)) expect(engineOnly).toContain(type)
   })
 

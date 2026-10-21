@@ -3,7 +3,7 @@
 //   목록은 "허용"만 적는다: 나중에 경로를 더해도 따로 막지 않아도 막힌다(기본 거부).
 // - 이벤트 쓰기는 종류도 본다: 실제 방송의 문자찜(sms)과, 그 번호에서 그 구매자의 지금 찜이 문자찜으로 생긴 찜일 때의 방송자 취소(host.cancel)만.
 //   "문자찜으로 생긴 찜"은 그 범위의 지금 상태를 코어 조회 함수(activeClaimId·listClaims)로 읽어 정한다 — 서버에 판정을 복제하지 않는다(AC-I3-99).
-import { activeClaimId, listClaims, type EngineEvent, type EngineState } from '@livejjim/core'
+import { activeClaimId, getProduct, listClaims, type EngineEvent, type EngineState } from '@livejjim/core'
 import type { Rejection } from './writer.ts'
 
 export type AccountRole = 'SELLER' | 'ASSISTANT'
@@ -39,10 +39,20 @@ export function assistantMayCall(method: string, path: string, rehearsalQuery: s
  * 보조자의 방송자 취소: 그 번호에서 대상 구매자(지금의 구매자)의 활성 찜이 문자찜으로 생긴 찜일 때만 (기록 트랜잭션 안의 지금 상태로)
  */
 export function assistantCancelCheck(state: EngineState, event: EngineEvent): Rejection | null {
-  const fields = event as unknown as { readonly b?: unknown; readonly no?: unknown; readonly buyer?: unknown }
+  const fields = event as unknown as { readonly b?: unknown; readonly no?: unknown; readonly buyer?: unknown; readonly options?: unknown }
   if (typeof fields.b !== 'string' || typeof fields.no !== 'number' || typeof fields.buyer !== 'string') return assistantForbidden()
-  const id = activeClaimId(state, fields.b, fields.no, fields.buyer)
-  if (id === null) return assistantForbidden()
-  const claim = listClaims(state).find((item) => item.id === id)
-  return claim?.origin === 'sms' ? null : assistantForbidden()
+  const { b, no, buyer } = fields
+  // 옵션 상품(O2, R-19 "찜을 가리키는 방송자 조치"): 고른 변형의 찜 — 고르지 않았으면 그 구매자의 그 상품 활성 찜 전부(코어가 하나뿐일 때만 취소한다)
+  const product = getProduct(state, b, no)
+  let ids: (string | null)[]
+  if (product === null || product.options.length === 0) ids = [activeClaimId(state, b, no, buyer)]
+  else if (typeof fields.options === 'object' && fields.options !== null) {
+    const pick = fields.options as Readonly<Record<string, unknown>>
+    const text = product.options.map((item) => (Object.hasOwn(pick, item.name) ? String(pick[item.name]) : '')).join('/')
+    ids = [activeClaimId(state, b, no, buyer, text)]
+  } else ids = [activeClaimId(state, b, no, buyer), ...product.variants.map((variant) => activeClaimId(state, b, no, buyer, variant.text))]
+  const found = ids.filter((id): id is string => id !== null)
+  if (found.length === 0) return assistantForbidden()
+  const claims = listClaims(state)
+  return found.every((id) => claims.find((item) => item.id === id)?.origin === 'sms') ? null : assistantForbidden()
 }

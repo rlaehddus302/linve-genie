@@ -534,7 +534,7 @@ export class ScopeWriter {
           log({ level: 'warn', code: 'DRAFT_SKIPPED', date: job.date })
           continue
         }
-        return { rejection: invalid(easyProblems(problems, event as unknown as Record<string, unknown>)) }
+        return { rejection: invalid(easyProblems(problems, event as unknown as Record<string, unknown>, state)) }
       }
       const extra = draft.validate?.(state, event) ?? null
       if (extra !== null) return { rejection: extra }
@@ -547,7 +547,7 @@ export class ScopeWriter {
         state = result.state
         states.push(state)
       } catch (error) {
-        if (isInvalidEvent(error)) return { rejection: invalid(easyProblems(error.problems, event as unknown as Record<string, unknown>)) }
+        if (isInvalidEvent(error)) return { rejection: invalid(easyProblems(error.problems, event as unknown as Record<string, unknown>, state)) }
         if (isNotImplemented(error)) return { rejection: { status: 422, code: 'NOT_SUPPORTED', message: '아직 지원하지 않는 기능이에요.', problems: [] } }
         if (isStateFormatError(error)) return { rejection: stateFormatRejection() }
         // 엔진이 예상하지 못한 오류: 실패 표시로 기록하고 상태는 그 전 그대로 (AC-S04-24)

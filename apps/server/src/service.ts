@@ -14,10 +14,12 @@ import {
   looksLikePhoneId,
   normalizePhone,
   parseChat,
+  parseOptionComment,
   phoneLast4,
   previewMerge,
   resolveSettings,
   type MergePreview,
+  type OptionCatalogEntry,
   type SaleSettings,
 } from '@livejjim/core'
 import { randomBytes } from 'node:crypto'
@@ -43,6 +45,7 @@ import type { IdSource } from './ids.ts'
 import type { ScopeRuntime } from './runtime.ts'
 import { fieldMessage, phoneIdProblem, safeFieldName, unknownFieldProblems } from './messages.ts'
 import { productOwners } from './product-history.ts'
+import { reviewsView, type ReviewsView } from './reviews.ts'
 import { mergePackingCheck } from './packing.ts'
 import { ASSISTANT_EVENT_TYPES, assistantCancelCheck, assistantForbidden } from './roles.ts'
 import { openSellerKey, phoneKeyOf } from './secrets.ts'
@@ -89,6 +92,21 @@ export interface WizardState {
 function wizardOf(row: { status: string; step: number | null }): WizardState {
   const status = WIZARD_STATUSES.includes(row.status as WizardStatus) ? (row.status as WizardStatus) : 'NEW'
   return { status, step: status === 'IN_PROGRESS' ? row.step : null }
+}
+
+/** 방송 시작 창의 판매 방식 (OPT-04 "방송마다", D-O2-02): 번호로만 받기 · 상품명·옵션도 받기 */
+export type SaleMode = 'NUMBERS' | 'OPTIONS'
+export const SALE_MODES: readonly SaleMode[] = ['NUMBERS', 'OPTIONS']
+export const SALE_MODE_MESSAGE = '판매 방식은 "번호로만 받기"나 "상품명·옵션도 받기" 중에서 골라 주세요.'
+
+/**
+ * 그 방송의 설정 스냅샷에 판매 방식을 넣는다 (D-O2-02 — 판매자 설정은 그대로).
+ * OPTIONS면 claim.parseMode=OPTIONS·contention.policy=ARRIVAL(옵션 방송은 접수순만, R-19), NUMBERS면 설정이 OPTIONS일 때만 STRICT(아니면 설정 그대로), 없으면 설정 그대로
+ */
+export function withSaleMode(settings: SaleSettings, saleMode: SaleMode | undefined): SaleSettings {
+  if (saleMode === 'OPTIONS') return { ...settings, 'claim.parseMode': 'OPTIONS', 'contention.policy': 'ARRIVAL' }
+  if (saleMode === 'NUMBERS' && settings['claim.parseMode'] === 'OPTIONS') return { ...settings, 'claim.parseMode': 'STRICT' }
+  return settings
 }
 
 /** 차단 이어받기 사유 (AC-S04-27) */
@@ -188,6 +206,12 @@ export interface MessageItem {
   readonly claims: readonly string[]
   /** 엔진이 처리하지 못한 입력 (확인 필요) */
   readonly failed: boolean
+  /**
+   * 옵션 방송의 메시지에만 있는 칸 (O2 AC-O2-24 — 번호 방송의 메시지 항목은 지금 모양 그대로):
+   * 그 메시지로 생긴 찜(찜 ID·번호·옵션 글·수량)과 그 메시지의 남은 확인 필요 항목(사유·읽은 번호·옵션·수량)
+   */
+  readonly optionOrders?: readonly { readonly claim: string; readonly no: number; readonly variant: string | null; readonly qty: number }[]
+  readonly review?: { readonly reason: string; readonly no: number | null; readonly options: readonly (readonly [string, string])[] | null; readonly qty: number | null } | null
 }
 
 export interface MessagesView {
@@ -305,12 +329,16 @@ export class Service {
     const saved = await this.#options.db.transaction(async (tx) => {
       await tx.select({ id: sellers.id }).from(sellers).where(eq(sellers.id, sellerId)).for('update')
       const next = { ...(await this.#settingsOverride(tx, sellerId)), ...record }
-      if (checkSettings(next).length > 0 || next['settlement.groupBy'] === 'MANUAL') return null
+      // 저장된 값과 합친 뒤 함께 둘 수 없는 값(옵션 방식 + 실제 시각순, R-19 "판매 방식", AC-O2-03)이면 그 칸의 문장으로 거절한다
+      const merged = checkSettings(next)
+      if (merged.length > 0) return { problems: merged.map((problem) => ({ field: problem.key === null ? 'settings' : `settings.${safeFieldName(problem.key) ?? ''}`, message: problem.message })) }
+      if (next['settlement.groupBy'] === 'MANUAL') return null
       await tx.update(sellers).set({ settings: JSON.stringify(next) }).where(eq(sellers.id, sellerId))
-      return next
+      return { next }
     })
     if (saved === null) return { ok: false, rejection: invalidInput([{ field: 'settings', message: '판매 규칙 설정을 확인해 주세요.' }]) }
-    return { ok: true, settings: resolveSettings(saved) }
+    if (saved.problems !== undefined) return { ok: false, rejection: invalidInput(saved.problems) }
+    return { ok: true, settings: resolveSettings(saved.next) }
   }
 
   // ── 가게 이름·시작 마법사 (AC-I3-47·50) ───────────────────────────────
@@ -369,11 +397,11 @@ export class Service {
 
   // ── 방송 만들기·끝내기 (AC-S04-21·27) ─────────────────────────────────
 
-  async createBroadcast(sellerId: string, actor: Actor, requestId: string, input: { date?: string; title?: string; rehearsal?: boolean }): Promise<WriteOutcome> {
+  async createBroadcast(sellerId: string, actor: Actor, requestId: string, input: { date?: string; title?: string; rehearsal?: boolean; saleMode?: SaleMode }): Promise<WriteOutcome> {
     const { writer, db, ids } = this.#options
     const date = input.date ?? kstDate(this.#options.clock.now())
     const rehearsal = input.rehearsal === true
-    const settings = resolveSettings(await this.#settingsOverride(db, sellerId))
+    const settings = withSaleMode(resolveSettings(await this.#settingsOverride(db, sellerId)), input.saleMode)
     const b = ids.broadcast()
     return writer.write({
       sellerId,
@@ -416,11 +444,13 @@ export class Service {
   }
 
   /** 방송 만들기 요청 본문 검사 (날짜·제목·리허설인지) */
-  static broadcastInput(body: Record<string, unknown>): { ok: true; date?: string; title?: string; rehearsal?: boolean } | { ok: false; rejection: Rejection } {
+  static broadcastInput(body: Record<string, unknown>): { ok: true; date?: string; title?: string; rehearsal?: boolean; saleMode?: SaleMode } | { ok: false; rejection: Rejection } {
     const problems: FieldProblem[] = []
     const date = own(body, 'date')
     const title = own(body, 'title')
     const rehearsal = own(body, 'rehearsal')
+    const saleMode = own(body, 'saleMode')
+    if (saleMode !== undefined && !SALE_MODES.includes(saleMode as SaleMode)) problems.push({ field: 'saleMode', message: SALE_MODE_MESSAGE })
     if (date !== undefined && !isValidDate(date)) problems.push({ field: 'date', message: fieldMessage('date') })
     if (title !== undefined && (typeof title !== 'string' || title.trim() === '' || title.length > TITLE_MAX || hasControlChar(title))) {
       problems.push({ field: 'title', message: `제목은 ${String(TITLE_MAX)}자 이하의 글자로 적어 주세요.` })
@@ -432,6 +462,7 @@ export class Service {
       ...(date === undefined ? {} : { date: date as string }),
       ...(title === undefined ? {} : { title: (title as string).trim() }),
       ...(rehearsal === undefined ? {} : { rehearsal: rehearsal as boolean }),
+      ...(saleMode === undefined ? {} : { saleMode: saleMode as SaleMode }),
     }
   }
 
@@ -841,6 +872,12 @@ export class Service {
 
   // ── 조회 (AC-S04-52, AC-S05-20·35·50·60·61) ───────────────────────────
 
+  /** 확인 필요 목록 (O2 AC-O2-30, D-O2-14). 방송을 주면 그 방송만 — 다른 판매자의 방송·없는 방송·리허설인지가 다른 방송이면 null */
+  reviews(sellerId: string, query: { readonly rehearsal: boolean; readonly broadcast?: string }): Promise<ReviewsView | null> {
+    return reviewsView({ db: this.#options.db, writer: this.#options.writer }, sellerId, query)
+  }
+
+
   async broadcasts(sellerId: string): Promise<{ id: string; date: string; title: string; rehearsal: boolean; ended: boolean; endedAt: string | null }[]> {
     const rows = await listBroadcastRows(this.#options.db, sellerId)
     return rows.map((row) => ({
@@ -991,12 +1028,59 @@ export class Service {
       }
       return found
     }
+    // 옵션 방송의 인식 상품 목록 (언급·취소 번호 — 판매 종료가 아닌 상품, R-20 머리말). 방송마다 한 번
+    const catalogs = new Map<string, OptionCatalogEntry[]>()
+    const catalog = (b: string): OptionCatalogEntry[] => {
+      let found = catalogs.get(b)
+      if (found === undefined) {
+        found = listProducts(state)
+          .filter((product) => product.broadcast === b && product.status !== 'CLOSED')
+          .map((product) => ({ no: product.no, name: product.name, aliases: product.aliases, options: product.options }))
+        catalogs.set(b, found)
+      }
+      return found
+    }
     return rows.map((row) => {
       const event = JSON.parse(row.body) as { b: string; id: string; ch: string; nick: string; text: string; owner?: boolean; at: number; publishedAt?: number }
-      const info = row.failed ? undefined : lookup.byKey.get(JSON.stringify([event.b, event.id]))
-      const parsed = settings(event.b) === null ? null : parseChat(event.text, settings(event.b) as SaleSettings)
+      const key = JSON.stringify([event.b, event.id])
+      const info = row.failed ? undefined : lookup.byKey.get(key)
       const order = info?.order ?? false
       const cancel = info?.cancel ?? false
+      const snapshot = settings(event.b)
+      if (snapshot !== null && snapshot['claim.parseMode'] === 'OPTIONS') {
+        // 옵션 방송 (O2 AC-O2-24, D-O2-12): 주문은 그 메시지로 생긴 찜(번호·옵션 글·수량 — 받을 때 엔진이 정한 것), 확인 필요는 남은 항목,
+        // 언급·취소 번호는 지금 상품 목록으로 다시 읽은 것(표시만 — 판정은 받을 때 끝났다)
+        const claims = info === undefined ? [] : [...(lookup.claimsBySeq.get(row.seq) ?? [])]
+        const optionOrders = claims.flatMap((id) => {
+          const claim = lookup.claimById.get(id)
+          return claim === undefined ? [] : [{ claim: id, no: claim.no, variant: claim.variant, qty: claim.qty }]
+        })
+        const review = row.failed ? undefined : lookup.reviewByKey.get(key)
+        const reread = parseOptionComment(event.text, catalog(event.b), null, snapshot)
+        return {
+          id: event.id,
+          broadcast: event.b,
+          channel: event.ch,
+          nick: event.nick,
+          text: event.text,
+          owner: event.owner === true,
+          seq: row.seq,
+          at: iso(event.at),
+          publishedAt: iso(info?.publishedAt ?? event.publishedAt ?? event.at),
+          ignored: info?.ignored ?? false,
+          order,
+          cancel,
+          orders: order ? [...new Set(optionOrders.map((item) => item.no))] : [],
+          cancels: cancel ? [...reread.cancels] : [],
+          mentions: [...reread.mentions],
+          converted: info === undefined ? [] : [...info.converted],
+          claims,
+          failed: row.failed,
+          optionOrders,
+          review: review === undefined ? null : { reason: review.reason, no: review.no, options: review.options, qty: review.qty },
+        }
+      }
+      const parsed = snapshot === null ? null : parseChat(event.text, snapshot)
       return {
         id: event.id,
         broadcast: event.b,

@@ -1,7 +1,8 @@
 // 입력 문제를 화면에 보여 줄 쉬운 한국어로 바꾼다 (AC-S04-22, UX-03).
 // 코어 checkEvent의 문장은 개발 문장이고 받은 값이 들어 있을 수 있어 그대로 내보내지 않는다. 필드 이름만 쓰고 문장은 여기서 정한다.
-import { containsPhoneRun, type EventProblem } from '@livejjim/core'
+import { containsPhoneRun, type EngineState, type EventProblem } from '@livejjim/core'
 import type { FieldProblem } from './errors.ts'
+import { optionFieldName, optionProblem } from './messages-options.ts'
 
 const FIELD_MESSAGES: Readonly<Record<string, string>> = {
   type: '지원하지 않는 입력 종류예요.',
@@ -30,6 +31,8 @@ const FIELD_MESSAGES: Readonly<Record<string, string>> = {
   settings: '판매 규칙 설정을 확인해 주세요.',
   phone: '전화번호는 글자로 적어 주세요.',
   requestId: "요청 번호는 영문·숫자·'_'·'-'로 된 1~64자여야 해요.",
+  // O2 (D-O2-14): 확인 필요 항목 바로잡기·지우기
+  item: '확인 필요 항목을 골라 주세요.',
 }
 
 /** 판매자가 적는 칸(글 칸·ID 칸)의 휴대폰 번호 거절 안내 (R-1, D-079 ⑥, AC-S04-22) — 칸과 상관없이 같은 문장 */
@@ -80,11 +83,22 @@ export function phoneIdProblem(field: string): FieldProblem {
  * 코어 입력 문제 → 쉬운 문제 (필드마다 하나). 휴대폰 번호 문제는 코어가 붙인 `code: 'PHONE_NUMBER'`로만 고른다(값을 다시 판단하지 않는다, AC-S04-22).
  * 설정 문제(`settings.<키>`)는 호출하는 쪽이 checkSettings 문장을 쓴다
  */
-export function easyProblems(problems: readonly EventProblem[], event: Readonly<Record<string, unknown>>): FieldProblem[] {
+export function easyProblems(problems: readonly EventProblem[], event: Readonly<Record<string, unknown>>, state?: EngineState): FieldProblem[] {
   const out: FieldProblem[] = []
   const seen = new Set<string>()
   for (const problem of problems) {
-    const field = problem.field === null ? null : safeFieldName(problem.field)
+    // 옵션 칸 (O2, D-O2-13): 그 범위의 지금 상태로 판매자 문장을 고른다. 휴대폰 번호 문제는 아래 지금 문장 그대로
+    if (state !== undefined && problem.code !== 'PHONE_NUMBER') {
+      const option = optionProblem(problem, event, state)
+      if (option !== null) {
+        const key = option.field ?? '\u0000'
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push(option)
+        continue
+      }
+    }
+    const field = problem.field === null ? null : (safeFieldName(problem.field) ?? (problem.code === 'PHONE_NUMBER' ? optionFieldName(problem.field) : null))
     const key = field ?? '\u0000'
     if (seen.has(key)) continue
     seen.add(key)

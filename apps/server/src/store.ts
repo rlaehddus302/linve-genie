@@ -735,3 +735,43 @@ export async function chatRowsByIds(db: Db, sellerId: string, scopeId: string, k
     .orderBy(asc(events.seq))
   return rows.map(withRaw)
 }
+
+// ── 확인 필요 목록 (O2, D-O2-14) ───────────────────────────────────────────
+
+/**
+ * 상품명·옵션도 받는 방송(시작 이벤트의 설정 스냅샷 claim.parseMode=OPTIONS)이 있는 범위 (날짜·리허설인지), 날짜·실제 먼저 순.
+ * 확인 필요 항목은 옵션 방송에만 생긴다(R-20 7) — 확인 필요 목록은 이 범위들만 읽는다. rehearsal을 주면 그쪽 범위만
+ */
+export async function optionScopes(db: Db, sellerId: string, rehearsal?: boolean): Promise<{ date: string; rehearsal: boolean; scopeId: string }[]> {
+  const rows = await db
+    .select({ body: events.body, date: scopes.date, rehearsal: scopes.rehearsal, scopeId: events.scopeId })
+    .from(events)
+    .innerJoin(scopes, and(eq(scopes.id, events.scopeId), eq(scopes.sellerId, sellerId)))
+    .where(and(eq(events.sellerId, sellerId), eq(events.type, 'broadcast.start'), eq(events.changed, true), rehearsal === undefined ? undefined : eq(scopes.rehearsal, rehearsal)))
+    .orderBy(asc(scopes.date), asc(scopes.rehearsal))
+  const out = new Map<string, { date: string; rehearsal: boolean; scopeId: string }>()
+  for (const row of rows) {
+    let mode: unknown
+    try {
+      const settings = (JSON.parse(row.body) as { settings?: Record<string, unknown> }).settings
+      mode = settings?.['claim.parseMode']
+    } catch {
+      mode = undefined
+    }
+    if (mode === 'OPTIONS' && !out.has(row.scopeId)) out.set(row.scopeId, { date: row.date, rehearsal: row.rehearsal, scopeId: row.scopeId })
+  }
+  return [...out.values()]
+}
+
+/** 범위의 그 seq들의 이벤트 본문 (채팅은 따로 둔 본문·이름을 합친 본문) — 확인 필요 항목의 출처 입력(댓글·문자찜)을 읽는다 */
+export async function eventBodiesAt(db: Db, sellerId: string, scopeId: string, seqs: readonly number[]): Promise<Map<number, Record<string, unknown>>> {
+  const out = new Map<number, Record<string, unknown>>()
+  if (seqs.length === 0) return out
+  const rows = await db
+    .select({ seq: events.seq, body: events.body, ...rawColumns })
+    .from(events)
+    .leftJoin(chatRaw, rawJoin)
+    .where(and(eq(events.sellerId, sellerId), eq(events.scopeId, scopeId), inArray(events.seq, [...seqs])))
+  for (const row of rows.map(withRaw)) out.set(row.seq, JSON.parse(row.body) as Record<string, unknown>)
+  return out
+}
