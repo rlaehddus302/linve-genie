@@ -90,6 +90,7 @@ export type ErrorCode =
   // I2 API (harness/sprints/I2/dev-notes.md)
   | 'NO_ITEMS'
   | 'AMOUNT_MISMATCH'
+  | 'AMOUNT_MISSING'
   | 'LABEL_INVALID'
   | 'PERIOD_INVALID'
   | 'NO_BROADCASTS'

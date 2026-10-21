@@ -15,6 +15,7 @@ import type { ErrorCode, FieldProblem } from './errors.ts'
 import { MIME, documentFont, fileNamePart } from './files.ts'
 import type { StreamHub } from './hub.ts'
 import { IMPORT_FILE_MAX_BYTES, IMPORT_FILE_MESSAGES, IMPORT_REGISTER_BODY_LIMIT_BYTES, IMPORT_TEXT_MAX_CHARS, decodeTextFile, importFileKind, importRegisterBodyBytes, type XlsxReadResult } from './import-files.ts'
+import { AMOUNT_MISSING_MESSAGE, MissingAmountError } from './amount.ts'
 import type { LogSink } from './log.ts'
 import { phoneIdProblem, unknownFieldProblems } from './messages.ts'
 import {
@@ -364,7 +365,26 @@ export class ClosingService {
     const runtime = await this.#scope(sellerId, date, false)
     if (runtime === null) return null
     const { state, seq, scopeId } = runtime
-    return { date, seq, entries: packingEntries(state, date, await packingRows(this.#deps.db, sellerId, scopeId as string)) }
+    const records = await packingRows(this.#deps.db, sellerId, scopeId as string)
+    // 찜 금액이 없는 확정 찜이 있으면 목록을 만들지 않는다(서버 오류, D-O3-15) — 찜 ID만 남기고 다시 던진다
+    return { date, seq, entries: this.#amountGuard(date, () => packingEntries(state, date, records)) }
+  }
+
+  /** 찜 금액이 없는 확정 찜(MissingAmountError)이면 찜 ID만 남기고 그대로 던진다 (D-O3-15) */
+  #amountGuard<T>(date: string, make: () => T): T {
+    try {
+      return make()
+    } catch (error) {
+      if (error instanceof MissingAmountError) this.#deps.log({ level: 'error', code: 'AMOUNT_MISSING', date, claim: error.claimId })
+      throw error
+    }
+  }
+
+  /** 찜 금액이 없는 확정 찜이면 서버 오류 응답(AMOUNT_MISSING), 그 밖의 오류는 그대로 던진다 */
+  #amountProblem(date: string, error: unknown): { kind: 'error'; error: ApiProblem } {
+    if (!(error instanceof MissingAmountError)) throw error
+    this.#deps.log({ level: 'error', code: 'AMOUNT_MISSING', date, claim: error.claimId })
+    return problem(500, 'AMOUNT_MISSING', AMOUNT_MISSING_MESSAGE)
   }
 
   /** 정산 조회(날짜 보기)에 붙이는 묶음마다의 포장·배송 상태 (AC-I2-33) */
@@ -421,8 +441,28 @@ export class ClosingService {
     input: { buyer: string; action: PackingAction; items: readonly SentItem[]; invoice: string | null },
   ): Promise<Outcome<{ entry: PackingEntry; recorded: boolean }>> {
     if (!isValidDate(date)) return NOT_FOUND
+    // 찜 금액이 없는 확정 찜이 있으면 품목을 만들지 못해 트랜잭션을 되돌리고 서버 오류 (D-O3-15)
+    let result: Outcome<{ entry: PackingEntry; recorded: boolean; buyer: string }>
+    try {
+      result = await this.#packingWrite(sellerId, accountId, date, requestId, input)
+    } catch (error) {
+      return this.#amountProblem(date, error)
+    }
+    if (result.kind !== 'ok') return result
+    // 커밋된 뒤에만 다른 기기에 알린다 (AC-I2-32) — 값(품목·송장)은 알림에 넣지 않는다
+    if (result.value.recorded) this.#deps.hub.publishNamed(sellerId, 'packing', { date, buyer: result.value.buyer })
+    return ok({ entry: result.value.entry, recorded: result.value.recorded })
+  }
+
+  #packingWrite(
+    sellerId: string,
+    accountId: string,
+    date: string,
+    requestId: string,
+    input: { buyer: string; action: PackingAction; items: readonly SentItem[]; invoice: string | null },
+  ): Promise<Outcome<{ entry: PackingEntry; recorded: boolean; buyer: string }>> {
     const { db, writer, clock } = this.#deps
-    const result = await writer.withScope(sellerId, date, false, async (runtime, catchUpIn): Promise<Outcome<{ entry: PackingEntry; recorded: boolean; buyer: string }>> => {
+    return writer.withScope(sellerId, date, false, async (runtime, catchUpIn): Promise<Outcome<{ entry: PackingEntry; recorded: boolean; buyer: string }>> => {
       if (runtime.seq === 0 || runtime.scopeId === null) return NOT_FOUND
       const scopeId = runtime.scopeId
       return db.transaction(async (tx) => {
@@ -465,10 +505,6 @@ export class ClosingService {
         return ok({ entry: packingEntry(state, date, input.buyer, after), recorded: true, buyer: input.buyer })
       })
     })
-    if (result.kind !== 'ok') return result
-    // 커밋된 뒤에만 다른 기기에 알린다 (AC-I2-32) — 값(품목·송장)은 알림에 넣지 않는다
-    if (result.value.recorded) this.#deps.hub.publishNamed(sellerId, 'packing', { date, buyer: result.value.buyer })
-    return ok({ entry: result.value.entry, recorded: result.value.recorded })
   }
 
   /** 포장 라벨 (AC-I2-34): 라벨 데이터(L-9)와 쪽마다 그림. 합쳐진 구매자 ID는 지금의 구매자로 푼다 */
@@ -477,7 +513,12 @@ export class ClosingService {
     if (runtime === null) return NOT_FOUND
     const { state } = runtime
     const root = getBuyer(state, buyer) === null ? null : currentBuyerOf(state, buyer)
-    const data = root === null ? null : packingLabelData(state, date, root)
+    let data: PackingLabelData | null
+    try {
+      data = root === null ? null : packingLabelData(state, date, root)
+    } catch (error) {
+      return this.#amountProblem(date, error)
+    }
     if (data === null) return problem(422, 'NO_ITEMS', LABEL_NO_ITEMS_MESSAGE)
     const shop = await readShop(this.#deps.db, sellerId)
     const rendered = renderPacking(data, shop.name)

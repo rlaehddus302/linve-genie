@@ -140,8 +140,11 @@ export async function createAutoJobs(
   toSeq: number,
   buyerOf: (effect: LabelEffectBody, seq: number) => string,
   now: Date,
+  /** true면 그 효과로 작업·라벨 키를 만들지 않는다 (찜 금액이 없는 확정 찜 — D-O3-15) */
+  skip?: (effect: LabelEffectBody) => boolean,
 ): Promise<{ labels: number[]; jobs: number[] }> {
-  const effects = await autoLabelEffects(tx, sellerId, scopeId, fromSeq, toSeq)
+  const found = await autoLabelEffects(tx, sellerId, scopeId, fromSeq, toSeq)
+  const effects = skip === undefined ? found : found.filter((row) => !skip(JSON.parse(row.body) as LabelEffectBody))
   if (effects.length === 0) return { labels: [], jobs: [] }
   const queue = await lockQueue(tx, sellerId, now)
   // 라벨 기능이 꺼져 있으면 효과가 있어도 작업(·라벨 키)을 만들지 않는다 — 이 기록 트랜잭션 안에서 잠근 줄의 값으로 정한다 (N4a L-13 3, L-11 2, D-N4a-01).

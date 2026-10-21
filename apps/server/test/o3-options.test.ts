@@ -2,18 +2,23 @@
 // 판매는 골든 G-ENG-O3-01(tests/golden/engine/24-o3-labels-documents.yaml)과 같은 이벤트를 서버 쓰기 경로(API·수집 함수)로 넣는다.
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { checkPackingData, checkProductData, computePackingText, defaultTemplate, type PackingLabelData } from '@livejjim/label'
+import { checkPackingData, checkProductData, computePackingText, defaultTemplate, encodeLabelPng, renderPackingLabels, type PackingLabelData } from '@livejjim/label'
+import { createNodeRenderEnv } from '@livejjim/label/node'
+import { loadDocumentFont, renderReceiptPng, type ReceiptData } from '@livejjim/documents'
 import ExcelJS from 'exceljs'
 import { describe, expect, it } from 'vitest'
-import { pdfPageTexts } from '../../../packages/documents/test/helpers.ts'
+import { fontBytes, pdfPageTexts } from '../../../packages/documents/test/helpers.ts'
 import { listClaims, type ClaimInfo } from '@livejjim/core'
+import { MissingAmountError } from '../src/amount.ts'
 import { createBackupBytes, restoreSeller } from '../src/backup.ts'
+import { formatLog } from '../src/log.ts'
 import { randomIds } from '../src/ids.ts'
 import { eventsAfter, scopeRow } from '../src/store.ts'
 import { summaryLines } from '../src/youtube/outbox.ts'
-import { buildLedger, confirmTimes } from '../src/youtube/seal.ts'
-import { packingBroadcasts } from '../src/label-data.ts'
-import { parsePackedItems, packedItemsJson, packingWord, pairText, readPackedItem, replayPacking } from '../src/packing.ts'
+import { summaryComments } from '../src/youtube/texts.ts'
+import { LEDGER_FORMAT, buildLedger, confirmTimes, readLedger, sealedView } from '../src/youtube/seal.ts'
+import { buildClaimIndex, packingBroadcasts, productLabelData } from '../src/label-data.ts'
+import { lookupOf, packingEntry, packingStatusOf, parsePackedItems, packedItemsJson, packingWord, pairText, readPackedItem, replayPacking } from '../src/packing.ts'
 import { at, chat, getFile, ok, pack, pngHeader } from './i2-support.ts'
 import { printApi } from './print-support.ts'
 import { addSeller, client, createBroadcast, expectOk, fakeClock, newWorld, type JsonResponse, type Seller, type TestServer } from './support.ts'
@@ -497,20 +502,277 @@ describe('RA-O3-001 옵션 상품의 1등 — 봉인 장부의 확정 시각·�
     expect(byKey.get(`${b2}/22#100/흰색`)).toBe(kst('21:00:10'))
   })
 
-  it('방송 후 요약 줄(AC-Y1-46): 옵션 상품 판매도 들어가고, 가격은 찜 금액(단가 × 수량). 다육 방송 줄은 그대로', async () => {
+  it('방송 후 요약 줄(AC-Y1-46): 옵션 상품 판매도 들어가고, 가격은 찜 금액. 옵션 글·수량(D-O3-13), 같은 번호는 확정 순. 다육 방송 줄은 그대로', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)
     const { b1, b2 } = await sellO3(world, seller)
     const { state } = await world.server.writer.read(seller.sellerId, D)
     expect(summaryLines(state, b1)).toEqual([{ no: 7, name: '핑크프릴', price: '8,000원', buyer: '홍길동' }])
     expect(summaryLines(state, b2)).toEqual([
-      { no: 11, name: '초코 과자', price: '6,000원', buyer: '홍길동' },
+      { no: 11, name: '초코 과자', qty: 3, price: '6,000원', buyer: '홍길동' },
       { no: 11, name: '초코 과자', price: '2,000원', buyer: '김철수' },
-      { no: 21, name: '반바지', price: '10,000원', buyer: '홍길동' },
-      { no: 21, name: '반바지', price: '10,000원', buyer: '홍길동' },
-      // 같은 번호는 순위 재료 순: 문자찜은 받은 분(21:00)의 시작이 실제 시각이라 21:00:07 채팅보다 앞 (옵션 없는 상품의 1등 순서와 같은 기준)
-      { no: 22, name: '반팔티', price: '15,000원', buyer: '문자찜' },
-      { no: 22, name: '반팔티', price: '34,000원', buyer: '홍길동' },
+      { no: 21, name: '반바지', variant: 'M', price: '10,000원', buyer: '홍길동' },
+      { no: 21, name: '반바지', variant: 'L', price: '10,000원', buyer: '홍길동' },
+      // 같은 번호는 확정 순(상품마다의 확정버전, D-O3-13): 문자찜의 받은 시각(21:00)이 홍길동 채팅보다 이르지만 확정은 뒤다
+      { no: 22, name: '반팔티', variant: '105/검정색', qty: 2, price: '34,000원', buyer: '홍길동' },
+      { no: 22, name: '반팔티', variant: '100/흰색', price: '15,000원', buyer: '문자찜' },
     ])
+  })
+})
+
+describe('AC-O3-26 봉인 장부 판 2 — 옵션 글·수량·찜 금액 (D-O3-12)', () => {
+  it('장부 format = livejjim-ledger/2, 판매 행의 key·variant·options·qty·amount = 코어 ClaimInfo, 상품 행의 variants. 봉인 조회에도 같은 칸', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const { b1, b2, sms } = await sellO3(world, seller)
+    const scope = await scopeRow(world.database.db, seller.sellerId, D)
+    const { state, times } = confirmTimes(await eventsAfter(world.database.db, seller.sellerId, scope?.id ?? '', 0))
+    const ledger = buildLedger(D, state, times, Date.parse('2026-11-25T00:00:00Z'))
+    expect(ledger.format).toBe('livejjim-ledger/2')
+    expect(LEDGER_FORMAT).toBe('livejjim-ledger/2')
+    const claims = new Map(listClaims(state).map((claim) => [claim.id, claim]))
+    for (const sale of ledger.sales) {
+      const claim = claims.get(String(sale.id)) as ClaimInfo
+      expect({ key: sale.key, variant: sale.variant, options: sale.options, qty: sale.qty, amount: sale.amount, price: sale.price }).toEqual({
+        key: claim.key,
+        variant: claim.variant,
+        options: claim.options,
+        qty: claim.qty,
+        amount: claim.amount,
+        price: claim.price,
+      })
+    }
+    const pick = (sale: Record<string, unknown>) => ({ key: sale.key, variant: sale.variant, options: sale.options, qty: sale.qty, amount: sale.amount, price: sale.price })
+    const hong = ledger.sales.filter((sale) => sale.buyer === 'UC_A')
+    expect(pick(hong.find((sale) => sale.no === 22) as Record<string, unknown>)).toEqual({
+      key: `${b2}/22#105/검정색`,
+      variant: '105/검정색',
+      options: [
+        ['사이즈', '105'],
+        ['색상', '검정색'],
+      ],
+      qty: 2,
+      amount: 34000,
+      price: 17000,
+    })
+    expect(pick(hong.find((sale) => sale.no === 11) as Record<string, unknown>)).toEqual({ key: `${b2}/11`, variant: null, options: null, qty: 3, amount: 6000, price: 2000 })
+    expect(pick(hong.find((sale) => sale.no === 7) as Record<string, unknown>)).toEqual({ key: `${b1}/7`, variant: null, options: null, qty: 1, amount: 8000, price: 8000 })
+    expect(pick(ledger.sales.find((sale) => sale.buyer === sms) as Record<string, unknown>)).toMatchObject({ key: `${b2}/22#100/흰색`, variant: '100/흰색', qty: 1, amount: 15000 })
+    // 상품 행의 variants (text·stock·winners), 다육은 빈 목록
+    const product = (no: number, b: string) => ledger.products.find((row) => row.no === no && row.broadcast === b) as Record<string, unknown>
+    const shorts = product(21, b2).variants as { text: string; stock: number; winners: string[] }[]
+    expect(shorts.map((variant) => [variant.text, variant.stock, variant.winners])).toEqual([
+      ['S', 1, []],
+      ['M', 1, ['UC_A']],
+      ['L', 1, ['UC_A']],
+    ])
+    expect(product(7, b1).variants).toEqual([])
+    // 장부 글에 전화번호 키 없음 (표시 이름·뒤 4자리는 D-Y11 장부 그대로)
+    expect(JSON.stringify(ledger)).not.toContain('kkkk')
+
+    // 실제로 봉인 → 봉인 조회(GET /api/days/:date)의 찜·상품에 같은 칸
+    expect(await world.server.sealer.seal(seller.sellerId, scope?.id ?? '', D)).toBe(true)
+    const view = (await expectOk(client(world, seller.cookie).get(`/api/days/${D}`))).body as { sealed: boolean; claims: Record<string, unknown>[]; products: Record<string, unknown>[] }
+    expect(view.sealed).toBe(true)
+    const stored = (await world.database.pglite?.query<{ ledger: string }>(`select ledger from scopes where sealed_at is not null`))?.rows[0]?.ledger ?? ''
+    expect(JSON.parse(stored).format).toBe('livejjim-ledger/2')
+    expect(view.claims.map(pick)).toEqual(ledger.sales.map(pick))
+    expect(view.claims.every((claim) => claim.status === 'CONFIRMED')).toBe(true)
+    expect((view.products.find((row) => row.no === 22) as { variants: unknown }).variants).toEqual(product(22, b2).variants)
+  })
+
+  it('판 1 장부는 수량 1·찜 금액 = 가격·옵션 없음·variants 빈 목록으로 읽고, 판 2에 qty·amount가 없거나 모르는 판이면 읽을 수 없는 장부(채우지 않는다)', () => {
+    const base = {
+      date: D,
+      sealedAt: '2026-11-25T00:00:00.000Z',
+      broadcasts: [{ id: 'b1', date: D, title: '1부', endedAt: null }],
+      products: [{ id: 'p1', key: 'b1/7', broadcast: 'b1', no: 7, name: '핑크프릴', price: 8000, stock: 1, status: 'SOLD', winners: ['UC_A'], priceHistory: [] }],
+      buyers: [],
+      settlements: [],
+    }
+    const v1Sale = { id: 'c1', product: 'b1/7', productId: 'p1', broadcast: 'b1', no: 7, buyer: 'UC_A', currentBuyer: 'UC_A', buyerName: '홍길동', price: 8000, confirmVersion: 1, confirmedAt: null, origin: 'chat' }
+    const v1 = JSON.stringify({ format: 'livejjim-ledger/1', ...base, sales: [v1Sale] })
+    const read = readLedger(v1)
+    expect(read?.format).toBe('livejjim-ledger/2')
+    expect(read?.sales).toEqual([{ ...v1Sale, key: 'b1/7', variant: null, options: null, qty: 1, amount: 8000 }])
+    expect(read?.products.map((product) => product.variants)).toEqual([[]])
+    const view = sealedView(D, 3, v1) as { claims: Record<string, unknown>[] }
+    expect(view.claims).toEqual([{ ...v1Sale, key: 'b1/7', variant: null, options: null, qty: 1, amount: 8000, status: 'CONFIRMED' }])
+
+    // 판 2인데 한 판매에 amount가 없다 → 읽을 수 없는 장부 (단가 × 수량으로 채우지 않는다)
+    const v2Sale = { ...v1Sale, key: 'b1/7', variant: null, options: null, qty: 2, amount: 16000 }
+    const v2Product = { ...base.products[0], variants: [] }
+    const good = JSON.stringify({ format: 'livejjim-ledger/2', ...base, products: [v2Product], sales: [v2Sale] })
+    expect(readLedger(good)?.sales).toEqual([v2Sale])
+    const { amount: _amount, ...noAmount } = v2Sale
+    const { qty: _qty, ...noQty } = v2Sale
+    for (const sales of [[v2Sale, noAmount], [noQty], [{ ...v2Sale, amount: null }], [{ ...v2Sale, amount: 1.5 }], [{ ...v2Sale, qty: 0 }]]) {
+      const text = JSON.stringify({ format: 'livejjim-ledger/2', ...base, products: [v2Product], sales })
+      expect(readLedger(text), JSON.stringify(sales)).toBeNull()
+      expect(sealedView(D, 3, text)).toBeNull()
+    }
+    // 모르는 판, JSON이 아닌 글
+    for (const text of [JSON.stringify({ format: 'livejjim-ledger/9', ...base, sales: [v2Sale] }), JSON.stringify({ ...base, sales: [v1Sale] }), '{', 'null']) {
+      expect(readLedger(text)).toBeNull()
+      expect(sealedView(D, 3, text)).toBeNull()
+    }
+  })
+})
+
+describe('AC-O3-27 방송 후 요약 댓글 글 — 옵션 글·수량, 같은 번호는 확정 순 (D-O3-13)', () => {
+  it('b2 = 감사 문구와 같은 자리, 22번은 확정 순. b1 다육 줄은 O3 전과 글자까지 같다. 문자찜 줄에 메모·뒤 4자리 없음', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const { b1, b2 } = await sellO3(world, seller)
+    const { state } = await world.server.writer.read(seller.sellerId, D)
+    expect(summaryComments(summaryLines(state, b2))).toEqual([
+      [
+        '구매 감사합니다',
+        '11번 초코 과자 3개 6,000원 홍길동님',
+        '11번 초코 과자 2,000원 김철수님',
+        '21번 반바지 M 10,000원 홍길동님',
+        '21번 반바지 L 10,000원 홍길동님',
+        '22번 반팔티 105/검정색 2개 34,000원 홍길동님',
+        '22번 반팔티 100/흰색 15,000원 문자찜님',
+      ].join('\n'),
+    ])
+    expect(summaryComments(summaryLines(state, b1))).toEqual(['구매 감사합니다\n7번 핑크프릴 8,000원 홍길동님'])
+    const text = summaryComments(summaryLines(state, b2)).join('\n')
+    for (const secret of ['이영희', '5678']) expect(text).not.toContain(secret)
+    // 품종이 빈 옵션 상품은 옵션 글만 (`{번호}번[ {품종}][ {옵션 글}]…`)
+    expect(summaryComments([{ no: 31, name: '', variant: 'M', qty: 2, price: '20,000원', buyer: '가' }])).toEqual(['구매 감사합니다\n31번 M 2개 20,000원 가님'])
+  })
+})
+
+describe('AC-O3-28 포장 "뺄 것"에 포장 때의 옵션 글·수량 (D-O3-14)', () => {
+  it('초코 과자 2개 포장 → 취소 → 3개로 다시 1등: add 11(qty 3), remove 11(variant null, qty 2). 다른 칸은 그대로', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    at(world, D, '20:59:00')
+    await settings(world, seller, { 'claim.parseMode': 'OPTIONS' })
+    const b = (await createBroadcast(world, seller, { date: D, title: '의류' })).id
+    at(world, D, '21:00:00')
+    await ok(world, seller, { type: 'product.register', b, no: 11, name: '초코 과자', price: 2000, stock: 5 })
+    at(world, D, '21:00:01')
+    await chat(world, seller, b, 'q1', 'UC_A', '홍길동', '초코 과자 2')
+    let a = (await entries(world, seller)).get('UC_A') as Entry
+    const id = a.items[0]?.id
+    await expectPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: [`${b}/11`] }))
+    at(world, D, '21:01:00')
+    await ok(world, seller, { type: 'host.cancel', b, no: 11, buyer: 'UC_A', reason: '구매자 요청' })
+    at(world, D, '21:01:10')
+    await chat(world, seller, b, 'q2', 'UC_A', '홍길동', '초코 과자 3')
+    a = (await entries(world, seller)).get('UC_A') as Entry
+    expect(a.status).toBe('포장 다시 확인')
+    expect(a.add.map((item) => [item.key, item.variant, item.qty])).toEqual([[`${b}/11`, null, 3]])
+    expect(a.remove).toEqual([{ id, key: `${b}/11`, broadcast: b, title: '의류', no: 11, name: '초코 과자', variant: null, qty: 2 }])
+  })
+
+  it('반바지 M 포장 완료 뒤 그 찜 취소 → remove 21(variant "M", qty 1). 수량 칸 없는 이전 다육 기록에서 빠진 상품 → variant null·qty 1', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const { b1, b2 } = await sellO3(world, seller)
+    const a = (await entries(world, seller)).get('UC_A') as Entry
+    await expectPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: a.items.map((item) => item.key) }))
+    at(world, D, '21:05:00')
+    await raw(world, seller, { type: 'host.cancel', b: b2, no: 21, options: { 사이즈: 'M' }, buyer: 'UC_A', reason: '변심' })
+    const after = (await entries(world, seller)).get('UC_A') as Entry
+    expect(after.status).toBe('포장 다시 확인')
+    expect(after.add).toEqual([])
+    const shorts = a.items.find((item) => item.key === `${b2}/21#M`) as Item
+    expect(after.remove).toEqual([{ id: shorts.id, key: `${b2}/21#M`, broadcast: b2, title: '의류 2부', no: 21, name: '반바지', variant: 'M', qty: 1 }])
+
+    // 이전(I2) 모양 기록 — 수량 칸 없음. 다육 두 상품을 담고 하나가 빠졌다
+    const world2 = await newWorld()
+    const seller2 = await addSeller(world2)
+    at(world2, D, '19:59:00')
+    const b = (await createBroadcast(world2, seller2, { date: D, title: '다육' })).id
+    for (const no of [7, 8]) {
+      at(world2, D, `20:0${String(no)}:00`)
+      await ok(world2, seller2, { type: 'product.register', b, no, name: `품종${String(no)}`, price: 1000 * no })
+      await chat(world2, seller2, b, `c${String(no)}`, 'UC_A', '홍길동', String(no))
+    }
+    const before = (await entries(world2, seller2)).get('UC_A') as Entry
+    await expectPack(pack(world2, seller2, D, { buyer: 'UC_A', action: 'pack', items: before.items.map((item) => item.key) }))
+    const stored = await world2.database.pglite?.query<{ items: string }>(`select items from packing_records where kind = 'PACKED'`)
+    // 다육 수량 1은 수량 칸 없이 적힌다 (I2 기록과 같은 모양)
+    expect((JSON.parse(stored?.rows[0]?.items ?? '[]') as Record<string, unknown>[]).every((item) => !('qty' in item))).toBe(true)
+    at(world2, D, '20:10:00')
+    await ok(world2, seller2, { type: 'host.cancel', b, no: 8, buyer: 'UC_A', reason: '구매자 요청' })
+    const legacy = (await entries(world2, seller2)).get('UC_A') as Entry
+    const eight = before.items.find((item) => item.no === 8) as Item
+    expect(legacy.remove).toEqual([{ id: eight.id, key: `${b}/8`, broadcast: b, title: '다육', no: 8, name: '품종8', variant: null, qty: 1 }])
+    void b1
+  })
+})
+
+describe('AC-O3-29 찜 금액이 없으면 단가 × 수량으로 채우지 않는다 (D-O3-15)', () => {
+  it('amount를 null로 바꾼 확정 찜(옵션 수량 2·다육 수량 1): 요약 줄·상품 라벨 데이터·포장 품목·포장 라벨 항목을 만들지 않는다. 오류 로그엔 찜 ID만', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const { b1, b2 } = await sellO3(world, seller)
+    const { state } = await world.server.writer.read(seller.sellerId, D)
+    const claims = listClaims(state)
+    const black = claims.find((claim) => claim.key === `${b2}/22#105/검정색`) as ClaimInfo
+    const pink = claims.find((claim) => claim.key === `${b1}/7`) as ClaimInfo
+    for (const target of [black, pink]) {
+      const injected = claims.map((claim) => (claim.id === target.id ? { ...claim, amount: null } : claim))
+      const b = target === black ? b2 : b1
+      // 방송 후 요약: 그 방송은 만들지 않는다 (MissingAmountError — 실행기는 발송함 행 없이 넘긴다)
+      expect(() => summaryLines(state, b, injected)).toThrow(MissingAmountError)
+      try {
+        summaryLines(state, b, injected)
+      } catch (error) {
+        expect((error as MissingAmountError).claimId).toBe(target.id)
+      }
+      // 금액이 있는 다른 방송은 그대로
+      const other = b === b1 ? b2 : b1
+      expect(summaryLines(state, other, injected)).toEqual(summaryLines(state, other))
+      // 상품 라벨 데이터: 만들지 않고 찜 ID를 알린다
+      const reported: string[] = []
+      const index = buildClaimIndex(state)
+      const injectedIndex = new Map([...index].map(([id, claim]) => [id, id === target.id ? { ...claim, amount: null } : claim]))
+      expect(productLabelData(state, injectedIndex, { claim: target.id, version: target.confirmVersion ?? 0, buyer: { kind: 'youtube', name: '홍길동' } }, (id) => reported.push(id))).toBeNull()
+      expect(reported).toEqual([target.id])
+      expect(productLabelData(state, index, { claim: target.id, version: target.confirmVersion ?? 0, buyer: { kind: 'youtube', name: '홍길동' } })).not.toBeNull()
+      // 포장 라벨 항목·포장 품목: 만들지 않는다(오류)
+      expect(() => packingBroadcasts(state, 'UC_A', D, injected)).toThrow(MissingAmountError)
+      expect(() => packingEntry(state, D, 'UC_A', [], lookupOf(state, injected))).toThrow(MissingAmountError)
+      // 포장 상태 말(판매대장 배송 칸)은 금액을 보지 않아 그대로
+      expect(packingStatusOf(state, D, 'UC_A', [], lookupOf(state, injected)).status).toBe('포장 대기')
+    }
+    // 오류 로그 한 줄: 찜 ID만 (닉네임·금액·전화번호 없음)
+    const line = formatLog({ level: 'error', code: 'AMOUNT_MISSING', date: D, claim: black.id })
+    expect(line).toContain(`claim=${black.id}`)
+    for (const secret of ['홍길동', '34,000', '34000', '5678', '010']) expect(line).not.toContain(secret)
+    // 찜 ID 모양이 아닌 값은 남기지 않는다
+    expect(formatLog({ level: 'error', code: 'AMOUNT_MISSING', claim: '홍길동' })).not.toContain('홍길동')
+  })
+})
+
+describe('SA-O3-006 내려받은 포장 라벨·공유 그림 = 같은 데이터의 패키지 그림', () => {
+  it('포장 라벨 PNG 쪽마다 = renderPackingLabels(기본 포장 템플릿, G-LBL-O3-51 데이터) 바이트, 공유 PNG = 같은 확인서 데이터의 renderReceiptPng 바이트', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    await sellO3(world, seller)
+    const api = client(world, seller.cookie)
+    const shop = ((await expectOk(api.get('/api/shop'))).body.shop as { name: string }).name
+    const golden = goldenCase('label/packing-options.json', 'G-LBL-O3-51')
+    const rendered = renderPackingLabels(createNodeRenderEnv(), { ...defaultTemplate('packing', '50x30'), shopName: shop }, golden.data as PackingLabelData)
+    expect(rendered.ok).toBe(true)
+    if (!rendered.ok) return
+    expect(rendered.pages).toHaveLength(2)
+    for (const [i, page] of rendered.pages.entries()) {
+      const want = encodeLabelPng(page.image)
+      expect(want.ok).toBe(true)
+      const file = await getFile(world, seller.cookie, `/api/days/${D}/packing-label.png?buyer=UC_A&page=${String(i + 1)}`)
+      expect(file.status).toBe(200)
+      if (want.ok) expect(Buffer.from(file.bytes).equals(Buffer.from(want.bytes)), `쪽 ${String(i + 1)}`).toBe(true)
+    }
+    const png = await getFile(world, seller.cookie, `/api/days/${D}/receipt.png?buyer=UC_A`)
+    expect(png.status).toBe(200)
+    expect(png.headers.get('x-receipt-created-at')).toBe(String(world.clock.now()))
+    const receipt = (await expectOk(api.get(`/api/days/${D}/receipt?buyer=UC_A`))).body as unknown as ReceiptData
+    expect(Buffer.from(renderReceiptPng(receipt, loadDocumentFont(fontBytes()))).equals(Buffer.from(png.bytes))).toBe(true)
   })
 })

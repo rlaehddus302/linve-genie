@@ -85,3 +85,24 @@
 - spec-keeper에게: 요약 댓글 줄에 옵션 글·수량을 R-13 문구 규칙대로 넣을지 정해 주세요. 지금 줄은 `번호 품종 금액 구매자` 그대로이고 옵션 글·수량은 없다(금액은 찜 금액).
 - 시험: `apps/server/test/o3-options.test.ts` "RA-O3-001" 두 개(장부 confirmedAt 7건 모두 값·변형별 시각, 요약 줄 b1·b2).
 - 웹(ProductDetail·ConsolePage·BuyersPage·AlertDialogs·LabelParts)의 `product.winnerClaims`만 보는 곳은 O2/O4 몫이라 그대로다.
+
+## dev-device 수정 라운드 2 — SA-O3-004 (D-O3-13, AC-O3-14)
+
+- `packages/documents` `itemText(name, variant, unit, qty)`: 품종 칸 = 다듬은 품종과 L-2로 다듬은 옵션 글을 공백 하나로 이은 글. 품종이 비면 옵션 글만, 둘 다 비면 `품종 미입력`. 확인서는 이제 빈 품종을 `품종 미입력`으로 바꾸지 않고 그대로 넘긴다(라운드 0의 `품종 미입력 M` 경계는 없앴다).
+- 새 export `optionText` (L-2 다듬기 — 라벨 패키지 `trimLabelText`와 같은 차례). 판매대장 `옵션` 칸도 이 글.
+- 판매대장: 확정 찜의 `amount`·`price`가 정수가 아니면 `AMOUNT_MISSING` 오류로 대장을 만들지 않는다(D-O3-15). 서버는 지금처럼 오류면 파일을 만들지 않는다.
+- 시험: `packages/documents/test/o3.test.ts` AC-O3-14 둘 — 라벨 품종 자리 글(`computeProductText`)과 같은지, `optionText` = `trimLabelText`.
+
+## dev-server 수정 라운드 2 — RA-O3-004·SA-O3-004·005·006·007 (D-O3-12~15, AC-O3-26~29)
+
+- 봉인 장부 판 2 (`youtube/seal.ts`): `LEDGER_FORMAT = 'livejjim-ledger/2'`. 판매 행 `key`·`variant`·`options`·`qty`·`amount`(코어 `ClaimInfo` 그대로), 상품 행 `variants`(`text`·`stock`·`winners`). 확정 찜에 `amount`가 없으면 `buildLedger`가 `MissingAmountError` — 봉인 트랜잭션을 되돌리고(`AMOUNT_MISSING`·`SEAL_FAILED` 로그) 다음 바퀴에 다시 한다(금액 없는 장부를 굳히지 않는다).
+- 새 `readLedger(text)`: `/2`는 판매마다 `qty`(1 이상 정수)·`amount`(0 이상 정수)를 확인, `/1`은 key = product·variant·options = null·qty = 1·amount = price·variants = []로 읽는다. 모르는 판·빠진 칸·JSON 아님 → null. `sealedView`가 이것을 쓴다.
+- 방송 후 요약 (`youtube/outbox.ts` `summaryLines`, `texts.ts` `summaryComments`): 줄에 `variant`(옵션 찜만)·`qty`(2 이상만), 한 상품 안은 `confirmVersion` 오름차순(옵션 없는 상품도). 찜 금액이 없으면 `MissingAmountError` → 실행기가 그 방송 요약을 만들지 않고 끝냄 표시(`AMOUNT_MISSING` 로그, 찜 ID만). `summaryLines(state, b, claims?)` 셋째 인자는 시험용 주입.
+- 포장 (`packing.ts`): `PackingRemoved`에 `variant`(변형 키 `#` 뒤 또는 null)·`qty`(기록 수량, 없으면 1). 지금 품목의 찜 금액은 `requireAmount` — 없으면 `MissingAmountError`(포장 목록·포장 명령은 서버 오류, 포장 라벨은 500 `AMOUNT_MISSING`). 포장 상태 말(대장 배송 칸·지난 구매)은 금액을 보지 않는 `currentPairs`/`packingStatusOf`로 정해 그대로 나온다. `lookupOf(state, claims?)`를 export(시험 주입).
+- 라벨 (`label-data.ts`·`print.ts`): `productLabelData`는 금액이 없으면 null + `onMissingAmount(찜 ID)`, `packingBroadcasts`는 `MissingAmountError`, `packingLabelData`는 null + 알림. 자동 작업(txHook)은 금액 없는 확정 찜의 작업·라벨 키를 만들지 않고, 직접 출력은 500 `AMOUNT_MISSING`.
+- 로그: `AMOUNT_MISSING` 코드, `LogRecord.claim`(모양 `c<숫자>`만 남긴다). 오류 코드 `AMOUNT_MISSING`(errors.ts).
+- 시험: `apps/server/test/o3-options.test.ts` AC-O3-26(장부 칸·실제 봉인 뒤 조회·판 1/빠진 칸/모르는 판), AC-O3-27(댓글 글), AC-O3-28(셋), AC-O3-29(주입), SA-O3-006(포장 라벨 PNG 쪽마다 = G-LBL-O3-51 데이터를 `renderPackingLabels`로 그린 바이트, 공유 PNG = 같은 확인서 데이터의 `renderReceiptPng` 바이트). RA-O3-001 요약 줄 기대값은 D-O3-13대로(옵션 글·수량, 확정 순) 바꿨다. `i2-packing.test.ts`의 뺄 것 객체 기대값에 `variant: null`·`qty: 1`을 더했다(D-O3-14 "칸이 더해진 만큼 넓힌다").
+
+### disputesWithSpec
+- **AC-O3-26 "봉인한 날짜의 확인서·판매대장·포장 품목은 봉인 직전과 같다"**: 지금 서버는 봉인한 범위를 재생하지 않아(`runtime.ts loadRuntime` — 빈 상태) 봉인 날짜의 확인서·대장·포장·지난 구매가 비어 있다. 장부로 문서를 만드는 일은 D-I2-22 (2)이고 이 브랜치·main 어디에도 구현되지 않았다(D-I2-22 "구현 시점: I2 합치기 후속, 일정은 오케스트레이터"). O3에서는 장부에 필요한 칸(판 2)과 읽는 법(`readLedger`)까지 넣었고, 봉인 전후 문서가 같은지는 D-I2-22 구현 트랙의 몫으로 남긴다. 그 트랙은 `readLedger` 결과(판 2 모양)만 읽으면 된다.
+- 지난 구매(`past.ts`) 품목의 `price`는 아직 `claim.price`(단가)다 — 옵션 수량 2 이상이면 찜 금액이 아니다. D-O3-15 목록에 지난 구매가 없어 고치지 않았다(O4 또는 spec-keeper 판단).

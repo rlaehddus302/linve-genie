@@ -15,7 +15,8 @@
 //   서버가 SENDING 행을 남긴 채 죽었다 살아나면 그 행은 임대가 지난 뒤 확인부터 한다(확인 시간이 이미 지났으면 바로 끝 조회부터).
 // - 다시 시도: 2·4·8·16·32초 뒤 최대 5번, 그래도 안 되면 GAVE_UP. 다시 시도해도 소용없는 오류는 바로 보내지 못함.
 // - 실패·재시도·건너뜀은 엔진 이벤트로 기록하지 않는다(effect.failed 없음, D-Y01).
-import { formatWon, getBroadcast, getBuyer, listClaims, listEffects, listProducts, type EngineEffect, type EngineState } from '@livejjim/core'
+import { formatWon, getBroadcast, getBuyer, listClaims, listEffects, listProducts, type ClaimInfo, type EngineEffect, type EngineState } from '@livejjim/core'
+import { MissingAmountError, requireAmount } from '../amount.ts'
 import type { Db } from '../db/database.ts'
 import { errorKind, type LogSink } from '../log.ts'
 import type { Actor, ScopeWriter } from '../writer.ts'
@@ -992,7 +993,16 @@ export class OutboxRunner {
       const { link, date } = candidate
       const runtime = await this.#options.writer.read(link.sellerId, date, false)
       const settings = getBroadcast(runtime.state, link.broadcastId)?.settings
-      const texts = settings?.['thanks.videoComment'] === 'SUMMARY' ? summaryComments(summaryLines(runtime.state, link.broadcastId)) : []
+      let texts: string[] = []
+      if (settings?.['thanks.videoComment'] === 'SUMMARY') {
+        try {
+          texts = summaryComments(summaryLines(runtime.state, link.broadcastId))
+        } catch (error) {
+          if (!(error instanceof MissingAmountError)) throw error
+          // 찜 금액이 없는 확정 찜: 그 방송의 요약은 만들지 않는다(발송함 행 없음) — 찜 ID만 남긴다 (D-O3-15)
+          this.#options.log({ level: 'error', code: 'AMOUNT_MISSING', seller: link.sellerId, date, claim: error.claimId })
+        }
+      }
       if (texts.length === 0) {
         await markSummaryDone(db, link.sellerId, link.id, new Date(now))
         continue
@@ -1202,25 +1212,35 @@ export class OutboxRunner {
 }
 
 /**
- * 방송 후 요약 줄 (AC-Y1-46): 그 방송의 확정 판매(지금 엔진 상태) — 번호 순, 같은 번호는 확정 순서.
- * 옵션 상품은 변형마다의 1등(D-O1-01, winnerClaimsOf). 품종 = 지금 상품 이름, 가격 = 그 찜의 찜 금액(단가 스냅샷 × 수량, R-13), 구매자 = 그 찜의 구매자 자신의 지금 표시 이름(문자 구매자·문자찜으로 생긴 찜은 늘 `문자찜`)
+ * 방송 후 요약 줄 (AC-Y1-46, YT-05): 그 방송의 확정 판매(지금 엔진 상태) — 번호 순, 한 상품 안은 확정 순(상품마다의 확정버전 오름차순, D-Y08·D-O3-13).
+ * 옵션 상품은 변형마다의 1등(D-O1-01, winnerClaimsOf). 품종 = 지금 상품 이름, 옵션 글 = 코어 ClaimInfo.variant(있을 때만), 수량 = 2 이상일 때만,
+ * 가격 = 그 찜의 찜 금액(코어 ClaimInfo.amount, R-19 "표시"), 구매자 = 그 찜의 구매자 자신의 지금 표시 이름(문자 구매자·문자찜으로 생긴 찜은 늘 `문자찜`).
+ * 확정 찜에 찜 금액이 없으면 단가 × 수량으로 채우지 않고 MissingAmountError — 그 방송의 요약을 만들지 않는다 (D-O3-15).
+ * claims는 시험용 주입 자리(기본 코어 listClaims)
  */
-export function summaryLines(state: EngineState, broadcastId: string): SummaryLine[] {
+export function summaryLines(state: EngineState, broadcastId: string, claimList: Iterable<ClaimInfo> = listClaims(state)): SummaryLine[] {
   const products = listProducts(state).filter((product) => product.broadcast === broadcastId)
-  const claims = new Map(listClaims(state).map((claim) => [claim.id, claim]))
+  const claims = new Map([...claimList].map((claim) => [claim.id, claim]))
   const lines: SummaryLine[] = []
   for (const product of [...products].sort((a, b) => a.no - b.no)) {
-    // 옵션 상품은 변형마다의 1등을 모아 순위 재료(실제 시각 → seq) 순으로 — 같은 번호는 확정 순서. 옵션 없는 상품은 상품의 1등 순서 그대로
-    const winners = winnerClaimsOf(product).flatMap((claimId) => {
-      const claim = claims.get(claimId)
-      return claim === undefined ? [] : [claim]
-    })
-    if (product.variants.length > 0) winners.sort((a, b) => a.rankTime - b.rankTime || a.seq - b.seq)
+    const winners = winnerClaimsOf(product)
+      .flatMap((claimId) => {
+        const claim = claims.get(claimId)
+        return claim === undefined || claim.status !== 'CONFIRMED' ? [] : [claim]
+      })
+      .sort((a, b) => (a.confirmVersion ?? 0) - (b.confirmVersion ?? 0))
     for (const claim of winners) {
-      if (claim.status !== 'CONFIRMED') continue
+      const amount = requireAmount(claim)
       const buyer = getBuyer(state, claim.buyer)
       const sms = claim.origin === 'sms' || buyer?.kind === 'sms'
-      lines.push({ no: product.no, name: product.name, price: formatWon(claim.amount ?? (claim.price ?? product.price) * claim.qty), buyer: sms ? '문자찜' : (buyer?.display ?? '시청자') })
+      lines.push({
+        no: product.no,
+        name: product.name,
+        ...(claim.variant === null || claim.variant === '' ? {} : { variant: claim.variant }),
+        ...(claim.qty >= 2 ? { qty: claim.qty } : {}),
+        price: formatWon(amount),
+        buyer: sms ? '문자찜' : (buyer?.display ?? '시청자'),
+      })
     }
   }
   return lines

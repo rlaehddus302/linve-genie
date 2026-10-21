@@ -7,6 +7,9 @@
 // - 명령은 범위 줄(엔진 기록과 같은 줄) 안, 범위 어드바이저리 락을 잡은 트랜잭션에서 검사하고 기록한다. 커밋된 뒤에만 성공 응답·실시간 알림.
 // - 옵션 방송 (O3, D-O3-10): 품목은 찜의 키(옵션 찜은 변형 키 `<방송>/<번호>#<옵션 글>`, 아니면 상품 키)마다 하나이고 variant(옵션 글 또는 null)·qty(그 키의 확정 찜 수량 합)를 함께 준다.
 //   포장 완료 기록의 품목에 수량을 적고(1이면 적지 않아 O3 전 기록과 같은 모양), 키·수량 중 하나라도 다르면 "포장 다시 확인"(배송 뒤 "배송 뒤 바뀜"). 수량이 없는 기록은 1로 읽는다.
+// - 찜 금액은 코어 ClaimInfo.amount만 (O3 감사 D-O3-15): 묶음의 확정 찜에 없으면 포장 품목·포장 라벨 데이터를 만들지 않는다(MissingAmountError — 조회는 서버 오류).
+//   단가 × 수량·가격 스냅샷으로 채우지 않는다. 포장 상태 말(판매대장 배송 칸)은 금액을 보지 않아 그대로 정한다.
+// - 뺄 것 (O3 감사 D-O3-14): 포장 때의 옵션 글(variant — 변형 키 `#` 뒤, 상품 키면 null)·수량(qty — 기록에 없으면 1)을 늘 싣는다.
 // - 포장 라벨: L-9 포장 라벨 데이터(L-4)를 만들어 packages/label 기본 포장 템플릿(50×30, 한 쪽 10개) + 가게 이름으로 그린다(PNG·PDF, L-6).
 import {
   currentBuyerOf,
@@ -24,6 +27,7 @@ import { buyerText, createLabelPdf, defaultTemplate, encodeLabelPng, renderPacki
 import { createNodeRenderEnv } from '@livejjim/label/node'
 import { and, asc, eq } from 'drizzle-orm'
 import type { Db } from './db/database.ts'
+import { requireAmount } from './amount.ts'
 import { packingBroadcasts } from './label-data.ts'
 import { packingRecords } from './db/schema.ts'
 import type { Rejection } from './writer.ts'
@@ -160,7 +164,7 @@ export interface PackingItem {
   readonly qty: number
 }
 
-/** 뺄 것: 포장 때의 쌍 — 포장 때 키·번호, 그 상품의 지금 품종 (D-I2-19) */
+/** 뺄 것: 포장 때의 쌍 — 포장 때 키·번호·옵션 글·수량, 그 상품의 지금 품종 (D-I2-19, O3 D-O3-14) */
 export interface PackingRemoved {
   /** 상품 ID (이 결정 전 기록이면 null) */
   readonly id: string | null
@@ -172,6 +176,10 @@ export interface PackingRemoved {
   readonly no: number
   /** 그 상품의 지금 품종 (상품을 찾지 못하면 "") */
   readonly name: string
+  /** 포장 때 옵션 글 (품목 키가 변형 키면 `#` 뒤, 상품 키면 null — O3 D-O3-14) */
+  readonly variant: string | null
+  /** 포장 때 적은 수량 (기록에 없으면 1 — O3 D-O3-14) */
+  readonly qty: number
 }
 
 /** 포장 목록 한 줄 = 묶음 (AC-I2-30·35) */
@@ -194,7 +202,7 @@ export interface PackingEntry {
   readonly remove: readonly PackingRemoved[]
 }
 
-interface ScopeLookup {
+export interface ScopeLookup {
   readonly order: ReadonlyMap<string, number>
   readonly titles: ReadonlyMap<string, string>
   readonly names: ReadonlyMap<string, string>
@@ -209,7 +217,8 @@ interface ScopeLookup {
   readonly variantOrder: ReadonlyMap<string, ReadonlyMap<string, number>>
 }
 
-function lookupOf(state: EngineState): ScopeLookup {
+/** 범위 상태의 찾아보기 표. claims는 시험용 주입 자리(기본 코어 listClaims) */
+export function lookupOf(state: EngineState, claims: Iterable<ClaimInfo> = listClaims(state)): ScopeLookup {
   const broadcasts = listBroadcasts(state)
   const names = new Map<string, string>()
   const ids = new Map<string, string>()
@@ -222,7 +231,7 @@ function lookupOf(state: EngineState): ScopeLookup {
     if (product.variants.length > 0) variantOrder.set(product.key, new Map(product.variants.map((variant, i) => [variant.text, i])))
   }
   const confirmed = new Map<string, ClaimInfo[]>()
-  for (const claim of listClaims(state)) {
+  for (const claim of claims) {
     if (claim.status !== 'CONFIRMED') continue
     const list = confirmed.get(claim.currentBuyer)
     if (list === undefined) confirmed.set(claim.currentBuyer, [claim])
@@ -248,33 +257,50 @@ function splitKey(key: string): { broadcast: string; no: number; product: string
   return { broadcast, no: Number(match[2]), product: `${broadcast}/${match[2] as string}`, variant: match[3] ?? null }
 }
 
-/**
- * 묶음의 지금 품목 (지금의 구매자 buyer, 날짜) — 찜의 키마다 하나, 수량·찜 금액은 그 키의 확정 찜 합 (O3 D-O3-10).
- * 순서: 방송 선언 순 → 번호 → 상품의 변형 순서
- */
-function currentItems(lookup: ScopeLookup, buyer: string, date: string): PackingItem[] {
-  const byKey = new Map<string, { claim: ClaimInfo; qty: number; amount: number }>()
+/** 묶음의 확정 찜을 찜의 키로 묶는다 (지금의 구매자 buyer, 날짜) — 수량 합, 코어 조회 순서 */
+function groupsOf(lookup: ScopeLookup, buyer: string, date: string): Map<string, { claims: ClaimInfo[]; qty: number }> {
+  const byKey = new Map<string, { claims: ClaimInfo[]; qty: number }>()
   for (const claim of lookup.confirmed.get(buyer) ?? []) {
     if (lookup.dates.get(claim.broadcast) !== date) continue
-    const amount = claim.amount ?? (claim.price ?? 0) * claim.qty
     const group = byKey.get(claim.key)
-    if (group === undefined) byKey.set(claim.key, { claim, qty: claim.qty, amount })
+    if (group === undefined) byKey.set(claim.key, { claims: [claim], qty: claim.qty })
     else {
+      group.claims.push(claim)
       group.qty += claim.qty
-      group.amount += amount
     }
   }
-  const items = [...byKey.entries()].map(([key, { claim, qty, amount }]): PackingItem => ({
-    id: lookup.ids.get(claim.product) ?? '',
-    key,
-    broadcast: claim.broadcast,
-    title: lookup.titles.get(claim.broadcast) ?? '',
-    no: claim.no,
-    name: lookup.names.get(claim.product) ?? '',
-    price: amount,
-    variant: claim.variant,
-    qty,
-  }))
+  return byKey
+}
+
+/** 묶음의 지금 품목 쌍 (금액을 보지 않는다 — 포장 상태 말만 정할 때) */
+function currentPairs(lookup: ScopeLookup, buyer: string, date: string): PackedItem[] {
+  return [...groupsOf(lookup, buyer, date).entries()].map(([key, { claims, qty }]) => {
+    const id = lookup.ids.get((claims[0] as ClaimInfo).product) ?? ''
+    return { id: id === '' ? null : id, key, qty }
+  })
+}
+
+/**
+ * 묶음의 지금 품목 (지금의 구매자 buyer, 날짜) — 찜의 키마다 하나, 수량·찜 금액은 그 키의 확정 찜 합 (O3 D-O3-10).
+ * 순서: 방송 선언 순 → 번호 → 상품의 변형 순서. 찜 금액이 없는 확정 찜이 있으면 MissingAmountError (D-O3-15)
+ */
+function currentItems(lookup: ScopeLookup, buyer: string, date: string): PackingItem[] {
+  const items = [...groupsOf(lookup, buyer, date).entries()].map(([key, { claims, qty }]): PackingItem => {
+    const claim = claims[0] as ClaimInfo
+    let amount = 0
+    for (const each of claims) amount += requireAmount(each)
+    return {
+      id: lookup.ids.get(claim.product) ?? '',
+      key,
+      broadcast: claim.broadcast,
+      title: lookup.titles.get(claim.broadcast) ?? '',
+      no: claim.no,
+      name: lookup.names.get(claim.product) ?? '',
+      price: amount,
+      variant: claim.variant,
+      qty,
+    }
+  })
   return sortItems(lookup, items)
 }
 
@@ -322,8 +348,17 @@ export function packingEntry(state: EngineState, date: string, buyer: string, re
           packedItems
             .filter((item) => !current.has(pairText(item)))
             .map((item): PackingRemoved => {
-              const { broadcast, no } = splitKey(item.key)
-              return { id: item.id, key: item.key, broadcast, title: lookup.titles.get(broadcast) ?? '', no, name: item.id === null ? '' : (lookup.namesById.get(item.id) ?? '') }
+              const { broadcast, no, variant } = splitKey(item.key)
+              return {
+                id: item.id,
+                key: item.key,
+                broadcast,
+                title: lookup.titles.get(broadcast) ?? '',
+                no,
+                name: item.id === null ? '' : (lookup.namesById.get(item.id) ?? ''),
+                variant,
+                qty: item.qty,
+              }
             }),
         )
       : [],
@@ -509,7 +544,7 @@ export function readInvoice(value: unknown, containsPhoneRun: (text: string) => 
 
 // ── 포장 라벨 (AC-I2-34, L-4·L-6·L-9, D-I2-07) ───────────────────────────
 
-/** 묶음의 L-9 포장 라벨 데이터 (옵션 방송은 변형마다 항목 — label-data.ts packingBroadcasts). 품목이 없으면 null */
+/** 묶음의 L-9 포장 라벨 데이터 (옵션 방송은 변형마다 항목 — label-data.ts packingBroadcasts). 품목이 없으면 null, 찜 금액이 없는 확정 찜이 있으면 MissingAmountError (D-O3-15) */
 export function packingLabelData(state: EngineState, date: string, buyer: string): PackingLabelData | null {
   const settlement = getSettlement(state, buyer, date)
   if (settlement.items.length === 0) return null
@@ -546,6 +581,13 @@ export function labelPdf(bitmaps: readonly LabelBitmap[]): Uint8Array | null {
   return pdf.ok ? pdf.bytes : null
 }
 
+/** 묶음 하나의 상태 말·송장 (금액을 보지 않는다 — 지난 구매·판매대장 배송 칸). records는 그 묶음의 기록이 든 목록(다른 구매자 것은 거른다) */
+export function packingStatusOf(state: EngineState, date: string, buyer: string, records: readonly PackingRecordRow[], lookup: ScopeLookup = lookupOf(state)): { readonly status: PackingWord; readonly invoice: string | null } {
+  const packing = replayPacking(records.filter((record) => record.buyer === buyer))
+  const current = new Set(currentPairs(lookup, buyer, date).map(pairText))
+  return { status: packingWord(packing, current), invoice: packing.phase === 'SHIPPED' ? packing.invoice : null }
+}
+
 /** 묶음마다의 상태 말·송장 (판매대장 배송 칸·정산 조회 — AC-I2-33). 그날 품목이 있는 지금의 구매자 + 자기 ID에 기록이 있는 지금의 구매자 */
 export function packingStatusByBuyer(state: EngineState, date: string, records: readonly PackingRecordRow[]): Map<string, { readonly status: PackingWord; readonly invoice: string | null }> {
   const byBuyer = new Map<string, PackingRecordRow[]>()
@@ -558,7 +600,7 @@ export function packingStatusByBuyer(state: EngineState, date: string, records: 
   const lookup = lookupOf(state)
   const add = (buyer: string) => {
     const packing = replayPacking(byBuyer.get(buyer) ?? [])
-    const current = new Set(currentItems(lookup, buyer, date).map((item) => pairText(pairOf(item))))
+    const current = new Set(currentPairs(lookup, buyer, date).map(pairText))
     out.set(buyer, { status: packingWord(packing, current), invoice: packing.phase === 'SHIPPED' ? packing.invoice : null })
   }
   for (const settlement of listSettlements(state)) if (settlement.date === date && settlement.items.length > 0) add(settlement.buyer)

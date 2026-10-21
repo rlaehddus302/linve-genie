@@ -6,6 +6,8 @@
 // - 포장 라벨: (지금의 구매자, 날짜) 정산 묶음 — 그날 방송 선언 순서대로 1등 상품 번호, 코어 정산의 상품 합계, 지금의 구매자 표시 이름.
 // - 옵션 방송 (O3, D-O3-01·03): 상품 라벨 price = 찜 금액, variant = 옵션 글(있을 때만), qty = 수량(2 이상일 때만).
 //   포장 라벨은 변형마다 항목(같은 변형은 수량을 더함), 옵션 없는 수량 1은 정수 번호 그대로.
+// - 찜 금액은 코어 ClaimInfo.amount만 (O3 감사 D-O3-15): 확정 찜에 없으면 단가 × 수량·가격 스냅샷으로 채우지 않고 그 데이터를 만들지 않는다
+//   (상품 라벨 = null + 알림, 포장 라벨 항목 = MissingAmountError, 포장 라벨 데이터 = null + 알림).
 // - 데이터에는 L-3·L-4 칸만 있다(메모·전화번호·뒤 4자리·채널 ID 없음). 만든 데이터는 checkProductData·checkPackingData로 확인한다.
 import {
   currentBuyerOf,
@@ -18,6 +20,7 @@ import {
   type ClaimInfo,
   type EngineState,
 } from '@livejjim/core'
+import { claimAmount, MissingAmountError } from './amount.ts'
 import { checkPackingData, checkProductData, labelContentKey, type LabelBuyer, type PackingEntry, type PackingLabelData, type ProductLabelData } from '@livejjim/label'
 
 /** 찜 ID → 코어 조회 결과 (상태 하나에 한 번 만든다 — 범위 실행 상태의 보기 캐시에 둔다) */
@@ -57,14 +60,24 @@ export function isWinnerOf(claims: ClaimIndex, claim: string, version: number): 
  * 상품 라벨 데이터 (L-9) — 지금 상태로 만든다. 그 찜이 그 확정버전의 1등이 아니면 null.
  * date = 그 방송의 날짜. 결과는 checkProductData를 통과한다(통과하지 못하면 null)
  */
-export function productLabelData(state: EngineState, claims: ClaimIndex, label: { readonly claim: string; readonly version: number; readonly buyer: LabelBuyer }): ProductLabelData | null {
+export function productLabelData(
+  state: EngineState,
+  claims: ClaimIndex,
+  label: { readonly claim: string; readonly version: number; readonly buyer: LabelBuyer },
+  onMissingAmount?: (claimId: string) => void,
+): ProductLabelData | null {
   const info = isWinnerOf(claims, label.claim, label.version)
   if (info === null) return null
+  // 가격 = 찜 금액(단가 스냅샷 × 수량, ClaimInfo.amount — 옵션 없는 수량 1 찜은 가격 스냅샷 그대로). 없으면 만들지 않는다 (D-O3-15)
+  const price = claimAmount(info)
+  if (price === null) {
+    onMissingAmount?.(info.id)
+    return null
+  }
   const product = getProduct(state, info.broadcast, info.no)
   const broadcast = getBroadcast(state, info.broadcast)
   if (product === null || broadcast === null) return null
-  // 가격 = 찜 금액(단가 스냅샷 × 수량, ClaimInfo.amount — 옵션 없는 수량 1 찜은 가격 스냅샷 그대로). 옵션 글은 있을 때만, 수량은 2 이상일 때만 (L-9 O3, D-O3-01)
-  const price = info.amount ?? (info.price ?? product.price) * info.qty
+  // 옵션 글은 있을 때만, 수량은 2 이상일 때만 (L-9 O3, D-O3-01)
   const data = {
     no: info.no,
     name: product.name,
@@ -81,7 +94,8 @@ export function productLabelData(state: EngineState, claims: ClaimIndex, label: 
 /**
  * 포장 라벨의 방송 항목 (L-9, L-4, O3 D-O3-03) — 지금의 구매자 root의 그 날짜 확정 찜(합친 구매자 포함)을 방송 선언 순서로.
  * 한 방송 안은 번호 순, 같은 번호는 상품의 변형 순서(항목 순서·선택지 순서). 같은 (번호, 옵션 글)의 찜은 수량을 더한 한 항목.
- * 옵션 없는 수량 1 항목은 정수 번호(O3 전과 같은 값), 아니면 `{ no, variant?, qty? }`
+ * 옵션 없는 수량 1 항목은 정수 번호(O3 전과 같은 값), 아니면 `{ no, variant?, qty? }`.
+ * 묶음의 확정 찜 중 찜 금액이 없는 것이 있으면 MissingAmountError — 그 묶음의 포장 라벨을 만들지 않는다 (D-O3-15)
  */
 export function packingBroadcasts(state: EngineState, root: string, date: string, claims: Iterable<ClaimInfo> = listClaims(state)): { title: string; numbers: PackingEntry[] }[] {
   const broadcasts = listBroadcasts(state).filter((broadcast) => broadcast.date === date)
@@ -99,6 +113,7 @@ export function packingBroadcasts(state: EngineState, root: string, date: string
   }
   for (const claim of claims) {
     if (claim.status !== 'CONFIRMED' || claim.currentBuyer !== root || !order.has(claim.broadcast)) continue
+    if (claimAmount(claim) === null) throw new MissingAmountError(claim.id)
     const key = JSON.stringify([claim.broadcast, claim.no, claim.variant])
     const group = groups.get(key)
     if (group === undefined) groups.set(key, { b: claim.broadcast, no: claim.no, variant: claim.variant, qty: claim.qty, rank: rankOf(claim) })
@@ -119,13 +134,24 @@ export function packingBroadcasts(state: EngineState, root: string, date: string
   return out
 }
 
-/** 포장 라벨 데이터 (L-9, L-4) — (지금의 구매자, 날짜) 정산 묶음. 1등 상품이 없으면 null */
-export function packingLabelData(state: EngineState, buyerId: string, date: string): { readonly root: string; readonly data: PackingLabelData } | null {
+/**
+ * 포장 라벨 데이터 (L-9, L-4) — (지금의 구매자, 날짜) 정산 묶음. 1등 상품이 없으면 null.
+ * 묶음에 찜 금액이 없는 확정 찜이 있으면 null — onMissingAmount로 그 찜 ID를 알린다 (D-O3-15)
+ */
+export function packingLabelData(state: EngineState, buyerId: string, date: string, onMissingAmount?: (claimId: string) => void): { readonly root: string; readonly data: PackingLabelData } | null {
   const root = currentBuyerOf(state, buyerId)
   if (root === null) return null
   const settlement = getSettlement(state, root, date)
   if (settlement.items.length === 0) return null
-  const data = { date, buyer: currentLabelBuyer(state, root), broadcasts: packingBroadcasts(state, root, date), subtotal: settlement.subtotal }
+  let broadcasts: { title: string; numbers: PackingEntry[] }[]
+  try {
+    broadcasts = packingBroadcasts(state, root, date)
+  } catch (error) {
+    if (!(error instanceof MissingAmountError)) throw error
+    onMissingAmount?.(error.claimId)
+    return null
+  }
+  const data = { date, buyer: currentLabelBuyer(state, root), broadcasts, subtotal: settlement.subtotal }
   const checked = checkPackingData(data)
   return checked.ok ? { root, data: checked.data } : null
 }

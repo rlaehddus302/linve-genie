@@ -25,6 +25,8 @@ export interface LogRecord {
   readonly reason?: string
   /** 워커 이름 (경보 WORKER_FAILING — collector · outbox · sealer) */
   readonly worker?: 'collector' | 'outbox' | 'sealer'
+  /** 찜 ID (엔진이 만든 `c<번호>` — 찜 금액이 없는 확정 찜, D-O3-15. 닉네임·금액은 남기지 않는다) */
+  readonly claim?: string
 }
 
 export type LogCode =
@@ -82,6 +84,8 @@ export type LogCode =
   | 'BACKUP_DISABLED'
   | 'BACKUP_PRUNE_FAILED'
   | 'DOCUMENT_WORK_FAILED'
+  // O3 감사 (D-O3-15): 확정 찜에 찜 금액이 없어 요약 댓글·라벨·포장·봉인 장부를 만들지 않음 — 찜 ID만
+  | 'AMOUNT_MISSING'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -136,6 +140,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   LABEL_INVALID: '포장 라벨 데이터가 형식 검사를 통과하지 못해 라벨을 만들지 않았어요',
   BACKUP_DISABLED: '백업 저장소가 정해지지 않아 자동 백업이 꺼져 있어요',
   BACKUP_PRUNE_FAILED: '오래된 백업을 지우지 못했어요(다음 확인 때 다시 해요)',
+  AMOUNT_MISSING: '확정 찜에 찜 금액이 없어 그 결과(요약 댓글·라벨·포장·봉인 장부)를 만들지 않았어요',
   DOCUMENT_WORK_FAILED: '파일 작업 워커가 일을 끝내지 못했어요(시간·메모리 상한·끊긴 요청 등 — 서버 판정은 그대로)',
 }
 
@@ -154,10 +159,12 @@ export function formatLog(record: LogRecord): string {
   if (record.seller !== undefined && /^[A-Za-z0-9_-]{1,80}$/.test(record.seller)) parts.push(`seller=${record.seller}`)
   if (record.status !== undefined) parts.push(`status=${String(record.status)}`)
   if (record.reason !== undefined && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(record.reason)) parts.push(`reason=${record.reason}`)
+  if (record.claim !== undefined && CLAIM_RE.test(record.claim)) parts.push(`claim=${record.claim}`)
   if (record.errorKind !== undefined) parts.push(`kind=${record.errorKind}`)
   return `[server] ${MESSAGES[record.code]} (${parts.join(' ')})`
 }
 
+const CLAIM_RE = /^c[0-9]{1,15}$/
 const SELLER_RE = /^[A-Za-z0-9_-]{1,80}$/
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const WORKERS = new Set(['collector', 'outbox', 'sealer'])
