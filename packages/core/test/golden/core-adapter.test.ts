@@ -662,15 +662,18 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
 // I2 합치기(main a52f5c3): main 파일 29 · 파서 474 · 엔진 135 · 통과 609 + I2 = 파일 30 · 파서 500 · 엔진 135 · 통과 635 (교체 — 약화 아님).
 // N2b-2(engine/23-n2b2-multi-platform.yaml G-ENG-N2b-2-01·02, AC-N2b-2-90)를 더한다 — +1·+0·+2·+2.
 // N2b-2 합치기(main b8f279b): main 파일 30 · 파서 500 · 엔진 135 · 통과 635 + N2b-2 = 파일 31 · 파서 500 · 엔진 137 · 통과 637 (교체 — 약화 아님).
-describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + Y1 + I3 + N2 + I2 + N2b-2 합계)', () => {
-  it('파일 31 · 파서 500 · 엔진 137 · 통과 637, 나머지 0', () => {
+// N3 합치기(main c3d3659): N3(engine/22-n3-deposits.yaml G-ENG-N3-01·02, AC-N3-04 — deposit/*.json은 러너가 읽지 않는다)를 더한다 — N3 쪽 +1·+0·+2·+2.
+//   main 파일 30 · 파서 500 · 엔진 135 · 통과 635 + N3 = 파일 31 · 파서 500 · 엔진 137 · 통과 637 (교체 — 약화 아님).
+// N2b-2 합치기(main 066480c): 파일 31 · 파서 500 · 엔진 137 · 통과 637(N2b-2 쪽 = main 쪽) + 상대 트랙 +1·+0·+2·+2 = 파일 32 · 파서 500 · 엔진 139 · 통과 639 (교체 — 약화 아님).
+describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + Y1 + I3 + N2 + I2 + N3 + N2b-2 합계)', () => {
+  it('파일 32 · 파서 500 · 엔진 139 · 통과 639, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
-      files: 31,
+      files: 32,
       parserCases: 500,
-      scenarios: 137,
-      pass: 637,
+      scenarios: 139,
+      pass: 639,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,

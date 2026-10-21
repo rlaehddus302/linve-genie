@@ -2,6 +2,7 @@
 // AC-N4a-18 (모르는 동안 숨김·열린 창이 1초 안에 바뀜), AC-N4a-32 (꺼진 판매자의 화면 둘러보기 PC·휴대폰), AC-N4a-19 (다시 켜면 그대로)
 import { expect, test, type Page } from '@playwright/test'
 import { boardItem, cleanupN4a, gotoSettings, LABEL_CONTROL, login, noHorizontalScroll, OFF_NOTE, openNewBroadcast, postJson, primaryOutsideDialogs, realBroadcast, registerApi, setLabels, smsApi, uniqueDate, viewerClaim } from './support.ts'
+import { closeMore, menuLink, moreLinks, openMore } from '../menu.ts'
 
 test.afterEach(async ({ page }) => {
   await cleanupN4a(page)
@@ -9,9 +10,6 @@ test.afterEach(async ({ page }) => {
 
 const PRINTER_STATUS = /^(프린터 |출력 멈춤 ·)/
 
-function menuLink(page: Page, name: string) {
-  return page.getByRole('navigation', { name: '메뉴' }).getByRole('link', { name, exact: true })
-}
 
 /** 화면 어디에도 라벨 조작이 없다 (창 안 포함) */
 async function noLabelControls(page: Page): Promise<void> {
@@ -160,6 +158,14 @@ for (const phone of [false, true]) {
       else await expect(page.getByText(OFF_NOTE), where).toHaveCount(0)
       expect((await primaryOutsideDialogs(page)).length, `${where} 주 버튼`).toBeLessThanOrEqual(1)
       if (phone) await noHorizontalScroll(page)
+      // AC-NAV-10: 휴대폰의 메뉴 "라벨"은 "더보기" 목록 안 — 닫힌 채 "없음"은 늘 통과하므로 목록을 연 채로도 본다
+      // (창이 열려 있으면 창 밖을 누를 수 없다 — 그 화면의 메뉴는 창을 열기 전 단계에서 본다)
+      if (phone && (await page.getByRole('dialog').count()) === 0) {
+        await openMore(page)
+        await expect(moreLinks(page), `${where} 목록`).not.toHaveCount(0)
+        await noLabelControls(page)
+        await closeMore(page)
+      }
     }
 
     await page.goto('/')

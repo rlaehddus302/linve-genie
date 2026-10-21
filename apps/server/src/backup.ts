@@ -30,6 +30,13 @@ import {
   accounts,
   broadcasts,
   chatRaw,
+  depositActions,
+  depositCorpBindings,
+  depositLinks,
+  depositNames,
+  depositRequests,
+  depositSources,
+  deposits,
   events,
   executableOutbox,
   igConnections,
@@ -1114,8 +1121,13 @@ const BATCH = 500
  * - 틱톡 연결(tiktok_links — 회차·범위를 참조하는 회차별 연결과 기록하지 않은·저장 실패 수): 라이브 연결(live_links)처럼 지운다. 파일에 없고,
  *   복구한 지난 회차를 다시 잇지 않는다. 복구 명령은 서버를 다시 켜므로 이어받기(resume)가 지운 연결을 다시 열지 않는다.
  * - 붙여넣기 요청 번호(paste_requests — 회차의 넣기 응답 요약): 라이브 요청 번호(live_requests)처럼 지운다.
+ * - 입금 확인(N3 — 입금과 엔진 기록의 연결 deposit_links, 처리 기록 deposit_actions): 범위를 참조하므로 이 목록에서 지우지만, 판매자가 한 일의 기록이라
+ *   버리지 않는다 — 지우기 전에 읽어 두었다가 파일로 다시 만든 범위에 다시 넣는다(restoreDepositRecords). 처리 기록은 모두 그대로(범위만 새 범위로),
+ *   연결은 다시 만든 범위의 그 seq에 그 입금의 엔진 기록(요청 번호 dep-<번호>-pay|rev-<차례>)이 있을 때만 남긴다.
  */
 export const RESTORE_REPLACED_TABLES = [
+  depositLinks,
+  depositActions,
   igDmRows,
   igDmSends,
   liveLinkMoves,
@@ -1142,9 +1154,30 @@ export const RESTORE_REPLACED_TABLES = [
 ] as const
 /**
  * 복구가 그대로 두는 판매자 표: 판매자 행(가게 설정·판매 규칙 설정 칸만 파일의 것으로 바꾼다)·로그인 계정·세션 (AC-I2-62 "판매자 ID·로그인 계정·세션·전화번호 키는 그대로"),
- * 라벨 템플릿(I1 — 판매자 설정, 파일에 없다), 구글 연결·승인 요청·할당량 사용량(Y1 — 계정 연결과 그날 쓴 양, 파일에 없다), 인스타그램 연결·승인 요청(N2 — 계정 연결), 틱톡 아이디·틱톡 사용 동의 기록(N2b-2 — 인스타그램 연결처럼 계정 쪽 설정이고, 동의 기록은 덧붙이기만 하는 기록이라 지우지 않는다 DAT-05), 출력 대기열 줄·라벨 기능 켬/끔 기록(I1·N4a — 판매자 설정, 대기열의 출력 중·멈춤 상태는 복구가 지운다)
+ * 라벨 템플릿(I1 — 판매자 설정, 파일에 없다), 구글 연결·승인 요청·할당량 사용량(Y1 — 계정 연결과 그날 쓴 양, 파일에 없다), 인스타그램 연결·승인 요청(N2 — 계정 연결), 틱톡 아이디·틱톡 사용 동의 기록(N2b-2 — 인스타그램 연결처럼 계정 쪽 설정이고, 동의 기록은 덧붙이기만 하는 기록이라 지우지 않는다 DAT-05), 출력 대기열 줄·라벨 기능 켬/끔 기록(I1·N4a — 판매자 설정, 대기열의 출력 중·멈춤 상태는 복구가 지운다),
+ * 입금 확인(N3 — 원천·입금·기억한 입금자명·묶인 사업자번호·화면 요청 번호: 엔진 밖 기록이라 파일에 없다. 입금 번호를 다시 쓰지 않게 그대로 두고,
+ * 입금 상태만 다시 만든 엔진 기록에 맞춘다 — 반영한 입금 기록이 파일에 없으면 확인 필요로, restoreDepositRecords)
  */
-export const RESTORE_KEPT_TABLES = [sellers, accounts, sessions, labelTemplates, youtubeConnections, youtubeOauthStates, youtubeQuota, igConnections, igOauthStates, tiktokAccounts, tiktokConsents, printQueues, labelSwitches] as const
+export const RESTORE_KEPT_TABLES = [
+  sellers,
+  accounts,
+  sessions,
+  labelTemplates,
+  youtubeConnections,
+  youtubeOauthStates,
+  youtubeQuota,
+  igConnections,
+  igOauthStates,
+  tiktokAccounts,
+  tiktokConsents,
+  printQueues,
+  labelSwitches,
+  depositSources,
+  deposits,
+  depositNames,
+  depositCorpBindings,
+  depositRequests,
+] as const
 /** 판매자 데이터가 아닌 표 (로그인 전 시도 수 — 판매자 ID가 없다) */
 export const RESTORE_UNRELATED_TABLES = [loginLimits] as const
 
@@ -1211,6 +1244,8 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
       }
       const nowExisting = await tx.select({ id: scopes.id }).from(scopes).where(eq(scopes.sellerId, sellerId))
       if (nowExisting.length > 0 && !options.replace) throw new RestoreAbort(RESTORE_MESSAGES.needReplace)
+      // 입금 연결·처리 기록은 지우기 전에 읽어 둔다 (N3 — 판매자가 한 일의 기록, 아래에서 다시 넣는다)
+      const savedDeposits = await saveDepositRecords(tx, sellerId)
       for (const table of RESTORE_REPLACED_TABLES) await tx.delete(table).where(eq(table.sellerId, sellerId))
       // 출력 대기열 줄은 남긴다(라벨 기능 켬/끔·출력 기기) — 지운 작업을 기다리는 출력 중·멈춤 상태만 지운다 (D-I2-14)
       await tx.update(printQueues).set({ releasing: false, paused: null, backlog: false, rev: sql`${printQueues.rev} + 1`, updatedAt: now }).where(eq(printQueues.sellerId, sellerId))
@@ -1310,6 +1345,7 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
       const written = await walkBackup(options.bytes, visitor)
       if (!written.ok || written.value.digest !== summary.digest) throw new RestoreAbort(RESTORE_MESSAGES.failed)
       await packingBatch.flush()
+      await restoreDepositRecords(tx, sellerId, savedDeposits, scopeIds, now)
       await options.beforeCommit?.()
     })
   } catch (error) {
@@ -1318,6 +1354,80 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
   }
   const checks = await checkReplay(db, { sellerId })
   return { ok: true, scopes: summary.scopes.length, events: eventCount, packing: summary.packing, safety, checks }
+}
+
+/** 복구가 지우기 전에 읽어 둔 입금 연결·처리 기록 (N3) — 옛 범위 ID → [날짜, 리허설] */
+interface SavedDepositRecords {
+  readonly scopeKeys: ReadonlyMap<string, string>
+  readonly links: readonly (typeof depositLinks.$inferSelect)[]
+  readonly actions: readonly (typeof depositActions.$inferSelect)[]
+}
+
+async function saveDepositRecords(tx: Db, sellerId: string): Promise<SavedDepositRecords> {
+  const scopeRows = await tx.select({ id: scopes.id, date: scopes.date, rehearsal: scopes.rehearsal }).from(scopes).where(eq(scopes.sellerId, sellerId))
+  const links = await tx.select().from(depositLinks).where(eq(depositLinks.sellerId, sellerId)).orderBy(asc(depositLinks.id))
+  const actions = await tx.select().from(depositActions).where(eq(depositActions.sellerId, sellerId)).orderBy(asc(depositActions.id))
+  return { scopeKeys: new Map(scopeRows.map((row) => [row.id, JSON.stringify([row.date, row.rehearsal])])), links, actions }
+}
+
+/**
+ * 입금 연결·처리 기록을 다시 만든 범위에 다시 넣고 입금 상태를 다시 만든 엔진 기록에 맞춘다 (N3 + I2 합치기 — 판매자에게 안전한 쪽):
+ * - 처리 기록(누가·언제·무엇을)은 하나도 버리지 않는다. 범위는 같은 (날짜, 리허설)의 새 범위로, 그 범위가 파일에 없으면 비운다(날짜·구매자·seq는 그대로).
+ * - 연결은 새 범위의 그 seq에 그 입금의 엔진 기록(요청 번호 dep-<번호>-pay|rev-<차례>, 실패 아님)이 있을 때만 남긴다 — 파일에 없는 기록을 가리키지 않게.
+ * - 입금 상태: 남은 연결 중 가장 늦은 차례의 입금 기록이 되돌림 없이 있으면 그 기록으로 반영된 상태(자동 확인됨·확인함), 아니면 반영된 입금은 확인 필요로.
+ *   엔진에는 입금 기록이 있는데 입금은 확인 필요로 남아 두 번 반영되거나, 엔진에는 없는데 확인됨으로 남아 입금을 놓치는 일이 없게 한다.
+ *   상태를 바꾼 입금마다 처리 기록(조치자 server — 화면에는 "서버")을 남긴다. 입금 번호·입금 내역·원천은 그대로다(같은 입금을 두 번 받지 않는다).
+ */
+async function restoreDepositRecords(tx: Db, sellerId: string, saved: SavedDepositRecords, scopeIds: ReadonlyMap<string, string>, now: Date): Promise<void> {
+  const newScope = (old: string | null): string | null => {
+    if (old === null) return null
+    const key = saved.scopeKeys.get(old)
+    return key === undefined ? null : (scopeIds.get(key) ?? null)
+  }
+  for (let start = 0; start < saved.actions.length; start += BATCH) {
+    await tx.insert(depositActions).values(saved.actions.slice(start, start + BATCH).map((action) => ({ ...action, scopeId: newScope(action.scopeId) })))
+  }
+  const depositRows = await tx
+    .select({ id: deposits.id, no: deposits.no, status: deposits.status, turn: deposits.turn, appliedDate: deposits.appliedDate, appliedBuyer: deposits.appliedBuyer, appliedSeq: deposits.appliedSeq })
+    .from(deposits)
+    .where(eq(deposits.sellerId, sellerId))
+  const noOf = new Map(depositRows.map((row) => [row.id, row.no]))
+  const kept: (typeof depositLinks.$inferSelect)[] = []
+  for (const link of saved.links) {
+    const scopeId = newScope(link.scopeId)
+    const no = noOf.get(link.depositId)
+    if (scopeId === null || no === undefined) continue
+    const found = await tx
+      .select({ requestId: events.requestId, failed: events.failed })
+      .from(events)
+      .where(and(eq(events.sellerId, sellerId), eq(events.scopeId, scopeId), eq(events.seq, link.seq)))
+      .limit(1)
+    const expected = `dep-${String(no)}-${link.kind === 'refund' ? 'rev' : 'pay'}-${String(link.turn)}`
+    if (found[0] === undefined || found[0].failed || found[0].requestId !== expected) continue
+    kept.push({ ...link, scopeId })
+  }
+  for (let start = 0; start < kept.length; start += BATCH) await tx.insert(depositLinks).values(kept.slice(start, start + BATCH))
+  for (const deposit of depositRows) {
+    const mine = kept.filter((link) => link.depositId === deposit.id)
+    const latest = mine.filter((link) => link.kind === 'payment').sort((a, b) => b.turn - a.turn)[0]
+    const active = latest !== undefined && !mine.some((link) => link.kind === 'refund' && link.turn === latest.turn) ? latest : undefined
+    const applied = deposit.status === 'AUTO_APPLIED' || deposit.status === 'APPLIED'
+    if (active === undefined) {
+      if (!applied) continue
+      await tx.update(deposits).set({ status: 'REVIEW', appliedDate: null, appliedBuyer: null, appliedSeq: null, handledAt: now }).where(eq(deposits.id, deposit.id))
+      await tx.insert(depositActions).values({ sellerId, depositId: deposit.id, action: 'REOPEN', actor: 'server', accountId: null, at: now })
+      continue
+    }
+    const status = active.auto ? 'AUTO_APPLIED' : 'APPLIED'
+    if (deposit.status === status && deposit.turn === active.turn && deposit.appliedDate === active.date && deposit.appliedBuyer === active.buyer && deposit.appliedSeq === active.seq) continue
+    await tx
+      .update(deposits)
+      .set({ status, turn: active.turn, appliedDate: active.date, appliedBuyer: active.buyer, appliedSeq: active.seq, handledAt: now })
+      .where(eq(deposits.id, deposit.id))
+    await tx
+      .insert(depositActions)
+      .values({ sellerId, depositId: deposit.id, action: active.auto ? 'AUTO' : 'CONFIRM', actor: 'server', accountId: null, date: active.date, buyer: active.buyer, scopeId: active.scopeId, seq: active.seq, at: now })
+  }
 }
 
 /** 파일의 방송 ID 중 다른 판매자의 방송 ID와 같은 것이 있는가 (방송 기본 키는 서버 전체 — 같은 서버의 다른 판매자로 가져오기, RA-I2-002) */

@@ -95,6 +95,8 @@ describe('앱 설치 (AC-S06-52)', () => {
  * 메뉴 "라벨"·프린터 상태는 켬/끔을 안 뒤 켜져 있을 때만 보인다 (AC-N4a-13·18)
  */
 async function topBarWithLabels(labelsEnabled: boolean | null, route: Route, navigate: Navigate = () => {}) {
+  // PC 폭(48rem 이상) — 모든 메뉴가 위 줄에 (휴대폰 모양은 phone-menu.test.tsx, D-NAV-01)
+  vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(min-width: 48rem)', media: query, addEventListener: () => {}, removeEventListener: () => {} }))
   const { TopBar } = await import('../src/components/TopBar.tsx')
   const { PrintContext } = await import('../src/components/print-context.tsx')
   const { PrintStore } = await import('../src/lib/print-store.ts')
@@ -110,22 +112,25 @@ async function topBarWithLabels(labelsEnabled: boolean | null, route: Route, nav
   )
 }
 
-describe('메뉴 (AC-S06-01, AC-I1-20, AC-I3-44, AC-N4a-10·13·18)', () => {
-  it('"방송"·"문자찜 입력"·"구매자"·"정산"·"포장"(I2 AC-I2-35)·"라벨"(AC-I1-20)·"설정"(AC-I3-44), 지금 화면은 aria-current="page" — 구매자·정산 사이는 고른 날짜를 이어 간다', async () => {
+describe('PC 메뉴 (AC-S06-01, AC-I1-20, AC-I3-44, AC-N4a-10·13·18, AC-N3-40, AC-NAV-08 — 더보기 없음)', () => {
+  it('"방송"·"문자찜 입력"·"구매자"·"정산"·"입금 확인"(AC-N3-40)·"포장"(I2 AC-I2-35)·"라벨"(AC-I1-20)·"설정"(AC-I3-44), 지금 화면은 aria-current="page" — 구매자·정산 사이는 고른 날짜를 이어 간다', async () => {
     const navigate = vi.fn()
     await topBarWithLabels(true, { name: 'buyers', date: '2026-10-18', rehearsal: true }, navigate)
     const menu = screen.getByRole('navigation', { name: '메뉴' })
     const links = [...menu.querySelectorAll('a')]
-    expect(links.map((link) => link.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '포장', '라벨', '설정'])
-    expect(links.map((link) => link.getAttribute('aria-current'))).toEqual([null, null, 'page', null, null, null, null])
-    expect(links[5]?.getAttribute('href')).toBe('/labels')
+    // 합치기(N3 + main): "정산" 다음에 "입금 확인"(N3 AC-N3-40)이 들어와 뒤 칸 번호가 하나씩 밀린다
+    expect(links.map((link) => link.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '입금 확인', '포장', '라벨', '설정'])
+    expect(links.map((link) => link.getAttribute('aria-current'))).toEqual([null, null, 'page', null, null, null, null, null])
+    expect(links[4]?.getAttribute('href')).toBe('/deposits')
+    expect(links[6]?.getAttribute('href')).toBe('/labels')
     expect(links[3]?.getAttribute('href')).toBe('/settlements?date=2026-10-18&rehearsal=true')
     // 포장은 실제 범위만 — 리허설 날짜를 보고 있었으면 날짜를 잇지 않는다
-    expect(links[4]?.getAttribute('href')).toBe('/packing')
-    expect(links[6]?.getAttribute('href')).toBe('/settings')
+    expect(links[5]?.getAttribute('href')).toBe('/packing')
+    expect(links[7]?.getAttribute('href')).toBe('/settings')
     fireEvent.click(links[1] as HTMLAnchorElement)
     expect(navigate).toHaveBeenCalledWith({ name: 'sms' })
     expect(screen.getByRole('link', { name: '출력 기기 없음' }).getAttribute('href')).toBe('/labels')
+    expect(screen.queryByRole('button', { name: '더보기' })).toBeNull()
   })
 
   it('"설정"은 메뉴 항목 하나 — 누르면 /settings, 그 화면이면 aria-current="page". 위 줄에 따로 "설정" 링크를 두지 않는다 (AC-I3-44, D-N4a-07)', async () => {
@@ -143,7 +148,7 @@ describe('메뉴 (AC-S06-01, AC-I1-20, AC-I3-44, AC-N4a-10·13·18)', () => {
   it('라벨 기능이 꺼져 있으면 메뉴 "라벨"과 프린터 상태가 없다 — 다른 메뉴(합친 뒤 I2 "포장" 포함)와 "설정"은 그대로', async () => {
     await topBarWithLabels(false, { name: 'home' })
     const menu = screen.getByRole('navigation', { name: '메뉴' })
-    expect([...menu.querySelectorAll('a')].map((link) => link.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '포장', '설정'])
+    expect([...menu.querySelectorAll('a')].map((link) => link.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '입금 확인', '포장', '설정'])
     expect(screen.queryByRole('link', { name: /출력 기기|프린터|출력 멈춤/ })).toBeNull()
     expect(within(menu).getByRole('link', { name: '설정' }).getAttribute('href')).toBe('/settings')
   })
@@ -151,7 +156,7 @@ describe('메뉴 (AC-S06-01, AC-I1-20, AC-I3-44, AC-N4a-10·13·18)', () => {
   it('켬/끔을 아직 모르면(불러오는 중) 메뉴 "라벨"·프린터 상태를 보이지 않는다 (AC-N4a-18)', async () => {
     await topBarWithLabels(null, { name: 'home' })
     const menu = screen.getByRole('navigation', { name: '메뉴' })
-    expect([...menu.querySelectorAll('a')].map((link) => link.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '포장', '설정'])
+    expect([...menu.querySelectorAll('a')].map((link) => link.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '입금 확인', '포장', '설정'])
     expect(screen.queryByRole('link', { name: /출력 기기|프린터|출력 멈춤/ })).toBeNull()
   })
 })

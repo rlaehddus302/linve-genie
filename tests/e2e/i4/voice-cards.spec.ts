@@ -101,13 +101,20 @@ test.describe('I4 제안 카드', () => {
   })
 
   test('AC-I4-21: 맨 앞이 된 지 1초 안의 Enter는 등록 없이 안내', async ({ page }) => {
+    // 부하 때 카드가 뜬 뒤 Enter까지 실제 1초가 지나 버리지 않게 브라우저 시계를 멈추고 누른다 (카드가 뜬 뒤 0ms — 1초 안)
+    await page.clock.install()
     await setup(page)
+    await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1000)
     const requests = recordRequests(page)
     const input = page.getByLabel('빠른 입력')
     await speak(page, '15번 핑크프릴 만오천 원')
+    // 카드가 뜬 뒤에 누른다(카드보다 먼저 누르면 빈 칸 Enter라 아무 일도 없다). 시계가 멈춰 있어 기다리는 동안 1초가 지나지 않는다.
+    const c = card(page, '15번 핑크프릴 15,000원')
+    await expect(c).toBeVisible()
+    await expect(c.getByText('Enter 등록', { exact: true })).toHaveCount(0)
     await input.press('Enter')
     await expect(page.getByRole('alert').filter({ hasText: TOO_SOON })).toBeVisible()
-    await expect(card(page, '15번 핑크프릴 15,000원')).toBeVisible()
+    await expect(c).toBeVisible()
     expect(registers(requests)).toHaveLength(0)
   })
 

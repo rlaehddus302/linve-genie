@@ -13,6 +13,7 @@
     "check-replay": "node src/commands/check-replay.ts",
     "backup": "node src/commands/backup.ts",
     "e2e": "node src/commands/e2e-server.ts",
+    "popbill-corp": "node src/commands/popbill-corp.ts",
     "restore": "node src/commands/restore.ts"
   },
   "dependencies": {

@@ -1,4 +1,4 @@
--- N2b-2 (0009): 동시 송출(회차·플랫폼마다 연결 하나)·틱톡 연결·틱톡 동의 기록·틱톡 아이디·댓글 붙여넣기 요청 (PLT-02·PLT-03, D-N2b-2-01·04·05·08). src/db/schema.ts와 같아야 한다(test/schema.test.ts가 대조한다).
+-- N2b-2 (0010): 동시 송출(회차·플랫폼마다 연결 하나)·틱톡 연결·틱톡 동의 기록·틱톡 아이디·댓글 붙여넣기 요청 (PLT-02·PLT-03, D-N2b-2-01·04·05·08). src/db/schema.ts와 같아야 한다(test/schema.test.ts가 대조한다).
 -- 모든 표에 판매자 ID가 있다(SYS-02). 붙여 넣은 글은 두지 않고 요약값만 둔다.
 DROP INDEX "live_links_open_uq";--> statement-breakpoint
 CREATE UNIQUE INDEX "live_links_open_uq" ON "live_links" USING btree ("seller_id","broadcast_id","platform") WHERE state <> 'UNLINKED';--> statement-breakpoint
