@@ -265,6 +265,9 @@ events:
     stock: 2
     options: [{ name: 색상, choices: [{ label: 흰색 }, { label: 검정색 }] }]
     # 공개(OPEN) 순간 s2(10초 전 — 30초 안): 변형 둘인데 옵션 없음 → REJECTED(OPTION_MISSING) + 확인 필요 sms:s2(읽은 것 = 적은 수량 3)
+  # D-O1-12: 직접 배정은 엔진이 아는 구매자에게만 된다(R-9 "모르는 구매자 … 아무 일도 없다"). B·C가 먼저 채팅을 쓴다 — 지금 상품 31 후보뿐, 옵션 값 없음 → 언급(찜 없음)
+  - { at: "20:00:50", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "안녕하세요" }
+  - { at: "20:00:51", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "안녕하세요" }
   - { at: "20:01:00", type: host.assign, b: b1, no: 21, buyer: UC_B, reason: 전화 주문, options: { 사이즈: S }, qty: 1 }   # S 빈 자리 → B 확정
   - { at: "20:01:10", type: host.assign, b: b1, no: 21, buyer: UC_C, reason: 교환 요청, options: { 사이즈: M }, qty: 1, replace: "sms:s1", replaceTo: CANCEL }
     # 교체: 밀려나는 s1의 수량 2를 더해 본다 → 남은 0 + 2 = 2 ≥ 1 → C 확정, s1 취소. 남은 2 − 1 = 1 → 풀린 수량만큼 승계(AUTO, D-O1-05) → 대기 1순위 A 확정. 남은 0
@@ -278,7 +281,7 @@ events:
   - { at: "20:01:30", type: host.resolveReview, b: b1, item: "sms:s2", no: 31, qty: 2, options: { 색상: 흰색 }, reason: 2개로 줄임 }   # 2 ≤ 남은 2, 앞선 대기 없음 → 확정 8000 × 2 = 16000
 expect:
   products:
-    b1/21: { status: OPEN, confirmedUnits: 4 }            # L이 남았다. S 1 + M 2(C 1 + A 1)
+    b1/21: { status: OPEN, confirmedUnits: 3 }            # L이 남았다. S 1 + M 2(C 1 + A 1) = 3 (D-O1-12: 처음 적은 4는 계산 실수)
     b1/31: { status: OPEN, confirmedUnits: 2 }            # 검정색 2가 남았다
   variants:
     "b1/21#S": { status: SOLD, winner: UC_B, stock: 1 }
@@ -291,7 +294,7 @@ expect:
     - { product: "b1/21#M", buyer: UC_A, status: CONFIRMED, qty: 1 }
     - { product: b1/31, buyer: "sms:s2", status: REJECTED, reason: OPTION_MISSING, qty: 3 }   # 공개 때 끝난 보류 찜(옵션 없는 찜의 키 = 상품 키, D-O1-02)
     - { product: "b1/31#흰색", buyer: "sms:s2", status: CONFIRMED, qty: 2 }
-  claimCount: 6                                           # s1, A, s2 보류, B, C, s2 바로잡기
+  claimCount: 6                                           # s1, A, s2 보류, B, C, s2 바로잡기 (B·C의 인사 채팅은 찜 없음)
   reviews: []
   buyers:
     "sms:s1": { items: [], subtotal: 0 }
@@ -368,19 +371,51 @@ events:
   - { at: "20:01:35", type: host.convertMessage, b: b1, msg: m5, no: 31, reason: 수건 흰색 }  # 옵션 상품 → 아무 일도 없다(직접 배정을 쓴다, R-20 7)
   - { at: "20:01:40", type: product.focus, b: b1, no: 31 }                                    # 지금 상품 없음 → 31 (20:01:40). SOLD도 판매 중
   - { at: "20:02:00", type: product.renumber, b: b1, from: 31, to: 35 }                       # 지금 상품이 35로 따라간다, 정한 시각 그대로
-  - { at: "20:02:30", type: chat, b: b1, id: m7, ch: UC_G, nick: 강보람, text: "흰색" }       # 50초 → 35 흰색, A가 1등 → 대기 1
+    # D-O1-12: 번호 변경은 상품 전체에 걸린다(R-19) → 31의 확정 찜 A(흰색)·B(검정색)는 REJECTED(RENUMBERED), 승계 없음(R-10 1). 35의 두 변형이 빈다
+  - { at: "20:02:30", type: chat, b: b1, id: m7, ch: UC_G, nick: 강보람, text: "흰색" }       # 50초(20:01:40부터) → 지금 상품을 따라간 35 흰색. 빈 자리 → G 확정
 expect:
   products:
-    b1/35: { status: SOLD }
+    b1/35: { status: OPEN }                                                                   # 흰색 G 1 = 재고 1, 검정색 0 < 1 → OPEN
     b1/32: { status: HOLD }
   variants:
-    "b1/35#흰색": { status: SOLD, winner: UC_A, waitlist: [UC_G] }
-    "b1/35#검정색": { status: SOLD, winner: UC_B, waitlist: [] }
+    "b1/35#흰색": { status: SOLD, winner: UC_G, waitlist: [] }
+    "b1/35#검정색": { status: OPEN, winner: null, waitlist: [] }
     "b1/32#흰색": { status: HOLD, winner: UC_C }                                             # 판매 중이 아닌 상품의 변형 상태 = 상품 상태(D-O1-01)
     "b1/32#검정색": { status: HOLD, winner: UC_D }
   claims:
     - { product: "b1/32#흰색", buyer: UC_C, status: CONFIRMED, qty: 1 }
-    - { product: "b1/35#흰색", buyer: UC_G, status: WAITLISTED }
+    - { product: "b1/35#흰색", buyer: UC_A, status: REJECTED, reason: RENUMBERED }        # 찜의 키는 지금의 상품 키(새 번호)
+    - { product: "b1/35#검정색", buyer: UC_B, status: REJECTED, reason: RENUMBERED }
+    - { product: "b1/35#흰색", buyer: UC_G, status: CONFIRMED }
   claimCount: 5                                           # A, B, D, C(바로잡기), G. m5·m6·변환은 찜 없음
   reviews: []
-  effectCounts: { POST_THANKS: 4, PRINT_PRODUCT_LABEL: 4 }   # A, B, D, C 확정
+  effectCounts: { POST_THANKS: 5, PRINT_PRODUCT_LABEL: 5 }   # A, B, D, C, G 확정(A·B는 라벨 출력 보고가 없어 VOID_LABEL 없음)
+---
+id: G-ENG-O1-11
+title: 공개 때 수량이 모자란 보류 찜은 품절이 아니라 수량 부족으로 끝나고 확인 필요로 간다(D-O1-11)
+refs: [OPT-03, R-19, R-5, R-20]
+settings: { claim.parseMode: OPTIONS }
+broadcasts: [{ id: b1, date: 2026-10-25, title: 생활 3부 }]
+events:
+  - { at: "20:00:30", type: sms, b: b1, ref: s1, no: 31, received: "20:00", qty: 3 }   # 31번 없음 → 번호·수량 3 보류
+  - { at: "20:00:40", type: product.register, b: b1, no: 31, name: 수건, price: 8000, stock: 2 }
+    # 공개 순간 s1(10초 전 — 30초 안): 옵션 없는 상품, q 3 ≥ 2이고 0 < 남은 2 < 3 → REJECTED(STOCK_SHORT) + 확인 필요 sms:s1(번호 31·수량 3). 재고를 잡지 않는다
+  - type: assert
+    expect:
+      products:
+        b1/31: { status: OPEN, confirmedUnits: 0 }                      # 남은 수량 2 그대로 — "품절"이 아니다
+      claims:
+        - { product: b1/31, buyer: "sms:s1", status: REJECTED, reason: STOCK_SHORT, qty: 3 }
+      reviews:
+        - { item: "sms:s1", reason: STOCK_SHORT, buyer: "sms:s1", product: b1/31, qty: 3 }
+      effectCounts: { POST_THANKS: 0, PRINT_PRODUCT_LABEL: 0 }
+  - { at: "20:01:00", type: host.resolveReview, b: b1, item: "sms:s1", no: 31, qty: 2, reason: 2개로 줄임 }   # 2 ≤ 남은 2, 앞선 대기 없음 → 확정 8000 × 2 = 16000
+expect:
+  products:
+    b1/31: { status: SOLD, confirmedUnits: 2 }
+  claims:
+    - { product: b1/31, buyer: "sms:s1", status: CONFIRMED, qty: 2 }   # 가장 최근 찜 = 바로잡기
+  claimCount: 2                                                        # s1 보류(공개 때 끝남), s1 바로잡기
+  reviews: []
+  buyers:
+    "sms:s1": { items: [b1/31], subtotal: 16000 }                      # 8000 × 2
