@@ -1,5 +1,5 @@
 // 확인 필요 목록 받기 (CMT-04, D-O2-14 — O2 dev-notes "화면에게" 5). GET /api/reviews[?broadcast=][&rehearsal=true].
-// 새 SSE 이름은 없다: 같은 리허설 구분의 `change` 알림을 받으면 짧게 모아(REVIEW_RELOAD_MS) 다시 읽는다. 끊겼다 다시 붙어도 다시 읽는다.
+// 새 SSE 이름은 없다: 같은 리허설 구분의 `change` 알림을 받으면 첫 알림부터 짧게 모아(REVIEW_RELOAD_MS, 최대 대기) 다시 읽는다. 끊겼다 다시 붙어도 다시 읽는다.
 // 보조자(403)·옵션 방송이 없는 판매자는 빈 목록으로 본다 — 화면은 "확인 필요"를 보이지 않는다.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, isApiError, withQuery, type ApiError } from '../api/client.ts'
@@ -61,14 +61,31 @@ export function useReviews(query: ReviewsQuery | null): ReviewsState {
     if (key !== null) void reload()
     return () => {
       if (timer.current !== undefined) clearTimeout(timer.current)
+      timer.current = undefined
     }
   }, [key, reload])
 
+  // 모으기는 첫 알림부터 REVIEW_RELOAD_MS 뒤 한 번 (뒤 알림이 타이머를 미루지 않는다 — 채팅이 몰려도 늦어야 그만큼, RA-O2-02).
+  // 읽는 중에 알림이 오면 끝난 뒤 한 번만 더 읽는다.
+  const loading = useRef(false)
+  const again = useRef(false)
   const schedule = useCallback(() => {
-    if (timer.current !== undefined) clearTimeout(timer.current)
+    if (timer.current !== undefined) return
+    if (loading.current) {
+      again.current = true
+      return
+    }
     timer.current = setTimeout(() => {
       timer.current = undefined
-      void reload()
+      loading.current = true
+      again.current = false
+      void reload().finally(() => {
+        loading.current = false
+        if (again.current) {
+          again.current = false
+          schedule()
+        }
+      })
     }, REVIEW_RELOAD_MS)
   }, [reload])
 

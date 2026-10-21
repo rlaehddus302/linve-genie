@@ -4,7 +4,7 @@ import { FOCUS_GRACE_SEC } from '@livejjim/core'
 import { memo, useEffect, useMemo, useState } from 'react'
 import { isApiError, type ApiError } from '../api/client.ts'
 import type { Product } from '../api/types.ts'
-import { boardProducts, cancelRequestCount, formatWon } from '../lib/derive.ts'
+import { boardProducts, cancelRequestCount, formatWon, productSlots } from '../lib/derive.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { ALERT_WORD, PRODUCT_STATUS_WORD } from '../lib/words.ts'
 import { consoleLabels, useConsoleApi } from './console-context.ts'
@@ -25,7 +25,7 @@ export function variantTotals(product: Product): string {
 }
 
 /** 대기 수 (옵션 상품은 변형 대기의 합) */
-const waitCount = (product: Product): number => (product.hasOptions ? product.variants.reduce((sum, variant) => sum + variant.waitlist.length, 0) : product.waitlist.length)
+const waitCount = (product: Product): number => productSlots(product).waitlist.length
 
 /** "지금 상품으로"를 둘 수 있는 상품: 공개 전·판매 중·판매 완료 (일시 중지·판매 종료에는 없다, D-O1-06·D-O2-10) */
 export const focusable = (product: Product): boolean => product.status === 'READY' || product.status === 'OPEN' || product.status === 'SOLD'
@@ -189,9 +189,9 @@ const BoardItem = memo(function BoardItem({ product, onOpen }: { readonly produc
         <span>1등 {winners}</span>
         <span>대기 {waitCount(product)}</span>
         {product.hasOptions ? <span>{variantTotals(product)}</span> : null}
-        {product.conflict ? <span className="tag tag-alert">{ALERT_WORD.conflict}</span> : null}
+        {productSlots(product).conflict ? <span className="tag tag-alert">{ALERT_WORD.conflict}</span> : null}
         {requests > 0 ? <span className="tag tag-alert">{ALERT_WORD.cancelRequest}</span> : null}
-        {product.awaitingSuccession ? <span className="tag tag-alert">{ALERT_WORD.succession}</span> : null}
+        {productSlots(product).awaitingSuccession ? <span className="tag tag-alert">{ALERT_WORD.succession}</span> : null}
         {labels.map((word) => (
           <span key={word} className={word === '재출력 필요' ? 'tag tag-alert' : 'tag'}>
             {word}

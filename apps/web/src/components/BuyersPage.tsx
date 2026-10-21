@@ -27,7 +27,7 @@ import {
   type BuyerSort,
 } from '../lib/buyers.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
-import { claimOptionWords, claimWord, formatWon, type BuyerNames } from '../lib/derive.ts'
+import { claimOptionWords, claimWord, formatWon, productSlots, type BuyerNames } from '../lib/derive.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
 import { PREVIEW_FAILED, PREVIEW_LOADING, PREVIEW_REFRESHING, useMergePreview } from '../lib/merge-preview.ts'
 import { routePath, type Navigate, type ScopeRoute } from '../lib/router.ts'
@@ -775,7 +775,7 @@ function ProductWinnersDialog({ api, productKey, onClose, onBack }: { readonly a
   const product = api.data.products.get(productKey)
   const { broadcast, no } = splitProductKey(productKey)
   const label = productLabel(api, broadcast, no)
-  const winners = (product?.winnerClaims ?? []).map((id) => api.data.claims.get(id)).filter((claim): claim is Claim => claim !== undefined)
+  const winners = (product === undefined ? [] : productSlots(product).winnerClaims).map((id) => api.data.claims.get(id)).filter((claim): claim is Claim => claim !== undefined)
   return (
     <Modal
       title={`${label} 자세히`}

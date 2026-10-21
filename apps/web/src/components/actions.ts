@@ -2,7 +2,7 @@
 // 같은 창을 친 사유와 서버 문장으로 다시 연다(D-079 ⑥) — 판매자가 치는 중이면 되돌리기 띠의 "사유 고치기"로.
 import type { ApiError } from '../api/client.ts'
 import type { Claim, Product } from '../api/types.ts'
-import { claimOptionWords, claimOptionsField } from '../lib/derive.ts'
+import { claimOptionWords, claimOptionsField, productSlots, variantOptionsField } from '../lib/derive.ts'
 import { productLabel, type ConsoleApi } from './console-context.ts'
 
 export interface ReasonActionInput {
@@ -82,14 +82,16 @@ export function openBlockAction(api: ConsoleApi, buyer: string, block: boolean):
 }
 
 /** 대기자 정리하고 다시 판매 (host.reopen, 사유 필수, AC-S05-33) */
-export function openReopenAction(api: ConsoleApi, product: Product): void {
-  const label = `${productLabel(api, product.broadcast, product.no)} 다시 판매(대기자 정리)`
+export function openReopenAction(api: ConsoleApi, product: Product, variant?: Product['variants'][number]): void {
+  const label = `${productLabel(api, product.broadcast, product.no)}${variant === undefined ? '' : ` ${variant.text}`} 다시 판매(대기자 정리)`
+  const waitlist = variant === undefined ? productSlots(product).waitlist.length : variant.waitlist.length
+  const options = variantOptionsField(variant)
   openReasonAction(api, {
     title: label,
     submitLabel: '다시 판매하기',
-    warning: `대기자 ${String(product.waitlist.length)}명이 모두 정리돼요`,
+    warning: `대기자 ${String(waitlist)}명이 모두 정리돼요`,
     label,
     products: [product.key],
-    build: (reason) => ({ type: 'host.reopen', b: product.broadcast, no: product.no, reason }),
+    build: (reason) => ({ type: 'host.reopen', b: product.broadcast, no: product.no, reason, ...options }),
   })
 }

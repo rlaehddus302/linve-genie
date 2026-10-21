@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { get, isApiError, newRequestId, withQuery, type ApiError } from '../api/client.ts'
 import type { Claim, HistoryItem, Product } from '../api/types.ts'
-import { claimOptionWords, claimOptionsField, claimWord, formatWon } from '../lib/derive.ts'
+import { claimOptionWords, claimOptionsField, claimWord, formatWon, productSlots } from '../lib/derive.ts'
 import { optionSummary } from '../lib/options.ts'
 import { kstTime } from '../lib/kst.ts'
 import { useWide } from '../lib/use-wide.ts'
@@ -69,7 +69,9 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
   }
 
   const selling = product.status === 'OPEN' || product.status === 'SOLD'
-  const hasClaims = product.winners.length > 0 || product.waitlist.length > 0
+  // 옵션 상품은 1등·대기가 변형에 있다 (D-O1-01) — 변형을 합쳐 본다 (S05 판매 종료 규칙)
+  const slots = productSlots(product)
+  const hasClaims = slots.winners.length > 0 || slots.waitlist.length > 0
   const base = { b: product.broadcast, no: product.no }
 
   return (
@@ -103,8 +105,8 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
           <dt>상태</dt>
           <dd>
             <span className={`tag status-${product.status}`}>{PRODUCT_STATUS_WORD[product.status]}</span>
-            {product.conflict ? <span className="tag tag-alert">충돌</span> : null}
-            {product.awaitingSuccession ? <span className="tag tag-alert">승계 결정 필요</span> : null}
+            {slots.conflict ? <span className="tag tag-alert">충돌</span> : null}
+            {slots.awaitingSuccession ? <span className="tag tag-alert">승계 결정 필요</span> : null}
             {api.waiting.products.has(product.key) ? <span className="tag tag-waiting">보내기 전</span> : null}
           </dd>
         </div>

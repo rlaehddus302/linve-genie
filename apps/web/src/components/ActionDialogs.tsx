@@ -4,7 +4,7 @@ import { parseAmount } from '@livejjim/core'
 import { useMemo, useRef, useState } from 'react'
 import { isApiError, type ApiError } from '../api/client.ts'
 import type { Buyer, ChatMessage, Product } from '../api/types.ts'
-import { formatWon, productKey } from '../lib/derive.ts'
+import { formatWon, productKey, productSlots } from '../lib/derive.ts'
 import { pickFor, qtyProblemWords, readQty, variantTextOf } from '../lib/options.ts'
 import { changedFields, editQuestion } from '../lib/quick.ts'
 import { PRODUCT_STATUS_WORD } from '../lib/words.ts'
@@ -460,7 +460,7 @@ export function EditDialog({ productKey: key, name, price, line, onClose, onDone
       onUnchanged(product)
       return
     }
-    if (changes.price !== undefined && product.winners.length > 0) {
+    if (changes.price !== undefined && productSlots(product).winnerClaims.length > 0) {
       setPending(changes)
       setStage('applyTo')
       return
@@ -599,7 +599,7 @@ export function EditDialog({ productKey: key, name, price, line, onClose, onDone
 function ApplyToBody({ product, price }: { readonly product: Product; readonly price: number | undefined }) {
   return (
     <p>
-      {product.no}번 가격을 {formatWon(product.price)}에서 {price === undefined ? '' : formatWon(price)}으로 바꿔요. 이미 1등인 찜 {product.winners.length}개의 가격도
+      {product.no}번 가격을 {formatWon(product.price)}에서 {price === undefined ? '' : formatWon(price)}으로 바꿔요. 이미 1등인 찜 {productSlots(product).winnerClaims.length}개의 가격도
       바꿀지 골라 주세요.
     </p>
   )

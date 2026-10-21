@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { get, withQuery } from '../api/client.ts'
 import type { CancelRequest, Claim, HistoryItem, Product } from '../api/types.ts'
-import { claimOptionWords, claimOptionsField, claimWord, orphanPending, variantOf } from '../lib/derive.ts'
+import { claimOptionWords, claimOptionsField, claimWord, conflictUnits, orphanPending, successionUnits, variantOf, variantOptionsField } from '../lib/derive.ts'
 import { kstTime } from '../lib/kst.ts'
 import { ORIGIN_WORD, REJECT_REASON_WORD } from '../lib/words.ts'
 import { openReopenAction, openReasonAction } from './actions.ts'
@@ -38,9 +38,21 @@ export function ConflictDialog({ onClose }: { readonly onClose: () => void }) {
   const products = [...api.data.products.values()].filter((product) => product.conflict && !api.waiting.products.has(product.key))
   const product = products[0]
   if (product === undefined) {
+    // 옵션 상품의 변형 충돌 (D-O1-01): 충돌 정하기는 상품 단위만 있어 찜을 하나씩 정리하게 안내한다
+    const variantUnits = [...api.data.products.values()].flatMap((item) => conflictUnits(item)).filter((unit) => unit.variant !== undefined)
     return (
       <Modal title="충돌" onClose={onClose}>
-        <p>지금 정할 충돌이 없어요.</p>
+        {variantUnits.length === 0 ? (
+          <p>지금 정할 충돌이 없어요.</p>
+        ) : (
+          <ul className="plain-list stack-tight">
+            {variantUnits.map((unit) => (
+              <li key={unit.variant?.key}>
+                {productLabel(api, unit.product.broadcast, unit.product.no)} {unit.variant?.text} 충돌 — 상품 자세히에서 그 변형의 찜을 취소하거나 거절해 정리해 주세요.
+              </li>
+            ))}
+          </ul>
+        )}
       </Modal>
     )
   }
@@ -272,20 +284,23 @@ function CancelRequestBody({ request, count, onClose }: { readonly request: Canc
 
 export function SuccessionDialog({ onClose }: { readonly onClose: () => void }) {
   const api = useConsoleApi()
-  const products = [...api.data.products.values()].filter((product) => product.awaitingSuccession && !api.waiting.products.has(product.key))
-  const product = products[0]
-  if (product === undefined) {
+  // 옵션 상품은 승계 결정이 변형에 있다 (D-O1-01) — 상품 단위와 변형 단위를 함께 본다
+  const units = [...api.data.products.values()].filter((product) => !api.waiting.products.has(product.key)).flatMap((product) => successionUnits(product))
+  const unit = units[0]
+  if (unit === undefined) {
     return (
       <Modal title="승계 결정 필요" onClose={onClose}>
         <p>지금 정할 승계가 없어요.</p>
       </Modal>
     )
   }
-  const label = productLabel(api, product.broadcast, product.no)
-  const waiters = product.waitlistClaims.map((id) => api.data.claims.get(id)).filter((claim): claim is Claim => claim !== undefined)
+  const { product, variant } = unit
+  const label = `${productLabel(api, product.broadcast, product.no)}${variant === undefined ? '' : ` ${variant.text}`}`
+  const options = variantOptionsField(variant)
+  const waiters = unit.waitlistClaims.map((id) => api.data.claims.get(id)).filter((claim): claim is Claim => claim !== undefined)
   return (
     <Modal title={`승계 결정 — ${label} ${nameOf(product)}`} onClose={onClose} wide>
-      {products.length > 1 ? <p className="hint">승계 결정 {products.length}개 중 첫 번째예요.</p> : null}
+      {units.length > 1 ? <p className="hint">승계 결정 {units.length}개 중 첫 번째예요.</p> : null}
       <p>1등 자리가 비었어요. 대기자 중 1등으로 올릴 사람을 고르거나, 대기자를 정리하고 다시 판매해 주세요.</p>
       <ol className="plain-list stack-tight">
         {waiters.map((claim, index) => {
@@ -307,7 +322,7 @@ export function SuccessionDialog({ onClose }: { readonly onClose: () => void }) 
                     label: `${label} ${name} 1등으로`,
                     claims: [claim.id],
                     products: [product.key],
-                    build: (reason) => ({ type: 'host.promote', b: product.broadcast, no: product.no, buyer: claim.currentBuyer, reason }),
+                    build: (reason) => ({ type: 'host.promote', b: product.broadcast, no: product.no, buyer: claim.currentBuyer, reason, ...options }),
                   })
                 }
               >
@@ -318,7 +333,7 @@ export function SuccessionDialog({ onClose }: { readonly onClose: () => void }) 
           )
         })}
       </ol>
-      <button type="button" className="button button-danger" onClick={() => openReopenAction(api, product)}>
+      <button type="button" className="button button-danger" onClick={() => openReopenAction(api, product, variant)}>
         다시 판매(대기자 정리)
       </button>
     </Modal>

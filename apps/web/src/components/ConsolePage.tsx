@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { ApiError, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
 import type { ChatMessage, Product, WriteResult } from '../api/types.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
-import { BuyerNames, alertCounts, isOptionBroadcast, latestProduct, productKey } from '../lib/derive.ts'
+import { BuyerNames, alertCounts, isOptionBroadcast, latestProduct, productKey, productSlots } from '../lib/derive.ts'
 import { EMPTY_DRAFT, optionSummary, type OptionDraft, type OptionPayload } from '../lib/options.ts'
 import { useReviews } from '../lib/reviews.ts'
 import { SALE_MODE_WORD } from '../lib/words.ts'
@@ -182,6 +182,24 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   const [attached, setAttached] = useState<{ readonly draft: OptionDraft; readonly payload: OptionPayload } | null>(null)
   const attachedRef = useRef(attached)
   attachedRef.current = attached
+  /** 붙인 옵션을 넣지 않고 뗐다는 안내 (D-O2-05 보강): 새 번호 등록이 아닌 길(고치기·찾기·음성 등록)에서는 옵션이 다음 상품에 따라가지 않게 뗀다 */
+  const [optionNote, setOptionNote] = useState<{ readonly text: string; readonly n: number } | null>(null)
+  const noteDroppedOptions = useCallback((no: number) => {
+    setOptionNote((note) => ({
+      text: `붙인 옵션은 ${String(no)}번에 넣지 않고 뗐어요. 옵션은 빠른 입력 줄로 새 번호를 등록할 때만 함께 들어가요. ${String(no)}번 옵션은 상품 자세히의 "옵션 고치기"로 넣어 주세요.`,
+      n: (note?.n ?? 0) + 1,
+    }))
+  }, [])
+  /** 새 번호 등록이 아닌 길에서 붙인 옵션을 뗀다 (붙어 있었으면 안내) */
+  const dropAttached = useCallback(
+    (no: number) => {
+      if (attachedRef.current === null) return
+      attachedRef.current = null
+      setAttached(null)
+      noteDroppedOptions(no)
+    },
+    [noteDroppedOptions],
+  )
   const [selected, setSelected] = useState<string | null>(null)
   const [dialogs, setDialogs] = useState<Dialog[]>([])
   const dialogCount = useRef(0)
@@ -475,7 +493,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   const undoRegistration = useCallback(
     async (no: number): Promise<'undone' | 'blocked'> => {
       const product = findProduct(no)
-      if (product !== undefined && (product.winners.length > 0 || product.waitlist.length > 0)) return 'blocked'
+      if (product !== undefined && (productSlots(product).winners.length > 0 || productSlots(product).waitlist.length > 0)) return 'blocked'
       const result = await write(newRequestId(), { type: 'product.close', b, no })
       return result.changed ? 'undone' : 'blocked'
     },
@@ -492,6 +510,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       }
       // 앞 줄이 같은 번호를 등록했으면(또는 다른 기기가) 등록 대신 묻는다
       const exists = (product: Product) => {
+        // 등록하려던 번호가 이미 있다: 함께 보내려던 옵션은 넣지 않았다고 알린다 (말없이 사라지지 않게)
+        if (request.extra !== undefined) noteDroppedOptions(product.no)
         if (request.onExists !== undefined) request.onExists(product)
         else askEdit(product, request.name, request.price, request.line)
       }
@@ -521,7 +541,12 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           // 그사이 다른 곳에서 같은 번호가 생겼다: 등록되지 않았으니 묻는다
           const existing = findProduct(request.no)
           if (existing !== undefined) exists(existing)
-          else request.onFailed?.()
+          else {
+            request.onFailed?.()
+            // 등록되지 않았으니 붙였던 옵션을 되살린다
+            const extra = request.extra
+            if (extra !== undefined) setAttached((current) => current ?? { draft: request.draftOf ?? EMPTY_DRAFT, payload: extra })
+          }
           return
         }
         clearLine(request.line)
@@ -545,7 +570,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         }
       }
     },
-    [askEdit, b, clearLine, findProduct, queue, undoRegistration, write],
+    [askEdit, b, clearLine, findProduct, noteDroppedOptions, queue, undoRegistration, write],
   )
 
   const startRegistration = useCallback((line: string, no: number, name: string, price: number, fromFix: boolean, hooks: RegHooks = {}): number => {
@@ -569,13 +594,14 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   const registerVoiceCard = useCallback(
     (card: SuggestionCard, registration: CardRegistration, source: RegisterSource) => {
       const { no, name, price } = registration
+      dropAttached(no)
       enqueueRegistration(cardLine(no, name, price), no, name, price, false, {
         ...(source === 'auto' ? { onExists: (product: Product) => voice?.restore(card, { note: editQuestion(product.no, product.status === 'CLOSED') }) } : {}),
         onFailed: () => voice?.restore(card, { touched: true }),
       })
       if (source === 'click') focusQuick()
     },
-    [enqueueRegistration, focusQuick, voice],
+    [dropAttached, enqueueRegistration, focusQuick, voice],
   )
   voiceActions.current = { register: registerVoiceCard, focusQuick }
 
@@ -594,6 +620,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           const card = voice.take(id)
           if (card === undefined) return
           const { no, name, price } = decision
+          dropAttached(no)
           enqueueRegistration(cardLine(no, name, price), no, name, price, false, {
             onFailed: () => voice.restore({ ...card, no, name: name === '' ? null : name, price }, { touched: true }),
           })
@@ -602,6 +629,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         }
         case 'edit': {
           if (voice.take(id) === undefined) return
+          dropAttached(decision.no)
           askEdit(decision.product, decision.name, decision.price, cardLine(decision.no, decision.name, decision.price))
           return
         }
@@ -609,7 +637,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           return
       }
     },
-    [askEdit, enqueueRegistration, findProduct, focusQuick, settings, voice],
+    [askEdit, dropAttached, enqueueRegistration, findProduct, focusQuick, settings, voice],
   )
 
   /** 카드의 "등록": 고치기 칸이 열려 있으면 그 칸의 값으로 */
@@ -640,9 +668,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       const ask = asks.find((item) => item.id === id)
       if (ask === undefined) return
       removeAsk(id)
+      dropAttached(ask.no)
       enqueueRegistration(ask.line, ask.no, ask.name, ask.price, false)
     },
-    [asks, enqueueRegistration, removeAsk],
+    [asks, dropAttached, enqueueRegistration, removeAsk],
   )
 
   // 상태가 바뀌면 남겨 둔 "고칠까요?"를 그 번호의 지금 상품과 다시 본다: 친 값과 다른 값이 없으면 지운다 (AC-S06-67, D-095)
@@ -675,6 +704,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
             attachedRef.current = null
             setAttached(null)
           }
+          setOptionNote(null)
           if (!inChain) {
             enqueueRegistration(line, decision.no, decision.name, decision.price, fromFix, hooks)
             return undefined
@@ -684,10 +714,13 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         }
         case 'edit':
           if (fromFix) setFix(null)
+          // 이미 있는 번호 고치기에는 붙인 옵션을 넣지 않는다 — 떼고 알린다 (D-O2-05 보강)
+          dropAttached(decision.product.no)
           askEdit(decision.product, decision.name, decision.price, line)
           return undefined
         case 'open': {
           setFix(null)
+          dropAttached(decision.product.no)
           setSelected(decision.product.key)
           // 늦게 판단한 찾기인데 판매자가 벌써 다음 줄을 치고 있으면 창을 띄워 글자를 빼앗지 않는다(현재 상품으로 보인다)
           if (inChain && typedNext(line)) return undefined
@@ -713,7 +746,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         }
       }
     },
-    [askEdit, clearLine, enqueueRegistration, focusQuick, openDialog, runRegistration, startRegistration, typedNext],
+    [askEdit, clearLine, dropAttached, enqueueRegistration, focusQuick, openDialog, runRegistration, startRegistration, typedNext],
   )
 
   const onEnter = useCallback(
@@ -973,6 +1006,11 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
               />
             </Lock>
             <UndoBar items={items} queue={queue} />
+            {optionNote !== null ? (
+              <p key={optionNote.n} className="notice" role="status" data-tone="warning">
+                {optionNote.text}
+              </p>
+            ) : null}
             {labelsNote !== null ? (
               <p key={labelsNote.n} className="notice labels-note" role="status">
                 {labelsNote.text}
@@ -1052,6 +1090,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           onAttach={(payload, draft) => {
             // 아무것도 넣지 않았으면 붙이지 않는다
             setAttached(payload.options.length === 0 && payload.aliases.length === 0 ? null : { payload, draft })
+            setOptionNote(null)
             closeTop()
           }}
         />
@@ -1136,7 +1175,7 @@ function DialogView({ dialog, broadcastId, onSync, messageOf, onClose, onEditDon
 function ReprintHost({ productKey: key, onClose }: { readonly productKey: string | null; readonly onClose: () => void }) {
   const api = useConsoleApi()
   const product = key === null ? undefined : api.data.products.get(key)
-  const winners = product === undefined ? [] : product.winnerClaims.map((id) => api.data.claims.get(id)).filter((claim) => claim !== undefined)
+  const winners = product === undefined ? [] : productSlots(product).winnerClaims.map((id) => api.data.claims.get(id)).filter((claim) => claim !== undefined)
   return (
     <ReprintDialog
       product={product}

@@ -487,3 +487,84 @@ describe('문자찜의 옵션·수량 (AC-O2-40·41)', () => {
     expect(screen.queryByLabelText('수량')).toBeNull()
   })
 })
+
+describe('옵션 상품의 1등·대기·승계는 변형에 있다 (SA-O2-04, TE-O2-001·002·003, D-O1-01)', () => {
+  const cancelM = { type: 'host.cancel', b: 'b1', no: 21, buyer: 'UC_a', options: { 사이즈: 'M' }, reason: '시험 취소' }
+
+  it('ASK에서 변형 M 1등을 취소하면 알림 띠 "승계 결정 필요 1"·상품 줄 표시, 창에는 M의 대기자와 options 붙은 조치', async () => {
+    setup([shorts(21), chat('m1', 'UC_a', '홍길동', '반바지 M'), chat('m2', 'UC_b', '김철수', '반바지 M'), cancelM], { ...OPTIONS, 'cancel.succession': 'ASK' })
+    await openConsole()
+    const strip = screen.getByRole('region', { name: '알림' })
+    const alert = await within(strip).findByRole('button', { name: '승계 결정 필요 1' })
+    const board = screen.getByRole('region', { name: '상품 보드' })
+    expect(within(within(board).getByRole('button', { name: /^21번/ })).getByText('승계 결정 필요')).toBeDefined()
+    fireEvent.click(alert)
+    const dialog = await screen.findByRole('dialog', { name: /^승계 결정 — 21번 M/ })
+    expect(within(dialog).getByText('대기 1번 김철수')).toBeDefined()
+    expect(within(dialog).getByRole('button', { name: /김철수 1등으로/ })).toBeDefined()
+  })
+
+  it('변형에 1등이 있으면 상품 자세히 "판매 종료"는 막히고 "1등·대기 찜을 먼저 정리해 주세요."', async () => {
+    setup([shorts(21), chat('m1', 'UC_a', '홍길동', '반바지 M')])
+    await openConsole()
+    fireEvent.click(within(screen.getByRole('region', { name: '상품 보드' })).getByRole('button', { name: /^21번/ }))
+    const detail = await screen.findByRole('dialog', { name: '21번 자세히' })
+    expect((within(detail).getByRole('button', { name: '판매 종료' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(within(detail).getByText('1등·대기 찜을 먼저 정리해 주세요.')).toBeDefined()
+  })
+
+  it('변형에 1등이 있을 때 가격을 바꾸면 "확정된 찜에도 새 가격을 적용할까요?"와 1등 찜 수', async () => {
+    setup([shorts(21), chat('m1', 'UC_a', '홍길동', '반바지 M'), chat('m2', 'UC_b', '김철수', '반바지 L')])
+    const { quick } = await openConsole()
+    enter(quick, '21 반바지 13000')
+    fireEvent.click(within(await screen.findByRole('dialog', { name: '21번이 이미 있어요. 고칠까요?' })).getByRole('button', { name: '예' }))
+    const apply = await screen.findByRole('dialog', { name: '확정된 찜에도 새 가격을 적용할까요?' })
+    expect(within(apply).getByText(/이미 1등인 찜 2개의 가격도/)).toBeDefined()
+  })
+})
+
+describe('붙인 옵션은 새 번호 등록에만 (SA-O2-05, RA-O2-03, D-O2-05)', () => {
+  async function attachSizes() {
+    fireEvent.click(screen.getByRole('button', { name: '옵션 추가' }))
+    const dialog = await screen.findByRole('dialog', { name: '옵션 추가' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '항목 더하기' }))
+    fireEvent.change(within(dialog).getByLabelText('항목 1 이름'), { target: { value: '사이즈' } })
+    fireEvent.change(within(dialog).getByLabelText('항목 1 선택지 여러 개'), { target: { value: 'S, M, L' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '항목 1 선택지 한 번에 더하기' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '옵션 넣기' }))
+    expect(await screen.findByText('옵션: 사이즈 S/M/L · 변형 3개')).toBeDefined()
+  }
+
+  it('이미 있는 번호(고칠까요?)에는 넣지 않고 떼며 알린다 — 다음 번호 등록에 따라가지 않는다', async () => {
+    setup([register(21, '반바지', 15000)])
+    const { quick } = await openConsole()
+    await attachSizes()
+    enter(quick, '21 반팔 15000')
+    expect(await screen.findByText(/붙인 옵션은 21번에 넣지 않고 뗐어요/)).toBeDefined()
+    await waitFor(() => expect(screen.queryByText('옵션: 사이즈 S/M/L · 변형 3개')).toBeNull())
+    fireEvent.click(within(await screen.findByRole('dialog', { name: '21번이 이미 있어요. 고칠까요?' })).getByRole('button', { name: '아니요' }))
+    enter(quick, '22 화분 3000')
+    await waitFor(() => expect(engine.posts.filter((post) => post.type === 'product.register')).toHaveLength(1))
+    expect(engine.posts.at(-1)).toMatchObject({ type: 'product.register', no: 22 })
+    expect(engine.posts.at(-1)).not.toHaveProperty('options')
+  })
+
+  it('찾기(번호만)에서도 뗀다', async () => {
+    setup([register(21, '반바지', 15000)])
+    const { quick } = await openConsole()
+    await attachSizes()
+    enter(quick, '21')
+    expect(await screen.findByText(/붙인 옵션은 21번에 넣지 않고 뗐어요/)).toBeDefined()
+    expect(screen.queryByText('옵션: 사이즈 S/M/L · 변형 3개')).toBeNull()
+  })
+})
+
+describe('색과 주 버튼 (AC-O2-53)', () => {
+  it('옵션 추가 창의 채운 색 주 버튼은 하나', async () => {
+    setup()
+    await openConsole()
+    fireEvent.click(screen.getByRole('button', { name: '옵션 추가' }))
+    const dialog = await screen.findByRole('dialog', { name: '옵션 추가' })
+    expect(dialog.querySelectorAll('.button-primary').length).toBeLessThanOrEqual(1)
+  })
+})

@@ -197,6 +197,70 @@ export function cancelRequestCount(data: ScopeData, product: Product): number {
   return index.get(product.key) ?? 0
 }
 
+/** 상품 단위로 모은 1등·대기·승계·충돌. 옵션 상품은 변형에만 있으니 변형을 합친다 (R-19 "변형과 재고 단위", D-O1-01) */
+export interface ProductSlots {
+  readonly winners: readonly string[]
+  readonly winnerClaims: readonly string[]
+  readonly waitlist: readonly string[]
+  readonly waitlistClaims: readonly string[]
+  readonly awaitingSuccession: boolean
+  readonly conflict: boolean
+}
+
+const slotsCache = new WeakMap<Product, ProductSlots>()
+
+export function productSlots(product: Product): ProductSlots {
+  if (!product.hasOptions || product.variants.length === 0) return product
+  const cached = slotsCache.get(product)
+  if (cached !== undefined) return cached
+  const slots: ProductSlots = {
+    winners: [...product.winners, ...product.variants.flatMap((variant) => variant.winners)],
+    winnerClaims: [...product.winnerClaims, ...product.variants.flatMap((variant) => variant.winnerClaims)],
+    waitlist: [...product.waitlist, ...product.variants.flatMap((variant) => variant.waitlist)],
+    waitlistClaims: [...product.waitlistClaims, ...product.variants.flatMap((variant) => variant.waitlistClaims)],
+    awaitingSuccession: product.awaitingSuccession || product.variants.some((variant) => variant.awaitingSuccession),
+    conflict: product.conflict || product.variants.some((variant) => variant.conflict),
+  }
+  slotsCache.set(product, slots)
+  return slots
+}
+
+/** 승계·충돌을 정할 단위 하나: 상품 자체(variant 없음) 또는 그 변형 */
+export interface DecisionUnit {
+  readonly product: Product
+  readonly variant: Product['variants'][number] | undefined
+  readonly winnerClaims: readonly string[]
+  readonly waitlistClaims: readonly string[]
+  readonly waitlist: readonly string[]
+}
+
+const unitOf = (product: Product, variant: Product['variants'][number] | undefined): DecisionUnit =>
+  variant === undefined
+    ? { product, variant, winnerClaims: product.winnerClaims, waitlistClaims: product.waitlistClaims, waitlist: product.waitlist }
+    : { product, variant, winnerClaims: variant.winnerClaims, waitlistClaims: variant.waitlistClaims, waitlist: variant.waitlist }
+
+/** 승계 결정 필요한 단위 (상품 → 변형 순서) */
+export function successionUnits(product: Product): DecisionUnit[] {
+  const out: DecisionUnit[] = []
+  if (product.awaitingSuccession) out.push(unitOf(product, undefined))
+  for (const variant of product.variants) if (variant.awaitingSuccession) out.push(unitOf(product, variant))
+  return out
+}
+
+/** 충돌이 있는 단위 (상품 → 변형 순서) */
+export function conflictUnits(product: Product): DecisionUnit[] {
+  const out: DecisionUnit[] = []
+  if (product.conflict) out.push(unitOf(product, undefined))
+  for (const variant of product.variants) if (variant.conflict) out.push(unitOf(product, variant))
+  return out
+}
+
+/** 변형을 가리키는 방송자 조치의 options 칸 (변형이 없으면 빈 객체) */
+export function variantOptionsField(variant: Product['variants'][number] | undefined): { readonly options?: Readonly<Record<string, string>> } {
+  if (variant === undefined || variant.options.length === 0) return {}
+  return { options: Object.fromEntries(variant.options.map(([name, label]) => [name, label])) }
+}
+
 /** 알림 띠 (AC-S05-30): 충돌 · 취소 요청 · 승계 결정 필요 · 보류 찜 · 확인 필요 */
 export interface AlertCounts {
   readonly conflict: number
@@ -210,8 +274,8 @@ export function alertCounts(data: ScopeData): AlertCounts {
   let conflict = 0
   let succession = 0
   for (const product of data.products.values()) {
-    if (product.conflict) conflict++
-    if (product.awaitingSuccession) succession++
+    conflict += conflictUnits(product).length
+    succession += successionUnits(product).length
   }
   let pending = 0
   for (const slot of data.pending.values()) if (!data.products.has(slot.product)) pending += slot.claims.length

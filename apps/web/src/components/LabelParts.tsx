@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { isApiError, newRequestId, withRetry, type ApiError } from '../api/client.ts'
 import type { JobView, LabelView } from '../api/print-types.ts'
 import type { Claim, Product } from '../api/types.ts'
+import { productSlots } from '../lib/derive.ts'
 import { canShareFile, downloadBytes, shareBytes } from '../lib/label-files.ts'
 import {
   labelErrorMessage,
@@ -38,7 +39,7 @@ export const labelKeyOf = (claim: Pick<Claim, 'id' | 'confirmVersion'>): string 
 /** 상품 보드의 라벨 상태 낱말 (AC-I1-30): 1등마다 서버 라벨 키 상태, 작업이 없으면 낱말 없음 */
 export function boardLabelWords(labels: ReadonlyMap<string, LabelView>, claims: ReadonlyMap<string, Claim>, product: Product): string[] {
   const words = new Set<string>()
-  for (const id of product.winnerClaims) {
+  for (const id of productSlots(product).winnerClaims) {
     const claim = claims.get(id)
     if (claim === undefined) continue
     const key = labelKeyOf(claim)
