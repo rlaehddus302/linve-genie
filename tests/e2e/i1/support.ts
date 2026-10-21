@@ -3,6 +3,7 @@
 // 출력 기록은 판매자 단위라 시험마다 끝에 cleanupPrint를 부른다(뒤의 S05·S06 시험이 알림 띠를 본다).
 import { expect, type Page, type Response } from '@playwright/test'
 import { postJson } from '../s05/support.ts'
+import { clickMenu } from '../menu.ts'
 
 export * from '../s06/support.ts'
 
@@ -84,7 +85,8 @@ export function region(page: Page, name: string) {
 /** 앱 안 이동으로 라벨 화면 (메뉴 링크 — 전체 새로고침은 프린터 연결을 버린다) */
 export async function gotoLabels(page: Page): Promise<void> {
   if (!new URL(page.url()).pathname.startsWith('/labels')) {
-    await page.getByRole('navigation', { name: '메뉴' }).getByRole('link', { name: '라벨' }).click()
+    // 휴대폰이면 "더보기"를 열고 "라벨" (앱 안 이동 그대로 — AC-NAV-06·10)
+    await clickMenu(page, '라벨')
   }
   await expect(page.getByRole('heading', { name: '라벨', level: 1 })).toBeVisible()
 }

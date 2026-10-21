@@ -2,6 +2,12 @@
 // 줄 번호·이유 문장·결과 문장은 acceptance.md AC-N3-45, 서버 문장은 AC-N3-13 그대로.
 import { test, expect, type Page } from '@playwright/test'
 import { deposits, depositTab, login, primaryOutsideDialogs, scopeView, smsSale, uniq } from './support.ts'
+import { cleanupPrint } from '../i1/support.ts'
+
+// 출력 기록은 판매자 단위 — 판매(1등)가 만든 라벨 작업을 남기면 뒤 시험(N4a 등)의 출력 기기가 쌓인 라벨로 멈춘다 (i1 support "시험끼리 출력 기록이 섞이지 않게")
+test.afterEach(async ({ page }) => {
+  await cleanupPrint(page)
+})
 
 /** 지금 + minutes분의 KST "YYYY-MM-DD HH:MM" (분 정밀도 — 그 분의 0초는 판매 시각 뒤) */
 function kstMinute(minutes: number): string {

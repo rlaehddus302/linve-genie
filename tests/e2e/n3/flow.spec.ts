@@ -4,8 +4,14 @@
 import { test, expect, type Page } from '@playwright/test'
 import {
   dateLongKo, deposit, depositOne, depositRow, depositTab, fakeSource, history, kstIso, login, menu, primaryOutsideDialogs,
-  reviewCount, scopeView, shortKst, smsSale, uniq, won, writeEvent,
+  oddPrice, reviewCount, scopeView, shortKst, smsSale, uniq, won, writeEvent,
 } from './support.ts'
+import { cleanupPrint } from '../i1/support.ts'
+
+// 출력 기록은 판매자 단위 — 판매(1등)가 만든 라벨 작업을 남기면 뒤 시험(N4a 등)의 출력 기기가 쌓인 라벨로 멈춘다 (i1 support "시험끼리 출력 기록이 섞이지 않게")
+test.afterEach(async ({ page }) => {
+  await cleanupPrint(page)
+})
 
 function longNoDow(date: string): string {
   return dateLongKo(date).replace(/\(.\)$/, '')
@@ -69,7 +75,9 @@ test.describe('입금 확인 끝까지 흐름', () => {
   test('확인 필요 사유 문장·제안·빈 이름·이스케이프, 한 건 확정(부분 입금)·무시·다시 확인 필요로 (AC-N3-41·42·44)', async ({ page }) => {
     await login(page)
     const nameB = uniq('박민수')
-    const saleB = await smsSale(page, { memo: nameB })
+    // 박민수 입금(남은 금액 − 4,000원)이 다른 시험이 남긴 묶음의 남은 금액과 우연히 같으면 사유가 "금액은 맞는데 이름이 달라요"로 바뀐다 —
+    // 다른 시험의 가격 끝자리(…30·…40·…50)와 겹치지 않게 끝자리 …70으로 (확인 내용은 그대로)
+    const saleB = await smsSale(page, { memo: nameB, price: oddPrice() + 40 })
     const saleC = await smsSale(page, { memo: uniq('최지우') })
     const src = await fakeSource(page)
     const at = kstIso(10_000)

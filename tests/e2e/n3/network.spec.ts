@@ -1,6 +1,12 @@
 // N3 응답을 잃은 처리 — 서버는 처리했는데 화면이 응답을 못 받음 → 같은 요청 번호로 다시 보내 한 번만 (AC-N3-29, DP-INV-1, DAT-02) — test-e2e.
 import { test, expect, type Page } from '@playwright/test'
 import { deposit, depositOne, depositRow, deposits, fakeSource, history, kstIso, login, smsSale, uniq } from './support.ts'
+import { cleanupPrint } from '../i1/support.ts'
+
+// 출력 기록은 판매자 단위 — 판매(1등)가 만든 라벨 작업을 남기면 뒤 시험(N4a 등)의 출력 기기가 쌓인 라벨로 멈춘다 (i1 support "시험끼리 출력 기록이 섞이지 않게")
+test.afterEach(async ({ page }) => {
+  await cleanupPrint(page)
+})
 
 /** path로 가는 첫 POST는 서버까지 보내되 응답을 버린다(연결 끊김). 그 뒤는 그대로. 보낸 요청 번호들을 모은다 */
 async function dropFirstResponse(page: Page, path: RegExp): Promise<string[]> {

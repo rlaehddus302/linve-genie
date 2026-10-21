@@ -3,6 +3,13 @@ import { test, expect, type Page } from '@playwright/test'
 import {
   deposit, depositOne, depositRow, fakeSource, history, kstIso, login, menu, phoneLike, postJson, reviewCount, scopeView, shortKst, smsSale, uniq, won, writeEvent,
 } from './support.ts'
+import { openMore } from '../menu.ts'
+import { cleanupPrint } from '../i1/support.ts'
+
+// 출력 기록은 판매자 단위 — 판매(1등)가 만든 라벨 작업을 남기면 뒤 시험(N4a 등)의 출력 기기가 쌓인 라벨로 멈춘다 (i1 support "시험끼리 출력 기록이 섞이지 않게")
+test.afterEach(async ({ page }) => {
+  await cleanupPrint(page)
+})
 
 function menuLink(page: Page, count: number) {
   return menu(page).getByRole('link', { name: count === 0 ? '입금 확인' : `입금 확인 ${String(count)}`, exact: true })
@@ -17,6 +24,8 @@ test.describe('두 기기·실시간', () => {
     const [d] = await deposit(page, src, [{ key: uniq('t'), at: kstIso(5_000), amount: sale.remaining - 300, name }])
     const phone = await phoneLike(browser, page)
     await phone.goto('/deposits')
+    // 휴대폰의 "입금 확인 N"은 "더보기" 목록 안 — 목록을 연 채로 수 바뀜을 본다 (AC-NAV-05·10)
+    await openMore(phone)
     const count = await reviewCount(page)
     await expect(menuLink(phone, count)).toBeVisible()
     const phoneRow = depositRow(phone, d!.no)

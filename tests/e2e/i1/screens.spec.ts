@@ -1,13 +1,14 @@
 // AC-I1-23·24·30·32·33·34·35·36·62 — 화면 연결(포장 라벨·리허설·위 줄 상태·알림 순서·휴대폰)
 import { expect, test, type Page } from '@playwright/test'
 import { becomeDevice, boardItem, cleanupPrint, gotoLabels, login, noHorizontalScroll, openNewBroadcast, postJson, printOverview, realBroadcast, region, registerApi, scopeView, setBehavior, smsApi, uniqueDate, viewerClaim, waitPrinted, writeEvent } from './support.ts'
+import { clickMenu, closeMore, moreButton, phoneMenuLink } from '../menu.ts'
 
 test.afterEach(async ({ page }) => {
   await cleanupPrint(page)
 })
 
 async function inAppTo(page: Page, link: string) {
-  await page.getByRole('navigation', { name: '메뉴' }).getByRole('link', { name: link }).click()
+  await clickMenu(page, link)
 }
 
 test('AC-I1-35: 정산 자세히 포장 라벨 — 미리 보기 1/1 · 출력 → 시험용 프린터 · 묶음이 바뀌면 재출력 필요', async ({ page, browser }) => {
@@ -219,7 +220,14 @@ test('AC-I1-20: 375×812 라벨 화면 — 메뉴 "라벨" aria-current, 가로 
   try {
     await login(phone)
     await gotoLabels(phone)
-    await expect(phone.getByRole('navigation', { name: '메뉴' }).getByRole('link', { name: '라벨' })).toHaveAttribute('aria-current', 'page')
+    // AC-NAV-04·10: 휴대폰은 "더보기"가 지금 위치, 목록을 열면 "라벨"도 지금 위치·44px
+    await expect(moreButton(phone)).toHaveAttribute('aria-current', 'page')
+    const labelLink = await phoneMenuLink(phone, '라벨')
+    await expect(labelLink).toHaveAttribute('aria-current', 'page')
+    const labelBox = await labelLink.boundingBox()
+    expect(labelBox!.width).toBeGreaterThanOrEqual(44)
+    expect(labelBox!.height).toBeGreaterThanOrEqual(44)
+    await closeMore(phone)
     await region(phone, '프린터').getByRole('button', { name: '시험용 프린터 — 실제로 출력되지 않아요' }).click()
     await expect(region(phone, '프린터').getByText(/이 기기의 프린터: 연결됨/)).toBeVisible()
     await expect(region(phone, '라벨 설정').getByLabel('가게 이름', { exact: true })).toBeVisible()

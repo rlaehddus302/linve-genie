@@ -1,9 +1,16 @@
 // N3 화면 경계: 리허설·판매 전 입금·되돌리기 창 문장·계좌 연동·375px·낱말 (AC-N3-43·44·46·48·49·50) — test-e2e.
 import { test, expect, type Page } from '@playwright/test'
 import {
-  deposit, depositRow, depositTab, menu, recentDate, fakeSource, kstIso, login, noHorizontalScroll, openNewBroadcast, phoneLike, postJson, registerApi,
+  deposit, depositRow, depositTab, recentDate, fakeSource, kstIso, login, noHorizontalScroll, openNewBroadcast, phoneLike, postJson, registerApi,
   scopeView, smsApi, smsSale, uniq, won,
 } from './support.ts'
+import { barCells, closeMore, moreLinks, openMore } from '../menu.ts'
+import { cleanupPrint } from '../i1/support.ts'
+
+// 출력 기록은 판매자 단위 — 판매(1등)가 만든 라벨 작업을 남기면 뒤 시험(N4a 등)의 출력 기기가 쌓인 라벨로 멈춘다 (i1 support "시험끼리 출력 기록이 섞이지 않게")
+test.afterEach(async ({ page }) => {
+  await cleanupPrint(page)
+})
 
 const ENGLISH = ['REVIEW', 'AUTO_APPLIED', 'APPLIED', 'IGNORED', 'POPBILL', 'PASTE', 'FAKE', 'tid', 'requestId', 'NAME_MISMATCH', 'AMOUNT_MISMATCH', 'NO_MATCH', 'ONE_MATCH', 'POSSIBLE_DUPLICATE', 'SAME_NAME', 'MULTIPLE', 'UNPAID', 'PAID', 'OVERPAID', 'PARTIAL', 'undefined', 'null', 'NaN']
 
@@ -160,20 +167,22 @@ test.describe('입금 확인 화면 경계', () => {
     })
   }
 
-  test('TE-N3-001: 375px 아래 메뉴(여섯 항목)의 링크가 모두 44×44px 이상 — "입금 확인"을 더해도 방송·정산·라벨이 좁아지지 않는다 (AC-N3-49, UX-04, AC-S06-02 회귀)', async ({ page, browser }) => {
+  test('TE-N3-001: 375px 아래 메뉴의 누르는 곳이 모두 44×44px 이상 — 막대 다섯 칸과 "더보기" 목록 항목 모두, "입금 확인"을 더해도 방송·정산·라벨이 좁아지지 않는다 (AC-N3-49, UX-04, AC-S06-02 회귀, AC-NAV-10)', async ({ page, browser }) => {
     await login(page)
     const phone = await phoneLike(browser, page)
     for (const path of ['/deposits', '/settlements', '/sms']) {
       await phone.goto(path)
-      const links = menu(phone).getByRole('link')
-      await expect(links.filter({ hasText: '입금 확인' })).toHaveCount(1)
+      // "입금 확인"은 "더보기" 목록 안 — 목록을 연 뒤 찾는다
+      await openMore(phone)
+      await expect(moreLinks(phone).filter({ hasText: '입금 확인' })).toHaveCount(1)
       const small: string[] = []
-      for (const link of await links.all()) {
-        const box = await link.boundingBox()
-        if (box === null) continue
-        if (box.width < 44 || box.height < 44) small.push(`${(await link.innerText()).trim()} ${String(Math.round(box.width))}×${String(Math.round(box.height))}`)
+      for (const target of [...barCells(phone), ...await moreLinks(phone).all()]) {
+        const box = await target.boundingBox()
+        expect(box, path).not.toBeNull()
+        if (box!.width < 44 || box!.height < 44) small.push(`${(await target.innerText()).trim()} ${String(Math.round(box!.width))}×${String(Math.round(box!.height))}`)
       }
       expect(small, path).toEqual([])
+      await closeMore(phone)
     }
     await phone.context().close()
   })

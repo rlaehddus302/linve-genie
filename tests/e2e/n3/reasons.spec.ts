@@ -4,6 +4,12 @@ import { test, expect } from '@playwright/test'
 import {
   deposit, depositOne, depositRow, fakeSource, history, kstIso, login, postJson, recentDate, shortKst, smsSale, uniq, won, writeEvent,
 } from './support.ts'
+import { cleanupPrint } from '../i1/support.ts'
+
+// 출력 기록은 판매자 단위 — 판매(1등)가 만든 라벨 작업을 남기면 뒤 시험(N4a 등)의 출력 기기가 쌓인 라벨로 멈춘다 (i1 support "시험끼리 출력 기록이 섞이지 않게")
+test.afterEach(async ({ page }) => {
+  await cleanupPrint(page)
+})
 
 const SEARCH = '찾을 말 (구매자 이름·닉네임·메모·전화번호 뒤 4자리)'
 
