@@ -166,8 +166,8 @@ export class PasteService {
       rehearsal: row.rehearsal,
       createScope: false,
       requestId,
-      guard: async (tx, state) => {
-        overlap = await this.#overlapInputs(tx, state, sellerId, row, broadcastId, parsed.rows)
+      guard: async (tx, runtime) => {
+        overlap = await this.#overlapInputs(tx, runtime.state, sellerId, row, broadcastId, parsed.rows)
         return null
       },
       build: (ctx) => {

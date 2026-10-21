@@ -45,6 +45,7 @@ import {
   loginLimits,
   outbox,
   packingRecords,
+  pasteRequests,
   printAttempts,
   printJobs,
   printLabels,
@@ -55,6 +56,9 @@ import {
   sellers,
   sessions,
   snapshots,
+  tiktokAccounts,
+  tiktokConsents,
+  tiktokLinks,
   youtubeCollectors,
   youtubeConnections,
   youtubeLinks,
@@ -1106,6 +1110,10 @@ const BATCH = 500
  * - 유튜브(Y1 — 채팅 본문·이름 chat_raw, 수집기·방송 잇기·우리 메시지·삭제·차단 알림): 범위를 참조한다 — 지운다. 채팅 본문·이름은 파일의 이벤트에서 다시 만든다.
  * - 인스타그램·라이브 연결(N2 — 감사 DM 행·발송, 라이브 연결·옮긴 기록, 이어지지 않은 댓글 수, 요청 번호): 범위·방송·발송함을 참조하거나 그 기록이다 — 지운다
  *   (복구한 지난 감사 DM을 다시 보내지 않는다).
+ * 합칠 때(N2b-2) 더한 표 — N2와 같은 기준(회차에 딸린 연결·요청 번호는 지우고, 판매자 계정 쪽 설정은 둔다):
+ * - 틱톡 연결(tiktok_links — 회차·범위를 참조하는 회차별 연결과 기록하지 않은·저장 실패 수): 라이브 연결(live_links)처럼 지운다. 파일에 없고,
+ *   복구한 지난 회차를 다시 잇지 않는다. 복구 명령은 서버를 다시 켜므로 이어받기(resume)가 지운 연결을 다시 열지 않는다.
+ * - 붙여넣기 요청 번호(paste_requests — 회차의 넣기 응답 요약): 라이브 요청 번호(live_requests)처럼 지운다.
  */
 export const RESTORE_REPLACED_TABLES = [
   igDmRows,
@@ -1114,6 +1122,8 @@ export const RESTORE_REPLACED_TABLES = [
   liveLinks,
   liveUnlinked,
   liveRequests,
+  tiktokLinks,
+  pasteRequests,
   printAttempts,
   printJobs,
   printLabels,
@@ -1132,9 +1142,9 @@ export const RESTORE_REPLACED_TABLES = [
 ] as const
 /**
  * 복구가 그대로 두는 판매자 표: 판매자 행(가게 설정·판매 규칙 설정 칸만 파일의 것으로 바꾼다)·로그인 계정·세션 (AC-I2-62 "판매자 ID·로그인 계정·세션·전화번호 키는 그대로"),
- * 라벨 템플릿(I1 — 판매자 설정, 파일에 없다), 구글 연결·승인 요청·할당량 사용량(Y1 — 계정 연결과 그날 쓴 양, 파일에 없다), 인스타그램 연결·승인 요청(N2 — 계정 연결), 출력 대기열 줄·라벨 기능 켬/끔 기록(I1·N4a — 판매자 설정, 대기열의 출력 중·멈춤 상태는 복구가 지운다)
+ * 라벨 템플릿(I1 — 판매자 설정, 파일에 없다), 구글 연결·승인 요청·할당량 사용량(Y1 — 계정 연결과 그날 쓴 양, 파일에 없다), 인스타그램 연결·승인 요청(N2 — 계정 연결), 틱톡 아이디·틱톡 사용 동의 기록(N2b-2 — 인스타그램 연결처럼 계정 쪽 설정이고, 동의 기록은 덧붙이기만 하는 기록이라 지우지 않는다 DAT-05), 출력 대기열 줄·라벨 기능 켬/끔 기록(I1·N4a — 판매자 설정, 대기열의 출력 중·멈춤 상태는 복구가 지운다)
  */
-export const RESTORE_KEPT_TABLES = [sellers, accounts, sessions, labelTemplates, youtubeConnections, youtubeOauthStates, youtubeQuota, igConnections, igOauthStates, printQueues, labelSwitches] as const
+export const RESTORE_KEPT_TABLES = [sellers, accounts, sessions, labelTemplates, youtubeConnections, youtubeOauthStates, youtubeQuota, igConnections, igOauthStates, tiktokAccounts, tiktokConsents, printQueues, labelSwitches] as const
 /** 판매자 데이터가 아닌 표 (로그인 전 시도 수 — 판매자 ID가 없다) */
 export const RESTORE_UNRELATED_TABLES = [loginLimits] as const
 
