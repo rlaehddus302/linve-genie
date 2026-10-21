@@ -5,7 +5,7 @@ import { App } from '../src/App.tsx'
 import { onUnauthorized } from '../src/api/client.ts'
 import type { ChatMessage, InstagramConnection, InstagramLinkView, PlatformCapability, TikTokCollection, TikTokLinkView, TikTokSettings } from '../src/api/types.ts'
 import { ConsolePage } from '../src/components/ConsolePage.tsx'
-import { PasteDialog } from '../src/components/PasteDialog.tsx'
+import { PasteDialog, pasteGroups } from '../src/components/PasteDialog.tsx'
 import { setTopLevelNavigation } from '../src/lib/google-return.ts'
 import {
   MULTI_PLATFORM_NOTICE,
@@ -856,6 +856,113 @@ describe('붙여넣기 창 (AC-64)', () => {
     expect((within(dialog).getByRole('button', { name: '찜 0개 넣기' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(anyway)
     expect((within(dialog).getByRole('button', { name: '찜 1개 넣기' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('넣기가 확정 거절(409 NOTHING_TO_ADD)로 끝나면 고르기 잠금이 풀려 다시 미리 보고 "그래도 넣기"를 고를 수 있다 (SA-N2b-2-011)', async () => {
+    const overlapRow = { line: 1, nickname: '홍길동', text: '15', result: 'ORDER', numbers: [15], message: '15번 찜', overlaps: [15], overlapMessage: '15번은 같은 닉네임의 찜이 이미 있어 넣지 않아요.' }
+    const inserts: Record<string, unknown>[] = []
+    let rejects = 1
+    server
+      .on('POST', /^\/api\/broadcasts\/b1\/paste\/preview$/, () => ({
+        body: { rows: [overlapRow, { line: 2, nickname: '김철수', text: '16', result: 'ORDER', numbers: [16], message: '16번 찜' }], groups: [], total: 1 },
+      }))
+      .on('POST', /^\/api\/broadcasts\/b1\/paste$/, (call): Reply => {
+        inserts.push(call.body ?? {})
+        if (rejects > 0) {
+          rejects--
+          return apiError(409, 'NOTHING_TO_ADD', '넣을 찜이 없어요. 미리 보기를 다시 해 주세요.')
+        }
+        return { body: { rows: [{ ...overlapRow, overlaps: undefined, overlapMessage: undefined }], groups: [], total: 2, added: 2 } }
+      })
+    const done = vi.fn()
+    render(<PasteDialog broadcastId="b1" onClose={() => {}} onDone={done} />)
+    const dialog = screen.getByRole('dialog', { name: '댓글 붙여넣기' })
+    fireEvent.change(within(dialog).getByLabelText('붙여 넣을 댓글'), { target: { value: '홍길동: 15\n김철수: 16' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '미리 보기' }))
+    await within(dialog).findByRole('checkbox', { name: '그래도 넣기' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '찜 1개 넣기' }))
+    expect(await within(dialog).findByText('넣을 찜이 없어요. 미리 보기를 다시 해 주세요.')).toBeDefined()
+    // 확정 거절: 잠금이 풀린다 (다시 미리 봐도)
+    await waitFor(() => expect((within(dialog).getByRole('checkbox', { name: '그래도 넣기' }) as HTMLInputElement).disabled).toBe(false))
+    fireEvent.click(within(dialog).getByRole('button', { name: '미리 보기' }))
+    await waitFor(() => expect(within(dialog).queryByText('넣을 찜이 없어요. 미리 보기를 다시 해 주세요.')).toBeNull())
+    const anyway = within(dialog).getByRole('checkbox', { name: '그래도 넣기' }) as HTMLInputElement
+    expect(anyway.disabled).toBe(false)
+    fireEvent.click(anyway)
+    expect(anyway.checked).toBe(true)
+    fireEvent.click(within(dialog).getByRole('button', { name: '찜 2개 넣기' }))
+    await waitFor(() => expect(done).toHaveBeenCalledWith('찜 2개를 넣었어요.'))
+    expect(inserts.map((body) => body.includeOverlaps)).toEqual([[], [1]])
+  })
+
+  it('넣기가 응답을 잃고(네트워크) 끝나면 고르기 잠금을 그대로 둔다 — 다시 미리 봐도 (SA-N2b-2-011)', async () => {
+    server
+      .on('POST', /^\/api\/broadcasts\/b1\/paste\/preview$/, () => ({
+        body: { rows: [{ line: 1, nickname: '홍길동', text: '15', result: 'ORDER', numbers: [15], message: '15번 찜', overlaps: [15], overlapMessage: '15번은 같은 닉네임의 찜이 이미 있어 넣지 않아요.' }, { line: 2, nickname: '김철수', text: '16', result: 'ORDER', numbers: [16], message: '16번 찜' }], groups: [], total: 1 },
+      }))
+      .on('POST', /^\/api\/broadcasts\/b1\/paste$/, (): Reply => ({ network: true }))
+    render(<PasteDialog broadcastId="b1" onClose={() => {}} onDone={() => {}} />)
+    const dialog = screen.getByRole('dialog', { name: '댓글 붙여넣기' })
+    fireEvent.change(within(dialog).getByLabelText('붙여 넣을 댓글'), { target: { value: '홍길동: 15\n김철수: 16' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '미리 보기' }))
+    await within(dialog).findByRole('checkbox', { name: '그래도 넣기' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '찜 1개 넣기' }))
+    await waitFor(() => expect((within(dialog).getByRole('button', { name: '찜 1개 넣기' }) as HTMLButtonElement).disabled).toBe(false), { timeout: 8000 })
+    expect((within(dialog).getByRole('checkbox', { name: '그래도 넣기' }) as HTMLInputElement).disabled).toBe(true)
+    fireEvent.click(within(dialog).getByRole('button', { name: '미리 보기' }))
+    await waitFor(() => expect(server.callsTo('POST', /paste\/preview$/)).toHaveLength(2))
+    await waitFor(() => expect((within(dialog).getByRole('checkbox', { name: '그래도 넣기' }) as HTMLInputElement).disabled).toBe(true))
+  }, 15000)
+
+  it('같은 닉네임 묶음은 "그래도 넣기"로 고른 겹친 줄도 센다 (SA-N2b-2-012)', async () => {
+    server.on('POST', /^\/api\/broadcasts\/b1\/paste\/preview$/, () => ({
+      body: {
+        rows: [
+          { line: 1, nickname: '홍길동', text: '15', result: 'ORDER', numbers: [15], message: '15번 찜', overlaps: [15], overlapMessage: '15번은 같은 닉네임의 찜이 이미 있어 넣지 않아요.' },
+          { line: 2, nickname: '홍길동', text: '16', result: 'ORDER', numbers: [16], message: '16번 찜' },
+          { line: 3, nickname: '김철수', text: '17', result: 'ORDER', numbers: [17], message: '17번 찜' },
+        ],
+        groups: [
+          { nickname: '홍길동', lines: [2], claims: 1, message: null },
+          { nickname: '김철수', lines: [3], claims: 1, message: null },
+        ],
+        total: 2,
+      },
+    }))
+    render(<PasteDialog broadcastId="b1" onClose={() => {}} onDone={() => {}} />)
+    const dialog = screen.getByRole('dialog', { name: '댓글 붙여넣기' })
+    fireEvent.change(within(dialog).getByLabelText('붙여 넣을 댓글'), { target: { value: '홍길동: 15\n홍길동: 16\n김철수: 17' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '미리 보기' }))
+    const anyway = await within(dialog).findByRole('checkbox', { name: '그래도 넣기' })
+    expect(within(dialog).queryByRole('list', { name: '같은 닉네임' })).toBeNull()
+    fireEvent.click(anyway)
+    const groups = within(dialog).getByRole('list', { name: '같은 닉네임' })
+    expect(groups.textContent).toBe('홍길동 같은 닉네임 2줄은 한 구매자로 넣어요')
+    fireEvent.click(anyway)
+    expect(within(dialog).queryByRole('list', { name: '같은 닉네임' })).toBeNull()
+  })
+
+  it('pasteGroups: 서버 묶음 ∪ 고른 겹친 줄, 겹침 없는 줄·고르지 않은 줄은 더하지 않는다', () => {
+    const rows = [
+      { line: 1, nickname: 'A', result: 'ORDER', numbers: [1], message: '', overlaps: [1] },
+      { line: 2, nickname: 'B', result: 'ORDER', numbers: [2], message: '', overlaps: [2] },
+      { line: 3, nickname: 'B', result: 'ORDER', numbers: [3], message: '', overlaps: [3] },
+      { line: 4, nickname: 'A', result: 'ORDER', numbers: [4], message: '' },
+      { line: 5, nickname: 'C', result: 'ORDER', numbers: [5], message: '' },
+      { line: 6, nickname: 'C', result: 'ORDER', numbers: [6], message: '' },
+    ]
+    const groups = [
+      { nickname: 'A', lines: [4], claims: 1, message: null },
+      { nickname: 'C', lines: [5, 6], claims: 2, message: null },
+    ]
+    const plan = { rows, groups, total: 3 }
+    expect(pasteGroups(plan, new Set())).toEqual([{ nickname: 'C', lines: [5, 6] }])
+    expect(pasteGroups(plan, new Set([1, 2, 3, 5]))).toEqual([
+      { nickname: 'A', lines: [1, 4] },
+      { nickname: 'B', lines: [2, 3] },
+      { nickname: 'C', lines: [5, 6] },
+    ])
+    expect(pasteGroups(plan, new Set([2]))).toEqual([{ nickname: 'C', lines: [5, 6] }])
   })
 
   it('전체 거절·넣을 찜 없음은 서버 문장', async () => {

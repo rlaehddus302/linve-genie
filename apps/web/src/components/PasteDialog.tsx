@@ -6,6 +6,9 @@
 // - 겹친 줄(AC-N2b-2-69, D-N2b-2-14): 서버가 준 `overlapMessage`를 결과 문장 아래에 그대로 보이고 그 줄에 "그래도 넣기"(기본 꺼짐).
 //   N = total + 고른 줄의 overlaps 수(고르기를 바꿔도 미리 보기를 다시 하지 않는다). 넣기는 고른 줄 번호를 includeOverlaps로 보낸다.
 //   처음 넣기를 누른 뒤에는 고르기를 잠근다 — 다시 보내는 넣기는 같은 요청 번호·같은 고르기(다르면 서버가 REQUEST_REUSED).
+//   잠금은 응답을 잃은 경우(`transient` — 서버에 기록됐을 수 있다)만 남긴다. 서버의 확정 거절(기록이 남지 않는 4xx, 예: NOTHING_TO_ADD)이면
+//   잠금을 풀어 다시 고를 수 있다(SA-N2b-2-011). 요청 번호는 그대로 — 앞선 시도가 기록됐다면 서버가 처음 응답이나 REQUEST_REUSED로 막는다.
+//   같은 닉네임 묶음 안내는 서버 묶음에 고른 겹친 줄(같은 닉네임)을 더해 센다(SA-N2b-2-012).
 //   끝 안내는 넣기 응답에서 빠진 겹친 번호 수 M이 있으면 "… 이미 있는 찜 M개는 넣지 않았어요."를 붙인다.
 // - 키보드(UX-N2b-2-01): 미리 보기가 끝나면 포커스가 "찜 N개 넣기"로 간다(넣을 찜이 있을 때). 보는 동안 "미리 보기"는 잠그지 않고 aria-busy —
 //   포커스가 창 밖으로 빠져 "닫기"로 가지 않게. 글 칸에서 Ctrl+Enter(⌘Enter)는 미리 보기, 미리 본 뒤면 넣기.
@@ -113,6 +116,8 @@ export function PasteDialog({ broadcastId, onClose, onDone, draft = '', onDraftC
       onDone(pasteDoneMessage(result.added ?? result.total, pasteOverlapCount(result.rows)))
     } catch (caught) {
       if (!isApiError(caught)) throw caught
+      // 확정 거절은 기록이 남지 않았다 — 고르기 잠금을 푼다. 응답을 잃은 경우만 잠금을 둔다(같은 고르기로 다시 보내기)
+      if (!caught.transient) setPreviewed((before) => (before !== null && before.requestId === requestId ? { ...before, sent: false } : before))
       setSendError(caught)
     } finally {
       sendingRef.current = false
@@ -193,9 +198,32 @@ export interface PastePreviewProps {
   readonly onInclude?: (line: number, on: boolean) => void
 }
 
+/**
+ * 같은 닉네임 묶음 (SA-N2b-2-012): 닉네임마다 서버 group.lines ∪ "그래도 넣기"를 고른 겹친 줄 중 같은 닉네임인 줄.
+ * 2줄 이상인 묶음만, 첫 줄 순서로.
+ */
+export function pasteGroups(plan: PastePlanView, include: ReadonlySet<number>): { readonly nickname: string; readonly lines: readonly number[] }[] {
+  const byNick = new Map<string, Set<number>>()
+  for (const group of plan.groups) {
+    const lines = byNick.get(group.nickname) ?? new Set<number>()
+    for (const line of group.lines) lines.add(line)
+    byNick.set(group.nickname, lines)
+  }
+  for (const row of plan.rows) {
+    if (row.nickname === undefined || !include.has(row.line) || row.overlaps === undefined || row.overlaps.length === 0) continue
+    const lines = byNick.get(row.nickname) ?? new Set<number>()
+    lines.add(row.line)
+    byNick.set(row.nickname, lines)
+  }
+  return [...byNick]
+    .map(([nickname, lines]) => ({ nickname, lines: [...lines].sort((a, b) => a - b) }))
+    .filter((group) => group.lines.length > 1)
+    .sort((a, b) => (a.lines[0] ?? 0) - (b.lines[0] ?? 0))
+}
+
 /** 미리 보기: 줄 결과(겹친 줄은 서버 문장 + "그래도 넣기") + 같은 닉네임 묶음 */
 export function PastePreview({ plan, total = plan.total, include = NO_LINES, locked = false, onInclude }: PastePreviewProps) {
-  const many = plan.groups.filter((group) => group.lines.length > 1)
+  const many = pasteGroups(plan, include)
   return (
     <div className="stack-tight paste-preview" role="group" aria-label="미리 보기">
       <p role="status">넣을 찜 {groupDigits(total)}개</p>
