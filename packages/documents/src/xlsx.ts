@@ -3,33 +3,37 @@
 // `=`·`+`·`-`·`@`로 시작하는 닉네임·품종도 수식이 되지 않는다(파일을 연 판매자 PC에서 실행되지 않게).
 // I2 (D-I2-03, TD-P2-003): 글 칸에는 엑셀이 받지 않는 글자(제어 글자·U+FFFE·U+FFFF·짝 없는 서로게이트)를 빼고 쓴다 — 한 글자 때문에 파일 전체가 열리지 않으면 대장을 못 쓴다.
 import ExcelJS from 'exceljs'
-import { LEDGER_COLUMNS, LEDGER_SHEET_NAME, ledgerRowValues, type LedgerRow } from './ledger.ts'
+// O3 (D-O3-07): 옵션 방송이 든 대장은 `품종` 뒤에 옵션·수량·단가를 더한 14열 — 수량·단가도 수 칸(단가는 가격 서식).
+import { LEDGER_SHEET_NAME, hasOptionColumns, ledgerColumns, ledgerRowValuesWith, type LedgerRow } from './ledger.ts'
 import { stripXlsxForbidden } from './text.ts'
 
-const NUMBER_COLUMNS = new Set([3, 5])
-const PRICE_COLUMN = 5
-const COLUMN_WIDTHS = [12, 14, 10, 22, 12, 24, 10, 20, 10, 10, 10]
+const PLAIN = { numbers: new Set([3, 5]), money: new Set([5]), widths: [12, 14, 10, 22, 12, 24, 10, 20, 10, 10, 10] }
+const WITH_OPTIONS = { numbers: new Set([3, 6, 7, 8]), money: new Set([7, 8]), widths: [12, 14, 10, 22, 16, 8, 12, 12, 24, 10, 20, 10, 10, 10] }
 
-/** 행 → .xlsx 바이트 */
-export async function ledgerToXlsx(rows: readonly LedgerRow[]): Promise<Uint8Array> {
+/**
+ * 행 → .xlsx 바이트. options = 옵션 칸을 둘지(buildLedger 결과의 options — 날짜마다 따로 만든 행을 이어 붙였으면 그중 하나라도 옵션이면 true).
+ * 넘기지 않으면 행 중 하나라도 옵션 칸이 있으면 둔다
+ */
+export async function ledgerToXlsx(rows: readonly LedgerRow[], options: boolean = rows.some(hasOptionColumns)): Promise<Uint8Array> {
+  const layout = options ? WITH_OPTIONS : PLAIN
   const workbook = new ExcelJS.Workbook()
   workbook.creator = '라이브찜'
   const sheet = workbook.addWorksheet(LEDGER_SHEET_NAME, { views: [{ state: 'frozen', xSplit: 0, ySplit: 1 }] })
-  COLUMN_WIDTHS.forEach((width, i) => {
+  layout.widths.forEach((width, i) => {
     sheet.getColumn(i + 1).width = width
   })
-  const header = sheet.addRow([...LEDGER_COLUMNS])
+  const header = sheet.addRow([...ledgerColumns(options)])
   header.font = { bold: true }
   for (const row of rows) {
-    const values = ledgerRowValues(row)
+    const values = ledgerRowValuesWith(row, options)
     const added = sheet.addRow([])
     values.forEach((value, i) => {
       const column = i + 1
       if (value === '') return // 빈 값은 빈 칸
       const cell = added.getCell(column)
-      if (NUMBER_COLUMNS.has(column) && typeof value === 'number') {
+      if (layout.numbers.has(column) && typeof value === 'number') {
         cell.value = value
-        if (column === PRICE_COLUMN) cell.numFmt = '#,##0'
+        if (layout.money.has(column)) cell.numFmt = '#,##0'
         return
       }
       // 글 값은 글 칸으로만 — 수식 객체로 넣지 않는다. 금지 글자를 빼서 비면 빈 칸
