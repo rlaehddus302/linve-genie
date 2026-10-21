@@ -67,7 +67,7 @@ test.describe('N2b-2 여러 플랫폼 @multi', () => {
     expect(links.links.map((l) => l.platform).sort()).toEqual(['INSTAGRAM', 'TIKTOK', 'YOUTUBE'])
 
     // 틱톡 "15" 먼저 도착 → 유튜브 "15번" → 인스타 "16"
-    await ttComment(page.request, tiktokId, 'flower_mom', '15')
+    await ttComment(page.request, tiktokId, 'flower_mom', '15', { userId: '7200000001' })
     await expect(boardItem(page, 15)).toContainText('flower_mom')
     await fakeChat(page.request, yt.liveChatId, 'UCyoutubeviewer000000001', '유튜브손님', '15번')
     const chat = page.getByRole('region', { name: '채팅' })
