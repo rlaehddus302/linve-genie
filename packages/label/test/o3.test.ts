@@ -117,8 +117,9 @@ describe('AC-O3-03 옵션 글은 품종 자리, 수량은 가격 자리', () => 
 describe('AC-O3-04 수량 붙은 가격의 보장값', () => {
   const BIG: readonly LabelSizeId[] = ['50x20', '50x30', '50x40', '50x50']
   const bigCases = [
-    { text: '9개 999,999원', price: 999_999, qty: 9, style: 'WON' },
-    { text: '99개 99,999원', price: 99_999, qty: 99, style: 'WON' },
+    // D-O3-11: 큰 템플릿 원 표기 보장값은 `9개 99,999원`·`99개 9,999원`(숫자 0~9 확인은 아래)
+    { text: '9개 99,999원', price: 99_999, qty: 9, style: 'WON' },
+    { text: '99개 9,999원', price: 9_999, qty: 99, style: 'WON' },
     { text: '9개 9,999 천원', price: 9_999_000, qty: 9, style: 'THOUSAND' },
     { text: '99개 999 천원', price: 999_000, qty: 99, style: 'THOUSAND' },
   ] as const
@@ -165,10 +166,10 @@ describe('AC-O3-04 수량 붙은 가격의 보장값', () => {
     }
     expect(failed, `${size} ${style}`).toEqual([])
   }
-  // 천원 표기 `9개 9,999 천원`(수량 한 자리·금액 일곱 자리)·`99개 999 천원`(두 자리·여섯 자리), 원 표기 여섯 자리 글(`9개 99,999원`·`99개 9,999원` —
-  // `9개 999,999원`보다 짧은 값이라 L-5가 이미 보장한다)은 어느 숫자로도 들어간다.
+  // 천원 표기 `9개 9,999 천원`(수량 한 자리·금액 일곱 자리)·`99개 999 천원`(두 자리·여섯 자리), 원 표기 `9개 99,999원`(한 자리·다섯 자리)·
+  // `99개 9,999원`(두 자리·네 자리 — D-O3-11 보장값)은 어느 숫자로도 들어간다.
   for (const size of BIG) {
-    it(`${size} 숫자 0~9: 천원 표기 보장값과 원 표기 여섯 자리 글`, () => {
+    it(`${size} 숫자 0~9: 천원 표기·원 표기 보장값(D-O3-11)`, () => {
       checkDigits(size, 'THOUSAND', [...digitCases(1, 7, 'THOUSAND'), ...digitCases(2, 6, 'THOUSAND')])
       checkDigits(size, 'WON', [...digitCases(1, 5, 'WON'), ...digitCases(2, 4, 'WON')])
     })
