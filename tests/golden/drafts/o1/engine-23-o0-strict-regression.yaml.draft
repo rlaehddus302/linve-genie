@@ -1,0 +1,29 @@
+# O0 초안 — O1 시작 때 tests/golden/engine/23-o0-strict-regression.yaml로 옮긴다(D-O-01). 지금 코어로 통과한다(O0에서 임시로 넣어 확인).
+# 지금 넣지 않는 까닭은 chat-strict-regression.yaml.draft 머리말과 같다(core-adapter.test.ts의 골든 합계 고정).
+# O0 — 다육 방식(STRICT, 기본) 회귀 고정 (CMT-07, R-3, R-4, D-O-02). 새 규칙은 없다(지금 코어로 통과).
+# 업종 확장(R-19·R-20)은 claim.parseMode=OPTIONS 방송에서만 켜진다. 기본 방송에서는 상품명·옵션·수량 모양 댓글이 찜을 만들지 않고,
+# 재고 2 이상 상품도 지금처럼 번호 댓글 하나 = 1개다. 옵션 방송의 시나리오 초안은 tests/golden/drafts/o1/ (D-O-01).
+id: G-ENG-O0-01
+title: 번호로만 받기(기본) 방송 — 상품명·옵션·수량 모양 댓글은 찜이 아니다
+refs: [CMT-07, ORD-01, R-3, R-4]
+broadcasts: [{ id: b1, date: 2026-10-25, title: 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: product.register, b: b1, no: 11, name: 초코 과자, price: 2000, stock: 5 }
+  - { at: "20:00:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "초코 과자 3" }   # 언급 [3] — 찜 없음
+  - { at: "20:00:06", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "11 2개" }        # 언급 [11, 2] — 찜 없음(2개를 사지 않는다)
+  - { at: "20:00:07", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "반바지 M" }      # 아무것도 아님
+  - { at: "20:00:08", type: chat, b: b1, id: m4, ch: UC_D, nick: 박민수, text: "15" }            # 확정
+  - { at: "20:00:09", type: chat, b: b1, id: m5, ch: UC_E, nick: 최지우, text: "11" }            # 재고 5 중 1 확정 (찜 하나 = 1개)
+expect:
+  products:
+    b1/15: { status: SOLD, winner: UC_D, waitlist: [] }
+    b1/11: { status: OPEN, winners: [UC_E], waitlist: [] }
+  claimCount: 2
+  buyers:
+    UC_A: { items: [], subtotal: 0 }
+    UC_B: { items: [], subtotal: 0 }
+    UC_E: { items: [b1/11], subtotal: 2000 }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/11, buyer: UC_E, text: "11번 초코 과자 2,000원 최지우님 구매 감사합니다" }
+  effectCounts: { POST_THANKS: 2, PRINT_PRODUCT_LABEL: 2 }

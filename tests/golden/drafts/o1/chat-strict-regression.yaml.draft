@@ -1,0 +1,16 @@
+# O0 초안 — 다육 방식(STRICT) 회귀 사례. O1 시작 때 tests/golden/parser/chat.yaml 끝에 이 문서를 그대로 붙인다(D-O-01).
+# 지금 코어로 통과한다(O0에서 임시로 넣어 골든 단계 통과 확인 — 파서 사례 7개). 지금 넣지 않는 까닭: 코어 단위 시험
+# packages/core/test/golden/core-adapter.test.ts가 실제 골든 합계(파일·사례·시나리오 수)를 고정해 두어, 개발자 없이 골든만 늘리면 test 단계가 실패한다.
+# O0 — 다육 방식(STRICT, 기본) 회귀 고정 (CMT-07, R-3, R-20 머리말, D-O-02). 새 규칙은 없다(지금 코어로 통과).
+# 업종 확장(옵션 방송)의 댓글 모양이 "번호로만 받기" 방송에서는 지금처럼 주문이 아니다 — 숫자는 언급으로 강조만 된다.
+# 옵션 인식은 claim.parseMode=OPTIONS 방송에서만 켜진다(R-20, O1). 언급 = 금액 덩어리가 아닌 1~4자리 숫자 덩어리 중 1..999.
+suite: chat
+settings: { parseMode: STRICT, multiNumber: ALL, maxNumber: 999 }
+cases:
+  - { in: "초코 과자 3", out: { mentions: [3] } }        # 상품명 + 수량 모양 — 주문 아님
+  - { in: "반바지 M", out: {} }                          # 숫자 없음
+  - { in: "아이폰 17 프로", out: { mentions: [17] } }    # 기종 안의 17은 언급으로만
+  - { in: "흰색 대형 2개", out: { mentions: [2] } }      # '2개'는 꼬리말이 아니다
+  - { in: "11 2개", out: { mentions: [11, 2] } }         # 번호 뒤 '2개'가 붙으면 문법 밖 → 둘 다 언급
+  - { in: "21 M", out: { mentions: [21] } }
+  - { in: "15 2", out: { claims: [15, 2] } }             # 번호 둘 — 옵션 방송에서도 같은 뜻(R-20 2)

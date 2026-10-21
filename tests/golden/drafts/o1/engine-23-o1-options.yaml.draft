@@ -1,0 +1,258 @@
+# O0 초안 — 옵션 방송의 엔진 시나리오 (DOMAIN_RULES R-19·R-20, SPEC OPT-01~OPT-04·OPT-06·CMT-04·CMT-05, D-O-02~D-O-10·D-O-12·D-O-13)
+# 러너가 읽지 않는 .draft 파일이다(D-O-01). O1 시작 때 spec-keeper가 tests/golden/engine/23-o1-options.yaml로 옮기고
+# README 형식 계약에 새 어휘를 넣는다. O1 중에는 known-unimplemented.yaml에 'G-ENG-O1-*'를 두고, O1 끝에는 빼야 한다(AC).
+#
+# 새 어휘 (O1에서 README에 넣을 계약 초안)
+#   이벤트 필드: product.register/update — aliases(문자열 목록), options([{ name, choices: [{ label, aliases?, price? }] }]), stocks({ 옵션 글: 재고 })
+#               sms·host.assign — options({ 항목: 선택지 }), qty(1 이상)
+#               host.cancel·reject·promote·confirm·approveCancel·dismissCancel·reopen·effect.* — options(변형 고르기)
+#   새 이벤트:  product.focus { b, no } · host.resolveReview { b, item, no, qty, options?, reason? } · host.dismissReview { b, item, reason? }
+#               item = 메시지 ID 또는 'sms:<ref>'
+#   expect:     variants.<방송>/<번호>#<옵션 글> { status, winner, winners, waitlist, stock, confirmedUnits }
+#               products.<p>.confirmedUnits(옵션 없는 상품의 확정 수량)
+#               claims[] 항목의 product에 변형 키, 선택 qty
+#               reviews: 확인 필요 항목 전체(순서 = 원래 순위) [{ item, reason, buyer, product?, options?, qty? }]
+#               buyers.<b>.items 는 변형 키(옵션 없는 상품은 상품 키), subtotal = Σ 단가 × 수량
+#   거절 사유:  OPTION_MISSING 추가 / 확인 필요 사유: R-20 목록 + STOCK_SHORT
+#
+# 모든 기대값은 손으로 계산했다. 시나리오마다 계산을 주석으로 적었다.
+---
+id: G-ENG-O1-01
+title: 변형마다 재고·1등·대기가 따로다. 같은 사람이 다른 변형을 함께 산다
+refs: [OPT-02, R-19, R-4, R-8]
+settings: { claim.parseMode: OPTIONS }
+broadcasts: [{ id: b1, date: 2026-10-25, title: 의류 1부 }]
+events:
+  - at: "20:00:00"
+    type: product.register
+    b: b1
+    no: 21
+    name: 반바지
+    price: 10000
+    options: [{ name: 사이즈, choices: [{ label: S }, { label: M, aliases: [엠] }, { label: L }] }]   # 변형 셋, 재고 각 1(기본)
+  - { at: "20:00:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "반바지 M" }   # M: A 확정(확정버전 1)
+  - { at: "20:00:06", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "반바지 엠" }  # M 찼음 → B 대기 1
+  - { at: "20:00:07", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "21 L" }       # L: C 확정(확정버전 2 — 상품마다 센다)
+  - { at: "20:00:08", type: chat, b: b1, id: m4, ch: UC_A, nick: 홍길동, text: "반바지 L" }   # 다른 변형이라 같은 사람 반복이 아니다 → L 대기 1
+  - { at: "20:00:09", type: chat, b: b1, id: m5, ch: UC_A, nick: 홍길동, text: "반바지 M" }   # 같은 변형 반복 → 찜 없음
+  - { at: "20:01:00", type: host.cancel, b: b1, no: 21, options: { 사이즈: M }, buyer: UC_A, reason: 변심 }   # A는 M·L 둘에 찜이 있어 변형을 고른다 → M 자동 승계: B 확정(확정버전 3)
+expect:
+  products:
+    b1/21: { status: OPEN }                        # S가 남아 있다
+  variants:
+    "b1/21#S": { status: OPEN, winner: null, waitlist: [], stock: 1 }
+    "b1/21#M": { status: SOLD, winner: UC_B, waitlist: [] }
+    "b1/21#L": { status: SOLD, winner: UC_C, waitlist: [UC_A] }
+  claims:
+    - { product: "b1/21#M", buyer: UC_A, status: CANCELLED }
+    - { product: "b1/21#L", buyer: UC_A, status: WAITLISTED }
+  claimCount: 4                                    # A-M, B-M, C-L, A-L (m5는 반복)
+  buyers:
+    UC_A: { items: [], subtotal: 0 }
+    UC_B: { items: ["b1/21#M"], subtotal: 10000 }
+    UC_C: { items: ["b1/21#L"], subtotal: 10000 }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/21, buyer: UC_A, text: "21번 반바지 M 10,000원 홍길동님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/21, buyer: UC_C, text: "21번 반바지 L 10,000원 이영희님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/21, buyer: UC_B, text: "21번 반바지 M 10,000원 김철수님 구매 감사합니다" }
+  reviews: []
+---
+id: G-ENG-O1-02
+title: 수량 — 맞으면 확정, 모자라면 확인 필요(일부 자동 확정 없음), 다 팔렸으면 품절. 수량 2 이상은 대기하지 않는다
+refs: [OPT-03, CMT-04, R-19, R-20, R-8, R-12]
+settings: { claim.parseMode: OPTIONS }
+broadcasts: [{ id: b1, date: 2026-10-25, title: 식품 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 11, name: 초코 과자, price: 2000, stock: 5, aliases: [초코] }   # 옵션 없음, 재고 5
+  - { at: "20:00:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "초코 과자 3" }    # 3 ≤ 남은 5 → 확정. 남은 2
+  - { at: "20:00:06", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "초코 과자 3" }    # 0 < 남은 2 < 3 → 확인 필요 STOCK_SHORT (찜 없음)
+  - { at: "20:00:07", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "초코 1" }         # 1 ≤ 2 → 확정. 남은 1
+  - { at: "20:00:08", type: chat, b: b1, id: m4, ch: UC_D, nick: 박민수, text: "초코과자 2개" }   # 0 < 1 < 2 → 확인 필요 STOCK_SHORT
+  - { at: "20:00:09", type: chat, b: b1, id: m5, ch: UC_E, nick: 최지우, text: "11" }             # 번호 문법, 수량 1 → 확정. 남은 0 → SOLD
+  - { at: "20:00:10", type: chat, b: b1, id: m6, ch: UC_F, nick: 정하나, text: "초코 과자 2" }    # 남은 0, 수량 2 → 대기하지 않고 품절
+  - { at: "20:00:11", type: chat, b: b1, id: m7, ch: UC_G, nick: 강보람, text: "초코 과자" }      # 수량 1 → 대기 1
+  - type: assert
+    expect:
+      products:
+        b1/11: { status: SOLD, winners: [UC_A, UC_C, UC_E], waitlist: [UC_G], confirmedUnits: 5 }   # 3 + 1 + 1
+      reviews:
+        - { item: m2, reason: STOCK_SHORT, buyer: UC_B, product: b1/11, qty: 3 }
+        - { item: m4, reason: STOCK_SHORT, buyer: UC_D, product: b1/11, qty: 2 }
+  - { at: "20:02:00", type: host.cancel, b: b1, no: 11, buyer: UC_A, reason: 전화로 취소 }          # A의 3이 풀림 → 남은 3 → 자동 승계: 대기 1순위부터 최대 3명 → G 확정. 남은 2, 대기 없음
+  - { at: "20:03:00", type: host.resolveReview, b: b1, item: m2, no: 11, qty: 2, reason: 전화로 2개 확인 }   # 원래 순위(m2). 2 ≤ 남은 2, 앞선 대기 없음 → 확정. 남은 0
+  - { at: "20:03:10", type: host.dismissReview, b: b1, item: m4, reason: 품절 안내 }
+expect:
+  products:
+    b1/11: { status: SOLD, winners: [UC_C, UC_E, UC_G, UC_B], waitlist: [], confirmedUnits: 5 }   # 1 + 1 + 1 + 2
+  claims:
+    - { product: b1/11, buyer: UC_A, status: CANCELLED }
+    - { product: b1/11, buyer: UC_F, status: REJECTED, reason: SOLD_OUT }
+    - { product: b1/11, buyer: UC_B, status: CONFIRMED, qty: 2 }
+  claimCount: 6                                    # A, C, E, F, G, B(바로잡기로 생김). B·D의 확인 필요는 찜이 아니었다
+  reviews: []
+  buyers:
+    UC_B: { items: [b1/11], subtotal: 4000 }       # 2000 × 2
+    UC_C: { items: [b1/11], subtotal: 2000 }
+    UC_A: { items: [], subtotal: 0 }
+    UC_D: { items: [], subtotal: 0 }
+  settlements:
+    UC_B@2026-10-25: { subtotal: 4000, shipping: 4000, total: 8000, payment: UNPAID }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/11, buyer: UC_A, text: "11번 초코 과자 3개 6,000원 홍길동님 구매 감사합니다" }   # 2000 × 3
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/11, buyer: UC_G, text: "11번 초코 과자 2,000원 강보람님 구매 감사합니다" }      # 수량 1 → 지금 문구 그대로
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/11, buyer: UC_B, text: "11번 초코 과자 2개 4,000원 김철수님 구매 감사합니다" }
+---
+id: G-ENG-O1-03
+title: 옵션 가격 차이 — 단가 × 수량, 정산은 정수 합, 무료배송 기준은 상품 합계
+refs: [OPT-01, OPT-03, OPT-06, R-19, R-12, R-13]
+settings: { claim.parseMode: OPTIONS, shipping.freeThreshold: 50000 }
+broadcasts: [{ id: b1, date: 2026-10-25, title: 의류 2부 }]
+events:
+  - at: "20:00:00"
+    type: product.register
+    b: b1
+    no: 22
+    name: 반팔티
+    price: 15000
+    stock: 2
+    stocks: { "105/검정색": 3 }
+    options:
+      - { name: 사이즈, choices: [{ label: "95" }, { label: "100" }, { label: "105", price: 2000 }] }
+      - { name: 색상, choices: [{ label: 흰색, aliases: [화이트] }, { label: 검정색, aliases: [검정, 블랙] }] }
+  - { at: "20:00:01", type: product.register, b: b1, no: 21, name: 반바지, price: 10000, options: [{ name: 사이즈, choices: [{ label: S }, { label: M }, { label: L }] }] }
+  - { at: "20:00:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "반팔티 105 검정 2" }    # 단가 15000 + 2000 = 17000, × 2 = 34000. 105/검정색 남은 3 − 2 = 1
+  - { at: "20:00:06", type: chat, b: b1, id: m2, ch: UC_A, nick: 홍길동, text: "반바지 M" }            # 10000
+  - { at: "20:00:07", type: chat, b: b1, id: m3, ch: UC_B, nick: 김철수, text: "반팔티 105 블랙 2" }   # 0 < 남은 1 < 2 → 확인 필요 STOCK_SHORT
+  - { at: "20:00:08", type: chat, b: b1, id: m4, ch: UC_B, nick: 김철수, text: "반팔티 100 화이트" }   # 15000 (가격 차이 0)
+  - type: assert
+    expect:
+      buyers:
+        UC_A: { subtotal: 44000 }                  # 34000 + 10000
+      settlements:
+        UC_A@2026-10-25: { subtotal: 44000, shipping: 4000, total: 48000, payment: UNPAID }   # 44000 < 50000 → 배송비
+  - { at: "20:00:20", type: chat, b: b1, id: m5, ch: UC_A, nick: 홍길동, text: "반팔티 95 흰색" }      # 15000 → A 합계 59000 ≥ 50000
+expect:
+  variants:
+    "b1/22#105/검정색": { status: OPEN, winner: UC_A, stock: 3, confirmedUnits: 2 }
+    "b1/22#100/흰색": { status: OPEN, winner: UC_B, stock: 2, confirmedUnits: 1 }
+  buyers:
+    UC_A: { items: ["b1/22#105/검정색", "b1/21#M", "b1/22#95/흰색"], subtotal: 59000 }   # 34000 + 10000 + 15000
+    UC_B: { items: ["b1/22#100/흰색"], subtotal: 15000 }
+  settlements:
+    UC_A@2026-10-25: { subtotal: 59000, shipping: 0, total: 59000, payment: UNPAID }       # 무료배송
+    UC_B@2026-10-25: { subtotal: 15000, shipping: 4000, total: 19000, payment: UNPAID }
+  reviews:
+    - { item: m3, reason: STOCK_SHORT, buyer: UC_B, product: b1/22, options: { 사이즈: "105", 색상: 검정색 }, qty: 2 }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/22, buyer: UC_A, text: "22번 반팔티 105/검정색 2개 34,000원 홍길동님 구매 감사합니다" }   # 옵션 글 = 항목 순서
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/22, buyer: UC_B, text: "22번 반팔티 100/흰색 15,000원 김철수님 구매 감사합니다" }
+---
+id: G-ENG-O1-04
+title: 공개 전 찜 — 옵션 없는 번호 찜은 공개 때 확인 필요로, 이름·옵션 찜은 변형으로 판정. 바로잡기는 원래 순위, 1등을 밀어내지 않음
+refs: [OPT-02, CMT-04, R-19, R-20, R-5]
+settings: { claim.parseMode: OPTIONS }
+broadcasts: [{ id: b1, date: 2026-10-25, title: 의류 3부 }]
+events:
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "21" }        # 번호 문법, 21번이 아직 없음 → 보류(옵션 없음). (상품이 있었다면 바로 확인 필요 — R-20 2)
+  - { at: "20:00:05", type: product.register, b: b1, no: 21, name: 반바지, price: 10000, status: READY, options: [{ name: 사이즈, choices: [{ label: S }, { label: M }, { label: L }] }] }
+  - { at: "20:00:11", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "반바지 M" }  # 이름이 공개 전 상품 → 변형 M 보류
+  - { at: "20:00:12", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "반바지" }    # 확인 필요 OPTION_MISSING (찜 없음)
+  - { at: "20:00:20", type: product.open, b: b1, no: 21 }                                   # A는 19초 전(30초 안). A: 변형 셋인데 옵션 없음 → REJECTED(OPTION_MISSING) + 확인 필요. B: M 확정
+  - type: assert
+    expect:
+      reviews:                                     # 원래 순위(m1 → m3)
+        - { item: m1, reason: OPTION_MISSING, buyer: UC_A, product: b1/21 }
+        - { item: m3, reason: OPTION_MISSING, buyer: UC_C, product: b1/21 }
+  - { at: "20:00:30", type: host.resolveReview, b: b1, item: m1, no: 21, qty: 1, options: { 사이즈: L } }   # L 비어 있음 → A 확정
+  - { at: "20:00:31", type: host.resolveReview, b: b1, item: m3, no: 21, qty: 1, options: { 사이즈: M } }   # M은 B가 1등 — 밀어내지 않는다 → C 대기(순위 자리: 앞선 대기자 없음 → 1순위)
+expect:
+  variants:
+    "b1/21#M": { status: SOLD, winner: UC_B, waitlist: [UC_C] }
+    "b1/21#L": { status: SOLD, winner: UC_A, waitlist: [] }
+  claims:
+    - { product: b1/21, buyer: UC_A, status: REJECTED, reason: OPTION_MISSING }   # 공개 때 끝난 보류 찜(변형 없는 상품 키)
+    - { product: "b1/21#L", buyer: UC_A, status: CONFIRMED }
+    - { product: "b1/21#M", buyer: UC_C, status: WAITLISTED }
+  claimCount: 4                                    # A 보류, B 보류, A 바로잡기, C 바로잡기
+  reviews: []
+  effectCounts: { POST_THANKS: 2, PRINT_PRODUCT_LABEL: 2 }   # B·A 확정만. 확인 필요·대기는 효과가 없다
+---
+id: G-ENG-O1-05
+title: 지금 상품 — 이름 없는 옵션 댓글은 지금 상품으로, 바뀐 지 15초 안이면 확인 필요. product.focus로 다시 지정
+refs: [CMT-01, CMT-05, R-20]
+settings: { claim.parseMode: OPTIONS }
+broadcasts: [{ id: b1, date: 2026-10-25, title: 생활 1부 }]
+events:
+  - at: "20:00:00"
+    type: product.register
+    b: b1
+    no: 31
+    name: 수건
+    price: 8000
+    stock: 3
+    options:
+      - { name: 색상, choices: [{ label: 흰색, aliases: [화이트] }, { label: 검정색, aliases: [검정, 블랙] }] }
+      - { name: 크기, choices: [{ label: 소형 }, { label: 대형 }] }
+  - { at: "20:00:30", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "흰색 대형 2개" }   # 지금 상품 31(30초) → 흰색/대형 2개 확정, 16000. 남은 1
+  - at: "20:01:00"
+    type: product.register
+    b: b1
+    no: 32
+    name: 담요
+    price: 20000
+    options:
+      - { name: 색상, choices: [{ label: 흰색 }, { label: 검정색 }] }
+      - { name: 크기, choices: [{ label: 소형 }, { label: 대형 }] }
+  - { at: "20:01:05", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "흰색 대형" }       # 지금 상품 32, 5초 < 15초 → 확인 필요 FOCUS_CHANGED
+  - { at: "20:01:20", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "흰색 대형" }       # 20초 → 32 흰색/대형 확정
+  - { at: "20:01:25", type: chat, b: b1, id: m4, ch: UC_D, nick: 박민수, text: "수건 흰색 대형" }  # 이름 → 31 흰색/대형 남은 1 → 확정. 남은 0
+  - { at: "20:01:30", type: product.focus, b: b1, no: 31 }                                          # 판매자가 수건을 다시 소개
+  - { at: "20:01:50", type: chat, b: b1, id: m5, ch: UC_E, nick: 최지우, text: "블랙 소형 3개" }   # 20초 → 31 검정색/소형 3개 확정, 24000
+expect:
+  variants:
+    "b1/31#흰색/대형": { status: SOLD, winners: [UC_A, UC_D], confirmedUnits: 3 }   # 2 + 1
+    "b1/31#검정색/소형": { status: SOLD, winner: UC_E, confirmedUnits: 3 }
+    "b1/32#흰색/대형": { status: SOLD, winner: UC_C }
+  reviews:
+    - { item: m2, reason: FOCUS_CHANGED, buyer: UC_B, product: b1/32, options: { 색상: 흰색, 크기: 대형 } }
+  buyers:
+    UC_A: { items: ["b1/31#흰색/대형"], subtotal: 16000 }   # 8000 × 2
+    UC_E: { items: ["b1/31#검정색/소형"], subtotal: 24000 } # 8000 × 3
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/31, buyer: UC_A, text: "31번 수건 흰색/대형 2개 16,000원 홍길동님 구매 감사합니다" }
+---
+id: G-ENG-O1-06
+title: 시청자 취소 — 한 상품에 변형 찜이 둘이면 AUTO여도 요청으로 둔다
+refs: [OPT-02, R-20, R-8]
+settings: { claim.parseMode: OPTIONS, cancel.buyerChat: AUTO }
+broadcasts: [{ id: b1, date: 2026-10-25, title: 의류 4부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 21, name: 반바지, price: 10000, options: [{ name: 사이즈, choices: [{ label: S }, { label: M }, { label: L }] }] }
+  - { at: "20:00:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "반바지 M" }
+  - { at: "20:00:06", type: chat, b: b1, id: m2, ch: UC_A, nick: 홍길동, text: "반바지 L" }
+  - { at: "20:00:10", type: chat, b: b1, id: m3, ch: UC_A, nick: 홍길동, text: "21 취소" }   # 활성 찜 둘(M·L) → 어느 것인지 판매자가 고른다
+  - { at: "20:00:11", type: chat, b: b1, id: m4, ch: UC_B, nick: 김철수, text: "반바지 S" }
+  - { at: "20:00:12", type: chat, b: b1, id: m5, ch: UC_B, nick: 김철수, text: "21 취소" }   # 활성 찜 하나 → R-8 그대로(AUTO, 잠금 전) → 바로 취소
+expect:
+  variants:
+    "b1/21#M": { winner: UC_A }
+    "b1/21#L": { winner: UC_A }
+    "b1/21#S": { status: OPEN, winner: null }
+  cancelRequests:
+    - { product: b1/21, buyer: UC_A }
+  claims:
+    - { product: "b1/21#S", buyer: UC_B, status: CANCELLED }
+---
+id: G-ENG-O1-07
+title: 옵션 방송의 메시지 변환은 1등을 밀어내지 않는다(충돌 없음)
+refs: [CMT-04, R-20, R-7, ORD-12]
+settings: { claim.parseMode: OPTIONS }
+broadcasts: [{ id: b1, date: 2026-10-25, title: 식품 2부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 11, name: 초코 과자, price: 2000 }       # 재고 1
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_B, nick: 김철수, text: "십일번이요" }      # 주문 아님(한글 수사), 언급도 없음
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_A, nick: 홍길동, text: "11" }              # A 확정
+  - { at: "20:00:30", type: host.convertMessage, b: b1, msg: m1, no: 11, reason: 십일번 }          # STRICT 방송이면 B가 앞서 충돌. 옵션 방송은 밀어내지 않고 순위 자리로 → 대기 1
+expect:
+  products:
+    b1/11: { status: SOLD, winner: UC_A, waitlist: [UC_B], conflict: false }
