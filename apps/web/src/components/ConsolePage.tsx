@@ -3,6 +3,7 @@
 // I3: 유튜브 칸(스크롤 영역)·수집 멈춤 경고·사용량 알림(고정 영역)·알림 띠 "감사 실패"·감사 메시지 목록 (AC-I3-20~38),
 //     봉인한 날짜는 볼 수만 있다 — 쓰기 칸·버튼이 잠기고 눌러도 요청을 보내지 않는다 (AC-I3-41).
 // 라벨 상태는 서버의 출력 기록(라벨 키마다)으로 보인다 — 리허설은 라벨이 없다. Alt+P(⌥P)는 현재 상품의 1등 라벨 다시 출력 창.
+// N4b: 끝난 방송(봉인한 날짜 포함)의 콘솔은 주 버튼 "영수증 보내기" 하나 → `/broadcasts/<ID>/receipts` (AC-N4b-30, D-N4b-04). 방송 중에는 없다.
 // 라벨 기능이 꺼져 있거나 켬/끔을 아직 모르면(N4a, L-13 9, AC-N4a-14·18): 보드 라벨 상태·알림 "출력 멈춤"(Alt+1 순서에서도)·단축키 안내의 Alt+P가 빠지고,
 // Alt+P는 창을 열지 않고 "라벨 쓰지 않음 — 설정에서 켤 수 있어요."를 알린다(빠른 입력칸 포커스 그대로). 버릴 라벨은 남는다.
 import { DEFAULT_SETTINGS, type SaleSettings } from '@livejjim/core'
@@ -862,9 +863,22 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
               방송 목록
             </a>
             {ended || sealed ? (
-              <p className="ended-note" role="status">
-                끝난 방송이에요
-              </p>
+              <>
+                <p className="ended-note" role="status">
+                  끝난 방송이에요
+                </p>
+                {/* 끝난 방송의 할 일 하나 — 영수증 보내기 (N4b AC-N4b-30, D-N4b-04). 방송 중에는 없다 */}
+                <a
+                  className="button button-primary"
+                  href={routePath({ name: 'receipts', id: b })}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    navigate({ name: 'receipts', id: b })
+                  }}
+                >
+                  영수증 보내기
+                </a>
+              </>
             ) : (
               <>
                 {/* 상품 목록 가져오기 (I2 AC-I2-52) — 끝난 방송에는 없다 */}
@@ -926,7 +940,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
                 onGenerator={(status) => store.setGenerator(status)}
                 onWritten={(result) => void store.sync(result.seq)}
                 onOpenBroadcast={(id) => navigate({ name: 'console', id })}
-                primary={fix === null && asks.length === 0}
+                primary={fix === null && asks.length === 0 && !ended && !sealed}
               />
             ) : null}
             <CurrentProduct product={current} onOpen={(key) => openDialog({ kind: 'product', key })} />

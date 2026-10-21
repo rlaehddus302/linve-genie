@@ -487,3 +487,38 @@ export interface AssistantItem {
   readonly loginId: string
   readonly createdAt: string
 }
+
+// ── 영수증 보내기·구매자 공유 링크 (N4b dev-notes "dev-server" API) ──────────
+
+/** 링크 상태: 없음·있음(쓸 수 있음)·기간 지남·끊김 */
+export type ReceiptLinkStatus = 'NONE' | 'ACTIVE' | 'EXPIRED' | 'REVOKED'
+
+/** 링크 한 줄 — 시각은 ISO(UTC), 주소는 쓸 수 있을 때만 */
+export interface ReceiptLink {
+  readonly buyer: string
+  readonly status: ReceiptLinkStatus
+  readonly url: string | null
+  readonly expiresAt: string | null
+  readonly revokedAt: string | null
+}
+
+/** 구매자 줄 (GET /api/days/:date/receipt-buyers) — 품목 있는 묶음, 일괄 순서 */
+export interface ReceiptBuyerRow {
+  readonly buyer: string
+  /** 확인서에 찍힌 이름 */
+  readonly name: string
+  readonly phoneLast4: string | null
+  readonly itemCount: number
+  readonly total: number
+  readonly payment: PaymentStatus
+  readonly received: number
+  readonly remaining: number
+  /** 리허설 범위면 null */
+  readonly link: ReceiptLink | null
+}
+
+export interface ReceiptBuyers {
+  readonly date: string
+  readonly rehearsal: boolean
+  readonly buyers: readonly ReceiptBuyerRow[]
+}

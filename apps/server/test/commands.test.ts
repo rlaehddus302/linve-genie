@@ -87,9 +87,10 @@ describe('마이그레이션 명령 (AC-S04-20)', () => {
     //   + N2: 인스타그램 연결·OAuth state·라이브 연결·라이브 옮긴 기록·이어지지 않은 댓글 수·라이브 요청 번호·DM 발송·DM 행 + N4a 라벨 기능 켬/끔 바꾼 기록
     //   + N5 요금: 이용권·회수·쓴 기록·이용 방식·결제 주문·사업자 정보·증빙 요청·요금 요청 번호
     //   + N3 입금 확인: 원천·입금·연결·처리 기록·기억한 입금자명·요청 번호·판매자에게 묶인 팝빌 사업자번호
-    //   — 합치기(N5 41 + N3 40, 공통 33)로 33 + 8 + 7 = 48로 교체 — 약화 아님)
+    //   + N4b 구매자 확인서 공유 링크·그 요청 번호
+    //   — 합치기(N5 41 + N3 40, 공통 33)로 33 + 8 + 7 = 48, 통합(track/int-final)에서 N4b 2개를 더해 50으로 교체 — 약화 아님)
     expect(tables?.rows.map((row) => row.table_name).sort()).toEqual(Object.values(schema).map((table) => getTableConfig(table).name).sort())
-    expect(tables?.rows).toHaveLength(48)
+    expect(tables?.rows).toHaveLength(50)
     const none = await run(script('commands/migrate.ts'), [], {})
     expect(none.code).toBe(1)
     expect(none.out).toContain('데이터베이스 연결 설정이 없어요')

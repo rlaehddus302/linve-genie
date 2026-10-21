@@ -1013,6 +1013,55 @@ export const packingRecords = pgTable(
   (t) => [unique('packing_request_uq').on(t.sellerId, t.requestId), index('packing_scope_idx').on(t.sellerId, t.scopeId, t.id)],
 )
 
+/**
+ * 구매자 확인서 공유 링크 (RCP-02, N4b D-N4b-01·06): `<앱 주소>/r/<토큰>` 하나마다 한 행. 토큰 원문은 두지 않는다 —
+ * 찾기용 SHA-256 해시(token_hash, base64url)와 판매자 키에서 나눈 키로 암호화한 토큰(token_enc — 판매자가 같은 링크를 다시 복사할 때만 푼다)뿐이다.
+ * (판매자, 실제 범위 날짜, 구매자 ID)마다 쓸 수 있는(끊기지 않고 기간 안) 링크는 하나다 — 서버가 (판매자, 날짜) 락 안에서 지킨다.
+ * 지우지 않는다(끊기만) — 복구·가져오기(D-I2-11)만 그 판매자의 행을 모두 지운다(D-N4b-06). 백업 파일에는 넣지 않는다
+ */
+export const receiptLinks = pgTable(
+  'receipt_links',
+  {
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** 실제 범위 날짜 YYYY-MM-DD */
+    date: text('date').notNull(),
+    /** 만들 때의 지금의 구매자 ID (열 때 그 구매자가 지금의 구매자이고 품목이 있을 때만 보인다) */
+    buyer: text('buyer').notNull(),
+    tokenHash: text('token_hash').notNull(),
+    tokenEnc: text('token_enc').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+    createdBy: text('created_by').references(() => accounts.id),
+    /** 끝나는 시각 = 만든 시각 + 14×24시간 (이 시각부터 열리지 않는다) */
+    expiresAt: timestamptz('expires_at').notNull(),
+    revokedAt: timestamptz('revoked_at'),
+    revokedBy: text('revoked_by').references(() => accounts.id),
+  },
+  (t) => [unique('receipt_links_token_uq').on(t.tokenHash), index('receipt_links_buyer_idx').on(t.sellerId, t.date, t.buyer, t.createdAt)],
+)
+
+/**
+ * 공유 링크 요청 번호 (N4b — 만들기·전부 만들기·끊기의 멱등): 같은 요청 번호면 처음 답을 다시 만든다. result는 처음 답의 모양(JSON — 토큰 원문 없음, 링크 ID만)
+ */
+export const receiptLinkRequests = pgTable(
+  'receipt_link_requests',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    requestId: text('request_id').notNull(),
+    date: text('date').notNull(),
+    /** CREATE · CREATE_ALL · REVOKE */
+    kind: text('kind').notNull(),
+    result: text('result').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('receipt_link_requests_uq').on(t.sellerId, t.requestId)],
+)
+
 // ── 요금 (N5, BILLING_RULES BL-0~BL-8, D-N5-01~D-N5-14) ─────────────────────
 // 엔진 밖 서버 원장이다(BL-0 2). 이벤트·발송함·스냅샷·출력 작업 표는 바꾸지 않는다.
 // 이용권(billing_grants)·회수(billing_revocations)·쓴 기록(billing_usage)·이용 방식(billing_modes)은 덧붙이기만 한다(BL-0 4, BL-INV-5 —
@@ -1426,6 +1475,8 @@ export const schema = {
   billingBusiness,
   billingDocuments,
   billingRequests,
+  receiptLinks,
+  receiptLinkRequests,
   depositSources,
   deposits,
   depositLinks,

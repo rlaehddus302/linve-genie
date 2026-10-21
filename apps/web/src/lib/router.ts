@@ -1,5 +1,5 @@
 // 화면 주소 (AC-S05-01, AC-S06-01, D-094, AC-I3-44·50·77):
-//   `/` 방송 목록(홈) · `/broadcasts/<방송 ID>` 그 방송의 콘솔 · `/sms` 문자찜 입력
+//   `/` 방송 목록(홈) · `/broadcasts/<방송 ID>` 그 방송의 콘솔 · `/broadcasts/<방송 ID>/receipts` 영수증 보내기(N4b AC-N4b-30·31) · `/sms` 문자찜 입력
 //   `/buyers` 구매자 · `/settlements` 정산 — 고른 날짜·리허설·구매자는 검색값(`?date=2026-10-18&rehearsal=true&buyer=UC_A`)
 //   `/packing` 포장 모드 — 고른 날짜(실제 범위만)·연 구매자는 검색값(`?date=2026-10-18&buyer=UC_A`) (I2 AC-I2-35)
 //   `/settings` 설정 · `/settings/youtube` 설정의 유튜브 칸(구글에서 돌아오면 `?youtube=<결과>` — 화면이 보인 뒤 지운다)
@@ -79,6 +79,7 @@ export interface StartRoute {
 export type Route =
   | { readonly name: 'home' }
   | { readonly name: 'console'; readonly id: string }
+  | { readonly name: 'receipts'; readonly id: string }
   | { readonly name: 'sms' }
   | { readonly name: 'labels' }
   | BillingRoute
@@ -130,6 +131,14 @@ export function parseRoute(pathname: string, search = ''): Route {
       return { name: 'home' }
     }
   }
+  const receipts = /^\/broadcasts\/([^/]+)\/receipts\/?$/.exec(pathname)
+  if (receipts?.[1] !== undefined) {
+    try {
+      return { name: 'receipts', id: decodeURIComponent(receipts[1]) }
+    } catch {
+      return { name: 'home' }
+    }
+  }
   const path = pathname.replace(/\/+$/, '')
   const youtube = new URLSearchParams(search).get('youtube')
   const result = youtube !== null && youtube !== '' ? { youtubeResult: youtube } : {}
@@ -160,6 +169,8 @@ export function routePath(route: Route): string {
       return '/'
     case 'console':
       return `/broadcasts/${encodeURIComponent(route.id)}`
+    case 'receipts':
+      return `/broadcasts/${encodeURIComponent(route.id)}/receipts`
     case 'sms':
       return '/sms'
     case 'labels':
@@ -208,6 +219,7 @@ export function menuOf(route: Route): MenuKey | null {
   switch (route.name) {
     case 'home':
     case 'console':
+    case 'receipts':
       return 'broadcasts'
     case 'sms':
       return 'sms'

@@ -112,6 +112,8 @@ export type ErrorCode =
   | 'REFUND_NOT_ALLOWED'
   | 'REFUND_IN_PROGRESS'
   | 'REFUND_FAILED'
+  // N4b 구매자 확인서 공유 링크 (harness/sprints/N4b/dev-notes.md)
+  | 'REHEARSAL_RECEIPT_LINK'
   // N3 입금 확인 API (DEPOSIT_RULES DP-1·DP-2·DP-6)
   | 'BUNDLE_CHANGED'
   | 'DEPOSIT_APPLIED'

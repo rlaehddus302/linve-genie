@@ -27,6 +27,8 @@ import type { LoginLimitOptions } from './login-limit.ts'
 import { loginLimitSecret, readMasterKey, type PasswordCost } from './secrets.ts'
 import type { GeneratorTimer } from './generator.ts'
 import { PrintService } from './print.ts'
+import { ReceiptLinkService } from './receipt-links.ts'
+import { registerReceiptPage } from './receipt-page.ts'
 import type { InstagramSettings } from './instagram/config.ts'
 import { createInstagram, type InstagramModule } from './instagram/index.ts'
 import type { LiveTimer } from './instagram/notices.ts'
@@ -168,6 +170,8 @@ export interface LivejjimServer {
   readonly instagram: InstagramModule
   /** 정산 마무리 (I2) */
   readonly closing: ClosingService
+  /** 구매자 확인서 공유 링크 (N4b) */
+  readonly receiptLinks: ReceiptLinkService
   /** 매일 자동 백업 (I2 D-I2-10 — 시작은 backups.start(), 시험은 check()를 직접 부른다) */
   readonly backups: BackupScheduler
   /** 무거운 파일 작업의 워커 풀 (확인서 그림·PDF·전원 PDF·판매대장 엑셀·.xlsx 읽기) */
@@ -347,6 +351,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
   })
   const work = options.work ?? sharedWorkPools()
   const closing = new ClosingService({ db, writer, clock, hub, backups, log, work })
+  // 구매자 확인서 공유 링크 (N4b) — 링크 주소 = 앱 주소 + /r/<토큰>
+  const receiptLinks = new ReceiptLinkService({ db, writer, clock, masterKey, appOrigin: options.appOrigin, closing, log })
   const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)
   const youtube: YoutubeSystem | null =
     options.youtube === undefined
@@ -448,6 +454,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     api: {
       service,
       closing,
+      receiptLinks,
       auth,
       hub,
       print: printService,
@@ -470,6 +477,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     },
     ops: { token: options.opsToken === undefined ? null : options.opsToken.trim(), status: opsStatus },
     webhooks: createWebhookApp(instagramModule),
+    receiptPage: (app) => registerReceiptPage(app, { db, links: receiptLinks, closing, clock }),
   })
   // 저장된 켜진 원천의 받아 오기 주기를 건다 (실패해도 서버는 뜬다 — 원천 실패는 판매를 멈추지 않는다, DP-0 5)
   deposits.start()
@@ -489,6 +497,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     billing,
     instagram: instagramModule,
     closing,
+    receiptLinks,
     backups,
     work,
     deposits,

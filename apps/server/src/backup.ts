@@ -60,6 +60,8 @@ import {
   loginLimits,
   outbox,
   packingRecords,
+  receiptLinkRequests,
+  receiptLinks,
   printAttempts,
   printJobs,
   printLabels,
@@ -1121,11 +1123,14 @@ const BATCH = 500
  * - 유튜브(Y1 — 채팅 본문·이름 chat_raw, 수집기·방송 잇기·우리 메시지·삭제·차단 알림): 범위를 참조한다 — 지운다. 채팅 본문·이름은 파일의 이벤트에서 다시 만든다.
  * - 인스타그램·라이브 연결(N2 — 감사 DM 행·발송, 라이브 연결·옮긴 기록, 이어지지 않은 댓글 수, 요청 번호): 범위·방송·발송함을 참조하거나 그 기록이다 — 지운다
  *   (복구한 지난 감사 DM을 다시 보내지 않는다).
+ * - 구매자 확인서 공유 링크·그 요청 번호(N4b D-N4b-06): 파일에 없다 — 지운다. 복구한 기록의 구매자 ID가 다른 사람을 가리킬 수 있어 복구 전에 만든 링크는 모두 열리지 않게 한다.
  * - 입금 확인(N3 — 입금과 엔진 기록의 연결 deposit_links, 처리 기록 deposit_actions): 범위를 참조하므로 이 목록에서 지우지만, 판매자가 한 일의 기록이라
  *   버리지 않는다 — 지우기 전에 읽어 두었다가 파일로 다시 만든 범위에 다시 넣는다(restoreDepositRecords). 처리 기록은 모두 그대로(범위만 새 범위로),
  *   연결은 다시 만든 범위의 그 seq에 그 입금의 엔진 기록(요청 번호 dep-<번호>-pay|rev-<차례>)이 있을 때만 남긴다.
  */
 export const RESTORE_REPLACED_TABLES = [
+  receiptLinks,
+  receiptLinkRequests,
   depositLinks,
   depositActions,
   igDmRows,

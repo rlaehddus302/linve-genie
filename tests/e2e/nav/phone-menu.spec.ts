@@ -3,7 +3,7 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { loginAs, loginNewSeller, login, noHorizontalScroll, openNewBroadcast, registerApi, sendViewerChat, settingsRegion, smsApi, uniqueDate, viewerClaim } from '../i3/support.ts'
 import { deposit, fakeSource, kstIso, postJson, uniq } from '../n3/support.ts'
-import { BAR_CELLS, BAR_LINKS, barCells, closeMore, expectPhoneBar, expectTarget, menu, menuLink, moreButton, moreLinks, moreList, openMore } from '../menu.ts'
+import { BAR_CELLS, BAR_LINKS, barCells, closeMore, expectPhoneBar, expectTarget, fakeReviewCount, menu, menuLink, moreButton, moreLinks, moreList, openMore } from '../menu.ts'
 
 const PHONE = { width: 375, height: 812 }
 const LIST_ON = ['입금 확인', '포장', '라벨', '설정']
@@ -64,8 +64,7 @@ test.describe('AC-NAV-01·02: 막대 다섯 칸·목록 내용', () => {
       for (const labels of [true, false]) {
         await setLabelsApi(page, labels)
         for (const review of [0, 1234]) {
-          await phone.unroute('**/api/deposits/count')
-          if (review > 0) await phone.route('**/api/deposits/count', (route) => route.fulfill({ json: { review } }))
+          await fakeReviewCount(phone, review > 0 ? review : null)
           for (const path of ['/', '/sms', '/buyers', '/settlements', '/deposits', '/packing', '/settings']) {
             const where = `라벨 ${labels ? '켜짐' : '꺼짐'} · 확인 ${String(review)} · ${path}`
             await phone.goto(path)
