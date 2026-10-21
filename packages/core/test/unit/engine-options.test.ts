@@ -445,10 +445,42 @@ describe('공개 전 찜 (R-19 "공개 전 찜") — 변형 하나뿐인 상품,
       ],
       OPTIONS,
     )
-    expect(claimsOf(state)).toEqual([{ key: 'b1/11', buyer: 'UC_A', status: 'REJECTED', reason: 'SOLD_OUT', qty: 3 }])
+    expect(claimsOf(state)).toEqual([{ key: 'b1/11', buyer: 'UC_A', status: 'REJECTED', reason: 'STOCK_SHORT', qty: 3 }])
     expect(listReviews(state)).toEqual([
       { broadcast: 'b1', item: 'mA', buyer: 'UC_A', currentBuyer: 'UC_A', reason: 'STOCK_SHORT', product: 'b1/11', no: 11, options: null, qty: 3, seq: 2, at: T0 + 1000, origin: 'chat' },
     ])
+  })
+
+  it('공개 때 남은 수량이 0이면 수량 2 이상 보류 찜은 그대로 SOLD_OUT, 확인 필요 없음 (D-O1-11 경계)', () => {
+    const { state } = play(
+      [
+        { type: 'product.register', b: 'b1', no: 11, name: '과자', price: 2000, stock: 1, status: 'READY' } as EventInput,
+        chat('UC_B', '과자', { id: 'mB' }),
+        chat('UC_A', '과자 3', { id: 'mA' }),
+        { type: 'product.open', b: 'b1', no: 11 } as EventInput,
+      ],
+      OPTIONS,
+    )
+    expect(claimsOf(state).map((c) => [c.buyer, c.status, c.reason])).toEqual([
+      ['UC_B', 'CONFIRMED', null],
+      ['UC_A', 'REJECTED', 'SOLD_OUT'],
+    ])
+    expect(listReviews(state)).toEqual([])
+    expect(checkInvariants(state)).toEqual([])
+  })
+
+  it('번호 변경으로 판정되는 수량 2 이상 보류 찜도 남은 수량이 모자라면 REJECTED(STOCK_SHORT) + 확인 필요 (D-O1-11)', () => {
+    const { state } = play(
+      [
+        { type: 'product.register', b: 'b1', no: 11, name: '과자', price: 2000, stock: 2 } as EventInput,
+        { type: 'sms', b: 'b1', ref: 's1', no: 12, received: '20:00', qty: 3 } as EventInput,
+        { type: 'product.renumber', b: 'b1', from: 11, to: 12 } as EventInput,
+      ],
+      OPTIONS,
+    )
+    expect(claimsOf(state).map((c) => [c.key, c.status, c.reason, c.qty])).toEqual([['b1/12', 'REJECTED', 'STOCK_SHORT', 3]])
+    expect(listReviews(state).map((r) => [r.item, r.reason, r.product, r.qty])).toEqual([['sms:s1', 'STOCK_SHORT', 'b1/12', 3]])
+    expect(checkInvariants(state)).toEqual([])
   })
 
   it('번호를 바꾼 뒤 그 번호에 남은 변형 보류 찜은 새 상품에 그 변형이 없으면 OPTION_MISSING', () => {

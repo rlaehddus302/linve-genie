@@ -122,3 +122,10 @@
 | SA-O1-01 · 02 | 그대로 골든(spec-keeper 몫). `core-adapter.test.ts` 합계 시험(통과 742)과 coverage 실패는 이 두 골든 불일치에서 온다 |
 | SA-O1-05 | D-O1-11이 아직 없다. 골든 README 열거값(거절 사유)에 새 값이 없어 코어가 혼자 값을 만들지 않는다. 정해지면 `rules.ts` `openPending`의 한 줄과 `ClaimReason`만 바꾼다 |
 | TD-O1-004 | R-20 5 "그 밖(옵션 없는 상품, 남은 말 둘 이상, 지금 상품 후보뿐)은 그 밖(언급)이다" 그대로 — spec-keeper 결정 대기 |
+
+## 분쟁 판정 반영 (라운드 2, dev-core)
+
+| 지적 | 처리 |
+|---|---|
+| SA-O1-01 · 02 | spec-keeper가 골든을 고쳤다(4fe2af5, D-O1-12). 코어 변경 없음. G-ENG-O1-08·10 통과 |
+| SA-O1-05 | D-O1-11대로 `ClaimReason`에 `STOCK_SHORT`, `rules.ts` `openPending`의 수량 부족 보류 찜 → `REJECTED(STOCK_SHORT)`(남은 수량 0이면 지금처럼 `SOLD_OUT` — `decide`가 먼저 품절로 거절). 러너 계약 `REJECT_REASONS`에 추가, 화면 낱말 `apps/web/src/lib/words.ts` `STOCK_SHORT: '수량 부족'`. 단위 시험: 기존 수량 부족 시험의 사유를 D-O1-11대로 바꾸고, 남은 수량 0 경계(SOLD_OUT·확인 필요 없음)·번호 변경으로 판정되는 보류 찜(STOCK_SHORT) 두 개 추가. `core-adapter.test.ts` 합계를 파일 33 · 파서 596 · 엔진 147 · 통과 743으로(G-ENG-O1-11) |

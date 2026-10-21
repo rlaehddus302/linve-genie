@@ -83,6 +83,8 @@ export const REJECT_REASONS = [
   'RENUMBERED',
   // O1 — 공개 때 옵션이 필요한 보류 찜 (R-19)
   'OPTION_MISSING',
+  // O1 — 공개 때 수량이 모자란 수량 2 이상 보류 찜 (R-19, D-O1-11)
+  'STOCK_SHORT',
 ] as const
 export const EFFECT_KINDS = ['PRINT_PRODUCT_LABEL', 'PRINT_PACKING_LABEL', 'POST_THANKS', 'VOID_LABEL', 'NOTIFY'] as const
 export const TARGETS = ['LIVE_CHAT', 'VIDEO_COMMENT'] as const

@@ -663,17 +663,17 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
 // N2(engine/22-n2-instagram.yaml G-ENG-N2-01~03, parser/chat.yaml N2 8사례, AC-N2-81)를 더한다 — N2 쪽 +1·+8·+3·+11.
 // I2(parser/product-import.yaml 26사례 — 실제 해석 함수 apps/server/src/product-import.ts, AC-I2-50·90, 마지막 감사 D-I2-17·D-I2-21 포함)를 더한다 — I2 쪽 +1·+26·+0·+26.
 // I2 합치기(main a52f5c3): main 파일 29 · 파서 474 · 엔진 135 · 통과 609 + I2 = 파일 30 · 파서 500 · 엔진 135 · 통과 635 (교체 — 약화 아님).
-// O1(AC-O1-35): parser/comment-options.yaml(89사례)·engine/23-o1-options.yaml(G-ENG-O1-01~10)·engine/23-o0-strict-regression.yaml(G-ENG-O0-01)·
-// parser/chat.yaml O0 회귀 7사례를 더한다 — O1 쪽 +3 파일 · +96 사례 · +11 시나리오 · +107 통과 = 파일 33 · 파서 596 · 엔진 146 · 통과 742 (교체 — 약화 아님).
+// O1(AC-O1-35): parser/comment-options.yaml(89사례)·engine/23-o1-options.yaml(G-ENG-O1-01~11)·engine/23-o0-strict-regression.yaml(G-ENG-O0-01)·
+// parser/chat.yaml O0 회귀 7사례를 더한다 — O1 쪽 +3 파일 · +96 사례 · +12 시나리오 · +108 통과 = 파일 33 · 파서 596 · 엔진 147 · 통과 743 (교체 — 약화 아님, G-ENG-O1-11 D-O1-11).
 describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + Y1 + I3 + N2 + I2 + O1 합계)', () => {
-  it('파일 33 · 파서 596 · 엔진 146 · 통과 742, 나머지 0', () => {
+  it('파일 33 · 파서 596 · 엔진 147 · 통과 743, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
       files: 33,
       parserCases: 596,
-      scenarios: 146,
-      pass: 742,
+      scenarios: 147,
+      pass: 743,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,
