@@ -426,7 +426,7 @@ function BillingScreen({ route, navigate }: { readonly route: BillingRoute; read
   return <BillingPage config={state.config} route={route} navigate={navigate} />
 }
 
-/** 구글에서 돌아온 주소(`/settings/youtube?youtube=`)인데 시작 마법사 4단계에서 떠났으면 마법사로 돌려보낸다 (AC-I3-02·54) */
+/** 구글에서 돌아온 주소(`/settings/youtube?youtube=`)인데 시작 마법사 3단계에서 떠났으면 마법사로 돌려보낸다 (AC-I3-02·54) */
 function SettingsRoute({ route, navigate, me, onRenamed }: ScreenProps & { readonly route: Extract<Route, { name: 'settings' }> }) {
   const [toWizard] = useState(() => route.youtubeResult !== undefined && takeGoogleReturn() === 'wizard')
   useEffect(() => {

@@ -87,7 +87,7 @@ test.describe('시작 마법사', () => {
     const seller = await newSeller(page.request)
     await loginAs(page, seller)
     await expect(page).toHaveURL(/\/start$/)
-    for (const title of ['2/5 판매 규칙 확인', '3/5 프린터 연결', '4/5 유튜브 연결', '5/5 리허설 해 보기']) {
+    for (const title of ['2/5 판매 규칙 확인', '3/5 유튜브 연결', '4/5 프린터 연결', '5/5 리허설 해 보기']) {
       await page.getByRole('button', { name: '다음' }).click()
       await expect(page.getByRole('heading', { level: 2, name: title })).toBeFocused()
     }
@@ -113,7 +113,7 @@ test.describe('시작 마법사', () => {
       await expect(page.getByText(line, { exact: true })).toBeVisible()
     }
     await page.getByRole('button', { name: '다음' }).click()
-    await expect(page.getByRole('heading', { level: 2, name: '3/5 프린터 연결' })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 2, name: '3/5 유튜브 연결' })).toBeVisible()
     expect(writes).toEqual([])
   })
 
