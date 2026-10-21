@@ -88,8 +88,20 @@ test.describe('포장 모드 (AC-I2-35·36·38) — 휴대폰 375×812', () => {
     await phone.reload()
     await expect(checklist(phone).getByRole('checkbox', { name: '7번 품종 미입력' })).not.toBeChecked()
     // 브라우저 저장소에 포장 체크·그림을 두지 않는다 (AC-I2-81)
-    const stored = await phone.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }))
+    // 기기 ID(livejjim.deviceId)는 무작위 글자라 '7'이 우연히 들어갈 수 있다. 그 값은 ID 모양만 확인하고 나머지 전부에서 포장 값을 찾는다.
+    const { deviceIds, stored } = await phone.evaluate(() => {
+      const local: Record<string, string> = { ...localStorage }
+      const session: Record<string, string> = { ...sessionStorage }
+      const deviceIds = [local['livejjim.deviceId'], session['livejjim.deviceId']].filter((v) => v !== undefined)
+      delete local['livejjim.deviceId']
+      delete session['livejjim.deviceId']
+      return { deviceIds, stored: JSON.stringify(local) + JSON.stringify(session) }
+    })
+    for (const id of deviceIds) expect(id).toMatch(/^[A-Za-z0-9_-]{8,64}$/)
     expect(stored).not.toContain('7')
+    expect(stored).not.toContain(bb)
+    expect(stored).not.toContain('0002')
+    expect(stored).not.toContain('품종')
     await phone.context().close()
   })
 })
