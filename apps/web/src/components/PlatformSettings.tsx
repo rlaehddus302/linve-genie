@@ -123,7 +123,8 @@ function InstagramReady({ connection, onChanged }: { readonly connection: Instag
       {status === 'NOT_CONNECTED' ? <p>연결된 인스타그램 계정이 없어요.</p> : null}
       {status === 'RECONNECT_NEEDED' ? <p className="warning">{INSTAGRAM_RECONNECT}</p> : null}
       <div className="row">
-        <button type="button" className={status === 'CONNECTED' ? 'button' : 'button button-primary'} disabled={busy} onClick={() => void connect()}>
+        {/* 설정 화면은 칸마다 버튼이 있어 주 버튼을 두지 않는다 (UX-01·D-102, N4a 합친 뒤 71b5d2d와 같은 기준) */}
+        <button type="button" className="button" disabled={busy} onClick={() => void connect()}>
           {status === 'NOT_CONNECTED' ? '인스타그램 연결하기' : '인스타그램 다시 연결하기'}
         </button>
         {status !== 'NOT_CONNECTED' ? (
@@ -280,7 +281,7 @@ function TikTokOff({ settings, onChanged, onReload }: TikTokPartProps) {
         <span>{notice.checkbox}</span>
       </label>
       <div className="row">
-        <button type="button" className="button button-primary" disabled={!agreed || busy} onClick={() => void turnOn()}>
+        <button type="button" className="button" disabled={!agreed || busy} onClick={() => void turnOn()}>
           {notice.button}
         </button>
       </div>
