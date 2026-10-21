@@ -1,8 +1,11 @@
 // 판매자·계정 만들기 (AC-S04-32·40, D-073, D-074). 가입 API는 없다 — 운영자가 명령(commands/create-account.ts)으로 만든다.
 // 판매자를 만들 때 32바이트 무작위 전화번호 키를 만들어 마스터 키로 암호화해 저장한다(평문 키는 DB·로그·응답에 없다).
+// N5: 선택 항목 사업자등록번호(G-BIL bizno로 읽는다 — 틀리면 계정을 만들지 않는다). 번호만 암호화해 사업자 정보에 두고, 상호·대표자는 화면에서 적는다(AC-N5-12).
 import { randomInt } from 'node:crypto'
 import type { Db } from './db/database.ts'
-import { accounts, sellers } from './db/schema.ts'
+import { BILLING_MESSAGES, sealedBusinessNumber } from './billing/service.ts'
+import { parseBizno } from './billing/rules.ts'
+import { accounts, billingBusiness, sellers } from './db/schema.ts'
 import { randomIds, type IdSource } from './ids.ts'
 import { DEFAULT_PASSWORD_COST, hashPassword, newSealedSellerKey, type PasswordCost } from './secrets.ts'
 import { insertAssistant, listAssistants, lockSeller, loginIdTaken, type AssistantRow } from './store.ts'
@@ -23,6 +26,8 @@ export interface NewAccountInput {
   readonly shopName: string
   readonly loginId: string
   readonly password: string
+  /** 사업자등록번호 (선택, N5) */
+  readonly businessNumber?: string
 }
 
 export type CreateAccountResult =
@@ -47,6 +52,12 @@ export async function createSellerAccount(db: Db, masterKey: Buffer, input: NewA
   if (input.password.length < PASSWORD_MIN || input.password.length > PASSWORD_MAX) {
     return { ok: false, message: `비밀번호는 ${String(PASSWORD_MIN)}자 이상 ${String(PASSWORD_MAX)}자 이하로 적어 주세요.` }
   }
+  let businessNumber: string | null = null
+  if (input.businessNumber !== undefined) {
+    const parsed = parseBizno(input.businessNumber)
+    if ('error' in parsed) return { ok: false, message: BILLING_MESSAGES.biznoChecksum }
+    businessNumber = parsed.ok
+  }
   // 지운 보조자의 아이디도 다시 쓰지 않는다 (AC-I3-62)
   if (await loginIdTaken(db, loginId)) return { ok: false, message: '이미 있는 아이디예요.' }
   const ids = options.ids ?? randomIds
@@ -57,6 +68,10 @@ export async function createSellerAccount(db: Db, masterKey: Buffer, input: NewA
   await db.transaction(async (tx) => {
     await tx.insert(sellers).values({ id: sellerId, name: shopName, phoneKeyEnc: newSealedSellerKey(masterKey, sellerId), settings: '{}', createdAt: now })
     await tx.insert(accounts).values({ id: accountId, sellerId, loginId, passwordHash, createdAt: now })
+    if (businessNumber !== null) {
+      const sealed = sealedBusinessNumber(masterKey, sellerId, businessNumber)
+      await tx.insert(billingBusiness).values({ sellerId, sealed: sealed.sealed, masked: sealed.masked, receiptKind: 'TAX_INVOICE', updatedAt: now })
+    }
   })
   return { ok: true, sellerId, accountId, loginId }
 }

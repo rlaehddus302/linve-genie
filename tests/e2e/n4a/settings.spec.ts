@@ -1,6 +1,7 @@
 // AC-N4a-10 (설정 화면·메뉴 "설정"·휴대폰 — D-N4a-07: "설정"은 메뉴 항목 하나, 위 줄 따로 링크 없음), AC-N4a-11 (끌 때 묻고 켤 때 알림·포커스·두 번 누름), AC-N4a-12 (바꾼 기록·두 기기 1초)
 import { expect, test } from '@playwright/test'
 import { cleanupN4a, gotoSettings, labelSection, labelSettings, login, noHorizontalScroll, offWaiting, postJson, realBroadcast, registerApi, setLabels, settingsLink, smsApi, SWITCH_HELP, TURNED_OFF, TURNED_ON, uniqueDate } from './support.ts'
+import { closeMore, expectPhoneBar, expectTarget, moreLinks, moreList, openMore } from '../menu.ts'
 
 test.afterEach(async ({ page }) => {
   await cleanupN4a(page)
@@ -103,42 +104,46 @@ test('AC-N4a-11: 대기 2장이면 끄기 창에 장 수 문장 · 같은 값 �
   expect((await labelSettings(page)).waiting).toBe(2)
 })
 
-test('AC-N4a-10·11·12: 휴대폰 375 — 아래 막대에 "설정"(켜짐 6칸·꺼짐 5칸, 칸마다 44px), 위 줄에 따로 링크 없음, 키보드만으로 끄기·켜기, 다른 기기의 변경이 1초 안에', async ({ page, browser }) => {
+test('AC-N4a-10·11·12·AC-NAV-10: 휴대폰 375 — 아래 막대는 켜짐·꺼짐 모두 다섯 칸(44px), "더보기" 목록에 "설정"(목록 링크 켜짐 = 꺼짐 + 1), 위 줄에 따로 링크 없음, 키보드만으로 끄기·켜기, 다른 기기의 변경이 1초 안에', async ({ page, browser }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await login(page)
   const ctx = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, locale: 'ko-KR', timezoneId: 'Asia/Seoul', baseURL: new URL(page.url()).origin })
   const phone = await ctx.newPage()
   try {
     await login(phone)
-    // D-N4a-07: "설정"은 아래 막대의 한 칸이고, 이름이 "설정"인 링크는 화면 전체에 하나뿐
-    const menu = phone.getByRole('navigation', { name: '메뉴' })
-    await expect(settingsLink(phone)).toBeVisible()
-    await expect(phone.getByRole('link', { name: '설정', exact: true })).toHaveCount(1)
-    const cells = menu.getByRole('link')
-    const checkCells = async (n: number) => {
-      await expect(cells).toHaveCount(n)
-      for (const box of await Promise.all((await cells.all()).map((c) => c.boundingBox()))) {
-        expect(box!.height).toBeGreaterThanOrEqual(44)
-        expect(box!.width).toBeGreaterThanOrEqual(44)
-      }
+    // AC-NAV-10: 막대는 켜짐·꺼짐 모두 다섯 칸(링크 넷 + "더보기"), "설정"·"라벨"은 목록을 연 뒤에 본다
+    const list = moreLinks(phone)
+    const checkList = async (n: number) => {
+      await expect(list).toHaveCount(n)
+      for (const link of await list.all()) await expectTarget(phone, link)
       await noHorizontalScroll(phone)
     }
-    // 라벨 켜짐: "라벨"이 있는 칸 수(다른 메뉴가 늘어도 켜짐 = 꺼짐 + 1을 본다 — I2 "포장" 합친 뒤 7칸)
-    await expect(menu.getByRole('link', { name: '라벨', exact: true })).toHaveCount(1)
-    const onCount = await cells.count()
-    expect(onCount).toBeGreaterThanOrEqual(6)
-    await checkCells(onCount)
+    // 라벨 켜짐
+    await expectPhoneBar(phone)
+    await openMore(phone)
+    // D-N4a-07: "설정"은 메뉴의 한 항목이고, 이름이 "설정"인 링크는 화면 전체에 하나뿐
+    await expect(settingsLink(phone)).toBeVisible()
+    await expect(phone.getByRole('link', { name: '설정', exact: true })).toHaveCount(1)
+    await expect(moreList(phone).getByRole('link', { name: '라벨', exact: true })).toHaveCount(1)
+    const onCount = await list.count()
+    expect(onCount).toBeGreaterThanOrEqual(4) // 입금 확인·포장·라벨·설정 (새 메뉴가 늘면 더 — AC-NAV-09)
+    await checkList(onCount)
     expect(await settingsLink(phone).evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16)
-    // 라벨 꺼짐: 다섯 칸("라벨"만 빠지고 "설정"은 그대로)
+    // 라벨 꺼짐: 막대는 다섯 칸 그대로, 목록에서 "라벨"만 빠지고 "설정"은 그대로
     await setLabels(page, false)
     await phone.reload()
-    await expect(menu.getByRole('link', { name: '라벨', exact: true })).toHaveCount(0)
+    await expectPhoneBar(phone)
+    await openMore(phone)
     await expect(settingsLink(phone)).toBeVisible()
-    await checkCells(onCount - 1)
+    await expect(moreList(phone).getByRole('link', { name: '라벨', exact: true })).toHaveCount(0)
+    await checkList(onCount - 1)
     await setLabels(page, true)
     await phone.reload()
-    await expect(menu.getByRole('link', { name: '라벨', exact: true })).toHaveCount(1)
-    await checkCells(onCount)
+    await expectPhoneBar(phone)
+    await openMore(phone)
+    await expect(moreList(phone).getByRole('link', { name: '라벨', exact: true })).toHaveCount(1)
+    await checkList(onCount)
+    await closeMore(phone)
     await gotoSettings(phone)
     await noHorizontalScroll(phone)
     const section = labelSection(phone)

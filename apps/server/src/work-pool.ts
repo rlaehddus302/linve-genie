@@ -9,7 +9,7 @@
 import { availableParallelism } from 'node:os'
 import { Worker } from 'node:worker_threads'
 
-export type WorkKind = 'receiptPdf' | 'receiptPng' | 'ledgerXlsx' | 'xlsxRows'
+export type WorkKind = 'receiptPdf' | 'receiptPng' | 'receiptJpg' | 'receiptJpgZip' | 'ledgerXlsx' | 'xlsxRows'
 
 export interface WorkPoolOptions {
   /** 풀 이름 (로그·점검용) */

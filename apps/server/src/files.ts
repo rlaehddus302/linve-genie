@@ -55,6 +55,8 @@ export function contentDisposition(fileName: string, fallback: string): string {
 export const MIME = {
   pdf: 'application/pdf',
   png: 'image/png',
+  jpg: 'image/jpeg',
+  zip: 'application/zip',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   gzip: 'application/gzip',
 } as const

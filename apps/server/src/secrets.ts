@@ -70,6 +70,35 @@ export class SecretError extends Error {
   }
 }
 
+// ── 글 암호화 (N5 사업자 정보·증빙 받는 쪽, BL-8 2) ─────────────────────────
+
+/**
+ * 글을 마스터 키로 AES-256-GCM 암호화한다. 쓰임새(purpose)와 판매자 ID를 함께 묶는다 — 다른 판매자 행·다른 칸으로 옮기면 풀리지 않는다.
+ * 결과: `v1.<iv>.<암호문>.<태그>` (base64url)
+ */
+export function sealSellerText(masterKey: Buffer, purpose: string, sellerId: string, text: string): string {
+  const iv = randomBytes(12)
+  const cipher = createCipheriv('aes-256-gcm', masterKey, iv)
+  cipher.setAAD(Buffer.from(`livejjim/${purpose}/v1/${sellerId}`, 'utf8'))
+  const sealed = Buffer.concat([cipher.update(Buffer.from(text, 'utf8')), cipher.final()])
+  return ['v1', iv.toString('base64url'), sealed.toString('base64url'), cipher.getAuthTag().toString('base64url')].join('.')
+}
+
+/** sealSellerText로 만든 값을 푼다. 마스터 키·쓰임새·판매자가 다르거나 값이 손상되면 오류(메시지에 값 없음) */
+export function openSellerText(masterKey: Buffer, purpose: string, sellerId: string, sealed: string): string {
+  const parts = sealed.split('.')
+  if (parts.length !== 4 || parts[0] !== 'v1') throw new SecretError('암호화한 글의 형식이 올바르지 않다')
+  const [, ivText = '', dataText = '', tagText = ''] = parts
+  try {
+    const decipher = createDecipheriv('aes-256-gcm', masterKey, Buffer.from(ivText, 'base64url'))
+    decipher.setAAD(Buffer.from(`livejjim/${purpose}/v1/${sellerId}`, 'utf8'))
+    decipher.setAuthTag(Buffer.from(tagText, 'base64url'))
+    return Buffer.concat([decipher.update(Buffer.from(dataText, 'base64url')), decipher.final()]).toString('utf8')
+  } catch {
+    throw new SecretError('암호화한 글을 풀지 못했다 (마스터 키가 다르거나 값이 손상됨)')
+  }
+}
+
 /** phoneKey = HMAC-SHA256(판매자 키, 정규화한 번호)의 base64url (43자, D-061·D-073) */
 export function phoneKeyOf(sellerKey: Buffer, normalizedPhone: string): string {
   return createHmac('sha256', sellerKey).update(normalizedPhone, 'utf8').digest('base64url')

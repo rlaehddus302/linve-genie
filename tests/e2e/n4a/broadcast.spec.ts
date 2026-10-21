@@ -1,14 +1,12 @@
 // AC-N4a-30 (방송 중 끄고 켜기 — 두 기기), AC-N4a-17 (출력 기기였던 기기: 받기 멈춤·받은 한 장은 마저·켜면 쌓인 라벨)
 import { expect, test, type Page, type Request } from '@playwright/test'
 import { backlogWord, becomeDevice, boardItem, cleanupN4a, gotoSettings, history, labelSection, login, printedCount, printOverview, realBroadcast, region, registerApi, scopeLabels, setBehavior, setLabels, smsApi, TURNED_ON, uniqueDate, untilElapsed, waitPrinted } from './support.ts'
+import { closeMore, menuLink, openMore } from '../menu.ts'
 
 test.afterEach(async ({ page }) => {
   await cleanupN4a(page)
 })
 
-function menuLink(page: Page, name: string) {
-  return page.getByRole('navigation', { name: '메뉴' }).getByRole('link', { name, exact: true })
-}
 const PRINTER_STATUS = /^(프린터 |출력 멈춤 ·)/
 
 interface Effect { id: string; kind: string; product: string; no: number; target: string | null; claim: string; confirmVersion: number }
@@ -33,15 +31,18 @@ test('AC-N4a-30: 방송 중 끄고 켜기 — PC·휴대폰, 끈 동안 4~6은 �
     for (let no = 1; no <= 3; no += 1) await smsApi(page, { b, no, phone: `010-4444-${String(1000 + no)}` })
     await waitPrinted(phone, 3)
 
-    // PC 설정 화면에서 끈다 (앱 안 이동)
+    // PC 설정 화면에서 끈다 (앱 안 이동) — 휴대폰은 "더보기" 목록을 연 채로 "라벨"이 빠지는지 본다(AC-NAV-10: 닫힌 목록의 "없음"은 늘 통과)
     await gotoSettings(page)
+    await openMore(phone)
     await labelSection(page).getByRole('button', { name: '라벨 끄기' }).click()
     await page.getByRole('dialog', { name: '라벨 기능 끄기' }).getByRole('button', { name: '라벨 끄기' }).click()
     await expect(labelSection(page).getByText('라벨 기능: 꺼짐', { exact: true })).toBeVisible()
     for (const p of [page, phone]) {
+      await openMore(p)
       await expect(menuLink(p, '라벨')).toHaveCount(0, { timeout: 1_000 })
       await expect(p.getByRole('link', { name: PRINTER_STATUS })).toHaveCount(0, { timeout: 1_000 })
     }
+    await closeMore(phone)
     await page.goBack()
     await expect(page.getByLabel('빠른 입력')).toBeVisible()
     await expect(boardItem(page, 1)).not.toContainText(/라벨|출력/)
@@ -59,14 +60,17 @@ test('AC-N4a-30: 방송 중 끄고 켜기 — PC·휴대폰, 끈 동안 4~6은 �
       expect(kinds(no)).toContain('PRINT_PRODUCT_LABEL:-')
     }
 
-    // PC에서 켠다
+    // PC에서 켠다 — 휴대폰은 목록을 연 채로 "라벨"이 생기는지 본다
     await gotoSettings(page)
+    await openMore(phone)
     await labelSection(page).getByRole('button', { name: '라벨 켜기' }).click()
     await expect(labelSection(page).getByRole('status').filter({ hasText: TURNED_ON })).toBeVisible()
     for (const p of [page, phone]) {
+      await openMore(p)
       await expect(menuLink(p, '라벨')).toBeVisible({ timeout: 1_000 })
       await expect(p.getByRole('link', { name: PRINTER_STATUS })).toBeVisible({ timeout: 1_000 })
     }
+    await closeMore(phone)
     await expect(region(phone, '출력 멈춤')).toHaveCount(0)
     await expect(phone.getByText(/대기 중인 라벨 \d+장이 있어요/)).toHaveCount(0)
     expect((await printOverview(page)).queue.pause).toBeNull()

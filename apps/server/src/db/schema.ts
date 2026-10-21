@@ -171,7 +171,7 @@ export const events = pgTable(
     at: bigint('at', { mode: 'number' }).notNull(),
     /** 서버 도착 시각 (UTC, DAT-05 "언제") */
     receivedAt: timestamptz('received_at').notNull(),
-    /** 조치자 종류: account(로그인 계정) · server(서버) · collector(채팅 수집기) (DAT-05 "누가") */
+    /** 조치자 종류: account(로그인 계정) · server(서버) · collector(채팅 수집기) · deposit(입금 자동 확인, N3) (DAT-05 "누가") */
     actor: text('actor').notNull(),
     accountId: text('account_id').references(() => accounts.id),
     requestId: text('request_id'),
@@ -198,6 +198,7 @@ export const events = pgTable(
     index('events_chat_seq_idx').on(t.scopeId, t.chatBroadcast, t.seq),
     /** 인스타그램 댓글 ID는 판매자 안에서 어느 회차든 한 번만 (다시 배달된 댓글을 회차를 정하기 전에 거른다, AC-N2-33, N2 TD-N2-001) */
     index('events_ig_chat_idx').on(t.sellerId, t.chatMessageId).where(sql`chat_message_id LIKE 'ig:%'`),
+    index('events_tt_chat_idx').on(t.sellerId, t.chatBroadcast).where(sql`chat_message_id LIKE 'tt:%'`),
   ],
 )
 
@@ -783,7 +784,7 @@ export const igOauthStates = pgTable(
 
 /**
  * 회차의 라이브 연결 기록 (PLT-03, D-N2-08). 상태: WAITING 기다리는 중 · LINKED 이어짐 · UNLINKED 끊음.
- * 회차마다 끊지 않은 연결(WAITING·LINKED)은 하나뿐이다(부분 유일 인덱스). 잇기는 엔진 이벤트가 아니다 — 누가·언제는 여기 남는다(DAT-05)
+ * 회차·플랫폼마다 끊지 않은 연결(WAITING·LINKED)은 하나뿐이다(부분 유일 인덱스 — N2b-2부터 플랫폼마다, D-N2b-2-01). 지금은 인스타그램만 이 표를 쓴다. 잇기는 엔진 이벤트가 아니다 — 누가·언제는 여기 남는다(DAT-05)
  */
 export const liveLinks = pgTable(
   'live_links',
@@ -814,7 +815,8 @@ export const liveLinks = pgTable(
     createdAt: timestamptz('created_at').notNull(),
   },
   (t) => [
-    uniqueIndex('live_links_open_uq').on(t.sellerId, t.broadcastId).where(sql`state <> 'UNLINKED'`),
+    // 회차·플랫폼마다 끊지 않은 연결 하나 (동시 송출, D-N2b-2-01)
+    uniqueIndex('live_links_open_uq').on(t.sellerId, t.broadcastId, t.platform).where(sql`state <> 'UNLINKED'`),
     index('live_links_broadcast_idx').on(t.sellerId, t.broadcastId),
     index('live_links_live_idx').on(t.sellerId, t.liveId),
   ],
@@ -981,6 +983,99 @@ export const igDmRows = pgTable(
 )
 
 /**
+ * 회차의 틱톡 연결 (PLT-02, D-N2b-2-05). 상태: LINKED 이어짐 · ENDED 회차를 끝내 기록을 마침(보기는 남는다) · UNLINKED 끊음.
+ * 판매자의 이어진(LINKED) 틱톡 연결은 모든 회차를 통틀어 하나다(부분 유일 인덱스 — 판매자 아이디가 하나라서). 잇기는 엔진 이벤트가 아니다 — 누가·언제는 여기 남는다(DAT-05).
+ * 틱톡 아이디는 공개값이지만 로그·오류에 쓰지 않는다
+ */
+export const tiktokLinks = pgTable(
+  'tiktok_links',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    broadcastId: text('broadcast_id')
+      .notNull()
+      .references(() => broadcasts.id),
+    scopeId: text('scope_id')
+      .notNull()
+      .references(() => scopes.id),
+    state: text('state').notNull(),
+    /** 이을 때의 틱톡 아이디 (판매자 설정에서 — 이어진 동안은 바꿀 수 없다) */
+    tiktokId: text('tiktok_id').notNull(),
+    actorAccountId: text('actor_account_id').references(() => accounts.id),
+    linkedAt: timestamptz('linked_at').notNull(),
+    /** 마지막으로 연결을 시작한 시각 (잇기·다시 연결 — 다시 연결은 30초에 한 번) */
+    startedAt: timestamptz('started_at').notNull(),
+    endedAt: timestamptz('ended_at'),
+    unlinkedAt: timestamptz('unlinked_at'),
+    unlinkedBy: text('unlinked_by').references(() => accounts.id),
+    /** 이어진 동안이 아니라 기록하지 않은 댓글 수 · 저장하지 못한 댓글 수 */
+    notRecorded: integer('not_recorded').notNull().default(0),
+    saveFailed: integer('save_failed').notNull().default(0),
+    /** 판매자가 "확인했어요"로 본 저장 실패 수 (D-N2b-2-16) — 알림은 saveFailed > saveFailedSeen일 때만 */
+    saveFailedSeen: integer('save_failed_seen').notNull().default(0),
+    /** 엔진 입력 검사에 걸려 기록하지 않은 댓글 수 (D-N2b-2-17) — notRecorded와 따로 */
+    skipped: integer('skipped').notNull().default(0),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('tiktok_links_open_uq').on(t.sellerId, t.broadcastId).where(sql`state = 'LINKED'`),
+    uniqueIndex('tiktok_links_seller_uq').on(t.sellerId).where(sql`state = 'LINKED'`),
+    index('tiktok_links_broadcast_idx').on(t.sellerId, t.broadcastId),
+  ],
+)
+
+/** 틱톡 사용 동의 기록 (D-904, D-N2b-2-04, DAT-05). 켬·끔을 한 줄씩 쌓는다(고치거나 지우지 않는다) — 지금 상태 = 그 판매자의 마지막 줄 */
+export const tiktokConsents = pgTable(
+  'tiktok_consents',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    on: boolean('on').notNull(),
+    /** 켤 때 읽은 위험 고지 판 (끌 때는 null) */
+    noticeVersion: text('notice_version'),
+    requestId: text('request_id').notNull(),
+    at: timestamptz('at').notNull(),
+  },
+  (t) => [unique('tiktok_consents_request_uq').on(t.sellerId, t.requestId), index('tiktok_consents_seller_idx').on(t.sellerId, t.id)],
+)
+
+/** 판매자의 틱톡 아이디 하나 (checkTikTokTarget으로 해석한 값) */
+export const tiktokAccounts = pgTable('tiktok_accounts', {
+  sellerId: text('seller_id')
+    .primaryKey()
+    .references(() => sellers.id),
+  tiktokId: text('tiktok_id').notNull(),
+  updatedAt: timestamptz('updated_at').notNull(),
+  updatedBy: text('updated_by').references(() => accounts.id),
+})
+
+/** 댓글 붙여넣기 넣기 요청 (D-N2b-2-08): 같은 요청 번호는 같은 글일 때만 처음 응답을 돌려준다 — 글은 두지 않고 요약값만 */
+export const pasteRequests = pgTable(
+  'paste_requests',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    requestId: text('request_id').notNull(),
+    broadcastId: text('broadcast_id').notNull(),
+    /** (회차, 글)의 요약값 */
+    digest: text('digest').notNull(),
+    /** 처음 응답 JSON */
+    result: text('result').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('paste_requests_uq').on(t.sellerId, t.requestId)],
+)
+
+/**
  * 포장·배송 기록 (STL-08, I2 D-I2-05): 엔진 이벤트가 아니라 서버가 덧붙이기만 하는 기록이다(고치거나 지우지 않는다 — 복구 명령만 예외, D-I2-11).
  * (판매자, 실제 범위 날짜, 그때 지금의 구매자 ID)마다 차례로 읽어 상태를 계산한다. 리허설 범위에는 쓰지 않는다
  */
@@ -1011,6 +1106,426 @@ export const packingRecords = pgTable(
     createdAt: timestamptz('created_at').notNull(),
   },
   (t) => [unique('packing_request_uq').on(t.sellerId, t.requestId), index('packing_scope_idx').on(t.sellerId, t.scopeId, t.id)],
+)
+
+/**
+ * 구매자 확인서 공유 링크 (RCP-02, N4b D-N4b-01·06): `<앱 주소>/r/<토큰>` 하나마다 한 행. 토큰 원문은 두지 않는다 —
+ * 찾기용 SHA-256 해시(token_hash, base64url)와 판매자 키에서 나눈 키로 암호화한 토큰(token_enc — 판매자가 같은 링크를 다시 복사할 때만 푼다)뿐이다.
+ * (판매자, 실제 범위 날짜, 구매자 ID)마다 쓸 수 있는(끊기지 않고 기간 안) 링크는 하나다 — 서버가 (판매자, 날짜) 락 안에서 지킨다.
+ * 지우지 않는다(끊기만) — 복구·가져오기(D-I2-11)만 그 판매자의 행을 모두 지운다(D-N4b-06). 백업 파일에는 넣지 않는다
+ */
+export const receiptLinks = pgTable(
+  'receipt_links',
+  {
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** 실제 범위 날짜 YYYY-MM-DD */
+    date: text('date').notNull(),
+    /** 만들 때의 지금의 구매자 ID (열 때 그 구매자가 지금의 구매자이고 품목이 있을 때만 보인다) */
+    buyer: text('buyer').notNull(),
+    tokenHash: text('token_hash').notNull(),
+    tokenEnc: text('token_enc').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+    createdBy: text('created_by').references(() => accounts.id),
+    /** 끝나는 시각 = 만든 시각 + 14×24시간 (이 시각부터 열리지 않는다) */
+    expiresAt: timestamptz('expires_at').notNull(),
+    revokedAt: timestamptz('revoked_at'),
+    revokedBy: text('revoked_by').references(() => accounts.id),
+  },
+  (t) => [unique('receipt_links_token_uq').on(t.tokenHash), index('receipt_links_buyer_idx').on(t.sellerId, t.date, t.buyer, t.createdAt)],
+)
+
+/**
+ * 공유 링크 요청 번호 (N4b — 만들기·전부 만들기·끊기의 멱등): 같은 요청 번호면 처음 답을 다시 만든다. result는 처음 답의 모양(JSON — 토큰 원문 없음, 링크 ID만)
+ */
+export const receiptLinkRequests = pgTable(
+  'receipt_link_requests',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    requestId: text('request_id').notNull(),
+    date: text('date').notNull(),
+    /** CREATE · CREATE_ALL · REVOKE */
+    kind: text('kind').notNull(),
+    result: text('result').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('receipt_link_requests_uq').on(t.sellerId, t.requestId)],
+)
+
+// ── 요금 (N5, BILLING_RULES BL-0~BL-8, D-N5-01~D-N5-14) ─────────────────────
+// 엔진 밖 서버 원장이다(BL-0 2). 이벤트·발송함·스냅샷·출력 작업 표는 바꾸지 않는다.
+// 이용권(billing_grants)·회수(billing_revocations)·쓴 기록(billing_usage)·이용 방식(billing_modes)은 덧붙이기만 한다(BL-0 4, BL-INV-5 —
+// 서버 소스에 이 표들의 UPDATE·DELETE가 없다). 결제 주문·증빙 요청은 상태 칸만 바뀐다.
+
+/** 이용권 부여 (BL-1). 결제 이용권은 결제 ID마다 하나(BL-INV-1 — payment_id 유일). 부여 시각 = 기록 시각 */
+export const billingGrants = pgTable(
+  'billing_grants',
+  {
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** FLAT_30D · DAYS · ORDERS · LABELS */
+    kind: text('kind').notNull(),
+    /** 정량만 1~100,000 (정액은 null) */
+    quantity: integer('quantity'),
+    /** PAYMENT · OPERATOR */
+    source: text('source').notNull(),
+    /** PAYMENT: 결제 ID */
+    paymentId: text('payment_id'),
+    /** OPERATOR: 사유 (휴대폰 번호 검사를 통과한 1~200자) */
+    reason: text('reason'),
+    at: timestamptz('at').notNull(),
+  },
+  (t) => [unique('billing_grants_payment_uq').on(t.paymentId), index('billing_grants_seller_idx').on(t.sellerId, t.at)],
+)
+
+/** 이용권 회수 (BL-7 환불). 이용권마다 많아야 하나. 지우거나 고치지 않는다 */
+export const billingRevocations = pgTable(
+  'billing_revocations',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    grantId: text('grant_id')
+      .notNull()
+      .references(() => billingGrants.id),
+    /** REFUND (지금은 이것 하나) */
+    reason: text('reason').notNull(),
+    at: timestamptz('at').notNull(),
+  },
+  (t) => [unique('billing_revocations_grant_uq').on(t.grantId), index('billing_revocations_seller_idx').on(t.sellerId)],
+)
+
+/**
+ * 쓴 기록 (BL-5). 멱등 키: DAYS `DAYS:<방송 ID>` · ORDERS `ORDERS:<범위 날짜>:<상품 ID>` · LABELS `LABELS:<범위 날짜>:<작업 ID>`.
+ * (판매자, 키)가 유일하다 — 같은 일은 한 번만 적는다. 돌려주지 않는다
+ */
+export const billingUsage = pgTable(
+  'billing_usage',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** DAYS · ORDERS · LABELS */
+    kind: text('kind').notNull(),
+    key: text('key').notNull(),
+    at: timestamptz('at').notNull(),
+    /** 쓴 방송 (DAYS: 시작한 방송, ORDERS: 상품의 방송, LABELS: 라벨의 방송) */
+    broadcastId: text('broadcast_id'),
+    /** 범위 날짜 (실제 범위) */
+    date: text('date'),
+    /** ORDERS: 상품 ID·그때 번호 / LABELS: 라벨의 번호 */
+    productId: text('product_id'),
+    productNo: integer('product_no'),
+    /** LABELS: 작업 ID */
+    jobId: text('job_id'),
+  },
+  (t) => [unique('billing_usage_key_uq').on(t.sellerId, t.key), index('billing_usage_seller_idx').on(t.sellerId, t.kind, t.at)],
+)
+
+/** 방송의 이용 방식 (BL-4). 새 실제 방송 시작과 같은 트랜잭션에서 한 번 정하고 바뀌지 않는다. 이용 방식이 없는 방송(리허설·요금 기능 꺼짐·N5 전)은 행이 없다 */
+export const billingModes = pgTable(
+  'billing_modes',
+  {
+    /** 방송 ID — 방송 표를 외래 키로 잇지 않는다: 복구(I2)가 방송·범위 행을 지우고 다시 만들어도 이 원장 행은 남는다(덧붙이기만, BL-0 4) */
+    broadcastId: text('broadcast_id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** 시작할 때의 범위 ID (기록용 — 복구가 범위를 다시 만들면 바뀌므로 그 범위의 방송은 방송 표의 범위로 찾는다) */
+    scopeId: text('scope_id').notNull(),
+    /** FLAT · DAY · ORDERS */
+    mode: text('mode').notNull(),
+    /** 이 시작이 방송 일 1을 썼는지 (BL-4 1.3) */
+    usedDay: boolean('used_day').notNull(),
+    at: timestamptz('at').notNull(),
+  },
+  (t) => [index('billing_modes_scope_idx').on(t.sellerId, t.scopeId)],
+)
+
+/**
+ * 결제 주문 (BL-6). 결제 ID = 서버가 만든 무작위 값. 금액 = 만들 때의 요금 표 가격 스냅샷.
+ * 상태: PENDING · FAILED · GRANTED · MISMATCH_CANCELLED · NEEDS_REVIEW · REFUNDED.
+ * refund_hold_until = 환불 중 표시: 있으면 그 이용권을 쓰지 않는다(시간이 지나도 저절로 풀리지 않는다 — 결제 조회로 취소됐으면 환불함, 그대로면 풀기, RA-N5-01).
+ * 값은 결제 취소를 맡은 환불 요청의 기한이고, 지나면 다른 요청(결제 내역·웹훅·다시 환불)이 결제 조회로 맞춘다
+ */
+export const billingOrders = pgTable(
+  'billing_orders',
+  {
+    paymentId: text('payment_id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    requestId: text('request_id').notNull(),
+    itemId: text('item_id').notNull(),
+    itemName: text('item_name').notNull(),
+    kind: text('kind').notNull(),
+    quantity: integer('quantity'),
+    amount: integer('amount').notNull(),
+    /** CARD · TRANSFER (만들 때 고른 수단) */
+    method: text('method').notNull(),
+    state: text('state').notNull(),
+    /** 결제 조회가 알려 준 수단 (부여 때) */
+    paidMethod: text('paid_method'),
+    createdAt: timestamptz('created_at').notNull(),
+    updatedAt: timestamptz('updated_at').notNull(),
+    grantedAt: timestamptz('granted_at'),
+    refundHoldUntil: timestamptz('refund_hold_until'),
+    refundedAt: timestamptz('refunded_at'),
+  },
+  (t) => [unique('billing_orders_request_uq').on(t.sellerId, t.requestId), index('billing_orders_seller_idx').on(t.sellerId, t.createdAt)],
+)
+
+/** 사업자 정보 (BL-8 1·2). 번호·상호·대표자·이메일은 마스터 키로 암호화한 JSON 하나로 둔다. 가린 번호 `123-45-*****`와 증빙 종류만 평문 */
+export const billingBusiness = pgTable('billing_business', {
+  sellerId: text('seller_id')
+    .primaryKey()
+    .references(() => sellers.id),
+  sealed: text('sealed').notNull(),
+  masked: text('masked').notNull(),
+  /** TAX_INVOICE · CASH_RECEIPT */
+  receiptKind: text('receipt_kind').notNull(),
+  updatedAt: timestamptz('updated_at').notNull(),
+})
+
+/** 증빙 요청 (BL-8 3~5): 계좌이체로 부여된 결제마다 하나. 받는 쪽은 그때의 사업자 정보(암호화). 취소 요청은 같은 줄의 cancel 칸 */
+export const billingDocuments = pgTable(
+  'billing_documents',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    paymentId: text('payment_id')
+      .notNull()
+      .references(() => billingOrders.paymentId),
+    /** TAX_INVOICE · CASH_RECEIPT */
+    kind: text('kind').notNull(),
+    recipientSealed: text('recipient_sealed').notNull(),
+    amount: integer('amount').notNull(),
+    supply: integer('supply').notNull(),
+    vat: integer('vat').notNull(),
+    /** PENDING 발행 대기 · ISSUED 발행됨 · FAILED 발행 실패 */
+    status: text('status').notNull(),
+    approval: text('approval'),
+    /** 취소: null · REQUESTED 취소 요청 · CANCELLED 취소됨 · FAILED */
+    cancel: text('cancel'),
+    createdAt: timestamptz('created_at').notNull(),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [unique('billing_documents_payment_uq').on(t.paymentId), index('billing_documents_seller_idx').on(t.sellerId)],
+)
+
+/** 요금 요청 번호 (환불·사업자 정보 — 같은 요청 번호면 처음 결과) */
+export const billingRequests = pgTable(
+  'billing_requests',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    requestId: text('request_id').notNull(),
+    kind: text('kind').notNull(),
+    result: text('result').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('billing_requests_uq').on(t.sellerId, t.requestId)],
+)
+
+// ── 입금 확인 (N3, DEPOSIT_RULES DP-1·DP-6, D-N3-05·D-N3-06·D-N3-09·D-N3-10) ─────────────
+// 이벤트·발송함·스냅샷·출력 표는 바꾸지 않는다 — 입금 내역은 엔진 밖 이 표들에 둔다(DP-0 3). 모든 표에 판매자 ID가 있다(SYS-02).
+// 계좌 비밀번호·빠른조회 아이디/비밀번호·생년월일을 두는 칸은 없다(받지 않는다, D-N3-09). 입금·처리 기록·원천을 지우는 API는 없다.
+
+/**
+ * 입금 원천 (DP-1): 계좌조회 POPBILL · 붙여넣기 PASTE(판매자마다 하나, 서버가 둔다) · 가짜 FAKE(시험 모드에서만).
+ * 계좌조회의 사업자번호·은행·계좌번호는 account_enc에 서버 마스터 키로 암호화해 둔다(판매자·원천에 묶음 — 다른 행으로 옮기면 풀리지 않는다, D-073 방식)
+ */
+export const depositSources = pgTable(
+  'deposit_sources',
+  {
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** POPBILL · PASTE · FAKE */
+    kind: text('kind').notNull(),
+    /** 표시 이름 (예: "국민 1234", "붙여넣기") */
+    label: text('label').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    /** 받아 오기 주기 (분, 1~5 — 계좌조회·가짜) */
+    intervalMin: integer('interval_min').notNull().default(5),
+    /** 계좌조회: 사업자번호·은행·계좌번호 JSON을 AES-256-GCM으로 암호화한 값 (그 밖의 원천은 null) */
+    accountEnc: text('account_enc'),
+    /** 마지막으로 받아 온 시각 (성공) */
+    lastFetchedAt: timestamptz('last_fetched_at'),
+    /** 마지막 오류 문장 (쉬운 한국어 한 문장 — 기술 상세 없음). 성공하면 지운다(읽지 못한 내역이 있으면 그 문장) */
+    lastError: text('last_error'),
+    lastErrorAt: timestamptz('last_error_at'),
+    /** 마지막 받아 오기의 새 입금 수 */
+    lastNew: integer('last_new'),
+    createdAt: timestamptz('created_at').notNull(),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [index('deposit_sources_seller_idx').on(t.sellerId), uniqueIndex('deposit_sources_paste_uq').on(t.sellerId).where(sql`kind = 'PASTE'`)],
+)
+
+/**
+ * 입금 (DP-1). 입금 번호 no는 판매자마다 1부터 이어서 센다(다시 켜도 같은 번호를 두 번 쓰지 않는다).
+ * 같은 입금은 한 번: (판매자, 원천, 외부 키) 유일 제약(DP-INV-4). 외부 키 = 팝빌 tid · 붙여넣기 줄 키의 해시 · 시험이 준 키.
+ * 상태: REVIEW 확인 필요 · AUTO_APPLIED 자동 확인됨 · APPLIED 확인함 · IGNORED 무시함 (DP-6).
+ * 입금자명은 받은 글자 그대로(앞뒤 공백 뺌, 40자까지) — 이벤트 로그에는 넣지 않는다(DP-INV-5). 잔액·적요는 두지 않는다
+ */
+export const deposits = pgTable(
+  'deposits',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    no: integer('no').notNull(),
+    sourceId: text('source_id')
+      .notNull()
+      .references(() => depositSources.id),
+    externalKey: text('external_key').notNull(),
+    /** 거래 시각 (UTC — 분까지만 있으면 그 분의 0초) */
+    at: timestamptz('at').notNull(),
+    /** second · minute */
+    precision: text('precision').notNull(),
+    amount: integer('amount').notNull(),
+    name: text('name').notNull(),
+    status: text('status').notNull(),
+    /** 반영 차례 (엔진 요청 번호 dep-<번호>-pay-<차례>·dep-<번호>-rev-<차례>의 차례 — 반영할 때마다 1씩 는다) */
+    turn: integer('turn').notNull().default(0),
+    /** 지금 반영 중인 묶음 (자동 확인됨·확인함일 때만): 날짜·입금 기록의 구매자·그 범위 seq */
+    appliedDate: text('applied_date'),
+    appliedBuyer: text('applied_buyer'),
+    appliedSeq: integer('applied_seq'),
+    /** 저장한 시각 (서버 시계) */
+    receivedAt: timestamptz('received_at').notNull(),
+    /** 마지막 처리 시각 (자동 확인·확정·무시·다시 확인 필요로·되돌리기) */
+    handledAt: timestamptz('handled_at'),
+  },
+  (t) => [
+    unique('deposits_no_uq').on(t.sellerId, t.no),
+    unique('deposits_external_uq').on(t.sellerId, t.sourceId, t.externalKey),
+    index('deposits_status_idx').on(t.sellerId, t.status, t.no),
+    index('deposits_at_idx').on(t.sellerId, t.at),
+  ],
+)
+
+/** 입금과 엔진 기록의 연결 (범위, seq) — 입금 확인이 적은 입금 기록(payment)과 되돌림 기록(refund). 메모 글을 읽어 잇지 않는다(DP-0 3) */
+export const depositLinks = pgTable(
+  'deposit_links',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    depositId: bigint('deposit_id', { mode: 'number' })
+      .notNull()
+      .references(() => deposits.id),
+    scopeId: text('scope_id')
+      .notNull()
+      .references(() => scopes.id),
+    date: text('date').notNull(),
+    seq: integer('seq').notNull(),
+    /** payment · refund */
+    kind: text('kind').notNull(),
+    /** 반영 차례 (되돌림은 되돌린 반영의 차례) */
+    turn: integer('turn').notNull(),
+    /** 기록의 구매자 (구매자 자신) */
+    buyer: text('buyer').notNull(),
+    /** 자동 확인으로 적은 입금인지 */
+    auto: boolean('auto').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('deposit_links_seq_uq').on(t.sellerId, t.scopeId, t.seq), index('deposit_links_deposit_idx').on(t.depositId)],
+)
+
+/** 입금 처리 기록 (DAT-05, DP-6): 받음·자동 확인·확정·무시·다시 확인 필요로·되돌리기마다 누가·언제·무엇을. 지우는 API가 없다 */
+export const depositActions = pgTable(
+  'deposit_actions',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    depositId: bigint('deposit_id', { mode: 'number' })
+      .notNull()
+      .references(() => deposits.id),
+    /** RECEIVED · AUTO · CONFIRM · IGNORE · REOPEN · REVERT */
+    action: text('action').notNull(),
+    /** account(로그인 계정) · auto(입금 자동 확인) · server(복구가 입금 상태를 다시 만든 엔진 기록에 맞춤) */
+    actor: text('actor').notNull(),
+    accountId: text('account_id').references(() => accounts.id),
+    /** 묶음 날짜·구매자, 엔진 기록 범위·seq (해당할 때만) */
+    date: text('date'),
+    buyer: text('buyer'),
+    scopeId: text('scope_id').references(() => scopes.id),
+    seq: integer('seq'),
+    /** 서버 시각 (UTC) */
+    at: timestamptz('at').notNull(),
+  },
+  (t) => [index('deposit_actions_deposit_idx').on(t.depositId, t.id)],
+)
+
+/** 기억한 입금자명 (DP-4 3, DP-6, D-N3-03): 유튜브 구매자(채널)에만. 같은 (채널, 정규화 이름)은 한 번만. 판매자가 지울 수 있다 */
+export const depositNames = pgTable(
+  'deposit_names',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    channel: text('channel').notNull(),
+    /** DP-3 정규화한 이름 */
+    norm: text('norm').notNull(),
+    /** 받은 글자 그대로 */
+    name: text('name').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('deposit_names_uq').on(t.sellerId, t.channel, t.norm)],
+)
+
+/**
+ * 판매자에게 묶인 팝빌 사업자번호 (RA-N3-001, DP-1 "비밀값", SYS-02). 서버는 연동 키 하나로 모든 판매자를 대신해 팝빌을 부르므로
+ * 사업자번호가 그 판매자의 것인지 서버가 지킨다: 판매자마다 하나, 사업자번호마다 한 판매자. 평문은 두지 않는다 —
+ * corp_key = HMAC(마스터 키에서 나눈 키, 사업자번호) (판매자 사이의 같은 값만 알아본다, 되돌릴 수 없다)
+ */
+export const depositCorpBindings = pgTable(
+  'deposit_corp_bindings',
+  {
+    sellerId: text('seller_id')
+      .primaryKey()
+      .references(() => sellers.id),
+    corpKey: text('corp_key').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('deposit_corp_bindings_corp_uq').on(t.corpKey)],
+)
+
+/** 입금 확인 화면 요청 번호 (붙여넣기 넣기·확정·무시·다시 확인 필요로·되돌리기·한꺼번에 — 같은 요청 번호면 처음 결과, DP-6) */
+export const depositRequests = pgTable(
+  'deposit_requests',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    requestId: text('request_id').notNull(),
+    /** 처음 결과 JSON ({ status, body }) */
+    result: text('result').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('deposit_requests_uq').on(t.sellerId, t.requestId)],
 )
 
 export const schema = {
@@ -1045,8 +1560,29 @@ export const schema = {
   liveRequests,
   igDmSends,
   igDmRows,
+  tiktokLinks,
+  tiktokConsents,
+  tiktokAccounts,
+  pasteRequests,
   labelSwitches,
   packingRecords,
+  billingGrants,
+  billingRevocations,
+  billingUsage,
+  billingModes,
+  billingOrders,
+  billingBusiness,
+  billingDocuments,
+  billingRequests,
+  receiptLinks,
+  receiptLinkRequests,
+  depositSources,
+  deposits,
+  depositLinks,
+  depositActions,
+  depositNames,
+  depositCorpBindings,
+  depositRequests,
 }
 
 /**
@@ -1056,6 +1592,12 @@ export const schema = {
  */
 export const executableOutbox = and(eq(outbox.rehearsal, false), eq(outbox.restored, false)) as SQL
 
+/** 요금 직렬 처리용 어드바이저리 락 키 (판매자마다 하나 — 새 실제 방송 시작·환불·부여·결제 확인·쓰기를 차례로, BL-4 3·BL-7 4) */
+export const billingLockKey = (sellerId: string) => sql`hashtextextended(${`billing/${sellerId}`}, 0)`
+
 /** 범위 직렬 처리용 어드바이저리 락 키 (범위 = 판매자·날짜·리허설인지, 범위 행이 생기기 전에도 같은 키). 실제 범위는 S04와 같은 키 */
 export const scopeLockKey = (sellerId: string, date: string, rehearsal: boolean) =>
   sql`hashtextextended(${rehearsal ? `${sellerId}/${date}/rehearsal` : `${sellerId}/${date}`}, 0)`
+
+/** 판매자 입금 처리 직렬화용 어드바이저리 락 키 (입금 저장·번호 붙이기 — 여러 인스턴스에서도 번호가 겹치지 않게, DP-7) */
+export const depositLockKey = (sellerId: string) => sql`hashtextextended(${`${sellerId}/deposits`}, 0)`

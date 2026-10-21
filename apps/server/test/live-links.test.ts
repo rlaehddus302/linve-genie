@@ -43,7 +43,7 @@ describe('AC-N2-02 플랫폼 능력 조회', () => {
     const seller = await addSeller(w)
     expect((await client(w, null).get('/api/platforms')).status).toBe(401)
     const platforms = (await client(w, seller.cookie).get('/api/platforms')).body.platforms
-    expect(platforms).toEqual(platformCapabilities({ youtube: false, instagram: true }))
+    expect(platforms).toEqual(platformCapabilities({ youtube: false, instagram: true }, w.server.tiktok.capability()))
     expect(platforms).toEqual([
       { platform: 'YOUTUBE', ready: false, receivedTime: true, thanks: 'PUBLIC_CHAT', videoComment: true, reasons: { ready: '유튜브 라이브는 아직 이 서버에서 이을 수 없어요.' } },
       {
@@ -60,7 +60,13 @@ describe('AC-N2-02 플랫폼 능력 조회', () => {
         receivedTime: false,
         thanks: 'NONE',
         videoComment: false,
-        reasons: { ready: '틱톡 라이브는 아직 지원하지 않아요.', receivedTime: '틱톡 라이브는 아직 지원하지 않아요.', thanks: '틱톡 라이브는 아직 지원하지 않아요.', videoComment: '틱톡 라이브는 아직 지원하지 않아요.' },
+        // N2b-2(AC-N2b-2-04)가 틱톡 문장을 바꿨다 — 운영자 스위치가 꺼진 서버 (바꾼 기존 시험, dev-notes)
+        reasons: {
+          ready: '지금은 틱톡 연결을 쓸 수 없어요. 댓글을 직접 넣어 주세요.',
+          receivedTime: '틱톡 라이브는 댓글마다의 시각이 없어 실제 시각순으로 판정할 수 없어요.',
+          thanks: '틱톡에는 감사 메시지를 보내지 않아요.',
+          videoComment: '틱톡에는 감사 메시지를 보내지 않아요.',
+        },
       },
     ])
   })
@@ -83,7 +89,8 @@ describe('AC-N2-03 한 회차에 플랫폼 하나 — 잇기 공통 규칙', () 
     // 이미 끊지 않은 연결 → ALREADY_LINKED
     const again = await api.post(`/api/broadcasts/${b}/live/wait`, { requestId: rid('wait'), platform: 'INSTAGRAM' })
     expect(again.status).toBe(409)
-    expect(again.body.error).toEqual({ code: 'ALREADY_LINKED', message: '이 방송에는 이미 라이브가 이어져 있어요. 먼저 연결을 끊어 주세요.' })
+    // N2b-2(AC-N2b-2-01): 같은 플랫폼만 ALREADY_LINKED, 문장에 플랫폼 이름 (바꾼 기존 시험, dev-notes)
+    expect(again.body.error).toEqual({ code: 'ALREADY_LINKED', message: '이 방송에는 이미 인스타그램 라이브가 이어져 있어요. 먼저 연결을 끊어 주세요.' })
     // 엔진 이벤트가 아니다 — seq 그대로
     expect((await api.get('/api/days/2026-10-19')).body.seq).toBe(seqBefore)
     // 다른 판매자·없는 회차: 404
@@ -131,23 +138,25 @@ describe('AC-N2-03 한 회차에 플랫폼 하나 — 잇기 공통 규칙', () 
   })
 })
 
-describe('AC-N2-04 틱톡 자리', () => {
-  it('틱톡 기다리기·잇기 → PLATFORM_NOT_SUPPORTED, 아무것도 저장하지 않고 외부 주소를 부르지 않는다', async () => {
+// N2b-2(AC-N2b-2-30)가 틱톡 잇기를 만들었다 — "틱톡 자리 PLATFORM_NOT_SUPPORTED"를 이 기준으로 바꾼다 (바꾼 기존 시험, dev-notes)
+describe('AC-N2-04 틱톡 자리 → AC-N2b-2-30 틱톡 잇기 (운영자 스위치가 꺼진 서버)', () => {
+  it('틱톡 기다리기는 없다(400), 잇기는 PLATFORM_NOT_READY — 아무것도 저장하지 않고 외부 주소를 부르지 않는다', async () => {
     const w = await world()
     const { seller } = await connectedShop(w)
     const api = client(w, seller.cookie)
     const b = await liveBroadcast(w, seller)
     const calls = w.fake.calls.length
-    for (const [path, extra] of [
-      ['wait', {}],
-      ['link', { liveId: '123' }],
-    ] as const) {
-      const result = await api.post(`/api/broadcasts/${b}/live/${path}`, { requestId: rid('t'), platform: 'TIKTOK', ...extra })
-      expect(result.status).toBe(409)
-      expect(result.body.error).toEqual({ code: 'PLATFORM_NOT_SUPPORTED', message: '틱톡 라이브는 아직 지원하지 않아요.' })
-    }
+    const waited = await api.post(`/api/broadcasts/${b}/live/wait`, { requestId: rid('t'), platform: 'TIKTOK' })
+    expect(waited.status).toBe(400)
+    expect(waited.body.error).toMatchObject({ code: 'INVALID_INPUT' })
+    const withLive = await api.post(`/api/broadcasts/${b}/live/link`, { requestId: rid('t'), platform: 'TIKTOK', liveId: '123' })
+    expect(withLive.status).toBe(400)
+    expect(withLive.body.error).toMatchObject({ code: 'UNKNOWN_FIELD' })
+    const linked = await api.post(`/api/broadcasts/${b}/live/link`, { requestId: rid('t'), platform: 'TIKTOK' })
+    expect(linked.status).toBe(409)
+    expect(linked.body.error).toEqual({ code: 'PLATFORM_NOT_READY', message: '지금은 틱톡 연결을 쓸 수 없어요. 댓글을 직접 넣어 주세요.' })
     expect(w.fake.calls.length).toBe(calls)
-    const rows = await w.database.pglite?.query<{ n: number }>(`select count(*)::int as n from live_links`)
+    const rows = await w.database.pglite?.query<{ n: number }>(`select (select count(*) from live_links)::int + (select count(*) from tiktok_links)::int as n`)
     expect(rows?.rows[0]?.n).toBe(0)
   })
 })
@@ -164,10 +173,11 @@ describe('AC-N2-04 어댑터 모양', () => {
     const source = readFileSync(new URL('../src/platform.ts', import.meta.url), 'utf8')
     expect(source).toMatch(/export interface LiveSource/)
     expect(source).toMatch(/export interface ThanksSender/)
-    // 합친 뒤(N2 + N2b-1): 틱톡 연결 모듈은 따로 묶음 src/tiktok/**에만 있고(D-N2b-1-08 — 판정 연결은 N2b-2) 플랫폼 공통 어댑터의 틱톡 구현은 없다
+    // 합친 뒤(N2 + N2b-1): 틱톡 연결 모듈은 따로 묶음 src/tiktok/**에만 있고(D-N2b-1-08), N2b-2의 서버 연결은 src/tiktok-live/**에 있다(바꾼 기존 시험, dev-notes).
+    // 플랫폼 공통 어댑터(LiveSource·ThanksSender)의 틱톡 구현은 없다 — 틱톡은 라이브 찾기 없이 잇기 = 바로 연결, 감사는 보내지 않는다(D-N2b-2-05·09)
     const files = readdirSync(new URL('../src/', import.meta.url), { recursive: true }).map(String)
-    expect(files.filter((file) => /tiktok/i.test(file) && !/^tiktok([\\/]|$)/.test(file))).toEqual([])
-    for (const file of files.filter((name) => /^tiktok[\\/].+\.ts$/.test(name))) {
+    expect(files.filter((file) => /tiktok/i.test(file) && !/^tiktok(-live)?([\\/]|$)/.test(file))).toEqual([])
+    for (const file of files.filter((name) => /^tiktok(-live)?[\\/].+\.ts$/.test(name))) {
       const code = readFileSync(new URL(`../src/${file.replaceAll('\\', '/')}`, import.meta.url), 'utf8')
       expect(code, file).not.toMatch(/\b(LiveSource|ThanksSender)\b/)
     }

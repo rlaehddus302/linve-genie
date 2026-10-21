@@ -8,6 +8,7 @@ import type { LabelSettings, LabelSwitchEntry, PrintOverview } from '../src/api/
 import { setLabelEnv } from '../src/lib/label-env.ts'
 import { device, job, jsdomLabelEnv, overview, queue, templates } from './print-support.ts'
 import { DATE, FakeEventSource, FakeServer, apiError, flush } from './support.ts'
+import { openMore } from './menu-support.ts'
 
 const ME = 'device-me-n4a-0001'
 const HELP =
@@ -90,14 +91,14 @@ describe('설정 화면과 메뉴 "설정" (AC-N4a-10, AC-I3-44)', () => {
     expect(within(section).getByText(HELP)).toBeTruthy()
     // "라벨" 칸에는 주 버튼이 없다 (다른 칸의 "저장" 등 주 버튼은 I3 설정 화면의 것 — D-N4a-07)
     expect(section.querySelectorAll('.button-primary')).toHaveLength(0)
-    expect(screen.getByRole('link', { name: '설정' }).getAttribute('aria-current')).toBe('page')
+    expect(within(openMore()).getByRole('link', { name: '설정' }).getAttribute('aria-current')).toBe('page')
   })
 
   it('메뉴 "설정"을 누르면 설정 화면 — "설정"은 메뉴 항목 하나다 (AC-I3-44, D-N4a-07)', async () => {
     await openAt('/', '방송 목록')
-    const menu = screen.getByRole('navigation', { name: '메뉴' })
+    const list = openMore()
     expect(screen.getAllByRole('link', { name: '설정' })).toHaveLength(1)
-    fireEvent.click(within(menu).getByRole('link', { name: '설정' }))
+    fireEvent.click(within(list).getByRole('link', { name: '설정' }))
     expect(await screen.findByRole('heading', { name: '설정', level: 1 })).toBeTruthy()
     expect(window.location.pathname).toBe('/settings')
   })
@@ -180,7 +181,7 @@ describe('끌 때는 묻고, 켤 때는 바로 알린다 (AC-N4a-11)', () => {
     expect(within(labelSection()).getByText('라벨 기능: 켜짐')).toBeTruthy()
     await waitFor(() => expect(document.activeElement?.textContent).toBe('라벨 끄기'))
     // 켜면 메뉴 "라벨"이 돌아온다
-    await waitFor(() => expect(within(screen.getByRole('navigation', { name: '메뉴' })).getByRole('link', { name: '라벨' })).toBeTruthy())
+    await waitFor(() => expect(within(openMore()).getByRole('link', { name: '라벨' })).toBeTruthy())
   })
 })
 
@@ -228,7 +229,8 @@ describe('라벨 화면 — 꺼져 있을 때 (AC-N4a-13·16·19)', () => {
     expect(within(main).getAllByRole('heading').map((h) => h.textContent)).toEqual(['라벨'])
     expect(within(main).queryAllByRole('button')).toHaveLength(0)
     for (const word of ['프린터', '출력 대기열', '출력 이력', '라벨 설정', '내보내기', '자동 출력', '이 기기에서 출력', 'PDF', '그림 파일']) expect(main.textContent).not.toContain(word)
-    expect(within(screen.getByRole('navigation', { name: '메뉴' })).queryByRole('link', { name: '라벨' })).toBeNull()
+    // 닫힌 목록에서 "없다"는 늘 맞으므로 목록을 연 채로 본다 (AC-NAV-10)
+    expect(within(openMore()).queryByRole('link', { name: '라벨' })).toBeNull()
     expect(screen.queryByRole('link', { name: /출력 기기|프린터|출력 멈춤/ })).toBeNull()
     fireEvent.click(link)
     expect(await screen.findByRole('heading', { name: '설정', level: 1 })).toBeTruthy()
@@ -284,7 +286,8 @@ describe('모르는 동안에는 숨긴다 (AC-N4a-18)', () => {
     expect(within(main).getByText('불러오는 중…')).toBeTruthy()
     expect(within(main).queryAllByRole('button')).toHaveLength(0)
     expect(within(main).queryByText(OFF_NOTE)).toBeNull()
-    expect(within(screen.getByRole('navigation', { name: '메뉴' })).queryByRole('link', { name: '라벨' })).toBeNull()
+    // 닫힌 목록에서 "없다"는 늘 맞으므로 목록을 연 채로 본다 (AC-NAV-10)
+    expect(within(openMore()).queryByRole('link', { name: '라벨' })).toBeNull()
     expect(screen.queryByRole('link', { name: /출력 기기|프린터/ })).toBeNull()
     ;(release as (() => void) | null)?.()
     expect(await within(main).findByText(OFF_NOTE)).toBeTruthy()
@@ -407,10 +410,10 @@ describe('라벨 화면 주 버튼은 지금 할 일 하나 (AC-N4a-21, D-N4a-06
   })
 })
 
-describe('시작 마법사 3단계 — 라벨 기능을 끈 판매자 (L-13 9, D-N4a-05·07)', () => {
-  const STEP = '3/5 프린터 연결'
+describe('시작 마법사 4단계 — 라벨 기능을 끈 판매자 (L-13 9, D-N4a-05·07, D-WIZ-01)', () => {
+  const STEP = '4/5 프린터 연결'
   beforeEach(() => {
-    server.on('GET', /^\/api\/wizard$/, () => ({ body: { wizard: { status: 'IN_PROGRESS', step: 3 } } })).on('PUT', /^\/api\/wizard$/, (call) => ({ body: { wizard: call.body } }))
+    server.on('GET', /^\/api\/wizard$/, () => ({ body: { wizard: { status: 'IN_PROGRESS', step: 4 } } })).on('PUT', /^\/api\/wizard$/, (call) => ({ body: { wizard: call.body } }))
   })
 
   it('꺼져 있으면 프린터 연결 칸 대신 "라벨 쓰지 않음" 안내만 — 연결·테스트 인쇄 버튼이 없다', async () => {
@@ -423,6 +426,19 @@ describe('시작 마법사 3단계 — 라벨 기능을 끈 판매자 (L-13 9, D
     expect(screen.getByText(OFF_NOTE)).toBeTruthy()
     expect(screen.queryByRole('region', { name: '프린터' })).toBeNull()
     expect(screen.queryByRole('button', { name: /연결|테스트 인쇄/ })).toBeNull()
+  })
+
+  it('꺼져 있으면 "다음"·"이전"이 4/5 프린터 단계를 건너뛴다 — 단계 번호는 그대로 (AC-WIZ-01)', async () => {
+    current = overview({ queue: queue({ labelsEnabled: false }) })
+    server.on('GET', /^\/api\/wizard$/, () => ({ body: { wizard: { status: 'IN_PROGRESS', step: 3 } } }))
+    window.history.replaceState(null, '', '/start')
+    render(<App />)
+    await screen.findByRole('heading', { name: '3/5 유튜브 연결', level: 2 })
+    await flush(10)
+    fireEvent.click(screen.getByRole('button', { name: '다음' }))
+    expect(await screen.findByRole('heading', { name: '5/5 리허설 해 보기', level: 2 })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '이전' }))
+    expect(await screen.findByRole('heading', { name: '3/5 유튜브 연결', level: 2 })).toBeTruthy()
   })
 
   it('켜져 있으면 I1 연결 칸을 그대로 끼운다', async () => {

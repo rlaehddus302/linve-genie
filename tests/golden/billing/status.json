@@ -1,0 +1,475 @@
+{
+  "kind": "status",
+  "about": "요금 상태 판단 (BILLING_RULES BL-2 정액제 기간 사슬, BL-3 정량 잔량·먼저 받은 것부터, BL-4 새 실제 방송 시작의 이용 방식, BL-7 7일 환불 가능, N5 — D-N5-02~D-N5-07·D-N5-09). 입력 = 이용권 원장 + 정액 방식으로 시작한 방송의 시작 시각 + 지금. out에 적은 키만 비교한다. 시각은 서버 시각, 30일 = 30×24시간, 창 = 24시간, 7일 = 7×24시간, 끝 시각은 끝남(포함하지 않음).",
+  "cases": [
+    {
+      "id": "G-BIL-001",
+      "title": "이용권이 하나도 없으면 잔량 0, 정액제 아님, 열린 창 없음, 새 실제 방송은 막힌다",
+      "refs": ["BIL-01", "BIL-02", "BL-4", "D-N5-03"],
+      "grants": [],
+      "usage": [],
+      "flatStarts": [],
+      "now": "2026-10-20T20:00:00+09:00",
+      "out": {
+        "flat": { "active": false, "until": null, "chain": [] },
+        "balances": { "DAYS": 0, "ORDERS": 0, "LABELS": 0 },
+        "window": null,
+        "refundable": [],
+        "start": { "allowed": false, "reason": "NO_PASS" }
+      }
+    },
+    {
+      "id": "G-BIL-002",
+      "title": "정액제 한 장 — 부여 시각부터 30×24시간, 이용 중이면 정액 방식, 쓰지 않았고 7일 안이면 환불 가능",
+      "refs": ["BIL-01", "BL-2", "BL-4", "BL-7", "D-N5-07", "D-N5-09"],
+      "note": "f1 시작 = 부여 10/20 20:31, 끝 = 10/20 + 30일 = 11/19 20:31(10월은 31일: 10/20+11일=10/31, +19일=11/19). 지금 10/21 10:00은 [시작, 끝) 안 → 이용 중. 7일 = 10/27 20:31까지, 정액 방식 방송 없음 → 환불 가능",
+      "grants": [{ "id": "f1", "kind": "FLAT_30D", "source": "PAYMENT", "at": "2026-10-20T20:31:00+09:00" }],
+      "usage": [],
+      "flatStarts": [],
+      "now": "2026-10-21T10:00:00+09:00",
+      "out": {
+        "flat": {
+          "active": true,
+          "until": "2026-11-19T20:31:00+09:00",
+          "chain": [{ "grant": "f1", "from": "2026-10-20T20:31:00+09:00", "until": "2026-11-19T20:31:00+09:00" }]
+        },
+        "balances": { "DAYS": 0, "ORDERS": 0, "LABELS": 0 },
+        "window": null,
+        "refundable": ["f1"],
+        "start": { "allowed": true, "mode": "FLAT", "useDay": false }
+      }
+    },
+    {
+      "id": "G-BIL-003",
+      "title": "정액제 끝 1초 전은 아직 이용 중",
+      "refs": ["BIL-01", "BL-2"],
+      "note": "끝 = 11/19 20:31:00. 지금 20:30:59 < 끝 → 이용 중. 7일은 지났다 → 환불 없음",
+      "grants": [{ "id": "f1", "kind": "FLAT_30D", "source": "PAYMENT", "at": "2026-10-20T20:31:00+09:00" }],
+      "usage": [],
+      "flatStarts": ["2026-10-21T19:00:00+09:00"],
+      "now": "2026-11-19T20:30:59+09:00",
+      "out": {
+        "flat": {
+          "active": true,
+          "until": "2026-11-19T20:31:00+09:00",
+          "chain": [{ "grant": "f1", "from": "2026-10-20T20:31:00+09:00", "until": "2026-11-19T20:31:00+09:00" }]
+        },
+        "refundable": [],
+        "start": { "allowed": true, "mode": "FLAT", "useDay": false }
+      }
+    },
+    {
+      "id": "G-BIL-004",
+      "title": "정액제 끝 시각이 되면 끝났다 — 다른 이용권이 없으면 새 실제 방송은 막힌다(사슬은 그대로 보인다)",
+      "refs": ["BIL-01", "BL-2", "BL-4", "D-N5-03"],
+      "note": "지금 = 끝 11/19 20:31:00 → [시작, 끝) 밖 → 이용 중 아님, until null. 방송 일·주문 건 0 → NO_PASS",
+      "grants": [{ "id": "f1", "kind": "FLAT_30D", "source": "PAYMENT", "at": "2026-10-20T20:31:00+09:00" }],
+      "usage": [],
+      "flatStarts": ["2026-10-21T19:00:00+09:00"],
+      "now": "2026-11-19T20:31:00+09:00",
+      "out": {
+        "flat": {
+          "active": false,
+          "until": null,
+          "chain": [{ "grant": "f1", "from": "2026-10-20T20:31:00+09:00", "until": "2026-11-19T20:31:00+09:00" }]
+        },
+        "refundable": [],
+        "start": { "allowed": false, "reason": "NO_PASS" }
+      }
+    },
+    {
+      "id": "G-BIL-005",
+      "title": "이용 중에 또 산 정액제는 앞 이용권의 끝에 이어 붙는다 — 화면의 '…까지'는 이어진 마지막 끝, 뒤 이용권은 아직 시작 전이라 쓰지 않은 것",
+      "refs": ["BIL-01", "BL-2", "BL-7", "D-N5-07"],
+      "note": "f1 [10/20 20:31, 11/19 20:31). f2 부여 11/10 09:00 < f1 끝 → 시작 = 11/19 20:31, 끝 = +30일 = 12/19 20:31(11월은 30일). 지금 11/12 → f1 안 → 이용 중, 이어진 끝 = 12/19 20:31. 환불: f1은 7일 지남(10/27), f2는 11/17 09:00까지·기간 [11/19 20:31, 12/19 20:31)에 정액 방식 방송 없음 → f2만",
+      "grants": [
+        { "id": "f1", "kind": "FLAT_30D", "source": "PAYMENT", "at": "2026-10-20T20:31:00+09:00" },
+        { "id": "f2", "kind": "FLAT_30D", "source": "PAYMENT", "at": "2026-11-10T09:00:00+09:00" }
+      ],
+      "usage": [],
+      "flatStarts": ["2026-10-21T19:00:00+09:00", "2026-11-11T19:00:00+09:00"],
+      "now": "2026-11-12T12:00:00+09:00",
+      "out": {
+        "flat": {
+          "active": true,
+          "until": "2026-12-19T20:31:00+09:00",
+          "chain": [
+            { "grant": "f1", "from": "2026-10-20T20:31:00+09:00", "until": "2026-11-19T20:31:00+09:00" },
+            { "grant": "f2", "from": "2026-11-19T20:31:00+09:00", "until": "2026-12-19T20:31:00+09:00" }
+          ]
+        },
+        "refundable": ["f2"],
+        "start": { "allowed": true, "mode": "FLAT", "useDay": false }
+      }
+    },
+    {
+      "id": "G-BIL-006",
+      "title": "끝난 뒤에 산 정액제는 산 시각부터 30일 — 빈 기간은 메우지 않는다",
+      "refs": ["BIL-01", "BL-2"],
+      "note": "f1 [9/1 10:00, 10/1 10:00)(9월은 30일). f2 부여 10/20 20:00 > f1 끝 → 시작 = 10/20 20:00, 끝 = 11/19 20:00. 지금 10/20 21:00 → f2 안",
+      "grants": [
+        { "id": "f1", "kind": "FLAT_30D", "source": "PAYMENT", "at": "2026-09-01T10:00:00+09:00" },
+        { "id": "f2", "kind": "FLAT_30D", "source": "PAYMENT", "at": "2026-10-20T20:00:00+09:00" }
+      ],
+      "usage": [],
+      "flatStarts": [],
+      "now": "2026-10-20T21:00:00+09:00",
+      "out": {
+        "flat": {
+          "active": true,
+          "until": "2026-11-19T20:00:00+09:00",
+          "chain": [
+            { "grant": "f1", "from": "2026-09-01T10:00:00+09:00", "until": "2026-10-01T10:00:00+09:00" },
+            { "grant": "f2", "from": "2026-10-20T20:00:00+09:00", "until": "2026-11-19T20:00:00+09:00" }
+          ]
+        },
+        "refundable": ["f2"]
+      }
+    },
+    {
+      "id": "G-BIL-007",
+      "title": "정액제 기간에 정액 방식으로 방송을 한 번이라도 시작했으면 7일 안이어도 환불할 수 없다",
+      "refs": ["BIL-01", "BL-7", "D-N5-09"],
+      "note": "f1 [10/20 20:31, 11/19 20:31). 정액 방식 시작 10/21 19:00 ∈ 기간 → 씀 → 환불 불가",
+      "grants": [{ "id": "f1", "kind": "FLAT_30D", "source": "PAYMENT", "at": "2026-10-20T20:31:00+09:00" }],
+      "usage": [],
+      "flatStarts": ["2026-10-21T19:00:00+09:00"],
+      "now": "2026-10-22T12:00:00+09:00",
+      "out": { "refundable": [] }
+    },
+    {
+      "id": "G-BIL-008",
+      "title": "7일 환불 기한 1초 전은 환불할 수 있다",
+      "refs": ["BIL-01", "BL-7", "D-N5-09"],
+      "note": "부여 10/20 20:31 + 7×24시간 = 10/27 20:31:00. 지금 20:30:59 < 기한 → 가능",
+      "grants": [{ "id": "f1", "kind": "FLAT_30D", "source": "PAYMENT", "at": "2026-10-20T20:31:00+09:00" }],
+      "usage": [],
+      "flatStarts": [],
+      "now": "2026-10-27T20:30:59+09:00",
+      "out": { "refundable": ["f1"] }
+    },
+    {
+      "id": "G-BIL-009",
+      "title": "7일 환불 기한이 되면 쓰지 않았어도 환불할 수 없다",
+      "refs": ["BIL-01", "BL-7", "D-N5-09"],
+      "note": "지금 = 기한 10/27 20:31:00 → 지남",
+      "grants": [{ "id": "f1", "kind": "FLAT_30D", "source": "PAYMENT", "at": "2026-10-20T20:31:00+09:00" }],
+      "usage": [],
+      "flatStarts": [],
+      "now": "2026-10-27T20:31:00+09:00",
+      "out": { "refundable": [] }
+    },
+    {
+      "id": "G-BIL-010",
+      "title": "운영자가 준 이용권은 결제가 없어 환불 대상이 아니다(쓰는 것은 같다)",
+      "refs": ["BIL-01", "BL-1", "BL-7", "D-N5-12"],
+      "note": "f1 출처 OPERATOR → 환불 목록에 없음. 이용 중 → 정액 방식",
+      "grants": [{ "id": "f1", "kind": "FLAT_30D", "source": "OPERATOR", "at": "2026-10-20T10:00:00+09:00" }],
+      "usage": [],
+      "flatStarts": [],
+      "now": "2026-10-20T11:00:00+09:00",
+      "out": {
+        "flat": {
+          "active": true,
+          "until": "2026-11-19T10:00:00+09:00",
+          "chain": [{ "grant": "f1", "from": "2026-10-20T10:00:00+09:00", "until": "2026-11-19T10:00:00+09:00" }]
+        },
+        "refundable": [],
+        "start": { "allowed": true, "mode": "FLAT", "useDay": false }
+      }
+    },
+    {
+      "id": "G-BIL-011",
+      "title": "정량 잔량 = 받은 양 합 − 쓴 수. 먼저 받은 이용권부터 쓰므로 앞 이용권 양만큼 쓴 동안 뒤 이용권은 쓰지 않은 것",
+      "refs": ["BIL-02", "BL-3", "BL-4", "BL-7", "D-N5-02"],
+      "note": "d1 5 + d2 5 = 10, 쓴 방송 일 5 → 잔량 5. d2의 앞 용량 = d1 5, 쓴 수 5 ≤ 5 → d2 쓰지 않음 + 7일 안(10/26 10:00까지) → 환불 가능. d1은 7일 지남. 마지막 창 10/18 20:00~10/19 20:00은 지금(10/20 12:00) 밖 → 열린 창 없음 → 잔량 5 ≥ 1 → 방송 일 하나 쓰며 DAY",
+      "grants": [
+        { "id": "d1", "kind": "DAYS", "quantity": 5, "source": "PAYMENT", "at": "2026-10-01T10:00:00+09:00" },
+        { "id": "d2", "kind": "DAYS", "quantity": 5, "source": "PAYMENT", "at": "2026-10-19T10:00:00+09:00" }
+      ],
+      "usage": [
+        { "kind": "DAYS", "at": "2026-10-02T20:00:00+09:00" },
+        { "kind": "DAYS", "at": "2026-10-05T20:00:00+09:00" },
+        { "kind": "DAYS", "at": "2026-10-10T20:00:00+09:00" },
+        { "kind": "DAYS", "at": "2026-10-15T20:00:00+09:00" },
+        { "kind": "DAYS", "at": "2026-10-18T20:00:00+09:00" }
+      ],
+      "flatStarts": [],
+      "now": "2026-10-20T12:00:00+09:00",
+      "out": {
+        "flat": { "active": false, "until": null, "chain": [] },
+        "balances": { "DAYS": 5, "ORDERS": 0, "LABELS": 0 },
+        "window": null,
+        "refundable": ["d2"],
+        "start": { "allowed": true, "mode": "DAY", "useDay": true }
+      }
+    },
+    {
+      "id": "G-BIL-012",
+      "title": "앞 이용권 양을 넘겨 한 번 더 쓰면 뒤 이용권도 쓴 것 — 환불 불가. 24시간 창이 열려 있으면 새로 쓰지 않고 DAY",
+      "refs": ["BIL-02", "BL-3", "BL-4", "BL-7", "D-N5-04"],
+      "note": "G-BIL-011 + 10/19 20:00에 하나 더 → 쓴 수 6 > d2 앞 용량 5 → d2 씀. 잔량 10 − 6 = 4. 창 [10/19 20:00, 10/20 20:00) ∋ 지금 10/20 12:00 → DAY, 새로 쓰지 않음",
+      "grants": [
+        { "id": "d1", "kind": "DAYS", "quantity": 5, "source": "PAYMENT", "at": "2026-10-01T10:00:00+09:00" },
+        { "id": "d2", "kind": "DAYS", "quantity": 5, "source": "PAYMENT", "at": "2026-10-19T10:00:00+09:00" }
+      ],
+      "usage": [
+        { "kind": "DAYS", "at": "2026-10-02T20:00:00+09:00" },
+        { "kind": "DAYS", "at": "2026-10-05T20:00:00+09:00" },
+        { "kind": "DAYS", "at": "2026-10-10T20:00:00+09:00" },
+        { "kind": "DAYS", "at": "2026-10-15T20:00:00+09:00" },
+        { "kind": "DAYS", "at": "2026-10-18T20:00:00+09:00" },
+        { "kind": "DAYS", "at": "2026-10-19T20:00:00+09:00" }
+      ],
+      "flatStarts": [],
+      "now": "2026-10-20T12:00:00+09:00",
+      "out": {
+        "balances": { "DAYS": 4, "ORDERS": 0, "LABELS": 0 },
+        "window": { "from": "2026-10-19T20:00:00+09:00", "until": "2026-10-20T20:00:00+09:00" },
+        "refundable": [],
+        "start": { "allowed": true, "mode": "DAY", "useDay": false }
+      }
+    },
+    {
+      "id": "G-BIL-013",
+      "title": "방송 일권 창은 24시간 — 끝 1초 전은 열려 있다(새로 쓰지 않음)",
+      "refs": ["BIL-02", "BL-4", "D-N5-04"],
+      "note": "창 [10/19 20:00, 10/20 20:00), 지금 10/20 19:59:59 → 열림. 잔량 2 − 1 = 1",
+      "grants": [{ "id": "d1", "kind": "DAYS", "quantity": 2, "source": "OPERATOR", "at": "2026-10-01T10:00:00+09:00" }],
+      "usage": [{ "kind": "DAYS", "at": "2026-10-19T20:00:00+09:00" }],
+      "flatStarts": [],
+      "now": "2026-10-20T19:59:59+09:00",
+      "out": {
+        "balances": { "DAYS": 1, "ORDERS": 0, "LABELS": 0 },
+        "window": { "from": "2026-10-19T20:00:00+09:00", "until": "2026-10-20T20:00:00+09:00" },
+        "start": { "allowed": true, "mode": "DAY", "useDay": false }
+      }
+    },
+    {
+      "id": "G-BIL-014",
+      "title": "방송 일권 창이 끝나는 시각부터는 닫혀 있다 — 잔량이 있으면 하나 더 쓴다(방송 날짜와 상관없다)",
+      "refs": ["BIL-02", "BL-4", "D-N5-04"],
+      "note": "지금 = 창 끝 10/20 20:00:00 → 닫힘. 잔량 1 ≥ 1 → 하나 쓰며 DAY",
+      "grants": [{ "id": "d1", "kind": "DAYS", "quantity": 2, "source": "OPERATOR", "at": "2026-10-01T10:00:00+09:00" }],
+      "usage": [{ "kind": "DAYS", "at": "2026-10-19T20:00:00+09:00" }],
+      "flatStarts": [],
+      "now": "2026-10-20T20:00:00+09:00",
+      "out": {
+        "window": null,
+        "start": { "allowed": true, "mode": "DAY", "useDay": true }
+      }
+    },
+    {
+      "id": "G-BIL-015",
+      "title": "창이 열려 있으면 방송 일 잔량이 0이어도 그 24시간 안의 새 방송은 DAY",
+      "refs": ["BIL-02", "BL-4", "D-N5-04"],
+      "note": "d1 1, 10/20 10:00에 씀 → 잔량 0. 창 [10/20 10:00, 10/21 10:00) ∋ 10/20 21:00 → DAY, 새로 쓰지 않음",
+      "grants": [{ "id": "d1", "kind": "DAYS", "quantity": 1, "source": "PAYMENT", "at": "2026-10-19T09:00:00+09:00" }],
+      "usage": [{ "kind": "DAYS", "at": "2026-10-20T10:00:00+09:00" }],
+      "flatStarts": [],
+      "now": "2026-10-20T21:00:00+09:00",
+      "out": {
+        "balances": { "DAYS": 0, "ORDERS": 0, "LABELS": 0 },
+        "window": { "from": "2026-10-20T10:00:00+09:00", "until": "2026-10-21T10:00:00+09:00" },
+        "refundable": [],
+        "start": { "allowed": true, "mode": "DAY", "useDay": false }
+      }
+    },
+    {
+      "id": "G-BIL-016",
+      "title": "정액제가 이용 중이면 방송 일권·주문 건권이 있어도 쓰지 않고 정액 방식",
+      "refs": ["BIL-01", "BIL-02", "BL-4"],
+      "note": "1번(정액 이용 중)이 먼저 맞는다. 정량 이용권은 쓰지 않았고 7일 안 → 모두 환불 가능. 부여 순서(시각) = d1, o1, f1",
+      "grants": [
+        { "id": "d1", "kind": "DAYS", "quantity": 3, "source": "PAYMENT", "at": "2026-10-14T10:00:00+09:00" },
+        { "id": "o1", "kind": "ORDERS", "quantity": 100, "source": "PAYMENT", "at": "2026-10-14T11:00:00+09:00" },
+        { "id": "f1", "kind": "FLAT_30D", "source": "PAYMENT", "at": "2026-10-15T10:00:00+09:00" }
+      ],
+      "usage": [],
+      "flatStarts": ["2026-10-16T20:00:00+09:00"],
+      "now": "2026-10-20T20:00:00+09:00",
+      "out": {
+        "balances": { "DAYS": 3, "ORDERS": 100, "LABELS": 0 },
+        "refundable": ["d1", "o1"],
+        "start": { "allowed": true, "mode": "FLAT", "useDay": false }
+      }
+    },
+    {
+      "id": "G-BIL-017",
+      "title": "방송 일권과 주문 건권이 다 있으면 방송 일권을 먼저 쓴다",
+      "refs": ["BIL-02", "BL-4", "D-N5-03"],
+      "note": "정액 없음, 창 없음, 방송 일 1 ≥ 1 → 3번이 4번보다 먼저",
+      "grants": [
+        { "id": "d1", "kind": "DAYS", "quantity": 1, "source": "PAYMENT", "at": "2026-10-20T10:00:00+09:00" },
+        { "id": "o1", "kind": "ORDERS", "quantity": 10, "source": "PAYMENT", "at": "2026-10-20T10:01:00+09:00" }
+      ],
+      "usage": [],
+      "flatStarts": [],
+      "now": "2026-10-20T20:00:00+09:00",
+      "out": { "start": { "allowed": true, "mode": "DAY", "useDay": true } }
+    },
+    {
+      "id": "G-BIL-018",
+      "title": "방송 일권이 없으면 주문 건권 — 잔량이 1 이상이면 ORDERS",
+      "refs": ["BIL-02", "BL-3", "BL-4"],
+      "note": "주문 건 10 − 3 = 7 ≥ 1. o1 앞 용량 0 < 쓴 3 → 씀 → 환불 불가",
+      "grants": [{ "id": "o1", "kind": "ORDERS", "quantity": 10, "source": "PAYMENT", "at": "2026-10-18T10:00:00+09:00" }],
+      "usage": [{ "kind": "ORDERS", "at": "2026-10-18T20:10:00+09:00", "count": 3 }],
+      "flatStarts": [],
+      "now": "2026-10-20T20:00:00+09:00",
+      "out": {
+        "balances": { "DAYS": 0, "ORDERS": 7, "LABELS": 0 },
+        "refundable": [],
+        "start": { "allowed": true, "mode": "ORDERS", "useDay": false }
+      }
+    },
+    {
+      "id": "G-BIL-019",
+      "title": "방송 중에 주문 건권을 넘게 쓰면 잔량이 음수(초과) — 다음 새 실제 방송은 막힌다",
+      "refs": ["BIL-02", "BL-3", "BL-4", "BL-5", "D-N5-03"],
+      "note": "10 − 13 = −3 < 1 → NO_PASS. 방송 중에는 막지 않았다(BL-5) — 초과 3건",
+      "grants": [{ "id": "o1", "kind": "ORDERS", "quantity": 10, "source": "PAYMENT", "at": "2026-10-15T10:00:00+09:00" }],
+      "usage": [{ "kind": "ORDERS", "at": "2026-10-19T20:30:00+09:00", "count": 13 }],
+      "flatStarts": [],
+      "now": "2026-10-20T12:00:00+09:00",
+      "out": {
+        "balances": { "DAYS": 0, "ORDERS": -3, "LABELS": 0 },
+        "refundable": [],
+        "start": { "allowed": false, "reason": "NO_PASS" }
+      }
+    },
+    {
+      "id": "G-BIL-020",
+      "title": "초과 뒤에 산 이용권은 초과분이 먼저 빠진다 — 산 순간부터 쓴 것이라 7일 안이어도 환불 불가",
+      "refs": ["BIL-02", "BL-3", "BL-7", "D-N5-02", "D-N5-09"],
+      "note": "10 + 10 − 13 = 7. o2 앞 용량 = o1 10 < 쓴 13 → o2 씀 → 환불 없음. 잔량 7 ≥ 1 → ORDERS",
+      "grants": [
+        { "id": "o1", "kind": "ORDERS", "quantity": 10, "source": "PAYMENT", "at": "2026-10-15T10:00:00+09:00" },
+        { "id": "o2", "kind": "ORDERS", "quantity": 10, "source": "PAYMENT", "at": "2026-10-20T10:00:00+09:00" }
+      ],
+      "usage": [{ "kind": "ORDERS", "at": "2026-10-19T20:30:00+09:00", "count": 13 }],
+      "flatStarts": [],
+      "now": "2026-10-20T12:00:00+09:00",
+      "out": {
+        "balances": { "DAYS": 0, "ORDERS": 7, "LABELS": 0 },
+        "refundable": [],
+        "start": { "allowed": true, "mode": "ORDERS", "useDay": false }
+      }
+    },
+    {
+      "id": "G-BIL-021",
+      "title": "라벨 장권은 새 방송 시작에 쓰이지 않는다 — 라벨 장권만 있으면 막히고, 쓰지 않았으면 환불 가능",
+      "refs": ["BIL-02", "BL-4", "BL-7", "D-N5-06"],
+      "grants": [{ "id": "l1", "kind": "LABELS", "quantity": 100, "source": "PAYMENT", "at": "2026-10-20T10:00:00+09:00" }],
+      "usage": [],
+      "flatStarts": [],
+      "now": "2026-10-20T12:00:00+09:00",
+      "out": {
+        "balances": { "DAYS": 0, "ORDERS": 0, "LABELS": 100 },
+        "refundable": ["l1"],
+        "start": { "allowed": false, "reason": "NO_PASS" }
+      }
+    },
+    {
+      "id": "G-BIL-022",
+      "title": "라벨 장권을 넘게 써도 음수(초과)로 보일 뿐 시작 판단과 상관없다",
+      "refs": ["BIL-02", "BL-3", "BL-4", "BL-5", "D-N5-06"],
+      "note": "라벨 100 − 103 = −3. 방송 일 1 → DAY. 라벨 초과는 시작을 막지 않는다",
+      "grants": [
+        { "id": "l1", "kind": "LABELS", "quantity": 100, "source": "PAYMENT", "at": "2026-10-10T10:00:00+09:00" },
+        { "id": "d1", "kind": "DAYS", "quantity": 1, "source": "PAYMENT", "at": "2026-10-20T10:00:00+09:00" }
+      ],
+      "usage": [{ "kind": "LABELS", "at": "2026-10-18T21:00:00+09:00", "count": 103 }],
+      "flatStarts": [],
+      "now": "2026-10-20T12:00:00+09:00",
+      "out": {
+        "balances": { "DAYS": 1, "ORDERS": 0, "LABELS": -3 },
+        "refundable": ["d1"],
+        "start": { "allowed": true, "mode": "DAY", "useDay": true }
+      }
+    },
+    {
+      "id": "G-BIL-023",
+      "title": "환불(회수)한 정량 이용권은 없는 것 — 잔량에서 빠지고 환불 목록에도 없다",
+      "refs": ["BIL-02", "BL-3", "BL-7"],
+      "grants": [{ "id": "d1", "kind": "DAYS", "quantity": 5, "source": "PAYMENT", "at": "2026-10-20T10:00:00+09:00", "revoked": true }],
+      "usage": [],
+      "flatStarts": [],
+      "now": "2026-10-20T12:00:00+09:00",
+      "out": {
+        "balances": { "DAYS": 0, "ORDERS": 0, "LABELS": 0 },
+        "refundable": [],
+        "start": { "allowed": false, "reason": "NO_PASS" }
+      }
+    },
+    {
+      "id": "G-BIL-024",
+      "title": "앞 정액제를 환불하면 뒤에 이어 붙였던 정액제는 사슬에서 다시 계산해 자기 부여 시각부터 시작한다",
+      "refs": ["BIL-01", "BL-2", "BL-7", "D-N5-07"],
+      "note": "f1 회수 → 사슬에서 빠짐. f2 시작 = max(부여 10/21 09:00, 앞 끝 없음) = 10/21 09:00, 끝 11/20 09:00. 지금 10/21 10:00 → 이용 중. f2 쓰지 않음·7일 안 → 환불 가능",
+      "grants": [
+        { "id": "f1", "kind": "FLAT_30D", "source": "PAYMENT", "at": "2026-10-20T20:31:00+09:00", "revoked": true },
+        { "id": "f2", "kind": "FLAT_30D", "source": "PAYMENT", "at": "2026-10-21T09:00:00+09:00" }
+      ],
+      "usage": [],
+      "flatStarts": [],
+      "now": "2026-10-21T10:00:00+09:00",
+      "out": {
+        "flat": {
+          "active": true,
+          "until": "2026-11-20T09:00:00+09:00",
+          "chain": [{ "grant": "f2", "from": "2026-10-21T09:00:00+09:00", "until": "2026-11-20T09:00:00+09:00" }]
+        },
+        "refundable": ["f2"]
+      }
+    },
+    {
+      "id": "G-BIL-025",
+      "title": "정액제로 1부를 시작한 뒤 정액제가 끝나면 같은 날 2부는 정액 방식이 아니다 — 방송마다 시작 순간에 정한다",
+      "refs": ["BIL-01", "BIL-02", "BL-4", "D-N5-03"],
+      "note": "f1 [9/20 18:00, 10/20 18:00). 1부는 10/20 17:00 정액 방식으로 시작(그 방송은 끝까지 정액). 2부 시작 판단 10/20 20:00: 정액 끝남, 창·방송 일 없음, 주문 건 5 → ORDERS",
+      "grants": [
+        { "id": "f1", "kind": "FLAT_30D", "source": "PAYMENT", "at": "2026-09-20T18:00:00+09:00" },
+        { "id": "o1", "kind": "ORDERS", "quantity": 5, "source": "OPERATOR", "at": "2026-10-01T10:00:00+09:00" }
+      ],
+      "usage": [],
+      "flatStarts": ["2026-10-20T17:00:00+09:00"],
+      "now": "2026-10-20T20:00:00+09:00",
+      "out": {
+        "flat": {
+          "active": false,
+          "until": null,
+          "chain": [{ "grant": "f1", "from": "2026-09-20T18:00:00+09:00", "until": "2026-10-20T18:00:00+09:00" }]
+        },
+        "start": { "allowed": true, "mode": "ORDERS", "useDay": false }
+      }
+    },
+    {
+      "id": "G-BIL-026",
+      "title": "부여 시각이 같으면 이용권 ID 순서로 사슬을 잇고 먼저 쓴다",
+      "refs": ["BIL-01", "BIL-02", "BL-2", "BL-3"],
+      "note": "fa·fb 같은 시각 → ID 순(fa, fb): fa [10/20 10:00, 11/19 10:00), fb [11/19 10:00, 12/19 10:00). oa·ob 같은 시각 → oa 먼저: 쓴 2 > oa 앞 용량 0 → oa 씀, ob 앞 용량 2 ≥ 쓴 2 → ob 쓰지 않음 → 환불 가능",
+      "grants": [
+        { "id": "fb", "kind": "FLAT_30D", "source": "PAYMENT", "at": "2026-10-20T10:00:00+09:00" },
+        { "id": "fa", "kind": "FLAT_30D", "source": "PAYMENT", "at": "2026-10-20T10:00:00+09:00" },
+        { "id": "ob", "kind": "ORDERS", "quantity": 2, "source": "PAYMENT", "at": "2026-10-20T10:00:00+09:00" },
+        { "id": "oa", "kind": "ORDERS", "quantity": 2, "source": "PAYMENT", "at": "2026-10-20T10:00:00+09:00" }
+      ],
+      "usage": [{ "kind": "ORDERS", "at": "2026-10-20T10:30:00+09:00", "count": 2 }],
+      "flatStarts": ["2026-10-20T11:00:00+09:00"],
+      "now": "2026-10-20T12:00:00+09:00",
+      "out": {
+        "flat": {
+          "active": true,
+          "until": "2026-12-19T10:00:00+09:00",
+          "chain": [
+            { "grant": "fa", "from": "2026-10-20T10:00:00+09:00", "until": "2026-11-19T10:00:00+09:00" },
+            { "grant": "fb", "from": "2026-11-19T10:00:00+09:00", "until": "2026-12-19T10:00:00+09:00" }
+          ]
+        },
+        "balances": { "DAYS": 0, "ORDERS": 2, "LABELS": 0 },
+        "refundable": ["fb", "ob"]
+      }
+    }
+  ]
+}

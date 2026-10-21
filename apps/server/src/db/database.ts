@@ -44,10 +44,22 @@ export async function openPglite(source?: string | PGlite, options: OpenOptions 
     db,
     kind: 'pglite',
     pglite,
-    close: async () => {
-      if (!pglite.closed) await pglite.close()
-    },
+    close: () => closePglite(pglite),
   }
+}
+
+/**
+ * PGlite를 닫는다. 진행 중인 쿼리가 끝난 뒤에 닫는다.
+ * PGlite의 close()는 쿼리 잠금을 잡지 않는다. 그래서 다른 쿼리가 파싱·바인드·실행 단계 사이에 있을 때 닫으면,
+ * 종료 메시지 뒤에 남은 단계가 닫힌 백엔드로 들어가 WASM 안에서 끝없이 돈다(이벤트 루프가 멈춰 시험 시간 제한도 듣지 않는다).
+ * 닫기를 쿼리 잠금 안에서 하면 진행 중인 쿼리는 끝까지 가고, 뒤에 줄 선 쿼리는 "닫혔음" 오류로 끝난다.
+ * 예: 서버 close() 직후 DB를 닫을 때 출력 알림(대기열 개수 조회)이 아직 도는 경우.
+ */
+export async function closePglite(pglite: PGlite): Promise<void> {
+  if (pglite.closed) return
+  await pglite.runExclusive(async () => {
+    if (!pglite.closed) await pglite.close()
+  })
 }
 
 /** PostgreSQL에 연결하고 마이그레이션을 적용한다. 연결 문자열은 출력하지 않는다 */

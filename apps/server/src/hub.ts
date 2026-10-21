@@ -9,7 +9,9 @@
 //   놓치지 않는다. ready의 seq에 이미 들어 있는 알림(그 범위의 seq 이하)은 서버가 거른다 — 같은 변경이 ready와 change로 두 번 오지 않는다.
 //   한 범위의 seq는 늘기만 하므로 "ready의 seq 이하는 버린다"는 언제나 안전하다.
 // - 인스타그램 연결·라이브 연결·수집 상태·알림 문장·DM 행이 바뀌면(N2) instagram 알림을 보낸다(data.kind로 나눈다 — dev-notes N2 "화면에게").
+// - 요금 원장이 바뀌면(N5) billing 알림을 보낸다(까닭만 — 화면이 요금 상태를 새로 읽는다).
 // - 출력 기록이 바뀌면(I1, L-11) print 알림을 보낸다(기록 seq가 아니라 출력 기록의 rev — 바뀐 작업·라벨 키와 대기열 요약만, 대기열 전체가 아니다).
+// - 입금이 저장·처리되거나 확인 필요 수·원천 상태가 바뀌면(N3, AC-N3-30) deposit 알림을 보낸다(바뀐 입금 번호·확인 필요 수·바뀐 원천 ID — 입금자명은 담지 않는다).
 //   연결이 출력 기기 ID를 밝히면(?device=) 그 기기의 실시간 연결이 열려 있는지 안다 — 열리고 닫힐 때 onDevice로 알린다(다른 기기의 "연결됨/끊김").
 // - 라벨 기능 켬/끔이 바뀌면(N4a, L-13) labels 알림을 보낸다(바뀐 값·바꾼 기록 한 줄·그때의 출력 기록 rev).
 
@@ -55,9 +57,9 @@ interface Pending {
   closed: boolean
 }
 
-/** 리허설 생성기 상태 알림 (event: generator) · 유튜브 알림 (event: youtube — 연결·수집·발송함·할당량·삭제·차단, AC-Y1-05·27·28·39·52) · 출력 기록 알림 (event: print, I1) · I2 포장·배송(event: packing)·가게 설정(event: shop) 알림 · 인스타그램 알림 (event: instagram, N2) · 라벨 기능 켬/끔 (event: labels, N4a) — seq가 없다 */
+/** 리허설 생성기 상태 알림 (event: generator) · 유튜브 알림 (event: youtube — 연결·수집·발송함·할당량·삭제·차단, AC-Y1-05·27·28·39·52) · 출력 기록 알림 (event: print, I1) · I2 포장·배송(event: packing)·가게 설정(event: shop) 알림 · 인스타그램 알림 (event: instagram, N2) · 라벨 기능 켬/끔 (event: labels, N4a) · 틱톡 연결 알림 (event: tiktok, N2b-2) · 입금 확인 알림 (event: deposit, N3) · 요금 알림 (event: billing, N5) — seq가 없다 */
 export interface GeneratorNotice {
-  readonly kind: 'generator' | 'youtube' | 'print' | 'packing' | 'shop' | 'instagram' | 'labels'
+  readonly kind: 'generator' | 'youtube' | 'print' | 'packing' | 'shop' | 'instagram' | 'labels' | 'tiktok' | 'deposit' | 'billing'
   readonly data: Readonly<Record<string, unknown>>
 }
 
@@ -172,9 +174,23 @@ export class StreamHub {
     this.#publishNamed(sellerId, { kind: 'print', data })
   }
 
+  /**
+   * 요금 알림 (그 판매자의 연결 전부, N5 AC-N5-13): 부여·회수·결제 주문 상태·방송 시작(방송 일 쓰기)·사업자 정보가 바뀌었다.
+   * 까닭(reason)만 담는다 — 화면은 요금 상태를 새로 읽는다. 주문 건·라벨 장 쓰기는 알리지 않는다. 사업자 정보·결제 ID·금액은 담지 않는다.
+   * 보조자 연결은 받지 않는다 — 요금·결제는 판매자만 쓴다 (AC-I3-61)
+   */
+  publishBilling(sellerId: string, data: Readonly<Record<string, unknown>>): void {
+    this.#publishNamed(sellerId, { kind: 'billing', data })
+  }
+
   /** 인스타그램 연결·라이브 연결·수집 상태·알림 문장·DM 행 알림 (그 판매자의 연결 전부, N2). 보조자 연결은 받지 않는다 — 보조자는 인스타그램 경로를 쓰지 않는다 (SYS-04) */
   publishInstagram(sellerId: string, data: Readonly<Record<string, unknown>>): void {
     this.#publishNamed(sellerId, { kind: 'instagram', data })
+  }
+
+  /** 틱톡 연결 알림 (그 판매자의 연결 전부, event: tiktok — N2b-2). data.kind = LINK (연결 보기) */
+  publishTiktok(sellerId: string, data: Readonly<Record<string, unknown>>): void {
+    this.#publishNamed(sellerId, { kind: 'tiktok', data })
   }
 
   /** I2 포장·배송(packing, AC-I2-32)·가게 설정(shop, AC-I2-13) 알림 (그 판매자의 연결 전부 — 다른 판매자의 연결은 받지 않는다). 보조자 연결은 받지 않는다 — 보조자는 포장·설정을 쓰지 않는다 (SYS-04) */
@@ -185,6 +201,11 @@ export class StreamHub {
   /** 라벨 기능 켬/끔이 바뀜 (그 판매자의 연결 전부 — 보조자 연결도 받는다: 메뉴의 라벨 칸을 숨기고 보이는 규칙이 모든 화면에 같아야 한다, N4a L-13 9) */
   publishLabels(sellerId: string, data: Readonly<Record<string, unknown>>): void {
     this.#publishKind(sellerId, { kind: 'labels', data })
+  }
+
+  /** 입금 확인 알림 (그 판매자의 연결 전부, N3 AC-N3-30 — 입금 번호·확인 필요 수·원천 ID만) */
+  publishDeposit(sellerId: string, data: Readonly<Record<string, unknown>>): void {
+    this.#publishKind(sellerId, { kind: 'deposit', data })
   }
 
   #publishKind(sellerId: string, notice: GeneratorNotice): void {

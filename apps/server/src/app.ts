@@ -25,6 +25,8 @@ export interface AppOptions {
   readonly ready?: () => Promise<boolean>
   /** 운영 상태 /ops/status (AC-I3-81): 토큰(없으면 404)과 합친 숫자 */
   readonly ops?: { readonly token: string | null; readonly status: () => Promise<Record<string, unknown>> }
+  /** 구매자 확인서 링크 화면 `/r/<토큰>` (N4b — 로그인·Origin 검사 밖, 화면 문서보다 먼저) */
+  readonly receiptPage?: (app: Hono) => void
 }
 
 /** 모든 응답의 보안 머리글 (AC-I3-71) */
@@ -126,6 +128,8 @@ export function createApp(options: AppOptions = {}): Hono {
 
   if (options.api !== undefined) app.route('/api', createApi(options.api))
   if (options.webhooks !== undefined) app.route('/webhooks', options.webhooks)
+  // 구매자 확인서 링크 (N4b AC-N4b-25): /r·/r/*는 화면 문서(index.html) 대신 링크 처리로 간다
+  options.receiptPage?.(app)
 
   // 화면 (AC-I3-70): /api·/health·/ops 밖의 GET·HEAD는 화면 빌드에서, 그 밖의 메서드는 405
   const web = options.web ?? null

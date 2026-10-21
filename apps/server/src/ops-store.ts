@@ -2,7 +2,7 @@
 // 대신 판매자를 가리는 값(판매자 ID·가게 이름·채널·방송 제목·닉네임·채팅·토큰·IP)은 하나도 꺼내지 않고 상태·이유별 개수만 센다.
 import { and, eq, gt, gte, inArray, lt, sql } from 'drizzle-orm'
 import type { Db } from './db/database.ts'
-import { events, outbox, youtubeCollectors } from './db/schema.ts'
+import { events, igDmRows, outbox, youtubeCollectors } from './db/schema.ts'
 
 /** 수집 상태별 수 (STOPPED는 이유별) */
 export async function collectorCounts(db: Db): Promise<Record<string, number | Record<string, number>>> {
@@ -25,13 +25,34 @@ export async function collectorCounts(db: Db): Promise<Record<string, number | R
   return out
 }
 
+/**
+ * 유튜브 실행기가 집는 행만 (AC-N2b-2-70, D-N2b-2-10): 인스타 DM 행이 있는 발송함 행(인스타그램 DM 실행기 몫)과
+ * 여러 플랫폼 회차의 감사 경로가 건너뛴 행(틱톡 구매자 NOT_SUPPORTED·보낼 곳 없음 NO_RECIPIENT)은 세지 않는다
+ */
+const YOUTUBE_ROWS = and(
+  sql`not exists (select 1 from ${igDmRows} where ${igDmRows.outboxId} = ${outbox.id} and ${igDmRows.sellerId} = ${outbox.sellerId})`,
+  sql`not (coalesce(${outbox.state}, '') = 'SKIPPED' and coalesce(${outbox.reason}, '') in ('NOT_SUPPORTED', 'NO_RECIPIENT'))`,
+)
+
+/** 인스타그램 감사 DM 행의 상태별 수 (그날 만든 것, 판매자 정보 없이) */
+export async function instagramDmCounts(db: Db, from: Date, to: Date): Promise<Record<string, number>> {
+  const rows = await db
+    .select({ status: igDmRows.status, n: sql<number>`count(*)::int` })
+    .from(igDmRows)
+    .where(and(gte(igDmRows.createdAt, from), lt(igDmRows.createdAt, to)))
+    .groupBy(igDmRows.status)
+  const out: Record<string, number> = {}
+  for (const row of rows) out[statusName(row.status)] = Number(row.n)
+  return out
+}
+
 /** 발송함(실제 범위의 감사·요약 댓글 — 복구로 다시 만든 행은 실행하지 않으므로 빼고, D-I2-11) — 그 시각 범위에 생긴 행의 상태·이유별 수와, 지금 남은 일(WAITING·SENDING) 수 */
 export async function outboxCounts(db: Db, from: Date, to: Date): Promise<{ byState: Record<string, Record<string, number>>; pending: { WAITING: number; SENDING: number } }> {
   const kinds = ['POST_THANKS', 'SUMMARY_COMMENT']
   const rows = await db
     .select({ state: outbox.state, reason: outbox.reason, n: sql<number>`count(*)::int` })
     .from(outbox)
-    .where(and(eq(outbox.rehearsal, false), eq(outbox.restored, false), inArray(outbox.kind, kinds), gte(outbox.createdAt, from), lt(outbox.createdAt, to)))
+    .where(and(eq(outbox.rehearsal, false), eq(outbox.restored, false), inArray(outbox.kind, kinds), gte(outbox.createdAt, from), lt(outbox.createdAt, to), YOUTUBE_ROWS))
     .groupBy(outbox.state, outbox.reason)
   const byState: Record<string, Record<string, number>> = {}
   for (const row of rows) {
@@ -44,7 +65,7 @@ export async function outboxCounts(db: Db, from: Date, to: Date): Promise<{ bySt
   const pendingRows = await db
     .select({ state: outbox.state, n: sql<number>`count(*)::int` })
     .from(outbox)
-    .where(and(eq(outbox.rehearsal, false), eq(outbox.restored, false), inArray(outbox.kind, kinds), inArray(outbox.state, ['WAITING', 'SENDING'])))
+    .where(and(eq(outbox.rehearsal, false), eq(outbox.restored, false), inArray(outbox.kind, kinds), inArray(outbox.state, ['WAITING', 'SENDING']), YOUTUBE_ROWS))
     .groupBy(outbox.state)
   const pending = { WAITING: 0, SENDING: 0 }
   for (const row of pendingRows) if (row.state === 'WAITING' || row.state === 'SENDING') pending[row.state] = Number(row.n)

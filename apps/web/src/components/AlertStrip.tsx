@@ -1,5 +1,5 @@
 // 알림 띠 (AC-S05-30, AC-S06-61, AC-I1-32, AC-I3-30, D-088·D-I1-08): 충돌 · 취소 요청 · 승계 결정 필요 · 출력 멈춤(까닭 문장) · 버릴 라벨 · 보류 찜 · 확인 필요 · 감사 실패.
-// 0인 항목은 숨기고, 모두 0이면 "알림 없음". 출력 멈춤·버릴 라벨은 판매자의 출력 기록(모든 기기 같음)이다.
+// 0인 항목은 숨기고, 모두 0이면 "알림 없음". 맨 앞에는 플랫폼 줄(틱톡 알림 줄·인스타그램 알림·붙여넣기 결과, N2b-2)이 붙는다. 출력 멈춤·버릴 라벨은 판매자의 출력 기록(모든 기기 같음)이다.
 // "감사 실패"는 판매자가 할 일이 있는 감사 발송 실패만 센다(동의하지 않음·방송을 잇지 않음은 세지 않는다 — D-I3-05).
 // 휴대폰에서는 한 줄로 접히고("알림 5 펼치기") 펼친 동안만 늘어난다. 접은 동안에도 알림 항목은 그대로 있다(한 줄에 들어가는 것만 보인다) —
 // 펼치기 버튼은 "알림" 영역 밖에 둔다(영역의 글자는 PC와 같다).
@@ -32,7 +32,24 @@ export function firstAlert(counts: AlertCounts, print: PrintAlerts = NO_PRINT_AL
   return null
 }
 
+/**
+ * 띠 맨 앞에 붙는 플랫폼 줄 (N2b-2, AC-N2b-2-60·62·63, UX-04): 틱톡 알림 줄 · 인스타그램 알림 · 붙여넣기 결과.
+ * 고정 영역에 줄을 더하지 않고 이 띠 안에 둔다 — 휴대폰에서는 띠와 함께 한 줄로 접히고(긴 문장은 말줄임, 전문은 이름·펼치기),
+ * PC에서는 문장 그대로 보인다. `onClick`이 없으면 누르는 곳이 아닌 결과 문장(role=status)이다.
+ */
+export interface AlertLead {
+  readonly key: string
+  readonly text: string
+  readonly onClick?: () => void
+  /** 덜 급한 알림(인스타그램 알림)은 연한 색 */
+  readonly soft?: boolean
+  /** 그 줄 옆의 작은 단추 (틱톡 저장 실패 "확인했어요" — D-N2b-2-16) */
+  readonly action?: { readonly label: string; readonly onClick: () => void; readonly busy?: boolean }
+}
+
 export interface AlertStripProps {
+  /** 띠 맨 앞의 플랫폼 줄 (없으면 지금 띠 그대로) */
+  readonly leads?: readonly AlertLead[]
   readonly counts: AlertCounts
   readonly print?: PrintAlerts
   /** 감사 실패 수 (리허설·유튜브 없는 서버는 0) */
@@ -43,7 +60,7 @@ export interface AlertStripProps {
   readonly onToggle?: () => void
 }
 
-export function AlertStrip({ counts, print = NO_PRINT_ALERTS, thanksFailed = 0, onOpen, expanded = false, onToggle }: AlertStripProps) {
+export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanksFailed = 0, onOpen, expanded = false, onToggle }: AlertStripProps) {
   const items: { kind: AlertKind; word: string; count: number; text?: string }[] = [
     { kind: 'conflict', word: ALERT_WORD.conflict, count: counts.conflict },
     { kind: 'cancelRequests', word: ALERT_WORD.cancelRequest, count: counts.cancelRequest },
@@ -55,14 +72,33 @@ export function AlertStrip({ counts, print = NO_PRINT_ALERTS, thanksFailed = 0, 
     { kind: 'thanks', word: THANKS_FAILED_WORD, count: thanksFailed },
   ]
   const shown = items.filter((item) => item.count > 0)
-  const total = shown.reduce((sum, item) => sum + item.count, 0)
+  const pressable = leads.filter((lead) => lead.onClick !== undefined).length
+  const total = shown.reduce((sum, item) => sum + item.count, 0) + pressable
   return (
     <div className={expanded ? 'alert-bar alert-bar-open' : 'alert-bar'}>
       <section id="alerts" className="alerts" aria-label="알림">
-        {shown.length === 0 ? (
+        {shown.length === 0 && leads.length === 0 ? (
           <p className="alerts-none">알림 없음</p>
         ) : (
           <ul className="alerts-list">
+            {leads.map((lead) => (
+              <li key={lead.key} className={lead.action !== undefined ? 'alert-lead alert-lead-with-action' : 'alert-lead'}>
+                {lead.onClick !== undefined ? (
+                  <button type="button" className={lead.soft === true ? 'button alert-item alert-soft alert-lead-button' : 'button alert-item alert-lead-button'} onClick={lead.onClick}>
+                    <span className="alert-lead-text">{lead.text}</span>
+                  </button>
+                ) : (
+                  <p className="alert-lead-note" role="status">
+                    {lead.text}
+                  </p>
+                )}
+                {lead.action !== undefined ? (
+                  <button type="button" className="button alert-lead-action" aria-busy={lead.action.busy === true} disabled={lead.action.busy === true} onClick={lead.action.onClick}>
+                    {lead.action.label}
+                  </button>
+                ) : null}
+              </li>
+            ))}
             {shown.map((item) => (
               <li key={item.kind}>
                 <button type="button" className={item.kind === 'pending' ? 'button alert-item alert-soft' : 'button alert-item'} onClick={() => onOpen(item.kind)}>
