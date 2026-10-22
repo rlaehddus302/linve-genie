@@ -16,6 +16,14 @@ type PGlite = NonNullable<TestServer['database']['pglite']>
 
 export const ALL: readonly ProviderId[] = ['google', 'kakao', 'naver']
 
+/** 확인 쿠키 이름 (792c1c1 계약, RA-L1-02 — 하위 도메인이 덮어쓸 수 없는 __Host- 접두어) */
+export const OAUTH_COOKIE = '__Host-lj_oauth'
+
+/** 요청 Cookie 머리글: 세션 + 그 브라우저의 확인 쿠키 + (공격용) 덧붙인 쿠키 글 */
+function cookieHeader(session: string | null | undefined, browser: string | undefined, extra: string | undefined): string {
+  return [session ?? undefined, browser === undefined ? undefined : `${OAUTH_COOKIE}=${browser}`, extra].filter((x): x is string => x !== undefined && x !== '').join('; ')
+}
+
 export interface L1World extends TestServer {
   readonly fake: FakeOAuth
   readonly pg: PGlite
@@ -60,9 +68,13 @@ export async function record(w: L1World, response: Response): Promise<Response> 
   return response
 }
 
-/** 시작 (세션이 있으면 연결). browser = 그 브라우저가 이미 가진 lj_oauth */
-export async function start(w: L1World, provider: ProviderId, options: { readonly session?: string | null; readonly browser?: string } = {}) {
-  const cookie = [options.session ?? undefined, options.browser === undefined ? undefined : `lj_oauth=${options.browser}`].filter((x): x is string => x !== undefined).join('; ')
+/** 시작 (세션이 있으면 연결). browser = 그 브라우저가 이미 가진 __Host-lj_oauth, extraCookie = 덧붙일 쿠키 글(공격용) */
+export async function start(
+  w: L1World,
+  provider: ProviderId,
+  options: { readonly session?: string | null; readonly browser?: string; readonly extraCookie?: string } = {},
+) {
+  const cookie = cookieHeader(options.session, options.browser, options.extraCookie)
   const path = options.session === undefined || options.session === null ? '/api/auth/start' : '/api/auth/link'
   const response = await record(
     w,
@@ -78,9 +90,10 @@ export async function start(w: L1World, provider: ProviderId, options: { readonl
   )
   expect(response.status, await response.clone().text()).toBe(200)
   const body = (await response.json()) as { authorizeUrl: string }
-  const browser = cookieValue(response.headers, 'lj_oauth') as string
+  const browser = cookieValue(response.headers, OAUTH_COOKIE) as string
   expect(browser).toMatch(/^[A-Za-z0-9_-]{43}$/)
   return {
+    response,
     authorizeUrl: body.authorizeUrl,
     browser,
     state: new URL(body.authorizeUrl).searchParams.get('state') as string,
@@ -100,10 +113,11 @@ export async function open(
     readonly browser?: string | undefined
     readonly session?: string | null | undefined
     readonly headers?: Record<string, string>
+    readonly extraCookie?: string
   } = {},
 ): Promise<Response> {
   const url = new URL(location)
-  const cookie = [cookies.session ?? undefined, cookies.browser === undefined ? undefined : `lj_oauth=${cookies.browser}`].filter((x): x is string => x !== undefined).join('; ')
+  const cookie = cookieHeader(cookies.session, cookies.browser, cookies.extraCookie)
   return record(
     w,
     await w.server.app.request(`${url.pathname}${url.search}`, {

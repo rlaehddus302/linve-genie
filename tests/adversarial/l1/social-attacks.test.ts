@@ -141,7 +141,7 @@ describe('AC-L1-31 테넌트 격리', () => {
       }),
     )
     expect(r1.login).toBe('EXPIRED')
-    // B 브라우저에 A의 lj_oauth 쿠키까지 있음
+    // B 브라우저에 A의 __Host-lj_oauth 쿠키까지 있음
     const second = await start(w, 'kakao', { session: a.cookie })
     const r2 = outcome(
       await open(w, consent(w, second.authorizeUrl, attacker.id), {
@@ -213,7 +213,9 @@ describe('AC-L1-31 이미 연결된 계정 빼앗기 없음', () => {
     })
     const l1 = consent(w, s1.authorizeUrl, u1.id)
     const l2 = consent(w, s2.authorizeUrl, u2.id)
-    const results = await Promise.all([open(w, l1, { browser: s1.browser, session: a.cookie }), open(w, l2, { browser: s1.browser, session: a.cookie })])
+    // 두 번째 시작이 새 값을 발급하고 s1의 state를 그 값에 다시 묶는다 — 브라우저에는 마지막 값만 남는다
+    expect(s2.browser).not.toBe(s1.browser)
+    const results = await Promise.all([open(w, l1, { browser: s2.browser, session: a.cookie }), open(w, l2, { browser: s2.browser, session: a.cookie })])
     expect(results.map((r) => outcome(r).login).sort()).toEqual(['ALREADY_LINKED', 'LINKED'])
     expect(await count(w, 'login_links', 'account_id = $1', [a.accountId])).toBe(1)
   })
@@ -232,7 +234,7 @@ describe('AC-L1-31 로그인 CSRF·연결 CSRF', () => {
     // 판매자 브라우저: 쿠키 없음
     const noCookie = outcome(await open(w, location, { session: victim.cookie }))
     expect(noCookie).toMatchObject({ login: 'EXPIRED', session: null })
-    // 판매자 브라우저: 자기 lj_oauth 쿠키 (판매자도 다른 시작을 해 둠)
+    // 판매자 브라우저: 자기 __Host-lj_oauth 쿠키 (판매자도 다른 시작을 해 둠)
     const own = await start(w, provider)
     const otherCookie = outcome(
       await open(w, location, {
