@@ -149,3 +149,4 @@ pnpm --filter @livejjim/server e2e --port <포트> --origin <화면 주소> --so
 
 ### 실행
 - 화면 단위: `TZ=UTC npx vitest run --project web apps/web/test/l1-social-login.test.tsx apps/web/test/e2e-config.node.test.ts` (저장소 뿌리에서)
+- `apps/web/test/sms-page.test.tsx` AC-SMS-01·04 — L1 전부터 오후에 돌리면 실패하던 시험(받은 시각 "9:58"을 지금과 가까운 쪽으로 읽어 오후엔 21:58 → "지금보다 늦어요" 창이 떠 잠금 단언 실패, 기준점 06fcaed에서도 같게 실패함을 확인). 기대값은 그대로 두고 두 시험의 지금을 `2026-10-19T10:05+09:00`로 고정했다(같은 파일의 다른 시험과 같은 `vi.setSystemTime` 방식).
