@@ -25,3 +25,20 @@
 ### 그 밖
 - `packages/voice/src`에 UA(`navigator.userAgent`·`userAgentData`)를 읽는 코드 없음 — 단위 시험이 소스 글자를 검사한다(AC-I5-06).
 - 엔진 시험: `pnpm --filter @livejjim/voice test` (가짜 인식 생성자 + 시계 함수).
+
+## dev-web — 화면·E2E 설정 (test-e2e가 쓰는 것)
+
+### 화면 동작
+- 끝에서 넘긴 결과(`flushedAtEnd: true`)는 `controller.ts`가 `createCard({ …, flushedAtEnd: true })`로 넘긴다 — 이력을 기다리며 미룬 문장(`#held`)에도 실린다. 그 카드는 `autoConfirmAt: null`이라 "N초 뒤 자동 등록"·"자동 등록 멈추기"가 없고, "등록"·Enter로만 등록된다(AC-I5-04·22).
+- 지원 안 함(AC-I5-10): I4부터 이미 `engine.isSupported()`를 안내 창 앞에서 본다 — 창·확인 기록(`livejjim.voiceConsent`)·인식 객체·`/api/days` 없이 꺼진 채 음성 칸 알림(role=alert)에 `UNSUPPORTED` 문장. 버튼은 "음성 켜기" 그대로.
+- 고지(AC-I5-12): 켜진 동안 `.voice-sent` 한 줄 "음성은 인식을 위해 크롬은 구글로, 아이폰은 애플로 보내져요.", 안내 창 둘째 문장 "음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브찜은 음성을 녹음하거나 저장하지 않아요." (나머지 창 문장 그대로).
+- 홈 화면 앱(AC-I5-11): `navigator.standalone === true`이고 (켜짐 또는 음성 칸 오류가 있을 때) 음성 칸(`section[aria-label="음성 등록"]`)에 "홈 화면 앱에서는 음성이 자주 끊길 수 있어요. 안 되면 사파리에서 열어 주세요." (role 없는 글). 값은 그릴 때마다 읽는다 — 시험은 `addInitScript`에서 `Object.defineProperty(navigator, 'standalone', { value: true, configurable: true })`.
+- 다시 켜기(AC-I5-14): `RESTART_BLOCKED`로 멈춘 뒤 "음성 켜기"는 같은 엔진으로 새 인식 객체를 열고 오류를 지운다. 카드는 남는다.
+- 393px에서 고지 줄은 상태 글자·"음성 끄기" 사이에 끼지 않고 제 줄로 내려간다(`.voice-sent { flex: 1 1 14rem }`). WebKit iPhone 15로 손으로 본 결과 `scrollWidth 393 = innerWidth 393`.
+
+### Playwright 묶음 `webkit-iphone` (AC-I5-90)
+- `apps/web/playwright.config.ts`: 화면 5183·서버 3111(+`E2E_PORT_OFFSET`), `devices['iPhone 15']`(WebKit·393×659·터치·isMobile), `grep: /@webkit/`. `chromium`의 `grepInvert`에 `@webkit` 추가. 서버 옵션은 기본 묶음과 같다(시험 계정·메모리 DB).
+- WebKit 설치: `cd apps/web && pnpm exec playwright install webkit` (webkit-2336). 없으면 그 묶음은 브라우저를 열지 못해 실패한다(건너뛰지 않음). 이 장비엔 설치해 두었다.
+- **Playwright WebKit은 http://localhost에서 Secure 쿠키를 보내지 않는다** — 로그인하자마자 "로그인이 풀렸어요"가 됐다. 그래서 이 묶음의 화면 미리 보기 서버만 `node e2e/serve.ts … --drop-secure-cookie yes`로 /api 응답 Set-Cookie의 `Secure`를 떼어 넘긴다(`apps/web/e2e/cookie.ts`). 서버·운영 쿠키는 그대로 Secure. 쿠키 속성 시험은 이 묶음에 두지 말 것.
+- 묶음 하나만 돌리기: `cd /Users/unhoyeo/livejjim-wt/i5/apps/web && E2E_PORT_OFFSET=27900 pnpm exec playwright test --project webkit-iphone`.
+- 하단 메뉴(휴대폰 막대)가 아래에 고정되어 있어 카드 버튼이 그 밑에 가릴 수 있다 — `scrollIntoViewIfNeeded` 뒤 누르면 된다(Playwright click이 알아서 스크롤).
