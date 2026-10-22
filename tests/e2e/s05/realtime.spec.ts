@@ -150,16 +150,18 @@ test('AC-S05-62: 끊긴 사이 변경이 보관 범위(1,000)를 넘으면 전�
   // 휴대폰이 마지막으로 본 서버 순번. 끊긴 사이 이보다 1,000을 넘게 쌓이면 증분으로 이어 받을 수 없다(보관 범위 1,000)
   const seqOf = async () => Number((await day(pc, date, true))['seq'])
   const seen = await seqOf()
-  // 생성기를 넉넉히 시작하고, 서버 순번이 보관 범위를 넘을 때까지 기다린 뒤 멈춘다.
-  // 부하 때 생성기 처리 속도가 떨어져도(측정: 혼자 초당 약 40건, 부하 때 그 절반 아래) 시간 대신 서버 순번을 기다린다
+  // 끊긴 사이 시청자 채팅 1,010건(찜 섞임)을 API로 쓴다. 쓰기마다 응답(기록 완료)을 기다리므로 개수가 정해지고,
+  // 생성기 속도(부하 때 초당 7건 아래로 떨어짐 — 측정)나 시간 제한에 기대지 않는다. 한 번에 10건씩 함께 보낸다
   const origin = { Origin: new URL(pc.url()).origin }
-  const res = await pc.request.post(`/api/broadcasts/${b}/rehearsal/generator/start`, { data: { total: 3000, perSecond: 50, seed: 11 }, headers: origin })
-  expect(res.ok(), await res.text()).toBe(true)
-  await expect.poll(async () => (await seqOf()) - seen, { timeout: 150_000, intervals: [1_000] }).toBeGreaterThan(1050)
-  const stop = await pc.request.post(`/api/broadcasts/${b}/rehearsal/generator/stop`, { data: {}, headers: origin })
-  expect(stop.ok(), await stop.text()).toBe(true)
-  await expect.poll(async () => ((await (await pc.request.get(`/api/broadcasts/${b}/rehearsal/generator`)).json()) as { generator: { running: boolean } }).generator.running, { timeout: 15_000 }).toBe(false)
-  await expect(pc.getByRole('region', { name: '리허설 조작판' }).getByRole('status')).toContainText(/\d+ \/ 3000 · 멈췄어요/)
+  const CHATS = 1010
+  for (let i = 0; i < CHATS; i += 10) {
+    await Promise.all(Array.from({ length: Math.min(10, CHATS - i) }, async (_, k) => {
+      const n = i + k
+      const text = n % 50 === 0 ? `${String((n / 50) % 5 + 1)} 찜` : `구경 중이에요 ${String(n)}`
+      const res = await pc.request.post(`/api/broadcasts/${b}/rehearsal/chat`, { data: { requestId: crypto.randomUUID(), nick: `시청자${String(n % 37)}`, text }, headers: origin })
+      expect(res.ok(), await res.text()).toBe(true)
+    }))
+  }
   const final = await seqOf()
   expect(final - seen, '끊긴 사이 쌓인 변경이 보관 범위(1,000)를 넘는다').toBeGreaterThan(1000)
   // 다시 붙으면 증분이 아니라 전체를 다시 받는다
