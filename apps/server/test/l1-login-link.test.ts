@@ -206,6 +206,33 @@ describe('AC-L1-07 목록·끊기·보조자', () => {
     expect((await runFlow(w, 'kakao', kakao.id, { session: b.cookie })).result.login).toBe('LINKED')
   })
 
+  it('TD-L1-001: 로그인이 연결을 찾은 뒤 세션을 넣기 전에 끊기가 끝나면 NOT_LINKED — 끊은 공급자 세션이 남지 않는다', async () => {
+    let onFound: (() => Promise<void>) | null = null
+    const w = await world({
+      providers: ['kakao'],
+      socialHooks: {
+        beforeLoginSession: async () => {
+          const hook = onFound
+          onFound = null
+          if (hook !== null) await hook()
+        },
+      },
+    })
+    const a = await addSeller(w)
+    const user = w.fake.addUser('kakao')
+    expect((await runFlow(w, 'kakao', user.id, { session: a.cookie })).result.login).toBe('LINKED')
+    let unlinkStatus = 0
+    onFound = async () => {
+      unlinkStatus = (await client(w, a.cookie).post('/api/auth/unlink', { provider: 'kakao' })).status
+    }
+    const flow = await runFlow(w, 'kakao', user.id)
+    expect(unlinkStatus).toBe(200)
+    expect(flow.result.location).toBe(`${ORIGIN}/?login=NOT_LINKED&provider=kakao`)
+    expect(flow.session).toBeNull()
+    expect((await pgOf(w).query<{ n: number }>(`select count(*)::int as n from sessions where method = 'KAKAO'`)).rows[0]?.n).toBe(0)
+    expect((await counts(w)).login_links).toBe(0)
+  })
+
   it('연결이 없는 공급자 404 · 모르는 공급자 404 · 남는 수단이 없으면 409 (비밀번호 없는 계정을 직접 만들어)', async () => {
     const w = await world()
     const a = await addSeller(w)

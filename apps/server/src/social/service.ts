@@ -95,8 +95,8 @@ export interface SocialLoginOptions {
   readonly onChanged: (sellerId: string) => void
   /** 지운 세션의 실시간 연결을 닫는다 */
   readonly closeSessions: (hashes: readonly string[]) => void
-  /** 시험 주입점: 쓴 표시를 단 직후·공급자를 부르기 전 */
-  readonly hooks?: { readonly afterClaim?: () => void | Promise<void> }
+  /** 시험 주입점: afterClaim = 쓴 표시를 단 직후·공급자를 부르기 전, beforeLoginSession = 로그인 연결을 찾은 뒤·세션 거래 전 (TD-L1-001) */
+  readonly hooks?: { readonly afterClaim?: () => void | Promise<void>; readonly beforeLoginSession?: () => void | Promise<void> }
 }
 
 export type StartOutcome = { readonly kind: 'ok'; readonly authorizeUrl: string; readonly cookie: string } | { readonly kind: 'not_found' } | { readonly kind: 'rate_limited' }
@@ -284,19 +284,30 @@ export class SocialLogin {
   async #login(provider: ProviderId, providerUserId: string, label: string): Promise<CallbackOutcome> {
     const { db, clock } = this.#options
     // 판매자 계정(SELLER, 지우지 않음)만 찾는다 — 보조자 계정 ID로 된 행이 있어도(손상) 세션을 만들지 않는다
-    const rows = await db
-      .select({ id: loginLinks.id, sellerId: loginLinks.sellerId, accountId: loginLinks.accountId })
-      .from(loginLinks)
-      .innerJoin(accounts, and(eq(accounts.id, loginLinks.accountId), eq(accounts.sellerId, loginLinks.sellerId), eq(accounts.role, 'SELLER'), isNull(accounts.deletedAt)))
-      .where(and(eq(loginLinks.provider, provider), eq(loginLinks.providerUserId, providerUserId)))
-      .limit(1)
-    const link = rows[0]
-    if (link === undefined) return this.#finish(provider, 'LOGIN', 'NOT_LINKED')
-    const token = await this.#options.auth.createSession({ sellerId: link.sellerId, accountId: link.accountId }, PROVIDER_METHOD[provider])
-    await db
-      .update(loginLinks)
-      .set({ lastLoginAt: new Date(clock.now()), label })
-      .where(and(eq(loginLinks.id, link.id), eq(loginLinks.sellerId, link.sellerId)))
+    const findLink = (from: Db, accountId?: string) =>
+      from
+        .select({ id: loginLinks.id, sellerId: loginLinks.sellerId, accountId: loginLinks.accountId })
+        .from(loginLinks)
+        .innerJoin(accounts, and(eq(accounts.id, loginLinks.accountId), eq(accounts.sellerId, loginLinks.sellerId), eq(accounts.role, 'SELLER'), isNull(accounts.deletedAt)))
+        .where(and(eq(loginLinks.provider, provider), eq(loginLinks.providerUserId, providerUserId), ...(accountId === undefined ? [] : [eq(loginLinks.accountId, accountId)])))
+        .limit(1)
+    const found = (await findLink(db))[0]
+    if (found === undefined) return this.#finish(provider, 'LOGIN', 'NOT_LINKED')
+    await this.#options.hooks?.beforeLoginSession?.()
+    // 연결 확인과 세션 넣기를 한 거래로 (TD-L1-001): 끊기와 같은 계정 잠금을 잡고 연결이 아직 있는지 다시 읽은 뒤에만 세션을 넣는다.
+    // 끊기가 먼저 끝났으면 NOT_LINKED, 로그인이 먼저 끝났으면 뒤따르는 끊기가 이 세션을 지운다
+    const token = await db.transaction(async (tx): Promise<string | null> => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`login-links/${found.accountId}`}, 0))`)
+      const link = (await findLink(tx as unknown as Db, found.accountId))[0]
+      if (link === undefined) return null
+      const created = await this.#options.auth.createSession({ sellerId: link.sellerId, accountId: link.accountId }, PROVIDER_METHOD[provider], tx as unknown as Db)
+      await tx
+        .update(loginLinks)
+        .set({ lastLoginAt: new Date(clock.now()), label })
+        .where(and(eq(loginLinks.id, link.id), eq(loginLinks.sellerId, link.sellerId)))
+      return created
+    })
+    if (token === null) return this.#finish(provider, 'LOGIN', 'NOT_LINKED')
     this.#options.log({ level: 'info', code: 'SOCIAL_LOGIN', provider, reason: 'LOGGED_IN' })
     return { location: this.#location('/', null, provider), sessionToken: token }
   }

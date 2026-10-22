@@ -108,11 +108,14 @@ export class Auth {
     return false
   }
 
-  /** 간편 로그인으로 그 판매자 계정의 세션을 만든다 (쿠키·만료는 비밀번호 로그인과 같다, AC-L1-05). 새 세션 토큰 */
-  async createSession(account: { readonly sellerId: string; readonly accountId: string }, method: SessionMethod): Promise<string> {
+  /**
+   * 간편 로그인으로 그 판매자 계정의 세션을 만든다 (쿠키·만료는 비밀번호 로그인과 같다, AC-L1-05). 새 세션 토큰.
+   * db = 부르는 쪽의 거래 (연결 확인과 세션 넣기를 한 거래로 묶을 때, TD-L1-001)
+   */
+  async createSession(account: { readonly sellerId: string; readonly accountId: string }, method: SessionMethod, db: Db = this.#options.db): Promise<string> {
     const now = this.#options.clock.now()
     const token = newSessionToken()
-    await insertSession(this.#options.db, { tokenHash: tokenHash(token), sellerId: account.sellerId, accountId: account.accountId, now: new Date(now), expiresAt: new Date(now + SESSION_TTL_MS), method })
+    await insertSession(db, { tokenHash: tokenHash(token), sellerId: account.sellerId, accountId: account.accountId, now: new Date(now), expiresAt: new Date(now + SESSION_TTL_MS), method })
     return token
   }
 
