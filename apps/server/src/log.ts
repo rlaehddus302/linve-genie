@@ -29,6 +29,8 @@ export interface LogRecord {
   readonly claim?: string
   /** 같은 코드를 횟수 제한으로 남기지 않은 수 (틱톡 연결 객체 — 그 코드를 다음에 남길 때 함께, D-N2b-2-11 (마)) */
   readonly suppressed?: number
+  /** 간편 로그인 공급자 이름 (L1 — google · kakao · naver만. 공급자 계정 ID·이메일·코드·토큰은 남기지 않는다) */
+  readonly provider?: 'google' | 'kakao' | 'naver'
 }
 
 export type LogCode =
@@ -108,6 +110,8 @@ export type LogCode =
   | 'DEPOSIT_ROW_SAVE_FAILED'
   | 'DEPOSIT_APPLY_FAILED'
   | 'DEPOSIT_NOTIFY_FAILED'
+  // L1 간편 로그인 (D-L1-04): 공급자 이름·결과 코드(reason)·오류 종류·HTTP 상태만
+  | 'SOCIAL_LOGIN'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -181,6 +185,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   DEPOSIT_ROW_SAVE_FAILED: '받은 입금 한 줄을 저장하지 못해 그 줄만 건너뛰었어요',
   DEPOSIT_APPLY_FAILED: '입금 자동 확인을 적지 못해 확인 필요로 남겼어요',
   DEPOSIT_NOTIFY_FAILED: '입금 확인 알림을 보내지 못했어요(기록은 저장됨)',
+  SOCIAL_LOGIN: '간편 로그인 결과',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */
@@ -197,6 +202,7 @@ export function formatLog(record: LogRecord): string {
   if (record.count !== undefined) parts.push(`count=${String(record.count)}`)
   if (record.suppressed !== undefined) parts.push(`suppressed=${String(record.suppressed)}`)
   if (record.seller !== undefined && /^[A-Za-z0-9_-]{1,80}$/.test(record.seller)) parts.push(`seller=${record.seller}`)
+  if (record.provider !== undefined && PROVIDERS.has(record.provider)) parts.push(`provider=${record.provider}`)
   if (record.status !== undefined) parts.push(`status=${String(record.status)}`)
   if (record.reason !== undefined && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(record.reason)) parts.push(`reason=${record.reason}`)
   if (record.claim !== undefined && CLAIM_RE.test(record.claim)) parts.push(`claim=${record.claim}`)
@@ -205,6 +211,7 @@ export function formatLog(record: LogRecord): string {
 }
 
 const CLAIM_RE = /^c[0-9]{1,15}$/
+const PROVIDERS = new Set(['google', 'kakao', 'naver'])
 const SELLER_RE = /^[A-Za-z0-9_-]{1,80}$/
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const WORKERS = new Set(['collector', 'outbox', 'sealer'])

@@ -34,3 +34,8 @@ export function takeGoogleReturn(): GoogleReturn | null {
     return null
   }
 }
+
+/** 다른 공급자(간편 로그인 — 카카오·네이버·구글, L1)의 승인 주소로 같은 탭에서 최상위 이동. 돌아온 뒤 갈 화면 표시는 건드리지 않는다 */
+export function goTopLevel(url: string): void {
+  assign(url)
+}

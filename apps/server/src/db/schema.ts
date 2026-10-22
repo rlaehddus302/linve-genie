@@ -91,8 +91,65 @@ export const sessions = pgTable(
     expiresAt: timestamptz('expires_at').notNull(),
     /** 마지막으로 만료 시각을 늘린 때 (쓰는 동안 연장) */
     extendedAt: timestamptz('extended_at').notNull(),
+    /** 세션을 만든 방법 (L1, D-L1-03): PASSWORD 아이디·비밀번호 · GOOGLE · KAKAO · NAVER 간편 로그인. 간편 로그인을 끊으면 그 방법으로 만든 세션을 지운다 */
+    method: text('method').notNull().default('PASSWORD'),
   },
-  (t) => [index('sessions_account_idx').on(t.accountId), index('sessions_seller_idx').on(t.sellerId)],
+  (t) => [index('sessions_account_idx').on(t.accountId), index('sessions_seller_idx').on(t.sellerId), index('sessions_method_idx').on(t.accountId, t.method)],
+)
+
+/**
+ * 간편 로그인 연결 (L1, SYS-01·SYS-02, D-L1-02·D-L1-03·D-L1-05). 판매자 계정(SELLER) ↔ (공급자, 공급자 계정 ID).
+ * - (공급자, 공급자 계정 ID)는 서버 전체에서 하나, 계정마다 공급자 하나까지 (DB 유일 제약).
+ * - 공급자 토큰·인가 코드·이메일 원문·닉네임 원문 칸은 없다 — 화면에 보일 가린 이름(label, 빈 값 가능)만 둔다
+ */
+export const loginLinks = pgTable(
+  'login_links',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    /** google · kakao · naver */
+    provider: text('provider').notNull(),
+    /** 공급자 계정 ID (구글 sub · 카카오 id · 네이버 response.id) — 로그·응답에 내지 않는다 */
+    providerUserId: text('provider_user_id').notNull(),
+    /** 가린 이름 (예: se***@gmail.com · 다*** · 빈 값) */
+    label: text('label').notNull().default(''),
+    linkedAt: timestamptz('linked_at').notNull(),
+    lastLoginAt: timestamptz('last_login_at'),
+  },
+  (t) => [
+    unique('login_links_provider_user_uq').on(t.provider, t.providerUserId),
+    unique('login_links_account_provider_uq').on(t.accountId, t.provider),
+    index('login_links_seller_idx').on(t.sellerId),
+  ],
+)
+
+/**
+ * 간편 로그인 승인 요청 (L1, D-L1-04). state·브라우저 쿠키 값은 해시만, PKCE 검증 값은 마스터 키로 암호화(구글·카카오만).
+ * 로그인(LOGIN)은 로그인 전이라 판매자를 모른다 — seller_id·account_id·session_hash가 비어 있다. 연결(LINK)은 그 판매자 계정·세션에 묶인다.
+ * 10분, 한 번만(used_at). 끝난 행은 시작할 때 정리한다
+ */
+export const loginStates = pgTable(
+  'login_states',
+  {
+    stateHash: text('state_hash').primaryKey(),
+    browserHash: text('browser_hash').notNull(),
+    provider: text('provider').notNull(),
+    /** LOGIN · LINK */
+    purpose: text('purpose').notNull(),
+    sellerId: text('seller_id').references(() => sellers.id),
+    accountId: text('account_id').references(() => accounts.id),
+    sessionHash: text('session_hash'),
+    verifierEnc: text('verifier_enc'),
+    createdAt: timestamptz('created_at').notNull(),
+    expiresAt: timestamptz('expires_at').notNull(),
+    usedAt: timestamptz('used_at'),
+  },
+  (t) => [index('login_states_expires_idx').on(t.expiresAt)],
 )
 
 /** 엔진 범위 = (판매자, 방송 날짜, 리허설인지) (R-0 6, D-069, D-081) */
@@ -1533,6 +1590,8 @@ export const schema = {
   accounts,
   loginLimits,
   sessions,
+  loginLinks,
+  loginStates,
   scopes,
   broadcasts,
   events,

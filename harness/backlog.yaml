@@ -610,7 +610,7 @@ sprints:
       - "같은 이메일의 다른 판매자 계정과 자동으로 합쳐지지 않음, 다른 판매자의 공급자 ID로 로그인 불가(테넌트 격리) 적대 시험"
       - "로그·DB에 공급자 토큰 원문 없음"
     specIds: [SYS-01, SYS-02]
-    status: todo
+    status: done  # 메인 합침 (2026-10-23)
 
   - id: T1
     phase: 6
@@ -683,6 +683,50 @@ sprints:
       - "같은 말 중복 인식 1건, 없는 번호·품절은 넣지 않고 이유 카드"
       - "끝자리·이름 없이 말하면 '문자 손님(확인 필요)'"
     specIds: [ORD-07, ORD-08, VOC-01, VOC-02]
+    status: todo
+
+  - id: A1
+    phase: 6
+    title: AI 확인 필요 자동 제안 — 애매한 댓글에 "M 사이즈 1개?" 같은 제안을 붙이고 판매자는 확인만 (비용 최소)
+    dependsOn: []
+    devs: [server, web]
+    tests: [domain, e2e]
+    uxReview: true
+    goal: >
+      사용자 결정(2026-10-23): AI 기능을 병렬로 추가하되 비용은 최소로. CMT-06(LLM 보조 제안)을 구현한다. 원칙 유지: AI는 제안만, 확정·판정은 판매자와 규칙(엔진은 그대로 순수 함수, AI 결과는 엔진 입력이 아니라 화면 제안).
+      비용 최소 설계(spec-keeper가 확정): (1) 먼저 무료 규칙 제안(자모 유사도·옵션 사전·숫자 해석 후보)으로 풀리면 AI를 부르지 않는다. (2) AI는 '확인 필요' 항목에만, 방송 중이 아니라 판매자가 확인 필요 화면을 열 때 묶어서 한 번 호출(배치), 같은 글은 캐시. (3) 가장 싼 모델(Anthropic claude-haiku-5-5, 프롬프트 캐싱으로 상품·옵션 목록 재사용), 짧은 JSON 출력 강제, 판매자·하루 호출 상한과 비용 계량, 키가 없거나 꺼져 있으면 규칙 제안만. (4) 개인정보: 댓글 원문 중 닉네임·전화번호는 보내지 않거나 가린다, 제3자 전송 고지·끄기 설정. (5) 시험은 가짜 LLM 서버(127.0.0.1)로, 실제 키는 사용자 몫(.env.example·DEPLOY·OWNER-GUIDE). LLM 코드를 쓰기 전 dev는 Anthropic SDK 최신 사용법(claude-api 스킬이 있으면 그것)을 확인한다.
+      화면: 확인 필요 항목마다 '제안: 반바지 L 1개 [이대로 주문] [고치기]', 제안 출처(규칙/AI) 표시, 틀린 제안은 무시하면 끝.
+    acceptanceHints:
+      - "규칙으로 풀리는 항목은 AI 호출 0번, 같은 글 재조회 호출 0번(캐시)"
+      - "AI 응답이 옵션 목록 밖·형식 오류면 제안 없음(엔진 입력 아님), 확정은 판매자 클릭으로만"
+      - "AI로 보내는 글에 닉네임·전화번호 없음, 꺼짐이면 외부 호출 0번, 하루 상한 넘으면 규칙 제안만"
+    specIds: [CMT-06]
+    status: todo
+
+  - id: RN1
+    phase: 6
+    title: 서비스 이름 '라이브지니(LiveGenie)'로 화면·문서 바꾸기
+    dependsOn: []
+    devs: [web, server, device]
+    tests: [e2e]
+    uxReview: false
+    goal: >
+      사용자 확정(2026-10-23): 서비스 이름 = 라이브지니(LiveGenie). 판매자·구매자에게 보이는 모든 이름(웹 제목·PWA manifest 이름/짧은 이름·로그인·마법사·약관·개인정보처리방침·영수증·확인서·공유 링크 페이지·이메일/문자 문구·감사 메시지 꼬리·연습 모드 안내·DEPLOY/TRY-IT/OWNER-GUIDE 등 사용자 문서)에서 '라이브찜'을 '라이브지니'로. 코드 식별자·패키지명·DB·쿠키 이름(livejjim·lj_*)·환경 변수(LIVEJJIM_*)는 바꾸지 않는다(배포 호환). 아이콘·색은 그대로. 이름을 상수 하나로 모은다. 기존 E2E가 '라이브찜' 글자를 기대하면 교체.
+    specIds: [UX-01]
+    status: todo
+
+  - id: I5
+    phase: 6
+    title: 아이폰(사파리)에서도 음성 등록·음성 문자찜 — 호환성과 비용 최소 대안
+    dependsOn: []
+    devs: [device, web]
+    tests: [e2e]
+    uxReview: true
+    goal: >
+      사용자 답(2026-10-23): 방송용 폰은 아이폰·안드로이드 둘 다. 크롬 Web Speech는 안드로이드·PC에서 되지만 아이폰 사파리(webkitSpeechRecognition, Siri 기반)는 연속 인식이 끊기거나 권한·제한이 다르다.
+      비용 최소 순서: (1) 사파리 webkitSpeechRecognition으로 동작하게(기능 감지, 끊기면 자동 다시 시작, 권한 거절·Siri 꺼짐 안내, 홈 화면 앱(PWA)에서의 제약 안내) (2) 그래도 안 되는 기기는 화면에 '이 기기에서는 음성이 어려워요 — PC 크롬이나 안드로이드에서 켜 주세요' 안내와 손 입력 그대로 (3) 유료 클라우드 음성(서버 중계, D-I4-07 골격)은 설정에 숨겨 두고 기본 꺼짐 — 키를 넣은 판매자만.
+      실제 아이폰 확인은 사용자 몫(HG-4)이라 가짜 SpeechRecognition(사파리 동작 흉내: 짧게 끊김·isFinal만·onend 잦음)으로 E2E, WebKit 프로젝트(Playwright webkit)로 화면이 깨지지 않는지 확인.
+    specIds: [VOC-01, VOC-05]
     status: todo
 
 techDebt:
