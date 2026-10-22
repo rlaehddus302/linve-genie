@@ -1,5 +1,7 @@
-// E2E 설정 (AC-S05-91). `pnpm --filter @livejjim/web e2e` — tests/e2e/**/*.spec.ts를 크로미움으로 돈다.
+// E2E 설정 (AC-S05-91). `pnpm --filter @livejjim/web e2e` — tests/e2e/**/*.spec.ts를 크로미움으로 돈다(제목에 @webkit인 시험은 WebKit으로).
 // 브라우저가 없으면: pnpm exec playwright install chromium (이 저장소의 @playwright/test 1.62.1 = chromium-1234)
+// WebKit(아이폰 크기 묶음 webkit-iphone, I5 D-I5-08)도 설치해야 한다: pnpm exec playwright install webkit (= webkit-2336).
+//   설치하지 않으면 그 묶음은 브라우저를 열지 못해 **실패**한다 — 건너뛰지 않는다(아이폰 시험이 통과로 숨지 않게).
 //
 // 서버와 화면을 묶음(stack)마다 하나씩 띄운다. 화면은 운영용 빌드 + Vite 미리 보기, /api는 같은 출처로 E2E 서버에 넘긴다.
 //   | 프로젝트            | 화면  | 서버  | 가짜 유튜브 | 서버 옵션                                                         | 고르는 시험                |
@@ -14,6 +16,9 @@
 //   | chromium-multi      | 5180  | 3108  | 4102        | 가짜 유튜브 + --instagram yes(가짜 메타 4103) + --tiktok yes(가짜 웹캐스트) — N2b-2 동시 송출 | 제목에 @multi |
 //   | chromium-social     | 5181  | 3109  | —           | --social fake --social-port 4104(가짜 OAuth — 구글·카카오·네이버 셋 다 켬, L1)               | 제목에 @social |
 //   | chromium-social-one | 5182  | 3110  | —           | --social fake --social-port 4105 --social-providers google(구글 하나만 켬, L1 AC-L1-30)     | 제목에 @social-one |
+//   | webkit-iphone       | 5183  | 3111  | —           | 기본과 같음 — 브라우저만 WebKit·devices['iPhone 15'](393px 폭·터치), I5 AC-I5-20~24·90     | 제목에 @webkit     |
+// - 아이폰 크기 묶음(I5): Playwright WebKit은 http://localhost에서 Secure 쿠키를 보내지 않는다 — 그 묶음의 화면 미리 보기 서버만 /api 응답 Set-Cookie의
+//   Secure를 떼어 넘긴다(serve.ts --drop-secure-cookie yes, 서버는 그대로). Playwright WebKit은 실제 아이폰 사파리가 아니다(음성 인식 자체는 HG-4). 사파리 흉내 가짜 인식은 시험(tests/e2e/i5)이 넣는다.
 // - 간편 로그인 묶음(L1 AC-L1-30): 가짜 OAuth 서버가 127.0.0.1:<social 포트>에 함께 뜬다(조작 POST /_fake/* — L1 dev-notes "시험에게", fakeOAuthUrl).
 //   기본 묶음들은 간편 로그인이 꺼진 서버다(로그인 화면에 버튼 없음·/api/auth/** 404 — 기본 묶음에서 본다).
 // - 요금 기능(N5): 기본 묶음들은 요금 기능이 꺼진 서버다(메뉴 "요금" 없음 — AC-N5-50의 꺼진 서버 시험은 기본 묶음에서 돈다).
@@ -66,6 +71,13 @@ export interface Stack {
   readonly instagram?: number
   /** 가짜 OAuth 서버 포트 (L1 — 간편 로그인 묶음만) */
   readonly social?: number
+  /** 브라우저·기기 (Playwright devices 이름). 없으면 위 use의 Desktop Chrome (I5 — 아이폰 크기 묶음만 'iPhone 15') */
+  readonly device?: keyof typeof devices
+  /**
+   * 화면 미리 보기 서버가 Set-Cookie의 Secure를 떼어 넘긴다 (I5 — WebKit은 http://localhost에서 Secure 쿠키를 보내지 않는다).
+   * 시험용 미리 보기 서버에서만이고 서버는 그대로 Secure를 붙인다.
+   */
+  readonly dropSecureCookie?: boolean
 }
 
 /** 서버가 화면을 내는 묶음의 화면 빌드 폴더 (실행마다 다시 빌드한다 — 빌드 결과물이 린트 범위에 들어가지 않게 node_modules/.cache 아래) */
@@ -82,7 +94,7 @@ export const STACKS: readonly Stack[] = [
     web: 5173 + offset,
     api: 3100 + offset,
     serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`,
-    grepInvert: /@prod-delay|@fill|@youtube|@quota|@served|@no-test-printer|@billing|@multi|@social/,
+    grepInvert: /@prod-delay|@fill|@youtube|@quota|@served|@no-test-printer|@billing|@multi|@social|@webkit/,
   },
   { name: 'chromium-prod-delay', web: 5174 + offset, api: 3101 + offset, serverArgs: `--chat-speed ${chatSpeed}`, grep: /@prod-delay/ },
   { name: 'chromium-fill', web: 5175 + offset, api: 3102 + offset, serverArgs: `--fill yes --host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`, grep: /@fill/ },
@@ -130,6 +142,16 @@ export const STACKS: readonly Stack[] = [
     serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed} ${socialArgs(4105 + offset, 'google')}`,
     grep: /@social-one/,
   },
+  {
+    // 아이폰 크기 WebKit (I5 D-I5-08, AC-I5-90) — WebKit이 설치되지 않았으면 실패한다
+    name: 'webkit-iphone',
+    web: 5183 + offset,
+    api: 3111 + offset,
+    serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`,
+    grep: /@webkit/,
+    device: 'iPhone 15',
+    dropSecureCookie: true,
+  },
 ]
 
 /** 그 프로젝트의 가짜 유튜브 주소 (가짜 유튜브 묶음이 아니면 null) — 시험이 /_fake/*를 부를 때 */
@@ -176,7 +198,7 @@ export default defineConfig({
   },
   projects: STACKS.map((stack) => ({
     name: stack.name,
-    use: { baseURL: browserOrigin(stack.web) },
+    use: stack.device === undefined ? { baseURL: browserOrigin(stack.web) } : { ...devices[stack.device], baseURL: browserOrigin(stack.web) },
     ...(stack.grep === undefined ? {} : { grep: stack.grep }),
     ...(stack.grepInvert === undefined ? {} : { grepInvert: stack.grepInvert }),
   })),
@@ -201,7 +223,7 @@ export default defineConfig({
             stdout: 'pipe' as const,
           },
           {
-            command: `node e2e/serve.ts --port ${String(stack.web)} --api ${listen(stack.api)}`,
+            command: `node e2e/serve.ts --port ${String(stack.web)} --api ${listen(stack.api)}${stack.dropSecureCookie === true ? ' --drop-secure-cookie yes' : ''}`,
             url: listen(stack.web),
             reuseExistingServer: reuse,
             timeout: 120_000,
