@@ -419,3 +419,30 @@ describe('PC는 표 (AC-S06b-21, D-101)', () => {
     expect(screen.getByRole('region', { name: '정산 자세히' }).textContent).toContain('다라')
   })
 })
+
+describe('정산 자세히 품목 줄 — 옵션 글·수량·찜 금액 (U-O4-01, D-O4-06, OPT-03)', () => {
+  const OPTIONS = { 'claim.parseMode': 'OPTIONS', 'contention.policy': 'ARRIVAL' } as const
+  const SHORTS = { name: '사이즈', choices: [{ label: 'S' }, { label: 'M' }, { label: 'L' }] }
+
+  it('품목 줄은 "{번호}번 {품종} {옵션 글} {수량}개 {찜 금액}", 방송 합계는 찜 금액 합 — 아래 "상품 합계"와 같다', async () => {
+    engine = new EngineServer(
+      [
+        { type: 'product.register', b: 'b1', no: 21, name: '반바지', price: 10000, options: [SHORTS], stocks: { S: 1, M: 1, L: 3 } },
+        register(11, '초코 과자', 2000),
+        chat('m1', 'c1', '김철수', '반바지 M'),
+        chat('m2', 'c1', '김철수', '11번'),
+        chat('m3', 'c1', '김철수', '반바지 L 2개'),
+      ],
+      { settings: OPTIONS },
+    )
+    vi.stubGlobal('fetch', engine.server.fetch)
+    render(<Harness initial={{ name: 'settlements', date: DATE, rehearsal: false }} />)
+    await flush(10)
+    const detail = await openDetail('김철수')
+    const items = within(within(detail).getByRole('region', { name: '품목' })).getAllByRole('listitem').map((li) => li.textContent)
+    expect(items).toEqual(['21번 반바지 M 10,000원', '11번 초코 과자 2,000원', '21번 반바지 L 2개 20,000원'])
+    const text = detail.textContent ?? ''
+    expect(text).toContain('1부 합계 32,000원')
+    expect(text).toContain('상품 합계 32,000원')
+  })
+})

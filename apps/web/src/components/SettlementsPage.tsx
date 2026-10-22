@@ -428,6 +428,18 @@ export function primaryInput(payment: PaymentStatus): InputKind | null {
   return null
 }
 
+/**
+ * 정산 자세히 품목 한 줄 (U-O4-01, D-O4-06 — 지난 구매·포장과 같은 모양): `{번호}번 {품종}[ {옵션 글}][ {수량}개] {찜 금액}`.
+ * 찜 금액은 코어 값(단가 × 수량) 그대로, 없으면 금액 칸을 비운다(단가로 채우지 않는다). 옵션 없는 수량 1 줄은 이전 그대로.
+ */
+export function detailLineWords(claim: Pick<Claim, 'no' | 'variant' | 'qty' | 'amount'>, productName: string | undefined): string {
+  const name = productName === undefined ? '' : productName.trim() === '' ? '품종 미입력' : productName
+  const variant = claim.variant === null || claim.variant === '' ? '' : ` ${claim.variant}`
+  const qty = claim.qty > 1 ? ` ${String(claim.qty)}개` : ''
+  const amount = claim.amount === null ? '' : ` ${formatWon(claim.amount)}`
+  return `${String(claim.no)}번 ${name}${variant}${qty}${amount}`
+}
+
 function SettlementDetail({ data, names, settlement, command, sync, onBack, mark, receiptSignature }: DetailProps) {
   const [input, setInput] = useState<InputKind | null>(null)
   const [saved, setSaved] = useState<Saved | null>(null)
@@ -474,17 +486,17 @@ function SettlementDetail({ data, names, settlement, command, sync, onBack, mark
         {empty ? <p>취소되어 품목이 없어요</p> : null}
         {groups.map(([b, list]) => {
           const title = data.broadcasts.get(b)?.title ?? ''
-          const sum = list.reduce((total, claim) => total + (claim.price ?? 0), 0)
+          // 방송 합계 = 찜 금액(단가 × 수량, 코어 값) 합 — 아래 "상품 합계"와 같은 셈 (U-O4-01)
+          const sum = list.reduce((total, claim) => total + (claim.amount ?? 0), 0)
           return (
             <div key={b} className="stack-tight">
               <h4 className="sub-title">{title}</h4>
               <ul className="plain-list">
                 {list.map((claim) => {
                   const product = data.products.get(claim.product)
-                  const name = product === undefined ? '' : product.name.trim() === '' ? '품종 미입력' : product.name
                   return (
                     <li key={claim.id}>
-                      {claim.no}번 {name} {claim.price === null ? '' : formatWon(claim.price)}
+                      {detailLineWords(claim, product?.name)}
                       {claim.buyer !== settlement.buyer ? ` · ${names.name(claim.buyer)}` : ''}
                     </li>
                   )
