@@ -41,6 +41,7 @@ import { PasteService } from './tiktok-live/paste-service.ts'
 import { tiktokLinkCounts } from './tiktok-live/store.ts'
 import { instagramDmCounts } from './ops-store.ts'
 import { DepositService, type DepositOptions } from './deposit/service.ts'
+import { ParcelService, type ParcelOptions } from './parcel/service.ts'
 import { readQueue } from './print-store.ts'
 import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
@@ -174,6 +175,11 @@ export interface ServerOptions {
   readonly backupStartDelayMs?: number
   /** 입금 확인 설정 (N3): 시험 모드(가짜 원천 — E2E 기동만)·팝빌 전송(연동 키가 있을 때)·주기 덮어쓰기(E2E 기동만)·시험용 타이머 */
   readonly deposits?: DepositOptions
+  /**
+   * 택배 자동 접수 (T1, PARCEL_RULES): 이어진 택배사 어댑터(가짜 택배사 FAKE — E2E 기동·서버 시험만, 운영 기동은 비어 있다 → 설정에 "우체국 택배 — 준비 중"만)·
+   * 조회 간격(기본 30분)·배송지 정리 간격(기본 1시간)·한 번에 접수할 때 동시에 보내는 수
+   */
+  readonly parcel?: ParcelOptions
 }
 
 export interface LivejjimServer {
@@ -204,6 +210,8 @@ export interface LivejjimServer {
   readonly work: WorkPools
   /** 입금 확인 (N3) */
   readonly deposits: DepositService
+  /** 택배 자동 접수 (T1) — 주기 작업(조회·배송지 정리)은 start()가 돌린다 */
+  readonly parcels: ParcelService
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
   /** 유튜브 연동 (설정이 있을 때만) */
@@ -502,6 +510,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     publish: (sellerId, data) => hub.publishDeposit(sellerId, data),
     options: options.deposits ?? {},
   })
+  const parcels = new ParcelService({ db, writer, clock, timer, masterKey, hub, log, work, options: options.parcel ?? {} })
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
     api: {
@@ -515,6 +524,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       instagram: instagramModule,
       tiktok: { db, live: tiktokLive, paste },
       deposits,
+      parcels: { service: parcels, db },
       appOrigin: options.appOrigin,
       clientConfig: { hostActionDelayMs, testPrinter: options.testPrinter === true },
       receiptAtParam: options.receiptAtParam === true,
@@ -531,12 +541,12 @@ export function createServer(options: ServerOptions): LivejjimServer {
     },
     ops: { token: options.opsToken === undefined ? null : options.opsToken.trim(), status: opsStatus },
     webhooks: createWebhookApp(instagramModule),
-    receiptPage: (app) => registerReceiptPage(app, { db, links: receiptLinks, closing, clock }),
+    receiptPage: (app) => registerReceiptPage(app, { db, links: receiptLinks, closing, clock, parcels, appOrigin: options.appOrigin, writer }),
   })
   // 저장된 켜진 원천의 받아 오기 주기를 건다 (실패해도 서버는 뜬다 — 원천 실패는 판매를 멈추지 않는다, DP-0 5)
   deposits.start()
   const stop = async () => {
-    await Promise.all([youtube?.stop(), sealer.stop()])
+    await Promise.all([youtube?.stop(), sealer.stop(), parcels.stop()])
   }
   return {
     app,
@@ -557,10 +567,13 @@ export function createServer(options: ServerOptions): LivejjimServer {
     backups,
     work,
     deposits,
+    parcels,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     start: () => {
       youtube?.start()
       sealer.start()
+      // 택배 배송 조회(30분마다)·배송지 30일 정리 (T1 PC-8·PC-3)
+      parcels.start()
       // 끝나지 않은 실제 회차의 이어진 틱톡 연결을 이어받는다 (NFR-03, AC-N2b-2-35)
       void tiktokLive.resume()
     },

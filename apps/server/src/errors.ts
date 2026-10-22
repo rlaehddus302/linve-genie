@@ -143,6 +143,20 @@ export type ErrorCode =
   | 'SOURCE_FAILED'
   | 'FETCH_TOO_SOON'
   | 'CORP_NOT_ALLOWED'
+  // T1 택배 자동 접수 (PARCEL_RULES PC-3~PC-8)
+  | 'PARCEL_BLOCKED'
+  | 'PARCEL_LOCKED'
+  | 'PARCEL_STATE'
+  | 'PICKED_UP'
+  | 'ADDRESS_CHANGED'
+  | 'ADDRESS_EXPIRED'
+  | 'NO_ADDRESS'
+  | 'NO_PARCELS'
+  | 'CARRIER_UNAVAILABLE'
+  | 'TOO_MANY'
+  | 'REHEARSAL_PARCEL'
+  | 'REQUEST_BUSY'
+  | 'WAYBILL_TOO_LONG'
 
 export interface ErrorBody {
   readonly error: {

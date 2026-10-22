@@ -7,6 +7,9 @@
 //   파일 만들기는 그 판매자의 파일 작업 한도를 함께 쓴다(바쁘면 503). 구매자가 연결을 끊으면 만들던 작업을 멈춘다.
 // - 머리글: no-store · noindex · no-referrer · 틀 금지 · nosniff · 스크립트 없는 CSP. 미리 보기는 og:title "구매 내역 확인서" 하나뿐.
 // - 로그에는 토큰·`/r/` 뒤 경로·구매자 이름·계좌를 남기지 않는다(이 파일은 로그를 쓰지 않는다 — 실패는 정해진 코드만).
+// - T1 배송지 칸 (PARCEL_RULES PC-3·PC-8, D-T1-06·D-T1-12): 확인서 아래 "배송지" — 스크립트 없는 HTML 양식(POST `/r/<토큰>/address`, Origin이 앱 주소일 때만,
+//   CSP `form-action 'self'`), 링크마다의 1분 60번에 함께 센다. 저장하면 303으로 같은 링크 — 그 쪽에는 "배송지를 받았어요" + 받는 분 이름 + 연락처 끝 4자리만.
+//   틀리면 저장하지 않고 400으로 같은 쪽(적은 값은 그 응답에만 다시 채운다). 접수 뒤엔 양식 대신 "택배를 보냈어요"(택배사·송장번호·조회 상태·배송 조회 링크).
 import { printedName, RECEIPT_TITLE, type ReceiptData } from '@livejjim/documents'
 import type { Context, Hono } from 'hono'
 import type { ClosingService } from './closing.ts'
@@ -16,11 +19,19 @@ import { RECEIPT_TOKEN_RE, receiptTokenHash, type OpenedLink, type ReceiptLinkSe
 import { readShop, type ShopView } from './shop.ts'
 import type { Clock } from './time.ts'
 import type { Db } from './db/database.ts'
+import { ADDRESS_ERROR_FIELD, ADDRESS_ERROR_MESSAGES, ADDRESS_FIELDS, ADDRESS_LIMITS, PARCEL_MESSAGES, type AddressErrorCode, type AddressField } from './parcel/rules.ts'
+import type { LinkSection, ParcelService } from './parcel/service.ts'
+import type { ScopeWriter } from './writer.ts'
 
 export const RECEIPT_PAGE_MESSAGES = {
   closed: '이 링크는 열 수 없어요. 판매자에게 새 링크를 받아 주세요.',
   later: '잠시 뒤 다시 열어 주세요.',
+  forbidden: '이 양식은 받을 수 없어요. 링크를 다시 열어 주세요.',
+  badForm: '입력한 내용을 확인해 주세요.',
 } as const
+
+/** 배송지 양식 본문 상한 (여섯 칸 — 칸마다 상한의 몇 배를 넉넉히) */
+export const ADDRESS_FORM_MAX_BYTES = 16 * 1024
 
 /** 링크 하나의 열기 상한 (1분에 60번 — 문서·그림·PDF 합) */
 export const RECEIPT_PAGE_LIMIT = 60
@@ -28,8 +39,8 @@ export const RECEIPT_PAGE_WINDOW_MS = 60_000
 /** 셈을 두는 링크 수 상한 (넘으면 오래된 것부터 버린다 — 메모리를 묶어 둔다) */
 const LIMITER_MAX_KEYS = 10_000
 
-/** 문서 답의 콘텐츠 보안 정책: 스크립트 없음(script-src를 두지 않는다 — default-src 'none'), 그림은 같은 출처만, 틀·폼·base 금지 */
-export const RECEIPT_PAGE_CSP = ["default-src 'none'", "img-src 'self'", "style-src 'unsafe-inline'", "frame-ancestors 'none'", "form-action 'none'", "base-uri 'none'"].join('; ')
+/** 문서 답의 콘텐츠 보안 정책: 스크립트 없음(script-src를 두지 않는다 — default-src 'none'), 그림은 같은 출처만, 틀·base 금지, 양식은 같은 출처로만(T1 배송지 양식 — D-T1-06) */
+export const RECEIPT_PAGE_CSP = ["default-src 'none'", "img-src 'self'", "style-src 'unsafe-inline'", "frame-ancestors 'none'", "form-action 'self'", "base-uri 'none'"].join('; ')
 
 /** 링크 화면 답의 머리글 (문서·파일 모두) */
 export const RECEIPT_PAGE_HEADERS: Readonly<Record<string, string>> = {
@@ -108,6 +119,13 @@ const STYLE = [
   '.button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;min-width:44px;padding:10px 18px;border-radius:10px;border:1px solid #2f6b3a;color:#2f6b3a;background:#fff;font-size:17px;font-weight:600;text-decoration:none}',
   '.button.primary{background:#2f6b3a;color:#fff}',
   '.notice{font-size:16px;color:#4f554c;border-top:1px solid #d9dcd5;padding-top:12px;margin-top:24px}',
+  'form{display:grid;gap:4px}',
+  'label{font-weight:600;margin-top:12px}',
+  'input{width:100%;min-height:48px;padding:10px 12px;border:1px solid #9aa196;border-radius:8px;font-size:17px;background:#fff;color:#1d1f1c}',
+  'input[aria-invalid="true"]{border-color:#b3261e;border-width:2px}',
+  '.error{color:#b3261e;font-size:16px;margin:2px 0 0}',
+  '.alert{background:#fdecea;border:1px solid #f1b3ad;border-radius:8px;padding:10px 12px;color:#7a1a14}',
+  'form .button{margin-top:16px;width:100%}',
 ].join('')
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'] as const
@@ -144,9 +162,112 @@ function messagePage(message: string): string {
 
 const CLOSED_PAGE = new TextEncoder().encode(messagePage(RECEIPT_PAGE_MESSAGES.closed))
 const LATER_PAGE = new TextEncoder().encode(messagePage(RECEIPT_PAGE_MESSAGES.later))
+const FORBIDDEN_PAGE = new TextEncoder().encode(messagePage(RECEIPT_PAGE_MESSAGES.forbidden))
+const BAD_FORM_PAGE = new TextEncoder().encode(messagePage(RECEIPT_PAGE_MESSAGES.badForm))
 
-/** 확인서 문서 (글자는 모두 이스케이프) */
-export function receiptPageHtml(opened: Pick<OpenedLink, 'receipt' | 'expiresAt'>, shop: ShopView, base: string): string {
+/** 배송지 칸의 그릴 거리 (T1): 링크 쪽 상태 + (양식이면) 그 응답에만 다시 채울 값·칸 오류·위 문장 */
+export interface ParcelPagePart {
+  readonly section: LinkSection
+  /** 다시 적기(?edit=1) — 저장한 배송지가 있어도 빈 양식 */
+  readonly edit?: boolean
+  readonly values?: Readonly<Partial<Record<AddressField, string>>>
+  readonly errors?: readonly AddressErrorCode[]
+  /** 양식 위 한 문장 (잠금·형식 오류 등) */
+  readonly alert?: string
+}
+
+const FIELD_LABELS: Readonly<Record<AddressField, string>> = {
+  name: '받는 분',
+  phone: '연락처',
+  address: '주소',
+  detail: '상세 주소',
+  zip: '우편번호(몰라도 돼요)',
+  memo: '배송 메모',
+}
+const FIELD_ATTRS: Readonly<Record<AddressField, string>> = {
+  name: `autocomplete="name" maxlength="${String(ADDRESS_LIMITS.name * 2)}"`,
+  phone: 'type="tel" inputmode="tel" autocomplete="tel" maxlength="40"',
+  address: `autocomplete="street-address" maxlength="${String(ADDRESS_LIMITS.address * 2)}"`,
+  detail: `maxlength="${String(ADDRESS_LIMITS.detail * 2)}"`,
+  zip: 'inputmode="numeric" autocomplete="postal-code" maxlength="10"',
+  memo: `maxlength="${String(ADDRESS_LIMITS.memo * 2)}"`,
+}
+
+/** 배송지 칸 HTML (글자는 모두 이스케이프 — 받은 값을 다시 채울 때도) */
+export function parcelSectionHtml(part: ParcelPagePart, base: string, kstTime: (ms: number) => string): string {
+  const e = escapeHtml
+  const section = part.edit === true && part.section.kind === 'saved' ? ({ kind: 'form' } as const) : part.section
+  const alert = part.alert === undefined ? '' : `<p class="alert" role="alert">${e(part.alert)}</p>`
+  switch (section.kind) {
+    case 'booked':
+      return [
+        '<section class="card" id="parcel">',
+        '<h2>택배를 보냈어요</h2>',
+        alert,
+        '<dl>',
+        `<dt>택배사</dt><dd>${e(section.carrierName)}</dd>`,
+        `<dt>송장번호</dt><dd>${e(section.invoiceText)}</dd>`,
+        `<dt>배송 상태</dt><dd>${e(section.status)}</dd>`,
+        section.checkedAt === null ? '' : `<dt>마지막 확인</dt><dd>${e(kstTime(section.checkedAt))}</dd>`,
+        '</dl>',
+        section.trackUrl === null ? '' : `<div class="actions"><a class="button" href="${e(section.trackUrl)}" target="_blank" rel="noopener noreferrer">배송 조회</a></div>`,
+        '</section>',
+      ]
+        .filter((line) => line !== '')
+        .join('\n')
+    case 'preparing':
+      return ['<section class="card" id="address">', '<h2>배송지</h2>', alert, `<p>${e(PARCEL_MESSAGES.buyerPreparing)}</p>`, '</section>'].filter((line) => line !== '').join('\n')
+    case 'pickup':
+    case 'combined':
+    case 'closed': {
+      const text = section.kind === 'pickup' ? PARCEL_MESSAGES.pickupLink : section.kind === 'combined' ? PARCEL_MESSAGES.combinedLink : PARCEL_MESSAGES.addressClosed
+      return ['<section class="card" id="address">', '<h2>배송지</h2>', alert, `<p>${e(text)}</p>`, '</section>'].filter((line) => line !== '').join('\n')
+    }
+    case 'saved':
+      return [
+        '<section class="card" id="address">',
+        '<h2>배송지</h2>',
+        alert,
+        '<p>배송지를 받았어요</p>',
+        `<p>받는 분 ${e(section.name)} · 연락처 끝 ${e(section.last4)}</p>`,
+        `<div class="actions"><a class="button" href="${base}?edit=1#address">다시 적기</a></div>`,
+        '</section>',
+      ]
+        .filter((line) => line !== '')
+        .join('\n')
+    case 'form': {
+      const errors = new Map<AddressField, AddressErrorCode>()
+      for (const code of part.errors ?? []) if (!errors.has(ADDRESS_ERROR_FIELD[code])) errors.set(ADDRESS_ERROR_FIELD[code], code)
+      const fields = ADDRESS_FIELDS.map((field) => {
+        const code = errors.get(field)
+        const value = part.values?.[field] ?? ''
+        return [
+          `<label for="f-${field}">${FIELD_LABELS[field]}</label>`,
+          `<input id="f-${field}" name="${field}" ${FIELD_ATTRS[field]} value="${e(value)}"${code === undefined ? '' : ` aria-invalid="true" aria-describedby="e-${field}"`}>`,
+          code === undefined ? '' : `<p class="error" id="e-${field}" data-code="${code}">${e(ADDRESS_ERROR_MESSAGES[code])}</p>`,
+        ]
+          .filter((line) => line !== '')
+          .join('\n')
+      })
+      return [
+        '<section class="card" id="address">',
+        '<h2>배송지</h2>',
+        alert,
+        `<p class="muted">${e(PARCEL_MESSAGES.linkNotice)}</p>`,
+        `<form method="post" action="${base}/address">`,
+        ...fields,
+        '<button class="button primary" type="submit">배송지 보내기</button>',
+        '</form>',
+        '</section>',
+      ]
+        .filter((line) => line !== '')
+        .join('\n')
+    }
+  }
+}
+
+/** 확인서 문서 (글자는 모두 이스케이프). parcel이 있으면 확인서 아래에 배송지 칸 (T1) */
+export function receiptPageHtml(opened: Pick<OpenedLink, 'receipt' | 'expiresAt'>, shop: ShopView, base: string, parcel?: ParcelPagePart): string {
   const { receipt } = opened
   const font = documentFont()
   const e = escapeHtml
@@ -182,6 +303,7 @@ export function receiptPageHtml(opened: Pick<OpenedLink, 'receipt' | 'expiresAt'
     hasAccount
       ? ['<section class="card">', '<h2>입금 계좌</h2>', `<p class="account">${e(account)}</p>`, shop.accountNote.trim() === '' ? '' : `<p class="muted">${e(shop.accountNote.trim())}</p>`, '</section>'].join('\n')
       : '',
+    parcel === undefined ? '' : parcelSectionHtml(parcel, base, kstDateTimeWithDay),
     `<p>이 링크는 ${kstDateTimeWithDay(opened.expiresAt)}까지 열 수 있어요.</p>`,
     `<p class="notice">${e(receipt.notice)}</p>`,
     '</main>',
@@ -197,10 +319,17 @@ export interface ReceiptPageDeps {
   readonly links: ReceiptLinkService
   readonly closing: ClosingService
   readonly clock: Clock
+  /** 택배 배송지 칸 (T1). 없으면 칸·양식이 없다 */
+  readonly parcels?: ParcelService
+  /** 앱 주소 (양식 POST의 Origin 검사) */
+  readonly appOrigin?: string
+  /** 범위 상태 읽기 (배송지 칸 — 직접 수령·합배송) */
+  readonly writer?: ScopeWriter
 }
 
 type PageFile = 'receipt.jpg' | 'image.jpg' | 'receipt.pdf'
 const PATH_RE = /^\/r\/([A-Za-z0-9_-]{43})(?:\/(receipt\.jpg|image\.jpg|receipt\.pdf))?$/
+const ADDRESS_PATH_RE = /^\/r\/([A-Za-z0-9_-]{43})\/address$/
 
 function htmlResponse(status: number, body: Uint8Array | string): Response {
   const headers = new Headers(RECEIPT_PAGE_HEADERS)
@@ -225,7 +354,8 @@ export function registerReceiptPage(app: Hono, deps: ReceiptPageDeps): void {
     if (opened === null) return closed()
     if (file === null) {
       const shop = await readShop(deps.db, opened.sellerId)
-      return htmlResponse(200, receiptPageHtml(opened, shop, `/r/${token}`))
+      const part = await parcelPart(opened)
+      return htmlResponse(200, receiptPageHtml(opened, shop, `/r/${token}`, part === null ? undefined : { ...part, edit: c.req.query('edit') === '1' }))
     }
     const kind = file === 'receipt.pdf' ? 'pdf' : 'jpg'
     const rendered = await deps.closing.renderReceiptFile(opened.sellerId, opened.date, false, opened.receipt, opened.createdAt, kind, c.req.raw.signal)
@@ -240,9 +370,56 @@ export function registerReceiptPage(app: Hono, deps: ReceiptPageDeps): void {
     return new Response(bytes, { status: 200, headers })
   }
 
+  /** 그 링크 쪽의 배송지 칸 (택배 기능이 없으면 null) */
+  const parcelPart = async (opened: OpenedLink): Promise<{ section: LinkSection } | null> => {
+    if (deps.parcels === undefined || deps.writer === undefined) return null
+    const runtime = await deps.writer.read(opened.sellerId, opened.date, false)
+    return { section: await deps.parcels.linkSection(opened.sellerId, opened.date, opened.buyer, runtime.state) }
+  }
+
+  /** 배송지 양식 보내기 (T1 AC-T1-11·12): Origin → 링크마다 한도 → 형식·크기 → 링크 열기 → 저장(303) · 틀림(400) · 거절(409) */
+  const handleAddress = async (c: Context): Promise<Response> => {
+    const match = ADDRESS_PATH_RE.exec(c.req.path)
+    if (match === null || deps.parcels === undefined) return closed()
+    const token = match[1] as string
+    if (deps.appOrigin === undefined || c.req.header('origin') !== deps.appOrigin) return htmlResponse(403, FORBIDDEN_PAGE)
+    if (!limiter.take(receiptTokenHash(token))) return later(429)
+    const type = (c.req.header('content-type') ?? '').split(';')[0]?.trim().toLowerCase()
+    const declared = Number(c.req.header('content-length') ?? '0')
+    if (type !== 'application/x-www-form-urlencoded' || !Number.isFinite(declared) || declared > ADDRESS_FORM_MAX_BYTES) return htmlResponse(400, BAD_FORM_PAGE)
+    const bytes = new Uint8Array(await c.req.arrayBuffer())
+    if (bytes.byteLength > ADDRESS_FORM_MAX_BYTES) return htmlResponse(400, BAD_FORM_PAGE)
+    const opened = await deps.links.open(token)
+    if (opened === null) return closed()
+    const form = new URLSearchParams(new TextDecoder().decode(bytes))
+    const values: Partial<Record<AddressField, string>> = {}
+    let complete = true
+    for (const field of ADDRESS_FIELDS) {
+      const all = form.getAll(field)
+      if (all.length !== 1) complete = false
+      else values[field] = all[0] as string
+    }
+    const saved = await deps.parcels.saveFromLink(opened.sellerId, opened.date, opened.buyer, complete ? (values as Record<AddressField, string>) : null)
+    if (saved.kind === 'saved') {
+      const headers = new Headers(RECEIPT_PAGE_HEADERS)
+      headers.set('Location', `/r/${token}`)
+      return new Response(null, { status: 303, headers })
+    }
+    const shop = await readShop(deps.db, opened.sellerId)
+    const part = await parcelPart(opened)
+    const section = part?.section ?? ({ kind: 'form' } as const)
+    if (saved.kind === 'invalid') {
+      // 적은 값은 이 응답에만 다시 채운다(저장하지 않는다)
+      const page: ParcelPagePart = { section: { kind: 'form' }, values, errors: saved.errors, ...(saved.errors.length === 0 ? { alert: RECEIPT_PAGE_MESSAGES.badForm } : {}) }
+      return htmlResponse(400, receiptPageHtml(opened, shop, `/r/${token}`, section.kind === 'form' || section.kind === 'saved' ? page : { section, alert: RECEIPT_PAGE_MESSAGES.badForm }))
+    }
+    return htmlResponse(409, receiptPageHtml(opened, shop, `/r/${token}`, { section, alert: saved.message }))
+  }
+
   app.on(['GET', 'HEAD'], '/r', handle)
   app.on(['GET', 'HEAD'], '/r/*', handle)
-  // 상태를 바꾸는 일은 없다 — 다른 메서드는 405
+  app.post('/r/*', async (c, next) => (ADDRESS_PATH_RE.test(c.req.path) ? handleAddress(c) : next()))
+  // 배송지 양식(POST /r/<토큰>/address) 밖에는 상태를 바꾸는 일이 없다 — 다른 메서드는 405
   const notAllowed = () => {
     const response = errorResponse(405, { Allow: 'GET, HEAD' })
     for (const [name, value] of Object.entries(RECEIPT_PAGE_HEADERS)) response.headers.set(name, value)

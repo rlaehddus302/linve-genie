@@ -16,6 +16,8 @@
 // - --backup-dir: 백업 폴더(I2). 적지 않으면 임시 폴더를 만들고 끌 때 지운다. 시작할 때 시험 판매자의 자동 백업 하나를 만든다.
 // - --test-deposits: 입금 확인 시험 모드(가짜 원천·시험용 입금 넣기 POST /api/deposits/test/rows, N3). 기본 yes, no면 끈다.
 // - --deposit-poll-ms: 받아 오기 주기(밀리초, 100~300000, 기본 1000). --deposit-refetch-ms: "지금 받아 오기" 간격(0~60000, 기본 60000 — 운영 값).
+// - --parcel: 택배 자동 접수 시험 모드(가짜 택배사 127.0.0.1, T1). 기본 yes, no면 끈다. --parcel-port(기본 0 = 빈 포트) · --parcel-track-ms(조회 주기 1000~1800000, 기본 5000).
+//   조작은 이 서버의 /_e2e/parcel/* (harness/sprints/T1/dev-notes.md "[server] 시험·E2E").
 // - 환경변수 PORT·LIVEJJIM_APP_ORIGIN도 읽는다(인자가 우선). .env는 읽지 않는다(실제 비밀값이 필요 없다).
 // - 127.0.0.1에서만 연다(모든 인터페이스가 아니다, AC-S06-73). 헬스체크·프록시는 http://127.0.0.1:<포트>로.
 // 포트를 연 뒤 "E2E 서버를 시작했어요. http://127.0.0.1:<포트> · …" 한 줄을 표준 출력에 쓴다. 비밀번호·마스터 키는 출력하지 않는다.
@@ -48,6 +50,9 @@ const args = parseArgs(process.argv.slice(2), [
   'test-deposits',
   'deposit-poll-ms',
   'deposit-refetch-ms',
+  'parcel',
+  'parcel-port',
+  'parcel-track-ms',
 ])
 if (!args.ok) {
   complain(args.message)
@@ -84,6 +89,9 @@ const tiktokFlag = values.get('tiktok')
 const testDepositsFlag = values.get('test-deposits')
 const depositPoll = intArg('deposit-poll-ms', 100, 300_000)
 const depositRefetch = intArg('deposit-refetch-ms', 0, 60_000)
+const parcelFlag = values.get('parcel')
+const parcelPort = intArg('parcel-port', 0, 65_535)
+const parcelTrack = intArg('parcel-track-ms', 1000, 1_800_000)
 
 if (
   portArg === null ||
@@ -96,6 +104,9 @@ if (
   quotaBudget === null ||
   depositPoll === null ||
   depositRefetch === null ||
+  parcelPort === null ||
+  parcelTrack === null ||
+  (parcelFlag !== undefined && parcelFlag !== 'yes' && parcelFlag !== 'no') ||
   (testDepositsFlag !== undefined && testDepositsFlag !== 'yes' && testDepositsFlag !== 'no') ||
   (fillFlag !== undefined && fillFlag !== 'yes' && fillFlag !== 'no') ||
   (testPrinterFlag !== undefined && testPrinterFlag !== 'yes' && testPrinterFlag !== 'no') ||
@@ -109,7 +120,7 @@ if (
   complain(
     '인자를 확인해 주세요. --port 0~65535, --fill yes|no, --fill-products 1~999, --fill-chats 0~100000, --host-delay-ms 0~5000, --chat-speed 1~1000, --test-printer yes|no, ' +
       '--youtube fake|no, --youtube-port 0~65535, --youtube-quota-budget 1~1000000, --outbox-fast yes|no, --web-dir <index.html이 있는 화면 빌드 폴더>, --instagram yes|no, --tiktok yes|no, ' +
-      '--test-deposits yes|no, --deposit-poll-ms 100~300000, --deposit-refetch-ms 0~60000, --billing yes|no',
+      '--test-deposits yes|no, --deposit-poll-ms 100~300000, --deposit-refetch-ms 0~60000, --billing yes|no, --parcel yes|no, --parcel-port 0~65535, --parcel-track-ms 1000~1800000',
   )
   process.exit(2)
 }
@@ -139,6 +150,9 @@ const e2e = await startE2eServer({
   testDeposits: testDepositsFlag !== 'no',
   ...(depositPoll === undefined ? {} : { depositPollMs: depositPoll }),
   ...(depositRefetch === undefined ? {} : { depositRefetchMs: depositRefetch }),
+  parcel: parcelFlag !== 'no',
+  ...(parcelPort === undefined ? {} : { parcelPort }),
+  ...(parcelTrack === undefined ? {} : { parcelTrackMs: parcelTrack }),
 })
 
 // 127.0.0.1에서만 연다 (AC-S06-73, D-096 — 같은 네트워크의 다른 기기가 시험 계정·시험 데이터에 닿지 않게)
@@ -147,7 +161,7 @@ try {
   const filled = e2e.fill === null ? '채우기 없음' : `채운 범위 ${e2e.fill.date} · 상품 ${String(e2e.fill.products)} · 채팅 ${String(e2e.fill.chats)}`
   const youtube = e2e.fakeGoogle === null ? '' : ` · 가짜 유튜브 ${e2e.fakeGoogle.url}`
   const meta = (e2e.fakeMeta === null ? '' : ` · 가짜 메타 ${e2e.fakeMeta.url}`) + (e2e.fakeWebcast === null ? '' : ' · 가짜 틱톡(/_e2e/tiktok/*)')
-  const web = webDir === undefined ? '' : ' · 화면 함께 냄'
+  const web = (webDir === undefined ? '' : ' · 화면 함께 냄') + (e2e.fakeCarrier === null ? '' : ` · 가짜 택배 ${e2e.fakeCarrier.url}(/_e2e/parcel/*)`)
   say(
     `E2E 서버를 시작했어요. http://${opened.host}:${String(opened.port)} · 화면 주소 ${origin} · 시험 계정 ${e2e.account.loginId} · ${filled} · ` +
       `방송자 조치 대기 ${String(hostDelay ?? 5000)}ms · 시험용 프린터 ${testPrinterFlag === 'no' ? '끔' : '켬'} · 시험용 입금 ${testDepositsFlag === 'no' ? '끔' : '켬'} · 요금 ${billingFlag === 'yes' ? '켬(시험 결제)' : '끔'}${youtube}${meta}${web} · 준비 ${String(Date.now() - started)}ms`,

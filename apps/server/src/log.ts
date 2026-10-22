@@ -108,6 +108,12 @@ export type LogCode =
   | 'DEPOSIT_ROW_SAVE_FAILED'
   | 'DEPOSIT_APPLY_FAILED'
   | 'DEPOSIT_NOTIFY_FAILED'
+  // T1 택배 (PARCEL_RULES PC-3 "로그 금지"): 택배사 코드(reason)·HTTP 상태·개수·판매자 ID·날짜만. 받는 분·연락처·주소·메모·택배사 원래 응답·송장번호는 남기지 않는다
+  | 'PARCEL_BOOK_UNKNOWN'
+  | 'PARCEL_CANCEL_UNKNOWN'
+  | 'PARCEL_TRACK_FAILED'
+  | 'PARCEL_JOB_FAILED'
+  | 'PARCEL_ADDRESSES_SWEPT'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -181,6 +187,11 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   DEPOSIT_ROW_SAVE_FAILED: '받은 입금 한 줄을 저장하지 못해 그 줄만 건너뛰었어요',
   DEPOSIT_APPLY_FAILED: '입금 자동 확인을 적지 못해 확인 필요로 남겼어요',
   DEPOSIT_NOTIFY_FAILED: '입금 확인 알림을 보내지 못했어요(기록은 저장됨)',
+  PARCEL_BOOK_UNKNOWN: '택배사 접수 답을 받지 못해 접수됐는지 모름으로 남겼어요(같은 요청 번호로 다시 확인해요)',
+  PARCEL_CANCEL_UNKNOWN: '택배사 접수 취소 답을 받지 못했어요(접수는 그대로)',
+  PARCEL_TRACK_FAILED: '택배 배송 조회가 실패했어요(마지막 상태 그대로, 다음 주기에 다시 해요)',
+  PARCEL_JOB_FAILED: '택배 작업(조회·배송지 정리) 중 오류가 생겼어요(다음 주기에 다시 해요)',
+  PARCEL_ADDRESSES_SWEPT: '보관 기간(주문 날짜 + 30일)이 지난 배송지를 지웠어요',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */

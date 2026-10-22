@@ -13,6 +13,8 @@
 //   운영 기동(main.ts)에는 없다 — 시험 모드에서만.
 // - I3 시험용 선택(AC-I3-93 — 운영 시작 main에는 없다): 유튜브 할당량 예산 줄이기, 발송함 시간 줄이기, 화면 폴더(같은 출처로 화면을 함께 냄),
 //   시험용 조작 경로 /_e2e/*(새 판매자 계정·봉인 시험 날짜·지금 봉인) — 이 기동에서만 앞에 붙는다(서버 앱에는 없다).
+// - 택배 자동 접수 시험 모드(T1 PARCEL_RULES PC-1, AC-T1-20): 가짜 택배사를 127.0.0.1의 빈 포트에 띄우고 서버가 그 어댑터를 쓴다(parcel: false로 끈다).
+//   조회 주기는 기본 5초(parcelTrackMs). 시험 조작 /_e2e/parcel/*(상태 넘기기·오류 주입·받은 요청·지금 조회·지금 정리)는 이 기동에서만 있다.
 // - 선택: 가짜 웹캐스트(tiktok: true, N2b-2 AC-N2b-2-73·80) — 틱톡 운영자 스위치를 켜고 연결 객체가 가짜 웹캐스트를 쓴다.
 //   시험이 댓글·끊김·막힘을 넣는 경로 /_e2e/tiktok/*는 이 기동에서만 있다(운영 서버 시작 경로에는 없다 — 운영은 실제 감싸개 libraryWebcast()).
 import { randomBytes, randomInt } from 'node:crypto'
@@ -29,6 +31,7 @@ import { openPglite, type Database } from './db/database.ts'
 import { ChatMaker, generatorView } from './generator.ts'
 import { createNodeServer } from './node-server.ts'
 import { FakeMeta } from './instagram/fake-meta.ts'
+import { FAKE_FAILURES, FAKE_TRACK_STATUSES, FakeCarrier, type FakeFailure, type FakeTrackStatus } from './parcel/fake-carrier.ts'
 import { FakeWebcast, readTikTokSettings, type FakeAccountState, type TikTokFailureKind } from './tiktok/index.ts'
 import { generateMasterKey, type PasswordCost } from './secrets.ts'
 import { createServer, type LivejjimServer } from './server.ts'
@@ -165,7 +168,16 @@ export interface E2eOptions {
   readonly depositPollMs?: number
   /** "지금 받아 오기" 간격 (밀리초, 0~60000, 기본 60000) */
   readonly depositRefetchMs?: number
+  /** 택배 자동 접수 시험 모드 — 가짜 택배사 (기본 true. 운영 기동에는 없다, T1 AC-T1-20) */
+  readonly parcel?: boolean
+  /** 가짜 택배사 포트 (기본 0 = 빈 포트) */
+  readonly parcelPort?: number
+  /** 택배 배송 조회 주기 (밀리초, 기본 5000 — 운영 30분) */
+  readonly parcelTrackMs?: number
 }
+
+/** E2E 기동의 택배 배송 조회 주기 기본값 (밀리초) */
+export const E2E_PARCEL_TRACK_MS = 5000
 
 /** E2E의 발송함 시간 (게시 응답 3초 · 확인 시간 5초 · 끝 조회 간격 2초 · 다시 시도 0.5·1·2…초) */
 export const E2E_OUTBOX_TIMING: OutboxTiming = { postTimeoutMs: 3000, confirmWindowMs: 5000, lookupIntervalMs: 2000, retryBaseMs: 250 }
@@ -190,7 +202,7 @@ function daysBefore(date: string, days: number): string {
  * - POST /_e2e/seal { loginId, date } → { sealed } — 그 날짜(실제 범위)를 지금 봉인 (열린 화면이 봉인되는 시험)
  * 그 밖의 요청은 서버 앱으로 그대로 (요청 정보 env도 — 로그인 IP 한도)
  */
-export function e2eControl(server: LivejjimServer, database: Database, masterKey: Buffer, passwordCost?: PasswordCost, webcast?: FakeWebcast | null): Hono {
+export function e2eControl(server: LivejjimServer, database: Database, masterKey: Buffer, passwordCost?: PasswordCost, webcast?: FakeWebcast | null, carrier?: FakeCarrier | null): Hono {
   const control = new Hono()
   const read = async (request: Request): Promise<Record<string, unknown>> => {
     try {
@@ -246,6 +258,7 @@ export function e2eControl(server: LivejjimServer, database: Database, masterKey
     return c.json({ sealed: scopeId === null ? false : await server.sealer.seal(sellerId, scopeId, date) })
   })
   if (webcast !== undefined && webcast !== null) registerTiktokControl(control, webcast, read)
+  if (carrier !== undefined && carrier !== null) registerParcelControl(control, server, carrier, read)
   control.all('*', (c) => server.app.fetch(c.req.raw, c.env))
   return control
 }
@@ -322,6 +335,39 @@ function registerTiktokControl(control: Hono, webcast: FakeWebcast, read: (reque
   })
   control.get('/_e2e/tiktok/state', (c) => c.json({ attempts: webcast.attempts, open: webcast.openCount, maxOpen: webcast.maxOpen }))
 }
+/**
+ * 가짜 택배사 조작 (T1 — E2E 기동에서만). JSON POST, 세션 필요 없음:
+ * - POST /_e2e/parcel/status { invoice, status: ACCEPTED|PICKED_UP|IN_TRANSIT|DELIVERED } — 그 송장의 조회 상태를 넘긴다
+ * - POST /_e2e/parcel/fail { op: book|cancel|track, kind: ADDRESS|REJECTED|TIMEOUT|TIMEOUT_AFTER_BOOK|ERROR_500|BAD_INVOICE|REFUSED, times? } — 다음 요청 times번(기본 1)을 그 실패로
+ * - POST /_e2e/parcel/track {} → { asked } — 배송 조회를 지금 한 바퀴 (조회 주기를 기다리지 않는다)
+ * - POST /_e2e/parcel/sweep {} → { deleted } — 배송지 30일 정리를 지금
+ * - GET  /_e2e/parcel/requests → { requests: [{ op, requestKey, invoices, body }], bookings } — 가짜 택배사가 받은 요청
+ * - POST /_e2e/parcel/reset {} — 받은 요청 목록·주입한 실패를 비운다
+ * 받는 분 주소에 [주소거절]·[접수거절]·[응답없음]·[접수후응답없음]·[서버오류]·[송장이상]을 넣어도 그 실패가 난다(fake-carrier.ts)
+ */
+function registerParcelControl(control: Hono, server: LivejjimServer, carrier: FakeCarrier, read: (request: Request) => Promise<Record<string, unknown>>): void {
+  control.post('/_e2e/parcel/status', async (c) => {
+    const body = await read(c.req.raw)
+    if (typeof body.invoice !== 'string' || !FAKE_TRACK_STATUSES.includes(body.status as FakeTrackStatus)) return c.json({ error: 'input' }, 400)
+    return c.json({ ok: carrier.setStatus(body.invoice, body.status as FakeTrackStatus) })
+  })
+  control.post('/_e2e/parcel/fail', async (c) => {
+    const body = await read(c.req.raw)
+    const op = body.op
+    const times = typeof body.times === 'number' && Number.isInteger(body.times) && body.times >= 1 && body.times <= 100 ? body.times : 1
+    if ((op !== 'book' && op !== 'cancel' && op !== 'track') || !FAKE_FAILURES.includes(body.kind as FakeFailure)) return c.json({ error: 'input' }, 400)
+    carrier.failNext(op, body.kind as FakeFailure, times)
+    return c.json({ ok: true })
+  })
+  control.post('/_e2e/parcel/track', async (c) => c.json({ asked: await server.parcels.trackOnce() }))
+  control.post('/_e2e/parcel/sweep', async (c) => c.json({ deleted: await server.parcels.sweepOnce() }))
+  control.get('/_e2e/parcel/requests', (c) => c.json({ requests: carrier.requests, bookings: carrier.bookingCount }))
+  control.post('/_e2e/parcel/reset', (c) => {
+    carrier.reset()
+    return c.json({ ok: true })
+  })
+}
+
 /** E2E 기동의 받아 오기 주기 기본값 (밀리초) */
 export const E2E_DEPOSIT_POLL_MS = 1000
 
@@ -344,6 +390,8 @@ export interface E2eServer {
   readonly fakeMeta: FakeMeta | null
   /** 가짜 웹캐스트 (tiktok: true일 때만) */
   readonly fakeWebcast: FakeWebcast | null
+  /** 가짜 택배사 (parcel: false가 아니면) */
+  readonly fakeCarrier: FakeCarrier | null
   /** E2E_HOST(127.0.0.1)의 그 포트에서 연다 (0이면 빈 포트). 연 주소·포트를 돌려준다. 열지 못하면(포트를 이미 씀 등) 그 오류로 실패한다 */
   listen(port: number): Promise<{ readonly host: string; readonly port: number }>
   close(): Promise<void>
@@ -365,6 +413,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
         })
   const budget = options.youtube?.quotaBudget
   const fakeWebcast = options.tiktok === true ? new FakeWebcast() : null
+  const fakeCarrier = options.parcel === false ? null : await FakeCarrier.start(options.parcelPort === undefined ? {} : { port: options.parcelPort })
   const server = createServer({
     database,
     masterKey,
@@ -405,6 +454,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
       pollMs: options.depositPollMs ?? E2E_DEPOSIT_POLL_MS,
       ...(options.depositRefetchMs === undefined ? {} : { refetchGapMs: options.depositRefetchMs }),
     },
+    ...(fakeCarrier === null ? {} : { parcel: { carriers: { FAKE: fakeCarrier.adapter() }, trackEveryMs: options.parcelTrackMs ?? E2E_PARCEL_TRACK_MS } }),
   })
   const account = readE2eAccount()
   const created = await createSellerAccount(database.db, Buffer.from(masterKey, 'base64'), account, options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost })
@@ -417,7 +467,9 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
   server.backups.start()
   server.work.receipts.warm()
   if (fakeGoogle !== null) server.start()
-  const http = createNodeServer({ app: e2eControl(server, database, Buffer.from(masterKey, 'base64'), options.passwordCost, fakeWebcast) })
+  // 택배 배송 조회·배송지 정리 (유튜브를 켜지 않은 기동도 — 시험 모드 주기)
+  else if (fakeCarrier !== null) server.parcels.start()
+  const http = createNodeServer({ app: e2eControl(server, database, Buffer.from(masterKey, 'base64'), options.passwordCost, fakeWebcast, fakeCarrier) })
   return {
     server,
     database,
@@ -429,6 +481,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     http,
     fakeMeta,
     fakeWebcast,
+    fakeCarrier,
     listen: (port) =>
       new Promise((resolve, reject) => {
         const failed = (error: Error) => reject(error)
@@ -454,6 +507,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
         else http.close(() => resolve())
       })
       await fakeMeta?.close()
+      await fakeCarrier?.close()
       await database.close()
       if (ownBackupDir) rmSync(backupDir, { recursive: true, force: true })
     },
