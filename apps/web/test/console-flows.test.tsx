@@ -216,6 +216,7 @@ function fakeApi(view: FullView): ConsoleApi & { readonly queued: HostActionInpu
     closeAll: () => {},
     queueHost: (input) => queued.push(input),
     command: () => Promise.reject(new Error('보내지 않는다')),
+    write: () => Promise.reject(new Error('보내지 않는다')),
     fillQuick: (text) => filled.push(text),
     select: () => {},
     queued,

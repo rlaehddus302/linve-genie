@@ -119,6 +119,11 @@ export interface ConsoleApi {
    * requestId를 주면 그 번호로 보낸다(실패 뒤 "다시 보내기")
    */
   command(event: Readonly<Record<string, unknown>>, requestId?: string): Promise<WriteResult>
+  /**
+   * 바로 보내는 쓰기 — command와 같지만 응답만 기다리고, 화면이 그 seq를 따라잡는 것은 시작만 한다(기다리지 않는다).
+   * 응답 바로 칸을 비우는 문자찜 입력이 쓴다(D-SMS-01, AC-SMS-02). 따라잡았는지는 data.seq로 본다
+   */
+  write(event: Readonly<Record<string, unknown>>, requestId?: string): Promise<WriteResult>
   /** 빠른 입력칸에 글자를 넣고 포커스 */
   fillQuick(text: string): void
   /** 현재 상품을 바꾼다 */
