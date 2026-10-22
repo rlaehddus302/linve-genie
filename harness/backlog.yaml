@@ -560,7 +560,7 @@ sprints:
       문자찜 입력·직접 배정에 옵션·수량 고르기(모든 항목 필수), 시청자 취소 요청의 변형 고르기, 판매 종료·일시 중지와 지금 상품.
       서버: 새 이벤트·필드 검사(checkEvent)·저장·SSE 반영, 확인 필요 조회 API. 옵션을 쓰지 않는 판매자 화면은 지금과 같다.
     specIds: [OPT-01, OPT-04, OPT-05, CMT-04, CMT-05, CMT-07, ORD-08, ORD-12, UX-01, UX-04]
-    status: todo
+    status: done  # 메인 합침 985a24a (2026-10-22)
 
   - id: O3
     phase: 6
