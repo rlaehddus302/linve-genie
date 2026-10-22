@@ -1,5 +1,8 @@
 // E2E용 서버 기동 명령 (AC-S05-91): pnpm --filter @livejjim/server e2e [--port 3100 (0이면 빈 포트)] [--origin http://localhost:5173] [--fill yes]
 //   [--fill-products 500] [--fill-chats 10000] [--host-delay-ms 5000] [--chat-speed 1] [--test-printer yes|no] [--youtube fake] [--youtube-port 4100] [--instagram yes|no] [--instagram-port 4300] [--tiktok yes|no] [--billing yes|no]
+//   [--social fake|no] [--social-port 4500] [--social-providers kakao,naver,google]
+// - --social fake: 가짜 OAuth 서버(구글·카카오·네이버)를 127.0.0.1의 --social-port(기본 0 = 빈 포트)에 함께 띄우고 간편 로그인을 켠다(L1, AC-L1-12).
+//   --social-providers로 켤 공급자를 고른다(쉼표, 기본 셋 다). 조작은 http://127.0.0.1:<그 포트>/_fake/* (harness/sprints/L1/dev-notes.md "시험에게"). 기본 no(지금과 같다).
 // - 메모리 PGlite + 마이그레이션, 그 자리에서 만든 시험용 마스터 키, 시험용 판매자 계정(apps/server/e2e/account.json). 끄면 데이터는 사라진다.
 // - --fill yes: 상품 500·채팅 1만 건을 채운 실제 범위(오늘, KST) — 화면 반영 1초 시험(AC-S05-64)용. 채우기가 끝난 뒤에 포트를 연다.
 // - --host-delay-ms: 화면이 방송자 조치를 보내기 전에 기다리는 시간(GET /api/client-config, 운영 값 5000). E2E에서만 줄인다.
@@ -48,6 +51,9 @@ const args = parseArgs(process.argv.slice(2), [
   'test-deposits',
   'deposit-poll-ms',
   'deposit-refetch-ms',
+  'social',
+  'social-port',
+  'social-providers',
 ])
 if (!args.ok) {
   complain(args.message)
@@ -84,6 +90,11 @@ const tiktokFlag = values.get('tiktok')
 const testDepositsFlag = values.get('test-deposits')
 const depositPoll = intArg('deposit-poll-ms', 100, 300_000)
 const depositRefetch = intArg('deposit-refetch-ms', 0, 60_000)
+const socialFlag = values.get('social')
+const socialPort = intArg('social-port', 0, 65_535)
+const socialProvidersRaw = values.get('social-providers')
+const socialProviders = socialProvidersRaw === undefined ? undefined : socialProvidersRaw.split(',').map((item) => item.trim())
+const socialProvidersOk = socialProviders === undefined || (socialProviders.length > 0 && socialProviders.every((item) => item === 'google' || item === 'kakao' || item === 'naver') && new Set(socialProviders).size === socialProviders.length)
 
 if (
   portArg === null ||
@@ -96,6 +107,9 @@ if (
   quotaBudget === null ||
   depositPoll === null ||
   depositRefetch === null ||
+  socialPort === null ||
+  !socialProvidersOk ||
+  (socialFlag !== undefined && socialFlag !== 'fake' && socialFlag !== 'no') ||
   (testDepositsFlag !== undefined && testDepositsFlag !== 'yes' && testDepositsFlag !== 'no') ||
   (fillFlag !== undefined && fillFlag !== 'yes' && fillFlag !== 'no') ||
   (testPrinterFlag !== undefined && testPrinterFlag !== 'yes' && testPrinterFlag !== 'no') ||
@@ -109,7 +123,7 @@ if (
   complain(
     '인자를 확인해 주세요. --port 0~65535, --fill yes|no, --fill-products 1~999, --fill-chats 0~100000, --host-delay-ms 0~5000, --chat-speed 1~1000, --test-printer yes|no, ' +
       '--youtube fake|no, --youtube-port 0~65535, --youtube-quota-budget 1~1000000, --outbox-fast yes|no, --web-dir <index.html이 있는 화면 빌드 폴더>, --instagram yes|no, --tiktok yes|no, ' +
-      '--test-deposits yes|no, --deposit-poll-ms 100~300000, --deposit-refetch-ms 0~60000, --billing yes|no',
+      '--test-deposits yes|no, --deposit-poll-ms 100~300000, --deposit-refetch-ms 0~60000, --billing yes|no, --social fake|no, --social-port 0~65535, --social-providers google,kakao,naver 중 고른 것',
   )
   process.exit(2)
 }
@@ -139,6 +153,9 @@ const e2e = await startE2eServer({
   testDeposits: testDepositsFlag !== 'no',
   ...(depositPoll === undefined ? {} : { depositPollMs: depositPoll }),
   ...(depositRefetch === undefined ? {} : { depositRefetchMs: depositRefetch }),
+  ...(socialFlag === 'fake'
+    ? { social: { ...(socialPort === undefined ? {} : { port: socialPort }), ...(socialProviders === undefined ? {} : { providers: socialProviders as ('google' | 'kakao' | 'naver')[] }) } }
+    : {}),
 })
 
 // 127.0.0.1에서만 연다 (AC-S06-73, D-096 — 같은 네트워크의 다른 기기가 시험 계정·시험 데이터에 닿지 않게)
@@ -147,7 +164,7 @@ try {
   const filled = e2e.fill === null ? '채우기 없음' : `채운 범위 ${e2e.fill.date} · 상품 ${String(e2e.fill.products)} · 채팅 ${String(e2e.fill.chats)}`
   const youtube = e2e.fakeGoogle === null ? '' : ` · 가짜 유튜브 ${e2e.fakeGoogle.url}`
   const meta = (e2e.fakeMeta === null ? '' : ` · 가짜 메타 ${e2e.fakeMeta.url}`) + (e2e.fakeWebcast === null ? '' : ' · 가짜 틱톡(/_e2e/tiktok/*)')
-  const web = webDir === undefined ? '' : ' · 화면 함께 냄'
+  const web = (webDir === undefined ? '' : ' · 화면 함께 냄') + (e2e.fakeOAuth === null ? '' : ` · 가짜 OAuth ${e2e.fakeOAuth.url}`)
   say(
     `E2E 서버를 시작했어요. http://${opened.host}:${String(opened.port)} · 화면 주소 ${origin} · 시험 계정 ${e2e.account.loginId} · ${filled} · ` +
       `방송자 조치 대기 ${String(hostDelay ?? 5000)}ms · 시험용 프린터 ${testPrinterFlag === 'no' ? '끔' : '켬'} · 시험용 입금 ${testDepositsFlag === 'no' ? '끔' : '켬'} · 요금 ${billingFlag === 'yes' ? '켬(시험 결제)' : '끔'}${youtube}${meta}${web} · 준비 ${String(Date.now() - started)}ms`,
