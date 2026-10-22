@@ -58,6 +58,8 @@ import {
   liveRequests,
   liveUnlinked,
   loginLimits,
+  loginLinks,
+  loginStates,
   outbox,
   packingRecords,
   pasteRequests,
@@ -1174,7 +1176,7 @@ export const RESTORE_REPLACED_TABLES = [
   scopes,
 ] as const
 /**
- * 복구가 그대로 두는 판매자 표: 판매자 행(가게 설정·판매 규칙 설정 칸만 파일의 것으로 바꾼다)·로그인 계정·세션 (AC-I2-62 "판매자 ID·로그인 계정·세션·전화번호 키는 그대로"),
+ * 복구가 그대로 두는 판매자 표: 판매자 행(가게 설정·판매 규칙 설정 칸만 파일의 것으로 바꾼다)·로그인 계정·세션·간편 로그인 연결·승인 요청(L1 — 로그인 수단이라 파일에 없다) (AC-I2-62 "판매자 ID·로그인 계정·세션·전화번호 키는 그대로"),
  * 라벨 템플릿(I1 — 판매자 설정, 파일에 없다), 구글 연결·승인 요청·할당량 사용량(Y1 — 계정 연결과 그날 쓴 양, 파일에 없다), 인스타그램 연결·승인 요청(N2 — 계정 연결), 틱톡 아이디·틱톡 사용 동의 기록(N2b-2 — 인스타그램 연결처럼 계정 쪽 설정이고, 동의 기록은 덧붙이기만 하는 기록이라 지우지 않는다 DAT-05), 출력 대기열 줄·라벨 기능 켬/끔 기록(I1·N4a — 판매자 설정, 대기열의 출력 중·멈춤 상태는 복구가 지운다),
  * 입금 확인(N3 — 원천·입금·기억한 입금자명·묶인 사업자번호·화면 요청 번호: 엔진 밖 기록이라 파일에 없다. 입금 번호를 다시 쓰지 않게 그대로 두고,
  * 입금 상태만 다시 만든 엔진 기록에 맞춘다 — 반영한 입금 기록이 파일에 없으면 확인 필요로, restoreDepositRecords),
@@ -1187,6 +1189,8 @@ export const RESTORE_KEPT_TABLES = [
   sellers,
   accounts,
   sessions,
+  loginLinks,
+  loginStates,
   labelTemplates,
   youtubeConnections,
   youtubeOauthStates,

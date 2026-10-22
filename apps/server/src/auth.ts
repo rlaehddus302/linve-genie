@@ -21,6 +21,7 @@ import {
   insertSession,
   pruneLoginLimits,
   releaseLoginAttempt,
+  type SessionMethod,
   type SessionRow,
 } from './store.ts'
 import type { Clock } from './time.ts'
@@ -95,6 +96,24 @@ export class Auth {
   /** 로그인 제한으로 거절한 수 (IP 한도·전체 동시 한도) */
   get loginRejections(): { readonly ip: number; readonly busy: number } {
     return { ...this.#rejected }
+  }
+
+  /**
+   * 로그인 IP 한도에 시도 하나를 센다 (간편 로그인 돌아오는 주소 — 비밀번호 로그인과 같은 한도를 함께 쓴다, AC-L1-10). 넘으면 false.
+   * 비밀번호 확인 동시 한도(scrypt)는 쓰지 않는다
+   */
+  takeLoginAttempt(address: string | null): boolean {
+    if (this.#ips.take(address === null ? null : ipKey(address))) return true
+    this.#rejected.ip += 1
+    return false
+  }
+
+  /** 간편 로그인으로 그 판매자 계정의 세션을 만든다 (쿠키·만료는 비밀번호 로그인과 같다, AC-L1-05). 새 세션 토큰 */
+  async createSession(account: { readonly sellerId: string; readonly accountId: string }, method: SessionMethod): Promise<string> {
+    const now = this.#options.clock.now()
+    const token = newSessionToken()
+    await insertSession(this.#options.db, { tokenHash: tokenHash(token), sellerId: account.sellerId, accountId: account.accountId, now: new Date(now), expiresAt: new Date(now + SESSION_TTL_MS), method })
+    return token
   }
 
   /**
