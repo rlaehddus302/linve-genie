@@ -143,6 +143,8 @@ export type ErrorCode =
   | 'SOURCE_FAILED'
   | 'FETCH_TOO_SOON'
   | 'CORP_NOT_ALLOWED'
+  // L1 간편 로그인
+  | 'LOGIN_METHOD_LAST'
 
 export interface ErrorBody {
   readonly error: {
