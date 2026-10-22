@@ -25,7 +25,7 @@ import { routePath, type Navigate, type ScopeRoute } from '../lib/router.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
 import { settlementKey } from '../lib/scope-data.ts'
 import { PACKING_TONE, packingWords } from '../lib/packing.ts'
-import { filterSettlements, paymentChange, previewWith, remainingOf, sortSettlements, summarize, type PaymentFilter, type PreviewEntry } from '../lib/settlement.ts'
+import { filterSettlements, paymentChange, previewWith, quantityCounts, remainingOf, sortSettlements, summarize, type PaymentFilter, type PreviewEntry } from '../lib/settlement.ts'
 import { receiptSignature, useClosingSignature, usePackingList } from '../lib/use-packing.ts'
 import { useScopeStore } from '../lib/use-store.ts'
 import { useWide } from '../lib/use-wide.ts'
@@ -299,6 +299,7 @@ function linkClick(event: MouseEvent<HTMLAnchorElement>, go: () => void): void {
 
 /** 휴대폰: 카드 (AC-S06-30 그대로) */
 function SettlementCards({ data, names, list, marks, onOpen }: RowsProps) {
+  const counts = useMemo(() => quantityCounts(data), [data.claims, data.settlements, data.broadcasts, data.date])
   return (
     <ul className="plain-list settlement-grid" aria-label="정산 묶음">
       {list.map((item) => (
@@ -310,7 +311,9 @@ function SettlementCards({ data, names, list, marks, onOpen }: RowsProps) {
           >
             <strong className="buyer-name">{names.name(item.buyer)}</strong>
             <span className={`tag pay-${item.payment}`}>{paymentWord(item.payment, item.refundDue)}</span>
-            <span>상품 {item.items.length}개 · {formatWon(item.subtotal)}</span>
+            <span>
+              상품 {counts.get(settlementKey(item)) ?? item.items.length}개 · {formatWon(item.subtotal)}
+            </span>
             <span>배송비 {shippingWords(item)}</span>
             <span>조정 {signedWon(item.adjustments)}</span>
             <span>최종 {formatWon(item.total)}</span>
@@ -325,6 +328,7 @@ function SettlementCards({ data, names, list, marks, onOpen }: RowsProps) {
 
 /** PC: 열 머리가 있는 표 — 한 줄 = 한 묶음, 금액 열은 오른쪽, 이름 칸의 링크로 자세히 (AC-S06b-21) */
 function SettlementTable({ data, names, list, marks, onOpen }: RowsProps) {
+  const counts = useMemo(() => quantityCounts(data), [data.claims, data.settlements, data.broadcasts, data.date])
   return (
     <div className="table-scroll">
       <table className="list-table" aria-label="정산 묶음">
@@ -361,7 +365,7 @@ function SettlementTable({ data, names, list, marks, onOpen }: RowsProps) {
                   {names.name(item.buyer)}
                 </a>
               </td>
-              <td className="num">{item.items.length}개</td>
+              <td className="num">{counts.get(settlementKey(item)) ?? item.items.length}개</td>
               <td className="num">{formatWon(item.subtotal)}</td>
               <td className="num num-words">
                 {item.shippingOverride === null ? null : `${SHIPPING_WORD[item.shippingOverride]} `}

@@ -2,13 +2,30 @@
 // 보내기 전 미리 보기만 코어 settle(R-12 순서: 품목 없음 0 → 예외 → 무료 기준(그날 첫 방송의 설정 스냅샷, 상품 합계만) → 기본 배송비)로 계산한다.
 import { DEFAULT_SETTINGS, settle, type PaymentStatus, type SaleSettings, type SettlementEntry, type SettlementTotals } from '@livejjim/core'
 import type { Settlement } from '../api/types.ts'
-import type { ScopeData } from './scope-data.ts'
+import { settlementKey, type ScopeData } from './scope-data.ts'
 import { paymentWord } from './words.ts'
 
 /** 정산이 쓰는 설정: 그날 첫 방송의 설정 스냅샷 (코어 settlementSettings와 같다) */
 export function settlementSettings(data: ScopeData): SaleSettings {
   for (const broadcast of data.broadcasts.values()) if (broadcast.date === data.date) return broadcast.settings
   return DEFAULT_SETTINGS
+}
+
+/**
+ * 묶음마다 "상품 n개"의 n = 확정 찜 수량 합 (STL-03, D-O4-07 — D-O3-05와 같은 셈). 열쇠 = settlementKey.
+ * 품목 수(확정 찜 수)에 수량 2 이상 찜의 (수량 − 1)을 더한다 — 수량 1 찜만 있는 묶음은 품목 수 그대로(이전과 같은 숫자).
+ */
+export function quantityCounts(data: ScopeData): Map<string, number> {
+  const extra = new Map<string, number>()
+  for (const claim of data.claims.values()) {
+    if (claim.status !== 'CONFIRMED' || claim.qty <= 1) continue
+    const date = data.broadcasts.get(claim.broadcast)?.date ?? data.date
+    const key = settlementKey({ buyer: claim.currentBuyer, date })
+    extra.set(key, (extra.get(key) ?? 0) + claim.qty - 1)
+  }
+  const out = new Map<string, number>()
+  for (const settlement of data.settlements.values()) out.set(settlementKey(settlement), settlement.items.length + (extra.get(settlementKey(settlement)) ?? 0))
+  return out
 }
 
 /** 남은 금액 = 최종 − 받은 금액 (0 아래면 0) */
