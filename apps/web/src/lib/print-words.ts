@@ -1,7 +1,7 @@
 // 출력 화면 낱말·문장 (D-088에 D-I1-08을 더함, LABEL_RULES L-7·L-8·L-11, AC-I1-24·34·60·61). 영어 상태값·코드는 화면에 보이지 않는다.
 import { LABEL_MESSAGES, buyerText, doesNotFitMessage, formatLabelDate, type LabelBuyer } from '@livejjim/label'
 import { PRINTER_MESSAGES, type PrinterErrorCode } from '@livejjim/printer'
-import type { JobReason, JobView, LabelView, QueueSummary } from '../api/print-types.ts'
+import type { JobReason, JobView, LabelData, LabelView, QueueSummary } from '../api/print-types.ts'
 import { kstHm } from './kst.ts'
 
 /** 알림 띠 낱말 (D-I1-08) */
@@ -88,6 +88,17 @@ export function jobNumberWord(job: Pick<JobView, 'kind' | 'label' | 'data' | 'pa
   return no === null ? '' : `${String(no)}번`
 }
 
+/**
+ * 상품 라벨의 옵션 글·수량 덧붙임 (LBL-01, D-O4-07): " L · 2개", " M", 수량만 " · 3개", 옵션 없는 수량 1이면 빈 글.
+ * 같은 번호의 두 변형 라벨을 목록에서 가려 볼 수 있게 번호 뒤에 붙인다. 값은 서버 라벨 데이터(L-3) 그대로.
+ */
+export function labelOptionWords(data: LabelData | null): string {
+  if (data === null || !('no' in data)) return ''
+  const variant = data.variant === undefined || data.variant === null || data.variant.trim() === '' ? '' : ` ${data.variant.trim()}`
+  const qty = data.qty !== undefined && data.qty > 1 ? ` · ${String(data.qty)}개` : ''
+  return `${variant}${qty}`
+}
+
 /** 작업의 품종 (상품, 지금 데이터 — 없으면 빈 글) */
 export function jobNameWord(job: Pick<JobView, 'kind' | 'data'>): string {
   if (job.kind !== 'product' || job.data === null || !('name' in job.data)) return ''
@@ -96,7 +107,7 @@ export function jobNameWord(job: Pick<JobView, 'kind' | 'data'>): string {
 
 /** 버릴 라벨 안내 "15번 · 우주천사 · 26.10.18 라벨을 버려 주세요" (AC-I1-24) */
 export function discardWord(job: Pick<JobView, 'kind' | 'label' | 'data' | 'page' | 'pages' | 'date'>): string {
-  return `${jobNumberWord(job)} · ${buyerWord(job.label.buyer)} · ${formatLabelDate(job.date)} 라벨을 버려 주세요`
+  return `${jobNumberWord(job)}${job.kind === 'product' ? labelOptionWords(job.data) : ''} · ${buyerWord(job.label.buyer)} · ${formatLabelDate(job.date)} 라벨을 버려 주세요`
 }
 
 /** 출력 이력 "2번 출력 · 20:01 휴대폰 · 20:15 PC" (AC-I1-31) */

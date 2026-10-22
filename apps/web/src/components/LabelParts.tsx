@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { isApiError, newRequestId, withRetry, type ApiError } from '../api/client.ts'
 import type { JobView, LabelView } from '../api/print-types.ts'
 import type { Claim, Product } from '../api/types.ts'
-import { productSlots } from '../lib/derive.ts'
+import { claimOptionWords, productSlots } from '../lib/derive.ts'
 import { canShareFile, downloadBytes, shareBytes } from '../lib/label-files.ts'
 import {
   labelErrorMessage,
@@ -184,9 +184,13 @@ function WinnerLabel({ claim, label, env, date, name }: { readonly claim: Claim;
     else downloadBytes(pdf.bytes, productPdfName(date, no), 'application/pdf')
   }
   return (
-    <div className="label-box" role="group" aria-label={`1등 ${name} 라벨`}>
+    <div className="label-box" role="group" aria-label={`1등 ${name}${claimOptionWords(claim)} 라벨`}>
       <p>
-        <strong>1등 {name}</strong> {label !== undefined && label.word !== '' ? <span className={label.state === 'REPRINT_NEEDED' ? 'tag tag-alert' : 'tag'}>{label.word}</span> : <span className="hint">아직 라벨을 만들지 않았어요</span>}
+        {/* 옵션 상품은 같은 구매자의 두 변형 라벨이 있을 수 있다 — 옵션 글·수량으로 가린다 (D-O4-07) */}
+        <strong>
+          1등 {name}
+          {claimOptionWords(claim)}
+        </strong> {label !== undefined && label.word !== '' ? <span className={label.state === 'REPRINT_NEEDED' ? 'tag tag-alert' : 'tag'}>{label.word}</span> : <span className="hint">아직 라벨을 만들지 않았어요</span>}
       </p>
       {label !== undefined ? <p className="hint">{historyWord(label)}</p> : null}
       {env.state === 'error' ? <p className="field-error">{FONT_ERROR}</p> : null}
@@ -280,7 +284,8 @@ export function ReprintDialog({ product, winners, labels, rehearsal, date, title
         }
       >
         <p>
-          {title} 라벨을 {canPrint ? '출력할까요?' : '다시 출력할까요?'} (1등: {nameOf(single)})
+          {title} 라벨을 {canPrint ? '출력할까요?' : '다시 출력할까요?'} (1등: {nameOf(single)}
+          {claimOptionWords(single)})
         </p>
         {result}
       </Modal>
@@ -297,7 +302,8 @@ export function ReprintDialog({ product, winners, labels, rehearsal, date, title
             <li key={claim.id}>
               <button type="button" className="button" data-key={key} disabled={request.busy} onClick={() => send(claim)}>
                 {key === undefined ? '' : `${key} `}
-                {nameOf(claim)} {canPrint ? '출력' : PRINT_ACTION.reprint}
+                {nameOf(claim)}
+                {claimOptionWords(claim)} {canPrint ? '출력' : PRINT_ACTION.reprint}
               </button>
             </li>
           )
