@@ -111,3 +111,41 @@ pnpm --filter @livejjim/server e2e --port <포트> --origin <화면 주소> --so
 - 서버 단위(L1): `cd apps/server && npx vitest run test/l1-` (파일: `l1-config`·`l1-masked`·`l1-schema`·`l1-start-callback`·`l1-login-link`·`l1-secrets`·`l1-youtube`·`l1-fake-oauth`).
 - 모든 서버 시험은 실제 카카오·네이버 주소로 나가는 연결을 막는다(`test/setup-social-guard.ts`, 구글은 기존 `setup-network-guard.ts`). 적대 시험은 `apps/server/test/outbound-guard.ts`의 `installOutboundGuard('social-login', ['kakao.com', 'naver.com'])`와 `apps/server/src/youtube/network-guard.ts`의 `installGoogleBlock()`을 쓸 수 있다.
 - 연습 모드: `pnpm try` → 설정 → 로그인 방법 → 카카오 [연결하기] → 연습 계정 → 로그아웃 → "카카오로 계속하기". 휴대폰 https 주소에서도 같다(서버 단위 아닌 손 확인 — 이 노트를 쓸 때 PC·https 넘기기 둘 다 HTTP로 돌려 확인함).
+
+## dev-web
+
+### 만든 것 (파일)
+- `apps/web/src/lib/social-login.ts` — 공급자 이름·순서(카카오·네이버·구글), 결과 코드 → 문장(acceptance "결과 문장" 표 그대로), 돌아온 주소 읽기(`parseLoginResult` — 정해진 코드·공급자만, 로그인 화면은 경로 `/`만·설정은 `/settings`만), `stripLoginParams`(history.replaceState로 `login`·`provider`만 지움), 승인 주소 검사(http(s)만), 로그인 전 `client-config` 읽기(`fetchLoginProviders` — 공용 client를 쓰지 않아 401이 "로그인이 풀렸어요"로 바뀌지 않는다), 목록 응답 읽기(`methodsOf`), 날짜 `YYYY. M. D.`(KST).
+- `apps/web/src/components/LoginPage.tsx` — 로그인 칸 아래 "또는" 줄 + `SocialButtons`(켜진 공급자만). 누르면 셋 다 잠기고 누른 버튼 글이 "카카오로 이동하는 중…", `POST /api/auth/start` → 같은 탭 최상위 이동. 실패하면 잠금을 풀고 서버 문장(네트워크·본문 없음이면 "지금 연결하지 못했어요. 잠시 뒤에 다시 해 주세요."). 브라우저 뒤로(페이지 캐시 `pageshow.persisted`)로 돌아오면 잠금을 푼다. 돌아온 결과는 위에 한 번(`role=alert`/성공은 `role=status`), 주소에서 지움, 아이디 칸 커서.
+- `apps/web/src/components/LoginMethods.tsx` — 설정 "로그인 방법" 칸(`useLoginMethods`·`LoginMethodsPanel`). 보조자 칸 뒤, 백업 앞(SPEC §7 화면 8 순서). 줄 글:
+  - `아이디 로그인 · 아이디 <아이디> · 늘 켜져 있어요`
+  - `카카오 · 연결 안 됨` + 버튼 "연결하기"(접근 이름 "카카오 연결하기", 누르면 글·이름 "카카오로 이동하는 중…")
+  - `카카오 · <가린 이름 또는 '카카오 계정'> · 2026. 10. 22.` + 버튼 "연결 끊기"(접근 이름 "카카오 연결 끊기")
+  - 꺼진 공급자의 남은 연결: `구글 · <이름> · 지금은 쓸 수 없어요` + "연결 끊기"만
+  - 끊기 확인 창: 제목 "카카오 연결 끊기", 본문 acceptance 문장 그대로, 버튼 [연결 끊기]/[그만두기](처음 포커스·Esc = 그만두기). 끊으면 칸 위 `role=status` "카카오 연결을 끊었어요."와 새 목록. 409 등은 창 안에 서버 문장. 404(다른 기기에서 이미 끊음)는 창을 닫고 같은 문장 + 목록 다시 읽기.
+  - 목록 404(공급자 모두 꺼짐)·403이면 칸이 없다. 보조자는 목록을 부르지 않는다(보조자는 원래 설정 화면 자체가 안내만 — AC-I3-63).
+- 실시간: `lib/stream.ts`의 받는 알림에 `login` 추가, `lib/live-events.ts` `onLogin` — 설정 화면이 `GET /api/auth/methods`를 다시 부른다(다시 붙음에도).
+- `apps/web/src/lib/google-return.ts` `goTopLevel(url)` — 승인 주소 이동(시험은 `setTopLevelNavigation`으로 가로챈다).
+- 로그인한 채 `/?login=…`로 오면(드묾) 문장 없이 주소만 지운다(`App.tsx`).
+- 개인정보처리방침 초안(`PolicyPages.tsx`) 수집 항목에 "간편 로그인을 연결하면: 공급자 계정 번호, 가린 이메일(예: se***@gmail.com)"(AC-L1-13), 쿠키 줄에 "간편 로그인을 하는 동안에는 10분만 쓰는 확인 쿠키 하나가 더 있어요"(`lj_oauth`를 숨기지 않으려고 더함).
+- 색(`styles.css` 끝 "간편 로그인"): 카카오 `#FEE500`/글 `#191919`, 네이버 흰 바탕·`#03C75A` 2px 테두리·왼쪽 초록 네모 흰 "N"(`aria-hidden`)·글 `#1F1F1F`, 구글 흰 바탕·`#747775` 1px·글 `#1F1F1F`. 폭 가득, 높이 3rem(48px), 글 17px 굵게. 잠긴 동안은 공통 잠금 모양(회색 — 명암비 3:1 이상). 그림 파일 없음.
+
+### Playwright 묶음 (apps/web/playwright.config.ts)
+| 프로젝트 | 화면 | 서버 | 가짜 OAuth | 고르는 시험 |
+|---|---|---|---|---|
+| `chromium-social` | 5181+offset | 3109+offset | 4104+offset (세 공급자) | 제목에 `@social` (`@social-one`은 아님) |
+| `chromium-social-one` | 5182+offset | 3110+offset | 4105+offset (`--social-providers google`) | 제목에 `@social-one` |
+- 기본 `chromium` 묶음의 `grepInvert`에 `@social`(둘 다 걸림). 가짜 OAuth 주소는 `fakeOAuthUrl(testInfo.project.name)`(`apps/web/playwright.config.ts`에서 가져온다).
+- 이 트랙 E2E 포트: `E2E_PORT_OFFSET=18500` → 화면 23681·서버 21609·가짜 OAuth 22604(셋 다), 23682·21610·22605(구글 하나).
+
+### 시험(test-e2e)에게 — 화면에서 잡는 법
+- 로그인 화면: `getByRole('button', { name: '카카오로 계속하기' })`(네이버 버튼의 "N"은 접근 이름에 안 들어간다 — 글은 `N네이버로 계속하기`), 결과 문장 `getByRole('alert')`, "또는"은 `getByText('또는')`.
+- 설정: `getByRole('region', { name: '로그인 방법' })` 안에서 `getByRole('button', { name: '카카오 연결하기' })`·`'카카오 연결 끊기'`, 결과·끊음 문장은 그 칸의 `role=status`(성공)·`role=alert`(오류), 목록은 `getByRole('list', { name: '로그인 방법 목록' })`.
+- 가짜 사용자는 기본으로 없다 — 먼저 `POST <fakeOAuthUrl>/_fake/users`로 만들고 승인 화면에서 `input[data-user="<id>"]`를 고른다(안 고르면 첫 사용자).
+- 손으로 확인함(이 노트를 쓸 때, 390×844 크로미움, 오프셋 18500 서버): 세 공급자 각각 연결 → `LINKED` 문장·가린 이름(네이버 이메일 없음 → "네이버 계정") → 쿠키 지우고 "…로 계속하기" → 홈 "시험 가게" → 취소 → `CANCELLED` 문장, 연결 안 된 카카오 사용자 → `NOT_LINKED` 문장·아이디 칸 커서, 끊기 → 문장·"연결 안 됨". 버튼 358×48, 가로 스크롤 없음.
+
+### 바꾼 기존 시험
+- `apps/web/test/main.test.tsx` — "처음 하는 일은 로그인 확인 하나"는 그대로(첫 요청 `/api/me`를 단언으로 더함), 로그인 화면이 뜬 뒤 같은 출처 `GET /api/client-config`(간편 로그인 버튼용, AC-L1-20)를 허용 목록에 더했다. 외부 호출·다른 경로 없음은 그대로 검사.
+
+### 실행
+- 화면 단위: `TZ=UTC npx vitest run --project web apps/web/test/l1-social-login.test.tsx apps/web/test/e2e-config.node.test.ts` (저장소 뿌리에서)
