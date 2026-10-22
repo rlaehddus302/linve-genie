@@ -114,6 +114,7 @@ export type LogCode =
   | 'PARCEL_TRACK_FAILED'
   | 'PARCEL_JOB_FAILED'
   | 'PARCEL_ADDRESSES_SWEPT'
+  | 'PARCEL_CARRIER_NOT_READY'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -192,6 +193,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   PARCEL_TRACK_FAILED: '택배 배송 조회가 실패했어요(마지막 상태 그대로, 다음 주기에 다시 해요)',
   PARCEL_JOB_FAILED: '택배 작업(조회·배송지 정리) 중 오류가 생겼어요(다음 주기에 다시 해요)',
   PARCEL_ADDRESSES_SWEPT: '보관 기간(주문 날짜 + 30일)이 지난 배송지를 지웠어요',
+  PARCEL_CARRIER_NOT_READY: '우체국 택배 연동 키가 있지만 실제 택배사 연결은 아직 없어 쓰지 않았어요(가짜 택배사는 시험 모드에서만)',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */

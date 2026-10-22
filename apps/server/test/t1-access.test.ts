@@ -26,8 +26,8 @@ async function everyCall(world: TestServer, cookie: string, buyer: string, updat
     ['접수', () => api.book([{ buyer }])],
     ['다시 확인', () => api.book([{ buyer }], D, rid('again'))],
     ['취소', () => api.cancel(buyer)],
-    ['운송장', () => api.waybill(buyer)],
-    ['운송장 전부', () => api.waybills()],
+    ['운송장', async () => api.waybill(buyer)],
+    ['운송장 전부', async () => api.waybills()],
     ['없는 경로', () => raw.get('/api/parcels/nothing')],
   ]
   const out: { name: string; status: number }[] = []

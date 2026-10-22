@@ -151,7 +151,7 @@ export interface ServerOptions {
    * noticeVersion = 지금 고지 판(시험만 바꾼다)
    */
   /** 서버 시작 때 남길 설정 경고 (값 없이 코드만 — 운영 설정 읽기가 정한다) */
-  readonly startupWarnings?: readonly 'INSTAGRAM_CONFIG_INSECURE'[]
+  readonly startupWarnings?: readonly ('INSTAGRAM_CONFIG_INSECURE' | 'PARCEL_CARRIER_NOT_READY')[]
   readonly tiktok?: {
     readonly settings?: TikTokSettings
     readonly libraryEnv?: readonly string[]

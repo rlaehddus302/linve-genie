@@ -9,6 +9,8 @@
 //   켜져 있는데 요금 표가 자리 표시이거나 포트원 설정이 비어 있으면 기동하지 않는다.
 // - 입금 확인(N3): 시험 모드(가짜 원천·시험용 입금 넣기 경로)는 늘 끈다(D-N3-12). 받아 오기 주기는 원천의 1~5분 그대로다.
 //   팝빌 연동 키(LIVEJJIM_POPBILL_LINK_ID·LIVEJJIM_POPBILL_SECRET_KEY, 선택 LIVEJJIM_POPBILL_TEST_BED=true)가 둘 다 있을 때만 실제 팝빌 전송을 쓴다 — 없으면 계좌조회 원천을 만들 수 없다.
+// - 택배 자동 접수(T1, D-T1-02): 운영 기동에는 택배사 어댑터가 없다(가짜 택배사는 E2E 기동·서버 시험만 — 설정에 "우체국 택배 — 준비 중"만 보인다).
+//   우체국 택배 연동 키(LIVEJJIM_EPOST_API_KEY — 계약 뒤 실제 어댑터를 만든 다음에 쓴다)는 값이 있는지만 본다: 있으면 "아직 쓰지 않음" 경고를 남긴다(값은 읽지 않는다).
 // - 오류 문장에 환경변수 값을 넣지 않는다.
 import { readBillingEnv } from './billing/config.ts'
 import { noneIssuer } from './billing/documents.ts'
@@ -57,6 +59,7 @@ export function productionServerOptions(
   }
   const libraryEnv = TIKTOK_LIBRARY_ENV_NAMES.filter((name) => (env[name] ?? '').trim() !== '')
   const popbill = readPopbillKeys(env)
+  const warnings = [...(instagram.warning === undefined ? [] : [instagram.warning]), ...((env['LIVEJJIM_EPOST_API_KEY'] ?? '').trim() === '' ? [] : (['PARCEL_CARRIER_NOT_READY'] as const))]
   return {
     ok: true,
     options: {
@@ -65,10 +68,12 @@ export function productionServerOptions(
       appOrigin: origin.origin,
       testPrinter: false,
       instagram: instagram.settings,
-      ...(instagram.warning === undefined ? {} : { startupWarnings: [instagram.warning] }),
+      ...(warnings.length === 0 ? {} : { startupWarnings: warnings }),
       tiktok: { settings: readTikTokSettings(env), libraryEnv },
       deposits: { testMode: false, popbill: popbill === null ? null : popbillHttpTransport(popbill) },
       billing,
+      // 택배사 어댑터 없음 (T1 — 가짜 택배사는 고를 수 없고 바깥으로 나가는 택배사 연결이 없다)
+      parcel: { carriers: {} },
     },
   }
 }
