@@ -193,7 +193,7 @@ export class StreamHub {
     this.#publishNamed(sellerId, { kind: 'tiktok', data })
   }
 
-  /** I2 포장·배송(packing, AC-I2-32)·가게 설정(shop, AC-I2-13) 알림 (그 판매자의 연결 전부 — 다른 판매자의 연결은 받지 않는다). 보조자 연결은 받지 않는다 — 보조자는 포장·설정을 쓰지 않는다 (SYS-04) */
+  /** I2 포장·배송(packing, AC-I2-32)·가게 설정(shop, AC-I2-13)·L1 로그인 방법(login — 간편 로그인 연결·끊기, { kind: 'methods' }) 알림 (그 판매자의 연결 전부 — 다른 판매자의 연결은 받지 않는다). 보조자 연결은 받지 않는다 — 보조자는 포장·설정을 쓰지 않는다 (SYS-04) */
   publishNamed(sellerId: string, kind: 'packing' | 'shop' | 'login', data: Readonly<Record<string, unknown>>): void {
     this.#publishNamed(sellerId, { kind, data })
   }
