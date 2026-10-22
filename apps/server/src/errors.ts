@@ -145,6 +145,8 @@ export type ErrorCode =
   | 'CORP_NOT_ALLOWED'
   // L1 간편 로그인
   | 'LOGIN_METHOD_LAST'
+  // A1 AI 제안: 켜기에 동의가 없음
+  | 'CONSENT_REQUIRED'
 
 export interface ErrorBody {
   readonly error: {

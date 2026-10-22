@@ -112,6 +112,12 @@ export type LogCode =
   | 'DEPOSIT_NOTIFY_FAILED'
   // L1 간편 로그인 (D-L1-04): 공급자 이름·결과 코드(reason)·오류 종류·HTTP 상태만
   | 'SOCIAL_LOGIN'
+  // A1 AI 제안 (D-A1-06): 정해진 코드·판매자 ID·HTTP 상태·개수만. 키·댓글 글(원문·가린 것)·요청·응답 본문·모델이 돌려준 글은 남기지 않는다
+  | 'ASSIST_HTTP_ERROR'
+  | 'ASSIST_TIMEOUT'
+  | 'ASSIST_NETWORK'
+  | 'ASSIST_FAILED'
+  | 'ASSIST_NO_SUGGESTION'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -186,6 +192,11 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   DEPOSIT_APPLY_FAILED: '입금 자동 확인을 적지 못해 확인 필요로 남겼어요',
   DEPOSIT_NOTIFY_FAILED: '입금 확인 알림을 보내지 못했어요(기록은 저장됨)',
   SOCIAL_LOGIN: '간편 로그인 결과',
+  ASSIST_HTTP_ERROR: 'AI 제안 요청이 오류로 끝났어요(규칙 제안은 그대로)',
+  ASSIST_TIMEOUT: 'AI 제안 요청이 15초 안에 끝나지 않았어요(규칙 제안은 그대로)',
+  ASSIST_NETWORK: 'AI 제안 요청을 보내지 못했어요(규칙 제안은 그대로)',
+  ASSIST_FAILED: 'AI 제안을 처리하다 오류가 생겼어요(규칙 제안은 그대로)',
+  ASSIST_NO_SUGGESTION: 'AI 답에서 검사를 통과하지 못한 항목을 제안 없음으로 두었어요',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */

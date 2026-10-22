@@ -56,6 +56,7 @@ import { YoutubeSystem, checkYoutubeConfig, type LinkHooks, type YoutubeConfig }
 import { realTimer, type Timer } from './youtube/timer.ts'
 import { checkSocialSetup, type SocialLoginSetup } from './social/providers.ts'
 import { SocialLogin } from './social/service.ts'
+import { AssistService, checkAssistSetup, type AssistSetup } from './assist/service.ts'
 
 /** 스냅샷 간격 상한 (AC-S04-28: 일정 이벤트 수, 최대 500) */
 export const MAX_SNAPSHOT_EVERY = 500
@@ -183,6 +184,13 @@ export interface ServerOptions {
   readonly socialLogin?: SocialLoginSetup
   /** 간편 로그인 시험 주입점 (쓴 표시 직후·로그인 연결을 찾은 뒤 세션 거래 전 — 동시 사용 시험) */
   readonly socialHooks?: { readonly afterClaim?: () => void | Promise<void>; readonly beforeLoginSession?: () => void | Promise<void> }
+  /**
+   * AI 확인 필요 제안 (A1, D-A1-04·D-A1-08). 운영 기동은 productionServerOptions가 환경 변수로 키·모델·상한만 만든다(주소는 고정 https://api.anthropic.com).
+   * 주소 바꾸기·http 허용·어댑터 바꾸기는 시험·E2E·연습 기동만(가짜 LLM 서버). 없거나 키가 없으면 AI 제안을 쓸 수 없다(규칙 제안만 — 지금과 같다)
+   */
+  readonly assist?: AssistSetup
+  /** AI 제안 시험 주입점 (호출 기록을 넣은 뒤 어댑터를 부르기 직전 — 동시·끄기 시험) */
+  readonly assistHooks?: { readonly beforeCall?: () => void | Promise<void> }
 }
 
 export interface LivejjimServer {
@@ -215,6 +223,8 @@ export interface LivejjimServer {
   readonly deposits: DepositService
   /** 간편 로그인 (L1 — 설정이 없으면 켜진 공급자가 없다) */
   readonly social: SocialLogin
+  /** AI 확인 필요 제안 (A1 — 키가 없으면 규칙 제안만) */
+  readonly assist: AssistService
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
   /** 유튜브 연동 (설정이 있을 때만) */
@@ -267,6 +277,11 @@ export function createServer(options: ServerOptions): LivejjimServer {
 
   if (options.socialLogin !== undefined) {
     const problem = checkSocialSetup(options.socialLogin)
+    if (problem !== null) throw new TypeError(problem)
+  }
+
+  if (options.assist !== undefined) {
+    const problem = checkAssistSetup(options.assist)
     if (problem !== null) throw new TypeError(problem)
   }
 
@@ -377,7 +392,17 @@ export function createServer(options: ServerOptions): LivejjimServer {
     onPrinted: billing.onLabelPrinted,
   })
   const printService = print
+  const assist = new AssistService({
+    db,
+    writer,
+    clock,
+    masterKey,
+    log,
+    setup: options.assist ?? null,
+    ...(options.assistHooks === undefined ? {} : { hooks: options.assistHooks }),
+  })
   const service = new Service({
+    assist,
     db,
     writer,
     masterKey,
@@ -553,6 +578,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       sealer,
       trustedProxies,
       social,
+      assist,
     },
     https: options.appOrigin.startsWith('https://'),
     web: options.webDir === undefined ? null : createWebServer(options.webDir),
@@ -590,6 +616,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     work,
     deposits,
     social,
+    assist,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     start: () => {
       youtube?.start()

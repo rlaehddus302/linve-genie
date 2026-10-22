@@ -15,6 +15,7 @@
 //   시험용 조작 경로 /_e2e/*(새 판매자 계정·봉인 시험 날짜·지금 봉인) — 이 기동에서만 앞에 붙는다(서버 앱에는 없다).
 // - 선택: 가짜 웹캐스트(tiktok: true, N2b-2 AC-N2b-2-73·80) — 틱톡 운영자 스위치를 켜고 연결 객체가 가짜 웹캐스트를 쓴다.
 //   시험이 댓글·끊김·막힘을 넣는 경로 /_e2e/tiktok/*는 이 기동에서만 있다(운영 서버 시작 경로에는 없다 — 운영은 실제 감싸개 libraryWebcast()).
+// - 선택: 가짜 LLM 서버(assist, A1 AC-A1-11) — 127.0.0.1의 빈 포트(또는 정한 포트)에 띄우고 AI 제안을 그 주소·가짜 키(fake-assist-key)로 켠다. 상한을 작게 줄 수 있다.
 // - 선택: 가짜 OAuth 서버(social, L1 AC-L1-12) — 127.0.0.1의 빈 포트(또는 정한 포트)에 띄우고 간편 로그인 공급자(구글·카카오·네이버 중 고른 것)를 그 주소로 켠다.
 //   조작은 그 서버의 /_fake/* (harness/sprints/L1/dev-notes.md "시험에게"). 운영 기동에는 없다.
 import { randomBytes, randomInt } from 'node:crypto'
@@ -40,6 +41,7 @@ import type { Draft } from './writer.ts'
 import { FakeGoogle } from './youtube/fake-google.ts'
 import type { OutboxTiming } from './youtube/outbox.ts'
 import { FakeOAuth } from './social/fake-oauth.ts'
+import { FakeLlm } from './assist/fake-llm.ts'
 import type { ProviderId } from './social/providers.ts'
 
 /** 시험용 판매자 계정 (저장소의 픽스처 파일 — 실제 비밀값이 아니다) */
@@ -174,6 +176,11 @@ export interface E2eOptions {
    * 돌아오는 주소는 화면 주소 + /api/auth/<p>/callback(화면이 /api를 서버로 넘긴다) — 가짜 서버에도 그 주소를 등록한다. 기본 꺼짐(지금과 같다)
    */
   readonly social?: { readonly port?: number; readonly providers?: readonly ProviderId[] }
+  /**
+   * 선택: 가짜 LLM 서버(A1 AC-A1-11) — 127.0.0.1의 빈 포트(또는 정한 포트)에 띄우고 AI 제안을 그 주소·가짜 키로 켠다.
+   * dailyLimit·globalLimit = 판매자·서버 전체 하루 상한(기본 20·500, 시험은 작게), timeoutMs = 호출 시간 제한(기본 15초). 없으면 키 없음(지금과 같다)
+   */
+  readonly assist?: { readonly port?: number; readonly dailyLimit?: number; readonly globalLimit?: number; readonly timeoutMs?: number }
 }
 
 /** E2E의 발송함 시간 (게시 응답 3초 · 확인 시간 5초 · 끝 조회 간격 2초 · 다시 시도 0.5·1·2…초) */
@@ -355,6 +362,8 @@ export interface E2eServer {
   readonly fakeWebcast: FakeWebcast | null
   /** 가짜 OAuth 서버 (social을 주었을 때만, L1) */
   readonly fakeOAuth: FakeOAuth | null
+  /** 가짜 LLM 서버 (assist를 주었을 때만, A1) */
+  readonly fakeLlm: FakeLlm | null
   /** E2E_HOST(127.0.0.1)의 그 포트에서 연다 (0이면 빈 포트). 연 주소·포트를 돌려준다. 열지 못하면(포트를 이미 씀 등) 그 오류로 실패한다 */
   listen(port: number): Promise<{ readonly host: string; readonly port: number }>
   close(): Promise<void>
@@ -384,6 +393,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
           ...(options.social.port === undefined ? {} : { port: options.social.port }),
           redirectUris: Object.fromEntries(socialProviders.map((provider) => [provider, `${appOrigin}/api/auth/${provider}/callback`])),
         })
+  const fakeLlm = options.assist === undefined ? null : await FakeLlm.start(options.assist.port === undefined ? {} : { port: options.assist.port })
   const server = createServer({
     database,
     masterKey,
@@ -413,6 +423,15 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
         }),
     ...(options.webDir === undefined ? {} : { webDir: options.webDir }),
     ...(fakeOAuth === null ? {} : { socialLogin: fakeOAuth.setup({ providers: socialProviders }) }),
+    ...(fakeLlm === null || options.assist === undefined
+      ? {}
+      : {
+          assist: fakeLlm.setup({
+            ...(options.assist.dailyLimit === undefined ? {} : { dailyLimit: options.assist.dailyLimit }),
+            ...(options.assist.globalLimit === undefined ? {} : { globalLimit: options.assist.globalLimit }),
+            ...(options.assist.timeoutMs === undefined ? {} : { timeoutMs: options.assist.timeoutMs }),
+          }),
+        }),
     ...(options.hostActionDelayMs === undefined ? {} : { hostActionDelayMs: options.hostActionDelayMs }),
     ...(options.generatorSpeed === undefined ? {} : { generatorSpeed: options.generatorSpeed }),
     ...(options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost }),
@@ -450,6 +469,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     fakeMeta,
     fakeWebcast,
     fakeOAuth,
+    fakeLlm,
     listen: (port) =>
       new Promise((resolve, reject) => {
         const failed = (error: Error) => reject(error)
@@ -476,6 +496,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
       })
       await fakeMeta?.close()
       await fakeOAuth?.close()
+      await fakeLlm?.close()
       await database.close()
       if (ownBackupDir) rmSync(backupDir, { recursive: true, force: true })
     },
