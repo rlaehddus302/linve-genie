@@ -672,15 +672,17 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
 //   tiktok/*.json은 러너가 읽지 않는다) = 파일 33 · 파서 500 · 엔진 141 · 통과 641. N4b는 골든을 더하지 않는다 (교체 — 약화 아님).
 // O1 합치기(main c4defc7): main 파일 33 · 파서 500 · 엔진 141 · 통과 641 + O1(parser/comment-options.yaml 89사례·engine/23-o1-options.yaml G-ENG-O1-01~11·
 //   engine/23-o0-strict-regression.yaml G-ENG-O0-01·parser/chat.yaml O0 회귀 7사례, AC-O1-35 — +3·+96·+12·+108) = 파일 36 · 파서 596 · 엔진 153 · 통과 749 (교체 — 약화 아님).
-describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + Y1 + I3 + N2 + I2 + N3 + N5 + N2b-2 + O1 합계)', () => {
-  it('파일 36 · 파서 596 · 엔진 153 · 통과 749, 나머지 0', () => {
+// O2 합치기(main fa12810): main 파일 36 · 파서 596 · 엔진 153 · 통과 749 + O2(engine/24-o2-review-ui.yaml G-ENG-O2-01·02, AC-O2-62 — 새 엔진 규칙 없음, +1·+0·+2·+2)
+//   = 파일 37 · 파서 596 · 엔진 155 · 통과 751 (실제 pnpm golden 결과, 교체 — 약화 아님, SA-O2-02).
+describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + Y1 + I3 + N2 + I2 + N3 + N5 + N2b-2 + O1 + O2 합계)', () => {
+  it('파일 37 · 파서 596 · 엔진 155 · 통과 751, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
-      files: 36,
+      files: 37,
       parserCases: 596,
-      scenarios: 153,
-      pass: 749,
+      scenarios: 155,
+      pass: 751,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,
