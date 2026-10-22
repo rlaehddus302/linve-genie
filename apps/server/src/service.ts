@@ -48,7 +48,6 @@ import { productOwners } from './product-history.ts'
 import { reviewsView, type ReviewsView } from './reviews.ts'
 import { mergePackingCheck } from './packing.ts'
 import { ASSISTANT_EVENT_TYPES, assistantCancelCheck, assistantForbidden } from './roles.ts'
-import { SALE_MODE_NOT_YET_FIELD_MESSAGE, SALE_MODE_NOT_YET_MESSAGE, usesNotYetSaleMode } from './sale-mode.ts'
 import { openSellerKey, phoneKeyOf } from './secrets.ts'
 import {
   actionRows,
@@ -262,9 +261,6 @@ export interface HistoryItem {
 
 const rejection = (status: number, code: Rejection['code'], message: string, problems: readonly FieldProblem[] = []): Rejection => ({ status, code, message, problems })
 const invalidInput = (problems: readonly FieldProblem[]): Rejection => rejection(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', problems)
-/** 아직 쓸 수 없는 판매 방식 (claim.parseMode=OPTIONS, RA-O1-01 — O2에서 풂) */
-const saleModeNotYet = (status: 400 | 422): Rejection =>
-  rejection(status, 'NOT_SUPPORTED', SALE_MODE_NOT_YET_MESSAGE, [{ field: 'settings.claim.parseMode', message: SALE_MODE_NOT_YET_FIELD_MESSAGE }])
 
 const notFound = { kind: 'not_found' } as const
 /** 코드 포인트 수 (이모지 하나 = 1) */
@@ -333,15 +329,13 @@ export class Service {
     if (own(record, 'settlement.groupBy') === 'MANUAL') {
       return { ok: false, rejection: rejection(400, 'NOT_SUPPORTED', '아직 지원하지 않는 설정이에요.', [{ field: 'settings.settlement.groupBy', message: '아직 지원하지 않아요.' }]) }
     }
-    // 옵션 방송은 아직 서버·화면·라벨이 모른다 (RA-O1-01) — O2에서 풂
-    if (usesNotYetSaleMode(record)) return { ok: false, rejection: saleModeNotYet(400) }
     const saved = await this.#options.db.transaction(async (tx) => {
       await tx.select({ id: sellers.id }).from(sellers).where(eq(sellers.id, sellerId)).for('update')
       const next = { ...(await this.#settingsOverride(tx, sellerId)), ...record }
       // 저장된 값과 합친 뒤 함께 둘 수 없는 값(옵션 방식 + 실제 시각순, R-19 "판매 방식", AC-O2-03)이면 그 칸의 문장으로 거절한다
       const merged = checkSettings(next)
       if (merged.length > 0) return { problems: merged.map((problem) => ({ field: problem.key === null ? 'settings' : `settings.${safeFieldName(problem.key) ?? ''}`, message: problem.message })) }
-      if (next['settlement.groupBy'] === 'MANUAL' || usesNotYetSaleMode(next)) return null
+      if (next['settlement.groupBy'] === 'MANUAL') return null
       await tx.update(sellers).set({ settings: JSON.stringify(next) }).where(eq(sellers.id, sellerId))
       return { next }
     })
@@ -411,8 +405,6 @@ export class Service {
     const date = input.date ?? kstDate(this.#options.clock.now())
     const rehearsal = input.rehearsal === true
     const settings = withSaleMode(resolveSettings(await this.#settingsOverride(db, sellerId)), input.saleMode)
-    // 옵션 방송은 아직 서버·화면·라벨이 모른다 (RA-O1-01) — 저장된 설정에 남아 있어도 방송을 만들지 않는다. O2에서 풂
-    if (usesNotYetSaleMode(settings)) return { kind: 'rejected', rejection: saleModeNotYet(422) }
     const b = ids.broadcast()
     // 요금 (N5, BL-4): 실제 방송이고 요금 기능이 켜져 있으면 broadcast.start·방송 행과 같은 트랜잭션에서 이용 방식을 정한다 — 없으면 422 NO_PASS로 전체를 되돌린다
     const billing = !rehearsal && this.#options.billing?.enabled === true ? this.#options.billing : null
