@@ -3,6 +3,8 @@
 // - 미리 보기는 출력과 같은 렌더러의 1비트 그림(판매자 샘플 또는 가장 긴 값).
 // - 저장 전: 템플릿 검사 오류면 저장 단추가 막히고 칸 옆에 문장. 최악값으로 그려 들어가지 않으면 저장하지 않고 그 항목을 알린다. 겹침은 경고만.
 // - 다른 기기가 먼저 바꿨으면 서버 문장과 "새로 불러오기".
+// - 옵션 방송(상품명·옵션도 받기)이 하나라도 있는 판매자가 품종 칸을 끈 상품 템플릿을 고르거나 저장하면 안내 한 줄 — 막지 않는다 (D-O4-07, AC-O4-26).
+//   옵션 방송이 있는지는 참/거짓만 주는 조회(GET /api/option-broadcasts/exists, D-O4-13)로 본다. 품종 칸을 끌 때만 묻고, 조회를 못 하면 안내를 보인다.
 import {
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
@@ -28,7 +30,7 @@ import {
   type TemplateProblem,
 } from '@livejjim/label'
 import { useEffect, useId, useMemo, useState } from 'react'
-import { isApiError, put, type ApiError } from '../api/client.ts'
+import { get, isApiError, put, type ApiError } from '../api/client.ts'
 import type { StoredTemplate } from '../api/print-types.ts'
 import { checkTemplate, labelErrorMessage, renderSample, type PagesOutcome } from '../lib/label-render.ts'
 import { ErrorNote } from './ErrorNote.tsx'
@@ -45,6 +47,34 @@ const MOVE_STEP = 4
 const FONT_STEP = 2
 
 const SIZE_WORD = (size: LabelSizeId): string => `${size.replace('x', '×')}mm`
+
+/** 품종 칸을 끈 템플릿 안내 (D-O4-07) */
+export const NAME_OFF_OPTIONS_NOTE = '품종 칸을 끄면 사이즈·색상 같은 옵션이 라벨에 찍히지 않아요.'
+
+/**
+ * 옵션 방송이 하나라도 있는가 (실제·리허설, D-O4-13). ask가 참일 때 한 번만 묻는다 — 참/거짓만 주는 가벼운 조회
+ * GET /api/option-broadcasts/exists(확인 필요 목록은 부르지 않는다). 조회가 실패하면 참으로 본다(안내 한 줄이 더 보일 뿐 — 막지 않는다).
+ */
+function useHasOptionBroadcasts(ask: boolean): boolean {
+  const [known, setKnown] = useState<boolean | null>(null)
+  const asked = known !== null || !ask
+  useEffect(() => {
+    if (asked) return
+    let alive = true
+    void get<{ exists?: unknown }>('/api/option-broadcasts/exists').then(
+      (view) => {
+        if (alive) setKnown(view.exists !== false)
+      },
+      () => {
+        if (alive) setKnown(true)
+      },
+    )
+    return () => {
+      alive = false
+    }
+  }, [asked])
+  return known === true
+}
 
 const PRICE_CHOICES: readonly { readonly value: PriceStyle; readonly word: string }[] = [
   { value: 'THOUSAND', word: '천원 단위 (예: 8 천원)' },
@@ -122,6 +152,8 @@ function TemplateEditor({ kind }: { readonly kind: Kind }) {
         ? `한 장에 넣을 번호 수는 ${String(PER_PAGE_MIN)}~${String(PER_PAGE_MAX)} 사이로 정해 주세요.`
         : (problemsAt(problems, 'perPage')[0] ?? null)
   const blocked = problems.length > 0 || shopTooLong || perPageProblem !== null
+  const nameOff = template?.kind === 'product' && !template.items.name.visible
+  const hasOptions = useHasOptionBroadcasts(nameOff)
 
   const preview: PagesOutcome | null = useMemo(() => {
     if (env.state !== 'ready' || template === null || problems.length > 0) return null
@@ -358,6 +390,11 @@ function TemplateEditor({ kind }: { readonly kind: Kind }) {
             {problem.message}
           </p>
         ))}
+        {nameOff && hasOptions ? (
+          <p className="notice" role="note" data-tone="warning">
+            {NAME_OFF_OPTIONS_NOTE}
+          </p>
+        ) : null}
         {warnings.length > 0 ? (
           <ul className="plain-list warning" aria-label="겹침 경고">
             {warnings.map((warning) => (

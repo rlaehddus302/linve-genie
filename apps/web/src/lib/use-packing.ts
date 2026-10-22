@@ -5,6 +5,12 @@ import { get, isApiError, type ApiError } from '../api/client.ts'
 import type { PackingEntry, PackingList, Settlement } from '../api/types.ts'
 import { settlementKey, type ScopeData } from './scope-data.ts'
 
+/** 품목 키(옵션 찜은 변형 키 `<방송>/<번호>#<옵션 글>`)의 상품 키 — 품종은 상품에 있다 (O4: 옵션 품목의 품종이 바뀌어도 다시 받게) */
+export function productKeyOfItem(key: string): string {
+  const at = key.indexOf('#')
+  return at < 0 ? key : key.slice(0, at)
+}
+
 /**
  * 포장·확인서에 닿는 범위 자료의 모양: 그날 묶음(구매자·품목·상품 합계·입금 상태)·품목의 품종·구매자 표시 이름·방송 제목.
  * 이 값이 같으면 포장 목록(품목의 가격 스냅샷 포함)·확인서 그림도 같다(채팅만 들어온 변경은 다시 받지 않는다).
@@ -15,7 +21,7 @@ export function closingSignature(data: ScopeData): string {
   for (const settlement of data.settlements.values()) {
     if (settlement.date !== data.date) continue
     const buyer = data.buyers.get(settlement.buyer)
-    parts.push([settlement.buyer, buyer?.display ?? '', settlement.payment, settlement.items, settlement.subtotal, settlement.items.map((key) => data.products.get(key)?.name ?? '')])
+    parts.push([settlement.buyer, buyer?.display ?? '', settlement.payment, settlement.items, settlement.subtotal, settlement.items.map((key) => data.products.get(productKeyOfItem(key))?.name ?? '')])
   }
   for (const broadcast of data.broadcasts.values()) parts.push([broadcast.id, broadcast.title])
   return JSON.stringify(parts)
@@ -40,7 +46,7 @@ export function packingLabelSignature(data: ScopeData, buyer: string): string {
 export function receiptSignature(data: ScopeData, settlement: Settlement): string {
   const buyer = data.buyers.get(settlement.buyer)
   const titles = [...data.broadcasts.values()].map((broadcast) => [broadcast.id, broadcast.title])
-  return JSON.stringify([settlement, buyer?.display ?? '', buyer?.phoneLast4 ?? null, settlement.items.map((key) => data.products.get(key)?.name ?? ''), titles])
+  return JSON.stringify([settlement, buyer?.display ?? '', buyer?.phoneLast4 ?? null, settlement.items.map((key) => data.products.get(productKeyOfItem(key))?.name ?? ''), titles])
 }
 
 export function useClosingSignature(data: ScopeData): string {

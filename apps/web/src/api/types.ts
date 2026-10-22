@@ -285,6 +285,10 @@ export interface PackingItem {
   readonly price: number
   /** 상품 ID (번호를 바꿔도 그대로 — D-I2-19). 품목은 (상품 ID, 상품 키) 쌍으로 견준다. 없으면 상품 키만 */
   readonly id?: string
+  /** 옵션 글 (옵션 없는 찜이면 null — O3 D-O3-10). 없으면 null로 본다 */
+  readonly variant?: string | null
+  /** 수량 = 그 키의 확정 찜 수량 합 (O3). 없으면 1로 본다 */
+  readonly qty?: number
 }
 
 export interface PackingRemoved {
@@ -296,6 +300,10 @@ export interface PackingRemoved {
   readonly name?: string
   /** 포장 때 상품 ID (이 결정 전 기록은 null) */
   readonly id?: string | null
+  /** 포장 때 옵션 글 (O3 D-O3-14). 없으면 null로 본다 */
+  readonly variant?: string | null
+  /** 포장 때 수량 (O3 D-O3-14). 없으면 1로 본다 */
+  readonly qty?: number
 }
 
 /** 포장 목록 한 줄 = 묶음 (GET /api/days/:date/packing) */
@@ -345,7 +353,10 @@ export interface PastItem {
   readonly broadcasts: readonly string[]
   readonly name: string
   readonly phoneLast4: string | null
-  readonly items: readonly { readonly title: string; readonly no: number; readonly name: string; readonly price: number }[]
+  /**
+   * 품목: price = 단가, variant = 옵션 글(없으면 null), qty = 수량, amount = 찜 금액(코어 값 그대로 — 없으면 null, 화면은 금액 칸을 비운다, D-O4-06)
+   */
+  readonly items: readonly { readonly title: string; readonly no: number; readonly name: string; readonly price: number; readonly variant: string | null; readonly qty: number; readonly amount: number | null }[]
   readonly subtotal: number
   readonly shipping: number
   readonly adjustments: number

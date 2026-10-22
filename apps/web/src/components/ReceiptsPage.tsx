@@ -20,6 +20,7 @@ import { dateDashWeekday } from '../lib/kst.ts'
 import { canShareText, copyText, linkWords, shareLinkText, shareText, usableLink } from '../lib/receipt-links.ts'
 import { routePath, type Navigate } from '../lib/router.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
+import { productKeyOfItem } from '../lib/use-packing.ts'
 import { useScopeStore } from '../lib/use-store.ts'
 import { PAYMENT_WORD } from '../lib/words.ts'
 import { ledgerPath } from './LedgerDialog.tsx'
@@ -127,7 +128,7 @@ export function receiptRowsSignature(data: ScopeData): string {
   for (const settlement of data.settlements.values()) {
     if (settlement.date !== data.date) continue
     const buyer = data.buyers.get(settlement.buyer)
-    parts.push([settlement, buyer?.display ?? '', buyer?.phoneLast4 ?? null, buyer?.mergedInto ?? null, settlement.items.map((key) => data.products.get(key)?.name ?? '')])
+    parts.push([settlement, buyer?.display ?? '', buyer?.phoneLast4 ?? null, buyer?.mergedInto ?? null, settlement.items.map((key) => data.products.get(productKeyOfItem(key))?.name ?? '')])
   }
   for (const broadcast of data.broadcasts.values()) parts.push([broadcast.id, broadcast.title])
   return JSON.stringify(parts)

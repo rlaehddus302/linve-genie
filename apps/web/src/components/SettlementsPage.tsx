@@ -22,10 +22,11 @@ import { BuyerNames } from '../lib/derive.ts'
 import { dateYear, kstShort } from '../lib/kst.ts'
 import { ADJUST_RANGE, PAYMENT_RANGE, SHIPPING_RANGE, readAmount, refundRange } from '../lib/money.ts'
 import { routePath, type Navigate, type ScopeRoute } from '../lib/router.ts'
+import { saleLine } from '../lib/sale-line.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
 import { settlementKey } from '../lib/scope-data.ts'
 import { PACKING_TONE, packingWords } from '../lib/packing.ts'
-import { filterSettlements, paymentChange, previewWith, remainingOf, sortSettlements, summarize, type PaymentFilter, type PreviewEntry } from '../lib/settlement.ts'
+import { filterSettlements, paymentChange, previewWith, quantityCounts, remainingOf, sortSettlements, summarize, type PaymentFilter, type PreviewEntry } from '../lib/settlement.ts'
 import { receiptSignature, useClosingSignature, usePackingList } from '../lib/use-packing.ts'
 import { useScopeStore } from '../lib/use-store.ts'
 import { useWide } from '../lib/use-wide.ts'
@@ -299,6 +300,7 @@ function linkClick(event: MouseEvent<HTMLAnchorElement>, go: () => void): void {
 
 /** 휴대폰: 카드 (AC-S06-30 그대로) */
 function SettlementCards({ data, names, list, marks, onOpen }: RowsProps) {
+  const counts = useMemo(() => quantityCounts(data), [data.claims, data.settlements, data.broadcasts, data.date])
   return (
     <ul className="plain-list settlement-grid" aria-label="정산 묶음">
       {list.map((item) => (
@@ -310,7 +312,9 @@ function SettlementCards({ data, names, list, marks, onOpen }: RowsProps) {
           >
             <strong className="buyer-name">{names.name(item.buyer)}</strong>
             <span className={`tag pay-${item.payment}`}>{paymentWord(item.payment, item.refundDue)}</span>
-            <span>상품 {item.items.length}개 · {formatWon(item.subtotal)}</span>
+            <span>
+              상품 {counts.get(settlementKey(item)) ?? item.items.length}개 · {formatWon(item.subtotal)}
+            </span>
             <span>배송비 {shippingWords(item)}</span>
             <span>조정 {signedWon(item.adjustments)}</span>
             <span>최종 {formatWon(item.total)}</span>
@@ -325,6 +329,7 @@ function SettlementCards({ data, names, list, marks, onOpen }: RowsProps) {
 
 /** PC: 열 머리가 있는 표 — 한 줄 = 한 묶음, 금액 열은 오른쪽, 이름 칸의 링크로 자세히 (AC-S06b-21) */
 function SettlementTable({ data, names, list, marks, onOpen }: RowsProps) {
+  const counts = useMemo(() => quantityCounts(data), [data.claims, data.settlements, data.broadcasts, data.date])
   return (
     <div className="table-scroll">
       <table className="list-table" aria-label="정산 묶음">
@@ -361,7 +366,7 @@ function SettlementTable({ data, names, list, marks, onOpen }: RowsProps) {
                   {names.name(item.buyer)}
                 </a>
               </td>
-              <td className="num">{item.items.length}개</td>
+              <td className="num">{counts.get(settlementKey(item)) ?? item.items.length}개</td>
               <td className="num">{formatWon(item.subtotal)}</td>
               <td className="num num-words">
                 {item.shippingOverride === null ? null : `${SHIPPING_WORD[item.shippingOverride]} `}
@@ -424,6 +429,16 @@ export function primaryInput(payment: PaymentStatus): InputKind | null {
   return null
 }
 
+/**
+ * 정산 자세히 품목 한 줄 (U-O4-01, D-O4-06 — 지난 구매·포장과 같은 모양): `{번호}번 {품종}[ {옵션 글}][ {수량}개] {찜 금액}`.
+ * 찜 금액은 코어 값(단가 × 수량) 그대로, 없으면 금액 칸을 비운다(단가로 채우지 않는다). 옵션 없는 수량 1 줄은 이전 그대로.
+ */
+export function detailLineWords(claim: Pick<Claim, 'no' | 'variant' | 'qty' | 'amount'>, productName: string | undefined): string {
+  const name = productName === undefined ? '' : productName.trim() === '' ? '품종 미입력' : productName
+  const amount = claim.amount === null ? '' : ` ${formatWon(claim.amount)}`
+  return `${saleLine({ no: claim.no, name, variant: claim.variant, qty: claim.qty })}${amount}`
+}
+
 function SettlementDetail({ data, names, settlement, command, sync, onBack, mark, receiptSignature }: DetailProps) {
   const [input, setInput] = useState<InputKind | null>(null)
   const [saved, setSaved] = useState<Saved | null>(null)
@@ -470,17 +485,17 @@ function SettlementDetail({ data, names, settlement, command, sync, onBack, mark
         {empty ? <p>취소되어 품목이 없어요</p> : null}
         {groups.map(([b, list]) => {
           const title = data.broadcasts.get(b)?.title ?? ''
-          const sum = list.reduce((total, claim) => total + (claim.price ?? 0), 0)
+          // 방송 합계 = 찜 금액(단가 × 수량, 코어 값) 합 — 아래 "상품 합계"와 같은 셈 (U-O4-01)
+          const sum = list.reduce((total, claim) => total + (claim.amount ?? 0), 0)
           return (
             <div key={b} className="stack-tight">
               <h4 className="sub-title">{title}</h4>
               <ul className="plain-list">
                 {list.map((claim) => {
                   const product = data.products.get(claim.product)
-                  const name = product === undefined ? '' : product.name.trim() === '' ? '품종 미입력' : product.name
                   return (
                     <li key={claim.id}>
-                      {claim.no}번 {name} {claim.price === null ? '' : formatWon(claim.price)}
+                      {detailLineWords(claim, product?.name)}
                       {claim.buyer !== settlement.buyer ? ` · ${names.name(claim.buyer)}` : ''}
                     </li>
                   )

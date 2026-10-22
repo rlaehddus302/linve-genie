@@ -16,7 +16,7 @@ import { dateWords, kstToday } from '../lib/kst.ts'
 import { labelEnv } from '../lib/label-env.ts'
 import { canShareFile, downloadBytes, shareBytes } from '../lib/label-files.ts'
 import { a4PdfBytes, broadcastA4Name, labelErrorMessage, pngBytes, productPngName, renderJob, renderProduct, waitingA4Name } from '../lib/label-render.ts'
-import { KEEP_SCREEN_ON, PRINT_ACTION, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, replaceQuestion } from '../lib/print-words.ts'
+import { KEEP_SCREEN_ON, PRINT_ACTION, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, labelOptionWords, replaceQuestion } from '../lib/print-words.ts'
 import type { PrinterMethod } from '../lib/printer-station.ts'
 import type { Navigate } from '../lib/router.ts'
 import { ErrorNote } from './ErrorNote.tsx'
@@ -537,7 +537,8 @@ function HistorySection({ titleId }: { readonly titleId: string }) {
         {printed.map((label) => (
           <li key={label.key} className="job-row">
             <p className="job-main">
-              <strong>{label.kind === 'packing' ? '포장' : `${String(label.no ?? '')}번`}</strong> · {buyerWord(label.buyer)} <span className="tag">{label.word}</span>
+              <strong>{label.kind === 'packing' ? '포장' : `${String(label.no ?? '')}번`}</strong>
+              {label.kind === 'product' ? labelOptionWords(label.data) : ''} · {buyerWord(label.buyer)} <span className="tag">{label.word}</span>
             </p>
             <p>{historyWord(label)}</p>
           </li>
@@ -776,7 +777,8 @@ function ExportSection() {
               {winners.map((label) => (
                 <li key={label.key} className="job-row">
                   <p className="job-main">
-                    <strong>{label.no}번</strong> · {buyerWord(label.buyer)}
+                    <strong>{label.no}번</strong>
+                    {labelOptionWords(label.data)} · {buyerWord(label.buyer)}
                   </p>
                   <div className="row">
                     <button type="button" className="button button-small" disabled={busy} onClick={() => void savePng(label, false)}>

@@ -8,7 +8,7 @@ interface PastItem {
   buyer: string
   name: string
   broadcasts: string[]
-  items: { title: string; no: number; name: string; price: number }[]
+  items: { title: string; no: number; name: string; price: number; variant: string | null; qty: number; amount: number | null }[]
   subtotal: number
   total: number
   payment: string
@@ -57,7 +57,8 @@ describe('AC-I2-40 지난 구매 조회', () => {
         buyer: 'UC_A',
         name: '홍길동',
         broadcasts: ['18일 방송'],
-        items: [{ title: '18일 방송', no: 15, name: '핑크프릴', price: 10000 }],
+        // O4 D-O4-06: 옵션 글·수량·찜 금액을 더 싣는다 (다육 찜은 옵션 없음·수량 1·금액 = 단가)
+        items: [{ title: '18일 방송', no: 15, name: '핑크프릴', price: 10000, variant: null, qty: 1, amount: 10000 }],
         subtotal: 10000,
         total: 14000,
         payment: 'UNPAID',

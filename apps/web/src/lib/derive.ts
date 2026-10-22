@@ -1,6 +1,7 @@
 // 범위 조회 결과에서 화면에 보일 값 고르기 (AC-S05-14·21·30). 판정은 하지 않는다 — 코어 조회 함수 결과를 고르고 낱말로 바꾸기만 한다.
 import type { Buyer, Claim, Product } from '../api/types.ts'
 import { kstTime } from './kst.ts'
+import { saleOptionWords } from './sale-line.ts'
 import type { ScopeData } from './scope-data.ts'
 import { claimStatusWord } from './words.ts'
 
@@ -166,8 +167,13 @@ export function isOptionBroadcast(data: Pick<ScopeData, 'broadcasts'>, b: string
   return data.broadcasts.get(b)?.settings['claim.parseMode'] === 'OPTIONS'
 }
 
-/** 찜 이름 뒤의 옵션 글·수량: " M", " L ×2" (옵션 없는 수량 1이면 빈 글) */
+/** 판매 줄의 옵션 글·수량: " M", " L 2개" (옵션 없는 수량 1이면 빈 글) — D-O4-10 판매 줄 한 모양(sale-line) */
 export function claimOptionWords(claim: Pick<Claim, 'variant' | 'qty'>): string {
+  return saleOptionWords(claim)
+}
+
+/** 채팅 패널 안의 판정 표시용 옵션 글·수량: " M", " L ×2" — 판매 줄이 아니다(D-O2-12 그대로, D-O4-10) */
+export function chatOptionWords(claim: Pick<Claim, 'variant' | 'qty'>): string {
   const variant = claim.variant === null ? '' : ` ${claim.variant}`
   return claim.qty > 1 ? `${variant} ×${String(claim.qty)}` : variant
 }

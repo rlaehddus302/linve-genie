@@ -620,7 +620,13 @@ export class ClosingService {
     if (!isValidDate(date)) return Promise.resolve(null)
     // 보고 있는 날짜는 보통 읽기, 다른 날짜들은 공용 캐시에 넣지 않는 읽기 (TD-I2-008)
     const writer = this.#deps.writer
-    return pastPurchases({ db: this.#deps.db, read: (day) => writer.read(sellerId, day, false), readOther: (day) => writer.readDetached(sellerId, day, false) }, sellerId, date, buyer, before)
+    return pastPurchases(
+      { db: this.#deps.db, read: (day) => writer.read(sellerId, day, false), readOther: (day) => writer.readDetached(sellerId, day, false), log: this.#deps.log },
+      sellerId,
+      date,
+      buyer,
+      before,
+    )
   }
 
   // ── 상품 목록 가져오기 (AC-I2-51) ──────────────────────────────────────

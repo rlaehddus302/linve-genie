@@ -476,10 +476,12 @@ export const PACKING_MESSAGES = {
   invoicePhone: '전화번호처럼 보여요. 송장번호를 확인해 주세요.',
 } as const
 
-/** 포장 완료가 보낸 품목 하나: 품목 키 글, 또는 { key, qty }(화면이 본 수량 — O3) */
+/** 포장 완료가 보낸 품목 하나: { key, qty }(화면이 본 수량 — O3·O4), 또는 품목 키 글(이전 화면 — 수량 1로 읽는다, D-O4-05) */
 export type SentItem = string | { readonly key: string; readonly qty: number }
 
 const sentKey = (item: SentItem): string => (typeof item === 'string' ? item : item.key)
+/** 보낸 품목의 수량: 키 글만 왔으면 1 (D-O4-05) */
+const sentQty = (item: SentItem): number => (typeof item === 'string' ? 1 : item.qty)
 
 /** 포장 완료 본문의 items 원소 하나를 읽는다 (형식이 틀리면 null) */
 export function readSentItem(value: unknown): SentItem | null {
@@ -507,9 +509,10 @@ export function decidePacking(state: PackingState, current: readonly PackedItem[
     case 'pack': {
       if (state.phase === 'SHIPPED') return { kind: 'reject', code: 'PACKING_STATE', message: PACKING_MESSAGES.alreadyShipped }
       if (!sameSet(sentItems.map(sentKey), new Set(current.map((item) => item.key)))) return { kind: 'reject', code: 'ITEMS_CHANGED', message: PACKING_MESSAGES.itemsChanged }
-      // 수량을 함께 보냈으면 지금 수량과 같아야 한다 — 화면이 본 수량과 다르면 덜 담을 수 있다 (O3 D-O3-10)
+      // 보낸 수량은 지금 수량과 같아야 한다 — 화면이 본 수량과 다르면 덜 담을 수 있다 (O3 D-O3-10).
+      // 키 글만 온 품목(이전 화면)은 수량 1로 읽는다 (O4 D-O4-05 — 이전 기록과 같은 셈): 다육(모두 수량 1)은 그대로 되고 수량 2 이상만 거절된다
       const qtyOf = new Map(current.map((item) => [item.key, item.qty]))
-      if (sentItems.some((item) => typeof item !== 'string' && qtyOf.get(item.key) !== item.qty)) return { kind: 'reject', code: 'ITEMS_CHANGED', message: PACKING_MESSAGES.itemsChanged }
+      if (sentItems.some((item) => qtyOf.get(sentKey(item)) !== sentQty(item))) return { kind: 'reject', code: 'ITEMS_CHANGED', message: PACKING_MESSAGES.itemsChanged }
       if (current.length === 0) return { kind: 'reject', code: 'PACKING_STATE', message: PACKING_MESSAGES.noItems }
       if (word === '포장 완료') return { kind: 'same' }
       return { kind: 'write', record: { kind: 'PACKED', items: current.map((item) => ({ id: item.id, key: item.key, qty: item.qty })), invoice: null } }

@@ -28,6 +28,7 @@ import {
 } from '../lib/buyers.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
 import { claimOptionWords, claimWord, formatWon, productSlots, type BuyerNames } from '../lib/derive.ts'
+import { buyerQuantity, saleLine } from '../lib/sale-line.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
 import { PREVIEW_FAILED, PREVIEW_LOADING, PREVIEW_REFRESHING, useMergePreview } from '../lib/merge-preview.ts'
 import { routePath, type Navigate, type ScopeRoute } from '../lib/router.ts'
@@ -275,7 +276,7 @@ function BuyerCards({ api, label, rows, counts, onOpen }: { readonly api: Consol
             <strong className="buyer-name">{api.names.name(buyer.id)}</strong>
             <span className="tag">{buyerPlatformWord(buyer)}</span>
             <span>
-              {buyer.items.length}개 · {formatWon(buyer.subtotal)}
+              {buyerQuantity(api.data, buyer)}개 · {formatWon(buyer.subtotal)}
             </span>
             {payTag(api, buyer)}
             {marks(buyer, counts, extra)}
@@ -314,7 +315,7 @@ function BuyerTable({ api, label, rows, counts, onOpen }: { readonly api: Consol
                 </a>
               </td>
               <td>{buyerPlatformWord(buyer)}</td>
-              <td className="num">{buyer.items.length}개</td>
+              <td className="num">{buyerQuantity(api.data, buyer)}개</td>
               <td className="num">{formatWon(buyer.subtotal)}</td>
               <td>{payTag(api, buyer)}</td>
               <td>
@@ -518,7 +519,7 @@ function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement, on
                   const name = product === undefined ? '' : product.name.trim() === '' ? '품종 미입력' : product.name
                   return (
                     <li key={claim.id}>
-                      {claim.no}번{claimOptionWords(claim)} {name} {(claim.amount ?? claim.price) === null ? '' : formatWon(claim.amount ?? claim.price ?? 0)} · {ORIGIN_WORD[claim.origin]}
+                      {saleLine({ no: claim.no, name, variant: claim.variant, qty: claim.qty })} {(claim.amount ?? claim.price) === null ? '' : formatWon(claim.amount ?? claim.price ?? 0)} · {ORIGIN_WORD[claim.origin]}
                       {claim.buyer !== current.id ? ` · ${names.name(claim.buyer)}` : ''}
                     </li>
                   )
@@ -530,6 +531,7 @@ function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement, on
             </div>
           )
         })}
+        {byBroadcast.length > 0 ? <p>상품 {buyerQuantity(api.data, current)}개</p> : null}
         <p className="total-line">전체 합계 {formatWon(current.subtotal)}</p>
       </section>
 
@@ -603,7 +605,7 @@ function MergeSearchDialog({ api, opened, onClose, onChoose }: { readonly api: C
                 <span key={word}>{word}</span>
               ))}
               <span>
-                {hit.matched.items.length}개 · {formatWon(hit.matched.subtotal)}
+                {buyerQuantity(api.data, hit.matched)}개 · {formatWon(hit.matched.subtotal)}
               </span>
               {hit.matched.mergedInto !== null ? <span>{`${api.names.name(hit.matched.current)}에 합쳐짐`}</span> : null}
             </button>

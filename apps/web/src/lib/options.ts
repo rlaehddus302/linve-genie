@@ -81,7 +81,13 @@ export const OPTION_WORDS = {
   soldOutAtStart: '없음(처음부터 품절)',
   locked: '찜이 있어 선택지 더하기·가격·재고만 바꿀 수 있어요. 다른 것은 새 번호로 등록해 주세요.',
   unchanged: '바뀐 것이 없어요',
+  numericAlias: "숫자만 쓴 별칭은 상품 번호와 헷갈려 '확인 필요'로 갈 수 있어요",
 } as const
+
+/** 별칭 칸에 숫자만으로 된 별칭이 있나 (D-O4-11 — 안내만, 막지 않는다). 선택지 이름은 보지 않는다 */
+export function hasNumericAlias(text: string): boolean {
+  return splitList(text).some((alias) => /^[0-9０-９]+$/.test(alias))
+}
 
 /** 받침이 있는 말인가 (조사 고르기) — 한글은 받침, 숫자·영문은 읽는 소리로 */
 function hasFinal(word: string): boolean {
