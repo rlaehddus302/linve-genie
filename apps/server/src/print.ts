@@ -24,6 +24,7 @@ import {
 import type { Db } from './db/database.ts'
 import type { FieldProblem } from './errors.ts'
 import { contentKeyOf, currentLabelBuyer, isWinnerOf, packingLabelData, productLabelBuyer, productLabelData, type ClaimIndex } from './label-data.ts'
+import { AMOUNT_MISSING_MESSAGE, claimAmount } from './amount.ts'
 import { errorKind, type LogSink } from './log.ts'
 import {
   activeJobs,
@@ -73,7 +74,10 @@ import type { ScopeRuntime } from './runtime.ts'
 import { findBroadcast } from './store.ts'
 import type { Clock } from './time.ts'
 import { claimIndex } from './views.ts'
+import { winnerClaimsOf } from './winners.ts'
 import { WriteAbort, type Rejection, type ScopeWriter, type TxHookContext } from './writer.ts'
+
+export { winnerClaimsOf }
 
 // ── 문장 (LABEL_RULES L-8·L-11, acceptance AC-I1-09·11·13·14 — 화면에 그대로 쓴다) ──
 
@@ -420,6 +424,11 @@ export class PrintService {
     return new Date(this.#options.clock.now())
   }
 
+  /** 확정 찜에 찜 금액이 없어 라벨 데이터를 만들지 않았다 (D-O3-15) — 찜 ID만 남긴다 */
+  readonly #amountMissing = (claimId: string): void => {
+    this.#options.log({ level: 'error', code: 'AMOUNT_MISSING', claim: claimId })
+  }
+
   /** 알림 만들기를 멈춘다 (서버 끄기) */
   close(): void {
     this.#closed = true
@@ -461,6 +470,13 @@ export class PrintService {
         last.seq,
         (effect: LabelEffectBody, seq: number) => JSON.stringify(productLabelBuyer(stateAt(seq), { origin: claims.get(effect.claim)?.origin ?? '', buyer: effect.buyer })),
         now,
+        // 찜 금액이 없는 확정 찜은 작업(·라벨 키)을 만들지 않는다 (D-O3-15)
+        (effect: LabelEffectBody) => {
+          const info = claims.get(effect.claim)
+          if (info === undefined || info.status !== 'CONFIRMED' || claimAmount(info) !== null) return false
+          this.#amountMissing(info.id)
+          return true
+        },
       )
       touched.jobs.push(...created.jobs)
       touched.labels.push(...created.labels)
@@ -481,7 +497,8 @@ export class PrintService {
             const slot = `${label.broadcast ?? ''}/${String(label.no)}`
             let list = winners.get(slot)
             if (list === undefined) {
-              list = getProduct(final, label.broadcast ?? '', label.no ?? 0)?.winnerClaims ?? []
+              const product = getProduct(final, label.broadcast ?? '', label.no ?? 0)
+              list = product === null ? [] : winnerClaimsOf(product)
               winners.set(slot, list)
             }
             if (!list.includes(label.claim ?? '')) toVoid.add(label.id)
@@ -595,7 +612,7 @@ export class PrintService {
     if (job.printedData !== null) data = JSON.parse(job.printedData) as ProductLabelData | PackingLabelData
     else if (job.kind === 'packing' && job.data !== null) data = JSON.parse(job.data) as PackingLabelData
     else if (job.kind === 'product' && ctx !== null && !job.voided && label.claim !== null && label.version !== null) {
-      data = productLabelData(ctx.state, ctx.claims, { claim: label.claim, version: label.version, buyer: ref.buyer })
+      data = productLabelData(ctx.state, ctx.claims, { claim: label.claim, version: label.version, buyer: ref.buyer }, this.#amountMissing)
     }
     return {
       id: job.jobId,
@@ -640,9 +657,9 @@ export class PrintService {
     if (ctx !== null && !voided) {
       if (kind === 'product' && label.claim !== null && label.version !== null) {
         winner = isWinnerOf(ctx.claims, label.claim, label.version) !== null
-        data = productLabelData(ctx.state, ctx.claims, { claim: label.claim, version: label.version, buyer: ref.buyer })
+        data = productLabelData(ctx.state, ctx.claims, { claim: label.claim, version: label.version, buyer: ref.buyer }, this.#amountMissing)
       } else if (kind === 'packing' && label.buyerId !== null) {
-        data = packingLabelData(ctx.state, label.buyerId, label.date)?.data ?? null
+        data = packingLabelData(ctx.state, label.buyerId, label.date, this.#amountMissing)?.data ?? null
       }
     }
     return this.#composeLabelView(label.date, kind, ref, voided, jobs, data, winner)
@@ -712,14 +729,14 @@ export class PrintService {
     const views = await this.#labelViews(sellerId, rows, contexts)
     const known = new Set(rows.filter((row) => row.kind === 'product').map((row) => row.key))
     for (const product of listProducts(state)) {
-      for (const claimId of product.winnerClaims) {
+      for (const claimId of winnerClaimsOf(product)) {
         const info = ctx.claims.get(claimId)
         if (info === undefined || info.confirmVersion === null) continue
         const key = `${claimId}@${String(info.confirmVersion)}`
         if (known.has(key)) continue
         const buyer = productLabelBuyer(state, info)
         const ref: LabelRef = { key, claim: claimId, version: info.confirmVersion, broadcast: info.broadcast, no: info.no, buyerId: null, buyer }
-        const data = productLabelData(state, ctx.claims, { claim: claimId, version: info.confirmVersion, buyer })
+        const data = productLabelData(state, ctx.claims, { claim: claimId, version: info.confirmVersion, buyer }, this.#amountMissing)
         views.push(this.#composeLabelView(date, 'product', ref, false, [], data, true))
       }
     }
@@ -736,7 +753,7 @@ export class PrintService {
     const { state, scopeId } = runtime
     const root = currentBuyerOf(state, buyerId)
     if (root === null) return null
-    const data = packingLabelData(state, root, date)?.data ?? null
+    const data = packingLabelData(state, root, date, this.#amountMissing)?.data ?? null
     const key = `packing:${root}`
     const row = await findLabel(this.#db, sellerId, scopeId, key)
     const label =
@@ -943,7 +960,7 @@ export class PrintService {
             return { kind: 'retry' as const }
           }
           // 1등인데 데이터를 만들지 못하면(L-3 범위 밖 번호 등) 폐기하지 않는다 — 아래 라벨 오류 멈춤 (L-11 5: 폐기는 1등이 아닐 때만)
-          data = productLabelData(ctx.state, ctx.claims, { claim, version, buyer: parseBuyer(label.buyer) })
+          data = productLabelData(ctx.state, ctx.claims, { claim, version, buyer: parseBuyer(label.buyer) }, this.#amountMissing)
         } else {
           data = job.data === null ? null : (JSON.parse(job.data) as PackingLabelData)
         }
@@ -1133,6 +1150,11 @@ export class PrintService {
       const info = claims.get(claimId)
       if (info === undefined || info.broadcast !== b) return { kind: 'not_found' }
       if (info.status !== 'CONFIRMED' || info.confirmVersion === null) return rejected(409, 'PRINT_NOT_WINNER', PRINT_MESSAGES.notWinner)
+      // 찜 금액이 없으면 라벨 데이터를 만들 수 없다 — 작업을 만들지 않는다 (D-O3-15)
+      if (claimAmount(info) === null) {
+        this.#amountMissing(info.id)
+        return rejected(500, 'AMOUNT_MISSING', AMOUNT_MISSING_MESSAGE)
+      }
       const scopeId = runtime.scopeId
       const version = info.confirmVersion
       const key = `${claimId}@${String(version)}`
@@ -1271,7 +1293,7 @@ export class PrintService {
       const scopeId = runtime.scopeId
       const root = currentBuyerOf(runtime.state, buyerId)
       if (root === null) return { kind: 'not_found' }
-      const current = packingLabelData(runtime.state, buyerId, date)
+      const current = packingLabelData(runtime.state, buyerId, date, this.#amountMissing)
       if (current === null) return rejected(409, 'PRINT_NO_ITEMS', PRINT_MESSAGES.noItems)
       const now = this.#now()
       return this.#db.transaction(async (tx): Promise<ActionOutcome<null>> => {
@@ -1514,7 +1536,7 @@ export class PrintService {
     if (runtime.scopeId === null) return null
     const label = await findLabel(this.#db, sellerId, runtime.scopeId, `${claim}@${String(version)}`)
     if (label === null) return null
-    return productLabelData(runtime.state, claimIndex(runtime, runtime.state), { claim, version, buyer: parseBuyer(label.buyer) })
+    return productLabelData(runtime.state, claimIndex(runtime, runtime.state), { claim, version, buyer: parseBuyer(label.buyer) }, this.#amountMissing)
   }
 }
 

@@ -93,6 +93,10 @@
 #      engine/23-o1-options.yaml(G-ENG-O1-01~07, 새로 G-ENG-O1-08~10 — D-O1-01~D-O1-10), 다육 회귀 engine/23-o0-strict-regression.yaml(G-ENG-O0-01)·
 #      parser/chat.yaml 마지막 문서(O0 7사례). 모두 O1 범위라 넣지 않았다 — 새 어휘는 러너가 알기 전까지 읽기 오류, 코어가 없으면 미구현(불허)으로 실패하고,
 #      O1 끝에는 모두 통과해야 한다. 다육 회귀는 지금 코어로 통과한다. 허용 목록은 계속 비어 있다 — 남기면 미구현이 통과로 숨는다.
-sprint: O1
+# O3 (라벨·확인서·판매대장·포장의 옵션 글·수량 — dev-core 없음): 새 엔진 골든 G-ENG-O3-01(engine/24-o3-labels-documents.yaml — 같은 날 다육·옵션 방송의
+#      정산 재료, D-O3-01~D-O3-10)은 새 판정 규칙이 없어 지금 코어로 통과한다. 넣지 않았다. 새 라벨 골든(label/product-options.json·packing-options.json —
+#      G-LBL-O3-01~23·51~67)과 새 문서 골든(documents/*.json — G-DOC-O3-01~06)은 JSON이라 코어 골든 러너가 읽지 않고 이 목록의 대상도 아니다 —
+#      packages/label·packages/documents 단위 테스트가 모두 돌리고 하나라도 빠지면 test 단계가 실패한다. 허용 목록은 계속 비어 있다 — 남기면 미구현이 통과로 숨는다.
+sprint: O3
 suites: []
 scenarios: []

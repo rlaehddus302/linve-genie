@@ -60,6 +60,17 @@ export function formatLabelPrice(price: number, style: PriceStyle): string {
   return formatWon(price)
 }
 
+/** 상품 라벨 가격 자리 (L-3, O3 D-O3-02): 수량 2 이상이면 `{수량}개 {가격 표기}` — 가격은 찜 금액 */
+export function formatLabelPriceWithQty(price: number, style: PriceStyle, qty: number): string {
+  const text = formatLabelPrice(price, style)
+  return qty >= 2 ? `${String(qty)}개 ${text}` : text
+}
+
+/** 포장 라벨 옵션 항목 글 (L-4, O3 D-O3-03): `{번호}[ {옵션 글}][ ×{수량}]` — 옵션 글은 다듬은 것, 수량은 2 이상일 때만 */
+export function formatPackingEntry(no: number, variant: string | null, qty: number): string {
+  return `${String(no)}${variant === null ? '' : ` ${variant}`}${qty >= 2 ? ` ×${String(qty)}` : ''}`
+}
+
 /** 날짜 `YYYY-MM-DD`가 있는 날짜인지 */
 export function isCalendarDate(value: string): boolean {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)

@@ -10,6 +10,7 @@ export {
   REHEARSAL_TITLE,
   buildReceipt,
   buildReceipts,
+  itemText,
   linesMatchSettlement,
   type ReceiptData,
   type ReceiptError,
@@ -44,11 +45,15 @@ export { IMAGE_WIDTH_PX, encodeGrayPng, rasterizePage, renderReceiptPng } from '
 export {
   CHANNEL_WORDS,
   LEDGER_COLUMNS,
+  LEDGER_OPTION_COLUMNS,
   LEDGER_SHEET_NAME,
   PAYMENT_WORDS,
   PRODUCT_STATUS_WORDS,
   buildLedger,
+  hasOptionColumns,
+  ledgerColumns,
   ledgerRowValues,
+  ledgerRowValuesWith,
   type LedgerChannel,
   type LedgerError,
   type LedgerErrorCode,
@@ -59,5 +64,5 @@ export {
   type LedgerScope,
 } from './ledger.ts'
 export { ledgerToXlsx } from './xlsx.ts'
-export { NO_NAME, compareCodePoints, printedName, stripInvisible, stripXlsxForbidden } from './text.ts'
+export { NO_NAME, compareCodePoints, optionText, printedName, stripInvisible, stripXlsxForbidden } from './text.ts'
 export { formatKoreanDate, formatKstDateTime, formatKstLedgerTime } from './kst.ts'

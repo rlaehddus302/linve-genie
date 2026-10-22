@@ -61,3 +61,20 @@ export function stripXlsxForbidden(text: string): string {
   }
   return out
 }
+
+const OPTION_CONTROL_OR_SEPARATOR = /[\p{Cc}\u2028\u2029]/gu
+const OPTION_FORMAT_CHARS = /\p{Cf}/gu
+const OPTION_SPACES = /\p{Zs}+/gu
+
+/**
+ * 옵션 글 다듬기 (LABEL_RULES L-2, O3 감사 D-O3-13) — 라벨 패키지 trimLabelText와 같은 차례: NFC → 제어 문자·줄/문단 구분자는 공백 →
+ * 서식 문자(`\p{Cf}` — 폭 없는 공백 등)는 지움 → 이어진 공백(`\p{Zs}`)은 공백 하나, 앞뒤 공백은 지움. 확인서·판매대장의 옵션 글이 라벨의 옵션 글과 같다
+ */
+export function optionText(value: string): string {
+  return value
+    .normalize('NFC')
+    .replace(OPTION_CONTROL_OR_SEPARATOR, ' ')
+    .replace(OPTION_FORMAT_CHARS, '')
+    .replace(OPTION_SPACES, ' ')
+    .replace(/^ +| +$/g, '')
+}

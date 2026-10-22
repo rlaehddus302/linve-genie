@@ -542,7 +542,7 @@ sprints:
       - "기존 골든 파일 바뀜 없음·전부 통과(다육 회귀 없음). STRICT·LOOSE 파서 결과가 그대로인 속성 시험"
       - "같은 로그 재생 = 같은 결과(결정성), 금액은 모두 정수, INV-1(확정 수량 ≤ 변형 재고) 속성 시험"
     specIds: [OPT-01, OPT-02, OPT-03, OPT-04, OPT-06, CMT-01, CMT-02, CMT-03, CMT-04, CMT-05, CMT-07]
-    status: todo
+    status: done  # 메인 합침 fa12810 (2026-10-22)
 
   - id: O2
     phase: 6
@@ -575,7 +575,7 @@ sprints:
       서버: 엔진 상태 → 라벨 데이터(L-9)·확인서·판매대장·포장 모드 목록에 옵션·수량 전달(변형마다 다른 항목). O2의 화면 파일은 건드리지 않는다.
       옵션 없는 수량 1 찜의 라벨 그림·문서는 바이트·글자까지 그대로(기존 label/printer/documents 골든 그대로 통과).
     specIds: [OPT-06, LBL-01, LBL-02, STL-04, STL-06, STL-08, RCP-02, CMT-07]
-    status: todo
+    status: done  # 메인 합침 17d7975 (2026-10-22)
 
   - id: O4
     phase: 6

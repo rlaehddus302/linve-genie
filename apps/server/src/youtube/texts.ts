@@ -123,14 +123,19 @@ export interface SummaryLine {
   readonly no: number
   /** 지금 상품 이름 (비면 품종과 그 뒤 공백을 뺀다) */
   readonly name: string
-  /** 가격 표시 (formatWon) */
+  /** 옵션 글 (옵션 찜만 — 코어 ClaimInfo.variant, 감사 문구와 같은 글. O3 감사 D-O3-13) */
+  readonly variant?: string
+  /** 수량 (2 이상일 때만 — `{수량}개`) */
+  readonly qty?: number
+  /** 가격 표시 (찜 금액의 formatWon) */
   readonly price: string
   /** 구매자 표시 이름 */
   readonly buyer: string
 }
 
 /**
- * 방송 후 요약 댓글 (AC-Y1-46, D-Y08): 첫 줄 `구매 감사합니다`, 판매마다 `{번호}번 {품종} {가격} {구매자}님`, `\n`으로 잇는다.
+ * 방송 후 요약 댓글 (AC-Y1-46, D-Y08): 첫 줄 `구매 감사합니다`, 판매마다 `{번호}번[ {품종}][ {옵션 글}][ {수량}개] {찜 금액} {구매자}님`, `\n`으로 잇는다.
+ * 옵션 글은 옵션이 있을 때만, 수량은 2 이상일 때만 — 감사 문구와 같은 자리(R-19 "표시", O3 감사 D-O3-13). 옵션 없는 수량 1 줄은 O3 전과 같다.
  * 1만 자를 넘으면 줄 경계에서 나눠 여러 댓글(둘째부터 첫 줄 없이). 줄마다 게시 문구 정리를 한다(줄바꿈은 줄 사이에만).
  * 줄 하나가 혼자 1만 자를 넘으면 그 줄을 자른다. 판매가 없으면 빈 목록
  */
@@ -141,7 +146,9 @@ export function summaryComments(lines: readonly SummaryLine[], max = COMMENT_MAX
   let length = charCount(SUMMARY_HEADER)
   for (const line of lines) {
     const name = cleanPostText(line.name)
-    const raw = cleanPostText([`${String(line.no)}번`, ...(name === '' ? [] : [name]), line.price, `${line.buyer}님`].join(' '))
+    const variant = line.variant === undefined ? '' : cleanPostText(line.variant)
+    const qty = line.qty !== undefined && line.qty >= 2 ? [`${String(line.qty)}개`] : []
+    const raw = cleanPostText([`${String(line.no)}번`, ...(name === '' ? [] : [name]), ...(variant === '' ? [] : [variant]), ...qty, line.price, `${line.buyer}님`].join(' '))
     const onlyHeader = comments.length === 0 && current.length === 1
     if (current.length > 0 && !onlyHeader && length + 1 + charCount(raw) > max) {
       comments.push(current.join('\n'))

@@ -8,7 +8,7 @@ import { currentBuyerOf, getBuyer, getSettlement, listBroadcasts, listClaims, li
 import { and, desc, eq, lt, ne, sql } from 'drizzle-orm'
 import type { Db } from './db/database.ts'
 import { events, scopes } from './db/schema.ts'
-import { packingEntry, packingRows, type PackingWord } from './packing.ts'
+import { packingRows, packingStatusOf, type PackingWord } from './packing.ts'
 import type { ScopeRuntime } from './runtime.ts'
 
 export const PAST_PAGE_SIZE = 20
@@ -166,7 +166,7 @@ async function itemsOn(db: Db, sellerId: string, runtime: ScopeRuntime, day: str
       .filter((claim) => claim.status === 'CONFIRMED' && claim.currentBuyer === root && settlement.items.includes(claim.product))
       .sort((a, b) => (order.get(a.broadcast) ?? 0) - (order.get(b.broadcast) ?? 0) || a.no - b.no)
     const shown = new Set(lines.map((claim) => claim.broadcast))
-    const entry = packingEntry(state, day, root, records)
+    const entry = packingStatusOf(state, day, root, records)
     items.push({
       date: day,
       buyer: root,

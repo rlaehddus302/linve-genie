@@ -207,7 +207,7 @@ export {
   type OutboxState,
   type OutboxTarget,
 } from './youtube/outbox.ts'
-export { LEDGER_FORMAT, SEAL_AFTER_DAYS, SEAL_EVERY_MS, SEALED_CHAT_MESSAGE, Sealer, buildLedger, sealAtOf, sealedView, type Ledger } from './youtube/seal.ts'
+export { LEDGER_FORMAT, LEDGER_FORMAT_V1, SEAL_AFTER_DAYS, SEAL_EVERY_MS, SEALED_CHAT_MESSAGE, Sealer, buildLedger, readLedger, sealAtOf, sealedView, type Ledger } from './youtube/seal.ts'
 export { LINK_MESSAGES, YoutubeSystem, checkYoutubeConfig, type LinkCode, type LinkHooks, type LinkView, type LiveBroadcastItem, type YoutubeConfig } from './youtube/system.ts'
 export { CALLBACK_PATH } from './youtube/routes.ts'
 export { BlockedRequestError, GOOGLE_HOST_RE, blockedRequests, installGoogleBlock } from './youtube/network-guard.ts'
