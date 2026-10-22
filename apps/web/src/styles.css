@@ -560,6 +560,20 @@ p {
   font-size: 1.375rem;
 }
 
+/* 개수 칸 (AC-ORD11-01): 빠른 입력 줄 옆, 좁게 — 375px 폭에서도 줄이 넘치지 않게 */
+.quick-count {
+  display: inline-flex;
+  gap: 0.375rem;
+  align-items: center;
+  font-weight: 700;
+}
+
+.quick-count-input {
+  max-inline-size: 5rem;
+  min-width: 0;
+  text-align: right;
+}
+
 .quick-status {
   font-weight: 700;
   color: #0b4fb3;

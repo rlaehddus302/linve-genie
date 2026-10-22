@@ -149,13 +149,15 @@ export function previewNumber(text: string, settings: QuickSettings = DEFAULT_QU
 }
 
 /**
- * "고칠까요?"에서 바뀐 칸 (품종·가격만, 바뀐 것만). 친 줄에 품종이 없으면(`15 12000`) 품종은 그대로 둔다 —
+ * "고칠까요?"에서 바뀐 칸 (품종·가격, 개수 칸이 1이 아니면 개수도 — 바뀐 것만). 친 줄에 품종이 없으면(`15 12000`) 품종은 그대로 둔다 —
  * 가격만 고치려던 줄이 품종을 지우지 않게.
  */
-export function changedFields(product: Product, name: string, price: number): { name?: string; price?: number } {
+export function changedFields(product: Product, name: string, price: number, stock?: number): { name?: string; price?: number; stock?: number } {
   return {
     ...(name !== '' && name !== product.name ? { name } : {}),
     ...(price !== product.price ? { price } : {}),
+    // 개수 칸(옵션 없는 상품만, AC-ORD11-08): 칸이 1이면 넘기지 않는다 — 재고는 그대로
+    ...(stock !== undefined && !product.hasOptions && stock !== product.stock ? { stock } : {}),
   }
 }
 

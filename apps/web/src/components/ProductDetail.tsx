@@ -7,6 +7,7 @@ import { get, isApiError, newRequestId, withQuery, type ApiError } from '../api/
 import type { Claim, HistoryItem, Product } from '../api/types.ts'
 import { claimOptionWords, claimOptionsField, claimWord, formatWon, productSlots } from '../lib/derive.ts'
 import { optionSummary } from '../lib/options.ts'
+import { stockLeftWords } from '../lib/stock.ts'
 import { kstTime } from '../lib/kst.ts'
 import { useWide } from '../lib/use-wide.ts'
 import { ORIGIN_WORD, PRODUCT_STATUS_WORD, actionWord, actorWord } from '../lib/words.ts'
@@ -87,7 +88,7 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
         </div>
         <div>
           <dt>재고</dt>
-          <dd>{product.hasOptions ? '옵션별' : `${String(product.stock)}개`}</dd>
+          <dd>{product.hasOptions ? '옵션별' : (stockLeftWords(product) ?? `${String(product.stock)}개`)}</dd>
         </div>
         {product.hasOptions ? (
           <div>
