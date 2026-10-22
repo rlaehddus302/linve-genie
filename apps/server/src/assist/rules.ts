@@ -210,6 +210,16 @@ function choiceLabel(item: OptionItem, value: string): string | null {
   return null
 }
 
+/** 정수 글자 그대로가 아닌 숫자(`1e1`·`10.0`·`-0`)는 숫자로 보지 않는다 — 모델 답의 수량·번호는 정수 글자만 받는다 */
+const INTEGER_SOURCE = /^-?(?:0|[1-9][0-9]*)$/
+const NOT_A_NUMBER = Object.freeze({ notANumber: true })
+function strictNumbers(_key: string, value: unknown, context?: { readonly source?: string }): unknown {
+  if (typeof value !== 'number') return value
+  const source = context?.source
+  if (source !== undefined && (!INTEGER_SOURCE.test(source) || source === '-0')) return NOT_A_NUMBER
+  return value
+}
+
 /** 답 한 줄 검사 → 제안 또는 null */
 function checkLine(line: Record<string, unknown>, sent: SentItem, catalog: readonly OptionCatalogEntry[], maxQuantity: number): Suggestion | null {
   if (Object.keys(line).some((key) => !SUGGESTION_KEYS.has(key))) return null
@@ -252,7 +262,7 @@ export function validateResponse(items: readonly SentItem[], response: unknown, 
   if (typeof response !== 'string') return result()
   let parsed: unknown
   try {
-    parsed = JSON.parse(response)
+    parsed = JSON.parse(response, strictNumbers as (key: string, value: unknown) => unknown)
   } catch {
     return result()
   }
