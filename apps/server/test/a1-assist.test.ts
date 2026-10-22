@@ -539,6 +539,22 @@ describe('AC-A1-11 가짜 LLM 서버', () => {
     }
   })
 
+  it('연습 모드의 가짜 서버(/_try/llm 밑, 조작 경로 없음) — 서버가 그 주소로 부르고 글에 든 선택지 이름으로 답한다', async () => {
+    const { FakeLlm } = await import('../src/assist/fake-llm.ts')
+    const llm = new FakeLlm({ practice: true, basePath: '/_try/llm' })
+    const setup = llm.setup({ base: 'http://127.0.0.1:7700' })
+    expect(setup).toMatchObject({ apiKey: FAKE_ASSIST_KEY, baseUrl: 'http://127.0.0.1:7700/_try/llm', allowInsecure: true })
+    expect((await llm.handle(new Request('http://127.0.0.1:7700/_try/llm/_fake/requests'))).status).toBe(404)
+    const { world, seller } = await assistWorld({ key: false, server: { assist: { ...setup, fetch: (input, init) => llm.handle(new Request(input as string, init)) } } })
+    const b = await shortsBroadcast(world, seller, { rehearsal: true })
+    await chat(world, seller, b.id, '반바지 엠사이즈')
+    await chat(world, seller, b.id, '반바지 라아지')
+    await enableAssist(world, seller)
+    expect((await expectOk(suggest(world, seller, { rehearsal: true }))).body).toEqual({ result: 'DONE', called: 1 })
+    expect(llm.calls).toBe(1)
+    expect(sentTexts(llm, 0)).toEqual(['반바지 엠사이즈', '반바지 라아지'])
+  })
+
   it('운영 기동은 주소를 바꾸지 못한다 — 환경 변수에 주소가 있어도 읽지 않고 https://api.anthropic.com, http 주소는 allowInsecure 없이 막는다', async () => {
     const { productionServerOptions } = await import('../src/production.ts')
     const { generateMasterKey } = await import('../src/secrets.ts')
