@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { isApiError, post, type ApiError } from '../api/client.ts'
 import type { Me } from '../api/types.ts'
+import { goTopLevel } from '../lib/google-return.ts'
 import { continueLabel, fetchLoginProviders, movingLabel, parseLoginResult, resultMessage, safeAuthorizeUrl, startErrorMessage, START_FAILED, stripLoginParams, type LoginProvider, type LoginResult } from '../lib/social-login.ts'
 
 export const SESSION_EXPIRED_MESSAGE = '로그인이 풀렸어요. 다시 로그인해 주세요.'
@@ -136,7 +137,7 @@ function SocialLogin({ onStart }: { readonly onStart: () => void }) {
         setMoving(null)
         return
       }
-      window.location.assign(target)
+      goTopLevel(target)
     } catch (caught) {
       setError(startErrorMessage(caught))
       setMoving(null)

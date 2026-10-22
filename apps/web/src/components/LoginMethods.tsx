@@ -7,6 +7,7 @@
 // - 다른 기기에서 연결·끊으면 실시간 알림(`login`)으로 목록을 다시 읽는다(설정 화면이 부른다).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, isApiError, post, type ApiError } from '../api/client.ts'
+import { goTopLevel } from '../lib/google-return.ts'
 import {
   accountLabel,
   linkedDate,
@@ -113,7 +114,7 @@ export function LoginMethodsPanel({ handle, result }: { readonly handle: LoginMe
         setMoving(null)
         return
       }
-      window.location.assign(target)
+      goTopLevel(target)
     } catch (caught) {
       setActionError(startErrorMessage(caught))
       setMoving(null)
