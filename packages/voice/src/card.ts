@@ -30,8 +30,10 @@ export interface SuggestionCard {
   readonly status: CardStatus
   /** 방송자가 칸을 고쳤는지 — 고친 카드는 자동 확정하지 않고, 넘쳐도 닫지 않는다 */
   readonly touched: boolean
-  /** 자동 확정 시각 (UTC 밀리초). 만들 때 설정이 꺼져 있었거나 HIGH가 아니면 null, 고치거나 번호가 이미 있으면 null이 된다 */
+  /** 자동 확정 시각 (UTC 밀리초). 만들 때 설정이 꺼져 있었거나 HIGH가 아니거나 끝에서 넘긴 문장이면 null, 고치거나 번호가 이미 있으면 null이 된다 */
   readonly autoConfirmAt: number | null
+  /** 끝에서 넘긴 문장(D-I5-02)으로 만든 카드면 true — 신뢰도와 상관없이 자동 확정하지 않는다. 보통 카드에는 없다(없음 = 거짓) */
+  readonly flushedAtEnd?: boolean
 }
 
 /** 등록할 상품 (빠른 입력 등록과 같은 모양 — 품종이 없으면 "" = 품종 미입력) */
@@ -59,6 +61,8 @@ export interface CreateCardInput {
   readonly createdAt: number
   /** 음성 설정 (생략하면 기본 — 자동 확정 꺼짐) */
   readonly settings?: Partial<VoiceSettings>
+  /** 끝에서 넘긴 문장인가 (SpeechResult.flushedAtEnd, D-I5-02). true면 자동 확정하지 않는 카드가 된다 */
+  readonly flushedAtEnd?: boolean
 }
 
 /** 카드를 만들 만한 결과인가: 번호가 있거나 품종·가격이 둘 다 있을 때만 (인사·잡담엔 카드 없음, D-204) */
@@ -68,7 +72,7 @@ export function isCardWorthy(extraction: VoiceExtraction): boolean {
 
 /**
  * 추출 결과 → 카드 (카드를 만들 결과가 아니면 null).
- * 자동 확정 시각 = 설정이 켜져 있고 신뢰도 HIGH이면 만든 시각 + 기다림, 아니면 null(나중에 설정을 켜도 이 카드는 자동 확정하지 않는다).
+ * 자동 확정 시각 = 설정이 켜져 있고 신뢰도 HIGH이고 끝에서 넘긴 문장이 아니면(D-I5-02) 만든 시각 + 기다림, 아니면 null(나중에 설정을 켜도 이 카드는 자동 확정하지 않는다).
  */
 export function createCard(input: CreateCardInput): SuggestionCard | null {
   if (typeof input.id !== 'string' || input.id === '') throw new TypeError('카드 ID는 빈 문자열이 아닌 문자열이어야 한다')
@@ -76,7 +80,8 @@ export function createCard(input: CreateCardInput): SuggestionCard | null {
   const { extraction } = input
   if (!isCardWorthy(extraction)) return null
   const settings = resolveVoiceSettings(input.settings)
-  const auto = settings['voice.autoConfirm'] && extraction.confidence === 'HIGH'
+  const flushed = input.flushedAtEnd === true
+  const auto = settings['voice.autoConfirm'] && extraction.confidence === 'HIGH' && !flushed
   return {
     id: input.id,
     no: extraction.no,
@@ -88,6 +93,7 @@ export function createCard(input: CreateCardInput): SuggestionCard | null {
     status: 'OPEN',
     touched: false,
     autoConfirmAt: auto ? input.createdAt + settings['voice.autoConfirmSec'] * 1000 : null,
+    ...(flushed ? { flushedAtEnd: true } : {}),
   }
 }
 
@@ -192,7 +198,7 @@ export interface AutoConfirmContext {
 }
 
 /**
- * 자동 확정할 때인가. due ⇔ 설정 켬 ∧ 카드 신뢰도 HIGH ∧ 손대지 않음 ∧ 열린 카드 ∧ 지금 ≥ 자동 확정 시각(만든 시각 + 기다림) ∧ 그 번호가 그 방송에 아직 없음.
+ * 자동 확정할 때인가. due ⇔ 설정 켬 ∧ 끝에서 넘긴 문장 카드 아님 ∧ 카드 신뢰도 HIGH ∧ 손대지 않음 ∧ 열린 카드 ∧ 지금 ≥ 자동 확정 시각(만든 시각 + 기다림) ∧ 그 번호가 그 방송에 아직 없음.
  * 번호가 이미 있으면 거짓이고 돌려주는 카드의 자동 확정이 꺼진다(그 뒤 번호가 사라져도 다시 켜지지 않는다).
  * due이면 부르는 쪽이 confirmCard로 등록한다(자동 확정한 등록도 보통 등록처럼 5초 되돌리기, UX-06).
  */
@@ -200,6 +206,7 @@ export function checkAutoConfirm(card: SuggestionCard, context: AutoConfirmConte
   const settings = resolveVoiceSettings(context.settings)
   const no = { due: false, card }
   if (!settings['voice.autoConfirm']) return no
+  if (card.flushedAtEnd === true) return no // 끝에서 넘긴 문장 카드는 자동 확정하지 않는다 (D-I5-02)
   if (card.status !== 'OPEN' || card.touched || card.confidence !== 'HIGH' || card.autoConfirmAt === null || card.no === null || card.price === null) return no
   if (hasNumber(context.existingNumbers, card.no)) return { due: false, card: { ...card, autoConfirmAt: null } }
   if (!isSafeTime(context.now) || context.now < card.autoConfirmAt) return no
