@@ -243,6 +243,8 @@ const unitOf = (product: Product, variant: Product['variants'][number] | undefin
 export function successionUnits(product: Product): DecisionUnit[] {
   const out: DecisionUnit[] = []
   if (product.awaitingSuccession) out.push(unitOf(product, undefined))
+  // 옵션 없는 상품(옛 기록·봉인 날짜의 상품은 변형 칸이 없을 수 있다)은 변형을 보지 않는다
+  if (!product.hasOptions) return out
   for (const variant of product.variants) if (variant.awaitingSuccession) out.push(unitOf(product, variant))
   return out
 }
@@ -251,6 +253,7 @@ export function successionUnits(product: Product): DecisionUnit[] {
 export function conflictUnits(product: Product): DecisionUnit[] {
   const out: DecisionUnit[] = []
   if (product.conflict) out.push(unitOf(product, undefined))
+  if (!product.hasOptions) return out
   for (const variant of product.variants) if (variant.conflict) out.push(unitOf(product, variant))
   return out
 }

@@ -98,6 +98,11 @@ function sealedComplete(view: FullView): FullView {
       priceHistory: [],
       nameHistory: [],
       confirmVersion: 0,
+      // 봉인한 장부의 옛 상품에는 옵션 칸이 없을 수 있다 — 옵션 없는 상품으로 본다
+      aliases: [],
+      options: [],
+      hasOptions: false,
+      variants: [],
       ...product,
     }
   }) as unknown as FullView['products']
