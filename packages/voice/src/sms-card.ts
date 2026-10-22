@@ -244,7 +244,7 @@ export interface DescribeSmsOptions {
 
 function describeOrder(order: SmsOrder, options: DescribeSmsOptions): string {
   const parts = [`${String(order.no)}번`]
-  let name: string | null | undefined = null
+  let name: string | null | undefined
   try {
     name = options.productName?.(order.no)
   } catch {
