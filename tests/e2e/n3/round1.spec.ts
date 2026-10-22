@@ -4,10 +4,11 @@
 // - 음성 이력 기다림(SA-N3-04 수정, AC-I4-40·D-I4-06): 켠 직후 이력을 받는 동안 말한 문장은 기록에 바로 남고, 이력을 받으면 이력 사전으로 카드가 된다.
 //   이력이 늦으면(2초 넘김) 카드를 잃지 않고 그때 사전으로 만든다.
 import { test, expect, type Page, type Route } from '@playwright/test'
-import { deposit, depositOne, depositRow, fakeSource, history, kstDate, kstIso, login, noHorizontalScroll, phoneLike, scopeView, smsSale, todayKst, uniq } from './support.ts'
+import { deposit, depositOne, depositRow, fakeSource, history, kstDate, kstIso, login, noHorizontalScroll, scopeView, smsSale, todayKst, uniq } from './support.ts'
 import { card, installFakeSpeech, openNewBroadcast, registerApi, speak, turnOnVoice, uniqueDate, voiceRegion } from '../i4/support.ts'
 import { closeMore, expectPhoneBar, fakeReviewCount, moreButton, moreLinks, openMore } from '../menu.ts'
 import { cleanupPrint } from '../i1/support.ts'
+import { loginNewSeller } from '../i3/support.ts'
 
 // 출력 기록은 판매자 단위 — 판매(1등)가 만든 라벨 작업을 남기면 뒤 시험(N4a 등)의 출력 기기가 쌓인 라벨로 멈춘다 (i1 support "시험끼리 출력 기록이 섞이지 않게")
 test.afterEach(async ({ page }) => {
@@ -225,7 +226,12 @@ test.describe('음성 — 이력을 받는 동안 미룬 문장과 자동 등록
 test.describe('휴대폰 메뉴 — 확인 필요 수가 커도 (수정 라운드 1, TE-N3-001)', () => {
   test('375×812에서 "입금 확인 1234"여도 막대 다섯 칸은 한 줄, 목록 항목은 한 줄에 하나 — 모두 44×44px 이상·가로 스크롤 없음 (AC-N3-49·40, UX-04, AC-NAV-01·02·05)', async ({ page, browser }) => {
     await login(page)
-    const phone = await phoneLike(browser, page)
+    const context = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, locale: 'ko-KR', timezoneId: 'Asia/Seoul', baseURL: new URL(page.url()).origin })
+    const phone = await context.newPage()
+    // 혼자 쓰는 판매자 + 라벨 켬 — 다른 시험이 남긴 켬/끔에 기대지 않고, 아래에서 "라벨"까지 다 나온 목록을 잰다
+    await loginNewSeller(phone)
+    const labels = await phone.request.put('/api/settings/labels', { data: { enabled: true }, headers: { Origin: new URL(phone.url()).origin } })
+    expect(labels.status(), await labels.text()).toBe(200)
     // 수는 서버가 주는 값 — 확인 필요 1234건을 흉내 낸다
     await fakeReviewCount(phone, 1234)
     for (const path of ['/sms', '/deposits', '/settlements']) {
@@ -236,10 +242,8 @@ test.describe('휴대폰 메뉴 — 확인 필요 수가 커도 (수정 라운�
       // AC-NAV-02·05: 목록은 ['입금 확인 1234','포장','라벨','설정'] ('라벨'은 라벨 기능이 켜져 있을 때만)
       await openMore(phone)
       const links = moreLinks(phone)
-      await expect(links.filter({ hasText: '입금 확인 1234' })).toHaveCount(1)
-      const names = (await links.allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim())
-      const full = ['입금 확인 1234', '포장', '라벨', '설정']
-      expect([full, full.filter((n) => n !== '라벨')], path).toContainEqual(names)
+      // 라벨이 켜진 것을 화면이 안 뒤의 목록으로 잰다 (모르는 동안에는 "라벨"을 만들지 않는다, L-13 9)
+      await expect(links, path).toHaveText(['입금 확인 1234', '포장', '라벨', '설정'], { useInnerText: true })
       const boxes: { text: string; x: number; y: number; w: number; h: number }[] = []
       for (const link of await links.all()) {
         const box = (await link.boundingBox())!

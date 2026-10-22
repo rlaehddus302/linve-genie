@@ -99,6 +99,12 @@ export async function expectPhoneBar(page: Page): Promise<void> {
   for (const top of tops) expect(Math.abs(top - tops[0]!), '다섯 칸이 한 줄').toBeLessThanOrEqual(1)
 }
 
+/** 컨텍스트(또는 페이지)가 닫혀서 route 처리가 실패했는가 — 닫힘이 아닌 오류는 false */
+function closedWhileRouting(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /Request context disposed|Target page, context or browser has been closed/.test(message)
+}
+
 /** 수를 알려 주는 두 주소 (unroute는 같은 함수로 찾으므로 하나를 함께 쓴다) */
 const reviewUrls = (url: URL): boolean => url.pathname === '/api/deposits/count' || url.pathname === '/api/deposits'
 const reviewRoutes = new WeakMap<Page, (route: Route) => Promise<void>>()
@@ -119,9 +125,15 @@ export async function fakeReviewCount(page: Page, review: number | null): Promis
     const url = new URL(route.request().url())
     if (route.request().method() !== 'GET') return route.fallback()
     if (url.pathname === '/api/deposits/count') return route.fulfill({ json: { review } })
-    const response = await route.fetch()
-    const body = (await response.json()) as Record<string, unknown>
-    return route.fulfill({ response, json: { ...body, review } })
+    try {
+      const response = await route.fetch()
+      const body = (await response.json()) as Record<string, unknown>
+      await route.fulfill({ response, json: { ...body, review } })
+    } catch (error) {
+      // 시험이 끝나 컨텍스트가 닫힌 뒤 늦게 온 목록 요청만 조용히 넘긴다 — 다른 오류는 그대로 드러낸다
+      if (closedWhileRouting(error)) return
+      throw error
+    }
   }
   reviewRoutes.set(page, handler)
   await page.route(reviewUrls, handler)
