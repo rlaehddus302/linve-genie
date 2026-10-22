@@ -9,7 +9,6 @@ import {
   chatPanel,
   createBroadcast,
   login,
-  openReviews,
   oscope,
   productOf,
   reviewLine,
