@@ -60,6 +60,10 @@ import {
   loginLimits,
   outbox,
   packingRecords,
+  parcelAddresses,
+  parcelRequests,
+  parcelSettings,
+  parcels,
   pasteRequests,
   receiptLinkRequests,
   receiptLinks,
@@ -1143,8 +1147,12 @@ const BATCH = 500
  * - 입금 확인(N3 — 입금과 엔진 기록의 연결 deposit_links, 처리 기록 deposit_actions): 범위를 참조하므로 이 목록에서 지우지만, 판매자가 한 일의 기록이라
  *   버리지 않는다 — 지우기 전에 읽어 두었다가 파일로 다시 만든 범위에 다시 넣는다(restoreDepositRecords). 처리 기록은 모두 그대로(범위만 새 범위로),
  *   연결은 다시 만든 범위의 그 seq에 그 입금의 엔진 기록(요청 번호 dep-<번호>-pay|rev-<차례>)이 있을 때만 남긴다.
+ * 합칠 때(T1) 더한 표 — 택배 배송지·택배 화면 요청 번호(PARCEL_RULES PC-3, D-T1-07): 파일에 없다 — 지운다(같은 트랜잭션, 복구가 실패하면 그대로).
+ *   복구한 구매자 ID가 다른 사람을 가리킬 수 있어 복구 전에 받은 배송지는 모두 버린다(D-N4b-06과 같음).
  */
 export const RESTORE_REPLACED_TABLES = [
+  parcelAddresses,
+  parcelRequests,
   receiptLinks,
   receiptLinkRequests,
   depositLinks,
@@ -1210,6 +1218,10 @@ export const RESTORE_KEPT_TABLES = [
   depositNames,
   depositCorpBindings,
   depositRequests,
+  // T1 택배 접수 시도·설정 "택배": 엔진 밖 기록·판매자 설정이라 파일에 없다. 접수 시도는 그대로 둔다 — 택배사에 이미 접수한 묶음을 다시 접수하지 않게
+  // (복구한 포장 기록이 접수 전이어도 그 묶음은 "이미 접수했어요"로 빠진다). 배송지 원문은 없다(PC-3)
+  parcels,
+  parcelSettings,
 ] as const
 /** 판매자 데이터가 아닌 표 (로그인 전 시도 수 — 판매자 ID가 없다) */
 export const RESTORE_UNRELATED_TABLES = [loginLimits] as const
