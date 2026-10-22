@@ -1,6 +1,7 @@
 // O3 서버 연결 (AC-O3-20~24): 엔진 상태 → 상품·포장 라벨 데이터의 옵션 글·수량, 포장 모드 품목의 variant·qty, 포장 기록의 수량 비교, 내려받은 문서·라벨.
 // 판매는 골든 G-ENG-O3-01(tests/golden/engine/24-o3-labels-documents.yaml)과 같은 이벤트를 서버 쓰기 경로(API·수집 함수)로 넣는다.
 import { readFileSync } from 'node:fs'
+import { gunzipSync } from 'node:zlib'
 import { fileURLToPath } from 'node:url'
 import { checkPackingData, checkProductData, computePackingText, defaultTemplate, encodeLabelPng, renderPackingLabels, type PackingLabelData } from '@livejjim/label'
 import { createNodeRenderEnv } from '@livejjim/label/node'
@@ -8,12 +9,12 @@ import { loadDocumentFont, renderReceiptPng, type ReceiptData } from '@livejjim/
 import ExcelJS from 'exceljs'
 import { describe, expect, it } from 'vitest'
 import { fontBytes, pdfPageTexts } from '../../../packages/documents/test/helpers.ts'
-import { listClaims, type ClaimInfo } from '@livejjim/core'
+import { DEFAULT_SETTINGS, listClaims, type ClaimInfo } from '@livejjim/core'
 import { MissingAmountError } from '../src/amount.ts'
-import { createBackupBytes, restoreSeller } from '../src/backup.ts'
+import { createBackupBytes, restoreSeller, type BackupFile } from '../src/backup.ts'
 import { formatLog } from '../src/log.ts'
 import { randomIds } from '../src/ids.ts'
-import { eventsAfter, scopeRow } from '../src/store.ts'
+import { eventsAfter, insertBroadcast, scopeRow } from '../src/store.ts'
 import { summaryLines } from '../src/youtube/outbox.ts'
 import { summaryComments } from '../src/youtube/texts.ts'
 import { LEDGER_FORMAT, buildLedger, confirmTimes, readLedger, sealedView } from '../src/youtube/seal.ts'
@@ -21,7 +22,7 @@ import { buildClaimIndex, packingBroadcasts, productLabelData } from '../src/lab
 import { lookupOf, packingEntry, packingStatusOf, parsePackedItems, packedItemsJson, packingWord, pairText, readPackedItem, replayPacking } from '../src/packing.ts'
 import { at, chat, getFile, ok, pack, pngHeader } from './i2-support.ts'
 import { printApi } from './print-support.ts'
-import { addSeller, client, createBroadcast, expectOk, fakeClock, newWorld, type JsonResponse, type Seller, type TestServer } from './support.ts'
+import { addSeller, client, createBroadcast, dumpAllTables, expectOk, fakeClock, newWorld, type JsonResponse, type Seller, type TestServer } from './support.ts'
 
 const D = '2026-10-25'
 const GOLDEN = fileURLToPath(new URL('../../../tests/golden/', import.meta.url))
@@ -46,10 +47,6 @@ interface Entry {
   remove: { id: string | null; key: string; no: number }[]
 }
 
-async function settings(world: TestServer, seller: Seller, value: Record<string, unknown>): Promise<void> {
-  await expectOk(client(world, seller.cookie).patch('/api/settings', { settings: value }))
-}
-
 /**
  * 옵션 칸이 있는 이벤트를 기록 경로(ScopeWriter)로 바로 쓴다 — API의 옵션 쓰기 칸은 O2 트랙(D-O2) 몫이라 이 트랙에는 아직 없다.
  * 판정은 같은 기록 경로·같은 코어가 한다 (트랜잭션·범위 락·효과·출력 작업 그대로)
@@ -58,6 +55,30 @@ async function raw(world: TestServer, seller: Seller, fields: Record<string, unk
   const outcome = await world.server.writer.write({ sellerId: seller.sellerId, date: D, rehearsal: false, createScope: false, requestId: null, build: () => [{ fields, actor: { kind: 'account', accountId: seller.accountId } }] })
   expect(outcome.kind, JSON.stringify(outcome)).toBe('ok')
   await world.server.print.settled()
+}
+
+/**
+ * 옵션 방송(claim.parseMode=OPTIONS)을 연다. 서버 입구(판매 규칙 설정 저장·방송 만들기)는 O2 전까지 옵션 방송을 막는다(RA-O1-01, src/sale-mode.ts) —
+ * 그 막음은 제품 동작이라 풀지 않는다. 시험은 raw와 같은 기록 경로(ScopeWriter)로 서비스 createBroadcast와 같은 모양의 broadcast.start(설정 스냅샷 =
+ * 기본 설정 + OPTIONS)와 방송 행을 남긴다. 판정은 같은 기록 경로·같은 코어가 한다. 판매자 설정은 바꾸지 않는다(그대로 STRICT)
+ */
+async function optionsBroadcast(world: TestServer, seller: Seller, date: string, title: string): Promise<string> {
+  const b = randomIds.broadcast()
+  const outcome = await world.server.writer.write({
+    sellerId: seller.sellerId,
+    date,
+    rehearsal: false,
+    createScope: true,
+    requestId: null,
+    build: () => [{ fields: { type: 'broadcast.start', b, date, title, settings: { ...DEFAULT_SETTINGS, 'claim.parseMode': 'OPTIONS' } }, actor: { kind: 'account', accountId: seller.accountId } }],
+    afterInsert: async (tx, scopeId, records, now) => {
+      const first = records[0]
+      if (first === undefined || !first.changed) return
+      await insertBroadcast(tx, { id: b, sellerId: seller.sellerId, scopeId, date, title, startSeq: first.seq, now })
+    },
+  })
+  expect(outcome.kind, JSON.stringify(outcome)).toBe('ok')
+  return b
 }
 
 /** G-ENG-O3-01과 같은 판매. 돌려주는 값: 방송 ID 둘과 문자 구매자 ID */
@@ -69,9 +90,7 @@ async function sellO3(world: TestServer, seller: Seller): Promise<{ b1: string; 
   at(world, D, '20:00:05')
   await chat(world, seller, b1, 'm1', 'UC_A', '홍길동', '7')
   at(world, D, '21:00:00')
-  await settings(world, seller, { 'claim.parseMode': 'OPTIONS' })
-  const b2 = (await createBroadcast(world, seller, { date: D, title: '의류 2부' })).id
-  await settings(world, seller, { 'claim.parseMode': 'STRICT' })
+  const b2 = await optionsBroadcast(world, seller, D, '의류 2부')
   at(world, D, '21:00:01')
   await raw(world, seller, { type: 'product.register', b: b2, no: 21, name: '반바지', price: 10000, options: [{ name: '사이즈', choices: [{ label: 'S' }, { label: 'M' }, { label: 'L' }] }] })
   at(world, D, '21:00:02')
@@ -280,8 +299,7 @@ describe('AC-O3-23 포장 뒤 수량이 바뀌면 "포장 다시 확인"', () =>
     const world = await newWorld()
     const seller = await addSeller(world)
     at(world, D, '20:59:00')
-    await settings(world, seller, { 'claim.parseMode': 'OPTIONS' })
-    const b = (await createBroadcast(world, seller, { date: D, title: '의류' })).id
+    const b = await optionsBroadcast(world, seller, D, '의류')
     at(world, D, '21:00:00')
     await ok(world, seller, { type: 'product.register', b, no: 11, name: '초코 과자', price: 2000, stock: 5 })
     at(world, D, '21:00:01')
@@ -355,8 +373,7 @@ describe('AC-O3-24 여러 날짜 판매대장의 열 모양 (D-O3-07)', () => {
     await chat(world, seller, b, 'm1', 'UC_A', '홍길동', '7')
     const D2 = '2026-10-26'
     at(world, D2, '20:59:00')
-    await settings(world, seller, { 'claim.parseMode': 'OPTIONS' })
-    await createBroadcast(world, seller, { date: D2, title: '의류' })
+    await optionsBroadcast(world, seller, D2, '의류')
     const both = await readSheet((await getFile(world, seller.cookie, `/api/ledger.xlsx?from=${D}&to=${D2}`)).bytes)
     expect(both).toEqual([
       ['방송 날짜', '회차', '상품 번호', '품종', '옵션', '수량', '단가', '가격', '구매자', '채널', '찜 시각', '상태', '입금', '배송'],
@@ -370,29 +387,35 @@ describe('AC-O3-24 여러 날짜 판매대장의 열 모양 (D-O3-07)', () => {
   })
 })
 
-describe('AC-O3-23 백업 — 변형 키·수량을 적은 포장 기록도 백업·복원된다', () => {
-  it('옵션 묶음 포장 완료 → 백업 → 빈 판매자로 복원 → 같은 포장 상태(포장 완료), 기록 품목에 변형 키·수량', async () => {
+describe('AC-O3-23 백업 — 변형 키·수량을 적은 포장 기록도 백업 파일에 남는다', () => {
+  // 복원은 O2 전까지 옵션 방송(방송 시작 스냅샷 OPTIONS)이 든 파일을 막는다(RA-O1-01, src/sale-mode.ts — 제품 동작이라 시험 때문에 풀지 않는다).
+  // 그래서 지금은 (1) 백업 파일의 포장 기록에 변형 키·수량이 남는 것과 (2) 그 파일의 복원이 막힘 문장으로 거절되고 아무것도 바꾸지 않는 것을 본다.
+  // O2에서 막음을 풀면 (2)를 "빈 판매자로 복원 → 같은 포장 상태(포장 완료), 기록 품목에 변형 키·수량" 왕복으로 되돌린다.
+  it('옵션 묶음 포장 완료 → 백업 파일의 포장 기록 품목에 변형 키·수량. 그 파일을 빈 판매자로 복원하면 O2 전까지 거절, 아무것도 바꾸지 않는다', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)
     await sellO3(world, seller)
     const a = (await entries(world, seller)).get('UC_A') as Entry
     await expectPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: a.items.map((item) => item.key) }))
     const bytes = await createBackupBytes(world.database.db, seller.sellerId, world.clock.now())
-    // 다른 서버(다른 DB)의 빈 판매자로 — 방송 ID는 서버 전체에서 유일해 같은 서버로는 가져오지 않는다
-    const other = await newWorld({ clock: fakeClock(world.clock.now()) })
-    const target = await addSeller(other)
-    const restored = await restoreSeller({ db: other.database.db, sellerId: target.sellerId, bytes, replace: false, storage: null, clock: other.clock, ids: randomIds })
-    expect(restored.ok, JSON.stringify(restored)).toBe(true)
-    other.server.writer.forgetSeller(target.sellerId)
-    const after = (await entries(other, target)).get('UC_A') as Entry
-    expect(after.status).toBe('포장 완료')
-    expect(after.items.map((item) => [item.key.replace(/^[^/]+\//, ''), item.qty])).toEqual([
+    const file = JSON.parse(gunzipSync(bytes).toString('utf8')) as BackupFile
+    const packed = file.packing.filter((record) => record.buyer === 'UC_A' && record.kind === 'PACKED')
+    expect(packed).toHaveLength(1)
+    const items = parsePackedItems(JSON.stringify(packed[0]?.items))
+    expect(items?.map((item) => [item.key.replace(/^[^/]+\//, ''), item.qty])).toEqual([
       ['7', 1],
       ['11', 3],
       ['21#M', 1],
       ['21#L', 1],
       ['22#105/검정색', 2],
     ])
+    // 다른 서버(다른 DB)의 빈 판매자로 — 방송 ID는 서버 전체에서 유일해 같은 서버로는 가져오지 않는다
+    const other = await newWorld({ clock: fakeClock(world.clock.now()) })
+    const target = await addSeller(other)
+    const before = await dumpAllTables(other.database)
+    const restored = await restoreSeller({ db: other.database.db, sellerId: target.sellerId, bytes, replace: false, storage: null, clock: other.clock, ids: randomIds })
+    expect(restored).toEqual({ ok: false, reason: '백업 파일에 아직 쓸 수 없는 판매 방식이 있어요.' })
+    expect(await dumpAllTables(other.database)).toBe(before)
   })
 })
 
@@ -649,8 +672,7 @@ describe('AC-O3-28 포장 "뺄 것"에 포장 때의 옵션 글·수량 (D-O3-14
     const world = await newWorld()
     const seller = await addSeller(world)
     at(world, D, '20:59:00')
-    await settings(world, seller, { 'claim.parseMode': 'OPTIONS' })
-    const b = (await createBroadcast(world, seller, { date: D, title: '의류' })).id
+    const b = await optionsBroadcast(world, seller, D, '의류')
     at(world, D, '21:00:00')
     await ok(world, seller, { type: 'product.register', b, no: 11, name: '초코 과자', price: 2000, stock: 5 })
     at(world, D, '21:00:01')
