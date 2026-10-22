@@ -13,6 +13,16 @@ export {
   type ExtractOptions,
   type VoiceExtraction,
 } from './extract.ts'
+export {
+  SMS_MAX_ORDERS,
+  SMS_PROBLEMS,
+  findSmsMarker,
+  readSmsSentence,
+  type SmsOrder,
+  type SmsProblem,
+  type SmsReadOptions,
+  type SmsReading,
+} from './sms.ts'
 export { buildDictionary, normalizeDictionary, prepareDictionary, VarietyDictionary, type DictionaryEntry } from './dictionary.ts'
 export { DEFAULT_DICTIONARY } from './default-dictionary.ts'
 export { BIT_PATTERN_MAX, JamoPattern, bitParallelDistance, compact, editDistance, jamoOf, isCandidate, compareSimilarity, type Similarity } from './jamo.ts'
