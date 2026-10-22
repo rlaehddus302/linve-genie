@@ -174,8 +174,24 @@ test('AC-N4a-02·18: 다른 기기에서 끔·켬을 빠르게 여러 번(같은
 
 test('AC-N4a-18: 출력 개요를 불러오지 못하면 라벨 조작을 숨기고 라벨 화면은 서버 문장·"다시 시도" — 다시 시도로 회복', async ({ page }) => {
   await login(page)
-  let fail = true
+  // 화면은 실패한 조회를 스스로 다시 받는다(실시간 연결이 열릴 때·잠시 뒤). 시험이 "이제 성공"으로 바꾼 뒤 누르기 전에 그 자동 조회가 먼저 성공하면
+  // 버튼이 사라져 누를 수 없다(부하에서 실제로 났다). 그래서 성공은 "다시 시도"를 누른 뒤에 나간 조회에만 준다 — 누를 때 그 뒤 조회에 표시를 붙인다.
+  await page.addInitScript(() => {
+    const w = window as unknown as { __retryClicked?: boolean }
+    document.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target.closest('main button') : null
+      if (target?.textContent?.trim() === '다시 시도') w.__retryClicked = true
+    }, true)
+    const original = window.fetch.bind(window)
+    window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      if (w.__retryClicked !== true) return original(input, init)
+      const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
+      headers.set('x-e2e-after-retry', '1')
+      return original(input, { ...init, headers })
+    }
+  })
   await page.route(/\/api\/print(\?.*)?$/, async (route) => {
+    const fail = route.request().headers()['x-e2e-after-retry'] !== '1'
     if (fail && route.request().method() === 'GET') {
       await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'UNAVAILABLE', message: '잠시 연결이 불안정해요. 다시 해 주세요.' } }) })
       return
@@ -189,7 +205,6 @@ test('AC-N4a-18: 출력 개요를 불러오지 못하면 라벨 조작을 숨기
   await expect(page.getByRole('main')).toContainText('잠시 연결이 불안정해요. 다시 해 주세요.')
   await expect(page.getByRole('button', { name: LABEL_CONTROL })).toHaveCount(0)
   await expect(menuLink(page, '라벨')).toHaveCount(0)
-  fail = false
   await retry.click()
   await expect(page.getByRole('region', { name: '프린터' })).toBeVisible()
   await expect(menuLink(page, '라벨')).toBeVisible()
