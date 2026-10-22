@@ -235,6 +235,42 @@ describe('라벨 상태 (AC-I1-12·30)', () => {
   })
 })
 
+describe('다시 시도', () => {
+  it('조회가 도는 사이 누른 다시 시도는, 그 조회가 실패해도 자동 재시도를 기다리지 않고 곧바로 한 번 더 받는다 — 그 뒤로는 더 받지 않는다', async () => {
+    const timers: Array<{ fn: () => void; ms: number }> = []
+    let fail: () => void = () => {}
+    let calls = 0
+    server.on('GET', /^\/api\/print$/, () => {
+      calls++
+      if (calls === 1) return new Promise((resolve) => (fail = () => resolve({ status: 503, body: { error: { code: 'UNAVAILABLE', message: '잠시 뒤 다시 해 주세요.' } } })))
+      return { body: current }
+    })
+    store = new PrintStore({ openStream: () => new FakeEventSource('/api/stream'), timer: { set: (fn, ms) => timers.push({ fn, ms }), clear: () => {} } })
+    store.start()
+    await flush()
+    expect(printCalls()).toBe(1)
+    void store.reload()
+    fail()
+    await flush()
+    expect(printCalls()).toBe(2)
+    expect(store.getSnapshot()).toMatchObject({ phase: 'ready', error: null })
+    expect(store.getSnapshot().overview?.queue.rev).toBe(5)
+    await flush()
+    expect(printCalls()).toBe(2)
+  })
+
+  it('다시 시도 없이 실패하면 곧바로 다시 받지 않고 자동 재시도(1초부터)를 기다린다', async () => {
+    const timers: Array<{ fn: () => void; ms: number }> = []
+    server.on('GET', /^\/api\/print$/, () => ({ status: 503, body: { error: { code: 'UNAVAILABLE', message: '잠시 뒤 다시 해 주세요.' } } }))
+    store = new PrintStore({ openStream: () => new FakeEventSource('/api/stream'), timer: { set: (fn, ms) => timers.push({ fn, ms }), clear: () => {} } })
+    store.start()
+    await flush()
+    expect(printCalls()).toBe(1)
+    expect(store.getSnapshot().phase).toBe('error')
+    expect(timers.map((item) => item.ms)).toContain(1000)
+  })
+})
+
 describe('조치 응답', () => {
   it('응답의 대기열 요약·작업을 바로 덮는다 (알림을 기다리지 않는다)', async () => {
     server.on('POST', /^\/api\/print\/jobs\/cancel$/, () => ({ body: { job: job('j1', { status: 'CANCELLED', word: '출력 안 함' }) } }))

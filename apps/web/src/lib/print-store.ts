@@ -393,6 +393,8 @@ export class PrintStore {
       return
     }
     this.#loading = true
+    // 실패한 조회가 도는 사이 다시 받기를 청했으면(판매자의 "다시 시도"·알림) 자동 재시도를 기다리지 않고 곧바로 한 번 더 받는다
+    let retryNow = false
     try {
       do {
         this.#again = false
@@ -419,6 +421,8 @@ export class PrintStore {
     } catch (error) {
       if (!isApiError(error)) throw error
       if (error.status === 401) return
+      // 다음 조회에서 #again을 다시 내리므로, 그 사이 새 청이 없으면 멈춘다 (무한 반복 없음)
+      retryNow = this.#again && !this.#stopped
       if (this.#snapshot.overview === null) this.#set({ phase: 'error', error })
       if (retryable(error)) {
         this.#failures++
@@ -434,6 +438,7 @@ export class PrintStore {
     } finally {
       this.#loading = false
     }
+    if (retryNow) await this.reload()
   }
 
   async reloadTemplates(): Promise<void> {
