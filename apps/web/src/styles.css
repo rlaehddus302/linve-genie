@@ -1292,7 +1292,8 @@ html:has(.sms-submit-bar) {
 }
 
 .voice-sent {
-  flex: 1;
+  /* 고지 문장이 길어(D-I5-06) 좁은 화면(393px)에선 상태·"음성 끄기" 사이에 끼어 한 글자씩 꺾이지 않고 제 줄로 내려간다 */
+  flex: 1 1 14rem;
   color: #3c4043;
 }
 

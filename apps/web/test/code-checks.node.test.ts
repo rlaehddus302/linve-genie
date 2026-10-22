@@ -44,3 +44,18 @@ describe('화면 코드 검사', () => {
     for (const { file, text } of files) expect(text, file).not.toContain('번째 문자')
   })
 })
+
+describe('아이폰(사파리) 음성 코드 검사 (I5)', () => {
+  it('AC-I5-13 (D-I5-07): 클라우드 음성 화면·키 칸이 없고 클라우드 어댑터를 부르지 않는다', () => {
+    for (const { file, text } of files) {
+      expect(text, file).not.toMatch(/Deepgram|리턴제로|클라우드 음성|유료 음성/)
+      expect(text, file).not.toMatch(/CloudSpeechEngine|createCloudSpeech|CloudSpeech/)
+    }
+  })
+
+  it('D-036·D-I5-05: 음성 화면 코드는 기기 이름(UA)을 읽지 않는다 — 기능 값(navigator.standalone)만', () => {
+    const voiceFiles = files.filter((item) => item.file.startsWith('voice/') || item.file === 'components/VoicePanel.tsx')
+    expect(voiceFiles.map((item) => item.file)).toContain('voice/standalone.ts')
+    for (const { file, text } of voiceFiles) expect(text, file).not.toMatch(/userAgent|userAgentData|isIosSafari/)
+  })
+})

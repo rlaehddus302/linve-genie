@@ -6,14 +6,15 @@
 import type { SuggestionCard } from '@livejjim/voice'
 import { useEffect, useId, useRef, type KeyboardEvent, type RefObject } from 'react'
 import { autoSecondsLeft, showsAutoCountdown } from '../lib/voice.ts'
-import { HISTORY_FAILED, SENT_NOTICE, TOO_SOON, type CardForm, type FormField, type VoiceController, type VoiceSnapshot } from '../voice/controller.ts'
+import { HISTORY_FAILED, SENT_NOTICE, STANDALONE_NOTICE, TOO_SOON, type CardForm, type FormField, type VoiceController, type VoiceSnapshot } from '../voice/controller.ts'
+import { isHomeScreenApp } from '../voice/standalone.ts'
 import { Modal } from './Modal.tsx'
 
-/** 안내 창 문장 (D-I4-04, AC-I4-11 그대로) */
+/** 안내 창 문장 (D-I4-04, AC-I4-11 — 외부 전송 문장만 D-I5-06으로 바꿈) */
 export const CONSENT_TITLE = '음성으로 상품 등록'
 export const CONSENT_LINES: readonly string[] = [
   '말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.',
-  '음성은 인식을 위해 구글 음성 인식 서버로 보내져요. 라이브찜은 음성을 녹음하거나 저장하지 않아요.',
+  '음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브찜은 음성을 녹음하거나 저장하지 않아요.',
   '다음에 크롬이 마이크 사용을 물으면 "허용"을 눌러 주세요.',
 ]
 export const AUTO_CONFIRM_LABEL = '확실한 카드는 자동으로 등록'
@@ -94,6 +95,8 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
           {snapshot.error}
         </p>
       ) : null}
+      {/* 홈 화면 앱: 켜진 동안·오류로 멈춘 뒤 한 줄 (D-I5-05 — 막지 않는다) */}
+      {(on || snapshot.error !== null) && isHomeScreenApp() ? <p className="voice-info">{STANDALONE_NOTICE}</p> : null}
       {on && snapshot.historyFailed ? (
         <p className="voice-info" role="status">
           {HISTORY_FAILED}
