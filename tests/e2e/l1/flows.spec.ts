@@ -155,7 +155,7 @@ for (const provider of PROVIDERS) {
       await expect(noCookie.getByRole('alert')).toHaveText(MSG.EXPIRED)
       await expectLoggedOut(noCookie)
       await victim.goto('/')
-      await pressContinue(victim, provider) // 피해자 브라우저에도 자기 lj_oauth가 있다
+      await pressContinue(victim, provider) // 피해자 브라우저에도 자기 __Host-lj_oauth가 있다
       await victim.goto(foreign)
       await expect(victim.getByRole('alert')).toHaveText(MSG.EXPIRED)
       await expectLoggedOut(victim)

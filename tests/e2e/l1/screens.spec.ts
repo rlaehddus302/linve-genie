@@ -257,6 +257,22 @@ test.describe('AC-L1-21 돌아온 결과 문장 @social', () => {
     await expect(page.getByText(MSG.NOT_LINKED('kakao'))).toHaveCount(0)
     await expect(page).toHaveURL(/\/$/)
   })
+
+  for (const [code, provider, text] of [['SESSION_GONE', 'kakao', MSG.SESSION_GONE], ['RATE_LIMITED', 'naver', MSG.RATE_LIMITED]] as const) {
+    test(`TE-L1-001: 로그인한 채 /?login=${code}&provider=${provider} → 위 알림으로 같은 문장 한 번 · 주소에서 지움 · [닫기]로 사라짐 · 새로 고침하면 없음`, async ({ page }) => {
+      await loginNewSeller(page)
+      await page.goto(`/?login=${code}&provider=${provider}`)
+      await expect(page.getByRole('button', { name: '로그아웃' })).toBeVisible()
+      await expect(page.getByRole('alert')).toHaveText(text)
+      await expect(page.getByText(text)).toHaveCount(1)
+      await expect(page).toHaveURL(/\/$/)
+      await page.getByRole('button', { name: '닫기' }).click()
+      await expect(page.getByText(text)).toHaveCount(0)
+      await page.reload()
+      await expect(page.getByRole('button', { name: '로그아웃' })).toBeVisible()
+      await expect(page.getByText(text)).toHaveCount(0)
+    })
+  }
 })
 
 test.describe('AC-L1-22 설정 "로그인 방법" @social', () => {

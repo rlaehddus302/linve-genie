@@ -106,7 +106,7 @@ test.describe('L1 깨뜨리기 @social', () => {
     await ctx.close()
   })
 
-  test('간편 로그인 세션 쿠키는 아이디 로그인과 같다(lj_session HttpOnly·Secure·SameSite=Lax·30일) · 확인 쿠키 lj_oauth는 /api/auth 경로·돌아오면 지워짐', async ({ page, browser, baseURL }) => {
+  test('간편 로그인 세션 쿠키는 아이디 로그인과 같다(lj_session HttpOnly·Secure·SameSite=Lax·30일) · 확인 쿠키 __Host-lj_oauth는 / 경로·Domain 없음·돌아오면 지워짐 (RA-L1-02)', async ({ page, browser, baseURL }) => {
     await loginNewSeller(page)
     const user = await fakeUser(page.request, 'kakao')
     await linkFromSettings(page, 'kakao', user)
@@ -115,8 +115,10 @@ test.describe('L1 깨뜨리기 @social', () => {
     const p = await ctx.newPage()
     await p.goto('/')
     await pressContinue(p, 'kakao')
-    const oauth = (await ctx.cookies()).find((c) => c.name === 'lj_oauth')
-    expect(oauth?.path).toBe('/api/auth')
+    const oauth = (await ctx.cookies()).find((c) => c.name === '__Host-lj_oauth')
+    expect(oauth?.path).toBe('/')
+    expect(oauth?.domain).toBe(new URL(baseURL ?? '').hostname) // Domain 속성 없음 = 앱 호스트에만(점으로 시작하지 않음)
+    expect((await ctx.cookies()).find((c) => c.name === 'lj_oauth'), '옛 이름 쿠키는 더 쓰지 않는다').toBeUndefined()
     expect(oauth?.httpOnly).toBe(true)
     expect(oauth?.secure).toBe(true)
     expect(oauth?.sameSite).toBe('Lax')
@@ -125,7 +127,7 @@ test.describe('L1 깨뜨리기 @social', () => {
     await decideOnFakePage(p, 'kakao', user)
     await expect(p.getByRole('button', { name: '로그아웃' })).toBeVisible()
     const cookies = await ctx.cookies()
-    expect(cookies.find((c) => c.name === 'lj_oauth')).toBeUndefined()
+    expect(cookies.find((c) => c.name === '__Host-lj_oauth')).toBeUndefined()
     const session = cookies.find((c) => c.name === 'lj_session')
     expect(session?.httpOnly).toBe(true)
     expect(session?.secure).toBe(true)
@@ -255,10 +257,12 @@ test.describe('L1 깨뜨리기 @social', () => {
     await tab.close()
     const back = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/auth/kakao/callback')
     await decideOnFakePage(page, 'kakao', user)
-    // 결과는 SESSION_GONE 또는 EXPIRED — 어느 쪽이든 LINKED가 아니다 (B로 로그인된 채라 문장이 어디에 보일지는 스펙이 정하지 않음 — 지적으로 올림)
+    // 결과는 SESSION_GONE 또는 EXPIRED — 어느 쪽이든 LINKED가 아니다
     const location = (await back).headers()['location'] ?? ''
     expect(location).toMatch(/[?&]login=(SESSION_GONE|EXPIRED)&provider=kakao$/)
     await expect(page.getByRole('button', { name: '로그아웃' })).toBeVisible()
+    // B로 로그인된 채 돌아와도 SESSION_GONE이면 위 알림으로 문장이 보인다 (TE-L1-001)
+    if (location.includes('login=SESSION_GONE')) await expect(page.getByRole('alert')).toHaveText(MSG.SESSION_GONE)
     await expect(page.getByText(MSG.LINKED('kakao'))).toHaveCount(0)
     const methodsB = await (await page.request.get('/api/auth/methods')).json() as { loginId: string; providers: { provider: string; linked: boolean }[] }
     expect(methodsB.loginId).toBe(sellerB.loginId)
@@ -273,6 +277,32 @@ test.describe('L1 깨뜨리기 @social', () => {
     expect((await whoAmI(p.request)).status).toBe(401)
     expect(a.loginId).not.toBe(sellerB.loginId)
     await other.close()
+  })
+
+  test('TE-L1-001: 연결을 시작해 둔 사이 다른 탭에서 로그아웃 후 같은 아이디로 다시 로그인 → 돌아오면 SESSION_GONE, 로그인된 채 위 알림 문장 + [닫기] · 연결되지 않음', async ({ page }) => {
+    const seller = await loginNewSeller(page)
+    const user = await fakeUser(page.request, 'naver')
+    await page.goto('/settings')
+    await methodsRegion(page).getByRole('button', { name: '네이버 연결하기' }).click()
+    await expect(page).toHaveURL(/\/naver\/authorize\?/)
+    const tab = await page.context().newPage()
+    await tab.goto('/')
+    await logout(tab)
+    await loginAs(tab, seller) // 새 세션 — 연결을 시작한 세션은 끝났다
+    await tab.close()
+    const back = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/auth/naver/callback')
+    await decideOnFakePage(page, 'naver', user)
+    expect((await back).headers()['location'] ?? '').toMatch(/[?&]login=SESSION_GONE&provider=naver$/)
+    await expect(page.getByRole('button', { name: '로그아웃' })).toBeVisible()
+    await expect(page.getByRole('alert')).toHaveText(MSG.SESSION_GONE)
+    await expect(page.getByText(MSG.SESSION_GONE)).toHaveCount(1)
+    await expect(page.getByText(MSG.LINKED('naver'))).toHaveCount(0)
+    await expect(page).toHaveURL(/\/$/)
+    await page.getByRole('button', { name: '닫기' }).click()
+    await expect(page.getByText(MSG.SESSION_GONE)).toHaveCount(0)
+    expect((await whoAmI(page.request)).loginId).toBe(seller.loginId)
+    const methods = await (await page.request.get('/api/auth/methods')).json() as { providers: { provider: string; linked: boolean }[] }
+    expect(methods.providers.find((p) => p.provider === 'naver')?.linked).toBe(false)
   })
 
   test('설정에서 [연결하기] → 공급자 화면에서 브라우저 "뒤로" → 설정의 [연결하기]가 다시 눌린다', async ({ page }) => {
