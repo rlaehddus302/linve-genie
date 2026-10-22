@@ -3,8 +3,12 @@
 //   이메일은 찾기·합치기에 쓰지 않는다(가린 이름만 저장).
 // - 연결은 로그인한 판매자가 시작하고(그 계정·세션·브라우저에 묶인 state), 돌아왔을 때 같은 세션이 살아 있어야 한다.
 // - state: 무작위 32바이트(base64url), 서버엔 해시만, 10분, 한 번만(쓴 표시를 한 문장으로 먼저 단다 — 동시에 와도 하나만 다음으로 간다).
-//   브라우저 쿠키(lj_oauth, 경로 /api/auth, 10분, 무작위 — 서버엔 해시만)와 짝이 맞아야 한다. 같은 브라우저의 여러 탭은 쿠키 하나를 함께 쓴다
-//   (시작할 때 그 브라우저의 쿠키가 있으면 그대로 쓰고 Max-Age만 다시 10분) — 탭마다 state는 따로 살아 있고, 다른 브라우저의 state는 쿠키가 달라 통과하지 못한다.
+//   브라우저 쿠키(__Host-lj_oauth, Path=/·Secure·Domain 없음, 10분, 무작위 — 서버엔 해시만)와 짝이 맞아야 한다 (RA-L1-02).
+//   시작할 때마다 쿠키 값은 새로 발급한다(요청에 온 값을 그대로 다시 내보내지 않는다). 그 브라우저에 진행 중인 state(쓰지 않음·끝나지 않음)가 있으면
+//   그 행들을 새 값의 해시로 다시 묶는다 — 여러 탭이 차례로 시작해도 탭마다 state는 따로 살아 있고, 다른 브라우저의 state는 쿠키가 달라 통과하지 못한다.
+//   (두 탭이 같은 순간에 시작하면 늦게 도착한 쿠키만 남아 한 탭은 EXPIRED — 쿠키 없이 처음 두 탭을 동시에 열 때와 같은 한계)
+// - 돌아오는 주소는 결과와 상관없이 쿠키를 지우지 않는다 (RA-L1-01): 성공(로그인·연결)했고 그 브라우저에 살아 있는 다른 state가 없을 때만 지우고,
+//   아니면 Max-Age(10분) 만료에 맡긴다 — 다른 탭에서 진행 중인 연결·로그인이 깨지지 않게.
 // - 돌아오는 주소 검사 순서(AC-L1-04): IP 한도 → 공급자 error → state·쿠키 검사와 쓴 표시(한 문장) → 연결이면 세션 → 코드 교환·사용자 정보 → 연결 표.
 // - 돌아간 뒤 가는 곳은 앱 주소 + 고정 경로(`/` 또는 `/settings`) + login·provider 두 매개변수뿐이다(요청의 Host·매개변수로 바꾸지 않는다).
 // - 로그·응답에 코드·state·토큰·비밀값·공급자 계정 ID·이메일을 남기지 않는다(공급자 이름·결과 코드·오류 종류만).
@@ -39,8 +43,9 @@ import {
 export type SocialResult = 'CANCELLED' | 'EXPIRED' | 'NOT_LINKED' | 'PROVIDER_ERROR' | 'RATE_LIMITED' | 'LINKED' | 'LINKED_ELSEWHERE' | 'ALREADY_LINKED' | 'SESSION_GONE'
 export type SocialPurpose = 'LOGIN' | 'LINK'
 
-export const STATE_COOKIE = 'lj_oauth'
-export const STATE_COOKIE_PATH = '/api/auth'
+/** __Host- 접두어: Secure·Path=/·Domain 없음이어야 브라우저가 받는다 (하위 도메인이 덮어쓸 수 없다). 세션 쿠키처럼 항상 Secure (http 개발은 localhost·127.0.0.1만 — 브라우저가 믿을 만한 곳으로 본다) */
+export const STATE_COOKIE = '__Host-lj_oauth'
+export const STATE_COOKIE_PATH = '/'
 export const STATE_TTL_MS = 10 * 60 * 1000
 const COOKIE_RE = /^[A-Za-z0-9_-]{43}$/
 const STATE_RE = /^[A-Za-z0-9_-]{43,200}$/
@@ -79,6 +84,8 @@ export interface CallbackOutcome {
   readonly location: string
   /** 로그인 성공이면 새 세션 토큰 (쿠키로 보낸다) */
   readonly sessionToken: string | null
+  /** 브라우저 확인 쿠키를 지울지 (성공했고 그 브라우저에 살아 있는 다른 state가 없을 때만 — RA-L1-01) */
+  readonly clearStateCookie: boolean
 }
 
 export interface SocialLoginOptions {
@@ -143,14 +150,23 @@ export class SocialLogin {
     const now = clock.now()
     const state = randomBytes(32).toString('base64url')
     const stateHash = sha256(state)
-    const cookie = browserCookie !== undefined && COOKIE_RE.test(browserCookie) ? browserCookie : randomBytes(32).toString('base64url')
+    // 쿠키 값은 늘 새로 (RA-L1-02). 들고 온 값이 있으면 그 브라우저의 진행 중 state를 새 값에 다시 묶는다
+    const cookie = randomBytes(32).toString('base64url')
+    const browserHash = sha256(cookie)
+    const previousHash = browserCookie !== undefined && COOKIE_RE.test(browserCookie) ? sha256(browserCookie) : null
     const verifier = USES_PKCE[provider] ? randomBytes(48).toString('base64url') : null
     const challenge = verifier === null ? null : createHash('sha256').update(verifier, 'ascii').digest('base64url')
     // 끝난 행 정리 (만료 시각 인덱스)
     await db.delete(loginStates).where(lt(loginStates.expiresAt, new Date(now)))
+    if (previousHash !== null) {
+      await db
+        .update(loginStates)
+        .set({ browserHash })
+        .where(and(eq(loginStates.browserHash, previousHash), isNull(loginStates.usedAt), gt(loginStates.expiresAt, new Date(now))))
+    }
     await db.insert(loginStates).values({
       stateHash,
-      browserHash: sha256(cookie),
+      browserHash,
       provider,
       purpose,
       sellerId: purpose === 'LINK' ? (session as SessionInfo).sellerId : null,
@@ -174,7 +190,17 @@ export class SocialLogin {
   #finish(provider: ProviderId, purpose: SocialPurpose | null, result: SocialResult, extra: { status?: number; errorKind?: string } = {}): CallbackOutcome {
     this.#options.log({ level: result === 'PROVIDER_ERROR' ? 'warn' : 'info', code: 'SOCIAL_LOGIN', provider, reason: result, ...extra })
     const path = result === 'SESSION_GONE' || result === 'RATE_LIMITED' || result === 'NOT_LINKED' ? '/' : purpose === 'LINK' ? '/settings' : '/'
-    return { location: this.#location(path, result, provider), sessionToken: null }
+    return { location: this.#location(path, result, provider), sessionToken: null, clearStateCookie: false }
+  }
+
+  /** 그 브라우저에 아직 살아 있는 state(쓰지 않음·끝나지 않음)가 없는지 — 없을 때만 성공한 돌아오기가 쿠키를 지운다 */
+  async #noOtherLiveState(browserHash: string, now: number): Promise<boolean> {
+    const rows = await this.#options.db
+      .select({ stateHash: loginStates.stateHash })
+      .from(loginStates)
+      .where(and(eq(loginStates.browserHash, browserHash), isNull(loginStates.usedAt), gt(loginStates.expiresAt, new Date(now))))
+      .limit(1)
+    return rows.length === 0
   }
 
   /** 그 state 행의 목적 (가는 곳을 고르는 데만 — 쓴 표시는 하지 않는다) */
@@ -275,10 +301,16 @@ export class SocialLogin {
       return this.#finish(provider, purpose, 'PROVIDER_ERROR', { errorKind: 'Provider_unknown' })
     }
     const label = maskedLabel(profile.email, profile.nickname)
-    if (purpose === 'LOGIN') return this.#login(provider, profile.id, label)
+    if (purpose === 'LOGIN') {
+      const done = await this.#login(provider, profile.id, label)
+      if (done.sessionToken === null) return done
+      return { ...done, clearStateCookie: await this.#noOtherLiveState(browserHash as string, clock.now()) }
+    }
     const result = await this.#link(provider, { sellerId: row.sellerId as string, accountId: row.accountId as string, sessionHash: row.sessionHash as string }, profile.id, label, now)
     if (result === 'LINKED') this.#notify(row.sellerId as string)
-    return this.#finish(provider, purpose, result)
+    const finished = this.#finish(provider, purpose, result)
+    if (result !== 'LINKED') return finished
+    return { ...finished, clearStateCookie: await this.#noOtherLiveState(browserHash as string, clock.now()) }
   }
 
   async #login(provider: ProviderId, providerUserId: string, label: string): Promise<CallbackOutcome> {
@@ -309,7 +341,7 @@ export class SocialLogin {
     })
     if (token === null) return this.#finish(provider, 'LOGIN', 'NOT_LINKED')
     this.#options.log({ level: 'info', code: 'SOCIAL_LOGIN', provider, reason: 'LOGGED_IN' })
-    return { location: this.#location('/', null, provider), sessionToken: token }
+    return { location: this.#location('/', null, provider), sessionToken: token, clearStateCookie: false }
   }
 
   /**

@@ -28,7 +28,7 @@
 | 뜻 | 경로 | 세션 | 본문 | 응답 |
 |---|---|---|---|---|
 | 화면 설정 | `GET /api/client-config` | 없음 | | 더함: `loginProviders: ('kakao'|'naver'|'google')[]` — 켜진 공급자만, 카카오·네이버·구글 순. 하나도 없으면 항목 자체가 없다. **로그인 전**(세션 없음)에는 공급자가 켜진 서버만 `{ loginProviders }` 하나를 200으로 답한다(로그인 화면 버튼용 — 다른 항목은 로그인한 뒤에만). 공급자가 없는 서버는 지금처럼 401 |
-| 간편 로그인 시작 | `POST /api/auth/start` | 없음 | `{ provider }` | 200 `{ authorizeUrl }` + `Set-Cookie: lj_oauth=…; Path=/api/auth; HttpOnly; Secure; SameSite=Lax; Max-Age=600`. 꺼진·모르는 공급자 404, 시작 요청이 너무 많으면 429 `LOGIN_RATE_LIMITED` |
+| 간편 로그인 시작 | `POST /api/auth/start` | 없음 | `{ provider }` | 200 `{ authorizeUrl }` + `Set-Cookie: __Host-lj_oauth=…; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`(Domain 없음, RA-L1-02). 꺼진·모르는 공급자 404, 시작 요청이 너무 많으면 429 `LOGIN_RATE_LIMITED` |
 | 연결 시작 | `POST /api/auth/link` | 판매자 | `{ provider }` | 같음. 세션 없음 401, 보조자 403 `ASSISTANT_FORBIDDEN` |
 | 돌아오는 주소 | `GET /api/auth/<provider>/callback` | (state·쿠키로 판단) | | 302 — 아래 표 |
 | 로그인 방법 목록 | `GET /api/auth/methods` | 판매자 | | `{ loginId, providers: [{ provider, enabled, linked, label, linkedAt }] }` — 켜진 공급자 전부 + 꺼졌지만 연결이 남은 공급자(`enabled: false`), 카카오·네이버·구글 순. `label`은 가린 이름(빈 값이면 화면은 "카카오 계정"), `linkedAt`은 UTC ISO 또는 null. 공급자 계정 ID는 없다. 보조자 403 |
@@ -82,8 +82,10 @@ pnpm --filter @livejjim/server e2e --port <포트> --origin <화면 주소> --so
 - 같은 프로세스(적대 시험)에서는 `FakeOAuth.start({ redirectUris })` → `createServer({ socialLogin: fake.setup({ providers?, timeoutMs? }) })`, `fake.addUser`·`fake.decide(url, { approve: true, user })`·`fake.failNext`·`fake.registerRedirect`·`fake.requests`·`fake.exchanges`. 서버 단위 시험의 도우미는 `apps/server/test/l1-support.ts`(`newSocialWorld`·`startFlow`·`approve`·`openCallback`·`runFlow`).
 
 #### state·쿠키 방식 (AC-L1-03 "두 탭")
-- 브라우저 쿠키 `lj_oauth`(무작위 32바이트 base64url 43자, `Path=/api/auth`). 시작 요청에 그 브라우저의 `lj_oauth`가 있으면 **같은 값을 다시 쓰고**(Max-Age만 다시 10분), 없으면 새로 만든다. 그래서 한 브라우저의 두 탭은 쿠키 하나를 함께 쓰고 각 state는 따로 살아 있다. 다른 브라우저(다른 쿠키·쿠키 없음)로 연 돌아오는 주소는 `EXPIRED`.
-- 돌아오는 주소 응답은 `lj_oauth`를 지운다(`Max-Age=0`) — 같은 브라우저의 다른 탭에서 아직 돌아오지 않은 시작은 그 뒤 `EXPIRED`가 된다(acceptance가 허용).
+- 브라우저 쿠키 `__Host-lj_oauth`(무작위 32바이트 base64url 43자, `Path=/`·`Secure`·Domain 없음 — 하위 도메인이 덮어쓸 수 없다, RA-L1-02). 세션 쿠키 `lj_session`처럼 늘 `Secure`이고 http 개발·E2E는 localhost·127.0.0.1(브라우저가 믿을 만한 곳으로 봄)에서만 된다.
+  시작할 때마다 **값을 새로 발급**한다(요청에 온 값을 그대로 다시 내보내지 않는다). 요청에 옛 값이 있으면 그 브라우저의 진행 중 state(쓰지 않음·끝나지 않음)를 새 값의 해시로 다시 묶는다 — 한 브라우저의 여러 탭이 차례로 시작해도 각 state는 따로 살아 있다. 옛 값·다른 브라우저(다른 쿠키·쿠키 없음)로 연 돌아오는 주소는 `EXPIRED`. 두 탭이 같은 순간에 시작하면 늦게 도착한 쿠키만 남아 한 탭은 `EXPIRED`(쿠키 없이 처음 두 탭을 동시에 열 때와 같은 한계).
+- 돌아오는 주소는 결과와 상관없이 쿠키를 지우지 않는다(RA-L1-01): **성공(로그인 세션·`LINKED`)했고 그 브라우저에 살아 있는 다른 state가 없을 때만** `Max-Age=0`으로 지우고, 아니면 10분 만료에 맡긴다. 그래서 카카오 연결이 진행 중인 탭이 있으면 다른 탭에서 네이버 로그인을 먼저 끝내도 카카오 연결이 끝난다.
+- 시험 쪽 바꿀 것(test-domain·test-e2e 몫): `tests/adversarial/l1/helpers.ts`·`social-attacks.test.ts`의 쿠키 이름 `lj_oauth` → `__Host-lj_oauth`, `tests/e2e/l1/attacks.spec.ts`의 경로 기대 `/api/auth` → `/`.
 - 검사 순서(AC-L1-04): ① 로그인 IP 한도(비밀번호 로그인과 같은 10분 20번을 함께 센다) ② `error`(`access_denied` = `CANCELLED`, 그 밖 `PROVIDER_ERROR`, state가 맞으면 쓴 것으로 표시) ③④ state·쿠키·공급자·10분·안 썼음을 **한 UPDATE 문**으로 확인하며 쓴 것으로 표시(동시에 20번 와도 하나만) ⑤ 연결이면 그 세션이 살아 있고 state의 세션·계정과 같아야(`SESSION_GONE`) ⑥ 코드 교환·사용자 정보(각 10초) ⑦ 연결 표.
 - 시작 요청도 IP마다 따로 센다(로그인 IP 한도의 5배 = 10분 100번, 넘으면 429) — 로그인 전 공개 경로라 state 표를 채우는 요청을 막는다. 로그인 IP 한도와는 따로 세므로 "비밀번호 15 + 돌아옴 6"은 시작 수와 상관없다.
 

@@ -47,32 +47,73 @@ describe('AC-L1-03 시작 — 승인 주소·state·쿠키', () => {
       expect(q.get('code_challenge')).toMatch(/^[A-Za-z0-9_-]{43}$/)
       expect(q.get('code_challenge_method')).toBe('S256')
     }
-    // 쿠키: 무작위 값, HttpOnly·Secure·SameSite=Lax, 경로 /api/auth, 10분
-    const cookie = response.headers.getSetCookie().find((line) => line.startsWith('lj_oauth=')) ?? ''
-    expect(cookie).toMatch(/^lj_oauth=[A-Za-z0-9_-]{43}; Path=\/api\/auth; HttpOnly; Secure; SameSite=Lax; Max-Age=600$/)
+    // 쿠키: __Host- 접두어, 무작위 값, HttpOnly·Secure·SameSite=Lax, Path=/, Domain 없음, 10분 (RA-L1-02)
+    const cookie = response.headers.getSetCookie().find((line) => line.startsWith('__Host-lj_oauth=')) ?? ''
+    expect(cookie).toMatch(/^__Host-lj_oauth=[A-Za-z0-9_-]{43}; Path=\/; HttpOnly; Secure; SameSite=Lax; Max-Age=600$/)
+    expect(cookie.toLowerCase()).not.toContain('domain=')
     expect(STATE_TTL_MS).toBe(600_000)
     // 서버엔 state·쿠키 값 모두 해시만 (검증 값은 암호화)
     const dump = JSON.stringify((await (w.database.pglite as PGlite).query(`select * from login_states`)).rows)
     expect(dump).not.toContain(q.get('state') as string)
-    expect(dump).not.toContain(cookieValue(response.headers, 'lj_oauth') as string)
+    expect(dump).not.toContain(cookieValue(response.headers, '__Host-lj_oauth') as string)
   })
 
-  it('같은 브라우저의 두 탭: 쿠키를 함께 쓰고 각 state가 따로 살아 있다 — 다른 브라우저의 쿠키로는 통과하지 않는다', async () => {
+  it('같은 브라우저의 두 탭: 시작마다 쿠키 값은 새로, 진행 중 state는 새 값에 다시 묶인다 — 옛 값·다른 브라우저의 쿠키로는 통과하지 않는다 (RA-L1-02)', async () => {
     const w = await world()
     const user = w.fake.addUser('kakao')
     const a = await addSeller(w)
     expect((await runFlow(w, 'kakao', user.id, { session: a.cookie })).result.login).toBe('LINKED')
     const first = await startFlow(w, 'kakao')
     const second = await startFlow(w, 'kakao', { browser: first.browser })
-    expect(second.browser).toBe(first.browser)
+    // 들고 온 값을 그대로 다시 내보내지 않는다
+    expect(second.browser).not.toBe(first.browser)
     const other = await startFlow(w, 'kakao')
     expect(other.browser).not.toBe(first.browser)
-    // 다른 브라우저의 쿠키로 첫 탭의 돌아오는 주소를 열면 EXPIRED
-    expect(resultOf(await openCallback(w, approve(w.fake, first.authorizeUrl, user.id), { browser: other.browser })).login).toBe('EXPIRED')
-    // 둘째 탭은 그대로 된다 (첫 탭의 state는 이미 쓴 것으로 표시됨)
-    const ok = await openCallback(w, approve(w.fake, second.authorizeUrl, user.id), { browser: first.browser })
+    expect(other.browser).not.toBe(second.browser)
+    const firstLocation = approve(w.fake, first.authorizeUrl, user.id)
+    // 다른 브라우저의 쿠키로 첫 탭의 돌아오는 주소를 열면 EXPIRED (쓴 표시는 달리지 않는다)
+    expect(resultOf(await openCallback(w, firstLocation, { browser: other.browser })).login).toBe('EXPIRED')
+    // 옛 값(새로 받기 전 쿠키)으로도 EXPIRED — 다시 묶였다
+    expect(resultOf(await openCallback(w, firstLocation, { browser: first.browser })).login).toBe('EXPIRED')
+    // 브라우저가 지금 가진 새 값으로는 두 탭 모두 된다
+    const okFirst = await openCallback(w, firstLocation, { browser: second.browser })
+    expect(resultOf(okFirst).location).toBe(`${ORIGIN}/`)
+    expect(cookieValue(okFirst.headers, 'lj_session')).not.toBeNull()
+    // 둘째 탭이 아직 진행 중이라 쿠키는 지우지 않는다 (RA-L1-01)
+    expect(cookieValue(okFirst.headers, '__Host-lj_oauth')).toBeNull()
+    const ok = await openCallback(w, approve(w.fake, second.authorizeUrl, user.id), { browser: second.browser })
     expect(resultOf(ok).location).toBe(`${ORIGIN}/`)
     expect(cookieValue(ok.headers, 'lj_session')).not.toBeNull()
+    // 마지막 진행 중 state가 성공했다 — 이제 지운다
+    expect(ok.headers.getSetCookie()).toContain('__Host-lj_oauth=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0')
+  })
+
+  it('두 탭: 카카오 연결 진행 중에 네이버 로그인을 먼저 끝내도 쿠키가 남아 카카오 연결이 끝난다 · 실패한 돌아오기는 쿠키를 지우지 않는다 (RA-L1-01)', async () => {
+    const w = await world()
+    const seller = await addSeller(w)
+    const naverUser = w.fake.addUser('naver')
+    const kakaoUser = w.fake.addUser('kakao')
+    expect((await runFlow(w, 'naver', naverUser.id, { session: seller.cookie })).result.login).toBe('LINKED')
+    // 탭 1: 카카오 연결 시작 (로그인된 세션)
+    const kakao = await startFlow(w, 'kakao', { session: seller.cookie })
+    // 탭 2: 같은 브라우저에서 네이버 로그인 시작 → 쿠키 값이 새로 바뀐다
+    const naver = await startFlow(w, 'naver', { browser: kakao.browser })
+    expect(naver.browser).not.toBe(kakao.browser)
+    // 탭 2에서 취소 한 번 (실패 결과) → 쿠키를 지우지 않는다
+    const cancelled = await startFlow(w, 'naver', { browser: naver.browser })
+    const cancel = await openCallback(w, approve(w.fake, cancelled.authorizeUrl, null), { browser: cancelled.browser })
+    expect(resultOf(cancel).login).toBe('CANCELLED')
+    expect(cookieValue(cancel.headers, '__Host-lj_oauth')).toBeNull()
+    const browser = cancelled.browser
+    // 탭 2: 네이버 로그인 먼저 성공 — 카카오 연결이 진행 중이라 쿠키는 지우지 않는다
+    const login = await openCallback(w, approve(w.fake, naver.authorizeUrl, naverUser.id), { browser })
+    expect(resultOf(login).location).toBe(`${ORIGIN}/`)
+    expect(cookieValue(login.headers, 'lj_session')).not.toBeNull()
+    expect(cookieValue(login.headers, '__Host-lj_oauth')).toBeNull()
+    // 탭 1: 카카오 연결이 돌아온다 (같은 브라우저 쿠키, 시작한 세션 그대로) → 연결됨, 남은 state가 없으니 이제 지운다
+    const link = await openCallback(w, approve(w.fake, kakao.authorizeUrl, kakaoUser.id), { browser, session: seller.cookie })
+    expect(resultOf(link)).toMatchObject({ path: '/settings', login: 'LINKED', provider: 'kakao' })
+    expect(link.headers.getSetCookie()).toContain('__Host-lj_oauth=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0')
   })
 
   it('연결 시작: 세션 없음 401 · 보조자 403 · 판매자는 그 계정·세션에 묶인 state', async () => {
@@ -183,7 +224,7 @@ describe('AC-L1-04 돌아오는 주소 — 검사 순서·한 번만', () => {
     expect(w.fake.exchanges.google).toBe(exchanges)
   })
 
-  it('Location은 앱 주소 + 고정 경로 + login·provider뿐 — next·redirect·return_to·Host·X-Forwarded-Host와 상관없다. 머리글 그대로, state 쿠키는 지운다', async () => {
+  it('Location은 앱 주소 + 고정 경로 + login·provider뿐 — next·redirect·return_to·Host·X-Forwarded-Host와 상관없다. 머리글 그대로, 실패면 state 쿠키를 지우지 않는다', async () => {
     const w = await world()
     const started = await startFlow(w, 'naver')
     const user = w.fake.addUser('naver')
@@ -194,7 +235,8 @@ describe('AC-L1-04 돌아오는 주소 — 검사 순서·한 번만', () => {
     expect(result.location).toBe(`${ORIGIN}/?login=NOT_LINKED&provider=naver`)
     expect(response.headers.get('cache-control')).toBe('no-store')
     expect(response.headers.get('referrer-policy')).toBe('no-referrer')
-    expect(response.headers.getSetCookie()).toContain('lj_oauth=; Path=/api/auth; HttpOnly; Secure; SameSite=Lax; Max-Age=0')
+    // NOT_LINKED(실패)는 쿠키를 지우지 않는다 — Max-Age 만료에 맡긴다 (RA-L1-01)
+    expect(cookieValue(response.headers, '__Host-lj_oauth')).toBeNull()
     expect(await response.text()).toBe('')
   })
 
@@ -259,7 +301,7 @@ describe('AC-L1-10 속도 제한·시간 제한', () => {
     for (let i = 0; i < 6; i++) {
       const started = await startFlow(w, 'kakao')
       const location = new URL(approve(w.fake, started.authorizeUrl, user.id))
-      const response = await w.server.app.request(`${location.pathname}${location.search}`, { headers: { Cookie: `lj_oauth=${started.browser}` } }, ip(address))
+      const response = await w.server.app.request(`${location.pathname}${location.search}`, { headers: { Cookie: `__Host-lj_oauth=${started.browser}` } }, ip(address))
       results.push(resultOf(response).login)
     }
     expect(results).toEqual([null, null, null, null, null, 'RATE_LIMITED'])

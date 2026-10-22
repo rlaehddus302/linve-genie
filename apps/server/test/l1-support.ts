@@ -32,17 +32,17 @@ export function cookieValue(headers: Headers, name: string): string | null {
 
 export interface Started {
   readonly authorizeUrl: string
-  /** 브라우저 쿠키 (lj_oauth 값) */
+  /** 브라우저 쿠키 (__Host-lj_oauth 값) */
   readonly browser: string
 }
 
-/** 시작 (로그인이면 세션 없이, 연결이면 그 세션 쿠키로). browser = 이미 가진 lj_oauth 값 */
+/** 시작 (로그인이면 세션 없이, 연결이면 그 세션 쿠키로). browser = 이미 가진 __Host-lj_oauth 값 */
 export async function startFlow(world: TestServer, provider: ProviderId, options: { readonly session?: string; readonly browser?: string } = {}): Promise<Started> {
-  const cookies = [options.session, options.browser === undefined ? undefined : `lj_oauth=${options.browser}`].filter((item): item is string => item !== undefined).join('; ')
+  const cookies = [options.session, options.browser === undefined ? undefined : `__Host-lj_oauth=${options.browser}`].filter((item): item is string => item !== undefined).join('; ')
   const path = options.session === undefined ? '/api/auth/start' : '/api/auth/link'
   const response = await client(world, cookies === '' ? null : cookies).post(path, { provider })
   expect(response.status, response.text).toBe(200)
-  const browser = cookieValue(response.headers, 'lj_oauth')
+  const browser = cookieValue(response.headers, '__Host-lj_oauth')
   expect(browser).not.toBeNull()
   return { authorizeUrl: response.body.authorizeUrl as string, browser: browser as string }
 }
@@ -58,7 +58,7 @@ export function approve(fake: FakeOAuth, authorizeUrl: string, user: string | nu
 export async function openCallback(world: TestServer, location: string, cookies: { readonly browser?: string; readonly session?: string; readonly headers?: Record<string, string> } = {}): Promise<Response> {
   const url = new URL(location)
   expect(url.origin).toBe(ORIGIN)
-  const cookie = [cookies.session, cookies.browser === undefined ? undefined : `lj_oauth=${cookies.browser}`].filter((item): item is string => item !== undefined).join('; ')
+  const cookie = [cookies.session, cookies.browser === undefined ? undefined : `__Host-lj_oauth=${cookies.browser}`].filter((item): item is string => item !== undefined).join('; ')
   return world.server.app.request(`${url.pathname}${url.search}`, { headers: { ...(cookie === '' ? {} : { Cookie: cookie }), ...cookies.headers } })
 }
 

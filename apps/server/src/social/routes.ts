@@ -64,7 +64,7 @@ export function registerSocialRoutes(api: Hono<Env>, social: SocialLogin, addres
       addressOf(c),
     )
     const headers = new Headers({ Location: outcome.location, 'Cache-Control': 'no-store' })
-    headers.append('Set-Cookie', CLEAR_STATE_COOKIE)
+    if (outcome.clearStateCookie) headers.append('Set-Cookie', CLEAR_STATE_COOKIE)
     if (outcome.sessionToken !== null) headers.append('Set-Cookie', sessionCookie(outcome.sessionToken))
     return new Response(null, { status: 302, headers })
   })
