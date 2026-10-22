@@ -322,7 +322,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
 
   /** 쓰기 하나: 같은 요청 번호로 재시도 → 응답 seq까지 따라잡기 */
   const write = useCallback(
-    async (requestId: string, event: Readonly<Record<string, unknown>>): Promise<WriteResult> => {
+    async (requestId: string, event: Readonly<Record<string, unknown>>, wait = true): Promise<WriteResult> => {
       // 봉인한 날짜는 쓰지 않는다 (버튼도 잠겨 있다 — 요청을 보내지 않는다)
       if (latest.current.sealed) throw new ApiError({ status: 409, code: 'SEALED', message: '30일이 지난 방송 기록은 봉인되어 고칠 수 없어요.' })
       const scoped = typeof event.b !== 'string'
@@ -334,13 +334,16 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         followFailure(error)
         throw error
       }
-      await store.sync(result.seq)
+      // 응답만 기다리는 쓰기(api.write)는 따라잡기를 시작만 한다 (D-SMS-01)
+      if (wait) await store.sync(result.seq)
+      else void store.sync(result.seq)
       return result
     },
     [broadcast.date, broadcast.rehearsal, followFailure, store],
   )
 
   const command = useCallback((event: Readonly<Record<string, unknown>>, requestId?: string) => write(requestId ?? newRequestId(), event), [write])
+  const writeOnly = useCallback((event: Readonly<Record<string, unknown>>, requestId?: string) => write(requestId ?? newRequestId(), event, false), [write])
 
   /** 판매자가 글 칸에 무언가 치는 중인가 (빠른 입력칸은 글자가 있을 때만 — 비어 있으면 기다리는 중이다) */
   const typing = useCallback((): boolean => {
@@ -452,11 +455,12 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       closeAll,
       queueHost,
       command,
+      write: writeOnly,
       fillQuick,
       select: setSelected,
       options: optionMode,
     }),
-    [b, broadcast.date, broadcast.rehearsal, ended, sealed, data, names, labels, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command, fillQuick, optionMode],
+    [b, broadcast.date, broadcast.rehearsal, ended, sealed, data, names, labels, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command, writeOnly, fillQuick, optionMode],
   )
 
   // ── 빠른 입력 (AC-S05-10~13, D-084) ──────────────────────────────────

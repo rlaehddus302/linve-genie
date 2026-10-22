@@ -60,7 +60,8 @@ export function useHostActions({ store, data, queue, date, rehearsal, b, ended, 
     [store],
   )
 
-  const command = useCallback(
+  // 응답만 기다리는 쓰기: 따라잡기는 시작만 하고 기다리지 않는다 (문자찜 입력, D-SMS-01)
+  const write = useCallback(
     async (event: Readonly<Record<string, unknown>>, requestId: string = newRequestId()): Promise<WriteResult> => {
       if (sealed) throw new ApiError({ status: 409, code: 'SEALED', message: '30일이 지난 방송 기록은 봉인되어 고칠 수 없어요.' })
       let result: WriteResult
@@ -70,10 +71,19 @@ export function useHostActions({ store, data, queue, date, rehearsal, b, ended, 
         followFailure(error)
         throw error
       }
-      await store.sync(result.seq)
+      void store.sync(result.seq)
       return result
     },
     [followFailure, pathFor, store, sealed],
+  )
+
+  const command = useCallback(
+    async (event: Readonly<Record<string, unknown>>, requestId?: string): Promise<WriteResult> => {
+      const result = await write(event, requestId)
+      await store.sync(result.seq)
+      return result
+    },
+    [write, store],
   )
 
   const queueHost = useCallback(
@@ -133,10 +143,11 @@ export function useHostActions({ store, data, queue, date, rehearsal, b, ended, 
       closeAll,
       queueHost,
       command,
+      write,
       fillQuick: () => {},
       select: () => {},
     }),
-    [b, date, rehearsal, ended, sealed, data, names, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command],
+    [b, date, rehearsal, ended, sealed, data, names, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command, write],
   )
 
   const top = dialogs.at(-1)

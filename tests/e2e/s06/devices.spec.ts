@@ -63,6 +63,11 @@ test.describe('두 기기', () => {
       await mobile.getByRole('button', { name: `${String(no)}번에 문자찜 넣기` }).click()
       await sent
       await expect(boardItem(page, no)).toContainText(`문자찜(손님${String(no)})`, { timeout: 1000 })
+      // 휴대폰도 보내기를 마칠 때까지(칸을 비우고 결과 카드) 기다린 뒤 다음 번호를 적는다. 휴대폰은 응답 뒤 자기 화면을 그 기록까지
+      // 따라잡고서야 칸을 비우는데(최대 3초), 부하에서 그보다 먼저 다음 번호를 적으면 늦게 온 비우기가 적은 글을 지워
+      // "N번에 문자찜 넣기" 단추가 사라지고 시험이 끝없이 기다린다
+      await expect(smsField(mobile, '번호')).toHaveValue('')
+      await expect(mobile.getByRole('region', { name: '넣은 결과' })).toContainText(`${String(no)}번`)
     }
     // PC 입금 → 휴대폰 정산 목록
     await mobile.goto(`/settlements?date=${date}&rehearsal=true`)

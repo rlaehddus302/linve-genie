@@ -410,3 +410,154 @@ describe('최근 넣은 문자찜·찜 취소 (AC-S06-15·14)', () => {
     expect(engine.posts.find((post) => post.type === 'host.cancel')).toMatchObject({ b: 'b2', no: 15, reason: '시청자 요청' })
   })
 })
+
+/** 쓰기 응답·증분 조회를 붙잡아 둔다 (D-SMS-01 시험) — 풀면 그때 가짜 서버가 답한다 */
+function holdFetch() {
+  let postGate: { promise: Promise<void>; release: () => void } | null = null
+  let changesGate: { promise: Promise<void>; release: () => void } | null = null
+  const make = () => {
+    let release = () => {}
+    const promise = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    return { promise, release }
+  }
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+    const method = (init?.method ?? 'GET').toUpperCase()
+    if (method === 'POST' && path.startsWith('/api/events') && postGate !== null) await postGate.promise
+    if (method === 'GET' && path.includes('/changes') && changesGate !== null) await changesGate.promise
+    return engine.server.fetch(input, init)
+  })
+  return {
+    holdPost: () => (postGate = make()),
+    releasePost: () => {
+      postGate?.release()
+      postGate = null
+    },
+    holdChanges: () => (changesGate = make()),
+    releaseChanges: () => {
+      changesGate?.release()
+      changesGate = null
+    },
+  }
+}
+
+describe('보내는 동안 잠금·성공 응답 바로 비우기 (D-SMS-01, AC-SMS-01~04)', () => {
+  it('AC-SMS-01: 응답 전에는 칸이 읽기 전용, 구매자 지우기·보내기·같은 사람 하나 더·방송 바꾸기를 누를 수 없고 "보내는 중이라 잠시 고칠 수 없어요."', async () => {
+    setup([register(15, '핑크프릴', 10000, 'b2'), register(16, '청보석', 20000, 'b2'), chat('m1', 'UC_hong1234', '홍길동', '안녕하세요', 'b2')])
+    const hold = holdFetch()
+    await open()
+    // 이전 결과 카드 (같은 사람 하나 더)
+    type(numberField(), '16')
+    type(field('전화번호'), '010-2222-3333')
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    const previous = await screen.findByRole('region', { name: '넣은 결과' })
+    await waitFor(() => expect(previous.textContent).toContain('16번 · 문자찜 · 1등'))
+    type(field('구매자 고르기'), '홍길')
+    fireEvent.click(within(screen.getByRole('list', { name: '찾은 구매자' })).getByRole('button'))
+    type(numberField(), '15')
+    type(field('받은 시각'), '9:58')
+    type(field('메모'), '김씨')
+    hold.holdPost()
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    await flush()
+    for (const name of ['번호', '받은 시각', '전화번호', '메모']) expect(field(name).readOnly).toBe(true)
+    expect((screen.getByRole('button', { name: '방송 바꾸기' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '고른 구매자 지우기' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '15번에 문자찜 넣기' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((within(previous).getByRole('button', { name: '같은 사람 하나 더' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByText('보내는 중…')).toBeDefined()
+    expect(screen.getByText('보내는 중이라 잠시 고칠 수 없어요.')).toBeDefined()
+    type(numberField(), '99')
+    type(field('메모'), '바뀜')
+    expect([numberField().value, field('받은 시각').value, field('메모').value]).toEqual(['15', '9:58', '김씨'])
+    // 다시 눌러도 하나만 보낸다
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    hold.releasePost()
+    await flush(20)
+    expect(engine.posts).toHaveLength(2)
+    expect(engine.posts[1]).toMatchObject({ type: 'sms', no: 15, received: '09:58', memo: '김씨', buyer: 'UC_hong1234' })
+    expect(field('번호').readOnly).toBe(false)
+    expect(screen.queryByText('보내는 중이라 잠시 고칠 수 없어요.')).toBeNull()
+    expect((screen.getByRole('button', { name: '방송 바꾸기' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('AC-SMS-02·03: 따라잡기를 붙잡아도 성공 응답 바로 칸을 비우고 번호 칸으로 — 카드는 "상태 확인 중…", 바로 친 "16"은 따라잡은 뒤에도 남는다', async () => {
+    setup([register(15, '핑크프릴', 10000, 'b2'), chat('m1', 'UC_hong1234', '홍길동', '15', 'b2')])
+    const hold = holdFetch()
+    const { container } = await open()
+    type(numberField(), '15')
+    type(field('전화번호'), '010-1234-5678')
+    type(field('메모'), '김씨')
+    hold.holdChanges()
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    await flush(20)
+    expect(engine.posts).toHaveLength(1)
+    expect([numberField().value, field('받은 시각').value, field('전화번호').value, field('메모').value]).toEqual(['', '', '', ''])
+    expect(numberField().readOnly).toBe(false)
+    expect(document.activeElement).toBe(numberField())
+    expect(screen.getByRole('region', { name: '고른 방송' }).textContent).toContain('2부')
+    expect(container.innerHTML).not.toContain('010-1234-5678')
+    const result = screen.getByRole('region', { name: '넣은 결과' })
+    expect(result.textContent).toBe('15번 · 넣었어요 · 상태 확인 중… · 뒤 4자리 5678같은 사람 하나 더')
+    expect(result.textContent).not.toContain('새 찜이 생기지 않았어요')
+    expect(within(result).queryByRole('button', { name: '찜 취소하기' })).toBeNull()
+    expect((within(result).getByRole('button', { name: '같은 사람 하나 더' }) as HTMLButtonElement).disabled).toBe(false)
+    type(numberField(), '16')
+    hold.releaseChanges()
+    await waitFor(() => expect(screen.getByRole('region', { name: '넣은 결과' }).textContent).toContain('15번 · 문자찜(김씨) · 대기 1번 · 받은 시각 10/19 10:00:00'))
+    expect(within(screen.getByRole('region', { name: '넣은 결과' })).getByRole('button', { name: '찜 취소하기' })).toBeDefined()
+    await flush(20)
+    expect(numberField().value).toBe('16')
+  })
+
+  it('AC-SMS-03: 따라잡기 전에는 찜이 생기지 않은 응답도 "상태 확인 중…" — 따라잡으면 "이미 찜한 구매자라…"', async () => {
+    setup([register(15, '핑크프릴', 10000, 'b2'), chat('m1', 'UC_hong1234', '홍길동', '15', 'b2')])
+    const hold = holdFetch()
+    await open()
+    type(field('구매자 고르기'), '홍길')
+    fireEvent.click(within(screen.getByRole('list', { name: '찾은 구매자' })).getByRole('button'))
+    type(numberField(), '15')
+    hold.holdChanges()
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    await flush(20)
+    const result = screen.getByRole('region', { name: '넣은 결과' })
+    expect(result.textContent).toContain('15번 · 넣었어요 · 상태 확인 중…')
+    expect(result.textContent).not.toContain('이미 찜한 구매자라')
+    expect(screen.queryByRole('group', { name: '고른 구매자' })).toBeNull()
+    hold.releaseChanges()
+    // 이 쓰기는 기록을 늘리지 않았을 수 있다 — 따라잡기는 응답 seq까지
+    await waitFor(() => expect(screen.getByRole('region', { name: '넣은 결과' }).textContent).toContain('이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 1등)'))
+  })
+
+  it('AC-SMS-04: 거절·저장 실패면 잠금이 풀리고 칸(고른 구매자 포함)은 친 그대로 — 다시 보내기는 같은 요청 번호로 하나만', async () => {
+    setup([register(15, '핑크프릴', 10000, 'b2'), chat('m1', 'UC_hong1234', '홍길동', '안녕하세요', 'b2')])
+    await open()
+    type(field('구매자 고르기'), '홍길')
+    fireEvent.click(within(screen.getByRole('list', { name: '찾은 구매자' })).getByRole('button'))
+    type(numberField(), '15')
+    type(field('받은 시각'), '9:58')
+    type(field('메모'), '김씨')
+    engine.failNext = apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'memo', message: PHONE_SENTENCE }])
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    expect(await screen.findByText(PHONE_SENTENCE)).toBeDefined()
+    expect([numberField().value, field('받은 시각').value, field('메모').value]).toEqual(['15', '9:58', '김씨'])
+    expect(screen.getByRole('group', { name: '고른 구매자' }).textContent).toContain('홍길동')
+    expect(numberField().readOnly).toBe(false)
+    // 네트워크 오류 (다시 시도해도 닿지 않는다)
+    engine.down = true
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    expect(await screen.findByText(/저장하지 못했어요/, {}, { timeout: 6000 })).toBeDefined()
+    engine.down = false
+    expect([numberField().value, field('받은 시각').value, field('메모').value]).toEqual(['15', '9:58', '김씨'])
+    expect(screen.getByRole('group', { name: '고른 구매자' })).toBeDefined()
+    expect(numberField().readOnly).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '다시 보내기' }))
+    await flush(20)
+    const ids = engine.server.callsTo('POST', /^\/api\/events/).slice(1).map((call) => call.body?.requestId)
+    expect(new Set(ids).size).toBe(1)
+    expect(engine.posts.filter((post) => post.type === 'sms')).toHaveLength(1)
+    await waitFor(() => expect(screen.getByRole('region', { name: '넣은 결과' }).textContent).toContain('15번 · 홍길동'))
+  }, 10_000)
+})

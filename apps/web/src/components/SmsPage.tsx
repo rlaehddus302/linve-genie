@@ -5,6 +5,8 @@
 //   찜이 생기지 않았으면 쓰기 응답의 buyer(엔진이 정한 구매자 자신, D-099)로 "이미 찜한 구매자라…"와 "같은 사람 하나 더"를 정한다 — 뒤 4자리로 짐작하지 않는다.
 // - 받은 시각은 날짜와 함께 "10/18 20:01:05"(엔진이 R-6으로 정한 날, KST). 방송 고르기의 날짜는 연도·요일까지, 고른 방송은 "✓ 고름".
 // - 보낸 뒤 칸을 모두 비운다(전화번호 원문을 화면 상태에 남기지 않는다). 아래에 고른 방송의 최근 문자찜 10개.
+// - D-SMS-01 (AC-SMS-01~04): 보내는 동안(응답 전) 칸을 읽기 전용으로 잠그고 "보내는 중이라 잠시 고칠 수 없어요.", 성공 응답이 오면
+//   화면 따라잡기를 기다리지 않고 바로 칸을 비운다. 실패하면 칸은 친 그대로. 결과 카드는 그 seq를 따라잡기 전에는 "상태 확인 중…".
 // - I3: 30일이 지나 봉인한 날짜의 방송은 고를 수 없다(기본 방송으로도 고르지 않는다, AC-I3-41). 보조자 계정은 실제 방송만 고르고
 //   허용된 요청(방송 목록·범위 목록·범위 조회·실시간)만 보낸다(AC-I3-63).
 // - N2b-2: "댓글 붙여넣기" — 콘솔과 같은 붙여넣기 창(번호마다 문자찜). 보조자도 실제 방송에서 쓴다(서버 권한이 문자찜 입력과 같다).
@@ -45,6 +47,7 @@ export const REHEARSAL_WARNING = '리허설 방송이에요 — 실제 판매에
 export const OPTIONS_LATER = '상품을 등록하면 옵션을 고를 수 있어요'
 /** 찜이 생기지 않고 확인 필요로 간 문자찜 (AC-O2-40) */
 export const SENT_TO_REVIEW = '찜이 생기지 않았어요 — 확인 필요로 보냈어요'
+export const SENDING_LOCKED = '보내는 중이라 잠시 고칠 수 없어요.'
 
 /** 처음 고를 방송 (R-0 5, D-089): 끝나지 않은 실제 방송 중 가장 최근 것 */
 export function defaultSmsBroadcast(items: readonly BroadcastItem[]): BroadcastItem | null {
@@ -76,6 +79,8 @@ export function SmsPage({ navigate, assistant = false }: { readonly navigate: Na
   const [selected, setSelected] = useState<string | null>(null)
   const [choosing, setChoosing] = useState(false)
   const [focusSignal, setFocusSignal] = useState(0)
+  // 문자찜을 보내는 동안은 방송을 바꾸지 못한다 (AC-SMS-01)
+  const [sending, setSending] = useState(false)
   // 댓글 붙여넣기 (틱톡 등 — 번호마다 문자찜, N2b-2 AC-N2b-2-64)
   const [pasting, setPasting] = useState(false)
   const [pasteNote, setPasteNote] = useState<string | null>(null)
@@ -121,7 +126,7 @@ export function SmsPage({ navigate, assistant = false }: { readonly navigate: Na
           <SelectedBroadcast item={item} snapshot={snapshot} />
         )}
         <div className="row">
-          <button type="button" className="button" onClick={() => setChoosing(true)} disabled={broadcasts === null}>
+          <button type="button" className="button" onClick={() => setChoosing(true)} disabled={broadcasts === null || sending}>
             {item === null || item === undefined ? '방송 고르기' : '방송 바꾸기'}
           </button>
           {selected !== null && item !== null && item !== undefined && snapshot.sealed !== true ? (
@@ -161,7 +166,7 @@ export function SmsPage({ navigate, assistant = false }: { readonly navigate: Na
       {selected === null || item === null || item === undefined ? (
         <SmsForm key="none" disabled focusSignal={focusSignal} />
       ) : store !== null && queue !== null && snapshot.data !== null ? (
-        <ReadySms key={selected} b={selected} item={item} store={store} snapshot={snapshot} data={snapshot.data} queue={queue} focusSignal={focusSignal} />
+        <ReadySms key={selected} b={selected} item={item} store={store} snapshot={snapshot} data={snapshot.data} queue={queue} focusSignal={focusSignal} onSending={setSending} />
       ) : snapshot.phase === 'missing' ? (
         <p className="warning" data-tone="warning">
           그 방송을 찾지 못했어요. "방송 바꾸기"로 다시 골라 주세요.
@@ -261,9 +266,10 @@ interface ReadySmsProps {
   readonly data: ScopeData
   readonly queue: UndoQueue
   readonly focusSignal: number
+  readonly onSending: (sending: boolean) => void
 }
 
-function ReadySms({ b, item, store, snapshot, data, queue, focusSignal }: ReadySmsProps) {
+function ReadySms({ b, item, store, snapshot, data, queue, focusSignal, onSending }: ReadySmsProps) {
   const ended = data.broadcasts.get(b)?.ended ?? item.ended
   const host = useHostActions({ store, data, queue, date: item.date, rehearsal: item.rehearsal, b, ended })
   return (
@@ -274,7 +280,7 @@ function ReadySms({ b, item, store, snapshot, data, queue, focusSignal }: ReadyS
         <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
         <UndoBar items={host.items} queue={queue} />
       </div>
-      <SmsForm api={host.api} focusSignal={focusSignal} />
+      <SmsForm api={host.api} focusSignal={focusSignal} onSending={onSending} />
       <RecentSms api={host.api} />
       {host.dialog}
     </>
@@ -333,9 +339,11 @@ interface SmsFormProps {
   readonly api?: ConsoleApi
   readonly disabled?: boolean
   readonly focusSignal: number
+  /** 보내는 중인지 (방송 고르기를 잠근다, AC-SMS-01) */
+  readonly onSending?: (sending: boolean) => void
 }
 
-function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
+function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps) {
   const noId = useId()
   const receivedId = useId()
   const phoneId = useId()
@@ -354,7 +362,14 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
   const [now, setNow] = useState(() => Date.now())
   const noField = useRef<HTMLInputElement>(null)
   const receivedField = useRef<HTMLInputElement>(null)
-  const sender = useSender(api?.command ?? (() => Promise.reject(new Error('방송을 고르지 않았다'))))
+  // 응답만 기다린다 — 따라잡기를 기다리면 그 사이 친 글이 늦은 비우기로 지워진다 (D-SMS-01)
+  const sender = useSender(api?.write ?? (() => Promise.reject(new Error('방송을 고르지 않았다'))))
+  const locked = sender.busy
+
+  useEffect(() => {
+    onSending?.(locked)
+  }, [locked, onSending])
+  useEffect(() => () => onSending?.(false), [onSending])
 
   useEffect(() => {
     if (!disabled) noField.current?.focus()
@@ -408,6 +423,7 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
       ...(optionMode && product !== undefined && product.hasOptions ? { options: { ...effectivePicks } } : {}),
     }
     const written = await sender.send(event)
+    // 실패면 칸은 친 그대로 (AC-SMS-04)
     if (written === null) return
     setResult({
       seq: written.seq,
@@ -417,7 +433,7 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
       phoneLast4: typeof written.phoneLast4 === 'string' ? written.phoneLast4 : normalized === null ? null : phoneLast4(normalized),
       buyer: typeof written.buyer === 'string' ? written.buyer : null,
     })
-    // 보낸 뒤 칸을 모두 비우고 번호 칸으로 (전화번호 원문을 남기지 않는다, AC-S06-13·81)
+    // 성공 응답 바로 칸을 모두 비우고 번호 칸으로 — 따라잡기를 기다리지 않는다 (전화번호 원문을 남기지 않는다, AC-S06-13·81, AC-SMS-02)
     setNo('')
     setReceived('')
     setPhone('')
@@ -450,6 +466,7 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
   }
 
   const fillSame = (who: string, receivedText: string) => {
+    if (locked) return
     setBuyer(who)
     setPhone('')
     setReceived(receivedText)
@@ -462,7 +479,7 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
   const serverError = sender.error
   return (
     <section className="sms-form card" aria-label="문자찜 넣기">
-      {result !== null && api !== undefined ? <ResultCard key={result.seq} api={api} result={result} onSame={fillSame} /> : null}
+      {result !== null && api !== undefined ? <ResultCard key={result.seq} api={api} result={result} onSame={fillSame} locked={locked} /> : null}
       <form className="stack" onSubmit={submit} noValidate>
         <div className="stack-tight">
           <div className="field">
@@ -476,9 +493,12 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
               autoComplete="off"
               value={no}
               disabled={disabled}
+              readOnly={locked}
               aria-invalid={numberProblem !== null}
               aria-describedby={`${noId}-error`}
-              onChange={(event) => setNo(digitsOnly(event.target.value))}
+              onChange={(event) => {
+                if (!locked) setNo(digitsOnly(event.target.value))
+              }}
             />
           </div>
           <FieldNote id={`${noId}-error`} message={numberProblem ?? (tried && number === null ? '번호를 적어 주세요.' : serverProblem(serverError, 'no'))} />
@@ -510,9 +530,12 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
               placeholder="20:01"
               value={received}
               disabled={disabled}
+              readOnly={locked}
               aria-invalid={receivedProblem !== null}
               aria-describedby={`${receivedId}-help ${receivedId}-error`}
-              onChange={(event) => setReceived(event.target.value)}
+              onChange={(event) => {
+                if (!locked) setReceived(event.target.value)
+              }}
             />
           </div>
           <p id={`${receivedId}-help`} className="hint">
@@ -531,9 +554,12 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
               autoComplete="off"
               value={phone}
               disabled={disabled || buyer !== null}
+              readOnly={locked}
               aria-invalid={phoneProblem !== null}
               aria-describedby={`${phoneId}-help ${phoneId}-error`}
-              onChange={(event) => setPhone(event.target.value)}
+              onChange={(event) => {
+                if (!locked) setPhone(event.target.value)
+              }}
             />
           </div>
           <p id={`${phoneId}-help`} className="hint">
@@ -552,9 +578,12 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
               placeholder="김씨"
               value={memo}
               disabled={disabled}
+              readOnly={locked}
               aria-invalid={memoProblem !== null}
               aria-describedby={`${memoId}-error`}
-              onChange={(event) => setMemo(event.target.value)}
+              onChange={(event) => {
+                if (!locked) setMemo(event.target.value)
+              }}
             />
           </div>
           <FieldNote id={`${memoId}-error`} message={memoProblem ?? serverProblem(serverError, 'memo')} />
@@ -570,6 +599,7 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
             }}
             onClear={() => setBuyer(null)}
             serverMessage={serverProblem(serverError, 'buyer')}
+            locked={locked}
           />
         ) : null}
 
@@ -587,6 +617,7 @@ function SmsForm({ api, disabled = false, focusSignal }: SmsFormProps) {
             </button>
             {sender.busy ? <span role="status">보내는 중…</span> : null}
           </div>
+          {locked ? <p className="hint">{SENDING_LOCKED}</p> : null}
         </div>
       </form>
       {late !== null ? (
@@ -624,12 +655,15 @@ function BuyerChooser({
   onChoose,
   onClear,
   serverMessage,
+  locked,
 }: {
   readonly api: ConsoleApi
   readonly buyer: Buyer | null
   readonly onChoose: (id: string) => void
   readonly onClear: () => void
   readonly serverMessage: string | null
+  /** 보내는 중 — 고르기·지우기를 잠근다 (AC-SMS-01) */
+  readonly locked: boolean
 }) {
   const id = useId()
   const [query, setQuery] = useState('')
@@ -647,7 +681,7 @@ function BuyerChooser({
             차단된 구매자라 넣으면 거절돼요.
           </p>
         ) : null}
-        <button type="button" className="button" onClick={onClear}>
+        <button type="button" className="button" onClick={onClear} disabled={locked}>
           고른 구매자 지우기
         </button>
         <FieldNote id={`${id}-error`} message={serverMessage} />
@@ -665,7 +699,10 @@ function BuyerChooser({
           autoComplete="off"
           placeholder="닉네임·메모·뒤 4자리"
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          readOnly={locked}
+          onChange={(event) => {
+            if (!locked) setQuery(event.target.value)
+          }}
           onKeyDown={(event) => {
             // 찾는 칸의 Enter는 문자찜을 보내지 않는다
             if (event.key === 'Enter') event.preventDefault()
@@ -681,6 +718,7 @@ function BuyerChooser({
               <button
                 type="button"
                 className="choice-button"
+                disabled={locked}
                 onClick={() => {
                   onChoose(hit.current.id)
                   setQuery('')
@@ -722,7 +760,20 @@ export function claimTone(status: ClaimStatus): 'success' | 'warning' | 'info' {
  * "같은 사람 하나 더"는 응답의 buyer로 채운다(null이면 버튼이 없다).
  * 번호 칸 바로 위에 둔다 — 보낸 뒤 칸이 비고 번호 칸으로 가도 결과가 첫 화면에 보인다(UX-S06-002).
  */
-function ResultCard({ api, result, onSame }: { readonly api: ConsoleApi; readonly result: SentResult; readonly onSame: (buyer: string, received: string) => void }) {
+function ResultCard({
+  api,
+  result,
+  onSame,
+  locked,
+}: {
+  readonly api: ConsoleApi
+  readonly result: SentResult
+  readonly onSame: (buyer: string, received: string) => void
+  /** 다음 문자찜을 보내는 중 — "같은 사람 하나 더"를 잠근다 (AC-SMS-01) */
+  readonly locked: boolean
+}) {
+  // 화면이 그 seq까지 따라잡았는가 — 따라잡기 전에는 찜을 찾지 못해도 "생기지 않았다"고 하지 않는다 (AC-SMS-03)
+  const caught = api.data.seq >= result.seq
   const claim = useMemo(() => {
     for (const item of api.data.claims.values()) if (item.seq === result.seq && item.origin === 'sms') return item
     return undefined
@@ -731,7 +782,10 @@ function ResultCard({ api, result, onSame }: { readonly api: ConsoleApi; readonl
   const reviewed = useSentToReview(api, result, claim === undefined)
   let body: string
   let tone: 'success' | 'warning' | 'info'
-  if (claim !== undefined) {
+  if (!caught) {
+    body = `${String(result.no)}번 · 넣었어요 · 상태 확인 중…`
+    tone = 'info'
+  } else if (claim !== undefined) {
     body = `${String(claim.no)}번${claimOptionWords(claim)} · ${api.names.name(claim.currentBuyer)} · ${claimWord(api.data, claim)} · 받은 시각 ${kstStamp(claim.rankTime, claim.rankMinute)}`
     tone = claimTone(claim.status)
   } else if (reviewed) {
@@ -752,13 +806,13 @@ function ResultCard({ api, result, onSame }: { readonly api: ConsoleApi; readonl
         {result.phoneLast4 !== null ? <span> · 뒤 4자리 {result.phoneLast4}</span> : null}
       </p>
       <div className="row">
-        {claim !== undefined && isActive(claim) ? (
+        {caught && claim !== undefined && isActive(claim) ? (
           <button type="button" className="button" onClick={() => openClaimAction(api, claim, 'host.cancel')}>
             찜 취소하기
           </button>
         ) : null}
         {who !== null ? (
-          <button type="button" className="button" onClick={() => onSame(who, result.receivedText)}>
+          <button type="button" className="button" disabled={locked} onClick={() => onSame(who, result.receivedText)}>
             같은 사람 하나 더
           </button>
         ) : null}
