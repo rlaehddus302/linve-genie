@@ -32,8 +32,10 @@ export const VOICE_LOAD_FAILED = '음성 기능을 불러오지 못했어요. �
 export const HISTORY_FAILED = '지난 판매 품종을 불러오지 못했어요. 기본 품종 사전으로 알아들어요.'
 /** 맨 앞이 된 지 1초 안의 Enter (D-I4-03) */
 export const TOO_SOON = '새 카드가 방금 나왔어요. 확인하고 다시 Enter를 눌러 주세요.'
-/** 켜진 동안 늘 보이는 안내 (D-I4-04) */
-export const SENT_NOTICE = '음성은 인식을 위해 구글로 보내져요.'
+/** 켜진 동안 늘 보이는 안내 (D-I4-04, D-I5-06 — 기기를 가리지 않고 어느 기기에서도 맞는 한 문장) */
+export const SENT_NOTICE = '음성은 인식을 위해 크롬은 구글로, 아이폰은 애플로 보내져요.'
+/** 홈 화면 앱(navigator.standalone === true)에서 켜진 동안·오류로 멈춘 뒤 보이는 한 줄 (D-I5-05 — 막지 않는다) */
+export const STANDALONE_NOTICE = '홈 화면 앱에서는 음성이 자주 끊길 수 있어요. 안 되면 사파리에서 열어 주세요.'
 
 /** 카드의 고치기 칸 */
 export interface CardForm {
@@ -140,8 +142,11 @@ export const RESTART_LABEL_MS = 1000
  */
 export const HISTORY_WAIT_MS = 2000
 
-/** 이력을 기다리며 미룬 최종 문장과 그 문장이 온 때의 설정·번호 범위 */
-type HeldSentence = { readonly text: string; readonly settings: VoiceSettings; readonly maxNumber: number }
+/**
+ * 이력을 기다리며 미룬 최종 문장과 그 문장이 온 때의 설정·번호 범위.
+ * flushedAtEnd: 인식이 끝날 때 넘긴 문장(최종 표시 없이 끝난 중간 결과, D-I5-02) — 그 카드는 자동 확정하지 않는다.
+ */
+type HeldSentence = { readonly text: string; readonly settings: VoiceSettings; readonly maxNumber: number; readonly flushedAtEnd: boolean }
 
 type HistoryState = { readonly state: 'idle' | 'loading' | 'failed'; readonly past: readonly PastDay[] } | { readonly state: 'done'; readonly past: readonly PastDay[] }
 
@@ -357,15 +362,16 @@ export class VoiceController {
       this.#set({ ...label, interim: null, heard })
       return
     }
+    const sentence: HeldSentence = { text: result.text, settings, maxNumber: this.#host.maxNumber(), flushedAtEnd: result.flushedAtEnd === true }
     if (this.#waitingHistory()) {
-      this.#held.push({ text: result.text, settings, maxNumber: this.#host.maxNumber() })
+      this.#held.push(sentence)
       this.#armHeld()
       this.#set({ ...label, interim: null, heard })
       return
     }
     // 기다림이 끝났는데 타이머보다 먼저 온 문장: 미룬 문장을 먼저 카드로 (온 차례)
     const before = this.#snapshot.cards
-    const cards = this.#cardsWith(this.#heldCards(module), module, { text: result.text, settings, maxNumber: this.#host.maxNumber() })
+    const cards = this.#cardsWith(this.#heldCards(module), module, sentence)
     this.#set({ ...label, interim: null, heard, ...(cards === before ? {} : { cards }) })
   }
 
@@ -373,9 +379,17 @@ export class VoiceController {
   // 설정·번호 범위는 문장이 온 때의 값, 사전은 지금 사전(이력을 기다린 까닭), 만든 시각은 카드가 보이는 지금
   // — 자동 등록 기다림을 판매자가 화면에서 다 볼 수 있게 미룬 시간만큼 줄이지 않는다
   #cardsWith(cards: readonly SuggestionCard[], module: VoiceModule, sentence: HeldSentence): readonly SuggestionCard[] {
-    const { text, settings, maxNumber } = sentence
+    const { text, settings, maxNumber, flushedAtEnd } = sentence
     const extraction = module.extractVoice(text, { maxNumber, dictionary: this.#prepared(module) })
-    const card = module.createCard({ id: `voice-${String(this.#nextCard++)}`, extraction, text, createdAt: this.#host.now(), settings })
+    const card = module.createCard({
+      id: `voice-${String(this.#nextCard++)}`,
+      extraction,
+      text,
+      createdAt: this.#host.now(),
+      settings,
+      // 끝에서 넘긴 문장 카드는 자동 확정하지 않는다 (D-I5-02, AC-I5-04) — 보통 결과에는 속성을 넘기지 않는다
+      ...(flushedAtEnd ? { flushedAtEnd: true } : {}),
+    })
     return card === null ? cards : module.addCard(cards, card).filter(isOpen)
   }
 

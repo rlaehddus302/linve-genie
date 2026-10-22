@@ -178,7 +178,8 @@ describe('켜기·안내 창 (AC-I4-10·11, D-I4-04)', () => {
     const h = harness()
     h.consent = false
     await turnOn(h)
-    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', error: '이 브라우저는 음성 인식을 지원하지 않아요. 크롬에서 열어 주세요.' })
+    // 문장: D-I5-03 (AC-I5-06 UNSUPPORTED)
+    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', error: '이 기기에서는 음성이 어려워요. PC 크롬이나 안드로이드 크롬에서 켜 주세요. 상품은 빠른 입력으로 그대로 등록할 수 있어요.' })
   })
 
   it('webkitSpeechRecognition만 있어도 된다', async () => {
@@ -218,7 +219,8 @@ describe('상태·오류 (AC-I4-12, D-205)', () => {
     await turnOn(h)
     FakeRecognition.last.fail('not-allowed')
     FakeRecognition.last.end()
-    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', error: '마이크 사용이 막혀 있어요. 주소창 왼쪽 자물쇠에서 마이크를 허용해 주세요.' })
+    // 문장: D-I5-03 (AC-I5-06 PERMISSION_DENIED)
+    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', error: '마이크 사용이 막혀 있어요. PC·안드로이드 크롬은 주소창 왼쪽 자물쇠에서, 아이폰은 설정 > 사파리 > 마이크에서 허용해 주세요.' })
     expect(FakeRecognition.all).toHaveLength(1)
     expect(FakeRecognition.last.starts).toBe(1)
     await turnOn(h)
@@ -245,7 +247,8 @@ describe('상태·오류 (AC-I4-12, D-205)', () => {
     expect(labels).toContain('음성: 다시 시작 중')
     expect(FakeRecognition.all).toHaveLength(6)
     FakeRecognition.last.end()
-    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', error: '음성 인식이 자꾸 끊겨요. 마이크를 확인하고 다시 켜 주세요.' })
+    // 문장: D-I5-03 (AC-I5-06 KEEPS_STOPPING). 시계를 당기지 않으므로 모두 연 지 2초 안에 끝난 "빨리 끝남"이다(D-I5-01)
+    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', error: '음성 인식이 자꾸 끊겨요. 마이크를 확인하고 다시 켜 주세요. 계속 끊기면 PC 크롬이나 안드로이드에서 켜 주세요.' })
   })
 
   it('"다시 시작 중"은 엔진이 같은 순간에 다시 들어도 1초 동안 보이고, 그 사이 최종 결과가 오면 바로 "듣는 중" (AC-I4-12, TE-I4-001)', async () => {
@@ -714,5 +717,103 @@ describe('자동 확정 (AC-I4-30·31, D-I4-05)', () => {
     expect(h.voice.getSnapshot()).toMatchObject({ settingsProblem: null, settings: { 'voice.autoConfirmSec': 10 } })
     h.voice.setAutoConfirm(true)
     expect(h.written.at(-1)).toEqual({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 10 })
+  })
+})
+
+describe('아이폰(사파리) 음성 (I5 — D-I5-01~04)', () => {
+  const AUTO = { 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5 }
+
+  it('끝에서 넘긴 문장(최종 표시 없이 끝난 중간 결과)의 카드는 자동 등록하지 않고, "등록" 누르기로는 등록된다 (AC-I5-04, D-I5-02)', async () => {
+    const h = harness({ readSettings: () => AUTO })
+    await turnOn(h)
+    FakeRecognition.last.say('15번 핑크프릴 만오천원', false)
+    FakeRecognition.last.end()
+    const cards = h.voice.getSnapshot().cards
+    expect(cards.map((card) => [card.no, card.name, card.price, card.confidence, card.autoConfirmAt, card.flushedAtEnd])).toEqual([[15, '핑크프릴', 15000, 'HIGH', null, true]])
+    vi.advanceTimersByTime(30_000)
+    expect(h.registered).toEqual([])
+    expect(h.voice.getSnapshot().cards).toHaveLength(1)
+    h.voice.confirm(cards[0]?.id as string, 'click')
+    expect(h.registered.map((item) => [item.registration.no, item.registration.name, item.registration.price, item.source])).toEqual([[15, '핑크프릴', 15000, 'click']])
+  })
+
+  it('같은 문장이 보통 최종 결과로 오면 I4대로 5초 뒤 자동 등록 (AC-I5-04)', async () => {
+    const h = harness({ readSettings: () => AUTO })
+    await turnOn(h)
+    FakeRecognition.last.say('15번 핑크프릴 만오천원')
+    expect(h.voice.getSnapshot().cards[0]?.flushedAtEnd).toBeUndefined()
+    vi.advanceTimersByTime(5000)
+    expect(h.registered.map((item) => [item.registration.no, item.source])).toEqual([[15, 'auto']])
+  })
+
+  it('이력을 기다리며 미룬 끝에서 넘긴 문장도 자동 등록하지 않는다 (AC-I5-04)', async () => {
+    const h = harness({ readSettings: () => AUTO })
+    let resolve: (past: readonly PastDay[]) => void = () => {}
+    h.fetchHistory.mockImplementation(() => new Promise<readonly PastDay[]>((done) => (resolve = done)))
+    await turnOn(h)
+    FakeRecognition.last.say('15번 핑크프릴 만오천원', false)
+    FakeRecognition.last.end()
+    expect(h.voice.getSnapshot().cards).toEqual([])
+    resolve([])
+    await settle()
+    expect(h.voice.getSnapshot().cards.map((card) => [card.no, card.autoConfirmAt, card.flushedAtEnd])).toEqual([[15, null, true]])
+    vi.advanceTimersByTime(30_000)
+    expect(h.registered).toEqual([])
+  })
+
+  it('조용함으로 끝난 것(연 지 2초 넘게)은 세지 않고 계속 다시 듣는다 (AC-I5-02, D-I5-01)', async () => {
+    const h = harness()
+    await turnOn(h)
+    for (let i = 0; i < 40; i++) {
+      vi.advanceTimersByTime(3000)
+      FakeRecognition.last.end()
+    }
+    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'on', error: null })
+    expect(FakeRecognition.all).toHaveLength(41)
+  })
+
+  it('처음 켤 때 service-not-allowed → Siri·받아쓰기 문장, 꺼짐 (AC-I5-05·21, D-I5-03)', async () => {
+    const h = harness()
+    await turnOn(h)
+    FakeRecognition.last.fail('service-not-allowed')
+    FakeRecognition.last.end()
+    expect(h.voice.getSnapshot()).toMatchObject({
+      phase: 'off',
+      error: '이 기기에서 음성 인식이 꺼져 있어요. 아이폰은 설정에서 Siri와 받아쓰기를 켜 주세요. 그래도 안 되면 PC 크롬이나 안드로이드에서 켜 주세요.',
+    })
+    expect(FakeRecognition.all).toHaveLength(1)
+  })
+
+  it('저절로 다시 연 인식에서 not-allowed → "저절로 다시 켜지지 않아요", 다시 켜면 창 없이 새 인식으로 듣고 문장이 사라지며 카드는 남는다 (AC-I5-14)', async () => {
+    const h = harness()
+    await turnOn(h)
+    FakeRecognition.last.say('15번 핑크프릴 만오천원')
+    FakeRecognition.last.end()
+    expect(FakeRecognition.all).toHaveLength(2)
+    FakeRecognition.last.fail('not-allowed')
+    FakeRecognition.last.end()
+    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', error: "이 기기는 음성이 저절로 다시 켜지지 않아요. 말하기 전에 '음성 켜기'를 다시 눌러 주세요." })
+    expect(FakeRecognition.all).toHaveLength(2)
+    await turnOn(h)
+    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'on', error: null, stateLabel: '음성: 듣는 중' })
+    expect(FakeRecognition.all).toHaveLength(3)
+    expect(FakeRecognition.last.starts).toBe(1)
+    expect(h.voice.getSnapshot().cards.map((card) => card.no)).toEqual([15])
+  })
+
+  it('생성자가 둘 다 없으면 창·확인 기록·인식 객체·이력 조회 없이 꺼진 채 문장 (AC-I5-10, D-I5-04)', async () => {
+    vi.stubGlobal('SpeechRecognition', undefined)
+    vi.stubGlobal('webkitSpeechRecognition', undefined)
+    const h = harness()
+    h.consent = false
+    await turnOn(h)
+    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', error: voiceModule.SPEECH_ERROR_MESSAGES.UNSUPPORTED })
+    expect(h.consent).toBe(false)
+    expect(FakeRecognition.all).toHaveLength(0)
+    expect(h.fetchHistory).not.toHaveBeenCalled()
+    // 다시 눌러도 같다
+    await turnOn(h)
+    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', error: voiceModule.SPEECH_ERROR_MESSAGES.UNSUPPORTED })
+    expect(h.consent).toBe(false)
   })
 })
