@@ -7,7 +7,21 @@
 // - 멈추는 때: 총 개수를 다 보냄 · 멈춤 요청 · 그 방송을 끝냄 · 서버 종료(다시 시작해도 이어서 하지 않는다).
 //   저장 실패(save_failed)는 다시 시도하지 않고 다음 메시지로 가며 실패 수를 센다.
 // - 로그에 본문·닉네임을 남기지 않는다(쓰는 로그가 없다 — 기록 경로의 로그 규칙 그대로).
-import { getBroadcast, listProducts, parseChat, type EngineState, type ProductStatus, type SaleSettings } from '@livejjim/core'
+// - 옵션 방송(설정 스냅샷 claim.parseMode=OPTIONS, D-O4-01)만 옵션·수량 댓글과 확인 필요 감(review)을 섞는다. 보내기 전에 코어 parseOptionComment로
+//   그 종류로 읽히는지 확인한다(지금 상품은 정한 지 15초로 본다). 번호 방송(STRICT·LOOSE)은 BASE와 같은 메시지 순서·글자다(AC-O4-03).
+import {
+  FOCUS_GRACE_SEC,
+  getBroadcast,
+  listProducts,
+  parseChat,
+  parseOptionComment,
+  type EngineState,
+  type OptionCatalogEntry,
+  type OptionCommentResult,
+  type OptionItem,
+  type ProductStatus,
+  type SaleSettings,
+} from '@livejjim/core'
 
 // ── 주입점 ───────────────────────────────────────────────────────────────
 
@@ -62,12 +76,33 @@ export class SeededRandom {
 
 // ── 메시지 만들기 ────────────────────────────────────────────────────────
 
+/** 생성기 보기의 변형 하나 (옵션 방송, D-O4-01) */
+export interface GeneratorVariant {
+  /** 고른 옵션 `[항목 이름, label]`, 항목 순서 */
+  readonly options: readonly (readonly [string, string])[]
+  readonly status: ProductStatus
+  /** 남은 수량 */
+  readonly remaining: number
+}
+
+/** 생성기 보기의 상품 하나. 번호 방송은 번호·상태만 쓴다 (나머지 칸은 옵션 방송만 — 없으면 빈 것으로 본다) */
+export interface GeneratorProduct {
+  readonly no: number
+  readonly status: ProductStatus
+  readonly name?: string
+  readonly aliases?: readonly string[]
+  readonly options?: readonly OptionItem[]
+  readonly variants?: readonly GeneratorVariant[]
+}
+
 /** 생성기가 보는 그 시점의 리허설 범위 상태 (그 방송만) */
 export interface GeneratorView {
-  /** 그 방송의 상품 번호와 상태 */
-  readonly products: readonly { readonly no: number; readonly status: ProductStatus }[]
+  /** 그 방송의 상품 (번호 순) */
+  readonly products: readonly GeneratorProduct[]
   /** 그 방송의 설정 스냅샷 */
   readonly settings: SaleSettings
+  /** 지금 상품 번호 (옵션 방송, R-20 6 — 일시 중지·판매 종료 상품이면 없음) */
+  readonly focus?: number | null
 }
 
 /** 범위 상태에서 그 방송의 생성기 보기를 만든다 (방송이 없으면 null) */
@@ -76,12 +111,22 @@ export function generatorView(state: EngineState, b: string): GeneratorView | nu
   if (broadcast === null) return null
   const products = listProducts(state)
     .filter((product) => product.broadcast === b)
-    .map((product) => ({ no: product.no, status: product.status }))
-  return { products, settings: broadcast.settings }
+    .map((product) => ({
+      no: product.no,
+      status: product.status,
+      name: product.name,
+      aliases: product.aliases,
+      options: product.options,
+      variants: product.variants.map((variant) => ({ options: variant.options, status: variant.status, remaining: variant.remaining })),
+    }))
+  const focusNo = broadcast.focus?.no ?? null
+  const focused = focusNo === null ? undefined : products.find((product) => product.no === focusNo)
+  const focus = focused === undefined || focused.status === 'HOLD' || focused.status === 'CLOSED' ? null : focused.no
+  return { products, settings: broadcast.settings, focus }
 }
 
-/** 섞는 메시지 종류 (D-082) */
-export type MessageKind = 'order' | 'pendingOrder' | 'mention' | 'cancel' | 'talk' | 'nickChange' | 'sameNick' | 'owner' | 'resend'
+/** 섞는 메시지 종류 (D-082). review = 확인 필요가 될 댓글 (옵션 방송만, D-O4-01) */
+export type MessageKind = 'order' | 'pendingOrder' | 'review' | 'mention' | 'cancel' | 'talk' | 'nickChange' | 'sameNick' | 'owner' | 'resend'
 
 export interface GeneratedChat {
   readonly kind: MessageKind
@@ -96,6 +141,20 @@ const KIND_WEIGHTS: readonly (readonly [MessageKind, number])[] = [
   ['mention', 12],
   ['cancel', 6],
   ['talk', 21],
+  ['nickChange', 5],
+  ['sameNick', 6],
+  ['owner', 4],
+  ['resend', 6],
+]
+
+/** 옵션 방송의 종류별 비율 (합 100, D-O4-01) — 일반 대화 21 중 8을 확인 필요 감으로 */
+const OPTION_KIND_WEIGHTS: readonly (readonly [MessageKind, number])[] = [
+  ['order', 30],
+  ['pendingOrder', 10],
+  ['review', 8],
+  ['mention', 12],
+  ['cancel', 6],
+  ['talk', 13],
   ['nickChange', 5],
   ['sameNick', 6],
   ['owner', 4],
@@ -137,8 +196,9 @@ export class ChatMaker {
 
   next(view: GeneratorView): GeneratedChat {
     const index = this.#count++
-    const kind = this.#kind()
-    const made = this.#make(kind, view, index)
+    const options = view.settings['claim.parseMode'] === 'OPTIONS'
+    const kind = this.#kind(options ? OPTION_KIND_WEIGHTS : KIND_WEIGHTS)
+    const made = options ? this.#makeOption(kind, view, index) : this.#make(kind, view, index)
     if (made.kind !== 'resend') {
       this.#recent.push(made.chat)
       if (this.#recent.length > RESEND_WINDOW) this.#recent.shift()
@@ -146,9 +206,9 @@ export class ChatMaker {
     return made
   }
 
-  #kind(): MessageKind {
+  #kind(weights: readonly (readonly [MessageKind, number])[]): MessageKind {
     let roll = this.#random.int(100)
-    for (const [kind, weight] of KIND_WEIGHTS) {
+    for (const [kind, weight] of weights) {
       if (roll < weight) return kind
       roll -= weight
     }
@@ -257,8 +317,135 @@ export class ChatMaker {
         if (this.#recent.length === 0) return this.#talk(this.#viewer(), index)
         return { kind: 'resend', chat: { ...this.#random.pick(this.#recent) } }
       }
+      case 'review':
       case 'talk':
         return this.#talk(this.#viewer(), index)
+    }
+  }
+
+  /** 옵션 방송의 메시지 (D-O4-01). 글은 보내기 전에 코어 parseOptionComment로 그 종류로 읽히는지 확인한다 */
+  #makeOption(kind: MessageKind, view: GeneratorView, index: number): GeneratedChat {
+    const { settings } = view
+    const maxNumber = settings['claim.maxNumber']
+    const maxQuantity = settings['claim.maxQuantity']
+    // 인식 함수가 보는 상품 = 판매 종료가 아닌 상품(공개 전 포함, R-20 머리말). 지금 상품은 정한 지 15초로 본다
+    const products = view.products.map((product) => ({
+      no: product.no,
+      status: product.status,
+      name: product.name ?? '',
+      aliases: product.aliases ?? [],
+      options: product.options ?? [],
+      variants: product.variants ?? [],
+    }))
+    const focusNo = view.focus ?? null
+    const catalog: OptionCatalogEntry[] = products
+      .filter((product) => product.status !== 'CLOSED')
+      .map((product) => ({ no: product.no, name: product.name, aliases: product.aliases, options: product.options }))
+    const focus = focusNo === null ? null : { no: focusNo, ageSec: FOCUS_GRACE_SEC }
+    const read = (text: string): OptionCommentResult => parseOptionComment(text, catalog, focus, settings)
+    const word = (label: string, aliases: readonly string[] = []) => this.#random.pick([label, ...aliases])
+    switch (kind) {
+      case 'order': {
+        const open = products.filter((product) => product.status === 'OPEN')
+        if (open.length === 0) return this.#makeOption('pendingOrder', view, index)
+        const product = this.#random.pick(open)
+        const viewer = this.#viewer()
+        const qty = maxQuantity >= 2 && this.#random.int(5) === 0 ? Math.min(maxQuantity, 2 + this.#random.int(2)) : 1
+        const qtyText = qty === 1 ? '' : this.#random.next() < 0.5 ? ` ${String(qty)}개` : ` ${String(qty)}`
+        const no = String(product.no)
+        let candidates: string[]
+        let pick: Readonly<Record<string, string>> | null = null
+        if (product.options.length > 0 && product.variants.length > 0) {
+          const left = product.variants.filter((variant) => variant.status === 'OPEN' && variant.remaining > 0)
+          const variant = this.#random.pick(left.length > 0 ? left : product.variants)
+          pick = Object.fromEntries(variant.options.map(([item, label]) => [item, label]))
+          const words = variant.options.map(([item, label]) => {
+            const choice = product.options.find((option) => option.name === item)?.choices.find((c) => c.label === label)
+            return word(label, choice?.aliases)
+          })
+          const choices = `${words.join(' ')}${qtyText}`
+          candidates = [`${no} ${choices}`, `${product.name} ${choices}`]
+          if (product.aliases.length > 0) candidates.push(`${this.#random.pick(product.aliases)} ${choices}`)
+          if (focusNo === product.no) candidates.push(choices)
+        } else {
+          candidates = qty === 1 ? [product.name, no, `${no}번`, `찜${no}`] : [`${product.name}${qtyText}`]
+        }
+        const text = this.#firstMatching(candidates, (t) => {
+          const parsed = read(t)
+          const order = parsed.orders[0]
+          if (parsed.orders.length !== 1 || order === undefined || parsed.cancels.length > 0 || parsed.review !== null) return false
+          if (order.no !== product.no || order.qty !== qty) return false
+          if (pick === null) return order.options === undefined
+          return Object.entries(pick).every(([item, label]) => order.options?.[item] === label)
+        })
+        if (text === null) return this.#talk(viewer, index)
+        viewer.ordered.push(product.no)
+        return { kind: 'order', chat: this.#chat(viewer, text, index) }
+      }
+      case 'pendingOrder': {
+        const taken = new Set(products.map((product) => product.no))
+        const highest = products.reduce((max, product) => Math.max(max, product.no), 0)
+        let no = Math.min(maxNumber, highest + 1 + this.#random.int(5))
+        for (let tries = 0; taken.has(no) && tries < 50; tries++) no = 1 + this.#random.int(maxNumber)
+        const viewer = this.#viewer()
+        if (taken.has(no)) return this.#talk(viewer, index)
+        const text = this.#firstMatching([`${String(no)}`, `${String(no)}번`, `찜${String(no)}`], (t) => {
+          const parsed = read(t)
+          return parsed.orders.length === 1 && parsed.orders[0]?.no === no && parsed.orders[0].qty === 1 && parsed.cancels.length === 0 && parsed.review === null
+        })
+        if (text === null) return this.#talk(viewer, index)
+        viewer.ordered.push(no)
+        return { kind: 'pendingOrder', chat: this.#chat(viewer, text, index) }
+      }
+      case 'review': {
+        const viewer = this.#viewer()
+        const optioned = products.filter((product) => product.status !== 'CLOSED' && product.options.length > 0)
+        if (optioned.length === 0) return this.#talk(viewer, index)
+        const product = this.#random.pick(optioned)
+        const items = product.options
+        const all = items.map((item) => {
+          const choice = this.#random.pick(item.choices)
+          return word(choice.label, choice.aliases)
+        })
+        const candidates = [product.name, `${product.name} ${all.join(' ')} ${String(maxQuantity + 1)}개`, `${product.name} 특대`]
+        const wide = items.find((item) => item.choices.length >= 2)
+        if (wide !== undefined) {
+          const first = this.#random.int(wide.choices.length)
+          const second = (first + 1 + this.#random.int(wide.choices.length - 1)) % wide.choices.length
+          candidates.push(`${product.name} ${(wide.choices[first] as { label: string }).label} ${(wide.choices[second] as { label: string }).label}`)
+        }
+        const text = this.#firstMatching(candidates, (t) => read(t).review !== null)
+        if (text === null) return this.#talk(viewer, index)
+        return { kind: 'review', chat: this.#chat(viewer, text, index) }
+      }
+      case 'mention': {
+        const viewer = this.#viewer()
+        const known = products.length > 0 ? this.#random.pick(products) : null
+        const knownNo = known?.no ?? Math.min(maxNumber, 1 + this.#random.int(Math.min(maxNumber, 30)))
+        const candidates =
+          this.#random.next() < 0.5 ? [`${String(knownNo)}번 예뻐요`, `${String(knownNo)}번 아직 있나요?`] : ['3개 남았나요?', `${String(knownNo)}번 크기가 어떻게 돼요?`]
+        const item = known?.options[0]
+        if (known !== null && item !== undefined && item.choices.length > 0) candidates.push(`${known.name} ${this.#random.pick(item.choices).label} 있나요?`)
+        const text = this.#firstMatching(candidates, (t) => {
+          const parsed = read(t)
+          return parsed.orders.length === 0 && parsed.cancels.length === 0 && parsed.review === null
+        })
+        return { kind: 'mention', chat: this.#chat(viewer, text ?? '몇 개 남았나요?', index) }
+      }
+      case 'cancel': {
+        const withOrders = this.#viewers.filter((viewer) => viewer.ordered.length > 0)
+        if (withOrders.length === 0) return this.#makeOption('mention', view, index)
+        const viewer = this.#random.pick(withOrders)
+        const no = this.#random.pick(viewer.ordered)
+        const text = this.#firstMatching([`${String(no)} 취소`, `${String(no)}번 취소`, `${String(no)}번 취소할게요`], (t) => {
+          const parsed = read(t)
+          return parsed.cancels.length === 1 && parsed.cancels[0] === no && parsed.orders.length === 0 && parsed.review === null
+        })
+        if (text === null) return this.#talk(viewer, index)
+        return { kind: 'cancel', chat: this.#chat(viewer, text, index) }
+      }
+      default:
+        return this.#make(kind, view, index)
     }
   }
 
