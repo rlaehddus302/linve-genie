@@ -509,12 +509,17 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
           <OptionQtyFields
             product={product}
             picks={effectivePicks}
-            onPick={(name, value) => setPicks((current) => ({ ...current, [name]: value }))}
+            onPick={(name, value) => {
+              if (!locked) setPicks((current) => ({ ...current, [name]: value }))
+            }}
             qtyText={qtyText}
-            onQty={setQtyText}
+            onQty={(text) => {
+              if (!locked) setQtyText(text)
+            }}
             qtyProblem={qtyProblem ?? serverProblem(serverError, 'qty')}
             optionsProblem={tried && optionsMissing ? '옵션을 모두 골라 주세요.' : serverProblem(serverError, 'options')}
             disabled={disabled}
+            locked={locked}
           />
         ) : null}
 
@@ -779,7 +784,7 @@ function ResultCard({
     return undefined
   }, [api.data.claims, result.seq])
   const who = result.buyer ?? claim?.buyer ?? null
-  const reviewed = useSentToReview(api, result, claim === undefined)
+  const reviewed = useSentToReview(api, result, caught && claim === undefined)
   let body: string
   let tone: 'success' | 'warning' | 'info'
   if (!caught) {
@@ -885,6 +890,7 @@ function useSentToReview(api: ConsoleApi, result: SentResult, missing: boolean):
 /**
  * 옵션 방송의 옵션·수량 칸 (D-O2-08, AC-O2-40·41): 상품이 없으면 안내와 수량만, 옵션 없는 상품이면 수량만,
  * 옵션 상품이면 항목마다 선택지(처음엔 고르지 않음 — 선택지 옆 "남은 n개")와 수량(처음 1, 숫자 키패드).
+ * 보내는 중에는 다른 칸처럼 잠근다(AC-SMS-01) — 성공하면 비우고, 실패면 고른 그대로 둔다(AC-SMS-02·04).
  */
 function OptionQtyFields(props: {
   readonly product: Product | undefined
@@ -895,6 +901,8 @@ function OptionQtyFields(props: {
   readonly qtyProblem: string | null
   readonly optionsProblem: string | null
   readonly disabled: boolean
+  /** 보내는 중 — 옵션·수량을 잠근다 (AC-SMS-01) */
+  readonly locked: boolean
 }) {
   const qtyId = useId()
   const { product, picks } = props
@@ -907,7 +915,7 @@ function OptionQtyFields(props: {
       ) : null}
       {product?.hasOptions === true
         ? product.options.map((item) => (
-            <fieldset key={item.name} className="rule-choice" role="radiogroup" aria-label={item.name} disabled={props.disabled}>
+            <fieldset key={item.name} className="rule-choice" role="radiogroup" aria-label={item.name} aria-readonly={props.locked} disabled={props.disabled}>
               <legend>{item.name}</legend>
               <div className="choice-list">
                 {item.choices.map((choice) => {
@@ -937,6 +945,7 @@ function OptionQtyFields(props: {
           autoComplete="off"
           value={props.qtyText}
           disabled={props.disabled}
+          readOnly={props.locked}
           aria-invalid={props.qtyProblem !== null}
           aria-describedby={`${qtyId}-error`}
           onChange={(event) => props.onQty(event.target.value.replace(/\D/g, '').slice(0, 3))}

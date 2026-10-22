@@ -10,7 +10,7 @@ import { ConsolePage } from '../src/components/ConsolePage.tsx'
 import { ReviewsPage } from '../src/components/ReviewsPage.tsx'
 import { chat, iso, register } from './engine.ts'
 import { EngineServer } from './engine-server.ts'
-import { DATE, FakeEventSource, FakeServer, flush, message } from './support.ts'
+import { DATE, FakeEventSource, FakeServer, apiError, flush, message } from './support.ts'
 
 const OPTIONS = { 'claim.parseMode': 'OPTIONS', 'contention.policy': 'ARRIVAL' } as const
 const SHORTS = { name: '사이즈', choices: [{ label: 'S' }, { label: 'M' }, { label: 'L' }] }
@@ -485,6 +485,113 @@ describe('문자찜의 옵션·수량 (AC-O2-40·41)', () => {
     fireEvent.change(plain, { target: { value: '11' } })
     await flush(3)
     expect(screen.queryByLabelText('수량')).toBeNull()
+  })
+})
+
+describe('옵션 방송 문자찜도 보내는 동안 잠금·성공 응답 바로 비우기 (D-SMS-01, AC-SMS-01~04 × AC-O2-40)', () => {
+  /** 쓰기 응답·증분 조회를 붙잡아 둔다 — 풀면 그때 가짜 서버가 답한다 */
+  function hold() {
+    const gates: { post: (() => void) | null; changes: (() => void) | null } = { post: null, changes: null }
+    const waits: { post: Promise<void> | null; changes: Promise<void> | null } = { post: null, changes: null }
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = typeof input === 'string' ? input : input instanceof URL ? `${input.pathname}${input.search}` : input.url
+      const method = (init?.method ?? 'GET').toUpperCase()
+      if (method === 'POST' && path.startsWith('/api/events') && waits.post !== null) await waits.post
+      if (method === 'GET' && path.includes('/changes') && waits.changes !== null) await waits.changes
+      return engine.server.fetch(input, init)
+    })
+    const make = (key: 'post' | 'changes') => {
+      waits[key] = new Promise<void>((resolve) => {
+        gates[key] = resolve
+      })
+    }
+    const free = (key: 'post' | 'changes') => {
+      gates[key]?.()
+      gates[key] = null
+      waits[key] = null
+    }
+    return { holdPost: () => make('post'), releasePost: () => free('post'), holdChanges: () => make('changes'), releaseChanges: () => free('changes') }
+  }
+
+  async function openSms() {
+    const { SmsPage } = await import('../src/components/SmsPage.tsx')
+    render(<SmsPage navigate={vi.fn()} />)
+    await screen.findByRole('region', { name: '최근 넣은 문자찜' })
+    await flush(5)
+    return screen.getByLabelText('번호') as HTMLInputElement
+  }
+
+  it('보내는 동안 옵션·수량도 바뀌지 않고, 성공 응답 바로 옵션(고르지 않음)·수량(1)까지 비운다', async () => {
+    setup([{ ...shorts(21), b: 'b2' }])
+    const gate = hold()
+    const no = await openSms()
+    fireEvent.change(no, { target: { value: '21' } })
+    const sizes = await screen.findByRole('radiogroup', { name: '사이즈' })
+    fireEvent.click(within(sizes).getByRole('radio', { name: /^S/ }))
+    gate.holdPost()
+    fireEvent.click(screen.getByRole('button', { name: '21번에 문자찜 넣기' }))
+    await flush()
+    const qty = screen.getByLabelText('수량') as HTMLInputElement
+    expect(qty.readOnly).toBe(true)
+    expect(sizes.getAttribute('aria-readonly')).toBe('true')
+    expect(screen.getByText('보내는 중이라 잠시 고칠 수 없어요.')).toBeDefined()
+    fireEvent.click(within(sizes).getByRole('radio', { name: /^L/ }))
+    fireEvent.change(qty, { target: { value: '3' } })
+    const checked = () => (within(screen.getByRole('radiogroup', { name: '사이즈' })).getAllByRole('radio') as HTMLInputElement[]).map((radio) => radio.checked)
+    expect(checked()).toEqual([true, false, false])
+    expect(qty.value).toBe('1')
+    gate.holdChanges()
+    gate.releasePost()
+    await flush(20)
+    expect(engine.posts.filter((post) => post.type === 'sms')).toHaveLength(1)
+    expect(engine.posts.at(-1)).toMatchObject({ type: 'sms', no: 21, qty: 1, options: { 사이즈: 'S' } })
+    expect(no.value).toBe('')
+    expect(screen.queryByRole('radiogroup', { name: '사이즈' })).toBeNull()
+    expect(screen.getByRole('region', { name: '넣은 결과' }).textContent).toContain('21번 · 넣었어요 · 상태 확인 중…')
+    // 바로 같은 번호를 다시 치면 옵션은 고르지 않음·수량 1로 다시 시작
+    fireEvent.change(no, { target: { value: '21' } })
+    expect(checked()).toEqual([false, false, false])
+    expect((screen.getByLabelText('수량') as HTMLInputElement).value).toBe('1')
+    gate.releaseChanges()
+    await waitFor(() => expect(screen.getByRole('region', { name: '넣은 결과' }).textContent).not.toContain('상태 확인 중'))
+    expect(screen.getByRole('region', { name: '넣은 결과' }).textContent).toContain('21번')
+  })
+
+  it('따라잡기 전에는 확인 필요로 간 문자찜도 "상태 확인 중…" — 따라잡은 뒤 "확인 필요로 보냈어요"', async () => {
+    setup([{ ...shorts(21), b: 'b2' }])
+    const gate = hold()
+    const no = await openSms()
+    fireEvent.change(no, { target: { value: '21' } })
+    fireEvent.click(within(await screen.findByRole('radiogroup', { name: '사이즈' })).getByRole('radio', { name: 'M · 남은 1개' }))
+    fireEvent.change(screen.getByLabelText('수량'), { target: { value: '2' } })
+    gate.holdChanges()
+    fireEvent.click(screen.getByRole('button', { name: '21번에 문자찜 넣기' }))
+    await flush(20)
+    const card = screen.getByRole('region', { name: '넣은 결과' })
+    expect(card.textContent).toContain('21번 · 넣었어요 · 상태 확인 중…')
+    expect(card.textContent).not.toContain('확인 필요로 보냈어요')
+    expect(card.getAttribute('data-tone')).toBe('info')
+    gate.releaseChanges()
+    expect(await screen.findByText('21번 · 찜이 생기지 않았어요 — 확인 필요로 보냈어요')).toBeDefined()
+    expect(screen.getByRole('region', { name: '넣은 결과' }).getAttribute('data-tone')).toBe('warning')
+  })
+
+  it('거절되면 잠금이 풀리고 고른 옵션·수량은 그대로', async () => {
+    setup([{ ...shorts(21, { L: 3 }), b: 'b2' }])
+    const no = await openSms()
+    fireEvent.change(no, { target: { value: '21' } })
+    fireEvent.click(within(await screen.findByRole('radiogroup', { name: '사이즈' })).getByRole('radio', { name: /^L/ }))
+    fireEvent.change(screen.getByLabelText('수량'), { target: { value: '2' } })
+    engine.failNext = apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'memo', message: '메모를 확인해 주세요.' }])
+    fireEvent.click(screen.getByRole('button', { name: '21번에 문자찜 넣기' }))
+    expect(await screen.findByText('메모를 확인해 주세요.')).toBeDefined()
+    expect(no.value).toBe('21')
+    const radios = within(screen.getByRole('radiogroup', { name: '사이즈' })).getAllByRole('radio') as HTMLInputElement[]
+    expect(radios.map((radio) => radio.checked)).toEqual([false, false, true])
+    const qty = screen.getByLabelText('수량') as HTMLInputElement
+    expect(qty.value).toBe('2')
+    expect(qty.readOnly).toBe(false)
+    expect(screen.getByRole('radiogroup', { name: '사이즈' }).getAttribute('aria-readonly')).toBe('false')
   })
 })
 
