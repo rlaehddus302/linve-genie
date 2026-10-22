@@ -730,8 +730,9 @@ export class ParcelService {
     if (prior !== null) return this.#priorBook(sellerId, date, requestId, prior)
     const runtime = await this.#deps.writer.read(sellerId, date, false)
     if (runtime.seq === 0 || runtime.scopeId === null) return NOT_FOUND
-    if (items.some((item) => getBuyer(runtime.state, item.buyer) === null)) return NOT_FOUND
+    // 봉인한 범위는 상태를 재생하지 않아 구매자가 보이지 않는다 — 봉인을 먼저 본다(지금 포장 명령과 같은 문장)
     if (await this.#sealed(db, sellerId, runtime.scopeId)) return problem(409, 'SEALED', SEALED_MESSAGE)
+    if (items.some((item) => getBuyer(runtime.state, item.buyer) === null)) return NOT_FOUND
     const settings = await readSettings(db, masterKey, sellerId)
     const blocked = this.#blocked(settings)
     if (blocked !== null) return problem(409, 'PARCEL_BLOCKED', blocked.message)
@@ -897,7 +898,9 @@ export class ParcelService {
       return this.bundle(sellerId, date, buyer)
     }
     const runtime0 = await writer.read(sellerId, date, false)
-    if (runtime0.seq === 0 || runtime0.scopeId === null || getBuyer(runtime0.state, buyer) === null) return NOT_FOUND
+    if (runtime0.seq === 0 || runtime0.scopeId === null) return NOT_FOUND
+    if (await this.#sealed(db, sellerId, runtime0.scopeId)) return problem(409, 'SEALED', SEALED_MESSAGE)
+    if (getBuyer(runtime0.state, buyer) === null) return NOT_FOUND
     const checked = await writer.withScope(sellerId, date, false, async (runtime, catchUpIn): Promise<Outcome<AttemptRow>> =>
       db.transaction(async (tx) => {
         await catchUpIn(tx)
