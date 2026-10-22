@@ -209,7 +209,7 @@ function MethodRow({ item, moving, locked, onLink, onUnlink }: { readonly item: 
           연결 끊기
         </button>
       ) : item.enabled ? (
-        <button type="button" className="button button-primary" {...(moving === item.provider ? {} : { 'aria-label': `${name} 연결하기` })} disabled={locked} onClick={onLink}>
+        <button type="button" className="button" {...(moving === item.provider ? {} : { 'aria-label': `${name} 연결하기` })} disabled={locked} onClick={onLink}>
           {moving === item.provider ? movingLabel(item.provider) : '연결하기'}
         </button>
       ) : null}
