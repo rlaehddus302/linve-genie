@@ -66,13 +66,15 @@ export function labelErrorMessage(error: Pick<LabelError, 'code' | 'message' | '
 
 /** 판매자 샘플 라벨 (194번 · 왕비뇌신금 · 8,000원 · 26.10.08 · 우주천사) */
 export const SAMPLE_PRODUCT: ProductLabelData = { no: 194, name: '왕비뇌신금', price: 8000, date: '2026-10-08', buyer: { kind: 'youtube', name: '우주천사' } }
-/** 가장 긴 값 (번호 9999 · 가격 99,999,999원 · 긴 품종·닉네임) */
+/** 가장 넓은 날짜: 2000~2099의 모든 YY.MM.DD 중 내장 글꼴로 가장 넓은 `04.04.04` (L-11 13, D-STB-01) */
+export const WIDEST_DATE = '2004-04-04'
+/** 가장 긴 값 (번호 9999 · 가격 99,999,999원 · 날짜 04.04.04 · 긴 품종·닉네임) */
 export const LONGEST_PRODUCT: ProductLabelData = {
   no: 9999,
   // 음성 기본 사전의 표지 낱말('블루엘프')은 넣지 않는다 — 첫 화면 JS에 음성 사전이 없는지 그 낱말로 확인한다(AC-I4-10)
   name: '아주 긴 이름의 다육식물 품종명 핑크프릴 왕비뇌신금 금황환 미니마 라즈베리아이스',
   price: 99_999_999,
-  date: '2026-12-28',
+  date: WIDEST_DATE,
   buyer: { kind: 'youtube', name: '다육이사랑하는우주천사님반가워요길고긴닉네임' },
 }
 export const SAMPLE_PACKING: PackingLabelData = {
@@ -85,7 +87,7 @@ export const SAMPLE_PACKING: PackingLabelData = {
 /** 가장 긴 포장 값: 네 자리 번호 998개 + 다른 방송 1개 = 상품 999개, 상품 합계 99,999,999원 */
 export function longestPacking(): PackingLabelData {
   return {
-    date: '2026-12-28',
+    date: WIDEST_DATE,
     buyer: { kind: 'youtube', name: '다육이사랑하는우주천사님반가워요길고긴닉네임' },
     broadcasts: [
       { title: '아주 긴 방송 제목 다육이 금요일 밤 라이브 특별 할인전', numbers: Array.from({ length: 998 }, (_, i) => 9999 - i) },
@@ -129,7 +131,8 @@ export type TemplateCheckResult =
 
 /**
  * 템플릿 검사 + 최악값으로 그려 보기. 검사 오류면 문제 목록, 최악값이 들어가지 않으면 그 항목의 문장.
- * 상품: 번호 9999, 가격 99,999,999원·99,999 천원. 포장: 네 자리 번호 한 장 번호 수만큼 + 상품 합계 99,999,999원 + 상품 999개
+ * 상품: 번호 9999, 가격 99,999,999원·99,999 천원, 날짜 04.04.04. 포장: 네 자리 번호 한 장 번호 수만큼 + 상품 합계 99,999,999원 + 상품 999개 + 날짜 04.04.04.
+ * 라벨 설정 화면을 열 때 저장된 설정에도 같은 검사를 돌려 경고한다(L-11 13)
  */
 export function checkTemplate(env: LabelRenderEnv, value: LabelTemplate): TemplateCheckResult {
   const checked = validateTemplate(value)
