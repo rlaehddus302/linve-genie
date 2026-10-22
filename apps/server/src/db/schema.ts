@@ -1569,6 +1569,8 @@ export const parcels = pgTable(
   'parcels',
   {
     id: text('id').primaryKey(),
+    /** 적은 차례 (같은 시각에 적힌 시도도 차례가 정해진다 — 가장 나중 시도) */
+    no: bigserial('no', { mode: 'number' }).notNull(),
     sellerId: text('seller_id')
       .notNull()
       .references(() => sellers.id),
@@ -1602,7 +1604,7 @@ export const parcels = pgTable(
   (t) => [
     unique('parcels_request_key_uq').on(t.sellerId, t.requestKey),
     uniqueIndex('parcels_live_uq').on(t.sellerId, t.date, t.buyer).where(sql`state in ('PENDING', 'UNKNOWN', 'BOOKED')`),
-    index('parcels_bundle_idx').on(t.sellerId, t.date, t.buyer, t.createdAt),
+    index('parcels_bundle_idx').on(t.sellerId, t.date, t.buyer, t.no),
     index('parcels_track_idx').on(t.state, t.bookedAt),
   ],
 )

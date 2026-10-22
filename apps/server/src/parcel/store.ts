@@ -204,7 +204,7 @@ export async function latestAttempts(db: Db, sellerId: string, date: string): Pr
     .select()
     .from(parcels)
     .where(and(eq(parcels.sellerId, sellerId), eq(parcels.date, date)))
-    .orderBy(asc(parcels.createdAt), asc(parcels.id))
+    .orderBy(asc(parcels.no))
   const out = new Map<string, AttemptRow>()
   // 살아 있는 시도가 있으면 그것(많아야 하나), 없으면 가장 나중 것
   for (const raw of rows) {
@@ -220,7 +220,7 @@ export async function latestAttempt(db: Db, sellerId: string, date: string, buye
     .select()
     .from(parcels)
     .where(and(eq(parcels.sellerId, sellerId), eq(parcels.date, date), eq(parcels.buyer, buyer)))
-    .orderBy(desc(parcels.createdAt), desc(parcels.id))
+    .orderBy(desc(parcels.no))
   const list = rows.map(toAttempt)
   return list.find((row) => LIVE_STATES.includes(row.state)) ?? list[0] ?? null
 }

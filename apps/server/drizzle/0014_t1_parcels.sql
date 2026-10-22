@@ -16,6 +16,7 @@ CREATE TABLE "parcel_addresses" (
 --> statement-breakpoint
 CREATE TABLE "parcels" (
 	"id" text PRIMARY KEY NOT NULL,
+	"no" bigserial NOT NULL,
 	"seller_id" text NOT NULL,
 	"date" text NOT NULL,
 	"buyer" text NOT NULL,
@@ -68,5 +69,5 @@ ALTER TABLE "parcel_requests" ADD CONSTRAINT "parcel_requests_seller_id_sellers_
 ALTER TABLE "parcel_settings" ADD CONSTRAINT "parcel_settings_seller_id_sellers_id_fk" FOREIGN KEY ("seller_id") REFERENCES "public"."sellers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "parcel_addresses_date_idx" ON "parcel_addresses" USING btree ("date");--> statement-breakpoint
 CREATE UNIQUE INDEX "parcels_live_uq" ON "parcels" USING btree ("seller_id","date","buyer") WHERE state in ('PENDING', 'UNKNOWN', 'BOOKED');--> statement-breakpoint
-CREATE INDEX "parcels_bundle_idx" ON "parcels" USING btree ("seller_id","date","buyer","created_at");--> statement-breakpoint
+CREATE INDEX "parcels_bundle_idx" ON "parcels" USING btree ("seller_id","date","buyer","no");--> statement-breakpoint
 CREATE INDEX "parcels_track_idx" ON "parcels" USING btree ("state","booked_at");
