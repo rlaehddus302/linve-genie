@@ -43,6 +43,9 @@ import {
   depositLinks,
   depositNames,
   depositRequests,
+  assistCache,
+  assistCalls,
+  assistSettings,
   depositSources,
   deposits,
   events,
@@ -1142,11 +1145,13 @@ const BATCH = 500
  * - 틱톡 연결(tiktok_links — 회차·범위를 참조하는 회차별 연결과 기록하지 않은·저장 실패 수): 라이브 연결(live_links)처럼 지운다. 파일에 없고,
  *   복구한 지난 회차를 다시 잇지 않는다. 복구 명령은 서버를 다시 켜므로 이어받기(resume)가 지운 연결을 다시 열지 않는다.
  * - 붙여넣기 요청 번호(paste_requests — 회차의 넣기 응답 요약): 라이브 요청 번호(live_requests)처럼 지운다.
+ * - AI 제안 캐시(A1 assist_cache — 방송 ID·가린 글의 해시 → 제안): 파일에 없다 — 지운다. 지워도 다음에 화면을 열 때 다시 물을 뿐이다(규칙 제안은 늘 다시 계산).
  * - 입금 확인(N3 — 입금과 엔진 기록의 연결 deposit_links, 처리 기록 deposit_actions): 범위를 참조하므로 이 목록에서 지우지만, 판매자가 한 일의 기록이라
  *   버리지 않는다 — 지우기 전에 읽어 두었다가 파일로 다시 만든 범위에 다시 넣는다(restoreDepositRecords). 처리 기록은 모두 그대로(범위만 새 범위로),
  *   연결은 다시 만든 범위의 그 seq에 그 입금의 엔진 기록(요청 번호 dep-<번호>-pay|rev-<차례>)이 있을 때만 남긴다.
  */
 export const RESTORE_REPLACED_TABLES = [
+  assistCache,
   receiptLinks,
   receiptLinkRequests,
   depositLinks,
@@ -1180,6 +1185,7 @@ export const RESTORE_REPLACED_TABLES = [
  * 라벨 템플릿(I1 — 판매자 설정, 파일에 없다), 구글 연결·승인 요청·할당량 사용량(Y1 — 계정 연결과 그날 쓴 양, 파일에 없다), 인스타그램 연결·승인 요청(N2 — 계정 연결), 틱톡 아이디·틱톡 사용 동의 기록(N2b-2 — 인스타그램 연결처럼 계정 쪽 설정이고, 동의 기록은 덧붙이기만 하는 기록이라 지우지 않는다 DAT-05), 출력 대기열 줄·라벨 기능 켬/끔 기록(I1·N4a — 판매자 설정, 대기열의 출력 중·멈춤 상태는 복구가 지운다),
  * 입금 확인(N3 — 원천·입금·기억한 입금자명·묶인 사업자번호·화면 요청 번호: 엔진 밖 기록이라 파일에 없다. 입금 번호를 다시 쓰지 않게 그대로 두고,
  * 입금 상태만 다시 만든 엔진 기록에 맞춘다 — 반영한 입금 기록이 파일에 없으면 확인 필요로, restoreDepositRecords),
+ * AI 제안 설정·호출 기록(A1 — 켬/동의 시각, 하루 상한을 세는 호출 기록: 판매자 설정과 그날 쓴 양이라 파일에 없다),
  * 요금 원장(N5 — 이용권·회수·쓴 기록·방송의 이용 방식·결제 주문·사업자 정보·증빙 요청·요금 요청 번호): 돈이 오간 기록이라 판매자 백업 파일로 덮지 않는다.
  *   파일에 없고(판매자가 고칠 수 있는 파일로 이용권을 늘리거나 결제·환불 기록을 지울 수 없게), 원장은 덧붙이기만 한다(BL-0 4 — 고치거나 지우는 코드가 없다).
  *   이용 방식 행은 방송 ID로 남고 범위는 방송 표로 찾는다 — 복구가 범위를 새 ID로 다시 만들어도 같은 방송의 이용 방식이 이어진다.
@@ -1214,6 +1220,8 @@ export const RESTORE_KEPT_TABLES = [
   depositNames,
   depositCorpBindings,
   depositRequests,
+  assistSettings,
+  assistCalls,
 ] as const
 /** 판매자 데이터가 아닌 표 (로그인 전 시도 수 — 판매자 ID가 없다) */
 export const RESTORE_UNRELATED_TABLES = [loginLimits] as const
