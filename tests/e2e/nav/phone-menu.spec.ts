@@ -106,12 +106,15 @@ test.describe('AC-NAV-01·02: 막대 다섯 칸·목록 내용', () => {
   })
 
   test('목록이 화면 높이의 60%를 넘으면 목록 안에서 스크롤된다 — 마지막 "설정"까지 닿는다 (375×300)', async ({ page, browser }) => {
-    await login(page)
-    const phone = await phoneOf(browser, page, undefined, { width: 375, height: 300 })
+    // 혼자 쓰는 판매자 + 라벨 켬 — 화면이 켬/끔을 늦게 알면 "라벨"이 늦게 끼므로(L-13 9) 항목 넷이 다 나온 뒤에 잰다
+    const seller = await loginNewSeller(page)
+    await setLabelsApi(page, true)
+    const phone = await phoneOf(browser, page, seller, { width: 375, height: 300 })
     try {
       await phone.goto('/sms')
       await expect(moreButton(phone)).toBeVisible()
       await openMore(phone)
+      await expect(moreLinks(phone)).toHaveText(LIST_ON)
       const list = moreList(phone)
       const box = await list.boundingBox()
       expect(box!.height).toBeLessThanOrEqual(300 * 0.6 + 0.5)
@@ -137,6 +140,8 @@ test.describe('AC-NAV-03: 열고 닫기·키보드·화면 읽기', () => {
     await page.setViewportSize(PHONE)
     // 새 판매자: 방송이 없어 문자찜 입력 화면이 자료를 다 받은 뒤 "번호" 칸으로 포커스를 옮기지 않는다 (시험이 그 늦은 포커스와 겨루지 않게)
     await loginNewSeller(page)
+    // 라벨 켬/끔을 정해 둔다 — 화면이 그 값을 늦게 알면 목록에 "라벨"이 늦게 끼어든다(L-13 9). 목록 순서는 그 값을 안 뒤의 목록으로 잰다
+    await setLabelsApi(page, true)
     await page.goto('/sms')
     await expect(page.getByRole('button', { name: '로그아웃' })).toBeVisible()
     const more = moreButton(page)
@@ -157,11 +162,10 @@ test.describe('AC-NAV-03: 열고 닫기·키보드·화면 읽기', () => {
     // 열린 뒤 Tab은 목록 항목을 목록 순서대로
     await page.keyboard.press('Enter')
     await expect(more).toHaveAttribute('aria-expanded', 'true')
-    const names = await moreLinks(page).allInnerTexts()
-    expect(names.length).toBeGreaterThanOrEqual(3)
-    for (const name of names) {
+    await expect(moreLinks(page)).toHaveText(LIST_ON)
+    for (const name of LIST_ON) {
       await page.keyboard.press('Tab')
-      await expect(menuLink(page, name.replace(/\s+/g, ' ').trim())).toBeFocused()
+      await expect(menuLink(page, name)).toBeFocused()
     }
     // Esc: 닫고 포커스는 "더보기"
     await page.keyboard.press('Escape')

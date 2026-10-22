@@ -94,9 +94,10 @@ test.describe('S05 지적 정리', () => {
     const box = (await start.boundingBox())!
     expect(box.y + box.height).toBeLessThanOrEqual(900)
     expect(await panel.innerText()).not.toContain('시드')
-    // 보류 찜 (상품 없는 번호) 3초 넘게 지난 뒤 창을 연다
-    const since = Date.now()
+    // 보류 찜 (상품 없는 번호) 3초 넘게 지난 뒤 창을 연다 — 찜 시각은 서버가 요청을 받는 동안 찍으므로
+    // 응답이 온 뒤의 시각부터 센다 (보내기 전부터 세면 부하로 요청이 몇 초 걸릴 때 실제 경과가 3초에 못 미친다)
     await smsApi(page, { b, no: 40, memo: '이씨' })
+    const since = Date.now()
     const strip = page.getByRole('region', { name: '알림' })
     await expect(strip.getByRole('button', { name: '보류 찜 1' })).toBeVisible()
     await untilElapsed(page, since, 3500)
