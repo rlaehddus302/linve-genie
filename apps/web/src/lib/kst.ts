@@ -214,3 +214,23 @@ export function kstDayMinute(value: string | number): string {
   const weekday = WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()] ?? ''
   return `${p.year ?? ''}-${p.month ?? ''}-${p.day ?? ''} (${weekday}) ${p.hour ?? '00'}:${p.minute ?? '00'}`
 }
+
+/**
+ * UTC 시각 → KST "11월 4일 (화)" (구매자 링크가 열리는 마지막 날, N4b AC-N4b-33). 요일은 그 KST 날짜 자체로.
+ * 읽을 수 없는 값이면 빈 글자
+ */
+export function kstMonthDayWeekday(value: string | number): string {
+  const date = kstDate(value)
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  if (!m) return ''
+  const day = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay()
+  return `${String(Number(m[2]))}월 ${String(Number(m[3]))}일 (${WEEKDAYS[day] ?? ''})`
+}
+
+/** `YYYY-MM-DD` → `2026-10-21 (수)` — 연도·요일까지 (영수증 보내기 화면 머리, AC-N4b-31) */
+export function dateDashWeekday(date: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  if (!m) return date
+  const day = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay()
+  return `${date} (${WEEKDAYS[day] ?? ''})`
+}

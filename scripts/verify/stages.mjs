@@ -497,7 +497,9 @@ async function e2e() {
   rmSync(out, { force: true })
   const config = join(ROOT, 'apps', 'web', 'playwright.config.ts')
   const result = await exec([bin('@playwright/test', 'playwright'), 'test', '--config', config, '--grep-invert', E2E_PERF_TAGS, '--reporter=line,json'], {
-    extraEnv: { PLAYWRIGHT_JSON_OUTPUT_NAME: out },
+    // CI=1: 지난 실행이 남긴 E2E 서버를 다시 쓰지 않는다(reuseExistingServer 끔). 남은 서버가 포트를 쥐고 있으면
+    // 조용히 옛 코드·옛 데이터로 시험하지 않고 '포트 사용 중'으로 바로 실패한다.
+    extraEnv: { PLAYWRIGHT_JSON_OUTPUT_NAME: out, CI: '1' },
   })
   const report = readJson(out)
   if (!report) {

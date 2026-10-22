@@ -122,20 +122,20 @@ test('@youtube AC-I3-35: 알림에서 빼면 다른 기기의 알림 띠도 1초
   await ctx.close()
 })
 
-test('@youtube AC-I3-54: 마법사 4단계에서 연결 → 구글(가짜)에서 돌아오면 4단계에 결과 문장과 채널 이름', async ({ page }) => {
+test('@youtube AC-I3-54·AC-WIZ-02: 마법사 3단계에서 연결 → 구글(가짜)에서 돌아오면 3단계에 결과 문장과 채널 이름, 다음은 4/5 프린터', async ({ page }) => {
   const seller = await newSeller(page.request)
   await loginAs(page, seller)
   await expect(page).toHaveURL(/\/start$/)
-  for (let i = 0; i < 3; i++) await page.getByRole('button', { name: '다음' }).click()
-  await expect(page.getByRole('heading', { level: 2, name: '4/5 유튜브 연결' })).toBeVisible()
+  for (let i = 0; i < 2; i++) await page.getByRole('button', { name: '다음' }).click()
+  await expect(page.getByRole('heading', { level: 2, name: '3/5 유튜브 연결' })).toBeVisible()
   await expect(page.getByText('감사 메시지 자동 게시는 설정에서 따로 켤 수 있어요.')).toBeVisible()
   await fakeChannel(page.request, '마법사 채널')
   await page.getByRole('button', { name: '구글로 유튜브 연결하기' }).click()
-  await expect(page.getByRole('heading', { level: 2, name: '4/5 유튜브 연결' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 2, name: '3/5 유튜브 연결' })).toBeVisible()
   await expect(page.getByRole('status').filter({ hasText: '유튜브 채널을 연결했어요.' })).toBeVisible()
   await expect(page.getByRole('main')).toContainText('마법사 채널')
   await expect(page).toHaveURL(/\/start$/)
   await page.getByRole('button', { name: '다음' }).click()
-  await expect(page.getByRole('heading', { level: 2, name: '5/5 리허설 해 보기' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 2, name: '4/5 프린터 연결' })).toBeVisible()
   void consoleYoutube
 })

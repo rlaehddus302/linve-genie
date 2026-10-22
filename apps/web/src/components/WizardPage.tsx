@@ -1,10 +1,13 @@
-// 시작 마법사 (UX-02, D-I3-09, AC-I3-50~56): 가게 이름 → 판매 규칙 확인 → 프린터 → 유튜브 → 리허설.
+// 시작 마법사 (UX-02, D-I3-09, D-WIZ-01, AC-I3-50~56, AC-WIZ-01~03): 가게 이름 → 판매 규칙 확인 → 유튜브 → 프린터 → 리허설.
+// - 페이지를 떠나는 단계(유튜브 — 구글 화면으로 이동)는 프린터 연결보다 앞이다. 프린터 단계 뒤의 이동은 모두 앱 안 이동이라 맺은 연결이 끊기지 않는다(D-WIZ-01).
+// - 라벨 기능이 꺼져 있으면 "다음"·"이전"이 4단계(프린터)를 건너뛴다(D-N4a-05 — 단계 번호는 그대로). 저장된 단계로 4단계가 열리면 "라벨 쓰지 않음" 안내가 보인다.
 // - 단계 표시는 글자("1/5 가게 이름"). 단계마다 "이전"(1단계 제외)·"다음"·"나중에 할게요". 단계를 옮기면 서버에 그 단계를 적는다(PUT /api/wizard).
 // - "나중에 할게요" → 닫음 → 방송 목록. "마치기"·"리허설 시작하기" → 마침. 마치거나 닫으면 다시 저절로 열리지 않는다(다른 기기도 — 서버 상태).
 // - 1단계는 이름을 바꿨을 때만 저장한다(실패하면 다음으로 가지 않는다). 2단계는 바꾸지 않고 "다음"이면 설정 요청을 보내지 않는다.
 // - 저장하지 않은 값(2단계의 열린 칸에서 바꾼 값, 1단계의 바꾼 이름)이 있는 채 "이전"·"다음"(2단계)·"나중에 할게요"·메뉴·주소로 가면
 //   설정 화면과 같은 떠나기 창·문장으로 묻는다 — 묻지 않고 버리지 않는다(AC-I3-46·52). 1단계 "다음"은 저장하므로 묻지 않는다.
-// - 4단계에서 구글로 갔다 오면 서버는 설정 화면 주소로 돌려보낸다 — 앱이 이 화면 4단계로 다시 보내고 결과 문장을 보인다.
+// - 3단계에서 구글로 갔다 오면 서버는 설정 화면 주소로 돌려보낸다 — 앱이 이 화면 3단계로 다시 보내고 결과 문장을 보인다(저장된 단계와 상관없이).
+// - 서버에 저장된 진행 중 단계 번호는 새 순서의 번호로 그대로 읽는다(옮기지 않는다 — D-WIZ-01).
 // - 단계가 바뀌면 포커스는 그 단계 제목으로. 키보드만으로 끝까지 갈 수 있다.
 import type { SaleSettings } from '@livejjim/core'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
@@ -16,12 +19,15 @@ import { fieldOf, SAVED_MESSAGE, SAVED_SHIPPING_MESSAGE, valueWords, type FieldD
 import { ErrorNote, FieldError } from './ErrorNote.tsx'
 import { Modal } from './Modal.tsx'
 import { RuleField, SaleModeField, settingProblem, useRuleForm } from './RuleFields.tsx'
+import { useLabelsEnabled } from './print-context.tsx'
 import { saleModeOf, type SaleMode } from '../lib/words.ts'
 import { PrinterStep } from './wizard/PrinterStep.tsx'
 import { CallbackResult, useYoutubeConnection, YoutubeStatus } from './YoutubeConnection.tsx'
 
-export const STEP_TITLES = ['가게 이름', '판매 규칙 확인', '프린터 연결', '유튜브 연결', '리허설 해 보기'] as const
+export const STEP_TITLES = ['가게 이름', '판매 규칙 확인', '유튜브 연결', '프린터 연결', '리허설 해 보기'] as const
 const LAST = STEP_TITLES.length
+const YOUTUBE_STEP = 3
+const PRINTER_STEP = 4
 
 /** 2단계의 여섯 줄: 짧은 이름 → 설정 키 (AC-I3-52) */
 const RULE_LINES: readonly { readonly label: string; readonly key: RuleKey }[] = [
@@ -61,12 +67,13 @@ function useMarkUnsaved(onUnsaved: MarkUnsaved, key: string, dirty: boolean): vo
 const clampStep = (step: number | null | undefined): number => (typeof step === 'number' && Number.isInteger(step) && step >= 1 && step <= LAST ? step : 1)
 
 export function WizardPage({ route, navigate, shopName, onRenamed }: WizardPageProps) {
-  const [step, setStep] = useState<number | null>(route.youtubeResult !== undefined ? 4 : route.fresh === true ? 1 : null)
+  const [step, setStep] = useState<number | null>(route.youtubeResult !== undefined ? YOUTUBE_STEP : route.fresh === true ? 1 : null)
   const [result] = useState<string | null>(route.youtubeResult ?? null)
   const [settings, setSettings] = useState<SaleSettings | null>(null)
   const [closing, setClosing] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
+  const labels = useLabelsEnabled()
   /** 저장하지 않은 값이 있는 칸 — 칸이 그려질 때 알리고, 저장하면 그 자리에서, 사라지면(단계를 옮김) 뺀다 (SA-I3-010) */
   const unsaved = useRef(new Set<string>())
   const markUnsaved = useCallback<MarkUnsaved>((key, dirty) => {
@@ -91,7 +98,7 @@ export function WizardPage({ route, navigate, shopName, onRenamed }: WizardPageP
     let alive = true
     if (route.fresh === true) void record({ status: 'IN_PROGRESS', step: 1 })
     if (route.youtubeResult !== undefined) {
-      void record({ status: 'IN_PROGRESS', step: 4 })
+      void record({ status: 'IN_PROGRESS', step: YOUTUBE_STEP })
       navigate({ name: 'start' }, { replace: true })
     }
     if (step === null) {
@@ -175,6 +182,8 @@ export function WizardPage({ route, navigate, shopName, onRenamed }: WizardPageP
   }
 
   const title = STEP_TITLES[step - 1] ?? ''
+  /** 라벨 기능이 꺼져 있으면 프린터 단계를 건너뛴다 (켬/끔을 아직 모르면 건너뛰지 않는다 — 안내가 보인다) */
+  const skipPrinter = labels === false
   return (
     <main className="page wizard-page stack">
       <h1>시작 마법사</h1>
@@ -196,19 +205,19 @@ export function WizardPage({ route, navigate, shopName, onRenamed }: WizardPageP
             <StepButtons step={step} onPrev={() => move(1)} onNext={() => move(3)} onLater={dismiss} />
           </>
         ) : null}
-        {step === 3 ? (
-          <>
-            <PrinterStep />
-            <StepButtons step={step} onPrev={() => move(2)} onNext={() => move(4)} onLater={dismiss} />
-          </>
-        ) : null}
-        {step === 4 ? (
+        {step === YOUTUBE_STEP ? (
           <>
             <YoutubeStep result={result} navigate={navigate} />
-            <StepButtons step={step} onPrev={() => move(3)} onNext={() => move(5)} onLater={dismiss} />
+            <StepButtons step={step} onPrev={() => move(2)} onNext={() => move(skipPrinter ? 5 : PRINTER_STEP)} onLater={dismiss} />
           </>
         ) : null}
-        {step === 5 ? <RehearsalStep navigate={navigate} onFinish={() => void finish()} onPrev={() => move(4)} onLater={dismiss} busy={closing} /> : null}
+        {step === PRINTER_STEP ? (
+          <>
+            <PrinterStep />
+            <StepButtons step={step} onPrev={() => move(YOUTUBE_STEP)} onNext={() => move(5)} onLater={dismiss} />
+          </>
+        ) : null}
+        {step === 5 ? <RehearsalStep navigate={navigate} onFinish={() => void finish()} onPrev={() => move(skipPrinter ? YOUTUBE_STEP : PRINTER_STEP)} onLater={dismiss} busy={closing} /> : null}
       </section>
       {asking !== null ? (
         <Modal
@@ -440,7 +449,7 @@ function RuleLine({
   )
 }
 
-/** 4단계 유튜브 (AC-I3-54): 설정과 같은 안내·버튼·상태. 자동 게시 동의는 묻지 않는다 */
+/** 3단계 유튜브 (AC-I3-54, AC-WIZ-02): 설정과 같은 안내·버튼·상태. 자동 게시 동의는 묻지 않는다 */
 function YoutubeStep({ result, navigate }: { readonly result: string | null; readonly navigate: Navigate }) {
   const youtube = useYoutubeConnection()
   return (

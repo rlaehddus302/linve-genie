@@ -3,8 +3,8 @@
 // - 가게 설정, 확인서(데이터·PDF·PNG·전원 PDF), 판매대장 엑셀, 포장·배송(상태·명령·라벨), 지난 구매, 상품 목록 가져오기(미리 보기·등록), 백업 상태, 전체 내려받기.
 // - 판매자 ID 조건은 늘 세션의 판매자다. 없는 범위·다른 판매자의 자원은 404(있는지 드러내지 않는다).
 // - 문서·파일 내용, 파일 이름, 송장번호, 가게 설정 값, 가져오기 글은 로그에 남기지 않는다(로그는 정해진 코드·날짜뿐).
-import { containsPhoneRun, currentBuyerOf, getBroadcast, getBuyer, isValidDate, listBroadcasts, listProducts, looksLikePhoneId, normalizeText, type EngineState } from '@livejjim/core'
-import { buildLedger, buildReceipt, buildReceipts, type LedgerRow, type ReceiptData } from '@livejjim/documents'
+import { containsPhoneRun, currentBuyerOf, getBroadcast, getBuyer, isValidDate, listBroadcasts, listProducts, listSettlements, looksLikePhoneId, normalizeText, type EngineState } from '@livejjim/core'
+import { buildLedger, buildReceipt, buildReceipts, compareCodePoints, printedName, type LedgerRow, type ReceiptData } from '@livejjim/documents'
 import type { PackingLabelData } from '@livejjim/label'
 import { and, asc, eq, gte, sql } from 'drizzle-orm'
 import { hasControlChar, isPlainObject, own, ownKeys } from './api-fields.ts'
@@ -46,6 +46,7 @@ import { checkShopInput, checkShopName, documentShop, readShop, writeShop, type 
 import { findBroadcast, listBroadcastRows, scopeSeqs } from './store.ts'
 import { kstDate, type Clock } from './time.ts'
 import { WorkBusy, WorkFailed, type WorkPools } from './work-pool.ts'
+import { uniqueNames } from './zip.ts'
 import type { Actor, Rejection, ScopeWriter, WriteOutcome } from './writer.ts'
 
 export interface ClosingDeps {
@@ -201,27 +202,76 @@ export class ClosingService {
     return problem(400, 'INVALID_INPUT', message)
   }
 
-  /** 한 사람 확인서 PDF·PNG (같은 확인서 데이터·같은 내장 글꼴). 이름 D-I2-01 */
-  async receiptFile(sellerId: string, date: string, rehearsal: boolean, buyer: string, kind: 'pdf' | 'png', signal?: AbortSignal): Promise<Outcome<FileResult>> {
+  /** 한 사람 확인서 PDF·PNG·JPG (같은 확인서 데이터·같은 내장 글꼴 — JPG는 PNG와 같은 그림, N4b D-N4b-03). 이름 D-I2-01 */
+  async receiptFile(sellerId: string, date: string, rehearsal: boolean, buyer: string, kind: ReceiptFileKind, signal?: AbortSignal): Promise<Outcome<FileResult>> {
     const outcome = await this.receipt(sellerId, date, rehearsal, buyer)
     if (outcome.kind !== 'ok') return outcome
-    const { receipt, createdAt } = outcome.value
+    return this.renderReceiptFile(sellerId, date, rehearsal, outcome.value.receipt, outcome.value.createdAt, kind, signal)
+  }
+
+  /** 확인서 데이터 하나 → 파일 (작업 워커 — 받은 확인서 데이터 그대로). 구매자 확인서 링크 화면(N4b)도 쓴다 */
+  async renderReceiptFile(sellerId: string, date: string, rehearsal: boolean, receipt: ReceiptData, createdAt: number, kind: ReceiptFileKind, signal?: AbortSignal): Promise<Outcome<FileResult>> {
     const font = documentFont()
+    const pool = this.#deps.work.receipts
     // 그리기는 작업 워커에서 (같은 확인서 데이터·같은 내장 글꼴 — 바이트가 같다, AC-I2-15)
     const rendered = await this.#work(sellerId, date, () =>
-      kind === 'pdf' ? this.#deps.work.receipts.run<Uint8Array>(sellerId, 'receiptPdf', { receipts: [receipt] }, signalOf(signal)) : this.#deps.work.receipts.run<Uint8Array>(sellerId, 'receiptPng', { receipt }, signalOf(signal)),
+      kind === 'pdf'
+        ? pool.run<Uint8Array>(sellerId, 'receiptPdf', { receipts: [receipt] }, signalOf(signal))
+        : pool.run<Uint8Array>(sellerId, kind === 'png' ? 'receiptPng' : 'receiptJpg', { receipt }, signalOf(signal)),
     )
     if (rendered.kind !== 'ok') return rendered
     const bytes = rendered.value
     const prefix = rehearsal ? '리허설-' : ''
     return ok({
       bytes,
-      type: kind === 'pdf' ? MIME.pdf : MIME.png,
+      type: MIME[kind],
       fileName: `${prefix}확인서-${date}-${fileNamePart(receipt.buyerName, font)}.${kind}`,
       fallback: `${rehearsal ? 'rehearsal-' : ''}receipt-${date}.${kind}`,
       // 그 파일을 만든 확인서 데이터의 만든 시각 (E2E가 같은 데이터로 Node 그림과 맞댈 때 — harness/sprints/I2/dev-notes.md)
       headers: { 'X-Receipt-Created-At': String(createdAt) },
     })
+  }
+
+  /**
+   * 일괄 순서의 구매자 (D-I2-04 — buildReceipts와 같은 순서): 그 날짜에 품목이 있는 묶음(지금의 구매자)을 확인서에 찍힌 이름의 코드 포인트 순, 같으면 구매자 ID 순
+   */
+  static batchOrder(state: EngineState, date: string): string[] {
+    const font = documentFont()
+    return listSettlements(state)
+      .filter((settlement) => settlement.date === date && settlement.items.length > 0)
+      .map((settlement) => ({ id: settlement.buyer, printed: printedName(getBuyer(state, settlement.buyer)?.display ?? '', (text) => font.sanitize(text)) }))
+      .sort((a, b) => compareCodePoints(a.printed, b.printed) || compareCodePoints(a.id, b.id))
+      .map((row) => row.id)
+  }
+
+  /**
+   * 영수증 보내기 화면의 구매자 줄 (N4b AC-N4b-32): 품목 있는 묶음마다 확인서 데이터의 이름·끝자리·상품 수·최종 금액·입금 상태·남은 금액, 일괄 순서.
+   * 리허설 범위도 된다. 없는 범위면 not_found, 품목 있는 묶음이 없으면 빈 목록
+   */
+  async receiptBuyers(sellerId: string, date: string, rehearsal: boolean): Promise<Outcome<{ state: EngineState; rows: ReceiptBuyerRow[] }>> {
+    const runtime = await this.#scope(sellerId, date, rehearsal)
+    if (runtime === null) return NOT_FOUND
+    const { state } = runtime
+    const shop = documentShop(await readShop(this.#deps.db, sellerId))
+    const createdAt = this.#deps.clock.now()
+    const font = documentFont()
+    const rows: ReceiptBuyerRow[] = []
+    for (const buyer of ClosingService.batchOrder(state, date)) {
+      const result = buildReceipt({ state, buyer, date, shop, rehearsal, createdAt })
+      if (!result.ok) return this.#receiptError(date, result.error.code, result.error.message)
+      const receipt = result.receipt
+      rows.push({
+        buyer,
+        name: printedName(receipt.buyerName, (text) => font.sanitize(text)),
+        phoneLast4: receipt.phoneLast4,
+        itemCount: receipt.itemCount,
+        total: receipt.total,
+        payment: receipt.payment,
+        received: receipt.received,
+        remaining: receipt.remaining,
+      })
+    }
+    return ok({ state, rows })
   }
 
   /**
@@ -242,6 +292,32 @@ export class ClosingService {
       type: MIME.pdf,
       fileName: `${rehearsal ? '리허설-' : ''}확인서-${date}-전원.pdf`,
       fallback: `${rehearsal ? 'rehearsal-' : ''}receipts-${date}-all.pdf`,
+      headers: { 'X-Receipt-Created-At': String(createdAt), 'X-Receipt-Count': String(result.receipts.length) },
+    })
+  }
+
+  /**
+   * 전원 이미지 묶음 ZIP (N4b AC-N4b-02, D-N4b-03): 전원 PDF와 같은 확인서 데이터·같은 일괄 순서(buildReceipts), 묶음마다 JPG 하나
+   * `확인서-YYYY-MM-DD-<이름>.jpg`(겹치면 `-2`…). 모든 확인서의 만든 시각은 요청 때 서버 시각 하나. 그리기·묶기는 작업 워커에서
+   */
+  async batchJpgZip(sellerId: string, date: string, rehearsal: boolean, signal?: AbortSignal): Promise<Outcome<FileResult>> {
+    const runtime = await this.#scope(sellerId, date, rehearsal)
+    if (runtime === null) return NOT_FOUND
+    const shop = documentShop(await readShop(this.#deps.db, sellerId))
+    const createdAt = this.#deps.clock.now()
+    const font = documentFont()
+    const result = buildReceipts({ state: runtime.state, date, shop, rehearsal, createdAt }, font)
+    if (!result.ok) return this.#receiptError(date, result.error.code, result.error.message)
+    const prefix = rehearsal ? '리허설-' : ''
+    const names = uniqueNames(result.receipts.map((receipt) => `${prefix}확인서-${date}-${fileNamePart(receipt.buyerName, font)}.jpg`))
+    const entries = result.receipts.map((receipt, index) => ({ name: names[index] as string, receipt }))
+    const rendered = await this.#work(sellerId, date, () => this.#deps.work.documents.run<Uint8Array>(sellerId, 'receiptJpgZip', { entries, modifiedAt: createdAt }, signalOf(signal)))
+    if (rendered.kind !== 'ok') return rendered
+    return ok({
+      bytes: rendered.value,
+      type: MIME.zip,
+      fileName: `${prefix}확인서-${date}-전원-이미지.zip`,
+      fallback: `${rehearsal ? 'rehearsal-' : ''}receipts-${date}-images.zip`,
       headers: { 'X-Receipt-Created-At': String(createdAt), 'X-Receipt-Count': String(result.receipts.length) },
     })
   }
@@ -674,6 +750,23 @@ export class ClosingService {
     }
     return { registered: count, seq }
   }
+}
+
+/** 확인서 파일 종류 (I2 PDF·PNG, N4b JPG) */
+export type ReceiptFileKind = 'pdf' | 'png' | 'jpg'
+
+/** 영수증 보내기 화면의 구매자 줄 (금액·입금 상태는 확인서 데이터 그대로) */
+export interface ReceiptBuyerRow {
+  readonly buyer: string
+  /** 확인서에 찍힌 이름 */
+  readonly name: string
+  readonly phoneLast4: string | null
+  readonly itemCount: number
+  readonly total: number
+  readonly payment: 'UNPAID' | 'PARTIAL' | 'PAID' | 'OVERPAID'
+  readonly received: number
+  /** 부분 입금일 때 남은 금액 (아니면 null) */
+  readonly remaining: number | null
 }
 
 /** 미리 보기 응답 (POST /api/broadcasts/:id/import/preview) */

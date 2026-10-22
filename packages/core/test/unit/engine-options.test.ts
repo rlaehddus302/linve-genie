@@ -249,13 +249,16 @@ describe('AC-O1-07 옵션 바꾸기', () => {
       { options: [{ name: '크기', choices: [{ label: 'S' }, { label: 'M' }, { label: 'L' }] }] },
       { options: [...SIZE, { name: '색상', choices: [{ label: '흰색' }] }] },
       { options: [{ name: '사이즈', choices: [{ label: 'XS' }, { label: 'S' }, { label: 'M' }, { label: 'L' }] }] },
+      // 기존 선택지의 별칭 바꾸기 (AC-O1-07 — 받는 것은 선택지 더하기·가격 차이·변형 재고뿐)
+      { options: [{ name: '사이즈', choices: [{ label: 'S', aliases: ['에스'] }, { label: 'M', aliases: ['엠'] }, { label: 'L' }] }] },
+      { options: [{ name: '사이즈', choices: [{ label: 'S' }, { label: 'M', aliases: ['미디움'], price: 500 }, { label: 'L' }] }] },
     ]) {
       const before = play(base, OPTIONS).state
       const after = applyEvent(before, ev(update(blocked) as unknown as Record<string, unknown>)).state
       expect(after).toBe(before)
     }
     const { state } = play(
-      [...base, update({ options: [{ name: '사이즈', choices: [{ label: 'S' }, { label: 'M', aliases: ['미디움'], price: 500 }, { label: 'L' }, { label: 'XL', price: 1000 }] }], stocks: { XL: 0 } })],
+      [...base, update({ options: [{ name: '사이즈', choices: [{ label: 'S' }, { label: 'M', aliases: ['엠'], price: 500 }, { label: 'L' }, { label: 'XL', aliases: ['엑스라지'], price: 1000 }] }], stocks: { XL: 0 } })],
       OPTIONS,
     )
     expect(getProduct(state, 'b1', 21)?.variants.map((v) => [v.text, v.stock, v.price, v.status])).toEqual([
@@ -288,7 +291,7 @@ describe('AC-O1-07 옵션 바꾸기', () => {
         chat('UC_A', '반바지 M 2개'.replace(' 2개', '')),
         chat('UC_B', '반바지 S'),
         { type: 'settlement.payment', buyer: 'UC_B', date: '2026-10-18', amount: 1000 } as EventInput,
-        update({ applyTo: 'UNPAID_CLAIMS', options: [{ name: '사이즈', choices: [{ label: 'S', price: 300 }, { label: 'M', price: 700 }, { label: 'L' }] }] }),
+        update({ applyTo: 'UNPAID_CLAIMS', options: [{ name: '사이즈', choices: [{ label: 'S', price: 300 }, { label: 'M', aliases: ['엠'], price: 700 }, { label: 'L' }] }] }),
       ],
       OPTIONS,
     )
@@ -442,10 +445,42 @@ describe('공개 전 찜 (R-19 "공개 전 찜") — 변형 하나뿐인 상품,
       ],
       OPTIONS,
     )
-    expect(claimsOf(state)).toEqual([{ key: 'b1/11', buyer: 'UC_A', status: 'REJECTED', reason: 'SOLD_OUT', qty: 3 }])
+    expect(claimsOf(state)).toEqual([{ key: 'b1/11', buyer: 'UC_A', status: 'REJECTED', reason: 'STOCK_SHORT', qty: 3 }])
     expect(listReviews(state)).toEqual([
       { broadcast: 'b1', item: 'mA', buyer: 'UC_A', currentBuyer: 'UC_A', reason: 'STOCK_SHORT', product: 'b1/11', no: 11, options: null, qty: 3, seq: 2, at: T0 + 1000, origin: 'chat' },
     ])
+  })
+
+  it('공개 때 남은 수량이 0이면 수량 2 이상 보류 찜은 그대로 SOLD_OUT, 확인 필요 없음 (D-O1-11 경계)', () => {
+    const { state } = play(
+      [
+        { type: 'product.register', b: 'b1', no: 11, name: '과자', price: 2000, stock: 1, status: 'READY' } as EventInput,
+        chat('UC_B', '과자', { id: 'mB' }),
+        chat('UC_A', '과자 3', { id: 'mA' }),
+        { type: 'product.open', b: 'b1', no: 11 } as EventInput,
+      ],
+      OPTIONS,
+    )
+    expect(claimsOf(state).map((c) => [c.buyer, c.status, c.reason])).toEqual([
+      ['UC_B', 'CONFIRMED', null],
+      ['UC_A', 'REJECTED', 'SOLD_OUT'],
+    ])
+    expect(listReviews(state)).toEqual([])
+    expect(checkInvariants(state)).toEqual([])
+  })
+
+  it('번호 변경으로 판정되는 수량 2 이상 보류 찜도 남은 수량이 모자라면 REJECTED(STOCK_SHORT) + 확인 필요 (D-O1-11)', () => {
+    const { state } = play(
+      [
+        { type: 'product.register', b: 'b1', no: 11, name: '과자', price: 2000, stock: 2 } as EventInput,
+        { type: 'sms', b: 'b1', ref: 's1', no: 12, received: '20:00', qty: 3 } as EventInput,
+        { type: 'product.renumber', b: 'b1', from: 11, to: 12 } as EventInput,
+      ],
+      OPTIONS,
+    )
+    expect(claimsOf(state).map((c) => [c.key, c.status, c.reason, c.qty])).toEqual([['b1/12', 'REJECTED', 'STOCK_SHORT', 3]])
+    expect(listReviews(state).map((r) => [r.item, r.reason, r.product, r.qty])).toEqual([['sms:s1', 'STOCK_SHORT', 'b1/12', 3]])
+    expect(checkInvariants(state)).toEqual([])
   })
 
   it('번호를 바꾼 뒤 그 번호에 남은 변형 보류 찜은 새 상품에 그 변형이 없으면 OPTION_MISSING', () => {
@@ -461,6 +496,124 @@ describe('공개 전 찜 (R-19 "공개 전 찜") — 변형 하나뿐인 상품,
     expect(claimsOf(state)).toEqual([{ key: 'b1/21#M', buyer: 'UC_A', status: 'REJECTED', reason: 'OPTION_MISSING', qty: 1 }])
     expect(listReviews(state).map((r) => [r.item, r.reason, r.product])).toEqual([['mA', 'OPTION_MISSING', 'b1/21']])
     expect(checkInvariants(state)).toEqual([])
+  })
+})
+
+describe('번호를 바꾼 뒤 남은 변형 보류 찜의 자리 (R-10 1, R-5, R-9 — SA-O1-03)', () => {
+  const renumber = (from: number, to: number): EventInput => ({ type: 'product.renumber', b: 'b1', from, to }) as EventInput
+  const slotUnits = (state: EngineState, no: number): string[] => (pget(state.slots, `b1/${String(no)}`) as SlotRecord).units.map((unit) => unit.text)
+
+  it('자리는 남되 조회의 변형에는 나오지 않고, 찜이 끝나면 자리도 지워진다', () => {
+    const orphan = [shorts({ status: 'READY' }), chat('UC_A', '반바지 M'), chat('UC_A', '반바지 L'), renumber(21, 25)]
+    const { state } = play(orphan, OPTIONS)
+    expect(slotUnits(state, 21)).toEqual(['M', 'L'])
+    expect(slotUnits(state, 25)).toEqual(['S', 'M', 'L'])
+    expect(checkInvariants(state)).toEqual([])
+    // 새 상품을 21에 등록해도 보류 찜의 자리는 남지만 새 상품의 변형은 새 상품 것만
+    const tee = { type: 'product.register', b: 'b1', no: 21, name: '티', price: 5000, status: 'READY', options: [{ name: '색', choices: [{ label: '흰' }, { label: 'M' }] }] } as EventInput
+    const { state: again } = play([...orphan, tee], OPTIONS)
+    expect(slotUnits(again, 21)).toEqual(['흰', 'M', 'L'])
+    expect(getProduct(again, 'b1', 21)?.variants.map((v) => v.text)).toEqual(['흰', 'M'])
+    // 상품 수정도 자리를 지우지 않는다
+    const { state: updated } = play([...orphan, tee, { type: 'product.update', b: 'b1', no: 21, price: 6000 } as EventInput], OPTIONS)
+    expect(slotUnits(updated, 21)).toEqual(['흰', 'M', 'L'])
+    // 변형이 둘이라 옵션 없는 취소는 고르는 요청, 고른 취소는 그 찜만 — 남은 찜이 끝나면 자리도 없다
+    const cancelled = play([...orphan, { type: 'host.cancel', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r' } as EventInput], OPTIONS)
+    expect(claimsOf(cancelled.state).map((c) => c.status)).toEqual(['PENDING', 'PENDING'])
+    const blocked = play([...orphan, { type: 'host.blockBuyer', buyer: 'UC_A', reason: '사유' } as EventInput], OPTIONS)
+    expect(claimsOf(blocked.state).map((c) => [c.key, c.status, c.reason])).toEqual([
+      ['b1/21#M', 'REJECTED', 'BLOCKED'],
+      ['b1/21#L', 'REJECTED', 'BLOCKED'],
+    ])
+    expect(slotUnits(blocked.state, 21)).toEqual([])
+    expect(checkInvariants(blocked.state)).toEqual([])
+    // 공개(새 상품에 L이 없다): M은 새 상품의 변형으로 판정, L은 OPTION_MISSING — 끝난 L의 자리는 지워진다
+    const { state: opened } = play([...orphan, tee, { type: 'product.open', b: 'b1', no: 21 } as EventInput], OPTIONS)
+    expect(claimsOf(opened).map((c) => [c.key, c.status, c.reason])).toEqual([
+      ['b1/21#M', 'CONFIRMED', null],
+      ['b1/21#L', 'REJECTED', 'OPTION_MISSING'],
+    ])
+    expect(slotUnits(opened, 21)).toEqual(['흰', 'M'])
+    expect(checkInvariants(opened)).toEqual([])
+  })
+
+  it('보류 찜이 남은 번호로 다른 상품이 옮겨 와도 그 자리는 남는다', () => {
+    const { state } = play(
+      [shorts({ status: 'READY' }), chat('UC_A', '반바지 L'), renumber(21, 25), { type: 'product.register', b: 'b1', no: 30, name: '치마', price: 9000, status: 'READY', options: [{ name: '색', choices: [{ label: '빨강' }, { label: '파랑' }] }] } as EventInput, renumber(30, 21)],
+      OPTIONS,
+    )
+    expect(slotUnits(state, 21)).toEqual(['빨강', '파랑', 'L'])
+    expect(getProduct(state, 'b1', 21)?.variants.map((v) => v.text)).toEqual(['빨강', '파랑'])
+    expect(checkInvariants(state)).toEqual([])
+  })
+})
+
+describe('남은 변형 보류 찜을 옵션으로 골라 끝내기 (R-5, R-10 1, R-19 "찜을 가리키는 방송자 조치", R-20 8 — SA-O1-03)', () => {
+  const renumber = (from: number, to: number): EventInput => ({ type: 'product.renumber', b: 'b1', from, to }) as EventInput
+  const orphan = [shorts({ status: 'READY' }), chat('UC_A', '반바지 M'), chat('UC_A', '반바지 L'), renumber(21, 25)]
+  const keyed = (state: EngineState) => claimsOf(state).map((c) => [c.key, c.status, c.reason])
+  const hostOn = (type: string, options: Record<string, string>, no = 21) =>
+    (type === 'host.reopen' ? { type, b: 'b1', no, reason: 'r', options } : { type, b: 'b1', no, buyer: 'UC_A', reason: 'r', options }) as EventInput
+
+  it('상품이 없는 번호: 남은 찜의 옵션과 같으면 받고 그 찜만 끝낸다. 다른 옵션·항목 수가 다르면 지금처럼 입력 오류', () => {
+    const { state } = play(orphan, OPTIONS)
+    expect(problemsOf(state, { type: 'host.cancel', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r', options: { 사이즈: 'M' } })).toEqual([])
+    expect(problemsOf(state, { type: 'host.reject', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r', options: { 사이즈: 'S' } })).toEqual(['options'])
+    expect(problemsOf(state, { type: 'host.reject', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r', options: { 사이즈: 'M', 색: '흰' } })).toEqual(['options'])
+    expect(problemsOf(state, { type: 'host.reject', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r', options: { 크기: 'M' } })).toEqual(['options'])
+    expect(problemsOf(state, { type: 'host.reject', b: 'b1', no: 22, buyer: 'UC_A', reason: 'r', options: { 사이즈: 'M' } })).toEqual(['options'])
+    const rejected = play([...orphan, hostOn('host.reject', { 사이즈: 'L' })], OPTIONS).state
+    expect(keyed(rejected)).toEqual([
+      ['b1/21#M', 'PENDING', 'UNOPENED'],
+      ['b1/21#L', 'REJECTED', 'BY_HOST'],
+    ])
+    expect(checkInvariants(rejected)).toEqual([])
+    // 다른 구매자에게 적으면 아무 일도 없다
+    const other = play([...orphan, { type: 'host.cancel', b: 'b1', no: 21, buyer: 'UC_B', reason: 'r', options: { 사이즈: 'M' } } as EventInput], OPTIONS).state
+    expect(keyed(other).map((c) => c[1])).toEqual(['PENDING', 'PENDING'])
+    // 찜을 바꾸지 않는 조치(승계 다시 열기·대기 올리기·잠금)는 아무 일도 없다
+    for (const type of ['host.reopen', 'host.promote', 'host.confirm', 'host.dismissCancel']) {
+      const after = play([...orphan, hostOn(type, { 사이즈: 'M' })], OPTIONS).state
+      expect(keyed(after).map((c) => c[1])).toEqual(['PENDING', 'PENDING'])
+    }
+  })
+
+  it('다른 옵션 상품이 옮겨 온 번호: 그 상품의 옵션이 아니어도 남은 찜의 옵션이면 받는다. 그 상품의 옵션은 그 상품 변형으로', () => {
+    const skirt = { type: 'product.register', b: 'b1', no: 30, name: '치마', price: 9000, status: 'READY', options: [{ name: '색', choices: [{ label: '빨강' }, { label: '파랑' }] }] } as EventInput
+    const events = [...orphan, skirt, renumber(30, 21)]
+    const { state } = play(events, OPTIONS)
+    expect(problemsOf(state, { type: 'host.cancel', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r', options: { 사이즈: 'M' } })).toEqual([])
+    expect(problemsOf(state, { type: 'host.cancel', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r', options: { 색: '빨강' } })).toEqual([])
+    expect(problemsOf(state, { type: 'host.cancel', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r', options: { 사이즈: 'S' } })).toEqual(['options'])
+    const cancelled = play([...events, hostOn('host.cancel', { 사이즈: 'M' }), hostOn('host.cancel', { 색: '빨강' })], OPTIONS).state
+    expect(keyed(cancelled)).toEqual([
+      ['b1/21#M', 'CANCELLED', null],
+      ['b1/21#L', 'PENDING', 'UNOPENED'],
+    ])
+    expect(checkInvariants(cancelled)).toEqual([])
+    // 옵션 없는 상품이 옮겨 와도 같다
+    const plain = { type: 'product.register', b: 'b1', no: 30, name: '양말', price: 3000, status: 'READY' } as EventInput
+    const plainEvents = [...orphan, plain, renumber(30, 21)]
+    expect(problemsOf(play(plainEvents, OPTIONS).state, { type: 'host.cancel', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r', options: { 사이즈: 'L' } })).toEqual([])
+    expect(keyed(play([...plainEvents, hostOn('host.cancel', { 사이즈: 'L' })], OPTIONS).state)).toEqual([
+      ['b1/21#M', 'PENDING', 'UNOPENED'],
+      ['b1/21#L', 'CANCELLED', null],
+    ])
+  })
+
+  it('시청자 "21 취소"(AUTO)의 변형 고르는 요청을 옵션으로 승인하면 그 찜만 취소, 요청은 사라진다', () => {
+    const auto = { ...OPTIONS, 'cancel.buyerChat': 'AUTO' } as const
+    const asked = [...orphan, chat('UC_A', '21 취소')]
+    const { state } = play(asked, auto)
+    expect(listCancelRequests(state).map((r) => [r.product, r.buyer, r.chooseVariant])).toEqual([['b1/21', 'UC_A', true]])
+    expect(problemsOf(state, { type: 'host.approveCancel', b: 'b1', no: 21, buyer: 'UC_A', reason: 'r', options: { 사이즈: 'M' } })).toEqual([])
+    const approved = play([...asked, hostOn('host.approveCancel', { 사이즈: 'M' })], auto).state
+    expect(keyed(approved)).toEqual([
+      ['b1/21#M', 'CANCELLED', null],
+      ['b1/21#L', 'PENDING', 'UNOPENED'],
+    ])
+    expect(listCancelRequests(approved)).toEqual([])
+    expect(checkInvariants(approved)).toEqual([])
   })
 })
 

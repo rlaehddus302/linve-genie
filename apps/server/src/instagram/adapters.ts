@@ -1,5 +1,5 @@
 // 플랫폼 공통 어댑터 모양의 인스타그램 구현 (AC-N2-04, D-N2-12): 댓글 원천(라이브 찾기)·감사 보내기.
-// 틱톡 구현은 없다(D-904 결정 대기) — 라이브 연결이 PLATFORM_NOT_SUPPORTED로 막고 어떤 외부 주소도 부르지 않는다.
+// 틱톡은 이 어댑터 모양이 아니다 — 라이브 찾기 없이 잇기 = 바로 연결(tiktok-live/, D-N2b-2-05), 감사는 보내지 않는다.
 import type { LogSink } from '../log.ts'
 import type { LiveSource, PlatformFailure, ThanksSender, ThanksSendResult } from '../platform.ts'
 import type { InstagramConnections } from './connection.ts'

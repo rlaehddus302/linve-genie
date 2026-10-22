@@ -7,6 +7,7 @@ import { onUnauthorized } from '../src/api/client.ts'
 import type { AssistantItem, BroadcastItem, YoutubeConnection } from '../src/api/types.ts'
 import { setTopLevelNavigation } from '../src/lib/google-return.ts'
 import { FakeEventSource, FakeServer, apiError, broadcastItem, connection, flush, youtubeNotConfigured, type Reply } from './support.ts'
+import { menuNav, openMore } from './menu-support.ts'
 
 let server: FakeServer
 let settings: SaleSettings
@@ -105,8 +106,8 @@ describe('메뉴·칸 (AC-I3-44)', () => {
   it('메뉴에 "설정"(지금 화면), 칸 제목 일곱, "그 밖"의 링크, 진행 중인 방송이 있으면 안내', async () => {
     broadcasts = [broadcastItem({ id: 'b1', rehearsal: false, ended: false }), broadcastItem({ id: 'b2', rehearsal: true, ended: false })]
     await open()
-    const menu = screen.getByRole('navigation', { name: '메뉴' })
-    expect(within(menu).getByRole('link', { name: '설정' }).getAttribute('aria-current')).toBe('page')
+    expect(within(menuNav()).getByRole('button', { name: '더보기' }).getAttribute('aria-current')).toBe('page')
+    expect(within(openMore()).getByRole('link', { name: '설정' }).getAttribute('aria-current')).toBe('page')
     for (const name of ['가게', '판매 규칙', '배송비', '구매 감사 메시지', '유튜브', '보조자', '그 밖']) expect(section(name)).toBeDefined()
     const other = section('그 밖')
     expect(within(other).getByRole('link', { name: '시작 마법사 다시 하기' }).getAttribute('href')).toBe('/start')

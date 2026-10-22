@@ -1,6 +1,7 @@
 // 설정 (SPEC §7 화면 8, D-I3-08·D-I3-10, AC-I3-44~47·01~05·10~14·37·64).
-// 칸: 가게 · 판매 규칙(자주 쓰는 칸 + "더 보기") · 배송비 · 구매 감사 메시지 · 라벨 · 유튜브 · 보조자 · 그 밖. 칸마다 "저장"(바뀐 키만).
+// 칸: 가게 · 판매 규칙(자주 쓰는 칸 + "더 보기") · 배송비 · 구매 감사 메시지 · 라벨 · 유튜브 · 인스타그램 · 틱톡 라이브(베타) · 보조자 · 그 밖. 칸마다 "저장"(바뀐 키만).
 // - "라벨" 칸은 라벨 기능 켜기/끄기·바꾼 기록이다(N4a AC-N4a-10, D-N4a-05) — 저장 버튼 없이 누르면 바로 바뀐다(끌 때는 묻는다).
+// - N2b-2: `/settings/instagram`·`/settings/tiktok`은 그 칸이 보이게 연다. 인스타그램에서 돌아온 결과(`?instagram=`)는 한 번 보이고 주소에서 지운다.
 // - `/settings/youtube`는 같은 화면에서 유튜브 칸이 보이게(스크롤·포커스) 연다. 구글에서 돌아온 결과(`?youtube=`)는 한 번 보이고 주소에서 지운다.
 // - 끝나지 않은 실제 방송이 있으면 위에 "진행 중인 방송에는 바뀐 규칙이 적용되지 않아요."
 // - 저장하지 않은 값이 있으면 다른 화면으로 가기 전에 같은 떠나기 창이 묻는다.
@@ -30,6 +31,7 @@ import { ErrorNote, RequestError } from './ErrorNote.tsx'
 import { LabelSwitchSection } from './LabelSwitchSection.tsx'
 import { FixedArrivalField, RuleField, SaleModeField, SaveRow, settingProblem, useRuleForm } from './RuleFields.tsx'
 import { ThanksSettings, useThanksForm } from './ThanksSettings.tsx'
+import { InstagramCallbackResult, InstagramSettings, TikTokSettingsSection, useInstagramConnection, useTikTokSettings } from './PlatformSettings.tsx'
 import { CallbackResult, useQuota, useYoutubeConnection, YoutubeStatus } from './YoutubeConnection.tsx'
 
 const BASIC_FIELDS = fieldsAt('basic')
@@ -92,6 +94,10 @@ export function SettingsPage({ route, navigate, shopName, onRenamed }: SettingsP
   const [result] = useState<string | null>(route.youtubeResult ?? null)
   const youtube = useYoutubeConnection()
   const quota = useQuota(hasChannel(youtube.connection))
+  // 인스타그램에서 돌아온 결과도 한 번만 (N2b-2)
+  const [instagramResult] = useState<string | null>(route.instagramResult ?? null)
+  const instagram = useInstagramConnection()
+  const tiktok = useTikTokSettings()
 
   const load = useCallback(async () => {
     setLoadError(null)
@@ -110,8 +116,8 @@ export function SettingsPage({ route, navigate, shopName, onRenamed }: SettingsP
 
   // 돌아온 결과 코드는 주소에서 지운다 (기록을 늘리지 않고 — 새로고침해도 다시 나오지 않게)
   useEffect(() => {
-    if (route.youtubeResult !== undefined) navigate({ name: 'settings', ...(route.section === undefined ? {} : { section: route.section }) }, { replace: true })
-  }, [route.youtubeResult, route.section, navigate])
+    if (route.youtubeResult !== undefined || route.instagramResult !== undefined) navigate({ name: 'settings', ...(route.section === undefined ? {} : { section: route.section }) }, { replace: true })
+  }, [route.youtubeResult, route.instagramResult, route.section, navigate])
 
   useLiveEvents({
     onYoutube: (event) => {
@@ -121,9 +127,14 @@ export function SettingsPage({ route, navigate, shopName, onRenamed }: SettingsP
         void quota.reload()
       }
     },
+    onPlatform: (event) => {
+      if (event.type === 'instagram' && event.event.kind === 'CONNECTION') instagram.set(event.event.connection)
+    },
     onReconnect: () => {
       void youtube.reload()
       void quota.reload()
+      void instagram.reload()
+      void tiktok.reload()
     },
   })
 
@@ -145,6 +156,13 @@ export function SettingsPage({ route, navigate, shopName, onRenamed }: SettingsP
       <SettingsSection title="유튜브" focus={route.section === 'youtube' && (settings !== null || loadError !== null)}>
         <CallbackResult code={result} />
         <YoutubeStatus handle={youtube} quota={quota.quota} navigate={navigate} place="settings" />
+      </SettingsSection>
+      <SettingsSection title="인스타그램" focus={route.section === 'instagram' && (settings !== null || loadError !== null)}>
+        <InstagramCallbackResult code={instagramResult} />
+        <InstagramSettings handle={instagram} />
+      </SettingsSection>
+      <SettingsSection title="틱톡 라이브(베타)" focus={route.section === 'tiktok' && (settings !== null || loadError !== null)}>
+        <TikTokSettingsSection handle={tiktok} />
       </SettingsSection>
       <SettingsSection title="보조자">
         <AssistantsSection />

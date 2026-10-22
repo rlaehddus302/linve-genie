@@ -29,8 +29,8 @@ const MERGE_DUPLICATE_VIEW_KEYS = ['product', 'buyer', 'status'] as const
 export const EFFECT_STATUSES = ['PENDING', 'DONE', 'CANCELLED', 'SKIPPED'] as const
 const BROADCAST_VIEW_KEYS = ['date', 'title', 'ended'] as const
 const PRODUCT_VIEW_KEYS = ['status', 'winners', 'waitlist', 'conflict', 'price', 'priceHistory'] as const
-/** 상품에 있어도 되는 키 (O1) */
-const OPTIONAL_PRODUCT_VIEW_KEYS = ['confirmedUnits', 'hasOptions'] as const
+/** 있어도 되는 상품 관찰 키 (N5 — 확정 횟수 D-N5-14, O1 — 확정 수량·옵션 상품) */
+const OPTIONAL_PRODUCT_VIEW_KEYS = ['confirmVersion', 'confirmedUnits', 'hasOptions'] as const
 const VARIANT_VIEW_KEYS = ['status', 'winners', 'waitlist', 'stock', 'confirmedUnits'] as const
 const REVIEW_VIEW_KEYS = ['item', 'reason', 'buyer', 'product', 'options', 'qty'] as const
 const BUYER_VIEW_KEYS = ['display', 'nameHistory', 'items', 'subtotal', 'byBroadcast', 'phoneLast4'] as const
@@ -134,6 +134,7 @@ export function snapshotIssues(snapshot: unknown): string[] {
       const p = `products.${key}`
       c.productKey(p, key)
       if (!c.record(p, product, [...PRODUCT_VIEW_KEYS, ...OPTIONAL_PRODUCT_VIEW_KEYS], PRODUCT_VIEW_KEYS)) continue
+      c.optional(product, 'confirmVersion', (v) => c.int(`${p}.confirmVersion`, v, 0))
       c.optional(product, 'confirmedUnits', (v) => c.int(`${p}.confirmedUnits`, v, 0))
       c.optional(product, 'hasOptions', (v) => {
         if (typeof v !== 'boolean') c.fail(`${p}.hasOptions`, `true 또는 false여야 한다 (값: ${showValue(v)})`)

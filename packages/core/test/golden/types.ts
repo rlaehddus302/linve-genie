@@ -100,6 +100,8 @@ export interface ProductView {
   readonly conflict: boolean
   readonly price: number
   readonly priceHistory: readonly { readonly from: number; readonly to: number }[]
+  /** 지금까지 확정 횟수 (코어 ProductInfo.confirmVersion, N5 D-N5-14). 이 값을 내지 않는 관찰도 받는다 — 검사 키로 쓰면 없을 때 불일치 */
+  readonly confirmVersion?: number
   /** (O1) 모든 변형의 확정 수량 합 (옵션 없는 상품은 확정 찜 수량의 합). 없으면 확정 구매자 수로 본다 */
   readonly confirmedUnits?: number
   /** (O1) 옵션 항목이 있는 상품인지 — 상품 단위 winner·waitlist를 적으면 러너 오류다(D-O1-01) */

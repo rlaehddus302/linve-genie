@@ -88,6 +88,8 @@ export interface ProductExpect {
   readonly exists?: boolean
   readonly price?: number
   readonly priceHistory?: readonly { readonly from: number; readonly to: number }[]
+  /** 지금까지 확정 횟수 (0 이상 정수 — 코어 ProductInfo.confirmVersion, N5 D-N5-14) */
+  readonly confirmVersion?: number
   readonly confirmedUnits?: number
 }
 
@@ -459,6 +461,7 @@ function checkExpect(c: Checker, ctx: ScenarioContext, path: readonly PathSegmen
         if (hasValue(product, 'exists')) c.value([...kp, 'exists'], product.exists, bool)
         if (hasValue(product, 'price')) c.value([...kp, 'price'], product.price, intAtLeast(0))
         if (hasValue(product, 'confirmedUnits')) c.value([...kp, 'confirmedUnits'], product.confirmedUnits, intAtLeast(0))
+        if (hasValue(product, 'confirmVersion')) c.value([...kp, 'confirmVersion'], product.confirmVersion, intAtLeast(0))
         if (hasValue(product, 'priceHistory')) {
           const hp = [...kp, 'priceHistory']
           if (c.array(hp, product.priceHistory)) {

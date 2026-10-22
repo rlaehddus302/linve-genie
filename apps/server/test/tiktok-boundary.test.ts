@@ -57,12 +57,16 @@ describe('AC-N2b-1-01 독립 모듈', () => {
     expect(importers).toEqual([join('tiktok', 'library.ts')])
   })
 
-  it('모듈 밖 서버 소스(서버 시작·API·저장소)는 틱톡 모듈을 잇지 않는다 (N2b-2 몫)', () => {
-    const users = walk(SRC)
+  // N2b-2(AC-N2b-1-62 "index.ts 하나에서만 가져다 쓴다")가 서버에 잇는다 — 바뀐 기존 시험: "잇지 않는다" → "index.ts로만 잇는다"(dev-notes)
+  it('모듈 밖 서버 소스는 틱톡 모듈을 tiktok/index.ts로만 잇는다 (모듈 안 파일을 바로 가져다 쓰지 않는다)', () => {
+    const deep = walk(SRC)
       .filter((file) => !file.startsWith(MODULE))
-      .filter((file) => specifiers(readFileSync(file, 'utf8')).some((spec) => spec.includes('tiktok')))
-      .map((file) => relative(SRC, file))
-    expect(users).toEqual([])
+      .flatMap((file) =>
+        specifiers(readFileSync(file, 'utf8'))
+          .filter((spec) => /(^|\/)tiktok\//.test(spec) && !/(^|\/)tiktok\/index\.ts$/.test(spec))
+          .map((spec) => `${relative(SRC, file)}: ${spec}`),
+      )
+    expect(deep).toEqual([])
   })
 
   it('import 검사가 금지된 경로를 잡는다', () => {

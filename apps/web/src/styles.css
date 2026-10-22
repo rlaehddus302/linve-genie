@@ -1448,6 +1448,17 @@ html:has(.sms-submit-bar) {
   text-decoration: none;
 }
 
+.printer-status-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.printer-status-error {
+  flex-basis: 100%;
+}
+
 .printer-status-alert {
   border-color: #a50e0e;
   background-color: #fce8e6;
@@ -1624,8 +1635,8 @@ html:has(.sms-submit-bar) {
     right: 0;
     bottom: 0;
     z-index: 15;
-    /* 메뉴(판매자 일곱 — 방송·문자찜 입력·구매자·정산·포장·라벨·설정, AC-I1-20·AC-I3-44·I2 AC-I2-35, 보조자 하나): 메뉴 수만큼 칸을 고르게 나눠
-       모두 44px 이상 — 휴대폰 폭(375px)에서 "문자찜 입력"은 두 줄로 꺾인다 */
+    /* 메뉴 막대(D-NAV-01, AC-NAV-01): 판매자는 늘 한 줄 다섯 칸(방송·문자찜 입력·구매자·정산·더보기), 보조자는 한 칸 — 칸을 고르게 나눠
+       375px에서 칸마다 약 74px. "문자찜 입력"만 두 줄로 꺾이고 막대 높이는 약 55px(64px 이하, AC-S06-61 고정 영역) */
     display: grid;
     grid-auto-flow: column;
     grid-auto-columns: minmax(0, 1fr);
@@ -1635,12 +1646,72 @@ html:has(.sms-submit-bar) {
     background-color: #f8f9fa;
   }
 
-  /* 두 줄로 꺾이는 "문자찜 입력"도 누르는 곳 높이(44px) 안에 들어가게 줄 간격을 줄인다 — 글자는 16px 그대로, 막대 높이(53px)는 그대로 */
+  /* 휴대폰에는 마우스 올림이 없어 투명 테두리(2px)를 빼고 그 폭을 글자에 준다 — 지금 화면은 파란 바탕·흰 글자 그대로.
+   * 두 줄로 꺾이는 "문자찜 입력"도 누르는 곳 높이(44px) 안에 들어가게 줄 간격을 줄인다 — 글자는 16px 그대로, 막대 높이(53px)는 그대로 */
   .menu-link {
     padding: 0.25rem 0.125rem;
-    letter-spacing: -0.02em;
+    border-width: 0;
     font-size: 1rem;
+    letter-spacing: -0.02em;
     line-height: 1.2;
+  }
+
+  .menu-count {
+    padding: 0 0.25rem;
+  }
+
+  /* "더보기" 칸 (AC-NAV-01·04): 다른 칸과 같은 모양의 버튼 — 지금 화면이 목록 안이면 파란 바탕·흰 글자(aria-current) */
+  .menu-more {
+    font-family: inherit;
+    line-height: 1.2;
+    font-size: 1rem;
+    font-weight: 700;
+    background-color: transparent;
+    cursor: pointer;
+  }
+
+  /* 목록이 열린 동안: 막대·목록을 화면 위에 두고, 나머지 화면은 덮개로 막는다(목록 밖 누르기 = 닫기만) — 확인 창(.backdrop, 20)보다는 아래 */
+  .menu-open {
+    z-index: 17;
+  }
+
+  .menu-more-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 16;
+    background-color: rgb(0 0 0 / 25%);
+  }
+
+  /* 더보기 목록 (AC-NAV-02): 막대 바로 위, 한 줄에 한 항목, 누르는 곳 48px·글자 18px, 높이는 화면의 60% 이하 — 넘치면 목록 안에서 스크롤 */
+  .menu-more-list {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    display: grid;
+    gap: 0.25rem;
+    max-height: 60vh;
+    max-height: 60dvh;
+    margin: 0;
+    padding: 0.5rem;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    list-style: none;
+    border-top: 1px solid #c4c7c5;
+    background-color: #ffffff;
+    box-shadow: 0 -0.25rem 0.75rem rgb(0 0 0 / 15%);
+  }
+
+  .menu-more-list .menu-link {
+    display: flex;
+    justify-content: flex-start;
+    width: 100%;
+    min-height: 3rem;
+    padding: 0.5rem 1rem;
+    font-size: 1.125rem;
+    letter-spacing: normal;
+    text-align: start;
   }
 
   .label-editor {
@@ -1701,6 +1772,11 @@ html:has(.sms-submit-bar) {
 
   .alert-bar-open .alerts {
     max-height: none;
+  }
+
+  /* 띠 맨 앞의 긴 문장(플랫폼 줄)에 밀려 "알림 N 펼치기"가 여러 줄로 눌리지 않게 */
+  .alert-bar .alert-toggle {
+    flex: none;
   }
 
   .undo-item {
@@ -1941,6 +2017,418 @@ html:has(.sms-submit-bar) {
   }
 }
 
+/* ── 요금 (N5, AC-N5-51~59) ──────────────────────────────────
+ * 홈·요금 화면의 알림 띠, 새 방송 시작 미리 보기, 이용 상태 네 칸, 요금 표, 결제 결과 문장, 내역 카드.
+ * 색은 아래 data-tone이 정한다(늘 낱말과 함께). 375px 폭에서 가로 스크롤 없이 — 고정 폭 없음, 칸은 auto-fit 격자. */
+.billing-page {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.billing-page > h1 {
+  margin: 0;
+}
+
+.billing-banners {
+  margin-bottom: 1rem;
+}
+
+.billing-banner,
+.billing-start,
+.billing-note,
+.billing-result {
+  padding: 0.75rem 1rem;
+  border: 2px solid #5f6368;
+  border-radius: 0.5rem;
+  background-color: #f8f9fa;
+}
+
+.billing-result-area:empty {
+  display: none;
+}
+
+.billing-status {
+  margin: 0;
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr));
+}
+
+.billing-cell {
+  display: grid;
+  gap: 0.25rem;
+  align-content: start;
+  padding: 0.75rem 1rem;
+  border: 2px solid #c4c7c5;
+  border-radius: 0.75rem;
+  background-color: #ffffff;
+}
+
+.billing-cell dt {
+  font-weight: 700;
+}
+
+.billing-cell dd {
+  margin: 0;
+  display: grid;
+  gap: 0.125rem;
+}
+
+.billing-cell-value {
+  font-size: 1.375rem;
+  font-weight: 700;
+}
+
+.billing-prices {
+  display: grid;
+  gap: 1rem;
+}
+
+.billing-price-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 2.75rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid #c4c7c5;
+}
+
+.billing-price {
+  font-weight: 700;
+}
+
+.billing-terms summary {
+  color: #0b4fb3;
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.billing-terms-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.5rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.billing-cards {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.billing-card {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #c4c7c5;
+  border-radius: 0.75rem;
+}
+
+.billing-table td {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+
+/* ── 여러 플랫폼·붙여넣기 (N2b-2, AC-N2b-2-60~68) ─────────────────
+ * 플랫폼 칸은 스크롤 영역이다. 고정 영역에는 한 줄 알림만(틱톡 알림 줄·인스타그램 알림). 긴 닉네임·댓글은 줄을 바꿔 375px에서도 가로로 넘치지 않는다. */
+.platform-panel .notice,
+.platform-panel .warning,
+.multi-platform-notice {
+  margin: 0;
+}
+
+/* 알림 띠 맨 앞의 플랫폼 줄 (틱톡 알림 줄·인스타그램 알림·붙여넣기 결과) — 고정 영역에 줄을 더하지 않는다(UX-04 35%) */
+.alert-lead-button {
+  max-inline-size: 100%;
+  text-align: start;
+}
+
+.alert-lead-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.alert-lead-note {
+  margin: 0;
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  padding: 0 0.75rem;
+  border: 2px solid #146c2e;
+  border-radius: 0.5rem;
+  background-color: #e6f4ea;
+  color: #0d3d1b;
+  font-weight: 700;
+}
+
+/* 틱톡 저장 실패 줄 옆 "확인했어요" (D-N2b-2-16) — 한 줄 안에서 글이 줄고 단추는 그대로(44px) */
+.alert-lead-with-action {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  max-inline-size: 100%;
+}
+
+.alert-lead-with-action .alert-lead-button {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.alert-lead-action {
+  flex: 0 0 auto;
+}
+
+.platform-notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 휴대폰: 접힌 띠 한 줄에 들어가게 긴 문장은 말줄임(전문은 단추 이름·"펼치기"·플랫폼 칸) */
+@media (max-width: 47.99rem) {
+  .alert-lead {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-inline-size: 100%;
+  }
+
+  .alert-bar:not(.alert-bar-open) .alert-lead-button {
+    inline-size: 100%;
+    justify-content: flex-start;
+  }
+
+  /* 한 줄로 자르고 말줄임 (줄바꿈 금지 대신 줄 수 제한 — 375px 가로 넘침 없음) */
+  .alert-bar:not(.alert-bar-open) .alert-lead-text,
+  .alert-bar:not(.alert-bar-open) .alert-lead-note {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+    overflow: hidden;
+  }
+
+  .alert-bar:not(.alert-bar-open) .alert-lead-note {
+    line-height: 2.5rem;
+    min-height: 0;
+    max-block-size: 2.75rem;
+  }
+}
+
+.tag-platform {
+  border-style: dashed;
+}
+
+.paste-dialog,
+.paste-preview {
+  min-width: 0;
+}
+
+.paste-text {
+  inline-size: 100%;
+  min-height: 8rem;
+  resize: vertical;
+}
+
+.paste-rows,
+.paste-groups {
+  display: grid;
+  gap: 0.25rem;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.paste-row,
+.paste-groups > li {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.paste-row-order {
+  font-weight: 700;
+}
+
+.paste-line {
+  color: #3c4043;
+}
+
+.tiktok-notice-lines {
+  display: grid;
+  gap: 0.5rem;
+  padding-inline-start: 1.5rem;
+}
+
+/* ── 입금 확인 (N3, AC-N3-40~50) ─────────────────────────────
+ * 메뉴의 확인 필요 수는 글자로("입금 확인 3") — 둥근 바탕은 덧붙인 표시일 뿐 색만으로 알리지 않는다.
+ * 목록은 PC(48rem 이상) 표, 휴대폰 카드(입금마다 한 묶음). 누르는 곳 44px, 글자 16px 이상, 마우스를 올려야만 보이는 조작 없음.
+ */
+.menu-count {
+  display: inline-block;
+  margin-inline-start: 0.25rem;
+  padding: 0 0.375rem;
+  border-radius: 999px;
+  background-color: #a50e0e;
+  color: #ffffff;
+  font-size: 1rem;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.deposit-tabs {
+  gap: 0.375rem;
+}
+
+.deposit-tab[aria-selected='true'] {
+  color: #041e49;
+  background-color: #d3e3fd;
+  border-color: #0b57d0;
+  font-weight: 700;
+}
+
+.deposit-notice {
+  margin-bottom: 0;
+}
+
+.notice-close {
+  justify-self: start;
+}
+
+.deposit-toolbar {
+  align-items: center;
+}
+
+.deposit-cards {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.deposit-card {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+}
+
+.deposit-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 1.125rem;
+}
+
+.deposit-card-part {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.deposit-table td {
+  vertical-align: top;
+  padding-block: 0.375rem;
+}
+
+.deposit-table .deposit-no {
+  font-weight: 700;
+}
+
+/* 표는 48rem 이상에서만 그린다 — 번호("#12")는 한 줄 */
+@media (min-width: 48rem) {
+  .deposit-table .deposit-no {
+    white-space: nowrap;
+  }
+}
+
+.deposit-name {
+  overflow-wrap: anywhere;
+}
+
+.deposit-actions {
+  gap: 0.375rem;
+}
+
+.deposit-reason {
+  color: #3d2b00;
+}
+
+.suggestion {
+  align-items: flex-start;
+}
+
+.suggestion > span {
+  padding-top: 0.5rem;
+}
+
+.change-warning {
+  font-weight: 700;
+  color: #6b4e00;
+}
+
+.before-sale {
+  font-weight: 700;
+}
+
+.confirm-line {
+  padding: 0.75rem;
+  border-width: 2px;
+}
+
+.confirm-words {
+  font-weight: 700;
+}
+
+.deposit-AUTO_APPLIED {
+  background-color: #e6f4ea;
+  border-color: #137333;
+  color: #0d652d;
+}
+
+.deposit-APPLIED {
+  background-color: #e8f0fe;
+  border-color: #0b57d0;
+  color: #0b4fb3;
+}
+
+.paste-input {
+  inline-size: 100%;
+  min-block-size: 10rem;
+  font-family: ui-monospace, 'D2Coding', monospace;
+  font-size: 1rem;
+}
+
+.file-input {
+  inline-size: 100%;
+  font-size: 1rem;
+}
+
+.paste-NEW {
+  background-color: #e6f4ea;
+  border-color: #137333;
+  color: #0d652d;
+}
+
+.paste-OLD,
+.paste-FUTURE {
+  background-color: #fef7e0;
+  border-color: #6b4e00;
+  color: #6b4e00;
+}
+
+.bundle-choice {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.source-item .toolbar {
+  align-items: end;
+}
+
+.more-button {
+  justify-self: start;
+}
+
 /* ── 결과·안내의 뜻 (UX-01, D-102, AC-S06b-40) ────────────────
  * 결과 카드·안내 띠·창 안 알림은 종류를 data-tone으로 드러내고 색은 그 종류의 색이다. 늘 낱말과 함께(색만으로 구분하지 않는다).
  * success 성공(원하던 대로 됨) · warning 주의(확인이 필요함) · danger 위험(실패·막힘) · info 보통(정보). 글자 명암비 4.5:1 이상.
@@ -1967,6 +2455,18 @@ html:has(.sms-submit-bar) {
   border-color: #0b57d0;
   background-color: #e8f0fe;
   color: #041e49;
+}
+
+/* 붙여넣기 겹친 줄 (AC-N2b-2-69): 서버 문장은 결과 문장 아래 줄, 색만으로 구분하지 않는다(문장 + 고르기) */
+.paste-overlap {
+  display: grid;
+  gap: 0.25rem;
+  margin-block-start: 0.25rem;
+  font-weight: 400;
+}
+
+.paste-overlap-message {
+  color: #8a3d00;
 }
 
 /* ── I2 정산 마무리: 확인서·판매대장·포장·설정·가져오기 (AC-I2-02·13·22·35~39·52·65) ── */
@@ -2317,4 +2817,67 @@ select.input {
 
 .sms-options .rule-choice {
   min-inline-size: 0;
+}
+
+/* ── 영수증 보내기 (N4b AC-N4b-31·32·34) ─────────────────────────
+ * 구매자 줄은 카드 하나 — 이름·금액·입금 상태·링크 상태가 위에 한눈에, 버튼은 줄 안에서 줄바꿈된다(가로로 밀리지 않는다).
+ * 375px 폭에서도 가로 스크롤 없음: 긴 이름·링크 글은 아무 데서나 꺾는다. 손으로 복사할 글 칸은 폭을 꽉 채운다. */
+.receipts-page {
+  display: grid;
+  gap: 1rem;
+}
+
+.receipts-page > h1 {
+  margin-bottom: 0;
+}
+
+.receipts-when {
+  font-size: 1.125rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.receipts-when .tag {
+  margin-inline-start: 0.5rem;
+}
+
+.receipts-actions {
+  align-items: flex-start;
+}
+
+.receipts-result .notice {
+  margin-bottom: 0;
+}
+
+.receipt-rows {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.receipt-row {
+  min-inline-size: 0;
+}
+
+.receipt-row-head {
+  display: grid;
+  gap: 0.25rem;
+  min-inline-size: 0;
+}
+
+.receipt-row-name {
+  font-size: 1.125rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.receipt-row-link {
+  overflow-wrap: anywhere;
+}
+
+.receipt-row-actions {
+  align-items: flex-start;
+}
+
+.receipt-row .input {
+  inline-size: 100%;
 }

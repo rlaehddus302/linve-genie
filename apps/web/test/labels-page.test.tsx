@@ -9,6 +9,7 @@ import type { PrintOverview } from '../src/api/print-types.ts'
 import { setLabelEnv } from '../src/lib/label-env.ts'
 import { device, job, jsdomLabelEnv, overview, queue, templates } from './print-support.ts'
 import { DATE, FakeEventSource, FakeServer, flush } from './support.ts'
+import { menuNav, openMore } from './menu-support.ts'
 
 let server: FakeServer
 let current: PrintOverview
@@ -50,8 +51,8 @@ async function openLabels(): Promise<HTMLElement> {
 describe('메뉴·프린터 상태 (AC-I1-20·34)', () => {
   it('메뉴 "라벨"이 지금 화면이고, 위 줄에 프린터 상태가 글자로 — 작업이 없으면 "출력 기기 없음"만', async () => {
     await openLabels()
-    const menu = screen.getByRole('navigation', { name: '메뉴' })
-    expect(within(menu).getByRole('link', { name: '라벨' }).getAttribute('aria-current')).toBe('page')
+    expect(within(menuNav()).getByRole('button', { name: '더보기' }).getAttribute('aria-current')).toBe('page')
+    expect(within(openMore()).getByRole('link', { name: '라벨' }).getAttribute('aria-current')).toBe('page')
     expect(screen.getByRole('link', { name: '출력 기기 없음' }).getAttribute('href')).toBe('/labels')
   })
 
@@ -206,5 +207,76 @@ describe('버릴 라벨·자동 출력 설정·낱말 (AC-I1-24·27·60)', () =>
     const text = container.textContent ?? ''
     for (const word of ['WAITING', 'PRINTING', 'DONE', 'CANCELLED', 'VOID', 'PRINT_PRODUCT_LABEL', 'DISCONNECTED', 'TIMEOUT', 'SELLER']) expect(text).not.toContain(word)
     expect(text).toContain('프린터가 응답하지 않아요. 프린터 전원과 라벨을 확인한 뒤 다시 시작해 주세요.')
+  })
+})
+
+describe('위 줄 "출력 멈춤" 옆 "다시 연결" (D-WIZ-01, AC-WIZ-04)', () => {
+  const ME = 'device-me-wiz-0001'
+  const lost = (deviceId: string) =>
+    overview({ queue: queue({ device: device(deviceId, { name: 'PC', printerConnected: false }), waiting: 2, pause: { reason: 'DISCONNECTED', message: '프린터 연결이 끊겼어요.', backlog: false } }), jobs: [job('w1')] })
+  const banner = () => screen.getByRole('banner')
+
+  async function openHome(): Promise<void> {
+    window.history.replaceState(null, '', '/')
+    render(<App />)
+    await screen.findByRole('heading', { name: '방송 목록', level: 1 })
+    await flush(10)
+  }
+
+  beforeEach(() => {
+    window.localStorage.clear()
+    window.sessionStorage.setItem('livejjim.deviceId', ME)
+  })
+
+  it('이 기기가 출력 기기이고 끊김으로 멈췄으면 어느 화면이든 위 줄에 보통 버튼 "다시 연결" — 한 번 누르면 마지막 방법으로 잇고 서버에 알린다', async () => {
+    testPrinter = true
+    window.localStorage.setItem('livejjim.printMethod', 'test')
+    current = lost(ME)
+    server.on('POST', /^\/api\/print\/device\/state$/, (call) => {
+      current = overview({ queue: queue({ rev: 2, device: device(ME, { name: 'PC', printerConnected: call.body?.['connected'] === true }), waiting: 2 }), jobs: [job('w1')] })
+      return { body: { queue: current.queue } }
+    })
+    await openHome()
+    expect(within(banner()).getByRole('link', { name: '출력 멈춤 · 대기 2장' })).toBeTruthy()
+    const button = within(banner()).getByRole('button', { name: '다시 연결' })
+    expect(button.className).toBe('button')
+    fireEvent.click(button)
+    await waitFor(() => expect(server.callsTo('POST', /^\/api\/print\/device\/state$/).map((call) => call.body)).toEqual([{ deviceId: ME, connected: true }]))
+    // 라벨 화면으로 가지 않는다
+    expect(window.location.pathname).toBe('/')
+    await waitFor(() => expect(within(banner()).queryByRole('button', { name: '다시 연결' })).toBeNull())
+  })
+
+  it('실패하면 위 줄 근처에 오류 문장 한 줄 — 대기열은 그대로', async () => {
+    testPrinter = true
+    window.localStorage.setItem('livejjim.printMethod', 'test')
+    current = lost(ME)
+    await openHome()
+    window.livejjimTestPrinter?.setConnectError('NOT_SELECTED')
+    fireEvent.click(within(banner()).getByRole('button', { name: '다시 연결' }))
+    expect(await within(banner()).findByText('프린터를 고르지 않았어요. 다시 연결을 누르고 목록에서 B1을 골라 주세요.')).toBeTruthy()
+    expect(within(banner()).getByRole('link', { name: '출력 멈춤 · 대기 2장' })).toBeTruthy()
+    expect(server.callsTo('POST', /^\/api\/print\/device\/state$/).filter((call) => call.body?.['connected'] === true)).toHaveLength(0)
+  })
+
+  it('다른 기기·이 브라우저에 그 방법이 없음·손으로 푸는 멈춤이면 버튼이 없다 — 상태를 누르면 라벨 화면', async () => {
+    testPrinter = true
+    window.localStorage.setItem('livejjim.printMethod', 'test')
+    current = lost('other-device-1')
+    await openHome()
+    expect(within(banner()).queryByRole('button', { name: '다시 연결' })).toBeNull()
+    cleanup()
+    // 마지막 방법이 시험용 프린터인데 시험 모드가 아니다
+    testPrinter = false
+    current = lost(ME)
+    await openHome()
+    expect(within(banner()).queryByRole('button', { name: '다시 연결' })).toBeNull()
+    cleanup()
+    testPrinter = true
+    current = overview({ queue: queue({ device: device(ME, { name: 'PC' }), waiting: 2, pause: { reason: 'PRINTER_ERROR', message: '프린터 오류로 멈췄어요.', backlog: false } }) })
+    await openHome()
+    expect(within(banner()).queryByRole('button', { name: '다시 연결' })).toBeNull()
+    fireEvent.click(within(banner()).getByRole('link', { name: '출력 멈춤 · 대기 2장' }))
+    expect(await screen.findByRole('heading', { name: '라벨', level: 1 })).toBeTruthy()
   })
 })

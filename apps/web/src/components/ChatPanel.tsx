@@ -1,6 +1,7 @@
 // 채팅 패널 (AC-S05-21·22, ORD-01 AC2, R-3, NFR-06, D-076·D-088).
 // - 오래된 것 위·새것 아래. 시각(KST), 닉네임, 본문. 주문·취소·언급·방송자 표시는 색과 글자를 함께.
 // - 본문·닉네임은 React 기본 이스케이프로만 보인다(HTML로 해석하지 않는다).
+// - 인스타그램·틱톡 채팅이 있거나 이어진 회차는 줄마다 플랫폼 글자("유튜브"·"인스타그램"·"틱톡")를 붙인다 — 색만으로 구분하지 않는다(N2b-2).
 // - 맨 아래를 보고 있으면 새 메시지를 따라 내려가고, 위로 올려 보는 중이면 자리를 지키고 "새 메시지 n개"를 보인다.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ChatMessage } from '../api/types.ts'
@@ -8,6 +9,7 @@ import { compareChars } from '@livejjim/core'
 import type { Product } from '../api/types.ts'
 import { claimOptionWords, claimWord } from '../lib/derive.ts'
 import { kstTime } from '../lib/kst.ts'
+import { PLATFORM_WORD, platformOfKey } from '../lib/platforms.ts'
 import { CHAT_REVIEW_WORD, CHAT_WORD, REVIEW_REASON_WORD } from '../lib/words.ts'
 import { useConsoleApi } from './console-context.ts'
 
@@ -22,6 +24,8 @@ export interface ChatPanelProps {
   readonly sealedMessage?: string | null
   /** 옵션 방송: 확인 필요 메시지의 "확인 필요에서 고르기" (확인 필요 목록을 연다) */
   readonly onReview?: (messageId: string) => void
+  /** 줄마다 플랫폼 글자를 붙인다 (인스타그램·틱톡 채팅이 있거나 이어져 있을 때, AC-N2b-2-65) */
+  readonly platformTags?: boolean
 }
 
 /** 옵션 방송의 메시지 표시 (D-O2-12, AC-O2-24) — 서버가 준 optionOrders·review가 있는 메시지만 */
@@ -66,7 +70,7 @@ export function highlightMentions(text: string, mentions: readonly number[]): Re
   })
 }
 
-export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertNotes, sealedMessage = null, onReview }: ChatPanelProps) {
+export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertNotes, sealedMessage = null, onReview, platformTags = false }: ChatPanelProps) {
   const api = useConsoleApi()
   const list = useRef<HTMLOListElement>(null)
   const atBottom = useRef(true)
@@ -146,6 +150,7 @@ export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertN
             onConvert={onConvert}
             look={looks.get(message.id) ?? null}
             onReview={onReview}
+            platformTag={platformTags}
           />
         ))}
       </ol>
@@ -172,10 +177,12 @@ interface ChatRowProps {
   /** 옵션 방송 메시지의 표시 (번호 방송은 null — 지금 모양 그대로) */
   readonly look: OptionLook | null
   readonly onReview: ((id: string) => void) | undefined
+  /** 플랫폼 글자를 붙인다 */
+  readonly platformTag: boolean
 }
 
 const ChatRow = memo(
-  function ChatRow({ message, claimText, note, onConvert, look, onReview }: ChatRowProps) {
+  function ChatRow({ message, claimText, note, onConvert, look, onReview, platformTag }: ChatRowProps) {
   const claimWords = claimText === '' ? [] : claimText.split('|')
   const mentioned = look === null ? message.mentions.length > 0 : look.mention
   const classes = ['chat-row']
@@ -187,7 +194,10 @@ const ChatRow = memo(
     <li className={classes.join(' ')}>
       {/* 시각·닉네임·표시·본문을 한 줄로 이어 쓴다 — 채팅 칸에 메시지가 더 많이 보이게 (AC-S06-62) */}
       <p className="chat-line">
-        <time dateTime={message.publishedAt}>{kstTime(message.publishedAt)}</time> <strong className="chat-nick">{message.nick}</strong>
+        <time dateTime={message.publishedAt}>{kstTime(message.publishedAt)}</time>{' '}
+        {platformTag ? <span className={`tag tag-platform tag-platform-${platformOfKey(message.channel).toLowerCase()}`}>{PLATFORM_WORD[platformOfKey(message.channel)]}</span> : null}
+        {platformTag ? ' ' : null}
+        <strong className="chat-nick">{message.nick}</strong>
         {message.owner ? <span className="tag tag-owner">{CHAT_WORD.owner}</span> : null}
         {look !== null
           ? look.orders.map((word, index) => (

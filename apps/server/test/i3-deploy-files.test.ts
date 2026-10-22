@@ -10,7 +10,7 @@ const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const SERVER_SRC = fileURLToPath(new URL('../src', import.meta.url))
 const read = (path: string) => readFileSync(join(ROOT, path), 'utf8')
 
-/** 서버 코드가 읽는 환경변수 (PORT·DATABASE_URL·LIVEJJIM_*) — E2E 기동 전용 파일은 뺀다 */
+/** 서버 코드가 읽는 환경변수 (PORT·DATABASE_URL·LIVEJJIM_*·PORTONE_*(N5 결제)) — E2E 기동 전용 파일은 뺀다 */
 function codeEnvNames(): Set<string> {
   const names = new Set<string>()
   const walk = (dir: string) => {
@@ -20,7 +20,7 @@ function codeEnvNames(): Set<string> {
       else if (path.endsWith('.ts')) {
         const rel = relative(SERVER_SRC, path)
         if (rel === 'e2e.ts' || rel === join('commands', 'e2e-server.ts')) continue
-        for (const match of readFileSync(path, 'utf8').matchAll(/['"](PORT|DATABASE_URL|LIVEJJIM_[A-Z0-9_]+)['"]/g)) names.add(match[1] as string)
+        for (const match of readFileSync(path, 'utf8').matchAll(/['"](PORT|DATABASE_URL|LIVEJJIM_[A-Z0-9_]+|PORTONE_[A-Z0-9_]+)['"]/g)) names.add(match[1] as string)
       }
     }
   }

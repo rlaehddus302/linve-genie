@@ -1,6 +1,7 @@
 // I3 — 설정을 바꾼 뒤 같은 날 새 방송만 새 규칙 (기본 묶음, G-ENG-701). AC-I3-46·44
 import { expect, test } from '@playwright/test'
 import { loginNewSeller, registerApi, scopeView, settingsRegion, smsApi } from './support.ts'
+import { expectTarget, menuLink, moreButton, openMore } from '../menu.ts'
 
 test('AC-I3-46: 대기 인원 5 → 1 저장 → 진행 중인 1부 상품엔 셋째 찜이 대기로, 새 2부 상품에선 셋째 찜이 대기에 못 들어감', async ({ page }) => {
   await loginNewSeller(page)
@@ -33,13 +34,14 @@ test('AC-I3-46: 대기 인원 5 → 1 저장 → 진행 중인 1부 상품엔 �
   expect(p2.waitlist).toHaveLength(1)
 })
 
-test('AC-I3-44: 설정 메뉴 aria-current, 375px 아래 막대에 설정 — 44px·가로 스크롤 없음', async ({ page }) => {
+test('AC-I3-44·AC-NAV-04: 설정 메뉴 aria-current — 375px는 "더보기"가 지금 위치, 목록을 열면 "설정"이 지금 위치·44px·가로 스크롤 없음', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 })
   await loginNewSeller(page)
   await page.goto('/settings/youtube')
-  const link = page.getByRole('navigation', { name: '메뉴' }).getByRole('link', { name: '설정', exact: true })
+  await expect(moreButton(page)).toHaveAttribute('aria-current', 'page')
+  await openMore(page)
+  const link = menuLink(page, '설정')
   await expect(link).toHaveAttribute('aria-current', 'page')
-  const box = await link.boundingBox()
-  expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+  await expectTarget(page, link)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375)
 })

@@ -37,7 +37,7 @@
 |---|---|---|---|
 | 1 | 공개 때 수량 2 이상 보류 찜의 수량이 남은 수량보다 많다 | 판정하지 않고 찜을 `REJECTED(SOLD_OUT)`로 끝내고 확인 필요 `STOCK_SHORT`(번호·옵션·수량) | R-19는 "찜을 만들지 않고 확인 필요"인데 보류 찜은 이미 있다. 거절 사유 열거값에 맞는 것이 없어 새 값을 만들지 않았다(이의 — 사유를 더할지 spec-keeper가 정한다) |
 | 2 | 옵션 상품의 `product.update.stock` | 등록과 같게 "stocks에 적지 않은 변형마다의 재고" — 적으면 그 변형들을 모두 그 값으로(확정 수량보다 작으면 이벤트 전체 아무 일도 없음), 적지 않으면 변형 재고 그대로 | README 등록 행의 뜻을 수정에도 그대로. 판매자에게 다른 뜻으로 보이면 화면(O2)이 `stocks`로만 보내면 된다 |
-| 3 | 찜이 있을 때 별칭(상품·선택지) 바꾸기 | 받는다(선택지 더하기·가격 차이·변형 재고와 함께) | 찜이 가리키는 변형(label)이 바뀌지 않는다. "바꿀 수 있다"·"막힌다" 어느 목록에도 없어 판매자에게 덜 놀라운 쪽 |
+| 3 | 찜이 있을 때 별칭 바꾸기 | (수정 라운드 1, SA-O1-06) 기존 선택지의 별칭 바꾸기는 **받지 않는다**(이벤트 전체 아무 일도 없음) — AC-O1-07 "선택지 더하기·가격 차이·변형 재고만". 새로 더하는 선택지의 별칭은 받는다. **상품 별칭**(`aliases`)은 옵션이 아니라고 보고 받는다 — spec-keeper 확인 부탁 | R-19 "옵션은 선택지 더하기와 가격 차이 바꾸기만". 상품 별칭은 찜의 변형을 바꾸지 않고, 방송 중 인식을 늘리는 쪽이 판매자에게 덜 놀랍다 |
 | 4 | 변형을 정하지 않은 시청자 취소 요청의 조회 | `listCancelRequests`에 `product` = 상품 키, `chooseVariant: true`, `claim` = `request:<상품 키>:<구매자>`(요청 하나의 키), `choices` = 그 채널의 활성 찜 ID. 승인·무시는 `options`로 변형을 골라 보낸다. 그 채널의 그 상품 활성 찜이 모두 끝나면 요청도 사라진다 | 화면·서버가 지금처럼 `claim`을 키로 쓴다(서버 views가 `claim`으로 묶는다) |
 | 5 | 항목 이름·상품 별칭의 제어 글자 | 입력 오류(label·선택지 별칭과 같게) | 판매자 글 칸이 화면·라벨에 그대로 나간다 |
 | 6 | 변형이 하나뿐인 상품(선택지 하나뿐인 항목만)의 번호만 쓴 찜 | 그 변형의 찜으로 판정(인식 함수도 `61` → 옵션을 채운 주문). 같은 사람의 같은 변형 보류 찜이 이미 있어 공개 때 둘이 되면 뒤 찜은 `DUPLICATE` | "선택지가 하나뿐인 항목은 댓글에 없어도 그 선택지" |
@@ -101,3 +101,31 @@
 
 - 무작위 옵션 방송 로그 만들기는 `packages/core/test/unit/engine-properties-o1.test.ts`의 `eventsOf`가 참고가 된다(입력 오류 이벤트는 `checkEvent`로 걸러 서버처럼 기록하지 않는다).
 - 확인 필요 항목 비우기(INV-O2 비교): 상태의 `reviews`를 빈 영속 맵으로 바꾼 뒤 `listProducts`·`listBuyers`·`listEffects`를 비교하면 된다(위 시험이 그렇게 한다).
+
+## 수정 라운드 1 (dev-core)
+
+| 지적 | 처리 |
+|---|---|
+| SA-O1-03 · TD-O1-001 · TD-O1-002 | 번호를 바꾸거나(`from`·`to`), 그 번호에 새 상품을 등록하거나, 상품을 수정해도 **그 번호의 변형 보류 찜이 가진 변형 자리는 남긴다**(`withPendingUnits`, 빈 자리 — 보류 찜만 가리킨다). 이벤트 끝에 상품 변형이 아니고 보류 찜도 없는 자리는 지운다(`pruneUnits`). 그래서 차단·합치기·방송자 취소·무효(옵션 없이 — 활성 찜 하나뿐)·시청자 취소가 그 찜을 찾고 끝낸다. 조회(`ProductInfo.variants`)는 상품 변형만 보인다. 상태 형식은 그대로 5(자리 목록에 빈 자리가 더 있을 수 있을 뿐) |
+| SA-O1-04 · TD-O1-003 | `parse/chat.ts`에 `matchesNumberGrammar` — 범위·개수 상한·multiNumber와 따로 "메시지 전체가 번호 문법인가". 옵션 인식은 문법이면 STRICT 결과(언급)를 그대로 돌려준다(R-20 2) |
+| SA-O1-06 | 위 표 3 |
+| SA-O1-01 · 02 | 골든(spec-keeper 몫) — 위 "스펙 이의" 1·2 그대로. 코어는 바꾸지 않았다 |
+| SA-O1-05 | 거절 사유 열거값은 스펙 몫(D-O1-11 대기). 정해지면 `rules.ts` `openPending`의 `'SOLD_OUT'` 한 곳과 `ClaimReason`만 바꾸면 된다 |
+| TD-O1-004 | R-20 5대로 동작(코드 버그 아님) — spec-keeper 결정 대기 |
+
+
+## 수정 라운드 2 (dev-core)
+
+| 지적 | 처리 |
+|---|---|
+| SA-O1-03 (TD-O1-002 남은 부분) | 새 `engine/leftover.ts` `leftoverVariant(slot, readClaim, pick)` — 그 번호의 보류 찜 가운데 옵션 쌍(`claim.options`)이 고른 옵션과 똑같은(항목 수·이름·label) 변형 찜의 옵션 글. 입력 검사(`validate-options.ts` 찜을 가리키는 조치 = `host.cancel`·`reject`·`promote`·`confirm`·`approveCancel`·`dismissCancel`·`reopen`)는 그 번호 상품의 옵션과 안 맞아도(상품 없음·다른 상품·옵션 없는 상품) 이 함수가 찾으면 받는다. 엔진은 `pickedVariant` — 상품 변형이면 그 변형, 아니면 같은 함수로 남은 찜의 변형(`targetOf`, `reopen`). 맞는 찜이 없으면 지금처럼 입력 오류. 같은 함수라 받는 입력과 찾는 찜이 어긋나지 않는다(받았는데 엔진이 `CorruptStateError`를 내는 일 없음). 단위 시험: `engine-options.test.ts` "남은 변형 보류 찜을 옵션으로 골라 끝내기" |
+| SA-O1-01 · 02 | 그대로 골든(spec-keeper 몫). `core-adapter.test.ts` 합계 시험(통과 742)과 coverage 실패는 이 두 골든 불일치에서 온다 |
+| SA-O1-05 | D-O1-11이 아직 없다. 골든 README 열거값(거절 사유)에 새 값이 없어 코어가 혼자 값을 만들지 않는다. 정해지면 `rules.ts` `openPending`의 한 줄과 `ClaimReason`만 바꾼다 |
+| TD-O1-004 | R-20 5 "그 밖(옵션 없는 상품, 남은 말 둘 이상, 지금 상품 후보뿐)은 그 밖(언급)이다" 그대로 — spec-keeper 결정 대기 |
+
+## 분쟁 판정 반영 (라운드 2, dev-core)
+
+| 지적 | 처리 |
+|---|---|
+| SA-O1-01 · 02 | spec-keeper가 골든을 고쳤다(4fe2af5, D-O1-12). 코어 변경 없음. G-ENG-O1-08·10 통과 |
+| SA-O1-05 | D-O1-11대로 `ClaimReason`에 `STOCK_SHORT`, `rules.ts` `openPending`의 수량 부족 보류 찜 → `REJECTED(STOCK_SHORT)`(남은 수량 0이면 지금처럼 `SOLD_OUT` — `decide`가 먼저 품절로 거절). 러너 계약 `REJECT_REASONS`에 추가, 화면 낱말 `apps/web/src/lib/words.ts` `STOCK_SHORT: '수량 부족'`. 단위 시험: 기존 수량 부족 시험의 사유를 D-O1-11대로 바꾸고, 남은 수량 0 경계(SOLD_OUT·확인 필요 없음)·번호 변경으로 판정되는 보류 찜(STOCK_SHORT) 두 개 추가. `core-adapter.test.ts` 합계를 파일 33 · 파서 596 · 엔진 147 · 통과 743으로(G-ENG-O1-11) |

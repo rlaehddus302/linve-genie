@@ -1,7 +1,9 @@
 // 범위 조회 결과를 화면이 들고 있는 모양 (AC-S05-61·62, D-085).
 // 전체 조회로 시작해 증분 조회를 덮는다: 목록마다 키로 덮고, removed의 키는 지우고, 확인 필요는 덧붙인다.
 // 서버가 지키는 성질 "since의 전체 + 증분 = 지금의 전체"를 그대로 따르므로 화면이 판정을 다시 하지 않는다.
+// 입금 연결(N3)은 증분이 아니라 범위 전체로 온다 — 증분에 있으면 바꾸고, 없으면 그대로 둔다(정산 묶음이 바뀐 증분에만 온다).
 import { DEFAULT_SETTINGS } from '@livejjim/core'
+import type { DepositLinkView } from '../api/deposit-types.ts'
 import type {
   Attention,
   BroadcastView,
@@ -30,9 +32,11 @@ export interface ScopeData {
   readonly effects: ReadonlyMap<string, Effect>
   readonly cancelRequests: ReadonlyMap<string, CancelRequest>
   readonly attention: readonly Attention[]
+  /** 정산 기록 seq → 입금 연결 (입금 확인이 적은 입금·되돌림 기록, AC-N3-32·47) */
+  readonly depositLinks: ReadonlyMap<number, DepositLinkView>
 }
 
-type MapLists = Omit<ScopeData, 'date' | 'rehearsal' | 'seq' | 'attention'>
+type MapLists = Omit<ScopeData, 'date' | 'rehearsal' | 'seq' | 'attention' | 'depositLinks'>
 type ListName = keyof MapLists
 
 /** 정산 묶음 키 (구매자, 날짜) */
@@ -56,6 +60,13 @@ function index<K extends ListName>(name: K, items: ViewItems[K]): Map<string, Vi
   const map = new Map<string, ViewItems[K][number]>()
   for (const item of items) map.set(key(item), item)
   return map
+}
+
+const NO_LINKS: ReadonlyMap<number, DepositLinkView> = new Map()
+
+function indexLinks(links: readonly DepositLinkView[] | undefined): ReadonlyMap<number, DepositLinkView> {
+  if (links === undefined || links.length === 0) return NO_LINKS
+  return new Map(links.map((link) => [link.seq, link]))
 }
 
 /**
@@ -130,6 +141,7 @@ export function fromFull(input: FullView): ScopeData {
     effects: index('effects', view.effects),
     cancelRequests: index('cancelRequests', view.cancelRequests),
     attention: [...view.attention],
+    depositLinks: indexLinks(view.depositLinks),
   }
 }
 
@@ -158,6 +170,7 @@ export function applyChanges(data: ScopeData, changes: Changes): ScopeData {
     rehearsal: data.rehearsal,
     seq: changes.seq,
     attention: added.length === 0 ? data.attention : [...data.attention, ...added],
+    depositLinks: changes.depositLinks === undefined ? data.depositLinks : indexLinks(changes.depositLinks),
   }
 }
 

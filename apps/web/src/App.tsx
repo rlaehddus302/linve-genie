@@ -1,6 +1,7 @@
-// 앱 (AC-S05-01·02, AC-S06-01, AC-S06b-42·43, AC-I1-20, AC-N4a-10, I2 AC-I2-02·35): 로그인 확인 → 메뉴(방송·문자찜 입력·구매자·정산·포장·라벨·설정)와 그 화면.
+// 앱 (AC-S05-01·02, AC-S06-01, AC-S06b-42·43, AC-I1-20, AC-N4a-10, I2 AC-I2-02·35, AC-N3-40): 로그인 확인 → 메뉴(방송·문자찜 입력·구매자·정산·입금 확인·포장·라벨·설정)와 그 화면.
 // 라벨 기능이 꺼져 있으면 메뉴 "라벨"이 숨고 라벨 화면은 안내만 보인다(N4a L-13 9).
 // 로그인한 동안 출력 기록·이 기기의 프린터(PrintProvider)는 앱 전체에 하나다 — 화면을 옮겨도 출력 기기의 출력이 이어진다(AC-I1-23).
+// 입금 확인 신호(DepositProvider — 메뉴의 확인 필요 수)도 앱 전체에 하나다(판매자 계정만 — 보조자는 입금 확인 API가 403).
 // 설정에서 가게 이름을 저장하면 화면 위 가게 이름이 바로 바뀐다.
 // 쓰는 중에 세션이 끝나면(어떤 API든 401) 로그인 화면으로 가고, 다시 로그인하면 보던 화면(주소·검색값 그대로)으로 돌아간다.
 // 그때 화면이 닫히며 5초 대기 중이던 방송자 조치는 보내지 않는다(D-083).
@@ -10,14 +11,20 @@
 // 기록이 없는 처음 연 화면(홈 화면 앱의 첫 화면·새 탭)에 보내기 전인 조치가 생기면 같은 주소의 기록을 하나 더 쌓아 뒤로 가기가 앱을 떠나지 않고
 // 묻는다. 웹이 막을 수 없는 닫기(앱을 위로 밀어 닫기)로 떠나면 보내지 않는다 (D-103, AC-S06b-42·43).
 // 인터넷이 끊긴 채 열면(서비스 워커가 저장한 껍데기) "인터넷 연결이 없어요. 연결되면 다시 불러와요." — 연결되면 저절로 다시 불러온다(D-093).
+// 요금(N5, AC-N5-50): 로그인한 동안 요금 기능 설정을 한 번 받는다. 켜져 있으면 메뉴 "요금"과 /billing 화면, 꺼져 있으면 /billing은 없는 화면이다.
 // I3: 메뉴에 "설정"(AC-I3-44), 시작 마법사 `/start`(AC-I3-50), 정책 페이지 `/privacy`·`/terms`는 로그인 없이(AC-I3-77),
+// N4b: 끝난 방송의 영수증 보내기 `/broadcasts/<ID>/receipts`(AC-N4b-30) — 보조자는 다른 화면처럼 안내만.
 // 보조자 계정은 문자찜 입력만 — 로그인하면 `/sms`로, 다른 화면 주소는 안내만 보이고 그 화면의 데이터를 부르지 않는다(AC-I3-63).
 // 저장하지 않은 설정 값이 있으면 같은 떠나기 창이 그 문장으로 묻는다(AC-I3-46).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, isApiError, onUnauthorized, post, type ApiError } from './api/client.ts'
 import { isAssistant, type Me } from './api/types.ts'
+import { BillingConfigProvider, useBillingConfigState } from './components/billing-context.tsx'
+import { BillingPage } from './components/BillingPage.tsx'
 import { BuyersPage } from './components/BuyersPage.tsx'
 import { ConsolePage } from './components/ConsolePage.tsx'
+import { DepositProvider } from './components/deposit-context.tsx'
+import { DepositsPage } from './components/DepositsPage.tsx'
 import { ErrorNote } from './components/ErrorNote.tsx'
 import { HomePage } from './components/HomePage.tsx'
 import { LabelsPage } from './components/LabelsPage.tsx'
@@ -28,6 +35,7 @@ import { PackingPage } from './components/PackingPage.tsx'
 import { ReviewsPage } from './components/ReviewsPage.tsx'
 import { PrivacyPage, TermsPage } from './components/PolicyPages.tsx'
 import { PrintProvider } from './components/print-context.tsx'
+import { ReceiptsPage } from './components/ReceiptsPage.tsx'
 import { SettingsPage } from './components/SettingsPage.tsx'
 import { SettlementsPage } from './components/SettlementsPage.tsx'
 import { SmsPage } from './components/SmsPage.tsx'
@@ -35,7 +43,7 @@ import { TopBar } from './components/TopBar.tsx'
 import { WizardPage } from './components/WizardPage.tsx'
 import { takeGoogleReturn } from './lib/google-return.ts'
 import { LEAVE_QUESTION, LEAVE_TITLE, LeaveGuardContext, type LeaveGuard } from './lib/leave-guard.ts'
-import { historyDepth, isGuardEntry, isPublicRoute, pushGuardEntry, routePath, useRoute, type Navigate, type NavigateOptions, type Route } from './lib/router.ts'
+import { historyDepth, isGuardEntry, isPublicRoute, pushGuardEntry, routePath, useRoute, type BillingRoute, type Navigate, type NavigateOptions, type Route } from './lib/router.ts'
 
 type Session = { readonly state: 'checking' } | { readonly state: 'out'; readonly expired: boolean } | { readonly state: 'in'; readonly me: Me }
 
@@ -294,8 +302,17 @@ export function App() {
   )
   return (
     <LeaveGuardContext.Provider value={register}>
-      {/* 출력 기록·이 기기의 프린터(PrintProvider)는 판매자 계정만 — 보조자는 출력을 쓰지 않는다(출력 API는 403, SYS-04) */}
-      {assistant ? shell : <PrintProvider>{shell}</PrintProvider>}
+      {/* 출력 기록·이 기기의 프린터(PrintProvider)·입금 확인 신호(DepositProvider)·요금 기능 설정(BillingConfigProvider)은 판매자 계정만 —
+          보조자는 출력·입금 확인·요금을 쓰지 않는다(그 API는 403, SYS-04). 보조자 화면은 다른 화면의 데이터를 부르지 않는다(AC-I3-63) */}
+      {assistant ? (
+        shell
+      ) : (
+        <BillingConfigProvider>
+          <PrintProvider>
+            <DepositProvider>{shell}</DepositProvider>
+          </PrintProvider>
+        </BillingConfigProvider>
+      )}
     </LeaveGuardContext.Provider>
   )
 }
@@ -335,6 +352,8 @@ function Screen({ route, navigate, me, onRenamed }: ScreenProps) {
   switch (route.name) {
     case 'console':
       return <ConsolePage key={route.id} broadcastId={route.id} navigate={navigate} />
+    case 'receipts':
+      return <ReceiptsPage key={route.id} broadcastId={route.id} navigate={navigate} shopName={me.seller.name} />
     case 'sms':
       return <SmsPage navigate={navigate} assistant={isAssistant(me)} />
     case 'buyers':
@@ -347,6 +366,8 @@ function Screen({ route, navigate, me, onRenamed }: ScreenProps) {
       return <ReviewsPage route={route} navigate={navigate} />
     case 'labels':
       return <LabelsPage navigate={navigate} />
+    case 'billing':
+      return <BillingScreen route={route} navigate={navigate} />
     case 'settings':
       return <SettingsRoute route={route} navigate={navigate} me={me} onRenamed={onRenamed} />
     case 'start':
@@ -355,12 +376,60 @@ function Screen({ route, navigate, me, onRenamed }: ScreenProps) {
       return <PrivacyPage />
     case 'terms':
       return <TermsPage />
+    case 'deposits':
+      return <DepositsPage route={route} navigate={navigate} />
     case 'home':
       return <HomePage navigate={navigate} />
   }
 }
 
-/** 구글에서 돌아온 주소(`/settings/youtube?youtube=`)인데 시작 마법사 4단계에서 떠났으면 마법사로 돌려보낸다 (AC-I3-02·54) */
+/** 없는 화면 (요금 기능이 꺼진 서버의 /billing — AC-N5-50) */
+export const NOT_FOUND_MESSAGE = '찾을 수 없는 화면이에요.'
+
+function NotFound({ navigate }: { readonly navigate: Navigate }) {
+  return (
+    <main className="page stack">
+      <h1>{NOT_FOUND_MESSAGE}</h1>
+      <p>주소를 확인하거나 방송 목록으로 가 주세요.</p>
+      <div className="row">
+        <a
+          className="button"
+          href={routePath({ name: 'home' })}
+          onClick={(event) => {
+            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+            event.preventDefault()
+            navigate({ name: 'home' })
+          }}
+        >
+          방송 목록으로
+        </a>
+      </div>
+    </main>
+  )
+}
+
+/** 요금 화면: 요금 기능 설정을 받은 뒤 — 켜져 있으면 요금 화면, 꺼져 있으면 없는 화면 */
+function BillingScreen({ route, navigate }: { readonly route: BillingRoute; readonly navigate: Navigate }) {
+  const state = useBillingConfigState()
+  if (state.state === 'loading') {
+    return (
+      <main className="page">
+        <p>불러오는 중…</p>
+      </main>
+    )
+  }
+  if (state.state === 'error') {
+    return (
+      <main className="page">
+        <ErrorNote error={state.error} onRetry={state.retry} retryLabel="다시 불러오기" />
+      </main>
+    )
+  }
+  if (!state.config.enabled) return <NotFound navigate={navigate} />
+  return <BillingPage config={state.config} route={route} navigate={navigate} />
+}
+
+/** 구글에서 돌아온 주소(`/settings/youtube?youtube=`)인데 시작 마법사 3단계에서 떠났으면 마법사로 돌려보낸다 (AC-I3-02·54) */
 function SettingsRoute({ route, navigate, me, onRenamed }: ScreenProps & { readonly route: Extract<Route, { name: 'settings' }> }) {
   const [toWizard] = useState(() => route.youtubeResult !== undefined && takeGoogleReturn() === 'wizard')
   useEffect(() => {

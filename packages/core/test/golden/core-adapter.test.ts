@@ -59,8 +59,9 @@ describe('observe — 조회 함수 결과를 이름·모양만 바꿔 옮긴다
   it('상품·구매자·정산·찜·보류·취소 요청·구매자 키', () => {
     expect(snapshot.buyerKeys).toEqual({ UC_A: 'UC_A', UC_B: 'UC_B', UC_X: 'UC_X' })
     expect(snapshot.products).toEqual({
-      'b1/15': { status: 'SOLD', winners: ['UC_A'], waitlist: ['UC_B'], conflict: false, price: 10000, priceHistory: [], confirmedUnits: 1, hasOptions: false },
-      'b1/16': { status: 'READY', winners: [], waitlist: [], conflict: false, price: 800, priceHistory: [], confirmedUnits: 0, hasOptions: false },
+      // confirmVersion: 확정 횟수 (N5 새 검사 키 — AC-N5-04, D-N5-14). 관찰에 더한 키라 기대값에도 더했다(교체)
+      'b1/15': { status: 'SOLD', winners: ['UC_A'], waitlist: ['UC_B'], conflict: false, price: 10000, priceHistory: [], confirmedUnits: 1, confirmVersion: 1, hasOptions: false },
+      'b1/16': { status: 'READY', winners: [], waitlist: [], conflict: false, price: 800, priceHistory: [], confirmedUnits: 0, confirmVersion: 0, hasOptions: false },
     })
     // O1: 옵션 상품이 없으면 변형도 확인 필요 항목도 없다
     expect(snapshot.variants).toEqual({})
@@ -656,27 +657,30 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
   })
 })
 
-// 합치기(S06b + P2 + I4 + I1 + Y1 + I3 + N2): 골든이 늘어 합계를 바꿨다(교체 — 약화 아님). S06b(19·20번 엔진 파일, G-ENG-174~177),
+// 합치기(S06b + P2 + I4 + I1 + Y1 + I3 + N2 + I2 + N5): 골든이 늘어 합계를 바꿨다(교체 — 약화 아님). S06b(19·20번 엔진 파일, G-ENG-174~177),
 // P2(parser/voice-extract.yaml, engine/19-p2-documents.yaml G-ENG-201·202), I4(voice-extract 끊어 말한 번호 사례),
 // I1(engine/21-i1-labels.yaml G-ENG-301~304, AC-I1-80), Y1(engine/19-y1-youtube.yaml G-ENG-401·402, parser/chat.yaml 사례 6, AC-Y1-90),
 // I3(engine/22-i3-settings.yaml G-ENG-701, AC-I3-95)을 함께 센다 — 기준(S06, 21·379·119·498)에 main 쪽 +5·+81·+10·+91, I3 쪽 +2·+6·+3·+9.
 // N2(engine/22-n2-instagram.yaml G-ENG-N2-01~03, parser/chat.yaml N2 8사례, AC-N2-81)를 더한다 — N2 쪽 +1·+8·+3·+11.
 // I2(parser/product-import.yaml 26사례 — 실제 해석 함수 apps/server/src/product-import.ts, AC-I2-50·90, 마지막 감사 D-I2-17·D-I2-21 포함)를 더한다 — I2 쪽 +1·+26·+0·+26.
 // I2 합치기(main a52f5c3): main 파일 29 · 파서 474 · 엔진 135 · 통과 609 + I2 = 파일 30 · 파서 500 · 엔진 135 · 통과 635 (교체 — 약화 아님).
-// O1(AC-O1-35): parser/comment-options.yaml(89사례)·engine/23-o1-options.yaml(G-ENG-O1-01~10)·engine/23-o0-strict-regression.yaml(G-ENG-O0-01)·
-// parser/chat.yaml O0 회귀 7사례를 더한다 — O1 쪽 +3 파일 · +96 사례 · +11 시나리오 · +107 통과 = 파일 33 · 파서 596 · 엔진 146 · 통과 742 (교체 — 약화 아님).
-// O2(AC-O2-62): engine/24-o2-review-ui.yaml(G-ENG-O2-01·02 — 새 엔진 규칙 없음)을 더한다 — O2 쪽 +1 파일 · +0 사례 · +2 시나리오 · +2 통과.
-// O1 마지막(cb03131, G-ENG-O1-11·D-O1-11: 파일 33 · 파서 596 · 엔진 147 · 통과 743) + O2 = 파일 34 · 파서 596 · 엔진 149 · 통과 745
-// (교체 — 약화 아님, SA-O2-02. O1 코어(G-ENG-O1-08·10·11)를 합친 뒤에 통과한다).
-describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + Y1 + I3 + N2 + I2 + O1 + O2 합계)', () => {
-  it('파일 34 · 파서 596 · 엔진 149 · 통과 745, 나머지 0', () => {
+// N5 합치기(main c3d3659): main 파일 30 · 파서 500 · 엔진 135 · 통과 635 + N5(engine/22-n5-billing.yaml G-ENG-N5-01·02, AC-N5-04 — +1·+0·+2·+2)
+// = 파일 31 · 파서 500 · 엔진 137 · 통과 637 (교체 — 약화 아님).
+// N5 합치기(main 066480c): main(N3 engine/22-n3-deposits.yaml G-ENG-N3-01·02, AC-N3-04 — +1·+0·+2·+2, deposit/*.json은 러너가 읽지 않는다)과
+//   N5를 합친다 — 파일 31 · 파서 500 · 엔진 137 · 통과 637 + N3 = 파일 32 · 파서 500 · 엔진 139 · 통과 639 (교체 — 약화 아님).
+// 통합(track/int-final): N5 쪽 파일 32 · 파서 500 · 엔진 139 · 통과 639(main + N3 + N5) + N2b-2(engine/23-n2b2-multi-platform.yaml G-ENG-N2b-2-01·02, AC-N2b-2-90 — +1·+0·+2·+2,
+//   tiktok/*.json은 러너가 읽지 않는다) = 파일 33 · 파서 500 · 엔진 141 · 통과 641. N4b는 골든을 더하지 않는다 (교체 — 약화 아님).
+// O1 합치기(main c4defc7): main 파일 33 · 파서 500 · 엔진 141 · 통과 641 + O1(parser/comment-options.yaml 89사례·engine/23-o1-options.yaml G-ENG-O1-01~11·
+//   engine/23-o0-strict-regression.yaml G-ENG-O0-01·parser/chat.yaml O0 회귀 7사례, AC-O1-35 — +3·+96·+12·+108) = 파일 36 · 파서 596 · 엔진 153 · 통과 749 (교체 — 약화 아님).
+describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + Y1 + I3 + N2 + I2 + N3 + N5 + N2b-2 + O1 합계)', () => {
+  it('파일 36 · 파서 596 · 엔진 153 · 통과 749, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
-      files: 34,
+      files: 36,
       parserCases: 596,
-      scenarios: 149,
-      pass: 745,
+      scenarios: 153,
+      pass: 749,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,

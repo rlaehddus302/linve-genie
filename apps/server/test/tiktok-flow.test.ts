@@ -31,9 +31,10 @@ afterEach(() => {
 })
 
 describe('AC-N2b-1-03 읽기만 — 연결 객체의 조작·넘기는 옵션', () => {
-  it('연결 객체가 가진 조작은 start·stop·status뿐이다', () => {
+  // N2b-2가 끄기(off — 판매자 끔·운영자 끔, D-N2b-2-04)와 이어받기(resume — 재시작, D-N2b-2-05)를 더했다. 틱톡에 무엇을 보내는 조작은 여전히 없다 (바꾼 기존 시험, dev-notes)
+  it('연결 객체가 가진 조작은 start·resume·stop·off·status뿐이다', () => {
     const { conn } = rig()
-    expect(Object.keys(conn).sort()).toEqual(['start', 'status', 'stop'])
+    expect(Object.keys(conn).sort()).toEqual(['off', 'resume', 'start', 'status', 'stop'])
     for (const key of Object.keys(conn)) expect(typeof (conn as unknown as Record<string, unknown>)[key]).toBe('function')
     expect(Object.getPrototypeOf(conn)).toBe(Object.prototype)
     expect(Object.isFrozen(conn)).toBe(true)
@@ -296,10 +297,16 @@ describe('AC-N2b-1-41 판매자 동의 자리', () => {
     expect(r.conn.status()).toMatchObject({ state: 'OFF', reason: 'NO_CONSENT' })
   })
 
+  // N2b-2(D-N2b-2-11 (가))부터 120초 동안 아무 자료가 없으면 끊긴 것으로 본다 — 받는 동안 방 정보(댓글이 아닌 자료)가 100초마다 온다 (바꾼 기존 시험, dev-notes)
   it('동의는 연결 중에 다시 확인하지 않는다 (연결 시도마다 한 번)', async () => {
     const r = rig()
     r.conn.start()
-    await r.at(HOUR)
+    for (let t = 100; t <= 3600; t += 100) {
+      await r.at(t)
+      r.fake.last?.emit('roomUser', { viewerCount: 1 })
+    }
+    expect(r.conn.status().state).toBe('CONNECTED')
+    expect(r.fake.attempts).toBe(1)
     expect(r.consentCalls).toHaveLength(1)
   })
 })

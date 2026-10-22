@@ -7,7 +7,7 @@ import type { PMap } from './pmap.ts'
 // ── 열거값 (tests/golden/README "열거값") ────────────────────────────────
 
 export type ClaimStatus = 'PENDING' | 'CONFIRMED' | 'WAITLISTED' | 'REJECTED' | 'CANCELLED' | 'CONFLICT' | 'DUPLICATE'
-export type ClaimReason = 'BLOCKED' | 'UNOPENED' | 'NOT_ON_SALE' | 'SOLD_OUT' | 'EXPIRED' | 'WAITLIST_CLEARED' | 'BY_HOST' | 'RENUMBERED' | 'OPTION_MISSING'
+export type ClaimReason = 'BLOCKED' | 'UNOPENED' | 'NOT_ON_SALE' | 'SOLD_OUT' | 'EXPIRED' | 'WAITLIST_CLEARED' | 'BY_HOST' | 'RENUMBERED' | 'OPTION_MISSING' | 'STOCK_SHORT'
 /** 확인 필요 사유 (R-20 5·7, R-19 "수량"·"공개 전 찜", O1) */
 export type ReviewReason =
   | 'OPTION_MISSING'

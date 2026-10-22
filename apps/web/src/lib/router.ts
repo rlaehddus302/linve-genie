@@ -1,13 +1,18 @@
 // 화면 주소 (AC-S05-01, AC-S06-01, D-094, AC-I3-44·50·77):
-//   `/` 방송 목록(홈) · `/broadcasts/<방송 ID>` 그 방송의 콘솔 · `/sms` 문자찜 입력
+//   `/` 방송 목록(홈) · `/broadcasts/<방송 ID>` 그 방송의 콘솔 · `/broadcasts/<방송 ID>/receipts` 영수증 보내기(N4b AC-N4b-30·31) · `/sms` 문자찜 입력
 //   `/buyers` 구매자 · `/settlements` 정산 — 고른 날짜·리허설·구매자는 검색값(`?date=2026-10-18&rehearsal=true&buyer=UC_A`)
 //   `/packing` 포장 모드 — 고른 날짜(실제 범위만)·연 구매자는 검색값(`?date=2026-10-18&buyer=UC_A`) (I2 AC-I2-35)
 //   `/settings` 설정 · `/settings/youtube` 설정의 유튜브 칸(구글에서 돌아오면 `?youtube=<결과>` — 화면이 보인 뒤 지운다)
+//   `/settings/instagram`·`/settings/tiktok` 설정의 인스타그램·틱톡 칸 — 인스타그램에서 돌아온 `?instagram=<결과>`(경로 `/`여도)는 인스타그램 칸으로 (N2b-2)
 //   `/start` 시작 마법사 · `/privacy` 개인정보처리방침(초안) · `/terms` 이용약관(초안) — 둘은 로그인 없이 열린다
 //   구매자 자세히의 합치기 창: 상대·방향은 `merge`(상대 구매자 ID)·`into`(남는 쪽 구매자 ID), 막힘에서 연 상품 자세히는 `product`(상품 키)
 //   — 상품 자세히에 갔다 와도(브라우저 뒤로 가기 포함) 같은 합치기 창이 다시 열린다 (AC-S06b-34, D-102).
 //   `/labels` 라벨(프린터·출력 대기열·버릴 라벨·출력 이력·라벨 설정·내보내기, I1 AC-I1-20)
 //   `/settings` 설정에는 "라벨" 절도 있다 — 라벨 기능 켜기/끄기·바꾼 기록 (N4a AC-N4a-10)
+//   `/billing` 요금(N5 AC-N5-50 — 요금 기능이 켜져 있을 때만 화면이 있다). 휴대폰 결제 창이 돌아온 주소 `/billing?paymentId=…`의
+//   결제 ID만 읽는다(쿼리의 다른 값 — 결제 성공 여부·금액 — 은 쓰지 않는다, BL-6 3).
+//   `/deposits` 입금 확인(N3, AC-N3-40) — 보는 목록은 검색값 `tab`(확인 필요는 적지 않는다): done 자동 확인됨·확인함 · ignored 무시함 · paste 붙여넣기 · sources 계좌 연동.
+//   입금자명·금액은 주소에 넣지 않는다.
 // 전화번호·메모·사유는 주소에 넣지 않는다(AC-S06-81) — 구매자 ID·상품 키만. 새로고침·북마크해도 같은 화면이다.
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -30,6 +35,26 @@ export interface ScopeRoute {
 
 const SCOPE_PARAMS = ['buyer', 'merge', 'into', 'product'] as const
 
+/** 요금 화면 (휴대폰 결제 창이 돌아오면 그 결제 ID) */
+export interface BillingRoute {
+  readonly name: 'billing'
+  readonly paymentId?: string
+}
+
+/** 결제 ID 모양 (서버가 만든 영문·숫자 — 넉넉히 영문·숫자·'_'·'-' 1~64자) */
+const PAYMENT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
+
+export type SettingsSection = 'youtube' | 'instagram' | 'tiktok'
+
+/** 입금 확인 화면의 목록 (N3) */
+export const DEPOSIT_TABS = ['review', 'done', 'ignored', 'paste', 'sources'] as const
+export type DepositTab = (typeof DEPOSIT_TABS)[number]
+
+export interface DepositsRoute {
+  readonly name: 'deposits'
+  readonly tab: DepositTab
+}
+
 /** 포장 모드 (I2 AC-I2-35): 실제 범위만 — 리허설 표시가 없다 */
 export interface PackingRoute {
   readonly name: 'packing'
@@ -41,20 +66,22 @@ export interface PackingRoute {
 export interface SettingsRoute {
   readonly name: 'settings'
   /** 열자마자 보이게 할 칸 */
-  readonly section?: 'youtube'
+  readonly section?: SettingsSection
   /** 구글에서 돌아온 결과 코드 (`?youtube=`) */
   readonly youtubeResult?: string
+  /** 인스타그램에서 돌아온 결과 코드 (`?instagram=` — 서버의 돌아오는 경로가 `/`여도 설정의 인스타그램 칸으로, N2b-2) */
+  readonly instagramResult?: string
 }
 
 export interface StartRoute {
   readonly name: 'start'
   /** "시작 마법사 다시 하기": 상태와 상관없이 1단계부터 (주소에 적지 않는다) */
   readonly fresh?: boolean
-  /** 마법사 4단계에서 구글로 갔다가 돌아온 결과 코드 (`?youtube=`) */
+  /** 마법사 3단계에서 구글로 갔다가 돌아온 결과 코드 (`?youtube=`) */
   readonly youtubeResult?: string
 }
 
-/** 확인 필요 목록 (SPEC §7 화면 11, D-O2-03): 메뉴에 없고 콘솔 알림 띠·홈 링크로 연다. 고른 방송은 `?broadcast=`, 리허설은 `?rehearsal=true` */
+/** 확인 필요 목록 (SPEC §7 화면 15, D-O2-03): 메뉴에 없고 콘솔 알림 띠·홈 링크로 연다. 고른 방송은 `?broadcast=`, 리허설은 `?rehearsal=true` */
 export interface ReviewsRoute {
   readonly name: 'reviews'
   readonly broadcast?: string
@@ -65,14 +92,17 @@ export type Route =
   | { readonly name: 'home' }
   | ReviewsRoute
   | { readonly name: 'console'; readonly id: string }
+  | { readonly name: 'receipts'; readonly id: string }
   | { readonly name: 'sms' }
   | { readonly name: 'labels' }
+  | BillingRoute
   | ScopeRoute
   | PackingRoute
   | SettingsRoute
   | StartRoute
   | { readonly name: 'privacy' }
   | { readonly name: 'terms' }
+  | DepositsRoute
 
 /** 로그인 없이 여는 화면 (AC-I3-77) */
 export const isPublicRoute = (route: Route): boolean => route.name === 'privacy' || route.name === 'terms'
@@ -114,16 +144,39 @@ export function parseRoute(pathname: string, search = ''): Route {
       return { name: 'home' }
     }
   }
+  const receipts = /^\/broadcasts\/([^/]+)\/receipts\/?$/.exec(pathname)
+  if (receipts?.[1] !== undefined) {
+    try {
+      return { name: 'receipts', id: decodeURIComponent(receipts[1]) }
+    } catch {
+      return { name: 'home' }
+    }
+  }
   const path = pathname.replace(/\/+$/, '')
   const youtube = new URLSearchParams(search).get('youtube')
   const result = youtube !== null && youtube !== '' ? { youtubeResult: youtube } : {}
+  const instagram = new URLSearchParams(search).get('instagram')
+  // 인스타그램 연결을 마치고 돌아온 주소 (서버 LIVEJJIM_IG_RETURN_PATH — 기본 `/`): 설정의 인스타그램 칸에서 결과를 보인다
+  if (instagram !== null && instagram !== '' && (path === '' || path === '/settings' || path === '/settings/instagram')) {
+    return { name: 'settings', section: 'instagram', instagramResult: instagram }
+  }
   if (path === '/settings') return { name: 'settings', ...result }
   if (path === '/settings/youtube') return { name: 'settings', section: 'youtube', ...result }
+  if (path === '/settings/instagram') return { name: 'settings', section: 'instagram' }
+  if (path === '/settings/tiktok') return { name: 'settings', section: 'tiktok' }
   if (path === '/start') return { name: 'start', ...result }
   if (path === '/privacy') return { name: 'privacy' }
   if (path === '/terms') return { name: 'terms' }
   if (path === '/sms') return { name: 'sms' }
   if (path === '/labels') return { name: 'labels' }
+  if (path === '/billing') {
+    const paymentId = new URLSearchParams(search).get('paymentId')
+    return paymentId !== null && PAYMENT_ID_RE.test(paymentId) ? { name: 'billing', paymentId } : { name: 'billing' }
+  }
+  if (path === '/deposits') {
+    const tab = new URLSearchParams(search).get('tab')
+    return { name: 'deposits', tab: (DEPOSIT_TABS as readonly string[]).includes(tab ?? '') ? (tab as DepositTab) : 'review' }
+  }
   if (path === '/buyers') return scopeRoute('buyers', search)
   if (path === '/settlements') return scopeRoute('settlements', search)
   if (path === '/packing') return packingRoute(search)
@@ -141,12 +194,17 @@ export function routePath(route: Route): string {
       return '/'
     case 'console':
       return `/broadcasts/${encodeURIComponent(route.id)}`
+    case 'receipts':
+      return `/broadcasts/${encodeURIComponent(route.id)}/receipts`
     case 'sms':
       return '/sms'
     case 'labels':
       return '/labels'
+    case 'billing':
+      return route.paymentId === undefined ? '/billing' : `/billing?paymentId=${encodeURIComponent(route.paymentId)}`
     case 'settings': {
-      const base = route.section === 'youtube' ? '/settings/youtube' : '/settings'
+      const base = route.section === undefined ? '/settings' : `/settings/${route.section}`
+      if (route.instagramResult !== undefined) return `${base}?${new URLSearchParams({ instagram: route.instagramResult }).toString()}`
       return route.youtubeResult === undefined ? base : `${base}?${new URLSearchParams({ youtube: route.youtubeResult }).toString()}`
     }
     case 'start':
@@ -155,6 +213,8 @@ export function routePath(route: Route): string {
       return '/privacy'
     case 'terms':
       return '/terms'
+    case 'deposits':
+      return route.tab === 'review' ? '/deposits' : `/deposits?tab=${route.tab}`
     case 'buyers':
     case 'settlements': {
       const params = new URLSearchParams()
@@ -184,8 +244,8 @@ export function routePath(route: Route): string {
   }
 }
 
-/** 메뉴 항목 (AC-S06-01, AC-I1-20, AC-I3-44, I2 AC-I2-35): 지금 화면이 어느 메뉴에 속하는지 */
-export type MenuKey = 'broadcasts' | 'sms' | 'buyers' | 'settlements' | 'packing' | 'labels' | 'settings'
+/** 메뉴 항목 (AC-S06-01, AC-I1-20, AC-I3-44, I2 AC-I2-35, AC-N3-40, AC-N5-50): 지금 화면이 어느 메뉴에 속하는지 */
+export type MenuKey = 'broadcasts' | 'sms' | 'buyers' | 'settlements' | 'deposits' | 'packing' | 'labels' | 'settings' | 'billing'
 
 /** 메뉴에 없는 화면(시작 마법사·정책 페이지)은 null */
 export function menuOf(route: Route): MenuKey | null {
@@ -193,6 +253,7 @@ export function menuOf(route: Route): MenuKey | null {
     case 'home':
     case 'console':
     case 'reviews':
+    case 'receipts':
       return 'broadcasts'
     case 'sms':
       return 'sms'
@@ -204,6 +265,10 @@ export function menuOf(route: Route): MenuKey | null {
       return 'packing'
     case 'labels':
       return 'labels'
+    case 'billing':
+      return 'billing'
+    case 'deposits':
+      return 'deposits'
     case 'settings':
       return 'settings'
     case 'start':

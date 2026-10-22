@@ -21,6 +21,8 @@ export const REJECT_REASON_WORD: Readonly<Record<ClaimReason, string>> = {
   RENUMBERED: '번호 바뀜',
   // O1: 공개될 때 옵션(사이즈·색상 등)을 고르지 않은 찜 — 확인 필요로 간다 (D-O2-12)
   OPTION_MISSING: '옵션 빠짐',
+  // O1: 공개될 때 남은 수량이 주문 수량보다 적은 찜 — 확인 필요로 간다 (D-O1-11)
+  STOCK_SHORT: '수량 부족',
 }
 
 const CLAIM_STATUS_WORD: Readonly<Record<Exclude<ClaimStatus, 'WAITLISTED' | 'REJECTED'>, string>> = {
@@ -106,10 +108,11 @@ export const saleModeOf = (settings: { readonly 'claim.parseMode': string } | nu
 export const OPTIONS_ARRIVAL_NOTE = '상품명·옵션도 받기는 먼저 들어온 순서로만 판정해요.'
 export const OPTIONS_ARRIVAL_WORD = '먼저 들어온 순서(접수순)'
 
-/** 조치자 낱말: 로그인 아이디 · 서버 · 수집기 */
+/** 조치자 낱말: 로그인 아이디 · 서버 · 수집기 · 입금 자동 확인(N3 — 입금 확인이 자동으로 적은 입금, AC-N3-20) */
 export function actorWord(actor: { readonly kind: string; readonly loginId: string | null }): string {
   if (actor.kind === 'account') return actor.loginId ?? '판매자'
   if (actor.kind === 'collector') return '수집기'
+  if (actor.kind === 'deposit') return '입금 자동 확인'
   return '서버'
 }
 

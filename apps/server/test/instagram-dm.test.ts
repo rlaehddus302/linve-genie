@@ -265,9 +265,12 @@ describe('AC-N2-42 받는 댓글·보내지 않는 경우 (G-ENG-N2-02)', () => 
       ['28', 'ig:17900000000000101', 'SENT', null],
       ['31', 'ig:17900000000000103', 'SENT', null],
       ['15', 'ig:17900000000000102', 'SENT', null],
-      ['40', null, 'SKIPPED', 'NO_RECIPIENT'],
       ['41', null, 'SKIPPED', 'NO_RECIPIENT'],
     ])
+    // N2b-2(D-N2b-2-09, AC-N2b-2-10·11): 감사는 찜의 구매자 자신의 플랫폼으로 — 문자 구매자(40번)는 DM 행이 아니라 유튜브 발송함 행이고,
+    // 유튜브를 이은 적 없는 회차라 건너뜀(NO_RECIPIENT)이다 (바꾼 기존 시험, dev-notes)
+    const smsRow = await w.database.pglite?.query<{ state: string; reason: string }>(`select state, reason from outbox where seller_id = $1 and kind = 'POST_THANKS' and body like '%"product":"' || $2 || '/40"%'`, [s.seller.sellerId, s.b])
+    expect(smsRow?.rows).toEqual([{ state: 'SKIPPED', reason: 'NO_RECIPIENT' }])
     expect(list.find((row) => row.reason === 'NO_RECIPIENT')?.message).toBe('댓글로 생긴 찜이 아니라 DM을 보낼 곳이 없어요.')
     // 보낸 감사는 그대로, 승계자 새 감사 — 엔진은 감사 넷이 실행 완료
     const state = (await w.server.writer.read(s.seller.sellerId, '2026-10-19')).state

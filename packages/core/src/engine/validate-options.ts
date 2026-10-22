@@ -3,8 +3,9 @@
 // - 상태가 필요한 것: 옵션 방송인지, 그 상품의 항목·선택지와 맞는지, 변형 재고의 키가 그 상품(바꾼 뒤)의 변형인지, 변형 단가 0 이상,
 //   수량이 그 방송의 claim.maxQuantity 이하인지, 바로잡기의 번호에 상품이 있는지.
 // 모두 구조 검사(checkShape)다 — applyEvent·checkEvent가 같게 입력 오류로 본다. 글 칸의 휴대폰 번호만 기록 전 검사(checkEvent)에서 본다(D-079 ⑤).
-import { OPTION_LIMITS, OPTION_TEXT_SEPARATOR, charCount, compareChars, lowestUnitPrice, pickIndexes, variantCount, variantTexts, type OptionItem } from '../options.ts'
+import { OPTION_LIMITS, OPTION_TEXT_SEPARATOR, charCount, compareChars, lowestUnitPrice, pickIndexes, variantCount, variantTexts, type OptionItem, type OptionPick } from '../options.ts'
 import { resolveSettings, type SaleSettings } from '../settings.ts'
+import { leftoverVariant } from './leftover.ts'
 import { pget } from './pmap.ts'
 import type { EngineState, EventProblem, ProductRecord } from './types.ts'
 
@@ -236,8 +237,14 @@ export function checkOptionContext(state: EngineState, type: string, e: Rec): Ev
     case 'product.focus':
     case 'host.dismissReview':
       return []
-    default:
-      // 찜을 가리키는 방송자 조치의 변형 고르기 (적지 않으면 엔진이 그 구매자의 활성 찜 하나를 찾는다)
-      return pickProblems(product, e.options, false)
+    default: {
+      // 찜을 가리키는 방송자 조치의 변형 고르기 (적지 않으면 엔진이 그 구매자의 활성 찜 하나를 찾는다).
+      // 번호를 바꿔 남은 변형 보류 찜(R-10 1)은 그 번호에 상품이 없거나 다른 상품이어도 그 찜의 옵션을 적으면 받는다 (R-5, R-19)
+      const problems = pickProblems(product, e.options, false)
+      if (problems.length === 0) return problems
+      // 고른 옵션 맵 모양과 번호는 구조 검사가 이미 확인했다
+      const slot = pget(state.slots, `${String(e.b)}/${String(e.no)}`)
+      return leftoverVariant(slot, (id) => pget(state.claims, id), e.options as OptionPick) === null ? problems : []
+    }
   }
 }

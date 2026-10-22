@@ -347,3 +347,23 @@ export function parseChat(text: string, settings: SettingsOverride = {}): ChatPa
   // 언급: 금액 덩어리가 아닌 1~4자리 숫자 덩어리 중 범위 안의 값
   return result([], [], uniqueInOrder(numberValues.filter(inRange)))
 }
+
+/**
+ * 메시지 전체가 주문·취소 번호 문법인가 — 번호 개수 상한·claim.multiNumber·번호 범위로 주문·취소가 되지 않은 경우도 문법이다.
+ * 금액 덩어리가 있거나 끝 신호(D-035)에 걸리면 문법이 아니다(parseChat과 같은 경계). 옵션 방송 R-20 2가 쓴다:
+ * 문법이면 parseChat 결과(언급 포함)를 그대로 쓰고, 옵션 해석으로 넘어가지 않는다.
+ */
+export function matchesNumberGrammar(text: string, settings: SettingsOverride = {}): boolean {
+  const loose = resolveSettings(settings)['claim.parseMode'] === 'LOOSE'
+  const s = normalizeText(asText(text))
+  if (scanDigitRuns(s).some((run) => run.amount)) return false
+  const cancel = scanCancel(s)
+  if (cancel !== undefined) {
+    const part = pickPart(s, cancel.parts, loose)
+    if (part !== undefined && !endsWithSignal(s, part, cancel.parts, isVisibleCancelTail)) return true
+  }
+  if (loose && s.includes('취소')) return false
+  const claim = scanClaim(s)
+  const part = pickPart(s, claim.parts, loose)
+  return part !== undefined && part.count > 0 && !endsWithSignal(s, part, claim.parts, isVisibleClaimTail)
+}

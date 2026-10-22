@@ -79,3 +79,11 @@ export function hasControlChar(text: string): boolean {
   }
   return false
 }
+
+/**
+ * 판매자가 적은 글에 DB·JSON이 받지 못하는 글자가 있는지 — 제어 문자(NUL 포함)나 짝 없는 서로게이트(SA-N3-11, TD-N3-005).
+ * 짝 없는 서로게이트는 PostgreSQL 글자 칸이 UTF-8로 바꾸지 못해 저장에서 500이 난다 — 저장 전에 400으로 거절한다
+ */
+export function hasUnsafeText(text: string): boolean {
+  return hasControlChar(text) || !text.isWellFormed()
+}

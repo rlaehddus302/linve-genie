@@ -94,6 +94,22 @@ describe('서비스 워커', () => {
     expect(network).toBe(0)
   })
 
+  it('구매자 확인서 링크 /r·/r/…는 페이지 이동이어도 가로채지 않는다 — 끊겨도 index.html을 주지 않는다 (AC-N4b-25)', async () => {
+    let network = 0
+    const sw = await installed(async () => {
+      network++
+      throw new TypeError('Failed to fetch')
+    })
+    for (const url of [`${ORIGIN}/r`, `${ORIGIN}/r/`, `${ORIGIN}/r/abcDEF_123-xyz`, `${ORIGIN}/r/abcDEF_123-xyz/receipt.jpg`, `${ORIGIN}/r/abcDEF_123-xyz/receipt.pdf`]) {
+      expect(await fetchEvent(sw.dispatch, url, { mode: 'navigate' }), url).toBeNull()
+      expect(await fetchEvent(sw.dispatch, url), url).toBeNull()
+    }
+    // 앱 화면 주소(/receipts가 들어간 방송 화면)는 그대로 앱 껍데기를 쓴다
+    expect(await (await fetchEvent(sw.dispatch, `${ORIGIN}/broadcasts/B1/receipts`, { mode: 'navigate' }))?.text()).toBe('저장한 /index.html')
+    expect(await (await fetchEvent(sw.dispatch, `${ORIGIN}/rules`, { mode: 'navigate' }))?.text()).toBe('저장한 /index.html')
+    expect(network).toBe(2)
+  })
+
   it('껍데기 파일은 저장한 것 먼저 — crossorigin 요청(Vary: Origin)이어도 주소로 찾아 끊겨도 뜬다', async () => {
     let online = true
     let network = 0

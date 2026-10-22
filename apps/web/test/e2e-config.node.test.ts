@@ -3,7 +3,7 @@
 // 브라우저 주소는 localhost(크로미움이 127.0.0.1로 잇는다 — Secure 세션 쿠키를 Playwright page.request가 보내도록), 서버 --origin은 브라우저 주소와 같다.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import config, { E2E_HOST, SERVED_WEB_DIR, STACKS, fakeYoutubeUrl } from '../playwright.config.ts'
+import config, { E2E_HOST, SERVED_WEB_DIR, STACKS, e2eServerUrl, fakeMetaUrl, fakeYoutubeUrl } from '../playwright.config.ts'
 
 const serve = readFileSync(new URL('../e2e/serve.ts', import.meta.url), 'utf8')
 
@@ -59,6 +59,24 @@ describe('E2E 기동 (코드 검사)', () => {
     // 빌드 결과물은 린트·git 범위 밖 (node_modules/.cache)
     expect(SERVED_WEB_DIR.split(/[\\/]/).slice(-4)).toEqual(['node_modules', '.cache', 'livejjim-e2e', 'served-web'])
     const ports = STACKS.flatMap((stack) => [...new Set([stack.web, stack.api, ...(stack.youtube === undefined ? [] : [stack.youtube])])])
+    expect(new Set(ports).size).toBe(ports.length)
+  })
+
+  it('N2b-2 여러 플랫폼 묶음(AC-N2b-2-80): 가짜 유튜브·가짜 메타(정한 포트)·가짜 틱톡을 함께 켜고 @multi만 고른다, 포트는 겹치지 않는다', () => {
+    const servers = Array.isArray(config.webServer) ? config.webServer : []
+    const stack = STACKS.find((item) => item.name === 'chromium-multi')
+    expect(stack?.youtube).toBeDefined()
+    expect(stack?.instagram).toBeDefined()
+    const server = servers.find((item) => item.command?.includes(`--port ${String(stack?.api)}`) && item.command.includes('@livejjim/server'))
+    expect(server?.command).toContain(`--youtube fake --youtube-port ${String(stack?.youtube)}`)
+    expect(server?.command).toContain(`--instagram yes --instagram-port ${String(stack?.instagram)}`)
+    expect(server?.command).toContain('--tiktok yes')
+    expect(stack?.grep?.test('시험 @multi')).toBe(true)
+    expect(STACKS.find((item) => item.name === 'chromium')?.grepInvert?.test('시험 @multi')).toBe(true)
+    expect(fakeMetaUrl('chromium-multi')).toBe(`http://127.0.0.1:${String(stack?.instagram)}`)
+    expect(fakeMetaUrl('chromium')).toBeNull()
+    expect(e2eServerUrl('chromium-multi')).toBe(`http://127.0.0.1:${String(stack?.api)}`)
+    const ports = STACKS.flatMap((item) => [item.web, item.api, ...(item.youtube === undefined ? [] : [item.youtube]), ...(item.instagram === undefined ? [] : [item.instagram])].filter((port, index, all) => all.indexOf(port) === index))
     expect(new Set(ports).size).toBe(ports.length)
   })
 })

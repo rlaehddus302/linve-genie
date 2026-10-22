@@ -1,0 +1,152 @@
+# N2b-2 보강 — 여러 플랫폼 동시 송출과 틱톡 수동 입력(붙여넣기)이 기대는 엔진 동작 (PLT-02, PLT-03, ORD-01, ORD-02, ORD-08, BUY-01, BUY-03, R-4, R-6, R-11, R-13,
+# D-N2b-2-01~D-N2b-2-03·D-N2b-2-07·D-N2b-2-08). 새 엔진 규칙은 없다(N2b-2는 dev-core가 없다). 서버가 기대는 것을 고정한다:
+#   - 틱톡 댓글의 `chat`(D-N2b-2-03): `id` = `tt:<댓글 ID>`, `ch` = `tt:<숫자 사용자 ID>`, 게시 시각 없음, 방송자 댓글은 `owner: true`.
+#   - 한 방송에 유튜브·인스타·틱톡 댓글이 섞여도 한 상품 보드다. 둘 이상의 플랫폼을 이은 방송은 늘 접수순(ARRIVAL)이라(D-N2b-2-02) 순위 = 서버가 기록한 순서(seq) —
+#     유튜브 채팅의 게시 시각이 더 일러도 늦게 도착하면 뒤다.
+#   - 닉네임이 같아도 키(플랫폼)가 다르면 다른 구매자이고, 같은 사람이면 판매자가 합친다.
+#   - 붙여넣기(D-N2b-2-08)는 문자찜(`sms`)이다: 번호마다 sms 하나, 메모 = 닉네임, 한 번 넣기 안의 같은 닉네임은 처음 sms가 만든 문자 구매자를 지정 구매자로,
+#     같은 넣기를 다시 보내면 같은 ref(재전송 사본) → 찜이 둘 생기지 않는다. 감사 문구의 이름은 "문자찜"(R-13, D-057).
+#   - 감사를 어느 플랫폼으로 보낼지(D-N2b-2-09 — 틱톡 구매자는 보내지 않음)는 서버 몫이라 골든 밖이다. 엔진 효과는 찜마다 하나로 같다.
+# 기본 설정: 접수순, 대기 한도 5, 자동 승계, 방송자 채팅 무시, 확정마다 라벨 1 + 감사(실시간) 1, 배송비 4,000.
+# 기대값은 손으로 계산했다. 계산은 줄마다 주석.
+id: G-ENG-N2b-2-01
+title: 한 방송에 틱톡·유튜브·인스타 댓글 — 플랫폼 사이 선착순은 서버 도착순(게시 시각이 이른 유튜브 채팅도 늦게 오면 대기), 같은 닉네임 다른 플랫폼은 다른 구매자, 틱톡 방송자 댓글·같은 댓글 재수신은 찜 없음, 틱톡·인스타 구매자 합치기
+refs: [PLT-02, PLT-03, ORD-01, ORD-02, ORD-09, BUY-01, BUY-03, STL-01, R-4, R-6, R-11, R-12, R-13, INV-3, D-018, D-N2b-2-01, D-N2b-2-02, D-N2b-2-03]
+broadcasts: [{ id: b1, date: 2026-10-21, title: 동시 송출 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }                                                 # seq 1
+  - { at: "20:00:00", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }                                                     # seq 2
+  # 틱톡 A "15" — 가장 먼저 도착 → A 15번 확정(1) — 라벨 A1, 감사 A1 (찜 1)
+  - { at: "20:00:01", type: chat, b: b1, id: "tt:7301000000000000001", ch: "tt:7101000000000000001", nick: 홍길동, text: "15" }             # seq 3
+  # 유튜브 Y "15번" — 게시 시각 20:00:00.500은 A가 도착한 20:00:01보다 이르지만 접수순이라 순위 = seq 4 → 대기 [Y] (찜 2)
+  - { at: "20:00:02", type: chat, b: b1, id: m1, ch: UC_Y, nick: 홍길동, text: "15번", publishedAt: "20:00:00.500" }                        # seq 4
+  # 인스타 B "16" — B 16번 확정(1) — 라벨 B1, 감사 B1 (찜 3). 닉네임은 A·Y와 같지만 키가 달라 다른 구매자
+  - { at: "20:00:03", type: chat, b: b1, id: "ig:17900000000000301", ch: "ig:6024400000000301", nick: 홍길동, text: "16" }                  # seq 5
+  # 틱톡 방송자 본인 댓글(서버가 owner로 표시 — 레코드 owner) → claim.ignoreOwner(기본 예) → 아무 일도 없다
+  - { at: "20:00:04", type: chat, b: b1, id: "tt:7301000000000000002", ch: "tt:7101000000000000099", nick: 다육이네, text: "16", owner: true }  # seq 6
+  # 같은 틱톡 댓글 ID가 다시 옴(서버의 2차 방어를 지나쳤다고 가정) — 본문이 달라도 재수신이라 아무 일도 없다
+  - { at: "20:00:05", type: chat, b: b1, id: "tt:7301000000000000001", ch: "tt:7101000000000000001", nick: 홍길동, text: "16" }             # seq 7
+  # 유튜브 Y "16" — 16번은 SOLD → 대기 [Y] (Y의 15번 대기 찜은 다른 상품) (찜 4)
+  - { at: "20:00:06", type: chat, b: b1, id: m2, ch: UC_Y, nick: 홍길동, text: "16" }                                                     # seq 8
+  - type: assert
+    expect:
+      products:
+        b1/15: { status: SOLD, winner: "tt:7101000000000000001", waitlist: [UC_Y] }
+        b1/16: { status: SOLD, winner: "ig:6024400000000301", waitlist: [UC_Y] }
+      buyers:
+        "tt:7101000000000000001": { items: [b1/15], subtotal: 10000, display: 홍길동 }
+        UC_Y: { items: [], subtotal: 0, display: 홍길동 }
+        "ig:6024400000000301": { items: [b1/16], subtotal: 5000, display: 홍길동 }
+      claimCount: 4                                       # 방송자 댓글·재수신은 찜 없음
+      cancelRequests: []
+  # 판매자가 틱톡 A와 인스타 B를 같은 사람으로 확인해 합친다(ID 칸 from·into = tt·ig 접두어 키 — 영문이 섞여 휴대폰 번호 ID가 아니다).
+  # 두 사람에게 같은 상품의 활성 찜이 없다(A: 15 확정, B: 16 확정) → 합치기가 막히지 않는다. 유튜브 Y는 닉네임이 같아도 합치지 않는다
+  - { at: "20:05:00", type: buyer.merge, from: "ig:6024400000000301", into: "tt:7101000000000000001", reason: 같은 사람(틱톡·인스타) }       # seq 9
+expect:
+  sameBuyer: [["ig:6024400000000301", "tt:7101000000000000001"]]
+  products:
+    b1/15: { status: SOLD, winner: "tt:7101000000000000001", waitlist: [UC_Y] }
+    b1/16: { status: SOLD, winner: "ig:6024400000000301", waitlist: [UC_Y] }
+  claims:
+    - { product: b1/15, buyer: "tt:7101000000000000001", status: CONFIRMED }
+    - { product: b1/15, buyer: UC_Y, status: WAITLISTED }
+    - { product: b1/16, buyer: "ig:6024400000000301", status: CONFIRMED }
+    - { product: b1/16, buyer: UC_Y, status: WAITLISTED }
+  buyers:
+    "tt:7101000000000000001": { items: [b1/15, b1/16], subtotal: 15000, byBroadcast: { b1: 15000 }, display: 홍길동 }   # 10,000 + 5,000 (틱톡 A + 인스타 B)
+    UC_Y: { items: [], subtotal: 0, display: 홍길동, nameHistory: [홍길동] }
+  claimCount: 4                                           # A 15 · Y 15 · B 16 · Y 16
+  settlements:
+    "tt:7101000000000000001@2026-10-21": { subtotal: 15000, shipping: 4000, total: 19000, payment: UNPAID }   # 합친 묶음 하나, 배송비 한 번
+    "UC_Y@2026-10-21": { subtotal: 0, shipping: 0, total: 0, payment: UNPAID }                                 # 대기만 → 품목 없음
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "tt:7101000000000000001", text: "15번 핑크프릴 10,000원 홍길동님 구매 감사합니다", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/16, buyer: "ig:6024400000000301", text: "16번 라울 5,000원 홍길동님 구매 감사합니다", confirmVersion: 1 }
+  effectCounts: { POST_THANKS: 2, PRINT_PRODUCT_LABEL: 2, VOID_LABEL: 0 }   # A1·B1 각각 라벨 1 + 감사 1 (합치기는 효과 없음)
+  pendingEffects:
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: "tt:7101000000000000001", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "tt:7101000000000000001", confirmVersion: 1 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/16, buyer: "ig:6024400000000301", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/16, buyer: "ig:6024400000000301", confirmVersion: 1 }
+---
+id: G-ENG-N2b-2-02
+title: 틱톡 연결이 끊겨 붙여 넣은 댓글 — 번호마다 문자찜, 한 번 넣기 안의 같은 닉네임은 한 문자 구매자, 다시 보낸 넣기는 찜 없음, 먼저 도착한 틱톡 댓글이 앞서고, 판매자가 붙여넣기 구매자를 틱톡 구매자에 합치면 승계도 그 사람에게
+refs: [PLT-02, ORD-01, ORD-02, ORD-07, ORD-08, BUY-01, BUY-03, STL-01, R-4, R-6, R-8, R-11, R-12, R-13, INV-3, D-051, D-057, D-067, D-089, D-N2b-2-03, D-N2b-2-07, D-N2b-2-08]
+broadcasts: [{ id: b1, date: 2026-10-21, title: 틱톡 1부 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }      # seq 1
+  - { at: "20:00:00", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }          # seq 2
+  - { at: "20:00:00", type: product.register, b: b1, no: 17, name: 성미인, price: 8000 }        # seq 3
+  - { at: "20:00:00", type: product.register, b: b1, no: 18, name: 미니마, price: 6000 }        # seq 4
+  # 연결 중에 받은 틱톡 댓글: D(홍길동) 18번 확정(1) (찜 1), C(박지민) 15번 확정(1) (찜 2)
+  - { at: "20:00:10", type: chat, b: b1, id: "tt:7301000000000000101", ch: "tt:7101000000000000101", nick: 홍길동, text: "18" }     # seq 5
+  - { at: "20:00:20", type: chat, b: b1, id: "tt:7301000000000000102", ch: "tt:7101000000000000102", nick: 박지민, text: "15번" }   # seq 6
+  # 연결이 막혀 판매자가 20:05:00에 붙여 넣음:
+  #   1줄 "홍길동: 15" · 2줄 "김철수: 16 17" · 3줄 "홍길동: 17"
+  # → 주문 번호마다 sms 하나(줄 순서, 줄 안 번호 순서). 수신 시각 = 넣은 시각(한 번 넣기에 같은 값), 메모 = 닉네임.
+  #   p1: 홍길동 처음 → 새 문자 구매자 sms:p1. 15번은 C가 확정(SOLD) → 대기 [p1] (찜 3)
+  - { at: "20:05:00", type: sms, b: b1, ref: p1, no: 15, received: "20:05:00", memo: 홍길동 }                     # seq 7
+  #   p2: 김철수 처음 → 새 문자 구매자 sms:p2. 16번 확정(1) — 라벨·감사 (찜 4)
+  - { at: "20:05:00", type: sms, b: b1, ref: p2, no: 16, received: "20:05:00", memo: 김철수 }                     # seq 8
+  #   p3: 김철수 두 번째 → 지정 구매자 sms:p2. 17번 확정(1) — 라벨·감사 (찜 5)
+  - { at: "20:05:00", type: sms, b: b1, ref: p3, no: 17, received: "20:05:00", memo: 김철수, buyer: "sms:p2" }    # seq 9
+  #   p4: 홍길동 두 번째 → 지정 구매자 sms:p1. 17번은 p2가 확정 → 대기 [p1] (찜 6). 틱톡 D(홍길동)에는 저절로 잇지 않는다(D-N2b-2-08)
+  - { at: "20:05:00", type: sms, b: b1, ref: p4, no: 17, received: "20:05:00", memo: 홍길동, buyer: "sms:p1" }    # seq 10
+  # 응답을 못 받은 화면이 같은 넣기를 다시 보냄 → 같은 ref의 재전송 사본 → 아무 일도 없다
+  - { at: "20:05:01", type: sms, b: b1, ref: p2, no: 16, received: "20:05:00", memo: 김철수 }                     # seq 11
+  - type: assert
+    expect:
+      products:
+        b1/15: { status: SOLD, winner: "tt:7101000000000000102", waitlist: ["sms:p1"] }
+        b1/16: { status: SOLD, winner: "sms:p2", waitlist: [] }
+        b1/17: { status: SOLD, winner: "sms:p2", waitlist: ["sms:p1"] }
+        b1/18: { status: SOLD, winner: "tt:7101000000000000101", waitlist: [] }
+      buyers:
+        "sms:p1": { items: [], subtotal: 0, display: "문자찜(홍길동)", nameHistory: ["문자찜(홍길동)"], phoneLast4: null }
+        "sms:p2": { items: [b1/16, b1/17], subtotal: 13000, display: "문자찜(김철수)", nameHistory: ["문자찜(김철수)"], phoneLast4: null }   # 5,000 + 8,000
+      claimCount: 6                                       # D18 · C15 · p1 15 · p2 16 · p2 17 · p1 17 (재전송은 찜 없음)
+  # 판매자가 붙여넣기 구매자 "문자찜(홍길동)"을 틱톡 D(홍길동)와 같은 사람으로 확인해 합친다.
+  # 같은 상품의 활성 찜이 두 쪽에 없다(D: 18 확정, p1: 15·17 대기) → 막히지 않는다
+  - { at: "20:10:00", type: buyer.merge, from: "sms:p1", into: "tt:7101000000000000101", reason: 같은 사람(틱톡·붙여넣기) }   # seq 12
+  # C가 15번 취소 → C15 CANCELLED, 미실행 라벨·감사 C1 취소(출력 보고 없음 → 폐기 없음).
+  # 자동 승계: 대기 1순위 = p1의 찜(지금의 구매자 D) → 확정(2) — 라벨·감사(2). 감사 이름은 찜의 구매자 자신(문자 구매자) → "문자찜"(R-13, D-057)
+  - { at: "20:11:00", type: host.cancel, b: b1, no: 15, buyer: "tt:7101000000000000102", reason: 구매자 요청 }   # seq 13
+expect:
+  sameBuyer: [["sms:p1", "tt:7101000000000000101"]]
+  products:
+    b1/15: { status: SOLD, winner: "sms:p1", waitlist: [] }
+    b1/16: { status: SOLD, winner: "sms:p2", waitlist: [] }
+    b1/17: { status: SOLD, winner: "sms:p2", waitlist: ["sms:p1"] }
+    b1/18: { status: SOLD, winner: "tt:7101000000000000101", waitlist: [] }
+  claims:
+    - { product: b1/15, buyer: "tt:7101000000000000102", status: CANCELLED }
+    - { product: b1/15, buyer: "sms:p1", status: CONFIRMED }
+    - { product: b1/16, buyer: "sms:p2", status: CONFIRMED }
+    - { product: b1/17, buyer: "sms:p2", status: CONFIRMED }
+    - { product: b1/17, buyer: "sms:p1", status: WAITLISTED }
+    - { product: b1/18, buyer: "tt:7101000000000000101", status: CONFIRMED }
+  buyers:
+    "tt:7101000000000000101": { items: [b1/15, b1/18], subtotal: 16000, byBroadcast: { b1: 16000 }, display: 홍길동 }   # 10,000 + 6,000 (틱톡 D + 붙여넣기 p1)
+    "sms:p2": { items: [b1/16, b1/17], subtotal: 13000, display: "문자찜(김철수)" }
+    "tt:7101000000000000102": { items: [], subtotal: 0, display: 박지민 }
+  claimCount: 6
+  settlements:
+    "tt:7101000000000000101@2026-10-21": { subtotal: 16000, shipping: 4000, total: 20000, payment: UNPAID }
+    "sms:p2@2026-10-21": { subtotal: 13000, shipping: 4000, total: 17000, payment: UNPAID }
+    "tt:7101000000000000102@2026-10-21": { subtotal: 0, shipping: 0, total: 0, payment: UNPAID }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/18, buyer: "tt:7101000000000000101", text: "18번 미니마 6,000원 홍길동님 구매 감사합니다", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "tt:7101000000000000102", text: "15번 핑크프릴 10,000원 박지민님 구매 감사합니다", confirmVersion: 1 }   # 취소됨(나온 효과로는 남는다)
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/16, buyer: "sms:p2", text: "16번 라울 5,000원 문자찜님 구매 감사합니다", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/17, buyer: "sms:p2", text: "17번 성미인 8,000원 문자찜님 구매 감사합니다", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:p1", text: "15번 핑크프릴 10,000원 문자찜님 구매 감사합니다", confirmVersion: 2 }
+  effectCounts: { POST_THANKS: 5, PRINT_PRODUCT_LABEL: 5, VOID_LABEL: 0 }   # 확정 5번(D18·C15·p2 16·p2 17·p1 15)마다 라벨 1 + 감사 1. C15 라벨은 출력 전 취소라 폐기 없음
+  pendingEffects:                                         # C15의 라벨·감사(1)는 취소 → 빠짐
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/18, buyer: "tt:7101000000000000101", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/18, buyer: "tt:7101000000000000101", confirmVersion: 1 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/16, buyer: "sms:p2", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/16, buyer: "sms:p2", confirmVersion: 1 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/17, buyer: "sms:p2", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/17, buyer: "sms:p2", confirmVersion: 1 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: "sms:p1", confirmVersion: 2 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: "sms:p1", confirmVersion: 2 }

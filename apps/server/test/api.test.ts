@@ -237,8 +237,8 @@ describe('AC-S04-52 조회·이력 API', () => {
     await expectOk(writeEvent(world, seller, { type: 'sms', b: b.id, no: 1, received: '11:59', phone: '01011112222' }))
     const view = await client(world, seller.cookie).get(`/api/days/${b.date}`)
     const state = (await world.server.writer.read(seller.sellerId, b.date)).state
-    expect(view.body).toEqual(
-      withIsoTimes({
+    expect(view.body).toEqual({
+      ...withIsoTimes({
         date: b.date,
         rehearsal: false,
         seq: 6,
@@ -256,7 +256,9 @@ describe('AC-S04-52 조회·이력 API', () => {
           .filter((settlement) => settlement.date === b.date && settlement.items.length > 0)
           .map((settlement) => ({ buyer: settlement.buyer, status: '포장 대기', invoice: null })),
       }),
-    )
+      // N3(AC-N3-32): 실제 범위 조회에는 입금 연결이 붙는다 (입금 확인으로 적은 기록이 없으면 빈 목록) — 계약 변경에 따른 교체
+      depositLinks: [],
+    })
     expect((view.body.packing as unknown[]).length).toBeGreaterThan(0)
     expect(JSON.parse(view.text)).toEqual(view.body)
     expect((view.body.claims as { at: string }[])[0]?.at).toBe(new Date(T0).toISOString())

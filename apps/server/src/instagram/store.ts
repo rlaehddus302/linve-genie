@@ -268,19 +268,6 @@ export async function latestLink(db: Db, sellerId: string, broadcastId: string):
   return rows[0] ?? null
 }
 
-/** 회차마다 가장 최근 연결 기록의 플랫폼 (DM 행을 만들 회차 — 발송함 POST_THANKS 행이 생기는 트랜잭션 안) */
-export async function latestPlatforms(db: Db, sellerId: string, broadcastIds: readonly string[]): Promise<Map<string, string>> {
-  const out = new Map<string, string>()
-  if (broadcastIds.length === 0) return out
-  const rows = await db
-    .select({ broadcastId: liveLinks.broadcastId, platform: liveLinks.platform, id: liveLinks.id })
-    .from(liveLinks)
-    .where(and(eq(liveLinks.sellerId, sellerId), inArray(liveLinks.broadcastId, [...broadcastIds])))
-    .orderBy(asc(liveLinks.id))
-  for (const row of rows) out.set(row.broadcastId, row.platform)
-  return out
-}
-
 /** 판매자의 끊지 않은 연결(WAITING·LINKED) 전부 */
 export async function openLinks(db: Db, sellerId: string): Promise<LinkRow[]> {
   return linkQuery(db, sellerId)

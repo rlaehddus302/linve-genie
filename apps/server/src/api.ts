@@ -5,6 +5,8 @@
 // - 로그인·헬스체크 밖은 세션이 필요하다(401). 다른 판매자의 자원은 404(있는지 알리지 않는다).
 // - 다른 출처를 허용하는 CORS 헤더를 내지 않는다. 모든 응답은 Cache-Control: no-store.
 // - 받은 값은 오류 응답에 되돌려 보내지 않는다(문제에는 필드 이름과 서버가 정한 문장만).
+// - N3: /api/deposits 경로(deposit/api.ts). 날짜 범위 조회(/days/:date·/changes)에 입금 연결(depositLinks)을 붙인다(AC-N3-32).
+//   엔진 요청 번호 `dep-`는 입금 확인이 쓴다(dep-<번호>-pay-<차례>) — 화면 이벤트 쓰기의 요청 번호로는 받지 않는다(같은 번호로 미리 막지 못하게).
 import { isValidDate } from '@livejjim/core'
 import { Hono, type Context } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
@@ -24,7 +26,16 @@ import { DEVICE_ID_RE, type PrintService } from './print.ts'
 import { registerPrintRoutes } from './print-api.ts'
 import type { InstagramModule } from './instagram/index.ts'
 import { INSTAGRAM_PUBLIC_PATHS, registerLiveRoutes } from './instagram/routes.ts'
+import type { ReceiptLinkService } from './receipt-links.ts'
+import type { TikTokLive } from './tiktok-live/live.ts'
+import type { PasteService } from './tiktok-live/paste-service.ts'
+import { registerTiktokRoutes } from './tiktok-live/routes.ts'
+import type { Db } from './db/database.ts'
 import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.ts'
+import { WEBHOOK_PATH, registerBillingRoutes } from './billing/api.ts'
+import type { BillingService } from './billing/service.ts'
+import { registerDepositRoutes } from './deposit/api.ts'
+import type { DepositService } from './deposit/service.ts'
 import type { Actor, WriteOutcome, WriteResult } from './writer.ts'
 import { CALLBACK_PATH, registerYoutubeRoutes } from './youtube/routes.ts'
 import type { Sealer } from './youtube/seal.ts'
@@ -44,16 +55,22 @@ export interface ApiDeps {
   readonly service: Service
   /** 정산 마무리 (I2 — 가게 설정·확인서·판매대장·포장·지난 구매·가져오기·백업·내려받기) */
   readonly closing: ClosingService
+  /** 구매자 확인서 공유 링크 (N4b). 없으면 /api/days/:date/receipt-links 경로가 없다 */
+  readonly receiptLinks?: ReceiptLinkService
   readonly auth: Auth
   readonly hub: StreamHub
   /** 출력 기록과 출력 기기 (I1). 없으면 /api/print 경로가 없다 */
   readonly print?: PrintService
   /** 인스타그램·플랫폼 공통 라이브 연결 (N2). 없으면 /api/platforms·/api/live·/api/instagram 경로가 없다 */
   readonly instagram?: InstagramModule
+  /** 입금 확인 (N3). 없으면 /api/deposits 경로가 없고 날짜 범위 조회에 입금 연결이 없다 */
+  readonly deposits?: DepositService
   /** 화면 앱 주소 (Origin 검사, 예: https://app.livejjim.kr) */
   readonly appOrigin: string
   /** 화면 설정 (방송자 조치 대기 시간 — 운영 5000, E2E 기동만 줄인다 / 시험 모드 신호 testPrinter — E2E 기동만 켠다, I1) */
   readonly clientConfig?: { readonly hostActionDelayMs: number; readonly testPrinter?: boolean }
+  /** 요금 (N5). 없거나 꺼져 있으면 /api/billing/**는 404 */
+  readonly billing?: BillingService
   /** E2E 기동만: 확인서 데이터 조회의 ?at=<UTC 밀리초> (AC-I2-15, ServerOptions.receiptAtParam) */
   readonly receiptAtParam?: boolean
   /** 유튜브 연동 (Y1, 설정이 없으면 null — 그 API는 503) */
@@ -61,6 +78,8 @@ export interface ApiDeps {
   readonly sealer?: Sealer | null
   /** 믿는 앞단 프록시 수 (0~5, 기본 0 — X-Forwarded-For를 보지 않는다, AC-I3-66) */
   readonly trustedProxies?: number
+  /** 틱톡 연결·붙여넣기 (N2b-2). instagram과 함께 준다 — 회차 연결 조회가 플랫폼마다 */
+  readonly tiktok?: { readonly db: Db; readonly live: TikTokLive; readonly paste: PasteService }
 }
 
 /** TCP 연결 주소 (@hono/node-server가 넘기는 요청 정보). 프로세스 안 요청(시험의 app.request)은 env로 넣을 수 있고, 없으면 null */
@@ -117,10 +136,12 @@ function rehearsalOf(c: Context): { ok: true; value: boolean | undefined } | { o
 }
 
 const NUMBER_RE = /^\d{1,9}$/
+/** 입금 확인이 엔진에 쓰는 요청 번호 앞머리 (DP-6 — dep-<번호>-pay-<차례>·dep-<번호>-rev-<차례>) */
+export const DEPOSIT_REQUEST_PREFIX = 'dep-'
 /** 상품 ID (코어 listProducts의 id — 영문·숫자·'_'·'-' 1~64자) */
 const PRODUCT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 
-function outcomeResponse(c: Context, outcome: WriteOutcome): Response {
+function outcomeResponse(c: Context, outcome: WriteOutcome, extra: Readonly<Record<string, unknown>> = {}): Response {
   switch (outcome.kind) {
     case 'ok':
     case 'duplicate': {
@@ -129,7 +150,7 @@ function outcomeResponse(c: Context, outcome: WriteOutcome): Response {
       if (result.failed) {
         return apiError(500, 'PROCESSING_FAILED', '처리하지 못했어요. 확인 필요 목록에 남겼어요.', [], { date: result.date, seq: result.seq })
       }
-      return json(c, resultBody(result))
+      return json(c, { ...resultBody(result), ...extra })
     }
     case 'rejected':
       return apiError(outcome.rejection.status, outcome.rejection.code, outcome.rejection.message, outcome.rejection.problems)
@@ -145,6 +166,9 @@ function outcomeResponse(c: Context, outcome: WriteOutcome): Response {
 export function createApi(deps: ApiDeps): Hono<Env> {
   const { service, closing, auth, hub } = deps
   const api = new Hono<Env>()
+  const billing = deps.billing?.enabled === true ? deps.billing : null
+  /** 요금 웹훅 (세션·Origin 없이 서명으로 확인 — 요금 기능이 켜져 있을 때만) */
+  const isWebhook = (c: Context) => billing !== null && c.req.method === 'POST' && c.req.path === WEBHOOK_PATH
 
   // 모든 응답: 캐시 금지 (개인 데이터)
   api.use(async (c, next) => {
@@ -152,10 +176,16 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     c.res.headers.set('Cache-Control', 'no-store')
   })
 
-  // 상태를 바꾸는 요청: Origin → 크기 → JSON (기록 전에 거른다)
+  // 요금 기능이 꺼져 있으면 요금 경로는 웹훅까지 모두 404 (세션·Origin 검사보다 먼저 — BL-0 7, AC-N5-11)
+  api.use(async (c, next) => {
+    if (billing === null && (c.req.path === '/api/billing' || c.req.path.startsWith('/api/billing/'))) return notFound()
+    return next()
+  })
+
+  // 상태를 바꾸는 요청: Origin → 크기 → JSON (기록 전에 거른다). 요금 웹훅은 Origin·JSON 읽기를 건너뛴다(서명은 받은 본문 그대로 확인)
   api.use(async (c, next) => {
     c.set('body', null)
-    if (!STATE_CHANGING.has(c.req.method)) return next()
+    if (!STATE_CHANGING.has(c.req.method) || isWebhook(c)) return next()
     if (c.req.header('origin') !== deps.appOrigin) return apiError(403, 'FORBIDDEN_ORIGIN', '허용하지 않은 곳에서 온 요청이에요.')
     const contentType = (c.req.header('content-type') ?? '').split(';')[0]?.trim().toLowerCase()
     if (contentType !== JSON_CONTENT_TYPE) return apiError(415, 'NOT_JSON', '보낸 내용의 형식이 올바르지 않아요.')
@@ -191,7 +221,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     return smallBody(c, next)
   })
   api.use(async (c, next) => {
-    if (!STATE_CHANGING.has(c.req.method)) return next()
+    if (!STATE_CHANGING.has(c.req.method) || isWebhook(c)) return next()
     let parsed: unknown
     try {
       parsed = JSON.parse(await c.req.text())
@@ -205,7 +235,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
 
   // 세션 (로그인·헬스체크 밖 전부 — 가져오기 두 경로는 위에서 이미 봤다)
   api.use(async (c, next) => {
-    if (PUBLIC_PATHS.has(`${c.req.method} ${c.req.path}`)) return next()
+    if (PUBLIC_PATHS.has(`${c.req.method} ${c.req.path}`) || isWebhook(c)) return next()
     if (!sessionChecked.has(c.req.raw)) {
       const refused = await checkSession(c)
       if (refused !== null) return refused
@@ -220,11 +250,25 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   const sellerOf = (c: Context<Env>) => c.get('session').sellerId
   const requestIdOf = (value: Record<string, unknown>): string | null => {
     const id = own(value, 'requestId')
-    return typeof id === 'string' && REQUEST_ID_RE.test(id) ? id : null
+    return typeof id === 'string' && REQUEST_ID_RE.test(id) && !id.startsWith(DEPOSIT_REQUEST_PREFIX) ? id : null
   }
+  /** 실제 범위 조회에 붙이는 입금 연결 (리허설 범위는 빈 목록 — AC-N3-32) */
+  const depositLinksOf = async (sellerId: string, date: string, rehearsal: boolean) =>
+    deps.deposits === undefined || rehearsal ? [] : await deps.deposits.linksForDay(sellerId, date)
   const onlyKeys = (value: Record<string, unknown>, allowed: readonly string[]): Response | null => {
     const extra = ownKeys(value).filter((key) => !allowed.includes(key))
     return extra.length === 0 ? null : apiError(400, 'UNKNOWN_FIELD', '받을 수 없는 항목이 있어요.', unknownFieldProblems(extra))
+  }
+
+  /**
+   * 방송 만들기 응답의 요금 항목 (N5, AC-N5-20): 요금 기능이 켜져 있고 실제 방송이면 그 방송의 이용 방식·방송 일을 새로 썼는지.
+   * 이용 방식이 없는 방송(요금 기능을 켜기 전에 시작)은 null. 꺼져 있거나 리허설이면 항목이 없다. 같은 요청 번호의 재전송도 처음 결과와 같다
+   */
+  const billingOf = async (c: Context<Env>, result: WriteResult): Promise<Record<string, unknown>> => {
+    if (billing === null || result.type !== 'broadcast.start' || result.rehearsal || result.failed) return {}
+    const b = result.event.b
+    const mode = typeof b === 'string' ? await billing.modeOf(sellerOf(c), b) : null
+    return { billing: mode === null ? null : { mode: mode.mode, usedDay: mode.usedDay } }
   }
 
   api.get('/health', (c) => c.json({ status: 'ok' }))
@@ -330,7 +374,21 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   })
 
   // 화면 설정 (방송자 조치 대기 시간, D-083 — 운영 5000밀리초 / 시험 모드 신호 — 시험용 프린터를 켠다, E2E 기동만 true, L-11 15)
-  api.get('/client-config', (c) => c.json({ hostActionDelayMs: deps.clientConfig?.hostActionDelayMs ?? 5000, testPrinter: deps.clientConfig?.testPrinter === true }))
+  // 요금 (N5): 켜짐인지·시험 결제인지, 운영 결제일 때만 포트원 공개 값(상점 ID·채널 키). 비밀값은 없다
+  api.get('/client-config', (c) =>
+    c.json({
+      hostActionDelayMs: deps.clientConfig?.hostActionDelayMs ?? 5000,
+      testPrinter: deps.clientConfig?.testPrinter === true,
+      billing:
+        billing === null
+          ? { enabled: false, testPayment: false }
+          : {
+              enabled: true,
+              testPayment: billing.setup.test !== null,
+              ...(billing.setup.test === null && billing.setup.publicKeys !== null ? { storeId: billing.setup.publicKeys.storeId, channelKey: billing.setup.publicKeys.channelKey } : {}),
+            },
+    }),
+  )
 
   // ── 설정 (AC-S04-50) ──────────────────────────────────────────────────
   api.get('/settings', async (c) => c.json({ settings: await service.settings(sellerOf(c)) }))
@@ -347,12 +405,13 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     const requestId = requestIdOf(input)
     if (requestId === null) return invalidRequestId()
     const prior = await service.priorResult(sellerOf(c), requestId)
-    if (prior !== null) return outcomeResponse(c, { kind: 'duplicate', result: prior })
+    if (prior !== null) return outcomeResponse(c, { kind: 'duplicate', result: prior }, await billingOf(c, prior))
     const extra = onlyKeys(input, ['requestId', 'date', 'title', 'rehearsal', 'saleMode'])
     if (extra !== null) return extra
     const parsed = Service.broadcastInput(input)
     if (!parsed.ok) return apiError(parsed.rejection.status, parsed.rejection.code, parsed.rejection.message, parsed.rejection.problems)
-    return outcomeResponse(c, await service.createBroadcast(sellerOf(c), actorOf(c), requestId, parsed))
+    const created = await service.createBroadcast(sellerOf(c), actorOf(c), requestId, parsed)
+    return outcomeResponse(c, created, created.kind === 'ok' ? await billingOf(c, created.result) : {})
   })
   api.post('/broadcasts/:id/end', async (c) => {
     const input = body(c)
@@ -447,9 +506,10 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (!rehearsal.ok) return rehearsal.response
     const view = await service.scopeView(sellerOf(c), date, rehearsal.value ?? false)
     if (view === null) return notFound()
+    const depositLinks = await depositLinksOf(sellerOf(c), date, rehearsal.value ?? false)
     // 실제 범위: 묶음마다 포장·배송 상태 (I2 AC-I2-33 — 리허설 범위에는 없다)
-    if (rehearsal.value === true) return c.json(view)
-    return c.json({ ...view, packing: await closing.packingSummary(sellerOf(c), date) })
+    if (rehearsal.value === true) return c.json({ ...view, depositLinks })
+    return c.json({ ...view, packing: await closing.packingSummary(sellerOf(c), date), depositLinks })
   })
   api.get('/days/:date/history', async (c) => {
     const date = c.req.param('date')
@@ -501,7 +561,9 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     const changes = await service.changes(sellerOf(c), date, rehearsal.value ?? false, Number(since))
     if (changes === null) return notFound()
     if (changes === 'resync') return apiError(410, 'RESYNC_REQUIRED', '바뀐 내용을 이어 받을 수 없어요. 전체를 다시 불러와 주세요.')
-    return c.json(changes)
+    // 입금 연결은 정산 묶음이 바뀐 증분에만 담는다(그 범위 전체) — 입금 확인의 기록·되돌림은 늘 정산 기록을 바꾼다. 없으면 화면은 이전 값을 그대로 둔다
+    const settlementsChanged = changes.settlements.length > 0 || changes.removed.settlements.length > 0
+    return c.json(settlementsChanged ? { ...changes, depositLinks: await depositLinksOf(sellerOf(c), date, rehearsal.value ?? false) } : changes)
   })
   // 채팅 메시지 이어 받기 (AC-S05-20): after 뒤 / before 앞 / 둘 다 없으면 가장 최근. 개수 1~500(기본 100)
   api.get('/days/:date/messages', async (c) => {
@@ -576,7 +638,8 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     c.header('X-Receipt-Created-At', String(outcome.value.createdAt))
     return c.json(outcome.value.receipt)
   })
-  for (const kind of ['pdf', 'png'] as const) {
+  // 한 사람 JPG (N4b AC-N4b-01 — PNG와 같은 그림, 같은 인자·같은 오류 답)
+  for (const kind of ['pdf', 'png', 'jpg'] as const) {
     api.get(`/days/:date/receipt.${kind}`, async (c) => {
       const scope = scopeParams(c)
       if (!scope.ok) return scope.response
@@ -590,6 +653,76 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (!scope.ok) return scope.response
     return fileOf(await closing.batchPdf(sellerOf(c), scope.date, scope.rehearsal, c.req.raw.signal))
   })
+
+  // 전원 이미지 묶음 ZIP (N4b AC-N4b-02 — 리허설 범위도 된다)
+  api.get('/days/:date/receipts.zip', async (c) => {
+    const scope = scopeParams(c)
+    if (!scope.ok) return scope.response
+    return fileOf(await closing.batchJpgZip(sellerOf(c), scope.date, scope.rehearsal, c.req.raw.signal))
+  })
+
+  // ── 영수증 보내기 (N4b — harness/sprints/N4b/dev-notes.md "API") ─────────
+  const links = deps.receiptLinks
+  if (links !== undefined) {
+    const linkOutcome = <T>(c: Context<Env>, outcome: Outcome<T>, body: (value: T) => Record<string, unknown>): Response => {
+      if (outcome.kind === 'not_found') return notFound()
+      if (outcome.kind === 'error') return problemResponse(outcome.error)
+      return c.json(body(outcome.value))
+    }
+    // 구매자 줄 (AC-N4b-32): 품목 있는 묶음마다 이름·끝자리·상품 수·최종 금액·입금 상태(확인서 데이터 그대로), 일괄 순서. 실제 범위면 링크 상태도
+    api.get('/days/:date/receipt-buyers', async (c) => {
+      const scope = scopeParams(c)
+      if (!scope.ok) return scope.response
+      const outcome = await closing.receiptBuyers(sellerOf(c), scope.date, scope.rehearsal)
+      if (outcome.kind !== 'ok') return linkOutcome(c, outcome, () => ({}))
+      const rows = outcome.value.rows
+      const statuses = scope.rehearsal ? null : await links.statuses(sellerOf(c), scope.date, rows.map((row) => row.buyer))
+      return c.json({ date: scope.date, rehearsal: scope.rehearsal, buyers: rows.map((row) => ({ ...row, link: statuses?.get(row.buyer) ?? null })) })
+    })
+    // 링크 목록 (AC-N4b-12): 리허설 범위는 빈 목록
+    api.get('/days/:date/receipt-links', async (c) => {
+      const scope = scopeParams(c)
+      if (!scope.ok) return scope.response
+      return linkOutcome(c, await links.list(sellerOf(c), scope.date, scope.rehearsal), (list) => ({ date: scope.date, rehearsal: scope.rehearsal, links: list }))
+    })
+    // 링크 만들기 (AC-N4b-10): { requestId, buyer }
+    api.post('/days/:date/receipt-links', async (c) => {
+      const input = body(c)
+      const requestId = requestIdOf(input)
+      if (requestId === null) return invalidRequestId()
+      const extra = onlyKeys(input, ['requestId', 'buyer'])
+      if (extra !== null) return extra
+      const buyer = buyerParam(typeof own(input, 'buyer') === 'string' ? (own(input, 'buyer') as string) : undefined)
+      if (!buyer.ok) return problemResponse(buyer.error)
+      const scope = scopeParams(c)
+      if (!scope.ok) return scope.response
+      return linkOutcome(c, await links.create(sellerOf(c), c.get('session').accountId, scope.date, scope.rehearsal, requestId, buyer.buyer), (value) => ({ date: scope.date, ...value }))
+    })
+    // 링크 전부 만들기 (AC-N4b-11): { requestId }
+    api.post('/days/:date/receipt-links/all', async (c) => {
+      const input = body(c)
+      const requestId = requestIdOf(input)
+      if (requestId === null) return invalidRequestId()
+      const extra = onlyKeys(input, ['requestId'])
+      if (extra !== null) return extra
+      const scope = scopeParams(c)
+      if (!scope.ok) return scope.response
+      return linkOutcome(c, await links.createAll(sellerOf(c), c.get('session').accountId, scope.date, scope.rehearsal, requestId), (value) => ({ date: scope.date, ...value }))
+    })
+    // 링크 끊기 (AC-N4b-13): { requestId, buyer }
+    api.post('/days/:date/receipt-links/revoke', async (c) => {
+      const input = body(c)
+      const requestId = requestIdOf(input)
+      if (requestId === null) return invalidRequestId()
+      const extra = onlyKeys(input, ['requestId', 'buyer'])
+      if (extra !== null) return extra
+      const buyer = buyerParam(typeof own(input, 'buyer') === 'string' ? (own(input, 'buyer') as string) : undefined)
+      if (!buyer.ok) return problemResponse(buyer.error)
+      const scope = scopeParams(c)
+      if (!scope.ok) return scope.response
+      return linkOutcome(c, await links.revoke(sellerOf(c), c.get('session').accountId, scope.date, scope.rehearsal, requestId, buyer.buyer), (value) => ({ date: scope.date, ...value }))
+    })
+  }
 
   // 판매대장 (AC-I2-20): ?from=&to=&b=<방송 ID>&b=… (b가 없으면 기간 안 모든 실제 방송)
   api.get('/ledger.xlsx', async (c) => {
@@ -717,7 +850,40 @@ export function createApi(deps: ApiDeps): Hono<Env> {
 
   // ── 플랫폼 공통 라이브 연결·인스타그램 (N2) ────────────────────────────
   // 플랫폼 능력 조회의 YOUTUBE.ready = 유튜브 연동 설정(Y1)이 있는지. 유튜브 잇기 자체는 /api/youtube 경로(Y1)가 맡는다
-  if (deps.instagram !== undefined) registerLiveRoutes(api, deps.instagram, auth, { youtube: deps.youtube !== undefined && deps.youtube !== null })
+  // 틱톡(N2b-2): 설정·연결 보기·다시 연결·붙여넣기. 잇기·끊기는 플랫폼 공통 경로(/broadcasts/:id/live/link·unlink, platform TIKTOK)
+  if (deps.instagram !== undefined && deps.tiktok !== undefined) {
+    registerLiveRoutes(api, deps.instagram, auth, { db: deps.tiktok.db, tiktok: deps.tiktok.live, youtubeReady: deps.youtube !== undefined && deps.youtube !== null })
+    registerTiktokRoutes(api, deps.tiktok.live, deps.tiktok.paste)
+  }
+  // ── 요금 (N5, BILLING_RULES) — 켜져 있을 때만 ───────────────────────────
+  if (billing !== null) registerBillingRoutes(api, billing)
+
+  // ── 입금 확인 (N3, DEPOSIT_RULES) ─────────────────────────────────────
+  if (deps.deposits !== undefined) registerDepositRoutes(api, deps.deposits)
+
+  // 시험용 시청자 채팅 (입금 확인 시험 모드에서만 — 운영 기동에는 경로 자체가 없다, 404. SA-N3-03·D-N3-12).
+  // 실제 방송에도 유튜브 구매자를 만들 수 있게(기억한 입금자명 흐름 E2E, AC-N3-42·46) 수집 함수(ingestChat, 조치자 수집기)를 그대로 부른다.
+  // 입력 { b, id, ch, nick, text } — 같은 (방송, 메시지 ID)는 한 번만 기록한다. 리허설 방송이면 그 리허설 범위로 간다
+  if (deps.deposits?.testMode === true) {
+    api.post('/deposits/test/chat', async (c) => {
+      const input = c.get('body') ?? {}
+      const extra = onlyKeys(input, ['b', 'id', 'ch', 'nick', 'text'])
+      if (extra !== null) return extra
+      const outcome = await service.ingestChat(sellerOf(c), input)
+      switch (outcome.status) {
+        case 'recorded':
+          return c.json({ recorded: true, date: outcome.date, seq: outcome.seq, changed: outcome.changed })
+        case 'duplicate':
+          return c.json({ recorded: false })
+        case 'rejected':
+          return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', outcome.problems)
+        case 'not_found':
+          return notFound()
+        case 'save_failed':
+          return apiError(500, 'SAVE_FAILED', '저장하지 못했어요. 다시 시도해 주세요.')
+      }
+    })
+  }
 
   api.notFound(() => notFound())
   return api

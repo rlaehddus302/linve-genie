@@ -7,6 +7,7 @@
 // - 보낸 뒤 칸을 모두 비운다(전화번호 원문을 화면 상태에 남기지 않는다). 아래에 고른 방송의 최근 문자찜 10개.
 // - I3: 30일이 지나 봉인한 날짜의 방송은 고를 수 없다(기본 방송으로도 고르지 않는다, AC-I3-41). 보조자 계정은 실제 방송만 고르고
 //   허용된 요청(방송 목록·범위 목록·범위 조회·실시간)만 보낸다(AC-I3-63).
+// - N2b-2: "댓글 붙여넣기" — 콘솔과 같은 붙여넣기 창(번호마다 문자찜). 보조자도 실제 방송에서 쓴다(서버 권한이 문자찜 입력과 같다).
 import { DEFAULT_SETTINGS, containsPhoneRun, normalizePhone, phoneLast4, type ClaimStatus } from '@livejjim/core'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
 import { get, isApiError, type ApiError } from '../api/client.ts'
@@ -23,7 +24,8 @@ import type { Navigate } from '../lib/router.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
 import { useScopeStore } from '../lib/use-store.ts'
 import type { UndoQueue } from '../lib/undo-queue.ts'
-import { BUYER_KIND_WORD, PRODUCT_STATUS_WORD } from '../lib/words.ts'
+import { PRODUCT_STATUS_WORD } from '../lib/words.ts'
+import { buyerPlatformWord } from '../lib/platforms.ts'
 import { openClaimAction } from './actions.ts'
 import type { ConsoleApi } from './console-context.ts'
 import { ErrorNote } from './ErrorNote.tsx'
@@ -31,6 +33,7 @@ import { FieldNote, WriteError, serverProblem, useSender } from './forms.tsx'
 import { useHostActions } from './host-actions.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
 import { Modal } from './Modal.tsx'
+import { PasteDialog } from './PasteDialog.tsx'
 import { sortBroadcasts } from './HomePage.tsx'
 import { UndoBar } from './UndoBar.tsx'
 
@@ -73,6 +76,11 @@ export function SmsPage({ navigate, assistant = false }: { readonly navigate: Na
   const [selected, setSelected] = useState<string | null>(null)
   const [choosing, setChoosing] = useState(false)
   const [focusSignal, setFocusSignal] = useState(0)
+  // 댓글 붙여넣기 (틱톡 등 — 번호마다 문자찜, N2b-2 AC-N2b-2-64)
+  const [pasting, setPasting] = useState(false)
+  const [pasteNote, setPasteNote] = useState<string | null>(null)
+  // 붙여 넣던 글은 창을 닫아도 그 방송에 남는다 (넣기를 마치면 비운다 — UX-N2b-2-01)
+  const [pasteDraft, setPasteDraft] = useState<{ readonly broadcast: string; readonly text: string } | null>(null)
 
   const load = useCallback(async (first: boolean) => {
     setListError(null)
@@ -95,6 +103,7 @@ export function SmsPage({ navigate, assistant = false }: { readonly navigate: Na
   const item = broadcasts?.find((broadcast) => broadcast.id === selected) ?? snapshot.broadcast
 
   const choose = (id: string) => {
+    setPasteNote(null)
     setSelected(id)
     setChoosing(false)
     setFocusSignal((n) => n + 1)
@@ -111,10 +120,42 @@ export function SmsPage({ navigate, assistant = false }: { readonly navigate: Na
         ) : (
           <SelectedBroadcast item={item} snapshot={snapshot} />
         )}
-        <button type="button" className="button" onClick={() => setChoosing(true)} disabled={broadcasts === null}>
-          {item === null || item === undefined ? '방송 고르기' : '방송 바꾸기'}
-        </button>
+        <div className="row">
+          <button type="button" className="button" onClick={() => setChoosing(true)} disabled={broadcasts === null}>
+            {item === null || item === undefined ? '방송 고르기' : '방송 바꾸기'}
+          </button>
+          {selected !== null && item !== null && item !== undefined && snapshot.sealed !== true ? (
+            <button
+              type="button"
+              className="button"
+              onClick={() => {
+                setPasteNote(null)
+                setPasting(true)
+              }}
+            >
+              댓글 붙여넣기
+            </button>
+          ) : null}
+        </div>
+        {pasteNote !== null ? (
+          <p className="notice" role="status">
+            {pasteNote}
+          </p>
+        ) : null}
       </section>
+      {pasting && selected !== null ? (
+        <PasteDialog
+          broadcastId={selected}
+          draft={pasteDraft?.broadcast === selected ? pasteDraft.text : ''}
+          onDraftChange={(text) => setPasteDraft({ broadcast: selected, text })}
+          onClose={() => setPasting(false)}
+          onDone={(message) => {
+            setPasteDraft(null)
+            setPasting(false)
+            setPasteNote(message)
+          }}
+        />
+      ) : null}
       {listError !== null ? <ErrorNote error={listError} onRetry={() => void load(true)} retryLabel="다시 불러오기" /> : null}
       {item?.rehearsal === true && (store === null || queue === null || snapshot.data === null) ? <RehearsalWarning /> : null}
       {selected === null || item === null || item === undefined ? (
@@ -598,7 +639,7 @@ function BuyerChooser({
     return (
       <div className="stack-tight" role="group" aria-label="고른 구매자">
         <p>
-          고른 구매자: <strong>{api.names.name(buyer.id)}</strong> <span className="tag">{BUYER_KIND_WORD[buyer.kind]}</span>
+          고른 구매자: <strong>{api.names.name(buyer.id)}</strong> <span className="tag">{buyerPlatformWord(buyer)}</span>
           {buyer.blocked ? <span className="tag tag-alert">차단</span> : null}
         </p>
         {buyer.blocked ? (
@@ -646,7 +687,7 @@ function BuyerChooser({
                 }}
               >
                 <strong>{api.names.name(hit.current.id)}</strong>
-                <span className="tag">{BUYER_KIND_WORD[hit.current.kind]}</span>
+                <span className="tag">{buyerPlatformWord(hit.current)}</span>
                 {distinguishWords(hit.current, counts).map((word) => (
                   <span key={word}>{word}</span>
                 ))}

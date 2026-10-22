@@ -51,6 +51,15 @@ export async function activeLink(db: Db, sellerId: string, broadcastId: string):
   return rows[0] ?? null
 }
 
+/** 판매자의 끊지 않은 유튜브 연결 전부 (회차 연결 조회 — 플랫폼마다, AC-N2b-2-05) */
+export async function activeLinksOfSeller(db: Db, sellerId: string): Promise<LinkRow[]> {
+  return db
+    .select(linkColumns)
+    .from(youtubeLinks)
+    .where(and(eq(youtubeLinks.sellerId, sellerId), isNull(youtubeLinks.unlinkedAt)))
+    .orderBy(asc(youtubeLinks.linkedAt))
+}
+
 export async function linkById(db: Db, sellerId: string, linkId: string): Promise<LinkRow | null> {
   const rows = await db
     .select(linkColumns)
