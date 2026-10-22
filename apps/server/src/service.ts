@@ -45,6 +45,7 @@ import { fieldMessage, phoneIdProblem, safeFieldName, unknownFieldProblems } fro
 import { productOwners } from './product-history.ts'
 import { mergePackingCheck } from './packing.ts'
 import { ASSISTANT_EVENT_TYPES, assistantCancelCheck, assistantForbidden } from './roles.ts'
+import { SALE_MODE_NOT_YET_FIELD_MESSAGE, SALE_MODE_NOT_YET_MESSAGE, usesNotYetSaleMode } from './sale-mode.ts'
 import { openSellerKey, phoneKeyOf } from './secrets.ts'
 import {
   actionRows,
@@ -71,6 +72,7 @@ import {
   type HistoryRow,
   type ScopeSeqRow,
 } from './store.ts'
+import type { BillingService } from './billing/service.ts'
 import { iso, kstDate, kstTime, type Clock } from './time.ts'
 import type { ViewCacheBudget } from './view-budget.ts'
 import { changeSet, fullView, messageLookup, type ChangeSet, type FullView, type MessageLookup } from './views.ts'
@@ -122,6 +124,8 @@ export interface ServiceOptions {
   readonly generatorSpeed?: number
   /** 리허설 생성기 상태가 바뀔 때 (SSE generator 알림) */
   readonly onGenerator?: (sellerId: string, payload: Readonly<Record<string, unknown>>) => void
+  /** 요금 (N5). 켜져 있으면 새 실제 방송 시작이 이용 방식을 같은 트랜잭션에서 정한다(BL-4) */
+  readonly billing?: BillingService
 }
 
 export type ChatIngestOutcome =
@@ -234,6 +238,9 @@ export interface HistoryItem {
 
 const rejection = (status: number, code: Rejection['code'], message: string, problems: readonly FieldProblem[] = []): Rejection => ({ status, code, message, problems })
 const invalidInput = (problems: readonly FieldProblem[]): Rejection => rejection(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', problems)
+/** 아직 쓸 수 없는 판매 방식 (claim.parseMode=OPTIONS, RA-O1-01 — O2에서 풂) */
+const saleModeNotYet = (status: 400 | 422): Rejection =>
+  rejection(status, 'NOT_SUPPORTED', SALE_MODE_NOT_YET_MESSAGE, [{ field: 'settings.claim.parseMode', message: SALE_MODE_NOT_YET_FIELD_MESSAGE }])
 
 const notFound = { kind: 'not_found' } as const
 /** 코드 포인트 수 (이모지 하나 = 1) */
@@ -302,10 +309,12 @@ export class Service {
     if (own(record, 'settlement.groupBy') === 'MANUAL') {
       return { ok: false, rejection: rejection(400, 'NOT_SUPPORTED', '아직 지원하지 않는 설정이에요.', [{ field: 'settings.settlement.groupBy', message: '아직 지원하지 않아요.' }]) }
     }
+    // 옵션 방송은 아직 서버·화면·라벨이 모른다 (RA-O1-01) — O2에서 풂
+    if (usesNotYetSaleMode(record)) return { ok: false, rejection: saleModeNotYet(400) }
     const saved = await this.#options.db.transaction(async (tx) => {
       await tx.select({ id: sellers.id }).from(sellers).where(eq(sellers.id, sellerId)).for('update')
       const next = { ...(await this.#settingsOverride(tx, sellerId)), ...record }
-      if (checkSettings(next).length > 0 || next['settlement.groupBy'] === 'MANUAL') return null
+      if (checkSettings(next).length > 0 || next['settlement.groupBy'] === 'MANUAL' || usesNotYetSaleMode(next)) return null
       await tx.update(sellers).set({ settings: JSON.stringify(next) }).where(eq(sellers.id, sellerId))
       return next
     })
@@ -374,8 +383,13 @@ export class Service {
     const date = input.date ?? kstDate(this.#options.clock.now())
     const rehearsal = input.rehearsal === true
     const settings = resolveSettings(await this.#settingsOverride(db, sellerId))
+    // 옵션 방송은 아직 서버·화면·라벨이 모른다 (RA-O1-01) — 저장된 설정에 남아 있어도 방송을 만들지 않는다. O2에서 풂
+    if (usesNotYetSaleMode(settings)) return { kind: 'rejected', rejection: saleModeNotYet(422) }
     const b = ids.broadcast()
-    return writer.write({
+    // 요금 (N5, BL-4): 실제 방송이고 요금 기능이 켜져 있으면 broadcast.start·방송 행과 같은 트랜잭션에서 이용 방식을 정한다 — 없으면 422 NO_PASS로 전체를 되돌린다
+    const billing = !rehearsal && this.#options.billing?.enabled === true ? this.#options.billing : null
+    let billed = false
+    const outcome = await writer.write({
       sellerId,
       date,
       rehearsal,
@@ -411,8 +425,14 @@ export class Service {
         if (first === undefined || !first.changed) return
         const event = first.event as unknown as { b: string; date: string; title: string }
         await insertBroadcast(tx, { id: event.b, sellerId, scopeId, date: event.date, title: event.title, startSeq: first.seq, now })
+        if (billing !== null) {
+          await billing.decideStart(tx, { sellerId, scopeId, broadcastId: event.b, date: event.date, now })
+          billed = true
+        }
       },
     })
+    if (outcome.kind === 'ok' && billed) billing?.started(sellerId)
+    return outcome
   }
 
   /** 방송 만들기 요청 본문 검사 (날짜·제목·리허설인지) */

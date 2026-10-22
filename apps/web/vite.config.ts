@@ -13,7 +13,8 @@ import { serviceWorkerSource } from './pwa/service-worker.ts'
 import { VOICE_CHUNK_PLACEHOLDER } from './src/voice/chunk.ts'
 
 const apiTarget = process.env['LIVEJJIM_API_URL'] ?? 'http://localhost:3000'
-const proxy = { '/api': { target: apiTarget, changeOrigin: false } }
+// /r/<토큰>(구매자 확인서 링크 — 서버가 그리는 문서, N4b)도 서버로 넘긴다. '/receipts' 같은 화면 주소는 넘기지 않게 정규식으로 /r 하나·/r/만 고른다
+const proxy = { '/api': { target: apiTarget, changeOrigin: false }, '^/r(/|$)': { target: apiTarget, changeOrigin: false } }
 
 function publicFiles(dir: string): string[] {
   try {

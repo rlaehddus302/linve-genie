@@ -526,7 +526,7 @@ export interface OpenHooks {
  * 더 오래된 찜은 EXPIRED. 재고가 다 찬 뒤의 찜은 R-7을 본다(HOST 동률이면 공개 순간에도 충돌, D-052).
  * 옵션 상품(R-19 "공개 전 찜"): 변형마다 판정한다. 옵션이 없는 보류 찜은 변형이 하나면 그 변형으로, 둘 이상이면
  * 판정하지 않고 REJECTED(OPTION_MISSING) + 확인 필요. 그 상품에 없는 변형을 가진 보류 찜(번호를 바꾼 뒤 남은 찜)도 같다.
- * 수량 2 이상 보류 찜의 수량이 남은 수량보다 많으면 판정하지 않고 끝내고 확인 필요(STOCK_SHORT)로 보낸다.
+ * 수량 2 이상 보류 찜의 수량이 남은 수량(0보다 큼)보다 많으면 판정하지 않고 REJECTED(STOCK_SHORT) + 확인 필요(STOCK_SHORT, D-O1-11).
  */
 export function openPending(d: Draft, slot: SlotDraft, openedAt: number, hooks: OpenHooks): void {
   const start = openedAt - d.settingsOf(slot.b)['claim.preOpenWindowSec'] * 1000
@@ -566,8 +566,8 @@ export function openPending(d: Draft, slot: SlotDraft, openedAt: number, hooks: 
       continue
     }
     if (outcome.kind === 'review') {
-      // 일부만 자동 확정하지 않는다(R-19 "수량"). 판정하지 않은 보류 찜은 끝내고 확인 필요로 (사유 표시는 SOLD_OUT — dev-notes)
-      finish(d, claim, unit, 'REJECTED', 'SOLD_OUT')
+      // 일부만 자동 확정하지 않는다(R-19 "수량"). 재고가 남은 채 판정하지 않은 보류 찜은 REJECTED(STOCK_SHORT)로 끝내고 확인 필요로 (D-O1-11)
+      finish(d, claim, unit, 'REJECTED', 'STOCK_SHORT')
       hooks.stockShort(claim)
       continue
     }

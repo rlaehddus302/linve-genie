@@ -1,6 +1,7 @@
 // 옵션 모델 도구와 댓글 옵션 인식의 경계 (R-19·R-20, AC-O1-15~18 — 골든 comment-options 89사례 밖)
-import { FOCUS_GRACE_SEC, compareChars, parseOptionComment, unitPriceOf, variantCount, variantTexts, type OptionCatalogEntry, type OptionItem } from '@livejjim/core'
+import { FOCUS_GRACE_SEC, compareChars, parseChat, parseOptionComment, unitPriceOf, variantCount, variantTexts, type OptionCatalogEntry, type OptionItem } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
+import { matchesNumberGrammar } from '../../src/parse/chat.ts'
 import { indexesOfText, lowestUnitPrice, optionTextOf, pairsOfText, pickIndexes, variantIndexes } from '../../src/options.ts'
 
 const COLOR_SIZE: readonly OptionItem[] = [
@@ -54,6 +55,30 @@ describe('parseOptionComment 경계 (R-20)', () => {
     { no: 41, name: '물', options: [{ name: '용량', choices: [{ label: '500ml' }, { label: '1L' }] }] },
   ]
   const parse = (text: string, focus: { no: number; ageSec: number } | null = null, settings = {}) => parseOptionComment(text, catalog, focus, settings)
+
+  it('번호 문법이면 multiNumber=IGNORE·범위 밖·번호 6개 이상이어도 STRICT 결과(언급) 그대로 — 옵션 해석으로 넘어가지 않는다 (R-20 2, SA-O1-04)', () => {
+    const tee: OptionCatalogEntry[] = [{ no: 22, name: '반팔티', options: [{ name: '사이즈', choices: [{ label: '95' }, { label: '100' }] }] }]
+    const none = { orders: [], cancels: [], review: null }
+    expect(parseOptionComment('22 100', tee, null, { 'claim.multiNumber': 'IGNORE' })).toEqual({ ...none, mentions: [22, 100] })
+    expect(parseOptionComment('22 100', tee, null, { 'claim.maxNumber': 99 })).toEqual({ ...none, mentions: [22] })
+    expect(parseOptionComment('1 2 3 4 5 22', tee, null)).toEqual({ ...none, mentions: [1, 2, 3, 4, 5, 22] })
+    expect(parseOptionComment('100 취소', tee, null, { 'claim.maxNumber': 99 })).toEqual({ orders: [], cancels: [], mentions: [], review: null })
+    // 기본 설정이면 확인 필요 그대로
+    expect(parseOptionComment('22 100', tee, null).review).toEqual({ reason: 'OPTION_MISSING', no: 22 })
+  })
+
+  it('matchesNumberGrammar: 번호 문법인가 (금액 덩어리·끝 신호는 문법이 아니다, LOOSE는 주문 부분)', () => {
+    expect(matchesNumberGrammar('22 100')).toBe(true)
+    expect(matchesNumberGrammar('22 100', { 'claim.maxNumber': 99 })).toBe(true)
+    expect(matchesNumberGrammar('21 취소')).toBe(true)
+    expect(matchesNumberGrammar('22 10000원')).toBe(false)
+    expect(matchesNumberGrammar('22?')).toBe(false)
+    expect(matchesNumberGrammar('반팔티 22')).toBe(false)
+    expect(matchesNumberGrammar('22 주세요', { 'claim.parseMode': 'LOOSE' })).toBe(true)
+    expect(matchesNumberGrammar('22 취소요 해주세요', { 'claim.parseMode': 'LOOSE' })).toBe(parseChat('22 취소요 해주세요', { 'claim.parseMode': 'LOOSE' }).cancels.length > 0)
+    expect(matchesNumberGrammar('22 주세요 취소', { 'claim.parseMode': 'LOOSE' })).toBe(false)
+    expect(matchesNumberGrammar('안녕하세요')).toBe(false)
+  })
 
   it('같은 입력이면 같은 결과, 넘긴 값을 바꾸지 않는다, 문자열이 아니면 빈 결과', () => {
     const frozen = Object.freeze(catalog.map((entry) => Object.freeze({ ...entry })))

@@ -143,6 +143,11 @@ export function patch<T>(path: string, body: unknown, options?: RequestOptions):
   return request<T>('PATCH', path, body, options)
 }
 
+/** 지우기 — 서버는 상태를 바꾸는 요청의 본문을 JSON 객체로 받는다(빈 객체 `{}`도 보낸다) */
+export function del<T>(path: string, body: unknown = {}, options?: RequestOptions): Promise<T> {
+  return request<T>('DELETE', path, body, options)
+}
+
 /** 서버가 만든 파일 (확인서·판매대장·포장 라벨·전체 내려받기, I2 D-I2-01) */
 export interface FileResponse {
   readonly blob: Blob

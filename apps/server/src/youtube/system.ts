@@ -16,7 +16,8 @@ import { YoutubeAccessError, YoutubeConnections, googleFields, type ConnectionVi
 import { DEFAULT_COSTS, GOOGLE_ENDPOINTS, GoogleClient, GoogleError, type ApiMethod, type GoogleEndpoints } from './google.ts'
 import { OutboxRunner, type OutboxHooks, type OutboxTiming } from './outbox.ts'
 import { findRow, isOurPost } from './outbox-store.ts'
-import { latestLink as liveLink } from '../instagram/store.ts'
+import { alreadyLinkedMessage } from '../platform.ts'
+import { sellerLinkLockKey } from '../seller-locks.ts'
 import { DEFAULT_QUOTA, QuotaMeter, type QuotaSettings } from './quota.ts'
 import {
   activeLink,
@@ -70,7 +71,7 @@ export const LINK_MESSAGES = {
   INVALID_VIDEO_URL: '유튜브 방송 주소를 확인해 주세요.',
   REHEARSAL_LINK: '리허설 방송에는 유튜브 방송을 이을 수 없어요.',
   BROADCAST_ENDED: '끝난 방송에는 유튜브 방송을 이을 수 없어요.',
-  ALREADY_LINKED: '이 방송에는 이미 유튜브 방송이 이어져 있어요. 먼저 연결을 끊어 주세요.',
+  ALREADY_LINKED: alreadyLinkedMessage('YOUTUBE'),
   NOT_MY_CHANNEL: '내 채널의 방송만 연결할 수 있어요.',
   NO_LIVE_CHAT: '채팅을 받을 수 없는 방송이에요. 끝났거나 채팅이 꺼져 있어요.',
   VIDEO_IN_USE: '이미 다른 방송에 이어진 유튜브 방송이에요.',
@@ -308,14 +309,9 @@ export class YoutubeSystem {
   }
 
   /**
-   * 잇기 (AC-Y1-12). 조건을 모두 만족할 때만 잇고 바로 수집을 시작한다. 같은 요청 번호로 두 번 보내도 한 번만 잇는다
+   * 잇기 (AC-Y1-12). 조건을 모두 만족할 때만 잇고 바로 수집을 시작한다. 같은 요청 번호로 두 번 보내도 한 번만 잇는다.
+   * 다른 플랫폼(인스타그램·틱톡)이 이어져 있어도 막지 않는다 — 같은 플랫폼만 ALREADY_LINKED (동시 송출, D-N2b-2-01)
    */
-  /** 그 회차에 다른 플랫폼(인스타그램)의 끊지 않은 라이브 연결이 있는지 (N2 live_links) */
-  async #otherPlatform(db: Db, sellerId: string, b: string): Promise<boolean> {
-    const other = await liveLink(db, sellerId, b)
-    return other !== null && other.state !== 'UNLINKED'
-  }
-
   async link(session: SessionInfo, b: string, video: string, requestId: string): Promise<LinkOutcome> {
     const { db, timer } = this.#options
     const sellerId = session.sellerId
@@ -329,8 +325,6 @@ export class YoutubeSystem {
     if (await this.#sealed(sellerId, row)) return { kind: 'rejected', status: 409, code: 'SEALED' }
     if (row.endedAt !== null) return { kind: 'rejected', status: 409, code: 'BROADCAST_ENDED' }
     if ((await activeLink(db, sellerId, b)) !== null) return { kind: 'rejected', status: 409, code: 'ALREADY_LINKED' }
-    // 한 회차 한 플랫폼: 인스타그램 라이브가 이어져 있거나 기다리는 중이어도 막는다 (PLT-01, N2 합치기)
-    if (await this.#otherPlatform(db, sellerId, b)) return { kind: 'rejected', status: 409, code: 'ALREADY_LINKED' }
     const connection = await this.connections.status(sellerId)
     if (connection.status === 'NOT_CONNECTED' || connection.channel === null) return { kind: 'rejected', status: 409, code: 'YOUTUBE_NOT_CONNECTED' }
     if (connection.status === 'RECONNECT_NEEDED') return { kind: 'rejected', status: 409, code: 'YOUTUBE_RECONNECT_NEEDED' }
@@ -358,11 +352,10 @@ export class YoutubeSystem {
     const id = `yl_${randomBytes(12).toString('base64url')}`
     let refused: LinkCode | null
     try {
-      // 판매자 단위 잠금 안에서 확인과 넣기를 함께 (AC-Y1-98): 같은 영상을 두 회차에 동시에 이어도 하나만. 끝난 회차에 이어 둔 영상은 막지 않는다
+      // 판매자 단위 잠금(모든 플랫폼 공통, D-N2b-2-01) 안에서 확인과 넣기를 함께 (AC-Y1-98): 같은 영상을 두 회차에 동시에 이어도 하나만. 끝난 회차에 이어 둔 영상은 막지 않는다
       refused = await db.transaction(async (tx): Promise<LinkCode | null> => {
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`livejjim/youtube-link/${sellerId}`}, 0))`)
+        await tx.execute(sql`select pg_advisory_xact_lock(${sellerLinkLockKey(sellerId)})`)
         if ((await activeLink(tx, sellerId, b)) !== null) return 'ALREADY_LINKED'
-        if (await this.#otherPlatform(tx, sellerId, b)) return 'ALREADY_LINKED'
         if ((await findBroadcast(tx, sellerId, b))?.endedAt != null) return 'BROADCAST_ENDED'
         const others = (await openLinksForVideo(tx, sellerId, [videoId])).filter((other) => other.broadcastId !== b)
         if (others.length > 0) return 'VIDEO_IN_USE'
@@ -399,6 +392,8 @@ export class YoutubeSystem {
     // 범위 락을 잡고 끊는다 — 어느 서버의 수집기든 그 회차에 채팅을 기록하는 트랜잭션(같은 락, 연결이 이어져 있는지 확인)과 겹치지 않는다
     const unlinked = await db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(${scopeLockKey(sellerId, row.date, false)})`)
+      // 범위 락 → 판매자 잠금 (모든 플랫폼 공통 — 기록 트랜잭션과 같은 순서, D-N2b-2-01)
+      await tx.execute(sql`select pg_advisory_xact_lock(${sellerLinkLockKey(sellerId)})`)
       return unlinkRow(tx, sellerId, link.id, session.accountId, now)
     })
     if (unlinked) {

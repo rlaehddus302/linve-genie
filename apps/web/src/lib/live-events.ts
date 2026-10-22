@@ -3,15 +3,31 @@
 // 브라우저가 다시 붙지 않는 닫힘(세션 만료 등)이면 조금 뒤 새로 연다. 화면이 내려가면 닫는다.
 // 연결은 페이지의 실시간 연결 하나를 함께 쓴다(출력 기록·범위 저장소와 같은 연결, lib/stream.ts — 기기 ID를 밝힌다).
 import { useEffect, useRef } from 'react'
-import type { YoutubeEvent } from '../api/types.ts'
+import type { InstagramEvent, TikTokEvent, YoutubeEvent } from '../api/types.ts'
 import type { EventSourceLike } from './console-store.ts'
 import { streamUrl } from './device.ts'
 import { sharedStream } from './stream.ts'
 
 const REOPEN_MS = 2000
 
+/** SSE `instagram`·`tiktok` 알림 (N2b-2) */
+export type PlatformStreamEvent = { readonly type: 'instagram'; readonly event: InstagramEvent } | { readonly type: 'tiktok'; readonly event: TikTokEvent }
+
+/** `instagram`·`tiktok` 알림의 data → 알림 (kind가 없으면 null) */
+export function parsePlatformEvent(type: 'instagram' | 'tiktok', raw: unknown): PlatformStreamEvent | null {
+  try {
+    const data = JSON.parse(String(raw)) as unknown
+    if (typeof data !== 'object' || data === null || typeof (data as { kind?: unknown }).kind !== 'string') return null
+    return type === 'instagram' ? { type, event: data as InstagramEvent } : { type, event: data as TikTokEvent }
+  } catch {
+    return null
+  }
+}
+
 export interface LiveHandlers {
   readonly onYoutube?: (event: YoutubeEvent) => void
+  /** 인스타그램·틱톡 알림 (설정 화면) */
+  readonly onPlatform?: (event: PlatformStreamEvent) => void
   /** 끊겼다 다시 붙음 — 열린 화면의 상태를 다시 받는다 (놓친 알림 따라잡기) */
   readonly onReconnect?: () => void
 }
@@ -51,6 +67,12 @@ export class LiveEvents {
       const data = parseYoutubeEvent(event.data)
       if (data !== null) this.#handlers().onYoutube?.(data)
     })
+    for (const type of ['instagram', 'tiktok'] as const) {
+      stream.addEventListener(type, (event) => {
+        const data = parsePlatformEvent(type, event.data)
+        if (data !== null) this.#handlers().onPlatform?.(data)
+      })
+    }
     stream.onerror = () => {
       if (this.#stopped || this.#stream !== stream || stream.readyState !== 2) return
       stream.close()

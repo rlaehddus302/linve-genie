@@ -199,8 +199,13 @@ test('AC-S06-90: 리허설 + 휴대폰 문자찜 + 구매자 합치기 + 정산 
   await expect(mobile.getByText('합쳤어요')).toBeVisible()
   // 휴대폰 합치기가 PC 구매자 목록에 (PC를 구매자 화면으로)
   await page.goto(`/buyers?date=${date}&rehearsal=true`)
-  // PC는 표 (AC-S06b-21 — 교체)
-  await expect(page.getByRole('region', { name: '구매자 목록' }).getByRole('table', { name: '구매자' }).getByRole('row').filter({ has: page.getByRole('link', { name: /단골손님/ }) })).toContainText('합친 구매자 1명')
+  // PC는 표 (AC-S06b-21 — 교체). 기본 목록이 아니라 찾기로 본다 (판정 SA-I4-008, D-090 — 교체):
+  // 기본 목록은 "그날 확정 찜이 있는 지금의 구매자"다. 합친 단골손님에게 확정 찜이 있는지는 생성기 채팅과
+  // 문자찜 5·6·7의 기록 차례로 갈린다(셋 다 대기면 기본 목록에서 빠지는 게 맞다). 찾기는 그날 기록된 모든 구매자.
+  // 지금의 구매자 목록·합계 = 재생은 아래 휴대폰 구매자 목록 비교가 계속 본다.
+  const pcList = page.getByRole('region', { name: '구매자 목록' })
+  await pcList.getByLabel('구매자 찾기').fill('단골')
+  await expect(pcList.getByRole('table', { name: '찾은 구매자' }).getByRole('row').filter({ has: page.getByRole('link', { name: /단골손님/ }) })).toContainText('합친 구매자 1명')
 
   // ── 휴대폰 정산: 입금 5건(하나는 오타 → 환불), 직접 수령 하나, 할인 하나 ──
   await mobile.goto(`/settlements?date=${date}&rehearsal=true`)

@@ -96,8 +96,8 @@ describe('AC-Y1-12 잇기 조건', () => {
     expect(first.status).toBe(200)
     expect(first.body).toMatchObject({ link: { videoId: live.videoId, channelId: connected.channel.id }, collector: { status: 'STARTING', recorded: 0, skippedBeforeLink: 0 } })
     expect((await link(b.id, live.videoId, 'r8')).body).toEqual(first.body)
-    // 이미 이어져 있다
-    expect((await link(b.id, live.videoId, 'r9')).body).toEqual({ error: { code: 'ALREADY_LINKED', message: '이 방송에는 이미 유튜브 방송이 이어져 있어요. 먼저 연결을 끊어 주세요.' } })
+    // 이미 이어져 있다 — N2b-2(AC-N2b-2-01): 플랫폼마다 같은 문장 "이미 {플랫폼} 라이브가" (바꾼 기존 시험, dev-notes)
+    expect((await link(b.id, live.videoId, 'r9')).body).toEqual({ error: { code: 'ALREADY_LINKED', message: '이 방송에는 이미 유튜브 라이브가 이어져 있어요. 먼저 연결을 끊어 주세요.' } })
     // 그 영상이 끝나지 않은 다른 회차에 이어져 있다
     const b2 = await createBroadcast(w, connected.seller)
     expect((await link(b2.id, live.videoId, 'r10')).body).toEqual({ error: { code: 'VIDEO_IN_USE', message: '이미 다른 방송에 이어진 유튜브 방송이에요.' } })

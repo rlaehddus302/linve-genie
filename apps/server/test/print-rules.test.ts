@@ -555,7 +555,7 @@ describe('AC-I1-16 시험 모드 신호', () => {
     const server = createServer({ ...assembled.options, log: () => {} })
     const world = { server, database, masterKey: env.LIVEJJIM_MASTER_KEY, clock: { now: Date.now, set: () => {}, advance: () => {} }, logs: [] } as unknown as TestServer
     const seller = await addSeller(world)
-    expect((await client(world, seller.cookie).get('/api/client-config')).body).toEqual({ hostActionDelayMs: 5000, testPrinter: false })
+    expect((await client(world, seller.cookie).get('/api/client-config')).body).toEqual({ hostActionDelayMs: 5000, testPrinter: false, billing: { enabled: false, testPayment: false } })
     server.close()
     const source = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8')
     expect(source).toContain('productionServerOptions(process.env, database)')

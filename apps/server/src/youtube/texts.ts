@@ -44,10 +44,15 @@ export function truncate(text: string, max: number): string {
  * (4) .·。·．·｡ → ·(U+00B7) (5) 이어진 공백 한 칸, 앞뒤 공백 삭제 (6) 30자 넘으면 앞 30자 + … (7) 비면 `시청자`
  */
 export function sanitizeNick(nick: string): string {
+  const cut = cleanNick(nick)
+  return cut === '' ? EMPTY_NICK : cut
+}
+
+/** 이름 정리 (1)~(6)만 — 비면 빈 글 그대로 (붙여넣기 닉네임 판단, D-N2b-2-07) */
+export function cleanNick(nick: string): string {
   const step = nick.replace(WHITE_SPACE, ' ').replace(INVISIBLE, '').replace(AT_SIGNS, '').replace(DOTS, '·').replace(SPACES, ' ').trim()
   const chars = codePoints(step)
-  const cut = chars.length > NICK_MAX ? `${chars.slice(0, NICK_MAX).join('')}…` : step
-  return cut === '' ? EMPTY_NICK : cut
+  return chars.length > NICK_MAX ? `${chars.slice(0, NICK_MAX).join('')}…` : step
 }
 
 /** 게시 문구 정리 (AC-Y1-33): 공백 문자 → 한 칸, Cc·Cf·Default_Ignorable 삭제, 이어진 공백 한 칸·앞뒤 공백 삭제 */

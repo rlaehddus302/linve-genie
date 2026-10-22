@@ -2,7 +2,7 @@
 import * as voiceModule from '@livejjim/voice'
 import type { CardRegistration, SuggestionCard, VoiceSettings } from '@livejjim/voice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { HISTORY_FAILED, RESTART_LABEL_MS, TOO_SOON, VOICE_LOAD_FAILED, VoiceController, type PastDay, type VoiceHost } from '../src/voice/controller.ts'
+import { HISTORY_FAILED, HISTORY_WAIT_MS, RESTART_LABEL_MS, TOO_SOON, VOICE_LOAD_FAILED, VoiceController, type PastDay, type VoiceHost } from '../src/voice/controller.ts'
 
 const T0 = Date.UTC(2026, 9, 20, 1, 0, 0)
 
@@ -321,6 +321,146 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     h.names = ['하늘별꽃']
     FakeRecognition.last.say('22번 하늘별꽃 만원')
     expect(h.voice.getSnapshot().cards[0]?.name).toBe('하늘별꽃')
+  })
+
+  /** 끝나지 않은 이력 조회 (받기·실패를 시험이 정한다) */
+  function pendingHistory(h: Harness): { resolve: (past: readonly PastDay[]) => void; reject: () => void } {
+    const out = { resolve: (_past: readonly PastDay[]) => {}, reject: () => {} }
+    h.fetchHistory.mockImplementation(
+      () =>
+        new Promise<readonly PastDay[]>((resolve, reject) => {
+          out.resolve = resolve
+          out.reject = () => reject(new Error('x'))
+        }),
+    )
+    return out
+  }
+
+  it('켠 직후 이력을 받는 동안 온 최종 문장은 기록에 바로 남고, 카드는 이력을 받은 뒤 이력 사전으로 — 온 차례대로 (SA-N3-04, D-I4-06)', async () => {
+    const h = harness()
+    const history = pendingHistory(h)
+    await turnOn(h)
+    FakeRecognition.last.say('21번 펭귄얼음 만원')
+    FakeRecognition.last.say('22번 핑크프릴 만오천 원')
+    expect(h.voice.getSnapshot().heard.map((line) => line.text)).toEqual(['22번 핑크프릴 만오천 원', '21번 펭귄얼음 만원'])
+    expect(h.voice.getSnapshot().cards).toEqual([])
+    vi.advanceTimersByTime(HISTORY_WAIT_MS - 1)
+    expect(h.voice.getSnapshot().cards).toEqual([])
+    history.resolve([{ date: '2026-10-11', names: ['펭귄얼음'] }])
+    await settle()
+    expect(h.voice.getSnapshot().cards.map((card) => [card.no, card.name])).toEqual([
+      [22, '핑크프릴'],
+      [21, '펭귄얼음'],
+    ])
+    // 받은 뒤의 문장은 바로 카드
+    FakeRecognition.last.say('23번 펭귄얼음 만원')
+    expect(h.voice.getSnapshot().cards[0]).toMatchObject({ no: 23, name: '펭귄얼음' })
+  })
+
+  it(`이력을 ${String(HISTORY_WAIT_MS)}ms 안에 받지 못하면 그때의 사전으로 카드를 만들고, 그 뒤 문장도 기다리지 않는다`, async () => {
+    const h = harness()
+    const history = pendingHistory(h)
+    await turnOn(h)
+    vi.advanceTimersByTime(500)
+    FakeRecognition.last.say('21번 펭귄얼음 만원')
+    expect(h.voice.getSnapshot().cards).toEqual([])
+    vi.advanceTimersByTime(HISTORY_WAIT_MS - 500)
+    expect(h.voice.getSnapshot().cards.map((card) => [card.no, card.name])).toEqual([[21, null]])
+    FakeRecognition.last.say('22번 핑크프릴 만오천 원')
+    expect(h.voice.getSnapshot().cards[0]).toMatchObject({ no: 22, name: '핑크프릴' })
+    // 늦게 받은 이력은 다음 문장부터 (이미 만든 카드는 그대로)
+    history.resolve([{ date: '2026-10-11', names: ['펭귄얼음'] }])
+    await settle()
+    expect(h.voice.getSnapshot().cards.find((card) => card.no === 21)?.name).toBeNull()
+    FakeRecognition.last.say('24번 펭귄얼음 만원')
+    expect(h.voice.getSnapshot().cards[0]).toMatchObject({ no: 24, name: '펭귄얼음' })
+  })
+
+  it('이력을 받지 못하면(실패) 미룬 문장을 바로 지금 범위 + 기본 사전으로', async () => {
+    const h = harness()
+    const history = pendingHistory(h)
+    h.names = ['토끼당근']
+    await turnOn(h)
+    FakeRecognition.last.say('24번 토끼당근 만원')
+    expect(h.voice.getSnapshot().cards).toEqual([])
+    history.reject()
+    await settle()
+    expect(h.voice.getSnapshot()).toMatchObject({ historyFailed: true })
+    expect(h.voice.getSnapshot().cards.map((card) => [card.no, card.name])).toEqual([[24, '토끼당근']])
+  })
+
+  it('이력을 기다리는 동안 끄면 미룬 문장은 카드가 되고(자동 확정 없음), 떠나면 버린다', async () => {
+    const auto = { 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5 }
+    const h = harness({ readSettings: () => auto })
+    pendingHistory(h)
+    await turnOn(h)
+    FakeRecognition.last.say('15번 핑크프릴 만오천 원')
+    h.voice.turnOff()
+    expect(h.voice.getSnapshot().cards.map((card) => [card.no, card.autoConfirmAt])).toEqual([[15, null]])
+    vi.advanceTimersByTime(60_000)
+    expect(h.registered).toEqual([])
+
+    const left = harness()
+    pendingHistory(left)
+    await turnOn(left)
+    FakeRecognition.last.say('16번 라울 만원')
+    left.voice.dispose()
+    vi.advanceTimersByTime(60_000)
+    expect(left.voice.getSnapshot().cards).toEqual([])
+  })
+
+  it('미룬 문장은 온 때의 설정으로 카드가 된다 — 끈 채 말하고 기다리는 사이 자동 등록을 켜도 자동 등록하지 않는다 (TE-N3-004, AC-I4-31)', async () => {
+    const h = harness()
+    const history = pendingHistory(h)
+    await turnOn(h)
+    FakeRecognition.last.say('15번 라울 만원')
+    h.voice.setAutoConfirm(true)
+    history.resolve([])
+    await settle()
+    expect(h.voice.getSnapshot().cards.map((card) => [card.no, card.autoConfirmAt])).toEqual([[15, null]])
+    vi.advanceTimersByTime(60_000)
+    expect(h.registered).toEqual([])
+    // 켠 뒤에 말한 문장은 자동 등록 기다림
+    FakeRecognition.last.say('16번 라울 만원')
+    expect(h.voice.getSnapshot().cards[0]).toMatchObject({ no: 16, autoConfirmAt: Date.now() + 5000 })
+  })
+
+  it('켠 채 말한 미룬 문장도 기다리는 사이 자동 등록을 끄면 자동 등록하지 않는다(다시 켜도), 켠 채 그대로면 카드가 보인 때부터 정한 시간 전부를 기다린다', async () => {
+    const auto = { 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5 }
+    const h = harness({ readSettings: () => auto })
+    const history = pendingHistory(h)
+    await turnOn(h)
+    FakeRecognition.last.say('15번 라울 만원')
+    h.voice.setAutoConfirm(false)
+    h.voice.setAutoConfirm(true)
+    history.resolve([])
+    await settle()
+    expect(h.voice.getSnapshot().cards.map((card) => [card.no, card.autoConfirmAt])).toEqual([[15, null]])
+
+    const kept = harness({ readSettings: () => auto })
+    pendingHistory(kept)
+    await turnOn(kept)
+    FakeRecognition.last.say('17번 라울 만원')
+    vi.advanceTimersByTime(HISTORY_WAIT_MS)
+    expect(kept.voice.getSnapshot().cards[0]).toMatchObject({ no: 17, autoConfirmAt: Date.now() + 5000 })
+  })
+
+  it('미룬 문장은 온 때의 번호 범위로 읽는다', async () => {
+    let max = 20
+    const h = harness({ maxNumber: () => max })
+    const history = pendingHistory(h)
+    await turnOn(h)
+    FakeRecognition.last.say('25번 라울 만원')
+    max = 999
+    history.resolve([])
+    await settle()
+    const wide = harness()
+    pendingHistory(wide)
+    await turnOn(wide)
+    FakeRecognition.last.say('25번 라울 만원')
+    vi.advanceTimersByTime(HISTORY_WAIT_MS)
+    // 범위 20에서 읽은 결과는 범위 999에서 읽은 결과와 같지 않다 (온 때의 범위를 쓴다)
+    expect(h.voice.getSnapshot().cards.map((card) => card.no)).not.toEqual(wide.voice.getSnapshot().cards.map((card) => card.no))
   })
 
   it('끈 뒤에 온 결과는 자막·기록·카드를 만들지 않는다 (stop을 부른다)', async () => {

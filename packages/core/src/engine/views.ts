@@ -146,7 +146,8 @@ function variantInfo(state: EngineState, r: Draft, slot: SlotRecord, product: Pr
 
 function productInfo(state: EngineState, r: Draft, slot: SlotRecord, product: ProductRecord): ProductInfo {
   const current = (id: string): string => r.root(claimOf(state, id).buyer)
-  const variants = slot.units.map((unit) => variantInfo(state, r, slot, product, unit))
+  // 상품 변형만 (번호를 바꾼 뒤 남은 변형 보류 찜의 자리는 그 상품의 변형이 아니다)
+  const variants = slot.units.filter((unit) => product.variants.some((variant) => variant.text === unit.text)).map((unit) => variantInfo(state, r, slot, product, unit))
   const confirmed = unitsOf(state, slot.winners) + variants.reduce((sum, variant) => sum + variant.confirmedUnits, 0)
   // 옵션 상품: 판매 중이면 모든 변형이 SOLD일 때 SOLD, 아니면 OPEN (R-19 "변형과 재고 단위")
   const status = product.options.length === 0 ? productStatus(product, confirmed) : product.phase !== 'SELLING' ? product.phase : variants.every((variant) => variant.status === 'SOLD') ? 'SOLD' : 'OPEN'

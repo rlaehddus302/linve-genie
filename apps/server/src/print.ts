@@ -399,6 +399,11 @@ export interface PrintOptions {
   readonly publishLabels?: (sellerId: string, data: Readonly<Record<string, unknown>>) => void
   /** 그 기기의 실시간 연결이 열려 있는지 */
   readonly deviceLive: (sellerId: string, deviceId: string) => boolean
+  /**
+   * 상품 라벨 작업이 출력함이 될 때 같은 트랜잭션에서 부른다 (N5 라벨 장 쓰기, BL-5 3). 폐기된 작업·포장 라벨은 부르지 않는다.
+   * 던지면 결과 기록 전체가 되돌아간다
+   */
+  readonly onPrinted?: (tx: Db, info: { sellerId: string; date: string; jobId: string; broadcast: string | null; no: number | null; now: Date }) => Promise<void>
 }
 
 export class PrintService {
@@ -1068,6 +1073,10 @@ export class PrintService {
         printedData: attempt.data,
         lastError: null,
       })
+      // 라벨 장 쓰기 (N5): 상품 라벨이 출력함이 되면 같은 트랜잭션에서. 폐기된 작업은 세지 않는다
+      if (job.kind === 'product' && !job.voided) {
+        await this.#options.onPrinted?.(tx, { sellerId, date: job.date, jobId: job.jobId, broadcast: row.label.broadcast, no: row.label.no, now })
+      }
     } else {
       const code = input.code === 'DOES_NOT_FIT' && input.item !== null ? `${input.code}:${input.item}` : input.code
       await finishAttempt(tx, sellerId, attempt.id, code, now)

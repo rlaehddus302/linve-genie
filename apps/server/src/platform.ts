@@ -2,7 +2,9 @@
 // - 플랫폼은 YOUTUBE·INSTAGRAM·TIKTOK. 채팅 구매자(채널) 키·메시지 ID의 접두어로 플랫폼을 안다:
 //   `ig:` 인스타그램, `tt:` 틱톡(예약), `sms:` 문자 구매자(플랫폼 없음), 그 밖 유튜브(리허설 가짜 채널 `sim_…`도 — D-082).
 // - 엔진은 바꾸지 않는다(구매자 종류 youtube = 채팅 구매자). 화면·문서는 이 함수 하나로 플랫폼 이름을 정한다.
-// - 댓글 원천(라이브 찾기)과 감사 보내기는 플랫폼 공통 어댑터 모양이고 인스타그램이 첫 구현이다. 틱톡 구현은 없다(D-904 결정 대기).
+// - 댓글 원천(라이브 찾기)과 감사 보내기는 플랫폼 공통 어댑터 모양이고 인스타그램이 첫 구현이다.
+// - 틱톡(N2b-2, D-904·D-N2b-2-05): 비공식 웹캐스트 연결(tiktok-live/)로 댓글을 읽기만 한다. 감사는 보내지 않는다.
+// - 한 회차에 플랫폼마다 연결 하나(동시 송출, D-N2b-2-01). 플랫폼 이름은 PLATFORM_NAMES로 판매자 문장에 넣는다.
 
 export const PLATFORMS = ['YOUTUBE', 'INSTAGRAM', 'TIKTOK'] as const
 export type Platform = (typeof PLATFORMS)[number]
@@ -51,20 +53,26 @@ export interface PlatformCapability {
   readonly reasons: { readonly ready?: string; readonly receivedTime?: string; readonly thanks?: string; readonly videoComment?: string }
 }
 
+/** 판매자 문장에 넣는 플랫폼 이름 */
+export const PLATFORM_NAMES: Readonly<Record<Platform, string>> = { YOUTUBE: '유튜브', INSTAGRAM: '인스타그램', TIKTOK: '틱톡' }
+
+/** 같은 플랫폼 라이브가 이미 이어져 있음 (AC-N2b-2-01 — 플랫폼마다 같은 모양) */
+export function alreadyLinkedMessage(platform: Platform): string {
+  return `이 방송에는 이미 ${PLATFORM_NAMES[platform]} 라이브가 이어져 있어요. 먼저 연결을 끊어 주세요.`
+}
+
 export const PLATFORM_MESSAGES = {
-  tiktokNotSupported: '틱톡 라이브는 아직 지원하지 않아요.',
   youtubeNotReady: '유튜브 라이브는 아직 이 서버에서 이을 수 없어요.',
   instagramNotConfigured: '인스타그램 연동이 아직 준비되지 않았어요. 운영자에게 문의해 주세요.',
   instagramReceivedTime: '인스타그램 라이브는 댓글마다의 시각이 없어 실제 시각순으로 판정할 수 없어요.',
   instagramVideoComment: '인스타그램에는 공개 댓글로 감사를 남길 수 없어요.',
-  tiktokThanks: '틱톡 라이브는 아직 지원하지 않아요.',
 } as const
 
 /**
- * 플랫폼 능력 표. YOUTUBE.ready는 이 바탕(유튜브 연동 없음)에서는 아니오 — 합칠 때 Y1 설정 여부로 바꾼다(acceptance "합칠 때 맞출 것" 2).
- * INSTAGRAM.ready = 인스타그램 설정이 있는지(AC-N2-17). TIKTOK은 늘 아니오(D-904)
+ * 플랫폼 능력 표. YOUTUBE.ready = 유튜브 연동 설정이 있는지, INSTAGRAM.ready = 인스타그램 설정이 있는지(AC-N2-17),
+ * TIKTOK은 틱톡 연결(tiktok-live/live.ts capability — 운영자 스위치, AC-N2b-2-04)이 준다
  */
-export function platformCapabilities(ready: { readonly youtube: boolean; readonly instagram: boolean }): PlatformCapability[] {
+export function platformCapabilities(ready: { readonly youtube: boolean; readonly instagram: boolean }, tiktok: PlatformCapability): PlatformCapability[] {
   return [
     {
       platform: 'YOUTUBE',
@@ -86,19 +94,12 @@ export function platformCapabilities(ready: { readonly youtube: boolean; readonl
         videoComment: PLATFORM_MESSAGES.instagramVideoComment,
       },
     },
-    {
-      platform: 'TIKTOK',
-      ready: false,
-      receivedTime: false,
-      thanks: 'NONE',
-      videoComment: false,
-      reasons: { ready: PLATFORM_MESSAGES.tiktokNotSupported, receivedTime: PLATFORM_MESSAGES.tiktokNotSupported, thanks: PLATFORM_MESSAGES.tiktokThanks, videoComment: PLATFORM_MESSAGES.tiktokNotSupported },
-    },
+    tiktok,
   ]
 }
 
 // ── 플랫폼 공통 어댑터 모양 (AC-N2-04) ───────────────────────────────────
-// 인스타그램이 첫 구현이다(instagram/). 틱톡 구현은 없다 — 잇기·기다리기는 PLATFORM_NOT_SUPPORTED이고 어떤 외부 주소도 부르지 않는다.
+// 인스타그램이 첫 구현이다(instagram/). 틱톡은 라이브 찾기가 없다(아이디 하나에 방송 하나 — 잇기 = 바로 연결, D-N2b-2-05).
 
 /** 진행 중 라이브 하나 */
 export interface LiveItem {

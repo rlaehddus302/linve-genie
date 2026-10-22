@@ -128,6 +128,11 @@ class FetchIsLiveError extends Error {
 const httpError = (status: number): Error => Object.assign(new Error(`Request failed with status code ${String(status)}`), { isAxiosError: true, response: { status } })
 const netError = (): Error => Object.assign(new Error('socket hang up'), { code: 'ECONNRESET', isAxiosError: true })
 
+/** 라이브러리 2.1.0이 세 방법 모두 방 ID를 얻지 못했을 때의 거부 값 (방송 전인 계정에서 흔하다 — NOT_LIVE, AC-N2b-2-45) */
+export function fakeNoRoomError(): unknown {
+  return new FetchIsLiveError([new Error('Failed to extract Room ID from HTML.'), new Error('Failed to extract Room ID from API.'), new Error('Failed to extract Room ID from Euler.')])
+}
+
 /** 실패 종류마다 라이브러리 2.1.0이 내는 것과 같은 모양의 거부 값 */
 export function fakeLibraryError(kind: TikTokFailureKind): unknown {
   switch (kind) {
@@ -155,6 +160,9 @@ export type FakeAccountState = 'LIVE' | 'OFFLINE' | 'MISSING'
 export type FakeHandleState = 'pending' | 'open' | 'failed' | 'closed'
 
 type Listener = (...args: unknown[]) => void
+
+/** 연결 제어 이벤트 (웹캐스트 자료가 아니다 — websocketData를 내지 않는다) */
+const CONTROL_EVENTS: ReadonlySet<string> = new Set(['connected', 'disconnected', 'error', 'websocketData', 'websocketConnected', 'rawData', 'decodedData'])
 
 /** 방송 끝 제어 동작 (라이브러리 ControlAction.CONTROL_ACTION_STREAM_ENDED) */
 const STREAM_ENDED_ACTION = 3
@@ -275,8 +283,12 @@ export class FakeWebcastHandle {
     settle.reject(error)
   }
 
-  /** 이 손잡이로 이벤트를 보낸다 (상태와 상관없이 — 이전 연결 손잡이로 늦게 온 이벤트 흉내도 이것으로) */
+  /**
+   * 이 손잡이로 이벤트를 보낸다 (상태와 상관없이 — 이전 연결 손잡이로 늦게 온 이벤트 흉내도 이것으로).
+   * 웹캐스트에서 온 자료 이벤트(연결 제어 이벤트가 아닌 것 — chat·member·like·roomUser 등)는 라이브러리처럼 그 앞에 websocketData도 낸다
+   */
   emit(event: string, ...args: unknown[]): void {
+    if (!CONTROL_EVENTS.has(event)) for (const listener of [...(this.#listeners.get('websocketData') ?? [])]) listener(new Uint8Array(0))
     for (const listener of [...(this.#listeners.get(event) ?? [])]) listener(...args)
   }
 

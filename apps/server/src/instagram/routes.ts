@@ -11,8 +11,12 @@ import { SESSION_COOKIE, type Auth, type SessionContext } from '../auth.ts'
 import { apiError, JSON_CONTENT_TYPE } from '../errors.ts'
 import type { LinkOutcome } from '../live-links.ts'
 import { unknownFieldProblems } from '../messages.ts'
-import { platformCapabilities } from '../platform.ts'
+import { isPlatform, platformCapabilities } from '../platform.ts'
 import { ASSISTANT_FORBIDDEN_MESSAGE } from '../roles.ts'
+import type { TikTokLive } from '../tiktok-live/live.ts'
+import { activeLinksOfSeller, activeLink as youtubeActiveLink, type LinkRow as YoutubeLinkRow } from '../youtube/store.ts'
+import { findBroadcast } from '../store.ts'
+import type { Db } from '../db/database.ts'
 import { CALLBACK_MESSAGES } from './connection.ts'
 import type { InstagramModule } from './index.ts'
 import { WEBHOOK_BODY_LIMIT } from './webhook.ts'
@@ -30,8 +34,20 @@ function outcomeResponse(outcome: LinkOutcome): Response {
   return new Response(JSON.stringify(outcome.body), { status: outcome.status, headers: { 'Content-Type': JSON_CONTENT_TYPE, 'Cache-Control': 'no-store' } })
 }
 
-export function registerLiveRoutes(api: Hono<Env>, instagram: InstagramModule, auth: Auth, ready: { readonly youtube: boolean }): void {
+/** 회차의 유튜브 연결 (플랫폼마다 조회 — 유튜브는 플랫폼·상태·이은 시각만, 자세한 상태는 /broadcasts/:id/youtube) */
+function youtubeItem(link: YoutubeLinkRow): Record<string, unknown> {
+  return { broadcast: link.broadcastId, platform: 'YOUTUBE', state: 'LINKED', linkedAt: link.linkedAt.toISOString(), videoId: link.videoId }
+}
+
+export interface LivePlatforms {
+  readonly db: Db
+  readonly tiktok: TikTokLive
+  readonly youtubeReady: boolean
+}
+
+export function registerLiveRoutes(api: Hono<Env>, instagram: InstagramModule, auth: Auth, platforms: LivePlatforms): void {
   const { connections, links, dms } = instagram
+  const { db, tiktok } = platforms
   const body = (c: Context<Env>) => c.get('body') ?? {}
   const session = (c: Context<Env>) => c.get('session')
   const onlyKeys = (value: Record<string, unknown>, allowed: readonly string[]): Response | null => {
@@ -43,15 +59,31 @@ export function registerLiveRoutes(api: Hono<Env>, instagram: InstagramModule, a
     return typeof id === 'string' && REQUEST_ID_RE.test(id) ? id : null
   }
   const ref = (c: Context<Env>) => ({ sellerId: session(c).sellerId, accountId: session(c).accountId, tokenHash: session(c).tokenHash })
+  const platformProblem = () =>
+    apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'platform', message: "플랫폼은 'INSTAGRAM'·'YOUTUBE'·'TIKTOK' 중 하나예요." }])
 
-  // ── 플랫폼 공통 (AC-N2-02·03·04) ─────────────────────────────────────
-  api.get('/platforms', (c) => c.json({ platforms: platformCapabilities({ youtube: ready.youtube, instagram: connections.configured }) }))
+  // ── 플랫폼 공통 (AC-N2-02·03·04, AC-N2b-2-04·05) ─────────────────────
+  api.get('/platforms', (c) => c.json({ platforms: platformCapabilities({ youtube: platforms.youtubeReady, instagram: connections.configured }, tiktok.capability()) }))
 
-  api.get('/live', async (c) => c.json({ links: await links.list(session(c).sellerId) }))
+  // 판매자의 끊지 않은 연결 — 플랫폼마다 항목 하나씩 (인스타그램 LinkView · 유튜브 · 틱톡)
+  api.get('/live', async (c) => {
+    const sellerId = session(c).sellerId
+    const [ig, yt, tt] = await Promise.all([links.list(sellerId), activeLinksOfSeller(db, sellerId), tiktok.list(sellerId)])
+    return c.json({ links: [...yt.map(youtubeItem), ...ig, ...tt] })
+  })
 
+  // 회차의 연결 — link는 인스타그램(N2 모양 그대로), links는 끊지 않은 연결을 플랫폼마다 하나씩(많아야 셋)
   api.get('/broadcasts/:id/live', async (c) => {
-    const link = await links.status(session(c).sellerId, c.req.param('id'))
-    return link === null ? notFound() : c.json({ link })
+    const sellerId = session(c).sellerId
+    const id = c.req.param('id')
+    const link = await links.status(sellerId, id)
+    if (link === null) return notFound()
+    const [yt, tt] = await Promise.all([youtubeActiveLink(db, sellerId, id), tiktok.view(sellerId, id)])
+    const all: unknown[] = []
+    if (yt !== null) all.push(youtubeItem(yt))
+    if (link.state !== 'NONE') all.push(link)
+    if (tt !== null && tt.state !== 'NONE') all.push(tt)
+    return c.json({ link, links: all })
   })
 
   api.post('/broadcasts/:id/live/wait', async (c) => {
@@ -60,6 +92,11 @@ export function registerLiveRoutes(api: Hono<Env>, instagram: InstagramModule, a
     if (requestId === null) return invalidRequestId()
     const extra = onlyKeys(input, ['requestId', 'platform'])
     if (extra !== null) return extra
+    // 틱톡은 기다리기가 없다 — 잇기가 바로 연결을 시작한다 (AC-N2b-2-30)
+    if (own(input, 'platform') === 'TIKTOK') {
+      if ((await findBroadcast(db, session(c).sellerId, c.req.param('id'))) === null) return notFound()
+      return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'platform', message: '틱톡은 기다리기 없이 바로 이어요.' }])
+    }
     return outcomeResponse(await links.wait(session(c).sellerId, session(c).accountId, requestId, c.req.param('id'), own(input, 'platform')))
   })
 
@@ -69,16 +106,32 @@ export function registerLiveRoutes(api: Hono<Env>, instagram: InstagramModule, a
     if (requestId === null) return invalidRequestId()
     const extra = onlyKeys(input, ['requestId', 'platform', 'liveId'])
     if (extra !== null) return extra
+    if (own(input, 'platform') === 'TIKTOK') {
+      if (own(input, 'liveId') !== undefined) return apiError(400, 'UNKNOWN_FIELD', '받을 수 없는 항목이 있어요.', unknownFieldProblems(['liveId']))
+      return outcomeResponse(await tiktok.link(session(c).sellerId, session(c).accountId, requestId, c.req.param('id')))
+    }
     return outcomeResponse(await links.link(session(c).sellerId, session(c).accountId, requestId, c.req.param('id'), own(input, 'platform'), own(input, 'liveId')))
   })
 
+  // 끊기: platform(INSTAGRAM·TIKTOK)을 적는다. 적지 않으면 끊지 않은 연결이 하나뿐일 때 그것 (유튜브는 /broadcasts/:id/youtube/unlink)
   api.post('/broadcasts/:id/live/unlink', async (c) => {
     const input = body(c)
     const requestId = requestIdOf(input)
     if (requestId === null) return invalidRequestId()
-    const extra = onlyKeys(input, ['requestId'])
+    const extra = onlyKeys(input, ['requestId', 'platform'])
     if (extra !== null) return extra
-    return outcomeResponse(await links.unlink(session(c).sellerId, session(c).accountId, requestId, c.req.param('id')))
+    const sellerId = session(c).sellerId
+    const id = c.req.param('id')
+    let platform = own(input, 'platform')
+    if (platform !== undefined && (!isPlatform(platform) || platform === 'YOUTUBE')) return platformProblem()
+    if (platform === undefined) {
+      const [ig, tt] = await Promise.all([links.openLink(sellerId, id), tiktok.view(sellerId, id)])
+      const open = [...(ig === null ? [] : ['INSTAGRAM']), ...(tt !== null && tt.state !== 'NONE' ? ['TIKTOK'] : [])]
+      if (open.length > 1) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'platform', message: '끊을 플랫폼을 골라 주세요.' }])
+      platform = open[0] ?? 'INSTAGRAM'
+    }
+    if (platform === 'TIKTOK') return outcomeResponse(await tiktok.unlink(sellerId, session(c).accountId, requestId, id))
+    return outcomeResponse(await links.unlink(sellerId, session(c).accountId, requestId, id))
   })
 
   // ── 인스타그램 계정 연결 (AC-N2-10~17·41) ─────────────────────────────

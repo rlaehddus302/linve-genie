@@ -78,6 +78,16 @@ export type ErrorCode =
   | 'PRINT_STALE'
   | 'PRINT_NO_REPORT'
   | 'INVALID_TEMPLATE'
+  // N2b-2 틱톡·붙여넣기 (AC-N2b-2-21·24·30·34·56·57)
+  | 'NOTHING_TO_ADD'
+  | 'REQUEST_REUSED'
+  | 'TOO_LONG'
+  | 'TOO_MANY_LINES'
+  | 'INVALID_TIKTOK_ID'
+  | 'NOTICE_CHANGED'
+  | 'TIKTOK_LINKED'
+  | 'TIKTOK_IN_USE'
+  | 'TOO_SOON'
   | 'TEMPLATE_TOO_LARGE'
   | 'TEMPLATE_CONFLICT'
   // N2 인스타그램·라이브 연결 API
@@ -105,6 +115,34 @@ export type ErrorCode =
   | 'NO_RECORDS'
   | 'BUSY'
   | 'FILE_FAILED'
+  // N5 요금 API (BILLING_RULES BL-4·BL-6·BL-7·BL-8)
+  | 'NO_PASS'
+  | 'TERMS_REQUIRED'
+  | 'ITEM_UNAVAILABLE'
+  | 'BUSINESS_REQUIRED'
+  | 'REFUND_NOT_ALLOWED'
+  | 'REFUND_IN_PROGRESS'
+  | 'REFUND_FAILED'
+  // N4b 구매자 확인서 공유 링크 (harness/sprints/N4b/dev-notes.md)
+  | 'REHEARSAL_RECEIPT_LINK'
+  // N3 입금 확인 API (DEPOSIT_RULES DP-1·DP-2·DP-6)
+  | 'BUNDLE_CHANGED'
+  | 'DEPOSIT_APPLIED'
+  | 'DEPOSIT_IGNORED'
+  | 'DEPOSIT_NOT_REVIEW'
+  | 'DEPOSIT_NOT_IGNORED'
+  | 'DEPOSIT_NOT_APPLIED'
+  | 'DEPOSIT_CHANGED'
+  | 'REFUND_RECORDED'
+  | 'DUPLICATE_ITEM'
+  | 'PASTE_NO_HEADER'
+  | 'PASTE_TOO_MANY_ROWS'
+  | 'POPBILL_NOT_READY'
+  | 'SOURCE_NO_FETCH'
+  | 'SOURCE_DISABLED'
+  | 'SOURCE_FAILED'
+  | 'FETCH_TOO_SOON'
+  | 'CORP_NOT_ALLOWED'
 
 export interface ErrorBody {
   readonly error: {

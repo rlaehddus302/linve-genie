@@ -27,6 +27,8 @@ export interface LogRecord {
   readonly worker?: 'collector' | 'outbox' | 'sealer'
   /** 찜 ID (엔진이 만든 `c<번호>` — 찜 금액이 없는 확정 찜, D-O3-15. 닉네임·금액은 남기지 않는다) */
   readonly claim?: string
+  /** 같은 코드를 횟수 제한으로 남기지 않은 수 (틱톡 연결 객체 — 그 코드를 다음에 남길 때 함께, D-N2b-2-11 (마)) */
+  readonly suppressed?: number
 }
 
 export type LogCode =
@@ -86,6 +88,26 @@ export type LogCode =
   | 'DOCUMENT_WORK_FAILED'
   // O3 감사 (D-O3-15): 확정 찜에 찜 금액이 없어 요약 댓글·라벨·포장·봉인 장부를 만들지 않음 — 찜 ID만
   | 'AMOUNT_MISSING'
+  // N5 요금 (결제 ID·사업자 정보·조회 원문·비밀값은 남기지 않는다)
+  | 'BILLING_FAILED'
+  | 'PAYMENT_LOOKUP_FAILED'
+  | 'PAYMENT_CANCEL_FAILED'
+  | 'PAYMENT_REVIEW'
+  | 'DOCUMENT_FAILED'
+  // 틱톡 N2b-2 (D-N2b-2-05·06·11): 멈춘 연결, 라이브러리 환경 변수(변수 이름만 reason에), 댓글 기록 실패·기록하지 않음
+  | 'TIKTOK_STALLED'
+  | 'TIKTOK_LIBRARY_ENV'
+  | 'TIKTOK_SAVE_FAILED'
+  | 'TIKTOK_SKIPPED'
+  | 'TIKTOK_RESUME_FAILED'
+  // 인스타그램 설정 주소가 https가 아님 (D-N2b-2-10)
+  | 'INSTAGRAM_CONFIG_INSECURE'
+  | 'DEPOSIT_FETCH_FAILED'
+  | 'DEPOSIT_SAVE_FAILED'
+  | 'DEPOSIT_ROW_SAVE_RETRY'
+  | 'DEPOSIT_ROW_SAVE_FAILED'
+  | 'DEPOSIT_APPLY_FAILED'
+  | 'DEPOSIT_NOTIFY_FAILED'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -142,6 +164,23 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   BACKUP_PRUNE_FAILED: '오래된 백업을 지우지 못했어요(다음 확인 때 다시 해요)',
   AMOUNT_MISSING: '확정 찜에 찜 금액이 없어 그 결과(요약 댓글·라벨·포장·봉인 장부)를 만들지 않았어요',
   DOCUMENT_WORK_FAILED: '파일 작업 워커가 일을 끝내지 못했어요(시간·메모리 상한·끊긴 요청 등 — 서버 판정은 그대로)',
+  BILLING_FAILED: '요금 정보를 읽지 못했어요',
+  PAYMENT_LOOKUP_FAILED: '결제를 조회하지 못했어요(주문은 그대로)',
+  PAYMENT_CANCEL_FAILED: '결제를 취소하지 못했어요',
+  PAYMENT_REVIEW: '결제 완료였던 주문을 결제 조회로 맞추지 못해 확인 필요로 올렸어요(운영자 목록)',
+  DOCUMENT_FAILED: '증빙을 발행·취소하지 못했어요(결제·이용권은 그대로)',
+  TIKTOK_STALLED: '받던 틱톡 연결에서 2분 동안 아무 자료가 오지 않아 끊긴 것으로 보고 다시 연결해요',
+  TIKTOK_LIBRARY_ENV: '틱톡 연결기가 스스로 읽는 환경 변수가 있어 틱톡 베타를 끈 것으로 봤어요(그 변수를 지워 주세요)',
+  TIKTOK_SAVE_FAILED: '틱톡 댓글을 기록하지 못했어요(연결은 계속함)',
+  TIKTOK_SKIPPED: '틱톡 댓글이 입력 검사를 통과하지 못해 기록하지 않았어요(수만 셈)',
+  TIKTOK_RESUME_FAILED: '서버를 다시 켠 뒤 틱톡 연결을 이어받지 못했어요',
+  INSTAGRAM_CONFIG_INSECURE: '인스타그램 주소 설정이 https가 아니라 인스타그램 연동을 끈 것으로 봤어요',
+  DEPOSIT_FETCH_FAILED: '입금 원천에서 받아 오지 못했어요(다음 주기에 다시 함)',
+  DEPOSIT_SAVE_FAILED: '받은 입금을 저장하지 못했어요(다음 주기에 다시 함)',
+  DEPOSIT_ROW_SAVE_RETRY: '받은 입금을 한 번에 저장하지 못해 한 줄씩 다시 저장해요',
+  DEPOSIT_ROW_SAVE_FAILED: '받은 입금 한 줄을 저장하지 못해 그 줄만 건너뛰었어요',
+  DEPOSIT_APPLY_FAILED: '입금 자동 확인을 적지 못해 확인 필요로 남겼어요',
+  DEPOSIT_NOTIFY_FAILED: '입금 확인 알림을 보내지 못했어요(기록은 저장됨)',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */
@@ -156,6 +195,7 @@ export function formatLog(record: LogRecord): string {
   if (record.date !== undefined) parts.push(`date=${record.date}`)
   if (record.seq !== undefined) parts.push(`seq=${String(record.seq)}`)
   if (record.count !== undefined) parts.push(`count=${String(record.count)}`)
+  if (record.suppressed !== undefined) parts.push(`suppressed=${String(record.suppressed)}`)
   if (record.seller !== undefined && /^[A-Za-z0-9_-]{1,80}$/.test(record.seller)) parts.push(`seller=${record.seller}`)
   if (record.status !== undefined) parts.push(`status=${String(record.status)}`)
   if (record.reason !== undefined && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(record.reason)) parts.push(`reason=${record.reason}`)

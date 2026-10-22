@@ -4,6 +4,9 @@
 // changesWindow(증분 조회 기준점 수), generatorTimer·generatorSpeed(리허설 생성기 타이머·시험 속도), hostActionDelayMs(화면의 방송자 조치 대기 — E2E 기동만 줄인다),
 // testPrinter(시험 모드 신호 — 화면이 시험용 프린터를 켠다. E2E 기동만 켠다, 운영 기동은 production.ts가 늘 끈다 — I1 L-11 15).
 // I1: 출력 기록(PrintService)을 기록 경로의 같은 트랜잭션(txHook)에 잇고, 실시간 알림(print)·출력 기기 실시간 연결 여부를 허브에 잇는다.
+// N5: 요금(BillingService)을 새 실제 방송 시작·주문 건 쓰기(txHook)·라벨 장 쓰기(출력함 트랜잭션)에 잇고, 실시간 알림(billing)을 허브에 잇는다.
+// N3: 입금 확인(DepositService — 원천·받아 오기 주기·자동 확인·확인 필요)을 기록 경로와 실시간 알림(deposit)에 잇는다.
+//   deposits.testMode(가짜 원천·시험용 입금 넣기)는 E2E 기동만 켠다 — 운영 기동은 production.ts가 늘 끈다(D-N3-12).
 // N4a: 라벨 기능 켬/끔 알림(labels)을 허브에 잇는다.
 import { readFileSync } from 'node:fs'
 import { applyEvent } from '@livejjim/core'
@@ -24,15 +27,26 @@ import type { LoginLimitOptions } from './login-limit.ts'
 import { loginLimitSecret, readMasterKey, type PasswordCost } from './secrets.ts'
 import type { GeneratorTimer } from './generator.ts'
 import { PrintService } from './print.ts'
+import { ReceiptLinkService } from './receipt-links.ts'
+import { registerReceiptPage } from './receipt-page.ts'
 import type { InstagramSettings } from './instagram/config.ts'
 import { createInstagram, type InstagramModule } from './instagram/index.ts'
 import type { LiveTimer } from './instagram/notices.ts'
 import { createWebhookApp } from './instagram/routes.ts'
+import { SellerLocks } from './seller-locks.ts'
+import { routeThanks } from './thanks-route.ts'
+import { libraryWebcast, type TikTokAttemptLimiter, type TikTokClock, type TikTokSettings, type WebcastFactory } from './tiktok/index.ts'
+import { TikTokLive } from './tiktok-live/live.ts'
+import { PasteService } from './tiktok-live/paste-service.ts'
+import { tiktokLinkCounts } from './tiktok-live/store.ts'
+import { instagramDmCounts } from './ops-store.ts'
+import { DepositService, type DepositOptions } from './deposit/service.ts'
 import { readQueue } from './print-store.ts'
 import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
 import { kstDate, systemClock, type Clock } from './time.ts'
 import { ViewCacheBudget } from './view-budget.ts'
+import { BillingService, DISABLED_BILLING, type BillingSetup } from './billing/service.ts'
 import { sharedWorkPools, type WorkPools } from './work-pool.ts'
 import { DEFAULT_RUNTIME_CACHE_MAX, ScopeWriter, type WriterHooks } from './writer.ts'
 import type { CollectorHooks } from './youtube/collector.ts'
@@ -117,6 +131,11 @@ export interface ServerOptions {
   readonly outboxTiming?: OutboxTiming
   /** 시험 모드 신호 (화면 설정 testPrinter — 시험용 프린터를 켠다). E2E 기동만 켠다. 기본 false (L-11 15, AC-I1-16) */
   readonly testPrinter?: boolean
+  /**
+   * 요금 (N5, BILLING_RULES). 없으면 꺼짐(기본 — 막지도 세지도 않고 요금 경로가 없다, BL-0 7).
+   * 운영 기동은 productionServerOptions가 환경변수로 만든다(시험 결제 없음). 시험·E2E는 testBilling()(가짜 결제 서버·가짜 발행기)
+   */
+  readonly billing?: BillingSetup
   /** 인스타그램 연동 설정 (N2). 없으면 인스타그램 기능은 NOT_CONFIGURED, 웹훅은 503 (AC-N2-17) */
   readonly instagram?: InstagramSettings | null
   /** 인스타그램 알림·DM 실행기 예약 (시험은 기다리지 않는 타이머를 넣는다) */
@@ -125,6 +144,21 @@ export interface ServerOptions {
   readonly dmAutoRun?: boolean
   /** 수집 상태 알림 간격 (기본 1000밀리초 — 시험만 줄인다) */
   readonly collectionIntervalMs?: number
+  /**
+   * 틱톡 라이브 베타 (N2b-2). settings = readTikTokSettings(process.env)(없으면 꺼짐), libraryEnv = 비어 있지 않은 라이브러리 환경 변수 이름,
+   * webcast = 웹캐스트 클라이언트를 만드는 곳(기본 실제 감싸개 libraryWebcast() — 시험·E2E만 가짜), clock = 연결 객체 시계(시험), limiter = 서버 전체 시도 한도,
+   * noticeVersion = 지금 고지 판(시험만 바꾼다)
+   */
+  /** 서버 시작 때 남길 설정 경고 (값 없이 코드만 — 운영 설정 읽기가 정한다) */
+  readonly startupWarnings?: readonly 'INSTAGRAM_CONFIG_INSECURE'[]
+  readonly tiktok?: {
+    readonly settings?: TikTokSettings
+    readonly libraryEnv?: readonly string[]
+    readonly webcast?: WebcastFactory
+    readonly clock?: TikTokClock
+    readonly limiter?: TikTokAttemptLimiter
+    readonly noticeVersion?: string
+  }
   /** 백업 저장소 (I2 D-I2-10 — 없으면 자동 백업이 꺼진다. 판매는 그대로) */
   readonly backupStorage?: BackupStorage | null
   /** 자동 백업 확인 주기 (기본 5분) */
@@ -138,6 +172,8 @@ export interface ServerOptions {
   readonly work?: WorkPools
   /** 자동 백업: 서버를 켠 뒤 첫 확인까지 (기본 3분, RA-I2-003) */
   readonly backupStartDelayMs?: number
+  /** 입금 확인 설정 (N3): 시험 모드(가짜 원천 — E2E 기동만)·팝빌 전송(연동 키가 있을 때)·주기 덮어쓰기(E2E 기동만)·시험용 타이머 */
+  readonly deposits?: DepositOptions
 }
 
 export interface LivejjimServer {
@@ -150,14 +186,24 @@ export interface LivejjimServer {
   readonly viewCaches: ViewCacheBudget
   /** 출력 기록과 출력 기기 (I1) */
   readonly print: PrintService
+  /** 요금 (N5) */
+  readonly billing: BillingService
   /** 인스타그램 계정 연결·라이브 연결·웹훅·감사 DM (N2) */
   readonly instagram: InstagramModule
+  /** 틱톡 동의·아이디·연결·댓글 기록 (N2b-2) */
+  readonly tiktok: TikTokLive
+  /** 댓글 붙여넣기 (N2b-2) */
+  readonly paste: PasteService
   /** 정산 마무리 (I2) */
   readonly closing: ClosingService
+  /** 구매자 확인서 공유 링크 (N4b) */
+  readonly receiptLinks: ReceiptLinkService
   /** 매일 자동 백업 (I2 D-I2-10 — 시작은 backups.start(), 시험은 check()를 직접 부른다) */
   readonly backups: BackupScheduler
   /** 무거운 파일 작업의 워커 풀 (확인서 그림·PDF·전원 PDF·판매대장 엑셀·.xlsx 읽기) */
   readonly work: WorkPools
+  /** 입금 확인 (N3) */
+  readonly deposits: DepositService
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
   /** 유튜브 연동 (설정이 있을 때만) */
@@ -228,6 +274,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     }
   }
   const health = new WorkerHealth(alerter, clock)
+  for (const code of options.startupWarnings ?? []) log({ level: 'warn', code })
   const startedAt = new Date(clock.now()).toISOString()
   const engine: EngineAdapter = options.engine ?? { applyEvent }
   const trustedProxies = options.trustedProxies ?? 0
@@ -242,7 +289,20 @@ export function createServer(options: ServerOptions): LivejjimServer {
     ...(options.passwordVerifier === undefined ? {} : { verify: options.passwordVerifier }),
   })
   let print: PrintService | null = null
+  let writerRef: ScopeWriter | null = null
+  const billing = new BillingService({
+    db,
+    setup: options.billing ?? DISABLED_BILLING,
+    clock,
+    masterKey,
+    log,
+    publish: (sellerId, data) => hub.publishBilling(sellerId, data),
+    readState: async (sellerId, date) => (await (writerRef as ScopeWriter).read(sellerId, date)).state,
+  })
   let instagram: InstagramModule | null = null
+  let tiktok: TikTokLive | null = null
+  /** 라이브 연결 판매자 잠금 — 모든 플랫폼 공통 (D-N2b-2-01) */
+  const liveLocks = new SellerLocks()
   const hub = new StreamHub({
     heartbeatMs,
     sessionAlive: (hash) => auth.alive(hash),
@@ -273,18 +333,22 @@ export function createServer(options: ServerOptions): LivejjimServer {
       viewCaches.sweep()
     },
     onDrop: (runtime) => viewCaches.release(runtime),
-    // 효과 → 출력 작업·라벨 폐기(L-11 2·5), 인스타그램 회차의 감사 효과 → DM 행(N2)을 이벤트 기록과 같은 트랜잭션에서
+    // 효과 → 출력 작업·라벨 폐기(L-11 2·5), 인스타그램 회차의 감사 효과 → DM 행(N2), 주문 건 쓰기(N5 BL-5 2)를 이벤트 기록과 같은 트랜잭션에서
+    // 여러 플랫폼 회차의 감사 경로(N2b-2) — 틱톡 구매자·보낼 곳 없는 감사는 건너뜀, 회차를 끝내면 틱톡 연결 ENDED(N2b-2)
     txHook: async (tx, ctx) => {
       const printed = await (print as PrintService).txHook(tx, ctx)
       const dm = await (instagram as InstagramModule).txHook(tx, ctx)
-      if (printed === null) return dm
-      if (dm === null) return printed
+      await routeThanks(tx, ctx)
+      const billed = await billing.txHook(tx, ctx)
+      const ended = await (tiktok as TikTokLive).txHook(tx, ctx)
+      const after = [billed, printed, dm, ended].filter((fn): fn is () => void => fn !== null)
+      if (after.length === 0) return null
       return () => {
-        printed()
-        dm()
+        for (const fn of after) fn()
       }
     },
   })
+  writerRef = writer
   print = new PrintService({
     db,
     writer,
@@ -293,6 +357,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
     publish: (sellerId, data) => hub.publishPrint(sellerId, data),
     publishLabels: (sellerId, data) => hub.publishLabels(sellerId, data),
     deviceLive: (sellerId, deviceId) => hub.deviceLive(sellerId, deviceId),
+    // 라벨 장 쓰기 (N5 BL-5 3): 상품 라벨 출력함과 같은 트랜잭션
+    onPrinted: billing.onLabelPrinted,
   })
   const printService = print
   const service = new Service({
@@ -304,6 +370,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     viewCaches,
     generatorSpeed,
     onGenerator: (sellerId, payload) => hub.publishGenerator(sellerId, payload),
+    billing,
     ...(options.generatorTimer === undefined ? {} : { generatorTimer: options.generatorTimer }),
   })
   const backups = new BackupScheduler({
@@ -316,6 +383,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
   })
   const work = options.work ?? sharedWorkPools()
   const closing = new ClosingService({ db, writer, clock, hub, backups, log, work })
+  // 구매자 확인서 공유 링크 (N4b) — 링크 주소 = 앱 주소 + /r/<토큰>
+  const receiptLinks = new ReceiptLinkService({ db, writer, clock, masterKey, appOrigin: options.appOrigin, closing, log })
   const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)
   const youtube: YoutubeSystem | null =
     options.youtube === undefined
@@ -385,6 +454,9 @@ export function createServer(options: ServerOptions): LivejjimServer {
       failedEvents24h: await counts(() => failedEventCount(db, new Date(now - 24 * 60 * 60 * 1000))),
       realtimeConnections: hub.size,
       quota: youtube === null ? null : await counts(() => youtube.quota.projectToday()),
+      // 인스타 DM 행은 유튜브 발송함 수와 따로 상태별로, 틱톡은 이어진 연결 수와 이 서버 연결 객체의 상태별 수 (판매자 정보 없이, AC-N2b-2-70)
+      instagramDm: await counts(() => instagramDmCounts(db, dayStart, new Date(dayStart.getTime() + 24 * 60 * 60 * 1000))),
+      tiktok: { operator: (tiktok as TikTokLive).operatorOn, links: await counts(() => tiktokLinkCounts(db)), connections: (tiktok as TikTokLive).stateCounts() },
       loginRejected: auth.loginRejections,
     }
   }
@@ -401,17 +473,48 @@ export function createServer(options: ServerOptions): LivejjimServer {
     ...(options.liveTimer === undefined ? {} : { timer: options.liveTimer }),
     ...(options.dmAutoRun === undefined ? {} : { dmAutoRun: options.dmAutoRun }),
     ...(options.collectionIntervalMs === undefined ? {} : { collectionIntervalMs: options.collectionIntervalMs }),
+    locks: liveLocks,
   })
   const instagramModule = instagram
+  const tiktokOptions = options.tiktok ?? {}
+  tiktok = new TikTokLive({
+    db,
+    writer,
+    clock,
+    log,
+    locks: liveLocks,
+    webcast: tiktokOptions.webcast ?? libraryWebcast(),
+    publish: (sellerId, data) => hub.publishTiktok(sellerId, data),
+    ...(tiktokOptions.settings === undefined ? {} : { settings: tiktokOptions.settings }),
+    ...(tiktokOptions.libraryEnv === undefined ? {} : { libraryEnv: tiktokOptions.libraryEnv }),
+    ...(tiktokOptions.clock === undefined ? {} : { tiktokClock: tiktokOptions.clock }),
+    ...(tiktokOptions.limiter === undefined ? {} : { limiter: tiktokOptions.limiter }),
+    ...(tiktokOptions.noticeVersion === undefined ? {} : { noticeVersion: tiktokOptions.noticeVersion }),
+  })
+  const tiktokLive = tiktok
+  const paste = new PasteService({ db, writer })
+  const deposits = new DepositService({
+    db,
+    writer,
+    clock,
+    masterKey,
+    log,
+    publish: (sellerId, data) => hub.publishDeposit(sellerId, data),
+    options: options.deposits ?? {},
+  })
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
     api: {
       service,
       closing,
+      receiptLinks,
       auth,
       hub,
       print: printService,
+      billing,
       instagram: instagramModule,
+      tiktok: { db, live: tiktokLive, paste },
+      deposits,
       appOrigin: options.appOrigin,
       clientConfig: { hostActionDelayMs, testPrinter: options.testPrinter === true },
       receiptAtParam: options.receiptAtParam === true,
@@ -428,7 +531,10 @@ export function createServer(options: ServerOptions): LivejjimServer {
     },
     ops: { token: options.opsToken === undefined ? null : options.opsToken.trim(), status: opsStatus },
     webhooks: createWebhookApp(instagramModule),
+    receiptPage: (app) => registerReceiptPage(app, { db, links: receiptLinks, closing, clock }),
   })
+  // 저장된 켜진 원천의 받아 오기 주기를 건다 (실패해도 서버는 뜬다 — 원천 실패는 판매를 멈추지 않는다, DP-0 5)
+  deposits.start()
   const stop = async () => {
     await Promise.all([youtube?.stop(), sealer.stop()])
   }
@@ -442,20 +548,29 @@ export function createServer(options: ServerOptions): LivejjimServer {
     sealer,
     viewCaches,
     print: printService,
+    billing,
     instagram: instagramModule,
+    tiktok: tiktokLive,
+    paste,
     closing,
+    receiptLinks,
     backups,
     work,
+    deposits,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     start: () => {
       youtube?.start()
       sealer.start()
+      // 끝나지 않은 실제 회차의 이어진 틱톡 연결을 이어받는다 (NFR-03, AC-N2b-2-35)
+      void tiktokLive.resume()
     },
     stop,
     close: () => {
       service.generators.closeAll()
       printService.close()
       instagramModule.close()
+      tiktokLive.close()
+      deposits.close()
       hub.closeAll()
       backups.stop()
       void stop()

@@ -29,6 +29,19 @@ const handlers: Readonly<Record<WorkKind, Handler>> = {
     const { documentFont } = await import('./files.ts')
     return renderReceiptPng((input as { receipt: ReceiptData }).receipt, documentFont())
   },
+  /** 확인서 JPG (N4b — 공유 PNG와 같은 그림을 기본 JPEG로) */
+  receiptJpg: async (input) => {
+    const { renderReceiptJpg } = await import('./receipt-jpg.ts')
+    const { documentFont } = await import('./files.ts')
+    return renderReceiptJpg((input as { receipt: ReceiptData }).receipt, documentFont())
+  },
+  /** 전원 이미지 묶음 ZIP (N4b — 묶음 안 이름·확인서를 차례대로, 수정 시각 = 만든 시각) */
+  receiptJpgZip: async (input) => {
+    const { renderReceiptJpgZip } = await import('./receipt-jpg.ts')
+    const { documentFont } = await import('./files.ts')
+    const { entries, modifiedAt } = input as { entries: { name: string; receipt: ReceiptData }[]; modifiedAt: number }
+    return renderReceiptJpgZip(entries, documentFont(), modifiedAt)
+  },
   /** 판매대장 엑셀: 조각(날짜마다의 행)을 이어 문서 패키지 ledgerToXlsx. 열 모양은 조각 중 하나라도 옵션이면 옵션·수량·단가 열 (D-O3-07) */
   ledgerXlsx: async (_input, chunks) => {
     const { ledgerToXlsx } = await import('@livejjim/documents')

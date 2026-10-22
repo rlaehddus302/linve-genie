@@ -4,7 +4,7 @@
 // 손으로 짠 앞에서부터 훑는 스캐너다. 되돌아가며 다시 맞춰 보는 정규식을 쓰지 않는다.
 import { compareChars, variantCount, type OptionItem } from '../options.ts'
 import { resolveSettings, type SettingsOverride } from '../settings.ts'
-import { CLAIM_TAIL_WORDS, hasAmountChunk, hasQuestionMark, isClaimTailChar, parseChat } from './chat.ts'
+import { CLAIM_TAIL_WORDS, hasAmountChunk, hasQuestionMark, isClaimTailChar, matchesNumberGrammar, parseChat } from './chat.ts'
 import { asText, isAllDigits, isDigitAt, normalizeText } from './text.ts'
 
 /** 인식 함수가 보는 상품 하나 (그 방송의 판매 종료가 아닌 상품 — 공개 전 상품 포함, R-20 머리말) */
@@ -390,6 +390,8 @@ export function parseOptionComment(text: string, catalog: readonly OptionCatalog
     return ordersOf(strict.claims.map((no) => numberOrder(no, byNo.get(no))))
   }
   if (strict.cancels.length > 0) return { orders: [], cancels: [...strict.cancels], mentions: [], review: null }
+  // 번호 문법이지만 번호 개수 상한·multiNumber=IGNORE·범위 때문에 주문·취소가 아닌 메시지도 STRICT 결과(언급) 그대로 (R-20 2)
+  if (matchesNumberGrammar(s)) return mentionsOf(strict.mentions)
 
   // 9. 늘 주문이 아닌 것: 질문 기호·금액 덩어리, 번호 취소 문법이 아닌 '취소'
   if (hasQuestionMark(s) || hasAmountChunk(s) || s.includes('취소')) return mentionsOf(strict.mentions)

@@ -18,6 +18,7 @@
 import { formatWon, getBroadcast, getBuyer, listClaims, listEffects, listProducts, type ClaimInfo, type EngineEffect, type EngineState } from '@livejjim/core'
 import { MissingAmountError, requireAmount } from '../amount.ts'
 import type { Db } from '../db/database.ts'
+import { INSTAGRAM_PREFIX, TIKTOK_PREFIX } from '../platform.ts'
 import { errorKind, type LogSink } from '../log.ts'
 import type { Actor, ScopeWriter } from '../writer.ts'
 import { ChannelMismatchError, YoutubeAccessError, googleFields, type ConsentTarget, type YoutubeConnections } from './connect.ts'
@@ -77,6 +78,9 @@ export const OUTBOX_REASON_MESSAGES = {
   SEALED: '30일이 지나 보내지 않았어요.',
   // 건너뜀
   CANCELLED: '확정이 풀린 판매라 보내지 않아요.',
+  // 건너뜀 — 여러 플랫폼 회차의 감사 경로 (D-N2b-2-09): 틱톡 구매자 · 유튜브를 이은 적 없는 회차의 유튜브·문자 구매자
+  NOT_SUPPORTED: '틱톡에는 감사 메시지를 보내지 않아요.',
+  NO_RECIPIENT: '이 방송에는 유튜브가 이어진 적이 없어 감사를 보내지 않았어요.',
   // 기다림
   WINDOW: '묶어서 보내려고 기다리는 중이에요.',
   RETRY: '다시 보내려고 기다리는 중이에요.',
@@ -1215,6 +1219,7 @@ export class OutboxRunner {
  * 방송 후 요약 줄 (AC-Y1-46, YT-05): 그 방송의 확정 판매(지금 엔진 상태) — 번호 순, 한 상품 안은 확정 순(상품마다의 확정버전 오름차순, D-Y08·D-O3-13).
  * 옵션 상품은 변형마다의 1등(D-O1-01, winnerClaimsOf). 품종 = 지금 상품 이름, 옵션 글 = 코어 ClaimInfo.variant(있을 때만), 수량 = 2 이상일 때만,
  * 가격 = 그 찜의 찜 금액(코어 ClaimInfo.amount, R-19 "표시"), 구매자 = 그 찜의 구매자 자신의 지금 표시 이름(문자 구매자·문자찜으로 생긴 찜은 늘 `문자찜`).
+ * 유튜브 발송함으로 가는 감사의 판매만 넣는다 — 찜의 구매자 자신이 인스타그램(ig:)·틱톡(tt:) 구매자인 판매는 넣지 않는다 (D-N2b-2-09, AC-N2b-2-12).
  * 확정 찜에 찜 금액이 없으면 단가 × 수량으로 채우지 않고 MissingAmountError — 그 방송의 요약을 만들지 않는다 (D-O3-15).
  * claims는 시험용 주입 자리(기본 코어 listClaims)
  */
@@ -1228,6 +1233,7 @@ export function summaryLines(state: EngineState, broadcastId: string, claimList:
         const claim = claims.get(claimId)
         return claim === undefined || claim.status !== 'CONFIRMED' ? [] : [claim]
       })
+      .filter((claim) => !claim.buyer.startsWith(INSTAGRAM_PREFIX) && !claim.buyer.startsWith(TIKTOK_PREFIX))
       .sort((a, b) => (a.confirmVersion ?? 0) - (b.confirmVersion ?? 0))
     for (const claim of winners) {
       const amount = requireAmount(claim)

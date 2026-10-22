@@ -1,4 +1,7 @@
 // S05 E2E 공용 도우미 (test-e2e). 선택자는 역할·이름 기반(dev-notes "화면 이름").
+import { mkdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { expect, type Page } from '@playwright/test'
 
 export const LOGIN_ID = 'e2e-shop'
@@ -11,10 +14,25 @@ export function todayKst(): string {
 
 let dayCounter = 0
 const dayBase = Math.floor(Math.random() * 2000) * 3
-/** 시험끼리 범위가 겹치지 않게 과거의 서로 다른 날짜를 쓴다(알림 띠는 범위 전체를 센다). 한 프로세스 안에서는 겹치지 않는다. */
+/**
+ * 이 실행(Playwright 실행기 하나)에서 이미 쓴 날짜를 적는 곳. 시험이 실패하면 Playwright가 일꾼 프로세스를 새로 띄우고,
+ * 새 일꾼은 dayBase를 새로 뽑고 dayCounter를 0부터 센다 — 앞 일꾼이 쓴 날짜와 겹치면 같은 서버의 그날 하루 보기(/api/days)에
+ * 다른 시험의 방송·찜이 섞인다. 일꾼은 모두 같은 실행기의 자식이므로 실행기 pid(ppid)로 묶어 날짜마다 폴더를 만들어 차지한다(mkdir은 원자적).
+ */
+const claimedDir = join(tmpdir(), 'livejjim-e2e-dates', String(process.ppid))
+mkdirSync(claimedDir, { recursive: true })
+/** 시험끼리 범위가 겹치지 않게 과거의 서로 다른 날짜를 쓴다(알림 띠는 범위 전체를 센다). 한 실행 안에서는 일꾼이 바뀌어도 겹치지 않는다. */
 export function uniqueDate(): string {
-  dayCounter += 1
-  return new Date(Date.UTC(2005, 0, 1) + (dayBase + dayCounter) * 86_400_000).toISOString().slice(0, 10)
+  for (;;) {
+    dayCounter += 1
+    const date = new Date(Date.UTC(2005, 0, 1) + (dayBase + dayCounter) * 86_400_000).toISOString().slice(0, 10)
+    try {
+      mkdirSync(join(claimedDir, date))
+      return date
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    }
+  }
 }
 
 export async function login(page: Page): Promise<void> {

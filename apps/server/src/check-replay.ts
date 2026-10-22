@@ -8,6 +8,8 @@
 // Y1: 채팅의 본문·이름은 따로 둔다(chat_raw, AC-Y1-60) — 재생은 둘을 합쳐 하고, 요약값은 따로 둔 값까지 묶어 대조한다(고치면 그 seq가 '이벤트' 불일치).
 //     방송 후 요약 댓글 행(엔진 효과가 아니다, AC-Y1-46)은 발송함 대조에서 뺀다.
 //     봉인한 범위(AC-Y1-61·62)는 재생하지 않고 "봉인됨"으로 보고하며 장부 요약값만 대조한다(다르면 '장부' 불일치).
+// N5: 요금 대조 — 재생한 상태·출력 기록으로 다시 계산한 주문 건·라벨 장·방송 일 쓴 기록이 원장과 같은지, 리허설·이용 방식 없는 방송의 쓴 기록이 없는지
+// (billing/check.ts). 다르면 '요금' 불일치이고 그 키(방송·상품·작업 ID)를 알린다.
 // 결과는 범위마다 한 줄이고, 이벤트 내용·개인정보는 넣지 않는다(범위·seq·부분 이름·개수만).
 import { STATE_FORMAT, applyEvent, checkInvariants, type EngineEvent, type EngineState } from '@livejjim/core'
 import { and, asc, eq, ne } from 'drizzle-orm'
@@ -17,9 +19,10 @@ import { FAILED_INPUT_MESSAGE, REPLAY_SKIPPED_MESSAGE, emptyState, type Attentio
 import { sha256Hex } from './secrets.ts'
 import { mergeRaw } from './store.ts'
 import { eventDigest } from './writer.ts'
+import { checkBillingScope } from './billing/check.ts'
 import { SUMMARY_KIND } from './youtube/texts.ts'
 
-export type CheckPart = 'seq' | '범위 seq' | '이벤트' | '재생 오류' | '스냅샷' | '발송함' | '불변식' | '장부'
+export type CheckPart = 'seq' | '범위 seq' | '이벤트' | '재생 오류' | '스냅샷' | '발송함' | '불변식' | '장부' | '요금'
 
 export interface ScopeCheck {
   readonly sellerId: string
@@ -37,6 +40,8 @@ export interface ScopeCheck {
   readonly sealed: boolean
   /** 처음 다른 곳 (모두 같으면 null) */
   readonly firstDiff: { readonly seq: number; readonly part: CheckPart } | null
+  /** 요금 대조에서 다른 키 (N5 — 방송·상품·작업 ID만) */
+  readonly billing: readonly string[]
 }
 
 export interface CheckFilter {
@@ -46,7 +51,7 @@ export interface CheckFilter {
   readonly rehearsal?: boolean
 }
 
-const PART_ORDER: readonly CheckPart[] = ['seq', '범위 seq', '이벤트', '재생 오류', '스냅샷', '발송함', '불변식', '장부']
+const PART_ORDER: readonly CheckPart[] = ['seq', '범위 seq', '이벤트', '재생 오류', '스냅샷', '발송함', '불변식', '장부', '요금']
 
 /** 키를 정렬한 JSON (객체 키 순서와 상관없이 같은 값이면 같은 문자열) */
 export function canonicalJson(value: unknown): string {
@@ -114,6 +119,8 @@ async function checkSealed(db: Db, scope: ScopeRow): Promise<ScopeCheck> {
     failedMarked: 0,
     sealed: true,
     firstDiff: ok ? null : { seq: 0, part: '장부' },
+    // 봉인한 범위는 재생하지 않으므로 요금 대조(재생한 상태가 필요하다)도 하지 않는다 — 봉인 전에 대조한 결과가 기준이다
+    billing: [],
   }
 }
 
@@ -210,6 +217,10 @@ async function checkScope(db: Db, scope: ScopeRow): Promise<ScopeCheck> {
   // (3) 불변식
   if (checkInvariants(state).length > 0) diff(lastSeq, '불변식')
 
+  // (N5) 요금 대조
+  const billing = await checkBillingScope(db, scope, state)
+  if (billing.length > 0) diff(lastSeq, '요금')
+
   const first = diffs.sort((a, b) => a.seq - b.seq || PART_ORDER.indexOf(a.part) - PART_ORDER.indexOf(b.part))[0] ?? null
   return {
     sellerId: scope.sellerId,
@@ -223,6 +234,7 @@ async function checkScope(db: Db, scope: ScopeRow): Promise<ScopeCheck> {
     failedMarked: eventRows.filter((row) => row.failed).length,
     sealed: false,
     firstDiff: first,
+    billing,
   }
 }
 
@@ -234,6 +246,7 @@ export function formatCheck(check: ScopeCheck): string {
   }
   const counts = `이벤트 ${String(check.events)} · 스냅샷 ${String(check.snapshots)} · 발송함 ${String(check.outbox)} · 실패 표시 ${String(check.failedMarked)}`
   const other = check.otherFormatSnapshots > 0 ? ` · 형식이 다른 스냅샷 ${String(check.otherFormatSnapshots)}(대조 안 함)` : ''
-  const verdict = check.firstDiff === null ? '일치' : `불일치 — 처음 다른 곳: seq ${String(check.firstDiff.seq)} (${check.firstDiff.part})`
+  const keys = check.billing.length === 0 ? '' : ` · 요금 키 ${check.billing.slice(0, 5).join(', ')}${check.billing.length > 5 ? ` 외 ${String(check.billing.length - 5)}개` : ''}`
+  const verdict = check.firstDiff === null ? '일치' : `불일치 — 처음 다른 곳: seq ${String(check.firstDiff.seq)} (${check.firstDiff.part})${keys}`
   return `판매자 ${check.sellerId} · ${check.date}${check.rehearsal ? ' 리허설' : ''} · ${verdict} (${counts}${other})`
 }
