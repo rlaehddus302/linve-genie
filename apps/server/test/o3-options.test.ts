@@ -266,8 +266,12 @@ describe('AC-O3-22 포장 모드 품목에 옵션 글·수량', () => {
     expect([a.status, a.add, a.remove]).toEqual(['포장 대기', [], []])
     expect(all.get('UC_B')?.items.map((item) => [item.no, item.variant, item.qty, item.price])).toEqual([[11, null, 1, 2000]])
 
-    // 변형 키 그대로 포장 완료 → 포장 완료 (변형 키 품목을 받는다)
-    const packed = await expectPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: a.items.map((item) => item.key) }))
+    // 키 글만 보내면 수량 1로 읽어(O4 D-O4-05 — TD-O3-003) 수량 2 이상 품목이 있는 묶음은 거절되고 아무것도 적지 않는다
+    const keysOnly = await pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: a.items.map((item) => item.key) })
+    expect([keysOnly.status, (keysOnly.body.error as { code: string }).code]).toEqual([409, 'ITEMS_CHANGED'])
+    expect((await world.database.pglite?.query<{ n: number }>(`select count(*)::int as n from packing_records`))?.rows[0]?.n).toBe(0)
+    // 변형 키와 화면이 본 수량으로 포장 완료 → 포장 완료 (변형 키 품목을 받는다)
+    const packed = await expectPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: a.items.map((item) => ({ key: item.key, qty: item.qty })) }))
     expect(packed.status).toBe('포장 완료')
     // 화면이 본 수량을 함께 보내도 된다 — 지금 수량과 다르면 다시 확인하라고 거절
     const wrong = await pack(world, seller, D, { buyer: 'UC_B', action: 'pack', items: [{ key: `${b2}/11`, qty: 2 }] })
@@ -292,7 +296,7 @@ describe('AC-O3-23 포장 뒤 수량이 바뀌면 "포장 다시 확인"', () =>
     await chat(world, seller, b, 'q1', 'UC_A', '홍길동', '초코 과자 2')
     let a = (await entries(world, seller)).get('UC_A') as Entry
     expect(a.items.map((item) => [item.key, item.qty, item.price])).toEqual([[`${b}/11`, 2, 4000]])
-    expect((await expectPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: [`${b}/11`] }))).status).toBe('포장 완료')
+    expect((await expectPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: [{ key: `${b}/11`, qty: 2 }] }))).status).toBe('포장 완료')
     // 기록에 수량이 함께 적혔다
     const stored = await world.database.pglite?.query<{ items: string }>(`select items from packing_records where kind = 'PACKED' order by id`)
     expect(JSON.parse(stored?.rows[0]?.items ?? 'null')).toEqual([{ id: a.items[0]?.id, key: `${b}/11`, qty: 2 }])
@@ -308,7 +312,7 @@ describe('AC-O3-23 포장 뒤 수량이 바뀌면 "포장 다시 확인"', () =>
     expect(a.add.map((item) => [item.key, item.qty])).toEqual([[`${b}/11`, 3]])
     expect(a.remove.map((item) => item.key)).toEqual([`${b}/11`])
     // 다시 포장 → 포장 완료 → 배송 완료 → 수량이 바뀌면 배송 뒤 바뀜
-    expect((await expectPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: [`${b}/11`] }))).status).toBe('포장 완료')
+    expect((await expectPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: [{ key: `${b}/11`, qty: 3 }] }))).status).toBe('포장 완료')
     expect((await expectPack(pack(world, seller, D, { buyer: 'UC_A', action: 'ship' }))).status).toBe('배송 완료')
     at(world, D, '21:02:00')
     await ok(world, seller, { type: 'host.cancel', b, no: 11, buyer: 'UC_A', reason: '구매자 요청' })
@@ -381,7 +385,7 @@ describe('AC-O3-23 백업 — 변형 키·수량을 적은 포장 기록도 백�
     const seller = await addSeller(world)
     await sellO3(world, seller)
     const a = (await entries(world, seller)).get('UC_A') as Entry
-    await expectPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: a.items.map((item) => item.key) }))
+    await expectPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: a.items.map((item) => ({ key: item.key, qty: item.qty })) }))
     const bytes = await createBackupBytes(world.database.db, seller.sellerId, world.clock.now())
     const expected = [
       ['7', 1],
@@ -481,7 +485,7 @@ describe('AC-O3-24 문서 내보내기·출력은 같은 데이터', () => {
     }
     // 포장 기록을 적으면 대장의 배송 칸이 그 말
     const a = (await entries(world, seller)).get('UC_A') as Entry
-    await expectPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: a.items.map((item) => item.key) }))
+    await expectPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: a.items.map((item) => ({ key: item.key, qty: item.qty })) }))
     const after = await readSheet((await getFile(world, seller.cookie, `/api/ledger.xlsx?from=${D}&to=${D}`)).bytes)
     expect(after.slice(1).filter((row) => row[8] === '홍길동').map((row) => row[13])).toEqual(['포장 완료', '포장 완료', '포장 완료', '포장 완료', '포장 완료'])
 
@@ -667,7 +671,7 @@ describe('AC-O3-28 포장 "뺄 것"에 포장 때의 옵션 글·수량 (D-O3-14
     await chat(world, seller, b, 'q1', 'UC_A', '홍길동', '초코 과자 2')
     let a = (await entries(world, seller)).get('UC_A') as Entry
     const id = a.items[0]?.id
-    await expectPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: [`${b}/11`] }))
+    await expectPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: [{ key: `${b}/11`, qty: 2 }] }))
     at(world, D, '21:01:00')
     await ok(world, seller, { type: 'host.cancel', b, no: 11, buyer: 'UC_A', reason: '구매자 요청' })
     at(world, D, '21:01:10')
@@ -683,7 +687,7 @@ describe('AC-O3-28 포장 "뺄 것"에 포장 때의 옵션 글·수량 (D-O3-14
     const seller = await addSeller(world)
     const { b1, b2 } = await sellO3(world, seller)
     const a = (await entries(world, seller)).get('UC_A') as Entry
-    await expectPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: a.items.map((item) => item.key) }))
+    await expectPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: a.items.map((item) => ({ key: item.key, qty: item.qty })) }))
     at(world, D, '21:05:00')
     await raw(world, seller, { type: 'host.cancel', b: b2, no: 21, options: { 사이즈: 'M' }, buyer: 'UC_A', reason: '변심' })
     const after = (await entries(world, seller)).get('UC_A') as Entry
