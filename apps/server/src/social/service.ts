@@ -276,7 +276,7 @@ export class SocialLogin {
     }
     const label = maskedLabel(profile.email, profile.nickname)
     if (purpose === 'LOGIN') return this.#login(provider, profile.id, label)
-    const result = await this.#link(provider, { sellerId: row.sellerId as string, accountId: row.accountId as string }, profile.id, label, now)
+    const result = await this.#link(provider, { sellerId: row.sellerId as string, accountId: row.accountId as string, sessionHash: row.sessionHash as string }, profile.id, label, now)
     if (result === 'LINKED') this.#notify(row.sellerId as string)
     return this.#finish(provider, purpose, result)
   }
@@ -312,36 +312,59 @@ export class SocialLogin {
     return { location: this.#location('/', null, provider), sessionToken: token }
   }
 
-  /** 연결 (유일 제약이 동시에 둘을 막는다) */
-  async #link(provider: ProviderId, owner: { sellerId: string; accountId: string }, providerUserId: string, label: string, now: number): Promise<SocialResult> {
-    const { db } = this.#options
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const taken = await db
-        .select({ id: loginLinks.id, accountId: loginLinks.accountId, sellerId: loginLinks.sellerId })
-        .from(loginLinks)
-        .where(and(eq(loginLinks.provider, provider), eq(loginLinks.providerUserId, providerUserId)))
+  /**
+   * 연결 (유일 제약이 동시에 둘을 막는다). 공급자 왕복 뒤 한 거래 안에서 (TD-L1-005, AC-L1-06):
+   * 끊기와 같은 계정 잠금을 잡고, 연결을 시작한 그 세션 행을 잠가 다시 읽는다 — 그 사이 로그아웃·만료됐으면 아무것도 만들지 않고 SESSION_GONE.
+   * 로그아웃이 세션 행을 지우므로 행 잠금이 둘을 줄 세운다(연결이 먼저 끝나면 로그아웃은 그 뒤에 세션만 지운다)
+   */
+  async #link(provider: ProviderId, owner: { sellerId: string; accountId: string; sessionHash: string }, providerUserId: string, label: string, now: number): Promise<SocialResult> {
+    const { db, clock } = this.#options
+    return db.transaction(async (raw): Promise<SocialResult> => {
+      const tx = raw as unknown as Db
+      await raw.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`login-links/${owner.accountId}`}, 0))`)
+      const alive = await tx
+        .select({ tokenHash: sessions.tokenHash })
+        .from(sessions)
+        .innerJoin(accounts, and(eq(accounts.id, sessions.accountId), eq(accounts.sellerId, sessions.sellerId), eq(accounts.role, 'SELLER'), isNull(accounts.deletedAt)))
+        .where(
+          and(
+            eq(sessions.tokenHash, owner.sessionHash),
+            eq(sessions.sellerId, owner.sellerId),
+            eq(sessions.accountId, owner.accountId),
+            gt(sessions.expiresAt, new Date(clock.now())),
+          ),
+        )
         .limit(1)
-      const existing = taken[0]
-      if (existing !== undefined) {
-        if (existing.accountId !== owner.accountId || existing.sellerId !== owner.sellerId) return 'LINKED_ELSEWHERE'
-        await db.update(loginLinks).set({ label }).where(and(eq(loginLinks.id, existing.id), eq(loginLinks.sellerId, owner.sellerId)))
-        return 'LINKED'
+        .for('update', { of: sessions })
+      if (alive.length === 0) return 'SESSION_GONE'
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const taken = await tx
+          .select({ id: loginLinks.id, accountId: loginLinks.accountId, sellerId: loginLinks.sellerId })
+          .from(loginLinks)
+          .where(and(eq(loginLinks.provider, provider), eq(loginLinks.providerUserId, providerUserId)))
+          .limit(1)
+        const existing = taken[0]
+        if (existing !== undefined) {
+          if (existing.accountId !== owner.accountId || existing.sellerId !== owner.sellerId) return 'LINKED_ELSEWHERE'
+          await tx.update(loginLinks).set({ label }).where(and(eq(loginLinks.id, existing.id), eq(loginLinks.sellerId, owner.sellerId)))
+          return 'LINKED'
+        }
+        const mine = await tx
+          .select({ id: loginLinks.id })
+          .from(loginLinks)
+          .where(and(eq(loginLinks.sellerId, owner.sellerId), eq(loginLinks.accountId, owner.accountId), eq(loginLinks.provider, provider)))
+          .limit(1)
+        if (mine.length > 0) return 'ALREADY_LINKED'
+        const inserted = await tx
+          .insert(loginLinks)
+          .values({ sellerId: owner.sellerId, accountId: owner.accountId, provider, providerUserId, label, linkedAt: new Date(now) })
+          .onConflictDoNothing()
+          .returning({ id: loginLinks.id })
+        if (inserted.length > 0) return 'LINKED'
+        // 같은 순간 다른 쪽이 먼저 넣었다 — 다시 읽어 정한다
       }
-      const mine = await db
-        .select({ id: loginLinks.id })
-        .from(loginLinks)
-        .where(and(eq(loginLinks.sellerId, owner.sellerId), eq(loginLinks.accountId, owner.accountId), eq(loginLinks.provider, provider)))
-        .limit(1)
-      if (mine.length > 0) return 'ALREADY_LINKED'
-      const inserted = await db
-        .insert(loginLinks)
-        .values({ sellerId: owner.sellerId, accountId: owner.accountId, provider, providerUserId, label, linkedAt: new Date(now) })
-        .onConflictDoNothing()
-        .returning({ id: loginLinks.id })
-      if (inserted.length > 0) return 'LINKED'
-      // 같은 순간 다른 쪽이 먼저 넣었다 — 다시 읽어 정한다
-    }
-    return 'LINKED_ELSEWHERE'
+      return 'LINKED_ELSEWHERE'
+    })
   }
 
   #notify(sellerId: string): void {
