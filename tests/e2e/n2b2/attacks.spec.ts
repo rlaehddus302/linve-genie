@@ -1,5 +1,5 @@
 // N2b-2 E2E 깨뜨리기 (test-e2e 라운드 0). 여러 플랫폼 묶음(@multi). 문장은 acceptance.md 그대로.
-import { expect, test } from '@playwright/test'
+import { expect, test, type Route } from '@playwright/test'
 import {
   CONSENT_CHECKBOX,
   boardItem,
@@ -241,9 +241,27 @@ test.describe('N2b-2 깨뜨리기 @multi', () => {
     await phone.goto(`/broadcasts/${b}`)
     const pcButton = consoleTiktok(page).getByRole('button', { name: '틱톡 잇기' })
     const phoneButton = consoleTiktok(phone).getByRole('button', { name: '틱톡 잇기' })
+    await expect(pcButton).toBeVisible()
     await expect(phoneButton).toBeVisible()
     const before = (await ttState(page.request)).attempts
+    // 두 화면의 잇기 요청이 모두 나갈 때까지 어느 쪽도 서버에 보내지 않는다 — "함께 눌러도"를 실제로 겹치게 한다.
+    // 잡지 않으면 부하에서 한쪽 누름이 늦을 때 먼저 간 잇기가 끝나 실시간 알림으로 다른 화면의 "틱톡 잇기"가 "끊기"로 바뀌고,
+    // 늦은 누름은 사라진 단추를 끝없이 기다린다(시험 시간 초과 — 제품은 연결 하나로 맞게 보인다)
+    let pressed = 0
+    let releaseBoth = (): void => undefined
+    const bothPressed = new Promise<void>((resolve) => {
+      releaseBoth = resolve
+    })
+    const holdUntilBoth = async (route: Route): Promise<void> => {
+      pressed += 1
+      if (pressed === 2) releaseBoth()
+      await bothPressed
+      await route.continue()
+    }
+    await page.route('**/live/link', holdUntilBoth)
+    await phone.route('**/live/link', holdUntilBoth)
     await Promise.all([pcButton.click(), phoneButton.click()])
+    await expect.poll(() => pressed, { message: '두 화면 모두 잇기 요청을 보냈다' }).toBe(2)
     // 두 화면 모두 이어진 칸 (상태 문장은 TE-N2b-2-003이 따로 본다)
     await expect(consoleTiktok(page).getByRole('button', { name: '끊기' })).toBeVisible()
     await expect(consoleTiktok(phone).getByRole('button', { name: '끊기' })).toBeVisible()
