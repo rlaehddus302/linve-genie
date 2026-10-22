@@ -11,6 +11,7 @@ import type { PastItem, PastView } from '../api/types.ts'
 import { dateLong } from '../lib/kst.ts'
 import { PACKING_TONE, packingWords } from '../lib/packing.ts'
 import { routePath } from '../lib/router.ts'
+import { quantitySum, saleLine } from '../lib/sale-line.ts'
 import { paymentWord } from '../lib/words.ts'
 import { RequestError } from './ErrorNote.tsx'
 
@@ -21,14 +22,12 @@ type PastLine = PastItem['items'][number]
 /** 지난 구매 품목 한 줄 (AC-O4-24): "22번 반팔티 105/검정색 2개 34,000원", "7번 핑크프릴 8,000원", 금액이 없으면 "21번 반바지 M" */
 export function pastLineWords(line: PastLine): string {
   const name = line.name.trim() === '' ? '품종 미입력' : line.name
-  const variant = line.variant === null || line.variant === '' ? '' : ` ${line.variant}`
-  const qty = line.qty > 1 ? ` ${String(line.qty)}개` : ''
   const amount = line.amount === null ? '' : ` ${formatWon(line.amount)}`
-  return `${String(line.no)}번 ${name}${variant}${qty}${amount}`
+  return `${saleLine({ no: line.no, name, variant: line.variant, qty: line.qty })}${amount}`
 }
 
-/** "상품 n개"의 n = 수량 합 */
-export const pastCount = (lines: readonly PastLine[]): number => lines.reduce((sum, line) => sum + line.qty, 0)
+/** "상품 n개"의 n = 수량 합 (D-O4-09 — 셈은 sale-line 하나) */
+export const pastCount = (lines: readonly PastLine[]): number => quantitySum(lines)
 
 export interface PastPurchasesProps {
   readonly date: string

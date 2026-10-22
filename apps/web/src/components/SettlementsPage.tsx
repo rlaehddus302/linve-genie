@@ -22,6 +22,7 @@ import { BuyerNames } from '../lib/derive.ts'
 import { dateYear, kstShort } from '../lib/kst.ts'
 import { ADJUST_RANGE, PAYMENT_RANGE, SHIPPING_RANGE, readAmount, refundRange } from '../lib/money.ts'
 import { routePath, type Navigate, type ScopeRoute } from '../lib/router.ts'
+import { saleLine } from '../lib/sale-line.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
 import { settlementKey } from '../lib/scope-data.ts'
 import { PACKING_TONE, packingWords } from '../lib/packing.ts'
@@ -434,10 +435,8 @@ export function primaryInput(payment: PaymentStatus): InputKind | null {
  */
 export function detailLineWords(claim: Pick<Claim, 'no' | 'variant' | 'qty' | 'amount'>, productName: string | undefined): string {
   const name = productName === undefined ? '' : productName.trim() === '' ? '품종 미입력' : productName
-  const variant = claim.variant === null || claim.variant === '' ? '' : ` ${claim.variant}`
-  const qty = claim.qty > 1 ? ` ${String(claim.qty)}개` : ''
   const amount = claim.amount === null ? '' : ` ${formatWon(claim.amount)}`
-  return `${String(claim.no)}번 ${name}${variant}${qty}${amount}`
+  return `${saleLine({ no: claim.no, name, variant: claim.variant, qty: claim.qty })}${amount}`
 }
 
 function SettlementDetail({ data, names, settlement, command, sync, onBack, mark, receiptSignature }: DetailProps) {

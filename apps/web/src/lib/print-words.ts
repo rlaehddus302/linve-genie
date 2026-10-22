@@ -3,6 +3,7 @@ import { LABEL_MESSAGES, buyerText, doesNotFitMessage, formatLabelDate, type Lab
 import { PRINTER_MESSAGES, type PrinterErrorCode } from '@livejjim/printer'
 import type { JobReason, JobView, LabelData, LabelView, QueueSummary } from '../api/print-types.ts'
 import { kstHm } from './kst.ts'
+import { saleOptionWords } from './sale-line.ts'
 
 /** 알림 띠 낱말 (D-I1-08) */
 export const PRINT_ALERT_WORD = {
@@ -89,14 +90,12 @@ export function jobNumberWord(job: Pick<JobView, 'kind' | 'label' | 'data' | 'pa
 }
 
 /**
- * 상품 라벨의 옵션 글·수량 덧붙임 (LBL-01, D-O4-07): " L · 2개", " M", 수량만 " · 3개", 옵션 없는 수량 1이면 빈 글.
- * 같은 번호의 두 변형 라벨을 목록에서 가려 볼 수 있게 번호 뒤에 붙인다. 값은 서버 라벨 데이터(L-3) 그대로.
+ * 상품 라벨의 옵션 글·수량 덧붙임 (LBL-01, D-O4-07·D-O4-10): " L 2개", " M", 수량만 " 3개", 옵션 없는 수량 1이면 빈 글.
+ * 판매 줄 한 모양(sale-line) — 품종을 보이는 줄은 품종 뒤에, 보이지 않는 줄은 번호 뒤에 붙인다. 값은 서버 라벨 데이터(L-3) 그대로.
  */
 export function labelOptionWords(data: LabelData | null): string {
   if (data === null || !('no' in data)) return ''
-  const variant = data.variant === undefined || data.variant === null || data.variant.trim() === '' ? '' : ` ${data.variant.trim()}`
-  const qty = data.qty !== undefined && data.qty > 1 ? ` · ${String(data.qty)}개` : ''
-  return `${variant}${qty}`
+  return saleOptionWords({ variant: data.variant ?? null, qty: data.qty ?? 1 })
 }
 
 /** 작업의 품종 (상품, 지금 데이터 — 없으면 빈 글) */

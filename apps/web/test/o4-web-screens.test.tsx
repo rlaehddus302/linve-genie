@@ -1,4 +1,4 @@
-// O4 화면 단위 시험 (AC-O4-20·21·23·25·26, D-O4-04·05·07): 포장 모드 옵션 글·수량·수량 합·{ key, qty } 보내기·409 뒤 다시 보이기,
+// O4 화면 단위 시험 (AC-O4-20·21·23·25·26·38, D-O4-04·05·07): 포장 모드 옵션 글·수량·수량 합·{ key, qty } 보내기·409 뒤 다시 보이기,
 // 포장 다시 확인 목록 모양, 라벨 작업 줄, 품종 칸을 끈 템플릿 안내(막지 않음).
 import { defaultTemplate } from '@livejjim/label'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -171,26 +171,27 @@ describe('포장 다시 확인 목록 (AC-O4-23, D-O3-14)', () => {
   })
 })
 
-describe('라벨 작업 줄 (AC-O4-25, D-O4-07)', () => {
+describe('라벨 작업 줄 (AC-O4-25, D-O4-07·D-O4-10)', () => {
   it('옵션 라벨은 번호·품종 뒤에 옵션 글·수량, 다육은 이전 그대로', () => {
     const optionJob = job('j1', { data: { no: 21, name: '반바지', price: 10000, date: DATE, buyer: { kind: 'youtube', name: '홍길동' }, variant: 'L', qty: 2 }, label: { ...job('j1').label, no: 21, buyer: { kind: 'youtube', name: '홍길동' } } })
     const { container, unmount } = render(<JobLine job={optionJob} />)
-    expect(container.querySelector('.job-main')?.textContent).toContain('21번 반바지 L · 2개 · 홍길동')
+    expect(container.querySelector('.job-main')?.textContent).toContain('21번 반바지 L 2개 · 홍길동 · ')
+    expect(container.querySelector('.job-main')?.textContent).not.toMatch(/×| · 2개/)
     unmount()
     const plain = render(<JobLine job={job('j2')} />)
     expect(plain.container.querySelector('.job-main')?.textContent).toMatch(/^15번 핑크프릴 · 우주천사 · /)
   })
 })
 
-describe('품종 칸을 끈 템플릿 안내 (AC-O4-26, D-O4-07)', () => {
+describe('품종 칸을 끈 템플릿 안내 (AC-O4-26·38, D-O4-07·D-O4-13)', () => {
   let server: FakeServer
-  let optionScopes: unknown[]
+  let exists: boolean | 'error'
   let saved: Record<string, unknown>[]
 
   beforeEach(() => {
     window.sessionStorage.clear()
     server = new FakeServer()
-    optionScopes = []
+    exists = false
     saved = []
     server
       .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1' } }))
@@ -201,7 +202,8 @@ describe('품종 칸을 끈 템플릿 안내 (AC-O4-26, D-O4-07)', () => {
       .on('GET', /^\/api\/days$/, () => ({ body: { days: [{ date: DATE }] } }))
       .on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [] } }))
       .on('GET', /^\/api\/settings$/, () => ({ body: { settings: { 'print.autoOnConfirm': true } } }))
-      .on('GET', /^\/api\/reviews(\?rehearsal=true)?$/, (_call, match) => ({ body: { rehearsal: match[1] !== undefined, reviews: [], products: [], broadcasts: [], scopes: match[1] === undefined ? optionScopes : [] } }))
+      .on('GET', /^\/api\/option-broadcasts\/exists$/, () => (exists === 'error' ? { status: 500, body: { code: 'SAVE_FAILED', message: '잠시 뒤 다시 시도해 주세요.' } } : { body: { exists } }))
+      .on('GET', /^\/api\/reviews/, () => ({ body: { rehearsal: false, reviews: [], products: [], broadcasts: [], scopes: [{ date: DATE, rehearsal: false, seq: 3 }] } }))
       .on('PUT', /^\/api\/print\/templates\/product$/, (call) => {
         saved.push(call.body ?? {})
         return { body: { template: (call.body as { template: unknown }).template, version: 1, message: '라벨 설정을 저장했어요.' } }
@@ -222,7 +224,7 @@ describe('품종 칸을 끈 템플릿 안내 (AC-O4-26, D-O4-07)', () => {
   }
 
   it('옵션 방송이 있는 판매자: 품종 칸을 끄면 안내 한 줄 — 저장 단추는 막히지 않는다', async () => {
-    optionScopes = [{ date: DATE, rehearsal: false, seq: 3 }]
+    exists = true
     const name = await openSettings()
     expect(screen.queryByText(NAME_OFF_OPTIONS_NOTE)).toBeNull()
     fireEvent.click(name)
@@ -235,15 +237,35 @@ describe('품종 칸을 끈 템플릿 안내 (AC-O4-26, D-O4-07)', () => {
 
   it('옵션 방송이 없는 판매자: 안내가 없다, 품종 칸을 끄지 않으면 묻지도 않는다', async () => {
     const name = await openSettings()
-    expect(server.callsTo('GET', /^\/api\/reviews/)).toHaveLength(0)
+    expect(server.callsTo('GET', /^\/api\/option-broadcasts\/exists/)).toHaveLength(0)
     fireEvent.click(name)
     await flush(10)
-    expect(server.callsTo('GET', /^\/api\/reviews/).length).toBeGreaterThan(0)
+    expect(server.callsTo('GET', /^\/api\/option-broadcasts\/exists$/)).toHaveLength(1)
     expect(screen.queryByText(NAME_OFF_OPTIONS_NOTE)).toBeNull()
   })
 
+  it('확인 필요 목록은 부르지 않는다 — 옵션 방송 있음 조회 한 번만 (AC-O4-38)', async () => {
+    exists = true
+    const name = await openSettings()
+    fireEvent.click(name)
+    await waitFor(() => expect(screen.getByText(NAME_OFF_OPTIONS_NOTE)).toBeTruthy())
+    fireEvent.click(name)
+    fireEvent.click(name)
+    await flush(10)
+    expect(server.callsTo('GET', /^\/api\/option-broadcasts\/exists$/)).toHaveLength(1)
+    expect(server.callsTo('GET', /^\/api\/reviews/)).toHaveLength(0)
+  })
+
+  it('조회가 실패하면 안내를 보인다 — 저장은 막히지 않는다 (D-O4-13)', async () => {
+    exists = 'error'
+    const name = await openSettings()
+    fireEvent.click(name)
+    await waitFor(() => expect(screen.getByText(NAME_OFF_OPTIONS_NOTE)).toBeTruthy())
+    expect((screen.getByRole('button', { name: '라벨 설정 저장' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
   it('이미 품종 칸을 끈 템플릿을 연 옵션 판매자에게도 보인다', async () => {
-    optionScopes = [{ date: DATE, rehearsal: false, seq: 3 }]
+    exists = true
     const product = defaultTemplate('product')
     server.on('GET', /^\/api\/print\/templates$/, () => ({ body: { ...templates(), product: { template: { ...product, items: { ...product.items, name: { ...product.items.name, visible: false } } }, version: 2 } } }))
     await openSettings()

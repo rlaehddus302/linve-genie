@@ -4,7 +4,7 @@
 // - 저장 전: 템플릿 검사 오류면 저장 단추가 막히고 칸 옆에 문장. 최악값으로 그려 들어가지 않으면 저장하지 않고 그 항목을 알린다. 겹침은 경고만.
 // - 다른 기기가 먼저 바꿨으면 서버 문장과 "새로 불러오기".
 // - 옵션 방송(상품명·옵션도 받기)이 하나라도 있는 판매자가 품종 칸을 끈 상품 템플릿을 고르거나 저장하면 안내 한 줄 — 막지 않는다 (D-O4-07, AC-O4-26).
-//   옵션 방송이 있는지는 확인 필요 목록 조회의 범위(옵션 방송이 있는 범위만 — 서버 optionScopes)로 본다. 품종 칸을 끌 때만 묻는다.
+//   옵션 방송이 있는지는 참/거짓만 주는 조회(GET /api/option-broadcasts/exists, D-O4-13)로 본다. 품종 칸을 끌 때만 묻고, 조회를 못 하면 안내를 보인다.
 import {
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
@@ -52,8 +52,8 @@ const SIZE_WORD = (size: LabelSizeId): string => `${size.replace('x', '×')}mm`
 export const NAME_OFF_OPTIONS_NOTE = '품종 칸을 끄면 사이즈·색상 같은 옵션이 라벨에 찍히지 않아요.'
 
 /**
- * 옵션 방송이 하나라도 있는가 (실제·리허설). ask가 참일 때 한 번만 묻는다. 모르는 동안·조회가 실패하면 false(안내만 없다 — 저장은 그대로).
- * GET /api/reviews의 scopes = 옵션 방송이 있는 범위(서버 optionScopes, 시작된 범위만)
+ * 옵션 방송이 하나라도 있는가 (실제·리허설, D-O4-13). ask가 참일 때 한 번만 묻는다 — 참/거짓만 주는 가벼운 조회
+ * GET /api/option-broadcasts/exists(확인 필요 목록은 부르지 않는다). 조회가 실패하면 참으로 본다(안내 한 줄이 더 보일 뿐 — 막지 않는다).
  */
 function useHasOptionBroadcasts(ask: boolean): boolean {
   const [known, setKnown] = useState<boolean | null>(null)
@@ -61,14 +61,14 @@ function useHasOptionBroadcasts(ask: boolean): boolean {
   useEffect(() => {
     if (asked) return
     let alive = true
-    const scopesOf = (rehearsal: boolean) =>
-      get<{ scopes?: readonly unknown[] }>(rehearsal ? '/api/reviews?rehearsal=true' : '/api/reviews').then(
-        (view) => Array.isArray(view.scopes) && view.scopes.length > 0,
-        () => false,
-      )
-    void Promise.all([scopesOf(false), scopesOf(true)]).then(([real, rehearsal]) => {
-      if (alive) setKnown(real || rehearsal)
-    })
+    void get<{ exists?: unknown }>('/api/option-broadcasts/exists').then(
+      (view) => {
+        if (alive) setKnown(view.exists !== false)
+      },
+      () => {
+        if (alive) setKnown(true)
+      },
+    )
     return () => {
       alive = false
     }

@@ -58,3 +58,13 @@
 - 다시 확인 안내 글: `구매 내역이 바뀌었어요 — 새로 담을 것: 21번 반바지 L · 뺄 것: 21번 반바지 L 2개`.
 - 409 뒤 버튼 근처 글: `그 사이 구매 내역이 바뀌어 포장 완료로 적지 않았어요. 바뀐 품목을 담고 다시 눌러 주세요.`
 - 라벨 화면 "그림 파일로 저장할 라벨" 목록(`aria-label`)은 `<details>`("라벨마다 그림 파일로 저장") 안에 있다. 출력 방법이 있는 브라우저에서는 접혀 있으니 summary를 눌러 연다.
+
+## O4 감사 뒤 (D-O4-09~13) — dev-web·dev-server
+
+- D-O4-09 (TE-O4-001·RA-O4-02): 셈 하나 `apps/web/src/lib/sale-line.ts` `quantitySum`. 구매자 목록·표·합칠 구매자 찾기는 `buyerQuantity`(자신+합쳐진 구매자의 확정 찜 수량 합), 구매자 자세히 "확정 상품"에 `상품 n개` 줄을 더했다. 정산은 `settlementQuantities`(`settlement.ts quantityCounts`가 그대로 부른다), 포장 `itemCount`·지난 구매 `pastCount`도 `quantitySum`. 포장 "a/b 담음"은 줄 수 그대로.
+- D-O4-10 (SA-O4-03·U-O4-02): 판매 줄 `saleLine`·`saleOptionWords`(` L 2개`). `derive.claimOptionWords`·`print-words.labelOptionWords`는 이것을 부른다 — 구매자 확정 상품 줄 `21번 반바지 L 2개 30,000원 · …`, 라벨 목록 `21번 L 2개 · 홍길동`, 작업 줄 `21번 반바지 L 2개 · 홍길동 · …`, 버릴 라벨 `21번 L 2개 · …`, 1등 라벨 묶음 `1등 홍길동 L 2개 라벨`, 문자찜 목록 `21번 반바지 L 2개 · 홍길동 · …`(번호만 굵게), 조치 확인 창·직접 배정·취소 고르기도 `×` 없음. 채팅 패널만 `chatOptionWords`(` L ×2`, D-O2-12). 변형 보드 `최지우 ×2`(AC-O2-23)는 판매 줄이 아니라 그대로.
+- D-O4-11 (TE-O4-002): 기종 템플릿 `아이폰 16`·`아이폰 17` 별칭 없음. 옵션 추가 창 선택지 별칭·상품 별칭 칸에 숫자만 별칭이 있으면 칸 아래 `role="note"` 안내(막지 않음).
+- D-O4-12 (SA-O4-04, [dev:server]): `generator.ts` 옵션 언급의 대체 글 `몇 개 남았나요?`도 `parseOptionComment`로 확인, 아니면 `#talk`. 번호 방송 경로(`#make` mention)는 손대지 않았다.
+- D-O4-13 (RA-O4-01, [dev:server]): `GET /api/option-broadcasts/exists` → `{ exists }`(서버 `optionScopes` 수 > 0, 세션 필요, 공용 no-store). 웹 `LabelSettings`는 이것 한 번만 부르고, 실패하면 안내를 보인다.
+- 시험: 웹 `apps/web/test/o4-audit.test.tsx`(새), `o4-web-lib.test.ts`·`o4-web-screens.test.tsx`(AC-O4-25·26 기대 글을 바뀐 스펙으로). 서버 `apps/server/test/o4-generator-fallback.test.ts`·`o4-option-exists.test.ts`(새).
+- test-e2e에게: 라벨 줄 기대 글 ` · 2개`→` 2개`(`youtube-flow`·`attacks`), 구매자 목록 상품 수는 수량 합.

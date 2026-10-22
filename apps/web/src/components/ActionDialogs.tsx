@@ -5,6 +5,7 @@ import { useMemo, useRef, useState } from 'react'
 import { isApiError, type ApiError } from '../api/client.ts'
 import type { Buyer, ChatMessage, Product } from '../api/types.ts'
 import { formatWon, productKey, productSlots } from '../lib/derive.ts'
+import { saleOptionWords } from '../lib/sale-line.ts'
 import { pickFor, qtyProblemWords, readQty, variantTextOf } from '../lib/options.ts'
 import { changedFields, editQuestion } from '../lib/quick.ts'
 import { PRODUCT_STATUS_WORD } from '../lib/words.ts'
@@ -251,7 +252,7 @@ export function AssignDialog({ spec, onClose }: { readonly spec: AssignSpec; rea
     const buyerName = api.names.name(buyer)
     const replaceWords = needsReplace && replace !== undefined ? ` (${api.names.name(replace)} ${replaceTo === 'WAITLIST' ? '대기로' : '취소'})` : ''
     const fields = { buyer, replace, replaceTo, reason: value, ...(optionProduct ? { options: picks, qty: qtyText } : {}) }
-    const optionWords = optionProduct ? ` ${variantText ?? ''}${qty !== null && qty > 1 ? ` ×${String(qty)}` : ''}` : ''
+    const optionWords = optionProduct ? saleOptionWords({ variant: variantText ?? null, qty: qty ?? 1 }) : ''
     api.queueHost({
       label: `${String(product.no)}번${optionWords} ${buyerName} 직접 배정${replaceWords}`,
       event: {

@@ -1,4 +1,5 @@
 // 업종 옵션 템플릿 (OPT-05, D-O-16, D-O2-04). 템플릿 하나 = 옵션 항목 하나이고, 업종별로 묶어 "옵션 추가" 창의 "템플릿에서 고르기"에 보인다.
+// 숫자만으로 된 별칭은 기본으로 두지 않는다 — 같은 번호 상품이 있으면 맨숫자 댓글이 '확인 필요'로 간다(D-O4-11).
 // 화면 기본값일 뿐이다 — 서버·엔진은 템플릿을 모른다(요청에는 고른 뒤의 옵션만 들어간다). 기종 목록은 새 모델이 나오면 이 데이터만 고친다.
 import type { OptionItem } from '@livejjim/core'
 
@@ -46,9 +47,9 @@ export const OPTION_TEMPLATES: readonly TemplateGroup[] = [
         item: {
           name: '기종',
           choices: [
-            { label: '아이폰 16', aliases: ['16'] },
+            { label: '아이폰 16' },
             { label: '아이폰 16 프로', aliases: ['16프로'] },
-            { label: '아이폰 17', aliases: ['17'] },
+            { label: '아이폰 17' },
             { label: '아이폰 17 프로', aliases: ['17프로'] },
             { label: '갤럭시 S25', aliases: ['S25'] },
             { label: '갤럭시 S25 울트라', aliases: ['S25울트라'] },

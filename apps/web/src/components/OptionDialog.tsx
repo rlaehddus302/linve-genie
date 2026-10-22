@@ -12,6 +12,7 @@ import {
   checkDraft,
   emptyChoice,
   emptyItem,
+  hasNumericAlias,
   itemDraftOf,
   optionSummary,
   splitList,
@@ -38,6 +39,15 @@ export interface OptionDialogProps {
   readonly unchanged?: boolean
   readonly onSubmit: (payload: OptionPayload, draft: OptionDraft) => void
   readonly onClose: () => void
+}
+
+/** 숫자만 쓴 별칭 안내 (D-O4-11 — 막지 않는다) */
+function NumericAliasNote() {
+  return (
+    <p className="hint" role="note">
+      {OPTION_WORDS.numericAlias}
+    </p>
+  )
 }
 
 function Problem({ text }: { readonly text: string | undefined }) {
@@ -116,6 +126,7 @@ export function OptionDialog({ title, initial, price, locked = false, submitLabe
         />
         <p className="hint">댓글에 상품 이름 대신 쓸 말이에요.</p>
         <Problem text={problem('aliases')} />
+        {hasNumericAlias(draft.aliases) ? <NumericAliasNote /> : null}
       </div>
 
       {draft.items.map((item, i) => (
@@ -324,6 +335,7 @@ function ItemFields({ index, item, locked, baseCount, problem, bulk, onBulk, onA
               )}
               <Problem text={problem(`${cp}.label`)} />
               <Problem text={problem(`${cp}.aliases`)} />
+              {hasNumericAlias(choice.aliases) ? <NumericAliasNote /> : null}
               <Problem text={problem(`${cp}.price`)} />
             </li>
           )

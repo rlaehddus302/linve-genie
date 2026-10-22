@@ -2,6 +2,7 @@
 // 옵션·수량 (O4 D-O4-04·05): 품목 줄 = `{번호}번 {품종}[ {옵션 글}]` + 수량 2 이상이면 `{수량}개`, "상품 n개" = 수량 합, 포장 완료는 `{ key, qty }`.
 //   옵션 없는 수량 1 품목은 글자 하나까지 이전 그대로다.
 import type { PackingEntry, PackingItem, PackingRemoved, PackingWord } from '../api/types.ts'
+import { quantitySum, saleLine } from './sale-line.ts'
 
 /** 상태 말의 뜻 (D-102): 포장 대기 = 보통, 포장 완료·배송 완료 = 성공, 포장 다시 확인·배송 뒤 바뀜 = 주의 */
 export const PACKING_TONE: Readonly<Record<PackingWord, 'info' | 'success' | 'warning'>> = {
@@ -101,7 +102,7 @@ export function itemVariant(item: { readonly variant?: string | null }): string 
 
 /** "상품 n개"의 n = 수량 합 (D-O4-04 — D-O3-03·05와 같은 셈). 옵션 없는 수량 1 품목만이면 줄 수 */
 export function itemCount(items: readonly { readonly qty?: number }[]): number {
-  return items.reduce((sum, item) => sum + itemQty(item), 0)
+  return quantitySum(items)
 }
 
 /** 수량 글: 2 이상이면 "2개", 1이면 빈 글 (D-O4-04) */
@@ -151,8 +152,7 @@ function nameWords(name: string): string {
 
 /** 체크리스트 줄 글 `21번 반바지 M` (옵션 글이 있으면 품종 뒤에) — 수량은 따로 크게 (D-O4-04) */
 export function itemLineWords(item: Pick<PackingItem, 'no' | 'name' | 'variant'>): string {
-  const variant = itemVariant(item)
-  return `${String(item.no)}번 ${nameWords(item.name.trim())}${variant === null ? '' : ` ${variant}`}`
+  return saleLine({ no: item.no, name: nameWords(item.name.trim()), variant: itemVariant(item) })
 }
 
 /**

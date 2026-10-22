@@ -96,12 +96,12 @@ describe('지난 구매 줄 (AC-O4-24, D-O4-06)', () => {
   })
 })
 
-describe('라벨 목록·작업 줄 (AC-O4-25, D-O4-07)', () => {
+describe('라벨 목록·작업 줄 (AC-O4-25, D-O4-07·D-O4-10)', () => {
   const data = (patch: Record<string, unknown>): LabelData => ({ no: 21, name: '반바지', price: 10000, date: '2026-10-19', buyer: { kind: 'youtube', name: '홍길동' }, ...patch }) as LabelData
-  it('번호 뒤 옵션 글·수량: " M", " L · 2개", 수량만 " · 3개", 옵션 없는 수량 1·포장 라벨·데이터 없음은 빈 글', () => {
+  it('번호 뒤 옵션 글·수량: " M", " L 2개", 수량만 " 3개", 옵션 없는 수량 1·포장 라벨·데이터 없음은 빈 글', () => {
     expect(labelOptionWords(data({ variant: 'M' }))).toBe(' M')
-    expect(labelOptionWords(data({ variant: 'L', qty: 2 }))).toBe(' L · 2개')
-    expect(labelOptionWords(data({ qty: 3 }))).toBe(' · 3개')
+    expect(labelOptionWords(data({ variant: 'L', qty: 2 }))).toBe(' L 2개')
+    expect(labelOptionWords(data({ qty: 3 }))).toBe(' 3개')
     expect(labelOptionWords(data({}))).toBe('')
     expect(labelOptionWords(null)).toBe('')
     expect(labelOptionWords({ date: '2026-10-19', buyer: { kind: 'sms' }, broadcasts: [], subtotal: 0 } as unknown as LabelData)).toBe('')
@@ -109,7 +109,7 @@ describe('라벨 목록·작업 줄 (AC-O4-25, D-O4-07)', () => {
 
   it('버릴 라벨 안내에도 옵션 글·수량 — 다육은 이전 그대로', () => {
     const optionJob: JobView = job('j1', { kind: 'product', data: data({ variant: 'L', qty: 2 }), date: '2026-10-19' })
-    expect(discardWord(optionJob)).toBe(`21번 L · 2개 · ${optionJob.label.buyer.kind === 'sms' ? '문자찜' : optionJob.label.buyer.name} · 26.10.19 라벨을 버려 주세요`)
+    expect(discardWord(optionJob)).toBe(`21번 L 2개 · ${optionJob.label.buyer.kind === 'sms' ? '문자찜' : optionJob.label.buyer.name} · 26.10.19 라벨을 버려 주세요`)
     const plain: JobView = job('j2', { kind: 'product', data: data({ no: 7 }), date: '2026-10-19' })
     expect(discardWord(plain)).toBe(`7번 · ${plain.label.buyer.kind === 'sms' ? '문자찜' : plain.label.buyer.name} · 26.10.19 라벨을 버려 주세요`)
   })

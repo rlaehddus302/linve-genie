@@ -7,7 +7,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import type { ChatMessage } from '../api/types.ts'
 import { compareChars } from '@livejjim/core'
 import type { Product } from '../api/types.ts'
-import { claimOptionWords, claimWord } from '../lib/derive.ts'
+import { chatOptionWords, claimWord } from '../lib/derive.ts'
 import { kstTime } from '../lib/kst.ts'
 import { PLATFORM_WORD, platformOfKey } from '../lib/platforms.ts'
 import { CHAT_REVIEW_WORD, CHAT_WORD, REVIEW_REASON_WORD } from '../lib/words.ts'
@@ -142,7 +142,7 @@ export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertN
             claimText={message.claims
               .map((id) => {
                 const claim = data.claims.get(id)
-                return claim === undefined ? '' : `${String(claim.no)}번${claimOptionWords(claim)} ${claimWord(data, claim)}`
+                return claim === undefined ? '' : `${String(claim.no)}번${chatOptionWords(claim)} ${claimWord(data, claim)}`
               })
               .filter((word) => word !== '')
               .join('|')}
