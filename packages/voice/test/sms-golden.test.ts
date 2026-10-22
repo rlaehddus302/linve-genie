@@ -101,7 +101,7 @@ describe('AC-V1-01 음성 문자찜 골든 (tests/golden/voice)', () => {
     expect(readSmsSentence(item.input, item.options)).toEqual(item.out)
     // 키까지 정확히 (toEqual은 undefined 키를 무시하므로 글로도 비교 — options가 없어야 할 주문에 options 키가 없게)
     expect(JSON.parse(JSON.stringify(readSmsSentence(item.input, item.options)))).toStrictEqual(item.out)
-    if (item.out !== null) expect(Object.keys(readSmsSentence(item.input, item.options) as object)).toEqual(Object.keys(item.out))
+    if (item.out !== null) expect(Object.keys(readSmsSentence(item.input, item.options) as object)).toEqual(Object.keys(item.out as object))
     // 넘긴 값을 바꾸지 않는다
     expect(JSON.stringify(item.options)).toBe(before)
   })
