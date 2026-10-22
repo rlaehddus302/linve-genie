@@ -6,7 +6,13 @@ import { becomeDevice, waitPrinted } from '../i1/support.ts'
 import {
   SHORTS,
   createBroadcast,
+  chat,
+  history,
   hostAction,
+  openReviews,
+  reviewLine,
+  reviewList,
+  waitReviews,
   login,
   oscope,
   packingCommand,
@@ -178,6 +184,87 @@ test('TE-O4-ATK-5: 배송 완료 뒤 수량이 2 → 1로 바뀌면 "배송 뒤 
     await phone.goto(`/packing?date=${date}&buyer=${encodeURIComponent(buyer)}`)
     const cl = phone.getByRole('region', { name: '체크리스트' })
     await expect(cl.getByRole('status').filter({ hasText: '배송한 뒤' })).toHaveText('배송한 뒤 구매 내역이 바뀌었어요 — 새로 담을 것: 21번 반바지 L · 뺄 것: 21번 반바지 L 2개. 따로 보내거나 환불해 주세요.')
+  } finally {
+    await phone.context().close()
+  }
+})
+
+test('TE-O4-ATK-6: 포장 화면을 연 채 옵션 상품 품종을 고치면 체크 줄·포장 목록이 새 품종으로 바뀐다 (옵션 품목 키로 상품을 찾음)', async ({ page, browser }) => {
+  await login(page)
+  const date = uniqueDate()
+  const { b } = await createBroadcast(page, { date, rehearsal: false, saleMode: 'OPTIONS', title: '의류 1부' })
+  await registerOptions(page, b, { ...SHORTS })
+  const buyer = await smsBuyer(page, date, b, 21, phoneNo(), '홍길동', { options: { 사이즈: 'L' }, qty: 2 })
+  const phone = await phoneLike(browser, page)
+  try {
+    await phone.goto(`/packing?date=${date}&buyer=${encodeURIComponent(buyer)}`)
+    const cl = phone.getByRole('region', { name: '체크리스트' })
+    await expect(cl.getByRole('checkbox', { name: '21번 반바지 L 2개' })).toBeVisible()
+    const res = await writeEvent(page, { type: 'product.update', b, no: 21, name: '여름 반바지' })
+    expect(res.status, JSON.stringify(res.body)).toBeLessThan(300)
+    await expect(cl.getByRole('checkbox', { name: '21번 여름 반바지 L 2개' })).toBeVisible({ timeout: 15_000 })
+  } finally {
+    await phone.context().close()
+  }
+})
+
+test('TE-O4-ATK-7: 확인 필요 여러 줄을 한 번에 보내는 중 둘째 요청이 끊기면 — 다시 보내도 줄마다 한 번만 기록, 찜이 겹치지 않는다', async ({ page }) => {
+  await login(page)
+  const { b, date } = await createBroadcast(page, { rehearsal: true, saleMode: 'OPTIONS', title: `끊김 ${crypto.randomUUID().slice(0, 6)}` })
+  await registerOptions(page, b, { ...SHORTS })
+  await chat(page, b, '이영희', '반바지')
+  await chat(page, b, '홍길동', '반바지 L 3개')
+  await chat(page, b, '한가람', '반바지 XL')
+  await waitReviews(page, b, true, 3)
+  await openReviews(page, b, true)
+  await reviewLine(page, 1).getByLabel('사이즈').selectOption('S')
+  if ((await reviewLine(page, 1).getByLabel('수량').inputValue()) === '') await reviewLine(page, 1).getByLabel('수량').fill('1')
+  await reviewLine(page, 2).getByLabel('수량').fill('2')
+  // 둘째 줄 요청만 한 번 끊는다 (응답을 받지 못한 채 서버에는 닿지 않음)
+  let posts = 0
+  await page.route('**/api/events', async (route) => {
+    if (route.request().method() === 'POST') {
+      posts += 1
+      if (posts === 2) return await route.abort('internetdisconnected')
+    }
+    return await route.continue()
+  })
+  await reviewLine(page, 1).getByRole('checkbox', { name: '1번째 줄 고르기' }).check()
+  await reviewLine(page, 2).getByRole('checkbox', { name: '2번째 줄 고르기' }).check()
+  await page.getByRole('button', { name: '고른 줄 주문으로' }).click()
+  const results = page.getByRole('list', { name: '보낸 결과' })
+  await expect(results.getByText(/이영희.*1등/)).toBeVisible({ timeout: 30_000 })
+  await expect(results.getByText(/홍길동.*1등/)).toBeVisible({ timeout: 30_000 })
+  await expect(reviewList(page).getByRole('listitem')).toHaveCount(1)
+  const s = await oscope(page, date, true)
+  const active = s.claims.filter((c) => c.broadcast === b && c.status === 'CONFIRMED').map((c) => [c.variant, c.qty]).sort()
+  expect(active).toEqual([['L', 2], ['S', 1]])
+  const resolves = (await history(page, date, true)).filter((e) => e.type === 'host.resolveReview' && !e.failed)
+  expect(resolves).toHaveLength(2)
+})
+
+test('TE-O4-ATK-8: PC와 휴대폰이 같은 확인 필요 줄을 함께 "주문으로" — 찜은 하나, 두 화면 모두 목록이 빈다', async ({ page, browser }) => {
+  await login(page)
+  const { b, date } = await createBroadcast(page, { rehearsal: true, saleMode: 'OPTIONS', title: `두 기기 ${crypto.randomUUID().slice(0, 6)}` })
+  await registerOptions(page, b, { ...SHORTS })
+  await chat(page, b, '이영희', '반바지')
+  await waitReviews(page, b, true, 1)
+  const phone = await phoneLike(browser, page)
+  try {
+    await openReviews(page, b, true)
+    await openReviews(phone, b, true)
+    for (const p of [page, phone]) {
+      await reviewLine(p, 1).getByLabel('사이즈').selectOption('S')
+      if ((await reviewLine(p, 1).getByLabel('수량').inputValue()) === '') await reviewLine(p, 1).getByLabel('수량').fill('1')
+    }
+    await Promise.all([
+      reviewLine(page, 1).getByRole('button', { name: '1번째 줄 주문으로' }).click(),
+      reviewLine(phone, 1).getByRole('button', { name: '1번째 줄 주문으로' }).click(),
+    ])
+    await expect(reviewList(page).getByRole('listitem')).toHaveCount(0, { timeout: 20_000 })
+    await expect(reviewList(phone).getByRole('listitem')).toHaveCount(0, { timeout: 20_000 })
+    await waitReviews(page, b, true, 0)
+    await expect.poll(async () => (await oscope(page, date, true)).claims.filter((c) => c.broadcast === b).map((c) => [c.variant, c.status]), { timeout: 15_000 }).toEqual([['S', 'CONFIRMED']])
   } finally {
     await phone.context().close()
   }
