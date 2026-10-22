@@ -26,7 +26,8 @@ export const API_EVENTS: Readonly<Record<string, ApiEventSpec>> = {
   'product.renumber': { broadcast: true, fields: ['b', 'from', 'to'] },
   // O2: 지금 상품 정하기 (옵션 방송만, 화면은 5초 대기 없이 바로 보낸다 — D-O2-10)
   'product.focus': { broadcast: true, fields: BY_PRODUCT },
-  sms: { broadcast: true, fields: ['b', 'no', 'received', 'memo', 'phone', 'buyer', 'qty', ...PICK] },
+  // last4 (V1): 음성 문자찜의 뒤 4자리 — phone처럼 엔진 필드가 아니고 서버가 지정 구매자 또는 키·뒤 4자리로 바꾼다 (AC-V1-10)
+  sms: { broadcast: true, fields: ['b', 'no', 'received', 'memo', 'phone', 'last4', 'buyer', 'qty', ...PICK] },
   'host.cancel': { broadcast: true, fields: [...BY_CLAIM, ...PICK] },
   'host.reject': { broadcast: true, fields: [...BY_CLAIM, ...PICK] },
   'host.promote': { broadcast: true, fields: [...BY_CLAIM, ...PICK] },

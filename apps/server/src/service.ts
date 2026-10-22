@@ -20,6 +20,7 @@ import {
   resolveSettings,
   type MergePreview,
   type OptionCatalogEntry,
+  type EngineState,
   type SaleSettings,
 } from '@livejjim/core'
 import { randomBytes } from 'node:crypto'
@@ -49,6 +50,7 @@ import { reviewsView, type ReviewsView } from './reviews.ts'
 import { mergePackingCheck } from './packing.ts'
 import { ASSISTANT_EVENT_TYPES, assistantCancelCheck, assistantForbidden } from './roles.ts'
 import { openSellerKey, phoneKeyOf } from './secrets.ts'
+import { ambiguousMessage, isLast4, last4Candidates, last4KeyText, LAST4_MESSAGE, LAST4_ONE_OF_MESSAGE } from './sms-last4.ts'
 import {
   actionRows,
   chatRows,
@@ -525,7 +527,7 @@ export class Service {
     const fields: Record<string, unknown> = { type }
     for (const field of spec.fields) {
       const value = own(body, field)
-      if (value !== undefined && field !== 'phone') Object.defineProperty(fields, field, { value, enumerable: true, writable: true, configurable: true })
+      if (value !== undefined && field !== 'phone' && field !== 'last4') Object.defineProperty(fields, field, { value, enumerable: true, writable: true, configurable: true })
     }
 
     // 범위 정하기: 방송이 있는 종류는 그 방송의 범위(날짜·리허설인지), 없는 종류는 요청에 적은 날짜와 리허설인지(적지 않으면 실제) (D-069, D-081)
@@ -582,8 +584,24 @@ export class Service {
   ): Promise<WriteOutcome | { kind: 'phone'; outcome: WriteOutcome; phoneLast4: string | null }> {
     const phone = own(body, 'phone')
     if (phone !== undefined && typeof phone !== 'string') return { kind: 'rejected', rejection: invalidInput([{ field: 'phone', message: fieldMessage('phone') }]) }
+    // 음성 문자찜의 뒤 4자리 (V1, AC-V1-10): 숫자 4개 글만, 전화번호·지정 구매자와 함께 보내지 않는다. 값은 로그·오류 문장에 넣지 않는다
+    const last4 = own(body, 'last4')
+    if (last4 !== undefined) {
+      if (!isLast4(last4)) return { kind: 'rejected', rejection: invalidInput([{ field: 'last4', message: LAST4_MESSAGE }]) }
+      if (phone !== undefined || own(body, 'buyer') !== undefined) return { kind: 'rejected', rejection: invalidInput([{ field: 'last4', message: LAST4_ONE_OF_MESSAGE }]) }
+    }
     const normalized = typeof phone === 'string' ? normalizePhone(phone) : null
-    const phoneFields = normalized === null ? {} : { phoneKey: phoneKeyOf(await this.#sellerKey(sellerId), normalized), phoneLast4: phoneLast4(normalized) }
+    const sellerKey = normalized !== null || last4 !== undefined ? await this.#sellerKey(sellerId) : null
+    const phoneFields = normalized === null || sellerKey === null ? {} : { phoneKey: phoneKeyOf(sellerKey, normalized), phoneLast4: phoneLast4(normalized) }
+    // 뒤 4자리로 정한 구매자: 그 범위 상태(기록 경로의 범위 줄 안)에서 찾는다 — 한 사람이면 지정 구매자, 없으면 범위·뒤 4자리 키의 새 문자 구매자, 둘 이상이면 409 (D-V1-03)
+    const last4Fields = (state: EngineState): { fields: Record<string, unknown> } | { rejection: Rejection } => {
+      if (!isLast4(last4) || sellerKey === null) return { fields: {} }
+      const candidates = last4Candidates(state, last4)
+      const [only] = candidates
+      if (candidates.length === 1 && only !== undefined) return { fields: { buyer: only.buyer } }
+      if (candidates.length === 0) return { fields: { phoneKey: phoneKeyOf(sellerKey, last4KeyText(date, rehearsal, last4)), phoneLast4: last4 } }
+      return { rejection: { ...rejection(409, 'BUYER_AMBIGUOUS', ambiguousMessage(last4)), extra: { candidates } } }
+    }
     const ref = this.#smsRef()
     const outcome = await this.#options.writer.write({
       sellerId,
@@ -591,10 +609,13 @@ export class Service {
       rehearsal,
       createScope: false,
       requestId,
-      build: (ctx) => [
+      build: (ctx) => {
+        const byLast4 = last4Fields(ctx.state)
+        if ('rejection' in byLast4) return byLast4.rejection
+        return [
         {
           // 받은 시각이 없으면 서버 도착 시각(이 이벤트의 at)의 KST. null 같은 값은 그대로 넘겨 엔진이 입력 오류로 거른다
-          fields: { ...fields, ref, received: own(body, 'received') === undefined ? kstTime(ctx.at) : own(body, 'received'), ...phoneFields },
+          fields: { ...fields, ref, received: own(body, 'received') === undefined ? kstTime(ctx.at) : own(body, 'received'), ...phoneFields, ...byLast4.fields },
           actor,
           requestId,
           smsRef: ref,
@@ -606,7 +627,8 @@ export class Service {
             return null
           },
         },
-      ],
+        ]
+      },
     })
     return { kind: 'phone', outcome: await this.#smsOutcome(sellerId, outcome, ref), phoneLast4: normalized === null ? null : phoneLast4(normalized) }
   }

@@ -153,7 +153,7 @@ function outcomeResponse(c: Context, outcome: WriteOutcome, extra: Readonly<Reco
       return json(c, { ...resultBody(result), ...extra })
     }
     case 'rejected':
-      return apiError(outcome.rejection.status, outcome.rejection.code, outcome.rejection.message, outcome.rejection.problems)
+      return apiError(outcome.rejection.status, outcome.rejection.code, outcome.rejection.message, outcome.rejection.problems, outcome.rejection.extra ?? {})
     case 'not_found':
       return notFound()
     case 'save_failed':

@@ -23,6 +23,8 @@ export type ErrorCode =
   | 'FORBIDDEN_ORIGIN'
   | 'NOT_SUPPORTED'
   | 'BUYER_NOT_FOUND'
+  // V1 음성 문자찜: 끝자리가 같은 손님이 여럿 (AC-V1-10)
+  | 'BUYER_AMBIGUOUS'
   | 'STATE_FORMAT'
   | 'SAVE_FAILED'
   | 'PROCESSING_FAILED'

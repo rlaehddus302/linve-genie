@@ -84,3 +84,30 @@ smsProductBlock(view) / findSmsBlock(card, lookup)   // SmsProductView = { state
 6. 음성을 끄면 기다리던 문자찜 카드의 기다림은 멈추고 다시 켜도 저절로 넣지 않는다(상품 카드 `#becomeOff`와 같다 — 누르면 넣는다).
 7. 정확도 보고서의 "다른 번호·끝자리로 저절로 넣을 문장"에 **등록 줄인데 저절로 넣을 문자찜으로 읽힌 문장**도 센다(문자찜이 아닌 말이 찜이 되는 것은 늘 기대와 다른 넣기). 시각은 측정에서 보지 않는다(지금 시각이 없다 — 보수적으로 저절로 넣는 쪽으로 센다).
 8. `voice` 패키지에 devDependency `yaml 2.9.1`(코어와 같은 버전, 잠금 파일에 이미 있음)을 더했다 — `voice-extract.yaml` 81사례가 새 입구에서도 그대로인지(AC-V1-02) 읽으려고.
+
+## dev-server — `POST /api/events` `sms`의 `last4` (AC-V1-10~12)
+
+### 요청
+- `sms` 본문에 선택 칸 `last4`(반각 숫자 정확히 4개 글). 받은 시각 칸 이름은 지금과 같은 `received`('HH:MM' 또는 'HH:MM:SS', KST) — acceptance의 "receivedAt"은 이 칸이다.
+- `last4`가 숫자 4개 글이 아니면(전각 `１２３４`·`123`·`12345`·`12a4`·숫자형 1234·null·빈 글) 400 `INVALID_INPUT`, `problems: [{ field: 'last4', message: '끝자리는 숫자 네 개로 적어 주세요.' }]`.
+- `last4`와 `phone`, 또는 `last4`와 `buyer`를 함께 보내면 400 `INVALID_INPUT`, `problems: [{ field: 'last4', message: '끝자리·전화번호·구매자 중 하나만 보내 주세요.' }]`.
+- 메모·옵션·수량·받은 시각·방송 검사는 손 입력과 같은 코어 checkEvent(메모의 휴대폰 번호 D-079 포함).
+
+### 서버가 정하는 것 (기록 경로의 범위 줄 안, 쓰기 직전 그 범위 상태)
+- 코어 `listBuyers`에서 `kind === 'sms'`이고 `phoneLast4 === last4`인 구매자의 `current`(지금의 구매자)를 모은다(같은 사람은 하나 — 합친 구매자, 유튜브 구매자에 합친 문자 구매자면 그 유튜브 구매자).
+  - 한 사람 → `buyer = 그 지금의 구매자`인 `sms` 이벤트(`phoneKey`·`phoneLast4` 없음). 응답 `phoneLast4`는 그래서 `null`이다 — 결과 카드의 끝자리는 화면이 카드의 `last4`로 보인다.
+  - 없음 → `phoneKey = HMAC-SHA256(판매자 키, 'livejjim/sms-last4/v1|<날짜>|<live|rehearsal>|<last4>')`, `phoneLast4 = last4`인 `sms` 이벤트 → 새 문자 구매자 `sms:<ref>`. 영문 머리가 있어 숫자만인 정규화 전화번호의 키와 겹칠 수 없고, 날짜·리허설 여부가 글에 있어 다른 범위·지난 구매(BUY-05)와 이어지지 않는다. 판매자 키가 달라 다른 판매자와도 다르다.
+  - 둘 이상 → 기록하지 않고 409.
+- 판정은 코어 그대로(서버는 구매자 칸만 정한다).
+
+### 409 본문 — 기존 API 오류 모양 그대로 (disputesWithSpec에 올림)
+```json
+{ "error": { "code": "BUYER_AMBIGUOUS", "message": "끝자리 1234 손님이 여러 명이에요. 누구인지 골라 주세요." },
+  "candidates": [{ "buyer": "sms:abc", "display": "문자찜(김씨)", "phoneLast4": "1234" }, …] }
+```
+- acceptance는 `{ error: 'BUYER_AMBIGUOUS', message, candidates }`로 적었지만 서버의 모든 오류 본문은 `{ error: { code, message }, ...extra }`(errors.ts `apiError`, AC-S00-41)이고 화면의 `errorFromBody`가 이 모양만 읽는다. 그래서 code·message는 `error` 안, `candidates`는 그 밖(화면에서는 `ApiError.details.candidates`)에 둔다.
+- 후보 순서 = 지금의 구매자가 처음 생긴 순서. 후보에는 구매자 ID·표시 이름·뒤 4자리만(키·전화번호 없음).
+- 409는 기록이 없으므로 같은 요청 번호로 다시 보내면 다시 판단한다(상태가 같으면 다시 409). 고른 뒤에는 같은 요청 번호로 `buyer`를 보내도 되고, 새 요청 번호여도 된다.
+
+### 로그
+- `last4`·이름 메모·키·요청 본문은 로그에 없다(로그 기록 함수는 자유 문장을 받지 않는다, log.ts). 시험: `apps/server/test/v1-sms-last4.test.ts` AC-V1-12.

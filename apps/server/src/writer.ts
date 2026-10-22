@@ -52,6 +52,8 @@ export interface Rejection {
   readonly code: ErrorCode
   readonly message: string
   readonly problems: readonly FieldProblem[]
+  /** 오류 본문의 error 밖에 더할 값 (예: 409 BUYER_AMBIGUOUS의 후보 candidates, V1). 서버가 정한 값만 */
+  readonly extra?: Readonly<Record<string, unknown>>
 }
 
 /** 쓸 이벤트 하나 (seq·at은 기록 경로가 붙인다) */
