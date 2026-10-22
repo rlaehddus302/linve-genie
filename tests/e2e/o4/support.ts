@@ -1,7 +1,9 @@
 // O4 E2E 공용 도우미 (test-e2e) — 옵션 주문 끝까지(댓글 → 확인 필요 → 라벨 → 확인서 → 판매대장 → 포장)와 다육 회귀.
 // 기대값은 harness/sprints/O4/acceptance.md와 골든 tests/golden/engine/25-o4-integration.yaml(G-ENG-O4-01~03)에서 정했다.
 // 화면 낱말·역할은 harness/sprints/O4/dev-notes.md "다음(test-e2e)에게".
-import { expect, type Page } from '@playwright/test'
+import { computeProductText, renderProductLabel } from '@livejjim/label'
+import { createNodeRenderEnv } from '@livejjim/label/node'
+import { expect, type Locator, type Page } from '@playwright/test'
 import { postJson, writeEvent, type OptionItem } from '../o2/support.ts'
 
 export * from '../o2/support.ts'
@@ -71,4 +73,76 @@ export async function packingLabelData(page: Page, date: string, buyer: string):
 /** 채팅 패널 (콘솔) */
 export function chatPanel(page: Page) {
   return page.getByRole('region', { name: '채팅', exact: true })
+}
+
+// ── 라벨 그림 비교 (AC-O4-15·33 — I1 files.spec.ts 방식) ─────────────────────
+
+export type Bits = { width: number; height: number; data: number[] }
+
+/** 미리 보기 캔버스(정수 배)를 1비트 바이트로 */
+export async function canvasBits(canvas: Locator): Promise<Bits> {
+  return await canvas.evaluate((el) => {
+    const c = el as HTMLCanvasElement
+    const scale = Number(c.dataset['scale'])
+    const width = Number(c.dataset['width'])
+    const height = Number(c.dataset['height'])
+    const ctx = c.getContext('2d')!
+    const img = ctx.getImageData(0, 0, c.width, c.height).data
+    const row = Math.ceil(width / 8)
+    const data = new Array<number>(row * height).fill(0)
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const i = ((y * scale) * c.width + x * scale) * 4
+      const lum = ((img[i] ?? 255) + (img[i + 1] ?? 255) + (img[i + 2] ?? 255)) / 3
+      if (lum < 128) data[y * row + (x >> 3)]! |= 0x80 >> (x & 7)
+    }
+    return { width, height, data }
+  })
+}
+
+/** PNG 바이트를 브라우저에서 읽어 1비트 바이트로 */
+export async function pngBits(page: Page, bytes: Buffer): Promise<Bits> {
+  return await page.evaluate(async (b64) => {
+    const bin = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0))
+    const bmp = await createImageBitmap(new Blob([bin], { type: 'image/png' }))
+    const c = new OffscreenCanvas(bmp.width, bmp.height)
+    const ctx = c.getContext('2d')!
+    ctx.drawImage(bmp, 0, 0)
+    const img = ctx.getImageData(0, 0, bmp.width, bmp.height).data
+    const row = Math.ceil(bmp.width / 8)
+    const data = new Array<number>(row * bmp.height).fill(0)
+    for (let y = 0; y < bmp.height; y++) for (let x = 0; x < bmp.width; x++) {
+      const i = (y * bmp.width + x) * 4
+      if (((img[i] ?? 255) + (img[i + 1] ?? 255) + (img[i + 2] ?? 255)) / 3 < 128) data[y * row + (x >> 3)]! |= 0x80 >> (x & 7)
+    }
+    return { width: bmp.width, height: bmp.height, data }
+  }, bytes.toString('base64'))
+}
+
+/** 판매자의 지금 상품 라벨 템플릿 (GET /api/print/templates) */
+export async function productTemplate(page: Page): Promise<unknown> {
+  const res = await page.request.get('/api/print/templates')
+  expect(res.ok(), await res.text()).toBe(true)
+  return (await res.json() as { product: { template: unknown } }).product.template
+}
+
+/** 라벨 데이터의 글 자리 (같은 패키지 함수 — L-3) */
+export function productLabelItems(template: unknown, data: unknown): Record<string, string> {
+  const r = computeProductText(template, data)
+  if (!r.ok) throw new Error(`라벨 글을 만들지 못함: ${r.error.message}`)
+  return { ...r.text.items } as Record<string, string>
+}
+
+/** Node 캔버스로 그린 상품 라벨 (글자 가장자리 점은 브라우저와 조금 다르다 — 가까움 비교에만 쓴다) */
+export function nodeProductBits(template: unknown, data: unknown): Bits {
+  const r = renderProductLabel(createNodeRenderEnv(), template, data)
+  if (!r.ok) throw new Error(`라벨을 그리지 못함: ${r.error.message}`)
+  return { width: r.image.width, height: r.image.height, data: [...r.image.data] }
+}
+
+/** 두 1비트 그림의 다른 점 수 (크기가 다르면 무한대) */
+export function bitsDiff(a: Bits, b: Bits): number {
+  if (a.width !== b.width || a.height !== b.height || a.data.length !== b.data.length) return Number.POSITIVE_INFINITY
+  let n = 0
+  for (let i = 0; i < a.data.length; i++) for (let x = (a.data[i]! ^ b.data[i]!) & 0xff; x !== 0; x >>= 1) n += x & 1
+  return n
 }

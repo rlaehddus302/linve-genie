@@ -1,18 +1,25 @@
 // O4 의류 한 흐름 — 실제 옵션 방송 (가짜 유튜브 묶음 @youtube, AC-O4-11~16·18, D-O4-02) — test-e2e.
 // 댓글은 가짜 구글 서버의 실시간 채팅(실제 수집기 경로)으로 앞 댓글이 반영된 뒤 하나씩 넣는다. 기대값 = G-ENG-O4-01.
 // 새 판매자 계정으로 돈다(오늘 날짜의 실제 범위를 다른 시험과 나누지 않게).
+import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import { connectYoutube, fake, fakeBroadcast, fakeChat, linkByAddress, loginNewSeller } from '../i3/support.ts'
 import {
   SHORTS,
   TEE,
+  bitsDiff,
   boardItem,
   buyerName,
+  canvasBits,
+  nodeProductBits,
   createBroadcast,
   openReviews,
   oscope,
   packingLabelData,
+  productLabelItems,
   productOf,
+  productTemplate,
+  pngBits,
   registerOptions,
   reviewLine,
   reviewList,
@@ -112,10 +119,17 @@ test('@youtube AC-O4-11~16·18: 실제 옵션 방송 — 수집기 댓글의 변
   expect((await productOf(page, date, false, b, 21)).status).toBe('SOLD')
   expect(claimsOf(s, b, '홍길동').filter((c) => c[3] === 'CONFIRMED')).toEqual([[21, 'L', 2, 'CONFIRMED', 20000]])
   // 상품 자세히의 1등 라벨 묶음 이름에 옵션 글·수량 (취소를 보내면 자세히 창이 닫힌다 — 다시 연다)
+  // 판매 줄 한 모양 (D-O4-10·AC-O4-25·35): `1등 홍길동 L 2개 라벨` — `×`·` · 2개` 없음
   if (!(await detail.isVisible())) await boardItem(page, 21).click()
-  await expect(detail.getByRole('group', { name: '1등 홍길동 L ×2 라벨' })).toBeVisible()
+  const hongGroup = detail.getByRole('group', { name: '1등 홍길동 L 2개 라벨' })
+  await expect(hongGroup).toBeVisible()
   await expect(detail.getByRole('group', { name: '1등 김철수 M 라벨' })).toBeVisible()
   await expect(detail.getByRole('group', { name: /^1등 홍길동 M/ })).toHaveCount(0)
+  await expect(detail.getByRole('group', { name: /×|·/ })).toHaveCount(0)
+  // AC-O4-15 미리 보기 그림 (홍길동 21 L 2개)
+  const hongCanvas = hongGroup.getByRole('img', { name: '21번 라벨 미리 보기' })
+  await expect(hongCanvas).toBeVisible()
+  const hongPreview = await canvasBits(hongCanvas)
   await page.keyboard.press('Escape')
 
   // ── AC-O4-15 라벨 목록 ──
@@ -138,7 +152,33 @@ test('@youtube AC-O4-11~16·18: 실제 옵션 방송 — 수집기 댓글의 변
   const lines = files.getByRole('listitem').locator('.job-main')
   await expect(lines).toHaveCount(5)
   const texts = (await lines.allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim()).sort()
-  expect(texts).toEqual(['21번 L · 2개 · 홍길동', '21번 M · 김철수', '21번 S · 이영희', '22번 100/흰색 · 정하나', '22번 105/검정색 · 2개 · 박민수'].sort())
+  expect(texts).toEqual(['21번 L 2개 · 홍길동', '21번 M · 김철수', '21번 S · 이영희', '22번 100/흰색 · 정하나', '22번 105/검정색 2개 · 박민수'].sort())
+  for (const t of texts) expect(t).not.toMatch(/×| · \d+개/)
+
+  // ── AC-O4-15 라벨 글 자리·미리 보기 그림 = 그 라벨 데이터로 그린 그림 ──
+  const hongLabel = labels.find((l) => l.winner && l.no === 21 && l.buyer.name === '홍길동')
+  expect(hongLabel?.data).toBeTruthy()
+  const template = await productTemplate(page)
+  const textItems = productLabelItems(template, hongLabel!.data)
+  expect([textItems['number'], textItems['name'], textItems['price']]).toEqual(['21', '반바지 L', '2개 20 천원'])
+  // 그림 파일 목록의 PNG는 서버 라벨 데이터를 같은 렌더러로 그린 것 — 미리 보기와 바이트까지 같다
+  const hongFile = files.getByRole('listitem').filter({ hasText: '21번 L 2개 · 홍길동' })
+  const [dl] = await Promise.all([page.waitForEvent('download'), hongFile.getByRole('button', { name: '그림 파일로 저장' }).click()])
+  expect(dl.suggestedFilename()).toBe(`라벨-${date}-21번.png`)
+  const filePng = await pngBits(page, readFileSync((await dl.path())!))
+  expect([hongPreview.width, hongPreview.height]).toEqual([filePng.width, filePng.height])
+  expect(hongPreview.data).toEqual(filePng.data)
+  // 그 데이터로 Node에서 그린 그림과 크기가 같고, 옵션 글·수량을 뺀 데이터로 그린 것보다 가깝다
+  // (브라우저·Node 캔버스는 글자 가장자리 점이 조금 달라 점 하나까지 비교는 위 PNG와 한다 — I1 probes와 같은 방식)
+  const want = nodeProductBits(template, hongLabel!.data)
+  expect([want.width, want.height]).toEqual([hongPreview.width, hongPreview.height])
+  const { variant: _v, qty: _q, ...noOption } = hongLabel!.data as Record<string, unknown>
+  expect(productLabelItems(template, noOption)['name']).toBe('반바지')
+  expect(bitsDiff(want, hongPreview)).toBeLessThan(bitsDiff(nodeProductBits(template, noOption), hongPreview))
+  expect(bitsDiff(want, hongPreview)).toBeLessThan(bitsDiff(nodeProductBits(template, { ...noOption, variant: 'L' }), hongPreview))
+  // 그림 파일 목록에 `×`·` · 2개`가 없다 (AC-O4-25 — 대기열·이력 줄은 attacks TE-O4-ATK-4)
+  await expect(files).not.toContainText('×')
+  await expect(files).not.toContainText(/ · \d+개/)
 
   // ── AC-O4-16 확인서 (실제) ──
   const idOf = (name: string) => s.buyers.find((x) => x.display === name)!.id

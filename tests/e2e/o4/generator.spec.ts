@@ -1,9 +1,19 @@
 // O4 리허설 생성기 — 옵션 방송의 옵션 댓글·확인 필요 감 (AC-O4-08), 다육(번호) 리허설 회귀 (AC-O4-33) — test-e2e.
 // 기대값은 acceptance.md·D-O4-01·D-O4-08에서 정했다. 생성기 상태 응답에는 종류별 개수가 없어(dev-server 인계)
 // "review 없음"은 확인 필요 조회가 비어 있고 채팅 패널에 "확인 필요"가 없는 것으로 본다.
+import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
+import { loginNewSeller } from '../i3/support.ts'
 import {
   SHORTS,
+  bitsDiff,
+  canvasBits,
+  nodeProductBits,
+  pngBits,
+  productLabelItems,
+  productTemplate,
+  setLabels,
+  smsApi,
   boardItem,
   buyerName,
   chat,
@@ -19,6 +29,7 @@ import {
   uniqueDate,
   waitClaims,
   waitGeneratorDone,
+  writeEvent,
 } from './support.ts'
 
 test.beforeEach(async ({ page }) => {
@@ -114,4 +125,50 @@ test('AC-O4-33: 다육(번호로만 받기) 리허설 — 194·195 1등, "반바
   const after = await oscope(page, date, true)
   const options = after.claims.filter((c) => c.broadcast === b && (c.variant !== null || c.qty !== 1))
   expect(options).toEqual([])
+  // 라벨: 리허설 방송은 지금처럼 라벨이 없다 — 상품 자세히 안내 그대로, 리허설 라벨 조회는 거절
+  await boardItem(page, 194).click()
+  const labelBox = page.getByRole('dialog', { name: /194번.*자세히/ }).getByRole('region', { name: '라벨' })
+  await expect(labelBox).toContainText('리허설 방송은 라벨을 출력하지 않아요.')
+  await expect(labelBox.getByRole('img')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  const rl = await page.request.get(`/api/print/labels?date=${date}&rehearsal=true`)
+  expect(rl.status()).toBe(422)
+})
+
+test('AC-O4-33 (라벨): 번호로만 받기 판매자의 다육 라벨 데이터에 옵션 글·수량 칸이 없고, 글 자리·미리 보기 그림이 지금 모양', async ({ page }) => {
+  await page.context().clearCookies()
+  await loginNewSeller(page)
+  await setLabels(page, true)
+  const date = uniqueDate()
+  const { b } = await createBroadcast(page, { date, rehearsal: false, title: '다육 1부' })
+  const reg = await writeEvent(page, { type: 'product.register', b, no: 194, name: '왕비뇌신금', price: 8000 })
+  expect(reg.status, JSON.stringify(reg.body)).toBeLessThan(300)
+  await smsApi(page, { b, no: 194, phone: '010-2345-6789', memo: '홍길동' })
+  const res = await page.request.get(`/api/print/labels?date=${date}`)
+  expect(res.ok(), await res.text()).toBe(true)
+  const labels = (await res.json() as { labels: { no: number; winner: boolean; data: Record<string, unknown> | null }[] }).labels
+  const label = labels.find((l) => l.winner && l.no === 194)
+  expect(label?.data).toBeTruthy()
+  const data = label!.data!
+  // 다육 라벨 데이터는 지금 칸만 (L-9 BASE: no·name·price·date·buyer) — variant·qty 없음
+  expect(Object.keys(data).sort()).toEqual(['buyer', 'date', 'name', 'no', 'price'])
+  expect([data['no'], data['name'], data['price']]).toEqual([194, '왕비뇌신금', 8000])
+  const template = await productTemplate(page)
+  const items = productLabelItems(template, data)
+  expect([items['number'], items['name'], items['price']]).toEqual(['194', '왕비뇌신금', '8 천원'])
+  // 미리 보기 = 그림 파일(PNG) 바이트 같음, Node로 그린 BASE 그림과 크기 같고 수량을 붙인 그림보다 가깝다
+  await page.goto(`/broadcasts/${encodeURIComponent(b)}`)
+  await boardItem(page, 194).click()
+  const group = page.getByRole('dialog', { name: /194번.*자세히/ }).getByRole('group', { name: /^1등 .+ 라벨$/ })
+  await expect(group).toHaveCount(1)
+  await expect(group).not.toContainText('×')
+  const canvas = group.getByRole('img', { name: '194번 라벨 미리 보기' })
+  await expect(canvas).toBeVisible()
+  const preview = await canvasBits(canvas)
+  const [dl] = await Promise.all([page.waitForEvent('download'), group.getByRole('button', { name: '그림 파일로 저장' }).click()])
+  const file = await pngBits(page, readFileSync((await dl.path())!))
+  expect(preview).toEqual(file)
+  const base = nodeProductBits(template, data)
+  expect([base.width, base.height]).toEqual([preview.width, preview.height])
+  expect(bitsDiff(base, preview)).toBeLessThan(bitsDiff(nodeProductBits(template, { ...data, qty: 2, price: 16000 }), preview))
 })

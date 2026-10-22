@@ -2,9 +2,11 @@
 // 열어 둔 포장 화면의 수량만 바뀐 품목, 판매자 글(옵션 이름)의 이스케이프, 라벨 설정 안내(옵션 판매자만), 출력 대기 작업 줄의 옵션 글.
 import { expect, test, type Page } from '@playwright/test'
 import { loginNewSeller } from '../i3/support.ts'
-import { becomeDevice, waitPrinted } from '../i1/support.ts'
+import { becomeDevice, printed, waitPrinted } from '../i1/support.ts'
 import {
   SHORTS,
+  boardItem,
+  canvasBits,
   createBroadcast,
   chat,
   history,
@@ -150,8 +152,11 @@ test('TE-O4-ATK-4: 출력 대기 작업 줄·출력 이력 줄에 옵션 글·�
   await page.goto('/labels')
   const waiting = page.getByRole('region', { name: '출력 대기열', exact: true }).getByRole('list', { name: '대기 작업' })
   await expect(waiting.getByRole('listitem')).toHaveCount(2)
-  await expect(waiting.getByRole('listitem').filter({ hasText: '21번 반바지 L · 2개 · ' })).toHaveCount(1)
-  await expect(waiting.getByRole('listitem').filter({ hasText: /21번 반바지 M · (?!\d+개)/ })).toHaveCount(1)
+  // 판매 줄 한 모양 (D-O4-10): 작업 줄은 품종 포함 `21번 반바지 L 2개 · {구매자} · …`(문자찜 구매자는 "문자찜"), 수량 1은 수량 없음
+  await expect(waiting.getByRole('listitem').filter({ hasText: '21번 반바지 L 2개 · 문자찜 · ' })).toHaveCount(1)
+  await expect(waiting.getByRole('listitem').filter({ hasText: '21번 반바지 M · 문자찜 · ' })).toHaveCount(1)
+  await expect(waiting).not.toContainText('×')
+  await expect(waiting).not.toContainText(/ · \d+개/)
   // 시험용 프린터로 찍으면 출력 이력 줄에도 옵션 글·수량
   await becomeDevice(page, 'PC')
   await page.getByRole('region', { name: '출력 대기열', exact: true }).getByRole('button', { name: '출력 시작' }).click()
@@ -159,13 +164,23 @@ test('TE-O4-ATK-4: 출력 대기 작업 줄·출력 이력 줄에 옵션 글·�
   const history = page.getByRole('list', { name: '출력 이력 목록' }).locator('.job-main')
   await expect(history).toHaveCount(2)
   const lines = (await history.allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim())
-  expect(lines.filter((t) => t.startsWith('21번 L · 2개 · '))).toHaveLength(1)
-  expect(lines.filter((t) => /^21번 M · (?!\d+개)/.test(t))).toHaveLength(1)
+  expect(lines.filter((t) => t.startsWith('21번 L 2개 · 문자찜'))).toHaveLength(1)
+  expect(lines.filter((t) => t.startsWith('21번 M · 문자찜'))).toHaveLength(1)
+  for (const t of lines) expect(t).not.toMatch(/×| · \d+개/)
+  const images = await printed(page)
   // 찍은 M 찜을 취소하면 버릴 라벨 줄에 M (L 아님)
   await hostAction(page, { type: 'host.cancel', b, no: 21, buyer, options: { 사이즈: 'M' }, reason: '구매자 요청' })
   const discard = page.getByRole('list', { name: '버릴 라벨 목록' }).getByRole('listitem')
   await expect(discard).toHaveCount(1, { timeout: 15_000 })
   await expect(discard.locator('.job-main')).toHaveText(/^21번 M · .*라벨을 버려 주세요$/)
+  // AC-O4-15: 상품 자세히 L 2개 미리 보기 = 시험용 프린터가 받은 그림 (I1 files.spec.ts 방식, 바이트 같음)
+  await page.goto(`/broadcasts/${encodeURIComponent(b)}`)
+  await boardItem(page, 21).click()
+  const group = page.getByRole('dialog', { name: /21번.*자세히/ }).getByRole('group', { name: '1등 문자찜(홍길동) L 2개 라벨' })
+  const canvas = group.getByRole('img', { name: '21번 라벨 미리 보기' })
+  await expect(canvas).toBeVisible()
+  const preview = await canvasBits(canvas)
+  expect(images.filter((img) => img.width === preview.width && img.height === preview.height && img.data.every((v, i) => v === preview.data[i]))).toHaveLength(1)
 })
 
 test('TE-O4-ATK-5: 배송 완료 뒤 수량이 2 → 1로 바뀌면 "배송 뒤 바뀜" — 안내에 옵션 글·포장 때 수량', async ({ page, browser }) => {

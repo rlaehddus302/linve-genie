@@ -5,6 +5,7 @@ import { expect, test, type Page, type Request } from '@playwright/test'
 import {
   SHORTS,
   TEE,
+  chat,
   createBroadcast,
   dateLongKo,
   downloadBytes,
@@ -70,8 +71,15 @@ test.beforeEach(async ({ page }) => {
   await login(page)
 })
 
-test('AC-O4-17: 판매대장 — 두 방송이면 14열(옵션·수량·단가), 행이 확정 찜과 같고 다육 행은 빈칸·1·8,000 · 다육 방송만이면 11열 그대로', async ({ page }) => {
+test('AC-O4-17: 판매대장 — 두 방송이면 14열(옵션·수량·단가), 행이 확정 찜과 같고 다육 행은 빈칸·1·8,000 · 다육 방송만이면 11열 그대로 · 같은 날 옵션 리허설 판매는 어느 대장에도 없다', async ({ page }) => {
   const day = await clothingDay(page)
+  // 같은 날 옵션 리허설 판매 하나 (21 반바지 L 2개 — 리허설손님)
+  const { b: r } = await createBroadcast(page, { date: day.date, rehearsal: true, saleMode: 'OPTIONS', title: '리허설 의류' })
+  await registerOptions(page, r, { ...SHORTS })
+  await chat(page, r, '리허설손님', '반바지 L 2개')
+  await expect.poll(async () => (await oscope(page, day.date, true)).claims.filter((c) => c.broadcast === r && c.status === 'CONFIRMED').map((c) => [c.no, c.variant, c.qty]), { timeout: 15_000 })
+    .toEqual([[21, 'L', 2]])
+  const inLedger = (rows: string[][]) => rows.filter((row) => row.some((cell) => /리허설/.test(cell ?? '')))
   await page.goto(`/settlements?date=${day.date}`)
   await page.getByRole('group', { name: '정산 문서' }).getByRole('button', { name: '판매대장 엑셀' }).click()
   const dlg = page.getByRole('dialog', { name: '판매대장 엑셀' })
@@ -91,6 +99,8 @@ test('AC-O4-17: 판매대장 — 두 방송이면 14열(옵션·수량·단가),
     ['의류 1부', '22', '반팔티', '100/흰색', '1', '15000', '15000', '정하나'],
     ['의류 1부', '22', '반팔티', '105/검정색', '2', '17000', '34000', '박민수'],
   ].sort())
+  expect(inLedger(rows)).toEqual([])
+  expect(rows.slice(1).filter((row) => ![`의류 1부`, '다육 1부'].includes(row[col('회차')] ?? ''))).toEqual([])
   // 다육 방송만
   await list.getByRole('checkbox', { name: `${dateLongKo(day.date)} · 의류 1부` }).uncheck()
   const [only] = await Promise.all([page.waitForEvent('download'), dlg.getByRole('button', { name: '엑셀 내려받기' }).click()])
@@ -99,6 +109,37 @@ test('AC-O4-17: 판매대장 — 두 방송이면 14열(옵션·수량·단가),
   const sold2 = rows2.slice(1).filter((r) => r[COLUMNS.indexOf('상태')] === '1등')
   expect(sold2.map((r) => [r[1], r[2], r[3], r[4]])).toEqual([['다육 1부', '7', '핑크프릴', '8000']])
   expect(sold2[0]?.[5]).toContain('오세훈')
+  expect(inLedger(rows2)).toEqual([])
+  expect(rows2.slice(1).filter((row) => row[1] !== '다육 1부')).toEqual([])
+})
+
+test('D-O4-09·10 (AC-O4-34·35): 구매자 목록·자세히 — "상품 n개" = 확정 수량 합(취소 찜 뺌), 확정 상품 줄은 `21번 반바지 L 2개 …` 한 모양(×·` · 2개` 없음)', async ({ page }) => {
+  const day = await clothingDay(page)
+  await page.goto(`/buyers?date=${day.date}`)
+  const list = page.getByRole('region', { name: '구매자 목록' })
+  const row = (name: string) => list.getByRole('row').filter({ hasText: name })
+  // 홍길동: 확정 21 L 2개 한 줄(취소한 M 1개 뺌) → 줄 수 1이 아니라 수량 합 2
+  await expect(row('홍길동').getByRole('cell').nth(2)).toHaveText('2개')
+  await expect(row('박민수').getByRole('cell').nth(2)).toHaveText('2개')
+  await expect(row('김철수').getByRole('cell').nth(2)).toHaveText('1개')
+  await expect(row('오세훈').getByRole('cell').nth(2)).toHaveText('1개')
+
+  await page.goto(`/buyers?date=${day.date}&buyer=${encodeURIComponent(day.buyers['홍길동']!)}`)
+  const items = page.getByRole('region', { name: '구매자 자세히' }).getByRole('region', { name: '확정 상품' })
+  await expect(items.getByRole('listitem')).toHaveCount(1)
+  await expect(items.getByRole('listitem')).toHaveText(/^21번 반바지 L 2개 20,000원 · 문자찜/)
+  await expect(items).toContainText('상품 2개')
+  await expect(items).not.toContainText('×')
+  await expect(items).not.toContainText(/ · \d+개/)
+  await expect(items).not.toContainText('반바지 M')
+
+  await page.goto(`/buyers?date=${day.date}&buyer=${encodeURIComponent(day.buyers['박민수']!)}`)
+  await expect(items.getByRole('listitem')).toHaveText(/^22번 반팔티 105\/검정색 2개 34,000원 · 문자찜/)
+  await expect(items).toContainText('상품 2개')
+  // 다육 줄은 BASE 그대로 (옵션 글·수량 없음)
+  await page.goto(`/buyers?date=${day.date}&buyer=${encodeURIComponent(day.buyers['오세훈']!)}`)
+  await expect(items.getByRole('listitem')).toHaveText(/^7번 핑크프릴 8,000원 · 문자찜/)
+  await expect(items).toContainText('상품 1개')
 })
 
 test('AC-O4-18·20·21·27: 포장 모드 (375px) — 옵션 글·큰 수량·"상품 n개" = 수량 합, 포장 완료가 { key, qty }를 화면 순서로 보내고 포장 라벨 항목에 옵션·수량', async ({ page, browser }) => {

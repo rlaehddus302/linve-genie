@@ -213,3 +213,50 @@ test('AC-O4-31: 휴대폰 케이스 — 기종 숫자는 옵션, 17번은 다른
     '갤럭시 S25': ['OPEN', ['오세훈']],
   })
 })
+
+test('D-O4-11 (AC-O4-36): 휴대폰 케이스 기종 템플릿에 숫자만 쓴 별칭이 없고, 판매자가 별칭에 17을 넣으면 안내 한 줄(막지 않음) — 17프로·선택지 이름 100엔 안내 없음', async ({ page }) => {
+  const NOTE = "숫자만 쓴 별칭은 상품 번호와 헷갈려 '확인 필요'로 갈 수 있어요"
+  const { b, date } = await createBroadcast(page, { rehearsal: true, saleMode: 'OPTIONS', title: `별칭 ${crypto.randomUUID().slice(0, 6)}` })
+  await page.goto(`/broadcasts/${encodeURIComponent(b)}`)
+  const input = page.getByLabel('빠른 입력')
+  await expect(input).toBeFocused()
+  await input.fill('41 폰케이스 12000')
+  await page.getByRole('button', { name: '옵션 추가' }).click()
+  const dlg = optionDialog(page)
+  await dlg.getByRole('button', { name: '템플릿에서 고르기' }).click()
+  await dlg.getByRole('button', { name: '휴대폰 케이스 — 기종', exact: true }).click()
+  await expect(dlg.getByLabel('항목 1 선택지 6 이름')).toHaveValue('갤럭시 S25 울트라')
+  const aliases: string[] = []
+  for (let n = 1; n <= 6; n += 1) aliases.push(await dlg.getByLabel(`항목 1 선택지 ${String(n)} 별칭`).inputValue())
+  // 아이폰 16·아이폰 17은 별칭 없음, 16프로·17프로·S25·S25울트라 그대로
+  expect(aliases).toEqual(['', '16프로', '', '17프로', 'S25', 'S25울트라'])
+  for (const a of aliases.flatMap((x) => x.split(',')).map((x) => x.trim()).filter((x) => x !== '')) expect(a).not.toMatch(/^\d+$/)
+  await expect(dlg.getByRole('note').filter({ hasText: NOTE })).toHaveCount(0)
+  // 판매자가 아이폰 17 별칭 칸에 17 → 그 칸(선택지 줄) 아래 안내 하나
+  const choice3 = dlg.getByRole('listitem').filter({ has: page.getByLabel('항목 1 선택지 3 별칭') })
+  await dlg.getByLabel('항목 1 선택지 3 별칭').fill('17')
+  await expect(choice3.getByRole('note')).toHaveText(NOTE)
+  await expect(dlg.getByRole('note').filter({ hasText: NOTE })).toHaveCount(1)
+  // 17프로는 안내 없음
+  await dlg.getByLabel('항목 1 선택지 3 별칭').fill('17프로')
+  await expect(choice3.getByRole('note').filter({ hasText: NOTE })).toHaveCount(0)
+  await dlg.getByLabel('항목 1 선택지 3 별칭').fill('17')
+  await expect(choice3.getByRole('note')).toHaveText(NOTE)
+  // 막지 않는다 — 등록되고 별칭 17이 그대로 들어간다
+  await dlg.getByLabel('모두 같은 수로').fill('2')
+  await dlg.getByRole('button', { name: '모두 바꾸기' }).click()
+  await dlg.getByRole('button', { name: '옵션 넣기' }).click()
+  await expect(dlg).toHaveCount(0)
+  await input.press('Enter')
+  await expect(boardItem(page, 41)).toBeVisible()
+  const p41 = await productOf(page, date, true, b, 41)
+  expect(p41.options[0]?.choices.find((c) => c.label === '아이폰 17')?.aliases).toEqual(['17'])
+
+  // 사이즈(숫자) 템플릿: 선택지 이름 95·100·105·110엔 안내 없음
+  await input.fill('42 반팔티 15000')
+  await page.getByRole('button', { name: '옵션 추가' }).click()
+  await dlg.getByRole('button', { name: '템플릿에서 고르기' }).click()
+  await dlg.getByRole('button', { name: '의류 — 사이즈(숫자)', exact: true }).click()
+  await expect(dlg.getByLabel('항목 1 선택지 2 이름')).toHaveValue('100')
+  await expect(dlg.getByRole('note').filter({ hasText: NOTE })).toHaveCount(0)
+})
