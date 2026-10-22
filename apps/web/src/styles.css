@@ -2975,3 +2975,15 @@ select.input {
 .login-method-text {
   flex: 1;
 }
+
+/* 로그인된 채 돌아온 간편 로그인 결과 (TE-L1-001): 위 줄 아래 한 줄 알림 + 닫기 */
+.login-result-notice {
+  margin: 0.75rem 1rem;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.login-result-notice p {
+  margin: 0;
+}

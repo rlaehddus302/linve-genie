@@ -42,7 +42,7 @@ import { SmsPage } from './components/SmsPage.tsx'
 import { TopBar } from './components/TopBar.tsx'
 import { WizardPage } from './components/WizardPage.tsx'
 import { takeGoogleReturn } from './lib/google-return.ts'
-import { stripLoginParams } from './lib/social-login.ts'
+import { parseLoginResult, resultMessage, stripLoginParams, type LoginResult } from './lib/social-login.ts'
 import { LEAVE_QUESTION, LEAVE_TITLE, LeaveGuardContext, type LeaveGuard } from './lib/leave-guard.ts'
 import { historyDepth, isGuardEntry, isPublicRoute, pushGuardEntry, routePath, useRoute, type BillingRoute, type Navigate, type NavigateOptions, type Route } from './lib/router.ts'
 
@@ -223,10 +223,20 @@ export function App() {
     go(target.route, target.fromPop ? { replace: true } : target.options)
   }
 
-  // 로그인한 채 홈 주소에 간편 로그인 결과(`/?login=`)가 붙어 왔으면 지운다 — 로그인 화면 문장은 로그인 화면에서만 보인다 (L1 AC-L1-21)
+  // 로그인한 채 홈 주소에 간편 로그인 결과(`/?login=`)가 붙어 왔으면 지운다 (L1 AC-L1-21).
+  // 연결하다 돌아온 SESSION_GONE·RATE_LIMITED는 로그인된 채(다른 탭에서 다시 로그인함 등)여도 위 알림으로 같은 문장을 보인다 (TE-L1-001).
+  // 그 밖의 로그인 화면 문장(취소·만료·연결 없음)은 로그인 화면에서만 보인다
   const signedIn = session.state === 'in'
+  const [homeNotice, setHomeNotice] = useState<LoginResult | null>(null)
   useEffect(() => {
-    if (signedIn && route.name === 'home') stripLoginParams()
+    if (!signedIn) return
+    if (route.name !== 'home') {
+      setHomeNotice(null)
+      return
+    }
+    const result = parseLoginResult(window.location.pathname, window.location.search, 'login')
+    if (result !== null && (result.code === 'SESSION_GONE' || result.code === 'RATE_LIMITED')) setHomeNotice(result)
+    stripLoginParams()
   }, [signedIn, route.name])
 
   /** 로그인: 보조자 계정은 문자찜 입력으로 (AC-I3-63) */
@@ -291,6 +301,14 @@ export function App() {
       <TopBar shopName={me.seller.name} assistant={assistant} onLogout={() => void logout()} route={route} navigate={navigate} />
       {assistant ? null : <RefusalReset screen={routePath(route)} />}
       {logoutError !== null ? <ErrorNote error={logoutError} /> : null}
+      {homeNotice !== null ? (
+        <div className="notice row login-result-notice">
+          <p role="alert">{resultMessage(homeNotice).text}</p>
+          <button type="button" className="button" onClick={() => setHomeNotice(null)}>
+            닫기
+          </button>
+        </div>
+      ) : null}
       {assistant && route.name !== 'sms' && !isPublicRoute(route) ? <AssistantBlocked navigate={navigate} /> : <Screen route={route} navigate={navigate} me={me} onRenamed={renamed} />}
       {leaving !== null ? (
         <Modal

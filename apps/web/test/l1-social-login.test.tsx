@@ -209,6 +209,38 @@ describe('돌아온 결과 문장 (AC-L1-21)', () => {
   })
 })
 
+describe('로그인된 채 홈으로 돌아온 결과 (TE-L1-001)', () => {
+  async function openHome(path: string) {
+    loggedIn = true
+    window.history.replaceState(null, '', path)
+    render(<App />)
+    await screen.findByRole('button', { name: '로그아웃' })
+    await flush()
+  }
+
+  it('SESSION_GONE·RATE_LIMITED는 위 알림으로 같은 문장, 주소에서 지운다, [닫기]로 사라진다', async () => {
+    await openHome('/?login=SESSION_GONE&provider=kakao')
+    expect((await screen.findByRole('alert')).textContent).toBe('로그인이 풀려 연결하지 못했어요. 다시 로그인한 뒤 연결해 주세요.')
+    expect(window.location.search).toBe('')
+    fireEvent.click(screen.getByRole('button', { name: '닫기' }))
+    expect(screen.queryByRole('alert')).toBeNull()
+    cleanup()
+    await openHome('/?login=RATE_LIMITED&provider=naver')
+    expect((await screen.findByRole('alert')).textContent).toBe('로그인 시도가 너무 많아요. 10분 뒤에 다시 해 주세요.')
+    expect(window.location.search).toBe('')
+  })
+
+  it('그 밖의 코드·모르는 값은 로그인된 채면 문장 없이 지운다', async () => {
+    for (const code of ['NOT_LINKED', 'CANCELLED', 'LINKED', '%3Cscript%3E']) {
+      cleanup()
+      await openHome(`/?login=${code}&provider=kakao`)
+      expect(screen.queryByText(/연결된 라이브찜 계정이 없어요|취소했어요|연결했어요/)).toBeNull()
+      expect(document.body.innerHTML).not.toContain('<script')
+      expect(window.location.search).toBe('')
+    }
+  })
+})
+
 describe('설정 "로그인 방법" (AC-L1-22·23)', () => {
   async function openSettings(path = '/settings') {
     loggedIn = true
