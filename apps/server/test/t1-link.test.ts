@@ -131,6 +131,44 @@ describe('AC-T1-11 구매자가 적기', () => {
   })
 })
 
+describe('AC-T1-11 큰 양식 본문', () => {
+  it('길이를 밝히지 않은(chunked) 본문도 한도(16KB)를 넘는 순간 읽기를 멈추고 400, 저장 없음. 한도 안 chunked 본문은 저장', async () => {
+    const world = await parcelWorld()
+    const seller = await parcelSeller(world)
+    await sell(world, seller, [['UC_A', '가람', 1]])
+    const token = await linkFor(world, seller, 'UC_A')
+    let pulled = 0
+    const chunk = new TextEncoder().encode(`memo=${'a'.repeat(64 * 1024)}`)
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled++
+        if (pulled > 200) controller.close()
+        else controller.enqueue(chunk)
+      },
+    })
+    const big = await world.server.app.request(
+      new Request(`http://localhost/r/${token}/address`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: ORIGIN }, body: stream, duplex: 'half' } as RequestInit),
+    )
+    expect(big.status).toBe(400)
+    expect(pulled).toBeLessThan(5)
+    expect(await addressRows(world)).toBe(0)
+
+    const small = new TextEncoder().encode(form(ADDRESS))
+    const okStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(small.slice(0, 10))
+        controller.enqueue(small.slice(10))
+        controller.close()
+      },
+    })
+    const ok = await world.server.app.request(
+      new Request(`http://localhost/r/${token}/address`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: ORIGIN }, body: okStream, duplex: 'half' } as RequestInit),
+    )
+    expect(ok.status).toBe(303)
+    expect(await addressRows(world)).toBe(1)
+  })
+})
+
 describe('AC-T1-12 접수 뒤 잠금과 배송 안내', () => {
   it('BOOKED이면 양식 대신 택배를 보냈어요(택배사·송장번호 4자리 묶음·상태·마지막 확인·배송 조회 새 창), 옛 쪽에서 보내면 409, PENDING·UNKNOWN은 준비하고 있어요', async () => {
     const world = await parcelWorld()

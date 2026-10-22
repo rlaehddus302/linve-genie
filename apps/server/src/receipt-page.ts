@@ -337,6 +337,37 @@ function htmlResponse(status: number, body: Uint8Array | string): Response {
   return new Response(body, { status, headers })
 }
 
+/** 본문을 최대 `max` 바이트까지만 읽는다. 넘으면 그 자리에서 읽기를 취소하고 null (읽다 끊겨도 null) */
+export async function readCapped(body: ReadableStream<Uint8Array> | null, max: number): Promise<Uint8Array | null> {
+  if (body === null) return new Uint8Array(0)
+  const reader = body.getReader()
+  const parts: Uint8Array[] = []
+  let size = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.byteLength
+      if (size > max) {
+        await reader.cancel().catch(() => undefined)
+        return null
+      }
+      parts.push(value)
+    }
+  } catch {
+    return null
+  } finally {
+    reader.releaseLock()
+  }
+  const out = new Uint8Array(size)
+  let at = 0
+  for (const part of parts) {
+    out.set(part, at)
+    at += part.byteLength
+  }
+  return out
+}
+
 /** `/r`·`/r/*` 경로를 앱에 단다 (화면 문서 index.html보다 먼저 — 운영 서버·E2E 서버 둘 다 이 앱을 쓴다) */
 export function registerReceiptPage(app: Hono, deps: ReceiptPageDeps): void {
   const limiter = new LinkRateLimiter(deps.clock)
@@ -387,8 +418,9 @@ export function registerReceiptPage(app: Hono, deps: ReceiptPageDeps): void {
     const type = (c.req.header('content-type') ?? '').split(';')[0]?.trim().toLowerCase()
     const declared = Number(c.req.header('content-length') ?? '0')
     if (type !== 'application/x-www-form-urlencoded' || !Number.isFinite(declared) || declared > ADDRESS_FORM_MAX_BYTES) return htmlResponse(400, BAD_FORM_PAGE)
-    const bytes = new Uint8Array(await c.req.arrayBuffer())
-    if (bytes.byteLength > ADDRESS_FORM_MAX_BYTES) return htmlResponse(400, BAD_FORM_PAGE)
+    // 길이를 밝히지 않은(chunked) 본문도 한도를 넘는 순간 읽기를 멈춘다 — 끝까지 모아 두지 않는다
+    const bytes = await readCapped(c.req.raw.body, ADDRESS_FORM_MAX_BYTES)
+    if (bytes === null) return htmlResponse(400, BAD_FORM_PAGE)
     const opened = await deps.links.open(token)
     if (opened === null) return closed()
     const form = new URLSearchParams(new TextDecoder().decode(bytes))
