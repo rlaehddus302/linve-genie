@@ -10,6 +10,8 @@
 //   자세히의 "구매 내역 확인서"(미리 보기·PDF·공유/저장) (AC-I2-13·14·22·33).
 // - I3: 봉인 예정 날짜면 "이 날짜 기록은 … 봉인돼요"(7일 전부터 경고 상자), 봉인한 날짜는 볼 수만 있다 — 입금·배송비·할인/추가·환불이 잠긴다 (AC-I3-40·41).
 // - 입금 확인(N3, AC-N3-47·48): 입금 확인이 적은 입금 기록은 "자동 입금 확인 · 김영희 · 10/18 21:03"(판매자 확정은 "입금 내역으로 확인 · …"),
+// - T1(AC-T1-65, PC-3·PC-8): 실제 범위의 묶음 줄·자세히에 "택배: 배송 중 · 9000-0000-0001"(있을 때), 자세히에 "배송지" 칸(ParcelParts.AddressSection).
+//   리허설 범위에는 배송지·택배가 없다.
 //   되돌림 환불은 "입금 확인 되돌림 · 입금 #12" — 서버의 입금 연결(범위 seq)로 붙이고 메모 글을 읽지 않는다. 아직 되돌리지 않은 입금 확인 기록에는
 //   "입금 확인 되돌리기"(입금 확인 화면과 같은 확인 창). 리허설 범위는 "리허설 묶음은 입금 확인에 쓰지 않아요."이고 연결·되돌리기가 없다.
 import { containsPhoneRun, formatWon, type PaymentStatus } from '@livejjim/core'
@@ -39,6 +41,8 @@ import { AmountField, FieldNote, WriteError, serverProblem, useSender } from './
 import { LedgerDialog } from './LedgerDialog.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
 import { Modal } from './Modal.tsx'
+import { AddressSection, ParcelTag } from './ParcelParts.tsx'
+import type { ParcelBrief } from '../api/parcel-types.ts'
 import { ReasonField } from './ReasonField.tsx'
 import { ReceiptSection } from './ReceiptSection.tsx'
 import { Lock } from './Lock.tsx'
@@ -60,6 +64,8 @@ export const REHEARSAL_NO_LEDGER = '리허설 기록은 판매대장에 넣지 �
 interface PackingMark {
   readonly status: PackingWord
   readonly invoice: string | null
+  /** 택배 줄 (T1 — 없으면 null) */
+  readonly parcel: ParcelBrief | null
 }
 type PackingMarks = ReadonlyMap<string, PackingMark> | null
 
@@ -151,8 +157,11 @@ function ReadySettlements({ route, navigate, store, snapshot, data }: ReadyProps
   const command = useCommand(store, data, snapshot.sealed)
   // 포장·배송 상태 (실제 범위만, AC-I2-33): 품목·묶음이 바뀌거나 포장 알림이 오면 다시 받는다. 받지 못하면 상태 칸을 그리지 않는다
   const signature = useClosingSignature(data)
-  const packing = usePackingList(data.rehearsal ? null : data.date, `${signature}|${String(snapshot.packingVersion)}`)
-  const marks: PackingMarks = useMemo(() => (packing.entries === null ? null : new Map(packing.entries.map((entry) => [entry.buyer, { status: entry.status, invoice: entry.invoice }]))), [packing.entries])
+  const packing = usePackingList(data.rehearsal ? null : data.date, `${signature}|${String(snapshot.packingVersion)}|${String(snapshot.parcelVersion)}`)
+  const marks: PackingMarks = useMemo(
+    () => (packing.entries === null ? null : new Map(packing.entries.map((entry) => [entry.buyer, { status: entry.status, invoice: entry.invoice, parcel: entry.parcel ?? null }]))),
+    [packing.entries],
+  )
   const open = (buyer: string | undefined) => navigate({ name: 'settlements', date: data.date, rehearsal: data.rehearsal, ...(buyer === undefined ? {} : { buyer }) })
   const selected = route.buyer === undefined ? undefined : data.settlements.get(settlementKey({ buyer: data.buyers.get(route.buyer)?.current ?? route.buyer, date: data.date }))
   return (
@@ -179,6 +188,7 @@ function ReadySettlements({ route, navigate, store, snapshot, data }: ReadyProps
           sync={(seq) => store.sync(seq)}
           onBack={() => open(undefined)}
           mark={marks?.get(selected.buyer) ?? null}
+          parcelVersion={`${String(snapshot.parcelVersion)}|${String(snapshot.packingVersion)}|${signature}`}
           receiptSignature={`${receiptSignature(data, selected)}|${String(snapshot.shopVersion)}`}
         />
       )}
@@ -281,12 +291,20 @@ interface RowsProps {
   readonly onOpen: (buyer: string) => void
 }
 
-/** 포장·배송 상태 꼬리표 (색 + 글자, D-102) */
+/** 포장·배송 상태 꼬리표 (색 + 글자, D-102) — 택배 줄이 있으면 그 옆에 (T1) */
 function PackingTag({ mark }: { readonly mark: PackingMark }) {
   return (
-    <span className="tag packing-tag" data-tone={PACKING_TONE[mark.status]}>
-      {packingWords(mark.status, mark.invoice)}
-    </span>
+    <>
+      <span className="tag packing-tag" data-tone={PACKING_TONE[mark.status]}>
+        {packingWords(mark.status, mark.invoice)}
+      </span>
+      {mark.parcel !== null ? (
+        <>
+          {' '}
+          <ParcelTag parcel={mark.parcel} />
+        </>
+      ) : null}
+    </>
   )
 }
 
@@ -407,6 +425,8 @@ interface DetailProps {
   readonly mark: PackingMark | null
   /** 확인서에 닿는 자료의 모양 (바뀌면 미리 보기를 새로 받는다) */
   readonly receiptSignature: string
+  /** 택배·포장 알림·묶음 모양 (바뀌면 배송지 칸을 다시 받는다) */
+  readonly parcelVersion: string
 }
 
 /** 저장 결과 안내 (D-102): 저장 완료는 성공, 엔진이 받지 않았으면 주의 */
@@ -424,7 +444,7 @@ export function primaryInput(payment: PaymentStatus): InputKind | null {
   return null
 }
 
-function SettlementDetail({ data, names, settlement, command, sync, onBack, mark, receiptSignature }: DetailProps) {
+function SettlementDetail({ data, names, settlement, command, sync, onBack, mark, receiptSignature, parcelVersion }: DetailProps) {
   const [input, setInput] = useState<InputKind | null>(null)
   const [saved, setSaved] = useState<Saved | null>(null)
   const [reverting, setReverting] = useState<RevertTarget | null>(null)
@@ -504,6 +524,8 @@ function SettlementDetail({ data, names, settlement, command, sync, onBack, mark
           받은 금액 {formatWon(settlement.received)} · 남은 금액 {formatWon(remaining)} · 환불 필요 {formatWon(settlement.refundDue)}
         </p>
       </section>
+
+      {data.rehearsal ? null : <AddressSection date={settlement.date} buyer={settlement.buyer} version={parcelVersion} />}
 
       <PackingLabels date={settlement.date} buyer={settlement.buyer} rehearsal={data.rehearsal} />
 
