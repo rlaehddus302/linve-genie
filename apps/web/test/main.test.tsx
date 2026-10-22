@@ -34,9 +34,11 @@ it('index.html의 #root에 앱이 뜨고, 로그인하지 않았으면 로그인
   expect(root?.contains(button)).toBe(true)
   expect(screen.getByRole('heading', { level: 1, name: '라이브찜' })).toBeDefined()
 
-  // 같은 출처의 로그인 확인만 부른다 (개발 모드 StrictMode는 처음 확인을 두 번 할 수 있다)
+  // 처음은 같은 출처의 로그인 확인 (개발 모드 StrictMode는 처음 확인을 두 번 할 수 있다).
+  // 로그인 화면이 뜬 뒤에는 간편 로그인 버튼을 정하려고 같은 출처의 화면 설정을 읽는다 (L1 AC-L1-20) — 그 밖의 호출은 없다
   expect(server.calls.length).toBeGreaterThan(0)
-  expect(new Set(server.calls.map((call) => `${call.method} ${call.path}`))).toEqual(new Set(['GET /api/me']))
+  expect(server.calls[0]?.path).toBe('/api/me')
+  expect(new Set(server.calls.map((call) => `${call.method} ${call.path}`))).toEqual(new Set(['GET /api/me', 'GET /api/client-config']))
   expect(server.calls.every((call) => call.credentials === 'include')).toBe(true)
   expect(XMLHttpRequest).not.toHaveBeenCalled()
   expect(WebSocket).not.toHaveBeenCalled()

@@ -42,6 +42,7 @@ import { SmsPage } from './components/SmsPage.tsx'
 import { TopBar } from './components/TopBar.tsx'
 import { WizardPage } from './components/WizardPage.tsx'
 import { takeGoogleReturn } from './lib/google-return.ts'
+import { stripLoginParams } from './lib/social-login.ts'
 import { LEAVE_QUESTION, LEAVE_TITLE, LeaveGuardContext, type LeaveGuard } from './lib/leave-guard.ts'
 import { historyDepth, isGuardEntry, isPublicRoute, pushGuardEntry, routePath, useRoute, type BillingRoute, type Navigate, type NavigateOptions, type Route } from './lib/router.ts'
 
@@ -221,6 +222,12 @@ export function App() {
     // 브라우저 뒤로·앞으로는 주소가 이미 그곳이다 (기록을 더하지 않는다)
     go(target.route, target.fromPop ? { replace: true } : target.options)
   }
+
+  // 로그인한 채 홈 주소에 간편 로그인 결과(`/?login=`)가 붙어 왔으면 지운다 — 로그인 화면 문장은 로그인 화면에서만 보인다 (L1 AC-L1-21)
+  const signedIn = session.state === 'in'
+  useEffect(() => {
+    if (signedIn && route.name === 'home') stripLoginParams()
+  }, [signedIn, route.name])
 
   /** 로그인: 보조자 계정은 문자찜 입력으로 (AC-I3-63) */
   const loggedIn = (me: Me) => {
@@ -436,5 +443,5 @@ function SettingsRoute({ route, navigate, me, onRenamed }: ScreenProps & { reado
     if (toWizard && route.youtubeResult !== undefined) navigate({ name: 'start', youtubeResult: route.youtubeResult }, { replace: true })
   }, [toWizard, route.youtubeResult, navigate])
   if (toWizard) return null
-  return <SettingsPage route={route} navigate={navigate} shopName={me.seller.name} onRenamed={onRenamed} />
+  return <SettingsPage route={route} navigate={navigate} shopName={me.seller.name} onRenamed={onRenamed} assistant={isAssistant(me)} />
 }

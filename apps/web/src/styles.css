@@ -1275,7 +1275,7 @@ html:has(.sms-submit-bar) {
 }
 
 .voice-sent {
-  flex: 1 1 12rem;
+  flex: 1;
   color: #3c4043;
 }
 
@@ -2880,4 +2880,98 @@ select.input {
 
 .receipt-row .input {
   inline-size: 100%;
+}
+
+/* ── 간편 로그인 (L1 AC-L1-20·22, D-L1-06) ─────────────────────
+ * 로그인 칸 아래 "또는" 줄, 그 아래 카카오·네이버·구글 버튼 (폭 가득, 44px 이상, 글 16px 이상, 그림 파일 없음).
+ * 글 명암비: 카카오 #191919/#FEE500 ≈ 15:1, 네이버·구글 #1F1F1F/흰 바탕 ≈ 16:1 (네이버 흰 글/초록 바탕 2.2:1은 쓰지 않는다).
+ * 잠긴 버튼은 공통 잠금 모양(.button:disabled)이 앞선다. */
+.social-login {
+  margin-top: 1.5rem;
+}
+
+.or-line {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: #3c4043;
+}
+
+.or-line::before,
+.or-line::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid #747775;
+}
+
+.social-buttons {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.social-button {
+  width: 100%;
+  min-height: 3rem;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  gap: 0.5rem;
+}
+
+.social-kakao {
+  color: #191919;
+  background-color: #fee500;
+  border: 2px solid #fee500;
+}
+
+.social-kakao:hover:not(:disabled) {
+  background-color: #f5dc00;
+}
+
+.social-naver {
+  color: #1f1f1f;
+  background-color: #ffffff;
+  border: 2px solid #03c75a;
+}
+
+.social-naver:hover:not(:disabled),
+.social-google:hover:not(:disabled) {
+  background-color: #f1f3f4;
+}
+
+.social-naver-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.125rem 0.4375rem;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1;
+  color: #ffffff;
+  background-color: #03c75a;
+  border-radius: 0.25rem;
+}
+
+.social-google {
+  color: #1f1f1f;
+  background-color: #ffffff;
+  border: 1px solid #747775;
+}
+
+.login-method-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.login-method {
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #e3e5e8;
+}
+
+.login-method:last-child {
+  border-bottom: none;
+}
+
+.login-method-text {
+  flex: 1;
 }
