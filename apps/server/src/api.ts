@@ -253,6 +253,8 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (publicPaths.has(`${c.req.method} ${c.req.path}`) || isWebhook(c)) return next()
     if (!sessionChecked.has(c.req.raw)) {
       const refused = await checkSession(c)
+      // 로그인 화면의 간편 로그인 버튼 (L1): 공급자가 켜진 서버는 로그인 전 client-config에 켜진 공급자 이름만 답한다 (꺼진 서버는 지금처럼 401)
+      if (refused !== null && refused.status === 401 && social !== null && c.req.method === 'GET' && c.req.path === '/api/client-config') return c.json({ loginProviders: [...social.enabled] })
       if (refused !== null) return refused
     }
     await next()
