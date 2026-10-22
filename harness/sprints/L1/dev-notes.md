@@ -27,7 +27,7 @@
 
 | 뜻 | 경로 | 세션 | 본문 | 응답 |
 |---|---|---|---|---|
-| 화면 설정 | `GET /api/client-config` | 없음 | | 더함: `loginProviders: ('kakao'|'naver'|'google')[]` — 켜진 공급자만, 카카오·네이버·구글 순. 하나도 없으면 항목 자체가 없다 |
+| 화면 설정 | `GET /api/client-config` | 없음 | | 더함: `loginProviders: ('kakao'|'naver'|'google')[]` — 켜진 공급자만, 카카오·네이버·구글 순. 하나도 없으면 항목 자체가 없다. **로그인 전**(세션 없음)에는 공급자가 켜진 서버만 `{ loginProviders }` 하나를 200으로 답한다(로그인 화면 버튼용 — 다른 항목은 로그인한 뒤에만). 공급자가 없는 서버는 지금처럼 401 |
 | 간편 로그인 시작 | `POST /api/auth/start` | 없음 | `{ provider }` | 200 `{ authorizeUrl }` + `Set-Cookie: lj_oauth=…; Path=/api/auth; HttpOnly; Secure; SameSite=Lax; Max-Age=600`. 꺼진·모르는 공급자 404, 시작 요청이 너무 많으면 429 `LOGIN_RATE_LIMITED` |
 | 연결 시작 | `POST /api/auth/link` | 판매자 | `{ provider }` | 같음. 세션 없음 401, 보조자 403 `ASSISTANT_FORBIDDEN` |
 | 돌아오는 주소 | `GET /api/auth/<provider>/callback` | (state·쿠키로 판단) | | 302 — 아래 표 |
@@ -94,3 +94,20 @@ pnpm --filter @livejjim/server e2e --port <포트> --origin <화면 주소> --so
 ### 연습 모드 (AC-L1-24)
 - `pnpm try`가 가짜 OAuth 서버를 연습 서버 안 경로 `/_try/oauth/<p>/…`에 붙여 세 공급자를 켠다(운영 기동에는 이 경로가 없다). 승인 화면 위 "연습용 가짜 화면이에요. 실제 카카오가 아니에요.", 연습 계정 둘(이메일 있음·없음). 연습 모드의 가짜 서버는 `/_fake/*` 조작 경로가 없다.
 - 휴대폰(https 넘기기)에서는 넘기는 쪽이 `Location`·시작 응답의 승인 주소 앞(`http://localhost:<포트>`)을 휴대폰 주소로 바꿔 준다 — 돌아오는 주소(`redirect_uri`)는 그대로 `http://localhost:<포트>/api/auth/<p>/callback`(등록과 같아야 하므로).
+
+### 화면(dev-web)에게 — E2E 묶음 제안 (apps/web/playwright.config.ts는 dev-web 몫)
+- `chromium-social`: 화면 `5181 + offset`, 서버 `3109 + offset`, 서버 인자 `--host-delay-ms … --social fake --social-port ${4104 + offset}`, 제목 `@social`. 가짜 OAuth 주소 `http://127.0.0.1:${4104 + offset}`(`fakeOAuthUrl(project)` 같은 도우미).
+- `chromium-social-one`: 화면 `5182 + offset`, 서버 `3110 + offset`, `--social fake --social-port ${4105 + offset} --social-providers google`, 제목 `@social-one` (AC-L1-30 "공급자 하나만 켠 서버").
+- 기본 묶음(`chromium`)은 `--social` 없이 그대로 — 버튼 없음·`/api/auth/**` 404를 그 묶음에서 본다. 기본 묶음의 `grepInvert`에 `@social`을 더한다.
+
+### 스스로 정한 것 (스펙이 정하지 않은 세부)
+- 공급자가 하나도 켜지지 않은 서버는 `/api/auth/**` 전부 404 — "환경 변수가 없으면 지금과 똑같다"를 따랐다. 그래서 환경 변수를 모두 지운 서버에서는 남은 연결의 목록·끊기도 404다(화면은 칸을 숨긴다 — 남은 연결로는 로그인할 수 없어 위험이 없다). 공급자가 하나라도 켜져 있으면 꺼진 공급자에 남은 연결은 목록(`enabled: false`)·끊기가 된다.
+- 로그인 전 공개 경로인 시작 요청에 IP 한도를 따로 둔다(10분 100번 = 로그인 IP 한도의 5배, 넘으면 429 `LOGIN_RATE_LIMITED`·D-I3-12 문장). 로그인 IP 한도와는 따로 센다.
+- "남는 로그인 수단 0" 판단의 "비밀번호 없음" = `accounts.password_hash`가 빈 글(칸은 NOT NULL). 지금은 그런 계정을 만드는 길이 없다.
+- 공급자 계정 ID 모양 밖(영문·숫자·`.`·`_`·`-`·`~` 1~255자가 아님)은 `PROVIDER_ERROR`.
+- 코드 없이 돌아온 경우(`error`도 `code`도 없음 — state는 맞음)는 state를 쓴 뒤 `PROVIDER_ERROR`.
+
+### 실행·시험 명령
+- 서버 단위(L1): `cd apps/server && npx vitest run test/l1-` (파일: `l1-config`·`l1-masked`·`l1-schema`·`l1-start-callback`·`l1-login-link`·`l1-secrets`·`l1-youtube`·`l1-fake-oauth`).
+- 모든 서버 시험은 실제 카카오·네이버 주소로 나가는 연결을 막는다(`test/setup-social-guard.ts`, 구글은 기존 `setup-network-guard.ts`). 적대 시험은 `apps/server/test/outbound-guard.ts`의 `installOutboundGuard('social-login', ['kakao.com', 'naver.com'])`와 `apps/server/src/youtube/network-guard.ts`의 `installGoogleBlock()`을 쓸 수 있다.
+- 연습 모드: `pnpm try` → 설정 → 로그인 방법 → 카카오 [연결하기] → 연습 계정 → 로그아웃 → "카카오로 계속하기". 휴대폰 https 주소에서도 같다(서버 단위 아닌 손 확인 — 이 노트를 쓸 때 PC·https 넘기기 둘 다 HTTP로 돌려 확인함).
