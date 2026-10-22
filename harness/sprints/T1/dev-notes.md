@@ -52,6 +52,7 @@
 ### 구매자 링크 (`/r/<토큰>`, receipt-page.ts)
 - 확인서 아래 `<section id="address">`(양식·받았어요·한 문장) 또는 `<section id="parcel">`(택배를 보냈어요). 양식은 `POST /r/<토큰>/address`(application/x-www-form-urlencoded, 여섯 칸 `name·phone·address·detail·zip·memo`, Origin = 앱 주소).
   저장 303 → 같은 링크. 틀림 400(칸 문장 `<p class="error" data-code="PHONE_INVALID">`, 입력 `aria-invalid`). 잠금·직접 수령·합배송·30일 지남 409(위 문장 `role="alert"`). Origin 다름 403. 한도 429(문서·그림·PDF·양식 합 1분 60번).
+- 본문 한도 16KB(`ADDRESS_FORM_MAX_BYTES`): Content-Length가 넘으면 바로 400, 길이를 밝히지 않은(chunked) 본문은 `readCapped`가 한도를 넘는 순간 읽기를 취소하고 400(9af06b7).
 - 다시 적기 = `/r/<토큰>?edit=1#address`(빈 양식). CSP `form-action 'self'`(스크립트는 여전히 없음).
 
 ### 시험·E2E
