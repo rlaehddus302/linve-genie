@@ -162,6 +162,8 @@ const OPTION_KIND_WEIGHTS: readonly (readonly [MessageKind, number])[] = [
 ]
 
 const TALK = ['안녕하세요', '오늘도 예쁘네요', '배송은 언제 와요?', 'ㅋㅋㅋㅋ', '와 대박', '물 온도는 몇 도예요?', '처음 왔어요', '🐟 너무 예뻐요', '사장님 목소리 좋아요', '합사 가능한가요?']
+/** 옵션 방송 언급 후보가 모두 맞지 않을 때의 마지막 대체 글 (이것도 보내기 전에 인식 함수로 확인한다, D-O4-12) */
+const MENTION_FALLBACK = '몇 개 남았나요?'
 const ADJECTIVES = ['구피', '물멍', '새우', '수초', '베타', '금붕어', '어항', '해초', '산호', '물방울']
 const NOUNS = ['사랑', '집사', '러버', '마니아', '친구', '요정', '대장', '언니', '형님', '초보']
 const OWNER_CHANNEL = 'sim_owner'
@@ -426,11 +428,14 @@ export class ChatMaker {
           this.#random.next() < 0.5 ? [`${String(knownNo)}번 예뻐요`, `${String(knownNo)}번 아직 있나요?`] : ['3개 남았나요?', `${String(knownNo)}번 크기가 어떻게 돼요?`]
         const item = known?.options[0]
         if (known !== null && item !== undefined && item.choices.length > 0) candidates.push(`${known.name} ${this.#random.pick(item.choices).label} 있나요?`)
-        const text = this.#firstMatching(candidates, (t) => {
+        const isMention = (t: string) => {
           const parsed = read(t)
           return parsed.orders.length === 0 && parsed.cancels.length === 0 && parsed.review === null
-        })
-        return { kind: 'mention', chat: this.#chat(viewer, text ?? '몇 개 남았나요?', index) }
+        }
+        // 마지막 대체 글도 인식 함수로 확인한다 — 언급으로 읽히지 않으면 일반 대화 (D-O4-12, AC-O4-37)
+        const text = this.#firstMatching(candidates, isMention) ?? (isMention(MENTION_FALLBACK) ? MENTION_FALLBACK : null)
+        if (text === null) return this.#talk(viewer, index)
+        return { kind: 'mention', chat: this.#chat(viewer, text, index) }
       }
       case 'cancel': {
         const withOrders = this.#viewers.filter((viewer) => viewer.ordered.length > 0)

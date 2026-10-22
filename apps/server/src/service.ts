@@ -64,6 +64,7 @@ import {
   insertBroadcast,
   listBroadcastRows,
   markBroadcastEnded,
+  optionScopes,
   previousScopeDate,
   scopeSealInfo,
   scopeSealRows,
@@ -887,6 +888,11 @@ export class Service {
   /** 확인 필요 목록 (O2 AC-O2-30, D-O2-14). 방송을 주면 그 방송만 — 다른 판매자의 방송·없는 방송·리허설인지가 다른 방송이면 null */
   reviews(sellerId: string, query: { readonly rehearsal: boolean; readonly broadcast?: string }): Promise<ReviewsView | null> {
     return reviewsView({ db: this.#options.db, writer: this.#options.writer }, sellerId, query)
+  }
+
+  /** 옵션 방송(설정 스냅샷 claim.parseMode=OPTIONS)이 실제·리허설 중 하나라도 있나 (D-O4-13) — 그 판매자 것만, 참/거짓만 */
+  async hasOptionBroadcasts(sellerId: string): Promise<boolean> {
+    return (await optionScopes(this.#options.db, sellerId)).length > 0
   }
 
 

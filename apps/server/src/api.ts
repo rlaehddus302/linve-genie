@@ -491,6 +491,13 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     return view === null ? notFound() : c.json(view)
   })
 
+  // ── 옵션 방송 있음 (D-O4-13, AC-O4-38) ────────────────────────────────
+  // 라벨 설정의 "품종 칸 끔" 안내용 가벼운 조회: 실제·리허설 방송 중 옵션 방송이 하나라도 있으면 참. 응답은 { exists } 하나뿐 —
+  // 방송 ID·날짜·댓글·구매자 정보를 담지 않는다. 세션이 필요하고(앞의 세션 검사) 그 판매자 것만 센다.
+  api.get('/option-broadcasts/exists', async (c) => {
+    return c.json({ exists: await service.hasOptionBroadcasts(sellerOf(c)) })
+  })
+
   // ── 조회 (AC-S04-52) ──────────────────────────────────────────────────
   // 범위 목록: 적지 않으면 실제 범위만, ?rehearsal=true면 리허설 범위만 (범위 행의 seq — 이벤트 표를 모으지 않는다, AC-S05-60)
   api.get('/days', async (c) => {
