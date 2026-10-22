@@ -1,8 +1,8 @@
-# L1 test-domain 노트 (라운드 0)
+# L1 test-domain 노트 (라운드 1)
 
 ## 실행
 - `npx vitest run -c vitest.adversarial.config.ts tests/adversarial/l1/` (단계: `pnpm adversarial`)
-- 파일: `tests/adversarial/l1/helpers.ts`(가짜 OAuth + PGlite 서버, 실제 공급자 주소 차단), `social-attacks.test.ts`(AC-L1-31 묶음 전부), `unlink-race.test.ts`(TD-L1-001).
+- 파일: `tests/adversarial/l1/helpers.ts`(가짜 OAuth + PGlite 서버, 실제 공급자 주소 차단), `social-attacks.test.ts`(AC-L1-31 묶음 전부), `unlink-race.test.ts`(TD-L1-001), `session-window.test.ts`(라운드 1: TD-L1-001 순서 고정 회귀, TD-L1-005).
 
 ## AC-L1-31 덮은 것 (모두 통과 — 회귀 시험으로 남김)
 - 같은 이메일 합치기 없음(공급자마다·공급자 바꿔 같은 이메일·같은 숫자 ID)
@@ -21,3 +21,8 @@
 
 ## 찾은 것
 - TD-L1-001 (major): 끊기와 겹친 간편 로그인이 끊은 공급자의 세션을 남긴다 — `unlink-race.test.ts` 실패 시험.
+
+## 라운드 1
+- TD-L1-001: 고쳐짐. `unlink-race.test.ts` 세 번 통과, 시험 주입점 `beforeLoginSession`으로 순서를 고정한 회귀 셋(끊기 먼저 → NOT_LINKED, 끊고 다른 계정 다시 연결 → NOT_LINKED, 로그인 먼저 → 뒤따른 끊기가 세션 지움) 통과.
+- TD-L1-005 (minor): 연결 돌아옴에서 세션 확인(5단계)은 공급자 왕복 전에 한 번뿐이고 연결을 넣을 때 다시 보지 않는다. 왕복 중 로그아웃해도 연결이 생기고 LINKED. `session-window.test.ts` 실패 시험(`afterClaim` 주입점에서 로그아웃).
+- TD-L1-002·003·004: 코드·문서 그대로 — 같은 ID로 남김.

@@ -34,6 +34,7 @@ export async function l1World(
     readonly fake?: FakeOAuthOptions
     readonly timeoutMs?: number
     readonly wrap?: (setup: SocialLoginSetup) => SocialLoginSetup
+    readonly hooks?: NonNullable<Parameters<typeof newWorld>[0]>['socialHooks']
   } = {},
 ): Promise<L1World> {
   const providers = options.providers ?? ALL
@@ -48,6 +49,7 @@ export async function l1World(
   })
   const world = await newWorld({
     socialLogin: options.wrap === undefined ? base : options.wrap(base),
+    ...(options.hooks === undefined ? {} : { socialHooks: options.hooks }),
   })
   const pg = world.database.pglite as PGlite
   return { ...world, fake, pg, seen: [] }
