@@ -60,7 +60,7 @@ describe('AC-L1-12 가짜 OAuth 서버', () => {
     form.set('_action', 'cancel')
     const cancelled = await fetch(fake.endpoints('kakao').authUrl, { method: 'POST', body: form, redirect: 'manual', headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
     expect(new URL(cancelled.headers.get('location') as string).searchParams.get('error')).toBe('access_denied')
-    for (const bad of [{ redirect_uri: `${REDIRECT}/` }, { redirect_uri: 'https://evil.example/api/auth/kakao/callback' }, { client_id: 'other' }]) {
+    for (const bad of [{ redirect_uri: `${REDIRECT}/` }, { redirect_uri: 'https://evil.example/api/auth/kakao/callback' }, { client_id: 'other' }] as Record<string, string>[]) {
       const response = await fetch(authorize(fake, 'kakao', bad), { redirect: 'manual' })
       expect(response.status).toBe(400)
       expect(response.headers.get('location')).toBeNull()
