@@ -104,6 +104,12 @@ test('AC-O4-33: 다육(번호로만 받기) 리허설 — 194·195 1등, "반바
   const main = page.locator('main')
   await expect(chatPanel(page).getByRole('list', { name: '채팅 메시지' }).locator('li').first()).toBeVisible()
   for (const word of ['옵션 추가', '지금 상품', '확인 필요']) await expect(main.getByText(word)).toHaveCount(0)
+  // 확인서 줄은 옵션 글·수량 없이 지금 모양 (품종만)
+  const hong = claims.find((c) => c.no === 194)!.currentBuyer
+  const res = await page.request.get(`/api/days/${date}/receipt?rehearsal=true&buyer=${encodeURIComponent(hong)}`)
+  expect(res.ok(), await res.text()).toBe(true)
+  const receipt = await res.json() as { lines: { no: number; name: string; price: number }[] }
+  expect(receipt.lines.filter((l) => l.no === 194).map((l) => [l.name, l.price])).toEqual([['왕비뇌신금', 8000]])
   // 찜이 된 것은 모두 옵션·수량 없는 번호 찜
   const after = await oscope(page, date, true)
   const options = after.claims.filter((c) => c.broadcast === b && (c.variant !== null || c.qty !== 1))

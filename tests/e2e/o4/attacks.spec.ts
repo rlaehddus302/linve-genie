@@ -2,12 +2,14 @@
 // 열어 둔 포장 화면의 수량만 바뀐 품목, 판매자 글(옵션 이름)의 이스케이프, 라벨 설정 안내(옵션 판매자만), 출력 대기 작업 줄의 옵션 글.
 import { expect, test, type Page } from '@playwright/test'
 import { loginNewSeller } from '../i3/support.ts'
+import { becomeDevice, waitPrinted } from '../i1/support.ts'
 import {
   SHORTS,
   createBroadcast,
   hostAction,
   login,
   oscope,
+  packingCommand,
   packingList,
   phoneLike,
   registerOptions,
@@ -130,7 +132,7 @@ test('TE-O4-ATK-3: 라벨 설정 — 옵션 방송이 있는 판매자가 품종
   await expect(page.getByRole('region', { name: '라벨 설정', exact: true }).getByRole('note').filter({ hasText: '품종 칸을 끄면' })).toHaveCount(0)
 })
 
-test('TE-O4-ATK-4: 출력 대기 작업 줄에 옵션 글·수량, 취소한 변형 찜의 작업은 대기에서 빠진다 (AC-O4-25)', async ({ page }) => {
+test('TE-O4-ATK-4: 출력 대기 작업 줄·출력 이력 줄에 옵션 글·수량, 찍은 M 찜을 취소하면 버릴 라벨 줄이 M (AC-O4-25)', async ({ page }) => {
   await loginNewSeller(page)
   await setLabels(page, true)
   const date = uniqueDate()
@@ -144,7 +146,39 @@ test('TE-O4-ATK-4: 출력 대기 작업 줄에 옵션 글·수량, 취소한 변
   await expect(waiting.getByRole('listitem')).toHaveCount(2)
   await expect(waiting.getByRole('listitem').filter({ hasText: '21번 반바지 L · 2개 · ' })).toHaveCount(1)
   await expect(waiting.getByRole('listitem').filter({ hasText: /21번 반바지 M · (?!\d+개)/ })).toHaveCount(1)
+  // 시험용 프린터로 찍으면 출력 이력 줄에도 옵션 글·수량
+  await becomeDevice(page, 'PC')
+  await page.getByRole('region', { name: '출력 대기열', exact: true }).getByRole('button', { name: '출력 시작' }).click()
+  await waitPrinted(page, 2)
+  const history = page.getByRole('list', { name: '출력 이력 목록' }).locator('.job-main')
+  await expect(history).toHaveCount(2)
+  const lines = (await history.allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim())
+  expect(lines.filter((t) => t.startsWith('21번 L · 2개 · '))).toHaveLength(1)
+  expect(lines.filter((t) => /^21번 M · (?!\d+개)/.test(t))).toHaveLength(1)
+  // 찍은 M 찜을 취소하면 버릴 라벨 줄에 M (L 아님)
   await hostAction(page, { type: 'host.cancel', b, no: 21, buyer, options: { 사이즈: 'M' }, reason: '구매자 요청' })
-  await expect(waiting.getByRole('listitem')).toHaveCount(1)
-  await expect(waiting.getByRole('listitem')).toContainText('21번 반바지 L · 2개 · ')
+  const discard = page.getByRole('list', { name: '버릴 라벨 목록' }).getByRole('listitem')
+  await expect(discard).toHaveCount(1, { timeout: 15_000 })
+  await expect(discard.locator('.job-main')).toHaveText(/^21번 M · .*라벨을 버려 주세요$/)
+})
+
+test('TE-O4-ATK-5: 배송 완료 뒤 수량이 2 → 1로 바뀌면 "배송 뒤 바뀜" — 안내에 옵션 글·포장 때 수량', async ({ page, browser }) => {
+  await login(page)
+  const date = uniqueDate()
+  const { b } = await createBroadcast(page, { date, rehearsal: false, saleMode: 'OPTIONS', title: '의류 1부' })
+  await registerOptions(page, b, { ...SHORTS })
+  const buyer = await smsBuyer(page, date, b, 21, phoneNo(), '홍길동', { options: { 사이즈: 'L' }, qty: 2 })
+  expect((await packingCommand(page, date, { buyer, action: 'pack', items: [{ key: `${b}/21#L`, qty: 2 }] })).status).toBe(200)
+  expect((await packingCommand(page, date, { buyer, action: 'ship', invoice: '123456789012' })).status).toBe(200)
+  await hostAction(page, { type: 'host.cancel', b, no: 21, buyer, options: { 사이즈: 'L' }, reason: '구매자 요청' })
+  await hostAction(page, { type: 'host.assign', b, no: 21, buyer, options: { 사이즈: 'L' }, qty: 1, reason: '전화 주문' })
+  await expect.poll(async () => (await packingList(page, date)).find((e) => e.buyer === buyer)?.status, { timeout: 15_000 }).toBe('배송 뒤 바뀜')
+  const phone = await phoneLike(browser, page)
+  try {
+    await phone.goto(`/packing?date=${date}&buyer=${encodeURIComponent(buyer)}`)
+    const cl = phone.getByRole('region', { name: '체크리스트' })
+    await expect(cl.getByRole('status').filter({ hasText: '배송한 뒤' })).toHaveText('배송한 뒤 구매 내역이 바뀌었어요 — 새로 담을 것: 21번 반바지 L · 뺄 것: 21번 반바지 L 2개. 따로 보내거나 환불해 주세요.')
+  } finally {
+    await phone.context().close()
+  }
 })
