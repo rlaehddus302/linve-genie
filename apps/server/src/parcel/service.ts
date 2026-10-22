@@ -819,7 +819,7 @@ export class ParcelService {
   }
 
   async #prepare(sellerId: string, accountId: string, date: string, buyer: string, box: BoxKind, carrier: CarrierCode): Promise<Prepared> {
-    const { db, writer, masterKey } = this.#deps
+    const { db, writer } = this.#deps
     const skip = (result: BookItemResult): Prepared => ({ kind: 'skip', result })
     return writer.withScope(sellerId, date, false, async (runtime, catchUpIn): Promise<Prepared> => {
       if (runtime.seq === 0 || runtime.scopeId === null) return skip({ buyer, ok: false, reason: 'BUYER', message: '구매자를 다시 확인해 주세요.' })
@@ -963,8 +963,8 @@ export class ParcelService {
     if (runtime === null) return NOT_FOUND
     const { state } = runtime
     if (buyer !== null && getBuyer(state, buyer) === null) return NOT_FOUND
-    const { db, masterKey } = this.#deps
-    const settings = await readSettings(db, masterKey, sellerId)
+    const { db } = this.#deps
+    const settings = await readSettings(db, this.#deps.masterKey, sellerId)
     if (settings.sender === null) return problem(409, 'PARCEL_BLOCKED', PARCEL_MESSAGES.noSender)
     const attempts = await latestAttempts(db, sellerId, date)
     const addresses = await addressRowsOf(db, sellerId, date)

@@ -1,5 +1,8 @@
 // T1 택배 접수 서버 시험: AC-T1-20·21(가짜 택배사·결과 나누기), AC-T1-22(접수 목록), AC-T1-30~37(한 번에 접수·같은 요청·동시에·일부 실패·멈춘 시도·포장 명령·손으로·취소).
 import { describe, expect, it } from 'vitest'
+import { productionServerOptions } from '../src/production.ts'
+import { generateMasterKey } from '../src/secrets.ts'
+import { createServer } from '../src/server.ts'
 import { pack } from './i2-support.ts'
 import { client, fakeClock, rid } from './support.ts'
 import {
@@ -43,6 +46,24 @@ describe('AC-T1-20 가짜 택배사', () => {
     const tracked = await (adapter.track as NonNullable<typeof adapter.track>)(['900000000001', '900000000002', '999999999999'])
     expect(tracked.ok && [...tracked.items.entries()]).toEqual([['900000000002', 'PICKED_UP']])
     expect(adapter.trackUrl('900000000001')).toBe(`${world.carrier.url}/track/900000000001`)
+  })
+
+  it('운영 기동 옵션에는 택배사 어댑터가 없고, 우체국 연동 키가 있어도 쓰지 않고 경고만 남긴다', async () => {
+    const world = await parcelWorld()
+    const env = { LIVEJJIM_MASTER_KEY: generateMasterKey(), LIVEJJIM_APP_ORIGIN: 'https://app.example.com', LIVEJJIM_EPOST_API_KEY: 'epost-secret-value' }
+    const assembled = productionServerOptions(env, world.database)
+    expect(assembled.ok).toBe(true)
+    if (!assembled.ok) return
+    expect(assembled.options.parcel).toEqual({ carriers: {} })
+    expect(assembled.options.startupWarnings).toEqual(['PARCEL_CARRIER_NOT_READY'])
+    const logs: unknown[] = []
+    const server = createServer({ ...assembled.options, log: (record) => logs.push(record) })
+    expect(server.parcels.available('FAKE')).toBe(false)
+    expect(server.parcels.available('EPOST')).toBe(false)
+    expect(logs).toContainEqual({ level: 'warn', code: 'PARCEL_CARRIER_NOT_READY' })
+    expect(JSON.stringify(logs)).not.toContain('epost-secret-value')
+    server.close()
+    expect(productionServerOptions({ ...env, LIVEJJIM_EPOST_API_KEY: '' }, world.database)).toMatchObject({ ok: true, options: { parcel: { carriers: {} } } })
   })
 
   it('운영 기동(가짜 택배사를 붙이지 않은 서버)에서는 가짜 택배를 고를 수 없고 우체국은 준비 중', async () => {

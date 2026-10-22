@@ -64,13 +64,26 @@ export const ADDRESS_ERROR_MESSAGES: Readonly<Record<AddressErrorCode, string>> 
   MEMO_TOO_LONG: '배송 메모는 50자까지 적어 주세요.',
 }
 
-/** 공백 문자(JavaScript \s)와 제어 글자(U+0000~U+001F, U+007F~U+009F)의 이어진 줄 */
-// eslint-disable-next-line no-control-regex
-const SPACE_RUN = /[\s\u0000-\u001f\u007f-\u009f]+/gu
+/** 공백 문자(JavaScript \s — 전각 공백·탭·줄바꿈 포함)이거나 제어 글자(U+0000~U+001F, U+007F~U+009F)인지 */
+function isSpaceLike(char: string): boolean {
+  const code = char.codePointAt(0) as number
+  return code <= 0x1f || (code >= 0x7f && code <= 0x9f) || /^\s$/u.test(char)
+}
 
 /** PC-2 1 다듬기: NFC → 공백·제어 글자는 공백 하나로, 이어진 공백 줄이기, 앞뒤 지우기 */
 export function tidyText(text: string): string {
-  return text.normalize('NFC').replace(SPACE_RUN, ' ').trim()
+  let out = ''
+  let pending = false
+  for (const char of text.normalize('NFC')) {
+    if (isSpaceLike(char)) {
+      pending = out !== ''
+      continue
+    }
+    if (pending) out += ' '
+    pending = false
+    out += char
+  }
+  return out
 }
 
 const codePoints = (text: string): number => [...text].length
@@ -231,11 +244,6 @@ export const CANCELLED_WORD = '접수 취소됨'
 export const TRACK_STOP_MS = 14 * 24 * 60 * 60 * 1000
 /** 조회 간격 (운영 30분 — 시험 모드는 바꿀 수 있다) */
 export const TRACK_EVERY_MS = 30 * 60 * 1000
-
-/** 송장번호 글: 앞에서부터 4자리마다 `-` (PC-7 — 문서 패키지 formatInvoiceNumber와 같은 규칙) */
-export function invoiceText(invoice: string): string {
-  return invoice.replace(/(\d{4})(?=\d)/g, '$1-')
-}
 
 // ── 문장 ────────────────────────────────────────────────────────────────
 

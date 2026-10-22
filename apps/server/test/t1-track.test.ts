@@ -1,6 +1,9 @@
 // T1 배송 조회·운송장·판매자 화면 재료: AC-T1-43(운송장 내려받기), AC-T1-44(B1으로 찍지 않는다 — 서버 쪽), AC-T1-50(주기 조회), AC-T1-51(낱말), AC-T1-52(parcel 줄).
 import { describe, expect, it } from 'vitest'
 import { TRACK_WORDS, CANCELLED_WORD } from '../src/parcel/rules.ts'
+import { ParcelService } from '../src/parcel/service.ts'
+import { WorkBusy, type WorkPools } from '../src/work-pool.ts'
+import { realTimer } from '../src/youtube/timer.ts'
 import { client, fakeClock } from './support.ts'
 import { ADDRESS, D, attempts, bookOk, expect200, makeReady, parcelApi, parcelSeller, parcelWorld, rowOf, sell } from './t1-support.ts'
 
@@ -59,11 +62,11 @@ describe('AC-T1-50 주기 조회', () => {
     await makeReady(world, seller, 'UC_A')
     const [a] = await bookOk(world, seller, [{ buyer: 'UC_A' }])
     world.carrier.setStatus(a?.invoice as string, 'IN_TRANSIT')
-    const parcels = new (world.server.parcels.constructor as typeof import('../src/parcel/service.ts').ParcelService)({
+    const parcels = new ParcelService({
       db: world.database.db,
       writer: world.server.writer,
       clock: world.clock,
-      timer: (await import('../src/youtube/timer.ts')).realTimer(world.clock),
+      timer: realTimer(world.clock),
       masterKey: Buffer.from(world.masterKey, 'base64'),
       hub: world.server.hub,
       log: () => {},
@@ -170,7 +173,7 @@ describe('AC-T1-43·44 운송장 내려받기', () => {
       documents: {
         run: async (owner: string, kind: string, input: unknown, options: unknown) => {
           if (kind !== 'waybillPdf') return documents.run(owner, kind as never, input, options as never)
-          if (busy) throw new (await import('../src/work-pool.ts')).WorkBusy()
+          if (busy) throw new WorkBusy()
           sent.push(input)
           const list = (input as { list: { invoice: string }[] }).list
           if (list.length === 1) return { pdf: null, outcomes: [{ index: 0, invoice: list[0]?.invoice, ok: false, error: { code: 'TOO_LONG', message: '주소가 길어 운송장에 다 들어가지 않아요.' } }] }
@@ -179,15 +182,15 @@ describe('AC-T1-43·44 운송장 내려받기', () => {
         },
       },
     }
-    const other = new (world.server.parcels.constructor as typeof import('../src/parcel/service.ts').ParcelService)({
+    const other = new ParcelService({
       db: world.database.db,
       writer: world.server.writer,
       clock: world.clock,
-      timer: (await import('../src/youtube/timer.ts')).realTimer(world.clock),
+      timer: realTimer(world.clock),
       masterKey: Buffer.from(world.masterKey, 'base64'),
       hub: world.server.hub,
       log: () => {},
-      work: stub as unknown as typeof world.server.work,
+      work: stub as unknown as WorkPools,
       options: { carriers: { FAKE: world.carrier.adapter() } },
     })
     const single = await other.waybill(seller.sellerId, D, 'UC_A')
