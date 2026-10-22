@@ -321,7 +321,7 @@ function CountInput({ id, field, onEnter }: { readonly id: string; readonly fiel
           onEnter()
         }}
       />
-      <span className="hint">개</span>
+      <span className="hint quick-count-unit">개</span>
     </span>
   )
 }
