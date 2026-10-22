@@ -2881,3 +2881,58 @@ select.input {
 .receipt-row .input {
   inline-size: 100%;
 }
+
+/* 택배 접수 (T1 AC-T1-61): 줄은 카드처럼, 휴대폰 폭에서도 가로 스크롤 없이 접힌다 */
+.parcel-row {
+  min-inline-size: 0;
+  padding: 0.75rem;
+  border: 1px solid #c4c7c5;
+  border-radius: 0.5rem;
+  background-color: #ffffff;
+}
+
+.parcel-row .buyer-name,
+.parcel-invoice,
+.address-text,
+.parcel-tag {
+  overflow-wrap: anywhere;
+}
+
+.parcel-pick {
+  min-inline-size: 0;
+}
+
+.parcel-box .input {
+  inline-size: auto;
+}
+
+.parcel-reason {
+  font-weight: 700;
+}
+
+.parcel-reason[data-tone] {
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+}
+
+.parcel-invoice {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.parcel-sender {
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px solid #c4c7c5;
+  border-radius: 0.5rem;
+  min-inline-size: 0;
+}
+
+.parcel-sender legend {
+  font-weight: 700;
+  padding: 0 0.25rem;
+}
+
+.address-facts dd {
+  min-inline-size: 0;
+}
