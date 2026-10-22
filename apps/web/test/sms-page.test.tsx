@@ -445,6 +445,9 @@ function holdFetch() {
 
 describe('보내는 동안 잠금·성공 응답 바로 비우기 (D-SMS-01, AC-SMS-01~04)', () => {
   it('AC-SMS-01: 응답 전에는 칸이 읽기 전용, 구매자 지우기·보내기·같은 사람 하나 더·방송 바꾸기를 누를 수 없고 "보내는 중이라 잠시 고칠 수 없어요."', async () => {
+    // 받은 시각 "9:58"은 지금에 가장 가까운 때로 읽는다(D-023) — 시험이 실행 시각에 따라 21:58로 읽히지 않게 지금을 오전으로 고정한다
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.parse('2026-10-19T10:05:00+09:00'))
     setup([register(15, '핑크프릴', 10000, 'b2'), register(16, '청보석', 20000, 'b2'), chat('m1', 'UC_hong1234', '홍길동', '안녕하세요', 'b2')])
     const hold = holdFetch()
     await open()
