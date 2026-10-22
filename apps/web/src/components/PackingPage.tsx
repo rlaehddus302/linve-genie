@@ -25,11 +25,15 @@ import {
   changeNotice,
   checklistSpansBroadcasts,
   diffItems,
+  itemCount,
   itemIdentity,
+  itemVariant,
   inFilter,
   isChanged,
   nextBuyer,
+  packItems,
   packingWords,
+  qtyWords,
   sortEntries,
   type ItemChange,
   type PackingFilter,
@@ -254,7 +258,7 @@ function PackingListView({ data, entries, filter, onFilter, nameOf, selected, on
                 onClick={(event) => linkClick(event, () => onOpen(entry.buyer))}
               >
                 <strong className="buyer-name">{nameOf(entry)}</strong>
-                <span>상품 {entry.items.length}개</span>
+                <span>상품 {itemCount(entry.items)}개</span>
                 <span className="tag" data-tone={PACKING_TONE[entry.status]}>
                   {packingWords(entry.status, entry.invoice)}
                 </span>
@@ -273,6 +277,31 @@ function PackingListView({ data, entries, filter, onFilter, nameOf, selected, on
 }
 
 // ── 체크리스트 (AC-I2-36~38) ────────────────────────────────────────────
+
+/**
+ * 품목 줄의 옵션 글·수량 (D-O4-04, AC-O4-20): 옵션 글은 품종 뒤에, 수량 2 이상이면 줄 끝에 번호와 같은 굵기로 `2개`.
+ * 옵션 없는 수량 1 품목은 아무것도 더하지 않는다(다육 줄은 글자 하나까지 이전 그대로). 글로만 넣는다(이스케이프).
+ */
+function PackOption({ item }: { readonly item: PackingItem }) {
+  const variant = itemVariant(item)
+  const qty = qtyWords(item)
+  return (
+    <>
+      {variant !== null ? (
+        <>
+          {' '}
+          <span className="pack-variant">{variant}</span>
+        </>
+      ) : null}
+      {qty !== '' ? (
+        <>
+          {' '}
+          <strong className="pack-qty">{qty}</strong>
+        </>
+      ) : null}
+    </>
+  )
+}
 
 interface ChecklistProps {
   readonly date: string
@@ -309,7 +338,7 @@ function usePackingCommand(date: string, buyer: string, onSent: (entry: PackingE
   const [error, setError] = useState<ApiError | null>(null)
   const pending = useRef<{ key: string; requestId: string } | null>(null)
   const running = useRef(false)
-  const send = async (body: { readonly action: PackingAction; readonly items?: readonly string[]; readonly invoice?: string | null }): Promise<PackingResult | null> => {
+  const send = async (body: { readonly action: PackingAction; readonly items?: readonly { readonly key: string; readonly qty: number }[]; readonly invoice?: string | null }): Promise<PackingResult | null> => {
     if (running.current) return null
     const key = JSON.stringify([buyer, body])
     if (pending.current?.key !== key) pending.current = { key, requestId: newRequestId() }
@@ -345,10 +374,9 @@ function PackingChecklist({ date, entry, name, labelSignature, showBack, onBack,
   const [sent, setSent] = useState<Sent | null>(null)
   const [ask, setAsk] = useState<Ask>(null)
   const command = usePackingCommand(date, entry.buyer, onSent)
-  const keys = entry.items.map((item) => item.key)
-  // 체크는 (상품 ID, 상품 키) 쌍에 붙인다 — 같은 번호에 다른 상품이 들어오면 새 품목이라 체크 안 됨 (D-I2-19)
+  // 체크는 (상품 ID, 상품 키, 수량)에 붙인다 — 같은 번호에 다른 상품이 들어오거나 수량이 바뀌면 새 품목이라 체크 안 됨 (D-I2-19, D-O4-05)
   const done = entry.items.filter((item) => checked.has(itemIdentity(item))).length
-  const allChecked = keys.length > 0 && done === keys.length
+  const allChecked = entry.items.length > 0 && done === entry.items.length
   const change: ItemChange = isChanged(entry.status) ? { add: entry.add, remove: entry.remove } : entry.status === '포장 대기' ? diffItems(base, entry.items) : { add: [], remove: [] }
   const changed = change.add.length > 0 || change.remove.length > 0
   // 방송 제목: 지금 품목과 바뀐 품목을 합쳐 방송이 둘 이상이면 안내와 체크리스트 모두에 붙인다 (1부 7번·2부 7번 — TD-I2-002)
@@ -370,7 +398,7 @@ function PackingChecklist({ date, entry, name, labelSignature, showBack, onBack,
       return nextSet
     })
 
-  const run = async (body: { readonly action: PackingAction; readonly items?: readonly string[]; readonly invoice?: string | null }) => {
+  const run = async (body: { readonly action: PackingAction; readonly items?: readonly { readonly key: string; readonly qty: number }[]; readonly invoice?: string | null }) => {
     setSent(null)
     const reply = await command.send(body)
     if (reply === null) return false
@@ -390,7 +418,8 @@ function PackingChecklist({ date, entry, name, labelSignature, showBack, onBack,
 
   const pack = () => {
     if (!allChecked) return
-    void run({ action: 'pack', items: keys })
+    // 화면 품목마다 { key, qty }(화면이 본 수량), 화면 순서 — 그 사이 수량이 바뀌었으면 서버가 거절한다 (D-O4-05, AC-O4-21)
+    void run({ action: 'pack', items: packItems(entry.items) })
   }
 
   // 거절(그 사이 품목이 바뀜)은 바뀐 품목 안내로 보인다 — 같은 글을 두 번 보이지 않게 오류 문장은 뺀다
@@ -419,7 +448,7 @@ function PackingChecklist({ date, entry, name, labelSignature, showBack, onBack,
         <h2 className="section-title">{name}</h2>
         <p className="row">
           <span>{dateLong(date)}</span>
-          <span>상품 {entry.items.length}개</span>
+          <span>상품 {itemCount(entry.items)}개</span>
           <span className={`tag pay-${entry.payment}`}>{PAYMENT_WORD[entry.payment]}</span>
           <span className="tag" data-tone={PACKING_TONE[entry.status]}>
             {packingWords(entry.status, entry.invoice)}
@@ -444,6 +473,7 @@ function PackingChecklist({ date, entry, name, labelSignature, showBack, onBack,
                   <label className="pack-item">
                     <input type="checkbox" checked={checked.has(itemIdentity(item))} onChange={() => toggle(itemIdentity(item))} />
                     <span className="pack-no">{String(item.no)}번</span> <span className="pack-name">{item.name.trim() === '' ? '품종 미입력' : item.name}</span>
+                    <PackOption item={item} />
                   </label>
                 </li>
               ))}
@@ -453,7 +483,7 @@ function PackingChecklist({ date, entry, name, labelSignature, showBack, onBack,
       </div>
       {entry.items.length > 0 ? (
         <p className="pack-count" aria-live="polite">
-          {String(done)}/{String(keys.length)} 담음
+          {String(done)}/{String(entry.items.length)} 담음
         </p>
       ) : null}
 

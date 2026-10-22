@@ -2608,6 +2608,19 @@ html:has(.sms-submit-bar) {
   font-weight: 700;
 }
 
+.pack-variant {
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+/* 수량 2 이상: 줄 끝에 번호와 같은 굵기 — 상자에 몇 개를 넣을지 바로 보이게 (D-O4-04) */
+.pack-qty {
+  margin-inline-start: auto;
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
 .pack-count {
   font-weight: 700;
 }

@@ -1,4 +1,6 @@
 // 포장 모드의 값 고르기 (STL-08, D-I2-05·D-I2-06, AC-I2-35~38). 상태는 서버가 정한 다섯 말을 그대로 쓰고 화면은 거르기·순서·안내 글만 만든다.
+// 옵션·수량 (O4 D-O4-04·05): 품목 줄 = `{번호}번 {품종}[ {옵션 글}]` + 수량 2 이상이면 `{수량}개`, "상품 n개" = 수량 합, 포장 완료는 `{ key, qty }`.
+//   옵션 없는 수량 1 품목은 글자 하나까지 이전 그대로다.
 import type { PackingEntry, PackingItem, PackingRemoved, PackingWord } from '../api/types.ts'
 
 /** 상태 말의 뜻 (D-102): 포장 대기 = 보통, 포장 완료·배송 완료 = 성공, 포장 다시 확인·배송 뒤 바뀜 = 주의 */
@@ -87,9 +89,38 @@ export function checklistSpansBroadcasts(items: readonly Pick<PackingItem, 'broa
   return spansBroadcasts([...items, ...change.add, ...change.remove])
 }
 
-/** 품목을 견주는 값 = (상품 ID, 상품 키) 쌍 (D-I2-19 — 같은 번호에 다른 상품이 들어와도 다른 품목) */
-export function itemIdentity(item: Pick<PackingItem, 'key' | 'id'>): string {
-  return `${item.id ?? ''}\u0000${item.key}`
+/** 품목의 수량 (없으면 1 — O3 전 응답) */
+export function itemQty(item: { readonly qty?: number }): number {
+  return item.qty ?? 1
+}
+
+/** 품목의 옵션 글 (없으면 null) */
+export function itemVariant(item: { readonly variant?: string | null }): string | null {
+  return item.variant === undefined || item.variant === null || item.variant === '' ? null : item.variant
+}
+
+/** "상품 n개"의 n = 수량 합 (D-O4-04 — D-O3-03·05와 같은 셈). 옵션 없는 수량 1 품목만이면 줄 수 */
+export function itemCount(items: readonly { readonly qty?: number }[]): number {
+  return items.reduce((sum, item) => sum + itemQty(item), 0)
+}
+
+/** 수량 글: 2 이상이면 "2개", 1이면 빈 글 (D-O4-04) */
+export function qtyWords(item: { readonly qty?: number }): string {
+  const qty = itemQty(item)
+  return qty > 1 ? `${String(qty)}개` : ''
+}
+
+/** 포장 완료로 보낼 품목 = 화면 품목마다 { key, qty }(화면이 본 수량), 화면 순서 그대로 (D-O4-05, AC-O4-21) */
+export function packItems(items: readonly Pick<PackingItem, 'key' | 'qty'>[]): { readonly key: string; readonly qty: number }[] {
+  return items.map((item) => ({ key: item.key, qty: itemQty(item) }))
+}
+
+/**
+ * 품목을 견주는 값 = (상품 ID, 상품 키, 수량) (D-I2-19 — 같은 번호에 다른 상품이 들어와도 다른 품목).
+ * 수량도 넣는다 (D-O4-04·05): 연 동안 수량만 바뀌면 새 품목으로 보고 체크를 지운다 — 2개를 담은 체크가 3개로 바뀐 품목에 남지 않게.
+ */
+export function itemIdentity(item: Pick<PackingItem, 'key' | 'id' | 'qty'>): string {
+  return `${item.id ?? ''}\u0000${item.key}\u0000${String(itemQty(item))}`
 }
 
 /**
@@ -104,8 +135,11 @@ export function diffItems(base: readonly PackingItem[], current: readonly Packin
   const remove = base
     .filter((item) => !now.has(itemIdentity(item)))
     .map((item): PackingRemoved => {
-      const removed = { key: item.key, broadcast: item.broadcast, title: item.title, no: item.no }
-      return addedKeys.has(item.key) ? { ...removed, name: item.name } : removed
+      const variant = itemVariant(item)
+      const qty = itemQty(item)
+      // 옵션 글·수량은 있을 때만 싣는다 (옵션 없는 수량 1 품목은 이전 모양 그대로)
+      const removed = { key: item.key, broadcast: item.broadcast, title: item.title, no: item.no, ...(variant === null ? {} : { variant }), ...(qty === 1 ? {} : { qty }) }
+      return addedKeys.has(item.key) || variant !== null || qty !== 1 ? { ...removed, name: item.name } : removed
     })
   return { add, remove }
 }
@@ -115,15 +149,25 @@ function nameWords(name: string): string {
   return name === '' ? '품종 미입력' : name
 }
 
+/** 체크리스트 줄 글 `21번 반바지 M` (옵션 글이 있으면 품종 뒤에) — 수량은 따로 크게 (D-O4-04) */
+export function itemLineWords(item: Pick<PackingItem, 'no' | 'name' | 'variant'>): string {
+  const variant = itemVariant(item)
+  return `${String(item.no)}번 ${nameWords(item.name.trim())}${variant === null ? '' : ` ${variant}`}`
+}
+
 /**
  * "새로 담을 것: 31번 · 뺄 것: 28번" (없는 쪽은 뺀다).
  * 같은 번호가 두 쪽에 다 있으면 번호 뒤에 품종을 붙인다: "새로 담을 것: 9번 라울 · 뺄 것: 9번 핑크프릴" (D-I2-19, AC-I2-37)
+ * 옵션 글이 있거나 수량이 2 이상인 품목은 체크리스트 줄과 같은 모양: "21번 반바지 L", "21번 반바지 L 2개" (뺄 것은 포장 때 수량, D-O4-04, AC-O4-23)
  */
 export function changeWords(change: ItemChange, multi: boolean): string {
   const removedKeys = new Set(change.remove.map((item) => item.key))
   const addedKeys = new Set(change.add.map((item) => item.key))
-  const word = (item: Pick<PackingItem, 'key' | 'title' | 'no'> & { readonly name?: string }, both: boolean) => {
+  const word = (item: Pick<PackingItem, 'key' | 'title' | 'no'> & { readonly name?: string; readonly variant?: string | null; readonly qty?: number }, both: boolean) => {
     const number = itemNumber(item, multi)
+    const variant = itemVariant(item)
+    const qty = qtyWords(item)
+    if (variant !== null || qty !== '') return `${number} ${nameWords((item.name ?? '').trim())}${variant === null ? '' : ` ${variant}`}${qty === '' ? '' : ` ${qty}`}`
     return both && item.name !== undefined ? `${number} ${nameWords(item.name)}` : number
   }
   const parts: string[] = []
