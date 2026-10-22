@@ -1,6 +1,7 @@
 // 개인정보처리방침·이용약관 초안 (SYS-05, D-I3-15, AC-I3-77·78). 로그인 없이 열린다(앱이 세션 확인을 기다리지 않는다).
 // 법률 검토 전 초안이다 — 확정은 사용자 몫(D-012). 정해지지 않은 값은 "[미정]"·"[검토 필요]"로 둔다.
 // N4b: 개인정보처리방침에 "구매자 확인서 공유 링크" 문단(AC-N4b-35).
+// L1: 수집 항목에 간편 로그인 연결 정보(공급자 계정 번호·가린 이메일 — AC-L1-13), 쿠키에 간편 로그인 확인 쿠키.
 // 바깥 주소(구글·유튜브)는 새 탭으로 연다 — 이 화면은 그 주소를 부르지 않는다.
 import type { ReactNode } from 'react'
 
@@ -12,6 +13,8 @@ export const YOUTUBE_TERMS_URL = 'https://www.youtube.com/t/terms'
 export const RECEIPT_LINK_WHAT = '판매자가 만든 링크를 받은 사람은 로그인 없이 그 구매자 한 명의 구매 내역·결제 금액·입금 계좌를 볼 수 있어요.'
 export const RECEIPT_LINK_PERIOD = '링크는 만든 때부터 14일 뒤에 열리지 않아요. 판매자는 언제든 링크를 끊을 수 있어요.'
 export const RECEIPT_LINK_PHONE = '링크 화면에는 휴대폰 번호의 끝 4자리만 보여요.'
+/** 간편 로그인 연결 정보 (L1 AC-L1-13, D-L1-05) — 공급자 토큰·이메일 원문은 저장하지 않는다 */
+export const SOCIAL_LOGIN_ITEM = '간편 로그인을 연결하면: 공급자 계정 번호, 가린 이메일(예: se***@gmail.com)'
 export const TAX_NOTE = '구매 내역 확인서는 세금계산서·현금영수증 같은 세법상 증빙이 아니에요'
 
 function Outside({ href, children }: { readonly href: string; readonly children: ReactNode }) {
@@ -46,7 +49,8 @@ export function PrivacyPage() {
           <li>시청자 정보: 판매자의 방송 채팅에 쓴 시청자의 유튜브 채널 번호·표시 이름·채팅 내용</li>
           <li>문자찜 구매자 정보: 판매자가 적은 이름·메모. 휴대폰 번호 원문은 저장하지 않아요(알아볼 수 없게 바꾼 값과 뒤 4자리만 저장해요).</li>
           <li>정산 기록: 판매·입금·배송비·할인·환불 기록</li>
-          <li>로그인 쿠키: 로그인 상태를 지키는 쿠키 하나</li>
+          <li>{SOCIAL_LOGIN_ITEM}</li>
+          <li>로그인 쿠키: 로그인 상태를 지키는 쿠키 하나(간편 로그인을 하는 동안에는 10분만 쓰는 확인 쿠키 하나가 더 있어요)</li>
         </ul>
       </Section>
       <Section title="2. 처리 목적">
