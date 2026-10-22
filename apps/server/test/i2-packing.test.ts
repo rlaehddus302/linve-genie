@@ -398,7 +398,7 @@ describe('D-I2-19 포장 기록의 품목 = (상품 ID, 상품 키) 쌍', () => 
     const legacy = (await entries(world, seller)).get('UC_A') as Entry
     expect(legacy.status).toBe('포장 다시 확인')
     expect(legacy.add.map((item) => item.no)).toEqual([1])
-    expect(legacy.remove).toEqual([{ id: null, key: `${b}/1`, broadcast: b, title: legacy.items[0]?.title, no: 1, name: '' }])
+    expect(legacy.remove).toEqual([{ id: null, key: `${b}/1`, broadcast: b, title: legacy.items[0]?.title, no: 1, name: '', variant: null, qty: 1 }]) // D-O3-14: 뺄 것에 포장 때 옵션 글·수량 (칸이 늘었다)
     // 다시 포장 완료하면 새 형식으로 남고 포장 완료
     expect((await expectOkPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: [`${b}/1`] }))).status).toBe('포장 완료')
   })

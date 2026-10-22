@@ -622,11 +622,19 @@ class PackingCheck {
     }
     let pairs: PackedItem[] = []
     if (kind === 'PACKED') {
-      // 품목 = (상품 ID, 상품 키) 쌍 { id, key } (D-I2-19). 이 결정 전 형식(상품 키 글)도 읽는다 — 상태 계산에서 지금 품목과 같지 않다고 본다
+      // 품목 = (상품 ID, 품목 키) 쌍 { id, key, qty? } (D-I2-19, O3 D-O3-10). 이 결정 전 형식(상품 키 글)도 읽는다 — 상태 계산에서 지금 품목과 같지 않다고 본다
       const read = Array.isArray(items) ? (items as unknown[]).map(readPackedItem) : []
       pairs = read.filter((item): item is PackedItem => item !== null)
-      const ids = pairs.flatMap((item) => (item.id === null ? [] : [item.id]))
-      if (!Array.isArray(items) || items.length === 0 || pairs.length !== items.length || new Set(pairs.map((item) => item.key)).size !== pairs.length || new Set(ids).size !== ids.length) {
+      // 상품 ID 하나는 한 상품 키에만 있다 — 옵션 상품은 변형 키마다 품목이라 같은 ID가 여럿일 수 있다(같은 상품 키 `<방송>/<번호>`일 때만, O3)
+      const productKeyOf = new Map<string, string>()
+      const idClash = pairs.some((item) => {
+        if (item.id === null) return false
+        const product = item.key.replace(/#[\s\S]*$/, '')
+        const seen = productKeyOf.get(item.id)
+        productKeyOf.set(item.id, product)
+        return seen !== undefined && seen !== product
+      })
+      if (!Array.isArray(items) || items.length === 0 || pairs.length !== items.length || new Set(pairs.map((item) => item.key)).size !== pairs.length || idClash) {
         return invalid(`${where}의 담은 품목이 올바르지 않아요.`)
       }
     } else if (items !== null) return invalid(`${where}의 담은 품목이 올바르지 않아요.`)

@@ -25,6 +25,8 @@ import { emptyState } from '../runtime.ts'
 import { sha256Hex } from '../secrets.ts'
 import { eventsAfter } from '../store.ts'
 import { iso, withIsoTimes } from '../time.ts'
+import { MissingAmountError, requireAmount } from '../amount.ts'
+import { winnerClaimsOf } from '../winners.ts'
 import type { ScopeWriter } from '../writer.ts'
 import { kstMidnightAfter, type Timer } from './timer.ts'
 
@@ -32,7 +34,13 @@ import { kstMidnightAfter, type Timer } from './timer.ts'
 export const SEAL_AFTER_DAYS = 30
 /** 봉인 작업 간격 */
 export const SEAL_EVERY_MS = 60 * 60 * 1000
-export const LEDGER_FORMAT = 'livejjim-ledger/1'
+/**
+ * 장부 판 (D-O3-12): `/2` = 판매 행에 key·variant·options·qty·amount, 상품 행에 variants(text·stock·winners).
+ * `/1`(O3 전 — 옵션 판매 없음)은 판매마다 key = product·variant·options = null·qty = 1·amount = price, 상품마다 variants = []로 읽는다
+ */
+export const LEDGER_FORMAT = 'livejjim-ledger/2'
+/** O3 전 장부 판 (읽기만) */
+export const LEDGER_FORMAT_V1 = 'livejjim-ledger/1'
 /** 봉인한 날짜의 채팅 목록 문장 (AC-Y1-62) */
 export const SEALED_CHAT_MESSAGE = '30일이 지나 채팅 내용을 지웠어요.'
 
@@ -53,7 +61,7 @@ export interface Ledger {
 }
 
 /** 확정 시각: 찜이 상품의 확정 목록에 들어간 이벤트의 at (다시 확정되면 그때) */
-function confirmTimes(rows: readonly { body: string; failed: boolean }[]): { state: EngineState; times: Map<string, number> } {
+export function confirmTimes(rows: readonly { body: string; failed: boolean }[]): { state: EngineState; times: Map<string, number> } {
   let state = emptyState()
   const lastWinners = new Map<string, Set<string>>()
   const times = new Map<string, number>()
@@ -80,10 +88,12 @@ function confirmTimes(rows: readonly { body: string; failed: boolean }[]): { sta
       }
     }
     if (b === null || ['host.blockBuyer', 'host.unblockBuyer', 'buyer.merge', 'buyer.unmerge', 'broadcast.end'].includes(String(event.type))) all = true
-    const products = all ? listProducts(state) : numbers.flatMap((no) => (b === null ? [] : [getProduct(state, b, no)])).filter((item) => item !== null)
+    // 옵션 방송의 채팅은 번호가 아닌 상품 이름·옵션 글로 찜한다(D-O1) — 번호 파서로는 상품을 못 찾으니 그 방송의 상품 전부를 본다
+    const optionsChat = event.type === 'chat' && b !== null && getBroadcast(state, b)?.settings['claim.parseMode'] === 'OPTIONS'
+    const products = all ? listProducts(state) : optionsChat ? listProducts(state).filter((product) => product.broadcast === b) : numbers.flatMap((no) => (b === null ? [] : [getProduct(state, b, no)])).filter((item) => item !== null)
     for (const product of products) {
       if (product === null) continue
-      const winners = new Set(product.winnerClaims)
+      const winners = new Set(winnerClaimsOf(product))
       const before = lastWinners.get(product.id) ?? new Set<string>()
       for (const claim of winners) if (!before.has(claim)) times.set(claim, at)
       lastWinners.set(product.id, winners)
@@ -92,7 +102,11 @@ function confirmTimes(rows: readonly { body: string; failed: boolean }[]): { sta
   return { state, times }
 }
 
-/** 판매자 장부 (형식에 매이지 않는 기록 — 엔진 상태 형식과 상관없다) */
+/**
+ * 판매자 장부 (형식에 매이지 않는 기록 — 엔진 상태 형식과 상관없다). 판 2 (D-O3-12): 판매 행의 key·variant·options·qty·amount는 코어 ClaimInfo 그대로,
+ * 상품 행의 variants는 코어 VariantInfo의 text·stock·winners. 확정 찜에 찜 금액이 없으면 MissingAmountError — 봉인하지 않는다
+ * (장부는 고칠 수 없는 기록이라 금액 없는 장부를 굳히지 않는다, 다음 바퀴에 다시 한다 — D-O3-15)
+ */
 export function buildLedger(date: string, state: EngineState, times: ReadonlyMap<string, number>, sealedAt: number): Ledger {
   const confirmed = listClaims(state).filter((claim) => claim.status === 'CONFIRMED')
   const buyers = listBuyers(state)
@@ -120,6 +134,7 @@ export function buildLedger(date: string, state: EngineState, times: ReadonlyMap
       stock: product.stock,
       status: product.status,
       winners: product.winners,
+      variants: product.variants.map((variant) => ({ text: variant.text, stock: variant.stock, winners: variant.winners })),
       priceHistory: product.priceHistory.map((change) => ({ from: change.from, to: change.to, at: iso(change.at) })),
     })),
     sales: confirmed.map((claim) => ({
@@ -132,6 +147,11 @@ export function buildLedger(date: string, state: EngineState, times: ReadonlyMap
       currentBuyer: claim.currentBuyer,
       buyerName: byId.get(claim.buyer)?.display ?? '',
       price: claim.price,
+      key: claim.key,
+      variant: claim.variant,
+      options: claim.options,
+      qty: claim.qty,
+      amount: requireAmount(claim),
       confirmVersion: claim.confirmVersion,
       confirmedAt: times.has(claim.id) ? iso(times.get(claim.id) as number) : null,
       origin: claim.origin,
@@ -204,6 +224,8 @@ export class Sealer {
           if (await this.seal(scope.sellerId, scope.id, scope.date)) sealed += 1
         } catch (error) {
           failed = true
+          // 확정 찜에 찜 금액이 없으면 봉인하지 않는다(되돌림) — 찜 ID만 남긴다 (D-O3-15)
+          if (error instanceof MissingAmountError) log({ level: 'error', code: 'AMOUNT_MISSING', seller: scope.sellerId, date: scope.date, claim: error.claimId })
           log({ level: 'error', code: 'SEAL_FAILED', seller: scope.sellerId, date: scope.date, errorKind: errorKind(error) })
         }
       }
@@ -292,15 +314,50 @@ export class Sealer {
   }
 }
 
-/** 봉인한 범위의 조회 (AC-Y1-62): 범위 조회와 같은 모양 + 봉인 표시. 장부를 읽을 수 없으면 null */
-export function sealedView(date: string, seq: number, ledgerText: string | null): Record<string, unknown> | null {
-  if (ledgerText === null) return null
-  let ledger: Ledger
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
+const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 1
+const isWon = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+
+/**
+ * 저장한 장부 글 → 판 2 모양의 장부 (D-O3-12). 읽을 수 없으면 null:
+ * JSON이 아님 · 모르는 판(`/1`·`/2`가 아닌 것) · 목록 칸이 목록이 아님 · `/2`인데 판매 행의 qty·amount가 정수가 아님(빈 값을 채우지 않는다).
+ * `/1`은 그 판의 뜻대로 읽는다 — 판매마다 key = product, variant·options = null, qty = 1, amount = price, 상품마다 variants = []
+ */
+export function readLedger(ledgerText: string): Ledger | null {
+  let parsed: unknown
   try {
-    ledger = JSON.parse(ledgerText) as Ledger
+    parsed = JSON.parse(ledgerText)
   } catch {
     return null
   }
+  if (!isObject(parsed)) return null
+  const { format } = parsed
+  if (format !== LEDGER_FORMAT && format !== LEDGER_FORMAT_V1) return null
+  const lists = ['broadcasts', 'products', 'sales', 'buyers', 'settlements'] as const
+  if (lists.some((name) => !Array.isArray(parsed[name]))) return null
+  const products = parsed.products as unknown[]
+  const sales = parsed.sales as unknown[]
+  if (!products.every(isObject) || !sales.every(isObject)) return null
+  if (format === LEDGER_FORMAT) {
+    if (!sales.every((sale) => isCount(sale.qty) && isWon(sale.amount))) return null
+    if (!products.every((product) => Array.isArray(product.variants))) return null
+    return parsed as unknown as Ledger
+  }
+  // 판 1: O3 전에 봉인한 장부 — 옵션 판매가 없어 수량 1·찜 금액 = 가격 스냅샷이 그 판의 뜻이다 (다시 계산이 아니다)
+  if (!sales.every((sale) => isWon(sale.price))) return null
+  return {
+    ...(parsed as unknown as Ledger),
+    format: LEDGER_FORMAT,
+    products: products.map((product) => ({ ...product, variants: [] })),
+    sales: sales.map((sale) => ({ ...sale, key: sale.product, variant: null, options: null, qty: 1, amount: sale.price })),
+  }
+}
+
+/** 봉인한 범위의 조회 (AC-Y1-62): 범위 조회와 같은 모양 + 봉인 표시. 장부를 읽을 수 없으면 null (D-O3-12 — 판마다 readLedger) */
+export function sealedView(date: string, seq: number, ledgerText: string | null): Record<string, unknown> | null {
+  if (ledgerText === null) return null
+  const ledger = readLedger(ledgerText)
+  if (ledger === null) return null
   return {
     date,
     rehearsal: false,

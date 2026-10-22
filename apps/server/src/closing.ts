@@ -4,7 +4,7 @@
 // - 판매자 ID 조건은 늘 세션의 판매자다. 없는 범위·다른 판매자의 자원은 404(있는지 드러내지 않는다).
 // - 문서·파일 내용, 파일 이름, 송장번호, 가게 설정 값, 가져오기 글은 로그에 남기지 않는다(로그는 정해진 코드·날짜뿐).
 import { containsPhoneRun, currentBuyerOf, getBroadcast, getBuyer, isValidDate, listBroadcasts, listProducts, listSettlements, looksLikePhoneId, normalizeText, type EngineState } from '@livejjim/core'
-import { buildLedger, buildReceipt, buildReceipts, compareCodePoints, printedName, type LedgerRow, type ReceiptData } from '@livejjim/documents'
+import { buildLedger, buildReceipt, buildReceipts, compareCodePoints, printedName, type ReceiptData } from '@livejjim/documents'
 import type { PackingLabelData } from '@livejjim/label'
 import { and, asc, eq, gte, sql } from 'drizzle-orm'
 import { hasControlChar, isPlainObject, own, ownKeys } from './api-fields.ts'
@@ -15,12 +15,12 @@ import type { ErrorCode, FieldProblem } from './errors.ts'
 import { MIME, documentFont, fileNamePart } from './files.ts'
 import type { StreamHub } from './hub.ts'
 import { IMPORT_FILE_MAX_BYTES, IMPORT_FILE_MESSAGES, IMPORT_REGISTER_BODY_LIMIT_BYTES, IMPORT_TEXT_MAX_CHARS, decodeTextFile, importFileKind, importRegisterBodyBytes, type XlsxReadResult } from './import-files.ts'
+import { AMOUNT_MISSING_MESSAGE, MissingAmountError } from './amount.ts'
 import type { LogSink } from './log.ts'
 import { phoneIdProblem, unknownFieldProblems } from './messages.ts'
 import {
   PACKING_ACTIONS,
   PACKING_MESSAGES,
-  PRODUCT_KEY_RE,
   decidePacking,
   packedItemsJson,
   labelPdf,
@@ -33,11 +33,13 @@ import {
   packingRows,
   packingStatusByBuyer,
   readInvoice,
+  readSentItem,
   renderPacking,
   replayPacking,
   type PackingAction,
   type PackingEntry,
   type PackingWord,
+  type SentItem,
 } from './packing.ts'
 import { pastPurchases, type PastView } from './past.ts'
 import { IMPORT_MAX_ROWS, isNormalizedName, parseProductList, parseProductRows, recheckRows, splitCells, splitImportLines, type ImportResult, type RegisterRow } from './product-import.ts'
@@ -45,7 +47,7 @@ import type { ScopeRuntime } from './runtime.ts'
 import { checkShopInput, checkShopName, documentShop, readShop, writeShop, type ShopView } from './shop.ts'
 import { findBroadcast, listBroadcastRows, scopeSeqs } from './store.ts'
 import { kstDate, type Clock } from './time.ts'
-import { WorkBusy, WorkFailed, type WorkPools } from './work-pool.ts'
+import { WorkBusy, WorkFailed, type LedgerChunk, type WorkPools } from './work-pool.ts'
 import { uniqueNames } from './zip.ts'
 import type { Actor, Rejection, ScopeWriter, WriteOutcome } from './writer.ts'
 
@@ -330,7 +332,7 @@ export class ClosingService {
    * 범위 상태를 한꺼번에 메모리에 두지 않고, 날짜 사이마다 이벤트 루프에 차례를 넘긴다 (RA-I2-003).
    * 날짜마다 범위 상태는 공용 캐시에 넣지 않는 읽기(readDetached)로 불러온다 — 전체 판매대장이 방송 중인 다른 판매자의 범위 상태를 밀어내지 않는다 (TD-I2-008)
    */
-  async *#ledgerRows(sellerId: string, dates: readonly string[], from: string, to: string, selected: readonly string[] | null): AsyncGenerator<LedgerRow[]> {
+  async *#ledgerRows(sellerId: string, dates: readonly string[], from: string, to: string, selected: readonly string[] | null): AsyncGenerator<LedgerChunk> {
     for (const date of dates) {
       const runtime = await this.#deps.writer.readDetached(sellerId, date, false)
       if (runtime.seq === 0 || runtime.scopeId === null) continue
@@ -349,7 +351,8 @@ export class ClosingService {
         },
       })
       if (!result.ok) throw new Error('대장 행을 만들지 못했다')
-      yield [...result.rows]
+      // 열 모양(D-O3-07): 날짜 중 하나라도 옵션 방송을 담으면 대장 전체가 옵션·수량·단가 열 — 워커가 조각마다의 options를 OR로 모은다
+      yield { rows: [...result.rows], options: result.options }
     }
   }
 
@@ -438,7 +441,26 @@ export class ClosingService {
     const runtime = await this.#scope(sellerId, date, false)
     if (runtime === null) return null
     const { state, seq, scopeId } = runtime
-    return { date, seq, entries: packingEntries(state, date, await packingRows(this.#deps.db, sellerId, scopeId as string)) }
+    const records = await packingRows(this.#deps.db, sellerId, scopeId as string)
+    // 찜 금액이 없는 확정 찜이 있으면 목록을 만들지 않는다(서버 오류, D-O3-15) — 찜 ID만 남기고 다시 던진다
+    return { date, seq, entries: this.#amountGuard(date, () => packingEntries(state, date, records)) }
+  }
+
+  /** 찜 금액이 없는 확정 찜(MissingAmountError)이면 찜 ID만 남기고 그대로 던진다 (D-O3-15) */
+  #amountGuard<T>(date: string, make: () => T): T {
+    try {
+      return make()
+    } catch (error) {
+      if (error instanceof MissingAmountError) this.#deps.log({ level: 'error', code: 'AMOUNT_MISSING', date, claim: error.claimId })
+      throw error
+    }
+  }
+
+  /** 찜 금액이 없는 확정 찜이면 서버 오류 응답(AMOUNT_MISSING), 그 밖의 오류는 그대로 던진다 */
+  #amountProblem(date: string, error: unknown): { kind: 'error'; error: ApiProblem } {
+    if (!(error instanceof MissingAmountError)) throw error
+    this.#deps.log({ level: 'error', code: 'AMOUNT_MISSING', date, claim: error.claimId })
+    return problem(500, 'AMOUNT_MISSING', AMOUNT_MISSING_MESSAGE)
   }
 
   /** 정산 조회(날짜 보기)에 붙이는 묶음마다의 포장·배송 상태 (AC-I2-33) */
@@ -450,7 +472,7 @@ export class ClosingService {
   }
 
   /** 포장 명령 본문 검사: { requestId, buyer, action, items?(포장 완료), invoice?(배송 완료) } */
-  static packingInput(body: Record<string, unknown>): { ok: true; buyer: string; action: PackingAction; items: string[]; invoice: string | null } | { ok: false; error: ApiProblem } {
+  static packingInput(body: Record<string, unknown>): { ok: true; buyer: string; action: PackingAction; items: SentItem[]; invoice: string | null } | { ok: false; error: ApiProblem } {
     const extra = ownKeys(body).filter((key) => !['requestId', 'buyer', 'action', 'items', 'invoice'].includes(key))
     if (extra.length > 0) return { ok: false, error: { status: 400, code: 'UNKNOWN_FIELD', message: '받을 수 없는 항목이 있어요.', problems: unknownFieldProblems(extra) } }
     const action = own(body, 'action')
@@ -461,12 +483,14 @@ export class ClosingService {
     if (!buyer.ok) return buyer
     const items = own(body, 'items')
     const invoice = own(body, 'invoice')
-    let list: string[] = []
+    let list: SentItem[] = []
     if (action === 'pack') {
-      if (!Array.isArray(items) || items.length > 2000 || !items.every((key) => typeof key === 'string' && PRODUCT_KEY_RE.test(key)) || new Set(items).size !== items.length) {
+      // 원소 = 품목 키 글, 또는 { key, qty }(화면이 본 수량 — O3 D-O3-10). 키는 겹치지 않는다
+      const read = Array.isArray(items) && items.length <= 2000 ? (items as unknown[]).map(readSentItem) : null
+      if (read === null || read.some((item) => item === null) || new Set(read.map((item) => (typeof item === 'string' ? item : (item as { key: string }).key))).size !== read.length) {
         return { ok: false, error: { status: 400, code: 'INVALID_INPUT', message: '입력한 내용을 확인해 주세요.', problems: [{ field: 'items', message: '담은 상품을 확인해 주세요.' }] } }
       }
-      list = [...(items as string[])]
+      list = read as SentItem[]
     } else if (items !== undefined) {
       return { ok: false, error: { status: 400, code: 'UNKNOWN_FIELD', message: '받을 수 없는 항목이 있어요.', problems: [{ field: 'items', message: '받을 수 없는 항목이에요.' }] } }
     }
@@ -490,11 +514,31 @@ export class ClosingService {
     accountId: string,
     date: string,
     requestId: string,
-    input: { buyer: string; action: PackingAction; items: readonly string[]; invoice: string | null },
+    input: { buyer: string; action: PackingAction; items: readonly SentItem[]; invoice: string | null },
   ): Promise<Outcome<{ entry: PackingEntry; recorded: boolean }>> {
     if (!isValidDate(date)) return NOT_FOUND
+    // 찜 금액이 없는 확정 찜이 있으면 품목을 만들지 못해 트랜잭션을 되돌리고 서버 오류 (D-O3-15)
+    let result: Outcome<{ entry: PackingEntry; recorded: boolean; buyer: string }>
+    try {
+      result = await this.#packingWrite(sellerId, accountId, date, requestId, input)
+    } catch (error) {
+      return this.#amountProblem(date, error)
+    }
+    if (result.kind !== 'ok') return result
+    // 커밋된 뒤에만 다른 기기에 알린다 (AC-I2-32) — 값(품목·송장)은 알림에 넣지 않는다
+    if (result.value.recorded) this.#deps.hub.publishNamed(sellerId, 'packing', { date, buyer: result.value.buyer })
+    return ok({ entry: result.value.entry, recorded: result.value.recorded })
+  }
+
+  #packingWrite(
+    sellerId: string,
+    accountId: string,
+    date: string,
+    requestId: string,
+    input: { buyer: string; action: PackingAction; items: readonly SentItem[]; invoice: string | null },
+  ): Promise<Outcome<{ entry: PackingEntry; recorded: boolean; buyer: string }>> {
     const { db, writer, clock } = this.#deps
-    const result = await writer.withScope(sellerId, date, false, async (runtime, catchUpIn): Promise<Outcome<{ entry: PackingEntry; recorded: boolean; buyer: string }>> => {
+    return writer.withScope(sellerId, date, false, async (runtime, catchUpIn): Promise<Outcome<{ entry: PackingEntry; recorded: boolean; buyer: string }>> => {
       if (runtime.seq === 0 || runtime.scopeId === null) return NOT_FOUND
       const scopeId = runtime.scopeId
       return db.transaction(async (tx) => {
@@ -513,7 +557,7 @@ export class ClosingService {
         const rows = await packingRows(tx, sellerId, scopeId, input.buyer)
         const current = packingEntry(state, date, input.buyer, rows)
         // 지금 품목 = (상품 ID, 상품 키) 쌍 — 보낸 키 목록이 지금 키와 같으면 서버가 상품 ID를 붙여 기록한다 (D-I2-19)
-        const decision = decidePacking(replayPacking(rows), current.items.map((item) => ({ id: item.id, key: item.key })), input.action, input.items, input.invoice)
+        const decision = decidePacking(replayPacking(rows), current.items.map((item) => ({ id: item.id, key: item.key, qty: item.qty })), input.action, input.items, input.invoice)
         if (decision.kind === 'reject') return problem(409, decision.code, decision.message, [], { entry: current })
         if (decision.kind === 'same') return ok({ entry: current, recorded: false, buyer: input.buyer })
         const inserted = await tx
@@ -537,10 +581,6 @@ export class ClosingService {
         return ok({ entry: packingEntry(state, date, input.buyer, after), recorded: true, buyer: input.buyer })
       })
     })
-    if (result.kind !== 'ok') return result
-    // 커밋된 뒤에만 다른 기기에 알린다 (AC-I2-32) — 값(품목·송장)은 알림에 넣지 않는다
-    if (result.value.recorded) this.#deps.hub.publishNamed(sellerId, 'packing', { date, buyer: result.value.buyer })
-    return ok({ entry: result.value.entry, recorded: result.value.recorded })
   }
 
   /** 포장 라벨 (AC-I2-34): 라벨 데이터(L-9)와 쪽마다 그림. 합쳐진 구매자 ID는 지금의 구매자로 푼다 */
@@ -549,7 +589,12 @@ export class ClosingService {
     if (runtime === null) return NOT_FOUND
     const { state } = runtime
     const root = getBuyer(state, buyer) === null ? null : currentBuyerOf(state, buyer)
-    const data = root === null ? null : packingLabelData(state, date, root)
+    let data: PackingLabelData | null
+    try {
+      data = root === null ? null : packingLabelData(state, date, root)
+    } catch (error) {
+      return this.#amountProblem(date, error)
+    }
     if (data === null) return problem(422, 'NO_ITEMS', LABEL_NO_ITEMS_MESSAGE)
     const shop = await readShop(this.#deps.db, sellerId)
     const rendered = renderPacking(data, shop.name)

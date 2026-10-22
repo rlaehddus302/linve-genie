@@ -8,8 +8,15 @@
 // - 넘기는 값·결과는 구조화 복제로 오간다(파일 바이트는 옮긴다 — transfer). 작업 내용은 로그에 남기지 않는다.
 import { availableParallelism } from 'node:os'
 import { Worker } from 'node:worker_threads'
+import type { LedgerRow } from '@livejjim/documents'
 
 export type WorkKind = 'receiptPdf' | 'receiptPng' | 'receiptJpg' | 'receiptJpgZip' | 'ledgerXlsx' | 'xlsxRows'
+
+/** 판매대장 엑셀 조각 하나 = 날짜 하나의 대장 행과 그 날짜 대장에 옵션 방송이 있는지 (O3 D-O3-07) */
+export interface LedgerChunk {
+  readonly rows: readonly LedgerRow[]
+  readonly options: boolean
+}
 
 export interface WorkPoolOptions {
   /** 풀 이름 (로그·점검용) */

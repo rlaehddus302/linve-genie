@@ -1,0 +1,62 @@
+# O3 — 라벨·확인서·판매대장·포장이 기대는 옵션 방송 정산 재료 (SPEC OPT-06·LBL-01·LBL-02·STL-04·STL-06·STL-08, DOMAIN_RULES R-19 "표시", D-O-12, D-O3-01~D-O3-10).
+# 새 판정 규칙 없음 — O1 코어로 통과한다. 그래서 허용 목록(known-unimplemented.yaml)에 넣지 않는다.
+# 문서 골든(tests/golden/documents/*.json)이 이 시나리오의 이벤트를 그대로 엔진에 넣고 확인서 줄·판매대장 행을 맞댄다(README "문서 골든").
+# 라벨 데이터(L-9)·포장 모드 목록은 서버 시험이 이 시나리오로 맞댄다(harness/sprints/O3/acceptance.md AC-O3-20~24).
+# 모든 기대값은 손으로 계산했다. 줄마다 계산을 주석으로 적었다.
+id: G-ENG-O3-01
+title: 같은 날 다육 방송(STRICT)과 옵션 방송 — 변형 둘·수량 2 이상·옵션 가격 차이·옵션 문자찜·안 팔린 옵션 상품
+refs: [OPT-06, LBL-01, LBL-02, STL-04, STL-06, STL-08, CMT-07, R-19, R-12, D-O-12]
+broadcasts:
+  - { id: b1, date: 2026-10-25, title: 다육 1부 }      # 시나리오 settings 없음 → 기본(STRICT)
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 7, name: 핑크프릴, price: 8000 }
+  - { at: "20:00:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "7" }       # A 확정 8,000 (수량 1, 옵션 없음)
+  - { at: "21:00:00", type: broadcast.start, b: b2, date: 2026-10-25, title: 의류 2부, settings: { claim.parseMode: OPTIONS } }
+  - { at: "21:00:01", type: product.register, b: b2, no: 21, name: 반바지, price: 10000, options: [{ name: 사이즈, choices: [{ label: S }, { label: M }, { label: L }] }] }   # 변형 셋, 재고 각 1
+  - at: "21:00:02"
+    type: product.register
+    b: b2
+    no: 22
+    name: 반팔티
+    price: 15000
+    stock: 2
+    stocks: { "105/검정색": 3 }
+    options:
+      - { name: 사이즈, choices: [{ label: "95" }, { label: "100" }, { label: "105", price: 2000 }] }
+      - { name: 색상, choices: [{ label: 흰색, aliases: [화이트] }, { label: 검정색, aliases: [검정, 블랙] }] }
+  - { at: "21:00:03", type: product.register, b: b2, no: 11, name: 초코 과자, price: 2000, stock: 5, aliases: [초코] }   # 옵션 없음, 재고 5
+  - { at: "21:00:04", type: product.register, b: b2, no: 23, name: 양말, price: 3000, options: [{ name: 색상, choices: [{ label: 흰색 }, { label: 검정색 }] }] }   # 찜 없음 → 대장에 확정 없는 행
+  - { at: "21:00:05", type: chat, b: b2, id: m2, ch: UC_A, nick: 홍길동, text: "반바지 M" }            # 21#M A 확정 10,000 (상품 21 확정버전 1)
+  - { at: "21:00:06", type: chat, b: b2, id: m3, ch: UC_A, nick: 홍길동, text: "반바지 L" }            # 21#L A 확정 10,000 (확정버전 2) — 다른 변형이라 반복 아님
+  - { at: "21:00:07", type: chat, b: b2, id: m4, ch: UC_A, nick: 홍길동, text: "반팔티 105 검정 2" }   # 22#105/검정색: 단가 15,000 + 2,000 = 17,000, 수량 2 ≤ 남은 3 → 확정, 금액 34,000
+  - { at: "21:00:08", type: chat, b: b2, id: m5, ch: UC_A, nick: 홍길동, text: "초코 과자 3" }         # 11: 3 ≤ 남은 5 → 확정, 2,000 × 3 = 6,000. 남은 2
+  - { at: "21:00:09", type: chat, b: b2, id: m6, ch: UC_B, nick: 김철수, text: "초코 1" }              # 11: 1 ≤ 남은 2 → 확정 2,000. 남은 1
+  - { at: "21:00:10", type: sms, b: b2, ref: s1, no: 22, received: "21:00", memo: 이영희, phone: "010-1234-5678", options: { 사이즈: "100", 색상: 흰색 }, qty: 1 }   # 22#100/흰색: 단가 15,000(차이 0), 1 ≤ 재고 2 → 확정
+expect:
+  products:
+    b2/11: { status: OPEN, winners: [UC_A, UC_B], confirmedUnits: 4 }     # 3 + 1, 재고 5 → 남은 1
+    b2/22: { confirmedUnits: 3 }                                         # 105/검정색 2 + 100/흰색 1
+    b2/23: { status: OPEN, confirmedUnits: 0 }                           # 찜 없음
+  variants:
+    "b2/21#S": { status: OPEN, winner: null, stock: 1 }
+    "b2/21#M": { status: SOLD, winner: UC_A }
+    "b2/21#L": { status: SOLD, winner: UC_A }
+    "b2/22#105/검정색": { status: OPEN, winner: UC_A, stock: 3, confirmedUnits: 2 }
+    "b2/22#100/흰색": { status: OPEN, winner: "sms:s1", stock: 2, confirmedUnits: 1 }
+  claims:
+    - { product: "b2/22#105/검정색", buyer: UC_A, status: CONFIRMED, qty: 2 }
+    - { product: b2/11, buyer: UC_A, status: CONFIRMED, qty: 3 }
+    - { product: b2/11, buyer: UC_B, status: CONFIRMED, qty: 1 }
+    - { product: "b2/22#100/흰색", buyer: "sms:s1", status: CONFIRMED, qty: 1 }
+  claimCount: 7                                                          # A-7, A-21M, A-21L, A-22, A-11, B-11, s1-22
+  reviews: []
+  buyers:
+    # 8,000 + 10,000 + 10,000 + 34,000 + 6,000 = 68,000. b2만 60,000
+    UC_A: { items: [b1/7, "b2/21#M", "b2/21#L", "b2/22#105/검정색", b2/11], subtotal: 68000, byBroadcast: { b1: 8000, b2: 60000 } }
+    UC_B: { items: [b2/11], subtotal: 2000 }
+    "sms:s1": { display: "문자찜(이영희)", items: ["b2/22#100/흰색"], subtotal: 15000, phoneLast4: "5678" }
+  settlements:
+    # 그날 배송비는 첫 방송(b1, 기본) 것 — 기본 4,000원, 무료배송 기준 없음 (D-I3-08)
+    UC_A@2026-10-25: { subtotal: 68000, shipping: 4000, total: 72000, payment: UNPAID }
+    UC_B@2026-10-25: { subtotal: 2000, shipping: 4000, total: 6000, payment: UNPAID }
+    "sms:s1@2026-10-25": { subtotal: 15000, shipping: 4000, total: 19000, payment: UNPAID }
