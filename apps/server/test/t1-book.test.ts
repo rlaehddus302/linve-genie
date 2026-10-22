@@ -371,6 +371,28 @@ describe('AC-T1-33 일부 실패와 실패한 것만 다시', () => {
     ])
     expect(world.logs.some((record) => record.code === 'PARCEL_BOOK_UNKNOWN')).toBe(true)
   })
+
+  it('택배사가 이미 받은 요청 번호는 다시 확인 때 거절을 주입해도 같은 송장 — 택배사엔 접수, 우리 기록은 FAILED가 되는 일이 없다 (PC-1 멱등)', async () => {
+    const world = await parcelWorld({ timeoutMs: 250 })
+    const seller = await parcelSeller(world)
+    await sell(world, seller, [['UC_A', '가람', 1]])
+    await makeReady(world, seller, 'UC_A')
+    world.carrier.failNext('book', 'TIMEOUT_AFTER_BOOK')
+    const first = await bookOk(world, seller, [{ buyer: 'UC_A' }])
+    expect(first.map((item) => item.ok || item.reason)).toEqual(['UNAVAILABLE'])
+    const key = (await attempts(world, seller.sellerId, 'UC_A'))[0]?.request_key as string
+    const booked = world.carrier.bookingOf(key)
+    expect(booked).not.toBeNull()
+    for (const kind of ['ADDRESS', 'REJECTED'] as const) {
+      world.carrier.failNext('book', kind)
+      expect(await world.carrier.adapter().book({ requestKey: key, customerNo: null, receiver: { ...ADDRESS, phone: '01012345678' }, sender: SENDER, box: '소', count: 1 })).toEqual({ kind: 'BOOKED', invoice: booked?.invoice })
+    }
+    world.carrier.failNext('book', 'ADDRESS')
+    const again = await bookOk(world, seller, [{ buyer: 'UC_A' }])
+    expect(again).toEqual([expect.objectContaining({ buyer: 'UC_A', ok: true, invoice: booked?.invoice })])
+    expect((await attempts(world, seller.sellerId, 'UC_A')).map((row) => [row.state, row.invoice])).toEqual([['BOOKED', booked?.invoice]])
+    expect(world.carrier.bookingCount).toBe(1)
+  })
 })
 
 describe('AC-T1-34 멈춘 시도', () => {

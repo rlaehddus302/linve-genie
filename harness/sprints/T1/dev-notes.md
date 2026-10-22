@@ -58,6 +58,7 @@
 ### 시험·E2E
 - E2E 기동은 기본으로 가짜 택배사를 띄운다(`--parcel no`로 끈다, `--parcel-port`, `--parcel-track-ms`(기본 5000)). 시작 줄에 `가짜 택배 http://127.0.0.1:<포트>`.
 - 조작(E2E 서버 주소, JSON POST, 세션 없음): `/_e2e/parcel/status { invoice, status: ACCEPTED|PICKED_UP|IN_TRANSIT|DELIVERED }` · `/_e2e/parcel/fail { op: book|cancel|track, kind: ADDRESS|REJECTED|TIMEOUT|TIMEOUT_AFTER_BOOK|ERROR_500|BAD_INVOICE|REFUSED, times? }` · `/_e2e/parcel/track {}`(지금 조회 한 바퀴) · `/_e2e/parcel/sweep {}`(지금 30일 정리) · `GET /_e2e/parcel/requests`(받은 요청 — 본문 포함) · `/_e2e/parcel/reset {}`.
+- 가짜 택배사는 접수를 요청 번호로 멱등하게 다룬다(PC-1): 이미 받은 요청 번호에는 주입한 거절(`ADDRESS`·`REJECTED` — failNext·`/_e2e/parcel/fail`)이 듣지 않고 처음 송장을 준다. 응답 없음·500·송장 이상은 이미 받은 요청 번호에도 그대로 난다.
 - 받는 분 주소에 `[주소거절]`·`[접수거절]`·`[응답없음]`·`[접수후응답없음]`·`[서버오류]`·`[송장이상]`을 넣어도 그 실패가 난다. 가짜 송장번호는 `900000000001`부터 차례로.
 - 서버 시험 도우미 `apps/server/test/t1-support.ts`(`parcelWorld`·`parcelSeller`·`makeReady`·`parcelApi`). 적대 시험은 `FakeCarrier`(`apps/server/src/parcel/fake-carrier.ts`)를 `createServer({ parcel: { carriers: { FAKE: fake.adapter({ timeoutMs }) } } })`로 붙인다.
 

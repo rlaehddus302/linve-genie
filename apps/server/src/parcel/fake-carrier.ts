@@ -232,7 +232,9 @@ export class FakeCarrier {
     const echo = this.echo ? { echo: `받은 주소: ${address} ${typeof receiver.detail === 'string' ? receiver.detail : ''} ${typeof receiver.phone === 'string' ? receiver.phone : ''}` } : {}
     // 이미 받은 요청 번호면 표시 글자와 상관없이 처음 답 (같은 요청 번호 = 같은 송장번호)
     const known = this.#bookings.get(requestKey)
-    const failure = this.#takeFailure('book') ?? (known === undefined ? (ADDRESS_MARKERS.find(([marker]) => address.includes(marker))?.[1] ?? null) : null)
+    const injected = this.#takeFailure('book')
+    // 주입한 거절(ADDRESS·REJECTED)도 이미 받은 요청 번호에는 듣지 않는다 — 접수는 요청 번호로 멱등(PC-1). 응답 없음·500·송장 이상은 오가는 길의 문제라 그대로 낸다
+    const failure = known !== undefined && (injected === 'ADDRESS' || injected === 'REJECTED') ? null : (injected ?? (known === undefined ? (ADDRESS_MARKERS.find(([marker]) => address.includes(marker))?.[1] ?? null) : null))
     switch (failure) {
       case 'ADDRESS':
         return json(422, { error: 'ADDRESS', ...echo })
