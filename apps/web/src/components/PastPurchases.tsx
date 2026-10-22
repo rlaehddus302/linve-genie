@@ -2,6 +2,8 @@
 // - 서버가 채널 ID·전화번호 키로만 이은 다른 날짜의 묶음(최근 날짜부터 20개, "더 보기")을 그대로 보인다. 닉네임·메모로는 잇지 않는다.
 // - 항목마다 날짜(연도·요일)·방송 제목·그날 이름·"상품 n개"(번호·품종·가격)·최종 결제 금액·입금 상태 말·포장·배송 상태 말(송장번호)·찾은 까닭.
 // - 항목을 누르면 그 날짜의 정산 자세히(`/settlements?date=…&buyer=…`)로 간다.
+// - 품목 줄 (O4 D-O4-06): `{번호}번 {품종}[ {옵션 글}][ {수량}개] {찜 금액}` — 찜 금액은 서버(코어) 값 그대로, 없으면 금액 칸을 비운다(단가로 채우지 않는다).
+//   "상품 n개"는 수량 합(D-O3-05와 같은 셈). 옵션 없는 수량 1 품목 줄은 이전 그대로.
 import { formatWon } from '@livejjim/core'
 import { useEffect, useState, type MouseEvent } from 'react'
 import { get, isApiError, withQuery, type ApiError } from '../api/client.ts'
@@ -13,6 +15,20 @@ import { paymentWord } from '../lib/words.ts'
 import { RequestError } from './ErrorNote.tsx'
 
 export const NO_PAST = '다른 날의 구매 기록이 없어요.'
+
+type PastLine = PastItem['items'][number]
+
+/** 지난 구매 품목 한 줄 (AC-O4-24): "22번 반팔티 105/검정색 2개 34,000원", "7번 핑크프릴 8,000원", 금액이 없으면 "21번 반바지 M" */
+export function pastLineWords(line: PastLine): string {
+  const name = line.name.trim() === '' ? '품종 미입력' : line.name
+  const variant = line.variant === null || line.variant === '' ? '' : ` ${line.variant}`
+  const qty = line.qty > 1 ? ` ${String(line.qty)}개` : ''
+  const amount = line.amount === null ? '' : ` ${formatWon(line.amount)}`
+  return `${String(line.no)}번 ${name}${variant}${qty}${amount}`
+}
+
+/** "상품 n개"의 n = 수량 합 */
+export const pastCount = (lines: readonly PastLine[]): number => lines.reduce((sum, line) => sum + line.qty, 0)
 
 export interface PastPurchasesProps {
   readonly date: string
@@ -87,7 +103,7 @@ export function PastPurchases({ date, buyer, refreshKey, onOpen }: PastPurchases
                 <span>{item.broadcasts.join(', ')}</span>
                 <span>그날 이름 {item.name}</span>
                 <span className="past-lines">
-                  상품 {item.items.length}개 ({item.items.map((line) => `${String(line.no)}번 ${line.name.trim() === '' ? '품종 미입력' : line.name} ${formatWon(line.price)}`).join(' · ')})
+                  상품 {pastCount(item.items)}개 ({item.items.map(pastLineWords).join(' · ')})
                 </span>
                 <span>최종 {formatWon(item.total)}</span>
                 <span className={`tag pay-${item.payment}`}>{paymentWord(item.payment, item.refundDue)}</span>
