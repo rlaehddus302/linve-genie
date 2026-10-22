@@ -16,6 +16,7 @@ import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
 import { BuyerNames, alertCounts, isOptionBroadcast, latestProduct, productKey, productSlots } from '../lib/derive.ts'
 import { EMPTY_DRAFT, optionSummary, type OptionDraft, type OptionPayload } from '../lib/options.ts'
 import { useReviews } from '../lib/reviews.ts'
+import { COUNT_PROBLEM, DEFAULT_COUNT, readCount } from '../lib/stock.ts'
 import { SALE_MODE_WORD } from '../lib/words.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
 import { dateWords } from '../lib/kst.ts'
@@ -94,6 +95,8 @@ interface RegRequest {
   readonly onExists?: (product: Product) => void
   /** 다시 보내기로 고칠 수 없는 실패·기록되지 않음 (음성 카드는 카드를 되살린다) */
   readonly onFailed?: () => void
+  /** 개수 칸이 1이 아니었으면 그 개수 (옵션 없는 상품만 — AC-ORD11-01) */
+  readonly stock?: number
 }
 
 /** 등록 경로의 선택 (음성 카드) */
@@ -102,6 +105,7 @@ interface RegHooks {
   readonly onFailed?: () => void
   readonly extra?: OptionPayload
   readonly draftOf?: OptionDraft
+  readonly stock?: number
 }
 
 /** 창이 열려 있다 (콘솔 창·음성 안내 창·떠날지 묻는 창) */
@@ -200,6 +204,26 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   const [asks, setAsks] = useState<EditAsk[]>([])
   const askId = useRef(1)
   const [quickError, setQuickError] = useState<ApiError | null>(null)
+  /** 개수 칸 (AC-ORD11-01·04, D-STK-01): 등록·고치기에 쓰면 1로 돌아간다 — 다음 상품에 따라가지 않게 */
+  const [countText, setCountText] = useState(DEFAULT_COUNT)
+  const countRef = useRef(countText)
+  countRef.current = countText
+  const [countProblem, setCountProblem] = useState<string | null>(null)
+  const countInput = useRef<HTMLInputElement>(null)
+  /** 그 개수 글자로 등록·고치기를 시작했다: 칸이 그대로면 1로 돌린다 (그사이 판매자가 다음 개수를 적었으면 둔다) */
+  const takeCount = useCallback((text: string) => {
+    if (countRef.current === text) {
+      countRef.current = DEFAULT_COUNT
+      setCountText(DEFAULT_COUNT)
+    }
+    setCountProblem(null)
+  }, [])
+  /** 등록하지 못했다: 칸이 1이면 그 개수를 되살린다 (다시 Enter하면 같은 개수로 — 말없이 1로 등록되지 않게) */
+  const restoreCount = useCallback((stock: number | undefined) => {
+    if (stock === undefined || countRef.current !== DEFAULT_COUNT) return
+    countRef.current = String(stock)
+    setCountText(String(stock))
+  }, [])
   /** 빠른 입력 줄에 붙인 옵션 (등록하면 비운다 — 다음 상품에 따라가지 않게, D-O2-05) */
   const [attached, setAttached] = useState<{ readonly draft: OptionDraft; readonly payload: OptionPayload } | null>(null)
   const attachedRef = useRef(attached)
@@ -481,12 +505,13 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
    * Enter 바로 뒤의 판단은 칸 글자가 그 줄 그대로라 늘 창을 연다
    */
   const askEdit = useCallback(
-    (product: Product, name: string, price: number, line: string) => {
+    (product: Product, name: string, price: number, line: string, stock?: number) => {
+      const counted = stock === undefined || product.hasOptions ? {} : { stock }
       if (typedNext(line)) {
-        setAsks((list) => [...list, { id: askId.current++, line, no: product.no, product: product.key, name, price }])
+        setAsks((list) => [...list, { id: askId.current++, line, no: product.no, product: product.key, name, price, ...counted }])
         return
       }
-      openDialog({ kind: 'edit', product: product.key, name, price, line })
+      openDialog({ kind: 'edit', product: product.key, name, price, line, ...counted })
     },
     [openDialog, typedNext],
   )
@@ -502,7 +527,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       // 그 번호의 지금 상품과 비교한다 (번호 변경 뒤에도 — AC-S06-67)
       const current = findProduct(ask.no)
       if (current === undefined) return
-      const base = { kind: 'edit', product: current.key, name: ask.name, price: ask.price, line: ask.line } as const
+      const base = { kind: 'edit', product: current.key, name: ask.name, price: ask.price, line: ask.line, ...(ask.stock === undefined ? {} : { stock: ask.stock }) } as const
       // 칸이 비었으면 친 줄을 칸으로 옮긴다 — 바로 물었을 때와 같이 아니요면 칸에 그대로 남는다(AC-S05-13).
       // 다른 줄을 치는 중이면 그 글자를 두고, 아니요면 "고칠까요?"를 남겨 친 줄을 잃지 않는다
       if (quickTextRef.current === '') {
@@ -539,7 +564,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         // 등록하려던 번호가 이미 있다: 함께 보내려던 옵션은 넣지 않았다고 알린다 (말없이 사라지지 않게)
         if (request.extra !== undefined) noteDroppedOptions(product.no)
         if (request.onExists !== undefined) request.onExists(product)
-        else askEdit(product, request.name, request.price, request.line)
+        else askEdit(product, request.name, request.price, request.line, request.stock)
       }
       if (first) {
         const existing = findProduct(request.no)
@@ -558,6 +583,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           no: request.no,
           name: request.name,
           price: request.price,
+          ...(request.stock === undefined ? {} : { stock: request.stock }),
           ...(extra === undefined || extra.options.length === 0 ? {} : { options: extra.options, stocks: extra.stocks }),
           ...(extra === undefined || extra.aliases.length === 0 ? {} : { aliases: extra.aliases }),
         })
@@ -569,6 +595,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           if (existing !== undefined) exists(existing)
           else {
             request.onFailed?.()
+            restoreCount(request.stock)
             // 등록되지 않았으니 붙였던 옵션을 되살린다
             const extra = request.extra
             if (extra !== undefined) setAttached((current) => current ?? { draft: request.draftOf ?? EMPTY_DRAFT, payload: extra })
@@ -588,6 +615,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           remove()
           setQuickError(error)
           request.onFailed?.()
+          restoreCount(request.stock)
         }
         // 등록하지 못했으면 붙였던 옵션을 되살린다 (다시 Enter하면 같이 간다)
         if (request.extra !== undefined && !error.transient) {
@@ -596,7 +624,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         }
       }
     },
-    [askEdit, b, clearLine, findProduct, noteDroppedOptions, queue, undoRegistration, write],
+    [askEdit, b, clearLine, findProduct, noteDroppedOptions, queue, restoreCount, undoRegistration, write],
   )
 
   const startRegistration = useCallback((line: string, no: number, name: string, price: number, fromFix: boolean, hooks: RegHooks = {}): number => {
@@ -695,7 +723,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       if (ask === undefined) return
       removeAsk(id)
       dropAttached(ask.no)
-      enqueueRegistration(ask.line, ask.no, ask.name, ask.price, false)
+      enqueueRegistration(ask.line, ask.no, ask.name, ask.price, false, ask.stock === undefined ? {} : { stock: ask.stock })
     },
     [asks, dropAttached, enqueueRegistration, removeAsk],
   )
@@ -705,7 +733,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     setAsks((list) => {
       const next = list.filter((ask) => {
         const current = data.products.get(productKey(b, ask.no))
-        return current === undefined || current.status === 'CLOSED' || Object.keys(changedFields(current, ask.name, ask.price)).length > 0
+        return current === undefined || current.status === 'CLOSED' || Object.keys(changedFields(current, ask.name, ask.price, ask.stock)).length > 0
       })
       return next.length === list.length ? list : next
     })
@@ -716,16 +744,36 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
    * 차례를 잡는다(뒤 줄의 판단이 이 등록을 본다: "15 …" 다음의 "15"는 찾기).
    */
   const handleDecision = useCallback(
-    (decision: QuickDecision, line: string, fromFix: boolean, inChain = false): Promise<void> | undefined => {
+    (decision: QuickDecision, line: string, fromFix: boolean, countAt: string, inChain = false): Promise<void> | undefined => {
+      /** 개수 칸 → 넘길 재고 (1이면 넘기지 않는다). 칸이 틀렸으면 보내지 않고 알린다 (AC-ORD11-04) */
+      const readStock = (): { ok: true; stock: number | undefined } | { ok: false } => {
+        const count = readCount(countAt)
+        if (count === null) {
+          setCountProblem(COUNT_PROBLEM)
+          if (!(inChain && typedNext(line))) {
+            countInput.current?.focus()
+            countInput.current?.select()
+          }
+          return { ok: false }
+        }
+        takeCount(countAt)
+        return { ok: true, stock: count === 1 ? undefined : count }
+      }
       switch (decision.kind) {
         case 'none':
           return undefined
         case 'register': {
+          // 붙인 옵션은 이 등록 한 번에 함께 보내고 비운다 (D-O2-05). 옵션 상품은 개수 칸 대신 변형 재고 (AC-ORD11-09)
+          const option = attachedRef.current
+          const withOptions = option !== null && option.payload.options.length > 0
+          const counted = withOptions ? ({ ok: true, stock: undefined } as const) : readStock()
+          if (!counted.ok) return undefined
           if (fromFix) setFix(null)
           focusQuick()
-          // 붙인 옵션은 이 등록 한 번에 함께 보내고 비운다 (D-O2-05)
-          const option = attachedRef.current
-          const hooks: RegHooks = option === null ? {} : { extra: option.payload, draftOf: option.draft }
+          const hooks: RegHooks = {
+            ...(option === null ? {} : { extra: option.payload, draftOf: option.draft }),
+            ...(counted.stock === undefined ? {} : { stock: counted.stock }),
+          }
           if (option !== null) {
             attachedRef.current = null
             setAttached(null)
@@ -738,12 +786,16 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           const id = startRegistration(line, decision.no, decision.name, decision.price, fromFix, hooks)
           return runRegistration(id, true)
         }
-        case 'edit':
+        case 'edit': {
+          // 개수 칸이 1이 아니면 개수도 함께 묻는다 (AC-ORD11-08). 옵션 상품은 개수 칸을 보지 않는다
+          const counted = decision.product.hasOptions ? ({ ok: true, stock: undefined } as const) : readStock()
+          if (!counted.ok) return undefined
           if (fromFix) setFix(null)
           // 이미 있는 번호 고치기에는 붙인 옵션을 넣지 않는다 — 떼고 알린다 (D-O2-05 보강)
           dropAttached(decision.product.no)
-          askEdit(decision.product, decision.name, decision.price, line)
+          askEdit(decision.product, decision.name, decision.price, line, counted.stock)
           return undefined
+        }
         case 'open': {
           setFix(null)
           dropAttached(decision.product.no)
@@ -772,7 +824,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         }
       }
     },
-    [askEdit, clearLine, dropAttached, enqueueRegistration, focusQuick, openDialog, runRegistration, startRegistration, typedNext],
+    [askEdit, clearLine, dropAttached, enqueueRegistration, focusQuick, openDialog, runRegistration, startRegistration, takeCount, typedNext],
   )
 
   const onEnter = useCallback(
@@ -788,15 +840,17 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       const input = quickRef.current
       if (input !== null && input.value === line) input.select()
       const snapshotSettings = quickSettings(settings)
+      // 개수 칸은 Enter를 친 때의 글자로 읽는다 (늦게 판단해도 그 줄의 개수)
+      const countAt = countRef.current
       if (regRequests.current.size === 0 && waitingLines.current === 0) {
-        void handleDecision(decideQuickInput(line, snapshotSettings, findProduct), line, false)
+        void handleDecision(decideQuickInput(line, snapshotSettings, findProduct), line, false, countAt)
         return
       }
       // 앞 줄의 등록이 아직 끝나지 않았다: 그 뒤에 차례대로 판단한다 — "15 …" 바로 뒤의 "15"(찾기)·"15 …"(고치기)가 앞 등록을 본다
       waitingLines.current++
       chain.current = chain.current.then(() => {
         waitingLines.current--
-        return handleDecision(decideQuickInput(line, snapshotSettings, findProduct), line, false, true)
+        return handleDecision(decideQuickInput(line, snapshotSettings, findProduct), line, false, countAt, true)
       })
     },
     [findProduct, handleDecision, settings, voice],
@@ -804,7 +858,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
 
   const onFixSubmit = useCallback(() => {
     if (settings === null || fix === null) return
-    void handleDecision(decideFixForm(fix, quickSettings(settings), findProduct), fix.line, true)
+    void handleDecision(decideFixForm(fix, quickSettings(settings), findProduct), fix.line, true, countRef.current)
   }, [findProduct, fix, handleDecision, settings])
 
   const closeFix = useCallback(() => {
@@ -1029,6 +1083,19 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
                 onAskDismiss={removeAsk}
                 onAskRegister={registerAsk}
                 error={quickError}
+                {...(attached !== null && attached.payload.options.length > 0
+                  ? {}
+                  : {
+                      count: {
+                        value: countText,
+                        onChange: (text: string) => {
+                          setCountText(text)
+                          setCountProblem(null)
+                        },
+                        problem: countProblem,
+                        inputRef: countInput,
+                      },
+                    })}
                 {...(optionMode
                   ? {
                       options: {
@@ -1188,6 +1255,7 @@ function DialogView({ dialog, broadcastId, onSync, messageOf, onClose, onEditDon
           productKey={dialog.product}
           name={dialog.name}
           price={dialog.price}
+          {...(dialog.stock === undefined ? {} : { stock: dialog.stock })}
           line={dialog.line}
           onClose={onClose}
           onDone={(product) => onEditDone(product, dialog.line, dialog.ask)}
