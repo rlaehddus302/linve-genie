@@ -1,7 +1,8 @@
 // 정정 말 (VOC-02, D-V2-05). 한 덩어리를 정정 표시·취소 낱말·칸 이름에서 조각으로 나누고, 조각마다 R-17(readSentence)로 읽어
 // 왼쪽부터 뒤 조각에서 읽힌 칸(번호·품종·가격 각각)이 앞 값을 덮는다. R-17 자체는 바꾸지 않는다.
 // 순수 함수: 넘긴 사전을 바꾸지 않고 시계·난수를 쓰지 않으며 어떤 입력에도 예외를 던지지 않는다.
-import { parseKoreanNumber } from '@livejjim/core'
+import { normalizeText, parseAmount, parseKoreanNumber } from '@livejjim/core'
+import { STOP_WORDS } from './default-dictionary.ts'
 import { candidatesFromWindows, type VarietyCandidate } from './candidates.ts'
 import { VarietyDictionary } from './dictionary.ts'
 import { readSentence, readingForms, tokenize, type Confidence, type SentenceReading } from './extract.ts'
@@ -16,6 +17,7 @@ export const FIELD_NAMES: Readonly<Record<string, ChunkField>> = Object.freeze({
 export const RAW_NAME_MAX = 20
 
 const MALGO = '말고'
+const STOP_KEYS: ReadonlySet<string> = new Set(STOP_WORDS.map((word) => normalizeText(word).split(' ').join('')))
 
 export type ChunkField = 'no' | 'name' | 'price'
 
@@ -143,7 +145,17 @@ function readPiece(piece: CorrectionPiece, dictionary: VarietyDictionary, maxNum
   if (piece.field === 'name') {
     if (extraction.name !== null) return { ...base, no: null, name: extraction.name, price: null, nameExact: reading.nameExact, nameWindow: reading.nameWindow }
     const raw = piece.text
-    const ok = raw !== '' && codePointLength(raw) <= RAW_NAME_MAX && !/[0-9]/.test(raw)
+    // 막는 낱말·지시어·가격이나 수로 읽히는 말은 품종이 되지 않는다 (TD-V2-002)
+    const ok =
+      raw !== '' &&
+      codePointLength(raw) <= RAW_NAME_MAX &&
+      !/[0-9]/.test(raw) &&
+      !raw.split(' ').some((token) => readingForms(token).some((form) => STOP_KEYS.has(form))) &&
+      !STOP_KEYS.has(raw.split(' ').join('')) &&
+      extraction.price === null &&
+      extraction.no === null &&
+      parseAmount(raw, { 'price.unit': 'WON' }) === null &&
+      parseKoreanNumber(raw.split(' ').join('')) === null
     return { ...base, no: null, name: ok ? raw : null, price: null, rawName: ok, nameWindow: ok ? raw.split(' ').join('') : null }
   }
   return { ...base, no: extraction.no, name: extraction.name, price: extraction.price, nameExact: reading.nameExact, nameWindow: reading.nameWindow }

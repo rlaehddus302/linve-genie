@@ -4,7 +4,7 @@
 // (d) `문자찜` 낱말 — 모은 글을 먼저 내보내고 그 결과 하나만 따로(R-21) (e) 음성을 끔(stop)·끝에서 넘긴 결과(자동 확정 없음).
 // 순수 함수: 넘긴 상태를 바꾸지 않고 새 상태를 돌려준다. 어떤 입력에도 예외를 던지지 않는다.
 import { normalizeText } from '@livejjim/core'
-import { CANCEL_WORDS, CORRECTION_MARKERS } from './correction.ts'
+import { CORRECTION_MARKERS } from './correction.ts'
 import { findNumberMarkers, readingForms, tokenize, SENTENCE_MAX_CODE_POINTS } from './extract.ts'
 import { resolveQuietMs } from './settings.ts'
 import { findSmsMarker } from './sms.ts'
@@ -102,10 +102,10 @@ function numbersOf(text: string): Set<number> {
   return new Set(findNumberMarkers(tokens, tokens.map(readingForms)).values)
 }
 
-/** 정정 표시(·취소 낱말)가 든 결과인가 — 다른 번호가 있어도 끊지 않고 붙인다 (D-V2-03 a 단서) */
+/** 정정 표시가 든 결과인가 (취소 낱말은 예외가 아니다 — TD-V2-001) — 다른 번호가 있어도 끊지 않고 붙인다 (D-V2-03 a 단서) */
 function hasCorrectionMarker(text: string): boolean {
   const tokens = tokenize(text) ?? normalizeText(text).split(' ')
-  return tokens.some((token) => CORRECTION_MARKERS.includes(token) || CANCEL_WORDS.includes(token) || (token.length > 2 && token.endsWith('말고')))
+  return tokens.some((token) => CORRECTION_MARKERS.includes(token) || (token.length > 2 && token.endsWith('말고')))
 }
 
 function isSms(text: string): boolean {

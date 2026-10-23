@@ -21,7 +21,7 @@ describe('품종 바로잡기 S1·S6·S7·S8·S9·S10 (AC-V2-04·05)', () => {
   it.each([
     ['S6', '16번 블루 엘프 만원', { no: 16, name: '블루엘프', price: 10000, confidence: 'HIGH' }],
     ['S7', '17번 부루엘프 만원', { no: 17, name: '블루엘프', price: 10000, confidence: 'HIGH' }],
-    ['S8', '18번 라운 만이천원', { no: 18, name: '라울', price: 12000, confidence: 'LOW' }],
+    ['S8', '18번 라운 만이천원', { no: 18, name: '라울', price: 12000, confidence: 'HIGH' }],
   ])('%s %s', (_id, text, expected) => {
     const run = simulate([{ text, at: 0 }], 1800)
     expect(run.cards).toHaveLength(1)
@@ -33,9 +33,28 @@ describe('품종 바로잡기 S1·S6·S7·S8·S9·S10 (AC-V2-04·05)', () => {
     expect(readChunk('17번 부루엘프 만원', { dictionary: ['블루엘프'] })).toMatchObject({ no: 17, name: '블루엘프', price: 10000, confidence: 'LOW' })
   })
 
-  it('S8 기본 사전에 라운 별칭이 없다 (자동 확정 없음)', () => {
+  it('S8 데이터 사전 라울의 별칭 라운 (D-V2-12) — 별칭 없는 사전이면 R-17만으로 0.8 → LOW', () => {
+    expect(readChunk('18번 라운 만이천원', { dictionary: ['라울'] })).toMatchObject({ no: 18, name: '라울', price: 12000, confidence: 'LOW' })
     const run = simulate([{ text: '18번 라운 만이천원', at: 0 }], 1800, { settings: { 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5 } })
-    expect(run.cards[0]?.autoConfirmAt).toBeNull()
+    expect(run.cards[0]).toMatchObject({ confidence: 'HIGH', autoConfirmAt: 1800 + 5000 })
+  })
+
+  it('칸 이름 뒤 막는 낱말·지시어·가격 말은 품종이 되지 않는다 (TD-V2-002)', () => {
+    for (const text of ['15번 품종 만원', '15번 만원 품종은 그거', '15번 만원 품종은 이거', '15번 만원 이름은 천원', '15번 만원 품종은 오천']) {
+      expect(readChunk(text, { dictionary: DICT }).name, text).toBeNull()
+    }
+    expect(readChunk('25번 만원 품종은 하얀 별', { dictionary: DICT }).name).toBe('하얀 별')
+  })
+
+  it('취소 낱말은 다른 번호 끊기를 막지 않는다 (TD-V2-001)', () => {
+    const run = simulate(
+      [
+        { text: '26번 엘레강스 만원', at: 0 },
+        { text: '27번 라울 만원 취소', at: 1000 },
+      ],
+      2800,
+    )
+    expect(run.cards.map(view)).toEqual([{ no: 26, name: '엘레강스', price: 10000 }])
   })
 
   it('S9 "19번 선버스 팔천원" → 품종 빈칸, 후보 첫째 선버스트 77점', () => {
