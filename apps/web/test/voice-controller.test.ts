@@ -339,6 +339,7 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     return out
   }
 
+  // D-PL1-09 (PL1B AC-PL1B-27): 켠 직후 이력을 기다리는 2초 미룸 — 지금 코드 확정
   it('켠 직후 이력을 받는 동안 온 최종 문장은 기록에 바로 남고, 카드는 이력을 받은 뒤 이력 사전으로 — 온 차례대로 (SA-N3-04, D-I4-06)', async () => {
     const h = harness()
     const history = pendingHistory(h)
@@ -360,6 +361,7 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     expect(h.voice.getSnapshot().cards[0]).toMatchObject({ no: 23, name: '펭귄얼음' })
   })
 
+  // D-PL1-09 (PL1B AC-PL1B-27): 켠 직후 이력을 기다리는 2초 미룸 — 지금 코드 확정
   it(`이력을 ${String(HISTORY_WAIT_MS)}ms 안에 받지 못하면 그때의 사전으로 카드를 만들고, 그 뒤 문장도 기다리지 않는다`, async () => {
     const h = harness()
     const history = pendingHistory(h)
@@ -379,6 +381,7 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     expect(h.voice.getSnapshot().cards[0]).toMatchObject({ no: 24, name: '펭귄얼음' })
   })
 
+  // D-PL1-09 (PL1B AC-PL1B-27): 켠 직후 이력을 기다리는 2초 미룸 — 지금 코드 확정
   it('이력을 받지 못하면(실패) 미룬 문장을 바로 지금 범위 + 기본 사전으로', async () => {
     const h = harness()
     const history = pendingHistory(h)
@@ -392,6 +395,7 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     expect(h.voice.getSnapshot().cards.map((card) => [card.no, card.name])).toEqual([[24, '토끼당근']])
   })
 
+  // D-PL1-09 (PL1B AC-PL1B-27): 켠 직후 이력을 기다리는 2초 미룸 — 지금 코드 확정
   it('이력을 기다리는 동안 끄면 미룬 문장은 카드가 되고(자동 확정 없음), 떠나면 버린다', async () => {
     const auto = { 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5 }
     const h = harness({ readSettings: () => auto })
@@ -412,6 +416,7 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     expect(left.voice.getSnapshot().cards).toEqual([])
   })
 
+  // D-PL1-09 (PL1B AC-PL1B-27): 켠 직후 이력을 기다리는 2초 미룸 — 지금 코드 확정
   it('미룬 문장은 온 때의 설정으로 카드가 된다 — 끈 채 말하고 기다리는 사이 자동 등록을 켜도 자동 등록하지 않는다 (TE-N3-004, AC-I4-31)', async () => {
     const h = harness()
     const history = pendingHistory(h)
@@ -428,6 +433,7 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     expect(h.voice.getSnapshot().cards[0]).toMatchObject({ no: 16, autoConfirmAt: Date.now() + 5000 })
   })
 
+  // D-PL1-09 (PL1B AC-PL1B-27): 켠 직후 이력을 기다리는 2초 미룸 — 지금 코드 확정
   it('켠 채 말한 미룬 문장도 기다리는 사이 자동 등록을 끄면 자동 등록하지 않는다(다시 켜도), 켠 채 그대로면 카드가 보인 때부터 정한 시간 전부를 기다린다', async () => {
     const auto = { 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5 }
     const h = harness({ readSettings: () => auto })
@@ -448,6 +454,7 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     expect(kept.voice.getSnapshot().cards[0]).toMatchObject({ no: 17, autoConfirmAt: Date.now() + 5000 })
   })
 
+  // D-PL1-09 (PL1B AC-PL1B-27): 켠 직후 이력을 기다리는 2초 미룸 — 지금 코드 확정
   it('미룬 문장은 온 때의 번호 범위로 읽는다', async () => {
     let max = 20
     const h = harness({ maxNumber: () => max })
@@ -464,6 +471,66 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     vi.advanceTimersByTime(HISTORY_WAIT_MS)
     // 범위 20에서 읽은 결과는 범위 999에서 읽은 결과와 같지 않다 (온 때의 범위를 쓴다)
     expect(h.voice.getSnapshot().cards.map((card) => card.no)).not.toEqual(wide.voice.getSnapshot().cards.map((card) => card.no))
+  })
+
+  // D-PL1-09 (PL1B AC-PL1B-27): N3 시험이 덮지 않던 항목 — 문자찜 문장도 미룸, 엔진이 멈추면 바로 카드, 자막·상태 글자는 미루지 않음
+  it('이력을 기다리는 동안 온 문자찜 문장도 기록에 바로 남고 카드만 미룬다 — 카드가 보인 때부터 3초 뒤 넣는다 (D-PL1-09)', async () => {
+    const sent: number[] = []
+    const h = harness({
+      smsReadOptions: () => ({ parseMode: 'STRICT', maxNumber: 999 }),
+      smsProduct: (no) => (no === 15 ? { state: 'OPEN', waitlistFull: false } : null),
+      smsProductName: () => null,
+      writeSms: async (write) => {
+        sent.push(write.no)
+        return { kind: 'ok', seq: 1, buyer: 'sms:new' }
+      },
+      newRequestId: () => 'req-1',
+      readSmsSettings: () => null,
+      writeSmsSettings: () => {},
+    })
+    const history = pendingHistory(h)
+    await turnOn(h)
+    FakeRecognition.last.say('15번 문자찜 끝자리 1234')
+    expect(h.voice.getSnapshot().heard.map((line) => line.text)).toEqual(['15번 문자찜 끝자리 1234'])
+    expect(h.voice.getSnapshot().sms).toEqual([])
+    vi.advanceTimersByTime(1500)
+    history.resolve([])
+    await settle()
+    const entry = h.voice.getSnapshot().sms[0]
+    expect(entry?.card.reading.orders.map((order) => order.no)).toEqual([15])
+    expect(entry?.card.createdAt).toBe(Date.now())
+    await vi.advanceTimersByTimeAsync(2999)
+    expect(sent).toEqual([])
+    await vi.advanceTimersByTimeAsync(1)
+    await settle()
+    expect(sent).toEqual([15])
+  })
+
+  it('이력을 기다리는 동안 엔진이 멈추면(오류) 미룬 문장을 바로 카드로 — 자동 확정 없음 (D-PL1-09)', async () => {
+    const auto = { 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5 }
+    const h = harness({ readSettings: () => auto })
+    pendingHistory(h)
+    await turnOn(h)
+    FakeRecognition.last.say('15번 핑크프릴 만오천 원')
+    expect(h.voice.getSnapshot().cards).toEqual([])
+    FakeRecognition.last.fail('not-allowed')
+    expect(h.voice.getSnapshot().phase).toBe('off')
+    expect(h.voice.getSnapshot().cards.map((card) => [card.no, card.autoConfirmAt])).toEqual([[15, null]])
+    vi.advanceTimersByTime(60_000)
+    expect(h.registered).toEqual([])
+  })
+
+  it('이력을 기다리는 동안에도 중간 결과 자막·상태 글자는 미루지 않는다 (D-PL1-09)', async () => {
+    const h = harness()
+    pendingHistory(h)
+    await turnOn(h)
+    expect(h.voice.getSnapshot().stateLabel).toBe('음성: 듣는 중')
+    FakeRecognition.last.say('15번 핑크', false)
+    expect(h.voice.getSnapshot().interim).toBe('15번 핑크')
+    FakeRecognition.last.say('15번 핑크프릴 만오천 원')
+    expect(h.voice.getSnapshot()).toMatchObject({ interim: null, stateLabel: '음성: 듣는 중' })
+    expect(h.voice.getSnapshot().heard[0]?.text).toBe('15번 핑크프릴 만오천 원')
+    expect(h.voice.getSnapshot().cards).toEqual([])
   })
 
   it('끈 뒤에 온 결과는 자막·기록·카드를 만들지 않는다 (stop을 부른다)', async () => {
@@ -802,6 +869,7 @@ describe('아이폰(사파리) 음성 (I5 — D-I5-01~04)', () => {
     expect(h.registered.map((item) => [item.registration.no, item.source])).toEqual([[15, 'auto']])
   })
 
+  // D-PL1-09 (PL1B AC-PL1B-27): 켠 직후 이력을 기다리는 2초 미룸 — 지금 코드 확정
   it('이력을 기다리며 미룬 끝에서 넘긴 문장도 자동 등록하지 않는다 (AC-I5-04)', async () => {
     const h = harness({ readSettings: () => AUTO })
     let resolve: (past: readonly PastDay[]) => void = () => {}
