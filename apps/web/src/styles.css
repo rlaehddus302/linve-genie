@@ -809,7 +809,11 @@ p {
   background-color: #fef7e0;
   border: 1px solid #8a6100;
   color: #6b4e00;
-  font: inherit;
+  font-family: inherit;
+  font-size: 1.125rem;
+  font-weight: inherit;
+  font-style: inherit;
+  line-height: inherit;
   cursor: pointer;
   min-height: 2.75rem;
 }
