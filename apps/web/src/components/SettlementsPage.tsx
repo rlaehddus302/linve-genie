@@ -16,7 +16,7 @@ import { containsPhoneRun, formatWon, type PaymentStatus } from '@livejjim/core'
 import { useMemo, useRef, useState, type MouseEvent } from 'react'
 import { ApiError, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
 import type { Claim, PackingWord, Settlement, WriteResult } from '../api/types.ts'
-import { claimsOf, isActive } from '../lib/buyers.ts'
+import { UNKNOWN_SMS_DISPLAY, claimsOf, isActive, isUnknownSms } from '../lib/buyers.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
 import { BuyerNames } from '../lib/derive.ts'
 import { dateYear, kstShort } from '../lib/kst.ts'
@@ -223,8 +223,8 @@ function shippingWords(settlement: Settlement): string {
   return settlement.shippingOverride === null ? formatWon(settlement.shipping) : `${SHIPPING_WORD[settlement.shippingOverride]} ${formatWon(settlement.shipping)}`
 }
 
-/** 음성 문자찜에서 손님을 말하지 않아 생긴 구매자의 표시 이름 (메모 `확인 필요`, R-21 넣기·ORD-08 AC9) */
-export const UNKNOWN_SMS_DISPLAY = '문자찜(확인 필요)'
+/** 음성 문자찜에서 손님을 말하지 않아 생긴 구매자의 표시 이름 — 합치기 방향(lib/buyers)과 같은 값 */
+export { UNKNOWN_SMS_DISPLAY }
 
 /** 확인해야 하는 문자찜 구매자: 그날의 문자 구매자 중 자기 메모가 `확인 필요`이고 다른 구매자에 합쳐지지 않았고 활성 찜이 있는 사람 (만든 순서) */
 export function unknownSmsBuyers(data: ScopeData): string[] {
@@ -232,7 +232,7 @@ export function unknownSmsBuyers(data: ScopeData): string[] {
   for (const claim of data.claims.values()) if (isActive(claim)) active.add(claim.currentBuyer)
   const out: string[] = []
   for (const buyer of data.buyers.values()) {
-    if (buyer.kind === 'sms' && buyer.mergedInto === null && buyer.display === UNKNOWN_SMS_DISPLAY && active.has(buyer.id)) out.push(buyer.id)
+    if (buyer.mergedInto === null && isUnknownSms(buyer) && active.has(buyer.id)) out.push(buyer.id)
   }
   return out
 }
