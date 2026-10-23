@@ -211,7 +211,7 @@ describe('AC-A1-05 보내는 요청의 모양', () => {
     expect(request?.headers['x-api-key']).toBe(FAKE_ASSIST_KEY)
     expect(request?.headers['anthropic-version']).toBe('2023-06-01')
     const body = request?.body as Record<string, unknown>
-    expect(body.model).toBe('claude-haiku-4-5')
+    expect(body.model).toBe('claude-haiku-5-5') // D-A1-12
     expect(body.temperature).toBe(0)
     expect(body.max_tokens as number).toBeLessThanOrEqual(1024)
     const system = body.system as { type: string; text: string; cache_control?: unknown }[]

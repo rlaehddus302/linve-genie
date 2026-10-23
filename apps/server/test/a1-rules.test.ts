@@ -1,4 +1,5 @@
 // A1 순수 함수의 골든 밖 경계 (AC-A1-06·30 응답 공격): 숫자 모양·원형 키·깊은 중첩·큰 답 — 예외 없이 제안 없음
+import { containsPhoneRun } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
 import { redact, similar, validateResponse } from '../src/assist/rules.ts'
 
@@ -54,5 +55,27 @@ describe('가리기: 숫자 글자 7개 이상이면 빈 글 (D-A1-10)', () => {
     expect(redact('반바지 ⓪①⓪ ①②③④')).toBe('')
     expect(redact(`${'가'.repeat(198)} 12ㅡ34ㅡ56ㅡ7`)).toBe('')
     expect(redact('반바지 01012345678 M')).toBe('반바지 *** M')
+  })
+})
+
+describe('가리기: 코어가 휴대폰 번호로 보는 글은 구분자와 상관없이 남지 않는다 (D-A1-11)', () => {
+  const SEPARATORS = [' ', '-', '.', ')', '/', 'ㅡ', 'ㅣ', 'ㆍ', '​', '~', '_', '|', '♡', '\n', ',']
+  const NUMBERS = [['010', '1234', '5678'], ['011', '123', '4567'], ['016', '9876', '5432']]
+  const PREFIXES = ['', '반바지 ', '반바지엠사이즈', '21번 M ']
+  it('containsPhoneRun이 참인 모든 조합에서 결과에 숫자가 7개 이상 남지 않고 번호 원문도 없다', () => {
+    let checked = 0
+    for (const sep of SEPARATORS) {
+      for (const [a, b, c] of NUMBERS) {
+        for (const prefix of PREFIXES) {
+          const text = `${prefix}${a}${sep}${b}${sep}${c}`
+          if (!containsPhoneRun(text)) continue
+          checked++
+          const out = redact(text)
+          expect((out.match(/\p{N}/gu) ?? []).length, text).toBeLessThan(7)
+          expect(out.includes(`${b}`) && out.includes(`${c}`), text).toBe(false)
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(SEPARATORS.length * 2)
   })
 })

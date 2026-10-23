@@ -182,6 +182,8 @@ function maskDigitRuns(s: string): string {
 /**
  * AI로 보낼 글: 정규화(R-20 1) → '@'가 든 덩어리 빼기 → 이어진 숫자 7개 이상 *** → 공백 정리 →
  * 숫자 글자(\p{N})가 모두 합쳐 7개 이상 남으면 빈 글(D-A1-10, 자르기 전에 센다) → 앞 200글자. 빈 글이면 ''(보내지 않는다)
+ * D-A1-11: 구분자 표를 R-1처럼 넓히지 않는다 — 코어 containsPhoneRun이 휴대폰 번호로 보는 글(숫자 10~11자리)은
+ * 구분자가 무엇이든(`)`·`/`·`ㅡ`…) *** 로 가려지거나 숫자 7개 이상이 남아 빈 글이 된다(골든 redact 225~227).
  */
 export function redact(text: string): string {
   if (typeof text !== 'string') return ''

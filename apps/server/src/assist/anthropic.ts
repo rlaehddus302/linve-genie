@@ -12,8 +12,8 @@ import type { OptionCatalogEntry } from '@livejjim/core'
 /** 운영 주소 (고정) */
 export const ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
 export const ANTHROPIC_VERSION = '2023-06-01'
-/** 기본 모델 (D-A1-04 — 가장 싼 Haiku. LIVEJJIM_ASSIST_MODEL로 바꾼다) */
-export const DEFAULT_ASSIST_MODEL = 'claude-haiku-4-5'
+/** 기본 모델 (D-A1-04·D-A1-12 — claude-haiku-5-5로 확정, D-A1-04의 대체 조항은 쓰지 않음. LIVEJJIM_ASSIST_MODEL로 바꾼다) */
+export const DEFAULT_ASSIST_MODEL = 'claude-haiku-5-5'
 /** 출력 최대 토큰 */
 export const ASSIST_MAX_TOKENS = 1024
 /** 호출 하나의 시간 제한 */
