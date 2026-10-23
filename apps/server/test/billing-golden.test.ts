@@ -1,5 +1,6 @@
-// AC-N5-01·02·03·04·05: 요금 골든(tests/golden/billing/*.json, G-BIL-*)을 서버의 순수 함수 넷으로 돌린다.
-// - 파일 수 4·사례 수 67(status 26 · payment 21 · vat 7 · bizno 13)을 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다.
+// AC-N5-01·02·03·04·05·AC-PL1B-20: 요금 골든(tests/golden/billing/*.json, G-BIL-*)을 서버의 순수 함수 다섯으로 돌린다.
+// - 파일 수 5·사례 수 82(status 26 · payment 21 · vat 7 · bizno 13 · granted 15)를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다.
+//   (D-PL1-08: 종류 `granted`(G-BIL-301~315, judgeGranted)가 더해져 4·67 → 5·82)
 // - 모르는 kind·키·열거값·중복 ID는 시험 실패(읽기 오류)다. 미구현을 허용하는 장치가 없다.
 // - status는 out에 적은 키만, 나머지는 out 전체를 깊은 같음으로 비교한다. 시각은 오프셋을 적은 ISO → UTC 밀리초, 결과 시각은 KST `+09:00` 초까지.
 // - 결정성(AC-N5-05): 같은 입력 두 번, TZ=Pacific/Honolulu·Asia/Seoul·UTC에서 같은 출력.
@@ -7,6 +8,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import {
+  GRANTED_ACTIONS,
   GRANT_SOURCES,
   ORDER_STATES,
   PASS_KINDS,
@@ -14,6 +16,7 @@ import {
   QUANTITY_KINDS,
   START_MODES,
   billingStatus,
+  judgeGranted,
   judgePayment,
   parseBizno,
   splitVat,
@@ -25,7 +28,8 @@ import {
 } from '../src/billing/rules.ts'
 
 const DIR = fileURLToPath(new URL('../../../tests/golden/billing/', import.meta.url))
-const KINDS = ['status', 'payment', 'vat', 'bizno'] as const
+// D-PL1-08: granted 더함
+const KINDS = ['status', 'payment', 'vat', 'bizno', 'granted'] as const
 type Kind = (typeof KINDS)[number]
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json }
@@ -115,6 +119,25 @@ interface Ran {
   readonly expected: Json
 }
 
+/** 결제 조회 결과 읽기 (payment·granted 공통 — 맵 또는 null). 형식이 틀리면 undefined */
+function lookedUp(where: string, p: Json | undefined): LookedUpPayment | null | undefined {
+  if (p === null) return null
+  if (!isObj(p)) {
+    fail(where, '맵 또는 null')
+    return undefined
+  }
+  keys(where, p, ['status', 'amount', 'currency', 'storeId', 'method'], ['status', 'amount', 'currency', 'storeId', 'method'])
+  if (typeof p.status !== 'string' || p.status === '') fail(`${where}.status`, '글이어야 한다')
+  if (p.method !== null && typeof p.method !== 'string') fail(`${where}.method`, '글 또는 null')
+  return {
+    status: p.status as string,
+    amount: intAtLeast(`${where}.amount`, p.amount, 0),
+    currency: typeof p.currency === 'string' ? p.currency : null,
+    storeId: typeof p.storeId === 'string' ? p.storeId : null,
+    method: typeof p.method === 'string' ? p.method : null,
+  }
+}
+
 /** 사례 하나를 읽고 돌린다. 결과(비교할 값)만 돌려준다 — 형식 문제는 problems에 */
 function runCase(kind: Kind, where: string, c: Obj): Ran | null {
   const common = ['id', 'title', 'refs', 'note', 'out']
@@ -194,27 +217,28 @@ function runCase(kind: Kind, where: string, c: Obj): Ran | null {
       keys(`${where}.order`, order, ['amount', 'state'], ['amount', 'state'])
       const state: OrderState = oneOf(`${where}.order.state`, order.state, ORDER_STATES)
       const amount = intAtLeast(`${where}.order.amount`, order.amount, 1)
-      let payment: LookedUpPayment | null = null
-      if (c.payment !== null) {
-        const p = c.payment
-        if (!isObj(p)) {
-          fail(`${where}.payment`, '맵 또는 null')
-          return null
-        }
-        keys(`${where}.payment`, p, ['status', 'amount', 'currency', 'storeId', 'method'], ['status', 'amount', 'currency', 'storeId', 'method'])
-        if (typeof p.status !== 'string' || p.status === '') fail(`${where}.payment.status`, '글이어야 한다')
-        if (p.method !== null && typeof p.method !== 'string') fail(`${where}.payment.method`, '글 또는 null')
-        payment = {
-          status: p.status as string,
-          amount: intAtLeast(`${where}.payment.amount`, p.amount, 0),
-          currency: typeof p.currency === 'string' ? p.currency : null,
-          storeId: typeof p.storeId === 'string' ? p.storeId : null,
-          method: typeof p.method === 'string' ? p.method : null,
-        }
-      }
+      const payment = lookedUp(`${where}.payment`, c.payment)
+      if (payment === undefined) return null
       if (typeof c.storeId !== 'string' || c.storeId === '') fail(`${where}.storeId`, '글이어야 한다')
       const judged = judgePayment({ order: { amount, state }, payment, storeId: c.storeId as string })
       return { id, kind, actual: { action: judged.action, document: judged.document }, expected: out }
+    }
+    case 'granted': {
+      // D-PL1-08 (AC-PL1B-20): 부여된 결제 다시 맞추기 — out은 action 하나, 정확히 같아야 한다
+      keys(where, c, [...common, 'refunding', 'settled', 'payment', 'storeId'], ['id', 'title', 'refs', 'out', 'refunding', 'settled', 'payment', 'storeId'])
+      if (!isObj(out)) {
+        fail(`${where}.out`, '맵이어야 한다')
+        return null
+      }
+      keys(`${where}.out`, out, ['action'], ['action'])
+      oneOf(`${where}.out.action`, out.action, GRANTED_ACTIONS)
+      if (typeof c.refunding !== 'boolean') fail(`${where}.refunding`, 'true·false')
+      if (typeof c.settled !== 'boolean') fail(`${where}.settled`, 'true·false')
+      if (typeof c.storeId !== 'string' || c.storeId === '') fail(`${where}.storeId`, '글이어야 한다')
+      const payment = lookedUp(`${where}.payment`, c.payment)
+      if (payment === undefined) return null
+      const action = judgeGranted({ refunding: c.refunding === true, settled: c.settled === true, payment, storeId: c.storeId as string })
+      return { id, kind, actual: { action }, expected: out }
     }
     case 'vat': {
       keys(where, c, [...common, 'in'], ['id', 'title', 'refs', 'out', 'in'])
@@ -293,15 +317,17 @@ describe('요금 골든 (AC-N5-01~05)', () => {
     expect(problems).toEqual([])
   })
 
-  it('파일 4 · 사례 67 (status 26 · payment 21 · vat 7 · bizno 13)', () => {
-    expect(loaded.files).toEqual(['bizno.json', 'payment.json', 'status.json', 'vat.json'])
+  // D-PL1-08: granted.json(G-BIL-301~315)이 더해져 파일 4 → 5, 사례 67 → 82
+  it('파일 5 · 사례 82 (status 26 · payment 21 · vat 7 · bizno 13 · granted 15)', () => {
+    expect(loaded.files).toEqual(['bizno.json', 'granted.json', 'payment.json', 'status.json', 'vat.json'])
     const count = (kind: Kind) => loaded.ran.filter((item) => item.kind === kind).length
-    expect({ total: loaded.ran.length, status: count('status'), payment: count('payment'), vat: count('vat'), bizno: count('bizno') }).toEqual({
-      total: 67,
+    expect({ total: loaded.ran.length, status: count('status'), payment: count('payment'), vat: count('vat'), bizno: count('bizno'), granted: count('granted') }).toEqual({
+      total: 82,
       status: 26,
       payment: 21,
       vat: 7,
       bizno: 13,
+      granted: 15,
     })
   })
 
@@ -320,5 +346,7 @@ describe('요금 골든 (AC-N5-01~05)', () => {
     }
     expect(new Set(outputs).size).toBe(1)
     expect(outputs[0]).toBe(JSON.stringify(loaded.ran.map((item) => [item.id, item.actual])))
+    // granted도 TZ 세 가지 결정성 검사에 든다 (AC-PL1B-20)
+    expect(loaded.ran.filter((item) => item.kind === 'granted')).toHaveLength(15)
   })
 })
