@@ -64,3 +64,23 @@
 - **test-domain (AC-91)**: 위 검사 순서·문장을 보라. 64MB 넘는 장부 글은 JSON 스트림 상한(`JSON_VALUE_MAX_LENGTH` = 64MiB)에서 거절된다(그 문장은 json-stream의 것). 바르게 만든 형식 3 파일은 `GET /api/export/records.json.gz`로 받으면 된다. 고친 파일은 `backupDigest(file)`로 다시 요약해 맞춘다.
 - **test-e2e (AC-90)**: `/_e2e/dates { kind: 'youtube' }` + `/_e2e/seal`로 봉인하면 포장 목록에 `sealed: true`, 같은 화면에서 `POST /api/days/<날짜>/packing`은 409 `SEALED`. 서버 쪽 변경은 없다.
 - **합치는 트랙**: AC-PL1A-19(봉인 날짜에서 포장 라벨 출력 버튼 숨기기)는 웹 몫. 서버는 이미 `POST /api/print/packing`을 409로 막는다.
+
+## [web] 봉인 날짜 포장 모드 (AC-PL1A-18·20)
+
+**바꾼 곳**
+- `apps/web/src/api/types.ts`: `PackingList.sealed?: true`.
+- `apps/web/src/lib/use-packing.ts`: `usePackingList()`가 `sealed: boolean`을 돌려준다(응답 `sealed === true`일 때만 true).
+- `apps/web/src/components/PackingPage.tsx`: 데이터 받기(`ReadyPacking`이 `sealed`를 넘김)와 `PackingChecklist`만 고쳤다. `PackingLabelSection`은 손대지 않았다(PL1B 몫).
+  - 봉인 날짜면 체크리스트 머리 아래에 `SEALED_VIEW_ONLY`("30일이 지나 봉인한 날짜예요. 볼 수만 있어요.")를 `<p class="notice" data-tone="info">`로 둔다. role이 없는 늘 보이는 글이다.
+  - 품목 줄은 체크 칸 없이 `<div class="pack-item">`로 그린다(번호·품종·옵션 글·수량은 같은 모양).
+  - 다음은 그리지 않는다: 담음 수, 결과·오류 칸, `포장·배송` 버튼 묶음 전체(포장 완료·배송 완료로 적기·송장번호 고치기·포장 완료 취소·배송 완료 취소·다음 구매자), "모두 담으면" 안내, 택배 잠금 안내(접수를 먼저 취소하라는 글. 봉인 날짜엔 접수 취소도 409라서).
+  - 머리(이름·날짜·상품 수·입금·상태 말·송장)와 택배 줄, 포장 목록 줄, 걸러 보기는 봉인 전과 같다. 바뀐 품목 안내도 상태 정보라 그대로 둔다.
+- 시험: `apps/web/test/pl1a-sealed-packing.test.tsx` (6개).
+
+**test-e2e (AC-PL1A-90)**
+- 걸러 보기 단추 이름이 "포장 완료"·"배송 완료"라서, 넓은 화면에서는 `getByRole('button', { name: '포장 완료' })`가 목록 쪽 단추를 잡는다. 버튼 0개 단언은 `getByRole('region', { name: '체크리스트' })` 안으로 좁히거나 `exact: true`와 함께 375px 화면(구매자를 열면 체크리스트만 보임)에서 하라.
+- 안내 문장은 `getByText('30일이 지나 봉인한 날짜예요. 볼 수만 있어요.')`. role=status가 아니다.
+- 체크 칸은 체크리스트 안 `checkbox` 0개, 송장번호 칸은 창을 열 버튼이 없어 생기지 않는다.
+
+**합치는 트랙 (AC-PL1A-19)**
+- `PackingChecklist`에는 이미 `sealed` prop이 있다. `<PackingLabelSection ... />` 호출에 `sealed={sealed}`를 더하고, 그 칸에서 `sealed`면 "포장 라벨 출력" 버튼만 그리지 않으면 된다(그림 저장·라벨 PDF는 그대로). 라벨 꺼짐 안내와 봉인이 겹치면 봉인 쪽이 우선이다(서버도 봉인 409가 먼저).
