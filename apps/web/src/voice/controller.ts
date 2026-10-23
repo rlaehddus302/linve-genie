@@ -4,12 +4,26 @@
 // - 카드 등록은 콘솔이 넘긴 등록 경로(빠른 입력과 같은 product.register)로만 한다. 한 카드는 등록 경로에 한 번만 넘긴다(목록에서 먼저 뺀다).
 // - 자동 확정은 켜진 동안·창이 닫힌 동안만, 기다림이 지난 카드를 모두(하나씩 차례로) 등록한다. 끄면 모든 카드의 자동 확정이 멈춘다.
 // 시각은 host.now()(콘솔은 Date.now), 기다림은 브라우저 타이머 — 시험이 시계를 당길 수 있다.
+// V2 (VOC-01~04, PRD-06, D-V2-03~10): 최종 결과는 곧바로 카드가 되지 않고 모은다(packages/voice feed/tick) — 조용한 시간(기본 1.8초, 그 기기 설정)이
+// 지나면 한 덩어리를 readChunk로 읽고 chooseAction이 고른 일(새 카드·이어 채우기·카드 고침·닫기·고칠까요 카드·버림)을 한다. 판단은 모두 음성 패키지 함수다.
+// 말이 들리는 동안 열린 카드의 자동 확정 기다림을 멈추고 끝나면 남은 초부터 다시 센다. 음성 기록은 이 객체(탭 메모리)에만 — 저장·전송·콘솔 출력 없음(D-V2-08).
+// 배운 품종 이름(D-V2-10)만 그 기기에 저장한다(host.writeLearned).
 // V1 음성 문자찜 (ORD-08 AC9, VOC-01·04, D-V1-03~09, AC-V1-20~28): 문자찜 문장(R-21)은 상품 카드 대신 문자찜 카드가 된다. 손대지 않은 카드는
 // 기다림(그 기기 설정, 기본 3초) 뒤 콘솔이 넘긴 쓰기(host.writeSms — 손 입력과 같은 `sms` 이벤트)로 넣는다. 넣은·닫은 카드도 10초 동안은
 // 같은 말 막기(D-V1-06)를 위해 들고 있다. 열린 카드 수 규칙은 상품 카드와 함께 센다(addVoiceCard).
 import { formatWon } from '@livejjim/core'
 import { isHomeScreenApp } from './standalone.ts'
 import type {
+  ChunkReading,
+  LearnedAlias,
+  PhraseChunk,
+  PhraseOutput,
+  PhraseState,
+  RecentRegistration,
+  VarietyCandidate,
+  VoiceAction,
+  VoiceLogAction,
+  VoiceLogEntry,
   CardRegistration,
   SmsBuyerCandidate,
   SmsCard,
@@ -41,6 +55,7 @@ import {
   type FrontMark,
   type HeardLine,
 } from '../lib/voice.ts'
+import { REGISTER_UNDO_MS } from '../lib/undo-queue.ts'
 import type { VoiceModule } from './load.ts'
 
 export type VoicePhase = 'off' | 'loading' | 'consent' | 'on'
@@ -191,6 +206,89 @@ export interface CardForm {
   readonly version: number
 }
 
+// ── V2: 이어 붙이기·정정·후보·음성 기록 (VOC-01~04, PRD-06, D-V2-03~10) ──
+
+/** 덩어리를 읽은 결과 한 줄을 보이는 시간 (D-V2-07) */
+export const READOUT_MS = 4000
+/** "들은 말" 칸 제목 (D-V2-07) */
+export const HEARD_TITLE = '들은 말'
+/** 모으는 동안 "들은 말" 칸 옆 (D-V2-07) */
+export const HEARING_LABEL = '듣는 중…'
+/** 말하는 동안 자동 등록을 멈췄을 때 카드에 (D-V2-06) */
+export const AUTO_PAUSED_NOTE = '말하는 동안은 기다려요'
+/** 품종이 빈 카드 (D-V2-01, 사례 S9·S10) */
+export const NAME_CHECK = '품종 확인 필요'
+/** 덩어리 안 취소로 버렸을 때 큰 글자 칸 (D-V2-06 1) */
+export const CANCELLED_READOUT = '취소했어요'
+/** 조용한 시간 칸 이름 (D-V2-09, AC-V2-16) */
+export const QUIET_LABEL = '말이 끝났다고 볼 때까지(초)'
+export const QUIET_HELP = '말을 멈춘 뒤 이 시간이 지나면 들은 말을 한 번에 읽어요. 천천히 말하면 늘려 주세요(1.0~4.0초).'
+/** 고칠까요 카드로 고친 뒤 (D-V2-06 3) */
+export const OFFER_FIXED = '고쳤어요. 10초 안에는 되돌릴 수 있어요.'
+/** 되돌리기를 하지 못했을 때 */
+export const OFFER_UNDO_FAILED = '되돌릴 시간이 지났어요. 상품 목록에서 고쳐 주세요.'
+/** 고치기를 보내지 못했을 때 */
+export const OFFER_FIX_FAILED = '고치지 못했어요. 인터넷 연결을 확인하고 다시 눌러 주세요.'
+
+/** 카드에 붙인 V2 정보: 품종 창 글(배운 별칭)·후보·안내 */
+export interface CardInfo {
+  /** 품종 후보 (품종이 빈 카드에서만 보인다) */
+  readonly candidates: readonly VarietyCandidate[]
+  /** "품종·가격을 말해 주세요" 등, 없으면 null */
+  readonly ask: string | null
+}
+
+/** "들은 말" 칸 (모으는 글 + 지금 중간 결과) */
+export interface HearingView {
+  readonly collected: string
+  readonly interim: string
+}
+
+/** 덩어리를 읽은 결과 한 줄 (4초) */
+export interface Readout {
+  readonly text: string
+  /** 버린 결과 (색을 다르게) */
+  readonly discarded: boolean
+  readonly until: number
+}
+
+/** 고칠까요·되돌릴까요·번호 안내 카드 (D-V2-06 3) */
+export interface VoiceOffer {
+  readonly id: string
+  /** offer = 품종·가격 고칠까요, number = 번호는 상품 목록에서, undo = 등록 되돌릴까요, late = 되돌릴 시간 지남 */
+  readonly kind: 'offer' | 'number' | 'undo' | 'late'
+  readonly registrationId: string
+  readonly message: string
+  readonly changes: { readonly name?: string; readonly price?: number }
+  /** ask = 묻는 중, busy = 보내는 중, fixed = 고침(되돌리기 보임) */
+  readonly stage: 'ask' | 'busy' | 'fixed'
+  /** 고친 앞 값 (되돌리기) */
+  readonly before: { readonly name?: string; readonly price?: number } | null
+  /** 되돌리기가 보이는 마지막 시각 */
+  readonly undoUntil: number | null
+  readonly error: string | null
+}
+
+/** 음성 기록 창의 한 줄 (글은 화면이 글자로만 그린다) */
+export interface VoiceLogLine {
+  readonly key: string
+  readonly time: string
+  readonly pieces: readonly string[]
+  /** 읽은 것 ("15번 · 엘레강스 · 20,000원"), 읽지 않았으면 null */
+  readonly read: string | null
+  /** 후보 ("선버스트 77점"), 없으면 "" */
+  readonly candidates: string
+  readonly action: string
+  readonly reason: string | null
+}
+
+/** 고칠까요 카드의 [고치기] 결과 (콘솔이 상품 고치기를 한다) */
+export type RecentFixOutcome =
+  | { readonly kind: 'fixed'; readonly before: { readonly name?: string; readonly price?: number } }
+  /** 찜이 있어 손 고치기 창(PRD-01 안내)을 열었다 — 고칠까요 카드는 닫는다 */
+  | { readonly kind: 'dialog' }
+  | { readonly kind: 'failed'; readonly message: string }
+
 export interface VoiceSnapshot {
   readonly phase: VoicePhase
   /** 켜진 동안의 상태 글자 ("음성: 듣는 중"·"음성: 다시 시작 중"), 꺼져 있으면 null */
@@ -234,6 +332,28 @@ export interface VoiceSnapshot {
   readonly smsSettingsProblem: string | null
   /** 넣지 않은 채 저절로 닫힌 문자찜 카드 안내 (새 것이 앞, "확인"을 누를 때까지 남는다 — U-V1-01) */
   readonly smsDropped: readonly SmsDropped[]
+  // ── V2 ──
+  /** "들은 말" 칸 (켜진 동안 모으는 글·중간 결과가 있을 때), 없으면 null */
+  readonly hearing: HearingView | null
+  /** 덩어리를 읽은 결과 한 줄 (4초), 없으면 null */
+  readonly readout: Readout | null
+  /** 카드 ID → 후보·안내 */
+  readonly info: ReadonlyMap<string, CardInfo>
+  /** 말하는 동안 멈춘 자동 등록: 카드 ID → 남은 ms */
+  readonly paused: ReadonlyMap<string, number>
+  /** 고칠까요 카드 (새 것이 앞) */
+  readonly offers: readonly VoiceOffer[]
+  /** 음성 기록 (새것부터, 탭 메모리에만 — D-V2-08) */
+  readonly log: readonly VoiceLogEntry[]
+  /** 음성을 한 번이라도 켰다 ([음성 기록 보기]가 보인다) */
+  readonly everOn: boolean
+  /** 조용한 시간 (ms) */
+  readonly quietMs: number
+  /** "말이 끝났다고 볼 때까지(초)" 칸 글자 */
+  readonly quietText: string
+  readonly quietProblem: string | null
+  /** 배운 품종 이름 수 */
+  readonly learnedCount: number
 }
 
 /** 지난 실제 범위 하나의 상품 이름 */
@@ -278,6 +398,14 @@ export interface VoiceHost {
   newRequestId?(): string
   readSmsSettings?(): unknown
   writeSmsSettings?(settings: SmsVoiceSettings): void
+  // ── V2 ──
+  /** 배운 별칭 (그 기기 저장, D-V2-10) — 읽은 값 그대로(검사는 readLearnedAliases) */
+  readLearned?(): unknown
+  writeLearned?(list: readonly LearnedAlias[]): void
+  /** 고칠까요 카드의 [고치기]·[되돌리기]: 손 고치기와 같은 상품 고치기 (registrationId = noteVoiceRegistered에 넘긴 id) */
+  fixRecent?(registrationId: string, changes: { readonly name?: string; readonly price?: number }): Promise<RecentFixOutcome>
+  /** 등록 되돌리기 (지금의 5초 되돌리기). 되돌리기를 시작했으면 true */
+  undoRecent?(registrationId: string): boolean
 }
 
 /** 컨트롤러가 생기기 전·꺼진 처음 상태 */
@@ -304,6 +432,32 @@ export const VOICE_IDLE: VoiceSnapshot = {
   smsSecondsText: '',
   smsSettingsProblem: null,
   smsDropped: [],
+  hearing: null,
+  readout: null,
+  info: new Map(),
+  paused: new Map(),
+  offers: [],
+  log: [],
+  everOn: false,
+  quietMs: 1800,
+  quietText: '1.8',
+  quietProblem: null,
+  learnedCount: 0,
+}
+
+/** ms → "1.8" */
+export const quietText = (ms: number): string => (ms / 1000).toFixed(1)
+
+/** 할 일 → 기록의 한 일 */
+const LOG_ACTION: Readonly<Record<VoiceAction['kind'], VoiceLogAction>> = {
+  create: 'create',
+  fill: 'fill',
+  edit: 'edit',
+  close: 'close',
+  offer: 'offer',
+  offerNumber: 'offer',
+  offerUndo: 'offer',
+  discard: 'discard',
 }
 
 /** 창이 열려 미룬 자동 확정을 다시 보는 간격 */
@@ -331,8 +485,25 @@ type HeldSentence = {
   readonly flushedAtEnd: boolean
 }
 
+/** 이력을 기다리며 미룬 모으기 결과(덩어리·문자찜)와 그때의 설정 (V2 — 문장 대신 덩어리를 미룬다) */
+type HeldOutput = {
+  readonly out: PhraseOutput
+  readonly settings: VoiceSettings
+  readonly maxNumber: number
+  readonly smsSettings: SmsVoiceSettings | null
+}
+
 /** 카드를 만드는 동안의 목록 (한 번에 #set) */
-type CardWork = { cards: readonly SuggestionCard[]; sms: readonly SmsEntry[]; dropped: readonly SmsDropped[] }
+type CardWork = {
+  cards: readonly SuggestionCard[]
+  sms: readonly SmsEntry[]
+  dropped: readonly SmsDropped[]
+  log: readonly VoiceLogEntry[]
+  notes: ReadonlyMap<string, string>
+  info: ReadonlyMap<string, CardInfo>
+  offers: readonly VoiceOffer[]
+  readout: Readout | null
+}
 
 /** 같은 말 막기 시간 (D-V1-06 — 패키지 SMS_REPEAT_WINDOW_MS와 같다): 닫은 카드를 이만큼 들고 있는다 */
 const SMS_KEEP_MS = 10_000
@@ -399,17 +570,29 @@ export class VoiceController {
   #nextHeard = 1
   #history: HistoryState = { state: 'idle', past: [] }
   /** 이력을 받는 동안 미룬 최종 문장 (온 차례) — 온 때의 설정·번호 범위를 함께 담는다 (TE-N3-004: 미룬 사이 자동 등록을 켜도 끈 채 말한 문장은 자동 등록하지 않는다) */
-  #held: HeldSentence[] = []
+  #held: HeldOutput[] = []
   /** #place가 닫은 끝에서 넘긴 카드의 글 — 다음 #set이 스냅샷에 싣는다 */
   #lostFlushed: string[] = []
   #heldTimer: ReturnType<typeof setTimeout> | null = null
   /** 이 시각까지만 이력을 기다린다 (host.now 기준) */
   #historyDeadline = 0
-  #dictionary: { readonly names: readonly string[]; readonly past: readonly PastDay[]; readonly prepared: VarietyDictionary } | null = null
+  #dictionary: { readonly names: readonly string[]; readonly past: readonly PastDay[]; readonly learned: readonly LearnedAlias[]; readonly prepared: VarietyDictionary } | null = null
   /** 문자찜 카드 ID → 주문마다의 요청 번호 (다시 보낼 때 같은 번호 — 찜이 둘 생기지 않게) */
   readonly #smsRequests = new Map<string, string[]>()
   /** 카드마다 요청 번호를 만든 때의 넣기 방법 — 같은 방법으로 다시 보내면 같은 요청 번호(서버 멱등), 바뀌면 새 번호 */
   readonly #smsChoices = new Map<string, string>()
+  // ── V2 ──
+  /** 모으기 상태 (D-V2-03) — 음성 모듈을 받은 뒤 */
+  #phrase: PhraseState | null = null
+  #phraseTimer: ReturnType<typeof setTimeout> | null = null
+  /** 배운 별칭 (그 기기, D-V2-10) */
+  #learned: readonly LearnedAlias[] = []
+  #learnedLoaded = false
+  /** 카드 ID → 품종 창 글 (배운 별칭의 "들은 말") — 카드가 목록에서 빠진 뒤에도 등록 때 쓴다 */
+  readonly #windows = new Map<string, string>()
+  /** 이 콘솔에서 음성 카드로 등록한 상품 (60초, D-V2-06 3) */
+  #recent: RecentRegistration[] = []
+  #nextOffer = 1
 
   constructor(host: VoiceHost) {
     this.#host = host
@@ -446,8 +629,23 @@ export class VoiceController {
     if (this.#disposed || this.#phase() !== 'loading') return
     this.#module = module
     if (this.#snapshot.settings === null) {
-      const settings = module.resolveVoiceSettings(this.#host.readSettings())
-      this.#set({ settings, secondsText: String(settings['voice.autoConfirmSec']) })
+      const stored = this.#host.readSettings()
+      const settings = module.resolveVoiceSettings(stored)
+      // 조용한 시간은 같은 저장값의 `voice.quietMs` (범위 밖·모르는 값은 1800, D-V2-09)
+      const quietMs = module.resolveQuietMs(stored)
+      this.#set({ settings, secondsText: String(settings['voice.autoConfirmSec']), quietMs, quietText: quietText(quietMs), quietProblem: null })
+    }
+    if (this.#phrase === null) this.#phrase = module.createPhraseState({ quietMs: this.#snapshot.quietMs })
+    if (!this.#learnedLoaded) {
+      this.#learnedLoaded = true
+      let stored: unknown
+      try {
+        stored = this.#host.readLearned?.() ?? null
+      } catch {
+        stored = null
+      }
+      this.#learned = module.readLearnedAliases(stored)
+      this.#set({ learnedCount: this.#learned.length })
     }
     if (this.#snapshot.smsSettings === null) {
       // 못 읽거나 깨진 값은 기본(듣기 켬·3초) — resolveSmsSettings가 고른다
@@ -500,6 +698,7 @@ export class VoiceController {
     this.#disposed = true
     if (this.#timer !== null) clearTimeout(this.#timer)
     this.#timer = null
+    this.#clearPhraseTimer()
     this.#releaseRestart()
     this.#dropHeld()
     this.#engine?.stop()
@@ -526,7 +725,7 @@ export class VoiceController {
     const engine = this.#engine
     if (engine === null) return
     this.#releaseRestart()
-    this.#set({ phase: 'on', error: null, unsupported: false, interim: null, stateLabel: this.#label('LISTENING') })
+    this.#set({ phase: 'on', error: null, unsupported: false, interim: null, stateLabel: this.#label('LISTENING'), everOn: true })
     engine.start()
     if (this.#phase() === 'on') this.#loadHistory()
     // 누른 버튼("음성 켜기")이 사라졌다 — 말하고 바로 Enter를 칠 수 있게 빠른 입력칸으로
@@ -535,13 +734,22 @@ export class VoiceController {
 
   #becomeOff(): void {
     this.#releaseRestart()
+    // 모으던 글은 덩어리로 읽는다 — 그 카드는 자동 확정하지 않는다 (D-V2-03 e)
+    const module0 = this.#module
+    this.#clearPhraseTimer()
+    if (module0 !== null && this.#phrase !== null && this.#snapshot.phase === 'on') {
+      const step = module0.stopPhrase(this.#phrase, this.#host.now())
+      this.#phrase = step.state
+      this.#queueOutputs(module0, step.out)
+    }
     // 이력을 기다리며 미룬 문장도 카드로 (끈 뒤라 자동 확정은 아래에서 멈춘다)
     this.#flushHeld()
+    this.#clearPhraseTimer()
     const cards = this.#snapshot.cards.map((card) => (card.autoConfirmAt === null ? card : { ...card, autoConfirmAt: null }))
     // 기다리던 문자찜 카드는 남고 저절로 넣지 않는다 — 누르면 넣는다 (AC-V1-22, D-V1-05)
     const module = this.#module
     const sms = module === null ? this.#snapshot.sms : this.#snapshot.sms.map((entry) => (entry.card.autoAt === null ? entry : { ...entry, card: module.stopSmsAuto(entry.card) }))
-    this.#set({ phase: 'off', stateLabel: null, interim: null, tooSoon: false, cards, sms })
+    this.#set({ phase: 'off', stateLabel: null, interim: null, tooSoon: false, cards, sms, hearing: null, paused: new Map() })
   }
 
   #label(state: SpeechState): string {
@@ -589,44 +797,276 @@ export class VoiceController {
 
   #onResult(result: SpeechResult): void {
     if (this.#disposed || this.#snapshot.phase !== 'on') return
+    const module = this.#module
+    const settings = this.#snapshot.settings
     if (!result.final) {
+      // 중간 결과도 조용한 시간을 다시 센다 (D-V2-03, 사례 S17) — 말하는 동안 자동 등록을 멈춘다 (D-V2-06)
+      if (module !== null && settings !== null && this.#phrase !== null) {
+        const step = module.feed(this.#phrase, { text: result.text, final: false, at: this.#host.now() })
+        this.#phrase = step.state
+        const work = this.#startWork(module)
+        this.#runOutputs(work, module, step.out)
+        this.#set({ interim: result.text, ...this.#finishWork(work, module) })
+        return
+      }
       this.#set({ interim: result.text })
       return
     }
     const heard = pushHeard(this.#snapshot.heard, { id: this.#nextHeard++, text: result.text })
     const label = this.#listeningAgain()
+    if (module === null || settings === null || this.#phrase === null) {
+      this.#set({ ...label, interim: null, heard })
+      return
+    }
+    // 최종 결과는 곧바로 카드로 만들지 않고 모은다 (D-V2-03) — 조용한 시간이 지나면 한 덩어리로 읽는다
+    const step = module.feed(this.#phrase, { text: result.text, final: true, at: this.#host.now(), flushedAtEnd: result.flushedAtEnd === true })
+    this.#phrase = step.state
+    const work = this.#startWork(module)
+    this.#runOutputs(work, module, step.out)
+    this.#set({ ...label, interim: null, heard, ...this.#finishWork(work, module) })
+  }
+
+  #clearPhraseTimer(): void {
+    if (this.#phraseTimer !== null) clearTimeout(this.#phraseTimer)
+    this.#phraseTimer = null
+  }
+
+  /** 다음 tick 시각에 타이머 (모은 글·중간 결과가 없으면 없음) */
+  #armPhrase(module: VoiceModule): void {
+    this.#clearPhraseTimer()
+    if (this.#disposed || this.#phrase === null || this.#snapshot.phase !== 'on') return
+    const at = module.nextTickAt(this.#phrase)
+    if (at === null) return
+    this.#phraseTimer = setTimeout(() => {
+      this.#phraseTimer = null
+      this.#onPhraseTick()
+    }, Math.max(0, at - this.#host.now()))
+  }
+
+  #onPhraseTick(): void {
     const module = this.#module
+    if (this.#disposed || module === null || this.#phrase === null || this.#snapshot.phase !== 'on') return
+    const step = module.tick(this.#phrase, this.#host.now())
+    this.#phrase = step.state
+    const work = this.#startWork(module)
+    this.#runOutputs(work, module, step.out)
+    this.#set(this.#finishWork(work, module))
+  }
+
+  /** 지금 목록으로 시작하는 작업 (이력을 기다리며 미룬 것이 끝났으면 먼저 그것부터) */
+  #startWork(module: VoiceModule): CardWork {
+    if (this.#held.length > 0 && !this.#waitingHistory()) return this.#heldCards(module)
+    return this.#emptyWork()
+  }
+
+  #emptyWork(): CardWork {
+    const s = this.#snapshot
+    return { cards: s.cards, sms: s.sms, dropped: s.smsDropped, log: s.log, notes: s.notes, info: s.info, offers: s.offers, readout: s.readout }
+  }
+
+  /** 모으기 결과를 실행한다 (이력을 기다리는 동안은 미룬다 — 그때의 설정·번호 범위와 함께) */
+  #runOutputs(work: CardWork, module: VoiceModule, outs: readonly PhraseOutput[]): void {
+    if (outs.length === 0) return
     const settings = this.#snapshot.settings
-    if (module === null || settings === null) {
-      this.#set({ ...label, interim: null, heard })
-      return
-    }
-    const sentence: HeldSentence = {
-      text: result.text,
-      settings,
-      maxNumber: this.#host.maxNumber(),
-      smsSettings: this.#snapshot.smsSettings,
-      flushedAtEnd: result.flushedAtEnd === true,
-    }
+    if (settings === null) return
+    const held = outs.map((out): HeldOutput => ({ out, settings, maxNumber: this.#host.maxNumber(), smsSettings: this.#snapshot.smsSettings }))
     if (this.#waitingHistory()) {
-      this.#held.push(sentence)
+      this.#held.push(...held)
       this.#armHeld()
-      this.#set({ ...label, interim: null, heard })
       return
     }
-    // 기다림이 끝났는데 타이머보다 먼저 온 문장: 미룬 문장을 먼저 카드로 (온 차례)
-    const work = this.#heldCards(module)
-    this.#addSentence(work, module, sentence)
-    this.#set({ ...label, interim: null, heard, ...this.#workPatch(work) })
+    for (const item of held) this.#runOutput(work, module, item)
+  }
+
+  /** 끄기 등 작업 밖에서 생긴 결과: 바로 실행하고 목록을 바꾼다 */
+  #queueOutputs(module: VoiceModule, outs: readonly PhraseOutput[]): void {
+    if (outs.length === 0) return
+    const work = this.#startWork(module)
+    this.#runOutputs(work, module, outs)
+    const patch = this.#workPatch(work)
+    if (Object.keys(patch).length > 0) this.#set(patch)
+  }
+
+  /** 작업을 마친 조각: 바뀐 목록 + 자동 등록 멈춤/다시 세기 + "들은 말" 칸, 다음 tick 타이머 */
+  #finishWork(work: CardWork, module: VoiceModule): Partial<VoiceSnapshot> {
+    const pause = this.#syncPause(work, module)
+    const phrase = this.#phrase
+    const view = phrase === null ? null : module.heardText(phrase)
+    const hearing = view === null || (view.collected === '' && view.interim === '') ? null : { collected: view.collected, interim: view.interim }
+    this.#armPhrase(module)
+    return { ...this.#workPatch(work), ...pause, hearing }
+  }
+
+  /**
+   * 말이 들리는 동안(모은 글·중간 결과) 열린 카드의 자동 확정 기다림을 멈추고, 끝나면 남은 초부터 다시 센다 (D-V2-06, AC-V2-24).
+   * 덩어리 처리로 고친(손댄) 카드는 다시 세지 않는다(resumeAutoConfirm).
+   */
+  #syncPause(work: CardWork, module: VoiceModule): Partial<VoiceSnapshot> {
+    const hearing = this.#phrase !== null && module.isHearing(this.#phrase)
+    const now = this.#host.now()
+    const before = this.#snapshot.paused
+    const paused = new Map([...before].filter(([id]) => work.cards.some((card) => card.id === id && isOpen(card))))
+    let cards = work.cards
+    if (hearing) {
+      cards = cards.map((card) => {
+        // 기다림이 이미 끝난 카드(타이머가 늦었을 뿐)는 멈추지 않는다 — 곧 등록된다
+        if (!isOpen(card) || card.autoConfirmAt === null || card.autoConfirmAt <= now) return card
+        const step = module.pauseAutoConfirm(card, now)
+        if (step.remainingMs !== null) paused.set(card.id, step.remainingMs)
+        return step.card
+      })
+    } else if (paused.size > 0) {
+      cards = cards.map((card) => {
+        const left = paused.get(card.id)
+        return left === undefined ? card : module.resumeAutoConfirm(card, left, now)
+      })
+      paused.clear()
+    }
+    const changedCards = cards.some((card, index) => card !== work.cards[index])
+    if (changedCards) work.cards = cards
+    const samePaused = paused.size === before.size && [...paused].every(([id, ms]) => before.get(id) === ms)
+    return { ...(changedCards ? { cards } : {}), ...(samePaused ? {} : { paused }) }
+  }
+
+  /** 미룬 결과 하나 실행 */
+  #runOutput(work: CardWork, module: VoiceModule, held: HeldOutput): void {
+    const { out } = held
+    if (out.kind === 'sms') {
+      const sentence: HeldSentence = { text: out.sms.text, settings: held.settings, maxNumber: held.maxNumber, smsSettings: held.smsSettings, flushedAtEnd: out.sms.flushedAtEnd }
+      this.#addSentence(work, module, sentence)
+      work.log = module.addLogEntry(work.log, module.createLogEntry({ at: this.#host.now(), pieces: [{ text: out.sms.text, flushedAtEnd: out.sms.flushedAtEnd }], action: 'sms' }))
+      return
+    }
+    this.#runChunk(work, module, out.chunk, held)
+  }
+
+  /** 덩어리 하나: 읽기(readChunk) → 할 일 고르기(chooseAction) → 실행, 기록·결과 한 줄 (D-V2-04~08) */
+  #runChunk(work: CardWork, module: VoiceModule, chunk: PhraseChunk, held: HeldOutput): void {
+    const now = this.#host.now()
+    const reading = module.readChunk(chunk.text, { dictionary: this.#prepared(module), maxNumber: held.maxNumber })
+    const tooLong = [...chunk.text].length > module.PHRASE_MAX_CODE_POINTS
+    this.#pruneRecent(now)
+    let action = module.chooseAction(reading, { cards: work.cards, recent: this.#recent, now, chunkStartedAt: chunk.startedAt, tooLong })
+    let reason: string | null = action.kind === 'discard' ? action.reason : null
+    const info = new Map(work.info)
+    const notes = new Map(work.notes)
+    const candidatesFor = (name: string | null): readonly VarietyCandidate[] => (name === null ? reading.candidates : [])
+    switch (action.kind) {
+      case 'create': {
+        const id = `voice-${String(this.#nextCard++)}`
+        const card = module.createChunkCard({ id, action, text: chunk.text, createdAt: now, settings: held.settings, noAutoConfirm: chunk.noAutoConfirm })
+        if (card === null) {
+          action = { kind: 'discard', reason: module.VOICE_LOG_REASONS.noFields, cancelled: false }
+          reason = action.reason
+          break
+        }
+        info.set(id, { candidates: candidatesFor(card.name), ask: action.ask })
+        if (reading.nameWindow !== null) this.#windows.set(id, reading.nameWindow)
+        this.#touchLearned(module, reading, now)
+        this.#place(work, module, card)
+        break
+      }
+      case 'fill': {
+        const target = action.cardId
+        const card = work.cards.find((item) => item.id === target)
+        if (card === undefined) break
+        const filled = module.fillCard(card, action, now, held.settings, { noAutoConfirm: chunk.noAutoConfirm })
+        work.cards = module.replaceCard(work.cards, filled).filter(isOpen)
+        info.set(card.id, { candidates: candidatesFor(filled.name), ask: action.ask })
+        if (action.changes.name !== undefined && reading.nameWindow !== null) this.#windows.set(card.id, reading.nameWindow)
+        this.#touchLearned(module, reading, now)
+        if (action.skipped.length > 0) reason = module.VOICE_LOG_REASONS.conflict
+        break
+      }
+      case 'edit': {
+        const target = action.cardId
+        const card = work.cards.find((item) => item.id === target)
+        if (card === undefined) break
+        const edited = module.editCard(card, action.changes, { maxNumber: held.maxNumber })
+        if (!edited.ok) {
+          reason = edited.message
+          break
+        }
+        const next: SuggestionCard = action.nameNeedsCheck ? { ...edited.card, nameNeedsCheck: true } : edited.card
+        work.cards = module.replaceCard(work.cards, next).filter(isOpen)
+        notes.set(card.id, action.message)
+        info.set(card.id, { candidates: candidatesFor(next.name), ask: module.askFor(next) })
+        if (Object.hasOwn(action.changes, 'name') && reading.nameWindow !== null) this.#windows.set(card.id, reading.nameWindow)
+        break
+      }
+      case 'close': {
+        const target = action.cardId
+        work.cards = work.cards.filter((card) => card.id !== target)
+        break
+      }
+      case 'offer':
+      case 'offerNumber':
+      case 'offerUndo': {
+        const kind = action.kind === 'offer' ? 'offer' : action.kind === 'offerNumber' ? 'number' : action.canUndo ? 'undo' : 'late'
+        const offer: VoiceOffer = {
+          id: `offer-${String(this.#nextOffer++)}`,
+          kind,
+          registrationId: action.registrationId,
+          message: action.message,
+          changes: action.kind === 'offer' ? action.changes : {},
+          stage: 'ask',
+          before: null,
+          undoUntil: null,
+          error: null,
+        }
+        work.offers = [offer, ...work.offers]
+        break
+      }
+      default:
+        break
+    }
+    work.info = info
+    work.notes = notes
+    const read = { no: reading.no, name: reading.name, price: reading.price, candidates: reading.candidates }
+    work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: chunk.pieces, read, action: LOG_ACTION[action.kind], reason }))
+    let text: string
+    if (action.kind === 'discard') text = action.cancelled ? CANCELLED_READOUT : (reason ?? module.VOICE_LOG_REASONS.noFields)
+    else if (action.kind === 'edit') text = action.message
+    else if (action.kind === 'offer' || action.kind === 'offerNumber' || action.kind === 'offerUndo') text = action.message
+    else text = module.describeReading(reading)
+    work.readout = { text, discarded: action.kind === 'discard', until: now + READOUT_MS }
+  }
+
+  /** 배운 별칭으로 채웠으면 그 별칭을 썼다고 적는다 (오래 안 쓴 것부터 지우므로) */
+  #touchLearned(module: VoiceModule, reading: ChunkReading, now: number): void {
+    const window = reading.nameWindow
+    if (window === null || reading.name === null) return
+    const key = window.replace(/\s+/g, '')
+    if (!this.#learned.some((item) => item.heard === key && item.name === reading.name)) return
+    this.#learned = module.touchLearnedAlias(this.#learned, key, now)
+    this.#saveLearned()
+  }
+
+  #saveLearned(): void {
+    try {
+      this.#host.writeLearned?.(this.#learned)
+    } catch {
+      // 남기지 못하면 이번 콘솔에서만 쓴다
+    }
   }
 
   /** 바뀐 목록만 담은 조각 */
   #workPatch(work: CardWork): Partial<VoiceSnapshot> {
+    const s = this.#snapshot
     return {
-      ...(work.cards === this.#snapshot.cards ? {} : { cards: work.cards }),
-      ...(work.sms === this.#snapshot.sms ? {} : { sms: work.sms }),
-      ...(work.dropped === this.#snapshot.smsDropped ? {} : { smsDropped: work.dropped }),
+      ...(work.cards === s.cards ? {} : { cards: work.cards }),
+      ...(work.sms === s.sms ? {} : { sms: work.sms }),
+      ...(work.dropped === s.smsDropped ? {} : { smsDropped: work.dropped }),
+      ...(work.log === s.log ? {} : { log: work.log }),
+      ...(work.notes === s.notes ? {} : { notes: work.notes }),
+      ...(work.info === s.info ? {} : { info: work.info }),
+      ...(work.offers === s.offers ? {} : { offers: work.offers }),
+      ...(work.readout === s.readout ? {} : { readout: work.readout }),
     }
+  }
+
+  #pruneRecent(now: number): void {
+    this.#recent = this.#recent.filter((item) => now - item.registeredAt <= 60_000)
   }
 
   /**
@@ -761,8 +1201,8 @@ export class VoiceController {
     this.#heldTimer = null
     const held = this.#held
     this.#held = []
-    const work: CardWork = { cards: this.#snapshot.cards, sms: this.#snapshot.sms, dropped: this.#snapshot.smsDropped }
-    for (const sentence of held) this.#addSentence(work, module, sentence)
+    const work = this.#emptyWork()
+    for (const item of held) this.#runOutput(work, module, item)
     return work
   }
 
@@ -776,7 +1216,8 @@ export class VoiceController {
       this.#dropHeld()
       return
     }
-    const patch = this.#workPatch(this.#heldCards(module))
+    const work = this.#heldCards(module)
+    const patch = this.#snapshot.phase === 'on' ? this.#finishWork(work, module) : this.#workPatch(work)
     if (Object.keys(patch).length > 0) this.#set(patch)
   }
 
@@ -808,15 +1249,17 @@ export class VoiceController {
     )
   }
 
-  /** 지금 범위 이름 → 지난 범위 이름 → 기본 사전 (지금 범위 상품이 바뀌면 다음 문장부터) */
+  /** 배운 별칭 → 지금 범위 이름 → 지난 범위 이름 → 기본 사전 (지금 범위 상품이 바뀌면 다음 덩어리부터) */
   #prepared(module: VoiceModule): VarietyDictionary {
     const names = this.#host.currentNames()
     const past = this.#history.state === 'done' ? this.#history.past : []
     const cached = this.#dictionary
-    if (cached !== null && cached.names === names && cached.past === past) return cached.prepared
+    const learned = this.#learned
+    if (cached !== null && cached.names === names && cached.past === past && cached.learned === learned) return cached.prepared
     const history = historyNames(names, past, module.normalizeDictionary)
-    const prepared = module.prepareDictionary(module.buildDictionary(history, module.DEFAULT_DICTIONARY))
-    this.#dictionary = { names, past, prepared }
+    // 배운 별칭 → 판매 이력 → 기본 사전(데이터 사전·별칭) (D-V2-10)
+    const prepared = module.prepareVoiceDictionary({ learned, history })
+    this.#dictionary = { names, past, learned, prepared }
     return prepared
   }
 
@@ -878,6 +1321,7 @@ export class VoiceController {
     }
     this.take(id)
     this.#set({ tooSoon: false })
+    this.learnFrom(card, result.registration.name)
     this.#host.register(card, result.registration, source)
   }
 
@@ -972,12 +1416,12 @@ export class VoiceController {
     const current = this.#snapshot.settings
     if (current === null) return
     const settings: VoiceSettings = { ...current, 'voice.autoConfirm': on }
-    this.#host.writeSettings(settings)
+    this.#writeSettings(settings)
     // 끄면 기다리던 카드도 멈춘다 (다시 켜도 그 카드는 자동 확정하지 않는다)
     const cards = on ? this.#snapshot.cards : this.#snapshot.cards.map((card) => (card.autoConfirmAt === null ? card : { ...card, autoConfirmAt: null }))
     // 이력을 기다리며 미룬 문장도 마찬가지 — 켠 채 말했어도 끄면 자동 등록하지 않는다 (다시 켜도)
     if (!on) this.#held = this.#held.map((held) => ({ ...held, settings: { ...held.settings, 'voice.autoConfirm': false } }))
-    this.#set({ settings, cards })
+    this.#set({ settings, cards, ...(on ? {} : { paused: new Map() }) })
   }
 
   /** "기다리는 시간(초)": 3~30 정수만 받는다 — 아니면 checkVoiceSettings 문장을 보이고 값은 그대로 */
@@ -992,8 +1436,193 @@ export class VoiceController {
       return
     }
     const settings: VoiceSettings = { ...current, 'voice.autoConfirmSec': value }
-    this.#host.writeSettings(settings)
+    this.#writeSettings(settings)
     this.#set({ settings, secondsText: text, settingsProblem: null })
+  }
+
+  /** 저장: 자동 확정 설정 + 조용한 시간(기본값이 아니면 같은 저장값에 `voice.quietMs`, D-V2-09) */
+  #writeSettings(settings: VoiceSettings, quietMs: number = this.#snapshot.quietMs): void {
+    const value: VoiceSettings & { readonly 'voice.quietMs'?: number } = quietMs === 1800 ? settings : { ...settings, 'voice.quietMs': quietMs }
+    this.#host.writeSettings(value)
+  }
+
+  /** "말이 끝났다고 볼 때까지(초)": 1.0~4.0, 0.1초 단위 — 아니면 문장을 보이고 값은 그대로 (AC-V2-16) */
+  setQuietSeconds(text: string): void {
+    const module = this.#module
+    const settings = this.#snapshot.settings
+    if (module === null || settings === null) return
+    const trimmed = text.trim().replace(',', '.')
+    const sec = trimmed === '' || !/^\d+(\.\d+)?$/.test(trimmed) ? Number.NaN : Number(trimmed)
+    const ms = module.quietSecToMs(sec)
+    if (ms === null) {
+      const problems = module.checkVoiceSettings({ [module.QUIET_MS_KEY]: Number.isFinite(sec) ? sec * 1000 : sec })
+      this.#set({ quietText: text, quietProblem: problems[0]?.message ?? '말이 끝났다고 볼 때까지는 1.0초부터 4.0초까지 0.1초 단위로 정해 주세요' })
+      return
+    }
+    this.#writeSettings(settings, ms)
+    if (this.#phrase !== null) this.#phrase = { ...this.#phrase, quietMs: ms }
+    this.#set({ quietMs: ms, quietText: text, quietProblem: null })
+    if (this.#phase() === 'on') this.#armPhrase(module)
+  }
+
+  // ── 후보·배운 별칭 (D-V2-01·D-V2-10) ────────────────────────────────
+
+  /** 후보 단추: 카드 품종을 그 이름으로 (손댄 카드), 그 말을 배운다 (AC-V2-07·09) */
+  chooseCandidate(id: string, name: string): void {
+    const module = this.#module
+    const card = this.#find(id)
+    if (module === null || card === undefined) return
+    const candidate = this.#snapshot.info.get(id)?.candidates.find((item) => item.name === name)
+    if (candidate === undefined) return
+    const edited = module.editCard(card, { name })
+    if (!edited.ok) return
+    this.#learn(module, candidate.heard, name)
+    const info = new Map(this.#snapshot.info)
+    info.set(id, { candidates: [], ask: module.askFor(edited.card) })
+    this.#windows.set(id, candidate.heard)
+    const forms = this.#snapshot.forms.get(id)
+    const formPatch = forms === undefined ? {} : { forms: new Map(this.#snapshot.forms).set(id, { ...forms, name }) }
+    this.#set({ cards: this.#snapshot.cards.map((item) => (item.id === id ? edited.card : item)), info, ...formPatch })
+  }
+
+  /**
+   * 판매자가 등록한 카드의 품종이 들은 창 글과 다르면 배운다 (고치기 칸에 품종을 적어 확정·품종을 그대로 두고 등록, D-V2-10).
+   * 콘솔의 고치기 칸 등록도 부른다. 배울 수 없는 말(1음절·막는 낱말·같은 이름)은 배우지 않는다
+   */
+  learnFrom(card: SuggestionCard, name: string): void {
+    const module = this.#module
+    const heard = this.#windows.get(card.id)
+    this.#windows.delete(card.id)
+    if (module === null || heard === undefined || name === '') return
+    this.#learn(module, heard, name)
+  }
+
+  #learn(module: VoiceModule, heard: string, name: string): void {
+    if (!module.canLearnAlias(heard, name)) return
+    this.#learned = module.learnAlias(this.#learned, { heard, name, at: this.#host.now() })
+    this.#saveLearned()
+    this.#set({ learnedCount: this.#learned.length })
+  }
+
+  /** 기록 창의 [배운 품종 이름 지우기] */
+  clearLearned(): void {
+    this.#learned = []
+    this.#saveLearned()
+    this.#set({ learnedCount: 0 })
+  }
+
+  // ── 음성 기록 (D-V2-08) ─────────────────────────────────────────────
+
+  /** 기록 창의 줄 (새것부터) — 시각은 그 기기 시간대 */
+  logLines(): readonly VoiceLogLine[] {
+    const module = this.#module
+    if (module === null) return []
+    return this.#snapshot.log.map((entry, index) => ({
+      key: `${String(entry.at)}-${String(this.#snapshot.log.length - index)}`,
+      time: module.formatLogTime(entry.at, -new Date(entry.at).getTimezoneOffset()),
+      pieces: entry.pieces.map((piece) => module.describePiece(piece)),
+      read: entry.read === null ? null : module.describeReading(entry.read),
+      candidates: entry.read === null ? '' : module.describeCandidates(entry.read.candidates),
+      action: module.VOICE_LOG_ACTION_LABELS[entry.action],
+      reason: entry.reason,
+    }))
+  }
+
+  /** [기록 지우기] */
+  clearLog(): void {
+    this.#set({ log: [] })
+  }
+
+  /** 카드의 후보·안내 */
+  cardInfo(id: string): CardInfo | null {
+    return this.#snapshot.info.get(id) ?? null
+  }
+
+  // ── 방금 등록한 상품 (D-V2-06 3) ────────────────────────────────────
+
+  /** 콘솔이 음성 카드 등록이 저장됐다고 알린다 (등록 5초 되돌리기는 지금부터) */
+  noteVoiceRegistered(entry: { readonly id: string; readonly no: number; readonly name: string; readonly price: number }): void {
+    const now = this.#host.now()
+    this.#pruneRecent(now)
+    this.#recent = [...this.#recent.filter((item) => item.id !== entry.id), { ...entry, registeredAt: now, undoUntil: now + REGISTER_UNDO_MS }]
+  }
+
+  #findOffer(id: string): VoiceOffer | undefined {
+    return this.#snapshot.offers.find((offer) => offer.id === id)
+  }
+
+  #replaceOffer(id: string, patch: Partial<VoiceOffer>): void {
+    this.#set({ offers: this.#snapshot.offers.map((offer) => (offer.id === id ? { ...offer, ...patch } : offer)) })
+  }
+
+  /** [그대로 두기]·[닫기]: 아무것도 바꾸지 않는다 */
+  dismissOffer(id: string): void {
+    if (this.#findOffer(id) === undefined) return
+    this.#set({ offers: this.#snapshot.offers.filter((offer) => offer.id !== id) })
+    this.#host.focusQuick()
+  }
+
+  /** [고치기]: 손 고치기와 같은 상품 고치기, 고친 뒤 10초 [되돌리기] */
+  async fixOffer(id: string): Promise<void> {
+    const offer = this.#findOffer(id)
+    const fix = this.#host.fixRecent
+    if (offer === undefined || offer.kind !== 'offer' || offer.stage !== 'ask' || fix === undefined) return
+    this.#replaceOffer(id, { stage: 'busy', error: null })
+    let outcome: RecentFixOutcome
+    try {
+      outcome = await fix(offer.registrationId, offer.changes)
+    } catch {
+      outcome = { kind: 'failed', message: OFFER_FIX_FAILED }
+    }
+    if (this.#disposed) return
+    if (outcome.kind === 'dialog') {
+      this.#set({ offers: this.#snapshot.offers.filter((item) => item.id !== id) })
+      return
+    }
+    if (outcome.kind === 'failed') {
+      this.#replaceOffer(id, { stage: 'ask', error: outcome.message })
+      return
+    }
+    this.#recent = this.#recent.map((item) => (item.id === offer.registrationId ? { ...item, ...offer.changes } : item))
+    const module = this.#module
+    const offerTime = module?.OFFER_UNDO_MS ?? 10_000
+    this.#replaceOffer(id, { stage: 'fixed', before: outcome.before, undoUntil: this.#host.now() + offerTime, message: OFFER_FIXED, error: null })
+  }
+
+  /** 고친 뒤 [되돌리기]: 앞 값으로 같은 고치기 */
+  async revertOffer(id: string): Promise<void> {
+    const offer = this.#findOffer(id)
+    const fix = this.#host.fixRecent
+    if (offer === undefined || offer.stage !== 'fixed' || offer.before === null || fix === undefined) return
+    if (offer.undoUntil !== null && this.#host.now() > offer.undoUntil) return
+    const before = offer.before
+    this.#replaceOffer(id, { stage: 'busy', error: null })
+    let outcome: RecentFixOutcome
+    try {
+      outcome = await fix(offer.registrationId, before)
+    } catch {
+      outcome = { kind: 'failed', message: OFFER_FIX_FAILED }
+    }
+    if (this.#disposed) return
+    if (outcome.kind === 'failed') {
+      this.#replaceOffer(id, { stage: 'fixed', error: outcome.message })
+      return
+    }
+    this.#recent = this.#recent.map((item) => (item.id === offer.registrationId ? { ...item, ...before } : item))
+    this.#set({ offers: this.#snapshot.offers.filter((item) => item.id !== id) })
+  }
+
+  /** "되돌릴까요?"의 [되돌리기]: 지금의 등록 5초 되돌리기 */
+  undoOffer(id: string): void {
+    const offer = this.#findOffer(id)
+    if (offer === undefined || offer.kind !== 'undo') return
+    const done = this.#host.undoRecent?.(offer.registrationId) === true
+    if (!done) {
+      this.#set({ offers: this.#snapshot.offers.map((item) => (item.id === id ? { ...item, kind: 'late', message: OFFER_UNDO_FAILED } : item)) })
+      return
+    }
+    this.#recent = this.#recent.filter((item) => item.id !== offer.registrationId)
+    this.#set({ offers: this.#snapshot.offers.filter((item) => item.id !== id) })
   }
 
   // ── 시각·자동 확정 (D-204, D-I4-05) ────────────────────────────────
@@ -1004,8 +1633,14 @@ export class VoiceController {
     this.#autoConfirm()
     this.#smsAuto()
     // 맨 앞 카드의 "Enter 등록"이 보이면 "새 카드가 방금 나왔어요…"는 할 일을 다 했다
-    const tooSoon = this.#snapshot.tooSoon && !enterReady(this.#snapshot.front, this.#host.now())
-    this.#set({ tooSoon })
+    const now = this.#host.now()
+    const tooSoon = this.#snapshot.tooSoon && !enterReady(this.#snapshot.front, now)
+    // 결과 한 줄은 4초, 고친 뒤 [되돌리기]는 10초까지 (D-V2-07·D-V2-06 3)
+    const readout = this.#snapshot.readout !== null && this.#snapshot.readout.until <= now ? null : this.#snapshot.readout
+    const offers = this.#snapshot.offers.some((offer) => offer.stage === 'fixed' && offer.undoUntil !== null && offer.undoUntil <= now)
+      ? this.#snapshot.offers.filter((offer) => !(offer.stage === 'fixed' && offer.undoUntil !== null && offer.undoUntil <= now))
+      : this.#snapshot.offers
+    this.#set({ tooSoon, readout, offers })
   }
 
   /**
@@ -1375,8 +2010,12 @@ export class VoiceController {
       const ids = new Set(next.cards.map((card) => card.id))
       const forms = [...next.forms.keys()].some((id) => !ids.has(id)) ? new Map([...next.forms].filter(([id]) => ids.has(id))) : next.forms
       const notes = [...next.notes.keys()].some((id) => !ids.has(id)) ? new Map([...next.notes].filter(([id]) => ids.has(id))) : next.notes
+      const info = [...next.info.keys()].some((id) => !ids.has(id)) ? new Map([...next.info].filter(([id]) => ids.has(id))) : next.info
+      const paused = [...next.paused.keys()].some((id) => !ids.has(id)) ? new Map([...next.paused].filter(([id]) => ids.has(id))) : next.paused
       const tooSoon = next.tooSoon && front !== null && front.id === this.#snapshot.front?.id
-      next = { ...next, front, forms, notes, tooSoon }
+      next = { ...next, front, forms, notes, info, paused, tooSoon }
+      // 등록 때 배우려고 들고 있는 창 글은 넉넉히 두되 끝없이 쌓이지 않게
+      if (this.#windows.size > 200) for (const id of [...this.#windows.keys()].slice(0, this.#windows.size - 200)) this.#windows.delete(id)
     }
     if (patch.sms !== undefined) next = { ...next, sms: pruneSms(next.sms, now) }
     this.#snapshot = next
@@ -1388,7 +2027,12 @@ export class VoiceController {
     if (this.#timer !== null) clearTimeout(this.#timer)
     this.#timer = null
     if (this.#disposed) return
-    const wakes = [nextWake(this.#snapshot.cards, this.#snapshot.front, this.#snapshot.now), this.#smsWake()].filter((value): value is number => value !== null)
+    const now = this.#snapshot.now
+    const later = (at: number | null): number | null => (at === null || at <= now ? null : at - now)
+    const offerEnds = this.#snapshot.offers.map((offer) => (offer.stage === 'fixed' ? later(offer.undoUntil) : null))
+    const wakes = [nextWake(this.#snapshot.cards, this.#snapshot.front, now), this.#smsWake(), later(this.#snapshot.readout?.until ?? null), ...offerEnds].filter(
+      (value): value is number => value !== null,
+    )
     const wake = wakes.length === 0 ? null : Math.min(...wakes)
     const ripeCard = this.#ripeAuto()
     const ripeSms = this.#ripeSms()

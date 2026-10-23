@@ -3226,3 +3226,113 @@ select.input {
 .login-result-notice p {
   margin: 0;
 }
+
+/* ── V2 "들은 말" 칸 (D-V2-07, AC-V2-17): 모은 글 + 중간 결과(흐린 색), 휴대폰 22px·PC 28px, 끝 두 줄까지 ── */
+.voice-now {
+  border: 2px solid #1a73e8;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #f8fbff;
+}
+
+.voice-now-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.75rem;
+  align-items: center;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #174ea6;
+}
+
+.voice-now-hearing {
+  color: #0d652d;
+}
+
+.voice-now-box {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  max-height: calc(2 * 1.3em);
+  min-height: 1.3em;
+  overflow: hidden;
+  font-size: 1.375rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.voice-now-text {
+  margin: 0;
+  font-weight: 700;
+  color: #202124;
+}
+
+.voice-now-interim {
+  font-weight: 400;
+  color: #80868b;
+}
+
+.voice-now-empty {
+  font-size: 1rem;
+  color: #5f6368;
+}
+
+.voice-now-readout {
+  margin: 0.25rem 0 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0d652d;
+}
+
+.voice-now-readout[data-discarded='true'] {
+  color: #a50e0e;
+}
+
+@media (min-width: 48rem) {
+  .voice-now-box {
+    font-size: 1.75rem;
+  }
+  .voice-now-readout {
+    font-size: 1.5rem;
+  }
+}
+
+/* 품종 후보 단추 (D-V2-01, AC-V2-07) */
+.voice-candidates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.voice-card-ask {
+  font-weight: 700;
+  color: #174ea6;
+}
+
+/* 고칠까요 카드 (D-V2-06 3) */
+.voice-offer {
+  border-left: 4px solid #e37400;
+}
+
+/* 음성 기록 창 (D-V2-08) */
+.voice-log-list {
+  display: grid;
+  gap: 0.75rem;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.voice-log-entry {
+  border-bottom: 1px solid #dadce0;
+  padding-bottom: 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.voice-log-entry dt {
+  font-weight: 700;
+}
+
+.voice-log-entry dd {
+  margin: 0 0 0.25rem;
+}

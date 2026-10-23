@@ -31,10 +31,10 @@ import { useWide } from '../lib/use-wide.ts'
 import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
 import { cardLine, enterBadgeCard } from '../lib/voice.ts'
 import { readReceived } from '../lib/received.ts'
-import { SMS_SEND_FAILED, SMS_UNDO_NOTE, VOICE_IDLE, VoiceController, type RegisterSource, type SmsBuyerChoice, type SmsWriteOutcome, type VoiceSmsWrite, type VoiceSnapshot } from '../voice/controller.ts'
+import { OFFER_FIX_FAILED, SMS_SEND_FAILED, SMS_UNDO_NOTE, VOICE_IDLE, VoiceController, type RecentFixOutcome, type RegisterSource, type SmsBuyerChoice, type SmsWriteOutcome, type VoiceSmsWrite, type VoiceSnapshot } from '../voice/controller.ts'
 import { fetchPastNames } from '../voice/history.ts'
 import { loadVoice } from '../voice/load.ts'
-import { readConsent, readSettings, readSmsSettings, writeConsent, writeSettings, writeSmsSettings } from '../voice/storage.ts'
+import { readConsent, readLearned, readSettings, readSmsSettings, writeConsent, writeLearned, writeSettings, writeSmsSettings } from '../voice/storage.ts'
 import { AssignDialog, ConfirmDialog, ConvertDialog, EditDialog, ReasonDialog } from './ActionDialogs.tsx'
 import { AttentionDialog, CancelRequestDialog, ConflictDialog, PendingDialog, SuccessionDialog } from './AlertDialogs.tsx'
 import { AlertStrip, firstAlert, type AlertKind, type PrintAlerts } from './AlertStrip.tsx'
@@ -97,6 +97,8 @@ interface RegRequest {
   readonly onExists?: (product: Product) => void
   /** 다시 보내기로 고칠 수 없는 실패·기록되지 않음 (음성 카드는 카드를 되살린다) */
   readonly onFailed?: () => void
+  /** 등록이 저장됨 (음성 카드 — 방금 등록한 상품으로 기억한다, D-V2-06 3) */
+  readonly onDone?: (key: string) => void
   /** 개수 칸이 1이 아니었으면 그 개수 (옵션 없는 상품만 — AC-ORD11-01) */
   readonly stock?: number
 }
@@ -105,6 +107,7 @@ interface RegRequest {
 interface RegHooks {
   readonly onExists?: (product: Product) => void
   readonly onFailed?: () => void
+  readonly onDone?: (key: string) => void
   readonly extra?: OptionPayload
   readonly draftOf?: OptionDraft
   readonly stock?: number
@@ -304,6 +307,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   const waitingLines = useRef(0)
   const regId = useRef(1)
   const regRequests = useRef(new Map<number, RegRequest>())
+  /** 상품 키 → 등록 되돌리기 항목 (음성 "취소" → 되돌릴까요 카드, D-V2-06 3) */
+  const regUndo = useRef(new Map<string, number>())
   const [alertsOpen, setAlertsOpen] = useState(false)
   const wide = useWide()
   const wideRef = useRef(wide)
@@ -318,10 +323,14 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     register: (card: SuggestionCard, registration: CardRegistration, source: RegisterSource) => void
     focusQuick: () => void
     writeSms: (write: VoiceSmsWrite, received: string | null, requestId: string) => Promise<SmsWriteOutcome>
+    fixRecent: (id: string, changes: { readonly name?: string; readonly price?: number }) => Promise<RecentFixOutcome>
+    undoRecent: (id: string) => boolean
   }>({
     register: () => {},
     focusQuick: () => {},
     writeSms: async () => ({ kind: 'failed', message: SMS_SEND_FAILED }),
+    fixRecent: async () => ({ kind: 'failed', message: OFFER_FIX_FAILED }),
+    undoRecent: () => false,
   })
   const [voice, setVoice] = useState<VoiceController | null>(null)
   // 등록 성공을 음성 칸에 알린다 (지원 안 함 안내를 내림, D-I5-15) — 등록 경로가 음성 컨트롤러를 의존하지 않게 ref로
@@ -366,6 +375,11 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       newRequestId,
       readSmsSettings,
       writeSmsSettings: (settings) => writeSmsSettings(settings),
+      // ── V2 ──
+      readLearned,
+      writeLearned: (list) => writeLearned(list),
+      fixRecent: (id, changes) => voiceActions.current.fixRecent(id, changes),
+      undoRecent: (id) => voiceActions.current.undoRecent(id),
     })
     setVoice(controller)
     return () => controller.dispose()
@@ -688,7 +702,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         setSelected(key)
         setQuickError(null)
         voiceRef.current?.noteRegistered()
-        queue.addRegistration({ no: request.no, product: key, undo: () => undoRegistration(request.no) })
+        const undoItem = queue.addRegistration({ no: request.no, product: key, undo: () => undoRegistration(request.no) })
+        regUndo.current.set(key, undoItem.id)
+        request.onDone?.(key)
       } catch (error) {
         if (!isApiError(error)) throw error
         if (error.transient) {
@@ -734,6 +750,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       enqueueRegistration(cardLine(no, name, price), no, name, price, false, {
         ...(source === 'auto' ? { onExists: (product: Product) => voice?.restore(card, { note: editQuestion(product.no, product.status === 'CLOSED') }) } : {}),
         onFailed: () => voice?.restore(card, { touched: true }),
+        onDone: (key) => voice?.noteVoiceRegistered({ id: key, no, name, price }),
       })
       if (source === 'click') focusQuick()
     },
@@ -773,7 +790,40 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     },
     [b, write],
   )
-  voiceActions.current = { register: registerVoiceCard, focusQuick, writeSms: writeVoiceSms }
+  /**
+   * 고칠까요 카드의 [고치기]·[되돌리기] (D-V2-06 3, AC-V2-26): 손 고치기와 같은 `product.update`. 찜이 있는 상품의 가격을 바꾸면
+   * 손 고치기 창(PRD-01 — 누구에게 적용할지 묻는 안내 그대로)을 연다.
+   */
+  const fixRecentProduct = useCallback(
+    async (key: string, changes: { readonly name?: string; readonly price?: number }): Promise<RecentFixOutcome> => {
+      const product = (store.getSnapshot().data ?? latest.current.data).products.get(key)
+      if (product === undefined) return { kind: 'failed', message: '그 상품을 찾지 못했어요. 상품 목록에서 확인해 주세요.' }
+      const slots = productSlots(product)
+      if (changes.price !== undefined && changes.price !== product.price && slots.winners.length + slots.waitlist.length > 0) {
+        openDialog({ kind: 'edit', product: product.key, name: changes.name ?? product.name, price: changes.price, line: null })
+        return { kind: 'dialog' }
+      }
+      const before: { name?: string; price?: number } = {}
+      if (changes.name !== undefined) before.name = product.name
+      if (changes.price !== undefined) before.price = product.price
+      try {
+        await write(newRequestId(), { type: 'product.update', b, no: product.no, ...changes })
+        return { kind: 'fixed', before }
+      } catch (error) {
+        if (!isApiError(error) || error.network) return { kind: 'failed', message: OFFER_FIX_FAILED }
+        return { kind: 'failed', message: error.message }
+      }
+    },
+    [b, openDialog, store, write],
+  )
+  const undoRecentProduct = useCallback(
+    (key: string): boolean => {
+      const id = regUndo.current.get(key)
+      return id !== undefined && queue.undo(id)
+    },
+    [queue],
+  )
+  voiceActions.current = { register: registerVoiceCard, focusQuick, writeSms: writeVoiceSms, fixRecent: fixRecentProduct, undoRecent: undoRecentProduct }
 
   /** 카드 고치기 칸의 Enter: 빠른 입력 고치기 칸과 같은 해석 (decideFixForm — 그 방송의 price.unit) */
   const submitCardForm = useCallback(
@@ -791,8 +841,11 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           if (card === undefined) return
           const { no, name, price } = decision
           dropAttached(no)
+          // 고치기 칸에 적은 품종이 들은 말과 다르면 배운다 (D-V2-10)
+          voice.learnFrom(card, name)
           enqueueRegistration(cardLine(no, name, price), no, name, price, false, {
             onFailed: () => voice.restore({ ...card, no, name: name === '' ? null : name, price }, { touched: true }),
+            onDone: (key) => voice.noteVoiceRegistered({ id: key, no, name, price }),
           })
           focusQuick()
           return

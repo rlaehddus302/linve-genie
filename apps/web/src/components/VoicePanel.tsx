@@ -8,11 +8,17 @@
 // 버튼 자리는 모든 문자찜 카드에서 같다: "넣지 않기"(이유 카드는 "닫기")가 첫 버튼, 넣는 버튼은 뒤이고 주 버튼 색(D-V1-20). PC 폭에선 Esc가 닫을 카드에 "Esc" 표시.
 // 이유 카드 제목은 "문자찜 · 넣지 않았어요", 번호 방식 카드는 번호 뒤에 품종, "확인 필요"로 넣은 결과 카드엔 정산 안내 한 줄(D-V1-21).
 import type { SmsBuyerCandidate, SuggestionCard } from '@livejjim/voice'
-import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { isActive } from '../lib/buyers.ts'
 import { autoSecondsLeft, showsAutoCountdown } from '../lib/voice.ts'
 import { useWide } from '../lib/use-wide.ts'
 import {
+  AUTO_PAUSED_NOTE,
+  HEARD_TITLE,
+  HEARING_LABEL,
+  NAME_CHECK,
+  QUIET_HELP,
+  QUIET_LABEL,
   FLUSHED_CARD_NOTE,
   HISTORY_FAILED,
   SENT_NOTICE,
@@ -30,7 +36,9 @@ import {
   smsShown,
   smsUnknownBuyer,
   type CardForm,
+  type CardInfo,
   type FormField,
+  type VoiceOffer,
   type SmsEntry,
   type SmsResultLine,
   type VoiceController,
@@ -95,7 +103,7 @@ export function VoiceConsentDialog({ voice }: { readonly voice: VoiceController 
 
 /** 음성 칸을 보일까 (켜졌거나, 남은 카드·오류가 있을 때) */
 export function voiceLiveShown(snapshot: VoiceSnapshot): boolean {
-  return snapshot.phase === 'on' || snapshot.cards.length > 0 || snapshot.sms.some(smsShown) || snapshot.error !== null || snapshot.tooSoon || snapshot.flushedClosed.length > 0
+  return snapshot.phase === 'on' || snapshot.cards.length > 0 || snapshot.offers.length > 0 || snapshot.sms.some(smsShown) || snapshot.error !== null || snapshot.tooSoon || snapshot.flushedClosed.length > 0
 }
 
 /** 휴대폰 아래 메뉴 막대·고정 영역에 가리지 않게 둘 여백(px) */
@@ -187,6 +195,7 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
           </button>
         </div>
       ) : null}
+      {on ? <HeardNow snapshot={snapshot} /> : null}
       {on && snapshot.interim !== null ? <p className="voice-interim">들리는 말: {snapshot.interim}</p> : null}
       {snapshot.error !== null ? (
         snapshot.unsupported ? (
@@ -246,18 +255,34 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
           ))}
         </ul>
       ) : null}
+      {snapshot.offers.length > 0 ? (
+        <ul className="plain-list stack-tight" aria-label="방금 등록한 상품 고치기">
+          {snapshot.offers.map((offer) => (
+            <OfferView key={offer.id} offer={offer} voice={voice} />
+          ))}
+        </ul>
+      ) : null}
       {items.length > 0 ? (
         <ul ref={listRef} className="plain-list voice-cards" aria-label="음성 카드">
           {items.map((item) => {
             if (item.kind === 'sms') return <SmsCardView key={item.entry.card.id} entry={item.entry} voice={voice} on={on} esc={escTarget === item.entry.card.id} />
             const card = item.card
+            const paused = on ? snapshot.paused.get(card.id) : undefined
             return (
             <VoiceCard
               key={card.id}
               card={card}
               described={voice.describe(card)}
               badge={badge === card.id}
-              countdown={showsAutoCountdown(card, snapshot.settings, on) && card.autoConfirmAt !== null ? autoSecondsLeft(card.autoConfirmAt, snapshot.now) : null}
+              countdown={
+                showsAutoCountdown(card, snapshot.settings, on) && card.autoConfirmAt !== null
+                  ? autoSecondsLeft(card.autoConfirmAt, snapshot.now)
+                  : paused !== undefined
+                    ? Math.max(1, Math.ceil(paused / 1000))
+                    : null
+              }
+              paused={paused !== undefined}
+              info={snapshot.info.get(card.id) ?? null}
               note={snapshot.notes.get(card.id) ?? null}
               form={snapshot.forms.get(card.id) ?? null}
               voice={voice}
@@ -274,11 +299,172 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
   )
 }
 
+/**
+ * "들은 말" 칸 (D-V2-07, AC-V2-17): 모으는 글 + 지금 중간 결과(흐린 색), 모으는 동안 "듣는 중…", 덩어리를 읽으면 4초 동안 결과 한 줄.
+ * 받아쓴 글은 React 기본 이스케이프로 글자로만 그린다
+ */
+function HeardNow({ snapshot }: { readonly snapshot: VoiceSnapshot }) {
+  const hearing = snapshot.hearing
+  const readout = snapshot.readout !== null && snapshot.readout.until > snapshot.now ? snapshot.readout : null
+  return (
+    <section className="voice-now" aria-label={HEARD_TITLE}>
+      <div className="voice-now-head">
+        <span>{HEARD_TITLE}</span>
+        {hearing !== null ? <span className="voice-now-hearing">{HEARING_LABEL}</span> : null}
+      </div>
+      {hearing !== null ? (
+        <div className="voice-now-box">
+          <p className="voice-now-text">
+            {hearing.collected}
+            {hearing.collected !== '' && hearing.interim !== '' ? ' ' : null}
+            {hearing.interim !== '' ? <span className="voice-now-interim">{hearing.interim}</span> : null}
+          </p>
+        </div>
+      ) : readout === null ? (
+        <p className="voice-now-empty">말하면 여기에 크게 보여요. 번호·품종·가격을 말하고 잠깐 쉬면 카드가 나와요.</p>
+      ) : null}
+      {readout !== null ? (
+        <p className="voice-now-readout" role="status" data-discarded={readout.discarded ? 'true' : 'false'}>
+          {readout.text}
+        </p>
+      ) : null}
+    </section>
+  )
+}
+
+/** 고칠까요·되돌릴까요·번호 안내 카드 (D-V2-06 3, AC-V2-26·27) — 누르기 전에는 상품이 바뀌지 않는다 */
+function OfferView({ offer, voice }: { readonly offer: VoiceOffer; readonly voice: VoiceController }) {
+  const busy = offer.stage === 'busy'
+  let actions: ReactNode
+  if (offer.kind === 'offer' && offer.stage !== 'fixed') {
+    actions = (
+      <>
+        <button type="button" className="button button-primary" disabled={busy} onClick={() => void voice.fixOffer(offer.id)}>
+          고치기
+        </button>
+        <button type="button" className="button" disabled={busy} onClick={() => voice.dismissOffer(offer.id)}>
+          그대로 두기
+        </button>
+      </>
+    )
+  } else if (offer.stage === 'fixed') {
+    actions = (
+      <>
+        <button type="button" className="button" disabled={busy} onClick={() => void voice.revertOffer(offer.id)}>
+          되돌리기
+        </button>
+        <button type="button" className="button" onClick={() => voice.dismissOffer(offer.id)}>
+          닫기
+        </button>
+      </>
+    )
+  } else if (offer.kind === 'undo') {
+    actions = (
+      <>
+        <button type="button" className="button button-primary" onClick={() => voice.undoOffer(offer.id)}>
+          되돌리기
+        </button>
+        <button type="button" className="button" onClick={() => voice.dismissOffer(offer.id)}>
+          그대로 두기
+        </button>
+      </>
+    )
+  } else {
+    actions = (
+      <button type="button" className="button" onClick={() => voice.dismissOffer(offer.id)}>
+        닫기
+      </button>
+    )
+  }
+  return (
+    <li className="voice-card voice-offer" aria-label={offer.message}>
+      <div className="voice-card-body">
+        <p className="voice-card-text" role="status">
+          <strong>{offer.message}</strong>
+        </p>
+        {offer.error !== null ? (
+          <p className="field-error" role="alert">
+            {offer.error}
+          </p>
+        ) : null}
+      </div>
+      <div className="voice-card-actions">{actions}</div>
+    </li>
+  )
+}
+
+/** [음성 기록 보기] 창 (D-V2-08, AC-V2-28·29): 새것부터 시각·들은 말·읽은 것·한 일·버린 까닭. 그 탭 메모리에만 있다 */
+function VoiceLogDialog({ voice, snapshot, onClose }: { readonly voice: VoiceController; readonly snapshot: VoiceSnapshot; readonly onClose: () => void }) {
+  const lines = voice.logLines()
+  return (
+    <Modal
+      title="음성 기록"
+      onClose={onClose}
+      wide
+      actions={
+        <>
+          <button type="button" className="button" disabled={lines.length === 0} onClick={() => voice.clearLog()}>
+            기록 지우기
+          </button>
+          <button type="button" className="button" disabled={snapshot.learnedCount === 0} onClick={() => voice.clearLearned()}>
+            배운 품종 이름 지우기
+          </button>
+        </>
+      }
+    >
+      <p className="hint">이 기록은 이 화면에만 있어요. 새로 고치거나 화면을 떠나면 사라지고, 어디에도 보내지 않아요.</p>
+      {lines.length === 0 ? (
+        <p>아직 기록이 없어요.</p>
+      ) : (
+        <ol className="plain-list voice-log-list" aria-label="음성 기록 목록">
+          {lines.map((line) => (
+            <li key={line.key} className="voice-log-entry">
+              <dl>
+                <dt>시각</dt>
+                <dd>{line.time}</dd>
+                <dt>들은 말</dt>
+                <dd>
+                  {line.pieces.map((piece, index) => (
+                    <span key={`${String(index)}-${piece}`} className="voice-log-piece">
+                      {index > 0 ? ' / ' : null}
+                      {piece}
+                    </span>
+                  ))}
+                </dd>
+                {line.read !== null ? (
+                  <>
+                    <dt>읽은 것</dt>
+                    <dd>
+                      {line.read}
+                      {line.candidates !== '' ? ` (후보: ${line.candidates})` : null}
+                    </dd>
+                  </>
+                ) : null}
+                <dt>한 일</dt>
+                <dd>{line.action}</dd>
+                {line.reason !== null ? (
+                  <>
+                    <dt>버린 까닭</dt>
+                    <dd>{line.reason}</dd>
+                  </>
+                ) : null}
+              </dl>
+            </li>
+          ))}
+        </ol>
+      )}
+    </Modal>
+  )
+}
+
 interface VoiceCardProps {
   readonly card: SuggestionCard
   readonly described: string
   readonly badge: boolean
   readonly countdown: number | null
+  /** 말하는 동안 자동 등록 기다림을 멈췄다 (D-V2-06) */
+  readonly paused: boolean
+  readonly info: CardInfo | null
   readonly note: string | null
   readonly form: CardForm | null
   readonly voice: VoiceController
@@ -286,7 +472,7 @@ interface VoiceCardProps {
   readonly onRegister: (id: string) => void
 }
 
-function VoiceCard({ card, described, badge, countdown, note, form, voice, onSubmitForm, onRegister }: VoiceCardProps) {
+function VoiceCard({ card, described, badge, countdown, paused, info, note, form, voice, onSubmitForm, onRegister }: VoiceCardProps) {
   const short = cardShortText(described)
   const low = card.confidence !== 'HIGH'
   // 끝에서 넘긴 문장 카드: 자동 등록되지 않으니 보통 카드와 겉모습을 다르게 하고 까닭을 쓴다 (D-I5-02, U-I5-01)
@@ -298,11 +484,23 @@ function VoiceCard({ card, described, badge, countdown, note, form, voice, onSub
         <p className="voice-card-text">
           <strong>{described}</strong>
           {low || flushed ? <span className="tag tag-waiting">확인 필요</span> : null}
+          {card.name === null ? <span className="tag tag-waiting">{NAME_CHECK}</span> : null}
           {badge ? <span className="tag tag-order">Enter 등록</span> : null}
         </p>
         <p className="voice-card-heard">들은 말: {card.text}</p>
+        {info !== null && info.ask !== null ? <p className="voice-card-ask">{info.ask}</p> : null}
         {flushed ? <p className="voice-card-why">{FLUSHED_CARD_NOTE}</p> : null}
-        {countdown !== null ? <p className="voice-card-auto">{countdown}초 뒤 자동 등록</p> : null}
+        {card.name === null && info !== null && info.candidates.length > 0 ? (
+          <div className="voice-candidates" role="group" aria-label={`${short} 품종 후보`}>
+            <span>혹시 이 품종인가요?</span>
+            {info.candidates.map((candidate) => (
+              <button key={candidate.name} type="button" className="button" onClick={() => voice.chooseCandidate(card.id, candidate.name)}>
+                {candidate.name}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {countdown !== null ? <p className="voice-card-auto">{countdown}초 뒤 자동 등록{paused ? ` · ${AUTO_PAUSED_NOTE}` : ''}</p> : null}
         {note !== null ? (
           <p className="field-error" role="status">
             {note}
@@ -558,9 +756,16 @@ export function VoiceExtras({ voice, snapshot }: { readonly voice: VoiceControll
   const settings = snapshot.settings
   const smsSettings = snapshot.smsSettings
   const smsWords = voice.smsWords()
-  if (!on && snapshot.heard.length === 0) return null
+  const [logOpen, setLogOpen] = useState(false)
+  if (!on && snapshot.heard.length === 0 && !snapshot.everOn) return null
   return (
     <section className="voice-extras" aria-label="음성 설정과 기록">
+      {snapshot.everOn ? (
+        <button type="button" className="button" onClick={() => setLogOpen(true)}>
+          음성 기록 보기
+        </button>
+      ) : null}
+      {logOpen ? <VoiceLogDialog voice={voice} snapshot={snapshot} onClose={() => setLogOpen(false)} /> : null}
       {on && settings !== null ? (
         <div className="voice-settings">
           <label className="choice">
@@ -577,6 +782,17 @@ export function VoiceExtras({ voice, snapshot }: { readonly voice: VoiceControll
             </p>
           ) : null}
           {settings['voice.autoConfirm'] ? <p className="hint">{AUTO_CONFIRM_HELP}</p> : null}
+          <label className="voice-seconds">
+            <span>{QUIET_LABEL}</span>
+            <input className="input" inputMode="decimal" autoComplete="off" value={snapshot.quietText} onChange={(event) => voice.setQuietSeconds(event.target.value)} />
+          </label>
+          {snapshot.quietProblem !== null ? (
+            <p className="field-error" role="alert">
+              {snapshot.quietProblem}
+            </p>
+          ) : (
+            <p className="hint">{QUIET_HELP}</p>
+          )}
           {smsSettings !== null && smsWords !== null ? (
             <>
               <label className="choice">

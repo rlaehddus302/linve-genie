@@ -107,6 +107,11 @@ function harness(patch: Partial<VoiceHost> = {}): Harness {
   return Object.assign(state, { voice, host }) as unknown as Harness
 }
 
+/** 조용한 시간(기본 1.8초)만큼 시계를 넘긴다 — 최종 결과는 이만큼 조용해야 한 덩어리로 읽힌다 (D-V2-03, AC-V2-32: 기대 글은 그대로) */
+function quiet(): void {
+  vi.advanceTimersByTime(1800)
+}
+
 async function settle(): Promise<void> {
   for (let i = 0; i < 5; i++) await Promise.resolve()
 }
@@ -269,6 +274,7 @@ describe('상태·오류 (AC-I4-12, D-205)', () => {
     expect(h.voice.getSnapshot().stateLabel).toBe('음성: 다시 시작 중')
     // 최종 결과 = 다시 듣고 있다
     FakeRecognition.last.say('안녕하세요')
+    quiet()
     expect(h.voice.getSnapshot().stateLabel).toBe('음성: 듣는 중')
     // 끈 뒤에 남은 기다림이 글자를 되살리지 않는다
     FakeRecognition.last.end()
@@ -295,6 +301,7 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     FakeRecognition.last.say('15번 핑크프릴 만오', false)
     expect(h.voice.getSnapshot()).toMatchObject({ interim: '15번 핑크프릴 만오', cards: [] })
     FakeRecognition.last.say('15번 핑크프릴 만오천 원')
+    quiet()
     const snapshot = h.voice.getSnapshot()
     expect(snapshot.interim).toBeNull()
     expect(snapshot.heard.map((line) => line.text)).toEqual(['15번 핑크프릴 만오천 원'])
@@ -308,7 +315,10 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
   it('카드를 만들 결과가 아니면(인사·만원만·끊어 말한 번호) 기록에만 남는다', async () => {
     const h = harness()
     await turnOn(h)
-    for (const text of ['안녕하세요 여러분', '만원', '십 오번 라울 오천 원', '1 5번 핑크프릴 만오천 원']) FakeRecognition.last.say(text)
+    for (const text of ['안녕하세요 여러분', '만원', '십 오번 라울 오천 원', '1 5번 핑크프릴 만오천 원']) {
+      FakeRecognition.last.say(text)
+      quiet()
+    }
     expect(h.voice.getSnapshot().cards).toEqual([])
     expect(h.voice.getSnapshot().heard).toHaveLength(4)
   })
@@ -318,11 +328,14 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     h.fetchHistory.mockResolvedValue([{ date: '2026-10-01', names: ['몽블랑레드'] }])
     await turnOn(h)
     FakeRecognition.last.say('20번 몽블랑레드 만원')
+    quiet()
     expect(h.voice.getSnapshot().cards[0]?.name).toBe('몽블랑레드')
     FakeRecognition.last.say('21번 하늘별꽃 만원')
+    quiet()
     expect(h.voice.getSnapshot().cards[0]?.name).toBeNull()
     h.names = ['하늘별꽃']
     FakeRecognition.last.say('22번 하늘별꽃 만원')
+    quiet()
     expect(h.voice.getSnapshot().cards[0]?.name).toBe('하늘별꽃')
   })
 
@@ -357,6 +370,7 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     ])
     // 받은 뒤의 문장은 바로 카드
     FakeRecognition.last.say('23번 펭귄얼음 만원')
+    quiet()
     expect(h.voice.getSnapshot().cards[0]).toMatchObject({ no: 23, name: '펭귄얼음' })
   })
 
@@ -368,14 +382,17 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     FakeRecognition.last.say('21번 펭귄얼음 만원')
     expect(h.voice.getSnapshot().cards).toEqual([])
     vi.advanceTimersByTime(HISTORY_WAIT_MS - 500)
+    quiet()
     expect(h.voice.getSnapshot().cards.map((card) => [card.no, card.name])).toEqual([[21, null]])
     FakeRecognition.last.say('22번 핑크프릴 만오천 원')
+    quiet()
     expect(h.voice.getSnapshot().cards[0]).toMatchObject({ no: 22, name: '핑크프릴' })
     // 늦게 받은 이력은 다음 문장부터 (이미 만든 카드는 그대로)
     history.resolve([{ date: '2026-10-11', names: ['펭귄얼음'] }])
     await settle()
     expect(h.voice.getSnapshot().cards.find((card) => card.no === 21)?.name).toBeNull()
     FakeRecognition.last.say('24번 펭귄얼음 만원')
+    quiet()
     expect(h.voice.getSnapshot().cards[0]).toMatchObject({ no: 24, name: '펭귄얼음' })
   })
 
@@ -385,6 +402,7 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     h.names = ['토끼당근']
     await turnOn(h)
     FakeRecognition.last.say('24번 토끼당근 만원')
+    quiet()
     expect(h.voice.getSnapshot().cards).toEqual([])
     history.reject()
     await settle()
@@ -398,6 +416,7 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     pendingHistory(h)
     await turnOn(h)
     FakeRecognition.last.say('15번 핑크프릴 만오천 원')
+    quiet()
     h.voice.turnOff()
     expect(h.voice.getSnapshot().cards.map((card) => [card.no, card.autoConfirmAt])).toEqual([[15, null]])
     vi.advanceTimersByTime(60_000)
@@ -407,6 +426,7 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     pendingHistory(left)
     await turnOn(left)
     FakeRecognition.last.say('16번 라울 만원')
+    quiet()
     left.voice.dispose()
     vi.advanceTimersByTime(60_000)
     expect(left.voice.getSnapshot().cards).toEqual([])
@@ -417,6 +437,7 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     const history = pendingHistory(h)
     await turnOn(h)
     FakeRecognition.last.say('15번 라울 만원')
+    quiet()
     h.voice.setAutoConfirm(true)
     history.resolve([])
     await settle()
@@ -425,6 +446,7 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     expect(h.registered).toEqual([])
     // 켠 뒤에 말한 문장은 자동 등록 기다림
     FakeRecognition.last.say('16번 라울 만원')
+    quiet()
     expect(h.voice.getSnapshot().cards[0]).toMatchObject({ no: 16, autoConfirmAt: Date.now() + 5000 })
   })
 
@@ -434,6 +456,7 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     const history = pendingHistory(h)
     await turnOn(h)
     FakeRecognition.last.say('15번 라울 만원')
+    quiet()
     h.voice.setAutoConfirm(false)
     h.voice.setAutoConfirm(true)
     history.resolve([])
@@ -454,6 +477,7 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     const history = pendingHistory(h)
     await turnOn(h)
     FakeRecognition.last.say('25번 라울 만원')
+    quiet()
     max = 999
     history.resolve([])
     await settle()
@@ -461,6 +485,7 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     pendingHistory(wide)
     await turnOn(wide)
     FakeRecognition.last.say('25번 라울 만원')
+    quiet()
     vi.advanceTimersByTime(HISTORY_WAIT_MS)
     // 범위 20에서 읽은 결과는 범위 999에서 읽은 결과와 같지 않다 (온 때의 범위를 쓴다)
     expect(h.voice.getSnapshot().cards.map((card) => card.no)).not.toEqual(wide.voice.getSnapshot().cards.map((card) => card.no))
@@ -473,6 +498,7 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     h.voice.turnOff()
     expect(rec.stops + rec.aborts).toBeGreaterThan(0)
     rec.say('15번 핑크프릴 만오천 원')
+    quiet()
     expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', heard: [], cards: [], interim: null })
   })
 
@@ -483,6 +509,7 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     h.voice.dispose()
     expect(rec.stops).toBe(1)
     rec.say('15번 핑크프릴 만오천 원')
+    quiet()
     expect(h.voice.getSnapshot().cards).toEqual([])
   })
 })
@@ -492,8 +519,10 @@ describe('Enter·등록·고치기 (AC-I4-21·22·23, D-I4-03)', () => {
     const h = harness()
     await turnOn(h)
     FakeRecognition.last.say('15번 핑크프릴 만오천 원')
+    quiet()
     vi.advanceTimersByTime(300)
     FakeRecognition.last.say('16번 라울 만원')
+    quiet()
     expect(h.voice.enter('', { wide: true, dialogOpen: false })).toBe(true)
     expect(h.voice.getSnapshot().tooSoon).toBe(true)
     expect(TOO_SOON).toBe('새 카드가 방금 나왔어요. 확인하고 다시 Enter를 눌러 주세요.')
@@ -515,6 +544,7 @@ describe('Enter·등록·고치기 (AC-I4-21·22·23, D-I4-03)', () => {
     await turnOn(h)
     expect(h.voice.enter('', { wide: true, dialogOpen: false })).toBe(false)
     FakeRecognition.last.say('15번 핑크프릴 만오천 원')
+    quiet()
     vi.advanceTimersByTime(2000)
     expect(h.voice.enter('20 라울 10', { wide: true, dialogOpen: false })).toBe(false)
     expect(h.voice.enter('', { wide: false, dialogOpen: false })).toBe(false)
@@ -526,12 +556,14 @@ describe('Enter·등록·고치기 (AC-I4-21·22·23, D-I4-03)', () => {
     const h = harness()
     await turnOn(h)
     FakeRecognition.last.say('핑크프릴 만오천 원')
+    quiet()
     const id = h.voice.getSnapshot().cards[0]?.id as string
     h.voice.confirm(id, 'click')
     expect(h.registered).toEqual([])
     expect(h.voice.getSnapshot().forms.get(id)).toMatchObject({ no: '', name: '핑크프릴', price: '15,000원', focus: 'no', message: '번호가 없어요. 번호를 넣어 주세요.' })
     expect(h.voice.getSnapshot().cards[0]?.touched).toBe(true)
     FakeRecognition.last.say('15번 핑크프릴')
+    quiet()
     const id2 = h.voice.getSnapshot().cards[0]?.id as string
     h.voice.confirm(id2, 'click')
     expect(h.voice.getSnapshot().forms.get(id2)).toMatchObject({ focus: 'price', message: '가격이 없어요. 가격을 넣어 주세요.' })
@@ -541,6 +573,7 @@ describe('Enter·등록·고치기 (AC-I4-21·22·23, D-I4-03)', () => {
     const h = harness({ readSettings: () => ({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5 }) })
     await turnOn(h)
     FakeRecognition.last.say('15번 만오천 원')
+    quiet()
     const id = h.voice.getSnapshot().cards[0]?.id as string
     h.voice.openForm(id)
     expect(h.voice.getSnapshot().forms.get(id)).toMatchObject({ no: '15', name: '', price: '15,000원', focus: 'name' })
@@ -556,6 +589,7 @@ describe('Enter·등록·고치기 (AC-I4-21·22·23, D-I4-03)', () => {
     const h = harness({ readSettings: () => ({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 3 }) })
     await turnOn(h)
     FakeRecognition.last.say('15번 핑크프릴 만오천 원')
+    quiet()
     const id = h.voice.getSnapshot().cards[0]?.id as string
     vi.advanceTimersByTime(2999)
     h.voice.confirm(id, 'click')
@@ -569,8 +603,10 @@ describe('Enter·등록·고치기 (AC-I4-21·22·23, D-I4-03)', () => {
     const h = harness()
     await turnOn(h)
     FakeRecognition.last.say('15번 핑크프릴 만오천 원')
+    quiet()
     vi.advanceTimersByTime(10)
     FakeRecognition.last.say('16번 라울 만원')
+    quiet()
     const old = h.voice.take(h.voice.getSnapshot().cards[1]?.id as string) as SuggestionCard
     h.voice.restore(old, { note: '15번이 이미 있어요. 고칠까요?' })
     const snapshot = h.voice.getSnapshot()
@@ -595,6 +631,7 @@ describe('자동 확정 (AC-I4-30·31, D-I4-05)', () => {
     const h = harness({ readSettings: () => AUTO })
     await turnOn(h)
     FakeRecognition.last.say('15번 핑크프릴 만오천 원')
+    quiet()
     vi.advanceTimersByTime(4900)
     expect(h.registered).toEqual([])
     vi.advanceTimersByTime(100)
@@ -605,12 +642,16 @@ describe('자동 확정 (AC-I4-30·31, D-I4-05)', () => {
     const h = harness({ readSettings: () => AUTO })
     await turnOn(h)
     FakeRecognition.last.say('16번 핑크푸릴 만원') // LOW
+    quiet()
     FakeRecognition.last.say('17번 라울 만원')
+    quiet()
     h.voice.stopAuto(h.voice.getSnapshot().cards[0]?.id as string)
     h.voice.setAutoConfirm(false)
     FakeRecognition.last.say('18번 블루엘프 칠천 원')
+    quiet()
     h.voice.setAutoConfirm(true)
     FakeRecognition.last.say('19번 라울 만원')
+    quiet()
     h.voice.turnOff()
     vi.advanceTimersByTime(60_000)
     expect(h.registered).toEqual([])
@@ -621,6 +662,7 @@ describe('자동 확정 (AC-I4-30·31, D-I4-05)', () => {
     const h = harness({ readSettings: () => AUTO })
     await turnOn(h)
     FakeRecognition.last.say('15번 핑크프릴 만오천 원')
+    quiet()
     h.dialog = true
     vi.advanceTimersByTime(8000)
     expect(h.registered).toEqual([])
@@ -633,8 +675,10 @@ describe('자동 확정 (AC-I4-30·31, D-I4-05)', () => {
     const h = harness({ readSettings: () => AUTO })
     await turnOn(h)
     FakeRecognition.last.sayAll('15번 핑크프릴 만오천 원', '16번 라울 오천 원')
+    quiet()
     vi.advanceTimersByTime(500)
     FakeRecognition.last.say('블루엘프 칠천 원') // 번호 없음 — 맨 앞, 자동 확정 없음
+    quiet()
     expect(h.voice.getSnapshot().cards).toHaveLength(3)
     vi.advanceTimersByTime(4499)
     expect(h.registered).toEqual([])
@@ -651,10 +695,13 @@ describe('자동 확정 (AC-I4-30·31, D-I4-05)', () => {
     const h = harness({ readSettings: () => AUTO })
     await turnOn(h)
     FakeRecognition.last.say('15번 핑크프릴 만오천 원')
+    quiet()
     vi.advanceTimersByTime(500)
     FakeRecognition.last.say('16번 라울 오천 원')
+    quiet()
     vi.advanceTimersByTime(500)
     FakeRecognition.last.say('블루엘프 칠천 원')
+    quiet()
     h.dialog = true
     vi.advanceTimersByTime(7000)
     expect(h.registered).toEqual([])
@@ -667,8 +714,9 @@ describe('자동 확정 (AC-I4-30·31, D-I4-05)', () => {
     const h = harness({ readSettings: () => AUTO })
     await turnOn(h)
     FakeRecognition.last.say('15번 핑크프릴 만오천 원')
+    quiet()
     // 시계만 간다 — 배경 탭처럼 타이머가 늦는 경우
-    vi.setSystemTime(T0 + 5200)
+    vi.setSystemTime(T0 + 1800 + 5200)
     FakeRecognition.last.say('안녕하세요')
     expect(h.registered).toEqual([])
     vi.advanceTimersByTime(0)
@@ -680,6 +728,7 @@ describe('자동 확정 (AC-I4-30·31, D-I4-05)', () => {
     const h = harness({ readSettings: () => AUTO, maxNumber: () => max })
     await turnOn(h)
     FakeRecognition.last.say('15번 핑크프릴 만오천 원')
+    quiet()
     max = 10
     vi.advanceTimersByTime(5000)
     expect(h.registered).toEqual([])
@@ -692,6 +741,7 @@ describe('자동 확정 (AC-I4-30·31, D-I4-05)', () => {
     const h = harness({ readSettings: () => AUTO })
     await turnOn(h)
     FakeRecognition.last.say('15번 핑크프릴 만오천 원')
+    quiet()
     h.products.set(15, false)
     vi.advanceTimersByTime(5000)
     expect(h.registered).toEqual([])
@@ -700,6 +750,7 @@ describe('자동 확정 (AC-I4-30·31, D-I4-05)', () => {
     expect(h.voice.getSnapshot().notes.get(card?.id as string)).toBe('15번이 이미 있어요. 고칠까요?')
     // 판매 종료된 상품이면 그 물음
     FakeRecognition.last.say('16번 라울 만원')
+    quiet()
     h.products.set(16, true)
     vi.advanceTimersByTime(5000)
     expect(h.voice.getSnapshot().notes.get(h.voice.getSnapshot().cards[0]?.id as string)).toBe('16번은 판매 종료된 상품이에요. 새 값으로 고쳐서 다시 팔까요?')
@@ -744,14 +795,18 @@ describe('아이폰(사파리) 음성 (I5 — D-I5-01~04)', () => {
     FakeRecognition.last.end()
     expect(h.voice.getSnapshot().flushedClosed).toEqual([])
     FakeRecognition.last.say('16번 라울 이만원')
+    quiet()
     FakeRecognition.last.say('17번 라울 이만원')
+    quiet()
     expect(h.voice.getSnapshot().flushedClosed).toEqual([])
     FakeRecognition.last.say('18번 라울 이만원')
+    quiet()
     const snapshot = h.voice.getSnapshot()
     expect(snapshot.cards.map((card) => card.no)).toEqual([18, 17, 16])
     expect(snapshot.flushedClosed).toEqual(['15번 핑크프릴 15,000원 — 등록할까요?'])
     // 다른 일로 스냅샷이 바뀌어도 남는다
     FakeRecognition.last.say('19번 라울 이만원')
+    quiet()
     expect(h.voice.getSnapshot().flushedClosed).toEqual(['15번 핑크프릴 15,000원 — 등록할까요?'])
     h.voice.dismissFlushedClosed()
     expect(h.voice.getSnapshot().flushedClosed).toEqual([])
@@ -768,9 +823,12 @@ describe('아이폰(사파리) 음성 (I5 — D-I5-01~04)', () => {
     FakeRecognition.last.end()
     expect(h.voice.getSnapshot().cards.map((card) => [card.no, card.flushedAtEnd])).toEqual([[16, true], [15, true]])
     FakeRecognition.last.say('17번 라울 이만원')
+    quiet()
     FakeRecognition.last.say('18번 라울 이만원')
+    quiet()
     expect(h.voice.getSnapshot().flushedClosed).toEqual(['15번 핑크프릴 15,000원 — 등록할까요?'])
     FakeRecognition.last.say('19번 라울 이만원')
+    quiet()
     expect(h.voice.getSnapshot().cards.map((card) => card.no)).toEqual([19, 18, 17])
     expect(h.voice.getSnapshot().flushedClosed).toEqual(['15번 핑크프릴 15,000원 — 등록할까요?', '16번 라울 20,000원 — 등록할까요?'])
     // 넘긴 카드는 자동 등록되지 않는다
@@ -782,6 +840,7 @@ describe('아이폰(사파리) 음성 (I5 — D-I5-01~04)', () => {
     FakeRecognition.last.say('20번 핑크프릴 만오천원', false)
     FakeRecognition.last.end()
     for (const no of ['21', '22', '23']) FakeRecognition.last.say(`${no}번 라울 이만원`)
+    quiet()
     expect(h.voice.getSnapshot().flushedClosed).toEqual(['20번 핑크프릴 15,000원 — 등록할까요?'])
   })
 
@@ -789,6 +848,7 @@ describe('아이폰(사파리) 음성 (I5 — D-I5-01~04)', () => {
     const h = harness()
     await turnOn(h)
     for (const no of ['15', '16', '17', '18']) FakeRecognition.last.say(`${no}번 라울 이만원`)
+    quiet()
     expect(h.voice.getSnapshot().cards.map((card) => card.no)).toEqual([18, 17, 16])
     expect(h.voice.getSnapshot().flushedClosed).toEqual([])
   })
@@ -797,6 +857,7 @@ describe('아이폰(사파리) 음성 (I5 — D-I5-01~04)', () => {
     const h = harness({ readSettings: () => AUTO })
     await turnOn(h)
     FakeRecognition.last.say('15번 핑크프릴 만오천원')
+    quiet()
     expect(h.voice.getSnapshot().cards[0]?.flushedAtEnd).toBeUndefined()
     vi.advanceTimersByTime(5000)
     expect(h.registered.map((item) => [item.registration.no, item.source])).toEqual([[15, 'auto']])
@@ -845,6 +906,7 @@ describe('아이폰(사파리) 음성 (I5 — D-I5-01~04)', () => {
     const h = harness()
     await turnOn(h)
     FakeRecognition.last.say('15번 핑크프릴 만오천원')
+    quiet()
     FakeRecognition.last.end()
     expect(FakeRecognition.all).toHaveLength(2)
     FakeRecognition.last.fail('not-allowed')
