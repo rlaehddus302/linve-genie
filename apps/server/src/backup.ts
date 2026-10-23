@@ -1,5 +1,5 @@
 // 백업·복구·전체 내려받기 (DAT-03·DAT-04, I2 D-I2-10~D-I2-12, AC-I2-60~64).
-// 파일 = gzip으로 압축한 JSON 하나 (형식 번호 2 — harness/sprints/I2/dev-notes.md "백업 파일 형식"):
+// 파일 = gzip으로 압축한 JSON 하나 (형식 번호 3 — harness/sprints/I2/dev-notes.md "백업 파일 형식", 번호 3의 봉인 범위는 harness/sprints/PL1A/dev-notes.md):
 //   형식 이름·번호, 만든 시각(UTC ISO), 판매자 ID, 가게 설정, 판매 규칙 설정, 모든 범위(실제·리허설)의 이벤트 기록 전부(seq 순)와 방송 목록,
 //   포장·배송 기록 전부(기록 순), 택배 접수 기록(T1 — 날짜·구매자·택배사·송장번호·상태·시각만, 배송지 없음), 내용 요약값(손상 확인).
 // 넣지 않는다: 비밀번호 해시·로그인 아이디·세션·로그인 시도 기록·판매자 전화번호 키(암호문 포함)·마스터 키·상태 스냅샷·발송함.
@@ -7,7 +7,12 @@
 //   요약값은 조각마다 이어 계산한다. 읽을 때(검사·복구)도 gzip 스트림을 조각으로 풀어 이벤트 하나씩 읽는다(json-stream.ts).
 //   그래서 파일 안 칸의 차례가 정해져 있다(형식 번호 2): 맨 위 format·version·createdAt·sellerId·shop·settings·scopes·packing·parcels·digest
 //   (parcels는 T1에 더한 칸 — 없는 옛 파일도 같은 번호로 읽는다, D-T1-07 "형식 판 번호 규칙은 D-I2-10 그대로"),
-//   범위 안 date·rehearsal·events·seq·broadcasts. 이벤트·포장 기록·방송 하나의 칸 차례는 상관없다.
+//   범위 안 date·rehearsal·sealed(번호 3)·events·seq·broadcasts. 이벤트·포장 기록·방송 하나의 칸 차례는 상관없다.
+// - 30일 봉인 범위 (PL1A D-PL1-01, D-I2-22 (1)): 형식 번호 3은 범위마다 sealed 칸 — 봉인 안 한 범위는 null, 봉인한 범위는
+//   { sealedAt(UTC ISO), ledger(저장된 장부 글 그대로), ledgerDigest(저장된 장부 요약값 그대로) }. 봉인 범위의 이벤트는 저장된 그대로(채팅 본문·이름 없음).
+//   검사는 봉인 범위를 재생하지 않고 seq 이어짐·이벤트 요약값·장부 요약값·장부 읽기(readLedger)·장부 날짜·리허설 아님·방송 목록 = 장부의 방송을 본다(재생 검사 명령 checkSealed와 같은 방식, 요금 대조 없음).
+//   복구는 봉인 범위를 봉인된 채로 넣는다(봉인 시각·장부·장부 요약값, 상태 스냅샷·발송함·채팅 원문 없음 — 다시 봉인하지 않는다).
+//   형식 번호 2 파일도 읽는다 — 모든 범위를 봉인 안 한 범위로 보고 재생한다(봉인 범위가 든 번호 2 파일은 BASE와 같이 재생에서 거절된다).
 // - 채팅 본문·이름 (Y1 합친 뒤, AC-Y1-60): 서버는 채팅 이벤트의 본문(text)·이름(nick)을 chat_raw에 따로 둔다. 파일의 이벤트 본문은 Y1 전과 같은 모양 —
 //   따로 둔 값을 다시 합친 엔진 이벤트 그대로다(형식 번호 2 그대로). 복구는 채팅을 다시 떼어 chat_raw에 넣고, 실제 범위의 채팅은 유튜브 채팅(봉인 대상),
 //   리허설 범위의 채팅은 리허설 채팅으로 적는다(서버 수집 경로와 같은 규칙 — service.ts #recordChat).
@@ -102,13 +107,16 @@ import { FAILED_INPUT_MESSAGE, emptyState, type AttentionItem } from './runtime.
 import { sha256Hex } from './secrets.ts'
 import { readShop, shopJson, type ShopView } from './shop.ts'
 import { mergeRaw } from './store.ts'
+import { readLedger } from './youtube/seal.ts'
 import { iso, kstDate, type Clock } from './time.ts'
 import { eventDigest, splitChatRaw } from './writer.ts'
 import { SERVICE_NAME } from './brand.ts'
 
 export const BACKUP_FORMAT = 'livejjim-seller-backup'
-/** 형식 번호 (2 = 칸 차례가 정해진 스트림 형식·이어 계산하는 요약값, RA-I2-005) */
-export const BACKUP_VERSION = 2
+/** 형식 번호 (2 = 칸 차례가 정해진 스트림 형식·이어 계산하는 요약값, RA-I2-005 · 3 = 범위마다 봉인 칸, PL1A D-PL1-01). 만드는 파일은 늘 3 */
+export const BACKUP_VERSION = 3
+/** 읽는 형식 번호 (2는 봉인 칸 없이 — 모든 범위를 봉인 안 한 범위로 본다) */
+export const BACKUP_READ_VERSIONS: readonly number[] = [2, 3]
 /** 이벤트를 DB에서 한 번에 읽는 수 (묶음 사이에 이벤트 루프에 차례를 넘긴다) */
 export const BACKUP_PAGE = 2000
 /** 보관 기간 (D-I2-10): 만든 지 30×24시간이 지난 파일은 지운다 — 판매자마다 가장 최근 파일 하나는 늘 남긴다 */
@@ -152,9 +160,21 @@ export interface BackupBroadcast {
   readonly createdAt: string
 }
 
+/** 봉인 범위의 봉인 칸 (형식 번호 3, D-PL1-01) — 범위 행의 값 그대로 */
+export interface BackupSealed {
+  /** 봉인한 시각 (UTC ISO) */
+  readonly sealedAt: string
+  /** 저장된 장부 글 그대로 (바이트가 같다) */
+  readonly ledger: string
+  /** 저장된 장부 요약값 그대로 (장부 글의 SHA-256) */
+  readonly ledgerDigest: string
+}
+
 export interface BackupScope {
   readonly date: string
   readonly rehearsal: boolean
+  /** 형식 번호 3: 봉인 안 한 범위는 null (번호 2 파일에는 칸이 없다) */
+  readonly sealed?: BackupSealed | null
   readonly events: readonly BackupEvent[]
   readonly seq: number
   readonly broadcasts: readonly BackupBroadcast[]
@@ -190,7 +210,7 @@ export const BACKUP_PARCEL_STATES = ['PENDING', 'UNKNOWN', 'BOOKED', 'FAILED', '
 /** 파일 내용 (시험·작은 기록용 — 서버는 이 모양을 메모리에 통째로 만들지 않는다) */
 export interface BackupFile {
   readonly format: typeof BACKUP_FORMAT
-  readonly version: typeof BACKUP_VERSION
+  readonly version: 2 | 3
   readonly createdAt: string
   readonly sellerId: string
   readonly shop: ShopView
@@ -209,9 +229,10 @@ export function backupEventDigest(date: string, rehearsal: boolean, seq: number,
 }
 
 /**
- * 내용 요약값 (형식 번호 2): 내용을 파일 차례대로 조각으로 나눠 조각마다 정규 JSON(키 정렬) + 줄바꿈을 이어 넣은 SHA-256.
- * 조각 = ["format", 형식 이름] · ["version", 2] · ["sellerId", …] · ["shop", …] · ["settings", …] ·
- *        범위마다 ["scope", 날짜, 리허설인지] · 이벤트마다 그 이벤트 · ["scopeEnd", seq, 방송 목록] · 포장 기록마다 ["packing", 기록] ·
+ * 내용 요약값 (형식 번호 2·3): 내용을 파일 차례대로 조각으로 나눠 조각마다 정규 JSON(키 정렬) + 줄바꿈을 이어 넣은 SHA-256.
+ * 조각 = ["format", 형식 이름] · ["version", 번호] · ["sellerId", …] · ["shop", …] · ["settings", …] ·
+ *        범위마다 ["scope", 날짜, 리허설인지](번호 2) 또는 ["scope", 날짜, 리허설인지, 봉인 칸](번호 3 — 봉인 칸까지 덮는다, D-PL1-01) ·
+ *        이벤트마다 그 이벤트 · ["scopeEnd", seq, 방송 목록] · 포장 기록마다 ["packing", 기록] ·
  *        (parcels 칸이 있으면) 접수 기록마다 ["parcel", 기록] · ["end", 범위 수, 포장 기록 수] 또는 parcels 칸이 있으면 ["end", 범위 수, 포장 기록 수, 접수 기록 수].
  * 만든 시각과 요약값 칸은 넣지 않는다 — 같은 기록이면 만든 시각과 상관없이 같은 요약값이다. 만들기·검사가 같은 클래스를 쓴다
  */
@@ -221,6 +242,8 @@ export class BackupDigest {
   #packing = 0
   /** parcels 칸이 있었으면 그 기록 수 (없던 옛 파일은 null — 요약값이 T1 전과 같다) */
   #parcels: number | null = null
+  /** 형식 번호 3이면 범위 조각에 봉인 칸을 넣는다 */
+  #sealedField = false
 
   #feed(value: unknown): void {
     this.#hash.update(canonicalJson(value), 'utf8')
@@ -230,14 +253,15 @@ export class BackupDigest {
   header(value: { readonly format: unknown; readonly version: unknown; readonly sellerId: unknown; readonly shop: unknown; readonly settings: unknown }): void {
     this.#feed(['format', value.format])
     this.#feed(['version', value.version])
+    this.#sealedField = value.version === 3
     this.#feed(['sellerId', value.sellerId])
     this.#feed(['shop', value.shop])
     this.#feed(['settings', value.settings])
   }
 
-  scopeStart(date: unknown, rehearsal: unknown): void {
+  scopeStart(date: unknown, rehearsal: unknown, sealed?: unknown): void {
     this.#scopes++
-    this.#feed(['scope', date, rehearsal])
+    this.#feed(this.#sealedField ? ['scope', date, rehearsal, sealed === undefined ? null : sealed] : ['scope', date, rehearsal])
   }
 
   event(event: unknown): void {
@@ -275,7 +299,7 @@ export function backupDigest(file: { readonly format: unknown; readonly version:
   digest.header(file)
   for (const raw of file.scopes) {
     const scope = raw as Partial<BackupScope>
-    digest.scopeStart(scope.date, scope.rehearsal)
+    digest.scopeStart(scope.date, scope.rehearsal, scope.sealed)
     for (const event of scope.events ?? []) digest.event(event)
     digest.scopeEnd(scope.seq, scope.broadcasts)
   }
@@ -292,7 +316,7 @@ export function backupDigest(file: { readonly format: unknown; readonly version:
 const toIso = (value: Date): string => value.toISOString()
 const yieldToLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
-/** 파일 글 조각을 만드는 쓰개 (칸 차례 = 형식 번호 2). 요약값을 함께 이어 계산한다 */
+/** 파일 글 조각을 만드는 쓰개 (칸 차례 = 형식 번호 3). 요약값을 함께 이어 계산한다 */
 class BackupWriter {
   readonly digest = new BackupDigest()
   #scopeCount = 0
@@ -305,10 +329,11 @@ class BackupWriter {
     return `{"format":${JSON.stringify(BACKUP_FORMAT)},"version":${String(BACKUP_VERSION)},"createdAt":${JSON.stringify(createdAt)},"sellerId":${JSON.stringify(sellerId)},"shop":${JSON.stringify(shop)},"settings":${JSON.stringify(settings)},"scopes":[`
   }
 
-  scopeStart(date: string, rehearsal: boolean): string {
-    this.digest.scopeStart(date, rehearsal)
+  scopeStart(date: string, rehearsal: boolean, sealed: BackupSealed | null): string {
+    const field = sealed === null ? null : { sealedAt: sealed.sealedAt, ledger: sealed.ledger, ledgerDigest: sealed.ledgerDigest }
+    this.digest.scopeStart(date, rehearsal, field)
     this.#eventCount = 0
-    return `${this.#scopeCount++ === 0 ? '' : ','}{"date":${JSON.stringify(date)},"rehearsal":${String(rehearsal)},"events":[`
+    return `${this.#scopeCount++ === 0 ? '' : ','}{"date":${JSON.stringify(date)},"rehearsal":${String(rehearsal)},"sealed":${JSON.stringify(field)},"events":[`
   }
 
   event(event: BackupEvent): string {
@@ -376,13 +401,15 @@ export async function* backupPieces(db: Db, sellerId: string, now: number): Asyn
   const writer = new BackupWriter()
   yield writer.header(iso(now), sellerId, shop, settings)
   const scopeRows = await db
-    .select({ id: scopes.id, date: scopes.date, rehearsal: scopes.rehearsal, seq: scopes.seq })
+    .select({ id: scopes.id, date: scopes.date, rehearsal: scopes.rehearsal, seq: scopes.seq, sealedAt: scopes.sealedAt, ledger: scopes.ledger, ledgerDigest: scopes.ledgerDigest })
     .from(scopes)
     .where(eq(scopes.sellerId, sellerId))
     .orderBy(asc(scopes.date), asc(scopes.rehearsal))
   for (const scope of scopeRows) {
     if (scope.seq === 0) continue
-    yield writer.scopeStart(scope.date, scope.rehearsal)
+    // 봉인한 범위 (D-PL1-01): 범위 행의 봉인 시각·장부·장부 요약값 그대로. 이벤트는 저장된 그대로(채팅 원문은 봉인 때 지웠다)
+    const sealed = scope.sealedAt === null ? null : { sealedAt: toIso(scope.sealedAt), ledger: scope.ledger ?? '', ledgerDigest: scope.ledgerDigest ?? '' }
+    yield writer.scopeStart(scope.date, scope.rehearsal, sealed)
     const broadcastList: BackupBroadcast[] = []
     let last = 0
     for (;;) {
@@ -546,7 +573,7 @@ const invalid = (message: string): never => {
 const MESSAGES = {
   gzip: '백업 파일을 풀지 못했어요(gzip 파일이 아니거나 손상됐어요).',
   format: `${SERVICE_NAME} 백업 파일이 아니에요(형식 이름이 달라요).`,
-  version: `이 서버가 읽을 수 없는 형식 번호예요(${String(BACKUP_VERSION)}만 읽어요).`,
+  version: `이 서버가 읽을 수 없는 형식 번호예요(${BACKUP_READ_VERSIONS.join('·')}만 읽어요).`,
   keys: '백업 파일의 칸이 형식과 달라요.',
   shop: '가게 설정의 형식이 올바르지 않아요.',
   settings: '판매 규칙 설정의 형식이 올바르지 않아요.',
@@ -556,6 +583,16 @@ const MESSAGES = {
   packing: '포장 기록이 목록이 아니에요.',
   parcels: '택배 접수 기록이 목록이 아니에요.',
   digest: '파일 요약값이 맞지 않아요(파일이 손상됐거나 바뀌었어요).',
+  /** 봉인 범위 (D-PL1-01) */
+  sealedRehearsal: '리허설 범위는 봉인할 수 없어요.',
+} as const
+
+/** 봉인 범위 검사 문장 (D-PL1-01 — 범위 날짜만, 장부 내용 없음) */
+export const SEALED_BACKUP_MESSAGES = {
+  shape: (date: string): string => `범위 ${date}의 봉인 칸 형식이 올바르지 않아요.`,
+  digest: (date: string): string => `범위 ${date}의 봉인 장부 요약값이 맞지 않아요(장부가 바뀌었어요).`,
+  unreadable: (date: string): string => `범위 ${date}의 봉인 장부를 읽을 수 없어요.`,
+  rehearsal: MESSAGES.sealedRehearsal,
 } as const
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -619,6 +656,94 @@ function checkBroadcastRow(raw: unknown): BackupBroadcast | null {
   const { id, date, title, startSeq, endedAt, createdAt } = raw
   if (typeof id !== 'string' || typeof date !== 'string' || typeof title !== 'string' || !isInt(startSeq, 1) || !(endedAt === null || isIso(endedAt)) || !isIso(createdAt)) return null
   return { id, date, title, startSeq, endedAt, createdAt }
+}
+
+const SEALED_KEYS = ['sealedAt', 'ledger', 'ledgerDigest'] as const
+
+/**
+ * 봉인 칸 검사 (형식 번호 3, D-PL1-01): null이면 봉인 안 한 범위. 봉인 칸이면 (f) 리허설 아님 → (c) 장부 글의 sha256 = ledgerDigest →
+ * (d) 장부를 읽을 수 있음(readLedger — `/1`·`/2`) → (e) 장부의 날짜 = 범위 날짜. 하나라도 어기면 파일 전체를 거절한다
+ */
+function checkSealedField(raw: unknown, date: string, rehearsal: boolean): { sealed: BackupSealed; ledgerBroadcasts: readonly { id: string; date: string; title: string; endedAt: string | null }[] } | null {
+  if (raw === null) return null
+  if (!isObject(raw) || !hasKeys(raw, SEALED_KEYS)) return invalid(SEALED_BACKUP_MESSAGES.shape(date))
+  const { sealedAt, ledger, ledgerDigest } = raw
+  if (!isIso(sealedAt) || typeof ledger !== 'string' || typeof ledgerDigest !== 'string') return invalid(SEALED_BACKUP_MESSAGES.shape(date))
+  if (rehearsal) return invalid(SEALED_BACKUP_MESSAGES.rehearsal)
+  if (sha256Hex(ledger) !== ledgerDigest) return invalid(SEALED_BACKUP_MESSAGES.digest(date))
+  const read = readLedger(ledger)
+  if (read === null || read.date !== date) return invalid(SEALED_BACKUP_MESSAGES.unreadable(date))
+  return { sealed: { sealedAt: sealedAt as string, ledger, ledgerDigest }, ledgerBroadcasts: read.broadcasts }
+}
+
+/**
+ * 봉인 범위 검사 (D-PL1-01): 재생하지 않는다 — 이벤트마다 형식·seq·요약값(checkEventRow)과 본문이 기록 칸과 맞는지만 보고,
+ * 방송 목록은 장부의 방송(선언 순)과 그 방송의 시작·끝 이벤트로 정한다. 엔진은 부르지 않는다
+ */
+class SealedScopeCheck {
+  readonly derived: BackupBroadcast[] = []
+  count = 0
+  readonly #where: string
+  readonly #ledger: ReadonlyMap<string, { id: string; date: string; title: string; endedAt: string | null }>
+  readonly #order: readonly string[]
+  readonly #started = new Set<string>()
+  readonly #ended = new Set<string>()
+
+  constructor(date: string, ledgerBroadcasts: readonly { id: string; date: string; title: string; endedAt: string | null }[]) {
+    this.#where = scopeName(date, false)
+    this.#ledger = new Map(ledgerBroadcasts.map((broadcast) => [broadcast.id, broadcast]))
+    this.#order = ledgerBroadcasts.map((broadcast) => broadcast.id)
+  }
+
+  /**
+   * 이벤트 하나. 상태를 바꿨는지(복구가 이벤트 행의 changed 칸에 적는다)는 재생 없이 정한다: 장부의 방송을 처음 시작한 이벤트·장부의 끝난 시각과 같은 처음 끝낸 이벤트만 true,
+   * 그 밖의 방송 시작·끝은 false, 다른 이벤트는 실패 표시가 아니면 true(봉인 범위는 쓰지 않으므로 이 칸을 읽는 곳은 방송 목록뿐이다)
+   */
+  apply(event: BackupEvent): { changed: boolean; effects: readonly EngineEffect[] } {
+    this.count++
+    if (event.failed) return { changed: false, effects: [] }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(event.body)
+    } catch {
+      return invalid(`범위 ${this.#where}의 seq ${String(event.seq)} 이벤트 본문을 읽지 못했어요.`)
+    }
+    if (!isObject(parsed) || parsed.type !== event.type || parsed.seq !== event.seq || parsed.at !== event.at) {
+      return invalid(`범위 ${this.#where}의 seq ${String(event.seq)} 이벤트 본문이 기록 칸과 맞지 않아요.`)
+    }
+    if (event.type !== 'broadcast.start' && event.type !== 'broadcast.end') return { changed: true, effects: [] }
+    const b = typeof parsed.b === 'string' ? parsed.b : ''
+    const known = this.#ledger.get(b)
+    if (known === undefined) return { changed: false, effects: [] }
+    if (event.type === 'broadcast.start') {
+      if (this.#started.has(b)) return { changed: false, effects: [] }
+      this.#started.add(b)
+      this.derived.push({ id: b, date: String(parsed.date), title: String(parsed.title), startSeq: event.seq, endedAt: null, createdAt: event.receivedAt })
+      return { changed: true, effects: [] }
+    }
+    const index = this.derived.findIndex((broadcast) => broadcast.id === b)
+    if (index < 0 || this.#ended.has(b) || known.endedAt !== iso(event.at)) return { changed: false, effects: [] }
+    this.#ended.add(b)
+    this.derived[index] = { ...(this.derived[index] as BackupBroadcast), endedAt: iso(event.at) }
+    return { changed: true, effects: [] }
+  }
+
+  /** 범위 끝: seq = 이벤트 수(1 이상), 방송 목록 = 이벤트로 정한 것 = 장부의 방송(ID·날짜·제목·끝난 시각, 선언 순) */
+  finish(seq: unknown, rawBroadcasts: unknown, date: string): BackupBroadcast[] {
+    if (!isInt(seq) || this.count === 0 || seq !== this.count) return invalid(`범위 ${scopeName(date, false)}의 seq가 이벤트 기록과 맞지 않아요.`)
+    if (!Array.isArray(rawBroadcasts)) return invalid(MESSAGES.scope)
+    const list: BackupBroadcast[] = []
+    for (const raw of rawBroadcasts as unknown[]) {
+      const checked = checkBroadcastRow(raw)
+      if (checked === null) return invalid(`범위 ${scopeName(date, false)}의 방송 목록 형식이 올바르지 않아요.`)
+      list.push(checked)
+    }
+    if (canonicalJson(this.derived) !== canonicalJson(list)) return invalid(`범위 ${this.#where}의 방송 목록이 이벤트와 맞지 않아요.`)
+    const fromLedger = this.#order.map((id) => this.#ledger.get(id))
+    const fromList = list.map((broadcast) => ({ id: broadcast.id, date: broadcast.date, title: broadcast.title, endedAt: broadcast.endedAt }))
+    if (canonicalJson(fromLedger) !== canonicalJson(fromList)) return invalid(SEALED_BACKUP_MESSAGES.unreadable(date))
+    return list
+  }
 }
 
 /** 한 범위를 처음부터 이벤트 하나씩 재생 (실패 표시는 건너뛴다). 입력 오류·형식 오류·본문과 칸이 다르면 실패 */
@@ -747,11 +872,18 @@ export interface BackupScopeSummary {
   readonly seq: number
   readonly events: number
   readonly broadcasts: readonly BackupBroadcast[]
+  /** 봉인 범위 (형식 번호 3 — 재생하지 않고 장부 요약값으로 검사했다, D-PL1-01) */
+  readonly sealed: boolean
+  /** 복구가 다시 만들 상태 스냅샷 수 (봉인 범위 0, 그 밖 1) */
+  readonly snapshots: number
+  /** 복구가 다시 만들 발송함 행 수 (재생이 낸 효과 — 봉인 범위 0) */
+  readonly outbox: number
 }
 
 export interface BackupSummary {
   readonly format: typeof BACKUP_FORMAT
-  readonly version: typeof BACKUP_VERSION
+  /** 파일의 형식 번호 (2 또는 3) */
+  readonly version: number
   readonly createdAt: string
   readonly sellerId: string
   readonly shop: ShopView
@@ -768,9 +900,11 @@ export interface CheckedBackup {
 /** 검사하며 읽는 동안 부르는 곳 (복구가 DB에 넣는다). 하나라도 던지면 읽기가 멈춘다 */
 interface BackupVisitor {
   header?(summary: Pick<BackupSummary, 'sellerId' | 'shop' | 'settings'>): Promise<void>
-  scopeStart?(date: string, rehearsal: boolean): Promise<void>
+  /** sealed = 봉인 범위의 봉인 칸 (봉인 안 한 범위·형식 번호 2는 null) */
+  scopeStart?(date: string, rehearsal: boolean, sealed: BackupSealed | null): Promise<void>
   event?(event: BackupEvent, changed: boolean, effects: readonly EngineEffect[]): Promise<void>
-  scopeEnd?(seq: number, broadcastList: readonly BackupBroadcast[], state: EngineState, attention: readonly AttentionItem[]): Promise<void>
+  /** 봉인 범위는 state가 null (재생하지 않는다) */
+  scopeEnd?(seq: number, broadcastList: readonly BackupBroadcast[], state: EngineState | null, attention: readonly AttentionItem[]): Promise<void>
   packing?(record: BackupPacking): Promise<void>
 }
 
@@ -791,8 +925,8 @@ async function* gunzipText(bytes: Uint8Array): AsyncGenerator<string> {
 /**
  * 백업·내보내기 파일을 처음부터 끝까지 한 번 읽으며 검사한다 (AC-I2-62 검사 목록 — 하나라도 어긋나면 까닭).
  * 이벤트는 하나씩 읽고 범위마다 처음부터 재생한다(범위 하나의 상태만 메모리에). visitor가 있으면 검사를 통과한 값마다 부른다.
- * 칸의 차례(형식 번호 2): 맨 위 format·version·createdAt·sellerId·shop·settings·scopes·packing·digest,
- * 범위 date·rehearsal·events·seq·broadcasts(이벤트 요약값에 날짜·리허설인지가 들어가 events 앞에 온다)
+ * 칸의 차례(형식 번호 2·3): 맨 위 format·version·createdAt·sellerId·shop·settings·scopes·packing·digest,
+ * 범위 date·rehearsal·sealed(번호 3)·events·seq·broadcasts(이벤트 요약값에 날짜·리허설인지가 들어가 events 앞에 온다 — 봉인 칸도 events 앞이라 봉인 범위는 재생하지 않고 읽는다)
  */
 async function walkBackup(bytes: Uint8Array, visitor: BackupVisitor = {}): Promise<Checked<BackupSummary>> {
   const reader = new JsonPullReader(gunzipText(bytes))
@@ -805,7 +939,8 @@ async function walkBackup(bytes: Uint8Array, visitor: BackupVisitor = {}): Promi
     if ((await reader.readValue(256)) !== BACKUP_FORMAT) invalid(MESSAGES.format)
     await reader.expect(',', MESSAGES.keys)
     await key('version')
-    if ((await reader.readValue(64)) !== BACKUP_VERSION) invalid(MESSAGES.version)
+    const version = await reader.readValue(64)
+    if (typeof version !== 'number' || !BACKUP_READ_VERSIONS.includes(version)) invalid(MESSAGES.version)
     await reader.expect(',', MESSAGES.keys)
     await key('createdAt')
     const createdAt = await reader.readValue(64)
@@ -825,7 +960,7 @@ async function walkBackup(bytes: Uint8Array, visitor: BackupVisitor = {}): Promi
     const settingsObject = settings as Record<string, unknown>
     if (checkSettings(settingsObject).length > 0 || settingsObject['settlement.groupBy'] === 'MANUAL') invalid(MESSAGES.settingsCheck)
     const digest = new BackupDigest()
-    digest.header({ format: BACKUP_FORMAT, version: BACKUP_VERSION, sellerId, shop, settings })
+    digest.header({ format: BACKUP_FORMAT, version, sellerId, shop, settings })
     await visitor.header?.({ sellerId: sellerId as string, shop: shop as ShopView, settings: settingsObject })
 
     // 범위
@@ -847,18 +982,28 @@ async function walkBackup(bytes: Uint8Array, visitor: BackupVisitor = {}): Promi
         const scopeKey = JSON.stringify([scopeDate, rehearsal])
         if (seen.has(scopeKey)) invalid(`범위 ${scopeName(scopeDate, rehearsal as boolean)}가 두 번 있어요.`)
         seen.add(scopeKey)
-        digest.scopeStart(scopeDate, rehearsal)
-        await visitor.scopeStart?.(scopeDate, rehearsal as boolean)
+        // 봉인 칸 (형식 번호 3, D-PL1-01) — 이벤트 앞이라 봉인 범위는 재생하지 않는다
+        let sealedRaw: unknown = null
+        if (version === 3) {
+          await reader.expect(',', MESSAGES.scope)
+          await key('sealed', MESSAGES.scope)
+          sealedRaw = await reader.readValue()
+        }
+        const sealedField = checkSealedField(sealedRaw, scopeDate, rehearsal as boolean)
+        digest.scopeStart(scopeDate, rehearsal, version === 3 ? sealedRaw : undefined)
+        await visitor.scopeStart?.(scopeDate, rehearsal as boolean, sealedField?.sealed ?? null)
         await reader.expect(',', MESSAGES.scope)
         await key('events', MESSAGES.scope)
         await reader.expect('[', MESSAGES.scope)
-        const replay = new ScopeReplay(scopeDate, rehearsal as boolean)
+        const replay = sealedField === null ? new ScopeReplay(scopeDate, rehearsal as boolean) : new SealedScopeCheck(scopeDate, sealedField.ledgerBroadcasts)
+        let effectCount = 0
         if (!(await reader.take(']'))) {
           do {
             const raw = await reader.readValue()
             const event = checkEventRow(raw, scopeDate, rehearsal as boolean, replay.count + 1)
             digest.event(raw)
             const { changed, effects } = replay.apply(event)
+            effectCount += effects.length
             await visitor.event?.(event, changed, effects)
           } while (await reader.take(','))
           await reader.expect(']', MESSAGES.scope)
@@ -870,10 +1015,20 @@ async function walkBackup(bytes: Uint8Array, visitor: BackupVisitor = {}): Promi
         await key('broadcasts', MESSAGES.scope)
         const rawBroadcasts = await reader.readValue()
         await reader.expect('}', MESSAGES.scope)
-        const broadcastList = replay.finish(seq, rawBroadcasts, scopeDate, rehearsal as boolean)
+        const broadcastList = replay instanceof ScopeReplay ? replay.finish(seq, rawBroadcasts, scopeDate, rehearsal as boolean) : replay.finish(seq, rawBroadcasts, scopeDate)
         digest.scopeEnd(seq, rawBroadcasts)
-        await visitor.scopeEnd?.(seq as number, broadcastList, replay.state, replay.attention)
-        scopeList.push({ date: scopeDate, rehearsal: rehearsal as boolean, seq: seq as number, events: replay.count, broadcasts: broadcastList })
+        const sealedScope = !(replay instanceof ScopeReplay)
+        await visitor.scopeEnd?.(seq as number, broadcastList, replay instanceof ScopeReplay ? replay.state : null, replay instanceof ScopeReplay ? replay.attention : [])
+        scopeList.push({
+          date: scopeDate,
+          rehearsal: rehearsal as boolean,
+          seq: seq as number,
+          events: replay.count,
+          broadcasts: broadcastList,
+          sealed: sealedScope,
+          snapshots: sealedScope ? 0 : 1,
+          outbox: effectCount,
+        })
       } while (await reader.take(','))
       await reader.expect(']', MESSAGES.scopes)
     }
@@ -922,7 +1077,7 @@ async function walkBackup(bytes: Uint8Array, visitor: BackupVisitor = {}): Promi
       ok: true,
       value: {
         format: BACKUP_FORMAT,
-        version: BACKUP_VERSION,
+        version: version as number,
         createdAt: createdAt as string,
         sellerId: sellerId as string,
         shop: shop as ShopView,
@@ -1409,19 +1564,19 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
         .where(eq(sellers.id, sellerId))
       const scopeIds = new Map<string, string>()
       // 지금 넣는 범위 (범위 행은 첫 이벤트에서 — 만든 시각 = 첫 이벤트의 도착 시각)
-      let current: { date: string; rehearsal: boolean; id: string; created: boolean; youtubeChat: boolean } | null = null
+      let current: { date: string; rehearsal: boolean; id: string; created: boolean; youtubeChat: boolean; sealed: BackupSealed | null } | null = null
       const eventRows = new Batcher<typeof events.$inferInsert>((rows) => tx.insert(events).values(rows))
       const chatRawRows = new Batcher<typeof chatRaw.$inferInsert>((rows) => tx.insert(chatRaw).values(rows))
       const outboxRows = new Batcher<typeof outbox.$inferInsert>((rows) => tx.insert(outbox).values(rows))
       const packingBatch = new Batcher<typeof packingRecords.$inferInsert>((rows) => tx.insert(packingRecords).values(rows))
       const visitor: BackupVisitor = {
-        scopeStart: async (date, rehearsal) => {
+        scopeStart: async (date, rehearsal, sealed) => {
           const id = options.ids.scope()
           scopeIds.set(JSON.stringify([date, rehearsal]), id)
-          current = { date, rehearsal, id, created: false, youtubeChat: false }
+          current = { date, rehearsal, id, created: false, youtubeChat: false, sealed }
         },
         event: async (event, changed, effects) => {
-          const scope = current as unknown as { date: string; rehearsal: boolean; id: string; created: boolean; youtubeChat: boolean }
+          const scope = current as unknown as { date: string; rehearsal: boolean; id: string; created: boolean; youtubeChat: boolean; sealed: BackupSealed | null }
           if (!scope.created) {
             await tx.insert(scopes).values({ id: scope.id, sellerId, date: scope.date, rehearsal: scope.rehearsal, seq: 0, createdAt: new Date(event.receivedAt) })
             scope.created = true
@@ -1459,11 +1614,16 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
           eventCount++
         },
         scopeEnd: async (seq, broadcastList, state, attention) => {
-          const scope = current as unknown as { date: string; rehearsal: boolean; id: string; created: boolean; youtubeChat: boolean }
+          const scope = current as unknown as { date: string; rehearsal: boolean; id: string; created: boolean; youtubeChat: boolean; sealed: BackupSealed | null }
           await eventRows.flush()
           await chatRawRows.flush()
           await outboxRows.flush()
-          await tx.update(scopes).set({ seq, youtubeChat: scope.youtubeChat }).where(and(eq(scopes.sellerId, sellerId), eq(scopes.id, scope.id)))
+          // 봉인 범위 (D-PL1-01): 봉인 시각·장부·장부 요약값은 파일 값 그대로 — 다시 봉인하지 않는다(가져온 서버의 시계와 상관없다)
+          const seal = scope.sealed === null ? {} : { sealedAt: new Date(scope.sealed.sealedAt), ledger: scope.sealed.ledger, ledgerDigest: scope.sealed.ledgerDigest }
+          await tx
+            .update(scopes)
+            .set({ seq, youtubeChat: scope.youtubeChat, ...seal })
+            .where(and(eq(scopes.sellerId, sellerId), eq(scopes.id, scope.id)))
           if (broadcastList.length > 0) {
             await tx.insert(broadcasts).values(
               broadcastList.map((broadcast) => ({
@@ -1478,7 +1638,8 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
               })),
             )
           }
-          await tx.insert(snapshots).values({ sellerId, scopeId: scope.id, seq, format: STATE_FORMAT, state: JSON.stringify(state), attention: JSON.stringify(attention), createdAt: now })
+          // 상태 스냅샷은 재생한 범위만 (봉인 범위는 재생하지 않는다 — 조회는 장부로)
+          if (state !== null) await tx.insert(snapshots).values({ sellerId, scopeId: scope.id, seq, format: STATE_FORMAT, state: JSON.stringify(state), attention: JSON.stringify(attention), createdAt: now })
           current = null
         },
         packing: async (record) =>
