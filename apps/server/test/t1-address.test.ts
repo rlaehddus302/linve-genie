@@ -3,9 +3,9 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { gunzipSync } from 'node:zlib'
+import { gunzipSync, gzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
-import { FolderBackupStorage, createBackupBytes, restoreSeller } from '../src/backup.ts'
+import { FolderBackupStorage, backupDigest, checkBackupBytes, createBackupBytes, restoreSeller, type BackupFile } from '../src/backup.ts'
 import { randomIds } from '../src/ids.ts'
 import { kst } from './i2-support.ts'
 import { client, createBroadcast, dumpAllTables, fakeClock, rid, writeEvent } from './support.ts'
@@ -236,6 +236,32 @@ describe('AC-T1-06 백업·전체 기록·복구', () => {
     const bytes = await createBackupBytes(world.database.db, seller.sellerId, world.clock.now())
     const text = gunzipSync(bytes).toString('utf8')
     for (const value of ['홍길동', '01012345678', '세종대로', '101동', '문 앞에', '04524', ...sealedValues.map((value) => value.split('.')[2] as string)]) expect(text, value).not.toContain(value)
+    // 접수 기록은 (날짜, 구매자, 택배사, 송장번호, 상태, 시각)만 — 접수한 것·취소한 것 모두 (SA-T1-01, D-T1-07)
+    const file = JSON.parse(text) as BackupFile
+    const invoiceA = (await attempts(world, seller.sellerId, 'UC_A'))[0]?.invoice as string
+    const invoiceB = (await attempts(world, seller.sellerId, 'UC_B'))[0]?.invoice as string
+    expect(file.parcels?.map((record) => Object.keys(record))).toEqual([
+      ['date', 'buyer', 'carrier', 'invoice', 'state', 'at'],
+      ['date', 'buyer', 'carrier', 'invoice', 'state', 'at'],
+    ])
+    expect(file.parcels).toEqual([
+      { date: D, buyer: 'UC_A', carrier: 'FAKE', invoice: invoiceA, state: 'BOOKED', at: expect.stringMatching(/Z$/) },
+      { date: D, buyer: 'UC_B', carrier: 'FAKE', invoice: invoiceB, state: 'CANCELLED', at: expect.stringMatching(/Z$/) },
+    ])
+    expect(invoiceA).toMatch(/^\d{8,20}$/)
+    expect(file.digest).toBe(backupDigest(file))
+    expect((await checkBackupBytes(bytes)).ok).toBe(true)
+    // 접수 기록 칸이 없는 옛 파일(T1 전)도 같은 형식 번호로 읽는다
+    const { parcels: _dropped, ...old } = file
+    const oldBytes = new Uint8Array(gzipSync(JSON.stringify({ ...old, digest: backupDigest(old) })))
+    expect((await checkBackupBytes(oldBytes)).ok).toBe(true)
+    // 접수 기록에 다른 칸(배송지 따위)이 섞이면 거절
+    const tampered = { ...file, parcels: [{ ...(file.parcels?.[0] as object), address: '세종대로' }, ...(file.parcels ?? []).slice(1)] }
+    const tamperedCheck = await checkBackupBytes(new Uint8Array(gzipSync(JSON.stringify({ ...tampered, digest: backupDigest(tampered) }))))
+    expect(tamperedCheck).toEqual({ ok: false, reason: '택배 접수 기록 1번의 형식이 올바르지 않아요.' })
+    // 칸을 고치면 요약값이 어긋난다
+    const edited = { ...file, parcels: [{ ...(file.parcels?.[0] as object), state: 'FAILED' }, ...(file.parcels ?? []).slice(1)] }
+    expect((await checkBackupBytes(new Uint8Array(gzipSync(JSON.stringify(edited))))).ok).toBe(false)
     const exported = await client(world, seller.cookie).raw('/api/export/records.json.gz', {})
     expect(exported.status).toBe(200)
     expect(gunzipSync(new Uint8Array(await exported.arrayBuffer())).toString('utf8')).not.toContain('세종대로')
