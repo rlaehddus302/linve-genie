@@ -40,7 +40,7 @@ const LIVE_CHAT_HTML = `<!doctype html><html lang="ko"><head><meta charset="utf-
  */
 export function postingChatHtml(o: { me: 'owner' | 'moderator' | 'other' | null; owner: string | null; echo?: boolean }): string {
   const cfg = JSON.stringify({ me: o.me, owner: o.owner, echo: o.echo !== false })
-  return LIVE_CHAT_HTML.replace('</yt-live-chat-renderer>', `<yt-live-chat-message-input-renderer><div id="input" contenteditable="true"></div><button id="send-button">보내기</button></yt-live-chat-message-input-renderer></yt-live-chat-renderer>`)
+  return LIVE_CHAT_HTML.replace('</yt-live-chat-renderer>', `<yt-live-chat-message-input-renderer><div id="input" contenteditable="true"></div><button id="send-button" disabled>보내기</button></yt-live-chat-message-input-renderer></yt-live-chat-renderer>`)
     .replace('</body>', `<script>
 (() => {
   const cfg = ${cfg}
@@ -56,12 +56,16 @@ export function postingChatHtml(o: { me: 'owner' | 'moderator' | 'other' | null;
   }
   const input = document.getElementById('input')
   new MutationObserver(() => { lg.mutations++ }).observe(input, { childList: true, characterData: true, subtree: true })
+  const send = document.getElementById('send-button')
+  // 실물(HG-X1): 입력 칸이 비면 보내기 단추가 꺼져 있다
+  input.addEventListener('input', () => { send.disabled = input.textContent === '' })
   let n = 0
   document.getElementById('send-button').addEventListener('click', () => {
     const text = input.textContent
     if (text === '') return
     lg.sent.push(text); lg.at.push(Date.now()); lg.html = input.innerHTML
     input.textContent = ''
+    send.disabled = true
     if (!cfg.echo || cfg.me !== 'owner' || cfg.owner === null) return
     n++
     const el = document.createElement('yt-live-chat-text-message-renderer')
