@@ -128,7 +128,7 @@ describe('TD-V1-SRV 판매자·범위 경계 (AC-V1-11·12, AC-V1-50 (2)·(4))',
     expect(buyers.map((buyer) => buyer.id)).toEqual([mine.body.buyer])
   })
 
-  it('409 후보는 정확히 buyer·display·phoneLast4 세 칸, 키·전화번호·다른 판매자 구매자 없음, 로그에 끝자리·이름·키 없음', async () => {
+  it('409 후보는 정확히 buyer·display·phoneLast4·claims 네 칸(D-V1-14), 키·전화번호·다른 판매자 구매자 없음, 로그에 끝자리·이름·키 없음', async () => {
     const world = await newWorld()
     const a = await addSeller(world)
     const other = await addSeller(world)
@@ -148,7 +148,10 @@ describe('TD-V1-SRV 판매자·범위 경계 (AC-V1-11·12, AC-V1-50 (2)·(4))',
     expect(response.status).toBe(409)
     const candidates = response.body.candidates as Record<string, unknown>[]
     expect(candidates).toHaveLength(2)
-    for (const candidate of candidates) expect(Object.keys(candidate).sort()).toEqual(['buyer', 'display', 'phoneLast4'])
+    // D-V1-14·AC-V1-13: 후보마다 claims(그 범위의 활성 찜 상품 번호, 처음 찜한 순서)가 더해졌다 — 네 칸
+    for (const candidate of candidates) expect(Object.keys(candidate).sort()).toEqual(['buyer', 'claims', 'display', 'phoneLast4'])
+    // claims는 그 판매자·그 범위의 찜만 — 첫손님 165, 둘째 166 (남의 판매자 165는 섞이지 않는다)
+    expect(candidates.map((candidate) => candidate.claims).sort()).toEqual([[165], [166]])
     expect(response.text).not.toMatch(/phoneKey|남의손님|0101111|0102222|0103333|셋째손님/)
     const keys = (await smsBodies(world)).map((event) => event.phoneKey).filter((key): key is string => typeof key === 'string')
     for (const key of keys) expect(response.text).not.toContain(key)
@@ -209,5 +212,33 @@ describe('TD-V1-SRV 덮어쓰기·형식 (AC-V1-10, AC-V1-50 (5))', () => {
     expect(first.body.phoneLast4).toBe('0000')
     const again = await expectOk(writeEvent(world, seller, { type: 'sms', b, no: 166, last4: '0000' }))
     expect(again.body.buyer).toBe(first.body.buyer)
+  })
+})
+
+describe('TD-V1-SRV D-V1-14 409 후보의 claims (AC-V1-13·AC-V1-50 (6))', () => {
+  it('claims는 그 범위의 활성 찜만 처음 찜한 순서 — 취소한 찜·리허설 범위 찜은 없고, 찜이 없으면 []', async () => {
+    const world = await newWorld()
+    const a = await addSeller(world)
+    const live = await setup(world, a, [165, 166, 167, 168, 169])
+    const rehearsal = await setup(world, a, [165, 166, 167], true)
+    // 리허설 범위에 같은 끝자리 손님 — 실제 방송 후보에도 claims에도 섞이면 안 된다
+    await expectOk(writeEvent(world, a, { type: 'sms', b: rehearsal, no: 167, phone: '010-9999-8642' }))
+    const first = await expectOk(writeEvent(world, a, { type: 'sms', b: live, no: 167, phone: '010-1111-8642' }))
+    await expectOk(writeEvent(world, a, { type: 'sms', b: live, no: 165, phone: '010-1111-8642' }))
+    await expectOk(writeEvent(world, a, { type: 'sms', b: live, no: 166, phone: '010-1111-8642' }))
+    // 첫손님의 166 찜은 취소 → claims에서 빠진다
+    await expectOk(writeEvent(world, a, { type: 'host.cancel', b: live, no: 166, buyer: first.body.buyer as string, reason: '구매자 요청' }))
+    // 둘째 손님은 끝자리만 같고 찜을 모두 취소 → claims []
+    const second = await expectOk(writeEvent(world, a, { type: 'sms', b: live, no: 168, phone: '010-2222-8642' }))
+    await expectOk(writeEvent(world, a, { type: 'host.cancel', b: live, no: 168, buyer: second.body.buyer as string, reason: '구매자 요청' }))
+    const response = await writeEvent(world, a, { type: 'sms', b: live, no: 169, last4: '8642' })
+    expect(response.status, response.text).toBe(409)
+    const candidates = response.body.candidates as { buyer: string; claims: unknown }[]
+    expect(candidates).toHaveLength(2)
+    const byBuyer = new Map(candidates.map((candidate) => [candidate.buyer, candidate.claims]))
+    expect(byBuyer.get(first.body.buyer as string)).toEqual([167, 165])
+    expect(byBuyer.get(second.body.buyer as string)).toEqual([])
+    // 169는 기록되지 않았다
+    expect(listClaims(await stateOf(world, a)).filter((claim) => claim.no === 169)).toEqual([])
   })
 })

@@ -9,7 +9,8 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 
 const KEYS = ['last4', 'name', 'orders', 'problem', 'time']
-const PROBLEMS = new Set(['CANCEL', 'LAST4_UNCLEAR', 'NAME_UNCLEAR', 'TIME_UNCLEAR', 'NUMBER_UNCLEAR', 'OPTION_UNCLEAR'])
+// NOT_SURE: 스펙 66a7eeb(D-V1-12, R-21 3a)가 더한 이유 — 옛 목록에 없어 맞는 결과를 틀렸다고 봤다
+const PROBLEMS = new Set(['CANCEL', 'NOT_SURE', 'LAST4_UNCLEAR', 'NAME_UNCLEAR', 'TIME_UNCLEAR', 'NUMBER_UNCLEAR', 'OPTION_UNCLEAR'])
 
 /** 결과 모양 검사 (R-21 "결과") */
 function expectShape(result: SmsReading | null, maxNumber: number | null): void {
@@ -265,5 +266,93 @@ describe('TD-V1-R21 실제 말 변형 (회귀)', () => {
     expect(readVoiceSentence('15번 핑크프릴 만오천 원', { smsSettings: { 'voice.smsListen': false } }).kind).toBe('product')
     // 깨진 설정은 기본(켬)
     expect(readVoiceSentence('15번 문자찜', { smsSettings: { 'voice.smsListen': 'false' } }).kind).toBe('sms')
+  })
+})
+
+describe('TD-V1-R21 D-V1-19 띄어 쓴 끝자리 낱말 (R-21 4)', () => {
+  const read = (text: string, maxNumber = 999) => readSmsSentence(text, { maxNumber })
+  const plain = (no: number, last4: string | null = null) => ({ orders: [{ no, qty: 1 }], last4, name: null, time: null, problem: null })
+
+  it('끝·뒷 × 자리·번호 네 짝 모두, 끝말 붙은 "자리는"·"번호요", 숫자 + 번, 앞에 둬도', () => {
+    expect(read('165번 문자찜 끝 자리 1234')).toEqual(plain(165, '1234'))
+    expect(read('165번 문자찜 끝 번호 1234')).toEqual(plain(165, '1234'))
+    expect(read('165번 문자찜 뒷 자리 1234')).toEqual(plain(165, '1234'))
+    expect(read('165번 문자찜 뒷 번호 1234번')).toEqual(plain(165, '1234'))
+    expect(read('165번 문자찜 끝 자리는 1234')).toEqual(plain(165, '1234'))
+    expect(read('끝 자리 1234 165번 문자찜')).toEqual(plain(165, '1234'))
+    // 끝 문장 부호를 지운 그대로가 '끝'
+    expect(read('165번 문자찜 끝, 자리 1234')).toEqual(plain(165, '1234'))
+  })
+
+  it('끝자리 숫자 "1234번"은 맡은 토큰 — maxNumber가 9999여도 주문 번호가 되지 않는다', () => {
+    expect(read('165번 문자찜 뒷 번호 1234번', 9999)).toEqual(plain(165, '1234'))
+    expect(read('165번 문자찜 끝 자리 1234번', 9999)).toEqual(plain(165, '1234'))
+  })
+
+  it('애매하면 넣지 않는다: 낱말 뒤 없음·갈린 숫자·한글 수·서로 다른 둘(붙여 쓴 것과 띄어 쓴 것 섞어도)', () => {
+    expect(read('165번 문자찜 끝 자리')?.problem).toBe('LAST4_UNCLEAR')
+    expect(read('165번 문자찜 뒷 번호 56 78')?.problem).toBe('LAST4_UNCLEAR')
+    expect(read('165번 문자찜 끝 자리 일이삼사')?.problem).toBe('LAST4_UNCLEAR')
+    expect(read('165번 문자찜 끝 자리 1234 뒷 번호 5678')?.problem).toBe('LAST4_UNCLEAR')
+    expect(read('165번 문자찜 끝자리 1234 끝 자리 5678')?.problem).toBe('LAST4_UNCLEAR')
+    // 같은 끝자리를 두 번 말하면 하나
+    expect(read('165번 문자찜 끝자리 1234 끝 자리 1234')).toEqual(plain(165, '1234'))
+  })
+
+  it('"끝"·"뒷" 하나만, "끝은 자리"(그대로가 아님)는 낱말이 아니다 — 끝자리 없음', () => {
+    expect(read('165번 문자찜 끝 1234')).toEqual(plain(165, null))
+    expect(read('165번 문자찜 뒷 1234')).toEqual(plain(165, null))
+    expect(read('165번 문자찜 끝은 자리 1234')?.last4 ?? null).toBeNull()
+  })
+
+  it('맡은 토큰 "끝"·"자리"는 아니라는 말 검사(3a)에 걸리지 않고, 고쳐 말한 "아니"는 그대로 걸린다', () => {
+    expect(read('165번 문자찜 끝 자리 1234')?.problem).toBeNull()
+    expect(read('165번 문자찜 끝 자리 1234 아니 5678')?.problem).toBe('NOT_SURE')
+  })
+})
+
+describe('TD-V1-R21 D-V1-16 옵션 방식 번호는 상품 목록 그대로 (R-21 8, AC-V1-01)', () => {
+  const SIZES = [{ name: '사이즈', choices: [{ label: 'S' }, { label: 'M', aliases: ['엠'] }, { label: 'L' }] }]
+
+  it('TD-V1-R21 D-V1-16: maxNumber보다 큰 상품 번호도 목록에 있으면 그 번호로 읽는다 (maxNumber 1·99·999)', () => {
+    const catalog = [
+      { no: 1200, name: '반바지', options: SIZES },
+      { no: 3, name: '수건' },
+    ]
+    for (const maxNumber of [1, 99, 999]) {
+      const result = readSmsSentence('반바지 M 2개 문자찜 끝자리 1234', { parseMode: 'OPTIONS', maxNumber, maxQuantity: 10, catalog })
+      expect(result?.problem ?? null, String(maxNumber)).toBeNull()
+      expect(result?.orders.map((order) => order.no)).toEqual([1200])
+      expect(result?.last4).toBe('1234')
+    }
+  })
+
+  // AC-V1-01 문장은 "옵션 방식이면 no는 늘 넘긴 상품 목록에 있는 번호"지만, R-20 2(번호 문법 먼저 — 상품이 없으면 보류 찜)로
+  // "165번 문자찜"은 목록에 없는 165를 낸다(maxNumber 안). 그래서 여기서는 목록 번호 ∪ 1..maxNumber만 단언하고 문장 차이는 스펙 확인 지적으로 올린다.
+  it('속성: 옵션 방식 orders의 no는 넘긴 상품 목록의 번호(maxNumber와 무관)이거나 번호 문법의 1..maxNumber', () => {
+    const catalogArb = fc
+      .uniqueArray(fc.integer({ min: 1, max: 9999 }), { minLength: 1, maxLength: 4 })
+      .map((nos) =>
+        nos.map((no, i) => (i % 2 === 0 ? { no, name: ['반바지', '수건', '초코', '감자칩'][i] ?? '모자', options: SIZES } : { no, name: ['반바지', '수건', '초코', '감자칩'][i] ?? '모자' })),
+      )
+    const words = fc
+      .array(fc.constantFrom('반바지', '수건', '초코', '감자칩', 'M', '엠', 'L', '2개', '1개', '문자찜', '끝자리', '1234', '김민지님', '165번', '아니'), { maxLength: 8 })
+      .map((parts) => parts.join(' '))
+    fc.assert(
+      fc.property(catalogArb, words, fc.integer({ min: 1, max: 9999 }), (catalog, text, maxNumber) => {
+        const result = readSmsSentence(text, { parseMode: 'OPTIONS', maxNumber, maxQuantity: 10, catalog })
+        if (result === null) return
+        expect(Object.keys(result).sort()).toEqual(KEYS)
+        if (result.problem !== null) {
+          expect(PROBLEMS.has(result.problem)).toBe(true)
+          expect(result.orders).toEqual([])
+          return
+        }
+        expect(result.orders).toHaveLength(1)
+        const known = new Set(catalog.map((item) => item.no))
+        for (const order of result.orders) expect(known.has(order.no) || (Number.isSafeInteger(order.no) && order.no >= 1 && order.no <= maxNumber), String(order.no)).toBe(true)
+      }),
+      { numRuns: 600 },
+    )
   })
 })

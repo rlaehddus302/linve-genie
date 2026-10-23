@@ -51,6 +51,11 @@ interface ControllerLike {
   smsSkip(id: string): void
   smsSend(id: string): void
   smsChoose(id: string, buyer: string): void
+  smsDismiss(id: string): void
+  smsEscape(): boolean
+  smsEscTarget(): string | null
+  smsResultShown(): boolean
+  describeSms(card: SmsCard): string
   getSnapshot(): { phase: string; sms: readonly Entry[] }
   dispose(): void
 }
@@ -81,7 +86,7 @@ async function wait(ms: number): Promise<void> {
   await settle()
 }
 
-async function start(smsSettings: unknown = null): Promise<World> {
+async function start(smsSettings: unknown = null, overrides: Record<string, unknown> = {}): Promise<World> {
   const { VoiceController } = (await import(/* @vite-ignore */ CONTROLLER_MODULE)) as { VoiceController: ControllerCtor }
   const { readReceived } = (await import(/* @vite-ignore */ RECEIVED_MODULE)) as {
     readReceived: (text: string, now: number) => { kind: 'ok'; value: string; late: boolean } | { kind: string }
@@ -129,6 +134,7 @@ async function start(smsSettings: unknown = null): Promise<World> {
     newRequestId: () => `req-${String(request++)}`,
     readSmsSettings: () => smsSettings,
     writeSmsSettings: () => {},
+    ...overrides,
   }
   world.voice = new VoiceController(host)
   await world.voice.turnOn()
@@ -205,16 +211,197 @@ describe('TD-V1-CTL 저절로 넣기는 카드마다 정확히 한 번 (AC-V1-21
     world.voice.dispose()
   })
 
-  it('"넣지 않기" 뒤 10초 안에 같은 말 → 쓰기 없음 (닫은 카드도 같은 말로 본다)', async () => {
+  // D-V1-17(TD-V1-003)로 바뀐 기대: "넣지 않기"로 닫은 카드는 같은 말 검사에서 보지 않는다 — 같은 말은 새 기다리는 카드, 3초 뒤 쓰기 한 번 (AC-V1-04 예)
+  it('TD-V1-CTL D-V1-17: "넣지 않기" 뒤 2초 안에 같은 말 → 새 기다리는 카드, 3초 뒤 쓰기 한 번(새 요청 번호)', async () => {
     const world = await start()
     FakeRecognition.last.say('165번 문자찜 끝자리 1234')
     await wait(500)
     const id = shown(world)[0]?.card.id ?? ''
     world.voice.smsSkip(id)
-    await wait(4000)
+    await wait(2000)
+    expect(world.sent).toHaveLength(0)
     FakeRecognition.last.say('165번 문자찜 끝자리 1234')
+    await wait(10)
+    const fresh = shown(world)
+    expect(fresh).toHaveLength(1)
+    expect(fresh[0]?.card.id).not.toBe(id)
+    expect(fresh[0]?.card.repeats).toBe(0)
+    await wait(2980)
+    expect(world.sent).toHaveLength(0)
+    await wait(20)
+    await wait(10_000)
+    expect(world.sent.map((sent) => [sent.write.no, sent.write.last4])).toEqual([[165, '1234']])
+    world.voice.dispose()
+  })
+
+  it('TD-V1-CTL D-V1-17: 넣을 수 없는 상품의 이유 카드 뒤 같은 말 → 새 카드로 처음부터 판단, 옛 이유 카드는 끝까지 보내지 않는다', async () => {
+    const world = await start()
+    world.products.set(300, { state: 'READY', waitlistFull: false })
+    FakeRecognition.last.say('300번 문자찜 끝자리 1234')
+    await wait(3500)
+    const reasonCard = shown(world)[0]
+    expect(reasonCard?.reason).not.toBeNull()
+    expect(world.sent).toHaveLength(0)
+    // 판매자가 300번을 열고 같은 말을 다시 한다 (10초 안)
+    world.products.set(300, { state: 'OPEN', waitlistFull: false })
+    FakeRecognition.last.say('300번 문자찜 끝자리 1234')
+    await wait(10)
+    const ids = shown(world).map((entry) => entry.card.id)
+    expect(ids).toHaveLength(2)
+    await wait(15_000)
+    // 쓰기는 새 카드에서 한 번 — 이유 카드가 상품이 열렸다고 저절로 넣히면 쓰기가 둘
+    expect(world.sent.map((sent) => sent.write.no)).toEqual([300])
+    world.voice.dispose()
+  })
+
+  it('TD-V1-CTL D-V1-17: 번호 못 알아들은 이유 카드 뒤 2초 안에 끝자리 갈린 말 → 새 이유 카드(끝자리), 쓰기 없음', async () => {
+    const world = await start()
+    FakeRecognition.last.say('문자찜 들어왔어요')
+    await wait(500)
+    FakeRecognition.last.say('165번 문자찜 끝자리 12 34')
+    await wait(10)
+    const entries = shown(world)
+    expect(entries).toHaveLength(2)
+    expect(entries.map((entry) => entry.card.reading.problem).sort()).toEqual(['LAST4_UNCLEAR', 'NUMBER_UNCLEAR'])
+    expect(entries.every((entry) => entry.card.repeats === 0)).toBe(true)
     await wait(10_000)
     expect(world.sent).toHaveLength(0)
+    world.voice.dispose()
+  })
+
+  it('TD-V1-CTL D-V1-18: 넣을 수 있는 카드 넷을 1초 간격으로 → 넷 다 열려 있고 각자 3초 뒤 165·166·167·168 쓰기 넷 (AC-V1-03 예)', async () => {
+    const world = await start()
+    for (const [no, last4] of [
+      [165, '1111'],
+      [166, '2222'],
+      [167, '3333'],
+      [168, '4444'],
+    ] as const) {
+      FakeRecognition.last.say(`${String(no)}번 문자찜 끝자리 ${last4}`)
+      await wait(1000)
+    }
+    // 첫 카드는 3초가 지나 이미 갔을 수 있다 — 넣지 않고 닫힌 카드는 없어야 한다
+    expect(world.voice.getSnapshot().sms.filter((entry) => entry.card.status === 'CLOSED')).toHaveLength(0)
+    await wait(10_000)
+    expect(world.sent.map((sent) => [sent.write.no, sent.write.last4])).toEqual([
+      [165, '1111'],
+      [166, '2222'],
+      [167, '3333'],
+      [168, '4444'],
+    ])
+    expect(new Set(world.sent.map((sent) => sent.requestId)).size).toBe(4)
+    world.voice.dispose()
+  })
+
+  it('TD-V1-CTL D-V1-18: 기다림 10초에서 넷을 1초 간격으로 → 넷 다 열림, 각자 10초 뒤 쓰기 넷', async () => {
+    const world = await start({ 'voice.smsAutoSec': 10 })
+    for (const [no, last4] of [
+      [165, '1111'],
+      [166, '2222'],
+      [167, '3333'],
+      [168, '4444'],
+    ] as const) {
+      FakeRecognition.last.say(`${String(no)}번 문자찜 끝자리 ${last4}`)
+      await wait(1000)
+    }
+    expect(shown(world).map((entry) => entry.card.status)).toEqual(['OPEN', 'OPEN', 'OPEN', 'OPEN'])
+    expect(world.sent).toHaveLength(0)
+    await wait(15_000)
+    expect(world.sent.map((sent) => sent.write.no)).toEqual([165, 166, 167, 168])
+    world.voice.dispose()
+  })
+
+  it('TD-V1-CTL D-V1-20: Esc는 맨 앞(가장 새) 기다리는 카드만 "넣지 않기" — 고르기·이유·결과 카드는 닫지 않고, 없으면 false', async () => {
+    const world = await start({ 'voice.smsAutoSec': 10 })
+    // 결과 카드 하나 (지금 넣기)
+    FakeRecognition.last.say('165번 문자찜 끝자리 1111')
+    await wait(10)
+    world.voice.smsSend(shown(world)[0]?.card.id ?? '')
+    await wait(10)
+    expect(world.sent).toHaveLength(1)
+    // 이유 카드 하나
+    FakeRecognition.last.say('문자찜 들어왔어요')
+    await wait(10)
+    // 넣기 누르기 카드(번호 둘 — 기다리지 않음)
+    FakeRecognition.last.say('166번 167번 문자찜 끝자리 2222')
+    await wait(10)
+    expect(world.voice.smsEscTarget()).toBeNull()
+    expect(world.voice.smsEscape()).toBe(false)
+    // 기다리는 카드 둘 — Esc는 더 새 것부터
+    FakeRecognition.last.say('167번 문자찜 끝자리 3333')
+    await wait(1000)
+    FakeRecognition.last.say('168번 문자찜 끝자리 4444')
+    await wait(10)
+    const newest = shown(world).find((entry) => entry.card.reading.last4 === '4444')?.card.id
+    expect(world.voice.smsEscTarget()).toBe(newest)
+    expect(world.voice.smsEscape()).toBe(true)
+    const older = shown(world).find((entry) => entry.card.reading.last4 === '3333')?.card.id
+    expect(world.voice.smsEscTarget()).toBe(older)
+    expect(world.voice.smsEscape()).toBe(true)
+    expect(world.voice.smsEscape()).toBe(false)
+    await wait(15_000)
+    // 쓰기는 처음 결과 카드 하나뿐, 넣기 누르기 카드는 열린 그대로(D-V1-18 — 넷째 카드가 들어올 때 열린 카드 수 규칙은 이유 카드를 닫는다)
+    expect(world.sent).toHaveLength(1)
+    const statuses = world.voice.getSnapshot().sms.map((entry) => [entry.card.reading.last4 ?? entry.card.reading.problem, entry.card.status])
+    expect(statuses).toEqual(
+      expect.arrayContaining([
+        ['2222', 'OPEN'],
+        ['3333', 'CLOSED'],
+        ['4444', 'CLOSED'],
+      ]),
+    )
+    world.voice.dispose()
+  })
+
+  it('TD-V1-CTL D-V1-20 + D-V1-17: Esc로 닫은 뒤 같은 말 → 새 카드로 넣는다 (Esc 실수를 다시 말로 바로잡을 수 있음)', async () => {
+    const world = await start()
+    FakeRecognition.last.say('165번 문자찜 끝자리 1234')
+    await wait(500)
+    expect(world.voice.smsEscape()).toBe(true)
+    FakeRecognition.last.say('165번 문자찜 끝자리 1234')
+    await wait(10_000)
+    expect(world.sent.map((sent) => sent.write.no)).toEqual([165])
+    world.voice.dispose()
+  })
+
+  it('TD-V1-CTL D-V1-22: 결과 카드가 보이는 동안만 smsResultShown — 화면에서 닫으면 false', async () => {
+    const world = await start()
+    expect(world.voice.smsResultShown()).toBe(false)
+    FakeRecognition.last.say('165번 문자찜 끝자리 1234')
+    await wait(500)
+    expect(world.voice.smsResultShown()).toBe(false)
+    await wait(3000)
+    expect(world.sent).toHaveLength(1)
+    expect(world.voice.smsResultShown()).toBe(true)
+    const id = world.voice.getSnapshot().sms.find((entry) => entry.card.status === 'SENT')?.card.id ?? ''
+    world.voice.smsDismiss(id)
+    expect(world.voice.smsResultShown()).toBe(false)
+    world.voice.dispose()
+  })
+
+  it('TD-V1-CTL D-V1-21: 카드 글에 품종 — 있으면 번호 뒤, 비었거나 조회가 던지면 번호만', async () => {
+    const names = new Map<number, string>([
+      [165, '핑크프릴'],
+      [166, ''],
+    ])
+    const world = await start(null, {
+      smsProductName: (no: number) => {
+        if (no === 167) throw new Error('x')
+        return names.get(no) ?? null
+      },
+    })
+    const say = async (text: string): Promise<string> => {
+      FakeRecognition.last.say(text)
+      await wait(10)
+      const card = shown(world)[0]?.card
+      if (card === undefined) throw new Error('카드 없음')
+      world.voice.smsSkip(card.id)
+      return world.voice.describeSms(card)
+    }
+    expect(await say('165번 문자찜 끝자리 1234')).toBe('165번 핑크프릴 · 끝자리 1234 · 문자찜')
+    expect(await say('166번 문자찜 끝자리 1234')).toBe('166번 · 끝자리 1234 · 문자찜')
+    expect(await say('167번 문자찜 끝자리 1234')).toBe('167번 · 끝자리 1234 · 문자찜')
+    expect(await say('165번 168번 문자찜 김민지님')).toBe('165번 핑크프릴 · 168번 · 김민지님 · 문자찜 — 넣을까요?')
     world.voice.dispose()
   })
 
