@@ -8,7 +8,23 @@ export const POSTED_AT = 1_761_200_000_123
 export function loadFakeChat(doc: Document = document): HTMLElement {
   doc.body.innerHTML = FIXTURE
   setInputOwner(doc, true)
+  gateSendButton(doc)
   return doc.querySelector(ITEM_LIST) as HTMLElement
+}
+
+/**
+ * 보내기 단추 — 실제 유튜브처럼 입력 칸이 비면 disabled, 글이 들어가 input 이벤트가 오면 풀린다 (HG-X1 실물 확인).
+ * stuck = 글이 들어가도 풀리지 않음(시험용)
+ */
+export function gateSendButton(doc: Document, stuck = false): void {
+  const input = doc.querySelector('yt-live-chat-message-input-renderer #input')
+  const button = doc.querySelector('yt-live-chat-message-input-renderer #send-button') as HTMLButtonElement | null
+  if (input === null || button === null) return
+  const sync = () => {
+    button.disabled = stuck || (input.textContent ?? '').trim() === ''
+  }
+  sync()
+  input.addEventListener('input', sync)
 }
 
 export const OWNER_BADGES = [{ liveChatAuthorBadgeRenderer: { icon: { iconType: 'OWNER' }, tooltip: '소유자' } }]

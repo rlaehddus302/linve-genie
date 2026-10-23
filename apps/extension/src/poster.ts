@@ -4,7 +4,7 @@
 // - "로그인 계정이 방송 채널 주인인가(입력 칸의 주인 배지)"와 방송 채널을 함께 보낸다. 서버가 주인이고 방송 채널이 그 회차 채널과 같을 때만 글을 준다(D-X1-20·29).
 //   주인인지 못 읽으면(관리자·다른 계정·로그인 안 함) 다른 값으로 대신하지 않고 올리지 않는다.
 // - 보낸 뒤 15초 안에 내 채널의 같은 글이 채팅 목록에 뜨면 "게시됨", 못 보면 "확인 필요" — 어느 쪽이든 다시 올리지 않는다(D-X1-23).
-//   넣기 전에 멈춘 경우(쓰는 중·입력 칸 없음·보내기 단추 없음)만 "안 올림"으로 돌려준다.
+//   넣기 전에 멈춘 경우(쓰는 중·입력 칸 없음·보내기 단추 없음)와 넣은 뒤 1초 안에 단추가 안 켜진 경우(우리 글만 지움)만 "안 올림"으로 돌려준다.
 // - 글 사이는 3초 이상(서버도 지킨다, D-X1-21). 결과는 같은 것을 다시 알려도 서버가 한 번만 반영한다.
 // - 채팅 내용을 남기지(저장·출력) 않는다.
 import type { Timers } from './outbox.ts'
@@ -17,6 +17,9 @@ export const TYPING_IDLE_MS = 5_000
 export const CONFIRM_MS = 15_000
 /** 글 사이 간격 (D-X1-21) */
 export const GAP_MS = 3_000
+/** 글을 넣은 뒤 보내기 단추가 켜지기를 기다리는 최대 시간·간격 (HG-X1) */
+export const SEND_WAIT_MS = 1_000
+const SEND_POLL_MS = 50
 /** 평소 묻는 간격 */
 export const POLL_MS = 3_000
 /** 쓰는 중일 때 다시 보는 간격 */
@@ -203,14 +206,15 @@ export class ThanksPoster {
       this.#schedule(BUSY_MS)
       return
     }
-    const button = this.#doc.querySelector(SEND_BUTTON)
-    if (button === null || (button as HTMLButtonElement).disabled || button.getAttribute('aria-disabled') === 'true') {
+    if (this.#doc.querySelector(SEND_BUTTON) === null) {
       await this.#report(ids, 'NOT_POSTED')
       this.#schedule(IDLE_MS)
       return
     }
+    // 실제 유튜브는 입력 칸이 비면 보내기 단추가 꺼져 있다(HG-X1) — 글을 넣은 뒤 켜지기를 잠깐 기다린다
     this.#insert(field, text)
-    if (fieldText(field) !== sameText(text)) {
+    const button = fieldText(field) === sameText(text) ? await this.#enabledButton() : null
+    if (button === null || fieldText(field) !== sameText(text)) {
       // 들어가지 않았다 — 우리가 넣은 것만 지우고 안 올림
       this.#clearOurs(field, text)
       await this.#report(ids, 'NOT_POSTED')
@@ -220,6 +224,16 @@ export class ThanksPoster {
     const timer = this.#timers.set(() => void this.#settle('UNCONFIRMED'), CONFIRM_MS)
     this.#waiting = { ids, text: sameText(text), owner, timer }
     ;(button as HTMLElement).click()
+  }
+
+  /** 보내기 단추가 켜질 때까지 SEND_WAIT_MS까지 기다린다 (못 켜지면 null) */
+  async #enabledButton(): Promise<HTMLElement | null> {
+    for (let waited = 0; ; waited += SEND_POLL_MS) {
+      const button = this.#doc.querySelector(SEND_BUTTON)
+      if (button !== null && !(button as HTMLButtonElement).disabled && button.getAttribute('aria-disabled') !== 'true') return button as HTMLElement
+      if (waited >= SEND_WAIT_MS || this.#stopped) return null
+      await new Promise<void>((resolve) => this.#timers.set(resolve, SEND_POLL_MS))
+    }
   }
 
   /** 글자로만 넣는다 (execCommand insertText — 유튜브 입력 칸이 알아듣는 방식, 안 되면 textContent + input 이벤트) */

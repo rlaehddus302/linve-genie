@@ -5,7 +5,7 @@ import { askIdentity, BUSY_MS, CONFIRM_MS, GAP_MS, IDLE_MS, ThanksPoster, TYPING
 import { BRIDGE_EVENT, INPUT_FIELD, SEND_BUTTON, WHO_EVENT } from '../src/selectors.ts'
 import { handleBridge } from '../src/page-bridge.ts'
 import { FakeTimers, settle } from './fakes.ts'
-import { loadFakeChat, OWNER_BADGES, setInputOwner } from './fake-chat.ts'
+import { gateSendButton, loadFakeChat, OWNER_BADGES, setInputOwner } from './fake-chat.ts'
 
 const V = 'abcdEFGH123'
 const ME = 'UCsellerchannel000000001'
@@ -185,6 +185,43 @@ describe('AC-X1-27: 채널 주인 확인', () => {
     await poster.tick()
     expect(sent).toEqual([])
     expect(results()).toEqual([{ ids: [7], result: 'NOT_POSTED' }])
+  })
+
+  it('빈 칸이면 보내기 단추가 꺼져 있다 — 글을 넣어 단추가 켜지면 누른다 (HG-X1 실물)', async () => {
+    expect(button().disabled).toBe(true)
+    replies.push(postReply([11], '감사합니다'))
+    await poster.tick()
+    expect(sent).toEqual(['감사합니다'])
+    expect(poster.waiting).toBe(true)
+  })
+
+  it('글을 넣은 뒤 단추가 조금 늦게 켜지면 기다렸다가 누른다', async () => {
+    loadFakeChat()
+    gateSendButton(document, true)
+    button().addEventListener('click', () => {
+      sent.push(field().textContent ?? '')
+      field().textContent = ''
+    })
+    replies.push(postReply([12], '감사합니다'))
+    const run = poster.tick()
+    await Promise.resolve()
+    await timers.fire()
+    button().disabled = false
+    for (let i = 0; i < 5 && sent.length === 0; i++) await timers.fire()
+    await run
+    expect(sent).toEqual(['감사합니다'])
+  })
+
+  it('글을 넣어도 단추가 끝내 켜지지 않으면 우리 글만 지우고 NOT_POSTED', async () => {
+    loadFakeChat()
+    gateSendButton(document, true)
+    replies.push(postReply([13], '감사합니다'))
+    const run = poster.tick()
+    for (let i = 0; i < 40; i++) await timers.fire()
+    await run
+    expect(sent).toEqual([])
+    expect(field().textContent).toBe('')
+    expect(results()).toEqual([{ ids: [13], result: 'NOT_POSTED' }])
   })
 
   it('보내기 단추가 없으면 넣지 않고 NOT_POSTED', async () => {
