@@ -10,7 +10,8 @@ import { readSmsSentence, type SmsReadOptions } from '../src/index.ts'
 const GOLDEN_DIR = fileURLToPath(new URL('../../../tests/golden/voice/', import.meta.url))
 /** V1 고정값 — 다음 스프린트가 사례를 더하면 이 값도 함께 바꾼다 */
 const EXPECTED_FILES = 1
-const EXPECTED_CASES = 63
+// 63 → 67: 스펙 커밋 365376b가 G-VSM-V1-64~67(띄어 쓴 '끝 자리'·'뒷 번호')을 더함 — D-V1-19
+const EXPECTED_CASES = 67
 
 const FILE_KEYS = new Set(['kind', 'about', 'cases'])
 const CASE_KEYS = new Set(['id', 'title', 'refs', 'note', 'in', 'settings', 'catalog', 'focus', 'out'])

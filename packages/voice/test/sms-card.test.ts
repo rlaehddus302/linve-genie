@@ -13,6 +13,7 @@ import {
   createSmsCard,
   describeSmsCard,
   findSmsRepeat,
+  isSendableSmsCard,
   markSmsRepeat,
   openVoiceCardCount,
   pruneSmsCards,
@@ -265,12 +266,26 @@ describe('AC-V1-03 카드 문장 (VOC-04)', () => {
 // ── AC-V1-04 같은 말 ─────────────────────────────────────────────────────
 
 describe('AC-V1-04 같은 말 중복 막기 (10초 안 = 차이 ≤ 10,000ms)', () => {
-  it('10초 안 같은 주문·같은 구매자 말 → 앞 카드 (넣었거나 닫았어도)', () => {
+  it('10초 안 같은 주문·같은 구매자 말 → 앞 카드 (열려 있고 넣을 수 있거나, 넣었으면)', () => {
     const first = card('165번 문자찜 끝자리 1234', T0)
     expect(findSmsRepeat([first], read('165번 문자찜 끝자리 1234'), T0 + 2000)).toBe(first)
-    expect(findSmsRepeat([closeSmsCard(first)], read('165번 문자찜이요 끝자리는 1234'), T0 + 9999)?.id).toBe(first.id)
     const sent = sendSmsCard(first, { product: () => OPEN })
-    expect(sent.ok && findSmsRepeat([sent.card], read('165번 문자찜 끝자리 1234'), T0 + 10_000)?.id).toBe(first.id)
+    expect(sent.ok && findSmsRepeat([sent.card], read('165번 문자찜이요 끝자리는 1234'), T0 + 10_000)?.id).toBe(first.id)
+    // 고르기·손댄 카드도 넣을 수 있는 열린 카드
+    expect(findSmsRepeat([chooseSmsBuyer(first, [{ buyer: 'b', display: '문자찜', phoneLast4: '1234' }])], read('165번 문자찜 끝자리 1234'), T0 + 2000)?.id).toBe(first.id)
+    expect(findSmsRepeat([touchSmsCard(first)], read('165번 문자찜 끝자리 1234'), T0 + 2000)?.id).toBe(first.id)
+  })
+
+  // D-V1-17 (D-V1-06을 고침 — 앞 기대값 "넣지 않고 닫은 카드도 같은 말"·"문제 카드끼리도 같은 규칙"을 바꿈)
+  it('넣지 않고 닫은 카드·이유 카드는 같은 말 검사에서 보지 않는다 — 다시 말하면 새 카드 (D-V1-17)', () => {
+    const first = card('165번 문자찜 끝자리 1234', T0)
+    expect(findSmsRepeat([closeSmsCard(first)], read('165번 문자찜이요 끝자리는 1234'), T0 + 2000)).toBeNull()
+    // 부르는 쪽이 이유를 붙인 카드(넣을 수 없는 상품·VOICE_REPEATED)
+    expect(findSmsRepeat([first], read('165번 문자찜 끝자리 1234'), T0 + 2000, new Set([first.id]))).toBeNull()
+    expect(findSmsRepeat([first], read('165번 문자찜 끝자리 1234'), T0 + 2000, new Set(['other']))).toBe(first)
+    // 넣은 카드는 이유 목록과 상관없이 본다 (찜이 생기지 않은 결과 포함)
+    const sent = sendSmsCard(first, { product: () => OPEN })
+    expect(sent.ok && findSmsRepeat([sent.card], read('165번 문자찜 끝자리 1234'), T0 + 2000)?.id).toBe(first.id)
   })
 
   it('경계: 10초 정각은 같은 말, 10초 1ms 뒤는 새 카드', () => {
@@ -290,11 +305,15 @@ describe('AC-V1-04 같은 말 중복 막기 (10초 안 = 차이 ≤ 10,000ms)', 
     expect(findSmsRepeat([two], read('15번 28번 문자찜'), T0 + 1000)).toBe(two)
   })
 
-  it('문제 카드끼리도 같은 규칙, 가장 최근 카드에 표시', () => {
+  // D-V1-17: 문제 카드(이유 카드)는 검사 밖 — 앞 기대값 "문제 카드끼리도 같은 규칙"을 바꿈 (TE-V1-006의 잘못된 안내가 생기지 않는다)
+  it('문제 카드는 같은 말 검사에서 보지 않고, 같은 말이 여럿이면 가장 최근 카드에 표시', () => {
     const a = card('15번 문자찜 끝자리 12', T0)
     const b = card('16번 문자찜 끝자리 99', T0 + 1000)
-    expect(findSmsRepeat([a, b], read('17번 문자찜 끝자리 1'), T0 + 2000)?.id).toBe(b.id)
-    expect(findSmsRepeat([a], read('15번 문자찜 25시'), T0 + 2000)).toBeNull()
+    expect(findSmsRepeat([a, b], read('17번 문자찜 끝자리 1'), T0 + 2000)).toBeNull()
+    expect(findSmsRepeat([card('문자찜 들어왔어요', T0)], read('15번 문자찜 끝자리 12 34'), T0 + 2000)).toBeNull()
+    const c = card('165번 문자찜', T0)
+    const d = card('165번 문자찜이요', T0 + 1000)
+    expect(findSmsRepeat([c, d], read('165번 문자찜'), T0 + 2000)?.id).toBe(d.id)
     expect(markSmsRepeat(markSmsRepeat(a)).repeats).toBe(2)
   })
 
@@ -313,7 +332,8 @@ describe('AC-V1-04 같은 말 중복 막기 (10초 안 = 차이 ≤ 10,000ms)', 
 describe('AC-V1-03 열린 카드 수 규칙은 상품 카드와 문자찜 카드를 함께 센다', () => {
   const product = (id: string) => createCard({ id, extraction: { no: 1, name: null, price: 1000, confidence: 'LOW' }, text: '', createdAt: T0 }) as VoiceCard
 
-  it('넷째 카드가 오면 손대지 않은 가장 오래된 카드(기다리는 문자찜 카드 포함)를 닫는다 — 닫힌 카드는 넣지 않는다', () => {
+  // D-V1-18 (앞 기대값 "기다리는 문자찜 카드도 닫힌다"를 바꿈 — 넣을 수 있는 문자찜 카드는 닫지 않는다)
+  it('넷째 카드가 오면 손대지 않은 가장 오래된 상품 카드를 닫고, 기다리는 문자찜 카드는 닫지 않는다 (D-V1-18)', () => {
     let cards: VoiceCard[] = []
     const waiting = card('165번 문자찜')
     cards = addVoiceCard(cards, waiting)
@@ -321,9 +341,30 @@ describe('AC-V1-03 열린 카드 수 규칙은 상품 카드와 문자찜 카드
     cards = addVoiceCard(cards, product('p2'))
     cards = addVoiceCard(cards, card('166번 문자찜'))
     expect(openVoiceCardCount(cards)).toBe(3)
-    const closed = cards.find((item) => item.id === waiting.id) as SmsCard
-    expect(closed.status).toBe('CLOSED')
-    expect(checkSmsAuto(closed, ctx({ now: T0 + 60_000 })).due).toBe(false)
+    expect(cards.find((item) => item.id === waiting.id)?.status).toBe('OPEN')
+    expect(cards.find((item) => item.id === 'p1')?.status).toBe('CLOSED')
+    expect(checkSmsAuto(cards.find((item) => item.id === waiting.id) as SmsCard, ctx({ now: T0 + 3000 })).due).toBe(true)
+  })
+
+  it('기다리는 문자찜 카드 넷이면 넷 다 열려 있다 — 열린 카드는 3장을 넘을 수 있다 (D-V1-18, AC-V1-03 예)', () => {
+    let cards: VoiceCard[] = []
+    const four = ['165번 문자찜 끝자리 1111', '166번 문자찜 끝자리 2222', '167번 문자찜 끝자리 3333', '168번 문자찜 끝자리 4444'].map((text, i) => card(text, T0 + i * 1000, { 'voice.smsAutoSec': 10 }))
+    for (const item of four) cards = addVoiceCard(cards, item)
+    expect(openVoiceCardCount(cards)).toBe(4)
+    for (const [i, item] of four.entries()) expect(checkSmsAuto(cards.find((one) => one.id === item.id) as SmsCard, ctx({ now: T0 + i * 1000 + 10_000 })).due).toBe(true)
+  })
+
+  it('이유 카드(문제·부르는 쪽이 붙인 이유)는 닫을 수 있다', () => {
+    const problem = card('15번 문자찜 끝자리 12')
+    const blocked = card('300번 문자찜')
+    let cards: VoiceCard[] = [blocked, problem]
+    cards = addVoiceCard(cards, product('p1'), new Set([blocked.id]))
+    cards = addVoiceCard(cards, product('p2'), new Set([blocked.id]))
+    expect(cards.find((item) => item.id === problem.id)?.status).toBe('CLOSED')
+    expect(cards.find((item) => item.id === blocked.id)?.status).toBe('OPEN')
+    cards = addVoiceCard(cards, product('p3'), new Set([blocked.id]))
+    expect(cards.find((item) => item.id === blocked.id)?.status).toBe('CLOSED')
+    expect(openVoiceCardCount(cards)).toBe(3)
   })
 
   it('손댄 카드·고르기 카드는 닫지 않는다', () => {
@@ -389,7 +430,12 @@ describe('AC-V1-03 속성 시험 — 임의 조작 순서', () => {
             const reading = read(step.text)
             const repeat = findSmsRepeat(cards, reading, now)
             if (repeat !== null) replace(markSmsRepeat(repeat))
-            else cards = addVoiceCard(cards, createSmsCard({ id: `c${String(n++)}`, reading, text: step.text, createdAt: now, settings: { 'voice.smsAutoSec': sec } }))
+            else {
+              const sendable = sms().filter((item) => isSendableSmsCard(item)).map((item) => item.id)
+              cards = addVoiceCard(cards, createSmsCard({ id: `c${String(n++)}`, reading, text: step.text, createdAt: now, settings: { 'voice.smsAutoSec': sec } }))
+              // D-V1-18: 넣을 수 있는 문자찜 카드는 판매자 조작 없이 닫히지 않는다
+              for (const id of sendable) expect(cards.find((item) => item.id === id)?.status).toBe('OPEN')
+            }
           } else if (step.op === 'tick') now += step.ms
           else if (step.op === 'dialog') dialogOpen = step.value
           else if (step.op === 'voice') voiceOn = step.value

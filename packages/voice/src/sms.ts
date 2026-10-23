@@ -1,4 +1,4 @@
-// 음성 문자찜 문장 읽기 (SPEC ORD-08 AC9·VOC-02, DOMAIN_RULES R-21, V1 — D-V1-01·D-V1-02·D-V1-04·D-V1-08·D-V1-12).
+// 음성 문자찜 문장 읽기 (SPEC ORD-08 AC9·VOC-02, DOMAIN_RULES R-21, V1 — D-V1-01·D-V1-02·D-V1-04·D-V1-08·D-V1-12·D-V1-16·D-V1-19).
 // 사례: tests/golden/voice/voice-sms.json (packages/voice 단위 시험이 읽는다).
 // 문장 하나 → null(문자찜 문장이 아님 — R-17 상품 등록 추출로) 또는 정확히 { orders, last4, name, time, problem }.
 // 애매하면 넣지 않는다: 문제가 있으면 주문을 비우고 이유 하나만 돌려준다.
@@ -60,6 +60,9 @@ const NOT_SURE_ENDS: readonly string[] = Object.freeze(['나요', '까요'])
 const QUESTION_MARKS: readonly string[] = Object.freeze(['?', '？'])
 /** 뒤 4자리 앞 낱말 (R-21 4, 읽는 모양으로 비교) */
 const LAST4_WORDS = new Set(['끝자리', '뒷자리', '뒷번호', '끝번호'])
+/** 띄어 쓴 뒤 4자리 낱말 (R-21 4, D-V1-19): 첫 토큰은 그대로, 둘째 토큰은 읽는 모양으로 비교 */
+const LAST4_SPLIT_FIRST = new Set(['끝', '뒷'])
+const LAST4_SPLIT_SECOND = new Set(['자리', '번호'])
 const LAST4_VALUE = /^([0-9]{4})번?$/
 const NIM = '님'
 /** 이름이 아닌 님 앞 말 (R-21 5) */
@@ -143,21 +146,30 @@ interface Part<T> {
   readonly unclear: boolean
 }
 
-/** 4. 뒤 4자리 */
-function readLast4(forms: readonly (readonly string[])[], assigned: Set<number>): Part<string> {
+/** 4. 뒤 4자리 — 낱말 한 토큰, 또는 띄어 쓴 두 토큰 `끝`·`뒷` + `자리`·`번호` (D-V1-19) */
+function readLast4(tokens: readonly string[], forms: readonly (readonly string[])[], assigned: Set<number>): Part<string> {
   const values = new Set<string>()
   let unclear = false
-  forms.forEach((tokenForms, i) => {
-    if (!tokenForms.some((form) => LAST4_WORDS.has(form))) return
-    assigned.add(i)
-    const digits = matchForm(forms[i + 1], LAST4_VALUE)
+  for (let i = 0; i < forms.length; i++) {
+    let valueAt: number
+    if ((forms[i] ?? []).some((form) => LAST4_WORDS.has(form))) {
+      assigned.add(i)
+      valueAt = i + 1
+    } else if (LAST4_SPLIT_FIRST.has(tokens[i] ?? '') && (forms[i + 1] ?? []).some((form) => LAST4_SPLIT_SECOND.has(form))) {
+      assigned.add(i)
+      assigned.add(i + 1)
+      valueAt = i + 2
+    } else {
+      continue
+    }
+    const digits = matchForm(forms[valueAt], LAST4_VALUE)
     if (digits === null) {
       unclear = true
-      return
+      continue
     }
-    assigned.add(i + 1)
+    assigned.add(valueAt)
     values.add(digits)
-  })
+  }
   if (unclear || values.size > 1) return { value: null, unclear: true }
   return { value: values.size === 1 ? ([...values][0] as string) : null, unclear: false }
 }
@@ -278,7 +290,7 @@ export function readSmsSentence(text: unknown, options: SmsReadOptions = {}): Sm
   // 3. 취소
   if (tokens.some((token) => token.startsWith(CANCEL_WORD))) return problemOf('CANCEL')
   const assigned = new Set<number>()
-  const last4 = readLast4(forms, assigned)
+  const last4 = readLast4(tokens, forms, assigned)
   const name = readName(tokens, forms, assigned)
   const time = readTime(forms, assigned)
   // 3a. 아니라는 말·묻는 말 (맡은 토큰 4·5·6이 정해진 뒤에 본다 — 이름 `안지민님`·끝자리 숫자는 살피지 않는다)

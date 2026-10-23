@@ -1,4 +1,4 @@
-// 문자찜 카드 (SPEC VOC-04 "문자찜 카드"·VOC-01 "문자찜도 듣기", ORD-08 AC9, V1 — D-V1-05·D-V1-06·D-V1-07·D-V1-09).
+// 문자찜 카드 (SPEC VOC-04 "문자찜 카드"·VOC-01 "문자찜도 듣기", ORD-08 AC9, V1 — D-V1-05·D-V1-06·D-V1-07·D-V1-09·D-V1-17·D-V1-18).
 // R-21이 문자찜 문장이라고 읽은 결과를 상품 등록 카드와 다른 모양의 카드로 보인다. 손대지 않은 카드는 기다림(기본 3초) 뒤 저절로 넣는다.
 // 모든 함수는 순수하다: 넘긴 카드·목록을 바꾸지 않고 새 값을 돌려주며, 시계를 읽지 않는다(만든 시각·지금은 부르는 쪽이 넘긴다).
 // 쓰기(서버 `sms` 이벤트)·받은 시각 읽기(ORD-08 AC6 — 손 입력과 같은 함수)·화면은 apps/web이 한다.
@@ -239,7 +239,7 @@ export function smsCountdownText(card: SmsCard, now: number): string | null {
 }
 
 export interface DescribeSmsOptions {
-  /** 옵션 방식에서 상품 이름 (번호 → 이름). 번호 방식은 넘기지 않는다 — 카드에 품종을 보이지 않는다 */
+  /** 번호 → 상품 이름 (옵션 방식은 상품 이름, 번호 방식은 품종 — D-V1-21). 비었거나 없으면 번호만 */
   readonly productName?: (no: number) => string | null | undefined
 }
 
@@ -258,7 +258,7 @@ function describeOrder(order: SmsOrder, options: DescribeSmsOptions): string {
 }
 
 /**
- * 카드 문장 (VOC-04): "165번 · 끝자리 1234 · 문자찜", "165번 · 김민지님 · 문자찜", "165번 · 손님 확인 필요 · 문자찜",
+ * 카드 문장 (VOC-04): "165번 핑크프릴 · 끝자리 1234 · 문자찜"(productName이 품종을 주면 — D-V1-21, 없으면 "165번 · 끝자리 1234 · 문자찜"), "165번 · 김민지님 · 문자찜", "165번 · 손님 확인 필요 · 문자찜",
  * "21번 반바지 M 2개 · 끝자리 1234 · 문자찜", "… · 문자찜 · 받은 시각 2:15", 번호가 둘 이상이면 끝에 " — 넣을까요?".
  * 문제 카드(problem)는 SMS_PROBLEM_MESSAGES를 쓴다(이 문장은 주문이 없어 "번호 없음").
  * 카드 글은 글자로만 그린다 — 이름은 말한 그대로라 화면이 이스케이프해야 한다.
@@ -421,14 +421,27 @@ export function sameSmsWords(a: SmsReading, b: SmsReading): boolean {
 }
 
 /**
- * 10초 안에 같은 말로 만든 문자찜 카드 (넣었거나 닫은 카드도 — 부르는 쪽은 그동안 카드를 들고 있어야 한다). 없으면 null.
+ * 넣을 수 있는 열린 카드인가 (D-V1-17·D-V1-18): 열림 ∧ 문제 없음 ∧ 주문 있음 ∧ 이유 카드가 아님.
+ * 이유 카드 = R-21 문제, 또는 부르는 쪽이 이유를 붙인 카드(넣을 수 없는 상품·409 VOICE_REPEATED 등 — reasons에 ID).
+ */
+export function isSendableSmsCard(card: SmsCard, reasons: ReadonlySet<string> = NO_REASONS): boolean {
+  return card.status === 'OPEN' && card.reading.problem === null && card.reading.orders.length > 0 && !reasons.has(card.id)
+}
+
+const NO_REASONS: ReadonlySet<string> = new Set()
+
+/**
+ * 10초 안에 같은 말로 만든 문자찜 카드 중 같은 말 검사에서 보는 카드 (D-V1-06을 D-V1-17로 고침). 없으면 null.
+ * 보는 카드: 넣은 카드(SENT — 화면에서 닫았어도·찜이 생기지 않은 결과도) 또는 아직 열려 있고 넣을 수 있는 카드.
+ * 보지 않는 카드: 넣지 않고 닫은 카드(CLOSED — "넣지 않기"·Esc·열린 카드 수 규칙)와 이유 카드(R-21 문제·reasons에 든 ID) — 같은 말을 다시 하면 새 카드다.
  * 있으면 새 카드를 만들지 않고 markSmsRepeat로 그 카드에 "같은 말을 한 번 더 들었어요"를 붙인다.
  */
-export function findSmsRepeat(cards: readonly VoiceCard[], reading: SmsReading, now: number): SmsCard | null {
+export function findSmsRepeat(cards: readonly VoiceCard[], reading: SmsReading, now: number, reasons: ReadonlySet<string> = NO_REASONS): SmsCard | null {
   if (!isSafeTime(now)) return null
   let best: SmsCard | null = null
   for (const card of cards) {
     if (!isSmsCard(card)) continue
+    if (card.status !== 'SENT' && !isSendableSmsCard(card, reasons)) continue
     const gap = now - card.createdAt
     if (gap < 0 || gap > SMS_REPEAT_WINDOW_MS || !sameSmsWords(card.reading, reading)) continue
     if (best === null || card.createdAt > best.createdAt) best = card
@@ -452,19 +465,23 @@ export function openVoiceCardCount(cards: readonly VoiceCard[]): number {
   return cards.filter((card) => card.status === 'OPEN').length
 }
 
-/** 넘쳐도 닫지 않는 카드: 손댄 카드, 구매자를 골라야 하는 문자찜 카드(누르려던 찜을 잃지 않게) */
-const isProtected = (card: VoiceCard): boolean => card.touched || (isSmsCard(card) && card.candidates !== null)
+/**
+ * 넘쳐도 닫지 않는 카드: 손댄 카드, 구매자를 골라야 하는 문자찜 카드(누르려던 찜을 잃지 않게),
+ * 아직 넣지 않았고 넣을 수 있는 문자찜 카드(D-V1-18 — 손님의 순서라 화면 정리로 사라지지 않게)
+ */
+const isProtected = (card: VoiceCard, reasons: ReadonlySet<string>): boolean => card.touched || (isSmsCard(card) && (card.candidates !== null || isSendableSmsCard(card, reasons)))
 
 /**
  * 새 카드를 맨 앞에 넣는다. 열린 카드가 3장을 넘으면 지킬 카드가 아닌 가장 오래된 열린 카드부터 닫는다(addCard와 같은 규칙).
- * 기다리는 문자찜 카드도 손대지 않았으면 닫힐 수 있고, 닫힌 카드는 넣지 않는다.
+ * 닫는 것은 손대지 않은 상품 카드와 이유 카드뿐이다 — 넣을 수 있는 문자찜 카드(기다림·넣기 누르기·고르기)는 닫지 않으므로
+ * 열린 카드가 3장을 넘을 수 있다 (D-V1-18). reasons = 부르는 쪽이 이유를 붙인 문자찜 카드 ID(넣을 수 없는 상품 등).
  */
-export function addVoiceCard(cards: readonly VoiceCard[], card: VoiceCard): VoiceCard[] {
+export function addVoiceCard(cards: readonly VoiceCard[], card: VoiceCard, reasons: ReadonlySet<string> = NO_REASONS): VoiceCard[] {
   const next = [card, ...cards]
   let open = openVoiceCardCount(next)
   for (let i = next.length - 1; i >= 1 && open > MAX_OPEN_CARDS; i--) {
     const old = next[i] as VoiceCard
-    if (old.status !== 'OPEN' || isProtected(old)) continue
+    if (old.status !== 'OPEN' || isProtected(old, reasons)) continue
     next[i] = isSmsCard(old) ? closeSmsCard(old) : closeCard(old)
     open--
   }

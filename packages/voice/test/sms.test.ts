@@ -1,5 +1,5 @@
 // AC-V1-01·02 문자찜 문장 읽기(R-21)의 규칙 문장별 단위 시험·속성 시험과, 상품 등록 추출(R-17)과 겹치지 않음.
-// 골든 63사례는 sms-golden.test.ts가 돌린다.
+// 골든 67사례는 sms-golden.test.ts가 돌린다.
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import fc from 'fast-check'
@@ -244,6 +244,29 @@ describe('AC-V1-01 R-21 7 번호 방식 (R-17 3의 같은 코드)', () => {
   })
 })
 
+describe('AC-V1-01 R-21 4 띄어 쓴 끝자리 낱말 (D-V1-19)', () => {
+  it.each([
+    ['165번 문자찜 끝 자리 1234', '1234'],
+    ['165번 문자찜 뒷 자리 1234', '1234'],
+    ['165번 문자찜 끝 번호 1234번', '1234'],
+    ['뒷 번호 5678 165번 문자찜', '5678'],
+    ['165번 문자찜 끝 자리 1234 끝자리 1234', '1234'],
+  ])('%s → 뒤 4자리 %s', (text, last4) => {
+    expect(r(text)).toEqual(ok({ orders: [{ no: 165, qty: 1 }], last4 }))
+  })
+
+  it('낱말 다음 숫자가 갈리거나 없으면 LAST4_UNCLEAR, 서로 다른 둘도 LAST4_UNCLEAR', () => {
+    expect(r('165번 문자찜 끝 자리 12 34')).toEqual(bad('LAST4_UNCLEAR'))
+    expect(r('165번 문자찜 끝 자리')).toEqual(bad('LAST4_UNCLEAR'))
+    expect(r('165번 문자찜 끝 자리 1234 뒷번호 5678')).toEqual(bad('LAST4_UNCLEAR'))
+  })
+
+  it("'끝' 하나·'뒤 4자리'는 낱말이 아니다", () => {
+    expect(r('165번 문자찜 끝 1234')).toEqual(ok({ orders: [{ no: 165, qty: 1 }] }))
+    expect(r('165번 문자찜 뒤 자리 1234')).toEqual(ok({ orders: [{ no: 165, qty: 1 }] }))
+  })
+})
+
 describe('AC-V1-01 R-21 8 옵션 방식 (코어 parseOptionComment 그대로)', () => {
   const catalog = [
     { no: 12, name: '감자칩' },
@@ -260,6 +283,13 @@ describe('AC-V1-01 R-21 8 옵션 방식 (코어 parseOptionComment 그대로)', 
     expect(r('감자칩 11개 문자찜', opt)).toEqual(bad('OPTION_UNCLEAR'))
     expect(r('12번 21번 문자찜', opt)).toEqual(bad('OPTION_UNCLEAR'))
     expect(r('끝자리 1234 문자찜', opt)).toEqual(bad('OPTION_UNCLEAR'))
+  })
+
+  it('옵션 방식 번호는 넘긴 상품 목록 그대로 — maxNumber로 다시 거르지 않는다 (D-V1-16)', () => {
+    const wide = [{ no: 1500, name: '반바지', options: [{ name: '사이즈', choices: [{ label: 'M' }] }] }]
+    const reading = r('반바지 M 2개 문자찜', { parseMode: 'OPTIONS', maxNumber: 999, catalog: wide, focus: null })
+    expect(reading).toEqual(ok({ orders: [{ no: 1500, options: { 사이즈: 'M' }, qty: 2 }] }))
+    for (const order of reading?.orders ?? []) expect(wide.map((item) => item.no)).toContain(order.no)
   })
 
   it('번호 방식(STRICT·LOOSE·생략)은 옵션을 읽지 않는다', () => {

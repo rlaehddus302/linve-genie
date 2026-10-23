@@ -44,6 +44,7 @@ export {
   findSmsBlock,
   findSmsRepeat,
   isAutoReading,
+  isSendableSmsCard,
   isSmsCard,
   markSmsRepeat,
   openVoiceCardCount,
