@@ -26,7 +26,7 @@ import { ADJUST_RANGE, PAYMENT_RANGE, SHIPPING_RANGE, readAmount, refundRange } 
 import { routePath, type Navigate, type ScopeRoute } from '../lib/router.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
 import { settlementKey } from '../lib/scope-data.ts'
-import { PACKING_TONE, packingWords } from '../lib/packing.ts'
+import { PACKING_TONE } from '../lib/packing.ts'
 import { filterSettlements, paymentChange, previewWith, remainingOf, sortSettlements, summarize, type PaymentFilter, type PreviewEntry } from '../lib/settlement.ts'
 import { receiptSignature, useClosingSignature, usePackingList } from '../lib/use-packing.ts'
 import { useScopeStore } from '../lib/use-store.ts'
@@ -42,6 +42,7 @@ import { LedgerDialog } from './LedgerDialog.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
 import { Modal } from './Modal.tsx'
 import { AddressSection, ParcelTag } from './ParcelParts.tsx'
+import { hidesPackingTag, packingTagWords } from '../lib/parcel-words.ts'
 import type { ParcelBrief } from '../api/parcel-types.ts'
 import { ReasonField } from './ReasonField.tsx'
 import { ReceiptSection } from './ReceiptSection.tsx'
@@ -292,15 +293,19 @@ interface RowsProps {
 }
 
 /** 포장·배송 상태 꼬리표 (색 + 글자, D-102) — 택배 줄이 있으면 그 옆에 (T1) */
+/** 포장 꼬리표 + 택배 꼬리표. 접수한 묶음(배송 완료 + 접수)은 택배 꼬리표 하나만 (D-T1-15, AC-T1-65) */
 function PackingTag({ mark }: { readonly mark: PackingMark }) {
+  const hidden = hidesPackingTag(mark.status, mark.parcel)
   return (
     <>
-      <span className="tag packing-tag" data-tone={PACKING_TONE[mark.status]}>
-        {packingWords(mark.status, mark.invoice)}
-      </span>
+      {hidden ? null : (
+        <span className="tag packing-tag" data-tone={PACKING_TONE[mark.status]}>
+          {packingTagWords(mark.status, mark.invoice, mark.parcel)}
+        </span>
+      )}
       {mark.parcel !== null ? (
         <>
-          {' '}
+          {hidden ? null : ' '}
           <ParcelTag parcel={mark.parcel} />
         </>
       ) : null}

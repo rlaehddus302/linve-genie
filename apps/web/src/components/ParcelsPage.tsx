@@ -6,7 +6,8 @@
 //   보내는 동안 잠기고 두 번 눌러도 요청 하나(같은 화면 요청 번호 — 연결이 끊기면 같은 번호로 다시). 끝나면 줄마다 결과, 실패가 있으면 "실패한 것만 다시".
 // - 다른 기기의 접수·취소·조회·입금·포장도 실시간 알림(parcel·packing·change)으로 다시 읽는다. 다시 붙으면 한 번 다시 읽는다.
 // - 이름은 다른 화면과 같은 이름 규칙(BUY-01·D-098 — 같은 표시 이름이면 " · 뒤 4자리 5678" 등)으로, React 기본 이스케이프로만 그린다.
-//   그날 범위 자료(구매자·찜)를 함께 열어 buyerLabels로 정하고, 그 전에는 목록 줄끼리 같은 규칙(parcelNames)으로 나눈다 (TE-T1-001).
+//   그날 범위 자료(구매자·찜)를 함께 열어 BuyerNames(공통 이름 함수)로 정한다 — 자료가 오기 전엔 목록을 그리지 않는다(이름이 바뀌어 보이지 않게, SA-T1-02).
+// - 접수한 묶음(배송 완료 + 접수)은 포장 꼬리표 없이 택배 꼬리표 하나만 (D-T1-15). 기다림·모름 줄은 긴 안내(D-T1-18), 기다리는 줄이 있으면 30초마다 다시 읽는다.
 import { formatWon } from '@livejjim/core'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { get, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
@@ -16,6 +17,7 @@ import { dateLong } from '../lib/kst.ts'
 import { useLiveEvents } from '../lib/live-events.ts'
 import { PACKING_TONE } from '../lib/packing.ts'
 import {
+  BOOKING_NOW,
   GROUP_BOOKED,
   GROUP_EXCLUDED,
   GROUP_READY,
@@ -23,16 +25,20 @@ import {
   NOTHING_BOOKED,
   NOTHING_EXCLUDED,
   NOTHING_READY,
+  NOT_CANCELLABLE,
+  PARCEL_SHOWN_NOTE,
   PARCEL_TITLE,
+  PENDING_POLL_MS,
   RETRY_FAILED,
   WAYBILL_NOTE,
   addressReason,
   checkedWords,
+  hasPending,
+  hidesPackingTag,
   isRetryable,
   parcelGroups,
-  parcelNames,
   retryRows,
-  rowReason,
+  screenReason,
 } from '../lib/parcel-words.ts'
 import type { Navigate, ParcelsRoute } from '../lib/router.ts'
 import { useScopeStore } from '../lib/use-store.ts'
@@ -45,7 +51,6 @@ import { ParcelTag } from './ParcelParts.tsx'
 import { SpaLink } from './SettingsPage.tsx'
 
 const BOXES: readonly BoxKind[] = ['극소', '소', '중', '대']
-export const BOOKING_NOW = '택배사에 접수하는 중이에요…'
 export const DATE_NOT_FOUND = '그 날짜는 택배를 접수할 수 없어요. 다른 날짜를 골라 주세요.'
 
 /** 접수 결과 요약 */
@@ -86,12 +91,20 @@ function useParcelDates(route: ParcelsRoute, navigate: Navigate, version: number
   return { days, error, retry: () => setAttempt((n) => n + 1) }
 }
 
-function DatePicker({ route, navigate, days }: { readonly route: ParcelsRoute; readonly navigate: Navigate; readonly days: ParcelDays }) {
+/** 날짜 고르기의 수: 보고 있는 날짜는 화면 무리와 같은 수(실패한 묶음은 "아직 못 보내요" — U-T1-09), 다른 날짜는 서버 요약 */
+export interface DayCount {
+  readonly date: string
+  readonly ready: number
+  readonly booked: number
+}
+
+function DatePicker({ route, navigate, days, shown }: { readonly route: ParcelsRoute; readonly navigate: Navigate; readonly days: ParcelDays; readonly shown: DayCount | null }) {
   const id = useId()
   const dates = days.dates.map((day) => day.date)
   const options = [...new Set([...dates, ...(route.date === undefined ? [] : [route.date])])].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))
   if (options.length === 0) return null
-  const count = new Map(days.dates.map((day) => [day.date, day]))
+  const count = new Map<string, DayCount>(days.dates.map((day) => [day.date, day]))
+  if (shown !== null && count.has(shown.date)) count.set(shown.date, shown)
   return (
     <div className="field scope-picker">
       <label htmlFor={id}>날짜</label>
@@ -131,6 +144,7 @@ export function ParcelsPage({ route, navigate }: { readonly route: ParcelsRoute;
     onReconnect: bump,
   })
   const dates = useParcelDates(route, navigate, version)
+  const [shown, setShown] = useState<DayCount | null>(null)
   return (
     <main className="page page-wide parcels-page stack">
       <h1>{PARCEL_TITLE}</h1>
@@ -140,10 +154,10 @@ export function ParcelsPage({ route, navigate }: { readonly route: ParcelsRoute;
         ) : dates.days === null ? (
           <p role="status">날짜를 불러오는 중…</p>
         ) : (
-          <DatePicker route={route} navigate={navigate} days={dates.days} />
+          <DatePicker route={route} navigate={navigate} days={dates.days} shown={shown} />
         )}
       </div>
-      {date === null ? dates.days !== null && dates.days.dates.length === 0 ? <p>{NO_PARCEL_DATES}</p> : null : <ParcelDayView key={date} date={date} navigate={navigate} version={version} onChanged={bump} />}
+      {date === null ? dates.days !== null && dates.days.dates.length === 0 ? <p>{NO_PARCEL_DATES}</p> : null : <ParcelDayView key={date} date={date} navigate={navigate} version={version} onChanged={bump} onCount={setShown} />}
     </main>
   )
 }
@@ -177,7 +191,19 @@ function useParcelDay(date: string, version: number): DayState {
   return { day, error, reload: () => setAttempt((n) => n + 1) }
 }
 
-function ParcelDayView({ date, navigate, version, onChanged }: { readonly date: string; readonly navigate: Navigate; readonly version: number; readonly onChanged: () => void }) {
+function ParcelDayView({
+  date,
+  navigate,
+  version,
+  onChanged,
+  onCount,
+}: {
+  readonly date: string
+  readonly navigate: Navigate
+  readonly version: number
+  readonly onChanged: () => void
+  readonly onCount: (count: DayCount | null) => void
+}) {
   const state = useParcelDay(date, version)
   const [unchecked, setUnchecked] = useState<ReadonlySet<string>>(new Set())
   const [boxes, setBoxes] = useState<ReadonlyMap<string, BoxKind>>(new Map())
@@ -197,13 +223,32 @@ function ParcelDayView({ date, navigate, version, onChanged }: { readonly date: 
   const chosen = groups === null ? [] : groups.ready.filter((row) => !unchecked.has(row.buyer))
   const boxOf = (row: ParcelRow): BoxKind => boxes.get(row.buyer) ?? row.box
   const blocked = day?.blocked ?? null
-  const scope = useScopeStore(`parcels|${date}`, () => ({ scope: { date, rehearsal: false } })).snapshot.data
+  // 이름은 다른 화면과 같은 공통 함수(BuyerNames — D-098)로만. 그날 범위가 없으면(있을 수 없는 경우) 서버의 표시 이름
+  const scopeSnapshot = useScopeStore(`parcels|${date}`, () => ({ scope: { date, rehearsal: false } })).snapshot
+  const scope = scopeSnapshot.data
   const scopeNames = useMemo(() => (scope === null ? null : new BuyerNames(scope.buyers, scope.claims)), [scope?.buyers, scope?.claims])
-  const names = useMemo(
-    () => (day === null ? new Map<string, string>() : parcelNames([...day.ready, ...day.excluded, ...day.booked], (buyer) => (scope !== null && scope.buyers.has(buyer) ? scopeNames?.name(buyer) : undefined))),
-    [day, scope, scopeNames],
-  )
-  const nameOf = (row: ParcelRow): string => names.get(row.buyer) ?? row.name
+  const namesReady = scopeNames !== null || scopeSnapshot.phase === 'missing'
+  const nameOf = (row: ParcelRow): string => (scope !== null && scopeNames !== null && scope.buyers.has(row.buyer) ? scopeNames.name(row.buyer) : row.name)
+
+  // 날짜 고르기 수를 화면 무리와 맞춘다 (U-T1-09)
+  useEffect(() => {
+    onCount(groups === null ? null : { date, ready: groups.ready.length, booked: groups.booked.length })
+  }, [date, groups, onCount])
+  useEffect(() => () => onCount(null), [onCount])
+
+  // 택배사 답을 기다리는 줄이 있는 동안 30초마다 다시 읽는다 — 답이 오면 결과로, 2분이 지나면 "다시 확인"이 있는 줄로 (D-T1-18)
+  const waiting = day !== null && hasPending(day)
+  useEffect(() => {
+    if (!waiting) return
+    const timer = window.setInterval(onChanged, PENDING_POLL_MS)
+    return () => window.clearInterval(timer)
+  }, [waiting, onChanged])
+
+  /** 다음 동작을 하면 앞 결과 문장을 지운다 (U-T1-12) */
+  const nextAction = () => {
+    setSummary(null)
+    setBookError(null)
+  }
 
   const book = async (rows: readonly ParcelRow[]) => {
     if (running.current || rows.length === 0) return
@@ -241,14 +286,23 @@ function ParcelDayView({ date, navigate, version, onChanged }: { readonly date: 
     }
     return <p role="status">불러오는 중…</p>
   }
+  if (!namesReady) {
+    return scopeSnapshot.phase === 'error' && scopeSnapshot.error !== null ? (
+      <RequestError error={scopeSnapshot.error} onRetry={() => window.location.reload()} retryLabel="다시 열기" />
+    ) : (
+      <p role="status">구매자 이름을 불러오는 중…</p>
+    )
+  }
 
-  const toggle = (buyer: string) =>
+  const toggle = (buyer: string) => {
+    nextAction()
     setUnchecked((set) => {
       const next = new Set(set)
       if (next.has(buyer)) next.delete(buyer)
       else next.add(buyer)
       return next
     })
+  }
   const primaryLabel = `${String(chosen.length)}개 택배 접수하기`
   const locked = blocked !== null || chosen.length === 0 || busy
 
@@ -291,6 +345,7 @@ function ParcelDayView({ date, navigate, version, onChanged }: { readonly date: 
                     disabled={busy}
                     onChange={(event) => {
                       const value = event.target.value as BoxKind
+                      nextAction()
                       setBoxes((map) => new Map(map).set(row.buyer, value))
                     }}
                   >
@@ -360,7 +415,7 @@ function ParcelDayView({ date, navigate, version, onChanged }: { readonly date: 
             {waybills.error !== null ? <RequestError error={waybills.error} /> : null}
             <ul className="plain-list stack-tight parcel-list">
               {groups.booked.map((row) => (
-                <BookedRow key={row.buyer} date={date} row={row} name={nameOf(row)} onChanged={onChanged} />
+                <BookedRow key={row.buyer} date={date} row={row} name={nameOf(row)} onChanged={onChanged} onAction={nextAction} />
               ))}
             </ul>
           </>
@@ -386,7 +441,7 @@ function ParcelDayView({ date, navigate, version, onChanged }: { readonly date: 
           }
         >
           <p>{`${String(chosen.length)}개를 택배로 접수할까요?`}</p>
-          <p className="hint">접수하면 포장 상태가 "배송 완료"로 바뀌고 송장번호가 붙어요.</p>
+          <p className="hint">{PARCEL_SHOWN_NOTE}</p>
         </Modal>
       ) : null}
     </>
@@ -400,9 +455,11 @@ function RowFacts({ row }: { readonly row: ParcelRow }) {
       <span>상품 {row.itemCount}개</span>
       <span>{formatWon(row.total)}</span>
       <span className={`tag pay-${row.payment}`}>{PAYMENT_WORD[row.payment]}</span>
-      <span className="tag" data-tone={PACKING_TONE[row.packing as PackingWord] ?? 'info'}>
-        {row.packing}
-      </span>
+      {hidesPackingTag(row.packing, row.parcel) ? null : (
+        <span className="tag" data-tone={PACKING_TONE[row.packing as PackingWord] ?? 'info'}>
+          {row.packing}
+        </span>
+      )}
     </p>
   )
 }
@@ -426,7 +483,7 @@ function ExcludedRow({
   readonly blocked: boolean
   readonly onRetry: () => void
 }) {
-  const reason = rowReason(row)
+  const reason = screenReason(row)
   const text = reason === '' ? (result ?? '') : reason
   const failed = row.parcel?.state === 'FAILED'
   const unknown = row.parcel?.state === 'UNKNOWN'
@@ -455,7 +512,20 @@ function ExcludedRow({
   )
 }
 
-function BookedRow({ date, row, name, onChanged }: { readonly date: string; readonly row: ParcelRow; readonly name: string; readonly onChanged: () => void }) {
+function BookedRow({
+  date,
+  row,
+  name,
+  onChanged,
+  onAction,
+}: {
+  readonly date: string
+  readonly row: ParcelRow
+  readonly name: string
+  readonly onChanged: () => void
+  /** 다른 동작을 했다 — 위의 접수 결과 문장을 지운다 (U-T1-12) */
+  readonly onAction: () => void
+}) {
   const parcel = row.parcel
   const [asking, setAsking] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -465,6 +535,8 @@ function BookedRow({ date, row, name, onChanged }: { readonly date: string; read
   const running = useRef(false)
   const waybill = useDownload()
   const checked = parcel === null ? null : checkedWords(parcel)
+  /** 집하 뒤면 버튼 대신 안내 (서버 cancellable — U-T1-05). 그 사이 집하된 경우는 취소 응답 문장(AC-T1-64) */
+  const cancellable = parcel === null || parcel.cancellable
 
   const cancel = async () => {
     if (running.current) return
@@ -496,29 +568,47 @@ function BookedRow({ date, row, name, onChanged }: { readonly date: string; read
       <RowFacts row={row} />
       {parcel !== null ? (
         <p className="row">
-          {parcel.invoiceText !== null ? <span className="parcel-invoice">송장 {parcel.invoiceText}</span> : null}
           <ParcelTag parcel={parcel} />
           {checked !== null ? <span className="hint">{checked}</span> : null}
         </p>
       ) : null}
       <div className="row" role="group" aria-label={`${name} 택배`}>
-        <button type="button" className="button" disabled={waybill.busy} onClick={() => void waybill.run(withQuery(`/api/parcels/days/${date}/waybill.pdf`, { buyer: row.buyer }), `운송장-${date}.pdf`)}>
-          운송장 PDF
-        </button>
         <button
           type="button"
           className="button"
-          disabled={busy}
+          disabled={waybill.busy}
           onClick={() => {
+            onAction()
+            setDone(false)
             setError(null)
-            setAsking(true)
+            void waybill.run(withQuery(`/api/parcels/days/${date}/waybill.pdf`, { buyer: row.buyer }), `운송장-${date}.pdf`)
           }}
         >
-          접수 취소
+          운송장 PDF
         </button>
+        {cancellable ? (
+          <button
+            type="button"
+            className="button"
+            disabled={busy}
+            onClick={() => {
+              onAction()
+              setDone(false)
+              setError(null)
+              setAsking(true)
+            }}
+          >
+            접수 취소
+          </button>
+        ) : null}
         {busy ? <span role="status">취소하는 중…</span> : null}
         {waybill.busy ? <span role="status">운송장을 만드는 중이에요…</span> : null}
       </div>
+      {!cancellable ? (
+        <p className="hint" role="note">
+          {NOT_CANCELLABLE}
+        </p>
+      ) : null}
       {done ? (
         <p className="notice" role="status" data-tone="success">
           접수를 취소했어요.

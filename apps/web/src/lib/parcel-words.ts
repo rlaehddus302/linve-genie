@@ -1,7 +1,9 @@
 // 택배 화면 낱말 (T1, PARCEL_RULES PC-3·PC-4·PC-8, D-T1-08·D-T1-12).
 // 영어 상태값(PENDING·BOOKED…)은 화면 글자에 넣지 않는다 — 서버가 준 문장·조회 낱말을 쓰고, 없을 때만 여기 문장으로 채운다.
 import type { AddressFields, BundleView, ParcelBrief, ParcelRow } from '../api/parcel-types.ts'
+import type { PackingWord } from '../api/types.ts'
 import { kstShort } from './kst.ts'
+import { packingWords } from './packing.ts'
 
 export const PARCEL_TITLE = '택배 접수'
 export const GROUP_READY = '보낼 수 있어요'
@@ -25,6 +27,19 @@ export const ADDRESS_SAVED = '배송지를 저장했어요.'
 export const ADDRESS_CONFIRMED = '배송지를 확인했어요.'
 export const ADDRESS_DELETED = '배송지를 지웠어요.'
 export const PARCEL_SETTINGS_SAVED = '택배 설정을 저장했어요.'
+/** 확인 창 안내 (D-T1-15) */
+export const PARCEL_SHOWN_NOTE = '접수하면 포장·정산 화면에 택배 상태와 송장번호가 보여요.'
+/** 택배 화면 기다림 안내 (D-T1-18, PC-5 "기다릴 때의 안내 — 택배 화면") — 다른 화면 꼬리표는 짧은 문장(PC-4) 그대로 */
+export const BOOKING_NOW = '택배사에 접수하는 중이에요… 택배사 답이 늦으면 조금 걸려요.'
+export const UNKNOWN_WAIT = "택배사 답이 없어 접수됐는지 아직 몰라요. 잠시 뒤 '다시 확인'을 눌러 주세요. 두 번 접수되지 않아요."
+export const PENDING_WAIT = "택배사 답을 기다리고 있어요. 다른 일을 하셔도 돼요. 2분이 지나도 그대로면 '다시 확인'을 누를 수 있어요."
+/** 기다리는(PENDING) 줄이 있는 동안 목록을 다시 읽는 간격 (D-T1-18) */
+export const PENDING_POLL_MS = 30_000
+/** 집하 뒤라 접수 취소를 보낼 수 없는 줄 (U-T1-05 — 버튼 대신) */
+export const NOT_CANCELLABLE = '택배사가 이미 가져가서 여기서는 접수를 취소할 수 없어요. 바꿔야 하면 택배사에 직접 문의해 주세요.'
+/** 포장 체크리스트 잠김 안내 (U-T1-07 — 무엇 때문인지 → 필요할 때만 무엇을). 접수함은 서버 409 문장(LOCKED_ADDRESS)을 품는다 */
+export const PACKING_LOCKED_BOOKED = `택배로 접수한 묶음이라 포장·배송 기록은 여기서 바꿀 수 없어요. 바꿔야 하면 ${LOCKED_ADDRESS}`
+export const PACKING_LOCKED_WAITING = '택배 접수 결과를 기다리는 묶음이라 포장·배송 기록은 여기서 바꿀 수 없어요. 택배 화면에서 접수 결과를 먼저 확인해 주세요.'
 
 /** 살아 있는 접수 (배송지·포장 기록을 고칠 수 없다 — PC-3 잠금, PC-5) */
 export function isLive(parcel: ParcelBrief | null | undefined): boolean {
@@ -66,6 +81,32 @@ export function parcelTone(parcel: ParcelBrief): 'success' | 'warning' | 'danger
 /** "마지막 확인 10/22 14:30" (없으면 null) */
 export function checkedWords(parcel: ParcelBrief): string | null {
   return parcel.checkedAt === null ? null : `마지막 확인 ${kstShort(parcel.checkedAt)}`
+}
+
+/** 택배 화면 빠진 줄의 문장 (D-T1-18): 기다림·모름은 길게(이유와 다음 할 일), 그 밖은 rowReason */
+export function screenReason(row: ParcelRow): string {
+  if (row.parcel?.state === 'PENDING') return PENDING_WAIT
+  if (row.parcel?.state === 'UNKNOWN') return UNKNOWN_WAIT
+  return rowReason(row)
+}
+
+/** 택배사 답을 기다리는(PENDING) 줄이 있다 — 그동안 30초마다 다시 읽는다 (D-T1-18) */
+export function hasPending(day: { readonly ready: readonly ParcelRow[]; readonly excluded: readonly ParcelRow[] }): boolean {
+  return [...day.ready, ...day.excluded].some((row) => row.parcel?.state === 'PENDING')
+}
+
+/**
+ * 포장 꼬리표를 그리지 않는다 (D-T1-15, AC-T1-65): 포장 상태가 "배송 완료"이고 접수(BOOKED)가 있으면 택배 꼬리표 하나만.
+ * 손으로 적은 배송 완료(접수 없음)·배송 뒤 바뀜(주의 — 둘 다)·기다림·실패·취소 접수는 그대로 그린다.
+ */
+export function hidesPackingTag(status: string, parcel: ParcelBrief | null | undefined): boolean {
+  return status === '배송 완료' && parcel?.state === 'BOOKED'
+}
+
+/** 포장 꼬리표 글: 그 송장이 접수한 송장이면 택배 꼬리표와 같은 끊어 읽는 모양(9000-0000-0001 — U-T1-06), 손으로 적은 송장은 적은 그대로 */
+export function packingTagWords(status: PackingWord, invoice: string | null, parcel: ParcelBrief | null | undefined): string {
+  const shown = parcel?.state === 'BOOKED' && parcel.invoice !== null && parcel.invoice === invoice && parcel.invoiceText !== null ? parcel.invoiceText : invoice
+  return packingWords(status, shown)
 }
 
 /** 빠진 줄의 문장: 시도의 문장(실패·모름)이 먼저, 없으면 빠지는 이유 문장 */
@@ -131,34 +172,4 @@ export function addressShape(bundle: BundleView): AddressShape {
 export function phoneWords(phone: string): string {
   if (/^01\d{8,9}$/.test(phone)) return phone.length === 11 ? `${phone.slice(0, 3)}-${phone.slice(3, 7)}-${phone.slice(7)}` : `${phone.slice(0, 3)}-${phone.slice(3, 6)}-${phone.slice(6)}`
   return phone
-}
-
-/**
- * 택배 화면 줄 이름 (BUY-01·D-098, TE-T1-001) — 고르는 칸·"접수 취소"·"운송장 PDF"가 어느 구매자 것인지 늘 구분된다.
- * - 그날 범위 자료가 있으면 다른 화면과 같은 이름(buyerLabels: 그날 모든 구매자 기준 " · 끝 1234"·" · 뒤 4자리 5678"·" · 문자 20:01:05"·" · 2")을 쓴다.
- * - 아직 없으면(불러오는 중·못 읽음) 이 목록의 줄끼리 같은 규칙: 같은 표시 이름이 둘 이상이면 " · 뒤 4자리 5678"(있을 때),
- *   그래도 겹치면 목록 순서로 둘째부터 " · 2", " · 3". 전화번호 원문은 넣지 않는다(서버가 준 뒤 4자리만).
- */
-export function parcelNames(rows: readonly ParcelRow[], known: (buyer: string) => string | undefined = () => undefined): Map<string, string> {
-  const counts = new Map<string, number>()
-  for (const row of rows) counts.set(row.name, (counts.get(row.name) ?? 0) + 1)
-  const out = new Map<string, string>()
-  const taken = new Set<string>()
-  const local: ParcelRow[] = []
-  for (const row of rows) {
-    const label = known(row.buyer)
-    if (label === undefined) local.push(row)
-    else {
-      out.set(row.buyer, label)
-      taken.add(label)
-    }
-  }
-  for (const row of local) {
-    const base = (counts.get(row.name) ?? 0) >= 2 && row.phoneLast4 !== null ? `${row.name} · 뒤 4자리 ${row.phoneLast4}` : row.name
-    let label = base
-    for (let n = 2; taken.has(label); n++) label = `${base} · ${String(n)}`
-    taken.add(label)
-    out.set(row.buyer, label)
-  }
-  return out
 }

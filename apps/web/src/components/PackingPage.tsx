@@ -13,7 +13,8 @@
 //   바뀌면 새로 받고, 받기 전엔 저장을 잠근다 (SA-I2-002).
 //   "B1로 출력"·프린터 연결은 없다(I1을 합친 뒤 — D-I2-07).
 // - T1(AC-T1-35·65, PC-8): 택배를 접수한 묶음은 줄·체크리스트에 "택배: 배송 중 · 9000-0000-0001". 살아 있는 접수가 있으면 포장 취소·배송 취소·송장번호 고치기·
-//   배송 완료로 적기 대신 "택배 접수를 먼저 취소해 주세요."와 택배 화면 링크(서버도 409로 막는다).
+//   배송 완료로 적기 대신 까닭과 할 일("택배로 접수한 묶음이라 … 바꿔야 하면 택배 접수를 먼저 취소해 주세요." — U-T1-07)과 택배 화면 링크(서버도 409로 막는다).
+//   접수한 묶음(배송 완료 + 접수)은 포장 꼬리표 없이 택배 꼬리표 하나만(D-T1-15), 담음 수도 보이지 않는다.
 import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { get, getFile, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import type { PackingAction, PackingEntry, PackingItem, PackingLabelView, PackingResult } from '../api/types.ts'
@@ -31,7 +32,6 @@ import {
   inFilter,
   isChanged,
   nextBuyer,
-  packingWords,
   sortEntries,
   type ItemChange,
   type PackingFilter,
@@ -47,7 +47,7 @@ import { ErrorNote, RequestError } from './ErrorNote.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
 import { Modal } from './Modal.tsx'
 import { ParcelLine, ParcelTag } from './ParcelParts.tsx'
-import { isLive, LOCKED_ADDRESS } from '../lib/parcel-words.ts'
+import { hidesPackingTag, isLive, PACKING_LOCKED_BOOKED, PACKING_LOCKED_WAITING, packingTagWords } from '../lib/parcel-words.ts'
 
 export const NO_SALES = '아직 판매 기록이 없어요.'
 export const ALL_CHECKED_HINT = '모두 담으면 포장 완료를 누를 수 있어요.'
@@ -260,9 +260,11 @@ function PackingListView({ data, entries, filter, onFilter, nameOf, selected, on
               >
                 <strong className="buyer-name">{nameOf(entry)}</strong>
                 <span>상품 {entry.items.length}개</span>
-                <span className="tag" data-tone={PACKING_TONE[entry.status]}>
-                  {packingWords(entry.status, entry.invoice)}
-                </span>
+                {hidesPackingTag(entry.status, entry.parcel) ? null : (
+                  <span className="tag" data-tone={PACKING_TONE[entry.status]}>
+                    {packingTagWords(entry.status, entry.invoice, entry.parcel)}
+                  </span>
+                )}
                 {entry.payment !== 'PAID' ? (
                   <span className="tag" data-tone="warning">
                     {PAYMENT_WORD[entry.payment]}
@@ -431,9 +433,11 @@ function PackingChecklist({ date, entry, name, labelSignature, showBack, onBack,
           <span>{dateLong(date)}</span>
           <span>상품 {entry.items.length}개</span>
           <span className={`tag pay-${entry.payment}`}>{PAYMENT_WORD[entry.payment]}</span>
-          <span className="tag" data-tone={PACKING_TONE[entry.status]}>
-            {packingWords(entry.status, entry.invoice)}
-          </span>
+          {hidesPackingTag(entry.status, entry.parcel) ? null : (
+            <span className="tag" data-tone={PACKING_TONE[entry.status]}>
+              {packingTagWords(entry.status, entry.invoice, entry.parcel)}
+            </span>
+          )}
         </p>
         {entry.parcel != null ? <ParcelLine parcel={entry.parcel} /> : null}
       </header>
@@ -462,7 +466,7 @@ function PackingChecklist({ date, entry, name, labelSignature, showBack, onBack,
           </div>
         ))}
       </div>
-      {entry.items.length > 0 ? (
+      {entry.items.length > 0 && !(parcelLocked && !canPack) ? (
         <p className="pack-count" aria-live="polite">
           {String(done)}/{String(keys.length)} 담음
         </p>
@@ -517,7 +521,7 @@ function PackingChecklist({ date, entry, name, labelSignature, showBack, onBack,
       {canPack && !allChecked && entry.items.length > 0 ? <p className="hint">{ALL_CHECKED_HINT}</p> : null}
       {parcelLocked ? (
         <p className="notice" role="note">
-          {LOCKED_ADDRESS}{' '}
+          {entry.parcel?.state === 'BOOKED' ? PACKING_LOCKED_BOOKED : PACKING_LOCKED_WAITING}{' '}
           <a className="text-link" href={routePath({ name: 'parcels', date })} onClick={(event) => linkClick(event, onParcels)}>
             택배 화면으로
           </a>
