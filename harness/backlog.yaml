@@ -827,6 +827,19 @@ sprints:
       수용 기준: SPEC 5.13 AC-UX2-01~14, D-UX2-01~06.
     specIds: [ORD-08, UX-01]
     status: done  # 메인 합침 (2026-10-24, c25791f8)
+  - id: V2
+    phase: 6
+    title: 음성 상품 등록 개선 — 이어 붙이기·큰 품종 사전·정정 말
+    dependsOn: []
+    devs: [device, web]
+    tests: [domain, e2e]
+    uxReview: false
+    goal: >
+      판매자 목소리로 상품 등록을 더 쉽게: 조용한 시간(1.8초)까지 이어 붙여 한 덩어리로 등록(VOC-01), 큰 들은 말 칸·음성 기록 보기,
+      정정 말(아니·다시·말고·취소·칸 이름), 300개 이상 품종 데이터 사전·별칭·후보 단추·배운 별칭, 이어 채우기·고칠까요 카드(VOC-04), 등록 뒤 정정(PRD-06).
+      수용 기준: harness/sprints/V2/acceptance.md(AC-V2-01~39), D-V2-01~D-V2-22.
+    specIds: [VOC-01, VOC-02, VOC-03, VOC-04, PRD-06]
+    status: done  # 메인 합침 (2026-10-24)
 
 techDebt:
   - "RA-S00-001: 골든 러너가 엔진의 입력 state 제자리 수정을 잡지 못함"
