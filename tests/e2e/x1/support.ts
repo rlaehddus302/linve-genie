@@ -32,11 +32,13 @@ const LIVE_CHAT_HTML = `<!doctype html><html lang="ko"><head><meta charset="utf-
 </yt-live-chat-renderer></yt-live-chat-app></body></html>`
 
 /**
- * 감사 채팅 올리기용 가짜 live_chat 페이지 (dev-notes 손잡이): 입력 칸(contenteditable)·보내기 단추, 로그인 채널 = me, 방송 채널 = owner(ytInitialData).
- * 보내기를 누르면 입력 칸 글을 내 채널의 일반 채팅으로 #items에 붙이고 입력 칸을 비운다(자기 글 뜨기 흉내).
+ * 감사 채팅 올리기용 가짜 live_chat 페이지 (dev-notes 손잡이): 입력 칸(contenteditable)·보내기 단추, 방송 채널 = owner(ytInitialData).
+ * 입력 칸 data는 실제 유튜브 모양(HG-X1 실물, D-X1-29): 채널 ID가 없고 authorBadges만 있다.
+ *   me='owner' → OWNER 배지, 'moderator' → 관리자 배지만, 'other' → 배지 없음, null → 입력 칸 data 없음
+ * 보내기를 누르면 입력 칸 글을 방송 채널의 방송자 글(author-type=owner, OWNER 배지)로 #items에 붙이고 입력 칸을 비운다(자기 글 뜨기 흉내).
  * window.__lg 에 보낸 글·누른 시각·입력 칸이 바뀐 횟수를 적는다. echo=false 이면 보내도 채팅에 뜨지 않는다.
  */
-export function postingChatHtml(o: { me: string | null; owner: string | null; echo?: boolean }): string {
+export function postingChatHtml(o: { me: 'owner' | 'moderator' | 'other' | null; owner: string | null; echo?: boolean }): string {
   const cfg = JSON.stringify({ me: o.me, owner: o.owner, echo: o.echo !== false })
   return LIVE_CHAT_HTML.replace('</yt-live-chat-renderer>', `<yt-live-chat-message-input-renderer><div id="input" contenteditable="true"></div><button id="send-button">보내기</button></yt-live-chat-message-input-renderer></yt-live-chat-renderer>`)
     .replace('</body>', `<script>
@@ -44,9 +46,14 @@ export function postingChatHtml(o: { me: string | null; owner: string | null; ec
   const cfg = ${cfg}
   const lg = { sent: [], at: [], mutations: 0 }
   window.__lg = lg
+  const OWNER = [{ liveChatAuthorBadgeRenderer: { icon: { iconType: 'OWNER' }, tooltip: '소유자' } }]
+  const MOD = [{ liveChatAuthorBadgeRenderer: { icon: { iconType: 'MODERATOR' }, tooltip: '관리자' } }]
   if (cfg.owner !== null) window.ytInitialData = { continuationContents: { liveChatContinuation: { ownerChannelId: cfg.owner } } }
   const box = document.querySelector('yt-live-chat-message-input-renderer')
-  if (cfg.me !== null) box.data = { authorExternalChannelId: cfg.me }
+  if (cfg.me !== null) box.data = {
+    authorName: { simpleText: '판매자' }, inputField: {}, sendButton: {}, pickers: [], pickerButtons: [], authorPhoto: {},
+    authorBadges: cfg.me === 'owner' ? OWNER : cfg.me === 'moderator' ? MOD : [], targetId: 'live-chat-message-input', emojiPickerButton: {},
+  }
   const input = document.getElementById('input')
   new MutationObserver(() => { lg.mutations++ }).observe(input, { childList: true, characterData: true, subtree: true })
   let n = 0
@@ -55,13 +62,14 @@ export function postingChatHtml(o: { me: string | null; owner: string | null; ec
     if (text === '') return
     lg.sent.push(text); lg.at.push(Date.now()); lg.html = input.innerHTML
     input.textContent = ''
-    if (!cfg.echo || cfg.me === null) return
+    if (!cfg.echo || cfg.me !== 'owner' || cfg.owner === null) return
     n++
     const el = document.createElement('yt-live-chat-text-message-renderer')
     el.id = 'ChwKGkNPc2VsZl94MV9wb3N0XzAwMDAw' + String(n).padStart(6, '0') + String(Date.now() % 100000)
-    el.data = { authorExternalChannelId: cfg.me, timestampUsec: String(Date.now() * 1000) }
+    el.setAttribute('author-type', 'owner')
+    el.data = { authorExternalChannelId: cfg.owner, authorBadges: OWNER, timestampUsec: String(Date.now() * 1000) }
     const c = document.createElement('div'); c.id = 'content'
-    const a = document.createElement('span'); a.id = 'author-name'; a.textContent = '판매자'
+    const a = document.createElement('span'); a.id = 'author-name'; a.className = 'owner'; a.textContent = '판매자'
     const m = document.createElement('span'); m.id = 'message'; m.textContent = text
     c.append(a, m); el.append(c)
     document.getElementById('items').append(el)
@@ -133,17 +141,21 @@ export async function connectPopup(popup: Page, code: string): Promise<void> {
   await expect(popup.locator('#connect-error')).toHaveText('')
 }
 
-/** 유튜브 채팅 창에 새 일반 채팅 하나를 붙인다 (채널 ID·게시 시각은 실제처럼 요소 data에만) */
-export async function addChat(chat: Page, m: { id: string; ch: string; nick: string; text: string; atMs?: number }): Promise<void> {
+/** 유튜브 채팅 창에 새 일반 채팅 하나를 붙인다 (채널 ID·게시 시각은 실제처럼 요소 data에만). owner = 방송자 표시(author-type=owner·이름 class owner·OWNER 배지) */
+export async function addChat(chat: Page, m: { id: string; ch: string; nick: string; text: string; atMs?: number; owner?: boolean }): Promise<void> {
   await chat.evaluate((msg) => {
     const el = document.createElement('yt-live-chat-text-message-renderer') as HTMLElement & { data?: unknown }
     el.id = msg.id
-    el.data = { authorExternalChannelId: msg.ch, timestampUsec: String(msg.at * 1000) }
+    el.data = msg.owner === true
+      ? { authorExternalChannelId: msg.ch, authorBadges: [{ liveChatAuthorBadgeRenderer: { icon: { iconType: 'OWNER' }, tooltip: '소유자' } }], timestampUsec: String(msg.at * 1000) }
+      : { authorExternalChannelId: msg.ch, timestampUsec: String(msg.at * 1000) }
+    if (msg.owner === true) el.setAttribute('author-type', 'owner')
     const content = document.createElement('div')
     content.id = 'content'
     const name = document.createElement('span')
     name.id = 'author-name'
     name.textContent = msg.nick
+    if (msg.owner === true) name.className = 'owner'
     const message = document.createElement('span')
     message.id = 'message'
     message.textContent = msg.text

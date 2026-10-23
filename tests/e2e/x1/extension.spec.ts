@@ -177,3 +177,52 @@ test('@youtube TE-X1-002·003: 팝업 — 고르기 전엔 "받는 중"이 아�
   await expect(popup.locator('#state')).toHaveText('확장으로 받는 중')
   await expect(popup.getByRole('heading', { name: '어느 방송으로 받을까요?' })).toBeHidden()
 })
+
+/** 콘솔 채팅 패널에서 그 닉네임의 메시지 */
+const chatItem = (page: import('@playwright/test').Page, nick: string) =>
+  page.getByRole('region', { name: '채팅', exact: true }).getByRole('list', { name: '채팅 메시지' }).getByRole('listitem').filter({ hasText: nick })
+
+test('@youtube SPEC AC3·D-X1-29: 방송자 표시(주인 배지)가 붙은 글 "21"은 찜이 되지 않고, 콘솔 채팅에 "방송자"로 보인다', async ({ ext }) => {
+  const { context, page, extId } = ext
+  await loginNewSeller(page)
+  const { b, date } = await openRealBroadcast(page, { title: '방송자 1부' })
+  await register(page, '21 방송자다육 10', 21)
+  const code = await issueCode(page)
+  const chat = await openLiveChat(context, 'x1HostVid01')
+  const popup = await openPopup(context, extId)
+  await connectPopup(popup, code)
+  await pickBroadcast(popup, page, `방송자 1부 (${date})`, b)
+
+  const t0 = Date.now()
+  await addChat(chat, { id: 'ChwKGkNPeDFfaG9zdF8wMDAwMDAwMDAwMDAwMDA', ch: 'UCx1hostchannel000000001', nick: '사장님', text: '21', atMs: t0, owner: true })
+  // 처리됐음을 확인하는 표시: 뒤에 온 시청자 "21"이 1등
+  await addChat(chat, { id: 'ChwKGkNPeDFfaG9zdHZpZXdlcl8wMDAwMDAwMDAw', ch: 'UCx1hostviewer0000000001', nick: '뒤손님', text: '21', atMs: t0 + 1000 })
+  await expect.poll(async () => claimsOf(await scopeView(page, date, false), b, 21), { timeout: 15_000 }).toBe(1)
+  const view = await scopeView(page, date, false)
+  expect(view.products.find((p) => p.no === 21)?.winners).toEqual(['UCx1hostviewer0000000001'])
+
+  await page.goto(`/broadcasts/${encodeURIComponent(b)}`)
+  await expect(chatItem(page, '사장님')).toContainText('방송자')
+  await expect(chatItem(page, '뒤손님')).not.toContainText('방송자')
+})
+
+test('@youtube D-X1-29: 회차 채널이 아닌 채널이 방송자 표시를 붙여도 시청자로 처리 — "21" 찜이 들어가고 방송자로 보이지 않는다', async ({ ext }) => {
+  const { context, page, extId } = ext
+  await loginNewSeller(page)
+  await connectYoutube(page, '위조 방지 채널')
+  const { b, date } = await openRealBroadcast(page, { title: '위조 1부' })
+  await register(page, '21 위조다육 10', 21)
+  const code = await issueCode(page)
+  const chat = await openLiveChat(context, 'x1FakeOwner')
+  const popup = await openPopup(context, extId)
+  await connectPopup(popup, code)
+  await pickBroadcast(popup, page, `위조 1부 (${date})`, b)
+
+  await addChat(chat, { id: 'ChwKGkNPeDFfZm9yZ2VfMDAwMDAwMDAwMDAwMDA', ch: 'UCx1forgedowner000000001', nick: '가짜사장', text: '21', owner: true })
+  await expect.poll(async () => claimsOf(await scopeView(page, date, false), b, 21), { timeout: 15_000 }).toBe(1)
+  expect((await scopeView(page, date, false)).products.find((p) => p.no === 21)?.winners).toEqual(['UCx1forgedowner000000001'])
+
+  await page.goto(`/broadcasts/${encodeURIComponent(b)}`)
+  await expect(chatItem(page, '가짜사장')).toBeVisible()
+  await expect(chatItem(page, '가짜사장')).not.toContainText('방송자')
+})

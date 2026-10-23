@@ -37,7 +37,7 @@ async function enableThanks(page: Page): Promise<void> {
 }
 
 /** 판매자·유튜브 연결·동의 → (스위치) → 이은 영상 없는 실제 방송 → 확장 연결·회차 고르기 */
-async function setup(ext: { context: BrowserContext; page: Page; extId: string; setChatHtml: (h: string) => void }, o: { title: string; video: string; enable: boolean; me?: 'owner' | 'other'; products?: number[]; echo?: boolean }) {
+async function setup(ext: { context: BrowserContext; page: Page; extId: string; setChatHtml: (h: string) => void }, o: { title: string; video: string; enable: boolean; me?: 'owner' | 'moderator' | 'other'; products?: number[]; echo?: boolean }) {
   const { context, page, extId, setChatHtml } = ext
   await loginNewSeller(page)
   const channel = await connectYoutube(page, `${o.title} 채널`)
@@ -46,7 +46,7 @@ async function setup(ext: { context: BrowserContext; page: Page; extId: string; 
   const { b, date } = await openRealBroadcast(page, { title: o.title })
   for (const no of o.products ?? [3]) await register(page, `${String(no)} 감사다육 10`, no)
   const code = await issueCode(page)
-  setChatHtml(postingChatHtml({ me: (o.me ?? 'owner') === 'owner' ? channel.id : 'UCx1otheraccount00000001', owner: channel.id, echo: o.echo !== false }))
+  setChatHtml(postingChatHtml({ me: o.me ?? 'owner', owner: channel.id, echo: o.echo !== false }))
   const chat = await openLiveChat(context, o.video)
   const popup = await openPopup(context, extId)
   await connectPopup(popup, code)
@@ -186,4 +186,17 @@ test('@youtube AC-X1-31·32: 보냈는데 자기 글이 15초 안에 안 뜨면 
   await warning.getByRole('button', { name: '다시 켜기' }).click()
   await expect(warning).toHaveCount(0)
   expect((await lg(chat)).sent).toHaveLength(3)
+})
+
+test('@youtube AC-X1-27·D-X1-29: 입력 칸에 관리자 배지만 있으면(주인 배지 없음) 넣지 않고 "방송 채널 계정으로 로그인해야…"', async ({ ext }) => {
+  test.setTimeout(120_000)
+  const { b, date, chat } = await setup(ext, { title: '관리자 1부', video: 'x1ThxModer1', enable: true, me: 'moderator' })
+  await addChat(chat, viewerChat(5, '관리자손님', 3))
+  await expect.poll(async () => (await outboxRows(ext.page, date)).find((r) => r.target === 'LIVE_CHAT' && r.text.startsWith('3번'))?.reason, { timeout: 30_000 }).toBe('EXTENSION')
+  await ext.page.goto(`/broadcasts/${encodeURIComponent(b)}`)
+  await expect(ext.page.getByRole('alert').filter({ hasText: '방송 채널 계정으로 로그인해야 감사 글을 올릴 수 있어요' })).toBeVisible({ timeout: 40_000 })
+  const s = await lg(chat)
+  expect(s.sent).toHaveLength(0)
+  expect(s.mutations).toBe(0)
+  expect((await outboxRows(ext.page, date)).find((r) => r.text.startsWith('3번'))?.state).not.toBe('SENT')
 })
