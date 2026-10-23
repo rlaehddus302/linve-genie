@@ -198,6 +198,8 @@ describe('끝에서 넘긴 문자찜 카드는 저절로 넣지 않는다 (AC-PL
         await wait(10)
         FakeRecognition.last.say(`${String(no)}번 라울 이만원`)
       }
+      // V2: 마지막 최종 결과는 조용한 시간(1.8초)이 지나야 카드가 된다 (D-V2-03)
+      await wait(1800)
       const snapshot = h.voice.getSnapshot()
       return { cards: snapshot.cards.map((card) => card.no), sms: shown(h).map((entry) => entry.card.status), dropped: snapshot.smsDropped }
     }
@@ -219,6 +221,8 @@ describe('밀려 닫힘 알림은 끝에서 넘긴 상품 카드만 (AC-PL1B-24,
     expect(h.voice.getSnapshot().flushedClosed).toEqual([])
     await wait(10)
     FakeRecognition.last.say('23번 라울 이만원')
+    // V2: 마지막 최종 결과는 조용한 시간(1.8초)이 지나야 카드가 된다 (D-V2-03)
+    await wait(1800)
     // 넷째 카드: 넘긴 상품 카드(21번)가 밀려 닫힌다 — 알림
     expect(h.voice.getSnapshot().cards.map((card) => card.no)).toEqual([23, 22])
     expect(h.voice.getSnapshot().flushedClosed).toEqual(['21번 핑크프릴 15,000원 — 등록할까요?'])
@@ -226,6 +230,7 @@ describe('밀려 닫힘 알림은 끝에서 넘긴 상품 카드만 (AC-PL1B-24,
       await wait(10)
       FakeRecognition.last.say(`${String(no)}번 라울 이만원`)
     }
+    await wait(1800)
     const snapshot = h.voice.getSnapshot()
     // 보통 상품 카드는 알림 없이 닫히고, 넘긴 문자찜 카드는 그대로 열려 있다
     expect(snapshot.flushedClosed).toEqual(['21번 핑크프릴 15,000원 — 등록할까요?'])
@@ -293,6 +298,10 @@ describe('휴대폰에서 맨 앞 문자찜 카드가 보이게 (AC-PL1B-25, D-I
       await turnOn(h)
     })
     act(() => FakeRecognition.last.say('21번 라울 이만원'))
+    // V2: 최종 결과는 조용한 시간(1.8초)이 지나야 카드가 된다 (D-V2-03)
+    await act(async () => {
+      await wait(1800)
+    })
     expect(scroll).toHaveBeenCalledTimes(1)
     act(() => h.voice.openForm(h.voice.getSnapshot().cards[0]?.id ?? ''))
     expect(h.voice.getSnapshot().forms.size).toBe(1)
