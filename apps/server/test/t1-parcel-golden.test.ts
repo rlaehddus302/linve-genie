@@ -1,5 +1,5 @@
-// AC-T1-01·04: 택배 골든(tests/golden/parcel/*.json)을 서버의 순수 함수 둘(배송지 읽기 PC-2, 접수할 수 있는지 PC-4)로 돌린다.
-// - 파일 수 2·사례 수 47(address 26 · eligibility 21)을 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다.
+// AC-T1-01·04·23: 택배 골든(tests/golden/parcel/*.json)을 서버의 순수 함수 셋(배송지 읽기 PC-2, 접수할 수 있는지 PC-4, 보내는 사람 읽기 PC-6)으로 돌린다.
+// - 파일 수 3·사례 수 55(address 26 · eligibility 21 · sender 8)를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다.
 // - 모르는 kind·모르는 키·중복 ID·ID 형식 오류·표 밖 열거값은 시험 실패(읽기 오류)다. 미구현을 허용하는 장치가 없다.
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -13,15 +13,17 @@ import {
   PACKING_WORD_KINDS,
   PARCEL_STATE_KINDS,
   PAYMENT_KINDS,
+  SENDER_FIELDS,
   SHIPPING_KINDS,
   parcelEligibility,
   readAddress,
+  readSender,
   type EligibilityFacts,
 } from '../src/parcel/rules.ts'
 
 const GOLDEN_DIR = fileURLToPath(new URL('../../../tests/golden/parcel/', import.meta.url))
 
-type Kind = 'address' | 'eligibility'
+type Kind = 'address' | 'eligibility' | 'sender'
 interface GoldenCase {
   readonly id: string
   readonly title: string
@@ -64,7 +66,7 @@ function checkGolden(sources: readonly { readonly file: string; readonly text: s
     }
     for (const key of Object.keys(parsed)) if (!FILE_KEYS.includes(key)) problems.push(`${file}: 모르는 파일 키 '${key}'`)
     const kind = parsed.kind
-    if (kind !== 'address' && kind !== 'eligibility') {
+    if (kind !== 'address' && kind !== 'eligibility' && kind !== 'sender') {
       problems.push(`${file}: 모르는 kind ${JSON.stringify(kind)}`)
       continue
     }
@@ -94,14 +96,18 @@ function checkGolden(sources: readonly { readonly file: string; readonly text: s
       if (!isObject(input)) problems.push(`${where}: in이 객체가 아니다`)
       if (!isObject(out)) problems.push(`${where}: out이 객체가 아니다`)
       if (isObject(input) && isObject(out)) {
-        if (kind === 'address') {
-          if (!sameKeys(input, ADDRESS_FIELDS) || !ADDRESS_FIELDS.every((field) => typeof input[field] === 'string')) problems.push(`${where}: in은 여섯 칸 글`)
+        if (kind === 'address' || kind === 'sender') {
+          // 보내는 사람은 메모 칸이 없는 다섯 칸이고 MEMO_TOO_LONG이 나올 수 없다 (PC-6)
+          const fields: readonly string[] = kind === 'address' ? ADDRESS_FIELDS : SENDER_FIELDS
+          const codes = kind === 'address' ? ADDRESS_ERROR_CODES : ADDRESS_ERROR_CODES.filter((code) => code !== 'MEMO_TOO_LONG')
+          const label = kind === 'address' ? '여섯' : '다섯'
+          if (!sameKeys(input, fields) || !fields.every((field) => typeof input[field] === 'string')) problems.push(`${where}: in은 ${label} 칸 글`)
           if (sameKeys(out, ['ok'])) {
             const value = out.ok
-            if (!isObject(value) || !sameKeys(value, ADDRESS_FIELDS) || !ADDRESS_FIELDS.every((field) => typeof value[field] === 'string')) problems.push(`${where}: out.ok는 여섯 칸 글`)
+            if (!isObject(value) || !sameKeys(value, fields) || !fields.every((field) => typeof value[field] === 'string')) problems.push(`${where}: out.ok는 ${label} 칸 글`)
           } else if (sameKeys(out, ['errors'])) {
             const list = out.errors
-            if (!Array.isArray(list) || list.length === 0 || !list.every((code) => (ADDRESS_ERROR_CODES as readonly unknown[]).includes(code))) problems.push(`${where}: 표 밖의 오류 코드`)
+            if (!Array.isArray(list) || list.length === 0 || !list.every((code) => (codes as readonly unknown[]).includes(code))) problems.push(`${where}: 표 밖의 오류 코드`)
           } else problems.push(`${where}: out은 { ok } 또는 { errors }`)
         } else {
           if (!sameKeys(input, ELIGIBILITY_KEYS)) problems.push(`${where}: in은 여섯 키`)
@@ -136,14 +142,15 @@ function loadGolden(): { files: GoldenFile[]; problems: string[] } {
 const golden = loadGolden()
 
 describe('택배 골든 읽기 (AC-T1-01·04)', () => {
-  it('읽기 오류가 없고 파일 수 2·사례 수 47(address 26 · eligibility 21)이다', () => {
+  it('읽기 오류가 없고 파일 수 3·사례 수 55(address 26 · eligibility 21 · sender 8)이다', () => {
     expect(golden.problems).toEqual([])
-    expect(readdirSync(GOLDEN_DIR).filter((name) => name.endsWith('.json'))).toHaveLength(2)
-    expect(golden.files).toHaveLength(2)
+    expect(readdirSync(GOLDEN_DIR).filter((name) => name.endsWith('.json'))).toHaveLength(3)
+    expect(golden.files).toHaveLength(3)
     const count = (kind: Kind) => golden.files.filter((file) => file.kind === kind).reduce((sum, file) => sum + file.cases.length, 0)
     expect(count('address')).toBe(26)
     expect(count('eligibility')).toBe(21)
-    expect(count('address') + count('eligibility')).toBe(47)
+    expect(count('sender')).toBe(8)
+    expect(count('address') + count('eligibility') + count('sender')).toBe(55)
   })
 
   it('검사기가 모르는 kind·모르는 키·중복 ID·ID 형식 오류·표 밖 열거값을 잡는다', () => {
@@ -160,6 +167,13 @@ describe('택배 골든 읽기 (AC-T1-01·04)', () => {
     expect(bad({ kind: 'eligibility', about: '', cases: [{ ...one, in: { ...facts, payment: 'paid' } }] })).not.toEqual([])
     expect(bad({ kind: 'eligibility', about: '', cases: [{ ...one, out: { reason: 'LATER' } }] })).not.toEqual([])
     expect(bad({ kind: 'eligibility', about: '', cases: [one] })).toEqual([])
+    // 보내는 사람: 메모 칸·MEMO_TOO_LONG은 표 밖, 다섯 칸이면 된다
+    const { memo: _memo, ...senderIn } = base
+    const sender = { id: 'G-PCL-T1-201', title: 't', refs: ['PC-6'], in: senderIn, out: { errors: ['PHONE_INVALID'] } }
+    expect(bad({ kind: 'sender', about: '', cases: [{ ...sender, in: base }] })).not.toEqual([])
+    expect(bad({ kind: 'sender', about: '', cases: [{ ...sender, out: { errors: ['MEMO_TOO_LONG'] } }] })).not.toEqual([])
+    expect(bad({ kind: 'sender', about: '', cases: [{ ...sender, out: { ok: { ...senderIn, memo: '' } } }] })).not.toEqual([])
+    expect(bad({ kind: 'sender', about: '', cases: [sender] })).toEqual([])
   })
 })
 
@@ -177,6 +191,15 @@ describe('접수할 수 있는지 PC-4 (AC-T1-04)', () => {
   for (const item of cases) {
     it(`${item.id} ${item.title}`, () => {
       expect(parcelEligibility(item.in as unknown as EligibilityFacts)).toEqual(item.out)
+    })
+  }
+})
+
+describe('보내는 사람 읽기 PC-6 (AC-T1-23, D-T1-16)', () => {
+  const cases = golden.files.filter((file) => file.kind === 'sender').flatMap((file) => file.cases)
+  for (const item of cases) {
+    it(`${item.id} ${item.title}`, () => {
+      expect(readSender(item.in as Record<(typeof SENDER_FIELDS)[number], string>)).toEqual(item.out)
     })
   }
 })

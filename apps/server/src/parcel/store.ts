@@ -2,7 +2,7 @@
 // - 배송지 여섯 칸은 하나로 묶어 서버 마스터 키로 AES-256-GCM 암호화한다 — AAD = 판매자·날짜·구매자 ID(다른 행으로 옮기면 풀리지 않고 "배송지 없음"으로 본다, D-073 방식).
 // - 보내는 사람·택배사 고객 번호도 판매자 ID를 묶어 암호화한다. 원문·암호문 모두 로그에 남기지 않는다.
 import { randomBytes, randomUUID } from 'node:crypto'
-import { and, asc, desc, eq, inArray, lte, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, lte, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
 import { parcelAddresses, parcelRequests, parcelSettings, parcels } from '../db/schema.ts'
 import { SecretError, openText, sealText } from '../secrets.ts'
@@ -13,10 +13,12 @@ import {
   DEFAULT_BOX,
   LIVE_STATES,
   PARCEL_STATES,
+  SENDER_FIELDS,
   TRACK_CODES,
   effectiveState,
   readAddress,
   readAddressInput,
+  readSender,
   type AddressState,
   type BoxKind,
   type FailureReason,
@@ -338,13 +340,26 @@ export async function requestRow(db: Db, sellerId: string, requestId: string): P
 }
 
 /** 요청 번호를 처음 적는다 (이미 있으면 false) */
-export async function claimRequest(db: Db, input: { sellerId: string; requestId: string; date: string; kind: ParcelRequestKind; targets: readonly string[]; result: string | null; now: Date }): Promise<boolean> {
+export async function claimRequest(db: Db, input: { sellerId: string; requestId: string; date: string; kind: ParcelRequestKind; targets: readonly unknown[]; result: string | null; now: Date }): Promise<boolean> {
   const inserted = await db
     .insert(parcelRequests)
     .values({ sellerId: input.sellerId, requestId: input.requestId, date: input.date, kind: input.kind, targets: JSON.stringify(input.targets), result: input.result, createdAt: input.now })
     .onConflictDoNothing({ target: [parcelRequests.sellerId, parcelRequests.requestId] })
     .returning({ id: parcelRequests.id })
   return inserted.length > 0
+}
+
+/**
+ * 결과 없이 남은 요청 번호를 이어받는다 (TD-T1-002): 결과가 없고 처음 적은 때(createdAt)가 그대로일 때만 지금 시각으로 바꾼다.
+ * 두 요청이 함께 이어받으려 해도 한쪽만 true다(조건부 갱신 하나)
+ */
+export async function takeOverRequest(db: Db, sellerId: string, requestId: string, seenCreatedAt: Date, now: Date): Promise<boolean> {
+  const updated = await db
+    .update(parcelRequests)
+    .set({ createdAt: now })
+    .where(and(eq(parcelRequests.sellerId, sellerId), eq(parcelRequests.requestId, requestId), isNull(parcelRequests.result), eq(parcelRequests.createdAt, seenCreatedAt)))
+    .returning({ id: parcelRequests.id })
+  return updated.length > 0
 }
 
 export async function saveRequestResult(db: Db, sellerId: string, requestId: string, result: string): Promise<void> {
@@ -387,9 +402,9 @@ export async function readSettings(db: Db, masterKey: Buffer, sellerId: string):
   if (senderText !== null) {
     try {
       const parsed = JSON.parse(senderText) as Record<string, unknown>
-      const input = readAddressInput({ ...parsed, memo: '' })
-      const read = input === null ? null : readAddress(input)
-      if (read !== null && 'ok' in read) sender = { name: read.ok.name, phone: read.ok.phone, address: read.ok.address, detail: read.ok.detail, zip: read.ok.zip }
+      const input = readAddressInput(parsed, SENDER_FIELDS)
+      const read = input === null ? null : readSender(input)
+      if (read !== null && 'ok' in read) sender = read.ok
     } catch {
       sender = null
     }

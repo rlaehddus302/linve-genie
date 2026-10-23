@@ -32,6 +32,8 @@ import {
   ELIGIBILITY_MESSAGES,
   FAILURE_MESSAGES,
   PARCEL_MESSAGES,
+  SENDER_FIELDS,
+  STALE_PENDING_MS,
   TRACK_EVERY_MS,
   TRACK_STOP_MS,
   TRACK_WORDS,
@@ -40,6 +42,8 @@ import {
   phoneLast4,
   readAddress,
   readAddressInput,
+  readSender,
+  senderProblems,
   tidyText,
   type AddressErrorCode,
   type AddressField,
@@ -71,11 +75,13 @@ import {
   setTrack,
   stateNow,
   sweepAddresses,
+  takeOverRequest,
   trackCandidates,
   writeSettings,
   type AddressRow,
   type AttemptRow,
   type ParcelRequestKind,
+  type RequestRow,
   type StoredSettings,
 } from './store.ts'
 
@@ -447,14 +453,15 @@ export class ParcelService {
     let sender = current.sender
     if (body.sender === null) sender = null
     else if (body.sender !== undefined) {
-      const input = readAddressInput(body.sender, ['name', 'phone', 'address', 'detail', 'zip'] as readonly AddressField[])
+      const input = readAddressInput(body.sender, SENDER_FIELDS)
       if (input === null) problems.push({ field: 'sender', message: '보내는 사람 칸을 확인해 주세요.' })
       else {
-        const read = readAddress(input)
+        // 이름 1~30자(가게 이름 상한과 같음)·칸 문장은 보내는 사람 줄 (D-T1-16·17)
+        const read = readSender(input)
         if ('errors' in read) {
           codes = [...read.errors]
-          problems.push(...addressProblems(read.errors, 'sender.'))
-        } else sender = { name: read.ok.name, phone: read.ok.phone, address: read.ok.address, detail: read.ok.detail, zip: read.ok.zip }
+          problems.push(...senderProblems(read.errors))
+        } else sender = read.ok
       }
     }
     // 기본 상자 크기
@@ -727,7 +734,7 @@ export class ParcelService {
     if (!isValidDate(date)) return NOT_FOUND
     const { db, masterKey } = this.#deps
     const prior = await requestRow(db, sellerId, requestId)
-    if (prior !== null) return this.#priorBook(sellerId, date, requestId, prior)
+    if (prior !== null) return this.#priorBook(sellerId, accountId, date, requestId, prior)
     const runtime = await this.#deps.writer.read(sellerId, date, false)
     if (runtime.seq === 0 || runtime.scopeId === null) return NOT_FOUND
     // 봉인한 범위는 상태를 재생하지 않아 구매자가 보이지 않는다 — 봉인을 먼저 본다(지금 포장 명령과 같은 문장)
@@ -737,12 +744,19 @@ export class ParcelService {
     const blocked = this.#blocked(settings)
     if (blocked !== null) return problem(409, 'PARCEL_BLOCKED', blocked.message)
     const adapter = this.#carriers[settings.carrier as CarrierCode] as CarrierAdapter
-    if (!(await claimRequest(db, { sellerId, requestId, date, kind: 'BOOK', targets: items.map((item) => item.buyer), result: null, now: new Date(this.#deps.clock.now()) }))) {
+    // 요청 번호와 함께 묶음·상자 크기를 적어 둔다 — 서버가 멈춰 결과가 없으면 같은 요청 번호가 이것으로 이어받는다(TD-T1-002)
+    const targets = items.map((item) => ({ buyer: item.buyer, box: item.box }))
+    if (!(await claimRequest(db, { sellerId, requestId, date, kind: 'BOOK', targets, result: null, now: new Date(this.#deps.clock.now()) }))) {
       const again = await requestRow(db, sellerId, requestId)
-      return again === null ? problem(409, 'REQUEST_ERROR', PARCEL_MESSAGES.request) : this.#priorBook(sellerId, date, requestId, again)
+      return again === null ? problem(409, 'REQUEST_ERROR', PARCEL_MESSAGES.request) : this.#priorBook(sellerId, accountId, date, requestId, again)
     }
+    return ok({ results: await this.#fly(sellerId, requestId, () => this.#runBook(sellerId, accountId, date, items, adapter, settings)) })
+  }
+
+  /** 접수 하나를 돌리고 결과를 요청 번호에 적는다. 도중에 예외가 나면 결과 없이 남고, STALE_PENDING_MS 뒤 같은 요청 번호가 이어받는다 */
+  async #fly(sellerId: string, requestId: string, run: () => Promise<BookItemResult[]>): Promise<BookItemResult[]> {
     const key = JSON.stringify([sellerId, requestId])
-    const flight = this.#runBook(sellerId, accountId, date, items, adapter, settings)
+    const flight = run()
     this.#flights.set(key, flight)
     let results: BookItemResult[]
     try {
@@ -750,25 +764,80 @@ export class ParcelService {
     } finally {
       this.#flights.delete(key)
     }
-    await saveRequestResult(db, sellerId, requestId, JSON.stringify(results))
-    return ok({ results })
+    await saveRequestResult(this.#deps.db, sellerId, requestId, JSON.stringify(results))
+    return results
   }
 
-  /** 같은 화면 요청 번호: 처음 결과 → 처리 중이면 기다림 → (서버가 멈췄으면) 그 묶음들의 지금 시도로 만든 답 */
-  async #priorBook(sellerId: string, date: string, requestId: string, prior: { date: string; kind: string; targets: string; result: string | null }): Promise<Outcome<{ results: BookItemResult[] }>> {
+  /**
+   * 같은 화면 요청 번호: 처음 결과 → 이 서버에서 처리 중이면 기다림 → 결과 없이 STALE_PENDING_MS가 지났으면(서버가 멈췄거나 도중에 예외) 이어받아 다시 실행
+   * → 아직 그 전이면 그 묶음들의 지금 시도로 만든 답(TD-T1-002)
+   */
+  async #priorBook(sellerId: string, accountId: string, date: string, requestId: string, prior: RequestRow): Promise<Outcome<{ results: BookItemResult[] }>> {
     if (prior.kind !== 'BOOK' || prior.date !== date) return problem(409, 'REQUEST_ERROR', PARCEL_MESSAGES.request)
     if (prior.result !== null) return ok({ results: JSON.parse(prior.result) as BookItemResult[] })
     const flight = this.#flights.get(JSON.stringify([sellerId, requestId]))
     if (flight !== undefined) return ok({ results: await flight })
-    let targets: string[] = []
-    try {
-      const parsed: unknown = JSON.parse(prior.targets)
-      if (Array.isArray(parsed)) targets = parsed.filter((item): item is string => typeof item === 'string')
-    } catch {
-      targets = []
+    const targets = ParcelService.bookTargets(prior.targets)
+    const now = this.#deps.clock.now()
+    if (now - prior.createdAt.getTime() > STALE_PENDING_MS) {
+      const resumed = await this.#resumeBook(sellerId, accountId, date, requestId, prior, targets)
+      if (resumed !== null) return resumed
     }
     const attempts = await latestAttempts(this.#deps.db, sellerId, date)
-    return ok({ results: targets.map((buyer) => this.#resultOf(buyer, attempts.get(buyer) ?? null)) })
+    return ok({ results: targets.map((item) => this.#resultOf(item.buyer, attempts.get(item.buyer) ?? null)) })
+  }
+
+  /** 적어 둔 묶음 목록 (예전 모양 — 구매자 ID 글만 — 이면 상자 크기는 설정값) */
+  static bookTargets(text: string): { buyer: string; box: BoxKind | null }[] {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      return []
+    }
+    if (!Array.isArray(parsed)) return []
+    const out: { buyer: string; box: BoxKind | null }[] = []
+    for (const item of parsed as unknown[]) {
+      if (typeof item === 'string') out.push({ buyer: item, box: null })
+      else if (typeof item === 'object' && item !== null && typeof (item as { buyer?: unknown }).buyer === 'string') {
+        const box = (item as { box?: unknown }).box
+        out.push({ buyer: (item as { buyer: string }).buyer, box: typeof box === 'string' && (BOX_KINDS as readonly string[]).includes(box) ? (box as BoxKind) : null })
+      }
+    }
+    return out
+  }
+
+  /**
+   * 결과 없이 멈춘 요청 번호 이어받기 (TD-T1-002). 요청 번호를 조건부로 이어받은 쪽 하나만 돈다(못 이어받으면 null — 지금 시도로 답한다).
+   * 묶음마다: 이미 BOOKED이거나 결과를 기다리는(2분 안 PENDING) 시도, 이 요청 뒤에 끝난 FAILED·CANCELLED 시도는 그 답을 그대로 돌려준다.
+   * 시도가 없거나 이 요청 전 시도면 지금 다시 판단해 접수하고(PC-4), UNKNOWN이면 같은 요청 번호로 다시 확인한다 — 한 묶음에 살아 있는 시도는 하나라(PC-INV-1) 두 번 접수되지 않는다
+   */
+  async #resumeBook(sellerId: string, accountId: string, date: string, requestId: string, prior: RequestRow, targets: readonly { buyer: string; box: BoxKind | null }[]): Promise<Outcome<{ results: BookItemResult[] }> | null> {
+    const { db, masterKey } = this.#deps
+    const settings = await readSettings(db, masterKey, sellerId)
+    const blocked = this.#blocked(settings)
+    if (blocked !== null) return problem(409, 'PARCEL_BLOCKED', blocked.message)
+    if (!(await takeOverRequest(db, sellerId, requestId, prior.createdAt, new Date(this.#deps.clock.now())))) return null
+    this.#deps.log({ level: 'warn', code: 'PARCEL_BOOK_RESUMED', seller: sellerId, date })
+    const adapter = this.#carriers[settings.carrier as CarrierCode] as CarrierAdapter
+    const since = prior.createdAt.getTime()
+    const results = await this.#fly(sellerId, requestId, async () => {
+      const attempts = await latestAttempts(db, sellerId, date)
+      const now = this.#deps.clock.now()
+      const answered: (BookItemResult | null)[] = targets.map((item) => {
+        const attempt = attempts.get(item.buyer) ?? null
+        if (attempt === null) return null
+        const state = stateNow(attempt, now)
+        if (state === 'BOOKED' || state === 'PENDING') return this.#resultOf(item.buyer, attempt)
+        if ((state === 'FAILED' || state === 'CANCELLED') && attempt.createdAt.getTime() >= since) return this.#resultOf(item.buyer, attempt)
+        return null
+      })
+      const rest = targets.filter((_, index) => answered[index] === null)
+      const ran = rest.length === 0 ? [] : await this.#runBook(sellerId, accountId, date, rest, adapter, settings)
+      let next = 0
+      return answered.map((result) => result ?? (ran[next++] as BookItemResult))
+    })
+    return ok({ results })
   }
 
   /** 시도 하나 → 묶음 결과 */

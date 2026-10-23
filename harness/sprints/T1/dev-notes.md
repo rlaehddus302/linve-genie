@@ -69,6 +69,11 @@
 - 구매자 링크 양식의 Origin (TE-T1-003): 링크 화면은 `Referrer-Policy: no-referrer`(D-N4b-02 그대로)라 브라우저가 같은 출처 양식 POST에 `Origin: null`을 보낸다. `Origin`이 앱 주소이거나, `Origin: null`이면서 `Sec-Fetch-Site: same-origin`(브라우저만 붙이는 머리글)일 때만 받는다(`formFromApp`). 정책을 same-origin으로 바꾸는 쪽은 D-N4b-02 문장과 어긋나 고르지 않았다. spec-keeper에게: PC-3 "Origin이 앱 주소일 때만"에 이 해석을 DECISIONS(AUTO)로 올려 주세요. Sec-Fetch-Site를 보내지 않는 옛 브라우저(사파리 16.4 전)는 여전히 거절된다 — 거절 문장은 "다른 곳에서 보낸 양식이라 받지 않았어요. 받은 링크를 다시 열어 그 화면에서 보내 주세요. 그래도 안 되면 판매자에게 알려 주세요."(판매자가 손으로 적는다).
 - 운영 기동의 `LIVEJJIM_EPOST_API_KEY`는 값이 있는지만 보고 경고 `PARCEL_CARRIER_NOT_READY`를 남긴다(.env.example·DEPLOY의 키 목록 = 코드가 읽는 키 시험 때문).
 
+### 수정 라운드 (server, c162d46 결정 뒤)
+- SA-T1-01 두 요청은 D-T1-06·07 보탬으로 스펙에 올라갔다 — 코드(`formFromApp`·`mergeGuard`)와 시험은 그대로.
+- TD-T1-001 (D-T1-16·17): 보내는 사람 읽기 `readSender`(rules.ts) — 다듬기·연락처·주소·상세·우편번호는 `readAddress`에 맡기고 이름만 1~30자. `SENDER_ERROR_MESSAGES`·`senderProblems`(field `sender.<칸>`, 보내는 사람 줄 문장). 설정 PUT·저장된 보내는 사람 읽기(store.ts) 모두 이것. 받는 분 문장은 그대로. 골든 `sender.json`(kind `sender`, 8사례)을 `t1-parcel-golden.test.ts`가 읽는다 — 파일 3·사례 55. 시험 `apps/server/test/t1-sender.test.ts`(30자 저장·택배사에 자르지 않고 감, 31자·빈 칸·전화번호 문장). 가게 이름 기본값(`settings.shopName`)은 서버가 자르지 않고 그대로 준다.
+- TD-T1-002: 한 번에 접수의 요청 번호 행에 묶음과 상자 크기(`[{ buyer, box }]`, 옛 모양 구매자 ID 글도 읽음)를 적는다. 같은 요청 번호가 왔는데 결과가 없고, 이 서버에서 처리 중도 아니고, 적은 지 2분(STALE_PENDING_MS)이 지났으면 `takeOverRequest`(결과 없음·createdAt 그대로일 때만 조건부 갱신 — 한쪽만 이어받음)로 이어받아 다시 실행한다: BOOKED·2분 안 PENDING·이 요청 뒤 FAILED/CANCELLED 시도는 그 답, 시도 없음·이 요청 전 시도는 지금 다시 판단해 접수(PC-4), UNKNOWN은 같은 택배사 요청 번호로 다시 확인. 한 묶음에 살아 있는 시도는 하나라 두 번 접수되지 않는다. 2분 안에는 전처럼 지금 시도로 답한다(시도 없으면 "접수 결과를 기다리고 있어요" — 화면 PENDING 안내의 2분과 같다). 로그 `PARCEL_BOOK_RESUMED`. 시험 `apps/server/test/t1-resume.test.ts`.
+
 ### 남은 것 (다른 영역)
 - [web] `/privacy` 개인정보처리방침 초안 문장(AC-T1-80 — `apps/web/src/components/PolicyPages.tsx`): 수집 항목(받는 분·연락처·주소·배송 메모)·목적(배송)·제공(택배사)·보관(주문 날짜 + 30일), 초안 표시.
 

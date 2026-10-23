@@ -51,7 +51,7 @@ export const ADDRESS_ERROR_FIELD: Readonly<Record<AddressErrorCode, AddressField
   MEMO_TOO_LONG: 'memo',
 }
 
-/** 칸 코드 → 화면 문장 (구매자 링크 양식·판매자 화면·설정 보내는 사람이 같은 문장) */
+/** 칸 코드 → 받는 분 칸 문장 (구매자 링크 양식·판매자 배송지 — 설정 보내는 사람은 SENDER_ERROR_MESSAGES, D-T1-17) */
 export const ADDRESS_ERROR_MESSAGES: Readonly<Record<AddressErrorCode, string>> = {
   NAME_EMPTY: '받는 분을 적어 주세요.',
   NAME_TOO_LONG: '받는 분은 20자까지 적어 주세요.',
@@ -114,6 +114,62 @@ export function readAddress(input: Readonly<Record<AddressField, string>>): Addr
   return { ok: { name, phone, address, detail, zip, memo } }
 }
 
+// ── 보내는 사람 (PC-6, D-T1-16·17) ───────────────────────────────────────
+
+/** 보내는 사람 다섯 칸 (받는 분 칸에서 메모를 뺀 것, 칸 순서 = 오류 순서) */
+export const SENDER_FIELDS = ['name', 'phone', 'address', 'detail', 'zip'] as const satisfies readonly AddressField[]
+export type SenderField = (typeof SENDER_FIELDS)[number]
+
+export interface ParcelSenderValue {
+  readonly name: string
+  /** 숫자만 (9~11자리, 0으로 시작) */
+  readonly phone: string
+  readonly address: string
+  readonly detail: string
+  /** 없으면 "" */
+  readonly zip: string
+}
+
+/** 보내는 사람에게 나올 수 있는 칸 코드 (메모 칸이 없다) */
+export type SenderErrorCode = Exclude<AddressErrorCode, 'MEMO_TOO_LONG'>
+export type SenderResult = { readonly ok: ParcelSenderValue } | { readonly errors: readonly SenderErrorCode[] }
+
+/** 보내는 사람 이름 상한 = 가게 이름 상한 (D-T1-16). 나머지 칸 상한은 받는 분과 같다 */
+export const SENDER_NAME_MAX = 30
+
+/** 칸 코드 → 보내는 사람 칸 문장 (PC-2 6 표의 "보내는 사람" 줄, D-T1-17) */
+export const SENDER_ERROR_MESSAGES: Readonly<Record<SenderErrorCode, string>> = {
+  NAME_EMPTY: '보내는 사람 이름을 적어 주세요.',
+  NAME_TOO_LONG: `보내는 사람 이름은 ${String(SENDER_NAME_MAX)}자까지 적어 주세요.`,
+  PHONE_EMPTY: '전화번호를 적어 주세요.',
+  PHONE_INVALID: '전화번호를 숫자로 적어 주세요. 예: 010-1234-5678, 031-123-4567',
+  ADDRESS_EMPTY: ADDRESS_ERROR_MESSAGES.ADDRESS_EMPTY,
+  ADDRESS_TOO_LONG: ADDRESS_ERROR_MESSAGES.ADDRESS_TOO_LONG,
+  DETAIL_TOO_LONG: ADDRESS_ERROR_MESSAGES.DETAIL_TOO_LONG,
+  ZIP_INVALID: ADDRESS_ERROR_MESSAGES.ZIP_INVALID,
+}
+
+/**
+ * 보내는 사람 읽기 (PC-6, G-PCL-T1-201~208): readAddress와 같은 다듬기·칸 코드·칸 순서, 메모 칸이 없고 이름 상한이 30자.
+ * 이름 길이 말고는 readAddress에 맡긴다(규칙을 두 벌 두지 않는다)
+ */
+export function readSender(input: Readonly<Record<SenderField, string>>): SenderResult {
+  const read = readAddress({ ...input, name: '가', memo: '' })
+  const name = tidyText(input.name)
+  const nameError: SenderErrorCode | null = name === '' ? 'NAME_EMPTY' : codePoints(name) > SENDER_NAME_MAX ? 'NAME_TOO_LONG' : null
+  if ('errors' in read || nameError !== null) {
+    const rest = 'errors' in read ? (read.errors.filter((code) => code !== 'MEMO_TOO_LONG' && ADDRESS_ERROR_FIELD[code] !== 'name') as SenderErrorCode[]) : []
+    return { errors: nameError === null ? rest : [nameError, ...rest] }
+  }
+  const { phone, address, detail, zip } = read.ok
+  return { ok: { name, phone, address, detail, zip } }
+}
+
+/** 보내는 사람 오류 코드 → 칸 문제 목록 (field = `sender.<칸>`, 문장은 보내는 사람 줄) */
+export function senderProblems(errors: readonly SenderErrorCode[]): { field: string; message: string }[] {
+  return errors.map((code) => ({ field: `sender.${ADDRESS_ERROR_FIELD[code]}`, message: SENDER_ERROR_MESSAGES[code] }))
+}
+
 /** 받은 값이 여섯 칸 모두 글인 객체인지 (모르는 칸·빠진 칸·글이 아닌 값 → null). fields를 주면 그 칸만 받는다(보내는 사람 — 메모 없음) */
 export function readAddressInput(value: unknown, fields: readonly AddressField[] = ADDRESS_FIELDS): Record<AddressField, string> | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
@@ -128,7 +184,7 @@ export function readAddressInput(value: unknown, fields: readonly AddressField[]
   return out
 }
 
-/** 오류 코드 → 칸 문제 목록 (field = 칸 이름, prefix를 주면 `sender.name`처럼) */
+/** 받는 분 오류 코드 → 칸 문제 목록 (field = 칸 이름, prefix를 주면 `address.name`처럼). 보내는 사람은 senderProblems */
 export function addressProblems(errors: readonly AddressErrorCode[], prefix = ''): { field: string; message: string }[] {
   return errors.map((code) => ({ field: `${prefix}${ADDRESS_ERROR_FIELD[code]}`, message: ADDRESS_ERROR_MESSAGES[code] }))
 }
