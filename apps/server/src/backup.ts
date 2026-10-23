@@ -58,6 +58,10 @@ import {
   liveLinks,
   liveRequests,
   liveUnlinked,
+  extBindings,
+  extCodes,
+  extStatus,
+  extTokens,
   loginLimits,
   loginLinks,
   loginStates,
@@ -1249,6 +1253,9 @@ const BATCH = 500
  *   복구한 구매자 ID가 다른 사람을 가리킬 수 있어 복구 전에 받은 배송지는 모두 버린다(D-N4b-06과 같음).
  */
 export const RESTORE_REPLACED_TABLES = [
+  // X1 확장 회차 잇기·마지막 상태: 회차(방송 ID)에 딸린 연결이라 지운다(복구한 지난 회차를 다시 잇지 않는다 — 라이브 연결과 같음)
+  extBindings,
+  extStatus,
   parcelAddresses,
   parcelRequests,
   receiptLinks,
@@ -1322,6 +1329,9 @@ export const RESTORE_KEPT_TABLES = [
   // (복구한 포장 기록이 접수 전이어도 그 묶음은 "이미 접수했어요"로 빠진다). 배송지 원문은 없다(PC-3)
   parcels,
   parcelSettings,
+  // X1 확장 연결 코드·토큰: 계정 연결(구글 연결과 같음)이라 그대로 둔다 — 파일에 없다
+  extCodes,
+  extTokens,
 ] as const
 /** 판매자 데이터가 아닌 표 (로그인 전 시도 수 — 판매자 ID가 없다) */
 export const RESTORE_UNRELATED_TABLES = [loginLimits] as const

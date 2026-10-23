@@ -42,6 +42,9 @@ import { tiktokLinkCounts } from './tiktok-live/store.ts'
 import { instagramDmCounts } from './ops-store.ts'
 import { DepositService, type DepositOptions } from './deposit/service.ts'
 import { ParcelService, type ParcelOptions } from './parcel/service.ts'
+import { createExtensionApp } from './extension/routes.ts'
+import { ExtensionService } from './extension/service.ts'
+import { connectionAddress } from './api.ts'
 import { readQueue } from './print-store.ts'
 import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
@@ -223,6 +226,8 @@ export interface LivejjimServer {
   readonly parcels: ParcelService
   /** 간편 로그인 (L1 — 설정이 없으면 켜진 공급자가 없다) */
   readonly social: SocialLogin
+  /** 크롬 확장으로 채팅 읽기 (X1) */
+  readonly extension: ExtensionService
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
   /** 유튜브 연동 (설정이 있을 때만) */
@@ -527,6 +532,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
     options: options.deposits ?? {},
   })
   const parcels = new ParcelService({ db, writer, clock, timer, masterKey, hub, log, work, options: options.parcel ?? {} })
+  // 크롬 확장으로 채팅 읽기 (X1 YT-10 — 읽기만, 공식 수집기와 같은 '채팅' 이벤트)
+  const extension = new ExtensionService({ db, service, timer, log, publish: (sellerId, view) => hub.publishExtension(sellerId, { ...view }) })
   const social = new SocialLogin({
     db,
     masterKey,
@@ -563,7 +570,9 @@ export function createServer(options: ServerOptions): LivejjimServer {
       sealer,
       trustedProxies,
       social,
+      extension,
     },
+    extension: createExtensionApp({ extension, clock, trustedProxies, address: connectionAddress }) as unknown as Hono,
     https: options.appOrigin.startsWith('https://'),
     web: options.webDir === undefined ? null : createWebServer(options.webDir),
     ready: async () => {
@@ -601,6 +610,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     deposits,
     parcels,
     social,
+    extension,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     start: () => {
       youtube?.start()
@@ -617,6 +627,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       instagramModule.close()
       tiktokLive.close()
       deposits.close()
+      extension.close()
       hub.closeAll()
       backups.stop()
       void stop()

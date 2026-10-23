@@ -163,6 +163,14 @@ export type ErrorCode =
   | 'WAYBILL_TOO_LONG'
   // L1 간편 로그인
   | 'LOGIN_METHOD_LAST'
+  // X1 크롬 확장으로 채팅 읽기 (YT-10)
+  | 'EXT_DISCONNECTED'
+  | 'EXT_CODE_INVALID'
+  | 'EXT_CODE_LIMITED'
+  | 'EXT_RATE_LIMITED'
+  | 'EXT_NOT_BOUND'
+  | 'EXT_BIND_REJECTED'
+  | 'EXT_ENDED'
 
 export interface ErrorBody {
   readonly error: {
