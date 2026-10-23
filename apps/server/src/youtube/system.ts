@@ -11,7 +11,7 @@ import { errorKind, type LogSink } from '../log.ts'
 import type { Service } from '../service.ts'
 import { findBroadcast, scopeRow, scopeSealedAt, type BroadcastRow } from '../store.ts'
 import { uniqueViolation, type CommittedRecord, type ScopeWriter } from '../writer.ts'
-import { CollectorManager, collectorView, noticeView, type CollectorHooks, type CollectorView, type NoticeView } from './collector.ts'
+import { CollectorManager, UPCOMING_CHECK_MS, collectorView, noticeView, type CollectorHooks, type CollectorView, type NoticeView } from './collector.ts'
 import { YoutubeAccessError, YoutubeConnections, googleFields, type ConnectionView, type SessionInfo } from './connect.ts'
 import { DEFAULT_COSTS, GOOGLE_ENDPOINTS, GoogleClient, GoogleError, type ApiMethod, type GoogleEndpoints } from './google.ts'
 import { OutboxRunner, type OutboxExtension, type OutboxHooks, type OutboxTiming } from './outbox.ts'
@@ -363,7 +363,7 @@ export class YoutubeSystem {
         const others = (await openLinksForVideo(tx, sellerId, [videoId])).filter((other) => other.broadcastId !== b)
         if (others.length > 0) return 'VIDEO_IN_USE'
         await this.#options.linkHooks?.beforeInsert?.(b)
-        await insertLink(tx, { id, sellerId, scopeId: scope.id, broadcastId: b, videoId, liveChatId, channelId: connection.channel?.id ?? '', startedAt, linkedBy: session.accountId, requestId, now: new Date(timer.now()) })
+        await insertLink(tx, { id, sellerId, scopeId: scope.id, broadcastId: b, videoId, liveChatId, channelId: connection.channel?.id ?? '', startedAt, linkedBy: session.accountId, requestId, now: new Date(timer.now()), ...(startedAt === null ? { upcomingCheckAt: new Date(timer.now() + UPCOMING_CHECK_MS) } : {}) })
         return null
       })
     } catch (error) {
