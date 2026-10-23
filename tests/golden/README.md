@@ -365,11 +365,11 @@ expect:
 - `status`의 함수는 원장만 본다. 방송이 리허설인지, 요금 기능이 켜졌는지, 방송 중인지는 서버가 함수를 부르기 전·후에 하는 일이라 이 골든이 아니라 서버 시험·E2E가 본다(BL-0 6·7, BL-4).
 - `start.useDay = true`는 "시작하면서 방송 일 하나를 쓰고 지금부터 24시간 창을 연다"는 뜻이다. 실제로 쓰는 일(쓴 기록·방송 시작 기록을 한 트랜잭션에)은 서버가 한다.
 
-## AI 제안 골든 (`assist/*.json`, A1 — D-A1-02~D-A1-06)
+## AI 제안 골든 (`assist/*.json`, A1 — D-A1-02~D-A1-06·D-A1-09·D-A1-10)
 
 확인 필요 항목(R-20 7)에 붙이는 **제안**의 순수 함수 넷을 고정한다. 규칙 문장은 DOMAIN_RULES R-20 10이다. 제안은 판정이 아니다 — 엔진(`packages/core`)은 제안을 모르고, 이 함수들은 이벤트를 만들지 않는다. 판매자가 제안을 눌렀을 때만 기존 `host.resolveReview`가 나간다.
 
-- **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. 서버(`apps/server`)의 단위 시험이 이 폴더의 모든 `*.json`을 읽어 서버의 순수 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 그 시험은 파일 수(5)와 사례 수 합계(89)를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다. 미구현을 허용하는 장치가 없다(`known-unimplemented.yaml`의 대상이 아니다).
+- **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. 서버(`apps/server`)의 단위 시험이 이 폴더의 모든 `*.json`을 읽어 서버의 순수 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 그 시험은 파일 수(5)와 사례 수 합계(105)를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다. 미구현을 허용하는 장치가 없다(`known-unimplemented.yaml`의 대상이 아니다).
 - **파일** = JSON 객체 `{ "kind", "about", "cases" }` + `kind`에 따라 파일 머리의 `settings`·`catalog`. `kind` ∈ `rule`·`validate`·`redact`·`plan`. 모르는 키·모르는 `kind`·아래 표 밖의 열거값은 시험 실패(읽기 오류)다.
 - **사례 공통 키**: `id`(`G-AST-A1-` + 세 자리, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `out`.
 - `catalog`는 `parser/comment-options.yaml`의 `catalog`와 같은 모양이다(`{ no, name, aliases?, options? }` — 그 방송의 판매 종료가 아닌 상품). 제안 `{ no, options?, qty }`도 comment-options `orders` 한 줄과 같은 모양이다(`options`는 옵션 상품이면 모든 항목을 항목 순서로·선택지 `label`, 옵션 없는 상품이면 적지 않는다).
