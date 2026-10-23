@@ -1,6 +1,8 @@
 // 크롬 확장 연결 (X1 YT-10 AC4·AC7·AC8, D-X1-07·08·11·12).
 // - 설정의 "크롬 확장" 칸(판매자만): "확장 연결" → 8자리 일회용 코드(10분, 한 번만). 연결되면 "다시 만들기"(앞 연결을 바로 끊고 새 코드)·"끊기".
 // - 콘솔: 경고 한 줄(오지 않음·숨은 탭·읽지 못함 + "주문은 손으로 넣어 주세요" + 문자찜 입력으로 가는 버튼)과 유튜브 칸의 받는 경로 한 줄.
+// - 설정의 "확장으로 감사 채팅 올리기"(AC11, 판매자만, 기본 꺼짐): 켤 때 설명 창에서 "켤게요"를 눌러야 켜진다.
+// - 콘솔 고정 영역: 이 방송의 감사 올리기 경고(채널 주인 아님·연달아 실패해 멈춤 + "다시 켜기", AC12·AC17).
 // - 상태는 SSE `extension`으로 바로 바뀌고, 끊겼다 다시 붙으면 다시 읽는다. 서버 상태 값(영어)은 보이지 않고 서버 문장만 보인다.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, isApiError, post, type ApiError } from '../api/client.ts'
@@ -12,10 +14,20 @@ import {
   EXTENSION_DROPPED,
   EXTENSION_INTRO,
   EXTENSION_RENEW_QUESTION,
+  EXTENSION_THANKS_HELP,
+  EXTENSION_THANKS_NEEDS_CONSENT,
+  EXTENSION_THANKS_OFF,
+  EXTENSION_THANKS_ON,
+  EXTENSION_THANKS_OWNER_HINT,
+  EXTENSION_THANKS_PAUSED_HINT,
+  EXTENSION_THANKS_QUESTION,
+  EXTENSION_THANKS_RULES,
+  EXTENSION_THANKS_TITLE,
   codeWords,
   extensionOnBroadcast,
   extensionWarning,
   routeWords,
+  thanksWarnings,
 } from '../lib/extension.ts'
 import { kstClockWords, kstDateTimeWords } from '../lib/kst.ts'
 import { useLiveEvents } from '../lib/live-events.ts'
@@ -62,7 +74,7 @@ export function useExtension(enabled = true): ExtensionHandle {
 
 // ── 설정 ────────────────────────────────────────────────────────────────
 
-type Ask = 'renew' | 'disconnect' | null
+type Ask = 'renew' | 'disconnect' | 'thanks' | null
 
 export function ExtensionSettings({ handle }: { readonly handle: ExtensionHandle }) {
   const { view } = handle
@@ -133,6 +145,22 @@ export function ExtensionSettings({ handle }: { readonly handle: ExtensionHandle
     }
   }
 
+  const setThanks = async (enabled: boolean) => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const { extension } = await post<{ extension: ExtensionView }>('/api/extension/thanks', enabled ? { enabled: true, agreed: true } : { enabled: false })
+      handle.set(extension)
+    } catch (caught) {
+      if (!isApiError(caught)) throw caught
+      setError(caught)
+    } finally {
+      setBusy(false)
+      setAsk(null)
+    }
+  }
+
   if (view === null) {
     if (handle.error !== null) return <ErrorNote error={handle.error} onRetry={() => void handle.reload()} retryLabel="다시 불러오기" />
     return <p role="status">불러오는 중…</p>
@@ -194,6 +222,28 @@ export function ExtensionSettings({ handle }: { readonly handle: ExtensionHandle
           </button>
         )}
       </div>
+      <ExtensionThanksSwitch view={view} busy={busy} onOn={() => setAsk('thanks')} onOff={() => void setThanks(false)} />
+      {ask === 'thanks' ? (
+        <Modal
+          title={`${EXTENSION_THANKS_TITLE}를 켤까요?`}
+          onClose={() => setAsk(null)}
+          closeLabel="그대로 두기"
+          actions={
+            <button type="button" className="button button-primary" disabled={busy} onClick={() => void setThanks(true)}>
+              켤게요
+            </button>
+          }
+        >
+          <p>
+            <strong>{EXTENSION_THANKS_QUESTION}</strong>
+          </p>
+          <ul>
+            {EXTENSION_THANKS_RULES.map((rule) => (
+              <li key={rule}>{rule}</li>
+            ))}
+          </ul>
+        </Modal>
+      ) : null}
       {ask === 'renew' ? (
         <Modal
           title="확장 연결을 다시 만들까요?"
@@ -222,6 +272,32 @@ export function ExtensionSettings({ handle }: { readonly handle: ExtensionHandle
           <p>{EXTENSION_DISCONNECT_QUESTION}</p>
         </Modal>
       ) : null}
+    </div>
+  )
+}
+
+/** "확장으로 감사 채팅 올리기" 켜짐/꺼짐 (AC11) — 상태는 글자와 색 둘 다 */
+function ExtensionThanksSwitch({ view, busy, onOn, onOff }: { readonly view: ExtensionView; readonly busy: boolean; readonly onOn: () => void; readonly onOff: () => void }) {
+  const on = view.thanks?.enabled === true
+  return (
+    <div className="stack-tight extension-thanks" role="group" aria-label={EXTENSION_THANKS_TITLE}>
+      <p>
+        <strong>{EXTENSION_THANKS_TITLE}</strong> <span className={on ? 'tag tag-live' : 'tag'}>{on ? '켜짐' : '꺼짐'}</span>
+      </p>
+      <p>{EXTENSION_THANKS_HELP}</p>
+      <p>{on ? EXTENSION_THANKS_ON : EXTENSION_THANKS_OFF}</p>
+      {on ? <p className="hint">{EXTENSION_THANKS_NEEDS_CONSENT}</p> : null}
+      <div className="row">
+        {on ? (
+          <button type="button" className="button" disabled={busy} onClick={onOff}>
+            {EXTENSION_THANKS_TITLE} 끄기
+          </button>
+        ) : (
+          <button type="button" className="button" disabled={busy} onClick={onOn}>
+            {EXTENSION_THANKS_TITLE} 켜기
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -270,5 +346,44 @@ export function ExtensionRouteLine({ collector, view, broadcastId }: { readonly 
       ) : null}
       {view !== null && extensionOnBroadcast(view, broadcastId) && view.dropped > 0 ? <p className="warning">! {EXTENSION_DROPPED}</p> : null}
     </div>
+  )
+}
+
+/** 콘솔 고정 영역의 감사 올리기 경고 (AC12·AC17): 채널 주인 아님 / 연달아 실패해 멈춤 + "다시 켜기". 포커스를 빼앗지 않는다 */
+export function ExtensionThanksBar({ handle, broadcastId, ended }: { readonly handle: ExtensionHandle; readonly broadcastId: string; readonly ended: boolean }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<ApiError | null>(null)
+  const warnings = ended ? [] : thanksWarnings(handle.view, broadcastId)
+  if (warnings.length === 0) return null
+  const resume = async () => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const { extension } = await post<{ extension: ExtensionView }>('/api/extension/thanks/resume', { broadcast: broadcastId })
+      handle.set(extension)
+    } catch (caught) {
+      if (!isApiError(caught)) throw caught
+      setError(caught)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      {warnings.map((warning) => (
+        <div key={warning.kind} className="connection-banner collector-warning extension-warning" role="alert">
+          <span>
+            ! {warning.message} — {warning.kind === 'PAUSED' ? EXTENSION_THANKS_PAUSED_HINT : EXTENSION_THANKS_OWNER_HINT}
+          </span>
+          {warning.kind === 'PAUSED' ? (
+            <button type="button" className="button" disabled={busy} onClick={() => void resume()}>
+              다시 켜기
+            </button>
+          ) : null}
+        </div>
+      ))}
+      {error !== null ? <ErrorNote error={error} /> : null}
+    </>
   )
 }

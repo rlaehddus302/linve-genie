@@ -35,6 +35,7 @@ import {
   thanksFailedCount,
   unconfirmedWarning,
 } from '../lib/youtube.ts'
+import { EXTENSION_THANKS_VIA } from '../lib/extension.ts'
 import { openBlockAction } from './actions.ts'
 import { useConsoleApi } from './console-context.ts'
 import { ErrorNote } from './ErrorNote.tsx'
@@ -992,6 +993,7 @@ function OutboxItem({ row, onResend, onPosted, onDismiss }: { readonly row: Outb
         {no !== null ? <strong>{no}번 </strong> : null}
         {row.buyer !== null ? <span className="buyer-name">{api.names.name(row.buyer)} </span> : null}
         <span className="tag">{TARGET_WORD[row.target]}</span>
+        {row.viaExtension === true ? <span className="tag">{EXTENSION_THANKS_VIA}</span> : null}
         {row.groupWith.length > 0 ? <span className="tag">같은 메시지 {row.groupWith.length + 1}개</span> : null}
         {row.dismissed === true ? <span className="tag">알림에서 뺌</span> : null}
       </p>

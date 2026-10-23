@@ -92,3 +92,30 @@
 - 복구(D-I2-11): `ext_post_lanes`(회차별 상태)는 지우고 `ext_post_settings`(스위치)는 둔다.
 - AC-X1-25: 다른 경로 보조 중복 규칙에 서버 도착 시각 차 10초 이하를 더했다(`SAME_CHAT_ARRIVAL_MS`, D-X1-28).
 - 기존 시험 기대 갱신(약화 아님): `test/commands.test.ts` 표 수 60→66(X1 표 6개), `test/instagram-dm.test.ts` 발송함 열에 `via`, `test/youtube-outbox.test.ts` 목록 행에 `viaExtension: false`.
+
+## dev-web > 감사 채팅 올리기 — 확장(apps/extension)·화면(apps/web) (AC-X1-21~34)
+
+### 확장
+- `src/poster.ts`(content script): 서버 글만 넣는다. 입력 칸(`selectors.ts` `INPUT_FIELD`)이 비었고 마지막 키 입력(keydown·input·조합·붙여넣기) 뒤 5초가 지났을 때만 `/ext/thanks/take`. 받은 뒤 다시 보고 쓰는 중이면 넣지 않고 `NOT_POSTED`. 넣기는 `execCommand('insertText')`(안 되면 textContent + input 이벤트, 둘 다 글자만), 보내기 단추(`SEND_BUTTON`)를 누른다. 단추가 없거나 꺼져 있으면 넣지 않고 `NOT_POSTED`.
+  - 확인: reader가 읽은 새 채팅 중 **내 채널 ID + 같은 글(공백만 다른 것 같게 봄)** 이 15초 안에 뜨면 `POSTED`, 아니면 `UNCONFIRMED`(입력 칸에 우리 글이 그대로 남아 있으면 지움). 결과 뒤 3초 지나 다음을 묻는다. 결과 알리기는 실패하면 2초마다 5번까지(서버가 한 번만 반영).
+  - 입력 칸이 없으면(로그인 안 함) `me: null, owner: null`로 물어 서버가 주인 아님 경고를 남기게 한다. OFF·NOT_BOUND·NOT_OWNER·PAUSED면 15초마다 다시 묻는다(초당 5요청 제한 안).
+- 채널 읽기(`page-bridge.ts`, 이벤트 `livegenie-who` → 문서 맨 바깥 요소 `data-livegenie-me`·`data-livegenie-owner`, content가 읽고 바로 지움):
+  - 로그인 채널 = `yt-live-chat-message-input-renderer` 요소 `data.authorExternalChannelId`(또는 `data.channelId`).
+  - 방송 채널 = 주인 배지(`data.authorBadges[].liveChatAuthorBadgeRenderer.icon.iconType === 'OWNER'`)가 붙은 메시지 작성자(한 번 보면 기억), 없으면 `window.ytInitialData.continuationContents.liveChatContinuation.ownerChannelId`.
+  - **HG-X1 확인 필요**: 실제 유튜브에서 이 두 경로가 맞는지 모른다(못 읽으면 안 올림 — 안전한 쪽). 경로는 `selectors.ts` 한 곳.
+- **E2E(test-e2e) 가짜 페이지 손잡이**: 입력 칸 `<yt-live-chat-message-input-renderer><div id="input" contenteditable="true"></div><button id="send-button">보내기</button></yt-live-chat-message-input-renderer>`, 그 요소에 `el.data = { authorExternalChannelId: <내 채널> }`. 방송 채널은 주인 배지 메시지 하나(`data = { authorExternalChannelId, timestampUsec, authorBadges: [{ liveChatAuthorBadgeRenderer: { icon: { iconType: 'OWNER' } } }] }`)를 페이지에 두거나 `window.ytInitialData` 경로. "자기 글 뜨기 흉내"는 보내기 단추 click 때 입력 칸 글로 내 채널의 일반 채팅 요소(id·data 포함)를 `#items`에 붙이고 입력 칸을 비우면 된다. 확장은 시작 3초 뒤 첫 가져가기.
+- 못 보낸 채팅: `chrome.storage.session`의 `queue`(바뀔 때마다 순서대로 씀, 비면 지움). 워커가 다시 뜨면 토큰이 있을 때만 이어 보내고, 토큰이 없으면 지움. 끊김(401)·"연결 지우기"도 지움. `storage.local`엔 토큰만.
+- 게시 시각(`timestampUsec`)이 없으면 지금 시각으로 채우지 않고 "읽지 못함"(D-X1-28). 기존 단위 시험 하나("게시 시각이 없으면 읽은 시각")를 스펙 변경대로 바꿨다(약화 아님 — 기대가 더 엄격해짐).
+- 회차: 영상마다 이어졌는지 서버(`GET /ext/broadcasts`)에 물어 알기 전에는 "받는 중"이라 하지 않는다(TE-X1-003). 연결 직후에도 바로 묻는다.
+- 팝업: `[hidden]{display:none !important}`로 숨김이 `display:flex`에 덮이던 것 고침(TE-X1-002). 감사 경고 한 줄(`#thanks`, role=alert).
+- 보낸 곳 검사(RA-X1-04): 팝업 전용(view·connect·forget·broadcasts·bind)은 보낸 곳 주소가 `chrome-extension://<내 id>/`일 때만, 채팅·상태·감사는 탭이 있고 주소가 live_chat일 때만.
+- 배포 빌드: `build.mjs --prod`(또는 `LIVEGENIE_PROD=1`)는 https가 아니면 실패(localhost도).
+- 소스 검사 시험: 누르기·입력(`click`·`execCommand`·`InputEvent`)은 `poster.ts`만, `send-button`·`contenteditable`은 `selectors.ts`만 허용으로 바꿨다(D-X1-25). 가로채기·내부 API 금지는 모든 파일 그대로.
+
+### 화면
+- 설정 "크롬 확장으로 채팅 받기" 칸 안 그룹 "확장으로 감사 채팅 올리기": 태그 "켜짐/꺼짐" + 버튼 "확장으로 감사 채팅 올리기 켜기/끄기"(유튜브 자동 게시 동의와 같은 모양). 켜기 → 창 "확장으로 감사 채팅 올리기를 켤까요?"(SPEC 문장 + 규칙 4줄) → "켤게요"(`{enabled:true, agreed:true}`) / "그대로 두기". 끄기는 바로 `{enabled:false}`.
+- 콘솔 고정 영역(role=alert): 그 방송의 경고 — 멈춤 "! 확장으로 감사 글을 올리지 못하고 있어요 — 못 올린 감사는 … 확인해 주세요…" + 버튼 "다시 켜기", 주인 아님 "! 방송 채널 계정으로 로그인해야 … — 유튜브 채팅 창에서 방송 채널 계정으로 로그인해 주세요."(버튼 없음). 스위치 꺼짐·끝난 방송·리허설이면 없음.
+- 유튜브 칸 감사 목록: 확장에 맡긴 행에 태그 "크롬 확장으로".
+
+### disputesWithSpec (dev-web)
+- AC-X1-33 "팝업 전용 메시지는 `sender.tab`이 있으면 거절": 팝업을 탭으로 열면(E2E가 그렇게 연다) 확장 페이지도 `sender.tab`이 있다. 그래서 "보낸 곳 주소가 이 확장 페이지인가"로 본다 — content script는 주소가 유튜브라 늘 거절되고(뜻은 같다), 팝업을 탭으로 연 경우도 쓸 수 있다.

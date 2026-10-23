@@ -40,7 +40,7 @@ import { AttentionDialog, CancelRequestDialog, ConflictDialog, PendingDialog, Su
 import { AlertStrip, firstAlert, type AlertKind, type PrintAlerts } from './AlertStrip.tsx'
 import { ChatPanel } from './ChatPanel.tsx'
 import { MultiPlatformNotice, PlatformPanels, platformLeads, useConsolePlatforms } from './ConsolePlatforms.tsx'
-import { ExtensionRouteLine, ExtensionWarningBar, useExtension } from './ExtensionConnection.tsx'
+import { ExtensionRouteLine, ExtensionThanksBar, ExtensionWarningBar, useExtension } from './ExtensionConnection.tsx'
 import { AuthorizeDialog, CollectorWarningBar, OutboxDialog, QuotaToast, UnlinkDialog, YoutubeContext, YoutubePanel, useConsoleYoutube } from './ConsoleYoutube.tsx'
 import { Lock } from './Lock.tsx'
 import { SealedNotice } from './SealNotice.tsx'
@@ -1176,6 +1176,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
           <CollectorWarningBar navigate={navigate} ended={ended || sealed} />
           <ExtensionWarningBar view={extension.view} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} navigate={navigate} />
+          <ExtensionThanksBar handle={extension} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} />
           <QuotaToast />
           <div className="console-sticky-quick">
             <AlertStrip

@@ -493,6 +493,8 @@ export interface OutboxRow {
   /** 알림에서 뺀 행 (I3) */
   readonly dismissed?: boolean
   readonly dismissedAt?: string | null
+  /** 크롬 확장에 맡긴 행 (X1 YT-10 AC13) — 공식 연결로는 올리지 않는다 */
+  readonly viaExtension?: boolean
 }
 
 /** 지운 메시지·유튜브 차단 알림 */
@@ -779,6 +781,21 @@ export interface ExtensionView {
   readonly statusAt: string | null
   readonly lastChatAt: string | null
   readonly dropped: number
+  /** 확장으로 감사 채팅 올리기 (X1 YT-10 AC11~AC17) */
+  readonly thanks?: ExtensionThanksView
+}
+
+/** 확장 감사 올리기 경고 — kind(영어)는 보이지 않고 message를 쓴다 */
+export interface ExtensionThanksWarning {
+  readonly broadcast: string
+  readonly kind: 'PAUSED' | 'OWNER'
+  readonly message: string
+}
+
+export interface ExtensionThanksView {
+  readonly enabled: boolean
+  readonly enabledAt: string | null
+  readonly warnings: readonly ExtensionThanksWarning[]
 }
 
 /** POST /api/extension/code · /renew */
