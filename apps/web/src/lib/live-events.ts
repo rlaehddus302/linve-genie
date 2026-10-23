@@ -3,9 +3,10 @@
 // 브라우저가 다시 붙지 않는 닫힘(세션 만료 등)이면 조금 뒤 새로 연다. 화면이 내려가면 닫는다.
 // 연결은 페이지의 실시간 연결 하나를 함께 쓴다(출력 기록·범위 저장소와 같은 연결, lib/stream.ts — 기기 ID를 밝힌다).
 import { useEffect, useRef } from 'react'
-import type { InstagramEvent, ScopeSeq, TikTokEvent, YoutubeEvent } from '../api/types.ts'
+import type { ExtensionView, InstagramEvent, ScopeSeq, TikTokEvent, YoutubeEvent } from '../api/types.ts'
 import type { EventSourceLike } from './console-store.ts'
 import { streamUrl } from './device.ts'
+import { parseExtensionEvent } from './extension.ts'
 import { sharedStream } from './stream.ts'
 
 const REOPEN_MS = 2000
@@ -38,6 +39,8 @@ export interface LiveHandlers {
   readonly onPacking?: (event: { readonly date: string; readonly buyer?: string }) => void
   /** 로그인 방법이 바뀌었다 (SSE `login` `{ kind: 'methods' }` — 간편 로그인 연결·끊기, L1) — 설정 화면이 목록을 다시 읽는다 */
   readonly onLogin?: () => void
+  /** 크롬 확장 상태가 바뀌었다 (SSE `extension` — X1 YT-10 AC7·AC8) */
+  readonly onExtension?: (view: ExtensionView) => void
 }
 
 export function parseYoutubeEvent(raw: unknown): YoutubeEvent | null {
@@ -101,6 +104,10 @@ export class LiveEvents {
       } catch {
         // 읽지 못한 알림은 버린다 (다시 붙을 때 다시 읽는다)
       }
+    })
+    stream.addEventListener('extension', (event) => {
+      const data = parseExtensionEvent(event.data)
+      if (data !== null) this.#handlers().onExtension?.(data)
     })
     for (const type of ['instagram', 'tiktok'] as const) {
       stream.addEventListener(type, (event) => {

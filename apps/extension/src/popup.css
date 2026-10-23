@@ -1,0 +1,24 @@
+body { margin: 0; font: 16px/1.5 system-ui, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; color: #1a1a1a; width: 340px; }
+main { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+h1 { font-size: 18px; margin: 0; }
+h2 { font-size: 16px; margin: 0; }
+p { margin: 0; }
+.state { font-weight: 700; padding: 8px 12px; border-radius: 8px; background: #eee; }
+.state[data-light="ok"] { background: #e8f5e9; color: #1b5e20; }
+.state[data-light="ok"]::before { content: "● "; }
+.state[data-light="warn"] { background: #fff3e0; color: #8a3b00; }
+.state[data-light="warn"]::before { content: "! "; }
+.state[data-light="bad"] { background: #ffebee; color: #b71c1c; }
+.state[data-light="bad"]::before { content: "! "; }
+.warning { color: #8a3b00; font-weight: 700; }
+.error { color: #b71c1c; min-height: 0; }
+.error:empty { display: none; }
+.tip { color: #444; font-size: 16px; }
+form, section { display: flex; flex-direction: column; gap: 8px; }
+label { font-weight: 700; }
+input { font-size: 22px; letter-spacing: 2px; padding: 8px 12px; min-height: 44px; box-sizing: border-box; border: 2px solid #888; border-radius: 8px; }
+button { font-size: 16px; min-height: 44px; padding: 8px 16px; border-radius: 8px; border: 0; background: #1565c0; color: #fff; font-weight: 700; cursor: pointer; }
+button.secondary { background: #fff; color: #1a1a1a; border: 2px solid #888; }
+button:disabled { opacity: 0.6; cursor: default; }
+.choice { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 4px 8px; border: 1px solid #ccc; border-radius: 8px; }
+.choice input { width: 20px; height: 20px; min-height: 0; }

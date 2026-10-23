@@ -1,0 +1,9 @@
+// Node에서 도는 시험(매니페스트·소스 검사)과 설정 파일.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024"],
+    "types": ["node"]
+  },
+  "include": ["*.ts", "test/**/*.node.test.ts", "src/manifest.ts"]
+}

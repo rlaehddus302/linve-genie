@@ -1,0 +1,23 @@
+<!-- 가짜 유튜브 라이브 채팅 페이지 (D-X1-15). 실제 유튜브 live_chat의 요소 이름·id 모양을 본뜬다(src/selectors.ts와 같은 모양).
+     채널 ID·게시 시각은 실제처럼 화면 글자에 없고, 시험이 요소의 data 값으로 붙인다(page-bridge가 읽는 곳). -->
+<yt-live-chat-app>
+  <yt-live-chat-renderer>
+    <yt-live-chat-header-renderer><span id="view-selector">실시간 채팅</span></yt-live-chat-header-renderer>
+    <yt-live-chat-banner-manager id="banner"><yt-live-chat-banner-renderer>고정된 메시지</yt-live-chat-banner-renderer></yt-live-chat-banner-manager>
+    <yt-live-chat-item-list-renderer>
+      <div id="item-scroller">
+        <div id="item-offset">
+          <div id="items">
+            <yt-live-chat-viewer-engagement-message-renderer id="engagement-1"><div id="message">실시간 채팅에 오신 것을 환영합니다!</div></yt-live-chat-viewer-engagement-message-renderer>
+            <yt-live-chat-text-message-renderer id="ChwKGkNPLDBfb2xkMDAxMDAwMDAwMDAwMDAwMDA" class="old"><yt-img-shadow id="author-photo"></yt-img-shadow><div id="content"><span id="timestamp">오후 3:00</span><yt-live-chat-author-chip><span id="author-name">이전손님1</span></yt-live-chat-author-chip><span id="message">1번</span></div></yt-live-chat-text-message-renderer>
+            <yt-live-chat-text-message-renderer id="ChwKGkNPLDBfb2xkMDAyMDAwMDAwMDAwMDAwMDA" class="old"><div id="content"><span id="author-name">이전손님2</span><span id="message">2번</span></div></yt-live-chat-text-message-renderer>
+            <yt-live-chat-text-message-renderer id="ChwKGkNPLDBfb2xkMDAzMDAwMDAwMDAwMDAwMDA" class="old"><div id="content"><span id="author-name">이전손님3</span><span id="message">3번</span></div></yt-live-chat-text-message-renderer>
+            <yt-live-chat-text-message-renderer id="ChwKGkNPLDBfb2xkMDA0MDAwMDAwMDAwMDAwMDA" class="old"><div id="content"><span id="author-name">이전손님4</span><span id="message">4번</span></div></yt-live-chat-text-message-renderer>
+            <yt-live-chat-text-message-renderer id="ChwKGkNPLDBfb2xkMDA1MDAwMDAwMDAwMDAwMDA" class="old"><div id="content"><span id="author-name">이전손님5</span><span id="message">5번</span></div></yt-live-chat-text-message-renderer>
+          </div>
+        </div>
+      </div>
+    </yt-live-chat-item-list-renderer>
+    <yt-live-chat-message-input-renderer><div id="input" contenteditable="true"></div><button id="send-button">보내기</button></yt-live-chat-message-input-renderer>
+  </yt-live-chat-renderer>
+</yt-live-chat-app>

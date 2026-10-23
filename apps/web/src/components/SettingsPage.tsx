@@ -29,6 +29,7 @@ import { fieldsAt, ONGOING_NOTICE, SAVED_MESSAGE, SAVED_SHIPPING_MESSAGE } from 
 import { hasChannel } from '../lib/youtube.ts'
 import { AssistantsSection } from './AssistantsSection.tsx'
 import { DownloadButton } from './downloads.tsx'
+import { ExtensionSettings, useExtension } from './ExtensionConnection.tsx'
 import { ErrorNote, RequestError } from './ErrorNote.tsx'
 import { LabelSwitchSection } from './LabelSwitchSection.tsx'
 import { ParcelSettingsSection } from './ParcelSettings.tsx'
@@ -108,6 +109,8 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
   // 간편 로그인 연결에서 돌아온 결과도 한 번만 (L1 AC-L1-21)
   const [loginResult] = useState(() => (assistant ? null : parseLoginResult(window.location.pathname, window.location.search, 'settings')))
   const loginMethods = useLoginMethods(!assistant)
+  // 크롬 확장 연결 (X1 — 판매자만, 보조자는 코드를 만들 수 없다)
+  const extension = useExtension(!assistant)
   useEffect(() => {
     stripLoginParams()
   }, [])
@@ -175,6 +178,11 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
         <CallbackResult code={result} />
         <YoutubeStatus handle={youtube} quota={quota.quota} navigate={navigate} place="settings" />
       </SettingsSection>
+      {assistant ? null : (
+        <SettingsSection title="크롬 확장으로 채팅 받기" focus={route.section === 'extension' && (settings !== null || loadError !== null)}>
+          <ExtensionSettings handle={extension} />
+        </SettingsSection>
+      )}
       <SettingsSection title="인스타그램" focus={route.section === 'instagram' && (settings !== null || loadError !== null)}>
         <InstagramCallbackResult code={instagramResult} />
         <InstagramSettings handle={instagram} />

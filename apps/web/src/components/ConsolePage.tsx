@@ -40,6 +40,7 @@ import { AttentionDialog, CancelRequestDialog, ConflictDialog, PendingDialog, Su
 import { AlertStrip, firstAlert, type AlertKind, type PrintAlerts } from './AlertStrip.tsx'
 import { ChatPanel } from './ChatPanel.tsx'
 import { MultiPlatformNotice, PlatformPanels, platformLeads, useConsolePlatforms } from './ConsolePlatforms.tsx'
+import { ExtensionRouteLine, ExtensionWarningBar, useExtension } from './ExtensionConnection.tsx'
 import { AuthorizeDialog, CollectorWarningBar, OutboxDialog, QuotaToast, UnlinkDialog, YoutubeContext, YoutubePanel, useConsoleYoutube } from './ConsoleYoutube.tsx'
 import { Lock } from './Lock.tsx'
 import { SealedNotice } from './SealNotice.tsx'
@@ -216,6 +217,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   const sealed = snapshot.sealed
   const items = useSyncExternalStore(queue.subscribe, queue.getSnapshot) ?? NO_ITEMS
   const yt = useConsoleYoutube({ store, broadcastId, date: broadcast.date, rehearsal: broadcast.rehearsal, lastMessageSeq: snapshot.messages.at(-1)?.seq ?? 0 })
+  // 크롬 확장 (X1 YT-10 AC7·AC8): 리허설은 확장으로 받지 않는다
+  const extension = useExtension(!broadcast.rehearsal)
   const thanksFailed = useRef(yt.thanksFailed)
   thanksFailed.current = yt.thanksFailed
   // 인스타그램·틱톡 (N2b-2): 플랫폼 칸·알림 줄·붙여넣기 창
@@ -1172,6 +1175,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         <div className={voiceLive !== null && wide ? 'console-sticky console-sticky-voice' : 'console-sticky'}>
           <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
           <CollectorWarningBar navigate={navigate} ended={ended || sealed} />
+          <ExtensionWarningBar view={extension.view} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} navigate={navigate} />
           <QuotaToast />
           <div className="console-sticky-quick">
             <AlertStrip
@@ -1272,6 +1276,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
               sealed={sealed}
               onOpenOutbox={() => openDialog({ kind: 'outbox' })}
               onUnlink={() => openDialog({ kind: 'youtubeUnlink' })}
+              route={broadcast.rehearsal ? null : <ExtensionRouteLine collector={yt.link?.collector ?? null} view={extension.view} broadcastId={b} />}
             />
             <PlatformPanels live={live} broadcastId={b} navigate={navigate} ended={ended} sealed={sealed} onPaste={openPaste} />
             {wide && voice !== null ? <VoiceExtras voice={voice} snapshot={voiceSnapshot} /> : null}

@@ -760,3 +760,29 @@ export interface PastePlanView {
   readonly total: number
   readonly added?: number
 }
+
+// ── 크롬 확장 (X1 YT-10) ─────────────────────────────────────────────
+
+/** 확장 상태 (영어 값은 화면에 보이지 않는다 — message를 쓴다) */
+export type ExtensionState = 'NONE' | 'RECEIVING' | 'STALE' | 'HIDDEN' | 'UNREADABLE'
+
+/** GET /api/extension · SSE `extension` */
+export interface ExtensionView {
+  readonly connected: boolean
+  readonly connectedAt: string | null
+  readonly lastUsedAt: string | null
+  readonly state: ExtensionState
+  readonly message: string | null
+  /** 경고 상태면 "주문은 손으로 넣어 주세요" */
+  readonly manual: string | null
+  readonly broadcasts: readonly string[]
+  readonly statusAt: string | null
+  readonly lastChatAt: string | null
+  readonly dropped: number
+}
+
+/** POST /api/extension/code · /renew */
+export interface ExtensionCode {
+  readonly code: string
+  readonly expiresAt: string
+}
