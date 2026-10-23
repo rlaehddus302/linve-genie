@@ -102,7 +102,7 @@ export async function expectPhoneBar(page: Page): Promise<void> {
 /** 컨텍스트(또는 페이지)가 닫혀서 route 처리가 실패했는가 — 닫힘이 아닌 오류는 false */
 function closedWhileRouting(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
-  return /Request context disposed|Target page, context or browser has been closed/.test(message)
+  return /Request context disposed|Response has been disposed|Target page, context or browser has been closed/.test(message)
 }
 
 /** 수를 알려 주는 두 주소 (unroute는 같은 함수로 찾으므로 하나를 함께 쓴다) */
