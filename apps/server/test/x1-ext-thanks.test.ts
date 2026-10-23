@@ -85,7 +85,8 @@ async function setup(options: { thanks?: boolean; consent?: boolean } = {}) {
   return { w, connected, b, token, me, api }
 }
 
-const take = (w: YoutubeWorld, token: string, me: string | null, owner: string | null = me) => ext(w, '/ext/thanks/take', token, { v: VIDEO, me, owner })
+/** 감사 가져가기. me = 방송 채널 ID(로그인 계정이 주인이라고 본 경우) 또는 null(입력 칸에 주인 배지 없음). 실제 유튜브 입력 칸에는 채널 ID가 없다(D-X1-29) */
+const take = (w: YoutubeWorld, token: string, me: string | null, owner: string | null = me) => ext(w, '/ext/thanks/take', token, { v: VIDEO, meIsOwner: me !== null, owner })
 
 describe('AC-X1-26 스위치 (YT-10 AC11, D-X1-17·18)', () => {
   it('새 판매자는 꺼짐. 켜기는 agreed 없이 400, 보조자는 403. 꺼져 있으면 확장에 0건이고 감사는 공식 규칙대로(이은 방송 없음) 끝난다', async () => {
@@ -167,7 +168,7 @@ describe('AC-X1-28 한쪽 경로만 (YT-10 AC13, D-X1-19)', () => {
     const sent = await ext(w, '/ext/chats', token, { v: live.videoId, messages: [{ id: 'o1', ch: buyer(1), nick: '홍길동', text: '3', at: w.timer.now() }] })
     expect(sent.status, sent.text).toBe(200)
     await run(w)
-    const taken = await ext(w, '/ext/thanks/take', token, { v: live.videoId, me: connected.channel.id, owner: connected.channel.id })
+    const taken = await ext(w, '/ext/thanks/take', token, { v: live.videoId, meIsOwner: true, owner: connected.channel.id })
     expect(taken.body.state).toBe('NONE')
     expect(w.fake.posted).toHaveLength(1)
     expect((await rows(w, connected, b.date))[0]?.viaExtension).toBe(false)
@@ -223,22 +224,25 @@ describe('AC-X1-28 한쪽 경로만 (YT-10 AC13, D-X1-19)', () => {
 })
 
 describe('AC-X1-27 채널 주인만 (YT-10 AC12, D-X1-20)', () => {
-  it('로그인 채널 ≠ 방송 채널, 하나를 못 읽음, 유튜브 연결 채널과 다름 → 주지 않고 경고. 같으면 준다', async () => {
+  it('입력 칸에 주인 배지 없음(관리자·다른 계정), 방송 채널을 못 읽음, 유튜브 연결 채널과 다름 → 주지 않고 경고. 주인이고 같으면 준다', async () => {
     const { w, token, me, api } = await setup()
     await chat(w, token, '3')
     await run(w)
-    for (const [who, owner] of [
-      ['UCother0000000000000000', me],
-      [null, me],
-      [me, null],
-      ['UCother0000000000000000', 'UCother0000000000000000'],
+    for (const [meIsOwner, owner] of [
+      [false, me],
+      [true, null],
+      [true, 'UCother0000000000000000'],
+      [false, null],
     ] as const) {
-      const taken = await take(w, token, who, owner)
+      const taken = await ext(w, '/ext/thanks/take', token, { v: VIDEO, meIsOwner, owner })
       expect(taken.body.state).toBe('NOT_OWNER')
       expect(taken.body.message).toBe('방송 채널 계정으로 로그인해야 감사 글을 올릴 수 있어요')
     }
     const view = (await api.get('/api/extension')).body.extension as { thanks: { warnings: { kind: string; message: string }[] } }
     expect(view.thanks.warnings.map((item) => item.kind)).toEqual(['OWNER'])
+    // 옛 모양(로그인 채널 ID me)·틀린 값은 받지 않는다
+    expect((await ext(w, '/ext/thanks/take', token, { v: VIDEO, me, owner: me })).status).toBe(400)
+    expect((await ext(w, '/ext/thanks/take', token, { v: VIDEO, meIsOwner: 'yes', owner: me })).status).toBe(400)
     const ok = await take(w, token, me)
     expect(ok.body.state).toBe('POST')
     const cleared = (await api.get('/api/extension')).body.extension as { thanks: { warnings: unknown[] } }

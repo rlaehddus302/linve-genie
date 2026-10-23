@@ -2,7 +2,7 @@
 // 연결 코드·토큰(해시로만·끊기·다시 만들기·30일), 묶음·속도 제한·중복 없음, 회차 잇기(자동·고르기·거절), 받는 범위, 다른 경로 중복(ID·3초 규칙),
 // 이름 정리·로그에 남기지 않기, 상태 경고(30초·뒤로 간 탭·1분 읽지 못함).
 import { afterEach, describe, expect, it } from 'vitest'
-import { MERGED_BODY, RAW_JOIN, addSeller, client, createBroadcast, login, rid, type Seller } from './support.ts'
+import { MERGED_BODY, RAW_JOIN, addSeller, client, createBroadcast, expectOk, login, rid, writeEvent, type Seller } from './support.ts'
 import { connectSeller, dumpText, linkedBroadcast, youtubeWorld, type YoutubeWorld } from './youtube-support.ts'
 
 const worlds: YoutubeWorld[] = []
@@ -47,8 +47,8 @@ async function connect(w: YoutubeWorld, seller: Seller): Promise<string> {
 }
 
 let messageCounter = 0
-function chat(w: YoutubeWorld, input: { id?: string; ch?: string; nick?: string; text?: string; at?: number } = {}) {
-  return { id: input.id ?? `ext-msg-${String(++messageCounter)}`, ch: input.ch ?? 'UCbuyer0000000000000001', nick: input.nick ?? '구매자', text: input.text ?? '3번', at: input.at ?? w.timer.now() }
+function chat(w: YoutubeWorld, input: { id?: string; ch?: string; nick?: string; text?: string; at?: number; owner?: true } = {}) {
+  return { id: input.id ?? `ext-msg-${String(++messageCounter)}`, ch: input.ch ?? 'UCbuyer0000000000000001', nick: input.nick ?? '구매자', text: input.text ?? '3번', at: input.at ?? w.timer.now(), ...(input.owner === true ? { owner: true as const } : {}) }
 }
 
 async function chatRows(w: YoutubeWorld): Promise<{ id: string; source: string; body: Record<string, unknown> }[]> {
@@ -323,6 +323,39 @@ describe('AC-X1-13 받는 범위·같은 채팅 이벤트 (YT-10 AC2)', () => {
     expect(rows[0]?.body).toMatchObject({ type: 'chat', b: b.id, id: message.id, ch: message.ch, nick: '구매자', text: '7번', publishedAt: message.at })
     const actors = await w.database.pglite?.query<{ actor: string }>(`select actor from events where type = 'chat'`)
     expect(actors?.rows.map((row) => row.actor)).toEqual(['collector', 'collector'])
+  })
+
+  it('D-X1-29: 방송자 표시는 회차 채널(유튜브 연결 채널)과 같을 때만 owner로 기록 — 방송자 무시(기본)로 판매자 글은 찜이 되지 않는다. 다른 채널의 표시는 일반 시청자로 세고, 모양이 틀린 표시는 400', async () => {
+    const w = await world()
+    const connected = await connectSeller(w, { publish: false })
+    const b = await createBroadcast(w, connected.seller)
+    await expectOk(writeEvent(w, connected.seller, { type: 'product.register', b: b.id, no: 3, name: '핑크', price: 10000 }))
+    await expectOk(writeEvent(w, connected.seller, { type: 'product.register', b: b.id, no: 4, name: '라울', price: 10000 }))
+    const token = await connect(w, connected.seller)
+    expect((await ext(w, 'POST', '/ext/bind', token, { v: VIDEO, broadcast: b.id })).status).toBe(200)
+    await w.timer.advance(1000)
+    const seller = chat(w, { ch: connected.channel.id, nick: '판매자', text: '3번', owner: true })
+    const forged = chat(w, { ch: 'UCforged000000000000001', nick: '가짜 주인', text: '4번', owner: true })
+    const viewer = chat(w, { text: '3번' })
+    const sent = await ext(w, 'POST', '/ext/chats', token, { v: VIDEO, messages: [seller, forged, viewer] })
+    expect(sent.status, sent.text).toBe(200)
+    expect(sent.body).toMatchObject({ recorded: 3, ownerDenied: 1 })
+    const rows = await chatRows(w)
+    expect(rows.map((row) => row.body.owner)).toEqual([true, undefined, undefined])
+    const day = (await client(w, connected.seller.cookie).get(`/api/days/${b.date}`)).body
+    const claims = day.claims as { ch?: string; no?: number }[]
+    expect(claims).toHaveLength(2)
+    expect(JSON.stringify(claims)).not.toContain(connected.channel.id)
+    const bad = await ext(w, 'POST', '/ext/chats', token, { v: VIDEO, messages: [{ ...chat(w), owner: 'yes' }] })
+    expect(bad.status).toBe(400)
+  })
+
+  it('D-X1-29: 회차 채널을 아직 모르면(유튜브 연결·이은 채널 없음) 방송자 표시를 믿는다', async () => {
+    const { w, token } = await boundWorld()
+    await w.timer.advance(1000)
+    const sent = await ext(w, 'POST', '/ext/chats', token, { v: VIDEO, messages: [chat(w, { ch: 'UCseller000000000000001', owner: true })] })
+    expect(sent.body).toMatchObject({ recorded: 1, ownerDenied: 0 })
+    expect((await chatRows(w)).map((row) => row.body.owner)).toEqual([true])
   })
 
   it('리허설 회차로는 받지 않는다', async () => {

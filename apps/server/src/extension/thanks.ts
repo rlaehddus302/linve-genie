@@ -201,10 +201,11 @@ export class ExtensionThanks {
   // ── 확장이 가져간다 (AC12·AC14·AC15) ─────────────────────────────────
 
   /**
-   * 넣을 글 하나를 맡긴다. me = 채팅 화면에 로그인한 계정의 채널 ID, owner = 방송 채널 ID (확장이 읽은 값, 못 읽으면 null).
-   * 둘이 같고 그 회차의 채널(YT-02 이은 채널, 없으면 유튜브 연결 채널)과도 같을 때만 준다
+   * 넣을 글 하나를 맡긴다. meIsOwner = 채팅 화면에 로그인한 계정이 방송 채널 주인인가(입력 칸의 주인 배지 — 실제 유튜브 입력 칸에는 채널 ID가 없다, D-X1-29),
+   * owner = 방송 채널 ID (확장이 읽은 값, 못 읽으면 null). 주인이고 방송 채널이 그 회차의 채널(YT-02 이은 채널, 없으면 유튜브 연결 채널,
+   * 둘 다 없으면 이 방송 채널을 회차 채널로 기록)과 같을 때만 준다. 못 읽으면 다른 값으로 대신하지 않는다(RA-X1-08)
    */
-  async take(sellerId: string, videoId: string, me: string | null, owner: string | null): Promise<TakeOutcome> {
+  async take(sellerId: string, videoId: string, meIsOwner: boolean, owner: string | null): Promise<TakeOutcome> {
     const { db } = this.#deps
     const enabledAt = await postEnabledAt(db, sellerId)
     if (enabledAt === null) return { kind: 'off' }
@@ -218,8 +219,8 @@ export class ExtensionThanks {
       const lane = await readLane(db, sellerId, b)
       const link = await activeLink(db, sellerId, b)
       const connection = await youtubeChannelOf(db, sellerId)
-      const expected = link?.channelId ?? connection?.channelId ?? null
-      const ownerOk = me !== null && owner !== null && me === owner && expected !== null && me === expected
+      const expected = link?.channelId ?? connection?.channelId ?? lane?.ownerChannelId ?? owner
+      const ownerOk = meIsOwner && owner !== null && expected !== null && owner === expected
       if (!ownerOk) {
         if (lane?.ownerProblemAt === null || lane?.ownerProblemAt === undefined) {
           await writeLane(db, sellerId, b, { ownerProblemAt: now })
@@ -227,8 +228,8 @@ export class ExtensionThanks {
         }
         return { kind: 'not_owner', channel: expected }
       }
-      if (lane === null || lane.ownerProblemAt !== null || lane.ownerChannelId !== me) {
-        await writeLane(db, sellerId, b, { ownerProblemAt: null, ownerChannelId: me })
+      if (lane === null || lane.ownerProblemAt !== null || lane.ownerChannelId !== owner) {
+        await writeLane(db, sellerId, b, { ownerProblemAt: null, ownerChannelId: owner })
         if (lane?.ownerProblemAt !== null && lane?.ownerProblemAt !== undefined) this.onChanged(sellerId)
       }
       if (lane?.pausedAt !== null && lane?.pausedAt !== undefined) return { kind: 'paused' }
@@ -262,7 +263,7 @@ export class ExtensionThanks {
       }
       await writeLane(db, sellerId, b, { lastTakenAt: now })
       this.#publish(sellerId, members[0]?.date ?? null, ids, 'SENDING', null)
-      return { kind: 'post', ids, text: message.text, until: leaseUntil.toISOString(), channel: me }
+      return { kind: 'post', ids, text: message.text, until: leaseUntil.toISOString(), channel: owner }
     })
   }
 
@@ -353,6 +354,16 @@ export class ExtensionThanks {
       }
     }
     return { enabled: enabledAt !== null, enabledAt: enabledAt?.toISOString() ?? null, warnings }
+  }
+
+  /** 회차의 방송 채널: YT-02 이은 채널 → 유튜브 연결 채널 → 감사 올리기에서 확인한 채널 (모르면 null) — 확장의 방송자 표시를 견줄 때 (D-X1-29) */
+  async broadcastChannel(sellerId: string, broadcastId: string): Promise<string | null> {
+    const { db } = this.#deps
+    const link = await activeLink(db, sellerId, broadcastId)
+    if (link !== null) return link.channelId
+    const connection = await youtubeChannelOf(db, sellerId)
+    if (connection !== null) return connection.channelId
+    return (await readLane(db, sellerId, broadcastId))?.ownerChannelId ?? null
   }
 
   /** 확장이 읽은 채팅 중 우리(판매자 채널)가 올린 글을 가릴 때 쓰는 채널 ID들 */

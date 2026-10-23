@@ -108,6 +108,8 @@ export interface IncomingChat {
   readonly nick: string
   readonly text: string
   readonly at: number
+  /** 확장이 본 방송자 표시 (주인 배지·author-type=owner) — 회차 채널과 같을 때만 인정 (D-X1-29) */
+  readonly owner?: true
 }
 
 export interface StatusInput {
@@ -119,7 +121,7 @@ export interface StatusInput {
 }
 
 export type IngestOutcome =
-  | { readonly kind: 'ok'; readonly recorded: number; readonly skipped: number; readonly broadcast: string }
+  | { readonly kind: 'ok'; readonly recorded: number; readonly skipped: number; readonly ownerDenied: number; readonly broadcast: string }
   | { readonly kind: 'not_bound' }
   | { readonly kind: 'ended' }
   | { readonly kind: 'save_failed' }
@@ -358,8 +360,12 @@ export class ExtensionService {
     // 판매자 채널이 올린 우리 글(공식·확장 감사)은 채팅으로 기록하지 않는다 — 공식 수집기와 같음(AC-Y1-26)
     const own = await this.#deps.thanks.ownChannels(caller.sellerId, binding.broadcastId)
     const since = new Date(now - 10 * 60 * 1000)
+    // 방송자 글(D-X1-29): 확장의 방송자 표시는 그 채널이 회차의 방송 채널일 때만 인정 — 공식 경로의 isChatOwner와 같은 'owner'로 기록한다.
+    // 다르면 일반 시청자로 기록하고 센다(로그 없음). 회차 채널을 아직 모르면(이은 채널·유튜브 연결·감사에서 본 채널 모두 없음) 표시를 믿는다 — 판매자 글이 찜이 되는 쪽이 더 위험하다
+    const castChannel = await this.#deps.thanks.broadcastChannel(caller.sellerId, binding.broadcastId)
+    let ownerDenied = 0
     let skipped = 0
-    const recordable: { id: string; ch: string; nick: string; text: string; publishedAt: number }[] = []
+    const recordable: { id: string; ch: string; nick: string; text: string; publishedAt: number; owner?: true }[] = []
     for (const chat of chats) {
       const publishedAt = Math.min(chat.at, now + FUTURE_SLACK_MS)
       const text = cutText(chat.text)
@@ -367,7 +373,12 @@ export class ExtensionService {
         skipped += 1
         continue
       }
-      recordable.push({ id: chat.id, ch: chat.ch, nick: chat.nick, text, publishedAt })
+      let owner = false
+      if (chat.owner === true) {
+        owner = castChannel === null || castChannel === chat.ch
+        if (!owner) ownerDenied += 1
+      }
+      recordable.push({ id: chat.id, ch: chat.ch, nick: chat.nick, text, publishedAt, ...(owner ? { owner: true as const } : {}) })
     }
     const outcome = await service.ingestYoutubeBatch(
       caller.sellerId,
@@ -386,7 +397,7 @@ export class ExtensionService {
       await markChatReceived(db, caller.sellerId, new Date(now))
       this.#notify(caller.sellerId)
     }
-    return { kind: 'ok', recorded: outcome.recorded, skipped: skipped + (recordable.length - outcome.recorded), broadcast: binding.broadcastId }
+    return { kind: 'ok', recorded: outcome.recorded, skipped: skipped + (recordable.length - outcome.recorded), ownerDenied, broadcast: binding.broadcastId }
   }
 
   // ── 상태 (AC7) ──────────────────────────────────────────────────────────

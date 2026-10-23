@@ -4,7 +4,7 @@
 // 2) 확장 경로 /ext/** — 쿠키·Origin을 보지 않고 Authorization: Bearer <확장 토큰>으로만 받는다(연결하기만 토큰 없이 코드로).
 //    확장 토큰은 /api 경로(세션 쿠키)를 부를 수 없다. 본문은 JSON 객체만·64KB 이하, 모르는 필드는 거절, 모든 응답 no-store.
 //    POST /ext/connect { code } → { token } · GET /ext/broadcasts?v= · POST /ext/bind { v, broadcast } · POST /ext/chats { v, messages[] } · POST /ext/status
-//    감사 올리기(X1 AC11~AC17): POST /ext/thanks/take { v, me, owner } · POST /ext/thanks/result { ids, result }
+//    감사 올리기(X1 AC11~AC17): POST /ext/thanks/take { v, meIsOwner, owner } · POST /ext/thanks/result { ids, result }
 //    판매자 화면: POST /api/extension/thanks { enabled, agreed } · POST /api/extension/thanks/resume { broadcast }
 // 받은 값(토큰·닉네임·본문)은 응답·로그에 되돌려 보내지 않는다.
 import { Hono, type Context } from 'hono'
@@ -183,7 +183,7 @@ export function createExtensionApp(deps: ExtensionAppDeps): Hono<ExtEnv> {
     if (outcome.kind === 'not_bound') return apiError(409, 'EXT_NOT_BOUND', EXTENSION_MESSAGES.NOT_BOUND)
     if (outcome.kind === 'ended') return apiError(409, 'EXT_ENDED', EXTENSION_MESSAGES.ENDED)
     if (outcome.kind === 'save_failed') return apiError(500, 'SAVE_FAILED', '저장하지 못했어요. 다시 시도해 주세요.')
-    return c.json({ recorded: outcome.recorded, skipped: outcome.skipped, broadcast: outcome.broadcast })
+    return c.json({ recorded: outcome.recorded, skipped: outcome.skipped, ownerDenied: outcome.ownerDenied, broadcast: outcome.broadcast })
   })
 
   app.post('/status', async (c) => {
@@ -205,20 +205,21 @@ export function createExtensionApp(deps: ExtensionAppDeps): Hono<ExtEnv> {
     return c.json({ state: view.state, message: view.message })
   })
 
-  // 감사 글 가져가기 (AC12~AC15): 한 번에 글 하나. me = 로그인 계정 채널 ID, owner = 방송 채널 ID (못 읽으면 null)
+  // 감사 글 가져가기 (AC12~AC15): 한 번에 글 하나. meIsOwner = 로그인 계정이 방송 채널 주인인가(입력 칸의 주인 배지, D-X1-29),
+  // owner = 방송 채널 ID (못 읽으면 null). 실제 유튜브 입력 칸에는 로그인 채널 ID가 없다(HG-X1)
   app.post('/thanks/take', async (c) => {
     const input = body(c)
-    const extra = onlyKeys(input, ['v', 'me', 'owner'])
+    const extra = onlyKeys(input, ['v', 'meIsOwner', 'owner'])
     if (extra !== null) return extra
     const v = own(input, 'v')
-    const me = own(input, 'me') ?? null
+    const meIsOwner = own(input, 'meIsOwner') ?? false
     const owner = own(input, 'owner') ?? null
     const problems: FieldProblem[] = []
     if (typeof v !== 'string' || !VIDEO_RE.test(v)) problems.push({ field: 'v', message: '유튜브 영상 번호가 올바르지 않아요.' })
-    if (me !== null && (typeof me !== 'string' || !CHANNEL_RE.test(me))) problems.push({ field: 'me', message: '채널 번호가 올바르지 않아요.' })
+    if (typeof meIsOwner !== 'boolean') problems.push({ field: 'meIsOwner', message: '채널 주인 여부가 올바르지 않아요.' })
     if (owner !== null && (typeof owner !== 'string' || !CHANNEL_RE.test(owner))) problems.push({ field: 'owner', message: '채널 번호가 올바르지 않아요.' })
     if (problems.length > 0) return invalid(problems)
-    const outcome = await extension.thanks.take(caller(c).sellerId, v as string, me as string | null, owner as string | null)
+    const outcome = await extension.thanks.take(caller(c).sellerId, v as string, meIsOwner === true, owner as string | null)
     switch (outcome.kind) {
       case 'post':
         return c.json({ state: 'POST', post: { ids: outcome.ids, text: outcome.text, until: outcome.until }, afterMs: null, message: null })
@@ -273,14 +274,17 @@ function parseChats(input: Record<string, unknown>): { ok: true; v: string; chat
   for (const [index, item] of messages.entries()) {
     const field = `messages.${String(index)}`
     if (!isPlainObject(item)) return { ok: false, response: invalid([{ field, message: '채팅 하나의 모양이 올바르지 않아요.' }]) }
-    const extra = ownKeys(item).filter((key) => !['id', 'ch', 'nick', 'text', 'at'].includes(key))
+    const extra = ownKeys(item).filter((key) => !['id', 'ch', 'nick', 'text', 'at', 'owner'].includes(key))
     if (extra.length > 0) return { ok: false, response: apiError(400, 'UNKNOWN_FIELD', '받을 수 없는 항목이 있어요.', unknownFieldProblems(extra)) }
     const id = own(item, 'id')
     const ch = own(item, 'ch')
     const nick = own(item, 'nick')
     const text = own(item, 'text')
     const at = own(item, 'at')
+    // 방송자 표시 (D-X1-29): 있으면 true만. 서버가 회차 채널과 같을 때만 방송자로 인정한다
+    const owner = own(item, 'owner')
     if (
+      (owner !== undefined && owner !== true) ||
       typeof id !== 'string' ||
       !MESSAGE_ID_RE.test(id) ||
       typeof ch !== 'string' ||
@@ -295,7 +299,7 @@ function parseChats(input: Record<string, unknown>): { ok: true; v: string; chat
     ) {
       return { ok: false, response: invalid([{ field, message: '채팅 하나의 모양이 올바르지 않아요.' }]) }
     }
-    chats.push({ id, ch, nick, text, at })
+    chats.push({ id, ch, nick, text, at, ...(owner === true ? { owner: true as const } : {}) })
   }
   return { ok: true, v, chats }
 }
