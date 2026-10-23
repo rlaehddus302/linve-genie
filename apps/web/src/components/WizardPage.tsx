@@ -212,10 +212,8 @@ export function WizardPage({ route, navigate, shopName, onRenamed }: WizardPageP
           </>
         ) : null}
         {step === PRINTER_STEP ? (
-          <>
-            <PrinterStep />
-            <StepButtons step={step} onPrev={() => move(YOUTUBE_STEP)} onNext={() => move(5)} onLater={dismiss} />
-          </>
+          // "라벨을 쓰지 않아요"(D-PL1-06, AC-PL1B-17): 끄기가 저장되면 바로 5/5 — 끄는 동안 "다음"을 잠근다
+          <PrinterStep onLabelsOff={() => go(5)} buttons={(busy) => <StepButtons step={step} onPrev={() => move(YOUTUBE_STEP)} onNext={() => move(5)} onLater={dismiss} nextBusy={busy} />} />
         ) : null}
         {step === 5 ? <RehearsalStep navigate={navigate} onFinish={() => void finish()} onPrev={() => move(skipPrinter ? YOUTUBE_STEP : PRINTER_STEP)} onLater={dismiss} busy={closing} /> : null}
       </section>
