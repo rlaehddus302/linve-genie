@@ -729,6 +729,53 @@ sprints:
     specIds: [VOC-01, VOC-05]
     status: done  # 메인 합침 (2026-10-23)
 
+  # ─────────── 마무리 다듬기 (새 기능 없음, 두 작업 폴더에서 동시에) ───────────
+  - id: PL1A
+    phase: 6
+    title: 마무리 다듬기 A — 30일 봉인 날짜의 백업·문서, 판매자 자동 백업 실패 경보 (서버 중심)
+    dependsOn: []
+    devs: [server, web]
+    tests: [domain, e2e]
+    uxReview: false
+    goal: >
+      새 기능 없이 남은 구멍을 메운다(D-I2-22·D-O3-12 이미 결정, 세부 D-PL1-01~04·10).
+      PL1-01 판매자 백업 형식 3 — 봉인 범위(봉인 시각·장부·장부 요약값)를 담고 검사는 재생 대신 seq·이벤트 요약값·장부 요약값(check-replay checkSealed 방식), 복구·가져오기 뒤에도 봉인 유지(AC-I2-66).
+      PL1-02 판매자 자동 백업 실패를 운영 경보 BACKUP_FAILED(seller 칸)로.
+      PL1-03 봉인 날짜의 확인서·판매대장·포장·지난 구매를 장부(sealedView·readLedger, livejjim-ledger/2)로 봉인 직전과 같게, 포장·배송·출력·택배 쓰기는 409, 포장 화면 "볼 수만"(AC-I2-67).
+      장부 판 /3(판매마다 찜 시각)은 youtube/seal.ts를 고쳐야 해 이번에 빼고 맥북 쪽 유튜브 작업으로 넘긴다(D-PL1-03) — 봉인 날짜 판매대장 "찜 시각"은 빈칸.
+      금지: apps/server/src/youtube/**, 웹의 유튜브 화면 파일, tests/e2e/i3·y1 (사용자가 맥북에서 유튜브 작업 중 — 읽기·import만).
+      PL1B와 동시 개발 — 파일 경계는 acceptance(PackingPage.tsx: PL1A는 데이터 받기·PackingChecklist만).
+    carryOver:
+      - "맥북 쪽 유튜브 작업으로 넘김: 장부 판 livejjim-ledger/3 — 판매마다 찜 시각(R-6 실제 시각·분 단위 여부)을 youtube/seal.ts buildLedger에 더하고, 봉인 날짜 판매대장 '찜 시각' 칸이 /3을 읽게 (D-PL1-03, AC-I2-67)"
+    specIds: [DAT-03, DAT-04, DAT-06, STL-04, STL-06, STL-08, STL-10, BUY-05, SYS-05]
+    status: doing
+
+  - id: PL1B
+    phase: 6
+    title: 마무리 다듬기 B — 간이과세자 증빙, 포장 모드 B1 출력, 마법사 '라벨을 쓰지 않아요', BL-7 확정, 음성 시험
+    dependsOn: []
+    devs: [server, web]
+    tests: [domain, e2e]
+    uxReview: true
+    goal: >
+      새 기능 없이 화면·증빙·시험을 다듬는다(D-PL1-05~10).
+      PL1-04 운영 사업자(틈)가 간이과세자라 계좌이체 증빙은 현금영수증(지출증빙) 하나 — 세금계산서는 고를 수 없고 "지금은 발급할 수 없어요", 옛 저장값은 현금영수증으로 읽음, 공급가액·세액은 화면에 없음, 약관 BL-10 8 맞춤(D-PL1-07, 법률·세무 확인은 사용자 몫).
+      PL1-05 포장 모드에 "포장 라벨 출력"(정산 자세히와 같은 출력 대기열 요청), 라벨 꺼짐이면 포장 라벨 칸 전체를 안내로(L-13 9, D-PL1-05).
+      PL1-07 D-I5-20(끝에서 넘긴 문자찜 카드는 저절로 넣지 않음) 웹 단위 시험 + @webkit E2E.
+      PL1-08 시작 마법사 프린터 단계 "라벨을 쓰지 않아요" → PUT /api/settings/labels {enabled:false} 뒤 다음 단계(D-PL1-06).
+      PL1-09 BL-7 환불 결과 모름·밖에서 취소를 지금 코드대로 확정, 요금 골든 granted G-BIL-301~315(D-PL1-08 — 초안 tests/golden/drafts/pl1b/billing/, 시작 때 spec-keeper가 billing/로 옮김).
+      PL1-12 음성 켠 직후 이력 받는 2초(HISTORY_WAIT_MS) 카드 미룸 규칙 확정(D-PL1-09).
+      완료로만 적음: PL1-13(tests/e2e/menu.ts 정규식, ffb5de1), PL1-14(stages.mjs WebKit 안내, 880ad9f).
+      금지: apps/server/src/youtube/**, 웹의 유튜브 화면 파일(WizardPage.tsx는 프린터 단계 블록만), tests/e2e/i3·y1.
+      PL1A와 동시 개발 — 파일 경계는 acceptance(PackingPage.tsx: PL1B는 PackingLabelSection만).
+    carryOver:
+      - "맥북 쪽 유튜브 작업으로 넘김: PL1-10 SA-I3-002(멈춤 이유별 '채팅 다시 받기' 표시)·SA-I3-003(마친 마법사를 다시 열 때 상태)·SA-I3-004(다른 기기 설정 저장 시 요약 갱신 범위) 스펙 판정"
+      - "맥북 쪽 유튜브 작업으로 넘김: PL1-11 SA-I3-005 E2E 보강(NO_PERMISSION 창, 스트림 5xx 반복 경고, 영상 댓글 대상, 차단 안내, 2단계 바꾸기 저장, 3단계)"
+      - "맥북 쪽 유튜브 작업으로 넘김: PL1-15 UX-I3 minor·nit(보조자 비밀번호 표시, 동의 요약 문장, 방송 중 구글 다녀오면 돌아오는 화면, 영상 ID 대신 제목 등)과 RA-I3 minor(프록시 뒤 IP 제한, pg_dump 판, 운영 상태 조회 비용 등)"
+    note: "완료(BASE에 들어 있음): PL1-13 tests/e2e/menu.ts 정규식(ffb5de1), PL1-14 stages.mjs E2E 결과 없음 안내에 WebKit 설치(880ad9f)"
+    specIds: [BIL-01, BIL-02, STL-08, LBL-02, UX-02, RCP-01, VOC-03, VOC-04]
+    status: doing
+
 techDebt:
   - "RA-S00-001: 골든 러너가 엔진의 입력 state 제자리 수정을 잡지 못함"
   - "RA-S00-002: golden 어댑터 observe가 항상 미구현이라 S02에서 G-ENG-* 허용으로 조용히 통과 가능"
