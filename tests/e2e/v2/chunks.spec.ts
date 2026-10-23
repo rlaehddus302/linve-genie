@@ -148,7 +148,7 @@ test('S14·S13: "품종은 루비"로 품종만 바꿈, "아니 아니 23번"으
 
 test('AC-V2-16: 조용한 시간 3.0초로 바꾸면 저장되고 S2 카드가 5500ms에 생김', async ({ page }) => {
   await setupV2(page)
-  await quietField(page).fill('3')
+  await (await quietField(page)).fill('3')
   await expect.poll(async () => JSON.parse((await page.evaluate((k) => window.localStorage.getItem(k), SETTINGS_KEY)) ?? '{}')['voice.quietMs']).toBe(3000)
   await sayAt(page, [['십오번', 0], ['엘레강스', 1200], ['이만원', 2500]])
   await page.clock.runFor(2900)
@@ -159,14 +159,14 @@ test('AC-V2-16: 조용한 시간 3.0초로 바꾸면 저장되고 S2 카드가 5
 
 test('AC-V2-16: 저장값이 범위 밖(9000)이면 1.8초로 읽음', async ({ page }) => {
   await setupV2(page, { settings: { 'voice.quietMs': 9000 } })
-  await expect(quietField(page)).toHaveValue('1.8')
+  await expect(await quietField(page)).toHaveValue('1.8')
   await sayAt(page, [['15번 핑크문 만오천원', 0]])
   await page.clock.runFor(1800)
   await expect(card(page, '15번 핑크문 15,000원')).toBeVisible()
 })
 
 for (const [label, width, min] of [['PC', 1440, 28], ['휴대폰 375', 375, 22]] as const) {
-  test(`AC-V2-17 ${label}: "들은 말" 칸에 모은 글·중간 결과, 글자 ${String(min)}px 이상, <b>는 글자로, 읽은 뒤 결과 줄`, async ({ page }) => {
+  test(`AC-V2-17 ${label}: 맨 위 큰 칸에 모은 글·중간 결과, 글자 ${String(min)}px 이상, <b>는 글자로, 읽은 뒤 결과 줄`, async ({ page }) => {
     await setupV2(page, { width })
     await sayAt(page, [['십오번', 0], ['<b>엘레강스</b>', 300, false]])
     const box = heardBox(page)

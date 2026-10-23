@@ -152,6 +152,29 @@ export async function speechEnd(page: Page): Promise<void> {
   })
 }
 
+/** 음성 칸 아래 접는 칸 "음성 설정과 기록"(기본 접힘, D-V2-21)을 열어 돌려준다 — 이미 열려 있으면 그대로 */
+export async function openExtras(page: Page) {
+  const extras = page.getByRole('region', { name: '음성 설정과 기록' })
+  const summary = extras.getByText('음성 설정과 기록', { exact: true })
+  const open = await summary.evaluate((el) => (el.parentElement as HTMLDetailsElement).open)
+  if (!open) await summary.click()
+  return extras
+}
+
+/** 접는 칸 안 [음성 기록]을 눌러 창을 연다 (D-V2-08·D-V2-21 — "들린 말 기록" 목록은 없어졌다) */
+export async function openVoiceLog(page: Page) {
+  const extras = await openExtras(page)
+  await extras.getByRole('button', { name: '음성 기록', exact: true }).click()
+  const dlg = page.getByRole('dialog', { name: '음성 기록' })
+  await expect(dlg).toBeVisible()
+  return dlg
+}
+
+/** 음성 기록 창의 덩어리들 (새것부터) */
+export function voiceLogItems(page: Page) {
+  return page.getByRole('dialog', { name: '음성 기록' }).getByRole('list', { name: '음성 기록 목록' }).getByRole('listitem')
+}
+
 export function voiceRegion(page: Page) {
   return page.getByRole('region', { name: '음성 등록' })
 }

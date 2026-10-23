@@ -18,6 +18,8 @@ import {
   uniqueDate,
   viewerClaim,
   voiceRegion,
+  openExtras,
+  openVoiceLog,
 } from './support.ts'
 
 async function fixedHeight(page: Page): Promise<{ total: number; parts: string[] }> {
@@ -169,14 +171,20 @@ test.describe('I4 배치·쉬운 말', () => {
     const dlg = page.getByRole('dialog', { name: '음성으로 상품 등록' })
     seen.push(await dlg.innerText())
     await dlg.getByRole('button', { name: '음성 켜기', exact: true }).click()
+    // V2는 말을 조용한 시간(1.8초)만큼 모아 읽는다(D-V2-03·D-V2-16) — 카드마다 나온 것을 보고 다음 말을 한다
     await speak(page, '15번 핑크프릴 만오천 원')
+    await expect(card(page, '15번 핑크프릴 15,000원')).toBeVisible()
     await speak(page, '16번 핑크푸릴', { final: false })
     await speak(page, '핑크프릴 만원')
+    await expect(card(page, '번호 없음 핑크프릴 10,000원')).toBeVisible()
     await speak(page, '17번 라울')
-    const extras = page.getByRole('region', { name: '음성 설정과 기록' })
+    const extras = await openExtras(page)
     await extras.getByRole('checkbox', { name: '확실한 카드는 자동으로 등록' }).check()
     await extras.getByLabel('기다리는 시간(초)').fill('abc')
-    await extras.getByText('들린 말 기록').click()
+    const log = await openVoiceLog(page)
+    seen.push(await log.innerText())
+    await page.keyboard.press('Escape')
+    await expect(log).toHaveCount(0)
     await cardButton(page, '번호 없음 핑크프릴 10,000원', '등록').click()
     await expect(page.getByRole('group', { name: '번호 없음 핑크프릴 10,000원 고치기 칸' })).toBeVisible()
     seen.push(await voiceRegion(page).innerText(), await extras.innerText())

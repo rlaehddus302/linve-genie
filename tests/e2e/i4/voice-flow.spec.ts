@@ -18,6 +18,9 @@ import {
   uniqueDate,
   untilElapsed,
   voiceRegion,
+  openExtras,
+  openVoiceLog,
+  voiceLogItems,
 } from './support.ts'
 
 test('AC-I4-90: 음성 등록 끝까지(①~⑧) — 보드·범위 이력·실제 범위·요청 맞대기, 끈 뒤 빠른 입력·찾기·되돌리기', async ({ page }) => {
@@ -42,8 +45,10 @@ test('AC-I4-90: 음성 등록 끝까지(①~⑧) — 보드·범위 이력·실�
   await expect(cardList(page)).toHaveCount(0)
   // ③ 끊어 말한 번호 → 카드 없음
   await speak(page, '십 오번 라울 오천 원')
-  await page.getByRole('region', { name: '음성 설정과 기록' }).getByText('들린 말 기록').click()
-  await expect(page.getByRole('region', { name: '음성 설정과 기록' }).getByRole('listitem').first()).toHaveText('십 오번 라울 오천 원')
+  await openVoiceLog(page)
+  await expect(voiceLogItems(page).first()).toContainText('십 오번 라울 오천 원')
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: '음성 기록' })).toHaveCount(0)
   await expect(cardList(page)).toHaveCount(0)
   // ④ "확인 필요" 카드 → 등록 누르기
   await speak(page, '16번 핑크푸릴 만원')
@@ -68,7 +73,7 @@ test('AC-I4-90: 음성 등록 끝까지(①~⑧) — 보드·범위 이력·실�
   await expect(ask).toHaveCount(0)
   await expect(input).toHaveValue('')
   // ⑦ 자동 확정 켬(5초) → 자동 등록 → Ctrl+Z
-  await page.getByRole('region', { name: '음성 설정과 기록' }).getByRole('checkbox', { name: '확실한 카드는 자동으로 등록' }).check()
+  await (await openExtras(page)).getByRole('checkbox', { name: '확실한 카드는 자동으로 등록' }).check()
   await input.focus()
   await speak(page, '18번 블루엘프 칠천 원')
   await expect(card(page, '18번 블루엘프 7,000원').getByText(/초 뒤 자동 등록/)).toBeVisible()

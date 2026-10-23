@@ -14,7 +14,9 @@ import {
   speechEnd,
   turnOnVoice,
   uniqueDate,
+  voiceLogItems,
   voiceRegion,
+  openVoiceLog,
 } from './support.ts'
 
 async function setup(page: Page): Promise<{ b: string; date: string }> {
@@ -74,16 +76,23 @@ test.describe('I4 흐름 깨뜨리기', () => {
     await expect(c).toBeVisible()
   })
 
-  test('들린 말 기록은 최근 20개만', async ({ page }) => {
+  test('음성 기록은 최근 덩어리 50개만 (D-V2-08 — "들린 말 기록" 20개를 대신함)', async ({ page }) => {
+    await page.clock.install()
     await setup(page)
-    const lines = Array.from({ length: 21 }, (_, i) => `잡담 ${String(i + 1)}번째 이야기예요`)
-    for (const line of lines) await speak(page, line)
-    const extras = page.getByRole('region', { name: '음성 설정과 기록' })
-    await extras.getByText('들린 말 기록').click()
-    const items = extras.getByRole('listitem')
-    await expect(items).toHaveCount(20)
-    await expect(items.first()).toHaveText('잡담 21번째 이야기예요')
-    await expect(items.last()).toHaveText('잡담 2번째 이야기예요')
+    const now = await page.evaluate(() => Date.now())
+    await page.clock.pauseAt(now + 1000)
+    // 숫자 없는 잡담 51덩어리 — 덩어리마다 조용한 시간(1.8초)을 넘긴다
+    const lines = Array.from({ length: 51 }, (_, i) => `잡담 이야기예요 ${String.fromCharCode(0xac00 + i * 28)}${String.fromCharCode(0xac00 + i * 28)}`)
+    for (const line of lines) {
+      await speak(page, line)
+      await page.clock.runFor(1900)
+    }
+    await openVoiceLog(page)
+    const items = voiceLogItems(page)
+    await expect(items).toHaveCount(50)
+    await expect(items.first()).toContainText(lines[50]!)
+    await expect(items.last()).toContainText(lines[1]!)
+    await expect(page.getByRole('dialog', { name: '음성 기록' })).not.toContainText(lines[0]!)
   })
 
   test('한 결과 이벤트에 최종 문장 둘 → 카드 둘(새 것이 앞), 같은 위치가 다시 와도 카드 하나', async ({ page }) => {
@@ -115,9 +124,10 @@ test.describe('I4 흐름 깨뜨리기', () => {
     await speak(page, '첫 문장이에요')
     await voiceRegion(page).getByRole('button', { name: '음성 끄기' }).click()
     await speak(page, '늦게 온 문장이에요')
-    const extras = page.getByRole('region', { name: '음성 설정과 기록' })
-    await extras.getByText('들린 말 기록').click()
-    await expect(extras.getByRole('listitem')).toHaveText(['첫 문장이에요'])
+    await openVoiceLog(page)
+    await expect(voiceLogItems(page)).toHaveCount(1)
+    await expect(voiceLogItems(page).first()).toContainText('첫 문장이에요')
+    await expect(page.getByRole('dialog', { name: '음성 기록' })).not.toContainText('늦게 온 문장이에요')
   })
 
   test('음성이 켜진 채 다른 방송 콘솔로 바로 가면 인식이 멈추고 새 콘솔은 꺼진 상태', async ({ page }) => {
@@ -204,7 +214,7 @@ test.describe('I4 흐름 깨뜨리기', () => {
     expect(width).toBeLessThanOrEqual(375)
     await speak(page, `15번 핑크프릴 만오천 원 ${long}`)
     await expect(cardList(page).getByRole('listitem')).toHaveCount(1)
-    await page.getByRole('region', { name: '음성 설정과 기록' }).getByText('들린 말 기록').click()
+    await openVoiceLog(page)
     width = await page.evaluate(() => document.documentElement.scrollWidth)
     expect(width).toBeLessThanOrEqual(375)
     await context.close()

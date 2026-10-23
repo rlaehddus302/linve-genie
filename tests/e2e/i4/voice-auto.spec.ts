@@ -14,6 +14,7 @@ import {
   turnOnVoice,
   uniqueDate,
   voiceRegion,
+  openExtras,
 } from './support.ts'
 
 const AUTO_ON = { 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5 }
@@ -45,6 +46,7 @@ async function setupPaused(page: Page, settings: unknown = AUTO_ON): Promise<{ b
   const date = uniqueDate()
   const b = await openNewBroadcast(page, { date, rehearsal: true })
   await turnOnVoice(page)
+  await openExtras(page)
   const now = await page.evaluate(() => Date.now())
   await page.clock.pauseAt(now + 1000)
   return { b, date }
@@ -57,6 +59,7 @@ test.describe('I4 자동 확정', () => {
     const date = uniqueDate()
     const b = await openNewBroadcast(page, { date, rehearsal: true })
     await turnOnVoice(page)
+    await openExtras(page)
     const box = settingsRegion(page).getByRole('checkbox', { name: '확실한 카드는 자동으로 등록' })
     const secs = settingsRegion(page).getByLabel('기다리는 시간(초)')
     await expect(box).not.toBeChecked()
@@ -77,6 +80,7 @@ test.describe('I4 자동 확정', () => {
     expect(stored).toEqual({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 10 })
     await page.reload()
     await turnOnVoice(page)
+    await openExtras(page)
     await expect(box).toBeChecked()
     await expect(secs).toHaveValue('10')
     void b
@@ -94,6 +98,7 @@ test.describe('I4 자동 확정', () => {
       await login(page)
       await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
       await turnOnVoice(page)
+      await openExtras(page)
       const box = settingsRegion(page).getByRole('checkbox', { name: '확실한 카드는 자동으로 등록' })
       if (checked) await expect(box).toBeChecked()
       else await expect(box).not.toBeChecked()
@@ -109,6 +114,7 @@ test.describe('I4 자동 확정', () => {
     await page.goto(`/broadcasts/${encodeURIComponent(b)}`)
     await expect(page.getByLabel('빠른 입력')).toBeFocused()
     await turnOnVoice(page, { consent: true })
+    await openExtras(page)
     await expect(settingsRegion(page).getByRole('checkbox', { name: '확실한 카드는 자동으로 등록' })).not.toBeChecked()
     await expect(settingsRegion(page).getByLabel('기다리는 시간(초)')).toHaveValue('5')
   })

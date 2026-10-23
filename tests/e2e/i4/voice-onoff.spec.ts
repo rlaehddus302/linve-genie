@@ -19,6 +19,8 @@ import {
   turnOnVoice,
   uniqueDate,
   voiceRegion,
+  openVoiceLog,
+  voiceLogItems,
 } from './support.ts'
 
 test.describe('I4 음성 켜기·끄기', () => {
@@ -239,10 +241,11 @@ test.describe('I4 음성 켜기·끄기', () => {
     await expect(card(page, '15번 핑크프릴 15,000원')).toBeVisible()
     await speak(page, '<img src=x onerror=alert(1)>16번 라울 만원')
     await expect(card(page, '번호 없음 라울 10,000원')).toContainText('들은 말: <img src=x onerror=alert(1)>16번 라울 만원')
-    const extras = page.getByRole('region', { name: '음성 설정과 기록' })
-    await extras.getByText('들린 말 기록').click()
-    const items = extras.getByRole('listitem')
-    await expect(items).toHaveText(['<img src=x onerror=alert(1)>16번 라울 만원', '15번 핑크프릴 만오천 원'])
+    await openVoiceLog(page)
+    const items = voiceLogItems(page)
+    await expect(items).toHaveCount(2)
+    await expect(items.nth(0)).toContainText('<img src=x onerror=alert(1)>16번 라울 만원')
+    await expect(items.nth(1)).toContainText('15번 핑크프릴 만오천 원')
     expect(await page.locator('img[src="x"]').count()).toBe(0)
     expect(dialogs).toEqual([])
   })

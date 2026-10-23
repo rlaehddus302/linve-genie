@@ -5,7 +5,7 @@
 //   이력이 늦으면(2초 넘김) 카드를 잃지 않고 그때 사전으로 만든다.
 import { test, expect, type Page, type Route } from '@playwright/test'
 import { deposit, depositOne, depositRow, fakeSource, history, kstDate, kstIso, login, noHorizontalScroll, scopeView, smsSale, todayKst, uniq } from './support.ts'
-import { card, installFakeSpeech, openNewBroadcast, registerApi, speak, turnOnVoice, uniqueDate, voiceRegion } from '../i4/support.ts'
+import { card, installFakeSpeech, openExtras, openNewBroadcast, openVoiceLog, registerApi, speak, turnOnVoice, uniqueDate, voiceLogItems, voiceRegion } from '../i4/support.ts'
 import { closeMore, expectPhoneBar, fakeReviewCount, moreButton, moreLinks, openMore } from '../menu.ts'
 import { cleanupPrint } from '../i1/support.ts'
 import { loginNewSeller } from '../i3/support.ts'
@@ -164,10 +164,9 @@ test.describe('음성 — 이력을 받는 동안 말한 문장 (수정 라운�
     gate.release()
     await expect(card(page, `41번 ${pastName} 10,000원`)).toBeVisible()
     await expect(card(page, '41번 품종 미입력 10,000원')).toHaveCount(0)
-    // 들린 말 기록에도 남는다
-    const log = page.getByRole('region', { name: '음성 설정과 기록' })
-    await log.getByText('들린 말 기록').click()
-    await expect(log.getByRole('listitem').first()).toHaveText(`41번 ${pastName} 만원`)
+    // 음성 기록에도 남는다 (D-V2-21 — "들린 말 기록" 대신)
+    await openVoiceLog(page)
+    await expect(voiceLogItems(page).first()).toContainText(`41번 ${pastName} 만원`)
   })
 
   test('이력이 끝내 오지 않아도 카드는 2초쯤 뒤 그때 사전으로 나온다 — 말한 문장을 잃지 않는다', async ({ page }) => {
@@ -210,7 +209,7 @@ test.describe('음성 — 이력을 받는 동안 미룬 문장과 자동 등록
     await page.clock.pauseAt(now + 500)
     await expect.poll(() => waiting.length).toBe(1)
     await speak(page, '15번 라울 만원') // 자동 등록이 꺼진 채 말함
-    const box = page.getByRole('region', { name: '음성 설정과 기록' }).getByRole('checkbox', { name: '확실한 카드는 자동으로 등록' })
+    const box = (await openExtras(page)).getByRole('checkbox', { name: '확실한 카드는 자동으로 등록' })
     await box.check()
     open = true
     for (const r of waiting.splice(0)) await r.fallback()

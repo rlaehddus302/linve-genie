@@ -31,6 +31,7 @@ import {
   uniqueDate,
   voiceRegion,
   voiceStatus,
+  openExtras,
 } from './support.ts'
 
 const C15 = '15번 핑크프릴 15,000원'
@@ -173,7 +174,7 @@ test.describe('I5 사파리 깨뜨리기 @webkit', () => {
     await safariSay(page, '15번 핑크프릴 만오천원', { final: false, endSoon: true })
     await page.clock.runFor(3000) // 끝남 + 이력 기다림
     await expect(card(page, C15)).toBeVisible()
-    const box = page.getByRole('region', { name: '음성 설정과 기록' }).getByRole('checkbox', { name: '확실한 카드는 자동으로 등록' })
+    const box = (await openExtras(page)).getByRole('checkbox', { name: '확실한 카드는 자동으로 등록' })
     await box.check()
     await expect(box).toBeChecked()
     await page.clock.runFor(30_000)

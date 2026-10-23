@@ -2,7 +2,7 @@
 // 시각은 page.clock을 멈춘 뒤 runFor로만 흐른다 — 사례 표(harness/sprints/V2/acceptance.md)의 시각을 그대로 옮긴다.
 import { expect, type Page } from '@playwright/test'
 import { loginNewSeller } from '../i3/support.ts'
-import { cardList, installFakeSpeech, openNewBroadcast, speak, turnOnVoice, uniqueDate } from '../i4/support.ts'
+import { cardList, installFakeSpeech, openExtras, openNewBroadcast, openVoiceLog, speak, turnOnVoice, uniqueDate } from '../i4/support.ts'
 
 export * from '../i4/support.ts'
 
@@ -38,8 +38,9 @@ export async function sayAt(page: Page, items: readonly (readonly [string, numbe
   }
 }
 
+/** 음성 칸 맨 위 제목 없는 큰 칸 — 화면 제목은 없고 접근 이름만 (D-V2-21) */
 export function heardBox(page: Page) {
-  return page.getByRole('region', { name: '들은 말', exact: true })
+  return page.getByRole('region', { name: '지금 들리는 말', exact: true })
 }
 
 export function offerList(page: Page) {
@@ -55,14 +56,11 @@ export async function expectNoCards(page: Page): Promise<void> {
 }
 
 export async function openLog(page: Page) {
-  await page.getByRole('region', { name: '음성 설정과 기록' }).getByRole('button', { name: '음성 기록 보기' }).click()
-  const dlg = page.getByRole('dialog', { name: '음성 기록' })
-  await expect(dlg).toBeVisible()
-  return dlg
+  return await openVoiceLog(page)
 }
 
-export function quietField(page: Page) {
-  return page.getByRole('region', { name: '음성 설정과 기록' }).getByLabel('말이 끝났다고 볼 때까지(초)')
+export async function quietField(page: Page) {
+  return (await openExtras(page)).getByLabel('말이 끝났다고 볼 때까지(초)')
 }
 
 /** 자동 확정 켬·5초 */

@@ -18,6 +18,7 @@ import {
   uniqueDate,
   voiceRegion,
   writeEvent,
+  openVoiceLog,
 } from './support.ts'
 
 const TOO_SOON = '새 카드가 방금 나왔어요. 확인하고 다시 Enter를 눌러 주세요.'
@@ -43,8 +44,11 @@ test.describe('I4 제안 카드', () => {
     await speak(page, '안녕하세요 여러분')
     await speak(page, '십 오번 라울 오천 원')
     await speak(page, '만원')
-    await page.getByRole('region', { name: '음성 설정과 기록' }).getByText('들린 말 기록').click()
-    await expect(page.getByRole('region', { name: '음성 설정과 기록' }).getByRole('listitem')).toHaveCount(3)
+    // 받아쓴 말은 [음성 기록]에 남는다 (D-V2-08·D-V2-21 — 덩어리로 묶여 보인다)
+    const log = await openVoiceLog(page)
+    for (const text of ['안녕하세요 여러분', '십 오번 라울 오천 원', '만원']) await expect(log).toContainText(text)
+    await page.keyboard.press('Escape')
+    await expect(log).toHaveCount(0)
     await expect(cardList(page)).toHaveCount(0)
     await speak(page, '15번 핑크프릴 만오천 원')
     await speak(page, '16번 핑크푸릴 만원')
