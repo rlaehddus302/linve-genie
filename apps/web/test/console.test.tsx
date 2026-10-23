@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatMessage, Claim, Product } from '../src/api/types.ts'
 import { onUnauthorized } from '../src/api/client.ts'
 import { ConsolePage } from '../src/components/ConsolePage.tsx'
+import { alreadyText } from '../src/components/ChatPanel.tsx'
 import { DATE, FakeEventSource, FakeServer, broadcastItem, emptyChanges, flush, fullView, message, product } from './support.ts'
 
 /** 아주 작은 가짜 범위: 상품·찜·메시지를 들고 seq를 올린다 */
@@ -354,10 +355,18 @@ describe('채팅 패널 (AC-S05-21·22)', () => {
     ]
     await openConsole()
     const rows = within(screen.getByRole('list', { name: '채팅 메시지' })).getAllByRole('listitem')
-    expect(rows.map((row) => within(row).queryByRole('button', { name: '찜으로 바꾸기' }) !== null)).toEqual([false, false, false, true])
+    // 잡담 줄은 처음엔 버튼이 숨겨져 읽기 프로그램에도 없다 (AC-UX2-01)
+    const shownConvert = () => rows.map((row) => within(row).queryByRole('button', { name: '찜으로 바꾸기' }) !== null)
+    expect(shownConvert()).toEqual([false, false, false, false])
     expect(rows[0]?.textContent).toContain('주문 15')
     expect(rows[1]?.textContent).toContain('취소 15')
     expect(rows[2]?.textContent).toContain('방송자')
+    // 주문·취소·무시한 방송자 줄은 눌러도 없다 (AC-UX2-06)
+    for (const row of rows.slice(0, 3)) fireEvent.click(row)
+    expect(shownConvert()).toEqual([false, false, false, false])
+    // 잡담 줄을 누르면 보인다 (AC-UX2-03)
+    fireEvent.click(rows[3] as HTMLElement)
+    expect(shownConvert()).toEqual([false, false, false, true])
     fireEvent.click(within(rows[3] as HTMLElement).getByRole('button', { name: '찜으로 바꾸기' }))
     const dialog = await screen.findByRole('dialog', { name: '메시지를 찜으로 바꾸기' })
     await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: '닫기' })))
@@ -366,6 +375,108 @@ describe('채팅 패널 (AC-S05-21·22)', () => {
     expect(await screen.findByText(/뒤 보내요: 15번 시청자 메시지를 찜으로/)).toBeDefined()
     await waitFor(() => expect(model.events).toHaveLength(1))
     expect(model.events[0]).toMatchObject({ type: 'host.convertMessage', b: 'b1', msg: 'plain', no: 15 })
+  })
+})
+
+describe('채팅 칸 정리 (UX2 §5.13)', () => {
+  const convertIn = (row: HTMLElement) => within(row).queryByRole('button', { name: '찜으로 바꾸기' })
+  const chatRows = () => within(screen.getByRole('list', { name: '채팅 메시지' })).getAllByRole('listitem')
+
+  it('언급 줄은 늘, 잡담 줄은 누름(한 번에 한 줄·다시 누르면 접힘)·초점 때만 (AC-UX2-01~03·05)', async () => {
+    setupServer()
+    model.messages = [
+      message(2, { id: 'hi', text: '안녕하세요' }),
+      message(3, { id: 'emoji', text: '😀😀' }),
+      message(4, { id: 'mention', text: '15번 이뻐요', mentions: [15] }),
+      message(5, { id: 'weather', text: '오늘 날씨 좋네요' }),
+    ]
+    await openConsole()
+    const rows = chatRows()
+    expect(rows.map((row) => convertIn(row) !== null)).toEqual([false, false, true, false])
+    expect(rows[2]?.textContent).toContain('언급')
+    // 잡담 줄도 Tab으로 갈 수 있고, 언급 줄은 줄 자체엔 초점이 가지 않는다(버튼이 이미 있다)
+    expect(rows.map((row) => row.tabIndex)).toEqual([0, 0, -1, 0])
+    fireEvent.click(rows[0] as HTMLElement)
+    expect(rows.map((row) => convertIn(row) !== null)).toEqual([true, false, true, false])
+    fireEvent.click(rows[1] as HTMLElement)
+    expect(rows.map((row) => convertIn(row) !== null)).toEqual([false, true, true, false])
+    fireEvent.click(rows[1] as HTMLElement)
+    expect(rows.map((row) => convertIn(row) !== null)).toEqual([false, false, true, false])
+    // 키보드 초점: 줄에 초점이 오면 보이고, 버튼으로 옮겨도 남고, 줄 밖으로 나가면 사라진다
+    const weather = rows[3] as HTMLElement
+    act(() => weather.focus())
+    const button = convertIn(weather)
+    expect(button).not.toBeNull()
+    act(() => button?.focus())
+    expect(convertIn(weather)).not.toBeNull()
+    act(() => (rows[0] as HTMLElement).focus())
+    expect(convertIn(weather)).toBeNull()
+    expect(convertIn(rows[0] as HTMLElement)).not.toBeNull()
+    // 초점 줄에서 Enter로 펼친다
+    fireEvent.keyDown(rows[0] as HTMLElement, { key: 'Enter' })
+    act(() => (rows[3] as HTMLElement).focus())
+    expect(convertIn(rows[0] as HTMLElement)).not.toBeNull()
+  })
+
+  it('방송자 메시지: 무시 켬이면 없고, 무시 끔이면 시청자 잡담과 같다 (AC-UX2-06)', async () => {
+    setupServer()
+    model.messages = [message(2, { id: 'o1', text: '안녕하세요 여러분', owner: true, ignored: true }), message(3, { id: 'o2', text: '반가워요', owner: true, ignored: false })]
+    await openConsole()
+    const rows = chatRows()
+    fireEvent.click(rows[0] as HTMLElement)
+    expect(convertIn(rows[0] as HTMLElement)).toBeNull()
+    expect(convertIn(rows[1] as HTMLElement)).toBeNull()
+    fireEvent.click(rows[1] as HTMLElement)
+    expect(convertIn(rows[1] as HTMLElement)).not.toBeNull()
+  })
+
+  it('같은 사람이 또 친 주문 줄에 "15번 이미 찜함", 새 찜이 생긴 번호엔 없다, 누르면 이유 문장 (AC-UX2-08·09·11)', async () => {
+    setupServer()
+    model.products.set('b1/15', product(15, { winners: ['c1'], winnerClaims: ['k1'] }))
+    model.buyers = [{ id: 'c1', display: '홍길동' }, { id: 'c2', display: '김철수' }]
+    model.claims = [claim('k1', 'c1', 'CONFIRMED'), { ...claim('k2', 'c1', 'CONFIRMED'), no: 16, product: 'b1/16', key: 'b1/16' }, claim('k3', 'c2', 'WAITLISTED')]
+    model.messages = [
+      message(2, { id: 'first', text: '15', order: true, orders: [15], claims: ['k1'] }),
+      message(3, { id: 'again', text: '15', order: true, orders: [15], claims: [] }),
+      message(4, { id: 'two', text: '15 16', order: true, orders: [15, 16], claims: ['k2'] }),
+      message(5, { id: 'wait', text: '15', order: true, orders: [15], claims: ['k3'] }),
+      message(6, { id: 'waitAgain', text: '15', order: true, orders: [15], claims: [] }),
+    ]
+    await openConsole()
+    const rows = chatRows()
+    const has = (row: HTMLElement | undefined, name: string) => row !== undefined && within(row).queryByRole('button', { name }) !== null
+    expect(rows.map((row) => has(row, '15번 이미 찜함'))).toEqual([false, true, true, false, true])
+    expect(has(rows[2], '16번 이미 찜함')).toBe(false)
+    expect(rows[1]?.textContent).toContain('주문 15')
+    expect(rows[2]?.textContent).toContain('16번')
+    // 이미 찜함 표시가 있어도 "찜으로 바꾸기"는 없다 (D-UX2-05)
+    fireEvent.click(rows[1] as HTMLElement)
+    expect(convertIn(rows[1] as HTMLElement)).toBeNull()
+    const reason = '이 분은 이 번호를 이미 찜했어요. 새 찜은 생기지 않았어요.'
+    expect(within(rows[1] as HTMLElement).queryByText(reason)).toBeNull()
+    fireEvent.click(within(rows[1] as HTMLElement).getByRole('button', { name: '15번 이미 찜함' }))
+    expect(within(rows[1] as HTMLElement).getByText(reason)).toBeDefined()
+    // 초점만 줘도 보인다
+    act(() => within(rows[4] as HTMLElement).getByRole('button', { name: '15번 이미 찜함' }).focus())
+    expect(within(rows[4] as HTMLElement).getByText(reason)).toBeDefined()
+  })
+})
+
+describe('이미 찜함 판단 (D-UX2-03·06, AC-UX2-10·12)', () => {
+  const claims = new Map([['k1', { no: 15 }], ['k2', { no: 16 }]])
+  it('번호 방송: 찜이 생긴 번호(거절 찜 포함)엔 없고, 찜 내용이 아직 없으면 붙이지 않는다', () => {
+    expect(alreadyText(message(1, { order: true, orders: [15], claims: [] }), null, claims)).toBe('15번 이미 찜함')
+    // 판매 중 아님·차단은 REJECTED 찜이 생긴다 → 표시 없음 (AC-UX2-12)
+    expect(alreadyText(message(1, { order: true, orders: [15], claims: ['k1'] }), null, claims)).toBe('')
+    expect(alreadyText(message(1, { order: true, orders: [15, 16], claims: ['k2'] }), null, claims)).toBe('15번 이미 찜함')
+    expect(alreadyText(message(1, { order: true, orders: [15, 16], claims: ['k2', 'late'] }), null, claims)).toBe('')
+    expect(alreadyText(message(1, { order: false, orders: [], claims: [] }), null, claims)).toBe('')
+  })
+  it('옵션 방송: 생긴 찜·확인 필요가 없을 때만 "이미 찜함"', () => {
+    const look = { orders: [], review: null, mention: false, optionProduct: true }
+    expect(alreadyText(message(1, { order: true, orders: [21], optionOrders: [], review: null, claims: [] }), look, claims)).toBe('이미 찜함')
+    expect(alreadyText(message(1, { order: true, orders: [21], optionOrders: [{ claim: 'k1', no: 21, variant: 'M', qty: 1 }], review: null, claims: ['k1'] }), look, claims)).toBe('')
+    expect(alreadyText(message(1, { order: true, orders: [21], optionOrders: [], review: { reason: 'OPTION_MISSING', no: 21, options: null, qty: null }, claims: [] }), { ...look, review: '확인 필요' }, claims)).toBe('')
   })
 })
 
