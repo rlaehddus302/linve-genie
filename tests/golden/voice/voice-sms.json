@@ -1,6 +1,6 @@
 {
   "kind": "voice-sms",
-  "about": "음성 문자찜 문장 하나(음성 인식 최종 결과) → 문자찜 읽기 결과 (VOC-02·ORD-08 AC9, DOMAIN_RULES R-21, V1 — D-V1-01·02·04·08). 결과는 null(문자찜 문장 아님 — R-17 상품 등록 추출로) 또는 정확히 다섯 키 { orders, last4, name, time, problem }. orders = [{ no, options?, qty }](번호 방식은 qty 1·options 없음), last4 = 숫자 4개 문자열 또는 null, name = 이름 또는 null, time = 'H:MM' 또는 'H:MM:SS' 또는 null, problem = null 또는 CANCEL·LAST4_UNCLEAR·NAME_UNCLEAR·TIME_UNCLEAR·NUMBER_UNCLEAR·OPTION_UNCLEAR(문제가 있으면 orders []·나머지 null). settings 생략 = { parseMode: STRICT, maxNumber: 999 }. 옵션 방식(parseMode OPTIONS)은 catalog·focus를 R-20 입력(comment-options 형식)으로 쓴다. packages/voice 단위 시험이 읽는다 — README '음성 문자찜 골든'.",
+  "about": "음성 문자찜 문장 하나(음성 인식 최종 결과) → 문자찜 읽기 결과 (VOC-02·ORD-08 AC9, DOMAIN_RULES R-21, V1 — D-V1-01·02·04·08·12). 결과는 null(문자찜 문장 아님 — R-17 상품 등록 추출로) 또는 정확히 다섯 키 { orders, last4, name, time, problem }. orders = [{ no, options?, qty }](번호 방식은 qty 1·options 없음), last4 = 숫자 4개 문자열 또는 null, name = 이름 또는 null, time = 'H:MM' 또는 'H:MM:SS' 또는 null, problem = null 또는 CANCEL·NOT_SURE·LAST4_UNCLEAR·NAME_UNCLEAR·TIME_UNCLEAR·NUMBER_UNCLEAR·OPTION_UNCLEAR(문제가 있으면 orders []·나머지 null). settings 생략 = { parseMode: STRICT, maxNumber: 999 }. 옵션 방식(parseMode OPTIONS)은 catalog·focus를 R-20 입력(comment-options 형식)으로 쓴다. packages/voice 단위 시험이 읽는다 — README '음성 문자찜 골든'.",
   "cases": [
     {
       "id": "G-VSM-V1-01",
@@ -1871,6 +1871,390 @@
         "name": null,
         "time": null,
         "problem": "CANCEL"
+      },
+      "settings": {
+        "parseMode": "OPTIONS",
+        "maxNumber": 999,
+        "maxQuantity": 10
+      },
+      "catalog": [
+        {
+          "no": 11,
+          "name": "초코 과자",
+          "aliases": [
+            "초코"
+          ]
+        },
+        {
+          "no": 12,
+          "name": "감자칩"
+        },
+        {
+          "no": 21,
+          "name": "반바지",
+          "options": [
+            {
+              "name": "사이즈",
+              "choices": [
+                {
+                  "label": "S",
+                  "aliases": [
+                    "스몰"
+                  ]
+                },
+                {
+                  "label": "M",
+                  "aliases": [
+                    "엠",
+                    "미디움"
+                  ]
+                },
+                {
+                  "label": "L",
+                  "aliases": [
+                    "라지"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "no": 31,
+          "name": "수건",
+          "options": [
+            {
+              "name": "색상",
+              "choices": [
+                {
+                  "label": "흰색",
+                  "aliases": [
+                    "화이트",
+                    "흰"
+                  ]
+                },
+                {
+                  "label": "검정색",
+                  "aliases": [
+                    "검정",
+                    "블랙"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "크기",
+              "choices": [
+                {
+                  "label": "소형"
+                },
+                {
+                  "label": "중형"
+                },
+                {
+                  "label": "대형",
+                  "aliases": [
+                    "큰거"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "focus": {
+        "no": 31,
+        "ageSec": 120
+      }
+    },
+    {
+      "id": "G-VSM-V1-49",
+      "title": "아니라는 말 — 판매자가 채팅 질문에 답함 (TD-V1-001)",
+      "refs": [
+        "VOC-02",
+        "ORD-08",
+        "R-21",
+        "D-V1-12"
+      ],
+      "note": "토큰 [165번은, 문자찜, 아니에요]. 맡은 토큰 없음. '아니에요'가 '아니'로 시작 → R-21 3a NOT_SURE (문제가 있으면 orders [])",
+      "in": "165번은 문자찜 아니에요",
+      "out": {
+        "orders": [],
+        "last4": null,
+        "name": null,
+        "time": null,
+        "problem": "NOT_SURE"
+      }
+    },
+    {
+      "id": "G-VSM-V1-50",
+      "title": "묻는 말 — 물음표",
+      "refs": [
+        "VOC-02",
+        "ORD-08",
+        "R-21",
+        "D-V1-12"
+      ],
+      "note": "정규화한 문장에 '?' → NOT_SURE (토큰 끝 '?'를 지우기 전에 본다. '되나요'도 '나요'로 끝남)",
+      "in": "165번 문자찜 되나요?",
+      "out": {
+        "orders": [],
+        "last4": null,
+        "name": null,
+        "time": null,
+        "problem": "NOT_SURE"
+      }
+    },
+    {
+      "id": "G-VSM-V1-51",
+      "title": "묻는 말 — 물음표 없이",
+      "refs": [
+        "VOC-02",
+        "ORD-08",
+        "R-21",
+        "D-V1-12"
+      ],
+      "note": "'되나요'가 '나요'로 끝남 → NOT_SURE (인식기는 물음표를 자주 빼먹는다)",
+      "in": "165번 문자찜 되나요",
+      "out": {
+        "orders": [],
+        "last4": null,
+        "name": null,
+        "time": null,
+        "problem": "NOT_SURE"
+      }
+    },
+    {
+      "id": "G-VSM-V1-52",
+      "title": "'안' 토큰",
+      "refs": [
+        "VOC-02",
+        "ORD-08",
+        "R-21",
+        "D-V1-12"
+      ],
+      "note": "'안'이 '안'으로 시작 → NOT_SURE",
+      "in": "165번은 문자찜 안 돼요",
+      "out": {
+        "orders": [],
+        "last4": null,
+        "name": null,
+        "time": null,
+        "problem": "NOT_SURE"
+      }
+    },
+    {
+      "id": "G-VSM-V1-53",
+      "title": "아니라는 말 뒤에 다른 말",
+      "refs": [
+        "VOC-02",
+        "ORD-08",
+        "R-21",
+        "D-V1-12"
+      ],
+      "note": "'아니에요' → NOT_SURE. '댓글로'·'해주세요'는 상관없음",
+      "in": "165번 문자찜 아니에요 댓글로 해주세요",
+      "out": {
+        "orders": [],
+        "last4": null,
+        "name": null,
+        "time": null,
+        "problem": "NOT_SURE"
+      }
+    },
+    {
+      "id": "G-VSM-V1-54",
+      "title": "고쳐 말한 끝자리 (TD-V1-001)",
+      "refs": [
+        "VOC-02",
+        "ORD-08",
+        "R-21",
+        "D-V1-12"
+      ],
+      "note": "맡은 토큰 = '끝자리'·'1234'(R-21 4). '아니'는 맡은 토큰이 아니고 '아니'로 시작 → NOT_SURE. 문제 순서 CANCEL → NOT_SURE → LAST4_UNCLEAR라 1234로 넣지 않는다",
+      "in": "165번 문자찜 끝자리 1234 아니 5678",
+      "out": {
+        "orders": [],
+        "last4": null,
+        "name": null,
+        "time": null,
+        "problem": "NOT_SURE"
+      }
+    },
+    {
+      "id": "G-VSM-V1-55",
+      "title": "표시 토큰에 붙은 '안돼요'",
+      "refs": [
+        "VOC-02",
+        "ORD-08",
+        "R-21",
+        "D-V1-12"
+      ],
+      "note": "표시 토큰 '문자찜안돼요'의 '문자찜' 뒤 나머지 '안돼요'가 '안'으로 시작 → NOT_SURE",
+      "in": "165번 문자찜안돼요",
+      "out": {
+        "orders": [],
+        "last4": null,
+        "name": null,
+        "time": null,
+        "problem": "NOT_SURE"
+      }
+    },
+    {
+      "id": "G-VSM-V1-56",
+      "title": "묻는 말 — '까요'",
+      "refs": [
+        "VOC-02",
+        "ORD-08",
+        "R-21",
+        "D-V1-12"
+      ],
+      "note": "'될까요'가 '까요'로 끝남 → NOT_SURE",
+      "in": "165번 문자찜 될까요",
+      "out": {
+        "orders": [],
+        "last4": null,
+        "name": null,
+        "time": null,
+        "problem": "NOT_SURE"
+      }
+    },
+    {
+      "id": "G-VSM-V1-57",
+      "title": "'말고'로 고쳐 말함",
+      "refs": [
+        "VOC-02",
+        "ORD-08",
+        "R-21",
+        "D-V1-12"
+      ],
+      "note": "'말고'로 시작 → NOT_SURE (없었다면 번호 둘 카드)",
+      "in": "165번 말고 166번 문자찜",
+      "out": {
+        "orders": [],
+        "last4": null,
+        "name": null,
+        "time": null,
+        "problem": "NOT_SURE"
+      }
+    },
+    {
+      "id": "G-VSM-V1-58",
+      "title": "'안'으로 시작하는 이름은 맡은 토큰이라 상관없음",
+      "refs": [
+        "VOC-02",
+        "ORD-08",
+        "R-21",
+        "D-V1-12"
+      ],
+      "note": "'안지민님' = 님 앞 한글 3자 → 이름 '안지민'(R-21 5), 맡은 토큰이라 3a가 보지 않음. 남은 토큰 '166번'·'문자찜'(나머지 없음) → 문제 없음. 166번 앞 토큰 없음 → orders [166]",
+      "in": "166번 문자찜 안지민님",
+      "out": {
+        "orders": [
+          {
+            "no": 166,
+            "qty": 1
+          }
+        ],
+        "last4": null,
+        "name": "안지민",
+        "time": null,
+        "problem": null
+      }
+    },
+    {
+      "id": "G-VSM-V1-59",
+      "title": "취소가 먼저",
+      "refs": [
+        "VOC-02",
+        "ORD-08",
+        "R-21",
+        "D-V1-12"
+      ],
+      "note": "'취소' 토큰 → CANCEL. 문제 순서상 CANCEL이 NOT_SURE보다 앞",
+      "in": "15번 문자찜 취소 안 돼요",
+      "out": {
+        "orders": [],
+        "last4": null,
+        "name": null,
+        "time": null,
+        "problem": "CANCEL"
+      }
+    },
+    {
+      "id": "G-VSM-V1-60",
+      "title": "'못'",
+      "refs": [
+        "VOC-02",
+        "ORD-08",
+        "R-21",
+        "D-V1-12"
+      ],
+      "note": "'못'으로 시작 → NOT_SURE",
+      "in": "15번 문자찜 못 받아요",
+      "out": {
+        "orders": [],
+        "last4": null,
+        "name": null,
+        "time": null,
+        "problem": "NOT_SURE"
+      }
+    },
+    {
+      "id": "G-VSM-V1-61",
+      "title": "인사말도 '안'으로 시작 — 넓게 막음(D-V1-12)",
+      "refs": [
+        "VOC-02",
+        "ORD-08",
+        "R-21",
+        "D-V1-12"
+      ],
+      "note": "'안녕하세요'가 '안'으로 시작, 이름 아님(님 없음) → NOT_SURE. 일부러 넓게 둔다 — 다시 말하면 된다",
+      "in": "안녕하세요 15번 문자찜",
+      "out": {
+        "orders": [],
+        "last4": null,
+        "name": null,
+        "time": null,
+        "problem": "NOT_SURE"
+      }
+    },
+    {
+      "id": "G-VSM-V1-62",
+      "title": "번호 없어도 NOT_SURE가 먼저",
+      "refs": [
+        "VOC-02",
+        "ORD-08",
+        "R-21",
+        "D-V1-12"
+      ],
+      "note": "'안' → NOT_SURE. 문제 순서상 NUMBER_UNCLEAR보다 앞",
+      "in": "문자찜 안 돼요",
+      "out": {
+        "orders": [],
+        "last4": null,
+        "name": null,
+        "time": null,
+        "problem": "NOT_SURE"
+      }
+    },
+    {
+      "id": "G-VSM-V1-63",
+      "title": "옵션 방식에서도 같음",
+      "refs": [
+        "VOC-02",
+        "ORD-08",
+        "R-21",
+        "D-V1-12"
+      ],
+      "note": "'아니에요' → NOT_SURE. 옵션 읽기(R-21 8) 전에 문제가 정해진다",
+      "in": "반바지 M 문자찜 아니에요",
+      "out": {
+        "orders": [],
+        "last4": null,
+        "name": null,
+        "time": null,
+        "problem": "NOT_SURE"
       },
       "settings": {
         "parseMode": "OPTIONS",

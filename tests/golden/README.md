@@ -21,7 +21,7 @@
 | `billing/*.json` | 요금 — 상태(정액제 기간 사슬·정량 잔량·새 실제 방송의 이용 방식·7일 환불 가능)·결제 확인 판단·부가세 나누기·사업자등록번호 읽기 (BILLING_RULES BL-2·BL-3·BL-4·BL-6·BL-7·BL-8, N5, D-N5-01). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "요금 골든" |
 | `label/*.json` | 라벨 글·쪽 나누기·크기 (LABEL_RULES L-1~L-5, P1, D-P1-01. O3 보강: 옵션 글·수량 — `product-options.json`·`packing-options.json`, D-O3-01~D-O3-04). **JSON이라 코어 골든 러너는 읽지 않는다**(`*.yaml`만 읽는다). `packages/label` 단위 테스트가 읽는다 — 아래 "라벨 골든" |
 | `printer/*.json` | 프린터 작업 바이트·기기 이름으로 고르기·프로필 표·바로 연결할 수 없는 브라우저의 까닭 (LABEL_RULES L-7·L-12, N1 — D-N1-01·09). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/printer` 단위 테스트가 읽는다 — 아래 "프린터 골든" |
-| `voice/*.json` | 음성 문자찜 문장 하나 → 문자찜 아님 또는 주문·뒤 4자리·이름·받은 시각·문제 (DOMAIN_RULES R-21, V1 — D-V1-01·02·04·08). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/voice` 단위 테스트가 읽는다 — 아래 "음성 문자찜 골든" |
+| `voice/*.json` | 음성 문자찜 문장 하나 → 문자찜 아님 또는 주문·뒤 4자리·이름·받은 시각·문제 (DOMAIN_RULES R-21, V1 — D-V1-01·02·04·08·12). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/voice` 단위 테스트가 읽는다 — 아래 "음성 문자찜 골든" |
 | `tiktok/*.json` | 틱톡 아이디·방송 주소 해석, 웹캐스트 댓글 → 공통 댓글 레코드·중복 제거 (PLT-02, N2b-1, D-N2b-1-02~04), 공통 댓글 레코드 → `chat` 다섯 칸·댓글 붙여넣기 줄 읽기 (N2b-2, D-N2b-2-03·07). **JSON이라 코어 골든 러너는 읽지 않는다**. `apps/server` 시험이 읽는다 — 아래 "틱톡 골든" |
 
 ## 러너가 읽는 범위 (D-020, D-021)
@@ -365,11 +365,11 @@ expect:
 - `status`의 함수는 원장만 본다. 방송이 리허설인지, 요금 기능이 켜졌는지, 방송 중인지는 서버가 함수를 부르기 전·후에 하는 일이라 이 골든이 아니라 서버 시험·E2E가 본다(BL-0 6·7, BL-4).
 - `start.useDay = true`는 "시작하면서 방송 일 하나를 쓰고 지금부터 24시간 창을 연다"는 뜻이다. 실제로 쓰는 일(쓴 기록·방송 시작 기록을 한 트랜잭션에)은 서버가 한다.
 
-## 음성 문자찜 골든 (`voice/*.json`, V1 — D-V1-01·02·04·08)
+## 음성 문자찜 골든 (`voice/*.json`, V1 — D-V1-01·02·04·08·12)
 
 음성 패키지(`packages/voice`)의 **문자찜 문장 읽기** — 방송자가 말한 문장 하나(음성 인식 최종 결과) → 문자찜 문장이 아님(`null`) 또는 `{ orders, last4, name, time, problem }`을 고정한다. 규칙 문장은 `docs/spec/DOMAIN_RULES.md` R-21이다. 카드·자동으로 넣기·중복 막기·서버의 구매자 정하기는 시계·서버 상태에 기대므로 골든이 아니라 수용 기준(`harness/sprints/V1/acceptance.md`)의 단위·E2E 시험으로 본다.
 
-- **누가 읽나**: 코어 골든 러너는 읽지 않는다(`*.yaml`만 — 허용 목록의 대상도 아니다). `packages/voice` 단위 테스트가 이 폴더의 모든 `*.json`을 읽어 문자찜 문장 읽기 함수로 돌리고 `out`과 비교한다(`pnpm test` 단계). 파일 수·사례 수 합계(V1: 파일 1 · 사례 48)를 고정값으로 단언한다 — 미구현을 허용하는 장치가 없어 하나라도 빠지거나 다르면 test 단계가 실패한다.
+- **누가 읽나**: 코어 골든 러너는 읽지 않는다(`*.yaml`만 — 허용 목록의 대상도 아니다). `packages/voice` 단위 테스트가 이 폴더의 모든 `*.json`을 읽어 문자찜 문장 읽기 함수로 돌리고 `out`과 비교한다(`pnpm test` 단계). 파일 수·사례 수 합계(V1: 파일 1 · 사례 63 — G-VSM-V1-49~63은 V1 분쟁 판정 D-V1-12로 더했다)를 고정값으로 단언한다 — 미구현을 허용하는 장치가 없어 하나라도 빠지거나 다르면 test 단계가 실패한다.
 - **파일** = JSON 객체 `{ "kind": "voice-sms", "about", "cases" }`. 모르는 키·모르는 `kind`·겹친 `id`는 테스트 실패(읽기 오류)다.
 - **사례 키**: `id`(`G-VSM-V1-` + 두 자리, 이 폴더 전체에서 유일 — 다음 스프린트는 `G-VSM-<스프린트>-`), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `in`(문장 — 그대로 넘긴다), 선택 `settings` = `{ parseMode?, maxNumber?, maxQuantity? }`(DOMAIN_RULES 설정표 `claim.*` 값, 생략하면 `STRICT`·999·10), `parseMode`가 `OPTIONS`이면 필수 `catalog`·`focus`(형식은 위 파서 suite 표의 `comment-options` 입력과 같다 — R-20 입력), `out`.
-- **`out`**: `null`(문자찜 문장 아님) 또는 정확히 다섯 키 `{ "orders", "last4", "name", "time", "problem" }` — `orders` = `[{ "no", "options"?, "qty" }]`(순서까지 같음, `options`는 옵션 상품일 때만 — 실제 결과에도 없어야 한다), `last4` = 숫자 4개 **문자열** 또는 `null`, `name` = 문자열 또는 `null`, `time` = `"H:MM"`·`"H:MM:SS"` 또는 `null`, `problem` ∈ `null`·`CANCEL`·`LAST4_UNCLEAR`·`NAME_UNCLEAR`·`TIME_UNCLEAR`·`NUMBER_UNCLEAR`·`OPTION_UNCLEAR`. 실제 결과와 깊은 같음(키가 더 있거나 빠지면 불일치).
+- **`out`**: `null`(문자찜 문장 아님) 또는 정확히 다섯 키 `{ "orders", "last4", "name", "time", "problem" }` — `orders` = `[{ "no", "options"?, "qty" }]`(순서까지 같음, `options`는 옵션 상품일 때만 — 실제 결과에도 없어야 한다), `last4` = 숫자 4개 **문자열** 또는 `null`, `name` = 문자열 또는 `null`, `time` = `"H:MM"`·`"H:MM:SS"` 또는 `null`, `problem` ∈ `null`·`CANCEL`·`NOT_SURE`·`LAST4_UNCLEAR`·`NAME_UNCLEAR`·`TIME_UNCLEAR`·`NUMBER_UNCLEAR`·`OPTION_UNCLEAR`. 실제 결과와 깊은 같음(키가 더 있거나 빠지면 불일치).
