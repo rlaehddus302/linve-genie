@@ -88,6 +88,28 @@ export interface SmsEntry {
   readonly hidden: boolean
 }
 
+/**
+ * 넣지 않은 채 저절로 닫힌 문자찜 카드의 안내 (U-V1-01): 열린 카드 수 규칙(D-204·D-I4-02)이 손대지 않은 문자찜 카드를 닫으면
+ * 넣지 않은 주문이 말없이 사라지지 않게 판매자가 "확인"을 누를 때까지 남긴다. 이유 카드("닫기"만)가 닫힐 때는 남기지 않는다.
+ */
+export interface SmsDropped {
+  /** 닫힌 카드 ID */
+  readonly id: string
+  /** 카드를 가리키는 짧은 글 ("15번 · 28번 · 끝자리 1234 · 문자찜") */
+  readonly short: string
+  readonly text: string
+}
+
+/** 카드를 가리키는 짧은 글: "15번 · 28번 · 끝자리 1234 · 문자찜" (describeSmsCard에서 물음을 뗀 것) */
+export function smsShortText(described: string): string {
+  return described.replace(/\s*—\s*넣을까요\?$/, '')
+}
+
+/** "넣지 않은 문자찜 카드를 닫았어요: 15번 · 28번 · 끝자리 1234 · 문자찜. 넣으려면 …" */
+export function smsDroppedText(short: string): string {
+  return `넣지 않은 문자찜 카드를 닫았어요: ${short}. 넣으려면 다시 말하거나 문자찜 입력에 넣어 주세요.`
+}
+
 /** 문자찜 화면 문장 */
 export interface SmsWords {
   readonly labels: VoiceModule['SMS_LABELS']
@@ -145,6 +167,8 @@ export interface VoiceSnapshot {
   readonly smsSecondsText: string
   /** 그 칸의 문제 (checkSmsSettings 문장), 없으면 null */
   readonly smsSettingsProblem: string | null
+  /** 넣지 않은 채 저절로 닫힌 문자찜 카드 안내 (새 것이 앞, "확인"을 누를 때까지 남는다 — U-V1-01) */
+  readonly smsDropped: readonly SmsDropped[]
 }
 
 /** 지난 실제 범위 하나의 상품 이름 */
@@ -212,6 +236,7 @@ export const VOICE_IDLE: VoiceSnapshot = {
   smsSettings: null,
   smsSecondsText: '',
   smsSettingsProblem: null,
+  smsDropped: [],
 }
 
 /** 창이 열려 미룬 자동 확정을 다시 보는 간격 */
@@ -238,7 +263,7 @@ type HeldSentence = {
 }
 
 /** 카드를 만드는 동안의 목록 (한 번에 #set) */
-type CardWork = { cards: readonly SuggestionCard[]; sms: readonly SmsEntry[] }
+type CardWork = { cards: readonly SuggestionCard[]; sms: readonly SmsEntry[]; dropped: readonly SmsDropped[] }
 
 /** 같은 말 막기 시간 (D-V1-06 — 패키지 SMS_REPEAT_WINDOW_MS와 같다): 닫은 카드를 이만큼 들고 있는다 */
 const SMS_KEEP_MS = 10_000
@@ -514,6 +539,7 @@ export class VoiceController {
     return {
       ...(work.cards === this.#snapshot.cards ? {} : { cards: work.cards }),
       ...(work.sms === this.#snapshot.sms ? {} : { sms: work.sms }),
+      ...(work.dropped === this.#snapshot.smsDropped ? {} : { smsDropped: work.dropped }),
     }
   }
 
@@ -546,11 +572,19 @@ export class VoiceController {
     const next = module.addVoiceCard(merged, card)
     const byId = new Map(next.map((item) => [item.id, item]))
     work.cards = next.filter((item): item is SuggestionCard => !module.isSmsCard(item) && isOpen(item))
+    const dropped: SmsDropped[] = []
     const rest = work.sms.map((item) => {
       const changed = byId.get(item.card.id)
-      return changed !== undefined && changed !== item.card && module.isSmsCard(changed) ? { ...item, card: changed } : item
+      if (changed === undefined || changed === item.card || !module.isSmsCard(changed)) return item
+      // 넣을 수 있던(이유 없는) 카드가 넣지 않은 채 닫혔다 — 안내를 남긴다 (U-V1-01)
+      if (item.card.status === 'OPEN' && changed.status === 'CLOSED' && item.reason === null && item.results.length === 0) {
+        const short = smsShortText(this.describeSms(item.card))
+        dropped.push({ id: item.card.id, short, text: smsDroppedText(short) })
+      }
+      return { ...item, card: changed }
     })
     work.sms = entry === undefined ? rest : [entry, ...rest]
+    if (dropped.length > 0) work.dropped = [...dropped, ...work.dropped]
   }
 
   /** 문자찜 문장 → 같은 말이면 앞 카드에 표시, 아니면 새 문자찜 카드 (D-V1-06·07) */
@@ -608,7 +642,7 @@ export class VoiceController {
     this.#heldTimer = null
     const held = this.#held
     this.#held = []
-    const work: CardWork = { cards: this.#snapshot.cards, sms: this.#snapshot.sms }
+    const work: CardWork = { cards: this.#snapshot.cards, sms: this.#snapshot.sms, dropped: this.#snapshot.smsDropped }
     for (const sentence of held) this.#addSentence(work, module, sentence)
     return work
   }
@@ -967,6 +1001,12 @@ export class VoiceController {
     if (module === null || entry === undefined || entry.sending || entry.card.status !== 'OPEN') return
     this.#replaceSms(id, (item) => ({ ...item, card: module.closeSmsCard(item.card) }))
     this.#host.focusQuick()
+  }
+
+  /** 저절로 닫힌 문자찜 카드 안내의 "확인": 안내만 지운다 */
+  smsDroppedSeen(id: string): void {
+    if (!this.#snapshot.smsDropped.some((item) => item.id === id)) return
+    this.#set({ smsDropped: this.#snapshot.smsDropped.filter((item) => item.id !== id) })
   }
 
   /** 결과 카드의 "닫기": 화면에서만 뺀다 (찜은 그대로) */

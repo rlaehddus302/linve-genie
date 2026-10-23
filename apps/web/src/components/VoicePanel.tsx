@@ -9,7 +9,7 @@ import type { SmsBuyerCandidate, SuggestionCard } from '@livejjim/voice'
 import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { isActive } from '../lib/buyers.ts'
 import { autoSecondsLeft, showsAutoCountdown } from '../lib/voice.ts'
-import { HISTORY_FAILED, SENT_NOTICE, TOO_SOON, smsShown, type CardForm, type FormField, type SmsEntry, type SmsResultLine, type VoiceController, type VoiceSnapshot } from '../voice/controller.ts'
+import { HISTORY_FAILED, SENT_NOTICE, TOO_SOON, smsShortText, smsShown, type CardForm, type FormField, type SmsEntry, type SmsResultLine, type VoiceController, type VoiceSnapshot } from '../voice/controller.ts'
 import { openClaimAction } from './actions.ts'
 import { useConsoleApi } from './console-context.ts'
 import { Modal } from './Modal.tsx'
@@ -74,10 +74,8 @@ export function smsListening(snapshot: VoiceSnapshot): boolean {
   return snapshot.phase === 'on' && snapshot.smsSettings !== null && snapshot.smsSettings['voice.smsListen']
 }
 
-/** 카드를 가리키는 짧은 글: "15번 · 28번 · 끝자리 1234 · 문자찜" (describeSmsCard에서 물음을 뗀 것) */
-export function smsShortText(described: string): string {
-  return described.replace(/\s*—\s*넣을까요\?$/, '')
-}
+/** 카드를 가리키는 짧은 글 (controller와 같은 함수) */
+export { smsShortText }
 
 type ListItem = { readonly kind: 'product'; readonly card: SuggestionCard } | { readonly kind: 'sms'; readonly entry: SmsEntry }
 
@@ -133,6 +131,22 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
         <p className="voice-info" role="alert">
           {TOO_SOON}
         </p>
+      ) : null}
+      {snapshot.smsDropped.length > 0 ? (
+        <ul className="plain-list stack-tight" aria-label="넣지 않고 닫힌 문자찜">
+          {snapshot.smsDropped.map((item) => (
+            <li key={item.id} className="voice-card voice-card-sms voice-card-low">
+              <p className="field-error" role="alert">
+                {item.text}
+              </p>
+              <div className="voice-card-actions">
+                <button type="button" className="button" aria-label={`${item.short} 안내 확인`} onClick={() => voice.smsDroppedSeen(item.id)}>
+                  확인
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
       ) : null}
       {items.length > 0 ? (
         <ul className="plain-list voice-cards" aria-label="음성 카드">

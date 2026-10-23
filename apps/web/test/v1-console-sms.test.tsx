@@ -146,6 +146,18 @@ describe('콘솔 음성 문자찜', () => {
     await flush(10)
     expect(smsPosts()).toHaveLength(0)
   })
+
+  it('이유 카드에 밀려 "넣을까요?" 카드가 닫히면 안내 줄과 "확인"이 남는다 (U-V1-01)', async () => {
+    setup([register(15, '핑크프릴', 10000), register(28, '청보석', 7000), register(166, '금황', 5000)])
+    await openConsoleWithVoice()
+    for (const text of ['15번 28번 문자찜 끝자리 1234', '300번 문자찜', '166번 문자찜 끝자리 12', '166번 문자찜 취소', '문자찜 끝자리 5678']) FakeRecognition.say(text)
+    expect(within(cards()).queryByRole('listitem', { name: '15번 · 28번 · 끝자리 1234 · 문자찜 카드' })).toBeNull()
+    const notices = screen.getByRole('list', { name: '넣지 않고 닫힌 문자찜' })
+    expect(within(notices).getByRole('alert').textContent).toBe('넣지 않은 문자찜 카드를 닫았어요: 15번 · 28번 · 끝자리 1234 · 문자찜. 넣으려면 다시 말하거나 문자찜 입력에 넣어 주세요.')
+    fireEvent.click(within(notices).getByRole('button', { name: '15번 · 28번 · 끝자리 1234 · 문자찜 안내 확인' }))
+    expect(screen.queryByRole('list', { name: '넣지 않고 닫힌 문자찜' })).toBeNull()
+    expect(smsPosts()).toHaveLength(0)
+  })
 })
 
 describe('읽기 설정·상품 모습 (D-V1-07·08)', () => {
