@@ -3327,8 +3327,9 @@ select.input {
   font-size: 1.0625rem;
 }
 
+/* 키 숫자는 그림 글자일 뿐 — 대체 글 ""로 단추 이름("선버스트")에 안 들어가게 (AC-V2-07) */
 .voice-candidate[data-key]::before {
-  content: attr(data-key);
+  content: attr(data-key) / "";
   display: inline-block;
   padding: 0 0.4rem;
   margin-right: 0.375rem;

@@ -212,7 +212,7 @@ describe('자막·카드·Enter 등록 (AC-I4-13·20·21)', () => {
     expect(log.querySelector('img')).toBeNull()
   })
 
-  it('1초 안의 Enter는 알리고 등록 없음 → "Enter 키로 등록"이 보인 뒤 Enter로 맨 앞 카드만, 빠른 입력과 같은 등록(되돌리기 띠)', async () => {
+  it('1초 안의 Enter는 알리고 등록 없음 → "Enter 등록"이 보인 뒤 Enter로 맨 앞 카드만, 빠른 입력과 같은 등록(되돌리기 띠)', async () => {
     setup()
     const { quick } = await openConsole()
     await turnOnVoice()
@@ -224,11 +224,11 @@ describe('자막·카드·Enter 등록 (AC-I4-13·20·21)', () => {
     pressEnter(quick)
     expect(await screen.findByText('새 카드가 방금 나왔어요. 확인하고 다시 Enter를 눌러 주세요.')).toBeDefined()
     const front = screen.getByRole('listitem', { name: '16번 라울 10,000원 카드' })
-    expect(within(front).queryByText('Enter 키로 등록')).toBeNull()
+    expect(within(front).queryByText('Enter 등록')).toBeNull()
     await sleep(1050)
-    expect(within(front).getByText('Enter 키로 등록')).toBeDefined()
+    expect(within(front).getByText('Enter 등록')).toBeDefined()
     expect(screen.queryByText('새 카드가 방금 나왔어요. 확인하고 다시 Enter를 눌러 주세요.')).toBeNull()
-    expect(within(screen.getByRole('listitem', { name: '15번 핑크프릴 15,000원 카드' })).queryByText('Enter 키로 등록')).toBeNull()
+    expect(within(screen.getByRole('listitem', { name: '15번 핑크프릴 15,000원 카드' })).queryByText('Enter 등록')).toBeNull()
     pressEnter(quick)
     await waitFor(() => expect(registers()).toEqual([[16, '라울', 10000]]))
     expect(await screen.findByText('16번을 등록했어요')).toBeDefined()
@@ -247,7 +247,7 @@ describe('자막·카드·Enter 등록 (AC-I4-13·20·21)', () => {
     await quiet()
     await sleep(1050)
     fireEvent.change(quick, { target: { value: '20 라울 10' } })
-    expect(screen.queryByText('Enter 키로 등록')).toBeNull()
+    expect(screen.queryByText('Enter 등록')).toBeNull()
     pressEnter(quick)
     await waitFor(() => expect(registers()).toEqual([[20, '라울', 10000]]))
     expect(screen.getByRole('listitem', { name: '15번 핑크프릴 15,000원 카드' })).toBeDefined()

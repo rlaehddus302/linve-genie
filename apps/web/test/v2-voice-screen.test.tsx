@@ -1,3 +1,4 @@
+import styles from '../src/styles.css?raw'
 // V2 음성 칸 화면 (AC-V2-07·08·16·17·23·26·28·34, D-V2-01·06~09) — 실제 코어로 도는 가짜 서버 + 가짜 인식 객체.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -243,6 +244,9 @@ describe('V2 화면 지적 (D-V2-19~21, U-V2-01~06, RA-V2-02)', () => {
     expect(within(extras).getByText('음성 설정과 기록').tagName).toBe('SUMMARY')
     expect(details.contains(within(extras).getByRole('button', { name: '음성 기록' }))).toBe(true)
     expect(details.contains(within(extras).getByLabelText('말이 끝났다고 볼 때까지(초)'))).toBe(true)
+    // 자주 쓰는 문자찜 설정은 접는 칸 밖에 늘 보인다(기존 문자찜 흐름을 막지 않게)
+    const listen = within(extras).getByRole('checkbox', { name: /문자찜/ })
+    expect(details.contains(listen)).toBe(false)
     const text = document.body.textContent ?? ''
     for (const old of ['들린 말 기록', '음성 기록 보기']) expect(text).not.toContain(old)
     expect(screen.queryByText('들은 말', { exact: true })).toBeNull()
@@ -266,7 +270,7 @@ describe('V2 화면 지적 (D-V2-19~21, U-V2-01~06, RA-V2-02)', () => {
     expect(text).toContain('15,000')
   }, 15_000)
 
-  it('U-V2-05·06: 후보 단추에 1·2·3 키 표시와 안내, 1 키로 고름, 카드 Enter 표시는 "Enter 키로 등록"', async () => {
+  it('U-V2-05·06: 후보 단추에 1·2·3 키 표시와 안내, 1 키로 고름, 카드 Enter 표시는 "Enter 등록"(SPEC §459), 키 숫자는 단추 이름에 안 들어감', async () => {
     setup()
     await openConsole()
     await turnOnVoice()
@@ -275,12 +279,16 @@ describe('V2 화면 지적 (D-V2-19~21, U-V2-01~06, RA-V2-02)', () => {
     const group = screen.getByRole('group', { name: '19번 품종 미입력 8,000원 품종 후보' })
     const first = within(group).getAllByRole('button')[0] as HTMLButtonElement
     expect(first.dataset.key).toBe('1')
+    expect(first.textContent).toBe('선버스트')
+    expect(styles).toContain('content: attr(data-key) / "";')
+    expect(within(group).getByRole('button', { name: '선버스트' })).toBe(first)
     expect(first.className).toContain('voice-candidate')
     expect(group.textContent).toContain('1·2·3 키')
     ;(document.activeElement as HTMLElement | null)?.blur()
     fireEvent.keyDown(window, { key: '1', code: 'Digit1' })
     expect(screen.getByRole('listitem', { name: '19번 선버스트 8,000원 카드' })).toBeDefined()
     await sleep(1050)
-    expect(screen.queryByText('Enter 등록', { exact: true })).toBeNull()
+    expect(screen.getByText('Enter 등록', { exact: true })).toBeDefined()
+    expect(screen.queryByText('Enter 키로 등록', { exact: true })).toBeNull()
   }, 15_000)
 })

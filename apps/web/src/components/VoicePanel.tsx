@@ -1,6 +1,6 @@
 // 콘솔 음성 칸 (VOC-01·04·05, D-I4-03~05·09, AC-I4-10~31·50·51).
 // - "음성 켜기"(꺼져 있을 때 콘솔 머리 줄) → 처음이면 안내 창 → 켜진 동안 상태·외부 전송 안내 한 줄·자막·"음성 끄기".
-// - 카드: 카드 글(describeCard)·원래 문장·"확인 필요"·"Enter 키로 등록"·남은 초, 버튼 "등록"·"고치기"·"닫기"(·"자동 등록 멈추기") — 접근 이름에 카드 글을 담는다.
+// - 카드: 카드 글(describeCard)·원래 문장·"확인 필요"·"Enter 등록"·남은 초, 버튼 "등록"·"고치기"·"닫기"(·"자동 등록 멈추기") — 접근 이름에 카드 글을 담는다.
 // - 설정(자동 확정·조용한 시간)과 [음성 기록]은 음성 칸 바로 아래 접는 칸 "음성 설정과 기록"(기본 접힘, D-V2-21). 인식 문장은 늘 글자로만 그린다(React 기본 이스케이프, NFR-06).
 // PC(폭 768px 이상)에선 콘솔이 이 칸(VoiceLive)을 빠른 입력칸과 함께 고정 영역에 둔다 — Enter 대상 카드가 늘 보이게(D-I4-03).
 // V1 문자찜 카드 (VOC-04, AC-V1-20~28): 카드 글(describeSmsCard)·"N초 뒤 넣어요"·"넣지 않기"·"지금 넣기"/"넣기", 이유 카드는 "닫기"만,
@@ -69,7 +69,7 @@ export const SECONDS_LABEL = '기다리는 시간(초)'
 /** 후보 단추 키 안내 (U-V2-05, PC 폭) */
 export const CANDIDATE_KEYS_HINT = '입력칸 밖에서 1·2·3 키로도 골라요'
 /** 카드 Enter 표시 (U-V2-06) */
-export const ENTER_BADGE = 'Enter 키로 등록'
+export const ENTER_BADGE = 'Enter 등록'
 export const SMS_HELP = '"165번 문자찜 끝자리 1234"처럼 말하면 문자찜 카드가 나와요. 손대지 않으면 정한 시간 뒤 넣어요(0이면 바로). 넣기 전에 "넣지 않기"를 누르면 아무것도 넣지 않아요.'
 
 /** 카드를 가리키는 짧은 글: "15번 핑크프릴 15,000원" (describeCard에서 물음을 뗀 것) */
@@ -793,7 +793,7 @@ function CardFormView({
 }
 
 /**
- * 음성 칸 바로 아래 접는 칸 "음성 설정과 기록" (D-V2-21, 기본 접힘): 켜진 동안의 설정(자동 확정·조용한 시간·문자찜)과 [음성 기록].
+ * 음성 칸 바로 아래 접는 칸 "음성 설정과 기록" (D-V2-21, 기본 접힘): 켜진 동안의 설정(자동 확정·조용한 시간)과 [음성 기록]. 자주 쓰는 문자찜 설정은 접는 칸 밖(위)에 늘 보인다.
  * 접는 칸을 연 채로 두는지는 이 화면에만 기억한다
  */
 export function VoiceExtras({ voice, snapshot }: { readonly voice: VoiceController; readonly snapshot: VoiceSnapshot }) {
@@ -806,6 +806,24 @@ export function VoiceExtras({ voice, snapshot }: { readonly voice: VoiceControll
   if (!on && !snapshot.everOn) return null
   return (
     <section className="voice-extras" aria-label={EXTRAS_TITLE}>
+          {on && smsSettings !== null && smsWords !== null ? (
+            <div className="voice-settings voice-sms-settings">
+              <label className="choice">
+                <input type="checkbox" checked={smsSettings['voice.smsListen']} onChange={(event) => voice.setSmsListen(event.target.checked)} />
+                <span>{smsWords.labels.listen}</span>
+              </label>
+              <label className="voice-seconds">
+                <span>{smsWords.labels.autoSec}</span>
+                <input className="input" inputMode="numeric" autoComplete="off" value={snapshot.smsSecondsText} onChange={(event) => voice.setSmsSeconds(event.target.value)} />
+              </label>
+              {snapshot.smsSettingsProblem !== null ? (
+                <p className="field-error" role="alert">
+                  {snapshot.smsSettingsProblem}
+                </p>
+              ) : null}
+              <p className="hint">{SMS_HELP}</p>
+            </div>
+          ) : null}
       <details className="details" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
         <summary>{EXTRAS_TITLE}</summary>
         <div className="voice-extras-body">
@@ -841,24 +859,6 @@ export function VoiceExtras({ voice, snapshot }: { readonly voice: VoiceControll
           ) : (
             <p className="hint">{QUIET_HELP}</p>
           )}
-          {smsSettings !== null && smsWords !== null ? (
-            <>
-              <label className="choice">
-                <input type="checkbox" checked={smsSettings['voice.smsListen']} onChange={(event) => voice.setSmsListen(event.target.checked)} />
-                <span>{smsWords.labels.listen}</span>
-              </label>
-              <label className="voice-seconds">
-                <span>{smsWords.labels.autoSec}</span>
-                <input className="input" inputMode="numeric" autoComplete="off" value={snapshot.smsSecondsText} onChange={(event) => voice.setSmsSeconds(event.target.value)} />
-              </label>
-              {snapshot.smsSettingsProblem !== null ? (
-                <p className="field-error" role="alert">
-                  {snapshot.smsSettingsProblem}
-                </p>
-              ) : null}
-              <p className="hint">{SMS_HELP}</p>
-            </>
-          ) : null}
         </div>
       ) : null}
         </div>
