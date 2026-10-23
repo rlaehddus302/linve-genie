@@ -50,6 +50,7 @@ const LOG_ACTION: Readonly<Record<VoiceAction['kind'], VoiceLogAction>> = {
   offer: 'offer',
   offerNumber: 'offer',
   offerUndo: 'offer',
+  confirmEdit: 'offer',
   discard: 'discard',
 }
 
