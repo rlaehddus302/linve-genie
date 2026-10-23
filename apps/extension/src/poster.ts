@@ -1,14 +1,15 @@
 // 감사 채팅 올리기 (선택 기능, X1 YT-10 AC11~AC17, D-X1-17~D-X1-24). content script가 쓴다 — 크롬 API 없이 가짜 페이지로 시험한다.
 // - 글은 서버가 만든 것만 넣는다(서버 발송함의 감사, YT-07 묶음·이름 정리 끝난 글). 고치지 않고 글자로만 넣는다(HTML 아님).
 // - 가져가기는 넣을 준비가 됐을 때만: 입력 칸이 있고, 비었고, 마지막 키 입력 뒤 5초가 지났을 때(D-X1-22). 판매자 글은 지우거나 덮지 않는다.
-// - 로그인 채널·방송 채널을 함께 보낸다. 서버가 둘이 같고 그 회차 채널과도 같을 때만 글을 준다(D-X1-20).
+// - "로그인 계정이 방송 채널 주인인가(입력 칸의 주인 배지)"와 방송 채널을 함께 보낸다. 서버가 주인이고 방송 채널이 그 회차 채널과 같을 때만 글을 준다(D-X1-20·29).
+//   주인인지 못 읽으면(관리자·다른 계정·로그인 안 함) 다른 값으로 대신하지 않고 올리지 않는다.
 // - 보낸 뒤 15초 안에 내 채널의 같은 글이 채팅 목록에 뜨면 "게시됨", 못 보면 "확인 필요" — 어느 쪽이든 다시 올리지 않는다(D-X1-23).
 //   넣기 전에 멈춘 경우(쓰는 중·입력 칸 없음·보내기 단추 없음)만 "안 올림"으로 돌려준다.
 // - 글 사이는 3초 이상(서버도 지킨다, D-X1-21). 결과는 같은 것을 다시 알려도 서버가 한 번만 반영한다.
 // - 채팅 내용을 남기지(저장·출력) 않는다.
 import type { Timers } from './outbox.ts'
 import type { ChatMessage } from './reader.ts'
-import { INPUT_FIELD, ME_ATTR, OWNER_ATTR, SEND_BUTTON, WHO_EVENT } from './selectors.ts'
+import { INPUT_FIELD, ME_OWNER_ATTR, OWNER_ATTR, SEND_BUTTON, WHO_EVENT } from './selectors.ts'
 
 /** 마지막 키 입력 뒤 이만큼 지나야 넣는다 (D-X1-22) */
 export const TYPING_IDLE_MS = 5_000
@@ -29,7 +30,8 @@ const RESULT_RETRY_MS = 2_000
 export type ThanksOutcome = 'POSTED' | 'UNCONFIRMED' | 'NOT_POSTED'
 
 export interface Identity {
-  readonly me: string | null
+  /** 로그인 계정이 방송 채널 주인인가 (입력 칸 주인 배지) */
+  readonly meIsOwner: boolean
   readonly owner: string | null
 }
 
@@ -47,7 +49,8 @@ export interface PosterOptions {
 interface Waiting {
   readonly ids: readonly number[]
   readonly text: string
-  readonly me: string
+  /** 방송 채널 ID — 이 채널의 같은 글이 뜨면 게시됨 */
+  readonly owner: string
   readonly timer: unknown
 }
 
@@ -66,14 +69,14 @@ function fieldText(field: Element): string {
 /** 페이지 쪽 스크립트에 물어 로그인 채널·방송 채널을 읽는다 (붙었던 속성은 바로 지운다) */
 export function askIdentity(doc: Document): Identity {
   const root = doc.documentElement
-  root.removeAttribute(ME_ATTR)
+  root.removeAttribute(ME_OWNER_ATTR)
   root.removeAttribute(OWNER_ATTR)
   doc.dispatchEvent(new CustomEvent(WHO_EVENT))
-  const me = root.getAttribute(ME_ATTR)
+  const meIsOwner = root.getAttribute(ME_OWNER_ATTR) === '1'
   const owner = root.getAttribute(OWNER_ATTR)
-  root.removeAttribute(ME_ATTR)
+  root.removeAttribute(ME_OWNER_ATTR)
   root.removeAttribute(OWNER_ATTR)
-  return { me, owner }
+  return { meIsOwner, owner }
 }
 
 export class ThanksPoster {
@@ -154,8 +157,8 @@ export class ThanksPoster {
     this.#busy = true
     try {
       // 입력 칸이 없으면(로그인 안 함) 채널을 모르는 것으로 묻는다 → 서버가 "방송 채널 계정으로 로그인해야…"를 알린다
-      const who: Identity = field === null ? { me: null, owner: null } : this.#identity()
-      const reply = await this.#ask({ type: 'thanksTake', v: this.#video, me: who.me, owner: who.owner })
+      const who: Identity = field === null ? { meIsOwner: false, owner: null } : this.#identity()
+      const reply = await this.#ask({ type: 'thanksTake', v: this.#video, meIsOwner: who.meIsOwner, owner: who.owner })
       if (this.#stopped) return
       if (!isRecord(reply)) {
         this.#schedule(POLL_MS)
@@ -163,10 +166,10 @@ export class ThanksPoster {
       }
       const state = reply['state']
       const post = reply['post']
-      if (state === 'POST' && isRecord(post) && who.me !== null) {
+      if (state === 'POST' && isRecord(post) && who.meIsOwner && who.owner !== null) {
         const ids = Array.isArray(post['ids']) ? post['ids'].filter((id): id is number => typeof id === 'number') : []
         const text = typeof post['text'] === 'string' ? post['text'] : ''
-        await this.#post(ids, text, who.me)
+        await this.#post(ids, text, who.owner)
         return
       }
       if (state === 'POST') {
@@ -188,7 +191,7 @@ export class ThanksPoster {
   }
 
   /** 받은 글을 넣고 보낸다. 넣기 전에 멈추면 "안 올림" */
-  async #post(ids: readonly number[], text: string, me: string): Promise<void> {
+  async #post(ids: readonly number[], text: string, owner: string): Promise<void> {
     if (ids.length === 0) {
       this.#schedule(POLL_MS)
       return
@@ -215,7 +218,7 @@ export class ThanksPoster {
       return
     }
     const timer = this.#timers.set(() => void this.#settle('UNCONFIRMED'), CONFIRM_MS)
-    this.#waiting = { ids, text: sameText(text), me, timer }
+    this.#waiting = { ids, text: sameText(text), owner, timer }
     ;(button as HTMLElement).click()
   }
 
@@ -254,7 +257,7 @@ export class ThanksPoster {
   onMessages(messages: readonly ChatMessage[]): void {
     const waiting = this.#waiting
     if (waiting === null) return
-    if (messages.some((message) => message.ch === waiting.me && sameText(message.text) === waiting.text)) void this.#settle('POSTED')
+    if (messages.some((message) => message.ch === waiting.owner && sameText(message.text) === waiting.text)) void this.#settle('POSTED')
   }
 
   async #settle(result: 'POSTED' | 'UNCONFIRMED'): Promise<void> {

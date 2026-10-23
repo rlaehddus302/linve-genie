@@ -1,6 +1,7 @@
 // 페이지 쪽 스크립트 (X1 D-X1-03): 유튜브 채팅 요소의 데이터에서 작성자 채널 ID·게시 시각만 꺼내 그 요소에 잠깐 속성으로 붙인다.
 // 확장(content script)은 페이지의 자바스크립트 값을 볼 수 없어서, 요청 이벤트를 받을 때만 이 일을 한다.
-// 감사 올리기(AC12)를 위해 "로그인한 채널·방송 채널" 물음(livegenie-who)에도 채널 ID 두 개만 답한다.
+// 메시지가 방송자 글(주인 배지 또는 author-type=owner)이면 표시를 붙인다(D-X1-29) — 서버가 회차 채널과 같을 때만 방송자로 인정한다.
+// 감사 올리기(AC12)를 위해 "로그인 계정이 방송 채널 주인인가·방송 채널" 물음(livegenie-who)에도 답한다.
 // 하는 일은 이것뿐이다 — 유튜브 요청을 가로채거나 부르지 않고, 누르거나 입력하지 않고, 닉네임·본문을 다루지 않는다.
 import {
   BRIDGE_EVENT,
@@ -8,10 +9,12 @@ import {
   DATA_BADGES_KEY,
   DATA_CHANNEL_KEY,
   DATA_TIMESTAMP_KEY,
+  AUTHOR_TYPE_ATTR,
+  AUTHOR_TYPE_OWNER,
   INPUT_RENDERER,
-  ME_ATTR,
-  ME_DATA_PATHS,
+  ME_OWNER_ATTR,
   OWNER_ATTR,
+  OWNER_MSG_ATTR,
   OWNER_BADGE_ICON,
   OWNER_GLOBAL_PATHS,
   POSTED_AT_ATTR,
@@ -61,17 +64,11 @@ function noteOwner(data: Bag): void {
   if (channel !== null) seenOwner = channel
 }
 
-/** 로그인한 채널·방송 채널 (못 읽으면 null) */
-export function readIdentity(doc: Document, win: unknown = globalThis): { readonly me: string | null; readonly owner: string | null } {
-  let me: string | null = null
+/** 로그인 계정이 방송 채널 주인인가(입력 칸 data.authorBadges의 OWNER 배지)·방송 채널(못 읽으면 null) */
+export function readIdentity(doc: Document, win: unknown = globalThis): { readonly meIsOwner: boolean; readonly owner: string | null } {
   const input = doc.querySelector(INPUT_RENDERER)
   const inputData = input === null ? null : dataOf(input)
-  if (inputData !== null) {
-    for (const path of ME_DATA_PATHS) {
-      me = channelOrNull(at(inputData, path))
-      if (me !== null) break
-    }
-  }
+  const meIsOwner = inputData !== null && ownerBadged(inputData)
   for (const element of Array.from(doc.getElementsByTagName(TEXT_MESSAGE_TAG.toLowerCase()))) {
     const data = dataOf(element)
     if (data !== null) noteOwner(data)
@@ -83,7 +80,7 @@ export function readIdentity(doc: Document, win: unknown = globalThis): { readon
       if (owner !== null) break
     }
   }
-  return { me, owner }
+  return { meIsOwner, owner }
 }
 
 /** 시험용: 기억한 방송 채널 지우기 */
@@ -91,13 +88,13 @@ export function forgetOwner(): void {
   seenOwner = null
 }
 
-/** 물음 이벤트를 받으면 문서 맨 바깥 요소에 두 채널 ID를 잠깐 붙인다 (content script가 읽고 지운다) */
+/** 물음 이벤트를 받으면 문서 맨 바깥 요소에 답을 잠깐 붙인다 (content script가 읽고 지운다) */
 export function handleWho(event: Event): void {
   const doc = (event.target as Node | null)?.ownerDocument ?? (event.target as Document | null)
   if (doc === null || typeof (doc as Document).querySelector !== 'function') return
-  const { me, owner } = readIdentity(doc as Document, (doc as Document).defaultView ?? globalThis)
+  const { meIsOwner, owner } = readIdentity(doc as Document, (doc as Document).defaultView ?? globalThis)
   const root = (doc as Document).documentElement
-  if (me !== null) root.setAttribute(ME_ATTR, me)
+  if (meIsOwner) root.setAttribute(ME_OWNER_ATTR, '1')
   if (owner !== null) root.setAttribute(OWNER_ATTR, owner)
 }
 
@@ -109,6 +106,7 @@ export function handleBridge(event: Event): void {
   const data = dataOf(element)
   if (data === null) return
   noteOwner(data)
+  if (ownerBadged(data) || element.getAttribute(AUTHOR_TYPE_ATTR) === AUTHOR_TYPE_OWNER) element.setAttribute(OWNER_MSG_ATTR, '1')
   const channel = data[DATA_CHANNEL_KEY]
   if (typeof channel === 'string') element.setAttribute(CHANNEL_ATTR, channel)
   const usec = data[DATA_TIMESTAMP_KEY]

@@ -39,6 +39,22 @@ describe('새로 붙은 일반 채팅만 읽는다', () => {
     expect(reader.counts).toEqual({ read: 3, unread: 0 })
   })
 
+  it('D-X1-29: 방송자 글(주인 배지·author-type=owner)에는 방송자 표시를 붙여 보내고, 일반 시청자 글에는 붙이지 않는다', () => {
+    reader.start(CHAT_URL)
+    const [owned] = append(
+      list,
+      { id: 'ChwKGkNJTXNvMDAxMDAwMDAwMDAwMDAwMDAwMDA', channel: 'UCsellerchannel000000001', nick: '판매자', body: '3번 마감', owner: true },
+      { id: 'ChwKGkNJTXNvMDAyMDAwMDAwMDAwMDAwMDAwMDA', channel: 'UCaaaaaaaaaaaaaaaaaaaaaa', body: '3번' },
+    )
+    // author-type만 있고 배지가 없어도 방송자 표시
+    const typed = messageElement(document, { id: 'ChwKGkNJTXNvMDAzMDAwMDAwMDAwMDAwMDAwMDA', channel: 'UCsellerchannel000000001', body: '4번' })
+    typed.setAttribute('author-type', 'owner')
+    list.append(typed)
+    reader.flush()
+    expect(received.map((m) => m.owner)).toEqual([true, undefined, true])
+    expect(owned?.hasAttribute('data-livegenie-owner-msg')).toBe(false)
+  })
+
   it('AC-X1-01: MutationObserver가 스스로 알린다 (flush 없이)', async () => {
     reader.start(CHAT_URL)
     append(list, { body: '3번' })

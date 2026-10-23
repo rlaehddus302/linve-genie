@@ -32,6 +32,11 @@ export const MESSAGE_ID_ATTR = 'id'
 export const BRIDGE_EVENT = 'livegenie-read'
 export const CHANNEL_ATTR = 'data-livegenie-ch'
 export const POSTED_AT_ATTR = 'data-livegenie-at'
+/** 방송자(채널 주인) 글 표시: 배지 OWNER 또는 author-type="owner"일 때 '1' (D-X1-29, HG-X1 실물 확인) */
+export const OWNER_MSG_ATTR = 'data-livegenie-owner-msg'
+/** 메시지 요소의 작성자 종류 속성 (실제 유튜브: 방송자 글은 'owner') */
+export const AUTHOR_TYPE_ATTR = 'author-type'
+export const AUTHOR_TYPE_OWNER = 'owner'
 /** 페이지 쪽 요소 데이터의 이름 (유튜브 Polymer 요소의 data) */
 export const DATA_CHANNEL_KEY = 'authorExternalChannelId'
 export const DATA_TIMESTAMP_KEY = 'timestampUsec'
@@ -49,12 +54,12 @@ export const INPUT_FIELD = 'yt-live-chat-message-input-renderer #input[contented
 /** 보내기 단추 (실제는 yt-button-renderer#send-button 안의 button, 가짜 페이지는 button#send-button) */
 export const SEND_BUTTON = 'yt-live-chat-message-input-renderer #send-button button, yt-live-chat-message-input-renderer button#send-button'
 
-/** 페이지 쪽 스크립트에게 "로그인 채널·방송 채널"을 묻는 이벤트와, 답을 잠깐 붙이는 속성(문서 맨 바깥 요소) */
+/** 페이지 쪽 스크립트에게 "로그인 계정이 방송 채널 주인인가·방송 채널"을 묻는 이벤트와, 답을 잠깐 붙이는 속성(문서 맨 바깥 요소) */
 export const WHO_EVENT = 'livegenie-who'
-export const ME_ATTR = 'data-livegenie-me'
+/** 로그인 계정이 방송 채널 주인이면 '1' — 입력 칸 묶음 data.authorBadges에 OWNER 배지가 있을 때 (D-X1-29).
+ *  실제 유튜브 입력 칸 data에는 채널 ID가 없다(HG-X1 실물: authorName·inputField·sendButton·pickers·authorPhoto·authorBadges 등뿐) */
+export const ME_OWNER_ATTR = 'data-livegenie-me-owner'
 export const OWNER_ATTR = 'data-livegenie-owner'
-/** 로그인한 계정의 채널 ID: 입력 칸 묶음 요소의 data 안 경로 (앞의 것부터) */
-export const ME_DATA_PATHS: readonly (readonly string[])[] = [['authorExternalChannelId'], ['channelId']]
 /** 방송 채널 ID: 메시지 요소 data의 배지 중 주인 배지(liveChatAuthorBadgeRenderer.icon.iconType)가 붙은 작성자 */
 export const DATA_BADGES_KEY = 'authorBadges'
 export const OWNER_BADGE_ICON = 'OWNER'

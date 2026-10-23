@@ -32,7 +32,7 @@ export interface TakeReply {
 export type PageMessage =
   | { readonly type: 'chats'; readonly v: string; readonly messages: readonly ChatMessage[] }
   | { readonly type: 'status'; readonly v: string | null; readonly hidden: boolean; readonly read: number; readonly unread: number }
-  | { readonly type: 'thanksTake'; readonly v: string; readonly me: string | null; readonly owner: string | null }
+  | { readonly type: 'thanksTake'; readonly v: string; readonly meIsOwner: boolean; readonly owner: string | null }
   | { readonly type: 'thanksResult'; readonly ids: readonly number[]; readonly result: ThanksOutcome }
 
 const PAGE_TYPES = new Set(['chats', 'status', 'thanksTake', 'thanksResult'])
@@ -354,7 +354,7 @@ export class Hub {
 
   async #take(m: Extract<PageMessage, { type: 'thanksTake' }>): Promise<TakeReply> {
     if (this.#token === null) return { state: 'OFF', post: null, afterMs: null, message: null }
-    const result = await this.#api.call('POST', '/ext/thanks/take', { v: m.v, me: m.me, owner: m.owner })
+    const result = await this.#api.call('POST', '/ext/thanks/take', { v: m.v, meIsOwner: m.meIsOwner === true, owner: m.owner })
     if (result.status === 401) {
       await this.#lost()
       return { state: 'OFF', post: null, afterMs: null, message: null }

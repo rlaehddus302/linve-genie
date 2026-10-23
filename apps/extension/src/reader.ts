@@ -11,6 +11,7 @@ import {
   LIVE_CHAT_PATH,
   MESSAGE_BODY,
   MESSAGE_ID_ATTR,
+  OWNER_MSG_ATTR,
   POSTED_AT_ATTR,
   TEXT_MESSAGE_TAG,
   YOUTUBE_HOST,
@@ -24,6 +25,8 @@ export interface ChatMessage {
   readonly text: string
   /** 게시 시각 (UTC 밀리초 정수) */
   readonly at: number
+  /** 방송자(채널 주인) 표시가 붙은 글 — 서버가 회차 채널과 같을 때만 방송자로 인정한다 (D-X1-29) */
+  readonly owner?: true
 }
 
 const VIDEO_RE = /^[A-Za-z0-9_-]{11}$/
@@ -92,8 +95,10 @@ export function readMessage(element: Element, _now: () => number, ask: (element:
   if (!element.hasAttribute(CHANNEL_ATTR)) ask(element)
   const ch = element.getAttribute(CHANNEL_ATTR) ?? ''
   const atRaw = element.getAttribute(POSTED_AT_ATTR)
+  const owner = element.getAttribute(OWNER_MSG_ATTR) === '1'
   element.removeAttribute(CHANNEL_ATTR)
   element.removeAttribute(POSTED_AT_ATTR)
+  element.removeAttribute(OWNER_MSG_ATTR)
   if (!MESSAGE_ID_RE.test(id) || !CHANNEL_RE.test(ch)) return { kind: 'unread' }
   const parsed = atRaw === null || !/^\d{1,16}$/.test(atRaw) ? Number.NaN : Number(atRaw)
   if (!Number.isSafeInteger(parsed) || parsed <= 0) return { kind: 'unread' }
@@ -101,7 +106,7 @@ export function readMessage(element: Element, _now: () => number, ask: (element:
   const text = (body === null ? '' : textOf(body)).trim().slice(0, TEXT_MAX)
   if (text === '') return { kind: 'skip' }
   const nick = (element.querySelector(AUTHOR_NAME)?.textContent ?? '').trim().slice(0, NICK_MAX)
-  return { kind: 'message', message: { id, ch, nick, text, at: parsed } }
+  return { kind: 'message', message: { id, ch, nick, text, at: parsed, ...(owner ? { owner: true as const } : {}) } }
 }
 
 export interface ReaderCounts {

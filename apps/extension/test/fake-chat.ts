@@ -7,7 +7,30 @@ export const POSTED_AT = 1_761_200_000_123
 
 export function loadFakeChat(doc: Document = document): HTMLElement {
   doc.body.innerHTML = FIXTURE
+  setInputOwner(doc, true)
   return doc.querySelector(ITEM_LIST) as HTMLElement
+}
+
+export const OWNER_BADGES = [{ liveChatAuthorBadgeRenderer: { icon: { iconType: 'OWNER' }, tooltip: '소유자' } }]
+
+/**
+ * 입력 칸 묶음의 data — 실제 유튜브 모양(HG-X1 실물 확인, D-X1-29): 채널 ID가 없고 authorBadges만 있다.
+ * owner = 로그인 계정이 방송 채널 주인(OWNER 배지)인가
+ */
+export function setInputOwner(doc: Document, owner: boolean): void {
+  const input = doc.querySelector('yt-live-chat-message-input-renderer')
+  if (input === null) return
+  ;(input as unknown as { data: unknown }).data = {
+    authorName: { simpleText: '판매자' },
+    inputField: {},
+    sendButton: {},
+    pickers: [],
+    pickerButtons: [],
+    authorPhoto: {},
+    authorBadges: owner ? OWNER_BADGES : [],
+    targetId: 'live-chat-message-input',
+    emojiPickerButton: {},
+  }
 }
 
 export interface FakeMessage {
@@ -18,6 +41,8 @@ export interface FakeMessage {
   readonly body?: string | readonly ({ readonly emoji: string } | string)[]
   readonly usec?: string | null
   readonly tag?: string
+  /** 방송자 글 (실제 유튜브: author-type="owner", 이름에 class owner, data.authorBadges에 OWNER) */
+  readonly owner?: boolean
 }
 
 /** 메시지 요소 만들기 (실제 유튜브처럼 id 속성 = 메시지 ID, data = { authorExternalChannelId, timestampUsec }) */
@@ -41,10 +66,15 @@ export function messageElement(doc: Document, message: FakeMessage): HTMLElement
       body.append(img)
     }
   }
+  if (message.owner === true) {
+    element.setAttribute('author-type', 'owner')
+    name.className = 'owner'
+  }
   content.append(name, body)
   element.append(content)
   const data: Record<string, unknown> = {}
   if (message.channel !== null) data['authorExternalChannelId'] = message.channel ?? 'UCabcdefghijklmnopqrstuv'
+  if (message.owner === true) data['authorBadges'] = OWNER_BADGES
   if (message.usec !== null) data['timestampUsec'] = message.usec ?? String(POSTED_AT * 1000 + 456)
   ;(element as unknown as { data: unknown }).data = data
   return element

@@ -5,7 +5,7 @@ import { askIdentity, BUSY_MS, CONFIRM_MS, GAP_MS, IDLE_MS, ThanksPoster, TYPING
 import { BRIDGE_EVENT, INPUT_FIELD, SEND_BUTTON, WHO_EVENT } from '../src/selectors.ts'
 import { handleBridge } from '../src/page-bridge.ts'
 import { FakeTimers, settle } from './fakes.ts'
-import { loadFakeChat } from './fake-chat.ts'
+import { loadFakeChat, OWNER_BADGES, setInputOwner } from './fake-chat.ts'
 
 const V = 'abcdEFGH123'
 const ME = 'UCsellerchannel000000001'
@@ -31,7 +31,7 @@ function postReply(ids: number[], text: string) {
   return { state: 'POST', post: { ids, text, until: '2026-10-23T05:01:00.000Z' }, afterMs: null, message: null }
 }
 
-function make(identity = () => ({ me: ME as string | null, owner: ME as string | null })) {
+function make(identity = () => ({ meIsOwner: true, owner: ME as string | null })) {
   poster = new ThanksPoster({
     document,
     video: V,
@@ -75,7 +75,7 @@ describe('AC-X1-29·31: 서버가 준 글을 글자로만 넣고 보내고, 내 
   it('글 하나 → 입력 칸에 그대로 → 보내기 → 내 채널의 같은 글이 뜨면 POSTED 한 번', async () => {
     replies.push(postReply([11, 12], '첫손님님 3번 1등 확정 축하드려요! 감사합니다'))
     await poster.tick()
-    expect(takes()[0]).toMatchObject({ v: V, me: ME, owner: ME })
+    expect(takes()[0]).toMatchObject({ v: V, meIsOwner: true, owner: ME })
     expect(sent).toEqual(['첫손님님 3번 1등 확정 축하드려요! 감사합니다'])
     expect(poster.waiting).toBe(true)
     // 남의 글·다른 글은 확인이 아니다
@@ -149,7 +149,7 @@ describe('AC-X1-30: 판매자가 쓰는 중이면 기다린다', () => {
       },
       timers,
       now: () => clock,
-      identity: () => ({ me: ME, owner: ME }),
+      identity: () => ({ meIsOwner: true, owner: ME }),
     })
     begin()
     await poster.tick()
@@ -164,18 +164,27 @@ describe('AC-X1-27: 채널 주인 확인', () => {
     document.querySelector('yt-live-chat-message-input-renderer')?.remove()
     replies.push({ state: 'NOT_OWNER', post: null, afterMs: null, message: '방송 채널 계정으로 로그인해야 감사 글을 올릴 수 있어요' })
     await poster.tick()
-    expect(takes()[0]).toMatchObject({ me: null, owner: null })
+    expect(takes()[0]).toMatchObject({ meIsOwner: false, owner: null })
     expect(timers.delays()).toEqual([IDLE_MS])
   })
 
   it('서버가 주인 아님이라 하면 넣지 않는다 (다른 계정)', async () => {
     poster.stop()
-    make(() => ({ me: 'UCsomeoneelse00000000001', owner: ME }))
+    make(() => ({ meIsOwner: false, owner: ME }))
     replies.push({ state: 'NOT_OWNER', post: null, afterMs: null, message: '방송 채널 계정으로 로그인해야 감사 글을 올릴 수 있어요' })
     await poster.tick()
-    expect(takes()[0]).toMatchObject({ me: 'UCsomeoneelse00000000001', owner: ME })
+    expect(takes()[0]).toMatchObject({ meIsOwner: false, owner: ME })
     expect(sent).toEqual([])
     expect(field().textContent).toBe('')
+  })
+
+  it('주인 배지를 못 읽었는데 서버가 글을 줘도 넣지 않고 돌려준다 (대신 쓰는 값 없음, RA-X1-08)', async () => {
+    poster.stop()
+    make(() => ({ meIsOwner: false, owner: ME }))
+    replies.push(postReply([7], '감사합니다'))
+    await poster.tick()
+    expect(sent).toEqual([])
+    expect(results()).toEqual([{ ids: [7], result: 'NOT_POSTED' }])
   })
 
   it('보내기 단추가 없으면 넣지 않고 NOT_POSTED', async () => {
@@ -206,17 +215,20 @@ describe('페이지 쪽 스크립트: 로그인 채널·방송 채널', () => {
     document.removeEventListener(WHO_EVENT, handleWho, true)
   })
 
-  it('입력 칸 data의 채널 ID와 주인 배지 메시지의 채널 ID를 읽고, 붙였던 속성은 지운다', () => {
-    expect(askIdentity(document)).toEqual({ me: null, owner: null })
-    ;(document.querySelector('yt-live-chat-message-input-renderer') as unknown as { data: unknown }).data = { authorExternalChannelId: ME }
+  it('입력 칸 data의 주인 배지(채널 ID 없음 — 실물 모양)와 주인 배지 메시지의 채널 ID를 읽고, 붙였던 속성은 지운다', () => {
+    setInputOwner(document, false)
+    expect(askIdentity(document)).toEqual({ meIsOwner: false, owner: null })
+    setInputOwner(document, true)
     const owned = document.createElement('yt-live-chat-text-message-renderer') as HTMLElement & { data?: unknown }
-    owned.data = { authorExternalChannelId: ME, authorBadges: [{ liveChatAuthorBadgeRenderer: { icon: { iconType: 'OWNER' } } }] }
+    owned.data = { authorExternalChannelId: ME, authorBadges: OWNER_BADGES }
     document.querySelector('#items')?.append(owned)
-    expect(askIdentity(document)).toEqual({ me: ME, owner: ME })
-    expect(document.documentElement.hasAttribute('data-livegenie-me')).toBe(false)
+    expect(askIdentity(document)).toEqual({ meIsOwner: true, owner: ME })
+    expect(document.documentElement.hasAttribute('data-livegenie-me-owner')).toBe(false)
     expect(document.documentElement.hasAttribute('data-livegenie-owner')).toBe(false)
-    // 모양이 틀린 채널 ID는 읽지 않는다
-    ;(document.querySelector('yt-live-chat-message-input-renderer') as unknown as { data: unknown }).data = { authorExternalChannelId: 'UC<script>' }
-    expect(askIdentity(document).me).toBeNull()
+    // 다른 배지(관리자)는 주인이 아니다
+    ;(document.querySelector('yt-live-chat-message-input-renderer') as unknown as { data: unknown }).data = {
+      authorBadges: [{ liveChatAuthorBadgeRenderer: { icon: { iconType: 'MODERATOR' } } }],
+    }
+    expect(askIdentity(document).meIsOwner).toBe(false)
   })
 })
