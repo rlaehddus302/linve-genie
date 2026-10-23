@@ -40,8 +40,11 @@ import type { Clock } from './time.ts'
 /** 누가 보낸 입력인지 (DAT-05). deposit = 입금 자동 확인 (N3 DP-6 — 이력의 "누가"에 "입금 자동 확인") */
 export type Actor = { readonly kind: 'account'; readonly accountId: string } | { readonly kind: 'server' } | { readonly kind: 'collector' } | { readonly kind: 'deposit' }
 
-/** 채팅이 어디서 왔는지 (AC-Y1-60): 유튜브 수집기 · 리허설(생성기·시청자로 보내기) · 그 밖(시험 채우기 등) */
-export type ChatSource = 'youtube' | 'rehearsal' | 'other'
+/**
+ * 채팅이 어디서 왔는지 (AC-Y1-60): 유튜브 수집기(공식 API) · 크롬 확장(X1 YT-10 — 같은 유튜브 채팅, 받은 경로만 다르다) ·
+ * 리허설(생성기·시청자로 보내기) · 그 밖(시험 채우기 등)
+ */
+export type ChatSource = 'youtube' | 'extension' | 'rehearsal' | 'other'
 
 /** 봉인한 범위에 쓰려 할 때 (AC-Y1-62) */
 export const SEALED_MESSAGE = '30일이 지난 방송 기록은 봉인되어 고칠 수 없어요.'
@@ -95,7 +98,15 @@ export interface WriteJob {
   readonly requestId: string | null
   readonly chat?: { readonly b: string; readonly id: string }
   /** 여러 채팅을 한 번에 쓸 때 (유튜브 수집기의 한 응답): 이미 기록된 메시지 ID를 트랜잭션 안에서 읽어 build에 넘긴다 */
-  readonly chatBatch?: { readonly b: string; readonly ids: readonly string[] }
+  readonly chatBatch?: {
+    readonly b: string
+    readonly ids: readonly string[]
+    /**
+     * 메시지 ID는 다르지만 이미 기록된 것과 같은 메시지로 볼 ID (X1 D-X1-06 — 다른 수집 경로의 같은 작성자·같은 본문·게시 시각 3초 이내).
+     * 범위 락을 잡은 트랜잭션 안에서 부른다(두 경로가 함께 와도 하나만)
+     */
+    readonly alsoSeen?: (tx: Db) => Promise<Iterable<string>>
+  }
   /**
    * 범위 락을 잡은 트랜잭션 안에서 쓰기 전에 더 확인할 것 (유튜브 수집기: 그 연결이 아직 이어져 있는지 — 다른 서버가 끊었으면 쓰지 않는다).
    * 거절이면 아무것도 쓰지 않는다. runtime = 락을 잡고 최신 로그까지 따라잡은 범위 상태(scopeId·state — 합치기 전 포장 기록 검사, D-I2-20)
@@ -455,6 +466,7 @@ export class ScopeWriter {
             throw new Abort({ kind: 'duplicate', result: null })
           }
           const existingChats = job.chatBatch === undefined ? new Set<string>() : await existingChatIds(tx, job.sellerId, job.chatBatch.b, job.chatBatch.ids)
+          if (job.chatBatch?.alsoSeen !== undefined) for (const id of await job.chatBatch.alsoSeen(tx)) existingChats.add(id)
           const computed = this.#compute(job, runtime, prepared, existingChats)
           if ('rejection' in computed) throw new Abort({ kind: 'rejected', rejection: computed.rejection })
           if (computed.records.length === 0) throw new Abort({ kind: 'empty' })
@@ -469,7 +481,7 @@ export class ScopeWriter {
             tx,
             rows.flatMap((row) => (row.raw === null ? [] : [row.raw])),
           )
-          if (!job.rehearsal && rows.some((row) => row.event.chatSource === 'youtube')) await markYoutubeChat(tx, job.sellerId, scopeId)
+          if (!job.rehearsal && rows.some((row) => row.event.chatSource === 'youtube' || row.event.chatSource === 'extension')) await markYoutubeChat(tx, job.sellerId, scopeId)
           await insertOutbox(tx, computed.records.flatMap((record) => outboxRows(job, scopeId, record, now)))
           // 범위의 지금 seq — 실패 표시 이벤트도 seq를 쓴다 (AC-S05-60)
           await setScopeSeq(tx, job.sellerId, scopeId, computed.seq)

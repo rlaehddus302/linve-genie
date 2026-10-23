@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <title>라이브지니 채팅 받기</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>라이브지니 채팅 받기</h1>
+      <p id="state" role="status" class="state">불러오는 중…</p>
+      <p id="dropped" class="warning" hidden></p>
+      <p id="thanks" class="warning" role="alert" hidden></p>
+
+      <form id="connect" hidden>
+        <p>라이브지니 설정의 "확장 연결"에서 받은 8자리 코드를 넣어 주세요.</p>
+        <label for="code">연결 코드</label>
+        <input id="code" name="code" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="1234 5678" />
+        <p id="connect-error" class="error" role="alert"></p>
+        <button type="submit">연결하기</button>
+      </form>
+
+      <section id="pick" hidden aria-labelledby="pick-title">
+        <h2 id="pick-title">어느 방송으로 받을까요?</h2>
+        <p>이 유튜브 방송의 채팅을 넣을 라이브지니 방송을 골라 주세요.</p>
+        <div id="pick-list" role="radiogroup" aria-labelledby="pick-title"></div>
+        <p id="pick-error" class="error" role="alert"></p>
+        <button type="button" id="pick-save">이 방송으로 받기</button>
+      </section>
+
+      <section id="connected" hidden>
+        <p class="tip">채팅 창 위의 "인기 채팅"을 "실시간 채팅"으로 바꿔 두세요. 인기 채팅에서는 일부 채팅이 보이지 않아요.</p>
+        <p class="tip">라이브지니 설정에서 "확장으로 감사 채팅 올리기"를 켠 경우에만, 라이브지니가 만든 감사 글을 이 채팅 창에 올려요. 판매자님이 쓰는 글은 건드리지 않아요.</p>
+        <button type="button" id="forget" class="secondary">이 컴퓨터에서 연결 지우기</button>
+      </section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

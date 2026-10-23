@@ -25,6 +25,8 @@ export interface AppOptions {
   readonly ready?: () => Promise<boolean>
   /** 운영 상태 /ops/status (AC-I3-81): 토큰(없으면 404)과 합친 숫자 */
   readonly ops?: { readonly token: string | null; readonly status: () => Promise<Record<string, unknown>> }
+  /** 크롬 확장 경로 (/ext — 로그인·Origin 검사 밖, 확장 토큰으로만 받는다, X1) */
+  readonly extension?: Hono
   /** 구매자 확인서 링크 화면 `/r/<토큰>` (N4b — 로그인·Origin 검사 밖, 화면 문서보다 먼저) */
   readonly receiptPage?: (app: Hono) => void
 }
@@ -128,6 +130,7 @@ export function createApp(options: AppOptions = {}): Hono {
 
   if (options.api !== undefined) app.route('/api', createApi(options.api))
   if (options.webhooks !== undefined) app.route('/webhooks', options.webhooks)
+  if (options.extension !== undefined) app.route('/ext', options.extension)
   // 구매자 확인서 링크 (N4b AC-N4b-25): /r·/r/*는 화면 문서(index.html) 대신 링크 처리로 간다
   options.receiptPage?.(app)
 

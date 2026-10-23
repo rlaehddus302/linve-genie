@@ -59,7 +59,7 @@ interface Pending {
 
 /** 리허설 생성기 상태 알림 (event: generator) · 유튜브 알림 (event: youtube — 연결·수집·발송함·할당량·삭제·차단, AC-Y1-05·27·28·39·52) · 출력 기록 알림 (event: print, I1) · I2 포장·배송(event: packing)·가게 설정(event: shop) 알림 · 인스타그램 알림 (event: instagram, N2) · 라벨 기능 켬/끔 (event: labels, N4a) · 틱톡 연결 알림 (event: tiktok, N2b-2) · 입금 확인 알림 (event: deposit, N3) · 요금 알림 (event: billing, N5) — seq가 없다 */
 export interface GeneratorNotice {
-  readonly kind: 'generator' | 'youtube' | 'print' | 'packing' | 'shop' | 'instagram' | 'labels' | 'tiktok' | 'deposit' | 'billing' | 'login' | 'parcel'
+  readonly kind: 'generator' | 'youtube' | 'print' | 'packing' | 'shop' | 'instagram' | 'labels' | 'tiktok' | 'deposit' | 'billing' | 'login' | 'parcel' | 'extension'
   readonly data: Readonly<Record<string, unknown>>
 }
 
@@ -167,6 +167,11 @@ export class StreamHub {
   /** 유튜브 알림 (그 판매자의 연결 전부, event: youtube). data.kind = connection · collector · outbox · quota · notice */
   publishYoutube(sellerId: string, data: Readonly<Record<string, unknown>>): void {
     this.#publishNamed(sellerId, { kind: 'youtube', data })
+  }
+
+  /** 크롬 확장 상태 알림 (그 판매자의 연결 전부, X1 YT-10 AC7·AC8, event: extension). 채팅 내용·닉네임·토큰은 담지 않는다 */
+  publishExtension(sellerId: string, data: Readonly<Record<string, unknown>>): void {
+    this.#publishNamed(sellerId, { kind: 'extension', data })
   }
 
   /** 출력 기록 알림 (그 판매자의 연결 전부, I1). 보조자 연결은 받지 않는다 — 보조자는 출력을 쓰지 않는다 (SYS-04) */

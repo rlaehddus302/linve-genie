@@ -114,6 +114,8 @@ export async function insertLink(
     linkedBy: string
     requestId: string | null
     now: Date
+    /** 예정 방송(startedAt null)의 첫 상태 확인 시각 — 잇는 그 순간부터 '시작되면 받아요'(STARTING·NOT_STARTED, AC-Y1-94·AC-I3-24) */
+    upcomingCheckAt?: Date
   },
 ): Promise<void> {
   await db.insert(youtubeLinks).values({
@@ -136,6 +138,8 @@ export async function insertLink(
     broadcastId: row.broadcastId,
     mode: 'STREAM',
     status: 'STARTING',
+    // 예정 방송은 잇기 응답부터 '시작되면 받아요'로 — 수집기가 나중에 같은 값을 적으므로 잇기 응답(낡은 '시작하는 중')이 알림보다 늦게 닿아도 덮지 않는다
+    ...(row.startedAt === null && row.upcomingCheckAt !== undefined ? { reason: 'NOT_STARTED', resumeAt: row.upcomingCheckAt } : {}),
     updatedAt: row.now,
   })
 }

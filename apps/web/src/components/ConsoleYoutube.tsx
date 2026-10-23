@@ -5,7 +5,7 @@
 // - 실시간: 범위 저장소의 같은 연결로 SSE `youtube`를 받는다(연결·수집·발송함·사용량·알림). 끊겼다 이어지면 모두 다시 받는다.
 // - 리허설 방송은 유튜브 요청을 보내지 않는다. 준비 안 된 서버(503)면 안내 한 줄만 보이고 다른 유튜브 요청을 보내지 않는다.
 // 서버 문장(수집 상태·사유·오류)은 고치지 않고 그대로 보인다. 채널 이름·방송 제목·시청자 이름·글은 글자로만 보인다.
-import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
 import type { LinkView, LiveBroadcastItem, OutboxRow, QuotaView, YoutubeConnection, YoutubeNotice } from '../api/types.ts'
 import type { ConsoleStore } from '../lib/console-store.ts'
@@ -35,6 +35,7 @@ import {
   thanksFailedCount,
   unconfirmedWarning,
 } from '../lib/youtube.ts'
+import { EXTENSION_THANKS_VIA } from '../lib/extension.ts'
 import { openBlockAction } from './actions.ts'
 import { useConsoleApi } from './console-context.ts'
 import { ErrorNote } from './ErrorNote.tsx'
@@ -488,6 +489,8 @@ export interface YoutubePanelProps {
   readonly sealed: boolean
   readonly onOpenOutbox: () => void
   readonly onUnlink: () => void
+  /** 제목 바로 아래 한 줄 (받는 경로 — 크롬 확장 X1 AC8) */
+  readonly route?: ReactNode
 }
 
 function SettingsLink({ navigate, children }: { readonly navigate: Navigate; readonly children: string }) {
@@ -506,7 +509,7 @@ function SettingsLink({ navigate, children }: { readonly navigate: Navigate; rea
   )
 }
 
-export function YoutubePanel({ navigate, ended, sealed, onOpenOutbox, onUnlink }: YoutubePanelProps) {
+export function YoutubePanel({ navigate, ended, sealed, onOpenOutbox, onUnlink, route }: YoutubePanelProps) {
   const yt = useYoutube()
   if (!yt.enabled) {
     return (
@@ -525,6 +528,7 @@ export function YoutubePanel({ navigate, ended, sealed, onOpenOutbox, onUnlink }
   return (
     <section className="card youtube-panel stack" aria-label="유튜브">
       <h2 className="section-title">유튜브</h2>
+      {route}
       {connection.phase === 'loading' ? <p role="status">불러오는 중…</p> : null}
       {connection.phase === 'notConfigured' ? <p>{NOT_CONFIGURED_MESSAGE}</p> : null}
       {connection.phase === 'error' ? <ErrorNote error={connection.error} onRetry={() => window.location.reload()} retryLabel="다시 열기" /> : null}
@@ -533,7 +537,7 @@ export function YoutubePanel({ navigate, ended, sealed, onOpenOutbox, onUnlink }
   )
 }
 
-function ReadyPanel({ connection, navigate, ended, sealed, onOpenOutbox, onUnlink }: Omit<YoutubePanelProps, 'navigate'> & { readonly connection: YoutubeConnection; readonly navigate: Navigate }) {
+function ReadyPanel({ connection, navigate, ended, sealed, onOpenOutbox, onUnlink }: Omit<YoutubePanelProps, 'navigate' | 'route'> & { readonly connection: YoutubeConnection; readonly navigate: Navigate }) {
   const yt = useYoutube()
   const linked = yt.link?.link ?? null
   const writable = !ended && !sealed
@@ -990,6 +994,7 @@ function OutboxItem({ row, onResend, onPosted, onDismiss }: { readonly row: Outb
         {no !== null ? <strong>{no}번 </strong> : null}
         {row.buyer !== null ? <span className="buyer-name">{api.names.name(row.buyer)} </span> : null}
         <span className="tag">{TARGET_WORD[row.target]}</span>
+        {row.viaExtension === true ? <span className="tag">{EXTENSION_THANKS_VIA}</span> : null}
         {row.groupWith.length > 0 ? <span className="tag">같은 메시지 {row.groupWith.length + 1}개</span> : null}
         {row.dismissed === true ? <span className="tag">알림에서 뺌</span> : null}
       </p>

@@ -1,0 +1,13 @@
+// 크롬 확장 소스와 브라우저(jsdom) 시험. Node 타입 없이 DOM 타입으로 검사한다.
+// Node가 필요한 시험(매니페스트·소스 검사)은 tsconfig.node.json이 검사한다.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "types": ["vite/client"]
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"],
+  "exclude": ["test/**/*.node.test.ts"]
+}

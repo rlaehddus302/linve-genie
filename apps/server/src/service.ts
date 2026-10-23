@@ -87,6 +87,7 @@ import {
   markBroadcastEnded,
   optionScopes,
   previousScopeDate,
+  recentChatsOfSource,
   scopeSealInfo,
   scopeSealRows,
   scopeSeqs,
@@ -101,7 +102,7 @@ import { iso, kstDate, kstTime, type Clock } from './time.ts'
 import type { ViewCacheBudget } from './view-budget.ts'
 import { changeSet, fullView, messageLookup, type ChangeSet, type FullView, type MessageLookup } from './views.ts'
 import { resultOf, scopeKey, WriteAbort, type Actor, type ChatSource, type CommittedRecord, type Draft, type Rejection, type ScopeWriter, type WriteOutcome, type WriteResult } from './writer.ts'
-import { sanitizeNick } from './youtube/texts.ts'
+import { cleanPostText, sanitizeNick } from './youtube/texts.ts'
 import { SEALED_CHAT_MESSAGE, sealAtOf, sealedView } from './youtube/seal.ts'
 
 /** 시작 마법사 (UX-02, AC-I3-50): 처음 · 진행 중(단계 1~5) · 마침 · 닫음 */
@@ -836,17 +837,35 @@ export class Service {
    * 유튜브 수집기의 한 응답 (AC-Y1-21·25). 범위 락 안의 지금 상태로 거른다: 회차를 끝냈으면(어느 서버에서든) 게시 시각이 끝낸 시각보다 늦은 메시지는
    * 기록하지 않는다. guard는 같은 트랜잭션에서 그 연결이 아직 이어져 있는지 본다(거절이면 unlinked)
    */
-  async ingestYoutubeBatch(sellerId: string, b: string, chats: readonly CollectedChat[], guard?: (tx: Db) => Promise<boolean>): Promise<ChatBatchOutcome> {
+  async ingestYoutubeBatch(
+    sellerId: string,
+    b: string,
+    chats: readonly CollectedChat[],
+    guard?: (tx: Db) => Promise<boolean>,
+    source: 'youtube' | 'extension' = 'youtube',
+  ): Promise<ChatBatchOutcome> {
     const row = await findBroadcast(this.#options.db, sellerId, b)
     if (row === null || row.rehearsal) return { status: 'not_found' }
     if (chats.length === 0) return { status: 'ok', recorded: 0 }
+    // 다른 경로(공식 ↔ 확장)에서 이미 받은 같은 메시지 (D-X1-06): 같은 작성자·같은 정리 본문·게시 시각 3초 이내. 범위 락 안에서 본다
+    const other = source === 'youtube' ? 'extension' : 'youtube'
+    const since = new Date(this.#options.clock.now() - SAME_CHAT_LOOKBACK_MS)
+    const alsoSeen = async (tx: Db): Promise<string[]> => {
+      const earlier = await recentChatsOfSource(tx, sellerId, b, other, since)
+      if (earlier.length === 0) return []
+      // 서버 도착 시각 차 10초 이하만 (D-X1-28 — 거짓 게시 시각으로 다른 경로의 채팅을 지우지 못하게). 이 묶음의 도착 시각 = 지금
+      const arrived = this.#options.clock.now()
+      return chats
+        .filter((chat) => chat.publishedAt !== undefined && earlier.some((seen) => Math.abs(seen.receivedAt - arrived) <= SAME_CHAT_ARRIVAL_MS && sameChat(seen, chat)))
+        .map((chat) => chat.id)
+    }
     const outcome = await this.#options.writer.write({
       sellerId,
       date: row.date,
       rehearsal: false,
       createScope: false,
       requestId: null,
-      chatBatch: { b, ids: chats.map((chat) => chat.id) },
+      chatBatch: { b, ids: chats.map((chat) => chat.id), alsoSeen },
       ...(guard === undefined ? {} : { guard: async (tx: Db) => ((await guard(tx)) ? null : rejection(409, 'NOT_LINKED', '이어진 유튜브 방송이 없어요.')) }),
       build: (ctx) => {
         const seen = new Set(ctx.existingChats)
@@ -859,7 +878,7 @@ export class Service {
           const fields: Record<string, unknown> = { type: 'chat', b, id: chat.id, ch: chat.ch, nick: sanitizeNick(chat.nick), text: chat.text }
           if (chat.owner === true) fields.owner = true
           if (chat.publishedAt !== undefined) fields.publishedAt = chat.publishedAt
-          drafts.push({ fields, actor: { kind: 'collector' }, chat: { b, id: chat.id }, source: 'youtube', skipIfInvalid: true })
+          drafts.push({ fields, actor: { kind: 'collector' }, chat: { b, id: chat.id }, source, skipIfInvalid: true })
         }
         return drafts
       },
@@ -1346,4 +1365,25 @@ function ingestOutcome(outcome: WriteOutcome): ChatIngestOutcome {
     case 'save_failed':
       return { status: 'save_failed' }
   }
+}
+
+/** 다른 경로 중복을 찾을 때 볼 기간 (받은 시각 기준 — 확장이 다시 보내기까지 기다린 시간보다 넉넉히) */
+export const SAME_CHAT_LOOKBACK_MS = 30 * 60 * 1000
+/** 다른 경로에서 온 같은 메시지로 볼 게시 시각 차 (D-X1-06) */
+export const SAME_CHAT_GAP_MS = 3000
+/** 다른 경로에서 온 같은 메시지로 볼 서버 도착 시각 차 (D-X1-28) */
+export const SAME_CHAT_ARRIVAL_MS = 10_000
+
+/** 같은지 견줄 본문: NFC, 공백 문자 한 칸·보이지 않는 글자 삭제·앞뒤 공백 삭제 (게시 문구 정리와 같다) */
+export function sameChatText(text: string): string {
+  return cleanPostText(text.normalize('NFC'))
+}
+
+/** 다른 경로의 두 채팅이 같은 메시지인지 (D-X1-06): 같은 작성자 채널·같은 정리 본문·게시 시각 차 3초 이하 */
+export function sameChat(
+  seen: { readonly ch: string | null; readonly publishedAt: number | null; readonly text: string | null },
+  chat: { readonly ch: string; readonly publishedAt?: number; readonly text: string },
+): boolean {
+  if (seen.ch === null || seen.publishedAt === null || seen.text === null || chat.publishedAt === undefined) return false
+  return seen.ch === chat.ch && Math.abs(seen.publishedAt - chat.publishedAt) <= SAME_CHAT_GAP_MS && sameChatText(seen.text) === sameChatText(chat.text)
 }
