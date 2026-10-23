@@ -531,6 +531,7 @@ export interface ReportMeta {
 /** 문자찜을 넣지 않는 까닭 (R-21 문제 — 영어 이름을 보이지 않는다) */
 const SMS_PROBLEM_WORDS: Readonly<Record<SmsProblem, string>> = Object.freeze({
   CANCEL: '취소 말',
+  NOT_SURE: '아니라는 말·묻는 말',
   LAST4_UNCLEAR: '끝자리를 못 알아들음',
   NAME_UNCLEAR: '이름이 둘',
   TIME_UNCLEAR: '시각을 못 알아들음',

@@ -162,3 +162,13 @@ smsProductBlock(view) / findSmsBlock(card, lookup)   // SmsProductView = { state
 - **U-V1-01 (FIXED — 안내 쪽, 규칙은 그대로)**: 열린 카드 수 규칙(D-204·D-I4-02, `addVoiceCard`)은 바꾸지 않았다. 대신 이유 없는(넣을 수 있던) 문자찜 카드가 넣지 않은 채 저절로 닫히면 음성 칸 위에 목록 "넣지 않고 닫힌 문자찜"에 줄 하나("넣지 않은 문자찜 카드를 닫았어요: 15번 · 28번 · 끝자리 1234 · 문자찜. 넣으려면 다시 말하거나 문자찜 입력에 넣어 주세요.", `role=alert`)와 "확인"(접근 이름 "<카드 짧은 글> 안내 확인")을 남긴다. "확인"을 누를 때까지 남는다. 이유 카드("닫기"만)·"넣지 않기"로 닫은 카드·넣은 카드는 안내가 없다.
   - **spec-keeper에게**: 사용성 지적의 (1)안 "닫기만 있는 이유 카드는 열린 카드 수에 세지 않거나 넘치면 이유 카드부터 닫는다"는 D-204·D-I4-02와 AC-V1-03 "상품 카드와 문자찜 카드를 함께 센다"를 바꾸는 일이라 하지 않았다(`packages/voice`는 dev-device 몫). 판단이 나면 그쪽에서 바꾸고, 이 안내는 그대로 둬도 된다.
 - 확인: `apps/web` 단위 1085개 통과(`TZ=Pacific/Honolulu`), tsc·eslint(바꾼 파일) 깨끗. E2E `tests/e2e/v1` 29개 중 28개 통과 — `flow.spec.ts` AC-V1-60·TE-V1-002 통과. 실패 1개는 `sms-cards.spec.ts:262` TE-V1-001(결과 줄에 "뒤 4자리 1234" 두 번)로 이번 지적 목록 밖이다.
+
+### dev-device 수정 라운드 (TD-V1-001 — R-21 3a `NOT_SURE`, D-V1-12)
+- `readSmsSentence`(packages/voice/src/sms.ts)에 3a를 넣음. 문제 순서 `CANCEL` → `NOT_SURE` → `LAST4_UNCLEAR` → … . 맡은 토큰(4 끝자리·5 이름·6 시각)을 정한 뒤 본다 — `안지민님`·`못난이님`은 이름이라 걸리지 않음.
+  - 물음표: 정규화한 문장(`normalizeText` 결과, 끝 문장 부호를 지우기 전)에 `?`·`？`가 있으면.
+  - 살필 글: 맡은 토큰이 아닌 토큰 그대로. 표시 토큰(`문자찜…` 모두, `문자` + `찜…` 짝 모두)은 표시 낱말 뒤 나머지만, 나머지가 없으면 보지 않음.
+- `SmsProblem`·`SMS_PROBLEMS`에 `NOT_SURE`, `SMS_PROBLEM_MESSAGES.NOT_SURE` = "아니라는 말이나 묻는 말이 들려서 넣지 않았어요. 문자찜이면 다시 말해 주세요."(acceptance 그대로). 화면(controller)은 이 표를 그대로 읽으므로 화면 코드는 바꾸지 않음. 측정 스크립트는 "넣지 않음(아니라는 말·묻는 말)"으로 보이고 자동 넣기 위험 수에 들어가지 않음.
+- 골든 시험 읽기(packages/voice/test/sms-golden.test.ts): 아는 문제에 `NOT_SURE`, 고정 사례 수 48 → 63(spec 66a7eeb와 맞춤). 63사례 모두 통과.
+- 시험: sms.test.ts AC-V1-06(acceptance 문장 여섯·낱말·물음표·표시 나머지·맡은 토큰·문제 순서·옵션 방식·속성 500회), sms-card.test.ts(아니라는 말 카드는 저절로도 누르기로도 넣지 않음), accuracy-sms.test.ts(넣지 않음·위험 아님).
+- E2E tests/e2e/v1/flow.spec.ts·sms-reasons.spec.ts 8개 통과(포트 오프셋 23500).
+- **test-domain에게**: tests/adversarial/v1/sms-reading-attacks.test.ts:12의 `PROBLEMS`에 `NOT_SURE`가 없어 R-21 결과 모양 속성 시험이 실패한다(스펙 66a7eeb가 `NOT_SURE`를 더함). 그 파일은 test-domain 소유라 건드리지 않음.

@@ -89,6 +89,9 @@ describe('AC-V1-05 채점', () => {
     expect(scoreOf('예,,,,문자찜 얘기예요,등록,,')).toMatchObject({ falseSms: true, smsAutoWrong: false })
     // 번호가 둘 이상이면 저절로 넣지 않는다 — 틀려도 자동 넣기 위험은 아니다
     expect(scoreOf('예,15,,,15번 16번 문자찜,문자찜,,')).toMatchObject({ smsNo: '틀림', smsAutoWrong: false })
+    // AC-V1-06 아니라는 말·묻는 말은 다른 문제처럼 넣지 않음 — 자동 넣기 위험이 아니다
+    expect(scoreOf('예,165,,,165번 문자찜 끝자리 1234 아니 5678,문자찜,5678,')).toMatchObject({ smsNo: '빈칸', smsLast4: '빈칸', smsAutoWrong: false })
+    expect(scoreOf('예,,,,165번은 문자찜 아니에요,등록,,')).toMatchObject({ falseSms: true, smsAutoWrong: false })
     // 최대 번호는 문자찜에도
     expect(scoreSamples(samplesOf(`${HEADER}\n예,201,,,201번 문자찜,문자찜,,\n`), { maxNumber: 200 })[0]).toMatchObject({ smsNo: '빈칸' })
   })

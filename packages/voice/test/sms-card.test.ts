@@ -136,6 +136,7 @@ describe('AC-V1-03 카드 만들기와 저절로 넣기 조건', () => {
       TIME_UNCLEAR: '받은 시각을 못 알아들었어요. 시각 없이 다시 말해 주세요.',
       OPTION_UNCLEAR: "상품·옵션을 못 알아들었어요. '반바지 M 2개 문자찜'처럼 다시 말해 주세요.",
       CANCEL: '음성으로는 찜을 취소하지 않아요. 찜 취소는 화면에서 해 주세요.',
+      NOT_SURE: '아니라는 말이나 묻는 말이 들려서 넣지 않았어요. 문자찜이면 다시 말해 주세요.',
     })
   })
 
@@ -208,6 +209,12 @@ describe('AC-V1-03 넣기 — 쓰기 칸·두 번 넣지 않음·고르기', () 
 
   it('문제 카드·넣을 수 없는 상품은 누르기로도 넣지 않는다, 넣기 직전에 판매 종료면 이유', () => {
     expect(sendSmsCard(card('15번 문자찜 끝자리 12'), { product })).toMatchObject({ ok: false, reason: 'PROBLEM', message: SMS_PROBLEM_MESSAGES.LAST4_UNCLEAR })
+    // AC-V1-06 아니라는 말·묻는 말은 기본 설정에서도 저절로 넣지 않고, 누르기로도 넣지 않는다 (TD-V1-001)
+    for (const text of ['165번은 문자찜 아니에요', '165번 문자찜 되나요?', '165번은 문자찜 안 돼요', '165번 문자찜 끝자리 1234 아니 5678', '165번 말고 166번 문자찜']) {
+      const notSure = card(text)
+      expect(checkSmsAuto(notSure, ctx({ now: T0 + 60_000 })).due).toBe(false)
+      expect(sendSmsCard(notSure, { product })).toMatchObject({ ok: false, reason: 'PROBLEM', message: SMS_PROBLEM_MESSAGES.NOT_SURE })
+    }
     expect(sendSmsCard(card('300번 문자찜'), { product: () => ({ state: 'CLOSED', waitlistFull: false }) })).toMatchObject({
       ok: false,
       reason: 'PRODUCT',

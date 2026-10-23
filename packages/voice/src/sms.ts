@@ -1,14 +1,14 @@
-// 음성 문자찜 문장 읽기 (SPEC ORD-08 AC9·VOC-02, DOMAIN_RULES R-21, V1 — D-V1-01·D-V1-02·D-V1-04·D-V1-08).
+// 음성 문자찜 문장 읽기 (SPEC ORD-08 AC9·VOC-02, DOMAIN_RULES R-21, V1 — D-V1-01·D-V1-02·D-V1-04·D-V1-08·D-V1-12).
 // 사례: tests/golden/voice/voice-sms.json (packages/voice 단위 시험이 읽는다).
 // 문장 하나 → null(문자찜 문장이 아님 — R-17 상품 등록 추출로) 또는 정확히 { orders, last4, name, time, problem }.
 // 애매하면 넣지 않는다: 문제가 있으면 주문을 비우고 이유 하나만 돌려준다.
 // 순수 함수: 같은 입력이면 같은 결과, 넘긴 값을 바꾸지 않고, 시계·난수·네트워크를 쓰지 않으며, 어떤 입력에도 예외를 던지지 않는다.
 // 토큰·읽는 모양·번호 표시·끊어 말한 번호는 R-17 추출기(extract.ts)의 같은 코드를, 옵션 방식은 코어 parseOptionComment(R-20)를 그대로 쓴다.
-import { parseOptionComment, type OptionCatalogEntry, type OptionFocus } from '@livejjim/core'
+import { normalizeText, parseOptionComment, type OptionCatalogEntry, type OptionFocus } from '@livejjim/core'
 import { findNumberMarkers, readingForms, tokenize } from './extract.ts'
 
-/** R-21 문제 (9의 순서: CANCEL → LAST4_UNCLEAR → NAME_UNCLEAR → TIME_UNCLEAR → NUMBER_UNCLEAR/OPTION_UNCLEAR) */
-export type SmsProblem = 'CANCEL' | 'LAST4_UNCLEAR' | 'NAME_UNCLEAR' | 'TIME_UNCLEAR' | 'NUMBER_UNCLEAR' | 'OPTION_UNCLEAR'
+/** R-21 문제 (9의 순서: CANCEL → NOT_SURE → LAST4_UNCLEAR → NAME_UNCLEAR → TIME_UNCLEAR → NUMBER_UNCLEAR/OPTION_UNCLEAR) */
+export type SmsProblem = 'CANCEL' | 'NOT_SURE' | 'LAST4_UNCLEAR' | 'NAME_UNCLEAR' | 'TIME_UNCLEAR' | 'NUMBER_UNCLEAR' | 'OPTION_UNCLEAR'
 
 /** 주문 하나 = `sms` 이벤트 하나. 번호 방식은 qty 1·options 없음, 옵션 방식은 R-20 주문 그대로 */
 export interface SmsOrder {
@@ -42,7 +42,7 @@ export interface SmsReadOptions {
   readonly focus?: OptionFocus | null
 }
 
-export const SMS_PROBLEMS: readonly SmsProblem[] = Object.freeze(['CANCEL', 'LAST4_UNCLEAR', 'NAME_UNCLEAR', 'TIME_UNCLEAR', 'NUMBER_UNCLEAR', 'OPTION_UNCLEAR'])
+export const SMS_PROBLEMS: readonly SmsProblem[] = Object.freeze(['CANCEL', 'NOT_SURE', 'LAST4_UNCLEAR', 'NAME_UNCLEAR', 'TIME_UNCLEAR', 'NUMBER_UNCLEAR', 'OPTION_UNCLEAR'])
 /** 번호 방식의 서로 다른 번호 최대 수 (R-21 7) */
 export const SMS_MAX_ORDERS = 5
 
@@ -54,6 +54,10 @@ const SMS_WORD = '문자찜'
 const SMS_SPLIT_FIRST = '문자'
 const SMS_SPLIT_SECOND = '찜'
 const CANCEL_WORD = '취소'
+/** 아니라는 말·묻는 말 (R-21 3a, D-V1-12): 살필 글이 이것으로 시작하거나 끝나면 NOT_SURE */
+const NOT_SURE_STARTS: readonly string[] = Object.freeze(['아니', '아닌', '안', '않', '못', '말고'])
+const NOT_SURE_ENDS: readonly string[] = Object.freeze(['나요', '까요'])
+const QUESTION_MARKS: readonly string[] = Object.freeze(['?', '？'])
 /** 뒤 4자리 앞 낱말 (R-21 4, 읽는 모양으로 비교) */
 const LAST4_WORDS = new Set(['끝자리', '뒷자리', '뒷번호', '끝번호'])
 const LAST4_VALUE = /^([0-9]{4})번?$/
@@ -88,6 +92,37 @@ export function findSmsMarker(tokens: readonly string[]): number {
     if (token === SMS_SPLIT_FIRST && (tokens[i + 1] ?? '').startsWith(SMS_SPLIT_SECOND)) return i
   }
   return -1
+}
+
+/**
+ * 살필 글 (R-21 3a): 맡은 토큰이 아닌 토큰 그대로(끝 문장 부호를 지운 것),
+ * 단 문자찜 표시 토큰은 표시 낱말(`문자찜`, 두 토큰 표시이면 `문자`와 `찜`) 뒤에 붙은 나머지 글(없으면 보지 않음).
+ */
+function notSureTexts(tokens: readonly string[], assigned: ReadonlySet<number>): string[] {
+  const texts: string[] = []
+  for (let i = 0; i < tokens.length; i++) {
+    if (assigned.has(i)) continue
+    const token = tokens[i] as string
+    if (token.startsWith(SMS_WORD)) {
+      texts.push(token.slice(SMS_WORD.length))
+    } else if (token === SMS_SPLIT_FIRST && (tokens[i + 1] ?? '').startsWith(SMS_SPLIT_SECOND) && !assigned.has(i + 1)) {
+      // 두 토큰 표시: `문자`는 나머지가 없고, `찜…`은 `찜` 뒤 나머지를 본다
+      texts.push((tokens[i + 1] as string).slice(SMS_SPLIT_SECOND.length))
+      i++
+    } else {
+      texts.push(token)
+    }
+  }
+  return texts.filter((text) => text !== '')
+}
+
+/** 3a. 아니라는 말·묻는 말 — 정규화한 문장(끝 문장 부호를 지우기 전)의 물음표 또는 살필 글의 시작·끝 */
+function isNotSure(text: unknown, tokens: readonly string[], assigned: ReadonlySet<number>): boolean {
+  const normalized = normalizeText(typeof text === 'string' ? text : '')
+  if (QUESTION_MARKS.some((mark) => normalized.includes(mark))) return true
+  return notSureTexts(tokens, assigned).some(
+    (piece) => NOT_SURE_STARTS.some((start) => piece.startsWith(start)) || NOT_SURE_ENDS.some((end) => piece.endsWith(end)),
+  )
 }
 
 /** 첫 읽는 모양 중 패턴에 맞는 것의 첫 묶음 */
@@ -246,6 +281,8 @@ export function readSmsSentence(text: unknown, options: SmsReadOptions = {}): Sm
   const last4 = readLast4(forms, assigned)
   const name = readName(tokens, forms, assigned)
   const time = readTime(forms, assigned)
+  // 3a. 아니라는 말·묻는 말 (맡은 토큰 4·5·6이 정해진 뒤에 본다 — 이름 `안지민님`·끝자리 숫자는 살피지 않는다)
+  if (isNotSure(text, tokens, assigned)) return problemOf('NOT_SURE')
   if (last4.unclear) return problemOf('LAST4_UNCLEAR')
   if (name.unclear) return problemOf('NAME_UNCLEAR')
   if (time.unclear) return problemOf('TIME_UNCLEAR')

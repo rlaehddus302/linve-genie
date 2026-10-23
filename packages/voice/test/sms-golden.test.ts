@@ -10,14 +10,14 @@ import { readSmsSentence, type SmsReadOptions } from '../src/index.ts'
 const GOLDEN_DIR = fileURLToPath(new URL('../../../tests/golden/voice/', import.meta.url))
 /** V1 고정값 — 다음 스프린트가 사례를 더하면 이 값도 함께 바꾼다 */
 const EXPECTED_FILES = 1
-const EXPECTED_CASES = 48
+const EXPECTED_CASES = 63
 
 const FILE_KEYS = new Set(['kind', 'about', 'cases'])
 const CASE_KEYS = new Set(['id', 'title', 'refs', 'note', 'in', 'settings', 'catalog', 'focus', 'out'])
 const SETTINGS_KEYS = new Set(['parseMode', 'maxNumber', 'maxQuantity'])
 const OUT_KEYS = ['orders', 'last4', 'name', 'time', 'problem']
 const ORDER_KEYS = new Set(['no', 'options', 'qty'])
-const PROBLEMS = new Set([null, 'CANCEL', 'LAST4_UNCLEAR', 'NAME_UNCLEAR', 'TIME_UNCLEAR', 'NUMBER_UNCLEAR', 'OPTION_UNCLEAR'])
+const PROBLEMS = new Set([null, 'CANCEL', 'NOT_SURE', 'LAST4_UNCLEAR', 'NAME_UNCLEAR', 'TIME_UNCLEAR', 'NUMBER_UNCLEAR', 'OPTION_UNCLEAR'])
 const ID_PATTERN = /^G-VSM-[A-Z0-9]+-[0-9]{2}$/
 
 interface GoldenCase {

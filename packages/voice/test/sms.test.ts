@@ -1,5 +1,5 @@
 // AC-V1-01·02 문자찜 문장 읽기(R-21)의 규칙 문장별 단위 시험·속성 시험과, 상품 등록 추출(R-17)과 겹치지 않음.
-// 골든 48사례는 sms-golden.test.ts가 돌린다.
+// 골든 63사례는 sms-golden.test.ts가 돌린다.
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import fc from 'fast-check'
@@ -128,6 +128,92 @@ describe('AC-V1-01 R-21 3~6 취소·뒤 4자리·이름·시각', () => {
     expect(r('문자찜 김민지님 이수진님 25시')).toEqual(bad('NAME_UNCLEAR'))
     expect(r('문자찜 25시')).toEqual(bad('TIME_UNCLEAR'))
     expect(r('문자찜')).toEqual(bad('NUMBER_UNCLEAR'))
+  })
+})
+
+describe('AC-V1-06 R-21 3a 아니라는 말·묻는 말 → NOT_SURE (D-V1-12, TD-V1-001)', () => {
+  it.each([
+    '165번은 문자찜 아니에요',
+    '165번 문자찜 되나요?',
+    '165번 문자찜 되나요',
+    '165번은 문자찜 안 돼요',
+    '165번 문자찜 끝자리 1234 아니 5678',
+    '165번 말고 166번 문자찜',
+  ])('AC-V1-06 문장 %s → NOT_SURE', (text) => {
+    expect(r(text)).toEqual(bad('NOT_SURE'))
+  })
+
+  it('시작 낱말 여섯(아니·아닌·안·않·못·말고)과 끝 낱말 둘(나요·까요)', () => {
+    for (const word of ['아니요', '아닌데', '안', '않아요', '못해요', '말고']) expect(r(`15번 문자찜 ${word}`)).toEqual(bad('NOT_SURE'))
+    for (const word of ['되나요', '될까요', '하나요', '할까요']) expect(r(`15번 문자찜 ${word}`)).toEqual(bad('NOT_SURE'))
+    // 시작·끝이 아니라 가운데에 있으면 걸리지 않는다
+    expect(r('15번 문자찜 되었습니다')).toEqual(ok({ orders: [{ no: 15, qty: 1 }] }))
+    expect(r('15번 문자찜 들어갑니다요')).toEqual(ok({ orders: [{ no: 15, qty: 1 }] }))
+  })
+
+  it('물음표는 정규화한 문장 어디에 있어도(끝 문장 부호를 지우기 전) — 반각·전각', () => {
+    expect(r('15번 문자찜?')).toEqual(bad('NOT_SURE'))
+    expect(r('15번? 문자찜')).toEqual(bad('NOT_SURE'))
+    expect(r('15번 문자찜 끝자리 1234？')).toEqual(bad('NOT_SURE'))
+    expect(r('15번 문자찜!')).toEqual(ok({ orders: [{ no: 15, qty: 1 }] }))
+  })
+
+  it('표시 토큰은 표시 낱말 뒤 나머지만 본다 (문자찜안돼요·문자 찜될까요), 나머지가 없으면 보지 않는다', () => {
+    expect(r('165번 문자찜안돼요')).toEqual(bad('NOT_SURE'))
+    expect(r('165번 문자 찜안돼요')).toEqual(bad('NOT_SURE'))
+    expect(r('165번 문자 찜될까요')).toEqual(bad('NOT_SURE'))
+    expect(r('165번 문자 찜이요')).toEqual(ok({ orders: [{ no: 165, qty: 1 }] }))
+    expect(r('165번 문자찜이요')).toEqual(ok({ orders: [{ no: 165, qty: 1 }] }))
+  })
+
+  it('맡은 토큰(이름·끝자리·시각)은 살피지 않는다', () => {
+    expect(r('166번 문자찜 안지민님')).toEqual(ok({ orders: [{ no: 166, qty: 1 }], name: '안지민' }))
+    expect(r('166번 문자찜 안지민 님')).toEqual(ok({ orders: [{ no: 166, qty: 1 }], name: '안지민' }))
+    expect(r('166번 문자찜 못난이님 끝자리 1234')).toEqual(ok({ orders: [{ no: 166, qty: 1 }], last4: '1234', name: '못난이' }))
+    // 이름이 아닌 님 말(손님)은 맡은 토큰이 아니지만 `안`·`아니`로 시작하지 않으니 상관없다
+    expect(r('166번 문자찜 손님')).toEqual(ok({ orders: [{ no: 166, qty: 1 }] }))
+  })
+
+  it('문제 순서: CANCEL → NOT_SURE → LAST4_UNCLEAR·NAME_UNCLEAR·TIME_UNCLEAR·NUMBER_UNCLEAR', () => {
+    expect(r('15번 문자찜 취소 안 돼요')).toEqual(bad('CANCEL'))
+    expect(r('15번 문자찜 끝자리 12 안')).toEqual(bad('NOT_SURE'))
+    expect(r('15번 문자찜 김민지님 이수진님 아니에요')).toEqual(bad('NOT_SURE'))
+    expect(r('15번 문자찜 25시 아니')).toEqual(bad('NOT_SURE'))
+    expect(r('문자찜 안 돼요')).toEqual(bad('NOT_SURE'))
+  })
+
+  it('옵션 방식도 옵션을 읽기 전에 NOT_SURE', () => {
+    expect(r('반바지 M 문자찜 아니에요', { parseMode: 'OPTIONS', catalog: [], focus: null })).toEqual(bad('NOT_SURE'))
+  })
+
+  it('속성: 문제 없는 문자찜 문장에 맡은 토큰이 아닌 토큰 하나(아니에요·안·되나요)를 덧붙이면 늘 NOT_SURE 또는 CANCEL', () => {
+    const base = fc.constantFrom(
+      '165번 문자찜',
+      '165번 문자찜 끝자리 1234',
+      '165번 문자찜 김민지님',
+      '15번 16번 문자찜 2시 15분',
+      '백오번 문자 찜이요 뒷번호 0042',
+      '21번 문자찜 되었습니다',
+    )
+    const extra = fc.constantFrom('아니에요', '안', '되나요', '아닌데요', '못', '말고', '될까요', '취소', '안녕하세요')
+    fc.assert(
+      fc.property(base, extra, fc.nat(), (text, word, at) => {
+        expect(r(text)?.problem).toBeNull()
+        const tokens = text.split(' ')
+        const position = at % (tokens.length + 1)
+        const changed = [...tokens.slice(0, position), word, ...tokens.slice(position)].join(' ')
+        const result = r(changed)
+        // `문자`와 `찜…` 사이에 끼우면 표시가 깨져 문자찜 문장이 아니다(상품 등록 추출로) — 그때도 찜이 되지 않는다
+        if (findSmsMarker(tokenize(changed) ?? []) === -1) {
+          expect(result).toBeNull()
+          return
+        }
+        expect(result).not.toBeNull()
+        expect(['NOT_SURE', 'CANCEL']).toContain(result?.problem)
+        expect(result).toEqual(bad(result?.problem ?? null))
+      }),
+      { numRuns: 500 },
+    )
   })
 })
 

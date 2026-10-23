@@ -206,6 +206,7 @@ export const SMS_PROBLEM_MESSAGES: Readonly<Record<SmsProblem, string>> = Object
   TIME_UNCLEAR: '받은 시각을 못 알아들었어요. 시각 없이 다시 말해 주세요.',
   OPTION_UNCLEAR: "상품·옵션을 못 알아들었어요. '반바지 M 2개 문자찜'처럼 다시 말해 주세요.",
   CANCEL: '음성으로는 찜을 취소하지 않아요. 찜 취소는 화면에서 해 주세요.',
+  NOT_SURE: '아니라는 말이나 묻는 말이 들려서 넣지 않았어요. 문자찜이면 다시 말해 주세요.',
 })
 
 export function smsBlockMessage(no: number, block: SmsProductBlock): string {
