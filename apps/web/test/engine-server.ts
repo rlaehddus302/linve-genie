@@ -125,7 +125,15 @@ export class EngineServer {
     if (input.type === 'sms') {
       if (typeof input.memo === 'string' && containsPhoneRun(input.memo)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'memo', message: PHONE_SENTENCE }])
       if (input.received !== undefined && !isValidReceivedTime(input.received)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'received', message: '받은 시각을 확인해 주세요.' }])
-      const { phone, last4: spoken, newBuyer, voice: _voice, ...rest } = input
+      const { phone, last4: spoken, newBuyer, voice, ...rest } = input
+      // 실제 서버와 같은 입력 검사 (RA-V1-003, service.ts #writeSms): 끝자리는 숫자 네 개 글만, 전화번호·지정 구매자와 함께 보내지 않는다. voice는 true만
+      if (spoken !== undefined && (typeof spoken !== 'string' || !/^[0-9]{4}$/.test(spoken))) {
+        return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'last4', message: '끝자리는 숫자 네 개로 적어 주세요.' }])
+      }
+      if (spoken !== undefined && (phone !== undefined || input.buyer !== undefined)) {
+        return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'last4', message: '끝자리·전화번호·구매자 중 하나만 보내 주세요.' }])
+      }
+      if (voice !== undefined && voice !== true) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'voice', message: '음성으로 넣었는지는 예로만 적을 수 있어요.' }])
       const normalized = typeof phone === 'string' ? normalizePhone(phone) : null
       last4 = normalized === null ? null : phoneLast4(normalized)
       // V1 음성 문자찜의 끝자리 (서버 sms-last4 계약): 범위 안 문자 구매자 중 같은 끝자리(지금의 구매자로 셈) — 한 사람이면 buyer, 없으면 끝자리 키, 둘 이상이면 409
