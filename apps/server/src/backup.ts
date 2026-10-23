@@ -1,11 +1,12 @@
 // 백업·복구·전체 내려받기 (DAT-03·DAT-04, I2 D-I2-10~D-I2-12, AC-I2-60~64).
 // 파일 = gzip으로 압축한 JSON 하나 (형식 번호 2 — harness/sprints/I2/dev-notes.md "백업 파일 형식"):
 //   형식 이름·번호, 만든 시각(UTC ISO), 판매자 ID, 가게 설정, 판매 규칙 설정, 모든 범위(실제·리허설)의 이벤트 기록 전부(seq 순)와 방송 목록,
-//   포장·배송 기록 전부(기록 순), 내용 요약값(손상 확인).
+//   포장·배송 기록 전부(기록 순), 택배 접수 기록(T1 — 날짜·구매자·택배사·송장번호·상태·시각만, 배송지 없음), 내용 요약값(손상 확인).
 // 넣지 않는다: 비밀번호 해시·로그인 아이디·세션·로그인 시도 기록·판매자 전화번호 키(암호문 포함)·마스터 키·상태 스냅샷·발송함.
 // - 판매자의 전체 역사를 글 하나로 만들지 않는다(RA-I2-005 — V8 문자열 한도): 만들 때는 범위마다·이벤트 묶음마다 조각 글을 gzip 스트림에 이어 쓰고,
 //   요약값은 조각마다 이어 계산한다. 읽을 때(검사·복구)도 gzip 스트림을 조각으로 풀어 이벤트 하나씩 읽는다(json-stream.ts).
-//   그래서 파일 안 칸의 차례가 정해져 있다(형식 번호 2): 맨 위 format·version·createdAt·sellerId·shop·settings·scopes·packing·digest,
+//   그래서 파일 안 칸의 차례가 정해져 있다(형식 번호 2): 맨 위 format·version·createdAt·sellerId·shop·settings·scopes·packing·parcels·digest
+//   (parcels는 T1에 더한 칸 — 없는 옛 파일도 같은 번호로 읽는다, D-T1-07 "형식 판 번호 규칙은 D-I2-10 그대로"),
 //   범위 안 date·rehearsal·events·seq·broadcasts. 이벤트·포장 기록·방송 하나의 칸 차례는 상관없다.
 // - 채팅 본문·이름 (Y1 합친 뒤, AC-Y1-60): 서버는 채팅 이벤트의 본문(text)·이름(nick)을 chat_raw에 따로 둔다. 파일의 이벤트 본문은 Y1 전과 같은 모양 —
 //   따로 둔 값을 다시 합친 엔진 이벤트 그대로다(형식 번호 2 그대로). 복구는 채팅을 다시 떼어 chat_raw에 넣고, 실제 범위의 채팅은 유튜브 채팅(봉인 대상),
@@ -43,6 +44,9 @@ import {
   depositLinks,
   depositNames,
   depositRequests,
+  assistCache,
+  assistCalls,
+  assistSettings,
   depositSources,
   deposits,
   events,
@@ -62,6 +66,10 @@ import {
   loginStates,
   outbox,
   packingRecords,
+  parcelAddresses,
+  parcelRequests,
+  parcelSettings,
+  parcels,
   pasteRequests,
   receiptLinkRequests,
   receiptLinks,
@@ -164,6 +172,21 @@ export interface BackupPacking {
   readonly createdAt: string
 }
 
+/** 택배 접수 기록 (T1 D-T1-07·AC-T1-06): 접수 시도마다 이 여섯 칸만 — 받는 분·연락처·주소·메모·요청 번호·고객 번호는 없다 */
+export interface BackupParcel {
+  readonly date: string
+  readonly buyer: string
+  /** 택배사 코드 (FAKE·EPOST) */
+  readonly carrier: string
+  /** 송장번호 (숫자 8~20자리, 없으면 null) */
+  readonly invoice: string | null
+  /** 접수 상태 PENDING · UNKNOWN · BOOKED · FAILED · CANCELLED */
+  readonly state: string
+  /** 상태를 바꾼 시각 (UTC ISO) */
+  readonly at: string
+}
+export const BACKUP_PARCEL_STATES = ['PENDING', 'UNKNOWN', 'BOOKED', 'FAILED', 'CANCELLED'] as const
+
 /** 파일 내용 (시험·작은 기록용 — 서버는 이 모양을 메모리에 통째로 만들지 않는다) */
 export interface BackupFile {
   readonly format: typeof BACKUP_FORMAT
@@ -175,6 +198,8 @@ export interface BackupFile {
   readonly settings: Readonly<Record<string, unknown>>
   readonly scopes: readonly BackupScope[]
   readonly packing: readonly BackupPacking[]
+  /** 택배 접수 기록 (T1에 더한 칸 — 옛 파일엔 없다) */
+  readonly parcels?: readonly BackupParcel[]
   /** 내용 요약값 (BackupDigest) */
   readonly digest: string
 }
@@ -186,13 +211,16 @@ export function backupEventDigest(date: string, rehearsal: boolean, seq: number,
 /**
  * 내용 요약값 (형식 번호 2): 내용을 파일 차례대로 조각으로 나눠 조각마다 정규 JSON(키 정렬) + 줄바꿈을 이어 넣은 SHA-256.
  * 조각 = ["format", 형식 이름] · ["version", 2] · ["sellerId", …] · ["shop", …] · ["settings", …] ·
- *        범위마다 ["scope", 날짜, 리허설인지] · 이벤트마다 그 이벤트 · ["scopeEnd", seq, 방송 목록] · 포장 기록마다 ["packing", 기록] · ["end", 범위 수, 포장 기록 수].
+ *        범위마다 ["scope", 날짜, 리허설인지] · 이벤트마다 그 이벤트 · ["scopeEnd", seq, 방송 목록] · 포장 기록마다 ["packing", 기록] ·
+ *        (parcels 칸이 있으면) 접수 기록마다 ["parcel", 기록] · ["end", 범위 수, 포장 기록 수] 또는 parcels 칸이 있으면 ["end", 범위 수, 포장 기록 수, 접수 기록 수].
  * 만든 시각과 요약값 칸은 넣지 않는다 — 같은 기록이면 만든 시각과 상관없이 같은 요약값이다. 만들기·검사가 같은 클래스를 쓴다
  */
 export class BackupDigest {
   readonly #hash: Hash = createHash('sha256')
   #scopes = 0
   #packing = 0
+  /** parcels 칸이 있었으면 그 기록 수 (없던 옛 파일은 null — 요약값이 T1 전과 같다) */
+  #parcels: number | null = null
 
   #feed(value: unknown): void {
     this.#hash.update(canonicalJson(value), 'utf8')
@@ -225,14 +253,24 @@ export class BackupDigest {
     this.#feed(['packing', record])
   }
 
+  /** parcels 칸이 시작됐다 (기록이 없어도 칸이 있으면 부른다) */
+  parcelsStart(): void {
+    this.#parcels = 0
+  }
+
+  parcel(record: unknown): void {
+    this.#parcels = (this.#parcels ?? 0) + 1
+    this.#feed(['parcel', record])
+  }
+
   digest(): string {
-    this.#feed(['end', this.#scopes, this.#packing])
+    this.#feed(this.#parcels === null ? ['end', this.#scopes, this.#packing] : ['end', this.#scopes, this.#packing, this.#parcels])
     return this.#hash.digest('hex')
   }
 }
 
 /** 파일 내용 객체의 요약값 (시험이 고친 내용을 다시 요약할 때 — 만들기·검사와 같은 정의) */
-export function backupDigest(file: { readonly format: unknown; readonly version: unknown; readonly sellerId: unknown; readonly shop: unknown; readonly settings: unknown; readonly scopes: readonly unknown[]; readonly packing: readonly unknown[] }): string {
+export function backupDigest(file: { readonly format: unknown; readonly version: unknown; readonly sellerId: unknown; readonly shop: unknown; readonly settings: unknown; readonly scopes: readonly unknown[]; readonly packing: readonly unknown[]; readonly parcels?: readonly unknown[] }): string {
   const digest = new BackupDigest()
   digest.header(file)
   for (const raw of file.scopes) {
@@ -242,6 +280,10 @@ export function backupDigest(file: { readonly format: unknown; readonly version:
     digest.scopeEnd(scope.seq, scope.broadcasts)
   }
   for (const record of file.packing) digest.packing(record)
+  if (file.parcels !== undefined) {
+    digest.parcelsStart()
+    for (const record of file.parcels) digest.parcel(record)
+  }
   return digest.digest()
 }
 
@@ -256,6 +298,7 @@ class BackupWriter {
   #scopeCount = 0
   #eventCount = 0
   #packingCount = 0
+  #parcelCount = 0
 
   header(createdAt: string, sellerId: string, shop: ShopView, settings: Readonly<Record<string, unknown>>): string {
     this.digest.header({ format: BACKUP_FORMAT, version: BACKUP_VERSION, sellerId, shop, settings })
@@ -299,6 +342,17 @@ class BackupWriter {
     const row = { date: record.date, buyer: record.buyer, kind: record.kind, items: record.items, invoice: record.invoice, accountId: record.accountId, requestId: record.requestId, createdAt: record.createdAt }
     this.digest.packing(row)
     return `${this.#packingCount++ === 0 ? '' : ','}${JSON.stringify(row)}`
+  }
+
+  parcelsStart(): string {
+    this.digest.parcelsStart()
+    return '],"parcels":['
+  }
+
+  parcel(record: BackupParcel): string {
+    const row = { date: record.date, buyer: record.buyer, carrier: record.carrier, invoice: record.invoice, state: record.state, at: record.at }
+    this.digest.parcel(row)
+    return `${this.#parcelCount++ === 0 ? '' : ','}${JSON.stringify(row)}`
   }
 
   end(): string {
@@ -431,6 +485,24 @@ export async function* backupPieces(db: Db, sellerId: string, now: number): Asyn
     lastPacking = tail.id
     await yieldToLoop()
   }
+  // 택배 접수 기록 (T1 D-T1-07): 접수 시도마다 날짜·구매자·택배사·송장번호·상태·시각만 (배송지·요청 번호·고객 번호는 넣지 않는다)
+  yield writer.parcelsStart()
+  let lastParcel = 0
+  for (;;) {
+    const rows = await db
+      .select({ no: parcels.no, date: parcels.date, buyer: parcels.buyer, carrier: parcels.carrier, invoice: parcels.invoice, state: parcels.state, updatedAt: parcels.updatedAt })
+      .from(parcels)
+      .where(and(eq(parcels.sellerId, sellerId), gt(parcels.no, lastParcel)))
+      .orderBy(asc(parcels.no))
+      .limit(BACKUP_PAGE)
+    if (rows.length > 0) {
+      yield rows.map((row) => writer.parcel({ date: row.date, buyer: row.buyer, carrier: row.carrier, invoice: row.invoice, state: row.state, at: toIso(row.updatedAt) })).join('')
+    }
+    const tail = rows.at(-1)
+    if (tail === undefined || rows.length < BACKUP_PAGE) break
+    lastParcel = tail.no
+    await yieldToLoop()
+  }
   yield writer.end()
 }
 
@@ -482,6 +554,7 @@ const MESSAGES = {
   scopes: '범위 목록의 형식이 올바르지 않아요.',
   scope: '범위의 형식이 올바르지 않아요.',
   packing: '포장 기록이 목록이 아니에요.',
+  parcels: '택배 접수 기록이 목록이 아니에요.',
   digest: '파일 요약값이 맞지 않아요(파일이 손상됐거나 바뀌었어요).',
 } as const
 
@@ -511,6 +584,19 @@ function checkShop(value: unknown): value is ShopView {
 const EVENT_KEYS = ['seq', 'type', 'body', 'at', 'receivedAt', 'actor', 'accountId', 'requestId', 'failed', 'digest'] as const
 const BROADCAST_KEYS = ['id', 'date', 'title', 'startSeq', 'endedAt', 'createdAt'] as const
 const PACKING_KEYS = ['date', 'buyer', 'kind', 'items', 'invoice', 'accountId', 'requestId', 'createdAt'] as const
+const PARCEL_KEYS = ['date', 'buyer', 'carrier', 'invoice', 'state', 'at'] as const
+
+/** 택배 접수 기록 하나 검사 (여섯 칸만 — 다른 칸이 있으면 거절해 배송지가 섞여 들어오지 않게) */
+function checkParcel(raw: unknown, index: number): BackupParcel {
+  const where = `택배 접수 기록 ${String(index)}번`
+  if (!isObject(raw) || !hasKeys(raw, PARCEL_KEYS)) return invalid(`${where}의 형식이 올바르지 않아요.`)
+  const { date, buyer, carrier, invoice, state, at } = raw
+  if (!isValidDate(date) || typeof buyer !== 'string' || buyer === '' || buyer.length > 256) return invalid(`${where}의 형식이 올바르지 않아요.`)
+  if (typeof carrier !== 'string' || !/^[A-Z]{1,20}$/.test(carrier)) return invalid(`${where}의 형식이 올바르지 않아요.`)
+  if (invoice !== null && (typeof invoice !== 'string' || !/^\d{8,20}$/.test(invoice))) return invalid(`${where}의 형식이 올바르지 않아요.`)
+  if (typeof state !== 'string' || !(BACKUP_PARCEL_STATES as readonly string[]).includes(state) || !isIso(at)) return invalid(`${where}의 형식이 올바르지 않아요.`)
+  return { date: date as string, buyer, carrier, invoice, state, at: at as string }
+}
 
 const scopeName = (date: string, rehearsal: boolean): string => `${date}${rehearsal ? ' 리허설' : ''}`
 
@@ -808,8 +894,25 @@ async function walkBackup(bytes: Uint8Array, visitor: BackupVisitor = {}): Promi
       } while (await reader.take(','))
       await reader.expect(']', MESSAGES.packing)
     }
+    // 택배 접수 기록 (T1에 더한 칸 — 없는 옛 파일도 읽는다). 복구는 넣지 않는다: 접수 시도는 DB에 그대로 두고(같은 묶음을 다시 접수하지 않게) 파일의 것은 기록으로만
     await reader.expect(',', MESSAGES.keys)
-    await key('digest')
+    let next = await reader.readKey()
+    let parcelCount = 0
+    if (next === 'parcels') {
+      await reader.expect('[', MESSAGES.parcels)
+      digest.parcelsStart()
+      if (!(await reader.take(']'))) {
+        do {
+          const raw = await reader.readValue()
+          checkParcel(raw, ++parcelCount)
+          digest.parcel(raw)
+        } while (await reader.take(','))
+        await reader.expect(']', MESSAGES.parcels)
+      }
+      await reader.expect(',', MESSAGES.keys)
+      next = await reader.readKey()
+    }
+    if (next !== 'digest') invalid(MESSAGES.keys)
     const fileDigest = await reader.readValue(256)
     await reader.expect('}', MESSAGES.keys)
     await reader.end()
@@ -1143,11 +1246,17 @@ const BATCH = 500
  * - 틱톡 연결(tiktok_links — 회차·범위를 참조하는 회차별 연결과 기록하지 않은·저장 실패 수): 라이브 연결(live_links)처럼 지운다. 파일에 없고,
  *   복구한 지난 회차를 다시 잇지 않는다. 복구 명령은 서버를 다시 켜므로 이어받기(resume)가 지운 연결을 다시 열지 않는다.
  * - 붙여넣기 요청 번호(paste_requests — 회차의 넣기 응답 요약): 라이브 요청 번호(live_requests)처럼 지운다.
+ * - AI 제안 캐시(A1 assist_cache — 방송 ID·가린 글의 해시 → 제안): 파일에 없다 — 지운다. 지워도 다음에 화면을 열 때 다시 물을 뿐이다(규칙 제안은 늘 다시 계산).
  * - 입금 확인(N3 — 입금과 엔진 기록의 연결 deposit_links, 처리 기록 deposit_actions): 범위를 참조하므로 이 목록에서 지우지만, 판매자가 한 일의 기록이라
  *   버리지 않는다 — 지우기 전에 읽어 두었다가 파일로 다시 만든 범위에 다시 넣는다(restoreDepositRecords). 처리 기록은 모두 그대로(범위만 새 범위로),
  *   연결은 다시 만든 범위의 그 seq에 그 입금의 엔진 기록(요청 번호 dep-<번호>-pay|rev-<차례>)이 있을 때만 남긴다.
+ * 합칠 때(T1) 더한 표 — 택배 배송지·택배 화면 요청 번호(PARCEL_RULES PC-3, D-T1-07): 파일에 없다 — 지운다(같은 트랜잭션, 복구가 실패하면 그대로).
+ *   복구한 구매자 ID가 다른 사람을 가리킬 수 있어 복구 전에 받은 배송지는 모두 버린다(D-N4b-06과 같음).
  */
 export const RESTORE_REPLACED_TABLES = [
+  parcelAddresses,
+  parcelRequests,
+  assistCache,
   receiptLinks,
   receiptLinkRequests,
   depositLinks,
@@ -1181,6 +1290,7 @@ export const RESTORE_REPLACED_TABLES = [
  * 라벨 템플릿(I1 — 판매자 설정, 파일에 없다), 구글 연결·승인 요청·할당량 사용량(Y1 — 계정 연결과 그날 쓴 양, 파일에 없다), 인스타그램 연결·승인 요청(N2 — 계정 연결), 틱톡 아이디·틱톡 사용 동의 기록(N2b-2 — 인스타그램 연결처럼 계정 쪽 설정이고, 동의 기록은 덧붙이기만 하는 기록이라 지우지 않는다 DAT-05), 출력 대기열 줄·라벨 기능 켬/끔 기록(I1·N4a — 판매자 설정, 대기열의 출력 중·멈춤 상태는 복구가 지운다),
  * 입금 확인(N3 — 원천·입금·기억한 입금자명·묶인 사업자번호·화면 요청 번호: 엔진 밖 기록이라 파일에 없다. 입금 번호를 다시 쓰지 않게 그대로 두고,
  * 입금 상태만 다시 만든 엔진 기록에 맞춘다 — 반영한 입금 기록이 파일에 없으면 확인 필요로, restoreDepositRecords),
+ * AI 제안 설정·호출 기록(A1 — 켬/동의 시각, 하루 상한을 세는 호출 기록: 판매자 설정과 그날 쓴 양이라 파일에 없다),
  * 요금 원장(N5 — 이용권·회수·쓴 기록·방송의 이용 방식·결제 주문·사업자 정보·증빙 요청·요금 요청 번호): 돈이 오간 기록이라 판매자 백업 파일로 덮지 않는다.
  *   파일에 없고(판매자가 고칠 수 있는 파일로 이용권을 늘리거나 결제·환불 기록을 지울 수 없게), 원장은 덧붙이기만 한다(BL-0 4 — 고치거나 지우는 코드가 없다).
  *   이용 방식 행은 방송 ID로 남고 범위는 방송 표로 찾는다 — 복구가 범위를 새 ID로 다시 만들어도 같은 방송의 이용 방식이 이어진다.
@@ -1215,6 +1325,12 @@ export const RESTORE_KEPT_TABLES = [
   depositNames,
   depositCorpBindings,
   depositRequests,
+  // T1 택배 접수 시도·설정 "택배": 엔진 밖 기록·판매자 설정이라 파일에 없다. 접수 시도는 그대로 둔다 — 택배사에 이미 접수한 묶음을 다시 접수하지 않게
+  // (복구한 포장 기록이 접수 전이어도 그 묶음은 "이미 접수했어요"로 빠진다). 배송지 원문은 없다(PC-3)
+  parcels,
+  parcelSettings,
+  assistSettings,
+  assistCalls,
 ] as const
 /** 판매자 데이터가 아닌 표 (로그인 전 시도 수 — 판매자 ID가 없다) */
 export const RESTORE_UNRELATED_TABLES = [loginLimits] as const

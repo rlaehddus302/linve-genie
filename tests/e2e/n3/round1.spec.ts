@@ -239,11 +239,11 @@ test.describe('휴대폰 메뉴 — 확인 필요 수가 커도 (수정 라운�
       // AC-NAV-01·10: 막대는 ['방송','문자찜 입력','구매자','정산','더보기'] 한 줄·44px·화면 안 ("더보기"에는 수를 붙이지 않는다)
       await expectPhoneBar(phone)
       await expect(moreButton(phone)).toHaveText('더보기')
-      // AC-NAV-02·05: 목록은 ['입금 확인 1234','포장','라벨','설정'] ('라벨'은 라벨 기능이 켜져 있을 때만)
+      // AC-NAV-02·05: 목록은 ['입금 확인 1234','포장','라벨','택배','설정'] ('라벨'은 라벨 기능이 켜져 있을 때만)
       await openMore(phone)
       const links = moreLinks(phone)
       // 라벨이 켜진 것을 화면이 안 뒤의 목록으로 잰다 (모르는 동안에는 "라벨"을 만들지 않는다, L-13 9)
-      await expect(links, path).toHaveText(['입금 확인 1234', '포장', '라벨', '설정'], { useInnerText: true })
+      await expect(links, path).toHaveText(['입금 확인 1234', '포장', '라벨', '택배', '설정'], { useInnerText: true })
       const boxes: { text: string; x: number; y: number; w: number; h: number }[] = []
       for (const link of await links.all()) {
         const box = (await link.boundingBox())!

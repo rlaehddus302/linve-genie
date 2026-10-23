@@ -39,10 +39,11 @@ test.describe('@billing N5 요금 흐름', () => {
     const s = await billingStatus(page)
     expect(s.start.allowed, '전제: 이용권 없음').toBe(false)
 
-    // PC 메뉴: 새 메뉴 "요금"은 "설정" 바로 앞, "설정"이 늘 마지막 (D-NAV-01, AC-NAV-09)
+    // PC 메뉴: 새 메뉴 "요금"은 "설정" 앞, "설정"이 늘 마지막 (D-NAV-01, AC-NAV-09) — T1 "택배"가 "설정" 바로 앞(AC-T1-60)이라 "요금 · 택배 · 설정"
     const links = menu(page).getByRole('link')
     await expect(links.last()).toHaveText('설정')
-    await expect(links.nth(-2)).toHaveText('요금')
+    await expect(links.nth(-2)).toHaveText('택배')
+    await expect(links.nth(-3)).toHaveText('요금')
 
     // 홈 띠 (BL-9 1) + 요금 화면 열기 하나
     const banners = page.getByRole('region', { name: '요금 알림' })
@@ -477,5 +478,5 @@ async function phoneMoreNames(page: Page): Promise<string[]> {
   const res = await page.request.get('/api/settings/labels')
   expect(res.status(), await res.text()).toBe(200)
   const { enabled } = (await res.json()) as { enabled: boolean }
-  return ['입금 확인', '포장', ...(enabled ? ['라벨'] : []), '요금', '설정']
+  return ['입금 확인', '포장', ...(enabled ? ['라벨'] : []), '요금', '택배', '설정']
 }

@@ -7,6 +7,8 @@
 // - 연습용 시청자 채팅 화면 /_try/chat: 가짜 유튜브 라이브에 시청자 채팅을 넣는다(이 스크립트만 가진 화면).
 // - 간편 로그인(L1, AC-L1-24): 가짜 구글·카카오·네이버를 연습 전용 경로 /_try/oauth/<공급자>/…에 붙여 켠다(운영 기동에는 이 경로가 없다).
 //   승인 화면 위에 "연습용 가짜 화면이에요."가 보이고 연습 계정 둘(이메일 있음·없음)을 고른다. 돌아오는 주소는 http://localhost:<포트>/api/auth/<공급자>/callback.
+// - AI 확인 필요 제안(A1, AC-A1-12): 가짜 LLM 서버를 연습 전용 경로 /_try/llm 밑에 붙이고 가짜 키로 켠다(실제 AI 회사로 나가는 요청은 없다).
+//   설정 → "AI 제안"에서 동의하고 켜면, 옵션 리허설의 확인 필요 화면을 열 때 가짜 AI가 글에 든 선택지 이름으로 제안한다.
 // - 이 컴퓨터: http://localhost:<포트> (127.0.0.1에서만 연다).
 // - 같은 와이파이의 휴대폰: https://<이 컴퓨터 주소>:<포트+1>. 로그인 쿠키가 Secure라 휴대폰은 https로만 로그인된다.
 //   그래서 자체 서명 인증서(openssl, 실행마다 새로)로 https를 열고 안쪽 서버로 넘긴다. 휴대폰에 "안전하지 않음" 경고가 한 번 뜬다.
@@ -43,12 +45,31 @@ if (!existsSync(join(ROOT, 'node_modules', '.pnpm'))) fail('먼저 설치가 필
 
 const args = process.argv.slice(2)
 let wanted = DEFAULT_PORT
+let realYoutube = false
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--port' && /^\d{2,5}$/.test(args[i + 1] ?? '')) {
     wanted = Number(args[i + 1])
     i++
-  } else if (args[i] === '--') continue
-  else fail('쓰는 법: pnpm try 또는 pnpm try --port 7800')
+  } else if (args[i] === '--real-youtube') realYoutube = true
+  else if (args[i] === '--') continue
+  else fail('쓰는 법: pnpm try 또는 pnpm try --port 7800 또는 pnpm try --real-youtube')
+}
+// 실제 유튜브 시험: 운영자가 만든 구글 OAuth 클라이언트 값을 저장소 밖에 커밋되지 않는 .env.youtube.local에서 읽는다(대화·로그에 남기지 않음)
+let realGoogle = null
+if (realYoutube) {
+  const file = join(ROOT, '.env.youtube.local')
+  if (!existsSync(file)) fail('.env.youtube.local 파일이 없어요. docs/TRY-IT.md "실제 유튜브로 시험하기"를 보세요.')
+  const values = Object.fromEntries(
+    readFileSync(file, 'utf8')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line !== '' && !line.startsWith('#') && line.includes('='))
+      .map((line) => [line.slice(0, line.indexOf('=')).trim(), line.slice(line.indexOf('=') + 1).trim()]),
+  )
+  const clientId = values.LIVEJJIM_GOOGLE_CLIENT_ID ?? ''
+  const clientSecret = values.LIVEJJIM_GOOGLE_CLIENT_SECRET ?? ''
+  if (clientId === '' || clientSecret === '') fail('.env.youtube.local에 LIVEJJIM_GOOGLE_CLIENT_ID와 LIVEJJIM_GOOGLE_CLIENT_SECRET을 적어 주세요.')
+  realGoogle = { clientId, clientSecret }
 }
 if (wanted < 1024 || wanted > 65_000) fail('--port는 1024~65000 사이로 적어 주세요.')
 
@@ -107,6 +128,7 @@ const [{ openPglite }, { generateMasterKey }, { createServer }, { createNodeServ
   server('youtube/fake-google.ts'),
 ])
 const { FakeOAuth } = await server('social/fake-oauth.ts')
+const { FakeLlm } = await server('assist/fake-llm.ts')
 
 const database = await openPglite()
 const masterKey = generateMasterKey()
@@ -120,6 +142,8 @@ const fakeLive = fake.addBroadcast(fakeChannel.id, { title: '연습 라이브', 
 // 가짜 간편 로그인 (연습 전용 경로 /_try/oauth — 승인 화면은 브라우저가 연습 화면과 같은 주소로 열고, 토큰·사용자 정보는 서버가 127.0.0.1로 부른다)
 const SOCIAL = ['google', 'kakao', 'naver']
 const oauth = new FakeOAuth({ practice: true, basePath: '/_try/oauth', redirectUris: Object.fromEntries(SOCIAL.map((p) => [p, `${appOrigin}/api/auth/${p}/callback`])) })
+// 가짜 AI (연습 전용 경로 /_try/llm — 서버가 127.0.0.1로 부른다. 조작 경로 없음)
+const llm = new FakeLlm({ practice: true, basePath: '/_try/llm' })
 
 const livejjim = createServer({
   database,
@@ -127,20 +151,31 @@ const livejjim = createServer({
   appOrigin,
   log: () => {},
   backupStorage: new FolderBackupStorage(backupDir),
-  youtube: {
-    clientId: fake.clientId,
-    clientSecret: fake.clientSecret,
-    redirectUri: `${appOrigin}/api/youtube/oauth/callback`,
-    returnUrl: `${appOrigin}/settings/youtube`,
-    endpoints: fake.endpoints(),
-    allowInsecure: true,
-  },
+  youtube:
+    realGoogle === null
+      ? {
+          clientId: fake.clientId,
+          clientSecret: fake.clientSecret,
+          redirectUri: `${appOrigin}/api/youtube/oauth/callback`,
+          returnUrl: `${appOrigin}/settings/youtube`,
+          endpoints: fake.endpoints(),
+          allowInsecure: true,
+        }
+      : {
+          // 실제 구글·유튜브 주소(기본값). 돌아오는 주소는 구글 콘솔에 등록한 것과 글자까지 같아야 한다
+          clientId: realGoogle.clientId,
+          clientSecret: realGoogle.clientSecret,
+          redirectUri: `${appOrigin}/api/youtube/oauth/callback`,
+          returnUrl: `${appOrigin}/settings/youtube`,
+          allowInsecure: true,
+        },
   collectorTiming: { scanMs: 1000 },
   outboxTiming: { liveChatLookupPage: fake.pageSize },
   webDir: WEB_DIR,
   testPrinter: true,
   deposits: { testMode: true, popbill: null, pollMs: 1000 },
   socialLogin: oauth.setup({ authBase: appOrigin, apiBase: `http://127.0.0.1:${String(port)}` }),
+  assist: llm.setup({ base: `http://127.0.0.1:${String(port)}` }),
 })
 
 const PASSWORD_LETTERS = 'abcdefghjkmnpqrstuvwxyz23456789'
@@ -163,6 +198,7 @@ const CHAT_PAGE = readFileSync(new URL('./chat.html', import.meta.url), 'utf8').
 async function tryRoute(request) {
   const url = new URL(request.url)
   if (url.pathname.startsWith('/_try/oauth/')) return oauth.handle(request)
+  if (url.pathname.startsWith('/_try/llm/')) return llm.handle(request)
   if (request.method === 'GET' && url.pathname === '/_try/chat') {
     return new Response(CHAT_PAGE, {
       headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" },

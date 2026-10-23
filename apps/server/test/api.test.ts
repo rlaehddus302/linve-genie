@@ -99,7 +99,7 @@ describe('AC-S04-51 이벤트 쓰기 API', () => {
     const state = initEngine({ broadcasts: [{ id: 'b1', date: '2026-10-19', title: '1부' }], settings: {} })
     const UNKNOWN = '이 종류의 이벤트에 없는 필드다'
     for (const [type, spec] of Object.entries(API_EVENTS)) {
-      const fields = type === 'sms' ? [...spec.fields.filter((field) => field !== 'phone'), 'ref', 'phoneKey', 'phoneLast4'] : spec.fields
+      const fields = type === 'sms' ? [...spec.fields.filter((field) => !['phone', 'last4', 'newBuyer', 'voice'].includes(field)), 'ref', 'phoneKey', 'phoneLast4'] : spec.fields
       const event: Record<string, unknown> = { type, seq: 1, at: T0 }
       for (const field of fields) event[field] = 'x'
       const problems = checkEvent(state, event)
@@ -252,9 +252,10 @@ describe('AC-S04-52 조회·이력 API', () => {
         cancelRequests: listCancelRequests(state),
         attention: [],
         // I2 (AC-I2-33): 실제 범위의 날짜 보기에는 묶음마다 포장·배송 상태가 있다 — 기록이 없으면 포장 대기 (교체 목록: harness/sprints/I2/dev-notes.md)
+        // T1 (AC-T1-52): 묶음마다 택배 줄 parcel — 택배 접수가 없으면 null (계약 변경에 따른 교체: harness/sprints/T1/dev-notes.md)
         packing: listSettlements(state)
           .filter((settlement) => settlement.date === b.date && settlement.items.length > 0)
-          .map((settlement) => ({ buyer: settlement.buyer, status: '포장 대기', invoice: null })),
+          .map((settlement) => ({ buyer: settlement.buyer, status: '포장 대기', invoice: null, parcel: null })),
       }),
       // N3(AC-N3-32): 실제 범위 조회에는 입금 연결이 붙는다 (입금 확인으로 적은 기록이 없으면 빈 목록) — 계약 변경에 따른 교체
       depositLinks: [],

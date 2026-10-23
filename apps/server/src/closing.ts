@@ -41,6 +41,8 @@ import {
   type PackingWord,
   type SentItem,
 } from './packing.ts'
+import { PARCEL_MESSAGES } from './parcel/rules.ts'
+import { hasLiveAttempt } from './parcel/store.ts'
 import { pastPurchases, type PastView } from './past.ts'
 import { IMPORT_MAX_ROWS, isNormalizedName, parseProductList, parseProductRows, recheckRows, splitCells, splitImportLines, type ImportResult, type RegisterRow } from './product-import.ts'
 import type { ScopeRuntime } from './runtime.ts'
@@ -557,6 +559,8 @@ export class ClosingService {
         }
         const rows = await packingRows(tx, sellerId, scopeId, input.buyer)
         const current = packingEntry(state, date, input.buyer, rows)
+        // 살아 있는 택배 접수(PENDING·UNKNOWN·BOOKED)가 있으면 포장 취소·배송 취소·손으로 적는 배송 완료를 받지 않는다 (T1 PC-5, AC-T1-35)
+        if (input.action !== 'pack' && (await hasLiveAttempt(tx, sellerId, date, input.buyer))) return problem(409, 'PACKING_STATE', PARCEL_MESSAGES.locked, [], { entry: current })
         // 지금 품목 = (상품 ID, 상품 키) 쌍 — 보낸 키 목록이 지금 키와 같으면 서버가 상품 ID를 붙여 기록한다 (D-I2-19)
         const decision = decidePacking(replayPacking(rows), current.items.map((item) => ({ id: item.id, key: item.key, qty: item.qty })), input.action, input.items, input.invoice)
         if (decision.kind === 'reject') return problem(409, decision.code, decision.message, [], { entry: current })

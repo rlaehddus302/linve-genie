@@ -16,8 +16,8 @@ export interface EventSourceLike {
   close(): void
 }
 
-/** 받는 알림 종류 (I2: 포장·배송 기록 packing, 가게 설정 shop — AC-I2-32·13 · N4a: 라벨 기능 켬/끔 labels · N2b-2: 인스타그램 instagram, 틱톡 tiktok · N3: 입금 확인 deposit · N5: 요금 알림 billing — 까닭만, AC-N5-13 · L1: 로그인 방법 login — 간편 로그인 연결·끊기 { kind: 'methods' }) */
-export const STREAM_EVENTS = ['ready', 'change', 'generator', 'print', 'youtube', 'instagram', 'packing', 'shop', 'labels', 'tiktok', 'deposit', 'billing', 'login'] as const
+/** 받는 알림 종류 (I2: 포장·배송 기록 packing, 가게 설정 shop — AC-I2-32·13 · N4a: 라벨 기능 켬/끔 labels · N2b-2: 인스타그램 instagram, 틱톡 tiktok · N3: 입금 확인 deposit · N5: 요금 알림 billing — 까닭만, AC-N5-13 · L1: 로그인 방법 login — 간편 로그인 연결·끊기 { kind: 'methods' } · T1: 택배 parcel — 바뀐 묶음 { date, buyer }·설정 { settings: true }, 값은 담지 않는다) */
+export const STREAM_EVENTS = ['ready', 'change', 'generator', 'print', 'youtube', 'instagram', 'packing', 'shop', 'labels', 'tiktok', 'deposit', 'billing', 'login', 'parcel'] as const
 
 const CLOSED = 2
 const OPEN = 1

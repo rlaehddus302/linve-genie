@@ -88,16 +88,22 @@ function record(engine: SpeechEngine) {
 }
 
 describe('AC-P2-13 SpeechEngine 모양과 문장', () => {
-  it('오류 문장은 D-205 표 그대로, 영어·개발 용어 없음', () => {
+  // D-I5-03(AC-I5-06), D-I5-12·13: UNSUPPORTED·PERMISSION_DENIED·KEEPS_STOPPING 문장 교체, SERVICE_OFF·RESTART_BLOCKED 추가. 나머지는 D-205 그대로
+  it('오류 문장은 D-205·D-I5-03 표 그대로, 개발 용어 없음', () => {
     expect(SPEECH_ERROR_MESSAGES).toEqual({
-      UNSUPPORTED: '이 브라우저는 음성 인식을 지원하지 않아요. 크롬에서 열어 주세요.',
-      PERMISSION_DENIED: '마이크 사용이 막혀 있어요. 주소창 왼쪽 자물쇠에서 마이크를 허용해 주세요.',
+      UNSUPPORTED: '이 기기에서는 음성이 어려워요. PC 크롬이나 안드로이드 크롬에서 켜 주세요. 상품은 빠른 입력으로 그대로 등록할 수 있어요.',
+      // D-I5-12: 권한·Siri 문장은 기기별 줄(\n)로 나눔
+      PERMISSION_DENIED: '마이크 사용이 막혀 있어요.\n· PC·안드로이드 크롬: 주소창 왼쪽 자물쇠에서 마이크를 허용해 주세요.\n· 아이폰: 설정 > 사파리 > 마이크에서 허용해 주세요.',
+      SERVICE_OFF: '이 기기에서 음성 인식이 꺼져 있어요.\n· 아이폰: 설정에서 Siri와 받아쓰기를 켜 주세요.\n· 그래도 안 되면 PC 크롬이나 안드로이드에서 켜 주세요.',
+      // D-I5-13: 빠른 입력을 권하는 줄 추가
+      RESTART_BLOCKED: "이 기기는 음성이 저절로 다시 켜지지 않아요. 말하기 전에 '음성 켜기'를 다시 눌러 주세요.\n상품이 많으면 빠른 입력이 더 빨라요.",
       NO_MICROPHONE: '마이크를 찾지 못했어요. 마이크 연결을 확인해 주세요.',
       CONNECTION_FAILED: '음성 인식 서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.',
-      KEEPS_STOPPING: '음성 인식이 자꾸 끊겨요. 마이크를 확인하고 다시 켜 주세요.',
+      KEEPS_STOPPING: '음성 인식이 자꾸 끊겨요. 마이크를 확인하고 다시 켜 주세요. 계속 끊기면 PC 크롬이나 안드로이드에서 켜 주세요.',
       OTHER: '음성 인식이 멈췄어요. 다시 켜 주세요.',
     })
-    for (const text of [...Object.values(SPEECH_ERROR_MESSAGES), ...Object.values(SPEECH_STATE_LABELS)]) expect(text).not.toMatch(/[A-Za-z]/)
+    // D-I5-03: 아이폰 설정 화면에 보이는 이름(PC·Siri)과 기호(>·')만 허용 — 그 밖 영어 낱말 없음
+    for (const text of [...Object.values(SPEECH_ERROR_MESSAGES), ...Object.values(SPEECH_STATE_LABELS)]) expect(text.replace(/PC|Siri/g, '')).not.toMatch(/[A-Za-z]/)
     expect(SPEECH_STATE_LABELS).toEqual({ OFF: '꺼짐', LISTENING: '듣는 중', RESTARTING: '다시 시작 중', HALTED: '멈춤' })
   })
 })
@@ -163,27 +169,31 @@ describe('AC-P2-13 Web Speech 어댑터', () => {
     }
   }
 
-  it('최종 결과 없이 60초 안에 저절로 끝난 것이 6번째가 되면 다시 시작하지 않고 "자꾸 끊김"으로 멈춘다', () => {
+  // D-I5-01: 빨리 끝남(연 지 2초 안)만 센다 — 6번째 끝도 연 지 1,999ms에 끝나게 바꿈(예전엔 55,999ms 들은 끝도 셌다)
+  it('최종 결과 없이 60초 안에 빨리 끝난 것이 6번째가 되면 다시 시작하지 않고 "자꾸 끊김"으로 멈춘다', () => {
     const t = webSetup()
     t.engine.start()
     fiveEnds(t)
     expect(FakeRecognition.instances).toHaveLength(6)
     expect(t.errors).toEqual([])
-    t.advance(59_999 - 4_000) // 첫 끝에서 59,999ms 뒤 = 60초 안
+    t.advance(1_999) // 연 지 1,999ms = 빨리 끝남, 첫 끝에서 5,999ms 뒤 = 60초 안
     t.current().end()
     expect(FakeRecognition.instances).toHaveLength(6)
     expect(t.errors).toEqual([{ kind: 'KEEPS_STOPPING', message: SPEECH_ERROR_MESSAGES.KEEPS_STOPPING }])
     expect(t.engine.getState()).toBe('HALTED')
   })
 
+  // D-I5-01: 60초를 흘리는 동안 연 객체는 오래 들은 뒤 끝나 세지 않으므로, 그 끝(세지 않음) 뒤 새 객체에서 바로 빨리 끝나게 바꿈
   it('60초가 지난 끝은 세지 않는다, 최종 결과가 오면 센 것을 비운다', () => {
     const t = webSetup()
     t.engine.start()
     fiveEnds(t)
-    t.advance(60_000 - 4_000) // 첫 끝에서 정확히 60초 뒤 → 첫 끝은 창 밖, 창 안 5개
-    t.current().end()
-    expect(t.errors).toEqual([])
+    t.advance(60_000 - 4_000) // 첫 끝에서 정확히 60초 뒤
+    t.current().end() // 연 지 56초 = 조용함 → 세지 않고 다시 시작
     expect(FakeRecognition.instances).toHaveLength(7)
+    t.current().end() // 연 지 0ms = 빨리 끝남, 첫 끝은 창 밖 → 창 안 5개
+    expect(t.errors).toEqual([])
+    expect(FakeRecognition.instances).toHaveLength(8)
     // 최종 결과 → 센 것을 비운다: 다시 다섯 번까지 다시 시작
     t.current().results(0, [['15번 만원', true]])
     for (let i = 0; i < 5; i++) t.current().end()
@@ -231,7 +241,7 @@ describe('AC-P2-13 Web Speech 어댑터', () => {
 
   it.each([
     ['not-allowed', 'PERMISSION_DENIED'],
-    ['service-not-allowed', 'PERMISSION_DENIED'],
+    ['service-not-allowed', 'SERVICE_OFF'], // D-I5-03: 예전엔 PERMISSION_DENIED
     ['audio-capture', 'NO_MICROPHONE'],
     ['language-not-supported', 'OTHER'],
     ['알 수 없음', 'OTHER'],

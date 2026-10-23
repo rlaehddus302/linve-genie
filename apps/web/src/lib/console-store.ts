@@ -59,6 +59,11 @@ export interface ConsoleSnapshot {
    * 포장 목록을 다시 받는다. 다시 붙을 때(놓친 알림이 있을 수 있다)도 늘린다.
    */
   readonly packingVersion: number
+  /**
+   * 보는 실제 범위의 택배(배송지·접수·취소·조회)가 바뀐 횟수 (SSE `parcel` — T1 PC-8). 화면은 이 값이 바뀌면 묶음의 택배 줄·배송지를 다시 받는다.
+   * 택배 설정이 바뀐 알림(`{ settings: true }`)과 다시 붙을 때도 늘린다.
+   */
+  readonly parcelVersion: number
   /** 가게 설정이 바뀐 횟수 (SSE `shop` — I2 AC-I2-13: 확인서 미리 보기를 다시 받는다). 다시 붙을 때도 늘린다 */
   readonly shopVersion: number
   /** 30일이 지나 봉인한 날짜 (볼 수만 있다, AC-I3-41) */
@@ -97,6 +102,7 @@ const EMPTY: ConsoleSnapshot = {
   generator: null,
   stale: false,
   packingVersion: 0,
+  parcelVersion: 0,
   shopVersion: 0,
   sealed: false,
   sealedMessage: null,
@@ -407,7 +413,7 @@ export class ConsoleStore {
       this.#readyCount += 1
       const again = this.#readyCount > 1
       // 다시 붙었다(I2): 끊긴 사이의 포장·가게 설정 알림(seq 없음)은 다시 오지 않는다 — 그 화면들이 다시 받게 한다
-      if (again) this.#set({ connection: 'open', packingVersion: this.#snapshot.packingVersion + 1, shopVersion: this.#snapshot.shopVersion + 1 })
+      if (again) this.#set({ connection: 'open', packingVersion: this.#snapshot.packingVersion + 1, parcelVersion: this.#snapshot.parcelVersion + 1, shopVersion: this.#snapshot.shopVersion + 1 })
       else this.#set({ connection: 'open' })
       // 다시 붙음: 유튜브 상태(연결·수집·발송함·사용량·알림)는 seq가 없어 다시 받는다 (AC-I3-92)
       if (again) for (const listener of [...this.#reconnected]) listener()
@@ -429,6 +435,13 @@ export class ConsoleStore {
       const scope = this.scope
       if (data === null || scope === null || scope.rehearsal || data.date !== scope.date) return
       this.#set({ packingVersion: this.#snapshot.packingVersion + 1 })
+    })
+    stream.addEventListener('parcel', (event) => {
+      const data = parseData<{ date?: string; buyer?: string; settings?: boolean }>(event)
+      const scope = this.scope
+      if (data === null || scope === null || scope.rehearsal) return
+      if (data.settings !== true && data.date !== scope.date) return
+      this.#set({ parcelVersion: this.#snapshot.parcelVersion + 1 })
     })
     stream.addEventListener('shop', () => {
       this.#set({ shopVersion: this.#snapshot.shopVersion + 1 })

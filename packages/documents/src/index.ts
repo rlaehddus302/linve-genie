@@ -1,4 +1,4 @@
-// @livejjim/documents — 구매 내역 확인서(PDF·이미지)와 엑셀 판매대장 (STL-04·05·06, D-206~D-208).
+// @livejjim/documents — 구매 내역 확인서(PDF·이미지)와 엑셀 판매대장 (STL-04·05·06, D-206~D-208), 운송장 PDF (PC-7, D-T1-10).
 // 화면·서버와 연결하지 않는다(P2 — 내려받기·공유·API·가게 설정 저장은 I2).
 // src는 브라우저와 Node 둘 다에서 돈다: 파일·네트워크를 직접 읽지 않고 글꼴 바이트·시각은 부르는 쪽이 넘긴다.
 // 금액은 코어 정산 결과 그대로다. 문서가 하는 계산은 부분 입금일 때의 "남은 금액" 하나뿐이다.
@@ -67,3 +67,42 @@ export {
 export { ledgerToXlsx } from './xlsx.ts'
 export { NO_NAME, compareCodePoints, optionText, printedName, stripInvisible, stripXlsxForbidden } from './text.ts'
 export { formatKoreanDate, formatKstDateTime, formatKstLedgerTime } from './kst.ts'
+export {
+  BAR_HEIGHT,
+  BAR_MODULE,
+  BOX_SIZES,
+  CARRIER_NAMES,
+  CODE128_CODE_B,
+  CODE128_PATTERNS,
+  CODE128_QUIET_MODULES,
+  CODE128_START_C,
+  CODE128_STOP,
+  MIN_TEXT_SIZE,
+  WAYBILL_FORMAT_MESSAGE,
+  WAYBILL_HEIGHT,
+  WAYBILL_TOO_LONG_MESSAGE,
+  WAYBILL_WIDTH,
+  code128Bars,
+  code128Codes,
+  formatInvoiceNumber,
+  isInvoiceNumber,
+  layoutWaybill,
+  maskPhone,
+  renderWaybillsPdf,
+  type BoxSize,
+  type CarrierCode,
+  type Code128Result,
+  type WaybillBox,
+  type WaybillData,
+  type WaybillError,
+  type WaybillErrorCode,
+  type WaybillField,
+  type WaybillItem,
+  type WaybillLayout,
+  type WaybillLayoutResult,
+  type WaybillOutcome,
+  type WaybillReceiver,
+  type WaybillSender,
+  type WaybillText,
+  type WaybillsPdfResult,
+} from './waybill.ts'

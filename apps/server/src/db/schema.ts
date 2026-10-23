@@ -1585,6 +1585,194 @@ export const depositRequests = pgTable(
   (t) => [unique('deposit_requests_uq').on(t.sellerId, t.requestId)],
 )
 
+/**
+ * 택배 배송지 (T1 PARCEL_RULES PC-3, D-T1-04·D-T1-07): 묶음(판매자, 실제 범위 날짜, 구매자 ID)마다 많아야 하나.
+ * 여섯 칸(받는 분·연락처·주소·상세 주소·우편번호·배송 메모)은 하나로 묶어 서버 마스터 키로 AES-256-GCM 암호화한 값(sealed)만 둔다 —
+ * 판매자·날짜·구매자 ID를 함께 묶어(AAD) 다른 행으로 옮기면 풀리지 않는다(D-073 방식). 따로 두는 것은 출처·확인 여부·확인한 계정·고친 시각·고친 계정뿐이다.
+ * 고치면 덮어쓴다(이전 내용은 남기지 않는다). 날짜 + 30일의 0시(KST)에 지운다. 복구·가져오기는 그 판매자의 행을 모두 지운다(백업 파일에 없다)
+ */
+export const parcelAddresses = pgTable(
+  'parcel_addresses',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** 묶음 날짜 YYYY-MM-DD (실제 범위) */
+    date: text('date').notNull(),
+    /** 지금의 구매자 ID */
+    buyer: text('buyer').notNull(),
+    /** 여섯 칸 JSON의 암호문 (`v1.iv.data.tag`) */
+    sealed: text('sealed').notNull(),
+    /** BUYER(구매자 링크) · SELLER(판매자 화면) */
+    source: text('source').notNull(),
+    /** 판매자가 확인했는지 (판매자가 적거나 고친 것은 그 자리에서 확인함) */
+    confirmed: boolean('confirmed').notNull(),
+    confirmedBy: text('confirmed_by').references(() => accounts.id),
+    /** 고친 시각 (UTC) */
+    updatedAt: timestamptz('updated_at').notNull(),
+    /** 고친 계정 (구매자가 적었으면 null) */
+    updatedBy: text('updated_by').references(() => accounts.id),
+  },
+  (t) => [unique('parcel_addresses_uq').on(t.sellerId, t.date, t.buyer), index('parcel_addresses_date_idx').on(t.date)],
+)
+
+/**
+ * 택배 접수 시도 (T1 PC-5, D-T1-11): 묶음마다 덧붙여 가는 시도들. 한 묶음에 살아 있는(PENDING·UNKNOWN·BOOKED) 시도는 많아야 하나 — DB 고유 색인(parcels_live_uq, PC-INV-1).
+ * request_key = 서버가 무작위로 만든 택배사 멱등 키(전화번호·이름을 담지 않는다). 택배사 원래 응답 글은 두지 않는다(사유는 ADDRESS·REJECTED·UNAVAILABLE 셋).
+ * 배송지 원문이 없다. 복구·가져오기는 그대로 둔다(같은 묶음을 다시 접수하지 않게 — 복구한 포장 기록이 접수 전이어도 "이미 접수했어요"가 남는다)
+ */
+export const parcels = pgTable(
+  'parcels',
+  {
+    id: text('id').primaryKey(),
+    /** 적은 차례 (같은 시각에 적힌 시도도 차례가 정해진다 — 가장 나중 시도) */
+    no: bigserial('no', { mode: 'number' }).notNull(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    date: text('date').notNull(),
+    buyer: text('buyer').notNull(),
+    /** FAKE(가짜 택배사 — 시험 모드) · EPOST */
+    carrier: text('carrier').notNull(),
+    requestKey: text('request_key').notNull(),
+    /** PENDING · UNKNOWN · BOOKED · FAILED · CANCELLED */
+    state: text('state').notNull(),
+    /** FAILED의 사유 ADDRESS · REJECTED, UNKNOWN이면 UNAVAILABLE */
+    reason: text('reason'),
+    /** 송장번호 (숫자 8~20자리, BOOKED·CANCELLED) */
+    invoice: text('invoice'),
+    /** 상자 크기 극소·소·중·대 */
+    box: text('box').notNull(),
+    /** 물품 수 (그 묶음 품목 수량 합 — 접수할 때) */
+    qty: integer('qty').notNull(),
+    /** 조회 상태 ACCEPTED · PICKED_UP · IN_TRANSIT · DELIVERED (BOOKED 뒤) */
+    track: text('track'),
+    /** 마지막 확인 시각 */
+    trackedAt: timestamptz('tracked_at'),
+    createdAt: timestamptz('created_at').notNull(),
+    createdBy: text('created_by').references(() => accounts.id),
+    /** 상태를 바꾼 시각 (2분 넘은 PENDING은 UNKNOWN으로 본다) */
+    updatedAt: timestamptz('updated_at').notNull(),
+    bookedAt: timestamptz('booked_at'),
+    cancelledAt: timestamptz('cancelled_at'),
+    cancelledBy: text('cancelled_by').references(() => accounts.id),
+  },
+  (t) => [
+    unique('parcels_request_key_uq').on(t.sellerId, t.requestKey),
+    uniqueIndex('parcels_live_uq').on(t.sellerId, t.date, t.buyer).where(sql`state in ('PENDING', 'UNKNOWN', 'BOOKED')`),
+    index('parcels_bundle_idx').on(t.sellerId, t.date, t.buyer, t.no),
+    index('parcels_track_idx').on(t.state, t.bookedAt),
+  ],
+)
+
+/**
+ * 택배 화면 요청 번호 (T1 PC-5 "한 번에 접수"): 같은 화면 요청 번호면 택배사에 새로 보내지 않고 처음 결과를 돌려준다.
+ * targets = 고른 구매자 ID 목록 JSON, result = 처음 결과 JSON(송장번호·이유만 — 배송지 원문 없음, 끝나기 전에는 null). 복구·가져오기는 지운다
+ */
+export const parcelRequests = pgTable(
+  'parcel_requests',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    requestId: text('request_id').notNull(),
+    date: text('date').notNull(),
+    /** BOOK · CANCEL · ADDRESS · CONFIRM · DELETE */
+    kind: text('kind').notNull(),
+    targets: text('targets').notNull(),
+    result: text('result'),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('parcel_requests_uq').on(t.sellerId, t.requestId)],
+)
+
+/**
+ * 설정 "택배" (T1 PC-6, D-T1-09): 택배사·택배사 고객 번호(암호화)·보내는 사람(PC-2 칸 — 메모 없음, 암호화)·기본 상자 크기. 판매자마다 한 줄.
+ * 복구·가져오기는 그대로 둔다(판매자 설정 — 백업 파일에 없다)
+ */
+export const parcelSettings = pgTable('parcel_settings', {
+  sellerId: text('seller_id')
+    .primaryKey()
+    .references(() => sellers.id),
+  /** FAKE · EPOST (고르지 않았으면 null) */
+  carrier: text('carrier'),
+  /** 택배사 고객 번호 암호문 (없으면 null) */
+  customerEnc: text('customer_enc'),
+  /** 보내는 사람 다섯 칸 JSON 암호문 (없으면 null) */
+  senderEnc: text('sender_enc'),
+  box: text('box').notNull().default('소'),
+  updatedAt: timestamptz('updated_at').notNull(),
+})
+
+// ── AI 확인 필요 제안 (A1, SPEC CMT-06, R-20 10, D-A1-03·D-A1-04·D-A1-06) ─────────────
+// 제안은 판정이 아니다 — 이 표들은 엔진 이벤트와 상관없다. 댓글 원문·가린 글·요청·응답 본문은 어느 표에도 두지 않는다.
+
+/** 판매자의 AI 제안 설정 (판매자마다 한 줄, 없으면 꺼짐). 켤 때마다 동의를 받고 그 시각을 둔다(끄면 지운다) */
+export const assistSettings = pgTable('assist_settings', {
+  sellerId: text('seller_id')
+    .primaryKey()
+    .references(() => sellers.id),
+  enabled: boolean('enabled').notNull().default(false),
+  /** 지금 켠 때의 동의 시각 (꺼져 있으면 null) */
+  consentedAt: timestamptz('consented_at'),
+  updatedAt: timestamptz('updated_at').notNull(),
+})
+
+/**
+ * AI 제안 캐시 (D-A1-03): (판매자, 범위, 방송, 가린 글의 해시, 읽은 번호) → 제안 JSON 또는 null(제안 없음). 해시는 마스터 키에서 나눈 키의 HMAC-SHA256 —
+ * 짧은 글이라도 DB만으로 되돌릴 수 없다. 읽은 번호가 없으면 0
+ */
+export const assistCache = pgTable(
+  'assist_cache',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** 범위 날짜 YYYY-MM-DD */
+    scopeDate: text('scope_date').notNull(),
+    rehearsal: boolean('rehearsal').notNull(),
+    broadcastId: text('broadcast_id').notNull(),
+    textHash: text('text_hash').notNull(),
+    no: integer('no').notNull(),
+    /** 검사를 통과한 제안 { no, options?, qty } JSON, 제안 없음이면 null */
+    suggestion: text('suggestion'),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('assist_cache_uq').on(t.sellerId, t.scopeDate, t.rehearsal, t.broadcastId, t.textHash, t.no)],
+)
+
+/**
+ * AI 호출 기록 (D-A1-04 — 보낸 요청 하나 = 한 줄, 실패 포함). 하루 상한은 이 표의 KST 날짜 줄 수로 센다.
+ * 부르기 전에 넣고(ok = null) 끝나면 결과·토큰을 적는다. 토큰은 응답의 사용량 그대로(없으면 0)
+ */
+export const assistCalls = pgTable(
+  'assist_calls',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** KST 날짜 YYYY-MM-DD */
+    day: text('day').notNull(),
+    /** 보낸 항목 수 */
+    items: integer('items').notNull(),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+    cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
+    /** 성공(모델이 답함) true · 실패 false · 진행 중 null */
+    ok: boolean('ok'),
+    /** 실패 코드 (HTTP·TIMEOUT·NETWORK) 또는 null */
+    failure: text('failure'),
+    createdAt: timestamptz('created_at').notNull(),
+    finishedAt: timestamptz('finished_at'),
+  },
+  (t) => [index('assist_calls_day_idx').on(t.day, t.sellerId)],
+)
+
 export const schema = {
   sellers,
   accounts,
@@ -1642,6 +1830,13 @@ export const schema = {
   depositNames,
   depositCorpBindings,
   depositRequests,
+  parcelAddresses,
+  parcels,
+  parcelRequests,
+  parcelSettings,
+  assistSettings,
+  assistCache,
+  assistCalls,
 }
 
 /**

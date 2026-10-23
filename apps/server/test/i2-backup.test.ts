@@ -122,7 +122,9 @@ describe('AC-I2-60 백업 파일 형식', () => {
     expect((await client(world, null).post('/api/login', { loginId: seller.loginId, password: 'wrong-password-1' })).status).toBe(401)
     world.clock.set(Date.UTC(2026, 9, 19, 19, 0, 0))
     const file = decode(await createBackupBytes(world.database.db, seller.sellerId, world.clock.now()))
-    expect(Object.keys(file)).toEqual(['format', 'version', 'createdAt', 'sellerId', 'shop', 'settings', 'scopes', 'packing', 'digest'])
+    // parcels = 택배 접수 기록 (T1 D-T1-07에 더한 칸 — 이 판매자는 접수가 없어 빈 목록)
+    expect(Object.keys(file)).toEqual(['format', 'version', 'createdAt', 'sellerId', 'shop', 'settings', 'scopes', 'packing', 'parcels', 'digest'])
+    expect(file.parcels).toEqual([])
     expect(file).toMatchObject({ format: 'livejjim-seller-backup', version: 2, createdAt: '2026-10-19T19:00:00.000Z', sellerId: seller.sellerId, settings: { 'shipping.baseFee': 3500 } })
     expect(file.shop).toEqual({ name: '초록다육', bank: '농협', accountNumber: '302-9988-7766-11', accountHolder: '김판매', accountNote: '입금자명은 닉네임으로 적어 주세요' })
     expect(file.scopes.map((scope) => [scope.date, scope.rehearsal])).toEqual([

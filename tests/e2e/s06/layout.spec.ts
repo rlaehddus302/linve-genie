@@ -99,8 +99,20 @@ test.describe('고정 영역·밀도·명암', () => {
       return `${s.backgroundColor}|${s.color}|${s.borderColor}`
     })
     // 화면이 자료를 받으며 버튼을 다시 그릴 수 있다 — 붙어 있는 버튼의 모양을 읽는다 (흔들림 고침: 떨어진 요소의 계산 모양은 빈 글자)
-    await expect.poll(style).not.toBe('||')
-    const before = await style()
+    // 흔들림 고침(STAB): 확인한 뒤 다시 읽으면 그 사이 다시 그려져 빈 값을 읽을 수 있다 — 붙어 있고 잠긴 버튼에서 두 번 연달아 같은 빈 값 아닌 모양을 읽은 그 값을 기준으로 쓴다
+    await expect(submit).toBeVisible()
+    await expect(submit).toBeDisabled()
+    let before = ''
+    let last = ''
+    await expect
+      .poll(async () => {
+        const now = await style()
+        const stable = now !== '||' && now === last
+        last = now
+        if (stable) before = now
+        return stable
+      })
+      .toBe(true)
     await submit.hover({ force: true })
     await expect.poll(style).toBe(before) // 올려 둔 채 모양이 바뀌면 계속 다르다
     const ratios = await page.evaluate(() => {

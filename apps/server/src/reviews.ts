@@ -5,7 +5,10 @@
 // - 범위 = (판매자, 날짜, 리허설인지) (D-081). 실제 범위가 기본이고 ?rehearsal=true면 리허설 범위만. 방송을 주면 그 방송의 범위·그 방송의 항목만.
 // - 옵션 방송이 있는 범위만 읽는다(확인 필요는 옵션 방송에만 생긴다). 읽기는 공용 범위 캐시에 넣지 않는다(지난 날짜가 지금 방송의 캐시를 밀어내지 않게).
 // - 판정은 하지 않는다 — 코어 조회 함수(listReviews·listProducts·getBroadcast·getBuyer)만 부른다.
+// - A1 (CMT-06, R-20 10): 항목마다 suggestion(제안 { no, options?, qty, source: RULE|AI } 또는 null)을 더한다 — 볼 때마다 지금 상품 목록으로 다시 계산·검사하고
+//   외부 호출을 하지 않는다(assist/service.ts attach). 다른 키·순서·항목 수는 O2 그대로다.
 import { getBroadcast, getBuyer, listProducts, listReviews, type ReviewInfo } from '@livejjim/core'
+import type { AssistService, ShownSuggestion } from './assist/service.ts'
 import type { Db } from './db/database.ts'
 import { eventBodiesAt, findBroadcast, optionScopes } from './store.ts'
 import { withIsoTimes } from './time.ts'
@@ -28,6 +31,8 @@ export interface ReviewItem extends Omit<ReviewInfo, 'at'> {
   readonly received: string | null
   /** 문자찜의 전화번호 뒤 4자리 (없으면 null) — 원문은 없다 */
   readonly phoneLast4: string | null
+  /** 제안 (A1 — 채팅 항목·사유 UNKNOWN_WORD·PRODUCT_AMBIGUOUS만, 없으면 null). 판정이 아니다 */
+  readonly suggestion: ShownSuggestion | null
 }
 
 export interface ReviewsView {
@@ -48,11 +53,11 @@ const str = (value: unknown): string | null => (typeof value === 'string' ? valu
  * 확인 필요 목록. 방송을 주면 그 방송만 — 다른 판매자의 방송·없는 방송·리허설인지가 다른 방송이면 null(404)
  */
 export async function reviewsView(
-  deps: { readonly db: Db; readonly writer: ScopeWriter },
+  deps: { readonly db: Db; readonly writer: ScopeWriter; readonly assist: AssistService },
   sellerId: string,
   query: { readonly rehearsal: boolean; readonly broadcast?: string },
 ): Promise<ReviewsView | null> {
-  const { db, writer } = deps
+  const { db, writer, assist } = deps
   let targets: { date: string; rehearsal: boolean; scopeId: string }[]
   if (query.broadcast !== undefined) {
     const row = await findBroadcast(db, sellerId, query.broadcast)
@@ -74,7 +79,16 @@ export async function reviewsView(
     const items = listReviews(state).filter((review) => query.broadcast === undefined || review.broadcast === query.broadcast)
     const bodies = await eventBodiesAt(db, sellerId, scopeId, [...new Set(items.map((review) => review.seq))])
     const seen = new Set<string>()
-    for (const review of items) {
+    const suggestions = await assist.attach(
+      sellerId,
+      target,
+      state,
+      items.map((review) => {
+        const body = bodies.get(review.seq) ?? {}
+        return { broadcast: review.broadcast, origin: review.origin, reason: review.reason, no: review.no, text: review.origin === 'chat' ? str(body.text) : null }
+      }),
+    )
+    for (const [index, review] of items.entries()) {
       const broadcast = getBroadcast(state, review.broadcast)
       const body = bodies.get(review.seq) ?? {}
       const sms = review.origin === 'sms'
@@ -89,6 +103,7 @@ export async function reviewsView(
         text: sms ? str(body.memo) : str(body.text),
         received: sms ? str(body.received) : null,
         phoneLast4: sms ? str(body.phoneLast4) : null,
+        suggestion: suggestions[index] ?? null,
       })
       seen.add(review.broadcast)
     }
