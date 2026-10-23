@@ -159,8 +159,10 @@ test.describe('AC-T1-61 택배 화면 구성', () => {
 
     const booked = bookedGroup(page)
     const row = booked.getByRole('listitem').filter({ hasText: s.name(s.b6) })
-    await expect(row).toContainText(`송장 ${six.parcel!.invoiceText!}`)
+    // 송장번호는 꼬리표 "택배: 접수됨 · 9000-…" 안에 한 번만 (U-T1-11), 붙은 모양(900000000001)은 없다 (U-T1-06)
     await expect(row).toContainText(`택배: 접수됨 · ${six.parcel!.invoiceText!}`)
+    expect((await row.innerText()).split(six.parcel!.invoiceText!).length - 1).toBe(1)
+    expect(await row.innerText()).not.toContain(six.parcel!.invoice!)
     await expect(row).toContainText(/마지막 확인 \d{1,2}\/\d{1,2} \d{1,2}:\d{2}/)
     const group = booked.getByRole('group', { name: `${s.name(s.b6)} 택배` })
     await expect(group.getByRole('button', { name: '운송장 PDF' })).toBeVisible()
