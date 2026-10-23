@@ -5,15 +5,18 @@
 // PC(폭 768px 이상)에선 콘솔이 이 칸(VoiceLive)을 빠른 입력칸과 함께 고정 영역에 둔다 — Enter 대상 카드가 늘 보이게(D-I4-03).
 // V1 문자찜 카드 (VOC-04, AC-V1-20~28): 카드 글(describeSmsCard)·"N초 뒤 넣어요"·"넣지 않기"·"지금 넣기"/"넣기", 이유 카드는 "닫기"만,
 // 고르기 카드는 후보마다 버튼, 넣은 뒤엔 손 입력 문자찜과 같은 결과 문장·"찜 취소하기". 카드 글(이름 포함)은 글자로만 그린다(AC-V1-30).
+// 버튼 자리는 모든 문자찜 카드에서 같다: "넣지 않기"(이유 카드는 "닫기")가 첫 버튼, 넣는 버튼은 뒤이고 주 버튼 색(D-V1-20). PC 폭에선 Esc가 닫을 카드에 "Esc" 표시.
+// 이유 카드 제목은 "문자찜 · 넣지 않았어요", 번호 방식 카드는 번호 뒤에 품종, "확인 필요"로 넣은 결과 카드엔 정산 안내 한 줄(D-V1-21).
 import type { SmsBuyerCandidate, SuggestionCard } from '@livejjim/voice'
 import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { isActive } from '../lib/buyers.ts'
 import { autoSecondsLeft, showsAutoCountdown } from '../lib/voice.ts'
-import { HISTORY_FAILED, SENT_NOTICE, SMS_NEW_BUYER, TOO_SOON, candidateClaims, smsCandidateLabel, smsShortText, smsShown, type CardForm, type FormField, type SmsEntry, type SmsResultLine, type VoiceController, type VoiceSnapshot } from '../voice/controller.ts'
+import { useWide } from '../lib/use-wide.ts'
+import { HISTORY_FAILED, SENT_NOTICE, SMS_NEW_BUYER, SMS_REASON_TITLE, SMS_UNKNOWN_BUYER_NOTE, TOO_SOON, candidateClaims, smsCandidateLabel, smsShortText, smsShown, smsUnknownBuyer, type CardForm, type FormField, type SmsEntry, type SmsResultLine, type VoiceController, type VoiceSnapshot } from '../voice/controller.ts'
 import { openClaimAction } from './actions.ts'
 import { useConsoleApi } from './console-context.ts'
 import { Modal } from './Modal.tsx'
-import { smsResultWords, useSentToReview, useSmsClaim } from './SmsPage.tsx'
+import { smsLast4Suffix, smsResultWords, useSentToReview, useSmsClaim } from './SmsPage.tsx'
 
 /** 안내 창 문장 (D-I4-04, AC-I4-11 그대로) */
 export const CONSENT_TITLE = '음성으로 상품 등록'
@@ -102,6 +105,9 @@ export interface VoiceLiveProps {
 export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: VoiceLiveProps) {
   const on = snapshot.phase === 'on'
   const items = listItems(snapshot)
+  const wide = useWide()
+  // Esc가 닫을 카드 (PC 폭에서만 표시, D-V1-20)
+  const escTarget = wide ? voice.smsEscTarget() : null
   return (
     <section className="voice" aria-label="음성 등록">
       {on ? (
@@ -151,7 +157,7 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
       {items.length > 0 ? (
         <ul className="plain-list voice-cards" aria-label="음성 카드">
           {items.map((item) => {
-            if (item.kind === 'sms') return <SmsCardView key={item.entry.card.id} entry={item.entry} voice={voice} on={on} />
+            if (item.kind === 'sms') return <SmsCardView key={item.entry.card.id} entry={item.entry} voice={voice} on={on} esc={escTarget === item.entry.card.id} />
             const card = item.card
             return (
             <VoiceCard
@@ -235,11 +241,13 @@ function VoiceCard({ card, described, badge, countdown, note, form, voice, onSub
 }
 
 /** 문자찜 카드 하나 (VOC-04 문자찜 카드) */
-function SmsCardView({ entry, voice, on }: { readonly entry: SmsEntry; readonly voice: VoiceController; readonly on: boolean }) {
+function SmsCardView({ entry, voice, on, esc }: { readonly entry: SmsEntry; readonly voice: VoiceController; readonly on: boolean; readonly esc: boolean }) {
   const words = voice.smsWords()
   if (words === null) return null
   const { card } = entry
-  const described = voice.describeSms(card)
+  const reasonCard = entry.reason !== null && !entry.sending
+  // 이유 카드 제목은 번호·손님 글 없이 (D-V1-21) — 이유 문장이 번호를 말한다
+  const described = reasonCard ? SMS_REASON_TITLE : voice.describeSms(card)
   const short = smsShortText(described)
   const labels = words.labels
   const sent = card.status === 'SENT'
@@ -274,9 +282,9 @@ function SmsCardView({ entry, voice, on }: { readonly entry: SmsEntry; readonly 
     )
     actions = (
       <>
-        <SmsCandidates candidates={card.candidates} short={short} onChoose={(buyer) => voice.smsChoose(card.id, buyer)} />
-        {card.reading.last4 !== null ? button(SMS_NEW_BUYER, () => voice.smsNewBuyer(card.id)) : null}
         {button(labels.skip, () => voice.smsSkip(card.id))}
+        <SmsCandidates candidates={card.candidates} short={short} onChoose={(buyer) => voice.smsChoose(card.id, buyer)} />
+        {card.reading.last4 !== null ? button(SMS_NEW_BUYER, () => voice.smsNewBuyer(card.id), true) : null}
       </>
     )
   } else if (countdown !== null) {
@@ -284,6 +292,11 @@ function SmsCardView({ entry, voice, on }: { readonly entry: SmsEntry; readonly 
     actions = (
       <>
         {button(labels.skip, () => voice.smsSkip(card.id))}
+        {esc ? (
+          <span className="tag tag-order" aria-hidden="true">
+            Esc
+          </span>
+        ) : null}
         {button(labels.sendNow, () => voice.smsSend(card.id), true)}
       </>
     )
@@ -295,8 +308,8 @@ function SmsCardView({ entry, voice, on }: { readonly entry: SmsEntry; readonly 
     ) : null
     actions = (
       <>
-        {button(labels.send, () => voice.smsSend(card.id), true)}
         {button(labels.skip, () => voice.smsSkip(card.id))}
+        {button(labels.send, () => voice.smsSend(card.id), true)}
       </>
     )
   }
@@ -315,6 +328,7 @@ function SmsCardView({ entry, voice, on }: { readonly entry: SmsEntry; readonly 
           </p>
         )}
         <p className="voice-card-heard">들은 말: {card.text}</p>
+        {sent && !entry.sending && smsUnknownBuyer(entry) && entry.results.length > 0 ? <p className="hint">{SMS_UNKNOWN_BUYER_NOTE}</p> : null}
         {card.repeats > 0 ? (
           <p className="hint" role="status">
             {words.repeat}
@@ -342,7 +356,7 @@ function SmsCandidates({ candidates, short, onChoose }: { readonly candidates: r
         const name = known ? api.names.name(candidate.buyer) : candidate.display
         const label = smsCandidateLabel(name, candidate.phoneLast4, candidateClaims(candidate))
         return (
-          <button key={candidate.buyer} type="button" className="button" aria-label={`${short} 손님 고르기: ${label}`} onClick={() => onChoose(candidate.buyer)}>
+          <button key={candidate.buyer} type="button" className="button button-primary" aria-label={`${short} 손님 고르기: ${label}`} onClick={() => onChoose(candidate.buyer)}>
             {label}
           </button>
         )
@@ -358,11 +372,12 @@ function SmsResultRow({ line, last4 }: { readonly line: SmsResultLine; readonly 
   const { claim, caught, missing } = useSmsClaim(api, result)
   const reviewed = useSentToReview(api, result, missing)
   const { body, tone } = smsResultWords(api, result, claim, caught, reviewed)
+  const suffix = smsLast4Suffix(body, last4)
   return (
     <li className="sms-result" data-tone={tone}>
       <p role="status">
         <strong>{body}</strong>
-        {last4 !== null ? <span> · 뒤 4자리 {last4}</span> : null}
+        {suffix !== null ? <span>{suffix}</span> : null}
       </p>
       {caught && claim !== undefined && isActive(claim) && !api.sealed ? (
         <button type="button" className="button" aria-label={`${String(line.no)}번 문자찜 찜 취소하기`} onClick={() => openClaimAction(api, claim, 'host.cancel')}>

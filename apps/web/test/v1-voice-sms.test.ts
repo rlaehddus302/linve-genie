@@ -4,7 +4,7 @@ import * as voiceModule from '@livejjim/voice'
 import type { SmsProductView, SmsVoiceSettings } from '@livejjim/voice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readReceived } from '../src/lib/received.ts'
-import { SMS_RESULTS_SHOWN, SMS_SEND_FAILED, VoiceController, candidateClaims, pruneSms, smsCandidateLabel, smsDroppedText, smsShown, type SmsEntry, type SmsWriteOutcome, type VoiceHost, type VoiceSmsWrite } from '../src/voice/controller.ts'
+import { SMS_RESULTS_SHOWN, SMS_SEND_FAILED, VoiceController, candidateClaims, pruneSms, smsCandidateLabel, smsShown, type SmsEntry, type SmsWriteOutcome, type VoiceHost, type VoiceSmsWrite } from '../src/voice/controller.ts'
 
 /** 2026-10-23 20:01:00 KST */
 const T0 = Date.UTC(2026, 9, 23, 11, 1, 0)
@@ -341,17 +341,46 @@ describe('같은 말 두 번 (AC-V1-24, D-V1-06)', () => {
     expect(h.voice.getSnapshot().sms.filter(smsShown)).toHaveLength(2)
   })
 
-  it('넣지 않기로 닫은 카드도 10초 안 같은 말이면 새 카드가 아니다, 10초 뒤면 새 카드', async () => {
+  // D-V1-17 (앞 기대값 "넣지 않기로 닫은 카드도 같은 말"을 바꿈): 넣지 않고 닫은 카드는 같은 말 검사에서 보지 않는다
+  it('넣지 않기로 닫은 카드 뒤 2초에 같은 말 → 새 기다리는 카드, 3초 뒤 쓰기 한 번 (D-V1-17, AC-V1-22)', async () => {
+    const h = harness()
+    h.products.set(166, { state: 'OPEN', waitlistFull: false })
+    await turnOn(h)
+    FakeRecognition.last.say('166번 문자찜 끝자리 1234')
+    h.voice.smsSkip(only(h).card.id)
+    await wait(2000)
+    FakeRecognition.last.say('166번 문자찜 끝자리 1234')
+    expect(h.voice.getSnapshot().sms.filter(smsShown)).toHaveLength(1)
+    expect(only(h).card.repeats).toBe(0)
+    await wait(3000)
+    expect(h.sent.map((one) => one.write.no)).toEqual([166])
+  })
+
+  it('이유 카드 뒤 같은 말은 새 카드 — 상품을 연 뒤 다시 말하면 넣는다 (D-V1-17)', async () => {
     const h = harness()
     await turnOn(h)
+    h.products.set(165, { state: 'READY', waitlistFull: false })
     FakeRecognition.last.say('165번 문자찜 끝자리 1234')
-    h.voice.smsSkip(only(h).card.id)
-    await wait(5000)
+    expect(only(h).reason).toBe('165번은 지금 판매 중이 아니에요.')
+    h.products.set(165, { state: 'OPEN', waitlistFull: false })
+    await wait(1000)
     FakeRecognition.last.say('165번 문자찜 끝자리 1234')
-    expect(h.voice.getSnapshot().sms.filter(smsShown)).toHaveLength(0)
-    await wait(6000)
-    FakeRecognition.last.say('165번 문자찜 끝자리 1234')
-    expect(h.voice.getSnapshot().sms.filter(smsShown)).toHaveLength(1)
+    const shown = h.voice.getSnapshot().sms.filter(smsShown)
+    expect(shown).toHaveLength(2)
+    expect(shown[0]?.reason).toBeNull()
+    await wait(3000)
+    expect(h.sent.map((one) => one.write.no)).toEqual([165])
+  })
+
+  it('문제 문장 뒤 다른 문제 문장은 앞 이유 카드로 합치지 않는다 (D-V1-17, TE-V1-006)', async () => {
+    const h = harness()
+    await turnOn(h)
+    FakeRecognition.last.say('문자찜 들어왔어요')
+    await wait(1000)
+    FakeRecognition.last.say('15번 문자찜 끝자리 12 34')
+    const shown = h.voice.getSnapshot().sms.filter(smsShown)
+    expect(shown.map((entry) => entry.reason)).toEqual(['끝자리를 못 알아들었어요. 숫자 네 개로 다시 말해 주세요.', '번호를 못 알아들었어요. 다시 말하거나 문자찜 입력에 넣어 주세요.'])
+    expect(h.sent).toHaveLength(0)
   })
 })
 
@@ -560,7 +589,8 @@ describe('이름·확인 필요·받은 시각 (AC-V1-26, D-V1-04)', () => {
 })
 
 describe('열린 카드 수·결과 카드 수', () => {
-  it('상품 카드와 문자찜 카드를 함께 센다 — 넷째 카드가 오면 가장 오래된 손대지 않은 카드가 닫힌다', async () => {
+  // D-V1-18 (앞 기대값 "가장 오래된 기다리는 문자찜 카드가 닫힌다"를 바꿈): 넣을 수 있는 문자찜 카드는 닫지 않고 손대지 않은 상품 카드를 닫는다
+  it('상품 카드와 문자찜 카드를 함께 센다 — 넷째 카드가 오면 손대지 않은 상품 카드가 닫히고 기다리는 문자찜 카드는 남는다 (D-V1-18)', async () => {
     const h = harness()
     for (const no of [1, 2, 3]) h.products.set(no, { state: 'OPEN', waitlistFull: false })
     h.smsSettings = { 'voice.smsAutoSec': 10 }
@@ -573,10 +603,25 @@ describe('열린 카드 수·결과 카드 수', () => {
     await wait(10)
     FakeRecognition.last.say('3번 문자찜 끝자리 3333')
     const snapshot = h.voice.getSnapshot()
-    expect(snapshot.cards).toHaveLength(1)
-    expect(snapshot.sms.filter(smsShown).map((entry) => entry.card.reading.orders[0]?.no)).toEqual([3, 2])
+    expect(snapshot.cards).toHaveLength(0)
+    expect(snapshot.sms.filter(smsShown).map((entry) => entry.card.reading.orders[0]?.no)).toEqual([3, 2, 1])
+    expect(snapshot.smsDropped).toEqual([])
     await wait(10_000)
-    expect(h.sent.map((s) => s.write.no).sort()).toEqual([2, 3])
+    expect(h.sent.map((s) => s.write.no).sort()).toEqual([1, 2, 3])
+  })
+
+  it('기다림 10초에서 문자찜 넷을 1초 간격으로 → 넷 다 열려 있고 각자 쓰기 (D-V1-18, AC-V1-03 예)', async () => {
+    const h = harness()
+    for (const no of [165, 166, 167, 168]) h.products.set(no, { state: 'OPEN', waitlistFull: false })
+    h.smsSettings = { 'voice.smsAutoSec': 10 }
+    await turnOn(h)
+    for (const [i, no] of [165, 166, 167, 168].entries()) {
+      FakeRecognition.last.say(`${String(no)}번 문자찜 끝자리 ${String(i + 1).repeat(4)}`)
+      await wait(1000)
+    }
+    expect(h.voice.getSnapshot().sms.filter(smsShown)).toHaveLength(4)
+    await wait(10_000)
+    expect(h.sent.map((s) => s.write.no)).toEqual([165, 166, 167, 168])
   })
 
   it('결과 카드는 최근 몇 개만 보이고, 닫은 카드는 10초 뒤 목록에서 빠진다', () => {
@@ -596,8 +641,10 @@ describe('열린 카드 수·결과 카드 수', () => {
   })
 })
 
-describe('넣지 않은 채 저절로 닫힌 문자찜 카드 안내 (U-V1-01, D-204·D-I4-02)', () => {
-  it('이유 카드가 쌓여 "넣을까요?" 카드가 닫히면 안내가 남고("확인"까지), 이유 카드가 닫힐 때는 남기지 않는다', async () => {
+// D-V1-18: 넣을 수 있는 문자찜 카드는 열린 카드 수 규칙으로 닫히지 않는다 — U-V1-01 안내가 생길 일이 없다
+// (앞 기대값 "넣을까요? 카드·기다리던 카드가 밀려 닫히면 안내"를 바꿈)
+describe('넣을 수 있는 문자찜 카드는 저절로 닫히지 않는다 (D-V1-18, 앞 U-V1-01 안내 대신)', () => {
+  it('이유 카드가 쌓여도 "넣을까요?" 카드는 남고(안내 없음), 넘친 이유 카드가 닫힌다', async () => {
     const h = harness()
     h.products.set(15, { state: 'OPEN', waitlistFull: false })
     h.products.set(28, { state: 'OPEN', waitlistFull: false })
@@ -608,25 +655,23 @@ describe('넣지 않은 채 저절로 닫힌 문자찜 카드 안내 (U-V1-01, D
     }
     const snapshot = h.voice.getSnapshot()
     const shown = snapshot.sms.filter(smsShown)
-    expect(shown.every((entry) => entry.reason !== null)).toBe(true)
-    expect(snapshot.smsDropped.map((item) => item.text)).toEqual([smsDroppedText('15번 · 28번 · 끝자리 1234 · 문자찜')])
-    expect(snapshot.smsDropped[0]?.text).toBe('넣지 않은 문자찜 카드를 닫았어요: 15번 · 28번 · 끝자리 1234 · 문자찜. 넣으려면 다시 말하거나 문자찜 입력에 넣어 주세요.')
+    expect(shown).toHaveLength(3)
+    expect(shown.filter((entry) => entry.reason === null).map((entry) => entry.card.reading.orders.map((order) => order.no))).toEqual([[15, 28]])
+    expect(snapshot.smsDropped).toEqual([])
     await wait(10_000)
     expect(h.sent).toHaveLength(0)
-    // 안내는 시간이 지나도 남는다 — "확인"을 눌러야 지워진다
-    const id = snapshot.smsDropped[0]?.id ?? ''
-    expect(h.voice.getSnapshot().smsDropped).toHaveLength(1)
-    h.voice.smsDroppedSeen(id)
-    expect(h.voice.getSnapshot().smsDropped).toEqual([])
+    h.voice.smsSend(shown.find((entry) => entry.reason === null)?.card.id ?? '')
+    await settle()
+    expect(h.sent.map((one) => one.write.no)).toEqual([15, 28])
   })
 
-  it('기다리던(3초) 문자찜 카드가 새 카드에 밀려 닫혀도 안내가 남고, 보내지 않는다', async () => {
+  it('기다리던(3초) 문자찜 카드는 이유 카드 셋이 와도 닫히지 않고 3초 뒤 넣는다', async () => {
     const h = harness()
     await turnOn(h)
     for (const text of ['165번 문자찜 끝자리 1234', '300번 문자찜', '301번 문자찜', '302번 문자찜']) FakeRecognition.last.say(text)
-    expect(h.voice.getSnapshot().smsDropped.map((item) => item.short)).toEqual(['165번 · 끝자리 1234 · 문자찜'])
-    await wait(10_000)
-    expect(h.sent).toHaveLength(0)
+    expect(h.voice.getSnapshot().smsDropped).toEqual([])
+    await wait(3000)
+    expect(h.sent.map((one) => one.write.no)).toEqual([165])
   })
 
   it('"넣지 않기"로 닫은 카드·넣은 카드는 안내가 없다', async () => {
@@ -636,5 +681,60 @@ describe('넣지 않은 채 저절로 닫힌 문자찜 카드 안내 (U-V1-01, D
     h.voice.smsSkip(only(h).card.id)
     for (const text of ['300번 문자찜', '301번 문자찜', '302번 문자찜', '303번 문자찜']) FakeRecognition.last.say(text)
     expect(h.voice.getSnapshot().smsDropped).toEqual([])
+  })
+})
+
+describe('다른 기기가 방금 같은 말을 넣음 (AC-V1-31, D-V1-13)', () => {
+  it('409 VOICE_REPEATED → 이유 카드("닫기"만), 다시 넣지 않고, 같은 말 검사에서 빠진다', async () => {
+    const h = harness()
+    h.outcomes.push({ kind: 'repeated', message: '같은 말을 다른 기기에서 방금 넣었어요.' })
+    await turnOn(h)
+    FakeRecognition.last.say('165번 문자찜')
+    await wait(3000)
+    expect(h.sent).toHaveLength(1)
+    const entry = only(h)
+    expect(entry.reason).toBe('같은 말을 다른 기기에서 방금 넣었어요.')
+    expect(entry.card.status).toBe('OPEN')
+    expect(entry.card.autoAt).toBeNull()
+    await wait(10_000)
+    expect(h.sent).toHaveLength(1)
+    h.voice.smsSend(entry.card.id)
+    await settle()
+    expect(h.sent).toHaveLength(1)
+    h.voice.smsSkip(entry.card.id)
+    expect(h.voice.getSnapshot().sms.filter(smsShown)).toHaveLength(0)
+  })
+})
+
+describe('Esc = 맨 앞 기다리는 카드 넣지 않기 (D-V1-20, AC-V1-32)', () => {
+  it('기다리는 카드 둘이면 맨 앞(가장 새) 카드만 닫고 쓰기 없음, 번호 둘 카드는 Esc 대상이 아니다', async () => {
+    const h = harness()
+    h.products.set(166, { state: 'OPEN', waitlistFull: false })
+    h.products.set(15, { state: 'OPEN', waitlistFull: false })
+    h.products.set(28, { state: 'OPEN', waitlistFull: false })
+    await turnOn(h)
+    FakeRecognition.last.say('165번 문자찜 끝자리 1234')
+    await wait(10)
+    FakeRecognition.last.say('166번 문자찜 끝자리 5678')
+    const newest = h.voice.getSnapshot().sms[0]?.card.id
+    expect(h.voice.smsEscTarget()).toBe(newest)
+    expect(h.voice.smsEscape()).toBe(true)
+    await wait(3000)
+    expect(h.sent.map((one) => one.write.no)).toEqual([165])
+    FakeRecognition.last.say('15번 28번 문자찜 끝자리 1234')
+    expect(h.voice.smsEscTarget()).toBeNull()
+    expect(h.voice.smsEscape()).toBe(false)
+  })
+
+  it('음성 문자찜 결과 카드가 열려 있는가 (Ctrl+Z 알림, D-V1-22)', async () => {
+    const h = harness()
+    await turnOn(h)
+    expect(h.voice.smsResultShown()).toBe(false)
+    FakeRecognition.last.say('165번 문자찜 끝자리 1234')
+    expect(h.voice.smsResultShown()).toBe(false)
+    await wait(3000)
+    expect(h.voice.smsResultShown()).toBe(true)
+    h.voice.smsDismiss(only(h).card.id)
+    expect(h.voice.smsResultShown()).toBe(false)
   })
 })

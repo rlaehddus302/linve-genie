@@ -164,6 +164,8 @@ describe('보내기·결과·같은 사람 하나 더 (AC-S06-14·81)', () => {
     expect(engine.posts).toHaveLength(1)
     expect(engine.posts[0]).toMatchObject({ type: 'sms', b: 'b2', no: 15, phone: '010-1234-5678', memo: '김씨' })
     expect(engine.posts[0]).not.toHaveProperty('received')
+    // 손 입력 문자찜 본문에는 voice가 없다 (음성 쓰기에만, AC-V1-31·D-V1-13)
+    expect(engine.posts[0]).not.toHaveProperty('voice')
     expect(typeof engine.posts[0]?.requestId).toBe('string')
     const result = await screen.findByRole('region', { name: '넣은 결과' })
     // 받은 시각은 날짜와 함께 (AC-S06b-31), 대기는 보통 색 (AC-S06b-40)

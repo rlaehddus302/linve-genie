@@ -30,7 +30,7 @@ import { useWide } from '../lib/use-wide.ts'
 import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
 import { cardLine, enterBadgeCard } from '../lib/voice.ts'
 import { readReceived } from '../lib/received.ts'
-import { SMS_SEND_FAILED, VOICE_IDLE, VoiceController, type RegisterSource, type SmsBuyerChoice, type SmsWriteOutcome, type VoiceSmsWrite, type VoiceSnapshot } from '../voice/controller.ts'
+import { SMS_SEND_FAILED, SMS_UNDO_NOTE, VOICE_IDLE, VoiceController, type RegisterSource, type SmsBuyerChoice, type SmsWriteOutcome, type VoiceSmsWrite, type VoiceSnapshot } from '../voice/controller.ts'
 import { fetchPastNames } from '../voice/history.ts'
 import { loadVoice } from '../voice/load.ts'
 import { readConsent, readSettings, readSmsSettings, writeConsent, writeSettings, writeSmsSettings } from '../voice/storage.ts'
@@ -241,6 +241,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   const quickTextRef = useRef(quickText)
   quickTextRef.current = quickText
   const [fix, setFix] = useState<FixState | null>(null)
+  /** 빠른 입력 고치기 칸이 열려 있다 (Esc가 문자찜 카드를 닫지 않는다, D-V1-20) */
+  const fixOpen = useRef(false)
+  fixOpen.current = fix !== null
   const [registrations, setRegistrations] = useState<Registration[]>([])
   const [asks, setAsks] = useState<EditAsk[]>([])
   const askId = useRef(1)
@@ -321,9 +324,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       // ── 음성 문자찜 (V1, ORD-08 AC9) ──
       smsReadOptions: () => smsReadOptions((store.getSnapshot().data ?? latest.current.data), b, Date.now()),
       smsProduct: (no) => smsProductView((store.getSnapshot().data ?? latest.current.data), b, no),
+      // 카드에 보일 이름: 옵션 방식은 상품 이름, 번호 방식은 품종 (D-V1-21 — 비었으면 번호만)
       smsProductName: (no) => {
         const current = store.getSnapshot().data ?? latest.current.data
-        if (!isOptionBroadcast(current, b)) return null
         const product = current.products.get(productKey(b, no))
         return product === undefined || product.name.trim() === '' ? null : product.name
       },
@@ -494,6 +497,13 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   )
   const printAlertsRef = useRef(printAlerts)
   printAlertsRef.current = printAlerts
+  /** 되돌릴 것이 없는 Ctrl+Z에 음성 문자찜 결과 카드가 열려 있다는 알림 (잠시 보인다, D-V1-22) */
+  const [undoNote, setUndoNote] = useState<{ readonly text: string; readonly n: number } | null>(null)
+  useEffect(() => {
+    if (undoNote === null) return
+    const timer = setTimeout(() => setUndoNote(null), LABELS_NOTE_MS)
+    return () => clearTimeout(timer)
+  }, [undoNote])
   /** Alt+P를 눌렀지만 라벨 기능이 꺼져 있다는 알림 (잠시 보인다) */
   const [labelsNote, setLabelsNote] = useState<{ readonly text: string; readonly n: number } | null>(null)
   useEffect(() => {
@@ -698,8 +708,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     [dropAttached, enqueueRegistration, focusQuick, voice],
   )
   /**
-   * 음성 문자찜 쓰기 하나 (AC-V1-21·25·30): 손 입력과 같은 `sms` 이벤트 — 본문은 type·방송·번호·(옵션·수량)·(받은 시각)·(메모)·(끝자리 또는 구매자)·요청 번호뿐.
-   * 인식 문장은 보내지 않는다(D-V1-10). 409 BUYER_AMBIGUOUS는 후보로, 그 밖의 실패는 서버 문장으로 돌려준다(카드가 다시 열린다).
+   * 음성 문자찜 쓰기 하나 (AC-V1-21·25·30·31): 손 입력과 같은 `sms` 이벤트 — 본문은 type·방송·번호·(옵션·수량)·(받은 시각)·(메모)·(끝자리 또는 구매자)·`voice: true`·요청 번호뿐.
+   * `voice: true`는 음성 쓰기에만 붙는다 — 서버가 여러 기기의 같은 말을 한 번만 넣는다(D-V1-13, 손 입력 본문에는 없다).
+   * 인식 문장은 보내지 않는다(D-V1-10). 409 BUYER_AMBIGUOUS는 후보로, 409 VOICE_REPEATED는 이유 카드로, 그 밖의 실패는 서버 문장으로 돌려준다(카드가 다시 열린다).
    */
   const writeVoiceSms = useCallback(
     async (one: VoiceSmsWrite, received: string | null, requestId: string): Promise<SmsWriteOutcome> => {
@@ -713,12 +724,14 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         ...(received === null ? {} : { received }),
         ...(one.memo === null ? {} : { memo: one.memo }),
         ...(one.buyer !== undefined ? { buyer: one.buyer } : one.last4 !== undefined ? { last4: one.last4, ...(one.newBuyer === true ? { newBuyer: true } : {}) } : {}),
+        voice: true,
       }
       try {
         const result = await write(requestId, event)
         return { kind: 'ok', seq: result.seq, buyer: typeof result.buyer === 'string' ? result.buyer : null }
       } catch (error) {
         if (!isApiError(error)) return { kind: 'failed', message: SMS_SEND_FAILED }
+        if (error.code === 'VOICE_REPEATED') return { kind: 'repeated', message: error.message }
         if (error.code === 'BUYER_AMBIGUOUS') {
           const candidates = readCandidates(error.details.candidates)
           if (candidates.length > 0) return { kind: 'ambiguous', candidates, message: error.message }
@@ -927,7 +940,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         const active = document.activeElement
         if (isTextField(active) && active.value !== '') return // 글자가 있는 칸: 브라우저의 글자 되돌리기
         event.preventDefault()
-        queue.undoLatest()
+        // 되돌릴 것이 없고 음성 문자찜 결과 카드가 열려 있으면 알림만 (아무것도 보내지 않는다, D-V1-22·AC-V1-33)
+        if (queue.undoLatest() === undefined && voice !== null && voice.smsResultShown()) setUndoNote((note) => ({ text: SMS_UNDO_NOTE, n: (note?.n ?? 0) + 1 }))
         return
       }
       if (event.altKey && !mod && (event.code === 'Digit1' || event.key === '1')) {
@@ -956,6 +970,12 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         // 음성 안내 창 (포커스가 창 밖에 있어도 Esc로 닫는다 — 꺼진 그대로)
         if (voice !== null && voice.getSnapshot().phase === 'consent') {
           voice.declineConsent()
+          return
+        }
+        // 맨 앞 기다리는 문자찜 카드의 "넣지 않기" (D-V1-20): PC 폭·창 없음·고치기 칸 없음·빠른 입력칸이 비었거나 글 칸 밖일 때만
+        const active = document.activeElement
+        if (voice !== null && wideRef.current && !fixOpen.current && voice.getSnapshot().forms.size === 0 && !(isTextField(active) && active.value !== '') && voice.smsEscape()) {
+          event.preventDefault()
           return
         }
         setFix(null)
@@ -1148,6 +1168,11 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
             {optionNote !== null ? (
               <p key={optionNote.n} className="notice" role="status" data-tone="warning">
                 {optionNote.text}
+              </p>
+            ) : null}
+            {undoNote !== null ? (
+              <p key={undoNote.n} className="notice" role="status">
+                {undoNote.text}
               </p>
             ) : null}
             {labelsNote !== null ? (

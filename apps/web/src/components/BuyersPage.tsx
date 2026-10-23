@@ -3,6 +3,7 @@
 //   PC(48rem 이상)는 열 머리가 있는 표, 휴대폰은 카드 (D-101). 이름은 화면 공통 이름 표기(BuyerNames, D-098).
 // - 자세히: 표시 이름·이력·뒤 4자리·채널 끝 4자리·차단·합친 구매자, 방송별 확정 상품과 합계, 합계에 들지 않는 찜, 그날 정산 묶음 요약.
 //   주 버튼은 없다 — "다른 구매자와 합치기"·"떼어 내기"는 보통 버튼, "차단하기"는 위험 버튼 (D-101).
+//   "문자찜(확인 필요)" 구매자는 위에 "누구의 문자인지 찾아 합쳐 주세요.", 합치기가 첫 버튼, 차단은 자세히 맨 뒤 (D-V1-22).
 // - 합치기: 미리 보기는 서버(코어 previewMerge)가 계산한 값을 낱말로만 바꾼다(D-100). 상대·방향은 주소(merge·into)에 남아, 막힘에서 연
 //   상품 자세히(product)에 갔다 와도(합치기로 돌아가기·브라우저 뒤로 가기) 같은 창이 다시 열리고 미리 보기를 지금 상태로 새로 받는다 (D-102).
 // - 떼어 내기(바로)·차단(사유, 5초 뒤 — 콘솔과 같은 조치).
@@ -18,6 +19,7 @@ import {
   defaultInto,
   distinguishWords,
   isActive,
+  isUnknownSms,
   mergeWords,
   objectParticle,
   sameNameCounts,
@@ -61,6 +63,8 @@ export const MERGE_SAME_DAY = '합치기는 같은 날짜 안에서만 돼요.'
 export const MERGED_NOTICE = '합쳤어요'
 export const UNMERGED_NOTICE = '떼어 냈어요'
 export const BACK_TO_MERGE = '합치기로 돌아가기'
+/** "문자찜(확인 필요)" 구매자 자세히의 안내 한 줄 (D-V1-22) */
+export const UNKNOWN_SMS_GUIDE = '누구의 문자인지 찾아 합쳐 주세요.'
 
 export function BuyersPage({ route, navigate }: { readonly route: ScopeRoute; readonly navigate: Navigate }) {
   const choice = useScopeChoice(route, navigate)
@@ -429,6 +433,13 @@ function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement, on
     return [...groups.entries()].sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
   }, [confirmed, api.data.broadcasts])
   const history = buyer.nameHistory.filter((name) => name !== buyer.display)
+  // 누구인지 확인해야 하는 문자 구매자 (표시 이름이 정확히 "문자찜(확인 필요)", D-V1-22)
+  const unknown = isUnknownSms(buyer)
+  const blockButton = (
+    <button type="button" className={buyer.blocked ? 'button' : 'button button-danger'} onClick={() => openBlockAction(api, buyer.id, !buyer.blocked)}>
+      {buyer.blocked ? '차단 풀기' : '차단하기'}
+    </button>
+  )
 
   return (
     <section className="stack buyer-detail" aria-label="구매자 자세히">
@@ -473,7 +484,14 @@ function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement, on
         </p>
       ) : null}
 
-      {/* 주 버튼 없음 (D-101): 합치기는 보통 버튼, 차단은 위험 버튼 모양. 봉인한 날짜는 잠긴다 (AC-I3-41) */}
+      {unknown ? (
+        <p className="notice" data-tone="info">
+          {UNKNOWN_SMS_GUIDE}
+        </p>
+      ) : null}
+
+      {/* 주 버튼 없음 (D-101): 합치기는 보통 버튼, 차단은 위험 버튼 모양. 봉인한 날짜는 잠긴다 (AC-I3-41).
+          "문자찜(확인 필요)" 구매자는 합치기가 첫 버튼이고 차단은 자세히 맨 뒤 — 합치기 바로 옆이 아니다 (D-V1-22) */}
       <Lock>
         <div className="row">
           {buyer.mergedInto === null ? (
@@ -481,9 +499,7 @@ function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement, on
               다른 구매자와 합치기
             </button>
           ) : null}
-          <button type="button" className={buyer.blocked ? 'button' : 'button button-danger'} onClick={() => openBlockAction(api, buyer.id, !buyer.blocked)}>
-            {buyer.blocked ? '차단 풀기' : '차단하기'}
-          </button>
+          {unknown ? null : blockButton}
         </div>
       </Lock>
 
@@ -564,6 +580,12 @@ function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement, on
       </section>
 
       {api.data.rehearsal ? null : <PastPurchases date={api.data.date} buyer={current.id} refreshKey={current.merged.join(',')} onOpen={onPast} />}
+
+      {unknown ? (
+        <Lock>
+          <div className="row">{blockButton}</div>
+        </Lock>
+      ) : null}
 
       {unmerging !== null ? (
         <UnmergeDialog

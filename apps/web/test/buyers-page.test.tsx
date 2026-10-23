@@ -158,6 +158,31 @@ describe('자세히 (AC-S06-22)', () => {
   })
 })
 
+describe('"문자찜(확인 필요)" 구매자 자세히 (D-V1-22, AC-V1-29)', () => {
+  it('위에 안내 한 줄, 첫 버튼 "다른 구매자와 합치기", "차단하기"는 맨 뒤 — 다른 구매자 자세히는 그대로', async () => {
+    await open([...BASE, sms('r9', 17, { memo: '확인 필요' })])
+    fireEvent.click(screen.getByLabelText('찜 없는 구매자도 보기'))
+    await flush()
+    fireEvent.click(within(list()).getByRole('link', { name: /문자찜\(확인 필요\)/ }))
+    await flush()
+    const detail = screen.getByRole('region', { name: '구매자 자세히' })
+    expect(detail.textContent).toContain('누구의 문자인지 찾아 합쳐 주세요.')
+    const buttons = within(detail).getAllByRole('button').map((button) => button.textContent)
+    const merge = buttons.indexOf('다른 구매자와 합치기')
+    expect(merge).toBe(buttons.findIndex((label) => label !== '구매자 목록으로'))
+    expect(buttons.at(-1)).toBe('차단하기')
+    expect(buttons[merge + 1]).not.toBe('차단하기')
+    fireEvent.click(within(detail).getByRole('button', { name: '구매자 목록으로' }))
+    await flush()
+    fireEvent.click(within(list()).getByRole('link', { name: /문자찜\(김씨\)/ }))
+    await flush()
+    const other = screen.getByRole('region', { name: '구매자 자세히' })
+    expect(other.textContent).not.toContain('누구의 문자인지 찾아 합쳐 주세요.')
+    const otherButtons = within(other).getAllByRole('button').map((button) => button.textContent)
+    expect(otherButtons[otherButtons.indexOf('다른 구매자와 합치기') + 1]).toBe('차단하기')
+  })
+})
+
 describe('합치기·떼어 내기 (AC-S06-23·24, AC-S06b-33·34, G-ENG-171·172·174)', () => {
   async function openMerge(target: string, from = /문자찜\(김씨\)/) {
     fireEvent.click(within(list()).getByRole('link', { name: from }))

@@ -61,6 +61,8 @@ export type SmsWriteOutcome =
   | { readonly kind: 'ok'; readonly seq: number; readonly buyer: string | null }
   /** 409 BUYER_AMBIGUOUS — 기록되지 않았다, 후보 중에서 고른다 (message = 서버 문장: 여러 명·이름이 달라요, D-V1-14) */
   | { readonly kind: 'ambiguous'; readonly candidates: readonly SmsBuyerChoice[]; readonly message?: string }
+  /** 409 VOICE_REPEATED — 다른 기기가 방금 같은 말을 넣었다(D-V1-13). 기록되지 않았고 다시 넣지 않는다 — 이유 카드("닫기"만) */
+  | { readonly kind: 'repeated'; readonly message: string }
   /** 기록되지 않았다 (연결·거절 등) — 쉬운 한국어 문장 */
   | { readonly kind: 'failed'; readonly message: string }
 
@@ -85,6 +87,15 @@ export function smsCandidateLabel(name: string, phoneLast4: string | null, claim
   const more = claims.length > 3 ? ` 외 ${String(claims.length - 3)}개` : ''
   return `${base} · ${claims.length === 0 ? '찜 없음' : shown + more}`
 }
+
+/** 늦게 보낸 쪽 카드의 이유 (AC-V1-31, D-V1-13 — 서버 문장이 없을 때) */
+export const SMS_VOICE_REPEATED = '같은 말을 다른 기기에서 방금 넣었어요.'
+/** 이유 카드 제목 (D-V1-21 — 번호·손님 글을 쓰지 않는다) */
+export const SMS_REASON_TITLE = '문자찜 · 넣지 않았어요'
+/** "확인 필요" 구매자로 넣은 결과 카드의 안내 한 줄 (D-V1-21) */
+export const SMS_UNKNOWN_BUYER_NOTE = '방송 뒤 정산 화면에서 누구인지 확인해 주세요.'
+/** 되돌릴 것이 없을 때 음성 문자찜 결과 카드가 열려 있으면 Ctrl+Z가 보이는 알림 (D-V1-22, AC-V1-33) */
+export const SMS_UNDO_NOTE = "문자찜은 카드의 '찜 취소하기'로 취소해요."
 
 /** "새 손님으로 넣기" 버튼 (D-V1-14) */
 export const SMS_NEW_BUYER = '새 손님으로 넣기'
@@ -304,6 +315,12 @@ type CardWork = { cards: readonly SuggestionCard[]; sms: readonly SmsEntry[]; dr
 const SMS_KEEP_MS = 10_000
 /** 화면에 남기는 결과 카드 수 (넘으면 오래된 것부터 닫는다 — 찜은 그대로) */
 export const SMS_RESULTS_SHOWN = 5
+
+/** 이유를 붙인 문자찜 카드 ID (넣을 수 없는 상품·시각·VOICE_REPEATED — 같은 말 검사·열린 카드 수 규칙에서 이유 카드로, D-V1-17·D-V1-18) */
+const reasonIds = (entries: readonly SmsEntry[]): ReadonlySet<string> => new Set(entries.filter((entry) => entry.reason !== null).map((entry) => entry.card.id))
+
+/** "확인 필요" 구매자로 넣은 카드인가 — 뒤 4자리도 이름도 말하지 않았다(메모 `확인 필요`, D-V1-21) */
+export const smsUnknownBuyer = (entry: SmsEntry): boolean => entry.card.status === 'SENT' && entry.card.reading.last4 === null && entry.card.reading.name === null
 
 /** 화면에 보이는 문자찜 카드 (열림·보내는 중·결과) */
 export const smsShown = (entry: SmsEntry): boolean => !entry.hidden && entry.card.status !== 'CLOSED'
@@ -606,14 +623,14 @@ export class VoiceController {
   /** 새 카드를 맨 앞에 — 열린 카드 수 규칙은 상품 카드·문자찜 카드를 함께 센다 (D-204·D-I4-02, addVoiceCard) */
   #place(work: CardWork, module: VoiceModule, card: VoiceCard, entry?: SmsEntry): void {
     const merged: VoiceCard[] = [...work.cards, ...work.sms.map((item) => item.card)].sort((a, b) => b.createdAt - a.createdAt)
-    const next = module.addVoiceCard(merged, card)
+    const next = module.addVoiceCard(merged, card, reasonIds(work.sms))
     const byId = new Map(next.map((item) => [item.id, item]))
     work.cards = next.filter((item): item is SuggestionCard => !module.isSmsCard(item) && isOpen(item))
     const dropped: SmsDropped[] = []
     const rest = work.sms.map((item) => {
       const changed = byId.get(item.card.id)
       if (changed === undefined || changed === item.card || !module.isSmsCard(changed)) return item
-      // 넣을 수 있던(이유 없는) 카드가 넣지 않은 채 닫혔다 — 안내를 남긴다 (U-V1-01)
+      // 넣을 수 있던(이유 없는) 카드가 넣지 않은 채 닫혔다 — 안내를 남긴다 (U-V1-01). D-V1-18 뒤로는 addVoiceCard가 그런 카드를 닫지 않아 지킴 장치로만 남는다
       if (item.card.status === 'OPEN' && changed.status === 'CLOSED' && item.reason === null && item.results.length === 0) {
         const short = smsShortText(this.describeSms(item.card))
         dropped.push({ id: item.card.id, short, text: smsDroppedText(short) })
@@ -627,10 +644,12 @@ export class VoiceController {
   /** 문자찜 문장 → 같은 말이면 앞 카드에 표시, 아니면 새 문자찜 카드 (D-V1-06·07) */
   #addSms(work: CardWork, module: VoiceModule, text: string, reading: SmsReading, smsSettings: SmsVoiceSettings | null): void {
     const now = this.#host.now()
+    // 같은 말 검사: 넣었거나 넣을 수 있는 카드만 (넣지 않고 닫은 카드·이유 카드는 빼서 다시 말하면 새 카드, D-V1-17)
     const repeat = module.findSmsRepeat(
       work.sms.map((item) => item.card),
       reading,
       now,
+      reasonIds(work.sms),
     )
     if (repeat !== null) {
       work.sms = work.sms.map((item) => (item.card.id === repeat.id ? { ...item, card: module.markSmsRepeat(item.card) } : item))
@@ -1040,6 +1059,33 @@ export class VoiceController {
     this.#host.focusQuick()
   }
 
+  /**
+   * Esc가 닫을 카드 (D-V1-20): 맨 앞(가장 새) 기다리는 문자찜 카드 — 열림·저절로 넣기를 기다림·이유 없음·보내는 중 아님·고르기 아님. 없으면 null
+   */
+  smsEscTarget(): string | null {
+    if (this.#snapshot.phase !== 'on') return null
+    let best: SmsEntry | null = null
+    for (const entry of this.#snapshot.sms) {
+      const { card } = entry
+      if (card.status !== 'OPEN' || card.autoAt === null || card.candidates !== null || entry.reason !== null || entry.sending || entry.hidden) continue
+      if (best === null || card.createdAt > best.card.createdAt) best = entry
+    }
+    return best?.card.id ?? null
+  }
+
+  /** Esc = 맨 앞 기다리는 문자찜 카드의 "넣지 않기" (쓰기 없음, D-V1-20). 닫았으면 true */
+  smsEscape(): boolean {
+    const id = this.smsEscTarget()
+    if (id === null) return false
+    this.smsSkip(id)
+    return true
+  }
+
+  /** 화면에 음성 문자찜 결과 카드가 열려 있다 (Ctrl+Z 알림, D-V1-22) */
+  smsResultShown(): boolean {
+    return this.#snapshot.sms.some((entry) => entry.card.status === 'SENT' && smsShown(entry))
+  }
+
   /** 저절로 닫힌 문자찜 카드 안내의 "확인": 안내만 지운다 */
   smsDroppedSeen(id: string): void {
     if (!this.#snapshot.smsDropped.some((item) => item.id === id)) return
@@ -1138,6 +1184,13 @@ export class VoiceController {
         const line: SmsResultLine = { no: one.no, seq: outcome.seq, buyer: outcome.buyer }
         this.#replaceSms(id, (item) => ({ ...item, results: [...item.results, line] }))
         continue
+      }
+      if (outcome.kind === 'repeated') {
+        // 다른 기기가 방금 같은 말을 넣었다 — 이유 카드("닫기"만), 다시 넣지 않는다 (AC-V1-31, D-V1-13)
+        this.#smsRequests.delete(id)
+        this.#smsChoices.delete(id)
+        this.#replaceSms(id, (item) => ({ ...item, card: module.reopenSmsCard(item.card), sending: false, error: null, reason: outcome.message === '' ? SMS_VOICE_REPEATED : outcome.message }))
+        return
       }
       if (outcome.kind === 'ambiguous') {
         this.#replaceSms(id, (item) => ({ ...item, card: module.chooseSmsBuyer(item.card, outcome.candidates), sending: false, choose: outcome.message ?? null }))

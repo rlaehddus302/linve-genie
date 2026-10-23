@@ -11,7 +11,7 @@ import type { Route, ScopeRoute } from '../src/lib/router.ts'
 import { VOICE_CONSENT_KEY, VOICE_SMS_SETTINGS_KEY } from '../src/voice/storage.ts'
 import { chat, dataOf, register, sms } from './engine.ts'
 import { EngineServer } from './engine-server.ts'
-import { DATE, FakeEventSource, flush } from './support.ts'
+import { DATE, FakeEventSource, apiError, flush } from './support.ts'
 
 class FakeRecognition {
   static readonly all: FakeRecognition[] = []
@@ -93,14 +93,19 @@ describe('콘솔 음성 문자찜', () => {
     FakeRecognition.say('165번 문자찜 끝자리 1234')
     await waitFor(() => expect(smsPosts()).toHaveLength(1))
     const post = smsPosts()[0] as Record<string, unknown>
-    expect(Object.keys(post).sort()).toEqual(['b', 'last4', 'no', 'requestId', 'type'])
-    expect(post).toMatchObject({ type: 'sms', b: 'b1', no: 165, last4: '1234' })
+    // AC-V1-31·D-V1-13: 음성 쓰기 본문에는 voice: true (손 입력 본문에는 없다 — sms-page 시험)
+    expect(Object.keys(post).sort()).toEqual(['b', 'last4', 'no', 'requestId', 'type', 'voice'])
+    expect(post).toMatchObject({ type: 'sms', b: 'b1', no: 165, last4: '1234', voice: true })
     expect(JSON.stringify(engine.posts)).not.toContain('문자찜 끝자리')
-    const card = within(cards()).getByRole('listitem', { name: '165번 · 끝자리 1234 · 문자찜 카드' })
+    // D-V1-21: 번호 뒤에 품종
+    const card = within(cards()).getByRole('listitem', { name: '165번 핑크프릴 · 끝자리 1234 · 문자찜 카드' })
     await waitFor(() => expect(card.textContent).toMatch(/165번 · 문자찜 · 1등 · 받은 시각 \d{2}\/\d{2} \d{2}:\d{2}:\d{2}/))
-    expect(card.textContent).toContain('뒤 4자리 1234')
+    expect(card.textContent?.split('뒤 4자리 1234')).toHaveLength(2)
+    // 끝자리로 넣은 결과 카드에는 확인 필요 안내가 없다 (D-V1-21)
+    expect(card.textContent).not.toContain('방송 뒤 정산 화면에서 누구인지 확인해 주세요.')
     expect(within(card).getByRole('button', { name: '165번 문자찜 찜 취소하기' })).toBeDefined()
-    expect(screen.queryByRole('listitem', { name: /등록할까요|핑크프릴 .*카드/ })).toBeNull()
+    // 상품 등록 카드는 없다 (문자찜 카드 이름의 "핑크프릴 · …"은 품종 표시 — D-V1-21)
+    expect(screen.queryByRole('listitem', { name: /등록할까요|핑크프릴 [^·]*카드$/ })).toBeNull()
     // 인식 문장은 저장소에 없다
     for (let i = 0; i < window.localStorage.length; i++) expect(window.localStorage.getItem(window.localStorage.key(i) ?? '')).not.toContain('끝자리')
   })
@@ -151,23 +156,27 @@ describe('콘솔 음성 문자찜', () => {
     await openConsoleWithVoice()
     FakeRecognition.say('165번 문자찜 끝자리 1234')
     await screen.findByText('끝자리 1234 손님이 여러 명이에요. 누구인지 골라 주세요.')
-    const card = within(cards()).getByRole('listitem', { name: '165번 · 끝자리 1234 · 문자찜 카드' })
+    const card = within(cards()).getByRole('listitem', { name: '165번 핑크프릴 · 끝자리 1234 · 문자찜 카드' })
     const labels = within(card).getAllByRole('button', { name: /손님 고르기/ }).map((button) => button.textContent ?? '')
     expect(labels).toHaveLength(2)
     // 표시 이름이 같아도(구매자 목록과 같은 구분 표기) 그 손님의 찜 번호가 붙는다
     expect(labels[0]).toMatch(/^문자찜 · 뒤 4자리 1234 · 15번·30번$/)
     expect(labels[1]).toMatch(/^문자찜 · 뒤 4자리 1234 · .*22번$/)
-    expect(within(card).getAllByRole('button').map((button) => button.textContent)).toEqual([...labels, '새 손님으로 넣기', '넣지 않기'])
+    // D-V1-20: "넣지 않기"가 첫 버튼, 넣는 버튼(후보·새 손님)은 뒤이고 주 버튼 색
+    expect(within(card).getAllByRole('button').map((button) => button.textContent)).toEqual(['넣지 않기', ...labels, '새 손님으로 넣기'])
+    expect(within(card).getAllByRole('button').map((button) => button.classList.contains('button-primary'))).toEqual([false, true, true, true])
     await act(() => new Promise<void>((resolve) => setTimeout(resolve, 300)))
     expect(smsPosts()).toHaveLength(1)
-    fireEvent.click(within(card).getByRole('button', { name: '165번 · 끝자리 1234 · 문자찜 새 손님으로 넣기' }))
+    fireEvent.click(within(card).getByRole('button', { name: '165번 핑크프릴 · 끝자리 1234 · 문자찜 새 손님으로 넣기' }))
     await waitFor(() => expect(smsPosts()).toHaveLength(2))
     const second = smsPosts()[1] as Record<string, unknown>
-    expect(Object.keys(second).sort()).toEqual(['b', 'last4', 'newBuyer', 'no', 'requestId', 'type'])
+    expect(Object.keys(second).sort()).toEqual(['b', 'last4', 'newBuyer', 'no', 'requestId', 'type', 'voice'])
     expect(second).toMatchObject({ last4: '1234', newBuyer: true, no: 165 })
     expect(second.requestId).not.toBe((smsPosts()[0] as Record<string, unknown>).requestId)
     // 결과 카드: 셋째 "문자찜 · 뒤 4자리 1234" 손님(구매자 목록과 같은 구분 표기)
     await waitFor(() => expect(cards().textContent).toContain('165번 · 문자찜 · 뒤 4자리 1234 · 3 · 1등'))
+    // TE-V1-001·SA-V1-001: 이름의 구분 글자에 끝자리가 있으면 결과 줄 끝에 다시 붙이지 않는다
+    expect(cards().textContent?.split('뒤 4자리 1234')).toHaveLength(2)
     // 165번 1등은 두 후보가 아닌 새 문자 구매자
     const first = listClaims(engine.state).find((claim) => claim.no === 165 && claim.status === 'CONFIRMED')
     expect(first?.currentBuyer).toBeDefined()
@@ -180,7 +189,7 @@ describe('콘솔 음성 문자찜', () => {
     FakeRecognition.say('이민지님 165번 문자찜 끝자리 1234')
     await screen.findByText('끝자리 1234 손님의 이름이 달라요. 누구인지 골라 주세요.')
     const card = within(cards()).getByRole('listitem', { name: /이민지님 · 문자찜 카드$/ })
-    expect(within(card).getAllByRole('button').map((button) => button.textContent)).toEqual(['문자찜(김씨) · 끝자리 1234 · 10번', '새 손님으로 넣기', '넣지 않기'])
+    expect(within(card).getAllByRole('button').map((button) => button.textContent)).toEqual(['넣지 않기', '문자찜(김씨) · 끝자리 1234 · 10번', '새 손님으로 넣기'])
     fireEvent.click(within(card).getByRole('button', { name: /새 손님으로 넣기$/ }))
     await waitFor(() => expect(smsPosts()).toHaveLength(2))
     expect(smsPosts()[1]).toMatchObject({ memo: '이민지', last4: '1234', newBuyer: true })
@@ -207,22 +216,81 @@ describe('콘솔 음성 문자찜', () => {
     await openConsoleWithVoice()
     FakeRecognition.say('300번 문자찜')
     expect(await screen.findByText('300번 상품이 없어요.')).toBeDefined()
-    const card = within(cards()).getByRole('listitem', { name: '300번 · 손님 확인 필요 · 문자찜 카드' })
+    // D-V1-21: 이유 카드 제목은 "문자찜 · 넣지 않았어요" (번호·손님 글 없음)
+    const card = within(cards()).getByRole('listitem', { name: '문자찜 · 넣지 않았어요 카드' })
+    expect(card.textContent).toContain('문자찜 · 넣지 않았어요')
+    expect(card.textContent).not.toContain('손님 확인 필요')
     expect(within(card).getAllByRole('button').map((button) => button.textContent)).toEqual(['닫기'])
     await flush(10)
     expect(smsPosts()).toHaveLength(0)
   })
 
-  it('이유 카드에 밀려 "넣을까요?" 카드가 닫히면 안내 줄과 "확인"이 남는다 (U-V1-01)', async () => {
-    setup([register(15, '핑크프릴', 10000), register(28, '청보석', 7000), register(166, '금황', 5000)])
+  // D-V1-18 (앞 기대값 "밀려 닫히고 안내가 남는다"를 바꿈): 넣을 수 있는 문자찜 카드는 이유 카드에 밀려 닫히지 않는다
+  it('이유 카드가 쌓여도 "넣을까요?" 카드는 남고 안내 줄이 없다 (D-V1-18)', async () => {
+    setup([register(15, '', 10000), register(28, '', 7000), register(166, '금황', 5000)])
     await openConsoleWithVoice()
     for (const text of ['15번 28번 문자찜 끝자리 1234', '300번 문자찜', '166번 문자찜 끝자리 12', '166번 문자찜 취소', '문자찜 끝자리 5678']) FakeRecognition.say(text)
-    expect(within(cards()).queryByRole('listitem', { name: '15번 · 28번 · 끝자리 1234 · 문자찜 카드' })).toBeNull()
-    const notices = screen.getByRole('list', { name: '넣지 않고 닫힌 문자찜' })
-    expect(within(notices).getByRole('alert').textContent).toBe('넣지 않은 문자찜 카드를 닫았어요: 15번 · 28번 · 끝자리 1234 · 문자찜. 넣으려면 다시 말하거나 문자찜 입력에 넣어 주세요.')
-    fireEvent.click(within(notices).getByRole('button', { name: '15번 · 28번 · 끝자리 1234 · 문자찜 안내 확인' }))
+    const card = within(cards()).getByRole('listitem', { name: '15번 · 28번 · 끝자리 1234 · 문자찜 카드' })
+    expect(within(card).getAllByRole('button').map((button) => button.textContent)).toEqual(['넣지 않기', '넣기'])
     expect(screen.queryByRole('list', { name: '넣지 않고 닫힌 문자찜' })).toBeNull()
     expect(smsPosts()).toHaveLength(0)
+  })
+
+  it('"165번 문자찜" → 확인 필요 구매자로 넣고 결과 카드에 정산 안내 한 줄 (D-V1-21)', async () => {
+    setup([register(165, '핑크프릴', 10000)])
+    await openConsoleWithVoice()
+    FakeRecognition.say('165번 문자찜')
+    await waitFor(() => expect(smsPosts()).toHaveLength(1))
+    expect(smsPosts()[0]).toMatchObject({ memo: '확인 필요', voice: true })
+    await waitFor(() => expect(cards().textContent).toContain('165번 · 문자찜(확인 필요) · 1등'))
+    expect(cards().textContent).toContain('방송 뒤 정산 화면에서 누구인지 확인해 주세요.')
+  })
+
+  it('다른 기기가 방금 같은 말을 넣었으면(409 VOICE_REPEATED) "같은 말을 다른 기기에서 방금 넣었어요."와 "닫기"만 (AC-V1-31)', async () => {
+    setup([register(166, '청보석', 7000)])
+    await openConsoleWithVoice()
+    engine.failNext = apiError(409, 'VOICE_REPEATED', '같은 말을 다른 기기에서 방금 넣었어요.')
+    FakeRecognition.say('166번 문자찜')
+    expect(await screen.findByText('같은 말을 다른 기기에서 방금 넣었어요.')).toBeDefined()
+    const card = within(cards()).getByRole('listitem', { name: '문자찜 · 넣지 않았어요 카드' })
+    expect(within(card).getAllByRole('button').map((button) => button.textContent)).toEqual(['닫기'])
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 300)))
+    expect(smsPosts()).toHaveLength(0)
+  })
+
+  it('PC 폭: 기다리는 카드에 "Esc" 표시, Esc → 맨 앞 카드만 닫고 쓰기 없음, 빠른 입력칸에 글자가 있으면 그대로 (D-V1-20, AC-V1-32)', async () => {
+    setup([register(165, '핑크프릴', 10000), register(166, '', 7000)], { 'voice.smsAutoSec': 10 })
+    await openConsoleWithVoice()
+    FakeRecognition.say('165번 문자찜 끝자리 1234')
+    FakeRecognition.say('166번 문자찜 끝자리 5678')
+    const newer = within(cards()).getByRole('listitem', { name: '166번 · 끝자리 5678 · 문자찜 카드' })
+    const older = within(cards()).getByRole('listitem', { name: '165번 핑크프릴 · 끝자리 1234 · 문자찜 카드' })
+    expect(within(newer).getAllByRole('button').map((button) => button.textContent)).toEqual(['넣지 않기', '지금 넣기'])
+    expect(newer.textContent).toContain('Esc')
+    expect(older.textContent).not.toContain('Esc')
+    const quick = screen.getByLabelText('빠른 입력') as HTMLInputElement
+    quick.focus()
+    fireEvent.change(quick, { target: { value: '15' } })
+    fireEvent.keyDown(quick, { key: 'Escape' })
+    expect(within(cards()).queryByRole('listitem', { name: '166번 · 끝자리 5678 · 문자찜 카드' })).not.toBeNull()
+    fireEvent.change(quick, { target: { value: '' } })
+    fireEvent.keyDown(quick, { key: 'Escape' })
+    expect(within(cards()).queryByRole('listitem', { name: '166번 · 끝자리 5678 · 문자찜 카드' })).toBeNull()
+    expect(within(cards()).getByRole('listitem', { name: '165번 핑크프릴 · 끝자리 1234 · 문자찜 카드' }).textContent).toContain('Esc')
+    expect(smsPosts()).toHaveLength(0)
+  })
+
+  it('되돌릴 것이 없을 때 Ctrl+Z → 결과 카드가 열려 있으면 알림만 (D-V1-22, AC-V1-33)', async () => {
+    setup([register(165, '핑크프릴', 10000)])
+    await openConsoleWithVoice()
+    fireEvent.keyDown(window, { key: 'z', code: 'KeyZ', ctrlKey: true })
+    expect(screen.queryByText("문자찜은 카드의 '찜 취소하기'로 취소해요.")).toBeNull()
+    FakeRecognition.say('165번 문자찜 끝자리 1234')
+    await waitFor(() => expect(cards().textContent).toContain('165번 · 문자찜 · 1등'))
+    const before = engine.posts.length
+    fireEvent.keyDown(window, { key: 'z', code: 'KeyZ', ctrlKey: true })
+    expect(await screen.findByText("문자찜은 카드의 '찜 취소하기'로 취소해요.")).toBeDefined()
+    expect(engine.posts).toHaveLength(before)
   })
 })
 

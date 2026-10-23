@@ -781,11 +781,12 @@ function ResultCard({
   const who = result.buyer ?? claim?.buyer ?? null
   const reviewed = useSentToReview(api, result, missing)
   const { body, tone } = smsResultWords(api, result, claim, caught, reviewed)
+  const suffix = smsLast4Suffix(body, result.phoneLast4)
   return (
     <section className="sms-result" aria-label="넣은 결과" data-tone={tone}>
       <p role="status">
         <strong>{body}</strong>
-        {result.phoneLast4 !== null ? <span> · 뒤 4자리 {result.phoneLast4}</span> : null}
+        {suffix !== null ? <span>{suffix}</span> : null}
       </p>
       <div className="row">
         {caught && claim !== undefined && isActive(claim) ? (
@@ -801,6 +802,15 @@ function ResultCard({
       </div>
     </section>
   )
+}
+
+/**
+ * 결과 줄 끝의 " · 뒤 4자리 1234" (AC-S06-14). 결과 문장의 구매자 이름에 같은 이름 구분 글자(D-098 "뒤 4자리 1234")가 이미 있으면 붙이지 않는다 —
+ * 같은 끝자리가 한 줄에 두 번 나오지 않게 (TE-V1-001·SA-V1-001)
+ */
+export function smsLast4Suffix(body: string, last4: string | null): string | null {
+  if (last4 === null || body.includes(`뒤 4자리 ${last4}`)) return null
+  return ` · 뒤 4자리 ${last4}`
 }
 
 /** 넣은 문자찜 하나 (손 입력·음성 문자찜 결과 카드가 같이 쓴다) */
