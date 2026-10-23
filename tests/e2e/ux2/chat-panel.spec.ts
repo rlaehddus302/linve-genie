@@ -295,24 +295,35 @@ test('AC-UX2-13: 찜으로 바꾸기를 보낸 뒤 줄이 접혀도 대기·결�
   await expect(hello).toContainText('15번 1등')
 })
 
+const TENS = ['', '열', '스물', '서른'] as const
+const UNITS = ['', '한', '두', '세', '네', '다섯', '여섯', '일곱', '여덟', '아홉'] as const
+/** 1~30을 숫자 없는 순서말로 (첫째·둘째·…·열한째·스무째·서른째) */
+function ordinal(n: number): string {
+  if (n === 1) return '첫째'
+  if (n === 2) return '둘째'
+  if (n === 20) return '스무째'
+  return `${TENS[Math.floor(n / 10)]!}${UNITS[n % 10]!}째`
+}
+
 test('AC-UX2-14: 휴대폰 375 — 버튼이 보이거나 사라져도 새 메시지를 따라 내려가고, 올려 보면 "새 메시지 n개"', async ({ browser, baseURL }) => {
   const page = await phone(browser, baseURL)
   const b = await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
-  for (let i = 1; i <= 30; i++) await chat(page, b, `시청자${String(i)}`, `잡담 ${String(i)}번째 이야기`)
+  // 본문에 숫자를 넣지 않는다 — "30번"처럼 번호로 읽히면 언급·주문 줄이 되어 잡담 줄 시험이 아니게 된다
+  for (let i = 1; i <= 30; i++) await chat(page, b, `시청자${String(i)}`, `잡담 ${ordinal(i)} 이야기`)
   const list = chatList(page)
-  await expect(row(page, '잡담 30번째 이야기')).toBeVisible()
+  await expect(row(page, '잡담 서른째 이야기')).toBeVisible()
   const atBottom = () => list.evaluate((ol) => ol.scrollHeight - ol.scrollTop - ol.clientHeight <= 24)
   await expect.poll(atBottom).toBe(true)
   // 맨 아래 줄을 눌러 버튼을 펼친다
-  const last = row(page, '잡담 30번째 이야기')
-  await last.getByText('잡담 30번째 이야기').tap()
+  const last = row(page, '잡담 서른째 이야기')
+  await last.getByText('잡담 서른째 이야기').tap()
   await expect(convertButton(last)).toBeVisible()
   await noHorizontalScroll(page)
   await chat(page, b, '새사람', '새로 온 이야기')
   await expect(row(page, '새로 온 이야기')).toBeInViewport()
   await expect.poll(atBottom).toBe(true)
   // 접는다
-  await last.getByText('잡담 30번째 이야기').tap()
+  await last.getByText('잡담 서른째 이야기').tap()
   await expect(convertButton(last)).toHaveCount(0)
   await chat(page, b, '새사람', '또 온 이야기')
   await expect(row(page, '또 온 이야기')).toBeInViewport()
@@ -321,8 +332,8 @@ test('AC-UX2-14: 휴대폰 375 — 버튼이 보이거나 사라져도 새 메�
   // 위로 올려 보는 중엔 자리를 지키고 "새 메시지 n개"
   await list.evaluate((ol) => { ol.scrollTop = 0 })
   await expect.poll(atBottom).toBe(false)
-  const first = row(page, '잡담 1번째 이야기')
-  await first.getByText('잡담 1번째 이야기').tap()
+  const first = row(page, '잡담 첫째 이야기')
+  await first.getByText('잡담 첫째 이야기').tap()
   await expect(convertButton(first)).toBeVisible()
   await chat(page, b, '새사람', '안 보이는 이야기')
   await expect(page.getByRole('button', { name: '새 메시지 1개' })).toBeVisible()
