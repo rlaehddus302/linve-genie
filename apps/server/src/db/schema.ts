@@ -328,6 +328,11 @@ export const outbox = pgTable(
      * 실행기(I1·Y1)의 실행 대상 조회는 rehearsal = false AND restored = false 행만 본다(executableOutboxRows)
      */
     restored: boolean('restored').notNull().default(false),
+    /**
+     * 게시 경로 (X1 D-X1-19): null = 공식 API(실행기), 'EXTENSION' = 크롬 확장에 맡긴 실시간 채팅 감사.
+     * 확장에 맡긴 행은 공식 실행기가 집지 않고(보내기·확인 모두), 맡김이 끝나도 저절로 공식으로 넘기지 않는다(수동 재전송만 지운다)
+     */
+    via: text('via'),
   },
   (t) => [
     unique('outbox_effect_uq').on(t.sellerId, t.scopeId, t.effectId),
@@ -1706,6 +1711,131 @@ export const parcelSettings = pgTable('parcel_settings', {
   updatedAt: timestamptz('updated_at').notNull(),
 })
 
+/**
+ * 크롬 확장 연결 코드 (X1 YT-10 AC4, D-X1-07): 판매자가 설정에서 받는 8자리 일회용 코드. 코드는 해시로만 둔다. 10분, 한 번만
+ */
+export const extCodes = pgTable(
+  'ext_codes',
+  {
+    codeHash: text('code_hash').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    accountId: text('account_id').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+    expiresAt: timestamptz('expires_at').notNull(),
+    usedAt: timestamptz('used_at'),
+  },
+  (t) => [index('ext_codes_seller_idx').on(t.sellerId)],
+)
+
+/**
+ * 크롬 확장 토큰 (X1 YT-10 AC4, D-X1-08): 해시로만 둔다. 판매자마다 끊지 않은 토큰은 하나(부분 고유 색인).
+ * 끊기·다시 만들기·30일 쓰지 않음으로 끊는다(revoked_reason: DISCONNECTED · RENEWED · IDLE)
+ */
+export const extTokens = pgTable(
+  'ext_tokens',
+  {
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    tokenHash: text('token_hash').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+    createdBy: text('created_by').notNull(),
+    lastUsedAt: timestamptz('last_used_at').notNull(),
+    revokedAt: timestamptz('revoked_at'),
+    revokedReason: text('revoked_reason'),
+  },
+  (t) => [
+    unique('ext_tokens_hash_uq').on(t.tokenHash),
+    uniqueIndex('ext_tokens_active_uq')
+      .on(t.sellerId)
+      .where(sql`${t.revokedAt} is null`),
+  ],
+)
+
+/**
+ * 확장 채팅 ↔ 라이브찜 회차 (X1 YT-10 AC6, D-X1-10): 영상 ID로 자동(AUTO — YT-02 연결) 또는 팝업에서 고름(PICK).
+ * 끊지 않은 것 중 영상 하나 = 회차 하나 (부분 고유 색인 둘)
+ */
+export const extBindings = pgTable(
+  'ext_bindings',
+  {
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    tokenId: text('token_id').notNull(),
+    videoId: text('video_id').notNull(),
+    broadcastId: text('broadcast_id').notNull(),
+    how: text('how').notNull(),
+    linkedAt: timestamptz('linked_at').notNull(),
+    unboundAt: timestamptz('unbound_at'),
+  },
+  (t) => [
+    uniqueIndex('ext_bindings_video_uq')
+      .on(t.sellerId, t.videoId)
+      .where(sql`${t.unboundAt} is null`),
+    uniqueIndex('ext_bindings_broadcast_uq')
+      .on(t.sellerId, t.broadcastId)
+      .where(sql`${t.unboundAt} is null`),
+  ],
+)
+
+/**
+ * 확장 상태 (X1 YT-10 AC7, D-X1-11): 판매자마다 마지막 상태 하나 — 받은 시각, 탭이 뒤로 갔는지, 읽은·읽지 못한 수,
+ * 읽지 못함만 이어진 첫 시각, 마지막으로 채팅을 받은 시각. 채팅 내용·닉네임은 없다
+ */
+export const extStatus = pgTable('ext_status', {
+  sellerId: text('seller_id')
+    .primaryKey()
+    .references(() => sellers.id),
+  tokenId: text('token_id').notNull(),
+  videoId: text('video_id'),
+  statusAt: timestamptz('status_at').notNull(),
+  hidden: boolean('hidden').notNull(),
+  readCount: integer('read_count').notNull(),
+  unreadCount: integer('unread_count').notNull(),
+  dropped: integer('dropped').notNull(),
+  unreadSince: timestamptz('unread_since'),
+  lastChatAt: timestamptz('last_chat_at'),
+})
+
+/**
+ * 확장으로 감사 채팅 올리기 스위치 (X1 YT-10 AC11, D-X1-17·18): 판매자마다 하나. 기본 꺼짐(행 없음 또는 enabled_at null).
+ * 켠 시각 이후에 생긴 감사만 확장에 맡긴다(다음 감사부터)
+ */
+export const extPostSettings = pgTable('ext_post_settings', {
+  sellerId: text('seller_id')
+    .primaryKey()
+    .references(() => sellers.id),
+  enabledAt: timestamptz('enabled_at'),
+  enabledBy: text('enabled_by'),
+  updatedAt: timestamptz('updated_at').notNull(),
+})
+
+/**
+ * 확장 감사 올리기의 회차별 상태 (X1 YT-10 AC12·AC14·AC17, D-X1-20·21·24): 연달아 실패한 수·멈춘 시각, 로그인 계정이 방송 채널 주인이
+ * 아니라고 본 시각, 확인한 주인 채널 ID(자기 글을 채팅 기록에서 뺀다), 마지막으로 맡긴·끝난 시각(글 사이 3초). 채팅 내용은 없다
+ */
+export const extPostLanes = pgTable(
+  'ext_post_lanes',
+  {
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    broadcastId: text('broadcast_id').notNull(),
+    fails: integer('fails').notNull().default(0),
+    pausedAt: timestamptz('paused_at'),
+    ownerProblemAt: timestamptz('owner_problem_at'),
+    ownerChannelId: text('owner_channel_id'),
+    lastTakenAt: timestamptz('last_taken_at'),
+    lastDoneAt: timestamptz('last_done_at'),
+  },
+  (t) => [unique('ext_post_lanes_uq').on(t.sellerId, t.broadcastId)],
+)
+
 // ── AI 확인 필요 제안 (A1, SPEC CMT-06, R-20 10, D-A1-03·D-A1-04·D-A1-06) ─────────────
 // 제안은 판정이 아니다 — 이 표들은 엔진 이벤트와 상관없다. 댓글 원문·가린 글·요청·응답 본문은 어느 표에도 두지 않는다.
 
@@ -1834,6 +1964,12 @@ export const schema = {
   parcels,
   parcelRequests,
   parcelSettings,
+  extCodes,
+  extTokens,
+  extBindings,
+  extStatus,
+  extPostSettings,
+  extPostLanes,
   assistSettings,
   assistCache,
   assistCalls,

@@ -35,6 +35,8 @@ import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.t
 import { WEBHOOK_PATH, registerBillingRoutes } from './billing/api.ts'
 import type { BillingService } from './billing/service.ts'
 import { registerDepositRoutes } from './deposit/api.ts'
+import { registerExtensionRoutes } from './extension/routes.ts'
+import type { ExtensionService } from './extension/service.ts'
 import type { DepositService } from './deposit/service.ts'
 import { registerParcelRoutes } from './parcel/api.ts'
 import type { ParcelBrief, ParcelService } from './parcel/service.ts'
@@ -90,6 +92,8 @@ export interface ApiDeps {
   readonly parcels?: { readonly service: ParcelService; readonly db: Db }
   /** 간편 로그인 (L1). 없거나 켜진 공급자가 없으면 /api/auth/**는 404이고 client-config에 loginProviders가 없다 */
   readonly social?: SocialLogin | null
+  /** 크롬 확장으로 채팅 읽기 (X1). 없으면 /api/extension 경로가 없다 */
+  readonly extension?: ExtensionService
   /** AI 확인 필요 제안 (A1). 없으면 /api/assist/** 경로가 없다 */
   readonly assist?: AssistService
 }
@@ -906,6 +910,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
 
   // ── 택배 자동 접수 (T1, PARCEL_RULES) — 판매자만(보조자는 roles.ts 허용 목록 밖이라 403) ──
   if (deps.parcels !== undefined) registerParcelRoutes(api, deps.parcels.service, deps.parcels.db)
+  if (deps.extension !== undefined) registerExtensionRoutes(api, deps.extension)
 
   // 시험용 시청자 채팅 (입금 확인 시험 모드에서만 — 운영 기동에는 경로 자체가 없다, 404. SA-N3-03·D-N3-12).
   // 실제 방송에도 유튜브 구매자를 만들 수 있게(기억한 입금자명 흐름 E2E, AC-N3-42·46) 수집 함수(ingestChat, 조치자 수집기)를 그대로 부른다.

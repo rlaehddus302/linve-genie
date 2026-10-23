@@ -49,6 +49,8 @@ export interface RunnerRow {
   readonly confirmedBy: string | null
   /** 알림에서 뺀 시각 (AC-I3-36) */
   readonly dismissedAt: Date | null
+  /** 게시 경로 (null = 공식, 'EXTENSION' = 크롬 확장, X1 D-X1-19) */
+  readonly via: string | null
 }
 
 const columns = {
@@ -81,6 +83,7 @@ const columns = {
   createdAt: outbox.createdAt,
   confirmedBy: outbox.confirmedBy,
   dismissedAt: outbox.dismissedAt,
+  via: outbox.via,
 }
 
 const select = (db: Db) =>
@@ -110,7 +113,7 @@ export function newThanksRows(db: Db, limit = 500): Promise<RunnerRow[]> {
 /** 기다리는 행 중 때가 된 것 (다음 시도 시각 ≤ 지금) */
 export function dueRows(db: Db, now: Date, limit = 1000): Promise<RunnerRow[]> {
   return select(db)
-    .where(and(REAL, eq(outbox.state, 'WAITING'), lte(outbox.nextAt, now)))
+    .where(and(REAL, eq(outbox.state, 'WAITING'), lte(outbox.nextAt, now), isNull(outbox.via)))
     .orderBy(asc(outbox.id))
     .limit(limit)
 }
@@ -118,7 +121,7 @@ export function dueRows(db: Db, now: Date, limit = 1000): Promise<RunnerRow[]> {
 /** 보내는 중인 행 (타임아웃 확인·서버가 죽었다 살아난 뒤 확인) */
 export function sendingRows(db: Db): Promise<RunnerRow[]> {
   return select(db)
-    .where(and(REAL, eq(outbox.state, 'SENDING')))
+    .where(and(REAL, eq(outbox.state, 'SENDING'), isNull(outbox.via)))
     .orderBy(asc(outbox.id))
 }
 
@@ -263,6 +266,7 @@ export interface RowChange {
   readonly leaseUntil?: Date | null
   readonly dismissedAt?: Date | null
   readonly dismissedBy?: string | null
+  readonly via?: string | null
 }
 
 /**
@@ -506,4 +510,82 @@ export async function insertSummaryRows(db: Db, rows: readonly NewSummaryRow[]):
       })),
     )
     .onConflictDoNothing({ target: [outbox.sellerId, outbox.scopeId, outbox.effectId] })
+}
+
+// ── 크롬 확장에 맡긴 실시간 채팅 감사 (X1 YT-10 AC13~AC17, D-X1-19·21·23) ─────────────
+// 맡긴 행: via = 'EXTENSION'. 기다림(WAITING, reason EXTENSION, next_at 없음 — 공식 실행기의 dueRows가 집지 않는다) →
+// 확장이 가져감(SENDING, lease_owner = EXT_LEASE_OWNER, 60초) → 게시됨(SENT, 게시 보고는 실행기의 unreportedRows가 한다)·확인 필요(FAILED UNCONFIRMED)·
+// 안 올림(다시 WAITING EXTENSION). 공식 실행기의 sendingRows도 이 행을 집지 않는다 — 한 건은 한 경로에만.
+
+/** 확장이 가져간 행의 임대 주인 */
+export const EXT_LEASE_OWNER = 'extension'
+export const EXT_VIA = 'EXTENSION'
+
+/** 기다리는 실시간 채팅 감사를 확장에 맡긴다 (공식 실행기가 직전 확인에서 — 기다리는 행만). 바꾼 행 ID */
+export async function handToExtension(db: Db, sellerId: string, ids: readonly number[], now: Date): Promise<number[]> {
+  if (ids.length === 0) return []
+  const rows = await db
+    .update(outbox)
+    .set({ via: EXT_VIA, reason: 'EXTENSION', nextAt: null, groupId: null, leaseOwner: null, leaseUntil: null, updatedAt: now })
+    .where(and(REAL, eq(outbox.sellerId, sellerId), inArray(outbox.id, [...ids]), eq(outbox.state, 'WAITING'), eq(outbox.target, 'LIVE_CHAT'), eq(outbox.manual, false), isNull(outbox.via)))
+    .returning({ id: outbox.id })
+  return rows.map((row) => row.id)
+}
+
+/** 그 회차의 확장에 맡겨 기다리는 감사 (효과가 나온 순서) */
+export function extensionWaitingRows(db: Db, sellerId: string, broadcastId: string): Promise<RunnerRow[]> {
+  return select(db)
+    .where(and(REAL, eq(outbox.sellerId, sellerId), eq(outbox.broadcastId, broadcastId), eq(outbox.via, EXT_VIA), eq(outbox.state, 'WAITING')))
+    .orderBy(asc(outbox.id))
+}
+
+/** 그 회차의 확장이 가져가 결과를 기다리는 감사 */
+export function extensionSendingRows(db: Db, sellerId: string, broadcastId: string): Promise<RunnerRow[]> {
+  return select(db)
+    .where(and(REAL, eq(outbox.sellerId, sellerId), eq(outbox.broadcastId, broadcastId), eq(outbox.via, EXT_VIA), eq(outbox.state, 'SENDING')))
+    .orderBy(asc(outbox.id))
+}
+
+/** 확장 행들 (발송함 ID로 — 결과 알림) */
+export function extensionRowsById(db: Db, sellerId: string, ids: readonly number[]): Promise<RunnerRow[]> {
+  if (ids.length === 0) return Promise.resolve([])
+  return select(db)
+    .where(and(REAL, eq(outbox.sellerId, sellerId), eq(outbox.via, EXT_VIA), inArray(outbox.id, [...ids])))
+    .orderBy(asc(outbox.id))
+}
+
+/** 기한이 지난 확장 기다림 행·결과 없이 임대가 지난 확장 행 (모든 판매자 — 실행기 바퀴마다) */
+export function extensionLapsedRows(db: Db, now: Date, limit = 500): Promise<RunnerRow[]> {
+  return select(db)
+    .where(
+      and(
+        REAL,
+        eq(outbox.via, EXT_VIA),
+        or(and(eq(outbox.state, 'WAITING'), lte(outbox.deadlineAt, now)), and(eq(outbox.state, 'SENDING'), lte(outbox.leaseUntil, now))),
+      ),
+    )
+    .orderBy(asc(outbox.id))
+    .limit(limit)
+}
+
+/**
+ * 확장 행을 바꾼다 (via = EXTENSION인 행만, 기대한 상태일 때만 — 한 문장으로). 같은 결과를 두 번 알려도 두 번째는 바꾸는 행이 없다. 바꾼 행 ID
+ */
+export async function updateExtensionRows(db: Db, sellerId: string, ids: readonly number[], change: RowChange, now: Date, expectStates: readonly string[]): Promise<number[]> {
+  if (ids.length === 0) return []
+  const rows = await db
+    .update(outbox)
+    .set({ ...change, updatedAt: now })
+    .where(and(REAL, eq(outbox.sellerId, sellerId), eq(outbox.via, EXT_VIA), inArray(outbox.id, [...ids]), inArray(outbox.state, [...expectStates])))
+    .returning({ id: outbox.id })
+  return rows.map((row) => row.id)
+}
+
+/** 기다리던 확장 행 → 보내지 못함 (스위치를 껐다). 바꾼 행 (범위 ID와 함께) */
+export async function failExtensionWaiting(db: Db, sellerId: string, reason: string, now: Date): Promise<{ id: number; scopeId: string }[]> {
+  return db
+    .update(outbox)
+    .set({ state: 'FAILED', reason, nextAt: null, updatedAt: now })
+    .where(and(REAL, eq(outbox.sellerId, sellerId), eq(outbox.via, EXT_VIA), eq(outbox.state, 'WAITING')))
+    .returning({ id: outbox.id, scopeId: outbox.scopeId })
 }

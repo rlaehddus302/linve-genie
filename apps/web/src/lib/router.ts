@@ -46,7 +46,7 @@ export interface BillingRoute {
 /** 결제 ID 모양 (서버가 만든 영문·숫자 — 넉넉히 영문·숫자·'_'·'-' 1~64자) */
 const PAYMENT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 
-export type SettingsSection = 'youtube' | 'instagram' | 'tiktok' | 'parcel' | 'assist'
+export type SettingsSection = 'youtube' | 'instagram' | 'tiktok' | 'parcel' | 'extension' | 'assist'
 
 /** 입금 확인 화면의 목록 (N3) */
 export const DEPOSIT_TABS = ['review', 'done', 'ignored', 'paste', 'sources'] as const
@@ -174,6 +174,7 @@ export function parseRoute(pathname: string, search = ''): Route {
   if (path === '/settings/instagram') return { name: 'settings', section: 'instagram' }
   if (path === '/settings/tiktok') return { name: 'settings', section: 'tiktok' }
   if (path === '/settings/parcel') return { name: 'settings', section: 'parcel' }
+  if (path === '/settings/extension') return { name: 'settings', section: 'extension' }
   if (path === '/settings/assist') return { name: 'settings', section: 'assist' }
   if (path === '/start') return { name: 'start', ...result }
   if (path === '/privacy') return { name: 'privacy' }

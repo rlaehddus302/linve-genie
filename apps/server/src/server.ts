@@ -42,6 +42,10 @@ import { tiktokLinkCounts } from './tiktok-live/store.ts'
 import { instagramDmCounts } from './ops-store.ts'
 import { DepositService, type DepositOptions } from './deposit/service.ts'
 import { ParcelService, type ParcelOptions } from './parcel/service.ts'
+import { createExtensionApp } from './extension/routes.ts'
+import { ExtensionService } from './extension/service.ts'
+import { ExtensionThanks } from './extension/thanks.ts'
+import { connectionAddress } from './api.ts'
 import { readQueue } from './print-store.ts'
 import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
@@ -231,6 +235,8 @@ export interface LivejjimServer {
   readonly parcels: ParcelService
   /** 간편 로그인 (L1 — 설정이 없으면 켜진 공급자가 없다) */
   readonly social: SocialLogin
+  /** 크롬 확장으로 채팅 읽기 (X1) */
+  readonly extension: ExtensionService
   /** AI 확인 필요 제안 (A1 — 키가 없으면 규칙 제안만) */
   readonly assist: AssistService
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
@@ -435,6 +441,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
   // 구매자 확인서 공유 링크 (N4b) — 링크 주소 = 앱 주소 + /r/<토큰>
   const receiptLinks = new ReceiptLinkService({ db, writer, clock, masterKey, appOrigin: options.appOrigin, closing, log })
   const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)
+  // 크롬 확장으로 감사 채팅 올리기 (X1 AC11~AC17) — 공식 발송함 실행기가 공식으로 올릴 수 없는 회차의 감사를 맡긴다
+  const extensionThanks = new ExtensionThanks({ db, timer, log, writer, publishOutbox: publishYoutube })
   const youtube: YoutubeSystem | null =
     options.youtube === undefined
       ? null
@@ -454,6 +462,10 @@ export function createServer(options: ServerOptions): LivejjimServer {
           ...(options.linkHooks === undefined ? {} : { linkHooks: options.linkHooks }),
           ...(options.collectorTiming === undefined ? {} : { collectorTiming: options.collectorTiming }),
           ...(options.outboxTiming === undefined ? {} : { outboxTiming: options.outboxTiming }),
+          outboxExtension: {
+            route: (sellerId, broadcastId) => extensionThanks.route(sellerId, broadcastId),
+            sweep: () => extensionThanks.sweep(),
+          },
           health,
         })
   const sealer = new Sealer({
@@ -552,6 +564,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
     options: options.deposits ?? {},
   })
   const parcels = new ParcelService({ db, writer, clock, timer, masterKey, hub, log, work, options: options.parcel ?? {} })
+  // 크롬 확장으로 채팅 읽기 (X1 YT-10 — 읽기만, 공식 수집기와 같은 '채팅' 이벤트)
+  const extension = new ExtensionService({ db, service, timer, log, thanks: extensionThanks, publish: (sellerId, view) => hub.publishExtension(sellerId, { ...view }) })
   const social = new SocialLogin({
     db,
     masterKey,
@@ -588,8 +602,10 @@ export function createServer(options: ServerOptions): LivejjimServer {
       sealer,
       trustedProxies,
       social,
+      extension,
       assist,
     },
+    extension: createExtensionApp({ extension, clock, trustedProxies, address: connectionAddress }) as unknown as Hono,
     https: options.appOrigin.startsWith('https://'),
     web: options.webDir === undefined ? null : createWebServer(options.webDir),
     ready: async () => {
@@ -627,6 +643,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     deposits,
     parcels,
     social,
+    extension,
     assist,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     start: () => {
@@ -644,6 +661,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       instagramModule.close()
       tiktokLive.close()
       deposits.close()
+      extension.close()
       hub.closeAll()
       backups.stop()
       void stop()

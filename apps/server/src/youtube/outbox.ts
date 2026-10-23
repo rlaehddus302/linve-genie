@@ -32,6 +32,8 @@ import {
   failWaiting,
   findRow,
   groupRows,
+  EXT_VIA,
+  handToExtension,
   insertSummaryRows,
   newThanksRows,
   openWindowAt,
@@ -76,6 +78,8 @@ export const OUTBOX_REASON_MESSAGES = {
   REJECTED: '유튜브가 받지 않았어요.',
   UNCONFIRMED: '올라갔는지 확인하지 못했어요. 유튜브에서 확인하고 없으면 다시 보내 주세요.',
   SEALED: '30일이 지나 보내지 않았어요.',
+  // 보내지 못함 — 크롬 확장 (X1 D-X1-18·24)
+  EXT_OFF: '확장으로 감사 올리기를 꺼서 보내지 않았어요.',
   // 건너뜀
   CANCELLED: '확정이 풀린 판매라 보내지 않아요.',
   // 건너뜀 — 여러 플랫폼 회차의 감사 경로 (D-N2b-2-09): 틱톡 구매자 · 유튜브를 이은 적 없는 회차의 유튜브·문자 구매자
@@ -83,6 +87,8 @@ export const OUTBOX_REASON_MESSAGES = {
   NO_RECIPIENT: '이 방송에는 유튜브가 이어진 적이 없어 감사를 보내지 않았어요.',
   // 기다림
   WINDOW: '묶어서 보내려고 기다리는 중이에요.',
+  // 기다림 — 크롬 확장에 맡김 (X1 D-X1-19)
+  EXTENSION: '크롬 확장으로 올리려고 기다리는 중이에요.',
   RETRY: '다시 보내려고 기다리는 중이에요.',
   RECONNECT: '유튜브 연결을 다시 해 주세요.',
   QUOTA: '오늘 유튜브 사용량이 얼마 남지 않아 기다리는 중이에요.',
@@ -99,6 +105,7 @@ export const RESEND_MESSAGES = {
   ALREADY_SENT: '이미 게시된 감사예요.',
   QUOTA_PAUSED: '오늘 유튜브 사용량이 얼마 남지 않아 채팅 수집에 남겨 둬요.',
   NOT_ALLOWED: '다시 보낼 수 없는 감사예요.',
+  NO_ROUTE: '유튜브를 연결하거나 크롬 확장으로 감사 채팅 올리기를 켜 주세요.',
 } as const
 
 /** 자동 게시 기한 (AC-Y1-37) */
@@ -150,6 +157,19 @@ export interface OutboxHooks {
   readonly beforeRetryToken?: () => void | Promise<void>
 }
 
+/** 크롬 확장 감사 올리기 (X1 YT-10 AC13, D-X1-19) */
+export interface OutboxExtension {
+  /**
+   * 그 회차를 확장으로 올릴 수 있으면 확장 스위치를 켠 시각(그 뒤에 생긴 감사만 맡긴다), 아니면 null.
+   * 공식 경로로 올릴 수 없을 때(이은 방송 없음·연결이 살아 있지 않음·게시 권한 없음)만 묻는다
+   */
+  readonly route: (sellerId: string, broadcastId: string) => Promise<Date | null>
+  /** 기한이 지난 맡김·결과 없이 60초가 지난 맡김을 정리한다 (바퀴마다) */
+  readonly sweep: () => Promise<void>
+  /** 확장에 맡겼다 (확장에 알림) */
+  readonly handed?: (sellerId: string, broadcastId: string) => void
+}
+
 export interface OutboxOptions {
   readonly db: Db
   readonly timer: Timer
@@ -170,6 +190,8 @@ export interface OutboxOptions {
   readonly onPass?: (ok: boolean) => void
   /** 시간 (E2E 기동만 줄인다) */
   readonly timing?: OutboxTiming
+  /** 크롬 확장 감사 올리기 (X1) — 없으면 공식 경로만 */
+  readonly extension?: OutboxExtension
 }
 
 export interface OutboxRowView {
@@ -195,6 +217,8 @@ export interface OutboxRowView {
   /** 알림에서 뺀 행 (알림 띠 "감사 실패"에서 세지 않는다, AC-I3-36) */
   readonly dismissed: boolean
   readonly dismissedAt: string | null
+  /** 크롬 확장에 맡긴 행 (X1 D-X1-19) */
+  readonly viaExtension: boolean
 }
 
 class Killed extends Error {
@@ -244,6 +268,7 @@ export function outboxRowView(row: RunnerRow, all: readonly RunnerRow[] = []): O
     confirmedBySeller: row.confirmedBy !== null,
     dismissed: row.dismissedAt !== null,
     dismissedAt: row.dismissedAt?.toISOString() ?? null,
+    viaExtension: row.via !== null,
   }
 }
 
@@ -319,7 +344,7 @@ export class OutboxRunner {
     if (this.#running !== null) return this.#running
     this.#running = (async () => {
       this.#passFailed = false
-      const steps = [() => this.#options.quota.tick(), () => this.#intake(), () => this.#confirmAll(), () => this.#sendDue(), () => this.#reportAll(), () => this.#summaries()]
+      const steps = [() => this.#options.quota.tick(), () => this.#intake(), () => this.#confirmAll(), () => this.#sendDue(), () => this.#options.extension?.sweep(), () => this.#reportAll(), () => this.#summaries()]
       for (const step of steps) {
         if (this.#killed) return
         try {
@@ -408,7 +433,14 @@ export class OutboxRunner {
         postText: target === 'LIVE_CHAT' ? liveChatText(effect.text) : commentText(effect.text),
       }
       // 효과가 나온 때 그 대상의 동의가 없었으면 나중에 켜도 자동으로 보내지 않는다 (D-Y12)
-      if (consentAt === null || consentAt.getTime() > created) {
+      // 유튜브 공식 연결이 아예 없으면(YT-04 동의를 켤 수 없다) 확장 감사 스위치 동의(D-X1-17~19)를 그 회차 실시간 채팅 감사의 동의로 본다 — 맡길지는 #gate가 정한다.
+      // 공식 연결이 있으면 AC11대로 YT-04 동의와 스위치가 둘 다 있어야 한다
+      const officialOk = consentAt !== null && consentAt.getTime() <= created
+      const extensionOk =
+        connection === null && target === 'LIVE_CHAT' && this.#options.extension !== undefined && effect.broadcast !== null
+          ? ((await this.#options.extension.route(row.sellerId, effect.broadcast))?.getTime() ?? Infinity) <= created
+          : false
+      if (!officialOk && !extensionOk) {
         await this.#update(row, [row.id], { ...base, state: 'FAILED', reason: 'NO_CONSENT' }, { state: null })
         this.#publishRows(row.sellerId, row.date, [row.id], 'FAILED', 'NO_CONSENT')
         continue
@@ -569,11 +601,30 @@ export class OutboxRunner {
       return null
     }
     const connection = await this.#options.connections.row(sellerId)
+    const link = connection === null ? null : await activeLink(this.#options.db, sellerId, first.broadcastId ?? '')
+    if (connection !== null && link !== null && link.channelId !== connection.channelId) return fail('NOT_MY_CHANNEL')
+    const consentAt = connection === null ? null : target === 'LIVE_CHAT' ? connection.consentLiveChatAt : connection.consentVideoCommentAt
+    const consented = (row: RunnerRow) => row.manual || (consentAt !== null && consentAt.getTime() <= row.createdAt.getTime())
+    // 공식 경로로 올릴 수 없으면(연결 없음·살아 있지 않음·게시 권한 없음·이은 방송 없음) '동의 전'으로 끝내기 전에 확장에 맡길 수 있는지 먼저 본다 (X1 D-X1-17~19).
+    // 확장 스위치를 켠 뒤에 생긴 자동 감사만 맡기고, 맡긴 행은 공식 실행기가 다시 집지 않는다. 공식 연결이 있으면 YT-04 동의도 있어야 한다(AC11).
+    // 공식으로 올릴 수 있으면 공식만(이중 게시 금지)
+    const official = connection !== null && connection.status === 'CONNECTED' && connection.canPublish && link !== null
+    if (!official && target === 'LIVE_CHAT' && this.#options.extension !== undefined && first.broadcastId !== null) {
+      const enabledAt = await this.#options.extension.route(sellerId, first.broadcastId)
+      if (enabledAt !== null) {
+        const handed = rows.filter((row) => !row.manual && row.createdAt.getTime() >= enabledAt.getTime() && (connection === null || consented(row)))
+        if (handed.length > 0) {
+          this.#check()
+          const ids = await handToExtension(this.#options.db, sellerId, handed.map((row) => row.id), now)
+          this.#publishRows(sellerId, date, ids, 'WAITING', 'EXTENSION')
+          if (ids.length > 0) this.#options.extension.handed?.(sellerId, first.broadcastId)
+          rows = rows.filter((row) => !handed.includes(row))
+          if (rows.length === 0) return null
+        }
+      }
+    }
     if (connection === null) return fail('NO_CONSENT')
-    const link = await activeLink(this.#options.db, sellerId, first.broadcastId ?? '')
-    if (link !== null && link.channelId !== connection.channelId) return fail('NOT_MY_CHANNEL')
-    const consentAt = target === 'LIVE_CHAT' ? connection.consentLiveChatAt : connection.consentVideoCommentAt
-    const noConsent = rows.filter((row) => !row.manual && (consentAt === null || consentAt.getTime() > row.createdAt.getTime()))
+    const noConsent = rows.filter((row) => !consented(row))
     if (noConsent.length > 0) {
       await failRows(noConsent, 'NO_CONSENT')
       rows = rows.filter((row) => !noConsent.includes(row))
@@ -1090,7 +1141,7 @@ export class OutboxRunner {
     | { kind: 'not_found' }
     | {
         kind: 'rejected'
-        code: 'EFFECT_CANCELLED' | 'ALREADY_SENT' | 'RESEND_NOT_ALLOWED' | 'NO_PERMISSION' | 'NOT_LINKED' | 'NOT_MY_CHANNEL' | 'CHAT_ENDED' | 'YOUTUBE_RECONNECT_NEEDED' | 'QUOTA_PAUSED'
+        code: 'EFFECT_CANCELLED' | 'ALREADY_SENT' | 'RESEND_NOT_ALLOWED' | 'NO_PERMISSION' | 'NOT_LINKED' | 'NOT_MY_CHANNEL' | 'CHAT_ENDED' | 'YOUTUBE_RECONNECT_NEEDED' | 'QUOTA_PAUSED' | 'YOUTUBE_NOT_CONNECTED'
         message: string
         row?: OutboxRowView
       }
@@ -1121,8 +1172,50 @@ export class OutboxRunner {
       }
     }
     const connection = await this.#options.connections.row(sellerId)
-    if (connection === null || connection.status !== 'CONNECTED') return { kind: 'rejected', code: 'YOUTUBE_RECONNECT_NEEDED', message: OUTBOX_REASON_MESSAGES.RECONNECT }
     const link = await activeLink(db, sellerId, row.broadcastId ?? '')
+    if (connection !== null && link !== null && link.channelId !== connection.channelId) return { kind: 'rejected', code: 'NOT_MY_CHANNEL', message: OUTBOX_REASON_MESSAGES.NOT_MY_CHANNEL }
+    // 자동 게시와 같은 길 (X1 D-X1-19): 공식으로 올릴 수 있으면 공식, 아니면 확장 스위치·연결·회차 이어짐이면 확장에 맡긴다.
+    // 판매자가 누른 다시 보내기라 '동의 전'·'스위치 켜기 전' 감사도 보낸다(manual — 공식 경로의 수동 재전송 규칙과 같다)
+    const official = connection !== null && connection.status === 'CONNECTED' && connection.canPublish && link !== null
+    if (!official && target === 'LIVE_CHAT' && this.#options.extension !== undefined && row.broadcastId !== null) {
+      if ((await this.#options.extension.route(sellerId, row.broadcastId)) !== null) {
+        const handed = await updateRows(
+          db,
+          sellerId,
+          [row.id],
+          {
+            state: 'WAITING',
+            reason: 'EXTENSION',
+            manual: true,
+            deadlineAt: null,
+            attempts: 0,
+            groupId: null,
+            nextAt: null,
+            postText: liveChatText(effectOf(row)?.text ?? ''),
+            sentText: null,
+            attemptAt: null,
+            confirmUntil: null,
+            confirmTries: 0,
+            remoteId: null,
+            leaseOwner: null,
+            leaseUntil: null,
+            resendRequestId: requestId,
+            dismissedAt: null,
+            dismissedBy: null,
+            via: EXT_VIA,
+          },
+          now,
+          { state: 'FAILED' },
+        )
+        if (handed.length === 0) return { kind: 'rejected', code: 'RESEND_NOT_ALLOWED', message: RESEND_MESSAGES.NOT_ALLOWED }
+        this.#publishRows(sellerId, row.date, handed, 'WAITING', 'EXTENSION')
+        this.#options.extension.handed?.(sellerId, row.broadcastId)
+        const fresh = await findRow(db, sellerId, row.id)
+        return { kind: 'ok', row: outboxRowView(fresh ?? row) }
+      }
+    }
+    if (connection === null) return { kind: 'rejected', code: 'YOUTUBE_NOT_CONNECTED', message: RESEND_MESSAGES.NO_ROUTE }
+    if (connection.status !== 'CONNECTED') return { kind: 'rejected', code: 'YOUTUBE_RECONNECT_NEEDED', message: OUTBOX_REASON_MESSAGES.RECONNECT }
     // 그 방송을 이은 채널 = 지금 연결한 채널일 때만 (AC-Y1-92). 행은 그대로 FAILED
     if (link !== null && link.channelId !== connection.channelId) return { kind: 'rejected', code: 'NOT_MY_CHANNEL', message: OUTBOX_REASON_MESSAGES.NOT_MY_CHANNEL }
     if (!connection.canPublish) return { kind: 'rejected', code: 'NO_PERMISSION', message: OUTBOX_REASON_MESSAGES.NO_PERMISSION }
@@ -1153,6 +1246,8 @@ export class OutboxRunner {
         // 다시 보내면 "알림에서 뺌"은 뜻이 없다 — 또 실패하면 새 실패로 알린다 (AC-I3-36)
         dismissedAt: null,
         dismissedBy: null,
+        // 확장에 맡겼던 행도 판매자가 다시 보내면 공식 경로로 (X1 D-X1-19 — 저절로는 넘기지 않는다)
+        via: null,
       },
       now,
       { state: 'FAILED' },

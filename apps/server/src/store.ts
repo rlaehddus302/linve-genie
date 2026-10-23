@@ -784,3 +784,31 @@ export async function eventBodiesAt(db: Db, sellerId: string, scopeId: string, s
   for (const row of rows.map(withRaw)) out.set(row.seq, JSON.parse(row.body) as Record<string, unknown>)
   return out
 }
+
+/**
+ * 한 회차에 since 뒤에 받은 그 경로의 채팅 (X1 D-X1-06 다른 경로 중복 판단): 메시지 ID·작성자 채널·게시 시각·본문.
+ * 본문은 chat_raw에 있다(봉인 전). 판매자 ID 조건을 건다
+ */
+export async function recentChatsOfSource(
+  db: Db,
+  sellerId: string,
+  broadcastId: string,
+  source: string,
+  since: Date,
+): Promise<{ id: string; ch: string | null; publishedAt: number | null; text: string | null; receivedAt: number }[]> {
+  const rows = await db
+    .select({ id: events.chatMessageId, body: events.body, text: chatRaw.text, receivedAt: events.receivedAt })
+    .from(events)
+    .leftJoin(chatRaw, and(eq(chatRaw.sellerId, events.sellerId), eq(chatRaw.scopeId, events.scopeId), eq(chatRaw.seq, events.seq)))
+    .where(and(eq(events.sellerId, sellerId), eq(events.chatBroadcast, broadcastId), eq(events.chatSource, source), gt(events.receivedAt, since)))
+  return rows.flatMap((row) => {
+    if (row.id === null) return []
+    let body: Record<string, unknown>
+    try {
+      body = JSON.parse(row.body) as Record<string, unknown>
+    } catch {
+      body = {}
+    }
+    return [{ id: row.id, ch: typeof body.ch === 'string' ? body.ch : null, publishedAt: typeof body.publishedAt === 'number' ? body.publishedAt : null, text: row.text, receivedAt: row.receivedAt.getTime() }]
+  })
+}
