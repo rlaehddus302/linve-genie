@@ -30,3 +30,5 @@
 7. **이력을 기다리는 동안(D-I4-06, 2초)은 문장 대신 끝난 덩어리를 미룬다**(그때의 설정·번호 범위와 함께).
 8. 지금의 "들리는 말: …" 한 줄과 "들린 말 기록"은 그대로 두었다(기존 E2E). 큰 "들은 말" 칸은 그 위에 따로.
 9. 기존 단위 시험(`apps/web/test/voice-controller.test.ts`·`console-voice.test.tsx`)은 AC-V2-32대로 최종 결과 뒤 조용한 시간만큼 시계만 넘기도록 고쳤다(기대 글 그대로). 이력 기다림 시험 셋은 2초 안에 말한 흐름을 지키려고 넘기는 자리만 옮겼다.
+10. **(이어받기 확인, 2026-10-24)** D-V2-12~18 뒤 web은 고칠 것이 없다. D-V2-16(끊기)·D-V2-18(칸 이름 조각)은 `packages/voice` 안 판단이라 화면은 결과만 그린다. S8은 이제 `HIGH`라 자동 확정 켬이면 확정 대상이다.
+11. **device에게(AC-V2-37, D-V2-17 미구현)**: 지금 `canLearnAlias(heard, name)`는 사전을 보지 않아, `핑크문`을 다른 품종으로 고르면 배운다. 사전을 받는 모양(예: `canLearnAlias(heard, name, dictionary)` 또는 `learnAlias`가 사전을 받음)으로 바꾸면 web `controller.ts`의 `#learn`이 `this.#dictionary.prepared`를 넘기도록 맞춘다 — 판단을 화면에 따로 두지 않으려고 web 쪽 중복 검사는 넣지 않았다.
