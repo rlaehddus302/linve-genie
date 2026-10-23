@@ -47,6 +47,7 @@ const LOG_ACTION: Readonly<Record<VoiceAction['kind'], VoiceLogAction>> = {
   create: 'create',
   fill: 'fill',
   edit: 'edit',
+  confirmEdit: 'offer',
   close: 'close',
   offer: 'offer',
   offerNumber: 'offer',

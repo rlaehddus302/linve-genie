@@ -56,11 +56,21 @@ export interface VoiceLogEntry {
   readonly reason: string | null
 }
 
+/** 가린 긴 숫자 (D-V2-20) */
+export const MASKED_DIGITS = '••••'
+/** 이만큼 이상 이어진 숫자는 가린다 (공백·`-`가 끼어도 이어진 것으로 센다, D-V2-20) */
+export const MASK_DIGITS_MIN = 8
+
+/** 전화번호·계좌번호 같은 긴 숫자(8자리 이상)를 통째로 `••••`로 (상품 번호·가격 7자리 이하는 그대로) */
+export function maskLongDigits(text: string): string {
+  return text.replace(/[0-9](?:[\s-]*[0-9])*/g, (run) => (run.replace(/[^0-9]/g, '').length >= MASK_DIGITS_MIN ? MASKED_DIGITS : run))
+}
+
 const codePoints = (text: string): string[] => [...text]
 
 /** 300글자 넘는 글은 300글자 + "…" */
 export function clipLogText(text: unknown): string {
-  const value = typeof text === 'string' ? text : ''
+  const value = typeof text === 'string' ? maskLongDigits(text) : ''
   const chars = codePoints(value)
   return chars.length > VOICE_LOG_TEXT_MAX ? `${chars.slice(0, VOICE_LOG_TEXT_MAX).join('')}${ELLIPSIS}` : value
 }

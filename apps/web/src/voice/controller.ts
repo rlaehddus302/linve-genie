@@ -14,6 +14,7 @@
 import { formatWon } from '@livejjim/core'
 import { isHomeScreenApp } from './standalone.ts'
 import type {
+  ChunkFields,
   ChunkReading,
   LearnedAlias,
   PhraseChunk,
@@ -210,8 +211,14 @@ export interface CardForm {
 
 /** 덩어리를 읽은 결과 한 줄을 보이는 시간 (D-V2-07) */
 export const READOUT_MS = 4000
-/** "들은 말" 칸 제목 (D-V2-07) */
-export const HEARD_TITLE = '들은 말'
+/** 맨 위 큰 칸의 접근 이름 — 화면에 제목은 없다 (D-V2-07·D-V2-21) */
+export const HEARD_TITLE = '지금 들리는 말'
+/** 큰 칸이 비었을 때 (D-V2-21) */
+export const HEARD_EMPTY = '말하면 여기에 보여요'
+/** 음성 기록 단추·창 제목 (D-V2-21 — 이름은 이것 하나) */
+export const LOG_TITLE = '음성 기록'
+/** 음성 칸 아래 접는 칸 (D-V2-21) */
+export const EXTRAS_TITLE = '음성 설정과 기록'
 /** 모으는 동안 "들은 말" 칸 옆 (D-V2-07) */
 export const HEARING_LABEL = '듣는 중…'
 /** 말하는 동안 자동 등록을 멈췄을 때 카드에 (D-V2-06) */
@@ -255,9 +262,17 @@ export interface Readout {
 /** 고칠까요·되돌릴까요·번호 안내 카드 (D-V2-06 3) */
 export interface VoiceOffer {
   readonly id: string
-  /** offer = 품종·가격 고칠까요, number = 번호는 상품 목록에서, undo = 등록 되돌릴까요, late = 되돌릴 시간 지남 */
-  readonly kind: 'offer' | 'number' | 'undo' | 'late'
+  /**
+   * offer = 품종·가격 고칠까요, number = 번호는 상품 목록에서, undo = 등록 되돌릴까요, late = 되돌릴 시간 지남,
+   * card = 열린 카드 위 "12,000원을 18,000원으로 고칠까요?" (D-V2-19 — registrationId는 그 카드 ID)
+   */
+  readonly kind: 'offer' | 'number' | 'undo' | 'late' | 'card'
   readonly registrationId: string
+  /** card: 고칠 칸 (번호 포함) */
+  readonly cardChanges?: ChunkFields
+  /** card: 고친 뒤 카드에 보일 "고쳤어요: …" */
+  readonly cardNote?: string
+  readonly cardNameCheck?: boolean
   readonly message: string
   readonly changes: { readonly name?: string; readonly price?: number }
   /** ask = 묻는 중, busy = 보내는 중, fixed = 고침(되돌리기 보임) */
@@ -453,6 +468,7 @@ const LOG_ACTION: Readonly<Record<VoiceAction['kind'], VoiceLogAction>> = {
   create: 'create',
   fill: 'fill',
   edit: 'edit',
+  confirmEdit: 'offer',
   close: 'close',
   offer: 'offer',
   offerNumber: 'offer',
@@ -994,6 +1010,29 @@ export class VoiceController {
         if (Object.hasOwn(action.changes, 'name') && reading.nameWindow !== null) this.#windows.set(card.id, reading.nameWindow)
         break
       }
+      case 'confirmEdit': {
+        // 앞 값이 카드 값과 다르다 — 카드는 그대로 두고 묻는다. 손댄 카드가 되어 자동 확정하지 않는다 (D-V2-19)
+        const target = action.cardId
+        const card = work.cards.find((item) => item.id === target)
+        if (card === undefined) break
+        work.cards = module.replaceCard(work.cards, module.touchCard(card)).filter(isOpen)
+        const offer: VoiceOffer = {
+          id: `offer-${String(this.#nextOffer++)}`,
+          kind: 'card',
+          registrationId: target,
+          message: action.message,
+          changes: {},
+          cardChanges: action.changes,
+          cardNote: action.editMessage,
+          cardNameCheck: action.nameNeedsCheck,
+          stage: 'ask',
+          before: null,
+          undoUntil: null,
+          error: null,
+        }
+        work.offers = [offer, ...work.offers.filter((item) => !(item.kind === 'card' && item.registrationId === target))]
+        break
+      }
       case 'close': {
         const target = action.cardId
         work.cards = work.cards.filter((card) => card.id !== target)
@@ -1027,7 +1066,7 @@ export class VoiceController {
     let text: string
     if (action.kind === 'discard') text = action.cancelled ? CANCELLED_READOUT : (reason ?? module.VOICE_LOG_REASONS.noFields)
     else if (action.kind === 'edit') text = action.message
-    else if (action.kind === 'offer' || action.kind === 'offerNumber' || action.kind === 'offerUndo') text = action.message
+    else if (action.kind === 'offer' || action.kind === 'offerNumber' || action.kind === 'offerUndo' || action.kind === 'confirmEdit') text = action.message
     else text = module.describeReading(reading)
     work.readout = { text, discarded: action.kind === 'discard', until: now + READOUT_MS }
   }
@@ -1485,6 +1524,24 @@ export class VoiceController {
     this.#set({ cards: this.#snapshot.cards.map((item) => (item.id === id ? edited.card : item)), info, ...formPatch })
   }
 
+  /** 1·2·3 키로 후보를 고를 카드 (U-V2-05): 가장 새 열린 카드이고 품종이 비고 후보가 있을 때만 */
+  keyCandidateCard(): string | null {
+    let newest: SuggestionCard | null = null
+    for (const card of this.#snapshot.cards) if (isOpen(card) && (newest === null || card.createdAt > newest.createdAt)) newest = card
+    if (newest === null || newest.name !== null) return null
+    return (this.#snapshot.info.get(newest.id)?.candidates.length ?? 0) > 0 ? newest.id : null
+  }
+
+  /** 1·2·3 키: 그 카드의 n번째 후보를 누른 것과 같다. 골랐으면 true */
+  chooseCandidateByKey(index: number): boolean {
+    const id = this.keyCandidateCard()
+    if (id === null || this.#snapshot.forms.size > 0) return false
+    const candidate = this.#snapshot.info.get(id)?.candidates[index]
+    if (candidate === undefined || index > 2) return false
+    this.chooseCandidate(id, candidate.name)
+    return true
+  }
+
   /**
    * 판매자가 등록한 카드의 품종이 들은 창 글과 다르면 배운다 (고치기 칸에 품종을 적어 확정·품종을 그대로 두고 등록, D-V2-10).
    * 콘솔의 고치기 칸 등록도 부른다. 배울 수 없는 말(1음절·막는 낱말·같은 이름)은 배우지 않는다
@@ -1560,6 +1617,36 @@ export class VoiceController {
     if (this.#findOffer(id) === undefined) return
     this.#set({ offers: this.#snapshot.offers.filter((offer) => offer.id !== id) })
     this.#host.focusQuick()
+  }
+
+  /** 카드 위 고칠까요의 [고치기] (D-V2-19): 그 카드를 고친다 — 자동 확정은 없다(손댄 카드) */
+  fixCardOffer(id: string): void {
+    const offer = this.#findOffer(id)
+    const module = this.#module
+    if (offer === undefined || offer.kind !== 'card' || module === null) return
+    const offers = this.#snapshot.offers.filter((item) => item.id !== id)
+    const card = this.#find(offer.registrationId)
+    if (card === undefined || offer.cardChanges === undefined) {
+      this.#set({ offers })
+      return
+    }
+    const edited = module.editCard(card, offer.cardChanges, { maxNumber: this.#host.maxNumber() })
+    if (!edited.ok) {
+      this.#replaceOffer(id, { error: edited.message })
+      return
+    }
+    const next: SuggestionCard = module.touchCard(offer.cardNameCheck === true ? { ...edited.card, nameNeedsCheck: true } : edited.card)
+    const notes = new Map(this.#snapshot.notes)
+    if (offer.cardNote !== undefined) notes.set(card.id, offer.cardNote)
+    const info = new Map(this.#snapshot.info)
+    const before = info.get(card.id)
+    info.set(card.id, { candidates: next.name === null ? (before?.candidates ?? []) : [], ask: module.askFor(next) })
+    this.#set({ offers, notes, info, cards: this.#snapshot.cards.map((item) => (item.id === card.id ? next : item)) })
+  }
+
+  /** 이 카드 위에 보일 고칠까요 (D-V2-19) */
+  cardOffer(cardId: string): VoiceOffer | undefined {
+    return this.#snapshot.offers.find((offer) => offer.kind === 'card' && offer.registrationId === cardId)
   }
 
   /** [고치기]: 손 고치기와 같은 상품 고치기, 고친 뒤 10초 [되돌리기] */

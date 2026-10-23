@@ -34,3 +34,8 @@
 9. 기존 단위 시험(`apps/web/test/voice-controller.test.ts`·`console-voice.test.tsx`)은 AC-V2-32대로 최종 결과 뒤 조용한 시간만큼 시계만 넘기도록 고쳤다(기대 글 그대로). 이력 기다림 시험 셋은 2초 안에 말한 흐름을 지키려고 넘기는 자리만 옮겼다.
 10. **(이어받기 확인, 2026-10-24)** D-V2-12~18 뒤 web은 고칠 것이 없다. D-V2-16(끊기)·D-V2-18(칸 이름 조각)은 `packages/voice` 안 판단이라 화면은 결과만 그린다. S8은 이제 `HIGH`라 자동 확정 켬이면 확정 대상이다.
 11. **device에게(AC-V2-37, D-V2-17 미구현)**: 지금 `canLearnAlias(heard, name)`는 사전을 보지 않아, `핑크문`을 다른 품종으로 고르면 배운다. 사전을 받는 모양(예: `canLearnAlias(heard, name, dictionary)` 또는 `learnAlias`가 사전을 받음)으로 바꾸면 web `controller.ts`의 `#learn`이 `this.#dictionary.prepared`를 넘기도록 맞춘다 — 판단을 화면에 따로 두지 않으려고 web 쪽 중복 검사는 넣지 않았다.
+
+## dev-web — D-V2-19~21·U-V2-01~06·RA-V2-02 (2026-10-24)
+- packages/voice(dev-device 영역, 과제 지시로 최소 수정): `readChunk().lead`(정정 덩어리 첫 조각 칸), `chooseAction` 새 할 일 `confirmEdit`(앞 값 ≠ 카드 값), `confirmEditMessage`, 음성 기록 `maskLongDigits`(createLogEntry에서 가림). 카드 칸이 비어 있으면(덮을 값 없음) 묻지 않고 D-V2-06 (2) 그대로 — 결정 문장 "그 칸 값과 다르면"을 빈 칸엔 적용하지 않음(덮어 잃는 값이 없다).
+- 화면: 카드 위 고칠까요(group 이름 = 문장, [고치기]·[그대로 두기]), 맨 위 큰 칸 제목 없음(접근 이름 "지금 들리는 말", 빈 칸 "말하면 여기에 보여요"), "음성 설정과 기록" 접는 칸(기본 접힘)을 음성 칸 바로 아래(PC는 고정 영역 바로 아래), [음성 기록] 하나 — "들린 말 기록" 목록은 없앰(같은 기록의 셋째 이름, D-V2-21). 기록 창 머리글 "들은 말" → "받아쓴 글". 카드 "Enter 키로 등록". 후보 단추 강조·PC 맨 앞 카드 1·2·3 키(글 칸 밖에서만 — 빠른 입력 번호와 겹치지 않게). 375 카드 목록 아래 메뉴 막대 높이(4rem) 여백.
+- test-e2e에 넘김: E2E가 옛 이름("들은 말" 영역, "음성 기록 보기", "들린 말 기록", "Enter 등록")을 찾는 곳 — tests/e2e/v2/support.ts:42·58, i4/voice-cards.spec.ts:46·78…, i4/voice-onoff.spec.ts:243, i4/voice-layout.spec.ts:179, n3/round1.spec.ts:169, i4/attacks.spec.ts:77. 설정 칸은 접는 칸을 먼저 열어야 보인다.

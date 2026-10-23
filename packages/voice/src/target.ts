@@ -73,6 +73,8 @@ export type VoiceAction =
       readonly ask: string | null
     }
   | { readonly kind: 'edit'; readonly cardId: string; readonly changes: ChunkFields; readonly message: string; readonly nameNeedsCheck: boolean }
+  /** 정정 표시 앞 값이 카드 값과 달라 바로 고치지 않고 묻는다 (D-V2-19) — 누르기 전엔 카드를 바꾸지 않는다 */
+  | { readonly kind: 'confirmEdit'; readonly cardId: string; readonly changes: ChunkFields; readonly message: string; readonly editMessage: string; readonly nameNeedsCheck: boolean }
   | { readonly kind: 'close'; readonly cardId: string }
   | { readonly kind: 'offer'; readonly registrationId: string; readonly changes: { readonly name?: string; readonly price?: number }; readonly message: string }
   | { readonly kind: 'offerNumber'; readonly registrationId: string; readonly message: string }
@@ -135,6 +137,29 @@ export function editMessage(card: SuggestionCard, changes: ChunkFields): string 
     parts.push(`${FIELD_LABELS[field]} ${fieldValue(field, card[field])} → ${fieldValue(field, changes[field] ?? null)}`)
   }
   return `고쳤어요: ${parts.join(', ')}`
+}
+
+/** "12,000원을 18,000원으로 고칠까요?" (칸이 여럿이면 " · "로) — D-V2-19 */
+export function confirmEditMessage(card: SuggestionCard, changes: ChunkFields): string {
+  const before: string[] = []
+  const after: string[] = []
+  for (const field of ['no', 'name', 'price'] as const) {
+    if (!Object.hasOwn(changes, field)) continue
+    before.push(fieldValue(field, card[field]))
+    after.push(fieldValue(field, changes[field] ?? null))
+  }
+  return `${withObject(before.join(' · '))} ${withRo(after.join(' · '))} 고칠까요?`
+}
+
+/** 정정 표시 앞 조각이 읽은 칸 값이 카드의 그 칸 값과 다른 칸이 있나 (카드 칸이 비었으면 다름으로 보지 않는다 — 덮을 값이 없다) */
+function leadDiffers(reading: ChunkReading, card: SuggestionCard): boolean {
+  const lead = reading.lead
+  if (lead === undefined || lead === null) return false
+  return reading.fieldsSet.some((field) => {
+    const said = lead[field]
+    const now = card[field]
+    return said !== null && now !== null && said !== now
+  })
 }
 
 const frontOpenCard = (cards: readonly SuggestionCard[]): SuggestionCard | null => (Array.isArray(cards) ? cards.find((card) => card?.status === 'OPEN') ?? null : null)
@@ -218,6 +243,9 @@ export function chooseAction(reading: ChunkReading, context: TargetContext): Voi
       if (reading.cancel) return { kind: 'close', cardId: card.id }
       if (reading.fieldsSet.length === 0) return discard(VOICE_LOG_REASONS.noFields)
       const changes = pick(reading, reading.fieldsSet)
+      if (leadDiffers(reading, card)) {
+        return { kind: 'confirmEdit', cardId: card.id, changes, message: confirmEditMessage(card, changes), editMessage: editMessage(card, changes), nameNeedsCheck: reading.nameNeedsCheck }
+      }
       return { kind: 'edit', cardId: card.id, changes, message: editMessage(card, changes), nameNeedsCheck: reading.nameNeedsCheck }
     }
     // (3) 방금 음성으로 등록한 상품

@@ -1072,6 +1072,13 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         setDialogs([{ kind: 'reprint', product: currentKey.current }])
         return
       }
+      // 1·2·3: 맨 앞 음성 카드의 품종 후보 고르기 (U-V2-05) — PC 폭, 창·고치기 칸 없음, 글 칸 밖일 때만(빠른 입력의 번호와 겹치지 않게)
+      if (!mod && !event.altKey && !event.shiftKey && (event.key === '1' || event.key === '2' || event.key === '3')) {
+        if (voice !== null && wideRef.current && dialogCount.current === 0 && !fixOpen.current && !isTextField(document.activeElement) && voice.chooseCandidateByKey(Number(event.key) - 1)) {
+          event.preventDefault()
+          return
+        }
+      }
       if (event.key === 'Escape') {
         // 창 안에 포커스가 없을 때도 Esc는 위의 창을 닫는다
         if (dialogCount.current > 0) {
@@ -1308,7 +1315,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           {wide ? voiceLive : null}
         </div>
         {wide ? null : voiceLive}
-        {wide || voice === null ? null : <VoiceExtras voice={voice} snapshot={voiceSnapshot} />}
+        {/* 음성 칸 바로 아래 접는 칸 "음성 설정과 기록" (D-V2-21) — PC는 고정 영역 바로 아래 */}
+        {voice === null ? null : <VoiceExtras voice={voice} snapshot={voiceSnapshot} />}
         <div className="console-grid">
           <div className="console-side">
             {broadcast.rehearsal ? (
@@ -1331,7 +1339,6 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
               onUnlink={() => openDialog({ kind: 'youtubeUnlink' })}
             />
             <PlatformPanels live={live} broadcastId={b} navigate={navigate} ended={ended} sealed={sealed} onPaste={openPaste} />
-            {wide && voice !== null ? <VoiceExtras voice={voice} snapshot={voiceSnapshot} /> : null}
           </div>
           <ProductBoard
             onOpen={(key) => {

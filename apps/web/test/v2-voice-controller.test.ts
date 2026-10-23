@@ -455,15 +455,15 @@ describe('품종 후보·배운 별칭 (AC-V2-07·09, D-V2-01·10)', () => {
     expect(cards(next)[0]?.confidence).toBe('HIGH')
   })
 
-  it('S8: 품종을 라울로 둔 채 등록하면 "라운" → "라울"을 배운다', async () => {
+  it('S8: "라운"은 사전 별칭이라 라울 HIGH(D-V2-12), 등록해도 사전에 있는 말은 배우지 않는다(D-V2-17)', async () => {
     const h = await ready()
     say('18번 라운 만이천원')
     at(1800)
     const card = cards(h)[0] as SuggestionCard
-    expect(card).toMatchObject({ name: '라울', confidence: 'LOW' })
+    expect(card).toMatchObject({ name: '라울', confidence: 'HIGH' })
     h.voice.confirm(card.id, 'click')
     expect(h.registered.map((item) => [item.no, item.name])).toEqual([[18, '라울']])
-    expect(h.learned?.map((item) => [item.heard, item.name])).toEqual([['라운', '라울']])
+    expect(h.learned ?? []).toEqual([])
   })
 
   it('S10: 사전 밖 말은 품종 빈칸 카드, 후보 없음, 등록은 품종 미입력', async () => {

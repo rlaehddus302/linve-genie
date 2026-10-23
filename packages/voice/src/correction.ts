@@ -211,6 +211,8 @@ export interface ChunkReading {
   readonly nameWindow: string | null
   /** 첫 조각(표시 앞)에 번호가 있음 — D-V2-06 (1) 새 카드 */
   readonly leadNumber: boolean
+  /** 정정 덩어리의 첫 조각(표시 앞)이 읽은 칸 — 앞 값 비교(D-V2-19). 첫 조각이 표시로 시작하거나 정정이 아니면 모두 null */
+  readonly lead: { readonly no: number | null; readonly name: string | null; readonly price: number | null }
   readonly split: CorrectionSplit
 }
 
@@ -230,6 +232,7 @@ const EMPTY_READING: ChunkReading = Object.freeze({
   nameExact: false,
   nameWindow: null,
   leadNumber: false,
+  lead: Object.freeze({ no: null, name: null, price: null }),
   split: EMPTY_SPLIT,
 })
 
@@ -267,6 +270,8 @@ export function readChunk(text: unknown, options: ChunkOptions = {}): ChunkReadi
     })
     const first = readings[0] as PieceReading
     const leadNumber = (split.pieces[0] as CorrectionPiece).start === null && first.no !== null
+    const leadPiece = split.correction && (split.pieces[0] as CorrectionPiece).start === null
+    const lead = Object.freeze({ no: leadPiece ? first.no : null, name: leadPiece ? first.name : null, price: leadPiece ? first.price : null })
     const plainHigh = !split.correction && no !== null && price !== null && name !== null && nameExact
     return {
       no,
@@ -282,6 +287,7 @@ export function readChunk(text: unknown, options: ChunkOptions = {}): ChunkReadi
       nameExact,
       nameWindow,
       leadNumber,
+      lead,
       split,
     }
   } catch {
