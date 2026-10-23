@@ -9,6 +9,7 @@
 // - 중복 없음 (AC3, D-X1-06): 같은 메시지 ID는 한 번만(공식 경로와 같은 키). 다른 경로의 같은 작성자·같은 정리 본문·게시 시각 3초 이내도 한 번만.
 // - 상태 (AC7): 상태가 30초 넘게 없으면 STALE, 탭이 뒤로 가면 HIDDEN, 읽지 못함만 1분 이어지면 UNREADABLE. 바뀌면 실시간 알림(event: extension).
 // - 개인정보 (AC9): 닉네임은 YT-03 이름 정리(ingestYoutubeBatch가 한다). 로그에는 종류·판매자만 — 토큰·닉네임·본문은 남기지 않는다.
+import { SERVICE_NAME } from '../brand.ts'
 import { createHash, randomBytes, randomInt } from 'node:crypto'
 import type { Db } from '../db/database.ts'
 import { errorKind, type LogSink } from '../log.ts'
@@ -68,7 +69,7 @@ export const EXTENSION_MESSAGES = {
   HIDDEN: '유튜브 채팅 창을 앞으로 꺼내 두세요',
   UNREADABLE: '유튜브 화면이 바뀌어 채팅을 읽지 못해요',
   MANUAL: '주문은 손으로 넣어 주세요',
-  DISCONNECTED: '연결이 끊겼어요. 라이브지니 설정에서 다시 연결해 주세요.',
+  DISCONNECTED: `연결이 끊겼어요. ${SERVICE_NAME} 설정에서 다시 연결해 주세요.`,
   CODE_INVALID: '연결 코드가 맞지 않거나 시간이 지났어요. 설정에서 새 코드를 받아 주세요.',
   CODE_LIMITED: '코드를 여러 번 틀렸어요. 10분 뒤에 다시 해 주세요.',
   RATE_LIMITED: '한꺼번에 너무 많이 보냈어요. 잠시 뒤에 다시 보낼게요.',

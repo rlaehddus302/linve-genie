@@ -1,4 +1,5 @@
 // 크롬 확장 화면 낱말·판단 (X1 YT-10 AC4·AC7·AC8, D-X1-11·12). 서버 상태 값(영어)은 여기서만 보고 화면엔 문장만 보인다.
+import { SERVICE_NAME } from '../brand.ts'
 import type { CollectorView, ExtensionThanksWarning, ExtensionView } from '../api/types.ts'
 
 export const EXTENSION_ROUTE = {
@@ -7,7 +8,7 @@ export const EXTENSION_ROUTE = {
   BOTH: '공식 연결·확장 둘 다로 받는 중',
 } as const
 
-export const EXTENSION_INTRO = '유튜브 공식 연결이 안 될 때를 위한 보조 방법이에요. PC 크롬에 라이브지니 확장을 깔고 아래 코드를 넣으면, 확장이 내 유튜브 라이브 채팅을 읽어 보내요. 감사 채팅은 아래 "확장으로 감사 채팅 올리기"를 켠 경우에만 확장으로도 올려요.'
+export const EXTENSION_INTRO = `유튜브 공식 연결이 안 될 때를 위한 보조 방법이에요. PC 크롬에 ${SERVICE_NAME} 확장을 깔고 아래 코드를 넣으면, 확장이 내 유튜브 라이브 채팅을 읽어 보내요. 감사 채팅은 아래 "확장으로 감사 채팅 올리기"를 켠 경우에만 확장으로도 올려요.`
 
 // ── 확장으로 감사 채팅 올리기 (AC11~AC17, D-X1-17~24) ──
 export const EXTENSION_THANKS_TITLE = '확장으로 감사 채팅 올리기'
@@ -18,7 +19,7 @@ export const EXTENSION_THANKS_NEEDS_CONSENT = '감사 글이 나가려면 위 "�
 /** 켤 때 설명 창 (SPEC YT-10 AC11 문장) */
 export const EXTENSION_THANKS_QUESTION = '판매자님 유튜브 계정으로 채팅에 감사 글을 올려요. 유튜브가 자동 글쓰기를 막을 수 있어요.'
 export const EXTENSION_THANKS_RULES = [
-  '라이브지니가 만든 감사 글만 올려요. 여러 건이면 한 글로 묶고, 글 사이는 3초 넘게 띄워요.',
+  `${SERVICE_NAME}가 만든 감사 글만 올려요. 여러 건이면 한 글로 묶고, 글 사이는 3초 넘게 띄워요.`,
   '판매자님이 채팅 칸에 글을 쓰는 중이면 기다렸다가 올려요. 쓰던 글은 지우지 않아요.',
   '방송 채널 계정으로 로그인한 채팅 창에서만 올려요.',
   '3번 연달아 못 올리면 멈추고 방송 화면에 알려요.',
