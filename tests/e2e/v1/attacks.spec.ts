@@ -4,6 +4,7 @@ import { test, expect } from '@playwright/test'
 import {
   board,
   boardItem,
+  heardCard,
   history,
   installSmsSpeech,
   login,
@@ -21,32 +22,68 @@ import {
   turnOnVoice,
 } from './support.ts'
 
-const C165 = '165번 · 끝자리 1234 · 문자찜'
+// 품종 '핑크프릴'로 등록 — 카드 이름에 품종(D-V1-21)
+const C165 = '165번 핑크프릴 · 끝자리 1234 · 문자찜'
+const C166 = '166번 핑크프릴 · 손님 확인 필요 · 문자찜'
+const REPEATED = '같은 말을 다른 기기에서 방금 넣었어요.'
 
 test.describe('V1 깨뜨리기', () => {
-  test('두 기기(PC + 휴대폰 375px)가 같은 방송에서 같은 말을 듣고 둘 다 넣어도 끝자리 1234 손님의 찜은 하나, 휴대폰 보드에 1등 반영', async ({ browser }) => {
+  test('AC-V1-31: 두 기기(PC + 휴대폰 375px)가 같은 말을 거의 함께 넣으면 한 번만 — 늦은 쪽은 "같은 말을 다른 기기에서 방금 넣었어요."와 "닫기"만, 본문 voice: true', async ({ browser }) => {
+    test.setTimeout(120_000)
     const pcCtx = await browser.newContext()
     const phoneCtx = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true })
     const pc = await pcCtx.newPage()
     const phone = await phoneCtx.newPage()
     try {
       const { b, date } = await setupLive(pc)
-      await registerApi(pc, b, 165, '핑크프릴', 10000)
+      for (const no of [165, 166]) await registerApi(pc, b, no, '핑크프릴', 10000)
       await installSmsSpeech(phone)
       await login(phone)
       await phone.goto(`/broadcasts/${encodeURIComponent(b)}`)
-      await expect(boardItem(phone, 165)).toBeVisible()
+      await expect(boardItem(phone, 166)).toBeVisible()
       await turnOnVoice(phone)
+      const pcRequests = recordRequests(pc)
+      const phoneRequests = recordRequests(phone)
+
+      // 끝자리 있는 말: PC가 먼저 넣고 휴대폰은 3초 뒤 저절로 → 서버가 같은 음성 쓰기로 거절(D-V1-13)
       await speak(pc, '165번 문자찜 끝자리 1234')
       await speak(phone, '165번 문자찜 끝자리 1234')
       await smsButton(pc, C165, '지금 넣기').click()
       await expect(smsResults(pc, C165)).toHaveText(/^165번 · 문자찜 · 1등 · /)
       await expect(boardItem(phone, 165)).toContainText(/1등|문자찜/)
-      await smsButton(phone, C165, '지금 넣기').click()
-      await expect(smsResults(phone, C165)).toHaveText('165번 · 이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 1등) · 뒤 4자리 1234')
+      const late165 = heardCard(phone, '165번 문자찜 끝자리 1234')
+      await expect(late165.getByRole('alert')).toHaveText(REPEATED, { timeout: 15_000 })
+      await expect(late165).toHaveAccessibleName('문자찜 · 넣지 않았어요 카드')
+      await expect(late165.getByRole('button')).toHaveText(['닫기'])
+
+      // 끝자리 없는 같은 말을 두 곳이 거의 함께 (둘 다 3초 뒤 저절로) → 166번 문자찜은 하나(1등만, 대기 없음)
+      await speak(pc, '166번 문자찜')
+      await speak(phone, '166번 문자찜')
+      const outcomes = [pc, phone].map((p) => ({ reason: heardCard(p, '166번 문자찜').getByRole('alert'), result: smsResults(p, C166) }))
+      for (const o of outcomes) await expect(o.reason.or(o.result)).toBeVisible({ timeout: 15_000 })
+      const reasons = await Promise.all(outcomes.map((o) => o.reason.count()))
+      expect(reasons.reduce((a, n) => a + n, 0)).toBe(1)
+      const late = outcomes[reasons[0] === 1 ? 0 : 1]!
+      const early = outcomes[reasons[0] === 1 ? 1 : 0]!
+      await expect(late.reason).toHaveText(REPEATED)
+      await expect(early.result).toHaveText(/^166번 · 문자찜\(확인 필요\).* · 1등 · /)
+      const latePage = reasons[0] === 1 ? pc : phone
+      await expect(heardCard(latePage, '166번 문자찜').getByRole('button')).toHaveText(['닫기'])
+
+      // 쓰기는 모두 voice: true, 늦은 쪽도 저절로 다시 보내지 않는다
+      const sent = [...smsWrites(pcRequests), ...smsWrites(phoneRequests)]
+      for (const w of sent) expect(w['voice']).toBe(true)
+      const before = sent.length
+      await heardCard(latePage, '166번 문자찜').getByRole('button', { name: /닫기$/ }).click()
+      await expect(heardCard(latePage, '166번 문자찜')).toHaveCount(0)
+      expect(smsWrites(pcRequests).length + smsWrites(phoneRequests).length).toBe(before)
+
       const view = await scopeView(pc, date, false)
-      expect(view.claims.filter((x) => x.no === 165)).toHaveLength(1)
-      expect(view.buyers.filter((x) => x.kind === 'sms')).toHaveLength(1)
+      for (const no of [165, 166]) {
+        expect(view.claims.filter((x) => x.no === no), String(no)).toHaveLength(1)
+        expect(view.products.find((x) => x.no === no)!.waitlist, String(no)).toEqual([])
+      }
+      expect(view.buyers.filter((x) => x.kind === 'sms')).toHaveLength(2)
       expect(await smsEvents(pc, date, false)).toHaveLength(2)
     } finally {
       await pcCtx.close()
@@ -64,7 +101,7 @@ test.describe('V1 깨뜨리기', () => {
     await context.setOffline(true)
     const card = smsCard(page, C165)
     await expect(card.getByRole('alert')).toBeVisible({ timeout: 15_000 })
-    await expect(card.getByRole('button')).toHaveText(['넣기', '넣지 않기'])
+    await expect(card.getByRole('button')).toHaveText(['넣지 않기', '넣기']) // D-V1-20
     const tried = smsWrites(requests).length
     expect(tried).toBeGreaterThanOrEqual(1)
     await context.setOffline(false)
@@ -130,7 +167,7 @@ test.describe('V1 깨뜨리기', () => {
     await expect(board(page)).toBeVisible()
   })
 
-  test('빠른 연속 문장(기다림 10초) — 같은 카드를 두 번 넣지 않고, 넣은 것은 모두 서버에 하나씩', async ({ page }) => {
+  test('빠른 연속 문장(기다림 10초) — 같은 카드를 두 번 넣지 않고, 넷 모두 서버에 하나씩(D-V1-18)', async ({ page }) => {
     const { b, date } = await setupPaused(page, { smsSettings: { 'voice.smsListen': true, 'voice.smsAutoSec': 10 } })
     for (const no of [165, 166, 167, 168]) await registerApi(page, b, no, '핑크프릴', 10000)
     await expect(boardItem(page, 168)).toBeVisible()
@@ -141,13 +178,15 @@ test.describe('V1 깨뜨리기', () => {
       await page.clock.runFor(1000)
     }
     await page.clock.runFor(15_000)
-    await expect.poll(() => smsWrites(requests).length).toBeGreaterThan(0)
-    // 열린 카드 수 규칙(D-I4-02)으로 손대지 않은 가장 오래된 카드가 닫힐 수 있다 — 닫힌 것은 넣지 않는다
+    // D-V1-18: 넣을 수 있는 문자찜 카드는 열린 카드 수 규칙으로 닫지 않는다 — 넷 모두 넣는다
+    await expect.poll(() => smsWrites(requests).length).toBe(4)
+    await expect(page.getByText(/넣지 않은 문자찜 카드를 닫았어요/)).toHaveCount(0)
     const writes = smsWrites(requests)
     const sent = writes.map((w) => `${String(w['no'])}:${String(w['last4'])}`)
     expect(new Set(sent).size).toBe(sent.length)
     const events = await smsEvents(page, date, false)
-    expect(events.map((e) => e['no']).sort()).toEqual(writes.map((w) => w['no']).sort())
+    expect(events.map((e) => e['no']).sort()).toEqual([165, 166, 167, 168])
+    expect(writes.map((w) => w['no']).sort()).toEqual([165, 166, 167, 168])
     test.info().annotations.push({ type: 'sent', description: sent.join(', ') })
   })
 })

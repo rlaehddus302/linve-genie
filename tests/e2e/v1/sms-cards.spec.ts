@@ -26,7 +26,8 @@ import {
   voiceRegion,
 } from './support.ts'
 
-const C165 = '165번 · 끝자리 1234 · 문자찜'
+// 165번은 품종 '핑크프릴'로 등록한다 — 카드 이름에 품종이 붙는다(D-V1-21, AC-V1-21)
+const C165 = '165번 핑크프릴 · 끝자리 1234 · 문자찜'
 const RESULT_165 = /^165번 · 문자찜 · 1등 · 받은 시각 \d\d\/\d\d \d\d:\d\d:\d\d · 뒤 4자리 1234$/
 
 test.describe('V1 문자찜 카드', () => {
@@ -94,6 +95,7 @@ test.describe('V1 문자찜 카드', () => {
     expect(smsWrites(requests)).toEqual([])
     await page.clock.runFor(1000)
     await expect(smsResults(page, C165)).toHaveText(RESULT_165)
+    const firstSentAt = Date.now()
     await expect(page.getByRole('button', { name: '165번 문자찜 찜 취소하기' })).toBeVisible()
     const writes = smsWrites(requests)
     expect(writes).toHaveLength(1)
@@ -111,6 +113,9 @@ test.describe('V1 문자찜 카드', () => {
     expect(buyer.display).toBe('문자찜')
     // 15초 뒤 같은 말 → 새 카드(10초 지남), 엔진은 새 찜을 만들지 않는다
     await page.clock.runFor(15_000)
+    // 서버의 기기 사이 같은 말 검사(D-V1-13)는 서버 도착 시각(실제 시계)으로 10초를 센다 — 브라우저 시계만 당기면 서버에겐 "방금"이라
+    // VOICE_REPEATED가 난다. 실제 방송에선 두 시계가 함께 간다: 서버 쪽도 10초가 지날 때까지 기다린다(E2E 서버에 시계 손잡이가 없다).
+    await expect.poll(() => Date.now() - firstSentAt, { timeout: 15_000, intervals: [250] }).toBeGreaterThan(10_500)
     await speak(page, '165번 문자찜 끝자리 1234')
     await expect(smsCard(page, C165)).toHaveCount(2)
     await page.clock.runFor(3000)
@@ -133,7 +138,7 @@ test.describe('V1 문자찜 카드', () => {
     await page.clock.runFor(10_000)
     expect(smsWrites(requests)).toEqual([])
     // 지금 넣기
-    const c166 = '166번 · 끝자리 5678 · 문자찜'
+    const c166 = '166번 핑크프릴 · 끝자리 5678 · 문자찜'
     await speak(page, '166번 문자찜 끝자리 5678')
     await smsButton(page, c166, '지금 넣기').click()
     await expect(smsResults(page, c166)).toHaveText(/^166번 · 문자찜 · 1등 · /)
@@ -160,11 +165,12 @@ test.describe('V1 문자찜 카드', () => {
     for (const no of [15, 28]) await registerApi(page, b, no, '핑크프릴', 10000)
     await expect(boardItem(page, 28)).toBeVisible()
     const requests = recordRequests(page)
-    const short = '15번 · 28번 · 끝자리 1234 · 문자찜'
+    const short = '15번 핑크프릴 · 28번 핑크프릴 · 끝자리 1234 · 문자찜' // 번호마다 품종(D-V1-21)
     await speak(page, '15번 28번 문자찜 끝자리 1234')
     const c = smsCard(page, short)
-    await expect(c.getByText('15번 · 28번 · 끝자리 1234 · 문자찜 — 넣을까요?')).toBeVisible()
-    await expect(c.getByRole('button')).toHaveText(['넣기', '넣지 않기'])
+    await expect(c.getByText('15번 핑크프릴 · 28번 핑크프릴 · 끝자리 1234 · 문자찜 — 넣을까요?')).toBeVisible()
+    // D-V1-20: "넣지 않기"가 첫 버튼, 넣는 버튼은 뒤
+    await expect(c.getByRole('button')).toHaveText(['넣지 않기', '넣기'])
     await page.clock.runFor(15_000)
     expect(smsWrites(requests)).toEqual([])
     await smsButton(page, short, '넣기').click()
@@ -221,11 +227,11 @@ test.describe('V1 문자찜 카드', () => {
     await expect(smsCard(page, C165).getByRole('status').filter({ hasText: '같은 말을 한 번 더 들었어요' })).toBeVisible()
     await expect(smsCard(page, C165)).toHaveCount(1)
     await speak(page, '165번 문자찜 끝자리 5678')
-    await expect(smsCard(page, '165번 · 끝자리 5678 · 문자찜')).toBeVisible()
+    await expect(smsCard(page, '165번 핑크프릴 · 끝자리 5678 · 문자찜')).toBeVisible()
     await page.clock.runFor(5000)
     // 같은 표시 이름("문자찜")이 둘이면 이름에 구분 글자가 붙는다(D-098) — 그 부분은 TE-V1-001에서 본다
     await expect(smsResults(page, C165)).toHaveText(/^165번 · 문자찜.* · 1등 · 받은 시각 /)
-    await expect(smsResults(page, '165번 · 끝자리 5678 · 문자찜')).toHaveText(/^165번 · 문자찜.* · 대기 1번 · 받은 시각 /)
+    await expect(smsResults(page, '165번 핑크프릴 · 끝자리 5678 · 문자찜')).toHaveText(/^165번 · 문자찜.* · 대기 1번 · 받은 시각 /)
     const writes = smsWrites(requests)
     expect(writes.map((w) => w['last4'])).toEqual(['1234', '5678'])
     expect(await smsEvents(page, date, false)).toHaveLength(2)
@@ -242,7 +248,7 @@ test.describe('V1 문자찜 카드', () => {
     await turnOnVoice(page)
     await expect(voiceRegion(page).getByText('문자찜도 듣는 중')).toBeVisible()
     await speak(page, '15번 28번 문자찜 끝자리 1234')
-    const short = '15번 · 28번 · 끝자리 1234 · 문자찜'
+    const short = '15번 핑크프릴 · 28번 핑크프릴 · 끝자리 1234 · 문자찜' // 번호마다 품종(D-V1-21)
     await expect(smsCard(page, short)).toBeVisible()
     for (const name of ['넣기', '넣지 않기'] as const) {
       const box = await smsButton(page, short, name).boundingBox()
@@ -268,7 +274,7 @@ test.describe('V1 문자찜 카드', () => {
     await speak(page, '165번 문자찜 끝자리 1234')
     await smsButton(page, C165, '지금 넣기').click()
     await expect(smsResults(page, C165)).toHaveText(RESULT_165)
-    const c5678 = '166번 · 끝자리 5678 · 문자찜'
+    const c5678 = '166번 핑크프릴 · 끝자리 5678 · 문자찜'
     await speak(page, '166번 문자찜 끝자리 5678')
     await smsButton(page, c5678, '지금 넣기').click()
     await expect(smsResults(page, c5678)).toHaveText(/^166번 · 문자찜.* · 1등 · 받은 시각 /)

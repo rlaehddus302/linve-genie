@@ -53,6 +53,9 @@ test.describe('V1 이유 카드', () => {
       await speak(page, text)
       const c = heardCard(page, text)
       await expect(c.getByRole('alert'), text).toHaveText(reason)
+      // D-V1-21: 이유 카드 제목은 늘 "문자찜 · 넣지 않았어요"("번호 없음"·"손님 확인 필요" 없음)
+      await expect(c, text).toHaveAccessibleName('문자찜 · 넣지 않았어요 카드')
+      await expect(c.getByText('문자찜 · 넣지 않았어요', { exact: true }), text).toBeVisible()
       await expect(c.getByRole('button'), text).toHaveText(['닫기'])
       // 주문이 빈 문제 카드끼리는 "같은 말"이 될 수 있다(D-V1-06 — 문제 카드끼리도 같은 규칙) → 10초를 넘겨 다음 문장
       await page.clock.runFor(10_001)
@@ -81,13 +84,16 @@ test.describe('V1 이유 카드', () => {
     await expect(boardItem(page, 165)).toBeVisible()
     const requests = recordRequests(page)
     await speak(page, '165번 문자찜 끝자리 1234')
-    const short = '165번 · 끝자리 1234 · 문자찜'
+    const short = '165번 핑크프릴 · 끝자리 1234 · 문자찜' // 품종(D-V1-21)
     await expect(smsCard(page, short).getByText('3초 뒤 넣어요')).toBeVisible()
     expect((await writeEvent(page, { type: 'product.close', b, no: 165 })).status).toBeLessThan(300)
     await expect(boardItem(page, 165)).toContainText('판매 종료')
     await page.clock.runFor(4000)
-    await expect(smsCard(page, short).getByRole('alert')).toHaveText('165번은 지금 판매 중이 아니에요.')
-    await expect(smsCard(page, short).getByRole('button')).toHaveText(['닫기'])
+    // 이유 카드가 되면 제목이 "문자찜 · 넣지 않았어요"(D-V1-21) — 들은 말로 찾는다
+    const reason = heardCard(page, '165번 문자찜 끝자리 1234')
+    await expect(reason).toHaveAccessibleName('문자찜 · 넣지 않았어요 카드')
+    await expect(reason.getByRole('alert')).toHaveText('165번은 지금 판매 중이 아니에요.')
+    await expect(reason.getByRole('button')).toHaveText(['닫기'])
     expect(smsWrites(requests)).toEqual([])
   })
 
@@ -104,7 +110,7 @@ test.describe('V1 이유 카드', () => {
     await turnOnVoice(page)
     const requests = recordRequests(page)
     // 대기 자리 하나 → 넣어서 대기 1번
-    const short = '302번 · 끝자리 1234 · 문자찜'
+    const short = '302번 라울 · 끝자리 1234 · 문자찜'
     await speak(page, '302번 문자찜 끝자리 1234')
     await smsButton(page, short, '지금 넣기').click()
     await expect(smsResults(page, short)).toHaveText(/^302번 · 문자찜.* · 대기 1번 · 받은 시각 /)
@@ -124,13 +130,17 @@ test.describe('V1 이름·확인 필요·받은 시각', () => {
     await expect(boardItem(page, 166)).toBeVisible()
     const requests = recordRequests(page)
     await speak(page, '김민지님 165번 문자찜')
-    await expect(smsCard(page, '165번 · 김민지님 · 문자찜')).toBeVisible()
+    await expect(smsCard(page, '165번 핑크프릴 · 김민지님 · 문자찜')).toBeVisible()
     await page.clock.runFor(3000)
-    await expect(smsResults(page, '165번 · 김민지님 · 문자찜')).toHaveText(/^165번 · 문자찜\(김민지\) · 1등 · 받은 시각 /)
+    await expect(smsResults(page, '165번 핑크프릴 · 김민지님 · 문자찜')).toHaveText(/^165번 · 문자찜\(김민지\) · 1등 · 받은 시각 /)
     await speak(page, '166번 문자찜')
-    await expect(smsCard(page, '166번 · 손님 확인 필요 · 문자찜')).toBeVisible()
+    await expect(smsCard(page, '166번 핑크프릴 · 손님 확인 필요 · 문자찜')).toBeVisible()
     await page.clock.runFor(3000)
-    await expect(smsResults(page, '166번 · 손님 확인 필요 · 문자찜')).toHaveText(/^166번 · 문자찜\(확인 필요\) · 1등 · 받은 시각 /)
+    await expect(smsResults(page, '166번 핑크프릴 · 손님 확인 필요 · 문자찜')).toHaveText(/^166번 · 문자찜\(확인 필요\) · 1등 · 받은 시각 /)
+    // D-V1-21: 확인 필요로 넣은 결과 카드에만 정산 안내 한 줄
+    const note = '방송 뒤 정산 화면에서 누구인지 확인해 주세요.'
+    await expect(smsCard(page, '166번 핑크프릴 · 손님 확인 필요 · 문자찜').getByText(note, { exact: true })).toBeVisible()
+    await expect(smsCard(page, '165번 핑크프릴 · 김민지님 · 문자찜').getByText(note, { exact: true })).toHaveCount(0)
     const writes = smsWrites(requests)
     expect(writes).toHaveLength(2)
     expect(writes[0]).toMatchObject({ no: 165, memo: '김민지' })
@@ -166,7 +176,7 @@ test.describe('V1 이름·확인 필요·받은 시각', () => {
     await speak(page, '165번 문자찜 2시 15분')
     const c = page.getByRole('list', { name: '음성 카드' }).getByRole('listitem', { name: /^165번 .*받은 시각 2:15.* 카드$/ })
     await expect(c.getByText('받은 시각이 지금보다 늦어요. 그래도 넣을까요?')).toBeVisible()
-    await expect(c.getByRole('button')).toHaveText(['넣기', '넣지 않기'])
+    await expect(c.getByRole('button')).toHaveText(['넣지 않기', '넣기']) // D-V1-20
     await page.clock.runFor(15_000)
     expect(smsWrites(requests)).toEqual([])
     await c.getByRole('button', { name: /넣기$/ }).filter({ hasText: /^넣기$/ }).click()

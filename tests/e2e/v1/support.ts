@@ -76,12 +76,12 @@ export async function setupPaused(page: Page, opts: { rehearsal?: boolean; smsSe
 }
 
 /** 기다림 없이 (시계를 멈추지 않고) 음성까지 */
-export async function setupLive(page: Page, opts: { rehearsal?: boolean; smsSettings?: unknown; date?: string; width?: number; height?: number } = {}): Promise<{ b: string; date: string }> {
+export async function setupLive(page: Page, opts: { rehearsal?: boolean; smsSettings?: unknown; date?: string; width?: number; height?: number; title?: string } = {}): Promise<{ b: string; date: string }> {
   await installSmsSpeech(page, opts.smsSettings === undefined ? {} : { smsSettings: opts.smsSettings })
   await page.setViewportSize({ width: opts.width ?? 1440, height: opts.height ?? 900 })
   await login(page)
   const date = opts.date ?? uniqueDate()
-  const b = await openNewBroadcast(page, { date, rehearsal: opts.rehearsal ?? false })
+  const b = await openNewBroadcast(page, { date, rehearsal: opts.rehearsal ?? false, ...(opts.title === undefined ? {} : { title: opts.title }) })
   await turnOnVoice(page)
   return { b, date }
 }

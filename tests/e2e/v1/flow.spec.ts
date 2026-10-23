@@ -11,7 +11,7 @@ test('AC-V1-60 · TE-V1-002: 음성 문자찜 처음부터 끝까지 — 저절�
   await expect(boardItem(page, 166)).toBeVisible()
   const requests = recordRequests(page)
 
-  const c165 = '165번 · 끝자리 1234 · 문자찜'
+  const c165 = '165번 핑크프릴 · 끝자리 1234 · 문자찜' // 품종(D-V1-21)
   await speak(page, '165번 문자찜 끝자리 1234')
   await expect(smsCard(page, c165).getByText(/^[1-3]초 뒤 넣어요$/)).toBeVisible()
   await speak(page, '165번 문자찜 끝자리 1234')
@@ -27,7 +27,7 @@ test('AC-V1-60 · TE-V1-002: 음성 문자찜 처음부터 끝까지 — 저절�
   await expect(reason.getByRole('alert')).toHaveText('아니라는 말이나 묻는 말이 들려서 넣지 않았어요. 문자찜이면 다시 말해 주세요.')
   await expect(reason.getByRole('button')).toHaveText(['닫기'])
 
-  const c166 = '166번 · 손님 확인 필요 · 문자찜'
+  const c166 = '166번 핑크프릴 · 손님 확인 필요 · 문자찜'
   await speak(page, '166번 문자찜')
   await expect(smsResults(page, c166)).toHaveText(/^166번 · 문자찜\(확인 필요\) · 1등 · /, { timeout: 10_000 })
   // 아니라는 말 카드가 저절로 넣었다면 여기서 셋이다(그 카드가 166번보다 먼저 들렸다)
