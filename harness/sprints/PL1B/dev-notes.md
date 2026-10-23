@@ -47,3 +47,41 @@
 
 ### 범위 밖에 남긴 것
 - `apps/server/src/db/schema.ts`의 `receipt_kind` 주석(`TAX_INVOICE · CASH_RECEIPT`)은 파일 경계상 PL1A 쪽 파일이라 그대로 — 옛 기록에 두 값이 다 있을 수 있어 틀린 주석도 아니다.
+
+## dev-web (web 몫: AC-PL1B-05~07·10~13·16~18·23~25·27)
+
+### 사업자 정보·증빙 (D-PL1-07) — `BusinessSection.tsx`, `lib/billing-words.ts`
+- 고치는 칸: 사업자등록번호·상호·대표자 이름·"증빙 받을 이메일 (선택)". 라디오·`fieldset "계좌이체 증빙"` 없음. 칸 아래 `<p>계좌이체 증빙: 현금영수증(지출증빙)</p>`와 `<p class="hint">세금계산서는 지금은 발급할 수 없어요. 카드로 결제하면 카드 매출전표가 증빙이에요.</p>`. 서버가 `receiptKind` 칸 문제(422)를 주면 그 문장이 이 두 줄 아래에 보인다.
+- 저장 본문: `{ requestId, businessNumber, name, ceo, email, receiptKind: 'CASH_RECEIPT' }`(늘 현금영수증을 적어 보낸다).
+- 보기 칸(dl.facts): "증빙 받을 이메일"·"계좌이체 증빙" → "현금영수증(지출증빙)" — 조회값이 옛 `TAX_INVOICE`여도 화면은 늘 현금영수증(서버도 CASH로 준다).
+- 결제 전 계좌이체 안내 `TRANSFER_RECEIPT_NOTE` = "현금영수증(지출증빙)을 발행해요." 증빙 낱말 표(세금계산서·현금영수증)는 옛 기록 표시용으로 그대로.
+- 약관 `TERMS` "증빙" = BL-10 8(메모 빼고). `apps/web/test/pl1b-terms.node.test.ts`가 BILLING_RULES BL-10 1~9를 읽어 아홉 항목 모두 글자 맞대기 — **spec-keeper가 BL-10 글을 바꾸면 이 시험이 깨진다(화면 글도 같이 바꿔야 한다는 뜻)**.
+- 바꾼 기존 시험(D-PL1-07 주석): `billing-page.test.tsx` 결제 전 안내 문장 두 곳, 사업자 정보 시험의 라디오 누르기 → 라디오 0개 단언.
+
+### 포장 모드 "포장 라벨 출력" (D-PL1-05) — 새 파일 `components/PackingPrint.tsx`, `PackingPage.tsx`는 `PackingLabelSection`과 import 세 줄만
+- 라벨 켜짐(`useLabelsEnabled() === true`)이고 품목이 있으면 `region "포장 라벨"`의 "라벨 PDF"와 같은 `.row`에 보통 버튼(`class="button"`) "포장 라벨 출력". 누르면 `POST /api/print/packing { requestId, date, buyer }`(누를 때마다 새 번호, 끊기면 withRetry로 같은 번호), 보내는 동안 disabled, 성공 `<p role="status">포장 라벨 N장 출력을 접수했어요.</p>`(칸 맨 아래), 거절은 `ErrorNote`(서버 문장). 미리 보기를 받는 중에도 누를 수 있다.
+- 라벨 꺼짐(`false`): 칸 전체가 제목 + `LabelsOffNote`("라벨 쓰지 않음 — 설정에서 켤 수 있어요.") — 그림·저장·PDF·출력 없음, `packing-label`·`.png` 요청 없음. 켜짐 알림이 오면 다시 그림을 받는다. `LABELS_OFF` 거절이면 출력 기록 저장소가 꺼짐으로 덮어 같은 안내 + 서버 문장.
+- 켬/끔 모름(`null` — 불러오는 중·실패·PrintProvider 밖): 출력 버튼만 없다. 미리 보기·그림 저장·라벨 PDF는 BASE처럼 그대로 받는다(BASE 동작 유지 — I2 시험이 PrintProvider 없이 이 칸을 그린다).
+- **AC-PL1B-14(봉인 날짜 숨김)는 하지 않았다** — 뒤에 합치는 트랙 몫. 합칠 때: `PackingLabelSection`에 `sealed`를 넘겨 `{labels === true && !sealed ? <PackingPrintButton …/> : null}`로 바꾸면 된다(그림 저장·라벨 PDF는 그대로).
+
+### 마법사 4/5 "라벨을 쓰지 않아요" (D-PL1-06) — `wizard/PrinterStep.tsx`, `WizardPage.tsx`는 프린터 단계 블록만
+- 라벨 켜짐일 때만, 연결 칸(`PrinterSection inWizard`) 아래 보통 버튼 "라벨을 쓰지 않아요"와 `<p class="hint">라벨 없이 팔아요. 설정에서 언제든 다시 켤 수 있어요.</p>`. 모름: "불러오는 중…"만, 꺼짐: 안내만.
+- 누르면 확인 창 없이 `PrintStore.saveLabelsEnabled(false)` = `PUT /api/settings/labels { enabled: false }` 하나(설정 화면 끄기와 같은 저장 — 바꾼 기록·알림 같음). 보내는 동안 이 버튼과 "다음" 잠금(StepButtons `nextBusy`). 성공 → `go(5)`(제목 포커스·`PUT /api/wizard {IN_PROGRESS, 5}`), 꺼졌으니 5/5 "이전"은 3/5(기존 skipPrinter 규칙). 실패 → 4/5에 머묾, `RequestError`(서버 문장, 네트워크는 "인터넷 연결을 확인하고 다시 눌러 주세요."), 버튼 다시 눌림.
+- `PrinterStep`은 이제 단계 버튼을 `buttons(busy)`로 받아 직접 그린다(잠금 때문에). `WizardPage`의 유튜브 블록·import는 손대지 않았다.
+
+### 음성 시험 (동작 변경 없음)
+- AC-PL1B-23·24·25: `apps/web/test/pl1b-voice-flush.test.tsx` — 끝 넘김(`sayCut` = 중간 결과 뒤 최종 없이 onend) 문자찜 카드는 `autoAt null`·"N초 뒤 넣어요" 없음·30초 쓰기 0, "넣기" 1·"넣지 않기" 0, 대조군(보통 최종 → 3초 뒤 1), 같은 말·열린 카드 수 규칙 (a)=(b), 밀려 닫힘 알림은 넘긴 상품 카드만(넘긴 문자찜 카드는 D-V1-18로 닫히지 않음), 375px 내리기(`scrollBy`) 한 번·PC/고치는 중 0번.
+- AC-PL1B-27: `voice-controller.test.ts`의 N3 미룸 시험 8개 위에 `// D-PL1-09` 주석. D-PL1-09 항목 중 **덮지 않던 것 셋을 더함**: 문자찜 문장도 카드만 미룸(보인 때부터 3초), 기다리는 중 엔진이 멈추면(오류) 바로 카드·자동 확정 없음, 자막·상태 글자는 미루지 않음. `HISTORY_WAIT_MS`·`controller.ts`는 그대로.
+
+### 확인한 범위
+- 웹 단위 시험 전체(`vitest --project web`) 76파일·1284개 통과, `tsc`(웹·노드 설정)·`eslint apps/web` 통과. 전체 `pnpm verify`·E2E는 돌리지 않았다(지시). 띄운 서버·브라우저 없음.
+
+### 다음 영역에게
+- **test-e2e**:
+  - `tests/e2e/n5/billing.spec.ts`: 결제 전 안내는 "현금영수증(지출증빙)을 발행해요.", 사업자 정보 칸에 라디오가 없다(라디오 누르기가 있으면 실패한다). 이메일 칸 이름은 "증빙 받을 이메일 (선택)". 결제 내역 "현금영수증 발행됨 · TEST-…".
+  - `tests/e2e/i2/packing.spec.ts` "B1 버튼 없음" → 라벨 켜짐이면 `region "포장 라벨"` 안에 `button "포장 라벨 출력"`이 있다(D-PL1-05).
+  - AC-PL1B-15: 버튼을 누른 뒤 `role=status` "포장 라벨 2장 출력을 접수했어요."(12품목 2쪽). 라벨을 끄면 칸 안 "라벨 쓰지 않음 — 설정에서 켤 수 있어요."·버튼 0개.
+  - AC-PL1B-19: 4/5에서 `button "라벨을 쓰지 않아요"` → `heading level 2 "5/5 리허설 해 보기"`.
+  - AC-PL1B-26: 화면은 단위 시험과 같은 동작 — 카드의 "넣기"·"넣지 않기" 버튼, 카운트다운 글 없음.
+- **ux**: 포장 모드 출력 버튼은 "라벨 PDF" 옆 보통 버튼, 접수 문장은 포장 라벨 칸 맨 아래(체크리스트 버튼 줄과 떨어져 있다). 마법사 버튼은 연결 칸 아래·단계 버튼 위, "나중에 할게요"는 단계 버튼 줄에 따로.
+- **합치는 트랙(AC-PL1B-14)**: 위 "포장 모드" 마지막 줄.
