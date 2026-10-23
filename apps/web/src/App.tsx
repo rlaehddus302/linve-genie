@@ -12,6 +12,7 @@
 // 묻는다. 웹이 막을 수 없는 닫기(앱을 위로 밀어 닫기)로 떠나면 보내지 않는다 (D-103, AC-S06b-42·43).
 // 인터넷이 끊긴 채 열면(서비스 워커가 저장한 껍데기) "인터넷 연결이 없어요. 연결되면 다시 불러와요." — 연결되면 저절로 다시 불러온다(D-093).
 // 요금(N5, AC-N5-50): 로그인한 동안 요금 기능 설정을 한 번 받는다. 켜져 있으면 메뉴 "요금"과 /billing 화면, 꺼져 있으면 /billing은 없는 화면이다.
+// T1: 메뉴 "택배"와 택배 접수 화면 `/parcels`(AC-T1-60·61) — 보조자는 다른 화면처럼 안내만.
 // I3: 메뉴에 "설정"(AC-I3-44), 시작 마법사 `/start`(AC-I3-50), 정책 페이지 `/privacy`·`/terms`는 로그인 없이(AC-I3-77),
 // N4b: 끝난 방송의 영수증 보내기 `/broadcasts/<ID>/receipts`(AC-N4b-30) — 보조자는 다른 화면처럼 안내만.
 // 보조자 계정은 문자찜 입력만 — 로그인하면 `/sms`로, 다른 화면 주소는 안내만 보이고 그 화면의 데이터를 부르지 않는다(AC-I3-63).
@@ -32,6 +33,7 @@ import { RefusalReset } from './components/LabelsOff.tsx'
 import { LoginPage } from './components/LoginPage.tsx'
 import { Modal } from './components/Modal.tsx'
 import { PackingPage } from './components/PackingPage.tsx'
+import { ParcelsPage } from './components/ParcelsPage.tsx'
 import { ReviewsPage } from './components/ReviewsPage.tsx'
 import { PrivacyPage, TermsPage } from './components/PolicyPages.tsx'
 import { PrintProvider } from './components/print-context.tsx'
@@ -42,6 +44,7 @@ import { SmsPage } from './components/SmsPage.tsx'
 import { TopBar } from './components/TopBar.tsx'
 import { WizardPage } from './components/WizardPage.tsx'
 import { takeGoogleReturn } from './lib/google-return.ts'
+import { parseLoginResult, resultMessage, stripLoginParams, type LoginResult } from './lib/social-login.ts'
 import { LEAVE_QUESTION, LEAVE_TITLE, LeaveGuardContext, type LeaveGuard } from './lib/leave-guard.ts'
 import { historyDepth, isGuardEntry, isPublicRoute, pushGuardEntry, routePath, useRoute, type BillingRoute, type Navigate, type NavigateOptions, type Route } from './lib/router.ts'
 
@@ -222,6 +225,22 @@ export function App() {
     go(target.route, target.fromPop ? { replace: true } : target.options)
   }
 
+  // 로그인한 채 홈 주소에 간편 로그인 결과(`/?login=`)가 붙어 왔으면 지운다 (L1 AC-L1-21).
+  // 연결하다 돌아온 SESSION_GONE·RATE_LIMITED는 로그인된 채(다른 탭에서 다시 로그인함 등)여도 위 알림으로 같은 문장을 보인다 (TE-L1-001).
+  // 그 밖의 로그인 화면 문장(취소·만료·연결 없음)은 로그인 화면에서만 보인다
+  const signedIn = session.state === 'in'
+  const [homeNotice, setHomeNotice] = useState<LoginResult | null>(null)
+  useEffect(() => {
+    if (!signedIn) return
+    if (route.name !== 'home') {
+      setHomeNotice(null)
+      return
+    }
+    const result = parseLoginResult(window.location.pathname, window.location.search, 'login')
+    if (result !== null && (result.code === 'SESSION_GONE' || result.code === 'RATE_LIMITED')) setHomeNotice(result)
+    stripLoginParams()
+  }, [signedIn, route.name])
+
   /** 로그인: 보조자 계정은 문자찜 입력으로 (AC-I3-63) */
   const loggedIn = (me: Me) => {
     setSession({ state: 'in', me })
@@ -284,6 +303,14 @@ export function App() {
       <TopBar shopName={me.seller.name} assistant={assistant} onLogout={() => void logout()} route={route} navigate={navigate} />
       {assistant ? null : <RefusalReset screen={routePath(route)} />}
       {logoutError !== null ? <ErrorNote error={logoutError} /> : null}
+      {homeNotice !== null ? (
+        <div className="notice row login-result-notice">
+          <p role="alert">{resultMessage(homeNotice).text}</p>
+          <button type="button" className="button" onClick={() => setHomeNotice(null)}>
+            닫기
+          </button>
+        </div>
+      ) : null}
       {assistant && route.name !== 'sms' && !isPublicRoute(route) ? <AssistantBlocked navigate={navigate} /> : <Screen route={route} navigate={navigate} me={me} onRenamed={renamed} />}
       {leaving !== null ? (
         <Modal
@@ -362,6 +389,8 @@ function Screen({ route, navigate, me, onRenamed }: ScreenProps) {
       return <SettlementsPage route={route} navigate={navigate} />
     case 'packing':
       return <PackingPage route={route} navigate={navigate} />
+    case 'parcels':
+      return <ParcelsPage route={route} navigate={navigate} />
     case 'reviews':
       return <ReviewsPage route={route} navigate={navigate} />
     case 'labels':
@@ -436,5 +465,5 @@ function SettingsRoute({ route, navigate, me, onRenamed }: ScreenProps & { reado
     if (toWizard && route.youtubeResult !== undefined) navigate({ name: 'start', youtubeResult: route.youtubeResult }, { replace: true })
   }, [toWizard, route.youtubeResult, navigate])
   if (toWizard) return null
-  return <SettingsPage route={route} navigate={navigate} shopName={me.seller.name} onRenamed={onRenamed} />
+  return <SettingsPage route={route} navigate={navigate} shopName={me.seller.name} onRenamed={onRenamed} assistant={isAssistant(me)} />
 }

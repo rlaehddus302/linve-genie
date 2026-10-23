@@ -5,6 +5,7 @@ import {
   buyerOfRef,
   checkSettings,
   containsPhoneRun,
+  currentBuyerOf,
   getBroadcast,
   getBuyer,
   isValidDate,
@@ -48,6 +49,8 @@ import { fieldMessage, phoneIdProblem, safeFieldName, unknownFieldProblems } fro
 import { productOwners } from './product-history.ts'
 import { reviewsView, type ReviewsView } from './reviews.ts'
 import { mergePackingCheck } from './packing.ts'
+import { ParcelService } from './parcel/service.ts'
+import { mergeAddress } from './parcel/store.ts'
 import { ASSISTANT_EVENT_TYPES, assistantCancelCheck, assistantForbidden } from './roles.ts'
 import { openSellerKey, phoneKeyOf } from './secrets.ts'
 import {
@@ -96,7 +99,7 @@ import type { BillingService } from './billing/service.ts'
 import { iso, kstDate, kstTime, type Clock } from './time.ts'
 import type { ViewCacheBudget } from './view-budget.ts'
 import { changeSet, fullView, messageLookup, type ChangeSet, type FullView, type MessageLookup } from './views.ts'
-import { resultOf, scopeKey, WriteAbort, type Actor, type ChatSource, type Draft, type Rejection, type ScopeWriter, type WriteOutcome, type WriteResult } from './writer.ts'
+import { resultOf, scopeKey, WriteAbort, type Actor, type ChatSource, type CommittedRecord, type Draft, type Rejection, type ScopeWriter, type WriteOutcome, type WriteResult } from './writer.ts'
 import { sanitizeNick } from './youtube/texts.ts'
 import { SEALED_CHAT_MESSAGE, sealAtOf, sealedView } from './youtube/seal.ts'
 
@@ -573,9 +576,25 @@ export class Service {
 
     if (type === 'sms') return this.#writeSms(sellerId, actor, requestId, date, rehearsal, body, fields)
     // 포장·배송을 적은 구매자의 합치기·떼어 내기 제한 (D-I2-20 — 실제 범위만, 엔진 이벤트를 기록하기 전에 같은 범위 줄·락 안에서)
+    // 택배 (T1 PC-3·D-T1-07): 떼어 낼 구매자가 붙은 묶음에 접수 결과를 기다리는 시도가 있으면 막고, 합치면 같은 트랜잭션에서 그 날짜 배송지를 옮긴다(합칠 대상에 없을 때)
+    let mergeTarget: { from: string; into: string } | null = null
     const packingGuard =
       !rehearsal && (type === 'buyer.merge' || type === 'buyer.unmerge')
-        ? { guard: (tx: Db, runtime: Pick<ScopeRuntime, 'scopeId' | 'state'>) => mergePackingCheck(tx, sellerId, runtime.scopeId, runtime.state, fields) }
+        ? {
+            guard: async (tx: Db, runtime: Pick<ScopeRuntime, 'scopeId' | 'state'>) => {
+              const refused = (await mergePackingCheck(tx, sellerId, runtime.scopeId, runtime.state, fields)) ?? (await ParcelService.mergeGuard(tx, sellerId, date, runtime.state, fields, this.#options.clock.now()))
+              if (refused !== null) return refused
+              const from = fields['from']
+              const into = fields['into']
+              if (type === 'buyer.merge' && typeof from === 'string' && typeof into === 'string' && getBuyer(runtime.state, into) !== null) mergeTarget = { from, into: currentBuyerOf(runtime.state, into) ?? into }
+              return null
+            },
+            afterInsert: async (tx: Db, _scopeId: string, records: readonly CommittedRecord[], now: Date) => {
+              const target = mergeTarget as { from: string; into: string } | null
+              if (target === null || records[0] === undefined || records[0].failed || !records[0].changed) return
+              await mergeAddress(tx, this.#options.masterKey, sellerId, date, target.from, target.into, now)
+            },
+          }
         : {}
     return this.#options.writer.write({
       sellerId,

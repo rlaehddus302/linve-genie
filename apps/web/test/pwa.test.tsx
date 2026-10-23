@@ -119,14 +119,16 @@ describe('PC 메뉴 (AC-S06-01, AC-I1-20, AC-I3-44, AC-N4a-10·13·18, AC-N3-40,
     const menu = screen.getByRole('navigation', { name: '메뉴' })
     const links = [...menu.querySelectorAll('a')]
     // 합치기(N3 + main): "정산" 다음에 "입금 확인"(N3 AC-N3-40)이 들어와 뒤 칸 번호가 하나씩 밀린다
-    expect(links.map((link) => link.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '입금 확인', '포장', '라벨', '설정'])
-    expect(links.map((link) => link.getAttribute('aria-current'))).toEqual([null, null, 'page', null, null, null, null, null])
+    expect(links.map((link) => link.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '입금 확인', '포장', '라벨', '택배', '설정'])
+    expect(links.map((link) => link.getAttribute('aria-current'))).toEqual([null, null, 'page', null, null, null, null, null, null])
     expect(links[4]?.getAttribute('href')).toBe('/deposits')
     expect(links[6]?.getAttribute('href')).toBe('/labels')
     expect(links[3]?.getAttribute('href')).toBe('/settlements?date=2026-10-18&rehearsal=true')
     // 포장은 실제 범위만 — 리허설 날짜를 보고 있었으면 날짜를 잇지 않는다
     expect(links[5]?.getAttribute('href')).toBe('/packing')
-    expect(links[7]?.getAttribute('href')).toBe('/settings')
+    // 택배(T1 AC-T1-60)는 "설정" 바로 앞 — 리허설 날짜를 보고 있었으면 날짜를 잇지 않는다
+    expect(links[7]?.getAttribute('href')).toBe('/parcels')
+    expect(links[8]?.getAttribute('href')).toBe('/settings')
     fireEvent.click(links[1] as HTMLAnchorElement)
     expect(navigate).toHaveBeenCalledWith({ name: 'sms' })
     expect(screen.getByRole('link', { name: '출력 기기 없음' }).getAttribute('href')).toBe('/labels')
@@ -148,7 +150,7 @@ describe('PC 메뉴 (AC-S06-01, AC-I1-20, AC-I3-44, AC-N4a-10·13·18, AC-N3-40,
   it('라벨 기능이 꺼져 있으면 메뉴 "라벨"과 프린터 상태가 없다 — 다른 메뉴(합친 뒤 I2 "포장" 포함)와 "설정"은 그대로', async () => {
     await topBarWithLabels(false, { name: 'home' })
     const menu = screen.getByRole('navigation', { name: '메뉴' })
-    expect([...menu.querySelectorAll('a')].map((link) => link.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '입금 확인', '포장', '설정'])
+    expect([...menu.querySelectorAll('a')].map((link) => link.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '입금 확인', '포장', '택배', '설정'])
     expect(screen.queryByRole('link', { name: /출력 기기|프린터|출력 멈춤/ })).toBeNull()
     expect(within(menu).getByRole('link', { name: '설정' }).getAttribute('href')).toBe('/settings')
   })
@@ -156,7 +158,7 @@ describe('PC 메뉴 (AC-S06-01, AC-I1-20, AC-I3-44, AC-N4a-10·13·18, AC-N3-40,
   it('켬/끔을 아직 모르면(불러오는 중) 메뉴 "라벨"·프린터 상태를 보이지 않는다 (AC-N4a-18)', async () => {
     await topBarWithLabels(null, { name: 'home' })
     const menu = screen.getByRole('navigation', { name: '메뉴' })
-    expect([...menu.querySelectorAll('a')].map((link) => link.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '입금 확인', '포장', '설정'])
+    expect([...menu.querySelectorAll('a')].map((link) => link.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '입금 확인', '포장', '택배', '설정'])
     expect(screen.queryByRole('link', { name: /출력 기기|프린터|출력 멈춤/ })).toBeNull()
   })
 })

@@ -91,8 +91,65 @@ export const sessions = pgTable(
     expiresAt: timestamptz('expires_at').notNull(),
     /** 마지막으로 만료 시각을 늘린 때 (쓰는 동안 연장) */
     extendedAt: timestamptz('extended_at').notNull(),
+    /** 세션을 만든 방법 (L1, D-L1-03): PASSWORD 아이디·비밀번호 · GOOGLE · KAKAO · NAVER 간편 로그인. 간편 로그인을 끊으면 그 방법으로 만든 세션을 지운다 */
+    method: text('method').notNull().default('PASSWORD'),
   },
-  (t) => [index('sessions_account_idx').on(t.accountId), index('sessions_seller_idx').on(t.sellerId)],
+  (t) => [index('sessions_account_idx').on(t.accountId), index('sessions_seller_idx').on(t.sellerId), index('sessions_method_idx').on(t.accountId, t.method)],
+)
+
+/**
+ * 간편 로그인 연결 (L1, SYS-01·SYS-02, D-L1-02·D-L1-03·D-L1-05). 판매자 계정(SELLER) ↔ (공급자, 공급자 계정 ID).
+ * - (공급자, 공급자 계정 ID)는 서버 전체에서 하나, 계정마다 공급자 하나까지 (DB 유일 제약).
+ * - 공급자 토큰·인가 코드·이메일 원문·닉네임 원문 칸은 없다 — 화면에 보일 가린 이름(label, 빈 값 가능)만 둔다
+ */
+export const loginLinks = pgTable(
+  'login_links',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    /** google · kakao · naver */
+    provider: text('provider').notNull(),
+    /** 공급자 계정 ID (구글 sub · 카카오 id · 네이버 response.id) — 로그·응답에 내지 않는다 */
+    providerUserId: text('provider_user_id').notNull(),
+    /** 가린 이름 (예: se***@gmail.com · 다*** · 빈 값) */
+    label: text('label').notNull().default(''),
+    linkedAt: timestamptz('linked_at').notNull(),
+    lastLoginAt: timestamptz('last_login_at'),
+  },
+  (t) => [
+    unique('login_links_provider_user_uq').on(t.provider, t.providerUserId),
+    unique('login_links_account_provider_uq').on(t.accountId, t.provider),
+    index('login_links_seller_idx').on(t.sellerId),
+  ],
+)
+
+/**
+ * 간편 로그인 승인 요청 (L1, D-L1-04). state·브라우저 쿠키 값은 해시만, PKCE 검증 값은 마스터 키로 암호화(구글·카카오만).
+ * 로그인(LOGIN)은 로그인 전이라 판매자를 모른다 — seller_id·account_id·session_hash가 비어 있다. 연결(LINK)은 그 판매자 계정·세션에 묶인다.
+ * 10분, 한 번만(used_at). 끝난 행은 시작할 때 정리한다
+ */
+export const loginStates = pgTable(
+  'login_states',
+  {
+    stateHash: text('state_hash').primaryKey(),
+    browserHash: text('browser_hash').notNull(),
+    provider: text('provider').notNull(),
+    /** LOGIN · LINK */
+    purpose: text('purpose').notNull(),
+    sellerId: text('seller_id').references(() => sellers.id),
+    accountId: text('account_id').references(() => accounts.id),
+    sessionHash: text('session_hash'),
+    verifierEnc: text('verifier_enc'),
+    createdAt: timestamptz('created_at').notNull(),
+    expiresAt: timestamptz('expires_at').notNull(),
+    usedAt: timestamptz('used_at'),
+  },
+  (t) => [index('login_states_expires_idx').on(t.expiresAt)],
 )
 
 /** 엔진 범위 = (판매자, 방송 날짜, 리허설인지) (R-0 6, D-069, D-081) */
@@ -1528,11 +1585,134 @@ export const depositRequests = pgTable(
   (t) => [unique('deposit_requests_uq').on(t.sellerId, t.requestId)],
 )
 
+/**
+ * 택배 배송지 (T1 PARCEL_RULES PC-3, D-T1-04·D-T1-07): 묶음(판매자, 실제 범위 날짜, 구매자 ID)마다 많아야 하나.
+ * 여섯 칸(받는 분·연락처·주소·상세 주소·우편번호·배송 메모)은 하나로 묶어 서버 마스터 키로 AES-256-GCM 암호화한 값(sealed)만 둔다 —
+ * 판매자·날짜·구매자 ID를 함께 묶어(AAD) 다른 행으로 옮기면 풀리지 않는다(D-073 방식). 따로 두는 것은 출처·확인 여부·확인한 계정·고친 시각·고친 계정뿐이다.
+ * 고치면 덮어쓴다(이전 내용은 남기지 않는다). 날짜 + 30일의 0시(KST)에 지운다. 복구·가져오기는 그 판매자의 행을 모두 지운다(백업 파일에 없다)
+ */
+export const parcelAddresses = pgTable(
+  'parcel_addresses',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** 묶음 날짜 YYYY-MM-DD (실제 범위) */
+    date: text('date').notNull(),
+    /** 지금의 구매자 ID */
+    buyer: text('buyer').notNull(),
+    /** 여섯 칸 JSON의 암호문 (`v1.iv.data.tag`) */
+    sealed: text('sealed').notNull(),
+    /** BUYER(구매자 링크) · SELLER(판매자 화면) */
+    source: text('source').notNull(),
+    /** 판매자가 확인했는지 (판매자가 적거나 고친 것은 그 자리에서 확인함) */
+    confirmed: boolean('confirmed').notNull(),
+    confirmedBy: text('confirmed_by').references(() => accounts.id),
+    /** 고친 시각 (UTC) */
+    updatedAt: timestamptz('updated_at').notNull(),
+    /** 고친 계정 (구매자가 적었으면 null) */
+    updatedBy: text('updated_by').references(() => accounts.id),
+  },
+  (t) => [unique('parcel_addresses_uq').on(t.sellerId, t.date, t.buyer), index('parcel_addresses_date_idx').on(t.date)],
+)
+
+/**
+ * 택배 접수 시도 (T1 PC-5, D-T1-11): 묶음마다 덧붙여 가는 시도들. 한 묶음에 살아 있는(PENDING·UNKNOWN·BOOKED) 시도는 많아야 하나 — DB 고유 색인(parcels_live_uq, PC-INV-1).
+ * request_key = 서버가 무작위로 만든 택배사 멱등 키(전화번호·이름을 담지 않는다). 택배사 원래 응답 글은 두지 않는다(사유는 ADDRESS·REJECTED·UNAVAILABLE 셋).
+ * 배송지 원문이 없다. 복구·가져오기는 그대로 둔다(같은 묶음을 다시 접수하지 않게 — 복구한 포장 기록이 접수 전이어도 "이미 접수했어요"가 남는다)
+ */
+export const parcels = pgTable(
+  'parcels',
+  {
+    id: text('id').primaryKey(),
+    /** 적은 차례 (같은 시각에 적힌 시도도 차례가 정해진다 — 가장 나중 시도) */
+    no: bigserial('no', { mode: 'number' }).notNull(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    date: text('date').notNull(),
+    buyer: text('buyer').notNull(),
+    /** FAKE(가짜 택배사 — 시험 모드) · EPOST */
+    carrier: text('carrier').notNull(),
+    requestKey: text('request_key').notNull(),
+    /** PENDING · UNKNOWN · BOOKED · FAILED · CANCELLED */
+    state: text('state').notNull(),
+    /** FAILED의 사유 ADDRESS · REJECTED, UNKNOWN이면 UNAVAILABLE */
+    reason: text('reason'),
+    /** 송장번호 (숫자 8~20자리, BOOKED·CANCELLED) */
+    invoice: text('invoice'),
+    /** 상자 크기 극소·소·중·대 */
+    box: text('box').notNull(),
+    /** 물품 수 (그 묶음 품목 수량 합 — 접수할 때) */
+    qty: integer('qty').notNull(),
+    /** 조회 상태 ACCEPTED · PICKED_UP · IN_TRANSIT · DELIVERED (BOOKED 뒤) */
+    track: text('track'),
+    /** 마지막 확인 시각 */
+    trackedAt: timestamptz('tracked_at'),
+    createdAt: timestamptz('created_at').notNull(),
+    createdBy: text('created_by').references(() => accounts.id),
+    /** 상태를 바꾼 시각 (2분 넘은 PENDING은 UNKNOWN으로 본다) */
+    updatedAt: timestamptz('updated_at').notNull(),
+    bookedAt: timestamptz('booked_at'),
+    cancelledAt: timestamptz('cancelled_at'),
+    cancelledBy: text('cancelled_by').references(() => accounts.id),
+  },
+  (t) => [
+    unique('parcels_request_key_uq').on(t.sellerId, t.requestKey),
+    uniqueIndex('parcels_live_uq').on(t.sellerId, t.date, t.buyer).where(sql`state in ('PENDING', 'UNKNOWN', 'BOOKED')`),
+    index('parcels_bundle_idx').on(t.sellerId, t.date, t.buyer, t.no),
+    index('parcels_track_idx').on(t.state, t.bookedAt),
+  ],
+)
+
+/**
+ * 택배 화면 요청 번호 (T1 PC-5 "한 번에 접수"): 같은 화면 요청 번호면 택배사에 새로 보내지 않고 처음 결과를 돌려준다.
+ * targets = 고른 구매자 ID 목록 JSON, result = 처음 결과 JSON(송장번호·이유만 — 배송지 원문 없음, 끝나기 전에는 null). 복구·가져오기는 지운다
+ */
+export const parcelRequests = pgTable(
+  'parcel_requests',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    requestId: text('request_id').notNull(),
+    date: text('date').notNull(),
+    /** BOOK · CANCEL · ADDRESS · CONFIRM · DELETE */
+    kind: text('kind').notNull(),
+    targets: text('targets').notNull(),
+    result: text('result'),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('parcel_requests_uq').on(t.sellerId, t.requestId)],
+)
+
+/**
+ * 설정 "택배" (T1 PC-6, D-T1-09): 택배사·택배사 고객 번호(암호화)·보내는 사람(PC-2 칸 — 메모 없음, 암호화)·기본 상자 크기. 판매자마다 한 줄.
+ * 복구·가져오기는 그대로 둔다(판매자 설정 — 백업 파일에 없다)
+ */
+export const parcelSettings = pgTable('parcel_settings', {
+  sellerId: text('seller_id')
+    .primaryKey()
+    .references(() => sellers.id),
+  /** FAKE · EPOST (고르지 않았으면 null) */
+  carrier: text('carrier'),
+  /** 택배사 고객 번호 암호문 (없으면 null) */
+  customerEnc: text('customer_enc'),
+  /** 보내는 사람 다섯 칸 JSON 암호문 (없으면 null) */
+  senderEnc: text('sender_enc'),
+  box: text('box').notNull().default('소'),
+  updatedAt: timestamptz('updated_at').notNull(),
+})
+
 export const schema = {
   sellers,
   accounts,
   loginLimits,
   sessions,
+  loginLinks,
+  loginStates,
   scopes,
   broadcasts,
   events,
@@ -1583,6 +1763,10 @@ export const schema = {
   depositNames,
   depositCorpBindings,
   depositRequests,
+  parcelAddresses,
+  parcels,
+  parcelRequests,
+  parcelSettings,
 }
 
 /**

@@ -50,6 +50,16 @@ function put(dir: string, path: string, text: string): void {
   writeFileSync(join(dir, path), text)
 }
 
+/**
+ * 단계 자식 프로세스 하나의 시간 제한(STAB). 지키려는 것은 단계의 결과(종료 코드·출력)지 걸린 시간이 아니다.
+ * 측정(작은 복사본, 2026-10-23): apps/server 복사본 typecheck가 조용할 때 27~34초, yes 12개 + 다른 시험이 함께 돌 때(load 55~100)
+ * 57·71·113·137·149초 — 90초 제한에서는 SIGKILL로 거의 매번 실패했다. 관측 최댓값(149초)의 2배로 둔다.
+ * 시간 초과는 여전히 단계 결과로 세지 않고 시험 실패로 던진다(아래 runStage).
+ */
+const STAGE_LIMIT_MS = 300_000
+/** 시험 하나의 제한: 단계 하나 + 복사·준비 여유 */
+const STAGE_TEST_TIMEOUT_MS = STAGE_LIMIT_MS + 30_000
+
 interface StageRun {
   readonly code: number | null
   readonly output: string
@@ -61,15 +71,21 @@ function runStage(dir: string, stage: string): Promise<StageRun> {
   for (const key of Object.keys(env)) if (key.startsWith('VITEST') || key === 'TEST') delete env[key]
   // `pnpm <단계>`처럼 node_modules/.bin을 PATH 맨 앞에 둔다 (pnpm run이 하는 일과 같다)
   env['PATH'] = `${join(ROOT, 'node_modules', '.bin')}${delimiter}${env['PATH'] ?? ''}`
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [join('scripts', 'verify', 'stage.mjs'), stage], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'] })
     let output = ''
     child.stdout.on('data', (chunk: Buffer) => (output += chunk.toString('utf8')))
     child.stderr.on('data', (chunk: Buffer) => (output += chunk.toString('utf8')))
-    const timer = setTimeout(() => child.kill('SIGKILL'), 90_000)
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      child.kill('SIGKILL')
+    }, STAGE_LIMIT_MS)
     child.on('close', (code) => {
       clearTimeout(timer)
-      resolve({ code, output })
+      // 시간 초과로 멈춘 것(code null)을 단계 실패로 세면 '실패해야 한다'(not.toBe(0)) 시험이 거짓으로 통과한다 → 시험 자체를 실패시킨다
+      if (timedOut) reject(new Error(`${stage} 단계가 ${STAGE_LIMIT_MS / 1000}초 안에 끝나지 않아 멈췄다 — 단계 결과가 아니다:\n${output.split('\n').slice(-25).join('\n')}`))
+      else resolve({ code, output })
     })
   })
 }
@@ -96,7 +112,7 @@ describe('TD-S00-013: 하위 폴더의 ESLint 설정 파일 하나로 코어 순
     expect(run.code, tail(run)).toBe(1)
     expect(run.output).toContain('코어는 순수 함수')
     expect(run.output).toContain('NFR-06')
-  }, 120_000)
+  }, STAGE_TEST_TIMEOUT_MS)
 
   it.each([
     ['packages/core/eslint.config.mjs (빈 설정)', 'packages/core/eslint.config.mjs', 'export default [{}]\n', CORE_PROBE, '코어는 순수 함수'],
@@ -111,7 +127,7 @@ describe('TD-S00-013: 하위 폴더의 ESLint 설정 파일 하나로 코어 순
     expect(run.code, `하위 설정 파일 ${configPath} 때문에 ${probe[0]}의 위반이 검사되지 않았다:\n${tail(run)}`).not.toBe(0)
     // 실패 이유가 출력에 드러나야 한다: 원래 규칙 위반 메시지, 또는 하위 설정 파일을 막았다는 안내(파일 이름)
     expect(run.output.includes(ruleText) || run.output.includes(configPath.split('/').at(-1) ?? configPath), tail(run)).toBe(true)
-  }, 120_000)
+  }, STAGE_TEST_TIMEOUT_MS)
 
   it('회귀: 저장소 안에 루트 말고 다른 ESLint 설정 파일이 없다', () => {
     const found: string[] = []
@@ -159,7 +175,7 @@ describe('TD-S00-014: vitest.adversarial.config.ts를 고치면 실패하는 적
   it('전제: 저장소의 실제 설정으로는 실패하는 적대 테스트 하나 때문에 adversarial 단계가 실패한다', async () => {
     const run = await adversarialWith(null)
     expect(run.code, tail(run)).toBe(1)
-  }, 120_000)
+  }, STAGE_TEST_TIMEOUT_MS)
 
   it.each([
     ['exclude로 실패 파일 빼기', "exclude: ['**/node_modules/**', '**/bug.test.ts']"],
@@ -168,7 +184,7 @@ describe('TD-S00-014: vitest.adversarial.config.ts를 고치면 실패하는 적
   ])('TD-S00-014: 설정에서 %s → adversarial 단계는 실패해야 한다', async (_label, extra) => {
     const run = await adversarialWith(adversarialConfig(extra))
     expect(run.code, `설정만 바꿔 실패하는 적대 테스트를 게이트에서 뺐는데 통과했다:\n${tail(run)}`).not.toBe(0)
-  }, 120_000)
+  }, STAGE_TEST_TIMEOUT_MS)
 })
 
 // ── TD-S00-018 ───────────────────────────────────────────────────────────
@@ -195,31 +211,47 @@ describe('TD-S00-018: vitest.adversarial.config.ts의 타입 검사 전용 모�
     // tsc를 못 찾아서 실패한 것이면 이 공격을 확인한 것이 아니다 (pnpm 단계처럼 node_modules/.bin이 PATH에 있어야 한다)
     expect(run.output, tail(run)).not.toContain('Spawning typechecker failed')
     expect(run.code, `실패하는 적대 테스트를 실행하지 않고 타입만 보게 바꿨는데 adversarial 단계가 통과했다:\n${tail(run)}`).not.toBe(0)
-  }, 120_000)
+  }, STAGE_TEST_TIMEOUT_MS)
 })
 
 // ── TD-S00-015 ───────────────────────────────────────────────────────────
 
-const TYPECHECK_BASE = ['package.json', 'pnpm-workspace.yaml', 'tsconfig.base.json', 'tsconfig.json', 'vitest.config.ts', 'vitest.adversarial.config.ts', 'vitest.coverage.config.ts', 'scripts/verify', 'packages', 'apps', 'tests/adversarial']
+/**
+ * typecheck 단계 공격용 작은 복사본(STAB): 루트 설정·단계 스크립트 + 공격 대상 패키지(와 그 패키지가 상대 경로로 가져오는 패키지)만 담는다.
+ * 저장소 전체를 복사하면 복사본 typecheck 하나가 혼자 30초, CPU 부하(yes 12개)에서 60~85초 걸려 90초 제한에 걸렸다.
+ * 시간 대부분은 tsc 설정 하나하나(루트 tsconfig.json이 tests/adversarial 전체를 끌어와 1,289개 파일, apps/server·apps/web 각 1,200~1,300개)다.
+ * 빼도 단계는 복사본 안의 범위 전체(packages/*·apps/*·루트 TS)를 그대로 대조하므로 '범위 밖 파일이 타입 오류를 숨기지 못한다'는 뜻은 같다.
+ * 상대 경로 의존이 빠지면 '전제' 시험(같은 복사본이 통과)이 먼저 실패한다.
+ */
+const TYPECHECK_ROOT = ['package.json', 'pnpm-workspace.yaml', 'tsconfig.base.json', 'tsconfig.json', 'vitest.config.ts', 'vitest.adversarial.config.ts', 'vitest.coverage.config.ts', 'scripts/verify']
+/** packages/core: 골든 시험이 packages/voice 소스와 apps/server/src/product-import.ts(코어만 씀)를 상대 경로로 가져온다 */
+const TYPECHECK_CORE = [...TYPECHECK_ROOT, 'packages/core', 'packages/voice', 'apps/server/src/product-import.ts']
+/** packages/label: 다른 패키지 소스를 상대 경로로 가져오지 않는다 */
+const TYPECHECK_LABEL = [...TYPECHECK_ROOT, 'packages/label']
+/** apps/server: core 골든·documents 시험 도우미를 상대 경로로 가져오고, documents는 label 소스를 가져온다 */
+const TYPECHECK_SERVER = [...TYPECHECK_ROOT, 'apps/server', 'packages/core', 'packages/voice', 'packages/documents', 'packages/label']
 const TYPE_ERROR = "export const probe: number = '타입 오류'\n"
 
 describe('TD-S00-015: 타입 검사 범위(AC-S00-03) 안의 새 파일이 어떤 tsconfig에도 들지 않아 타입 오류가 통과한다', () => {
   // typecheck 단계는 패키지마다 tsconfig*.json을 tsc로 돌릴 뿐이고, 각 설정의 include는 src·test 같은 폴더 목록이다.
   // 그 목록 밖의 파일은 lint·test 단계에는 들어가는데 타입 검사만 빠진다.
-  it('전제: 임시 저장소 복사본은 typecheck 단계를 통과한다', async () => {
-    const run = await runStage(repoCopy(TYPECHECK_BASE), 'typecheck')
+  it.each([
+    ['packages/label', TYPECHECK_LABEL],
+    ['apps/server', TYPECHECK_SERVER],
+  ] as const)('전제: 임시 저장소 복사본(%s)은 typecheck 단계를 통과한다', async (_label, copy) => {
+    const run = await runStage(repoCopy(copy), 'typecheck')
     expect(run.code, tail(run)).toBe(0)
-  }, 120_000)
+  }, STAGE_TEST_TIMEOUT_MS)
 
   it.each([
-    ['packages/label/test/index.test.ts', 'packages/*의 test (test 단계는 @livejjim/label 프로젝트로 이 파일을 실행한다)'],
-    ['apps/server/drizzle.config.ts', 'apps/* 루트의 도구 설정 파일 (lint 단계는 검사한다)'],
-  ])('TD-S00-015: %s에 타입 오류 → typecheck 단계가 실패해야 한다 (%s)', async (path) => {
-    const dir = repoCopy(TYPECHECK_BASE)
+    ['packages/label/test/index.test.ts', 'packages/*의 test (test 단계는 @livejjim/label 프로젝트로 이 파일을 실행한다)', TYPECHECK_LABEL],
+    ['apps/server/drizzle.config.ts', 'apps/* 루트의 도구 설정 파일 (lint 단계는 검사한다)', TYPECHECK_SERVER],
+  ] as const)('TD-S00-015: %s에 타입 오류 → typecheck 단계가 실패해야 한다 (%s)', async (path, _why, copy) => {
+    const dir = repoCopy(copy)
     put(dir, path, TYPE_ERROR)
     const run = await runStage(dir, 'typecheck')
     expect(run.code, `${path}의 타입 오류를 typecheck 단계가 보지 못했다:\n${tail(run)}`).not.toBe(0)
-  }, 120_000)
+  }, STAGE_TEST_TIMEOUT_MS)
 
   it('회귀: 지금 저장소의 범위 안 TS 파일은 모두 어떤 tsconfig 검사 대상에 들어 있다', () => {
     // tsc --listFilesOnly로 각 설정이 실제로 검사하는 파일을 모은다
@@ -260,24 +292,24 @@ describe('TD-S00-017: tsconfig에 "noCheck": true 한 줄이면 typecheck 단계
   // TypeScript 6의 noCheck는 strict를 켠 채로 의미 검사(타입 오류 보고)를 통째로 끈다. tsc는 종료 코드 0을 내고,
   // 단계 요약은 "범위 안 TS 파일 N개 모두 검사 (strict·noUncheckedIndexedAccess 확인)"이라고 적는다.
   it('전제: noCheck 없이 packages/core/src와 apps/server/src의 같은 타입 오류는 typecheck 단계를 실패시킨다', async () => {
-    const dir = repoCopy(TYPECHECK_BASE)
+    const dir = repoCopy(TYPECHECK_SERVER)
     put(dir, 'packages/core/src/probe.ts', TYPE_ERROR)
     put(dir, 'apps/server/src/probe.ts', TYPE_ERROR)
     const run = await runStage(dir, 'typecheck')
     expect(run.code, tail(run)).toBe(1)
     expect(run.output).toContain('TS2322')
-  }, 120_000)
+  }, STAGE_TEST_TIMEOUT_MS)
 
   it.each([
     ['tsconfig.base.json (모든 설정이 상속)', 'tsconfig.base.json', '"strict": true,', '"strict": true,\n    "noCheck": true,', 'packages/core/src/probe.ts'],
     ['apps/server/tsconfig.json (패키지 설정 하나)', 'apps/server/tsconfig.json', '"types": ["node"]', '"types": ["node"],\n    "noCheck": true', 'apps/server/src/probe.ts'],
   ])('TD-S00-017: %s에 noCheck → 타입 오류가 있는 범위 안 파일 때문에 typecheck 단계는 실패해야 한다', async (_label, config, from, to, probe) => {
-    const dir = repoCopy(TYPECHECK_BASE)
+    const dir = repoCopy(TYPECHECK_SERVER)
     patch(dir, config, from, to)
     put(dir, probe, TYPE_ERROR)
     const run = await runStage(dir, 'typecheck')
     expect(run.code, `${config}의 noCheck 때문에 ${probe}의 타입 오류를 typecheck 단계가 보지 못했다:\n${tail(run)}`).not.toBe(0)
-  }, 120_000)
+  }, STAGE_TEST_TIMEOUT_MS)
 })
 
 // ── TD-S00-019 ───────────────────────────────────────────────────────────
@@ -291,21 +323,21 @@ describe('TD-S00-019: 범위 안의 선언 파일(.d.ts)은 타입 검사도, �
   const USES_CLAIM_TYPES = "import type { ClaimRow } from './claim-types.d.ts'\n\n// product는 문자열이어야 하는데 숫자를 넣는다\nexport const row: ClaimRow = { product: 15, qty: 1 }\n"
 
   it('전제: 같은 내용을 .ts 파일에 쓰면 typecheck 단계가 실패한다', async () => {
-    const dir = repoCopy(TYPECHECK_BASE)
+    const dir = repoCopy(TYPECHECK_CORE)
     put(dir, 'packages/core/src/claim-types.ts', CLAIM_TYPES.replace('export declare function total(rows: readonly ClaimRow[]): numbr\n', 'export type Total = numbr\n'))
     put(dir, 'packages/core/src/probe.ts', USES_CLAIM_TYPES.replace('./claim-types.d.ts', './claim-types.ts'))
     const run = await runStage(dir, 'typecheck')
     expect(run.code, tail(run)).toBe(1)
     expect(run.output).toContain('Strnig')
-  }, 120_000)
+  }, STAGE_TEST_TIMEOUT_MS)
 
   it('TD-S00-019: packages/core/src/claim-types.d.ts의 없는 타입 이름(Strnig·numbr) → typecheck 단계는 실패해야 한다', async () => {
-    const dir = repoCopy(TYPECHECK_BASE)
+    const dir = repoCopy(TYPECHECK_CORE)
     put(dir, 'packages/core/src/claim-types.d.ts', CLAIM_TYPES)
     put(dir, 'packages/core/src/probe.ts', USES_CLAIM_TYPES)
     const run = await runStage(dir, 'typecheck')
     expect(run.code, `범위 안 선언 파일의 타입 오류를 typecheck 단계가 보지 못했다:\n${tail(run)}`).not.toBe(0)
-  }, 120_000)
+  }, STAGE_TEST_TIMEOUT_MS)
 })
 
 // ── TD-S00-020 ───────────────────────────────────────────────────────────

@@ -6,8 +6,9 @@ import { deposit, fakeSource, kstIso, postJson, uniq } from '../n3/support.ts'
 import { BAR_CELLS, BAR_LINKS, barCells, closeMore, expectPhoneBar, expectTarget, fakeReviewCount, menu, menuLink, moreButton, moreLinks, moreList, openMore } from '../menu.ts'
 
 const PHONE = { width: 375, height: 812 }
-const LIST_ON = ['입금 확인', '포장', '라벨', '설정']
-const LIST_OFF = ['입금 확인', '포장', '설정']
+// T1(AC-T1-60, AC-NAV-09): "택배"는 판매자 목록의 "설정" 바로 앞
+const LIST_ON = ['입금 확인', '포장', '라벨', '택배', '설정']
+const LIST_OFF = ['입금 확인', '포장', '택배', '설정']
 
 async function phoneOf(browser: Browser, like: Page, account?: { loginId: string; password: string }, viewport = PHONE): Promise<Page> {
   const ctx = await browser.newContext({ viewport, isMobile: true, hasTouch: true, locale: 'ko-KR', timezoneId: 'Asia/Seoul', baseURL: new URL(like.url()).origin })
@@ -182,11 +183,11 @@ test.describe('AC-NAV-03: 열고 닫기·키보드·화면 읽기', () => {
       await phone.goto('/buyers')
       await expect(menuLink(phone, '구매자')).toHaveAttribute('aria-current', 'page')
       // 닫힌 목록: 숨김이 아니라 없음 (화면 읽기에도 없다)
-      for (const name of ['입금 확인', '포장', '설정']) {
+      for (const name of ['입금 확인', '포장', '택배', '설정']) {
         await expect(phone.getByRole('link', { name, exact: true, includeHidden: true })).toHaveCount(0)
       }
       await expect(phone.getByRole('list', { includeHidden: true }).filter({ has: phone.getByRole('link', { name: '설정', exact: true, includeHidden: true }) })).toHaveCount(0)
-      expect(await menu(phone).ariaSnapshot()).not.toMatch(/설정|포장|입금 확인/)
+      expect(await menu(phone).ariaSnapshot()).not.toMatch(/설정|포장|입금 확인|택배/)
       await expect(moreButton(phone)).not.toHaveAttribute('aria-controls')
 
       // 목록 밖 누르기 — 화면 가운데 위쪽 (목록은 막대 바로 위)

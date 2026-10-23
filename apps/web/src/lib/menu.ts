@@ -4,6 +4,7 @@
 // - 새 메뉴 기본 규칙(D-NAV-01 (9)): 새 메뉴는 `moreItems` 안에 더한다 — 그러면 PC는 "설정" 바로 앞, 휴대폰은 목록의 "설정" 바로 앞에 저절로 들어간다.
 //   막대의 앞 네 칸(`barItems`)은 바꾸지 않는다 — 바꾸려면 새 결정이 필요하다. "설정"은 `settingsItem` 하나로 늘 맨 뒤다.
 // - 요금(N5)은 이 규칙대로 목록 끝("설정" 바로 앞)에 — 요금 기능이 켜져 있을 때만(AC-NAV-09).
+// - 택배(T1, D-T1-08, AC-T1-60)도 이 규칙대로 목록 끝("설정" 바로 앞) — 판매자에게 늘. 실제 날짜를 보고 있었으면 그 날짜로.
 // - 보조자는 "문자찜 입력" 한 칸, 더보기 없음.
 import type { MenuKey, Route } from './router.ts'
 
@@ -37,7 +38,7 @@ export interface MenuLayout {
 function scopes(route: Route) {
   const scoped = route.name === 'buyers' || route.name === 'settlements' ? route : null
   const scope = scoped === null ? { rehearsal: false } : { ...(scoped.date === undefined ? {} : { date: scoped.date }), rehearsal: scoped.rehearsal }
-  const realDate = scoped !== null && !scoped.rehearsal && scoped.date !== undefined ? scoped.date : route.name === 'packing' ? route.date : undefined
+  const realDate = scoped !== null && !scoped.rehearsal && scoped.date !== undefined ? scoped.date : route.name === 'packing' || route.name === 'parcels' ? route.date : undefined
   return { scope, realDate }
 }
 
@@ -60,6 +61,7 @@ function moreItems(input: MenuInput): readonly MenuItem[] {
     { key: 'packing', label: '포장', to: { name: 'packing', ...(realDate === undefined ? {} : { date: realDate }) } },
     ...(input.labels ? [{ key: 'labels', label: '라벨', to: { name: 'labels' } } as const] : []),
     ...(input.billing === true ? [{ key: 'billing', label: '요금', to: { name: 'billing' } } as const] : []),
+    { key: 'parcels', label: '택배', to: { name: 'parcels', ...(realDate === undefined ? {} : { date: realDate }) } },
   ]
 }
 

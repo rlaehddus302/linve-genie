@@ -20,6 +20,7 @@ import {
   renderProduct,
   renderSample,
   waitingA4Name,
+  WIDEST_DATE,
 } from '../src/lib/label-render.ts'
 
 const env = createNodeRenderEnv()
@@ -60,10 +61,35 @@ describe('미리 보기 = 출력 그림 (AC-I1-25)', () => {
 })
 
 describe('저장 전 검사 (AC-I1-26)', () => {
-  it('기본 템플릿(세 크기)은 최악값이 들어간다', () => {
-    for (const size of ['50x30', '50x20', '50x40'] as const) {
+  it('기본 템플릿(네 크기)은 최악값이 들어간다', () => {
+    for (const size of ['50x30', '50x20', '50x40', '50x50'] as const) {
       for (const style of ['THOUSAND', 'WON'] as const) expect(checkTemplate(env, { ...defaultTemplate('product', size), priceStyle: style, shopName: '다육농장' }).ok, `${size} ${style}`).toBe(true)
       expect(checkTemplate(env, { ...defaultTemplate('packing', size), shopName: '다육농장' }).ok, size).toBe(true)
+    }
+  })
+
+  it('최악값의 날짜는 2000~2099에서 가장 넓은 04.04.04다 — 상품·포장 (L-11 13, D-STB-01)', () => {
+    expect(WIDEST_DATE).toBe('2004-04-04')
+    expect(LONGEST_PRODUCT.date).toBe('2004-04-04')
+    expect(longestPacking().date).toBe('2004-04-04')
+  })
+
+  it('날짜 칸을 옛 기본(x 292 · 폭 88)이나 그보다 좁게(82~88점) 두면 저장하지 않고 날짜 항목을 알린다 — 26.10.08은 들어가는 폭이어도 (D-STB-01)', () => {
+    const dateTooNarrow = '날짜 칸이 좁아 라벨을 만들 수 없어요. 칸을 넓히거나 최소 글자 크기를 줄여 주세요.'
+    for (const size of ['50x30', '50x20', '50x40', '50x50'] as const) {
+      for (const [x, width] of [
+        [292, 88],
+        [298, 82],
+      ] as const) {
+        const narrow = withItem(defaultTemplate('product', size) as ProductTemplate, 'date', { x, width })
+        // 판매자 샘플 날짜(26.10.08)는 이 칸에 들어간다 — 옛 검사는 이걸 통과시켰다
+        expect(renderProduct(env, narrow, { ...LONGEST_PRODUCT, date: '2026-10-08' }).ok, `${size} ${String(width)}`).toBe(true)
+        const result = checkTemplate(env, narrow)
+        expect(result.ok, `${size} ${String(width)}`).toBe(false)
+        expect('doesNotFit' in result ? [result.item, result.doesNotFit] : [], `${size} ${String(width)}`).toEqual(['date', dateTooNarrow])
+      }
+      const fresh = checkTemplate(env, withItem(defaultTemplate('product', size) as ProductTemplate, 'date', { x: 290, width: 90 }))
+      expect(fresh.ok, size).toBe(true)
     }
   })
 

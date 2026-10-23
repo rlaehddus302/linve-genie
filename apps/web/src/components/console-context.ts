@@ -16,6 +16,8 @@ export type Dialog =
       readonly name: string
       readonly price: number
       readonly line: string | null
+      /** 빠른 입력 줄 옆 개수 칸이 1이 아니었으면 그 개수 (AC-ORD11-08) */
+      readonly stock?: number
       /** 빠른 입력칸 아래에 남겨 둔 "고칠까요?"에서 열었으면 그 번호 — 예로 마치면 지운다, 아니요면 남는다 */
       readonly ask?: number
     }

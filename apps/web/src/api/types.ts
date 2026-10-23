@@ -1,4 +1,5 @@
 // 서버 응답 모양 (harness/sprints/S04·S05 dev-notes의 화면 계약). 조회 항목은 코어 조회 함수 결과이고 시각 필드(at·endedAt·rankTime)만 ISO 문자열이다.
+import type { ParcelBrief } from './parcel-types.ts'
 import type {
   BroadcastDetails,
   BuyerInfo,
@@ -321,6 +322,8 @@ export interface PackingEntry {
   readonly add: readonly PackingItem[]
   /** 포장 다시 확인·배송 뒤 바뀜: 뺄 것 */
   readonly remove: readonly PackingRemoved[]
+  /** 택배 줄 (T1 — 접수가 없거나 실패한 시도면 null) */
+  readonly parcel?: ParcelBrief | null
 }
 
 export interface PackingList {

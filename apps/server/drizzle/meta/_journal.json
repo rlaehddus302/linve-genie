@@ -99,6 +99,20 @@
       "when": 1793836800000,
       "tag": "0013_n2b2_tiktok_seen",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793923200000,
+      "tag": "0014_l1_social_login",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1794009600000,
+      "tag": "0015_t1_parcels",
+      "breakpoints": true
     }
   ]
 }
