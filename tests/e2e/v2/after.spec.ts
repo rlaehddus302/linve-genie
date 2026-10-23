@@ -1,8 +1,8 @@
 // V2 등록 뒤 고치기·되돌리기와 음성 기록 보기 (AC-V2-26·27·28·29·30). 기대 문장은 acceptance 글자 그대로.
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { boardItem, card, cardButton, expectNoCards, offerList, openLog, recordRequests, sayAt, setupV2 } from './support.ts'
 
-async function registerS1(page: import('@playwright/test').Page) {
+async function registerS1(page: Page) {
   await sayAt(page, [['15번 핑크문 만오천원', 0]])
   await page.clock.runFor(1800)
   await cardButton(page, '15번 핑크문 15,000원', '등록').click()

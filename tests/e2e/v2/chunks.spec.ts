@@ -1,5 +1,5 @@
 // V2 사용자 불만 흐름 — 조각난 말·느긋한 말·정정·품종 바로잡기 (AC-V2-07·08·14·16·17·18·22·23·25·34). 기대값은 acceptance 사례 표에서 손으로 옮겼다.
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { boardItem, card, cardButton, cards, expectNoCards, heardBox, history, quietField, sayAt, setupV2, SETTINGS_KEY, AUTO_ON } from './support.ts'
 
 test('S2 AC-V2-14: "십오번"/"엘레강스"/"이만원" 조각이 4300ms에 카드 한 장 — 그 전엔 카드 없음, 등록하면 상품 하나', async ({ page }) => {
@@ -31,7 +31,7 @@ test('S3 AC-V2-18: 쉼이 길면 1800에 15번 카드("품종·가격을 말해 
   await expect(card(page, '15번 엘레강스 20,000원')).toBeVisible()
 })
 
-async function speak2(page: import('@playwright/test').Page, text: string) {
+async function speak2(page: Page, text: string) {
   await sayAt(page, [[text, 0]])
 }
 
