@@ -111,3 +111,9 @@ smsProductBlock(view) / findSmsBlock(card, lookup)   // SmsProductView = { state
 
 ### 로그
 - `last4`·이름 메모·키·요청 본문은 로그에 없다(로그 기록 함수는 자유 문장을 받지 않는다, log.ts). 시험: `apps/server/test/v1-sms-last4.test.ts` AC-V1-12.
+
+### dev-web에게 (서버 몫 끝, 재시작 뒤 다시 확인함)
+- 409는 `ApiError`로 온다: `code === 'BUYER_AMBIGUOUS'`, `message`는 `smsChooseMessage(last4)`와 같은 문장, 후보는 `error.details.candidates`(`{ buyer, display, phoneLast4 }[]`) → `chooseSmsBuyer(card, candidates)`. `retryable`·`transient`가 아니라 저절로 다시 보내지 않는다.
+- 고른 뒤 쓰기는 `last4` 없이 `buyer`만(둘을 함께 보내면 400). 받은 시각 칸 이름은 `received`(KST 'HH:MM' 또는 'HH:MM:SS').
+- 한 사람으로 이어진 경우 응답 `phoneLast4`는 `null` — 결과 카드의 "끝자리 1234"는 카드의 `last4`로 그린다. 이미 1등이면 지금처럼 D-099 응답(`buyer`)으로 "이미 찜한 구매자라…".
+- 확인: `apps/server` 시험 1776개 중 1775 통과. 남은 1개(`test/time.test.ts` 시간대)는 `pnpm --filter … exec vitest`로 돌려 `TZ`가 없어서이고 `TZ=Pacific/Honolulu`로는 통과(verify 단계는 TZ를 붙인다). tsc·eslint(apps/server) 깨끗.
