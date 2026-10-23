@@ -683,7 +683,7 @@ sprints:
       - "같은 말 중복 인식 1건, 없는 번호·품절은 넣지 않고 이유 카드"
       - "끝자리·이름 없이 말하면 '문자 손님(확인 필요)'"
     specIds: [ORD-07, ORD-08, VOC-01, VOC-02]
-    status: todo
+    status: done  # 메인 합침 (2026-10-23)
 
   - id: A1
     phase: 6
