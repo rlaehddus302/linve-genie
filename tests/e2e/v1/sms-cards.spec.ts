@@ -7,6 +7,7 @@ import {
   installSmsSpeech,
   login,
   noHorizontalScroll,
+  openExtras,
   openNewBroadcast,
   recordRequests,
   registerApi,
@@ -39,6 +40,8 @@ test.describe('V1 문자찜 카드', () => {
     await registerApi(page, b, 165, '핑크프릴', 10000)
     const requests = recordRequests(page)
     await turnOnVoice(page)
+    // 문자찜 설정은 음성 칸 아래 접는 칸 "음성 설정과 기록"(기본 접힘) 안 (D-V2-21)
+    await openExtras(page)
     await expect(smsListenBox(page)).toBeChecked()
     await expect(smsAutoSecField(page)).toHaveValue('3')
     await expect(voiceRegion(page).getByText('문자찜도 듣는 중')).toBeVisible()
@@ -53,6 +56,7 @@ test.describe('V1 문자찜 카드', () => {
     // 그 기기에 저장 — 다시 열어도 꺼져 있다
     await page.reload()
     await turnOnVoice(page)
+    await openExtras(page)
     await expect(smsListenBox(page)).not.toBeChecked()
     await expect(voiceRegion(page).getByText('문자찜도 듣는 중')).toHaveCount(0)
     await smsListenBox(page).check()
@@ -67,6 +71,7 @@ test.describe('V1 문자찜 카드', () => {
       await login(page)
       await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
       await turnOnVoice(page)
+      await openExtras(page)
       await expect(smsListenBox(page), raw).toBeChecked()
       await expect(smsAutoSecField(page), raw).toHaveValue('3')
       await expect(voiceRegion(page).getByText('문자찜도 듣는 중'), raw).toBeVisible()
@@ -257,6 +262,7 @@ test.describe('V1 문자찜 카드', () => {
       expect(box!.width, name).toBeGreaterThanOrEqual(44)
     }
     await noHorizontalScroll(page)
+    await openExtras(page)
     await smsListenBox(page).scrollIntoViewIfNeeded()
     await expect(smsListenBox(page)).toBeVisible()
     await expect(smsAutoSecField(page)).toBeVisible()
