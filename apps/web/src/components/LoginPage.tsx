@@ -9,6 +9,7 @@ import { isApiError, post, type ApiError } from '../api/client.ts'
 import type { Me } from '../api/types.ts'
 import { goTopLevel } from '../lib/google-return.ts'
 import { continueLabel, fetchLoginProviders, movingLabel, parseLoginResult, resultMessage, safeAuthorizeUrl, startErrorMessage, START_FAILED, stripLoginParams, type LoginProvider, type LoginResult } from '../lib/social-login.ts'
+import { SERVICE_NAME } from '../brand.ts'
 
 export const SESSION_EXPIRED_MESSAGE = '로그인이 풀렸어요. 다시 로그인해 주세요.'
 
@@ -55,7 +56,7 @@ export function LoginPage({ expired, onLoggedIn }: { readonly expired: boolean; 
   const message = result === null ? null : resultMessage(result)
   return (
     <main className="page">
-      <h1>라이브찜</h1>
+      <h1>{SERVICE_NAME}</h1>
       {message !== null ? (
         <p className="notice" role={message.tone === 'success' ? 'status' : 'alert'} data-tone={message.tone === 'success' ? 'success' : 'warning'}>
           {message.text}

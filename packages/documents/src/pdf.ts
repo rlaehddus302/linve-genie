@@ -4,6 +4,7 @@
 // 시계를 읽지 않는다(문서 날짜 정보를 넣지 않는다) — 같은 확인서·글꼴이면 같은 PDF.
 import fontkit from '@pdf-lib/fontkit'
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
+import { SERVICE_NAME } from './brand.ts'
 import { DocumentFont } from './font.ts'
 import { layoutReceipt, type ReceiptLayout } from './layout.ts'
 import { RECEIPT_TITLE, buildReceipts, type ReceiptData, type ReceiptError, type ReceiptScope } from './receipt.ts'
@@ -36,8 +37,8 @@ export async function renderReceiptsPdf(receipts: readonly ReceiptData[], fontSo
   doc.registerFontkit(fontkit as unknown as Parameters<PDFDocument['registerFontkit']>[0])
   const embedded = await doc.embedFont(font.bytes, { subset: true })
   doc.setTitle(receipts.length === 1 ? (receipts[0] as ReceiptData).title : RECEIPT_TITLE)
-  doc.setCreator('라이브찜')
-  doc.setProducer('라이브찜')
+  doc.setCreator(SERVICE_NAME)
+  doc.setProducer(SERVICE_NAME)
   doc.setLanguage('ko-KR')
   for (const receipt of receipts) {
     for (const pageLayout of layoutReceipt(receipt, font, 'pdf').pages) {

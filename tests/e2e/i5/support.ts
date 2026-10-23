@@ -181,7 +181,7 @@ export const SENT = '음성은 인식을 위해 크롬은 구글로, 아이폰�
 /** 켜진 동안 고지 — 폭 768px 미만 (D-I5-16) */
 export const SENT_SHORT = '음성은 인식을 위해 구글·애플로 보내져요.'
 export const OLD_SENT = '음성은 인식을 위해 구글로 보내져요.'
-export const CONSENT_SENT = '음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브찜은 음성을 녹음하거나 저장하지 않아요.'
+export const CONSENT_SENT = '음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브지니는 음성을 녹음하거나 저장하지 않아요.'
 /** 안내 창 셋째 줄 (D-I5-11) */
 export const CONSENT_MIC = '다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.'
 export const OLD_CONSENT_MIC = '크롬이 마이크 사용을 물으면'

@@ -6,6 +6,7 @@
 // A1: "AI 제안(선택)" 문단(AC-A1-23, D-A1-06) — 판매자가 켠 경우에만 확인 필요 댓글의 글(닉네임·전화번호 뺀 것)과 상품 이름·옵션이 Anthropic(미국)으로.
 // 바깥 주소(구글·유튜브)는 새 탭으로 연다 — 이 화면은 그 주소를 부르지 않는다.
 import type { ReactNode } from 'react'
+import { SERVICE_NAME } from '../brand.ts'
 
 export const DRAFT_NOTICE = '초안이에요. 법률 검토 전이라 실제 서비스 전에 바뀔 수 있어요.'
 export const GOOGLE_PRIVACY_URL = 'https://policies.google.com/privacy'
@@ -56,7 +57,7 @@ export function PrivacyPage() {
       <p className="warning" role="note">
         {DRAFT_NOTICE}
       </p>
-      <p>라이브찜(이하 "서비스")은 유튜브 라이브 판매자가 주문(찜)을 받고 정산하도록 돕는 서비스예요. 서비스가 어떤 정보를 왜, 얼마나 보관하는지 알려 드려요.</p>
+      <p>{SERVICE_NAME}(이하 "서비스")는 유튜브 라이브 판매자가 주문(찜)을 받고 정산하도록 돕는 서비스예요. 서비스가 어떤 정보를 왜, 얼마나 보관하는지 알려 드려요.</p>
       <Section title="1. 처리하는 정보">
         <ul>
           <li>판매자·보조자 계정: 아이디, 비밀번호(알아볼 수 없게 바꾼 값만 저장), 가게 이름, 보조자 이름</li>
@@ -85,7 +86,7 @@ export function PrivacyPage() {
           구글이 정보를 처리하는 방식은 <Outside href={GOOGLE_PRIVACY_URL}>구글 개인정보처리방침</Outside>에서 볼 수 있어요.
         </p>
         <p>
-          서비스에 준 권한은 라이브찜 설정 → 유튜브 → "연결 끊기"로 언제든 끊을 수 있고, <Outside href={GOOGLE_PERMISSIONS_URL}>구글 계정 권한 페이지</Outside>에서도 거둘 수 있어요.
+          서비스에 준 권한은 {SERVICE_NAME} 설정 → 유튜브 → "연결 끊기"로 언제든 끊을 수 있고, <Outside href={GOOGLE_PERMISSIONS_URL}>구글 계정 권한 페이지</Outside>에서도 거둘 수 있어요.
         </p>
       </Section>
       <Section title="5. 제3자 제공">
@@ -151,7 +152,7 @@ export function TermsPage() {
         {DRAFT_NOTICE}
       </p>
       <Section title="1. 서비스 내용">
-        <p>라이브찜은 유튜브 라이브 판매의 주문(찜) 받기, 문자찜 입력, 구매자·정산 관리, 라벨 출력, 구매 감사 메시지 게시를 돕는 서비스예요.</p>
+        <p>{SERVICE_NAME}는 유튜브 라이브 판매의 주문(찜) 받기, 문자찜 입력, 구매자·정산 관리, 라벨 출력, 구매 감사 메시지 게시를 돕는 서비스예요.</p>
       </Section>
       <Section title="2. 계정">
         <ul>

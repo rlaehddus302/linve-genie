@@ -176,7 +176,7 @@ describe('AC-I2-33 판매대장 배송 칸 = 그 묶음의 포장·배송 상태
 })
 
 describe('AC-I2-64 전체 판매대장 (실제 범위 전체 기간 — 366일 상한 없음)', () => {
-  it('이름 라이브찜-판매대장-전체-<KST 오늘>.xlsx, 실제 범위가 없으면 파일 없이 "아직 판매 기록이 없어요."', async () => {
+  it('이름 라이브지니-판매대장-전체-<KST 오늘>.xlsx, 실제 범위가 없으면 파일 없이 "아직 판매 기록이 없어요."', async () => {
     const world = await newWorld({ clock: fakeClock(kst('2024-01-05', '09:00:00')) })
     const seller = await addSeller(world)
     const empty = await getFile(world, seller.cookie, '/api/export/ledger.xlsx')
@@ -194,7 +194,7 @@ describe('AC-I2-64 전체 판매대장 (실제 범위 전체 기간 — 366일 �
     world.clock.set(Date.UTC(2026, 9, 20, 15, 30))
     const file = await getFile(world, again.cookie, '/api/export/ledger.xlsx')
     expect(file.status).toBe(200)
-    expect(fileNameOf(file.headers)).toBe('라이브찜-판매대장-전체-2026-10-21.xlsx')
+    expect(fileNameOf(file.headers)).toBe('라이브지니-판매대장-전체-2026-10-21.xlsx')
     expect((await readSheet(file.bytes)).slice(1).map((row) => row[3])).toEqual(['오래된', '최근'])
   })
 })

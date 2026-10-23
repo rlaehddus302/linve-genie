@@ -99,7 +99,7 @@ describe('켜기 전·안내 창 (AC-I4-10·11)', () => {
     const dialog = await screen.findByRole('dialog', { name: '음성으로 상품 등록' })
     expect(dialog.textContent).toContain('말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.')
     // 외부 전송 문장: D-I5-06 (AC-I5-12)
-    expect(dialog.textContent).toContain('음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브찜은 음성을 녹음하거나 저장하지 않아요.')
+    expect(dialog.textContent).toContain('음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브지니는 음성을 녹음하거나 저장하지 않아요.')
     // 마이크 줄: D-I5-11 (AC-I5-27)
     expect(dialog.textContent).toContain('다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.')
     expect(document.body.textContent).not.toContain('크롬이 마이크 사용을 물으면')

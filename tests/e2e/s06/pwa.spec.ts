@@ -23,7 +23,7 @@ test.describe('PWA', () => {
     expect(res.ok()).toBe(true)
     expect(res.headers()['content-type']).toContain('application/manifest+json')
     const manifest = await res.json() as { name: string; short_name: string; lang: string; start_url: string; scope: string; display: string; background_color?: string; theme_color?: string; icons: { src: string; sizes: string; type: string; purpose?: string }[] }
-    expect(manifest).toMatchObject({ name: '라이브찜', short_name: '라이브찜', lang: 'ko', start_url: '/', scope: '/', display: 'standalone' })
+    expect(manifest).toMatchObject({ name: '라이브지니', short_name: '라이브지니', lang: 'ko', start_url: '/', scope: '/', display: 'standalone' })
     expect(manifest.background_color).toBeTruthy()
     expect(manifest.theme_color).toBeTruthy()
     const any192 = manifest.icons.find((i) => i.sizes === '192x192' && (i.purpose ?? 'any').split(' ').includes('any'))

@@ -47,6 +47,7 @@ import { takeGoogleReturn } from './lib/google-return.ts'
 import { parseLoginResult, resultMessage, stripLoginParams, type LoginResult } from './lib/social-login.ts'
 import { LEAVE_QUESTION, LEAVE_TITLE, LeaveGuardContext, type LeaveGuard } from './lib/leave-guard.ts'
 import { historyDepth, isGuardEntry, isPublicRoute, pushGuardEntry, routePath, useRoute, type BillingRoute, type Navigate, type NavigateOptions, type Route } from './lib/router.ts'
+import { SERVICE_NAME } from './brand.ts'
 
 type Session = { readonly state: 'checking' } | { readonly state: 'out'; readonly expired: boolean } | { readonly state: 'in'; readonly me: Me }
 
@@ -257,7 +258,7 @@ export function App() {
     return (
       <>
         <header className="topbar">
-          <p className="shop-name">라이브찜</p>
+          <p className="shop-name">{SERVICE_NAME}</p>
           <a
             className="button"
             href={routePath({ name: 'home' })}
@@ -277,7 +278,7 @@ export function App() {
   if (session.state === 'checking') {
     return (
       <main className="page">
-        <h1>라이브찜</h1>
+        <h1>{SERVICE_NAME}</h1>
         {checkError === null ? (
           <p>불러오는 중…</p>
         ) : checkError.network ? (

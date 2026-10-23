@@ -13,11 +13,11 @@ export const NAME: Readonly<Record<Provider, string>> = { kakao: '카카오', na
 export const MSG = {
   CANCELLED: (p: Provider) => `${NAME[p]} 로그인을 취소했어요. 다시 하려면 버튼을 눌러 주세요.`,
   EXPIRED: '로그인 요청이 오래됐거나 다른 창에서 시작한 요청이에요. 처음부터 다시 해 주세요.',
-  NOT_LINKED: (p: Provider) => `이 ${NAME[p]} 계정에 연결된 라이브찜 계정이 없어요. 아이디로 로그인한 뒤 설정 → 로그인 방법에서 ${NAME[p]} 계정을 연결해 주세요.`,
+  NOT_LINKED: (p: Provider) => `이 ${NAME[p]} 계정에 연결된 라이브지니 계정이 없어요. 아이디로 로그인한 뒤 설정 → 로그인 방법에서 ${NAME[p]} 계정을 연결해 주세요.`,
   PROVIDER_ERROR: (p: Provider) => `${NAME[p]}에서 로그인을 마치지 못했어요. 잠시 뒤에 다시 해 주세요.`,
   RATE_LIMITED: '로그인 시도가 너무 많아요. 10분 뒤에 다시 해 주세요.',
   LINKED: (p: Provider) => `${NAME[p]} 계정을 연결했어요. 다음부터 "${NAME[p]}로 계속하기"로 로그인할 수 있어요.`,
-  LINKED_ELSEWHERE: (p: Provider) => `이 ${NAME[p]} 계정은 이미 다른 라이브찜 계정에 연결돼 있어요. 다른 ${NAME[p]} 계정으로 해 주세요.`,
+  LINKED_ELSEWHERE: (p: Provider) => `이 ${NAME[p]} 계정은 이미 다른 라이브지니 계정에 연결돼 있어요. 다른 ${NAME[p]} 계정으로 해 주세요.`,
   ALREADY_LINKED: (p: Provider) => `이미 연결한 ${NAME[p]} 계정이 있어요. 바꾸려면 먼저 연결을 끊어 주세요.`,
   SESSION_GONE: '로그인이 풀려 연결하지 못했어요. 다시 로그인한 뒤 연결해 주세요.',
   UNLINKED: (p: Provider) => `${NAME[p]} 연결을 끊었어요.`,

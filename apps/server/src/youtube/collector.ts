@@ -44,6 +44,7 @@ import {
 } from './store.ts'
 import { sanitizeNick } from './texts.ts'
 import { nextPacificMidnight, type Timer } from './timer.ts'
+import { SERVICE_NAME } from '../brand.ts'
 
 export type CollectorStatus = 'STARTING' | 'LIVE' | 'RETRYING' | 'STOPPED' | 'FINISHED' | 'CHAT_ENDED'
 
@@ -78,7 +79,7 @@ export const GAP_MESSAGE = '끊긴 동안의 채팅 일부를 받지 못했을 �
 /** 지운 메시지·유튜브 차단 알림 문장 (AC-Y1-27) */
 export const NOTICE_MESSAGES = {
   DELETED: '시청자가 메시지를 지웠어요. 그 메시지로 생긴 찜은 그대로예요.',
-  BANNED: '유튜브에서 차단된 시청자예요. 라이브찜에서도 막으려면 차단해 주세요.',
+  BANNED: `유튜브에서 차단된 시청자예요. ${SERVICE_NAME}에서도 막으려면 차단해 주세요.`,
 } as const
 
 /** 판매자가 다시 시작해야 하는 이유 (저절로 이어받지 않는다) */

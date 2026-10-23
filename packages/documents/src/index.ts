@@ -25,6 +25,7 @@ export {
   type ShippingNote,
   type ShopSettings,
 } from './receipt.ts'
+export { SERVICE_NAME } from './brand.ts'
 export { DocumentFont, loadDocumentFont, type GlyphLike } from './font.ts'
 export {
   CONTENT_WIDTH,

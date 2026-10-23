@@ -47,7 +47,7 @@ describe('AC-N2b-2-20 위험 고지 (판 TT-BETA-1)', () => {
     expect(body.notice).toEqual(TIKTOK_NOTICE)
     expect(TIKTOK_NOTICE).toMatchObject({ version: 'TT-BETA-1', title: '틱톡 라이브 연결(베타) 안내', checkbox: '안내를 읽었고, 위 내용에 동의해요', button: '켜기' })
     expect(TIKTOK_NOTICE.lines).toHaveLength(8)
-    expect(TIKTOK_NOTICE.lines[0]).toBe('틱톡은 라이브 댓글을 읽는 공식 방법을 주지 않아요. 라이브찜은 누구나 볼 수 있는 내 라이브의 댓글을 비공식 방법으로 읽어요.')
+    expect(TIKTOK_NOTICE.lines[0]).toBe('틱톡은 라이브 댓글을 읽는 공식 방법을 주지 않아요. 라이브지니는 누구나 볼 수 있는 내 라이브의 댓글을 비공식 방법으로 읽어요.')
     expect(TIKTOK_NOTICE.lines[7]).toBe('언제든 설정에서 끌 수 있어요. 끄면 틱톡 댓글을 바로 그만 받아요.')
     for (const text of [TIKTOK_NOTICE.title, ...TIKTOK_NOTICE.lines, TIKTOK_NOTICE.checkbox, TIKTOK_NOTICE.button]) expect(text, text).not.toMatch(/[A-Za-z]/)
   })

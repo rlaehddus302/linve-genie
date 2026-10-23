@@ -32,7 +32,7 @@ it('index.html의 #root에 앱이 뜨고, 로그인하지 않았으면 로그인
   expect(root).not.toBeNull()
   const button = await screen.findByRole('button', { name: '로그인' })
   expect(root?.contains(button)).toBe(true)
-  expect(screen.getByRole('heading', { level: 1, name: '라이브찜' })).toBeDefined()
+  expect(screen.getByRole('heading', { level: 1, name: '라이브지니' })).toBeDefined()
 
   // 처음은 같은 출처의 로그인 확인 (개발 모드 StrictMode는 처음 확인을 두 번 할 수 있다).
   // 로그인 화면이 뜬 뒤에는 간편 로그인 버튼을 정하려고 같은 출처의 화면 설정을 읽는다 (L1 AC-L1-20) — 그 밖의 호출은 없다

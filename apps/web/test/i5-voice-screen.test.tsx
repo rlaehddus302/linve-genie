@@ -38,7 +38,7 @@ afterEach(() => {
 describe('외부 전송 고지 (AC-I5-12, D-I5-06)', () => {
   it('켜진 동안의 한 줄과 안내 창 문장이 "크롬은 구글, 아이폰은 애플"이고 옛 문장은 없다', () => {
     expect(SENT_NOTICE).toBe('음성은 인식을 위해 크롬은 구글로, 아이폰은 애플로 보내져요.')
-    expect(CONSENT_LINES).toContain('음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브찜은 음성을 녹음하거나 저장하지 않아요.')
+    expect(CONSENT_LINES).toContain('음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브지니는 음성을 녹음하거나 저장하지 않아요.')
     for (const line of [SENT_NOTICE, ...CONSENT_LINES]) expect(line).not.toContain('구글로 보내져요')
     // D-I5-16: 폭 768px 이상은 긴 문장, 미만은 짧은 문장 (AC-I5-31)
     vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(min-width: 48rem)', media: query, addEventListener: () => {}, removeEventListener: () => {} }))

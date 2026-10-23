@@ -5,6 +5,7 @@
 //   보인 뒤에는 주소에서 두 값을 지운다(history.replaceState — 새로 고침해도 다시 나오지 않게).
 import { isApiError } from '../api/client.ts'
 import { kstDate } from './kst.ts'
+import { SERVICE_NAME } from '../brand.ts'
 
 export const LOGIN_PROVIDERS = ['kakao', 'naver', 'google'] as const
 export type LoginProvider = (typeof LOGIN_PROVIDERS)[number]
@@ -60,7 +61,7 @@ export function resultMessage({ code, provider }: LoginResult): ResultMessage {
     case 'EXPIRED':
       return { tone: 'error', text: '로그인 요청이 오래됐거나 다른 창에서 시작한 요청이에요. 처음부터 다시 해 주세요.' }
     case 'NOT_LINKED':
-      return { tone: 'error', text: `이 ${p} 계정에 연결된 라이브찜 계정이 없어요. 아이디로 로그인한 뒤 설정 → 로그인 방법에서 ${p} 계정을 연결해 주세요.` }
+      return { tone: 'error', text: `이 ${p} 계정에 연결된 ${SERVICE_NAME} 계정이 없어요. 아이디로 로그인한 뒤 설정 → 로그인 방법에서 ${p} 계정을 연결해 주세요.` }
     case 'PROVIDER_ERROR':
       return { tone: 'error', text: `${p}에서 로그인을 마치지 못했어요. 잠시 뒤에 다시 해 주세요.` }
     case 'RATE_LIMITED':
@@ -70,7 +71,7 @@ export function resultMessage({ code, provider }: LoginResult): ResultMessage {
     case 'LINKED':
       return { tone: 'success', text: `${p} 계정을 연결했어요. 다음부터 "${p}로 계속하기"로 로그인할 수 있어요.` }
     case 'LINKED_ELSEWHERE':
-      return { tone: 'error', text: `이 ${p} 계정은 이미 다른 라이브찜 계정에 연결돼 있어요. 다른 ${p} 계정으로 해 주세요.` }
+      return { tone: 'error', text: `이 ${p} 계정은 이미 다른 ${SERVICE_NAME} 계정에 연결돼 있어요. 다른 ${p} 계정으로 해 주세요.` }
     case 'ALREADY_LINKED':
       return { tone: 'error', text: `이미 연결한 ${p} 계정이 있어요. 바꾸려면 먼저 연결을 끊어 주세요.` }
   }

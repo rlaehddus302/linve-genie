@@ -13,6 +13,7 @@ import { routePath, type Navigate } from '../lib/router.ts'
 import { NOT_CONFIGURED_MESSAGE, QUOTA_MODE_SENTENCE, RECONNECT_NEEDED_MESSAGE, callbackMessage, callbackSucceeded, hasChannel } from '../lib/youtube.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { Modal } from './Modal.tsx'
+import { SERVICE_NAME } from '../brand.ts'
 
 export type ConnectionState =
   | { readonly phase: 'loading' }
@@ -81,7 +82,7 @@ export function useQuota(enabled: boolean): QuotaHandle {
 export function PermissionGuide({ navigate, place }: { readonly navigate: Navigate; readonly place: 'settings' | 'wizard' }) {
   return (
     <div className="permission-guide stack-tight">
-      <p>연결하면 라이브찜이 할 수 있는 일:</p>
+      <p>연결하면 {SERVICE_NAME}가 할 수 있는 일:</p>
       <ul>
         <li>내 채널 이름 보기</li>
         <li>내 라이브 방송 목록 보기</li>

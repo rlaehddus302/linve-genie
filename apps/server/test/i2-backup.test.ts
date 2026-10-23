@@ -608,7 +608,7 @@ describe('AC-I2-63 백업 → 복구 리허설 (SPEC §8 2단계)', () => {
 })
 
 describe('AC-I2-64 판매자 전체 내려받기 (JSON)', () => {
-  it('세션의 판매자 것만, 백업과 같은 형식(gzip), 이름 라이브찜-전체기록-<KST 날짜>.json.gz, 기록이 없어도 만든다, 빈 판매자에 가져오면 조회가 같다', async () => {
+  it('세션의 판매자 것만, 백업과 같은 형식(gzip), 이름 라이브지니-전체기록-<KST 날짜>.json.gz, 기록이 없어도 만든다, 빈 판매자에 가져오면 조회가 같다', async () => {
     const { world, seller } = await (async () => {
       const made = await backupWorld()
       const s = await addSeller(made.world)
@@ -621,7 +621,7 @@ describe('AC-I2-64 판매자 전체 내려받기 (JSON)', () => {
     expect(file.status).toBe(200)
     expect(file.headers.get('content-type')).toBe('application/gzip')
     expect(file.headers.get('cache-control')).toBe('no-store')
-    expect(decodeURIComponent(/filename\*=UTF-8''(.+)$/.exec(file.headers.get('content-disposition') ?? '')?.[1] ?? '')).toBe('라이브찜-전체기록-2026-10-21.json.gz')
+    expect(decodeURIComponent(/filename\*=UTF-8''(.+)$/.exec(file.headers.get('content-disposition') ?? '')?.[1] ?? '')).toBe('라이브지니-전체기록-2026-10-21.json.gz')
     const checked = await checkBackupBytes(file.bytes)
     expect(checked.ok).toBe(true)
     expect(checked.ok && checked.value.file.sellerId).toBe(seller.sellerId)

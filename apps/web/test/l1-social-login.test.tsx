@@ -184,7 +184,7 @@ describe('로그인 화면 버튼 (AC-L1-20)', () => {
 describe('돌아온 결과 문장 (AC-L1-21)', () => {
   it('로그인 화면: NOT_LINKED 문장을 alert로 한 번, 주소에서 지운다, 아이디 칸 커서', async () => {
     await openLogin('/?login=NOT_LINKED&provider=kakao')
-    expect(screen.getByRole('alert').textContent).toBe('이 카카오 계정에 연결된 라이브찜 계정이 없어요. 아이디로 로그인한 뒤 설정 → 로그인 방법에서 카카오 계정을 연결해 주세요.')
+    expect(screen.getByRole('alert').textContent).toBe('이 카카오 계정에 연결된 라이브지니 계정이 없어요. 아이디로 로그인한 뒤 설정 → 로그인 방법에서 카카오 계정을 연결해 주세요.')
     expect(window.location.search).toBe('')
     expect(document.activeElement).toBe(screen.getByRole('textbox', { name: '아이디' }))
     cleanup()
@@ -234,7 +234,7 @@ describe('로그인된 채 홈으로 돌아온 결과 (TE-L1-001)', () => {
     for (const code of ['NOT_LINKED', 'CANCELLED', 'LINKED', '%3Cscript%3E']) {
       cleanup()
       await openHome(`/?login=${code}&provider=kakao`)
-      expect(screen.queryByText(/연결된 라이브찜 계정이 없어요|취소했어요|연결했어요/)).toBeNull()
+      expect(screen.queryByText(/연결된 라이브지니 계정이 없어요|취소했어요|연결했어요/)).toBeNull()
       expect(document.body.innerHTML).not.toContain('<script')
       expect(window.location.search).toBe('')
     }
@@ -280,7 +280,7 @@ describe('설정 "로그인 방법" (AC-L1-22·23)', () => {
     expect(window.location.search).toBe('')
     cleanup()
     await openSettings('/settings?login=LINKED_ELSEWHERE&provider=google')
-    expect(within(await screen.findByRole('region', { name: '로그인 방법' })).getByRole('alert').textContent).toBe('이 구글 계정은 이미 다른 라이브찜 계정에 연결돼 있어요. 다른 구글 계정으로 해 주세요.')
+    expect(within(await screen.findByRole('region', { name: '로그인 방법' })).getByRole('alert').textContent).toBe('이 구글 계정은 이미 다른 라이브지니 계정에 연결돼 있어요. 다른 구글 계정으로 해 주세요.')
     cleanup()
     await openSettings('/settings?login=NOT_LINKED&provider=google')
     expect(within(await screen.findByRole('region', { name: '로그인 방법' })).queryByRole('alert')).toBeNull()

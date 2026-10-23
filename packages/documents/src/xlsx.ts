@@ -4,6 +4,7 @@
 // I2 (D-I2-03, TD-P2-003): 글 칸에는 엑셀이 받지 않는 글자(제어 글자·U+FFFE·U+FFFF·짝 없는 서로게이트)를 빼고 쓴다 — 한 글자 때문에 파일 전체가 열리지 않으면 대장을 못 쓴다.
 import ExcelJS from 'exceljs'
 // O3 (D-O3-07): 옵션 방송이 든 대장은 `품종` 뒤에 옵션·수량·단가를 더한 14열 — 수량·단가도 수 칸(단가는 가격 서식).
+import { SERVICE_NAME } from './brand.ts'
 import { LEDGER_SHEET_NAME, hasOptionColumns, ledgerColumns, ledgerRowValuesWith, type LedgerRow } from './ledger.ts'
 import { stripXlsxForbidden } from './text.ts'
 
@@ -17,7 +18,7 @@ const WITH_OPTIONS = { numbers: new Set([3, 6, 7, 8]), money: new Set([7, 8]), w
 export async function ledgerToXlsx(rows: readonly LedgerRow[], options: boolean = rows.some(hasOptionColumns)): Promise<Uint8Array> {
   const layout = options ? WITH_OPTIONS : PLAIN
   const workbook = new ExcelJS.Workbook()
-  workbook.creator = '라이브찜'
+  workbook.creator = SERVICE_NAME
   const sheet = workbook.addWorksheet(LEDGER_SHEET_NAME, { views: [{ state: 'frozen', xSplit: 0, ySplit: 1 }] })
   layout.widths.forEach((width, i) => {
     sheet.getColumn(i + 1).width = width

@@ -29,7 +29,7 @@ afterEach(() => {
 })
 
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'"
-const INDEX = '<!doctype html><html><head><title>라이브찜</title><script type="module" src="/assets/app-3f9a.js"></script></head><body><div id="root"></div></body></html>'
+const INDEX = '<!doctype html><html><head><title>라이브지니</title><script type="module" src="/assets/app-3f9a.js"></script></head><body><div id="root"></div></body></html>'
 
 let base = ''
 let webDir = ''
@@ -42,7 +42,7 @@ beforeAll(() => {
   writeFileSync(join(webDir, 'assets', 'app-3f9a.css'), 'body{}')
   writeFileSync(join(webDir, 'assets', '.hidden.js'), 'secret')
   writeFileSync(join(webDir, 'sw.js'), 'self.addEventListener("fetch", () => {})')
-  writeFileSync(join(webDir, 'manifest.webmanifest'), '{"name":"라이브찜"}')
+  writeFileSync(join(webDir, 'manifest.webmanifest'), '{"name":"라이브지니"}')
   writeFileSync(join(webDir, 'robots.txt'), 'User-agent: *')
   writeFileSync(join(webDir, 'icon.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
   writeFileSync(join(webDir, '.env'), 'LIVEJJIM_MASTER_KEY=secret')
