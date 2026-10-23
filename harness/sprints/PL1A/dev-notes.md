@@ -84,3 +84,14 @@
 
 **합치는 트랙 (AC-PL1A-19)**
 - `PackingChecklist`에는 이미 `sealed` prop이 있다. `<PackingLabelSection ... />` 호출에 `sealed={sealed}`를 더하고, 그 칸에서 `sealed`면 "포장 라벨 출력" 버튼만 그리지 않으면 된다(그림 저장·라벨 PDF는 그대로). 라벨 꺼짐 안내와 봉인이 겹치면 봉인 쪽이 우선이다(서버도 봉인 409가 먼저).
+
+## [server] 감사 뒤 minor 수정 — 판매자 데이터 안전 (SA-PL1A-02, RA-PL1A-02·SA-PL1A-04·TD-PL1A-003)
+
+spec-keeper가 DECISIONS에 옮길 결정 (AUTO, 판매자에게 안전한 쪽):
+
+1. **SA-PL1A-02 — 이스케이프로 숨긴 `__proto__`도 거절**: `backup.ts` `hasProtoKey`의 지름길이 원문에 `__proto__`가 없으면 바로 false였다. JSON 이스케이프(`"__proto__"`·`"__proto__"`)는 원문에 그 글자가 없지만 JSON.parse 뒤 같은 칸이 된다. 지름길을 "`__proto__`도 `\u`도 없을 때만"으로 좁혔다 — `\u`가 있으면 reviver로 끝까지 읽는다. 정상 장부는 JSON.stringify가 만든 글이라 제어 글자·짝 없는 서로게이트가 아니면 `\u`가 생기지 않아 큰 장부도 보통은 지름길을 탄다. 문장은 그대로 `SEALED_BACKUP_MESSAGES.unreadable(date)`.
+2. **RA-PL1A-02 / SA-PL1A-04 / TD-PL1A-003 — 백업 검사와 봉인 날짜 문서가 같은 기준**: 백업 파일 검사(`checkSealedField`·`SealedScopeCheck`)가 `readLedger`만 봐서, 봉인 날짜 문서(`sealed-state.ts` `stateFromLedger` — 찜 금액 = 단가 × 수량, 1등 짝, 다시 세운 값 = 장부 값 `matchesLedger`)가 못 읽는 장부를 받아들였다. 그러면 가져온 뒤 그 날짜 확인서·판매대장(전체 포함)이 계속 500 `LEDGER_UNREADABLE`이 된다. 이제 `SealedScopeCheck.finish`가 방송 목록 대조 뒤 **같은 함수 `stateFromLedger`**를 부르고 null이면 파일 전체를 `SEALED_BACKUP_MESSAGES.unreadable(date)`("범위 날짜의 봉인 장부를 읽을 수 없어요.")로 거절한다 — 검사·바꾸기 복구·빈 판매자 가져오기 모두, 아무것도 바꾸지 않는다.
+   - 방송 설정 스냅샷도 같은 함수로 읽는다: `sealed-state.ts`에 `startSettings(body)`를 꺼내 문서 쪽 `broadcastSettings`와 백업 검사가 함께 쓴다(각 장부 방송을 처음 시작한 broadcast.start — 복구가 `changed = true`로 적는 바로 그 줄).
+   - 엔진 재생은 여전히 없다(AC-PL1A-02 그대로 — `stateFromLedger`는 판정 없이 기록을 옮겨 담고 코어 조회 함수로 대조한다).
+   - 재생 검사 명령(`checkReplay`의 봉인 범위)은 바꾸지 않았다 — 요약값만 본다. 같은 기준을 넣을지는 다음 스프린트 판단(DB 안 장부는 봉인 작업이 만든 것이라 위험이 낮다).
+- 시험: `apps/server/test/pl1a-backup-ledger.test.ts` — 이스케이프 `__proto__` 3곳 거절·이스케이프만 있는 장부 통과, 문서 기준 위반 4가지(찜 금액, 1등 짝 없음, 구매자 소계, 판매 하나 뺌) 검사·두 복구 거절·DB 그대로, 같은 장부를 DB에 넣으면 문서 500. 고치기 전 코드에서 두 시험 모두 실패함을 확인했다.

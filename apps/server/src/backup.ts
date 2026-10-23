@@ -11,6 +11,7 @@
 // - 30일 봉인 범위 (PL1A D-PL1-01, D-I2-22 (1)): 형식 번호 3은 범위마다 sealed 칸 — 봉인 안 한 범위는 null, 봉인한 범위는
 //   { sealedAt(UTC ISO), ledger(저장된 장부 글 그대로), ledgerDigest(저장된 장부 요약값 그대로) }. 봉인 범위의 이벤트는 저장된 그대로(채팅 본문·이름 없음).
 //   검사는 봉인 범위를 재생하지 않고 seq 이어짐·이벤트 요약값·장부 요약값·장부 읽기(readLedger)·장부 날짜·리허설 아님·방송 목록 = 장부의 방송을 본다(재생 검사 명령 checkSealed와 같은 방식, 요금 대조 없음).
+//   끝으로 봉인 날짜 문서와 같은 기준(sealed-state.ts stateFromLedger)으로 장부를 다시 세워 읽히는지 본다 — 문서가 못 읽는 장부는 받아들이지 않는다.
 //   복구는 봉인 범위를 봉인된 채로 넣는다(봉인 시각·장부·장부 요약값, 상태 스냅샷·발송함·채팅 원문 없음 — 다시 봉인하지 않는다).
 //   형식 번호 2 파일도 읽는다 — 모든 범위를 봉인 안 한 범위로 보고 재생한다(봉인 범위가 든 번호 2 파일은 BASE와 같이 재생에서 거절된다).
 // - 채팅 본문·이름 (Y1 합친 뒤, AC-Y1-60): 서버는 채팅 이벤트의 본문(text)·이름(nick)을 chat_raw에 따로 둔다. 파일의 이벤트 본문은 Y1 전과 같은 모양 —
@@ -28,7 +29,7 @@ import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { createGunzip, createGzip } from 'node:zlib'
-import { STATE_FORMAT, applyEvent, checkInvariants, checkSettings, isValidDate, type EngineEffect, type EngineEvent, type EngineState } from '@livejjim/core'
+import { STATE_FORMAT, applyEvent, checkInvariants, checkSettings, isValidDate, type EngineEffect, type EngineEvent, type EngineState, type SaleSettings } from '@livejjim/core'
 import { and, asc, eq, gt, inArray, lte, ne, sql } from 'drizzle-orm'
 import { canonicalJson, checkReplay, type ScopeCheck } from './check-replay.ts'
 import type { Db } from './db/database.ts'
@@ -107,7 +108,8 @@ import { FAILED_INPUT_MESSAGE, emptyState, type AttentionItem } from './runtime.
 import { sha256Hex } from './secrets.ts'
 import { readShop, shopJson, type ShopView } from './shop.ts'
 import { mergeRaw } from './store.ts'
-import { readLedger } from './youtube/seal.ts'
+import { startSettings, stateFromLedger } from './sealed-state.ts'
+import { readLedger, type Ledger } from './youtube/seal.ts'
 import { iso, kstDate, type Clock } from './time.ts'
 import { eventDigest, splitChatRaw } from './writer.ts'
 import { SERVICE_NAME } from './brand.ts'
@@ -662,9 +664,10 @@ const SEALED_KEYS = ['sealedAt', 'ledger', 'ledgerDigest'] as const
 
 /**
  * 봉인 칸 검사 (형식 번호 3, D-PL1-01): null이면 봉인 안 한 범위. 봉인 칸이면 (f) 리허설 아님 → (c) 장부 글의 sha256 = ledgerDigest →
- * (d) 장부를 읽을 수 있음(readLedger — `/1`·`/2`) → (e) 장부의 날짜 = 범위 날짜. 하나라도 어기면 파일 전체를 거절한다
+ * (d) 장부를 읽을 수 있음(readLedger — `/1`·`/2`) → (e) 장부의 날짜 = 범위 날짜. 하나라도 어기면 파일 전체를 거절한다.
+ * 문서 기준(stateFromLedger)은 방송 설정이 이벤트에 있어 범위 끝(SealedScopeCheck.finish)에서 본다
  */
-function checkSealedField(raw: unknown, date: string, rehearsal: boolean): { sealed: BackupSealed; ledgerBroadcasts: readonly { id: string; date: string; title: string; endedAt: string | null }[] } | null {
+function checkSealedField(raw: unknown, date: string, rehearsal: boolean): { sealed: BackupSealed; ledger: Ledger; ledgerBroadcasts: readonly { id: string; date: string; title: string; endedAt: string | null }[] } | null {
   if (raw === null) return null
   if (!isObject(raw) || !hasKeys(raw, SEALED_KEYS)) return invalid(SEALED_BACKUP_MESSAGES.shape(date))
   const { sealedAt, ledger, ledgerDigest } = raw
@@ -677,7 +680,7 @@ function checkSealedField(raw: unknown, date: string, rehearsal: boolean): { sea
   // readLedger는 목록인지만 본다 — 방송 행이 객체가 아니거나 칸 모양이 다르면 검사가 예외로 멈추지 않게 여기서 거절한다 (TD-PL1A-001)
   const broadcasts: readonly unknown[] = read.broadcasts
   if (!broadcasts.every(isLedgerBroadcast)) return invalid(SEALED_BACKUP_MESSAGES.unreadable(date))
-  return { sealed: { sealedAt: sealedAt as string, ledger, ledgerDigest }, ledgerBroadcasts: read.broadcasts }
+  return { sealed: { sealedAt: sealedAt as string, ledger, ledgerDigest }, ledger: read, ledgerBroadcasts: read.broadcasts }
 }
 
 /** 장부의 방송 행 하나: id·date·title 글, endedAt 글 또는 null */
@@ -690,7 +693,8 @@ function isLedgerBroadcast(value: unknown): value is { id: string; date: string;
  * 정상 장부에는 생길 수 없는 칸이라 위조로 보고 거절한다. 읽을 수 없는 글은 false(뒤의 readLedger가 거절한다)
  */
 function hasProtoKey(text: string): boolean {
-  if (!text.includes('__proto__')) return false
+  // 지름길: 글에 `__proto__`도 `\u` 이스케이프도 없으면 그 칸이 있을 수 없다. `\u`가 있으면 `"\u005f_proto__"`처럼 숨긴 칸일 수 있어 끝까지 읽는다 (SA-PL1A-02)
+  if (!text.includes('__proto__') && !text.includes('\\u')) return false
   let found = false
   try {
     JSON.parse(text, function (this: unknown, key: string, value: unknown) {
@@ -715,9 +719,13 @@ class SealedScopeCheck {
   readonly #order: readonly string[]
   readonly #started = new Set<string>()
   readonly #ended = new Set<string>()
+  readonly #fullLedger: Ledger
+  /** 장부 방송마다 처음 시작한 이벤트의 설정 스냅샷 (봉인 날짜 문서의 broadcastSettings와 같은 줄·같은 함수 startSettings) */
+  readonly #settings = new Map<string, SaleSettings>()
 
-  constructor(date: string, ledgerBroadcasts: readonly { id: string; date: string; title: string; endedAt: string | null }[]) {
+  constructor(date: string, fullLedger: Ledger, ledgerBroadcasts: readonly { id: string; date: string; title: string; endedAt: string | null }[]) {
     this.#where = scopeName(date, false)
+    this.#fullLedger = fullLedger
     this.#ledger = new Map(ledgerBroadcasts.map((broadcast) => [broadcast.id, broadcast]))
     this.#order = ledgerBroadcasts.map((broadcast) => broadcast.id)
   }
@@ -745,6 +753,8 @@ class SealedScopeCheck {
     if (event.type === 'broadcast.start') {
       if (this.#started.has(b)) return { changed: false, effects: [] }
       this.#started.add(b)
+      const start = startSettings(event.body)
+      if (start !== null && start.b === b) this.#settings.set(b, start.settings)
       this.derived.push({ id: b, date: String(parsed.date), title: String(parsed.title), startSeq: event.seq, endedAt: null, createdAt: event.receivedAt })
       return { changed: true, effects: [] }
     }
@@ -769,6 +779,9 @@ class SealedScopeCheck {
     const fromLedger = this.#order.map((id) => this.#ledger.get(id))
     const fromList = list.map((broadcast) => ({ id: broadcast.id, date: broadcast.date, title: broadcast.title, endedAt: broadcast.endedAt }))
     if (canonicalJson(fromLedger) !== canonicalJson(fromList)) return invalid(SEALED_BACKUP_MESSAGES.unreadable(date))
+    // 봉인 날짜 문서가 읽는 기준(sealed-state.ts stateFromLedger — 찜 금액 = 단가 × 수량, 1등 짝, 다시 세운 값 = 장부 값)으로도 읽혀야 한다.
+    // 여기서 받아들이면 가져온 뒤 그 날짜 문서·판매대장이 계속 읽을 수 없는 기록이 되므로 파일 전체를 거절한다 (RA-PL1A-02, SA-PL1A-04, TD-PL1A-003)
+    if (stateFromLedger(this.#fullLedger, this.#settings) === null) return invalid(SEALED_BACKUP_MESSAGES.unreadable(date))
     return list
   }
 }
@@ -1022,7 +1035,7 @@ async function walkBackup(bytes: Uint8Array, visitor: BackupVisitor = {}): Promi
         await reader.expect(',', MESSAGES.scope)
         await key('events', MESSAGES.scope)
         await reader.expect('[', MESSAGES.scope)
-        const replay = sealedField === null ? new ScopeReplay(scopeDate, rehearsal as boolean) : new SealedScopeCheck(scopeDate, sealedField.ledgerBroadcasts)
+        const replay = sealedField === null ? new ScopeReplay(scopeDate, rehearsal as boolean) : new SealedScopeCheck(scopeDate, sealedField.ledger, sealedField.ledgerBroadcasts)
         let effectCount = 0
         if (!(await reader.take(']'))) {
           do {

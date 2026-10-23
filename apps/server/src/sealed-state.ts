@@ -344,15 +344,25 @@ async function broadcastSettings(db: Db, sellerId: string, scopeId: string): Pro
   const out = new Map<string, SaleSettings>()
   for (const row of rows) {
     if (row.failed || !row.changed) continue
-    try {
-      const event = JSON.parse(row.body) as { b?: unknown; settings?: unknown }
-      if (typeof event.b !== 'string' || out.has(event.b)) continue
-      out.set(event.b, resolveSettings(isObject(event.settings) ? (event.settings as SettingsOverride) : {}))
-    } catch {
-      continue
-    }
+    const start = startSettings(row.body)
+    if (start === null || out.has(start.b)) continue
+    out.set(start.b, start.settings)
   }
   return out
+}
+
+/**
+ * broadcast.start 이벤트 본문 하나 → (방송 ID, 설정 스냅샷). 읽을 수 없으면 null.
+ * 봉인 날짜 문서(broadcastSettings)와 백업 파일 검사(backup.ts SealedScopeCheck)가 같은 함수로 설정을 읽는다 (SA-PL1A-04 — 기준이 둘로 갈리지 않게)
+ */
+export function startSettings(body: string): { b: string; settings: SaleSettings } | null {
+  try {
+    const event = JSON.parse(body) as { b?: unknown; settings?: unknown }
+    if (!isObject(event) || typeof event.b !== 'string') return null
+    return { b: event.b, settings: resolveSettings(isObject(event.settings) ? (event.settings as SettingsOverride) : {}) }
+  } catch {
+    return null
+  }
 }
 
 /** 그 날짜(실제 범위)의 봉인 상태: 봉인 안 함, 봉인 + 조회용 상태, 봉인 + 읽을 수 없는 장부 */
