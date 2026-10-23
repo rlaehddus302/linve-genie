@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { api, billingHarness, buy, call, rid, rows, type BillingHarness } from '../n5/helpers.ts'
 
 const TAX = '세금계산서는 지금은 발급할 수 없어요. 현금영수증(지출증빙)으로 발행해요.'
-const OTHER = '계좌이체 증빙은 세금계산서나 현금영수증 중에서 골라 주세요.'
+const OTHER = '계좌이체 증빙은 현금영수증(지출증빙)만 발행해요.'
 
 let h: BillingHarness | null = null
 afterEach(async () => {
