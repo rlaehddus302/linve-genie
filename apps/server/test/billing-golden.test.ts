@@ -1,6 +1,6 @@
 // AC-N5-01·02·03·04·05·AC-PL1B-20: 요금 골든(tests/golden/billing/*.json, G-BIL-*)을 서버의 순수 함수 다섯으로 돌린다.
 // - 파일 수 5·사례 수 82(status 26 · payment 21 · vat 7 · bizno 13 · granted 15)를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다.
-//   (D-PL1-08: 종류 `granted`(G-BIL-301~315, judgeGranted)가 더해져 4·67 → 5·82)
+//   (D-PL1-08: 종류 `granted`(G-BIL-401~415, judgeGranted)가 더해져 4·67 → 5·82)
 // - 모르는 kind·키·열거값·중복 ID는 시험 실패(읽기 오류)다. 미구현을 허용하는 장치가 없다.
 // - status는 out에 적은 키만, 나머지는 out 전체를 깊은 같음으로 비교한다. 시각은 오프셋을 적은 ISO → UTC 밀리초, 결과 시각은 KST `+09:00` 초까지.
 // - 결정성(AC-N5-05): 같은 입력 두 번, TZ=Pacific/Honolulu·Asia/Seoul·UTC에서 같은 출력.
@@ -317,7 +317,7 @@ describe('요금 골든 (AC-N5-01~05)', () => {
     expect(problems).toEqual([])
   })
 
-  // D-PL1-08: granted.json(G-BIL-301~315)이 더해져 파일 4 → 5, 사례 67 → 82
+  // D-PL1-08: granted.json(G-BIL-401~415)이 더해져 파일 4 → 5, 사례 67 → 82
   it('파일 5 · 사례 82 (status 26 · payment 21 · vat 7 · bizno 13 · granted 15)', () => {
     expect(loaded.files).toEqual(['bizno.json', 'granted.json', 'payment.json', 'status.json', 'vat.json'])
     const count = (kind: Kind) => loaded.ran.filter((item) => item.kind === kind).length
