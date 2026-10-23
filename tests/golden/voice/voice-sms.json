@@ -1,6 +1,6 @@
 {
   "kind": "voice-sms",
-  "about": "음성 문자찜 문장 하나(음성 인식 최종 결과) → 문자찜 읽기 결과 (VOC-02·ORD-08 AC9, DOMAIN_RULES R-21, V1 — D-V1-01·02·04·08·12). 결과는 null(문자찜 문장 아님 — R-17 상품 등록 추출로) 또는 정확히 다섯 키 { orders, last4, name, time, problem }. orders = [{ no, options?, qty }](번호 방식은 qty 1·options 없음), last4 = 숫자 4개 문자열 또는 null, name = 이름 또는 null, time = 'H:MM' 또는 'H:MM:SS' 또는 null, problem = null 또는 CANCEL·NOT_SURE·LAST4_UNCLEAR·NAME_UNCLEAR·TIME_UNCLEAR·NUMBER_UNCLEAR·OPTION_UNCLEAR(문제가 있으면 orders []·나머지 null). settings 생략 = { parseMode: STRICT, maxNumber: 999 }. 옵션 방식(parseMode OPTIONS)은 catalog·focus를 R-20 입력(comment-options 형식)으로 쓴다. packages/voice 단위 시험이 읽는다 — README '음성 문자찜 골든'.",
+  "about": "음성 문자찜 문장 하나(음성 인식 최종 결과) → 문자찜 읽기 결과 (VOC-02·ORD-08 AC9, DOMAIN_RULES R-21, V1 — D-V1-01·02·04·08·12·19). 결과는 null(문자찜 문장 아님 — R-17 상품 등록 추출로) 또는 정확히 다섯 키 { orders, last4, name, time, problem }. orders = [{ no, options?, qty }](번호 방식은 qty 1·options 없음), last4 = 숫자 4개 문자열 또는 null, name = 이름 또는 null, time = 'H:MM' 또는 'H:MM:SS' 또는 null, problem = null 또는 CANCEL·NOT_SURE·LAST4_UNCLEAR·NAME_UNCLEAR·TIME_UNCLEAR·NUMBER_UNCLEAR·OPTION_UNCLEAR(문제가 있으면 orders []·나머지 null). settings 생략 = { parseMode: STRICT, maxNumber: 999 }. 옵션 방식(parseMode OPTIONS)은 catalog·focus를 R-20 입력(comment-options 형식)으로 쓴다. packages/voice 단위 시험이 읽는다 — README '음성 문자찜 골든'.",
   "cases": [
     {
       "id": "G-VSM-V1-01",
@@ -2349,6 +2349,97 @@
       "focus": {
         "no": 31,
         "ageSec": 120
+      }
+    },
+    {
+      "id": "G-VSM-V1-64",
+      "title": "띄어 쓴 '끝 자리' — 두 토큰이 끝자리 낱말 하나",
+      "refs": [
+        "VOC-02",
+        "ORD-08",
+        "R-21",
+        "D-V1-19"
+      ],
+      "note": "D-V1-19: 토큰 '끝'(그대로) 다음 토큰의 읽는 모양 '자리' → 낱말 하나, 그 다음 토큰 '1234' = 숫자 4개 → last4 '1234'. '끝'·'자리'·'1234'는 맡은 토큰. 165번은 R-17 3 표시(앞 토큰 없음) → orders [165]. 3a: 맡은 토큰 밖은 '165번'뿐 — 걸리지 않음",
+      "in": "165번 문자찜 끝 자리 1234",
+      "out": {
+        "orders": [
+          {
+            "no": 165,
+            "qty": 1
+          }
+        ],
+        "last4": "1234",
+        "name": null,
+        "time": null,
+        "problem": null
+      }
+    },
+    {
+      "id": "G-VSM-V1-65",
+      "title": "띄어 쓴 '뒷 번호'를 앞에",
+      "refs": [
+        "VOC-02",
+        "ORD-08",
+        "R-21",
+        "D-V1-19"
+      ],
+      "note": "D-V1-19: '뒷'+'번호' → 낱말 하나, 다음 토큰 '5678' → last4 '5678'. '165번' 앞 토큰 '5678'+'165' = '5678165' → R-15 null(4자리 넘음) → 끊어 말한 번호 아님(G-VSM-V1-03과 같은 계산) → orders [165]",
+      "in": "뒷 번호 5678 165번 문자찜",
+      "out": {
+        "orders": [
+          {
+            "no": 165,
+            "qty": 1
+          }
+        ],
+        "last4": "5678",
+        "name": null,
+        "time": null,
+        "problem": null
+      }
+    },
+    {
+      "id": "G-VSM-V1-66",
+      "title": "띄어 쓴 '끝 자리' 다음 숫자가 갈림 → LAST4_UNCLEAR",
+      "refs": [
+        "VOC-02",
+        "ORD-08",
+        "R-21",
+        "D-V1-19"
+      ],
+      "note": "D-V1-19: '끝'+'자리' → 낱말 하나, 다음 토큰 '12'는 숫자 2개 → R-21 4 LAST4_UNCLEAR. 문제 순서(R-21 9)에서 CANCEL·NOT_SURE 없음 → LAST4_UNCLEAR, orders []",
+      "in": "165번 문자찜 끝 자리 12 34",
+      "out": {
+        "orders": [],
+        "last4": null,
+        "name": null,
+        "time": null,
+        "problem": "LAST4_UNCLEAR"
+      }
+    },
+    {
+      "id": "G-VSM-V1-67",
+      "title": "'끝' 하나만은 낱말이 아님 — 1234는 쓰이지 않음",
+      "refs": [
+        "VOC-02",
+        "ORD-08",
+        "R-21",
+        "D-V1-19"
+      ],
+      "note": "D-V1-19는 '끝'·'뒷' 다음에 '자리'·'번호'가 올 때만 낱말로 본다. '끝' 다음 '1234'는 낱말 아님 → last4 null. '1234'는 '번'이 없어 R-17 3 번호 표시가 아님 → orders [165]만(뒤 4자리·이름 없음 → 넣을 때 메모 '확인 필요'). 3a: '끝'·'1234'는 걸리는 시작·끝 글이 아님",
+      "in": "165번 문자찜 끝 1234",
+      "out": {
+        "orders": [
+          {
+            "no": 165,
+            "qty": 1
+          }
+        ],
+        "last4": null,
+        "name": null,
+        "time": null,
+        "problem": null
       }
     }
   ]
