@@ -242,7 +242,7 @@ export class ExtensionThanks {
       // 글 사이 3초
       const gapUntil = (lane?.lastDoneAt?.getTime() ?? 0) + POST_GAP_MS
       if (gapUntil > now.getTime()) return { kind: 'none', afterMs: gapUntil - now.getTime(), channel: expected }
-      const rows = await this.#ready(sellerId, b, enabledAt, connection?.consentLiveChatAt ?? null, link?.chatEndedAt ?? null, now)
+      const rows = await this.#ready(sellerId, b, enabledAt, connection === null ? enabledAt : connection.consentLiveChatAt, link?.chatEndedAt ?? null, now)
       const [message] = batchMessages(rows.map((row) => ({ id: row.id, text: effectText(row) })))
       if (message === undefined) return { kind: 'none', afterMs: 2000, channel: expected }
       const members = rows.filter((row) => message.ids.includes(row.id))

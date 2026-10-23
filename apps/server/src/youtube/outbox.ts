@@ -431,7 +431,14 @@ export class OutboxRunner {
         postText: target === 'LIVE_CHAT' ? liveChatText(effect.text) : commentText(effect.text),
       }
       // 효과가 나온 때 그 대상의 동의가 없었으면 나중에 켜도 자동으로 보내지 않는다 (D-Y12)
-      if (consentAt === null || consentAt.getTime() > created) {
+      // 유튜브 공식 연결이 아예 없으면(YT-04 동의를 켤 수 없다) 확장 감사 스위치 동의(D-X1-17~19)를 그 회차 실시간 채팅 감사의 동의로 본다 — 맡길지는 #gate가 정한다.
+      // 공식 연결이 있으면 AC11대로 YT-04 동의와 스위치가 둘 다 있어야 한다
+      const officialOk = consentAt !== null && consentAt.getTime() <= created
+      const extensionOk =
+        connection === null && target === 'LIVE_CHAT' && this.#options.extension !== undefined && effect.broadcast !== null
+          ? ((await this.#options.extension.route(row.sellerId, effect.broadcast))?.getTime() ?? Infinity) <= created
+          : false
+      if (!officialOk && !extensionOk) {
         await this.#update(row, [row.id], { ...base, state: 'FAILED', reason: 'NO_CONSENT' }, { state: null })
         this.#publishRows(row.sellerId, row.date, [row.id], 'FAILED', 'NO_CONSENT')
         continue
@@ -592,23 +599,18 @@ export class OutboxRunner {
       return null
     }
     const connection = await this.#options.connections.row(sellerId)
-    if (connection === null) return fail('NO_CONSENT')
-    const link = await activeLink(this.#options.db, sellerId, first.broadcastId ?? '')
-    if (link !== null && link.channelId !== connection.channelId) return fail('NOT_MY_CHANNEL')
-    const consentAt = target === 'LIVE_CHAT' ? connection.consentLiveChatAt : connection.consentVideoCommentAt
-    const noConsent = rows.filter((row) => !row.manual && (consentAt === null || consentAt.getTime() > row.createdAt.getTime()))
-    if (noConsent.length > 0) {
-      await failRows(noConsent, 'NO_CONSENT')
-      rows = rows.filter((row) => !noConsent.includes(row))
-      if (rows.length === 0) return null
-    }
-    // 공식 경로로 올릴 수 없으면(연결이 살아 있지 않음·게시 권한 없음·이은 방송 없음) 확장에 맡길 수 있는지 본다 (X1 D-X1-19).
-    // 확장 스위치를 켠 뒤에 생긴 자동 감사만 맡기고, 맡긴 행은 공식 실행기가 다시 집지 않는다. 나머지는 아래 규칙 그대로
-    const official = connection.status === 'CONNECTED' && connection.canPublish && link !== null
+    const link = connection === null ? null : await activeLink(this.#options.db, sellerId, first.broadcastId ?? '')
+    if (connection !== null && link !== null && link.channelId !== connection.channelId) return fail('NOT_MY_CHANNEL')
+    const consentAt = connection === null ? null : target === 'LIVE_CHAT' ? connection.consentLiveChatAt : connection.consentVideoCommentAt
+    const consented = (row: RunnerRow) => row.manual || (consentAt !== null && consentAt.getTime() <= row.createdAt.getTime())
+    // 공식 경로로 올릴 수 없으면(연결 없음·살아 있지 않음·게시 권한 없음·이은 방송 없음) '동의 전'으로 끝내기 전에 확장에 맡길 수 있는지 먼저 본다 (X1 D-X1-17~19).
+    // 확장 스위치를 켠 뒤에 생긴 자동 감사만 맡기고, 맡긴 행은 공식 실행기가 다시 집지 않는다. 공식 연결이 있으면 YT-04 동의도 있어야 한다(AC11).
+    // 공식으로 올릴 수 있으면 공식만(이중 게시 금지)
+    const official = connection !== null && connection.status === 'CONNECTED' && connection.canPublish && link !== null
     if (!official && target === 'LIVE_CHAT' && this.#options.extension !== undefined && first.broadcastId !== null) {
       const enabledAt = await this.#options.extension.route(sellerId, first.broadcastId)
       if (enabledAt !== null) {
-        const handed = rows.filter((row) => !row.manual && row.createdAt.getTime() >= enabledAt.getTime())
+        const handed = rows.filter((row) => !row.manual && row.createdAt.getTime() >= enabledAt.getTime() && (connection === null || consented(row)))
         if (handed.length > 0) {
           this.#check()
           const ids = await handToExtension(this.#options.db, sellerId, handed.map((row) => row.id), now)
@@ -618,6 +620,13 @@ export class OutboxRunner {
           if (rows.length === 0) return null
         }
       }
+    }
+    if (connection === null) return fail('NO_CONSENT')
+    const noConsent = rows.filter((row) => !consented(row))
+    if (noConsent.length > 0) {
+      await failRows(noConsent, 'NO_CONSENT')
+      rows = rows.filter((row) => !noConsent.includes(row))
+      if (rows.length === 0) return null
     }
     if (connection.status !== 'CONNECTED') return wait('RECONNECT')
     if (!connection.canPublish) return fail('NO_PERMISSION')

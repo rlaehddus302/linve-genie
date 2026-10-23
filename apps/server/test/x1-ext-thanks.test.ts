@@ -1,7 +1,7 @@
 // X1 크롬 확장으로 감사 채팅 올리기 — 서버 (YT-10 AC11~AC17, D-X1-17~D-X1-24): AC-X1-26·28·29·31·32의 서버 몫과 AC-X1-27의 서버 확인,
 // AC-X1-25 (다른 경로 중복은 서버 도착 시각 차 10초 이하만, D-X1-28).
 import { afterEach, describe, expect, it } from 'vitest'
-import { client, createBroadcast, expectOk, login, writeEvent } from './support.ts'
+import { addSeller, client, createBroadcast, expectOk, login, writeEvent } from './support.ts'
 import { connectSeller, drive, linkedBroadcast, youtubeWorld, type Connected, type YoutubeWorld } from './youtube-support.ts'
 
 const worlds: YoutubeWorld[] = []
@@ -65,10 +65,14 @@ async function rows(w: YoutubeWorld, connected: Connected, date: string): Promis
  * 판매자(유튜브 연결·실시간 채팅 동의) + YT-02로 잇지 않은 오늘 회차 + 확장 연결(그 회차에 VIDEO를 이음) + 상품 1~9번 + 묶음 창 0초.
  * thanks: 확장 감사 올리기 스위치를 켤지
  */
-async function setup(options: { thanks?: boolean; consent?: boolean } = {}) {
+async function setup(options: { thanks?: boolean; consent?: boolean; connect?: boolean } = {}) {
   const w = await youtubeWorld()
   worlds.push(w)
-  const connected = await connectSeller(w, { publish: options.consent === false ? false : 'LIVE_CHAT' })
+  // connect: false = 유튜브 공식 연결이 아예 없는 판매자(확장만 씀). channel은 확장이 읽을 방송 채널로만 쓴다
+  const connected: Connected =
+    options.connect === false
+      ? { seller: await addSeller(w), channel: w.fake.addChannel(w.fake.addAccount(), '확장만 가게'), account: w.fake.addAccount() }
+      : await connectSeller(w, { publish: options.consent === false ? false : 'LIVE_CHAT' })
   const api = client(w, connected.seller.cookie)
   expect((await api.patch('/api/settings', { settings: { 'print.autoOnConfirm': false } })).status).toBeLessThan(500)
   const b = await createBroadcast(w, connected.seller)
@@ -116,6 +120,22 @@ describe('AC-X1-26 스위치 (YT-10 AC11, D-X1-17·18)', () => {
     await run(w)
     expect((await take(w, token, me)).body.state).toBe('NONE')
     expect((await rows(w, connected, b.date))[0]?.reason).toBe('NO_CONSENT')
+  })
+
+  it('유튜브 공식 연결·공식 동의가 없어도 확장 스위치를 켰으면 확장에 맡기고 확장이 올린다 (HG-X1)', async () => {
+    const { w, connected, b, token, me } = await setup({ connect: false })
+    await chat(w, token, '3')
+    await run(w)
+    const list = await rows(w, connected, b.date)
+    expect(list.map((row) => [row.state, row.reason, row.viaExtension])).toEqual([['WAITING', 'EXTENSION', true]])
+    const taken = await take(w, token, me)
+    expect(taken.body.state).toBe('POST')
+    const post = taken.body.post as { ids: number[] }
+    expect(post.ids).toEqual([list[0]?.id])
+    expect((await ext(w, '/ext/thanks/result', token, { ids: post.ids, result: 'POSTED' })).status).toBe(200)
+    await run(w)
+    expect((await rows(w, connected, b.date))[0]?.state).toBe('SENT')
+    expect(w.fake.posted).toHaveLength(0)
   })
 
   it('켜기 전에 생긴 감사·10분 지난 감사·확정이 풀린 감사는 주지 않는다', async () => {
