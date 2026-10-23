@@ -1,0 +1,1340 @@
+{
+ "stopWords": [
+  "당연",
+  "당연하죠",
+  "이거",
+  "저거",
+  "그거",
+  "예뻐요",
+  "예쁘다",
+  "예쁘죠",
+  "감사",
+  "감사합니다",
+  "안녕",
+  "안녕하세요",
+  "오늘",
+  "지금",
+  "이번",
+  "다음",
+  "가격",
+  "번호",
+  "품종",
+  "취소",
+  "아니",
+  "아니요",
+  "다시",
+  "말고",
+  "정정",
+  "문자찜",
+  "하나",
+  "둘",
+  "셋",
+  "만원",
+  "천원",
+  "여러분",
+  "진짜",
+  "완전",
+  "그리고",
+  "그래서",
+  "이제",
+  "우리",
+  "어서",
+  "보세요",
+  "드릴게요",
+  "주세요",
+  "네네",
+  "좋아요",
+  "사랑",
+  "최고",
+  "대박",
+  "고마워요"
+ ],
+ "varieties": [
+  {
+   "name": "엘레강스",
+   "aliases": [
+    "엘레간스",
+    "엘레강쓰",
+    "엘레강"
+   ]
+  },
+  {
+   "name": "핑크문",
+   "aliases": []
+  },
+  {
+   "name": "블루엘프",
+   "aliases": [
+    "부루엘프",
+    "블루엘퍼"
+   ]
+  },
+  {
+   "name": "라울",
+   "aliases": []
+  },
+  {
+   "name": "루비",
+   "aliases": []
+  },
+  {
+   "name": "선버스트",
+   "aliases": [
+    "썬버스트",
+    "선버스트금"
+   ]
+  },
+  {
+   "name": "핑크프릴",
+   "aliases": [
+    "핑크후릴"
+   ]
+  },
+  {
+   "name": "핑크프릴 금",
+   "aliases": []
+  },
+  {
+   "name": "방울복랑 금",
+   "aliases": []
+  },
+  {
+   "name": "방울복랑",
+   "aliases": [
+    "방울보랑"
+   ]
+  },
+  {
+   "name": "왕비뇌신금",
+   "aliases": []
+  },
+  {
+   "name": "레티지아",
+   "aliases": []
+  },
+  {
+   "name": "십이지권",
+   "aliases": []
+  },
+  {
+   "name": "천사의눈물",
+   "aliases": []
+  },
+  {
+   "name": "벨루가",
+   "aliases": []
+  },
+  {
+   "name": "로라",
+   "aliases": []
+  },
+  {
+   "name": "황금사",
+   "aliases": []
+  },
+  {
+   "name": "블랙프린스",
+   "aliases": [
+    "블랙프린세스"
+   ]
+  },
+  {
+   "name": "자보",
+   "aliases": []
+  },
+  {
+   "name": "칠복수",
+   "aliases": []
+  },
+  {
+   "name": "리틀뷰티",
+   "aliases": []
+  },
+  {
+   "name": "프리티",
+   "aliases": []
+  },
+  {
+   "name": "샤비홍",
+   "aliases": []
+  },
+  {
+   "name": "립스틱",
+   "aliases": []
+  },
+  {
+   "name": "레드에보니",
+   "aliases": []
+  },
+  {
+   "name": "블루버드",
+   "aliases": []
+  },
+  {
+   "name": "퍼플퀸",
+   "aliases": []
+  },
+  {
+   "name": "핑크루비",
+   "aliases": []
+  },
+  {
+   "name": "라우이",
+   "aliases": [
+    "라우위"
+   ]
+  },
+  {
+   "name": "미니마",
+   "aliases": []
+  },
+  {
+   "name": "아메치스",
+   "aliases": []
+  },
+  {
+   "name": "백모단",
+   "aliases": []
+  },
+  {
+   "name": "용월",
+   "aliases": []
+  },
+  {
+   "name": "성미인",
+   "aliases": []
+  },
+  {
+   "name": "월미인",
+   "aliases": []
+  },
+  {
+   "name": "문스톤",
+   "aliases": []
+  },
+  {
+   "name": "화이트그리니",
+   "aliases": []
+  },
+  {
+   "name": "홍옥",
+   "aliases": []
+  },
+  {
+   "name": "을녀심",
+   "aliases": []
+  },
+  {
+   "name": "청옥",
+   "aliases": []
+  },
+  {
+   "name": "오로라",
+   "aliases": []
+  },
+  {
+   "name": "레드베리",
+   "aliases": []
+  },
+  {
+   "name": "염자",
+   "aliases": []
+  },
+  {
+   "name": "화월",
+   "aliases": []
+  },
+  {
+   "name": "우주목",
+   "aliases": []
+  },
+  {
+   "name": "성을녀",
+   "aliases": []
+  },
+  {
+   "name": "희성",
+   "aliases": []
+  },
+  {
+   "name": "남십자성",
+   "aliases": []
+  },
+  {
+   "name": "월토이",
+   "aliases": []
+  },
+  {
+   "name": "흑토이",
+   "aliases": []
+  },
+  {
+   "name": "은월",
+   "aliases": []
+  },
+  {
+   "name": "녹영",
+   "aliases": []
+  },
+  {
+   "name": "웅동자",
+   "aliases": []
+  },
+  {
+   "name": "흑법사",
+   "aliases": []
+  },
+  {
+   "name": "은행목",
+   "aliases": []
+  },
+  {
+   "name": "사해파",
+   "aliases": []
+  },
+  {
+   "name": "리톱스",
+   "aliases": []
+  },
+  {
+   "name": "코노피튬",
+   "aliases": [
+    "코노피툼"
+   ]
+  },
+  {
+   "name": "오십령옥",
+   "aliases": []
+  },
+  {
+   "name": "금황환",
+   "aliases": []
+  },
+  {
+   "name": "백도선",
+   "aliases": []
+  },
+  {
+   "name": "알로에 베라",
+   "aliases": []
+  },
+  {
+   "name": "라즈베리아이스",
+   "aliases": []
+  },
+  {
+   "name": "레몬로즈",
+   "aliases": []
+  },
+  {
+   "name": "화이트로즈",
+   "aliases": []
+  },
+  {
+   "name": "핑크프리티",
+   "aliases": []
+  },
+  {
+   "name": "콜로라타",
+   "aliases": []
+  },
+  {
+   "name": "아가보이데스",
+   "aliases": []
+  },
+  {
+   "name": "프로리페라",
+   "aliases": []
+  },
+  {
+   "name": "데렌베르기",
+   "aliases": []
+  },
+  {
+   "name": "메비나",
+   "aliases": []
+  },
+  {
+   "name": "트리마네",
+   "aliases": []
+  },
+  {
+   "name": "묵동자",
+   "aliases": []
+  },
+  {
+   "name": "정야",
+   "aliases": []
+  },
+  {
+   "name": "금사황",
+   "aliases": []
+  },
+  {
+   "name": "백봉",
+   "aliases": []
+  },
+  {
+   "name": "팬텀",
+   "aliases": []
+  },
+  {
+   "name": "라일락",
+   "aliases": []
+  },
+  {
+   "name": "몬로즈",
+   "aliases": []
+  },
+  {
+   "name": "오렌지몬로즈",
+   "aliases": []
+  },
+  {
+   "name": "블루스카이",
+   "aliases": []
+  },
+  {
+   "name": "블루미스트",
+   "aliases": []
+  },
+  {
+   "name": "스노우버니",
+   "aliases": []
+  },
+  {
+   "name": "화이트폭스",
+   "aliases": []
+  },
+  {
+   "name": "퍼플드림",
+   "aliases": []
+  },
+  {
+   "name": "핑크쇼크",
+   "aliases": []
+  },
+  {
+   "name": "로즈퀸",
+   "aliases": []
+  },
+  {
+   "name": "레드립",
+   "aliases": []
+  },
+  {
+   "name": "레드엣지",
+   "aliases": []
+  },
+  {
+   "name": "리틀잼",
+   "aliases": []
+  },
+  {
+   "name": "리틀프리티",
+   "aliases": []
+  },
+  {
+   "name": "미니벨",
+   "aliases": []
+  },
+  {
+   "name": "베이비핑거",
+   "aliases": []
+  },
+  {
+   "name": "블루웨이브",
+   "aliases": []
+  },
+  {
+   "name": "사브리나",
+   "aliases": []
+  },
+  {
+   "name": "세레나",
+   "aliases": []
+  },
+  {
+   "name": "스칼렛",
+   "aliases": []
+  },
+  {
+   "name": "스트로베리",
+   "aliases": []
+  },
+  {
+   "name": "시나몬",
+   "aliases": []
+  },
+  {
+   "name": "아이스핑크",
+   "aliases": []
+  },
+  {
+   "name": "알바뷰티",
+   "aliases": []
+  },
+  {
+   "name": "오팔리나",
+   "aliases": []
+  },
+  {
+   "name": "올리비아",
+   "aliases": []
+  },
+  {
+   "name": "웨딩드레스",
+   "aliases": []
+  },
+  {
+   "name": "체리퀸",
+   "aliases": []
+  },
+  {
+   "name": "초코칩",
+   "aliases": []
+  },
+  {
+   "name": "캐롤라인",
+   "aliases": []
+  },
+  {
+   "name": "코랄",
+   "aliases": []
+  },
+  {
+   "name": "클라라",
+   "aliases": []
+  },
+  {
+   "name": "타이탄",
+   "aliases": []
+  },
+  {
+   "name": "티아라",
+   "aliases": []
+  },
+  {
+   "name": "파우더블루",
+   "aliases": []
+  },
+  {
+   "name": "판도라",
+   "aliases": []
+  },
+  {
+   "name": "펄폰뉘른베르크",
+   "aliases": [
+    "펄폰누렌베르크"
+   ]
+  },
+  {
+   "name": "페스티벌",
+   "aliases": []
+  },
+  {
+   "name": "프린세스펄",
+   "aliases": []
+  },
+  {
+   "name": "핑크엘프",
+   "aliases": []
+  },
+  {
+   "name": "핑크베리",
+   "aliases": []
+  },
+  {
+   "name": "핑크쉬폰",
+   "aliases": []
+  },
+  {
+   "name": "하이디",
+   "aliases": []
+  },
+  {
+   "name": "화이트스노우",
+   "aliases": []
+  },
+  {
+   "name": "환엽",
+   "aliases": []
+  },
+  {
+   "name": "흑룡",
+   "aliases": []
+  },
+  {
+   "name": "데비",
+   "aliases": []
+  },
+  {
+   "name": "프레드아이브스",
+   "aliases": []
+  },
+  {
+   "name": "블루빈",
+   "aliases": []
+  },
+  {
+   "name": "수련",
+   "aliases": []
+  },
+  {
+   "name": "화이트블룸",
+   "aliases": []
+  },
+  {
+   "name": "퍼플딜라이트",
+   "aliases": []
+  },
+  {
+   "name": "핑크펄",
+   "aliases": []
+  },
+  {
+   "name": "베이비핑크",
+   "aliases": []
+  },
+  {
+   "name": "실버스타",
+   "aliases": []
+  },
+  {
+   "name": "수련금",
+   "aliases": []
+  },
+  {
+   "name": "명월",
+   "aliases": []
+  },
+  {
+   "name": "황려",
+   "aliases": []
+  },
+  {
+   "name": "부사",
+   "aliases": []
+  },
+  {
+   "name": "골든글로우",
+   "aliases": []
+  },
+  {
+   "name": "은설",
+   "aliases": []
+  },
+  {
+   "name": "용혈",
+   "aliases": []
+  },
+  {
+   "name": "박우",
+   "aliases": []
+  },
+  {
+   "name": "춘맹",
+   "aliases": []
+  },
+  {
+   "name": "신월",
+   "aliases": []
+  },
+  {
+   "name": "레드켈리",
+   "aliases": []
+  },
+  {
+   "name": "자려",
+   "aliases": []
+  },
+  {
+   "name": "은패",
+   "aliases": []
+  },
+  {
+   "name": "신도",
+   "aliases": []
+  },
+  {
+   "name": "화제",
+   "aliases": []
+  },
+  {
+   "name": "홍치아",
+   "aliases": []
+  },
+  {
+   "name": "무을녀",
+   "aliases": []
+  },
+  {
+   "name": "레드화월",
+   "aliases": []
+  },
+  {
+   "name": "골룸",
+   "aliases": []
+  },
+  {
+   "name": "호빗",
+   "aliases": []
+  },
+  {
+   "name": "불탑",
+   "aliases": []
+  },
+  {
+   "name": "은명",
+   "aliases": []
+  },
+  {
+   "name": "칠복신",
+   "aliases": []
+  },
+  {
+   "name": "옵투사",
+   "aliases": []
+  },
+  {
+   "name": "만상",
+   "aliases": []
+  },
+  {
+   "name": "옥선",
+   "aliases": []
+  },
+  {
+   "name": "경성",
+   "aliases": []
+  },
+  {
+   "name": "그린로즈",
+   "aliases": []
+  },
+  {
+   "name": "레투사",
+   "aliases": []
+  },
+  {
+   "name": "쿠페리",
+   "aliases": []
+  },
+  {
+   "name": "트룬카타",
+   "aliases": []
+  },
+  {
+   "name": "피그마에아",
+   "aliases": []
+  },
+  {
+   "name": "베누스타",
+   "aliases": []
+  },
+  {
+   "name": "일륜옥",
+   "aliases": []
+  },
+  {
+   "name": "홍대내옥",
+   "aliases": []
+  },
+  {
+   "name": "노봉옥",
+   "aliases": []
+  },
+  {
+   "name": "자훈",
+   "aliases": []
+  },
+  {
+   "name": "미문옥",
+   "aliases": []
+  },
+  {
+   "name": "요화",
+   "aliases": []
+  },
+  {
+   "name": "금취",
+   "aliases": []
+  },
+  {
+   "name": "키위",
+   "aliases": []
+  },
+  {
+   "name": "적법사",
+   "aliases": []
+  },
+  {
+   "name": "소인제",
+   "aliases": []
+  },
+  {
+   "name": "도미인",
+   "aliases": []
+  },
+  {
+   "name": "청성미인",
+   "aliases": []
+  },
+  {
+   "name": "복토이",
+   "aliases": []
+  },
+  {
+   "name": "선녀무",
+   "aliases": []
+  },
+  {
+   "name": "천인무",
+   "aliases": []
+  },
+  {
+   "name": "백은무",
+   "aliases": []
+  },
+  {
+   "name": "만보",
+   "aliases": []
+  },
+  {
+   "name": "미공모",
+   "aliases": []
+  },
+  {
+   "name": "은파금",
+   "aliases": []
+  },
+  {
+   "name": "복랑",
+   "aliases": []
+  },
+  {
+   "name": "칠보수",
+   "aliases": []
+  },
+  {
+   "name": "녹귀란",
+   "aliases": []
+  },
+  {
+   "name": "아이리스",
+   "aliases": []
+  },
+  {
+   "name": "에스더",
+   "aliases": []
+  },
+  {
+   "name": "에버그린",
+   "aliases": []
+  },
+  {
+   "name": "골든뷰티",
+   "aliases": []
+  },
+  {
+   "name": "글라우카",
+   "aliases": []
+  },
+  {
+   "name": "라벤더힐",
+   "aliases": []
+  },
+  {
+   "name": "로즈마리",
+   "aliases": []
+  },
+  {
+   "name": "루시아",
+   "aliases": []
+  },
+  {
+   "name": "리틀미싱",
+   "aliases": []
+  },
+  {
+   "name": "마리아",
+   "aliases": []
+  },
+  {
+   "name": "마리벨",
+   "aliases": []
+  },
+  {
+   "name": "마틸다",
+   "aliases": []
+  },
+  {
+   "name": "메이벨",
+   "aliases": []
+  },
+  {
+   "name": "멕시칸선셋",
+   "aliases": []
+  },
+  {
+   "name": "모나리자",
+   "aliases": []
+  },
+  {
+   "name": "문페어리",
+   "aliases": []
+  },
+  {
+   "name": "발렌타인",
+   "aliases": []
+  },
+  {
+   "name": "백설공주",
+   "aliases": []
+  },
+  {
+   "name": "버건디",
+   "aliases": []
+  },
+  {
+   "name": "베로니카",
+   "aliases": []
+  },
+  {
+   "name": "벨라",
+   "aliases": []
+  },
+  {
+   "name": "보니타",
+   "aliases": []
+  },
+  {
+   "name": "블랙나이트",
+   "aliases": []
+  },
+  {
+   "name": "블랙엔젤",
+   "aliases": []
+  },
+  {
+   "name": "블루아이스",
+   "aliases": []
+  },
+  {
+   "name": "블루썬",
+   "aliases": []
+  },
+  {
+   "name": "블루퀸",
+   "aliases": []
+  },
+  {
+   "name": "블루헤론",
+   "aliases": []
+  },
+  {
+   "name": "비비안",
+   "aliases": []
+  },
+  {
+   "name": "빅토리아",
+   "aliases": []
+  },
+  {
+   "name": "샤롯데",
+   "aliases": []
+  },
+  {
+   "name": "선라이즈",
+   "aliases": []
+  },
+  {
+   "name": "세이코",
+   "aliases": []
+  },
+  {
+   "name": "스노우볼",
+   "aliases": []
+  },
+  {
+   "name": "스위트하트",
+   "aliases": []
+  },
+  {
+   "name": "스파클",
+   "aliases": []
+  },
+  {
+   "name": "실비아",
+   "aliases": []
+  },
+  {
+   "name": "아델라",
+   "aliases": []
+  },
+  {
+   "name": "아리엘",
+   "aliases": []
+  },
+  {
+   "name": "아말리아",
+   "aliases": []
+  },
+  {
+   "name": "안젤라",
+   "aliases": []
+  },
+  {
+   "name": "알렉산드라",
+   "aliases": []
+  },
+  {
+   "name": "애플민트",
+   "aliases": []
+  },
+  {
+   "name": "엘리자베스",
+   "aliases": []
+  },
+  {
+   "name": "엔젤윙",
+   "aliases": []
+  },
+  {
+   "name": "오렌지크림",
+   "aliases": []
+  },
+  {
+   "name": "옐로우스타",
+   "aliases": []
+  },
+  {
+   "name": "은하수",
+   "aliases": []
+  },
+  {
+   "name": "이리스",
+   "aliases": []
+  },
+  {
+   "name": "자스민",
+   "aliases": []
+  },
+  {
+   "name": "제니퍼",
+   "aliases": []
+  },
+  {
+   "name": "조슈아",
+   "aliases": []
+  },
+  {
+   "name": "줄리엣",
+   "aliases": []
+  },
+  {
+   "name": "체리블라썸",
+   "aliases": []
+  },
+  {
+   "name": "카멜리아",
+   "aliases": []
+  },
+  {
+   "name": "카밀라",
+   "aliases": []
+  },
+  {
+   "name": "캐서린",
+   "aliases": []
+  },
+  {
+   "name": "퀸메리",
+   "aliases": []
+  },
+  {
+   "name": "크림슨",
+   "aliases": []
+  },
+  {
+   "name": "클레오",
+   "aliases": []
+  },
+  {
+   "name": "타샤",
+   "aliases": []
+  },
+  {
+   "name": "티파니",
+   "aliases": []
+  },
+  {
+   "name": "퍼플스타",
+   "aliases": []
+  },
+  {
+   "name": "퍼플하트",
+   "aliases": []
+  },
+  {
+   "name": "펄그린",
+   "aliases": []
+  },
+  {
+   "name": "프란체스카",
+   "aliases": []
+  },
+  {
+   "name": "플라밍고",
+   "aliases": []
+  },
+  {
+   "name": "피오나",
+   "aliases": []
+  },
+  {
+   "name": "핑크레이디",
+   "aliases": []
+  },
+  {
+   "name": "핑크썬",
+   "aliases": []
+  },
+  {
+   "name": "핑크엔젤",
+   "aliases": []
+  },
+  {
+   "name": "핑크하트",
+   "aliases": []
+  },
+  {
+   "name": "하트비트",
+   "aliases": []
+  },
+  {
+   "name": "화이트엔젤",
+   "aliases": []
+  },
+  {
+   "name": "화이트하트",
+   "aliases": []
+  },
+  {
+   "name": "흑진주",
+   "aliases": []
+  },
+  {
+   "name": "칸테",
+   "aliases": []
+  },
+  {
+   "name": "룬요니",
+   "aliases": []
+  },
+  {
+   "name": "탑시터비",
+   "aliases": []
+  },
+  {
+   "name": "릴리시나",
+   "aliases": []
+  },
+  {
+   "name": "세쿤다",
+   "aliases": []
+  },
+  {
+   "name": "피코키",
+   "aliases": []
+  },
+  {
+   "name": "풀리도니스",
+   "aliases": []
+  },
+  {
+   "name": "스트릭티플로라",
+   "aliases": []
+  },
+  {
+   "name": "라미레트",
+   "aliases": []
+  },
+  {
+   "name": "레볼루션",
+   "aliases": []
+  },
+  {
+   "name": "썸머드림",
+   "aliases": []
+  },
+  {
+   "name": "메리하트",
+   "aliases": []
+  },
+  {
+   "name": "카디날",
+   "aliases": []
+  },
+  {
+   "name": "오리온",
+   "aliases": []
+  },
+  {
+   "name": "콤프톤카루셀",
+   "aliases": []
+  },
+  {
+   "name": "미세스리차드",
+   "aliases": []
+  },
+  {
+   "name": "브론즈",
+   "aliases": []
+  },
+  {
+   "name": "오비페룸",
+   "aliases": []
+  },
+  {
+   "name": "콤팩텀",
+   "aliases": []
+  },
+  {
+   "name": "블루헤이즈",
+   "aliases": []
+  },
+  {
+   "name": "퍼플헤이즈",
+   "aliases": []
+  },
+  {
+   "name": "골드무스",
+   "aliases": []
+  },
+  {
+   "name": "안젤리나",
+   "aliases": []
+  },
+  {
+   "name": "레몬볼",
+   "aliases": []
+  },
+  {
+   "name": "펠루시다",
+   "aliases": []
+  },
+  {
+   "name": "마르기날리스",
+   "aliases": []
+  },
+  {
+   "name": "레드펄",
+   "aliases": []
+  },
+  {
+   "name": "오브투사",
+   "aliases": []
+  },
+  {
+   "name": "아테누아타",
+   "aliases": []
+  },
+  {
+   "name": "리미폴리아",
+   "aliases": []
+  },
+  {
+   "name": "픽타",
+   "aliases": []
+  },
+  {
+   "name": "엠마이",
+   "aliases": []
+  },
+  {
+   "name": "콤프토니아나",
+   "aliases": []
+  },
+  {
+   "name": "슈바르츠코프",
+   "aliases": []
+  },
+  {
+   "name": "다크엔젤",
+   "aliases": []
+  },
+  {
+   "name": "토멘토사",
+   "aliases": []
+  },
+  {
+   "name": "베하렌시스",
+   "aliases": []
+  },
+  {
+   "name": "티르시플로라",
+   "aliases": []
+  },
+  {
+   "name": "아리스타타",
+   "aliases": []
+  },
+  {
+   "name": "오베사",
+   "aliases": []
+  },
+  {
+   "name": "디저트로즈",
+   "aliases": []
+  },
+  {
+   "name": "하트세덤",
+   "aliases": []
+  },
+  {
+   "name": "블랙베리",
+   "aliases": []
+  },
+  {
+   "name": "핑크퀸",
+   "aliases": []
+  },
+  {
+   "name": "블루아이",
+   "aliases": []
+  },
+  {
+   "name": "화이트프린세스",
+   "aliases": []
+  },
+  {
+   "name": "레이디핑크",
+   "aliases": []
+  },
+  {
+   "name": "그린벨",
+   "aliases": []
+  },
+  {
+   "name": "실버퀸",
+   "aliases": []
+  },
+  {
+   "name": "골든퀸",
+   "aliases": []
+  },
+  {
+   "name": "레드퀸",
+   "aliases": []
+  },
+  {
+   "name": "레드크로스",
+   "aliases": []
+  },
+  {
+   "name": "블루크로스",
+   "aliases": []
+  }
+ ]
+}

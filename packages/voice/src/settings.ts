@@ -19,7 +19,37 @@ export const DEFAULT_VOICE_SETTINGS: Readonly<VoiceSettings> = Object.freeze({
 export const AUTO_CONFIRM_SEC_MIN = 3
 export const AUTO_CONFIRM_SEC_MAX = 30
 
-const VOICE_KEYS = Object.freeze(Object.keys(DEFAULT_VOICE_SETTINGS) as VoiceSettingKey[])
+// ── 조용한 시간 (V2, D-V2-03·D-V2-09) ──────────────────────────────────
+// 그 기기 설정 `voice.quietMs`: 마지막 결과에서 이만큼 조용하면 한 덩어리로 읽는다. 화면 "말이 끝났다고 볼 때까지(초)" 1.0~4.0.
+// 자동 확정 설정(VoiceSettings)과 따로 읽는다 — 지금 설정 모양을 쓰는 곳을 바꾸지 않게. 검사(checkVoiceSettings)는 같은 곳에서 한다.
+
+/** 조용한 시간 기본 (ms) */
+export const DEFAULT_QUIET_MS = 1800
+export const QUIET_MS_MIN = 1000
+export const QUIET_MS_MAX = 4000
+/** 조용한 시간 단위 (ms) */
+export const QUIET_MS_STEP = 100
+export const QUIET_MS_KEY = 'voice.quietMs'
+
+/** 조용한 시간 값이 맞는가: 1000~4000 정수, 100 단위 */
+export function isQuietMs(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= QUIET_MS_MIN && value <= QUIET_MS_MAX && value % QUIET_MS_STEP === 0
+}
+
+/** 저장값 → 조용한 시간 (범위 밖·모르는 값은 1800, D-V2-09). 설정 객체(`{ 'voice.quietMs': … }`)를 넘겨도 된다 */
+export function resolveQuietMs(value: unknown): number {
+  const raw = typeof value === 'object' && value !== null && !Array.isArray(value) && Object.hasOwn(value, QUIET_MS_KEY) ? (value as Record<string, unknown>)[QUIET_MS_KEY] : value
+  return isQuietMs(raw) ? raw : DEFAULT_QUIET_MS
+}
+
+/** 화면의 초(1.0~4.0) → ms (0.1초 단위로 맞지 않거나 범위 밖이면 null) */
+export function quietSecToMs(sec: unknown): number | null {
+  if (typeof sec !== 'number' || !Number.isFinite(sec)) return null
+  const ms = Math.round(sec * 10) * QUIET_MS_STEP
+  return Math.abs(ms - sec * 1000) < 1e-6 && isQuietMs(ms) ? ms : null
+}
+
+const VOICE_KEYS = Object.freeze([...(Object.keys(DEFAULT_VOICE_SETTINGS) as VoiceSettingKey[]), QUIET_MS_KEY])
 
 export interface VoiceSettingsProblem {
   /** 문제가 있는 키 (설정 객체 전체의 문제면 null) */
@@ -45,6 +75,7 @@ export function checkVoiceSettings(value: unknown): VoiceSettingsProblem[] {
     if (key === 'voice.autoConfirmSec' && !(typeof setting === 'number' && Number.isSafeInteger(setting) && setting >= AUTO_CONFIRM_SEC_MIN && setting <= AUTO_CONFIRM_SEC_MAX)) {
       problems.push({ key, message: `자동 확정 기다림은 ${AUTO_CONFIRM_SEC_MIN}초부터 ${AUTO_CONFIRM_SEC_MAX}초까지의 정수로 적어 주세요` })
     }
+    if (key === QUIET_MS_KEY && !isQuietMs(setting)) problems.push({ key, message: '말이 끝났다고 볼 때까지는 1.0초부터 4.0초까지 0.1초 단위로 정해 주세요' })
   }
   return problems
 }

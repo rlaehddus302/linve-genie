@@ -273,22 +273,28 @@ function distanceFrom(jamo: readonly number[], dictionary: VarietyDictionary): (
 interface VarietyMatch {
   readonly name: string | null
   readonly exact: boolean
+  /** 그 이름을 낸 창 글 (공백 없이) — 이름이 없으면 null */
+  readonly window: string | null
 }
 
 function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDictionary): VarietyMatch {
-  const top: { similarity: Similarity | null; readonly entries: Map<string, DictionaryEntry> } = { similarity: null, entries: new Map() }
-  const consider = (similarity: Similarity, entry: DictionaryEntry): void => {
+  const top: { similarity: Similarity | null; readonly entries: Map<string, DictionaryEntry>; readonly windows: Map<string, string> } = { similarity: null, entries: new Map(), windows: new Map() }
+  const consider = (similarity: Similarity, entry: DictionaryEntry, text: string): void => {
     const order = top.similarity === null ? 1 : compareSimilarity(similarity, top.similarity)
     if (order > 0) {
       top.similarity = similarity
       top.entries.clear()
+      top.windows.clear()
     }
-    if (order >= 0) top.entries.set(entry.key, entry)
+    if (order >= 0) {
+      top.entries.set(entry.key, entry)
+      if (!top.windows.has(entry.key)) top.windows.set(entry.key, text)
+    }
   }
   // 유사도 1(공백만 다름)이 하나라도 있으면 그보다 높은 유사도는 없다 — 거리 계산을 건너뛴다
   for (const text of texts) {
     const jamo = jamoOf(text)
-    for (const entry of dictionary.byJamo.get(jamoKey(jamo)) ?? []) consider({ distance: 0, length: jamo.length }, entry)
+    for (const entry of dictionary.byJamo.get(jamoKey(jamo)) ?? []) consider({ distance: 0, length: jamo.length }, entry, text)
   }
   if (top.similarity === null) {
     for (const text of texts) {
@@ -303,16 +309,17 @@ function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDictionary):
         const limit = Math.floor(longer / 5)
         for (const entry of dictionary.byLength.get(length) ?? []) {
           const similarity = { distance: distance(entry, limit), length: longer }
-          if (isCandidate(similarity)) consider(similarity, entry)
+          if (isCandidate(similarity)) consider(similarity, entry, text)
         }
       }
     }
   }
-  if (top.similarity === null) return { name: null, exact: false }
+  if (top.similarity === null) return { name: null, exact: false, window: null }
   const entries = [...top.entries.values()]
   // 가장 높은 유사도의 이름이 여럿이면 나머지를 모두 품는(공백 뺀 글자로 부분 문자열) 이름만
   const container = entries.find((entry) => entries.every((other) => entry.key.includes(other.key)))
-  return { name: container === undefined ? null : container.name, exact: top.similarity.distance === 0 }
+  if (container === undefined) return { name: null, exact: false, window: null }
+  return { name: container.name, exact: top.similarity.distance === 0, window: top.windows.get(container.key) ?? null }
 }
 
 // ── 추출 ─────────────────────────────────────────────────────────────────
@@ -337,8 +344,26 @@ function resolveDictionary(options: unknown): VarietyDictionary {
  * - confidence: 셋이 모두 있고 품종이 사전 이름과 공백만 다르면 HIGH
  */
 export function extractVoice(text: unknown, options: ExtractOptions = {}): VoiceExtraction {
+  return { ...readSentence(text, options).extraction }
+}
+
+/** 한 문장을 R-17로 읽은 자세한 결과 (V2 정정·후보 층이 쓴다 — extractVoice 결과는 `extraction` 그대로) */
+export interface SentenceReading {
+  readonly extraction: VoiceExtraction
+  /** 품종이 사전 이름·별칭과 공백만 다른가 */
+  readonly nameExact: boolean
+  /** 품종을 낸 창 글(공백 없이) — 품종이 없으면 null */
+  readonly nameWindow: string | null
+  /** 품종 창 글 전부 (번호 표시·가격 묶음 토큰을 뺀 R-17 5의 창) */
+  readonly windows: ReadonlySet<string>
+}
+
+const EMPTY_READING: SentenceReading = Object.freeze({ extraction: EMPTY, nameExact: false, nameWindow: null, windows: Object.freeze(new Set<string>()) })
+
+/** R-17 한 문장 읽기 (extractVoice와 같은 계산, 창·정확도까지) */
+export function readSentence(text: unknown, options: ExtractOptions = {}): SentenceReading {
   const tokens = tokenize(text)
-  if (tokens === null || tokens.length === 0) return { ...EMPTY }
+  if (tokens === null || tokens.length === 0) return EMPTY_READING
   const maxNumber = resolveMaxNumber(options)
   const dictionary = resolveDictionary(options)
   const forms = tokens.map(readingForms)
@@ -353,11 +378,9 @@ export function extractVoice(text: unknown, options: ExtractOptions = {}): Voice
   const bundles = findPrice(tokens, forms, isMarker)
   const price = markers.split ? null : bundles.price
   // 가격을 비워도 묶음 토큰은 품종 창에서 뺀다 (R-17 4·5)
-  const variety = findVariety(
-    windowTexts(tokens, forms, (i) => isMarker(i) || bundles.tokens.has(i)),
-    dictionary,
-  )
+  const windows = windowTexts(tokens, forms, (i) => isMarker(i) || bundles.tokens.has(i))
+  const variety = findVariety(windows, dictionary)
 
   const confidence: Confidence = no !== null && price !== null && variety.name !== null && variety.exact ? 'HIGH' : 'LOW'
-  return { no, name: variety.name, price, confidence }
+  return { extraction: { no, name: variety.name, price, confidence }, nameExact: variety.name !== null && variety.exact, nameWindow: variety.window, windows }
 }

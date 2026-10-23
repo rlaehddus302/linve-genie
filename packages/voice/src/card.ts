@@ -34,6 +34,10 @@ export interface SuggestionCard {
   readonly autoConfirmAt: number | null
   /** 끝에서 넘긴 문장(D-I5-02)으로 만든 카드면 true — 신뢰도와 상관없이 자동 확정하지 않는다. 보통 카드에는 없다(없음 = 거짓) */
   readonly flushedAtEnd?: boolean
+  /** 품종이 사전 이름·별칭과 공백만 다른가 (V2 이어 채우기 뒤 신뢰도 다시 셈 — 없음 = 모름 → 거짓) */
+  readonly nameExact?: boolean
+  /** 칸 이름으로 말한 사전 밖 품종 — 카드에 "확인 필요" (V2, D-V2-05) */
+  readonly nameNeedsCheck?: boolean
 }
 
 /** 등록할 상품 (빠른 입력 등록과 같은 모양 — 품종이 없으면 "" = 품종 미입력) */
