@@ -74,6 +74,9 @@ async function start(settings: unknown, dialog: { open: boolean } = { open: fals
   return { voice, registered, recognition }
 }
 
+/** V2: 말이 끝나고 조용한 시간(1.8초)이 지나야 덩어리가 끝나 카드가 생긴다 — 시계만 넘기고 기대는 그대로 (AC-V2-32) */
+const quiet = () => vi.advanceTimersByTimeAsync(1_800)
+
 beforeEach(() => {
   vi.useFakeTimers({ now: T0 })
   FakeRecognition.all = []
@@ -88,6 +91,7 @@ describe('TD-I4-001 자동 확정 시각이 같은 카드 둘 — 하나만 제�
   it('한 이벤트로 온 HIGH 카드 둘(같은 밀리초): 둘 다 만든 시각 + 5초에 등록된다', async () => {
     const { registered, recognition } = await start({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5 })
     recognition.sayAll('15번 핑크프릴 만오천 원', '16번 라울 오천 원')
+    await quiet() // 조용한 시간 1.8초가 지나야 카드가 된다 (AC-V2-32, D-V2-03)
     await vi.advanceTimersByTimeAsync(4_999)
     expect(registered).toHaveLength(0)
     await vi.advanceTimersByTimeAsync(1)
@@ -98,9 +102,11 @@ describe('TD-I4-001 자동 확정 시각이 같은 카드 둘 — 하나만 제�
   it('그 뒤에 더 새 카드(자동 확정 없음)가 맨 앞이어도 두 번째 카드가 자동 등록된다 (GATE-I4-VERIFY: 그 순간에 둘 다)', async () => {
     const { voice, registered, recognition } = await start({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5 })
     recognition.sayAll('15번 핑크프릴 만오천 원', '16번 라울 오천 원')
+    await quiet() // 조용한 시간 1.8초가 지나야 카드가 된다 (AC-V2-32, D-V2-03)
     await vi.advanceTimersByTimeAsync(500)
     // 번호 없는 카드(품종·가격만 — 확인 필요, 자동 확정 없음)가 맨 앞
     recognition.sayAll('블루엘프 칠천 원')
+    await quiet() // 조용한 시간 1.8초가 지나야 카드가 된다 (AC-V2-32, D-V2-03)
     expect(voice.getSnapshot().cards).toHaveLength(3)
     await vi.advanceTimersByTimeAsync(4_499)
     expect(registered).toHaveLength(0)
@@ -115,11 +121,14 @@ describe('TD-I4-001 자동 확정 시각이 같은 카드 둘 — 하나만 제�
   it('기다리는 시간을 5초 → 3초로 바꾼 뒤의 카드가 앞 카드와 같은 시각에 끝나도 둘 다 제때 등록된다', async () => {
     const { voice, registered, recognition } = await start({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5 })
     recognition.sayAll('15번 핑크프릴 만오천 원') // T0 + 5초
+    await quiet() // 조용한 시간 1.8초가 지나야 카드가 된다 (AC-V2-32, D-V2-03)
     await vi.advanceTimersByTimeAsync(2_000)
     voice.setSeconds('3')
     recognition.sayAll('16번 라울 오천 원') // T0 + 2초 + 3초 = T0 + 5초
+    await quiet() // 조용한 시간 1.8초가 지나야 카드가 된다 (AC-V2-32, D-V2-03)
     await vi.advanceTimersByTimeAsync(500)
     recognition.sayAll('블루엘프 칠천 원') // 맨 앞(자동 확정 없음)
+    await quiet() // 조용한 시간 1.8초가 지나야 카드가 된다 (AC-V2-32, D-V2-03)
     await vi.advanceTimersByTimeAsync(2_500)
     expect(registered.map((item) => item.registration.no).sort()).toEqual([15, 16])
   })
@@ -128,10 +137,13 @@ describe('TD-I4-001 자동 확정 시각이 같은 카드 둘 — 하나만 제�
     const dialog = { open: false }
     const { voice, registered, recognition } = await start({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5 }, dialog)
     recognition.sayAll('15번 핑크프릴 만오천 원') // T0 + 5초
+    await quiet() // 조용한 시간 1.8초가 지나야 카드가 된다 (AC-V2-32, D-V2-03)
     await vi.advanceTimersByTimeAsync(500)
     recognition.sayAll('16번 라울 오천 원') // T0 + 5.5초
+    await quiet() // 조용한 시간 1.8초가 지나야 카드가 된다 (AC-V2-32, D-V2-03)
     await vi.advanceTimersByTimeAsync(500)
     recognition.sayAll('블루엘프 칠천 원') // 맨 앞(자동 확정 없음)
+    await quiet() // 조용한 시간 1.8초가 지나야 카드가 된다 (AC-V2-32, D-V2-03)
     dialog.open = true
     await vi.advanceTimersByTimeAsync(7_000) // T0 + 8초: 둘 다 기다림이 지났다
     expect(registered).toHaveLength(0)
@@ -148,6 +160,7 @@ describe('TD-I4-001 회귀 — 함께 끝난 카드를 모두 등록하는 고�
       products: () => new Map([[16, false]]),
     })
     recognition.sayAll('15번 핑크프릴 만오천 원', '16번 라울 오천 원', '17번 블루엘프 칠천 원')
+    await quiet() // 조용한 시간 1.8초가 지나야 카드가 된다 (AC-V2-32, D-V2-03)
     await vi.advanceTimersByTimeAsync(5_000)
     expect(registered.map((item) => item.registration.no).sort()).toEqual([15, 17])
     const snapshot = voice.getSnapshot()
@@ -166,6 +179,7 @@ describe('TD-I4-001 회귀 — 함께 끝난 카드를 모두 등록하는 고�
       },
     })
     recognition.sayAll('15번 핑크프릴 만오천 원', '16번 라울 오천 원')
+    await quiet() // 조용한 시간 1.8초가 지나야 카드가 된다 (AC-V2-32, D-V2-03)
     await vi.advanceTimersByTimeAsync(5_000)
     expect(registered).toHaveLength(1)
     await vi.advanceTimersByTimeAsync(3_000)
@@ -185,6 +199,7 @@ describe('TD-I4-001 회귀 — 함께 끝난 카드를 모두 등록하는 고�
       },
     })
     recognition.sayAll('15번 핑크프릴 만오천 원', '16번 라울 오천 원')
+    await quiet() // 조용한 시간 1.8초가 지나야 카드가 된다 (AC-V2-32, D-V2-03)
     await vi.advanceTimersByTimeAsync(5_000)
     expect(registered.map((item) => item.registration.no).sort()).toEqual([15, 16])
     await vi.advanceTimersByTimeAsync(30_000)
@@ -200,6 +215,7 @@ describe('TD-I4-001 회귀 — 함께 끝난 카드를 모두 등록하는 고�
       maxNumber: () => max,
     })
     recognition.sayAll('15번 핑크프릴 만오천 원', '120번 라울 오천 원')
+    await quiet() // 조용한 시간 1.8초가 지나야 카드가 된다 (AC-V2-32, D-V2-03)
     max = 50
     await vi.advanceTimersByTimeAsync(5_000)
     expect(registered.map((item) => item.registration.no)).toEqual([15])
