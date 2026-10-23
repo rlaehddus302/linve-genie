@@ -58,6 +58,8 @@ export const ALL_CHECKED_HINT = '모두 담으면 포장 완료를 누를 수 �
 export const PACKED_NOTICE = '포장 완료로 적었어요.'
 export const NO_LABEL_ITEMS = '담을 상품이 없어 포장 라벨을 만들 수 없어요.'
 export const LABEL_LOADING = '포장 라벨을 만드는 중이에요…'
+/** 봉인한 날짜의 체크리스트 위 안내 — 늘 보이는 문장 (D-PL1-04, AC-PL1A-18) */
+export const SEALED_VIEW_ONLY = '30일이 지나 봉인한 날짜예요. 볼 수만 있어요.'
 export const ITEMS_CHANGED_RESULT = '그 사이 구매 내역이 바뀌어 포장 완료로 적지 않았어요. 바뀐 품목을 담고 다시 눌러 주세요.'
 
 // ── 날짜 고르기 (실제 범위만) ────────────────────────────────────────────
@@ -188,6 +190,7 @@ function ReadyPacking({ route, navigate, store, snapshot, data }: ReadyProps) {
         key={selected.buyer}
         date={data.date}
         entry={selected}
+        sealed={packing.sealed}
         name={nameOf(selected)}
         labelSignature={`${packingLabelSignature(data, selected.buyer)}|${String(snapshot.shopVersion)}`}
         showBack={!wide}
@@ -314,6 +317,8 @@ function PackOption({ item }: { readonly item: PackingItem }) {
 interface ChecklistProps {
   readonly date: string
   readonly entry: PackingEntry
+  /** 30일이 지나 봉인한 날짜 — 볼 수만 있다: 체크 칸·담음 수·포장/배송 버튼·취소·송장 칸·택배 잠금 안내를 그리지 않는다 (D-PL1-04, AC-PL1A-18. 서버도 409 SEALED) */
+  readonly sealed: boolean
   readonly name: string
   /** 포장 라벨에 찍히는 값(L-9)과 가게 이름의 모양 — 바뀌면 라벨 그림을 새로 받는다 */
   readonly labelSignature: string
@@ -377,7 +382,7 @@ function usePackingCommand(date: string, buyer: string, onSent: (entry: PackingE
   return { busy, error, send, clearError: () => setError(null) }
 }
 
-function PackingChecklist({ date, entry, name, labelSignature, showBack, onBack, onSent, next, onNext, onParcels }: ChecklistProps) {
+function PackingChecklist({ date, entry, sealed, name, labelSignature, showBack, onBack, onSent, next, onNext, onParcels }: ChecklistProps) {
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set())
   /** 비교 기준: 연 때의 품목(포장·포장 취소가 저장되면 그때의 품목) */
   const [base, setBase] = useState<readonly PackingItem[]>(entry.items)
@@ -471,6 +476,12 @@ function PackingChecklist({ date, entry, name, labelSignature, showBack, onBack,
         {entry.parcel != null ? <ParcelLine parcel={entry.parcel} /> : null}
       </header>
 
+      {sealed ? (
+        <p className="notice" data-tone="info">
+          {SEALED_VIEW_ONLY}
+        </p>
+      ) : null}
+
       {changed ? (
         <p className="notice" role="status" data-tone="warning">
           {changeNotice(change, multi, entry.status === '배송 뒤 바뀜')}
@@ -485,78 +496,89 @@ function PackingChecklist({ date, entry, name, labelSignature, showBack, onBack,
             <ul className="plain-list stack-tight">
               {group.items.map((item) => (
                 <li key={itemIdentity(item)}>
-                  <label className="pack-item">
-                    <input type="checkbox" checked={checked.has(itemIdentity(item))} onChange={() => toggle(itemIdentity(item))} />
-                    <span className="pack-no">{String(item.no)}번</span> <span className="pack-name">{item.name.trim() === '' ? '품종 미입력' : item.name}</span>
-                    <PackOption item={item} />
-                  </label>
+                  {sealed ? (
+                    <div className="pack-item">
+                      <span className="pack-no">{String(item.no)}번</span> <span className="pack-name">{item.name.trim() === '' ? '품종 미입력' : item.name}</span>
+                      <PackOption item={item} />
+                    </div>
+                  ) : (
+                    <label className="pack-item">
+                      <input type="checkbox" checked={checked.has(itemIdentity(item))} onChange={() => toggle(itemIdentity(item))} />
+                      <span className="pack-no">{String(item.no)}번</span> <span className="pack-name">{item.name.trim() === '' ? '품종 미입력' : item.name}</span>
+                      <PackOption item={item} />
+                    </label>
+                  )}
                 </li>
               ))}
             </ul>
           </div>
         ))}
       </div>
-      {entry.items.length > 0 && !(parcelLocked && !canPack) ? (
-        <p className="pack-count" aria-live="polite">
-          {String(done)}/{String(entry.items.length)} 담음
-        </p>
-      ) : null}
+      {sealed ? null : (
+        <>
+          {entry.items.length > 0 && !(parcelLocked && !canPack) ? (
+            <p className="pack-count" aria-live="polite">
+              {String(done)}/{String(entry.items.length)} 담음
+            </p>
+          ) : null}
 
-      {/* 결과는 버튼 줄 바로 위 — 휴대폰에서 맨 아래 버튼을 누른 자리에서 보인다 (UX-I2-001) */}
-      {sent !== null ? (
-        <div ref={result} tabIndex={-1} className="notice packing-result" role="status" data-tone="success">
-          {sent.text}
-        </div>
-      ) : null}
-      {showError && command.error !== null ? <RequestError error={command.error} omitFields={['invoice']} /> : null}
-      {itemsChangedResult ? (
-        <p className="notice packing-result" role="status" data-tone="warning">
-          {ITEMS_CHANGED_RESULT}
-        </p>
-      ) : null}
+          {/* 결과는 버튼 줄 바로 위 — 휴대폰에서 맨 아래 버튼을 누른 자리에서 보인다 (UX-I2-001) */}
+          {sent !== null ? (
+            <div ref={result} tabIndex={-1} className="notice packing-result" role="status" data-tone="success">
+              {sent.text}
+            </div>
+          ) : null}
+          {showError && command.error !== null ? <RequestError error={command.error} omitFields={['invoice']} /> : null}
+          {itemsChangedResult ? (
+            <p className="notice packing-result" role="status" data-tone="warning">
+              {ITEMS_CHANGED_RESULT}
+            </p>
+          ) : null}
 
-      <div className="row" role="group" aria-label="포장·배송">
-        {nextBuyerId !== null ? (
-          <button ref={nextButton} type="button" className={nextFirst ? 'button button-primary' : 'button'} onClick={() => onNext(nextBuyerId)}>
-            다음 구매자
-          </button>
-        ) : null}
-        {canPack ? (
-          <button type="button" className="button button-primary" disabled={!allChecked || command.busy} onClick={pack}>
-            포장 완료
-          </button>
-        ) : null}
-        {entry.status === '포장 완료' && !parcelLocked ? (
-          <button type="button" className={nextFirst ? 'button' : 'button button-primary'} disabled={command.busy} onClick={() => setAsk('ship')}>
-            배송 완료로 적기
-          </button>
-        ) : null}
-        {entry.status === '배송 완료' && !parcelLocked ? (
-          <button type="button" className="button" disabled={command.busy} onClick={() => setAsk('fixInvoice')}>
-            송장번호 고치기
-          </button>
-        ) : null}
-        {(entry.status === '포장 완료' || entry.status === '포장 다시 확인') && !parcelLocked ? (
-          <button type="button" className="button" disabled={command.busy} onClick={() => setAsk('unpack')}>
-            포장 완료 취소
-          </button>
-        ) : null}
-        {(entry.status === '배송 완료' || entry.status === '배송 뒤 바뀜') && !parcelLocked ? (
-          <button type="button" className="button" disabled={command.busy} onClick={() => setAsk('unship')}>
-            배송 완료 취소
-          </button>
-        ) : null}
-        {command.busy ? <span role="status">보내는 중…</span> : null}
-      </div>
-      {canPack && !allChecked && entry.items.length > 0 ? <p className="hint">{ALL_CHECKED_HINT}</p> : null}
-      {parcelLocked ? (
-        <p className="notice" role="note">
-          {entry.parcel?.state === 'BOOKED' ? PACKING_LOCKED_BOOKED : PACKING_LOCKED_WAITING}{' '}
-          <a className="text-link" href={routePath({ name: 'parcels', date })} onClick={(event) => linkClick(event, onParcels)}>
-            택배 화면으로
-          </a>
-        </p>
-      ) : null}
+          <div className="row" role="group" aria-label="포장·배송">
+            {nextBuyerId !== null ? (
+              <button ref={nextButton} type="button" className={nextFirst ? 'button button-primary' : 'button'} onClick={() => onNext(nextBuyerId)}>
+                다음 구매자
+              </button>
+            ) : null}
+            {canPack ? (
+              <button type="button" className="button button-primary" disabled={!allChecked || command.busy} onClick={pack}>
+                포장 완료
+              </button>
+            ) : null}
+            {entry.status === '포장 완료' && !parcelLocked ? (
+              <button type="button" className={nextFirst ? 'button' : 'button button-primary'} disabled={command.busy} onClick={() => setAsk('ship')}>
+                배송 완료로 적기
+              </button>
+            ) : null}
+            {entry.status === '배송 완료' && !parcelLocked ? (
+              <button type="button" className="button" disabled={command.busy} onClick={() => setAsk('fixInvoice')}>
+                송장번호 고치기
+              </button>
+            ) : null}
+            {(entry.status === '포장 완료' || entry.status === '포장 다시 확인') && !parcelLocked ? (
+              <button type="button" className="button" disabled={command.busy} onClick={() => setAsk('unpack')}>
+                포장 완료 취소
+              </button>
+            ) : null}
+            {(entry.status === '배송 완료' || entry.status === '배송 뒤 바뀜') && !parcelLocked ? (
+              <button type="button" className="button" disabled={command.busy} onClick={() => setAsk('unship')}>
+                배송 완료 취소
+              </button>
+            ) : null}
+            {command.busy ? <span role="status">보내는 중…</span> : null}
+          </div>
+          {canPack && !allChecked && entry.items.length > 0 ? <p className="hint">{ALL_CHECKED_HINT}</p> : null}
+          {parcelLocked ? (
+            <p className="notice" role="note">
+              {entry.parcel?.state === 'BOOKED' ? PACKING_LOCKED_BOOKED : PACKING_LOCKED_WAITING}{' '}
+              <a className="text-link" href={routePath({ name: 'parcels', date })} onClick={(event) => linkClick(event, onParcels)}>
+                택배 화면으로
+              </a>
+            </p>
+          ) : null}
+        </>
+      )}
 
       <PackingLabelSection date={date} buyer={entry.buyer} empty={entry.items.length === 0} signature={labelSignature} />
 

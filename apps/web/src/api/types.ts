@@ -359,6 +359,8 @@ export interface PackingList {
   readonly date: string
   readonly seq: number
   readonly entries: readonly PackingEntry[]
+  /** 30일이 지나 봉인한 날짜에만 `true` — 봉인 안 한 날짜엔 칸이 없다 (D-PL1-04, AC-PL1A-18) */
+  readonly sealed?: true
 }
 
 export type PackingAction = 'pack' | 'unpack' | 'ship' | 'unship'
