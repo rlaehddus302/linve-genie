@@ -78,7 +78,8 @@ test.describe('I4 음성 켜기·끄기', () => {
     const dlg = page.getByRole('dialog', { name: '음성으로 상품 등록' })
     await expect(dlg).toBeVisible()
     await expect(dlg).toContainText('말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.')
-    await expect(dlg).toContainText('음성은 인식을 위해 구글 음성 인식 서버로 보내져요. 라이브찜은 음성을 녹음하거나 저장하지 않아요.')
+    // D-I5-06: 외부 전송 문장 교체 (I5)
+    await expect(dlg).toContainText('음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브찜은 음성을 녹음하거나 저장하지 않아요.')
     await expect(dlg).toContainText('다음에 크롬이 마이크 사용을 물으면 "허용"을 눌러 주세요.')
     await expect(dlg.getByRole('button', { name: '닫기' })).toBeFocused()
     // 창이 열린 동안 "음성 켜기"는 창 안의 하나뿐
@@ -102,7 +103,8 @@ test.describe('I4 음성 켜기·끄기', () => {
     expect(counts.instances).toBe(1)
     expect(counts.starts).toBe(1)
     expect(counts.last).toEqual({ lang: 'ko-KR', continuous: true, interimResults: true })
-    await expect(voiceRegion(page)).toContainText('음성은 인식을 위해 구글로 보내져요.')
+    // D-I5-06: 켜진 동안 고지 문장 교체 (I5)
+    await expect(voiceRegion(page)).toContainText('음성은 인식을 위해 크롬은 구글로, 아이폰은 애플로 보내져요.')
     await expect(page.getByLabel('빠른 입력')).toBeFocused()
 
     // 끄고 다시 켜면 창 없이
@@ -139,7 +141,8 @@ test.describe('I4 음성 켜기·끄기', () => {
     await login(page)
     await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
     await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
-    await expect(page.getByRole('alert').filter({ hasText: '이 브라우저는 음성 인식을 지원하지 않아요. 크롬에서 열어 주세요.' })).toBeVisible()
+    // D-I5-03: 지원 안 함 문장 교체 (I5)
+    await expect(page.getByRole('alert').filter({ hasText: '이 기기에서는 음성이 어려워요. PC 크롬이나 안드로이드 크롬에서 켜 주세요. 상품은 빠른 입력으로 그대로 등록할 수 있어요.' })).toBeVisible()
     await expect(page.getByRole('dialog', { name: '음성으로 상품 등록' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: '음성 끄기' })).toHaveCount(0)
@@ -151,7 +154,8 @@ test.describe('I4 음성 켜기·끄기', () => {
     await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
     await turnOnVoice(page)
     await speechError(page, 'not-allowed')
-    await expect(page.getByRole('alert').filter({ hasText: '마이크 사용이 막혀 있어요. 주소창 왼쪽 자물쇠에서 마이크를 허용해 주세요.' })).toBeVisible()
+    // D-I5-03: 권한 거부 문장 교체 (I5)
+    await expect(page.getByRole('alert').filter({ hasText: '마이크 사용이 막혀 있어요. PC·안드로이드 크롬은 주소창 왼쪽 자물쇠에서, 아이폰은 설정 > 사파리 > 마이크에서 허용해 주세요.' })).toBeVisible()
     await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
     expect((await speechCounts(page)).starts).toBe(1)
 
@@ -165,7 +169,8 @@ test.describe('I4 음성 켜기·끄기', () => {
 
     await turnOnVoice(page)
     await speechError(page, 'service-not-allowed')
-    await expect(page.getByRole('alert').filter({ hasText: '마이크 사용이 막혀 있어요.' })).toBeVisible()
+    // D-I5-03: 처음 켤 때의 service-not-allowed는 SERVICE_OFF 문장 (I5)
+    await expect(page.getByRole('alert').filter({ hasText: '이 기기에서 음성 인식이 꺼져 있어요. 아이폰은 설정에서 Siri와 받아쓰기를 켜 주세요. 그래도 안 되면 PC 크롬이나 안드로이드에서 켜 주세요.' })).toBeVisible()
     expect((await speechCounts(page)).starts).toBe(3)
   })
 
@@ -182,7 +187,8 @@ test.describe('I4 음성 켜기·끄기', () => {
     expect((await speechCounts(page)).starts).toBe(6)
     await expect(page.getByRole('button', { name: '음성 끄기' })).toBeVisible()
     await speechEnd(page)
-    await expect(page.getByRole('alert').filter({ hasText: '음성 인식이 자꾸 끊겨요. 마이크를 확인하고 다시 켜 주세요.' })).toBeVisible()
+    // D-I5-03: 끊김 문장 교체 (I5)
+    await expect(page.getByRole('alert').filter({ hasText: '음성 인식이 자꾸 끊겨요. 마이크를 확인하고 다시 켜 주세요. 계속 끊기면 PC 크롬이나 안드로이드에서 켜 주세요.' })).toBeVisible()
     await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
     expect((await speechCounts(page)).starts).toBe(6)
     // 다시 켤 수 있다
