@@ -79,7 +79,7 @@ test.describe('I4 음성 켜기·끄기', () => {
     await expect(dlg).toBeVisible()
     await expect(dlg).toContainText('말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.')
     // D-I5-06: 외부 전송 문장 교체 (I5)
-    await expect(dlg).toContainText('음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브찜은 음성을 녹음하거나 저장하지 않아요.')
+    await expect(dlg).toContainText('음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브지니는 음성을 녹음하거나 저장하지 않아요.')
     // D-I5-11: 마이크 줄 "크롬이" → "브라우저가" (I5)
     await expect(dlg).toContainText('다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.')
     await expect(page.getByText('크롬이 마이크 사용을 물으면')).toHaveCount(0)

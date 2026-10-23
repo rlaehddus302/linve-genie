@@ -289,7 +289,7 @@ test.describe('@youtube 콘솔 잇기·수집', () => {
     await expect(yt.getByRole('button', { name: '내 라이브 목록에서 고르기' })).toBeVisible()
   })
 
-  test('AC-I3-27: 시청자 알림 — 지운 메시지(주문이었던 메시지)·유튜브 차단(라이브찜에서도 차단 → 차단 창)', async ({ page }) => {
+  test('AC-I3-27: 시청자 알림 — 지운 메시지(주문이었던 메시지)·유튜브 차단(라이브지니에서도 차단 → 차단 창)', async ({ page }) => {
     const { live } = await linkedConsole(page, { consent: false })
     await register(page, '15 핑크프릴 10', 15)
     const msg = await fakeChat(page.request, live.liveChatId, 'UCdel', '지운사람', '15')
@@ -302,7 +302,7 @@ test.describe('@youtube 콘솔 잇기·수집', () => {
     await expect(boardItem(page, 15)).toContainText('지운사람')
     await fake(page.request, '/_fake/ban', { liveChatId: live.liveChatId, channelId: 'UCdel', name: '지운사람' })
     await expect(notices).toContainText('시청자 알림 2')
-    await notices.getByRole('button', { name: '라이브찜에서도 차단' }).click()
+    await notices.getByRole('button', { name: '라이브지니에서도 차단' }).click()
     await expect(page.getByRole('dialog')).toBeVisible()
   })
 })

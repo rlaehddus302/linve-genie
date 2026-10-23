@@ -100,7 +100,7 @@ test.describe('설정 화면 (AC-I2-02·65)', () => {
       }
       // 전체 기록 내려받기 — 이름
       const [json] = await Promise.all([phone.waitForEvent('download'), phone.getByRole('button', { name: '전체 기록(JSON)' }).click()])
-      expect(json.suggestedFilename()).toMatch(/^라이브찜-전체기록-\d{4}-\d{2}-\d{2}\.json\.gz$/)
+      expect(json.suggestedFilename()).toMatch(/^라이브지니-전체기록-\d{4}-\d{2}-\d{2}\.json\.gz$/)
     } finally {
       await resetShop(page)
       await phone.context().close()
