@@ -41,12 +41,13 @@ import { openClaimAction } from './actions.ts'
 import { useConsoleApi } from './console-context.ts'
 import { Modal } from './Modal.tsx'
 import { smsLast4Suffix, smsResultWords, useSentToReview, useSmsClaim } from './SmsPage.tsx'
+import { SERVICE_NAME } from '../brand.ts'
 
 /** 안내 창 문장 (D-I4-04, AC-I4-11 — 외부 전송 문장은 D-I5-06, 마이크 줄은 D-I5-11로 바꿈) */
 export const CONSENT_TITLE = '음성으로 상품 등록'
 export const CONSENT_LINES: readonly string[] = [
   '말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.',
-  '음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브찜은 음성을 녹음하거나 저장하지 않아요.',
+  `음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. ${SERVICE_NAME}는 음성을 녹음하거나 저장하지 않아요.`,
   // D-I5-11: 크롬·사파리 모두에 맞게 "브라우저가"
   '다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.',
 ]

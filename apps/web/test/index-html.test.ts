@@ -13,11 +13,11 @@ describe('index.html', () => {
     expect(page.documentElement.getAttribute('lang')).toBe('ko')
   })
 
-  it('제목이 "라이브찜" 하나다', () => {
+  it('제목이 "라이브지니" 하나다', () => {
     const titles = page.querySelectorAll('title')
     expect(titles).toHaveLength(1)
-    expect(titles[0]?.textContent).toBe('라이브찜')
-    expect(indexHtml).toContain('<title>라이브찜</title>')
+    expect(titles[0]?.textContent).toBe('라이브지니')
+    expect(indexHtml).toContain('<title>라이브지니</title>')
   })
 
   it('휴대폰 폭에 맞추는 viewport 설정이 있다', () => {

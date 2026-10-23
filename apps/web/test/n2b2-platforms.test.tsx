@@ -30,10 +30,10 @@ import { parseRoute, routePath, type Navigate } from '../src/lib/router.ts'
 import { DATE, FakeEventSource, FakeServer, apiError, broadcastItem, broadcastView, connection, emptyChanges, flush, fullView, message, type Reply } from './support.ts'
 
 const NOTICE_LINES = [
-  '틱톡은 라이브 댓글을 읽는 공식 방법을 주지 않아요. 라이브찜은 누구나 볼 수 있는 내 라이브의 댓글을 비공식 방법으로 읽어요.',
+  '틱톡은 라이브 댓글을 읽는 공식 방법을 주지 않아요. 라이브지니는 누구나 볼 수 있는 내 라이브의 댓글을 비공식 방법으로 읽어요.',
   '틱톡이 이 방법을 막거나 바꾸면 언제든 댓글이 들어오지 않을 수 있어요. 그때는 댓글을 직접 붙여 넣어 주세요.',
   '틱톡 이용약관은 자동으로 정보를 모으는 것을 막고 있을 수 있어요. 시험 중인 기능이라 문제가 생기면 운영자가 언제든 끌 수 있어요.',
-  '라이브찜은 틱톡에 글을 올리지 않아요. 감사 메시지도 틱톡에는 보내지 않아요.',
+  '라이브지니는 틱톡에 글을 올리지 않아요. 감사 메시지도 틱톡에는 보내지 않아요.',
   '틱톡 비밀번호나 로그인 정보는 묻지도 받지도 않아요.',
   '내 틱톡 계정의 아이디만 넣어 주세요. 다른 사람의 방송 댓글을 모으는 데 쓰면 안 돼요.',
   '연결을 돕는 다른 회사의 서비스를 거치기 때문에, 넣은 틱톡 아이디가 그 회사로 전달돼요.',

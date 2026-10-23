@@ -40,6 +40,7 @@ import { useConsoleApi } from './console-context.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { Modal } from './Modal.tsx'
 import type { ConnectionState } from './YoutubeConnection.tsx'
+import { SERVICE_NAME } from '../brand.ts'
 
 /** 사용량 모드 알림을 보이는 시간 */
 const TOAST_MS = 10_000
@@ -793,7 +794,7 @@ function ViewerNotices({ sealed }: { readonly sealed: boolean }) {
                   ) : (
                     <div className="row">
                       <button type="button" className="button" disabled={sealed} onClick={() => openBlockAction(api, notice.channel, true)}>
-                        라이브찜에서도 차단
+                        {SERVICE_NAME}에서도 차단
                       </button>
                     </div>
                   )

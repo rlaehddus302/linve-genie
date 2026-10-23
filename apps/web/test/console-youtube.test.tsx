@@ -475,11 +475,11 @@ describe('사용량·시청자 알림 (AC-I3-27·38)', () => {
     expect(screen.getByText('유튜브 사용량이 다시 채워져 감사 메시지를 바로 보내요.')).toBeDefined()
   })
 
-  it('시청자 알림 n: 시각·이름(글자로)·서버 문장·주문이었던·취소였던, 차단이면 "라이브찜에서도 차단" → 차단 창, 이미 차단했으면 "차단함"', async () => {
+  it('시청자 알림 n: 시각·이름(글자로)·서버 문장·주문이었던·취소였던, 차단이면 "라이브지니에서도 차단" → 차단 창, 이미 차단했으면 "차단함"', async () => {
     link = linked()
     notices = [
       { id: 1, kind: 'DELETED', broadcast: 'b1', messageId: 'm1', channel: 'UC_A', nick: '<script>홍</script>', wasOrder: true, wasCancel: false, banType: null, banSeconds: null, at: '2026-10-19T11:31:05.000Z', message: '시청자가 메시지를 지웠어요. 그 메시지로 생긴 찜은 그대로예요.' },
-      { id: 2, kind: 'BANNED', broadcast: 'b1', messageId: null, channel: 'UC_BAD', nick: '나쁜시청자', wasOrder: false, wasCancel: true, banType: 'PERMANENT', banSeconds: null, at: '2026-10-19T11:32:00.000Z', message: '유튜브에서 차단된 시청자예요. 라이브찜에서도 막으려면 차단해 주세요.' },
+      { id: 2, kind: 'BANNED', broadcast: 'b1', messageId: null, channel: 'UC_BAD', nick: '나쁜시청자', wasOrder: false, wasCancel: true, banType: 'PERMANENT', banSeconds: null, at: '2026-10-19T11:32:00.000Z', message: '유튜브에서 차단된 시청자예요. 라이브지니에서도 막으려면 차단해 주세요.' },
     ]
     await openConsole()
     const box = within(panel()).getByRole('region', { name: '시청자 알림' })
@@ -493,12 +493,12 @@ describe('사용량·시청자 알림 (AC-I3-27·38)', () => {
       FakeEventSource.last.emit('youtube', {
         kind: 'notice',
         date: DATE,
-        notice: { id: 3, kind: 'BANNED', broadcast: 'b1', messageId: null, channel: 'UC_OLD', nick: '옛시청자', wasOrder: false, wasCancel: false, banType: 'TEMPORARY', banSeconds: 300, at: '2026-10-19T11:33:00.000Z', message: '유튜브에서 차단된 시청자예요. 라이브찜에서도 막으려면 차단해 주세요.' },
+        notice: { id: 3, kind: 'BANNED', broadcast: 'b1', messageId: null, channel: 'UC_OLD', nick: '옛시청자', wasOrder: false, wasCancel: false, banType: 'TEMPORARY', banSeconds: 300, at: '2026-10-19T11:33:00.000Z', message: '유튜브에서 차단된 시청자예요. 라이브지니에서도 막으려면 차단해 주세요.' },
       }),
     )
     expect(within(box).getByRole('heading', { name: '시청자 알림 3' })).toBeDefined()
     expect(within(box).getByText('차단함')).toBeDefined()
-    fireEvent.click(within(box).getByRole('button', { name: '라이브찜에서도 차단' }))
+    fireEvent.click(within(box).getByRole('button', { name: '라이브지니에서도 차단' }))
     expect(screen.getByRole('dialog', { name: '나쁜시청자 차단' })).toBeDefined()
   })
 

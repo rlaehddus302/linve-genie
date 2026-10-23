@@ -7,6 +7,8 @@
 // - 새 버전은 기다렸다가 다음에 열 때 바뀐다(skipWaiting은 화면이 "지금 새로고침"으로 보낸 SKIP_WAITING 메시지에만). clients.claim()을 하지 않는다.
 // serviceWorkerMain은 브라우저 서비스 워커 안에서 그 글자 그대로 돈다 — 바깥 이름을 쓰지 않는다(함수 안에서 모두 정한다).
 
+import { SERVICE_NAME } from '../src/brand.ts'
+
 export interface ShellManifest {
   /** 빌드 내용의 해시 (바뀌면 sw.js 글자가 바뀌어 브라우저가 새 버전을 받는다) */
   readonly version: string
@@ -99,7 +101,7 @@ export function serviceWorkerMain(scope: SwScope, shell: ShellManifest): void {
 /** /sw.js 글자 */
 export function serviceWorkerSource(shell: ShellManifest): string {
   return [
-    '// 라이브찜 서비스 워커 — 빌드할 때 만든다(apps/web/pwa/service-worker.ts). 앱 껍데기만 저장하고 /api/·/r/는 가로채지 않는다(D-093, AC-N4b-25).',
+    `// ${SERVICE_NAME} 서비스 워커 — 빌드할 때 만든다(apps/web/pwa/service-worker.ts). 앱 껍데기만 저장하고 /api/·/r/는 가로채지 않는다(D-093, AC-N4b-25).`,
     `(${serviceWorkerMain.toString()})(self, ${JSON.stringify({ version: shell.version, files: [...shell.files] })});`,
     '',
   ].join('\n')

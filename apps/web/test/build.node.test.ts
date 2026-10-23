@@ -102,7 +102,7 @@ describe('vite build', () => {
   it('빌드한 index.html도 한국어 문서이고 제목·viewport를 지킨다', () => {
     const html = read('index.html')
     expect(html).toMatch(/<html lang="ko">/)
-    expect(html).toContain('<title>라이브찜</title>')
+    expect(html).toContain('<title>라이브지니</title>')
     expect(html).toContain('<meta name="viewport" content="width=device-width, initial-scale=1" />')
   })
 
@@ -119,7 +119,7 @@ describe('vite build', () => {
 
   it('PWA (AC-S06-50·51): 매니페스트·아이콘 크기, /sw.js가 그 빌드의 앱 껍데기만 저장하고 /api/는 없다', () => {
     const manifest = JSON.parse(read('manifest.webmanifest')) as Record<string, unknown> & { icons: { src: string; sizes: string; type: string; purpose: string }[] }
-    expect(manifest).toMatchObject({ name: '라이브찜', short_name: '라이브찜', lang: 'ko', start_url: '/', scope: '/', display: 'standalone' })
+    expect(manifest).toMatchObject({ name: '라이브지니', short_name: '라이브지니', lang: 'ko', start_url: '/', scope: '/', display: 'standalone' })
     expect(typeof manifest['background_color']).toBe('string')
     expect(typeof manifest['theme_color']).toBe('string')
     const icons = manifest.icons.map((icon) => `${icon.sizes} ${icon.purpose} ${icon.type}`).sort()
