@@ -233,7 +233,8 @@ test.describe('V1 정산 안내', () => {
 test.describe('V1 개인정보', () => {
   test('AC-V1-30·31: 쓰기 본문은 정한 칸뿐(음성은 voice: true, 손 입력엔 없음), 인식 문장은 요청·주소·저장소에 없음, 카드 글은 글자로만', async ({ page }) => {
     const title = `V1 개인정보 ${crypto.randomUUID().slice(0, 8)}`
-    const { b } = await setupLive(page, { title })
+    // 전용 새 판매자 — 아래 /sms가 "콘솔에서 연 방송"을 그대로 고르는지 보므로, 공용 계정의 마지막 방송을 병렬 시험이 바꾸지 못하게
+    const { b } = await setupLive(page, { title, newSeller: true })
     for (const no of [165, 166, 167]) await registerApi(page, b, no, '핑크프릴', 10000)
     await expect(boardItem(page, 166)).toBeVisible()
     const requests = recordRequests(page)

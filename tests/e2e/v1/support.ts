@@ -1,6 +1,7 @@
 // V1 E2E 공용 도우미 (test-e2e): 음성 문자찜. I4 가짜 음성 인식 계약 그대로(addInitScript로 SpeechRecognition 바꾸기).
 // 선택자·문장은 harness/sprints/V1/acceptance.md AC-V1-20~30과 dev-notes "test-e2e가 잡을 이름".
 import { expect, type BrowserContext, type Page } from '@playwright/test'
+import { loginNewSeller } from '../i3/support.ts'
 import { installFakeSpeech, login, openNewBroadcast, turnOnVoice, uniqueDate, type FakeSpeechOptions } from '../i4/support.ts'
 
 export * from '../i4/support.ts'
@@ -75,11 +76,15 @@ export async function setupPaused(page: Page, opts: { rehearsal?: boolean; smsSe
   return { b, date, now }
 }
 
-/** 기다림 없이 (시계를 멈추지 않고) 음성까지 */
-export async function setupLive(page: Page, opts: { rehearsal?: boolean; smsSettings?: unknown; date?: string; width?: number; height?: number; title?: string } = {}): Promise<{ b: string; date: string }> {
+/**
+ * 기다림 없이 (시계를 멈추지 않고) 음성까지.
+ * newSeller: 공용 판매자 대신 이 시험만의 새 판매자로 — "마지막으로 연 방송"처럼 계정에 묶인 상태를 볼 때(병렬 시험이 바꾸지 못하게)
+ */
+export async function setupLive(page: Page, opts: { rehearsal?: boolean; smsSettings?: unknown; date?: string; width?: number; height?: number; title?: string; newSeller?: boolean } = {}): Promise<{ b: string; date: string }> {
   await installSmsSpeech(page, opts.smsSettings === undefined ? {} : { smsSettings: opts.smsSettings })
   await page.setViewportSize({ width: opts.width ?? 1440, height: opts.height ?? 900 })
-  await login(page)
+  if (opts.newSeller === true) await loginNewSeller(page)
+  else await login(page)
   const date = opts.date ?? uniqueDate()
   const b = await openNewBroadcast(page, { date, rehearsal: opts.rehearsal ?? false, ...(opts.title === undefined ? {} : { title: opts.title }) })
   await turnOnVoice(page)
