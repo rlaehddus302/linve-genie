@@ -117,6 +117,9 @@ export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertN
   const onConvert = useCallback((id: string) => openDialog({ kind: 'convert', messageId: id }), [openDialog])
   const products = useMemo(() => [...data.products.values()].filter((product) => product.broadcast === api.b), [data.products, api.b])
   const looks = useMemo(() => new Map(messages.map((message) => [message.id, optionLook(message, products)])), [messages, products])
+  // 눌러서 "찜으로 바꾸기"를 펼친 잡담 줄 — 한 번에 한 줄, 다시 누르면 접힘 (AC-UX2-03, D-UX2-01)
+  const [openId, setOpenId] = useState<string | null>(null)
+  const onToggle = useCallback((id: string) => setOpenId((current) => (current === id ? null : id)), [])
 
   const toBottom = () => {
     const element = list.current
@@ -146,6 +149,9 @@ export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertN
               })
               .filter((word) => word !== '')
               .join('|')}
+            already={alreadyText(message, looks.get(message.id) ?? null, data.claims)}
+            open={openId === message.id}
+            onToggle={onToggle}
             note={convertNotes.get(message.id)}
             onConvert={onConvert}
             look={looks.get(message.id) ?? null}
@@ -168,7 +174,39 @@ export function canConvert(message: ChatMessage): boolean {
   return !message.order && !message.cancel && !message.ignored && !message.failed
 }
 
+/**
+ * 결과 줄이 없는 주문 줄의 "이미 찜함" 표시 (AC-UX2-08~12, D-UX2-03~06). 없으면 ''.
+ * 번호 방송: 주문 번호 중 그 메시지로 생긴 찜(같은 번호)이 없는 번호마다 "{번호}번 이미 찜함" ('|'로 이음).
+ * 옵션 방송: 주문인데 optionOrders가 비고 확인 필요도 아니고 생긴 찜도 없으면 "이미 찜함".
+ * 찜 내용이 아직 오지 않았으면(애매하면) 붙이지 않는다 (D-UX2-06).
+ */
+export function alreadyText(message: ChatMessage, look: OptionLook | null, claims: ReadonlyMap<string, { readonly no: number }>): string {
+  if (!message.order) return ''
+  const made = message.claims.map((id) => claims.get(id))
+  if (made.some((claim) => claim === undefined)) return ''
+  if (look !== null || message.optionOrders !== undefined) {
+    return (message.optionOrders ?? []).length === 0 && message.review == null && made.length === 0 ? ALREADY_WORD : ''
+  }
+  const nos = new Set(made.map((claim) => claim?.no))
+  return [...new Set(message.orders)]
+    .filter((no) => !nos.has(no))
+    .map((no) => `${String(no)}번 ${ALREADY_WORD}`)
+    .join('|')
+}
+
+function canHover(): boolean {
+  return typeof window.matchMedia === 'function' && window.matchMedia('(hover: hover)').matches
+}
+
+const ALREADY_WORD = '이미 찜함'
+export const ALREADY_REASON = '이 분은 이 번호를 이미 찜했어요. 새 찜은 생기지 않았어요.'
+
 interface ChatRowProps {
+  /** "이미 찜함" 표시 ('|'로 이음, 없으면 '') */
+  readonly already: string
+  /** 눌러서 펼친 줄 */
+  readonly open: boolean
+  readonly onToggle: (id: string) => void
   readonly message: ChatMessage
   /** 그 메시지로 생긴 찜의 지금 상태 ('|'로 이음) */
   readonly claimText: string
@@ -182,7 +220,14 @@ interface ChatRowProps {
 }
 
 const ChatRow = memo(
-  function ChatRow({ message, claimText, note, onConvert, look, onReview, platformTag }: ChatRowProps) {
+  function ChatRow({ message, claimText, already, open, onToggle, note, onConvert, look, onReview, platformTag }: ChatRowProps) {
+  const [focused, setFocused] = useState(false)
+  const [hovered, setHovered] = useState(false)
+  // 누름(마우스·터치)으로 생긴 초점은 키보드 초점으로 치지 않는다 — 다시 누르면 접혀야 한다 (AC-UX2-03)
+  const pressing = useRef(false)
+  const [reasonOpen, setReasonOpen] = useState(false)
+  const [reasonFocused, setReasonFocused] = useState(false)
+  const alreadyWords = already === '' ? [] : already.split('|')
   const claimWords = claimText === '' ? [] : claimText.split('|')
   const mentioned = look === null ? message.mentions.length > 0 : look.mention
   const classes = ['chat-row']
@@ -190,8 +235,70 @@ const ChatRow = memo(
   if (message.cancel) classes.push('chat-cancel')
   if (mentioned) classes.push('chat-mention')
   if (message.owner) classes.push('chat-owner')
+  // 확인 필요 메시지·옵션 상품을 말한 메시지에는 없다 — 찜으로 바꾸기로는 옵션을 고를 수 없다 (D-O2-12)
+  const convertible = canConvert(message) && !(look !== null && (look.review !== null || look.optionProduct))
+  // 언급 줄은 늘, 잡담 줄은 누름·초점(state)·마우스 올림(CSS, hover: hover 기기만) 때만 (AC-UX2-01~05)
+  const chatter = convertible && !mentioned
+  const shown = !chatter || open || focused || hovered
+  if (chatter) classes.push('chat-chatter')
+  if (chatter && open) classes.push('chat-open')
   return (
-    <li className={classes.join(' ')}>
+    <li
+      className={classes.join(' ')}
+      tabIndex={chatter ? 0 : undefined}
+      aria-expanded={chatter ? shown : undefined}
+      onClick={
+        chatter
+          ? (event) => {
+              // 터치는 손을 뗀 뒤에 초점이 오므로 누름 표시는 click에서 지운다
+              pressing.current = false
+              if ((event.target as HTMLElement).closest('button') !== null) return
+              onToggle(message.id)
+            }
+          : undefined
+      }
+      onKeyDown={
+        chatter
+          ? (event) => {
+              pressing.current = false
+              if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+                event.preventDefault()
+                onToggle(message.id)
+              }
+            }
+          : undefined
+      }
+      onPointerDown={
+        chatter
+          ? () => {
+              pressing.current = true
+            }
+          : undefined
+      }
+      // 마우스 올림은 마우스가 있는 기기의 마우스만 (hover: hover, AC-UX2-04) — 터치로 누른 뒤 남지 않는다
+      onPointerEnter={
+        chatter
+          ? (event) => {
+              if (event.pointerType === 'mouse' && canHover()) setHovered(true)
+            }
+          : undefined
+      }
+      onPointerLeave={chatter ? () => setHovered(false) : undefined}
+      onFocus={
+        chatter
+          ? () => {
+              if (!pressing.current) setFocused(true)
+            }
+          : undefined
+      }
+      onBlur={
+        chatter
+          ? (event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false)
+            }
+          : undefined
+      }
+    >
       {/* 시각·닉네임·표시·본문을 한 줄로 이어 쓴다 — 채팅 칸에 메시지가 더 많이 보이게 (AC-S06-62) */}
       <p className="chat-line">
         <time dateTime={message.publishedAt}>{kstTime(message.publishedAt)}</time>{' '}
@@ -218,7 +325,20 @@ const ChatRow = memo(
           </span>
         ) : null}
         {mentioned ? <span className="tag tag-mention">{CHAT_WORD.mention}</span> : null}
-        {message.failed ? <span className="tag tag-alert">확인 필요</span> : null}{' '}
+        {message.failed ? <span className="tag tag-alert">확인 필요</span> : null}
+        {alreadyWords.map((word) => (
+          <button
+            key={word}
+            type="button"
+            className="tag tag-already"
+            aria-expanded={reasonOpen || reasonFocused}
+            onClick={() => setReasonOpen((value) => !value)}
+            onFocus={() => setReasonFocused(true)}
+            onBlur={() => setReasonFocused(false)}
+          >
+            {word}
+          </button>
+        ))}{' '}
         <span className="chat-text">{highlightMentions(message.text, message.mentions)}</span>
       </p>
       {claimWords.length > 0 || note !== undefined ? (
@@ -231,14 +351,15 @@ const ChatRow = memo(
           {note !== undefined ? <span className="tag tag-waiting">{note}</span> : null}
         </p>
       ) : null}
+      {alreadyWords.length > 0 && (reasonOpen || reasonFocused) ? <p className="chat-already-reason">{ALREADY_REASON}</p> : null}
       {look?.review != null && onReview !== undefined ? (
         <button type="button" className="button button-small chat-convert" onClick={() => onReview(message.id)}>
           확인 필요에서 고르기
         </button>
       ) : null}
-      {/* 확인 필요 메시지·옵션 상품을 말한 메시지에는 없다 — 찜으로 바꾸기로는 옵션을 고를 수 없다 (D-O2-12) */}
-      {canConvert(message) && !(look !== null && (look.review !== null || look.optionProduct)) ? (
-        <button type="button" className="button button-small chat-convert" onClick={() => onConvert(message.id)}>
+      {/* 숨긴 버튼은 hidden — 읽기 프로그램에도 읽히지 않는다. 마우스 올림은 CSS가 보인다 */}
+      {convertible ? (
+        <button type="button" className="button button-small chat-convert" hidden={!shown} onClick={() => onConvert(message.id)}>
           찜으로 바꾸기
         </button>
       ) : null}
