@@ -5,8 +5,10 @@ import { useMemo, useRef, useState } from 'react'
 import { isApiError, type ApiError } from '../api/client.ts'
 import type { Buyer, ChatMessage, Product } from '../api/types.ts'
 import { formatWon, productKey, productSlots } from '../lib/derive.ts'
+import { saleOptionWords } from '../lib/sale-line.ts'
 import { pickFor, qtyProblemWords, readQty, variantTextOf } from '../lib/options.ts'
 import { changedFields, editQuestion } from '../lib/quick.ts'
+import { COUNT_PROBLEM, readCount, stockProblem } from '../lib/stock.ts'
 import { PRODUCT_STATUS_WORD } from '../lib/words.ts'
 import { useConsoleApi, type AssignSpec, type ConfirmSpec, type ReasonSpec } from './console-context.ts'
 import { ErrorNote, FieldError } from './ErrorNote.tsx'
@@ -251,7 +253,7 @@ export function AssignDialog({ spec, onClose }: { readonly spec: AssignSpec; rea
     const buyerName = api.names.name(buyer)
     const replaceWords = needsReplace && replace !== undefined ? ` (${api.names.name(replace)} ${replaceTo === 'WAITLIST' ? '대기로' : '취소'})` : ''
     const fields = { buyer, replace, replaceTo, reason: value, ...(optionProduct ? { options: picks, qty: qtyText } : {}) }
-    const optionWords = optionProduct ? ` ${variantText ?? ''}${qty !== null && qty > 1 ? ` ×${String(qty)}` : ''}` : ''
+    const optionWords = optionProduct ? saleOptionWords({ variant: variantText ?? null, qty: qty ?? 1 }) : ''
     api.queueHost({
       label: `${String(product.no)}번${optionWords} ${buyerName} 직접 배정${replaceWords}`,
       event: {
@@ -399,6 +401,8 @@ export interface EditDialogProps {
   /** 빠른 입력으로 친 값 (form이면 칸에 채울 처음 값) */
   readonly name: string
   readonly price: number
+  /** 빠른 입력 줄 옆 개수 칸이 1이 아니었으면 그 개수 (AC-ORD11-08) */
+  readonly stock?: number
   /** 빠른 입력 줄 (null이면 상품 자세히의 "고치기" — 칸을 보인다) */
   readonly line: string | null
   readonly onClose: () => void
@@ -408,13 +412,18 @@ export interface EditDialogProps {
   readonly onUnchanged: (product: Product) => void
 }
 
-export function EditDialog({ productKey: key, name, price, line, onClose, onDone, onUnchanged }: EditDialogProps) {
+type EditChanges = { name?: string; price?: number; stock?: number }
+
+export function EditDialog({ productKey: key, name, price, stock, line, onClose, onDone, onUnchanged }: EditDialogProps) {
   const api = useConsoleApi()
   const product = api.data.products.get(key)
   const [stage, setStage] = useState<'ask' | 'form' | 'applyTo'>(line === null ? 'form' : 'ask')
   const [nameText, setNameText] = useState(name)
   const [priceText, setPriceText] = useState(String(price))
-  const [pending, setPending] = useState<{ name?: string; price?: number } | null>(null)
+  // 개수 칸 (옵션 없는 상품만, AC-ORD11-04~06): 처음 값은 지금 재고
+  const [countText, setCountText] = useState(() => String(stock ?? api.data.products.get(key)?.stock ?? 1))
+  const [countProblem, setCountProblem] = useState<string | null>(null)
+  const [pending, setPending] = useState<EditChanges | null>(null)
   const [priceProblem, setPriceProblem] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
@@ -431,7 +440,7 @@ export function EditDialog({ productKey: key, name, price, line, onClose, onDone
   const closed = product.status === 'CLOSED'
   const question = editQuestion(product.no, closed)
 
-  const send = async (changes: { name?: string; price?: number }, applyTo: 'NEW_ONLY' | 'UNPAID_CLAIMS' | null) => {
+  const send = async (changes: EditChanges, applyTo: 'NEW_ONLY' | 'UNPAID_CLAIMS' | null) => {
     if (busy) return
     setBusy(true)
     setError(null)
@@ -455,9 +464,15 @@ export function EditDialog({ productKey: key, name, price, line, onClose, onDone
     }
   }
 
-  const proceed = (changes: { name?: string; price?: number }) => {
-    if (changes.name === undefined && changes.price === undefined) {
+  const proceed = (changes: EditChanges) => {
+    if (changes.name === undefined && changes.price === undefined && changes.stock === undefined) {
       onUnchanged(product)
+      return
+    }
+    // 확정 수보다 적게 줄이지 않는다 — 보내지 않고 알린다 (R-10, AC-ORD11-06)
+    const shrink = changes.stock === undefined ? null : stockProblem(product, changes.stock)
+    if (shrink !== null) {
+      setCountProblem(shrink)
       return
     }
     if (changes.price !== undefined && productSlots(product).winnerClaims.length > 0) {
@@ -480,8 +495,21 @@ export function EditDialog({ productKey: key, name, price, line, onClose, onDone
       return
     }
     setPriceProblem(null)
+    let count: number | null = product.stock
+    if (!product.hasOptions) {
+      count = readCount(countText)
+      if (count === null) {
+        setCountProblem(COUNT_PROBLEM)
+        return
+      }
+    }
+    setCountProblem(null)
     const trimmed = nameText.trim()
-    proceed({ ...(trimmed !== product.name ? { name: trimmed } : {}), ...(parsed !== product.price ? { price: parsed } : {}) })
+    proceed({
+      ...(trimmed !== product.name ? { name: trimmed } : {}),
+      ...(parsed !== product.price ? { price: parsed } : {}),
+      ...(count !== product.stock ? { stock: count } : {}),
+    })
   }
 
   if (stage === 'applyTo' && pending !== null) {
@@ -544,14 +572,39 @@ export function EditDialog({ productKey: key, name, price, line, onClose, onDone
             </p>
           ) : null}
           <FieldError error={error} field="price" />
+          {product.hasOptions ? null : (
+            <>
+              <label className="field">
+                <span>개수</span>
+                <input
+                  className="input input-short"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={countText}
+                  aria-invalid={countProblem !== null}
+                  onChange={(event) => {
+                    setCountText(event.target.value)
+                    setCountProblem(null)
+                  }}
+                />
+              </label>
+              <p className="hint">같은 번호로 여러 개를 팔면 개수를 늘려요. 늘리면 대기 1순위부터 1등이 돼요.</p>
+              {countProblem !== null ? (
+                <p className="field-error" role="alert">
+                  {countProblem}
+                </p>
+              ) : null}
+              <FieldError error={error} field="stock" />
+            </>
+          )}
           <button type="submit" hidden />
         </form>
-        {error !== null ? <ErrorNote error={error} omitFields={['name', 'price']} /> : null}
+        {error !== null ? <ErrorNote error={error} omitFields={['name', 'price', 'stock']} /> : null}
       </Modal>
     )
   }
 
-  const typed = changedFields(product, name, price)
+  const typed = changedFields(product, name, price, stock)
   return (
     <Modal
       key="ask"
@@ -583,6 +636,13 @@ export function EditDialog({ productKey: key, name, price, line, onClose, onDone
             <td>{formatWon(product.price)}</td>
             <td>{formatWon(price)}</td>
           </tr>
+          {typed.stock !== undefined ? (
+            <tr>
+              <th scope="row">개수</th>
+              <td>{product.stock}개</td>
+              <td>{typed.stock}개</td>
+            </tr>
+          ) : null}
           <tr>
             <th scope="row">상태</th>
             <td>{PRODUCT_STATUS_WORD[product.status]}</td>
@@ -590,6 +650,12 @@ export function EditDialog({ productKey: key, name, price, line, onClose, onDone
           </tr>
         </tbody>
       </table>
+      {typed.stock !== undefined ? <p>개수 {typed.stock}개로 함께 고쳐요.</p> : null}
+      {countProblem !== null ? (
+        <p className="field-error" role="alert">
+          {countProblem}
+        </p>
+      ) : null}
       <FieldError error={error} field="name" />
       {error !== null ? <ErrorNote error={error} omitFields={['name']} /> : null}
     </Modal>

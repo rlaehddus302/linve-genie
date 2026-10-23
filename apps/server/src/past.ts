@@ -4,10 +4,14 @@
 // - 판매자의 다른 실제 날짜마다 같은 채널 ID의 유튜브 구매자, 같은 전화번호 키로 만들어진 문자 구매자를 찾아 그날 그 구매자의 지금의 구매자 Y의 묶음을 낸다.
 //   한 번만 따라간다(찾은 묶음의 다른 구매자로 다시 넓히지 않는다). 품목이 없고 받은 금액도 0인 묶음·리허설 범위·보고 있는 날짜는 넣지 않는다.
 // - 후보 날짜는 DB에서 먼저 거른다(채팅 본문의 채널 ID·문자찜 본문의 전화번호 키 — 판매자 ID 조건, 실제 범위만). 그다음 그 날짜의 범위 상태(코어 조회)로 확인한다.
-import { currentBuyerOf, getBuyer, getSettlement, listBroadcasts, listClaims, listProducts, type EngineState, type PaymentStatus } from '@livejjim/core'
+// - 품목 (O4 D-O4-06): 옵션 글(variant)·수량(qty)·찜 금액(amount — 코어 ClaimInfo.amount 그대로, 다시 계산하지 않는다, D-O3-15).
+//   찜 금액이 없으면(프로그램 오류) 그 품목의 amount는 null이고 AMOUNT_MISSING 로그(찜 ID만)를 남긴다 — 단가로 채우지 않는다. price는 지금처럼 단가다.
+import { currentBuyerOf, getBuyer, getSettlement, listBroadcasts, listClaims, listProducts, type ClaimInfo, type EngineState, type PaymentStatus } from '@livejjim/core'
 import { and, desc, eq, lt, ne, sql } from 'drizzle-orm'
+import { claimAmount } from './amount.ts'
 import type { Db } from './db/database.ts'
 import { events, scopes } from './db/schema.ts'
+import type { LogSink } from './log.ts'
 import { packingRows, packingStatusOf, type PackingWord } from './packing.ts'
 import type { ScopeRuntime } from './runtime.ts'
 
@@ -18,7 +22,14 @@ export interface PastItemLine {
   readonly title: string
   readonly no: number
   readonly name: string
+  /** 단가 (찜 때 단가 — 지금 그대로) */
   readonly price: number
+  /** 옵션 글 (`105/검정색`), 옵션 없는 찜이면 null (O4 D-O4-06) */
+  readonly variant: string | null
+  /** 수량 */
+  readonly qty: number
+  /** 찜 금액 = 코어 ClaimInfo.amount. 없으면(프로그램 오류) null — 화면은 금액 칸을 비운다 */
+  readonly amount: number | null
 }
 
 /** 지난 구매 항목 하나 = 다른 날짜의 묶음 (AC-I2-40) */
@@ -64,6 +75,28 @@ export interface PastDeps {
   readonly read: (date: string) => Promise<ScopeRuntime>
   /** 다른 날짜의 실제 범위 상태 (최신 로그까지) — 여러 날짜를 훑으므로 서버 공용 캐시에 넣지 않는 읽기 (TD-I2-008) */
   readonly readOther: (date: string) => Promise<ScopeRuntime>
+  /** 서버 로그 (찜 금액이 없는 품목 — 찜 ID만) */
+  readonly log?: LogSink
+}
+
+/**
+ * 지난 구매 품목 줄 (O4 D-O4-06): 그 묶음(지금의 구매자 root)의 확정 찜을 방송 선언 순 → 번호 순으로. 찜 금액은 코어 값 그대로,
+ * 없으면 null과 AMOUNT_MISSING 로그(찜 ID·날짜만 — 닉네임·금액 없음)
+ */
+export function pastItemLines(state: EngineState, claims: readonly ClaimInfo[], root: string, products: readonly string[], day: string, log?: LogSink): (PastItemLine & { readonly broadcast: string })[] {
+  const broadcasts = listBroadcasts(state)
+  const order = new Map(broadcasts.map((broadcast, i) => [broadcast.id, i]))
+  const titles = new Map(broadcasts.map((broadcast) => [broadcast.id, broadcast.title]))
+  const names = new Map(listProducts(state).map((product) => [product.key, product.name]))
+  const wanted = new Set(products)
+  return claims
+    .filter((claim) => claim.status === 'CONFIRMED' && claim.currentBuyer === root && (wanted.has(claim.key) || wanted.has(claim.product)))
+    .sort((a, b) => (order.get(a.broadcast) ?? 0) - (order.get(b.broadcast) ?? 0) || a.no - b.no)
+    .map((claim) => {
+      const amount = claimAmount(claim)
+      if (amount === null) log?.({ level: 'error', code: 'AMOUNT_MISSING', date: day, claim: claim.id })
+      return { broadcast: claim.broadcast, title: titles.get(claim.broadcast) ?? '', no: claim.no, name: names.get(claim.product) ?? '', price: claim.price ?? 0, variant: claim.variant, qty: claim.qty, amount }
+    })
 }
 
 /** 문자 구매자를 만든 문자찜의 전화번호 키 (그 구매자 ID = sms:<그 ref>, 판매자 ID 조건) */
@@ -134,7 +167,7 @@ async function candidates(db: Db, sellerId: string, date: string, before: string
 }
 
 /** 그 날짜의 항목들 (같은 Y로 가는 표지는 묶음 하나 — 까닭은 모두) */
-async function itemsOn(db: Db, sellerId: string, runtime: ScopeRuntime, day: string, found: readonly { id: string; marker: Marker }[]): Promise<PastItem[]> {
+async function itemsOn(db: Db, sellerId: string, runtime: ScopeRuntime, day: string, found: readonly { id: string; marker: Marker }[], log?: LogSink): Promise<PastItem[]> {
   const { state, scopeId } = runtime
   if (scopeId === null) return []
   const byRoot = new Map<string, string[]>()
@@ -153,27 +186,22 @@ async function itemsOn(db: Db, sellerId: string, runtime: ScopeRuntime, day: str
   if (byRoot.size === 0) return []
   const records = await packingRows(db, sellerId, scopeId)
   const broadcasts = listBroadcasts(state)
-  const order = new Map(broadcasts.map((broadcast, i) => [broadcast.id, i]))
-  const titles = new Map(broadcasts.map((broadcast) => [broadcast.id, broadcast.title]))
-  const names = new Map(listProducts(state).map((product) => [product.key, product.name]))
   const claims = listClaims(state)
   const items: PastItem[] = []
   for (const [root, reasons] of byRoot) {
     const settlement = getSettlement(state, root, day)
     if (settlement.items.length === 0 && settlement.received === 0) continue
     const info = getBuyer(state, root)
-    const lines = claims
-      .filter((claim) => claim.status === 'CONFIRMED' && claim.currentBuyer === root && settlement.items.includes(claim.product))
-      .sort((a, b) => (order.get(a.broadcast) ?? 0) - (order.get(b.broadcast) ?? 0) || a.no - b.no)
-    const shown = new Set(lines.map((claim) => claim.broadcast))
+    const lines = pastItemLines(state, claims, root, settlement.items, day, log)
+    const shownIds = new Set(lines.map((line) => line.broadcast))
     const entry = packingStatusOf(state, day, root, records)
     items.push({
       date: day,
       buyer: root,
-      broadcasts: broadcasts.filter((broadcast) => shown.has(broadcast.id)).map((broadcast) => broadcast.title),
+      broadcasts: broadcasts.filter((broadcast) => shownIds.has(broadcast.id)).map((broadcast) => broadcast.title),
       name: info?.display ?? '',
       phoneLast4: info?.phoneLast4 ?? null,
-      items: lines.map((claim) => ({ title: titles.get(claim.broadcast) ?? '', no: claim.no, name: names.get(claim.product) ?? '', price: claim.price ?? 0 })),
+      items: lines.map(({ title, no, name, price, variant, qty, amount }) => ({ title, no, name, price, variant, qty, amount })),
       subtotal: settlement.subtotal,
       shipping: settlement.shipping,
       adjustments: settlement.adjustments,
@@ -207,7 +235,7 @@ export async function pastPurchases(deps: PastDeps, sellerId: string, date: stri
   const items: PastItem[] = []
   let more = false
   for (const day of days) {
-    const dayItems = await itemsOn(deps.db, sellerId, await deps.readOther(day), day, found.get(day) ?? [])
+    const dayItems = await itemsOn(deps.db, sellerId, await deps.readOther(day), day, found.get(day) ?? [], deps.log)
     if (dayItems.length === 0) continue
     if (items.length >= PAST_PAGE_SIZE) {
       more = true

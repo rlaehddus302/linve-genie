@@ -85,7 +85,7 @@ interface FakeWake {
 
 async function start(
   options: {
-    render?: () => Promise<{ ok: true; image: LabelBitmap } | { ok: false; error: { code: 'DOES_NOT_FIT'; message: string; item: string } }>
+    render?: () => Promise<{ ok: true; image: LabelBitmap } | { ok: false; error: { code: 'DOES_NOT_FIT' | 'INVALID_TEMPLATE'; message: string; item?: string } }>
     wake?: () => Promise<FakeWake>
   } = {},
 ): Promise<PrinterStation> {
@@ -176,6 +176,82 @@ describe('받기·찍기·결과 (L-11 4·6)', () => {
     await s.connect('test')
     await vi.waitFor(() => expect(results).toHaveLength(1))
     expect(results[0]).toEqual({ deviceId: ME, attempt: 'attempt-j1-0000', ok: false, error: { code: 'DOES_NOT_FIT', item: 'price' } })
+    expect(printer.printCalls).toBe(0)
+  })
+
+  it('그리기가 잠깐 실패하면(느린 휴대폰의 글꼴·캔버스 등) 같은 장을 다시 그려 찍는다 — 끊김·라벨 오류로 멈추지 않는다', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      claims = [claimed('j1')]
+      let calls = 0
+      const s = await start({
+        render: async () => {
+          calls++
+          if (calls <= 2) throw new Error('캔버스를 만들 수 없다')
+          return { ok: true, image: IMAGE }
+        },
+      })
+      await s.connect('test')
+      await vi.advanceTimersByTimeAsync(10_000)
+      await vi.waitFor(() => expect(results).toHaveLength(1))
+      expect(results[0]).toEqual({ deviceId: ME, attempt: 'attempt-j1-0000', ok: true })
+      expect(calls).toBe(3)
+      expect(printer.printed).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('그리기가 계속 실패하면(설정 오류가 아님) 찍지 않고 끊김으로 알린다 — 라벨 오류 코드가 아니다, 다시 연결하면 연결됨을 알려 이어서 받는다', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      claims = [claimed('j1')]
+      let broken = true
+      let calls = 0
+      const s = await start({
+        render: async () => {
+          calls++
+          if (broken) throw new Error('글꼴을 불러오지 못했다')
+          return { ok: true, image: IMAGE }
+        },
+      })
+      await s.connect('test')
+      await vi.advanceTimersByTimeAsync(30_000)
+      await vi.waitFor(() => expect(results).toHaveLength(1))
+      expect(results[0]).toEqual({ deviceId: ME, attempt: 'attempt-j1-0000', ok: false, error: { code: 'DISCONNECTED' } })
+      expect(calls).toBeGreaterThan(1)
+      expect(printer.printCalls).toBe(0)
+      // 서버: 끊김 결과 → 프린터 끊김으로 적고 끊김 멈춤. 이 기기의 프린터는 그대로 이어져 있다
+      current = overview({ queue: queue({ rev: 5, device: device(ME, { printerConnected: false }), pause: { reason: 'DISCONNECTED', message: '프린터 연결이 끊겼어요.', backlog: false } }) })
+      await store?.reload()
+      expect(printer.state).toBe('CONNECTED')
+      broken = false
+      claims = [claimed('j1b')]
+      const before = states.length
+      // "다시 연결": 프린터가 이미 이어져 있어도 서버에 연결됨을 다시 알린다 (알리지 않으면 끊김 멈춤이 풀리지 않는다)
+      expect(await s.reconnect()).toBe(true)
+      expect(states.slice(before)).toEqual([{ deviceId: ME, connected: true }])
+      FakeEventSource.last.emit('print', { rev: 6, queue: queue({ rev: 6, device: device(ME) }), jobs: [], labels: [] })
+      await vi.waitFor(() => expect(results).toHaveLength(2))
+      expect(results[1]).toEqual({ deviceId: ME, attempt: 'attempt-j1b-0000', ok: true })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('설정 오류(그릴 수 없는 템플릿)는 다시 그리지 않고 바로 라벨 오류 코드로 알린다', async () => {
+    claims = [claimed('j1')]
+    let calls = 0
+    const s = await start({
+      render: async () => {
+        calls++
+        return { ok: false, error: { code: 'INVALID_TEMPLATE', message: '라벨 설정에 고칠 곳이 있어요.' } }
+      },
+    })
+    await s.connect('test')
+    await vi.waitFor(() => expect(results).toHaveLength(1))
+    expect(results[0]).toEqual({ deviceId: ME, attempt: 'attempt-j1-0000', ok: false, error: { code: 'INVALID_TEMPLATE' } })
+    expect(calls).toBe(1)
     expect(printer.printCalls).toBe(0)
   })
 

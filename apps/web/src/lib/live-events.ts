@@ -36,6 +36,8 @@ export interface LiveHandlers {
   readonly onParcel?: (event: { readonly date?: string; readonly buyer?: string; readonly settings?: boolean }) => void
   /** 포장 기록이 바뀐 묶음 (SSE `packing` `{ date, buyer }`) */
   readonly onPacking?: (event: { readonly date: string; readonly buyer?: string }) => void
+  /** 로그인 방법이 바뀌었다 (SSE `login` `{ kind: 'methods' }` — 간편 로그인 연결·끊기, L1) — 설정 화면이 목록을 다시 읽는다 */
+  readonly onLogin?: () => void
 }
 
 export function parseYoutubeEvent(raw: unknown): YoutubeEvent | null {
@@ -90,6 +92,14 @@ export class LiveEvents {
         if (typeof data === 'object' && data !== null && typeof data.date === 'string') handler(data)
       } catch {
         // 읽지 못한 알림은 버린다 (다음 알림·다시 붙을 때 다시 읽는다)
+      }
+    })
+    stream.addEventListener('login', (event) => {
+      try {
+        const data = JSON.parse(String(event.data)) as unknown
+        if (typeof data === 'object' && data !== null && (data as { kind?: unknown }).kind === 'methods') this.#handlers().onLogin?.()
+      } catch {
+        // 읽지 못한 알림은 버린다 (다시 붙을 때 다시 읽는다)
       }
     })
     for (const type of ['instagram', 'tiktok'] as const) {

@@ -55,6 +55,8 @@ import type { OutboxHooks, OutboxTiming } from './youtube/outbox.ts'
 import { Sealer } from './youtube/seal.ts'
 import { YoutubeSystem, checkYoutubeConfig, type LinkHooks, type YoutubeConfig } from './youtube/system.ts'
 import { realTimer, type Timer } from './youtube/timer.ts'
+import { checkSocialSetup, type SocialLoginSetup } from './social/providers.ts'
+import { SocialLogin } from './social/service.ts'
 
 /** 스냅샷 간격 상한 (AC-S04-28: 일정 이벤트 수, 최대 500) */
 export const MAX_SNAPSHOT_EVERY = 500
@@ -180,6 +182,13 @@ export interface ServerOptions {
    * 조회 간격(기본 30분)·배송지 정리 간격(기본 1시간)·한 번에 접수할 때 동시에 보내는 수
    */
   readonly parcel?: ParcelOptions
+  /**
+   * 간편 로그인 (L1). 운영 기동은 productionServerOptions가 환경 변수로 공급자 ID·비밀값만 만든다(주소는 고정값).
+   * 공급자 주소 바꾸기·http 허용·HTTP 함수·시간 제한은 시험·E2E·연습 기동만(가짜 OAuth 서버). 없거나 공급자가 없으면 꺼짐(지금과 같다)
+   */
+  readonly socialLogin?: SocialLoginSetup
+  /** 간편 로그인 시험 주입점 (쓴 표시 직후·로그인 연결을 찾은 뒤 세션 거래 전 — 동시 사용 시험) */
+  readonly socialHooks?: { readonly afterClaim?: () => void | Promise<void>; readonly beforeLoginSession?: () => void | Promise<void> }
 }
 
 export interface LivejjimServer {
@@ -212,6 +221,8 @@ export interface LivejjimServer {
   readonly deposits: DepositService
   /** 택배 자동 접수 (T1) — 주기 작업(조회·배송지 정리)은 start()가 돌린다 */
   readonly parcels: ParcelService
+  /** 간편 로그인 (L1 — 설정이 없으면 켜진 공급자가 없다) */
+  readonly social: SocialLogin
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
   /** 유튜브 연동 (설정이 있을 때만) */
@@ -259,6 +270,11 @@ export function createServer(options: ServerOptions): LivejjimServer {
 
   if (options.youtube !== undefined) {
     const problem = checkYoutubeConfig(options.youtube)
+    if (problem !== null) throw new TypeError(problem)
+  }
+
+  if (options.socialLogin !== undefined) {
+    const problem = checkSocialSetup(options.socialLogin)
     if (problem !== null) throw new TypeError(problem)
   }
 
@@ -511,6 +527,21 @@ export function createServer(options: ServerOptions): LivejjimServer {
     options: options.deposits ?? {},
   })
   const parcels = new ParcelService({ db, writer, clock, timer, masterKey, hub, log, work, options: options.parcel ?? {} })
+  const social = new SocialLogin({
+    db,
+    masterKey,
+    clock,
+    appOrigin: options.appOrigin,
+    setup: options.socialLogin ?? { providers: {} },
+    auth,
+    log,
+    ...(options.loginLimits === undefined ? {} : { loginLimits: options.loginLimits }),
+    onChanged: (sellerId) => hub.publishNamed(sellerId, 'login', { kind: 'methods' }),
+    closeSessions: (hashes) => {
+      for (const hash of hashes) hub.closeSession(hash)
+    },
+    ...(options.socialHooks === undefined ? {} : { hooks: options.socialHooks }),
+  })
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
     api: {
@@ -531,6 +562,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       youtube,
       sealer,
       trustedProxies,
+      social,
     },
     https: options.appOrigin.startsWith('https://'),
     web: options.webDir === undefined ? null : createWebServer(options.webDir),
@@ -568,6 +600,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     work,
     deposits,
     parcels,
+    social,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     start: () => {
       youtube?.start()

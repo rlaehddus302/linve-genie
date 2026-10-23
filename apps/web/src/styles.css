@@ -582,8 +582,25 @@ p {
 }
 
 .quick-input {
-  flex: 1 1 auto;
+  /* 기준 폭을 좁게 잡아 옆 개수 칸과 한 줄에 선다 — 375px에서 개수 칸이 줄 밑으로 꺾이면 고정 영역이 한 줄 커진다 (TE-STK-001, AC-S06-61) */
+  flex: 1 1 8rem;
+  min-width: 0;
   font-size: 1.375rem;
+}
+
+/* 개수 칸 (AC-ORD11-01): 빠른 입력 줄 옆, 좁게 — 375px 폭에서도 같은 줄에, 칸은 44px 이상·글자 16px 이상 */
+.quick-count {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 0.375rem;
+  align-items: center;
+  font-weight: 700;
+}
+
+.quick-count-input {
+  max-inline-size: 4.5rem;
+  min-width: 0;
+  text-align: right;
 }
 
 .quick-status {
@@ -1301,7 +1318,7 @@ html:has(.sms-submit-bar) {
 }
 
 .voice-sent {
-  flex: 1 1 12rem;
+  flex: 1;
   color: #3c4043;
 }
 
@@ -1759,6 +1776,24 @@ html:has(.sms-submit-bar) {
 
   .quick-help {
     display: none;
+  }
+
+  /* 휴대폰: 개수 칸을 빠른 입력 줄과 한 줄에 (TE-STK-001) — 뒤 글자 "개"를 빼고 칸 안 여백을 줄여 빠른 입력 칸 폭을 남긴다 */
+  .quick-row {
+    gap: 0.375rem;
+  }
+
+  .quick-count {
+    gap: 0.25rem;
+  }
+
+  .quick-count-unit {
+    display: none;
+  }
+
+  .quick-count-input {
+    max-inline-size: 3.5rem;
+    padding-inline: 0.5rem;
   }
 
   /* 문자찜 입력: 위를 줄여 결과·번호 칸이 첫 화면에, 보내기 막대는 아래 메뉴 막대(53px) 바로 위 (UX-S06-002) */
@@ -2633,6 +2668,19 @@ html:has(.sms-submit-bar) {
   font-weight: 700;
 }
 
+.pack-variant {
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+/* 수량 2 이상: 줄 끝에 번호와 같은 굵기 — 상자에 몇 개를 넣을지 바로 보이게 (D-O4-04) */
+.pack-qty {
+  margin-inline-start: auto;
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
 .pack-count {
   font-weight: 700;
 }
@@ -2983,4 +3031,110 @@ select.input {
 
 .address-facts dd {
   min-inline-size: 0;
+}
+
+/* ── 간편 로그인 (L1 AC-L1-20·22, D-L1-06) ─────────────────────
+ * 로그인 칸 아래 "또는" 줄, 그 아래 카카오·네이버·구글 버튼 (폭 가득, 44px 이상, 글 16px 이상, 그림 파일 없음).
+ * 글 명암비: 카카오 #191919/#FEE500 ≈ 15:1, 네이버·구글 #1F1F1F/흰 바탕 ≈ 16:1 (네이버 흰 글/초록 바탕 2.2:1은 쓰지 않는다).
+ * 잠긴 버튼은 공통 잠금 모양(.button:disabled)이 앞선다. */
+.social-login {
+  margin-top: 1.5rem;
+}
+
+.or-line {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: #3c4043;
+}
+
+.or-line::before,
+.or-line::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid #747775;
+}
+
+.social-buttons {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.social-button {
+  width: 100%;
+  min-height: 3rem;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  gap: 0.5rem;
+}
+
+.social-kakao {
+  color: #191919;
+  background-color: #fee500;
+  border: 2px solid #fee500;
+}
+
+.social-kakao:hover:not(:disabled) {
+  background-color: #f5dc00;
+}
+
+.social-naver {
+  color: #1f1f1f;
+  background-color: #ffffff;
+  border: 2px solid #03c75a;
+}
+
+.social-naver:hover:not(:disabled),
+.social-google:hover:not(:disabled) {
+  background-color: #f1f3f4;
+}
+
+.social-naver-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.125rem 0.4375rem;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1;
+  color: #ffffff;
+  background-color: #03c75a;
+  border-radius: 0.25rem;
+}
+
+.social-google {
+  color: #1f1f1f;
+  background-color: #ffffff;
+  border: 1px solid #747775;
+}
+
+.login-method-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.login-method {
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #e3e5e8;
+}
+
+.login-method:last-child {
+  border-bottom: none;
+}
+
+.login-method-text {
+  flex: 1;
+}
+
+/* 로그인된 채 돌아온 간편 로그인 결과 (TE-L1-001): 위 줄 아래 한 줄 알림 + 닫기 */
+.login-result-notice {
+  margin: 0.75rem 1rem;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.login-result-notice p {
+  margin: 0;
 }

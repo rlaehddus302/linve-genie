@@ -13,6 +13,8 @@
 // - 백업: 마지막 자동 백업 시각(KST)·보관 기간·보관 중인 백업 목록(만든 시각·크기). 꺼져 있거나 마지막 성공이 26시간보다 오래되면 주의 안내.
 //   복구·백업 파일 내려받기 버튼은 없다(운영자에게 날짜를 알려 되돌린다 — D-I2-11).
 // - 전체 기록 내려받기: "전체 기록(JSON)"·"전체 판매대장(엑셀)" — 만드는 동안 그 버튼이 잠기고 "만드는 중이에요…".
+// L1 (AC-L1-21~23): 보조자 칸 뒤에 "로그인 방법"(판매자에게만 — 간편 로그인이 꺼진 서버면 칸이 없다). 공급자에서 돌아온 `?login=<코드>&provider=<p>`는
+//   그 칸에 정해진 문장을 한 번 보이고 주소에서 지운다. 연결·끊기 알림(`login`)과 다시 붙음에 목록을 다시 읽는다.
 import type { SaleSettings } from '@livejjim/core'
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { get, isApiError, put, type ApiError } from '../api/client.ts'
@@ -30,6 +32,8 @@ import { DownloadButton } from './downloads.tsx'
 import { ErrorNote, RequestError } from './ErrorNote.tsx'
 import { LabelSwitchSection } from './LabelSwitchSection.tsx'
 import { ParcelSettingsSection } from './ParcelSettings.tsx'
+import { LoginMethodsPanel, showLoginMethods, useLoginMethods } from './LoginMethods.tsx'
+import { parseLoginResult, stripLoginParams } from '../lib/social-login.ts'
 import { FixedArrivalField, RuleField, SaleModeField, SaveRow, settingProblem, useRuleForm } from './RuleFields.tsx'
 import { ThanksSettings, useThanksForm } from './ThanksSettings.tsx'
 import { InstagramCallbackResult, InstagramSettings, TikTokSettingsSection, useInstagramConnection, useTikTokSettings } from './PlatformSettings.tsx'
@@ -85,9 +89,11 @@ export interface SettingsPageProps {
   readonly navigate: Navigate
   readonly shopName: string
   readonly onRenamed: (name: string) => void
+  /** 보조자 계정 — "로그인 방법" 칸이 없고 목록을 부르지 않는다 (AC-L1-23) */
+  readonly assistant?: boolean
 }
 
-export function SettingsPage({ route, navigate, shopName, onRenamed }: SettingsPageProps) {
+export function SettingsPage({ route, navigate, shopName, onRenamed, assistant = false }: SettingsPageProps) {
   const [settings, setSettings] = useState<SaleSettings | null>(null)
   const [loadError, setLoadError] = useState<ApiError | null>(null)
   const [ongoing, setOngoing] = useState(false)
@@ -99,6 +105,12 @@ export function SettingsPage({ route, navigate, shopName, onRenamed }: SettingsP
   const [instagramResult] = useState<string | null>(route.instagramResult ?? null)
   const instagram = useInstagramConnection()
   const tiktok = useTikTokSettings()
+  // 간편 로그인 연결에서 돌아온 결과도 한 번만 (L1 AC-L1-21)
+  const [loginResult] = useState(() => (assistant ? null : parseLoginResult(window.location.pathname, window.location.search, 'settings')))
+  const loginMethods = useLoginMethods(!assistant)
+  useEffect(() => {
+    stripLoginParams()
+  }, [])
 
   const load = useCallback(async () => {
     setLoadError(null)
@@ -131,7 +143,9 @@ export function SettingsPage({ route, navigate, shopName, onRenamed }: SettingsP
     onPlatform: (event) => {
       if (event.type === 'instagram' && event.event.kind === 'CONNECTION') instagram.set(event.event.connection)
     },
+    onLogin: () => void loginMethods.reload(),
     onReconnect: () => {
+      void loginMethods.reload()
       void youtube.reload()
       void quota.reload()
       void instagram.reload()
@@ -171,6 +185,11 @@ export function SettingsPage({ route, navigate, shopName, onRenamed }: SettingsP
       <SettingsSection title="보조자">
         <AssistantsSection />
       </SettingsSection>
+      {showLoginMethods(loginMethods.current, loginResult) ? (
+        <SettingsSection title="로그인 방법" focus={loginResult !== null && loginMethods.current.state !== 'loading'}>
+          <LoginMethodsPanel handle={loginMethods} result={loginResult} />
+        </SettingsSection>
+      ) : null}
       <BackupSection />
       <ExportSection />
       <SettingsSection title="그 밖">

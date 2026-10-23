@@ -3,7 +3,7 @@
 // 브라우저 주소는 localhost(크로미움이 127.0.0.1로 잇는다 — Secure 세션 쿠키를 Playwright page.request가 보내도록), 서버 --origin은 브라우저 주소와 같다.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import config, { E2E_HOST, SERVED_WEB_DIR, STACKS, e2eServerUrl, fakeMetaUrl, fakeYoutubeUrl } from '../playwright.config.ts'
+import config, { E2E_HOST, SERVED_WEB_DIR, STACKS, e2eServerUrl, fakeMetaUrl, fakeOAuthUrl, fakeYoutubeUrl } from '../playwright.config.ts'
 
 const serve = readFileSync(new URL('../e2e/serve.ts', import.meta.url), 'utf8')
 
@@ -77,6 +77,30 @@ describe('E2E 기동 (코드 검사)', () => {
     expect(fakeMetaUrl('chromium')).toBeNull()
     expect(e2eServerUrl('chromium-multi')).toBe(`http://127.0.0.1:${String(stack?.api)}`)
     const ports = STACKS.flatMap((item) => [item.web, item.api, ...(item.youtube === undefined ? [] : [item.youtube]), ...(item.instagram === undefined ? [] : [item.instagram])].filter((port, index, all) => all.indexOf(port) === index))
+    expect(new Set(ports).size).toBe(ports.length)
+  })
+
+  it('L1 간편 로그인 묶음(AC-L1-30): 가짜 OAuth(정한 포트)와 함께 — 셋 다 켠 묶음은 @social, 구글 하나만 켠 묶음은 @social-one, 기본 묶음은 둘 다 고르지 않는다', () => {
+    const servers = Array.isArray(config.webServer) ? config.webServer : []
+    const command = (name: string) => {
+      const stack = STACKS.find((item) => item.name === name)
+      return servers.find((item) => item.command?.includes(`--port ${String(stack?.api)}`) && item.command.includes('@livejjim/server'))?.command ?? ''
+    }
+    const all = STACKS.find((item) => item.name === 'chromium-social')
+    const one = STACKS.find((item) => item.name === 'chromium-social-one')
+    expect(command('chromium-social')).toContain(`--social fake --social-port ${String(all?.social)}`)
+    expect(command('chromium-social')).not.toContain('--social-providers')
+    expect(command('chromium-social-one')).toContain(`--social fake --social-port ${String(one?.social)} --social-providers google`)
+    expect(all?.grep?.test('시험 @social')).toBe(true)
+    expect(all?.grep?.test('시험 @social-one')).toBe(false)
+    expect(one?.grep?.test('시험 @social-one')).toBe(true)
+    expect(one?.grep?.test('시험 @social')).toBe(false)
+    const base = STACKS.find((item) => item.name === 'chromium')
+    for (const tag of ['@social', '@social-one']) expect(base?.grepInvert?.test(`시험 ${tag}`)).toBe(true)
+    expect(command('chromium')).not.toContain('--social')
+    expect(fakeOAuthUrl('chromium-social')).toBe(`http://127.0.0.1:${String(all?.social)}`)
+    expect(fakeOAuthUrl('chromium')).toBeNull()
+    const ports = STACKS.flatMap((item) => [item.web, item.api, item.youtube, item.instagram, item.social].filter((port): port is number => port !== undefined).filter((port, index, list) => list.indexOf(port) === index))
     expect(new Set(ports).size).toBe(ports.length)
   })
 })

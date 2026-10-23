@@ -104,7 +104,14 @@
       "idx": 14,
       "version": "7",
       "when": 1793923200000,
-      "tag": "0014_t1_parcels",
+      "tag": "0014_l1_social_login",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1794009600000,
+      "tag": "0015_t1_parcels",
       "breakpoints": true
     }
   ]

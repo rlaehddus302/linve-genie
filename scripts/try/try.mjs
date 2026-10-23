@@ -5,6 +5,8 @@
 // - 메모리 DB(끄면 연습 기록은 사라진다)·그 자리에서 만든 마스터 키·연습용 판매자 계정 하나(비밀번호는 실행마다 무작위, 터미널에만 보인다).
 // - 시험용 프린터(실제로 출력하지 않음)·시험용 입금 넣기·가짜 유튜브(연습 채널과 진행 중인 "연습 라이브" 하나)를 켠다.
 // - 연습용 시청자 채팅 화면 /_try/chat: 가짜 유튜브 라이브에 시청자 채팅을 넣는다(이 스크립트만 가진 화면).
+// - 간편 로그인(L1, AC-L1-24): 가짜 구글·카카오·네이버를 연습 전용 경로 /_try/oauth/<공급자>/…에 붙여 켠다(운영 기동에는 이 경로가 없다).
+//   승인 화면 위에 "연습용 가짜 화면이에요."가 보이고 연습 계정 둘(이메일 있음·없음)을 고른다. 돌아오는 주소는 http://localhost:<포트>/api/auth/<공급자>/callback.
 // - 이 컴퓨터: http://localhost:<포트> (127.0.0.1에서만 연다).
 // - 같은 와이파이의 휴대폰: https://<이 컴퓨터 주소>:<포트+1>. 로그인 쿠키가 Secure라 휴대폰은 https로만 로그인된다.
 //   그래서 자체 서명 인증서(openssl, 실행마다 새로)로 https를 열고 안쪽 서버로 넘긴다. 휴대폰에 "안전하지 않음" 경고가 한 번 뜬다.
@@ -104,6 +106,7 @@ const [{ openPglite }, { generateMasterKey }, { createServer }, { createNodeServ
   server('backup.ts'),
   server('youtube/fake-google.ts'),
 ])
+const { FakeOAuth } = await server('social/fake-oauth.ts')
 
 const database = await openPglite()
 const masterKey = generateMasterKey()
@@ -113,6 +116,10 @@ const fake = await FakeGoogle.start({ pollingIntervalMillis: 1000 })
 const fakeAccount = fake.addAccount()
 const fakeChannel = fake.addChannel(fakeAccount, '연습 채널')
 const fakeLive = fake.addBroadcast(fakeChannel.id, { title: '연습 라이브', status: 'live' })
+
+// 가짜 간편 로그인 (연습 전용 경로 /_try/oauth — 승인 화면은 브라우저가 연습 화면과 같은 주소로 열고, 토큰·사용자 정보는 서버가 127.0.0.1로 부른다)
+const SOCIAL = ['google', 'kakao', 'naver']
+const oauth = new FakeOAuth({ practice: true, basePath: '/_try/oauth', redirectUris: Object.fromEntries(SOCIAL.map((p) => [p, `${appOrigin}/api/auth/${p}/callback`])) })
 
 const livejjim = createServer({
   database,
@@ -133,6 +140,7 @@ const livejjim = createServer({
   webDir: WEB_DIR,
   testPrinter: true,
   deposits: { testMode: true, popbill: null, pollMs: 1000 },
+  socialLogin: oauth.setup({ authBase: appOrigin, apiBase: `http://127.0.0.1:${String(port)}` }),
 })
 
 const PASSWORD_LETTERS = 'abcdefghjkmnpqrstuvwxyz23456789'
@@ -154,6 +162,7 @@ const CHAT_PAGE = readFileSync(new URL('./chat.html', import.meta.url), 'utf8').
 
 async function tryRoute(request) {
   const url = new URL(request.url)
+  if (url.pathname.startsWith('/_try/oauth/')) return oauth.handle(request)
   if (request.method === 'GET' && url.pathname === '/_try/chat') {
     return new Response(CHAT_PAGE, {
       headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" },
@@ -205,8 +214,25 @@ if (lan !== null) {
     phone = createHttpsServer({ key: readFileSync(keyFile), cert: readFileSync(certFile) }, (req, res) => {
       const headers = { ...req.headers }
       if (typeof headers.origin === 'string' && httpsOrigins.has(headers.origin)) headers.origin = appOrigin
+      // 간편 로그인(L1): 돌려보내는 주소(Location)·승인 주소의 앞 http://localhost:<포트>를 휴대폰이 연 https 주소로 바꾼다.
+      // 돌아오는 주소 매개변수(redirect_uri)는 그대로 둔다 — 가짜 공급자에 등록한 값과 같아야 한다
+      const here = `https://${String(req.headers.host ?? '')}`
+      const swap = httpsOrigins.has(here) ? (text) => (text.startsWith(`${appOrigin}/`) ? `${here}${text.slice(appOrigin.length)}` : text) : (text) => text
       const upstream = httpRequest({ host: '127.0.0.1', port, method: req.method, path: req.url, headers }, (answer) => {
-        res.writeHead(answer.statusCode ?? 502, answer.headers)
+        const out = { ...answer.headers }
+        if (typeof out.location === 'string') out.location = swap(out.location)
+        if (req.method === 'POST' && (req.url === '/api/auth/start' || req.url === '/api/auth/link') && httpsOrigins.has(here)) {
+          const chunks = []
+          answer.on('data', (chunk) => chunks.push(chunk))
+          answer.on('end', () => {
+            const body = Buffer.from(Buffer.concat(chunks).toString('utf8').replaceAll(`"${appOrigin}/_try/oauth/`, `"${here}/_try/oauth/`), 'utf8')
+            delete out['content-length']
+            res.writeHead(answer.statusCode ?? 502, { ...out, 'content-length': String(body.length) })
+            res.end(body)
+          })
+          return
+        }
+        res.writeHead(answer.statusCode ?? 502, out)
         answer.pipe(res)
       })
       upstream.on('error', () => {

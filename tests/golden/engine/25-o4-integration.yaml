@@ -1,0 +1,213 @@
+# O4 — 업종 확장 통합 확인이 기대는 옵션 방송 흐름 (SPEC OPT-01~03·OPT-06·CMT-01~05·CMT-07·YT-09, DOMAIN_RULES R-19·R-20, D-O4-01~D-O4-07)
+# 새 판정 규칙 없음 — O1 코어로 통과해야 한다. 그래서 허용 목록(known-unimplemented.yaml)에 넣지 않는다.
+# 이 세 시나리오는 O4 E2E 흐름(harness/sprints/O4/acceptance.md AC-O4-10~AC-O4-32)과 같은 댓글·조치 순서다 — E2E는 화면·내려받기 값을
+#   이 시나리오의 기대값(1등·대기·품절·확인 필요·찜 금액·정산 합계)과 맞댄다. E2E는 시각이 실제 시각이라 `at`은 다르지만,
+#   옵션 방송은 접수순(ARRIVAL)만이고 지금 상품 15초 유예만 시각을 보므로(R-20 5-4), E2E가 지금 상품 댓글을 15초 넘게 기다린 뒤 보내면 결과가 같다(D-O4-03).
+# 모든 기대값은 손으로 계산했다. 줄마다 계산을 주석으로 적었다. 배송비는 기본 4,000원·무료배송 기준 없음.
+---
+id: G-ENG-O4-01
+title: 의류 옵션 방송 한 흐름 — 이름·번호·지금 상품 댓글, 변형 대기·변형 품절(수량 2), 확인 필요 셋을 원래 순서로 바로잡기·지우기, 변형을 고른 취소와 승계
+refs: [OPT-01, OPT-02, OPT-03, OPT-06, CMT-01, CMT-02, CMT-03, CMT-04, CMT-05, R-19, R-20, R-8, R-13]
+settings: { claim.parseMode: OPTIONS }
+broadcasts: [{ id: b1, date: 2026-10-28, title: 의류 리허설 }]
+events:
+  # 반바지: 재고 S 1(기본) · M 1 · L 2 = 4. 등록(OPEN)이 지금 상품 = 21
+  - { at: "20:00:00", type: product.register, b: b1, no: 21, name: 반바지, price: 10000, stocks: { M: 1, L: 2 }, options: [{ name: 사이즈, choices: [{ label: S }, { label: M, aliases: [엠] }, { label: L }] }] }
+  # 반팔티: 105 = +2,000원. 재고 105/검정색 2, 나머지 다섯 변형 1(기본). 등록이 지금 상품 = 22 (20:00:01)
+  - at: "20:00:01"
+    type: product.register
+    b: b1
+    no: 22
+    name: 반팔티
+    price: 15000
+    stocks: { "105/검정색": 2 }
+    options:
+      - { name: 사이즈, choices: [{ label: "95" }, { label: "100" }, { label: "105", price: 2000 }] }
+      - { name: 색상, choices: [{ label: 흰색, aliases: [화이트] }, { label: 검정색, aliases: [검정, 블랙] }] }
+  - { at: "20:00:30", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "반바지 M" }            # 이름(가) 21 + M → 수량 1 ≤ 남은 1 → A 확정 10,000. 21#M 남은 0
+  - { at: "20:00:31", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "21 M" }                # 맨 앞 번호(나) 21 + M → 남은 0, 수량 1 → B 대기 1(대기 한도 5)
+  - { at: "20:00:32", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "반바지" }              # 이름만, 사이즈 없음 → 확인 필요 OPTION_MISSING(읽은 것: 21)
+  - { at: "20:00:33", type: chat, b: b1, id: m4, ch: UC_D, nick: 박민수, text: "반팔티 105 검정 2" }   # 22#105/검정색, 맨숫자 2(옵션 바로 뒤) = 수량. 단가 15,000 + 2,000 = 17,000. 2 ≤ 남은 2 → 확정, 금액 34,000. 남은 0
+  - { at: "20:00:34", type: chat, b: b1, id: m5, ch: UC_E, nick: 최지우, text: "반팔티 105 블랙 2개" } # 같은 변형(블랙 = 검정색), 수량 2, 남은 0 → REJECTED(SOLD_OUT) — 수량 2 이상은 대기하지 않는다
+  - { at: "20:00:35", type: chat, b: b1, id: m6, ch: UC_F, nick: 정하나, text: "화이트 100" }          # 이름·맨 앞 번호 없음 → 지금 상품(다) 22, 정한 지 34초 ≥ 15초. 흰색·100 → 22#100/흰색 15,000 확정
+  - { at: "20:00:36", type: chat, b: b1, id: m7, ch: UC_A, nick: 홍길동, text: "반바지 L 3개" }        # 21#L 남은 2, 0 < 2 < 3 → 찜 없음, 확인 필요 STOCK_SHORT(21·L·3)
+  - { at: "20:00:37", type: chat, b: b1, id: m8, ch: UC_G, nick: 한가람, text: "반바지 XL" }           # 없는 사이즈, 남은 말 한 덩어리 → 확인 필요 UNKNOWN_WORD(21)
+  - type: assert
+    expect:
+      reviews:                                                     # 원래 순위(m3 < m7 < m8)
+        - { item: m3, reason: OPTION_MISSING, buyer: UC_C, product: b1/21 }
+        - { item: m7, reason: STOCK_SHORT, buyer: UC_A, product: b1/21, options: { 사이즈: L }, qty: 3 }
+        - { item: m8, reason: UNKNOWN_WORD, buyer: UC_G, product: b1/21 }
+      variants:
+        "b1/21#M": { status: SOLD, winner: UC_A, waitlist: [UC_B] }
+        "b1/22#105/검정색": { status: SOLD, winner: UC_D, confirmedUnits: 2 }
+        "b1/22#100/흰색": { status: SOLD, winner: UC_F }
+      claimCount: 5                                                # A-M, B-M(대기), D-22, E-22(품절), F-22
+  # 판매자가 확인 필요 세 줄을 고르고 한 번에 보냄 — 화면은 원래 순위 순서로 보낸다(D-O2-07)
+  - { at: "20:01:00", type: host.resolveReview, b: b1, item: m3, no: 21, qty: 1, options: { 사이즈: S } }   # S 남은 1, 앞선 대기 없음 → C 확정 10,000
+  - { at: "20:01:00", type: host.resolveReview, b: b1, item: m7, no: 21, qty: 2, options: { 사이즈: L } }   # 구매자와 2개로 정함: 2 ≤ 남은 2 → A 확정 L × 2 = 20,000 (A의 M과 다른 변형)
+  - { at: "20:01:00", type: host.dismissReview, b: b1, item: m8, reason: 없는 사이즈 }                     # 주문 아님 → 항목 지움
+  # A가 M을 취소해 달라고 함 — 판매자가 변형을 골라 취소 → 승계 AUTO: 대기 1순위 B 확정
+  - { at: "20:02:00", type: host.cancel, b: b1, no: 21, buyer: UC_A, options: { 사이즈: M }, reason: 구매자 요청 }
+expect:
+  products:
+    b1/21: { status: SOLD, confirmedUnits: 4 }                     # S 1(C) + M 1(B) + L 2(A) = 재고 합 4
+    b1/22: { status: OPEN, confirmedUnits: 3 }                     # 105/검정색 2 + 100/흰색 1. 다른 네 변형이 남음
+  variants:
+    "b1/21#S": { status: SOLD, winner: UC_C }
+    "b1/21#M": { status: SOLD, winner: UC_B, waitlist: [] }
+    "b1/21#L": { status: SOLD, winner: UC_A, stock: 2, confirmedUnits: 2 }
+    "b1/22#105/검정색": { status: SOLD, winner: UC_D, stock: 2, confirmedUnits: 2 }
+    "b1/22#100/흰색": { status: SOLD, winner: UC_F, stock: 1, confirmedUnits: 1 }
+    "b1/22#95/흰색": { status: OPEN, winners: [], confirmedUnits: 0 }
+  claims:
+    - { product: "b1/21#M", buyer: UC_A, status: CANCELLED }
+    - { product: "b1/21#M", buyer: UC_B, status: CONFIRMED, qty: 1 }
+    - { product: "b1/21#L", buyer: UC_A, status: CONFIRMED, qty: 2 }
+    - { product: "b1/21#S", buyer: UC_C, status: CONFIRMED, qty: 1 }
+    - { product: "b1/22#105/검정색", buyer: UC_D, status: CONFIRMED, qty: 2 }
+    - { product: "b1/22#105/검정색", buyer: UC_E, status: REJECTED, reason: SOLD_OUT, qty: 2 }
+    - { product: "b1/22#100/흰색", buyer: UC_F, status: CONFIRMED, qty: 1 }
+  claimCount: 7                                                    # 위 5 + C-S(바로잡기) + A-L(바로잡기). m8 지움·확인 필요는 찜 없음
+  reviews: []
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/21, buyer: UC_A, text: "21번 반바지 M 10,000원 홍길동님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/22, buyer: UC_D, text: "22번 반팔티 105/검정색 2개 34,000원 박민수님 구매 감사합니다" }   # 17,000 × 2
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/22, buyer: UC_F, text: "22번 반팔티 100/흰색 15,000원 정하나님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/21, buyer: UC_C, text: "21번 반바지 S 10,000원 이영희님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/21, buyer: UC_A, text: "21번 반바지 L 2개 20,000원 홍길동님 구매 감사합니다" }          # 10,000 × 2
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/21, buyer: UC_B, text: "21번 반바지 M 10,000원 김철수님 구매 감사합니다" }               # 승계
+  effectCounts: { POST_THANKS: 6, PRINT_PRODUCT_LABEL: 6 }         # 확정 여섯(A-M, D, F, C, A-L, B). 대기·품절·확인 필요는 효과 없음. A-M 라벨은 출력 보고가 없어 VOID_LABEL 없음
+  buyers:
+    UC_A: { items: ["b1/21#L"], subtotal: 20000 }                  # M은 취소, L × 2
+    UC_B: { items: ["b1/21#M"], subtotal: 10000 }
+    UC_C: { items: ["b1/21#S"], subtotal: 10000 }
+    UC_D: { items: ["b1/22#105/검정색"], subtotal: 34000 }
+    UC_F: { items: ["b1/22#100/흰색"], subtotal: 15000 }
+  settlements:
+    UC_A@2026-10-28: { subtotal: 20000, shipping: 4000, total: 24000, payment: UNPAID }
+    UC_D@2026-10-28: { subtotal: 34000, shipping: 4000, total: 38000, payment: UNPAID }
+    UC_F@2026-10-28: { subtotal: 15000, shipping: 4000, total: 19000, payment: UNPAID }
+---
+id: G-ENG-O4-02
+title: 식품 옵션 방송 — 수량 댓글(맨숫자·한글 수·단위), 수량 2 이상 품절·수량 1 대기, 중량 가격 차이, STOCK_SHORT를 고친 수량으로 바로잡기, QTY_INVALID 지우기, 수량 2 찜 취소의 승계
+refs: [OPT-01, OPT-02, OPT-03, CMT-01, CMT-03, CMT-04, R-19, R-20, R-8]
+settings: { claim.parseMode: OPTIONS }
+broadcasts: [{ id: b1, date: 2026-10-29, title: 식품 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 11, name: 초코 과자, price: 2000, stock: 5, aliases: [초코] }   # 옵션 없음, 재고 5
+  # 견과 세트: 500g 12,000 · 1kg 12,000 + 8,000 = 20,000. 변형마다 재고 3. 지금 상품 = 13
+  - { at: "20:00:01", type: product.register, b: b1, no: 13, name: 견과 세트, price: 12000, stock: 3, options: [{ name: 중량, choices: [{ label: 500g }, { label: 1kg, aliases: [1키로], price: 8000 }] }] }
+  - { at: "20:00:30", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "초코 과자 3" }        # 이름 바로 뒤 맨숫자 3 = 수량. 3 ≤ 5 → 확정 6,000. 남은 2
+  - { at: "20:00:31", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "초코 2개" }           # 별칭, 단위 수량 2 ≤ 남은 2 → 확정 4,000. 남은 0 → SOLD
+  - { at: "20:00:32", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "초코 1" }             # 수량 1, 남은 0 → 대기 1
+  - { at: "20:00:33", type: chat, b: b1, id: m4, ch: UC_D, nick: 박민수, text: "초코과자 두개" }       # 한글 수 '두' + 단위 = 2, 남은 0 → REJECTED(SOLD_OUT), 대기 없음
+  - { at: "20:00:34", type: chat, b: b1, id: m5, ch: UC_E, nick: 최지우, text: "견과 세트 1kg 2개" }   # 13#1kg, 2 ≤ 3 → 확정 20,000 × 2 = 40,000. 남은 1
+  - { at: "20:00:35", type: chat, b: b1, id: m6, ch: UC_F, nick: 정하나, text: "견과 세트 1kg 3개" }   # 남은 1, 0 < 1 < 3 → 확인 필요 STOCK_SHORT(13·1kg·3)
+  - { at: "20:00:36", type: chat, b: b1, id: m7, ch: UC_G, nick: 한가람, text: "견과 세트 500g 20개" } # 20 > maxQuantity 10 → 확인 필요 QTY_INVALID(13·500g·20)
+  - type: assert
+    expect:
+      reviews:
+        - { item: m6, reason: STOCK_SHORT, buyer: UC_F, product: b1/13, options: { 중량: 1kg }, qty: 3 }
+        - { item: m7, reason: QTY_INVALID, buyer: UC_G, product: b1/13, options: { 중량: 500g }, qty: 20 }
+      products:
+        b1/11: { status: SOLD, winners: [UC_A, UC_B], waitlist: [UC_C], confirmedUnits: 5 }
+  - { at: "20:01:00", type: host.resolveReview, b: b1, item: m6, no: 13, qty: 1, options: { 중량: 1kg } }   # 구매자와 1개로 정함: 1 ≤ 남은 1 → F 확정 20,000. 1kg SOLD
+  - { at: "20:01:00", type: host.dismissReview, b: b1, item: m7, reason: 장난 댓글 }
+  # B가 초코 과자 2개를 취소 — 남은 수량 2가 풀림 → 승계 AUTO: 대기 1순위부터 최대 2명 → C(수량 1) 확정, 대기 끝. 남은 1
+  - { at: "20:02:00", type: host.cancel, b: b1, no: 11, buyer: UC_B, reason: 구매자 요청 }
+expect:
+  products:
+    b1/11: { status: OPEN, winners: [UC_A, UC_C], waitlist: [], confirmedUnits: 4 }   # 3 + 1, 재고 5 → 남은 1
+    b1/13: { status: OPEN, confirmedUnits: 3 }                                       # 1kg 2 + 1, 500g 0
+  variants:
+    "b1/13#1kg": { status: SOLD, winners: [UC_E, UC_F], stock: 3, confirmedUnits: 3 }
+    "b1/13#500g": { status: OPEN, winners: [], stock: 3, confirmedUnits: 0 }
+  claims:
+    - { product: b1/11, buyer: UC_A, status: CONFIRMED, qty: 3 }
+    - { product: b1/11, buyer: UC_B, status: CANCELLED, qty: 2 }
+    - { product: b1/11, buyer: UC_C, status: CONFIRMED, qty: 1 }
+    - { product: b1/11, buyer: UC_D, status: REJECTED, reason: SOLD_OUT, qty: 2 }
+    - { product: "b1/13#1kg", buyer: UC_E, status: CONFIRMED, qty: 2 }
+    - { product: "b1/13#1kg", buyer: UC_F, status: CONFIRMED, qty: 1 }
+  claimCount: 6                                                                      # A, B, C, D, E, F(바로잡기)
+  reviews: []
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/11, buyer: UC_A, text: "11번 초코 과자 3개 6,000원 홍길동님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/11, buyer: UC_C, text: "11번 초코 과자 2,000원 이영희님 구매 감사합니다" }          # 승계, 수량 1 → 옵션 없는 문구 그대로
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/13, buyer: UC_E, text: "13번 견과 세트 1kg 2개 40,000원 최지우님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/13, buyer: UC_F, text: "13번 견과 세트 1kg 20,000원 정하나님 구매 감사합니다" }
+  buyers:
+    UC_A: { items: [b1/11], subtotal: 6000 }                       # 2,000 × 3
+    UC_C: { items: [b1/11], subtotal: 2000 }
+    UC_E: { items: ["b1/13#1kg"], subtotal: 40000 }                # 20,000 × 2
+    UC_F: { items: ["b1/13#1kg"], subtotal: 20000 }
+  settlements:
+    UC_A@2026-10-29: { subtotal: 6000, shipping: 4000, total: 10000, payment: UNPAID }
+    UC_E@2026-10-29: { subtotal: 40000, shipping: 4000, total: 44000, payment: UNPAID }
+    UC_F@2026-10-29: { subtotal: 20000, shipping: 4000, total: 24000, payment: UNPAID }
+---
+id: G-ENG-O4-03
+title: 휴대폰 케이스 옵션 방송 — 기종 이름 안의 숫자는 옵션(수량·번호가 아님), 같은 숫자 번호의 다른 상품(17번 그립톡), 언급, OPTION_CONFLICT 지우기·STOCK_SHORT 바로잡기
+refs: [OPT-02, OPT-03, CMT-01, CMT-02, CMT-03, CMT-04, R-19, R-20]
+settings: { claim.parseMode: OPTIONS }
+broadcasts: [{ id: b1, date: 2026-10-30, title: 케이스 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 17, name: 그립톡, price: 5000, stock: 3 }   # 옵션 없음, 재고 3
+  # 폰케이스: 변형마다 재고 2. 지금 상품 = 41 (20:00:01)
+  - at: "20:00:01"
+    type: product.register
+    b: b1
+    no: 41
+    name: 폰케이스
+    price: 12000
+    stock: 2
+    aliases: [케이스]
+    options:
+      - name: 기종
+        choices:
+          - { label: 아이폰 17 프로, aliases: [17프로, 17pro] }
+          - { label: 아이폰 17 }
+          - { label: 갤럭시 S25, aliases: [s25, 갤s25] }
+  - { at: "20:00:30", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "아이폰 17 프로" }       # 지금 상품 41(29초 ≥ 15초), 옵션 사전이 17을 먼저 차지 → 아이폰 17 프로 × 1 확정 12,000
+  - { at: "20:00:31", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "아이폰 17 2" }         # '아이폰 17' 뒤 맨숫자 2 = 수량. 2 ≤ 2 → 확정 24,000. 아이폰 17 SOLD
+  - { at: "20:00:32", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "17" }                  # 번호 문법 먼저 → 17번 그립톡 × 1 확정 5,000 (지금 상품의 선택지 이름·별칭과 같지 않다)
+  - { at: "20:00:33", type: chat, b: b1, id: m4, ch: UC_D, nick: 박민수, text: "17 2개" }              # 맨 앞 번호(나) 17 + 단위 수량 2 ≤ 남은 2 → 확정 10,000. 그립톡 SOLD(3)
+  - { at: "20:00:34", type: chat, b: b1, id: m5, ch: UC_E, nick: 최지우, text: "케이스 17프로 3개" }    # 별칭 '케이스' + '17프로' → 41#아이폰 17 프로 × 3, 남은 1 → 확인 필요 STOCK_SHORT
+  - { at: "20:00:35", type: chat, b: b1, id: m6, ch: UC_F, nick: 정하나, text: "그립톡 아이폰 17" }      # 그립톡은 옵션 없음 + 남은 말 둘 → 언급 [17], 찜 없음
+  - { at: "20:00:36", type: chat, b: b1, id: m7, ch: UC_G, nick: 한가람, text: "아이폰 17 프로 갤럭시 S25" }   # 한 항목에 둘 → 확인 필요 OPTION_CONFLICT(41)
+  - { at: "20:00:37", type: chat, b: b1, id: m8, ch: UC_H, nick: 오세훈, text: "갤s25" }               # 별칭 → 41#갤럭시 S25 × 1 확정 12,000
+  - type: assert
+    expect:
+      reviews:
+        - { item: m5, reason: STOCK_SHORT, buyer: UC_E, product: b1/41, options: { 기종: 아이폰 17 프로 }, qty: 3 }
+        - { item: m7, reason: OPTION_CONFLICT, buyer: UC_G, product: b1/41 }
+      claimCount: 5                                                # A, B, C, D, H
+  - { at: "20:01:00", type: host.resolveReview, b: b1, item: m5, no: 41, qty: 1, options: { 기종: 아이폰 17 프로 } }   # 1 ≤ 남은 1 → E 확정 12,000. 아이폰 17 프로 SOLD
+  - { at: "20:01:00", type: host.dismissReview, b: b1, item: m7 }
+expect:
+  products:
+    b1/17: { status: SOLD, winners: [UC_C, UC_D], confirmedUnits: 3 }
+    b1/41: { status: OPEN, confirmedUnits: 5 }                     # 2 + 2 + 1, 재고 합 6
+  variants:
+    "b1/41#아이폰 17 프로": { status: SOLD, winners: [UC_A, UC_E], confirmedUnits: 2 }
+    "b1/41#아이폰 17": { status: SOLD, winner: UC_B, confirmedUnits: 2 }
+    "b1/41#갤럭시 S25": { status: OPEN, winner: UC_H, confirmedUnits: 1 }
+  claims:
+    - { product: "b1/41#아이폰 17", buyer: UC_B, status: CONFIRMED, qty: 2 }
+    - { product: b1/17, buyer: UC_C, status: CONFIRMED, qty: 1 }
+    - { product: b1/17, buyer: UC_D, status: CONFIRMED, qty: 2 }
+    - { product: "b1/41#아이폰 17 프로", buyer: UC_E, status: CONFIRMED, qty: 1 }
+  claimCount: 6                                                    # 위 5 + E(바로잡기). F 언급·G 지움은 찜 없음
+  reviews: []
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/41, buyer: UC_A, text: "41번 폰케이스 아이폰 17 프로 12,000원 홍길동님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/41, buyer: UC_B, text: "41번 폰케이스 아이폰 17 2개 24,000원 김철수님 구매 감사합니다" }   # 12,000 × 2
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/17, buyer: UC_D, text: "17번 그립톡 2개 10,000원 박민수님 구매 감사합니다" }
+  effectCounts: { POST_THANKS: 6, PRINT_PRODUCT_LABEL: 6 }         # A, B, C, D, H, E
+  buyers:
+    UC_B: { items: ["b1/41#아이폰 17"], subtotal: 24000 }
+    UC_D: { items: [b1/17], subtotal: 10000 }                      # 5,000 × 2
+    UC_H: { items: ["b1/41#갤럭시 S25"], subtotal: 12000 }
+  settlements:
+    UC_B@2026-10-30: { subtotal: 24000, shipping: 4000, total: 28000, payment: UNPAID }

@@ -17,6 +17,8 @@
 //   조회 주기는 기본 5초(parcelTrackMs). 시험 조작 /_e2e/parcel/*(상태 넘기기·오류 주입·받은 요청·지금 조회·지금 정리)는 이 기동에서만 있다.
 // - 선택: 가짜 웹캐스트(tiktok: true, N2b-2 AC-N2b-2-73·80) — 틱톡 운영자 스위치를 켜고 연결 객체가 가짜 웹캐스트를 쓴다.
 //   시험이 댓글·끊김·막힘을 넣는 경로 /_e2e/tiktok/*는 이 기동에서만 있다(운영 서버 시작 경로에는 없다 — 운영은 실제 감싸개 libraryWebcast()).
+// - 선택: 가짜 OAuth 서버(social, L1 AC-L1-12) — 127.0.0.1의 빈 포트(또는 정한 포트)에 띄우고 간편 로그인 공급자(구글·카카오·네이버 중 고른 것)를 그 주소로 켠다.
+//   조작은 그 서버의 /_fake/* (harness/sprints/L1/dev-notes.md "시험에게"). 운영 기동에는 없다.
 import { randomBytes, randomInt } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import type { Server } from 'node:http'
@@ -40,6 +42,8 @@ import { kstDate, systemClock, type Clock } from './time.ts'
 import type { Draft } from './writer.ts'
 import { FakeGoogle } from './youtube/fake-google.ts'
 import type { OutboxTiming } from './youtube/outbox.ts'
+import { FakeOAuth } from './social/fake-oauth.ts'
+import type { ProviderId } from './social/providers.ts'
 
 /** 시험용 판매자 계정 (저장소의 픽스처 파일 — 실제 비밀값이 아니다) */
 export const E2E_ACCOUNT_FILE = new URL('../e2e/account.json', import.meta.url)
@@ -174,6 +178,11 @@ export interface E2eOptions {
   readonly parcelPort?: number
   /** 택배 배송 조회 주기 (밀리초, 기본 5000 — 운영 30분) */
   readonly parcelTrackMs?: number
+  /**
+   * 간편 로그인 (L1, AC-L1-12): 가짜 OAuth 서버를 127.0.0.1의 그 포트(0이면 빈 포트)에 함께 띄우고 고른 공급자(기본 셋 다)를 켠다.
+   * 돌아오는 주소는 화면 주소 + /api/auth/<p>/callback(화면이 /api를 서버로 넘긴다) — 가짜 서버에도 그 주소를 등록한다. 기본 꺼짐(지금과 같다)
+   */
+  readonly social?: { readonly port?: number; readonly providers?: readonly ProviderId[] }
 }
 
 /** E2E 기동의 택배 배송 조회 주기 기본값 (밀리초) */
@@ -392,6 +401,8 @@ export interface E2eServer {
   readonly fakeWebcast: FakeWebcast | null
   /** 가짜 택배사 (parcel: false가 아니면) */
   readonly fakeCarrier: FakeCarrier | null
+  /** 가짜 OAuth 서버 (social을 주었을 때만, L1) */
+  readonly fakeOAuth: FakeOAuth | null
   /** E2E_HOST(127.0.0.1)의 그 포트에서 연다 (0이면 빈 포트). 연 주소·포트를 돌려준다. 열지 못하면(포트를 이미 씀 등) 그 오류로 실패한다 */
   listen(port: number): Promise<{ readonly host: string; readonly port: number }>
   close(): Promise<void>
@@ -414,6 +425,14 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
   const budget = options.youtube?.quotaBudget
   const fakeWebcast = options.tiktok === true ? new FakeWebcast() : null
   const fakeCarrier = options.parcel === false ? null : await FakeCarrier.start(options.parcelPort === undefined ? {} : { port: options.parcelPort })
+  const socialProviders: readonly ProviderId[] = options.social?.providers ?? ['google', 'kakao', 'naver']
+  const fakeOAuth =
+    options.social === undefined
+      ? null
+      : await FakeOAuth.start({
+          ...(options.social.port === undefined ? {} : { port: options.social.port }),
+          redirectUris: Object.fromEntries(socialProviders.map((provider) => [provider, `${appOrigin}/api/auth/${provider}/callback`])),
+        })
   const server = createServer({
     database,
     masterKey,
@@ -442,6 +461,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
           outboxTiming: { ...(options.outboxFast === true ? E2E_OUTBOX_TIMING : {}), liveChatLookupPage: fakeGoogle.pageSize },
         }),
     ...(options.webDir === undefined ? {} : { webDir: options.webDir }),
+    ...(fakeOAuth === null ? {} : { socialLogin: fakeOAuth.setup({ providers: socialProviders }) }),
     ...(options.hostActionDelayMs === undefined ? {} : { hostActionDelayMs: options.hostActionDelayMs }),
     ...(options.generatorSpeed === undefined ? {} : { generatorSpeed: options.generatorSpeed }),
     ...(options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost }),
@@ -482,6 +502,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     fakeMeta,
     fakeWebcast,
     fakeCarrier,
+    fakeOAuth,
     listen: (port) =>
       new Promise((resolve, reject) => {
         const failed = (error: Error) => reject(error)
@@ -508,6 +529,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
       })
       await fakeMeta?.close()
       await fakeCarrier?.close()
+      await fakeOAuth?.close()
       await database.close()
       if (ownBackupDir) rmSync(backupDir, { recursive: true, force: true })
     },

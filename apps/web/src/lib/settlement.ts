@@ -3,6 +3,7 @@
 import { DEFAULT_SETTINGS, settle, type PaymentStatus, type SaleSettings, type SettlementEntry, type SettlementTotals } from '@livejjim/core'
 import type { Settlement } from '../api/types.ts'
 import type { ScopeData } from './scope-data.ts'
+import { settlementQuantities } from './sale-line.ts'
 import { paymentWord } from './words.ts'
 
 /** 정산이 쓰는 설정: 그날 첫 방송의 설정 스냅샷 (코어 settlementSettings와 같다) */
@@ -10,6 +11,9 @@ export function settlementSettings(data: ScopeData): SaleSettings {
   for (const broadcast of data.broadcasts.values()) if (broadcast.date === data.date) return broadcast.settings
   return DEFAULT_SETTINGS
 }
+
+/** 묶음마다 "상품 n개"의 n = 확정 찜 수량 합 (STL-03, D-O4-09) — 셈은 sale-line 하나(구매자 목록·포장·지난 구매와 같다). 열쇠 = settlementKey */
+export const quantityCounts = (data: ScopeData): Map<string, number> => settlementQuantities(data)
 
 /** 남은 금액 = 최종 − 받은 금액 (0 아래면 0) */
 export function remainingOf(settlement: Pick<Settlement, 'total' | 'received'>): number {

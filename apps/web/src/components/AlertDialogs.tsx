@@ -204,7 +204,7 @@ function ChooseVariantBody({ request, count, onClose }: { readonly request: Canc
                 <input type="radio" name={`cancel-choice-${request.claim}`} checked={chosen === claim.id} onChange={() => setChosen(claim.id)} />
                 <span>
                   {claim.variant ?? '옵션 없음'}
-                  {claim.qty > 1 ? ` ×${String(claim.qty)}` : ''} · {claimWord(api.data, claim)}
+                  {claim.qty > 1 ? ` ${String(claim.qty)}개` : ''} · {claimWord(api.data, claim)}
                   {left !== undefined && left.waitlist.length > 0 && claim.status === 'CONFIRMED' ? ` · 대기 ${String(left.waitlist.length)}명` : ''}
                 </span>
               </label>

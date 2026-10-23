@@ -18,11 +18,16 @@ import {
   renderProductLabel,
   type LabelSizeId,
 } from '../src/index.ts'
-import { collectSnapshot, type BaseSnapshot } from './base-snapshot.ts'
+import { STB_DATE_SIZES, baseCases, collectSnapshot, revertStbDateBox, type BaseSnapshot } from './base-snapshot.ts'
 import { expectCleanLayout, expectLayoutMatchesText, nodeEnv } from './helpers.ts'
 
 const env = nodeEnv()
 const BASE: BaseSnapshot = JSON.parse(readFileSync(join(import.meta.dirname, 'fixtures', 'base-o3.json'), 'utf8')) as BaseSnapshot
+// D-STB-01: 기본 상품 템플릿(50×20·30·40·50) 날짜 칸 x 292→290 · 폭 88→90으로 달라진 그림의 새 고정값(gen-stb-snapshot.ts).
+// BASE는 그대로 두고, 옛 기본 템플릿(revertStbDateBox)으로 그리면 BASE 전부가 점 하나까지 같아야 한다.
+const STB: Pick<BaseSnapshot, 'renders'> = JSON.parse(readFileSync(join(import.meta.dirname, 'fixtures', 'base-o3-stb.json'), 'utf8')) as Pick<BaseSnapshot, 'renders'>
+/** 지금 기본 템플릿으로 그린 그림의 고정값: BASE에 D-STB-01로 달라진 그림만 바꿔 넣은 것 */
+const NOW_RENDERS: Record<string, string> = { ...BASE.renders, ...STB.renders }
 
 const HONG = { kind: 'youtube', name: '홍길동' } as const
 const product = (fields: Record<string, unknown> = {}): Record<string, unknown> => ({ no: 22, name: '반팔티', price: 34000, date: '2026-10-25', buyer: HONG, ...fields })
@@ -60,8 +65,26 @@ describe('AC-O3-02·06 다육 회귀 — O3 전 그림·내용 키 그대로', (
     expect(Object.values(BASE.renders).filter((v) => !v.startsWith('error:'))).toHaveLength(570)
   })
 
-  it('지금 코드로 그린 1비트 그림이 O3 전과 점 하나까지 같다 (해시)', () => {
-    expect(now.renders).toStrictEqual(BASE.renders)
+  it('지금 코드로 옛 기본 템플릿(D-STB-01 전 날짜 칸)을 그린 1비트 그림이 O3 전과 점 하나까지 같다 (해시)', () => {
+    expect(collectSnapshot(env, undefined, revertStbDateBox).renders).toStrictEqual(BASE.renders)
+  })
+
+  it('D-STB-01 새 고정값은 네 크기 기본 상품 템플릿(과 그것에서 지은 사례 템플릿)의 그려진 그림만 바꾼다', () => {
+    const productIds = new Set(baseCases().filter((c) => c.kind === 'product').map((c) => c.id))
+    expect(Object.keys(STB.renders)).toHaveLength(215)
+    for (const [key, value] of Object.entries(STB.renders)) {
+      const [id = '', name = ''] = key.split(' ')
+      expect(productIds.has(id), key).toBe(true)
+      expect(name === 'case' || (STB_DATE_SIZES as readonly string[]).includes(name), key).toBe(true)
+      // 오류(DOES_NOT_FIT 등)였던 것·오류가 된 것은 없다 — 그림이 달라진 것뿐
+      expect(BASE.renders[key]?.startsWith('error:'), key).toBe(false)
+      expect(value.startsWith('error:'), key).toBe(false)
+      expect(value, key).not.toBe(BASE.renders[key])
+    }
+  })
+
+  it('지금 코드·지금 기본 템플릿으로 그린 1비트 그림이 고정값(BASE + D-STB-01 새 값)과 점 하나까지 같다 (해시)', () => {
+    expect(now.renders).toStrictEqual(NOW_RENDERS)
   })
 
   it('내용 키가 O3 전과 글자까지 같다', () => {
@@ -70,8 +93,10 @@ describe('AC-O3-02·06 다육 회귀 — O3 전 그림·내용 키 그대로', (
 
   it('qty: 1 · variant: null을 더해도, 포장의 정수 번호를 { no }로 바꿔도 같은 그림·같은 키다', () => {
     const neutral = collectSnapshot(env, (c) => withNeutralOptions(c.kind, c.data))
-    expect(neutral.renders).toStrictEqual(BASE.renders)
+    expect(neutral.renders).toStrictEqual(NOW_RENDERS)
     expect(neutral.keys).toStrictEqual(BASE.keys)
+    const neutralBefore = collectSnapshot(env, (c) => withNeutralOptions(c.kind, c.data), revertStbDateBox)
+    expect(neutralBefore.renders).toStrictEqual(BASE.renders)
   })
 
   it('검사를 통과한 옵션 없는 수량 1 데이터는 O3 전과 같은 칸만 있다', () => {

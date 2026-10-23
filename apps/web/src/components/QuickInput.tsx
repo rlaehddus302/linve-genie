@@ -43,6 +43,17 @@ export interface EditAsk {
   readonly product: string
   readonly name: string
   readonly price: number
+  /** 개수 칸이 1이 아니었으면 그 개수 (AC-ORD11-08) */
+  readonly stock?: number
+}
+
+/** 옵션 없는 상품의 "개수" 칸 (AC-ORD11-01·03·04, D-STK-01). 붙인 옵션이 있으면 없다(AC-ORD11-09) */
+export interface CountField {
+  readonly value: string
+  readonly onChange: (value: string) => void
+  /** "개수는 1~999개로 적어 주세요." */
+  readonly problem: string | null
+  readonly inputRef: RefObject<HTMLInputElement | null>
 }
 
 export interface QuickInputProps {
@@ -65,6 +76,8 @@ export interface QuickInputProps {
   /** "등록하기": 그 번호에 상품이 없어졌을 때 친 줄로 등록한다 (AC-S06-67) */
   readonly onAskRegister: (id: number) => void
   readonly error: ApiError | null
+  /** 개수 칸 (없으면 보이지 않는다 — 옵션을 붙였을 때) */
+  readonly count?: CountField
   /** 옵션 방송만: "옵션 추가" 버튼과 붙은 옵션 요약 (D-O2-05). 번호 방송에는 없다 */
   readonly options?: {
     readonly summary: string | null
@@ -132,6 +145,7 @@ export function QuickInput(props: QuickInputProps) {
           onChange={(event) => props.onChange(event.target.value)}
           onKeyDown={onKeyDown}
         />
+        {props.count !== undefined ? <CountInput id="quick-count" field={props.count} onEnter={() => props.onEnter(inputRef.current?.value ?? value)} /> : null}
         {props.options !== undefined ? (
           <button type="button" className="button" onClick={props.options.onOpen}>
             옵션 추가
@@ -143,6 +157,11 @@ export function QuickInput(props: QuickInputProps) {
           </span>
         ) : null}
       </div>
+      {props.count?.problem != null ? (
+        <p id="quick-count-problem" className="field-error" role="alert">
+          {props.count.problem}
+        </p>
+      ) : null}
       {props.options !== undefined && props.options.summary !== null ? (
         <div className="row quick-options" role="group" aria-label="붙은 옵션">
           <span role="status">{props.options.summary}</span>
@@ -156,7 +175,7 @@ export function QuickInput(props: QuickInputProps) {
         </div>
       ) : null}
       <p id="quick-help" className="hint quick-help">
-        번호 품종 가격을 적고 Enter. 번호만 적으면 그 상품을 찾아요.
+        번호 품종 가격을 적고 Enter. 번호만 적으면 그 상품을 찾아요.{props.count !== undefined ? ' 같은 번호로 여러 개를 팔면 옆 개수 칸을 바꿔요.' : ''}
       </p>
       {preview !== undefined ? (
         <div className="quick-preview" role="status" aria-label="찾은 상품">
@@ -249,6 +268,21 @@ export function QuickInput(props: QuickInputProps) {
                 onKeyDown={onFixKeyDown}
               />
             </label>
+            {props.count !== undefined ? (
+              <label className="field">
+                <span>개수</span>
+                <input
+                  className="input"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={props.count.value}
+                  aria-invalid={props.count.problem !== null}
+                  aria-describedby={props.count.problem !== null ? 'quick-count-problem' : undefined}
+                  onChange={(event) => props.count?.onChange(event.target.value)}
+                  onKeyDown={onFixKeyDown}
+                />
+              </label>
+            ) : null}
           </div>
           <div className="row">
             <button type="button" className="button button-primary" onClick={props.onFixSubmit}>
@@ -261,6 +295,34 @@ export function QuickInput(props: QuickInputProps) {
         </fieldset>
       ) : null}
     </div>
+  )
+}
+
+/** 빠른 입력 줄 옆 "개수" 칸: 숫자 자판으로 열리고 Enter는 빠른 입력 줄의 Enter와 같다 */
+function CountInput({ id, field, onEnter }: { readonly id: string; readonly field: CountField; readonly onEnter: () => void }) {
+  return (
+    <span className="quick-count">
+      <label htmlFor={id}>개수</label>
+      <input
+        id={id}
+        ref={field.inputRef}
+        className="input quick-count-input"
+        inputMode="numeric"
+        autoComplete="off"
+        enterKeyHint="enter"
+        value={field.value}
+        aria-invalid={field.problem !== null}
+        aria-describedby={field.problem !== null ? 'quick-count-problem' : undefined}
+        onFocus={(event) => event.currentTarget.select()}
+        onChange={(event) => field.onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
+          event.preventDefault()
+          onEnter()
+        }}
+      />
+      <span className="hint quick-count-unit">개</span>
+    </span>
   )
 }
 

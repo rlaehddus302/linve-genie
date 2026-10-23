@@ -105,9 +105,11 @@ class FakePacking {
     if (current === undefined) return apiError(400, 'BUYER_NOT_FOUND', '구매자를 다시 확인해 주세요.')
     let reply: Reply
     if (body.action === 'pack') {
-      const items = body.items as string[]
-      const now = current.items.map((item) => item.key)
-      if (items.length !== now.length || !items.every((key) => now.includes(key))) {
+      // 품목: { key, qty }(화면이 본 수량) 또는 키 글(수량 1로 읽는다 — 서버 D-O4-05와 같은 셈)
+      const sent = (body.items as (string | { key: string; qty: number })[]).map((item) => (typeof item === 'string' ? { key: item, qty: 1 } : item))
+      const items = sent.map((item) => item.key)
+      const qtyOf = new Map(current.items.map((item) => [item.key, item.qty ?? 1]))
+      if (items.length !== qtyOf.size || !sent.every((item) => qtyOf.get(item.key) === item.qty)) {
         reply = { status: 409, body: { error: { code: 'ITEMS_CHANGED', message: '그 사이에 구매 내역이 바뀌었어요. 다시 확인해 주세요.' }, entry: current } }
       } else {
         this.records.set(buyer, { phase: 'PACKED', packed: [...items], invoice: null, ids: Object.fromEntries(current.items.map((x) => [x.key, { id: x.id ?? '', name: x.name }])) })
@@ -212,7 +214,8 @@ describe('체크리스트·포장 완료 (AC-I2-36)', () => {
     fireEvent.click(pack)
     await flush(10)
     expect(packing.posts).toHaveLength(1)
-    expect(packing.posts[0]).toMatchObject({ buyer: 'c1', action: 'pack', items: ['b1/15', 'b1/28'] })
+    // 화면 품목마다 { key, qty }, 화면 순서 (D-O4-05, AC-O4-21 — 키 글만 보내던 I2 모양을 바꿨다)
+    expect(packing.posts[0]).toMatchObject({ buyer: 'c1', action: 'pack', items: [{ key: 'b1/15', qty: 1 }, { key: 'b1/28', qty: 1 }] })
     expect(typeof packing.posts[0]?.requestId).toBe('string')
     expect(checklist().textContent).toContain('포장 완료로 적었어요.')
     fireEvent.click(within(checklist()).getByRole('button', { name: '다음 구매자' }))

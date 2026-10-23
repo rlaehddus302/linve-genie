@@ -13,6 +13,7 @@ import {
   discardWord,
   jobNameWord,
   jobNumberWord,
+  labelOptionWords,
   printErrorMessage,
   reconnectThereMessage,
 } from '../lib/print-words.ts'
@@ -119,6 +120,7 @@ export function JobLine({ job }: { readonly job: JobView }) {
       <p className="job-main">
         <strong>{jobNumberWord(job)}</strong>
         {name !== '' ? <span> {name}</span> : null}
+        {job.kind === 'product' && labelOptionWords(job.data) !== '' ? <span>{labelOptionWords(job.data)}</span> : null}
         <span> · {buyerWord(job.label.buyer)}</span>
         <span> · {KIND_WORD[job.kind]}</span>
         <span> · {REASON_WORD[job.reason]}</span> <span className={job.status === 'PRINTING' ? 'tag tag-printing' : 'tag'}>{job.word}</span>

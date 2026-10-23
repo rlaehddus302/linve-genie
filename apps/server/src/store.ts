@@ -207,7 +207,10 @@ export interface SessionRow {
   readonly accountName: string | null
 }
 
-export async function insertSession(db: Db, row: { tokenHash: string; sellerId: string; accountId: string; now: Date; expiresAt: Date }): Promise<void> {
+/** 세션을 만든 방법 (L1, D-L1-03) */
+export type SessionMethod = 'PASSWORD' | 'GOOGLE' | 'KAKAO' | 'NAVER'
+
+export async function insertSession(db: Db, row: { tokenHash: string; sellerId: string; accountId: string; now: Date; expiresAt: Date; method?: SessionMethod }): Promise<void> {
   await db.insert(sessions).values({
     tokenHash: row.tokenHash,
     sellerId: row.sellerId,
@@ -215,6 +218,7 @@ export async function insertSession(db: Db, row: { tokenHash: string; sellerId: 
     createdAt: row.now,
     expiresAt: row.expiresAt,
     extendedAt: row.now,
+    method: row.method ?? 'PASSWORD',
   })
 }
 

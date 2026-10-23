@@ -157,6 +157,8 @@ export type ErrorCode =
   | 'REHEARSAL_PARCEL'
   | 'REQUEST_BUSY'
   | 'WAYBILL_TOO_LONG'
+  // L1 간편 로그인
+  | 'LOGIN_METHOD_LAST'
 
 export interface ErrorBody {
   readonly error: {

@@ -844,10 +844,8 @@ function RecentSms({ api }: { readonly api: ConsoleApi }) {
           return (
             <li key={claim.id} className="claim-row">
               <p>
-                <strong>
-                  {claim.no}번{claimOptionWords(claim)}
-                </strong>{' '}
-                {name} · {api.names.name(claim.currentBuyer)} · {kstStamp(claim.rankTime, claim.rankMinute)} ·{' '}
+                <strong>{claim.no}번</strong> {name}
+                {claimOptionWords(claim)} · {api.names.name(claim.currentBuyer)} · {kstStamp(claim.rankTime, claim.rankMinute)} ·{' '}
                 <span className="tag">{claimWord(api.data, claim)}</span>
                 {api.waiting.claims.has(claim.id) ? <span className="tag tag-waiting">보내기 전</span> : null}
               </p>

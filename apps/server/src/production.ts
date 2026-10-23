@@ -11,6 +11,8 @@
 //   팝빌 연동 키(LIVEJJIM_POPBILL_LINK_ID·LIVEJJIM_POPBILL_SECRET_KEY, 선택 LIVEJJIM_POPBILL_TEST_BED=true)가 둘 다 있을 때만 실제 팝빌 전송을 쓴다 — 없으면 계좌조회 원천을 만들 수 없다.
 // - 택배 자동 접수(T1, D-T1-02): 운영 기동에는 택배사 어댑터가 없다(가짜 택배사는 E2E 기동·서버 시험만 — 설정에 "우체국 택배 — 준비 중"만 보인다).
 //   우체국 택배 연동 키(LIVEJJIM_EPOST_API_KEY — 계약 뒤 실제 어댑터를 만든 다음에 쓴다)는 값이 있는지만 본다: 있으면 "아직 쓰지 않음" 경고를 남긴다(값은 읽지 않는다).
+// - 간편 로그인(L1, D-L1-07): LIVEJJIM_LOGIN_GOOGLE_*·LIVEJJIM_LOGIN_KAKAO_*·LIVEJJIM_LOGIN_NAVER_*. 값이 모두 있는 공급자만 켜고, 반만 적었으면 기동하지 않는다.
+//   공급자 주소는 고정값(https)이다 — 주소를 바꾸는 환경 변수는 없다(가짜 OAuth 서버는 시험·E2E·연습 기동만).
 // - 오류 문장에 환경변수 값을 넣지 않는다.
 import { readBillingEnv } from './billing/config.ts'
 import { noneIssuer } from './billing/documents.ts'
@@ -24,6 +26,7 @@ import { popbillHttpTransport, readPopbillKeys } from './deposit/popbill.ts'
 import type { ServerOptions } from './server.ts'
 import { readTikTokSettings } from './tiktok/index.ts'
 import { TIKTOK_LIBRARY_ENV_NAMES } from './tiktok-live/live.ts'
+import { readSocialLoginEnv } from './social/providers.ts'
 
 export type ProductionOptions = { readonly ok: true; readonly options: ServerOptions } | { readonly ok: false; readonly message: string }
 
@@ -57,6 +60,8 @@ export function productionServerOptions(
     publicKeys: enabled ? { storeId: portone.storeId, channelKey: portone.channelKey } : null,
     test: null,
   }
+  const social = readSocialLoginEnv(env)
+  if (!social.ok) return { ok: false, message: social.message }
   const libraryEnv = TIKTOK_LIBRARY_ENV_NAMES.filter((name) => (env[name] ?? '').trim() !== '')
   const popbill = readPopbillKeys(env)
   const warnings = [...(instagram.warning === undefined ? [] : [instagram.warning]), ...((env['LIVEJJIM_EPOST_API_KEY'] ?? '').trim() === '' ? [] : (['PARCEL_CARRIER_NOT_READY'] as const))]
@@ -74,6 +79,7 @@ export function productionServerOptions(
       billing,
       // 택배사 어댑터 없음 (T1 — 가짜 택배사는 고를 수 없고 바깥으로 나가는 택배사 연결이 없다)
       parcel: { carriers: {} },
+      socialLogin: { providers: social.providers },
     },
   }
 }

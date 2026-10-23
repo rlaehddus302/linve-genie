@@ -6,6 +6,7 @@ import { isApiError, type ApiError } from '../api/client.ts'
 import type { Product } from '../api/types.ts'
 import { boardProducts, cancelRequestCount, formatWon, productSlots } from '../lib/derive.ts'
 import { ErrorNote } from './ErrorNote.tsx'
+import { stockLeftWords } from '../lib/stock.ts'
 import { ALERT_WORD, PRODUCT_STATUS_WORD } from '../lib/words.ts'
 import { consoleLabels, useConsoleApi } from './console-context.ts'
 import { boardLabelWords } from './LabelParts.tsx'
@@ -118,6 +119,7 @@ export function ProductSummary({ product }: { readonly product: Product }) {
       <strong>{product.no}번</strong> <span>{nameOf(product)}</span> <span>{formatWon(product.price)}</span>{' '}
       <span className={`tag status-${product.status}`}>{PRODUCT_STATUS_WORD[product.status]}</span> <span>1등 {winners}</span>{' '}
       <span>대기 {waitCount(product)}명</span>
+      {stockLeftWords(product) !== null ? <span> {stockLeftWords(product)}</span> : null}
       {product.hasOptions ? <span> {variantTotals(product)}</span> : null}
     </p>
   )
@@ -146,6 +148,7 @@ function CurrentBody({ product, onOpen }: { readonly product: Product; readonly 
         </p>
         <p>1등: {winners}</p>
         <p>대기 {waitCount(product)}명</p>
+        {stockLeftWords(product) !== null ? <p className="stock-left">{stockLeftWords(product)}</p> : null}
         {product.hasOptions ? <p>{variantTotals(product)}</p> : null}
         <button type="button" className="button" onClick={() => onOpen(product.key)}>
           {product.no}번 자세히
@@ -188,6 +191,7 @@ const BoardItem = memo(function BoardItem({ product, onOpen }: { readonly produc
         <span className={`tag status-${product.status}`}>{PRODUCT_STATUS_WORD[product.status]}</span>
         <span>1등 {winners}</span>
         <span>대기 {waitCount(product)}</span>
+        {stockLeftWords(product) !== null ? <span>{stockLeftWords(product)}</span> : null}
         {product.hasOptions ? <span>{variantTotals(product)}</span> : null}
         {productSlots(product).conflict ? <span className="tag tag-alert">{ALERT_WORD.conflict}</span> : null}
         {requests > 0 ? <span className="tag tag-alert">{ALERT_WORD.cancelRequest}</span> : null}
