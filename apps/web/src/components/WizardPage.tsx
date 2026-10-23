@@ -39,6 +39,9 @@ const RULE_LINES: readonly { readonly label: string; readonly key: RuleKey }[] =
   { label: '무료배송 기준', key: 'shipping.freeThreshold' },
 ]
 
+/** 4/5에서 라벨을 끈 뒤 5/5 위 한 줄 (U-PL1B-05) */
+export const LABELS_OFF_DONE = '라벨 기능을 껐어요. 설정에서 다시 켤 수 있어요.'
+
 export const REHEARSAL_INVITE = '리허설로 연습해 볼까요? 가짜 채팅으로 상품 등록부터 1등 확정까지 해 볼 수 있어요. 진짜 유튜브에는 아무것도 올라가지 않아요.'
 
 export interface WizardPageProps {
@@ -74,6 +77,8 @@ export function WizardPage({ route, navigate, shopName, onRenamed }: WizardPageP
   const [error, setError] = useState<ApiError | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const labels = useLabelsEnabled()
+  /** 4/5에서 "라벨을 쓰지 않아요"로 껐다 — 5/5 위에 한 줄 알린다 (U-PL1B-05) */
+  const [turnedOff, setTurnedOff] = useState(false)
   /** 저장하지 않은 값이 있는 칸 — 칸이 그려질 때 알리고, 저장하면 그 자리에서, 사라지면(단계를 옮김) 뺀다 (SA-I3-010) */
   const unsaved = useRef(new Set<string>())
   const markUnsaved = useCallback<MarkUnsaved>((key, dirty) => {
@@ -213,7 +218,17 @@ export function WizardPage({ route, navigate, shopName, onRenamed }: WizardPageP
         ) : null}
         {step === PRINTER_STEP ? (
           // "라벨을 쓰지 않아요"(D-PL1-06, AC-PL1B-17): 끄기가 저장되면 바로 5/5 — 끄는 동안 "다음"을 잠근다
-          <PrinterStep onLabelsOff={() => go(5)} buttons={(busy) => <StepButtons step={step} onPrev={() => move(YOUTUBE_STEP)} onNext={() => move(5)} onLater={dismiss} nextBusy={busy} />} />
+          <PrinterStep
+            onLabelsOff={() => {
+              setTurnedOff(true)
+              go(5)
+            }}
+            buttons={(busy) => <StepButtons step={step} onPrev={() => move(YOUTUBE_STEP)} onNext={() => move(5)} onLater={dismiss} nextBusy={busy} />} />
+        ) : null}
+        {step === 5 && turnedOff && labels === false ? (
+          <p className="notice" role="status" data-tone="success">
+            {LABELS_OFF_DONE}
+          </p>
         ) : null}
         {step === 5 ? <RehearsalStep navigate={navigate} onFinish={() => void finish()} onPrev={() => move(skipPrinter ? YOUTUBE_STEP : PRINTER_STEP)} onLater={dismiss} busy={closing} /> : null}
       </section>

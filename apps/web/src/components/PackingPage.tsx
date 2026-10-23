@@ -562,7 +562,8 @@ function PackingChecklist({ date, entry, name, labelSignature, showBack, onBack,
         </p>
       ) : null}
 
-      <PackingLabelSection date={date} buyer={entry.buyer} empty={entry.items.length === 0} signature={labelSignature} />
+      {/* 구매자·날짜마다 새로 그린다 — 앞 구매자의 늦은 출력 결과·잠금·그림이 다음 구매자 칸에 남지 않게 (RA-PL1B-02) */}
+      <PackingLabelSection key={`${date}|${entry.buyer}`} date={date} buyer={entry.buyer} empty={entry.items.length === 0} signature={labelSignature} />
 
       {ask === 'ship' || ask === 'fixInvoice' ? (
         <ShipDialog

@@ -35,7 +35,12 @@ export function switchEntryWord(entry: LabelSwitchEntry): string {
 /** 라벨 기능의 지금 상태 (글자로) */
 export const switchStateWord = (enabled: boolean): string => `라벨 기능: ${enabled ? '켜짐' : '꺼짐'}`
 
-export function LabelSwitchSection() {
+export interface LabelSwitchSectionProps {
+  /** `/settings/labels`로 열었다 (라벨 꺼짐 안내의 "설정" 링크, U-PL1B-06): 불러오면 이 칸이 보이게 내리고 제목에 포커스 — 한 번만 */
+  readonly focus?: boolean
+}
+
+export function LabelSwitchSection({ focus = false }: LabelSwitchSectionProps = {}) {
   const titleId = useId()
   const historyId = useId()
   const api = usePrintApi()
@@ -52,6 +57,17 @@ export function LabelSwitchSection() {
   const button = useRef<HTMLButtonElement>(null)
   /** 포커스를 버튼으로 돌려놓을 차례 (창이 닫히고·버튼이 다시 눌릴 수 있게 된 뒤) */
   const [refocus, setRefocus] = useState(0)
+  const title = useRef<HTMLHeadingElement>(null)
+  const focused = useRef(false)
+  const loaded = settings !== null || snapshot.phase === 'error'
+
+  useEffect(() => {
+    const element = title.current
+    if (!focus || !loaded || focused.current || element === null) return
+    focused.current = true
+    if (typeof element.scrollIntoView === 'function') element.scrollIntoView({ block: 'start' })
+    element.focus()
+  }, [focus, loaded])
 
   useEffect(() => {
     if (refocus > 0) button.current?.focus()
@@ -97,7 +113,7 @@ export function LabelSwitchSection() {
 
   return (
     <section className="card stack label-switch" aria-labelledby={titleId}>
-      <h2 id={titleId} className="section-title">
+      <h2 id={titleId} ref={title} tabIndex={-1} className="section-title">
         라벨
       </h2>
       {settings === null ? (

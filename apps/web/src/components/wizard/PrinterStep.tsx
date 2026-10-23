@@ -6,7 +6,10 @@
 //   누르면 확인 창 없이 `PUT /api/settings/labels { enabled: false }` 하나(설정 화면의 끄기와 같은 저장 — 같은 바꾼 기록·같은 알림).
 //   보내는 동안 이 버튼과 "다음"이 잠긴다(buttons에 busy를 넘긴다). 성공하면 onLabelsOff(본문이 5/5로 옮긴다), 실패하면 이 단계에 머물고 문장을 보인다.
 //   "나중에 할게요"(마법사를 닫는다)와 다르다 — 이 버튼은 라벨 기능을 끈다.
-import { useState, type ReactNode } from 'react'
+// - U-PL1B-05: 버튼 아래 "누르면 라벨을 끄고 다음 단계로 가요."(AC-PL1B-16의 안내 문장은 그 아래 그대로).
+// - U-PL1B-04: 실패 상자는 버튼 줄 바로 아래 — 생기면 보이게 내리고(휴대폰 아래 메뉴 막대 위), 상자 안 "다시 시도"(잠시 뒤 다시 하면 되는 실패).
+//   그 아래 단계 버튼 줄도 메뉴 막대에 가리지 않게 여백(scroll-margin)을 둔다. 두 번 보냄 막기는 누르자마자 바뀌는 표시(ref)로.
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { isApiError, type ApiError } from '../../api/client.ts'
 import { RequestError } from '../ErrorNote.tsx'
 import { LabelsOffNote } from '../LabelsOff.tsx'
@@ -21,6 +24,8 @@ export const PRINTER_STEP_HERE = '여기서 바로 연결하고 테스트 인쇄
 /** 라벨을 쓰지 않는 판매자의 길 (D-PL1-06) */
 export const NO_LABELS_BUTTON = '라벨을 쓰지 않아요'
 export const NO_LABELS_HINT = '라벨 없이 팔아요. 설정에서 언제든 다시 켤 수 있어요.'
+/** 누르면 무엇이 되는지 (U-PL1B-05) */
+export const NO_LABELS_ACTION = '누르면 라벨을 끄고 다음 단계로 가요.'
 
 export interface PrinterStepProps {
   /** 라벨 끄기가 저장된 뒤 (본문이 다음 단계로 옮긴다) */
@@ -34,16 +39,30 @@ export function PrinterStep({ onLabelsOff, buttons }: PrinterStepProps = {}) {
   const api = usePrintApi()
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState<ApiError | null>(null)
+  const sending = useRef(false)
+  const errorBox = useRef<HTMLDivElement>(null)
+
+  // 실패 상자가 생기면 보이게 가장 적게 내린다 (U-PL1B-04): 먼저 아래 단계 버튼 줄까지 내리고(둘 다 들어가면 둘 다 보인다), 상자가 반드시 보이게 한 번 더
+  useEffect(() => {
+    const element = errorBox.current
+    if (failed === null || element === null || typeof element.scrollIntoView !== 'function') return
+    const row = element.closest('section')?.querySelector('.wizard-buttons')
+    if (row instanceof HTMLElement) row.scrollIntoView({ block: 'nearest' })
+    element.scrollIntoView({ block: 'nearest' })
+  }, [failed])
 
   const turnOff = async () => {
-    if (api === null || busy) return
+    if (api === null || sending.current) return
+    sending.current = true
     setBusy(true)
     setFailed(null)
     try {
       await api.store.saveLabelsEnabled(false)
+      sending.current = false
       setBusy(false)
       onLabelsOff?.()
     } catch (caught) {
+      sending.current = false
       setBusy(false)
       if (!isApiError(caught)) throw caught
       setFailed(caught)
@@ -76,8 +95,13 @@ export function PrinterStep({ onLabelsOff, buttons }: PrinterStepProps = {}) {
                     {NO_LABELS_BUTTON}
                   </button>
                 </div>
+                {failed !== null ? (
+                  <div ref={errorBox} className="wizard-no-labels-error">
+                    <RequestError error={failed} onRetry={() => void turnOff()} />
+                  </div>
+                ) : null}
+                <p className="hint">{NO_LABELS_ACTION}</p>
                 <p className="hint">{NO_LABELS_HINT}</p>
-                {failed !== null ? <RequestError error={failed} /> : null}
               </div>
             ) : null}
           </>

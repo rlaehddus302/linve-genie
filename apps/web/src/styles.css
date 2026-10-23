@@ -1744,6 +1744,32 @@ html:has(.sms-submit-bar) {
   scroll-margin-bottom: 1rem;
 }
 
+/* 마법사 4/5 "라벨을 쓰지 않아요" 실패 상자: 생길 때 보이게 내리며, 아래 단계 버튼 줄까지 함께 보이게 여백 (U-PL1B-04) */
+.wizard-no-labels-error {
+  scroll-margin-bottom: 1rem;
+}
+
+.wizard-buttons {
+  scroll-margin-bottom: 1rem;
+}
+
+/* 문장 안 링크 (라벨 꺼짐 안내의 "설정", U-PL1B-06): 글자는 문장 그대로, 누를 자리는 44px */
+.inline-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0 0.5rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
+}
+
+/* 출력 안내(출력 기기 없음·이미 기다리는 중): 할 일과 라벨 화면 링크 (U-PL1B-02) */
+.packing-print-note {
+  margin-bottom: 0;
+}
+
 /* ── 휴대폰 (375px 기준, AC-S06-02·61) ───────────────────── */
 
 @media (max-width: 47.99rem) {
@@ -1753,6 +1779,15 @@ html:has(.sms-submit-bar) {
 
   /* 아래 메뉴 막대(약 55px) 뒤에 깔리지 않게 (U-PL1B-01) */
   .packing-print-result {
+    scroll-margin-bottom: calc(5rem + env(safe-area-inset-bottom));
+  }
+
+  /* 아래 메뉴 막대 뒤에 깔리지 않게 (U-PL1B-04) */
+  .wizard-no-labels-error {
+    scroll-margin-bottom: calc(5rem + env(safe-area-inset-bottom));
+  }
+
+  .wizard-buttons {
     scroll-margin-bottom: calc(5rem + env(safe-area-inset-bottom));
   }
 
@@ -1992,6 +2027,7 @@ html:has(.sms-submit-bar) {
 }
 
 .settings-section h2:focus,
+.label-switch h2:focus,
 .wizard-page h2:focus {
   outline: 3px solid #0b57d0;
   outline-offset: 2px;

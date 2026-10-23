@@ -171,7 +171,7 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
         <ShopForm shopName={shopName} onRenamed={onRenamed} />
       </SettingsSection>
       {settings !== null ? <RuleSections settings={settings} onSaved={setSettings} youtube={youtube} /> : null}
-      <LabelSwitchSection />
+      <LabelSwitchSection focus={route.section === 'labels' && (settings !== null || loadError !== null)} />
       <SettingsSection title="택배" focus={route.section === 'parcel' && (settings !== null || loadError !== null)}>
         <ParcelSettingsSection />
       </SettingsSection>

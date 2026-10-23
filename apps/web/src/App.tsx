@@ -46,6 +46,7 @@ import { WizardPage } from './components/WizardPage.tsx'
 import { takeGoogleReturn } from './lib/google-return.ts'
 import { parseLoginResult, resultMessage, stripLoginParams, type LoginResult } from './lib/social-login.ts'
 import { LEAVE_QUESTION, LEAVE_TITLE, LeaveGuardContext, type LeaveGuard } from './lib/leave-guard.ts'
+import { NavigateContext } from './components/AppLink.tsx'
 import { historyDepth, isGuardEntry, isPublicRoute, pushGuardEntry, routePath, useRoute, type BillingRoute, type Navigate, type NavigateOptions, type Route } from './lib/router.ts'
 import { SERVICE_NAME } from './brand.ts'
 
@@ -330,17 +331,19 @@ export function App() {
   )
   return (
     <LeaveGuardContext.Provider value={register}>
-      {/* 출력 기록·이 기기의 프린터(PrintProvider)·입금 확인 신호(DepositProvider)·요금 기능 설정(BillingConfigProvider)은 판매자 계정만 —
-          보조자는 출력·입금 확인·요금을 쓰지 않는다(그 API는 403, SYS-04). 보조자 화면은 다른 화면의 데이터를 부르지 않는다(AC-I3-63) */}
-      {assistant ? (
-        shell
-      ) : (
-        <BillingConfigProvider>
-          <PrintProvider>
-            <DepositProvider>{shell}</DepositProvider>
-          </PrintProvider>
-        </BillingConfigProvider>
-      )}
+      <NavigateContext.Provider value={navigate}>
+        {/* 출력 기록·이 기기의 프린터(PrintProvider)·입금 확인 신호(DepositProvider)·요금 기능 설정(BillingConfigProvider)은 판매자 계정만 —
+            보조자는 출력·입금 확인·요금을 쓰지 않는다(그 API는 403, SYS-04). 보조자 화면은 다른 화면의 데이터를 부르지 않는다(AC-I3-63) */}
+        {assistant ? (
+          shell
+        ) : (
+          <BillingConfigProvider>
+            <PrintProvider>
+              <DepositProvider>{shell}</DepositProvider>
+            </PrintProvider>
+          </BillingConfigProvider>
+        )}
+      </NavigateContext.Provider>
     </LeaveGuardContext.Provider>
   )
 }

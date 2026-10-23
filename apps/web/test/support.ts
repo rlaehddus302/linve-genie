@@ -270,3 +270,11 @@ export function connection(patch: Partial<YoutubeConnection> = {}): YoutubeConne
 
 /** 유튜브 연동을 준비하지 않은 서버 (503) */
 export const youtubeNotConfigured: Reply = { status: 503, body: { error: { code: 'YOUTUBE_NOT_CONFIGURED', message: '유튜브 연동을 준비하지 않은 서버예요.' } } }
+
+/**
+ * 글자 찾기: 문장 안에 링크가 끼어 글자가 여러 조각이어도(예: "라벨 쓰지 않음 — [설정]에서 켤 수 있어요.", U-PL1B-06) 그 문장 전체를 담은 가장 안쪽 요소를 찾는다.
+ * 글자는 한 글자도 다르지 않아야 한다(공백 정리 없음).
+ */
+export function fullText(text: string): (content: string, element: Element | null) => boolean {
+  return (_content, element) => element !== null && element.textContent === text && !Array.from(element.children).some((child) => child.textContent === text)
+}

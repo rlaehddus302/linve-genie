@@ -87,3 +87,14 @@
   - AC-PL1B-26: 화면은 단위 시험과 같은 동작 — 카드의 "넣기"·"넣지 않기" 버튼, 카운트다운 글 없음.
 - **ux**: 포장 모드 출력 버튼은 "라벨 PDF" 옆 보통 버튼, 접수·거절 문장은 버튼 줄 바로 아래 — 생기면 보이게 내리고 휴대폰은 메뉴 막대 위에 멈춘다(U-PL1B-01; mo-16·mo-13·pc-16 다시 찍어 확인 부탁). 마법사 버튼은 연결 칸 아래·단계 버튼 위, "나중에 할게요"는 단계 버튼 줄에 따로.
 - **합치는 트랙(AC-PL1B-14)**: 위 "포장 모드" 마지막 줄.
+
+## dev-web — 감사·사용성 지적 고침 (RA-PL1B-02, TE-PL1B-001, U-PL1B-02~06)
+- **RA-PL1B-02**: `PackingPage`가 `PackingLabelSection`을 `key={date|buyer}`로 그린다(구매자·날짜마다 새로). `usePackingPrint`는 보낼 때의 날짜·구매자를 기억해 응답이 왔을 때 지금 값과 같고 칸이 살아 있을 때만 결과·잠금을 반영한다. 정산 자세히(`LabelParts` PackingBody)도 같은 견줌.
+- **TE-PL1B-001**: 두 번 보냄 막기를 `useRef`로(포장 모드·정산 자세히·마법사 "라벨을 쓰지 않아요" 모두). 같은 act 안의 두 클릭 → 요청 하나.
+- **U-PL1B-02**: 접수 뒤 대기열 요약의 출력 기기가 없으면(`overview.queue.device === null`, 모르면 말하지 않음) 접수 문장(`role=status`, 글자 그대로) 뒤 `role=note` 상자에 "출력 기기가 아직 없어 기다리는 중이에요. 라벨 화면에서 '이 기기에서 출력'을 눌러 주세요." + 링크 "라벨 화면으로"(`/labels`). `PRINT_IN_PROGRESS`는 빨간 상자 대신 `role=note data-tone=info` 상자에 서버 문장 그대로 + 할 일(기기 없음: 위 문장 / 있음: "출력 기기에서 곧 출력돼요. 라벨 화면에서 출력 대기열을 볼 수 있어요.") + 링크. 서버 문장은 바꾸지 않았다.
+- **U-PL1B-03**: 그 밖의 거절은 `RequestError`(영어 코드 없음, 잠시 뒤 다시 하면 되는 실패는 상자 안 "다시 시도" = 같은 send).
+- **U-PL1B-04**: 마법사 실패 상자(`.wizard-no-labels-error`)는 버튼 줄 바로 다음. 생기면 단계 버튼 줄 → 상자 순으로 `scrollIntoView(nearest)`, `scroll-margin-bottom` 휴대폰 `calc(5rem + env(safe-area-inset-bottom))`(상자·`.wizard-buttons`). 상자 안 "다시 시도".
+- **U-PL1B-05**: AC-PL1B-16이 따옴표로 정한 "라벨 없이 팔아요. 설정에서 언제든 다시 켤 수 있어요."는 그대로 두고, 그 위에 "누르면 라벨을 끄고 다음 단계로 가요." 한 줄을 더했다(대체가 아니라 덧붙임). 4/5에서 끈 뒤 5/5 제목 바로 아래 `role=status` "라벨 기능을 껐어요. 설정에서 다시 켤 수 있어요."(라벨이 이미 꺼진 채 5/5에 오면 없음). 버튼 이름 "라벨을 쓰지 않아요" 그대로.
+- **U-PL1B-06**: `LabelsOffNote`의 문장 안 "설정"이 `/settings/labels` 링크(접근 이름 "설정의 라벨 칸 열기" — 메뉴 "설정" 링크와 이름이 겹치지 않게; 문장 글자는 그대로). 따로 "설정" 버튼을 보이는 라벨 화면은 문장 안 링크 없음. 새 주소 `/settings/labels`(`SettingsSection` 'labels') — 설정 화면이 불러오면 "라벨" 칸 제목으로 내리고 포커스(한 번). 앱 안 이동은 새 `components/AppLink.tsx`의 `NavigateContext`(App이 제공) — 이동 함수를 받지 않은 조각에서도 쓴다.
+- 단위 시험: 문장 안 링크 때문에 testing-library `getByText(OFF_NOTE)`(자기 글자 조각만 봄)가 못 찾아 `test/support.ts`에 `fullText()`(그 문장 전체를 담은 가장 안쪽 요소, 글자 한 자도 다르지 않게)를 두고 네 파일의 `ByText(OFF_NOTE)`를 바꿨다(기대 글자 같음). Playwright `getByText(…, { exact: true })`는 요소 전체 글자로 찾아 영향 없음.
+- **test-e2e에게**: 출력 기기 없는 시험 계정의 포장 모드 접수 뒤에 `role=note` 상자가 하나 더 생긴다(접수 `role=status` 글자는 그대로). PRINT_IN_PROGRESS 문장은 이제 `role=alert`가 아니라 `role=note` 안. 라벨 꺼짐 안내 안에 `link "설정의 라벨 칸 열기"`.
