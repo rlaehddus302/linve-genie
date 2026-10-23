@@ -17,6 +17,8 @@
 10. **TD-V2-002 고침**: 칸 이름(`품종`·`품종은`·`이름은`) 뒤 글이 막는 낱말·지시어를 담거나 가격·수로 읽히면 품종으로 두지 않는다(S15 `하얀 별`은 그대로).
 11. **test-domain에게**: `tests/adversarial/v2/correction-variety-attacks.test.ts`의 `"18번 라운 만이천원" → 라울 (LOW)`는 D-V2-12(사례 S8 `HIGH`) 이전 기대라 지금 실패한다. 별칭 없는 사전으로 읽는 경우만 `LOW`다.
 
+- **(D-V2-16~18 구현, 2026-10-24)** 끊기는 새 결과를 `splitCorrections`로 나눈 첫 조각(start=null)의 번호만 본다 — 모은 글에 번호가 없어도 다름. 정정 표시 예외는 없앴다(표시 뒤 번호는 첫 조각 밖이라 붙음, S13). 칸 이름 조각은 R-17로 번호·품종·가격을 모두 읽고 그 칸만 칸 이름 규칙(`번호는`의 `번` 없는 수, `품종`의 사전 밖 글 = `readSentence().rest` 번호 표시·가격 묶음 토큰을 뺀 나머지)으로 덧댄다. 배우기 막기: `canLearnAlias(heard, name, { history?, base? })`·`learnAlias(list, input, { history?, base? })` — 생략하면 기본 사전만 본다. **web에게**: `#learn`에서 판매 이력 이름을 `{ history }`로 넘겨 달라(준비한 음성 사전은 배운 별칭이 섞여 넘기지 않는다). `prepareVoiceDictionary`는 사전 이름·별칭과 같은 모양의 배운 별칭을 버린다(사전이 이김). `readLearnedAliases`도 기본 사전에 있는 들은 말은 버린다.
+
 ## dev-web (apps/web)
 
 스펙이 비어 있거나 겹치는 곳에서 고른 것 (판매자에게 안전한 쪽):
