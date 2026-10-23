@@ -48,3 +48,10 @@
 - U-I5-01 (2) 화면 쪽 안전망: 3장 규칙(D-204)으로 끝에서 넘긴 카드가 닫히면 음성 칸에 알림(role=alert) `새 카드에 밀려 끝까지 못 들은 카드(15번 핑크프릴 15,000원)를 닫았어요. 맞는 상품이면 빠른 입력으로 등록해 주세요.` + "알겠어요"(누를 때까지 남음). 스냅샷 `flushedClosed`. 보통 카드가 밀려 닫히는 것은 그대로 알리지 않는다.
 - **spec-keeper 요청**: "넘긴 카드는 넘침 규칙으로 닫지 않는다"는 D-I5-02 "카드의 touched는 바꾸지 않는다(3장 넘침 닫기 규칙은 보통 카드와 같다)"와 부딪혀 구현하지 않았다. 바꾸려면 `packages/voice/src/card.ts` `addCard`(dev-device)에서 `flushedAtEnd` 카드를 손댄 카드처럼 건너뛰게 하는 결정이 필요하다.
 - U-I5-02: 폭 768px 미만에서 새 카드가 맨 앞에 생기면(고치기 칸이 열려 있지 않을 때) 그 카드가 아래 메뉴 막대 위·고정 영역 아래에 다 보이게 조금만 내린다(`revealCard`, 이미 보이면 그대로). 홈 화면 앱 한 줄은 카드 아래로 옮겼다. 고지 줄(16px)은 393px에서 두 줄 그대로(글자 크기 규칙). WebKit 320×568·393×659(홈 화면 앱)에서 새 카드의 "등록"이 메뉴 막대 위에 보이고 빠른 입력칸도 보이는 것을 손으로 확인했다 — E2E로 묶어 두면 좋다(test-e2e).
+
+## dev-device 감사 2 반영 (D-I5-12·13·14·17·18)
+- `SPEECH_ERROR_MESSAGES`: `PERMISSION_DENIED`·`SERVICE_OFF`·`RESTART_BLOCKED`가 `\n`으로 나뉜 여러 줄 문장(D-I5-12·13). 화면은 `\n`에서 나눠 줄마다 블록으로 보인다.
+- `WebSpeechOptions.countAllEnds?: boolean`(기본 false, D-I5-18): true면 저절로 끝난 것을 모두 한도에 센다. 화면이 `navigator.standalone === true`일 때 켠다.
+- 한도에 세는 끝남: 빨리 끝남(연 지 2초 안) · `network` 오류 뒤 끝남(연 시간 무관, D-I5-17) · `countAllEnds`면 모두. 세는 끝남 뒤에만 `RESTARTING`을 알린다(D-I5-14). 세지 않은 끝남은 상태 `LISTENING` 그대로 새 객체를 연다.
+- 한도에 걸린 끝남 바로 앞이 `network`면 `CONNECTION_FAILED`, 아니면 `KEEPS_STOPPING`(D-I5-17).
+- `RestartLimiter.isQuiet(openedAt)` 추가(연 지 2초 이상 = 조용함, 시계 이상은 조용함 아님).

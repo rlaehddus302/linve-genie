@@ -39,9 +39,15 @@ export interface WebSpeechOptions {
   readonly now: () => number
   /** SpeechRecognition·webkitSpeechRecognition을 찾을 곳 (생략하면 globalThis — start()·isSupported()에서만 본다) */
   readonly scope?: object
+  /**
+   * 모든 끝남 세기 (D-I5-18): true면 연 시간과 상관없이 저절로 끝난 것을 모두 다시 시작 한도에 센다(D-205 한도).
+   * 화면이 홈 화면 앱(navigator.standalone === true)일 때 켠다. 기본(생략·false)은 D-I5-01 — 빨리 끝남과 network 뒤 끝남만 센다
+   */
+  readonly countAllEnds?: boolean
 }
 
-/** 권한 거부·마이크 없음은 다시 시작하지 않는다. network·no-speech·aborted는 다시 시작한다(한도 안에서). 그 밖은 멈춘다 */
+/** 권한 거부·마이크 없음은 다시 시작하지 않는다. network·no-speech·aborted는 다시 시작한다(한도 안에서). 그 밖은 멈춘다.
+ * 그중 network 뒤 끝남만 연 시간과 상관없이 한도에 센다(D-I5-17) — no-speech는 조용함, aborted는 언제 오는지 모른다 */
 const RESTARTABLE_ERRORS = new Set(['network', 'no-speech', 'aborted'])
 /** 판매자가 누른 start()가 연 인식 객체에서 온 오류 (D-I5-03) */
 const FATAL_ERRORS: Readonly<Record<string, SpeechErrorKind>> = {
@@ -63,6 +69,7 @@ export class WebSpeechEngine extends BaseSpeechEngine {
   private readonly scope: object | undefined
   private readonly limiter: RestartLimiter
   private readonly now: () => number
+  private readonly countAllEnds: boolean
   /** 판매자가 켜 둔 상태인가 (멈춤·오류로 멈춤이면 false) */
   private wanted = false
   /** 지금 쓰는 인식 객체. 지난 객체의 늦은 이벤트는 무시한다 */
@@ -75,12 +82,15 @@ export class WebSpeechEngine extends BaseSpeechEngine {
   private openedByUser = false
   /** 이번 인식 객체에서 마지막으로 받은 결과가 글자 있는 중간 결과면 그 위치와 글 (끝에서 넘김, D-I5-02) */
   private pending: { readonly index: number; readonly text: string } | null = null
+  /** 이번 인식 객체에서 network 오류가 왔는가 (그 끝남은 연 시간과 상관없이 센다, D-I5-17) */
+  private networkFailed = false
 
   constructor(options: WebSpeechOptions) {
     super()
     if (typeof options.now !== 'function') throw new TypeError('시계 함수(now)가 필요하다')
     this.scope = options.scope
     this.now = options.now
+    this.countAllEnds = options.countAllEnds === true
     this.limiter = new RestartLimiter(options.now)
   }
 
@@ -131,6 +141,7 @@ export class WebSpeechEngine extends BaseSpeechEngine {
       this.recognition = recognition
       this.reported = new Set()
       this.pending = null
+      this.networkFailed = false
       this.openedByUser = byUser
       this.openedAt = this.now()
       recognition.start()
@@ -170,7 +181,11 @@ export class WebSpeechEngine extends BaseSpeechEngine {
   private handleError(recognition: RecognitionLike, event: RecognitionErrorEventLike): void {
     if (recognition !== this.recognition) return
     const code = typeof event?.error === 'string' ? event.error : ''
-    if (RESTARTABLE_ERRORS.has(code)) return // 이어서 오는 끝(onend)에서 한도 안에서 다시 시작한다
+    if (RESTARTABLE_ERRORS.has(code)) {
+      // 이어서 오는 끝(onend)에서 한도 안에서 다시 시작한다. network는 그 끝남을 센다(D-I5-17)
+      if (code === 'network') this.networkFailed = true
+      return
+    }
     const kind: SpeechErrorKind =
       !this.openedByUser && BLOCKED_ON_RESTART.has(code)
         ? 'RESTART_BLOCKED'
@@ -207,10 +222,15 @@ export class WebSpeechEngine extends BaseSpeechEngine {
       // 듣는 쪽이 넘긴 결과를 받다가 stop()했으면 다시 시작하지 않는다
       if (!this.wanted || this.recognition !== null) return
     }
-    // 판매자가 멈추지 않았는데 끝났다 → 한도 안에서 다시 시작 (빨리 끝남만 센다, D-I5-01)
-    if (!this.limiter.recordEnd(this.openedAt)) {
+    // 판매자가 멈추지 않았는데 끝났다 → 한도 안에서 다시 시작.
+    // 세는 끝남: 빨리 끝남(D-I5-01), network 뒤 끝남(D-I5-17), 모든 끝남 세기를 켰으면 모두(D-I5-18)
+    const afterNetwork = this.networkFailed
+    this.networkFailed = false
+    const counted = this.countAllEnds || afterNetwork || !this.limiter.isQuiet(this.openedAt)
+    if (counted && !this.limiter.recordEnd()) {
       this.wanted = false
-      this.halt('KEEPS_STOPPING')
+      // 한도에 걸린 끝남 바로 앞이 network면 연결 실패, 아니면 자꾸 끊김 (D-I5-17)
+      this.halt(afterNetwork ? 'CONNECTION_FAILED' : 'KEEPS_STOPPING')
       return
     }
     const constructor = this.lookup()
@@ -219,7 +239,8 @@ export class WebSpeechEngine extends BaseSpeechEngine {
       this.halt('UNSUPPORTED')
       return
     }
-    this.setState('RESTARTING')
+    // 센 끝남 뒤에만 "다시 시작 중"을 알린다. 세지 않은 끝남(조용함)은 듣는 중 그대로 새 객체를 연다 (D-I5-14)
+    if (counted) this.setState('RESTARTING')
     this.open(constructor, false)
   }
 }

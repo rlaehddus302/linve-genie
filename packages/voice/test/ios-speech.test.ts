@@ -381,12 +381,14 @@ describe('AC-I5-05 오류 종류 나누기 (D-I5-03)', () => {
   })
 })
 
-describe('AC-I5-06 오류 문장 표 · UA를 읽지 않는다 (D-I5-03, D-036)', () => {
+describe('AC-I5-06·AC-I5-28 오류 문장 표 · UA를 읽지 않는다 (D-I5-03·D-I5-12·D-I5-13, D-036)', () => {
   it('다섯 문장이 글자 그대로', () => {
     expect(SPEECH_ERROR_MESSAGES.UNSUPPORTED).toBe('이 기기에서는 음성이 어려워요. PC 크롬이나 안드로이드 크롬에서 켜 주세요. 상품은 빠른 입력으로 그대로 등록할 수 있어요.')
-    expect(SPEECH_ERROR_MESSAGES.PERMISSION_DENIED).toBe('마이크 사용이 막혀 있어요. PC·안드로이드 크롬은 주소창 왼쪽 자물쇠에서, 아이폰은 설정 > 사파리 > 마이크에서 허용해 주세요.')
-    expect(SPEECH_ERROR_MESSAGES.SERVICE_OFF).toBe('이 기기에서 음성 인식이 꺼져 있어요. 아이폰은 설정에서 Siri와 받아쓰기를 켜 주세요. 그래도 안 되면 PC 크롬이나 안드로이드에서 켜 주세요.')
-    expect(SPEECH_ERROR_MESSAGES.RESTART_BLOCKED).toBe("이 기기는 음성이 저절로 다시 켜지지 않아요. 말하기 전에 '음성 켜기'를 다시 눌러 주세요.")
+    // D-I5-12: 권한·Siri 문장은 첫 줄(무슨 일) + 기기별 줄
+    expect(SPEECH_ERROR_MESSAGES.PERMISSION_DENIED).toBe('마이크 사용이 막혀 있어요.\n· PC·안드로이드 크롬: 주소창 왼쪽 자물쇠에서 마이크를 허용해 주세요.\n· 아이폰: 설정 > 사파리 > 마이크에서 허용해 주세요.')
+    expect(SPEECH_ERROR_MESSAGES.SERVICE_OFF).toBe('이 기기에서 음성 인식이 꺼져 있어요.\n· 아이폰: 설정에서 Siri와 받아쓰기를 켜 주세요.\n· 그래도 안 되면 PC 크롬이나 안드로이드에서 켜 주세요.')
+    // D-I5-13: 빠른 입력을 권하는 줄
+    expect(SPEECH_ERROR_MESSAGES.RESTART_BLOCKED).toBe("이 기기는 음성이 저절로 다시 켜지지 않아요. 말하기 전에 '음성 켜기'를 다시 눌러 주세요.\n상품이 많으면 빠른 입력이 더 빨라요.")
     expect(SPEECH_ERROR_MESSAGES.KEEPS_STOPPING).toBe('음성 인식이 자꾸 끊겨요. 마이크를 확인하고 다시 켜 주세요. 계속 끊기면 PC 크롬이나 안드로이드에서 켜 주세요.')
     expect(SPEECH_ERROR_MESSAGES.NO_MICROPHONE).toBe('마이크를 찾지 못했어요. 마이크 연결을 확인해 주세요.')
     expect(SPEECH_ERROR_MESSAGES.CONNECTION_FAILED).toBe('음성 인식 서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.')
@@ -400,6 +402,158 @@ describe('AC-I5-06 오류 문장 표 · UA를 읽지 않는다 (D-I5-03, D-036)'
     for (const name of files) {
       const source = await readFile(new URL(name, dir), 'utf8')
       expect(source, name).not.toMatch(/userAgent/)
+    }
+  })
+})
+
+describe('AC-I5-29 센 끝남 뒤에만 "다시 시작 중" (D-I5-14)', () => {
+  it('(a) 연 지 3,000ms에 결과 없이 끝나면 RESTARTING 없이 LISTENING 그대로 새 객체를 연다', () => {
+    const t = setup()
+    t.engine.start()
+    for (let i = 0; i < 10; i++) {
+      t.advance(3_000)
+      t.current().end()
+    }
+    expect(FakeRecognition.instances).toHaveLength(11)
+    expect(t.states).toEqual(['LISTENING'])
+    expect(t.engine.getState()).toBe('LISTENING')
+  })
+
+  it('(b) 연 지 0ms 끝남(빨리 끝남)은 RESTARTING을 알리고 LISTENING이 된다', () => {
+    const t = setup()
+    t.engine.start()
+    t.current().end()
+    expect(t.states).toEqual(['LISTENING', 'RESTARTING', 'LISTENING'])
+  })
+
+  it('(c) 연 지 3,000ms에 network 뒤 끝남은 RESTARTING을 알린다', () => {
+    const t = setup()
+    t.engine.start()
+    t.advance(3_000)
+    t.current().error('network')
+    t.current().end()
+    expect(FakeRecognition.instances).toHaveLength(2)
+    expect(t.states).toEqual(['LISTENING', 'RESTARTING', 'LISTENING'])
+  })
+})
+
+describe('AC-I5-32 network 뒤 끝남은 세고 CONNECTION_FAILED로 멈춘다 (D-I5-17)', () => {
+  function networkEnd(t: ReturnType<typeof setup>): void {
+    t.advance(3_000)
+    t.current().error('network')
+    t.current().end()
+  }
+
+  it('연 지 3,000ms에 network+끝남이 이어지면 1~5번째는 다시 열고 6번째에 CONNECTION_FAILED·HALTED', () => {
+    const t = setup()
+    t.engine.start()
+    for (let n = 1; n <= 5; n++) {
+      networkEnd(t)
+      expect(FakeRecognition.instances).toHaveLength(n + 1)
+      expect(t.errors).toEqual([])
+    }
+    networkEnd(t)
+    expect(FakeRecognition.instances).toHaveLength(6)
+    expect(t.errors).toEqual([{ kind: 'CONNECTION_FAILED', message: SPEECH_ERROR_MESSAGES.CONNECTION_FAILED }])
+    expect(t.engine.getState()).toBe('HALTED')
+  })
+
+  it('사이에 최종 결과가 오면 센 것을 비운다', () => {
+    const t = setup()
+    t.engine.start()
+    for (let n = 1; n <= 5; n++) networkEnd(t)
+    t.current().results(0, [['15번 핑크프릴 만오천원', true]])
+    networkEnd(t)
+    expect(t.errors).toEqual([])
+    expect(FakeRecognition.instances).toHaveLength(7)
+  })
+
+  it.each(['no-speech', 'aborted'])('%s 뒤 연 지 3,000ms 끝남 100번은 모두 다시 열고 오류 없음 (D-I5-01 그대로)', (code) => {
+    const t = setup()
+    t.engine.start()
+    for (let i = 0; i < 100; i++) {
+      t.advance(3_000)
+      t.current().error(code)
+      t.current().end()
+    }
+    expect(FakeRecognition.instances).toHaveLength(101)
+    expect(t.errors).toEqual([])
+  })
+
+  it('앞 다섯은 network, 여섯째는 연 지 0ms 빈 끝남이면 KEEPS_STOPPING', () => {
+    const t = setup()
+    t.engine.start()
+    for (let n = 1; n <= 5; n++) networkEnd(t)
+    t.current().end()
+    expect(FakeRecognition.instances).toHaveLength(6)
+    expect(t.errors).toEqual([{ kind: 'KEEPS_STOPPING', message: SPEECH_ERROR_MESSAGES.KEEPS_STOPPING }])
+  })
+
+  it('network 표시는 그 객체에만 — 다음 객체가 조용히 끝나면 세지 않는다', () => {
+    const t = setup()
+    t.engine.start()
+    networkEnd(t)
+    for (let i = 0; i < 20; i++) {
+      t.advance(3_000)
+      t.current().end()
+    }
+    expect(t.errors).toEqual([])
+    expect(FakeRecognition.instances).toHaveLength(22)
+  })
+})
+
+describe('AC-I5-33 모든 끝남 세기 (D-I5-18)', () => {
+  it('켜면 연 지 3,000ms 끝남도 세어 6번째에 KEEPS_STOPPING, 다시 열 때 RESTARTING을 알린다', () => {
+    FakeRecognition.instances = []
+    let now = T0
+    const engine = createWebSpeechEngine({ now: () => now, scope: { webkitSpeechRecognition: FakeRecognition }, countAllEnds: true })
+    const errors: SpeechError[] = []
+    const states: SpeechState[] = []
+    engine.onError((e) => errors.push(e))
+    engine.onState((s) => states.push(s))
+    engine.start()
+    for (let n = 1; n <= 5; n++) {
+      now += 3_000
+      FakeRecognition.instances.at(-1)?.end()
+      expect(FakeRecognition.instances).toHaveLength(n + 1)
+    }
+    expect(states).toEqual(['LISTENING', ...Array.from({ length: 5 }, () => ['RESTARTING', 'LISTENING']).flat()])
+    now += 3_000
+    FakeRecognition.instances.at(-1)?.end()
+    expect(FakeRecognition.instances).toHaveLength(6)
+    expect(errors).toEqual([{ kind: 'KEEPS_STOPPING', message: SPEECH_ERROR_MESSAGES.KEEPS_STOPPING }])
+    expect(engine.getState()).toBe('HALTED')
+  })
+
+  it('켜도 network 뒤 6번째면 CONNECTION_FAILED', () => {
+    FakeRecognition.instances = []
+    let now = T0
+    const engine = createWebSpeechEngine({ now: () => now, scope: { webkitSpeechRecognition: FakeRecognition }, countAllEnds: true })
+    const errors: SpeechError[] = []
+    engine.onError((e) => errors.push(e))
+    engine.start()
+    for (let n = 1; n <= 6; n++) {
+      now += 3_000
+      FakeRecognition.instances.at(-1)?.error('network')
+      FakeRecognition.instances.at(-1)?.end()
+    }
+    expect(errors.map((e) => e.kind)).toEqual(['CONNECTION_FAILED'])
+  })
+
+  it('끄면(기본·false) 연 지 3,000ms 끝남은 세지 않는다', () => {
+    for (const countAllEnds of [undefined, false]) {
+      FakeRecognition.instances = []
+      let now = T0
+      const engine = createWebSpeechEngine({ now: () => now, scope: { webkitSpeechRecognition: FakeRecognition }, ...(countAllEnds === undefined ? {} : { countAllEnds }) })
+      const errors: SpeechError[] = []
+      engine.onError((e) => errors.push(e))
+      engine.start()
+      for (let i = 0; i < 30; i++) {
+        now += 3_000
+        FakeRecognition.instances.at(-1)?.end()
+      }
+      expect(errors).toEqual([])
+      expect(FakeRecognition.instances).toHaveLength(31)
     }
   })
 })

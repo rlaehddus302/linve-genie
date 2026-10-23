@@ -88,13 +88,15 @@ function record(engine: SpeechEngine) {
 }
 
 describe('AC-P2-13 SpeechEngine 모양과 문장', () => {
-  // D-I5-03(AC-I5-06): UNSUPPORTED·PERMISSION_DENIED·KEEPS_STOPPING 문장 교체, SERVICE_OFF·RESTART_BLOCKED 추가. 나머지는 D-205 그대로
+  // D-I5-03(AC-I5-06), D-I5-12·13: UNSUPPORTED·PERMISSION_DENIED·KEEPS_STOPPING 문장 교체, SERVICE_OFF·RESTART_BLOCKED 추가. 나머지는 D-205 그대로
   it('오류 문장은 D-205·D-I5-03 표 그대로, 개발 용어 없음', () => {
     expect(SPEECH_ERROR_MESSAGES).toEqual({
       UNSUPPORTED: '이 기기에서는 음성이 어려워요. PC 크롬이나 안드로이드 크롬에서 켜 주세요. 상품은 빠른 입력으로 그대로 등록할 수 있어요.',
-      PERMISSION_DENIED: '마이크 사용이 막혀 있어요. PC·안드로이드 크롬은 주소창 왼쪽 자물쇠에서, 아이폰은 설정 > 사파리 > 마이크에서 허용해 주세요.',
-      SERVICE_OFF: '이 기기에서 음성 인식이 꺼져 있어요. 아이폰은 설정에서 Siri와 받아쓰기를 켜 주세요. 그래도 안 되면 PC 크롬이나 안드로이드에서 켜 주세요.',
-      RESTART_BLOCKED: "이 기기는 음성이 저절로 다시 켜지지 않아요. 말하기 전에 '음성 켜기'를 다시 눌러 주세요.",
+      // D-I5-12: 권한·Siri 문장은 기기별 줄(\n)로 나눔
+      PERMISSION_DENIED: '마이크 사용이 막혀 있어요.\n· PC·안드로이드 크롬: 주소창 왼쪽 자물쇠에서 마이크를 허용해 주세요.\n· 아이폰: 설정 > 사파리 > 마이크에서 허용해 주세요.',
+      SERVICE_OFF: '이 기기에서 음성 인식이 꺼져 있어요.\n· 아이폰: 설정에서 Siri와 받아쓰기를 켜 주세요.\n· 그래도 안 되면 PC 크롬이나 안드로이드에서 켜 주세요.',
+      // D-I5-13: 빠른 입력을 권하는 줄 추가
+      RESTART_BLOCKED: "이 기기는 음성이 저절로 다시 켜지지 않아요. 말하기 전에 '음성 켜기'를 다시 눌러 주세요.\n상품이 많으면 빠른 입력이 더 빨라요.",
       NO_MICROPHONE: '마이크를 찾지 못했어요. 마이크 연결을 확인해 주세요.',
       CONNECTION_FAILED: '음성 인식 서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.',
       KEEPS_STOPPING: '음성 인식이 자꾸 끊겨요. 마이크를 확인하고 다시 켜 주세요. 계속 끊기면 PC 크롬이나 안드로이드에서 켜 주세요.',

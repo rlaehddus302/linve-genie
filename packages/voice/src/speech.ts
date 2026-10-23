@@ -29,9 +29,10 @@ export type SpeechErrorKind =
  */
 export const SPEECH_ERROR_MESSAGES: Readonly<Record<SpeechErrorKind, string>> = Object.freeze({
   UNSUPPORTED: '이 기기에서는 음성이 어려워요. PC 크롬이나 안드로이드 크롬에서 켜 주세요. 상품은 빠른 입력으로 그대로 등록할 수 있어요.',
-  PERMISSION_DENIED: '마이크 사용이 막혀 있어요. PC·안드로이드 크롬은 주소창 왼쪽 자물쇠에서, 아이폰은 설정 > 사파리 > 마이크에서 허용해 주세요.',
-  SERVICE_OFF: '이 기기에서 음성 인식이 꺼져 있어요. 아이폰은 설정에서 Siri와 받아쓰기를 켜 주세요. 그래도 안 되면 PC 크롬이나 안드로이드에서 켜 주세요.',
-  RESTART_BLOCKED: "이 기기는 음성이 저절로 다시 켜지지 않아요. 말하기 전에 '음성 켜기'를 다시 눌러 주세요.",
+  // D-I5-12·D-I5-13: 여러 줄 문장은 \n으로 나눈다(첫 줄 = 무슨 일, 다음 줄 = 할 일). 화면은 줄마다 따로 보인다
+  PERMISSION_DENIED: '마이크 사용이 막혀 있어요.\n· PC·안드로이드 크롬: 주소창 왼쪽 자물쇠에서 마이크를 허용해 주세요.\n· 아이폰: 설정 > 사파리 > 마이크에서 허용해 주세요.',
+  SERVICE_OFF: '이 기기에서 음성 인식이 꺼져 있어요.\n· 아이폰: 설정에서 Siri와 받아쓰기를 켜 주세요.\n· 그래도 안 되면 PC 크롬이나 안드로이드에서 켜 주세요.',
+  RESTART_BLOCKED: "이 기기는 음성이 저절로 다시 켜지지 않아요. 말하기 전에 '음성 켜기'를 다시 눌러 주세요.\n상품이 많으면 빠른 입력이 더 빨라요.",
   NO_MICROPHONE: '마이크를 찾지 못했어요. 마이크 연결을 확인해 주세요.',
   CONNECTION_FAILED: '음성 인식 서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.',
   KEEPS_STOPPING: '음성 인식이 자꾸 끊겨요. 마이크를 확인하고 다시 켜 주세요. 계속 끊기면 PC 크롬이나 안드로이드에서 켜 주세요.',
@@ -92,14 +93,17 @@ export class RestartLimiter {
     this.ends = []
   }
 
+  /** 연 뒤 FAST_END_MS 이상 지나 끝났는가 = 조용함 (D-I5-01). 시계가 이상하면(NaN·뒤로 감) 조용함이 아니다(센다) */
+  isQuiet(openedAt: number): boolean {
+    const heard = this.now() - openedAt
+    return Number.isFinite(heard) && heard >= FAST_END_MS
+  }
+
   /** 저절로 끝남을 기록한다. 다시 시작해도 되면 true. openedAt = 그 인식 객체를 연 시각(주면 빨리 끝남만 센다) */
   recordEnd(openedAt?: number): boolean {
+    // 2초 넘게 들은 뒤 끝남 = 조용함 → 세지 않고 다시 시작 (NaN·음수는 이 조건을 못 넘어 센다)
+    if (openedAt !== undefined && this.isQuiet(openedAt)) return true
     const at = this.now()
-    if (openedAt !== undefined) {
-      const heard = at - openedAt
-      // 2초 넘게 들은 뒤 끝남 = 조용함 → 세지 않고 다시 시작 (NaN·음수는 이 조건을 못 넘어 센다)
-      if (Number.isFinite(heard) && heard >= FAST_END_MS) return true
-    }
     // 시계가 이상하면(NaN·뒤로 감) 지난 끝을 버리지 않는다 — 고장 난 시계로 무한히 다시 시작하지 않게
     this.ends = this.ends.filter((end) => !(at - end >= RESTART_WINDOW_MS))
     this.ends.push(at)
