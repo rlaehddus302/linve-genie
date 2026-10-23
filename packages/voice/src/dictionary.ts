@@ -178,7 +178,10 @@ export function prepareVoiceDictionary(input: { readonly learned?: readonly Lear
   const learned = Array.isArray(input.learned) ? [...input.learned].sort((a, b) => (b.usedAt ?? 0) - (a.usedAt ?? 0)) : []
   const history = Array.isArray(input.history) ? input.history : []
   const base = Array.isArray(input.base) ? input.base : DEFAULT_VARIETIES
-  return new VarietyDictionary([...learned, ...history, ...base])
+  // 배운 별칭은 사전 이름·별칭을 가리지 않는다 — 같은 모양이면 사전이 이김 (D-V2-17)
+  const known = new VarietyDictionary([...history, ...base])
+  const kept = learned.filter((item) => !(isRecord(item) && typeof item.heard === 'string' && known.byKey.has(compact(normalizeText(item.heard)))))
+  return new VarietyDictionary([...kept, ...history, ...base])
 }
 
 // ── 배운 별칭 (D-V2-10) ─────────────────────────────────────────────────
@@ -188,23 +191,45 @@ export const LEARNED_ALIAS_MAX = 200
 
 const isStopWord = (key: string): boolean => STOP_WORDS.some((word) => compact(normalizeText(word)) === key)
 
+/** 배우기 막기에 쓸 사전: 판매 이력·기본 사전(이름·별칭). 배운 별칭은 넣지 않는다 (D-V2-17) */
+export interface LearnOptions {
+  /** 판매 이력 품종 이름 (생략하면 없음) */
+  readonly history?: readonly string[]
+  /** 기본 사전 (생략하면 DEFAULT_VARIETIES) */
+  readonly base?: readonly VarietySource[]
+}
+
+let defaultKnown: VarietyDictionary | null = null
+function knownDictionary(options: LearnOptions | undefined): VarietyDictionary {
+  const history = Array.isArray(options?.history) ? options.history : []
+  const base = Array.isArray(options?.base) ? options.base : null
+  if (history.length === 0 && base === null) return (defaultKnown ??= new VarietyDictionary(DEFAULT_VARIETIES))
+  return new VarietyDictionary([...history, ...(base ?? DEFAULT_VARIETIES)])
+}
+
 /**
- * 배울 만한가: 들은 말(공백 뺀)이 2글자 이상이고, 막는 낱말이 아니며, 고른 이름(공백 뺀)과 다르다.
+ * 배울 만한가: 들은 말(공백 뺀)이 2글자 이상이고, 막는 낱말이 아니며, 고른 이름(공백 뺀)과 다르고,
+ * 사전(판매 이력·기본 이름·별칭)의 어떤 이름·별칭과도 공백 뺀 모양이 같지 않다 (D-V2-17).
  */
-export function canLearnAlias(heard: unknown, name: unknown): boolean {
+export function canLearnAlias(heard: unknown, name: unknown, options?: LearnOptions): boolean {
   if (typeof heard !== 'string' || typeof name !== 'string') return false
   const key = compact(normalizeText(heard))
   const target = compact(normalizeText(name))
-  return codePointLength(key) >= 2 && codePointLength(target) >= 2 && key !== target && !isStopWord(key)
+  if (codePointLength(key) < 2 || codePointLength(target) < 2 || key === target || isStopWord(key)) return false
+  try {
+    return !knownDictionary(options).byKey.has(key)
+  } catch {
+    return false
+  }
 }
 
 /**
  * 배운 별칭 넣기: 같은 들은 말이 있으면 새 이름으로 바꾸고, 200개를 넘으면 가장 오래 안 쓴(usedAt이 가장 작은) 것부터 지운다.
  * 배울 수 없는 것이면 목록을 그대로(복사) 돌려준다. 넘긴 목록을 바꾸지 않는다.
  */
-export function learnAlias(list: readonly LearnedAlias[], input: { readonly heard: string; readonly name: string; readonly at: number }): LearnedAlias[] {
+export function learnAlias(list: readonly LearnedAlias[], input: { readonly heard: string; readonly name: string; readonly at: number }, options?: LearnOptions): LearnedAlias[] {
   const current = Array.isArray(list) ? list.filter((item) => typeof item?.heard === 'string' && typeof item?.name === 'string') : []
-  if (!canLearnAlias(input?.heard, input?.name)) return [...current]
+  if (!canLearnAlias(input?.heard, input?.name, options)) return [...current]
   const heard = compact(normalizeText(input.heard))
   const at = typeof input.at === 'number' && Number.isFinite(input.at) ? input.at : 0
   const next = [...current.filter((item) => compact(normalizeText(item.heard)) !== heard), { heard, name: normalizeText(input.name), usedAt: at }]

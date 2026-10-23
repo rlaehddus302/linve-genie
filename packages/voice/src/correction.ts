@@ -140,11 +140,14 @@ function readPiece(piece: CorrectionPiece, dictionary: VarietyDictionary, maxNum
   const reading: SentenceReading = readSentence(piece.text, { dictionary, maxNumber })
   const { extraction } = reading
   const base = { nameExact: false, nameWindow: null, rawName: false, windows: reading.windows }
-  if (piece.field === 'price') return { ...base, no: null, name: null, price: extraction.price }
-  if (piece.field === 'no') return { ...base, no: extraction.no ?? bareNumber(piece.text, maxNumber), name: null, price: null }
+  // 칸 이름은 조각을 나누기만 한다 — 다른 칸도 R-17로 평소대로 읽는다 (D-V2-18)
+  const plain = { ...base, no: extraction.no, name: extraction.name, price: extraction.price, nameExact: reading.nameExact, nameWindow: reading.nameWindow }
+  if (piece.field === 'price') return plain
+  if (piece.field === 'no') return { ...plain, no: extraction.no ?? bareNumber(piece.text, maxNumber) }
   if (piece.field === 'name') {
-    if (extraction.name !== null) return { ...base, no: null, name: extraction.name, price: null, nameExact: reading.nameExact, nameWindow: reading.nameWindow }
-    const raw = piece.text
+    if (extraction.name !== null) return plain
+    // 품종은 번호 표시·가격 묶음 토큰을 뺀 나머지 (D-V2-05·D-V2-18)
+    const raw = reading.rest
     // 막는 낱말·지시어·가격이나 수로 읽히는 말은 품종이 되지 않는다 (TD-V2-002)
     const ok =
       raw !== '' &&
@@ -152,13 +155,11 @@ function readPiece(piece: CorrectionPiece, dictionary: VarietyDictionary, maxNum
       !/[0-9]/.test(raw) &&
       !raw.split(' ').some((token) => readingForms(token).some((form) => STOP_KEYS.has(form))) &&
       !STOP_KEYS.has(raw.split(' ').join('')) &&
-      extraction.price === null &&
-      extraction.no === null &&
       parseAmount(raw, { 'price.unit': 'WON' }) === null &&
       parseKoreanNumber(raw.split(' ').join('')) === null
-    return { ...base, no: null, name: ok ? raw : null, price: null, rawName: ok, nameWindow: ok ? raw.split(' ').join('') : null }
+    return { ...plain, name: ok ? raw : null, rawName: ok, nameWindow: ok ? raw.split(' ').join('') : null }
   }
-  return { ...base, no: extraction.no, name: extraction.name, price: extraction.price, nameExact: reading.nameExact, nameWindow: reading.nameWindow }
+  return plain
 }
 
 const hasField = (reading: PieceReading): boolean => reading.no !== null || reading.name !== null || reading.price !== null

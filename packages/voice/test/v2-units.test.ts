@@ -100,10 +100,13 @@ describe('데이터 사전 (AC-V2-01·02)', () => {
 })
 
 describe('사전 순서·배운 별칭 (AC-V2-09·10)', () => {
-  it('같은 공백 뺀 모양이면 배운 별칭 → 판매 이력 → 기본 사전 순으로 앞의 것', () => {
-    const learned: LearnedAlias[] = [{ heard: '핑크문', name: '핑크 문 금', usedAt: 1 }]
+  it('같은 공백 뺀 모양이면 판매 이력 → 기본 사전 순으로 앞의 것, 배운 별칭은 사전 이름·별칭을 가리지 않는다 (D-V2-17)', () => {
+    const learned: LearnedAlias[] = [{ heard: '핑크문', name: '핑크 문 금', usedAt: 1 }, { heard: '라운', name: '핑크문', usedAt: 1 }]
     const dict = prepareVoiceDictionary({ learned, history: ['핑크 문'] })
-    expect(extractVoice('15번 핑크문 만원', { dictionary: dict }).name).toBe('핑크 문 금')
+    expect(extractVoice('15번 핑크문 만원', { dictionary: dict }).name).toBe('핑크 문')
+    expect(extractVoice('15번 라운 만원', { dictionary: dict }).name).toBe('라울')
+    const other = prepareVoiceDictionary({ learned: [{ heard: '핑크문금', name: '루비', usedAt: 1 }] })
+    expect(extractVoice('15번 핑크문금 만원', { dictionary: other }).name).toBe('루비')
     const noLearn = prepareVoiceDictionary({ history: ['핑크 문'] })
     expect(extractVoice('15번 핑크문 만원', { dictionary: noLearn }).name).toBe('핑크 문')
     expect(extractVoice('15번 핑크문 만원', { dictionary: prepareVoiceDictionary() }).name).toBe('핑크문')
@@ -129,13 +132,22 @@ describe('사전 순서·배운 별칭 (AC-V2-09·10)', () => {
     expect(canLearnAlias('이거', '라울')).toBe(false)
     expect(canLearnAlias('라', '라울')).toBe(false)
     expect(canLearnAlias('라 울', '라울')).toBe(false)
-    expect(canLearnAlias('라운', '라울')).toBe(true)
+    expect(canLearnAlias('라우니', '라울')).toBe(true)
     expect(learnAlias([], { heard: '취소', name: '라울', at: 1 })).toEqual([])
   })
 
+  it('사전(판매 이력·기본 이름·별칭)에 있는 말은 배우지 않는다 (D-V2-17)', () => {
+    expect(canLearnAlias('라운', '라울')).toBe(false)
+    expect(canLearnAlias('핑크 문', '루비')).toBe(false)
+    expect(canLearnAlias('새이름', '루비')).toBe(true)
+    expect(canLearnAlias('새이름', '루비', { history: ['새 이름'] })).toBe(false)
+    expect(learnAlias([], { heard: '새이름', name: '루비', at: 1 }, { history: ['새이름'] })).toEqual([])
+    expect(canLearnAlias('핑크문', '루비', { base: [] })).toBe(true)
+  })
+
   it('같은 들은 말을 다른 이름으로 고르면 새 것으로 바꾼다', () => {
-    const one = learnAlias([], { heard: '라운', name: '라울', at: 1 })
-    expect(learnAlias(one, { heard: '라운', name: '라우이', at: 2 })).toEqual([{ heard: '라운', name: '라우이', usedAt: 2 }])
+    const one = learnAlias([], { heard: '라우니', name: '라울', at: 1 })
+    expect(learnAlias(one, { heard: '라우니', name: '라우이', at: 2 })).toEqual([{ heard: '라우니', name: '라우이', usedAt: 2 }])
   })
 
   it('200개를 넘으면 가장 오래 안 쓴 것부터 지운다 (쓰면 새로 셈)', () => {
@@ -337,5 +349,37 @@ describe('어떤 글에도 예외 없음 (AC-V2-33)', () => {
       }),
       { numRuns: 1000, seed: 2410 },
     )
+  })
+})
+
+describe('V2 판정 D-V2-16·18 (AC-V2-36)', () => {
+  const at = (texts: readonly [string, number][]) => {
+    let state = createPhraseState()
+    const chunks: string[] = []
+    for (const [text, t] of texts) {
+      const step = feed(state, { text, final: true, at: t })
+      state = step.state
+      for (const o of step.out) if (o.kind === 'chunk') chunks.push(o.chunk.text)
+    }
+    for (const o of tick(state, 100_000).out) if (o.kind === 'chunk') chunks.push(o.chunk.text)
+    return chunks
+  }
+  it('새 결과 첫 조각의 다른 번호면 정정 표시가 있어도 먼저 끊는다', () => {
+    expect(at([['26번 엘레강스 만원', 0], ['27번 라울 이만원 아니 삼만원', 1000]])).toEqual(['26번 엘레강스 만원', '27번 라울 이만원 아니 삼만원'])
+  })
+  it('번호 없는 모은 글 뒤 번호로 시작하는 결과도 끊는다', () => {
+    expect(at([['핑크문 만원', 0], ['16번 루비 이만원', 1000]])).toEqual(['핑크문 만원', '16번 루비 이만원'])
+  })
+  it('표시 뒤의 번호·같은 번호는 끊지 않는다', () => {
+    expect(at([['22번 라울 만원', 0], ['아니 아니 23번', 1000]])).toEqual(['22번 라울 만원 아니 아니 23번'])
+    expect(at([['22번 라울', 0], ['22번 만원', 1000]])).toEqual(['22번 라울 22번 만원'])
+    expect(at([['라울', 0], ['만원', 1000]])).toEqual(['라울 만원'])
+  })
+  it('칸 이름 조각의 다른 칸도 읽는다', () => {
+    const dictionary = prepareVoiceDictionary()
+    expect(readChunk('15번 품종 핑크문 만원', { dictionary })).toMatchObject({ no: 15, name: '핑크문', price: 10_000 })
+    expect(readChunk('15번 품종 새이름 만원', { dictionary })).toMatchObject({ no: 15, name: '새이름', price: 10_000, nameNeedsCheck: true })
+    expect(readChunk('15번 라울 가격은 이만원 16번', { dictionary })).toMatchObject({ no: 16, name: '라울', price: 20_000 })
+    expect(readChunk('15번 라울 품종은 만원', { dictionary })).toMatchObject({ no: 15, name: '라울', price: 10_000 })
   })
 })

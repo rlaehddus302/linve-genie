@@ -1,10 +1,10 @@
 // 이어 붙이기 (VOC-01, D-V2-03). 최종 결과를 모으는 글에 공백 하나로 잇고, 마지막 결과(중간 결과 포함)에서 조용한 시간이 지나면 한 덩어리로 내보낸다.
 // 타이머가 없다 — 시각은 부르는 쪽이 넘긴다(feed의 at, tick의 now). 다음에 tick을 부를 시각은 nextTickAt으로 알 수 있다.
-// 먼저 끊는 때: (a) 새 최종 결과에 모으는 글과 다른 번호 표시(정정 표시가 든 결과는 예외) (b) 모으기 시작 15초 (c) 300글자를 넘기게 됨
+// 먼저 끊는 때: (a) 새 최종 결과의 첫 조각(첫 정정 표시·칸 이름 앞)에 모으는 글과 다른 번호 표시(모으는 글에 번호 없음도 다름, D-V2-16) (b) 모으기 시작 15초 (c) 300글자를 넘기게 됨
 // (d) `문자찜` 낱말 — 모은 글을 먼저 내보내고 그 결과 하나만 따로(R-21) (e) 음성을 끔(stop)·끝에서 넘긴 결과(자동 확정 없음).
 // 순수 함수: 넘긴 상태를 바꾸지 않고 새 상태를 돌려준다. 어떤 입력에도 예외를 던지지 않는다.
 import { normalizeText } from '@livejjim/core'
-import { CORRECTION_MARKERS } from './correction.ts'
+import { splitCorrections } from './correction.ts'
 import { findNumberMarkers, readingForms, tokenize, SENTENCE_MAX_CODE_POINTS } from './extract.ts'
 import { resolveQuietMs } from './settings.ts'
 import { findSmsMarker } from './sms.ts'
@@ -102,10 +102,11 @@ function numbersOf(text: string): Set<number> {
   return new Set(findNumberMarkers(tokens, tokens.map(readingForms)).values)
 }
 
-/** 정정 표시가 든 결과인가 (취소 낱말은 예외가 아니다 — TD-V2-001) — 다른 번호가 있어도 끊지 않고 붙인다 (D-V2-03 a 단서) */
-function hasCorrectionMarker(text: string): boolean {
-  const tokens = tokenize(text) ?? normalizeText(text).split(' ')
-  return tokens.some((token) => CORRECTION_MARKERS.includes(token) || (token.length > 2 && token.endsWith('말고')))
+/** 새 결과의 첫 조각(첫 정정 표시·취소 낱말·칸 이름 앞)의 번호 표시 값들 — 표시 뒤의 번호는 정정이라 보지 않는다 (D-V2-16) */
+function leadNumbersOf(text: string): Set<number> {
+  const first = splitCorrections(text).pieces[0]
+  if (first === undefined || first.start !== null) return new Set()
+  return numbersOf(first.text)
 }
 
 function isSms(text: string): boolean {
@@ -184,11 +185,11 @@ export function feed(state: PhraseState, input: PhraseInput): PhraseStep {
       return { state: current, out }
     }
     if (current.pieces.length > 0) {
-      // (a) 다른 번호
+      // (a) 새 결과의 첫 조각에 번호가 있고 모은 글의 번호와 다르면(모은 글에 번호가 없는 것도 다름) 먼저 끊는다 (D-V2-16)
+      const incoming = leadNumbersOf(text)
       const before = numbersOf(joined(current.pieces))
-      const incoming = numbersOf(text)
-      const differs = before.size > 0 && [...incoming].some((value) => !before.has(value))
-      if (differs && !hasCorrectionMarker(text)) push(emit(current, at, 'number'))
+      const differs = incoming.size > 0 && (before.size === 0 || [...incoming].some((value) => !before.has(value)))
+      if (differs) push(emit(current, at, 'number'))
       // (c) 300글자를 넘기게 되면 새 결과 앞에서
       else if (codePointLength(`${joined(current.pieces)} ${text}`) > PHRASE_MAX_CODE_POINTS) push(emit(current, at, 'long'))
     }

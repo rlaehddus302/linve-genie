@@ -95,6 +95,7 @@ export {
   type DictionaryEntry,
   type DictionarySource,
   type LearnedAlias,
+  type LearnOptions,
 } from './dictionary.ts'
 export { DEFAULT_DICTIONARY, DEFAULT_VARIETIES, STOP_WORDS, type VarietySource } from './default-dictionary.ts'
 // V2: 이어 붙이기·정정·후보·할 일 고르기·음성 기록 (D-V2-01~D-V2-10)

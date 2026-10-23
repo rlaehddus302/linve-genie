@@ -356,9 +356,11 @@ export interface SentenceReading {
   readonly nameWindow: string | null
   /** 품종 창 글 전부 (번호 표시·가격 묶음 토큰을 뺀 R-17 5의 창) */
   readonly windows: ReadonlySet<string>
+  /** 번호 표시·가격 묶음 토큰을 뺀 나머지 글 (공백 하나로 이음, D-V2-18 칸 이름 품종) */
+  readonly rest: string
 }
 
-const EMPTY_READING: SentenceReading = Object.freeze({ extraction: EMPTY, nameExact: false, nameWindow: null, windows: Object.freeze(new Set<string>()) })
+const EMPTY_READING: SentenceReading = Object.freeze({ extraction: EMPTY, nameExact: false, nameWindow: null, windows: Object.freeze(new Set<string>()), rest: '' })
 
 /** R-17 한 문장 읽기 (extractVoice와 같은 계산, 창·정확도까지) */
 export function readSentence(text: unknown, options: ExtractOptions = {}): SentenceReading {
@@ -382,5 +384,5 @@ export function readSentence(text: unknown, options: ExtractOptions = {}): Sente
   const variety = findVariety(windows, dictionary)
 
   const confidence: Confidence = no !== null && price !== null && variety.name !== null && variety.exact ? 'HIGH' : 'LOW'
-  return { extraction: { no, name: variety.name, price, confidence }, nameExact: variety.name !== null && variety.exact, nameWindow: variety.window, windows }
+  return { extraction: { no, name: variety.name, price, confidence }, nameExact: variety.name !== null && variety.exact, nameWindow: variety.window, windows, rest: tokens.filter((_, i) => !isMarker(i) && !bundles.tokens.has(i)).join(' ') }
 }
