@@ -194,6 +194,10 @@ export function alreadyText(message: ChatMessage, look: OptionLook | null, claim
     .join('|')
 }
 
+function canHover(): boolean {
+  return typeof window.matchMedia === 'function' && window.matchMedia('(hover: hover)').matches
+}
+
 const ALREADY_WORD = '이미 찜함'
 export const ALREADY_REASON = '이 분은 이 번호를 이미 찜했어요. 새 찜은 생기지 않았어요.'
 
@@ -218,6 +222,9 @@ interface ChatRowProps {
 const ChatRow = memo(
   function ChatRow({ message, claimText, already, open, onToggle, note, onConvert, look, onReview, platformTag }: ChatRowProps) {
   const [focused, setFocused] = useState(false)
+  const [hovered, setHovered] = useState(false)
+  // 누름(마우스·터치)으로 생긴 초점은 키보드 초점으로 치지 않는다 — 다시 누르면 접혀야 한다 (AC-UX2-03)
+  const pressing = useRef(false)
   const [reasonOpen, setReasonOpen] = useState(false)
   const [reasonFocused, setReasonFocused] = useState(false)
   const alreadyWords = already === '' ? [] : already.split('|')
@@ -232,7 +239,7 @@ const ChatRow = memo(
   const convertible = canConvert(message) && !(look !== null && (look.review !== null || look.optionProduct))
   // 언급 줄은 늘, 잡담 줄은 누름·초점(state)·마우스 올림(CSS, hover: hover 기기만) 때만 (AC-UX2-01~05)
   const chatter = convertible && !mentioned
-  const shown = !chatter || open || focused
+  const shown = !chatter || open || focused || hovered
   if (chatter) classes.push('chat-chatter')
   if (chatter && open) classes.push('chat-open')
   return (
@@ -243,6 +250,8 @@ const ChatRow = memo(
       onClick={
         chatter
           ? (event) => {
+              // 터치는 손을 뗀 뒤에 초점이 오므로 누름 표시는 click에서 지운다
+              pressing.current = false
               if ((event.target as HTMLElement).closest('button') !== null) return
               onToggle(message.id)
             }
@@ -251,6 +260,7 @@ const ChatRow = memo(
       onKeyDown={
         chatter
           ? (event) => {
+              pressing.current = false
               if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
                 event.preventDefault()
                 onToggle(message.id)
@@ -258,7 +268,29 @@ const ChatRow = memo(
             }
           : undefined
       }
-      onFocus={chatter ? () => setFocused(true) : undefined}
+      onPointerDown={
+        chatter
+          ? () => {
+              pressing.current = true
+            }
+          : undefined
+      }
+      // 마우스 올림은 마우스가 있는 기기의 마우스만 (hover: hover, AC-UX2-04) — 터치로 누른 뒤 남지 않는다
+      onPointerEnter={
+        chatter
+          ? (event) => {
+              if (event.pointerType === 'mouse' && canHover()) setHovered(true)
+            }
+          : undefined
+      }
+      onPointerLeave={chatter ? () => setHovered(false) : undefined}
+      onFocus={
+        chatter
+          ? () => {
+              if (!pressing.current) setFocused(true)
+            }
+          : undefined
+      }
       onBlur={
         chatter
           ? (event) => {

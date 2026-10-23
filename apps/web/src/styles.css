@@ -804,21 +804,6 @@ p {
   outline-offset: -3px;
 }
 
-.chat-row > .chat-convert[hidden] {
-  display: none;
-}
-
-/* 잡담 줄의 "찜으로 바꾸기": 마우스가 있는 기기에서만 올리면 보인다 (AC-UX2-04, D-UX2-01) */
-@media (hover: hover) {
-  .chat-row.chat-chatter:hover > .chat-convert[hidden] {
-    display: inline-flex;
-  }
-}
-
-.chat-row.chat-chatter:focus-within > .chat-convert[hidden] {
-  display: inline-flex;
-}
-
 /* 이미 찜함: 주의 색 (D-UX2-05, D-102) */
 .tag-already {
   background-color: #fef7e0;

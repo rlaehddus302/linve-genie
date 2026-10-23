@@ -418,6 +418,42 @@ describe('채팅 칸 정리 (UX2 §5.13)', () => {
     expect(convertIn(rows[0] as HTMLElement)).not.toBeNull()
   })
 
+  it('누름으로 생긴 초점은 다시 누르면 접히고, 마우스 올림은 hover 기기에서만 (AC-UX2-03·04)', async () => {
+    setupServer()
+    model.messages = [message(2, { id: 'hi', text: '안녕하세요' })]
+    await openConsole()
+    const row = chatRows()[0] as HTMLElement
+    const press = () => {
+      fireEvent.pointerDown(row)
+      fireEvent.pointerUp(row)
+      act(() => row.focus())
+      fireEvent.click(row)
+    }
+    press()
+    expect(convertIn(row)).not.toBeNull()
+    press()
+    expect(document.activeElement).toBe(row)
+    expect(convertIn(row)).toBeNull()
+    act(() => row.blur())
+    const original = window.matchMedia
+    try {
+      window.matchMedia = ((query: string) => ({ matches: false, media: query })) as unknown as typeof window.matchMedia
+      fireEvent.pointerEnter(row, { pointerType: 'mouse' })
+      expect(convertIn(row)).toBeNull()
+      fireEvent.pointerLeave(row, { pointerType: 'mouse' })
+      window.matchMedia = ((query: string) => ({ matches: query === '(hover: hover)', media: query })) as unknown as typeof window.matchMedia
+      fireEvent.pointerEnter(row, { pointerType: 'mouse' })
+      expect(convertIn(row)).not.toBeNull()
+      fireEvent.pointerLeave(row, { pointerType: 'mouse' })
+      expect(convertIn(row)).toBeNull()
+      // 터치는 마우스 올림으로 치지 않는다
+      fireEvent.pointerEnter(row, { pointerType: 'touch' })
+      expect(convertIn(row)).toBeNull()
+    } finally {
+      window.matchMedia = original
+    }
+  })
+
   it('방송자 메시지: 무시 켬이면 없고, 무시 끔이면 시청자 잡담과 같다 (AC-UX2-06)', async () => {
     setupServer()
     model.messages = [message(2, { id: 'o1', text: '안녕하세요 여러분', owner: true, ignored: true }), message(3, { id: 'o2', text: '반가워요', owner: true, ignored: false })]
