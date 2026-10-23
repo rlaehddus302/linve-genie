@@ -51,8 +51,8 @@ test('TE-A1 깨뜨리기 @assist: PC와 휴대폰에서 같은 화면을 동시�
     const phone = await phoneCtx.newPage()
     await Promise.all([openReviews(page, b, true), openReviews(phone, b, true)])
     await expect(reviewLine(page, 1).getByRole('group', { name: '1번째 줄 제안' })).toContainText(SOURCE_AI)
-    // 진행 중이던 요청이 끝나면 다시 읽는다 (BUSY 쪽은 서버 시간 제한 뒤 한 번 더 읽는다 — 그만큼 기다린다)
-    await expect(reviewLine(phone, 1).getByRole('group', { name: '1번째 줄 제안' })).toContainText(SOURCE_AI, { timeout: 25_000 })
+    // 진행 중(BUSY)을 받은 쪽은 곧바로, 그 뒤 2초마다 목록을 다시 읽는다(D-A1-16) — 16초 한 번이 아니라 몇 초 안에 본다
+    await expect(reviewLine(phone, 1).getByRole('group', { name: '1번째 줄 제안' })).toContainText(SOURCE_AI, { timeout: 9_000 })
     await expect(phone.getByText(READING)).toHaveCount(0)
     await expect(phone.getByText(FAILED)).toHaveCount(0)
     expect(await fakeRequests(request)).toHaveLength(1)
