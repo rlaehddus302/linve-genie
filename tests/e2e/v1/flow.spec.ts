@@ -1,9 +1,10 @@
 // V1 통합 흐름 (AC-V1-60) — test-e2e. 음성 켜기 → "165번 문자찜 끝자리 1234"(3초 뒤 1등) → 같은 말 반복(카드 하나)
+// → "165번은 문자찜 아니에요"(이유 카드, 쓰기 없음 — D-V1-12)
 // → "166번 문자찜"(확인 필요 구매자) → 정산 화면 안내 → 합치기(화면) → 안내 사라짐.
 import { test, expect } from '@playwright/test'
-import { boardItem, history, recordRequests, registerApi, scopeView, setupLive, smsCard, smsResults, smsWrites, speak } from './support.ts'
+import { boardItem, heardCard, history, recordRequests, registerApi, scopeView, setupLive, smsCard, smsResults, smsWrites, speak } from './support.ts'
 
-test('AC-V1-60 · TE-V1-002: 음성 문자찜 처음부터 끝까지 — 저절로 1등·같은 말 한 번·확인 필요·정산 안내·합치기', async ({ page }) => {
+test('AC-V1-60 · TE-V1-002: 음성 문자찜 처음부터 끝까지 — 저절로 1등·같은 말 한 번·아니라는 말·확인 필요·정산 안내·합치기', async ({ page }) => {
   test.setTimeout(180_000)
   const { b, date } = await setupLive(page)
   for (const no of [165, 166]) await registerApi(page, b, no, '핑크프릴', 10000)
@@ -19,10 +20,19 @@ test('AC-V1-60 · TE-V1-002: 음성 문자찜 처음부터 끝까지 — 저절�
   await expect(smsResults(page, c165)).toHaveText(/^165번 · 문자찜 · 1등 · 받은 시각 .* · 뒤 4자리 1234$/, { timeout: 10_000 })
   expect(smsWrites(requests)).toHaveLength(1)
 
+  // AC-V1-60(보강)·AC-V1-06·23·D-V1-12: 아니라는 말 → 넣을 수 없는 이유 카드, "닫기"만, 쓰기 없음
+  const notSure = '165번은 문자찜 아니에요'
+  await speak(page, notSure)
+  const reason = heardCard(page, notSure)
+  await expect(reason.getByRole('alert')).toHaveText('아니라는 말이나 묻는 말이 들려서 넣지 않았어요. 문자찜이면 다시 말해 주세요.')
+  await expect(reason.getByRole('button')).toHaveText(['닫기'])
+
   const c166 = '166번 · 손님 확인 필요 · 문자찜'
   await speak(page, '166번 문자찜')
   await expect(smsResults(page, c166)).toHaveText(/^166번 · 문자찜\(확인 필요\) · 1등 · /, { timeout: 10_000 })
+  // 아니라는 말 카드가 저절로 넣었다면 여기서 셋이다(그 카드가 166번보다 먼저 들렸다)
   expect(smsWrites(requests)).toHaveLength(2)
+  expect(smsWrites(requests).map((w) => w['no'])).toEqual([165, 166])
 
   const view = await scopeView(page, date, false)
   const known = view.buyers.find((x) => x.phoneLast4 === '1234')!
