@@ -217,6 +217,44 @@ describe('AC-T1-05 합치기·떼어 내기와 배송지', () => {
   })
 })
 
+describe('AC-T1-05 떼어 내기와 접수 결과를 기다리는 시도 (SA-T1-01 — 스펙 확인 요청 중인 막기)', () => {
+  const unmergeCount = async (world: Awaited<ReturnType<typeof parcelWorld>>) =>
+    (await world.database.pglite?.query<{ n: number }>(`select count(*)::int as n from events where type = 'buyer.unmerge'`))?.rows[0]?.n
+
+  it('붙은 구매자 Y에 UNKNOWN·PENDING 시도가 있으면 떼어 내기는 409(이벤트 없음), FAILED·접수 취소 뒤에는 떼어 낼 수 있다', async () => {
+    const clock = fakeClock()
+    const world = await parcelWorld({ clock })
+    const seller = await parcelSeller(world)
+    await sell(world, seller, [
+      ['UC_X', '엑스', 1],
+      ['UC_Y', '와이', 1],
+    ])
+    expect((await writeEvent(world, seller, { type: 'buyer.merge', from: 'UC_X', into: 'UC_Y', reason: '같은 사람' }, D)).status).toBe(200)
+    // UNKNOWN: 택배사 응답 없음
+    await makeReady(world, seller, 'UC_Y', { ...ADDRESS, address: '서울 [응답없음] 1' })
+    expect((await bookOk(world, seller, [{ buyer: 'UC_Y' }]))[0]).toMatchObject({ ok: false, reason: 'UNAVAILABLE' })
+    expect((await attempts(world, seller.sellerId, 'UC_Y')).map((row) => row.state)).toEqual(['UNKNOWN'])
+    const before = await unmergeCount(world)
+    const unknown = await writeEvent(world, seller, { type: 'buyer.unmerge', from: 'UC_X', reason: '다른 사람' }, D)
+    expect(unknown.status, unknown.text).toBe(409)
+    expect(unknown.text).toContain('택배 접수 결과를 기다리는 구매자에게서는 떼어 낼 수 없어요.')
+    expect(await unmergeCount(world)).toBe(before)
+    // PENDING(보내는 중 멈춘 시도)도 같다 — 시도를 FAILED로 바꾸고 PENDING 하나를 직접 만든다
+    await world.database.pglite?.query(`update parcels set state = 'FAILED', reason = 'ADDRESS' where seller_id = $1 and buyer = 'UC_Y'`, [seller.sellerId])
+    await world.database.pglite?.query(
+      `insert into parcels (id, seller_id, date, buyer, carrier, request_key, state, box, qty, created_at, updated_at) values ('pc_pending', $1, $2, 'UC_Y', 'FAKE', 'lj-pending', 'PENDING', '소', 1, $3, $3)`,
+      [seller.sellerId, D, new Date(clock.now()).toISOString()],
+    )
+    const pending = await writeEvent(world, seller, { type: 'buyer.unmerge', from: 'UC_X', reason: '다른 사람' }, D)
+    expect(pending.status, pending.text).toBe(409)
+    expect(await unmergeCount(world)).toBe(before)
+    // 시도가 끝나(FAILED) 살아 있는 시도가 없으면 지금 규칙대로 떼어 낼 수 있다
+    await world.database.pglite?.query(`update parcels set state = 'FAILED', reason = 'REJECTED' where id = 'pc_pending'`)
+    const freed = await writeEvent(world, seller, { type: 'buyer.unmerge', from: 'UC_X', reason: '다른 사람' }, D)
+    expect(freed.status, freed.text).toBe(200)
+  })
+})
+
 describe('AC-T1-06 백업·전체 기록·복구', () => {
   it('판매자 백업·전체 기록에 배송지 원문·암호문이 없고 판매대장 배송 칸은 지금 규칙대로, 복구는 같은 트랜잭션에 배송지를 모두 지운다(실패하면 그대로)', async () => {
     const storage = new FolderBackupStorage(mkdtempSync(join(tmpdir(), 'livejjim-t1-backup-')))
