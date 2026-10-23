@@ -18,7 +18,7 @@ import { openSellerText, sealSellerText } from '../secrets.ts'
 import type { Clock } from '../time.ts'
 import { WriteAbort, type Rejection, type TxHookContext } from '../writer.ts'
 import { DEFAULT_PRICE_TABLE, type PriceItem, type PriceTable } from './config.ts'
-import { RECEIPT_KINDS, noneIssuer, type DocumentIssuer, type DocumentRecipient, type ReceiptKind } from './documents.ts'
+import { ISSUED_RECEIPT_KIND, noneIssuer, type DocumentIssuer, type DocumentRecipient, type ReceiptKind } from './documents.ts'
 import type { TestPayment } from './fake.ts'
 import { PAYMENT_ID_RE, checkWebhook, type LookupResult, type PaymentGateway } from './portone.ts'
 import {
@@ -214,6 +214,7 @@ export interface BusinessView {
   readonly name: string | null
   readonly ceo: string | null
   readonly email: string | null
+  /** 늘 `CASH_RECEIPT` (BL-8 6, D-PL1-07 — 저장값이 옛 `TAX_INVOICE`여도) */
   readonly receiptKind: ReceiptKind
   /** 결제할 수 있게 다 적었는지 (상호·대표자 이름까지) */
   readonly complete: boolean
@@ -486,7 +487,8 @@ export class BillingService {
       name: info.name,
       ceo: info.ceo,
       email: info.email,
-      receiptKind: (RECEIPT_KINDS as readonly string[]).includes(row.receiptKind) ? (row.receiptKind as ReceiptKind) : 'TAX_INVOICE',
+      // 저장값(옛 `TAX_INVOICE` 포함)과 상관없이 현금영수증으로 읽는다 — 저장값은 고쳐 쓰지 않는다 (BL-8 6, D-PL1-07)
+      receiptKind: ISSUED_RECEIPT_KIND,
       complete: info.name !== null && info.ceo !== null,
     }
   }
@@ -735,7 +737,8 @@ export class BillingService {
             await insertDocument(tx, {
               sellerId,
               paymentId,
-              kind: business !== null && (RECEIPT_KINDS as readonly string[]).includes(business.receiptKind) ? business.receiptKind : 'TAX_INVOICE',
+              // 새 증빙 요청은 늘 현금영수증(지출증빙) — 사업자 정보에 옛 `TAX_INVOICE`가 저장돼 있어도 (BL-8 3·6, D-PL1-07)
+              kind: ISSUED_RECEIPT_KIND,
               // 받는 쪽 = 그 순간 사업자 정보 (암호화한 그대로 — 나중에 바꿔도 이 요청은 그대로)
               recipientSealed: business?.sealed ?? sealSellerText(this.#options.masterKey, BUSINESS_PURPOSE, sellerId, '{}'),
               amount: current.amount,
@@ -1014,7 +1017,11 @@ export class BillingService {
     const extra = ownKeys(body).filter((key) => !['requestId', 'businessNumber', 'name', 'ceo', 'email', 'receiptKind'].includes(key))
     if (extra.length > 0) return { kind: 'rejected', rejection: rejection(400, 'UNKNOWN_FIELD', '받을 수 없는 항목이 있어요.', unknownFieldProblems(extra)) }
     const checked = checkBusiness(body)
-    if (!checked.ok) return { kind: 'rejected', rejection: rejection(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', checked.problems) }
+    // 증빙 종류 칸이 틀리면 422 (BL-8 6, D-PL1-07 — AC-PL1B-01 (c)·(d)), 그 밖의 칸만 틀리면 지금처럼 400
+    if (!checked.ok) {
+      const status = checked.problems.some((problem) => problem.field === 'receiptKind') ? 422 : 400
+      return { kind: 'rejected', rejection: rejection(status, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', checked.problems) }
+    }
     const { businessNumber, name, ceo, email, receiptKind } = checked.value
     const now = new Date(this.#options.clock.now())
     await this.#db.transaction(async (tx) => {
@@ -1186,7 +1193,12 @@ export async function operatorGrant(db: Db, sellerId: string, input: { kind: Pas
   return id
 }
 
-/** 사업자 정보 검사 (BL-8 1, G-BIL bizno) */
+/** 사업자 정보 저장의 `TAX_INVOICE` 거절 문장 (BL-8 6, D-PL1-07) */
+export const BUSINESS_TAX_INVOICE_MESSAGE = '세금계산서는 지금은 발급할 수 없어요. 현금영수증(지출증빙)으로 발행해요.'
+/** 사업자 정보 저장의 모르는 증빙 종류 문장 (N5 그대로 — AC-PL1B-01 (d)) */
+export const BUSINESS_RECEIPT_KIND_MESSAGE = '계좌이체 증빙은 세금계산서나 현금영수증 중에서 골라 주세요.'
+
+/** 사업자 정보 검사 (BL-8 1·6, G-BIL bizno) */
 export function checkBusiness(body: Record<string, unknown>):
   | { ok: true; value: { businessNumber: string; name: string; ceo: string; email: string | null; receiptKind: ReceiptKind } }
   | { ok: false; problems: FieldProblem[] } {
@@ -1219,11 +1231,11 @@ export function checkBusiness(body: Record<string, unknown>):
       problems.push({ field: 'email', message: '이메일은 이름@도메인 모양으로 100자 이하로 적어 주세요.' })
     } else mail = trimmed
   }
-  if (receiptKind !== undefined && !(RECEIPT_KINDS as readonly unknown[]).includes(receiptKind)) {
-    problems.push({ field: 'receiptKind', message: '계좌이체 증빙은 세금계산서나 현금영수증 중에서 골라 주세요.' })
-  }
+  // 받는 값: 적지 않음 · `CASH_RECEIPT`. `TAX_INVOICE`는 지금 발급할 수 없다고 거절한다 (BL-8 6, D-PL1-07)
+  if (receiptKind === 'TAX_INVOICE') problems.push({ field: 'receiptKind', message: BUSINESS_TAX_INVOICE_MESSAGE })
+  else if (receiptKind !== undefined && receiptKind !== ISSUED_RECEIPT_KIND) problems.push({ field: 'receiptKind', message: BUSINESS_RECEIPT_KIND_MESSAGE })
   if (problems.length > 0 || shop === null || owner === null) return { ok: false, problems }
-  return { ok: true, value: { businessNumber, name: shop, ceo: owner, email: mail, receiptKind: (receiptKind as ReceiptKind | undefined) ?? 'TAX_INVOICE' } }
+  return { ok: true, value: { businessNumber, name: shop, ceo: owner, email: mail, receiptKind: ISSUED_RECEIPT_KIND } }
 }
 
 function startPreview(status: BillingStatus): StartPreview {
