@@ -6,6 +6,9 @@
 //   원래 순서대로 하나씩 보낸다(서버 묶음 API 없음 — D-O2-14). 찜이 생긴 줄은 사라지며 "1등"·"대기 n번"·"품절"을 잠깐 보이고,
 //   아무 일도 없었던 줄(changed=false)은 까닭과 함께 남는다(주의 색).
 // - 휴대폰(375px): 고르기 칸은 세로로 쌓이고 누르는 곳은 44px 이상, 수량 칸은 숫자 키패드. 마우스를 올려야만 보이는 조작은 없다.
+// A1 (CMT-06, AC-A1-20·21, D-A1-01·07): 항목의 제안(서버 suggestion)이 있으면 고르기 칸 위에 "제안: 21번 반바지 M 1개"·출처("비슷한 글자로 찾음"·"AI가 읽음")와
+//   [이대로 주문](제안 값으로 "주문으로"와 같은 5초 대기 바로잡기 하나)·[고치기](칸만 제안 값으로 — 요청 없음). 고르기 칸은 제안으로 미리 채우지 않는다.
+//   화면을 열 때 AI 제안 받기를 한 번 부른다(lib/assist.ts) — 목록·조치는 그 요청을 기다리지 않는다.
 import { DEFAULT_SETTINGS } from '@livejjim/core'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { get, post } from '../api/client.ts'
@@ -25,8 +28,9 @@ import {
   type LineOutcome,
   type ReviewPick,
 } from '../lib/options.ts'
+import { ASSIST_OFFER, ASSIST_READING, suggestionView, useAssistOnOpen, type SuggestionView } from '../lib/assist.ts'
 import { reviewsPath, useReviews } from '../lib/reviews.ts'
-import type { Navigate, ReviewsRoute } from '../lib/router.ts'
+import { routePath, type Navigate, type ReviewsRoute } from '../lib/router.ts'
 import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
 import { ORIGIN_WORD, REVIEW_REASON_WORD } from '../lib/words.ts'
 import { ErrorNote } from './ErrorNote.tsx'
@@ -52,6 +56,7 @@ export function ReviewsPage({ route, navigate }: ReviewsPageProps) {
   const queue = useUndoQueue()
   const view = reviews.view
   const broadcast = route.broadcast === undefined ? undefined : view?.broadcasts.find((item) => item.id === route.broadcast)
+  const assist = useAssistOnOpen(query, reviews.reload)
   return (
     <main className="page page-wide reviews-page stack">
       <h1>확인 필요</h1>
@@ -75,8 +80,33 @@ export function ReviewsPage({ route, navigate }: ReviewsPageProps) {
         </div>
       ) : null}
       {reviews.error !== null ? <ErrorNote error={reviews.error} onRetry={() => void reviews.reload()} retryLabel="다시 불러오기" /> : null}
+      {assist.reading ? (
+        <p className="hint" role="status">
+          {ASSIST_READING}
+        </p>
+      ) : null}
+      {assist.notice !== null ? (
+        <p className="notice" role="status">
+          {assist.notice}
+        </p>
+      ) : null}
       {view === null && reviews.error === null ? <p role="status">불러오는 중…</p> : null}
       {view !== null && queue !== null ? <ReviewList view={view} queue={queue} rehearsal={route.rehearsal} reload={reviews.reload} /> : null}
+      {assist.offer && view !== null && view.reviews.length > 0 ? (
+        <p>
+          <a
+            className="text-link"
+            href={routePath({ name: 'settings', section: 'assist' })}
+            onClick={(event) => {
+              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+              event.preventDefault()
+              navigate({ name: 'settings', section: 'assist' })
+            }}
+          >
+            {ASSIST_OFFER}
+          </a>
+        </p>
+      ) : null}
     </main>
   )
 }
@@ -205,11 +235,25 @@ function ReviewList({ view, queue, rehearsal, reload }: { readonly view: Reviews
     void reload()
   }
 
-  /** 원래 순서로 보낸다 — 줄마다 요청 번호를 따로(묶음의 요청 번호 + 줄 번호: 다시 보내도 같은 번호라 한 번만 기록) */
-  const queueLines = (targets: readonly ReviewItem[], kind: 'resolve' | 'dismiss') => {
+  /** 지금(누른 순간) 보내기 전·보내는 중인 줄 — 다시 그리기 전에 두 번 눌러도 한 번만 (AC-A1-20) */
+  const pendingNow = (): Set<string> => {
+    const out = new Set<string>()
+    for (const item of queue.getSnapshot()) {
+      if (item.kind !== 'action' || item.meta === null) continue
+      if (item.status !== 'waiting' && item.status !== 'sending' && item.status !== 'retrying') continue
+      for (const key of batches.current.get(item.meta) ?? []) out.add(key)
+    }
+    return out
+  }
+
+  /** 원래 순서로 보낸다 — 줄마다 요청 번호를 따로(묶음의 요청 번호 + 줄 번호: 다시 보내도 같은 번호라 한 번만 기록).
+   *  fixed: 칸 대신 보낼 바로잡기 (제안의 [이대로 주문]) */
+  const queueLines = (targets: readonly ReviewItem[], kind: 'resolve' | 'dismiss', fixed?: Record<string, unknown>) => {
     if (targets.length === 0) return
+    const busy = pendingNow()
+    if (targets.some((review) => busy.has(reviewKey(review)))) return
     const ordered = [...targets].sort((a, b) => view.reviews.indexOf(a) - view.reviews.indexOf(b))
-    const events = ordered.map((review) => (kind === 'resolve' ? eventOf(review) : { type: 'host.dismissReview', b: review.broadcast, item: review.item }))
+    const events = ordered.map((review) => (kind === 'resolve' ? (fixed ?? eventOf(review)) : { type: 'host.dismissReview', b: review.broadcast, item: review.item }))
     if (events.some((event) => event === null)) return
     const meta = `reviews-${String(batchId.current++)}`
     batches.current.set(meta, ordered.map(reviewKey))
@@ -252,6 +296,18 @@ function ReviewList({ view, queue, rehearsal, reload }: { readonly view: Reviews
       return next
     })
     setBulkProblem(null)
+  }
+
+  /** 제안 그대로 주문으로 — 번호·옵션·수량 = 제안 값 (source는 보내지 않는다) */
+  const acceptSuggestion = (review: ReviewItem, suggestion: SuggestionView) => {
+    queueLines([review], 'resolve', {
+      type: 'host.resolveReview',
+      b: review.broadcast,
+      item: review.item,
+      no: suggestion.product.no,
+      qty: suggestion.qty,
+      ...(suggestion.product.options.length > 0 ? { options: { ...suggestion.options } } : {}),
+    })
   }
 
   const chosen = view.reviews.filter((review) => selected.has(reviewKey(review)) && !pending.has(reviewKey(review)))
@@ -303,6 +359,7 @@ function ReviewList({ view, queue, rehearsal, reload }: { readonly view: Reviews
         {view.reviews.map((review, index) => {
           const key = reviewKey(review)
           const state = lines.get(key) ?? { pick: prefillOf(review, products), kept: null }
+          const suggestion = suggestionView(review.suggestion, review.broadcast, products, maxQty(review))
           return (
             <ReviewRow
               key={key}
@@ -317,6 +374,9 @@ function ReviewList({ view, queue, rehearsal, reload }: { readonly view: Reviews
               delayMs={queue.delayMs}
               ready={eventOf(review) !== null}
               maxQty={maxQty(review)}
+              suggestion={suggestion}
+              onAccept={() => (suggestion === null ? undefined : acceptSuggestion(review, suggestion))}
+              onEdit={() => (suggestion === null ? undefined : setPick(key, { product: suggestion.product.key, options: { ...suggestion.options }, qty: String(suggestion.qty) }))}
               onSelect={(on) =>
                 setSelected((current) => {
                   const next = new Set(current)
@@ -350,13 +410,17 @@ interface ReviewRowProps {
   readonly delayMs: number
   readonly ready: boolean
   readonly maxQty: number
+  /** 제안 (없으면 null) */
+  readonly suggestion: SuggestionView | null
+  readonly onAccept: () => void
+  readonly onEdit: () => void
   readonly onSelect: (on: boolean) => void
   readonly onPick: (pick: ReviewPick) => void
   readonly onResolve: () => void
   readonly onDismiss: () => void
 }
 
-function ReviewRow({ n, review, state, broadcast, many, products, selected, pending, delayMs, ready, maxQty, onSelect, onPick, onResolve, onDismiss }: ReviewRowProps) {
+function ReviewRow({ n, review, state, broadcast, many, products, selected, pending, delayMs, ready, maxQty, suggestion, onAccept, onEdit, onSelect, onPick, onResolve, onDismiss }: ReviewRowProps) {
   const { pick } = state
   const product = products.find((item) => item.key === pick.product)
   const remaining = remainingOf(product, pick.options)
@@ -380,6 +444,21 @@ function ReviewRow({ n, review, state, broadcast, many, products, selected, pend
         {many && broadcast !== undefined ? <span className="hint">{`${broadcast.title} · ${dateWords(broadcast.date)}`}</span> : null}
       </div>
       <p className="review-text">{review.text ?? (review.origin === 'sms' ? '메모 없음' : '')}</p>
+      {suggestion !== null ? (
+        <div className="review-suggestion stack-tight" role="group" aria-label={`${lineName} 제안`}>
+          <p className="review-suggestion-words">
+            <strong>{suggestion.words}</strong> <span className="review-suggestion-source">{suggestion.source}</span>
+          </p>
+          <div className="row review-actions">
+            <button type="button" className="button" disabled={pending} onClick={onAccept} aria-label={`${lineName} 이대로 주문`}>
+              이대로 주문
+            </button>
+            <button type="button" className="button" disabled={pending} onClick={onEdit} aria-label={`${lineName} 고치기`}>
+              고치기
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className="review-picks">
         <label className="field">
           <span>상품</span>

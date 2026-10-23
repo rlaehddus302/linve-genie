@@ -2,6 +2,7 @@
 // 법률 검토 전 초안이다 — 확정은 사용자 몫(D-012). 정해지지 않은 값은 "[미정]"·"[검토 필요]"로 둔다.
 // N4b: 개인정보처리방침에 "구매자 확인서 공유 링크" 문단(AC-N4b-35).
 // L1: 수집 항목에 간편 로그인 연결 정보(공급자 계정 번호·가린 이메일 — AC-L1-13), 쿠키에 간편 로그인 확인 쿠키.
+// A1: "AI 제안(선택)" 문단(AC-A1-23, D-A1-06) — 판매자가 켠 경우에만 확인 필요 댓글의 글(닉네임·전화번호 뺀 것)과 상품 이름·옵션이 Anthropic(미국)으로.
 // 바깥 주소(구글·유튜브)는 새 탭으로 연다 — 이 화면은 그 주소를 부르지 않는다.
 import type { ReactNode } from 'react'
 
@@ -15,6 +16,12 @@ export const RECEIPT_LINK_PERIOD = '링크는 만든 때부터 14일 뒤에 열�
 export const RECEIPT_LINK_PHONE = '링크 화면에는 휴대폰 번호의 끝 4자리만 보여요.'
 /** 간편 로그인 연결 정보 (L1 AC-L1-13, D-L1-05) — 공급자 토큰·이메일 원문은 저장하지 않는다 */
 export const SOCIAL_LOGIN_ITEM = '간편 로그인을 연결하면: 공급자 계정 번호, 가린 이메일(예: se***@gmail.com)'
+/** AI 제안(선택) 문단 (A1 AC-A1-23, D-A1-06) */
+export const AI_ASSIST_TITLE = '13. AI 제안(선택)'
+export const AI_ASSIST_WHAT =
+  '판매자가 설정에서 AI 제안을 켠 경우에만, 확인 필요 댓글의 글(닉네임·전화번호를 뺀 것)과 그 방송의 상품 이름·옵션이 AI 회사 Anthropic(미국)으로 보내져 주문 제안을 만드는 데 쓰여요.'
+export const AI_ASSIST_STORE = '서비스는 보낸 글을 따로 저장하지 않아요. 만든 제안(상품 번호·옵션·수량)만 보관해요.'
+export const AI_ASSIST_OFF = '판매자는 설정 → AI 제안 → "끄기"로 언제든 끌 수 있어요. 끄면 그때부터 보내지 않아요.'
 export const TAX_NOTE = '구매 내역 확인서는 세금계산서·현금영수증 같은 세법상 증빙이 아니에요'
 
 function Outside({ href, children }: { readonly href: string; readonly children: ReactNode }) {
@@ -77,6 +84,7 @@ export function PrivacyPage() {
       </Section>
       <Section title="6. 처리 위탁">
         <p>서버 운영(호스팅): [미정]</p>
+        <p>AI 제안(판매자가 켠 경우만): Anthropic(미국) — 13번을 보세요. [검토 필요]</p>
       </Section>
       <Section title="7. 쿠키">
         <p>로그인 쿠키만 써요. 광고·분석 쿠키는 쓰지 않아요.</p>
@@ -101,7 +109,14 @@ export function PrivacyPage() {
           <li>링크는 판매자가 구매자에게 직접 보내요. 서비스가 링크를 채팅·메시지로 보내지 않아요. 링크 화면은 검색에 나오지 않게 하고, 메신저 미리 보기에는 이름·금액·그림을 내보내지 않아요.</li>
         </ul>
       </Section>
-      <Section title="13. 시행일">
+      <Section title={AI_ASSIST_TITLE}>
+        <ul>
+          <li>{AI_ASSIST_WHAT}</li>
+          <li>{AI_ASSIST_STORE}</li>
+          <li>{AI_ASSIST_OFF}</li>
+        </ul>
+      </Section>
+      <Section title="14. 시행일">
         <p>[미정]</p>
       </Section>
     </main>
