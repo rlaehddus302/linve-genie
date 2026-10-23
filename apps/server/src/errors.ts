@@ -171,6 +171,8 @@ export type ErrorCode =
   | 'EXT_NOT_BOUND'
   | 'EXT_BIND_REJECTED'
   | 'EXT_ENDED'
+  // A1 AI 제안: 켜기에 동의가 없음
+  | 'CONSENT_REQUIRED'
 
 export interface ErrorBody {
   readonly error: {

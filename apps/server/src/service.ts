@@ -48,6 +48,7 @@ import type { ScopeRuntime } from './runtime.ts'
 import { fieldMessage, phoneIdProblem, safeFieldName, unknownFieldProblems } from './messages.ts'
 import { productOwners } from './product-history.ts'
 import { reviewsView, type ReviewsView } from './reviews.ts'
+import { AssistService } from './assist/service.ts'
 import { mergePackingCheck } from './packing.ts'
 import { ParcelService } from './parcel/service.ts'
 import { mergeAddress } from './parcel/store.ts'
@@ -165,6 +166,8 @@ export interface ServiceOptions {
   readonly onGenerator?: (sellerId: string, payload: Readonly<Record<string, unknown>>) => void
   /** 요금 (N5). 켜져 있으면 새 실제 방송 시작이 이용 방식을 같은 트랜잭션에서 정한다(BL-4) */
   readonly billing?: BillingService
+  /** AI 확인 필요 제안 (A1 — 확인 필요 목록의 suggestion. 없으면 키 없는 서비스: 규칙 제안만) */
+  readonly assist?: AssistService
 }
 
 export type ChatIngestOutcome =
@@ -290,6 +293,7 @@ const charCount = (value: string): number => [...value].length
 
 export class Service {
   readonly #options: ServiceOptions
+  readonly #assist: AssistService
   readonly #sellerKeys = new Map<string, Buffer>()
   /** 범위마다 최근에 기록한 음성 문자찜 쓰기 (D-V1-13 — 메모리에만, 서버를 다시 켜면 빈다) */
   readonly #voiceRepeats = new VoiceRepeats()
@@ -298,6 +302,7 @@ export class Service {
 
   constructor(options: ServiceOptions) {
     this.#options = options
+    this.#assist = options.assist ?? new AssistService({ db: options.db, writer: options.writer, clock: options.clock, masterKey: options.masterKey, log: () => {}, setup: null })
     this.generators = new ChatGenerators({
       timer: options.generatorTimer ?? realTimer,
       now: () => options.clock.now(),
@@ -997,7 +1002,7 @@ export class Service {
 
   /** 확인 필요 목록 (O2 AC-O2-30, D-O2-14). 방송을 주면 그 방송만 — 다른 판매자의 방송·없는 방송·리허설인지가 다른 방송이면 null */
   reviews(sellerId: string, query: { readonly rehearsal: boolean; readonly broadcast?: string }): Promise<ReviewsView | null> {
-    return reviewsView({ db: this.#options.db, writer: this.#options.writer }, sellerId, query)
+    return reviewsView({ db: this.#options.db, writer: this.#options.writer, assist: this.#assist }, sellerId, query)
   }
 
   /** 옵션 방송(설정 스냅샷 claim.parseMode=OPTIONS)이 실제·리허설 중 하나라도 있나 (D-O4-13) — 그 판매자 것만, 참/거짓만 */

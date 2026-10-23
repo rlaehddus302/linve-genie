@@ -4,6 +4,7 @@
 //   `/packing` 포장 모드 — 고른 날짜(실제 범위만)·연 구매자는 검색값(`?date=2026-10-18&buyer=UC_A`) (I2 AC-I2-35)
 //   `/settings` 설정 · `/settings/youtube` 설정의 유튜브 칸(구글에서 돌아오면 `?youtube=<결과>` — 화면이 보인 뒤 지운다)
 //   `/settings/instagram`·`/settings/tiktok` 설정의 인스타그램·틱톡 칸 — 인스타그램에서 돌아온 `?instagram=<결과>`(경로 `/`여도)는 인스타그램 칸으로 (N2b-2)
+//   `/settings/assist` 설정의 AI 제안 칸 (A1 — 확인 필요 화면의 "설정에서 AI 제안을 켤 수 있어요." 링크)
 //   `/start` 시작 마법사 · `/privacy` 개인정보처리방침(초안) · `/terms` 이용약관(초안) — 둘은 로그인 없이 열린다
 //   구매자 자세히의 합치기 창: 상대·방향은 `merge`(상대 구매자 ID)·`into`(남는 쪽 구매자 ID), 막힘에서 연 상품 자세히는 `product`(상품 키)
 //   — 상품 자세히에 갔다 와도(브라우저 뒤로 가기 포함) 같은 합치기 창이 다시 열린다 (AC-S06b-34, D-102).
@@ -45,7 +46,7 @@ export interface BillingRoute {
 /** 결제 ID 모양 (서버가 만든 영문·숫자 — 넉넉히 영문·숫자·'_'·'-' 1~64자) */
 const PAYMENT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 
-export type SettingsSection = 'youtube' | 'instagram' | 'tiktok' | 'parcel' | 'extension'
+export type SettingsSection = 'youtube' | 'instagram' | 'tiktok' | 'parcel' | 'extension' | 'assist'
 
 /** 입금 확인 화면의 목록 (N3) */
 export const DEPOSIT_TABS = ['review', 'done', 'ignored', 'paste', 'sources'] as const
@@ -174,6 +175,7 @@ export function parseRoute(pathname: string, search = ''): Route {
   if (path === '/settings/tiktok') return { name: 'settings', section: 'tiktok' }
   if (path === '/settings/parcel') return { name: 'settings', section: 'parcel' }
   if (path === '/settings/extension') return { name: 'settings', section: 'extension' }
+  if (path === '/settings/assist') return { name: 'settings', section: 'assist' }
   if (path === '/start') return { name: 'start', ...result }
   if (path === '/privacy') return { name: 'privacy' }
   if (path === '/terms') return { name: 'terms' }

@@ -181,6 +181,35 @@ export interface ReviewItem extends IsoTimes<ReviewInfo> {
   readonly received: string | null
   /** 문자찜의 전화번호 뒤 4자리 */
   readonly phoneLast4: string | null
+  /** 제안 (A1 CMT-06, R-20 10 — 판정이 아니다). 없으면 null. 옛 서버는 키가 없다 */
+  readonly suggestion?: ReviewSuggestion | null
+}
+
+/** 확인 필요 항목의 제안 (A1 dev-notes "화면·시험에게") — RULE = 비슷한 글자로 찾음, AI = AI가 읽음 */
+export interface ReviewSuggestion {
+  readonly no: number
+  /** 옵션 상품이면 모든 항목 (항목 이름 → 선택지 label), 옵션 없는 상품이면 없음 */
+  readonly options?: Readonly<Record<string, string>>
+  readonly qty: number
+  readonly source: 'RULE' | 'AI'
+}
+
+/** AI 제안 받기 결과 (POST /api/assist/suggest) */
+export type AssistResult = 'DONE' | 'OFF' | 'UNAVAILABLE' | 'LIMIT' | 'FAILED' | 'BUSY'
+
+export interface AssistSuggestResponse {
+  readonly result: AssistResult
+  readonly called: number
+}
+
+/** AI 제안 설정 (GET·PUT /api/assist/settings) */
+export interface AssistSettings {
+  /** 서버에 키가 있다 */
+  readonly available: boolean
+  readonly enabled: boolean
+  readonly consentedAt: string | null
+  readonly usedToday: number
+  readonly dailyLimit: number
 }
 
 /** 확인 필요 조회 (GET /api/reviews[?broadcast=][&rehearsal=true]) */

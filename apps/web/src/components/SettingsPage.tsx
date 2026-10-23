@@ -13,6 +13,7 @@
 // - 백업: 마지막 자동 백업 시각(KST)·보관 기간·보관 중인 백업 목록(만든 시각·크기). 꺼져 있거나 마지막 성공이 26시간보다 오래되면 주의 안내.
 //   복구·백업 파일 내려받기 버튼은 없다(운영자에게 날짜를 알려 되돌린다 — D-I2-11).
 // - 전체 기록 내려받기: "전체 기록(JSON)"·"전체 판매대장(엑셀)" — 만드는 동안 그 버튼이 잠기고 "만드는 중이에요…".
+// A1 (AC-A1-22): 틱톡 칸 뒤에 "AI 제안"(옵션 방송을 쓰는 판매자에게만 — 판매 방식 기본이 옵션이거나 옵션 방송 기록이 있다). `/settings/assist`는 그 칸이 보이게 연다.
 // L1 (AC-L1-21~23): 보조자 칸 뒤에 "로그인 방법"(판매자에게만 — 간편 로그인이 꺼진 서버면 칸이 없다). 공급자에서 돌아온 `?login=<코드>&provider=<p>`는
 //   그 칸에 정해진 문장을 한 번 보이고 주소에서 지운다. 연결·끊기 알림(`login`)과 다시 붙음에 목록을 다시 읽는다.
 import type { SaleSettings } from '@livejjim/core'
@@ -27,6 +28,7 @@ import { routePath, type Navigate, type Route, type SettingsRoute } from '../lib
 import { saleModeOf } from '../lib/words.ts'
 import { fieldsAt, ONGOING_NOTICE, SAVED_MESSAGE, SAVED_SHIPPING_MESSAGE } from '../lib/settings-fields.ts'
 import { hasChannel } from '../lib/youtube.ts'
+import { AssistSection, useShowAssist } from './AssistSection.tsx'
 import { AssistantsSection } from './AssistantsSection.tsx'
 import { DownloadButton } from './downloads.tsx'
 import { ExtensionSettings, useExtension } from './ExtensionConnection.tsx'
@@ -111,6 +113,8 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
   const loginMethods = useLoginMethods(!assistant)
   // 크롬 확장 연결 (X1 — 판매자만, 보조자는 코드를 만들 수 없다)
   const extension = useExtension(!assistant)
+  // AI 제안 칸 (A1): 저장된 판매 방식이 옵션이면 바로, 아니면 옵션 방송 기록을 물어서
+  const showAssist = useShowAssist(settings === null ? (loadError === null ? null : false) : settings['claim.parseMode'] === 'OPTIONS', assistant)
   useEffect(() => {
     stripLoginParams()
   }, [])
@@ -190,6 +194,11 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
       <SettingsSection title="틱톡 라이브(베타)" focus={route.section === 'tiktok' && (settings !== null || loadError !== null)}>
         <TikTokSettingsSection handle={tiktok} />
       </SettingsSection>
+      {showAssist ? (
+        <SettingsSection title="AI 제안" focus={route.section === 'assist'}>
+          <AssistSection />
+        </SettingsSection>
+      ) : null}
       <SettingsSection title="보조자">
         <AssistantsSection />
       </SettingsSection>

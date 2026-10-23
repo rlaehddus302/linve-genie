@@ -1,0 +1,209 @@
+{
+  "kind": "rule",
+  "about": "A1 규칙 제안 — 이름이 같은 상품(PRODUCT_AMBIGUOUS): 상품 하나씩만 남긴 목록으로 R-20을 다시 읽어 주문이 나오는 상품이 하나뿐일 때만 (D-A1-02)",
+  "settings": {
+    "maxNumber": 999,
+    "maxQuantity": 10
+  },
+  "catalog": [
+    {
+      "no": 21,
+      "name": "반바지",
+      "options": [
+        {
+          "name": "사이즈",
+          "choices": [
+            {
+              "label": "S"
+            },
+            {
+              "label": "M"
+            },
+            {
+              "label": "L"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "no": 23,
+      "name": "반바지",
+      "options": [
+        {
+          "name": "색상",
+          "choices": [
+            {
+              "label": "흰색"
+            },
+            {
+              "label": "검정색"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "no": 24,
+      "name": "반팔",
+      "aliases": [
+        "티"
+      ],
+      "options": [
+        {
+          "name": "사이즈",
+          "choices": [
+            {
+              "label": "M"
+            },
+            {
+              "label": "L"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "no": 25,
+      "name": "티",
+      "options": [
+        {
+          "name": "사이즈",
+          "choices": [
+            {
+              "label": "M"
+            },
+            {
+              "label": "L"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "id": "G-AST-A1-051",
+      "title": "옵션으로 상품이 갈림",
+      "refs": [
+        "CMT-06",
+        "R-20 10",
+        "D-A1-02"
+      ],
+      "note": "[21]만: '반바지 M' 주문. [23]만: 'm'이 남은 말(UNKNOWN_WORD). [24]·[25]만: 상품 후보 없음. 주문 하나 → 21",
+      "text": "반바지 M",
+      "review": {
+        "reason": "PRODUCT_AMBIGUOUS"
+      },
+      "out": {
+        "no": 21,
+        "options": {
+          "사이즈": "M"
+        },
+        "qty": 1
+      }
+    },
+    {
+      "id": "G-AST-A1-052",
+      "title": "수량도 같이",
+      "refs": [
+        "CMT-06",
+        "R-20 10",
+        "D-A1-02"
+      ],
+      "note": "[21]만: M 2개",
+      "text": "반바지 M 2개",
+      "review": {
+        "reason": "PRODUCT_AMBIGUOUS"
+      },
+      "out": {
+        "no": 21,
+        "options": {
+          "사이즈": "M"
+        },
+        "qty": 2
+      }
+    },
+    {
+      "id": "G-AST-A1-053",
+      "title": "다른 쪽 상품",
+      "refs": [
+        "CMT-06",
+        "R-20 10",
+        "D-A1-02"
+      ],
+      "note": "[23]만: 흰색 주문. [21]만: '흰색' 남은 말",
+      "text": "반바지 흰색",
+      "review": {
+        "reason": "PRODUCT_AMBIGUOUS"
+      },
+      "out": {
+        "no": 23,
+        "options": {
+          "색상": "흰색"
+        },
+        "qty": 1
+      }
+    },
+    {
+      "id": "G-AST-A1-054",
+      "title": "둘 다 옵션 빠짐",
+      "refs": [
+        "CMT-06",
+        "R-20 10",
+        "D-A1-02"
+      ],
+      "note": "[21]·[23] 모두 OPTION_MISSING — 주문 0개",
+      "text": "반바지",
+      "review": {
+        "reason": "PRODUCT_AMBIGUOUS"
+      },
+      "out": null
+    },
+    {
+      "id": "G-AST-A1-055",
+      "title": "둘 다 주문이 됨",
+      "refs": [
+        "CMT-06",
+        "R-20 10",
+        "D-A1-02"
+      ],
+      "note": "[24](별칭 '티')·[25](이름 '티') 모두 M 주문 — 주문 둘 → 제안 없음",
+      "text": "티 M",
+      "review": {
+        "reason": "PRODUCT_AMBIGUOUS"
+      },
+      "out": null
+    },
+    {
+      "id": "G-AST-A1-056",
+      "title": "이 사유에서는 비슷함을 보지 않음",
+      "refs": [
+        "CMT-06",
+        "R-20 10",
+        "D-A1-02"
+      ],
+      "note": "'검정'은 23의 선택지 이름·별칭이 아니다('검정색'만). 비슷함 바꾸기는 UNKNOWN_WORD에서만",
+      "text": "반바지 검정",
+      "review": {
+        "reason": "PRODUCT_AMBIGUOUS"
+      },
+      "out": null
+    },
+    {
+      "id": "G-AST-A1-057",
+      "title": "두 상품의 옵션이 섞임",
+      "refs": [
+        "CMT-06",
+        "R-20 10",
+        "D-A1-02"
+      ],
+      "note": "[21]만: 흰색 남음. [23]만: m 남음 — 주문 0개",
+      "text": "반바지 흰색 M",
+      "review": {
+        "reason": "PRODUCT_AMBIGUOUS"
+      },
+      "out": null
+    }
+  ]
+}

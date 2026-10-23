@@ -46,6 +46,8 @@ import type { Sealer } from './youtube/seal.ts'
 import type { YoutubeSystem } from './youtube/system.ts'
 import { isSocialPath, registerSocialRoutes, socialPublicPaths } from './social/routes.ts'
 import type { SocialLogin } from './social/service.ts'
+import { registerAssistRoutes } from './assist/routes.ts'
+import type { AssistService } from './assist/service.ts'
 
 /** 요청 본문 상한 (AC-S04-34) */
 export const BODY_LIMIT_BYTES = 64 * 1024
@@ -92,6 +94,8 @@ export interface ApiDeps {
   readonly social?: SocialLogin | null
   /** 크롬 확장으로 채팅 읽기 (X1). 없으면 /api/extension 경로가 없다 */
   readonly extension?: ExtensionService
+  /** AI 확인 필요 제안 (A1). 없으면 /api/assist/** 경로가 없다 */
+  readonly assist?: AssistService
 }
 
 /** TCP 연결 주소 (@hono/node-server가 넘기는 요청 정보). 프로세스 안 요청(시험의 app.request)은 env로 넣을 수 있고, 없으면 null */
@@ -885,6 +889,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
 
   // ── 유튜브 (Y1) ──────────────────────────────────────────────────────
   registerYoutubeRoutes(api, { service, auth, youtube: deps.youtube ?? null, sealer: deps.sealer ?? null })
+  if (deps.assist !== undefined) registerAssistRoutes(api, deps.assist)
   if (social !== null) registerSocialRoutes(api, social, (c) => clientAddress(connectionAddress(c), c.req.header('x-forwarded-for'), deps.trustedProxies ?? 0))
 
   // ── 출력 기록 (I1, LABEL_RULES L-11) ──────────────────────────────────

@@ -25,6 +25,7 @@
 | `tiktok/*.json` | 틱톡 아이디·방송 주소 해석, 웹캐스트 댓글 → 공통 댓글 레코드·중복 제거 (PLT-02, N2b-1, D-N2b-1-02~04), 공통 댓글 레코드 → `chat` 다섯 칸·댓글 붙여넣기 줄 읽기 (N2b-2, D-N2b-2-03·07). **JSON이라 코어 골든 러너는 읽지 않는다**. `apps/server` 시험이 읽는다 — 아래 "틱톡 골든" |
 | `parcel/*.json` | 택배 — 배송지 여섯 칸 다듬기·검사, 묶음을 접수 목록에서 고를 수 있는지 (PARCEL_RULES PC-2·PC-4, T1, D-T1-03·D-T1-05). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "택배 골든" |
 | `waybill/*.json` | 운송장 — 송장번호 Code 128 부호값·받는 분 연락처 가리기·송장번호 글 (PARCEL_RULES PC-7, T1, D-T1-10). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/documents` 단위 시험이 읽는다 — 아래 "운송장 골든" |
+| `assist/*.json` | 확인 필요 항목의 제안 — 규칙 제안(비슷한 선택지로 바꿔 다시 읽기·같은 이름 상품 가르기)·AI 응답 검사·AI로 보내는 글 가리기·AI 호출 고르기 (SPEC CMT-06, DOMAIN_RULES R-20 10, A1 — D-A1-02~D-A1-06). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "AI 제안 골든" |
 
 ## 러너가 읽는 범위 (D-020, D-021)
 
@@ -408,3 +409,22 @@ expect:
 | `invoice` | 송장번호(숫자 8~20자리) | 앞에서부터 4자리마다 `-`를 넣은 글 |
 
 - 바코드는 부호값까지만 골든이다. 막대 무늬(부호값마다 11칸, 끝 13칸)는 Code 128 표준 표를 쓰고, 단위 시험이 그린 PDF를 그림으로 바꿔 시험 전용 해독기로 송장번호가 다시 읽히는지 본다(AC-T1-41).
+
+## AI 제안 골든 (`assist/*.json`, A1 — D-A1-02~D-A1-06·D-A1-09·D-A1-10)
+
+확인 필요 항목(R-20 7)에 붙이는 **제안**의 순수 함수 넷을 고정한다. 규칙 문장은 DOMAIN_RULES R-20 10이다. 제안은 판정이 아니다 — 엔진(`packages/core`)은 제안을 모르고, 이 함수들은 이벤트를 만들지 않는다. 판매자가 제안을 눌렀을 때만 기존 `host.resolveReview`가 나간다.
+
+- **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. 서버(`apps/server`)의 단위 시험이 이 폴더의 모든 `*.json`을 읽어 서버의 순수 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 그 시험은 파일 수(5)와 사례 수 합계(105)를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다. 미구현을 허용하는 장치가 없다(`known-unimplemented.yaml`의 대상이 아니다).
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }` + `kind`에 따라 파일 머리의 `settings`·`catalog`. `kind` ∈ `rule`·`validate`·`redact`·`plan`. 모르는 키·모르는 `kind`·아래 표 밖의 열거값은 시험 실패(읽기 오류)다.
+- **사례 공통 키**: `id`(`G-AST-A1-` + 세 자리, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `out`.
+- `catalog`는 `parser/comment-options.yaml`의 `catalog`와 같은 모양이다(`{ no, name, aliases?, options? }` — 그 방송의 판매 종료가 아닌 상품). 제안 `{ no, options?, qty }`도 comment-options `orders` 한 줄과 같은 모양이다(`options`는 옵션 상품이면 모든 항목을 항목 순서로·선택지 `label`, 옵션 없는 상품이면 적지 않는다).
+- 사유(`reason`)는 comment-options의 `review.reason`과 같은 열거값에 `STOCK_SHORT`를 더한 것이다(R-19 수량 부족).
+
+| `kind` | 파일 머리 | 사례 키 | `out` |
+|---|---|---|---|
+| `rule` | `settings`(`maxNumber`·`maxQuantity` — comment-options와 같음), `catalog` | `text`(댓글 본문 그대로), `review`(그 댓글의 확인 필요 결과 `{ reason, no?, options?, qty? }` — comment-options `review`와 같은 모양, 엔진이 읽은 것) | 제안 또는 `null`. 정확히 같음 |
+| `validate` | `settings`(`maxQuantity`), `catalog` | `items`(AI에 보낸 항목 `{ id, no? }` — `id` = 요청 안에서만 쓰는 글자 번호, `no` = 엔진이 읽은 번호, 없으면 키 없음), `response`(모델이 돌려준 글 그대로) | `items`의 모든 `id`를 키로 하는 객체, 값 = 제안 또는 `null`. 정확히 같음 |
+| `redact` | 없음 | `in`(댓글 본문 그대로) | AI로 보낼 글(문자열). 정확히 같음 |
+| `plan` | 없음 | `in` = `{ enabled, hasKey, usedToday, dailyLimit, globalUsed, globalLimit, batchMax, items }` — `items` = 한 방송의 확인 필요 항목 `{ id, origin: "chat"\|"sms", reason, no(정수 또는 null), rule(규칙 제안이 있는지), cached(같은 캐시 키의 AI 결과가 있는지), text }`(원래 순위 순) | `{ "send": [id …] }` — AI로 보낼 항목, 그 순서. 빈 목록이면 호출하지 않는다 |
+
+- `rule`의 "비슷함"·다시 읽기·사유 표, `validate`의 형식, `redact`의 순서, `plan`의 거르기·같은 글 묶기·상한은 DOMAIN_RULES R-20 10과 DECISIONS D-A1-02~D-A1-06이 정답이다. 캐시 키 계산·하루 사용량 세기(KST 날짜)·잠금·방송 고르기는 서버가 함수를 부르기 전·후에 하는 일이라 이 골든이 아니라 서버 시험·E2E가 본다.
