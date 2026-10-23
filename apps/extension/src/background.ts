@@ -7,8 +7,8 @@ const chrome = chromeApi()
 const hub = new Hub(chrome, SERVER_ORIGIN)
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
-  // 이 확장의 페이지(팝업·content script)가 보낸 것만 받는다
+  // 이 확장의 페이지(팝업·content script)가 보낸 것만 받는다. 어느 쪽 메시지인지는 hub가 보낸 곳 주소로 다시 본다(RA-X1-04)
   if (sender.id !== chrome.runtime.id) return undefined
-  void hub.handle(message).then(respond, () => respond(undefined))
+  void hub.handle(message, sender).then(respond, () => respond(undefined))
   return true
 })

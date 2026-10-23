@@ -103,11 +103,18 @@ describe('새로 붙은 일반 채팅만 읽는다', () => {
     expect(received.map((m) => m.text)).toEqual(['4번'])
   })
 
-  it('게시 시각이 없으면 읽은 시각, 빈 본문은 보내지 않는다, 붙였던 속성은 지운다', () => {
+  it('AC-X1-24(D-X1-28): 게시 시각이 없으면 지금 시각으로 채우지 않고 "읽지 못함", 빈 본문은 보내지 않는다, 붙였던 속성은 지운다', () => {
     const element = messageElement(document, { usec: null, body: '3번' })
     list.append(element)
     const result = readMessage(element, () => 42)
-    expect(result).toMatchObject({ kind: 'message', message: { at: 42 } })
+    expect(result).toEqual({ kind: 'unread' })
+    reader.start(CHAT_URL)
+    const counted = messageElement(document, { id: 'ChwKGkNJTXNub3RpbWUx', usec: null, body: '4번' })
+    const sent = received.length
+    list.append(counted)
+    reader.flush()
+    expect(received).toHaveLength(sent)
+    expect(reader.counts.unread).toBe(1)
     expect(element.hasAttribute('data-livegenie-ch')).toBe(false)
     expect(element.hasAttribute('data-livegenie-at')).toBe(false)
     const blank = messageElement(document, { body: '   ' })

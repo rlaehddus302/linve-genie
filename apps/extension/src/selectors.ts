@@ -39,3 +39,24 @@ export const DATA_TIMESTAMP_KEY = 'timestampUsec'
 /** 읽는 페이지: 라이브 채팅(팝아웃·시청 페이지 안 iframe). 다시 보기(live_chat_replay)는 읽지 않는다 */
 export const LIVE_CHAT_PATH = '/live_chat'
 export const YOUTUBE_HOST = 'www.youtube.com'
+
+// ── 감사 채팅 올리기 (YT-10 AC11~AC17, D-X1-17~23). 실제 유튜브 모양은 HG-X1에서 확인한다 ──────────────
+
+/** 채팅 입력 칸 묶음 (로그인하지 않았거나 채팅을 쓸 수 없으면 없다) */
+export const INPUT_RENDERER = 'yt-live-chat-message-input-renderer'
+/** 글을 넣는 칸 (contenteditable) */
+export const INPUT_FIELD = 'yt-live-chat-message-input-renderer #input[contenteditable]'
+/** 보내기 단추 (실제는 yt-button-renderer#send-button 안의 button, 가짜 페이지는 button#send-button) */
+export const SEND_BUTTON = 'yt-live-chat-message-input-renderer #send-button button, yt-live-chat-message-input-renderer button#send-button'
+
+/** 페이지 쪽 스크립트에게 "로그인 채널·방송 채널"을 묻는 이벤트와, 답을 잠깐 붙이는 속성(문서 맨 바깥 요소) */
+export const WHO_EVENT = 'livegenie-who'
+export const ME_ATTR = 'data-livegenie-me'
+export const OWNER_ATTR = 'data-livegenie-owner'
+/** 로그인한 계정의 채널 ID: 입력 칸 묶음 요소의 data 안 경로 (앞의 것부터) */
+export const ME_DATA_PATHS: readonly (readonly string[])[] = [['authorExternalChannelId'], ['channelId']]
+/** 방송 채널 ID: 메시지 요소 data의 배지 중 주인 배지(liveChatAuthorBadgeRenderer.icon.iconType)가 붙은 작성자 */
+export const DATA_BADGES_KEY = 'authorBadges'
+export const OWNER_BADGE_ICON = 'OWNER'
+/** 방송 채널 ID: 페이지 값 경로 (주인 배지 메시지가 아직 없을 때) */
+export const OWNER_GLOBAL_PATHS: readonly (readonly string[])[] = [['ytInitialData', 'continuationContents', 'liveChatContinuation', 'ownerChannelId']]

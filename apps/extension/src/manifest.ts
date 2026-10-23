@@ -7,9 +7,11 @@ const CHAT_MATCHES = ['https://www.youtube.com/live_chat*']
 const CHAT_EXCLUDES = ['https://www.youtube.com/live_chat_replay*']
 
 /** 라이브지니 주소 → host 권한 패턴 (http(s)://호스트[:포트]/*) */
-export function originPattern(origin: string): string {
+export function originPattern(origin: string, prod = false): string {
   const url = new URL(origin)
   if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error(`라이브지니 주소는 http(s)여야 한다: ${origin}`)
+  // 배포 빌드는 https만 (localhost도 안 됨 — RA-X1-05·AC-X1-33)
+  if (prod && url.protocol !== 'https:') throw new Error(`배포 빌드의 라이브지니 주소는 https여야 한다: ${origin}`)
   if (url.protocol === 'http:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') throw new Error(`운영 주소는 https여야 한다: ${origin}`)
   return `${url.protocol}//${url.host}/*`
 }
@@ -19,7 +21,7 @@ export function buildManifest(origin: string, version: string): Record<string, u
     manifest_version: 3,
     name: '라이브지니 채팅 받기',
     short_name: '라이브지니',
-    description: '내 유튜브 라이브 채팅을 읽어 라이브지니로 보내요. 읽기만 하고, 채팅을 쓰거나 누르지 않아요.',
+    description: '내 유튜브 라이브 채팅을 읽어 라이브지니로 보내요. 설정에서 켠 경우에만 라이브지니가 만든 감사 글을 내 채팅에 올려요.',
     version,
     minimum_chrome_version: '111',
     permissions: ['storage'],

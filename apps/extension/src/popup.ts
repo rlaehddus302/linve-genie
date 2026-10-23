@@ -1,4 +1,4 @@
-// 확장 팝업 (X1 YT-10 AC4·AC6): 연결 코드 넣기 · 지금 상태 · 회차 고르기 · 연결 지우기.
+// 확장 팝업 (X1 YT-10 AC4·AC6·AC12·AC17): 연결 코드 넣기 · 지금 상태 · 감사 올리기 경고 · 회차 고르기 · 연결 지우기.
 // 서버 문장은 글자로만 넣는다(textContent) — HTML로 넣지 않는다.
 import { chromeApi } from './chrome.ts'
 import type { BroadcastChoice, HubView } from './hub.ts'
@@ -22,6 +22,9 @@ function show(view: HubView): void {
   const dropped = $('dropped')
   dropped.hidden = view.dropped === 0
   dropped.textContent = view.dropped === 0 ? '' : `${WORDS.DROPPED} (${String(view.dropped)}개)`
+  const thanks = $('thanks')
+  thanks.hidden = view.thanks === null
+  thanks.textContent = view.thanks === null ? '' : `! ${view.thanks}`
   $('connect').hidden = view.connected
   $('connected').hidden = !view.connected
   if (view.connected && view.video !== null) void loadPick()

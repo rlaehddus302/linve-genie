@@ -59,23 +59,29 @@ export function message(n: number): ChatMessage {
   return { id: `ChwKGkmsg${String(n)}`, ch: 'UCaaaaaaaaaaaaaaaaaaaaaa', nick: '초록손님', text: `${String(n)}번`, at: 1_761_200_000_000 + n }
 }
 
-export function fakeChrome(initial: Record<string, unknown> = {}) {
+function area(store: Record<string, unknown>) {
+  return {
+    get: (keys: string[]) => Promise.resolve(Object.fromEntries(keys.filter((k) => k in store).map((k) => [k, structuredClone(store[k])]))),
+    set: (items: Record<string, unknown>) => {
+      Object.assign(store, structuredClone(items))
+      return Promise.resolve()
+    },
+    remove: (keys: string[]) => {
+      for (const k of keys) Reflect.deleteProperty(store, k)
+      return Promise.resolve()
+    },
+  }
+}
+
+export function fakeChrome(initial: Record<string, unknown> = {}, sessionInitial: Record<string, unknown> = {}) {
   const store: Record<string, unknown> = { ...initial }
+  const session: Record<string, unknown> = { ...sessionInitial }
   const badge = { text: '', color: '', title: '' }
   const chrome: ChromeLike = {
     runtime: { id: 'ext', sendMessage: () => Promise.resolve(undefined), onMessage: { addListener: () => undefined } },
     storage: {
-      local: {
-        get: (keys) => Promise.resolve(Object.fromEntries(keys.filter((k) => k in store).map((k) => [k, store[k]]))),
-        set: (items) => {
-          Object.assign(store, items)
-          return Promise.resolve()
-        },
-        remove: (keys) => {
-          for (const k of keys) Reflect.deleteProperty(store, k)
-          return Promise.resolve()
-        },
-      },
+      local: area(store),
+      session: area(session),
     },
     action: {
       setBadgeText: ({ text }) => {
@@ -92,5 +98,5 @@ export function fakeChrome(initial: Record<string, unknown> = {}) {
       },
     },
   }
-  return { chrome, store, badge }
+  return { chrome, store, session, badge }
 }

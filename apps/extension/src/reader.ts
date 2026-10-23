@@ -1,8 +1,9 @@
 // 유튜브 라이브 채팅 화면 읽기 (X1 YT-10 AC1·AC2, D-X1-02~05). 확장의 content script가 쓴다 — 여기엔 크롬 API가 없어 가짜 페이지로 시험한다.
 // - 읽는 곳: www.youtube.com/live_chat 만(팝아웃·시청 페이지 안 iframe). live_chat_replay(다시 보기)와 다른 페이지는 아무것도 하지 않는다.
 // - 읽는 법: 목록을 MutationObserver로 보고 **새로 붙은 일반 채팅 요소만** 읽는다. 관찰을 시작할 때 이미 있던 메시지는 보내지 않는다.
-// - 메시지 ID·작성자 채널 ID를 못 꺼내면 보내지 않고 "읽지 못함"으로 센다.
-// - 화면을 바꾸지 않는다: 누르기·입력·게시 없음, 유튜브 내부 요청을 가로채거나 부르지 않는다. 채팅 내용을 남기지(저장·출력) 않는다.
+// - 메시지 ID·작성자 채널 ID·게시 시각을 못 꺼내면 보내지 않고 "읽지 못함"으로 센다(D-X1-04·D-X1-28).
+// - 읽기는 화면을 바꾸지 않는다: 누르기·입력 없음, 유튜브 내부 요청을 가로채거나 부르지 않는다. 채팅 내용을 남기지(저장·출력) 않는다.
+//   감사 글 올리기(선택, AC11~AC17)는 poster.ts가 따로 한다.
 import {
   AUTHOR_NAME,
   BRIDGE_EVENT,
@@ -83,9 +84,9 @@ export type ReadResult = { readonly kind: 'message'; readonly message: ChatMessa
 
 /**
  * 요소 하나 읽기. 일반 채팅이 아니면 skip(슈퍼챗·멤버십·시스템 등 — 세지도 않는다).
- * 메시지 ID·작성자 채널 ID가 없거나 모양이 틀리면 unread. 본문이 비면 skip(주문이 될 수 없다).
+ * 메시지 ID·작성자 채널 ID·게시 시각이 없거나 모양이 틀리면 unread (게시 시각을 지금 시각으로 채우지 않는다 — D-X1-28). 본문이 비면 skip(주문이 될 수 없다).
  */
-export function readMessage(element: Element, now: () => number, ask: (element: Element) => void = askBridge): ReadResult {
+export function readMessage(element: Element, _now: () => number, ask: (element: Element) => void = askBridge): ReadResult {
   if (element.tagName !== TEXT_MESSAGE_TAG) return { kind: 'skip' }
   const id = element.getAttribute(MESSAGE_ID_ATTR) ?? ''
   if (!element.hasAttribute(CHANNEL_ATTR)) ask(element)
@@ -94,13 +95,13 @@ export function readMessage(element: Element, now: () => number, ask: (element: 
   element.removeAttribute(CHANNEL_ATTR)
   element.removeAttribute(POSTED_AT_ATTR)
   if (!MESSAGE_ID_RE.test(id) || !CHANNEL_RE.test(ch)) return { kind: 'unread' }
+  const parsed = atRaw === null || !/^\d{1,16}$/.test(atRaw) ? Number.NaN : Number(atRaw)
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) return { kind: 'unread' }
   const body = element.querySelector(MESSAGE_BODY)
   const text = (body === null ? '' : textOf(body)).trim().slice(0, TEXT_MAX)
   if (text === '') return { kind: 'skip' }
   const nick = (element.querySelector(AUTHOR_NAME)?.textContent ?? '').trim().slice(0, NICK_MAX)
-  const parsed = atRaw === null || !/^\d{1,16}$/.test(atRaw) ? Number.NaN : Number(atRaw)
-  const at = Number.isSafeInteger(parsed) && parsed > 0 ? parsed : Math.floor(now())
-  return { kind: 'message', message: { id, ch, nick, text, at } }
+  return { kind: 'message', message: { id, ch, nick, text, at: parsed } }
 }
 
 export interface ReaderCounts {

@@ -1,6 +1,7 @@
 // 확장 빌드: dist/ 폴더를 만든다 → 크롬 "확장 프로그램 관리 → 개발자 모드 → 압축해제된 확장 프로그램을 로드합니다"에서 이 폴더를 고른다.
 //   pnpm --filter @livejjim/extension build                      (라이브지니 주소 기본 http://localhost:5173)
 //   LIVEGENIE_ORIGIN=https://app.example.kr pnpm --filter @livejjim/extension build
+//   LIVEGENIE_ORIGIN=https://app.example.kr pnpm --filter @livejjim/extension build -- --prod   (배포: https가 아니면 빌드 실패)
 // 주소는 매니페스트 host 권한과 서버 부르는 주소 둘 다에 들어간다(D-X1-14). 출력은 사람이 읽을 수 있게 줄이지 않는다(스토어 심사).
 import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -11,7 +12,8 @@ import { buildManifest, originPattern } from './src/manifest.ts'
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, process.env['LIVEGENIE_EXT_OUT'] ?? 'dist')
 const origin = (process.env['LIVEGENIE_ORIGIN'] ?? 'http://localhost:5173').replace(/\/+$/, '')
-originPattern(origin)
+const prod = process.argv.includes('--prod') || process.env['LIVEGENIE_PROD'] === '1'
+originPattern(origin, prod)
 const { version } = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8'))
 
 const DEFAULT_LITERAL = "'http://localhost:5173'"

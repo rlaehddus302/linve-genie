@@ -2,6 +2,14 @@
 export interface MessageSender {
   readonly tab?: { readonly id?: number }
   readonly id?: string
+  /** 보낸 곳 주소 (팝업이면 chrome-extension://<id>/popup.html, content script면 유튜브 주소) */
+  readonly url?: string
+}
+
+export interface StorageArea {
+  get(keys: string[]): Promise<Record<string, unknown>>
+  set(items: Record<string, unknown>): Promise<void>
+  remove(keys: string[]): Promise<void>
 }
 
 export interface ChromeLike {
@@ -13,11 +21,10 @@ export interface ChromeLike {
     }
   }
   readonly storage: {
-    readonly local: {
-      get(keys: string[]): Promise<Record<string, unknown>>
-      set(items: Record<string, unknown>): Promise<void>
-      remove(keys: string[]): Promise<void>
-    }
+    /** 디스크 — 토큰만 (채팅 내용은 두지 않는다) */
+    readonly local: StorageArea
+    /** 브라우저를 닫으면 지워지는 곳 — 못 보낸 채팅 (D-X1-27). 확장 페이지·워커만 읽는다(content script는 못 읽는 기본값) */
+    readonly session: StorageArea
   }
   readonly action: {
     setBadgeText(details: { text: string }): Promise<void>

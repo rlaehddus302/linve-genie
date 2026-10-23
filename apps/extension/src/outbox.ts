@@ -3,7 +3,8 @@
 // - 최대 500개까지 붙든다. 넘으면 가장 오래된 것부터 버리고 버린 수를 센다("놓친 채팅이 있어요").
 // - 429면 Retry-After만큼, 서버에 닿지 못하거나 500이면 점점 길게 기다렸다 같은 묶음을 다시 보낸다(서버가 같은 메시지 ID는 한 번만 기록한다).
 // - 401(끊김)이면 모두 버리고 멈춘다. 409 회차를 골라야 함·회차 끝남, 400이면 그 묶음을 버린다(다시 보내도 기록되지 않는다).
-// - 메모리에만 둔다(채팅 내용을 저장하지 않는다 — AC9).
+// - 붙든 것은 바뀔 때마다 onChange로 알린다 → 서비스 워커가 chrome.storage.session(브라우저를 닫으면 지워지는 곳)에 두고,
+//   워커가 멈췄다 다시 뜨면 restore로 이어 보낸다(D-X1-27, RA-X1-01). 디스크(storage.local)에는 두지 않는다(AC9).
 import type { Api } from './api.ts'
 import type { ChatMessage } from './reader.ts'
 
@@ -24,15 +25,22 @@ export interface Timers {
   clear(handle: unknown): void
 }
 
-interface Held {
+export interface Held {
   readonly v: string
   readonly message: ChatMessage
+}
+
+/** 붙든 것 (세션 보관용 — 순서 그대로) */
+export interface OutboxSnapshot {
+  readonly items: readonly Held[]
+  readonly dropped: number
 }
 
 export class Outbox {
   readonly #api: Api
   readonly #timers: Timers
   readonly #onEvent: (event: OutboxEvent) => void
+  readonly #onChange: (snapshot: OutboxSnapshot) => void
   #queue: Held[] = []
   #timer: unknown = null
   #sending = false
@@ -41,10 +49,38 @@ export class Outbox {
   #waitUntilRetry = false
   #dropped = 0
 
-  constructor(api: Api, timers: Timers, onEvent: (event: OutboxEvent) => void) {
+  constructor(api: Api, timers: Timers, onEvent: (event: OutboxEvent) => void, onChange: (snapshot: OutboxSnapshot) => void = () => undefined) {
     this.#api = api
     this.#timers = timers
     this.#onEvent = onEvent
+    this.#onChange = onChange
+  }
+
+  snapshot(): OutboxSnapshot {
+    return { items: [...this.#queue], dropped: this.#dropped }
+  }
+
+  /** 워커가 다시 떴을 때: 보관해 둔 것을 앞에 두고 이어 보낸다 (그 사이 새로 붙든 것은 뒤에) */
+  restore(snapshot: OutboxSnapshot): void {
+    if (this.#stopped) return
+    const items = snapshot.items.filter(isHeld)
+    this.#queue = [...items, ...this.#queue]
+    this.#dropped = Math.max(this.#dropped, Number.isSafeInteger(snapshot.dropped) && snapshot.dropped > 0 ? snapshot.dropped : 0)
+    this.#trim()
+    this.#changed()
+    if (this.#queue.length > 0 && !this.#sending && !this.#waitUntilRetry) this.#schedule(this.#queue.length >= BATCH_MAX ? 0 : FLUSH_MS)
+  }
+
+  #trim(): void {
+    const over = this.#queue.length - HOLD_MAX
+    if (over > 0) {
+      this.#queue.splice(0, over)
+      this.#dropped += over
+    }
+  }
+
+  #changed(): void {
+    this.#onChange(this.snapshot())
   }
 
   /** 붙들 수 없어 버린 채팅 수 (켠 뒤 누적) */
@@ -59,11 +95,8 @@ export class Outbox {
   add(v: string, messages: readonly ChatMessage[]): void {
     if (this.#stopped) return
     for (const message of messages) this.#queue.push({ v, message })
-    const over = this.#queue.length - HOLD_MAX
-    if (over > 0) {
-      this.#queue.splice(0, over)
-      this.#dropped += over
-    }
+    this.#trim()
+    this.#changed()
     if (this.#waitUntilRetry || this.#sending) return
     if (this.#queue.length >= BATCH_MAX) this.#schedule(0)
     else if (this.#timer === null) this.#schedule(FLUSH_MS)
@@ -75,6 +108,7 @@ export class Outbox {
     this.#queue = []
     if (this.#timer !== null) this.#timers.clear(this.#timer)
     this.#timer = null
+    this.#changed()
   }
 
   /** 다시 연결한 뒤 */
@@ -111,6 +145,7 @@ export class Outbox {
     const drop = () => {
       const sent = new Set(batch)
       this.#queue = this.#queue.filter((held) => !sent.has(held))
+      this.#changed()
     }
     if (result.status === 200) {
       drop()
@@ -147,4 +182,13 @@ export class Outbox {
     if (message !== null) this.#onEvent({ kind: 'failing', message })
     this.#schedule(ms)
   }
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/** 세션에서 읽은 값이 붙든 것 모양인가 (모양이 틀린 것은 버린다) */
+function isHeld(value: unknown): value is Held {
+  if (!isRecord(value) || typeof value['v'] !== 'string' || !isRecord(value['message'])) return false
+  const m = value['message']
+  return typeof m['id'] === 'string' && typeof m['ch'] === 'string' && typeof m['nick'] === 'string' && typeof m['text'] === 'string' && typeof m['at'] === 'number'
 }

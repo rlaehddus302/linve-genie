@@ -1,6 +1,8 @@
 // @vitest-environment node
 // 매니페스트 권한·읽는 곳 (AC-X1-05·07, YT-10 AC1·AC10)과 소스 검사 (AC-X1-06·19)
-import { readdirSync, readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -40,6 +42,28 @@ describe('AC-X1-07: 매니페스트', () => {
     expect(originPattern('https://app.livegenie.kr/settings')).toBe('https://app.livegenie.kr/*')
     expect(() => originPattern('http://app.livegenie.kr')).toThrow()
     expect(() => originPattern('ftp://app.livegenie.kr')).toThrow()
+    // AC-X1-33: 배포 빌드는 https만 (localhost도 안 됨)
+    expect(originPattern('https://app.livegenie.kr', true)).toBe('https://app.livegenie.kr/*')
+    expect(() => originPattern('http://localhost:5173', true)).toThrow()
+    expect(() => originPattern('http://127.0.0.1:3000', true)).toThrow()
+  })
+})
+
+describe('AC-X1-33: 배포 빌드', () => {
+  it('--prod에서 라이브지니 주소가 https가 아니면 빌드가 실패하고 아무것도 쓰지 않는다', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'livegenie-ext-'))
+    const out = join(dir, 'dist')
+    try {
+      const run = spawnSync(process.execPath, ['build.mjs', '--prod'], {
+        cwd: fileURLToPath(new URL('..', import.meta.url)),
+        env: { ...process.env, LIVEGENIE_ORIGIN: 'http://localhost:5173', LIVEGENIE_EXT_OUT: out },
+        encoding: 'utf8',
+      })
+      expect(run.status).not.toBe(0)
+      expect(existsSync(out)).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 
@@ -47,20 +71,18 @@ describe('소스 검사', () => {
   const files = readdirSync(SRC).filter((name) => /\.(ts|html)$/.test(name))
   const sources = files.map((name) => ({ name, text: readFileSync(join(SRC, name), 'utf8') }))
 
-  it('AC-X1-06: 유튜브 요청 가로채기·내부 API·누르기·입력·게시 코드가 없다', () => {
-    const banned = [
-      /window\.fetch\s*=/,
-      /globalThis\.fetch\s*=/,
-      /XMLHttpRequest/,
-      /youtubei/,
-      /\.click\(/,
-      /new\s+(MouseEvent|KeyboardEvent|InputEvent|PointerEvent)/,
-      /execCommand/,
-      /send-button/,
-      /contenteditable/i,
-      /\.submit\(/,
-    ]
+  it('AC-X1-06: 유튜브 요청 가로채기·내부 API 코드가 어디에도 없다', () => {
+    const banned = [/window\.fetch\s*=/, /globalThis\.fetch\s*=/, /XMLHttpRequest/, /youtubei/, /\.submit\(/]
     for (const { name, text } of sources) for (const pattern of banned) expect(`${name}: ${String(pattern.test(text))}`).toBe(`${name}: false`)
+  })
+
+  it('AC-X1-06·D-X1-25: 누르기·입력·게시는 감사 올리기(poster.ts) 한 곳에서만, 화면 모양은 selectors.ts 한 곳에서만', () => {
+    const acting = [/\.click\(/, /new\s+(MouseEvent|KeyboardEvent|PointerEvent)/, /execCommand/, /new\s+InputEventCtor|InputEvent\(/]
+    const shape = [/send-button/, /contenteditable/i]
+    for (const { name, text } of sources) {
+      if (name !== 'poster.ts') for (const pattern of acting) expect(`${name}: ${String(pattern.test(text))}`).toBe(`${name}: false`)
+      if (name !== 'selectors.ts') for (const pattern of shape) expect(`${name}: ${String(pattern.test(text))}`).toBe(`${name}: false`)
+    }
   })
 
   it('fetch는 서버 부르기(api.ts) 한 곳에서만', () => {
