@@ -16,7 +16,7 @@ import { containsPhoneRun, formatWon, type PaymentStatus } from '@livejjim/core'
 import { useMemo, useRef, useState, type MouseEvent } from 'react'
 import { ApiError, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
 import type { Claim, PackingWord, Settlement, WriteResult } from '../api/types.ts'
-import { claimsOf } from '../lib/buyers.ts'
+import { claimsOf, isActive } from '../lib/buyers.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
 import { BuyerNames } from '../lib/derive.ts'
 import { dateYear, kstShort } from '../lib/kst.ts'
@@ -162,7 +162,10 @@ function ReadySettlements({ route, navigate, store, snapshot, data }: ReadyProps
         <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
       </div>
       {route.buyer === undefined ? (
-        <SettlementList data={data} names={names} marks={marks} onOpen={open} />
+        <>
+          <UnknownSmsBuyers data={data} names={names} navigate={navigate} />
+          <SettlementList data={data} names={names} marks={marks} onOpen={open} />
+        </>
       ) : selected === undefined ? (
         <div className="stack-tight">
           <p>그 구매자의 정산 묶음이 없어요.</p>
@@ -218,6 +221,55 @@ function ClosingActions({ data }: { readonly data: ScopeData }) {
 
 function shippingWords(settlement: Settlement): string {
   return settlement.shippingOverride === null ? formatWon(settlement.shipping) : `${SHIPPING_WORD[settlement.shippingOverride]} ${formatWon(settlement.shipping)}`
+}
+
+/** 음성 문자찜에서 손님을 말하지 않아 생긴 구매자의 표시 이름 (메모 `확인 필요`, R-21 넣기·ORD-08 AC9) */
+export const UNKNOWN_SMS_DISPLAY = '문자찜(확인 필요)'
+
+/** 확인해야 하는 문자찜 구매자: 그날의 문자 구매자 중 자기 메모가 `확인 필요`이고 다른 구매자에 합쳐지지 않았고 활성 찜이 있는 사람 (만든 순서) */
+export function unknownSmsBuyers(data: ScopeData): string[] {
+  const active = new Set<string>()
+  for (const claim of data.claims.values()) if (isActive(claim)) active.add(claim.currentBuyer)
+  const out: string[] = []
+  for (const buyer of data.buyers.values()) {
+    if (buyer.kind === 'sms' && buyer.mergedInto === null && buyer.display === UNKNOWN_SMS_DISPLAY && active.has(buyer.id)) out.push(buyer.id)
+  }
+  return out
+}
+
+/** 정산 화면 위 안내 (AC-V1-29): "구매자를 확인해야 하는 문자찜이 2건 있어요." + 구매자 자세히(합치기)로 가는 링크. 없으면 그리지 않는다 */
+function UnknownSmsBuyers({ data, names, navigate }: { readonly data: ScopeData; readonly names: BuyerNames; readonly navigate: Navigate }) {
+  const ids = useMemo(() => unknownSmsBuyers(data), [data])
+  if (ids.length === 0) return null
+  const numbers = (id: string): string => {
+    const nos = new Set<number>()
+    for (const claim of data.claims.values()) if (claim.currentBuyer === id && isActive(claim)) nos.add(claim.no)
+    return [...nos]
+      .sort((x, y) => x - y)
+      .map((no) => `${String(no)}번`)
+      .join(', ')
+  }
+  return (
+    <section className="card stack-tight warning" data-tone="warning" aria-label="구매자를 확인해 주세요">
+      <p role="status">
+        <strong>구매자를 확인해야 하는 문자찜이 {ids.length}건 있어요.</strong>
+      </p>
+      <p className="hint">누가 보낸 문자인지 확인하고, 구매자 자세히에서 그 손님과 합쳐 주세요.</p>
+      <ul className="plain-list stack-tight">
+        {ids.map((id) => {
+          const route: ScopeRoute = { name: 'buyers', date: data.date, rehearsal: data.rehearsal, buyer: id }
+          const words = `${names.name(id)} · ${numbers(id)}`
+          return (
+            <li key={id}>
+              <a className="list-link" href={routePath(route)} aria-label={`${words} 구매자 확인하기`} onClick={(event) => linkClick(event, () => navigate(route))}>
+                {words} — 구매자 확인하기
+              </a>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
 }
 
 function SettlementList({ data, names, marks, onOpen }: { readonly data: ScopeData; readonly names: BuyerNames; readonly marks: PackingMarks; readonly onOpen: (buyer: string) => void }) {

@@ -125,9 +125,28 @@ export class EngineServer {
     if (input.type === 'sms') {
       if (typeof input.memo === 'string' && containsPhoneRun(input.memo)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'memo', message: PHONE_SENTENCE }])
       if (input.received !== undefined && !isValidReceivedTime(input.received)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'received', message: '받은 시각을 확인해 주세요.' }])
-      const { phone, ...rest } = input
+      const { phone, last4: spoken, ...rest } = input
       const normalized = typeof phone === 'string' ? normalizePhone(phone) : null
       last4 = normalized === null ? null : phoneLast4(normalized)
+      // V1 음성 문자찜의 끝자리 (서버 sms-last4 계약): 범위 안 문자 구매자 중 같은 끝자리(지금의 구매자로 셈) — 한 사람이면 buyer, 없으면 끝자리 키, 둘 이상이면 409
+      let chosen: Record<string, unknown> = {}
+      if (typeof spoken === 'string') {
+        const buyers = lists(this.state).buyers ?? []
+        const found: string[] = []
+        for (const buyer of buyers) {
+          if (buyer.kind !== 'sms' || buyer.phoneLast4 !== spoken) continue
+          const current = String(buyer.current)
+          if (!found.includes(current)) found.push(current)
+        }
+        if (found.length > 1) {
+          const candidates = found.map((id) => {
+            const buyer = buyers.find((item) => item.id === id)
+            return { buyer: id, display: String(buyer?.display ?? ''), phoneLast4: typeof buyer?.phoneLast4 === 'string' ? buyer.phoneLast4 : null }
+          })
+          return { status: 409, body: { error: { code: 'BUYER_AMBIGUOUS', message: `끝자리 ${spoken} 손님이 여러 명이에요. 누구인지 골라 주세요.` }, candidates } }
+        }
+        chosen = found.length === 1 ? { buyer: found[0] } : { phoneKey: `last4-scope-key-${spoken}`, phoneLast4: spoken }
+      }
       this.#refs++
       ref = `r${String(this.#refs)}`
       event = {
@@ -135,6 +154,7 @@ export class EngineServer {
         ref,
         received: input.received ?? '10:00:00',
         ...(normalized === null ? {} : { phoneKey: `phonekey-${normalized}`, phoneLast4: last4 }),
+        ...chosen,
       }
     }
     for (const field of ['reason', 'memo'] as const) {

@@ -1279,6 +1279,27 @@ html:has(.sms-submit-bar) {
   color: #3c4043;
 }
 
+/* 문자찜도 듣는 중 (V1 VOC-01) — 색 + 글자 */
+.voice-sms-on {
+  font-weight: 700;
+  color: #0b4fb3;
+}
+
+/* 문자찜 카드 (V1 VOC-04) — 왼쪽 띠로 상품 카드와 구분 */
+.voice-card-sms {
+  border-left: 0.375rem solid #0b4fb3;
+}
+
+.voice-card-sms .sms-result {
+  margin: 0;
+}
+
+.voice-card-sms .voice-card-actions .button {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}
+
 .voice-interim {
   display: -webkit-box;
   -webkit-box-orient: vertical;

@@ -4,8 +4,28 @@
 // - 카드 등록은 콘솔이 넘긴 등록 경로(빠른 입력과 같은 product.register)로만 한다. 한 카드는 등록 경로에 한 번만 넘긴다(목록에서 먼저 뺀다).
 // - 자동 확정은 켜진 동안·창이 닫힌 동안만, 기다림이 지난 카드를 모두(하나씩 차례로) 등록한다. 끄면 모든 카드의 자동 확정이 멈춘다.
 // 시각은 host.now()(콘솔은 Date.now), 기다림은 브라우저 타이머 — 시험이 시계를 당길 수 있다.
+// V1 음성 문자찜 (ORD-08 AC9, VOC-01·04, D-V1-03~09, AC-V1-20~28): 문자찜 문장(R-21)은 상품 카드 대신 문자찜 카드가 된다. 손대지 않은 카드는
+// 기다림(그 기기 설정, 기본 3초) 뒤 콘솔이 넘긴 쓰기(host.writeSms — 손 입력과 같은 `sms` 이벤트)로 넣는다. 넣은·닫은 카드도 10초 동안은
+// 같은 말 막기(D-V1-06)를 위해 들고 있다. 열린 카드 수 규칙은 상품 카드와 함께 센다(addVoiceCard).
 import { formatWon } from '@livejjim/core'
-import type { CardRegistration, SpeechEngine, SpeechError, SpeechResult, SpeechState, SuggestionCard, VarietyDictionary, VoiceSettings } from '@livejjim/voice'
+import type {
+  CardRegistration,
+  SmsBuyerCandidate,
+  SmsCard,
+  SmsProductView,
+  SmsReadOptions,
+  SmsReading,
+  SmsVoiceSettings,
+  SmsWrite,
+  SpeechEngine,
+  SpeechError,
+  SpeechResult,
+  SpeechState,
+  SuggestionCard,
+  VarietyDictionary,
+  VoiceCard,
+  VoiceSettings,
+} from '@livejjim/voice'
 import { editQuestion } from '../lib/quick.ts'
 import {
   decideAutoConfirm,
@@ -34,6 +54,48 @@ export const HISTORY_FAILED = '지난 판매 품종을 불러오지 못했어요
 export const TOO_SOON = '새 카드가 방금 나왔어요. 확인하고 다시 Enter를 눌러 주세요.'
 /** 켜진 동안 늘 보이는 안내 (D-I4-04) */
 export const SENT_NOTICE = '음성은 인식을 위해 구글로 보내져요.'
+
+/** 문자찜 쓰기 하나의 결과 (콘솔이 서버 응답을 바꿔 준다) */
+export type SmsWriteOutcome =
+  /** 기록됨 — 응답 seq와 그 문자찜이 정한 구매자 자신 (D-099, 정하지 못했으면 null) */
+  | { readonly kind: 'ok'; readonly seq: number; readonly buyer: string | null }
+  /** 409 BUYER_AMBIGUOUS — 기록되지 않았다, 후보 중에서 고른다 */
+  | { readonly kind: 'ambiguous'; readonly candidates: readonly SmsBuyerCandidate[] }
+  /** 기록되지 않았다 (연결·거절 등) — 쉬운 한국어 문장 */
+  | { readonly kind: 'failed'; readonly message: string }
+
+/** 넣은 주문 하나의 결과 줄 */
+export interface SmsResultLine {
+  readonly no: number
+  readonly seq: number
+  readonly buyer: string | null
+}
+
+/** 문자찜 카드와 화면 상태 */
+export interface SmsEntry {
+  readonly card: SmsCard
+  /** 넣을 수 없는 이유 (R-21 문제·상품 상태·시각) — "닫기"만 */
+  readonly reason: string | null
+  /** 말한 받은 시각이 지금보다 늦어 묻는다 ("받은 시각이 지금보다 늦어요. 그래도 넣을까요?") */
+  readonly timeCheck: boolean
+  /** 보내는 중 */
+  readonly sending: boolean
+  /** 보내지 못한 이유 (다시 "넣기"를 누를 수 있다) */
+  readonly error: string | null
+  /** 넣은 주문마다의 결과 (주문 차례) */
+  readonly results: readonly SmsResultLine[]
+  /** 결과 카드를 닫았다 (같은 말 검사에는 10초 동안 남는다) */
+  readonly hidden: boolean
+}
+
+/** 문자찜 화면 문장 */
+export interface SmsWords {
+  readonly labels: VoiceModule['SMS_LABELS']
+  readonly listening: string
+  readonly repeat: string
+  readonly timeCheck: string
+  readonly choose: (last4: string | null) => string
+}
 
 /** 카드의 고치기 칸 */
 export interface CardForm {
@@ -75,6 +137,14 @@ export interface VoiceSnapshot {
   readonly tooSoon: boolean
   /** 화면 시각 (남은 초·"Enter 등록" 표시) */
   readonly now: number
+  /** 문자찜 카드 (새 것이 앞) — 닫은 카드·닫은 결과 카드는 같은 말 검사를 위해 10초 동안 남고(hidden·CLOSED) 화면엔 보이지 않는다 */
+  readonly sms: readonly SmsEntry[]
+  /** 그 기기의 문자찜 설정 (음성 모듈을 받기 전엔 null) */
+  readonly smsSettings: SmsVoiceSettings | null
+  /** "문자찜 자동으로 넣기까지(초)" 칸 글자 */
+  readonly smsSecondsText: string
+  /** 그 칸의 문제 (checkSmsSettings 문장), 없으면 null */
+  readonly smsSettingsProblem: string | null
 }
 
 /** 지난 실제 범위 하나의 상품 이름 */
@@ -105,6 +175,20 @@ export interface VoiceHost {
   /** 카드 등록 — 빠른 입력과 같은 등록 경로 */
   register(card: SuggestionCard, registration: CardRegistration, source: RegisterSource): void
   focusQuick(): void
+  // ── 음성 문자찜 (V1) — writeSms가 없으면 문자찜 문장은 카드를 만들지 않는다 ──
+  /** R-21 읽기 설정: 그 방송의 판매 방식·번호 범위·수량 상한, 옵션 방식이면 상품 목록·지금 상품 */
+  smsReadOptions?(): SmsReadOptions
+  /** 번호 → 지금 상품 모습 (없는 번호는 null) */
+  smsProduct?(no: number): SmsProductView | null
+  /** 카드에 보일 상품 이름 (옵션 방식만 — 번호 방식은 null) */
+  smsProductName?(no: number): string | null
+  /** 말한 받은 시각 `H:MM[:SS]` → 손 입력 문자찜과 같은 읽기(ORD-08 AC6·D-089)로 보낼 값과 지금보다 늦은지. 읽지 못하면 null */
+  readSmsTime?(time: string, now: number): { readonly value: string; readonly late: boolean } | null
+  /** 문자찜 쓰기 하나 (손 입력과 같은 `sms` 이벤트). received = 보낼 받은 시각(null이면 비움) */
+  writeSms?(write: SmsWrite, received: string | null, requestId: string): Promise<SmsWriteOutcome>
+  newRequestId?(): string
+  readSmsSettings?(): unknown
+  writeSmsSettings?(settings: SmsVoiceSettings): void
 }
 
 /** 컨트롤러가 생기기 전·꺼진 처음 상태 */
@@ -124,6 +208,10 @@ export const VOICE_IDLE: VoiceSnapshot = {
   historyFailed: false,
   tooSoon: false,
   now: 0,
+  sms: [],
+  smsSettings: null,
+  smsSecondsText: '',
+  smsSettingsProblem: null,
 }
 
 /** 창이 열려 미룬 자동 확정을 다시 보는 간격 */
@@ -141,7 +229,24 @@ export const RESTART_LABEL_MS = 1000
 export const HISTORY_WAIT_MS = 2000
 
 /** 이력을 기다리며 미룬 최종 문장과 그 문장이 온 때의 설정·번호 범위 */
-type HeldSentence = { readonly text: string; readonly settings: VoiceSettings; readonly maxNumber: number }
+type HeldSentence = {
+  readonly text: string
+  readonly settings: VoiceSettings
+  readonly maxNumber: number
+  /** 그 문장이 온 때의 문자찜 설정 (끈 채 말한 문자찜 문장은 카드를 만들지 않는다) */
+  readonly smsSettings: SmsVoiceSettings | null
+}
+
+/** 카드를 만드는 동안의 목록 (한 번에 #set) */
+type CardWork = { cards: readonly SuggestionCard[]; sms: readonly SmsEntry[] }
+
+/** 같은 말 막기 시간 (D-V1-06 — 패키지 SMS_REPEAT_WINDOW_MS와 같다): 닫은 카드를 이만큼 들고 있는다 */
+const SMS_KEEP_MS = 10_000
+/** 화면에 남기는 결과 카드 수 (넘으면 오래된 것부터 닫는다 — 찜은 그대로) */
+export const SMS_RESULTS_SHOWN = 5
+
+/** 화면에 보이는 문자찜 카드 (열림·보내는 중·결과) */
+export const smsShown = (entry: SmsEntry): boolean => !entry.hidden && entry.card.status !== 'CLOSED'
 
 type HistoryState = { readonly state: 'idle' | 'loading' | 'failed'; readonly past: readonly PastDay[] } | { readonly state: 'done'; readonly past: readonly PastDay[] }
 
@@ -152,6 +257,30 @@ function firstEmpty(card: SuggestionCard): FormField {
   if (card.name === null) return 'name'
   if (card.price === null) return 'price'
   return 'no'
+}
+
+/** 보내지 못했을 때 (연결이 끊김 등 — 서버 문장이 없을 때) */
+export const SMS_SEND_FAILED = '문자찜을 넣지 못했어요. 인터넷 연결을 확인하고 다시 "넣기"를 눌러 주세요.'
+
+/**
+ * 같은 말 검사에 더는 필요 없는 문자찜 카드를 뺀다: 닫은 카드·닫은 결과 카드는 만든 지 10초까지만 (D-V1-06).
+ * 결과 카드가 SMS_RESULTS_SHOWN개를 넘으면 오래된 것부터 화면에서 닫는다(찜은 그대로).
+ */
+export function pruneSms(entries: readonly SmsEntry[], now: number): readonly SmsEntry[] {
+  let shown = 0
+  let changed = false
+  const out: SmsEntry[] = []
+  for (const entry of entries) {
+    let item = entry
+    if (item.card.status === 'SENT' && !item.hidden && !item.sending) {
+      shown++
+      if (shown > SMS_RESULTS_SHOWN) item = { ...item, hidden: true }
+    }
+    const gone = (item.hidden || item.card.status === 'CLOSED') && !item.sending && Number.isFinite(now) && now - item.card.createdAt > SMS_KEEP_MS
+    if (gone || item !== entry) changed = true
+    if (!gone) out.push(item)
+  }
+  return changed ? out : entries
 }
 
 export class VoiceController {
@@ -175,6 +304,8 @@ export class VoiceController {
   /** 이 시각까지만 이력을 기다린다 (host.now 기준) */
   #historyDeadline = 0
   #dictionary: { readonly names: readonly string[]; readonly past: readonly PastDay[]; readonly prepared: VarietyDictionary } | null = null
+  /** 문자찜 카드 ID → 주문마다의 요청 번호 (다시 보낼 때 같은 번호 — 찜이 둘 생기지 않게) */
+  readonly #smsRequests = new Map<string, string[]>()
 
   constructor(host: VoiceHost) {
     this.#host = host
@@ -213,6 +344,11 @@ export class VoiceController {
     if (this.#snapshot.settings === null) {
       const settings = module.resolveVoiceSettings(this.#host.readSettings())
       this.#set({ settings, secondsText: String(settings['voice.autoConfirmSec']) })
+    }
+    if (this.#snapshot.smsSettings === null) {
+      // 못 읽거나 깨진 값은 기본(듣기 켬·3초) — resolveSmsSettings가 고른다
+      const smsSettings = module.resolveSmsSettings(this.#host.readSmsSettings?.() ?? null)
+      this.#set({ smsSettings, smsSecondsText: String(smsSettings['voice.smsAutoSec']) })
     }
     const engine = this.#ensureEngine(module)
     // 지원하지 않는 브라우저는 안내 창을 띄우기 전에 알린다 (AC-I4-12)
@@ -297,7 +433,10 @@ export class VoiceController {
     // 이력을 기다리며 미룬 문장도 카드로 (끈 뒤라 자동 확정은 아래에서 멈춘다)
     this.#flushHeld()
     const cards = this.#snapshot.cards.map((card) => (card.autoConfirmAt === null ? card : { ...card, autoConfirmAt: null }))
-    this.#set({ phase: 'off', stateLabel: null, interim: null, tooSoon: false, cards })
+    // 기다리던 문자찜 카드는 남고 저절로 넣지 않는다 — 누르면 넣는다 (AC-V1-22, D-V1-05)
+    const module = this.#module
+    const sms = module === null ? this.#snapshot.sms : this.#snapshot.sms.map((entry) => (entry.card.autoAt === null ? entry : { ...entry, card: module.stopSmsAuto(entry.card) }))
+    this.#set({ phase: 'off', stateLabel: null, interim: null, tooSoon: false, cards, sms })
   }
 
   #label(state: SpeechState): string {
@@ -357,26 +496,93 @@ export class VoiceController {
       this.#set({ ...label, interim: null, heard })
       return
     }
+    const sentence: HeldSentence = { text: result.text, settings, maxNumber: this.#host.maxNumber(), smsSettings: this.#snapshot.smsSettings }
     if (this.#waitingHistory()) {
-      this.#held.push({ text: result.text, settings, maxNumber: this.#host.maxNumber() })
+      this.#held.push(sentence)
       this.#armHeld()
       this.#set({ ...label, interim: null, heard })
       return
     }
     // 기다림이 끝났는데 타이머보다 먼저 온 문장: 미룬 문장을 먼저 카드로 (온 차례)
-    const before = this.#snapshot.cards
-    const cards = this.#cardsWith(this.#heldCards(module), module, { text: result.text, settings, maxNumber: this.#host.maxNumber() })
-    this.#set({ ...label, interim: null, heard, ...(cards === before ? {} : { cards }) })
+    const work = this.#heldCards(module)
+    this.#addSentence(work, module, sentence)
+    this.#set({ ...label, interim: null, heard, ...this.#workPatch(work) })
   }
 
-  /** 지금 카드 목록에 이 문장의 카드를 더한 목록 (카드를 만들 결과가 아니면 그대로) */
-  // 설정·번호 범위는 문장이 온 때의 값, 사전은 지금 사전(이력을 기다린 까닭), 만든 시각은 카드가 보이는 지금
-  // — 자동 등록 기다림을 판매자가 화면에서 다 볼 수 있게 미룬 시간만큼 줄이지 않는다
-  #cardsWith(cards: readonly SuggestionCard[], module: VoiceModule, sentence: HeldSentence): readonly SuggestionCard[] {
+  /** 바뀐 목록만 담은 조각 */
+  #workPatch(work: CardWork): Partial<VoiceSnapshot> {
+    return {
+      ...(work.cards === this.#snapshot.cards ? {} : { cards: work.cards }),
+      ...(work.sms === this.#snapshot.sms ? {} : { sms: work.sms }),
+    }
+  }
+
+  /**
+   * 목록에 이 문장의 카드를 더한다 (카드를 만들 결과가 아니면 그대로). 문자찜 표시가 있으면 문자찜 카드(R-21), 없으면 상품 카드(R-17) — 하나만(R-21 2).
+   * 설정·번호 범위는 문장이 온 때의 값, 사전은 지금 사전(이력을 기다린 까닭), 만든 시각은 카드가 보이는 지금
+   * — 자동 등록 기다림을 판매자가 화면에서 다 볼 수 있게 미룬 시간만큼 줄이지 않는다
+   */
+  #addSentence(work: CardWork, module: VoiceModule, sentence: HeldSentence): void {
     const { text, settings, maxNumber } = sentence
-    const extraction = module.extractVoice(text, { maxNumber, dictionary: this.#prepared(module) })
-    const card = module.createCard({ id: `voice-${String(this.#nextCard++)}`, extraction, text, createdAt: this.#host.now(), settings })
-    return card === null ? cards : module.addCard(cards, card).filter(isOpen)
+    const smsOn = this.#host.writeSms !== undefined
+    const read = module.readVoiceSentence(text, {
+      extract: { maxNumber, dictionary: this.#prepared(module) },
+      sms: { maxNumber, ...(this.#host.smsReadOptions?.() ?? {}) },
+      // 문자찜 쓰기가 없는 화면이면 문자찜 문장은 카드를 만들지 않는다
+      smsSettings: smsOn ? sentence.smsSettings : { 'voice.smsListen': false },
+    })
+    if (read.kind === 'none') return
+    if (read.kind === 'sms') {
+      this.#addSms(work, module, text, read.reading, sentence.smsSettings)
+      return
+    }
+    const card = module.createCard({ id: `voice-${String(this.#nextCard++)}`, extraction: read.extraction, text, createdAt: this.#host.now(), settings })
+    if (card !== null) this.#place(work, module, card)
+  }
+
+  /** 새 카드를 맨 앞에 — 열린 카드 수 규칙은 상품 카드·문자찜 카드를 함께 센다 (D-204·D-I4-02, addVoiceCard) */
+  #place(work: CardWork, module: VoiceModule, card: VoiceCard, entry?: SmsEntry): void {
+    const merged: VoiceCard[] = [...work.cards, ...work.sms.map((item) => item.card)].sort((a, b) => b.createdAt - a.createdAt)
+    const next = module.addVoiceCard(merged, card)
+    const byId = new Map(next.map((item) => [item.id, item]))
+    work.cards = next.filter((item): item is SuggestionCard => !module.isSmsCard(item) && isOpen(item))
+    const rest = work.sms.map((item) => {
+      const changed = byId.get(item.card.id)
+      return changed !== undefined && changed !== item.card && module.isSmsCard(changed) ? { ...item, card: changed } : item
+    })
+    work.sms = entry === undefined ? rest : [entry, ...rest]
+  }
+
+  /** 문자찜 문장 → 같은 말이면 앞 카드에 표시, 아니면 새 문자찜 카드 (D-V1-06·07) */
+  #addSms(work: CardWork, module: VoiceModule, text: string, reading: SmsReading, smsSettings: SmsVoiceSettings | null): void {
+    const now = this.#host.now()
+    const repeat = module.findSmsRepeat(
+      work.sms.map((item) => item.card),
+      reading,
+      now,
+    )
+    if (repeat !== null) {
+      work.sms = work.sms.map((item) => (item.card.id === repeat.id ? { ...item, card: module.markSmsRepeat(item.card) } : item))
+      return
+    }
+    let card = module.createSmsCard({ id: `voice-${String(this.#nextCard++)}`, reading, text, createdAt: now, settings: smsSettings })
+    let reason: string | null = reading.problem === null ? null : module.SMS_PROBLEM_MESSAGES[reading.problem]
+    let timeCheck = false
+    if (reason === null && reading.time !== null) {
+      const time = this.#readTime(reading.time, now)
+      if (time === null) reason = module.SMS_PROBLEM_MESSAGES.TIME_UNCLEAR
+      else if (time.late) {
+        // 지금보다 늦은 받은 시각: 저절로 넣지 않고 묻는다 (AC-V1-26)
+        timeCheck = true
+        card = module.stopSmsAuto(card)
+      }
+    }
+    if (reason === null) {
+      const blocked = module.findSmsBlock(card, (no) => this.#smsProduct(no))
+      if (blocked !== null) reason = module.smsBlockMessage(blocked.no, blocked.block)
+    }
+    if (reason !== null) card = module.stopSmsAuto(card)
+    this.#place(work, module, card, { card, reason, timeCheck, sending: false, error: null, results: [], hidden: false })
   }
 
   // ── 이력을 기다리며 미룬 문장 (HISTORY_WAIT_MS) ─────────────────────
@@ -397,14 +603,14 @@ export class VoiceController {
   }
 
   /** 미룬 문장을 지금 사전으로 카드로 만든 목록 (미룬 것이 없으면 지금 목록) — 미룬 목록은 비운다 */
-  #heldCards(module: VoiceModule): readonly SuggestionCard[] {
+  #heldCards(module: VoiceModule): CardWork {
     if (this.#heldTimer !== null) clearTimeout(this.#heldTimer)
     this.#heldTimer = null
     const held = this.#held
     this.#held = []
-    let cards = this.#snapshot.cards
-    for (const sentence of held) cards = this.#cardsWith(cards, module, sentence)
-    return cards
+    const work: CardWork = { cards: this.#snapshot.cards, sms: this.#snapshot.sms }
+    for (const sentence of held) this.#addSentence(work, module, sentence)
+    return work
   }
 
   #flushHeld(): void {
@@ -417,9 +623,8 @@ export class VoiceController {
       this.#dropHeld()
       return
     }
-    const before = this.#snapshot.cards
-    const cards = this.#heldCards(module)
-    if (cards !== before) this.#set({ cards })
+    const patch = this.#workPatch(this.#heldCards(module))
+    if (Object.keys(patch).length > 0) this.#set(patch)
   }
 
   #dropHeld(): void {
@@ -644,6 +849,7 @@ export class VoiceController {
   refresh(): void {
     if (this.#disposed) return
     this.#autoConfirm()
+    this.#smsAuto()
     // 맨 앞 카드의 "Enter 등록"이 보이면 "새 카드가 방금 나왔어요…"는 할 일을 다 했다
     const tooSoon = this.#snapshot.tooSoon && !enterReady(this.#snapshot.front, this.#host.now())
     this.#set({ tooSoon })
@@ -705,6 +911,236 @@ export class VoiceController {
     return decision.due !== null || decision.blocked.length > 0 ? 'now' : null
   }
 
+  // ── 문자찜 카드 (VOC-04 문자찜 카드, ORD-08 AC9, D-V1-03~07) ───────────
+
+  /** 카드 글 (describeSmsCard — 옵션 방식이면 상품 이름 포함) */
+  describeSms(card: SmsCard): string {
+    const module = this.#module
+    if (module === null) return ''
+    const name = this.#host.smsProductName
+    return module.describeSmsCard(card, name === undefined ? {} : { productName: (no) => name(no) })
+  }
+
+  /** 문자찜 화면 문장 (음성 패키지의 따옴표 문장 그대로 — 화면 파일은 패키지 값을 직접 부르지 않는다, AC-I4-04). 받기 전엔 null */
+  smsWords(): SmsWords | null {
+    const module = this.#module
+    if (module === null) return null
+    return { labels: module.SMS_LABELS, listening: module.SMS_LISTENING, repeat: module.SMS_REPEAT_NOTE, timeCheck: module.SMS_TIME_CHECK, choose: module.smsChooseMessage }
+  }
+
+  /** 남은 초 글 ("3초 뒤 넣어요"), 기다리지 않으면 null */
+  smsCountdown(entry: SmsEntry): string | null {
+    if (entry.reason !== null || entry.sending || this.#snapshot.phase !== 'on') return null
+    return this.#module?.smsCountdownText(entry.card, this.#snapshot.now) ?? null
+  }
+
+  #readTime(time: string, now: number): { readonly value: string; readonly late: boolean } | null {
+    const read = this.#host.readSmsTime
+    if (read === undefined) return null
+    try {
+      return read(time, now)
+    } catch {
+      return null
+    }
+  }
+
+  #smsProduct(no: number): SmsProductView | null {
+    try {
+      return this.#host.smsProduct?.(no) ?? null
+    } catch {
+      return null
+    }
+  }
+
+  #findSms(id: string): SmsEntry | undefined {
+    return this.#snapshot.sms.find((entry) => entry.card.id === id)
+  }
+
+  #replaceSms(id: string, change: (entry: SmsEntry) => SmsEntry): void {
+    this.#set({ sms: this.#snapshot.sms.map((entry) => (entry.card.id === id ? change(entry) : entry)) })
+  }
+
+  /** "넣지 않기"·이유 카드의 "닫기": 아무것도 보내지 않고 닫는다 (같은 말 검사에는 10초 남는다) */
+  smsSkip(id: string): void {
+    const module = this.#module
+    const entry = this.#findSms(id)
+    if (module === null || entry === undefined || entry.sending || entry.card.status !== 'OPEN') return
+    this.#replaceSms(id, (item) => ({ ...item, card: module.closeSmsCard(item.card) }))
+    this.#host.focusQuick()
+  }
+
+  /** 결과 카드의 "닫기": 화면에서만 뺀다 (찜은 그대로) */
+  smsDismiss(id: string): void {
+    const entry = this.#findSms(id)
+    if (entry === undefined || entry.sending || entry.card.status !== 'SENT') return
+    this.#replaceSms(id, (item) => ({ ...item, hidden: true }))
+    this.#host.focusQuick()
+  }
+
+  /** "지금 넣기"·"넣기" */
+  smsSend(id: string): void {
+    void this.#sendSms(id, undefined)
+  }
+
+  /** 고르기 카드의 후보 누르기 → 그 구매자로 넣기 (AC-V1-25) */
+  smsChoose(id: string, buyer: string): void {
+    void this.#sendSms(id, buyer)
+  }
+
+  /** 넣기: 주문마다 `sms` 쓰기 한 번 (요청 번호는 주문마다 다르고, 다시 보낼 때는 같다). 409면 고르기, 실패면 다시 열기(저절로 넣지 않음) */
+  async #sendSms(id: string, buyer: string | undefined): Promise<void> {
+    const module = this.#module
+    const entry = this.#findSms(id)
+    const write = this.#host.writeSms
+    if (module === null || entry === undefined || write === undefined || entry.sending || entry.reason !== null) return
+    const result = module.sendSmsCard(entry.card, { product: (no) => this.#smsProduct(no), ...(buyer === undefined ? {} : { buyer }) })
+    if (!result.ok) {
+      if (result.reason === 'NOT_OPEN') return
+      // 문제·넣을 수 없는 상품(넣기 직전에 판매 종료 등)은 이유 카드로, 고르기 문제는 카드에 문장만 (D-V1-07)
+      if (result.reason === 'PROBLEM' || result.reason === 'PRODUCT') this.#replaceSms(id, (item) => ({ ...item, card: module.stopSmsAuto(item.card), reason: result.message, error: null }))
+      else this.#replaceSms(id, (item) => ({ ...item, error: result.message }))
+      return
+    }
+    // 받은 시각: 손 입력과 같은 읽기로 지금 다시 읽는다 (보내는 때의 지금 기준)
+    const writes = result.writes
+    const received: (string | null)[] = []
+    for (const one of writes) {
+      if (one.time === null) {
+        received.push(null)
+        continue
+      }
+      const time = this.#readTime(one.time, this.#host.now())
+      if (time === null) {
+        this.#replaceSms(id, (item) => ({ ...item, card: module.stopSmsAuto(item.card), reason: module.SMS_PROBLEM_MESSAGES.TIME_UNCLEAR }))
+        return
+      }
+      received.push(time.value)
+    }
+    // 고른 구매자로 다시 보낼 때는 새 요청 번호 (본문이 달라졌다)
+    if (buyer !== undefined || !this.#smsRequests.has(id)) this.#smsRequests.set(id, writes.map(() => this.#requestId()))
+    const requests = this.#smsRequests.get(id) as string[]
+    this.#replaceSms(id, (item) => ({ ...item, card: result.card, sending: true, error: null }))
+    this.#host.focusQuick()
+    const done = new Set(entry.results.map((line) => line.no))
+    for (const [index, one] of writes.entries()) {
+      if (done.has(one.no)) continue
+      let outcome: SmsWriteOutcome
+      try {
+        outcome = await write(one, received[index] ?? null, requests[index] ?? this.#requestId())
+      } catch {
+        outcome = { kind: 'failed', message: SMS_SEND_FAILED }
+      }
+      if (this.#disposed) return
+      if (outcome.kind === 'ok') {
+        const line: SmsResultLine = { no: one.no, seq: outcome.seq, buyer: outcome.buyer }
+        this.#replaceSms(id, (item) => ({ ...item, results: [...item.results, line] }))
+        continue
+      }
+      if (outcome.kind === 'ambiguous') {
+        this.#replaceSms(id, (item) => ({ ...item, card: module.chooseSmsBuyer(item.card, outcome.candidates), sending: false }))
+        return
+      }
+      this.#replaceSms(id, (item) => ({ ...item, card: module.reopenSmsCard(item.card), sending: false, error: outcome.message }))
+      return
+    }
+    this.#smsRequests.delete(id)
+    this.#replaceSms(id, (item) => ({ ...item, sending: false }))
+  }
+
+  #requestId(): string {
+    const make = this.#host.newRequestId
+    if (make !== undefined) return make()
+    return `voice-sms-${String(this.#host.now())}-${String(this.#nextCard++)}`
+  }
+
+  /**
+   * 기다림이 끝난 문자찜 카드를 넣는다 (D-V1-05): 열림·주문 하나·문제 없음·손대지 않음·고르기 아님·받을 수 있는 상품·말한 시각이 늦지 않음·창 없음·음성 켜짐.
+   * 넣을 수 없는 상품이 되었으면 이유 카드로 바꾼다. 창이 열려 있으면 그대로 두고 닫힌 뒤 다시 본다.
+   */
+  #smsAuto(): void {
+    const module = this.#module
+    if (module === null) return
+    const now = this.#host.now()
+    const voiceOn = this.#snapshot.phase === 'on'
+    let dialogOpen: boolean | null = null
+    for (const entry of this.#snapshot.sms) {
+      if (entry.card.status !== 'OPEN' || entry.card.autoAt === null || entry.reason !== null || entry.sending) continue
+      if (voiceOn && entry.card.autoAt > now) continue
+      dialogOpen ??= this.#host.dialogOpen()
+      const time = entry.card.reading.time
+      const read = time === null ? null : this.#readTime(time, now)
+      const decision = module.checkSmsAuto(entry.card, {
+        now,
+        voiceOn,
+        dialogOpen,
+        product: (no) => this.#smsProduct(no),
+        timeAfterNow: read !== null && read.late,
+      })
+      if (decision.due) {
+        void this.#sendSms(entry.card.id, undefined)
+        continue
+      }
+      const block = decision.block
+      if (block !== null) {
+        this.#replaceSms(entry.card.id, (item) => ({ ...item, card: module.stopSmsAuto(item.card), reason: module.smsBlockMessage(block.no, block.block) }))
+        continue
+      }
+      if (decision.card !== entry.card) {
+        const timeCheck = time !== null && read !== null && read.late
+        this.#replaceSms(entry.card.id, (item) => ({ ...item, card: decision.card, timeCheck: item.timeCheck || timeCheck }))
+      }
+    }
+  }
+
+  /** 기다림이 끝난 문자찜 카드가 있으면 'now'(창이 없음)·'deferred'(창이 열림), 없으면 null */
+  #ripeSms(): 'now' | 'deferred' | null {
+    const now = this.#snapshot.now
+    const ripe = this.#snapshot.sms.some((entry) => entry.card.status === 'OPEN' && entry.card.autoAt !== null && entry.card.autoAt <= now && entry.reason === null && !entry.sending)
+    if (!ripe) return null
+    return this.#snapshot.phase === 'on' && this.#host.dialogOpen() ? 'deferred' : 'now'
+  }
+
+  /** 다음 남은 초 글자가 바뀌는 때까지 (기다리는 문자찜 카드가 없으면 null) */
+  #smsWake(): number | null {
+    const now = this.#snapshot.now
+    let next = Number.POSITIVE_INFINITY
+    for (const entry of this.#snapshot.sms) {
+      const at = entry.card.autoAt
+      if (entry.card.status !== 'OPEN' || at === null || at <= now || entry.reason !== null || entry.sending) continue
+      const left = Math.ceil((at - now) / 1000)
+      next = Math.min(next, at - (left - 1) * 1000)
+    }
+    return Number.isFinite(next) ? Math.max(0, next - now) : null
+  }
+
+  // ── 문자찜 설정 (D-V1-05·09 — 그 기기에 저장) ─────────────────────────
+
+  /** "문자찜도 듣기" — 끄면 다음 문장부터 문자찜 카드를 만들지 않는다 (있던 카드는 그대로) */
+  setSmsListen(on: boolean): void {
+    const current = this.#snapshot.smsSettings
+    if (current === null) return
+    const smsSettings: SmsVoiceSettings = { ...current, 'voice.smsListen': on }
+    this.#host.writeSmsSettings?.(smsSettings)
+    this.#held = this.#held.map((held) => ({ ...held, smsSettings: held.smsSettings === null ? null : { ...held.smsSettings, 'voice.smsListen': on && held.smsSettings['voice.smsListen'] } }))
+    this.#set({ smsSettings })
+  }
+
+  /** "문자찜 자동으로 넣기까지(초)": 0~10 정수만 받는다 — 아니면 checkSmsSettings 문장을 보이고 값은 그대로 */
+  setSmsSeconds(text: string): void {
+    const module = this.#module
+    const current = this.#snapshot.smsSettings
+    if (module === null || current === null) return
+    const value = parseSecondsText(text)
+    const problems = module.checkSmsSettings({ 'voice.smsAutoSec': value })
+    if (problems.length > 0) {
+      this.#set({ smsSecondsText: text, smsSettingsProblem: problems[0]?.message ?? null })
+      return
+    }
+    const smsSettings: SmsVoiceSettings = { ...current, 'voice.smsAutoSec': value }
+    this.#host.writeSmsSettings?.(smsSettings)
+    this.#set({ smsSettings, smsSecondsText: text, smsSettingsProblem: null })
+  }
+
   #set(patch: Partial<VoiceSnapshot>): void {
     if (this.#disposed) return
     const now = this.#host.now()
@@ -718,6 +1154,7 @@ export class VoiceController {
       const tooSoon = next.tooSoon && front !== null && front.id === this.#snapshot.front?.id
       next = { ...next, front, forms, notes, tooSoon }
     }
+    if (patch.sms !== undefined) next = { ...next, sms: pruneSms(next.sms, now) }
     this.#snapshot = next
     this.#schedule()
     for (const listener of [...this.#listeners]) listener()
@@ -727,8 +1164,11 @@ export class VoiceController {
     if (this.#timer !== null) clearTimeout(this.#timer)
     this.#timer = null
     if (this.#disposed) return
-    const wake = nextWake(this.#snapshot.cards, this.#snapshot.front, this.#snapshot.now)
-    const ripe = this.#ripeAuto()
+    const wakes = [nextWake(this.#snapshot.cards, this.#snapshot.front, this.#snapshot.now), this.#smsWake()].filter((value): value is number => value !== null)
+    const wake = wakes.length === 0 ? null : Math.min(...wakes)
+    const ripeCard = this.#ripeAuto()
+    const ripeSms = this.#ripeSms()
+    const ripe = ripeCard === 'now' || ripeSms === 'now' ? 'now' : ripeCard ?? ripeSms
     const delay = ripe === 'now' ? 0 : ripe === 'deferred' ? Math.min(wake ?? DEFERRED_POLL_MS, DEFERRED_POLL_MS) : wake
     if (delay === null) return
     this.#timer = setTimeout(() => {
