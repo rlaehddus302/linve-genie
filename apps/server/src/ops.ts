@@ -3,7 +3,8 @@
 //   같은 코드(같은 판매자·같은 워커)는 10분에 한 번이고, 그 사이 일어난 수는 다음 경보의 count에 담는다.
 // - 대부분의 경보는 이미 남기던 로그에서 나온다(observe): 처리 실패 표시(ENGINE_FAILED), 확인하지 못한 감사(OUTBOX_UNCONFIRMED), 다시 시도를 다 쓴 감사
 //   (OUTBOX_GAVE_UP), 저절로 이어받지 않는 수집 멈춤(COLLECTOR_STOPPED — 채팅 꺼짐·권한 없음·채팅 없음), 구글 할당량 초과(QUOTA_EXCEEDED), 봉인 실패(SEAL_FAILED).
-//   워커가 연속 3번 실패하면 WORKER_FAILING, 준비 확인 실패는 DB_UNAVAILABLE, 백업 실패는 BACKUP_FAILED(백업 명령이 직접 쓴다).
+//   워커가 연속 3번 실패하면 WORKER_FAILING, 준비 확인 실패는 DB_UNAVAILABLE, 백업 실패는 BACKUP_FAILED(운영 백업 명령이 직접 쓴다 — seller 칸 없음).
+//   판매자 자동 백업 실패(BackupScheduler의 BACKUP_FAILED 오류 로그 — 판매자 ID·까닭 종류만)도 seller 칸이 있는 BACKUP_FAILED 경보로 낸다(PL1A D-PL1-02 — 같은 판매자는 10분에 한 번).
 // - 문서 docs/DEPLOY.md "운영 모니터링"의 경보 코드 목록은 ALERT_CODES와 같아야 한다(시험이 맞댄다).
 import type { LogRecord, LogSink } from './log.ts'
 import type { Clock } from './time.ts'
@@ -88,6 +89,10 @@ export class Alerter {
       case 'QUOTA_EXCEEDED':
       case 'SEAL_FAILED':
         this.alert(record.code, fields)
+        return
+      case 'BACKUP_FAILED':
+        // 판매자 자동 백업 실패 (D-PL1-02): 판매자 ID가 있는 오류 로그만 — 운영 백업 명령은 경보를 직접 쓴다
+        if (record.seller !== undefined) this.alert('BACKUP_FAILED', { seller: record.seller })
         return
       case 'COLLECTOR_STOPPED':
         if (record.reason !== undefined && MANUAL_STOP_REASONS.has(record.reason)) this.alert('COLLECTOR_STOPPED', fields)

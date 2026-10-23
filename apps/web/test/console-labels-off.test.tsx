@@ -10,7 +10,7 @@ import { ConsolePage, shortcutsWord } from '../src/components/ConsolePage.tsx'
 import { PackingLabels } from '../src/components/LabelParts.tsx'
 import { PrintProvider } from '../src/components/print-context.tsx'
 import { job, labelView, overview, queue, templates } from './print-support.ts'
-import { DATE, FakeEventSource, FakeServer, apiError, broadcastItem, flush, fullView, product } from './support.ts'
+import { DATE, FakeEventSource, FakeServer, apiError, broadcastItem, flush, fullText, fullView, product } from './support.ts'
 
 const OFF_NOTE = '라벨 쓰지 않음 — 설정에서 켤 수 있어요.'
 const REFUSED = '라벨 기능이 꺼져 있어요. 설정에서 켠 뒤 다시 해 주세요.'
@@ -128,8 +128,8 @@ describe('콘솔 — 꺼져 있을 때 (AC-N4a-14)', () => {
     fireEvent.click(boardItem())
     const detail = await screen.findByRole('dialog', { name: '15번 자세히' })
     const region = within(detail).getByRole('region', { name: '라벨' })
-    expect(within(region).getByText(OFF_NOTE)).toBeTruthy()
-    expect(within(detail).getAllByText(OFF_NOTE)).toHaveLength(1)
+    expect(within(region).getByText(fullText(OFF_NOTE))).toBeTruthy()
+    expect(within(detail).getAllByText(fullText(OFF_NOTE))).toHaveLength(1)
     expect(within(region).queryAllByRole('button')).toHaveLength(0)
     for (const name of ['라벨 출력', '다시 출력', '그림 파일로 저장', '공유', 'PDF로 저장']) expect(within(detail).queryByRole('button', { name })).toBeNull()
     expect(region.textContent).not.toMatch(/라벨 출력됨|출력 ·|휴대폰/)
@@ -201,7 +201,7 @@ describe('콘솔 — 바뀌면 바로, 모르면 숨김 (AC-N4a-18·19)', () => 
     cancel.focus()
     sendLabels(2, false)
     expect(screen.getByRole('dialog', { name: '15번 자세히' })).toBe(detail)
-    expect(within(within(detail).getByRole('region', { name: '라벨' })).getByText(OFF_NOTE)).toBeTruthy()
+    expect(within(within(detail).getByRole('region', { name: '라벨' })).getByText(fullText(OFF_NOTE))).toBeTruthy()
     expect(within(detail).queryByRole('button', { name: '다시 출력' })).toBeNull()
     expect(document.activeElement).toBe(cancel)
     expect(boardItem().textContent).not.toContain('라벨 출력됨')
@@ -217,7 +217,7 @@ describe('콘솔 — 바뀌면 바로, 모르면 숨김 (AC-N4a-18·19)', () => 
     fireEvent.keyDown(quick, { key: 'p', code: 'KeyP', altKey: true })
     const dialog = await screen.findByRole('dialog', { name: '라벨 다시 출력' })
     sendLabels(2, false)
-    expect(within(dialog).getByText(OFF_NOTE)).toBeTruthy()
+    expect(within(dialog).getByText(fullText(OFF_NOTE))).toBeTruthy()
     expect(within(dialog).queryByRole('button', { name: /출력/ })).toBeNull()
   })
 
@@ -256,7 +256,7 @@ describe('콘솔 — 바뀌면 바로, 모르면 숨김 (AC-N4a-18·19)', () => 
     fireEvent.click(within(detail).getByRole('button', { name: '다시 출력' }))
     const region = () => within(detail).getByRole('region', { name: '라벨' })
     expect(await within(region()).findByText(REFUSED)).toBeTruthy()
-    expect(within(region()).getByText(OFF_NOTE)).toBeTruthy()
+    expect(within(region()).getByText(fullText(OFF_NOTE))).toBeTruthy()
     expect(within(detail).queryByRole('button', { name: '다시 출력' })).toBeNull()
     await flush(5)
     expect(server.callsTo('POST', /^\/api\/print\/labels\/reprint$/)).toHaveLength(1)
@@ -277,7 +277,7 @@ describe('정산 자세히의 포장 라벨 (AC-N4a-15)', () => {
   it('꺼져 있으면 포장 라벨 자리에 안내 — 미리 보기·포장 라벨 출력·PNG·PDF 없음, 포장 라벨 조회도 하지 않는다', async () => {
     await openPacking()
     const region = screen.getByRole('region', { name: '포장 라벨' })
-    expect(within(region).getByText(OFF_NOTE)).toBeTruthy()
+    expect(within(region).getByText(fullText(OFF_NOTE))).toBeTruthy()
     expect(within(region).queryAllByRole('button')).toHaveLength(0)
     expect(server.callsTo('GET', /^\/api\/print\/packing/)).toHaveLength(0)
   })
@@ -300,5 +300,34 @@ describe('정산 자세히의 포장 라벨 (AC-N4a-15)', () => {
     await openPacking()
     expect(screen.queryByRole('region', { name: '포장 라벨' })).toBeNull()
     expect(screen.queryByRole('button', { name: '포장 라벨 출력' })).toBeNull()
+  })
+})
+
+describe('정산 자세히 "포장 라벨 출력" 두 번 보냄 막기 (TE-PL1B-001)', () => {
+  it('화면이 잠금을 그리기 전의 두 클릭 → 요청 하나, 응답 뒤 다시 누르면 또 하나', async () => {
+    current = overview()
+    const data = { date: DATE, buyer: { kind: 'youtube', name: '우주천사' }, broadcasts: [], subtotal: 0 }
+    server.on('GET', /^\/api\/print\/packing\?/, () => ({ body: { date: DATE, buyer: 'UC_A', data, label: labelView('packing:UC_A', { kind: 'packing' }) } }))
+    let release: () => void = () => {}
+    server.on('POST', /^\/api\/print\/packing$/, () => new Promise((resolve) => (release = () => resolve({ body: { jobs: [job('j1', { kind: 'packing' })] } }))))
+    render(
+      <PrintProvider>
+        <PackingLabels date={DATE} buyer="UC_A" rehearsal={false} />
+      </PrintProvider>,
+    )
+    await flush(10)
+    const region = screen.getByRole('region', { name: '포장 라벨' })
+    const button = (await within(region).findByRole('button', { name: '포장 라벨 출력' })) as HTMLButtonElement
+    await waitFor(() => expect(button.disabled).toBe(false))
+    act(() => {
+      button.click()
+      button.click()
+    })
+    await flush(5)
+    expect(server.callsTo('POST', /^\/api\/print\/packing$/)).toHaveLength(1)
+    release()
+    expect(await within(region).findByText('포장 라벨 1장 출력을 접수했어요.')).toBeTruthy()
+    fireEvent.click(button)
+    await waitFor(() => expect(server.callsTo('POST', /^\/api\/print\/packing$/)).toHaveLength(2))
   })
 })

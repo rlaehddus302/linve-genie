@@ -228,7 +228,7 @@ test.describe('두 화면 실시간·바뀐 품목 (AC-I2-32·37)', () => {
 })
 
 test.describe('포장 라벨 (AC-I2-39)', () => {
-  test('쪽마다 그림·그림 저장(384×240 PNG)·라벨 PDF, 품목 12개 → 2쪽, B1 버튼 없음', async ({ page }) => {
+  test('쪽마다 그림·그림 저장(384×240 PNG)·라벨 PDF, 품목 12개 → 2쪽, 포장 라벨 출력 있음', async ({ page }) => {
     await login(page)
     const date = uniqueDate()
     const nos = Array.from({ length: 12 }, (_, i) => i + 1)
@@ -244,7 +244,8 @@ test.describe('포장 라벨 (AC-I2-39)', () => {
     const [pdf] = await Promise.all([page.waitForEvent('download'), label.getByRole('button', { name: '라벨 PDF' }).click()])
     expect(pdf.suggestedFilename()).toMatch(new RegExp(`^포장라벨-${date}-.+\\.pdf$`))
     expect(await pdfPages(await downloadBytes(pdf))).toBe(2)
-    await expect(page.getByRole('button', { name: /B1|프린터/ })).toHaveCount(0)
+    // D-PL1-05: 포장 모드도 B1으로 출력한다 — 라벨 켜짐이면 포장 라벨 칸에 "포장 라벨 출력" 하나 (AC-PL1B-10·15)
+    await expect(label.getByRole('button', { name: '포장 라벨 출력' })).toHaveCount(1)
   })
 })
 

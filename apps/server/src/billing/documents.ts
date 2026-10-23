@@ -5,7 +5,13 @@
 import { randomBytes } from 'node:crypto'
 
 export type ReceiptKind = 'TAX_INVOICE' | 'CASH_RECEIPT'
+/** 저장된 기록에 있을 수 있는 종류 (옛 `TAX_INVOICE` 기록은 그 낱말 그대로 보인다 — BL-8 6) */
 export const RECEIPT_KINDS: readonly ReceiptKind[] = ['TAX_INVOICE', 'CASH_RECEIPT']
+/**
+ * 지금 발행하는 계좌이체 증빙 (BL-8 1·3·6, D-PL1-07): 운영 사업자가 간이과세자라 현금영수증(지출증빙) 하나다.
+ * 사업자 정보 조회·새 증빙 요청·운영자 계정 명령이 모두 이 값을 쓴다(저장된 옛 `TAX_INVOICE`도 현금영수증으로 읽는다).
+ */
+export const ISSUED_RECEIPT_KIND = 'CASH_RECEIPT' as const satisfies ReceiptKind
 
 /** 받는 쪽 (발행할 때의 사업자 정보) */
 export interface DocumentRecipient {

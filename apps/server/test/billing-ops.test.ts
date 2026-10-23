@@ -181,7 +181,8 @@ describe('AC-N5-12 운영자 명령', () => {
     const { login } = await import('./support.ts')
     const cookie = await login(world, 'biz-good', 'password-1')
     const view = (await client(world, cookie).get('/api/billing')).body
-    expect(view.business).toEqual({ masked: '123-45-*****', name: null, ceo: null, email: null, receiptKind: 'TAX_INVOICE', complete: false })
+    // D-PL1-07: 운영자 계정 명령이 만드는 사업자 정보도 현금영수증(지출증빙) — TAX_INVOICE → CASH_RECEIPT
+    expect(view.business).toEqual({ masked: '123-45-*****', name: null, ceo: null, email: null, receiptKind: 'CASH_RECEIPT', complete: false })
     // 상호·대표자가 없으면 결제 주문을 만들지 않는다
     expect((await client(world, cookie).post('/api/billing/orders', { requestId: rid('o'), itemId: 'days-1', method: 'CARD', agreed: true })).body).toMatchObject({ error: { code: 'BUSINESS_REQUIRED' } })
     expect(await dumpAllTables(world.database)).not.toContain('1234567891')
@@ -421,13 +422,16 @@ describe('AC-N5-37 사업자 정보', () => {
     expect(await problems({ name: '가'.repeat(51) })).toEqual([{ field: 'name', message: '상호는 1~50자로 적어 주세요.' }])
     expect(await problems({ ceo: '대표\u0000' })).toEqual([{ field: 'ceo', message: '대표자 이름은 1~30자로 적어 주세요.' }])
     expect(await problems({ email: 'nope' })).toEqual([{ field: 'email', message: '이메일은 이름@도메인 모양으로 100자 이하로 적어 주세요.' }])
-    expect(await problems({ receiptKind: 'BOTH' })).toEqual([{ field: 'receiptKind', message: '계좌이체 증빙은 세금계산서나 현금영수증 중에서 골라 주세요.' }])
+    // D-PL1-07: 증빙 종류 칸이 틀리면 422 (문장은 D-PL1-18) — 'TAX_INVOICE'는 "지금은 발급할 수 없어요"(pl1b-billing.test.ts)
+    expect((await saveBusiness(world, seller, { receiptKind: 'BOTH' })).status).toBe(422)
+    expect(await problems({ receiptKind: 'BOTH' })).toEqual([{ field: 'receiptKind', message: '계좌이체 증빙은 현금영수증(지출증빙)만 발행해요.' }])
     const wrong = await saveBusiness(world, seller, { businessNumber: '999-99-99999' })
     expect(wrong.text).not.toContain('999-99')
     // 휴대폰 번호 검사는 하지 않는다 (판매자 자신의 정보) · 수식 모양도 글자 그대로
     const saved = await saveBusiness(world, seller, { businessNumber: ' 123 45 67891 ', name: '=SUM(A1)', ceo: '김대표 010-1111-2222', email: 'a@b.kr' })
     expect(saved.status, saved.text).toBe(200)
-    expect(saved.body).toEqual({ masked: '123-45-*****', name: '=SUM(A1)', ceo: '김대표 010-1111-2222', email: 'a@b.kr', receiptKind: 'TAX_INVOICE', complete: true })
+    // D-PL1-07: receiptKind 없이 저장하면 현금영수증(지출증빙) — TAX_INVOICE → CASH_RECEIPT
+    expect(saved.body).toEqual({ masked: '123-45-*****', name: '=SUM(A1)', ceo: '김대표 010-1111-2222', email: 'a@b.kr', receiptKind: 'CASH_RECEIPT', complete: true })
     expect((await saveBusiness(world, seller, { extra: 1 })).body).toMatchObject({ error: { code: 'UNKNOWN_FIELD' } })
     expect((await client(world, seller.cookie).raw('/api/billing/business', { method: 'PUT', headers: { Origin: 'https://evil.test', 'Content-Type': 'application/json' }, body: '{}' })).status).toBe(403)
   })

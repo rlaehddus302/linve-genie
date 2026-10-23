@@ -71,11 +71,11 @@ import {
   type QueueRow,
 } from './print-store.ts'
 import type { ScopeRuntime } from './runtime.ts'
-import { findBroadcast } from './store.ts'
+import { findBroadcast, scopeSealInfo } from './store.ts'
 import type { Clock } from './time.ts'
 import { claimIndex } from './views.ts'
 import { winnerClaimsOf } from './winners.ts'
-import { WriteAbort, type Rejection, type ScopeWriter, type TxHookContext } from './writer.ts'
+import { SEALED_MESSAGE, WriteAbort, type Rejection, type ScopeWriter, type TxHookContext } from './writer.ts'
 
 export { winnerClaimsOf }
 
@@ -1284,6 +1284,8 @@ export class PrintService {
    * 라벨 키 = (포장, 지금의 구매자, 날짜). 1등 상품이 없으면 거절. 그 라벨 키에 대기·출력 중 작업이 있으면 거절
    */
   async printPacking(sellerId: string, accountId: string, requestId: string, date: string, buyerId: string): Promise<ActionOutcome<{ jobs: JobView[] }>> {
+    // 30일 봉인 날짜는 출력 작업을 만들지 않는다 (PL1A D-PL1-04 — 라벨 꺼짐보다 먼저, 같은 요청 번호여도. 봉인 범위 상태는 비어 있어 잠긴 뒤 봉인돼도 작업이 생기지 않는다)
+    if ((await scopeSealInfo(this.#db, sellerId, date, false))?.sealedAt != null) return rejected(409, 'SEALED', SEALED_MESSAGE)
     const prior = await this.#priorJobs(sellerId, requestId)
     if (prior !== null) return { kind: 'ok', value: { jobs: prior } }
     if (await labelsOff(this.#db, sellerId)) return labelsOffRejected()

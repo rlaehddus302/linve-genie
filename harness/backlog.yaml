@@ -729,6 +729,105 @@ sprints:
     specIds: [VOC-01, VOC-05]
     status: done  # 메인 합침 (2026-10-23)
 
+  # ─────────── 마무리 다듬기 (새 기능 없음, 두 작업 폴더에서 동시에) ───────────
+  - id: PL1A
+    phase: 6
+    title: 마무리 다듬기 A — 30일 봉인 날짜의 백업·문서, 판매자 자동 백업 실패 경보 (서버 중심)
+    dependsOn: []
+    devs: [server, web]
+    tests: [domain, e2e]
+    uxReview: false
+    goal: >
+      새 기능 없이 남은 구멍을 메운다(D-I2-22·D-O3-12 이미 결정, 세부 D-PL1-01~04·10).
+      PL1-01 판매자 백업 형식 3 — 봉인 범위(봉인 시각·장부·장부 요약값)를 담고 검사는 재생 대신 seq·이벤트 요약값·장부 요약값(check-replay checkSealed 방식), 복구·가져오기 뒤에도 봉인 유지(AC-I2-66).
+      PL1-02 판매자 자동 백업 실패를 운영 경보 BACKUP_FAILED(seller 칸)로.
+      PL1-03 봉인 날짜의 확인서·판매대장·포장·지난 구매를 장부(sealedView·readLedger, livejjim-ledger/2)로 봉인 직전과 같게, 포장·배송·출력·택배 쓰기는 409, 포장 화면 "볼 수만"(AC-I2-67).
+      장부 판 /3(판매마다 찜 시각)은 youtube/seal.ts를 고쳐야 해 이번에 빼고 맥북 쪽 유튜브 작업으로 넘긴다(D-PL1-03) — 봉인 날짜 판매대장 "찜 시각"은 빈칸.
+      금지: apps/server/src/youtube/**, 웹의 유튜브 화면 파일, tests/e2e/i3·y1 (사용자가 맥북에서 유튜브 작업 중 — 읽기·import만).
+      PL1B와 동시 개발 — 파일 경계는 acceptance(PackingPage.tsx: PL1A는 데이터 받기·PackingChecklist만).
+    carryOver:
+      - "맥북 쪽 유튜브 작업으로 넘김: 장부 판 livejjim-ledger/3 — 판매마다 찜 시각(R-6 실제 시각·분 단위 여부)을 youtube/seal.ts buildLedger에 더하고, 봉인 날짜 판매대장 '찜 시각' 칸이 /3을 읽게 (D-PL1-03, AC-I2-67)"
+      - "다음 판단: 재생 검사 명령(checkReplay)의 봉인 범위도 백업 검사처럼 stateFromLedger 기준을 볼지 — 지금은 요약값만(D-PL1-12)"
+      - "장부 /3 때 함께: 구매자 행에 합친 순서를 넣어 지난 구매 '찾은 까닭' 나열 순서도 봉인 전과 같게 할지(D-PL1-14)"
+    summary: >
+      백업 형식 3(봉인 범위 sealed — 재생 없이 seq·요약값·장부 검사, 복구·가져오기 뒤에도 봉인), 판매자 자동 백업 실패 운영 경보(seller 칸),
+      봉인 날짜의 확인서·판매대장·포장·포장 라벨·지난 구매를 봉인 장부로(찜 시각 빈칸), 읽을 수 없는 장부 500 LEDGER_UNREADABLE, 봉인 날짜 쓰기 409 SEALED, 포장 화면 볼 수만.
+      감사 뒤: 이스케이프로 숨긴 __proto__ 거절(D-PL1-11), 백업 검사가 문서와 같은 장부 기준 stateFromLedger·startSettings 공유(D-PL1-12), 닉네임 0개 해석(D-PL1-13), 찾은 까닭 순서(D-PL1-14), 코어 export 두 줄 수용(D-PL1-15).
+    resolvedCarryOver:
+      - "D-I2-22 (1) 봉인 날짜 하나 때문에 전체 백업을 복구할 수 없던 문제 — 형식 3(D-PL1-01, AC-I2-66)"
+      - "D-I2-22 (2)·(3) 봉인 날짜 문서·쓰기 — 장부로 봉인 직전과 같게, 쓰기 409(D-PL1-04, AC-I2-67 — 찜 시각만 /3 전까지 빈칸)"
+      - "판매자 자동 백업 실패가 오류 로그뿐이던 문제 — 운영 경보 BACKUP_FAILED(seller 칸, D-PL1-02)"
+      - "감사 RA-PL1A-02·SA-PL1A-02~05·TD-PL1A-003 — D-PL1-11~15"
+    specIds: [DAT-03, DAT-04, DAT-06, STL-04, STL-06, STL-08, STL-10, BUY-05, SYS-05]
+    status: done
+
+  - id: PL1B
+    phase: 6
+    title: 마무리 다듬기 B — 간이과세자 증빙, 포장 모드 B1 출력, 마법사 '라벨을 쓰지 않아요', BL-7 확정, 음성 시험
+    dependsOn: []
+    devs: [server, web]
+    tests: [domain, e2e]
+    uxReview: true
+    goal: >
+      새 기능 없이 화면·증빙·시험을 다듬는다(D-PL1-05~10).
+      PL1-04 운영 사업자(틈)가 간이과세자라 계좌이체 증빙은 현금영수증(지출증빙) 하나 — 세금계산서는 고를 수 없고 "지금은 발급할 수 없어요", 옛 저장값은 현금영수증으로 읽음, 공급가액·세액은 화면에 없음, 약관 BL-10 8 맞춤(D-PL1-07, 법률·세무 확인은 사용자 몫).
+      PL1-05 포장 모드에 "포장 라벨 출력"(정산 자세히와 같은 출력 대기열 요청), 라벨 꺼짐이면 포장 라벨 칸 전체를 안내로(L-13 9, D-PL1-05).
+      PL1-07 D-I5-20(끝에서 넘긴 문자찜 카드는 저절로 넣지 않음) 웹 단위 시험 + @webkit E2E.
+      PL1-08 시작 마법사 프린터 단계 "라벨을 쓰지 않아요" → PUT /api/settings/labels {enabled:false} 뒤 다음 단계(D-PL1-06).
+      PL1-09 BL-7 환불 결과 모름·밖에서 취소를 지금 코드대로 확정, 요금 골든 granted G-BIL-301~315(D-PL1-08 — 초안 tests/golden/drafts/pl1b/billing/, 시작 때 spec-keeper가 billing/로 옮김).
+      PL1-12 음성 켠 직후 이력 받는 2초(HISTORY_WAIT_MS) 카드 미룸 규칙 확정(D-PL1-09).
+      완료로만 적음: PL1-13(tests/e2e/menu.ts 정규식, ffb5de1), PL1-14(stages.mjs WebKit 안내, 880ad9f).
+      금지: apps/server/src/youtube/**, 웹의 유튜브 화면 파일(WizardPage.tsx는 프린터 단계 블록만), tests/e2e/i3·y1.
+      PL1A와 동시 개발 — 파일 경계는 acceptance(PackingPage.tsx: PL1B는 PackingLabelSection만).
+    carryOver:
+      - "맥북 쪽 유튜브 작업으로 넘김: PL1-10 SA-I3-002(멈춤 이유별 '채팅 다시 받기' 표시)·SA-I3-003(마친 마법사를 다시 열 때 상태)·SA-I3-004(다른 기기 설정 저장 시 요약 갱신 범위) 스펙 판정"
+      - "맥북 쪽 유튜브 작업으로 넘김: PL1-11 SA-I3-005 E2E 보강(NO_PERMISSION 창, 스트림 5xx 반복 경고, 영상 댓글 대상, 차단 안내, 2단계 바꾸기 저장, 3단계)"
+      - "맥북 쪽 유튜브 작업으로 넘김: PL1-15 UX-I3 minor·nit(보조자 비밀번호 표시, 동의 요약 문장, 방송 중 구글 다녀오면 돌아오는 화면, 영상 ID 대신 제목 등)과 RA-I3 minor(프록시 뒤 IP 제한, pg_dump 판, 운영 상태 조회 비용 등)"
+      - "dev-server: 그 밖의 틀린 receiptKind 문장을 '계좌이체 증빙은 현금영수증(지출증빙)만 발행해요.'로(apps/server/src/billing/service.ts BUSINESS_RECEIPT_KIND_MESSAGE, 시험 pl1b-billing·billing-ops, test-domain은 tests/adversarial/pl1b/receipt-kind.test.ts — D-PL1-18, AC-PL1B-28)"
+    note: "완료(BASE에 들어 있음): PL1-13 tests/e2e/menu.ts 정규식(ffb5de1), PL1-14 stages.mjs E2E 결과 없음 안내에 WebKit 설치(880ad9f)"
+    summary: >
+      계좌이체 증빙은 현금영수증(지출증빙) 하나 — 고르는 칸 없음, TAX_INVOICE 422, 옛 저장값은 현금영수증으로 읽음, 약관 BL-10 8(D-PL1-07).
+      포장 모드 "포장 라벨 출력"(정산 자세히와 같은 요청), 라벨 꺼짐이면 칸 전체 안내(D-PL1-05). 마법사 4/5 "라벨을 쓰지 않아요" → 끄고 5/5(D-PL1-06).
+      BL-7 환불 결과 모름·밖에서 취소 확정 + 골든 granted G-BIL-401~415(D-PL1-08). 끝에서 넘긴 문자찜 카드·켠 직후 2초 미룸 시험(D-I5-20·D-PL1-09).
+      감사 뒤: 증빙 종류 칸 422·다른 칸 400(D-PL1-16), 사용성 덧붙임(출력 기기 없음 안내·라벨 화면 링크·5/5 알림·/settings/labels — D-PL1-17), 그 밖의 증빙 종류 문장 새로(D-PL1-18), 본문 64KB 넘으면 413(D-PL1-19).
+    resolvedCarryOver:
+      - "D-I2-07 후속: 포장 모드에 B1 출력 없음(D-PL1-05)"
+      - "D-N4a-05·07 남은 일: 마법사 '라벨을 쓰지 않아요'(D-PL1-06)"
+      - "N5 RA-N5-01: 환불 결과 모름·밖에서 취소 규칙 미확정(D-PL1-08, BL-7 5·6)"
+      - "N3 SA-N3-04·SA-N3-09·TE-N3-004: 켠 직후 이력 받는 동안 카드 미룸(D-PL1-09)"
+      - "D-I5-20 시험 부족(AC-PL1B-23~26)"
+      - "감사 TD-PL1B-001~003·SA-PL1B-01·02·RA-PL1B-02·TE-PL1B-001·U-PL1B-01~06 — D-PL1-16~19, 문장 바꾸기는 위 carryOver"
+    specIds: [BIL-01, BIL-02, STL-08, LBL-02, UX-02, RCP-01, VOC-03, VOC-04]
+    status: done
+
+  # ─────────── main에 이미 합친 트랙 (백로그 항목 없이 진행됨 — 기록용) ───────────
+  - id: X1
+    phase: 6
+    title: 크롬 확장으로 유튜브 라이브 채팅 읽기 + 감사 채팅 올리기(선택, 보조 경로)
+    dependsOn: []
+    devs: [device, server, web]
+    tests: [domain, e2e]
+    uxReview: false
+    goal: >
+      공식 API 한도·연결 없이도 실제 유튜브 live_chat을 크롬 확장(MV3, apps/extension)으로 읽어 기존 채팅 이벤트로 넣는다(공식 수집기와 중복 없음).
+      방송자(채널 주인) 글은 찜으로 세지 않음(회차 채널과 같을 때만 owner — D-X1-29). 판매자 스위치(기본 꺼짐)를 켜면 공식으로 못 올리는 감사 채팅을 확장이 올림(채널 주인만·3초 간격·묶기 — D-X1-17~28·30·31).
+      수용 기준: harness/sprints/X1/acceptance.md(AC-X1-01~34), 실물 확인 HG-X1.
+    specIds: [YT-10]
+    status: done  # 메인 합침 (2026-10-24, b4924cd0)
+
+  - id: UX2
+    phase: 6
+    title: 채팅 칸 정리 — 잡담 줄 "찜으로 바꾸기" 숨김·"이미 찜함" 표시
+    dependsOn: []
+    devs: [web]
+    tests: [e2e]
+    uxReview: false
+    goal: >
+      2026-10-24 실제 방송 시험: 잡담마다 붙은 "찜으로 바꾸기"를 줄인다 — 언급 줄은 늘, 잡담 줄은 누름·마우스 올림·키보드 초점 때만(D-UX2-01). 결과 없는 주문 줄은 "이미 찜함"과 이유 문장. 방송자 줄은 버튼 없음.
+      수용 기준: SPEC 5.13 AC-UX2-01~14, D-UX2-01~06.
+    specIds: [ORD-08, UX-01]
+    status: done  # 메인 합침 (2026-10-24, c25791f8)
+
 techDebt:
   - "RA-S00-001: 골든 러너가 엔진의 입력 state 제자리 수정을 잡지 못함"
   - "RA-S00-002: golden 어댑터 observe가 항상 미구현이라 S02에서 G-ENG-* 허용으로 조용히 통과 가능"

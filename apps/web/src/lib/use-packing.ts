@@ -56,6 +56,8 @@ export function useClosingSignature(data: ScopeData): string {
 export interface PackingState {
   /** 받은 포장 목록 (아직 없으면 null) */
   readonly entries: readonly PackingEntry[] | null
+  /** 30일이 지나 봉인한 날짜 — 볼 수만 있다(응답에 `sealed: true`일 때만 true, D-PL1-04) */
+  readonly sealed: boolean
   readonly error: ApiError | null
   readonly loading: boolean
   /** 지금 다시 받기 */
@@ -67,6 +69,7 @@ export interface PackingState {
 /** date가 null이면 받지 않는다 (리허설 범위). trigger가 바뀔 때마다 다시 받는다 */
 export function usePackingList(date: string | null, trigger: string): PackingState {
   const [entries, setEntries] = useState<readonly PackingEntry[] | null>(null)
+  const [sealed, setSealed] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const [loading, setLoading] = useState(false)
   const [attempt, setAttempt] = useState(0)
@@ -83,6 +86,7 @@ export function usePackingList(date: string | null, trigger: string): PackingSta
       (list) => {
         if (mine !== version.current) return
         setEntries(list.entries)
+        setSealed(list.sealed === true)
         setError(null)
         setLoading(false)
       },
@@ -105,5 +109,5 @@ export function usePackingList(date: string | null, trigger: string): PackingSta
     })
   }, [])
 
-  return { entries, error, loading, reload: useCallback(() => setAttempt((n) => n + 1), []), replace }
+  return { entries, sealed, error, loading, reload: useCallback(() => setAttempt((n) => n + 1), []), replace }
 }

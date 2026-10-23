@@ -1,0 +1,614 @@
+{
+ "check": [
+  {
+   "date": "2026-10-18",
+   "rehearsal": false,
+   "seq": 14,
+   "events": 14,
+   "broadcasts": [
+    {
+     "id": "b_tGEmuAVyDuFKj77l",
+     "date": "2026-10-18",
+     "title": "1부",
+     "startSeq": 1,
+     "endedAt": null,
+     "createdAt": "2026-10-18T10:59:00.000Z"
+    },
+    {
+     "id": "b_Euk6xmhmHhQwITa-",
+     "date": "2026-10-18",
+     "title": "2부",
+     "startSeq": 2,
+     "endedAt": null,
+     "createdAt": "2026-10-18T10:59:00.000Z"
+    }
+   ]
+  },
+  {
+   "date": "2026-10-18",
+   "rehearsal": true,
+   "seq": 3,
+   "events": 3,
+   "broadcasts": [
+    {
+     "id": "b_NnNwrOXOENVjt976",
+     "date": "2026-10-18",
+     "title": "리허설 1",
+     "startSeq": 1,
+     "endedAt": null,
+     "createdAt": "2026-10-18T13:12:00.000Z"
+    }
+   ]
+  }
+ ],
+ "restored": {
+  "scopes": 2,
+  "events": 17,
+  "packing": 0,
+  "checks": [
+   {
+    "date": "2026-10-18",
+    "rehearsal": false,
+    "ok": true,
+    "sealed": false,
+    "events": 14
+   },
+   {
+    "date": "2026-10-18",
+    "rehearsal": true,
+    "ok": true,
+    "sealed": false,
+    "events": 3
+   }
+  ]
+ },
+ "view": {
+  "date": "2026-10-18",
+  "rehearsal": false,
+  "seq": 14,
+  "broadcasts": [
+   {
+    "id": "b_tGEmuAVyDuFKj77l",
+    "date": "2026-10-18",
+    "title": "1부",
+    "ended": false,
+    "endedAt": null,
+    "settings": {
+     "claim.parseMode": "STRICT",
+     "claim.maxQuantity": 10,
+     "claim.multiNumber": "ALL",
+     "claim.maxNumber": 999,
+     "claim.ignoreOwner": true,
+     "claim.preOpenWindowSec": 30,
+     "waitlist.max": 5,
+     "cancel.buyerChat": "REQUEST",
+     "cancel.succession": "AUTO",
+     "contention.policy": "ARRIVAL",
+     "contention.sameMinuteTieBreaker": "HOST",
+     "price.unit": "THOUSAND",
+     "shipping.baseFee": 4000,
+     "shipping.freeThreshold": null,
+     "settlement.groupBy": "DATE",
+     "print.autoOnConfirm": true,
+     "thanks.liveChat": true,
+     "thanks.videoComment": "OFF",
+     "thanks.batchWindowSec": 0
+    },
+    "focus": null
+   },
+   {
+    "id": "b_Euk6xmhmHhQwITa-",
+    "date": "2026-10-18",
+    "title": "2부",
+    "ended": false,
+    "endedAt": null,
+    "settings": {
+     "claim.parseMode": "STRICT",
+     "claim.maxQuantity": 10,
+     "claim.multiNumber": "ALL",
+     "claim.maxNumber": 999,
+     "claim.ignoreOwner": true,
+     "claim.preOpenWindowSec": 30,
+     "waitlist.max": 5,
+     "cancel.buyerChat": "REQUEST",
+     "cancel.succession": "AUTO",
+     "contention.policy": "ARRIVAL",
+     "contention.sameMinuteTieBreaker": "HOST",
+     "price.unit": "THOUSAND",
+     "shipping.baseFee": 4000,
+     "shipping.freeThreshold": null,
+     "settlement.groupBy": "DATE",
+     "print.autoOnConfirm": true,
+     "thanks.liveChat": true,
+     "thanks.videoComment": "OFF",
+     "thanks.batchWindowSec": 0
+    },
+    "focus": null
+   }
+  ],
+  "products": [
+   {
+    "key": "b_tGEmuAVyDuFKj77l/15",
+    "id": "p1",
+    "broadcast": "b_tGEmuAVyDuFKj77l",
+    "no": 15,
+    "name": "핑크프릴",
+    "price": 10000,
+    "stock": 1,
+    "status": "SOLD",
+    "winners": [
+     "UC_A"
+    ],
+    "winnerClaims": [
+     "c1"
+    ],
+    "waitlist": [],
+    "waitlistClaims": [],
+    "awaitingSuccession": false,
+    "conflict": false,
+    "conflictClaim": null,
+    "conflictBuyer": null,
+    "priceHistory": [],
+    "nameHistory": [],
+    "confirmVersion": 1,
+    "aliases": [],
+    "options": [],
+    "hasOptions": false,
+    "confirmedUnits": 1,
+    "variants": []
+   },
+   {
+    "key": "b_tGEmuAVyDuFKj77l/28",
+    "id": "p2",
+    "broadcast": "b_tGEmuAVyDuFKj77l",
+    "no": 28,
+    "name": "라울",
+    "price": 5000,
+    "stock": 1,
+    "status": "SOLD",
+    "winners": [
+     "UC_A"
+    ],
+    "winnerClaims": [
+     "c2"
+    ],
+    "waitlist": [],
+    "waitlistClaims": [],
+    "awaitingSuccession": false,
+    "conflict": false,
+    "conflictClaim": null,
+    "conflictBuyer": null,
+    "priceHistory": [],
+    "nameHistory": [],
+    "confirmVersion": 1,
+    "aliases": [],
+    "options": [],
+    "hasOptions": false,
+    "confirmedUnits": 1,
+    "variants": []
+   },
+   {
+    "key": "b_tGEmuAVyDuFKj77l/31",
+    "id": "p3",
+    "broadcast": "b_tGEmuAVyDuFKj77l",
+    "no": 31,
+    "name": "방울복랑 금",
+    "price": 15000,
+    "stock": 1,
+    "status": "SOLD",
+    "winners": [
+     "sms:rpkyenobfqoonkdxyefy"
+    ],
+    "winnerClaims": [
+     "c3"
+    ],
+    "waitlist": [],
+    "waitlistClaims": [],
+    "awaitingSuccession": false,
+    "conflict": false,
+    "conflictClaim": null,
+    "conflictBuyer": null,
+    "priceHistory": [],
+    "nameHistory": [],
+    "confirmVersion": 1,
+    "aliases": [],
+    "options": [],
+    "hasOptions": false,
+    "confirmedUnits": 1,
+    "variants": []
+   },
+   {
+    "key": "b_Euk6xmhmHhQwITa-/7",
+    "id": "p4",
+    "broadcast": "b_Euk6xmhmHhQwITa-",
+    "no": 7,
+    "name": "블루엘프",
+    "price": 9000,
+    "stock": 1,
+    "status": "SOLD",
+    "winners": [
+     "UC_A"
+    ],
+    "winnerClaims": [
+     "c4"
+    ],
+    "waitlist": [],
+    "waitlistClaims": [],
+    "awaitingSuccession": false,
+    "conflict": false,
+    "conflictClaim": null,
+    "conflictBuyer": null,
+    "priceHistory": [
+     {
+      "from": 8000,
+      "to": 9000,
+      "at": "2026-10-18T13:00:30.000Z"
+     }
+    ],
+    "nameHistory": [],
+    "confirmVersion": 1,
+    "aliases": [],
+    "options": [],
+    "hasOptions": false,
+    "confirmedUnits": 1,
+    "variants": []
+   }
+  ],
+  "claims": [
+   {
+    "id": "c1",
+    "product": "b_tGEmuAVyDuFKj77l/15",
+    "productId": "p1",
+    "broadcast": "b_tGEmuAVyDuFKj77l",
+    "no": 15,
+    "buyer": "UC_A",
+    "currentBuyer": "UC_A",
+    "status": "CONFIRMED",
+    "reason": null,
+    "origin": "chat",
+    "seq": 4,
+    "rankTime": "2026-10-18T11:00:05.000Z",
+    "rankMinute": false,
+    "received": null,
+    "at": "2026-10-18T11:00:05.000Z",
+    "price": 10000,
+    "confirmVersion": 1,
+    "locked": true,
+    "cancelRequested": false,
+    "reprintNeeded": false,
+    "priceHistory": [],
+    "key": "b_tGEmuAVyDuFKj77l/15",
+    "qty": 1,
+    "variant": null,
+    "options": null,
+    "amount": 10000
+   },
+   {
+    "id": "c2",
+    "product": "b_tGEmuAVyDuFKj77l/28",
+    "productId": "p2",
+    "broadcast": "b_tGEmuAVyDuFKj77l",
+    "no": 28,
+    "buyer": "UC_A",
+    "currentBuyer": "UC_A",
+    "status": "CONFIRMED",
+    "reason": null,
+    "origin": "chat",
+    "seq": 6,
+    "rankTime": "2026-10-18T11:01:03.000Z",
+    "rankMinute": false,
+    "received": null,
+    "at": "2026-10-18T11:01:03.000Z",
+    "price": 5000,
+    "confirmVersion": 1,
+    "locked": true,
+    "cancelRequested": false,
+    "reprintNeeded": false,
+    "priceHistory": [],
+    "key": "b_tGEmuAVyDuFKj77l/28",
+    "qty": 1,
+    "variant": null,
+    "options": null,
+    "amount": 5000
+   },
+   {
+    "id": "c3",
+    "product": "b_tGEmuAVyDuFKj77l/31",
+    "productId": "p3",
+    "broadcast": "b_tGEmuAVyDuFKj77l",
+    "no": 31,
+    "buyer": "sms:rpkyenobfqoonkdxyefy",
+    "currentBuyer": "sms:rpkyenobfqoonkdxyefy",
+    "status": "CONFIRMED",
+    "reason": null,
+    "origin": "sms",
+    "seq": 8,
+    "rankTime": "2026-10-18T11:02:00.000Z",
+    "rankMinute": true,
+    "received": "20:02",
+    "at": "2026-10-18T11:02:10.000Z",
+    "price": 15000,
+    "confirmVersion": 1,
+    "locked": false,
+    "cancelRequested": false,
+    "reprintNeeded": false,
+    "priceHistory": [],
+    "key": "b_tGEmuAVyDuFKj77l/31",
+    "qty": 1,
+    "variant": null,
+    "options": null,
+    "amount": 15000
+   },
+   {
+    "id": "c4",
+    "product": "b_Euk6xmhmHhQwITa-/7",
+    "productId": "p4",
+    "broadcast": "b_Euk6xmhmHhQwITa-",
+    "no": 7,
+    "buyer": "UC_A",
+    "currentBuyer": "UC_A",
+    "status": "CONFIRMED",
+    "reason": null,
+    "origin": "chat",
+    "seq": 10,
+    "rankTime": "2026-10-18T13:00:04.000Z",
+    "rankMinute": false,
+    "received": null,
+    "at": "2026-10-18T13:00:04.000Z",
+    "price": 8000,
+    "confirmVersion": 1,
+    "locked": true,
+    "cancelRequested": false,
+    "reprintNeeded": false,
+    "priceHistory": [],
+    "key": "b_Euk6xmhmHhQwITa-/7",
+    "qty": 1,
+    "variant": null,
+    "options": null,
+    "amount": 8000
+   }
+  ],
+  "pending": [],
+  "buyers": [
+   {
+    "id": "UC_A",
+    "kind": "youtube",
+    "current": "UC_A",
+    "mergedInto": null,
+    "merged": [],
+    "display": "길동이",
+    "nameHistory": [
+     "홍길동",
+     "길동이"
+    ],
+    "phoneLast4": null,
+    "items": [
+     "b_tGEmuAVyDuFKj77l/15",
+     "b_tGEmuAVyDuFKj77l/28",
+     "b_Euk6xmhmHhQwITa-/7"
+    ],
+    "subtotal": 23000,
+    "byBroadcast": {
+     "b_tGEmuAVyDuFKj77l": 15000,
+     "b_Euk6xmhmHhQwITa-": 8000
+    },
+    "blocked": false
+   },
+   {
+    "id": "sms:rpkyenobfqoonkdxyefy",
+    "kind": "sms",
+    "current": "sms:rpkyenobfqoonkdxyefy",
+    "mergedInto": null,
+    "merged": [],
+    "display": "문자찜(김영희)",
+    "nameHistory": [
+     "문자찜(김영희)"
+    ],
+    "phoneLast4": "5678",
+    "items": [
+     "b_tGEmuAVyDuFKj77l/31"
+    ],
+    "subtotal": 15000,
+    "byBroadcast": {
+     "b_tGEmuAVyDuFKj77l": 15000
+    },
+    "blocked": false
+   }
+  ],
+  "settlements": [
+   {
+    "buyer": "UC_A",
+    "date": "2026-10-18",
+    "items": [
+     "b_tGEmuAVyDuFKj77l/15",
+     "b_tGEmuAVyDuFKj77l/28",
+     "b_Euk6xmhmHhQwITa-/7"
+    ],
+    "subtotal": 23000,
+    "shipping": 4000,
+    "shippingOverride": null,
+    "adjustments": -2000,
+    "total": 25000,
+    "received": 10000,
+    "refundDue": 0,
+    "payment": "PARTIAL",
+    "records": [
+     {
+      "kind": "adjust",
+      "buyer": "UC_A",
+      "amount": -2000,
+      "mode": null,
+      "reason": "단골 할인",
+      "memo": null,
+      "seq": 12,
+      "at": "2026-10-18T13:10:00.000Z"
+     },
+     {
+      "kind": "payment",
+      "buyer": "UC_A",
+      "amount": 10000,
+      "mode": null,
+      "reason": null,
+      "memo": null,
+      "seq": 14,
+      "at": "2026-10-18T13:12:00.000Z"
+     }
+    ]
+   },
+   {
+    "buyer": "sms:rpkyenobfqoonkdxyefy",
+    "date": "2026-10-18",
+    "items": [
+     "b_tGEmuAVyDuFKj77l/31"
+    ],
+    "subtotal": 15000,
+    "shipping": 0,
+    "shippingOverride": "PICKUP",
+    "adjustments": 0,
+    "total": 15000,
+    "received": 0,
+    "refundDue": 0,
+    "payment": "UNPAID",
+    "records": [
+     {
+      "kind": "shipping",
+      "buyer": "sms:rpkyenobfqoonkdxyefy",
+      "amount": null,
+      "mode": "PICKUP",
+      "reason": null,
+      "memo": null,
+      "seq": 13,
+      "at": "2026-10-18T13:11:00.000Z"
+     }
+    ]
+   }
+  ],
+  "effects": [
+   {
+    "id": "c1:PRINT_PRODUCT_LABEL:-:1",
+    "kind": "PRINT_PRODUCT_LABEL",
+    "target": null,
+    "claim": "c1",
+    "product": "b_tGEmuAVyDuFKj77l/15",
+    "buyer": "UC_A",
+    "currentBuyer": "UC_A",
+    "text": null,
+    "confirmVersion": 1,
+    "status": "PENDING"
+   },
+   {
+    "id": "c1:POST_THANKS:LIVE_CHAT:1",
+    "kind": "POST_THANKS",
+    "target": "LIVE_CHAT",
+    "claim": "c1",
+    "product": "b_tGEmuAVyDuFKj77l/15",
+    "buyer": "UC_A",
+    "currentBuyer": "UC_A",
+    "text": "15번 핑크프릴 10,000원 홍길동님 구매 감사합니다",
+    "confirmVersion": 1,
+    "status": "PENDING"
+   },
+   {
+    "id": "c2:PRINT_PRODUCT_LABEL:-:1",
+    "kind": "PRINT_PRODUCT_LABEL",
+    "target": null,
+    "claim": "c2",
+    "product": "b_tGEmuAVyDuFKj77l/28",
+    "buyer": "UC_A",
+    "currentBuyer": "UC_A",
+    "text": null,
+    "confirmVersion": 1,
+    "status": "PENDING"
+   },
+   {
+    "id": "c2:POST_THANKS:LIVE_CHAT:1",
+    "kind": "POST_THANKS",
+    "target": "LIVE_CHAT",
+    "claim": "c2",
+    "product": "b_tGEmuAVyDuFKj77l/28",
+    "buyer": "UC_A",
+    "currentBuyer": "UC_A",
+    "text": "28번 라울 5,000원 홍길동님 구매 감사합니다",
+    "confirmVersion": 1,
+    "status": "PENDING"
+   },
+   {
+    "id": "c3:PRINT_PRODUCT_LABEL:-:1",
+    "kind": "PRINT_PRODUCT_LABEL",
+    "target": null,
+    "claim": "c3",
+    "product": "b_tGEmuAVyDuFKj77l/31",
+    "buyer": "sms:rpkyenobfqoonkdxyefy",
+    "currentBuyer": "sms:rpkyenobfqoonkdxyefy",
+    "text": null,
+    "confirmVersion": 1,
+    "status": "PENDING"
+   },
+   {
+    "id": "c3:POST_THANKS:LIVE_CHAT:1",
+    "kind": "POST_THANKS",
+    "target": "LIVE_CHAT",
+    "claim": "c3",
+    "product": "b_tGEmuAVyDuFKj77l/31",
+    "buyer": "sms:rpkyenobfqoonkdxyefy",
+    "currentBuyer": "sms:rpkyenobfqoonkdxyefy",
+    "text": "31번 방울복랑 금 15,000원 문자찜님 구매 감사합니다",
+    "confirmVersion": 1,
+    "status": "PENDING"
+   },
+   {
+    "id": "c4:PRINT_PRODUCT_LABEL:-:1",
+    "kind": "PRINT_PRODUCT_LABEL",
+    "target": null,
+    "claim": "c4",
+    "product": "b_Euk6xmhmHhQwITa-/7",
+    "buyer": "UC_A",
+    "currentBuyer": "UC_A",
+    "text": null,
+    "confirmVersion": 1,
+    "status": "PENDING"
+   },
+   {
+    "id": "c4:POST_THANKS:LIVE_CHAT:1",
+    "kind": "POST_THANKS",
+    "target": "LIVE_CHAT",
+    "claim": "c4",
+    "product": "b_Euk6xmhmHhQwITa-/7",
+    "buyer": "UC_A",
+    "currentBuyer": "UC_A",
+    "text": "7번 블루엘프 8,000원 길동이님 구매 감사합니다",
+    "confirmVersion": 1,
+    "status": "PENDING"
+   }
+  ],
+  "cancelRequests": [],
+  "attention": [],
+  "packing": [
+   {
+    "buyer": "UC_A",
+    "status": "포장 대기",
+    "invoice": null,
+    "parcel": null
+   },
+   {
+    "buyer": "sms:rpkyenobfqoonkdxyefy",
+    "status": "포장 대기",
+    "invoice": null,
+    "parcel": null
+   }
+  ],
+  "depositLinks": []
+ },
+ "rehearsal": {
+  "error": {
+   "code": "INVALID_INPUT",
+   "message": "입력한 내용을 확인해 주세요.",
+   "problems": [
+    {
+     "field": "rehearsal",
+     "message": "리허설 범위는 rehearsal=true, 실제 범위는 적지 않거나 rehearsal=false로 적어 주세요."
+    }
+   ]
+  }
+ }
+}
