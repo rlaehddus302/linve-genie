@@ -12,6 +12,8 @@
 // - 포장 라벨: 쪽마다 서버 그림(대체 글 "포장 라벨 1/2쪽")·"그림 저장"(PNG)·"라벨 PDF". 라벨에 찍히는 값(품목·방송 제목·상품 합계·구매자 이름·가게 이름)이
 //   바뀌면 새로 받고, 받기 전엔 저장을 잠근다 (SA-I2-002).
 //   PL1B(D-PL1-05, AC-PL1B-10~13): 라벨 켜짐이면 "라벨 PDF" 옆에 보통 버튼 "포장 라벨 출력"(PackingPrint — 정산 자세히와 같은 요청, 누를 때만).
+//   PL1 합침(AC-PL1A-19·AC-PL1B-14, D-PL1-04·10): 봉인 날짜(포장 목록 응답 `sealed`)는 "포장 라벨 출력"과 그 결과·안내(출력 기기 없음 등)를 그리지 않는다 —
+//   그림 저장·라벨 PDF는 그대로(볼 수만 있는 날짜라도 라벨을 다시 받을 수는 있다). 서버도 봉인 날짜 출력을 409로 막는다.
 //   라벨 꺼짐이면 칸 전체가 "라벨 쓰지 않음 — 설정에서 켤 수 있어요."이고 그림을 받지 않는다. 켬/끔을 모르면 출력 버튼만 없다.
 // - T1(AC-T1-35·65, PC-8): 택배를 접수한 묶음은 줄·체크리스트에 "택배: 배송 중 · 9000-0000-0001". 살아 있는 접수가 있으면 포장 취소·배송 취소·송장번호 고치기·
 //   배송 완료로 적기 대신 까닭과 할 일("택배로 접수한 묶음이라 … 바꿔야 하면 택배 접수를 먼저 취소해 주세요." — U-T1-07)과 택배 화면 링크(서버도 409로 막는다).
@@ -585,7 +587,7 @@ function PackingChecklist({ date, entry, sealed, name, labelSignature, showBack,
       )}
 
       {/* 구매자·날짜마다 새로 그린다 — 앞 구매자의 늦은 출력 결과·잠금·그림이 다음 구매자 칸에 남지 않게 (RA-PL1B-02) */}
-      <PackingLabelSection key={`${date}|${entry.buyer}`} date={date} buyer={entry.buyer} empty={entry.items.length === 0} signature={labelSignature} />
+      <PackingLabelSection key={`${date}|${entry.buyer}`} date={date} buyer={entry.buyer} empty={entry.items.length === 0} signature={labelSignature} sealed={sealed} />
 
       {ask === 'ship' || ask === 'fixInvoice' ? (
         <ShipDialog
@@ -761,7 +763,20 @@ interface LabelPage {
  * signature = 라벨에 찍히는 값(L-9: 품목·방송 제목·상품 합계·구매자 표시 이름)과 가게 이름의 모양 — 바뀌면 새로 받는다(받는 동안 저장 잠금).
  * 가격만 바뀌어(입금 전 찜까지) 상품 합계가 달라지거나 닉네임이 바뀌어도 화면 그림 = 저장 그림 = 지금 라벨 (AC-I2-39, LBL-03, SA-I2-002).
  */
-function PackingLabelSection({ date, buyer, empty, signature }: { readonly date: string; readonly buyer: string; readonly empty: boolean; readonly signature: string }) {
+function PackingLabelSection({
+  date,
+  buyer,
+  empty,
+  signature,
+  sealed,
+}: {
+  readonly date: string
+  readonly buyer: string
+  readonly empty: boolean
+  readonly signature: string
+  /** 봉인 날짜 — 출력 버튼·결과 안내를 그리지 않는다 (AC-PL1A-19·AC-PL1B-14) */
+  readonly sealed: boolean
+}) {
   const [pages, setPages] = useState<readonly LabelPage[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
@@ -771,6 +786,7 @@ function PackingLabelSection({ date, buyer, empty, signature }: { readonly date:
   const labels = useLabelsEnabled()
   const off = labels === false
   const print = usePackingPrint(date, buyer)
+  const printable = labels === true && !sealed
 
   useEffect(() => {
     // 라벨 꺼짐(L-13 9): 그림을 받지 않는다 — 켜지면 다시 받는다 (AC-PL1B-12)
@@ -839,11 +855,11 @@ function PackingLabelSection({ date, buyer, empty, signature }: { readonly date:
           <button type="button" className="button" disabled={locked || pdf.busy} onClick={() => void pdf.run(withQuery(`/api/days/${date}/packing-label.pdf`, { buyer }), `packing-label-${date}.pdf`)}>
             라벨 PDF
           </button>
-          {labels === true ? <PackingPrintButton print={print} /> : null}
+          {printable ? <PackingPrintButton print={print} /> : null}
           {pdf.busy ? <span role="status">라벨 PDF를 만드는 중이에요…</span> : null}
         </div>
       ) : null}
-      {!empty && labels === true ? <PackingPrintResult print={print} /> : null}
+      {!empty && printable ? <PackingPrintResult print={print} /> : null}
       {pdf.error !== null ? <RequestError error={pdf.error} /> : null}
     </section>
   )
