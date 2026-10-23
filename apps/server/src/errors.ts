@@ -38,6 +38,8 @@ export type ErrorCode =
   | 'GENERATOR_RUNNING_ELSEWHERE'
   // Y1 유튜브 (AC-Y1-01~62)
   | 'SEALED'
+  // PL1A 봉인 날짜의 장부를 읽을 수 없음 (D-PL1-04)
+  | 'LEDGER_UNREADABLE'
   | 'YOUTUBE_NOT_CONFIGURED'
   | 'YOUTUBE_NOT_CONNECTED'
   | 'YOUTUBE_RECONNECT_NEEDED'

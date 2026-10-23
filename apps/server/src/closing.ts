@@ -44,14 +44,16 @@ import {
 import { PARCEL_MESSAGES } from './parcel/rules.ts'
 import { hasLiveAttempt } from './parcel/store.ts'
 import { pastPurchases, type PastView } from './past.ts'
+import { LEDGER_UNREADABLE_MESSAGE, readSealed } from './sealed-state.ts'
 import { IMPORT_MAX_ROWS, isNormalizedName, parseProductList, parseProductRows, recheckRows, splitCells, splitImportLines, type ImportResult, type RegisterRow } from './product-import.ts'
-import type { ScopeRuntime } from './runtime.ts'
+import { emptyState, type ScopeRuntime } from './runtime.ts'
 import { checkShopInput, checkShopName, documentShop, readShop, writeShop, type ShopView } from './shop.ts'
 import { findBroadcast, listBroadcastRows, scopeSeqs } from './store.ts'
 import { kstDate, type Clock } from './time.ts'
 import { WorkBusy, WorkFailed, type LedgerChunk, type WorkPools } from './work-pool.ts'
 import { uniqueNames } from './zip.ts'
-import type { Actor, Rejection, ScopeWriter, WriteOutcome } from './writer.ts'
+import { SEALED_MESSAGE, type Actor, type Rejection, type ScopeWriter, type WriteOutcome } from './writer.ts'
+import { scopeSealedAt } from './store.ts'
 import { SERVICE_FILE_PREFIX, SERVICE_NAME } from './brand.ts'
 
 export interface ClosingDeps {
@@ -151,6 +153,30 @@ export class ClosingService {
     return runtime.seq === 0 || runtime.scopeId === null ? null : runtime
   }
 
+  /**
+   * 문서를 만들 범위 상태 (PL1A D-I2-22 (2)·D-PL1-04): 봉인 안 한 범위는 범위 상태 그대로, 30일 봉인 범위는 봉인 장부로 다시 세운 조회용 상태(sealed-state.ts).
+   * 장부를 읽을 수 없으면 500 LEDGER_UNREADABLE(오류 로그 — 코드·날짜만). 없는 범위는 not_found
+   */
+  async #docScope(sellerId: string, date: string, rehearsal: boolean): Promise<Outcome<{ runtime: ScopeRuntime; state: EngineState; sealed: boolean }>> {
+    const runtime = await this.#scope(sellerId, date, rehearsal)
+    if (runtime === null) return NOT_FOUND
+    if (rehearsal) return ok({ runtime, state: runtime.state, sealed: false })
+    const read = await readSealed(this.#deps.db, sellerId, date)
+    if (!read.sealed) return ok({ runtime, state: runtime.state, sealed: false })
+    if (read.state === null) return this.#unreadable(date)
+    return ok({ runtime, state: read.state, sealed: true })
+  }
+
+  #unreadable(date: string): { kind: 'error'; error: ApiProblem } {
+    this.#deps.log({ level: 'error', code: 'LEDGER_UNREADABLE', date })
+    return problem(500, 'LEDGER_UNREADABLE', LEDGER_UNREADABLE_MESSAGE)
+  }
+
+  /** 봉인한 날짜(실제 범위)인가 — 쓰기 요청(포장·배송)의 409 SEALED (D-I2-22 (3)) */
+  static sealedProblem(): { kind: 'error'; error: ApiProblem } {
+    return problem(409, 'SEALED', SEALED_MESSAGE)
+  }
+
   // ── 가게 설정 (AC-I2-01) ───────────────────────────────────────────────
 
   shop(sellerId: string): Promise<ShopView> {
@@ -187,9 +213,9 @@ export class ClosingService {
    * 품목이 없는 묶음·모르는 구매자 → NO_ITEMS(422), 줄 합 ≠ 코어 합계 → AMOUNT_MISMATCH(500, 경보)
    */
   async receipt(sellerId: string, date: string, rehearsal: boolean, buyer: string, at?: number): Promise<Outcome<{ receipt: ReceiptData; createdAt: number }>> {
-    const runtime = await this.#scope(sellerId, date, rehearsal)
-    if (runtime === null) return NOT_FOUND
-    const { state } = runtime
+    const scope = await this.#docScope(sellerId, date, rehearsal)
+    if (scope.kind !== 'ok') return scope
+    const { state } = scope.value
     const shop = documentShop(await readShop(this.#deps.db, sellerId))
     // 만든 시각 = 서버 시계 (at은 E2E 기동의 확인서 데이터 조회만 넘긴다 — AC-I2-15)
     const createdAt = at ?? this.#deps.clock.now()
@@ -254,9 +280,9 @@ export class ClosingService {
    * 리허설 범위도 된다. 없는 범위면 not_found, 품목 있는 묶음이 없으면 빈 목록
    */
   async receiptBuyers(sellerId: string, date: string, rehearsal: boolean): Promise<Outcome<{ state: EngineState; rows: ReceiptBuyerRow[] }>> {
-    const runtime = await this.#scope(sellerId, date, rehearsal)
-    if (runtime === null) return NOT_FOUND
-    const { state } = runtime
+    const scope = await this.#docScope(sellerId, date, rehearsal)
+    if (scope.kind !== 'ok') return scope
+    const { state } = scope.value
     const shop = documentShop(await readShop(this.#deps.db, sellerId))
     const createdAt = this.#deps.clock.now()
     const font = documentFont()
@@ -284,11 +310,11 @@ export class ClosingService {
    * 확인서 데이터는 여기서 만들고(범위 상태를 워커로 복제하지 않는다) PDF 그리기만 작업 워커에서 한다
    */
   async batchPdf(sellerId: string, date: string, rehearsal: boolean, signal?: AbortSignal): Promise<Outcome<FileResult>> {
-    const runtime = await this.#scope(sellerId, date, rehearsal)
-    if (runtime === null) return NOT_FOUND
+    const scope = await this.#docScope(sellerId, date, rehearsal)
+    if (scope.kind !== 'ok') return scope
     const shop = documentShop(await readShop(this.#deps.db, sellerId))
     const createdAt = this.#deps.clock.now()
-    const result = buildReceipts({ state: runtime.state, date, shop, rehearsal, createdAt }, documentFont())
+    const result = buildReceipts({ state: scope.value.state, date, shop, rehearsal, createdAt }, documentFont())
     if (!result.ok) return this.#receiptError(date, result.error.code, result.error.message)
     const rendered = await this.#work(sellerId, date, () => this.#deps.work.documents.run<Uint8Array>(sellerId, 'receiptPdf', { receipts: result.receipts }, signalOf(signal)))
     if (rendered.kind !== 'ok') return rendered
@@ -306,12 +332,12 @@ export class ClosingService {
    * `확인서-YYYY-MM-DD-<이름>.jpg`(겹치면 `-2`…). 모든 확인서의 만든 시각은 요청 때 서버 시각 하나. 그리기·묶기는 작업 워커에서
    */
   async batchJpgZip(sellerId: string, date: string, rehearsal: boolean, signal?: AbortSignal): Promise<Outcome<FileResult>> {
-    const runtime = await this.#scope(sellerId, date, rehearsal)
-    if (runtime === null) return NOT_FOUND
+    const scope = await this.#docScope(sellerId, date, rehearsal)
+    if (scope.kind !== 'ok') return scope
     const shop = documentShop(await readShop(this.#deps.db, sellerId))
     const createdAt = this.#deps.clock.now()
     const font = documentFont()
-    const result = buildReceipts({ state: runtime.state, date, shop, rehearsal, createdAt }, font)
+    const result = buildReceipts({ state: scope.value.state, date, shop, rehearsal, createdAt }, font)
     if (!result.ok) return this.#receiptError(date, result.error.code, result.error.message)
     const prefix = rehearsal ? '리허설-' : ''
     const names = uniqueNames(result.receipts.map((receipt) => `${prefix}확인서-${date}-${fileNamePart(receipt.buyerName, font)}.jpg`))
@@ -339,7 +365,11 @@ export class ClosingService {
     for (const date of dates) {
       const runtime = await this.#deps.writer.readDetached(sellerId, date, false)
       if (runtime.seq === 0 || runtime.scopeId === null) continue
-      const { state, scopeId } = runtime
+      const { scopeId } = runtime
+      // 봉인한 날짜는 봉인 장부로 다시 세운 상태 (D-PL1-04 — 읽을 수 없는 장부는 파일을 만들기 전에 #sealedDates가 거절했다)
+      const sealed = await readSealed(this.#deps.db, sellerId, date)
+      if (sealed.sealed && sealed.state === null) throw new Error('봉인 장부를 읽지 못했다')
+      const state = sealed.sealed ? (sealed.state as EngineState) : runtime.state
       const words: Map<string, { readonly status: PackingWord; readonly invoice: string | null }> = packingStatusByBuyer(state, date, await packingRows(this.#deps.db, sellerId, scopeId))
       const own = selected === null ? null : listBroadcastIds(state).filter((id) => selected.includes(id))
       if (own !== null && own.length === 0) continue
@@ -354,13 +384,22 @@ export class ClosingService {
         },
       })
       if (!result.ok) throw new Error('대장 행을 만들지 못했다')
+      // 봉인한 날짜의 "찜 시각" 칸은 빈칸 (D-PL1-03 — 장부 판 /2에 찜 시각이 없다. 확정 시각·다른 시각으로 채우지 않는다)
+      const rows = sealed.sealed ? result.rows.map((row) => ({ ...row, claimedAt: '' })) : [...result.rows]
       // 열 모양(D-O3-07): 날짜 중 하나라도 옵션 방송을 담으면 대장 전체가 옵션·수량·단가 열 — 워커가 조각마다의 options를 OR로 모은다
-      yield { rows: [...result.rows], options: result.options }
+      yield { rows, options: result.options }
     }
   }
 
-  /** 대장 엑셀 바이트 (엑셀 쓰기는 작업 워커에서 — 행은 날짜마다 조각으로 보낸다) */
-  #ledgerFile(sellerId: string, dates: readonly string[], from: string, to: string, selected: readonly string[] | null, signal?: AbortSignal): Promise<Outcome<Uint8Array>> {
+  /**
+   * 대장 엑셀 바이트 (엑셀 쓰기는 작업 워커에서 — 행은 날짜마다 조각으로 보낸다).
+   * 든 날짜 중 봉인한 날짜의 장부를 읽을 수 없으면 파일 전체를 만들지 않는다(500 LEDGER_UNREADABLE — 그 날짜가 빠진 대장을 주지 않는다, D-PL1-04)
+   */
+  async #ledgerFile(sellerId: string, dates: readonly string[], from: string, to: string, selected: readonly string[] | null, signal?: AbortSignal): Promise<Outcome<Uint8Array>> {
+    for (const date of dates) {
+      const sealed = await readSealed(this.#deps.db, sellerId, date)
+      if (sealed.sealed && sealed.state === null) return this.#unreadable(date)
+    }
     return this.#work(sellerId, to, () => this.#deps.work.documents.run<Uint8Array>(sellerId, 'ledgerXlsx', null, { chunks: this.#ledgerRows(sellerId, dates, from, to, selected), ...signalOf(signal) }))
   }
 
@@ -439,14 +478,18 @@ export class ClosingService {
 
   // ── 포장·배송 (AC-I2-30~34) ────────────────────────────────────────────
 
-  /** 포장 목록 (실제 범위만 — 리허설은 404) */
-  async packingList(sellerId: string, date: string): Promise<{ date: string; seq: number; entries: PackingEntry[] } | null> {
-    const runtime = await this.#scope(sellerId, date, false)
-    if (runtime === null) return null
-    const { state, seq, scopeId } = runtime
-    const records = await packingRows(this.#deps.db, sellerId, scopeId as string)
+  /**
+   * 포장 목록 (실제 범위만 — 리허설은 404). 봉인한 날짜는 봉인 장부와 포장 기록으로 같은 규칙대로 만들고 `sealed: true`를 더한다
+   * (봉인 안 한 날짜는 sealed 칸이 없다 — BASE 응답 그대로, D-PL1-04). 장부를 읽을 수 없으면 500 LEDGER_UNREADABLE
+   */
+  async packingList(sellerId: string, date: string): Promise<Outcome<{ date: string; seq: number; entries: PackingEntry[]; sealed?: true }>> {
+    const scope = await this.#docScope(sellerId, date, false)
+    if (scope.kind !== 'ok') return scope
+    const { runtime, state, sealed } = scope.value
+    const records = await packingRows(this.#deps.db, sellerId, runtime.scopeId as string)
     // 찜 금액이 없는 확정 찜이 있으면 목록을 만들지 않는다(서버 오류, D-O3-15) — 찜 ID만 남기고 다시 던진다
-    return { date, seq, entries: this.#amountGuard(date, () => packingEntries(state, date, records)) }
+    const entries = this.#amountGuard(date, () => packingEntries(state, date, records))
+    return ok({ date, seq: runtime.seq, entries, ...(sealed ? { sealed: true as const } : {}) })
   }
 
   /** 찜 금액이 없는 확정 찜(MissingAmountError)이면 찜 ID만 남기고 그대로 던진다 (D-O3-15) */
@@ -468,9 +511,11 @@ export class ClosingService {
 
   /** 정산 조회(날짜 보기)에 붙이는 묶음마다의 포장·배송 상태 (AC-I2-33) */
   async packingSummary(sellerId: string, date: string): Promise<{ buyer: string; status: string; invoice: string | null }[]> {
-    const runtime = await this.#scope(sellerId, date, false)
-    if (runtime === null) return []
-    const map = packingStatusByBuyer(runtime.state, date, await packingRows(this.#deps.db, sellerId, runtime.scopeId as string))
+    // 봉인한 날짜는 장부로 (날짜 보기의 봉인 조회와 함께 — 장부를 읽을 수 없으면 빈 목록, 날짜 보기는 그대로)
+    const scope = await this.#docScope(sellerId, date, false)
+    if (scope.kind !== 'ok') return []
+    const { runtime, state } = scope.value
+    const map = packingStatusByBuyer(state, date, await packingRows(this.#deps.db, sellerId, runtime.scopeId as string))
     return [...map.entries()].map(([buyer, value]) => ({ buyer, status: value.status, invoice: value.invoice }))
   }
 
@@ -546,6 +591,8 @@ export class ClosingService {
       const scopeId = runtime.scopeId
       return db.transaction(async (tx) => {
         await catchUpIn(tx)
+        // 봉인한 날짜의 포장·배송 명령은 받지 않는다 (D-I2-22 (3)·D-PL1-04 — 같은 요청 번호여도, 기록·알림 없음). 범위 락 안에서 본다(봉인 작업도 같은 락)
+        if ((await scopeSealedAt(tx, sellerId, scopeId)) !== null) return ClosingService.sealedProblem()
         const prior = await packingByRequest(tx, sellerId, requestId)
         if (prior !== null) {
           // 같은 요청 번호: 처음 기록한 묶음의 지금 상태 (그 요청이 다른 날짜면 그 날짜 범위는 여기서 읽지 않는다 — 같은 날짜만 처음 결과로 본다)
@@ -590,9 +637,9 @@ export class ClosingService {
 
   /** 포장 라벨 (AC-I2-34): 라벨 데이터(L-9)와 쪽마다 그림. 합쳐진 구매자 ID는 지금의 구매자로 푼다 */
   async packingLabel(sellerId: string, date: string, buyer: string): Promise<Outcome<{ buyer: string; data: PackingLabelData; pages: Uint8Array[]; pdf: () => Uint8Array | null; name: string }>> {
-    const runtime = await this.#scope(sellerId, date, false)
-    if (runtime === null) return NOT_FOUND
-    const { state } = runtime
+    const scope = await this.#docScope(sellerId, date, false)
+    if (scope.kind !== 'ok') return scope
+    const { state } = scope.value
     const root = getBuyer(state, buyer) === null ? null : currentBuyerOf(state, buyer)
     let data: PackingLabelData | null
     try {
@@ -625,8 +672,20 @@ export class ClosingService {
     if (!isValidDate(date)) return Promise.resolve(null)
     // 보고 있는 날짜는 보통 읽기, 다른 날짜들은 공용 캐시에 넣지 않는 읽기 (TD-I2-008)
     const writer = this.#deps.writer
+    const { db, log } = this.#deps
+    // 봉인한 날짜는 봉인 장부로 다시 세운 상태 (D-PL1-04). 다른 날짜의 장부를 읽을 수 없으면 그 날짜만 뺀다(빈 범위 상태 — 오류 로그 하나)
+    const withSealed = async (day: string, runtime: ScopeRuntime): Promise<ScopeRuntime> => {
+      if (runtime.seq === 0 || runtime.scopeId === null) return runtime
+      const sealed = await readSealed(db, sellerId, day)
+      if (!sealed.sealed) return runtime
+      if (sealed.state === null) {
+        log({ level: 'error', code: 'LEDGER_UNREADABLE', date: day })
+        return { ...runtime, state: emptyState() }
+      }
+      return { ...runtime, state: sealed.state }
+    }
     return pastPurchases(
-      { db: this.#deps.db, read: (day) => writer.read(sellerId, day, false), readOther: (day) => writer.readDetached(sellerId, day, false), log: this.#deps.log },
+      { db, read: async (day) => withSealed(day, await writer.read(sellerId, day, false)), readOther: async (day) => withSealed(day, await writer.readDetached(sellerId, day, false)), log },
       sellerId,
       date,
       buyer,

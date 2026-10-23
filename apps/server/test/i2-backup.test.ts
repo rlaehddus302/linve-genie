@@ -125,7 +125,8 @@ describe('AC-I2-60 백업 파일 형식', () => {
     // parcels = 택배 접수 기록 (T1 D-T1-07에 더한 칸 — 이 판매자는 접수가 없어 빈 목록)
     expect(Object.keys(file)).toEqual(['format', 'version', 'createdAt', 'sellerId', 'shop', 'settings', 'scopes', 'packing', 'parcels', 'digest'])
     expect(file.parcels).toEqual([])
-    expect(file).toMatchObject({ format: 'livejjim-seller-backup', version: 2, createdAt: '2026-10-19T19:00:00.000Z', sellerId: seller.sellerId, settings: { 'shipping.baseFee': 3500 } })
+    // 형식 번호 2 → 3 (PL1A D-PL1-01 — 범위마다 봉인 칸)
+    expect(file).toMatchObject({ format: 'livejjim-seller-backup', version: 3, createdAt: '2026-10-19T19:00:00.000Z', sellerId: seller.sellerId, settings: { 'shipping.baseFee': 3500 } })
     expect(file.shop).toEqual({ name: '초록다육', bank: '농협', accountNumber: '302-9988-7766-11', accountHolder: '김판매', accountNote: '입금자명은 닉네임으로 적어 주세요' })
     expect(file.scopes.map((scope) => [scope.date, scope.rehearsal])).toEqual([
       ['2026-10-18', false],

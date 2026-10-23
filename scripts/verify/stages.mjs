@@ -503,7 +503,7 @@ async function e2e() {
   })
   const report = readJson(out)
   if (!report) {
-    const hint = /Executable doesn't exist|playwright install/i.test(result.output) ? ' — 브라우저 설치: pnpm exec playwright install chromium' : ''
+    const hint = /Executable doesn't exist|playwright install/i.test(result.output) ? ' — 브라우저 설치: pnpm exec playwright install chromium webkit' : ''
     return { status: 'fail', detail: `결과 파일이 없다 (Playwright 종료 코드 ${result.code})${hint}` }
   }
   const stats = report.stats ?? {}

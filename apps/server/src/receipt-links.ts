@@ -14,9 +14,9 @@ import type { Db } from './db/database.ts'
 import { receiptLinkRequests, receiptLinks } from './db/schema.ts'
 import type { LogSink } from './log.ts'
 import { openSellerKey, openText, sealText } from './secrets.ts'
-import { findSeller } from './store.ts'
+import { findSeller, scopeSealInfo } from './store.ts'
 import type { Clock } from './time.ts'
-import type { ScopeWriter } from './writer.ts'
+import { SEALED_MESSAGE, type ScopeWriter } from './writer.ts'
 
 /** 링크가 열리는 기간: 만든 때부터 14×24시간 (D-N4b-01) */
 export const RECEIPT_LINK_TTL_MS = 14 * 24 * 60 * 60 * 1000
@@ -242,12 +242,20 @@ export class ReceiptLinkService {
     return ok(state)
   }
 
+  /** 링크를 새로 만드는 요청의 범위 확인 — 30일 봉인 날짜는 409 SEALED (PL1A D-PL1-04, 링크·요청 번호 기록 없음). 끊기·조회는 받는다 */
+  async #creatableScope(sellerId: string, date: string, rehearsal: boolean): Promise<Outcome<EngineState>> {
+    const scope = await this.#realScope(sellerId, date, rehearsal)
+    if (scope.kind !== 'ok') return scope
+    if ((await scopeSealInfo(this.#deps.db, sellerId, date, false))?.sealedAt != null) return problem(409, 'SEALED', SEALED_MESSAGE)
+    return scope
+  }
+
   /**
    * 링크 만들기 (AC-N4b-10): 쓸 수 있는 링크가 있으면 그 링크(새로 만들지 않음), 없으면 새 링크. 저장된 뒤에만 답한다.
    * 품목이 없는 묶음·합쳐진 구매자·없는 구매자는 409 (기록 없음)
    */
   async create(sellerId: string, accountId: string, date: string, rehearsal: boolean, requestId: string, buyer: string): Promise<Outcome<{ created: boolean; link: ReceiptLinkView }>> {
-    const scope = await this.#realScope(sellerId, date, rehearsal)
+    const scope = await this.#creatableScope(sellerId, date, rehearsal)
     if (scope.kind !== 'ok') return scope
     const state = scope.value
     const key = await this.#key(sellerId)
@@ -267,7 +275,7 @@ export class ReceiptLinkService {
    * 답 = 새로 만든 수와 묶음마다의 링크(목록과 같은 모양)
    */
   async createAll(sellerId: string, accountId: string, date: string, rehearsal: boolean, requestId: string): Promise<Outcome<{ created: number; links: ReceiptLinkView[] }>> {
-    const scope = await this.#realScope(sellerId, date, rehearsal)
+    const scope = await this.#creatableScope(sellerId, date, rehearsal)
     if (scope.kind !== 'ok') return scope
     const state = scope.value
     const order = ClosingService.batchOrder(state, date)
