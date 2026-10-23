@@ -123,7 +123,7 @@ export const ORDER_STATE_TONE: Readonly<Record<OrderState, Tone>> = {
   REFUNDED: 'success',
 }
 
-/** 계좌이체 증빙 종류 (사업자 정보 칸의 고르기) */
+/** 계좌이체 증빙 종류 낱말 — 지금은 현금영수증(지출증빙) 하나라 고르는 칸이 없다(D-PL1-07). 세금계산서 낱말은 옛 기록 표시용으로 남긴다 */
 export const RECEIPT_KIND_WORD: Readonly<Record<ReceiptKind, string>> = { TAX_INVOICE: '세금계산서', CASH_RECEIPT: '현금영수증(지출증빙)' }
 
 const DOCUMENT_KIND_WORD: Readonly<Record<ReceiptKind, string>> = { TAX_INVOICE: '세금계산서', CASH_RECEIPT: '현금영수증' }
@@ -138,8 +138,12 @@ export function documentWords(document: DocumentView): string {
   return parts.join(' · ')
 }
 
-/** 계좌이체를 고르면 (AC-N5-52) */
-export const TRANSFER_RECEIPT_NOTE = '세금계산서(또는 현금영수증)를 발행해요.'
+/** 계좌이체를 고르면 (AC-N5-52, D-PL1-07 — 간이과세자라 현금영수증 하나) */
+export const TRANSFER_RECEIPT_NOTE = '현금영수증(지출증빙)을 발행해요.'
+/** 사업자 정보 칸 아래 — 계좌이체 증빙 종류 (BL-8 6, AC-PL1B-05) */
+export const TRANSFER_RECEIPT_KIND_LINE = '계좌이체 증빙: 현금영수증(지출증빙)'
+/** 사업자 정보 칸 아래 — 세금계산서 안내 (BL-8 6, AC-PL1B-05) */
+export const TAX_INVOICE_UNAVAILABLE = '세금계산서는 지금은 발급할 수 없어요. 카드로 결제하면 카드 매출전표가 증빙이에요.'
 /** 약관 체크 (BL-10) */
 export const TERMS_CHECK = '이용권 약관과 환불 규정을 읽었어요'
 /** 사업자 정보 없음 (BL-9 4) */
@@ -253,6 +257,6 @@ export const TERMS: readonly { readonly title: string; readonly text: string }[]
   },
   { title: '양도·현금화 금지', text: '이용권은 다른 사람에게 넘기거나, 현금·포인트로 바꾸거나, 남은 양을 돈으로 돌려받을 수 없다(5의 환불은 예외).' },
   { title: '회사 책임', text: '회사의 잘못으로 이용권을 쓰지 못한 경우 회사는 쓰지 못한 만큼 이용권을 다시 준다.' },
-  { title: '증빙', text: '계좌이체로 결제한 이용권은 판매자가 고른 세금계산서 또는 현금영수증(지출증빙)을 발행한다. 카드 결제는 카드 매출전표가 증빙이다.' },
+  { title: '증빙', text: '계좌이체로 결제한 이용권은 현금영수증(지출증빙)을 발행한다. 카드 결제는 카드 매출전표가 증빙이다. 회사는 지금 세금계산서를 발행하지 않는다.' },
   { title: '가격', text: '가격은 요금 화면에 보이는 부가가치세 포함 금액이다. 바뀐 가격은 바뀐 뒤에 시작하는 결제부터 적용한다.' },
 ]
