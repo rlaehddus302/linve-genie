@@ -12,18 +12,43 @@ import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode, type RefO
 import { isActive } from '../lib/buyers.ts'
 import { autoSecondsLeft, showsAutoCountdown } from '../lib/voice.ts'
 import { useWide } from '../lib/use-wide.ts'
-import { HISTORY_FAILED, SENT_NOTICE, SMS_NEW_BUYER, SMS_REASON_TITLE, SMS_UNKNOWN_BUYER_NOTE, TOO_SOON, candidateClaims, smsCandidateLabel, smsShortText, smsShown, smsUnknownBuyer, type CardForm, type FormField, type SmsEntry, type SmsResultLine, type VoiceController, type VoiceSnapshot } from '../voice/controller.ts'
+import {
+  FLUSHED_CARD_NOTE,
+  HISTORY_FAILED,
+  SENT_NOTICE,
+  SENT_NOTICE_SHORT,
+  SMS_NEW_BUYER,
+  SMS_REASON_TITLE,
+  SMS_UNKNOWN_BUYER_NOTE,
+  STANDALONE_NOTICE,
+  TOO_SOON,
+  candidateClaims,
+  errorLines,
+  flushedClosedNotice,
+  smsCandidateLabel,
+  smsShortText,
+  smsShown,
+  smsUnknownBuyer,
+  type CardForm,
+  type FormField,
+  type SmsEntry,
+  type SmsResultLine,
+  type VoiceController,
+  type VoiceSnapshot,
+} from '../voice/controller.ts'
+import { isHomeScreenApp } from '../voice/standalone.ts'
 import { openClaimAction } from './actions.ts'
 import { useConsoleApi } from './console-context.ts'
 import { Modal } from './Modal.tsx'
 import { smsLast4Suffix, smsResultWords, useSentToReview, useSmsClaim } from './SmsPage.tsx'
 
-/** 안내 창 문장 (D-I4-04, AC-I4-11 그대로) */
+/** 안내 창 문장 (D-I4-04, AC-I4-11 — 외부 전송 문장은 D-I5-06, 마이크 줄은 D-I5-11로 바꿈) */
 export const CONSENT_TITLE = '음성으로 상품 등록'
 export const CONSENT_LINES: readonly string[] = [
   '말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.',
-  '음성은 인식을 위해 구글 음성 인식 서버로 보내져요. 라이브찜은 음성을 녹음하거나 저장하지 않아요.',
-  '다음에 크롬이 마이크 사용을 물으면 "허용"을 눌러 주세요.',
+  '음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브찜은 음성을 녹음하거나 저장하지 않아요.',
+  // D-I5-11: 크롬·사파리 모두에 맞게 "브라우저가"
+  '다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.',
 ]
 export const AUTO_CONFIRM_LABEL = '확실한 카드는 자동으로 등록'
 export const AUTO_CONFIRM_HELP = '번호·품종·가격이 모두 확실한 카드만, 손대지 않으면 정한 시간 뒤 등록해요. 등록 뒤 5초 안에 되돌릴 수 있어요.'
@@ -69,7 +94,31 @@ export function VoiceConsentDialog({ voice }: { readonly voice: VoiceController 
 
 /** 음성 칸을 보일까 (켜졌거나, 남은 카드·오류가 있을 때) */
 export function voiceLiveShown(snapshot: VoiceSnapshot): boolean {
-  return snapshot.phase === 'on' || snapshot.cards.length > 0 || snapshot.sms.some(smsShown) || snapshot.error !== null || snapshot.tooSoon
+  return snapshot.phase === 'on' || snapshot.cards.length > 0 || snapshot.sms.some(smsShown) || snapshot.error !== null || snapshot.tooSoon || snapshot.flushedClosed.length > 0
+}
+
+/** 휴대폰 아래 메뉴 막대·고정 영역에 가리지 않게 둘 여백(px) */
+const SCROLL_GAP = 8
+
+/**
+ * 휴대폰 폭에서 새 카드가 맨 앞에 생기면 그 카드가 화면에 다 보이게 조금만 내린다 (U-I5-02).
+ * 이미 다 보이면 움직이지 않고, 고치기 칸이 열려 있으면(판매자가 고치는 중) 움직이지 않는다.
+ * 아래는 메뉴 막대(.menu) 위까지, 위는 화면 맨 위에 붙은 고정 영역(.console-sticky) 높이 아래까지를 보이는 곳으로 본다.
+ */
+export function revealCard(element: HTMLElement): void {
+  const rect = element.getBoundingClientRect()
+  const menu = document.querySelector('.menu')
+  const menuTop = menu instanceof HTMLElement && getComputedStyle(menu).position === 'fixed' ? menu.getBoundingClientRect().top : window.innerHeight
+  const sticky = document.querySelector('.console-sticky')
+  // 고정 영역은 내리면 화면 맨 위에 붙으므로(top: 0) 그 높이까지가 가려질 수 있는 곳이다 (아직 붙기 전이라도)
+  const stickyHeight = sticky instanceof HTMLElement ? sticky.getBoundingClientRect().height : 0
+  const bottom = menuTop - SCROLL_GAP
+  const top = stickyHeight + SCROLL_GAP
+  let delta = 0
+  if (rect.bottom > bottom) delta = rect.bottom - bottom
+  // 카드가 보이는 곳보다 크면 위(카드 글)가 먼저 보이게
+  if (rect.top - delta < top) delta = rect.top - top
+  if (delta !== 0) window.scrollBy({ top: delta, behavior: 'auto' })
 }
 
 /** "문자찜도 듣는 중"을 보이는가 (켜져 있고 문자찜도 듣기가 켜짐) */
@@ -108,6 +157,20 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
   const wide = useWide()
   // Esc가 닫을 카드 (PC 폭에서만 표시, D-V1-20)
   const escTarget = wide ? voice.smsEscTarget() : null
+  const listRef = useRef<HTMLUListElement>(null)
+  // 맨 앞 카드 (상품 카드·문자찜 카드 — 목록 첫 줄)
+  const first = items[0]
+  const frontId = first === undefined ? null : first.kind === 'product' ? first.card.id : first.entry.card.id
+  const seenFront = useRef<string | null>(frontId)
+  const editing = snapshot.forms.size > 0
+  // 휴대폰: 새 카드가 맨 앞에 생기면 보이게 내린다 (U-I5-02). PC는 고정 영역에 있어 늘 보인다(D-I4-03)
+  useEffect(() => {
+    if (frontId === seenFront.current) return
+    seenFront.current = frontId
+    if (wide || editing || frontId === null) return
+    const element = listRef.current?.firstElementChild
+    if (element instanceof HTMLElement) revealCard(element)
+  }, [frontId, wide, editing])
   return (
     <section className="voice" aria-label="음성 등록">
       {on ? (
@@ -116,7 +179,8 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
             {snapshot.stateLabel}
           </span>
           {smsListening(snapshot) ? <span className="voice-sms-on">{voice.smsWords()?.listening}</span> : null}
-          <span className="voice-sent">{SENT_NOTICE}</span>
+          {/* 휴대폰 폭은 짧은 문장 (D-I5-16) — 늘 보인다 */}
+          <span className="voice-sent">{wide ? SENT_NOTICE : SENT_NOTICE_SHORT}</span>
           <button type="button" className="button" onClick={() => voice.turnOff()}>
             음성 끄기
           </button>
@@ -124,9 +188,26 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
       ) : null}
       {on && snapshot.interim !== null ? <p className="voice-interim">들리는 말: {snapshot.interim}</p> : null}
       {snapshot.error !== null ? (
-        <p className="voice-error" role="alert">
-          {snapshot.error}
-        </p>
+        snapshot.unsupported ? (
+          // 지원 안 함은 잘못이 아니라 안내 — 안내 색·"닫기" (D-I5-15)
+          <div className="voice-guide" role="alert">
+            <div className="voice-lines">
+              {errorLines(snapshot.error).map((line, index) => (
+                <p key={`${String(index)}-${line}`}>{line}</p>
+              ))}
+            </div>
+            <button type="button" className="button" onClick={() => voice.dismissUnsupported()}>
+              닫기
+            </button>
+          </div>
+        ) : (
+          // 여러 줄 문장은 줄마다 따로 (D-I5-12): 첫 줄 = 무슨 일, 다음 줄 = 기기별 할 일
+          <div className="voice-error voice-lines" role="alert">
+            {errorLines(snapshot.error).map((line, index) => (
+              <p key={`${String(index)}-${line}`}>{line}</p>
+            ))}
+          </div>
+        )
       ) : null}
       {on && snapshot.historyFailed ? (
         <p className="voice-info" role="status">
@@ -137,6 +218,16 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
         <p className="voice-info" role="alert">
           {TOO_SOON}
         </p>
+      ) : null}
+      {snapshot.flushedClosed.length > 0 ? (
+        <div className="voice-lost" role="alert">
+          {snapshot.flushedClosed.map((text, index) => (
+            <p key={`${String(index)}-${text}`}>{flushedClosedNotice(cardShortText(text))}</p>
+          ))}
+          <button type="button" className="button" onClick={() => voice.dismissFlushedClosed()}>
+            알겠어요
+          </button>
+        </div>
       ) : null}
       {snapshot.smsDropped.length > 0 ? (
         <ul className="plain-list stack-tight" aria-label="넣지 않고 닫힌 문자찜">
@@ -155,7 +246,7 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
         </ul>
       ) : null}
       {items.length > 0 ? (
-        <ul className="plain-list voice-cards" aria-label="음성 카드">
+        <ul ref={listRef} className="plain-list voice-cards" aria-label="음성 카드">
           {items.map((item) => {
             if (item.kind === 'sms') return <SmsCardView key={item.entry.card.id} entry={item.entry} voice={voice} on={on} esc={escTarget === item.entry.card.id} />
             const card = item.card
@@ -176,6 +267,8 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
           })}
         </ul>
       ) : null}
+      {/* 홈 화면 앱: 켜진 동안·오류로 멈춘 뒤 한 줄 (D-I5-05 — 막지 않는다). 좁은 화면에서 카드를 밀어내지 않게 카드 아래에 둔다 (U-I5-02) */}
+      {(on || snapshot.error !== null) && isHomeScreenApp() ? <p className="voice-info">{STANDALONE_NOTICE}</p> : null}
     </section>
   )
 }
@@ -195,16 +288,19 @@ interface VoiceCardProps {
 function VoiceCard({ card, described, badge, countdown, note, form, voice, onSubmitForm, onRegister }: VoiceCardProps) {
   const short = cardShortText(described)
   const low = card.confidence !== 'HIGH'
+  // 끝에서 넘긴 문장 카드: 자동 등록되지 않으니 보통 카드와 겉모습을 다르게 하고 까닭을 쓴다 (D-I5-02, U-I5-01)
+  const flushed = card.flushedAtEnd === true
   const formId = useId()
   return (
-    <li className={low ? 'voice-card voice-card-low' : 'voice-card'} aria-label={`${short} 카드`}>
+    <li className={low || flushed ? 'voice-card voice-card-low' : 'voice-card'} aria-label={`${short} 카드`}>
       <div className="voice-card-body">
         <p className="voice-card-text">
           <strong>{described}</strong>
-          {low ? <span className="tag tag-waiting">확인 필요</span> : null}
+          {low || flushed ? <span className="tag tag-waiting">확인 필요</span> : null}
           {badge ? <span className="tag tag-order">Enter 등록</span> : null}
         </p>
         <p className="voice-card-heard">들은 말: {card.text}</p>
+        {flushed ? <p className="voice-card-why">{FLUSHED_CARD_NOTE}</p> : null}
         {countdown !== null ? <p className="voice-card-auto">{countdown}초 뒤 자동 등록</p> : null}
         {note !== null ? (
           <p className="field-error" role="status">

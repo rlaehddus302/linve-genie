@@ -8,6 +8,7 @@
 // 기다림(그 기기 설정, 기본 3초) 뒤 콘솔이 넘긴 쓰기(host.writeSms — 손 입력과 같은 `sms` 이벤트)로 넣는다. 넣은·닫은 카드도 10초 동안은
 // 같은 말 막기(D-V1-06)를 위해 들고 있다. 열린 카드 수 규칙은 상품 카드와 함께 센다(addVoiceCard).
 import { formatWon } from '@livejjim/core'
+import { isHomeScreenApp } from './standalone.ts'
 import type {
   CardRegistration,
   SmsBuyerCandidate,
@@ -52,8 +53,22 @@ export const VOICE_LOAD_FAILED = '음성 기능을 불러오지 못했어요. �
 export const HISTORY_FAILED = '지난 판매 품종을 불러오지 못했어요. 기본 품종 사전으로 알아들어요.'
 /** 맨 앞이 된 지 1초 안의 Enter (D-I4-03) */
 export const TOO_SOON = '새 카드가 방금 나왔어요. 확인하고 다시 Enter를 눌러 주세요.'
-/** 켜진 동안 늘 보이는 안내 (D-I4-04) */
-export const SENT_NOTICE = '음성은 인식을 위해 구글로 보내져요.'
+/** 켜진 동안 늘 보이는 안내 (D-I4-04, D-I5-06 — 기기를 가리지 않고 어느 기기에서도 맞는 한 문장) */
+export const SENT_NOTICE = '음성은 인식을 위해 크롬은 구글로, 아이폰은 애플로 보내져요.'
+/** 폭 768px 미만에서 켜진 동안 늘 보이는 짧은 안내 (D-I5-16 — 전송처·목적은 그대로, 접지 않는다) */
+export const SENT_NOTICE_SHORT = '음성은 인식을 위해 구글·애플로 보내져요.'
+/** 오류 문장을 줄 목록으로 (D-I5-12 — 문장 표의 \n에서 나눈다. 줄이 하나면 한 줄) */
+export function errorLines(message: string): readonly string[] {
+  return message.split('\n').filter((line) => line !== '')
+}
+/** 홈 화면 앱(navigator.standalone === true)에서 켜진 동안·오류로 멈춘 뒤 보이는 한 줄 (D-I5-05 — 막지 않는다) */
+export const STANDALONE_NOTICE = '홈 화면 앱에서는 음성이 자주 끊길 수 있어요. 안 되면 사파리에서 열어 주세요.'
+/** 끝에서 넘긴 문장 카드의 까닭 줄 (D-I5-02, U-I5-01 — 자동 등록되지 않는 까닭과 할 일) */
+export const FLUSHED_CARD_NOTE = '끝까지 못 들었어요. 맞는지 확인하고 "등록"을 눌러 주세요.'
+/** 끝에서 넘긴 카드가 새 카드 3장 규칙(D-204)으로 닫혔을 때 (U-I5-01 — 말한 상품이 조용히 사라지지 않게). short = "15번 핑크프릴 15,000원" */
+export function flushedClosedNotice(short: string): string {
+  return `새 카드에 밀려 끝까지 못 들은 카드(${short})를 닫았어요. 맞는 상품이면 빠른 입력으로 등록해 주세요.`
+}
 
 /** 문자찜 쓰기 하나의 결과 (콘솔이 서버 응답을 바꿔 준다) */
 export type SmsWriteOutcome =
@@ -180,8 +195,10 @@ export interface VoiceSnapshot {
   readonly phase: VoicePhase
   /** 켜진 동안의 상태 글자 ("음성: 듣는 중"·"음성: 다시 시작 중"), 꺼져 있으면 null */
   readonly stateLabel: string | null
-  /** 음성 칸의 오류 문장 (D-205), 없으면 null */
+  /** 음성 칸의 오류 문장 (D-205), 없으면 null. 여러 줄이면 \n으로 나뉜다(D-I5-12) */
   readonly error: string | null
+  /** error가 "이 기기에서는 음성이 어려워요" 안내다 — 안내 색·"닫기", 빠른 입력 등록이 성공하면 내린다 (D-I5-15) */
+  readonly unsupported: boolean
   /** 중간 결과 (자막 한 줄), 없으면 null */
   readonly interim: string | null
   /** 최근 최종 문장 (새 것이 앞, 20개) */
@@ -205,6 +222,8 @@ export interface VoiceSnapshot {
   readonly tooSoon: boolean
   /** 화면 시각 (남은 초·"Enter 등록" 표시) */
   readonly now: number
+  /** 새 카드에 밀려 닫힌 끝에서 넘긴 카드들의 글 (describeCard, 닫힌 차례), 없으면 빈 목록 — 판매자가 안내를 닫을 때까지 쌓여 남는다 (U-I5-01) */
+  readonly flushedClosed: readonly string[]
   /** 문자찜 카드 (새 것이 앞) — 닫은 카드·닫은 결과 카드는 같은 말 검사를 위해 10초 동안 남고(hidden·CLOSED) 화면엔 보이지 않는다 */
   readonly sms: readonly SmsEntry[]
   /** 그 기기의 문자찜 설정 (음성 모듈을 받기 전엔 null) */
@@ -266,6 +285,7 @@ export const VOICE_IDLE: VoiceSnapshot = {
   phase: 'off',
   stateLabel: null,
   error: null,
+  unsupported: false,
   interim: null,
   heard: [],
   cards: [],
@@ -278,6 +298,7 @@ export const VOICE_IDLE: VoiceSnapshot = {
   historyFailed: false,
   tooSoon: false,
   now: 0,
+  flushedClosed: [],
   sms: [],
   smsSettings: null,
   smsSecondsText: '',
@@ -306,6 +327,8 @@ type HeldSentence = {
   readonly maxNumber: number
   /** 그 문장이 온 때의 문자찜 설정 (끈 채 말한 문자찜 문장은 카드를 만들지 않는다) */
   readonly smsSettings: SmsVoiceSettings | null
+  /** 인식이 끝날 때 넘긴 문장(최종 표시 없이 끝난 중간 결과, D-I5-02) — 그 카드는 자동 확정하지 않는다(문자찜 카드도 저절로 넣지 않는다) */
+  readonly flushedAtEnd: boolean
 }
 
 /** 카드를 만드는 동안의 목록 (한 번에 #set) */
@@ -377,6 +400,8 @@ export class VoiceController {
   #history: HistoryState = { state: 'idle', past: [] }
   /** 이력을 받는 동안 미룬 최종 문장 (온 차례) — 온 때의 설정·번호 범위를 함께 담는다 (TE-N3-004: 미룬 사이 자동 등록을 켜도 끈 채 말한 문장은 자동 등록하지 않는다) */
   #held: HeldSentence[] = []
+  /** #place가 닫은 끝에서 넘긴 카드의 글 — 다음 #set이 스냅샷에 싣는다 */
+  #lostFlushed: string[] = []
   #heldTimer: ReturnType<typeof setTimeout> | null = null
   /** 이 시각까지만 이력을 기다린다 (host.now 기준) */
   #historyDeadline = 0
@@ -410,7 +435,7 @@ export class VoiceController {
 
   async turnOn(): Promise<void> {
     if (this.#disposed || this.#snapshot.phase !== 'off') return
-    this.#set({ phase: 'loading', error: null })
+    this.#set({ phase: 'loading', error: null, unsupported: false })
     let module: VoiceModule
     try {
       module = await this.#host.load()
@@ -432,7 +457,7 @@ export class VoiceController {
     const engine = this.#ensureEngine(module)
     // 지원하지 않는 브라우저는 안내 창을 띄우기 전에 알린다 (AC-I4-12)
     if (!engine.isSupported()) {
-      this.#set({ phase: 'off', error: module.SPEECH_ERROR_MESSAGES.UNSUPPORTED })
+      this.#set({ phase: 'off', error: module.SPEECH_ERROR_MESSAGES.UNSUPPORTED, unsupported: true })
       return
     }
     if (!this.#host.readConsent()) {
@@ -488,7 +513,8 @@ export class VoiceController {
 
   #ensureEngine(module: VoiceModule): SpeechEngine {
     if (this.#engine !== null) return this.#engine
-    const engine = module.createWebSpeechEngine({ now: () => this.#host.now() })
+    // 홈 화면 앱은 저절로 끝난 것을 모두 센다 — 권한 창이 끝없이 뜨지 않게 1분에 6번째면 멈춘다 (D-I5-18, UA 아님)
+    const engine = module.createWebSpeechEngine({ now: () => this.#host.now(), countAllEnds: isHomeScreenApp() })
     engine.onResult((result) => this.#onResult(result))
     engine.onError((error) => this.#onError(error))
     engine.onState((state) => this.#onState(state))
@@ -500,7 +526,7 @@ export class VoiceController {
     const engine = this.#engine
     if (engine === null) return
     this.#releaseRestart()
-    this.#set({ phase: 'on', error: null, interim: null, stateLabel: this.#label('LISTENING') })
+    this.#set({ phase: 'on', error: null, unsupported: false, interim: null, stateLabel: this.#label('LISTENING') })
     engine.start()
     if (this.#phase() === 'on') this.#loadHistory()
     // 누른 버튼("음성 켜기")이 사라졌다 — 말하고 바로 Enter를 칠 수 있게 빠른 입력칸으로
@@ -558,7 +584,7 @@ export class VoiceController {
 
   #onError(error: SpeechError): void {
     if (this.#disposed || this.#snapshot.phase !== 'on') return
-    this.#set({ error: error.message })
+    this.#set({ error: error.message, unsupported: error.kind === 'UNSUPPORTED' })
   }
 
   #onResult(result: SpeechResult): void {
@@ -575,7 +601,13 @@ export class VoiceController {
       this.#set({ ...label, interim: null, heard })
       return
     }
-    const sentence: HeldSentence = { text: result.text, settings, maxNumber: this.#host.maxNumber(), smsSettings: this.#snapshot.smsSettings }
+    const sentence: HeldSentence = {
+      text: result.text,
+      settings,
+      maxNumber: this.#host.maxNumber(),
+      smsSettings: this.#snapshot.smsSettings,
+      flushedAtEnd: result.flushedAtEnd === true,
+    }
     if (this.#waitingHistory()) {
       this.#held.push(sentence)
       this.#armHeld()
@@ -613,10 +645,18 @@ export class VoiceController {
     })
     if (read.kind === 'none') return
     if (read.kind === 'sms') {
-      this.#addSms(work, module, text, read.reading, sentence.smsSettings)
+      this.#addSms(work, module, text, read.reading, sentence.smsSettings, sentence.flushedAtEnd)
       return
     }
-    const card = module.createCard({ id: `voice-${String(this.#nextCard++)}`, extraction: read.extraction, text, createdAt: this.#host.now(), settings })
+    const card = module.createCard({
+      id: `voice-${String(this.#nextCard++)}`,
+      extraction: read.extraction,
+      text,
+      createdAt: this.#host.now(),
+      settings,
+      // 끝에서 넘긴 문장 카드는 자동 확정하지 않는다 (D-I5-02, AC-I5-04) — 보통 결과에는 속성을 넘기지 않는다
+      ...(sentence.flushedAtEnd ? { flushedAtEnd: true } : {}),
+    })
     if (card !== null) this.#place(work, module, card)
   }
 
@@ -625,6 +665,12 @@ export class VoiceController {
     const merged: VoiceCard[] = [...work.cards, ...work.sms.map((item) => item.card)].sort((a, b) => b.createdAt - a.createdAt)
     const next = module.addVoiceCard(merged, card, reasonIds(work.sms))
     const byId = new Map(next.map((item) => [item.id, item]))
+    // 3장 규칙으로 닫힌 끝에서 넘긴 카드는 자동 등록도 안 되므로 조용히 사라지면 말한 상품을 잃는다 — 안내를 남긴다 (U-I5-01)
+    // 안내를 닫기 전에 여러 장이 차례로 밀려 닫혀도 앞의 것을 덮지 않고 모두 쌓는다
+    for (const lost of next) {
+      if (module.isSmsCard(lost) || lost.flushedAtEnd !== true || isOpen(lost)) continue
+      if (work.cards.some((old) => old.id === lost.id && isOpen(old))) this.#lostFlushed.push(module.describeCard(lost))
+    }
     work.cards = next.filter((item): item is SuggestionCard => !module.isSmsCard(item) && isOpen(item))
     const dropped: SmsDropped[] = []
     const rest = work.sms.map((item) => {
@@ -642,7 +688,7 @@ export class VoiceController {
   }
 
   /** 문자찜 문장 → 같은 말이면 앞 카드에 표시, 아니면 새 문자찜 카드 (D-V1-06·07) */
-  #addSms(work: CardWork, module: VoiceModule, text: string, reading: SmsReading, smsSettings: SmsVoiceSettings | null): void {
+  #addSms(work: CardWork, module: VoiceModule, text: string, reading: SmsReading, smsSettings: SmsVoiceSettings | null, flushedAtEnd: boolean): void {
     const now = this.#host.now()
     // 같은 말 검사: 넣었거나 넣을 수 있는 카드만 (넣지 않고 닫은 카드·이유 카드는 빼서 다시 말하면 새 카드, D-V1-17)
     const repeat = module.findSmsRepeat(
@@ -672,7 +718,24 @@ export class VoiceController {
       if (blocked !== null) reason = module.smsBlockMessage(blocked.no, blocked.block)
     }
     if (reason !== null) card = module.stopSmsAuto(card)
+    // 끝에서 넘긴(끝이 잘렸을 수 있는) 문자찜 문장은 저절로 넣지 않는다 — 판매자가 보고 넣는다 (D-I5-02와 같은 까닭, 합치기 AUTO)
+    if (flushedAtEnd) card = module.stopSmsAuto(card)
     this.#place(work, module, card, { card, reason, timeCheck, sending: false, error: null, results: [], hidden: false })
+  }
+
+  /** 밀려 닫힌 카드 안내를 모두 닫는다 */
+  dismissFlushedClosed(): void {
+    if (this.#snapshot.flushedClosed.length > 0) this.#set({ flushedClosed: [] })
+  }
+
+  /** "이 기기에서는 음성이 어려워요" 안내의 "닫기" (D-I5-15). 다른 오류는 그대로 둔다 */
+  dismissUnsupported(): void {
+    if (this.#snapshot.unsupported) this.#set({ error: null, unsupported: false })
+  }
+
+  /** 상품 등록이 성공했다 (빠른 입력) — 지원 안 함 안내대로 손 입력을 마쳤으니 그 안내를 내린다 (D-I5-15) */
+  noteRegistered(): void {
+    this.dismissUnsupported()
   }
 
   // ── 이력을 기다리며 미룬 문장 (HISTORY_WAIT_MS) ─────────────────────
@@ -1302,6 +1365,10 @@ export class VoiceController {
     if (this.#disposed) return
     const now = this.#host.now()
     let next: VoiceSnapshot = { ...this.#snapshot, ...patch, now }
+    if (this.#lostFlushed.length > 0) {
+      next = { ...next, flushedClosed: [...next.flushedClosed, ...this.#lostFlushed] }
+      this.#lostFlushed = []
+    }
     if (patch.cards !== undefined) {
       const front = nextFront(this.#snapshot.front, next.cards, now)
       // 사라진 카드의 칸·문장은 버린다

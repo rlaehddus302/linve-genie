@@ -1,5 +1,7 @@
-// E2E 설정 (AC-S05-91). `pnpm --filter @livejjim/web e2e` — tests/e2e/**/*.spec.ts를 크로미움으로 돈다.
+// E2E 설정 (AC-S05-91). `pnpm --filter @livejjim/web e2e` — tests/e2e/**/*.spec.ts를 크로미움으로 돈다(제목에 @webkit인 시험은 WebKit으로).
 // 브라우저가 없으면: pnpm exec playwright install chromium (이 저장소의 @playwright/test 1.62.1 = chromium-1234)
+// WebKit(아이폰 크기 묶음 webkit-iphone, I5 D-I5-08)도 설치해야 한다: pnpm exec playwright install webkit (= webkit-2336).
+//   설치하지 않으면 그 묶음은 브라우저를 열지 못해 **실패**한다 — 건너뛰지 않는다(아이폰 시험이 통과로 숨지 않게).
 //
 // 서버와 화면을 묶음(stack)마다 하나씩 띄운다. 화면은 운영용 빌드 + Vite 미리 보기, /api는 같은 출처로 E2E 서버에 넘긴다.
 //   | 프로젝트            | 화면  | 서버  | 가짜 유튜브 | 서버 옵션                                                         | 고르는 시험                |
@@ -14,8 +16,10 @@
 //   | chromium-multi      | 5180  | 3108  | 4102        | 가짜 유튜브 + --instagram yes(가짜 메타 4103) + --tiktok yes(가짜 웹캐스트) — N2b-2 동시 송출 | 제목에 @multi |
 //   | chromium-social     | 5181  | 3109  | —           | --social fake --social-port 4104(가짜 OAuth — 구글·카카오·네이버 셋 다 켬, L1)               | 제목에 @social |
 //   | chromium-social-one | 5182  | 3110  | —           | --social fake --social-port 4105 --social-providers google(구글 하나만 켬, L1 AC-L1-30)     | 제목에 @social-one |
+//   | webkit-iphone       | 5183  | 3111  | —           | 기본과 같음 — 브라우저만 WebKit·devices['iPhone 15'](393px 폭·터치), I5 AC-I5-20~24·90     | 제목에 @webkit     |
 //   | chromium-assist     | 5184  | 3112  | —           | --assist fake --assist-port 4106 --assist-daily 3 --assist-timeout-ms 2000(가짜 AI·작은 상한, A1) | 제목에 @assist |
-//   (5183·3111은 I5 트랙의 webkit-iphone 몫이라 비워 둔다 — 합칠 때 겹치지 않게)
+// - 아이폰 크기 묶음(I5): Playwright WebKit은 http://localhost에서 Secure 쿠키를 보내지 않는다 — 그 묶음의 화면 미리 보기 서버만 /api 응답 Set-Cookie의
+//   Secure를 떼어 넘긴다(serve.ts --drop-secure-cookie yes, 서버는 그대로). Playwright WebKit은 실제 아이폰 사파리가 아니다(음성 인식 자체는 HG-4). 사파리 흉내 가짜 인식은 시험(tests/e2e/i5)이 넣는다.
 // - AI 제안 묶음(A1 AC-A1-11·31): 가짜 LLM 서버가 127.0.0.1:<assist 포트>에 함께 뜬다(조작 GET /_fake/requests·POST /_fake/answers·/_fake/fail·/_fake/reset —
 //   A1 dev-notes "가짜 LLM 서버", fakeLlmUrl). 판매자 하루 상한 3, 호출 시간 제한 2초. 기본 묶음들은 키 없는 서버다(AI 제안 "지금은 쓸 수 없어요.", 외부 호출 0).
 // - 간편 로그인 묶음(L1 AC-L1-30): 가짜 OAuth 서버가 127.0.0.1:<social 포트>에 함께 뜬다(조작 POST /_fake/* — L1 dev-notes "시험에게", fakeOAuthUrl).
@@ -39,7 +43,10 @@
 //   브라우저 주소(baseURL)는 http://localhost:<포트>로 둔다 — 크로미움이 localhost를 127.0.0.1로 잇는다. 세션 쿠키가 Secure라
 //   Playwright의 page.request(시험이 API를 직접 부르는 길)는 http에서 localhost에만 그 쿠키를 보낸다(127.0.0.1이면 401).
 //   서버 --origin은 브라우저 주소와 똑같이 http://localhost:<화면 포트>.
-// - 서비스 워커(PWA)는 막지 않는다 — /api/는 가로채지 않으므로 page.route가 그대로 쓰인다(AC-S06-51).
+// - 서비스 워커(PWA)는 크로미움 묶음에선 막지 않는다 — /api/는 가로채지 않으므로 page.route가 그대로 쓰인다(AC-S06-51).
+//   **예외: WebKit(webkit-iphone)** — 서비스 워커가 페이지를 맡으면(navigator.serviceWorker.controller) 그 페이지의 요청이 page.route에 한 번도
+//   걸리지 않는다(I5 감사 TE-I5-001에서 재현: /api/days 1번 나감·route 0번, 'block'이면 1번). 그래서 그 묶음은 use에 serviceWorkers: 'block'을 둔다
+//   (blockServiceWorkers) — route로 응답을 붙잡거나 바꾸는 @webkit 시험이 조용히 효과 없이 통과하지 않게. 서비스 워커·오프셋 안내 시험은 크로미움 묶음에서 본다.
 import { fileURLToPath } from 'node:url'
 import { defineConfig, devices } from '@playwright/test'
 
@@ -70,6 +77,15 @@ export interface Stack {
   readonly instagram?: number
   /** 가짜 OAuth 서버 포트 (L1 — 간편 로그인 묶음만) */
   readonly social?: number
+  /** 브라우저·기기 (Playwright devices 이름). 없으면 위 use의 Desktop Chrome (I5 — 아이폰 크기 묶음만 'iPhone 15') */
+  readonly device?: keyof typeof devices
+  /**
+   * 화면 미리 보기 서버가 Set-Cookie의 Secure를 떼어 넘긴다 (I5 — WebKit은 http://localhost에서 Secure 쿠키를 보내지 않는다).
+   * 시험용 미리 보기 서버에서만이고 서버는 그대로 Secure를 붙인다.
+   */
+  readonly dropSecureCookie?: boolean
+  /** 서비스 워커를 막는다 (I5 TE-I5-001 — WebKit은 서비스 워커가 맡은 페이지의 요청을 page.route로 잡지 못한다) */
+  readonly blockServiceWorkers?: boolean
   /** 가짜 LLM 서버 포트 (A1 — AI 제안 묶음만) */
   readonly assist?: number
 }
@@ -91,7 +107,7 @@ export const STACKS: readonly Stack[] = [
     web: 5173 + offset,
     api: 3100 + offset,
     serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`,
-    grepInvert: /@prod-delay|@fill|@youtube|@quota|@served|@no-test-printer|@billing|@multi|@social|@assist/,
+    grepInvert: /@prod-delay|@fill|@youtube|@quota|@served|@no-test-printer|@billing|@multi|@social|@webkit|@assist/,
   },
   { name: 'chromium-prod-delay', web: 5174 + offset, api: 3101 + offset, serverArgs: `--chat-speed ${chatSpeed}`, grep: /@prod-delay/ },
   { name: 'chromium-fill', web: 5175 + offset, api: 3102 + offset, serverArgs: `--fill yes --host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`, grep: /@fill/ },
@@ -138,6 +154,17 @@ export const STACKS: readonly Stack[] = [
     social: 4105 + offset,
     serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed} ${socialArgs(4105 + offset, 'google')}`,
     grep: /@social-one/,
+  },
+  {
+    // 아이폰 크기 WebKit (I5 D-I5-08, AC-I5-90) — WebKit이 설치되지 않았으면 실패한다
+    name: 'webkit-iphone',
+    web: 5183 + offset,
+    api: 3111 + offset,
+    serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`,
+    grep: /@webkit/,
+    device: 'iPhone 15',
+    dropSecureCookie: true,
+    blockServiceWorkers: true,
   },
   {
     name: 'chromium-assist',
@@ -199,7 +226,11 @@ export default defineConfig({
   },
   projects: STACKS.map((stack) => ({
     name: stack.name,
-    use: { baseURL: browserOrigin(stack.web) },
+    use: {
+      ...(stack.device === undefined ? {} : devices[stack.device]),
+      baseURL: browserOrigin(stack.web),
+      ...(stack.blockServiceWorkers === true ? { serviceWorkers: 'block' as const } : {}),
+    },
     ...(stack.grep === undefined ? {} : { grep: stack.grep }),
     ...(stack.grepInvert === undefined ? {} : { grepInvert: stack.grepInvert }),
   })),
@@ -224,7 +255,7 @@ export default defineConfig({
             stdout: 'pipe' as const,
           },
           {
-            command: `node e2e/serve.ts --port ${String(stack.web)} --api ${listen(stack.api)}`,
+            command: `node e2e/serve.ts --port ${String(stack.web)} --api ${listen(stack.api)}${stack.dropSecureCookie === true ? ' --drop-secure-cookie yes' : ''}`,
             url: listen(stack.web),
             reuseExistingServer: reuse,
             timeout: 120_000,

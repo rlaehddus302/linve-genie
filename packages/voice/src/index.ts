@@ -121,6 +121,7 @@ export {
   type SuggestionCard,
 } from './card.ts'
 export {
+  FAST_END_MS,
   MAX_AUTO_ENDS,
   RESTART_WINDOW_MS,
   SPEECH_ERROR_MESSAGES,

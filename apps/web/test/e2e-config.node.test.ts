@@ -104,6 +104,54 @@ describe('E2E 기동 (코드 검사)', () => {
     expect(new Set(ports).size).toBe(ports.length)
   })
 
+  const source0 = () => readFileSync(new URL('../playwright.config.ts', import.meta.url), 'utf8').split('import ')[0] ?? ''
+
+  it('SA-I5-01: 브라우저가 없을 때 안내에 WebKit 설치 명령이 함께 있다', async () => {
+    const setup = await import('../e2e/global-setup.ts')
+    expect(setup.CHROMIUM_MISSING).toContain('pnpm exec playwright install chromium')
+    expect(setup.CHROMIUM_MISSING).toContain('pnpm exec playwright install webkit')
+    expect(setup.WEBKIT_MISSING).toContain('pnpm exec playwright install webkit')
+  })
+
+  it('I5 아이폰 크기 묶음(AC-I5-90, D-I5-08): webkit-iphone은 WebKit·iPhone 15·5183/3111(+오프셋)·@webkit만, 기본 묶음은 @webkit을 빼고 건너뛰기가 없다', () => {
+    const offset = Number(process.env['E2E_PORT_OFFSET'] ?? '0')
+    const stack = STACKS.find((item) => item.name === 'webkit-iphone')
+    expect(stack).toMatchObject({ web: 5183 + offset, api: 3111 + offset, device: 'iPhone 15', dropSecureCookie: true })
+    expect(stack?.grep?.test('시험 @webkit')).toBe(true)
+    expect(stack?.grep?.test('시험')).toBe(false)
+    const project = config.projects?.find((item) => item.name === 'webkit-iphone')
+    expect(project?.use?.defaultBrowserType).toBe('webkit')
+    expect(project?.use?.viewport).toEqual({ width: 393, height: 659 })
+    expect(project?.use?.hasTouch).toBe(true)
+    expect(project?.use?.baseURL).toBe(`http://localhost:${String(5183 + offset)}`)
+    // TE-I5-001: WebKit은 서비스 워커가 맡은 페이지의 요청을 page.route로 잡지 못한다 — 이 묶음만 서비스 워커를 막는다
+    expect(project?.use?.serviceWorkers).toBe('block')
+    for (const other of config.projects ?? []) if (other.name !== 'webkit-iphone') expect(other.use?.serviceWorkers).toBeUndefined()
+    expect(source0()).toContain("serviceWorkers: 'block'")
+    const base = STACKS.find((item) => item.name === 'chromium')
+    expect(base?.grepInvert?.test('시험 @webkit')).toBe(true)
+    // 다른 묶음은 크로미움 그대로 (기기를 덮지 않는다)
+    for (const other of config.projects ?? []) if (other.name !== 'webkit-iphone') expect(other.use?.defaultBrowserType).toBeUndefined()
+    // Secure 떼기는 이 묶음의 화면 미리 보기 서버만
+    const servers = Array.isArray(config.webServer) ? config.webServer : []
+    const dropping = servers.filter((item) => item.command?.includes('--drop-secure-cookie yes'))
+    expect(dropping.map((item) => item.command)).toEqual([`node e2e/serve.ts --port ${String(5183 + offset)} --api http://127.0.0.1:${String(3111 + offset)} --drop-secure-cookie yes`])
+    // 설치 방법이 머리 주석에, 건너뛰기 없음
+    const source = readFileSync(new URL('../playwright.config.ts', import.meta.url), 'utf8')
+    expect(source.split('import ')[0]).toContain('pnpm exec playwright install webkit')
+    expect(source).not.toMatch(/\.skip|testIgnore|test\.fixme/)
+    const ports = STACKS.flatMap((item) => [item.web, item.api, item.youtube, item.instagram, item.social, item.assist].filter((port): port is number => port !== undefined).filter((port, index, list) => list.indexOf(port) === index))
+    expect(new Set(ports).size).toBe(ports.length)
+  })
+
+  it('시험용 미리 보기 서버의 Secure 떼기는 Secure 속성만 뗀다', async () => {
+    const { dropSecure } = await import('../e2e/cookie.ts')
+    expect(dropSecure('lj_session=abc; Path=/; HttpOnly; Secure; SameSite=Lax')).toBe('lj_session=abc; Path=/; HttpOnly; SameSite=Lax')
+    expect(dropSecure('a=Secure; secure')).toBe('a=Secure')
+    expect(dropSecure('a=b; Path=/')).toBe('a=b; Path=/')
+    expect(serve).toMatch(/--drop-secure-cookie/)
+  })
+
   it('A1 AI 제안 묶음(AC-A1-11·31): 가짜 LLM(정한 포트)·작은 상한·짧은 시간 제한과 함께 @assist만, 기본 묶음은 키 없는 서버', () => {
     const servers = Array.isArray(config.webServer) ? config.webServer : []
     const command = (name: string) => {
