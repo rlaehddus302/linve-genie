@@ -1383,6 +1383,11 @@ html:has(.sms-submit-bar) {
   min-width: 0;
 }
 
+/* 밀려 닫힌 카드가 여러 장이면 한 장씩 한 줄로 (U-I5-01) */
+.voice-lost > p:not(:only-of-type) {
+  flex-basis: 100%;
+}
+
 .voice-card-auto {
   font-weight: 700;
   color: #0b4fb3;

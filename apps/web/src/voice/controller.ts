@@ -83,8 +83,8 @@ export interface VoiceSnapshot {
   readonly tooSoon: boolean
   /** 화면 시각 (남은 초·"Enter 등록" 표시) */
   readonly now: number
-  /** 새 카드에 밀려 닫힌 끝에서 넘긴 카드의 글 (describeCard), 없으면 null — 판매자가 안내를 닫을 때까지 남는다 (U-I5-01) */
-  readonly flushedClosed: string | null
+  /** 새 카드에 밀려 닫힌 끝에서 넘긴 카드들의 글 (describeCard, 닫힌 차례), 없으면 빈 목록 — 판매자가 안내를 닫을 때까지 쌓여 남는다 (U-I5-01) */
+  readonly flushedClosed: readonly string[]
 }
 
 /** 지난 실제 범위 하나의 상품 이름 */
@@ -134,7 +134,7 @@ export const VOICE_IDLE: VoiceSnapshot = {
   historyFailed: false,
   tooSoon: false,
   now: 0,
-  flushedClosed: null,
+  flushedClosed: [],
 }
 
 /** 창이 열려 미룬 자동 확정을 다시 보는 간격 */
@@ -186,7 +186,7 @@ export class VoiceController {
   /** 이력을 받는 동안 미룬 최종 문장 (온 차례) — 온 때의 설정·번호 범위를 함께 담는다 (TE-N3-004: 미룬 사이 자동 등록을 켜도 끈 채 말한 문장은 자동 등록하지 않는다) */
   #held: HeldSentence[] = []
   /** #cardsWith가 닫은 끝에서 넘긴 카드의 글 — 다음 #set이 스냅샷에 싣는다 */
-  #lostFlushed: string | null = null
+  #lostFlushed: string[] = []
   #heldTimer: ReturnType<typeof setTimeout> | null = null
   /** 이 시각까지만 이력을 기다린다 (host.now 기준) */
   #historyDeadline = 0
@@ -404,14 +404,16 @@ export class VoiceController {
     if (card === null) return cards
     const next = module.addCard(cards, card)
     // 3장 규칙으로 닫힌 끝에서 넘긴 카드는 자동 등록도 안 되므로 조용히 사라지면 말한 상품을 잃는다 — 안내를 남긴다 (U-I5-01)
-    const lost = next.find((item) => item.flushedAtEnd === true && !isOpen(item) && cards.some((old) => old.id === item.id && isOpen(old)))
-    if (lost !== undefined) this.#lostFlushed = module.describeCard(lost)
+    // 안내를 닫기 전에 여러 장이 차례로 밀려 닫혀도 앞의 것을 덮지 않고 모두 쌓는다
+    for (const lost of next.filter((item) => item.flushedAtEnd === true && !isOpen(item) && cards.some((old) => old.id === item.id && isOpen(old)))) {
+      this.#lostFlushed.push(module.describeCard(lost))
+    }
     return next.filter(isOpen)
   }
 
-  /** 밀려 닫힌 카드 안내를 닫는다 */
+  /** 밀려 닫힌 카드 안내를 모두 닫는다 */
   dismissFlushedClosed(): void {
-    if (this.#snapshot.flushedClosed !== null) this.#set({ flushedClosed: null })
+    if (this.#snapshot.flushedClosed.length > 0) this.#set({ flushedClosed: [] })
   }
 
   // ── 이력을 기다리며 미룬 문장 (HISTORY_WAIT_MS) ─────────────────────
@@ -744,9 +746,9 @@ export class VoiceController {
     if (this.#disposed) return
     const now = this.#host.now()
     let next: VoiceSnapshot = { ...this.#snapshot, ...patch, now }
-    if (this.#lostFlushed !== null) {
-      next = { ...next, flushedClosed: this.#lostFlushed }
-      this.#lostFlushed = null
+    if (this.#lostFlushed.length > 0) {
+      next = { ...next, flushedClosed: [...next.flushedClosed, ...this.#lostFlushed] }
+      this.#lostFlushed = []
     }
     if (patch.cards !== undefined) {
       const front = nextFront(this.#snapshot.front, next.cards, now)

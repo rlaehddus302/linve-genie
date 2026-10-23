@@ -60,7 +60,7 @@ export function VoiceConsentDialog({ voice }: { readonly voice: VoiceController 
 
 /** 음성 칸을 보일까 (켜졌거나, 남은 카드·오류가 있을 때) */
 export function voiceLiveShown(snapshot: VoiceSnapshot): boolean {
-  return snapshot.phase === 'on' || snapshot.cards.length > 0 || snapshot.error !== null || snapshot.tooSoon || snapshot.flushedClosed !== null
+  return snapshot.phase === 'on' || snapshot.cards.length > 0 || snapshot.error !== null || snapshot.tooSoon || snapshot.flushedClosed.length > 0
 }
 
 /** 휴대폰 아래 메뉴 막대·고정 영역에 가리지 않게 둘 여백(px) */
@@ -143,9 +143,11 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
           {TOO_SOON}
         </p>
       ) : null}
-      {snapshot.flushedClosed !== null ? (
+      {snapshot.flushedClosed.length > 0 ? (
         <div className="voice-lost" role="alert">
-          <p>{flushedClosedNotice(cardShortText(snapshot.flushedClosed))}</p>
+          {snapshot.flushedClosed.map((text, index) => (
+            <p key={`${String(index)}-${text}`}>{flushedClosedNotice(cardShortText(text))}</p>
+          ))}
           <button type="button" className="button" onClick={() => voice.dismissFlushedClosed()}>
             알겠어요
           </button>

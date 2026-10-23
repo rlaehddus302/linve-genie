@@ -115,9 +115,28 @@ describe('끝에서 넘긴 카드 (U-I5-01, D-I5-02)', () => {
 
   it('밀려 닫힌 넘긴 카드의 안내: 알림으로 보이고 "알겠어요"로 닫는다', () => {
     const dismiss = vi.fn()
-    render(<VoiceLive voice={fakeVoice(dismiss)} snapshot={{ ...VOICE_IDLE, phase: 'on', stateLabel: '음성: 듣는 중', flushedClosed: '15번 핑크프릴 15,000원 — 등록할까요?' }} badge={null} onSubmitForm={() => {}} onRegister={() => {}} />)
+    render(<VoiceLive voice={fakeVoice(dismiss)} snapshot={{ ...VOICE_IDLE, phase: 'on', stateLabel: '음성: 듣는 중', flushedClosed: ['15번 핑크프릴 15,000원 — 등록할까요?'] }} badge={null} onSubmitForm={() => {}} onRegister={() => {}} />)
     expect(flushedClosedNotice('15번 핑크프릴 15,000원')).toBe('새 카드에 밀려 끝까지 못 들은 카드(15번 핑크프릴 15,000원)를 닫았어요. 맞는 상품이면 빠른 입력으로 등록해 주세요.')
     expect(screen.getByRole('alert').textContent).toContain(flushedClosedNotice('15번 핑크프릴 15,000원'))
+    fireEvent.click(screen.getByRole('button', { name: '알겠어요' }))
+    expect(dismiss).toHaveBeenCalledTimes(1)
+  })
+
+  it('밀려 닫힌 넘긴 카드가 두 장이면 두 안내가 모두 보이고, "알겠어요" 하나로 모두 닫는다', () => {
+    const dismiss = vi.fn()
+    render(
+      <VoiceLive
+        voice={fakeVoice(dismiss)}
+        snapshot={{ ...VOICE_IDLE, phase: 'on', stateLabel: '음성: 듣는 중', flushedClosed: ['15번 핑크프릴 15,000원 — 등록할까요?', '16번 라울 20,000원 — 등록할까요?'] }}
+        badge={null}
+        onSubmitForm={() => {}}
+        onRegister={() => {}}
+      />,
+    )
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toContain(flushedClosedNotice('15번 핑크프릴 15,000원'))
+    expect(alert.textContent).toContain(flushedClosedNotice('16번 라울 20,000원'))
+    expect(screen.getAllByRole('button', { name: '알겠어요' })).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: '알겠어요' }))
     expect(dismiss).toHaveBeenCalledTimes(1)
   })
