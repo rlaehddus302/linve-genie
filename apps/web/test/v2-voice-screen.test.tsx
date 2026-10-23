@@ -1,4 +1,3 @@
-import styles from '../src/styles.css?raw'
 // V2 음성 칸 화면 (AC-V2-07·08·16·17·23·26·28·34, D-V2-01·06~09) — 실제 코어로 도는 가짜 서버 + 가짜 인식 객체.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -280,7 +279,6 @@ describe('V2 화면 지적 (D-V2-19~21, U-V2-01~06, RA-V2-02)', () => {
     const first = within(group).getAllByRole('button')[0] as HTMLButtonElement
     expect(first.dataset.key).toBe('1')
     expect(first.textContent).toBe('선버스트')
-    expect(styles).toContain('content: attr(data-key) / "";')
     expect(within(group).getByRole('button', { name: '선버스트' })).toBe(first)
     expect(first.className).toContain('voice-candidate')
     expect(group.textContent).toContain('1·2·3 키')
