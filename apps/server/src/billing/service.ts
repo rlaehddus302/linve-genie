@@ -1196,7 +1196,7 @@ export async function operatorGrant(db: Db, sellerId: string, input: { kind: Pas
 /** 사업자 정보 저장의 `TAX_INVOICE` 거절 문장 (BL-8 6, D-PL1-07) */
 export const BUSINESS_TAX_INVOICE_MESSAGE = '세금계산서는 지금은 발급할 수 없어요. 현금영수증(지출증빙)으로 발행해요.'
 /** 사업자 정보 저장의 모르는 증빙 종류 문장 (N5 그대로 — AC-PL1B-01 (d)) */
-export const BUSINESS_RECEIPT_KIND_MESSAGE = '계좌이체 증빙은 세금계산서나 현금영수증 중에서 골라 주세요.'
+export const BUSINESS_RECEIPT_KIND_MESSAGE = '계좌이체 증빙은 현금영수증(지출증빙)만 발행해요.'
 
 /** 사업자 정보 검사 (BL-8 1·6, G-BIL bizno) */
 export function checkBusiness(body: Record<string, unknown>):

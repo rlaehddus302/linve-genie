@@ -10,7 +10,7 @@ import { billingWorld, BIZNO, buy, confirm, fake, query, saveBusiness, status, t
 import { addSeller, client, FAST_COST, login, rid, type Seller } from './support.ts'
 
 const TAX_INVOICE_MESSAGE = '세금계산서는 지금은 발급할 수 없어요. 현금영수증(지출증빙)으로 발행해요.'
-const RECEIPT_KIND_MESSAGE = '계좌이체 증빙은 세금계산서나 현금영수증 중에서 골라 주세요.'
+const RECEIPT_KIND_MESSAGE = '계좌이체 증빙은 현금영수증(지출증빙)만 발행해요.'
 const REFUND_BUSY = '환불을 처리하는 중이에요. 잠시 뒤 결제 내역을 확인해 주세요.'
 
 const businessRow = async (world: BillingWorld, sellerId: string) =>
@@ -57,7 +57,7 @@ describe('AC-PL1B-01 사업자 정보의 증빙 종류 (BL-8 1·6, D-PL1-07)', (
     expect((await status(world, fresh)).business).toBeNull()
   })
 
-  it("(d) 'cash_receipt'·1·null → 422 · 기존 문장 '계좌이체 증빙은 …' · 저장 없음", async () => {
+  it("(d) 'cash_receipt'·1·null → 422 · 문장 '계좌이체 증빙은 현금영수증(지출증빙)만 발행해요.'(D-PL1-18) · 저장 없음", async () => {
     const world = await billingWorld()
     const seller = await addSeller(world)
     for (const value of ['cash_receipt', 1, null]) {
