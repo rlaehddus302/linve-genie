@@ -1,22 +1,16 @@
 // STB 회귀 — 날짜 칸 (L-5 기본 템플릿 보장값 "어느 날짜든 20점 이상", L-11 13 저장 전 최악 날짜 2004-04-04·저장된 설정 경고, D-STB-01)
 // 옛 기본 50×30 상품 템플릿(날짜 칸 x 292·폭 88)은 '04.04.04'·'00.04.04'처럼 넓은 숫자가 많은 날짜를 20점으로도 담지 못해
-// 방송 중 1등 라벨이 "라벨을 만들지 못해" 멈췄다. 넓은 날짜는 uniqueDate 범위(2005~) 밖이라 다른 시험과 겹치지 않는다.
-import { mkdirSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+// 방송 중 1등 라벨이 "라벨을 만들지 못해" 멈췄다. 넓은 날짜(2004-04-04·2000-04-04)는 공용 판매자의 가장 오래된 날짜 가정
+// (AC-S05-02의 2004-01-01)을 깨므로, 이 파일의 시험은 모두 자기 전용 새 판매자로 돈다(라벨 설정도 공용 계정을 건드리지 않는다).
 import { defaultTemplate, doesNotFitMessage, renderProductLabel } from '@livejjim/label'
 import { createNodeRenderEnv } from '@livejjim/label/node'
 import { expect, test, type Page } from '@playwright/test'
-import { becomeDevice, cleanupPrint, gotoLabels, login, printed, printOverview, realBroadcast, region, registerApi, scopeLabels, smsApi, waitPrinted } from './support.ts'
+import { loginNewSeller } from '../i3/support.ts'
+import { becomeDevice, cleanupPrint, gotoLabels, printed, printOverview, realBroadcast, region, registerApi, scopeLabels, smsApi, waitPrinted } from './support.ts'
 
 test.afterEach(async ({ page }) => {
   await cleanupPrint(page)
 })
-
-/** uniqueDate와 같은 곳에 고정 날짜를 차지해 둔다(뒤에 uniqueDate가 이 날짜를 고르지 않게) */
-function claimFixedDate(date: string): void {
-  mkdirSync(join(tmpdir(), 'livejjim-e2e-dates', String(process.ppid), date), { recursive: true })
-}
 
 interface Stored { template: Record<string, unknown> & { items: Record<string, Record<string, unknown>> }; version: number }
 async function productTemplate(page: Page): Promise<Stored> {
@@ -35,7 +29,6 @@ const WARNING = '저장된 라벨 설정 경고'
 
 for (const date of ['2004-04-04', '2000-04-04']) {
   test(`D-STB-01·L-5: 방송 날짜 ${date} — 기본 50×30 상품 템플릿으로 1등 라벨이 멈춤 없이 한 장 나온다`, async ({ page }) => {
-    claimFixedDate(date)
     // 이 날짜가 정말 옛 날짜 칸(x 292·폭 88)을 넘는 날인지 먼저 확인 — 시험이 버그를 겨누는지
     const env = createNodeRenderEnv()
     const base = defaultTemplate('product', '50x30')
@@ -45,7 +38,7 @@ for (const date of ['2004-04-04', '2000-04-04']) {
     expect(oldResult.ok ? null : oldResult.error.code).toBe('DOES_NOT_FIT')
     expect(oldResult.ok ? null : oldResult.error.item).toBe('date')
 
-    await login(page)
+    await loginNewSeller(page)
     const before = await productTemplate(page)
     // 기본 50×30(가게 이름만 그대로)으로 — 앞 시험이 바꿔 두었어도
     await putProduct(page, { ...base, shopName: before.template['shopName'] }, before.version)
@@ -76,7 +69,7 @@ for (const date of ['2004-04-04', '2000-04-04']) {
 }
 
 test('L-11 13·D-STB-01: 날짜 칸을 폭 86점으로 좁혀 저장된 설정 — 라벨 설정을 열면 같은 문장으로 경고, 그대로 저장은 막히고, 기본으로 되돌려 저장하면 경고가 사라진다', async ({ page }) => {
-  await login(page)
+  await loginNewSeller(page)
   const before = await productTemplate(page)
   const base = defaultTemplate('product', '50x30')
   try {
