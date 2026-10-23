@@ -1,7 +1,7 @@
 # PL1B 수용 기준 — 화면·증빙·시험 다듬기 (마무리 다듬기)
 
 - 스프린트: PL1B (6단계, 마무리 다듬기 — **새 기능 없음**) · spec ID: **BIL-01**, **BIL-02**(BILLING_RULES BL-7·BL-8·BL-10), **STL-08**·**LBL-02**(포장 모드 B1 출력), **UX-02**(시작 마법사), **RCP-01**(라벨 끄기 L-13), **VOC-03**·**VOC-04**(음성 카드) · 규칙: DOMAIN_RULES 변경 없음, BILLING_RULES v0.1.1
-- 근거 결정: **D-PL1-05~D-PL1-10**(AUTO), D-I2-07, D-N4a-05·D-N4a-07, D-I5-20, D-N5-10·D-N5-11, RA-N5-01, D-I4-05·D-I4-06, D-036
+- 근거 결정: **D-PL1-05~D-PL1-10**·감사 뒤 **D-PL1-16~D-PL1-19**(AUTO), D-I2-07, D-N4a-05·D-N4a-07, D-I5-20, D-N5-10·D-N5-11, RA-N5-01, D-I4-05·D-I4-06, D-036
 - 개발 영역: **server**(`apps/server/src/billing/**`, `apps/server/src/accounts.ts`, `docs/OWNER-GUIDE.md`) → **web**(`apps/web/**`) · 테스트: **domain**(`tests/adversarial/pl1b/**`), **e2e**(`tests/e2e/pl1b/**`와 아래 적은 기존 파일) · **사용성 검토 있음**(uxReview)
 - 같은 BASE에서 **PL1A가 다른 작업 폴더에서 동시에** 개발된다. 아래 "파일 경계"를 지킨다.
 
@@ -72,7 +72,7 @@
 **AC-PL1B-01** [server] · BIL-01 · BL-8 1·6 · D-PL1-07 — 사업자 정보의 증빙 종류
 - Given 로그인한 판매자, 요금 기능 켜짐
 - When 사업자 정보 저장(지금 경로·본문)을 (a) `receiptKind` 없이 (b) `receiptKind: 'CASH_RECEIPT'` (c) `receiptKind: 'TAX_INVOICE'` (d) `receiptKind: 'cash_receipt'`·`1`·`null`로 보낸다
-- Then (a)·(b) 저장되고 응답·조회의 `receiptKind` = `CASH_RECEIPT`. (c) 422, 칸 `receiptKind`, 문장 "세금계산서는 지금은 발급할 수 없어요. 현금영수증(지출증빙)으로 발행해요." — 아무것도 저장하지 않는다(이미 있던 사업자 정보 그대로). (d) 지금처럼 422(기존 문장 "계좌이체 증빙은 …")이고 저장 없음 — dev-notes에 (c)와 (d)의 문장을 적는다
+- Then (a)·(b) 저장되고 응답·조회의 `receiptKind` = `CASH_RECEIPT`. (c) 422, 칸 `receiptKind`, 문장 "세금계산서는 지금은 발급할 수 없어요. 현금영수증(지출증빙)으로 발행해요." — 아무것도 저장하지 않는다(이미 있던 사업자 정보 그대로). (d) 422, 칸 `receiptKind`, 문장 "계좌이체 증빙은 현금영수증(지출증빙)만 발행해요."(D-PL1-18 — N5 문장 "계좌이체 증빙은 세금계산서나 현금영수증 중에서 골라 주세요."는 BL-8 6과 어긋나 바꿈, TD-PL1B-002·SA-PL1B-02)이고 저장 없음 — dev-notes에 (c)와 (d)의 문장을 적는다. 다른 칸만 틀리면 400 그대로(D-PL1-16)
 - 확인: 서버 시험
 
 **AC-PL1B-02** [server] · BL-8 3·6 · D-PL1-07 — 옛 저장값과 증빙 요청
@@ -221,7 +221,7 @@
 ### 시험 (domain · 금지 경로)
 
 **AC-PL1B-91** [domain] · BL-8·L-13 · D-PL1-07·D-PL1-05 — 적대 시험
-- (a) 사업자 정보 저장에 `receiptKind`를 `' TAX_INVOICE'`·`'TAX_INVOICE\u0000'`·`'Tax_Invoice'`·배열·객체·아주 긴 글로 보내면 모두 422이고 저장 없음, 저장된 종류는 늘 `CASH_RECEIPT` (b) 라벨 기능을 끈 판매자의 `POST /api/print/packing`은 지금처럼 `LABELS_OFF`, 리허설은 `PRINT_REHEARSAL`, 다른 판매자의 구매자 ID는 404 — 작업이 생기지 않는다 (c) 같은 `requestId`로 두 번 보낸 포장 라벨 출력은 작업이 한 번만 생긴다(지금 서버 규칙 — 화면이 같은 ID를 다시 보내는 경우)
+- (a) 사업자 정보 저장에 `receiptKind`를 `' TAX_INVOICE'`·`'TAX_INVOICE\u0000'`·`'Tax_Invoice'`·배열·객체·본문 한도(64KB) 안의 긴 글로 보내면 모두 422이고 저장 없음, 본문이 64KB를 넘는 긴 글은 413 `PAYLOAD_TOO_LARGE`·저장 없음(D-PL1-19, TD-PL1B-003), 저장된 종류는 늘 `CASH_RECEIPT` (b) 라벨 기능을 끈 판매자의 `POST /api/print/packing`은 지금처럼 `LABELS_OFF`, 리허설은 `PRINT_REHEARSAL`, 다른 판매자의 구매자 ID는 404 — 작업이 생기지 않는다 (c) 같은 `requestId`로 두 번 보낸 포장 라벨 출력은 작업이 한 번만 생긴다(지금 서버 규칙 — 화면이 같은 ID를 다시 보내는 경우)
 - 확인: 적대 시험(`tests/adversarial/pl1b/**`)
 
 **AC-PL1B-92** · 금지 경로 — 유튜브 파일을 고치지 않았다
@@ -233,6 +233,15 @@
 - 포장 모드(375px, 한 손): "포장 라벨 출력"이 주 버튼(포장 완료)과 헷갈리지 않는지, 출력 접수 문장이 체크리스트를 가리지 않는지.
 - 사업자 정보: 고르는 칸이 사라진 뒤 "세금계산서는 지금은 발급할 수 없어요" 문장이 쉬운지.
 - 마법사 4/5: "라벨을 쓰지 않아요"가 "나중에 할게요"와 헷갈리지 않는지(앞은 라벨을 끄고, 뒤는 마법사를 닫는다).
+
+## 감사 뒤 정리 (spec-keeper, 2026-10-24)
+
+- D-PL1-16: 증빙 종류 칸 문제는 422, 다른 칸만 틀리면 400(AC-PL1B-01). 켬/끔을 모르는 동안 포장 라벨 칸은 출력 버튼만 없다.
+- D-PL1-17: 사용성 덧붙임(출력 기기 없음 안내·"라벨 화면으로" 링크, `PRINT_IN_PROGRESS` 안내 상자, 결과 문장 위치, 4/5 덧붙임 한 줄·5/5 "라벨 기능을 껐어요. 설정에서 다시 켤 수 있어요.", 라벨 꺼짐 안내의 "설정" 링크 `/settings/labels`)은 받아들인다 — 따옴표 문장은 그대로.
+- **AC-PL1B-28** [server]·[domain] · BL-8 6 · D-PL1-18 — 그 밖의 틀린 증빙 종류 문장
+  - Given 로그인한 판매자 · When 사업자 정보 저장에 `receiptKind`를 `'cash_receipt'`·`1`·`null`·`'BOTH'`·배열·객체·64KB 안의 긴 글로 보낸다
+  - Then 422 `INVALID_INPUT`, `problems`에 `{ field: 'receiptKind', message: '계좌이체 증빙은 현금영수증(지출증빙)만 발행해요.' }`, 저장 없음. "세금계산서나 현금영수증 중에서 골라 주세요."는 서버 응답 어디에도 없다
+  - 확인: 서버 시험(`apps/server/test/pl1b-billing.test.ts`·`billing-ops.test.ts`), 적대 시험(`tests/adversarial/pl1b/receipt-kind.test.ts`)
 
 ## 이번 스프린트에서 하지 않는 것 (범위 밖)
 

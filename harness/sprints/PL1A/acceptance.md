@@ -1,7 +1,7 @@
 # PL1A 수용 기준 — 30일 봉인 날짜의 백업·문서 (마무리 다듬기, 서버 중심)
 
 - 스프린트: PL1A (6단계, 마무리 다듬기 — **새 기능 없음**) · spec ID: **DAT-03**, **DAT-04**, **DAT-06**, **STL-04**, **STL-06**, **STL-08**, **STL-10**, **BUY-05**, **SYS-05** · 규칙: DOMAIN_RULES 변경 없음
-- 근거 결정: **D-I2-22**(봉인 날짜 백업·문서 — 이미 결정), **D-O3-12**(장부 판 `/2`), **D-PL1-01~D-PL1-04**, **D-PL1-10**(AUTO), D-Y11, D-I2-11, D-O3-15, D-036
+- 근거 결정: **D-I2-22**(봉인 날짜 백업·문서 — 이미 결정), **D-O3-12**(장부 판 `/2`), **D-PL1-01~D-PL1-04**, **D-PL1-10**, 감사 뒤 **D-PL1-11~D-PL1-15**(AUTO), D-Y11, D-I2-11, D-O3-15, D-036
 - 이어받는 수용 기준: I2의 **AC-I2-66**(백업)·**AC-I2-67**(문서) — 이 문서가 그 둘을 구현 가능한 세부로 대신한다(`harness/sprints/I2/acceptance.md:425`). AC-I2-67의 "장부 형식에 찜 시각" 문장은 D-PL1-03으로 이번에 하지 않는다.
 - 개발 영역: **server**(`apps/server/**`, `docs/DEPLOY.md`) → **web**(`apps/web/**`) · 테스트: **domain**(`tests/adversarial/pl1a/**`), **e2e**(`tests/e2e/pl1a/**`)
 - 같은 BASE에서 **PL1B가 다른 작업 폴더에서 동시에** 개발된다. 아래 "파일 경계"를 지킨다.
@@ -69,7 +69,7 @@
 **AC-PL1A-01** [server] · DAT-03·DAT-04·DAT-06 · D-PL1-01 — 백업 파일에 봉인 범위를 담는다
 - Given 공통 전제의 날짜 A(봉인됨)·B(봉인 전)·리허설 범위
 - When 자동 백업(`BackupScheduler.createNow`)과 전체 기록 내려받기(`GET /api/export/records.json.gz`)를 만든다
-- Then 두 파일 모두 `format` = `livejjim-seller-backup`, `version` = **3**. A 범위의 `sealed` = `{ sealedAt, ledger, ledgerDigest }` — `sealedAt`은 범위 행의 봉인 시각(UTC ISO), `ledger`는 범위 행에 저장된 장부 글과 **바이트가 같고**, `ledgerDigest`는 저장된 장부 요약값과 같다. A의 이벤트는 저장된 그대로(seq 1부터, 이벤트마다 요약값) — 채팅 본문·유튜브 닉네임·채팅 원문 칸이 파일 어디에도 없다(A의 유튜브 채팅 글 "15"·닉네임으로 파일 전체를 찾아 0개). B와 리허설 범위의 `sealed`는 `null`이고 그 밖의 칸은 형식 2와 같다. 파일 요약값(`digest`)은 `sealed` 칸까지 덮는다(A의 `sealed.sealedAt` 한 글자를 바꾸고 다른 곳을 그대로 두면 파일 요약값이 맞지 않는다)
+- Then 두 파일 모두 `format` = `livejjim-seller-backup`, `version` = **3**. A 범위의 `sealed` = `{ sealedAt, ledger, ledgerDigest }` — `sealedAt`은 범위 행의 봉인 시각(UTC ISO), `ledger`는 범위 행에 저장된 장부 글과 **바이트가 같고**, `ledgerDigest`는 저장된 장부 요약값과 같다. A의 이벤트는 저장된 그대로(seq 1부터, 이벤트마다 요약값) — 채팅 본문·채팅 원문 칸과 **산 적도 정산 기록도 없는 시청자(채팅만 한 사람)의** 유튜브 닉네임이 파일 어디에도 없다(A의 유튜브 채팅 글 "15"·그 시청자 닉네임으로 파일 전체를 찾아 0개, A 이벤트 본문에 채팅 글·닉네임 칸 없음). 산 사람·정산 기록이 있는 사람의 표시 이름은 봉인 장부(`ledger`) 안에만 있다(D-Y11 — 봉인 뒤 문서를 만드는 데 필요, D-PL1-13·SA-PL1A-03). B와 리허설 범위의 `sealed`는 `null`이고 그 밖의 칸은 형식 2와 같다. 파일 요약값(`digest`)은 `sealed` 칸까지 덮는다(A의 `sealed.sealedAt` 한 글자를 바꾸고 다른 곳을 그대로 두면 파일 요약값이 맞지 않는다)
 - 확인: 서버 시험(PGlite, 가짜 시계, 봉인 작업을 실제로 돌려 A를 봉인)
 
 **AC-PL1A-02** [server] · DAT-04 · D-PL1-01 — 봉인 범위는 재생하지 않고 검사한다
@@ -197,6 +197,14 @@
 **AC-PL1A-92** · 금지 경로 — 유튜브 파일을 고치지 않았다
 - Then `git diff --name-only BASE HEAD`에 `apps/server/src/youtube/`, 파일 이름에 `youtube`·`Youtube`가 든 `apps/web/src/` 파일, `tests/e2e/i3/`, `tests/e2e/y1/`이 없다. 파일 경계 표의 PL1B 몫 파일도 없다(`PackingPage.tsx`는 `PackingChecklist`·데이터 받기 부분만 — 리뷰로 확인)
 - 확인: 게이트(오케스트레이터)·`git diff`
+
+## 감사 뒤 정리 (spec-keeper, 2026-10-24)
+
+- D-PL1-11: 이스케이프로 숨긴 `__proto__`가 든 봉인 장부도 AC-PL1A-03 (e)와 같은 문장으로 거절(이미 반영, `apps/server/test/pl1a-backup-ledger.test.ts`).
+- D-PL1-12: AC-PL1A-03 (e)의 "읽을 수 없는 장부"는 봉인 날짜 문서와 같은 기준(`stateFromLedger`·`startSettings`)이다 — 그 기준에 맞지 않는 장부가 든 파일도 검사·바꾸기 복구·빈 판매자 가져오기 모두 거절, 아무것도 바꾸지 않는다(이미 반영). 재생 검사 명령은 요약값만 — 다음 판단.
+- D-PL1-13: AC-PL1A-01의 닉네임 0개는 채팅만 한 시청자의 닉네임(위 문장 고침).
+- D-PL1-14: 둘 넘게 합친 구매자의 지난 구매 "찾은 까닭" 나열 순서는 봉인 전과 다를 수 있다(금액·줄·문서 순서는 같음) — AC-PL1A-14(지난 구매)의 "봉인 전과 같음"에서 이 나열 순서만 뺀다.
+- D-PL1-15: `packages/core/src/engine.ts`의 순수 도우미 export 두 줄(dev-server 커밋 `f2a79bfd`)은 받아들인다.
 
 ## 이번 스프린트에서 하지 않는 것 (범위 밖)
 
