@@ -5,6 +5,7 @@
 // 구매자 ID·채널 ID·닉네임·가격은 데이터 모양에 아예 없다(넣을 자리가 없다). 시계를 읽지 않는다 — 접수 날짜는 부르는 쪽이 넘긴다.
 import fontkit from '@pdf-lib/fontkit'
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
+import { SERVICE_NAME } from './brand.ts'
 import type { DocumentFont } from './font.ts'
 import { wrapText } from './layout.ts'
 import { asDocumentFont, type FontSource } from './pdf.ts'
@@ -394,8 +395,8 @@ export async function renderWaybillsPdf(list: readonly WaybillData[], fontSource
   doc.registerFontkit(fontkit as unknown as Parameters<PDFDocument['registerFontkit']>[0])
   const embedded = await doc.embedFont(font.bytes, { subset: true })
   doc.setTitle('운송장')
-  doc.setCreator('라이브찜')
-  doc.setProducer('라이브찜')
+  doc.setCreator(SERVICE_NAME)
+  doc.setProducer(SERVICE_NAME)
   doc.setLanguage('ko-KR')
   for (const layout of layouts) {
     const page = doc.addPage([layout.width, layout.height])

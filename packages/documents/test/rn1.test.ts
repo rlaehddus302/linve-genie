@@ -1,10 +1,10 @@
-// AC-RN1-08 문서 정보 이름 · AC-RN1-09 이름 상수 한 곳 · AC-RN1-10 보이는 소스에 옛 이름 0개 (UX-01, D-RN1-03·04)
+// AC-RN1-08 문서 정보 이름(확인서·영수증 PDF·운송장 PDF·판매대장 엑셀) · AC-RN1-09 이름 상수 한 곳 · AC-RN1-10 보이는 소스에 옛 이름 0개 (UX-01, D-RN1-03·04)
 import { readFileSync, readdirSync } from 'node:fs'
 import type { EngineState } from '@livejjim/core'
 import ExcelJS from 'exceljs'
 import { PDFDocument } from 'pdf-lib'
 import { describe, expect, it } from 'vitest'
-import { SERVICE_NAME, buildReceipt, ledgerToXlsx, renderReceiptPdf, renderReceiptsPdf, type ReceiptData } from '../src/index.ts'
+import { SERVICE_NAME, buildReceipt, ledgerToXlsx, renderReceiptPdf, renderReceiptsPdf, renderWaybillsPdf, type ReceiptData, type WaybillData } from '../src/index.ts'
 import { fontBytes, replayGolden } from './helpers.ts'
 
 const OLD_NAME = '라이브' + '찜'
@@ -68,6 +68,23 @@ describe('AC-RN1-08 문서 정보의 서비스 이름', () => {
   it('여러 명을 묶은 PDF도 같다', async () => {
     const state = replayGolden('G-ENG-201')
     const pdf = await PDFDocument.load(await renderReceiptsPdf([receipt(state, 'UC_A'), receipt(state, 'UC_A')], fontBytes()), { updateMetadata: false })
+    expect(pdf.getCreator()).toBe('라이브지니')
+    expect(pdf.getProducer()).toBe('라이브지니')
+  })
+
+  it('운송장 PDF(T1)의 만든 프로그램·생성기도 라이브지니', async () => {
+    const waybill: WaybillData = {
+      carrier: 'FAKE',
+      invoice: '900000000001',
+      receiver: { name: '홍길동', phone: '01012345678', address: '서울특별시 중구 세종대로 110', detail: '서울시청 3층', zip: '04524', memo: '' },
+      sender: { name: '다육이네', phone: '0311234567', address: '경기도 성남시 분당구 판교역로 1' },
+      itemCount: 1,
+      box: '소',
+      bookedDate: '2026-10-22',
+    }
+    const result = await renderWaybillsPdf([waybill], fontBytes())
+    if (result.pdf === null) throw new Error('운송장 PDF를 만들지 못했어요')
+    const pdf = await PDFDocument.load(result.pdf, { updateMetadata: false })
     expect(pdf.getCreator()).toBe('라이브지니')
     expect(pdf.getProducer()).toBe('라이브지니')
   })
