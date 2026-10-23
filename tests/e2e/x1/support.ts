@@ -31,7 +31,46 @@ const LIVE_CHAT_HTML = `<!doctype html><html lang="ko"><head><meta charset="utf-
 </div></div></div></yt-live-chat-item-list-renderer>
 </yt-live-chat-renderer></yt-live-chat-app></body></html>`
 
-export interface ExtFixtures { ext: { context: BrowserContext; page: Page; extId: string } }
+/**
+ * 감사 채팅 올리기용 가짜 live_chat 페이지 (dev-notes 손잡이): 입력 칸(contenteditable)·보내기 단추, 로그인 채널 = me, 방송 채널 = owner(ytInitialData).
+ * 보내기를 누르면 입력 칸 글을 내 채널의 일반 채팅으로 #items에 붙이고 입력 칸을 비운다(자기 글 뜨기 흉내).
+ * window.__lg 에 보낸 글·누른 시각·입력 칸이 바뀐 횟수를 적는다. echo=false 이면 보내도 채팅에 뜨지 않는다.
+ */
+export function postingChatHtml(o: { me: string | null; owner: string | null; echo?: boolean }): string {
+  const cfg = JSON.stringify({ me: o.me, owner: o.owner, echo: o.echo !== false })
+  return LIVE_CHAT_HTML.replace('</yt-live-chat-renderer>', `<yt-live-chat-message-input-renderer><div id="input" contenteditable="true"></div><button id="send-button">보내기</button></yt-live-chat-message-input-renderer></yt-live-chat-renderer>`)
+    .replace('</body>', `<script>
+(() => {
+  const cfg = ${cfg}
+  const lg = { sent: [], at: [], mutations: 0 }
+  window.__lg = lg
+  if (cfg.owner !== null) window.ytInitialData = { continuationContents: { liveChatContinuation: { ownerChannelId: cfg.owner } } }
+  const box = document.querySelector('yt-live-chat-message-input-renderer')
+  if (cfg.me !== null) box.data = { authorExternalChannelId: cfg.me }
+  const input = document.getElementById('input')
+  new MutationObserver(() => { lg.mutations++ }).observe(input, { childList: true, characterData: true, subtree: true })
+  let n = 0
+  document.getElementById('send-button').addEventListener('click', () => {
+    const text = input.textContent
+    if (text === '') return
+    lg.sent.push(text); lg.at.push(Date.now()); lg.html = input.innerHTML
+    input.textContent = ''
+    if (!cfg.echo || cfg.me === null) return
+    n++
+    const el = document.createElement('yt-live-chat-text-message-renderer')
+    el.id = 'ChwKGkNPc2VsZl94MV9wb3N0XzAwMDAw' + String(n).padStart(6, '0') + String(Date.now() % 100000)
+    el.data = { authorExternalChannelId: cfg.me, timestampUsec: String(Date.now() * 1000) }
+    const c = document.createElement('div'); c.id = 'content'
+    const a = document.createElement('span'); a.id = 'author-name'; a.textContent = '판매자'
+    const m = document.createElement('span'); m.id = 'message'; m.textContent = text
+    c.append(a, m); el.append(c)
+    document.getElementById('items').append(el)
+  })
+})()
+</script></body>`)
+}
+
+export interface ExtFixtures { ext: { context: BrowserContext; page: Page; extId: string; setChatHtml: (html: string) => void } }
 
 export const test = base.extend<ExtFixtures>({
   ext: async ({ baseURL }, use, info) => {
@@ -47,11 +86,12 @@ export const test = base.extend<ExtFixtures>({
       args: [`--disable-extensions-except=${dir}`, `--load-extension=${dir}`],
     })
     try {
-      await context.route('https://www.youtube.com/live_chat*', (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: LIVE_CHAT_HTML }))
+      let html = LIVE_CHAT_HTML
+      await context.route('https://www.youtube.com/live_chat*', (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }))
       const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'))
       const extId = new URL(worker.url()).host
       const page = context.pages()[0] ?? (await context.newPage())
-      await use({ context, page, extId })
+      await use({ context, page, extId, setChatHtml: (next) => { html = next } })
     } finally {
       await context.close()
     }
