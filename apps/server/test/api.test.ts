@@ -99,7 +99,7 @@ describe('AC-S04-51 이벤트 쓰기 API', () => {
     const state = initEngine({ broadcasts: [{ id: 'b1', date: '2026-10-19', title: '1부' }], settings: {} })
     const UNKNOWN = '이 종류의 이벤트에 없는 필드다'
     for (const [type, spec] of Object.entries(API_EVENTS)) {
-      const fields = type === 'sms' ? [...spec.fields.filter((field) => field !== 'phone' && field !== 'last4'), 'ref', 'phoneKey', 'phoneLast4'] : spec.fields
+      const fields = type === 'sms' ? [...spec.fields.filter((field) => !['phone', 'last4', 'newBuyer', 'voice'].includes(field)), 'ref', 'phoneKey', 'phoneLast4'] : spec.fields
       const event: Record<string, unknown> = { type, seq: 1, at: T0 }
       for (const field of fields) event[field] = 'x'
       const problems = checkEvent(state, event)

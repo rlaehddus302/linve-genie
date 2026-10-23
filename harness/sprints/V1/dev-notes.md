@@ -172,3 +172,14 @@ smsProductBlock(view) / findSmsBlock(card, lookup)   // SmsProductView = { state
 - 시험: sms.test.ts AC-V1-06(acceptance 문장 여섯·낱말·물음표·표시 나머지·맡은 토큰·문제 순서·옵션 방식·속성 500회), sms-card.test.ts(아니라는 말 카드는 저절로도 누르기로도 넣지 않음), accuracy-sms.test.ts(넣지 않음·위험 아님).
 - E2E tests/e2e/v1/flow.spec.ts·sms-reasons.spec.ts 8개 통과(포트 오프셋 23500).
 - **test-domain에게**: tests/adversarial/v1/sms-reading-attacks.test.ts:12의 `PROBLEMS`에 `NOT_SURE`가 없어 R-21 결과 모양 속성 시험이 실패한다(스펙 66a7eeb가 `NOT_SURE`를 더함). 그 파일은 test-domain 소유라 건드리지 않음.
+
+### dev-server 수정 라운드 (RA-V1-001·TE-V1-004 — D-V1-14, TE-V1-003 — D-V1-13)
+- 이름이 다른 끝자리 손님 (AC-V1-13): `last4`와 메모(앞뒤 공백 뺀 이름)를 함께 보냈고 후보가 한 사람인데 그 사람의 표시 이름이 정확히 `문자찜(<이름>)`이 아니면 기록하지 않고 409 `BUYER_AMBIGUOUS`, message "끝자리 1234 손님의 이름이 달라요. 누구인지 골라 주세요.", 후보 = 그 한 사람. 메모가 없거나 공백뿐이면 지금처럼 그 사람(D-V1-03). `apps/server/src/sms-last4.ts`(`spokenName`·`sameName`·`nameMismatchMessage`), `service.ts` `#writeSms`.
+- 409 후보마다 `claims` (둘 이상·이름 다름 모두): 그 범위에서 그 지금의 구매자의 활성 찜(확정·대기·보류·충돌) 상품 번호, 찜 생성 순서, 같은 번호는 처음 한 번, 없으면 `[]`. 후보 모양 = `{ buyer, display, phoneLast4, claims }`.
+- 새 손님으로 넣기: `sms` 본문 `newBuyer: true` + `last4`. 서버는 후보를 찾지 않고 `phoneKey` = HMAC(`livejjim/sms-last4-new/v1|날짜|live·rehearsal|뒤4자리|ref`), `phoneLast4` = 뒤 4자리. `newBuyer`가 `true`가 아니거나 `last4` 없이, 또는 `phone`·`buyer`와 함께면 400(칸 `newBuyer`; `last4`+`phone`/`buyer`는 기존대로 칸 `last4`). 엔진 이벤트에는 남지 않는다.
+- 같은 음성 쓰기 (AC-V1-14): `sms` 본문 `voice: true`(그 밖의 값은 400, 칸 `voice`, 엔진 이벤트에 남지 않음). 서버 도착 시각 = 요청이 `#writeSms`에 들어온 때의 서버 시계. 같은 범위의 기록 줄 안(build)에서 최근에 **기록한** 음성 쓰기 중 같은 방송·번호·옵션·수량·`last4`·`buyer`·`newBuyer`·메모(앞뒤 공백 뺌)이고 다른 요청 번호이며 도착 시각 차 ≤ 10,000ms면 409 `{ error: { code: 'VOICE_REPEATED', message: '같은 말을 다른 기기에서 방금 넣었어요.' } }`. 등록은 기록 트랜잭션 안(afterInsert)이라 두 기기가 함께 보내도 하나만 기록된다. 커밋 실패면 등록을 뺀다. 메모리만(`apps/server/src/voice-repeat.ts`), 서버를 다시 켜면 빈다. 손 입력(`voice` 없음)은 검사도 등록도 안 한다.
+- 시험: `apps/server/test/v1-voice-buyers.test.ts`(이름 다름·확인 필요·유튜브 합친 사람·claims·newBuyer 키·400·멱등, 같은 음성 경계 10,000/10,001ms·구매자 말 다름·손 입력·앞 쓰기 409/400·다시 보내기·동시 3개·범위/판매자 분리·저장 실패·로그), `v1-sms-last4.test.ts`의 "이름 없음 후보에 이름을 말하면" 단계를 D-V1-14대로(409 뒤 이름 없이), 409 본문에 `claims`. `api.test.ts` 필드 표 대조에서 서버만 읽는 칸(`newBuyer`·`voice`) 뺌.
+- 남의 몫:
+  - dev-web: 콘솔 문자찜 쓰기에 `voice: true`, 409 후보 버튼 "표시 이름 · 끝자리 1234 · 15번·22번"(3개 넘으면 앞 3개 + "외 N개", `[]`면 "찜 없음"), "새 손님으로 넣기"(`last4` + `newBuyer: true`, `buyer` 없이), 409 `VOICE_REPEATED`면 그 `message`와 "닫기"만 (AC-V1-31).
+  - test-domain: `tests/adversarial/v1/server-last4-attacks.test.ts:151`이 후보 칸을 정확히 `buyer·display·phoneLast4` 세 칸으로 본다 — D-V1-14·AC-V1-13으로 `claims`가 더해져 지금 실패한다. 칸 목록에 `claims`를 더해야 한다.
+  - test-e2e: `tests/e2e/v1/sms-buyers.spec.ts:151`의 허용 칸 목록에 `newBuyer`·`voice`가 없다(화면이 보내기 시작하면 걸린다).

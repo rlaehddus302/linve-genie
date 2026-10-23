@@ -25,6 +25,8 @@ export type ErrorCode =
   | 'BUYER_NOT_FOUND'
   // V1 음성 문자찜: 끝자리가 같은 손님이 여럿 (AC-V1-10)
   | 'BUYER_AMBIGUOUS'
+  // V1: 여러 기기의 같은 음성 문자찜 쓰기 (D-V1-13, AC-V1-14)
+  | 'VOICE_REPEATED'
   | 'STATE_FORMAT'
   | 'SAVE_FAILED'
   | 'PROCESSING_FAILED'

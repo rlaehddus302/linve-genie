@@ -45,12 +45,20 @@ describe('AC-V1-10 sms 쓰기의 last4', () => {
     expect(event?.phoneKey).toBe(phoneKeyOf(await sellerKeyOf(world, seller), last4KeyText(DAY, false, '1234')))
     expect(listClaims(state).map((claim) => [claim.buyer, claim.status])).toEqual([[first.body.buyer, 'CONFIRMED']])
 
-    // 다시: 한 사람 → 그 구매자를 지정 구매자로 (phoneKey·phoneLast4 없이 — R-11 1)
-    const again = await expectOk(writeEvent(world, seller, { type: 'sms', b, no: 166, last4: '1234', memo: '김민지' }))
+    // 이름을 함께 말했는데 그 사람의 표시 이름(이름 없음 '문자찜')과 다르면 409 고르기 (D-V1-14, AC-V1-13) — 기록 없음
+    const named = await writeEvent(world, seller, { type: 'sms', b, no: 166, last4: '1234', memo: '김민지' })
+    expect(named.status).toBe(409)
+    expect(named.body).toEqual({
+      error: { code: 'BUYER_AMBIGUOUS', message: '끝자리 1234 손님의 이름이 달라요. 누구인지 골라 주세요.' },
+      candidates: [{ buyer: first.body.buyer, display: '문자찜', phoneLast4: '1234', claims: [165] }],
+    })
+    expect(await smsBodies(world)).toHaveLength(1)
+    // 다시: 뒤 4자리만 말했고 한 사람 → 그 구매자를 지정 구매자로 (phoneKey·phoneLast4 없이 — R-11 1)
+    const again = await expectOk(writeEvent(world, seller, { type: 'sms', b, no: 166, last4: '1234' }))
     expect(again.body.buyer).toBe(first.body.buyer)
     expect(again.body.phoneLast4).toBeNull()
     const second = (await smsBodies(world))[1]
-    expect(second).toMatchObject({ buyer: first.body.buyer, memo: '김민지' })
+    expect(second).toMatchObject({ buyer: first.body.buyer })
     expect(second).not.toHaveProperty('phoneKey')
     expect(second).not.toHaveProperty('phoneLast4')
     const after = (await world.server.writer.read(seller.sellerId, DAY)).state
@@ -87,8 +95,8 @@ describe('AC-V1-10 sms 쓰기의 last4', () => {
     expect(response.body).toEqual({
       error: { code: 'BUYER_AMBIGUOUS', message: AMBIGUOUS },
       candidates: [
-        { buyer: x.body.buyer, display: '문자찜(김씨)', phoneLast4: '1234' },
-        { buyer: y.body.buyer, display: '문자찜', phoneLast4: '1234' },
+        { buyer: x.body.buyer, display: '문자찜(김씨)', phoneLast4: '1234', claims: [165] },
+        { buyer: y.body.buyer, display: '문자찜', phoneLast4: '1234', claims: [166] },
       ],
     })
     expect(response.text).not.toMatch(/phoneKey|0101111|0102222/)
