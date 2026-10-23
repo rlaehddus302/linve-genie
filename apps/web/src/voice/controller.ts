@@ -587,6 +587,8 @@ export class VoiceController {
   #history: HistoryState = { state: 'idle', past: [] }
   /** 이력을 받는 동안 미룬 최종 문장 (온 차례) — 온 때의 설정·번호 범위를 함께 담는다 (TE-N3-004: 미룬 사이 자동 등록을 켜도 끈 채 말한 문장은 자동 등록하지 않는다) */
   #held: HeldOutput[] = []
+  /** 지금 모으는 글을 받는 동안 자동 등록이 한 번이라도 꺼져 있었나 — 그러면 그 덩어리 카드는 자동 확정하지 않는다 (AC-I4-31, D-I4-05) */
+  #phraseAutoOff = false
   /** #place가 닫은 끝에서 넘긴 카드의 글 — 다음 #set이 스냅샷에 싣는다 */
   #lostFlushed: string[] = []
   #heldTimer: ReturnType<typeof setTimeout> | null = null
@@ -815,6 +817,7 @@ export class VoiceController {
     if (this.#disposed || this.#snapshot.phase !== 'on') return
     const module = this.#module
     const settings = this.#snapshot.settings
+    if (settings !== null && !settings['voice.autoConfirm']) this.#phraseAutoOff = true
     if (!result.final) {
       // 중간 결과도 조용한 시간을 다시 센다 (D-V2-03, 사례 S17) — 말하는 동안 자동 등록을 멈춘다 (D-V2-06)
       if (module !== null && settings !== null && this.#phrase !== null) {
@@ -885,7 +888,10 @@ export class VoiceController {
     if (outs.length === 0) return
     const settings = this.#snapshot.settings
     if (settings === null) return
-    const held = outs.map((out): HeldOutput => ({ out, settings, maxNumber: this.#host.maxNumber(), smsSettings: this.#snapshot.smsSettings }))
+    // 모으는 동안 자동 등록이 꺼진 적이 있으면 끈 설정으로 (켠 뒤에 덩어리가 끝나도 자동 확정하지 않는다)
+    const used: VoiceSettings = this.#phraseAutoOff ? { ...settings, 'voice.autoConfirm': false } : settings
+    if (this.#phrase === null || module.nextTickAt(this.#phrase) === null) this.#phraseAutoOff = false
+    const held = outs.map((out): HeldOutput => ({ out, settings: used, maxNumber: this.#host.maxNumber(), smsSettings: this.#snapshot.smsSettings }))
     if (this.#waitingHistory()) {
       this.#held.push(...held)
       this.#armHeld()
@@ -1459,6 +1465,7 @@ export class VoiceController {
     // 끄면 기다리던 카드도 멈춘다 (다시 켜도 그 카드는 자동 확정하지 않는다)
     const cards = on ? this.#snapshot.cards : this.#snapshot.cards.map((card) => (card.autoConfirmAt === null ? card : { ...card, autoConfirmAt: null }))
     // 이력을 기다리며 미룬 문장도 마찬가지 — 켠 채 말했어도 끄면 자동 등록하지 않는다 (다시 켜도)
+    if (!on && this.#module !== null && this.#phrase !== null && this.#module.nextTickAt(this.#phrase) !== null) this.#phraseAutoOff = true
     if (!on) this.#held = this.#held.map((held) => ({ ...held, settings: { ...held.settings, 'voice.autoConfirm': false } }))
     this.#set({ settings, cards, ...(on ? {} : { paused: new Map() }) })
   }
