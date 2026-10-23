@@ -6,9 +6,21 @@ import { onUnauthorized } from '../src/api/client.ts'
 import type { AssistSettings, Product, ReviewSuggestion } from '../src/api/types.ts'
 import { AssistSection, useShowAssist } from '../src/components/AssistSection.tsx'
 import { PrivacyPage } from '../src/components/PolicyPages.tsx'
-import { ReviewsPage } from '../src/components/ReviewsPage.tsx'
+import { ReviewsPage, SUGGESTION_SETTLE_MS } from '../src/components/ReviewsPage.tsx'
 import { SettingsPage } from '../src/components/SettingsPage.tsx'
-import { ASSIST_CONSENT, ASSIST_FAILED, ASSIST_LIMIT, ASSIST_NOTICE, ASSIST_OFFER, ASSIST_READING, ASSIST_UNAVAILABLE, suggestionView } from '../src/lib/assist.ts'
+import {
+  ASSIST_BUSY_RELOAD_MS,
+  ASSIST_BUSY_RELOADS,
+  ASSIST_CONSENT,
+  ASSIST_FAILED,
+  ASSIST_LIMIT,
+  ASSIST_LIMIT_UNKNOWN,
+  ASSIST_NOTICE,
+  ASSIST_OFFER,
+  ASSIST_READING,
+  ASSIST_UNAVAILABLE,
+  suggestionView,
+} from '../src/lib/assist.ts'
 import { chat, iso } from './engine.ts'
 import { EngineServer } from './engine-server.ts'
 import { DATE, FakeEventSource, FakeServer, apiError, flush } from './support.ts'
@@ -182,7 +194,8 @@ describe('확인 필요 줄의 제안 (AC-A1-20)', () => {
     await waitFor(() => expect(engine.posts).toHaveLength(1), { timeout: 3000 })
     expect(engine.posts[0]).toMatchObject({ type: 'host.resolveReview', b: 'b1', item: 'm1', no: 21, qty: 1, options: { 사이즈: 'M' } })
     expect(engine.posts[0]).not.toHaveProperty('source')
-    expect(await screen.findByText('홍길동 · 반바지 미디엄 — 1등')).toBeDefined()
+    // 결과 끝에 제안 값 (D-A1-14)
+    expect(await screen.findByText('홍길동 · 반바지 미디엄 → 21번 반바지 M 1개 — 1등')).toBeDefined()
     await flush(20)
     expect(engine.posts).toHaveLength(1)
   })
@@ -194,6 +207,79 @@ describe('확인 필요 줄의 제안 (AC-A1-20)', () => {
     const group = screen.getByRole('group', { name: '1번째 줄 제안' })
     expect(within(group).getByText('제안: 21번 <b>반바지 <b>M 1개')).toBeDefined()
     expect(group.querySelector('b')).toBeNull()
+  })
+})
+
+describe('제안 줄 다듬기 (D-A1-13·14·15)', () => {
+  // M의 별칭 "미디움" — "미디엄"은 한 글자 차이라 O2 후보 "혹시: M?"이 뜬다
+  const aliased = { ...shorts(21), options: [{ name: '사이즈', choices: [{ label: 'S' }, { label: 'M', aliases: ['미디움'] }, { label: 'L' }] }] }
+  const pickShorts = (row: HTMLElement) => fireEvent.change(within(row).getByLabelText('상품'), { target: { value: 'b1/21' } })
+
+  it('제안과 같은 선택지를 가리키는 "혹시"는 숨기고([고치기] 뒤에도), 다른 선택지 후보·제안 없는 줄은 그대로', async () => {
+    suggestions.set('m1', { no: 21, options: { 사이즈: 'M' }, qty: 1, source: 'RULE' })
+    suggestions.set('m2', { no: 21, options: { 사이즈: 'L' }, qty: 1, source: 'AI' })
+    serve([aliased, chat('m1', 'UC_a', '홍길동', '반바지 미디엄'), chat('m2', 'UC_b', '김철수', '반바지 미디엄'), chat('m3', 'UC_c', '이영희', '반바지 미디엄')])
+    await openReviews()
+    const [first, second, third] = [1, 2, 3].map((n) => screen.getByRole('listitem', { name: `${String(n)}번째 줄` }))
+    if (first === undefined || second === undefined || third === undefined) throw new Error('줄이 셋이어야 한다')
+    for (const row of [first, second, third]) pickShorts(row)
+    // 제안(M)과 같은 선택지의 "혹시: M?"은 없다 — [고치기] 뒤에도
+    expect(within(first).queryByRole('button', { name: '혹시: M?' })).toBeNull()
+    fireEvent.click(within(first).getByRole('button', { name: '1번째 줄 고치기' }))
+    expect((within(first).getByLabelText('사이즈') as HTMLSelectElement).value).toBe('M')
+    expect(within(first).queryByRole('button', { name: '혹시: M?' })).toBeNull()
+    // 제안(L)과 다른 선택지의 후보, 제안 없는 줄의 후보는 O2 그대로
+    expect(within(second).getByRole('button', { name: '혹시: M?' })).toBeDefined()
+    expect(within(third).getByRole('button', { name: '혹시: M?' })).toBeDefined()
+  })
+
+  it('[이대로 주문]의 되돌리기 띠 끝에 "→ 21번 반바지 M 1개", 칸으로 고른 "주문으로"는 그대로', async () => {
+    suggestions.set('m1', { no: 21, options: { 사이즈: 'M' }, qty: 1, source: 'RULE' })
+    serve([shorts(21), chat('m1', 'UC_a', '홍길동', '반바지 미디엄'), chat('m2', 'UC_b', '김철수', '반바지')])
+    await openReviews()
+    fireEvent.click(screen.getByRole('button', { name: '1번째 줄 이대로 주문' }))
+    const band = screen.getByRole('region', { name: '보내기 전 조치' })
+    expect(band.textContent).toContain('홍길동 "반바지 미디엄" 주문으로 → 21번 반바지 M 1개')
+    const second = screen.getByRole('listitem', { name: '2번째 줄' })
+    fireEvent.change(within(second).getByLabelText('상품'), { target: { value: 'b1/21' } })
+    fireEvent.change(within(second).getByLabelText('사이즈'), { target: { value: 'L' } })
+    fireEvent.change(within(second).getByLabelText('수량'), { target: { value: '1' } })
+    fireEvent.click(within(second).getByRole('button', { name: '2번째 줄 주문으로' }))
+    expect(band.textContent).toContain('김철수 "반바지" 주문으로')
+    expect(band.textContent).not.toContain('김철수 "반바지" 주문으로 →')
+    expect(await screen.findByText('김철수 · 반바지 — 1등', {}, { timeout: 4000 })).toBeDefined()
+  })
+
+  it('다시 읽어 새로 생긴 제안 칸의 [이대로 주문]·[고치기]는 0.5초 동안 아무 일도 없다 — 처음부터 있던 제안은 바로 눌린다', async () => {
+    settings = { ...settings, enabled: true, consentedAt: '2026-10-23T01:00:00.000Z' }
+    let release: () => void = () => undefined
+    suggestReply = () =>
+      new Promise((resolve) => {
+        release = () => resolve({ body: { result: 'DONE', called: 1 } })
+      })
+    suggestions.set('m2', { no: 21, options: { 사이즈: 'S' }, qty: 1, source: 'RULE' })
+    serve([shorts(21), chat('m1', 'UC_a', '홍길동', '반바지 미디엄'), chat('m2', 'UC_b', '김철수', '반바지 스몰')])
+    await openReviews()
+    const first = screen.getByRole('listitem', { name: '1번째 줄' })
+    const second = screen.getByRole('listitem', { name: '2번째 줄' })
+    suggestions.set('m1', { no: 21, options: { 사이즈: 'M' }, qty: 2, source: 'AI' })
+    act(() => release())
+    await within(first).findByText('AI가 읽음')
+    fireEvent.click(within(first).getByRole('button', { name: '1번째 줄 고치기' }))
+    fireEvent.click(within(first).getByRole('button', { name: '1번째 줄 이대로 주문' }))
+    await flush(5)
+    expect((within(first).getByLabelText('수량') as HTMLInputElement).value).toBe('')
+    expect((within(first).getByLabelText('사이즈') as HTMLSelectElement).value).toBe('')
+    expect(within(first).queryByText(/뒤 보내요/)).toBeNull()
+    // 처음부터 있던 규칙 제안은 바로 눌린다
+    fireEvent.click(within(second).getByRole('button', { name: '2번째 줄 고치기' }))
+    expect((within(second).getByLabelText('사이즈') as HTMLSelectElement).value).toBe('S')
+    await new Promise((resolve) => setTimeout(resolve, SUGGESTION_SETTLE_MS + 50))
+    fireEvent.click(within(first).getByRole('button', { name: '1번째 줄 고치기' }))
+    expect((within(first).getByLabelText('수량') as HTMLInputElement).value).toBe('2')
+    fireEvent.click(within(first).getByRole('button', { name: '1번째 줄 이대로 주문' }))
+    expect(within(first).getByText(/뒤 보내요/)).toBeDefined()
+    expect(engine.posts).toHaveLength(0)
   })
 })
 
@@ -249,6 +335,58 @@ describe('화면을 열 때 AI 제안 받기 한 번 (AC-A1-21)', () => {
     expect(await screen.findByText(ASSIST_LIMIT(20))).toBeDefined()
     expect(ASSIST_LIMIT(20)).toBe('오늘 AI 제안을 다 썼어요(하루 20번). 비슷한 글자로 찾은 제안만 보여요.')
     expect(document.body.textContent).not.toMatch(DEV_WORDS)
+  })
+
+  it('상한인데 설정을 읽지 못하면 상한 숫자를 빼고 — "하루 0번"을 보이지 않는다 (D-A1-17)', async () => {
+    settings = { ...settings, enabled: true }
+    suggestReply = () => ({ body: { result: 'LIMIT', called: 0 } })
+    serve(events())
+    engine.server.on('GET', /^\/api\/assist\/settings$/, () => apiError(500, 'INTERNAL', '잠시 뒤에 다시 해 주세요.'))
+    await openReviews()
+    expect(await screen.findByText(ASSIST_LIMIT_UNKNOWN)).toBeDefined()
+    expect(ASSIST_LIMIT_UNKNOWN).toBe('오늘 AI 제안을 다 썼어요. 비슷한 글자로 찾은 제안만 보여요.')
+    expect(document.body.textContent).not.toContain('하루 0번')
+  })
+
+  it('진행 중(BUSY): 곧바로 한 번, 그 뒤 2초마다 목록만 다시 읽는다 — 많아야 8번, AI 제안 받기는 다시 보내지 않는다 (D-A1-16)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      settings = { ...settings, enabled: true }
+      suggestReply = () => ({ body: { result: 'BUSY', called: 0 } })
+      serve(events())
+      await openReviews()
+      await waitFor(() => expect(reviewCalls().length).toBe(2))
+      // 다른 기기의 요청이 끝나 제안이 붙었다 → 2초 안에 보인다
+      suggestions.set('m1', { no: 21, options: { 사이즈: 'M' }, qty: 1, source: 'AI' })
+      await act(() => vi.advanceTimersByTimeAsync(ASSIST_BUSY_RELOAD_MS))
+      await waitFor(() => expect(reviewCalls().length).toBe(3))
+      expect(await screen.findByText('AI가 읽음')).toBeDefined()
+      await act(() => vi.advanceTimersByTimeAsync(ASSIST_BUSY_RELOAD_MS * (ASSIST_BUSY_RELOADS - 1)))
+      await waitFor(() => expect(reviewCalls().length).toBe(2 + ASSIST_BUSY_RELOADS))
+      await act(() => vi.advanceTimersByTimeAsync(ASSIST_BUSY_RELOAD_MS * 5))
+      await flush(10)
+      expect(reviewCalls().length).toBe(2 + ASSIST_BUSY_RELOADS)
+      expect(suggestCalls()).toHaveLength(1)
+      expect(ASSIST_BUSY_RELOAD_MS * ASSIST_BUSY_RELOADS).toBe(16_000)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('진행 중(BUSY)에 화면을 떠나면 다시 읽기를 그친다', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      settings = { ...settings, enabled: true }
+      suggestReply = () => ({ body: { result: 'BUSY', called: 0 } })
+      serve(events())
+      const utils = await openReviews()
+      await waitFor(() => expect(reviewCalls().length).toBe(2))
+      utils.unmount()
+      await act(() => vi.advanceTimersByTimeAsync(ASSIST_BUSY_RELOAD_MS * ASSIST_BUSY_RELOADS))
+      expect(reviewCalls().length).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('실패(서버가 FAILED·5xx·연결 실패): "AI 제안을 지금 받지 못했어요. 직접 골라 주세요." — 목록은 그대로', async () => {
@@ -356,6 +494,10 @@ describe('설정의 "AI 제안" 칸 (AC-A1-22)', () => {
     expect(ASSIST_NOTICE).toBe('확인 필요 댓글의 글이 AI 회사(Anthropic, 미국)로 보내져 읽혀요. 닉네임·전화번호는 빼고 보내요. 언제든 끌 수 있어요.')
     const toggle = within(region).getByRole('switch', { name: 'AI 제안 받기' }) as HTMLButtonElement
     expect(toggle.getAttribute('aria-checked')).toBe('false')
+    // 보이는 글은 누르면 될 일, 상태는 따로 (D-A1-18)
+    expect(toggle.textContent).toBe('켜기')
+    expect(within(region).getByText('꺼져 있어요')).toBeDefined()
+    expect(region.textContent).not.toContain('꺼짐')
     expect(toggle.disabled).toBe(true)
     fireEvent.click(toggle)
     expect(server.callsTo('PUT', /assist/)).toHaveLength(0)

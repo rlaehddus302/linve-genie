@@ -1,6 +1,7 @@
 // AI 제안 (A1 CMT-06, R-20 10, D-A1-01·03·06·07, AC-A1-20·21·22). 제안은 판정이 아니다 — 판매자가 [이대로 주문]을 누를 때만 기존 바로잡기가 나간다.
 // - 확인 필요 화면을 열 때 AI 제안 받기(POST /api/assist/suggest)를 그 화면(같은 범위)마다 한 번만 부른다. 실시간 알림으로 목록을 다시 읽어도 더 부르지 않는다.
-//   화면을 떠났다 다시 열면 한 번 더. 결과가 오면 목록을 한 번 다시 읽는다(진행 중이면 서버 시간 제한 뒤에 한 번 더).
+//   화면을 떠났다 다시 열면 한 번 더. 결과가 오면 목록을 한 번 다시 읽는다.
+//   진행 중(BUSY)이면 곧바로 한 번, 그 뒤 2초마다 목록만 다시 읽는다 — 많아야 8번, AI 제안 받기는 다시 보내지 않는다(D-A1-16).
 // - 목록·"주문으로"·"주문 아님"은 이 요청을 기다리지 않는다.
 // - 화면 글에는 영어 상태값·모델 이름·HTTP 상태를 넣지 않는다(AC-A1-24).
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -11,6 +12,8 @@ import { reviewsPath, type ReviewsQuery } from './reviews.ts'
 export const ASSIST_READING = 'AI가 읽는 중이에요…'
 export const ASSIST_FAILED = 'AI 제안을 지금 받지 못했어요. 직접 골라 주세요.'
 export const ASSIST_LIMIT = (limit: number): string => `오늘 AI 제안을 다 썼어요(하루 ${String(limit)}번). 비슷한 글자로 찾은 제안만 보여요.`
+/** 설정을 읽지 못해 상한을 모를 때 — "하루 0번"처럼 틀린 숫자를 보이지 않는다 (D-A1-17) */
+export const ASSIST_LIMIT_UNKNOWN = '오늘 AI 제안을 다 썼어요. 비슷한 글자로 찾은 제안만 보여요.'
 export const ASSIST_OFFER = '설정에서 AI 제안을 켤 수 있어요.'
 /** 제안 출처 (RULE·AI는 화면에 보이지 않는다) */
 export const SUGGESTION_SOURCE_WORD: Readonly<Record<ReviewSuggestion['source'], string>> = {
@@ -25,13 +28,20 @@ export const ASSIST_CONSENT = '위 내용을 읽었고 동의해요'
 export const ASSIST_UNAVAILABLE = '지금은 쓸 수 없어요.'
 export const ASSIST_ON = (used: number, limit: number): string => `켜져 있어요 · 오늘 ${String(used)}번 썼어요 (하루 ${String(limit)}번까지)`
 export const ASSIST_OFF_BUTTON = '끄기'
-/** 진행 중인 요청이 있을 때(BUSY) 목록을 한 번 더 읽는 때 — 서버의 호출 시간 제한(15초)보다 조금 뒤 */
-export const ASSIST_BUSY_RELOAD_MS = 16_000
+/** 꺼져 있을 때: 상태 글과 스위치의 보이는 글(누르면 될 일) — 접근성 이름은 ASSIST_SWITCH 그대로 (D-A1-18) */
+export const ASSIST_OFF_STATE = '꺼져 있어요'
+export const ASSIST_ON_BUTTON = '켜기'
+/** 진행 중인 요청이 있을 때(BUSY) 목록을 다시 읽는 간격과 횟수 — 2초 × 8번 = 16초(서버 호출 시간 제한 15초를 덮는다, D-A1-16) */
+export const ASSIST_BUSY_RELOAD_MS = 2_000
+export const ASSIST_BUSY_RELOADS = 8
 
 const productName = (product: Product): string => (product.name.trim() === '' ? '품종 미입력' : product.name)
 
 export interface SuggestionView {
+  /** "제안: 21번 반바지 M 1개" */
   readonly words: string
+  /** "21번 반바지 M 1개" — [이대로 주문] 뒤 띠·결과 끝에 붙인다 (D-A1-14) */
+  readonly choice: string
   readonly source: string
   readonly product: Product
   readonly options: Readonly<Record<string, string>>
@@ -56,7 +66,8 @@ export function suggestionView(suggestion: ReviewSuggestion | null | undefined, 
     options[item.name] = label
   }
   const parts = [`${String(product.no)}번`, productName(product), ...product.options.map((item) => options[item.name] ?? ''), `${String(suggestion.qty)}개`]
-  return { words: `제안: ${parts.join(' ')}`, source: SUGGESTION_SOURCE_WORD[suggestion.source], product, options, qty: suggestion.qty }
+  const choice = parts.join(' ')
+  return { words: `제안: ${choice}`, choice, source: SUGGESTION_SOURCE_WORD[suggestion.source], product, options, qty: suggestion.qty }
 }
 
 export interface AssistOnOpen {
@@ -112,7 +123,7 @@ export function useAssistOnOpen(query: ReviewsQuery, reload: () => Promise<unkno
     if (!live()) return
     const view: AssistOnOpen =
       code === 'LIMIT'
-        ? { ...QUIET, notice: ASSIST_LIMIT(current?.dailyLimit ?? 0) }
+        ? { ...QUIET, notice: current === null || !Number.isInteger(current.dailyLimit) ? ASSIST_LIMIT_UNKNOWN : ASSIST_LIMIT(current.dailyLimit) }
         : code === 'FAILED' || code === 'ERROR'
           ? { ...QUIET, notice: ASSIST_FAILED }
           : code === 'OFF'
@@ -121,11 +132,17 @@ export function useAssistOnOpen(query: ReviewsQuery, reload: () => Promise<unkno
     setResult({ key: mine, view })
     void reloadRef.current()
     if (code === 'BUSY') {
+      // 다른 화면(기기)의 요청이 끝나면 제안이 목록에 붙는다 — 목록만 2초마다 다시 읽는다(외부 호출 없음)
       if (busyTimer.current !== undefined) clearTimeout(busyTimer.current)
-      busyTimer.current = setTimeout(() => {
+      let left = ASSIST_BUSY_RELOADS
+      const tick = () => {
         busyTimer.current = undefined
-        if (live()) void reloadRef.current()
-      }, ASSIST_BUSY_RELOAD_MS)
+        if (!live()) return
+        void reloadRef.current()
+        left -= 1
+        if (left > 0) busyTimer.current = setTimeout(tick, ASSIST_BUSY_RELOAD_MS)
+      }
+      busyTimer.current = setTimeout(tick, ASSIST_BUSY_RELOAD_MS)
     }
   }, [])
 

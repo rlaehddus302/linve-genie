@@ -2,11 +2,12 @@
 // - 옵션 방송을 쓰는 판매자에게만 보인다: 판매 방식 기본이 "상품명·옵션도 받기"(claim.parseMode = OPTIONS)이거나 옵션 방송 기록이 있다
 //   (GET /api/option-broadcasts/exists). 번호로만 받는 판매자의 설정 화면은 지금과 같다(CMT-07). 보조자에게는 칸이 없다.
 // - 서버에 키가 없으면 "지금은 쓸 수 없어요."만(스위치 없음).
-// - 꺼짐: 고지 문장 + 동의 칸 "위 내용을 읽었고 동의해요" + 스위치 "AI 제안 받기"(동의 전엔 누를 수 없다). 켜면 동의를 함께 보낸다.
+// - 꺼짐: 상태 글 "꺼져 있어요" + 고지 문장 + 동의 칸 "위 내용을 읽었고 동의해요" + 스위치(접근성 이름 "AI 제안 받기", 보이는 글은 누르면 될 일 [켜기] — D-A1-18,
+//   동의 전엔 누를 수 없다). 켜면 동의를 함께 보낸다.
 // - 켜짐: "켜져 있어요 · 오늘 N번 썼어요 (하루 L번까지)"와 [끄기](확인 창 없이 바로). 다시 켤 때는 동의를 다시 받는다.
 import { useEffect, useId, useState } from 'react'
 import { get, type ApiError } from '../api/client.ts'
-import { ASSIST_CONSENT, ASSIST_NOTICE, ASSIST_OFF_BUTTON, ASSIST_ON, ASSIST_SWITCH, ASSIST_UNAVAILABLE, useAssistSettings } from '../lib/assist.ts'
+import { ASSIST_CONSENT, ASSIST_NOTICE, ASSIST_OFF_BUTTON, ASSIST_OFF_STATE, ASSIST_ON, ASSIST_ON_BUTTON, ASSIST_SWITCH, ASSIST_UNAVAILABLE, useAssistSettings } from '../lib/assist.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 
 /** 옵션 방송이 하나라도 있는가 (참/거짓만 주는 가벼운 조회 — 실패하면 거짓: 칸이 하나 덜 보일 뿐, 판매 방식이 옵션이면 그대로 보인다) */
@@ -82,6 +83,9 @@ export function AssistSection() {
         </>
       ) : (
         <>
+          <p className="assist-state" role="status">
+            {ASSIST_OFF_STATE}
+          </p>
           <p id={noticeId}>{ASSIST_NOTICE}</p>
           <label className="choice" htmlFor={consentId}>
             <input id={consentId} type="checkbox" checked={consent} disabled={busy} onChange={(event) => setConsent(event.target.checked)} />
@@ -98,7 +102,7 @@ export function AssistSection() {
               disabled={busy || !consent}
               onClick={() => void send(true)}
             >
-              {`${ASSIST_SWITCH} · 꺼짐`}
+              {ASSIST_ON_BUTTON}
             </button>
           </div>
           {!consent ? <p className="hint">동의 칸을 체크하면 켤 수 있어요.</p> : null}
