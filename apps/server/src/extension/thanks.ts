@@ -278,8 +278,9 @@ export class ExtensionThanks {
       rows = rows.filter((row) => !list.includes(row))
     }
     await end(rows.filter((row) => row.deadlineAt !== null && row.deadlineAt.getTime() <= now.getTime()), 'FAILED', 'EXPIRED')
-    await end(rows.filter((row) => consentAt === null || consentAt.getTime() > row.createdAt.getTime()), 'FAILED', 'NO_CONSENT')
-    await end(rows.filter((row) => enabledAt.getTime() > row.createdAt.getTime()), 'FAILED', 'EXT_OFF')
+    // 판매자가 누른 다시 보내기(manual)는 동의·스위치 켠 시각을 보지 않는다 (공식 수동 재전송과 같다)
+    await end(rows.filter((row) => !row.manual && (consentAt === null || consentAt.getTime() > row.createdAt.getTime())), 'FAILED', 'NO_CONSENT')
+    await end(rows.filter((row) => !row.manual && enabledAt.getTime() > row.createdAt.getTime()), 'FAILED', 'EXT_OFF')
     if (chatEndedAt !== null) await end(rows, 'FAILED', 'CHAT_ENDED')
     const dates = [...new Set(rows.map((row) => row.date))]
     for (const date of dates) {

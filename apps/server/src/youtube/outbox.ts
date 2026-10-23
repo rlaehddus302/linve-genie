@@ -32,6 +32,7 @@ import {
   failWaiting,
   findRow,
   groupRows,
+  EXT_VIA,
   handToExtension,
   insertSummaryRows,
   newThanksRows,
@@ -104,6 +105,7 @@ export const RESEND_MESSAGES = {
   ALREADY_SENT: '이미 게시된 감사예요.',
   QUOTA_PAUSED: '오늘 유튜브 사용량이 얼마 남지 않아 채팅 수집에 남겨 둬요.',
   NOT_ALLOWED: '다시 보낼 수 없는 감사예요.',
+  NO_ROUTE: '유튜브를 연결하거나 크롬 확장으로 감사 채팅 올리기를 켜 주세요.',
 } as const
 
 /** 자동 게시 기한 (AC-Y1-37) */
@@ -1139,7 +1141,7 @@ export class OutboxRunner {
     | { kind: 'not_found' }
     | {
         kind: 'rejected'
-        code: 'EFFECT_CANCELLED' | 'ALREADY_SENT' | 'RESEND_NOT_ALLOWED' | 'NO_PERMISSION' | 'NOT_LINKED' | 'NOT_MY_CHANNEL' | 'CHAT_ENDED' | 'YOUTUBE_RECONNECT_NEEDED' | 'QUOTA_PAUSED'
+        code: 'EFFECT_CANCELLED' | 'ALREADY_SENT' | 'RESEND_NOT_ALLOWED' | 'NO_PERMISSION' | 'NOT_LINKED' | 'NOT_MY_CHANNEL' | 'CHAT_ENDED' | 'YOUTUBE_RECONNECT_NEEDED' | 'QUOTA_PAUSED' | 'YOUTUBE_NOT_CONNECTED'
         message: string
         row?: OutboxRowView
       }
@@ -1170,8 +1172,50 @@ export class OutboxRunner {
       }
     }
     const connection = await this.#options.connections.row(sellerId)
-    if (connection === null || connection.status !== 'CONNECTED') return { kind: 'rejected', code: 'YOUTUBE_RECONNECT_NEEDED', message: OUTBOX_REASON_MESSAGES.RECONNECT }
     const link = await activeLink(db, sellerId, row.broadcastId ?? '')
+    if (connection !== null && link !== null && link.channelId !== connection.channelId) return { kind: 'rejected', code: 'NOT_MY_CHANNEL', message: OUTBOX_REASON_MESSAGES.NOT_MY_CHANNEL }
+    // 자동 게시와 같은 길 (X1 D-X1-19): 공식으로 올릴 수 있으면 공식, 아니면 확장 스위치·연결·회차 이어짐이면 확장에 맡긴다.
+    // 판매자가 누른 다시 보내기라 '동의 전'·'스위치 켜기 전' 감사도 보낸다(manual — 공식 경로의 수동 재전송 규칙과 같다)
+    const official = connection !== null && connection.status === 'CONNECTED' && connection.canPublish && link !== null
+    if (!official && target === 'LIVE_CHAT' && this.#options.extension !== undefined && row.broadcastId !== null) {
+      if ((await this.#options.extension.route(sellerId, row.broadcastId)) !== null) {
+        const handed = await updateRows(
+          db,
+          sellerId,
+          [row.id],
+          {
+            state: 'WAITING',
+            reason: 'EXTENSION',
+            manual: true,
+            deadlineAt: null,
+            attempts: 0,
+            groupId: null,
+            nextAt: null,
+            postText: liveChatText(effectOf(row)?.text ?? ''),
+            sentText: null,
+            attemptAt: null,
+            confirmUntil: null,
+            confirmTries: 0,
+            remoteId: null,
+            leaseOwner: null,
+            leaseUntil: null,
+            resendRequestId: requestId,
+            dismissedAt: null,
+            dismissedBy: null,
+            via: EXT_VIA,
+          },
+          now,
+          { state: 'FAILED' },
+        )
+        if (handed.length === 0) return { kind: 'rejected', code: 'RESEND_NOT_ALLOWED', message: RESEND_MESSAGES.NOT_ALLOWED }
+        this.#publishRows(sellerId, row.date, handed, 'WAITING', 'EXTENSION')
+        this.#options.extension.handed?.(sellerId, row.broadcastId)
+        const fresh = await findRow(db, sellerId, row.id)
+        return { kind: 'ok', row: outboxRowView(fresh ?? row) }
+      }
+    }
+    if (connection === null) return { kind: 'rejected', code: 'YOUTUBE_NOT_CONNECTED', message: RESEND_MESSAGES.NO_ROUTE }
+    if (connection.status !== 'CONNECTED') return { kind: 'rejected', code: 'YOUTUBE_RECONNECT_NEEDED', message: OUTBOX_REASON_MESSAGES.RECONNECT }
     // 그 방송을 이은 채널 = 지금 연결한 채널일 때만 (AC-Y1-92). 행은 그대로 FAILED
     if (link !== null && link.channelId !== connection.channelId) return { kind: 'rejected', code: 'NOT_MY_CHANNEL', message: OUTBOX_REASON_MESSAGES.NOT_MY_CHANNEL }
     if (!connection.canPublish) return { kind: 'rejected', code: 'NO_PERMISSION', message: OUTBOX_REASON_MESSAGES.NO_PERMISSION }

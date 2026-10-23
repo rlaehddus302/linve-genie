@@ -243,6 +243,37 @@ describe('AC-X1-28 한쪽 경로만 (YT-10 AC13, D-X1-19)', () => {
   })
 })
 
+describe('수동 다시 보내기도 같은 길 (D-X1-19, HG-X1)', () => {
+  it('공식 연결 없음: 스위치 꺼짐이면 쉬운 말로 거절, 켜면 동의 전 감사도 확장에 맡겨 한 번만 올린다', async () => {
+    const { w, connected, b, token, me, api } = await setup({ connect: false, thanks: false })
+    await chat(w, token, '3')
+    await run(w)
+    const id = (await rows(w, connected, b.date))[0]?.id ?? 0
+    expect((await rows(w, connected, b.date))[0]?.state).toBe('FAILED')
+    const refused = await api.post(`/api/outbox/${String(id)}/resend`, { requestId: 'r-1' })
+    expect(refused.status).toBe(409)
+    expect(refused.text).toContain('크롬 확장으로 감사 채팅 올리기를 켜 주세요')
+    expect((await api.post('/api/extension/thanks', { enabled: true, agreed: true })).status).toBe(200)
+    const resent = await api.post(`/api/outbox/${String(id)}/resend`, { requestId: 'r-2' })
+    expect(resent.status, resent.text).toBe(200)
+    const list = await rows(w, connected, b.date)
+    expect(list.map((row) => [row.state, row.reason, row.viaExtension])).toEqual([['WAITING', 'EXTENSION', true]])
+    // 공식 실행기는 집지 않는다
+    await run(w)
+    expect(w.fake.posted).toHaveLength(0)
+    const taken = await take(w, token, me)
+    expect(taken.body.state).toBe('POST')
+    const post = taken.body.post as { ids: number[] }
+    expect(post.ids).toEqual([id])
+    expect((await ext(w, '/ext/thanks/result', token, { ids: post.ids, result: 'POSTED' })).status).toBe(200)
+    expect((await rows(w, connected, b.date))[0]?.state).toBe('SENT')
+    expect((await api.post(`/api/outbox/${String(id)}/resend`, { requestId: 'r-3' })).status).toBe(409)
+    expect((await take(w, token, me)).body.state).toBe('NONE')
+    await run(w)
+    expect(w.fake.posted).toHaveLength(0)
+  })
+})
+
 describe('AC-X1-27 채널 주인만 (YT-10 AC12, D-X1-20)', () => {
   it('입력 칸에 주인 배지 없음(관리자·다른 계정), 방송 채널을 못 읽음, 유튜브 연결 채널과 다름 → 주지 않고 경고. 주인이고 같으면 준다', async () => {
     const { w, token, me, api } = await setup()
