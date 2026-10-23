@@ -53,9 +53,17 @@ function registerPosts(requests: { method: string; body: string }[]): unknown[] 
  */
 async function sayLikeSafari(page: Page, text: string, final = true): Promise<void> {
   const before = (await safariCounts(page)).constructed
-  await page.clock.runFor(2100)
+  // 지금 인식 객체가 연 지 2.1초가 되게 한다 — 앞 문장 뒤 조용한 시간(1.8초)을 넘겼으면 그만큼은 이미 지났다
+  const age = await page.evaluate(() => {
+    const s = (window as unknown as { __speech?: { instances: { startedAt: number }[] } }).__speech
+    const last = s?.instances.at(-1)
+    return last === undefined ? 0 : Date.now() - last.startedAt
+  })
+  await page.clock.runFor(Math.max(0, 2100 - age))
   await safariSay(page, text, final ? {} : { final: false, endSoon: true })
   await page.clock.runFor(FINAL_END_MS + 100)
+  // 조용한 시간(D-V2-03, 1.8초) 뒤 카드가 나온다 (AC-V2-32 — 기대 카드 글 그대로)
+  if (final) await page.clock.runFor(1800)
   await expect.poll(async () => (await safariCounts(page)).constructed).toBe(before + 1)
 }
 

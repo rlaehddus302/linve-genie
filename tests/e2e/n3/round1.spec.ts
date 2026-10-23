@@ -213,6 +213,7 @@ test.describe('음성 — 이력을 받는 동안 미룬 문장과 자동 등록
     await box.check()
     open = true
     for (const r of waiting.splice(0)) await r.fallback()
+    await page.clock.runFor(1800) // 조용한 시간(D-V2-03) 뒤 카드가 나온다 (AC-V2-32)
     const c = card(page, '15번 라울 10,000원')
     await expect(c).toBeVisible()
     await expect(c.getByText(/초 뒤 자동 등록/)).toHaveCount(0)

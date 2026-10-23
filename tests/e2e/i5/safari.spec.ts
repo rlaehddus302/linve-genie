@@ -54,6 +54,7 @@ test.describe('I5 아이폰(사파리) 음성 @webkit', () => {
     }
     expect((await safariCounts(page)).constructed).toBeGreaterThan(40)
     await safariSay(page, '15번 핑크프릴 만오천원')
+    await page.clock.runFor(1800) // 조용한 시간(D-V2-03) 뒤 카드가 나온다 (AC-V2-32)
     await expect(card(page, C15)).toBeVisible()
     await cardButton(page, C15, '등록').click()
     await expect(boardItem(page, 15)).toBeVisible()
@@ -122,6 +123,7 @@ test.describe('I5 아이폰(사파리) 음성 @webkit', () => {
     await turnOnVoice(page)
     await pauseClock(page)
     await safariSay(page, '15번 핑크프릴 만오천원')
+    await page.clock.runFor(1800) // 조용한 시간(D-V2-03) 뒤 카드가 나온다 (AC-V2-32)
     await expect(card(page, C15).getByText(/초 뒤 자동 등록/)).toBeVisible()
     await page.clock.runFor(5100)
     await expect(boardItem(page, 15)).toBeVisible()
@@ -158,6 +160,7 @@ test.describe('I5 아이폰(사파리) 음성 @webkit', () => {
     await turnOnVoice(page)
     await pauseClock(page)
     await safariSay(page, '15번 핑크프릴 만오천원')
+    await page.clock.runFor(1800) // 조용한 시간(D-V2-03) 뒤 카드가 나온다 (AC-V2-32)
     await expect(card(page, C15)).toBeVisible()
     await page.clock.runFor(200) // 최종 뒤 곧 끝남 → 엔진이 다시 연다
     await expect.poll(async () => (await safariCounts(page)).constructed).toBe(2)
@@ -213,11 +216,13 @@ test.describe('I5 아이폰(사파리) 음성 @webkit', () => {
     await pauseClock(page)
     for (const [no, word] of [[16, '만육천원'], [17, '만칠천원'], [18, '만팔천원']] as const) {
       await safariSay(page, `${String(no)}번 핑크프릴 ${word}`)
+      await page.clock.runFor(1800) // 조용한 시간(D-V2-03) 뒤 카드가 나온다 (AC-V2-32)
       const short = `${String(no)}번 핑크프릴 ${String(no)},000원`
       await cardButton(page, short, '자동 등록 멈추기').click()
       await expect(cardButton(page, short, '자동 등록 멈추기')).toHaveCount(0)
     }
     await safariSay(page, '19번 핑크프릴 만구천원')
+    await page.clock.runFor(1800) // 조용한 시간(D-V2-03) 뒤 카드가 나온다 (AC-V2-32)
     await expect(cardList(page).getByRole('listitem')).toHaveCount(4)
     const scroll = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }))
     expect(scroll.sw).toBeLessThanOrEqual(scroll.iw)
