@@ -105,7 +105,7 @@ describe('AC-PL1A-01 백업 파일에 봉인 범위를 담는다', () => {
 })
 
 describe('AC-PL1A-03 손상된 봉인 범위는 거절하고 아무것도 바꾸지 않는다', () => {
-  it('장부·장부 요약값·seq 빈틈·이벤트 본문·모르는 판·다른 날짜·리허설 봉인·파일 요약값 — 바꾸기 복구·빈 판매자 가져오기 모두 거절, 기록·백업 목록 그대로', async () => {
+  it('장부·장부 요약값·seq 빈틈·이벤트 본문·모르는 판·다른 날짜·리허설 봉인·장부 방송 행 모양·장부 안 __proto__·파일 요약값 — 바꾸기 복구·빈 판매자 가져오기 모두 거절, 기록·백업 목록 그대로', async () => {
     const s = await sealedScenario()
     const bytes = await exportRecords(s.world, s.seller)
     const file = decode(bytes)
@@ -116,6 +116,12 @@ describe('AC-PL1A-03 손상된 봉인 범위는 거절하고 아무것도 바꾸
     const otherDate = sealed.ledger.replace(`"date":"${A}"`, '"date":"2026-08-31"')
     const aEvents = scopeOf(file, A).events
     const bodyAt = aEvents[2]?.body.indexOf('"at":') ?? 0
+    const ledgerJson = JSON.parse(sealed.ledger) as Record<string, unknown>
+    const ledgerBroadcasts = ledgerJson.broadcasts as unknown[]
+    const reLedger = (ledger: string): Uint8Array => {
+      expect(ledger).not.toBe(sealed.ledger)
+      return resign(withScope(file, A, (scope) => ({ ...scope, sealed: { ...sealed, ledger, ledgerDigest: sha256Hex(ledger) } })))
+    }
     const cases: [string, Uint8Array, string][] = [
       ['(a) 장부 한 글자', resign(withScope(file, A, (scope) => ({ ...scope, sealed: { ...sealed, ledger: flip(sealed.ledger, ledgerAt) } }))), SEALED_BACKUP_MESSAGES.digest(A)],
       ['(b) 장부 요약값 한 글자', resign(withScope(file, A, (scope) => ({ ...scope, sealed: { ...sealed, ledgerDigest: `${sealed.ledgerDigest.slice(0, -1)}${sealed.ledgerDigest.endsWith('0') ? '1' : '0'}` } }))), SEALED_BACKUP_MESSAGES.digest(A)],
@@ -132,6 +138,15 @@ describe('AC-PL1A-03 손상된 봉인 범위는 거절하고 아무것도 바꾸
       ['(e) 모르는 판', resign(withScope(file, A, (scope) => ({ ...scope, sealed: { ...sealed, ledger: unknownFormat, ledgerDigest: sha256Hex(unknownFormat) } }))), SEALED_BACKUP_MESSAGES.unreadable(A)],
       ['(f) 장부의 날짜', resign(withScope(file, A, (scope) => ({ ...scope, sealed: { ...sealed, ledger: otherDate, ledgerDigest: sha256Hex(otherDate) } }))), SEALED_BACKUP_MESSAGES.unreadable(A)],
       ['(g) 리허설 범위에 sealed', resign(withScope(file, B, (scope) => ({ ...scope, sealed }), true)), '리허설 범위는 봉인할 수 없어요.'],
+      // TD-PL1A-001: 방송 행 모양이 틀린 장부(요약값 다시 계산) — 예외가 아니라 읽을 수 없는 장부 문장
+      ['(i) 장부 방송 목록에 null', reLedger(JSON.stringify({ ...ledgerJson, broadcasts: [null, ...ledgerBroadcasts] })), SEALED_BACKUP_MESSAGES.unreadable(A)],
+      ['(j) 장부 방송 목록에 숫자', reLedger(JSON.stringify({ ...ledgerJson, broadcasts: [1, ...ledgerBroadcasts] })), SEALED_BACKUP_MESSAGES.unreadable(A)],
+      ['(k) 장부 방송 id가 숫자', reLedger(JSON.stringify({ ...ledgerJson, broadcasts: ledgerBroadcasts.map((row) => ({ ...(row as object), id: 7 })) })), SEALED_BACKUP_MESSAGES.unreadable(A)],
+      ['(l) 장부 방송 끝난 시각이 숫자', reLedger(JSON.stringify({ ...ledgerJson, broadcasts: ledgerBroadcasts.map((row) => ({ ...(row as object), endedAt: 0 })) })), SEALED_BACKUP_MESSAGES.unreadable(A)],
+      // TD-PL1A-002: 장부 안 __proto__ 칸(맨 위·판매 행·더 안쪽)
+      ['(m) 장부 맨 위 __proto__', reLedger(sealed.ledger.replace(/^\{/, '{"__proto__":{"date":"2026-08-15"},')), SEALED_BACKUP_MESSAGES.unreadable(A)],
+      ['(n) 판매 행 __proto__', reLedger(sealed.ledger.replace('"sales":[{', '"sales":[{"__proto__":{"amount":1},')), SEALED_BACKUP_MESSAGES.unreadable(A)],
+      ['(o) 방송 행 __proto__', reLedger(sealed.ledger.replace('"broadcasts":[{', '"broadcasts":[{"__proto__":{"id":"x"},')), SEALED_BACKUP_MESSAGES.unreadable(A)],
       ['(h) 파일 요약값만 틀림', reencode({ ...file, digest: file.digest.replace(/^./, (c) => (c === 'a' ? 'b' : 'a')) }), '파일 요약값이 맞지 않아요(파일이 손상됐거나 바뀌었어요).'],
     ]
     const other = await newWorld({ clock: fakeClock(s.world.clock.now()), backupStorage: new FolderBackupStorage(tempDir()) })

@@ -671,9 +671,36 @@ function checkSealedField(raw: unknown, date: string, rehearsal: boolean): { sea
   if (!isIso(sealedAt) || typeof ledger !== 'string' || typeof ledgerDigest !== 'string') return invalid(SEALED_BACKUP_MESSAGES.shape(date))
   if (rehearsal) return invalid(SEALED_BACKUP_MESSAGES.rehearsal)
   if (sha256Hex(ledger) !== ledgerDigest) return invalid(SEALED_BACKUP_MESSAGES.digest(date))
+  if (hasProtoKey(ledger)) return invalid(SEALED_BACKUP_MESSAGES.unreadable(date))
   const read = readLedger(ledger)
   if (read === null || read.date !== date) return invalid(SEALED_BACKUP_MESSAGES.unreadable(date))
+  // readLedger는 목록인지만 본다 — 방송 행이 객체가 아니거나 칸 모양이 다르면 검사가 예외로 멈추지 않게 여기서 거절한다 (TD-PL1A-001)
+  const broadcasts: readonly unknown[] = read.broadcasts
+  if (!broadcasts.every(isLedgerBroadcast)) return invalid(SEALED_BACKUP_MESSAGES.unreadable(date))
   return { sealed: { sealedAt: sealedAt as string, ledger, ledgerDigest }, ledgerBroadcasts: read.broadcasts }
+}
+
+/** 장부의 방송 행 하나: id·date·title 글, endedAt 글 또는 null */
+function isLedgerBroadcast(value: unknown): value is { id: string; date: string; title: string; endedAt: string | null } {
+  return isObject(value) && typeof value.id === 'string' && typeof value.date === 'string' && typeof value.title === 'string' && isStringOrNull(value.endedAt)
+}
+
+/**
+ * 장부 글 어디든(맨 위·판매 행·그 안) `__proto__` 칸이 있으면 true (TD-PL1A-002, AC-PL1A-91). JSON.parse는 이 칸을 자기 칸으로 만들 뿐 원형을 바꾸지 않지만,
+ * 정상 장부에는 생길 수 없는 칸이라 위조로 보고 거절한다. 읽을 수 없는 글은 false(뒤의 readLedger가 거절한다)
+ */
+function hasProtoKey(text: string): boolean {
+  if (!text.includes('__proto__')) return false
+  let found = false
+  try {
+    JSON.parse(text, function (this: unknown, key: string, value: unknown) {
+      if (key === '__proto__') found = true
+      return value
+    })
+  } catch {
+    return false
+  }
+  return found
 }
 
 /**
