@@ -2902,6 +2902,25 @@ select.input {
   min-inline-size: 0;
 }
 
+/* 날짜 고르기 글("2026년 10월 21일(수) · 보낼 수 있어요 0 · 접수 2")이 휴대폰 폭을 밀어 내지 않게 — 칸은 화면 폭까지만, 넘치면 말줄임 (TE-T1-002·U-T1-02) */
+.parcels-page .scope-row,
+.parcels-page .scope-picker {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+.parcels-page .scope-picker {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.parcels-page .scope-picker .input {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .parcel-box .input {
   inline-size: auto;
 }

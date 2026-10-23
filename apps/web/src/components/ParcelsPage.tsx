@@ -5,11 +5,13 @@
 // - 주 버튼 "N개 택배 접수하기"(0개·보내는 사람/택배사 없음이면 잠김) → 확인 창(처음 포커스 "닫기") → "접수하기".
 //   보내는 동안 잠기고 두 번 눌러도 요청 하나(같은 화면 요청 번호 — 연결이 끊기면 같은 번호로 다시). 끝나면 줄마다 결과, 실패가 있으면 "실패한 것만 다시".
 // - 다른 기기의 접수·취소·조회·입금·포장도 실시간 알림(parcel·packing·change)으로 다시 읽는다. 다시 붙으면 한 번 다시 읽는다.
-// - 이름은 서버가 준 표시 이름(BUY-01)을 React 기본 이스케이프로만 그린다.
+// - 이름은 다른 화면과 같은 이름 규칙(BUY-01·D-098 — 같은 표시 이름이면 " · 뒤 4자리 5678" 등)으로, React 기본 이스케이프로만 그린다.
+//   그날 범위 자료(구매자·찜)를 함께 열어 buyerLabels로 정하고, 그 전에는 목록 줄끼리 같은 규칙(parcelNames)으로 나눈다 (TE-T1-001).
 import { formatWon } from '@livejjim/core'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { get, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import type { BookResponse, BookResult, BoxKind, BundleView, ParcelDay, ParcelDays, ParcelRow } from '../api/parcel-types.ts'
+import { BuyerNames } from '../lib/derive.ts'
 import { dateLong } from '../lib/kst.ts'
 import { useLiveEvents } from '../lib/live-events.ts'
 import { PACKING_TONE } from '../lib/packing.ts'
@@ -28,10 +30,12 @@ import {
   checkedWords,
   isRetryable,
   parcelGroups,
+  parcelNames,
   retryRows,
   rowReason,
 } from '../lib/parcel-words.ts'
 import type { Navigate, ParcelsRoute } from '../lib/router.ts'
+import { useScopeStore } from '../lib/use-store.ts'
 import { PAYMENT_WORD } from '../lib/words.ts'
 import type { PackingWord } from '../api/types.ts'
 import { useDownload } from './downloads.tsx'
@@ -193,6 +197,13 @@ function ParcelDayView({ date, navigate, version, onChanged }: { readonly date: 
   const chosen = groups === null ? [] : groups.ready.filter((row) => !unchecked.has(row.buyer))
   const boxOf = (row: ParcelRow): BoxKind => boxes.get(row.buyer) ?? row.box
   const blocked = day?.blocked ?? null
+  const scope = useScopeStore(`parcels|${date}`, () => ({ scope: { date, rehearsal: false } })).snapshot.data
+  const scopeNames = useMemo(() => (scope === null ? null : new BuyerNames(scope.buyers, scope.claims)), [scope?.buyers, scope?.claims])
+  const names = useMemo(
+    () => (day === null ? new Map<string, string>() : parcelNames([...day.ready, ...day.excluded, ...day.booked], (buyer) => (scope !== null && scope.buyers.has(buyer) ? scopeNames?.name(buyer) : undefined))),
+    [day, scope, scopeNames],
+  )
+  const nameOf = (row: ParcelRow): string => names.get(row.buyer) ?? row.name
 
   const book = async (rows: readonly ParcelRow[]) => {
     if (running.current || rows.length === 0) return
@@ -268,7 +279,7 @@ function ParcelDayView({ date, navigate, version, onChanged }: { readonly date: 
               <li key={row.buyer} className="parcel-row stack-tight">
                 <label className="pack-item parcel-pick">
                   <input type="checkbox" checked={!unchecked.has(row.buyer)} disabled={busy} onChange={() => toggle(row.buyer)} />
-                  <strong className="buyer-name">{row.name}</strong>
+                  <strong className="buyer-name">{nameOf(row)}</strong>
                 </label>
                 <RowFacts row={row} />
                 <div className="field parcel-box">
@@ -318,7 +329,7 @@ function ParcelDayView({ date, navigate, version, onChanged }: { readonly date: 
         {groups.excluded.length > 0 ? (
           <ul className="plain-list stack-tight parcel-list">
             {groups.excluded.map((row) => (
-              <ExcludedRow key={row.buyer} date={date} row={row} navigate={navigate} result={results.get(row.buyer) ?? null} busy={busy} onRetry={() => void book([row])} blocked={blocked !== null} />
+              <ExcludedRow key={row.buyer} date={date} row={row} name={nameOf(row)} navigate={navigate} result={results.get(row.buyer) ?? null} busy={busy} onRetry={() => void book([row])} blocked={blocked !== null} />
             ))}
           </ul>
         ) : null}
@@ -349,7 +360,7 @@ function ParcelDayView({ date, navigate, version, onChanged }: { readonly date: 
             {waybills.error !== null ? <RequestError error={waybills.error} /> : null}
             <ul className="plain-list stack-tight parcel-list">
               {groups.booked.map((row) => (
-                <BookedRow key={row.buyer} date={date} row={row} onChanged={onChanged} />
+                <BookedRow key={row.buyer} date={date} row={row} name={nameOf(row)} onChanged={onChanged} />
               ))}
             </ul>
           </>
@@ -399,6 +410,7 @@ function RowFacts({ row }: { readonly row: ParcelRow }) {
 function ExcludedRow({
   date,
   row,
+  name,
   navigate,
   result,
   busy,
@@ -407,6 +419,7 @@ function ExcludedRow({
 }: {
   readonly date: string
   readonly row: ParcelRow
+  readonly name: string
   readonly navigate: Navigate
   readonly result: string | null
   readonly busy: boolean
@@ -419,7 +432,7 @@ function ExcludedRow({
   const unknown = row.parcel?.state === 'UNKNOWN'
   return (
     <li className="parcel-row stack-tight">
-      <strong className="buyer-name">{row.name}</strong>
+      <strong className="buyer-name">{name}</strong>
       <RowFacts row={row} />
       {text !== '' ? (
         <p className="parcel-reason" data-tone={failed ? 'danger' : unknown ? 'warning' : undefined}>
@@ -442,7 +455,7 @@ function ExcludedRow({
   )
 }
 
-function BookedRow({ date, row, onChanged }: { readonly date: string; readonly row: ParcelRow; readonly onChanged: () => void }) {
+function BookedRow({ date, row, name, onChanged }: { readonly date: string; readonly row: ParcelRow; readonly name: string; readonly onChanged: () => void }) {
   const parcel = row.parcel
   const [asking, setAsking] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -479,7 +492,7 @@ function BookedRow({ date, row, onChanged }: { readonly date: string; readonly r
 
   return (
     <li className="parcel-row stack-tight">
-      <strong className="buyer-name">{row.name}</strong>
+      <strong className="buyer-name">{name}</strong>
       <RowFacts row={row} />
       {parcel !== null ? (
         <p className="row">
@@ -488,7 +501,7 @@ function BookedRow({ date, row, onChanged }: { readonly date: string; readonly r
           {checked !== null ? <span className="hint">{checked}</span> : null}
         </p>
       ) : null}
-      <div className="row" role="group" aria-label={`${row.name} 택배`}>
+      <div className="row" role="group" aria-label={`${name} 택배`}>
         <button type="button" className="button" disabled={waybill.busy} onClick={() => void waybill.run(withQuery(`/api/parcels/days/${date}/waybill.pdf`, { buyer: row.buyer }), `운송장-${date}.pdf`)}>
           운송장 PDF
         </button>
@@ -531,7 +544,7 @@ function BookedRow({ date, row, onChanged }: { readonly date: string; readonly r
             </button>
           }
         >
-          <p>{`${row.name}님의 택배 접수를 취소할까요? 택배사가 아직 가져가지 않았을 때만 취소돼요.`}</p>
+          <p>{`${name}님의 택배 접수를 취소할까요? 택배사가 아직 가져가지 않았을 때만 취소돼요.`}</p>
         </Modal>
       ) : null}
     </li>

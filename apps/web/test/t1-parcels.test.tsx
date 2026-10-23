@@ -7,7 +7,7 @@ import { App } from '../src/App.tsx'
 import { onUnauthorized } from '../src/api/client.ts'
 import type { AddressView, BundleView, ParcelBrief, ParcelDay, ParcelRow, ParcelSettings } from '../src/api/parcel-types.ts'
 import { menuLayout, menuAll, menuName } from '../src/lib/menu.ts'
-import { addressShape, parcelGroups, parcelLine, retryRows, rowReason } from '../src/lib/parcel-words.ts'
+import { addressShape, parcelGroups, parcelLine, parcelNames, retryRows, rowReason } from '../src/lib/parcel-words.ts'
 import { menuOf, parseRoute, routePath } from '../src/lib/router.ts'
 import { AddressSection } from '../src/components/ParcelParts.tsx'
 import { PrivacyPage } from '../src/components/PolicyPages.tsx'
@@ -303,6 +303,44 @@ function addressView(patch: Partial<AddressView> = {}): AddressView {
 function bundleOf(patch: Partial<BundleView> = {}): BundleView {
   return { date: D, buyer: 'UC_A', address: null, locked: false, expired: false, row: row('UC_A', '김하나', { address: 'NONE', ready: false, reason: 'NO_ADDRESS', message: '배송지가 없어요' }), ...patch }
 }
+
+describe('줄 이름 규칙 (BUY-01·D-098, TE-T1-001)', () => {
+  const phone = (buyer: string, last4: string | null, patch: Partial<ParcelRow> = {}) => row(buyer, '문자찜', { phoneLast4: last4, ...patch })
+
+  it('같은 표시 이름이 둘 이상이면 " · 뒤 4자리 …", 하나뿐이면 표시 이름 그대로', () => {
+    const names = parcelNames([phone('S1', '0001'), phone('S2', '0002'), row('UC_A', '김하나'), row('S3', '혼자', { phoneLast4: '0003' })])
+    expect([...names.values()]).toEqual(['문자찜 · 뒤 4자리 0001', '문자찜 · 뒤 4자리 0002', '김하나', '혼자'])
+  })
+
+  it('그래도 겹치면(뒤 4자리 없음·같은 뒤 4자리) 목록 순서로 둘째부터 " · 2", " · 3"', () => {
+    const names = parcelNames([phone('S1', null), phone('S2', null), phone('S3', '0001'), phone('S4', '0001'), phone('S5', null)])
+    expect([...names.values()]).toEqual(['문자찜', '문자찜 · 2', '문자찜 · 뒤 4자리 0001', '문자찜 · 뒤 4자리 0001 · 2', '문자찜 · 3'])
+    expect(new Set(names.values()).size).toBe(5)
+  })
+
+  it('그날 범위 이름(다른 화면과 같은 이름)이 있으면 그것을 쓰고, 없는 줄만 목록끼리 나눈다 — 겹치지 않는다', () => {
+    const known = new Map([['S1', '문자찜 · 문자 20:01:05']])
+    const names = parcelNames([phone('S1', null), phone('S2', null), phone('S3', null)], (buyer) => known.get(buyer))
+    expect(names.get('S1')).toBe('문자찜 · 문자 20:01:05')
+    expect(new Set(names.values()).size).toBe(3)
+  })
+
+  it('택배 화면: 고르는 칸·접수한 줄 묶음·취소 창 이름이 구분된다 (전화번호 문자찜 둘)', async () => {
+    day = {
+      ...sixRows(),
+      ready: [phone('S1', '0001')],
+      excluded: [],
+      booked: [phone('S2', '0002', { ready: false, reason: 'BOOKED', message: '이미 접수했어요', packing: '배송 완료', parcel: brief() })],
+    }
+    await open()
+    expect(within(region(exact('보낼 수 있어요'))).getByRole('checkbox', { name: '문자찜 · 뒤 4자리 0001' })).toBeTruthy()
+    const group = within(region(exact('접수했어요'))).getByRole('group', { name: '문자찜 · 뒤 4자리 0002 택배' })
+    fireEvent.click(within(group).getByRole('button', { name: '접수 취소' }))
+    const dlg = await screen.findByRole('dialog', { name: '접수 취소' })
+    expect(dlg.textContent).toContain('문자찜 · 뒤 4자리 0002님의 택배 접수를 취소할까요?')
+    expect(document.body.textContent).not.toMatch(/010-?\d{4}-?\d{4}/)
+  })
+})
 
 describe('배송지 칸 (AC-T1-65)', () => {
   let bundle: BundleView

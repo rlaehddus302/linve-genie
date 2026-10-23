@@ -132,3 +132,33 @@ export function phoneWords(phone: string): string {
   if (/^01\d{8,9}$/.test(phone)) return phone.length === 11 ? `${phone.slice(0, 3)}-${phone.slice(3, 7)}-${phone.slice(7)}` : `${phone.slice(0, 3)}-${phone.slice(3, 6)}-${phone.slice(6)}`
   return phone
 }
+
+/**
+ * 택배 화면 줄 이름 (BUY-01·D-098, TE-T1-001) — 고르는 칸·"접수 취소"·"운송장 PDF"가 어느 구매자 것인지 늘 구분된다.
+ * - 그날 범위 자료가 있으면 다른 화면과 같은 이름(buyerLabels: 그날 모든 구매자 기준 " · 끝 1234"·" · 뒤 4자리 5678"·" · 문자 20:01:05"·" · 2")을 쓴다.
+ * - 아직 없으면(불러오는 중·못 읽음) 이 목록의 줄끼리 같은 규칙: 같은 표시 이름이 둘 이상이면 " · 뒤 4자리 5678"(있을 때),
+ *   그래도 겹치면 목록 순서로 둘째부터 " · 2", " · 3". 전화번호 원문은 넣지 않는다(서버가 준 뒤 4자리만).
+ */
+export function parcelNames(rows: readonly ParcelRow[], known: (buyer: string) => string | undefined = () => undefined): Map<string, string> {
+  const counts = new Map<string, number>()
+  for (const row of rows) counts.set(row.name, (counts.get(row.name) ?? 0) + 1)
+  const out = new Map<string, string>()
+  const taken = new Set<string>()
+  const local: ParcelRow[] = []
+  for (const row of rows) {
+    const label = known(row.buyer)
+    if (label === undefined) local.push(row)
+    else {
+      out.set(row.buyer, label)
+      taken.add(label)
+    }
+  }
+  for (const row of local) {
+    const base = (counts.get(row.name) ?? 0) >= 2 && row.phoneLast4 !== null ? `${row.name} · 뒤 4자리 ${row.phoneLast4}` : row.name
+    let label = base
+    for (let n = 2; taken.has(label); n++) label = `${base} · ${String(n)}`
+    taken.add(label)
+    out.set(row.buyer, label)
+  }
+  return out
+}
