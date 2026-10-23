@@ -271,6 +271,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     focusQuick: () => {},
   })
   const [voice, setVoice] = useState<VoiceController | null>(null)
+  // 등록 성공을 음성 칸에 알린다 (지원 안 함 안내를 내림, D-I5-15) — 등록 경로가 음성 컨트롤러를 의존하지 않게 ref로
+  const voiceRef = useRef<VoiceController | null>(null)
+  voiceRef.current = voice
   useEffect(() => {
     const controller = new VoiceController({
       load: loadVoice,
@@ -606,6 +609,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         if (request.fromFix) setFix(null)
         setSelected(key)
         setQuickError(null)
+        voiceRef.current?.noteRegistered()
         queue.addRegistration({ no: request.no, product: key, undo: () => undoRegistration(request.no) })
       } catch (error) {
         if (!isApiError(error)) throw error

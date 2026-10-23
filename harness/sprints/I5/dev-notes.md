@@ -55,3 +55,11 @@
 - 한도에 세는 끝남: 빨리 끝남(연 지 2초 안) · `network` 오류 뒤 끝남(연 시간 무관, D-I5-17) · `countAllEnds`면 모두. 세는 끝남 뒤에만 `RESTARTING`을 알린다(D-I5-14). 세지 않은 끝남은 상태 `LISTENING` 그대로 새 객체를 연다.
 - 한도에 걸린 끝남 바로 앞이 `network`면 `CONNECTION_FAILED`, 아니면 `KEEPS_STOPPING`(D-I5-17).
 - `RestartLimiter.isQuiet(openedAt)` 추가(연 지 2초 이상 = 조용함, 시계 이상은 조용함 아님).
+
+## dev-web 감사 2 반영 (D-I5-11·12·15·16·18, TE-I5-001, SA-I5-01)
+- 안내 창 셋째 줄: `다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.`(D-I5-11).
+- 오류 알림: `role="alert"` 블록 안에 `\n`으로 나눈 줄마다 `<p>`(D-I5-12). 오류는 `.voice-error`(빨강), 지원 안 함은 `.voice-guide`(안내 색 `.voice-info`와 같은 색) + "닫기" 버튼(D-I5-15). 스냅숏에 `unsupported: boolean`, 컨트롤러 `dismissUnsupported()`·`noteRegistered()`. 콘솔은 `product.register` 성공(`result.changed`) 뒤 `noteRegistered()`를 부른다 — "고칠까요?"만 열린 경우는 내리지 않는다.
+- 켜진 동안 고지: 폭 48rem(768px) 이상 `SENT_NOTICE`, 미만 `SENT_NOTICE_SHORT` "음성은 인식을 위해 구글·애플로 보내져요."(D-I5-16, `useWide`).
+- 엔진 만들기: `countAllEnds: isHomeScreenApp()`(D-I5-18).
+- `playwright.config.ts`: `webkit-iphone` 묶음만 `use.serviceWorkers: 'block'`(TE-I5-001, 머리 주석에 WebKit 예외). `e2e/global-setup.ts`: 크로미움 없음 안내에 webkit 설치 명령 함께, WebKit 없으면 경고(멈추지 않음 — 그 묶음이 스스로 실패, AC-I5-90).
+- orch에게(SA-I5-01): `scripts/verify/stages.mjs:506` 안내가 `pnpm exec playwright install chromium`만 말한다 — `pnpm exec playwright install chromium webkit`으로 바꿔 주길 요청(검증 게이트는 orch 소유라 손대지 않음).

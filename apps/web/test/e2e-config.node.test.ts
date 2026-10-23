@@ -104,6 +104,15 @@ describe('E2E 기동 (코드 검사)', () => {
     expect(new Set(ports).size).toBe(ports.length)
   })
 
+  const source0 = () => readFileSync(new URL('../playwright.config.ts', import.meta.url), 'utf8').split('import ')[0] ?? ''
+
+  it('SA-I5-01: 브라우저가 없을 때 안내에 WebKit 설치 명령이 함께 있다', async () => {
+    const setup = await import('../e2e/global-setup.ts')
+    expect(setup.CHROMIUM_MISSING).toContain('pnpm exec playwright install chromium')
+    expect(setup.CHROMIUM_MISSING).toContain('pnpm exec playwright install webkit')
+    expect(setup.WEBKIT_MISSING).toContain('pnpm exec playwright install webkit')
+  })
+
   it('I5 아이폰 크기 묶음(AC-I5-90, D-I5-08): webkit-iphone은 WebKit·iPhone 15·5183/3111(+오프셋)·@webkit만, 기본 묶음은 @webkit을 빼고 건너뛰기가 없다', () => {
     const offset = Number(process.env['E2E_PORT_OFFSET'] ?? '0')
     const stack = STACKS.find((item) => item.name === 'webkit-iphone')
@@ -115,6 +124,10 @@ describe('E2E 기동 (코드 검사)', () => {
     expect(project?.use?.viewport).toEqual({ width: 393, height: 659 })
     expect(project?.use?.hasTouch).toBe(true)
     expect(project?.use?.baseURL).toBe(`http://localhost:${String(5183 + offset)}`)
+    // TE-I5-001: WebKit은 서비스 워커가 맡은 페이지의 요청을 page.route로 잡지 못한다 — 이 묶음만 서비스 워커를 막는다
+    expect(project?.use?.serviceWorkers).toBe('block')
+    for (const other of config.projects ?? []) if (other.name !== 'webkit-iphone') expect(other.use?.serviceWorkers).toBeUndefined()
+    expect(source0()).toContain("serviceWorkers: 'block'")
     const base = STACKS.find((item) => item.name === 'chromium')
     expect(base?.grepInvert?.test('시험 @webkit')).toBe(true)
     // 다른 묶음은 크로미움 그대로 (기기를 덮지 않는다)

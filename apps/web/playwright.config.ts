@@ -40,7 +40,10 @@
 //   브라우저 주소(baseURL)는 http://localhost:<포트>로 둔다 — 크로미움이 localhost를 127.0.0.1로 잇는다. 세션 쿠키가 Secure라
 //   Playwright의 page.request(시험이 API를 직접 부르는 길)는 http에서 localhost에만 그 쿠키를 보낸다(127.0.0.1이면 401).
 //   서버 --origin은 브라우저 주소와 똑같이 http://localhost:<화면 포트>.
-// - 서비스 워커(PWA)는 막지 않는다 — /api/는 가로채지 않으므로 page.route가 그대로 쓰인다(AC-S06-51).
+// - 서비스 워커(PWA)는 크로미움 묶음에선 막지 않는다 — /api/는 가로채지 않으므로 page.route가 그대로 쓰인다(AC-S06-51).
+//   **예외: WebKit(webkit-iphone)** — 서비스 워커가 페이지를 맡으면(navigator.serviceWorker.controller) 그 페이지의 요청이 page.route에 한 번도
+//   걸리지 않는다(I5 감사 TE-I5-001에서 재현: /api/days 1번 나감·route 0번, 'block'이면 1번). 그래서 그 묶음은 use에 serviceWorkers: 'block'을 둔다
+//   (blockServiceWorkers) — route로 응답을 붙잡거나 바꾸는 @webkit 시험이 조용히 효과 없이 통과하지 않게. 서비스 워커·오프셋 안내 시험은 크로미움 묶음에서 본다.
 import { fileURLToPath } from 'node:url'
 import { defineConfig, devices } from '@playwright/test'
 
@@ -78,6 +81,8 @@ export interface Stack {
    * 시험용 미리 보기 서버에서만이고 서버는 그대로 Secure를 붙인다.
    */
   readonly dropSecureCookie?: boolean
+  /** 서비스 워커를 막는다 (I5 TE-I5-001 — WebKit은 서비스 워커가 맡은 페이지의 요청을 page.route로 잡지 못한다) */
+  readonly blockServiceWorkers?: boolean
 }
 
 /** 서버가 화면을 내는 묶음의 화면 빌드 폴더 (실행마다 다시 빌드한다 — 빌드 결과물이 린트 범위에 들어가지 않게 node_modules/.cache 아래) */
@@ -151,6 +156,7 @@ export const STACKS: readonly Stack[] = [
     grep: /@webkit/,
     device: 'iPhone 15',
     dropSecureCookie: true,
+    blockServiceWorkers: true,
   },
 ]
 
@@ -198,7 +204,11 @@ export default defineConfig({
   },
   projects: STACKS.map((stack) => ({
     name: stack.name,
-    use: stack.device === undefined ? { baseURL: browserOrigin(stack.web) } : { ...devices[stack.device], baseURL: browserOrigin(stack.web) },
+    use: {
+      ...(stack.device === undefined ? {} : devices[stack.device]),
+      baseURL: browserOrigin(stack.web),
+      ...(stack.blockServiceWorkers === true ? { serviceWorkers: 'block' as const } : {}),
+    },
     ...(stack.grep === undefined ? {} : { grep: stack.grep }),
     ...(stack.grepInvert === undefined ? {} : { grepInvert: stack.grepInvert }),
   })),

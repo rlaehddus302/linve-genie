@@ -7,16 +7,17 @@ import type { SuggestionCard } from '@livejjim/voice'
 import { useEffect, useId, useRef, type KeyboardEvent, type RefObject } from 'react'
 import { autoSecondsLeft, showsAutoCountdown } from '../lib/voice.ts'
 import { useWide } from '../lib/use-wide.ts'
-import { FLUSHED_CARD_NOTE, HISTORY_FAILED, SENT_NOTICE, STANDALONE_NOTICE, TOO_SOON, flushedClosedNotice, type CardForm, type FormField, type VoiceController, type VoiceSnapshot } from '../voice/controller.ts'
+import { FLUSHED_CARD_NOTE, HISTORY_FAILED, SENT_NOTICE, SENT_NOTICE_SHORT, STANDALONE_NOTICE, TOO_SOON, errorLines, flushedClosedNotice, type CardForm, type FormField, type VoiceController, type VoiceSnapshot } from '../voice/controller.ts'
 import { isHomeScreenApp } from '../voice/standalone.ts'
 import { Modal } from './Modal.tsx'
 
-/** 안내 창 문장 (D-I4-04, AC-I4-11 — 외부 전송 문장만 D-I5-06으로 바꿈) */
+/** 안내 창 문장 (D-I4-04, AC-I4-11 — 외부 전송 문장은 D-I5-06, 마이크 줄은 D-I5-11로 바꿈) */
 export const CONSENT_TITLE = '음성으로 상품 등록'
 export const CONSENT_LINES: readonly string[] = [
   '말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.',
   '음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브찜은 음성을 녹음하거나 저장하지 않아요.',
-  '다음에 크롬이 마이크 사용을 물으면 "허용"을 눌러 주세요.',
+  // D-I5-11: 크롬·사파리 모두에 맞게 "브라우저가"
+  '다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.',
 ]
 export const AUTO_CONFIRM_LABEL = '확실한 카드는 자동으로 등록'
 export const AUTO_CONFIRM_HELP = '번호·품종·가격이 모두 확실한 카드만, 손대지 않으면 정한 시간 뒤 등록해요. 등록 뒤 5초 안에 되돌릴 수 있어요.'
@@ -121,7 +122,8 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
           <span className="voice-state" role="status">
             {snapshot.stateLabel}
           </span>
-          <span className="voice-sent">{SENT_NOTICE}</span>
+          {/* 휴대폰 폭은 짧은 문장 (D-I5-16) — 늘 보인다 */}
+          <span className="voice-sent">{wide ? SENT_NOTICE : SENT_NOTICE_SHORT}</span>
           <button type="button" className="button" onClick={() => voice.turnOff()}>
             음성 끄기
           </button>
@@ -129,9 +131,26 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
       ) : null}
       {on && snapshot.interim !== null ? <p className="voice-interim">들리는 말: {snapshot.interim}</p> : null}
       {snapshot.error !== null ? (
-        <p className="voice-error" role="alert">
-          {snapshot.error}
-        </p>
+        snapshot.unsupported ? (
+          // 지원 안 함은 잘못이 아니라 안내 — 안내 색·"닫기" (D-I5-15)
+          <div className="voice-guide" role="alert">
+            <div className="voice-lines">
+              {errorLines(snapshot.error).map((line, index) => (
+                <p key={`${String(index)}-${line}`}>{line}</p>
+              ))}
+            </div>
+            <button type="button" className="button" onClick={() => voice.dismissUnsupported()}>
+              닫기
+            </button>
+          </div>
+        ) : (
+          // 여러 줄 문장은 줄마다 따로 (D-I5-12): 첫 줄 = 무슨 일, 다음 줄 = 기기별 할 일
+          <div className="voice-error voice-lines" role="alert">
+            {errorLines(snapshot.error).map((line, index) => (
+              <p key={`${String(index)}-${line}`}>{line}</p>
+            ))}
+          </div>
+        )
       ) : null}
       {on && snapshot.historyFailed ? (
         <p className="voice-info" role="status">

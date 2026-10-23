@@ -5,6 +5,7 @@
 // - 자동 확정은 켜진 동안·창이 닫힌 동안만, 기다림이 지난 카드를 모두(하나씩 차례로) 등록한다. 끄면 모든 카드의 자동 확정이 멈춘다.
 // 시각은 host.now()(콘솔은 Date.now), 기다림은 브라우저 타이머 — 시험이 시계를 당길 수 있다.
 import { formatWon } from '@livejjim/core'
+import { isHomeScreenApp } from './standalone.ts'
 import type { CardRegistration, SpeechEngine, SpeechError, SpeechResult, SpeechState, SuggestionCard, VarietyDictionary, VoiceSettings } from '@livejjim/voice'
 import { editQuestion } from '../lib/quick.ts'
 import {
@@ -34,6 +35,12 @@ export const HISTORY_FAILED = '지난 판매 품종을 불러오지 못했어요
 export const TOO_SOON = '새 카드가 방금 나왔어요. 확인하고 다시 Enter를 눌러 주세요.'
 /** 켜진 동안 늘 보이는 안내 (D-I4-04, D-I5-06 — 기기를 가리지 않고 어느 기기에서도 맞는 한 문장) */
 export const SENT_NOTICE = '음성은 인식을 위해 크롬은 구글로, 아이폰은 애플로 보내져요.'
+/** 폭 768px 미만에서 켜진 동안 늘 보이는 짧은 안내 (D-I5-16 — 전송처·목적은 그대로, 접지 않는다) */
+export const SENT_NOTICE_SHORT = '음성은 인식을 위해 구글·애플로 보내져요.'
+/** 오류 문장을 줄 목록으로 (D-I5-12 — 문장 표의 \n에서 나눈다. 줄이 하나면 한 줄) */
+export function errorLines(message: string): readonly string[] {
+  return message.split('\n').filter((line) => line !== '')
+}
 /** 홈 화면 앱(navigator.standalone === true)에서 켜진 동안·오류로 멈춘 뒤 보이는 한 줄 (D-I5-05 — 막지 않는다) */
 export const STANDALONE_NOTICE = '홈 화면 앱에서는 음성이 자주 끊길 수 있어요. 안 되면 사파리에서 열어 주세요.'
 /** 끝에서 넘긴 문장 카드의 까닭 줄 (D-I5-02, U-I5-01 — 자동 등록되지 않는 까닭과 할 일) */
@@ -58,8 +65,10 @@ export interface VoiceSnapshot {
   readonly phase: VoicePhase
   /** 켜진 동안의 상태 글자 ("음성: 듣는 중"·"음성: 다시 시작 중"), 꺼져 있으면 null */
   readonly stateLabel: string | null
-  /** 음성 칸의 오류 문장 (D-205), 없으면 null */
+  /** 음성 칸의 오류 문장 (D-205), 없으면 null. 여러 줄이면 \n으로 나뉜다(D-I5-12) */
   readonly error: string | null
+  /** error가 "이 기기에서는 음성이 어려워요" 안내다 — 안내 색·"닫기", 빠른 입력 등록이 성공하면 내린다 (D-I5-15) */
+  readonly unsupported: boolean
   /** 중간 결과 (자막 한 줄), 없으면 null */
   readonly interim: string | null
   /** 최근 최종 문장 (새 것이 앞, 20개) */
@@ -122,6 +131,7 @@ export const VOICE_IDLE: VoiceSnapshot = {
   phase: 'off',
   stateLabel: null,
   error: null,
+  unsupported: false,
   interim: null,
   heard: [],
   cards: [],
@@ -216,7 +226,7 @@ export class VoiceController {
 
   async turnOn(): Promise<void> {
     if (this.#disposed || this.#snapshot.phase !== 'off') return
-    this.#set({ phase: 'loading', error: null })
+    this.#set({ phase: 'loading', error: null, unsupported: false })
     let module: VoiceModule
     try {
       module = await this.#host.load()
@@ -233,7 +243,7 @@ export class VoiceController {
     const engine = this.#ensureEngine(module)
     // 지원하지 않는 브라우저는 안내 창을 띄우기 전에 알린다 (AC-I4-12)
     if (!engine.isSupported()) {
-      this.#set({ phase: 'off', error: module.SPEECH_ERROR_MESSAGES.UNSUPPORTED })
+      this.#set({ phase: 'off', error: module.SPEECH_ERROR_MESSAGES.UNSUPPORTED, unsupported: true })
       return
     }
     if (!this.#host.readConsent()) {
@@ -289,7 +299,8 @@ export class VoiceController {
 
   #ensureEngine(module: VoiceModule): SpeechEngine {
     if (this.#engine !== null) return this.#engine
-    const engine = module.createWebSpeechEngine({ now: () => this.#host.now() })
+    // 홈 화면 앱은 저절로 끝난 것을 모두 센다 — 권한 창이 끝없이 뜨지 않게 1분에 6번째면 멈춘다 (D-I5-18, UA 아님)
+    const engine = module.createWebSpeechEngine({ now: () => this.#host.now(), countAllEnds: isHomeScreenApp() })
     engine.onResult((result) => this.#onResult(result))
     engine.onError((error) => this.#onError(error))
     engine.onState((state) => this.#onState(state))
@@ -301,7 +312,7 @@ export class VoiceController {
     const engine = this.#engine
     if (engine === null) return
     this.#releaseRestart()
-    this.#set({ phase: 'on', error: null, interim: null, stateLabel: this.#label('LISTENING') })
+    this.#set({ phase: 'on', error: null, unsupported: false, interim: null, stateLabel: this.#label('LISTENING') })
     engine.start()
     if (this.#phase() === 'on') this.#loadHistory()
     // 누른 버튼("음성 켜기")이 사라졌다 — 말하고 바로 Enter를 칠 수 있게 빠른 입력칸으로
@@ -356,7 +367,7 @@ export class VoiceController {
 
   #onError(error: SpeechError): void {
     if (this.#disposed || this.#snapshot.phase !== 'on') return
-    this.#set({ error: error.message })
+    this.#set({ error: error.message, unsupported: error.kind === 'UNSUPPORTED' })
   }
 
   #onResult(result: SpeechResult): void {
@@ -414,6 +425,16 @@ export class VoiceController {
   /** 밀려 닫힌 카드 안내를 모두 닫는다 */
   dismissFlushedClosed(): void {
     if (this.#snapshot.flushedClosed.length > 0) this.#set({ flushedClosed: [] })
+  }
+
+  /** "이 기기에서는 음성이 어려워요" 안내의 "닫기" (D-I5-15). 다른 오류는 그대로 둔다 */
+  dismissUnsupported(): void {
+    if (this.#snapshot.unsupported) this.#set({ error: null, unsupported: false })
+  }
+
+  /** 상품 등록이 성공했다 (빠른 입력) — 지원 안 함 안내대로 손 입력을 마쳤으니 그 안내를 내린다 (D-I5-15) */
+  noteRegistered(): void {
+    this.dismissUnsupported()
   }
 
   // ── 이력을 기다리며 미룬 문장 (HISTORY_WAIT_MS) ─────────────────────

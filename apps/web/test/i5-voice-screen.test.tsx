@@ -3,7 +3,7 @@ import type { SuggestionCard } from '@livejjim/voice'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CONSENT_LINES, VoiceLive, revealCard } from '../src/components/VoicePanel.tsx'
-import { FLUSHED_CARD_NOTE, SENT_NOTICE, STANDALONE_NOTICE, flushedClosedNotice, VOICE_IDLE, VoiceController, type VoiceSnapshot } from '../src/voice/controller.ts'
+import { FLUSHED_CARD_NOTE, SENT_NOTICE, SENT_NOTICE_SHORT, STANDALONE_NOTICE, errorLines, flushedClosedNotice, VOICE_IDLE, VoiceController, type VoiceSnapshot } from '../src/voice/controller.ts'
 import { isHomeScreenApp } from '../src/voice/standalone.ts'
 
 const NOTICE_HOME = '홈 화면 앱에서는 음성이 자주 끊길 수 있어요. 안 되면 사파리에서 열어 주세요.'
@@ -40,8 +40,52 @@ describe('외부 전송 고지 (AC-I5-12, D-I5-06)', () => {
     expect(SENT_NOTICE).toBe('음성은 인식을 위해 크롬은 구글로, 아이폰은 애플로 보내져요.')
     expect(CONSENT_LINES).toContain('음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브찜은 음성을 녹음하거나 저장하지 않아요.')
     for (const line of [SENT_NOTICE, ...CONSENT_LINES]) expect(line).not.toContain('구글로 보내져요')
+    // D-I5-16: 폭 768px 이상은 긴 문장, 미만은 짧은 문장 (AC-I5-31)
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(min-width: 48rem)', media: query, addEventListener: () => {}, removeEventListener: () => {} }))
     show({ phase: 'on', stateLabel: '음성: 듣는 중' })
     expect(screen.getByText(SENT_NOTICE)).toBeDefined()
+    expect(screen.queryByText(SENT_NOTICE_SHORT)).toBeNull()
+  })
+
+  it('폭 768px 미만은 짧은 문장 "구글·애플로" (AC-I5-31, D-I5-16)', () => {
+    expect(SENT_NOTICE_SHORT).toBe('음성은 인식을 위해 구글·애플로 보내져요.')
+    show({ phase: 'on', stateLabel: '음성: 듣는 중' })
+    expect(screen.getByText(SENT_NOTICE_SHORT)).toBeDefined()
+    expect(screen.queryByText(SENT_NOTICE)).toBeNull()
+    expect(document.body.textContent).not.toContain('음성은 인식을 위해 구글로 보내져요.')
+  })
+})
+
+describe('안내 창 마이크 줄 (AC-I5-27, D-I5-11)', () => {
+  it('"브라우저가 마이크 사용을 물으면", "크롬이 마이크"는 없다', () => {
+    expect(CONSENT_LINES).toContain('다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.')
+    for (const line of CONSENT_LINES) expect(line).not.toContain('크롬이 마이크')
+  })
+})
+
+describe('오류 문장은 줄마다 따로 (AC-I5-28, D-I5-12·13)', () => {
+  it('\\n에서 나눈 줄이 차례대로 서로 다른 블록, 지원 안 함이 아니면 "닫기" 없음', () => {
+    show({ phase: 'off', error: '마이크 사용이 막혀 있어요.\n· PC·안드로이드 크롬: 주소창 왼쪽 자물쇠에서 마이크를 허용해 주세요.\n· 아이폰: 설정 > 사파리 > 마이크에서 허용해 주세요.' })
+    const alert = screen.getByRole('alert')
+    expect(alert.className).toContain('voice-error')
+    expect([...alert.querySelectorAll('p')].map((p) => p.textContent)).toEqual([
+      '마이크 사용이 막혀 있어요.',
+      '· PC·안드로이드 크롬: 주소창 왼쪽 자물쇠에서 마이크를 허용해 주세요.',
+      '· 아이폰: 설정 > 사파리 > 마이크에서 허용해 주세요.',
+    ])
+    expect(screen.queryByRole('button', { name: '닫기' })).toBeNull()
+  })
+
+  it('errorLines: 줄이 하나면 한 줄, 빈 줄은 버린다', () => {
+    expect(errorLines('음성 인식이 멈췄어요. 다시 켜 주세요.')).toEqual(['음성 인식이 멈췄어요. 다시 켜 주세요.'])
+    expect(errorLines('가\n\n나')).toEqual(['가', '나'])
+  })
+
+  it('지원 안 함은 안내 색 블록과 "닫기" (D-I5-15)', () => {
+    show({ phase: 'off', error: '이 기기에서는 음성이 어려워요.', unsupported: true })
+    const alert = screen.getByRole('alert')
+    expect(alert.className).toContain('voice-guide')
+    expect(screen.getByRole('button', { name: '닫기' })).toBeDefined()
   })
 })
 

@@ -219,8 +219,8 @@ describe('상태·오류 (AC-I4-12, D-205)', () => {
     await turnOn(h)
     FakeRecognition.last.fail('not-allowed')
     FakeRecognition.last.end()
-    // 문장: D-I5-03 (AC-I5-06 PERMISSION_DENIED)
-    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', error: '마이크 사용이 막혀 있어요. PC·안드로이드 크롬은 주소창 왼쪽 자물쇠에서, 아이폰은 설정 > 사파리 > 마이크에서 허용해 주세요.' })
+    // 문장: D-I5-03 (AC-I5-06 PERMISSION_DENIED), D-I5-12 기기별 줄
+    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', error: '마이크 사용이 막혀 있어요.\n· PC·안드로이드 크롬: 주소창 왼쪽 자물쇠에서 마이크를 허용해 주세요.\n· 아이폰: 설정 > 사파리 > 마이크에서 허용해 주세요.', unsupported: false })
     expect(FakeRecognition.all).toHaveLength(1)
     expect(FakeRecognition.last.starts).toBe(1)
     await turnOn(h)
@@ -835,7 +835,8 @@ describe('아이폰(사파리) 음성 (I5 — D-I5-01~04)', () => {
     FakeRecognition.last.end()
     expect(h.voice.getSnapshot()).toMatchObject({
       phase: 'off',
-      error: '이 기기에서 음성 인식이 꺼져 있어요. 아이폰은 설정에서 Siri와 받아쓰기를 켜 주세요. 그래도 안 되면 PC 크롬이나 안드로이드에서 켜 주세요.',
+      // D-I5-12 기기별 줄
+      error: '이 기기에서 음성 인식이 꺼져 있어요.\n· 아이폰: 설정에서 Siri와 받아쓰기를 켜 주세요.\n· 그래도 안 되면 PC 크롬이나 안드로이드에서 켜 주세요.',
     })
     expect(FakeRecognition.all).toHaveLength(1)
   })
@@ -848,7 +849,8 @@ describe('아이폰(사파리) 음성 (I5 — D-I5-01~04)', () => {
     expect(FakeRecognition.all).toHaveLength(2)
     FakeRecognition.last.fail('not-allowed')
     FakeRecognition.last.end()
-    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', error: "이 기기는 음성이 저절로 다시 켜지지 않아요. 말하기 전에 '음성 켜기'를 다시 눌러 주세요." })
+    // D-I5-13 빠른 입력 권하는 줄
+    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', error: "이 기기는 음성이 저절로 다시 켜지지 않아요. 말하기 전에 '음성 켜기'를 다시 눌러 주세요.\n상품이 많으면 빠른 입력이 더 빨라요." })
     expect(FakeRecognition.all).toHaveLength(2)
     await turnOn(h)
     expect(h.voice.getSnapshot()).toMatchObject({ phase: 'on', error: null, stateLabel: '음성: 듣는 중' })
@@ -871,5 +873,79 @@ describe('아이폰(사파리) 음성 (I5 — D-I5-01~04)', () => {
     await turnOn(h)
     expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', error: voiceModule.SPEECH_ERROR_MESSAGES.UNSUPPORTED })
     expect(h.consent).toBe(false)
+  })
+})
+
+describe('감사 2 (D-I5-14·15·17·18)', () => {
+  it('조용함으로 끝나 다시 열 때 상태 글자는 "듣는 중"에서 바뀌지 않는다 (AC-I5-29 (a), D-I5-14)', async () => {
+    const h = harness()
+    await turnOn(h)
+    const labels: (string | null)[] = []
+    h.voice.subscribe(() => labels.push(h.voice.getSnapshot().stateLabel))
+    for (let i = 0; i < 20; i++) {
+      vi.advanceTimersByTime(3000)
+      FakeRecognition.last.end()
+    }
+    expect(FakeRecognition.all).toHaveLength(21)
+    expect(labels).not.toContain('음성: 다시 시작 중')
+    expect(h.voice.getSnapshot().stateLabel).toBe('음성: 듣는 중')
+  })
+
+  it('network 뒤 끝남이 이어지면 6번째에 "연결하지 못했어요"로 멈춘다 (AC-I5-32, D-I5-17)', async () => {
+    const h = harness()
+    await turnOn(h)
+    const labels: (string | null)[] = []
+    h.voice.subscribe(() => labels.push(h.voice.getSnapshot().stateLabel))
+    for (let i = 0; i < 6; i++) {
+      vi.advanceTimersByTime(3000)
+      FakeRecognition.last.fail('network')
+      FakeRecognition.last.end()
+    }
+    expect(labels).toContain('음성: 다시 시작 중')
+    expect(FakeRecognition.all).toHaveLength(6)
+    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', error: voiceModule.SPEECH_ERROR_MESSAGES.CONNECTION_FAILED, unsupported: false })
+  })
+
+  it('홈 화면 앱(navigator.standalone === true)은 조용함 끝남도 세어 6번째에 멈춘다, 아니면 계속 듣는다 (AC-I5-33, D-I5-18)', async () => {
+    vi.stubGlobal('navigator', { ...navigator, standalone: true })
+    const h = harness()
+    await turnOn(h)
+    for (let i = 0; i < 20 && h.voice.getSnapshot().phase === 'on'; i++) {
+      vi.advanceTimersByTime(3000)
+      FakeRecognition.last.end()
+    }
+    expect(FakeRecognition.all).toHaveLength(6)
+    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', error: voiceModule.SPEECH_ERROR_MESSAGES.KEEPS_STOPPING })
+    vi.unstubAllGlobals()
+    vi.stubGlobal('SpeechRecognition', FakeRecognition)
+    FakeRecognition.all.length = 0
+    const plain = harness()
+    await turnOn(plain)
+    for (let i = 0; i < 20; i++) {
+      vi.advanceTimersByTime(3000)
+      FakeRecognition.last.end()
+    }
+    expect(FakeRecognition.all).toHaveLength(21)
+    expect(plain.voice.getSnapshot()).toMatchObject({ phase: 'on', error: null })
+  })
+
+  it('지원 안 함 안내: unsupported 표시, "닫기"·등록 성공이면 내리고 다른 오류는 내리지 않는다 (AC-I5-30, D-I5-15)', async () => {
+    vi.stubGlobal('SpeechRecognition', undefined)
+    const h = harness()
+    await turnOn(h)
+    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', error: voiceModule.SPEECH_ERROR_MESSAGES.UNSUPPORTED, unsupported: true })
+    h.voice.dismissUnsupported()
+    expect(h.voice.getSnapshot()).toMatchObject({ phase: 'off', error: null, unsupported: false })
+    await turnOn(h)
+    expect(h.voice.getSnapshot().unsupported).toBe(true)
+    h.voice.noteRegistered()
+    expect(h.voice.getSnapshot()).toMatchObject({ error: null, unsupported: false })
+    // 다른 오류는 등록해도 남는다
+    vi.stubGlobal('SpeechRecognition', FakeRecognition)
+    await turnOn(h)
+    FakeRecognition.last.fail('not-allowed')
+    h.voice.noteRegistered()
+    h.voice.dismissUnsupported()
+    expect(h.voice.getSnapshot()).toMatchObject({ error: voiceModule.SPEECH_ERROR_MESSAGES.PERMISSION_DENIED, unsupported: false })
   })
 })

@@ -100,7 +100,9 @@ describe('켜기 전·안내 창 (AC-I4-10·11)', () => {
     expect(dialog.textContent).toContain('말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.')
     // 외부 전송 문장: D-I5-06 (AC-I5-12)
     expect(dialog.textContent).toContain('음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브찜은 음성을 녹음하거나 저장하지 않아요.')
-    expect(dialog.textContent).toContain('다음에 크롬이 마이크 사용을 물으면 "허용"을 눌러 주세요.')
+    // 마이크 줄: D-I5-11 (AC-I5-27)
+    expect(dialog.textContent).toContain('다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.')
+    expect(document.body.textContent).not.toContain('크롬이 마이크 사용을 물으면')
     expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: '닫기' }))
     // 창이 열린 동안 머리 줄의 "음성 켜기"는 없다 (창의 버튼 하나)
     expect(screen.getAllByRole('button', { name: '음성 켜기' })).toHaveLength(1)
@@ -153,6 +155,27 @@ describe('켜기 전·안내 창 (AC-I4-10·11)', () => {
     // 문장: D-I5-03 (AC-I5-06 UNSUPPORTED)
     expect(await screen.findByText('이 기기에서는 음성이 어려워요. PC 크롬이나 안드로이드 크롬에서 켜 주세요. 상품은 빠른 입력으로 그대로 등록할 수 있어요.')).toBeDefined()
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('지원 안 함 안내는 안내 색·"닫기", 빠른 입력 등록이 성공하면 내려간다 (AC-I5-30, D-I5-15)', async () => {
+    const TEXT = '이 기기에서는 음성이 어려워요. PC 크롬이나 안드로이드 크롬에서 켜 주세요. 상품은 빠른 입력으로 그대로 등록할 수 있어요.'
+    setup()
+    vi.stubGlobal('SpeechRecognition', undefined)
+    const { quick } = await openConsole()
+    fireEvent.click(screen.getByRole('button', { name: '음성 켜기' }))
+    const line = await screen.findByText(TEXT)
+    const alert = line.closest('[role="alert"]') as HTMLElement
+    expect(alert.className).toContain('voice-guide')
+    expect(alert.className).not.toContain('voice-error')
+    fireEvent.click(within(alert).getByRole('button', { name: '닫기' }))
+    expect(screen.queryByText(TEXT)).toBeNull()
+    expect(screen.getByRole('button', { name: '음성 켜기' })).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: '음성 켜기' }))
+    await screen.findByText(TEXT)
+    fireEvent.change(quick, { target: { value: '21 라울 10' } })
+    pressEnter(quick)
+    await waitFor(() => expect(registers()).toEqual([[21, '라울', 10000]]))
+    await waitFor(() => expect(screen.queryByText(TEXT)).toBeNull())
   })
 })
 
