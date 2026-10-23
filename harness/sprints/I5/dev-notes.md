@@ -42,3 +42,9 @@
 - **Playwright WebKit은 http://localhost에서 Secure 쿠키를 보내지 않는다** — 로그인하자마자 "로그인이 풀렸어요"가 됐다. 그래서 이 묶음의 화면 미리 보기 서버만 `node e2e/serve.ts … --drop-secure-cookie yes`로 /api 응답 Set-Cookie의 `Secure`를 떼어 넘긴다(`apps/web/e2e/cookie.ts`). 서버·운영 쿠키는 그대로 Secure. 쿠키 속성 시험은 이 묶음에 두지 말 것.
 - 묶음 하나만 돌리기: `cd /Users/unhoyeo/livejjim-wt/i5/apps/web && E2E_PORT_OFFSET=27900 pnpm exec playwright test --project webkit-iphone`.
 - 하단 메뉴(휴대폰 막대)가 아래에 고정되어 있어 카드 버튼이 그 밑에 가릴 수 있다 — `scrollIntoViewIfNeeded` 뒤 누르면 된다(Playwright click이 알아서 스크롤).
+
+### 수정 라운드 (U-I5-01·02) — dev-web
+- U-I5-01 (1): 끝에서 넘긴 카드(`flushedAtEnd`)는 점선 테두리 + "확인 필요" 글자 + 까닭 줄 `끝까지 못 들었어요. 맞는지 확인하고 "등록"을 눌러 주세요.`(`FLUSHED_CARD_NOTE`). 남은 초·"자동 등록 멈추기"는 원래대로 없다.
+- U-I5-01 (2) 화면 쪽 안전망: 3장 규칙(D-204)으로 끝에서 넘긴 카드가 닫히면 음성 칸에 알림(role=alert) `새 카드에 밀려 끝까지 못 들은 카드(15번 핑크프릴 15,000원)를 닫았어요. 맞는 상품이면 빠른 입력으로 등록해 주세요.` + "알겠어요"(누를 때까지 남음). 스냅샷 `flushedClosed`. 보통 카드가 밀려 닫히는 것은 그대로 알리지 않는다.
+- **spec-keeper 요청**: "넘긴 카드는 넘침 규칙으로 닫지 않는다"는 D-I5-02 "카드의 touched는 바꾸지 않는다(3장 넘침 닫기 규칙은 보통 카드와 같다)"와 부딪혀 구현하지 않았다. 바꾸려면 `packages/voice/src/card.ts` `addCard`(dev-device)에서 `flushedAtEnd` 카드를 손댄 카드처럼 건너뛰게 하는 결정이 필요하다.
+- U-I5-02: 폭 768px 미만에서 새 카드가 맨 앞에 생기면(고치기 칸이 열려 있지 않을 때) 그 카드가 아래 메뉴 막대 위·고정 영역 아래에 다 보이게 조금만 내린다(`revealCard`, 이미 보이면 그대로). 홈 화면 앱 한 줄은 카드 아래로 옮겼다. 고지 줄(16px)은 393px에서 두 줄 그대로(글자 크기 규칙). WebKit 320×568·393×659(홈 화면 앱)에서 새 카드의 "등록"이 메뉴 막대 위에 보이고 빠른 입력칸도 보이는 것을 손으로 확인했다 — E2E로 묶어 두면 좋다(test-e2e).

@@ -36,6 +36,12 @@ export const TOO_SOON = '새 카드가 방금 나왔어요. 확인하고 다시 
 export const SENT_NOTICE = '음성은 인식을 위해 크롬은 구글로, 아이폰은 애플로 보내져요.'
 /** 홈 화면 앱(navigator.standalone === true)에서 켜진 동안·오류로 멈춘 뒤 보이는 한 줄 (D-I5-05 — 막지 않는다) */
 export const STANDALONE_NOTICE = '홈 화면 앱에서는 음성이 자주 끊길 수 있어요. 안 되면 사파리에서 열어 주세요.'
+/** 끝에서 넘긴 문장 카드의 까닭 줄 (D-I5-02, U-I5-01 — 자동 등록되지 않는 까닭과 할 일) */
+export const FLUSHED_CARD_NOTE = '끝까지 못 들었어요. 맞는지 확인하고 "등록"을 눌러 주세요.'
+/** 끝에서 넘긴 카드가 새 카드 3장 규칙(D-204)으로 닫혔을 때 (U-I5-01 — 말한 상품이 조용히 사라지지 않게). short = "15번 핑크프릴 15,000원" */
+export function flushedClosedNotice(short: string): string {
+  return `새 카드에 밀려 끝까지 못 들은 카드(${short})를 닫았어요. 맞는 상품이면 빠른 입력으로 등록해 주세요.`
+}
 
 /** 카드의 고치기 칸 */
 export interface CardForm {
@@ -77,6 +83,8 @@ export interface VoiceSnapshot {
   readonly tooSoon: boolean
   /** 화면 시각 (남은 초·"Enter 등록" 표시) */
   readonly now: number
+  /** 새 카드에 밀려 닫힌 끝에서 넘긴 카드의 글 (describeCard), 없으면 null — 판매자가 안내를 닫을 때까지 남는다 (U-I5-01) */
+  readonly flushedClosed: string | null
 }
 
 /** 지난 실제 범위 하나의 상품 이름 */
@@ -126,6 +134,7 @@ export const VOICE_IDLE: VoiceSnapshot = {
   historyFailed: false,
   tooSoon: false,
   now: 0,
+  flushedClosed: null,
 }
 
 /** 창이 열려 미룬 자동 확정을 다시 보는 간격 */
@@ -176,6 +185,8 @@ export class VoiceController {
   #history: HistoryState = { state: 'idle', past: [] }
   /** 이력을 받는 동안 미룬 최종 문장 (온 차례) — 온 때의 설정·번호 범위를 함께 담는다 (TE-N3-004: 미룬 사이 자동 등록을 켜도 끈 채 말한 문장은 자동 등록하지 않는다) */
   #held: HeldSentence[] = []
+  /** #cardsWith가 닫은 끝에서 넘긴 카드의 글 — 다음 #set이 스냅샷에 싣는다 */
+  #lostFlushed: string | null = null
   #heldTimer: ReturnType<typeof setTimeout> | null = null
   /** 이 시각까지만 이력을 기다린다 (host.now 기준) */
   #historyDeadline = 0
@@ -390,7 +401,17 @@ export class VoiceController {
       // 끝에서 넘긴 문장 카드는 자동 확정하지 않는다 (D-I5-02, AC-I5-04) — 보통 결과에는 속성을 넘기지 않는다
       ...(flushedAtEnd ? { flushedAtEnd: true } : {}),
     })
-    return card === null ? cards : module.addCard(cards, card).filter(isOpen)
+    if (card === null) return cards
+    const next = module.addCard(cards, card)
+    // 3장 규칙으로 닫힌 끝에서 넘긴 카드는 자동 등록도 안 되므로 조용히 사라지면 말한 상품을 잃는다 — 안내를 남긴다 (U-I5-01)
+    const lost = next.find((item) => item.flushedAtEnd === true && !isOpen(item) && cards.some((old) => old.id === item.id && isOpen(old)))
+    if (lost !== undefined) this.#lostFlushed = module.describeCard(lost)
+    return next.filter(isOpen)
+  }
+
+  /** 밀려 닫힌 카드 안내를 닫는다 */
+  dismissFlushedClosed(): void {
+    if (this.#snapshot.flushedClosed !== null) this.#set({ flushedClosed: null })
   }
 
   // ── 이력을 기다리며 미룬 문장 (HISTORY_WAIT_MS) ─────────────────────
@@ -723,6 +744,10 @@ export class VoiceController {
     if (this.#disposed) return
     const now = this.#host.now()
     let next: VoiceSnapshot = { ...this.#snapshot, ...patch, now }
+    if (this.#lostFlushed !== null) {
+      next = { ...next, flushedClosed: this.#lostFlushed }
+      this.#lostFlushed = null
+    }
     if (patch.cards !== undefined) {
       const front = nextFront(this.#snapshot.front, next.cards, now)
       // 사라진 카드의 칸·문장은 버린다

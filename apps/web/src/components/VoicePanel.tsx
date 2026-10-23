@@ -6,7 +6,8 @@
 import type { SuggestionCard } from '@livejjim/voice'
 import { useEffect, useId, useRef, type KeyboardEvent, type RefObject } from 'react'
 import { autoSecondsLeft, showsAutoCountdown } from '../lib/voice.ts'
-import { HISTORY_FAILED, SENT_NOTICE, STANDALONE_NOTICE, TOO_SOON, type CardForm, type FormField, type VoiceController, type VoiceSnapshot } from '../voice/controller.ts'
+import { useWide } from '../lib/use-wide.ts'
+import { FLUSHED_CARD_NOTE, HISTORY_FAILED, SENT_NOTICE, STANDALONE_NOTICE, TOO_SOON, flushedClosedNotice, type CardForm, type FormField, type VoiceController, type VoiceSnapshot } from '../voice/controller.ts'
 import { isHomeScreenApp } from '../voice/standalone.ts'
 import { Modal } from './Modal.tsx'
 
@@ -59,7 +60,31 @@ export function VoiceConsentDialog({ voice }: { readonly voice: VoiceController 
 
 /** 음성 칸을 보일까 (켜졌거나, 남은 카드·오류가 있을 때) */
 export function voiceLiveShown(snapshot: VoiceSnapshot): boolean {
-  return snapshot.phase === 'on' || snapshot.cards.length > 0 || snapshot.error !== null || snapshot.tooSoon
+  return snapshot.phase === 'on' || snapshot.cards.length > 0 || snapshot.error !== null || snapshot.tooSoon || snapshot.flushedClosed !== null
+}
+
+/** 휴대폰 아래 메뉴 막대·고정 영역에 가리지 않게 둘 여백(px) */
+const SCROLL_GAP = 8
+
+/**
+ * 휴대폰 폭에서 새 카드가 맨 앞에 생기면 그 카드가 화면에 다 보이게 조금만 내린다 (U-I5-02).
+ * 이미 다 보이면 움직이지 않고, 고치기 칸이 열려 있으면(판매자가 고치는 중) 움직이지 않는다.
+ * 아래는 메뉴 막대(.menu) 위까지, 위는 화면 맨 위에 붙은 고정 영역(.console-sticky) 높이 아래까지를 보이는 곳으로 본다.
+ */
+export function revealCard(element: HTMLElement): void {
+  const rect = element.getBoundingClientRect()
+  const menu = document.querySelector('.menu')
+  const menuTop = menu instanceof HTMLElement && getComputedStyle(menu).position === 'fixed' ? menu.getBoundingClientRect().top : window.innerHeight
+  const sticky = document.querySelector('.console-sticky')
+  // 고정 영역은 내리면 화면 맨 위에 붙으므로(top: 0) 그 높이까지가 가려질 수 있는 곳이다 (아직 붙기 전이라도)
+  const stickyHeight = sticky instanceof HTMLElement ? sticky.getBoundingClientRect().height : 0
+  const bottom = menuTop - SCROLL_GAP
+  const top = stickyHeight + SCROLL_GAP
+  let delta = 0
+  if (rect.bottom > bottom) delta = rect.bottom - bottom
+  // 카드가 보이는 곳보다 크면 위(카드 글)가 먼저 보이게
+  if (rect.top - delta < top) delta = rect.top - top
+  if (delta !== 0) window.scrollBy({ top: delta, behavior: 'auto' })
 }
 
 export interface VoiceLiveProps {
@@ -76,6 +101,19 @@ export interface VoiceLiveProps {
 /** 상태·안내·자막·오류와 카드 목록 */
 export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: VoiceLiveProps) {
   const on = snapshot.phase === 'on'
+  const wide = useWide()
+  const listRef = useRef<HTMLUListElement>(null)
+  const frontId = snapshot.cards[0]?.id ?? null
+  const seenFront = useRef<string | null>(frontId)
+  const editing = snapshot.forms.size > 0
+  // 휴대폰: 새 카드가 맨 앞에 생기면 보이게 내린다 (U-I5-02). PC는 고정 영역에 있어 늘 보인다(D-I4-03)
+  useEffect(() => {
+    if (frontId === seenFront.current) return
+    seenFront.current = frontId
+    if (wide || editing || frontId === null) return
+    const first = listRef.current?.firstElementChild
+    if (first instanceof HTMLElement) revealCard(first)
+  }, [frontId, wide, editing])
   return (
     <section className="voice" aria-label="음성 등록">
       {on ? (
@@ -95,8 +133,6 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
           {snapshot.error}
         </p>
       ) : null}
-      {/* 홈 화면 앱: 켜진 동안·오류로 멈춘 뒤 한 줄 (D-I5-05 — 막지 않는다) */}
-      {(on || snapshot.error !== null) && isHomeScreenApp() ? <p className="voice-info">{STANDALONE_NOTICE}</p> : null}
       {on && snapshot.historyFailed ? (
         <p className="voice-info" role="status">
           {HISTORY_FAILED}
@@ -107,8 +143,16 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
           {TOO_SOON}
         </p>
       ) : null}
+      {snapshot.flushedClosed !== null ? (
+        <div className="voice-lost" role="alert">
+          <p>{flushedClosedNotice(cardShortText(snapshot.flushedClosed))}</p>
+          <button type="button" className="button" onClick={() => voice.dismissFlushedClosed()}>
+            알겠어요
+          </button>
+        </div>
+      ) : null}
       {snapshot.cards.length > 0 ? (
-        <ul className="plain-list voice-cards" aria-label="음성 카드">
+        <ul ref={listRef} className="plain-list voice-cards" aria-label="음성 카드">
           {snapshot.cards.map((card) => (
             <VoiceCard
               key={card.id}
@@ -125,6 +169,8 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
           ))}
         </ul>
       ) : null}
+      {/* 홈 화면 앱: 켜진 동안·오류로 멈춘 뒤 한 줄 (D-I5-05 — 막지 않는다). 좁은 화면에서 카드를 밀어내지 않게 카드 아래에 둔다 (U-I5-02) */}
+      {(on || snapshot.error !== null) && isHomeScreenApp() ? <p className="voice-info">{STANDALONE_NOTICE}</p> : null}
     </section>
   )
 }
@@ -144,16 +190,19 @@ interface VoiceCardProps {
 function VoiceCard({ card, described, badge, countdown, note, form, voice, onSubmitForm, onRegister }: VoiceCardProps) {
   const short = cardShortText(described)
   const low = card.confidence !== 'HIGH'
+  // 끝에서 넘긴 문장 카드: 자동 등록되지 않으니 보통 카드와 겉모습을 다르게 하고 까닭을 쓴다 (D-I5-02, U-I5-01)
+  const flushed = card.flushedAtEnd === true
   const formId = useId()
   return (
-    <li className={low ? 'voice-card voice-card-low' : 'voice-card'} aria-label={`${short} 카드`}>
+    <li className={low || flushed ? 'voice-card voice-card-low' : 'voice-card'} aria-label={`${short} 카드`}>
       <div className="voice-card-body">
         <p className="voice-card-text">
           <strong>{described}</strong>
-          {low ? <span className="tag tag-waiting">확인 필요</span> : null}
+          {low || flushed ? <span className="tag tag-waiting">확인 필요</span> : null}
           {badge ? <span className="tag tag-order">Enter 등록</span> : null}
         </p>
         <p className="voice-card-heard">들은 말: {card.text}</p>
+        {flushed ? <p className="voice-card-why">{FLUSHED_CARD_NOTE}</p> : null}
         {countdown !== null ? <p className="voice-card-auto">{countdown}초 뒤 자동 등록</p> : null}
         {note !== null ? (
           <p className="field-error" role="status">

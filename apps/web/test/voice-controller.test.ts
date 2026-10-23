@@ -737,6 +737,35 @@ describe('아이폰(사파리) 음성 (I5 — D-I5-01~04)', () => {
     expect(h.registered.map((item) => [item.registration.no, item.registration.name, item.registration.price, item.source])).toEqual([[15, '핑크프릴', 15000, 'click']])
   })
 
+  it('끝에서 넘긴 카드가 새 카드 3장에 밀려 닫히면 조용히 사라지지 않고 안내가 남는다, "알겠어요"로 닫는다 (U-I5-01)', async () => {
+    const h = harness()
+    await turnOn(h)
+    FakeRecognition.last.say('15번 핑크프릴 만오천원', false)
+    FakeRecognition.last.end()
+    expect(h.voice.getSnapshot().flushedClosed).toBeNull()
+    FakeRecognition.last.say('16번 라울 이만원')
+    FakeRecognition.last.say('17번 라울 이만원')
+    expect(h.voice.getSnapshot().flushedClosed).toBeNull()
+    FakeRecognition.last.say('18번 라울 이만원')
+    const snapshot = h.voice.getSnapshot()
+    expect(snapshot.cards.map((card) => card.no)).toEqual([18, 17, 16])
+    expect(snapshot.flushedClosed).toBe('15번 핑크프릴 15,000원 — 등록할까요?')
+    // 다른 일로 스냅샷이 바뀌어도 남는다
+    FakeRecognition.last.say('19번 라울 이만원')
+    expect(h.voice.getSnapshot().flushedClosed).toBe('15번 핑크프릴 15,000원 — 등록할까요?')
+    h.voice.dismissFlushedClosed()
+    expect(h.voice.getSnapshot().flushedClosed).toBeNull()
+    expect(h.registered).toEqual([])
+  })
+
+  it('보통 카드가 밀려 닫히는 것은 안내하지 않는다 (D-204 그대로)', async () => {
+    const h = harness()
+    await turnOn(h)
+    for (const no of ['15', '16', '17', '18']) FakeRecognition.last.say(`${no}번 라울 이만원`)
+    expect(h.voice.getSnapshot().cards.map((card) => card.no)).toEqual([18, 17, 16])
+    expect(h.voice.getSnapshot().flushedClosed).toBeNull()
+  })
+
   it('같은 문장이 보통 최종 결과로 오면 I4대로 5초 뒤 자동 등록 (AC-I5-04)', async () => {
     const h = harness({ readSettings: () => AUTO })
     await turnOn(h)
