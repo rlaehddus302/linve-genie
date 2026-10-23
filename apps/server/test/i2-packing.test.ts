@@ -441,7 +441,8 @@ describe('AC-I2-33 정산 조회(날짜 보기)의 포장·배송 상태', () =>
     await chat(world, seller, b, 'm1', 'UC_A', '홍길동', '1')
     await expectOkPack(pack(world, seller, D, { buyer: 'UC_A', action: 'pack', items: [`${b}/1`] }))
     await expectOkPack(pack(world, seller, D, { buyer: 'UC_A', action: 'ship', invoice: '123456789012' }))
-    expect((await client(world, seller.cookie).get(`/api/days/${D}`)).body.packing).toEqual([{ buyer: 'UC_A', status: '배송 완료', invoice: '123456789012' }])
+    // T1(AC-T1-52): 묶음마다 택배 줄 parcel — 택배 접수가 없으면 null
+    expect((await client(world, seller.cookie).get(`/api/days/${D}`)).body.packing).toEqual([{ buyer: 'UC_A', status: '배송 완료', invoice: '123456789012', parcel: null }])
   })
 })
 

@@ -3,7 +3,7 @@
 // 브라우저 주소는 localhost(크로미움이 127.0.0.1로 잇는다 — Secure 세션 쿠키를 Playwright page.request가 보내도록), 서버 --origin은 브라우저 주소와 같다.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import config, { E2E_HOST, SERVED_WEB_DIR, STACKS, e2eServerUrl, fakeMetaUrl, fakeOAuthUrl, fakeYoutubeUrl } from '../playwright.config.ts'
+import config, { E2E_ASSIST_DAILY, E2E_HOST, SERVED_WEB_DIR, STACKS, e2eServerUrl, fakeLlmUrl, fakeMetaUrl, fakeOAuthUrl, fakeYoutubeUrl } from '../playwright.config.ts'
 
 const serve = readFileSync(new URL('../e2e/serve.ts', import.meta.url), 'utf8')
 
@@ -140,7 +140,7 @@ describe('E2E 기동 (코드 검사)', () => {
     const source = readFileSync(new URL('../playwright.config.ts', import.meta.url), 'utf8')
     expect(source.split('import ')[0]).toContain('pnpm exec playwright install webkit')
     expect(source).not.toMatch(/\.skip|testIgnore|test\.fixme/)
-    const ports = STACKS.flatMap((item) => [item.web, item.api, item.youtube, item.instagram, item.social].filter((port): port is number => port !== undefined).filter((port, index, list) => list.indexOf(port) === index))
+    const ports = STACKS.flatMap((item) => [item.web, item.api, item.youtube, item.instagram, item.social, item.assist].filter((port): port is number => port !== undefined).filter((port, index, list) => list.indexOf(port) === index))
     expect(new Set(ports).size).toBe(ports.length)
   })
 
@@ -150,5 +150,28 @@ describe('E2E 기동 (코드 검사)', () => {
     expect(dropSecure('a=Secure; secure')).toBe('a=Secure')
     expect(dropSecure('a=b; Path=/')).toBe('a=b; Path=/')
     expect(serve).toMatch(/--drop-secure-cookie/)
+  })
+
+  it('A1 AI 제안 묶음(AC-A1-11·31): 가짜 LLM(정한 포트)·작은 상한·짧은 시간 제한과 함께 @assist만, 기본 묶음은 키 없는 서버', () => {
+    const servers = Array.isArray(config.webServer) ? config.webServer : []
+    const command = (name: string) => {
+      const stack = STACKS.find((item) => item.name === name)
+      return servers.find((item) => item.command?.includes(`--port ${String(stack?.api)}`) && item.command.includes('@livejjim/server'))?.command ?? ''
+    }
+    const stack = STACKS.find((item) => item.name === 'chromium-assist')
+    expect(stack?.assist).toBeTypeOf('number')
+    expect(E2E_ASSIST_DAILY).toBe(3)
+    expect(command('chromium-assist')).toContain(`--assist fake --assist-port ${String(stack?.assist)} --assist-daily 3 --assist-timeout-ms 2000`)
+    expect(stack?.grep?.test('시험 @assist')).toBe(true)
+    expect(stack?.grep?.test('시험 @social')).toBe(false)
+    for (const other of STACKS.filter((item) => item.name !== 'chromium-assist')) {
+      expect(command(other.name)).not.toContain('--assist')
+      expect(other.grep?.test('시험 @assist') ?? false).toBe(false)
+    }
+    expect(STACKS.find((item) => item.name === 'chromium')?.grepInvert?.test('시험 @assist')).toBe(true)
+    expect(fakeLlmUrl('chromium-assist')).toBe(`http://127.0.0.1:${String(stack?.assist)}`)
+    expect(fakeLlmUrl('chromium')).toBeNull()
+    const ports = STACKS.flatMap((item) => [item.web, item.api, item.youtube, item.instagram, item.social, item.assist].filter((port): port is number => port !== undefined).filter((port, index, list) => list.indexOf(port) === index))
+    expect(new Set(ports).size).toBe(ports.length)
   })
 })

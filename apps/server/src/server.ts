@@ -41,6 +41,7 @@ import { PasteService } from './tiktok-live/paste-service.ts'
 import { tiktokLinkCounts } from './tiktok-live/store.ts'
 import { instagramDmCounts } from './ops-store.ts'
 import { DepositService, type DepositOptions } from './deposit/service.ts'
+import { ParcelService, type ParcelOptions } from './parcel/service.ts'
 import { readQueue } from './print-store.ts'
 import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
@@ -56,6 +57,7 @@ import { YoutubeSystem, checkYoutubeConfig, type LinkHooks, type YoutubeConfig }
 import { realTimer, type Timer } from './youtube/timer.ts'
 import { checkSocialSetup, type SocialLoginSetup } from './social/providers.ts'
 import { SocialLogin } from './social/service.ts'
+import { AssistService, checkAssistSetup, type AssistSetup } from './assist/service.ts'
 
 /** 스냅샷 간격 상한 (AC-S04-28: 일정 이벤트 수, 최대 500) */
 export const MAX_SNAPSHOT_EVERY = 500
@@ -152,7 +154,7 @@ export interface ServerOptions {
    * noticeVersion = 지금 고지 판(시험만 바꾼다)
    */
   /** 서버 시작 때 남길 설정 경고 (값 없이 코드만 — 운영 설정 읽기가 정한다) */
-  readonly startupWarnings?: readonly 'INSTAGRAM_CONFIG_INSECURE'[]
+  readonly startupWarnings?: readonly ('INSTAGRAM_CONFIG_INSECURE' | 'PARCEL_CARRIER_NOT_READY')[]
   readonly tiktok?: {
     readonly settings?: TikTokSettings
     readonly libraryEnv?: readonly string[]
@@ -177,12 +179,24 @@ export interface ServerOptions {
   /** 입금 확인 설정 (N3): 시험 모드(가짜 원천 — E2E 기동만)·팝빌 전송(연동 키가 있을 때)·주기 덮어쓰기(E2E 기동만)·시험용 타이머 */
   readonly deposits?: DepositOptions
   /**
+   * 택배 자동 접수 (T1, PARCEL_RULES): 이어진 택배사 어댑터(가짜 택배사 FAKE — E2E 기동·서버 시험만, 운영 기동은 비어 있다 → 설정에 "우체국 택배 — 준비 중"만)·
+   * 조회 간격(기본 30분)·배송지 정리 간격(기본 1시간)·한 번에 접수할 때 동시에 보내는 수
+   */
+  readonly parcel?: ParcelOptions
+  /**
    * 간편 로그인 (L1). 운영 기동은 productionServerOptions가 환경 변수로 공급자 ID·비밀값만 만든다(주소는 고정값).
    * 공급자 주소 바꾸기·http 허용·HTTP 함수·시간 제한은 시험·E2E·연습 기동만(가짜 OAuth 서버). 없거나 공급자가 없으면 꺼짐(지금과 같다)
    */
   readonly socialLogin?: SocialLoginSetup
   /** 간편 로그인 시험 주입점 (쓴 표시 직후·로그인 연결을 찾은 뒤 세션 거래 전 — 동시 사용 시험) */
   readonly socialHooks?: { readonly afterClaim?: () => void | Promise<void>; readonly beforeLoginSession?: () => void | Promise<void> }
+  /**
+   * AI 확인 필요 제안 (A1, D-A1-04·D-A1-08). 운영 기동은 productionServerOptions가 환경 변수로 키·모델·상한만 만든다(주소는 고정 https://api.anthropic.com).
+   * 주소 바꾸기·http 허용·어댑터 바꾸기는 시험·E2E·연습 기동만(가짜 LLM 서버). 없거나 키가 없으면 AI 제안을 쓸 수 없다(규칙 제안만 — 지금과 같다)
+   */
+  readonly assist?: AssistSetup
+  /** AI 제안 시험 주입점 (호출 기록을 넣은 뒤 어댑터를 부르기 직전 — 동시·끄기 시험) */
+  readonly assistHooks?: { readonly beforeCall?: () => void | Promise<void> }
 }
 
 export interface LivejjimServer {
@@ -213,8 +227,12 @@ export interface LivejjimServer {
   readonly work: WorkPools
   /** 입금 확인 (N3) */
   readonly deposits: DepositService
+  /** 택배 자동 접수 (T1) — 주기 작업(조회·배송지 정리)은 start()가 돌린다 */
+  readonly parcels: ParcelService
   /** 간편 로그인 (L1 — 설정이 없으면 켜진 공급자가 없다) */
   readonly social: SocialLogin
+  /** AI 확인 필요 제안 (A1 — 키가 없으면 규칙 제안만) */
+  readonly assist: AssistService
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
   /** 유튜브 연동 (설정이 있을 때만) */
@@ -267,6 +285,11 @@ export function createServer(options: ServerOptions): LivejjimServer {
 
   if (options.socialLogin !== undefined) {
     const problem = checkSocialSetup(options.socialLogin)
+    if (problem !== null) throw new TypeError(problem)
+  }
+
+  if (options.assist !== undefined) {
+    const problem = checkAssistSetup(options.assist)
     if (problem !== null) throw new TypeError(problem)
   }
 
@@ -377,7 +400,17 @@ export function createServer(options: ServerOptions): LivejjimServer {
     onPrinted: billing.onLabelPrinted,
   })
   const printService = print
+  const assist = new AssistService({
+    db,
+    writer,
+    clock,
+    masterKey,
+    log,
+    setup: options.assist ?? null,
+    ...(options.assistHooks === undefined ? {} : { hooks: options.assistHooks }),
+  })
   const service = new Service({
+    assist,
     db,
     writer,
     masterKey,
@@ -518,6 +551,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     publish: (sellerId, data) => hub.publishDeposit(sellerId, data),
     options: options.deposits ?? {},
   })
+  const parcels = new ParcelService({ db, writer, clock, timer, masterKey, hub, log, work, options: options.parcel ?? {} })
   const social = new SocialLogin({
     db,
     masterKey,
@@ -546,6 +580,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       instagram: instagramModule,
       tiktok: { db, live: tiktokLive, paste },
       deposits,
+      parcels: { service: parcels, db },
       appOrigin: options.appOrigin,
       clientConfig: { hostActionDelayMs, testPrinter: options.testPrinter === true },
       receiptAtParam: options.receiptAtParam === true,
@@ -553,6 +588,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       sealer,
       trustedProxies,
       social,
+      assist,
     },
     https: options.appOrigin.startsWith('https://'),
     web: options.webDir === undefined ? null : createWebServer(options.webDir),
@@ -563,12 +599,12 @@ export function createServer(options: ServerOptions): LivejjimServer {
     },
     ops: { token: options.opsToken === undefined ? null : options.opsToken.trim(), status: opsStatus },
     webhooks: createWebhookApp(instagramModule),
-    receiptPage: (app) => registerReceiptPage(app, { db, links: receiptLinks, closing, clock }),
+    receiptPage: (app) => registerReceiptPage(app, { db, links: receiptLinks, closing, clock, parcels, appOrigin: options.appOrigin, writer }),
   })
   // 저장된 켜진 원천의 받아 오기 주기를 건다 (실패해도 서버는 뜬다 — 원천 실패는 판매를 멈추지 않는다, DP-0 5)
   deposits.start()
   const stop = async () => {
-    await Promise.all([youtube?.stop(), sealer.stop()])
+    await Promise.all([youtube?.stop(), sealer.stop(), parcels.stop()])
   }
   return {
     app,
@@ -589,11 +625,15 @@ export function createServer(options: ServerOptions): LivejjimServer {
     backups,
     work,
     deposits,
+    parcels,
     social,
+    assist,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     start: () => {
       youtube?.start()
       sealer.start()
+      // 택배 배송 조회(30분마다)·배송지 30일 정리 (T1 PC-8·PC-3)
+      parcels.start()
       // 끝나지 않은 실제 회차의 이어진 틱톡 연결을 이어받는다 (NFR-03, AC-N2b-2-35)
       void tiktokLive.resume()
     },

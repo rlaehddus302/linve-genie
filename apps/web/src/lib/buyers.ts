@@ -222,8 +222,21 @@ export function mergeWords(data: ScopeData, names: BuyerNames, preview: MergePre
   }
 }
 
-/** 합치기 방향 기본 (D-091): 둘 중 하나만 유튜브 구매자면 유튜브 쪽이 남는다, 아니면 자세히를 열어 둔 구매자가 남는다 */
+/** 음성 문자찜에서 손님을 말하지 않아 생긴 구매자의 표시 이름 (메모 `확인 필요`, R-21 넣기·ORD-08 AC9) */
+export const UNKNOWN_SMS_DISPLAY = '문자찜(확인 필요)'
+
+/** 누구인지 확인해야 하는 문자 구매자인가 (표시 이름 "문자찜(확인 필요)") */
+export function isUnknownSms(buyer: Buyer): boolean {
+  return buyer.kind === 'sms' && buyer.display === UNKNOWN_SMS_DISPLAY
+}
+
+/**
+ * 합치기 방향 기본 (D-091): 둘 중 하나만 유튜브 구매자면 유튜브 쪽이 남는다, 아니면 자세히를 열어 둔 구매자가 남는다.
+ * 단 둘 중 하나만 "문자찜(확인 필요)"이면 상대(누구인지 아는 손님)가 남는다 — 정산 안내(AC-V1-29)의 링크로 확인 필요 구매자를
+ * 열고 그대로 합쳐도 그 구매자가 손님에게 합쳐져 안내가 사라지고, 손님 이름이 "확인 필요"로 바뀌지 않는다 (TE-V1-002).
+ */
 export function defaultInto(opened: Buyer, other: Buyer): Buyer {
   if (opened.kind !== other.kind) return opened.kind === 'youtube' ? opened : other
+  if (isUnknownSms(opened) !== isUnknownSms(other)) return isUnknownSms(opened) ? other : opened
   return opened
 }

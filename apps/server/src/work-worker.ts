@@ -1,8 +1,8 @@
-// 작업 워커 (work-pool.ts가 띄운다 — RA-I2-003·RA-I2-004): 확인서 그림·PDF, 판매대장 엑셀 쓰기, 상품 목록 .xlsx 읽기.
+// 작업 워커 (work-pool.ts가 띄운다 — RA-I2-003·RA-I2-004): 확인서 그림·PDF, 판매대장 엑셀 쓰기, 상품 목록 .xlsx 읽기, 운송장 PDF(T1).
 // 판정·DB·네트워크에는 손대지 않는다. 받은 값으로 파일 바이트(또는 읽은 행)를 만들어 돌려줄 뿐이다. 작업 내용은 출력하지 않는다.
 // 무거운 모듈은 그 작업이 처음 올 때 읽는다(.xlsx 읽기 워커가 PDF 모듈을 읽지 않게).
 import { parentPort } from 'node:worker_threads'
-import type { ReceiptData } from '@livejjim/documents'
+import type { ReceiptData, WaybillData } from '@livejjim/documents'
 import type { LedgerChunk, WorkKind } from './work-pool.ts'
 
 interface Request {
@@ -50,6 +50,12 @@ const handlers: Readonly<Record<WorkKind, Handler>> = {
       list.flatMap((chunk) => chunk.rows),
       list.some((chunk) => chunk.options),
     )
+  },
+  /** 운송장 PDF (T1 PC-7 — 문서 패키지 renderWaybillsPdf, 같은 내장 글꼴). 답 = { pdf(없으면 null), outcomes(준 순서대로 만들었는지·오류 코드) } */
+  waybillPdf: async (input) => {
+    const { renderWaybillsPdf } = await import('@livejjim/documents')
+    const { documentFont } = await import('./files.ts')
+    return renderWaybillsPdf((input as { list: WaybillData[] }).list, documentFont())
   },
   /** 상품 목록 .xlsx → 첫 시트의 행 (압축 해제·시트·행·칸 상한 — import-files.ts) */
   xlsxRows: async (input) => {

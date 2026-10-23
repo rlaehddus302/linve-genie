@@ -120,7 +120,7 @@ function numberValue(x: string): number | null {
   return parseKoreanNumber(x)
 }
 
-interface NumberMarkers {
+export interface NumberMarkers {
   /** 번호 표시에 속한 토큰 위치 */
   readonly tokens: ReadonlySet<number>
   /** 번호 표시 값 (나온 것 전부) */
@@ -138,11 +138,16 @@ function isSplitNumber(previous: string | undefined, x: string): boolean {
   return previous !== undefined && parseKoreanNumber(previous + x) !== null
 }
 
-function findNumberMarkers(tokens: readonly string[], forms: readonly (readonly string[])[]): NumberMarkers {
+/**
+ * 번호 표시 찾기 (R-17 3). R-21 7(V1)도 같은 코드를 쓴다: `skip`이 참인 토큰(맡은 토큰)은 표시 토큰이 될 수 없다.
+ * 끊어 말한 번호 검사의 앞 토큰은 맡은 토큰이어도 그대로 본다(R-21 7).
+ */
+export function findNumberMarkers(tokens: readonly string[], forms: readonly (readonly string[])[], skip: (i: number) => boolean = () => false): NumberMarkers {
   const marked = new Set<number>()
   const values: number[] = []
   let split = false
   tokens.forEach((token, i) => {
+    if (skip(i)) return
     const previous = i > 0 ? tokens[i - 1] : undefined
     // 붙여 씀: 읽는 모양 하나가 `X번` (앞 토큰 = 표시 토큰의 앞 토큰)
     for (const form of forms[i] ?? []) {
@@ -156,7 +161,7 @@ function findNumberMarkers(tokens: readonly string[], forms: readonly (readonly 
     }
     // 띄어 씀: 토큰 X(그대로) 바로 다음 토큰의 읽는 모양 하나가 `번` (앞 토큰 = X 토큰의 앞 토큰)
     const next = forms[i + 1]
-    if (next !== undefined && next.includes(BEON)) {
+    if (next !== undefined && next.includes(BEON) && !skip(i + 1)) {
       const value = numberValue(token)
       if (value !== null) {
         marked.add(i)

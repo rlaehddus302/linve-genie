@@ -1,4 +1,5 @@
 // 서버 응답 모양 (harness/sprints/S04·S05 dev-notes의 화면 계약). 조회 항목은 코어 조회 함수 결과이고 시각 필드(at·endedAt·rankTime)만 ISO 문자열이다.
+import type { ParcelBrief } from './parcel-types.ts'
 import type {
   BroadcastDetails,
   BuyerInfo,
@@ -180,6 +181,35 @@ export interface ReviewItem extends IsoTimes<ReviewInfo> {
   readonly received: string | null
   /** 문자찜의 전화번호 뒤 4자리 */
   readonly phoneLast4: string | null
+  /** 제안 (A1 CMT-06, R-20 10 — 판정이 아니다). 없으면 null. 옛 서버는 키가 없다 */
+  readonly suggestion?: ReviewSuggestion | null
+}
+
+/** 확인 필요 항목의 제안 (A1 dev-notes "화면·시험에게") — RULE = 비슷한 글자로 찾음, AI = AI가 읽음 */
+export interface ReviewSuggestion {
+  readonly no: number
+  /** 옵션 상품이면 모든 항목 (항목 이름 → 선택지 label), 옵션 없는 상품이면 없음 */
+  readonly options?: Readonly<Record<string, string>>
+  readonly qty: number
+  readonly source: 'RULE' | 'AI'
+}
+
+/** AI 제안 받기 결과 (POST /api/assist/suggest) */
+export type AssistResult = 'DONE' | 'OFF' | 'UNAVAILABLE' | 'LIMIT' | 'FAILED' | 'BUSY'
+
+export interface AssistSuggestResponse {
+  readonly result: AssistResult
+  readonly called: number
+}
+
+/** AI 제안 설정 (GET·PUT /api/assist/settings) */
+export interface AssistSettings {
+  /** 서버에 키가 있다 */
+  readonly available: boolean
+  readonly enabled: boolean
+  readonly consentedAt: string | null
+  readonly usedToday: number
+  readonly dailyLimit: number
 }
 
 /** 확인 필요 조회 (GET /api/reviews[?broadcast=][&rehearsal=true]) */
@@ -321,6 +351,8 @@ export interface PackingEntry {
   readonly add: readonly PackingItem[]
   /** 포장 다시 확인·배송 뒤 바뀜: 뺄 것 */
   readonly remove: readonly PackingRemoved[]
+  /** 택배 줄 (T1 — 접수가 없거나 실패한 시도면 null) */
+  readonly parcel?: ParcelBrief | null
 }
 
 export interface PackingList {

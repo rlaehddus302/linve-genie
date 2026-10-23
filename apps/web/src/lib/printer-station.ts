@@ -34,6 +34,13 @@ export type PrinterMethod = ConnectionMethod | 'test'
 
 const METHOD_KEY = 'livejjim.printMethod'
 
+/**
+ * 그리기가 던지면(설정 오류가 아님 — 느린·메모리가 모자란 휴대폰의 글꼴 불러오기·캔버스 만들기 실패 등) 같은 장을 다시 그리기 전에 기다리는 시간.
+ * 그리기에는 시간 제한이 없다(오래 걸리면 기다린다). 모두 실패하면 찍지 않은 채 끊김으로 알린다(그 장은 대기 맨 앞).
+ * 그리기가 오류 결과를 돌려준 것(템플릿·데이터 — 설정 오류)은 다시 그려도 같으니 바로 라벨 오류로 알린다.
+ */
+export const RENDER_RETRY_DELAYS_MS: readonly number[] = [500, 1500, 3000]
+
 export interface StationSnapshot {
   /** 이 브라우저에 있는 연결 방법 (블루투스가 앞) */
   readonly methods: readonly ConnectionMethod[]
@@ -295,11 +302,14 @@ export class PrinterStation {
     }
     this.#adapterMethod = method
     writeMethod(method)
+    const wasConnected = adapter.state === 'CONNECTED'
     this.#set({ method, connecting: true, connectError: null, connection: adapter.state })
     const result = await adapter.connect(method === 'test' ? (adapter.availableMethods()[0] ?? 'bluetooth') : method)
     this.#set({ connecting: false, connection: adapter.state, connectError: result.ok ? null : result.error, ...(result.ok ? { lastError: null } : {}) })
     if (result.ok) {
-      if (this.isMine()) await this.#report(true)
+      // 이미 이어져 있던 프린터(연결 바뀜 알림이 없다)라도 다시 알린다: 서버는 끊김 결과(찍지 못한 장·늦게 닿은 결과)로 프린터를 끊김으로
+      // 적었을 수 있다 — 알리지 않으면 "다시 연결"을 눌러도 끊김 멈춤이 풀리지 않는다
+      if (this.isMine()) await this.#report(true, wasConnected)
       void this.pump()
     }
     return result.ok
@@ -479,9 +489,17 @@ export class PrinterStation {
   async #printJob(job: ClaimedJob): Promise<void> {
     saveAttempt({ deviceId: this.#options.deviceId, attempt: job.attempt })
     this.#set({ job: { id: job.id, date: job.date } })
+    let rendered: RenderOutcome
+    try {
+      rendered = await this.#renderWithRetry(job)
+    } catch {
+      // 다시 그려도 그리지 못했다(설정 오류가 아니다): 찍지 않았다 — 끊김으로 알린다(그 장은 대기 맨 앞, "다시 연결"로 이어서).
+      // 라벨 오류로 알리지 않는다(판매자가 고칠 라벨 설정이 없다)
+      await this.#finishJob(job, { ok: false, error: { code: 'DISCONNECTED' } })
+      return
+    }
     let body: Record<string, unknown>
     try {
-      const rendered = await this.#options.render(job)
       if (!rendered.ok) {
         body = { ok: false, error: { code: rendered.error.code, ...(rendered.error.item === undefined ? {} : { item: rendered.error.item }) } }
         this.#set({ lastError: rendered.error.message })
@@ -501,9 +519,26 @@ export class PrinterStation {
         }
       }
     } catch {
-      // 그리기·출력 중 예상하지 못한 실패: 찍혔는지 모른다 — 끊김으로 알린다(그 장은 대기 맨 앞)
+      // 출력 중 예상하지 못한 실패: 찍혔는지 모른다 — 끊김으로 알린다(그 장은 대기 맨 앞)
       body = { ok: false, error: { code: 'DISCONNECTED' } }
     }
+    await this.#finishJob(job, body)
+  }
+
+  /** 그 장을 그린다. 던지면 조금 기다렸다 다시 그린다(RENDER_RETRY_DELAYS_MS). 오류 결과(설정 오류)는 다시 그리지 않는다 */
+  async #renderWithRetry(job: ClaimedJob): Promise<RenderOutcome> {
+    for (let tries = 0; ; tries++) {
+      try {
+        return await this.#options.render(job)
+      } catch (error) {
+        const wait = RENDER_RETRY_DELAYS_MS[tries]
+        if (wait === undefined || this.#stopped) throw error
+        await new Promise<void>((resolve) => setTimeout(resolve, wait))
+      }
+    }
+  }
+
+  async #finishJob(job: ClaimedJob, body: Record<string, unknown>): Promise<void> {
     this.#pendingResult = { attempt: job.attempt, body: { deviceId: this.#options.deviceId, attempt: job.attempt, ...body } }
     await this.#flushResult()
     this.#set({ job: null })

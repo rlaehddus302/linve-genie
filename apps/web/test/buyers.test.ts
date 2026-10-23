@@ -3,7 +3,7 @@
 import { previewMerge } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
 import type { Buyer } from '../src/api/types.ts'
-import { buyerList, defaultInto, distinguishWords, mergeWords, objectParticle, sameNameCounts, searchBuyers, topicParticle } from '../src/lib/buyers.ts'
+import { UNKNOWN_SMS_DISPLAY, buyerList, defaultInto, distinguishWords, isUnknownSms, mergeWords, objectParticle, sameNameCounts, searchBuyers, topicParticle } from '../src/lib/buyers.ts'
 import { BuyerNames } from '../src/lib/derive.ts'
 import { fromFull } from '../src/lib/scope-data.ts'
 import { chat, dataOf, register, run, sms, viewOf } from './engine.ts'
@@ -211,6 +211,21 @@ describe('합치기 미리 보기 낱말 (AC-S06b-33, D-100) — 서버 응답(�
     expect(defaultInto(smsBuyer, hong).id).toBe('UC_hong1234')
     expect(defaultInto(hong, smsBuyer).id).toBe('UC_hong1234')
     expect(defaultInto(kim, hong).id).toBe('UC_kim5555')
+  })
+
+  it('TE-V1-002 · AC-V1-29: 하나만 "문자찜(확인 필요)"면 상대(아는 손님)가 남는다 — 둘 다면 자세히를 연 구매자', () => {
+    const data = dataOf([...BASE, sms('u1', 17, { memo: '확인 필요' }), sms('u2', 16, { memo: '확인 필요' })])
+    const unknown = data.buyers.get('sms:u1') as Buyer
+    const unknown2 = data.buyers.get('sms:u2') as Buyer
+    const known = data.buyers.get('sms:r1') as Buyer
+    const hong = data.buyers.get('UC_hong1234') as Buyer
+    expect(unknown.display).toBe(UNKNOWN_SMS_DISPLAY)
+    expect([isUnknownSms(unknown), isUnknownSms(known), isUnknownSms(hong)]).toEqual([true, false, false])
+    expect(defaultInto(unknown, known).id).toBe('sms:r1')
+    expect(defaultInto(known, unknown).id).toBe('sms:r1')
+    expect(defaultInto(unknown, hong).id).toBe('UC_hong1234')
+    expect(defaultInto(unknown, unknown2).id).toBe('sms:u1')
+    expect(defaultInto(unknown2, unknown).id).toBe('sms:u2')
   })
 
   it('막히지 않음: 옮길 찜 수·합계, 합친 뒤 합계(after.subtotal), 중복 문장(대기 순번은 그 찜 ID로 범위 조회에서)', () => {

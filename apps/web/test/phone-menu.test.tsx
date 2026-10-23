@@ -76,9 +76,10 @@ describe('휴대폰 메뉴 막대 (AC-NAV-01·02)', () => {
       ['입금 확인', '/deposits'],
       ['포장', '/packing'],
       ['라벨', '/labels'],
+      ['택배', '/parcels'],
       ['설정', '/settings'],
     ])
-    expect(within(opened).getAllByRole('listitem')).toHaveLength(4)
+    expect(within(opened).getAllByRole('listitem')).toHaveLength(5)
     expect(screen.getAllByRole('link', { name: '설정' })).toHaveLength(1)
     // 키보드 차례: "더보기" 다음이 목록 항목 (DOM 순서 = Tab 순서)
     expect(more().compareDocumentPosition(links[0] as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -86,7 +87,7 @@ describe('휴대폰 메뉴 막대 (AC-NAV-01·02)', () => {
     vi.resetModules()
     await phoneTopBar({ name: 'home' }, { labels: false })
     fireEvent.click(more())
-    expect(within(list() as HTMLElement).getAllByRole('link').map((link) => link.textContent)).toEqual(['입금 확인', '포장', '설정'])
+    expect(within(list() as HTMLElement).getAllByRole('link').map((link) => link.textContent)).toEqual(['입금 확인', '포장', '택배', '설정'])
   })
 })
 

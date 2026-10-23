@@ -8,11 +8,12 @@
 // 라벨 기능이 꺼져 있거나 켬/끔을 아직 모르면(N4a, L-13 9, AC-N4a-14·18): 보드 라벨 상태·알림 "출력 멈춤"(Alt+1 순서에서도)·단축키 안내의 Alt+P가 빠지고,
 // Alt+P는 창을 열지 않고 "라벨 쓰지 않음 — 설정에서 켤 수 있어요."를 알린다(빠른 입력칸 포커스 그대로). 버릴 라벨은 남는다.
 import { DEFAULT_SETTINGS, type SaleSettings } from '@livejjim/core'
-import type { CardRegistration, SuggestionCard } from '@livejjim/voice'
+import type { CardRegistration, SmsProductView, SmsReadOptions, SuggestionCard } from '@livejjim/voice'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ApiError, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
 import type { ChatMessage, Product, WriteResult } from '../api/types.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
+import type { ScopeData } from '../lib/scope-data.ts'
 import { BuyerNames, alertCounts, isOptionBroadcast, latestProduct, productKey, productSlots } from '../lib/derive.ts'
 import { EMPTY_DRAFT, optionSummary, type OptionDraft, type OptionPayload } from '../lib/options.ts'
 import { useReviews } from '../lib/reviews.ts'
@@ -29,10 +30,11 @@ import { useScopeStore } from '../lib/use-store.ts'
 import { useWide } from '../lib/use-wide.ts'
 import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
 import { cardLine, enterBadgeCard } from '../lib/voice.ts'
-import { VOICE_IDLE, VoiceController, type RegisterSource, type VoiceSnapshot } from '../voice/controller.ts'
+import { readReceived } from '../lib/received.ts'
+import { SMS_SEND_FAILED, SMS_UNDO_NOTE, VOICE_IDLE, VoiceController, type RegisterSource, type SmsBuyerChoice, type SmsWriteOutcome, type VoiceSmsWrite, type VoiceSnapshot } from '../voice/controller.ts'
 import { fetchPastNames } from '../voice/history.ts'
 import { loadVoice } from '../voice/load.ts'
-import { readConsent, readSettings, writeConsent, writeSettings } from '../voice/storage.ts'
+import { readConsent, readSettings, readSmsSettings, writeConsent, writeSettings, writeSmsSettings } from '../voice/storage.ts'
 import { AssignDialog, ConfirmDialog, ConvertDialog, EditDialog, ReasonDialog } from './ActionDialogs.tsx'
 import { AttentionDialog, CancelRequestDialog, ConflictDialog, PendingDialog, SuccessionDialog } from './AlertDialogs.tsx'
 import { AlertStrip, firstAlert, type AlertKind, type PrintAlerts } from './AlertStrip.tsx'
@@ -111,6 +113,49 @@ interface RegHooks {
 /** 창이 열려 있다 (콘솔 창·음성 안내 창·떠날지 묻는 창) */
 function anyDialogOpen(): boolean {
   return document.querySelector('[role="dialog"]') !== null
+}
+
+/** 409 BUYER_AMBIGUOUS의 후보 (모양이 맞는 것만) — 찜 번호(`claims`, D-V1-14)는 정수만, 없거나 깨졌으면 빈 목록 */
+export function readCandidates(value: unknown): SmsBuyerChoice[] {
+  if (!Array.isArray(value)) return []
+  const out: SmsBuyerChoice[] = []
+  for (const item of value as readonly unknown[]) {
+    if (typeof item !== 'object' || item === null) continue
+    const { buyer, display, phoneLast4, claims } = item as Record<string, unknown>
+    if (typeof buyer !== 'string' || buyer === '') continue
+    out.push({
+      buyer,
+      display: typeof display === 'string' ? display : '',
+      phoneLast4: typeof phoneLast4 === 'string' ? phoneLast4 : null,
+      claims: Array.isArray(claims) ? (claims as readonly unknown[]).filter((no): no is number => typeof no === 'number' && Number.isSafeInteger(no)) : [],
+    })
+  }
+  return out
+}
+
+/** R-21 읽기 설정 (그 방송 설정 스냅샷): 번호 방식이면 번호 범위, 옵션 방식이면 상품 목록(판매 종료 빼고)·지금 상품 (엔진 catalogOf·focusOf와 같은 모양) */
+export function smsReadOptions(data: ScopeData, b: string, now: number): SmsReadOptions {
+  const settings = data.broadcasts.get(b)?.settings ?? DEFAULT_SETTINGS
+  const base = { parseMode: settings['claim.parseMode'], maxNumber: settings['claim.maxNumber'], maxQuantity: settings['claim.maxQuantity'] }
+  if (settings['claim.parseMode'] !== 'OPTIONS') return base
+  const catalog = [...data.products.values()]
+    .filter((product) => product.broadcast === b && product.status !== 'CLOSED')
+    .sort((x, y) => x.no - y.no)
+    .map((product) => ({ no: product.no, name: product.name, aliases: product.aliases, options: product.options }))
+  const record = data.broadcasts.get(b)?.focus ?? null
+  const focused = record === null ? undefined : data.products.get(record.product)
+  const at = record === null ? Number.NaN : Date.parse(record.at)
+  const focus =
+    focused === undefined || focused.status === 'HOLD' || focused.status === 'CLOSED' || !Number.isFinite(at) ? null : { no: focused.no, ageSec: Math.max(0, (now - at) / 1000) }
+  return { ...base, catalog, focus }
+}
+
+/** 문자찜 카드가 보는 상품 모습 (D-V1-07): 없는 번호는 null, 1등이 찼으면 대기 자리(waitlist.max)를 본다 — 옵션 상품의 대기는 엔진이 판단한다 */
+export function smsProductView(data: ScopeData, b: string, no: number): SmsProductView | null {
+  const product = data.products.get(productKey(b, no))
+  if (product === undefined) return null
+  const max = data.broadcasts.get(b)?.settings['waitlist.max'] ?? DEFAULT_SETTINGS['waitlist.max']
+  return { state: product.status, waitlistFull: product.status === 'SOLD' && !product.hasOptions && product.waitlist.length >= max }
 }
 
 export function ConsolePage(props: ConsolePageProps) {
@@ -200,6 +245,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   const quickTextRef = useRef(quickText)
   quickTextRef.current = quickText
   const [fix, setFix] = useState<FixState | null>(null)
+  /** 빠른 입력 고치기 칸이 열려 있다 (Esc가 문자찜 카드를 닫지 않는다, D-V1-20) */
+  const fixOpen = useRef(false)
+  fixOpen.current = fix !== null
   const [registrations, setRegistrations] = useState<Registration[]>([])
   const [asks, setAsks] = useState<EditAsk[]>([])
   const askId = useRef(1)
@@ -266,9 +314,14 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   const currentNames = useMemo(() => [...data.products.values()].map((product) => product.name), [data.products])
   const currentNamesRef = useRef(currentNames)
   currentNamesRef.current = currentNames
-  const voiceActions = useRef<{ register: (card: SuggestionCard, registration: CardRegistration, source: RegisterSource) => void; focusQuick: () => void }>({
+  const voiceActions = useRef<{
+    register: (card: SuggestionCard, registration: CardRegistration, source: RegisterSource) => void
+    focusQuick: () => void
+    writeSms: (write: VoiceSmsWrite, received: string | null, requestId: string) => Promise<SmsWriteOutcome>
+  }>({
     register: () => {},
     focusQuick: () => {},
+    writeSms: async () => ({ kind: 'failed', message: SMS_SEND_FAILED }),
   })
   const [voice, setVoice] = useState<VoiceController | null>(null)
   // 등록 성공을 음성 칸에 알린다 (지원 안 함 안내를 내림, D-I5-15) — 등록 경로가 음성 컨트롤러를 의존하지 않게 ref로
@@ -295,6 +348,24 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       writeSettings: (settings) => writeSettings(settings),
       register: (card, registration, source) => voiceActions.current.register(card, registration, source),
       focusQuick: () => voiceActions.current.focusQuick(),
+      // ── 음성 문자찜 (V1, ORD-08 AC9) ──
+      smsReadOptions: () => smsReadOptions((store.getSnapshot().data ?? latest.current.data), b, Date.now()),
+      smsProduct: (no) => smsProductView((store.getSnapshot().data ?? latest.current.data), b, no),
+      // 카드에 보일 이름: 옵션 방식은 상품 이름, 번호 방식은 품종 (D-V1-21 — 비었으면 번호만)
+      smsProductName: (no) => {
+        const current = store.getSnapshot().data ?? latest.current.data
+        const product = current.products.get(productKey(b, no))
+        return product === undefined || product.name.trim() === '' ? null : product.name
+      },
+      // 손 입력 문자찜의 받은 시각 칸과 같은 읽기 (ORD-08 AC6, D-089 — 오전·오후 중 지금과 가까운 쪽)
+      readSmsTime: (time, now) => {
+        const read = readReceived(time, now)
+        return read.kind === 'ok' ? { value: read.value, late: read.late } : null
+      },
+      writeSms: (write, received, requestId) => voiceActions.current.writeSms(write, received, requestId),
+      newRequestId,
+      readSmsSettings,
+      writeSmsSettings: (settings) => writeSmsSettings(settings),
     })
     setVoice(controller)
     return () => controller.dispose()
@@ -453,6 +524,13 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   )
   const printAlertsRef = useRef(printAlerts)
   printAlertsRef.current = printAlerts
+  /** 되돌릴 것이 없는 Ctrl+Z에 음성 문자찜 결과 카드가 열려 있다는 알림 (잠시 보인다, D-V1-22) */
+  const [undoNote, setUndoNote] = useState<{ readonly text: string; readonly n: number } | null>(null)
+  useEffect(() => {
+    if (undoNote === null) return
+    const timer = setTimeout(() => setUndoNote(null), LABELS_NOTE_MS)
+    return () => clearTimeout(timer)
+  }, [undoNote])
   /** Alt+P를 눌렀지만 라벨 기능이 꺼져 있다는 알림 (잠시 보인다) */
   const [labelsNote, setLabelsNote] = useState<{ readonly text: string; readonly n: number } | null>(null)
   useEffect(() => {
@@ -661,7 +739,41 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     },
     [dropAttached, enqueueRegistration, focusQuick, voice],
   )
-  voiceActions.current = { register: registerVoiceCard, focusQuick }
+  /**
+   * 음성 문자찜 쓰기 하나 (AC-V1-21·25·30·31): 손 입력과 같은 `sms` 이벤트 — 본문은 type·방송·번호·(옵션·수량)·(받은 시각)·(메모)·(끝자리 또는 구매자)·`voice: true`·요청 번호뿐.
+   * `voice: true`는 음성 쓰기에만 붙는다 — 서버가 여러 기기의 같은 말을 한 번만 넣는다(D-V1-13, 손 입력 본문에는 없다).
+   * 인식 문장은 보내지 않는다(D-V1-10). 409 BUYER_AMBIGUOUS는 후보로, 409 VOICE_REPEATED는 이유 카드로, 그 밖의 실패는 서버 문장으로 돌려준다(카드가 다시 열린다).
+   */
+  const writeVoiceSms = useCallback(
+    async (one: VoiceSmsWrite, received: string | null, requestId: string): Promise<SmsWriteOutcome> => {
+      const option = isOptionBroadcast(latest.current.data, b)
+      const event = {
+        type: 'sms',
+        b,
+        no: one.no,
+        ...(option ? { qty: one.qty } : {}),
+        ...(option && one.options !== undefined ? { options: { ...one.options } } : {}),
+        ...(received === null ? {} : { received }),
+        ...(one.memo === null ? {} : { memo: one.memo }),
+        ...(one.buyer !== undefined ? { buyer: one.buyer } : one.last4 !== undefined ? { last4: one.last4, ...(one.newBuyer === true ? { newBuyer: true } : {}) } : {}),
+        voice: true,
+      }
+      try {
+        const result = await write(requestId, event)
+        return { kind: 'ok', seq: result.seq, buyer: typeof result.buyer === 'string' ? result.buyer : null }
+      } catch (error) {
+        if (!isApiError(error)) return { kind: 'failed', message: SMS_SEND_FAILED }
+        if (error.code === 'VOICE_REPEATED') return { kind: 'repeated', message: error.message }
+        if (error.code === 'BUYER_AMBIGUOUS') {
+          const candidates = readCandidates(error.details.candidates)
+          if (candidates.length > 0) return { kind: 'ambiguous', candidates, message: error.message }
+        }
+        return { kind: 'failed', message: error.network ? SMS_SEND_FAILED : error.message }
+      }
+    },
+    [b, write],
+  )
+  voiceActions.current = { register: registerVoiceCard, focusQuick, writeSms: writeVoiceSms }
 
   /** 카드 고치기 칸의 Enter: 빠른 입력 고치기 칸과 같은 해석 (decideFixForm — 그 방송의 price.unit) */
   const submitCardForm = useCallback(
@@ -886,7 +998,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         const active = document.activeElement
         if (isTextField(active) && active.value !== '') return // 글자가 있는 칸: 브라우저의 글자 되돌리기
         event.preventDefault()
-        queue.undoLatest()
+        // 되돌릴 것이 없고 음성 문자찜 결과 카드가 열려 있으면 알림만 (아무것도 보내지 않는다, D-V1-22·AC-V1-33)
+        if (queue.undoLatest() === undefined && voice !== null && voice.smsResultShown()) setUndoNote((note) => ({ text: SMS_UNDO_NOTE, n: (note?.n ?? 0) + 1 }))
         return
       }
       if (event.altKey && !mod && (event.code === 'Digit1' || event.key === '1')) {
@@ -915,6 +1028,12 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         // 음성 안내 창 (포커스가 창 밖에 있어도 Esc로 닫는다 — 꺼진 그대로)
         if (voice !== null && voice.getSnapshot().phase === 'consent') {
           voice.declineConsent()
+          return
+        }
+        // 맨 앞 기다리는 문자찜 카드의 "넣지 않기" (D-V1-20): PC 폭·창 없음·고치기 칸 없음·빠른 입력칸이 비었거나 글 칸 밖일 때만
+        const active = document.activeElement
+        if (voice !== null && wideRef.current && !fixOpen.current && voice.getSnapshot().forms.size === 0 && !(isTextField(active) && active.value !== '') && voice.smsEscape()) {
+          event.preventDefault()
           return
         }
         setFix(null)
@@ -1120,6 +1239,11 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
             {optionNote !== null ? (
               <p key={optionNote.n} className="notice" role="status" data-tone="warning">
                 {optionNote.text}
+              </p>
+            ) : null}
+            {undoNote !== null ? (
+              <p key={undoNote.n} className="notice" role="status">
+                {undoNote.text}
               </p>
             ) : null}
             {labelsNote !== null ? (

@@ -2,6 +2,7 @@
 // - 상품·포장 두 가지: 라벨 크기·가게 이름·가격 표기(상품)·한 장 번호 수(포장)·항목마다 켜기/끄기(끌 수 없는 항목은 잠김)·글자 크기·위치, 기본으로 되돌리기.
 // - 미리 보기는 출력과 같은 렌더러의 1비트 그림(판매자 샘플 또는 가장 긴 값).
 // - 저장 전: 템플릿 검사 오류면 저장 단추가 막히고 칸 옆에 문장. 최악값으로 그려 들어가지 않으면 저장하지 않고 그 항목을 알린다. 겹침은 경고만.
+// - 열 때: 이미 저장된 설정이 같은 최악값 검사에 걸리면 같은 문장으로 경고만 한다(L-11 13, D-STB-01 — 저장된 설정은 그대로 쓴다).
 // - 다른 기기가 먼저 바꿨으면 서버 문장과 "새로 불러오기".
 // - 옵션 방송(상품명·옵션도 받기)이 하나라도 있는 판매자가 품종 칸을 끈 상품 템플릿을 고르거나 저장하면 안내 한 줄 — 막지 않는다 (D-O4-07, AC-O4-26).
 //   옵션 방송이 있는지는 참/거짓만 주는 조회(GET /api/option-broadcasts/exists, D-O4-13)로 본다. 품종 칸을 끌 때만 묻고, 조회를 못 하면 안내를 보인다.
@@ -160,6 +161,15 @@ function TemplateEditor({ kind }: { readonly kind: Kind }) {
     return renderSample(env.env, template, longest)
   }, [env, template, longest, problems.length])
 
+  // 저장된 설정을 지금 검사(가장 넓은 날짜 포함)로 다시 본다 (L-11 13, D-STB-01). 서버·출력 기기는 저장된 설정을 그대로 쓰고,
+  // 여기서는 저장이 막힐 때와 같은 문장으로 경고만 한다(새로 저장하는 것은 지금처럼 막힌다)
+  const storedTemplate = stored?.template ?? null
+  const storedFit = useMemo(() => {
+    if (env.state !== 'ready' || storedTemplate === null) return null
+    const result = checkTemplate(env.env, storedTemplate)
+    return !result.ok && 'doesNotFit' in result ? result.doesNotFit : null
+  }, [env, storedTemplate])
+
   if (stored === null || draft === null || template === null) {
     return <p role="status">라벨 설정을 불러오는 중…</p>
   }
@@ -264,6 +274,11 @@ function TemplateEditor({ kind }: { readonly kind: Kind }) {
   return (
     <div className="label-editor">
       <div className="stack label-editor-fields">
+        {storedFit !== null ? (
+          <p className="notice" role="note" data-tone="warning" aria-label="저장된 라벨 설정 경고">
+            {storedFit}
+          </p>
+        ) : null}
         <fieldset className="fieldset">
           <legend id={ids.size}>라벨 크기</legend>
           <div className="row" role="radiogroup" aria-labelledby={ids.size}>

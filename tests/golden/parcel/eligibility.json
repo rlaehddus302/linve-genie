@@ -1,0 +1,407 @@
+{
+  "kind": "eligibility",
+  "about": "묶음 하나를 접수 목록에서 고를 수 있는지 (PARCEL_RULES PC-4, T1 — D-T1-05). in = { items, shipping, payment, packing, parcel, address }. out = { ready: true } 또는 { reason } — 표의 위에서부터 처음 걸린 것.",
+  "cases": [
+    {
+      "id": "G-PCL-T1-101",
+      "title": "입금 완료·포장 완료·배송지 확인함 → 고를 수 있음",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 3,
+        "shipping": "NONE",
+        "payment": "PAID",
+        "packing": "포장 완료",
+        "parcel": "NONE",
+        "address": "CONFIRMED"
+      },
+      "out": {
+        "ready": true
+      }
+    },
+    {
+      "id": "G-PCL-T1-102",
+      "title": "과입금도 받을 돈은 다 받음",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 3,
+        "shipping": "NONE",
+        "payment": "OVERPAID",
+        "packing": "포장 완료",
+        "parcel": "NONE",
+        "address": "CONFIRMED"
+      },
+      "out": {
+        "ready": true
+      }
+    },
+    {
+      "id": "G-PCL-T1-103",
+      "title": "배송비 금액 지정(도서산간 등)은 예외 없음과 같다",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 3,
+        "shipping": "FIXED",
+        "payment": "PAID",
+        "packing": "포장 완료",
+        "parcel": "NONE",
+        "address": "CONFIRMED"
+      },
+      "out": {
+        "ready": true
+      }
+    },
+    {
+      "id": "G-PCL-T1-104",
+      "title": "택배사가 거절한 묶음은 다시 고를 수 있다",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 3,
+        "shipping": "NONE",
+        "payment": "PAID",
+        "packing": "포장 완료",
+        "parcel": "FAILED",
+        "address": "CONFIRMED"
+      },
+      "out": {
+        "ready": true
+      }
+    },
+    {
+      "id": "G-PCL-T1-105",
+      "title": "접수를 취소한 묶음은 다시 고를 수 있다",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 3,
+        "shipping": "NONE",
+        "payment": "PAID",
+        "packing": "포장 완료",
+        "parcel": "CANCELLED",
+        "address": "CONFIRMED"
+      },
+      "out": {
+        "ready": true
+      },
+      "note": "취소하면 배송 취소 기록으로 포장 완료로 돌아간다"
+    },
+    {
+      "id": "G-PCL-T1-106",
+      "title": "접수 중이면 다른 무엇보다 먼저",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 0,
+        "shipping": "PICKUP",
+        "payment": "UNPAID",
+        "packing": "포장 대기",
+        "parcel": "PENDING",
+        "address": "NONE"
+      },
+      "out": {
+        "reason": "BOOKING"
+      }
+    },
+    {
+      "id": "G-PCL-T1-107",
+      "title": "접수됐는지 모름도 접수 중",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 3,
+        "shipping": "NONE",
+        "payment": "PAID",
+        "packing": "포장 완료",
+        "parcel": "UNKNOWN",
+        "address": "CONFIRMED"
+      },
+      "out": {
+        "reason": "BOOKING"
+      }
+    },
+    {
+      "id": "G-PCL-T1-108",
+      "title": "접수함 — 자동으로 적힌 배송 완료보다 먼저",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 3,
+        "shipping": "NONE",
+        "payment": "PAID",
+        "packing": "배송 완료",
+        "parcel": "BOOKED",
+        "address": "CONFIRMED"
+      },
+      "out": {
+        "reason": "BOOKED"
+      }
+    },
+    {
+      "id": "G-PCL-T1-109",
+      "title": "접수한 뒤 품목이 모두 취소돼도 이미 접수했어요",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 0,
+        "shipping": "NONE",
+        "payment": "PAID",
+        "packing": "배송 뒤 바뀜",
+        "parcel": "BOOKED",
+        "address": "CONFIRMED"
+      },
+      "out": {
+        "reason": "BOOKED"
+      },
+      "note": "판매자가 접수를 취소하러 가야 한다 — NO_ITEMS보다 먼저"
+    },
+    {
+      "id": "G-PCL-T1-110",
+      "title": "품목 없음",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 0,
+        "shipping": "PICKUP",
+        "payment": "UNPAID",
+        "packing": "포장 대기",
+        "parcel": "NONE",
+        "address": "NONE"
+      },
+      "out": {
+        "reason": "NO_ITEMS"
+      }
+    },
+    {
+      "id": "G-PCL-T1-111",
+      "title": "직접 수령",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 3,
+        "shipping": "PICKUP",
+        "payment": "UNPAID",
+        "packing": "포장 대기",
+        "parcel": "NONE",
+        "address": "NONE"
+      },
+      "out": {
+        "reason": "PICKUP"
+      }
+    },
+    {
+      "id": "G-PCL-T1-112",
+      "title": "합배송",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 3,
+        "shipping": "COMBINED",
+        "payment": "PARTIAL",
+        "packing": "포장 완료",
+        "parcel": "NONE",
+        "address": "NONE"
+      },
+      "out": {
+        "reason": "COMBINED"
+      }
+    },
+    {
+      "id": "G-PCL-T1-113",
+      "title": "손으로 배송 완료를 적은 묶음",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 3,
+        "shipping": "NONE",
+        "payment": "PAID",
+        "packing": "배송 완료",
+        "parcel": "NONE",
+        "address": "CONFIRMED"
+      },
+      "out": {
+        "reason": "SHIPPED"
+      }
+    },
+    {
+      "id": "G-PCL-T1-114",
+      "title": "손으로 배송한 뒤 품목이 바뀐 묶음",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 3,
+        "shipping": "NONE",
+        "payment": "UNPAID",
+        "packing": "배송 뒤 바뀜",
+        "parcel": "NONE",
+        "address": "CONFIRMED"
+      },
+      "out": {
+        "reason": "SHIPPED"
+      }
+    },
+    {
+      "id": "G-PCL-T1-115",
+      "title": "입금 전",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 3,
+        "shipping": "NONE",
+        "payment": "UNPAID",
+        "packing": "포장 완료",
+        "parcel": "NONE",
+        "address": "CONFIRMED"
+      },
+      "out": {
+        "reason": "NOT_PAID"
+      }
+    },
+    {
+      "id": "G-PCL-T1-116",
+      "title": "부분 입금",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 3,
+        "shipping": "NONE",
+        "payment": "PARTIAL",
+        "packing": "포장 완료",
+        "parcel": "NONE",
+        "address": "CONFIRMED"
+      },
+      "out": {
+        "reason": "NOT_PAID"
+      }
+    },
+    {
+      "id": "G-PCL-T1-117",
+      "title": "입금 전이면 포장 전·배송지 없음보다 먼저",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 3,
+        "shipping": "NONE",
+        "payment": "UNPAID",
+        "packing": "포장 대기",
+        "parcel": "NONE",
+        "address": "NONE"
+      },
+      "out": {
+        "reason": "NOT_PAID"
+      }
+    },
+    {
+      "id": "G-PCL-T1-118",
+      "title": "포장 전",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 3,
+        "shipping": "NONE",
+        "payment": "PAID",
+        "packing": "포장 대기",
+        "parcel": "NONE",
+        "address": "NONE"
+      },
+      "out": {
+        "reason": "NOT_PACKED"
+      }
+    },
+    {
+      "id": "G-PCL-T1-119",
+      "title": "포장 다시 확인",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 3,
+        "shipping": "NONE",
+        "payment": "PAID",
+        "packing": "포장 다시 확인",
+        "parcel": "NONE",
+        "address": "UNCONFIRMED"
+      },
+      "out": {
+        "reason": "PACK_CHECK"
+      }
+    },
+    {
+      "id": "G-PCL-T1-120",
+      "title": "배송지 없음",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 3,
+        "shipping": "NONE",
+        "payment": "PAID",
+        "packing": "포장 완료",
+        "parcel": "NONE",
+        "address": "NONE"
+      },
+      "out": {
+        "reason": "NO_ADDRESS"
+      }
+    },
+    {
+      "id": "G-PCL-T1-121",
+      "title": "배송지 확인 전",
+      "refs": [
+        "STL-08",
+        "PC-4"
+      ],
+      "in": {
+        "items": 3,
+        "shipping": "NONE",
+        "payment": "PAID",
+        "packing": "포장 완료",
+        "parcel": "NONE",
+        "address": "UNCONFIRMED"
+      },
+      "out": {
+        "reason": "ADDRESS_UNCONFIRMED"
+      }
+    }
+  ]
+}

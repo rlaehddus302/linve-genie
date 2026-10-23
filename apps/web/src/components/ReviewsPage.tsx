@@ -6,8 +6,14 @@
 //   원래 순서대로 하나씩 보낸다(서버 묶음 API 없음 — D-O2-14). 찜이 생긴 줄은 사라지며 "1등"·"대기 n번"·"품절"을 잠깐 보이고,
 //   아무 일도 없었던 줄(changed=false)은 까닭과 함께 남는다(주의 색).
 // - 휴대폰(375px): 고르기 칸은 세로로 쌓이고 누르는 곳은 44px 이상, 수량 칸은 숫자 키패드. 마우스를 올려야만 보이는 조작은 없다.
+// A1 (CMT-06, AC-A1-20·21, D-A1-01·07): 항목의 제안(서버 suggestion)이 있으면 고르기 칸 위에 "제안: 21번 반바지 M 1개"·출처("비슷한 글자로 찾음"·"AI가 읽음")와
+//   [이대로 주문](제안 값으로 "주문으로"와 같은 5초 대기 바로잡기 하나)·[고치기](칸만 제안 값으로 — 요청 없음). 고르기 칸은 제안으로 미리 채우지 않는다.
+//   화면을 열 때 AI 제안 받기를 한 번 부른다(lib/assist.ts) — 목록·조치는 그 요청을 기다리지 않는다.
+//   - 제안이 보이는 줄에서는 제안과 같은 선택지를 가리키는 "혹시" 후보를 숨긴다([고치기] 뒤에도 — D-A1-13).
+//   - [이대로 주문]의 되돌리기 띠·결과 끝에 "→ 21번 반바지 M 1개"를 붙인다(D-A1-14). 칸으로 고른 "주문으로"는 그대로.
+//   - 목록을 다시 읽어 제안 칸이 새로 생기면 그 칸의 [이대로 주문]·[고치기]는 0.5초 동안 눌러도 아무 일도 없다(D-A1-15).
 import { DEFAULT_SETTINGS } from '@livejjim/core'
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { get, post } from '../api/client.ts'
 import type { BroadcastView, Product, ReviewItem, ReviewsView, WriteResult } from '../api/types.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
@@ -25,8 +31,9 @@ import {
   type LineOutcome,
   type ReviewPick,
 } from '../lib/options.ts'
+import { ASSIST_OFFER, ASSIST_READING, suggestionView, useAssistOnOpen, type SuggestionView } from '../lib/assist.ts'
 import { reviewsPath, useReviews } from '../lib/reviews.ts'
-import type { Navigate, ReviewsRoute } from '../lib/router.ts'
+import { routePath, type Navigate, type ReviewsRoute } from '../lib/router.ts'
 import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
 import { ORIGIN_WORD, REVIEW_REASON_WORD } from '../lib/words.ts'
 import { ErrorNote } from './ErrorNote.tsx'
@@ -38,6 +45,8 @@ export const reviewKey = (review: Pick<ReviewItem, 'broadcast' | 'item'>): strin
 /** 찜이 생긴 줄의 결과를 보이는 시간 */
 const DONE_MS = 8000
 const NO_ITEMS: readonly UndoItem[] = []
+/** 새로 나타난 제안 칸의 버튼이 누름을 받지 않는 시간 (D-A1-15) */
+export const SUGGESTION_SETTLE_MS = 500
 
 export const BLANK_LINE = (n: number): string => `${String(n)}번째 줄에 빈 칸이 있어요`
 
@@ -52,6 +61,7 @@ export function ReviewsPage({ route, navigate }: ReviewsPageProps) {
   const queue = useUndoQueue()
   const view = reviews.view
   const broadcast = route.broadcast === undefined ? undefined : view?.broadcasts.find((item) => item.id === route.broadcast)
+  const assist = useAssistOnOpen(query, reviews.reload)
   return (
     <main className="page page-wide reviews-page stack">
       <h1>확인 필요</h1>
@@ -75,8 +85,33 @@ export function ReviewsPage({ route, navigate }: ReviewsPageProps) {
         </div>
       ) : null}
       {reviews.error !== null ? <ErrorNote error={reviews.error} onRetry={() => void reviews.reload()} retryLabel="다시 불러오기" /> : null}
+      {assist.reading ? (
+        <p className="hint" role="status">
+          {ASSIST_READING}
+        </p>
+      ) : null}
+      {assist.notice !== null ? (
+        <p className="notice" role="status">
+          {assist.notice}
+        </p>
+      ) : null}
       {view === null && reviews.error === null ? <p role="status">불러오는 중…</p> : null}
       {view !== null && queue !== null ? <ReviewList view={view} queue={queue} rehearsal={route.rehearsal} reload={reviews.reload} /> : null}
+      {assist.offer && view !== null && view.reviews.length > 0 ? (
+        <p>
+          <a
+            className="text-link"
+            href={routePath({ name: 'settings', section: 'assist' })}
+            onClick={(event) => {
+              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+              event.preventDefault()
+              navigate({ name: 'settings', section: 'assist' })
+            }}
+          >
+            {ASSIST_OFFER}
+          </a>
+        </p>
+      ) : null}
     </main>
   )
 }
@@ -86,6 +121,17 @@ interface LineState {
   /** 아무 일도 없었던 결과 (고치면 지운다) */
   readonly kept: string | null
 }
+
+/** 보낸 줄 (choice: [이대로 주문]으로 보낸 제안 값의 글) */
+interface SentLine {
+  readonly review: ReviewItem
+  readonly event: Record<string, unknown>
+  readonly changed: boolean
+  readonly choice?: string
+}
+
+/** 띠·결과 끝의 " → 21번 반바지 M 1개" ([이대로 주문]일 때만 — D-A1-14) */
+const choiceTail = (choice: string | undefined): string => (choice === undefined ? '' : ` → ${choice}`)
 
 interface DoneNote {
   readonly id: number
@@ -170,7 +216,7 @@ function ReviewList({ view, queue, rehearsal, reload }: { readonly view: Reviews
   }
 
   /** 결과 보기: 보낸 뒤의 상품으로 (방송마다 그 방송의 상품을 다시 받는다 — 마지막 줄을 보냈어도 상품이 남아 있다) */
-  const showResults = async (sent: readonly { review: ReviewItem; event: Record<string, unknown>; changed: boolean }[]) => {
+  const showResults = async (sent: readonly SentLine[]) => {
     const fresh = new Map<string, Product>()
     for (const b of new Set(sent.map((line) => line.review.broadcast))) {
       try {
@@ -188,7 +234,7 @@ function ReviewList({ view, queue, rehearsal, reload }: { readonly view: Reviews
       const options = (line.event.options ?? {}) as Record<string, string>
       const variant = product === undefined || product.options.length === 0 ? null : variantTextOf(product, options)
       const outcome: LineOutcome = outcomeOf(line.changed, { product: key, variant, qty: Number(line.event.qty), buyer: line.review.currentBuyer }, product)
-      if (outcome.kind === 'claimed') notes.push({ id: doneId.current++, words: `${line.review.buyerName} · ${line.review.text ?? ''} — ${outcome.word}` })
+      if (outcome.kind === 'claimed') notes.push({ id: doneId.current++, words: `${line.review.buyerName} · ${line.review.text ?? ''}${choiceTail(line.choice)} — ${outcome.word}` })
       else kept.set(reviewKey(line.review), outcome.word)
     }
     if (notes.length > 0) setDone((list) => [...list, ...notes])
@@ -205,19 +251,33 @@ function ReviewList({ view, queue, rehearsal, reload }: { readonly view: Reviews
     void reload()
   }
 
-  /** 원래 순서로 보낸다 — 줄마다 요청 번호를 따로(묶음의 요청 번호 + 줄 번호: 다시 보내도 같은 번호라 한 번만 기록) */
-  const queueLines = (targets: readonly ReviewItem[], kind: 'resolve' | 'dismiss') => {
+  /** 지금(누른 순간) 보내기 전·보내는 중인 줄 — 다시 그리기 전에 두 번 눌러도 한 번만 (AC-A1-20) */
+  const pendingNow = (): Set<string> => {
+    const out = new Set<string>()
+    for (const item of queue.getSnapshot()) {
+      if (item.kind !== 'action' || item.meta === null) continue
+      if (item.status !== 'waiting' && item.status !== 'sending' && item.status !== 'retrying') continue
+      for (const key of batches.current.get(item.meta) ?? []) out.add(key)
+    }
+    return out
+  }
+
+  /** 원래 순서로 보낸다 — 줄마다 요청 번호를 따로(묶음의 요청 번호 + 줄 번호: 다시 보내도 같은 번호라 한 번만 기록).
+   *  fixed: 칸 대신 보낼 바로잡기와 그 값의 글 (제안의 [이대로 주문] — 띠·결과 끝에 "→ 21번 반바지 M 1개") */
+  const queueLines = (targets: readonly ReviewItem[], kind: 'resolve' | 'dismiss', fixed?: { readonly event: Record<string, unknown>; readonly choice: string }) => {
     if (targets.length === 0) return
+    const busy = pendingNow()
+    if (targets.some((review) => busy.has(reviewKey(review)))) return
     const ordered = [...targets].sort((a, b) => view.reviews.indexOf(a) - view.reviews.indexOf(b))
-    const events = ordered.map((review) => (kind === 'resolve' ? eventOf(review) : { type: 'host.dismissReview', b: review.broadcast, item: review.item }))
+    const events = ordered.map((review) => (kind === 'resolve' ? (fixed?.event ?? eventOf(review)) : { type: 'host.dismissReview', b: review.broadcast, item: review.item }))
     if (events.some((event) => event === null)) return
     const meta = `reviews-${String(batchId.current++)}`
     batches.current.set(meta, ordered.map(reviewKey))
     const label =
       ordered.length === 1
-        ? `${ordered[0]?.buyerName ?? ''} "${ordered[0]?.text ?? ''}" ${kind === 'resolve' ? '주문으로' : '주문 아님'}`
+        ? `${ordered[0]?.buyerName ?? ''} "${ordered[0]?.text ?? ''}" ${kind === 'resolve' ? '주문으로' : '주문 아님'}${choiceTail(fixed?.choice)}`
         : `확인 필요 ${String(ordered.length)}줄 ${kind === 'resolve' ? '주문으로' : '주문 아님'}`
-    const results: { review: ReviewItem; event: Record<string, unknown>; changed: boolean }[] = []
+    const results: SentLine[] = []
     queue.add({
       label,
       meta,
@@ -229,7 +289,7 @@ function ReviewList({ view, queue, rehearsal, reload }: { readonly view: Reviews
           const review = ordered[i] as ReviewItem
           const event = events[i] as Record<string, unknown>
           const result = await post<WriteResult>('/api/events', { requestId: `${requestId}-${String(i + 1)}`, ...event })
-          results.push({ review, event, changed: result.changed })
+          results.push({ review, event, changed: result.changed, ...(fixed === undefined ? {} : { choice: fixed.choice }) })
           any ||= result.changed
           last = result
         }
@@ -252,6 +312,21 @@ function ReviewList({ view, queue, rehearsal, reload }: { readonly view: Reviews
       return next
     })
     setBulkProblem(null)
+  }
+
+  /** 제안 그대로 주문으로 — 번호·옵션·수량 = 제안 값 (source는 보내지 않는다) */
+  const acceptSuggestion = (review: ReviewItem, suggestion: SuggestionView) => {
+    queueLines([review], 'resolve', {
+      event: {
+        type: 'host.resolveReview',
+        b: review.broadcast,
+        item: review.item,
+        no: suggestion.product.no,
+        qty: suggestion.qty,
+        ...(suggestion.product.options.length > 0 ? { options: { ...suggestion.options } } : {}),
+      },
+      choice: suggestion.choice,
+    })
   }
 
   const chosen = view.reviews.filter((review) => selected.has(reviewKey(review)) && !pending.has(reviewKey(review)))
@@ -303,6 +378,7 @@ function ReviewList({ view, queue, rehearsal, reload }: { readonly view: Reviews
         {view.reviews.map((review, index) => {
           const key = reviewKey(review)
           const state = lines.get(key) ?? { pick: prefillOf(review, products), kept: null }
+          const suggestion = suggestionView(review.suggestion, review.broadcast, products, maxQty(review))
           return (
             <ReviewRow
               key={key}
@@ -317,6 +393,9 @@ function ReviewList({ view, queue, rehearsal, reload }: { readonly view: Reviews
               delayMs={queue.delayMs}
               ready={eventOf(review) !== null}
               maxQty={maxQty(review)}
+              suggestion={suggestion}
+              onAccept={() => (suggestion === null ? undefined : acceptSuggestion(review, suggestion))}
+              onEdit={() => (suggestion === null ? undefined : setPick(key, { product: suggestion.product.key, options: { ...suggestion.options }, qty: String(suggestion.qty) }))}
               onSelect={(on) =>
                 setSelected((current) => {
                   const next = new Set(current)
@@ -350,19 +429,39 @@ interface ReviewRowProps {
   readonly delayMs: number
   readonly ready: boolean
   readonly maxQty: number
+  /** 제안 (없으면 null) */
+  readonly suggestion: SuggestionView | null
+  readonly onAccept: () => void
+  readonly onEdit: () => void
   readonly onSelect: (on: boolean) => void
   readonly onPick: (pick: ReviewPick) => void
   readonly onResolve: () => void
   readonly onDismiss: () => void
 }
 
-function ReviewRow({ n, review, state, broadcast, many, products, selected, pending, delayMs, ready, maxQty, onSelect, onPick, onResolve, onDismiss }: ReviewRowProps) {
+function ReviewRow({ n, review, state, broadcast, many, products, selected, pending, delayMs, ready, maxQty, suggestion, onAccept, onEdit, onSelect, onPick, onResolve, onDismiss }: ReviewRowProps) {
   const { pick } = state
   const product = products.find((item) => item.key === pick.product)
   const remaining = remainingOf(product, pick.options)
   const qtyText = pick.qty.trim()
   const qtyBad = qtyText !== '' && readQty(qtyText, maxQty) === null
-  const suggestions = product !== undefined && product.options.length > 0 ? suggestionsFor(review.text ?? '', product) : []
+  // 제안과 같은 선택지를 가리키는 "혹시"는 숨긴다 — 같은 값에 버튼 둘이면 망설인다 (D-A1-13)
+  const suggestions = (product !== undefined && product.options.length > 0 ? suggestionsFor(review.text ?? '', product) : []).filter(
+    (candidate) => suggestion === null || candidate.item === null || !Object.hasOwn(suggestion.options, candidate.item) || suggestion.options[candidate.item] !== candidate.label,
+  )
+  // 처음 그릴 때부터 있던 제안은 바로 눌린다. 다시 읽어 새로 생긴(바뀐) 제안 칸만 0.5초 동안 누름을 받지 않는다 (D-A1-15)
+  const suggestionId = suggestion === null ? null : `${suggestion.words}|${suggestion.source}`
+  const seenSuggestion = useRef(suggestionId)
+  const settleUntil = useRef(0)
+  useLayoutEffect(() => {
+    if (seenSuggestion.current === suggestionId) return
+    seenSuggestion.current = suggestionId
+    settleUntil.current = suggestionId === null ? 0 : performance.now() + SUGGESTION_SETTLE_MS
+  }, [suggestionId])
+  const settled = (act: () => void) => () => {
+    if (performance.now() < settleUntil.current) return
+    act()
+  }
   const sorted = [...products].sort((a, b) => a.no - b.no)
   const lineName = `${String(n)}번째 줄`
   return (
@@ -380,6 +479,21 @@ function ReviewRow({ n, review, state, broadcast, many, products, selected, pend
         {many && broadcast !== undefined ? <span className="hint">{`${broadcast.title} · ${dateWords(broadcast.date)}`}</span> : null}
       </div>
       <p className="review-text">{review.text ?? (review.origin === 'sms' ? '메모 없음' : '')}</p>
+      {suggestion !== null ? (
+        <div className="review-suggestion stack-tight" role="group" aria-label={`${lineName} 제안`}>
+          <p className="review-suggestion-words">
+            <strong>{suggestion.words}</strong> <span className="review-suggestion-source">{suggestion.source}</span>
+          </p>
+          <div className="row review-actions">
+            <button type="button" className="button" disabled={pending} onClick={settled(onAccept)} aria-label={`${lineName} 이대로 주문`}>
+              이대로 주문
+            </button>
+            <button type="button" className="button" disabled={pending} onClick={settled(onEdit)} aria-label={`${lineName} 고치기`}>
+              고치기
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className="review-picks">
         <label className="field">
           <span>상품</span>

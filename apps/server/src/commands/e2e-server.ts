@@ -1,6 +1,10 @@
 // E2E용 서버 기동 명령 (AC-S05-91): pnpm --filter @livejjim/server e2e [--port 3100 (0이면 빈 포트)] [--origin http://localhost:5173] [--fill yes]
 //   [--fill-products 500] [--fill-chats 10000] [--host-delay-ms 5000] [--chat-speed 1] [--test-printer yes|no] [--youtube fake] [--youtube-port 4100] [--instagram yes|no] [--instagram-port 4300] [--tiktok yes|no] [--billing yes|no]
 //   [--social fake|no] [--social-port 4500] [--social-providers kakao,naver,google]
+//   [--assist fake|no] [--assist-port 4600] [--assist-daily 20] [--assist-global 500] [--assist-timeout-ms 15000]
+// - --assist fake: 가짜 LLM 서버(Anthropic Messages API 모양)를 127.0.0.1의 --assist-port(기본 0 = 빈 포트)에 함께 띄우고 AI 제안을 가짜 키로 켠다(A1, AC-A1-11).
+//   --assist-daily·--assist-global = 판매자·서버 전체 하루 상한(기본 20·500), --assist-timeout-ms = 호출 시간 제한(기본 15000). 조작은 http://127.0.0.1:<그 포트>/_fake/*
+//   (harness/sprints/A1/dev-notes.md). 기본 no(키 없음 — 지금과 같다).
 // - --social fake: 가짜 OAuth 서버(구글·카카오·네이버)를 127.0.0.1의 --social-port(기본 0 = 빈 포트)에 함께 띄우고 간편 로그인을 켠다(L1, AC-L1-12).
 //   --social-providers로 켤 공급자를 고른다(쉼표, 기본 셋 다). 조작은 http://127.0.0.1:<그 포트>/_fake/* (harness/sprints/L1/dev-notes.md "시험에게"). 기본 no(지금과 같다).
 // - 메모리 PGlite + 마이그레이션, 그 자리에서 만든 시험용 마스터 키, 시험용 판매자 계정(apps/server/e2e/account.json). 끄면 데이터는 사라진다.
@@ -19,6 +23,8 @@
 // - --backup-dir: 백업 폴더(I2). 적지 않으면 임시 폴더를 만들고 끌 때 지운다. 시작할 때 시험 판매자의 자동 백업 하나를 만든다.
 // - --test-deposits: 입금 확인 시험 모드(가짜 원천·시험용 입금 넣기 POST /api/deposits/test/rows, N3). 기본 yes, no면 끈다.
 // - --deposit-poll-ms: 받아 오기 주기(밀리초, 100~300000, 기본 1000). --deposit-refetch-ms: "지금 받아 오기" 간격(0~60000, 기본 60000 — 운영 값).
+// - --parcel: 택배 자동 접수 시험 모드(가짜 택배사 127.0.0.1, T1). 기본 yes, no면 끈다. --parcel-port(기본 0 = 빈 포트) · --parcel-track-ms(조회 주기 1000~1800000, 기본 5000).
+//   조작은 이 서버의 /_e2e/parcel/* (harness/sprints/T1/dev-notes.md "[server] 시험·E2E").
 // - 환경변수 PORT·LIVEJJIM_APP_ORIGIN도 읽는다(인자가 우선). .env는 읽지 않는다(실제 비밀값이 필요 없다).
 // - 127.0.0.1에서만 연다(모든 인터페이스가 아니다, AC-S06-73). 헬스체크·프록시는 http://127.0.0.1:<포트>로.
 // 포트를 연 뒤 "E2E 서버를 시작했어요. http://127.0.0.1:<포트> · …" 한 줄을 표준 출력에 쓴다. 비밀번호·마스터 키는 출력하지 않는다.
@@ -51,9 +57,17 @@ const args = parseArgs(process.argv.slice(2), [
   'test-deposits',
   'deposit-poll-ms',
   'deposit-refetch-ms',
+  'parcel',
+  'parcel-port',
+  'parcel-track-ms',
   'social',
   'social-port',
   'social-providers',
+  'assist',
+  'assist-port',
+  'assist-daily',
+  'assist-global',
+  'assist-timeout-ms',
 ])
 if (!args.ok) {
   complain(args.message)
@@ -90,10 +104,18 @@ const tiktokFlag = values.get('tiktok')
 const testDepositsFlag = values.get('test-deposits')
 const depositPoll = intArg('deposit-poll-ms', 100, 300_000)
 const depositRefetch = intArg('deposit-refetch-ms', 0, 60_000)
+const parcelFlag = values.get('parcel')
+const parcelPort = intArg('parcel-port', 0, 65_535)
+const parcelTrack = intArg('parcel-track-ms', 1000, 1_800_000)
 const socialFlag = values.get('social')
 const socialPort = intArg('social-port', 0, 65_535)
 const socialProvidersRaw = values.get('social-providers')
 const socialProviders = socialProvidersRaw === undefined ? undefined : socialProvidersRaw.split(',').map((item) => item.trim())
+const assistFlag = values.get('assist')
+const assistPort = intArg('assist-port', 0, 65_535)
+const assistDaily = intArg('assist-daily', 0, 1_000_000)
+const assistGlobal = intArg('assist-global', 0, 1_000_000)
+const assistTimeout = intArg('assist-timeout-ms', 100, 60_000)
 const socialProvidersOk = socialProviders === undefined || (socialProviders.length > 0 && socialProviders.every((item) => item === 'google' || item === 'kakao' || item === 'naver') && new Set(socialProviders).size === socialProviders.length)
 
 if (
@@ -107,8 +129,16 @@ if (
   quotaBudget === null ||
   depositPoll === null ||
   depositRefetch === null ||
+  parcelPort === null ||
+  parcelTrack === null ||
+  (parcelFlag !== undefined && parcelFlag !== 'yes' && parcelFlag !== 'no') ||
   socialPort === null ||
   !socialProvidersOk ||
+  assistPort === null ||
+  assistDaily === null ||
+  assistGlobal === null ||
+  assistTimeout === null ||
+  (assistFlag !== undefined && assistFlag !== 'fake' && assistFlag !== 'no') ||
   (socialFlag !== undefined && socialFlag !== 'fake' && socialFlag !== 'no') ||
   (testDepositsFlag !== undefined && testDepositsFlag !== 'yes' && testDepositsFlag !== 'no') ||
   (fillFlag !== undefined && fillFlag !== 'yes' && fillFlag !== 'no') ||
@@ -123,7 +153,8 @@ if (
   complain(
     '인자를 확인해 주세요. --port 0~65535, --fill yes|no, --fill-products 1~999, --fill-chats 0~100000, --host-delay-ms 0~5000, --chat-speed 1~1000, --test-printer yes|no, ' +
       '--youtube fake|no, --youtube-port 0~65535, --youtube-quota-budget 1~1000000, --outbox-fast yes|no, --web-dir <index.html이 있는 화면 빌드 폴더>, --instagram yes|no, --tiktok yes|no, ' +
-      '--test-deposits yes|no, --deposit-poll-ms 100~300000, --deposit-refetch-ms 0~60000, --billing yes|no, --social fake|no, --social-port 0~65535, --social-providers google,kakao,naver 중 고른 것',
+      '--test-deposits yes|no, --deposit-poll-ms 100~300000, --deposit-refetch-ms 0~60000, --billing yes|no, --parcel yes|no, --parcel-port 0~65535, --parcel-track-ms 1000~1800000, --social fake|no, --social-port 0~65535, --social-providers google,kakao,naver 중 고른 것, ' +
+      '--assist fake|no, --assist-port 0~65535, --assist-daily 0~1000000, --assist-global 0~1000000, --assist-timeout-ms 100~60000',
   )
   process.exit(2)
 }
@@ -153,8 +184,21 @@ const e2e = await startE2eServer({
   testDeposits: testDepositsFlag !== 'no',
   ...(depositPoll === undefined ? {} : { depositPollMs: depositPoll }),
   ...(depositRefetch === undefined ? {} : { depositRefetchMs: depositRefetch }),
+  parcel: parcelFlag !== 'no',
+  ...(parcelPort === undefined ? {} : { parcelPort }),
+  ...(parcelTrack === undefined ? {} : { parcelTrackMs: parcelTrack }),
   ...(socialFlag === 'fake'
     ? { social: { ...(socialPort === undefined ? {} : { port: socialPort }), ...(socialProviders === undefined ? {} : { providers: socialProviders as ('google' | 'kakao' | 'naver')[] }) } }
+    : {}),
+  ...(assistFlag === 'fake'
+    ? {
+        assist: {
+          ...(assistPort === undefined ? {} : { port: assistPort }),
+          ...(assistDaily === undefined ? {} : { dailyLimit: assistDaily }),
+          ...(assistGlobal === undefined ? {} : { globalLimit: assistGlobal }),
+          ...(assistTimeout === undefined ? {} : { timeoutMs: assistTimeout }),
+        },
+      }
     : {}),
 })
 
@@ -164,7 +208,11 @@ try {
   const filled = e2e.fill === null ? '채우기 없음' : `채운 범위 ${e2e.fill.date} · 상품 ${String(e2e.fill.products)} · 채팅 ${String(e2e.fill.chats)}`
   const youtube = e2e.fakeGoogle === null ? '' : ` · 가짜 유튜브 ${e2e.fakeGoogle.url}`
   const meta = (e2e.fakeMeta === null ? '' : ` · 가짜 메타 ${e2e.fakeMeta.url}`) + (e2e.fakeWebcast === null ? '' : ' · 가짜 틱톡(/_e2e/tiktok/*)')
-  const web = (webDir === undefined ? '' : ' · 화면 함께 냄') + (e2e.fakeOAuth === null ? '' : ` · 가짜 OAuth ${e2e.fakeOAuth.url}`)
+  const web =
+    (webDir === undefined ? '' : ' · 화면 함께 냄') +
+    (e2e.fakeCarrier === null ? '' : ` · 가짜 택배 ${e2e.fakeCarrier.url}(/_e2e/parcel/*)`) +
+    (e2e.fakeOAuth === null ? '' : ` · 가짜 OAuth ${e2e.fakeOAuth.url}`) +
+    (e2e.fakeLlm === null ? '' : ` · 가짜 AI ${e2e.fakeLlm.url}`)
   say(
     `E2E 서버를 시작했어요. http://${opened.host}:${String(opened.port)} · 화면 주소 ${origin} · 시험 계정 ${e2e.account.loginId} · ${filled} · ` +
       `방송자 조치 대기 ${String(hostDelay ?? 5000)}ms · 시험용 프린터 ${testPrinterFlag === 'no' ? '끔' : '켬'} · 시험용 입금 ${testDepositsFlag === 'no' ? '끔' : '켬'} · 요금 ${billingFlag === 'yes' ? '켬(시험 결제)' : '끔'}${youtube}${meta}${web} · 준비 ${String(Date.now() - started)}ms`,

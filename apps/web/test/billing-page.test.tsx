@@ -48,7 +48,7 @@ describe('메뉴·주소 (AC-N5-50)', () => {
     await openBilling()
     const menu = screen.getByRole('navigation', { name: '메뉴' })
     const links = within(menu).getAllByRole('link')
-    expect(links.map((link) => link.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '입금 확인', '포장', '라벨', '요금', '설정'])
+    expect(links.map((link) => link.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '입금 확인', '포장', '라벨', '요금', '택배', '설정'])
     expect(within(menu).getByRole('link', { name: '요금' }).getAttribute('href')).toBe('/billing')
     expect(within(menu).getByRole('link', { name: '요금' }).getAttribute('aria-current')).toBe('page')
     expect(screen.getByRole('heading', { name: '요금', level: 1 })).toBeTruthy()
@@ -67,6 +67,7 @@ describe('메뉴·주소 (AC-N5-50)', () => {
       ['포장', '/packing'],
       ['라벨', '/labels'],
       ['요금', '/billing'],
+      ['택배', '/parcels'],
       ['설정', '/settings'],
     ])
     expect(within(list).getByRole('link', { name: '요금' }).getAttribute('aria-current')).toBe('page')
@@ -83,7 +84,7 @@ describe('메뉴·주소 (AC-N5-50)', () => {
     const menu = screen.getByRole('navigation', { name: '메뉴' })
     expect([...menu.children].filter((el) => el.matches('a, button')).map((cell) => cell.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '더보기'])
     fireEvent.click(within(menu).getByRole('button', { name: '더보기' }))
-    expect(within(within(menu).getByRole('list')).getAllByRole('link').map((link) => link.textContent)).toEqual(['입금 확인', '포장', '라벨', '설정'])
+    expect(within(within(menu).getByRole('list')).getAllByRole('link').map((link) => link.textContent)).toEqual(['입금 확인', '포장', '라벨', '택배', '설정'])
     fireEvent.click(within(menu).getByRole('button', { name: '더보기' }))
     fireEvent.click(screen.getByRole('link', { name: '방송 목록으로' }))
     expect(await screen.findByRole('heading', { name: '방송 목록' })).toBeTruthy()

@@ -17,8 +17,11 @@
 //   | chromium-social     | 5181  | 3109  | —           | --social fake --social-port 4104(가짜 OAuth — 구글·카카오·네이버 셋 다 켬, L1)               | 제목에 @social |
 //   | chromium-social-one | 5182  | 3110  | —           | --social fake --social-port 4105 --social-providers google(구글 하나만 켬, L1 AC-L1-30)     | 제목에 @social-one |
 //   | webkit-iphone       | 5183  | 3111  | —           | 기본과 같음 — 브라우저만 WebKit·devices['iPhone 15'](393px 폭·터치), I5 AC-I5-20~24·90     | 제목에 @webkit     |
+//   | chromium-assist     | 5184  | 3112  | —           | --assist fake --assist-port 4106 --assist-daily 3 --assist-timeout-ms 2000(가짜 AI·작은 상한, A1) | 제목에 @assist |
 // - 아이폰 크기 묶음(I5): Playwright WebKit은 http://localhost에서 Secure 쿠키를 보내지 않는다 — 그 묶음의 화면 미리 보기 서버만 /api 응답 Set-Cookie의
 //   Secure를 떼어 넘긴다(serve.ts --drop-secure-cookie yes, 서버는 그대로). Playwright WebKit은 실제 아이폰 사파리가 아니다(음성 인식 자체는 HG-4). 사파리 흉내 가짜 인식은 시험(tests/e2e/i5)이 넣는다.
+// - AI 제안 묶음(A1 AC-A1-11·31): 가짜 LLM 서버가 127.0.0.1:<assist 포트>에 함께 뜬다(조작 GET /_fake/requests·POST /_fake/answers·/_fake/fail·/_fake/reset —
+//   A1 dev-notes "가짜 LLM 서버", fakeLlmUrl). 판매자 하루 상한 3, 호출 시간 제한 2초. 기본 묶음들은 키 없는 서버다(AI 제안 "지금은 쓸 수 없어요.", 외부 호출 0).
 // - 간편 로그인 묶음(L1 AC-L1-30): 가짜 OAuth 서버가 127.0.0.1:<social 포트>에 함께 뜬다(조작 POST /_fake/* — L1 dev-notes "시험에게", fakeOAuthUrl).
 //   기본 묶음들은 간편 로그인이 꺼진 서버다(로그인 화면에 버튼 없음·/api/auth/** 404 — 기본 묶음에서 본다).
 // - 요금 기능(N5): 기본 묶음들은 요금 기능이 꺼진 서버다(메뉴 "요금" 없음 — AC-N5-50의 꺼진 서버 시험은 기본 묶음에서 돈다).
@@ -83,6 +86,8 @@ export interface Stack {
   readonly dropSecureCookie?: boolean
   /** 서비스 워커를 막는다 (I5 TE-I5-001 — WebKit은 서비스 워커가 맡은 페이지의 요청을 page.route로 잡지 못한다) */
   readonly blockServiceWorkers?: boolean
+  /** 가짜 LLM 서버 포트 (A1 — AI 제안 묶음만) */
+  readonly assist?: number
 }
 
 /** 서버가 화면을 내는 묶음의 화면 빌드 폴더 (실행마다 다시 빌드한다 — 빌드 결과물이 린트 범위에 들어가지 않게 node_modules/.cache 아래) */
@@ -91,6 +96,9 @@ export const SERVED_WEB_DIR = fileURLToPath(new URL('../../node_modules/.cache/l
 export const E2E_QUOTA_BUDGET = 400
 
 const socialArgs = (port: number, providers?: string) => `--social fake --social-port ${String(port)}${providers === undefined ? '' : ` --social-providers ${providers}`}`
+/** AI 제안 묶음의 판매자 하루 상한 (작은 값 — 상한 문장을 빨리 본다) */
+export const E2E_ASSIST_DAILY = 3
+const assistArgs = (port: number) => `--assist fake --assist-port ${String(port)} --assist-daily ${String(E2E_ASSIST_DAILY)} --assist-timeout-ms 2000`
 const youtubeArgs = (port: number) => `--youtube fake --youtube-port ${String(port)} --outbox-fast yes`
 
 export const STACKS: readonly Stack[] = [
@@ -99,7 +107,7 @@ export const STACKS: readonly Stack[] = [
     web: 5173 + offset,
     api: 3100 + offset,
     serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`,
-    grepInvert: /@prod-delay|@fill|@youtube|@quota|@served|@no-test-printer|@billing|@multi|@social|@webkit/,
+    grepInvert: /@prod-delay|@fill|@youtube|@quota|@served|@no-test-printer|@billing|@multi|@social|@webkit|@assist/,
   },
   { name: 'chromium-prod-delay', web: 5174 + offset, api: 3101 + offset, serverArgs: `--chat-speed ${chatSpeed}`, grep: /@prod-delay/ },
   { name: 'chromium-fill', web: 5175 + offset, api: 3102 + offset, serverArgs: `--fill yes --host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`, grep: /@fill/ },
@@ -158,6 +166,14 @@ export const STACKS: readonly Stack[] = [
     dropSecureCookie: true,
     blockServiceWorkers: true,
   },
+  {
+    name: 'chromium-assist',
+    web: 5184 + offset,
+    api: 3112 + offset,
+    assist: 4106 + offset,
+    serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed} ${assistArgs(4106 + offset)}`,
+    grep: /@assist/,
+  },
 ]
 
 /** 그 프로젝트의 가짜 유튜브 주소 (가짜 유튜브 묶음이 아니면 null) — 시험이 /_fake/*를 부를 때 */
@@ -175,6 +191,12 @@ export function fakeMetaUrl(project: string): string | null {
 /** 그 프로젝트의 가짜 OAuth 주소 (간편 로그인 묶음이 아니면 null) — 시험이 /_fake/*를 부를 때 (L1) */
 export function fakeOAuthUrl(project: string): string | null {
   const port = STACKS.find((stack) => stack.name === project)?.social
+  return port === undefined ? null : `http://${E2E_HOST}:${String(port)}`
+}
+
+/** 그 프로젝트의 가짜 LLM 주소 (AI 제안 묶음이 아니면 null) — 시험이 /_fake/*를 부를 때 (A1) */
+export function fakeLlmUrl(project: string): string | null {
+  const port = STACKS.find((stack) => stack.name === project)?.assist
   return port === undefined ? null : `http://${E2E_HOST}:${String(port)}`
 }
 
