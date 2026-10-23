@@ -108,6 +108,8 @@ test.describe('I4 제안 카드', () => {
     const requests = recordRequests(page)
     const input = page.getByLabel('빠른 입력')
     await speak(page, '15번 핑크프릴 만오천 원')
+    // 조용한 시간(V2 D-V2-03, 1.8초)이 지나야 카드가 나온다 (AC-V2-32)
+    await page.clock.runFor(1800)
     // 카드가 뜬 뒤에 누른다(카드보다 먼저 누르면 빈 칸 Enter라 아무 일도 없다). 시계가 멈춰 있어 기다리는 동안 1초가 지나지 않는다.
     const c = card(page, '15번 핑크프릴 15,000원')
     await expect(c).toBeVisible()
@@ -285,6 +287,8 @@ test.describe('I4 제안 카드', () => {
     await setup(page)
     await speak(page, '15번 라울 만원')
     const short = '15번 라울 10,000원'
+    // 조용한 시간(V2 D-V2-03) 뒤 카드가 나온 다음에 Tab을 센다 (AC-V2-32)
+    await expect(card(page, short)).toBeVisible()
     const reached = new Set<string>()
     await page.getByLabel('빠른 입력').focus()
     for (let i = 0; i < 40 && reached.size < 3; i++) {

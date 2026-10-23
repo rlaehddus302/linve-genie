@@ -19,6 +19,15 @@ import {
 const AUTO_ON = { 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5 }
 const HELP = '번호·품종·가격이 모두 확실한 카드만, 손대지 않으면 정한 시간 뒤 등록해요. 등록 뒤 5초 안에 되돌릴 수 있어요.'
 
+/** 조용한 시간 기본값 (V2 D-V2-03: 말이 끝난 뒤 이만큼 지나야 덩어리를 읽어 카드가 나온다) */
+const QUIET_MS = 1800
+
+/** 최종 결과를 내고 조용한 시간만큼 시계를 넘긴다 (AC-V2-32 — 기대 카드 글은 그대로) */
+async function said(page: Page, text: string): Promise<void> {
+  await speak(page, text)
+  await page.clock.runFor(QUIET_MS)
+}
+
 function settingsRegion(page: Page) {
   return page.getByRole('region', { name: '음성 설정과 기록' })
 }
@@ -107,7 +116,7 @@ test.describe('I4 자동 확정', () => {
   test('AC-I4-31: 남은 초가 줄어들고 +4.9초엔 없고 +5초에 등록, 되돌리기 띠', async ({ page }) => {
     const { date } = await setupPaused(page)
     const requests = recordRequests(page)
-    await speak(page, '15번 핑크프릴 만오천 원')
+    await said(page, '15번 핑크프릴 만오천 원')
     const c = card(page, '15번 핑크프릴 15,000원')
     await expect(c.getByText('5초 뒤 자동 등록')).toBeVisible()
     await expect(cardButton(page, '15번 핑크프릴 15,000원', '자동 등록 멈추기')).toBeVisible()
@@ -126,14 +135,14 @@ test.describe('I4 자동 확정', () => {
 
   test('AC-I4-31: LOW 카드·설정을 끈 채 만든 카드·손댄 카드·고치기 카드는 자동 등록하지 않는다', async ({ page }) => {
     const { date } = await setupPaused(page, { 'voice.autoConfirm': false, 'voice.autoConfirmSec': 5 })
-    await speak(page, '15번 라울 만원')
+    await said(page, '15번 라울 만원')
     const box = settingsRegion(page).getByRole('checkbox', { name: '확실한 카드는 자동으로 등록' })
     await box.check()
-    await speak(page, '16번 핑크푸릴 만원')
+    await said(page, '16번 핑크푸릴 만원')
     await expect(card(page, '16번 핑크프릴 10,000원').getByText('확인 필요')).toBeVisible()
     await expect(card(page, '16번 핑크프릴 10,000원').getByText(/초 뒤 자동 등록/)).toHaveCount(0)
     await expect(card(page, '15번 라울 10,000원').getByText(/초 뒤 자동 등록/)).toHaveCount(0)
-    await speak(page, '17번 라울 만원')
+    await said(page, '17번 라울 만원')
     await expect(card(page, '17번 라울 10,000원').getByText('5초 뒤 자동 등록')).toBeVisible()
     await cardButton(page, '17번 라울 10,000원', '자동 등록 멈추기').click()
     await expect(card(page, '17번 라울 10,000원').getByText(/초 뒤 자동 등록/)).toHaveCount(0)
@@ -144,7 +153,7 @@ test.describe('I4 자동 확정', () => {
 
   test('AC-I4-31: 고치기를 누른 카드는 자동 등록하지 않는다', async ({ page }) => {
     const { date } = await setupPaused(page)
-    await speak(page, '17번 라울 만원')
+    await said(page, '17번 라울 만원')
     await cardButton(page, '17번 라울 10,000원', '고치기').click()
     await expect(card(page, '17번 라울 10,000원').getByText(/초 뒤 자동 등록/)).toHaveCount(0)
     await page.keyboard.press('Escape')
@@ -155,7 +164,7 @@ test.describe('I4 자동 확정', () => {
 
   test('AC-I4-31·14: 음성을 끄면 남은 초가 사라지고 기다림이 지나도 등록 없음, 다시 켜도 재개하지 않는다, 손으로는 등록된다', async ({ page }) => {
     const { date } = await setupPaused(page)
-    await speak(page, '19번 라울 만원')
+    await said(page, '19번 라울 만원')
     const c = card(page, '19번 라울 10,000원')
     await expect(c.getByText('5초 뒤 자동 등록')).toBeVisible()
     await page.clock.runFor(2000)
@@ -190,7 +199,7 @@ test.describe('I4 자동 확정', () => {
 
   test('AC-I4-31: 그 순간 그 번호가 있으면 등록 없이 카드에 "고칠까요?" — 창 없음, 그 카드 자동 확정 끔', async ({ page }) => {
     const { b, date } = await setupPaused(page)
-    await speak(page, '15번 라울 만원')
+    await said(page, '15번 라울 만원')
     const c = card(page, '15번 라울 10,000원')
     await expect(c.getByText('5초 뒤 자동 등록')).toBeVisible()
     await registerApi(page, b, 15, '핑크프릴', 20000)

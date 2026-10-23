@@ -76,7 +76,7 @@ test('S12 AC-V2-25: 열린 카드에 "취소" → 카드 닫힘, 상품 없음 /
   await expectNoCards(page)
 })
 
-test('S6·S7·S8: 블루 엘프·부루엘프 → 블루엘프, 라운 → 라울(확인 필요)', async ({ page }) => {
+test('S6·S7·S8: 블루 엘프·부루엘프 → 블루엘프, 라운 → 라울(D-V2-12 별칭, 확인 필요 없음)', async ({ page }) => {
   await setupV2(page)
   await sayAt(page, [['16번 블루 엘프 만원', 0]])
   await page.clock.runFor(1800)
@@ -87,9 +87,10 @@ test('S6·S7·S8: 블루 엘프·부루엘프 → 블루엘프, 라운 → 라�
   await expect(card(page, '17번 블루엘프 10,000원').getByText('확인 필요')).toHaveCount(0)
   await sayAt(page, [['18번 라운 만이천원', 0]])
   await page.clock.runFor(1800)
+  // D-V2-12: 데이터 사전 별칭 라운 → 유사도 1, HIGH (확인 필요 없음)
   const c18 = card(page, '18번 라울 12,000원')
   await expect(c18).toBeVisible()
-  await expect(c18.getByText('확인 필요', { exact: true })).toBeVisible()
+  await expect(c18.getByText('확인 필요', { exact: true })).toHaveCount(0)
 })
 
 test('S9 AC-V2-07·09: "선버스" → 품종 확인 필요 + 후보 "선버스트" 단추, 누르면 채워지고 등록 뒤 새로 고쳐도 배운 이름 유지', async ({ page }) => {
@@ -183,3 +184,25 @@ for (const [label, width, min] of [['PC', 1440, 28], ['휴대폰 375', 375, 22]]
     expect(overflow).toBe(false)
   })
 }
+
+test('S22·S23 AC-V2-36: 새 결과 첫 조각의 다른 번호(번호 없음 포함)면 먼저 끊음 (D-V2-16)', async ({ page }) => {
+  await setupV2(page)
+  await sayAt(page, [['26번 엘레강스 만원', 0], ['27번 라울 이만원 아니 삼만원', 1000]])
+  await expect(card(page, '26번 엘레강스 10,000원')).toBeVisible()
+  await page.clock.runFor(1800)
+  await expect(card(page, '27번 라울 30,000원')).toBeVisible()
+  await expect(card(page, '27번 라울 30,000원').getByText('확인 필요', { exact: true })).toBeVisible()
+  await expect(cards(page)).toHaveCount(2)
+  await page.clock.runFor(1000)
+  await sayAt(page, [['핑크문 만원', 0], ['16번 루비 이만원', 1000]])
+  await expect(card(page, '번호 없음 핑크문 10,000원')).toBeVisible()
+  await page.clock.runFor(1800)
+  await expect(card(page, '16번 루비 20,000원')).toBeVisible()
+})
+
+test('S24 AC-V2-36: "15번 품종 핑크문 만원" → 15번 · 핑크문 · 10,000원 (D-V2-18)', async ({ page }) => {
+  await setupV2(page)
+  await sayAt(page, [['15번 품종 핑크문 만원', 0]])
+  await page.clock.runFor(1800)
+  await expect(card(page, '15번 핑크문 10,000원')).toBeVisible()
+})
