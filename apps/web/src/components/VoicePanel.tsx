@@ -9,7 +9,7 @@ import type { SmsBuyerCandidate, SuggestionCard } from '@livejjim/voice'
 import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { isActive } from '../lib/buyers.ts'
 import { autoSecondsLeft, showsAutoCountdown } from '../lib/voice.ts'
-import { HISTORY_FAILED, SENT_NOTICE, TOO_SOON, smsShortText, smsShown, type CardForm, type FormField, type SmsEntry, type SmsResultLine, type VoiceController, type VoiceSnapshot } from '../voice/controller.ts'
+import { HISTORY_FAILED, SENT_NOTICE, SMS_NEW_BUYER, TOO_SOON, candidateClaims, smsCandidateLabel, smsShortText, smsShown, type CardForm, type FormField, type SmsEntry, type SmsResultLine, type VoiceController, type VoiceSnapshot } from '../voice/controller.ts'
 import { openClaimAction } from './actions.ts'
 import { useConsoleApi } from './console-context.ts'
 import { Modal } from './Modal.tsx'
@@ -269,12 +269,13 @@ function SmsCardView({ entry, voice, on }: { readonly entry: SmsEntry; readonly 
   } else if (card.candidates !== null) {
     body = (
       <p className="field-error" role="alert">
-        {words.choose(card.reading.last4)}
+        {entry.choose ?? words.choose(card.reading.last4)}
       </p>
     )
     actions = (
       <>
         <SmsCandidates candidates={card.candidates} short={short} onChoose={(buyer) => voice.smsChoose(card.id, buyer)} />
+        {card.reading.last4 !== null ? button(SMS_NEW_BUYER, () => voice.smsNewBuyer(card.id)) : null}
         {button(labels.skip, () => voice.smsSkip(card.id))}
       </>
     )
@@ -331,7 +332,7 @@ function SmsCardView({ entry, voice, on }: { readonly entry: SmsEntry; readonly 
   )
 }
 
-/** 409 후보 (처음 생긴 순서): "문자찜(김씨) · 끝자리 1234" — 같은 표시 이름이면 구매자 목록과 같은 구분 표기(BuyerNames) */
+/** 409 후보 (처음 생긴 순서): "문자찜(김씨) · 끝자리 1234 · 15번·22번" — 같은 표시 이름이면 구매자 목록과 같은 구분 표기(BuyerNames), 찜 번호로도 가른다(D-V1-14) */
 function SmsCandidates({ candidates, short, onChoose }: { readonly candidates: readonly SmsBuyerCandidate[]; readonly short: string; readonly onChoose: (buyer: string) => void }) {
   const api = useConsoleApi()
   return (
@@ -339,7 +340,7 @@ function SmsCandidates({ candidates, short, onChoose }: { readonly candidates: r
       {candidates.map((candidate) => {
         const known = api.data.buyers.has(candidate.buyer)
         const name = known ? api.names.name(candidate.buyer) : candidate.display
-        const label = candidate.phoneLast4 === null || name.includes(candidate.phoneLast4) ? name : `${name} · 끝자리 ${candidate.phoneLast4}`
+        const label = smsCandidateLabel(name, candidate.phoneLast4, candidateClaims(candidate))
         return (
           <button key={candidate.buyer} type="button" className="button" aria-label={`${short} 손님 고르기: ${label}`} onClick={() => onChoose(candidate.buyer)}>
             {label}

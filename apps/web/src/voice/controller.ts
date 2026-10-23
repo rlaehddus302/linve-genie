@@ -59,10 +59,43 @@ export const SENT_NOTICE = '음성은 인식을 위해 구글로 보내져요.'
 export type SmsWriteOutcome =
   /** 기록됨 — 응답 seq와 그 문자찜이 정한 구매자 자신 (D-099, 정하지 못했으면 null) */
   | { readonly kind: 'ok'; readonly seq: number; readonly buyer: string | null }
-  /** 409 BUYER_AMBIGUOUS — 기록되지 않았다, 후보 중에서 고른다 */
-  | { readonly kind: 'ambiguous'; readonly candidates: readonly SmsBuyerCandidate[] }
+  /** 409 BUYER_AMBIGUOUS — 기록되지 않았다, 후보 중에서 고른다 (message = 서버 문장: 여러 명·이름이 달라요, D-V1-14) */
+  | { readonly kind: 'ambiguous'; readonly candidates: readonly SmsBuyerChoice[]; readonly message?: string }
   /** 기록되지 않았다 (연결·거절 등) — 쉬운 한국어 문장 */
   | { readonly kind: 'failed'; readonly message: string }
+
+/** 409 후보 하나 + 그 손님의 활성 찜 번호 (D-V1-14 — 서버 `claims`, 처음 찜한 순서) */
+export interface SmsBuyerChoice extends SmsBuyerCandidate {
+  readonly claims: readonly number[]
+}
+
+/** 고르기 카드 후보의 찜 번호 (카드에는 SmsBuyerCandidate로 들어가 펼쳐 복사된다 — 칸이 없거나 깨졌으면 빈 목록) */
+export function candidateClaims(candidate: SmsBuyerCandidate): readonly number[] {
+  const claims = (candidate as Partial<SmsBuyerChoice>).claims
+  return Array.isArray(claims) ? claims.filter((no): no is number => Number.isSafeInteger(no)) : []
+}
+
+/**
+ * 후보 버튼 글 (AC-V1-25·D-V1-14): "문자찜(김씨) · 끝자리 1234 · 15번·22번" — 3개 넘으면 앞 3개 + " 외 N개", 없으면 "찜 없음".
+ * 이름에 끝자리가 이미 있으면 끝자리를 다시 쓰지 않는다
+ */
+export function smsCandidateLabel(name: string, phoneLast4: string | null, claims: readonly number[]): string {
+  const base = phoneLast4 === null || name.includes(phoneLast4) ? name : `${name} · 끝자리 ${phoneLast4}`
+  const shown = claims.slice(0, 3).map((no) => `${String(no)}번`).join('·')
+  const more = claims.length > 3 ? ` 외 ${String(claims.length - 3)}개` : ''
+  return `${base} · ${claims.length === 0 ? '찜 없음' : shown + more}`
+}
+
+/** "새 손님으로 넣기" 버튼 (D-V1-14) */
+export const SMS_NEW_BUYER = '새 손님으로 넣기'
+
+/** 음성 문자찜 쓰기 하나 — 카드의 쓰기 + "새 손님으로 넣기"면 newBuyer (last4와 함께만, D-V1-14) */
+export type VoiceSmsWrite = SmsWrite & { readonly newBuyer?: true }
+
+/** 넣기를 누른 방법: 그대로 · 고른 후보 · 새 손님 */
+type SmsChoice = { readonly kind: 'auto' } | { readonly kind: 'buyer'; readonly buyer: string } | { readonly kind: 'new' }
+
+const choiceKey = (choice: SmsChoice): string => (choice.kind === 'buyer' ? `buyer:${choice.buyer}` : choice.kind)
 
 /** 넣은 주문 하나의 결과 줄 */
 export interface SmsResultLine {
@@ -84,6 +117,8 @@ export interface SmsEntry {
   readonly error: string | null
   /** 넣은 주문마다의 결과 (주문 차례) */
   readonly results: readonly SmsResultLine[]
+  /** 고르기 카드의 문장 (409 서버 문장 — "여러 명이에요"·"이름이 달라요"). 없으면 화면이 기본 문장 */
+  readonly choose?: string | null
   /** 결과 카드를 닫았다 (같은 말 검사에는 10초 동안 남는다) */
   readonly hidden: boolean
 }
@@ -209,7 +244,7 @@ export interface VoiceHost {
   /** 말한 받은 시각 `H:MM[:SS]` → 손 입력 문자찜과 같은 읽기(ORD-08 AC6·D-089)로 보낼 값과 지금보다 늦은지. 읽지 못하면 null */
   readSmsTime?(time: string, now: number): { readonly value: string; readonly late: boolean } | null
   /** 문자찜 쓰기 하나 (손 입력과 같은 `sms` 이벤트). received = 보낼 받은 시각(null이면 비움) */
-  writeSms?(write: SmsWrite, received: string | null, requestId: string): Promise<SmsWriteOutcome>
+  writeSms?(write: VoiceSmsWrite, received: string | null, requestId: string): Promise<SmsWriteOutcome>
   newRequestId?(): string
   readSmsSettings?(): unknown
   writeSmsSettings?(settings: SmsVoiceSettings): void
@@ -331,6 +366,8 @@ export class VoiceController {
   #dictionary: { readonly names: readonly string[]; readonly past: readonly PastDay[]; readonly prepared: VarietyDictionary } | null = null
   /** 문자찜 카드 ID → 주문마다의 요청 번호 (다시 보낼 때 같은 번호 — 찜이 둘 생기지 않게) */
   readonly #smsRequests = new Map<string, string[]>()
+  /** 카드마다 요청 번호를 만든 때의 넣기 방법 — 같은 방법으로 다시 보내면 같은 요청 번호(서버 멱등), 바뀌면 새 번호 */
+  readonly #smsChoices = new Map<string, string>()
 
   constructor(host: VoiceHost) {
     this.#host = host
@@ -1019,21 +1056,36 @@ export class VoiceController {
 
   /** "지금 넣기"·"넣기" */
   smsSend(id: string): void {
-    void this.#sendSms(id, undefined)
+    void this.#sendSms(id, { kind: 'auto' })
   }
 
   /** 고르기 카드의 후보 누르기 → 그 구매자로 넣기 (AC-V1-25) */
   smsChoose(id: string, buyer: string): void {
-    void this.#sendSms(id, buyer)
+    void this.#sendSms(id, { kind: 'buyer', buyer })
+  }
+
+  /**
+   * 고르기 카드의 "새 손님으로 넣기" (D-V1-14, AC-V1-25): 끝자리 + newBuyer로 넣는다(후보를 찾지 않고 새 문자 구매자).
+   * 주문이 여럿이면 첫 주문이 만든 구매자로 나머지를 넣는다 — 주문마다 새 손님이 생기지 않게
+   */
+  smsNewBuyer(id: string): void {
+    void this.#sendSms(id, { kind: 'new' })
   }
 
   /** 넣기: 주문마다 `sms` 쓰기 한 번 (요청 번호는 주문마다 다르고, 다시 보낼 때는 같다). 409면 고르기, 실패면 다시 열기(저절로 넣지 않음) */
-  async #sendSms(id: string, buyer: string | undefined): Promise<void> {
+  async #sendSms(id: string, choice: SmsChoice): Promise<void> {
     const module = this.#module
     const entry = this.#findSms(id)
     const write = this.#host.writeSms
     if (module === null || entry === undefined || write === undefined || entry.sending || entry.reason !== null) return
-    const result = module.sendSmsCard(entry.card, { product: (no) => this.#smsProduct(no), ...(buyer === undefined ? {} : { buyer }) })
+    const fresh = choice.kind === 'new'
+    // 새 손님: 고르기 카드에서 끝자리가 있을 때만. 카드 규칙(sendSmsCard)은 후보 없이 끝자리로 넣는 쓰기를 만들고, 후보는 카드에 남긴다(실패하면 다시 고른다)
+    if (fresh && (entry.card.candidates === null || entry.card.reading.last4 === null)) return
+    const sent = module.sendSmsCard(fresh ? { ...entry.card, candidates: null } : entry.card, {
+      product: (no) => this.#smsProduct(no),
+      ...(choice.kind === 'buyer' ? { buyer: choice.buyer } : {}),
+    })
+    const result = fresh && sent.ok ? { ...sent, card: { ...sent.card, candidates: entry.card.candidates } } : sent
     if (!result.ok) {
       if (result.reason === 'NOT_OPEN') return
       // 문제·넣을 수 없는 상품(넣기 직전에 판매 종료 등)은 이유 카드로, 고르기 문제는 카드에 문장만 (D-V1-07)
@@ -1056,14 +1108,24 @@ export class VoiceController {
       }
       received.push(time.value)
     }
-    // 고른 구매자로 다시 보낼 때는 새 요청 번호 (본문이 달라졌다)
-    if (buyer !== undefined || !this.#smsRequests.has(id)) this.#smsRequests.set(id, writes.map(() => this.#requestId()))
+    // 넣기 방법(그대로·고른 구매자·새 손님)이 바뀌면 새 요청 번호 (본문이 달라졌다). 같은 방법으로 다시 보내면 같은 번호 — 응답만 잃은 쓰기가 두 번 기록되지 않는다
+    if (!this.#smsRequests.has(id) || this.#smsChoices.get(id) !== choiceKey(choice)) {
+      this.#smsRequests.set(id, writes.map(() => this.#requestId()))
+      this.#smsChoices.set(id, choiceKey(choice))
+    }
     const requests = this.#smsRequests.get(id) as string[]
     this.#replaceSms(id, (item) => ({ ...item, card: result.card, sending: true, error: null }))
     this.#host.focusQuick()
     const done = new Set(entry.results.map((line) => line.no))
-    for (const [index, one] of writes.entries()) {
-      if (done.has(one.no)) continue
+    // 새 손님: 이미 넣은 주문이 정한 구매자가 있으면 그 구매자로 (첫 주문만 newBuyer)
+    let made: string | null = fresh ? (entry.results.find((line) => line.buyer !== null)?.buyer ?? null) : null
+    for (const [index, card] of writes.entries()) {
+      if (done.has(card.no)) continue
+      let one: VoiceSmsWrite = card
+      if (fresh) {
+        const { last4, ...rest } = card
+        one = made !== null ? { ...rest, buyer: made } : last4 === undefined ? card : { ...rest, last4, newBuyer: true }
+      }
       let outcome: SmsWriteOutcome
       try {
         outcome = await write(one, received[index] ?? null, requests[index] ?? this.#requestId())
@@ -1072,18 +1134,20 @@ export class VoiceController {
       }
       if (this.#disposed) return
       if (outcome.kind === 'ok') {
+        if (fresh && made === null) made = outcome.buyer
         const line: SmsResultLine = { no: one.no, seq: outcome.seq, buyer: outcome.buyer }
         this.#replaceSms(id, (item) => ({ ...item, results: [...item.results, line] }))
         continue
       }
       if (outcome.kind === 'ambiguous') {
-        this.#replaceSms(id, (item) => ({ ...item, card: module.chooseSmsBuyer(item.card, outcome.candidates), sending: false }))
+        this.#replaceSms(id, (item) => ({ ...item, card: module.chooseSmsBuyer(item.card, outcome.candidates), sending: false, choose: outcome.message ?? null }))
         return
       }
       this.#replaceSms(id, (item) => ({ ...item, card: module.reopenSmsCard(item.card), sending: false, error: outcome.message }))
       return
     }
     this.#smsRequests.delete(id)
+    this.#smsChoices.delete(id)
     this.#replaceSms(id, (item) => ({ ...item, sending: false }))
   }
 
@@ -1117,7 +1181,7 @@ export class VoiceController {
         timeAfterNow: read !== null && read.late,
       })
       if (decision.due) {
-        void this.#sendSms(entry.card.id, undefined)
+        void this.#sendSms(entry.card.id, { kind: 'auto' })
         continue
       }
       const block = decision.block

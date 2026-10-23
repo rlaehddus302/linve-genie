@@ -1,10 +1,11 @@
 // 콘솔의 음성 문자찜 (V1 AC-V1-20·21·25·30) — 실제 코어로 도는 가짜 서버(끝자리 계약 포함) + 가짜 인식 객체.
 // 정산 화면 "구매자를 확인해 주세요"(AC-V1-29)는 unknownSmsBuyers(순수)와 화면 한 번.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { listClaims } from '@livejjim/core'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { onUnauthorized } from '../src/api/client.ts'
-import { ConsolePage, smsProductView, smsReadOptions } from '../src/components/ConsolePage.tsx'
+import { ConsolePage, readCandidates, smsProductView, smsReadOptions } from '../src/components/ConsolePage.tsx'
 import { SettlementsPage, UNKNOWN_SMS_DISPLAY, unknownSmsBuyers } from '../src/components/SettlementsPage.tsx'
 import type { Route, ScopeRoute } from '../src/lib/router.ts'
 import { VOICE_CONSENT_KEY, VOICE_SMS_SETTINGS_KEY } from '../src/voice/storage.ts'
@@ -125,7 +126,8 @@ describe('콘솔 음성 문자찜', () => {
     await screen.findByText('끝자리 1234 손님이 여러 명이에요. 누구인지 골라 주세요.')
     expect(smsPosts()).toHaveLength(1)
     const choose = screen.getAllByRole('button', { name: /손님 고르기/ })
-    expect(choose.map((button) => button.textContent)).toEqual(['문자찜(김씨) · 끝자리 1234', '문자찜(이씨) · 끝자리 1234'])
+    // D-V1-14: 후보 버튼 끝에 그 손님의 찜 번호
+    expect(choose.map((button) => button.textContent)).toEqual(['문자찜(김씨) · 끝자리 1234 · 10번', '문자찜(이씨) · 끝자리 1234 · 10번'])
     await act(() => new Promise<void>((resolve) => setTimeout(resolve, 300)))
     expect(smsPosts()).toHaveLength(1)
     fireEvent.click(choose[1] as HTMLElement)
@@ -134,6 +136,70 @@ describe('콘솔 음성 문자찜', () => {
     expect(second.last4).toBeUndefined()
     expect(second.buyer).toBe('sms:x2')
     await waitFor(() => expect(cards().textContent).toContain('165번 · 문자찜(이씨) · 1등'))
+  })
+
+  it('표시 이름·끝자리가 같은 두 후보는 찜 번호로 갈리고, "새 손님으로 넣기"는 last4 + newBuyer 한 번 → 새 문자 구매자 (AC-V1-25, D-V1-14)', async () => {
+    setup([
+      register(165, '핑크프릴', 10000),
+      register(15, '청보석', 7000),
+      register(22, '금황', 5000),
+      register(30, '은황', 5000),
+      sms('x1', 15, { phoneKey: 'phonekey-aaaaaaaaaa', phoneLast4: '1234' }),
+      sms('x2', 22, { phoneKey: 'phonekey-bbbbbbbbbb', phoneLast4: '1234' }),
+      sms('x3', 30, { phoneKey: 'phonekey-aaaaaaaaaa', phoneLast4: '1234' }),
+    ])
+    await openConsoleWithVoice()
+    FakeRecognition.say('165번 문자찜 끝자리 1234')
+    await screen.findByText('끝자리 1234 손님이 여러 명이에요. 누구인지 골라 주세요.')
+    const card = within(cards()).getByRole('listitem', { name: '165번 · 끝자리 1234 · 문자찜 카드' })
+    const labels = within(card).getAllByRole('button', { name: /손님 고르기/ }).map((button) => button.textContent ?? '')
+    expect(labels).toHaveLength(2)
+    // 표시 이름이 같아도(구매자 목록과 같은 구분 표기) 그 손님의 찜 번호가 붙는다
+    expect(labels[0]).toMatch(/^문자찜 · 뒤 4자리 1234 · 15번·30번$/)
+    expect(labels[1]).toMatch(/^문자찜 · 뒤 4자리 1234 · .*22번$/)
+    expect(within(card).getAllByRole('button').map((button) => button.textContent)).toEqual([...labels, '새 손님으로 넣기', '넣지 않기'])
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 300)))
+    expect(smsPosts()).toHaveLength(1)
+    fireEvent.click(within(card).getByRole('button', { name: '165번 · 끝자리 1234 · 문자찜 새 손님으로 넣기' }))
+    await waitFor(() => expect(smsPosts()).toHaveLength(2))
+    const second = smsPosts()[1] as Record<string, unknown>
+    expect(Object.keys(second).sort()).toEqual(['b', 'last4', 'newBuyer', 'no', 'requestId', 'type'])
+    expect(second).toMatchObject({ last4: '1234', newBuyer: true, no: 165 })
+    expect(second.requestId).not.toBe((smsPosts()[0] as Record<string, unknown>).requestId)
+    // 결과 카드: 셋째 "문자찜 · 뒤 4자리 1234" 손님(구매자 목록과 같은 구분 표기)
+    await waitFor(() => expect(cards().textContent).toContain('165번 · 문자찜 · 뒤 4자리 1234 · 3 · 1등'))
+    // 165번 1등은 두 후보가 아닌 새 문자 구매자
+    const first = listClaims(engine.state).find((claim) => claim.no === 165 && claim.status === 'CONFIRMED')
+    expect(first?.currentBuyer).toBeDefined()
+    expect(['sms:x1', 'sms:x2']).not.toContain(first?.currentBuyer)
+  })
+
+  it('이름이 다른 끝자리 손님 한 명 → "이름이 달라요" 고르기, 새 손님이면 메모의 이름으로 (D-V1-14)', async () => {
+    setup([register(165, '핑크프릴', 10000), register(10, '청보석', 7000), sms('x1', 10, { phoneKey: 'phonekey-aaaaaaaaaa', phoneLast4: '1234', memo: '김씨' })])
+    await openConsoleWithVoice()
+    FakeRecognition.say('이민지님 165번 문자찜 끝자리 1234')
+    await screen.findByText('끝자리 1234 손님의 이름이 달라요. 누구인지 골라 주세요.')
+    const card = within(cards()).getByRole('listitem', { name: /이민지님 · 문자찜 카드$/ })
+    expect(within(card).getAllByRole('button').map((button) => button.textContent)).toEqual(['문자찜(김씨) · 끝자리 1234 · 10번', '새 손님으로 넣기', '넣지 않기'])
+    fireEvent.click(within(card).getByRole('button', { name: /새 손님으로 넣기$/ }))
+    await waitFor(() => expect(smsPosts()).toHaveLength(2))
+    expect(smsPosts()[1]).toMatchObject({ memo: '이민지', last4: '1234', newBuyer: true })
+    await waitFor(() => expect(cards().textContent).toContain('165번 · 문자찜(이민지) · 1등'))
+  })
+
+  it('409 후보 읽기: 찜 번호는 정수만, 칸이 없거나 깨졌으면 빈 목록', () => {
+    expect(
+      readCandidates([
+        { buyer: 'sms:a', display: '문자찜', phoneLast4: '1234', claims: [15, '22', 1.5, 30] },
+        { buyer: 'sms:b', display: '문자찜', phoneLast4: '1234' },
+        { buyer: 'sms:c', display: '문자찜', phoneLast4: '1234', claims: 'x' },
+        { buyer: '', claims: [1] },
+      ]),
+    ).toEqual([
+      { buyer: 'sms:a', display: '문자찜', phoneLast4: '1234', claims: [15, 30] },
+      { buyer: 'sms:b', display: '문자찜', phoneLast4: '1234', claims: [] },
+      { buyer: 'sms:c', display: '문자찜', phoneLast4: '1234', claims: [] },
+    ])
   })
 
   it('"300번 문자찜" → "300번 상품이 없어요."·닫기만·쓰기 없음 (AC-V1-23)', async () => {

@@ -3,7 +3,7 @@
 // 문자찜: ref는 서버가 만들고, phone은 정규화해 phoneKey·phoneLast4만 엔진에 넣는다(원문은 버린다), received를 비우면 '10:00:00'.
 //   응답의 buyer는 그 이벤트를 적용한 뒤 상태의 코어 buyerOfRef (S06b 서버 계약, D-099).
 // 합치기 미리 보기 GET /api/days/:date/merge-preview?from=&into= — 지금 상태로 코어 previewMerge, { date, rehearsal, seq, preview } (D-100).
-import { applyEvent, buyerOfRef, containsPhoneRun, isValidReceivedTime, normalizePhone, phoneLast4, previewMerge, type EngineState, type SettingsOverride } from '@livejjim/core'
+import { applyEvent, buyerOfRef, containsPhoneRun, isValidReceivedTime, listClaims, normalizePhone, phoneLast4, previewMerge, type EngineState, type SettingsOverride } from '@livejjim/core'
 import type { Changes, WriteResult } from '../src/api/types.ts'
 import { settlementKey } from '../src/lib/scope-data.ts'
 import { T0, run, viewOf } from './engine.ts'
@@ -125,12 +125,18 @@ export class EngineServer {
     if (input.type === 'sms') {
       if (typeof input.memo === 'string' && containsPhoneRun(input.memo)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'memo', message: PHONE_SENTENCE }])
       if (input.received !== undefined && !isValidReceivedTime(input.received)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'received', message: '받은 시각을 확인해 주세요.' }])
-      const { phone, last4: spoken, ...rest } = input
+      const { phone, last4: spoken, newBuyer, voice: _voice, ...rest } = input
       const normalized = typeof phone === 'string' ? normalizePhone(phone) : null
       last4 = normalized === null ? null : phoneLast4(normalized)
       // V1 음성 문자찜의 끝자리 (서버 sms-last4 계약): 범위 안 문자 구매자 중 같은 끝자리(지금의 구매자로 셈) — 한 사람이면 buyer, 없으면 끝자리 키, 둘 이상이면 409
       let chosen: Record<string, unknown> = {}
-      if (typeof spoken === 'string') {
+      if (newBuyer !== undefined && (newBuyer !== true || typeof spoken !== 'string' || phone !== undefined || input.buyer !== undefined)) {
+        return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'newBuyer', message: '새 손님으로 넣기는 끝자리와 함께 보내 주세요.' }])
+      }
+      if (typeof spoken === 'string' && newBuyer === true) {
+        // 새 손님으로 넣기 (D-V1-14): 후보를 찾지 않고 그 문자찜 ref까지 담은 키
+        chosen = { phoneKey: `last4-new-key-${spoken}-r${String(this.#refs + 1)}`, phoneLast4: spoken }
+      } else if (typeof spoken === 'string') {
         const buyers = lists(this.state).buyers ?? []
         const found: string[] = []
         for (const buyer of buyers) {
@@ -138,12 +144,26 @@ export class EngineServer {
           const current = String(buyer.current)
           if (!found.includes(current)) found.push(current)
         }
+        // 후보마다 그 범위의 활성 찜 번호 (D-V1-14 claims — 찜 생성 순서, 같은 번호는 한 번)
+        const claimsOf = (id: string): number[] => {
+          const out: number[] = []
+          for (const claim of listClaims(this.state)) {
+            if (claim.currentBuyer !== id || !['CONFIRMED', 'WAITLISTED', 'PENDING', 'CONFLICT'].includes(claim.status)) continue
+            if (!out.includes(claim.no)) out.push(claim.no)
+          }
+          return out
+        }
+        const candidates = found.map((id) => {
+          const buyer = buyers.find((item) => item.id === id)
+          return { buyer: id, display: String(buyer?.display ?? ''), phoneLast4: spoken, claims: claimsOf(id) }
+        })
         if (found.length > 1) {
-          const candidates = found.map((id) => {
-            const buyer = buyers.find((item) => item.id === id)
-            return { buyer: id, display: String(buyer?.display ?? ''), phoneLast4: typeof buyer?.phoneLast4 === 'string' ? buyer.phoneLast4 : null }
-          })
           return { status: 409, body: { error: { code: 'BUYER_AMBIGUOUS', message: `끝자리 ${spoken} 손님이 여러 명이에요. 누구인지 골라 주세요.` }, candidates } }
+        }
+        // 이름을 함께 말했는데 한 사람인 후보의 표시 이름이 문자찜(<이름>)이 아니면 고르기 (D-V1-14)
+        const name = typeof input.memo === 'string' ? input.memo.trim() : ''
+        if (found.length === 1 && name !== '' && candidates[0]?.display !== `문자찜(${name})`) {
+          return { status: 409, body: { error: { code: 'BUYER_AMBIGUOUS', message: `끝자리 ${spoken} 손님의 이름이 달라요. 누구인지 골라 주세요.` }, candidates } }
         }
         chosen = found.length === 1 ? { buyer: found[0] } : { phoneKey: `last4-scope-key-${spoken}`, phoneLast4: spoken }
       }

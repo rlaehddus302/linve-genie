@@ -183,3 +183,15 @@ smsProductBlock(view) / findSmsBlock(card, lookup)   // SmsProductView = { state
   - dev-web: 콘솔 문자찜 쓰기에 `voice: true`, 409 후보 버튼 "표시 이름 · 끝자리 1234 · 15번·22번"(3개 넘으면 앞 3개 + "외 N개", `[]`면 "찜 없음"), "새 손님으로 넣기"(`last4` + `newBuyer: true`, `buyer` 없이), 409 `VOICE_REPEATED`면 그 `message`와 "닫기"만 (AC-V1-31).
   - test-domain: `tests/adversarial/v1/server-last4-attacks.test.ts:151`이 후보 칸을 정확히 `buyer·display·phoneLast4` 세 칸으로 본다 — D-V1-14·AC-V1-13으로 `claims`가 더해져 지금 실패한다. 칸 목록에 `claims`를 더해야 한다.
   - test-e2e: `tests/e2e/v1/sms-buyers.spec.ts:151`의 허용 칸 목록에 `newBuyer`·`voice`가 없다(화면이 보내기 시작하면 걸린다).
+
+### dev-web 수정 라운드 (TE-V1-004 — D-V1-14, AC-V1-25 보강)
+- 409 후보 읽기(`ConsolePage.readCandidates`)가 `claims`(정수만, 없거나 깨지면 `[]`)를 읽고, 409 서버 문장("여러 명이에요"·"이름이 달라요")을 고르기 카드 문장으로 쓴다(`SmsEntry.choose`, 없으면 기본 문장).
+- 후보 버튼 글(`controller.smsCandidateLabel`): "표시 이름 · 끝자리 1234 · 15번·22번", 3개 넘으면 앞 3개 + " 외 N개", 없으면 "찜 없음". 표시 이름은 구매자 목록과 같은 구분 표기(BuyerNames)라 이름에 끝자리가 들어 있으면(예: "문자찜 · 뒤 4자리 1234") 끝자리를 다시 쓰지 않는다. 접근 이름은 그대로 "<카드> 손님 고르기: <버튼 글>".
+- 고르기 카드 버튼 차례: 후보들 → "새 손님으로 넣기"(접근 이름 "<카드> 새 손님으로 넣기") → "넣지 않기". 저절로 넣지 않는다.
+- "새 손님으로 넣기"(`VoiceController.smsNewBuyer`): 쓰기 = 카드 쓰기 + `last4` + `newBuyer: true`(buyer 없음). 주문이 여럿이면 첫 주문만 `newBuyer`, 나머지는 첫 주문이 만든 구매자(`buyer`)로 — 주문마다 새 손님이 생기지 않게(AUTO, 서버 키가 ref마다라 그대로 보내면 주문마다 다른 손님이 된다). 실패하면 고르기 카드로 다시 열린다(후보 유지).
+- 요청 번호: 넣기 방법(그대로·고른 후보·새 손님)이 바뀌면 새 번호, 같은 방법으로 다시 보내면 같은 번호(응답만 잃은 쓰기가 두 번 기록되지 않게). 전에는 후보를 고를 때마다 새 번호였다.
+- 시험: `apps/web/test/v1-voice-sms.test.ts`(버튼 글 경계·claims 보존·서버 문장·newBuyer 본문·고르기 카드가 아니면 보내지 않음·주문 둘·실패 뒤 같은 요청 번호), `v1-console-sms.test.tsx`(같은 표시 이름 두 후보가 찜 번호로 갈림·버튼 차례·newBuyer 본문 칸·새 구매자가 1등, 이름 다름 409 → 새 손님이 "문자찜(이민지)", readCandidates). 가짜 서버(`test/engine-server.ts`)에 claims·이름 다름 409·newBuyer를 서버와 같게 넣음. web 단위 1094개 통과.
+- E2E `tests/e2e/v1` 29개 중 27 통과. 실패 둘:
+  - test-e2e: `sms-buyers.spec.ts:27`(AC-V1-25)가 후보 버튼을 D-V1-14 이전 모양 `['문자찜(김씨) · 끝자리 1234', '문자찜(이씨) · 끝자리 1234', '넣지 않기']`으로 본다 — 이제 `'문자찜(김씨) · 끝자리 1234 · 15번', '문자찜(이씨) · 끝자리 1234 · 15번', '새 손님으로 넣기', '넣지 않기'`이고 고르기 버튼 접근 이름도 끝에 " · 15번"이 붙는다. AC-V1-25 보강 문장대로 고쳐야 한다.
+  - TE-V1-001(minor, 이번 라운드에 배정되지 않음): `sms-cards.spec.ts:262` 그대로.
+- 이번 라운드에 하지 않음: 쓰기에 `voice: true`·409 `VOICE_REPEATED` 화면(AC-V1-31, TE-V1-003 화면 쪽) — 배정된 지적이 아니다.

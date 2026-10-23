@@ -1,10 +1,10 @@
 // 음성 문자찜 컨트롤러 (V1 AC-V1-20~28, VOC-04 문자찜 카드, D-V1-03~09) — 실제 음성 모듈 + 가짜 인식 객체 + 가짜 시계.
 // 쓰기는 가짜 host.writeSms가 받는다(본문 칸·요청 번호·받은 시각을 검사). 화면(E2E)은 tests/e2e/v1(test-e2e 몫).
 import * as voiceModule from '@livejjim/voice'
-import type { SmsProductView, SmsVoiceSettings, SmsWrite } from '@livejjim/voice'
+import type { SmsProductView, SmsVoiceSettings } from '@livejjim/voice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readReceived } from '../src/lib/received.ts'
-import { SMS_RESULTS_SHOWN, SMS_SEND_FAILED, VoiceController, pruneSms, smsDroppedText, smsShown, type SmsEntry, type SmsWriteOutcome, type VoiceHost } from '../src/voice/controller.ts'
+import { SMS_RESULTS_SHOWN, SMS_SEND_FAILED, VoiceController, candidateClaims, pruneSms, smsCandidateLabel, smsDroppedText, smsShown, type SmsEntry, type SmsWriteOutcome, type VoiceHost, type VoiceSmsWrite } from '../src/voice/controller.ts'
 
 /** 2026-10-23 20:01:00 KST */
 const T0 = Date.UTC(2026, 9, 23, 11, 1, 0)
@@ -36,7 +36,7 @@ class FakeRecognition {
 }
 
 interface Sent {
-  readonly write: SmsWrite
+  readonly write: VoiceSmsWrite
   readonly received: string | null
   readonly requestId: string
 }
@@ -361,8 +361,8 @@ describe('고르기·실패 (AC-V1-25, D-V1-03)', () => {
     h.outcomes.push({
       kind: 'ambiguous',
       candidates: [
-        { buyer: 'sms:a', display: '문자찜', phoneLast4: '1234' },
-        { buyer: 'sms:b', display: '문자찜', phoneLast4: '1234' },
+        { buyer: 'sms:a', display: '문자찜', phoneLast4: '1234', claims: [] },
+        { buyer: 'sms:b', display: '문자찜', phoneLast4: '1234', claims: [] },
       ],
     })
     await turnOn(h)
@@ -409,6 +409,114 @@ describe('고르기·실패 (AC-V1-25, D-V1-03)', () => {
     FakeRecognition.last.say('165번 문자찜 끝자리 1234')
     await wait(3000)
     expect(only(h).error).toBe(SMS_SEND_FAILED)
+  })
+})
+
+describe('후보 찜 번호·새 손님으로 넣기 (AC-V1-25 보강, D-V1-14)', () => {
+  const twoSame = (): SmsWriteOutcome => ({
+    kind: 'ambiguous',
+    message: '끝자리 1234 손님이 여러 명이에요. 누구인지 골라 주세요.',
+    candidates: [
+      { buyer: 'sms:a', display: '문자찜', phoneLast4: '1234', claims: [15, 22] },
+      { buyer: 'sms:b', display: '문자찜', phoneLast4: '1234', claims: [] },
+    ],
+  })
+
+  it('후보 버튼 글: 찜 번호 3개까지, 넘으면 " 외 N개", 없으면 "찜 없음", 이름에 끝자리가 있으면 다시 쓰지 않음', () => {
+    expect(smsCandidateLabel('문자찜', '1234', [15, 22])).toBe('문자찜 · 끝자리 1234 · 15번·22번')
+    expect(smsCandidateLabel('문자찜', '1234', [])).toBe('문자찜 · 끝자리 1234 · 찜 없음')
+    expect(smsCandidateLabel('문자찜', '1234', [1, 2, 3])).toBe('문자찜 · 끝자리 1234 · 1번·2번·3번')
+    expect(smsCandidateLabel('문자찜', '1234', [1, 2, 3, 4, 5])).toBe('문자찜 · 끝자리 1234 · 1번·2번·3번 외 2개')
+    expect(smsCandidateLabel('문자찜(1234)', '1234', [7])).toBe('문자찜(1234) · 7번')
+    expect(smsCandidateLabel('김씨', null, [7])).toBe('김씨 · 7번')
+    // 같은 표시 이름·끝자리라도 찜 번호로 글이 다르다
+    expect(smsCandidateLabel('문자찜', '1234', [15])).not.toBe(smsCandidateLabel('문자찜', '1234', [22]))
+  })
+
+  it('카드의 후보는 찜 번호를 그대로 들고, 서버 문장을 고르기 문장으로 쓴다', async () => {
+    const h = harness()
+    h.outcomes.push(twoSame())
+    await turnOn(h)
+    FakeRecognition.last.say('165번 문자찜 끝자리 1234')
+    await wait(3000)
+    const entry = only(h)
+    expect(entry.card.candidates?.map(candidateClaims)).toEqual([[15, 22], []])
+    expect(entry.choose).toBe('끝자리 1234 손님이 여러 명이에요. 누구인지 골라 주세요.')
+    // 깨진 claims는 빈 목록으로 읽는다
+    expect(candidateClaims({ buyer: 'x', display: '', phoneLast4: null, claims: 'no' } as never)).toEqual([])
+    expect(candidateClaims({ buyer: 'x', display: '', phoneLast4: null })).toEqual([])
+  })
+
+  it('"새 손님으로 넣기" → last4 + newBuyer 쓰기 한 번(buyer 없음·새 요청 번호) → 결과, 다시 누르지 않으면 저절로 넣지 않는다', async () => {
+    const h = harness()
+    h.outcomes.push(twoSame())
+    await turnOn(h)
+    FakeRecognition.last.say('김민지님 165번 문자찜 끝자리 1234')
+    await wait(3000)
+    await wait(10_000)
+    expect(h.sent).toHaveLength(1)
+    const entry = only(h)
+    h.voice.smsNewBuyer(entry.card.id)
+    await settle()
+    expect(h.sent).toHaveLength(2)
+    expect(h.sent[1]?.write).toEqual({ no: 165, qty: 1, memo: '김민지', last4: '1234', newBuyer: true, time: null })
+    expect(h.sent[1]?.requestId).not.toBe(h.sent[0]?.requestId)
+    expect(only(h).card.status).toBe('SENT')
+    expect(only(h).results).toEqual([{ no: 165, seq: 100, buyer: 'sms:new' }])
+  })
+
+  it('고르기 카드가 아니면 "새 손님으로 넣기"는 아무것도 보내지 않는다', async () => {
+    const h = harness()
+    await turnOn(h)
+    FakeRecognition.last.say('165번 문자찜 끝자리 1234')
+    h.voice.smsNewBuyer(only(h).card.id)
+    await settle()
+    expect(h.sent).toHaveLength(0)
+    await wait(3000)
+    expect(h.sent).toHaveLength(1)
+    expect(h.sent[0]?.write.newBuyer).toBeUndefined()
+  })
+
+  it('주문 둘이면 첫 주문만 newBuyer, 둘째는 첫 주문이 만든 구매자로 — 새 손님이 둘 생기지 않는다', async () => {
+    const h = harness()
+    h.products.set(15, { state: 'OPEN', waitlistFull: false })
+    h.products.set(28, { state: 'OPEN', waitlistFull: false })
+    h.outcomes.push(twoSame(), { kind: 'ok', seq: 200, buyer: 'sms:made' }, { kind: 'ok', seq: 201, buyer: 'sms:made' })
+    await turnOn(h)
+    FakeRecognition.last.say('15번 28번 문자찜 끝자리 1234')
+    h.voice.smsSend(only(h).card.id)
+    await settle()
+    expect(only(h).card.candidates).not.toBeNull()
+    h.voice.smsNewBuyer(only(h).card.id)
+    await settle()
+    expect(h.sent.map((one) => one.write)).toEqual([
+      { no: 15, qty: 1, memo: null, last4: '1234', time: null },
+      { no: 15, qty: 1, memo: null, last4: '1234', newBuyer: true, time: null },
+      { no: 28, qty: 1, memo: null, buyer: 'sms:made', time: null },
+    ])
+    expect(only(h).results.map((line) => line.buyer)).toEqual(['sms:made', 'sms:made'])
+  })
+
+  it('새 손님 쓰기가 실패하면 고르기 카드로 다시 열리고, 다시 누르면 같은 요청 번호(두 번 기록되지 않게)', async () => {
+    const h = harness()
+    h.outcomes.push(twoSame(), { kind: 'failed', message: SMS_SEND_FAILED })
+    await turnOn(h)
+    FakeRecognition.last.say('165번 문자찜 끝자리 1234')
+    await wait(3000)
+    const id = only(h).card.id
+    h.voice.smsNewBuyer(id)
+    await settle()
+    expect(only(h).error).toBe(SMS_SEND_FAILED)
+    expect(only(h).card.status).toBe('OPEN')
+    expect(only(h).card.candidates?.map((c) => c.buyer)).toEqual(['sms:a', 'sms:b'])
+    await wait(10_000)
+    expect(h.sent).toHaveLength(2)
+    h.voice.smsNewBuyer(id)
+    await settle()
+    expect(h.sent).toHaveLength(3)
+    expect(h.sent[2]?.requestId).toBe(h.sent[1]?.requestId)
+    expect(h.sent[2]?.write.newBuyer).toBe(true)
+    expect(only(h).card.status).toBe('SENT')
   })
 })
 

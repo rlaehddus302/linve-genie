@@ -8,7 +8,7 @@
 // 라벨 기능이 꺼져 있거나 켬/끔을 아직 모르면(N4a, L-13 9, AC-N4a-14·18): 보드 라벨 상태·알림 "출력 멈춤"(Alt+1 순서에서도)·단축키 안내의 Alt+P가 빠지고,
 // Alt+P는 창을 열지 않고 "라벨 쓰지 않음 — 설정에서 켤 수 있어요."를 알린다(빠른 입력칸 포커스 그대로). 버릴 라벨은 남는다.
 import { DEFAULT_SETTINGS, type SaleSettings } from '@livejjim/core'
-import type { CardRegistration, SmsBuyerCandidate, SmsProductView, SmsReadOptions, SmsWrite, SuggestionCard } from '@livejjim/voice'
+import type { CardRegistration, SmsProductView, SmsReadOptions, SuggestionCard } from '@livejjim/voice'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ApiError, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
 import type { ChatMessage, Product, WriteResult } from '../api/types.ts'
@@ -30,7 +30,7 @@ import { useWide } from '../lib/use-wide.ts'
 import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
 import { cardLine, enterBadgeCard } from '../lib/voice.ts'
 import { readReceived } from '../lib/received.ts'
-import { SMS_SEND_FAILED, VOICE_IDLE, VoiceController, type RegisterSource, type SmsWriteOutcome, type VoiceSnapshot } from '../voice/controller.ts'
+import { SMS_SEND_FAILED, VOICE_IDLE, VoiceController, type RegisterSource, type SmsBuyerChoice, type SmsWriteOutcome, type VoiceSmsWrite, type VoiceSnapshot } from '../voice/controller.ts'
 import { fetchPastNames } from '../voice/history.ts'
 import { loadVoice } from '../voice/load.ts'
 import { readConsent, readSettings, readSmsSettings, writeConsent, writeSettings, writeSmsSettings } from '../voice/storage.ts'
@@ -111,15 +111,20 @@ function anyDialogOpen(): boolean {
   return document.querySelector('[role="dialog"]') !== null
 }
 
-/** 409 BUYER_AMBIGUOUS의 후보 (모양이 맞는 것만) */
-function readCandidates(value: unknown): SmsBuyerCandidate[] {
+/** 409 BUYER_AMBIGUOUS의 후보 (모양이 맞는 것만) — 찜 번호(`claims`, D-V1-14)는 정수만, 없거나 깨졌으면 빈 목록 */
+export function readCandidates(value: unknown): SmsBuyerChoice[] {
   if (!Array.isArray(value)) return []
-  const out: SmsBuyerCandidate[] = []
+  const out: SmsBuyerChoice[] = []
   for (const item of value as readonly unknown[]) {
     if (typeof item !== 'object' || item === null) continue
-    const { buyer, display, phoneLast4 } = item as Record<string, unknown>
+    const { buyer, display, phoneLast4, claims } = item as Record<string, unknown>
     if (typeof buyer !== 'string' || buyer === '') continue
-    out.push({ buyer, display: typeof display === 'string' ? display : '', phoneLast4: typeof phoneLast4 === 'string' ? phoneLast4 : null })
+    out.push({
+      buyer,
+      display: typeof display === 'string' ? display : '',
+      phoneLast4: typeof phoneLast4 === 'string' ? phoneLast4 : null,
+      claims: Array.isArray(claims) ? (claims as readonly unknown[]).filter((no): no is number => typeof no === 'number' && Number.isSafeInteger(no)) : [],
+    })
   }
   return out
 }
@@ -285,7 +290,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   const voiceActions = useRef<{
     register: (card: SuggestionCard, registration: CardRegistration, source: RegisterSource) => void
     focusQuick: () => void
-    writeSms: (write: SmsWrite, received: string | null, requestId: string) => Promise<SmsWriteOutcome>
+    writeSms: (write: VoiceSmsWrite, received: string | null, requestId: string) => Promise<SmsWriteOutcome>
   }>({
     register: () => {},
     focusQuick: () => {},
@@ -697,7 +702,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
    * 인식 문장은 보내지 않는다(D-V1-10). 409 BUYER_AMBIGUOUS는 후보로, 그 밖의 실패는 서버 문장으로 돌려준다(카드가 다시 열린다).
    */
   const writeVoiceSms = useCallback(
-    async (one: SmsWrite, received: string | null, requestId: string): Promise<SmsWriteOutcome> => {
+    async (one: VoiceSmsWrite, received: string | null, requestId: string): Promise<SmsWriteOutcome> => {
       const option = isOptionBroadcast(latest.current.data, b)
       const event = {
         type: 'sms',
@@ -707,7 +712,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         ...(option && one.options !== undefined ? { options: { ...one.options } } : {}),
         ...(received === null ? {} : { received }),
         ...(one.memo === null ? {} : { memo: one.memo }),
-        ...(one.buyer !== undefined ? { buyer: one.buyer } : one.last4 !== undefined ? { last4: one.last4 } : {}),
+        ...(one.buyer !== undefined ? { buyer: one.buyer } : one.last4 !== undefined ? { last4: one.last4, ...(one.newBuyer === true ? { newBuyer: true } : {}) } : {}),
       }
       try {
         const result = await write(requestId, event)
@@ -716,7 +721,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         if (!isApiError(error)) return { kind: 'failed', message: SMS_SEND_FAILED }
         if (error.code === 'BUYER_AMBIGUOUS') {
           const candidates = readCandidates(error.details.candidates)
-          if (candidates.length > 0) return { kind: 'ambiguous', candidates }
+          if (candidates.length > 0) return { kind: 'ambiguous', candidates, message: error.message }
         }
         return { kind: 'failed', message: error.network ? SMS_SEND_FAILED : error.message }
       }
