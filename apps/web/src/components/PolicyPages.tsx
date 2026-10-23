@@ -25,7 +25,7 @@ export const PARCEL_KEEP = '보관: 주문 날짜로부터 30일이 지나면 �
 /** 간편 로그인 연결 정보 (L1 AC-L1-13, D-L1-05) — 공급자 토큰·이메일 원문은 저장하지 않는다 */
 export const SOCIAL_LOGIN_ITEM = '간편 로그인을 연결하면: 공급자 계정 번호, 가린 이메일(예: se***@gmail.com)'
 /** AI 제안(선택) 문단 (A1 AC-A1-23, D-A1-06) */
-export const AI_ASSIST_TITLE = '13. AI 제안(선택)'
+export const AI_ASSIST_TITLE = '14. AI 제안(선택)'
 export const AI_ASSIST_WHAT =
   '판매자가 설정에서 AI 제안을 켠 경우에만, 확인 필요 댓글의 글(닉네임·전화번호를 뺀 것)과 그 방송의 상품 이름·옵션이 AI 회사 Anthropic(미국)으로 보내져 주문 제안을 만드는 데 쓰여요.'
 export const AI_ASSIST_STORE = '서비스는 보낸 글을 따로 저장하지 않아요. 만든 제안(상품 번호·옵션·수량)만 보관해요.'
@@ -136,7 +136,7 @@ export function PrivacyPage() {
           <li>{AI_ASSIST_OFF}</li>
         </ul>
       </Section>
-      <Section title="14. 시행일">
+      <Section title="15. 시행일">
         <p>[미정]</p>
       </Section>
     </main>

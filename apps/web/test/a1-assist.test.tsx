@@ -552,10 +552,10 @@ describe('설정의 "AI 제안" 칸 (AC-A1-22)', () => {
 describe('개인정보처리방침의 "AI 제안(선택)" (AC-A1-23)', () => {
   it('켠 경우에만·닉네임·전화번호를 뺀 글과 상품 이름·옵션·Anthropic(미국)·따로 저장하지 않음·언제든 끔, 초안 표시 그대로', () => {
     render(<PrivacyPage />)
-    const section = screen.getByRole('region', { name: '13. AI 제안(선택)' })
+    const section = screen.getByRole('region', { name: '14. AI 제안(선택)' })
     const text = section.textContent ?? ''
     for (const words of ['켠 경우에만', '닉네임·전화번호를 뺀', '상품 이름·옵션', 'Anthropic(미국)', '따로 저장하지 않아요', '언제든 끌 수 있어요']) expect(text).toContain(words)
     expect(screen.getByText('초안이에요. 법률 검토 전이라 실제 서비스 전에 바뀔 수 있어요.')).toBeDefined()
-    expect(screen.getByRole('region', { name: '14. 시행일' })).toBeDefined()
+    expect(screen.getByRole('region', { name: '15. 시행일' })).toBeDefined()
   })
 })
