@@ -1,0 +1,171 @@
+{
+  "kind": "granted",
+  "about": "부여된 결제 다시 맞추기 (BILLING_RULES BL-7 5·6, PL1 — D-PL1-08, N5 RA-N5-01 동작 확정). 이미 부여된(GRANTED) 결제를 결제 조회 결과로 다시 맞출 때 할 일. 입력 = 그 주문의 환불 중 표시(refunding) + 결제 취소를 맡은 환불 요청이 더는 기다리지 않는지(settled) + 결제 조회 API로 다시 읽은 결제(없으면 null) + 우리 상점 ID. 위에서부터 처음 맞는 규칙: ① 조회 결과 없음·상점이 다름 → 환불 중이면 KEEP, 아니면 NONE ② CANCELLED → 환불 중이면 REFUND(환불함으로 마무리), 아니면 REVIEW(우리 환불이 아닌 취소 — 확인 필요, 이용권은 막지 않는다) ③ PAID → 환불 중이 아니면 NONE, 환불 중이고 settled면 RELEASE(환불 중만 풀고 아무것도 바꾸지 않음), 아니면 KEEP ④ 그 밖(PARTIAL_CANCELLED·FAILED·모르는 상태) → REVIEW. 금액·통화·결제 수단은 이 판단에 쓰지 않는다. out은 정확히 같아야 한다.",
+  "cases": [
+    {
+      "id": "G-BIL-301",
+      "title": "환불 중 + 결제 취소됨 → 환불함으로 마무리 (취소 응답이 끊겼어도)",
+      "refs": ["BL-7", "D-PL1-08"],
+      "note": "① 아님(결제 있음·같은 상점) → ② CANCELLED·환불 중 → REFUND",
+      "refunding": true,
+      "settled": false,
+      "payment": { "status": "CANCELLED", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "REFUND" }
+    },
+    {
+      "id": "G-BIL-302",
+      "title": "환불 중 + 결제 취소됨 + 맡은 요청이 끝남 → 환불함 (settled는 ②에 영향 없음)",
+      "refs": ["BL-7", "D-PL1-08"],
+      "note": "② CANCELLED·환불 중 → REFUND",
+      "refunding": true,
+      "settled": true,
+      "payment": { "status": "CANCELLED", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "TRANSFER" },
+      "storeId": "store-test",
+      "out": { "action": "REFUND" }
+    },
+    {
+      "id": "G-BIL-303",
+      "title": "환불 중 + 결제가 그대로 + 맡은 요청이 끝남 → 환불 중만 푼다 (BL-7 2 '아무것도 바꾸지 않고')",
+      "refs": ["BL-7", "D-PL1-08"],
+      "note": "③ PAID·환불 중·settled → RELEASE",
+      "refunding": true,
+      "settled": true,
+      "payment": { "status": "PAID", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "RELEASE" }
+    },
+    {
+      "id": "G-BIL-304",
+      "title": "환불 중 + 결제가 그대로 + 맡은 요청이 아직 기다림 → 그대로 (취소가 곧 될 수 있다)",
+      "refs": ["BL-7", "D-PL1-08"],
+      "note": "③ PAID·환불 중·settled 아님 → KEEP",
+      "refunding": true,
+      "settled": false,
+      "payment": { "status": "PAID", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "KEEP" }
+    },
+    {
+      "id": "G-BIL-305",
+      "title": "환불 중 + 조회 결과 없음 → 그대로 (모르면 이용권을 쓰지 않은 채 둔다)",
+      "refs": ["BL-7", "D-PL1-08"],
+      "note": "① payment null·환불 중 → KEEP",
+      "refunding": true,
+      "settled": true,
+      "payment": null,
+      "storeId": "store-test",
+      "out": { "action": "KEEP" }
+    },
+    {
+      "id": "G-BIL-306",
+      "title": "환불 중 + 다른 상점의 결제 → 그대로 (취소돼 있어도 우리 결제로 보지 않는다)",
+      "refs": ["BL-7", "D-PL1-08"],
+      "note": "① 상점 다름·환불 중 → KEEP (②보다 앞)",
+      "refunding": true,
+      "settled": true,
+      "payment": { "status": "CANCELLED", "amount": 30000, "currency": "KRW", "storeId": "store-other", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "KEEP" }
+    },
+    {
+      "id": "G-BIL-307",
+      "title": "환불 중 + 부분 취소 → 확인 필요 (전액 취소만 요청하므로 이상한 상태)",
+      "refs": ["BL-7", "D-PL1-08"],
+      "note": "④ PARTIAL_CANCELLED → REVIEW",
+      "refunding": true,
+      "settled": true,
+      "payment": { "status": "PARTIAL_CANCELLED", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "REVIEW" }
+    },
+    {
+      "id": "G-BIL-308",
+      "title": "환불 중 + 모르는 상태 글자 → 확인 필요",
+      "refs": ["BL-7", "D-PL1-08"],
+      "note": "④ 모르는 상태 → REVIEW",
+      "refunding": true,
+      "settled": false,
+      "payment": { "status": "SOMETHING_NEW", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "REVIEW" }
+    },
+    {
+      "id": "G-BIL-309",
+      "title": "환불 중 아님 + 결제 취소됨 = 밖에서 취소(포트원 콘솔·PG) → 확인 필요 (이용권은 막지 않는다)",
+      "refs": ["BL-7", "D-PL1-08"],
+      "note": "② CANCELLED·환불 중 아님 → REVIEW",
+      "refunding": false,
+      "settled": false,
+      "payment": { "status": "CANCELLED", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "REVIEW" }
+    },
+    {
+      "id": "G-BIL-310",
+      "title": "환불 중 아님 + 결제 그대로 → 할 일 없음",
+      "refs": ["BL-7", "D-PL1-08"],
+      "note": "③ PAID·환불 중 아님 → NONE",
+      "refunding": false,
+      "settled": false,
+      "payment": { "status": "PAID", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "NONE" }
+    },
+    {
+      "id": "G-BIL-311",
+      "title": "환불 중 아님 + 결제 그대로 + settled → 할 일 없음 (settled는 환불 중일 때만 본다)",
+      "refs": ["BL-7", "D-PL1-08"],
+      "note": "③ PAID·환불 중 아님 → NONE",
+      "refunding": false,
+      "settled": true,
+      "payment": { "status": "PAID", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "TRANSFER" },
+      "storeId": "store-test",
+      "out": { "action": "NONE" }
+    },
+    {
+      "id": "G-BIL-312",
+      "title": "환불 중 아님 + 조회 결과 없음 → 할 일 없음",
+      "refs": ["BL-7", "D-PL1-08"],
+      "note": "① payment null·환불 중 아님 → NONE",
+      "refunding": false,
+      "settled": false,
+      "payment": null,
+      "storeId": "store-test",
+      "out": { "action": "NONE" }
+    },
+    {
+      "id": "G-BIL-313",
+      "title": "환불 중 아님 + 다른 상점의 취소된 결제 → 할 일 없음 (상점 검사가 먼저)",
+      "refs": ["BL-7", "D-PL1-08"],
+      "note": "① 상점 다름·환불 중 아님 → NONE (②보다 앞)",
+      "refunding": false,
+      "settled": false,
+      "payment": { "status": "CANCELLED", "amount": 30000, "currency": "KRW", "storeId": "store-other", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "NONE" }
+    },
+    {
+      "id": "G-BIL-314",
+      "title": "환불 중 아님 + 부분 취소(밖에서) → 확인 필요",
+      "refs": ["BL-7", "D-PL1-08"],
+      "note": "④ PARTIAL_CANCELLED → REVIEW",
+      "refunding": false,
+      "settled": false,
+      "payment": { "status": "PARTIAL_CANCELLED", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "REVIEW" }
+    },
+    {
+      "id": "G-BIL-315",
+      "title": "부여된 결제가 실패 상태로 읽힘 → 확인 필요",
+      "refs": ["BL-7", "D-PL1-08"],
+      "note": "④ FAILED(③의 PAID 아님) → REVIEW",
+      "refunding": false,
+      "settled": false,
+      "payment": { "status": "FAILED", "amount": 30000, "currency": "KRW", "storeId": "store-test", "method": "CARD" },
+      "storeId": "store-test",
+      "out": { "action": "REVIEW" }
+    }
+  ]
+}
