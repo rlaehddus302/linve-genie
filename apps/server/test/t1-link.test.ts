@@ -131,6 +131,45 @@ describe('AC-T1-11 구매자가 적기', () => {
   })
 })
 
+describe('TE-T1-003 실제 브라우저가 보내는 머리글', () => {
+  it('링크 화면은 no-referrer라 브라우저는 같은 출처 양식에 Origin: null + Sec-Fetch-Site: same-origin을 보낸다 → 저장(303). null 혼자·다른 출처에서 온 null은 403(저장 없음)', async () => {
+    const world = await parcelWorld()
+    const seller = await parcelSeller(world)
+    await sell(world, seller, [['UC_A', '가람', 1]])
+    const token = await linkFor(world, seller, 'UC_A')
+    // 양식이 있는 링크 화면의 정책은 그대로 (D-N4b-02) — 이 정책 때문에 브라우저가 Origin을 null로 보낸다
+    const page = await openLink(world, `/r/${token}`)
+    expect(page.status).toBe(200)
+    expect(page.headers.get('referrer-policy')).toBe('no-referrer')
+    const refusedHeaders: Record<string, string>[] = [
+      { Origin: 'null' },
+      { Origin: 'null', 'Sec-Fetch-Site': 'cross-site' },
+      { Origin: 'null', 'Sec-Fetch-Site': 'same-site' },
+      { Origin: 'null', 'Sec-Fetch-Site': 'none' },
+      { Origin: 'https://evil.example', 'Sec-Fetch-Site': 'same-origin' },
+      { 'Sec-Fetch-Site': 'same-origin' },
+    ]
+    for (const headers of refusedHeaders) {
+      const refused = await postForm(world, token, ADDRESS, headers)
+      expect(refused.status, JSON.stringify(headers)).toBe(403)
+      expect(refused.text).toContain('판매자에게 알려 주세요')
+    }
+    expect(await addressRows(world)).toBe(0)
+    // 크롬이 링크 화면에서 실제로 보내는 머리글
+    const browser = { Origin: 'null', 'Sec-Fetch-Site': 'same-origin', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document' }
+    const saved = await postForm(world, token, ADDRESS, browser)
+    expect(saved.status, saved.text).toBe(303)
+    expect(saved.headers.get('location')).toBe(`/r/${token}`)
+    expect(saved.headers.get('referrer-policy')).toBe('no-referrer')
+    expect(await addressRows(world)).toBe(1)
+    expect((await expect200(parcelApi(world, seller.cookie).bundle('UC_A'))).body.bundle).toMatchObject({ address: { confirmed: false, source: 'BUYER' } })
+    // 틀린 값이면 거절 쪽이 아니라 같은 쪽에 칸 문장 (400)
+    const wrong = await postForm(world, token, { ...ADDRESS, phone: '12' }, browser)
+    expect(wrong.status).toBe(400)
+    expect(wrong.text).not.toContain('판매자에게 알려 주세요')
+  })
+})
+
 describe('AC-T1-11 큰 양식 본문', () => {
   it('길이를 밝히지 않은(chunked) 본문도 한도(16KB)를 넘는 순간 읽기를 멈추고 400, 저장 없음. 한도 안 chunked 본문은 저장', async () => {
     const world = await parcelWorld()

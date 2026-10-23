@@ -26,7 +26,7 @@ import type { ScopeWriter } from './writer.ts'
 export const RECEIPT_PAGE_MESSAGES = {
   closed: '이 링크는 열 수 없어요. 판매자에게 새 링크를 받아 주세요.',
   later: '잠시 뒤 다시 열어 주세요.',
-  forbidden: '이 양식은 받을 수 없어요. 링크를 다시 열어 주세요.',
+  forbidden: '다른 곳에서 보낸 양식이라 받지 않았어요. 받은 링크를 다시 열어 그 화면에서 보내 주세요. 그래도 안 되면 판매자에게 알려 주세요.',
   badForm: '입력한 내용을 확인해 주세요.',
 } as const
 
@@ -41,6 +41,18 @@ const LIMITER_MAX_KEYS = 10_000
 
 /** 문서 답의 콘텐츠 보안 정책: 스크립트 없음(script-src를 두지 않는다 — default-src 'none'), 그림은 같은 출처만, 틀·base 금지, 양식은 같은 출처로만(T1 배송지 양식 — D-T1-06) */
 export const RECEIPT_PAGE_CSP = ["default-src 'none'", "img-src 'self'", "style-src 'unsafe-inline'", "frame-ancestors 'none'", "form-action 'self'", "base-uri 'none'"].join('; ')
+
+/**
+ * 배송지 양식이 이 앱의 링크 화면에서 왔는지 (CSRF 막기, PC-3 "Origin이 앱 주소일 때만").
+ * 링크 화면은 `Referrer-Policy: no-referrer`(D-N4b-02)라 브라우저가 같은 출처 양식 POST에도 `Origin: null`을 보낸다(Fetch 규약 —
+ * 크롬·파이어폭스·사파리). 그래서 `Origin: null`은 브라우저만 붙이는(페이지가 바꿀 수 없는) `Sec-Fetch-Site: same-origin`이 함께 올 때만
+ * 앱 주소와 같다고 본다. 다른 출처·틀(sandbox)·data: 문서에서 보낸 `null`은 `cross-site`/`same-site`/`none`이라 받지 않는다 (TE-T1-003)
+ */
+export function formFromApp(origin: string | undefined, fetchSite: string | undefined, appOrigin: string | undefined): boolean {
+  if (appOrigin === undefined || origin === undefined) return false
+  if (origin === appOrigin) return true
+  return origin === 'null' && fetchSite === 'same-origin'
+}
 
 /** 링크 화면 답의 머리글 (문서·파일 모두) */
 export const RECEIPT_PAGE_HEADERS: Readonly<Record<string, string>> = {
@@ -408,12 +420,12 @@ export function registerReceiptPage(app: Hono, deps: ReceiptPageDeps): void {
     return { section: await deps.parcels.linkSection(opened.sellerId, opened.date, opened.buyer, runtime.state) }
   }
 
-  /** 배송지 양식 보내기 (T1 AC-T1-11·12): Origin → 링크마다 한도 → 형식·크기 → 링크 열기 → 저장(303) · 틀림(400) · 거절(409) */
+  /** 배송지 양식 보내기 (T1 AC-T1-11·12): Origin(또는 null + Sec-Fetch-Site: same-origin) → 링크마다 한도 → 형식·크기 → 링크 열기 → 저장(303) · 틀림(400) · 거절(409) */
   const handleAddress = async (c: Context): Promise<Response> => {
     const match = ADDRESS_PATH_RE.exec(c.req.path)
     if (match === null || deps.parcels === undefined) return closed()
     const token = match[1] as string
-    if (deps.appOrigin === undefined || c.req.header('origin') !== deps.appOrigin) return htmlResponse(403, FORBIDDEN_PAGE)
+    if (!formFromApp(c.req.header('origin'), c.req.header('sec-fetch-site'), deps.appOrigin)) return htmlResponse(403, FORBIDDEN_PAGE)
     if (!limiter.take(receiptTokenHash(token))) return later(429)
     const type = (c.req.header('content-type') ?? '').split(';')[0]?.trim().toLowerCase()
     const declared = Number(c.req.header('content-length') ?? '0')
