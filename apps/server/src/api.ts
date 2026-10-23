@@ -772,8 +772,10 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   api.get('/days/:date/packing', async (c) => {
     const scope = realScope(c)
     if (!scope.ok) return scope.response
-    const list = await closing.packingList(sellerOf(c), scope.date)
-    if (list === null) return notFound()
+    const outcome = await closing.packingList(sellerOf(c), scope.date)
+    if (outcome.kind === 'not_found') return notFound()
+    if (outcome.kind === 'error') return problemResponse(outcome.error)
+    const list = outcome.value
     // 묶음마다 택배 줄 parcel (T1 AC-T1-52 — 조회 낱말·송장번호·마지막 확인 시각, 없으면 null)
     const briefs = await parcelBriefs(sellerOf(c), scope.date)
     return c.json({ ...list, entries: list.entries.map((entry) => ({ ...entry, parcel: briefs.get(entry.buyer) ?? null })) })

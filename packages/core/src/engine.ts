@@ -35,3 +35,5 @@ export {
 } from './engine/views.ts'
 export type * from './engine/types.ts'
 export type { PMap } from './engine/pmap.ts'
+// 영속 맵을 만드는 순수 도우미 (PL1A D-PL1-04 — 서버가 30일 봉인 장부로 조회용 상태를 다시 세울 때. 판정은 하지 않는다)
+export { emptyPMap, pset } from './engine/pmap.ts'
