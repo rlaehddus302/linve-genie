@@ -43,12 +43,31 @@ if (!existsSync(join(ROOT, 'node_modules', '.pnpm'))) fail('먼저 설치가 필
 
 const args = process.argv.slice(2)
 let wanted = DEFAULT_PORT
+let realYoutube = false
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--port' && /^\d{2,5}$/.test(args[i + 1] ?? '')) {
     wanted = Number(args[i + 1])
     i++
-  } else if (args[i] === '--') continue
-  else fail('쓰는 법: pnpm try 또는 pnpm try --port 7800')
+  } else if (args[i] === '--real-youtube') realYoutube = true
+  else if (args[i] === '--') continue
+  else fail('쓰는 법: pnpm try 또는 pnpm try --port 7800 또는 pnpm try --real-youtube')
+}
+// 실제 유튜브 시험: 운영자가 만든 구글 OAuth 클라이언트 값을 저장소 밖에 커밋되지 않는 .env.youtube.local에서 읽는다(대화·로그에 남기지 않음)
+let realGoogle = null
+if (realYoutube) {
+  const file = join(ROOT, '.env.youtube.local')
+  if (!existsSync(file)) fail('.env.youtube.local 파일이 없어요. docs/TRY-IT.md "실제 유튜브로 시험하기"를 보세요.')
+  const values = Object.fromEntries(
+    readFileSync(file, 'utf8')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line !== '' && !line.startsWith('#') && line.includes('='))
+      .map((line) => [line.slice(0, line.indexOf('=')).trim(), line.slice(line.indexOf('=') + 1).trim()]),
+  )
+  const clientId = values.LIVEJJIM_GOOGLE_CLIENT_ID ?? ''
+  const clientSecret = values.LIVEJJIM_GOOGLE_CLIENT_SECRET ?? ''
+  if (clientId === '' || clientSecret === '') fail('.env.youtube.local에 LIVEJJIM_GOOGLE_CLIENT_ID와 LIVEJJIM_GOOGLE_CLIENT_SECRET을 적어 주세요.')
+  realGoogle = { clientId, clientSecret }
 }
 if (wanted < 1024 || wanted > 65_000) fail('--port는 1024~65000 사이로 적어 주세요.')
 
@@ -127,14 +146,24 @@ const livejjim = createServer({
   appOrigin,
   log: () => {},
   backupStorage: new FolderBackupStorage(backupDir),
-  youtube: {
-    clientId: fake.clientId,
-    clientSecret: fake.clientSecret,
-    redirectUri: `${appOrigin}/api/youtube/oauth/callback`,
-    returnUrl: `${appOrigin}/settings/youtube`,
-    endpoints: fake.endpoints(),
-    allowInsecure: true,
-  },
+  youtube:
+    realGoogle === null
+      ? {
+          clientId: fake.clientId,
+          clientSecret: fake.clientSecret,
+          redirectUri: `${appOrigin}/api/youtube/oauth/callback`,
+          returnUrl: `${appOrigin}/settings/youtube`,
+          endpoints: fake.endpoints(),
+          allowInsecure: true,
+        }
+      : {
+          // 실제 구글·유튜브 주소(기본값). 돌아오는 주소는 구글 콘솔에 등록한 것과 글자까지 같아야 한다
+          clientId: realGoogle.clientId,
+          clientSecret: realGoogle.clientSecret,
+          redirectUri: `${appOrigin}/api/youtube/oauth/callback`,
+          returnUrl: `${appOrigin}/settings/youtube`,
+          allowInsecure: true,
+        },
   collectorTiming: { scanMs: 1000 },
   outboxTiming: { liveChatLookupPage: fake.pageSize },
   webDir: WEB_DIR,
