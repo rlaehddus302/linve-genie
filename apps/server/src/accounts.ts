@@ -4,6 +4,7 @@
 import { randomInt } from 'node:crypto'
 import type { Db } from './db/database.ts'
 import { BILLING_MESSAGES, sealedBusinessNumber } from './billing/service.ts'
+import { ISSUED_RECEIPT_KIND } from './billing/documents.ts'
 import { parseBizno } from './billing/rules.ts'
 import { accounts, billingBusiness, sellers } from './db/schema.ts'
 import { randomIds, type IdSource } from './ids.ts'
@@ -70,7 +71,7 @@ export async function createSellerAccount(db: Db, masterKey: Buffer, input: NewA
     await tx.insert(accounts).values({ id: accountId, sellerId, loginId, passwordHash, createdAt: now })
     if (businessNumber !== null) {
       const sealed = sealedBusinessNumber(masterKey, sellerId, businessNumber)
-      await tx.insert(billingBusiness).values({ sellerId, sealed: sealed.sealed, masked: sealed.masked, receiptKind: 'TAX_INVOICE', updatedAt: now })
+      await tx.insert(billingBusiness).values({ sellerId, sealed: sealed.sealed, masked: sealed.masked, receiptKind: ISSUED_RECEIPT_KIND, updatedAt: now })
     }
   })
   return { ok: true, sellerId, accountId, loginId }

@@ -399,11 +399,13 @@ describe('AC-N5-38 증빙 요청 (팝빌 자리)', () => {
     expect((await payments(world, seller)).find((item) => item.paymentId === transfer)).toMatchObject({ state: 'REFUNDED', document: { status: 'ISSUED', cancel: 'CANCELLED' } })
     // 사업자 정보를 바꿔도 이미 만든 증빙의 받는 쪽은 그대로, 다음 결제는 새 정보
     const sealedBefore = docs[0]?.recipient_sealed
-    await saveBusiness(world, seller, { name: '새 상호', receiptKind: 'TAX_INVOICE' })
+    // D-PL1-07: 세금계산서는 지금 고를 수 없다(422) — 상호만 바꾸고, 다음 결제의 증빙도 현금영수증(지출증빙)
+    expect((await saveBusiness(world, seller, { name: '새 상호', receiptKind: 'TAX_INVOICE' })).status).toBe(422)
+    await saveBusiness(world, seller, { name: '새 상호' })
     const next = await buy(world, seller, 'labels-100', 'TRANSFER')
     const after = await query<{ payment_id: string; kind: string; recipient_sealed: string }>(world, 'select payment_id, kind, recipient_sealed from billing_documents order by id')
     expect(after[0]?.recipient_sealed).toBe(sealedBefore)
-    expect(after.find((doc) => doc.payment_id === next)?.kind).toBe('TAX_INVOICE')
+    expect(after.find((doc) => doc.payment_id === next)?.kind).toBe('CASH_RECEIPT')
     expect(fake(world).issuer.issued.at(-1)?.recipient).toMatchObject({ businessNumber: BIZNO, name: '새 상호' })
   })
 

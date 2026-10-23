@@ -32,7 +32,7 @@
 | `docs/spec/BILLING_RULES.md` | v0.1.1 — BL-7 5(환불 결과 모름)·6(밖에서 취소)(D-PL1-08), BL-8 1·3 현금영수증 하나·6 "세금계산서는 지금 발급하지 않는다"(D-PL1-07), BL-10 8 약관 |
 | `docs/spec/SPEC.md` | v0.1.31 — 포장 화면 "B1 출력"(D-PL1-05), UX-02 "라벨을 쓰지 않아요"(D-PL1-06), VOC-03 켠 직후 2초 미룸(D-PL1-09) |
 | `docs/DECISIONS.md` | D-PL1-05~D-PL1-10(AUTO), "사용자 확인 필요"에 "간이과세자 증빙 (PL1)" 행(법률·세무 확인은 사용자 몫) |
-| `tests/golden/drafts/pl1b/billing/granted.json` → `tests/golden/billing/granted.json` | 새 요금 골든 G-BIL-301~315(종류 `granted`, D-PL1-08) — 초안으로 커밋, **PL1B 시작 때 spec-keeper가 옮긴다**(AC-PL1B-00). `tests/golden/README.md` "요금 골든" 표에 `granted` 종류 |
+| `tests/golden/drafts/pl1b/billing/granted.json` → `tests/golden/billing/granted.json` | 새 요금 골든 G-BIL-401~415(처음 적은 301~315는 bizno와 겹쳐 번호만 옮김, D-PL1-08)(종류 `granted`, D-PL1-08) — 초안으로 커밋, **PL1B 시작 때 spec-keeper가 옮긴다**(AC-PL1B-00). `tests/golden/README.md` "요금 골든" 표에 `granted` 종류 |
 
 ## 공통 전제
 
@@ -64,6 +64,7 @@
 
 **AC-PL1B-00** [spec] · D-PL1-10 — 시작 단계: 요금 골든 옮기기
 - PL1B 작업 폴더에서 개발을 시작하기 전에 spec-keeper가 `tests/golden/drafts/pl1b/billing/granted.json`을 `tests/golden/billing/granted.json`으로 옮기고(내용 그대로), `tests/golden/README.md`의 `drafts/**` 줄에서 이 파일을 지운다 — 커밋 `[spec] PL1B: 요금 골든 granted 옮기기`. 그 커밋 전에는 dev가 요금 골든 시험을 고치지 않는다
+- 옮긴 뒤 ID는 G-BIL-401~415다(초안의 301~315가 bizno G-BIL-301~313과 겹쳐 README "이 폴더 전체에서 유일"을 어겼으므로 번호만 옮김, 내용·기대값 그대로 — D-PL1-08, TD-PL1B-001·SA-PL1B-01)
 - 확인: `git log`
 
 ### 간이과세자 증빙 (D-PL1-07)
@@ -164,7 +165,7 @@
 ### BL-7 환불 결과 모름·밖에서 취소 (D-PL1-08)
 
 **AC-PL1B-20** [server] · BIL-01 · BL-7 5·6 · D-PL1-08 — 요금 골든 `granted`
-- Then 서버 요금 골든 시험(`apps/server/test/billing-golden.test.ts`)이 종류 `granted`를 읽어 `judgeGranted`로 돌리고 `out`과 같음을 본다 — 파일 수 5·사례 수 82(status 26 · payment 21 · vat 7 · bizno 13 · granted 15) 고정값(D-PL1-08 주석), 모르는 키·열거값·중복 ID는 지금처럼 읽기 오류. `judgeGranted` 코드는 바꾸지 않는다(골든 15개가 지금 코드로 통과한다 — spec-keeper가 계산해 확인함). TZ 세 가지 결정성 검사에 `granted`도 든다
+- Then 서버 요금 골든 시험(`apps/server/test/billing-golden.test.ts`)이 종류 `granted`를 읽어 `judgeGranted`로 돌리고 `out`과 같음을 본다 — 파일 수 5·사례 수 82(status 26 · payment 21 · vat 7 · bizno 13 · granted 15) 고정값(D-PL1-08 주석), 모르는 키·열거값·중복 ID는 지금처럼 읽기 오류(granted ID는 G-BIL-401~415 — bizno 301~313과 겹치지 않는다). `judgeGranted` 코드는 바꾸지 않는다(골든 15개가 지금 코드로 통과한다 — spec-keeper가 계산해 확인함). TZ 세 가지 결정성 검사에 `granted`도 든다
 - 확인: 서버 시험
 
 **AC-PL1B-21** [server] · BL-7 5 · D-PL1-08 — 결과를 모르는 환불

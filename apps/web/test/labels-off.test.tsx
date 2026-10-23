@@ -7,7 +7,7 @@ import { onUnauthorized } from '../src/api/client.ts'
 import type { LabelSettings, LabelSwitchEntry, PrintOverview } from '../src/api/print-types.ts'
 import { setLabelEnv } from '../src/lib/label-env.ts'
 import { device, job, jsdomLabelEnv, overview, queue, templates } from './print-support.ts'
-import { DATE, FakeEventSource, FakeServer, apiError, flush } from './support.ts'
+import { DATE, FakeEventSource, FakeServer, apiError, flush, fullText } from './support.ts'
 import { openMore } from './menu-support.ts'
 
 const ME = 'device-me-n4a-0001'
@@ -223,7 +223,7 @@ describe('라벨 화면 — 꺼져 있을 때 (AC-N4a-13·16·19)', () => {
     current = overview({ queue: queue({ labelsEnabled: false, waiting: 2, device: device('other-1') }), jobs: [job('w1'), job('w2')] })
     const container = await openAt('/labels', '라벨')
     const main = container.querySelector('main') as HTMLElement
-    expect(within(main).getByText(OFF_NOTE)).toBeTruthy()
+    expect(within(main).getByText(fullText(OFF_NOTE))).toBeTruthy()
     const link = within(main).getByRole('link', { name: '설정' })
     expect(link.getAttribute('href')).toBe('/settings')
     expect(within(main).getAllByRole('heading').map((h) => h.textContent)).toEqual(['라벨'])
@@ -261,11 +261,11 @@ describe('라벨 화면 — 꺼져 있을 때 (AC-N4a-13·16·19)', () => {
     await openAt('/labels', '라벨')
     expect(screen.getByRole('region', { name: '출력 대기열' })).toBeTruthy()
     sendLabels(2, false)
-    expect(screen.getByText(OFF_NOTE)).toBeTruthy()
+    expect(screen.getByText(fullText(OFF_NOTE))).toBeTruthy()
     expect(screen.queryByRole('region', { name: '출력 대기열' })).toBeNull()
     expect(screen.queryByRole('link', { name: /프린터 휴대폰/ })).toBeNull()
     sendLabels(3, true)
-    expect(screen.queryByText(OFF_NOTE)).toBeNull()
+    expect(screen.queryByText(fullText(OFF_NOTE))).toBeNull()
     for (const name of ['프린터', '출력 대기열', '버릴 라벨', '출력 이력', '라벨 설정', '내보내기']) expect(screen.getByRole('region', { name })).toBeTruthy()
     expect(screen.getByRole('link', { name: '프린터 휴대폰 · 연결됨 · 대기 1장' })).toBeTruthy()
   })
@@ -285,12 +285,12 @@ describe('모르는 동안에는 숨긴다 (AC-N4a-18)', () => {
     const main = container.querySelector('main') as HTMLElement
     expect(within(main).getByText('불러오는 중…')).toBeTruthy()
     expect(within(main).queryAllByRole('button')).toHaveLength(0)
-    expect(within(main).queryByText(OFF_NOTE)).toBeNull()
+    expect(within(main).queryByText(fullText(OFF_NOTE))).toBeNull()
     // 닫힌 목록에서 "없다"는 늘 맞으므로 목록을 연 채로 본다 (AC-NAV-10)
     expect(within(openMore()).queryByRole('link', { name: '라벨' })).toBeNull()
     expect(screen.queryByRole('link', { name: /출력 기기|프린터/ })).toBeNull()
     ;(release as (() => void) | null)?.()
-    expect(await within(main).findByText(OFF_NOTE)).toBeTruthy()
+    expect(await within(main).findByText(fullText(OFF_NOTE))).toBeTruthy()
   })
 
   it('불러오지 못하면 라벨 조작 없이 서버 문장과 "다시 시도"', async () => {
@@ -313,7 +313,7 @@ describe('오래된 화면이 보낸 라벨 요청 (AC-N4a-20)', () => {
     const before = server.callsTo('GET', /^\/api\/print$/).length
     fireEvent.click(within(screen.getByRole('region', { name: '출력 멈춤' })).getByRole('button', { name: '출력 시작' }))
     expect(await screen.findByText(REFUSED)).toBeTruthy()
-    expect(screen.getByText(OFF_NOTE)).toBeTruthy()
+    expect(screen.getByText(fullText(OFF_NOTE))).toBeTruthy()
     expect(screen.queryByRole('region', { name: '출력 멈춤' })).toBeNull()
     await waitFor(() => expect(server.callsTo('GET', /^\/api\/print$/).length).toBeGreaterThan(before))
     await flush(5)
@@ -324,7 +324,7 @@ describe('오래된 화면이 보낸 라벨 요청 (AC-N4a-20)', () => {
     await screen.findByRole('heading', { name: '방송 목록', level: 1 })
     window.history.pushState(null, '', '/labels')
     window.dispatchEvent(new PopStateEvent('popstate'))
-    expect(await screen.findByText(OFF_NOTE)).toBeTruthy()
+    expect(await screen.findByText(fullText(OFF_NOTE))).toBeTruthy()
     expect(screen.queryByText(REFUSED)).toBeNull()
   })
 
@@ -344,7 +344,7 @@ describe('오래된 화면이 보낸 라벨 요청 (AC-N4a-20)', () => {
       expect(save.className).not.toContain('button-primary')
       fireEvent.click(save)
       expect(await screen.findByText(REFUSED, {}, { timeout: 5000 })).toBeTruthy()
-      expect(screen.getByText(OFF_NOTE)).toBeTruthy()
+      expect(screen.getByText(fullText(OFF_NOTE))).toBeTruthy()
       expect(screen.queryByRole('region', { name: '라벨 설정' })).toBeNull()
       expect(server.callsTo('PUT', /^\/api\/print\/templates\/product$/)).toHaveLength(1)
     } finally {
@@ -423,7 +423,7 @@ describe('시작 마법사 4단계 — 라벨 기능을 끈 판매자 (L-13 9, D
     render(<App />)
     await screen.findByRole('heading', { name: STEP, level: 2 })
     await flush(10)
-    expect(screen.getByText(OFF_NOTE)).toBeTruthy()
+    expect(screen.getByText(fullText(OFF_NOTE))).toBeTruthy()
     expect(screen.queryByRole('region', { name: '프린터' })).toBeNull()
     expect(screen.queryByRole('button', { name: /연결|테스트 인쇄/ })).toBeNull()
   })
@@ -448,6 +448,6 @@ describe('시작 마법사 4단계 — 라벨 기능을 끈 판매자 (L-13 9, D
     await screen.findByRole('heading', { name: STEP, level: 2 })
     await flush(10)
     expect(await screen.findByRole('region', { name: '프린터' })).toBeTruthy()
-    expect(screen.queryByText(OFF_NOTE)).toBeNull()
+    expect(screen.queryByText(fullText(OFF_NOTE))).toBeNull()
   })
 })

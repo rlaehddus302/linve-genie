@@ -356,20 +356,33 @@ function PackingBody({ date, buyer }: { readonly date: string; readonly buyer: s
   const rendered = useMemo(() => (env.state !== 'ready' || data === null ? null : renderPacking(env.env, template, data)), [env, template, data])
   const pages = rendered !== null && rendered.ok ? rendered.images : []
   const label = view?.label
+  // 두 번 보냄 막기는 누르자마자 바뀌는 표시로 — 같은 순간의 두 클릭도 요청 하나 (TE-PL1B-001, 포장 모드와 같은 방식)
+  const sending = useRef(false)
+  // 응답이 오기 전에 다른 묶음으로 바뀌었으면 늦은 결과를 지금 묶음에 보이지 않는다 (RA-PL1B-02와 같은 방식)
+  const current = useRef({ date, buyer })
+  current.current = { date, buyer }
+  useEffect(() => {
+    setDone(null)
+    setError(null)
+  }, [date, buyer])
   const send = async () => {
-    if (api === null || busy) return
+    if (api === null || sending.current) return
+    sending.current = true
     setBusy(true)
     setError(null)
     setDone(null)
     const requestId = newRequestId()
+    const target = { date, buyer }
+    const still = () => current.current.date === target.date && current.current.buyer === target.buyer
     try {
       const result = await withRetry(() => api.store.act<{ jobs: JobView[] }>('/api/print/packing', { requestId, date, buyer: view?.buyer ?? buyer }))
-      setDone(`포장 라벨 ${String(result.jobs.length)}장 출력을 접수했어요.`)
+      if (still()) setDone(`포장 라벨 ${String(result.jobs.length)}장 출력을 접수했어요.`)
       api.store.refreshPacking(date, buyer)
     } catch (caught) {
       if (!isApiError(caught)) throw caught
-      setError(caught)
+      if (still()) setError(caught)
     } finally {
+      sending.current = false
       setBusy(false)
     }
   }

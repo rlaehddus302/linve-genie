@@ -37,3 +37,12 @@ describe('주소 ↔ 화면', () => {
     expect(menuOf({ name: 'billing' })).toBe('billing')
   })
 })
+
+describe('설정의 라벨 칸 주소 (PL1B U-PL1B-06)', () => {
+  it('/settings/labels ↔ 설정 화면 라벨 칸, 메뉴는 "설정"', () => {
+    const route = parseRoute('/settings/labels', '')
+    expect(route).toEqual({ name: 'settings', section: 'labels' })
+    expect(routePath(route)).toBe('/settings/labels')
+    expect(menuOf(route)).toBe(menuOf({ name: 'settings' }))
+  })
+})

@@ -11,7 +11,8 @@
 //   저장되면 포커스를 "다음 구매자"(없으면 결과 안내)로 옮긴다. 포장 완료 직후엔 "다음 구매자"가 주 버튼이다 (UX-I2-001).
 // - 포장 라벨: 쪽마다 서버 그림(대체 글 "포장 라벨 1/2쪽")·"그림 저장"(PNG)·"라벨 PDF". 라벨에 찍히는 값(품목·방송 제목·상품 합계·구매자 이름·가게 이름)이
 //   바뀌면 새로 받고, 받기 전엔 저장을 잠근다 (SA-I2-002).
-//   "B1로 출력"·프린터 연결은 없다(I1을 합친 뒤 — D-I2-07).
+//   PL1B(D-PL1-05, AC-PL1B-10~13): 라벨 켜짐이면 "라벨 PDF" 옆에 보통 버튼 "포장 라벨 출력"(PackingPrint — 정산 자세히와 같은 요청, 누를 때만).
+//   라벨 꺼짐이면 칸 전체가 "라벨 쓰지 않음 — 설정에서 켤 수 있어요."이고 그림을 받지 않는다. 켬/끔을 모르면 출력 버튼만 없다.
 // - T1(AC-T1-35·65, PC-8): 택배를 접수한 묶음은 줄·체크리스트에 "택배: 배송 중 · 9000-0000-0001". 살아 있는 접수가 있으면 포장 취소·배송 취소·송장번호 고치기·
 //   배송 완료로 적기 대신 까닭과 할 일("택배로 접수한 묶음이라 … 바꿔야 하면 택배 접수를 먼저 취소해 주세요." — U-T1-07)과 택배 화면 링크(서버도 409로 막는다).
 //   접수한 묶음(배송 완료 + 접수)은 포장 꼬리표 없이 택배 꼬리표 하나만(D-T1-15), 담음 수도 보이지 않는다.
@@ -48,9 +49,12 @@ import { useWide } from '../lib/use-wide.ts'
 import { PAYMENT_WORD } from '../lib/words.ts'
 import { useDownload } from './downloads.tsx'
 import { ErrorNote, RequestError } from './ErrorNote.tsx'
+import { LabelsOffNote } from './LabelsOff.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
 import { Modal } from './Modal.tsx'
+import { PackingPrintButton, PackingPrintResult, usePackingPrint } from './PackingPrint.tsx'
 import { ParcelLine, ParcelTag } from './ParcelParts.tsx'
+import { useLabelsEnabled } from './print-context.tsx'
 import { hidesPackingTag, isLive, PACKING_LOCKED_BOOKED, PACKING_LOCKED_WAITING, packingTagWords } from '../lib/parcel-words.ts'
 
 export const NO_SALES = '아직 판매 기록이 없어요.'
@@ -580,7 +584,8 @@ function PackingChecklist({ date, entry, sealed, name, labelSignature, showBack,
         </>
       )}
 
-      <PackingLabelSection date={date} buyer={entry.buyer} empty={entry.items.length === 0} signature={labelSignature} />
+      {/* 구매자·날짜마다 새로 그린다 — 앞 구매자의 늦은 출력 결과·잠금·그림이 다음 구매자 칸에 남지 않게 (RA-PL1B-02) */}
+      <PackingLabelSection key={`${date}|${entry.buyer}`} date={date} buyer={entry.buyer} empty={entry.items.length === 0} signature={labelSignature} />
 
       {ask === 'ship' || ask === 'fixInvoice' ? (
         <ShipDialog
@@ -763,9 +768,13 @@ function PackingLabelSection({ date, buyer, empty, signature }: { readonly date:
   const [attempt, setAttempt] = useState(0)
   const pdf = useDownload()
   const held = useRef<readonly LabelPage[]>([])
+  const labels = useLabelsEnabled()
+  const off = labels === false
+  const print = usePackingPrint(date, buyer)
 
   useEffect(() => {
-    if (empty) return
+    // 라벨 꺼짐(L-13 9): 그림을 받지 않는다 — 켜지면 다시 받는다 (AC-PL1B-12)
+    if (empty || off) return
     const controller = new AbortController()
     setLoading(true)
     setError(null)
@@ -794,11 +803,19 @@ function PackingLabelSection({ date, buyer, empty, signature }: { readonly date:
       }
     })()
     return () => controller.abort()
-  }, [date, buyer, signature, attempt, empty])
+  }, [date, buyer, signature, attempt, empty, off])
 
   useEffect(() => () => held.current.forEach((page) => revokeObjectUrl(page.url)), [])
 
   const locked = loading || pages === null
+  if (off) {
+    return (
+      <section className="stack-tight packing-label" aria-label="포장 라벨">
+        <h3 className="sub-title">포장 라벨</h3>
+        <LabelsOffNote />
+      </section>
+    )
+  }
   return (
     <section className="stack-tight packing-label" aria-label="포장 라벨">
       <h3 className="sub-title">포장 라벨</h3>
@@ -822,9 +839,11 @@ function PackingLabelSection({ date, buyer, empty, signature }: { readonly date:
           <button type="button" className="button" disabled={locked || pdf.busy} onClick={() => void pdf.run(withQuery(`/api/days/${date}/packing-label.pdf`, { buyer }), `packing-label-${date}.pdf`)}>
             라벨 PDF
           </button>
+          {labels === true ? <PackingPrintButton print={print} /> : null}
           {pdf.busy ? <span role="status">라벨 PDF를 만드는 중이에요…</span> : null}
         </div>
       ) : null}
+      {!empty && labels === true ? <PackingPrintResult print={print} /> : null}
       {pdf.error !== null ? <RequestError error={pdf.error} /> : null}
     </section>
   )
