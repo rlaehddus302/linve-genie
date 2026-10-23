@@ -8,7 +8,7 @@
 - `apps/server/src/assist/service.ts` — `AssistService`: 설정 보기/바꾸기, 목록에 붙이는 제안(`attach` — 외부 호출 없음), AI 제안 받기(`run`), 운영 환경 변수 읽기(`readAssistEnv`), 설정 확인(`checkAssistSetup`).
 - `apps/server/src/assist/routes.ts` — `/api/assist/**` 경로.
 - `apps/server/src/assist/fake-llm.ts` — 가짜 LLM 서버(`FakeLlm`, 127.0.0.1).
-- 마이그레이션 하나 `apps/server/drizzle/0015_a1_assist.sql` — 새 표 셋. 기존 표의 칸 뜻은 그대로.
+- 마이그레이션 하나 `apps/server/drizzle/0016_a1_assist.sql` — 새 표 셋. 기존 표의 칸 뜻은 그대로.
   - `assist_settings`(판매자마다 한 줄: `enabled`·`consented_at`·`updated_at`, 줄이 없으면 꺼짐).
   - `assist_cache`(`seller_id`·`scope_date`·`rehearsal`·`broadcast_id`·`text_hash`·`no`(읽은 번호, 없으면 0)·`suggestion`(검사를 통과한 제안 JSON 또는 null = 제안 없음)·`created_at`, 유일 제약 `assist_cache_uq`). `text_hash` = 마스터 키에서 나눈 키의 HMAC-SHA256(가린 글) base64url — 짧은 글이라도 DB만으로 되돌릴 수 없다.
   - `assist_calls`(호출 하나 = 한 줄, 실패 포함: `seller_id`·`day`(KST)·`items`·`input_tokens`·`output_tokens`·`cache_read_tokens`·`cache_write_tokens`·`ok`(true/false/진행 중 null)·`failure`(`HTTP`·`TIMEOUT`·`NETWORK`)·`created_at`·`finished_at`).
