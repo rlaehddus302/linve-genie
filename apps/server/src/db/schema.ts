@@ -328,6 +328,11 @@ export const outbox = pgTable(
      * 실행기(I1·Y1)의 실행 대상 조회는 rehearsal = false AND restored = false 행만 본다(executableOutboxRows)
      */
     restored: boolean('restored').notNull().default(false),
+    /**
+     * 게시 경로 (X1 D-X1-19): null = 공식 API(실행기), 'EXTENSION' = 크롬 확장에 맡긴 실시간 채팅 감사.
+     * 확장에 맡긴 행은 공식 실행기가 집지 않고(보내기·확인 모두), 맡김이 끝나도 저절로 공식으로 넘기지 않는다(수동 재전송만 지운다)
+     */
+    via: text('via'),
   },
   (t) => [
     unique('outbox_effect_uq').on(t.sellerId, t.scopeId, t.effectId),
@@ -1797,6 +1802,40 @@ export const extStatus = pgTable('ext_status', {
   lastChatAt: timestamptz('last_chat_at'),
 })
 
+/**
+ * 확장으로 감사 채팅 올리기 스위치 (X1 YT-10 AC11, D-X1-17·18): 판매자마다 하나. 기본 꺼짐(행 없음 또는 enabled_at null).
+ * 켠 시각 이후에 생긴 감사만 확장에 맡긴다(다음 감사부터)
+ */
+export const extPostSettings = pgTable('ext_post_settings', {
+  sellerId: text('seller_id')
+    .primaryKey()
+    .references(() => sellers.id),
+  enabledAt: timestamptz('enabled_at'),
+  enabledBy: text('enabled_by'),
+  updatedAt: timestamptz('updated_at').notNull(),
+})
+
+/**
+ * 확장 감사 올리기의 회차별 상태 (X1 YT-10 AC12·AC14·AC17, D-X1-20·21·24): 연달아 실패한 수·멈춘 시각, 로그인 계정이 방송 채널 주인이
+ * 아니라고 본 시각, 확인한 주인 채널 ID(자기 글을 채팅 기록에서 뺀다), 마지막으로 맡긴·끝난 시각(글 사이 3초). 채팅 내용은 없다
+ */
+export const extPostLanes = pgTable(
+  'ext_post_lanes',
+  {
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    broadcastId: text('broadcast_id').notNull(),
+    fails: integer('fails').notNull().default(0),
+    pausedAt: timestamptz('paused_at'),
+    ownerProblemAt: timestamptz('owner_problem_at'),
+    ownerChannelId: text('owner_channel_id'),
+    lastTakenAt: timestamptz('last_taken_at'),
+    lastDoneAt: timestamptz('last_done_at'),
+  },
+  (t) => [unique('ext_post_lanes_uq').on(t.sellerId, t.broadcastId)],
+)
+
 export const schema = {
   sellers,
   accounts,
@@ -1862,6 +1901,8 @@ export const schema = {
   extTokens,
   extBindings,
   extStatus,
+  extPostSettings,
+  extPostLanes,
 }
 
 /**

@@ -44,6 +44,7 @@ import { DepositService, type DepositOptions } from './deposit/service.ts'
 import { ParcelService, type ParcelOptions } from './parcel/service.ts'
 import { createExtensionApp } from './extension/routes.ts'
 import { ExtensionService } from './extension/service.ts'
+import { ExtensionThanks } from './extension/thanks.ts'
 import { connectionAddress } from './api.ts'
 import { readQueue } from './print-store.ts'
 import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
@@ -415,6 +416,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
   // 구매자 확인서 공유 링크 (N4b) — 링크 주소 = 앱 주소 + /r/<토큰>
   const receiptLinks = new ReceiptLinkService({ db, writer, clock, masterKey, appOrigin: options.appOrigin, closing, log })
   const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)
+  // 크롬 확장으로 감사 채팅 올리기 (X1 AC11~AC17) — 공식 발송함 실행기가 공식으로 올릴 수 없는 회차의 감사를 맡긴다
+  const extensionThanks = new ExtensionThanks({ db, timer, log, writer, publishOutbox: publishYoutube })
   const youtube: YoutubeSystem | null =
     options.youtube === undefined
       ? null
@@ -434,6 +437,10 @@ export function createServer(options: ServerOptions): LivejjimServer {
           ...(options.linkHooks === undefined ? {} : { linkHooks: options.linkHooks }),
           ...(options.collectorTiming === undefined ? {} : { collectorTiming: options.collectorTiming }),
           ...(options.outboxTiming === undefined ? {} : { outboxTiming: options.outboxTiming }),
+          outboxExtension: {
+            route: (sellerId, broadcastId) => extensionThanks.route(sellerId, broadcastId),
+            sweep: () => extensionThanks.sweep(),
+          },
           health,
         })
   const sealer = new Sealer({
@@ -533,7 +540,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   })
   const parcels = new ParcelService({ db, writer, clock, timer, masterKey, hub, log, work, options: options.parcel ?? {} })
   // 크롬 확장으로 채팅 읽기 (X1 YT-10 — 읽기만, 공식 수집기와 같은 '채팅' 이벤트)
-  const extension = new ExtensionService({ db, service, timer, log, publish: (sellerId, view) => hub.publishExtension(sellerId, { ...view }) })
+  const extension = new ExtensionService({ db, service, timer, log, thanks: extensionThanks, publish: (sellerId, view) => hub.publishExtension(sellerId, { ...view }) })
   const social = new SocialLogin({
     db,
     masterKey,

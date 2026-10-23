@@ -32,6 +32,7 @@ import {
   failWaiting,
   findRow,
   groupRows,
+  handToExtension,
   insertSummaryRows,
   newThanksRows,
   openWindowAt,
@@ -76,6 +77,8 @@ export const OUTBOX_REASON_MESSAGES = {
   REJECTED: '유튜브가 받지 않았어요.',
   UNCONFIRMED: '올라갔는지 확인하지 못했어요. 유튜브에서 확인하고 없으면 다시 보내 주세요.',
   SEALED: '30일이 지나 보내지 않았어요.',
+  // 보내지 못함 — 크롬 확장 (X1 D-X1-18·24)
+  EXT_OFF: '확장으로 감사 올리기를 꺼서 보내지 않았어요.',
   // 건너뜀
   CANCELLED: '확정이 풀린 판매라 보내지 않아요.',
   // 건너뜀 — 여러 플랫폼 회차의 감사 경로 (D-N2b-2-09): 틱톡 구매자 · 유튜브를 이은 적 없는 회차의 유튜브·문자 구매자
@@ -83,6 +86,8 @@ export const OUTBOX_REASON_MESSAGES = {
   NO_RECIPIENT: '이 방송에는 유튜브가 이어진 적이 없어 감사를 보내지 않았어요.',
   // 기다림
   WINDOW: '묶어서 보내려고 기다리는 중이에요.',
+  // 기다림 — 크롬 확장에 맡김 (X1 D-X1-19)
+  EXTENSION: '크롬 확장으로 올리려고 기다리는 중이에요.',
   RETRY: '다시 보내려고 기다리는 중이에요.',
   RECONNECT: '유튜브 연결을 다시 해 주세요.',
   QUOTA: '오늘 유튜브 사용량이 얼마 남지 않아 기다리는 중이에요.',
@@ -150,6 +155,19 @@ export interface OutboxHooks {
   readonly beforeRetryToken?: () => void | Promise<void>
 }
 
+/** 크롬 확장 감사 올리기 (X1 YT-10 AC13, D-X1-19) */
+export interface OutboxExtension {
+  /**
+   * 그 회차를 확장으로 올릴 수 있으면 확장 스위치를 켠 시각(그 뒤에 생긴 감사만 맡긴다), 아니면 null.
+   * 공식 경로로 올릴 수 없을 때(이은 방송 없음·연결이 살아 있지 않음·게시 권한 없음)만 묻는다
+   */
+  readonly route: (sellerId: string, broadcastId: string) => Promise<Date | null>
+  /** 기한이 지난 맡김·결과 없이 60초가 지난 맡김을 정리한다 (바퀴마다) */
+  readonly sweep: () => Promise<void>
+  /** 확장에 맡겼다 (확장에 알림) */
+  readonly handed?: (sellerId: string, broadcastId: string) => void
+}
+
 export interface OutboxOptions {
   readonly db: Db
   readonly timer: Timer
@@ -170,6 +188,8 @@ export interface OutboxOptions {
   readonly onPass?: (ok: boolean) => void
   /** 시간 (E2E 기동만 줄인다) */
   readonly timing?: OutboxTiming
+  /** 크롬 확장 감사 올리기 (X1) — 없으면 공식 경로만 */
+  readonly extension?: OutboxExtension
 }
 
 export interface OutboxRowView {
@@ -195,6 +215,8 @@ export interface OutboxRowView {
   /** 알림에서 뺀 행 (알림 띠 "감사 실패"에서 세지 않는다, AC-I3-36) */
   readonly dismissed: boolean
   readonly dismissedAt: string | null
+  /** 크롬 확장에 맡긴 행 (X1 D-X1-19) */
+  readonly viaExtension: boolean
 }
 
 class Killed extends Error {
@@ -244,6 +266,7 @@ export function outboxRowView(row: RunnerRow, all: readonly RunnerRow[] = []): O
     confirmedBySeller: row.confirmedBy !== null,
     dismissed: row.dismissedAt !== null,
     dismissedAt: row.dismissedAt?.toISOString() ?? null,
+    viaExtension: row.via !== null,
   }
 }
 
@@ -319,7 +342,7 @@ export class OutboxRunner {
     if (this.#running !== null) return this.#running
     this.#running = (async () => {
       this.#passFailed = false
-      const steps = [() => this.#options.quota.tick(), () => this.#intake(), () => this.#confirmAll(), () => this.#sendDue(), () => this.#reportAll(), () => this.#summaries()]
+      const steps = [() => this.#options.quota.tick(), () => this.#intake(), () => this.#confirmAll(), () => this.#sendDue(), () => this.#options.extension?.sweep(), () => this.#reportAll(), () => this.#summaries()]
       for (const step of steps) {
         if (this.#killed) return
         try {
@@ -578,6 +601,23 @@ export class OutboxRunner {
       await failRows(noConsent, 'NO_CONSENT')
       rows = rows.filter((row) => !noConsent.includes(row))
       if (rows.length === 0) return null
+    }
+    // 공식 경로로 올릴 수 없으면(연결이 살아 있지 않음·게시 권한 없음·이은 방송 없음) 확장에 맡길 수 있는지 본다 (X1 D-X1-19).
+    // 확장 스위치를 켠 뒤에 생긴 자동 감사만 맡기고, 맡긴 행은 공식 실행기가 다시 집지 않는다. 나머지는 아래 규칙 그대로
+    const official = connection.status === 'CONNECTED' && connection.canPublish && link !== null
+    if (!official && target === 'LIVE_CHAT' && this.#options.extension !== undefined && first.broadcastId !== null) {
+      const enabledAt = await this.#options.extension.route(sellerId, first.broadcastId)
+      if (enabledAt !== null) {
+        const handed = rows.filter((row) => !row.manual && row.createdAt.getTime() >= enabledAt.getTime())
+        if (handed.length > 0) {
+          this.#check()
+          const ids = await handToExtension(this.#options.db, sellerId, handed.map((row) => row.id), now)
+          this.#publishRows(sellerId, date, ids, 'WAITING', 'EXTENSION')
+          if (ids.length > 0) this.#options.extension.handed?.(sellerId, first.broadcastId)
+          rows = rows.filter((row) => !handed.includes(row))
+          if (rows.length === 0) return null
+        }
+      }
     }
     if (connection.status !== 'CONNECTED') return wait('RECONNECT')
     if (!connection.canPublish) return fail('NO_PERMISSION')
@@ -1153,6 +1193,8 @@ export class OutboxRunner {
         // 다시 보내면 "알림에서 뺌"은 뜻이 없다 — 또 실패하면 새 실패로 알린다 (AC-I3-36)
         dismissedAt: null,
         dismissedBy: null,
+        // 확장에 맡겼던 행도 판매자가 다시 보내면 공식 경로로 (X1 D-X1-19 — 저절로는 넘기지 않는다)
+        via: null,
       },
       now,
       { state: 'FAILED' },

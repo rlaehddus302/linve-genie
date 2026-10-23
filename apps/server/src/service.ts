@@ -848,7 +848,11 @@ export class Service {
     const alsoSeen = async (tx: Db): Promise<string[]> => {
       const earlier = await recentChatsOfSource(tx, sellerId, b, other, since)
       if (earlier.length === 0) return []
-      return chats.filter((chat) => chat.publishedAt !== undefined && earlier.some((seen) => sameChat(seen, chat))).map((chat) => chat.id)
+      // 서버 도착 시각 차 10초 이하만 (D-X1-28 — 거짓 게시 시각으로 다른 경로의 채팅을 지우지 못하게). 이 묶음의 도착 시각 = 지금
+      const arrived = this.#options.clock.now()
+      return chats
+        .filter((chat) => chat.publishedAt !== undefined && earlier.some((seen) => Math.abs(seen.receivedAt - arrived) <= SAME_CHAT_ARRIVAL_MS && sameChat(seen, chat)))
+        .map((chat) => chat.id)
     }
     const outcome = await this.#options.writer.write({
       sellerId,
@@ -1362,6 +1366,8 @@ function ingestOutcome(outcome: WriteOutcome): ChatIngestOutcome {
 export const SAME_CHAT_LOOKBACK_MS = 30 * 60 * 1000
 /** 다른 경로에서 온 같은 메시지로 볼 게시 시각 차 (D-X1-06) */
 export const SAME_CHAT_GAP_MS = 3000
+/** 다른 경로에서 온 같은 메시지로 볼 서버 도착 시각 차 (D-X1-28) */
+export const SAME_CHAT_ARRIVAL_MS = 10_000
 
 /** 같은지 견줄 본문: NFC, 공백 문자 한 칸·보이지 않는 글자 삭제·앞뒤 공백 삭제 (게시 문구 정리와 같다) */
 export function sameChatText(text: string): string {

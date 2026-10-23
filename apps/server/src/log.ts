@@ -46,6 +46,7 @@ export type LogCode =
   | 'DRAFT_SKIPPED'
   // X1 크롬 확장 (YT-10 AC9): 종류·판매자만 — 토큰·닉네임·본문은 남기지 않는다
   | 'EXT_SAVE_FAILED'
+  | 'EXT_POST_PAUSED'
   | 'EXT_NOTIFY_FAILED'
   // Y1 유튜브 (AC-Y1-70): 종류·HTTP 상태·구글 오류 이유·판매자·범위만 남긴다
   | 'YOUTUBE_CONNECT_FAILED'
@@ -138,6 +139,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   LOGIN_PRUNE_FAILED: '로그인 시도 기록을 정리하지 못했어요(로그인은 계속함)',
   DRAFT_SKIPPED: '서버가 덧붙이는 입력(차단 이어받기)이 입력 검사를 통과하지 못해 기록하지 않았어요',
   EXT_SAVE_FAILED: '확장에서 받은 채팅을 저장하지 못했어요(확장이 다시 보내요)',
+  EXT_POST_PAUSED: '확장 감사 올리기가 연달아 실패해 그 회차에서 멈췄어요',
   EXT_NOTIFY_FAILED: '확장 상태를 화면에 알리지 못했어요',
   YOUTUBE_CONNECT_FAILED: '유튜브 연결을 마치지 못했어요',
   YOUTUBE_REFRESH_FAILED: '유튜브 접근 토큰을 새로 고치지 못했어요',

@@ -62,6 +62,8 @@ import {
   extCodes,
   extStatus,
   extTokens,
+  extPostLanes,
+  extPostSettings,
   loginLimits,
   loginLinks,
   loginStates,
@@ -1256,6 +1258,8 @@ export const RESTORE_REPLACED_TABLES = [
   // X1 확장 회차 잇기·마지막 상태: 회차(방송 ID)에 딸린 연결이라 지운다(복구한 지난 회차를 다시 잇지 않는다 — 라이브 연결과 같음)
   extBindings,
   extStatus,
+  // X1 확장 감사 올리기의 회차별 상태(실패 수·멈춤·주인 채널): 회차에 딸려 지운다
+  extPostLanes,
   parcelAddresses,
   parcelRequests,
   receiptLinks,
@@ -1332,6 +1336,8 @@ export const RESTORE_KEPT_TABLES = [
   // X1 확장 연결 코드·토큰: 계정 연결(구글 연결과 같음)이라 그대로 둔다 — 파일에 없다
   extCodes,
   extTokens,
+  // X1 확장으로 감사 올리기 스위치: 판매자 설정이라 그대로 둔다
+  extPostSettings,
 ] as const
 /** 판매자 데이터가 아닌 표 (로그인 전 시도 수 — 판매자 ID가 없다) */
 export const RESTORE_UNRELATED_TABLES = [loginLimits] as const

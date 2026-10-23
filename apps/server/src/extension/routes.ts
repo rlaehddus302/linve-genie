@@ -4,6 +4,8 @@
 // 2) 확장 경로 /ext/** — 쿠키·Origin을 보지 않고 Authorization: Bearer <확장 토큰>으로만 받는다(연결하기만 토큰 없이 코드로).
 //    확장 토큰은 /api 경로(세션 쿠키)를 부를 수 없다. 본문은 JSON 객체만·64KB 이하, 모르는 필드는 거절, 모든 응답 no-store.
 //    POST /ext/connect { code } → { token } · GET /ext/broadcasts?v= · POST /ext/bind { v, broadcast } · POST /ext/chats { v, messages[] } · POST /ext/status
+//    감사 올리기(X1 AC11~AC17): POST /ext/thanks/take { v, me, owner } · POST /ext/thanks/result { ids, result }
+//    판매자 화면: POST /api/extension/thanks { enabled, agreed } · POST /api/extension/thanks/resume { broadcast }
 // 받은 값(토큰·닉네임·본문)은 응답·로그에 되돌려 보내지 않는다.
 import { Hono, type Context } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
@@ -14,6 +16,7 @@ import { IpLimiter, clientAddress, ipKey } from '../login-limit.ts'
 import { unknownFieldProblems } from '../messages.ts'
 import type { Clock } from '../time.ts'
 import { BATCH_MAX, EXTENSION_MESSAGES, type ExtensionCaller, type ExtensionService, type IncomingChat } from './service.ts'
+import { EXT_THANKS_MESSAGES, type ThanksResult } from './thanks.ts'
 
 type ApiEnv = { Variables: { body: Record<string, unknown> | null; session: SessionContext } }
 
@@ -54,6 +57,29 @@ export function registerExtensionRoutes(api: Hono<ApiEnv>, extension: ExtensionS
     const extra = onlyKeys(body(c), [])
     if (extra !== null) return extra
     await extension.disconnect(session(c).sellerId)
+    return c.json({ extension: await extension.view(session(c).sellerId) })
+  })
+  // 확장으로 감사 채팅 올리기 스위치 (AC11): 켜기는 설명 창의 "켤게요"(agreed: true)와 함께만
+  api.post('/extension/thanks', async (c) => {
+    const input = body(c)
+    const extra = onlyKeys(input, ['enabled', 'agreed'])
+    if (extra !== null) return extra
+    const enabled = own(input, 'enabled')
+    const agreed = own(input, 'agreed')
+    if (typeof enabled !== 'boolean') return invalid([{ field: 'enabled', message: '켤지 끌지 골라 주세요.' }])
+    if (agreed !== undefined && typeof agreed !== 'boolean') return invalid([{ field: 'agreed', message: '설명을 읽었는지 알려 주세요.' }])
+    if (enabled && agreed !== true) return invalid([{ field: 'agreed', message: EXT_THANKS_MESSAGES.NOT_AGREED }])
+    await extension.thanks.setEnabled(session(c).sellerId, session(c).accountId, enabled)
+    return c.json({ extension: await extension.view(session(c).sellerId) })
+  })
+  // "다시 켜기" (AC17): 그 회차의 확장 게시 멈춤을 푼다
+  api.post('/extension/thanks/resume', async (c) => {
+    const input = body(c)
+    const extra = onlyKeys(input, ['broadcast'])
+    if (extra !== null) return extra
+    const b = own(input, 'broadcast')
+    if (typeof b !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(b)) return invalid([{ field: 'broadcast', message: '회차를 골라 주세요.' }])
+    if (!(await extension.thanks.resume(session(c).sellerId, b))) return notFound()
     return c.json({ extension: await extension.view(session(c).sellerId) })
   })
 }
@@ -177,6 +203,54 @@ export function createExtensionApp(deps: ExtensionAppDeps): Hono<ExtEnv> {
     if (problems.length > 0) return invalid(problems)
     const view = await extension.status(caller(c), { videoId: v as string | null, hidden: hidden as boolean, read: counts[0] as number, unread: counts[1] as number, dropped: counts[2] as number })
     return c.json({ state: view.state, message: view.message })
+  })
+
+  // 감사 글 가져가기 (AC12~AC15): 한 번에 글 하나. me = 로그인 계정 채널 ID, owner = 방송 채널 ID (못 읽으면 null)
+  app.post('/thanks/take', async (c) => {
+    const input = body(c)
+    const extra = onlyKeys(input, ['v', 'me', 'owner'])
+    if (extra !== null) return extra
+    const v = own(input, 'v')
+    const me = own(input, 'me') ?? null
+    const owner = own(input, 'owner') ?? null
+    const problems: FieldProblem[] = []
+    if (typeof v !== 'string' || !VIDEO_RE.test(v)) problems.push({ field: 'v', message: '유튜브 영상 번호가 올바르지 않아요.' })
+    if (me !== null && (typeof me !== 'string' || !CHANNEL_RE.test(me))) problems.push({ field: 'me', message: '채널 번호가 올바르지 않아요.' })
+    if (owner !== null && (typeof owner !== 'string' || !CHANNEL_RE.test(owner))) problems.push({ field: 'owner', message: '채널 번호가 올바르지 않아요.' })
+    if (problems.length > 0) return invalid(problems)
+    const outcome = await extension.thanks.take(caller(c).sellerId, v as string, me as string | null, owner as string | null)
+    switch (outcome.kind) {
+      case 'post':
+        return c.json({ state: 'POST', post: { ids: outcome.ids, text: outcome.text, until: outcome.until }, afterMs: null, message: null })
+      case 'none':
+        return c.json({ state: 'NONE', post: null, afterMs: outcome.afterMs, message: null })
+      case 'off':
+        return c.json({ state: 'OFF', post: null, afterMs: null, message: EXT_THANKS_MESSAGES.OFF })
+      case 'not_bound':
+        return c.json({ state: 'NOT_BOUND', post: null, afterMs: null, message: EXTENSION_MESSAGES.NOT_BOUND })
+      case 'not_owner':
+        return c.json({ state: 'NOT_OWNER', post: null, afterMs: null, message: EXT_THANKS_MESSAGES.OWNER })
+      case 'paused':
+        return c.json({ state: 'PAUSED', post: null, afterMs: null, message: EXT_THANKS_MESSAGES.PAUSED })
+    }
+  })
+
+  // 결과 (AC16): 가져간 발송함 ID 모두와 POSTED(자기 글이 뜬 것을 봄) · UNCONFIRMED(15초 안에 못 봄) · NOT_POSTED(넣기 전에 멈춤). 두 번 알려도 한 번만
+  app.post('/thanks/result', async (c) => {
+    const input = body(c)
+    const extra = onlyKeys(input, ['ids', 'result'])
+    if (extra !== null) return extra
+    const ids = own(input, 'ids')
+    const result = own(input, 'result')
+    const problems: FieldProblem[] = []
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > BATCH_MAX || !ids.every((id) => typeof id === 'number' && Number.isSafeInteger(id) && id > 0)) {
+      problems.push({ field: 'ids', message: '감사 번호를 보내 주세요.' })
+    }
+    if (result !== 'POSTED' && result !== 'UNCONFIRMED' && result !== 'NOT_POSTED') problems.push({ field: 'result', message: '결과가 올바르지 않아요.' })
+    if (problems.length > 0) return invalid(problems)
+    const rows = await extension.thanks.result(caller(c).sellerId, ids as number[], result as ThanksResult)
+    if (rows === null) return notFound()
+    return c.json({ rows })
   })
 
   app.notFound(() => notFound())

@@ -566,6 +566,8 @@ describe('AC-Y1-39 실행기 둘·조회·실시간 알림', () => {
       confirmedBySeller: false,
       dismissed: false,
       dismissedAt: null,
+      // X1 (D-X1-19): 크롬 확장에 맡긴 행인지 — 공식으로 올린 행은 false
+      viaExtension: false,
     })
   })
 })

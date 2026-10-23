@@ -795,9 +795,9 @@ export async function recentChatsOfSource(
   broadcastId: string,
   source: string,
   since: Date,
-): Promise<{ id: string; ch: string | null; publishedAt: number | null; text: string | null }[]> {
+): Promise<{ id: string; ch: string | null; publishedAt: number | null; text: string | null; receivedAt: number }[]> {
   const rows = await db
-    .select({ id: events.chatMessageId, body: events.body, text: chatRaw.text })
+    .select({ id: events.chatMessageId, body: events.body, text: chatRaw.text, receivedAt: events.receivedAt })
     .from(events)
     .leftJoin(chatRaw, and(eq(chatRaw.sellerId, events.sellerId), eq(chatRaw.scopeId, events.scopeId), eq(chatRaw.seq, events.seq)))
     .where(and(eq(events.sellerId, sellerId), eq(events.chatBroadcast, broadcastId), eq(events.chatSource, source), gt(events.receivedAt, since)))
@@ -809,6 +809,6 @@ export async function recentChatsOfSource(
     } catch {
       body = {}
     }
-    return [{ id: row.id, ch: typeof body.ch === 'string' ? body.ch : null, publishedAt: typeof body.publishedAt === 'number' ? body.publishedAt : null, text: row.text }]
+    return [{ id: row.id, ch: typeof body.ch === 'string' ? body.ch : null, publishedAt: typeof body.publishedAt === 'number' ? body.publishedAt : null, text: row.text, receivedAt: row.receivedAt.getTime() }]
   })
 }

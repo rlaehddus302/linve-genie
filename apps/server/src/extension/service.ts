@@ -1,4 +1,4 @@
-// 크롬 확장으로 채팅 읽기 — 서버 쪽 (X1 YT-10, D-X1-05~D-X1-13). 확장은 읽기만 한다: 감사 메시지는 공식 API(YT-04·YT-06)로만.
+// 크롬 확장으로 채팅 읽기 — 서버 쪽 (X1 YT-10, D-X1-05~D-X1-13). 감사 채팅 올리기(선택, D-X1-17~24)는 thanks.ts.
 // - 연결 (AC4): 설정 "확장 연결" → 8자리 일회용 코드(10분, 한 번만, 판매자 계정만) → 확장이 코드를 넣어 토큰을 받는다.
 //   토큰은 해시로만 둔다. 판매자마다 하나 — 새 토큰을 받거나 "다시 만들기"를 하면 앞 토큰은 바로 끊긴다. "끊기"·30일 쓰지 않음도 끊는다.
 // - 보내기 (AC5): 요청 하나에 50개까지. 토큰마다 초당 5요청·분당 600메시지(이 서버 안에서 센다).
@@ -19,6 +19,8 @@ import { kstDate } from '../time.ts'
 import { activeLink, openLinksForVideo } from '../youtube/store.ts'
 import { LIVE_CHAT_MAX } from '../youtube/texts.ts'
 import type { Timer } from '../youtube/timer.ts'
+import { isOurPost } from '../youtube/outbox-store.ts'
+import type { ExtensionThanks, ThanksView } from './thanks.ts'
 import {
   activeBindings,
   activeToken,
@@ -95,6 +97,8 @@ export interface ExtensionView {
   readonly lastChatAt: string | null
   /** 확장이 붙들 수 있는 수를 넘어 버린 채팅 수 (확장이 센 값) */
   readonly dropped: number
+  /** 확장으로 감사 채팅 올리기 (X1 AC11~AC17): 스위치·회차별 경고 (멈춤 "확장으로 감사 글을 올리지 못하고 있어요" · 채널 주인 아님) */
+  readonly thanks: ThanksView
 }
 
 export interface IncomingChat {
@@ -127,6 +131,8 @@ export interface ExtensionDeps {
   readonly timer: Timer
   readonly log: LogSink
   readonly publish: (sellerId: string, view: ExtensionView) => void
+  /** 감사 올리기 (X1 AC11~AC17) */
+  readonly thanks: ExtensionThanks
 }
 
 /** 확장 토큰이 가리키는 판매자 */
@@ -155,6 +161,11 @@ export class ExtensionService {
 
   constructor(deps: ExtensionDeps) {
     this.#deps = deps
+    deps.thanks.onChanged = (sellerId) => this.#notify(sellerId)
+  }
+
+  get thanks(): ExtensionThanks {
+    return this.#deps.thanks
   }
 
   #now(): number {
@@ -343,12 +354,15 @@ export class ExtensionService {
     const now = this.#now()
     if (broadcast.endedAt !== null && now >= broadcast.endedAt.getTime() + AFTER_END_MS) return { kind: 'ended' }
     const linkedAt = binding.linkedAt.getTime()
+    // 판매자 채널이 올린 우리 글(공식·확장 감사)은 채팅으로 기록하지 않는다 — 공식 수집기와 같음(AC-Y1-26)
+    const own = await this.#deps.thanks.ownChannels(caller.sellerId, binding.broadcastId)
+    const since = new Date(now - 10 * 60 * 1000)
     let skipped = 0
     const recordable: { id: string; ch: string; nick: string; text: string; publishedAt: number }[] = []
     for (const chat of chats) {
       const publishedAt = Math.min(chat.at, now + FUTURE_SLACK_MS)
       const text = cutText(chat.text)
-      if (publishedAt < linkedAt || text.trim() === '') {
+      if (publishedAt < linkedAt || text.trim() === '' || (own.has(chat.ch) && (await isOurPost(db, caller.sellerId, binding.broadcastId, chat.id, text, since)))) {
         skipped += 1
         continue
       }
@@ -431,6 +445,7 @@ export class ExtensionService {
       statusAt: isoOrNull(status?.statusAt),
       lastChatAt: isoOrNull(status?.lastChatAt),
       dropped: status?.dropped ?? 0,
+      thanks: await this.#deps.thanks.view(sellerId),
     }
   }
 
@@ -458,7 +473,7 @@ export class ExtensionService {
   }
 
   #publishIfChanged(sellerId: string, view: ExtensionView): void {
-    const key = JSON.stringify([view.connected, view.state, view.broadcasts, view.dropped])
+    const key = JSON.stringify([view.connected, view.state, view.broadcasts, view.dropped, view.thanks])
     if (this.#published.get(sellerId) === key) return
     this.#published.set(sellerId, key)
     this.#deps.publish(sellerId, view)
