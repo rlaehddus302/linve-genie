@@ -152,19 +152,46 @@ export async function safariCounts(page: Page): Promise<{ constructed: number; s
   })
 }
 
-/** 오류 문장 (AC-I5-06 글자 그대로) */
+/** 오류 문장 (AC-I5-06 글자 그대로, `\n` = 줄바꿈 — 화면은 줄마다 따로 보인다, D-I5-12) */
 export const MSG = {
   UNSUPPORTED: '이 기기에서는 음성이 어려워요. PC 크롬이나 안드로이드 크롬에서 켜 주세요. 상품은 빠른 입력으로 그대로 등록할 수 있어요.',
-  PERMISSION_DENIED: '마이크 사용이 막혀 있어요. PC·안드로이드 크롬은 주소창 왼쪽 자물쇠에서, 아이폰은 설정 > 사파리 > 마이크에서 허용해 주세요.',
-  SERVICE_OFF: '이 기기에서 음성 인식이 꺼져 있어요. 아이폰은 설정에서 Siri와 받아쓰기를 켜 주세요. 그래도 안 되면 PC 크롬이나 안드로이드에서 켜 주세요.',
-  RESTART_BLOCKED: "이 기기는 음성이 저절로 다시 켜지지 않아요. 말하기 전에 '음성 켜기'를 다시 눌러 주세요.",
+  // D-I5-12: 기기별 줄로 나눔
+  PERMISSION_DENIED: '마이크 사용이 막혀 있어요.\n· PC·안드로이드 크롬: 주소창 왼쪽 자물쇠에서 마이크를 허용해 주세요.\n· 아이폰: 설정 > 사파리 > 마이크에서 허용해 주세요.',
+  // D-I5-12: 기기별 줄로 나눔
+  SERVICE_OFF: '이 기기에서 음성 인식이 꺼져 있어요.\n· 아이폰: 설정에서 Siri와 받아쓰기를 켜 주세요.\n· 그래도 안 되면 PC 크롬이나 안드로이드에서 켜 주세요.',
+  // D-I5-13: 빠른 입력을 권하는 줄을 더함
+  RESTART_BLOCKED: "이 기기는 음성이 저절로 다시 켜지지 않아요. 말하기 전에 '음성 켜기'를 다시 눌러 주세요.\n상품이 많으면 빠른 입력이 더 빨라요.",
   KEEPS_STOPPING: '음성 인식이 자꾸 끊겨요. 마이크를 확인하고 다시 켜 주세요. 계속 끊기면 PC 크롬이나 안드로이드에서 켜 주세요.',
+  // I4 그대로 (D-I5-17이 network 반복의 멈춤 문장으로 씀)
+  CONNECTION_FAILED: '음성 인식 서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.',
 } as const
 
+/** 문장 표의 줄들 (`\n`으로 나눔) */
+export function lines(message: string): string[] {
+  return message.split('\n')
+}
+
+/** 문장의 첫 줄 (사라졌는지 볼 때) */
+export function firstLine(message: string): string {
+  return lines(message)[0]!
+}
+
+/** 켜진 동안 고지 — 폭 768px 이상 (D-I5-06) */
 export const SENT = '음성은 인식을 위해 크롬은 구글로, 아이폰은 애플로 보내져요.'
+/** 켜진 동안 고지 — 폭 768px 미만 (D-I5-16) */
+export const SENT_SHORT = '음성은 인식을 위해 구글·애플로 보내져요.'
 export const OLD_SENT = '음성은 인식을 위해 구글로 보내져요.'
 export const CONSENT_SENT = '음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브찜은 음성을 녹음하거나 저장하지 않아요.'
+/** 안내 창 셋째 줄 (D-I5-11) */
+export const CONSENT_MIC = '다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.'
+export const OLD_CONSENT_MIC = '크롬이 마이크 사용을 물으면'
 export const STANDALONE = '홈 화면 앱에서는 음성이 자주 끊길 수 있어요. 안 되면 사파리에서 열어 주세요.'
+/** 끝에서 넘긴 카드의 까닭 줄 (D-I5-09) */
+export const FLUSHED_NOTE = '끝까지 못 들었어요. 맞는지 확인하고 "등록"을 눌러 주세요.'
+/** 끝에서 넘긴 카드가 밀려 닫혔을 때 알림 (D-I5-09). short = "15번 핑크프릴 15,000원" */
+export function flushedClosed(short: string): string {
+  return `새 카드에 밀려 끝까지 못 들은 카드(${short})를 닫았어요. 맞는 상품이면 빠른 입력으로 등록해 주세요.`
+}
 export const AUTO_ON = { 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5 }
 
 /** 상태 글자 (음성 칸의 첫 status) */
@@ -187,7 +214,23 @@ export async function pauseClock(page: Page): Promise<void> {
   await page.clock.pauseAt(now + 10)
 }
 
-/** 음성 칸 알림이 그 문장 */
+/** 음성 칸 알림이 그 문장 — 여러 줄 문장은 줄마다 따로 된 블록이 위에서 아래로 그 차례로 놓인다 (D-I5-12·13, AC-I5-21·28) */
 export async function expectAlert(page: Page, text: string): Promise<void> {
-  await expect(page.getByRole('region', { name: '음성 등록' }).getByRole('alert').filter({ hasText: text })).toBeVisible()
+  const parts = lines(text)
+  let alert = page.getByRole('region', { name: '음성 등록' }).getByRole('alert')
+  for (const line of parts) alert = alert.filter({ has: page.getByText(line, { exact: true }) })
+  await expect(alert).toBeVisible()
+  if (parts.length < 2) return
+  let previousBottom = -Infinity
+  for (const line of parts) {
+    const box = await alert.getByText(line, { exact: true }).boundingBox()
+    expect(box, line).not.toBeNull()
+    expect(box!.y, `"${line}"는 앞 줄 아래에 따로 놓인다`).toBeGreaterThanOrEqual(previousBottom - 0.5)
+    previousBottom = box!.y + box!.height
+  }
+}
+
+/** 그 문장이 화면에 없다 (첫 줄로 본다) */
+export async function expectNoMessage(page: Page, text: string): Promise<void> {
+  await expect(page.getByText(firstLine(text))).toHaveCount(0)
 }

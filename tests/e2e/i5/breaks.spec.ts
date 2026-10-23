@@ -14,6 +14,7 @@ import {
   cardList,
   clockConsole,
   expectAlert,
+  lines,
   installFakeSpeech,
   installSafariSpeech,
   login,
@@ -222,8 +223,8 @@ test.describe('I5 사파리 깨뜨리기 @webkit', () => {
     await safariError(page, 'service-not-allowed')
     await expectAlert(page, MSG.RESTART_BLOCKED)
     await expect(voiceRegion(page).getByText(STANDALONE, { exact: true })).toBeVisible()
-    for (const message of [MSG.RESTART_BLOCKED]) {
-      const box = await voiceRegion(page).getByText(message).boundingBox()
+    for (const line of lines(MSG.RESTART_BLOCKED)) {
+      const box = await voiceRegion(page).getByText(line, { exact: true }).boundingBox()
       expect(box).not.toBeNull()
       expect(box!.x).toBeGreaterThanOrEqual(0)
       expect(box!.x + box!.width).toBeLessThanOrEqual(393)

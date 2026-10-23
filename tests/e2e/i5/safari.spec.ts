@@ -7,6 +7,7 @@ import {
   MSG,
   OLD_SENT,
   SENT,
+  SENT_SHORT,
   STANDALONE,
   boardItem,
   card,
@@ -14,6 +15,7 @@ import {
   cardList,
   clockConsole,
   expectAlert,
+  expectNoMessage,
   installSafariSpeech,
   login,
   openNewBroadcast,
@@ -70,13 +72,19 @@ test.describe('I5 아이폰(사파리) 음성 @webkit', () => {
       expect((await safariCounts(page)).constructed).toBe(6)
     }, MSG.KEEPS_STOPPING],
   ] as const) {
-    test(`AC-I5-21 ${label} @webkit`, async ({ page }) => {
+    test(`AC-I5-21·28 ${label} @webkit`, async ({ page }) => {
       await installSafariSpeech(page, { consent: true })
       await clockConsole(page)
-      await turnOnVoice(page)
+      // SA-I5-03: 시계를 켜기 전에 멈춘다. 켠 뒤에 멈추면 그사이(부하에서 3초 넘게) 조용함 끝남이 와서 "처음 켤 때"의 객체가 아니라
+      // 다시 연 객체에 오류가 가고(→ RESTART_BLOCKED), (b)가 SERVICE_OFF 대신 다른 문장을 보여 가끔 실패했다
       await pauseClock(page)
+      await turnOnVoice(page)
+      expect((await safariCounts(page)).constructed).toBe(1)
       await run(page)
+      // AC-I5-28: 여러 줄 문장은 줄마다 따로, 위에서 아래로 그 차례로 (expectAlert가 본다), 393px에서 가로 스크롤 없음
       await expectAlert(page, message)
+      const scroll = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }))
+      expect(scroll.sw).toBeLessThanOrEqual(scroll.iw)
       await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
       await expect(page.getByRole('button', { name: '음성 끄기' })).toHaveCount(0)
       await quickStillWorks(page, 21)
@@ -84,7 +92,7 @@ test.describe('I5 아이폰(사파리) 음성 @webkit', () => {
       const before = (await safariCounts(page)).constructed
       await turnOnVoice(page)
       expect((await safariCounts(page)).constructed).toBe(before + 1)
-      await expect(page.getByText(message)).toHaveCount(0)
+      await expectNoMessage(page, message)
     })
   }
 
@@ -136,7 +144,8 @@ test.describe('I5 아이폰(사파리) 음성 @webkit', () => {
     await installSafariSpeech(page, { consent: true })
     await clockConsole(page)
     await turnOnVoice(page)
-    await expect(voiceRegion(page).getByText(SENT)).toBeVisible()
+    // D-I5-16: 393px는 짧은 고지
+    await expect(voiceRegion(page).getByText(SENT_SHORT, { exact: true })).toBeVisible()
     await expect(page.getByText(STANDALONE)).toHaveCount(0)
     await safariError(page, 'not-allowed')
     await expectAlert(page, MSG.PERMISSION_DENIED)
@@ -159,7 +168,7 @@ test.describe('I5 아이폰(사파리) 음성 @webkit', () => {
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(voiceStatus(page)).toHaveText('음성: 듣는 중')
     expect((await safariCounts(page)).constructed).toBe(3)
-    await expect(page.getByText(MSG.RESTART_BLOCKED)).toHaveCount(0)
+    await expectNoMessage(page, MSG.RESTART_BLOCKED)
     await expect(card(page, C15)).toBeVisible()
   })
 
@@ -172,7 +181,9 @@ test.describe('I5 아이폰(사파리) 음성 @webkit', () => {
     await expect(page.getByText(OLD_SENT)).toHaveCount(0)
     await dlg.getByRole('button', { name: '음성 켜기', exact: true }).click()
     await expect(voiceStatus(page)).toHaveText('음성: 듣는 중')
-    await expect(voiceRegion(page).getByText(SENT, { exact: true })).toBeVisible()
+    // D-I5-16: 폭 768px 미만(393)은 짧은 고지, 긴 문장은 없다
+    await expect(voiceRegion(page).getByText(SENT_SHORT, { exact: true })).toBeVisible()
+    await expect(page.getByText(SENT)).toHaveCount(0)
     await expect(page.getByText(OLD_SENT)).toHaveCount(0)
     expect(await page.evaluate(() => localStorage.getItem('livejjim.voiceConsent'))).toBe('yes')
   })
@@ -214,7 +225,7 @@ test.describe('I5 아이폰(사파리) 음성 @webkit', () => {
     const front = '19번 핑크프릴 19,000원'
     for (const target of [
       voiceRegion(page).getByRole('button', { name: '음성 끄기' }),
-      voiceRegion(page).getByText(SENT, { exact: true }),
+      voiceRegion(page).getByText(SENT_SHORT, { exact: true }), // D-I5-16
       voiceStatus(page),
       page.getByLabel('빠른 입력'),
       cardButton(page, front, '등록'),

@@ -80,7 +80,9 @@ test.describe('I4 음성 켜기·끄기', () => {
     await expect(dlg).toContainText('말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.')
     // D-I5-06: 외부 전송 문장 교체 (I5)
     await expect(dlg).toContainText('음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브찜은 음성을 녹음하거나 저장하지 않아요.')
-    await expect(dlg).toContainText('다음에 크롬이 마이크 사용을 물으면 "허용"을 눌러 주세요.')
+    // D-I5-11: 마이크 줄 "크롬이" → "브라우저가" (I5)
+    await expect(dlg).toContainText('다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.')
+    await expect(page.getByText('크롬이 마이크 사용을 물으면')).toHaveCount(0)
     await expect(dlg.getByRole('button', { name: '닫기' })).toBeFocused()
     // 창이 열린 동안 "음성 켜기"는 창 안의 하나뿐
     await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toHaveCount(1)
@@ -154,8 +156,11 @@ test.describe('I4 음성 켜기·끄기', () => {
     await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
     await turnOnVoice(page)
     await speechError(page, 'not-allowed')
-    // D-I5-03: 권한 거부 문장 교체 (I5)
-    await expect(page.getByRole('alert').filter({ hasText: '마이크 사용이 막혀 있어요. PC·안드로이드 크롬은 주소창 왼쪽 자물쇠에서, 아이폰은 설정 > 사파리 > 마이크에서 허용해 주세요.' })).toBeVisible()
+    // D-I5-03: 권한 거부 문장 교체, D-I5-12: 기기별 줄로 나눠 줄마다 따로 보인다 (I5)
+    const denied = page.getByRole('alert').filter({ has: page.getByText('마이크 사용이 막혀 있어요.', { exact: true }) })
+    await expect(denied).toBeVisible()
+    await expect(denied.getByText('· PC·안드로이드 크롬: 주소창 왼쪽 자물쇠에서 마이크를 허용해 주세요.', { exact: true })).toBeVisible()
+    await expect(denied.getByText('· 아이폰: 설정 > 사파리 > 마이크에서 허용해 주세요.', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
     expect((await speechCounts(page)).starts).toBe(1)
 
@@ -169,8 +174,11 @@ test.describe('I4 음성 켜기·끄기', () => {
 
     await turnOnVoice(page)
     await speechError(page, 'service-not-allowed')
-    // D-I5-03: 처음 켤 때의 service-not-allowed는 SERVICE_OFF 문장 (I5)
-    await expect(page.getByRole('alert').filter({ hasText: '이 기기에서 음성 인식이 꺼져 있어요. 아이폰은 설정에서 Siri와 받아쓰기를 켜 주세요. 그래도 안 되면 PC 크롬이나 안드로이드에서 켜 주세요.' })).toBeVisible()
+    // D-I5-03: 처음 켤 때의 service-not-allowed는 SERVICE_OFF 문장, D-I5-12: 기기별 줄로 나눠 줄마다 따로 (I5)
+    const off = page.getByRole('alert').filter({ has: page.getByText('이 기기에서 음성 인식이 꺼져 있어요.', { exact: true }) })
+    await expect(off).toBeVisible()
+    await expect(off.getByText('· 아이폰: 설정에서 Siri와 받아쓰기를 켜 주세요.', { exact: true })).toBeVisible()
+    await expect(off.getByText('· 그래도 안 되면 PC 크롬이나 안드로이드에서 켜 주세요.', { exact: true })).toBeVisible()
     expect((await speechCounts(page)).starts).toBe(3)
   })
 
