@@ -820,8 +820,8 @@ function PackingLabelSection({ date, buyer, empty, signature }: { readonly date:
           {pdf.busy ? <span role="status">라벨 PDF를 만드는 중이에요…</span> : null}
         </div>
       ) : null}
-      {pdf.error !== null ? <RequestError error={pdf.error} /> : null}
       {!empty && labels === true ? <PackingPrintResult print={print} /> : null}
+      {pdf.error !== null ? <RequestError error={pdf.error} /> : null}
     </section>
   )
 }

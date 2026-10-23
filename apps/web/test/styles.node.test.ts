@@ -196,3 +196,17 @@ describe('글자 크기 계산 (테스트 도우미)', () => {
     expect(minFontPx(value)).toBe(px)
   })
 })
+
+describe('포장 라벨 출력 결과 문장 아래 여백 (U-PL1B-01)', () => {
+  // 문장이 생길 때 scrollIntoView(nearest)로 내린다 — 화면 아래 끝·휴대폰 아래 메뉴 막대(약 55px, 4rem 안) 뒤에 깔리지 않게
+  const marginOf = (phone: boolean) =>
+    rules(stylesCss)
+      .filter((rule) => rule.selector === '.packing-print-result' && (phone ? rule.media.some((m) => m.includes('max-width: 47.99rem')) : rule.media.length === 0))
+      .flatMap((rule) => rule.declarations)
+      .find((declaration) => declaration.property === 'scroll-margin-bottom')?.value
+
+  it('넓은 화면 1rem, 휴대폰은 메뉴 막대 높이(4rem)보다 큰 5rem + 안전 영역', () => {
+    expect(marginOf(false)).toBe('1rem')
+    expect(marginOf(true)).toBe('calc(5rem + env(safe-area-inset-bottom))')
+  })
+})

@@ -1739,11 +1739,21 @@ html:has(.sms-submit-bar) {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
 }
 
+/* 포장 모드 "포장 라벨 출력" 결과 문장: 생길 때 보이게 내리며 화면 아래 끝에 붙지 않게 여백 (U-PL1B-01) */
+.packing-print-result {
+  scroll-margin-bottom: 1rem;
+}
+
 /* ── 휴대폰 (375px 기준, AC-S06-02·61) ───────────────────── */
 
 @media (max-width: 47.99rem) {
   body {
     padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+  }
+
+  /* 아래 메뉴 막대(약 55px) 뒤에 깔리지 않게 (U-PL1B-01) */
+  .packing-print-result {
+    scroll-margin-bottom: calc(5rem + env(safe-area-inset-bottom));
   }
 
   .menu {

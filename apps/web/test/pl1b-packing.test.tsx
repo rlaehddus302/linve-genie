@@ -209,3 +209,49 @@ describe('품목 없는 묶음 (AC-PL1B-13)', () => {
     expect(screen.queryByRole('button', { name: PRINT })).toBeNull()
   })
 })
+
+describe('결과 문장이 보이게 (U-PL1B-01)', () => {
+  // 포장 라벨 칸은 화면 맨 아래 — 문장이 화면 밖·휴대폰 아래 메뉴 막대 뒤에 생기지 않게 생길 때 보이도록 내린다
+  let scrolled: { element: Element; options: unknown }[]
+  beforeEach(() => {
+    scrolled = []
+    Element.prototype.scrollIntoView = function (this: Element, options?: unknown) {
+      scrolled.push({ element: this, options })
+    } as typeof Element.prototype.scrollIntoView
+  })
+  afterEach(() => {
+    delete (Element.prototype as Partial<Element>).scrollIntoView
+  })
+
+  const resultBox = (text: string) => within(region()).getByText(text).closest('.packing-print-result')
+
+  it('성공 문장이 생기면 그 문장 상자를 가장 적게 내려 보인다 — 버튼 바로 아래, 누르기 전엔 내리지 않는다', async () => {
+    await openPacking()
+    expect(scrolled).toHaveLength(0)
+    const button = within(region()).getByRole('button', { name: PRINT })
+    fireEvent.click(button)
+    const done = await within(region()).findByText('포장 라벨 2장 출력을 접수했어요.')
+    const box = resultBox('포장 라벨 2장 출력을 접수했어요.')
+    expect(box).not.toBeNull()
+    expect(scrolled.some((call) => call.element === box && (call.options as { block?: string }).block === 'nearest')).toBe(true)
+    // 버튼 줄 바로 다음에 문장 상자
+    expect(button.parentElement?.nextElementSibling).toBe(box)
+    expect(done.getAttribute('role')).toBe('status')
+  })
+
+  it('거절 문장(빨간 상자)이 생겨도 보이게 내린다 — 다시 눌러 같은 문장이 다시 생기면 또 내린다', async () => {
+    printReply = () => apiError(409, 'PRINT_PENDING', '이 라벨은 이미 출력을 기다리고 있어요.')
+    await openPacking()
+    fireEvent.click(within(region()).getByRole('button', { name: PRINT }))
+    await within(region()).findByText('이 라벨은 이미 출력을 기다리고 있어요.')
+    const box = resultBox('이 라벨은 이미 출력을 기다리고 있어요.')
+    const first = scrolled.filter((call) => call.element === box).length
+    expect(first).toBeGreaterThan(0)
+    fireEvent.click(within(region()).getByRole('button', { name: PRINT }))
+    await flush(10)
+    await within(region()).findByText('이 라벨은 이미 출력을 기다리고 있어요.')
+    expect(scrolled.filter((call) => call.element === resultBox('이 라벨은 이미 출력을 기다리고 있어요.')).length).toBeGreaterThan(first)
+  })
+
+  // 아래 여백(넓은 화면 1rem, 휴대폰은 메뉴 막대보다 크게)은 test/styles.node.test.ts
+})

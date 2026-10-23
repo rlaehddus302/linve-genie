@@ -6,7 +6,9 @@
 // - 성공: "포장 라벨 N장 출력을 접수했어요."(N = 응답 작업 수, 출력 기기가 없어도 접수되어 대기 — 같은 문장). 거절: 서버 문장 그대로.
 //   라벨 기능이 꺼졌다는 거절(`LABELS_OFF`)은 출력 기록 저장소가 꺼진 것으로 덮어 칸 전체가 "라벨 쓰지 않음" 안내로 바뀐다.
 // - 보통 버튼이다 — 포장 모드의 주 버튼은 체크리스트의 "포장 완료"다.
-import { useEffect, useState } from 'react'
+// - U-PL1B-01: 포장 라벨 칸은 화면 맨 아래라 결과 문장이 화면 밖·휴대폰 아래 메뉴 막대 뒤에 생기기 쉽다. 문장(성공·거절)이 새로 생기면
+//   그 문장이 보이게 가장 적게 내린다(scrollIntoView nearest) — 아래쪽 여백(scroll-margin-bottom, 휴대폰은 메뉴 막대 높이만큼)으로 막대에 가리지 않는다.
+import { useEffect, useRef, useState } from 'react'
 import { isApiError, newRequestId, withRetry, type ApiError } from '../api/client.ts'
 import type { JobView } from '../api/print-types.ts'
 import { ErrorNote } from './ErrorNote.tsx'
@@ -66,10 +68,17 @@ export function PackingPrintButton({ print }: { readonly print: PackingPrintStat
 }
 
 export function PackingPrintResult({ print }: { readonly print: PackingPrintState }) {
+  const box = useRef<HTMLDivElement>(null)
+  const shown = print.done !== null || print.error !== null
+  useEffect(() => {
+    if (!shown) return
+    const element = box.current
+    if (element !== null && typeof element.scrollIntoView === 'function') element.scrollIntoView({ block: 'nearest' })
+  }, [shown, print.done, print.error])
   return (
-    <>
+    <div ref={box} className="packing-print-result">
       {print.done !== null ? <p role="status">{print.done}</p> : null}
       {print.error !== null ? <ErrorNote error={print.error} /> : null}
-    </>
+    </div>
   )
 }

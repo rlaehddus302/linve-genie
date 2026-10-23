@@ -62,6 +62,7 @@
 - 라벨 켜짐(`useLabelsEnabled() === true`)이고 품목이 있으면 `region "포장 라벨"`의 "라벨 PDF"와 같은 `.row`에 보통 버튼(`class="button"`) "포장 라벨 출력". 누르면 `POST /api/print/packing { requestId, date, buyer }`(누를 때마다 새 번호, 끊기면 withRetry로 같은 번호), 보내는 동안 disabled, 성공 `<p role="status">포장 라벨 N장 출력을 접수했어요.</p>`(칸 맨 아래), 거절은 `ErrorNote`(서버 문장). 미리 보기를 받는 중에도 누를 수 있다.
 - 라벨 꺼짐(`false`): 칸 전체가 제목 + `LabelsOffNote`("라벨 쓰지 않음 — 설정에서 켤 수 있어요.") — 그림·저장·PDF·출력 없음, `packing-label`·`.png` 요청 없음. 켜짐 알림이 오면 다시 그림을 받는다. `LABELS_OFF` 거절이면 출력 기록 저장소가 꺼짐으로 덮어 같은 안내 + 서버 문장.
 - 켬/끔 모름(`null` — 불러오는 중·실패·PrintProvider 밖): 출력 버튼만 없다. 미리 보기·그림 저장·라벨 PDF는 BASE처럼 그대로 받는다(BASE 동작 유지 — I2 시험이 PrintProvider 없이 이 칸을 그린다).
+- U-PL1B-01(사용성 지적 — 결과 문장이 화면 밖·휴대폰 메뉴 막대 뒤): 결과(성공 `role=status`·거절 `ErrorNote`)를 `<div class="packing-print-result">`로 감싸 **버튼 줄 바로 다음**(라벨 PDF 오류보다 위)에 두고, 문장이 새로 생길 때마다(같은 거절이 다시 생겨도) `scrollIntoView({ block: 'nearest' })` — 이미 보이면 움직이지 않는다. `scroll-margin-bottom` 넓은 화면 1rem, 휴대폰(47.99rem 이하) `calc(5rem + env(safe-area-inset-bottom))`(메뉴 막대 약 55px보다 큼). 버튼 글자는 그대로 "포장 라벨 출력"(이름으로 찾는 시험 유지). 시험: `pl1b-packing.test.tsx` "결과 문장이 보이게"·`styles.node.test.ts` 여백. `tests/e2e/pl1b/packing-print.spec.ts` 6개 통과(크로뮴).
 - **AC-PL1B-14(봉인 날짜 숨김)는 하지 않았다** — 뒤에 합치는 트랙 몫. 합칠 때: `PackingLabelSection`에 `sealed`를 넘겨 `{labels === true && !sealed ? <PackingPrintButton …/> : null}`로 바꾸면 된다(그림 저장·라벨 PDF는 그대로).
 
 ### 마법사 4/5 "라벨을 쓰지 않아요" (D-PL1-06) — `wizard/PrinterStep.tsx`, `WizardPage.tsx`는 프린터 단계 블록만
@@ -81,7 +82,8 @@
   - `tests/e2e/n5/billing.spec.ts`: 결제 전 안내는 "현금영수증(지출증빙)을 발행해요.", 사업자 정보 칸에 라디오가 없다(라디오 누르기가 있으면 실패한다). 이메일 칸 이름은 "증빙 받을 이메일 (선택)". 결제 내역 "현금영수증 발행됨 · TEST-…".
   - `tests/e2e/i2/packing.spec.ts` "B1 버튼 없음" → 라벨 켜짐이면 `region "포장 라벨"` 안에 `button "포장 라벨 출력"`이 있다(D-PL1-05).
   - AC-PL1B-15: 버튼을 누른 뒤 `role=status` "포장 라벨 2장 출력을 접수했어요."(12품목 2쪽). 라벨을 끄면 칸 안 "라벨 쓰지 않음 — 설정에서 켤 수 있어요."·버튼 0개.
+  - U-PL1B-01(원하면): 버튼을 화면 아래 끝까지만 내려 누른 뒤 결과 문장의 `boundingBox` 아래 끝이 뷰포트 안이고 375px에선 `.menu` 위인지(`elementFromPoint`가 문장 쪽).
   - AC-PL1B-19: 4/5에서 `button "라벨을 쓰지 않아요"` → `heading level 2 "5/5 리허설 해 보기"`.
   - AC-PL1B-26: 화면은 단위 시험과 같은 동작 — 카드의 "넣기"·"넣지 않기" 버튼, 카운트다운 글 없음.
-- **ux**: 포장 모드 출력 버튼은 "라벨 PDF" 옆 보통 버튼, 접수 문장은 포장 라벨 칸 맨 아래(체크리스트 버튼 줄과 떨어져 있다). 마법사 버튼은 연결 칸 아래·단계 버튼 위, "나중에 할게요"는 단계 버튼 줄에 따로.
+- **ux**: 포장 모드 출력 버튼은 "라벨 PDF" 옆 보통 버튼, 접수·거절 문장은 버튼 줄 바로 아래 — 생기면 보이게 내리고 휴대폰은 메뉴 막대 위에 멈춘다(U-PL1B-01; mo-16·mo-13·pc-16 다시 찍어 확인 부탁). 마법사 버튼은 연결 칸 아래·단계 버튼 위, "나중에 할게요"는 단계 버튼 줄에 따로.
 - **합치는 트랙(AC-PL1B-14)**: 위 "포장 모드" 마지막 줄.
