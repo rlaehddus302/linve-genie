@@ -759,7 +759,7 @@ sprints:
       - "판매자 자동 백업 실패가 오류 로그뿐이던 문제 — 운영 경보 BACKUP_FAILED(seller 칸, D-PL1-02)"
       - "감사 RA-PL1A-02·SA-PL1A-02~05·TD-PL1A-003 — D-PL1-11~15"
     specIds: [DAT-03, DAT-04, DAT-06, STL-04, STL-06, STL-08, STL-10, BUY-05, SYS-05]
-    status: doing
+    status: done
 
   - id: PL1B
     phase: 6
@@ -798,7 +798,7 @@ sprints:
       - "D-I5-20 시험 부족(AC-PL1B-23~26)"
       - "감사 TD-PL1B-001~003·SA-PL1B-01·02·RA-PL1B-02·TE-PL1B-001·U-PL1B-01~06 — D-PL1-16~19, 문장 바꾸기는 위 carryOver"
     specIds: [BIL-01, BIL-02, STL-08, LBL-02, UX-02, RCP-01, VOC-03, VOC-04]
-    status: doing
+    status: done
 
   # ─────────── main에 이미 합친 트랙 (백로그 항목 없이 진행됨 — 기록용) ───────────
   - id: X1
