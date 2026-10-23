@@ -34,7 +34,8 @@ export interface ReviewRead {
   readonly qty?: number
 }
 
-const DIGIT = /[0-9]/
+/** 한글 음절(가~힣)로만 된 3글자 이상 (D-A1-09) */
+const HANGUL_WORD = /^[가-힣]{3,}$/u
 
 /** 코드 포인트 배열 */
 const points = (text: string): string[] => Array.from(text)
@@ -65,14 +66,15 @@ function withinOne(a: readonly string[], b: readonly string[]): boolean {
 }
 
 /**
- * 비슷함 (R-20 10): 둘을 비교 글자(R-19)로 바꾸고, 둘 다 숫자가 없고, 이름·별칭 쪽이 2글자 이상이며,
- * NFD로 푼 글자열(한글은 자모)의 편집 거리가 1 이하. 거리 0(같은 글자)도 비슷하다
+ * 비슷함 (R-20 10, D-A1-09): 둘을 비교 글자(R-19)로 바꾸고, 둘 다 한글 음절(가~힣)로만 된 3글자 이상이며,
+ * NFD로 푼 자모열의 편집 거리가 1 이하. 거리 0(같은 글자)도 비슷하다.
+ * 영문·숫자·기호가 섞인 말(XS·black·4호)과 두 글자 이하 말(핑크·라지)은 맞추지 않는다 — 한 글자 차이가 다른 상품이다
  */
 export function similar(chunk: string, name: string): boolean {
+  if (typeof chunk !== 'string' || typeof name !== 'string') return false
   const a = compareChars(chunk)
   const b = compareChars(name)
-  if (a === '' || DIGIT.test(a) || DIGIT.test(b)) return false
-  if (points(b).length < 2) return false
+  if (!HANGUL_WORD.test(a) || !HANGUL_WORD.test(b)) return false
   return withinOne(points(a.normalize('NFD')), points(b.normalize('NFD')))
 }
 
@@ -138,6 +140,8 @@ export function ruleSuggestion(text: string, review: ReviewRead, catalog: readon
 export const REDACT_MAX_CHARS = 200
 const MASK = '***'
 const PHONE_DIGITS = 7
+/** 숫자로 쓰는 모든 글자 (0~9, ①, ⓪, 전각 숫자 …) — D-A1-10 */
+const NUMBER_CHAR = /\p{N}/gu
 
 const isDigitChar = (s: string, i: number): boolean => {
   const code = s.charCodeAt(i)
@@ -176,7 +180,8 @@ function maskDigitRuns(s: string): string {
 }
 
 /**
- * AI로 보낼 글: 정규화(R-20 1) → '@'가 든 덩어리 빼기 → 이어진 숫자 7개 이상 *** → 공백 정리 → 앞 200글자. 빈 글이면 ''(보내지 않는다)
+ * AI로 보낼 글: 정규화(R-20 1) → '@'가 든 덩어리 빼기 → 이어진 숫자 7개 이상 *** → 공백 정리 →
+ * 숫자 글자(\p{N})가 모두 합쳐 7개 이상 남으면 빈 글(D-A1-10, 자르기 전에 센다) → 앞 200글자. 빈 글이면 ''(보내지 않는다)
  */
 export function redact(text: string): string {
   if (typeof text !== 'string') return ''
@@ -184,6 +189,7 @@ export function redact(text: string): string {
   const kept = normalized === '' ? '' : normalized.split(' ').filter((chunk) => !chunk.includes('@')).join(' ')
   const masked = maskDigitRuns(kept)
   const tidy = normalizeText(masked)
+  if ((tidy.match(NUMBER_CHAR) ?? []).length >= PHONE_DIGITS) return ''
   return points(tidy).slice(0, REDACT_MAX_CHARS).join('')
 }
 

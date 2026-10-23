@@ -3,7 +3,7 @@
 ## dev-server
 
 ### 만든 것 (파일)
-- `apps/server/src/assist/rules.ts` — 순수 함수 넷(골든 `tests/golden/assist/*.json`): `ruleSuggestion`(규칙 제안 — 코어 `parseOptionComment`를 `focus = null`로 다시 부름)·`similar`(비교 글자 → NFD → 편집 거리 ≤ 1, 숫자 든 말·2글자 미만 이름 제외)·`redact`(가리기)·`validateResponse`(응답 검사)·`planAssist`(호출 고르기). 시계·난수·I/O 없음.
+- `apps/server/src/assist/rules.ts` — 순수 함수 넷(골든 `tests/golden/assist/*.json`): `ruleSuggestion`(규칙 제안 — 코어 `parseOptionComment`를 `focus = null`로 다시 부름)·`similar`(D-A1-09 — 비교 글자로 바꿔 둘 다 한글 음절(가~힣)로만 된 3글자 이상일 때만, NFD 자모 편집 거리 ≤ 1; 영문·숫자·기호 섞인 말과 2글자 이하는 늘 false)·`redact`(가리기 — D-A1-10: 공백 정리 뒤 200글자 자르기 전에 `\p{N}` 숫자 글자가 모두 합쳐 7개 이상이면 빈 글)·`validateResponse`(응답 검사)·`planAssist`(호출 고르기). 시계·난수·I/O 없음.
 - `apps/server/src/assist/anthropic.ts` — `CommentAssist` 어댑터 모양과 Anthropic Messages API 구현(`AnthropicAssist`). 직접 HTTP(`fetch`) — SDK 의존성을 더하지 않았다.
 - `apps/server/src/assist/service.ts` — `AssistService`: 설정 보기/바꾸기, 목록에 붙이는 제안(`attach` — 외부 호출 없음), AI 제안 받기(`run`), 운영 환경 변수 읽기(`readAssistEnv`), 설정 확인(`checkAssistSetup`).
 - `apps/server/src/assist/routes.ts` — `/api/assist/**` 경로.
@@ -98,7 +98,7 @@ pnpm --filter @livejjim/server e2e --port <포트> --origin <화면 주소> --as
 - 실제 Anthropic 키·결제 계정·콘솔 월 한도, 모델 ID(기본 `claude-haiku-4-5` — 백로그의 `claude-haiku-5-5`를 쓰려면 `LIVEJJIM_ASSIST_MODEL`), 구조화 출력 매개변수(`output_config.format`)가 실제 API에서 받아지는지 첫 실제 호출로 확인(실패하면 로그 `ASSIST_HTTP_ERROR status=400`), 하루 상한 값, 고지·개인정보처리방침 문장의 법률 확인.
 
 ### 실행·시험 명령
-- 서버 단위(A1): `cd apps/server && npx vitest run test/a1-` (`a1-golden` 89사례 + 형식 검사·TZ, `a1-assist` AC-A1-02~11, `a1-docs` AC-A1-12).
+- 서버 단위(A1): `cd apps/server && npx vitest run test/a1-` (`a1-golden` 105사례 + 형식 검사·TZ, `a1-assist` AC-A1-02~11, `a1-docs` AC-A1-12).
 - 기존 시험 중 바꾼 것: `test/commands.test.ts` 표 수 56 → 59(A1 표 셋 — 약화 아님, 주석에 이유).
 
 ## dev-web
