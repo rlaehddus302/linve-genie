@@ -23,6 +23,10 @@ export type ErrorCode =
   | 'FORBIDDEN_ORIGIN'
   | 'NOT_SUPPORTED'
   | 'BUYER_NOT_FOUND'
+  // V1 음성 문자찜: 끝자리가 같은 손님이 여럿 (AC-V1-10)
+  | 'BUYER_AMBIGUOUS'
+  // V1: 여러 기기의 같은 음성 문자찜 쓰기 (D-V1-13, AC-V1-14)
+  | 'VOICE_REPEATED'
   | 'STATE_FORMAT'
   | 'SAVE_FAILED'
   | 'PROCESSING_FAILED'
@@ -143,6 +147,20 @@ export type ErrorCode =
   | 'SOURCE_FAILED'
   | 'FETCH_TOO_SOON'
   | 'CORP_NOT_ALLOWED'
+  // T1 택배 자동 접수 (PARCEL_RULES PC-3~PC-8)
+  | 'PARCEL_BLOCKED'
+  | 'PARCEL_LOCKED'
+  | 'PARCEL_STATE'
+  | 'PICKED_UP'
+  | 'ADDRESS_CHANGED'
+  | 'ADDRESS_EXPIRED'
+  | 'NO_ADDRESS'
+  | 'NO_PARCELS'
+  | 'CARRIER_UNAVAILABLE'
+  | 'TOO_MANY'
+  | 'REHEARSAL_PARCEL'
+  | 'REQUEST_BUSY'
+  | 'WAYBILL_TOO_LONG'
   // L1 간편 로그인
   | 'LOGIN_METHOD_LAST'
   // A1 AI 제안: 켜기에 동의가 없음

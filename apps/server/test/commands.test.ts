@@ -91,9 +91,11 @@ describe('마이그레이션 명령 (AC-S04-20)', () => {
     //   + N2b-2: 틱톡 연결·틱톡 동의 기록·틱톡 아이디·붙여넣기 요청 번호
     //   + L1 간편 로그인: 공급자 연결·간편 로그인 state
     //   — 합치기(N5 41 + N3 40, 공통 33)로 33 + 8 + 7 = 48, 통합(track/int-final)에서 N4b 2개·N2b-2 4개(틱톡 연결·동의 기록·아이디·붙여넣기 요청 번호)를 더해 54,
-    //   L1에서 표 2개(login_links·login_states)를 더해 56으로 교체, A1에서 표 3개(assist_settings·assist_cache·assist_calls)를 더해 59로 교체 — 약화 아님)
+    //   L1에서 표 2개(login_links·login_states)를 더해 56으로 교체 — 약화 아님)
+    //   + T1 택배: 배송지·접수 시도·택배 화면 요청 번호·설정 "택배" 4개를 더해 60으로 교체 — 약화 아님(위 줄이 표 이름 목록 전부를 스키마와 대조한다)
+    //   + A1 AI 제안: 표 3개(assist_settings·assist_cache·assist_calls)를 더해 63으로 교체 — 약화 아님(표 이름 목록 대조는 그대로)
     expect(tables?.rows.map((row) => row.table_name).sort()).toEqual(Object.values(schema).map((table) => getTableConfig(table).name).sort())
-    expect(tables?.rows).toHaveLength(59)
+    expect(tables?.rows).toHaveLength(63)
     const none = await run(script('commands/migrate.ts'), [], {})
     expect(none.code).toBe(1)
     expect(none.out).toContain('데이터베이스 연결 설정이 없어요')

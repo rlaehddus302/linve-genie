@@ -777,38 +777,16 @@ function ResultCard({
   /** 다음 문자찜을 보내는 중 — "같은 사람 하나 더"를 잠근다 (AC-SMS-01) */
   readonly locked: boolean
 }) {
-  // 화면이 그 seq까지 따라잡았는가 — 따라잡기 전에는 찜을 찾지 못해도 "생기지 않았다"고 하지 않는다 (AC-SMS-03)
-  const caught = api.data.seq >= result.seq
-  const claim = useMemo(() => {
-    for (const item of api.data.claims.values()) if (item.seq === result.seq && item.origin === 'sms') return item
-    return undefined
-  }, [api.data.claims, result.seq])
+  const { claim, caught, missing } = useSmsClaim(api, result)
   const who = result.buyer ?? claim?.buyer ?? null
-  const reviewed = useSentToReview(api, result, caught && claim === undefined)
-  let body: string
-  let tone: 'success' | 'warning' | 'info'
-  if (!caught) {
-    body = `${String(result.no)}번 · 넣었어요 · 상태 확인 중…`
-    tone = 'info'
-  } else if (claim !== undefined) {
-    body = `${String(claim.no)}번${claimOptionWords(claim)} · ${api.names.name(claim.currentBuyer)} · ${claimWord(api.data, claim)} · 받은 시각 ${kstStamp(claim.rankTime, claim.rankMinute)}`
-    tone = claimTone(claim.status)
-  } else if (reviewed) {
-    body = `${String(result.no)}번 · ${SENT_TO_REVIEW}`
-    tone = 'warning'
-  } else {
-    const holder = result.buyer === null ? undefined : activeClaimOf(api.data, result.buyer, productKey(result.b, result.no))
-    body =
-      holder !== undefined
-        ? `${String(result.no)}번 · 이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 ${claimWord(api.data, holder)})`
-        : `${String(result.no)}번 · 새 찜이 생기지 않았어요. 지금 상태를 확인해 주세요.`
-    tone = 'warning'
-  }
+  const reviewed = useSentToReview(api, result, missing)
+  const { body, tone } = smsResultWords(api, result, claim, caught, reviewed)
+  const suffix = smsLast4Suffix(body, result.phoneLast4)
   return (
     <section className="sms-result" aria-label="넣은 결과" data-tone={tone}>
       <p role="status">
         <strong>{body}</strong>
-        {result.phoneLast4 !== null ? <span> · 뒤 4자리 {result.phoneLast4}</span> : null}
+        {suffix !== null ? <span>{suffix}</span> : null}
       </p>
       <div className="row">
         {caught && claim !== undefined && isActive(claim) ? (
@@ -824,6 +802,63 @@ function ResultCard({
       </div>
     </section>
   )
+}
+
+/**
+ * 결과 줄 끝의 " · 뒤 4자리 1234" (AC-S06-14). 결과 문장의 구매자 이름에 같은 이름 구분 글자(D-098 "뒤 4자리 1234")가 이미 있으면 붙이지 않는다 —
+ * 같은 끝자리가 한 줄에 두 번 나오지 않게 (TE-V1-001·SA-V1-001)
+ */
+export function smsLast4Suffix(body: string, last4: string | null): string | null {
+  if (last4 === null || body.includes(`뒤 4자리 ${last4}`)) return null
+  return ` · 뒤 4자리 ${last4}`
+}
+
+/** 넣은 문자찜 하나 (손 입력·음성 문자찜 결과 카드가 같이 쓴다) */
+export interface SmsOutcomeRef {
+  readonly seq: number
+  readonly no: number
+  readonly b: string
+  /** 쓰기 응답의 buyer (D-099) */
+  readonly buyer: string | null
+}
+
+/** 그 쓰기가 만든 찜과 화면이 그 seq까지 따라잡았는지 — 따라잡기 전에는 찜을 찾지 못해도 "생기지 않았다"고 하지 않는다 (AC-SMS-03) */
+export function useSmsClaim(api: ConsoleApi, result: SmsOutcomeRef): { readonly claim: Claim | undefined; readonly caught: boolean; readonly missing: boolean } {
+  const caught = api.data.seq >= result.seq
+  const claim = useMemo(() => {
+    for (const item of api.data.claims.values()) if (item.seq === result.seq && item.origin === 'sms') return item
+    return undefined
+  }, [api.data.claims, result.seq])
+  return { claim, caught, missing: caught && claim === undefined }
+}
+
+/**
+ * 결과 문장 (AC-S06-14, AC-S06b-30·31·40, V1 AC-V1-21): "165번 · 문자찜 · 1등 · 받은 시각 10/23 20:01:05",
+ * 찜이 생기지 않았으면 응답의 buyer로 "이미 찜한 구매자라…" 또는 "새 찜이 생기지 않았어요…".
+ */
+export function smsResultWords(
+  api: ConsoleApi,
+  result: SmsOutcomeRef,
+  claim: Claim | undefined,
+  caught: boolean,
+  reviewed: boolean,
+): { readonly body: string; readonly tone: 'success' | 'warning' | 'info' } {
+  if (!caught) return { body: `${String(result.no)}번 · 넣었어요 · 상태 확인 중…`, tone: 'info' }
+  if (claim !== undefined) {
+    return {
+      body: `${String(claim.no)}번${claimOptionWords(claim)} · ${api.names.name(claim.currentBuyer)} · ${claimWord(api.data, claim)} · 받은 시각 ${kstStamp(claim.rankTime, claim.rankMinute)}`,
+      tone: claimTone(claim.status),
+    }
+  }
+  if (reviewed) return { body: `${String(result.no)}번 · ${SENT_TO_REVIEW}`, tone: 'warning' }
+  const holder = result.buyer === null ? undefined : activeClaimOf(api.data, result.buyer, productKey(result.b, result.no))
+  return {
+    body:
+      holder !== undefined
+        ? `${String(result.no)}번 · 이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 ${claimWord(api.data, holder)})`
+        : `${String(result.no)}번 · 새 찜이 생기지 않았어요. 지금 상태를 확인해 주세요.`,
+    tone: 'warning',
+  }
 }
 
 /** 최근 넣은 문자찜 10개 (AC-S06-15) */
@@ -866,7 +901,7 @@ function RecentSms({ api }: { readonly api: ConsoleApi }) {
  * 옵션 방송에서 찜이 생기지 않은 문자찜이 확인 필요로 갔는지 (AC-O2-40, 서버 계약 3): 그 방송의 확인 필요에 같은 seq 항목이 있으면 참.
  * 보조자는 확인 필요를 볼 수 없다(403) — 그때는 거짓(지금 문장).
  */
-function useSentToReview(api: ConsoleApi, result: SentResult, missing: boolean): boolean {
+export function useSentToReview(api: ConsoleApi, result: Pick<SmsOutcomeRef, 'b' | 'seq'>, missing: boolean): boolean {
   const [found, setFound] = useState(false)
   const option = isOptionBroadcast(api.data, result.b)
   useEffect(() => {

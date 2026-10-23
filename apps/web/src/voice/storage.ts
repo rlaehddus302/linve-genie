@@ -1,4 +1,4 @@
-// 그 기기(브라우저 저장소)에 남기는 음성 값 (D-I4-04·05): 처음 켤 때의 안내 확인, 자동 확정 설정.
+// 그 기기(브라우저 저장소)에 남기는 음성 값 (D-I4-04·05): 처음 켤 때의 안내 확인, 자동 확정 설정, 문자찜 설정(V1).
 // 인식 문장·카드는 남기지 않는다(D-I4-09). 저장소를 쓸 수 없으면(읽기·쓰기 예외) 확인은 "안 함"(다음에도 창), 설정은 기본값이다.
 
 /** 안내 창 확인 기록 */
@@ -37,6 +37,27 @@ export function readSettings(): unknown {
 export function writeSettings(settings: object): void {
   try {
     window.localStorage.setItem(VOICE_SETTINGS_KEY, JSON.stringify(settings))
+  } catch {
+    // 남기지 못하면 이번 콘솔에서만 쓴다
+  }
+}
+
+/** 문자찜 설정 ({"voice.smsListen": boolean, "voice.smsAutoSec": number}, V1 D-V1-05·09) — 상품 등록 설정과 따로 둔다(서로 모르는 키로 보지 않게) */
+export const VOICE_SMS_SETTINGS_KEY = 'livejjim.voiceSmsSettings'
+
+/** 저장한 문자찜 설정 (JSON으로 읽은 값 그대로 — 검사는 resolveSmsSettings가 한다). 없거나 읽지 못하면 null */
+export function readSmsSettings(): unknown {
+  try {
+    const raw = window.localStorage.getItem(VOICE_SMS_SETTINGS_KEY)
+    return raw === null ? null : (JSON.parse(raw) as unknown)
+  } catch {
+    return null
+  }
+}
+
+export function writeSmsSettings(settings: object): void {
+  try {
+    window.localStorage.setItem(VOICE_SMS_SETTINGS_KEY, JSON.stringify(settings))
   } catch {
     // 남기지 못하면 이번 콘솔에서만 쓴다
   }

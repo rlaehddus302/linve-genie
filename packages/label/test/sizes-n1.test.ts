@@ -46,6 +46,7 @@ import {
   type TemplateItem,
 } from '../src/index.ts'
 import { SAMPLE_PACKING, SAMPLE_PRODUCT, blackIn, expectCleanLayout, expectLayoutMatchesText, nodeEnv, overlaps } from './helpers.ts'
+import { revertStbDateBox, type DefaultsOf } from './base-snapshot.ts'
 
 const env = nodeEnv()
 
@@ -487,11 +488,20 @@ describe('PNG·PDF·A4 — 새 크기 (AC-N1-14)', () => {
 })
 
 describe('지금 템플릿은 그대로 (AC-N1-60)', () => {
-  it('50×30·50×20·50×40 상품·포장 기본 템플릿의 JSON이 P1과 같다 (SHA-256 고정)', () => {
+  const templatesText = (make: DefaultsOf): string => {
     let text = ''
-    for (const size of LABEL_SIZES) for (const kind of ['product', 'packing'] as const) text += `${size} ${kind} ${templateToJson(defaultTemplate(kind, size))}\n`
-    // N1 변경 전(커밋 070218b)의 같은 글의 SHA-256
-    expect(createHash('sha256').update(text).digest('hex')).toBe('1354c2fdf2eacc0226d9ac4fb0d063a8d4fa255da74a45b3ca9e7d37b97c8395')
+    for (const size of LABEL_SIZES) for (const kind of ['product', 'packing'] as const) text += `${size} ${kind} ${templateToJson(make(kind, size))}\n`
+    return text
+  }
+
+  it('50×30·50×20·50×40 상품·포장 기본 템플릿의 JSON이 P1과 같다 — D-STB-01 날짜 칸 두 값만 되돌리면 (SHA-256 고정)', () => {
+    // N1 변경 전(커밋 070218b)의 같은 글의 SHA-256. D-STB-01(계약 교체)로 바뀐 것은 상품 템플릿 날짜 칸 x 292→290 · 폭 88→90뿐이라,
+    // 그 두 값만 옛 값으로 되돌리면 옛 고정값과 같아야 한다
+    expect(createHash('sha256').update(templatesText(revertStbDateBox)).digest('hex')).toBe('1354c2fdf2eacc0226d9ac4fb0d063a8d4fa255da74a45b3ca9e7d37b97c8395')
+  })
+
+  it('지금 기본 템플릿 JSON (D-STB-01 날짜 칸 x 290 · 폭 90, SHA-256 고정)', () => {
+    expect(createHash('sha256').update(templatesText((kind, size) => defaultTemplate(kind, size))).digest('hex')).toBe('3ac970cfbad7fca9ecef01b2175c661adf6050c5a8ccd0f14748e5ee1f955a75')
   })
 })
 

@@ -1,0 +1,175 @@
+// 택배 화면 낱말 (T1, PARCEL_RULES PC-3·PC-4·PC-8, D-T1-08·D-T1-12).
+// 영어 상태값(PENDING·BOOKED…)은 화면 글자에 넣지 않는다 — 서버가 준 문장·조회 낱말을 쓰고, 없을 때만 여기 문장으로 채운다.
+import type { AddressFields, BundleView, ParcelBrief, ParcelRow } from '../api/parcel-types.ts'
+import type { PackingWord } from '../api/types.ts'
+import { kstShort } from './kst.ts'
+import { packingWords } from './packing.ts'
+
+export const PARCEL_TITLE = '택배 접수'
+export const GROUP_READY = '보낼 수 있어요'
+export const GROUP_EXCLUDED = '아직 못 보내요'
+export const GROUP_BOOKED = '접수했어요'
+export const WAYBILL_NOTE = '운송장은 일반 프린터나 100×150 라벨 프린터로 찍어요. 라벨 프린터(B1)로는 찍을 수 없어요.'
+export const RETRY_FAILED = '실패한 것만 다시'
+export const NO_PARCEL_DATES = '아직 실제 방송 판매 기록이 없어요.'
+export const NOTHING_READY = '지금 보낼 수 있는 묶음이 없어요.'
+export const NOTHING_EXCLUDED = '빠진 묶음이 없어요.'
+export const NOTHING_BOOKED = '아직 접수한 택배가 없어요.'
+export const WAITING = '접수 결과를 기다리고 있어요'
+export const UNKNOWN_RESULT = '접수됐는지 아직 몰라요. 잠시 뒤 다시 확인해 주세요.'
+export const LOCKED_ADDRESS = '택배 접수를 먼저 취소해 주세요.'
+export const NO_ADDRESS = '배송지가 없어요'
+export const BUYER_CAN_WRITE = '구매자 확인서 링크에서 구매자가 직접 적을 수도 있어요.'
+export const PICKUP_BUNDLE = '직접 수령이에요'
+export const COMBINED_BUNDLE = '합배송이에요'
+export const ADDRESS_EXPIRED = '주문 날짜로부터 30일이 지나 배송지를 지웠어요.'
+export const ADDRESS_SAVED = '배송지를 저장했어요.'
+export const ADDRESS_CONFIRMED = '배송지를 확인했어요.'
+export const ADDRESS_DELETED = '배송지를 지웠어요.'
+export const PARCEL_SETTINGS_SAVED = '택배 설정을 저장했어요.'
+/** 확인 창 안내 (D-T1-15) */
+export const PARCEL_SHOWN_NOTE = '접수하면 포장·정산 화면에 택배 상태와 송장번호가 보여요.'
+/** 택배 화면 기다림 안내 (D-T1-18, PC-5 "기다릴 때의 안내 — 택배 화면") — 다른 화면 꼬리표는 짧은 문장(PC-4) 그대로 */
+export const BOOKING_NOW = '택배사에 접수하는 중이에요… 택배사 답이 늦으면 조금 걸려요.'
+export const UNKNOWN_WAIT = "택배사 답이 없어 접수됐는지 아직 몰라요. 잠시 뒤 '다시 확인'을 눌러 주세요. 두 번 접수되지 않아요."
+export const PENDING_WAIT = "택배사 답을 기다리고 있어요. 다른 일을 하셔도 돼요. 2분이 지나도 그대로면 '다시 확인'을 누를 수 있어요."
+/** 기다리는(PENDING) 줄이 있는 동안 목록을 다시 읽는 간격 (D-T1-18) */
+export const PENDING_POLL_MS = 30_000
+/** 집하 뒤라 접수 취소를 보낼 수 없는 줄 (U-T1-05 — 버튼 대신) */
+export const NOT_CANCELLABLE = '택배사가 이미 가져가서 여기서는 접수를 취소할 수 없어요. 바꿔야 하면 택배사에 직접 문의해 주세요.'
+/** 포장 체크리스트 잠김 안내 (U-T1-07 — 무엇 때문인지 → 필요할 때만 무엇을). 접수함은 서버 409 문장(LOCKED_ADDRESS)을 품는다 */
+export const PACKING_LOCKED_BOOKED = `택배로 접수한 묶음이라 포장·배송 기록은 여기서 바꿀 수 없어요. 바꿔야 하면 ${LOCKED_ADDRESS}`
+export const PACKING_LOCKED_WAITING = '택배 접수 결과를 기다리는 묶음이라 포장·배송 기록은 여기서 바꿀 수 없어요. 택배 화면에서 접수 결과를 먼저 확인해 주세요.'
+
+/** 살아 있는 접수 (배송지·포장 기록을 고칠 수 없다 — PC-3 잠금, PC-5) */
+export function isLive(parcel: ParcelBrief | null | undefined): boolean {
+  return parcel != null && (parcel.state === 'PENDING' || parcel.state === 'UNKNOWN' || parcel.state === 'BOOKED')
+}
+
+/** 다시 보낼 수 있는 시도: 택배사가 거절했거나(새 요청 번호) 접수됐는지 모름(같은 요청 번호) — 기다리는 중(PENDING)은 아니다 */
+export function isRetryable(parcel: ParcelBrief | null | undefined): boolean {
+  return parcel != null && (parcel.state === 'FAILED' || parcel.state === 'UNKNOWN')
+}
+
+/**
+ * "택배: 배송 중 · 9000-0000-0001" (PC-8 판매자 화면). 접수 결과를 기다리면 "택배: 접수 결과를 기다리고 있어요",
+ * 모르면 그 문장, 실패하면 실패 문장, 취소면 "택배: 접수 취소됨".
+ */
+export function parcelLine(parcel: ParcelBrief): string {
+  switch (parcel.state) {
+    case 'BOOKED':
+      return `택배: ${parcel.status ?? '접수됨'}${parcel.invoiceText === null ? '' : ` · ${parcel.invoiceText}`}`
+    case 'PENDING':
+      return `택배: ${parcel.message ?? WAITING}`
+    case 'UNKNOWN':
+      return `택배: ${parcel.message ?? UNKNOWN_RESULT}`
+    case 'FAILED':
+      return `택배: ${parcel.message ?? '접수하지 못했어요'}`
+    case 'CANCELLED':
+      return `택배: ${parcel.status ?? '접수 취소됨'}`
+  }
+}
+
+/** 색 (글자와 함께 — 색만으로 알리지 않는다) */
+export function parcelTone(parcel: ParcelBrief): 'success' | 'warning' | 'danger' | 'info' {
+  if (parcel.state === 'BOOKED') return parcel.status === '도착' ? 'success' : 'info'
+  if (parcel.state === 'FAILED') return 'danger'
+  if (parcel.state === 'CANCELLED') return 'info'
+  return 'warning'
+}
+
+/** "마지막 확인 10/22 14:30" (없으면 null) */
+export function checkedWords(parcel: ParcelBrief): string | null {
+  return parcel.checkedAt === null ? null : `마지막 확인 ${kstShort(parcel.checkedAt)}`
+}
+
+/** 택배 화면 빠진 줄의 문장 (D-T1-18): 기다림·모름은 길게(이유와 다음 할 일), 그 밖은 rowReason */
+export function screenReason(row: ParcelRow): string {
+  if (row.parcel?.state === 'PENDING') return PENDING_WAIT
+  if (row.parcel?.state === 'UNKNOWN') return UNKNOWN_WAIT
+  return rowReason(row)
+}
+
+/** 택배사 답을 기다리는(PENDING) 줄이 있다 — 그동안 30초마다 다시 읽는다 (D-T1-18) */
+export function hasPending(day: { readonly ready: readonly ParcelRow[]; readonly excluded: readonly ParcelRow[] }): boolean {
+  return [...day.ready, ...day.excluded].some((row) => row.parcel?.state === 'PENDING')
+}
+
+/**
+ * 포장 꼬리표를 그리지 않는다 (D-T1-15, AC-T1-65): 포장 상태가 "배송 완료"이고 접수(BOOKED)가 있으면 택배 꼬리표 하나만.
+ * 손으로 적은 배송 완료(접수 없음)·배송 뒤 바뀜(주의 — 둘 다)·기다림·실패·취소 접수는 그대로 그린다.
+ */
+export function hidesPackingTag(status: string, parcel: ParcelBrief | null | undefined): boolean {
+  return status === '배송 완료' && parcel?.state === 'BOOKED'
+}
+
+/** 포장 꼬리표 글: 그 송장이 접수한 송장이면 택배 꼬리표와 같은 끊어 읽는 모양(9000-0000-0001 — U-T1-06), 손으로 적은 송장은 적은 그대로 */
+export function packingTagWords(status: PackingWord, invoice: string | null, parcel: ParcelBrief | null | undefined): string {
+  const shown = parcel?.state === 'BOOKED' && parcel.invoice !== null && parcel.invoice === invoice && parcel.invoiceText !== null ? parcel.invoiceText : invoice
+  return packingWords(status, shown)
+}
+
+/** 빠진 줄의 문장: 시도의 문장(실패·모름)이 먼저, 없으면 빠지는 이유 문장 */
+export function rowReason(row: ParcelRow): string {
+  if (row.parcel !== null && (row.parcel.state === 'FAILED' || row.parcel.state === 'UNKNOWN' || row.parcel.state === 'PENDING') && row.parcel.message !== null) return row.parcel.message
+  if (row.parcel?.state === 'PENDING') return WAITING
+  if (row.parcel?.state === 'UNKNOWN') return UNKNOWN_RESULT
+  return row.message ?? ''
+}
+
+/** 묶음 자세히에서 배송지를 고쳐 풀 수 있는 이유 (그 줄에 "배송지 보기" 링크) */
+export function addressReason(row: ParcelRow): boolean {
+  return row.reason === 'NO_ADDRESS' || row.reason === 'ADDRESS_UNCONFIRMED' || (row.parcel?.state === 'FAILED' && row.parcel.reason === 'ADDRESS')
+}
+
+/**
+ * 택배 화면의 세 무리 (D-T1-08): 고를 수 있음 = 서버의 ready 중 실패한 시도가 없는 것, 빠짐 = excluded + 실패한 시도가 있는 ready
+ * (실패 문장과 함께 — "실패한 것만 다시"로 보낸다), 접수함 = booked. 순서는 서버 순서(확인서 일괄 순서) 그대로.
+ */
+export function parcelGroups(day: { readonly ready: readonly ParcelRow[]; readonly excluded: readonly ParcelRow[]; readonly booked: readonly ParcelRow[] }): {
+  readonly ready: readonly ParcelRow[]
+  readonly excluded: readonly ParcelRow[]
+  readonly booked: readonly ParcelRow[]
+} {
+  const failed = day.ready.filter((row) => row.parcel?.state === 'FAILED')
+  return { ready: day.ready.filter((row) => row.parcel?.state !== 'FAILED'), excluded: [...failed, ...day.excluded], booked: day.booked }
+}
+
+/** "실패한 것만 다시"로 보낼 줄: 실패(ready 쪽)와 모름(excluded 쪽 — 같은 요청 번호로 다시 묻는다) */
+export function retryRows(day: { readonly ready: readonly ParcelRow[]; readonly excluded: readonly ParcelRow[] }): readonly ParcelRow[] {
+  return [...day.ready, ...day.excluded].filter((row) => isRetryable(row.parcel))
+}
+
+/** 배송지 칸 (이름표는 구매자 링크와 같다 — AC-T1-10) */
+export const ADDRESS_LABELS: Readonly<Record<keyof AddressFields, string>> = {
+  name: '받는 분',
+  phone: '연락처',
+  address: '주소',
+  detail: '상세 주소',
+  zip: '우편번호(몰라도 돼요)',
+  memo: '배송 메모',
+}
+export const ADDRESS_KEYS = ['name', 'phone', 'address', 'detail', 'zip', 'memo'] as const satisfies readonly (keyof AddressFields)[]
+
+export const EMPTY_ADDRESS: AddressFields = { name: '', phone: '', address: '', detail: '', zip: '', memo: '' }
+
+/** 출처 문장 */
+export function sourceWords(source: 'BUYER' | 'SELLER'): string {
+  return source === 'BUYER' ? '구매자가 적었어요' : '판매자가 적었어요'
+}
+
+/** 묶음 자세히의 배송지 칸 모양 */
+export type AddressShape = 'pickup' | 'combined' | 'expired' | 'none' | 'shown'
+
+export function addressShape(bundle: BundleView): AddressShape {
+  if (bundle.row.shipping === 'PICKUP') return 'pickup'
+  if (bundle.row.shipping === 'COMBINED') return 'combined'
+  if (bundle.address !== null) return 'shown'
+  return bundle.expired ? 'expired' : 'none'
+}
+
+/** 숫자만인 연락처를 읽기 쉽게: 010-1234-5678 (그 밖 길이는 그대로) */
+export function phoneWords(phone: string): string {
+  if (/^01\d{8,9}$/.test(phone)) return phone.length === 11 ? `${phone.slice(0, 3)}-${phone.slice(3, 7)}-${phone.slice(7)}` : `${phone.slice(0, 3)}-${phone.slice(3, 6)}-${phone.slice(6)}`
+  return phone
+}

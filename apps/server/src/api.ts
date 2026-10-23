@@ -36,6 +36,8 @@ import { WEBHOOK_PATH, registerBillingRoutes } from './billing/api.ts'
 import type { BillingService } from './billing/service.ts'
 import { registerDepositRoutes } from './deposit/api.ts'
 import type { DepositService } from './deposit/service.ts'
+import { registerParcelRoutes } from './parcel/api.ts'
+import type { ParcelBrief, ParcelService } from './parcel/service.ts'
 import type { Actor, WriteOutcome, WriteResult } from './writer.ts'
 import { CALLBACK_PATH, registerYoutubeRoutes } from './youtube/routes.ts'
 import type { Sealer } from './youtube/seal.ts'
@@ -84,6 +86,8 @@ export interface ApiDeps {
   readonly trustedProxies?: number
   /** 틱톡 연결·붙여넣기 (N2b-2). instagram과 함께 준다 — 회차 연결 조회가 플랫폼마다 */
   readonly tiktok?: { readonly db: Db; readonly live: TikTokLive; readonly paste: PasteService }
+  /** 택배 자동 접수 (T1). 없으면 /api/parcels 경로가 없고 정산 묶음·포장 모드에 parcel이 없다 */
+  readonly parcels?: { readonly service: ParcelService; readonly db: Db }
   /** 간편 로그인 (L1). 없거나 켜진 공급자가 없으면 /api/auth/**는 404이고 client-config에 loginProviders가 없다 */
   readonly social?: SocialLogin | null
   /** AI 확인 필요 제안 (A1). 없으면 /api/assist/** 경로가 없다 */
@@ -161,7 +165,7 @@ function outcomeResponse(c: Context, outcome: WriteOutcome, extra: Readonly<Reco
       return json(c, { ...resultBody(result), ...extra })
     }
     case 'rejected':
-      return apiError(outcome.rejection.status, outcome.rejection.code, outcome.rejection.message, outcome.rejection.problems)
+      return apiError(outcome.rejection.status, outcome.rejection.code, outcome.rejection.message, outcome.rejection.problems, outcome.rejection.extra ?? {})
     case 'not_found':
       return notFound()
     case 'save_failed':
@@ -273,6 +277,8 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     const id = own(value, 'requestId')
     return typeof id === 'string' && REQUEST_ID_RE.test(id) && !id.startsWith(DEPOSIT_REQUEST_PREFIX) ? id : null
   }
+  /** 묶음마다 택배 줄 (T1 — 택배 기능이 없으면 빈 맵) */
+  const parcelBriefs = async (sellerId: string, date: string): Promise<Map<string, ParcelBrief | null>> => (deps.parcels === undefined ? new Map() : deps.parcels.service.briefs(sellerId, date))
   /** 실제 범위 조회에 붙이는 입금 연결 (리허설 범위는 빈 목록 — AC-N3-32) */
   const depositLinksOf = async (sellerId: string, date: string, rehearsal: boolean) =>
     deps.deposits === undefined || rehearsal ? [] : await deps.deposits.linksForDay(sellerId, date)
@@ -537,9 +543,11 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     const view = await service.scopeView(sellerOf(c), date, rehearsal.value ?? false)
     if (view === null) return notFound()
     const depositLinks = await depositLinksOf(sellerOf(c), date, rehearsal.value ?? false)
-    // 실제 범위: 묶음마다 포장·배송 상태 (I2 AC-I2-33 — 리허설 범위에는 없다)
+    // 실제 범위: 묶음마다 포장·배송 상태 (I2 AC-I2-33 — 리허설 범위에는 없다), 택배 줄 parcel (T1 AC-T1-52 — 없으면 null)
     if (rehearsal.value === true) return c.json({ ...view, depositLinks })
-    return c.json({ ...view, packing: await closing.packingSummary(sellerOf(c), date), depositLinks })
+    const briefs = await parcelBriefs(sellerOf(c), date)
+    const packing = (await closing.packingSummary(sellerOf(c), date)).map((item) => ({ ...item, parcel: briefs.get(item.buyer) ?? null }))
+    return c.json({ ...view, packing, depositLinks })
   })
   api.get('/days/:date/history', async (c) => {
     const date = c.req.param('date')
@@ -765,7 +773,10 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     const scope = realScope(c)
     if (!scope.ok) return scope.response
     const list = await closing.packingList(sellerOf(c), scope.date)
-    return list === null ? notFound() : c.json(list)
+    if (list === null) return notFound()
+    // 묶음마다 택배 줄 parcel (T1 AC-T1-52 — 조회 낱말·송장번호·마지막 확인 시각, 없으면 null)
+    const briefs = await parcelBriefs(sellerOf(c), scope.date)
+    return c.json({ ...list, entries: list.entries.map((entry) => ({ ...entry, parcel: briefs.get(entry.buyer) ?? null })) })
   })
   api.post('/days/:date/packing', async (c) => {
     const input = body(c)
@@ -892,6 +903,9 @@ export function createApi(deps: ApiDeps): Hono<Env> {
 
   // ── 입금 확인 (N3, DEPOSIT_RULES) ─────────────────────────────────────
   if (deps.deposits !== undefined) registerDepositRoutes(api, deps.deposits)
+
+  // ── 택배 자동 접수 (T1, PARCEL_RULES) — 판매자만(보조자는 roles.ts 허용 목록 밖이라 403) ──
+  if (deps.parcels !== undefined) registerParcelRoutes(api, deps.parcels.service, deps.parcels.db)
 
   // 시험용 시청자 채팅 (입금 확인 시험 모드에서만 — 운영 기동에는 경로 자체가 없다, 404. SA-N3-03·D-N3-12).
   // 실제 방송에도 유튜브 구매자를 만들 수 있게(기억한 입금자명 흐름 E2E, AC-N3-42·46) 수집 함수(ingestChat, 조치자 수집기)를 그대로 부른다.

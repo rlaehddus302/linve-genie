@@ -1,0 +1,197 @@
+# V1 dev-notes
+
+## dev-device — `packages/voice` 바뀐 API (서버·화면이 먼저 읽을 것)
+
+모두 `@livejjim/voice` 첫 입구(`src/index.ts`)로 나간다. 화면은 지금처럼 `apps/web/src/voice/load.ts`의 동적 import 한 곳으로만 받는다(`VoiceModule = typeof Voice`라 새 함수가 그대로 보인다). 서버는 이 패키지를 쓰지 않는다(경계 시험 AC-I4-04 그대로) — 서버 쪽 계약은 아래 "서버에 바라는 것"만 보면 된다.
+
+### 1. 문장 읽기 (R-21, AC-V1-01·02)
+
+```ts
+readSmsSentence(text: unknown, options?: SmsReadOptions): SmsReading | null
+// SmsReadOptions = { parseMode?: string /* 'OPTIONS'이면 옵션 방식 */, maxNumber?: number, maxQuantity?: number,
+//                    catalog?: OptionCatalogEntry[] /* 옵션 방식 — R-20 입력 */, focus?: OptionFocus | null }
+// SmsReading = { orders: { no, options?, qty }[], last4: string|null, name: string|null, time: 'H:MM'|'H:MM:SS'|null,
+//                problem: null|'CANCEL'|'LAST4_UNCLEAR'|'NAME_UNCLEAR'|'TIME_UNCLEAR'|'NUMBER_UNCLEAR'|'OPTION_UNCLEAR' }
+
+readVoiceSentence(text, { extract?: ExtractOptions, sms?: SmsReadOptions, smsSettings?: unknown }): 
+  | { kind: 'sms', reading } | { kind: 'product', extraction } | { kind: 'none' }
+```
+- 화면 입구는 `readVoiceSentence` 하나를 쓰면 된다. 문자찜 표시가 있으면 R-17(`extractVoice`)을 부르지 않는다. "문자찜도 듣기"가 꺼져 있으면 문자찜 문장은 `none`(어떤 카드도 만들지 않음).
+- 옵션 방식은 코어 `parseOptionComment`를 그대로 부른다. `catalog`·`focus`는 댓글 옵션 인식에 넘기는 것과 같은 값.
+
+### 2. 설정 (그 기기에 저장, AC-V1-03·20)
+
+```ts
+DEFAULT_SMS_SETTINGS = { 'voice.smsListen': true, 'voice.smsAutoSec': 3 }
+resolveSmsSettings(stored: unknown): SmsVoiceSettings   // 못 읽거나 범위(0~10 정수) 밖이면 기본값
+checkSmsSettings(value: unknown): { key, message }[]     // 입력 칸 검사(쉬운 한국어)
+```
+- 지금의 음성 설정(`voice.autoConfirm`·`voice.autoConfirmSec`, `resolveVoiceSettings`)과 **따로**다. 같은 저장 키에 넣으면 `checkVoiceSettings`가 모르는 키로 본다 — 저장 키를 따로 쓰거나, 읽을 때 각자 resolve로 걸러 쓰면 된다(어느 쪽이든 깨진 값 → 기본값).
+
+### 3. 문자찜 카드 (AC-V1-03·04)
+
+```ts
+type SmsCard = { kind: 'sms', id, text, reading, createdAt, status: 'OPEN'|'SENT'|'CLOSED', touched, autoAt: number|null,
+                 candidates: SmsBuyerCandidate[]|null, repeats: number }
+type VoiceCard = SuggestionCard | SmsCard;  isSmsCard(card)
+
+createSmsCard({ id, reading, text, createdAt, settings /* 문자찜 설정 */ }): SmsCard
+  // autoAt = 주문 하나·문제 없음이면 createdAt + smsAutoSec*1000 (0이면 createdAt), 아니면 null(누르기)
+checkSmsAuto(card, { now, voiceOn, dialogOpen, product: (no) => SmsProductView|null, timeAfterNow }): 
+  | { due: true, card } | { due: false, card /* 바뀐 카드로 교체 */, block: { no, block }|null }
+  // block이 있으면 넣을 수 없는 상품 → 이유 카드로 보이기(smsBlockMessage). timeAfterNow=true면 autoAt이 null이 됨(시각 확인 카드)
+  // voiceOn=false면 autoAt이 null이 됨(다시 켜도 저절로 안 함). dialogOpen이면 그대로 두고 다음에 다시 본다
+sendSmsCard(card, { product, buyer? }): { ok: true, card /* SENT */, writes: SmsWrite[] } | { ok: false, reason, message, card }
+  // SmsWrite = { no, options?, qty, memo: string|null, last4?: string, buyer?: string, time: string|null }
+  //   memo: 이름 → 이름, 없으면 null(비움), 뒤 4자리도 이름도 없고 고른 구매자도 없으면 '확인 필요'
+  //   last4·buyer는 둘 중 하나만 들어간다(고른 구매자가 있으면 last4 없음)
+  //   time은 말한 그대로('2:15') — 화면이 손 입력 문자찜과 같은 읽기(ORD-08 AC6·D-089)로 receivedAt을 만든다
+  // 문제 카드·넣을 수 없는 상품·이미 넣은/닫은 카드는 ok:false. 고르기 카드는 buyer가 후보 중 하나여야 한다
+chooseSmsBuyer(card, candidates): SmsCard     // 409 BUYER_AMBIGUOUS 받음 → OPEN·autoAt null·candidates
+reopenSmsCard(card) / closeSmsCard(card) / touchSmsCard(card) / stopSmsAuto(card)
+findSmsRepeat(cards, reading, now): SmsCard|null   // 10초 안(차이 ≤ 10,000ms) 같은 주문·같은 구매자 말·같은 문제 → 그 카드
+markSmsRepeat(card)                                 // repeats + 1 → 화면이 SMS_REPEAT_NOTE를 보인다
+pruneSmsCards(cards, now)                           // 10초 지난 닫힌·넣은 문자찜 카드 빼기(열린 카드·상품 카드는 그대로)
+addVoiceCard(cards, card) / openVoiceCardCount(cards)  // 열린 카드 수 규칙: 상품·문자찜 함께, 손댄 카드·고르기 카드는 닫지 않음
+smsProductBlock(view) / findSmsBlock(card, lookup)   // SmsProductView = { state: 'READY'|'OPEN'|'HOLD'|'SOLD'|'CLOSED', waitlistFull }
+```
+- **중요(같은 말 막기)**: 넣었거나 닫은 문자찜 카드도 10초 동안은 목록(또는 따로 된 최근 목록)에 들고 있어야 `findSmsRepeat`가 찾는다. 지금 컨트롤러의 `.filter(isOpen)`을 문자찜 카드에 그대로 쓰면 닫자마자 잊는다 — `pruneSmsCards`로 10초 뒤에 빼면 된다.
+- `addCard`(상품 카드만)는 그대로다. 두 종류를 한 목록에 두면 `addVoiceCard`를 쓴다.
+
+### 4. 화면 문장 (acceptance 따옴표 그대로)
+- `SMS_PROBLEM_MESSAGES[problem]`: 번호·끝자리·이름·시각·옵션·취소 이유(AC-V1-23 그대로)
+- `smsBlockMessage(no, block)`: "300번 상품이 없어요." / "300번은 지금 판매 중이 아니에요." / "300번은 대기까지 다 찼어요."
+- `describeSmsCard(card, { productName? })`: "165번 · 끝자리 1234 · 문자찜", "165번 · 김민지님 · 문자찜", "165번 · 손님 확인 필요 · 문자찜", "15번 · 28번 · 끝자리 1234 · 문자찜 — 넣을까요?", "… · 문자찜 · 받은 시각 2:15", 옵션 방식은 `productName`을 넘기면 "21번 반바지 M 2개 · 끝자리 1234 · 문자찜"(옵션이 있거나 수량이 1이 아니면 "N개"). 번호 방식은 `productName`을 넘기지 않는다.
+- `smsCountdownText(card, now)`: "3초 뒤 넣어요"(남은 초 올림, 0 이하면 "곧 넣어요")
+- `smsChooseMessage(last4)`: "끝자리 1234 손님이 여러 명이에요. 누구인지 골라 주세요." (서버 409 `message`와 같은 문장)
+- `SMS_REPEAT_NOTE` "같은 말을 한 번 더 들었어요", `SMS_TIME_CHECK` "받은 시각이 지금보다 늦어요. 그래도 넣을까요?", `SMS_LISTENING` "문자찜도 듣는 중", `SMS_LABELS`(문자찜도 듣기·문자찜 자동으로 넣기까지(초)·넣지 않기·지금 넣기·넣기·닫기·찜 취소하기)
+- 카드 글(이름 포함)은 말한 그대로다 — 화면이 글자로만 그려야 한다(AC-V1-30).
+
+### 5. 정확도 측정 (AC-V1-05)
+- `pnpm --filter @livejjim/voice accuracy packages/voice/samples/accuracy-example-sms.csv` — 문자찜 예시(문자찜 12행 `예시-문자찜-01`…, 등록 3행).
+- CSV 선택 열 `종류`·`기대 끝자리`·`기대 이름`(기본 다섯 열 뒤, 아무 순서, 0~3개). 문자찜 줄의 `기대 번호`는 띄어 여러 개("15 28").
+
+### 서버에 바라는 것 (dev-server 몫 — 패키지는 정하지 않음, acceptance B 그대로)
+- 화면은 `SmsWrite` 하나마다 `POST /api/events` `sms` 한 번: `no`·(`options`·`qty`)·(`receivedAt`)·(`memo`)·(`last4` 또는 `buyer`)·방송·요청 번호(주문마다 다름).
+- 409 본문 `{ error: 'BUYER_AMBIGUOUS', message, candidates: [{ buyer, display, phoneLast4 }] }` → 화면이 `chooseSmsBuyer(card, candidates)`.
+
+## dev-device 정한 것 (스펙이 정하지 않은 세부 — 판매자에게 안전한 쪽)
+1. **문자찜 예시 표본은 새 파일**(`samples/accuracy-example-sms.csv`)에 넣었다. acceptance는 "예시 표본에 10행 이상을 더한다"이고 같은 줄에 "기존 예시 파일·시험은 그대로 통과"도 요구한다 — 기존 예시(20행·요약 수를 고정한 AC-I4-03 시험)에 행을 더하면 그 시험이 깨진다. 기존 표는 그대로, 문자찜 예시를 따로 둔다.
+2. 같은 말 비교 키에 `problem`도 넣었다(문제 카드끼리는 같은 문제일 때만 하나로). 문제 카드는 주문이 비어 있어(R-21) 번호로 가를 수 없고, 다른 이유를 하나로 합치면 판매자가 두 번째 이유를 못 본다. 넣지 않는 카드라 찜 수에는 영향이 없다.
+3. 시각: `H시`만 말하면 `H:00`, `초`는 `분`을 숫자로 말했을 때만(`반` 뒤의 초는 읽지 않는다 — R-21 6 "분이 있을 때만"을 글자 그대로).
+4. 이름: `님`으로 끝나는 읽는 모양이 여럿이면 처음 것(토큰 그대로 → 짧은 끝말부터) 하나만 본다.
+5. 고르기 카드(409 후보)는 열린 카드가 넘쳐도 닫지 않는다 — 판매자가 넣으려던 찜을 말없이 잃지 않게(손댄 카드와 같은 대우). 기다리는 카드는 acceptance대로 닫힐 수 있다.
+6. 음성을 끄면 기다리던 문자찜 카드의 기다림은 멈추고 다시 켜도 저절로 넣지 않는다(상품 카드 `#becomeOff`와 같다 — 누르면 넣는다).
+7. 정확도 보고서의 "다른 번호·끝자리로 저절로 넣을 문장"에 **등록 줄인데 저절로 넣을 문자찜으로 읽힌 문장**도 센다(문자찜이 아닌 말이 찜이 되는 것은 늘 기대와 다른 넣기). 시각은 측정에서 보지 않는다(지금 시각이 없다 — 보수적으로 저절로 넣는 쪽으로 센다).
+8. `voice` 패키지에 devDependency `yaml 2.9.1`(코어와 같은 버전, 잠금 파일에 이미 있음)을 더했다 — `voice-extract.yaml` 81사례가 새 입구에서도 그대로인지(AC-V1-02) 읽으려고.
+
+## dev-server — `POST /api/events` `sms`의 `last4` (AC-V1-10~12)
+
+### 요청
+- `sms` 본문에 선택 칸 `last4`(반각 숫자 정확히 4개 글). 받은 시각 칸 이름은 지금과 같은 `received`('HH:MM' 또는 'HH:MM:SS', KST) — acceptance의 "receivedAt"은 이 칸이다.
+- `last4`가 숫자 4개 글이 아니면(전각 `１２３４`·`123`·`12345`·`12a4`·숫자형 1234·null·빈 글) 400 `INVALID_INPUT`, `problems: [{ field: 'last4', message: '끝자리는 숫자 네 개로 적어 주세요.' }]`.
+- `last4`와 `phone`, 또는 `last4`와 `buyer`를 함께 보내면 400 `INVALID_INPUT`, `problems: [{ field: 'last4', message: '끝자리·전화번호·구매자 중 하나만 보내 주세요.' }]`.
+- 메모·옵션·수량·받은 시각·방송 검사는 손 입력과 같은 코어 checkEvent(메모의 휴대폰 번호 D-079 포함).
+
+### 서버가 정하는 것 (기록 경로의 범위 줄 안, 쓰기 직전 그 범위 상태)
+- 코어 `listBuyers`에서 `kind === 'sms'`이고 `phoneLast4 === last4`인 구매자의 `current`(지금의 구매자)를 모은다(같은 사람은 하나 — 합친 구매자, 유튜브 구매자에 합친 문자 구매자면 그 유튜브 구매자).
+  - 한 사람 → `buyer = 그 지금의 구매자`인 `sms` 이벤트(`phoneKey`·`phoneLast4` 없음). 응답 `phoneLast4`는 그래서 `null`이다 — 결과 카드의 끝자리는 화면이 카드의 `last4`로 보인다.
+  - 없음 → `phoneKey = HMAC-SHA256(판매자 키, 'livejjim/sms-last4/v1|<날짜>|<live|rehearsal>|<last4>')`, `phoneLast4 = last4`인 `sms` 이벤트 → 새 문자 구매자 `sms:<ref>`. 영문 머리가 있어 숫자만인 정규화 전화번호의 키와 겹칠 수 없고, 날짜·리허설 여부가 글에 있어 다른 범위·지난 구매(BUY-05)와 이어지지 않는다. 판매자 키가 달라 다른 판매자와도 다르다.
+  - 둘 이상 → 기록하지 않고 409.
+- 판정은 코어 그대로(서버는 구매자 칸만 정한다).
+
+### 409 본문 — 기존 API 오류 모양 그대로 (disputesWithSpec에 올림)
+```json
+{ "error": { "code": "BUYER_AMBIGUOUS", "message": "끝자리 1234 손님이 여러 명이에요. 누구인지 골라 주세요." },
+  "candidates": [{ "buyer": "sms:abc", "display": "문자찜(김씨)", "phoneLast4": "1234" }, …] }
+```
+- acceptance는 `{ error: 'BUYER_AMBIGUOUS', message, candidates }`로 적었지만 서버의 모든 오류 본문은 `{ error: { code, message }, ...extra }`(errors.ts `apiError`, AC-S00-41)이고 화면의 `errorFromBody`가 이 모양만 읽는다. 그래서 code·message는 `error` 안, `candidates`는 그 밖(화면에서는 `ApiError.details.candidates`)에 둔다.
+- 후보 순서 = 지금의 구매자가 처음 생긴 순서. 후보에는 구매자 ID·표시 이름·뒤 4자리만(키·전화번호 없음).
+- 409는 기록이 없으므로 같은 요청 번호로 다시 보내면 다시 판단한다(상태가 같으면 다시 409). 고른 뒤에는 같은 요청 번호로 `buyer`를 보내도 되고, 새 요청 번호여도 된다.
+
+### 로그
+- `last4`·이름 메모·키·요청 본문은 로그에 없다(로그 기록 함수는 자유 문장을 받지 않는다, log.ts). 시험: `apps/server/test/v1-sms-last4.test.ts` AC-V1-12.
+
+### dev-web에게 (서버 몫 끝, 재시작 뒤 다시 확인함)
+- 409는 `ApiError`로 온다: `code === 'BUYER_AMBIGUOUS'`, `message`는 `smsChooseMessage(last4)`와 같은 문장, 후보는 `error.details.candidates`(`{ buyer, display, phoneLast4 }[]`) → `chooseSmsBuyer(card, candidates)`. `retryable`·`transient`가 아니라 저절로 다시 보내지 않는다.
+- 고른 뒤 쓰기는 `last4` 없이 `buyer`만(둘을 함께 보내면 400). 받은 시각 칸 이름은 `received`(KST 'HH:MM' 또는 'HH:MM:SS').
+- 한 사람으로 이어진 경우 응답 `phoneLast4`는 `null` — 결과 카드의 "끝자리 1234"는 카드의 `last4`로 그린다. 이미 1등이면 지금처럼 D-099 응답(`buyer`)으로 "이미 찜한 구매자라…".
+- 확인: `apps/server` 시험 1776개 중 1775 통과. 남은 1개(`test/time.test.ts` 시간대)는 `pnpm --filter … exec vitest`로 돌려 `TZ`가 없어서이고 `TZ=Pacific/Honolulu`로는 통과(verify 단계는 TZ를 붙인다). tsc·eslint(apps/server) 깨끗.
+
+## dev-web — 콘솔 문자찜 카드·설정·정산 안내 (AC-V1-20~30)
+
+### 바뀐 곳
+- `apps/web/src/voice/controller.ts`: 문장 입구를 `readVoiceSentence` 하나로(문자찜이면 R-17 안 부름). 문자찜 카드 목록 `snapshot.sms`(SmsEntry — 카드·이유·시각 확인·보내는 중·오류·결과 줄·닫음), 기다림·창 미룸·음성 끔·같은 말·409 고르기·실패 다시 열기. 열린 카드 수는 `addVoiceCard`로 상품 카드와 함께 센다.
+- `apps/web/src/components/VoicePanel.tsx`: 문자찜 카드 화면, 설정 두 칸, "문자찜도 듣는 중".
+- `apps/web/src/components/ConsolePage.tsx`: host(읽기 설정·상품 모습·받은 시각 읽기·`sms` 쓰기·409 후보 읽기). 받은 시각은 손 입력과 같은 `readReceived`(ORD-08 AC6·D-089).
+- `apps/web/src/components/SmsPage.tsx`: 결과 문장을 `smsResultWords`·`useSmsClaim`으로 빼서 손 입력·음성이 같은 문장을 쓴다(손 입력 화면 동작은 그대로).
+- `apps/web/src/components/SettlementsPage.tsx`: 정산 목록 위 "구매자를 확인해 주세요" 안내(`unknownSmsBuyers`).
+- `apps/web/src/voice/storage.ts`: 문자찜 설정은 따로 된 키 `livejjim.voiceSmsSettings`(상품 등록 설정 `livejjim.voiceSettings`와 섞지 않음). 깨진 값 → 기본(켬·3초).
+- 시험: `apps/web/test/v1-voice-sms.test.ts`(컨트롤러 26), `apps/web/test/v1-console-sms.test.tsx`(콘솔·정산 8). 가짜 서버(`test/engine-server.ts`)에 서버 `last4` 계약(한 사람·없음·409 후보)을 흉내 냈다.
+
+### test-e2e가 잡을 이름 (역할·접근 이름)
+- 음성 칸 `region "음성 등록"` 안 카드 목록 `list "음성 카드"` — 상품 카드와 문자찜 카드가 한 목록, 새 것이 앞.
+- 문자찜 카드 `listitem` 이름 = `describeSmsCard`에서 " — 넣을까요?"를 뗀 글 + " 카드". 예: `"165번 · 끝자리 1234 · 문자찜 카드"`, `"15번 · 28번 · 끝자리 1234 · 문자찜 카드"`, `"300번 · 손님 확인 필요 · 문자찜 카드"`. 이름은 넣은 뒤에도 그대로다(글만 결과 문장으로 바뀐다).
+- 버튼 접근 이름 = `"<짧은 글> <버튼 글>"`, 보이는 글은 버튼 글만: "넣지 않기"·"지금 넣기"(기다리는 카드), "넣기"·"넣지 않기"(번호 둘·손댐·시각 확인·음성 끔·보내지 못함), "닫기"(이유 카드·결과 카드). 그래서 `getByRole('button', { name: '넣지 않기' })`(부분 일치)로도 잡힌다.
+- 기다림 글 "3초 뒤 넣어요"(1초마다 줄어듦, 0이면 "곧 넣어요"), 보내는 동안 "넣는 중…".
+- 고르기: 카드에 `role=alert` "끝자리 1234 손님이 여러 명이에요. 누구인지 골라 주세요.", 후보 버튼 보이는 글 `"문자찜(김씨) · 끝자리 1234"`(구매자 목록과 같은 이름 — 같은 표시 이름이면 구분 글자가 붙는다), 접근 이름 `"<짧은 글> 손님 고르기: <보이는 글>"`, 그리고 "넣지 않기".
+- 결과: 카드 안 `list "<짧은 글> 넣은 결과"`, 줄마다 `role=status` "165번 · 문자찜 · 1등 · 받은 시각 10/23 20:01:05 · 뒤 4자리 1234"(손 입력 결과 카드와 같은 문장·같은 "뒤 4자리" 표기), 이미 1등이면 "165번 · 이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 1등)". 활성 찜이면 버튼 "찜 취소하기"(접근 이름 `"165번 문자찜 찜 취소하기"`) → 지금의 찜 취소 사유 창.
+- 같은 말: 카드에 `role=status` "같은 말을 한 번 더 들었어요".
+- 시각 확인: "받은 시각이 지금보다 늦어요. 그래도 넣을까요?" + "넣기"·"넣지 않기".
+- 설정(음성 칸 아래 "음성 설정과 기록"): 체크 `"문자찜도 듣기"`, 칸 `"문자찜 자동으로 넣기까지(초)"`. 켜져 있으면 상태 옆 글 "문자찜도 듣는 중"(상태 `role=status` "음성: 듣는 중"과 따로 된 글 — 기존 I4 선택자 그대로).
+- 정산: 목록 화면 위 `region "구매자를 확인해 주세요"`, 글 "구매자를 확인해야 하는 문자찜이 2건 있어요.", 구매자마다 링크 `"문자찜(확인 필요) · 166번 — 구매자 확인하기"` → `/buyers?date=…&buyer=<ID>`(구매자 자세히 — 합치기). 합치면(다른 구매자에 합쳐지면) 그 줄이 빠지고, 0명이면 안내 자체가 없다.
+- 쓰기 본문: `requestId`·`type`·`b`·`no`·(`received`)·(`memo`)·(`last4` 또는 `buyer`). 옵션 방송만 `qty`·`options`. 인식 문장은 어디에도 없다.
+
+### dev-web 정한 것 (스펙이 정하지 않은 세부 — 판매자에게 안전한 쪽)
+1. 결과 카드는 "닫기"로 지울 때까지 남는다(찜 취소를 누를 수 있게). 화면엔 최근 5장까지, 넘으면 오래된 결과 카드부터 화면에서만 닫는다(찜은 그대로). 닫은 카드는 같은 말 막기 때문에 만든 지 10초까지 메모리에만 있다.
+2. Enter(D-I4-03)는 상품 카드에만 쓴다 — 문자찜은 Enter로 넣지 않는다(빠른 입력 Enter가 뜻밖의 찜을 만들지 않게). 문자찜은 기다림·누르기로만.
+3. 보내지 못함(연결 등)은 카드가 다시 열리고 저절로 넣지 않는다. 다시 "넣기"는 같은 요청 번호(찜이 둘 생기지 않게). 409 뒤 후보를 고르면 본문이 달라지므로 새 요청 번호.
+4. 번호 둘 이상 카드에서 앞 주문은 넣었고 뒤 주문이 실패하면 다시 누를 때 넣은 번호는 건너뛴다.
+5. 옵션 상품의 "대기까지 다 찼어요"는 화면이 판단하지 않는다(옵션 찜의 대기 규칙은 엔진 몫) — 보내고 결과 문장으로 보인다. 번호 방식은 `SOLD` ∧ 대기 수 ≥ `waitlist.max`면 이유 카드.
+6. 말한 시각을 보내는 때 손 입력 읽기로 못 읽으면 "받은 시각을 못 알아들었어요…" 이유 카드(보내지 않음).
+7. 정산 안내의 "N건"은 확인해야 하는 구매자 수다(구매자마다 링크 하나 — 한 사람이 여러 번호를 가지면 "166번, 170번").
+8. "찜 취소하기"는 봉인한 날짜면 보이지 않는다(콘솔 쓰기 잠금과 같다).
+
+### 확인
+- `apps/web` 단위 시험 1080개 모두 통과(`TZ=Pacific/Honolulu` — `words-kst` 시험은 시간대가 KST가 아니어야 뜻이 있다). tsc·eslint(바꾼 파일) 깨끗.
+- E2E `tests/e2e/i4` 56개 통과(V1 화면이 I4를 깨지 않음). V1 E2E는 아직 없다(test-e2e 몫).
+
+### dev-web 수정 라운드 (TE-V1-002 · U-V1-01)
+- **TE-V1-002 (FIXED)**: 합치기 방향 기본(`lib/buyers.ts` `defaultInto`)에 한 줄을 더했다 — 둘 다 문자 구매자이고 한쪽만 표시 이름 "문자찜(확인 필요)"면 상대(누구인지 아는 손님)가 남는다. 유튜브 우선(D-091)은 그대로 먼저 본다. 정산 안내 링크로 연 확인 필요 구매자에서 그대로 합쳐도 안내가 사라지고 손님 이름이 바뀌지 않는다(AC-V1-29·60). "방향 바꾸기"는 그대로 있다. 안내 판정(`unknownSmsBuyers`)은 바꾸지 않고 같은 판별 함수(`isUnknownSms`)를 쓴다.
+  - **spec-keeper에게**: D-091 "아니면 자세히를 열어 둔 구매자가 남는다"의 예외다. SPEC ORD-08 AC9 "정산 화면이 그런 구매자를 모아 합치기를 안내한다"·AC-V1-29 "합치면 그 줄이 사라진다"를 지키려고 넣었다(판매자 안전 — 손님 이름이 "확인 필요"로 바뀌지 않음). D-091에 이 예외를 적어 주길 바란다.
+- **U-V1-01 (FIXED — 안내 쪽, 규칙은 그대로)**: 열린 카드 수 규칙(D-204·D-I4-02, `addVoiceCard`)은 바꾸지 않았다. 대신 이유 없는(넣을 수 있던) 문자찜 카드가 넣지 않은 채 저절로 닫히면 음성 칸 위에 목록 "넣지 않고 닫힌 문자찜"에 줄 하나("넣지 않은 문자찜 카드를 닫았어요: 15번 · 28번 · 끝자리 1234 · 문자찜. 넣으려면 다시 말하거나 문자찜 입력에 넣어 주세요.", `role=alert`)와 "확인"(접근 이름 "<카드 짧은 글> 안내 확인")을 남긴다. "확인"을 누를 때까지 남는다. 이유 카드("닫기"만)·"넣지 않기"로 닫은 카드·넣은 카드는 안내가 없다.
+  - **spec-keeper에게**: 사용성 지적의 (1)안 "닫기만 있는 이유 카드는 열린 카드 수에 세지 않거나 넘치면 이유 카드부터 닫는다"는 D-204·D-I4-02와 AC-V1-03 "상품 카드와 문자찜 카드를 함께 센다"를 바꾸는 일이라 하지 않았다(`packages/voice`는 dev-device 몫). 판단이 나면 그쪽에서 바꾸고, 이 안내는 그대로 둬도 된다.
+- 확인: `apps/web` 단위 1085개 통과(`TZ=Pacific/Honolulu`), tsc·eslint(바꾼 파일) 깨끗. E2E `tests/e2e/v1` 29개 중 28개 통과 — `flow.spec.ts` AC-V1-60·TE-V1-002 통과. 실패 1개는 `sms-cards.spec.ts:262` TE-V1-001(결과 줄에 "뒤 4자리 1234" 두 번)로 이번 지적 목록 밖이다.
+
+### dev-device 수정 라운드 (TD-V1-001 — R-21 3a `NOT_SURE`, D-V1-12)
+- `readSmsSentence`(packages/voice/src/sms.ts)에 3a를 넣음. 문제 순서 `CANCEL` → `NOT_SURE` → `LAST4_UNCLEAR` → … . 맡은 토큰(4 끝자리·5 이름·6 시각)을 정한 뒤 본다 — `안지민님`·`못난이님`은 이름이라 걸리지 않음.
+  - 물음표: 정규화한 문장(`normalizeText` 결과, 끝 문장 부호를 지우기 전)에 `?`·`？`가 있으면.
+  - 살필 글: 맡은 토큰이 아닌 토큰 그대로. 표시 토큰(`문자찜…` 모두, `문자` + `찜…` 짝 모두)은 표시 낱말 뒤 나머지만, 나머지가 없으면 보지 않음.
+- `SmsProblem`·`SMS_PROBLEMS`에 `NOT_SURE`, `SMS_PROBLEM_MESSAGES.NOT_SURE` = "아니라는 말이나 묻는 말이 들려서 넣지 않았어요. 문자찜이면 다시 말해 주세요."(acceptance 그대로). 화면(controller)은 이 표를 그대로 읽으므로 화면 코드는 바꾸지 않음. 측정 스크립트는 "넣지 않음(아니라는 말·묻는 말)"으로 보이고 자동 넣기 위험 수에 들어가지 않음.
+- 골든 시험 읽기(packages/voice/test/sms-golden.test.ts): 아는 문제에 `NOT_SURE`, 고정 사례 수 48 → 63(spec 66a7eeb와 맞춤). 63사례 모두 통과.
+- 시험: sms.test.ts AC-V1-06(acceptance 문장 여섯·낱말·물음표·표시 나머지·맡은 토큰·문제 순서·옵션 방식·속성 500회), sms-card.test.ts(아니라는 말 카드는 저절로도 누르기로도 넣지 않음), accuracy-sms.test.ts(넣지 않음·위험 아님).
+- E2E tests/e2e/v1/flow.spec.ts·sms-reasons.spec.ts 8개 통과(포트 오프셋 23500).
+- **test-domain에게**: tests/adversarial/v1/sms-reading-attacks.test.ts:12의 `PROBLEMS`에 `NOT_SURE`가 없어 R-21 결과 모양 속성 시험이 실패한다(스펙 66a7eeb가 `NOT_SURE`를 더함). 그 파일은 test-domain 소유라 건드리지 않음.
+
+### dev-server 수정 라운드 (RA-V1-001·TE-V1-004 — D-V1-14, TE-V1-003 — D-V1-13)
+- 이름이 다른 끝자리 손님 (AC-V1-13): `last4`와 메모(앞뒤 공백 뺀 이름)를 함께 보냈고 후보가 한 사람인데 그 사람의 표시 이름이 정확히 `문자찜(<이름>)`이 아니면 기록하지 않고 409 `BUYER_AMBIGUOUS`, message "끝자리 1234 손님의 이름이 달라요. 누구인지 골라 주세요.", 후보 = 그 한 사람. 메모가 없거나 공백뿐이면 지금처럼 그 사람(D-V1-03). `apps/server/src/sms-last4.ts`(`spokenName`·`sameName`·`nameMismatchMessage`), `service.ts` `#writeSms`.
+- 409 후보마다 `claims` (둘 이상·이름 다름 모두): 그 범위에서 그 지금의 구매자의 활성 찜(확정·대기·보류·충돌) 상품 번호, 찜 생성 순서, 같은 번호는 처음 한 번, 없으면 `[]`. 후보 모양 = `{ buyer, display, phoneLast4, claims }`.
+- 새 손님으로 넣기: `sms` 본문 `newBuyer: true` + `last4`. 서버는 후보를 찾지 않고 `phoneKey` = HMAC(`livejjim/sms-last4-new/v1|날짜|live·rehearsal|뒤4자리|ref`), `phoneLast4` = 뒤 4자리. `newBuyer`가 `true`가 아니거나 `last4` 없이, 또는 `phone`·`buyer`와 함께면 400(칸 `newBuyer`; `last4`+`phone`/`buyer`는 기존대로 칸 `last4`). 엔진 이벤트에는 남지 않는다.
+- 같은 음성 쓰기 (AC-V1-14): `sms` 본문 `voice: true`(그 밖의 값은 400, 칸 `voice`, 엔진 이벤트에 남지 않음). 서버 도착 시각 = 요청이 `#writeSms`에 들어온 때의 서버 시계. 같은 범위의 기록 줄 안(build)에서 최근에 **기록한** 음성 쓰기 중 같은 방송·번호·옵션·수량·`last4`·`buyer`·`newBuyer`·메모(앞뒤 공백 뺌)이고 다른 요청 번호이며 도착 시각 차 ≤ 10,000ms면 409 `{ error: { code: 'VOICE_REPEATED', message: '같은 말을 다른 기기에서 방금 넣었어요.' } }`. 등록은 기록 트랜잭션 안(afterInsert)이라 두 기기가 함께 보내도 하나만 기록된다. 커밋 실패면 등록을 뺀다. 메모리만(`apps/server/src/voice-repeat.ts`), 서버를 다시 켜면 빈다. 손 입력(`voice` 없음)은 검사도 등록도 안 한다.
+- 시험: `apps/server/test/v1-voice-buyers.test.ts`(이름 다름·확인 필요·유튜브 합친 사람·claims·newBuyer 키·400·멱등, 같은 음성 경계 10,000/10,001ms·구매자 말 다름·손 입력·앞 쓰기 409/400·다시 보내기·동시 3개·범위/판매자 분리·저장 실패·로그), `v1-sms-last4.test.ts`의 "이름 없음 후보에 이름을 말하면" 단계를 D-V1-14대로(409 뒤 이름 없이), 409 본문에 `claims`. `api.test.ts` 필드 표 대조에서 서버만 읽는 칸(`newBuyer`·`voice`) 뺌.
+- 남의 몫:
+  - dev-web: 콘솔 문자찜 쓰기에 `voice: true`, 409 후보 버튼 "표시 이름 · 끝자리 1234 · 15번·22번"(3개 넘으면 앞 3개 + "외 N개", `[]`면 "찜 없음"), "새 손님으로 넣기"(`last4` + `newBuyer: true`, `buyer` 없이), 409 `VOICE_REPEATED`면 그 `message`와 "닫기"만 (AC-V1-31).
+  - test-domain: `tests/adversarial/v1/server-last4-attacks.test.ts:151`이 후보 칸을 정확히 `buyer·display·phoneLast4` 세 칸으로 본다 — D-V1-14·AC-V1-13으로 `claims`가 더해져 지금 실패한다. 칸 목록에 `claims`를 더해야 한다.
+  - test-e2e: `tests/e2e/v1/sms-buyers.spec.ts:151`의 허용 칸 목록에 `newBuyer`·`voice`가 없다(화면이 보내기 시작하면 걸린다).
+
+### dev-web 수정 라운드 (TE-V1-004 — D-V1-14, AC-V1-25 보강)
+- 409 후보 읽기(`ConsolePage.readCandidates`)가 `claims`(정수만, 없거나 깨지면 `[]`)를 읽고, 409 서버 문장("여러 명이에요"·"이름이 달라요")을 고르기 카드 문장으로 쓴다(`SmsEntry.choose`, 없으면 기본 문장).
+- 후보 버튼 글(`controller.smsCandidateLabel`): "표시 이름 · 끝자리 1234 · 15번·22번", 3개 넘으면 앞 3개 + " 외 N개", 없으면 "찜 없음". 표시 이름은 구매자 목록과 같은 구분 표기(BuyerNames)라 이름에 끝자리가 들어 있으면(예: "문자찜 · 뒤 4자리 1234") 끝자리를 다시 쓰지 않는다. 접근 이름은 그대로 "<카드> 손님 고르기: <버튼 글>".
+- 고르기 카드 버튼 차례: 후보들 → "새 손님으로 넣기"(접근 이름 "<카드> 새 손님으로 넣기") → "넣지 않기". 저절로 넣지 않는다.
+- "새 손님으로 넣기"(`VoiceController.smsNewBuyer`): 쓰기 = 카드 쓰기 + `last4` + `newBuyer: true`(buyer 없음). 주문이 여럿이면 첫 주문만 `newBuyer`, 나머지는 첫 주문이 만든 구매자(`buyer`)로 — 주문마다 새 손님이 생기지 않게(AUTO, 서버 키가 ref마다라 그대로 보내면 주문마다 다른 손님이 된다). 실패하면 고르기 카드로 다시 열린다(후보 유지).
+- 요청 번호: 넣기 방법(그대로·고른 후보·새 손님)이 바뀌면 새 번호, 같은 방법으로 다시 보내면 같은 번호(응답만 잃은 쓰기가 두 번 기록되지 않게). 전에는 후보를 고를 때마다 새 번호였다.
+- 시험: `apps/web/test/v1-voice-sms.test.ts`(버튼 글 경계·claims 보존·서버 문장·newBuyer 본문·고르기 카드가 아니면 보내지 않음·주문 둘·실패 뒤 같은 요청 번호), `v1-console-sms.test.tsx`(같은 표시 이름 두 후보가 찜 번호로 갈림·버튼 차례·newBuyer 본문 칸·새 구매자가 1등, 이름 다름 409 → 새 손님이 "문자찜(이민지)", readCandidates). 가짜 서버(`test/engine-server.ts`)에 claims·이름 다름 409·newBuyer를 서버와 같게 넣음. web 단위 1094개 통과.
+- E2E `tests/e2e/v1` 29개 중 27 통과. 실패 둘:
+  - test-e2e: `sms-buyers.spec.ts:27`(AC-V1-25)가 후보 버튼을 D-V1-14 이전 모양 `['문자찜(김씨) · 끝자리 1234', '문자찜(이씨) · 끝자리 1234', '넣지 않기']`으로 본다 — 이제 `'문자찜(김씨) · 끝자리 1234 · 15번', '문자찜(이씨) · 끝자리 1234 · 15번', '새 손님으로 넣기', '넣지 않기'`이고 고르기 버튼 접근 이름도 끝에 " · 15번"이 붙는다. AC-V1-25 보강 문장대로 고쳐야 한다.
+  - TE-V1-001(minor, 이번 라운드에 배정되지 않음): `sms-cards.spec.ts:262` 그대로.
+- 이번 라운드에 하지 않음: 쓰기에 `voice: true`·409 `VOICE_REPEATED` 화면(AC-V1-31, TE-V1-003 화면 쪽) — 배정된 지적이 아니다.

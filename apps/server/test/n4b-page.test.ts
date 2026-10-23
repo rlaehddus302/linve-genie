@@ -75,7 +75,8 @@ function expectDocumentCsp(headers: Headers): void {
   expect(directives.get('default-src')).toBe("'none'")
   expect(directives.get('img-src')).toBe("'self'")
   expect(directives.get('frame-ancestors')).toBe("'none'")
-  expect(directives.get('form-action')).toBe("'none'")
+  // T1(D-T1-06, PARCEL_RULES PC-3): 배송지 양식이 같은 링크로만 보내도록 form-action 'self' — 스크립트는 여전히 없다
+  expect(directives.get('form-action')).toBe("'self'")
   expect(directives.get('base-uri')).toBe("'none'")
 }
 

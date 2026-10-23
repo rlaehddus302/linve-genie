@@ -437,6 +437,19 @@ describe('범위로 열기 (구매자·정산, AC-S06-40)', () => {
     expect(store.getSnapshot().messages).toEqual([])
   })
 
+  it('택배 알림(parcel, T1 PC-8): 그 실제 날짜의 묶음·택배 설정이면 parcelVersion이 늘고, 다른 날짜면 그대로', async () => {
+    store = new ConsoleStore({ scope: { date: DATE, rehearsal: false }, openStream: (url) => new FakeEventSource(url) })
+    await store.start()
+    await flush()
+    const before = store.getSnapshot().parcelVersion
+    FakeEventSource.last.emit('parcel', { date: DATE, buyer: 'UC_A' })
+    expect(store.getSnapshot().parcelVersion).toBe(before + 1)
+    FakeEventSource.last.emit('parcel', { date: '2000-01-01', buyer: 'UC_A' })
+    expect(store.getSnapshot().parcelVersion).toBe(before + 1)
+    FakeEventSource.last.emit('parcel', { settings: true })
+    expect(store.getSnapshot().parcelVersion).toBe(before + 2)
+  })
+
   it('그 날짜 범위가 없으면(404) "찾지 못함"', async () => {
     server.on('GET', new RegExp(`^/api/days/${DATE}$`), () => apiError(404, 'NOT_FOUND', '찾을 수 없어요.'))
     store = new ConsoleStore({ scope: { date: DATE, rehearsal: false }, openStream: (url) => new FakeEventSource(url) })

@@ -14,6 +14,7 @@
 //   결제 ID만 읽는다(쿼리의 다른 값 — 결제 성공 여부·금액 — 은 쓰지 않는다, BL-6 3).
 //   `/deposits` 입금 확인(N3, AC-N3-40) — 보는 목록은 검색값 `tab`(확인 필요는 적지 않는다): done 자동 확인됨·확인함 · ignored 무시함 · paste 붙여넣기 · sources 계좌 연동.
 //   입금자명·금액은 주소에 넣지 않는다.
+//   `/parcels` 택배 접수(T1, D-T1-08) — 고른 날짜(실제 범위만)는 검색값(`?date=2026-10-18`). `/settings/parcel`은 설정의 택배 칸으로.
 // 전화번호·메모·사유는 주소에 넣지 않는다(AC-S06-81) — 구매자 ID·상품 키만. 새로고침·북마크해도 같은 화면이다.
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -45,7 +46,7 @@ export interface BillingRoute {
 /** 결제 ID 모양 (서버가 만든 영문·숫자 — 넉넉히 영문·숫자·'_'·'-' 1~64자) */
 const PAYMENT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 
-export type SettingsSection = 'youtube' | 'instagram' | 'tiktok' | 'assist'
+export type SettingsSection = 'youtube' | 'instagram' | 'tiktok' | 'parcel' | 'assist'
 
 /** 입금 확인 화면의 목록 (N3) */
 export const DEPOSIT_TABS = ['review', 'done', 'ignored', 'paste', 'sources'] as const
@@ -62,6 +63,12 @@ export interface PackingRoute {
   readonly date?: string
   /** 체크리스트를 연 구매자 (지금의 구매자 ID) */
   readonly buyer?: string
+}
+
+/** 택배 접수 (T1, D-T1-08): 실제 범위만 — 리허설 표시가 없다 */
+export interface ParcelsRoute {
+  readonly name: 'parcels'
+  readonly date?: string
 }
 
 export interface SettingsRoute {
@@ -99,6 +106,7 @@ export type Route =
   | BillingRoute
   | ScopeRoute
   | PackingRoute
+  | ParcelsRoute
   | SettingsRoute
   | StartRoute
   | { readonly name: 'privacy' }
@@ -165,6 +173,7 @@ export function parseRoute(pathname: string, search = ''): Route {
   if (path === '/settings/youtube') return { name: 'settings', section: 'youtube', ...result }
   if (path === '/settings/instagram') return { name: 'settings', section: 'instagram' }
   if (path === '/settings/tiktok') return { name: 'settings', section: 'tiktok' }
+  if (path === '/settings/parcel') return { name: 'settings', section: 'parcel' }
   if (path === '/settings/assist') return { name: 'settings', section: 'assist' }
   if (path === '/start') return { name: 'start', ...result }
   if (path === '/privacy') return { name: 'privacy' }
@@ -182,6 +191,10 @@ export function parseRoute(pathname: string, search = ''): Route {
   if (path === '/buyers') return scopeRoute('buyers', search)
   if (path === '/settlements') return scopeRoute('settlements', search)
   if (path === '/packing') return packingRoute(search)
+  if (path === '/parcels') {
+    const date = new URLSearchParams(search).get('date')
+    return date !== null && DATE_RE.test(date) ? { name: 'parcels', date } : { name: 'parcels' }
+  }
   if (path === '/reviews') {
     const params = new URLSearchParams(search)
     const broadcast = params.get('broadcast')
@@ -236,6 +249,8 @@ export function routePath(route: Route): string {
       const query = params.toString()
       return query === '' ? '/packing' : `/packing?${query}`
     }
+    case 'parcels':
+      return route.date === undefined ? '/parcels' : `/parcels?${new URLSearchParams({ date: route.date }).toString()}`
     case 'reviews': {
       const params = new URLSearchParams()
       if (route.broadcast !== undefined) params.set('broadcast', route.broadcast)
@@ -247,7 +262,7 @@ export function routePath(route: Route): string {
 }
 
 /** 메뉴 항목 (AC-S06-01, AC-I1-20, AC-I3-44, I2 AC-I2-35, AC-N3-40, AC-N5-50): 지금 화면이 어느 메뉴에 속하는지 */
-export type MenuKey = 'broadcasts' | 'sms' | 'buyers' | 'settlements' | 'deposits' | 'packing' | 'labels' | 'settings' | 'billing'
+export type MenuKey = 'broadcasts' | 'sms' | 'buyers' | 'settlements' | 'deposits' | 'packing' | 'labels' | 'settings' | 'billing' | 'parcels'
 
 /** 메뉴에 없는 화면(시작 마법사·정책 페이지)은 null */
 export function menuOf(route: Route): MenuKey | null {
@@ -265,6 +280,8 @@ export function menuOf(route: Route): MenuKey | null {
       return 'settlements'
     case 'packing':
       return 'packing'
+    case 'parcels':
+      return 'parcels'
     case 'labels':
       return 'labels'
     case 'billing':

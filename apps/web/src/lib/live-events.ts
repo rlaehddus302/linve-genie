@@ -32,6 +32,10 @@ export interface LiveHandlers {
   readonly onReconnect?: () => void
   /** 범위 기록이 늘었다 (SSE `change` — 확인 필요 목록이 다시 읽는다, D-O2-14) */
   readonly onChange?: (change: ScopeSeq & { readonly type: string }) => void
+  /** 택배가 바뀐 묶음(`{ date, buyer }`)·택배 설정(`{ settings: true }`) (SSE `parcel` — T1 택배 화면이 다시 읽는다) */
+  readonly onParcel?: (event: { readonly date?: string; readonly buyer?: string; readonly settings?: boolean }) => void
+  /** 포장 기록이 바뀐 묶음 (SSE `packing` `{ date, buyer }`) */
+  readonly onPacking?: (event: { readonly date: string; readonly buyer?: string }) => void
   /** 로그인 방법이 바뀌었다 (SSE `login` `{ kind: 'methods' }` — 간편 로그인 연결·끊기, L1) — 설정 화면이 목록을 다시 읽는다 */
   readonly onLogin?: () => void
 }
@@ -41,6 +45,15 @@ export function parseYoutubeEvent(raw: unknown): YoutubeEvent | null {
     const data = JSON.parse(String(raw)) as unknown
     if (typeof data !== 'object' || data === null || typeof (data as { kind?: unknown }).kind !== 'string') return null
     return data as YoutubeEvent
+  } catch {
+    return null
+  }
+}
+
+function parseObject(raw: unknown): Record<string, unknown> | null {
+  try {
+    const data = JSON.parse(String(raw)) as unknown
+    return typeof data === 'object' && data !== null && !Array.isArray(data) ? (data as Record<string, unknown>) : null
   } catch {
     return null
   }
@@ -95,6 +108,18 @@ export class LiveEvents {
         if (data !== null) this.#handlers().onPlatform?.(data)
       })
     }
+    stream.addEventListener('parcel', (event) => {
+      const handler = this.#handlers().onParcel
+      if (handler === undefined) return
+      const data = parseObject(event.data)
+      if (data !== null) handler({ ...(typeof data.date === 'string' ? { date: data.date } : {}), ...(typeof data.buyer === 'string' ? { buyer: data.buyer } : {}), ...(data.settings === true ? { settings: true } : {}) })
+    })
+    stream.addEventListener('packing', (event) => {
+      const handler = this.#handlers().onPacking
+      if (handler === undefined) return
+      const data = parseObject(event.data)
+      if (data !== null && typeof data.date === 'string') handler({ date: data.date, ...(typeof data.buyer === 'string' ? { buyer: data.buyer } : {}) })
+    })
     stream.onerror = () => {
       if (this.#stopped || this.#stream !== stream || stream.readyState !== 2) return
       stream.close()

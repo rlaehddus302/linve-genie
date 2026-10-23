@@ -5,6 +5,7 @@ import {
   buyerOfRef,
   checkSettings,
   containsPhoneRun,
+  currentBuyerOf,
   getBroadcast,
   getBuyer,
   isValidDate,
@@ -20,6 +21,7 @@ import {
   resolveSettings,
   type MergePreview,
   type OptionCatalogEntry,
+  type EngineState,
   type SaleSettings,
 } from '@livejjim/core'
 import { randomBytes } from 'node:crypto'
@@ -48,8 +50,26 @@ import { productOwners } from './product-history.ts'
 import { reviewsView, type ReviewsView } from './reviews.ts'
 import { AssistService } from './assist/service.ts'
 import { mergePackingCheck } from './packing.ts'
+import { ParcelService } from './parcel/service.ts'
+import { mergeAddress } from './parcel/store.ts'
 import { ASSISTANT_EVENT_TYPES, assistantCancelCheck, assistantForbidden } from './roles.ts'
 import { openSellerKey, phoneKeyOf } from './secrets.ts'
+import {
+  ambiguousMessage,
+  isLast4,
+  last4Candidates,
+  last4KeyText,
+  LAST4_MESSAGE,
+  LAST4_ONE_OF_MESSAGE,
+  nameMismatchMessage,
+  NEW_BUYER_MESSAGE,
+  NEW_BUYER_ONE_OF_MESSAGE,
+  newBuyerKeyText,
+  sameName,
+  spokenName,
+  VOICE_MESSAGE,
+} from './sms-last4.ts'
+import { VOICE_REPEATED_MESSAGE, VoiceRepeats, voiceSignature } from './voice-repeat.ts'
 import {
   actionRows,
   chatRows,
@@ -80,7 +100,7 @@ import type { BillingService } from './billing/service.ts'
 import { iso, kstDate, kstTime, type Clock } from './time.ts'
 import type { ViewCacheBudget } from './view-budget.ts'
 import { changeSet, fullView, messageLookup, type ChangeSet, type FullView, type MessageLookup } from './views.ts'
-import { resultOf, WriteAbort, type Actor, type ChatSource, type Draft, type Rejection, type ScopeWriter, type WriteOutcome, type WriteResult } from './writer.ts'
+import { resultOf, scopeKey, WriteAbort, type Actor, type ChatSource, type CommittedRecord, type Draft, type Rejection, type ScopeWriter, type WriteOutcome, type WriteResult } from './writer.ts'
 import { sanitizeNick } from './youtube/texts.ts'
 import { SEALED_CHAT_MESSAGE, sealAtOf, sealedView } from './youtube/seal.ts'
 
@@ -274,6 +294,8 @@ export class Service {
   readonly #options: ServiceOptions
   readonly #assist: AssistService
   readonly #sellerKeys = new Map<string, Buffer>()
+  /** 범위마다 최근에 기록한 음성 문자찜 쓰기 (D-V1-13 — 메모리에만, 서버를 다시 켜면 빈다) */
+  readonly #voiceRepeats = new VoiceRepeats()
   /** 리허설 가짜 채팅 생성기 (D-082) */
   readonly generators: ChatGenerators
 
@@ -530,7 +552,7 @@ export class Service {
     const fields: Record<string, unknown> = { type }
     for (const field of spec.fields) {
       const value = own(body, field)
-      if (value !== undefined && field !== 'phone') Object.defineProperty(fields, field, { value, enumerable: true, writable: true, configurable: true })
+      if (value !== undefined && field !== 'phone' && field !== 'last4' && field !== 'newBuyer' && field !== 'voice') Object.defineProperty(fields, field, { value, enumerable: true, writable: true, configurable: true })
     }
 
     // 범위 정하기: 방송이 있는 종류는 그 방송의 범위(날짜·리허설인지), 없는 종류는 요청에 적은 날짜와 리허설인지(적지 않으면 실제) (D-069, D-081)
@@ -559,9 +581,25 @@ export class Service {
 
     if (type === 'sms') return this.#writeSms(sellerId, actor, requestId, date, rehearsal, body, fields)
     // 포장·배송을 적은 구매자의 합치기·떼어 내기 제한 (D-I2-20 — 실제 범위만, 엔진 이벤트를 기록하기 전에 같은 범위 줄·락 안에서)
+    // 택배 (T1 PC-3·D-T1-07): 떼어 낼 구매자가 붙은 묶음에 접수 결과를 기다리는 시도가 있으면 막고, 합치면 같은 트랜잭션에서 그 날짜 배송지를 옮긴다(합칠 대상에 없을 때)
+    let mergeTarget: { from: string; into: string } | null = null
     const packingGuard =
       !rehearsal && (type === 'buyer.merge' || type === 'buyer.unmerge')
-        ? { guard: (tx: Db, runtime: Pick<ScopeRuntime, 'scopeId' | 'state'>) => mergePackingCheck(tx, sellerId, runtime.scopeId, runtime.state, fields) }
+        ? {
+            guard: async (tx: Db, runtime: Pick<ScopeRuntime, 'scopeId' | 'state'>) => {
+              const refused = (await mergePackingCheck(tx, sellerId, runtime.scopeId, runtime.state, fields)) ?? (await ParcelService.mergeGuard(tx, sellerId, date, runtime.state, fields, this.#options.clock.now()))
+              if (refused !== null) return refused
+              const from = fields['from']
+              const into = fields['into']
+              if (type === 'buyer.merge' && typeof from === 'string' && typeof into === 'string' && getBuyer(runtime.state, into) !== null) mergeTarget = { from, into: currentBuyerOf(runtime.state, into) ?? into }
+              return null
+            },
+            afterInsert: async (tx: Db, _scopeId: string, records: readonly CommittedRecord[], now: Date) => {
+              const target = mergeTarget as { from: string; into: string } | null
+              if (target === null || records[0] === undefined || records[0].failed || !records[0].changed) return
+              await mergeAddress(tx, this.#options.masterKey, sellerId, date, target.from, target.into, now)
+            },
+          }
         : {}
     return this.#options.writer.write({
       sellerId,
@@ -587,19 +625,60 @@ export class Service {
   ): Promise<WriteOutcome | { kind: 'phone'; outcome: WriteOutcome; phoneLast4: string | null }> {
     const phone = own(body, 'phone')
     if (phone !== undefined && typeof phone !== 'string') return { kind: 'rejected', rejection: invalidInput([{ field: 'phone', message: fieldMessage('phone') }]) }
+    // 음성 문자찜의 뒤 4자리 (V1, AC-V1-10): 숫자 4개 글만, 전화번호·지정 구매자와 함께 보내지 않는다. 값은 로그·오류 문장에 넣지 않는다
+    const last4 = own(body, 'last4')
+    if (last4 !== undefined) {
+      if (!isLast4(last4)) return { kind: 'rejected', rejection: invalidInput([{ field: 'last4', message: LAST4_MESSAGE }]) }
+      if (phone !== undefined || own(body, 'buyer') !== undefined) return { kind: 'rejected', rejection: invalidInput([{ field: 'last4', message: LAST4_ONE_OF_MESSAGE }]) }
+    }
+    // 새 손님으로 넣기 (D-V1-14, AC-V1-13): true만, 뒤 4자리와 함께만, 전화번호·지정 구매자와 함께 보내지 않는다
+    const newBuyer = own(body, 'newBuyer')
+    if (newBuyer !== undefined) {
+      if (newBuyer !== true || last4 === undefined) return { kind: 'rejected', rejection: invalidInput([{ field: 'newBuyer', message: NEW_BUYER_MESSAGE }]) }
+      if (phone !== undefined || own(body, 'buyer') !== undefined) return { kind: 'rejected', rejection: invalidInput([{ field: 'newBuyer', message: NEW_BUYER_ONE_OF_MESSAGE }]) }
+    }
+    // 음성으로 넣는 쓰기 (D-V1-13, AC-V1-14): true만. 서버 도착 시각은 여기서 읽는다
+    const voice = own(body, 'voice')
+    if (voice !== undefined && voice !== true) return { kind: 'rejected', rejection: invalidInput([{ field: 'voice', message: VOICE_MESSAGE }]) }
+    const arrivedAt = this.#options.clock.now()
+    const voiceScope = scopeKey(sellerId, date, rehearsal)
+    const signature = voice === true ? voiceSignature(body) : null
+    let remembered = false
     const normalized = typeof phone === 'string' ? normalizePhone(phone) : null
-    const phoneFields = normalized === null ? {} : { phoneKey: phoneKeyOf(await this.#sellerKey(sellerId), normalized), phoneLast4: phoneLast4(normalized) }
+    const sellerKey = normalized !== null || last4 !== undefined ? await this.#sellerKey(sellerId) : null
+    const phoneFields = normalized === null || sellerKey === null ? {} : { phoneKey: phoneKeyOf(sellerKey, normalized), phoneLast4: phoneLast4(normalized) }
+    // 뒤 4자리로 정한 구매자: 그 범위 상태(기록 경로의 범위 줄 안)에서 찾는다 — 한 사람이면 지정 구매자, 없으면 범위·뒤 4자리 키의 새 문자 구매자, 둘 이상이면 409 (D-V1-03)
+    // 이름과 뒤 4자리를 함께 말했고 후보가 한 사람인데 그 사람의 표시 이름이 `문자찜(<이름>)`이 아니면 409 — 고르기 (D-V1-14).
+    // 새 손님으로 넣기면 후보를 찾지 않고 그 문자찜 ref까지 담은 키로 새 문자 구매자를 만든다
     const ref = this.#smsRef()
+    const name = spokenName(own(body, 'memo'))
+    const last4Fields = (state: EngineState): { fields: Record<string, unknown> } | { rejection: Rejection } => {
+      if (!isLast4(last4) || sellerKey === null) return { fields: {} }
+      if (newBuyer === true) return { fields: { phoneKey: phoneKeyOf(sellerKey, newBuyerKeyText(date, rehearsal, last4, ref)), phoneLast4: last4 } }
+      const candidates = last4Candidates(state, last4)
+      const [only] = candidates
+      if (candidates.length === 1 && only !== undefined) {
+        if (name === null || sameName(only, name)) return { fields: { buyer: only.buyer } }
+        return { rejection: { ...rejection(409, 'BUYER_AMBIGUOUS', nameMismatchMessage(last4)), extra: { candidates } } }
+      }
+      if (candidates.length === 0) return { fields: { phoneKey: phoneKeyOf(sellerKey, last4KeyText(date, rehearsal, last4)), phoneLast4: last4 } }
+      return { rejection: { ...rejection(409, 'BUYER_AMBIGUOUS', ambiguousMessage(last4)), extra: { candidates } } }
+    }
     const outcome = await this.#options.writer.write({
       sellerId,
       date,
       rehearsal,
       createScope: false,
       requestId,
-      build: (ctx) => [
+      build: (ctx) => {
+        // 여러 기기의 같은 음성 쓰기 (D-V1-13): 같은 요청 번호 다시 보내기는 기록 경로가 이 검사보다 먼저 처음 응답으로 돌려준다
+        if (signature !== null && this.#voiceRepeats.repeated(voiceScope, signature, arrivedAt, requestId)) return rejection(409, 'VOICE_REPEATED', VOICE_REPEATED_MESSAGE)
+        const byLast4 = last4Fields(ctx.state)
+        if ('rejection' in byLast4) return byLast4.rejection
+        return [
         {
           // 받은 시각이 없으면 서버 도착 시각(이 이벤트의 at)의 KST. null 같은 값은 그대로 넘겨 엔진이 입력 오류로 거른다
-          fields: { ...fields, ref, received: own(body, 'received') === undefined ? kstTime(ctx.at) : own(body, 'received'), ...phoneFields },
+          fields: { ...fields, ref, received: own(body, 'received') === undefined ? kstTime(ctx.at) : own(body, 'received'), ...phoneFields, ...byLast4.fields },
           actor,
           requestId,
           smsRef: ref,
@@ -611,8 +690,20 @@ export class Service {
             return null
           },
         },
-      ],
+        ]
+      },
+      // 기록한 음성 쓰기만 둔다 (같은 범위 줄·트랜잭션 안 — 뒤 요청의 build가 본다). 400·409로 기록하지 않은 쓰기는 두지 않는다
+      ...(signature === null
+        ? {}
+        : {
+            afterInsert: async () => {
+              this.#voiceRepeats.remember(voiceScope, signature, arrivedAt, requestId)
+              remembered = true
+            },
+          }),
     })
+    // 이 요청이 등록했는데 커밋되지 않았으면 뺀다 (같은 요청 번호의 처음 응답(duplicate)은 이 요청이 등록하지 않았으니 그대로 둔다)
+    if (remembered && outcome.kind !== 'ok') this.#voiceRepeats.forget(voiceScope, requestId)
     return { kind: 'phone', outcome: await this.#smsOutcome(sellerId, outcome, ref), phoneLast4: normalized === null ? null : phoneLast4(normalized) }
   }
 

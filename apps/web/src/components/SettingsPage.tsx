@@ -1,5 +1,5 @@
 // 설정 (SPEC §7 화면 8, D-I3-08·D-I3-10, AC-I3-44~47·01~05·10~14·37·64).
-// 칸: 가게 · 판매 규칙(자주 쓰는 칸 + "더 보기") · 배송비 · 구매 감사 메시지 · 라벨 · 유튜브 · 인스타그램 · 틱톡 라이브(베타) · 보조자 · 그 밖. 칸마다 "저장"(바뀐 키만).
+// 칸: 가게 · 판매 규칙(자주 쓰는 칸 + "더 보기") · 배송비 · 구매 감사 메시지 · 라벨 · 택배(T1 AC-T1-66 — `/settings/parcel`은 그 칸으로) · 유튜브 · 인스타그램 · 틱톡 라이브(베타) · 보조자 · 그 밖. 칸마다 "저장"(바뀐 키만).
 // - "라벨" 칸은 라벨 기능 켜기/끄기·바꾼 기록이다(N4a AC-N4a-10, D-N4a-05) — 저장 버튼 없이 누르면 바로 바뀐다(끌 때는 묻는다).
 // - N2b-2: `/settings/instagram`·`/settings/tiktok`은 그 칸이 보이게 연다. 인스타그램에서 돌아온 결과(`?instagram=`)는 한 번 보이고 주소에서 지운다.
 // - `/settings/youtube`는 같은 화면에서 유튜브 칸이 보이게(스크롤·포커스) 연다. 구글에서 돌아온 결과(`?youtube=`)는 한 번 보이고 주소에서 지운다.
@@ -33,6 +33,7 @@ import { AssistantsSection } from './AssistantsSection.tsx'
 import { DownloadButton } from './downloads.tsx'
 import { ErrorNote, RequestError } from './ErrorNote.tsx'
 import { LabelSwitchSection } from './LabelSwitchSection.tsx'
+import { ParcelSettingsSection } from './ParcelSettings.tsx'
 import { LoginMethodsPanel, showLoginMethods, useLoginMethods } from './LoginMethods.tsx'
 import { parseLoginResult, stripLoginParams } from '../lib/social-login.ts'
 import { FixedArrivalField, RuleField, SaleModeField, SaveRow, settingProblem, useRuleForm } from './RuleFields.tsx'
@@ -171,6 +172,9 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
       </SettingsSection>
       {settings !== null ? <RuleSections settings={settings} onSaved={setSettings} youtube={youtube} /> : null}
       <LabelSwitchSection />
+      <SettingsSection title="택배" focus={route.section === 'parcel' && (settings !== null || loadError !== null)}>
+        <ParcelSettingsSection />
+      </SettingsSection>
       <SettingsSection title="유튜브" focus={route.section === 'youtube' && (settings !== null || loadError !== null)}>
         <CallbackResult code={result} />
         <YoutubeStatus handle={youtube} quota={quota.quota} navigate={navigate} place="settings" />

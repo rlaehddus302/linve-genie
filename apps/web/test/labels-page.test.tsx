@@ -280,3 +280,49 @@ describe('위 줄 "출력 멈춤" 옆 "다시 연결" (D-WIZ-01, AC-WIZ-04)', ()
     expect(await screen.findByRole('heading', { name: '라벨', level: 1 })).toBeTruthy()
   })
 })
+
+describe('저장된 라벨 설정 다시 보기 (L-11 13, D-STB-01)', () => {
+  const DATE_TOO_NARROW = '날짜 칸이 좁아 라벨을 만들 수 없어요. 칸을 넓히거나 최소 글자 크기를 줄여 주세요.'
+
+  async function openWithProduct(product: object): Promise<HTMLElement> {
+    server.on('GET', /^\/api\/print\/templates$/, () => ({ body: { ...templates(), product: { template: product, version: 3 } } }))
+    await openLabels()
+    return screen.getByRole('region', { name: '라벨 설정' })
+  }
+
+  it('저장된 상품 설정이 가장 넓은 날짜(04.04.04)를 못 담으면 열 때 저장 막힘과 같은 문장으로 경고 — 설정은 그대로이고 새로 저장은 막힌다', async () => {
+    setLabelEnv(jsdomLabelEnv())
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+    try {
+      // 옛 기본 날짜 칸(x 292 · 폭 88) — 지금은 26.10.08 같은 날짜가 들어가 출력은 되지만 2034-04-04 같은 날에 멈춘다
+      const base = defaultTemplate('product')
+      const old = { ...base, items: { ...base.items, date: { ...base.items.date, x: 292, width: 88 } } }
+      const editor = await openWithProduct(old)
+      const warning = await within(editor).findByRole('note', { name: '저장된 라벨 설정 경고' })
+      expect(warning.textContent).toBe(DATE_TOO_NARROW)
+      // 서버에 고쳐 보내지 않는다 (그대로 쓴다)
+      expect(server.callsTo('PUT', /^\/api\/print\/templates\//)).toHaveLength(0)
+      // 새로 저장하는 것은 지금처럼 막힌다 — 같은 문장
+      fireEvent.click(within(editor).getAllByRole('button', { name: '라벨 설정 저장' })[0] as HTMLButtonElement)
+      await waitFor(() => expect(within(editor).getByRole('alert').textContent).toBe(DATE_TOO_NARROW))
+      expect(server.callsTo('PUT', /^\/api\/print\/templates\//)).toHaveLength(0)
+    } finally {
+      setLabelEnv(null)
+      getContext.mockRestore()
+    }
+  })
+
+  it('기본 설정(날짜 칸 x 290 · 폭 90)이면 경고가 없다', async () => {
+    setLabelEnv(jsdomLabelEnv())
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+    try {
+      const editor = await openWithProduct(defaultTemplate('product'))
+      await flush(10)
+      expect(within(editor).queryByRole('note', { name: '저장된 라벨 설정 경고' })).toBeNull()
+      expect(editor.textContent).not.toContain(DATE_TOO_NARROW)
+    } finally {
+      setLabelEnv(null)
+      getContext.mockRestore()
+    }
+  })
+})

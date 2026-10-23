@@ -110,6 +110,14 @@ export type LogCode =
   | 'DEPOSIT_ROW_SAVE_FAILED'
   | 'DEPOSIT_APPLY_FAILED'
   | 'DEPOSIT_NOTIFY_FAILED'
+  // T1 택배 (PARCEL_RULES PC-3 "로그 금지"): 택배사 코드(reason)·HTTP 상태·개수·판매자 ID·날짜만. 받는 분·연락처·주소·메모·택배사 원래 응답·송장번호는 남기지 않는다
+  | 'PARCEL_BOOK_UNKNOWN'
+  | 'PARCEL_BOOK_RESUMED'
+  | 'PARCEL_CANCEL_UNKNOWN'
+  | 'PARCEL_TRACK_FAILED'
+  | 'PARCEL_JOB_FAILED'
+  | 'PARCEL_ADDRESSES_SWEPT'
+  | 'PARCEL_CARRIER_NOT_READY'
   // L1 간편 로그인 (D-L1-04): 공급자 이름·결과 코드(reason)·오류 종류·HTTP 상태만
   | 'SOCIAL_LOGIN'
   // A1 AI 제안 (D-A1-06): 정해진 코드·판매자 ID·HTTP 상태·개수만. 키·댓글 글(원문·가린 것)·요청·응답 본문·모델이 돌려준 글은 남기지 않는다
@@ -191,6 +199,13 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   DEPOSIT_ROW_SAVE_FAILED: '받은 입금 한 줄을 저장하지 못해 그 줄만 건너뛰었어요',
   DEPOSIT_APPLY_FAILED: '입금 자동 확인을 적지 못해 확인 필요로 남겼어요',
   DEPOSIT_NOTIFY_FAILED: '입금 확인 알림을 보내지 못했어요(기록은 저장됨)',
+  PARCEL_BOOK_UNKNOWN: '택배사 접수 답을 받지 못해 접수됐는지 모름으로 남겼어요(같은 요청 번호로 다시 확인해요)',
+  PARCEL_BOOK_RESUMED: '결과 없이 멈춘 택배 접수 요청을 같은 요청 번호로 이어받았어요(두 번 접수되지 않아요)',
+  PARCEL_CANCEL_UNKNOWN: '택배사 접수 취소 답을 받지 못했어요(접수는 그대로)',
+  PARCEL_TRACK_FAILED: '택배 배송 조회가 실패했어요(마지막 상태 그대로, 다음 주기에 다시 해요)',
+  PARCEL_JOB_FAILED: '택배 작업(조회·배송지 정리) 중 오류가 생겼어요(다음 주기에 다시 해요)',
+  PARCEL_ADDRESSES_SWEPT: '보관 기간(주문 날짜 + 30일)이 지난 배송지를 지웠어요',
+  PARCEL_CARRIER_NOT_READY: '우체국 택배 연동 키가 있지만 실제 택배사 연결은 아직 없어 쓰지 않았어요(가짜 택배사는 시험 모드에서만)',
   SOCIAL_LOGIN: '간편 로그인 결과',
   ASSIST_HTTP_ERROR: 'AI 제안 요청이 오류로 끝났어요(규칙 제안은 그대로)',
   ASSIST_TIMEOUT: 'AI 제안 요청이 15초 안에 끝나지 않았어요(규칙 제안은 그대로)',

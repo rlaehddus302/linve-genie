@@ -67,13 +67,14 @@ const item = (x: number, y: number, width: number, height: number, fontSize: num
 })
 
 // 기본 상품 템플릿 — 판매자 샘플 배치(L-3): 맨 위 가운데 가게 이름, 둘째 줄 왼쪽부터 번호·가격·날짜, 셋째 줄 품종(두 줄 자리), 넷째 줄 닉네임.
-// 둘째 줄은 최악의 값(번호: 9999 · 가격: 99,999,999원 · 26.10.08)이 20점으로 들어가는 폭이다(AC-P1-14).
+// 둘째 줄은 최악의 값(번호: 9999 · 가격: 99,999,999원 · 날짜: 04.04.04 — 2000~2099 중 가장 넓은 날짜)이 20점으로 들어가는 폭이다
+// (AC-P1-14, L-5). 날짜 칸은 오른쪽 끝 380을 두고 x 290 · 폭 90(D-STB-01 — 옛 x 292 · 폭 88은 04.04.04 같은 날짜가 20점으로도 넘쳤다).
 const PRODUCT_DEFAULT_ITEMS: Record<LabelSizeId, Record<ProductItemId, TemplateItem>> = {
   '50x30': {
     shop: item(72, 6, 240, 38, 28),
     number: item(4, 48, 100, 36, 24),
     price: item(108, 48, 180, 36, 24),
-    date: item(292, 48, 88, 36, 24),
+    date: item(290, 48, 90, 36, 24),
     name: item(4, 88, 376, 88, 28, 22),
     buyer: item(4, 180, 376, 54, 28),
   },
@@ -81,7 +82,7 @@ const PRODUCT_DEFAULT_ITEMS: Record<LabelSizeId, Record<ProductItemId, TemplateI
     shop: item(72, 3, 240, 30, 24),
     number: item(4, 35, 100, 30, 22),
     price: item(108, 35, 180, 30, 22),
-    date: item(292, 35, 88, 30, 22),
+    date: item(290, 35, 90, 30, 22),
     name: item(4, 67, 376, 56, 24),
     buyer: item(4, 125, 376, 32, 24),
   },
@@ -89,7 +90,7 @@ const PRODUCT_DEFAULT_ITEMS: Record<LabelSizeId, Record<ProductItemId, TemplateI
     shop: item(72, 8, 240, 44, 32),
     number: item(4, 58, 100, 40, 26),
     price: item(108, 58, 180, 40, 26),
-    date: item(292, 58, 88, 40, 26),
+    date: item(290, 58, 90, 40, 26),
     name: item(4, 104, 376, 124, 36, 26),
     buyer: item(4, 234, 376, 78, 32),
   },
@@ -97,7 +98,7 @@ const PRODUCT_DEFAULT_ITEMS: Record<LabelSizeId, Record<ProductItemId, TemplateI
     shop: item(72, 10, 240, 52, 36),
     number: item(4, 72, 100, 48, 28),
     price: item(108, 72, 180, 48, 28),
-    date: item(292, 72, 88, 48, 28),
+    date: item(290, 72, 90, 48, 28),
     name: item(4, 128, 376, 160, 40, 28),
     buyer: item(4, 296, 376, 96, 36),
   },
