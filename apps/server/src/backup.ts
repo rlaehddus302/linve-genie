@@ -96,6 +96,7 @@ import { readShop, shopJson, type ShopView } from './shop.ts'
 import { mergeRaw } from './store.ts'
 import { iso, kstDate, type Clock } from './time.ts'
 import { eventDigest, splitChatRaw } from './writer.ts'
+import { SERVICE_NAME } from './brand.ts'
 
 export const BACKUP_FORMAT = 'livejjim-seller-backup'
 /** 형식 번호 (2 = 칸 차례가 정해진 스트림 형식·이어 계산하는 요약값, RA-I2-005) */
@@ -472,7 +473,7 @@ const invalid = (message: string): never => {
 
 const MESSAGES = {
   gzip: '백업 파일을 풀지 못했어요(gzip 파일이 아니거나 손상됐어요).',
-  format: '라이브찜 백업 파일이 아니에요(형식 이름이 달라요).',
+  format: `${SERVICE_NAME} 백업 파일이 아니에요(형식 이름이 달라요).`,
   version: `이 서버가 읽을 수 없는 형식 번호예요(${String(BACKUP_VERSION)}만 읽어요).`,
   keys: '백업 파일의 칸이 형식과 달라요.',
   shop: '가게 설정의 형식이 올바르지 않아요.',

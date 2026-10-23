@@ -403,7 +403,7 @@ describe('AC-Y1-27 지운 메시지·유튜브 차단 알림', () => {
     const notices = (await client(w, connected.seller.cookie).get(`/api/days/${b.date}/youtube-notices`)).body.notices as Record<string, unknown>[]
     expect(notices.map(({ id: _id, at: _at, ...rest }) => rest)).toEqual([
       { kind: 'DELETED', broadcast: b.id, messageId: 'order1', channel: 'UCa', nick: '가·나', wasOrder: true, wasCancel: false, banType: null, banSeconds: null, message: '시청자가 메시지를 지웠어요. 그 메시지로 생긴 찜은 그대로예요.' },
-      { kind: 'BANNED', broadcast: b.id, messageId: null, channel: 'UCbad', nick: 'bad guy', wasOrder: false, wasCancel: false, banType: 'TEMPORARY', banSeconds: 300, message: '유튜브에서 차단된 시청자예요. 라이브찜에서도 막으려면 차단해 주세요.' },
+      { kind: 'BANNED', broadcast: b.id, messageId: null, channel: 'UCbad', nick: 'bad guy', wasOrder: false, wasCancel: false, banType: 'TEMPORARY', banSeconds: 300, message: '유튜브에서 차단된 시청자예요. 라이브지니에서도 막으려면 차단해 주세요.' },
     ])
     const after = await w.server.writer.read(connected.seller.sellerId, b.date)
     expect(after.seq).toBe(seqBefore)

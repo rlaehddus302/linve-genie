@@ -50,6 +50,7 @@ import { kstDate, type Clock } from './time.ts'
 import { WorkBusy, WorkFailed, type LedgerChunk, type WorkPools } from './work-pool.ts'
 import { uniqueNames } from './zip.ts'
 import type { Actor, Rejection, ScopeWriter, WriteOutcome } from './writer.ts'
+import { SERVICE_FILE_PREFIX, SERVICE_NAME } from './brand.ts'
 
 export interface ClosingDeps {
   readonly db: Db
@@ -410,7 +411,7 @@ export class ClosingService {
     if (file.kind !== 'ok') return file
     const bytes = file.value
     const today = kstDate(this.#deps.clock.now())
-    return ok({ bytes, type: MIME.xlsx, fileName: `라이브찜-판매대장-전체-${today}.xlsx`, fallback: `livejjim-ledger-all-${today}.xlsx` })
+    return ok({ bytes, type: MIME.xlsx, fileName: `${SERVICE_NAME}-판매대장-전체-${today}.xlsx`, fallback: `${SERVICE_FILE_PREFIX}-ledger-all-${today}.xlsx` })
   }
 
   /** 판매자 전체 기록 JSON (백업과 같은 형식, gzip — D-I2-12). 기록이 없어도 빈 기록으로 만든다 */
@@ -427,7 +428,7 @@ export class ClosingService {
       this.#exporting.delete(sellerId)
     }
     const today = kstDate(now)
-    return ok({ bytes, type: MIME.gzip, fileName: `라이브찜-전체기록-${today}.json.gz`, fallback: `livejjim-records-${today}.json.gz` })
+    return ok({ bytes, type: MIME.gzip, fileName: `${SERVICE_NAME}-전체기록-${today}.json.gz`, fallback: `${SERVICE_FILE_PREFIX}-records-${today}.json.gz` })
   }
 
   backupStatus(sellerId: string): Promise<BackupStatus> {

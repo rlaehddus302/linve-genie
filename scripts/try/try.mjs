@@ -87,7 +87,7 @@ const lan = lanAddress()
 
 // ── 화면 빌드 ──────────────────────────────────────────────
 say('')
-say('라이브찜 연습 모드를 준비하고 있어요. 처음에는 1~2분 걸려요...')
+say('라이브지니 연습 모드를 준비하고 있어요. 처음에는 1~2분 걸려요...')
 mkdirSync(CACHE, { recursive: true })
 const built = spawnSync(process.execPath, [join(ROOT, 'apps', 'web', 'e2e', 'build.ts'), '--out', WEB_DIR], { cwd: join(ROOT, 'apps', 'web'), encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] })
 if (built.status !== 0 || !existsSync(join(WEB_DIR, 'index.html'))) {
@@ -253,7 +253,7 @@ if (lan !== null) {
 
 say('')
 say('==============================================================')
-say(' 라이브찜 연습 모드가 켜졌어요. (끄려면 이 창에서 Control + C)')
+say(' 라이브지니 연습 모드가 켜졌어요. (끄려면 이 창에서 Control + C)')
 say('==============================================================')
 say('')
 say(` 1) 이 컴퓨터 크롬에서 열기 : ${appOrigin}`)
