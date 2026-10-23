@@ -1,5 +1,6 @@
 // X1 — 크롬 확장으로 유튜브 라이브 채팅 받기 (가짜 유튜브 묶음 @youtube). AC-X1-08·16·17·20, YT-10 AC3·AC4·AC7
 // 압축 해제 확장을 올린 크로미움(launchPersistentContext)에서 가짜 live_chat 페이지를 연다. 판매자 화면도 같은 브라우저.
+import type { Page } from '@playwright/test'
 import {
   addChat,
   claimsOf,
@@ -179,7 +180,7 @@ test('@youtube TE-X1-002·003: 팝업 — 고르기 전엔 "받는 중"이 아�
 })
 
 /** 콘솔 채팅 패널에서 그 닉네임의 메시지 */
-const chatItem = (page: import('@playwright/test').Page, nick: string) =>
+const chatItem = (page: Page, nick: string) =>
   page.getByRole('region', { name: '채팅', exact: true }).getByRole('list', { name: '채팅 메시지' }).getByRole('listitem').filter({ hasText: nick })
 
 test('@youtube SPEC AC3·D-X1-29: 방송자 표시(주인 배지)가 붙은 글 "21"은 찜이 되지 않고, 콘솔 채팅에 "방송자"로 보인다', async ({ ext }) => {
