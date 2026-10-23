@@ -100,3 +100,45 @@ pnpm --filter @livejjim/server e2e --port <포트> --origin <화면 주소> --as
 ### 실행·시험 명령
 - 서버 단위(A1): `cd apps/server && npx vitest run test/a1-` (`a1-golden` 89사례 + 형식 검사·TZ, `a1-assist` AC-A1-02~11, `a1-docs` AC-A1-12).
 - 기존 시험 중 바꾼 것: `test/commands.test.ts` 표 수 56 → 59(A1 표 셋 — 약화 아님, 주석에 이유).
+
+## dev-web
+
+### 만든 것 (파일)
+- `apps/web/src/lib/assist.ts` — 화면 문장(상수)·`suggestionView`(제안을 그 방송의 지금 상품으로 다시 맞춰 봄 — 없는 상품·다른 방송·없는 선택지·빠진/모르는 항목·수량 1~최대 밖이면 안 보임)·`useAssistOnOpen`(화면을 열 때 AI 제안 받기 한 번)·`useAssistSettings`(설정 칸).
+- `apps/web/src/components/ReviewsPage.tsx` — 줄마다 제안(고르기 칸 위), 목록 위 "AI가 읽는 중이에요…"·결과 문장, 목록 아래 "설정에서 AI 제안을 켤 수 있어요." 링크.
+- `apps/web/src/components/AssistSection.tsx` + `SettingsPage.tsx` — 설정의 "AI 제안" 칸(틱톡 칸 뒤, 보조자 칸 앞). `/settings/assist`는 그 칸으로 스크롤·포커스(`router.ts`에 section `assist`).
+- `apps/web/src/components/PolicyPages.tsx` — `/privacy`에 "13. AI 제안(선택)"(시행일은 14번으로), 6. 처리 위탁에 "AI 제안(판매자가 켠 경우만): Anthropic(미국) — 13번을 보세요. [검토 필요]" 한 줄.
+- `apps/web/playwright.config.ts` — 묶음 `chromium-assist` (아래).
+- 단위 시험: `apps/web/test/a1-assist.test.tsx`(20), `apps/web/test/e2e-config.node.test.ts`에 A1 묶음 한 사례.
+
+### 화면 동작 (AC-A1-20~24)
+- 제안 줄: `role="group"` 이름 `"{n}번째 줄 제안"`, 안에 `"제안: 21번 반바지 M 1개"`(옵션은 상품 항목 순서, 품종 비면 "품종 미입력")·출처 `"비슷한 글자로 찾음"`(RULE)/`"AI가 읽음"`(AI)·버튼 `"{n}번째 줄 이대로 주문"`·`"{n}번째 줄 고치기"`(보이는 글은 "이대로 주문"·"고치기"). 고르기 칸은 제안으로 미리 채우지 않는다.
+- [이대로 주문] = "주문으로"와 같은 길(되돌리기 대기 띠 → `host.resolveReview` 하나, `source` 안 보냄). 그 줄이 보내기 전·보내는 중이면 버튼 잠김, 다시 그리기 전에 두 번 눌러도 하나(누른 순간 대기열을 다시 봄).
+- [고치기] = 상품·옵션·수량 칸만 제안 값으로, 요청 없음.
+- 화면을 열 때(같은 범위 = `/api/reviews` 질의 글자) `POST /api/assist/suggest` `{ rehearsal, broadcast? }` 한 번 — StrictMode 두 번 실행·실시간 알림으로 다시 읽기에도 더 부르지 않음. 화면을 떠났다 다시 열거나 범위가 바뀌면 한 번 더. 같은 때 `GET /api/assist/settings` 하나를 함께 부른다(켜져 있으면 "AI가 읽는 중이에요…", 상한 문장의 `{상한}` = `dailyLimit`, OFF 링크는 `available`일 때만).
+- 결과 뒤 목록을 한 번 다시 읽는다. `BUSY`면 곧바로 한 번 + 16초 뒤 한 번 더(서버 호출 시간 제한 15초 뒤).
+- 문장: `LIMIT` → "오늘 AI 제안을 다 썼어요(하루 {상한}번). 비슷한 글자로 찾은 제안만 보여요.", `FAILED`·요청 자체가 5xx·연결 실패 → "AI 제안을 지금 받지 못했어요. 직접 골라 주세요.", `OFF`·`available` → 목록에 항목이 있을 때만 목록 아래 링크 "설정에서 AI 제안을 켤 수 있어요."(→ `/settings/assist`). `DONE`·`UNAVAILABLE`·`BUSY`·4xx(보조자 403·방송 404) → 아무 말 없음. 문장은 `role="status"`.
+- 목록·"주문으로"·"주문 아님"은 AI 요청을 기다리지 않는다.
+
+### 설정 칸 (AC-A1-22)
+- 보이는 조건: 저장된 `claim.parseMode === 'OPTIONS'`이면 바로, 아니면 `GET /api/option-broadcasts/exists`가 `exists: true`일 때(조회 실패면 안 보임). 보조자(`assistant`)면 묻지도 않음. 번호로만 받는 판매자는 `/api/assist/*`를 부르지 않는다(CMT-07). 서버가 `/api/assist/settings`에 403·404면 칸 안이 빈다.
+- 칸 제목(region 이름) "AI 제안".
+- 키 없음: "지금은 쓸 수 없어요."만.
+- 꺼짐: 고지 문장, 체크 칸 "위 내용을 읽었고 동의해요", `role="switch"` 이름 "AI 제안 받기"(`aria-checked=false`, 보이는 글 "AI 제안 받기 · 꺼짐") — 체크 전엔 `disabled`(아래 "동의 칸을 체크하면 켤 수 있어요."). 누르면 `PUT { enabled: true, consent: true }`.
+- 켜짐: "켜져 있어요 · 오늘 {N}번 썼어요 (하루 {상한}번까지)"(`role="status"`), 고지 문장(작게), 버튼 "끄기" → `PUT { enabled: false }` 확인 창 없이. 켜거나 끈 뒤 동의 칸은 비워진다(다시 켤 때 다시 동의). 409 `UNAVAILABLE`이면 칸을 다시 읽어 "지금은 쓸 수 없어요."로.
+
+### 시험에게 (test-e2e) — Playwright 묶음
+| 프로젝트 | 화면 | 서버 | 가짜 AI | 서버 인자 | 고르는 시험 |
+|---|---|---|---|---|---|
+| `chromium-assist` | 5184+offset | 3112+offset | 4106+offset | `--assist fake --assist-port 4106+offset --assist-daily 3 --assist-timeout-ms 2000` | 제목에 `@assist` |
+- 5183/3111은 I5 트랙의 `webkit-iphone` 몫이라 비워 뒀다(합칠 때 겹치지 않게). 이 트랙은 `E2E_PORT_OFFSET=27100` → 화면 32284·서버 30212·가짜 AI 31206.
+- `fakeLlmUrl(project)`(playwright.config.ts에서 내보냄) → `http://127.0.0.1:<가짜 AI 포트>`, 판매자 하루 상한 상수 `E2E_ASSIST_DAILY = 3`.
+- 기본 묶음 `chromium`은 `@assist`를 빼고 돈다. 기본 묶음 서버는 키 없음 — `/api/assist/settings`의 `available: false`, 옵션 판매자 설정 칸엔 "지금은 쓸 수 없어요.".
+- 같은 실행 안의 `@assist` 시험은 한 서버·한 가짜 AI·한 시험 계정(하루 상한 3)을 함께 쓴다 — 상한 시험은 뒤에 두거나 `/_e2e/sellers`로 새 판매자를 만들어 쓰고, 시험마다 `POST /_fake/reset`.
+- 휴대폰 크기 확인은 `page.setViewportSize({ width: 390, ... })`로(전용 휴대폰 묶음은 만들지 않았다).
+- 확인 실행: `CI=1 E2E_PORT_OFFSET=27100 pnpm exec playwright test --config apps/web/playwright.config.ts tests/e2e/o2/reviews.spec.ts` 8 통과(새 묶음 서버도 함께 떴다 — 가짜 AI 시작 줄 확인).
+
+### 사용성 검토에게
+- 제안 칸은 연한 파랑 바탕·왼쪽 굵은 선(색) + "제안:" 글자 + 출처 글자로 구분(색만이 아님). 출처 글 16px.
+- 결정 필요 없음. 스펙과 다르게 한 것 없음(disputesWithSpec 없음).
+- 스스로 정한 것: OFF 링크는 목록에 항목이 있을 때만(빈 목록에 설정 권유를 띄우지 않음), 켜짐 상태에도 고지 문장을 작게 다시 보임, 개인정보처리방침의 처리 위탁 칸에 한 줄(법률 확인은 사용자 몫).
