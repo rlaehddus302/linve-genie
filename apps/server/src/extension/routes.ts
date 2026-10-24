@@ -161,8 +161,11 @@ export function createExtensionApp(deps: ExtensionAppDeps): Hono<ExtEnv> {
     if (typeof code !== 'string') return invalid([{ field: 'code', message: '연결 코드 8자리를 적어 주세요.' }])
     const address = clientAddress(deps.address(c), c.req.header('x-forwarded-for'), deps.trustedProxies)
     const key = address === null ? null : ipKey(address)
-    if (!codeLimiter.take(key)) return apiError(429, 'EXT_CODE_LIMITED', EXTENSION_MESSAGES.CODE_LIMITED)
+    // 주소 한도를 먼저 보되(막힌 주소는 전체 한도를 쓰지 않음) 주소 기록에는 전체 한도까지 지난 시도만 넣는다 — 전체 한도에 막힌
+    // 요청으로 주소 기록을 밀어내 믿는 주소의 20번을 새로 받는 길을 막는다(TD-QS1-002, RA-QS1-02, D-QS1-06 (d), AC-QS1-32)
+    if (!codeLimiter.allows(key)) return apiError(429, 'EXT_CODE_LIMITED', EXTENSION_MESSAGES.CODE_LIMITED)
     if (!extension.trustedAddresses.has(key) && !allCodes.take('*')) return apiError(429, 'EXT_CODE_LIMITED', EXTENSION_MESSAGES.CODE_LIMITED)
+    if (!codeLimiter.take(key)) return apiError(429, 'EXT_CODE_LIMITED', EXTENSION_MESSAGES.CODE_LIMITED)
     const token = await extension.exchange(code.replace(/[\s-]/g, ''))
     if (token === null) return apiError(400, 'EXT_CODE_INVALID', EXTENSION_MESSAGES.CODE_INVALID)
     return c.json({ token })

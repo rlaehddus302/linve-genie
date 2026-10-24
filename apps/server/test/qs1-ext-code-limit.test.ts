@@ -4,8 +4,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { EXT_CODE_GLOBAL_MAX } from '../src/extension/routes.ts'
 import { TRUSTED_PER_SELLER, TRUSTED_TTL_MS, TrustedAddresses } from '../src/extension/trusted.ts'
-import { IP_MAX_ATTEMPTS, ipKey } from '../src/login-limit.ts'
-import { ORIGIN, addSeller, type Seller } from './support.ts'
+import { IP_MAX_ATTEMPTS, IP_TRACK_MAX, IpLimiter, ipKey } from '../src/login-limit.ts'
+import { ORIGIN, addSeller, fakeClock, type Seller } from './support.ts'
 import { youtubeWorld, type YoutubeWorld } from './youtube-support.ts'
 
 const worlds: YoutubeWorld[] = []
@@ -186,6 +186,49 @@ describe('AC-QS1-14 (e) 믿는 주소 보관 (TrustedAddresses)', () => {
     expect(w.server.extension.trustedAddresses.countFor(seller.sellerId)).toBe(3)
     expect(['192.0.2.28', '192.0.2.29', '192.0.2.30', '192.0.2.27'].map((address) => w.server.extension.trustedAddresses.has(ipKey(address)))).toEqual([true, true, true, false])
   })
+})
+
+describe('AC-QS1-32 주소 기록 밀어내기로 믿는 주소의 20번을 새로 받지 못한다 (TD-QS1-002, RA-QS1-02, D-QS1-06 (d))', () => {
+  it('IpLimiter.allows는 세지도 기록하지도 않는다 — 막힌 주소는 false, 기록에 없는 주소는 true인데 기록이 늘지 않는다', () => {
+    const clock = fakeClock()
+    const limiter = new IpLimiter(clock, { ipMaxAttempts: 2, ipTrackMax: 3 })
+    expect(limiter.allows('a')).toBe(true)
+    expect(limiter.size).toBe(0)
+    expect(limiter.take('a')).toBe(true)
+    expect(limiter.take('a')).toBe(true)
+    expect(limiter.allows('a')).toBe(false)
+    for (let i = 0; i < 10; i += 1) expect(limiter.allows(`n${String(i)}`)).toBe(true)
+    expect(limiter.size).toBe(1)
+    expect(limiter.allows(null)).toBe(true)
+  })
+
+  it('전체 한도에 막힌 요청은 주소 기록에 들어가지 않는다 — 전체 3,000번을 다 쓴 뒤 다른 /64 주소 1만 개로 밀어내도 믿는 주소 A의 21번째는 429', async () => {
+    const w = await world()
+    const seller = await addSeller(w)
+    await issue(w, seller, A)
+    for (let i = 0; i < IP_MAX_ATTEMPTS; i += 1) expect((await enter(w, A, WRONG)).status).toBe(400)
+    expect((await enter(w, A, WRONG)).status).toBe(429)
+    let accepted = 0
+    for (let i = 0; i < IP_TRACK_MAX; i += 500) {
+      const results = await Promise.all(Array.from({ length: 500 }, (_, j) => enter(w, `2001:db8:${(i + j).toString(16)}:1::1`, WRONG)))
+      accepted += results.filter((result) => result.status === 400).length
+    }
+    // 전체 한도까지만 받는다 (A의 시도는 전체에 세지 않았다)
+    expect(accepted).toBe(EXT_CODE_GLOBAL_MAX)
+    // 10분이 지나지 않았다 — A는 여전히 20번을 다 쓴 주소다
+    expect((await enter(w, A, WRONG)).status).toBe(429)
+    // 10분이 지나면 다시 받는다 (막힘이 영원하지 않다)
+    await w.timer.advance(10 * 60 * 1000 + 1)
+    expect((await enter(w, A, WRONG)).status).toBe(400)
+  }, 60_000)
+
+  it('주소 한도에 막힌 요청은 전체 한도를 쓰지 않는다 — 막힌 주소 B의 시도 수천 번 뒤에도 다른 주소는 받는다', async () => {
+    const w = await world()
+    for (let i = 0; i < IP_MAX_ATTEMPTS; i += 1) expect((await enter(w, B, WRONG)).status).toBe(400)
+    const blocked = await Promise.all(Array.from({ length: EXT_CODE_GLOBAL_MAX }, () => enter(w, B, WRONG)))
+    expect(blocked.every((result) => result.status === 429)).toBe(true)
+    expect((await enter(w, A, WRONG)).status).toBe(400)
+  }, 60_000)
 })
 
 describe('AC-QS1-15 기록하지 않는 것', () => {

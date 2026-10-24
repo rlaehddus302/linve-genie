@@ -91,11 +91,22 @@ export class IpLimiter {
     return this.#attempts.size
   }
 
+  /** 이 IP의 시도를 지금 받을 수 있는지 (세지도 기록하지도 않는다). 키가 null이면 늘 받는다 */
+  allows(key: string | null): boolean {
+    if (key === null) return true
+    return this.#recent(key).length < this.#max
+  }
+
+  #recent(key: string): number[] {
+    const now = this.#clock.now()
+    return (this.#attempts.get(key) ?? []).filter((at) => at > now - this.#windowMs)
+  }
+
   /** 이 IP의 시도를 받을지 (받으면 센다). 키가 null(연결 주소를 모름)이면 늘 받는다 */
   take(key: string | null): boolean {
     if (key === null) return true
     const now = this.#clock.now()
-    const recent = (this.#attempts.get(key) ?? []).filter((at) => at > now - this.#windowMs)
+    const recent = this.#recent(key)
     // 가장 최근에 쓴 것으로 옮긴다 (넘치면 가장 오래 안 쓴 것부터 지운다)
     this.#attempts.delete(key)
     if (recent.length >= this.#max) {
