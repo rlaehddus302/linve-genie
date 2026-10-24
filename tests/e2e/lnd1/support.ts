@@ -1,4 +1,4 @@
-// LND1 공개 소개 화면 E2E 공용 (test-e2e). 문장은 acceptance.md "확정 문장" 표·D-LND1-03·05 글자 그대로 (구현을 보고 정하지 않음).
+// LND1 공개 소개 화면 E2E 공용 (test-e2e). 문장은 acceptance.md "확정 문장" 표·D-LND1-03·05·11 글자 그대로 (구현을 보고 정하지 않음).
 import { expect, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test'
 
 export const TITLE = '라이브지니'
@@ -16,14 +16,18 @@ export const GOOGLE_ITEMS = [
   '유튜브를 연결하면 판매자 본인 채널의 이름, 본인 라이브 방송 목록, 고른 방송의 채팅 글을 읽어요. 채팅에서 주문을 찾는 데만 써요.',
   '판매자가 설정에서 감사 메시지 자동 게시를 켜고 동의했을 때만 본인 방송 채팅이나 본인 영상 댓글에 짧은 감사 글을 올려요.',
   '구글로 로그인하면 구글 계정 번호와 가린 이메일만 저장해요.',
-  '채팅 글과 시청자 이름은 방송 날짜부터 30일 뒤에 지워요. 구글 사용자 데이터를 팔거나 광고에 쓰지 않아요.',
+  '유튜브에서 받은 채팅 글과 채팅만 한 시청자의 이름은 방송 날짜부터 30일 뒤에 지워요. 찜이 정해진 손님의 이름은 판매 장부(확인서·정산·포장)에 남아요.',
+  '유튜브에서 받은 채팅은 AI 제안으로 보내지 않아요. 구글 사용자 데이터를 팔거나 광고에 쓰지 않아요.',
   '설정의 유튜브 칸에서 언제든 연결을 끊을 수 있어요.',
 ] as const
+/** D-LND1-11: 영문 단락에 정확히 한 번 있어야 하는 문장 · 화면 어디에도 없어야 하는 옛 문장(RA-LND1-01) */
+export const THIRD_PARTY_EN = 'We do not transfer YouTube data to third parties.'
+export const OLD_30_DAY = ['시청자 이름은 방송 날짜부터 30일 뒤에 지워요', 'Live chat text and viewer names are deleted'] as const
 export const LIMITED_USE = '라이브지니가 구글 API에서 받은 정보를 쓰고 다른 앱으로 옮길 때는 구글 API 서비스 사용자 데이터 정책(제한적 사용 요건 포함)을 따릅니다.'
 export const LIMITED_USE_LINK = '구글 API 서비스 사용자 데이터 정책'
 export const USER_DATA_POLICY_URL = 'https://developers.google.com/terms/api-services-user-data-policy'
 export const ENGLISH =
-  "LiveGenie uses Google user data only to provide its features. When a seller connects YouTube, LiveGenie reads the seller's own channel name, the seller's own live broadcasts, and the live chat messages of the chosen broadcast to find orders (youtube.readonly). Only if the seller turns on automatic thank-you messages and agrees, LiveGenie posts short thank-you messages in the seller's own live chat or as a comment on the seller's own video (youtube.force-ssl). Google sign-in uses only openid and email. Live chat text and viewer names are deleted 30 days after the broadcast date. We do not sell Google user data or use it for advertising. LiveGenie's use and transfer to any other app of information received from Google APIs will adhere to the Google API Services User Data Policy, including the Limited Use requirements."
+  "LiveGenie uses Google user data only to provide its features. When a seller connects YouTube, LiveGenie reads the seller's own channel name, the seller's own live broadcasts, and the live chat messages of the chosen broadcast to find orders (youtube.readonly). Only if the seller turns on automatic thank-you messages and agrees, LiveGenie posts short thank-you messages in the seller's own live chat or as a comment on the seller's own video (youtube.force-ssl). Google sign-in uses only openid and email. Live chat messages received from YouTube, and the names of viewers who only chatted, are deleted 30 days after the broadcast date. The display names of buyers whose orders were confirmed are kept in the seller's sales records (order confirmations, settlement and packing). Chat received from YouTube is never sent to the optional AI suggestion feature. We do not transfer YouTube data to third parties. We do not sell Google user data or use it for advertising. LiveGenie's use and transfer to any other app of information received from Google APIs will adhere to the Google API Services User Data Policy, including the Limited Use requirements."
 export const OPERATOR_NAME = '상호: 틈(TEUM)'
 export const SESSION_EXPIRED = '로그인이 풀렸어요. 다시 로그인해 주세요.'
 export const OFFLINE = '인터넷 연결이 없어요. 연결되면 다시 불러와요.'

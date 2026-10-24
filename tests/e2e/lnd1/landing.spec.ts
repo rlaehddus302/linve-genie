@@ -5,6 +5,8 @@ import { expectSignedIn } from '../menu.ts'
 import {
   DAY_STEPS,
   ENGLISH,
+  OLD_30_DAY,
+  THIRD_PARTY_EN,
   GOOGLE_ITEMS,
   HEADINGS,
   LIMITED_USE,
@@ -203,7 +205,7 @@ test.describe('AC-LND1-08 정책 페이지 "로그인 화면으로"', () => {
 })
 
 test.describe('AC-LND1-09 구글 사용자 데이터 고지', () => {
-  test('점 목록 다섯 줄(순서) · 제한적 사용 문장과 링크(href·rel·새 창 아님) · 영문 단락 글자 그대로 · 단정 문장 없음', async ({ page }) => {
+  test('점 목록 여섯 줄(순서, D-LND1-11) · 제한적 사용 문장과 링크(href·rel·새 창 아님) · 영문 단락 글자 그대로 · 단정 문장 없음 · 영문 제3자 문장 한 번 · 옛 30일 문장 없음', async ({ page }) => {
     await page.goto('/')
     const google = section(page, '구글 사용자 데이터를 쓰는 곳')
     await expect(google).toBeVisible()
@@ -222,9 +224,16 @@ test.describe('AC-LND1-09 구글 사용자 데이터 고지', () => {
     const english = page.locator('[lang="en"]')
     await expect(english).toHaveCount(1)
     expect(((await english.textContent()) ?? '').trim()).toBe(ENGLISH)
+    // D-LND1-11: 영문 단락엔 제3자 문장이 정확히 한 번 (단락 전체 비교와 별도로 횟수를 확인)
+    const englishText = (await english.textContent()) ?? ''
+    expect(englishText.split(THIRD_PARTY_EN).length - 1).toBe(1)
+    // 한국어 글(lang="en" 문단 제외)에는 단정하는 '제3자'·'넘기지 않아요' 문장이 없다
     const body = await page.locator('body').innerText()
-    expect(body).not.toContain('다른 곳에 넘기지 않아요')
-    expect(body).not.toContain('제3자')
+    const korean = body.replace(englishText.trim(), '')
+    expect(korean).not.toContain('다른 곳에 넘기지 않아요')
+    expect(korean).not.toContain('제3자')
+    // 옛 30일 문장(RA-LND1-01)은 화면 어디에도 없다 — 영문 포함 전체 글
+    for (const old of OLD_30_DAY) expect(body, old).not.toContain(old)
   })
 })
 
@@ -240,7 +249,7 @@ test.describe('AC-LND1-10 운영 사업자 (지금 값)', () => {
 })
 
 test.describe('AC-LND1-13 쉬운 한국어', () => {
-  test('영문 단락을 뺀 소개 화면 글에 영어 낱말·밑줄 낱말 없음 (예외: "API"·"TEUM")', async ({ page }) => {
+  test('영문 단락을 뺀 소개 화면 글에 영어 낱말·밑줄 낱말 없음 (예외: "API"·"TEUM"·"AI 제안")', async ({ page }) => {
     await page.goto('/')
     await expectLanding(page)
     const text = await page.evaluate(() => {
@@ -249,7 +258,8 @@ test.describe('AC-LND1-13 쉬운 한국어', () => {
       // 숨은 글도 보지 않도록 원본의 보이는 글 기준: innerText는 붙지 않은 노드에서 textContent와 같다 — 영문 단락만 지운 textContent
       return clone.textContent ?? ''
     })
-    const words = (text.match(/[A-Za-z_][A-Za-z0-9_.-]*/g) ?? []).filter((w) => w !== 'API' && w !== 'TEUM')
+    // 예외(이름, AC-LND1-13): "API"·"TEUM"과 기능 이름 "AI 제안"의 "AI"(D-LND1-11) — "AI"는 "AI 제안"으로 쓰일 때만 뺀다
+    const words = (text.replaceAll('AI 제안', '제안').match(/[A-Za-z_][A-Za-z0-9_.-]*/g) ?? []).filter((w) => w !== 'API' && w !== 'TEUM')
     expect(words).toEqual([])
     for (const w of ['youtube.readonly', 'force-ssl', 'openid', 'OAuth', 'scope', 'token', 'NOT_LINKED']) expect(text, w).not.toContain(w)
   })
