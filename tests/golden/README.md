@@ -24,7 +24,7 @@
 | `printer/*.json` | 프린터 작업 바이트·기기 이름으로 고르기·프로필 표·바로 연결할 수 없는 브라우저의 까닭 (LABEL_RULES L-7·L-12, N1 — D-N1-01·09). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/printer` 단위 테스트가 읽는다 — 아래 "프린터 골든" |
 | `voice/*.json` | 음성 문자찜 문장 하나 → 문자찜 아님 또는 주문·뒤 4자리·이름·받은 시각·문제 (DOMAIN_RULES R-21, V1 — D-V1-01·02·04·08·12). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/voice` 단위 테스트가 읽는다 — 아래 "음성 문자찜 골든" |
 | `tiktok/*.json` | 틱톡 아이디·방송 주소 해석, 웹캐스트 댓글 → 공통 댓글 레코드·중복 제거 (PLT-02, N2b-1, D-N2b-1-02~04), 공통 댓글 레코드 → `chat` 다섯 칸·댓글 붙여넣기 줄 읽기 (N2b-2, D-N2b-2-03·07). **JSON이라 코어 골든 러너는 읽지 않는다**. `apps/server` 시험이 읽는다 — 아래 "틱톡 골든" |
-| `parcel/*.json` | 택배 — 배송지 여섯 칸 다듬기·검사, 묶음을 접수 목록에서 고를 수 있는지 (PARCEL_RULES PC-2·PC-4, T1, D-T1-03·D-T1-05). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "택배 골든" |
+| `parcel/*.json` | 택배 — 배송지 여섯 칸 다듬기·검사, 묶음을 접수 목록에서 고를 수 있는지, 택배 크기 읽기 (PARCEL_RULES PC-2·PC-4·PC-6, T1, D-T1-03·D-T1-05, FB1 D-FB1-05). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "택배 골든" |
 | `waybill/*.json` | 운송장 — 송장번호 Code 128 부호값·받는 분 연락처 가리기·송장번호 글 (PARCEL_RULES PC-7, T1, D-T1-10). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/documents` 단위 시험이 읽는다 — 아래 "운송장 골든" |
 | `assist/*.json` | 확인 필요 항목의 제안 — 규칙 제안(비슷한 선택지로 바꿔 다시 읽기·같은 이름 상품 가르기)·AI 응답 검사·AI로 보내는 글 가리기·AI 호출 고르기 (SPEC CMT-06, DOMAIN_RULES R-20 10, A1 — D-A1-02~D-A1-06). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "AI 제안 골든" |
 
@@ -383,14 +383,15 @@ expect:
 
 택배 자동 접수(STL-08 T1 세부)의 서버 순수 함수 둘을 고정한다. 규칙 문장은 `docs/spec/PARCEL_RULES.md`다(배송지 읽기 PC-2, 접수할 수 있는지 PC-4). 판정 엔진이 아니라 서버의 규칙이라 엔진 골든(YAML)과 따로 둔다.
 
-- **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. 서버(`apps/server`)의 단위 시험이 이 폴더의 모든 `*.json`을 읽어 서버의 순수 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 그 시험은 파일 수 2·사례 수 합계 47(address 26 · eligibility 21)을 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다. 미구현을 허용하는 장치가 없다(`known-unimplemented.yaml`의 대상이 아니다).
-- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `address`·`eligibility`·`sender`(D-T1-16 — 서버 시험이 알기 전까지는 읽기 오류로 실패한다). 모르는 키·모르는 `kind`·아래 표 밖의 열거값은 시험 실패(읽기 오류)다. 보이지 않는 글자·풀어 쓴 한글 자모는 `\uXXXX`로 적는다.
-- **사례 공통 키**: `id`(`G-PCL-T1-` + 두 자리 또는 세 자리, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `in`, `out`.
+- **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. 서버(`apps/server`)의 단위 시험이 이 폴더의 모든 `*.json`을 읽어 서버의 순수 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 그 시험은 파일 수 4·사례 수 합계 74(address 26 · eligibility 21 · sender 8 · box 19 — FB1에서 box를 더함, D-FB1-05)를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다. 미구현을 허용하는 장치가 없다(`known-unimplemented.yaml`의 대상이 아니다).
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `address`·`eligibility`·`sender`(D-T1-16)·`box`(FB1, D-FB1-05) — 서버 시험이 알기 전까지는 읽기 오류로 실패한다. 모르는 키·모르는 `kind`·아래 표 밖의 열거값은 시험 실패(읽기 오류)다. 보이지 않는 글자·풀어 쓴 한글 자모는 `\uXXXX`로 적는다.
+- **사례 공통 키**: `id`(`G-PCL-T1-` 또는 `G-PCL-FB1-` + 두 자리 또는 세 자리, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `in`, `out`.
 
 | `kind` | `in` | `out` |
 |---|---|---|
 | `address` | `{ "name", "phone", "address", "detail", "zip", "memo" }` — 정확히 여섯 키, 모두 글 | `{ "ok": { 같은 여섯 키 — 다듬은 값, phone은 숫자만, 없는 zip·detail·memo는 "" } }` 또는 `{ "errors": [코드 …] }`(칸 순서, 칸마다 많아야 하나). 코드 ∈ `NAME_EMPTY`·`NAME_TOO_LONG`·`PHONE_EMPTY`·`PHONE_INVALID`·`ADDRESS_EMPTY`·`ADDRESS_TOO_LONG`·`DETAIL_TOO_LONG`·`ZIP_INVALID`·`MEMO_TOO_LONG` |
 | `sender` | `{ "name", "phone", "address", "detail", "zip" }` — 정확히 다섯 키, 모두 글(설정 "보내는 사람", 메모 칸 없음) | `address`와 같은 다듬기·칸 코드·칸 순서, 다만 `name`은 1~30자(가게 이름 상한과 같음 — PC-6, D-T1-16). `{ "ok": { 같은 다섯 키 } }` 또는 `{ "errors": [코드 …] }`(`MEMO_TOO_LONG`은 나오지 않는다) |
+| `box` | `{ "value" }` — 정확히 한 키, 값은 아무 JSON 값(글·숫자·null) | `{ "box": 코드 }`(코드 ∈ `60`·`80`·`100`·`120`·`160`) 또는 `{ "error": "BOX_INVALID" }` 정확히 같음. 옛 낱말 `극소`·`소`·`중`·`대`는 차례대로 `60`·`80`·`100`·`120`. 다듬기·반각 바꾸기 없이 글자 그대로 비교 (PC-6, D-FB1-05) |
 | `eligibility` | `{ "items", "shipping", "payment", "packing", "parcel", "address" }` — 정확히 여섯 키. `items` = 품목 수(0 이상 정수), `shipping` ∈ `NONE`·`FIXED`·`PICKUP`·`COMBINED`(배송비 예외), `payment` ∈ `UNPAID`·`PARTIAL`·`PAID`·`OVERPAID`(R-12), `packing` ∈ `포장 대기`·`포장 완료`·`포장 다시 확인`·`배송 완료`·`배송 뒤 바뀜`(STL-08 상태 말), `parcel` ∈ `NONE`·`PENDING`·`UNKNOWN`·`BOOKED`·`FAILED`·`CANCELLED`(가장 나중 시도의 상태, 없으면 `NONE`), `address` ∈ `NONE`·`UNCONFIRMED`·`CONFIRMED` | `{ "ready": true }` 또는 `{ "reason": 이유 }` 정확히 같음. 이유 ∈ `BOOKING`·`BOOKED`·`NO_ITEMS`·`PICKUP`·`COMBINED`·`SHIPPED`·`NOT_PAID`·`NOT_PACKED`·`PACK_CHECK`·`NO_ADDRESS`·`ADDRESS_UNCONFIRMED` |
 
 - 글자 수는 코드 포인트 수다(G-PCL-T1-17 — 이모지 20개는 20자). 시험은 결과가 실행 환경 시간대와 상관없는지 따로 보지 않는다(시각이 없다).
