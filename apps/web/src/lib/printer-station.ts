@@ -712,8 +712,11 @@ export class PrinterStation {
     this.#set({ connection: state })
     if (state === 'CONNECTED') {
       this.#autoBlocked = false
-      // 저절로 다시 이어졌다: 60초 동안 끊기지 않으면 횟수를 새로 센다
-      if (this.#autoUsed > 0) this.#armStable()
+      // 저절로 다시 이어졌다: 60초 동안 끊기지 않으면 횟수를 새로 센다.
+      // 타이머는 끊김/연결 중에서 처음 이어졌을 때만 건다 — 출력 한 장마다 오는
+      // PRINTING → CONNECTED로 다시 걸면 자주 찍는 방송에서 횟수가 영영 새로 세어지지 않는다 (TD-QS1-001)
+      const fresh = previous !== 'PRINTING' && previous !== 'CONNECTED'
+      if (fresh && this.#autoUsed > 0) this.#armStable()
       this.#saveFakes()
     } else if (state === 'DISCONNECTED' && (previous === 'CONNECTED' || previous === 'PRINTING')) {
       // 연결된 뒤 끊김 (판매자 조작 아님 — "연결 끊기"는 #autoBlocked, 다른 방법은 듣기를 먼저 그만둔다)

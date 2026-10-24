@@ -386,6 +386,50 @@ describe('저절로 다시 잇기 (AC-QS1-22·24)', () => {
     expect(printer.rememberedAttempts).toBe(9)
   })
 
+  it('이어진 뒤 20초마다 라벨을 찍어도 60초는 이어진 때부터 센다 — 5분 뒤 끊기면 1초부터 새로 (TD-QS1-001)', async () => {
+    const printer = createFakePrinter({ methods: ['bluetooth'] })
+    const s = await connectedTest(printer)
+    printer.setConnectError('CONNECT_FAILED')
+    printer.simulateDisconnect()
+    await timer.advance(1000 + 2000 + 4000 + 8000 + 16000)
+    printer.setConnectError(undefined)
+    await timer.advance(30_000) // 6번째로 이어짐
+    expect(printer.rememberedAttempts).toBe(6)
+    expect(s.getSnapshot().connection).toBe('CONNECTED')
+    for (let i = 0; i < 15; i++) {
+      claims.push(claimed(`p${String(i)}`))
+      FakeEventSource.last.emit('print', { rev: 10 + i, queue: queue({ rev: 10 + i, device: device(ME) }), jobs: [], labels: [] })
+      await vi.waitFor(() => expect(printer.printed).toHaveLength(i + 1))
+      await timer.advance(20_000)
+    }
+    expect(s.getSnapshot().connection).toBe('CONNECTED')
+    printer.simulateDisconnect()
+    await timer.advance(1000)
+    expect(printer.rememberedAttempts).toBe(7)
+    expect(s.getSnapshot().connection).toBe('CONNECTED')
+  })
+
+  it('3번째로 이어진 뒤 출력만 하다 30초 만에 끊기면 남은 횟수로 — 출력이 타이머를 늘리지도 줄이지도 않는다', async () => {
+    const printer = createFakePrinter({ methods: ['bluetooth'] })
+    await connectedTest(printer)
+    printer.setConnectError('CONNECT_FAILED')
+    printer.simulateDisconnect()
+    await timer.advance(3000)
+    printer.setConnectError(undefined)
+    await timer.advance(4000)
+    expect(printer.rememberedAttempts).toBe(3)
+    claims.push(claimed('q1'))
+    FakeEventSource.last.emit('print', { rev: 10, queue: queue({ rev: 10, device: device(ME) }), jobs: [], labels: [] })
+    await vi.waitFor(() => expect(printer.printed).toHaveLength(1))
+    await timer.advance(30_000)
+    printer.setConnectError('CONNECT_FAILED')
+    printer.simulateDisconnect()
+    await timer.advance(7999)
+    expect(printer.rememberedAttempts).toBe(3)
+    await timer.advance(1)
+    expect(printer.rememberedAttempts).toBe(4)
+  })
+
   it('이었다 끊겼다를 60초 안에 되풀이해도 끊김 묶음 하나에 합 6번', async () => {
     const printer = createFakePrinter({ methods: ['bluetooth'] })
     await connectedTest(printer)
