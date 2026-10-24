@@ -130,7 +130,7 @@ describe('TD-FB1 택배 크기 읽기 = 골든 규칙 (AC-FB1-16·17·89)', () =
 
 // ── 쓰는 택배사 ────────────────────────────────────────────
 const nameArb: fc.Arbitrary<unknown> = fc.oneof(
-  { weight: 4, arbitrary: fc.constantFrom('경동택배', '  경동   택배 ', '대신택배', '<script>alert(1)</script>', '<b>합동</b>', '"; drop table parcels; --', '🚚택배', '🚚'.repeat(20), '🚚'.repeat(21), '가'.repeat(20), '가'.repeat(21), '경동\n택배', '경동\t택배', '　경동　', '\u0000경동', '경동\u0007', '', ' ', '　', '\n\t', '&lt;b&gt;') },
+  { weight: 4, arbitrary: fc.constantFrom('경동택배', '  경동   택배 ', '대신택배', '<script>alert(1)</script>', '<b>합동</b>', '"; drop table parcels; --', '🚚택배', '🚚'.repeat(20), '🚚'.repeat(21), '가'.repeat(20), '가'.repeat(21), '경동\n택배', '경동\t택배', '　경동　', '\u0000경동', '경동\u0007', '경동\u200b택배', '\u200b\u200d\u00ad', '\u202e경동', '경동\u2028택배', '\u2029', '', ' ', '　', '\n\t', '&lt;b&gt;') },
   { weight: 2, arbitrary: fc.string({ maxLength: 30 }) },
   { weight: 1, arbitrary: fc.string({ minLength: 20, maxLength: 400 }) },
   { weight: 1, arbitrary: fc.constantFrom(0, 42, true, null, [], ['경동'], { name: '경동' }) },
@@ -141,13 +141,13 @@ const carrierArb: fc.Arbitrary<unknown> = fc.oneof(
   { weight: 1, arbitrary: fc.string({ maxLength: 10 }) },
 )
 
-/** 서버 다듬기(PC-2 1)와 같은 뜻: NFC → 공백(\s)·제어 글자는 공백 하나, 앞뒤 지우기 */
+/** 택배사 이름 다듬기 = L-2 글 다듬기 1~4 (D-FB1-16, PC-1): NFC → 제어 글자·줄/문단 구분자는 공백, \p{Cf} 지움, 이어진 \p{Zs} 공백 하나·앞뒤 지움 */
 const tidy = (text: string): string =>
   [...text.normalize('NFC')]
-    .map((c) => ((c.codePointAt(0) as number) <= 0x1f || ((c.codePointAt(0) as number) >= 0x7f && (c.codePointAt(0) as number) <= 0x9f) || /^\s$/u.test(c) ? ' ' : c))
+    .map((c) => (/\p{Cc}/u.test(c) || c === '\u2028' || c === '\u2029' ? ' ' : /\p{Cf}/u.test(c) ? '' : c))
     .join('')
-    .replace(/ +/g, ' ')
-    .trim()
+    .replace(/\p{Zs}+/gu, ' ')
+    .replace(/^ +| +$/g, '')
 
 describe('TD-FB1 쓰는 택배사 무작위 (AC-FB1-15·89)', () => {
   it('carrier·carrierName 무작위 80쌍: 400이면 아무것도 저장 안 함, 200이면 다듬은 1~20자 이름(OTHER일 때만) — 행은 늘 "OTHER일 때만 이름", 이름은 로그에 없음', async () => {

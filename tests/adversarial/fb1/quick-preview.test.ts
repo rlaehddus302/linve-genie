@@ -1,5 +1,5 @@
 // FB1 적대 시험 (test-domain): 빠른 입력 "등록하면: …" 미리 보기 = Enter로 등록할 때의 해석 (AC-FB1-02·03, D-FB1-01, 절대 규칙 2).
-// 무작위 줄 1,000개 × 두 가격 단위(천원·원)에서
+// 무작위 줄 1,000개 × 세 가격 단위(천원·원·만원 — D-FB1-11, SA-FB1-03)에서
 //  - 미리 보기가 있으면 그 줄은 등록(register)으로 읽히고, 등록으로 읽히면 미리 보기가 있다 (고칠까요·번호만·오류면 없다)
 //  - 미리 보기 가격 = 코어 parseQuickInput 가격 = 등록 판단(decideQuickInput) 가격, 안전한 정수 원(100원 이상), 원 표기("10,000원")
 //  - 고치기 칸 "= …원"은 parseAmount 결과와 같고, 읽지 못하면 없다
@@ -14,7 +14,8 @@ import { describe, expect, it } from 'vitest'
 const QUICK_MODULE = '../../../apps/web/src/lib/quick.ts'
 const ROOT = join(import.meta.dirname, '..', '..', '..')
 
-type Unit = 'THOUSAND' | 'WON'
+type Unit = 'THOUSAND' | 'WON' | 'TEN_THOUSAND'
+const UNITS: readonly Unit[] = ['THOUSAND', 'WON', 'TEN_THOUSAND']
 interface QuickSettings {
   readonly 'price.unit': Unit
   readonly 'claim.maxNumber': number
@@ -40,7 +41,7 @@ const numberTok = fc.oneof(
 )
 const nameTok = fc.constantFrom('엘레강스', '핑크프릴', '라울', '창', '블루 엘프', '<b>굵게</b>', '<script>alert(1)</script>', '🌵', '다육​이', 'Rose', '10cm', '2두', '3개', '만', '천', '원', '1번', '&amp;', '"따옴"', "'", '　')
 const priceTok = fc.oneof(
-  fc.constantFrom('10', '2만', '1.5만', '1만5천', '10000', '1,000', '10원', '0.5', '천', '5천', '만원', '12000원', '3.5', '１０', '100', '99', '0', '-10', '1e3', '2만원', '1만 5천', '9999999', '99999999999999999999'),
+  fc.constantFrom('10', '15', '14', '999', '1000', '5천', '15000', '2만', '1.5만', '1만5천', '10000', '1,000', '10원', '0.5', '천', '5천', '만원', '12000원', '3.5', '１０', '100', '99', '0', '-10', '1e3', '2만원', '1만 5천', '9999999', '99999999999999999999'),
   fc.integer({ min: 0, max: 2_000_000 }).map(String),
 )
 const sepTok = fc.constantFrom(' ', ' ', ' ', '  ', '\t', '/')
@@ -53,14 +54,14 @@ const lineArb = fc
 
 const PREVIEW = /^등록하면: (\d+)번 (?:(.*) )?((?:\d{1,3})(?:,\d{3})*)원$/
 
-describe('AC-FB1-03 미리 보기 가격 = 등록 판단 가격 (무작위 줄 1,000개 × 천원·원)', () => {
+describe('AC-FB1-03 미리 보기 가격 = 등록 판단 가격 (무작위 줄 1,000개 × 천원·원·만원)', () => {
   it('미리 보기는 등록으로 읽힐 때만, 가격은 코어 해석 그대로의 정수 원', async () => {
     const quick = await load()
-    const units: Unit[] = ['THOUSAND', 'WON']
     let registered = 0
+    const registeredBy: Record<Unit, number> = { THOUSAND: 0, WON: 0, TEN_THOUSAND: 0 }
     await fc.assert(
       fc.asyncProperty(lineArb, fc.uniqueArray(fc.integer({ min: 1, max: 60 }), { maxLength: 8 }), async (line, existing) => {
-        for (const unit of units) {
+        for (const unit of UNITS) {
           const settings = quick.quickSettings(resolveSettings({ 'price.unit': unit } as never))
           const products = new Map(existing.map((n) => [n, { id: `p${String(n)}`, no: n }]))
           const find = (n: number) => products.get(n)
@@ -72,6 +73,7 @@ describe('AC-FB1-03 미리 보기 가격 = 등록 판단 가격 (무작위 줄 1
             continue
           }
           registered++
+          registeredBy[unit]++
           const d = decision as Extract<Decision, { kind: 'register' }>
           expect('error' in core).toBe(false)
           if ('error' in core) return
@@ -90,12 +92,14 @@ describe('AC-FB1-03 미리 보기 가격 = 등록 판단 가격 (무작위 줄 1
     )
     // 생성기가 등록으로 읽히는 줄을 충분히 만든다 (빈 시험이 아니다)
     expect(registered).toBeGreaterThan(200)
+    // 단위마다 등록 줄이 있다 — 만원 방송도 실제로 돌았다 (SA-FB1-03)
+    for (const unit of UNITS) expect(registeredBy[unit], unit).toBeGreaterThan(50)
   })
 
   it('고치기 칸 "= …원"은 parseAmount 결과 그대로, 읽지 못하면 없다 — 어떤 글에도 예외 없음', async () => {
     const quick = await load()
     await fc.assert(
-      fc.asyncProperty(fc.oneof(priceTok, fc.string({ maxLength: 20 }), fc.tuple(priceTok, nameTok).map(([a, b]) => `${a} ${b}`)), fc.constantFrom<Unit>('THOUSAND', 'WON'), async (text, unit) => {
+      fc.asyncProperty(fc.oneof(priceTok, fc.string({ maxLength: 20 }), fc.tuple(priceTok, nameTok).map(([a, b]) => `${a} ${b}`)), fc.constantFrom<Unit>(...UNITS), async (text, unit) => {
         const settings = quick.quickSettings(resolveSettings({ 'price.unit': unit } as never))
         const amount = parseAmount(text, settings as never)
         const shown = quick.fixPricePreview(text, settings)
@@ -109,7 +113,7 @@ describe('AC-FB1-03 미리 보기 가격 = 등록 판단 가격 (무작위 줄 1
     )
   })
 
-  it('예시 줄 (AC-FB1-02 글자 그대로) — 천원·원', async () => {
+  it('예시 줄 (AC-FB1-02 글자 그대로) — 천원·원·만원', async () => {
     const quick = await load()
     const t = quick.quickSettings(resolveSettings({ 'price.unit': 'THOUSAND' } as never))
     const w = quick.quickSettings(resolveSettings({ 'price.unit': 'WON' } as never))
@@ -128,6 +132,21 @@ describe('AC-FB1-03 미리 보기 가격 = 등록 판단 가격 (무작위 줄 1
     expect(quick.fixPricePreview('1.5만', t)).toBe('= 15,000원')
     expect(quick.fixPricePreview('1.5만', w)).toBe('= 15,000원')
     expect(quick.fixPricePreview('모름', t)).toBeNull()
+    // 만원 방송 (AC-FB1-02 글자 그대로, D-FB1-11 — 단위 없는 1000 미만 숫자만 ×10000)
+    const m = quick.quickSettings(resolveSettings({ 'price.unit': 'TEN_THOUSAND' } as never))
+    expect(quick.unitLine('TEN_THOUSAND')).toBe('가격 단위: 만원 — 15는 150,000원, 5천은 5,000원')
+    expect(quick.registerPreview('15 엘레강스 15', m, none)).toBe('등록하면: 15번 엘레강스 150,000원')
+    expect(quick.registerPreview('15 엘레강스 15000', m, none)).toBe('등록하면: 15번 엘레강스 15,000원')
+    expect(quick.registerPreview('15 엘레강스 5천', m, none)).toBe('등록하면: 15번 엘레강스 5,000원')
+    expect(quick.registerPreview('15 엘레강스 2만', m, none)).toBe('등록하면: 15번 엘레강스 20,000원')
+    expect(quick.registerPreview('15 15', m, none)).toBe('등록하면: 15번 150,000원')
+    expect(quick.registerPreview('15', m, none)).toBeNull()
+    expect(quick.registerPreview('15 엘레강스 15', m, (n) => (n === 15 ? { no: 15 } : undefined))).toBeNull()
+    expect(quick.fixPricePreview('14', m)).toBe('= 140,000원')
+    expect(quick.fixPricePreview('1.5만', m)).toBe('= 15,000원')
+    expect(quick.fixPricePreview('모름', m)).toBeNull()
+    // 같은 글이 단위마다 다르게 읽힌다 — 화면이 천원으로 추측하지 않는다
+    expect(quick.registerPreview('15 엘레강스 15', t, none)).toBe('등록하면: 15번 엘레강스 15,000원')
   })
 
   it('미리 보기 글은 글로만 그린다 — 빠른 입력 화면에 HTML로 넣는 길이 없다 (품종 이스케이프)', () => {
