@@ -267,6 +267,11 @@ p {
   font-weight: 700;
 }
 
+/* LND1 D-LND1-10 (3): 틀린 비밀번호 문장 바로 아래 다음에 할 일 (alert 밖) */
+.field-error + .field-hint {
+  margin-top: -0.5rem;
+}
+
 .error-note {
   display: grid;
   gap: 0.5rem;
@@ -3785,4 +3790,29 @@ select.input {
 
 .landing .policy-links {
   margin-top: 0.5rem;
+}
+
+/* LND1 D-LND1-10 (4): 영문 단락 머리말 — 작은 글이지만 16px 이상(D-MOB1-03) */
+.landing-english-caption {
+  margin: 0 0 -0.25rem;
+  font-size: 1rem;
+  color: #4b5563;
+}
+
+/* LND1 U-LND1-04: 문장 안 링크 — 줄을 끊지 않고, 위아래 여백으로 누르는 높이 44px 이상(줄 간격은 그대로) */
+.text-link.text-link-inline {
+  display: inline;
+  min-height: 0;
+  padding-block: 0.875rem;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* LND1 D-LND1-10 (2): /login 계정 안내·처음 화면으로 */
+.login-help {
+  margin-top: 1rem;
+}
+
+.login-help p {
+  margin: 0;
 }

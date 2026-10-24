@@ -7,6 +7,7 @@ import {
   contactEmail,
   LANDING_DAY_STEPS,
   LANDING_ENGLISH,
+  LANDING_ENGLISH_CAPTION,
   LANDING_GOOGLE_ITEMS,
   LANDING_HEADINGS,
   LANDING_LIMITED_USE_AFTER,
@@ -14,6 +15,7 @@ import {
   LANDING_LIMITED_USE_LINK,
   LANDING_LOGIN,
   LANDING_START_BUTTON,
+  LANDING_START_LOGIN,
   LANDING_START_TEXT,
   LANDING_TAGLINE,
   operatorLines,
@@ -27,6 +29,11 @@ const plainClick = (event: MouseEvent) => event.button === 0 && !event.metaKey &
 
 export function LandingPage({ operator = OPERATOR, onLogin }: { readonly operator?: Operator; readonly onLogin: () => void }) {
   const email = contactEmail(operator)
+  const toLogin = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!plainClick(event)) return
+    event.preventDefault()
+    onLogin()
+  }
   const toStart = (event: MouseEvent<HTMLAnchorElement>) => {
     if (!plainClick(event)) return
     // 기록·주소를 바꾸지 않고 "시작하려면" 절로 움직인다 (가입 화면이 아니다 — 계정 받는 법)
@@ -43,11 +50,7 @@ export function LandingPage({ operator = OPERATOR, onLogin }: { readonly operato
         <a
           className="button button-primary"
           href="/login"
-          onClick={(event) => {
-            if (!plainClick(event)) return
-            event.preventDefault()
-            onLogin()
-          }}
+          onClick={toLogin}
         >
           {LANDING_LOGIN}
         </a>
@@ -75,6 +78,11 @@ export function LandingPage({ operator = OPERATOR, onLogin }: { readonly operato
             계정 문의: <a className="text-link" href={`mailto:${email}`}>{email}</a>
           </p>
         ) : null}
+        <div className="row">
+          <a className="button button-primary landing-start-login" href="/login" onClick={toLogin}>
+            {LANDING_START_LOGIN}
+          </a>
+        </div>
       </section>
 
       <section className="stack-tight" aria-labelledby="landing-google-title">
@@ -86,11 +94,12 @@ export function LandingPage({ operator = OPERATOR, onLogin }: { readonly operato
         </ul>
         <p>
           {LANDING_LIMITED_USE_BEFORE}
-          <a className="text-link" href={USER_DATA_POLICY_URL} rel="noopener noreferrer">
+          <a className="text-link text-link-inline" href={USER_DATA_POLICY_URL} rel="noopener noreferrer">
             {LANDING_LIMITED_USE_LINK}
           </a>
           {LANDING_LIMITED_USE_AFTER}
         </p>
+        <p className="landing-english-caption">{LANDING_ENGLISH_CAPTION}</p>
         <p lang="en" className="landing-english">
           {LANDING_ENGLISH}
         </p>

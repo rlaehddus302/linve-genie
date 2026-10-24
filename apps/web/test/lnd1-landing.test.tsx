@@ -147,6 +147,29 @@ describe('소개 화면 문장 (AC-LND1-01·09·13)', () => {
   })
 })
 
+describe('사용성 1회차 (AC-LND1-16·18, D-LND1-10 (1)(4))', () => {
+  it('"시작하려면" 절 끝에 "로그인하러 가기"(`/login`) — 이름이 정확히 "로그인"인 링크는 맨 위 하나뿐', () => {
+    const onLogin = vi.fn()
+    render(<LandingPage onLogin={onLogin} />)
+    const start = screen.getByRole('region', { name: '시작하려면' })
+    const go = within(start).getByRole('link', { name: '로그인하러 가기' })
+    expect(go.getAttribute('href')).toBe('/login')
+    expect(screen.getAllByRole('link', { name: '로그인' })).toHaveLength(1)
+    fireEvent.click(go)
+    expect(onLogin).toHaveBeenCalledTimes(1)
+  })
+
+  it('영문 단락 바로 앞 형제는 제목이 아닌 "(영문 안내 — 구글 심사용)", lang="en" 밖', () => {
+    render(<LandingPage onLogin={() => {}} />)
+    const english = document.querySelector('[lang="en"]')
+    const caption = english?.previousElementSibling
+    expect(caption?.textContent).toBe('(영문 안내 — 구글 심사용)')
+    expect(caption?.tagName).toBe('P')
+    expect(caption?.closest('[lang="en"]')).toBeNull()
+    expect(english?.textContent?.trim()).toBe(LANDING_ENGLISH)
+  })
+})
+
 describe('앱 흐름 (AC-LND1-01~03·05~08, D-LND1-01·02·08)', () => {
   let server: FakeServer
   let signedIn: boolean
@@ -335,6 +358,66 @@ describe('앱 흐름 (AC-LND1-01~03·05~08, D-LND1-01·02·08)', () => {
     render(<App />)
     expect(await screen.findByRole('textbox', { name: '아이디' })).toBeDefined()
     expect(path()).toBe('/settings')
+  })
+
+  it('`/login`: 계정 안내와 "처음 화면으로"(`/` 소개 화면) — 그 자리 로그인 화면(`/settings`)엔 없음 (AC-LND1-17)', async () => {
+    const NOTE = '계정은 운영자가 만들어 드려요. 아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요.'
+    window.history.replaceState(null, '', '/login')
+    render(<App />)
+    expect(await screen.findByRole('textbox', { name: '아이디' })).toBeDefined()
+    expect(screen.getByText(NOTE)).toBeDefined()
+    const home = screen.getByRole('link', { name: '처음 화면으로' })
+    expect(home.getAttribute('href')).toBe('/')
+    fireEvent.click(home)
+    expect(path()).toBe('/')
+    expect(await screen.findByRole('heading', { name: '판매자의 하루' })).toBeDefined()
+    cleanup()
+    window.history.replaceState(null, '', '/settings')
+    render(<App />)
+    expect(await screen.findByRole('textbox', { name: '아이디' })).toBeDefined()
+    expect(screen.queryByText(NOTE)).toBeNull()
+    expect(screen.queryByRole('link', { name: '처음 화면으로' })).toBeNull()
+  })
+
+  it('틀린 비밀번호: alert는 서버 문장 그대로, 바로 아래(alert 밖)에 운영자 안내 — `/login`·`/settings` 모두, 맞게 넣으면 사라짐 (AC-LND1-17)', async () => {
+    const HINT = '아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요.'
+    for (const start of ['/login', '/settings']) {
+      let wrong = true
+      server.on('POST', /^\/api\/login$/, () => {
+        if (wrong) return apiError(401, 'LOGIN_FAILED', '아이디나 비밀번호가 맞지 않아요.')
+        signedIn = true
+        return { body: me }
+      })
+      signedIn = false
+      window.history.replaceState(null, '', start)
+      render(<App />)
+      fireEvent.change(await screen.findByLabelText('아이디'), { target: { value: 'shop1' } })
+      fireEvent.change(screen.getByLabelText('비밀번호'), { target: { value: 'nope' } })
+      fireEvent.click(screen.getByRole('button', { name: '로그인' }))
+      const alert = await screen.findByRole('alert')
+      expect(alert.textContent?.trim()).toBe('아이디나 비밀번호가 맞지 않아요.')
+      const hint = alert.nextElementSibling
+      expect(hint?.textContent).toBe(HINT)
+      expect(hint?.getAttribute('role')).toBeNull()
+      wrong = false
+      fireEvent.change(screen.getByLabelText('비밀번호'), { target: { value: 'pass-word-1' } })
+      fireEvent.click(screen.getByRole('button', { name: '로그인' }))
+      await waitFor(() => expect(screen.queryByLabelText('아이디')).toBeNull())
+      expect(screen.queryByText(HINT)).toBeNull()
+      cleanup()
+      onUnauthorized(null)
+    }
+  })
+
+  it('다른 로그인 오류(잠김)엔 운영자 안내 줄이 없다', async () => {
+    server.on('POST', /^\/api\/login$/, () => apiError(429, 'LOGIN_RATE_LIMITED', '잠시 뒤에 다시 해 주세요.'))
+    window.history.replaceState(null, '', '/login')
+    render(<App />)
+    fireEvent.change(await screen.findByLabelText('아이디'), { target: { value: 'shop1' } })
+    fireEvent.change(screen.getByLabelText('비밀번호'), { target: { value: 'nope' } })
+    fireEvent.click(screen.getByRole('button', { name: '로그인' }))
+    expect(await screen.findByRole('alert')).toBeDefined()
+    expect(screen.queryByText('아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요.')).toBeNull()
   })
 
   it('정책 페이지의 "로그인 화면으로"는 `/login`', async () => {

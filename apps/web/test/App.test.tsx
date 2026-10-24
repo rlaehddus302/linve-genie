@@ -52,7 +52,9 @@ describe('로그인 화면 (AC-S05-01)', () => {
     expect(password.type).toBe('password')
     expect(screen.queryByText(/가입/)).toBeNull()
     const links = screen.queryAllByRole('link').map((link) => [link.textContent, link.getAttribute('href')])
+    // LND1 D-LND1-10 (2): `/login`엔 "처음 화면으로"(`/`)가 더 있다 — 가입 링크는 여전히 없다
     expect(links).toEqual([
+      ['처음 화면으로', '/'],
       ['개인정보처리방침', '/privacy'],
       ['이용약관', '/terms'],
     ])

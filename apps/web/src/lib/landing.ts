@@ -42,6 +42,10 @@ export const LANDING_ENGLISH =
   "LiveGenie uses Google user data only to provide its features. When a seller connects YouTube, LiveGenie reads the seller's own channel name, the seller's own live broadcasts, and the live chat messages of the chosen broadcast to find orders (youtube.readonly). Only if the seller turns on automatic thank-you messages and agrees, LiveGenie posts short thank-you messages in the seller's own live chat or as a comment on the seller's own video (youtube.force-ssl). Google sign-in uses only openid and email. Live chat text and viewer names are deleted 30 days after the broadcast date. We do not sell Google user data or use it for advertising. LiveGenie's use and transfer to any other app of information received from Google APIs will adhere to the Google API Services User Data Policy, including the Limited Use requirements."
 
 export const LANDING_LOGIN = '로그인'
+/** "시작하려면" 절 끝의 로그인 길 — 맨 위 "로그인"과 이름을 다르게 (D-LND1-10 (1)) */
+export const LANDING_START_LOGIN = '로그인하러 가기'
+/** 영문 단락 바로 위 작은 글 — 제목 아님, `lang="en"` 밖 (D-LND1-10 (4)) */
+export const LANDING_ENGLISH_CAPTION = '(영문 안내 — 구글 심사용)'
 export const LANDING_START_BUTTON = '시작하기'
 
 /** "운영 사업자" 아래 줄: 상호는 늘, 나머지는 값이 빈 글이 아닐 때만 이 순서로 (D-LND1-04) */

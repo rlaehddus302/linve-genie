@@ -389,7 +389,7 @@ export function App() {
   }
   if (session.state === 'out') {
     if (shouldShowLanding({ signedOut: true, route, loginParam, leftInTab, standalone })) return <LandingPage onLogin={() => go({ name: 'login' })} />
-    return <LoginPage expired={session.expired} onLoggedIn={loggedIn} />
+    return <LoginPage expired={session.expired} onLoggedIn={loggedIn} onHome={route.name === 'login' ? () => go({ name: 'home' }) : undefined} />
   }
   const me = session.me
   const assistant = isAssistant(me)
