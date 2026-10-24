@@ -4,7 +4,7 @@
 //   정규화·금액·휴대폰 번호 판단은 코어 normalizeText·parseAmount·containsPhoneRun을 다시 쓴다(빠른 입력과 결과가 갈라지지 않게).
 // - 미리 보기와 등록(그 순간 상태로 다시 검사)이 같은 규칙을 쓴다. 골든 러너(코어 시험 코드)가 이 함수를 상대 경로로 부른다(D-209와 같은 연결).
 // - .xlsx는 서버가 첫 시트의 행마다 칸 글 목록을 만들어 parseProductRows에 넘긴다(R-18 2의 정규화·빈 칸 지우기부터 같은 규칙, 줄 번호 = 행 번호).
-import { DEFAULT_SETTINGS, containsPhoneRun, normalizeText, parseAmount } from '@livejjim/core'
+import { DEFAULT_SETTINGS, containsPhoneRun, isPriceUnit, normalizeText, parseAmount, type PriceUnit } from '@livejjim/core'
 
 /** 줄마다의 문제 (R-18 9의 순서) */
 export const IMPORT_ROW_ERRORS = ['CELLS', 'NUMBER_INVALID', 'DUPLICATE', 'EXISTS', 'NAME_CONTROL', 'NAME_PHONE', 'PRICE_MISSING', 'PRICE_INVALID', 'PRICE_TOO_LOW'] as const
@@ -49,7 +49,7 @@ function nameError(name: string): 'NAME_CONTROL' | 'NAME_PHONE' | null {
 }
 
 interface ResolvedSettings {
-  readonly unit: 'WON' | 'THOUSAND'
+  readonly unit: PriceUnit
   readonly maxNumber: number
   readonly existing: ReadonlySet<number>
 }
@@ -60,7 +60,7 @@ function resolve(settings: unknown): ResolvedSettings {
   const unitValue = read('unit')
   const maxValue = read('maxNumber')
   const existingValue = read('existing')
-  const unit = unitValue === 'WON' || unitValue === 'THOUSAND' ? unitValue : DEFAULT_SETTINGS['price.unit']
+  const unit = isPriceUnit(unitValue) ? unitValue : DEFAULT_SETTINGS['price.unit']
   const maxNumber = typeof maxValue === 'number' && Number.isInteger(maxValue) && maxValue >= 1 && maxValue <= 9999 ? maxValue : DEFAULT_SETTINGS['claim.maxNumber']
   const existing = new Set<number>()
   if (Array.isArray(existingValue)) {
