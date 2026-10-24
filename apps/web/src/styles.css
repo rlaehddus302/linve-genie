@@ -3642,3 +3642,55 @@ select.input {
     border-color: #9aa0a6;
   }
 }
+
+/* 휴대폰 큰 글씨(글자 150%)에서도 가로로 넘치지 않게 (MOB1 D-MOB1-03, AC-MOB1-02·03):
+ * 글 칸·고르기 칸은 기본 폭(글자 20자 안팎)이 글자 크기를 따라 커져 부모를 밀어낸다 — 칸이 부모보다 넓어지지 않게 줄어들 수 있게 하고,
+ * 칸 묶음(.field)의 한 칸 열은 0까지 줄어들 수 있게 둔다(칸은 그 열 폭을 넘지 않는다). 버튼 글은 버튼 안에서 줄을 바꾼다. */
+@media (max-width: 47.99rem) {
+  input,
+  select,
+  textarea {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .button {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* 빠른 입력 줄 (D-MOB1-03, AC-MOB1-03): 줄 폭이 글자 17자보다 좁아지면(휴대폰 + 큰 글씨) 이름·입력칸·개수를 세로로 쌓는다 —
+ * 입력칸은 한 줄을 다 쓴다. 보통 글씨(100%)의 휴대폰 375~412px은 지금처럼 한 줄이다(줄 폭 20rem 이상). 줄 폭은 글자 크기(rem)로 견준다 */
+.quick {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.quick-row {
+  container-type: inline-size;
+}
+
+@container (max-width: 17rem) {
+  .quick-input {
+    flex-basis: 100%;
+  }
+}
+
+/* 한 줄에 선 것들의 위 끝을 맞춘다 (D-MOB1-03, AC-MOB1-03): 이름 글은 옆 칸(44px)과 같은 높이 안에서 가운데 —
+ * 위 줄의 가게 이름·프린터 상태, 빠른 입력의 이름·입력칸·개수가 같은 위 끝에서 시작한다 */
+.shop-name {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  margin: 0;
+}
+
+.quick-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+}
