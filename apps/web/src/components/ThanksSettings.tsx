@@ -2,13 +2,17 @@
 // - "만들기"(판매 규칙 thanks.* — 다음 방송부터)와 "자동 게시 동의"(유튜브 연결의 동의 — 동의한 뒤 확정된 판매부터)를 나눠 보인다.
 // - 동의 켜기는 설명 창(처음 포커스 "닫기")에서 "동의해요"로만. 서버가 승인 주소를 주면 같은 탭에서 구글로 간다. 끄기는 바로.
 // - 대상마다 요약 한 줄은 저장된 규칙과 지금 동의로만 만든다(저장하지 않은 칸 값은 쓰지 않는다).
+// - FB1 D-FB1-03 (AC-FB1-10·11): "만들기"는 "감사 메시지를 남길 곳" 묶음 안에 같은 모양 켜기 체크 두 줄(실시간 채팅·영상 댓글 + 설명),
+//   영상 댓글을 켰을 때만 "영상 댓글 방식"(판매마다·요약). 저장 값은 그대로 thanks.videoComment(끔 = OFF, 켬 = 고른 방식, 처음 켤 때 PER_SALE).
+//   묶는 시간(thanks.batchWindowSec)은 "상세 설정"(접힘) 안 — 늘 보이는 자동 묶음 안내, 저장된 값이 0보다 크면 접힘 밖에도 한 줄.
+//   저장은 화면 아래 저장 막대 하나(D-FB1-06) — 이 칸에는 "저장"이 없다.
 import type { SaleSettings } from '@livejjim/core'
-import { useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { isApiError, put, type ApiError } from '../api/client.ts'
 import type { ConsentTarget, YoutubeConnection } from '../api/types.ts'
 import { goToGoogle } from '../lib/google-return.ts'
 import { kstDateTimeWords } from '../lib/kst.ts'
-import { fieldsAt, SAVED_MESSAGE } from '../lib/settings-fields.ts'
+import { DETAIL_SETTINGS, fieldOf, fieldsAt, SAVED_MESSAGE, VIDEO_COMMENT_HINT } from '../lib/settings-fields.ts'
 import {
   CONNECT_FIRST_MESSAGE,
   CONSENT_NAME,
@@ -22,10 +26,24 @@ import {
 } from '../lib/youtube.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { Modal } from './Modal.tsx'
-import { RuleField, SaveRow, settingProblem, useRuleForm, type RuleForm } from './RuleFields.tsx'
+import { RuleField, settingProblem, useRuleForm, type RuleForm } from './RuleFields.tsx'
 import type { ConnectionHandle } from './YoutubeConnection.tsx'
 
 const THANKS_FIELDS = fieldsAt('thanks')
+const LIVE_CHAT_FIELD = fieldOf('thanks.liveChat')
+const BATCH_FIELD = fieldOf('thanks.batchWindowSec')
+
+export const THANKS_PLACES = '감사 메시지를 남길 곳'
+export const VIDEO_COMMENT_SWITCH = '영상 댓글에 감사 메시지 남기기'
+export const VIDEO_COMMENT_MODE = '영상 댓글 방식'
+export const VIDEO_COMMENT_MODES = [
+  { value: 'PER_SALE', word: '판매마다 댓글' },
+  { value: 'SUMMARY', word: '방송이 끝나고 요약 댓글 1개' },
+] as const
+/** 늘 보이는 자동 묶음 안내 (D-FB1-03, D-011·D-Y09 묶음 모드 그대로) */
+export const AUTO_BATCH_NOTE = '판매가 확정될 때마다 하나씩 남겨요. 유튜브가 하루에 받아 주는 양이 모자라면 저절로 1분씩 묶어 남겨요.'
+/** 저장된 묶는 시간이 0보다 클 때 (접힘 밖) */
+export const batchNow = (seconds: number): string => `지금은 ${String(seconds)}초 동안의 판매를 한 메시지로 묶어요.`
 
 export interface ThanksSettingsProps {
   /** 저장된 설정 (요약·미리 보기는 이 값으로) */
@@ -43,14 +61,7 @@ export function ThanksSettings({ settings, youtube, form }: ThanksSettingsProps)
   const connection = youtube.connection
   return (
     <div className="stack">
-      <fieldset className="card stack">
-        <legend className="sub-title">만들기</legend>
-        <p className="hint">판매가 확정되면 이 규칙으로 감사 메시지를 만들어요. 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.</p>
-        {THANKS_FIELDS.map((field) => (
-          <RuleField key={field.key} field={field} value={form.draft[field.key]} onChange={(value) => form.set(field.key, value)} problem={settingProblem(form.error, field.key)} />
-        ))}
-        <SaveRow form={form} fields={THANKS_FIELDS} />
-      </fieldset>
+      <MakeFields settings={settings} form={form} />
       <fieldset className="card stack">
         <legend className="sub-title">자동 게시 동의</legend>
         <ConsentControls youtube={youtube} />
@@ -74,6 +85,67 @@ export function ThanksSettings({ settings, youtube, form }: ThanksSettingsProps)
         <p>{PREVIEW_SMS_NOTE}</p>
       </section>
     </div>
+  )
+}
+
+/** "만들기" 칸 (D-FB1-03): 켜기 체크 두 줄 + 영상 댓글 방식 + 묶는 시간은 상세 설정 */
+function MakeFields({ settings, form }: { readonly settings: SaleSettings; readonly form: RuleForm }) {
+  const id = useId()
+  const [detail, setDetail] = useState(false)
+  const draftMode = String(form.draft['thanks.videoComment'] ?? 'OFF')
+  const on = draftMode !== 'OFF'
+  /** 마지막으로 고른 방식 (껐다 다시 켜면 이것) — 저장값이 OFF면 판매마다 */
+  const lastMode = useRef(settings['thanks.videoComment'] === 'SUMMARY' ? 'SUMMARY' : 'PER_SALE')
+  if (on) lastMode.current = draftMode
+  const modeProblem = settingProblem(form.error, 'thanks.videoComment')
+  const saved = settings['thanks.batchWindowSec']
+  const batchProblem = settingProblem(form.error, 'thanks.batchWindowSec')
+  // 서버 문장이 접힌 칸에 있으면 펴서 보인다
+  const open = detail || batchProblem !== undefined
+  return (
+    <fieldset className="card stack">
+      <legend className="sub-title">만들기</legend>
+      <p className="hint">판매가 확정되면 이 규칙으로 감사 메시지를 만들어요. 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.</p>
+      <div className="stack" role="group" aria-label={THANKS_PLACES}>
+        <p className="field-label">{THANKS_PLACES}</p>
+        <RuleField field={LIVE_CHAT_FIELD} value={form.draft['thanks.liveChat']} onChange={(value) => form.set('thanks.liveChat', value)} problem={settingProblem(form.error, 'thanks.liveChat')} />
+        <div className="stack-tight">
+          <label className="choice">
+            <input type="checkbox" checked={on} onChange={(event) => form.set('thanks.videoComment', event.target.checked ? lastMode.current : 'OFF')} />
+            <span>{VIDEO_COMMENT_SWITCH}</span>
+          </label>
+          <p className="hint">{VIDEO_COMMENT_HINT}</p>
+          {on ? (
+            <fieldset className="rule-choice" role="radiogroup" aria-label={VIDEO_COMMENT_MODE}>
+              <legend>{VIDEO_COMMENT_MODE}</legend>
+              <div className="choice-list">
+                {VIDEO_COMMENT_MODES.map((option) => (
+                  <label key={option.value} className="choice">
+                    <input type="radio" name={`${id}-video-mode`} value={option.value} checked={draftMode === option.value} onChange={() => form.set('thanks.videoComment', option.value)} />
+                    <span>{option.word}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          ) : null}
+          {modeProblem !== undefined ? (
+            <p className="field-error" role="alert">
+              {modeProblem}
+            </p>
+          ) : null}
+        </div>
+      </div>
+      <p className="hint">{AUTO_BATCH_NOTE}</p>
+      {saved > 0 ? <p className="notice">{batchNow(saved)}</p> : null}
+      <div className="stack-tight">
+        <button type="button" className="button" aria-expanded={open} aria-controls={`${id}-detail`} onClick={() => setDetail(!open)}>
+          {DETAIL_SETTINGS}
+        </button>
+        <div id={`${id}-detail`} className="stack" hidden={!open}>
+          <RuleField field={BATCH_FIELD} value={form.draft['thanks.batchWindowSec']} onChange={(value) => form.set('thanks.batchWindowSec', value)} problem={batchProblem} />
+        </div>
+      </div>
+    </fieldset>
   )
 }
 

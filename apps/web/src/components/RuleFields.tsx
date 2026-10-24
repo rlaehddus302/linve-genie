@@ -29,6 +29,7 @@ export function RuleField({ field, value, onChange, problem, disabled = false }:
           <input type="checkbox" checked={value === true} disabled={disabled} aria-describedby={described} onChange={(event) => onChange(event.target.checked)} />
           <span>{field.label}</span>
         </label>
+        {field.hint !== undefined ? <p className="hint">{field.hint}</p> : null}
         <Problem id={problemId} text={problem} />
       </div>
     )
@@ -37,6 +38,7 @@ export function RuleField({ field, value, onChange, problem, disabled = false }:
     return (
       <fieldset className="rule-choice" role="radiogroup" aria-describedby={described} disabled={disabled}>
         <legend>{field.label}</legend>
+        {field.lead !== undefined ? <p className="hint">{field.lead}</p> : null}
         <div className="choice-list">
           {field.options.map((option) => (
             <label key={option.value} className="choice">
@@ -45,6 +47,7 @@ export function RuleField({ field, value, onChange, problem, disabled = false }:
             </label>
           ))}
         </div>
+        {field.hint !== undefined ? <p className="hint">{field.hint}</p> : null}
         {warning !== null ? (
           <p className="warning" role="note">
             {warning}
@@ -146,6 +149,8 @@ export interface RuleForm {
   readonly set: (key: FieldDef['key'], value: string | boolean) => void
   /** 저장하지 않은 칸이 있다 */
   readonly dirty: boolean
+  /** 저장된 값과 다른 칸 (보낼 값 — 바뀐 키만) */
+  readonly changes: Readonly<Record<string, unknown>>
   readonly busy: boolean
   readonly error: ApiError | null
   /** 저장한 뒤의 문장 */
@@ -216,7 +221,7 @@ export function useRuleForm(fields: readonly FieldDef[], saved: SaleSettings, on
     setError(null)
   }, [saved, fields])
 
-  return { draft, set, dirty, busy, error, done, save, reset }
+  return { draft, set, dirty, changes, busy, error, done, save, reset }
 }
 
 /** 칸 묶음 아래: 저장 버튼·문장·칸 밖 오류. 설정은 칸마다 저장이 있어 보조 버튼 모양(주 버튼은 화면에 하나까지, UX-01·D-102) */

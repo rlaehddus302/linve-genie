@@ -1153,6 +1153,61 @@ html:has(.sms-submit-bar) {
   background-color: #ffffff;
 }
 
+/* 설정 저장 막대 (FB1 D-FB1-06, AC-FB1-22): 화면 아래에 붙어 늘 보인다 — 흐름 안 마지막에 있어 마지막 칸을 가리지 않는다. 휴대폰은 아래 메뉴 막대 위 */
+.save-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid #c4c7c5;
+  background-color: #ffffff;
+  box-shadow: 0 -2px 6px rgb(0 0 0 / 8%);
+}
+
+.save-bar-row {
+  justify-content: space-between;
+  align-items: center;
+}
+
+.save-bar-state {
+  margin: 0;
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.save-bar .notice,
+.save-bar .field-error {
+  margin: 0;
+}
+
+html:has(.save-bar) {
+  scroll-padding-bottom: 7rem;
+}
+
+/* 빠른 입력 가격 단위 한 줄·등록 전 미리 보기 (FB1 D-FB1-01) */
+.quick-unit {
+  margin: 0.25rem 0 0;
+}
+
+.quick-will-register {
+  margin: 0.25rem 0 0;
+  font-weight: 700;
+}
+
+.fix-price {
+  font-weight: 700;
+}
+
+/* 프린터 연결 실패의 해볼 일 (FB1 D-FB1-09) */
+.connect-tips {
+  margin: 0;
+  padding-left: 1.5rem;
+  display: grid;
+  gap: 0.25rem;
+}
+
 .sms-result {
   display: grid;
   gap: 0.5rem;
@@ -1925,6 +1980,10 @@ html:has(.sms-submit-bar) {
     display: none;
   }
 
+  .quick-unit {
+    margin: 0;
+  }
+
   /* 휴대폰: 개수 칸을 빠른 입력 줄과 한 줄에 (TE-STK-001) — 뒤 글자 "개"를 빼고 칸 안 여백을 줄여 빠른 입력 칸 폭을 남긴다 */
   .quick-row {
     gap: 0.375rem;
@@ -1962,6 +2021,14 @@ html:has(.sms-submit-bar) {
 
   html:has(.sms-submit-bar) {
     scroll-padding-bottom: calc(8.5rem + env(safe-area-inset-bottom));
+  }
+
+  .save-bar {
+    bottom: calc(3.3125rem + env(safe-area-inset-bottom));
+  }
+
+  html:has(.save-bar) {
+    scroll-padding-bottom: calc(10rem + env(safe-area-inset-bottom));
   }
 
   /* 알림 띠는 한 줄로 접힌다 — 펼친 동안만 늘어난다 */

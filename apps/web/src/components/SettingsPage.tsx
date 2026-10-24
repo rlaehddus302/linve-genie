@@ -5,6 +5,8 @@
 // - `/settings/youtube`는 같은 화면에서 유튜브 칸이 보이게(스크롤·포커스) 연다. 구글에서 돌아온 결과(`?youtube=`)는 한 번 보이고 주소에서 지운다.
 // - 끝나지 않은 실제 방송이 있으면 위에 "진행 중인 방송에는 바뀐 규칙이 적용되지 않아요."
 // - 저장하지 않은 값이 있으면 다른 화면으로 가기 전에 같은 떠나기 창이 묻는다.
+// - FB1 D-FB1-06 (AC-FB1-22~25): 값을 적는 다섯 칸(가게·판매 규칙·배송비·구매 감사 메시지 만들기·택배)은 칸마다 "저장" 대신 화면 아래 저장 막대 하나.
+//   연결·동의·켜기 칸(라벨·유튜브·크롬 확장·인스타그램·틱톡·AI 제안·보조자·로그인 방법)은 지금처럼 누르면 바로.
 // - 유튜브 연결·동의·사용량은 실시간 알림으로 1초 안에 바뀐다(다른 기기 포함). 끊겼다 이어지면 다시 받는다.
 // I2 (STL-04, DAT-03·04, D-I2-02·D-I2-10~12, AC-I2-02·65) — 합친 화면(main I3 + I2)에서 양쪽 칸을 모두 둔다:
 // - 가게: "가게 이름"(위 줄 이름 — 시작 마법사와 같은 값)·"은행"·"계좌번호"·"예금주"·"입금 안내 문장"과 "저장". 칸 아래에 확인서에 나올 모양을 미리 보인다
@@ -26,7 +28,9 @@ import { useUnsavedGuard } from '../lib/leave-guard.ts'
 import { useLiveEvents } from '../lib/live-events.ts'
 import { routePath, type Navigate, type Route, type SettingsRoute } from '../lib/router.ts'
 import { saleModeOf } from '../lib/words.ts'
-import { fieldsAt, ONGOING_NOTICE, SAVED_MESSAGE, SAVED_SHIPPING_MESSAGE } from '../lib/settings-fields.ts'
+import { DETAIL_SETTINGS, DETAIL_SETTINGS_NOTE, fieldsAt, ONGOING_NOTICE, SHIPPING_HINT, type FieldDef } from '../lib/settings-fields.ts'
+import { useSaveStep, type SaveBlock, type StepResult } from '../lib/save-bar.ts'
+import { SaveBarArea } from './SaveBar.tsx'
 import { hasChannel } from '../lib/youtube.ts'
 import { AssistSection, useShowAssist } from './AssistSection.tsx'
 import { AssistantsSection } from './AssistantsSection.tsx'
@@ -37,8 +41,8 @@ import { LabelSwitchSection } from './LabelSwitchSection.tsx'
 import { ParcelSettingsSection } from './ParcelSettings.tsx'
 import { LoginMethodsPanel, showLoginMethods, useLoginMethods } from './LoginMethods.tsx'
 import { parseLoginResult, stripLoginParams } from '../lib/social-login.ts'
-import { FixedArrivalField, RuleField, SaleModeField, SaveRow, settingProblem, useRuleForm } from './RuleFields.tsx'
-import { ThanksSettings, useThanksForm } from './ThanksSettings.tsx'
+import { FixedArrivalField, RuleField, SaleModeField, settingProblem, useRuleForm } from './RuleFields.tsx'
+import { ThanksSettings } from './ThanksSettings.tsx'
 import { InstagramCallbackResult, InstagramSettings, TikTokSettingsSection, useInstagramConnection, useTikTokSettings } from './PlatformSettings.tsx'
 import { CallbackResult, useQuota, useYoutubeConnection, YoutubeStatus } from './YoutubeConnection.tsx'
 
@@ -46,6 +50,9 @@ const BASIC_FIELDS = fieldsAt('basic')
 const MORE_FIELDS = fieldsAt('more')
 const RULE_FIELDS = [...BASIC_FIELDS, ...MORE_FIELDS]
 const SHIPPING_FIELDS = fieldsAt('shipping')
+const THANKS_FIELDS = fieldsAt('thanks')
+const ALL_FIELDS = [...RULE_FIELDS, ...SHIPPING_FIELDS, ...THANKS_FIELDS]
+const ALL_KEYS = ALL_FIELDS.map((field) => `settings.${field.key}`)
 
 export const SHOP_SAVED = '저장했어요.'
 /** 가게 칸 저장 성공 (I2 이름 — SHOP_SAVED와 같은 글) */
@@ -162,6 +169,7 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
 
   return (
     <main className="page settings-page stack">
+      <SaveBarArea>
       <h1>설정</h1>
       {ongoing ? (
         <p className="notice" role="note">
@@ -228,19 +236,33 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
           </li>
         </ul>
       </SettingsSection>
+      </SaveBarArea>
     </main>
   )
 }
 
-/** 판매 규칙·배송비·구매 감사 메시지 (저장하지 않은 값이 있으면 떠나기 전에 묻는다) */
+/**
+ * 판매 규칙·배송비·구매 감사 메시지(만들기) — 칸 묶음 하나(FB1 D-FB1-06): 저장 막대가 세 칸의 바뀐 키를 모아 PATCH /api/settings 한 번으로 보낸다
+ * (셋이 한꺼번에 받히거나 거절된다 — 반만 저장 없음). 저장하지 않은 값이 있으면 떠나기 전에 묻는다.
+ */
 function RuleSections({ settings, onSaved, youtube }: { readonly settings: SaleSettings; readonly onSaved: (settings: SaleSettings) => void; readonly youtube: ReturnType<typeof useYoutubeConnection> }) {
-  const rules = useRuleForm(RULE_FIELDS, settings, onSaved, SAVED_MESSAGE)
-  const shipping = useRuleForm(SHIPPING_FIELDS, settings, onSaved, SAVED_SHIPPING_MESSAGE)
-  const thanks = useThanksForm(settings, onSaved)
+  const form = useRuleForm(ALL_FIELDS, settings, onSaved, '')
   const [more, setMore] = useState(false)
   const moreId = useId()
-  const options = saleModeOf({ 'claim.parseMode': String(rules.draft['claim.parseMode']) }) === 'OPTIONS'
-  useUnsavedGuard(rules.dirty || shipping.dirty || thanks.dirty)
+  const options = saleModeOf({ 'claim.parseMode': String(form.draft['claim.parseMode']) }) === 'OPTIONS'
+  useUnsavedGuard(form.dirty)
+  const dirty = settingsDirtyBlocks(form.changes)
+  const [failed, setFailed] = useState<readonly SaveBlock[]>([])
+  useSaveStep('settings', dirty, async () => {
+    const sent = settingsDirtyBlocks(form.changes)
+    const ok = await form.save()
+    setFailed(ok ? [] : sent)
+    return ok ? { saved: sent, failed: [] } : { saved: [], failed: sent }
+  })
+  // 칸 밖 문장(연결 끊김 등)은 저장하지 못한 첫 칸 아래 한 번
+  const outside = (block: SaveBlock) => (form.error !== null && failed[0] === block ? <ErrorNote error={form.error} omitFields={ALL_KEYS} /> : null)
+  // 서버 문장이 접힌 칸에 있으면 펴서 보인다
+  const moreOpen = more || MORE_FIELDS.some((field) => settingProblem(form.error, field.key) !== undefined)
   return (
     <>
       <SettingsSection title="판매 규칙">
@@ -250,43 +272,54 @@ function RuleSections({ settings, onSaved, youtube }: { readonly settings: SaleS
           value={options ? 'OPTIONS' : 'NUMBERS'}
           onChange={(mode) => {
             if (mode === 'OPTIONS') {
-              rules.set('claim.parseMode', 'OPTIONS')
-              rules.set('contention.policy', 'ARRIVAL')
-            } else rules.set('claim.parseMode', 'STRICT')
+              form.set('claim.parseMode', 'OPTIONS')
+              form.set('contention.policy', 'ARRIVAL')
+            } else form.set('claim.parseMode', 'STRICT')
           }}
-          problem={settingProblem(rules.error, 'claim.parseMode')}
+          problem={settingProblem(form.error, 'claim.parseMode')}
         />
         {BASIC_FIELDS.map((field) => (
-          <RuleField key={field.key} field={field} value={rules.draft[field.key]} onChange={(value) => rules.set(field.key, value)} problem={settingProblem(rules.error, field.key)} />
+          <RuleField key={field.key} field={field} value={form.draft[field.key]} onChange={(value) => form.set(field.key, value)} problem={settingProblem(form.error, field.key)} />
         ))}
         <div className="stack-tight">
-          <button type="button" className="button" aria-expanded={more} aria-controls={moreId} onClick={() => setMore((open) => !open)}>
-            더 보기 (잘 모르면 그대로 두세요)
+          {/* FB1 D-FB1-02 (2): "상세 설정" — 펴면 맨 위에 "잘 모르면 그대로 두세요." */}
+          <button type="button" className="button" aria-expanded={moreOpen} aria-controls={moreId} onClick={() => setMore(!moreOpen)}>
+            {DETAIL_SETTINGS}
           </button>
-          <div id={moreId} className="stack" hidden={!more}>
+          <div id={moreId} className="stack" hidden={!moreOpen}>
+            <p className="hint">{DETAIL_SETTINGS_NOTE}</p>
             {MORE_FIELDS.map((field) =>
               // 옵션 방식: 엄격/느슨 칸은 없고, 겨루기 칸은 고를 수 없는 글 (D-O2-01)
               options && field.key === 'claim.parseMode' ? null : options && field.key === 'contention.policy' ? (
                 <FixedArrivalField key={field.key} label={field.label} />
               ) : (
-                <RuleField key={field.key} field={field} value={rules.draft[field.key]} onChange={(value) => rules.set(field.key, value)} problem={settingProblem(rules.error, field.key)} />
+                <RuleField key={field.key} field={field} value={form.draft[field.key]} onChange={(value) => form.set(field.key, value)} problem={settingProblem(form.error, field.key)} />
               ),
             )}
           </div>
         </div>
-        <SaveRow form={rules} fields={RULE_FIELDS} />
+        {outside('판매 규칙')}
       </SettingsSection>
       <SettingsSection title="배송비">
+        <p className="hint">{SHIPPING_HINT}</p>
         {SHIPPING_FIELDS.map((field) => (
-          <RuleField key={field.key} field={field} value={shipping.draft[field.key]} onChange={(value) => shipping.set(field.key, value)} problem={settingProblem(shipping.error, field.key)} />
+          <RuleField key={field.key} field={field} value={form.draft[field.key]} onChange={(value) => form.set(field.key, value)} problem={settingProblem(form.error, field.key)} />
         ))}
-        <SaveRow form={shipping} fields={SHIPPING_FIELDS} />
+        {outside('배송비')}
       </SettingsSection>
       <SettingsSection title="구매 감사 메시지">
-        <ThanksSettings settings={settings} youtube={youtube} form={thanks} />
+        <ThanksSettings settings={settings} youtube={youtube} form={form} />
+        {outside('구매 감사 메시지')}
       </SettingsSection>
     </>
   )
+}
+
+/** 설정 키 묶음 → 막대의 칸 이름 (바뀐 키가 있는 칸만, 화면 순서) */
+export function settingsDirtyBlocks(changes: Readonly<Record<string, unknown>>): SaveBlock[] {
+  const keys = Object.keys(changes)
+  const has = (fields: readonly FieldDef[]) => fields.some((field) => keys.includes(field.key))
+  return [...(has(RULE_FIELDS) ? (['판매 규칙'] as const) : []), ...(has(SHIPPING_FIELDS) ? (['배송비'] as const) : []), ...(has(THANKS_FIELDS) ? (['구매 감사 메시지'] as const) : [])]
 }
 
 /** 칸 하나 (제목이 그 영역의 이름 — 화면 낭독기·E2E가 찾는다). focus면 열자마자 보이게 스크롤하고 제목에 포커스 */
@@ -323,9 +356,8 @@ export function ShopForm({ shopName, onRenamed }: { readonly shopName?: string; 
   const [loaded, setLoaded] = useState<Shop | null>(null)
   const [loadError, setLoadError] = useState<ApiError | null>(null)
   const [attempt, setAttempt] = useState(0)
-  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
-  const [done, setDone] = useState(false)
+  const busy = useRef(false)
   const savedName = loaded?.name ?? shopName ?? ''
   const dirty = loaded === null ? draft.name !== savedName : FIELDS.some((field) => draft[field.key] !== loaded[field.key])
   useUnsavedGuard(dirty)
@@ -351,15 +383,14 @@ export function ShopForm({ shopName, onRenamed }: { readonly shopName?: string; 
   }, [attempt])
 
   const change = (key: keyof Shop, value: string) => {
-    setDone(false)
     setDraft((current) => ({ ...current, [key]: value }))
   }
 
-  const save = async () => {
-    if (busy) return
-    setBusy(true)
+  /** 저장 막대가 부른다 (FB1 D-FB1-06 — 바뀌었을 때만 PUT /api/shop) */
+  const save = async (): Promise<StepResult> => {
+    if (busy.current || !dirty) return { saved: [], failed: [] }
+    busy.current = true
     setError(null)
-    setDone(false)
     try {
       const { shop } = await put<{ shop: Partial<Shop> & { name: string } }>('/api/shop', loaded === null ? { name: draft.name } : draft)
       if (loaded !== null) {
@@ -368,14 +399,16 @@ export function ShopForm({ shopName, onRenamed }: { readonly shopName?: string; 
         setDraft(full)
       } else setDraft((current) => ({ ...current, name: shop.name }))
       onRenamed(shop.name)
-      setDone(true)
+      return { saved: ['가게'], failed: [] }
     } catch (caught) {
       if (!isApiError(caught)) throw caught
       setError(caught)
+      return { saved: [], failed: ['가게'] }
     } finally {
-      setBusy(false)
+      busy.current = false
     }
   }
+  useSaveStep('shop', dirty ? ['가게'] : [], save)
 
   if (shopName === undefined && loaded === null) {
     return loadError !== null ? <RequestError error={loadError} onRetry={() => setAttempt((n) => n + 1)} retryLabel="다시 불러오기" /> : <p role="status">불러오는 중…</p>
@@ -389,8 +422,8 @@ export function ShopForm({ shopName, onRenamed }: { readonly shopName?: string; 
     <form
       className="stack"
       onSubmit={(event) => {
+        // 저장은 화면 아래 저장 막대 하나 (FB1 D-FB1-06)
         event.preventDefault()
-        void save()
       }}
     >
       {shown.map((field) => {
@@ -440,17 +473,6 @@ export function ShopForm({ shopName, onRenamed }: { readonly shopName?: string; 
           ) : null}
         </section>
       )}
-      <div className="row">
-        <button type="submit" className="button" disabled={busy}>
-          저장
-        </button>
-        {busy ? <span role="status">저장하는 중…</span> : null}
-      </div>
-      {done ? (
-        <p className="notice" role="status" data-tone="success">
-          {SHOP_SAVED}
-        </p>
-      ) : null}
       {outside ? <RequestError error={error} omitFields={fieldKeys} /> : null}
     </form>
   )

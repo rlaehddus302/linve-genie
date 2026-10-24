@@ -1,13 +1,17 @@
-// 설정 "택배" (SPEC §7 화면 8, PARCEL_RULES PC-6, D-T1-09, AC-T1-66).
-// - 택배사 고르기("가짜 택배(시험용)"는 서버가 시험 모드에서만 목록에 준다, "우체국 택배 — 준비 중"은 고를 수 없다), 택배사 고객 번호(저장 뒤 끝 4자리만),
-//   보내는 사람(이름 — 비면 가게 이름이 기본값으로 채워져 있다·연락처·주소·상세 주소·우편번호), 기본 상자 크기(극소·소·중·대).
-// - 틀리면 칸마다 서버 문장(PC-2와 같은 칸 코드), 저장하면 "택배 설정을 저장했어요.". 저장하지 않은 값이 있으면 떠나기 전에 묻는다.
+// 설정 "택배" (SPEC §7 화면 8, PARCEL_RULES PC-1·PC-6, D-T1-09, AC-T1-66, FB1 D-FB1-04·05·06 — AC-FB1-19).
+// - 쓰는 택배사 고르기: 고르지 않음·우체국택배·CJ대한통운·한진택배·로젠택배·롯데택배·직접 입력(+ "택배사 이름" 칸, 20자)
+//   (+ 시험 모드면 서버가 목록 끝에 주는 "가짜 택배(시험용)"). 잠긴 줄 없음. 자동 접수가 안 되는 택배사를 골랐거나 고르지 않았으면
+//   "자동 접수는 아직 준비 중이에요. …" 안내. 택배사 고객 번호(저장 뒤 끝 4자리만), 보내는 사람(이름 — 비면 가게 이름이 기본값),
+//   기본 택배 크기(세 변의 합 60·80·100·120·160cm 이하).
+// - 틀리면 칸마다 서버 문장(PC-2와 같은 칸 코드). 저장은 화면 아래 저장 막대 하나(D-FB1-06 — 바뀌었을 때만 PUT /api/parcels/settings).
+//   저장하지 않은 값이 있으면 떠나기 전에 묻는다.
 // - 고객 번호 칸은 비워 두면 그대로 둔다(저장한 번호는 화면에 다시 오지 않는다 — 끝 4자리만).
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { get, isApiError, put, type ApiError } from '../api/client.ts'
-import type { BoxKind, CarrierCode, ParcelSender, ParcelSettings } from '../api/parcel-types.ts'
+import type { BoxKind, ParcelSender, ParcelSettings, SettingsCarrier } from '../api/parcel-types.ts'
 import { useUnsavedGuard } from '../lib/leave-guard.ts'
-import { PARCEL_SETTINGS_SAVED } from '../lib/parcel-words.ts'
+import { BOX_HINT, BOX_LABEL, CARRIER_NAME_LABEL, CARRIER_NAME_MAX, NO_AUTO_BOOK_NOTE, OTHER_CARRIER, boxWord } from '../lib/parcel-words.ts'
+import { useSaveStep, type StepResult } from '../lib/save-bar.ts'
 import { RequestError } from './ErrorNote.tsx'
 import { AddressInputs, fieldNames } from './ParcelParts.tsx'
 
@@ -20,40 +24,85 @@ const SENDER_LABELS: Readonly<Record<(typeof SENDER_KEYS)[number], string>> = {
   zip: '보내는 우편번호(몰라도 돼요)',
 }
 
-interface Draft {
-  readonly carrier: CarrierCode | ''
+export interface ParcelDraft {
+  readonly carrier: SettingsCarrier | ''
+  /** 직접 입력 택배사 이름 (carrier가 OTHER일 때만 쓴다) */
+  readonly carrierName: string
   readonly customerNo: string
   readonly sender: ParcelSender
   readonly box: BoxKind
 }
 
-function draftOf(settings: ParcelSettings): Draft {
+export function parcelDraftOf(settings: ParcelSettings): ParcelDraft {
   const sender = settings.sender ?? { name: settings.shopName, phone: '', address: '', detail: '', zip: '' }
-  return { carrier: settings.carrier ?? '', customerNo: '', sender: { ...sender, name: sender.name === '' ? settings.shopName : sender.name }, box: settings.box }
+  return {
+    carrier: settings.carrier ?? '',
+    carrierName: settings.carrier === OTHER_CARRIER ? (settings.carrierName ?? '') : '',
+    customerNo: '',
+    sender: { ...sender, name: sender.name === '' ? settings.shopName : sender.name },
+    box: settings.box,
+  }
 }
 
-function sameDraft(a: Draft, b: Draft): boolean {
-  return a.carrier === b.carrier && a.customerNo === b.customerNo && a.box === b.box && SENDER_KEYS.every((key) => a.sender[key] === b.sender[key])
+export function sameParcelDraft(a: ParcelDraft, b: ParcelDraft): boolean {
+  return (
+    a.carrier === b.carrier &&
+    (a.carrier !== OTHER_CARRIER || a.carrierName === b.carrierName) &&
+    a.customerNo === b.customerNo &&
+    a.box === b.box &&
+    SENDER_KEYS.every((key) => a.sender[key] === b.sender[key])
+  )
 }
 
 /** 보내는 사람을 보낼지: 저장한 것이 없고 이름 말고 아무것도 적지 않았으면 보내지 않는다(빈 칸 오류를 내지 않게) */
-function senderToSend(settings: ParcelSettings, draft: Draft): ParcelSender | undefined {
+function senderToSend(settings: ParcelSettings, draft: ParcelDraft): ParcelSender | undefined {
   if (settings.sender !== null) return draft.sender
   const touched = SENDER_KEYS.some((key) => key !== 'name' && draft.sender[key].trim() !== '') || draft.sender.name !== settings.shopName
   return touched ? draft.sender : undefined
 }
 
+/** 보낼 본문 (직접 입력이면 이름도) */
+export function parcelBody(settings: ParcelSettings, draft: ParcelDraft): Record<string, unknown> {
+  const sender = senderToSend(settings, draft)
+  return {
+    carrier: draft.carrier === '' ? null : draft.carrier,
+    ...(draft.carrier === OTHER_CARRIER ? { carrierName: draft.carrierName } : {}),
+    box: draft.box,
+    ...(sender === undefined ? {} : { sender }),
+    ...(draft.customerNo.trim() === '' ? {} : { customerNo: draft.customerNo }),
+  }
+}
+
 export function ParcelSettingsSection() {
   const id = useId()
   const [settings, setSettings] = useState<ParcelSettings | null>(null)
-  const [draft, setDraft] = useState<Draft | null>(null)
+  const [draft, setDraft] = useState<ParcelDraft | null>(null)
   const [loadError, setLoadError] = useState<ApiError | null>(null)
   const [attempt, setAttempt] = useState(0)
-  const [busy, setBusy] = useState(false)
+  const busy = useRef(false)
   const [error, setError] = useState<ApiError | null>(null)
-  const [done, setDone] = useState(false)
-  const dirty = settings !== null && draft !== null && !sameDraft(draft, draftOf(settings))
+  const dirty = settings !== null && draft !== null && !sameParcelDraft(draft, parcelDraftOf(settings))
   useUnsavedGuard(dirty)
+
+  /** 저장 막대가 부른다 (바뀌었을 때만) */
+  const save = async (): Promise<StepResult> => {
+    if (busy.current || settings === null || draft === null || !dirty) return { saved: [], failed: [] }
+    busy.current = true
+    setError(null)
+    try {
+      const result = await put<{ settings: ParcelSettings }>('/api/parcels/settings', parcelBody(settings, draft))
+      setSettings(result.settings)
+      setDraft(parcelDraftOf(result.settings))
+      return { saved: ['택배'], failed: [] }
+    } catch (caught) {
+      if (!isApiError(caught)) throw caught
+      setError(caught)
+      return { saved: [], failed: ['택배'] }
+    } finally {
+      busy.current = false
+    }
+  }
+  useSaveStep('parcel', dirty ? ['택배'] : [], save)
 
   useEffect(() => {
     let alive = true
@@ -61,7 +110,7 @@ export function ParcelSettingsSection() {
       (result) => {
         if (!alive) return
         setSettings(result.settings)
-        setDraft(draftOf(result.settings))
+        setDraft(parcelDraftOf(result.settings))
         setLoadError(null)
       },
       (caught: unknown) => {
@@ -77,44 +126,21 @@ export function ParcelSettingsSection() {
     return loadError !== null ? <RequestError error={loadError} onRetry={() => setAttempt((n) => n + 1)} retryLabel="다시 불러오기" /> : <p role="status">택배 설정을 불러오는 중…</p>
   }
 
-  const change = (patch: Partial<Draft>) => {
-    setDone(false)
+  const change = (patch: Partial<ParcelDraft>) => {
     setDraft((current) => (current === null ? current : { ...current, ...patch }))
   }
-  const save = async () => {
-    if (busy) return
-    setBusy(true)
-    setError(null)
-    setDone(false)
-    const sender = senderToSend(settings, draft)
-    const body = {
-      carrier: draft.carrier === '' ? null : draft.carrier,
-      box: draft.box,
-      ...(sender === undefined ? {} : { sender }),
-      ...(draft.customerNo.trim() === '' ? {} : { customerNo: draft.customerNo }),
-    }
-    try {
-      const result = await put<{ settings: ParcelSettings }>('/api/parcels/settings', body)
-      setSettings(result.settings)
-      setDraft(draftOf(result.settings))
-      setDone(true)
-    } catch (caught) {
-      if (!isApiError(caught)) throw caught
-      setError(caught)
-    } finally {
-      setBusy(false)
-    }
-  }
+  const chosen = settings.carriers.find((carrier) => carrier.code === draft.carrier)
   const carrierProblem = error?.problemFor('carrier')
   const customerProblem = error?.problemFor('customerNo')
   const boxProblem = error?.problemFor('box')
   const senderProblem = error?.problemFor('sender')
+  const nameProblem = error?.problemFor('carrierName')
   return (
     <form
       className="stack"
       onSubmit={(event) => {
+        // 저장은 화면 아래 저장 막대 하나 (FB1 D-FB1-06)
         event.preventDefault()
-        void save()
       }}
     >
       <div className="field">
@@ -125,12 +151,12 @@ export function ParcelSettingsSection() {
           value={draft.carrier}
           aria-invalid={carrierProblem !== undefined}
           aria-describedby={carrierProblem === undefined ? undefined : `${id}-carrier-error`}
-          onChange={(event) => change({ carrier: event.target.value as CarrierCode | '' })}
+          onChange={(event) => change({ carrier: event.target.value as SettingsCarrier | '' })}
         >
           <option value="">고르지 않음</option>
           {settings.carriers.map((carrier) => (
-            <option key={carrier.code} value={carrier.code} disabled={!carrier.available}>
-              {carrier.available ? carrier.name : `${carrier.name} — ${carrier.note ?? '준비 중'}`}
+            <option key={carrier.code} value={carrier.code}>
+              {carrier.name}
             </option>
           ))}
         </select>
@@ -139,8 +165,32 @@ export function ParcelSettingsSection() {
             {carrierProblem.message}
           </p>
         ) : null}
+        {chosen === undefined || !chosen.autoBook ? <p className="notice">{NO_AUTO_BOOK_NOTE}</p> : null}
         <p className="hint">택배사를 고르지 않아도 포장 화면에서 배송 완료·송장번호를 직접 적을 수 있어요.</p>
       </div>
+      {draft.carrier === OTHER_CARRIER ? (
+        <div className="field">
+          <label htmlFor={`${id}-carrier-name`}>{CARRIER_NAME_LABEL}</label>
+          <input
+            id={`${id}-carrier-name`}
+            className="input"
+            autoComplete="off"
+            maxLength={CARRIER_NAME_MAX * 2}
+            value={draft.carrierName}
+            aria-invalid={nameProblem !== undefined}
+            aria-describedby={nameProblem === undefined ? `${id}-carrier-name-hint` : `${id}-carrier-name-error`}
+            onChange={(event) => change({ carrierName: event.target.value })}
+          />
+          <p className="hint" id={`${id}-carrier-name-hint`}>
+            {String(CARRIER_NAME_MAX)}자까지 적을 수 있어요.
+          </p>
+          {nameProblem !== undefined ? (
+            <p className="field-error" role="alert" id={`${id}-carrier-name-error`}>
+              {nameProblem.message}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       <div className="field">
         <label htmlFor={`${id}-customer`}>택배사 고객 번호</label>
         <input
@@ -171,11 +221,11 @@ export function ParcelSettingsSection() {
         ) : null}
       </fieldset>
       <div className="field">
-        <label htmlFor={`${id}-box`}>기본 상자 크기</label>
-        <select id={`${id}-box`} className="input" value={draft.box} onChange={(event) => change({ box: event.target.value as BoxKind })}>
+        <label htmlFor={`${id}-box`}>{BOX_LABEL}</label>
+        <select id={`${id}-box`} className="input" value={draft.box} aria-describedby={`${id}-box-hint`} onChange={(event) => change({ box: event.target.value as BoxKind })}>
           {settings.boxes.map((box) => (
             <option key={box} value={box}>
-              {box}
+              {boxWord(box)}
             </option>
           ))}
         </select>
@@ -184,20 +234,12 @@ export function ParcelSettingsSection() {
             {boxProblem.message}
           </p>
         ) : null}
+        <p className="hint" id={`${id}-box-hint`}>
+          {BOX_HINT}
+        </p>
         <p className="hint">택배 화면에서 묶음마다 바꿀 수 있어요.</p>
       </div>
-      <div className="row">
-        <button type="submit" className="button" disabled={busy}>
-          저장
-        </button>
-        {busy ? <span role="status">저장하는 중…</span> : null}
-      </div>
-      {done ? (
-        <p className="notice" role="status" data-tone="success">
-          {PARCEL_SETTINGS_SAVED}
-        </p>
-      ) : null}
-      {error !== null ? <RequestError error={error} omitFields={['carrier', 'customerNo', 'box', 'sender', ...fieldNames('sender', SENDER_KEYS)]} /> : null}
+      {error !== null ? <RequestError error={error} omitFields={['carrier', 'carrierName', 'customerNo', 'box', 'sender', ...fieldNames('sender', SENDER_KEYS)]} /> : null}
     </form>
   )
 }

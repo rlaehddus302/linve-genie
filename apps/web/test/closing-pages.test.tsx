@@ -8,6 +8,7 @@ import type { PackingEntry, PackingItem, PackingWord } from '../src/api/types.ts
 import { ImportDialog } from '../src/components/ImportDialog.tsx'
 import { PackingPage } from '../src/components/PackingPage.tsx'
 import { ReceiptSection } from '../src/components/ReceiptSection.tsx'
+import { SaveBarArea } from '../src/components/SaveBar.tsx'
 import { BackupSection, ExportSection, ShopForm } from '../src/components/SettingsPage.tsx'
 import type { Route } from '../src/lib/router.ts'
 import { chat, register } from './engine.ts'
@@ -493,11 +494,12 @@ describe('설정 화면', () => {
   /** 합친 뒤(main I3) 설정 화면은 판매 규칙·유튜브·보조자 칸도 함께 불러온다(settings-page.test.tsx) — 이 시험은 I2 칸(가게·백업·전체 기록 내려받기)을 그린다 */
   function SettingsPage({ onShopName }: { readonly onShopName: (name: string) => void }) {
     return (
-      <>
+      // FB1 D-FB1-06: 가게 칸은 화면 아래 저장 막대로 저장한다
+      <SaveBarArea>
         <ShopForm onRenamed={onShopName} />
         <BackupSection />
         <ExportSection />
-      </>
+      </SaveBarArea>
     )
   }
 

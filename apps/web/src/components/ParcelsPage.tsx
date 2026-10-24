@@ -18,6 +18,9 @@ import { useLiveEvents } from '../lib/live-events.ts'
 import { PACKING_TONE } from '../lib/packing.ts'
 import {
   BOOKING_NOW,
+  BOX_KINDS,
+  ROW_BOX_LABEL,
+  boxWord,
   GROUP_BOOKED,
   GROUP_EXCLUDED,
   GROUP_READY,
@@ -50,7 +53,8 @@ import { Modal } from './Modal.tsx'
 import { ParcelTag } from './ParcelParts.tsx'
 import { SpaLink } from './SettingsPage.tsx'
 
-const BOXES: readonly BoxKind[] = ['극소', '소', '중', '대']
+// 택배 크기 다섯 (세 변의 합 — FB1 D-FB1-05)
+const BOXES: readonly BoxKind[] = BOX_KINDS
 export const DATE_NOT_FOUND = '그 날짜는 택배를 접수할 수 없어요. 다른 날짜를 골라 주세요.'
 
 /** 접수 결과 요약 */
@@ -337,7 +341,7 @@ function ParcelDayView({
                 </label>
                 <RowFacts row={row} />
                 <div className="field parcel-box">
-                  <label htmlFor={`box-${date}-${row.buyer}`}>상자 크기</label>
+                  <label htmlFor={`box-${date}-${row.buyer}`}>{ROW_BOX_LABEL}</label>
                   <select
                     id={`box-${date}-${row.buyer}`}
                     className="input"
@@ -351,7 +355,7 @@ function ParcelDayView({
                   >
                     {BOXES.map((box) => (
                       <option key={box} value={box}>
-                        {box}
+                        {boxWord(box)}
                       </option>
                     ))}
                   </select>

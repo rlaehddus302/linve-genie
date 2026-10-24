@@ -47,7 +47,7 @@ const BOOKED: ParcelBrief = {
   trackUrl: null,
   reason: null,
   message: null,
-  box: '소',
+  box: '80', // FB1 D-FB1-05
   qty: 1,
   bookedAt: null,
   cancellable: true,

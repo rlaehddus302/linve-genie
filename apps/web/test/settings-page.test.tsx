@@ -101,6 +101,9 @@ async function open(path = '/settings') {
 }
 
 const section = (name: string) => screen.getByRole('region', { name })
+// FB1 D-FB1-06: 칸마다 "저장" 대신 화면 아래 저장 막대 하나
+const saveBar = () => screen.getByRole('region', { name: '저장' })
+const clickSave = () => fireEvent.click(within(saveBar()).getByRole('button', { name: '저장' }))
 
 describe('메뉴·칸 (AC-I3-44)', () => {
   it('메뉴에 "설정"(지금 화면), 칸 제목 일곱, "그 밖"의 링크, 진행 중인 방송이 있으면 안내', async () => {
@@ -126,10 +129,10 @@ describe('메뉴·칸 (AC-I3-44)', () => {
 })
 
 describe('판매 규칙 (AC-I3-45·46)', () => {
-  it('"더 보기"는 처음에 접혀 있고 펼치면 칸이 보인다, 경고 한 줄은 저장 전에도', async () => {
+  it('"상세 설정"은 처음에 접혀 있고 펼치면 칸이 보인다, 경고 한 줄은 저장 전에도', async () => {
     await open()
     const rules = section('판매 규칙')
-    const more = within(rules).getByRole('button', { name: '더 보기 (잘 모르면 그대로 두세요)' })
+    const more = within(rules).getByRole('button', { name: '상세 설정' }) // FB1 D-FB1-02 (2)
     expect(more.getAttribute('aria-expanded')).toBe('false')
     const strict = within(rules).getByRole('radio', { name: /엄격하게/, hidden: true })
     expect(strict.closest('[hidden]')).not.toBeNull()
@@ -150,8 +153,8 @@ describe('판매 규칙 (AC-I3-45·46)', () => {
     expect(waitlist.getAttribute('inputmode')).toBe('numeric')
     fireEvent.change(waitlist, { target: { value: '3' } })
     fireEvent.click(within(rules).getByRole('radio', { name: '내가 골라요' }))
-    fireEvent.click(within(rules).getByRole('button', { name: '저장' }))
-    expect(await within(rules).findByText('저장했어요. 다음에 시작하는 방송부터 적용돼요.')).toBeDefined()
+    clickSave() // FB1 D-FB1-06
+    expect(await within(saveBar()).findByText('저장했어요. 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.')).toBeDefined() // FB1 D-FB1-06
     expect(server.callsTo('PATCH', /^\/api\/settings$/).map((call) => call.body)).toEqual([{ settings: { 'waitlist.max': 3, 'cancel.succession': 'ASK' } }])
   })
 
@@ -160,8 +163,8 @@ describe('판매 규칙 (AC-I3-45·46)', () => {
     await open()
     const shipping = section('배송비')
     fireEvent.change(within(shipping).getByLabelText('무료배송 기준 금액 (원, 비우면 없음)'), { target: { value: '' } })
-    fireEvent.click(within(shipping).getByRole('button', { name: '저장' }))
-    expect(await within(shipping).findByText('저장했어요. 다음에 시작하는 방송부터 적용돼요. 그날 첫 방송이 이미 있으면 그날 정산은 그대로예요.')).toBeDefined()
+    clickSave() // FB1 D-FB1-06
+    expect(await within(saveBar()).findByText('저장했어요. 오늘 방송을 이미 시작했으면 배송비는 내일부터 적용돼요.')).toBeDefined() // FB1 D-FB1-02·06
     expect(server.callsTo('PATCH', /^\/api\/settings$/)[0]?.body).toEqual({ settings: { 'shipping.freeThreshold': null } })
   })
 
@@ -182,17 +185,19 @@ describe('구매 감사 메시지 (AC-I3-10~14)', () => {
     await open()
     const thanks = section('구매 감사 메시지')
     expect((within(thanks).getByRole('checkbox', { name: '실시간 채팅에 감사 메시지 남기기' }) as HTMLInputElement).checked).toBe(true)
-    expect((within(thanks).getByRole('radio', { name: '남기지 않음' }) as HTMLInputElement).checked).toBe(true)
+    expect((within(thanks).getByRole('checkbox', { name: '영상 댓글에 감사 메시지 남기기' }) as HTMLInputElement).checked).toBe(false) // FB1 D-FB1-03 (끔 = 남기지 않음)
+    fireEvent.click(within(thanks).getByRole('button', { name: '상세 설정' })) // FB1 D-FB1-03 묶는 시간은 상세 설정 안
     const batch = within(thanks).getByLabelText('몇 초 동안의 판매를 한 메시지로 묶을까요? (0이면 하나씩)') as HTMLInputElement
     expect(batch.value).toBe('0')
     fireEvent.change(batch, { target: { value: '601' } })
-    fireEvent.click(within(thanks).getByRole('button', { name: '저장' }))
+    clickSave() // FB1 D-FB1-06
     expect(await within(thanks).findByText('0부터 600까지의 정수로 적어 주세요')).toBeDefined()
     expect(settings['thanks.batchWindowSec']).toBe(0)
     fireEvent.change(batch, { target: { value: '30' } })
-    fireEvent.click(within(thanks).getByRole('radio', { name: '판매마다 댓글' }))
-    fireEvent.click(within(thanks).getByRole('button', { name: '저장' }))
-    expect(await within(thanks).findByText('저장했어요. 다음에 시작하는 방송부터 적용돼요.')).toBeDefined()
+    fireEvent.click(within(thanks).getByRole('checkbox', { name: '영상 댓글에 감사 메시지 남기기' })) // FB1 D-FB1-03 (처음 켜면 판매마다)
+    expect((within(thanks).getByRole('radio', { name: '판매마다 댓글' }) as HTMLInputElement).checked).toBe(true)
+    clickSave() // FB1 D-FB1-06
+    expect(await within(saveBar()).findByText('저장했어요. 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.')).toBeDefined() // FB1 D-FB1-06
     expect(server.callsTo('PATCH', /^\/api\/settings$/).at(-1)?.body).toEqual({ settings: { 'thanks.batchWindowSec': 30, 'thanks.videoComment': 'PER_SALE' } })
     // 저장한 묶음 시간이 0보다 크면 묶음 미리 보기
     expect(within(thanks).getByText('15번 핑크프릴 10,000원 홍길동님, 16번 라울 5,000원 김철수님 구매 감사합니다')).toBeDefined()
@@ -376,11 +381,11 @@ describe('가게 이름 (AC-I3-47)', () => {
     const shop = section('가게')
     const field = within(shop).getByLabelText('가게 이름')
     fireEvent.change(field, { target: { value: '   ' } })
-    fireEvent.click(within(shop).getByRole('button', { name: '저장' }))
+    clickSave() // FB1 D-FB1-06
     expect(await within(shop).findByText('가게 이름은 1~30자로 적어 주세요.')).toBeDefined()
     fireEvent.change(field, { target: { value: ' 새 가게 ' } })
-    fireEvent.click(within(shop).getByRole('button', { name: '저장' }))
-    expect(await within(shop).findByText('저장했어요.')).toBeDefined()
+    clickSave() // FB1 D-FB1-06
+    expect(await within(saveBar()).findByText('저장했어요.')).toBeDefined() // FB1 D-FB1-06
     expect(document.querySelector('.shop-name')?.textContent).toBe('새 가게')
   })
 })

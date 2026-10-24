@@ -43,7 +43,7 @@ function brief(patch: Partial<ParcelBrief> = {}): ParcelBrief {
     trackUrl: 'http://127.0.0.1:9/track/900000000001',
     reason: null,
     message: null,
-    box: '소',
+    box: '80', // FB1 D-FB1-05
     qty: 2,
     bookedAt: '2026-10-22T05:00:00.000Z',
     cancellable: true,
@@ -66,7 +66,7 @@ function row(buyer: string, name: string, patch: Partial<ParcelRow> = {}): Parce
     ready: true,
     reason: null,
     message: null,
-    box: '소',
+    box: '80', // FB1 D-FB1-05
     parcel: null,
     ...patch,
   }
@@ -79,7 +79,7 @@ function sixRows(): ParcelDay {
     seq: 10,
     blocked: null,
     carrier: { code: 'FAKE', name: '가짜 택배' },
-    box: '소',
+    box: '80', // FB1 D-FB1-05
     ready: [row('UC_A', '김하나')],
     excluded: [
       row('UC_B', '이둘', { ready: false, payment: 'PARTIAL', reason: 'NOT_PAID', message: '입금 완료 전이에요' }),
@@ -191,7 +191,7 @@ describe('택배 화면 (AC-T1-61~64)', () => {
     const ready = region(exact('보낼 수 있어요'))
     const pick = within(ready).getByRole('checkbox', { name: '김하나' })
     expect(pick).toHaveProperty('checked', true)
-    expect(within(ready).getByRole('combobox', { name: '상자 크기' })).toHaveProperty('value', '소')
+    expect(within(ready).getByRole('combobox', { name: '택배 크기' })).toHaveProperty('value', '80') // FB1 D-FB1-05
     const excluded = region(exact('아직 못 보내요'))
     for (const text of ['입금 완료 전이에요', '포장 전이에요', '배송지를 확인해 주세요', '직접 수령이에요']) expect(within(excluded).getByText(text)).toBeDefined()
     expect(within(excluded).getByRole('link', { name: '배송지 보기' }).getAttribute('href')).toBe(`/settlements?date=${D}&buyer=UC_D`)
@@ -240,7 +240,7 @@ describe('택배 화면 (AC-T1-61~64)', () => {
       return { body: { date: D, results: items.map((item, index) => ({ buyer: item.buyer, ok: true, invoice: `90000000000${String(index + 1)}`, invoiceText: `9000-0000-000${String(index + 1)}` })) } }
     })
     await open()
-    fireEvent.change(screen.getAllByRole('combobox', { name: '상자 크기' })[1] as HTMLElement, { target: { value: '중' } })
+    fireEvent.change(screen.getAllByRole('combobox', { name: '택배 크기' })[1] as HTMLElement, { target: { value: '100' } }) // FB1 D-FB1-05
     fireEvent.click(screen.getByRole('button', { name: '2개 택배 접수하기' }))
     const dialog = screen.getByRole('dialog', { name: '택배 접수' })
     expect(within(dialog).getByText('2개를 택배로 접수할까요?')).toBeDefined()
@@ -259,8 +259,8 @@ describe('택배 화면 (AC-T1-61~64)', () => {
     const calls = server.callsTo('POST', /\/api\/parcels\/days\/2026-10-22\/book$/)
     expect(calls).toHaveLength(1)
     expect(calls[0]?.body?.items).toEqual([
-      { buyer: 'UC_A', box: '소' },
-      { buyer: 'UC_G', box: '중' },
+      { buyer: 'UC_A', box: '80' }, // FB1 D-FB1-05
+      { buyer: 'UC_G', box: '100' }, // FB1 D-FB1-05
     ])
     expect(typeof calls[0]?.body?.requestId).toBe('string')
     expect(await screen.findByText('2개 접수했어요.')).toBeDefined()
@@ -561,15 +561,18 @@ describe('설정 "택배" (AC-T1-66)', () => {
   beforeEach(() => {
     parcel = {
       carrier: null,
+      carrierName: null,
+      // FB1 D-FB1-04: 줄 모양 { code, name, autoBook } — 모두 고를 수 있다, 시험 모드 FAKE는 끝
       carriers: [
-        { code: 'FAKE', name: '가짜 택배(시험용)', available: true, note: null },
-        { code: 'EPOST', name: '우체국 택배', available: false, note: '준비 중' },
+        { code: 'EPOST', name: '우체국택배', autoBook: false },
+        { code: 'OTHER', name: '직접 입력', autoBook: false },
+        { code: 'FAKE', name: '가짜 택배(시험용)', autoBook: true },
       ],
       customerNoLast4: null,
       sender: null,
       shopName: '다육이네',
-      box: '소',
-      boxes: ['극소', '소', '중', '대'],
+      box: '80', // FB1 D-FB1-05
+      boxes: ['60', '80', '100', '120', '160'], // FB1 D-FB1-05
     }
     server
       .on('GET', /^\/api\/settings$/, () => ({ body: { settings: { ...DEFAULT_SETTINGS } } }))
@@ -578,37 +581,38 @@ describe('설정 "택배" (AC-T1-66)', () => {
       .on('PUT', /^\/api\/parcels\/settings$/, (call) => {
         const sender = call.body?.sender as Record<string, string> | undefined
         if (sender !== undefined && sender.phone !== '0311234567') return { status: 400, body: { error: { code: 'INVALID_INPUT', message: '입력한 내용을 확인해 주세요.', problems: [{ field: 'sender.phone', message: '전화번호를 숫자로 적어 주세요. 예: 010-1234-5678, 031-123-4567' }] }, codes: ['PHONE_INVALID'] } }
-        parcel = { ...parcel, carrier: (call.body?.carrier as 'FAKE' | null) ?? null, box: (call.body?.box as '중') ?? parcel.box, ...(sender === undefined ? {} : { sender: sender as unknown as ParcelSettings['sender'] }), ...(typeof call.body?.customerNo === 'string' ? { customerNoLast4: '5678' } : {}) }
+        parcel = { ...parcel, carrier: (call.body?.carrier as 'FAKE' | null) ?? null, box: (call.body?.box as '100') ?? parcel.box, ...(sender === undefined ? {} : { sender: sender as unknown as ParcelSettings['sender'] }), ...(typeof call.body?.customerNo === 'string' ? { customerNoLast4: '5678' } : {}) }
         return { body: { settings: parcel } }
       })
   })
 
-  it('택배사(우체국은 준비 중 — 고를 수 없음)·고객 번호(끝 4자리만)·보내는 사람(이름 기본 = 가게 이름)·상자 크기, 틀리면 칸마다, 저장하면 "저장했어요"', async () => {
+  it('택배사(FB1 D-FB1-04 — 우체국택배도 고를 수 있음)·고객 번호(끝 4자리만)·보내는 사람(이름 기본 = 가게 이름)·택배 크기, 틀리면 칸마다, 저장하면 "저장했어요"', async () => {
     window.history.replaceState(null, '', '/settings/parcel')
     render(<App />)
     const section = await screen.findByRole('region', { name: '택배' })
     const carrier = await within(section).findByRole('combobox', { name: '택배사' })
-    const epost = within(carrier).getByRole('option', { name: '우체국 택배 — 준비 중' })
-    expect(epost).toHaveProperty('disabled', true)
+    const epost = within(carrier).getByRole('option', { name: '우체국택배' }) // FB1 D-FB1-04
+    expect(epost).toHaveProperty('disabled', false) // FB1 D-FB1-04
     expect(within(section).getByLabelText('보내는 사람 이름')).toHaveProperty('value', '다육이네')
-    expect([...within(section).getByRole('combobox', { name: '기본 상자 크기' }).querySelectorAll('option')].map((option) => option.textContent)).toEqual(['극소', '소', '중', '대'])
+    expect([...within(section).getByRole('combobox', { name: '기본 택배 크기 (세 변의 합)' }).querySelectorAll('option')].map((option) => option.textContent)).toEqual(['60cm 이하', '80cm 이하', '100cm 이하', '120cm 이하', '160cm 이하']) // FB1 D-FB1-05
     fireEvent.change(carrier, { target: { value: 'FAKE' } })
     fireEvent.change(within(section).getByLabelText('택배사 고객 번호'), { target: { value: 'C-12345678' } })
     fireEvent.change(within(section).getByLabelText('보내는 사람 연락처'), { target: { value: '031' } })
     fireEvent.change(within(section).getByLabelText('보내는 주소'), { target: { value: '경기도 고양시 덕양구 1' } })
-    fireEvent.click(within(section).getByRole('button', { name: '저장' }))
+    fireEvent.click(within(screen.getByRole('region', { name: '저장' })).getByRole('button', { name: '저장' })) // FB1 D-FB1-06
     // 보내는 사람 칸 문장은 서버가 준 "보내는 사람" 줄 그대로 (D-T1-17, U-T1-08) — 받는 분 문장이 섞이지 않는다
     expect(await within(section).findByText('전화번호를 숫자로 적어 주세요. 예: 010-1234-5678, 031-123-4567')).toBeDefined()
     const senderGroup = within(section).getByRole('group', { name: '보내는 사람' })
     expect(senderGroup.textContent).not.toMatch(/받는 분|010으로 시작/)
     fireEvent.change(within(section).getByLabelText('보내는 사람 연락처'), { target: { value: '0311234567' } })
-    fireEvent.change(within(section).getByRole('combobox', { name: '기본 상자 크기' }), { target: { value: '중' } })
-    fireEvent.click(within(section).getByRole('button', { name: '저장' }))
-    expect(await within(section).findByText(/저장했어요/)).toBeDefined()
+    fireEvent.change(within(section).getByRole('combobox', { name: '기본 택배 크기 (세 변의 합)' }), { target: { value: '100' } }) // FB1 D-FB1-05
+    fireEvent.click(within(screen.getByRole('region', { name: '저장' })).getByRole('button', { name: '저장' })) // FB1 D-FB1-06
+    expect(await within(screen.getByRole('region', { name: '저장' })).findByText(/저장했어요/)).toBeDefined() // FB1 D-FB1-06
     expect(within(section).getByText(/저장한 번호 끝 5678/)).toBeDefined()
     expect(within(section).getByLabelText('택배사 고객 번호')).toHaveProperty('value', '')
     const last = server.callsTo('PUT', /\/api\/parcels\/settings$/).at(-1)
-    expect(last?.body).toMatchObject({ carrier: 'FAKE', box: '중', customerNo: 'C-12345678', sender: { name: '다육이네', phone: '0311234567', address: '경기도 고양시 덕양구 1', detail: '', zip: '' } })
+    expect(last?.body).toMatchObject({ carrier: 'FAKE', box: '100', // FB1 D-FB1-05
+ customerNo: 'C-12345678', sender: { name: '다육이네', phone: '0311234567', address: '경기도 고양시 덕양구 1', detail: '', zip: '' } })
   })
 })
 

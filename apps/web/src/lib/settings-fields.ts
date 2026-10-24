@@ -3,12 +3,27 @@
 // 숫자 칸은 적은 글자를 그대로 정수로 읽어 보낸다 — 범위 검사는 서버(코어 checkSettings)가 하고 그 문장을 칸 옆에 보인다.
 import { formatWon, parseAmount, type SaleSettings } from '@livejjim/core'
 
+/** 가격 단위 안내 (FB1 D-FB1-01) */
+export const PRICE_UNIT_HINT = "만원 단위는 '2만'·'1.5만'처럼 적으면 돼요. 어느 단위를 골라도 '2만'은 20,000원이에요."
+/** 배송비 칸 안내 (FB1 D-FB1-02 (1)) */
+export const SHIPPING_HINT = '배송비는 그날 첫 방송을 시작할 때의 값으로 정산해요. 오늘 방송을 이미 시작했으면 바꾼 배송비는 내일부터 적용돼요.'
+/** 감사 대상 설명 (FB1 D-FB1-02 (6)) */
+export const LIVE_CHAT_HINT = '방송 중 영상 옆 채팅창에 바로 보이는 글이에요.'
+export const VIDEO_COMMENT_HINT = '방송 영상 아래 댓글란에 남는 글이에요. 방송이 끝나도 남아요.'
+/** "상세 설정" (FB1 D-FB1-02 (2)) */
+export const DETAIL_SETTINGS = '상세 설정'
+export const DETAIL_SETTINGS_NOTE = '잘 모르면 그대로 두세요.'
+
 export type FieldPlace = 'basic' | 'more' | 'shipping' | 'thanks'
 
 interface Base<K extends keyof SaleSettings> {
   readonly key: K
   readonly label: string
   readonly place: FieldPlace
+  /** 칸 이름 바로 아래 한 줄 (예시 — FB1 D-FB1-02) */
+  readonly lead?: string
+  /** 칸 아래 늘 보이는 안내 (FB1 D-FB1-01·02) */
+  readonly hint?: string
 }
 
 export interface IntField extends Base<'waitlist.max' | 'claim.maxNumber' | 'claim.preOpenWindowSec' | 'thanks.batchWindowSec'> {
@@ -75,8 +90,10 @@ export const FIELDS: readonly FieldDef[] = [
     kind: 'choice',
     options: [
       { value: 'THOUSAND', word: '천원 (10 → 10,000원)' },
-      { value: 'WON', word: '원' },
+      { value: 'WON', word: '원 (10000 → 10,000원)' },
     ],
+    // FB1 D-FB1-01: 만원 단위는 더하지 않는다 — 한글 단위는 price.unit과 상관없이 읽힌다(R-14 4)
+    hint: PRICE_UNIT_HINT,
   },
   {
     key: 'claim.parseMode',
@@ -93,9 +110,10 @@ export const FIELDS: readonly FieldDef[] = [
     label: '한 채팅에 번호가 여러 개면',
     place: 'more',
     kind: 'choice',
+    lead: "예: 채팅 '15 28'",
     options: [
-      { value: 'ALL', word: '모두 주문' },
-      { value: 'FIRST', word: '첫 번호만 주문' },
+      { value: 'ALL', word: '모두 주문 (15번·28번 둘 다)' },
+      { value: 'FIRST', word: '첫 번호만 주문 (15번만)' },
       { value: 'IGNORE', word: '주문으로 보지 않아요' },
     ],
   },
@@ -114,7 +132,7 @@ export const FIELDS: readonly FieldDef[] = [
   },
   {
     key: 'contention.sameMinuteTieBreaker',
-    label: '같은 분에 들어오면 (실제 받은 시각 순서일 때)',
+    label: '문자찜과 유튜브 찜이 같은 1분 안에 들어오면 (실제 받은 시각 순서일 때만)',
     place: 'more',
     kind: 'choice',
     options: [
@@ -125,9 +143,10 @@ export const FIELDS: readonly FieldDef[] = [
   },
   { key: 'shipping.baseFee', label: '기본 배송비 (원)', place: 'shipping', kind: 'money', nullable: false },
   { key: 'shipping.freeThreshold', label: '무료배송 기준 금액 (원, 비우면 없음)', place: 'shipping', kind: 'money', nullable: true },
-  { key: 'thanks.liveChat', label: '실시간 채팅에 감사 메시지 남기기', place: 'thanks', kind: 'bool' },
+  { key: 'thanks.liveChat', label: '실시간 채팅에 감사 메시지 남기기', place: 'thanks', kind: 'bool', hint: LIVE_CHAT_HINT },
   {
     key: 'thanks.videoComment',
+    // 화면은 켜기 체크 + 방식 고르기(ThanksSettings, FB1 D-FB1-03) — 이 낱말은 마법사 요약·고르기 선택지에 쓴다
     label: '영상 댓글',
     place: 'thanks',
     kind: 'choice',
@@ -195,7 +214,8 @@ export function fieldWarning(field: FieldDef, value: string | boolean | undefine
 }
 
 export const SAVED_MESSAGE = '저장했어요. 다음에 시작하는 방송부터 적용돼요.'
-export const SAVED_SHIPPING_MESSAGE = '저장했어요. 다음에 시작하는 방송부터 적용돼요. 그날 첫 방송이 이미 있으면 그날 정산은 그대로예요.'
+// FB1 D-FB1-02 (1): 배송비 저장 문장은 저장 막대 문장과 같은 뜻으로 (시작 마법사가 쓴다)
+export const SAVED_SHIPPING_MESSAGE = '저장했어요. 다음에 시작하는 방송부터 적용돼요. 오늘 방송을 이미 시작했으면 배송비는 내일부터 적용돼요.'
 export const ONGOING_NOTICE = '진행 중인 방송에는 바뀐 규칙이 적용되지 않아요.'
 
 /** 마법사 2단계의 한 줄 값 낱말 (AC-I3-52): "대기 인원: 5명", "기본 배송비: 4,000원", "무료배송 기준: 없음" */

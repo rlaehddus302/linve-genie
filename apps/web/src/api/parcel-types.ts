@@ -2,8 +2,12 @@
 // 영어 값(state·reason·payment·address·shipping)은 화면에 그대로 내지 않는다 — 서버가 준 문장(message)·조회 낱말(status)·포장 상태 말(packing)을 쓴다.
 import type { PaymentStatus } from '@livejjim/core'
 
-export type CarrierCode = 'FAKE' | 'EPOST'
-export type BoxKind = '극소' | '소' | '중' | '대'
+/** 접수 기록에 오는 택배사 (자동 접수 어댑터를 둘 수 있는 것 — FB1 D-FB1-04) */
+export type CarrierCode = 'FAKE' | 'EPOST' | 'CJ' | 'HANJIN' | 'LOGEN' | 'LOTTE'
+/** 설정의 쓰는 택배사 (직접 입력 OTHER 포함) */
+export type SettingsCarrier = CarrierCode | 'OTHER'
+/** 택배 크기 = 세 변의 합 (cm 이하, FB1 D-FB1-05 — PARCEL_RULES PC-6) */
+export type BoxKind = '60' | '80' | '100' | '120' | '160'
 export type ParcelState = 'PENDING' | 'UNKNOWN' | 'BOOKED' | 'FAILED' | 'CANCELLED'
 
 /** 묶음의 택배 줄 (정산 묶음·포장 모드·택배 화면) */
@@ -55,8 +59,8 @@ export interface ParcelRow {
 export interface ParcelDay {
   readonly date: string
   readonly seq: number
-  readonly blocked: { readonly code: 'NO_SENDER' | 'NO_CARRIER'; readonly message: string } | null
-  readonly carrier: { readonly code: CarrierCode; readonly name: string } | null
+  readonly blocked: { readonly code: 'NO_SENDER' | 'NO_CARRIER' | 'NO_AUTO_BOOK'; readonly message: string } | null
+  readonly carrier: { readonly code: SettingsCarrier; readonly name: string } | null
   readonly box: BoxKind
   readonly ready: readonly ParcelRow[]
   readonly excluded: readonly ParcelRow[]
@@ -114,8 +118,11 @@ export interface ParcelSender {
 }
 
 export interface ParcelSettings {
-  readonly carrier: CarrierCode | null
-  readonly carriers: readonly { readonly code: CarrierCode; readonly name: string; readonly available: boolean; readonly note: string | null }[]
+  readonly carrier: SettingsCarrier | null
+  /** 고른 택배사의 화면 이름 (직접 입력이면 적은 이름, 고르지 않았으면 null) */
+  readonly carrierName: string | null
+  /** 고를 수 있는 택배사 (autoBook = 이 서버에 자동 접수 어댑터가 있음) */
+  readonly carriers: readonly { readonly code: SettingsCarrier; readonly name: string; readonly autoBook: boolean }[]
   readonly customerNoLast4: string | null
   readonly sender: ParcelSender | null
   /** 보내는 사람 이름 기본값 (가게 이름) */

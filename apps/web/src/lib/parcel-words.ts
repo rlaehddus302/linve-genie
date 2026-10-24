@@ -1,6 +1,6 @@
 // 택배 화면 낱말 (T1, PARCEL_RULES PC-3·PC-4·PC-8, D-T1-08·D-T1-12).
 // 영어 상태값(PENDING·BOOKED…)은 화면 글자에 넣지 않는다 — 서버가 준 문장·조회 낱말을 쓰고, 없을 때만 여기 문장으로 채운다.
-import type { AddressFields, BundleView, ParcelBrief, ParcelRow } from '../api/parcel-types.ts'
+import type { AddressFields, BoxKind, BundleView, ParcelBrief, ParcelRow } from '../api/parcel-types.ts'
 import type { PackingWord } from '../api/types.ts'
 import { kstShort } from './kst.ts'
 import { packingWords } from './packing.ts'
@@ -27,6 +27,21 @@ export const ADDRESS_SAVED = '배송지를 저장했어요.'
 export const ADDRESS_CONFIRMED = '배송지를 확인했어요.'
 export const ADDRESS_DELETED = '배송지를 지웠어요.'
 export const PARCEL_SETTINGS_SAVED = '택배 설정을 저장했어요.'
+/** 택배 크기 (세 변의 합, FB1 D-FB1-05 — 문서 패키지 BOX_SIZE_NAMES와 같은 낱말) */
+export const BOX_KINDS = ['60', '80', '100', '120', '160'] as const satisfies readonly BoxKind[]
+export const BOX_WORDS: Readonly<Record<BoxKind, string>> = { '60': '60cm 이하', '80': '80cm 이하', '100': '100cm 이하', '120': '120cm 이하', '160': '160cm 이하' }
+/** 낱말 (모르는 값이면 그대로 — 옛 기록) */
+export const boxWord = (box: string): string => (BOX_WORDS as Readonly<Record<string, string>>)[box] ?? box
+export const BOX_LABEL = '기본 택배 크기 (세 변의 합)'
+export const BOX_HINT = '가로·세로·높이를 더한 길이예요. 우체국 기준이고, 무게 기준은 택배사마다 달라요.'
+/** 줄마다 크기 고르기 (택배 화면) */
+export const ROW_BOX_LABEL = '택배 크기'
+/** 자동 접수가 안 되는 택배사를 골랐거나 고르지 않았을 때 (FB1 D-FB1-04) */
+export const NO_AUTO_BOOK_NOTE = '자동 접수는 아직 준비 중이에요. 지금은 포장 화면에서 송장번호를 직접 적어요.'
+export const OTHER_CARRIER = 'OTHER'
+export const CARRIER_NAME_LABEL = '택배사 이름'
+/** 택배사 이름 칸 상한 (서버와 같다 — 코드 포인트) */
+export const CARRIER_NAME_MAX = 20
 /** 확인 창 안내 (D-T1-15) */
 export const PARCEL_SHOWN_NOTE = '접수하면 포장·정산 화면에 택배 상태와 송장번호가 보여요.'
 /** 택배 화면 기다림 안내 (D-T1-18, PC-5 "기다릴 때의 안내 — 택배 화면") — 다른 화면 꼬리표는 짧은 문장(PC-4) 그대로 */

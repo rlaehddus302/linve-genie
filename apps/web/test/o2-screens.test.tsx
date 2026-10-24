@@ -422,13 +422,13 @@ describe('설정의 판매 방식 (AC-O2-01·02)', () => {
     expect(screen.queryByText('주문 인식 방식')).toBeNull()
     expect(screen.getByRole('group', { name: '유튜브 찜과 문자찜이 겨루면', hidden: true }).textContent).toContain('먼저 들어온 순서(접수순)')
     expect(screen.getAllByText('상품명·옵션도 받기는 먼저 들어온 순서로만 판정해요.').length).toBeGreaterThan(0)
-    const section = screen.getByRole('region', { name: '판매 규칙' })
-    fireEvent.click(within(section).getAllByRole('button', { name: '저장' })[0] as HTMLElement)
+    // FB1 D-FB1-06: 판매 규칙 칸 안 "저장" 대신 화면 아래 저장 막대
+    fireEvent.click(within(screen.getByRole('region', { name: '저장' })).getByRole('button', { name: '저장' })) // FB1 D-FB1-06
     await waitFor(() => expect(settings['claim.parseMode']).toBe('OPTIONS'))
-    await screen.findByText('저장했어요. 다음에 시작하는 방송부터 적용돼요.')
+    await screen.findByText('저장했어요. 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.') // FB1 D-FB1-06
     expect(server.callsTo('PATCH', /settings/).at(-1)?.body).toEqual({ settings: { 'claim.parseMode': 'OPTIONS', 'contention.policy': 'ARRIVAL' } })
     fireEvent.click(within(screen.getByRole('radiogroup', { name: '판매 방식' })).getByRole('radio', { name: '번호로만 받기 (다육 등 — 기본)' }))
-    fireEvent.click(within(section).getAllByRole('button', { name: '저장' })[0] as HTMLElement)
+    fireEvent.click(within(screen.getByRole('region', { name: '저장' })).getByRole('button', { name: '저장' })) // FB1 D-FB1-06
     await waitFor(() => expect(settings['claim.parseMode']).toBe('STRICT'))
   })
 })
