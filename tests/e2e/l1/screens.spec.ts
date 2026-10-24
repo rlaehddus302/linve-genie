@@ -1,6 +1,7 @@
 // AC-L1-20·21·22·23 화면 (로그인 화면 버튼·돌아온 결과 문장·설정 "로그인 방법"·보조자). 제목 @social → chromium-social 묶음(세 공급자).
 // 기대값은 acceptance.md에서 정했다.
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expectLanding } from '../lnd1/support.ts'
 import {
   MSG,
   NAME,
@@ -91,7 +92,7 @@ test.describe('AC-L1-20 로그인 화면 버튼 @social', () => {
     await expect(continueButton(page, 'google')).toBeVisible()
     await expect(page.getByLabel('아이디')).toBeFocused()
     const names: string[] = []
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 7; i++) { // LND1 D-LND1-10: /login엔 정책 링크 위에 "처음 화면으로"가 하나 더 있다
       await page.keyboard.press('Tab')
       names.push(await page.evaluate(() => {
         const el = document.activeElement as HTMLElement | null
@@ -100,7 +101,7 @@ test.describe('AC-L1-20 로그인 화면 버튼 @social', () => {
         return (el.getAttribute('aria-label') ?? el.innerText).replace(/\s+/g, '').trim()
       }))
     }
-    expect(names).toEqual(['비밀번호', '로그인', '카카오로계속하기', 'N네이버로계속하기', '구글로계속하기', '개인정보처리방침'])
+    expect(names).toEqual(['비밀번호', '로그인', '카카오로계속하기', 'N네이버로계속하기', '구글로계속하기', '처음화면으로', '개인정보처리방침']) // LND1 D-LND1-10
   })
 
   test('휴대폰 폭(390): 버튼 폭 가득·44px 이상·글 16px 이상·가로 스크롤 없음', async ({ browser, baseURL }) => {
@@ -193,7 +194,7 @@ test.describe('AC-L1-21 돌아온 결과 문장 @social', () => {
       await expect(page).toHaveURL(/\/$/)
       await page.reload()
       // LND1 D-LND1-02: 새로고침한 '/'는 소개 화면 — 문장은 거기에도, 로그인 화면(/login)에도 없다
-      await expect(page.getByRole('heading', { level: 1, name: '라이브지니' })).toBeVisible()
+      await expectLanding(page) // LND1 SA-LND1-01: 소개 화면에만 있는 절·한 줄 소개·"시작하기" + 아이디 칸 없음 (h1만으로는 로그인 화면과 구별 안 됨)
       await expect(page.getByText(text)).toHaveCount(0)
       await page.goto('/login') // LND1 D-LND1-01
       await expect(page.getByLabel('아이디')).toBeFocused()

@@ -1,6 +1,7 @@
 // AC-L1-30 공급자마다 흐름 (구글·카카오·네이버 — 같은 시험 묶음을 공급자 매개변수로). 제목 @social → chromium-social 묶음(세 공급자 켬, 가짜 OAuth).
 // 기대값은 acceptance.md "결과 문장" 표·AC-L1-20~22·30에서 정했다(구현을 보고 정하지 않음).
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
+import { expectLanding } from '../lnd1/support.ts'
 import {
   MSG,
   NAME,
@@ -123,7 +124,7 @@ for (const provider of PROVIDERS) {
       // 새로 고침하면 다시 보이지 않는다
       await page.reload()
       // LND1 D-LND1-02: 새로고침한 '/'는 소개 화면 — 문장은 거기에도, 로그인 화면(/login)에도 없다
-      await expect(page.getByRole('heading', { level: 1, name: '라이브지니' })).toBeVisible()
+      await expectLanding(page) // LND1 SA-LND1-01: 소개 화면에만 있는 절·한 줄 소개·"시작하기" + 아이디 칸 없음 (h1만으로는 로그인 화면과 구별 안 됨)
       await expect(page.getByText(MSG.CANCELLED(provider))).toHaveCount(0)
       await page.goto('/login') // LND1 D-LND1-01
       await expect(page.getByLabel('아이디')).toBeFocused()

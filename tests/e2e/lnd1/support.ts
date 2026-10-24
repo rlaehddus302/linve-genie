@@ -41,10 +41,15 @@ export function section(page: Page, name: (typeof HEADINGS)[number]): Locator {
   return page.getByRole('region', { name, exact: true })
 }
 
-/** 소개 화면이 보인다 (절 "판매자의 하루" + 로그인 칸 없음) */
+/**
+ * 소개 화면이 보인다 — 로그인 화면에도 있는 h1 "라이브지니"만으로는 구별되지 않으므로(SA-LND1-01) 소개 화면에만 있는 확정 문장·링크를 본다:
+ * 절 "판매자의 하루"·한 줄 소개·링크 "시작하기" + 로그인 칸 없음
+ */
 export async function expectLanding(page: Page): Promise<void> {
   await expect(landingTitle(page)).toBeVisible()
   await expect(section(page, '판매자의 하루')).toBeVisible()
+  await expect(page.getByText(TAGLINE, { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: '시작하기', exact: true })).toBeVisible()
   await expect(page.getByLabel('아이디')).toHaveCount(0)
   await expect(page.getByLabel('비밀번호')).toHaveCount(0)
 }
