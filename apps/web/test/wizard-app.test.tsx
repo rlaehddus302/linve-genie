@@ -475,7 +475,7 @@ describe('보조자 화면 (AC-I3-63)', () => {
       me = assistant
       return { body: { seller: { name: '구피 가게' }, loginId: 'bo-abcd2345', role: 'ASSISTANT' } }
     })
-    await open('/')
+    await open('/login') // LND1 D-LND1-01
     fireEvent.change(await screen.findByLabelText('아이디'), { target: { value: 'bo-abcd2345' } })
     fireEvent.change(screen.getByLabelText('비밀번호'), { target: { value: 'x' } })
     fireEvent.click(screen.getByRole('button', { name: '로그인' }))

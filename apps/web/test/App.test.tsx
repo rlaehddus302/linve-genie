@@ -22,7 +22,11 @@ afterEach(() => {
   FakeEventSource.reset()
 })
 
-const loggedOut = () => server.on('GET', /^\/api\/me$/, () => apiError(401, 'UNAUTHORIZED', '로그인이 필요해요.'))
+const loggedOut = () => {
+  // LND1 D-LND1-01: 로그아웃 상태의 로그인 화면은 `/login` (`/`는 소개 화면)
+  window.history.replaceState(null, '', '/login')
+  return server.on('GET', /^\/api\/me$/, () => apiError(401, 'UNAUTHORIZED', '로그인이 필요해요.'))
+}
 const me = { seller: { name: '구피 가게' }, loginId: 'shop1' }
 
 function visibleLatin(container: HTMLElement): string[] {

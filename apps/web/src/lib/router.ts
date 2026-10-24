@@ -6,6 +6,7 @@
 //   `/settings/instagram`·`/settings/tiktok` 설정의 인스타그램·틱톡 칸 — 인스타그램에서 돌아온 `?instagram=<결과>`(경로 `/`여도)는 인스타그램 칸으로 (N2b-2)
 //   `/settings/assist` 설정의 AI 제안 칸 (A1 — 확인 필요 화면의 "설정에서 AI 제안을 켤 수 있어요." 링크)
 //   `/settings/labels` 설정의 라벨 칸 (PL1B U-PL1B-06 — "라벨 쓰지 않음 — 설정에서 켤 수 있어요."의 "설정" 링크)
+//   `/login` 로그인 화면(LND1 D-LND1-01 — 메뉴에 없는 화면. 로그아웃 상태의 `/`는 소개 화면, 로그인하면 `/`로 바꿔 간다)
 //   `/start` 시작 마법사 · `/privacy` 개인정보처리방침(초안) · `/terms` 이용약관(초안) — 둘은 로그인 없이 열린다
 //   구매자 자세히의 합치기 창: 상대·방향은 `merge`(상대 구매자 ID)·`into`(남는 쪽 구매자 ID), 막힘에서 연 상품 자세히는 `product`(상품 키)
 //   — 상품 자세히에 갔다 와도(브라우저 뒤로 가기 포함) 같은 합치기 창이 다시 열린다 (AC-S06b-34, D-102).
@@ -99,6 +100,7 @@ export interface ReviewsRoute {
 
 export type Route =
   | { readonly name: 'home' }
+  | { readonly name: 'login' }
   | ReviewsRoute
   | { readonly name: 'console'; readonly id: string }
   | { readonly name: 'receipts'; readonly id: string }
@@ -114,8 +116,8 @@ export type Route =
   | { readonly name: 'terms' }
   | DepositsRoute
 
-/** 로그인 없이 여는 화면 (AC-I3-77) */
-export const isPublicRoute = (route: Route): boolean => route.name === 'privacy' || route.name === 'terms'
+/** 로그인 없이 여는 화면 (AC-I3-77, LND1 D-LND1-01 — 로그인 화면 `/login`도) */
+export const isPublicRoute = (route: Route): boolean => route.name === 'privacy' || route.name === 'terms' || route.name === 'login'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -179,6 +181,7 @@ export function parseRoute(pathname: string, search = ''): Route {
   if (path === '/settings/assist') return { name: 'settings', section: 'assist' }
   if (path === '/settings/labels') return { name: 'settings', section: 'labels' }
   if (path === '/start') return { name: 'start', ...result }
+  if (path === '/login') return { name: 'login' }
   if (path === '/privacy') return { name: 'privacy' }
   if (path === '/terms') return { name: 'terms' }
   if (path === '/sms') return { name: 'sms' }
@@ -210,6 +213,8 @@ export function routePath(route: Route): string {
   switch (route.name) {
     case 'home':
       return '/'
+    case 'login':
+      return '/login'
     case 'console':
       return `/broadcasts/${encodeURIComponent(route.id)}`
     case 'receipts':
@@ -267,7 +272,7 @@ export function routePath(route: Route): string {
 /** 메뉴 항목 (AC-S06-01, AC-I1-20, AC-I3-44, I2 AC-I2-35, AC-N3-40, AC-N5-50): 지금 화면이 어느 메뉴에 속하는지 */
 export type MenuKey = 'broadcasts' | 'sms' | 'buyers' | 'settlements' | 'deposits' | 'packing' | 'labels' | 'settings' | 'billing' | 'parcels'
 
-/** 메뉴에 없는 화면(시작 마법사·정책 페이지)은 null */
+/** 메뉴에 없는 화면(시작 마법사·정책 페이지·로그인 화면)은 null */
 export function menuOf(route: Route): MenuKey | null {
   switch (route.name) {
     case 'home':
@@ -294,6 +299,7 @@ export function menuOf(route: Route): MenuKey | null {
     case 'settings':
       return 'settings'
     case 'start':
+    case 'login':
     case 'privacy':
     case 'terms':
       return null
