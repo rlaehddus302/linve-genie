@@ -28,6 +28,7 @@ import { changedFields, decideFixForm, decideQuickInput, editQuestion, quickSett
 import { routePath, type Navigate } from '../lib/router.ts'
 import { useScopeStore } from '../lib/use-store.ts'
 import { useWide } from '../lib/use-wide.ts'
+import { useKeepAboveBar } from '../lib/above-bar.ts'
 import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
 import { cardLine, enterBadgeCard } from '../lib/voice.ts'
 import { readReceived } from '../lib/received.ts'
@@ -248,6 +249,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   latest.current = snapshot
 
   const quickRef = useRef<HTMLInputElement>(null)
+  // 휴대폰 큰 글씨에서 빠른 입력칸·되돌리기 띠가 아래 막대 뒤에 깔리지 않게 (U-MOB1-01)
+  const quickBoxRef = useRef<HTMLDivElement>(null)
+  const headRef = useRef<HTMLDivElement>(null)
+  useKeepAboveBar(quickBoxRef, quickRef, headRef)
   const [quickText, setQuickText] = useState('')
   const quickTextRef = useRef(quickText)
   quickTextRef.current = quickText
@@ -1203,14 +1208,14 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
             리허설 중 — 실제 판매가 아니에요
           </p>
         ) : null}
-        <div className="console-head">
+        <div ref={headRef} className="console-head">
           <h1 className="console-title">
             {title} <span className="console-date">{dateWords(broadcast.date)}</span>
             {broadcast.rehearsal ? <span className="tag tag-rehearsal">리허설</span> : null}
             {/* 옵션 방송은 판매 방식을 늘 보인다 — 방송 중에는 바꾸지 않는다 (D-O2-02) */}
             {optionMode ? <span className="tag tag-mode">{SALE_MODE_WORD.OPTIONS}</span> : null}
           </h1>
-          <div className="row">
+          <div className="row console-actions">
             <a
               className="button"
               href={routePath({ name: 'home' })}
@@ -1261,7 +1266,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           <ExtensionWarningBar view={extension.view} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} navigate={navigate} />
           <ExtensionThanksBar handle={extension} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} />
           <QuotaToast />
-          <div className="console-sticky-quick">
+          <div ref={quickBoxRef} className="console-sticky-quick">
             <AlertStrip
               leads={[
                 ...platformLeads({ live, sealed, onPaste: openPaste, pasteNote }),

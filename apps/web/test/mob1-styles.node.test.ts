@@ -45,3 +45,21 @@ describe('누름 모양 (AC-MOB1-01)', () => {
   })
 })
 
+
+describe('콘솔 위 버튼 줄 (U-MOB1-01)', () => {
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+
+  it('콘솔 위 줄이 폭을 재는 칸이고, 줄 폭이 글자 17자 이하(큰 글씨 휴대폰)면 버튼 줄이 두 칸씩 — 칸은 0까지 줄어든다', () => {
+    expect(css).toMatch(/\.console-head \{\s*container-type: inline-size;/)
+    const block = /@container \(max-width: 17rem\) \{\s*\.console-actions \{([^}]*)\}/.exec(css)
+    expect(block).not.toBeNull()
+    expect(block![1]).toMatch(/display: grid;/)
+    expect(block![1]).toMatch(/grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/)
+  })
+
+  it('두 칸으로 줄여도 버튼 높이 44px(.button min-height 2.75rem)를 줄이지 않는다', () => {
+    const block = /@container \(max-width: 17rem\) \{\s*\.console-actions \{[^}]*\}\s*\.console-actions > \.button \{([^}]*)\}/.exec(css)
+    expect(block).not.toBeNull()
+    expect(block![1]).not.toMatch(/min-height|height:|font-size/)
+  })
+})
