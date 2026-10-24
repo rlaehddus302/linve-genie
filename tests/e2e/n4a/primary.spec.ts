@@ -42,6 +42,7 @@ test('AC-N4a-21 (다): 출력 기기가 된 뒤 끊김 멈춤 → 주 버튼 "�
   await login(page)
   const b = await realBroadcast(page, date)
   await becomeDevice(page, 'PC')
+  await page.evaluate(() => (window as unknown as { livejjimTestPrinter: { setAutoReconnect(on: boolean): void } }).livejjimTestPrinter.setAutoReconnect(false)) // D-QS1-10: 앞 시험이 보던 끊김 멈춤을 지키려 저절로 다시 잇기만 끈다(AC-QS1-45)
   await setBehavior(page, 1, 'disconnect')
   await registerApi(page, b, 1, '품종1', 1000)
   await smsApi(page, { b, no: 1 })
@@ -75,6 +76,7 @@ test('AC-N4a-21: 다른 기기의 끊김 멈춤(이 기기에서 누를 조치 �
   try {
     await login(other)
     await becomeDevice(other, '다른 기기')
+    await other.evaluate(() => (window as unknown as { livejjimTestPrinter: { setAutoReconnect(on: boolean): void } }).livejjimTestPrinter.setAutoReconnect(false)) // D-QS1-10: 앞 시험이 보던 끊김 멈춤을 지키려 저절로 다시 잇기만 끈다(AC-QS1-45)
     await setBehavior(other, 1, 'disconnect')
     await registerApi(page, b, 1, '품종1', 1000)
     await smsApi(page, { b, no: 1 })

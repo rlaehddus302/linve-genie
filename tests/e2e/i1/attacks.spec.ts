@@ -216,6 +216,7 @@ test('AC-I1-10·14: 기기 이름 21자·공백만은 막고, 가게 이름 41�
 test('AC-I1-09·23: 끊김 멈춤은 다른 기기에서 풀 수 없고 "출력 기기 \'PC\'에서 다시 연결해 주세요.", 판매자 멈춤 중 끊겼다 이어져도 판매자 멈춤 그대로', async ({ page, browser }) => {
   await login(page)
   await becomeDevice(page, 'PC')
+  await page.evaluate(() => (window as unknown as { livejjimTestPrinter: { setAutoReconnect(on: boolean): void } }).livejjimTestPrinter.setAutoReconnect(false)) // D-QS1-10: 앞 시험이 보던 끊김 멈춤을 지키려 저절로 다시 잇기만 끈다(AC-QS1-45)
   const { ctx, other } = await second(page, browser, true)
   try {
     await gotoLabels(other)

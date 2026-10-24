@@ -18,6 +18,7 @@ test('AC-I1-70: 휴대폰 출력 기기 30장 — 12번째 끊김 → 두 기기
   try {
     await login(phone)
     await becomeDevice(phone, '휴대폰')
+    await phone.evaluate(() => (window as unknown as { livejjimTestPrinter: { setAutoReconnect(on: boolean): void } }).livejjimTestPrinter.setAutoReconnect(false)) // D-QS1-10: 앞 시험이 보던 끊김 멈춤을 지키려 저절로 다시 잇기만 끈다(AC-QS1-45)
     await setBehavior(phone, 12, 'disconnect')
 
     // PC: 다른 기기 표시
