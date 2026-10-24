@@ -1,7 +1,7 @@
 // MOB1 D-MOB1-06 (AC-MOB1-07·08): 연습 모드 휴대폰 https 중계로 유튜브 연결 한 바퀴.
 // 가짜 구글이면 승인·돌아오기·마지막 화면 주소가 모두 휴대폰 https 주소로 이어지고(http://localhost·127.0.0.1로 가는 이동 0),
 // 진짜 구글이면 휴대폰 주소의 연결 시작은 안쪽 서버로도 넘기지 않고 409 TRY_PHONE_YOUTUBE.
-// 중계 처리기는 scripts/try/phone-relay.mjs(pnpm try가 쓰는 것 그대로)를 자체 서명 인증서 https 서버에 붙여 127.0.0.1에서만 연다.
+// 중계 처리기는 src/try/phone-relay.ts(pnpm try가 쓰는 것 그대로)를 자체 서명 인증서 https 서버에 붙여 127.0.0.1에서만 연다.
 // 휴대폰 주소(https://192.0.2.10:<포트>)는 Host 머리글로만 흉내 낸다 — 실제 연결은 127.0.0.1.
 import { createServer as createPlainServer, request as httpRequest, type IncomingMessage, type Server as HttpServer } from 'node:http'
 import { createServer as createHttpsServer, request as httpsRequest, type Server as HttpsServer } from 'node:https'
@@ -26,7 +26,7 @@ import {
   rewriteAuthorizeBody,
   swapOrigin,
   withoutHopByHop,
-} from '../../../scripts/try/phone-relay.mjs'
+} from '../src/try/phone-relay.ts'
 import { generateMasterKey } from '../src/secrets.ts'
 import { createNodeServer } from '../src/node-server.ts'
 import { createSellerAccount } from '../src/accounts.ts'
