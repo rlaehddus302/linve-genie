@@ -11,7 +11,7 @@
 
 1. **MOB1 작업 중인 화면 파일** (다른 작업 폴더가 같은 시각에 고친다 — D-QS1-09): `apps/web/src/**` 가운데 `apps/web/src/lib/printer-station.ts`를 뺀 **모든 파일**. 특히 `apps/web/src/styles.css`, `apps/web/src/lib/print-words.ts`, `apps/web/src/components/PrintParts.tsx`, `apps/web/src/components/LabelsPage.tsx`, `apps/web/src/components/wizard/PrinterStep.tsx`, `apps/web/src/components/WizardPage.tsx`, `apps/web/src/components/TopBar*`, `apps/web/src/components/ConsolePage*`.
 2. **유튜브** (맥북 쪽 작업): `apps/server/src/youtube/**`, 이름에 `youtube`·`Youtube`가 든 `apps/web/src/**` 파일, `tests/e2e/y1/**`.
-3. **기존 E2E 폴더**: `tests/e2e/qs1/**` 밖의 E2E 파일은 고치지 않는다(MOB1이 화면 낱말을 바꾸며 손댈 수 있다).
+3. **기존 E2E 폴더**: `tests/e2e/qs1/**` 밖의 E2E 파일은 고치지 않는다(MOB1이 화면 낱말을 바꾸며 손댈 수 있다). **예외(D-QS1-10, TE-QS1-002)**: test-e2e는 `tests/e2e/i1/station.spec.ts`·`tests/e2e/i1/attacks.spec.ts`·`tests/e2e/n4a/primary.spec.ts`의 끊김 시험에 `livejjimTestPrinter.setAutoReconnect(false)` 한 줄(과 `tests/e2e/i1/support.ts`의 그 한 줄짜리 도움 함수)을 더하기만 한다 — AC-QS1-45.
 4. `packages/core/**`, `tests/golden/**`(이번 스프린트는 판정·정산·파서 규칙 변경이 없다 — 골든 없음).
 
 ## 모호한 점 → 결정 → 수용 기준
@@ -28,6 +28,7 @@
 | C RL1 기록 | D-RL1-01~03 | (스펙·백로그 — 아래 표) |
 | C techDebt 정리 | D-QS1-08 | (백로그 — 아래 표) |
 | C AC-FB1-39 웹 단위 시험 누락 | D-QS1-07 | AC-QS1-26 |
+| TE-QS1-002 앞 스프린트 끊김 E2E가 저절로 잇기와 1초 경쟁 | D-QS1-10 (손잡이로 끄기, 금지 경로 3 좁은 예외) | AC-QS1-45 |
 
 ## 이번 스프린트의 스펙·골든 변경 (spec-keeper)
 
@@ -235,6 +236,12 @@
 **AC-QS1-44** [e2e] · L-11 8 · D-QS1-02 (1) — 출력 기기가 아니면 저절로 잇지 않음
 - Given 가짜 B1(또는 시험용 프린터)로 연결했지만 "이 기기에서 출력"을 누르지 않음 · When 끊김 → 시계를 61초 넘게 당김 · Then 저절로 잇는 시도 0번, 화면은 끊김과 "다시 연결"
 - 확인: E2E
+
+**AC-QS1-45** [e2e] · LBL-08 · L-11 · D-QS1-10 — 앞 스프린트 끊김 E2E는 저절로 잇기를 끄고 그대로 통과
+- Given 출력 기기 페이지가 출력 기기가 된 뒤 시험 손잡이 `setAutoReconnect(false)`를 부름(끊기 전 한 번, 주석 D-QS1-10) · When 끊김(`simulateDisconnect`·`setBehavior(n, 'disconnect')`)
+- Then AC-I1-70(12번째 끊김 → 두 기기 "출력 멈춤 · 프린터 연결이 끊겼어요." → "다시 연결" → 정확히 30장), AC-I1-09·23, AC-N4a-21 (다)·"다른 기기의 끊김 멈춤"이 기대값·문장·제한 시간을 바꾸지 않고 통과한다. 손잡이를 부르지 않으면(기본 켬) 저절로 다시 이어진다(AC-QS1-40)
+- 그 세 파일의 다른 줄은 바꾸지 않는다(`git diff`가 더한 줄만)
+- 확인: E2E — `CI=1 E2E_PORT_OFFSET=1000 pnpm exec playwright test --config apps/web/playwright.config.ts tests/e2e/i1/station.spec.ts tests/e2e/i1/attacks.spec.ts tests/e2e/n4a/primary.spec.ts --project chromium`
 
 ## 이번 스프린트에서 하지 않는 것 (범위 밖)
 
