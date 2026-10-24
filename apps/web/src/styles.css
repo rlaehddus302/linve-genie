@@ -3746,6 +3746,11 @@ select.input {
 
 /* ── LND1: 공개 소개 화면 (D-LND1-03·09) ─────────── */
 /* 글 폭은 .page(40rem)로 제한, 목록은 번호·점이 화면 안에 들어오게 */
+.landing {
+  /* 큰 글씨(150%)의 PC에서도 글 줄이 900px를 넘지 않게 */
+  max-width: min(40rem, 900px);
+}
+
 .landing h2 {
   margin: 0;
   font-size: 1.375rem;
