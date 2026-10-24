@@ -283,3 +283,19 @@ cases:
         - { line: 6, no: 20, name: "​자보", price: 3000 }
         - { line: 7, error: NAME_CONTROL }
         - { line: 8, error: NAME_CONTROL }
+---
+# FB1 사용자 결정 — 만원 단위 가져오기 (R-18 8 → R-14 3, D-FB1-11). 첫 칸 `15`에 숫자 → 머리글 없음.
+#   줄 1 `15` = 15 × 10000 = 150,000 · 줄 2 `15000` = 1000 이상 → 15,000 · 줄 3 `2만` = 20,000(한글 단위 → 설정 무시)
+#   줄 4 `1.5` = 15,000 · 줄 5 `0.001` = 0.001 × 10000 = 10원 < 100 → PRICE_TOO_LOW · 줄 6 `1.23456` = 12345.6원 → PRICE_INVALID
+suite: product-import
+settings: { unit: TEN_THOUSAND }
+cases:
+  - in: "15\t엘레강스\t15\n16\t라울\t15000\n17\t블루엘프\t2만\n18\t로라\t1.5\n19\t자보\t0.001\n20\t레티\t1.23456"
+    out:
+      rows:
+        - { line: 1, no: 15, name: 엘레강스, price: 150000 }
+        - { line: 2, no: 16, name: 라울, price: 15000 }
+        - { line: 3, no: 17, name: 블루엘프, price: 20000 }
+        - { line: 4, no: 18, name: 로라, price: 15000 }
+        - { line: 5, error: PRICE_TOO_LOW }
+        - { line: 6, error: PRICE_INVALID }

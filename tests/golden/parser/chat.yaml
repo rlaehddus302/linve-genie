@@ -316,3 +316,20 @@ cases:
   - { in: "11 2개", out: { mentions: [11, 2] } }         # 번호 뒤 '2개'가 붙으면 문법 밖 → 둘 다 언급
   - { in: "21 M", out: { mentions: [21] } }
   - { in: "15 2", out: { claims: [15, 2] } }             # 번호 둘 — 옵션 방송에서도 같은 뜻(R-20 2)
+---
+# FB1 사용자 결정 — 설정 화면 "한 채팅에 번호가 여러 개면" 예시 (D-FB1-12). 유튜브 채팅 화면의 "@홍길동  132 475"는
+# 글쓴이 핸들 @홍길동 + 글 "132 475"다 — 본문은 "132 475"(R-3 "여러 번호", 기본 claim.maxNumber 999 안).
+suite: chat
+settings: { parseMode: STRICT, multiNumber: ALL, maxNumber: 999 }
+cases:
+  - { in: "132 475", out: { claims: [132, 475] } }       # 모두 주문 → 132번·475번 둘 다 찜
+---
+suite: chat
+settings: { parseMode: STRICT, multiNumber: FIRST, maxNumber: 999 }
+cases:
+  - { in: "132 475", out: { claims: [132] } }            # 첫 번호만 → 132번만 찜, 475는 버림(언급에도 넣지 않음)
+---
+suite: chat
+settings: { parseMode: STRICT, multiNumber: IGNORE, maxNumber: 999 }
+cases:
+  - { in: "132 475", out: { mentions: [132, 475] } }     # 주문으로 보지 않음 → 둘 다 찜 아님(언급만)

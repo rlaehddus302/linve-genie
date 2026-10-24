@@ -67,7 +67,7 @@ cases:
 | suite | settings 키 (DOMAIN_RULES 키) | `out` 형식과 비교 |
 |---|---|---|
 | `chat` | `parseMode`(`claim.parseMode`), `multiNumber`(`claim.multiNumber`), `maxNumber`(`claim.maxNumber`) | 키는 `claims`·`cancels`·`mentions`만. 값은 1 이상 정수 배열이고 **메시지에 나온 순서대로** 같아야 한다. 없는 키 = 빈 배열 |
-| `amount` | `unit`(`price.unit`: `WON`/`THOUSAND`) | 0 이상 정수(원) 또는 `null`(해석 실패) |
+| `amount` | `unit`(`price.unit`: `WON`/`THOUSAND`/`TEN_THOUSAND` — 만원 단위는 FB1, D-FB1-11) | 0 이상 정수(원) 또는 `null`(해석 실패) |
 | `korean-number` | 없음 | 1 이상 정수 또는 `null` |
 | `quick-input` | `unit`(`price.unit`) | 성공 `{ no, name, price }` 정확히 세 키. 실패 `{ error, no?, name? }`, `error` ∈ `PRICE_MISSING`·`NUMBER_MISSING`·`EMPTY`·`NUMBER_INVALID`·`PRICE_TOO_LOW`. **`out`에 없는 키는 실제 결과에도 없어야 한다**(`undefined`는 없음으로 본다) |
 | `voice-extract` (P2, D-209) | `maxNumber`(`claim.maxNumber`, 1~9999), `dictionary`(품종 사전 — 문자열 목록, 0개 이상, 생략하면 빈 목록. DOMAIN_RULES 설정표 키가 아니라 이 suite의 입력이다. 기본 사전은 쓰지 않는다) | `out` 키는 `no`(1 이상 정수)·`name`(빈 문자열이 아닌 문자열)·`price`(100 이상 정수)·`confidence`(`HIGH`/`LOW`, **필수**)만. `no`·`name`·`price`는 적지 않거나 `null`이면 `null`. 실제 결과는 정확히 네 키 `{ no, name, price, confidence }`(값이 없으면 `null`)이고 네 값이 모두 같아야 한다. 규칙은 DOMAIN_RULES R-17 |

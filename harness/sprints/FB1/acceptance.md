@@ -1,10 +1,10 @@
 # FB1 수용 기준 — 시험자 피드백 1 (윈도우 노트북 연습 모드)
 
-- 스프린트: FB1 (6단계, 시험자 피드백 — **새 기능은 최소**) · spec ID: **PRD-01**(빠른 입력 가격), **SYS-01**(간편 로그인 이동), **STL-08**(택배 설정·택배 크기), **LBL-04**(라벨 가게 이름), **LBL-06**(B1 연결 실패), **YT-04·YT-07**(감사 메시지 설정 화면만), **UX-01·UX-03**(쉬운 말·오류) · 규칙: SPEC v0.1.37, LABEL_RULES v0.2.5, PARCEL_RULES v0.1.3, **DOMAIN_RULES 변경 없음**(판정·정산·금액 해석 그대로)
-- 근거 결정: **D-FB1-01~D-FB1-10**(AUTO), D-007, D-011, D-Y07, D-Y09, D-T1-09, D-L1-03·D-L1-06, D-083·D-103, D-P1-08, D-036
+- 스프린트: FB1 (6단계, 시험자 피드백 — **새 기능은 최소**) · spec ID: **PRD-01**(빠른 입력 가격), **SYS-01**(간편 로그인 이동), **STL-08**(택배 설정·택배 크기), **LBL-04**(라벨 가게 이름), **LBL-06**(B1 연결 실패), **YT-04·YT-07**(감사 메시지 설정 화면만), **UX-01·UX-03**(쉬운 말·오류) · 규칙: SPEC v0.1.37, LABEL_RULES v0.2.5, PARCEL_RULES v0.1.3, **DOMAIN_RULES v0.1.28**(판정·정산 그대로, 금액 해석 R-14 3에 만원 단위 하나 — 사용자 결정 D-FB1-11)
+- 근거 결정: **D-FB1-01~D-FB1-10**(AUTO), **D-FB1-11·D-FB1-12(사용자 결정 2026-10-24 — D-FB1-01과 D-FB1-02 (2b)를 대체)**, D-007, D-011, D-Y07, D-Y09, D-T1-09, D-L1-03·D-L1-06, D-083·D-103, D-P1-08, D-036
 - 시험자 원문 요약은 DECISIONS "시험자 피드백 1 (FB1 자율 결정)" 머리말. 시험자 말 "문구는 출시 전 화면을 다시 그릴 때 갈아엎어도 됨, 지금은 동작이 의도대로인지가 중요" → **동작 버그(로그인 이동·프린터 연결·라벨 가게 이름·택배 크기 저장값)가 먼저**, 문구는 짧게.
-- 개발 영역(순서, D-FB1-10): **device → server → web**. device와 server는 파일이 겹치지 않는다 — 한 작업 폴더에서 차례로(컴퓨터 부하 한도: 동시 트랙 2~3개). 테스트: **domain**(`tests/adversarial/fb1/**`), **e2e**(`tests/e2e/fb1/**`와 아래 적은 기존 파일), **사용성 검토 있음**(ux).
-- 태그: `[device]` = dev-device, `[server]` = dev-server, `[web]` = dev-web, `[domain]` = test-domain, `[e2e]` = test-e2e, `[ux]` = 사용성 검토, `[spec]` = spec-keeper.
+- 개발 영역(순서, D-FB1-10): **device → server → web**. 사용자 결정 D-FB1-11(만원 단위)로 **core**가 더해진다 — core는 server의 만원 몫(AC-FB1-04 [server])과 web의 만원 몫보다 먼저다(core 파일은 device·server·web과 겹치지 않는다). device와 server는 파일이 겹치지 않는다 — 한 작업 폴더에서 차례로(컴퓨터 부하 한도: 동시 트랙 2~3개). 테스트: **domain**(`tests/adversarial/fb1/**`), **e2e**(`tests/e2e/fb1/**`와 아래 적은 기존 파일), **사용성 검토 있음**(ux).
+- 태그: `[core]` = dev-core, `[device]` = dev-device, `[server]` = dev-server, `[web]` = dev-web, `[domain]` = test-domain, `[e2e]` = test-e2e, `[ux]` = 사용성 검토, `[spec]` = spec-keeper.
 
 ## 금지 경로 (유튜브 — 사용자가 맥북에서 작업 중)
 
@@ -19,8 +19,8 @@
 
 | 피드백 | 결정 | 수용 기준 |
 |---|---|---|
-| A 가격 단위 천원·만원·원 | D-FB1-01 만원 단위는 더하지 않음 — 지금 단위 한 줄 + 등록 전 가격 미리 보기 | AC-FB1-01~03 |
-| 1·2·2b·3·6 설정 문구 | D-FB1-02 | AC-FB1-05~08 |
+| A 가격 단위 천원·만원·원 | ~~D-FB1-01 만원 단위는 더하지 않음~~ → **D-FB1-11(사용자 결정)** 원·천원(기본)·만원 설정, 단위 없는 숫자에만 곱함 + 지금 단위 한 줄 + 등록 전 가격 미리 보기(D-FB1-01 (2)~(4) 그대로) | AC-FB1-01~04 |
+| 1·2·2b·3·6 설정 문구 | D-FB1-02, 2b 여러 번호 예시는 **D-FB1-12(사용자 결정)** — 채팅 모양 "@홍길동 / 132 475" | AC-FB1-05~08 |
 | 4·5 감사 메시지 칸 구조·묶는 시간 | D-FB1-03 켜기 체크 두 줄, 묶는 시간은 상세로 + 자동 묶음 안내, 서버 규칙 그대로 | AC-FB1-10~12 |
 | 7 택배사 목록 | D-FB1-04 쓰는 택배사 고르기, 자동 접수는 어댑터가 있을 때만 | AC-FB1-15·19·20 |
 | 8 택배 규격 | D-FB1-05 세 변의 합 60~160cm, 옛 값 하나씩 옮김 | AC-FB1-16~18·19·20 |
@@ -39,13 +39,18 @@
 | `docs/spec/LABEL_RULES.md` | v0.2.5 — L-7 `CONNECT_FAILED`·자세히 규칙·B1 첫 확인 다시 잇기·해볼 일, L-12 6 같은 코드, L-11 13 가게 이름 채우기 |
 | `docs/spec/PARCEL_RULES.md` | v0.1.3 — PC-1 쓰는 택배사, PC-6 기본 택배 크기(세 변의 합)·옛 낱말 옮기기, PC-7 운송장 상자 크기 낱말 |
 | `tests/golden/parcel/box.json` (새) | 택배 크기 읽기 G-PCL-FB1-01~19(kind `box`) — 새 코드 5, 옛 낱말 4, 거절 10 |
-| `tests/golden/README.md` | "택배 골든"에 `box` 종류·`G-PCL-FB1-` ID·파일 수 4·사례 수 74 |
+| `tests/golden/README.md` | "택배 골든"에 `box` 종류·`G-PCL-FB1-` ID·파일 수 4·사례 수 74. 파서 표 `amount` 단위 값에 `TEN_THOUSAND`(D-FB1-11) |
+| `docs/DECISIONS.md` (사용자 결정 반영) | D-FB1-11(만원 단위)·D-FB1-12(여러 번호 예시) 새 줄, D-FB1-01·D-FB1-02 (2b) "대체됨", 사용자 확인 필요 표의 "만원 단위 입력"은 사용자 결정으로 끝남 |
+| `docs/spec/DOMAIN_RULES.md` | v0.1.28 — 설정표 `price.unit` 값 `TEN_THOUSAND`, R-14 3 만원 단위(1000 미만 ×10000) |
+| `docs/spec/SPEC.md` (사용자 결정 반영) | v0.1.38 — PRD-01 화면 가격 단위 셋·바꿀 때 확인 문장 |
+| `tests/golden/parser/amount.yaml`·`quick-input.yaml`·`product-import.yaml` | 끝에 `unit: TEN_THOUSAND` 문서 하나씩(사례 21·12·1, 기존 사례 그대로). core가 받기 전까지 **읽기 오류 3건**(`settings.unit`이 `WON / THOUSAND 중 하나`) — AC-FB1-04 [core]가 푼다 |
+| `tests/golden/parser/chat.yaml` | 끝에 본문 `132 475` × `multiNumber` 세 값(ALL·FIRST·IGNORE) 문서 셋(D-FB1-12) — 지금 코어로 통과 |
 
 ## 공통 전제
 
 - 이미 합쳐진 모든 결과(`pnpm verify`)가 그대로 유지된다. 외부 계정·실기기 없이 돈다(가짜 OAuth 서버 D-L1-07, 가짜 블루투스 기기·가짜 niimbluelib 클라이언트, 가짜 택배사, 시험용 프린터).
 - 화면 문장 중 이 문서·DECISIONS·스펙이 따옴표로 정한 것은 글자 그대로 쓴다(E2E가 글자로 찾는다).
-- 금액은 정수 원이다(절대 규칙 2). 이 스프린트는 금액 해석 함수(`parseAmount`·`parseQuickInput`)를 바꾸지 않는다 — 화면이 같은 함수의 결과를 보일 뿐이다.
+- 금액은 정수 원이다(절대 규칙 2). 금액 해석 함수(`parseAmount`·`parseQuickInput`·`parseProductList`)는 만원 단위(`TEN_THOUSAND`, AC-FB1-04 [core]) 하나만 더한다 — `WON`·`THOUSAND`의 결과는 한 사례도 바뀌지 않는다. 화면은 같은 함수의 결과를 보일 뿐이다.
 - 기존 시험의 기대값 교체는 이 스프린트가 바꾼 문장·동작에 한한다 — 바꾼 곳마다 근거 결정 번호를 주석으로(`// FB1 D-FB1-0x`). 그 밖의 기존 시험은 바꾸지 않는다.
 - 각 dev는 바뀐 공개 모양(API 응답 칸·오류 코드·내보내는 이름)을 `harness/sprints/FB1/dev-notes.md`에 먼저 적고 시작한다.
 
@@ -53,8 +58,9 @@
 
 | 영역 | 고치는 곳 | 고치지 않는 곳 |
 |---|---|---|
+| core (D-FB1-11) | `packages/core/src/settings.ts`(`price.unit` 타입·선택지), `packages/core/src/parse/amount.ts`(R-14 3), `packages/core/test/**`(골든 계약 `contract.ts`의 `price.unit` `oneOf`, 단위 시험) | 판정·정산, 다른 패키지·앱 |
 | device | `packages/printer/src/**`(`errors.ts`·`niimbot.ts`·`marklife.ts`·`fake-bluetooth.ts`·`fake.ts`·`index.ts`), `packages/printer/test/**`, `packages/documents/src/waybill.ts`(택배 크기 목록·택배사 이름 표)와 `packages/documents/test/**` | 앱 코드, `packages/core`·`packages/label` |
-| server | `apps/server/src/parcel/**`, `apps/server/src/db/schema.ts`, `apps/server/drizzle/0019_*.sql`과 `drizzle/meta/**`, `apps/server/src/print.ts`(템플릿 내주는 한 곳), `apps/server/test/fb1-*.test.ts`, `t1-parcel-golden.test.ts`(box 종류·수·ID 형식), 바뀐 기대값만 `t1-*.test.ts`, `docs/OWNER-GUIDE.md`·`docs/DEPLOY.md`의 택배 문장(있으면) | `apps/server/src/youtube/**`, 판정·정산 |
+| server | `apps/server/src/product-import.ts`(단위 값 — D-FB1-11, core 다음), `apps/server/src/parcel/**`, `apps/server/src/db/schema.ts`, `apps/server/drizzle/0019_*.sql`과 `drizzle/meta/**`, `apps/server/src/print.ts`(템플릿 내주는 한 곳), `apps/server/test/fb1-*.test.ts`, `t1-parcel-golden.test.ts`(box 종류·수·ID 형식), 바뀐 기대값만 `t1-*.test.ts`, `docs/OWNER-GUIDE.md`·`docs/DEPLOY.md`의 택배 문장(있으면) | `apps/server/src/youtube/**`, 판정·정산 |
 | web | `apps/web/src/lib/settings-fields.ts`, `components/SettingsPage.tsx`·`RuleFields.tsx`·`ThanksSettings.tsx`(만들기 칸)·`ParcelSettings.tsx`·`ParcelsPage.tsx`·`ParcelParts.tsx`·`LabelSettings.tsx`·`LabelsPage.tsx`(프린터 칸)·`wizard/PrinterStep.tsx`·`QuickInput.tsx`·`LoginMethods.tsx`·`App.tsx`(떠나기 확인), `lib/quick.ts`·`lib/social-login.ts`·`lib/leave-guard.ts`·`lib/google-return.ts`·`lib/parcel-words.ts`·`api/parcel-types.ts`, `styles.css`(기존 클래스 먼저), `apps/web/test/**`(`fb1-*.test.ts(x)` + 바뀐 낱말 고정값) | 금지 경로, `WizardPage.tsx`의 유튜브 단계 |
 | domain | `tests/adversarial/fb1/**`, 바뀐 기대값만 기존 적대 시험(연결 실패 `DISCONNECTED` → `CONNECT_FAILED`, 상세 원문 — D-FB1-09) | |
 | e2e | `tests/e2e/fb1/**`, 찾는 곳·낱말 줄만 `tests/e2e/t1/**`·`i2/ledger-settings.spec.ts`·`i3/**`(위 금지 경로 단서) 등 설정 저장 단추를 누르는 기존 시험 | `tests/e2e/y1/**` |
@@ -63,25 +69,35 @@
 
 **AC-FB1-00** [spec] — 시작 단계
 - `harness/sprints/FB1/BASE`(이 스프린트를 시작한 커밋), 위 스펙·골든 변경이 커밋 `[spec] FB1: …`로 들어가 있다. `tests/golden/parcel/box.json`은 서버 골든 시험이 `box` 종류를 알기 전까지 읽기 오류로 실패한다(README 그대로 — AC-FB1-17이 푼다)
+- 사용자 결정 D-FB1-11·12 반영 커밋 `[spec] FB1: …`(DECISIONS·DOMAIN_RULES v0.1.28·SPEC v0.1.38·파서 골든 네 파일·README). 그 뒤 `pnpm golden`은 core가 `TEN_THOUSAND`를 받기 전까지 읽기 오류 3건으로 실패한다(AC-FB1-04가 푼다)
 - 확인: `git log`
 
-### A. 가격 단위 (D-FB1-01 — 판정 규칙 그대로)
+### A. 가격 단위 (D-FB1-11 사용자 결정 — D-FB1-01 대체, 판정 규칙 그대로)
 
-**AC-FB1-01** [web] · PRD-01 · D-FB1-01 — 설정 "가격 단위"
+**AC-FB1-01** [web] · PRD-01 · D-FB1-11 (5) — 설정 "가격 단위" (옛 두 개짜리 기준 대체)
 - Given 설정 → 판매 규칙
-- Then "가격 단위" 고르기는 두 개뿐: `천원 (10 → 10,000원)`·`원 (10000 → 10,000원)`. 바로 아래 안내 "만원 단위는 '2만'·'1.5만'처럼 적으면 돼요. 어느 단위를 골라도 '2만'은 20,000원이에요." 저장 값은 지금처럼 `THOUSAND`·`WON`(다른 값을 보내지 않는다). 시작 마법사 2단계 요약의 가격 단위 낱말도 같은 낱말
+- Then "가격 단위" 고르기는 셋, 이 순서와 낱말: `원 (15000 → 15,000원)`·`천원 (15 → 15,000원)`·`만원 (15 → 150,000원)`. 저장 값은 `WON`·`THOUSAND`·`TEN_THOUSAND`, 처음 값(저장된 값이 없으면) `천원`. 바로 아래 늘 보이는 안내 "'2만'·'15000원'처럼 단위를 붙여 적으면 이 설정과 상관없이 적힌 대로 들어가요." 화면 어디에도 "만원 단위는 '2만'·'1.5만'처럼 적으면 돼요."가 없다. 시작 마법사 2단계 요약의 가격 단위 낱말도 같은 낱말(`만원 (15 → 150,000원)` 등)
+- When 고른 값을 저장된 값과 다르게 바꾼다(아직 저장 전) · Then 고르기 아래에 확인 문장 하나: 만원 "저장하면 다음 방송부터 '15'는 150,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요.", 천원 "저장하면 다음 방송부터 '15'는 15,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요.", 원 "저장하면 다음 방송부터 숫자를 원 그대로 읽어요('15000' → 15,000원). 이미 등록한 상품 가격은 바뀌지 않아요." 저장된 값으로 되돌리거나 저장하면 문장이 없다. 확인 창은 띄우지 않는다(저장은 아래 저장 막대 — AC-FB1-22)
+- When 만원으로 저장한다 · Then 이미 있는 방송의 상품 가격은 하나도 바뀌지 않고(조회 값 그대로), 진행 중인 방송의 콘솔 단위 줄도 그대로(그 방송 스냅샷), 다음에 시작한 방송부터 만원 단위
 - 확인: 웹 단위 시험 + E2E(AC-FB1-90)
 
-**AC-FB1-02** [web] · PRD-01 · D-FB1-01 — 콘솔 빠른 입력의 단위·등록 전 미리 보기
+**AC-FB1-02** [web] · PRD-01 · D-FB1-01 (2)~(4)·D-FB1-11 (6) — 콘솔 빠른 입력의 단위·등록 전 미리 보기
 - Given 가격 단위 천원인 방송 콘솔
-- Then 빠른 입력칸 아래(지금 도움말 옆 줄)에 "가격 단위: 천원 — 10은 10,000원, 2만은 20,000원". 원인 방송이면 "가격 단위: 원 — 10000은 10,000원, 2만은 20,000원"(그 방송 설정 스냅샷의 값 — 설정 화면에서 바꿔도 진행 중 방송의 줄은 그대로)
-- When `15 엘레강스 10`을 친다(Enter 전) · Then 칸 가까이에 "등록하면: 15번 엘레강스 10,000원". `15 엘레강스 2만` → "등록하면: 15번 엘레강스 20,000원", `15 10` → "등록하면: 15번 10,000원"(품종 없음). 그 번호의 상품이 이미 있거나(고칠까요), 번호만 쳤거나, 오류로 읽히면 이 줄이 없다. 한 글자 칠 때마다 다시 읽는다. 미리 보기에 쓰는 값 = Enter로 등록할 때 보내는 값(같은 해석 결과 — 서로 다르면 시험 실패)
-- When 가격 오류로 고치기 칸이 열리고 가격 칸에 `1.5만`을 적는다 · Then 가격 칸 옆 "= 15,000원". 읽지 못하면 아무것도 없다
-- 확인: 웹 단위 시험(천원·원 두 방송, 해석 결과와 미리 보기 맞대기) + E2E
+- Then 빠른 입력칸 아래(지금 도움말 옆 줄)에 "가격 단위: 천원 — 10은 10,000원, 2만은 20,000원". 원인 방송이면 "가격 단위: 원 — 10000은 10,000원, 2만은 20,000원", 만원인 방송이면 "가격 단위: 만원 — 15는 150,000원, 5천은 5,000원"(그 방송 설정 스냅샷의 값 — 설정 화면에서 바꿔도 진행 중 방송의 줄은 그대로). 이 줄은 늘 보인다(접지 않음)
+- When `15 엘레강스 10`을 친다(Enter 전) · Then 칸 가까이에 "등록하면: 15번 엘레강스 10,000원". `15 엘레강스 2만` → "등록하면: 15번 엘레강스 20,000원", `15 10` → "등록하면: 15번 10,000원"(품종 없음). 만원 방송에서 `15 엘레강스 15` → "등록하면: 15번 엘레강스 150,000원", `15 엘레강스 15000` → "등록하면: 15번 엘레강스 15,000원". 그 번호의 상품이 이미 있거나(고칠까요), 번호만 쳤거나, 오류로 읽히면 이 줄이 없다. 한 글자 칠 때마다 다시 읽는다. 미리 보기에 쓰는 값 = Enter로 등록할 때 보내는 값(같은 해석 결과 — 서로 다르면 시험 실패)
+- When 가격 오류로 고치기 칸이 열리고 가격 칸에 `1.5만`을 적는다 · Then 가격 칸 옆 "= 15,000원". 만원 방송에서 `14` → "= 140,000원". 읽지 못하면 아무것도 없다
+- 확인: 웹 단위 시험(천원·원·만원 세 방송, 해석 결과와 미리 보기 맞대기) + E2E
 
-**AC-FB1-03** [web]·[domain] · PRD-01 · 절대 규칙 2 — 금액은 그대로
-- Then 등록 요청의 가격은 지금처럼 정수 원(`10`(천원) → `10000`). `parseAmount`·`parseQuickInput`·골든 `amount.yaml`·`quick-input.yaml`은 바뀌지 않는다(diff 0줄). 미리 보기 글의 품종은 이스케이프된 글로만 들어간다(친 글이 HTML로 해석되지 않음)
-- 확인: 웹 단위 시험, 적대 시험(`tests/adversarial/fb1/quick-preview.test.ts` — 무작위 줄 1,000개에서 미리 보기 가격 = 등록 판단 가격, 표시 가격은 원 표기 정수)
+**AC-FB1-03** [web]·[domain] · PRD-01 · 절대 규칙 2 — 금액은 정수 원
+- Then 등록 요청의 가격은 정수 원(`10`(천원) → `10000`, `15`(만원) → `150000`). 골든 `amount.yaml`·`quick-input.yaml`·`product-import.yaml`의 `WON`·`THOUSAND` 문서는 바뀌지 않는다(더한 것은 끝의 `TEN_THOUSAND` 문서뿐). 미리 보기 글의 품종은 이스케이프된 글로만 들어간다(친 글이 HTML로 해석되지 않음)
+- 확인: 웹 단위 시험, 적대 시험(`tests/adversarial/fb1/quick-preview.test.ts` — 무작위 줄 1,000개에서 미리 보기 가격 = 등록 판단 가격, 표시 가격은 원 표기 정수. 단위 셋 모두)
+
+**AC-FB1-04** [core]→[server]→[web] · PRD-01·PRD-05 · R-14 3 · D-FB1-11 — 만원 단위 해석 (core가 먼저)
+- [core] `price.unit`이 `TEN_THOUSAND`를 받는다(설정 타입·선택지 — 판매 규칙 저장·백업 복구·방송 스냅샷이 같은 검사를 쓴다). `parseAmount`: 단위 없는 숫자가 1000 미만이면 ×10000, 1000 이상이면 원 그대로, `원`·한글 단위가 있으면 설정 무시, 원 단위 소수가 남으면 `null`(정수 자리 계산 — 부동소수점 곱셈 금지, 지금 `scaleDecimal`과 같은 방식). `parseQuickInput`·`parseProductList`는 받은 설정을 넘길 뿐 규칙이 바뀌지 않는다. 골든 계약(`packages/core/test/golden/contract.ts`)의 `price.unit`을 `WON / THOUSAND / TEN_THOUSAND`로. Then `pnpm golden` 읽기 오류 0·불일치 0(새 `TEN_THOUSAND` 문서 셋 통과), `WON`·`THOUSAND` 사례는 그대로 통과
+- [core] 말로 한 가격(`packages/voice` 추출 — R-17 4)은 바꾸지 않는다: 지금처럼 원 단위로 읽고 숫자만 말한 것은 가격이 아니다(음성 골든 `voice-extract.yaml` 그대로)
+- [server] `apps/server/src/product-import.ts`의 단위 값이 `TEN_THOUSAND`를 받는다 — 방송 스냅샷이 만원이면 가져오기 미리 보기·등록 다시 검사가 만원으로 읽는다(모르는 값이면 기본값으로 바꾸는 지금 길이 만원을 천원으로 바꾸면 10배 틀린 가격 — 시험으로 막는다). 판매 규칙 저장 API가 `TEN_THOUSAND`를 저장하고 돌려준다(코어 검사 그대로, 다른 값은 지금처럼 거절)
+- [web] AC-FB1-01·02의 만원 낱말·문장·콘솔 줄. 웹 코드는 단위를 따로 해석하지 않는다(코어 함수 결과만)
+- 확인: 골든(`parser/amount.yaml`·`quick-input.yaml`·`product-import.yaml`의 `TEN_THOUSAND` 문서), core·server 단위 시험(만원 방송 가져오기 `15` → 150,000원), 웹 단위 시험
 
 ### B. 설정 문구 (D-FB1-02)
 
@@ -93,9 +109,9 @@
 - Then 판매 규칙의 접는 단추 이름이 "상세 설정"(`aria-expanded` 처음 `false`, 접힌 칸은 지금과 같은 칸들). 펴면 칸들 맨 위에 "잘 모르면 그대로 두세요." 화면 어디에도 "더 보기 (잘 모르면 그대로 두세요)"가 없다
 - 확인: 웹 단위 시험 + E2E
 
-**AC-FB1-07** [web] · D-FB1-02 (2b) — 여러 번호 예시
-- Then "한 채팅에 번호가 여러 개면" 고르기 바로 아래 "예: 채팅 '15 28'", 선택지 `모두 주문 (15번·28번 둘 다)`·`첫 번호만 주문 (15번만)`·`주문으로 보지 않아요`. 저장 값은 `ALL`·`FIRST`·`IGNORE` 그대로. 화면에 `@`로 시작하는 예시가 없다
-- 확인: 웹 단위 시험
+**AC-FB1-07** [web] · D-FB1-12 (사용자 결정 — D-FB1-02 (2b) 대체) — 여러 번호 예시
+- Then "한 채팅에 번호가 여러 개면" 고르기 바로 아래 채팅 한 줄 모양의 예시: "예:" 다음에 글쓴이 `@홍길동`(회색 작은 글씨 — 글과 다른 요소, 다른 색·크기)과 글 `132 475`. 선택지 낱말 `모두 주문 (132번·475번 둘 다 찜)`·`첫 번호만 주문 (132번만 찜)`·`주문으로 보지 않아요 (둘 다 찜 아님)`. 저장 값은 `ALL`·`FIRST`·`IGNORE` 그대로. 화면 어디에도 "예: 채팅 '15 28'"·`15번·28번 둘 다`가 없다
+- 확인: 웹 단위 시험(글쓴이와 글이 다른 요소), 골든 `parser/chat.yaml`(본문 `132 475` 세 설정 — 낱말의 결과가 규칙과 같음)
 
 **AC-FB1-08** [web] · D-FB1-02 (3)·(6) — 같은 분 낱말, 감사 대상 설명
 - Then `contention.sameMinuteTieBreaker` 칸 이름이 "문자찜과 유튜브 찜이 같은 1분 안에 들어오면 (실제 받은 시각 순서일 때만)"(선택지 `유튜브 먼저`·`문자 먼저`·`내가 정해요` 그대로). 감사 "만들기"의 실시간 채팅 줄 설명 "방송 중 영상 옆 채팅창에 바로 보이는 글이에요.", 영상 댓글 줄 설명 "방송 영상 아래 댓글란에 남는 글이에요. 방송이 끝나도 남아요."
@@ -260,10 +276,10 @@
 
 **AC-FB1-90** [e2e] — 화면 흐름 (`tests/e2e/fb1/**`, 1440·375)
 - 설정: 저장 막대(AC-FB1-22~24 — 다섯 칸을 고치고 한 번 저장, 일부 실패), 상세 설정·예시·같은 1분 낱말(AC-FB1-06~08), 감사 켜기 체크 두 줄·영상 댓글 방식·묶는 시간 상세(AC-FB1-10·11), 택배사·직접 입력·택배 크기 다섯 낱말(AC-FB1-19), 어댑터 없는 택배사의 택배 화면 막힘(AC-FB1-20)
-- 콘솔: 단위 줄·"등록하면: …"·고치기 칸 "= …원"(AC-FB1-02), 천원·원 방송 각각
+- 콘솔: 단위 줄·"등록하면: …"·고치기 칸 "= …원"(AC-FB1-02), 천원·원·만원 방송 각각. 설정에서 만원으로 바꿀 때의 확인 문장·저장 뒤 기존 상품 가격 그대로(AC-FB1-01)
 - 로그인 방법: 새로 연 설정에서 카카오 연결하기 → 창 없이 가짜 OAuth로 이동(AC-FB1-31), 값을 고친 뒤 → 앱 창 → 닫기/떠나기(AC-FB1-32), 이동이 막힌 경우 5초 뒤 되돌림(AC-FB1-33 — 이동을 가로채 멈추게 하는 방법은 test-e2e가 정해 test-notes에)
 - 라벨 가게 이름(AC-FB1-29), 프린터 연결 실패(AC-FB1-40)
-- 화면 어디에도 개발 용어·영어 상태값이 없다(`THOUSAND`·`WON`·`EPOST`·`OTHER`·`CONNECT_FAILED`·`PER_SALE` 등 — 지금 AC-I3-45 낱말 검사와 같은 방식)
+- 화면 어디에도 개발 용어·영어 상태값이 없다(`THOUSAND`·`TEN_THOUSAND`·`WON`·`EPOST`·`OTHER`·`CONNECT_FAILED`·`PER_SALE` 등 — 지금 AC-I3-45 낱말 검사와 같은 방식)
 - 확인: E2E
 
 **AC-FB1-91** [e2e] · D-FB1-10 — 기존 E2E 맞추기
@@ -282,7 +298,7 @@
 
 ## 이번 스프린트에서 하지 않는 것 (범위 밖)
 
-- **만원 가격 단위**(`price.unit` 세 번째 값) — D-FB1-01, 사용자 확인 필요. 판정 엔진·금액 해석·골든 `amount.yaml`·`quick-input.yaml` 변경 없음
+- 판정 엔진·정산 규칙 변경(만원 단위는 금액 해석 R-14 3만 — AC-FB1-04). 말로 한 가격(음성 등록)이 가격 단위를 따르게 하기(D-FB1-11 (3) — 따르지 않음). 새 상품 가격 상한·오류 코드(D-FB1-11 (4) — 두지 않음). 단위를 바꿀 때 이미 등록한 상품 가격을 다시 계산하기(하지 않음)
 - **감사 메시지 서버 규칙** — 묶음 창·할당량 묶음 모드·게시 흐름(D-011·D-Y07·D-Y09), `apps/server/src/youtube/**`, 유튜브 화면 파일, 감사 미리 보기·동의 요약 문장(`lib/youtube.ts`)
 - **유튜브·인스타그램 연결 단추의 같은 되돌림**(이동이 막히면 버튼 되돌리기) — 유튜브는 맥북 쪽(carryOver), 인스타그램은 다음에. 이번엔 로그인 방법만(같은 탭 이동 도우미를 함께 쓰면 따라 좋아지는 것은 막지 않는다)
 - **실제 택배사 어댑터·자동 접수**(우체국·CJ 등), 쓰는 택배사 이름을 구매자 링크·포장 화면·송장 칸에 보이기, 택배사별 조회 주소
