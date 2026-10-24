@@ -16,6 +16,26 @@ import {
   type SaveStepId,
 } from '../lib/save-bar.ts'
 
+/**
+ * 일부 실패 뒤 첫 고칠 칸으로 데려간다 (U-FB1-02, UX-03): 실패한 칸 이름 중 화면에서 첫 블록(제목 h2가 그 이름인 칸)의
+ * 첫 빨간 칸(aria-invalid)으로 화면을 옮기고 포커스. 접힌 "상세 설정" 안이면 편다. 빨간 칸이 없으면(네트워크 실패 등) 그 블록 제목으로.
+ */
+export function focusFirstFailed(root: ParentNode, failed: readonly SaveBlock[]): HTMLElement | null {
+  const first = orderBlocks(failed)[0]
+  if (first === undefined) return null
+  const heading = [...root.querySelectorAll<HTMLElement>('section.settings-section > h2')].find((h) => h.textContent?.trim() === first)
+  const block = heading?.parentElement
+  if (heading === undefined || block === null || block === undefined) return null
+  const field = block.querySelector<HTMLElement>('[aria-invalid="true"]')
+  const target = field ?? heading
+  for (let parent = target.parentElement; parent !== null && parent !== block; parent = parent.parentElement) {
+    if (parent instanceof HTMLDetailsElement) parent.open = true
+  }
+  if (typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: field === null ? 'start' : 'center' })
+  target.focus({ preventScroll: true })
+  return target
+}
+
 type Steps = Partial<Record<SaveStepId, SaveStep>>
 
 type Result = { readonly kind: 'saved'; readonly text: string } | { readonly kind: 'failed'; readonly failed: readonly SaveBlock[] }
@@ -46,6 +66,7 @@ function SaveBar({ steps }: { readonly steps: Steps }) {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<Result | null>(null)
   const sending = useRef(false)
+  const barRef = useRef<HTMLElement>(null)
   /** 저장한 뒤 바뀐 칸이 없어진 것을 봤다 — 그 뒤 칸을 고치면 성공 문장을 지운다 */
   const settled = useRef(false)
   const dirty = orderBlocks(Object.values(steps).flatMap((step) => step?.dirty ?? []))
@@ -71,10 +92,17 @@ function SaveBar({ steps }: { readonly steps: Steps }) {
     }
   }
 
+  // 일부 실패하면 첫 고칠 칸으로 (저장할 때마다 한 번 — result가 새로 생길 때)
+  useEffect(() => {
+    if (result?.kind !== 'failed') return
+    const root = barRef.current?.closest('main') ?? document
+    focusFirstFailed(root, result.failed)
+  }, [result])
+
   // 실패 문장은 그 칸이 아직 저장하지 않은 채일 때만 (되돌려 저장값과 같아지면 사라진다)
   const failed = result?.kind === 'failed' ? result.failed.filter((name) => dirty.includes(name)) : []
   return (
-    <section className="save-bar" aria-label="저장">
+    <section ref={barRef} className="save-bar" aria-label="저장">
       {result?.kind === 'saved' && dirty.length === 0 ? (
         <p className="notice" role="status" data-tone="success">
           {result.text}

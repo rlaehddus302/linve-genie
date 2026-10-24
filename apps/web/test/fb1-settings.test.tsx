@@ -252,6 +252,8 @@ describe('저장 막대 (AC-FB1-22~25)', () => {
     expect(settings['waitlist.max']).toBe(DEFAULT_SETTINGS['waitlist.max'])
     expect(parcel.sender?.name).toBe('김판매')
     expect(await within(bar()).findByText('저장하지 않은 칸: 판매 규칙')).toBeDefined()
+    // 첫 고칠 칸으로 데려간다 (U-FB1-02)
+    await waitFor(() => expect(document.activeElement).toBe(within(section('판매 규칙')).getByLabelText('대기 인원 (0이면 대기 없음)')))
     // 되돌려 저장값과 같아지면 실패 문장도 사라진다
     fireEvent.change(within(section('판매 규칙')).getByLabelText('대기 인원 (0이면 대기 없음)'), { target: { value: String(DEFAULT_SETTINGS['waitlist.max']) } })
     expect(within(bar()).queryByRole('alert')).toBeNull()
@@ -265,6 +267,8 @@ describe('저장 막대 (AC-FB1-22~25)', () => {
     fireEvent.click(saveButton())
     expect((await within(bar()).findByRole('alert')).textContent).toBe('저장하지 못한 칸이 있어요: 배송비. 빨간 글을 확인해 주세요.')
     expect(await within(bar()).findByText('저장하지 않은 칸: 배송비')).toBeDefined()
+    // 빨간 칸이 없으면 그 칸 제목으로 (U-FB1-02)
+    await waitFor(() => expect(document.activeElement).toBe(within(section('배송비')).getByRole('heading', { name: '배송비' })))
   })
 
   it('바뀐 칸이 있으면 메뉴 이동은 앱 창으로 묻는다 (AC-FB1-25)', async () => {
