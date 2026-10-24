@@ -514,3 +514,63 @@ pnpm try
    ```
 5. `pnpm try --real-youtube` 로 켜고 설정 → 유튜브에서 **구글로 유튜브 연결하기**를 누릅니다("확인되지 않은 앱" 경고는 고급 → 계속).
 6. 유튜브에서 **일부 공개** 라이브를 켜고, 라이브지니 방송에서 그 방송을 잇습니다. 다른 계정으로 채팅에 "15번 찜"을 쳐 봅니다.
+
+## 실제 간편 로그인으로 시험하기 (개발자용)
+
+도메인 없이 이 컴퓨터에서 **진짜 카카오·네이버·구글 계정**으로 간편 로그인을 해 봅니다. 각 회사에 "돌아오는 주소"를 `http://localhost:7700/…`으로 등록하고, `.env.login.local` 파일에 받은 값을 적은 뒤 `pnpm try --real-login`으로 켭니다.
+
+- **받은 값(키·Secret)은 대화창·메신저·이슈에 절대 붙이지 마세요.** `.env.login.local` 파일에만 적습니다. 이 파일은 깃에 올라가지 않고, 라이브지니는 값을 화면·로그에 내지 않습니다.
+- 값을 적은 회사만 진짜로 켜지고, 적지 않은 회사는 **꺼집니다**(이 모드에서는 연습용 가짜 화면이 나오지 않습니다). 셋 다 할 필요 없이 하나만 해도 됩니다.
+- 라이브지니가 각 회사에서 받는 정보는 **계정 번호뿐**이고, 주면 이메일·닉네임을 받아 가린 이름(예: `se***@gmail.com`, `초***`)만 남깁니다. 구글은 `openid email`만 묻고(유튜브 권한은 묻지 않음), 카카오·네이버는 따로 권한을 더 묻지 않습니다. 회사가 준 토큰은 저장하지 않습니다.
+- 아래 주소의 `7700`은 `pnpm try`의 기본 포트입니다. 다른 번호로 켜지면 터미널에 경고가 나오니, 그 번호로 다시 등록하거나 7700을 쓰는 프로그램을 끄세요.
+
+### 카카오 (developers.kakao.com)
+
+1. [developers.kakao.com](https://developers.kakao.com)에 카카오 계정으로 로그인 → **내 애플리케이션** → **애플리케이션 추가하기**(앱 이름 예: 라이브지니 연습, 회사명은 아무거나).
+2. 앱 설정 → **플랫폼** → **Web 플랫폼 등록** → 사이트 도메인에 `http://localhost:7700`.
+3. 제품 설정 → **카카오 로그인** → 활성화 설정을 **켜기(ON)**.
+4. 같은 화면의 **Redirect URI**에 `http://localhost:7700/api/auth/kakao/callback` 을 글자 그대로 등록합니다.
+5. 카카오 로그인 → **동의항목** → **닉네임**을 "선택 동의"(또는 필수)로 둡니다. 라이브지니가 꼭 필요한 것은 회원 번호뿐이라 닉네임이 없어도 로그인은 되지만, 있으면 설정 화면에 가린 닉네임이 보입니다. 이메일은 필요 없습니다(비즈 앱만 받을 수 있음 — 없으면 "카카오 계정"으로 보입니다).
+6. 앱 설정 → **앱 키**의 **REST API 키**를 복사해 `LIVEJJIM_LOGIN_KAKAO_REST_API_KEY`에 적습니다.
+7. 제품 설정 → 카카오 로그인 → **보안**의 **Client Secret**이 "사용함"이면 그 코드를 `LIVEJJIM_LOGIN_KAKAO_CLIENT_SECRET`에 적습니다. "사용 안 함"이면 이 줄은 적지 않습니다(빈 값으로 두지 말고 줄을 지우세요).
+
+### 네이버 (developers.naver.com/apps)
+
+1. [developers.naver.com/apps](https://developers.naver.com/apps)에 네이버 아이디로 로그인 → **Application** → **애플리케이션 등록**.
+2. 애플리케이션 이름(예: 라이브지니 연습), **사용 API**는 **네이버 로그인**.
+3. 제공 정보: 네이버가 하나 이상 고르라고 하면 **별명**(또는 이메일 주소)을 고릅니다. 라이브지니가 꼭 필요한 것은 회원 ID뿐이고, 별명·이메일은 설정 화면의 가린 이름에만 씁니다.
+4. 로그인 오픈 API 서비스 환경에서 **PC 웹** → 서비스 URL `http://localhost:7700`, 네이버 로그인 **Callback URL** `http://localhost:7700/api/auth/naver/callback`.
+5. 등록 후 나오는 **Client ID**를 `LIVEJJIM_LOGIN_NAVER_CLIENT_ID`에, **Client Secret**을 `LIVEJJIM_LOGIN_NAVER_CLIENT_SECRET`에 적습니다.
+6. 검수 전("개발 중")에는 앱을 만든 아이디와 **멤버관리**에 넣은 테스트 아이디만 로그인됩니다.
+
+### 구글 (console.cloud.google.com/auth/clients)
+
+1. [console.cloud.google.com/auth/clients](https://console.cloud.google.com/auth/clients)에서 프로젝트를 고르거나 만듭니다(유튜브 시험과 같은 프로젝트여도 됩니다). 처음이면 "Google 인증 플랫폼" 시작(앱 이름·지원 이메일, 대상은 **외부**).
+2. **클라이언트 만들기** → 애플리케이션 유형 **웹 애플리케이션**.
+3. **승인된 리디렉션 URI**에 `http://localhost:7700/api/auth/google/callback` 추가(유튜브 시험용 클라이언트를 같이 써도 되며, 그때는 두 주소를 다 넣습니다).
+4. 만든 뒤 나오는 **클라이언트 ID**를 `LIVEJJIM_LOGIN_GOOGLE_CLIENT_ID`에, **클라이언트 보안 비밀번호**를 `LIVEJJIM_LOGIN_GOOGLE_CLIENT_SECRET`에 적습니다.
+5. **대상**(Audience) 화면에서 게시 상태가 "테스트 중"이면, 로그인해 볼 구글 계정을 **테스트 사용자**로 추가합니다.
+
+### `.env.login.local` 만들기와 켜기
+
+1. 저장소 맨 위 폴더(`package.json`이 있는 곳)에 `.env.login.local` 파일을 만들고, 쓸 회사의 줄만 적습니다. 한 줄에 `이름=값`, 앞뒤 따옴표는 없어도 됩니다. `#`으로 시작하는 줄은 무시합니다.
+   ```
+   # 카카오 (Client Secret을 "사용함"으로 켰을 때만 두 번째 줄)
+   LIVEJJIM_LOGIN_KAKAO_REST_API_KEY=여기에-REST-API-키
+   LIVEJJIM_LOGIN_KAKAO_CLIENT_SECRET=여기에-Client-Secret
+   # 네이버
+   LIVEJJIM_LOGIN_NAVER_CLIENT_ID=여기에-Client-ID
+   LIVEJJIM_LOGIN_NAVER_CLIENT_SECRET=여기에-Client-Secret
+   # 구글
+   LIVEJJIM_LOGIN_GOOGLE_CLIENT_ID=여기에-클라이언트-ID
+   LIVEJJIM_LOGIN_GOOGLE_CLIENT_SECRET=여기에-클라이언트-보안-비밀번호
+   ```
+   예시 글(한글)을 그대로 두면 켜지지 않고 몇 번째 줄인지 알려 줍니다. 이름 오타·빈 값·같은 이름 두 번·반만 적기(구글·네이버는 ID와 Secret 둘 다, 카카오는 REST API 키 필수)도 마찬가지입니다.
+2. `pnpm try --real-login` 으로 켭니다. 유튜브도 진짜로 보려면 `pnpm try --real-login --real-youtube`.
+3. 터미널의 "실제 간편 로그인 시험" 칸에서 회사마다 **켜져 있어요 / 꺼져 있어요**와 등록할 주소를 확인합니다.
+4. **이 컴퓨터 크롬**에서 `http://localhost:7700` → 아이디 `practice`로 로그인 → **설정** → **로그인 방법** → 켜진 회사의 **연결하기** → 그 회사 화면에서 동의 → 설정으로 돌아와 "연결했어요"를 확인합니다.
+5. 로그아웃 → 로그인 화면 아래 **카카오로 계속하기**(또는 네이버·구글) → 비밀번호 없이 들어오면 성공입니다.
+
+- **휴대폰(https 주소)으로는 간편 로그인이 안 됩니다.** 각 회사에 등록한 돌아오는 주소가 이 컴퓨터(`localhost`)라서, 휴대폰은 로그인 뒤 돌아올 곳을 찾지 못합니다. 간편 로그인은 이 컴퓨터 크롬에서만 해 보세요(아이디 로그인은 휴대폰에서도 됩니다).
+- 연습 모드는 끄면 기록이 지워지므로, 다시 켜면 **연결하기부터 다시** 합니다.
+- 회사 화면에서 "redirect_uri가 맞지 않아요" 같은 오류가 나오면 등록한 주소와 터미널에 나온 주소가 글자까지 같은지(포트 번호, `http`, 끝의 `/callback`) 확인하세요.

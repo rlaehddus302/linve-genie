@@ -7,6 +7,9 @@
 // - 연습용 시청자 채팅 화면 /_try/chat: 가짜 유튜브 라이브에 시청자 채팅을 넣는다(이 스크립트만 가진 화면).
 // - 간편 로그인(L1, AC-L1-24): 가짜 구글·카카오·네이버를 연습 전용 경로 /_try/oauth/<공급자>/…에 붙여 켠다(운영 기동에는 이 경로가 없다).
 //   승인 화면 위에 "연습용 가짜 화면이에요."가 보이고 연습 계정 둘(이메일 있음·없음)을 고른다. 돌아오는 주소는 http://localhost:<포트>/api/auth/<공급자>/callback.
+// - 실제 간편 로그인(RL1, pnpm try --real-login): 저장소 맨 위 .env.login.local(깃에 올리지 않음)에서 운영과 같은 이름
+//   (LIVEJJIM_LOGIN_GOOGLE_*·LIVEJJIM_LOGIN_KAKAO_*·LIVEJJIM_LOGIN_NAVER_*)을 읽어 값이 있는 공급자만 실제 카카오·네이버·구글로 켜고,
+//   없는 공급자는 끈다(가짜를 섞지 않는다). 값은 화면·로그에 내지 않는다. 각 회사에 등록한 돌아오는 주소가 localhost라 휴대폰 https 주소로는 간편 로그인이 안 된다.
 // - AI 확인 필요 제안(A1, AC-A1-12): 가짜 LLM 서버를 연습 전용 경로 /_try/llm 밑에 붙이고 가짜 키로 켠다(실제 AI 회사로 나가는 요청은 없다).
 //   설정 → "AI 제안"에서 동의하고 켜면, 옵션 리허설의 확인 필요 화면을 열 때 가짜 AI가 글에 든 선택지 이름으로 제안한다.
 // - 이 컴퓨터: http://localhost:<포트> (127.0.0.1에서만 연다).
@@ -46,13 +49,15 @@ if (!existsSync(join(ROOT, 'node_modules', '.pnpm'))) fail('먼저 설치가 필
 const args = process.argv.slice(2)
 let wanted = DEFAULT_PORT
 let realYoutube = false
+let realLoginWanted = false
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--port' && /^\d{2,5}$/.test(args[i + 1] ?? '')) {
     wanted = Number(args[i + 1])
     i++
   } else if (args[i] === '--real-youtube') realYoutube = true
+  else if (args[i] === '--real-login') realLoginWanted = true
   else if (args[i] === '--') continue
-  else fail('쓰는 법: pnpm try 또는 pnpm try --port 7800 또는 pnpm try --real-youtube')
+  else fail('쓰는 법: pnpm try 또는 pnpm try --port 7800 또는 pnpm try --real-youtube 또는 pnpm try --real-login (함께 써도 돼요)')
 }
 // 실제 유튜브 시험: 운영자가 만든 구글 OAuth 클라이언트 값을 저장소 밖에 커밋되지 않는 .env.youtube.local에서 읽는다(대화·로그에 남기지 않음)
 let realGoogle = null
@@ -70,6 +75,28 @@ if (realYoutube) {
   const clientSecret = values.LIVEJJIM_GOOGLE_CLIENT_SECRET ?? ''
   if (clientId === '' || clientSecret === '') fail('.env.youtube.local에 LIVEJJIM_GOOGLE_CLIENT_ID와 LIVEJJIM_GOOGLE_CLIENT_SECRET을 적어 주세요.')
   realGoogle = { clientId, clientSecret }
+}
+// 실제 간편 로그인 시험: .env.login.local을 운영과 같은 이름·규칙으로 읽는다. 파일이 없으면 셋 다 끈 채로 켠다(가짜를 섞지 않는다). 값은 어디에도 출력하지 않는다
+const LOGIN_FILE = '.env.login.local'
+let realLogin = null
+let realLoginFileMissing = false
+if (realLoginWanted) {
+  const { parseLoginEnvFile } = await import(new URL('../../apps/server/src/social/login-env-file.ts', import.meta.url).href)
+  const file = join(ROOT, LOGIN_FILE)
+  if (existsSync(file)) {
+    let text
+    try {
+      text = readFileSync(file, 'utf8')
+    } catch {
+      fail(`${LOGIN_FILE} 파일을 읽지 못했어요. 파일 권한을 확인해 주세요.`)
+    }
+    const parsed = parseLoginEnvFile(text)
+    if (!parsed.ok) fail(`${parsed.message}\n            (docs/TRY-IT.md "실제 간편 로그인으로 시험하기"를 보세요.)`)
+    realLogin = parsed.providers
+  } else {
+    realLoginFileMissing = true
+    realLogin = {}
+  }
 }
 if (wanted < 1024 || wanted > 65_000) fail('--port는 1024~65000 사이로 적어 주세요.')
 
@@ -141,7 +168,7 @@ const fakeLive = fake.addBroadcast(fakeChannel.id, { title: '연습 라이브', 
 
 // 가짜 간편 로그인 (연습 전용 경로 /_try/oauth — 승인 화면은 브라우저가 연습 화면과 같은 주소로 열고, 토큰·사용자 정보는 서버가 127.0.0.1로 부른다)
 const SOCIAL = ['google', 'kakao', 'naver']
-const oauth = new FakeOAuth({ practice: true, basePath: '/_try/oauth', redirectUris: Object.fromEntries(SOCIAL.map((p) => [p, `${appOrigin}/api/auth/${p}/callback`])) })
+const oauth = realLogin !== null ? null : new FakeOAuth({ practice: true, basePath: '/_try/oauth', redirectUris: Object.fromEntries(SOCIAL.map((p) => [p, `${appOrigin}/api/auth/${p}/callback`])) })
 // 가짜 AI (연습 전용 경로 /_try/llm — 서버가 127.0.0.1로 부른다. 조작 경로 없음)
 const llm = new FakeLlm({ practice: true, basePath: '/_try/llm' })
 
@@ -174,7 +201,8 @@ const livejjim = createServer({
   webDir: WEB_DIR,
   testPrinter: true,
   deposits: { testMode: true, popbill: null, pollMs: 1000 },
-  socialLogin: oauth.setup({ authBase: appOrigin, apiBase: `http://127.0.0.1:${String(port)}` }),
+  // --real-login: 실제 공급자 고정 주소(https)·값이 있는 공급자만. 돌아오는 주소는 서버가 appOrigin(http://localhost:<포트>)으로 만든다
+  socialLogin: realLogin === null ? oauth.setup({ authBase: appOrigin, apiBase: `http://127.0.0.1:${String(port)}` }) : { providers: realLogin },
   assist: llm.setup({ base: `http://127.0.0.1:${String(port)}` }),
 })
 
@@ -197,7 +225,7 @@ const CHAT_PAGE = readFileSync(new URL('./chat.html', import.meta.url), 'utf8').
 
 async function tryRoute(request) {
   const url = new URL(request.url)
-  if (url.pathname.startsWith('/_try/oauth/')) return oauth.handle(request)
+  if (url.pathname.startsWith('/_try/oauth/') && oauth !== null) return oauth.handle(request)
   if (url.pathname.startsWith('/_try/llm/')) return llm.handle(request)
   if (request.method === 'GET' && url.pathname === '/_try/chat') {
     return new Response(CHAT_PAGE, {
@@ -309,6 +337,32 @@ if (phone !== null) {
 say('')
 say(' 연습 기록은 이 창을 끄면 모두 지워져요. 실제 방송·실제 프린터·실제 돈과는 상관없어요.')
 say('')
+if (realLogin !== null) {
+  // 값은 보이지 않는다 — 켜짐·꺼짐과 등록할 주소만
+  const NAMES = { kakao: '카카오', naver: '네이버', google: '구글' }
+  say('--------------------------------------------------------------')
+  say(' 실제 간편 로그인 시험 (가짜 로그인 화면은 꺼져 있어요)')
+  say('--------------------------------------------------------------')
+  say(' 각 회사 개발자 사이트에 아래 주소를 글자 그대로 등록해요.')
+  if (realLoginFileMissing) say(` ${LOGIN_FILE} 파일이 없어서 카카오·네이버·구글 로그인이 모두 꺼져 있어요.`)
+  for (const provider of ['kakao', 'naver', 'google']) {
+    const on = realLogin[provider] !== undefined
+    say(` ${NAMES[provider]}: ${on ? `진짜 ${NAMES[provider]} 로그인이 켜져 있어요` : `꺼져 있어요 (${LOGIN_FILE}에 값이 없어요)`}`)
+    say(`    돌아오는 주소(Redirect URI) : ${appOrigin}/api/auth/${provider}/callback`)
+    if (provider === 'kakao') say(`    Web 플랫폼 사이트 도메인    : ${appOrigin}`)
+    if (provider === 'naver') say(`    서비스 URL                  : ${appOrigin}`)
+  }
+  say('')
+  if (port !== DEFAULT_PORT) {
+    say(` 주의: 지금 포트가 ${String(DEFAULT_PORT)}이 아니라 ${String(port)}이에요. 각 회사에 http://localhost:${String(DEFAULT_PORT)}/… 로 등록했다면 주소가 달라서`)
+    say(`       로그인이 안 돼요. 위 주소를 그대로 등록하거나, ${String(DEFAULT_PORT)}번을 쓰는 프로그램을 끄고 다시 켜 주세요.`)
+    say('')
+  }
+  say(' 휴대폰(https 주소)으로는 간편 로그인이 안 돼요. 등록한 돌아오는 주소가 이 컴퓨터(localhost)라서예요.')
+  say(` 간편 로그인은 이 컴퓨터 크롬의 ${appOrigin} 에서 해 보세요. 아이디·비밀번호 로그인은 휴대폰에서도 돼요.`)
+  say(` 먼저 아이디로 로그인한 뒤 설정 → 로그인 방법에서 [연결하기]를 눌러야 그 계정으로 들어올 수 있어요.`)
+  say('')
+}
 
 let stopping = false
 async function stop() {
