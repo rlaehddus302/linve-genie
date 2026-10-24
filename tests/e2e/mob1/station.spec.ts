@@ -43,13 +43,13 @@ async function nameField(page: Page) {
   return printer.getByLabel('기기 이름')
 }
 
-/** 알림 띠 맨 앞 출력 기기 항목 */
+/** 알림 띠 맨 끝 출력 기기 항목 (세는 알림 모두의 뒤) */ // MOB1 D-MOB1-14
 function stationItem(page: Page, text: string) {
   return alerts(page).getByRole('button', { name: text, exact: true })
 }
 
-test.describe('AC-MOB1-12·13 출력 기기 끊김 — 라벨 화면·콘솔 알림 띠 맨 앞', () => {
-  test('출력 기기 "안드로이드 폰"이 끊기면 PC 콘솔 띠 맨 앞(노란 모양)에 새 문장 → 누르면 라벨 화면(앱 안), 같은 자리 새 문장·옛 문장 없음 → 다시 이으면 사라진다', async ({ page, browser }) => {
+test.describe('AC-MOB1-12·13 출력 기기 끊김 — 라벨 화면·콘솔 알림 띠 맨 끝', () => { // MOB1 D-MOB1-14
+  test('출력 기기 "안드로이드 폰"이 끊기면 PC 콘솔 띠(다른 알림이 없어 첫 항목·노란 모양)에 새 문장 → 누르면 라벨 화면(앱 안), 같은 자리 새 문장·옛 문장 없음 → 다시 이으면 사라진다', async ({ page, browser }) => {
     const w = await world(browser, page)
     const station = await androidStation(browser, w, '안드로이드 폰')
     try {
@@ -66,7 +66,8 @@ test.describe('AC-MOB1-12·13 출력 기기 끊김 — 라벨 화면·콘솔 알
       await station.context.setOffline(true)
       const item = stationItem(w.main, lost('안드로이드 폰'))
       await expect(item).toBeVisible({ timeout: 30_000 })
-      // 맨 앞 항목·부드러운 노란 모양 (플랫폼 줄이 없는 기본 서버 — 첫 버튼)
+      // 다른 알림이 없으면 출력 기기 항목 혼자라 첫 항목·부드러운 노란 모양 (플랫폼 줄이 없는 기본 서버 — 첫 버튼) // MOB1 D-MOB1-14
+      await expect(alerts(w.main).getByRole('button')).toHaveCount(1)
       await expect(alerts(w.main).getByRole('button').first()).toHaveAccessibleName(lost('안드로이드 폰'))
       await expect(item).toHaveClass(/alert-soft/)
       await expect(w.main.getByText(OLD)).toHaveCount(0)
@@ -109,15 +110,20 @@ test.describe('AC-MOB1-12·13 출력 기기 끊김 — 라벨 화면·콘솔 알
       // HTML로 해석되지 않는다
       expect(await alerts(w.main).locator('b, script').count()).toBe(0)
       await expect(item).toHaveText(lost(name))
-      // 이 항목 하나뿐이면 펼치기 버튼이 없다 (수에 들지 않음)
+      // 이 항목 하나뿐이면 띠의 첫 항목이고 펼치기 버튼이 없다 (수에 들지 않음) // MOB1 D-MOB1-14
+      await expect(alerts(w.main).getByRole('button').first()).toHaveAccessibleName(lost(name))
       await expect(w.main.getByRole('button', { name: /^알림 \d+ (펼치기|접기)$/ })).toHaveCount(0)
       // 보류 찜 1건(노란)을 더하면 "알림 1 펼치기" — 출력 기기 항목은 세지 않는다
       await smsApi(w.main, { b, no: 40, memo: '보류' })
       await expect(alerts(w.main).getByRole('button', { name: /^보류 찜 1$/ })).toHaveCount(1)
       await expect(w.main.getByRole('button', { name: '알림 1 펼치기', exact: true })).toBeVisible()
-      // 접힌 띠는 한 줄 (출력 기기 항목과 보류 찜의 위 끝이 같다 — 또는 보류 찜은 잘려 안 보인다)
+      // 보류 찜이 첫 항목, 출력 기기 항목은 맨 끝 (세는 알림의 뒤) // MOB1 D-MOB1-14
+      const buttons = alerts(w.main).getByRole('button')
+      await expect(buttons.first()).toHaveAccessibleName('보류 찜 1')
+      await expect(buttons.last()).toHaveAccessibleName(lost(name))
+      // 접힌 띠는 한 줄 (첫 항목 보류 찜이 띠 안 — 출력 기기 항목은 그 뒤라 잘려 안 보일 수 있다) // MOB1 D-MOB1-14
       const strip = (await alerts(w.main).boundingBox())!
-      const first = (await item.boundingBox())!
+      const first = (await buttons.first().boundingBox())!
       expect(first.y + first.height, '접힌 띠 안').toBeLessThanOrEqual(strip.y + strip.height + 0.5)
       expect(strip.height, '접힌 띠 높이 한 줄').toBeLessThanOrEqual(first.height + 16)
       // 고정 영역 35% (100% 글자)
@@ -158,8 +164,9 @@ test.describe('AC-MOB1-12·13 출력 기기 끊김 — 라벨 화면·콘솔 알
       const paused = await w.main.request.post('/api/print/pause', { data: {}, headers: { Origin: baseUrlOf(w.main) } })
       expect(paused.ok(), await paused.text()).toBe(true)
       await expect(alerts(w.main).getByRole('button', { name: /^출력 멈춤 · / })).toBeVisible()
-      // 출력 기기 항목은 여전히 맨 앞
-      await expect(alerts(w.main).getByRole('button').first()).toHaveAccessibleName(lost('안드로이드 폰'))
+      // 출력 멈춤이 첫 항목, 출력 기기 항목은 맨 끝 // MOB1 D-MOB1-14
+      await expect(alerts(w.main).getByRole('button').first()).toHaveAccessibleName(/^출력 멈춤 · /)
+      await expect(alerts(w.main).getByRole('button').last()).toHaveAccessibleName(lost('안드로이드 폰'))
       await input.focus()
       await w.main.keyboard.press('Alt+1')
       await expect(w.main.getByRole('dialog', { name: '출력 멈춤' })).toBeVisible()
@@ -168,6 +175,77 @@ test.describe('AC-MOB1-12·13 출력 기기 끊김 — 라벨 화면·콘솔 알
       await w.mainContext.close()
     }
   })
+
+  // MOB1 D-MOB1-14 (U-MOB1-02, AC-MOB1-13): 접힌 휴대폰 띠에서 빨간 "출력 멈춤"이 노란 출력 기기 항목에 가리지 않는다
+  for (const [label, viewport] of [['375×812 접힌 띠', PHONE], ['1440×900', PC]] as const) {
+    test(`U-MOB1-02 ${label}: "출력 멈춤"·보류 찜·출력 기기 끊김이 함께 있으면 첫 항목은 "출력 멈춤 · …", 출력 기기 항목은 세는 알림 모두의 뒤(맨 끝)`, async ({ page, browser }) => {
+      const w = await world(browser, page, viewport)
+      const station = await androidStation(browser, w, '안드로이드 폰')
+      try {
+        const b = await broadcastApi(w.main, uniqueDate())
+        await registerApi(w.main, b, 1, '품종1', 1000)
+        await smsApi(w.main, { b, no: 40, memo: '보류' })
+        const paused = await w.main.request.post('/api/print/pause', { data: {}, headers: { Origin: baseUrlOf(w.main) } })
+        expect(paused.ok(), await paused.text()).toBe(true)
+        await w.main.goto(`/broadcasts/${encodeURIComponent(b)}`)
+        await expect(w.main.getByLabel('빠른 입력')).toBeVisible()
+        await station.context.setOffline(true)
+        const item = stationItem(w.main, lost('안드로이드 폰'))
+        await expect(item).toHaveCount(1, { timeout: 30_000 })
+        const buttons = alerts(w.main).getByRole('button')
+        await expect(buttons.filter({ hasText: /^출력 멈춤 · / })).toHaveCount(1)
+        await expect(buttons.filter({ hasText: /^보류 찜 1$/ })).toHaveCount(1)
+        // 순서: 출력 멈춤 → 보류 찜 → 출력 기기 항목 (플랫폼 줄이 없는 기본 서버)
+        await expect(buttons).toHaveCount(3)
+        await expect(buttons.nth(0)).toHaveAccessibleName(/^출력 멈춤 · /)
+        await expect(buttons.nth(1)).toHaveAccessibleName('보류 찜 1')
+        await expect(buttons.nth(2)).toHaveAccessibleName(lost('안드로이드 폰'))
+        if (viewport === PHONE) {
+          // 접힌 한 줄: 첫 항목 "출력 멈춤 · …"이 띠 안에 보인다 (알림 수에 출력 기기 항목은 들지 않는다 — 출력 멈춤·보류 찜 2)
+          const toggle = w.main.getByRole('button', { name: '알림 2 펼치기', exact: true })
+          await expect(toggle).toBeVisible()
+          const strip = (await alerts(w.main).boundingBox())!
+          const first = (await buttons.nth(0).boundingBox())!
+          expect(first.y, '첫 항목 위 끝이 띠 안').toBeGreaterThanOrEqual(strip.y - 0.5)
+          expect(first.x, '첫 항목 왼쪽 끝이 띠 안').toBeGreaterThanOrEqual(strip.x - 0.5)
+          // 첫 항목의 첫 낱말 "출력 멈춤"이 접힌 띠 안·화면 안에 보인다 (긴 까닭 문장의 뒷부분은 접힌 동안 잘릴 수 있다 — "…")
+          const word = await buttons.nth(0).evaluate((el) => {
+            const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+            for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+              const at = (node.textContent ?? '').indexOf('출력 멈춤')
+              if (at < 0) continue
+              const range = document.createRange()
+              range.setStart(node, at)
+              range.setEnd(node, at + '출력 멈춤'.length)
+              const r = range.getBoundingClientRect()
+              return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }
+            }
+            return null
+          })
+          expect(word, '"출력 멈춤" 글').not.toBeNull()
+          expect(word!.top, '"출력 멈춤" 위 끝이 띠 안').toBeGreaterThanOrEqual(strip.y - 0.5)
+          expect(word!.bottom, '"출력 멈춤" 아래 끝이 띠 안').toBeLessThanOrEqual(strip.y + strip.height + 0.5)
+          expect(word!.left).toBeGreaterThanOrEqual(-0.5)
+          expect(word!.right, '"출력 멈춤" 화면 안').toBeLessThanOrEqual(PHONE.width + 0.5)
+          expect(strip.height, '접힌 띠 높이 한 줄 (44px)').toBeLessThanOrEqual(44 + 0.5)
+          // 펼치면 출력 기기 항목이 띠 안에 보인다
+          await toggle.click()
+          await expect(w.main.getByRole('button', { name: '알림 2 접기', exact: true })).toBeVisible()
+          await item.scrollIntoViewIfNeeded()
+          const open = (await alerts(w.main).boundingBox())!
+          const last = (await item.boundingBox())!
+          expect(last.y, '펼친 띠 안 (출력 기기 항목)').toBeGreaterThanOrEqual(open.y - 0.5)
+          expect(last.y + last.height, '펼친 띠 안 (출력 기기 항목)').toBeLessThanOrEqual(open.y + open.height + 0.5)
+          await expect(item).toBeVisible()
+        } else {
+          for (const i of [0, 1, 2]) await expect(buttons.nth(i)).toBeVisible()
+        }
+      } finally {
+        await station.context.close()
+        await w.mainContext.close()
+      }
+    })
+  }
 
   test('출력 기기가 없고 대기 라벨이 있으면 "출력 기기가 아직 없어 라벨이 쌓이고 있어요. …" → 누르면 라벨 화면, 출력 기기를 정하면 사라진다', async ({ page, browser }) => {
     const w = await world(browser, page)

@@ -177,3 +177,65 @@ test.describe('AC-MOB1-03 글자 100% 375×812 — 지금 모양 그대로', () 
     }
   })
 })
+
+// MOB1 D-MOB1-17 (1) (U-MOB1-01, SA-MOB1-02): 글자 150% 휴대폰 콘솔에서 빠른 입력칸·되돌리기 띠가 아래 메뉴 막대 뒤에 깔리지 않는다 (AC-MOB1-03)
+/** 대상들이 모두 화면 안(위 끝 ≥ 0, 아래 끝 ≤ 화면 높이)이고 아래 막대 위 끝보다 위(아래 끝 ≤ 막대 위 끝)인가 — 어긋난 것을 글로 돌려준다 */
+async function aboveBar(page: Page, targets: readonly (readonly [string, Locator])[]): Promise<string[]> {
+  const bar = (await menu(page).boundingBox())!
+  const height = page.viewportSize()!.height
+  const out: string[] = []
+  for (const [name, target] of targets) {
+    const box = await target.boundingBox()
+    if (box === null) {
+      out.push(`${name}: 없음`)
+      continue
+    }
+    const bottom = box.y + box.height
+    if (box.y < -0.5) out.push(`${name}: 위 끝 ${String(Math.round(box.y))} < 0`)
+    if (bottom > height + 0.5) out.push(`${name}: 아래 끝 ${String(Math.round(bottom))} > 화면 ${String(height)}`)
+    if (bottom > bar.y + 0.5) out.push(`${name}: 아래 끝 ${String(Math.round(bottom))} > 막대 위 끝 ${String(Math.round(bar.y))}`)
+  }
+  return out
+}
+
+test.describe('AC-MOB1-03 글자 150% 휴대폰 콘솔 — 빠른 입력칸·되돌리기 띠가 아래 막대보다 위', () => {
+  for (const [label, viewport] of [['375×812', PHONE], ['412×915', ANDROID]] as const) {
+    test(`U-MOB1-01 ${label}: 진행 중 실제 방송 콘솔을 연 직후 빠른 입력칸 전체가 화면 안·막대 위, "15 핑크프릴 10000" Enter 뒤 되돌리기 띠("되돌리기")와 입력칸도 화면 안·막대 위`, async ({ page, browser }) => {
+      await page.goto('/')
+      const { page: dev, context } = await freshSeller(browser, baseUrlOf(page), { viewport, touch: true, big: true })
+      try {
+        await setLabelsApi(dev, true)
+        const date = uniqueDate()
+        const real = await broadcastApi(dev, date, false, '오늘 실제 방송 다육 특가 1부')
+        for (const no of [1, 2, 3]) await registerApi(dev, real, no, `핑크프릴${String(no)}`, 10000 * no)
+        await smsApi(dev, { b: real, no: 1, phone: '010-7200-0001' })
+        // 알림 띠에 빨간 출력 멈춤·노란 보류 찜 (방송 중 흔한 모양 — 위 줄이 높아진다)
+        const paused = await dev.request.post('/api/print/pause', { data: {}, headers: { Origin: baseUrlOf(dev) } })
+        expect(paused.ok(), await paused.text()).toBe(true)
+        await smsApi(dev, { b: real, no: 40, memo: '보류' })
+        // 처음 연 상태 (내리지 않음)
+        await dev.goto(`/broadcasts/${encodeURIComponent(real)}`)
+        await expectBig(dev)
+        const input = dev.getByLabel('빠른 입력')
+        await expect(input).toBeVisible()
+        await expect(alerts(dev).getByRole('button', { name: /^출력 멈춤 · / })).toHaveCount(1)
+        await expect(menu(dev)).toBeVisible()
+        await expect.poll(() => aboveBar(dev, [['빠른 입력칸', input]]), '연 직후 빠른 입력칸이 막대 위').toEqual([])
+        // 등록
+        await input.click()
+        await input.fill('15 핑크프릴 10000')
+        await input.press('Enter')
+        const undoBar = dev.getByRole('region', { name: '보내기 전 조치' })
+        await expect(undoBar).toContainText('15번을 등록했어요')
+        const undo = undoBar.getByRole('button', { name: '15번 등록 되돌리기', exact: true }).filter({ hasText: '되돌리기' })
+        await expect(undo).toHaveCount(1)
+        await expect
+          .poll(() => aboveBar(dev, [['되돌리기 띠', undoBar], ['"되돌리기" 버튼', undo], ['빠른 입력칸', input]]), 'Enter 뒤 되돌리기 띠·입력칸이 막대 위')
+          .toEqual([])
+        await expect(undo).toBeVisible()
+      } finally {
+        await context.close()
+      }
+    })
+  }
+})

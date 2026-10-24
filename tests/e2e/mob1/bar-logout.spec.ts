@@ -1,16 +1,18 @@
 // MOB1 아래 막대 "문자찜"(AC-MOB1-04, D-MOB1-04·D-NAV-01) · 휴대폰 로그아웃 자리(AC-MOB1-05) · 위험할 때만 확인 창(AC-MOB1-06, D-MOB1-05) — test-e2e.
 // 기대 문장은 acceptance.md 따옴표 그대로.
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page, type Route } from '@playwright/test'
 import { becomeDevice, cleanupPrint, gotoLabels } from '../i1/support.ts'
 import { loginAs } from '../i3/support.ts'
 import { BAR_CELLS, barCells, expectPhoneBar, expectTarget, menu, menuLink, moreButton, moreList, openMore } from '../menu.ts'
 import { uniqueDate } from '../s05/support.ts'
-import { ANDROID, PC, PHONE, baseUrlOf, bigText, broadcastApi, endBroadcastApi, expectBig, freshSeller, newDevice, setLabelsApi } from './support.ts'
+import { ANDROID, IPHONE_UA, PC, PHONE, baseUrlOf, bigText, broadcastApi, endBroadcastApi, expectBig, freshSeller, newDevice, setLabelsApi } from './support.ts'
 
 const TITLE = '로그아웃할까요?'
 const LIVE = '아직 끝내지 않은 방송이 있어요. 로그아웃하면 이 기기에서는 다시 로그인해야 찜·채팅을 볼 수 있어요. 방송과 찜은 그대로예요.'
 const STATION = '이 기기가 라벨을 출력하는 기기예요. 로그아웃하면 라벨 출력이 멈춰요.'
 const UNKNOWN = '방송 중인지 확인하지 못했어요.'
+const NONE = '끝내지 않은 방송이 없어요.' // D-MOB1-15
+const IPHONE = { width: 393, height: 852 } as const
 
 function banner(page: Page): Locator {
   return page.getByRole('banner')
@@ -324,6 +326,229 @@ test.describe('AC-MOB1-06 위험할 때만 확인 창', () => {
         const box = await expectTarget(dev, dlg.getByRole('button', { name, exact: true }))
         expect(box.y + box.height, name).toBeLessThanOrEqual(PHONE.height + 0.5)
       }
+      await dlg.getByRole('button', { name: '로그인 유지', exact: true }).click()
+      await expectLoggedIn(dev)
+    } finally {
+      await context.close()
+    }
+  })
+})
+
+/**
+ * 방송 목록(GET /api/broadcasts) 답을 붙잡아 둔다 (D-MOB1-15 — 느린 망). release()는 붙잡은 요청을 서버로 보내고(진짜 답) 그 뒤 요청은 그대로 지나가게 한다.
+ * 붙잡은 요청이 하나라도 생길 때까지 기다리려면 heldCount()를 본다.
+ */
+async function holdBroadcasts(page: Page): Promise<{ heldCount: () => number; release: () => Promise<void> }> {
+  const held: Route[] = []
+  let released = false
+  await page.route(
+    (url) => url.pathname === '/api/broadcasts',
+    async (route) => {
+      if (route.request().method() !== 'GET' || released) return route.fallback()
+      held.push(route)
+    },
+  )
+  return {
+    heldCount: () => held.length,
+    release: async () => {
+      released = true
+      for (const route of held.splice(0)) await route.continue()
+    },
+  }
+}
+
+test.describe('AC-MOB1-06 답을 기다리는 동안 (D-MOB1-15)', () => {
+  test('휴대폰 375: 답이 오지 않으면 창 "방송 중인지 확인하지 못했어요."(처음 포커스 "로그인 유지") → 늦은 답(끝난 방송만)에 창은 그대로·본문만 "끝내지 않은 방송이 없어요."·로그인 그대로 → "로그아웃"을 눌러야 로그인 화면', async ({ page, browser }) => {
+    await page.goto('/')
+    const { page: dev, context } = await freshSeller(browser, baseUrlOf(page), { viewport: PHONE, touch: true })
+    try {
+      await setLabelsApi(dev, false)
+      const b = await broadcastApi(dev, uniqueDate())
+      await endBroadcastApi(dev, b) // 끝낸 방송만 — 위험 없음
+      await dev.goto('/settings')
+      await expect(menu(dev)).toBeVisible()
+      const hold = await holdBroadcasts(dev)
+      await (await phoneLogout(dev)).click()
+      const dlg = dialogOf(dev)
+      await expect(dlg, '답이 오지 않아도 창').toBeVisible()
+      await expect(dlg.locator('p')).toHaveText([UNKNOWN])
+      const keep = dlg.getByRole('button', { name: '로그인 유지', exact: true })
+      const out = dlg.getByRole('button', { name: '로그아웃', exact: true })
+      await expect(keep).toBeFocused()
+      await expectLoggedIn(dev)
+      // 늦은 답 (위험 없음)
+      await expect.poll(hold.heldCount, '목록을 한 번 받는다').toBeGreaterThan(0)
+      const answered = dev.waitForResponse((r) => new URL(r.url()).pathname === '/api/broadcasts' && r.request().method() === 'GET')
+      await hold.release()
+      await answered
+      await expect(dlg.locator('p')).toHaveText([NONE])
+      // 창 그대로 — 제목·두 버튼·포커스 자리, 저절로 로그아웃하지 않음
+      await expect(dlg).toBeVisible()
+      await expect(dlg.getByRole('heading', { name: TITLE })).toBeVisible()
+      await expect(keep).toBeVisible()
+      await expect(out).toBeVisible()
+      await expect(keep).toBeFocused()
+      await expectLoggedIn(dev)
+      await expect(dev).toHaveURL(/\/settings/)
+      // 판매자가 눌러야 로그아웃
+      await out.click()
+      await expectLoginScreen(dev)
+    } finally {
+      await context.close()
+    }
+  })
+
+  test('PC 1440: 답이 오지 않아 뜬 창에 늦은 답(끝내지 않은 방송 있음)이 오면 본문만 방송 문장으로 — "로그인 유지"면 닫기만, 로그인 그대로', async ({ page, browser }) => {
+    await page.goto('/')
+    const { page: dev, context } = await freshSeller(browser, baseUrlOf(page), { viewport: PC })
+    try {
+      await setLabelsApi(dev, false)
+      await broadcastApi(dev, uniqueDate())
+      await dev.goto('/settings')
+      await expect(menu(dev)).toBeVisible()
+      const hold = await holdBroadcasts(dev)
+      await banner(dev).getByRole('button', { name: '로그아웃', exact: true }).click()
+      const dlg = dialogOf(dev)
+      await expect(dlg).toBeVisible()
+      await expect(dlg.locator('p')).toHaveText([UNKNOWN])
+      const keep = dlg.getByRole('button', { name: '로그인 유지', exact: true })
+      await expect(keep).toBeFocused()
+      await expect.poll(hold.heldCount).toBeGreaterThan(0)
+      await hold.release()
+      await expect(dlg.locator('p')).toHaveText([LIVE])
+      await expect(dlg.getByRole('heading', { name: TITLE })).toBeVisible()
+      await expect(dlg.getByRole('button', { name: '로그아웃', exact: true })).toBeVisible()
+      await expect(keep).toBeFocused()
+      await expectLoggedIn(dev)
+      await keep.click()
+      await expect(dlg).toHaveCount(0)
+      await expectLoggedIn(dev)
+    } finally {
+      await context.close()
+    }
+  })
+
+  test('휴대폰 375: 답이 오기 전에 창을 닫으면 늦은 답은 아무것도 바꾸지 않는다(창이 다시 뜨지 않음·로그인 그대로) — "로그아웃" 버튼은 다시 눌린다', async ({ page, browser }) => {
+    await page.goto('/')
+    const { page: dev, context } = await freshSeller(browser, baseUrlOf(page), { viewport: PHONE, touch: true })
+    try {
+      await setLabelsApi(dev, false)
+      await dev.goto('/settings')
+      await expect(menu(dev)).toBeVisible()
+      const hold = await holdBroadcasts(dev)
+      await (await phoneLogout(dev)).click()
+      const dlg = dialogOf(dev)
+      await expect(dlg).toBeVisible()
+      await expect(dlg.locator('p')).toHaveText([UNKNOWN])
+      await expect.poll(hold.heldCount).toBeGreaterThan(0)
+      await dlg.getByRole('button', { name: '로그인 유지', exact: true }).click()
+      await expect(dlg).toHaveCount(0)
+      // 닫은 뒤 답 (위험 없음)
+      const answered = dev.waitForResponse((r) => new URL(r.url()).pathname === '/api/broadcasts' && r.request().method() === 'GET')
+      await hold.release()
+      await answered
+      // 화면이 답을 처리할 다음 그리기까지 (시간이 아니라 그리기 두 번)
+      await dev.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+      await expect(dlg).toHaveCount(0)
+      await expectLoggedIn(dev)
+      await expect(dev).toHaveURL(/\/settings/)
+      // 버튼이 다시 눌린다 — 이번엔 답이 바로 와서(위험 없음) 창 없이 로그인 화면
+      const again = await phoneLogout(dev)
+      await expect(again).toBeEnabled()
+      await again.click()
+      await expectLoginScreen(dev)
+    } finally {
+      await context.close()
+    }
+  })
+})
+
+/** 로그아웃 확인 창을 연다 (끝내지 않은 방송이 있어 창이 뜬다) */
+async function openLogoutDialog(dev: Page, phone: boolean): Promise<Locator> {
+  await broadcastApi(dev, uniqueDate())
+  await dev.goto('/')
+  await expect(menu(dev)).toBeVisible()
+  const button = phone ? await phoneLogout(dev) : banner(dev).getByRole('button', { name: '로그아웃', exact: true })
+  await button.click()
+  const dlg = dialogOf(dev)
+  await expect(dlg).toBeVisible()
+  await expect(dlg.locator('p')).toHaveText([LIVE])
+  return dlg
+}
+
+test.describe('AC-MOB1-06 창 자리 (D-MOB1-16, U-MOB1-04)', () => {
+  for (const [label, viewport, webkit] of [
+    ['375×812 WebKit @webkit', PHONE, true],
+    ['393×852 WebKit 아이폰 @webkit', IPHONE, true],
+    ['375×812 크로미움', PHONE, false],
+  ] as const) {
+    test(`${label} 글자 100%: 로그아웃 확인 창은 화면 아래쪽 — 아래 끝 차이 ≤ 16px, 두 버튼 위 끝 ≥ 화면 높이 50%, 화면 폭 안`, async ({ page, browser }) => {
+      await page.goto('/')
+      const { page: dev, context } = await freshSeller(browser, baseUrlOf(page), { viewport, touch: true, ...(webkit ? { userAgent: IPHONE_UA } : {}) })
+      try {
+        await setLabelsApi(dev, false)
+        const dlg = await openLogoutDialog(dev, true)
+        const { width, height } = dev.viewportSize()!
+        expect(width).toBe(viewport.width)
+        const box = (await dlg.boundingBox())!
+        expect(height - (box.y + box.height), `창 아래 끝 ${String(Math.round(box.y + box.height))} · 화면 ${String(height)}`).toBeLessThanOrEqual(16)
+        expect(box.y + box.height, '창이 화면 아래로 넘치지 않음').toBeLessThanOrEqual(height + 0.5)
+        expect(box.x, '창 왼쪽 화면 안').toBeGreaterThanOrEqual(-0.5)
+        expect(box.x + box.width, '창 오른쪽 화면 안').toBeLessThanOrEqual(width + 0.5)
+        for (const name of ['로그인 유지', '로그아웃']) {
+          const b = (await dlg.getByRole('button', { name, exact: true }).boundingBox())!
+          expect(b.y, `"${name}" 위 끝 ${String(Math.round(b.y))} ≥ 화면 높이 50%`).toBeGreaterThanOrEqual(height * 0.5)
+          expect(b.y + b.height, `"${name}" 화면 안`).toBeLessThanOrEqual(height + 0.5)
+        }
+        // 처음 포커스·Esc는 그대로
+        await expect(dlg.getByRole('button', { name: '로그인 유지', exact: true })).toBeFocused()
+        await dev.keyboard.press('Escape')
+        await expect(dlg).toHaveCount(0)
+        await expectLoggedIn(dev)
+      } finally {
+        await context.close()
+      }
+    })
+  }
+
+  test('글자 150% 375: 창이 화면보다 길면 스크롤로 제목부터 끝까지 볼 수 있다 (위가 잘리지 않음)', async ({ page, browser }) => {
+    await page.goto('/')
+    const { page: dev, context } = await freshSeller(browser, baseUrlOf(page), { viewport: PHONE, touch: true, big: true })
+    try {
+      await setLabelsApi(dev, false)
+      const dlg = await openLogoutDialog(dev, true)
+      await expectBig(dev)
+      const title = dlg.getByRole('heading', { name: TITLE })
+      for (const [name, target] of [
+        ['제목', title],
+        ['본문', dlg.getByText(LIVE, { exact: true })],
+        ['"로그인 유지"', dlg.getByRole('button', { name: '로그인 유지', exact: true })],
+        ['"로그아웃"', dlg.getByRole('button', { name: '로그아웃', exact: true })],
+        ['제목', title],
+      ] as const) {
+        await target.scrollIntoViewIfNeeded()
+        const b = (await target.boundingBox())!
+        expect(b.y, `${name} 위 끝 화면 안`).toBeGreaterThanOrEqual(-0.5)
+        expect(b.y + b.height, `${name} 아래 끝 화면 안`).toBeLessThanOrEqual(PHONE.height + 0.5)
+        expect(b.x, `${name} 왼쪽`).toBeGreaterThanOrEqual(-0.5)
+        expect(b.x + b.width, `${name} 오른쪽`).toBeLessThanOrEqual(PHONE.width + 0.5)
+      }
+      await dlg.getByRole('button', { name: '로그인 유지', exact: true }).click()
+      await expectLoggedIn(dev)
+    } finally {
+      await context.close()
+    }
+  })
+
+  test('1440×900: 로그아웃 확인 창은 지금처럼 위쪽 (창 위 끝 < 화면 높이 50%)', async ({ page, browser }) => {
+    await page.goto('/')
+    const { page: dev, context } = await freshSeller(browser, baseUrlOf(page), { viewport: PC })
+    try {
+      await setLabelsApi(dev, false)
+      const dlg = await openLogoutDialog(dev, false)
+      const box = (await dlg.boundingBox())!
+      expect(box.y, `창 위 끝 ${String(Math.round(box.y))}`).toBeLessThan(PC.height * 0.5)
+      expect(PC.height - (box.y + box.height), '아래에 붙지 않음').toBeGreaterThan(16)
       await dlg.getByRole('button', { name: '로그인 유지', exact: true }).click()
       await expectLoggedIn(dev)
     } finally {
