@@ -891,9 +891,10 @@ sprints:
       B 서버: 실시간 연결 판매자마다 30개(넘으면 가장 오래된 것부터 닫음)·연결마다 안 보낸 알림 1 MiB(넘으면 그 연결만, seq로 따라잡음 — RA-QL-02, D-QS1-04),
       확장 연결 코드 서버 전체 10분 3,000번 + 코드를 만든 주소는 전체 한도 밖(RA-QL-03, D-QS1-06).
       C 정리: RL1 기록, techDebt 해결 항목 옮김(D-QS1-08), AC-FB1-39 웹 단위 시험(D-QS1-07).
-      순서 device → server → web(printer-station.ts 한 파일). 새 화면 문장 없음(D-QS1-05). 수용 기준: harness/sprints/QS1/acceptance.md(AC-QS1-01~44), D-QS1-01~D-QS1-09.
+      순서 device → server → web(printer-station.ts 한 파일). 새 화면 문장 없음(D-QS1-05). 수용 기준: harness/sprints/QS1/acceptance.md(AC-QS1-01~46), D-QS1-01~D-QS1-13.
       금지: apps/web/src/** 중 printer-station.ts 밖 모두(MOB1 작업 중 — styles.css·print-words.ts·PrintParts·LabelsPage·PrinterStep·TopBar·ConsolePage 등), apps/server/src/youtube/**, 웹의 유튜브 이름 파일, tests/e2e/y1, tests/e2e/qs1 밖 E2E.
     carryOver:
+      - "MOB1 뒤 화면(D-QS1-12): 출력 기기가 아닌 기기에도 '다시 연결'(기억한 기기, 고르기 창 없음), 라벨 화면 연결 오류 상자의 '다시 연결'을 station.reconnect()로"
       - "MOB1 뒤 화면 작업: 저절로 다시 잇는 동안 '프린터에 다시 잇고 있어요. ({n}/6)'·그친 뒤 '저절로 다시 잇지 못했어요. 아래를 해 본 뒤 '다시 연결'을 눌러 주세요.' 문장 확정·E2E (D-QS1-05)"
       - "AC-FB1-39 시험이 지금 PrinterStep에서 실패하면 MOB1 뒤 화면에서 고침 (D-QS1-07)"
     specIds: [LBL-06, LBL-08, SYS-02, YT-10, NFR-01]
