@@ -145,7 +145,7 @@ const [{ openPglite }, { generateMasterKey }, { createServer }, { createNodeServ
 const { FakeOAuth } = await server('social/fake-oauth.ts')
 const { FakeLlm } = await server('assist/fake-llm.ts')
 const { createSelfSignedCertificate, lanAddresses } = await server('try/self-signed-cert.ts')
-const { createSmsTestBox, makeSmsTestToken, SMS_TEST_PATH } = await server('try/sms-test.ts')
+const { createSmsTestBox, createSmsTestHttpServer, makeSmsTestToken, SMS_TEST_PATH } = await server('try/sms-test.ts')
 
 /** 같은 와이파이에서 이 컴퓨터를 찾는 주소들 (와이파이 먼저, 윈도우의 가상·VPN 연결은 뒤로). 첫 주소를 휴대폰 주소로 알린다 */
 const lans = lanAddresses(networkInterfaces())
@@ -330,6 +330,25 @@ if (lan !== null) {
   }
 }
 
+// ── 문자 시험만 받는 같은 와이파이 http (SMST) — 단축어·MacroDroid가 자체 서명 https를 거절할 때. /_try/sms-test 말고는 모두 404 ──
+let smsHttp = null
+let smsHttpPort = null
+if (phone !== null) {
+  for (let candidate = phonePort + 1; candidate < phonePort + 41 && candidate <= 65_535; candidate++) {
+    if (!(await free(candidate, '0.0.0.0'))) continue
+    const opening = createSmsTestHttpServer(smsTest)
+    const opened = await new Promise((resolve) => {
+      opening.once('error', () => resolve(false))
+      opening.listen(candidate, '0.0.0.0', () => resolve(true))
+    })
+    if (opened) {
+      smsHttp = opening
+      smsHttpPort = candidate
+      break
+    }
+  }
+}
+
 say('')
 say('==============================================================')
 say(' 라이브지니 연습 모드가 켜졌어요. (끄려면 이 창에서 Ctrl + C)')
@@ -354,6 +373,7 @@ say('')
 if (phone !== null) {
   say(` 문자 자동 수신 시험 주소 : https://${lan}:${String(phonePort)}${SMS_TEST_PATH}   (보기: 같은 주소 뒤에 ?t=${smsTestToken})`)
   say(` 문자 자동 수신 시험 토큰 : ${smsTestToken}   (머리글 X-Try-Token, 켤 때마다 바뀌어요. docs/TRY-IT.md "문자 자동 수신 시험하기")`)
+  if (smsHttp !== null) say(` https가 안 되면 이 주소(http)를 쓰세요 : http://${lan}:${String(smsHttpPort)}${SMS_TEST_PATH}   (문자 시험만 받아요)`)
 } else {
   say(` 문자 자동 수신 시험 주소 : ${appOrigin}${SMS_TEST_PATH}   (휴대폰 주소가 없어 이 컴퓨터에서만 돼요)`)
   say(` 문자 자동 수신 시험 토큰 : ${smsTestToken}`)
@@ -395,6 +415,8 @@ async function stop() {
   say('\n끄는 중이에요...')
   phone?.closeAllConnections()
   phone?.close()
+  smsHttp?.closeAllConnections()
+  smsHttp?.close()
   http.closeAllConnections()
   http.close()
   livejjim.close()

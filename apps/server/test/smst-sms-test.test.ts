@@ -1,6 +1,7 @@
 // SMST: 연습 모드 전용 문자 자동 수신 시험 받는 곳 (/_try/sms-test). 포트를 열지 않고 handle(Request)로 부른다.
 import { describe, expect, it } from 'vitest'
-import { createSmsTestBox, makeSmsTestToken, maskSender, SMS_TEST_BODY_MAX, SMS_TEST_LIMIT, SMS_TEST_PATH } from '../src/try/sms-test.ts'
+import type { AddressInfo } from 'node:net'
+import { createSmsTestBox, createSmsTestHttpServer, makeSmsTestToken, maskSender, SMS_TEST_BODY_MAX, SMS_TEST_LIMIT, SMS_TEST_PATH } from '../src/try/sms-test.ts'
 
 const TOKEN = 'abcd-efgh-jk23'
 const BASE = `https://192.168.0.10:7701${SMS_TEST_PATH}`
@@ -108,5 +109,63 @@ describe('SMST 문자 자동 수신 시험', () => {
     const a = makeSmsTestToken()
     expect(a).toMatch(/^[a-hjkmnp-z2-9]{4}-[a-hjkmnp-z2-9]{4}-[a-hjkmnp-z2-9]{4}$/)
     expect(makeSmsTestToken()).not.toBe(a)
+  })
+})
+
+describe('SMST 같은 와이파이 http 받는 곳 (문자 시험만)', () => {
+  async function open() {
+    const box = createSmsTestBox({ token: TOKEN })
+    const server = createSmsTestHttpServer(box)
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const base = `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`
+    const close = () => new Promise<void>((resolve) => server.close(() => resolve()))
+    return { box, base, close }
+  }
+
+  it('다른 주소는 모두 404 — 앱·로그인·다른 연습 경로로 닿지 않는다', async () => {
+    const { base, close } = await open()
+    try {
+      for (const path of ['/', '/api/auth/login', '/_try/chat', '/_try/sms-test/x', '/_try/sms-testx']) {
+        expect((await fetch(`${base}${path}`)).status).toBe(404)
+      }
+      expect((await fetch(`${base}/api/auth/login`, { method: 'POST', body: '{}' })).status).toBe(404)
+      expect((await fetch(`${base}${SMS_TEST_PATH}`, { method: 'PUT', body: '{}' })).status).toBe(404)
+    } finally {
+      await close()
+    }
+  })
+
+  it('토큰이 없으면 401이고 아무것도 들고 있지 않다', async () => {
+    const { box, base, close } = await open()
+    try {
+      const posted = await fetch(`${base}${SMS_TEST_PATH}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ from: RAW_PHONE, body: '5번' }) })
+      expect(posted.status).toBe(401)
+      expect((await fetch(`${base}${SMS_TEST_PATH}`)).status).toBe(401)
+      expect(box.entries()).toHaveLength(0)
+    } finally {
+      await close()
+    }
+  })
+
+  it('토큰이 맞으면 받고, 끝 4자리만 남고, 보기 화면은 이스케이프한다', async () => {
+    const { box, base, close } = await open()
+    try {
+      const posted = await fetch(`${base}${SMS_TEST_PATH}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-try-token': TOKEN },
+        body: JSON.stringify({ from: RAW_PHONE, body: '<b>5번</b>', device: 'iPhone' }),
+      })
+      expect(posted.status).toBe(200)
+      const answer = await posted.text()
+      expect(answer).toContain('5432')
+      expect(answer).not.toContain('9876')
+      expect(box.entries()).toHaveLength(1)
+      const page = await (await fetch(`${base}${SMS_TEST_PATH}?t=${encodeURIComponent(TOKEN)}`)).text()
+      expect(page).toContain('&lt;b&gt;5번&lt;/b&gt;')
+      expect(page).not.toContain('<b>5번')
+      expect(page).not.toContain('9876')
+    } finally {
+      await close()
+    }
   })
 })

@@ -6,6 +6,7 @@
 // - 머리글 X-Try-Token(보기 화면은 ?t=)이 켤 때마다 새로 만든 토큰과 같을 때만 받는다.
 // - 보기 화면의 모든 글은 이스케이프한다(본문·기기 이름은 믿을 수 없는 입력).
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 
 export const SMS_TEST_PATH = '/_try/sms-test'
 export const SMS_TEST_LIMIT = 50
@@ -191,4 +192,61 @@ ${table}
     },
     entries: () => list.slice(),
   }
+}
+
+/**
+ * 같은 와이파이용 http 받는 곳 (SMST) — 단축어·MacroDroid가 자체 서명 https를 거절할 때 쓴다.
+ * /_try/sms-test(POST·GET)만 응답하고 나머지 모든 주소는 404. 토큰 검사·끝 4자리·50건·이스케이프는 같은 상자(box)가 한다.
+ * 연습 서버 안쪽으로 넘기지 않는다(앱·로그인·다른 연습 경로는 이 포트로 닿지 않는다).
+ */
+export function createSmsTestHttpServer(box: SmsTestBox): Server {
+  const notFound = (res: ServerResponse) => {
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
+    res.end('없는 주소예요.')
+  }
+  return createServer((req: IncomingMessage, res: ServerResponse) => {
+    void (async () => {
+      const url = new URL(req.url ?? '/', 'http://sms-test.local')
+      if (url.pathname !== SMS_TEST_PATH || (req.method !== 'POST' && req.method !== 'GET')) {
+        req.resume()
+        notFound(res)
+        return
+      }
+      const chunks: Buffer[] = []
+      let size = 0
+      let tooBig = false
+      for await (const chunk of req as AsyncIterable<Buffer>) {
+        size += chunk.length
+        if (size > SMS_TEST_REQUEST_MAX) {
+          tooBig = true
+          break
+        }
+        chunks.push(chunk)
+      }
+      if (tooBig) {
+        res.writeHead(413, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', connection: 'close' })
+        res.end(JSON.stringify({ error: '너무 길어요.' }))
+        return
+      }
+      const headers = new Headers()
+      const token = req.headers['x-try-token']
+      if (typeof token === 'string') headers.set('x-try-token', token)
+      const request = new Request(url, req.method === 'POST' ? { method: 'POST', headers, body: Buffer.concat(chunks) } : { method: 'GET', headers })
+      const response = await box.handle(request)
+      if (response === null) {
+        notFound(res)
+        return
+      }
+      const out: Record<string, string> = {}
+      response.headers.forEach((value, key) => {
+        out[key] = value
+      })
+      const body = Buffer.from(await response.arrayBuffer())
+      res.writeHead(response.status, { ...out, 'content-length': String(body.length) })
+      res.end(body)
+    })().catch(() => {
+      if (!res.headersSent) res.writeHead(500)
+      res.end()
+    })
+  })
 }
