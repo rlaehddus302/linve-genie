@@ -55,7 +55,8 @@ export async function loginAs(page: Page, account: { loginId: string; password: 
   await page.getByLabel('아이디').fill(account.loginId)
   await page.getByLabel('비밀번호').fill(account.password)
   await page.getByRole('button', { name: '로그인' }).click()
-  await expect(page.getByRole('button', { name: '로그아웃' })).toBeVisible()
+  // MOB1 D-MOB1-05: 휴대폰 판매자는 위 줄에 "로그아웃"이 없다 — 로그인 확인은 메뉴로
+  await expect(page.getByRole('navigation', { name: '메뉴' })).toBeVisible()
 }
 
 /** 새 판매자로 로그인하고 마법사를 닫아 둔다 (마법사가 아닌 시험용) */

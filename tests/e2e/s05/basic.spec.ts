@@ -1,6 +1,7 @@
 // AC-S05-01·02·10~15 기본 흐름 (test-e2e). 기대값은 acceptance.md 문장에서 정했다.
 import { test, expect } from '@playwright/test'
 import { LOGIN_ID, PASSWORD, board, boardItem, history, login, newBroadcast, register, uniqueDate } from './support.ts'
+import { logoutFully } from '../menu.ts'
 
 test.describe('AC-S05-01 로그인', () => {
   test('로그인 화면 — 가입 없음, 틀린 비밀번호 문장, 아이디 남음, 로그아웃', async ({ page }) => {
@@ -16,7 +17,7 @@ test.describe('AC-S05-01 로그인', () => {
     await page.getByLabel('비밀번호').fill(PASSWORD)
     await page.getByRole('button', { name: '로그인' }).click()
     await expect(page.getByText('시험 가게')).toBeVisible()
-    await page.getByRole('button', { name: '로그아웃' }).click()
+    await logoutFully(page) // MOB1 D-MOB1-05 (끝내지 않은 방송이 있으면 확인 창 "로그아웃"까지)
     await expect(page.getByRole('button', { name: '로그인' })).toBeVisible()
   })
 

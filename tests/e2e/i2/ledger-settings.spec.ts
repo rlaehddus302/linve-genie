@@ -99,7 +99,7 @@ test.describe('설정 화면 (AC-I2-02·65)', () => {
         expect((await phone.getByLabel(label).boundingBox())!.height, label).toBeGreaterThanOrEqual(44)
       }
       // 전체 기록 내려받기 — 이름
-      const [json] = await Promise.all([phone.waitForEvent('download'), phone.getByRole('button', { name: '전체 기록(JSON)' }).click()])
+      const [json] = await Promise.all([phone.waitForEvent('download'), phone.getByRole('button', { name: '전체 기록 파일 (옮기기·보관용)' }).click()]) // MOB1 D-MOB1-11
       expect(json.suggestedFilename()).toMatch(/^라이브지니-전체기록-\d{4}-\d{2}-\d{2}\.json\.gz$/)
     } finally {
       await resetShop(page)

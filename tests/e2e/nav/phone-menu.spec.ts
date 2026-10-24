@@ -3,7 +3,7 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { loginAs, loginNewSeller, login, noHorizontalScroll, openNewBroadcast, registerApi, sendViewerChat, settingsRegion, smsApi, uniqueDate, viewerClaim } from '../i3/support.ts'
 import { deposit, fakeSource, kstIso, postJson, uniq } from '../n3/support.ts'
-import { BAR_CELLS, BAR_LINKS, barCells, closeMore, expectPhoneBar, expectTarget, fakeReviewCount, menu, menuLink, moreButton, moreLinks, moreList, openMore } from '../menu.ts'
+import { BAR_CELLS, barCells, closeMore, expectPhoneBar, expectTarget, fakeReviewCount, menu, menuLink, moreButton, moreLinks, moreList, openMore } from '../menu.ts'
 
 const PHONE = { width: 375, height: 812 }
 // T1(AC-T1-60, AC-NAV-09): "택배"는 판매자 목록의 "설정" 바로 앞
@@ -69,7 +69,7 @@ test.describe('AC-NAV-01·02: 막대 다섯 칸·목록 내용', () => {
           for (const path of ['/', '/sms', '/buyers', '/settlements', '/deposits', '/packing', '/settings']) {
             const where = `라벨 ${labels ? '켜짐' : '꺼짐'} · 확인 ${String(review)} · ${path}`
             await phone.goto(path)
-            await expect(phone.getByRole('button', { name: '로그아웃' })).toBeVisible()
+            await expect(menu(phone)).toBeVisible() // MOB1 D-MOB1-05 (휴대폰 위 줄에 로그아웃 없음 — 로그인 확인은 메뉴로)
             await expectBarShape(phone, where)
             await expect(menu(phone).getByRole('link'), `${where} 닫힌 메뉴 링크 넷`).toHaveCount(4)
             await openMore(phone)
@@ -97,7 +97,7 @@ test.describe('AC-NAV-01·02: 막대 다섯 칸·목록 내용', () => {
         await route.continue()
       })
       await phone.goto('/sms')
-      await expect(phone.getByRole('button', { name: '로그아웃' })).toBeVisible()
+      await expect(menu(phone)).toBeVisible() // MOB1 D-MOB1-05
       await expectBarShape(phone, '모름')
       await openMore(phone)
       await expectListShape(phone, LIST_OFF, '모름')
@@ -144,7 +144,7 @@ test.describe('AC-NAV-03: 열고 닫기·키보드·화면 읽기', () => {
     // 라벨 켬/끔을 정해 둔다 — 화면이 그 값을 늦게 알면 목록에 "라벨"이 늦게 끼어든다(L-13 9). 목록 순서는 그 값을 안 뒤의 목록으로 잰다
     await setLabelsApi(page, true)
     await page.goto('/sms')
-    await expect(page.getByRole('button', { name: '로그아웃' })).toBeVisible()
+    await expect(menu(page)).toBeVisible() // MOB1 D-MOB1-05
     const more = moreButton(page)
     await menuLink(page, '정산').focus()
     await page.keyboard.press('Tab')
@@ -249,7 +249,8 @@ test.describe('AC-NAV-04: 지금 위치', () => {
       })
       // 앞 네 칸의 화면
       let barLook: { bg: string; color: string } | null = null
-      for (const [path, cell] of [['/', '방송'], [`/broadcasts/${encodeURIComponent(b)}`, '방송'], ['/sms', '문자찜 입력'], ['/buyers', '구매자'], ['/settlements', '정산']] as const) {
+      // MOB1 D-MOB1-04: 막대 칸 이름 "문자찜"
+      for (const [path, cell] of [['/', '방송'], [`/broadcasts/${encodeURIComponent(b)}`, '방송'], ['/sms', '문자찜'], ['/buyers', '구매자'], ['/settlements', '정산']] as const) {
         await phone.goto(path)
         await expect(menuLink(phone, cell), path).toHaveAttribute('aria-current', 'page')
         await expect(moreButton(phone), path).not.toHaveAttribute('aria-current')
@@ -447,7 +448,9 @@ test.describe('AC-NAV-08: PC·경계·보조자', () => {
       await expect(moreButton(page), `${String(width)}`).toHaveCount(0)
       await expect(menu(page).getByRole('button')).toHaveCount(0)
       const names = (await menu(page).getByRole('link').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim().replace(/^입금 확인 \d+$/, '입금 확인'))
-      expect([[...BAR_LINKS, ...LIST_ON], [...BAR_LINKS, ...LIST_OFF]], `${String(width)}`).toContainEqual(names)
+      // MOB1 D-MOB1-04: PC 위 줄은 "문자찜 입력" 그대로 (휴대폰 막대 BAR_LINKS만 "문자찜")
+      const pcLinks = ['방송', '문자찜 입력', '구매자', '정산']
+      expect([[...pcLinks, ...LIST_ON], [...pcLinks, ...LIST_OFF]], `${String(width)}`).toContainEqual(names)
     }
     await page.setViewportSize({ width: 767, height: 900 })
     await expect(moreButton(page)).toBeVisible()
@@ -456,17 +459,17 @@ test.describe('AC-NAV-08: PC·경계·보조자', () => {
     await expect(moreButton(page)).toHaveCount(0)
   })
 
-  test('보조자 계정 375×812 — 메뉴는 "문자찜 입력" 한 칸, "더보기" 없음', async ({ page, browser }) => {
+  test('보조자 계정 375×812 — 메뉴는 "문자찜" 한 칸, "더보기" 없음', async ({ page, browser }) => { // MOB1 D-MOB1-04
     await loginNewSeller(page)
     const res = await page.request.post('/api/assistants', { data: { name: '메뉴보조' }, headers: { Origin: new URL(page.url()).origin } })
     expect(res.ok(), await res.text()).toBe(true)
     const { assistant, password } = await res.json() as { assistant: { loginId: string }; password: string }
     const phone = await phoneOf(browser, page, { loginId: assistant.loginId, password })
     try {
-      await expect(menu(phone).getByRole('link')).toHaveText(['문자찜 입력'])
+      await expect(menu(phone).getByRole('link')).toHaveText(['문자찜']) // MOB1 D-MOB1-04
       await expect(menu(phone).getByRole('button')).toHaveCount(0)
       await expect(phone.getByRole('button', { name: '더보기' })).toHaveCount(0)
-      await expectTarget(phone, menuLink(phone, '문자찜 입력'))
+      await expectTarget(phone, menuLink(phone, '문자찜')) // MOB1 D-MOB1-04
     } finally {
       await phone.context().close()
     }

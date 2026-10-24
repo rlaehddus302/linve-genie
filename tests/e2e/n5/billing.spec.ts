@@ -432,7 +432,7 @@ test.describe('@billing N5 요금 흐름', () => {
       )
       expect(small).toEqual([])
 
-      // 휴대폰 메뉴 (D-NAV-01, 요금 켜짐에서 AC-NAV-01·02 다시 확인 — AC-NAV-09): 막대는 다섯 칸 한 줄 그대로("방송"·"문자찜 입력"·"구매자"·"정산"·"더보기", 44px),
+      // 휴대폰 메뉴 (D-NAV-01, 요금 켜짐에서 AC-NAV-01·02 다시 확인 — AC-NAV-09): 막대는 다섯 칸 한 줄 그대로("방송"·"문자찜"(MOB1 D-MOB1-04)·"구매자"·"정산"·"더보기", 44px),
       // "요금"은 더보기 목록의 "설정" 바로 앞 — 목록 "입금 확인"·"포장"·"라벨"(켜짐일 때만)·"요금"·"설정", 한 줄에 하나·44px·16px
       await expectPhoneBar(mobile)
       await openMore(mobile)

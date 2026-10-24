@@ -40,7 +40,8 @@ export async function login(page: Page): Promise<void> {
   await page.getByLabel('아이디').fill(LOGIN_ID)
   await page.getByLabel('비밀번호').fill(PASSWORD)
   await page.getByRole('button', { name: '로그인' }).click()
-  await expect(page.getByRole('button', { name: '로그아웃' })).toBeVisible()
+  // MOB1 D-MOB1-05: 휴대폰 판매자는 위 줄에 "로그아웃"이 없다 — 로그인 확인은 메뉴로
+  await expect(page.getByRole('navigation', { name: '메뉴' })).toBeVisible()
 }
 
 /** 홈에서 새 방송을 만들고 콘솔로 간다. 방송 ID를 돌려준다. */

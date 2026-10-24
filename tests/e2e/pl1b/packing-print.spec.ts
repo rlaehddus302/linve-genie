@@ -64,9 +64,12 @@ test('AC-PL1B-15·10·11: 품목 12개(2쪽) — 체크·포장 완료로는 출
     const print = label.getByRole('button', { name: PRINT, exact: true })
     await expect(print).toHaveCount(1)
     await expect(print).toBeEnabled()
-    // "라벨 PDF"와 같은 줄(같은 부모) — 주 버튼이 아니다(주 버튼은 체크리스트의 "포장 완료")
+    // MOB1 D-MOB1-13 (AC-MOB1-26): 자리는 "포장 라벨" 제목 바로 아래·미리 보기 그림 위 — "라벨 PDF"는 그림 아래 그대로(다른 줄).
+    // 주 버튼이 아니다(주 버튼은 체크리스트의 "포장 완료")
     const pdf = label.getByRole('button', { name: '라벨 PDF' })
-    expect(await print.evaluate((el, other) => el.parentElement === other?.parentElement, await pdf.elementHandle())).toBe(true)
+    const firstImg = label.getByRole('img', { name: '포장 라벨 1/2쪽' })
+    expect((await print.boundingBox())!.y, '출력 버튼은 그림 위').toBeLessThan((await firstImg.boundingBox())!.y)
+    expect((await firstImg.boundingBox())!.y, '"라벨 PDF"는 그림 아래').toBeLessThan((await pdf.boundingBox())!.y)
     expect(await primaryOutsideDialogs(page)).not.toContain(PRINT)
 
     // 체크를 모두 하고 포장 완료 → 출력 요청 없음 (AC-PL1B-11)
