@@ -17,7 +17,7 @@
 // N4b: 끝난 방송의 영수증 보내기 `/broadcasts/<ID>/receipts`(AC-N4b-30) — 보조자는 다른 화면처럼 안내만.
 // 보조자 계정은 문자찜 입력만 — 로그인하면 `/sms`로, 다른 화면 주소는 안내만 보이고 그 화면의 데이터를 부르지 않는다(AC-I3-63).
 // 저장하지 않은 설정 값이 있으면 같은 떠나기 창이 그 문장으로 묻는다(AC-I3-46).
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { get, isApiError, onUnauthorized, post, type ApiError } from './api/client.ts'
 import { isAssistant, type Me } from './api/types.ts'
 import { BillingConfigProvider, useBillingConfigState } from './components/billing-context.tsx'
@@ -45,7 +45,7 @@ import { TopBar } from './components/TopBar.tsx'
 import { WizardPage } from './components/WizardPage.tsx'
 import { takeGoogleReturn } from './lib/google-return.ts'
 import { parseLoginResult, resultMessage, stripLoginParams, type LoginResult } from './lib/social-login.ts'
-import { LEAVE_QUESTION, LEAVE_TITLE, LeaveGuardContext, type LeaveGuard } from './lib/leave-guard.ts'
+import { ExternalLeaveContext, LEAVE_QUESTION, LEAVE_TITLE, LeaveGuardContext, type ExternalLeave, type LeaveGuard } from './lib/leave-guard.ts'
 import { NavigateContext } from './components/AppLink.tsx'
 import { historyDepth, isGuardEntry, isPublicRoute, pushGuardEntry, routePath, useRoute, type BillingRoute, type Navigate, type NavigateOptions, type Route } from './lib/router.ts'
 import { SERVICE_NAME } from './brand.ts'
@@ -66,6 +66,8 @@ interface Leaving {
   readonly leaveLabel?: string
   /** 떠나기 확인용으로 더 쌓은 기록을 뒤로 가기가 뺐다 — 앱 안에서 뒤로 갈 곳이 없다 (D-103) */
   readonly guard: boolean
+  /** 앱 밖으로 떠나기(간편 로그인 공급자 등, FB1 D-FB1-08)의 답 — 있으면 화면을 옮기지 않고 답만 준다 */
+  readonly external?: (leave: boolean) => void
 }
 
 /** 보조자 계정이 쓸 수 없는 화면 (AC-I3-63) */
@@ -170,17 +172,43 @@ export function App() {
     [keepGuard],
   )
 
+  /** 앱이 이미 물었고 앱 밖으로 가는 중 — 브라우저가 다시 묻지 않는다 (FB1 D-FB1-08) */
+  const unloadAllowed = useRef(0)
   // 새로고침·탭 닫기·앱 닫기: 기다리는 조치가 있으면 브라우저가 묻는다 (떠나면 보내지 않는다, D-083).
   // preventDefault와 returnValue를 함께 — 사파리 등 returnValue가 있어야 묻는 브라우저도 묻게 (D-103)
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (!pending()) return
+      if (unloadAllowed.current > 0 || !pending()) return
       event.preventDefault()
       event.returnValue = LEAVE_QUESTION
     }
     window.addEventListener('beforeunload', beforeUnload)
     return () => window.removeEventListener('beforeunload', beforeUnload)
   }, [pending])
+
+  /** 앱 밖으로 떠나기 전 확인 (FB1 D-FB1-08): 남은 값이 없으면 묻지 않는다 */
+  const external = useMemo<ExternalLeave>(
+    () => ({
+      confirm: () =>
+        new Promise<boolean>((resolve) => {
+          if (asking.current || !pending()) {
+            resolve(!asking.current)
+            return
+          }
+          ask({ route, options: {}, fromPop: false, guard: false, external: resolve })
+        }),
+      allowUnload: () => {
+        unloadAllowed.current++
+        let done = false
+        return () => {
+          if (done) return
+          done = true
+          unloadAllowed.current--
+        }
+      },
+    }),
+    [ask, pending, route],
+  )
 
   /** 메뉴·링크·화면 안의 이동: 5초 대기 중인 조치가 있으면 먼저 묻는다 (D-083) */
   const navigate = useCallback<Navigate>(
@@ -208,6 +236,10 @@ export function App() {
       guardEntry.current = true
     }
     for (const guard of guards.current) guard.release()
+    if (target?.external !== undefined) {
+      target.external(false)
+      return
+    }
     if (target?.guard !== true && target?.fromPop === true) go(route)
   }
 
@@ -218,6 +250,11 @@ export function App() {
     asking.current = false
     for (const guard of guards.current) guard.discard()
     if (target === null) return
+    // 앱 밖으로: 화면은 그대로 두고 부른 쪽이 이동한다
+    if (target.external !== undefined) {
+      target.external(true)
+      return
+    }
     // 처음 연 화면의 뒤로 가기: 보내지 않고 앱 밖(이전 기록)으로
     if (target.guard) {
       window.history.back()
@@ -331,6 +368,7 @@ export function App() {
   )
   return (
     <LeaveGuardContext.Provider value={register}>
+      <ExternalLeaveContext.Provider value={external}>
       <NavigateContext.Provider value={navigate}>
         {/* 출력 기록·이 기기의 프린터(PrintProvider)·입금 확인 신호(DepositProvider)·요금 기능 설정(BillingConfigProvider)은 판매자 계정만 —
             보조자는 출력·입금 확인·요금을 쓰지 않는다(그 API는 403, SYS-04). 보조자 화면은 다른 화면의 데이터를 부르지 않는다(AC-I3-63) */}
@@ -344,6 +382,7 @@ export function App() {
           </BillingConfigProvider>
         )}
       </NavigateContext.Provider>
+      </ExternalLeaveContext.Provider>
     </LeaveGuardContext.Provider>
   )
 }

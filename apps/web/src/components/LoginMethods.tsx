@@ -2,12 +2,15 @@
 // - 첫 줄 "아이디 로그인 · 아이디 <아이디> · 늘 켜져 있어요"(끄는 버튼 없음), 그 아래 카카오·네이버·구글 순으로 연결 상태와 [연결하기]/[연결 끊기].
 //   서버에서 꺼진 공급자에 남은 연결은 "지금은 쓸 수 없어요"와 [연결 끊기]만.
 // - [연결하기]: 버튼이 잠기고 "카카오로 이동하는 중…", 같은 탭에서 승인 주소로 간다. 돌아오면 `/settings?login=<코드>&provider=<p>`의 결과 문장을 한 번 보인다.
+//   FB1 D-FB1-08 (AC-FB1-31~33): 저장하지 않은 값이 있으면 연결 요청 전에 앱 떠나기 창으로 먼저 묻는다(없으면 묻지 않는다). 떠나기로 했으면
+//   브라우저 떠나기 확인은 다시 묻지 않는다. 5초 안에 페이지가 떠나지 않으면 버튼을 되돌리고 "카카오로 가지 못했어요. 다시 눌러 주세요.".
 // - [연결 끊기]: 확인 창(기본 포커스 "그만두기", Esc = 그만두기) → 끊으면 "카카오 연결을 끊었어요."와 새 목록. 지금 화면은 로그인된 채다.
 // - 공급자가 하나도 켜져 있지 않은 서버는 목록 경로가 404 — 칸을 그리지 않는다(L1 전과 같다). 보조자는 목록을 부르지 않는다(403을 보지 않는다).
 // - 다른 기기에서 연결·끊으면 실시간 알림(`login`)으로 목록을 다시 읽는다(설정 화면이 부른다).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, isApiError, post, type ApiError } from '../api/client.ts'
-import { goTopLevel } from '../lib/google-return.ts'
+import { goTopLevelWatched } from '../lib/google-return.ts'
+import { useExternalLeave } from '../lib/leave-guard.ts'
 import {
   accountLabel,
   linkedDate,
@@ -18,6 +21,7 @@ import {
   safeAuthorizeUrl,
   startErrorMessage,
   START_FAILED,
+  stuckMessage,
   unlinkedMessage,
   unlinkQuestion,
   type LoginMethodItem,
@@ -91,33 +95,67 @@ export function LoginMethodsPanel({ handle, result }: { readonly handle: LoginMe
   const [asking, setAsking] = useState<LoginProvider | null>(null)
   const [unlinking, setUnlinking] = useState(false)
   const [unlinkError, setUnlinkError] = useState<ApiError | null>(null)
+  const leave = useExternalLeave()
+  /** 묻는 중·보내는 중 (두 번 누름 막기 — 그림이 바뀌기 전에도) */
+  const starting = useRef(false)
+  /** 이동 지켜보기를 그만두고 브라우저 떠나기 확인을 다시 묻게 하기 */
+  const watching = useRef<(() => void) | null>(null)
+  useEffect(
+    () => () => {
+      watching.current?.()
+      watching.current = null
+    },
+    [],
+  )
 
   // 공급자 화면에서 브라우저 "뒤로"로 돌아오면(페이지 캐시) 잠금을 푼다
   useEffect(() => {
     const shown = (event: PageTransitionEvent) => {
-      if (event.persisted) setMoving(null)
+      if (!event.persisted) return
+      watching.current?.()
+      watching.current = null
+      setMoving(null)
     }
     window.addEventListener('pageshow', shown)
     return () => window.removeEventListener('pageshow', shown)
   }, [])
 
   const link = async (provider: LoginProvider) => {
-    if (moving !== null || unlinking) return
-    setMoving(provider)
-    setActionError(null)
-    setNotice(null)
+    if (moving !== null || unlinking || starting.current) return
+    starting.current = true
     try {
-      const { authorizeUrl } = await post<{ authorizeUrl?: unknown }>('/api/auth/link', { provider })
-      const target = safeAuthorizeUrl(authorizeUrl)
-      if (target === null) {
-        setActionError(START_FAILED)
+      // 남은 값이 있으면 요청 전에 앱이 먼저 묻는다 ("닫기"면 아무것도 보내지 않는다)
+      if (!(await leave.confirm())) return
+      setMoving(provider)
+      setActionError(null)
+      setNotice(null)
+      try {
+        const { authorizeUrl } = await post<{ authorizeUrl?: unknown }>('/api/auth/link', { provider })
+        const target = safeAuthorizeUrl(authorizeUrl)
+        if (target === null) {
+          setActionError(START_FAILED)
+          setMoving(null)
+          return
+        }
+        const release = leave.allowUnload()
+        watching.current?.()
+        const stop = goTopLevelWatched(target, () => {
+          // 페이지가 떠나지 않았다: 버튼을 되돌리고 브라우저 확인도 다시 묻게
+          watching.current = null
+          release()
+          setMoving(null)
+          setActionError(stuckMessage(provider))
+        })
+        watching.current = () => {
+          stop()
+          release()
+        }
+      } catch (caught) {
+        setActionError(startErrorMessage(caught))
         setMoving(null)
-        return
       }
-      goTopLevel(target)
-    } catch (caught) {
-      setActionError(startErrorMessage(caught))
-      setMoving(null)
+    } finally {
+      starting.current = false
     }
   }
 

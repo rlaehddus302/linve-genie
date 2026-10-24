@@ -39,3 +39,26 @@ export function takeGoogleReturn(): GoogleReturn | null {
 export function goTopLevel(url: string): void {
   assign(url)
 }
+
+/** 이동을 시작했는데 이 시간 안에 페이지가 떠나지 않으면 막힌 것으로 본다 (FB1 D-FB1-08 (3)) */
+export const LEAVE_STUCK_MS = 5_000
+
+/**
+ * 같은 탭 최상위 이동 + 지켜보기 (간편 로그인, FB1 D-FB1-08 (3)): LEAVE_STUCK_MS 안에 페이지가 떠나지 않으면(pagehide 없음 —
+ * 브라우저 확인에서 머무름·이동이 막힘) onStuck을 부른다. 그 전에 떠나면 아무 일도 없다. 돌려준 함수로 그만 지켜본다
+ */
+export function goTopLevelWatched(url: string, onStuck: () => void, stuckMs: number = LEAVE_STUCK_MS): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const stop = () => {
+    if (timer !== undefined) clearTimeout(timer)
+    timer = undefined
+    window.removeEventListener('pagehide', stop)
+  }
+  window.addEventListener('pagehide', stop)
+  timer = setTimeout(() => {
+    stop()
+    onStuck()
+  }, stuckMs)
+  assign(url)
+  return stop
+}

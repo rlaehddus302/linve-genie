@@ -26,6 +26,8 @@ export function providersOf(value: unknown): LoginProvider[] {
 export const continueLabel = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]}로 계속하기`
 /** "카카오로 이동하는 중…" */
 export const movingLabel = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]}로 이동하는 중…`
+/** 이동을 시작했는데 페이지가 떠나지 않았다 (FB1 D-FB1-08 (3)): "카카오로 가지 못했어요. 다시 눌러 주세요." */
+export const stuckMessage = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]}로 가지 못했어요. 다시 눌러 주세요.`
 /** 공급자 이름이 없을 때의 연결 이름 ("카카오 계정") */
 export const accountLabel = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]} 계정`
 

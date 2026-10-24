@@ -23,6 +23,22 @@ export interface LeaveGuard {
   readonly subscribe?: (listener: () => void) => () => void
 }
 
+/**
+ * 앱 밖(간편 로그인 공급자 등)으로 같은 탭에서 떠나기 (FB1 D-FB1-08, AC-FB1-31~33):
+ * - confirm: 남은 값(저장하지 않은 값·보내기 전인 조치)이 있으면 앱의 떠나기 창으로 먼저 묻는다 — "떠나기"면 true, "닫기"면 false. 없으면 바로 true(창 없음)
+ * - allowUnload: 이동을 시작한 동안 브라우저의 떠나기 확인(beforeunload)을 묻지 않게 한다 — 앱이 이미 물었다. 돌려준 함수로 다시 묻게 한다(이동이 막혔을 때)
+ */
+export interface ExternalLeave {
+  readonly confirm: () => Promise<boolean>
+  readonly allowUnload: () => () => void
+}
+
+export const ExternalLeaveContext = createContext<ExternalLeave>({ confirm: () => Promise.resolve(true), allowUnload: () => () => {} })
+
+export function useExternalLeave(): ExternalLeave {
+  return useContext(ExternalLeaveContext)
+}
+
 /** 화면이 자기 확인을 등록한다 (앱이 하나 둔다). 돌려준 함수로 뺀다 */
 export type RegisterLeaveGuard = (guard: LeaveGuard) => () => void
 
