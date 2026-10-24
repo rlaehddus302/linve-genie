@@ -573,6 +573,12 @@ p {
   flex: 1 1 8rem;
   min-width: 0;
   font-size: 1.375rem;
+  /* 예시 글 "15 핑크프릴 10000"이 칸보다 길면 끝을 "…"로 — 잘린 "100"을 가격으로 읽지 않게 (MOB1 D-MOB1-17 (7), AC-MOB1-27) */
+  text-overflow: ellipsis;
+}
+
+.quick-input::placeholder {
+  text-overflow: ellipsis;
 }
 
 /* 개수 칸 (AC-ORD11-01): 빠른 입력 줄 옆, 좁게 — 375px 폭에서도 같은 줄에, 칸은 44px 이상·글자 16px 이상 */
@@ -903,6 +909,21 @@ p {
   flex-wrap: wrap;
   gap: 0.5rem;
   justify-content: flex-end;
+}
+
+/* 휴대폰 아래쪽 창 (MOB1 D-MOB1-16, AC-MOB1-06): 로그아웃 확인 창만 — "더보기" 맨 끝에서 열어 엄지 쪽에 버튼을 둔다.
+ * 창 아래 끝 = 화면 아래 끝, 아이폰 아래 안전 영역은 창 안 여백으로 더한다. 위 여백을 auto로 밀어 붙이므로 창이 화면보다 길면(큰 글씨)
+ * 여백이 0이 되어 제목부터 스크롤로 볼 수 있다(위가 잘리지 않음). PC 폭은 위쪽 그대로. 다른 창은 그대로(MOB2) */
+@media (max-width: 47.99rem) {
+  .backdrop-phone-bottom {
+    padding: 1rem 0 0;
+  }
+
+  .backdrop-phone-bottom > .modal {
+    margin: auto 0 0;
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+    border-radius: 0.75rem 0.75rem 0 0;
+  }
 }
 
 .quote {

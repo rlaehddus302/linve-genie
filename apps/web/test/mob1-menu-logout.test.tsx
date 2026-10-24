@@ -2,7 +2,7 @@
 // jsdom에는 matchMedia가 없어 휴대폰 모양이다(use-wide.ts). PC 모양은 matchMedia를 흉내 낸다.
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { LOGOUT_LIVE, LOGOUT_STATION, LOGOUT_UNKNOWN, LOGOUT_WAIT_MS, logoutRisks } from '../src/components/LogoutButton.tsx'
+import { LOGOUT_LIVE, LOGOUT_NONE, LOGOUT_STATION, LOGOUT_UNKNOWN, LOGOUT_WAIT_MS, logoutRisks } from '../src/components/LogoutButton.tsx'
 import { SMS_BAR_LABEL, barLabel, menuAll, menuLayout } from '../src/lib/menu.ts'
 import type { BroadcastItem } from '../src/api/types.ts'
 import { menuNav, openMore } from './menu-support.ts'
@@ -29,6 +29,16 @@ describe('아래 막대 "문자찜" (AC-MOB1-04)', () => {
     expect(menuAll(layout).map((item) => item.label)).toContain('문자찜 입력')
     expect(menuLayout({ ...input, assistant: true }).bar.map(barLabel)).toEqual(['문자찜'])
   })
+  it('그려진 휴대폰 막대 글이 barLabel 그대로 — 화면과 시험이 같은 길 (D-MOB1-17 (4))', async () => {
+    await topBar({ broadcasts: [] })
+    const links = within(menuNav()).getAllByRole('link').map((link) => link.textContent)
+    expect(links).toEqual(menuLayout(input).bar.map(barLabel))
+    cleanup()
+    vi.unstubAllGlobals()
+    vi.resetModules()
+    await topBar({ broadcasts: [], assistant: true })
+    expect(within(menuNav()).getAllByRole('link').map((link) => link.textContent)).toEqual(menuLayout({ ...input, assistant: true }).bar.map(barLabel))
+  })
 })
 
 describe('로그아웃할지 묻는 조건 (AC-MOB1-06)', () => {
@@ -49,6 +59,8 @@ describe('로그아웃할지 묻는 조건 (AC-MOB1-06)', () => {
     expect(LOGOUT_LIVE).toBe('아직 끝내지 않은 방송이 있어요. 로그아웃하면 이 기기에서는 다시 로그인해야 찜·채팅을 볼 수 있어요. 방송과 찜은 그대로예요.')
     expect(LOGOUT_STATION).toBe('이 기기가 라벨을 출력하는 기기예요. 로그아웃하면 라벨 출력이 멈춰요.')
     expect(LOGOUT_UNKNOWN).toBe('방송 중인지 확인하지 못했어요.')
+    expect(LOGOUT_NONE).toBe('끝내지 않은 방송이 없어요.')
+    expect(LOGOUT_WAIT_MS).toBe(700)
   })
 })
 
@@ -220,36 +232,79 @@ describe('위험할 때만 확인 창 (AC-MOB1-06)', () => {
       expect(onLogout).not.toHaveBeenCalled()
     })
 
-    it('창이 뜬 뒤 위험이 없다는 답이 오면 처음 누른 대로 로그아웃, "로그인 유지"로 닫은 뒤 온 답은 버린다', async () => {
-      const first = gate()
-      const done = await topBar({ broadcasts: [broadcastItem({ ended: true })], hold: first.hold })
+    it('창이 뜬 뒤 위험이 없다는 답이 오면 창 그대로 "끝내지 않은 방송이 없어요." — 저절로 로그아웃하지 않고 포커스도 그대로 (D-MOB1-15)', async () => {
+      const g = gate()
+      const { onLogout } = await topBar({ broadcasts: [broadcastItem({ ended: true })], hold: g.hold })
       await press(logoutIn())
       await wait(LOGOUT_WAIT_MS + 100)
-      expect(screen.getByRole('dialog').textContent).toContain(LOGOUT_UNKNOWN)
+      const keep = within(screen.getByRole('dialog')).getByRole('button', { name: '로그인 유지' })
+      expect(document.activeElement).toBe(keep)
       await act(async () => {
-        first.open()
+        g.open()
         await flush()
       })
-      expect(screen.queryByRole('dialog')).toBeNull()
-      expect(done.onLogout).toHaveBeenCalledTimes(1)
-      cleanup()
-      vi.unstubAllGlobals()
-      vi.resetModules()
+      const dialog = screen.getByRole('dialog', { name: '로그아웃할까요?' })
+      expect(dialog.querySelector('.modal-body')?.textContent).toBe(LOGOUT_NONE)
+      expect(onLogout).not.toHaveBeenCalled()
+      expect(document.activeElement).toBe(keep)
+      expect(within(dialog).getAllByRole('button').map((button) => button.textContent)).toEqual(['로그인 유지', '로그아웃'])
+      // 판매자가 "로그아웃"을 눌러야 끝난다
+      fireEvent.click(within(dialog).getByRole('button', { name: '로그아웃' }))
+      expect(onLogout).toHaveBeenCalledTimes(1)
+    })
 
-      const second = gate()
-      const kept = await topBar({ broadcasts: [broadcastItem({ ended: true })], hold: second.hold })
+    it('늦은 답이 실패면 "확인하지 못했어요." 그대로 — 로그아웃하지 않는다', async () => {
+      const g = gate()
+      const { onLogout } = await topBar({ broadcasts: 'fail', hold: g.hold })
+      await press(logoutIn())
+      await wait(LOGOUT_WAIT_MS + 100)
+      await act(async () => {
+        g.open()
+        await flush()
+      })
+      expect(screen.getByRole('dialog').querySelector('.modal-body')?.textContent).toBe(LOGOUT_UNKNOWN)
+      expect(onLogout).not.toHaveBeenCalled()
+    })
+
+    it('"로그인 유지"로 닫은 뒤 온 답은 버린다 — 창이 다시 뜨지 않고 로그아웃하지 않으며 버튼은 다시 눌린다', async () => {
+      const g = gate()
+      const kept = await topBar({ broadcasts: [broadcastItem({ ended: true })], hold: g.hold })
       await press(logoutIn())
       await wait(LOGOUT_WAIT_MS + 100)
       fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '로그인 유지' }))
       expect(screen.queryByRole('dialog')).toBeNull()
       await act(async () => {
-        second.open()
+        g.open()
         await flush()
       })
       expect(screen.queryByRole('dialog')).toBeNull()
       expect(kept.onLogout).not.toHaveBeenCalled()
-      // 다시 누르면 새로 묻는다(버튼이 잠긴 채 남지 않는다)
       expect((logoutIn() as HTMLButtonElement).disabled).toBe(false)
+    })
+
+    it('가짜 시계: 누른 직후엔 창이 없고 버튼만 잠김, LOGOUT_WAIT_MS가 지나면 바로 창 (1초 안)', async () => {
+      const g = gate()
+      const { onLogout } = await topBar({ broadcasts: [], hold: g.hold })
+      const button = logoutIn()
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      try {
+        act(() => {
+          fireEvent.click(button)
+        })
+        expect(screen.queryByRole('dialog')).toBeNull()
+        expect((button as HTMLButtonElement).disabled).toBe(true)
+        act(() => {
+          vi.advanceTimersByTime(LOGOUT_WAIT_MS - 1)
+        })
+        expect(screen.queryByRole('dialog')).toBeNull()
+        act(() => {
+          vi.advanceTimersByTime(1)
+        })
+        expect(screen.getByRole('dialog', { name: '로그아웃할까요?' }).textContent).toContain(LOGOUT_UNKNOWN)
+        expect(onLogout).not.toHaveBeenCalled()
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('답이 빨리 오면 창 없이 바로 로그아웃 — 기다리는 시간이 지나도 창이 뒤늦게 뜨지 않는다', async () => {
@@ -259,5 +314,22 @@ describe('위험할 때만 확인 창 (AC-MOB1-06)', () => {
       await wait(LOGOUT_WAIT_MS + 100)
       expect(screen.queryByRole('dialog')).toBeNull()
     })
+  })
+})
+
+describe('로그아웃 확인 창 자리 (D-MOB1-16)', () => {
+  it('로그아웃 창만 휴대폰 아래쪽 붙임 표시를 단다 — 공통 창은 기본 그대로', async () => {
+    await topBar({ broadcasts: [broadcastItem({ ended: false })] })
+    await press(within(openMore()).getByRole('button', { name: '로그아웃' }))
+    const backdrop = screen.getByRole('dialog').parentElement as HTMLElement
+    expect(backdrop.className).toBe('backdrop backdrop-phone-bottom')
+    cleanup()
+    const { Modal } = await import('../src/components/Modal.tsx')
+    render(
+      <Modal title="다른 창" onClose={() => {}}>
+        <p>본문</p>
+      </Modal>,
+    )
+    expect((screen.getByRole('dialog').parentElement as HTMLElement).className).toBe('backdrop')
   })
 })

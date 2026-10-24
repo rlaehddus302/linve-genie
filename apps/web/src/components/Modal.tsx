@@ -20,6 +20,8 @@ export interface ModalProps {
   readonly closeLast?: boolean
   /** "닫기"를 잠근다 (보내는 동안) */
   readonly closeDisabled?: boolean
+  /** 휴대폰 폭(48rem 미만)에서 창을 화면 아래쪽에 붙인다 — 엄지 쪽 (로그아웃 확인 창만, MOB1 D-MOB1-16). PC 폭은 위쪽 그대로 */
+  readonly phoneBottom?: boolean
 }
 
 const FOCUSABLE = 'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
@@ -31,7 +33,7 @@ function isTextField(element: Element | null): boolean {
   return !['button', 'checkbox', 'radio', 'submit', 'reset'].includes(element.type)
 }
 
-export function Modal({ title, onClose, initialFocus, children, actions, closeLabel = '닫기', wide = false, unlocked = false, closeLast = false, closeDisabled = false }: ModalProps) {
+export function Modal({ title, onClose, initialFocus, children, actions, closeLabel = '닫기', wide = false, unlocked = false, closeLast = false, closeDisabled = false, phoneBottom = false }: ModalProps) {
   const readOnly = useReadOnly() && !unlocked
   const titleId = useId()
   const panel = useRef<HTMLDivElement>(null)
@@ -86,7 +88,7 @@ export function Modal({ title, onClose, initialFocus, children, actions, closeLa
     </button>
   )
   return (
-    <div className="backdrop">
+    <div className={phoneBottom ? 'backdrop backdrop-phone-bottom' : 'backdrop'}>
       <div ref={panel} className={wide ? 'modal modal-wide' : 'modal'} role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={onKeyDown}>
         <h2 id={titleId} className="modal-title">
           {title}

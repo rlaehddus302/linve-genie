@@ -14,7 +14,7 @@
 import { useEffect, useId, useRef, useState, type MouseEvent } from 'react'
 import { useInstallHint, useUpdateNotice } from '../pwa/pwa.ts'
 import { PRINT_ACTION, printerStatusWord } from '../lib/print-words.ts'
-import { SMS_BAR_LABEL, menuAll, menuLayout, type MenuItem } from '../lib/menu.ts'
+import { barLabel, menuAll, menuLayout, type MenuItem } from '../lib/menu.ts'
 import { menuOf, routePath, type MenuKey, type Navigate, type Route } from '../lib/router.ts'
 import { useWide } from '../lib/use-wide.ts'
 import { useDepositReview } from './deposit-context.tsx'
@@ -88,8 +88,9 @@ function MenuLinks({ items, current, go, onPick, short = false }: { readonly ite
         go(event, item.to)
       }}
     >
-      {short && item.key === 'sms' ? SMS_BAR_LABEL : item.label}
-      {item.count === undefined ? null : (
+      {/* 휴대폰 막대 칸 이름은 barLabel 하나로 그린다 — 단위 시험이 검사하는 함수와 같은 길 (MOB1 D-MOB1-17 (4), AC-MOB1-04) */}
+      {short ? barLabel(item) : item.label}
+      {short || item.count === undefined ? null : (
         <>
           {' '}
           <span className="menu-count">{item.count}</span>

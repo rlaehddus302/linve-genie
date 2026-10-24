@@ -63,3 +63,31 @@ describe('콘솔 위 버튼 줄 (U-MOB1-01)', () => {
     expect(block![1]).not.toMatch(/min-height|height:|font-size/)
   })
 })
+
+describe('빠른 입력 예시 글 줄임 (AC-MOB1-27)', () => {
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+
+  it('빠른 입력칸과 예시 글은 칸보다 길면 끝을 "…"로 줄인다', () => {
+    expect(css).toMatch(/\n\.quick-input \{[^}]*text-overflow: ellipsis;/)
+    expect(css).toMatch(/\n\.quick-input::placeholder \{[^}]*text-overflow: ellipsis;/)
+  })
+})
+
+describe('휴대폰 아래쪽 확인 창 (D-MOB1-16, AC-MOB1-06)', () => {
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+  const block = /@media \(max-width: 47\.99rem\) \{\s*\.backdrop-phone-bottom \{([^}]*)\}\s*\.backdrop-phone-bottom > \.modal \{([^}]*)\}/.exec(css)
+
+  it('휴대폰 폭에서만 — 창 아래 끝을 화면 아래 끝에 붙이고(아래 여백 0), 위 여백 auto라 길면 위가 잘리지 않고 스크롤', () => {
+    expect(block).not.toBeNull()
+    expect(block![1]).toMatch(/padding: 1rem 0 0;/)
+    expect(block![2]).toMatch(/margin: auto 0 0;/)
+    expect(block![2]).toMatch(/padding-bottom: calc\(1rem \+ env\(safe-area-inset-bottom, 0px\)\);/)
+    // 바깥(PC 폭)에는 이 이름의 규칙이 없다 — PC는 위쪽 그대로
+    const outside = css.replace(block![0], '')
+    expect(outside).not.toMatch(/backdrop-phone-bottom/)
+  })
+
+  it('공통 창(.backdrop)은 그대로 위쪽 — 다른 창 자리는 바뀌지 않는다', () => {
+    expect(css).toMatch(/\n\.backdrop \{[^}]*align-items: flex-start;/)
+  })
+})
