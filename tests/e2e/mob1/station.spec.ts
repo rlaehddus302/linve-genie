@@ -139,6 +139,36 @@ test.describe('AC-MOB1-12·13 출력 기기 끊김 — 라벨 화면·콘솔 알
     }
   })
 
+  test('Alt+1은 출력 기기 항목을 열지 않는다 — 항목뿐이면 콘솔 그대로, 출력 멈춤이 있으면 그 창 (AC-I3-30 순서 그대로)', async ({ page, browser }) => {
+    const w = await world(browser, page)
+    const station = await androidStation(browser, w, '안드로이드 폰')
+    try {
+      const b = await broadcastApi(w.main, uniqueDate())
+      await w.main.goto(`/broadcasts/${encodeURIComponent(b)}`)
+      const input = w.main.getByLabel('빠른 입력')
+      await expect(input).toBeFocused()
+      await station.context.setOffline(true)
+      await expect(stationItem(w.main, lost('안드로이드 폰'))).toBeVisible({ timeout: 30_000 })
+      await input.focus()
+      await w.main.keyboard.press('Alt+1')
+      await expect(w.main.getByRole('dialog')).toHaveCount(0)
+      await expect(w.main).toHaveURL(new RegExp(`/broadcasts/${encodeURIComponent(b)}$`))
+      await expect(input).toBeFocused()
+      // 출력 멈춤이 생기면 Alt+1은 그 창
+      const paused = await w.main.request.post('/api/print/pause', { data: {}, headers: { Origin: baseUrlOf(w.main) } })
+      expect(paused.ok(), await paused.text()).toBe(true)
+      await expect(alerts(w.main).getByRole('button', { name: /^출력 멈춤 · / })).toBeVisible()
+      // 출력 기기 항목은 여전히 맨 앞
+      await expect(alerts(w.main).getByRole('button').first()).toHaveAccessibleName(lost('안드로이드 폰'))
+      await input.focus()
+      await w.main.keyboard.press('Alt+1')
+      await expect(w.main.getByRole('dialog', { name: '출력 멈춤' })).toBeVisible()
+    } finally {
+      await station.context.close()
+      await w.mainContext.close()
+    }
+  })
+
   test('출력 기기가 없고 대기 라벨이 있으면 "출력 기기가 아직 없어 라벨이 쌓이고 있어요. …" → 누르면 라벨 화면, 출력 기기를 정하면 사라진다', async ({ page, browser }) => {
     const w = await world(browser, page)
     const date = uniqueDate()
