@@ -69,3 +69,37 @@
   - 라벨 설정의 가게 이름 칸은 **`storedShopName`** 으로 채워야 한다(`template.shopName`은 채운 이름이라 그대로 칸에 넣고 저장하면 가게 이름이 템플릿에 굳는다). 저장 답도 `storedShopName`을 쓴다. 미리 보기는 `template`(채운 것) 그대로 그리면 출력과 같다. 저장할 때 보내는 `template.shopName`은 칸 값(빈 글 그대로).
 - **domain**: 택배 크기 `readBox`(rules.ts)가 골든 함수 — 무작위 값은 이것과 같아야 한다. 마이그레이션 시험은 `fb1-parcel-settings.test.ts`의 "0018까지 만든 빈 DB" 방식(임시 폴더에 0000~0018만 두고 `migrate` → 행 넣고 `openPglite(pg)`)을 쓰면 된다. 어댑터 없는 택배사 접수 → `world.carrier.requests`에 `book` 0개. 라벨 두 판매자는 `/api/print/templates`·`/api/print/claim`·`packing-label.png`.
 - **e2e**: 시험 모드 서버의 택배사 목록 끝에 `가짜 택배(시험용)`이 있다(전에는 맨 앞). `t1/flow.spec.ts`의 기본 상자 크기 낱말·값은 새 코드(`'80'` 등)로.
+
+## web (dev-web)
+
+### 바뀐 공개 모양 — 화면 (`apps/web/**`)
+
+- **설정 저장 막대 하나 (AC-FB1-22~25, D-FB1-06)**: `components/SaveBar.tsx`(`SaveBarArea`)·`lib/save-bar.ts`. 설정 화면 맨 아래 `region "저장"` 하나(`section aria-label="저장"`, `position: sticky; bottom: 0` — 휴대폰은 아래 메뉴 막대 위 `bottom: 3.3125rem`). 가게·판매 규칙·배송비·구매 감사 메시지(만들기)·택배 다섯 칸 안의 "저장" 단추는 없앴다(라벨 켜기/끄기·유튜브·크롬 확장·인스타그램·틱톡·AI 제안·보조자·로그인 방법은 그대로).
+  - 막대 글: 바뀐 칸 없음 → "바꾼 칸이 없어요." + 잠긴 보통 버튼 "저장". 있음 → "저장하지 않은 칸: 판매 규칙 · 택배"(화면 순서 `가게`·`판매 규칙`·`배송비`·`구매 감사 메시지`·`택배`) + 주 버튼 "저장". 보내는 동안 버튼 이름이 "저장하는 중…"(잠김).
+  - 요청 차례: `PUT /api/shop`(가게가 바뀌었을 때만) → `PATCH /api/settings` **하나**(판매 규칙·배송비·만들기의 바뀐 키만 — 세 칸이 이제 한 `useRuleForm`) → `PUT /api/parcels/settings`(택배가 바뀌었을 때만). 하나가 실패해도 다음 단계는 보낸다.
+  - 성공: 막대 안 `role=status` "저장했어요." + (판매 규칙·만들기) " 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요." + (배송비) " 오늘 방송을 이미 시작했으면 배송비는 내일부터 적용돼요." — 바뀐 칸이 다 비워진 뒤에 보인다. 실패: 막대 안 `role=alert` "저장하지 못한 칸이 있어요: 판매 규칙. 빨간 글을 확인해 주세요."(그 칸이 아직 저장하지 않은 채일 때만), 칸 옆 서버 문장, 칸 밖 문장(연결 끊김 등)은 저장하지 못한 첫 칸 아래.
+  - 칸마다 저장 문장(`SHOP_SAVED` 상자·`PARCEL_SETTINGS_SAVED` 상자·`SaveRow`)은 설정 화면에서 나오지 않는다. 시작 마법사의 저장 단추·문장은 그대로(`SAVED_SHIPPING_MESSAGE`만 "…오늘 방송을 이미 시작했으면 배송비는 내일부터 적용돼요."로 — 설정 화면에서 옛 문장이 사라지게).
+- **설정 문구 (AC-FB1-01·05~08)**: `lib/settings-fields.ts`에 칸 `lead`(칸 이름 아래 예시)·`hint`(선택지 아래 안내) — 가격 단위 `천원 (10 → 10,000원)`·`원 (10000 → 10,000원)` + 만원 안내, 여러 번호 `lead` "예: 채팅 '15 28'"·선택지 셋, 같은 1분 칸 이름, 배송비 칸 안내 `SHIPPING_HINT`, 판매 규칙 접는 단추 "상세 설정"(펼친 칸 맨 위 "잘 모르면 그대로 두세요."). 접힌 칸에 서버 문장이 있으면 저절로 펼친다.
+- **감사 메시지 만들기 (AC-FB1-10·11)**: `ThanksSettings.tsx` `MakeFields` — `group "감사 메시지를 남길 곳"` 안 체크 두 줄(설명 한 줄씩), 영상 댓글 체크가 켜졌을 때만 `radiogroup "영상 댓글 방식"`(`판매마다 댓글`·`방송이 끝나고 요약 댓글 1개`). 끔 = `OFF`, 처음 켜면 `PER_SALE`, 껐다 켜면 마지막 방식. 묶는 시간 칸은 만들기 칸 안 "상세 설정"(접힘) — 늘 보이는 자동 묶음 안내, 저장값 > 0이면 접힘 밖 "지금은 N초 동안의 판매를 한 메시지로 묶어요." 설정 키·서버는 그대로. 두 "상세 설정" 단추는 각 칸(region) 안에서 찾으면 된다.
+- **택배 (AC-FB1-19·20)**: `api/parcel-types.ts` — `CarrierCode`(FAKE·EPOST·CJ·HANJIN·LOGEN·LOTTE), `SettingsCarrier = CarrierCode | 'OTHER'`, `BoxKind = '60'|'80'|'100'|'120'|'160'`, 설정 `carrierName`·`carriers[] = { code, name, autoBook }`, 막힘 `NO_AUTO_BOOK`. `lib/parcel-words.ts` `BOX_KINDS`·`BOX_WORDS`·`boxWord`. 택배 설정: 택배사 고르기(잠긴 줄 없음 — 서버 목록 그대로 + 맨 앞 `고르지 않음`), `직접 입력`이면 칸 "택배사 이름", 고른 줄 `autoBook === false`이거나 고르지 않으면 "자동 접수는 아직 준비 중이에요. 지금은 포장 화면에서 송장번호를 직접 적어요.", "기본 택배 크기 (세 변의 합)" 다섯 낱말 + 안내. 택배 화면 줄마다 크기 칸 이름 **"택배 크기"**(전 "상자 크기"), 낱말 `80cm 이하`·값 `80`. `NO_AUTO_BOOK` 막힘은 `NO_CARRIER`와 같은 자리(문장 + "설정으로" 링크 + 접수 잠금 — 서버 문장 그대로).
+- **라벨 가게 이름 (AC-FB1-28)**: `StoredTemplate.storedShopName?`. 라벨 설정 칸은 `storedShopName`(없으면 `template.shopName`)으로 채우고 저장 답도 그 값으로 — 서버가 채운 이름이 템플릿에 굳지 않는다. 미리 보기는 칸이 비면 저장된 이름이 빈 쪽의 서버 이름(= 설정 "가게" 이름)으로 그린다. 칸 아래 `SHOP_NAME_HINT`, `items.shop.visible === false`면 `SHOP_ITEM_OFF`. 테스트 인쇄는 서버가 내준(채운) 템플릿 이름을 그대로 쓴다.
+- **간편 로그인 이동 (AC-FB1-31~33, D-FB1-08)**: `lib/leave-guard.ts` `ExternalLeaveContext`/`useExternalLeave()` = `{ confirm(): Promise<boolean>, allowUnload(): () => void }`(App이 준다 — 남은 값이 있으면 지금 떠나기 창 "다른 화면으로 갈까요?"를 띄우고 답을 돌려준다). `lib/google-return.ts` `goTopLevelWatched(url, onStuck, ms = LEAVE_STUCK_MS 5000)` — `pagehide`가 오면 그만 지켜본다. `LoginMethods`의 [연결하기]: confirm → (떠나기) `POST /api/auth/link` → `allowUnload` → 이동, 5초 안에 안 떠나면 버튼 되돌림 + `stuckMessage(p)` "카카오로 가지 못했어요. 다시 눌러 주세요."(alert) + 브라우저 확인 다시 켬. 로그인 화면 버튼·유튜브·인스타그램 연결은 바꾸지 않았다(범위 밖 — 유튜브는 맥북 쪽).
+- **빠른 입력 (AC-FB1-02·03)**: `lib/quick.ts` `unitLine(unit)`·`registerPreview(text, settings, find)`(= `decideQuickInput`이 `register`일 때만)·`fixPricePreview(text, settings)`(= `parseAmount`). 콘솔 빠른 입력 도움말 아래 `p.quick-unit`(휴대폰에도 보임), 등록으로 읽히면 `p.quick-will-register role=status` "등록하면: 15번 엘레강스 10,000원", 고치기 칸 가격 옆 `span.fix-price` "= 15,000원". 그 방송 스냅샷의 `price.unit`.
+- **프린터 연결 실패 (AC-FB1-38·39)**: `LabelsPage.tsx`의 `PrinterErrorView`(내보냄, 시작 마법사 `PrinterStep`도 같은 `PrinterSection`이라 같은 상자)에 `CONNECT_FAILED`·`DISCONNECTED`일 때 `list "해볼 일"`(`ol`, `lib/print-words.ts` `connectTips({ windows, serial, marklife? })` — ③ 윈도우(`isWindows()` = UA에 `Windows`), ④ 이 브라우저 연결 방법에 `serial`). "자세히"는 `detail`이 있을 때만 그대로. 출력 멈춤 띠(`PrintParts`)의 끊김 문장 옆에는 목록을 붙이지 않았다.
+- **E2E 손잡이 — 가짜 B1 블루투스 (AC-FB1-40)**: 시험 모드의 `window.livejjimTestPrinter`에 더함 — `useFakeB1()`(이 기기의 실제 B1 어댑터를 `createFakeNiimbotBluetooth`를 꽂은 `createB1Adapter`로 바꾸고 연결 방법에 블루투스를 더한다 — 라벨 화면에 "블루투스로 연결" 단추가 생긴다), `setUnansweredNegotiations(n)`(꽂지 않았으면 꽂고 정한다), `fakeB1()` → `{ requests, connectAttempts, connected } | null`. 다시 잇기 쉼은 실제 1초. 시험 모드 서버(`testPrinter: true`)에서만 손잡이가 생긴다.
+
+### 라벨 가게 이름 원인 (AC-FB1-29, web 쪽)
+- 화면 쪽 원인은 혼동이었다: 라벨 설정 "가게 이름" 칸은 템플릿 `shopName`(기본 빈 글)이고, 비면 L-3으로 찍히지 않았다. 칸에 적고 저장한 이름은 BASE에서도 미리 보기·테스트 인쇄·출력 작업에 그대로 실렸다(화면 버그는 찾지 못함). 이번에 서버가 빈 이름을 채워 내주므로, 화면은 칸에 저장된 이름(`storedShopName`)만 넣고 미리 보기는 채운 이름으로 그린다.
+
+### 남은 값이 없는데 묻던 원인 (AC-FB1-31)
+- 네 상태(새 판매자·계좌와 보내는 사람과 직접 입력 택배사·옵션 판매와 무료배송 없음과 묶는 시간 30·로그인 정보와 다른 가게 이름) × 설정 화면의 모든 칸 묶음을 화면 시험으로 그려 봤고, 고치기 전 계산 방식 그대로도 "남은 값 있음"이 참이 되는 칸을 찾지 못했다. 시험자가 실제로 칸을 하나 고친 뒤였을 수 있다. 이번 고침으로 남은 값이 있어도 앱이 먼저 묻고, 떠나기로 하면 브라우저 확인은 다시 뜨지 않으며, 이동이 막히면 5초 뒤 버튼이 되돌아온다 — 멈춘 버튼은 생기지 않는다. 실제 윈도우 크롬 확인은 사용자 몫.
+
+### 다음 영역에게
+
+- **e2e**:
+  - 설정 저장: `page.getByRole('region', { name: '저장' }).getByRole('button', { name: '저장' })`, 성공 문장은 그 막대 안 `getByText('저장했어요. …')`(위 문장 조합 — 배송비만 바꾸면 "저장했어요. 오늘 방송을 이미 시작했으면 배송비는 내일부터 적용돼요."). 판매 규칙 접는 단추는 판매 규칙 region 안 `button "상세 설정"`, 묶는 시간 칸은 구매 감사 메시지 region 안 `button "상세 설정"`을 편 뒤. 영상 댓글은 `checkbox "영상 댓글에 감사 메시지 남기기"` → `radio "판매마다 댓글"`(`"남기지 않음"` 라디오는 없다).
+  - 택배: 설정 `combobox "기본 택배 크기 (세 변의 합)"` 값 `'80'` 등, 택배 화면 줄마다 `combobox "택배 크기"`. 직접 입력은 `combobox "택배사"`에서 `OTHER` → `textbox "택배사 이름"`.
+  - 로그인 이동 막힘(AC-FB1-33)은 `page.route`로 승인 주소 요청을 멈춰 두면(응답하지 않음) 페이지가 떠나지 않아 5초 뒤 되돌림이 보인다 — 또는 `beforeunload` 확인에서 머무르기(`page.on('dialog', d => d.dismiss())`).
+  - 가짜 B1: 라벨 화면을 연 뒤 `window.livejjimTestPrinter.useFakeB1()` + `setUnansweredNegotiations(2)` → "블루투스로 연결". 이 기기의 연결 방법 단추가 바뀌므로 `useFakeB1()`을 부른 뒤 단추를 찾는다.
+- **domain**: 빠른 입력 미리 보기(AC-FB1-03)는 `apps/web/src/lib/quick.ts`의 `registerPreview`가 `decideQuickInput`과 같은 결과다(가격 = `parseQuickInput` 가격, 표시는 `formatWon`).
+- **ux**: 막대의 성공 문장은 바뀐 칸이 없어진 뒤에만 보이고, 다음에 칸을 고치면 사라진다. "다시 연결" 단추는 보통 버튼(라벨 화면 주 버튼 하나 규칙 — AC-N4a-21)이다.

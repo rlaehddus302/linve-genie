@@ -165,3 +165,24 @@ export function changedFields(product: Product, name: string, price: number, sto
 export function editQuestion(no: number, closed: boolean): string {
   return closed ? `${String(no)}번은 판매 종료된 상품이에요. 새 값으로 고쳐서 다시 팔까요?` : `${String(no)}번이 이미 있어요. 고칠까요?`
 }
+
+// ── 가격 단위 한 줄·등록 전 미리 보기 (FB1 D-FB1-01, AC-FB1-02·03) ─────────────
+// 해석은 등록과 같은 함수(decideQuickInput·parseAmount)의 결과다 — 미리 보기 가격 = Enter로 보내는 가격.
+
+/** 빠른 입력칸 아래 그 방송의 가격 단위 한 줄 */
+export function unitLine(unit: SaleSettings['price.unit']): string {
+  return unit === 'WON' ? '가격 단위: 원 — 10000은 10,000원, 2만은 20,000원' : '가격 단위: 천원 — 10은 10,000원, 2만은 20,000원'
+}
+
+/** 친 줄이 새 상품 등록으로 읽히면 "등록하면: 15번 엘레강스 10,000원"(품종이 없으면 "등록하면: 15번 10,000원"), 아니면 null */
+export function registerPreview(text: string, settings: QuickSettings, findProduct: (no: number) => Product | undefined): string | null {
+  const decision = decideQuickInput(text, settings, findProduct)
+  if (decision.kind !== 'register') return null
+  return `등록하면: ${String(decision.no)}번 ${decision.name === '' ? '' : `${decision.name} `}${formatWon(decision.price)}`
+}
+
+/** 고치기 칸 가격 옆 "= 15,000원" (읽지 못하면 null) */
+export function fixPricePreview(text: string, settings: QuickSettings): string | null {
+  const price = parseAmount(text, settings)
+  return price === null ? null : `= ${formatWon(price)}`
+}

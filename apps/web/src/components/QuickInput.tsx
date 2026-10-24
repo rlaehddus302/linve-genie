@@ -1,9 +1,11 @@
 // 빠른 입력칸 (AC-S05-10~12, PRD-01, PRD-03 AC3, D-084): 콘솔 위쪽에 늘 보이고, 콘솔을 열면 포커스가 여기 있다.
 // 치는 동안 첫 토큰이 그 방송의 상품 번호면 그 상품을 바로 옆에 보인다. 오류면 번호·품종·가격 고치기 칸을 연다.
+// FB1 D-FB1-01 (AC-FB1-02): 도움말 줄에 그 방송의 가격 단위 한 줄, 친 줄이 새 상품 등록으로 읽히면 Enter 전에 "등록하면: …",
+// 고치기 칸 가격 옆에 읽은 가격 "= …원". 해석은 Enter와 같은 함수(그 방송 스냅샷의 price.unit) — 품종은 React 글자로만 들어간다.
 import { useEffect, useRef, type KeyboardEvent, type RefObject } from 'react'
 import type { ApiError } from '../api/client.ts'
 import { productKey } from '../lib/derive.ts'
-import { editQuestion, previewNumber, quickSettings, type FixField } from '../lib/quick.ts'
+import { editQuestion, fixPricePreview, previewNumber, quickSettings, registerPreview, unitLine, type FixField } from '../lib/quick.ts'
 import { useConsoleApi } from './console-context.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { ProductSummary } from './ProductBoard.tsx'
@@ -106,6 +108,9 @@ export function QuickInput(props: QuickInputProps) {
   const settings = api.settingsOf(api.b)
   const no = settings === null ? previewNumber(value) : previewNumber(value, quickSettings(settings))
   const preview = no === null ? undefined : api.data.products.get(productKey(api.b, no))
+  const quick = settings === null ? null : quickSettings(settings)
+  const willRegister = quick === null ? null : registerPreview(value, quick, (n) => api.data.products.get(productKey(api.b, n)))
+  const fixPrice = quick === null || fix === null ? null : fixPricePreview(fix.price, quick)
   const sending = props.registrations.some((item) => item.status !== 'failed')
   const failed = props.registrations.filter((item) => item.status === 'failed')
 
@@ -177,6 +182,12 @@ export function QuickInput(props: QuickInputProps) {
       <p id="quick-help" className="hint quick-help">
         번호 품종 가격을 적고 Enter. 번호만 적으면 그 상품을 찾아요.{props.count !== undefined ? ' 같은 번호로 여러 개를 팔면 옆 개수 칸을 바꿔요.' : ''}
       </p>
+      {quick !== null ? <p className="hint quick-unit">{unitLine(quick['price.unit'])}</p> : null}
+      {willRegister !== null ? (
+        <p className="quick-will-register" role="status">
+          {willRegister}
+        </p>
+      ) : null}
       {preview !== undefined ? (
         <div className="quick-preview" role="status" aria-label="찾은 상품">
           <ProductSummary product={preview} />
@@ -267,6 +278,7 @@ export function QuickInput(props: QuickInputProps) {
                 onChange={(event) => props.onFixChange({ price: event.target.value })}
                 onKeyDown={onFixKeyDown}
               />
+              {fixPrice !== null ? <span className="fix-price">{fixPrice}</span> : null}
             </label>
             {props.count !== undefined ? (
               <label className="field">
