@@ -26,6 +26,7 @@
 | 정책 페이지 "로그인 화면으로" | D-LND1-08 | AC-LND1-08 |
 | 휴대폰·큰 글씨 | D-LND1-09 | AC-LND1-12 |
 | 사용성 검토 1회차(로그인 길·계정 안내·영문 머리말) | D-LND1-10 | AC-LND1-16·17·18 |
+| 고지 사실 맞추기(30일·판매 장부·AI·제3자, RA-LND1-01) | D-LND1-11 | AC-LND1-09·13 |
 | 기존 L1 시험의 "새로고침 뒤 화면"(TE-LND1-002) | D-LND1-02 | AC-LND1-05 |
 
 ## 이번 스프린트의 스펙·골든 변경 (spec-keeper)
@@ -55,9 +56,9 @@
 | 절 제목 | "판매자의 하루" · "시작하려면" · "구글 사용자 데이터를 쓰는 곳" · "운영 사업자" |
 | 하루 1~5 | "방송 전: 오늘 팔 상품의 번호·이름·가격을 적어요. 말로 불러도 돼요." / "방송 중: 손님이 채팅에 상품 번호를 쓰면 찜으로 받아 먼저 쓴 순서대로 정해요." / "찜이 정해지면: 상품 라벨이 바로 출력돼요." / "방송 뒤: 손님마다 합계·배송비를 정산하고 입금을 확인해요." / "포장: 손님별 목록을 보며 담고 포장 라벨을 붙여요." |
 | 시작하려면 | "라이브지니 계정은 운영자가 만들어 드려요. 받은 아이디로 로그인해 주세요." (+ 문의 이메일 상수가 있을 때만 "계정 문의: <이메일>") |
-| 구글 데이터 1~5 | "유튜브를 연결하면 판매자 본인 채널의 이름, 본인 라이브 방송 목록, 고른 방송의 채팅 글을 읽어요. 채팅에서 주문을 찾는 데만 써요." / "판매자가 설정에서 감사 메시지 자동 게시를 켜고 동의했을 때만 본인 방송 채팅이나 본인 영상 댓글에 짧은 감사 글을 올려요." / "구글로 로그인하면 구글 계정 번호와 가린 이메일만 저장해요." / "채팅 글과 시청자 이름은 방송 날짜부터 30일 뒤에 지워요. 구글 사용자 데이터를 팔거나 광고에 쓰지 않아요." / "설정의 유튜브 칸에서 언제든 연결을 끊을 수 있어요." |
+| 구글 데이터 1~6 (D-LND1-11) | "유튜브를 연결하면 판매자 본인 채널의 이름, 본인 라이브 방송 목록, 고른 방송의 채팅 글을 읽어요. 채팅에서 주문을 찾는 데만 써요." / "판매자가 설정에서 감사 메시지 자동 게시를 켜고 동의했을 때만 본인 방송 채팅이나 본인 영상 댓글에 짧은 감사 글을 올려요." / "구글로 로그인하면 구글 계정 번호와 가린 이메일만 저장해요." / "유튜브에서 받은 채팅 글과 채팅만 한 시청자의 이름은 방송 날짜부터 30일 뒤에 지워요. 찜이 정해진 손님의 이름은 판매 장부(확인서·정산·포장)에 남아요." / "유튜브에서 받은 채팅은 AI 제안으로 보내지 않아요. 구글 사용자 데이터를 팔거나 광고에 쓰지 않아요." / "설정의 유튜브 칸에서 언제든 연결을 끊을 수 있어요." |
 | 제한적 사용 | "라이브지니가 구글 API에서 받은 정보를 쓰고 다른 앱으로 옮길 때는 구글 API 서비스 사용자 데이터 정책(제한적 사용 요건 포함)을 따릅니다." — "구글 API 서비스 사용자 데이터 정책"이 링크 |
-| 영문 단락 (`lang="en"`) | D-LND1-05의 영문 단락 글자 그대로("LiveGenie uses Google user data only to provide its features. … including the Limited Use requirements.") |
+| 영문 단락 (`lang="en"`) | D-LND1-05의 영문 단락 글자 그대로("LiveGenie uses Google user data only to provide its features. … including the Limited Use requirements.") — D-LND1-11로 바뀐 가운데 문장: "Live chat messages received from YouTube, and the names of viewers who only chatted, are deleted 30 days after the broadcast date. The display names of buyers whose orders were confirmed are kept in the seller's sales records (order confirmations, settlement and packing). Chat received from YouTube is never sent to the optional AI suggestion feature. We do not transfer YouTube data to third parties. We do not sell Google user data or use it for advertising." |
 | 정책 링크 | "개인정보처리방침" · "이용약관" |
 | 시작하려면 끝 링크(버튼 모양, D-LND1-10) | "로그인하러 가기" (→ `/login`) |
 | `/login` 안내·링크 (D-LND1-10) | "계정은 운영자가 만들어 드려요. 아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요." · 링크 "처음 화면으로"(→ `/`) |
@@ -111,9 +112,10 @@
 - 확인: E2E
 
 **AC-LND1-09** [web][e2e] · UX-01, D-LND1-05 — 구글 사용자 데이터 고지
-- Given 소개 화면 Then 절 "구글 사용자 데이터를 쓰는 곳"에 점 목록 다섯 줄(확정 문장 그대로, 이 순서)과 제한적 사용 문장이 보이고, 그 문장 안의 링크(이름 "구글 API 서비스 사용자 데이터 정책")의 `href`가 `https://developers.google.com/terms/api-services-user-data-policy`이고 `rel`에 `noopener`·`noreferrer`가 있다
+- Given 소개 화면 Then 절 "구글 사용자 데이터를 쓰는 곳"에 점 목록 여섯 줄(확정 문장 그대로, 이 순서 — D-LND1-11)과 제한적 사용 문장이 보이고, 그 문장 안의 링크(이름 "구글 API 서비스 사용자 데이터 정책")의 `href`가 `https://developers.google.com/terms/api-services-user-data-policy`이고 `rel`에 `noopener`·`noreferrer`가 있다
 - And `lang="en"`인 문단 하나가 D-LND1-05 영문 단락과 글자 그대로 같다(앞뒤 공백 무시)
-- And 화면 어디에도 "다른 곳에 넘기지 않아요"·"제3자" 같은 단정 문장이 없다
+- And `lang="en"` 문단을 뺀 화면 글에 "다른 곳에 넘기지 않아요"·"제3자" 같은 단정 문장이 없다. 영문 단락엔 "We do not transfer YouTube data to third parties."가 정확히 한 번 있다(D-LND1-11 — AIY1이 main에 먼저 합쳐진 뒤에만 참인 문장이라 LND1은 AIY1 뒤에 합친다)
+- And 화면 어디에도 "시청자 이름은 방송 날짜부터 30일 뒤에 지워요"·"Live chat text and viewer names are deleted"(옛 문장, RA-LND1-01)가 없다
 - 확인: E2E
 
 **AC-LND1-10** [web] · D-LND1-04 — 운영 사업자 상수
@@ -135,7 +137,7 @@
 - 확인: E2E
 
 **AC-LND1-13** [web][e2e] · UX-01 — 쉬운 한국어
-- Given 소개 화면 Then `lang="en"` 문단을 뺀 화면 글에 개발 용어·영어 낱말(`youtube.readonly`·`force-ssl`·`openid`·`OAuth`·`scope`·`token` 등)·밑줄 낱말(`NOT_LINKED` 등)이 없다. 예외(이름): "구글 API 서비스 사용자 데이터 정책"의 "API", 상호 "틈(TEUM)"의 "TEUM"
+- Given 소개 화면 Then `lang="en"` 문단을 뺀 화면 글에 개발 용어·영어 낱말(`youtube.readonly`·`force-ssl`·`openid`·`OAuth`·`scope`·`token` 등)·밑줄 낱말(`NOT_LINKED` 등)이 없다. 예외(이름): "구글 API 서비스 사용자 데이터 정책"의 "API", 상호 "틈(TEUM)"의 "TEUM", 기능 이름 "AI 제안"의 "AI"(설정 화면과 같은 이름, D-A1-06·D-LND1-11)
 - 확인: E2E(지금 AC-I3-45 낱말 검사와 같은 방식, 영문 단락 제외)
 
 **AC-LND1-14** [web][e2e] · UX-07, D-LND1-07 — 서비스 워커·시작 주소 그대로
