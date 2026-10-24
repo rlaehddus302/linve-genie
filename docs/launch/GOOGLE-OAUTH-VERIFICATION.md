@@ -97,11 +97,11 @@
 **English**
 > - Storage: OAuth refresh/access tokens are encrypted at rest with AES-256-GCM using a server master key kept separately from backups. Tokens and chat text are never written to logs.
 > - Retention: Live chat text and viewer display names are deleted 30 days after the broadcast date (scheduled hourly job). Database backups are kept for 30 days. [확인 필요 — 백업에도 봉인 전 원문이 최대 30일 더 남는 점을 방침에 적었는지]
-> - Sharing: We do not sell Google user data or use it for advertising. We do not transfer YouTube data to third parties. [확인 필요 — AI 제안을 켠 판매자는 "확인 필요" 댓글 글(닉네임·전화번호 제거)을 Anthropic으로 보냄. 유튜브 채팅 글도 포함되면 이 문장을 고쳐야 함 — PRIVACY-POLICY-GAPS 4번]
+> - Sharing: We do not sell Google user data or use it for advertising. We do not transfer YouTube data to third parties. Chat messages received from YouTube (official API or our Chrome extension) are never sent to our optional AI suggestion feature; the server filters them by source before any AI request (D-AIY1-01).
 > - Revocation: Sellers can disconnect in Settings → YouTube → "Disconnect" (we call Google's revoke endpoint and delete tokens) or at https://myaccount.google.com/permissions.
 > - Hosting: [확인 필요 — 서버 업체·지역]
 
-> **주의(정직하게 쓸 것)**: AI 제안(선택)을 켜면 유튜브 채팅에서 온 "확인 필요" 댓글 글이 Anthropic(미국)으로 갈 수 있습니다(`docs/DEPLOY.md` 4-5). 구글 사용자 데이터 정책(Limited Use 등)과 유튜브 개발자 정책상 "제3자에게 보내기"에 해당하는지 **[확인 필요 — 법률 검토]**. 심사 전에 (가) 방침·신청서에 그대로 적거나 (나) 유튜브에서 온 글은 AI로 보내지 않게 막는 쪽 중 하나를 정해야 합니다. 숨기면 거절·정지 사유가 됩니다.
+> **정리됨(AIY1, D-AIY1-01)**: 유튜브에서 받은 채팅(공식 연결·크롬 확장)은 AI 제안으로 보내지 않습니다. 서버가 출처를 보고 보내기 전에 거르고, 그런 줄은 규칙 제안만 보여 줍니다. 그래서 심사 서류에 "YouTube 데이터를 제3자에게 넘기지 않는다"고 그대로 적을 수 있습니다.
 
 ---
 
