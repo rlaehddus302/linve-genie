@@ -8,6 +8,8 @@
 //   가짜 구글·서버가 돌려보내는 Location의 앞 http://localhost:<포트>는 위 규칙대로 휴대폰 주소로 바뀐다.
 //   진짜 구글(--real-youtube): 휴대폰 주소에서 온 연결 시작은 넘기지 않고 409 TRY_PHONE_YOUTUBE. 동의·다시 보내기 응답에
 //   승인 주소가 들어 있으면 그 응답 대신 같은 409를 돌려준다(구글 콘솔에 등록한 돌아오는 주소가 localhost라서).
+//   경로는 글자 그대로가 아니라 relayPath(절대 주소·퍼센트·`.`·`..`·`#` 정리)로 읽고(TD-MOB1-001), 그와 별개로 경로와 상관없이
+//   모든 JSON 응답의 맨 위 authorizeUrl을 검사한다(진짜 구글이면 409, 가짜 구글이면 휴대폰 주소로 바꾸기). 간편 로그인 시작만 뺀다.
 // 주소 바꾸기 규칙은 순수 함수(입력 글 → 바꾼 글)로 나눠 두고, 중계 처리기는 그것을 쓴다.
 import { request as httpRequest } from 'node:http'
 
@@ -68,10 +70,55 @@ export function fakeGoogleTarget(target) {
   return `${FAKE_GOOGLE_AUTHORIZE_PATH}${rest}`
 }
 
-/** 응답에 승인 주소(authorizeUrl)가 올 수 있는 요청인가 — 연결 시작·자동 게시 동의·다시 보내기 */
+/** 퍼센트 글자 풀기 — 깨진 퍼센트(%zz·%E0 하나만 등)가 있어도 풀 수 있는 것은 푼다 */
+function decodePercent(text) {
+  try {
+    return decodeURIComponent(text)
+  } catch {
+    return text.replace(/%([0-9a-fA-F]{2})/g, (_, hex) => String.fromCharCode(Number.parseInt(hex, 16)))
+  }
+}
+
+/**
+ * 요청 줄의 대상 → 판정용 경로 (TD-MOB1-001). 안쪽 서버(Hono)보다 넓게 같은 경로로 읽는다(넓게 읽으면 더 많이 막을 뿐이다).
+ * - 절대 주소(`http://…/api/…`)면 그 주소의 경로, `?`·`#` 뒤는 뗀다
+ * - 퍼센트 글자를 풀고(두 번 인코딩까지), `\`는 `/`, 빈 칸(`//`)·`.`은 지우고 `..`은 한 칸 위로
+ * - 대소문자·끝 `/`는 가리지 않는다(소문자, 끝 `/` 없음)
+ */
+export function relayPath(target) {
+  if (typeof target !== 'string') return '/'
+  let path
+  try {
+    const url = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(target) ? new URL(target) : new URL(`http://relay.invalid${target.startsWith('/') ? '' : '/'}${target}`)
+    path = url.pathname
+  } catch {
+    path = target.split(/[?#]/)[0] ?? ''
+  }
+  for (let round = 0; round < 4; round += 1) {
+    const decoded = decodePercent(path)
+    if (decoded === path) break
+    path = decoded
+  }
+  const segments = []
+  for (const segment of path.replaceAll('\\', '/').split('/')) {
+    if (segment === '' || segment === '.') continue
+    if (segment === '..') segments.pop()
+    else segments.push(segment)
+  }
+  return `/${segments.join('/')}`.toLowerCase()
+}
+
+/** 간편 로그인 시작(L1) — 응답의 authorizeUrl은 로그인 공급자 주소다(유튜브 아님) */
+export function loginRoute(method, target) {
+  if (method !== 'POST') return false
+  const path = relayPath(target)
+  return path === '/api/auth/start' || path === '/api/auth/link'
+}
+
+/** 응답에 승인 주소(authorizeUrl)가 올 수 있는 요청인가 — 연결 시작·자동 게시 동의·다시 보내기. 경로는 relayPath로 읽는다 */
 export function authorizeRoute(method, target) {
   if (typeof target !== 'string') return null
-  const path = target.split('?')[0]
+  const path = relayPath(target)
   if (method === 'POST' && path === '/api/youtube/connection/start') return 'start'
   if (method === 'PUT' && path === '/api/youtube/consent') return 'consent'
   if (method === 'POST' && /^\/api\/outbox\/\d{1,15}\/resend$/.test(path)) return 'resend'
@@ -167,22 +214,27 @@ export function createPhoneRelay(options) {
 
     const headers = { ...req.headers }
     if (typeof headers.origin === 'string' && origins.has(headers.origin)) headers.origin = appOrigin
+    // 응답 본문을 늘 읽을 수 있게 압축은 받지 않는다(아래 승인 주소 검사가 압축된 본문을 지나치지 않게)
+    delete headers['accept-encoding']
+    const login = loginRoute(req.method, target)
     const upstream = httpRequest({ host: innerHost, port, method: req.method, path: target, headers }, (answer) => {
       const out = { ...answer.headers }
       if (typeof out.location === 'string') out.location = swap(out.location)
-      const loginRoute = req.method === 'POST' && (target === '/api/auth/start' || target === '/api/auth/link') && known
-      const youtubeRoute = route !== null && (realYoutube || (known && googleOrigin !== null))
-      if (loginRoute || youtubeRoute) {
+      const loginRewrite = login && known
+      const isJson = /^application\/json\b/i.test(String(out['content-type'] ?? ''))
+      // 승인 주소 검사는 경로와 상관없이 모든 JSON 응답에 한다(경로 모양을 바꿔 들어와도 지나치지 않게, TD-MOB1-001)
+      const youtubeCheck = (route !== null || isJson) && (realYoutube || (known && googleOrigin !== null))
+      if (loginRewrite || youtubeCheck) {
         const chunks = []
         answer.on('data', (chunk) => chunks.push(chunk))
         answer.on('end', () => {
           let text = Buffer.concat(chunks).toString('utf8')
           delete out['content-length']
-          if (loginRoute) text = text.replaceAll(`"${appOrigin}/_try/oauth/`, `"${here}/_try/oauth/`)
-          if (youtubeRoute) {
+          if (loginRewrite) text = text.replaceAll(`"${appOrigin}/_try/oauth/`, `"${here}/_try/oauth/`)
+          if (youtubeCheck) {
             if (realYoutube) {
-              // 승인 주소가 든 응답은 구글로 가게 하지 않는다
-              if (rewriteAuthorizeBody(text, (url) => url).authorizeUrl !== null) return refuse(res)
+              // 승인 주소가 든 응답은 구글로 가게 하지 않는다 — 간편 로그인 시작(로그인 공급자 주소)만 빼고
+              if (!login && rewriteAuthorizeBody(text, (url) => url).authorizeUrl !== null) return refuse(res)
             } else {
               text = rewriteAuthorizeBody(text, (url) => relayAuthorizeUrl(url, googleOrigin, here)).text
             }

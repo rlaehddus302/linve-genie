@@ -45,6 +45,13 @@
   - `docs/TRY-IT.md` 4장 4번에 아래 막대가 "방송 · 문자찜 입력 · …"으로 적혀 있다. D-MOB1-04로 막대 이름이 "문자찜"으로 바뀌면 이 문서 줄도 맞춰야 한다. 이번에 나는 고치지 않았다.
 - **e2e**: 연습 모드(`pnpm try`) 자체는 E2E 서버가 아니다. 휴대폰 유튜브 한 바퀴는 서버 시험이 확인한다.
 
+### 서버 수정 라운드 — TD-MOB1-001 / RA-MOB1-01 (모양만 다른 경로로 진짜 구글 승인 주소가 휴대폰에 감)
+- 원인: `authorizeRoute`가 요청 줄 대상을 글자 그대로 비교했다. 안쪽 서버(Hono)는 절대 주소·퍼센트·`.`·`..`·`#`을 정리해 읽는다.
+- 고침 1 (경로 읽기): 새 `relayPath(target)` — 절대 주소면 그 경로, `?`·`#` 뒤 떼기, 퍼센트 풀기(겹 인코딩도 풀릴 때까지 최대 4번), `\`→`/`, 빈 칸·`.` 지우기, `..` 한 칸 위로, 소문자, 끝 `/` 없음. Hono보다 넓게 읽는다(넓으면 더 막을 뿐). `authorizeRoute`·새 `loginRoute`가 이것을 쓴다.
+- 고침 2 (안전망, 리뷰 권고 (2)): 경로와 상관없이 모든 JSON 응답의 맨 위 `authorizeUrl`을 검사한다. 진짜 구글이면 409 `TRY_PHONE_YOUTUBE`, 가짜 구글이면 휴대폰 주소 아래 연습 전용 경로로 바꾼다. 간편 로그인 시작(`/api/auth/start`·`/api/auth/link`, 로그인 공급자 주소)만 뺀다. JSON이 아닌 응답(실시간 푸시 등)은 그대로 흘려 보낸다.
+- 압축된 본문이 검사를 지나치지 않게 안쪽 서버로 넘길 때 `accept-encoding`을 뺀다.
+- 확인: `apps/server/test/mob1-try-relay.test.ts` 18개(새 6개: 진짜·가짜 모드 변형 경로, `relayPath`, `authorizeRoute`·`loginRoute` 변형, 아무 경로 안전망 진짜·가짜), `tests/adversarial/mob1/` 12개 모두 통과(TD-MOB1-001 시험 기대값은 그대로).
+
 ## web (dev-web) — 휴대폰 점검 바로 고칠 것 (AC-MOB1-01~06·10~26)
 
 금지 파일(`ConsoleYoutube.tsx`·`YoutubeConnection.tsx`·`lib/youtube.ts`)과 `packages/**`는 고치지 않았다.

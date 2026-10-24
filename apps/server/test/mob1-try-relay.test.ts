@@ -3,7 +3,7 @@
 // 진짜 구글이면 휴대폰 주소의 연결 시작은 안쪽 서버로도 넘기지 않고 409 TRY_PHONE_YOUTUBE.
 // 중계 처리기는 scripts/try/phone-relay.mjs(pnpm try가 쓰는 것 그대로)를 자체 서명 인증서 https 서버에 붙여 127.0.0.1에서만 연다.
 // 휴대폰 주소(https://192.0.2.10:<포트>)는 Host 머리글로만 흉내 낸다 — 실제 연결은 127.0.0.1.
-import { request as httpRequest, type IncomingMessage, type Server as HttpServer } from 'node:http'
+import { createServer as createPlainServer, request as httpRequest, type IncomingMessage, type Server as HttpServer } from 'node:http'
 import { createServer as createHttpsServer, request as httpsRequest, type Server as HttpsServer } from 'node:https'
 import type { AddressInfo } from 'node:net'
 import { readFileSync } from 'node:fs'
@@ -14,9 +14,11 @@ import {
   authorizeRoute,
   createPhoneRelay,
   fakeGoogleTarget,
+  loginRoute,
   phoneYoutubeMessage,
   phoneYoutubeNotice,
   relayAuthorizeUrl,
+  relayPath,
   rewriteAuthorizeBody,
   swapOrigin,
 } from '../../../scripts/try/phone-relay.mjs'
@@ -237,6 +239,18 @@ describe('AC-MOB1-07 가짜 구글이면 휴대폰 주소로 한 바퀴', () => 
     expect((connection.consent as { liveChat: { enabled: boolean } }).liveChat.enabled).toBe(true)
   })
 
+  it('TD-MOB1-001: 모양만 다른 연결 시작 경로로 와도 승인 주소는 휴대폰 주소 아래 연습 전용 경로', async () => {
+    const item = await tryWorld({ real: false })
+    const cookie = await phoneLogin(item)
+    for (const path of ['/api/youtube/connection/./start', '/api/youtube/x/../connection/start', '/api/youtube/connection/%73tart']) {
+      const reply = await item.phone('POST', `${item.here}${path}`, { cookie, body: {} })
+      expect(reply.status, `${path} ${reply.text}`).toBe(200)
+      const url = new URL(json(reply).authorizeUrl as string)
+      expect(url.origin, path).toBe(item.here)
+      expect(url.pathname, path).toBe(`${FAKE_GOOGLE_PREFIX}/o/oauth2/v2/auth`)
+    }
+  })
+
   it('이 컴퓨터(http://localhost:<포트>)로 연 경우는 지금 그대로 — 승인 주소는 가짜 구글 주소', async () => {
     const item = await tryWorld({ real: false })
     const login = await item.local('POST', '/api/login', { body: { loginId: 'practice', password: 'try-pass-1234' } })
@@ -299,6 +313,20 @@ describe('AC-MOB1-08 진짜 구글이면 휴대폰에선 안내', () => {
     expect(off.status, off.text).toBe(200)
   })
 
+  it('TD-MOB1-001: 모양만 다른 연결 시작 경로(`./`·`x/../`·`%73tart`·`%2e/`·`%252e`·`\\`·대문자)도 409, 안쪽 서버로 넘기지 않는다', async () => {
+    const item = await tryWorld({ real: true })
+    const cookie = await phoneLogin(item)
+    const innerBefore = item.inner.length
+    for (const path of ['/api/youtube/connection/./start', '/api/youtube/x/../connection/start', '/api/youtube/connection/%73tart', '/api/youtube/connection/%2e/start', '/api/youtube/connection/%252e/start', '/api//youtube/connection/start', '/API/youtube/connection/start', '/api/youtube/connection/start/']) {
+      const reply = await item.phone('POST', `${item.here}${path}`, { cookie, body: {} })
+      expect(reply.status, path).toBe(409)
+      expect((json(reply).error as Record<string, unknown>).code, path).toBe(TRY_PHONE_YOUTUBE)
+      expect(reply.text, path).not.toContain('accounts.google.com')
+    }
+    expect(item.inner.length).toBe(innerBefore)
+    expect(item.fake.calls()).toBe(0)
+  })
+
   it('이 컴퓨터 주소에서는 지금 그대로 구글 승인 주소를 받는다', async () => {
     const item = await tryWorld({ real: true })
     const cookie = sessionOf(await item.local('POST', '/api/login', { body: { loginId: 'practice', password: 'try-pass-1234' } }))
@@ -344,6 +372,45 @@ describe('중계 규칙 (순수 함수)', () => {
     }
   })
 
+  it('relayPath: 절대 주소·퍼센트(두 번까지)·`.`·`..`·`#`·`\\`·빈 칸·대소문자·끝 `/`를 정리한 경로 (TD-MOB1-001)', () => {
+    const start = '/api/youtube/connection/start'
+    for (const target of [
+      start,
+      `${start}?x=1`,
+      `${start}#x`,
+      '/api/youtube/connection/./start',
+      '/api/youtube/x/../connection/start',
+      '/api/youtube/connection/%73tart',
+      '/api/youtube/connection/%2e/start',
+      '/api/youtube/connection/%2E%2E/connection/start',
+      '/api/youtube/connection/%252e/start',
+      '/api/youtube/connection%2Fstart',
+      '/api\\youtube\\connection\\start',
+      '//api///youtube/connection/start/',
+      '/API/YouTube/Connection/Start',
+      'http://localhost:7700/api/youtube/connection/start',
+      'HTTP://evil.example/api/youtube/connection/./start?x',
+      '/api/youtube/connection/%zz/../%73tart',
+    ]) {
+      expect(relayPath(target), target).toBe(start)
+    }
+    expect(relayPath('/../../etc')).toBe('/etc')
+    expect(relayPath('')).toBe('/')
+  })
+
+  it('authorizeRoute·loginRoute: 모양만 다른 경로도 같은 요청으로 알아본다 (TD-MOB1-001)', () => {
+    expect(authorizeRoute('POST', '/api/youtube/connection/%73tart')).toBe('start')
+    expect(authorizeRoute('POST', 'http://localhost:7700/api/youtube/connection/start')).toBe('start')
+    expect(authorizeRoute('PUT', '/api/youtube/./consent')).toBe('consent')
+    expect(authorizeRoute('PUT', '/api/x/../youtube/%63onsent#y')).toBe('consent')
+    expect(authorizeRoute('POST', '/api/outbox/12/./resend')).toBe('resend')
+    expect(authorizeRoute('POST', '/api/outbox/%31%32/resend')).toBe('resend')
+    expect(loginRoute('POST', '/api/auth/./start')).toBe(true)
+    expect(loginRoute('POST', '/api/auth/link?x')).toBe(true)
+    expect(loginRoute('GET', '/api/auth/start')).toBe(false)
+    expect(loginRoute('POST', '/api/youtube/connection/start')).toBe(false)
+  })
+
   it('authorizeRoute·rewriteAuthorizeBody', () => {
     expect(authorizeRoute('POST', '/api/youtube/connection/start')).toBe('start')
     expect(authorizeRoute('PUT', '/api/youtube/consent')).toBe('consent')
@@ -353,5 +420,82 @@ describe('중계 규칙 (순수 함수)', () => {
     expect(rewriteAuthorizeBody('{"authorizeUrl":"a","x":1}', () => 'b')).toEqual({ text: '{"authorizeUrl":"b","x":1}', authorizeUrl: 'a' })
     expect(rewriteAuthorizeBody('{"connection":{}}', () => 'b')).toEqual({ text: '{"connection":{}}', authorizeUrl: null })
     expect(rewriteAuthorizeBody('not json', () => 'b')).toEqual({ text: 'not json', authorizeUrl: null })
+  })
+})
+
+describe('TD-MOB1-001 경로와 상관없이 응답의 승인 주소 검사', () => {
+  // 안쪽 서버 대신 어떤 경로에도 { authorizeUrl } JSON을 돌려주는 작은 서버 — 중계가 경로 모양에 기대지 않는지 본다
+  const google = 'https://accounts.google.com/o/oauth2/v2/auth?client_id=x'
+  async function stubWorld(real: boolean): Promise<{ call: (method: string, path: string) => Promise<Reply>; close: () => Promise<void>; here: string }> {
+    const stub = createPlainServer((req, res) => {
+      req.resume()
+      const path = req.url ?? '/'
+      if (path.startsWith('/stream')) {
+        res.writeHead(200, { 'content-type': 'text/event-stream' })
+        res.end(`data: {"authorizeUrl":"${google}"}\n\n`)
+        return
+      }
+      const body = JSON.stringify(path.startsWith('/api/auth/') ? { authorizeUrl: 'https://login.example/authorize?x=1' } : { authorizeUrl: real ? google : 'http://127.0.0.1:5123/o/oauth2/v2/auth?x=1', other: 1 })
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'content-length': String(Buffer.byteLength(body)) })
+      res.end(body)
+    })
+    const stubPort = await listen(stub)
+    const appOrigin = `http://localhost:${String(stubPort)}`
+    let relay: ReturnType<typeof createPhoneRelay> | null = null
+    const phone = createHttpsServer({ key: CERT.key, cert: CERT.cert }, (req, res) => relay?.(req, res))
+    const phonePort = await listen(phone)
+    const here = `https://${PHONE_IP}:${String(phonePort)}`
+    relay = createPhoneRelay({ port: stubPort, appOrigin, httpsOrigins: [here], fakeGoogle: real ? null : { port: 5123 }, realYoutube: real })
+    const call = (method: string, path: string): Promise<Reply> =>
+      new Promise((resolve, reject) => {
+        const outgoing = httpsRequest({ host: '127.0.0.1', port: phonePort, method, path, headers: { host: `${PHONE_IP}:${String(phonePort)}`, 'accept-encoding': 'gzip, br' }, rejectUnauthorized: false }, (answer) => {
+          const chunks: Buffer[] = []
+          answer.on('data', (chunk: Buffer) => chunks.push(chunk))
+          answer.on('end', () => resolve({ status: answer.statusCode ?? 0, headers: answer.headers, text: Buffer.concat(chunks).toString('utf8') }))
+        })
+        outgoing.on('error', reject)
+        outgoing.end()
+      })
+    return {
+      call,
+      here,
+      close: async () => {
+        phone.closeAllConnections()
+        stub.closeAllConnections()
+        await Promise.all([new Promise((resolve) => phone.close(resolve)), new Promise((resolve) => stub.close(resolve))])
+      },
+    }
+  }
+
+  it('진짜 구글: 어떤 경로·방법이든 맨 위 authorizeUrl이 든 JSON 응답은 409 — 간편 로그인 시작만 그대로', async () => {
+    const item = await stubWorld(true)
+    try {
+      for (const [method, path] of [['GET', '/api/anything'], ['POST', '/api/youtube/connection/start/../../whatever'], ['PATCH', '/api/youtube/consent2'], ['GET', '/']] as const) {
+        const reply = await item.call(method, path)
+        expect(reply.status, `${method} ${path}`).toBe(409)
+        expect(reply.text, path).not.toContain('accounts.google.com')
+      }
+      const login = await item.call('POST', '/api/auth/start')
+      expect(login.status).toBe(200)
+      expect(JSON.parse(login.text)).toEqual({ authorizeUrl: 'https://login.example/authorize?x=1' })
+      // 실시간 푸시(JSON 아님)는 그대로 흘려 보낸다
+      const stream = await item.call('GET', '/stream')
+      expect(stream.status).toBe(200)
+    } finally {
+      await item.close()
+    }
+  })
+
+  it('가짜 구글: 어떤 경로든 가짜 구글 승인 주소는 휴대폰 주소 아래 연습 전용 경로로 바뀐다', async () => {
+    const item = await stubWorld(false)
+    try {
+      for (const path of ['/api/anything', '/api/youtube/connection/x/../start']) {
+        const reply = await item.call('POST', path)
+        expect(reply.status, path).toBe(200)
+        expect(JSON.parse(reply.text), path).toEqual({ authorizeUrl: `${item.here}${FAKE_GOOGLE_PREFIX}/o/oauth2/v2/auth?x=1`, other: 1 })
+      }
+    } finally {
+      await item.close()
+    }
   })
 })

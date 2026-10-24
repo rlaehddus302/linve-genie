@@ -9,6 +9,8 @@ export declare function phoneYoutubeNotice(realYoutube: boolean): string
 export declare function swapOrigin(text: string, from: string, to: string): string
 export declare function relayAuthorizeUrl(text: string, googleOrigin: string, here: string): string
 export declare function fakeGoogleTarget(target: string): string | null
+export declare function relayPath(target: string): string
+export declare function loginRoute(method: string | undefined, target: string): boolean
 export declare function authorizeRoute(method: string | undefined, target: string): 'start' | 'consent' | 'resend' | null
 export declare function rewriteAuthorizeBody(text: string, change: (url: string) => string): { text: string; authorizeUrl: string | null }
 export declare function phoneYoutubeBody(port: number): string
