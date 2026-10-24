@@ -1,7 +1,9 @@
 // 빠른 입력칸 (AC-S05-10~12, PRD-01, PRD-03 AC3, D-084): 콘솔 위쪽에 늘 보이고, 콘솔을 열면 포커스가 여기 있다.
 // 치는 동안 첫 토큰이 그 방송의 상품 번호면 그 상품을 바로 옆에 보인다. 오류면 번호·품종·가격 고치기 칸을 연다.
 // FB1 D-FB1-01 (AC-FB1-02): 도움말 줄에 그 방송의 가격 단위 한 줄, 친 줄이 새 상품 등록으로 읽히면 Enter 전에 "등록하면: …",
-// 고치기 칸 가격 옆에 읽은 가격 "= …원". 해석은 Enter와 같은 함수(그 방송 스냅샷의 price.unit) — 품종은 React 글자로만 들어간다.
+// 고치기 칸 가격 옆에 읽은 가격 "= …원".
+// MOB1 D-MOB1-09(AC-MOB1-17): 끝난 방송·봉인 날짜(closed)에는 빠른 입력 줄(입력칸·개수·옵션·도움말·단위 줄·"등록하면" 줄)이 없다 —
+// 상품 자세히의 "고치기"로 여는 고치기 칸·오류·"고칠까요?"는 그대로. 방송이 끝나면 치던 글은 버린다(보내지 않음 — 콘솔이 비운다). 해석은 Enter와 같은 함수(그 방송 스냅샷의 price.unit) — 품종은 React 글자로만 들어간다.
 import { useEffect, useRef, type KeyboardEvent, type RefObject } from 'react'
 import type { ApiError } from '../api/client.ts'
 import { productKey } from '../lib/derive.ts'
@@ -83,6 +85,8 @@ export interface QuickInputProps {
    * 콘솔이 고정 영역 바로 아래에 QuickUnitLine으로 그린다. 기본 true(PC). "등록하면: …" 줄도 함께 옮긴다(FB1 D-FB1-18 (a))
    */
   readonly unitInside?: boolean
+  /** 끝난 방송·봉인 날짜 — 빠른 입력 줄을 그리지 않는다(고치기 칸은 그대로, D-MOB1-09) */
+  readonly closed?: boolean
   /** 개수 칸 (없으면 보이지 않는다 — 옵션을 붙였을 때) */
   readonly count?: CountField
   /** 옵션 방송만: "옵션 추가" 버튼과 붙은 옵션 요약 (D-O2-05). 번호 방송에는 없다 */
@@ -165,8 +169,11 @@ export function QuickInput(props: QuickInputProps) {
     }
   }
 
+  const closed = props.closed === true
   return (
     <div className="quick">
+      {closed ? null : (
+        <>
       <div className="quick-row">
         <label className="quick-label" htmlFor="quick-input">
           빠른 입력
@@ -223,6 +230,8 @@ export function QuickInput(props: QuickInputProps) {
           <ProductSummary product={preview} />
         </div>
       ) : null}
+        </>
+      )}
       {props.error !== null ? <ErrorNote error={props.error} /> : null}
       {failed.map((item) => (
         <div key={item.id} className="error-note" role="alert" data-tone="danger">

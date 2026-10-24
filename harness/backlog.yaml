@@ -900,6 +900,29 @@ sprints:
     specIds: [LBL-06, LBL-08, SYS-02, YT-10, NFR-01]
     status: done
 
+  - id: MOB1
+    phase: 6
+    title: 휴대폰 점검 바로 고칠 것 — 누름 모양·큰 글씨·막대 이름·로그아웃 자리·연습 모드 휴대폰 유튜브·음성 화면 꺼짐·출력 기기 문장·휴대폰 숨김
+    dependsOn: []
+    devs: [server, web]
+    tests: [domain, e2e]
+    uxReview: true
+    goal: >
+      사용자 지시(2026-10-24) "메인 타깃은 폰으로 서비스를 이용하는 판매자 — 기술·UI·UX 모두 폰 기준, PC도 고려" + "폰 점검에서 나온 바로 고칠 것들 시작해".
+      고치기만(구조 개편 없음): hover는 마우스 기기만·알림 대비 4.5:1(D-MOB1-02), 글자 150% 가로 넘침 0(D-MOB1-03), 아래 막대 "문자찜"(D-MOB1-04),
+      휴대폰 로그아웃은 "더보기" 맨 끝 + 방송 중·출력 기기면 확인 창(D-MOB1-05), 연습 모드 휴대폰 https에서 가짜 구글 유튜브 잇기 중계·진짜는 안내(D-MOB1-06),
+      음성 켜진 동안 화면 꺼짐 막기·관리 폰 안내(D-MOB1-07), 출력 기기 끊김 문장을 라벨·콘솔·포장에(D-MOB1-08), 휴대폰에서 쓸 수 없는 플랫폼 칸·단축키·확장 칸 숨김과 끝난 방송의 빠른 입력 숨김(D-MOB1-09),
+      viewport interactive-widget·select 44px(D-MOB1-10), 아이폰 시험용 프린터 안내·"전체 기록 파일"(D-MOB1-11), PC 찜으로 바꾸기 44px(D-MOB1-12), 작은 다듬기 넷(D-MOB1-13).
+      순서: server(scripts/try/**만)와 web은 파일이 겹치지 않음 — server(작음) 먼저, web 길게(동시도 됨). 수용 기준: harness/sprints/MOB1/acceptance.md(AC-MOB1-00~26·89~91·95).
+      금지: apps/server/src/youtube/**, 웹의 유튜브 이름 파일, tests/e2e/y1 — tests/e2e/i3는 바뀐 낱말·찾는 곳 줄만.
+    carryOver:
+      - "맥북 쪽 유튜브 작업으로 넘김: '봉인' 낱말을 한꺼번에 쉬운 말로(lib/youtube.ts SEALED_READ_ONLY·SEAL_WARNING, 서버 SEALED_MESSAGE·LEDGER_UNREADABLE_MESSAGE, SealNotice 예정 문장, PackingPage SEALED_VIEW_ONLY — 제안 '30일이 지나 잠긴 날짜예요. 볼 수만 있어요.', D-MOB1-11)"
+      - "맥북 쪽 유튜브 작업으로 넘김: 끝난 방송 콘솔의 유튜브 칸 '채팅을 받는 중' 숨기기(ConsoleYoutube.tsx, D-MOB1-09)"
+      - "맥북 쪽에 알림: tests/e2e/i3 로그인 도우미(휴대폰 '로그아웃' 기다리기)·막대 '문자찜' 줄을 MOB1이 바꿈 — test-notes 목록 참고 (D-MOB1-04·05)"
+      - "MOB2: 마법사 '폰 몇 대' 질문, 콘솔 탭, 돌아오기 카드 (구조 개편)"
+    specIds: [UX-01, UX-04, UX-05, LBL-06, LBL-08, VOC-01, ORD-08, STL-08, DAT-04, YT-10]
+    status: doing
+
 techDebt:
   - "TD-S00-008: Host 헤더 두 개·absolute-form 요청을 200으로 처리"
   - "TD-S00-012: 골든 파일 탐색이 심볼릭 링크와 대문자 확장자를 조용히 건너뜀"

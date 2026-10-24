@@ -90,7 +90,7 @@ test.describe('AC-T1-60 메뉴 "택배"', () => {
     try {
       await phone.goto('/parcels')
       await expect(phone.getByRole('heading', { level: 1, name: '택배 접수' })).toBeVisible()
-      await expect(menu(phone).getByRole('link')).toHaveText(['방송', '문자찜 입력', '구매자', '정산'])
+      await expect(menu(phone).getByRole('link')).toHaveText(['방송', '문자찜', '구매자', '정산']) // MOB1 D-MOB1-04
       await openMore(phone)
       const names = (await moreLinks(phone).allInnerTexts()).map((t) => t.replace(/\s+\d+$/, '').trim())
       expect(names.slice(-2)).toEqual(['택배', '설정'])

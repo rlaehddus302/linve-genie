@@ -97,7 +97,10 @@ describe('포장 라벨 출력 버튼 (AC-PL1B-10)', () => {
     await openPacking()
     const button = within(region()).getByRole('button', { name: PRINT }) as HTMLButtonElement
     expect(button.className).toBe('button')
-    expect(button.parentElement).toBe(within(region()).getByRole('button', { name: '라벨 PDF' }).parentElement)
+    // MOB1 D-MOB1-13: "포장 라벨" 제목 바로 아래(미리 보기 그림·"라벨 PDF" 위) 자기 줄로 옮겼다
+    const heading = within(region()).getByRole('heading', { name: '포장 라벨' })
+    expect(heading.nextElementSibling).toBe(button.parentElement)
+    expect(button.compareDocumentPosition(within(region()).getByRole('button', { name: '라벨 PDF' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     // 주 버튼은 체크리스트의 포장 완료 그대로
     expect(within(checklist()).getByRole('button', { name: '포장 완료' }).className).toContain('button-primary')
     fireEvent.click(button)

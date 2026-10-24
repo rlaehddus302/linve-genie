@@ -6,6 +6,7 @@
 // - 요금(N5)은 이 규칙대로 목록 끝("설정" 바로 앞)에 — 요금 기능이 켜져 있을 때만(AC-NAV-09).
 // - 택배(T1, D-T1-08, AC-T1-60)도 이 규칙대로 목록 끝("설정" 바로 앞) — 판매자에게 늘. 실제 날짜를 보고 있었으면 그 날짜로.
 // - 보조자는 "문자찜 입력" 한 칸, 더보기 없음.
+// - 휴대폰 아래 막대의 칸 이름은 `barLabel`(MOB1 D-MOB1-04): 두 번째 칸만 "문자찜"(한 줄로 읽히게). PC 위 줄 메뉴·화면 제목은 "문자찜 입력" 그대로.
 import type { MenuKey, Route } from './router.ts'
 
 export interface MenuItem {
@@ -81,4 +82,12 @@ export function menuAll(layout: MenuLayout): readonly MenuItem[] {
 /** 메뉴 이름 (화면 읽기 이름과 같다 — "입금 확인 3") */
 export function menuName(item: MenuItem): string {
   return item.count === undefined ? item.label : `${item.label} ${item.count}`
+}
+
+/** 휴대폰 아래 막대의 "문자찜" 칸 이름 (D-MOB1-04 — 판매자·보조자 모두. 보이는 글 = 접근성 이름) */
+export const SMS_BAR_LABEL = '문자찜'
+
+/** 휴대폰 아래 막대 칸 이름 — "문자찜 입력"만 "문자찜"으로 줄인다. 그 밖은 `menuName`과 같다 */
+export function barLabel(item: MenuItem): string {
+  return item.key === 'sms' ? SMS_BAR_LABEL : menuName(item)
 }

@@ -169,7 +169,7 @@ for (const phone of [false, true]) {
     }
 
     await page.goto('/')
-    await expect(page.getByRole('button', { name: '로그아웃' })).toBeVisible()
+    await expect(page.getByRole('navigation', { name: '메뉴' })).toBeVisible() // MOB1 D-MOB1-05 (휴대폰 위 줄에 로그아웃 없음)
     await check('홈', false)
 
     await page.goto(`/broadcasts/${encodeURIComponent(b)}`)

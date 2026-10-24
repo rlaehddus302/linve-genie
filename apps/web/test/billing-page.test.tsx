@@ -57,7 +57,7 @@ describe('메뉴·주소 (AC-N5-50)', () => {
   it('휴대폰: 막대는 다섯 칸 그대로, "요금"은 더보기 목록의 "설정" 바로 앞 — 요금 화면이면 "더보기"와 "요금"이 지금 위치', async () => {
     await openBilling()
     const menu = screen.getByRole('navigation', { name: '메뉴' })
-    expect([...menu.children].filter((el) => el.matches('a, button')).map((cell) => cell.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '더보기'])
+    expect([...menu.children].filter((el) => el.matches('a, button')).map((cell) => cell.textContent)).toEqual(['방송', '문자찜', '구매자', '정산', '더보기']) // MOB1 D-MOB1-04
     const more = within(menu).getByRole('button', { name: '더보기' })
     expect(more.getAttribute('aria-current')).toBe('page')
     fireEvent.click(more)
@@ -82,7 +82,7 @@ describe('메뉴·주소 (AC-N5-50)', () => {
     expect(await screen.findByRole('heading', { name: '찾을 수 없는 화면이에요.' })).toBeTruthy()
     // 휴대폰(D-NAV-01): 막대 다섯 칸, 더보기 목록에 "요금"이 없다
     const menu = screen.getByRole('navigation', { name: '메뉴' })
-    expect([...menu.children].filter((el) => el.matches('a, button')).map((cell) => cell.textContent)).toEqual(['방송', '문자찜 입력', '구매자', '정산', '더보기'])
+    expect([...menu.children].filter((el) => el.matches('a, button')).map((cell) => cell.textContent)).toEqual(['방송', '문자찜', '구매자', '정산', '더보기']) // MOB1 D-MOB1-04
     fireEvent.click(within(menu).getByRole('button', { name: '더보기' }))
     expect(within(within(menu).getByRole('list')).getAllByRole('link').map((link) => link.textContent)).toEqual(['입금 확인', '포장', '라벨', '택배', '설정'])
     fireEvent.click(within(menu).getByRole('button', { name: '더보기' }))

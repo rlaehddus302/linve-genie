@@ -1,11 +1,11 @@
 // 메뉴 공용 도우미 (UX-04 휴대폰 메뉴, D-NAV-01, AC-NAV-10).
-// 휴대폰(폭 48rem = 768px 미만)은 아래 막대 다섯 칸 — 링크 "방송"·"문자찜 입력"·"구매자"·"정산" + 버튼 "더보기".
+// 휴대폰(폭 48rem = 768px 미만)은 아래 막대 다섯 칸 — 링크 "방송"·"문자찜"·"구매자"·"정산" + 버튼 "더보기". // MOB1 D-MOB1-04 (PC 위 줄·h1은 "문자찜 입력")
 // 나머지 메뉴("입금 확인"·"포장"·"라벨"·"설정")는 "더보기" 목록 안에 있고, 닫힌 목록은 그리지 않는다.
 // 그래서 휴대폰에서 막대 밖 메뉴를 찾거나 누르거나 셀 때는 먼저 목록을 연다. PC는 모든 메뉴가 위 줄에 있다.
 import { expect, type Locator, type Page, type Route } from '@playwright/test'
 
 /** 막대 앞 네 칸 (휴대폰에서 늘 보이는 링크) */
-export const BAR_LINKS = ['방송', '문자찜 입력', '구매자', '정산'] as const
+export const BAR_LINKS = ['방송', '문자찜', '구매자', '정산'] as const // MOB1 D-MOB1-04
 /** 휴대폰 막대 다섯 칸 이름 */
 export const BAR_CELLS = [...BAR_LINKS, '더보기'] as const
 
@@ -86,7 +86,7 @@ export async function expectTarget(page: Page, target: Locator): Promise<{ x: nu
 }
 
 /**
- * 휴대폰 막대 (AC-NAV-01): 목록이 닫힌 채 메뉴 안 링크는 "방송"·"문자찜 입력"·"구매자"·"정산" 넷(이 순서)과 버튼 "더보기",
+ * 휴대폰 막대 (AC-NAV-01): 목록이 닫힌 채 메뉴 안 링크는 "방송"·"문자찜"(MOB1 D-MOB1-04)·"구매자"·"정산" 넷(이 순서)과 버튼 "더보기",
  * 다섯 칸이 한 줄(위 끝이 같다)·칸마다 44×44px 이상·화면 폭 안
  */
 export async function expectPhoneBar(page: Page): Promise<void> {
@@ -97,6 +97,39 @@ export async function expectPhoneBar(page: Page): Promise<void> {
   const tops: number[] = []
   for (const cell of barCells(page)) tops.push((await expectTarget(page, cell)).y)
   for (const top of tops) expect(Math.abs(top - tops[0]!), '다섯 칸이 한 줄').toBeLessThanOrEqual(1)
+}
+
+/**
+ * 로그인했는가 — 메뉴가 보인다 (MOB1 D-MOB1-05: 휴대폰 판매자는 위 줄에 "로그아웃"이 없어 그 버튼을 기다리지 않는다).
+ * 로그인 화면에는 메뉴가 없다.
+ */
+export async function expectSignedIn(page: Page): Promise<void> {
+  await expect(menu(page)).toBeVisible()
+}
+
+/**
+ * "로그아웃" 버튼 (MOB1 D-MOB1-05): 휴대폰 판매자는 "더보기" 목록 맨 끝(먼저 연다), PC·보조자는 위 줄.
+ * 보조자 휴대폰 메뉴에는 "더보기"가 없으므로 그때는 위 줄에서 찾는다.
+ */
+export async function logoutButton(page: Page): Promise<Locator> {
+  if (isPhone(page) && (await moreButton(page).count()) > 0) {
+    await openMore(page)
+    return moreList(page).getByRole('button', { name: '로그아웃', exact: true })
+  }
+  return page.getByRole('banner').getByRole('button', { name: '로그아웃', exact: true })
+}
+
+/**
+ * 로그아웃하고 로그인 화면까지 (MOB1 D-MOB1-05·AC-MOB1-06): 끝내지 않은 방송이 있거나 출력 기기면 확인 창 "로그아웃할까요?"가 뜬다 —
+ * 창이 뜨면 위험 버튼 "로그아웃"까지 누른다. 창이 뜨는지는 기다려 본다(로그인 화면이 먼저 오면 창 없음).
+ */
+export async function logoutFully(page: Page): Promise<void> {
+  await (await logoutButton(page)).click()
+  const dialog = page.getByRole('dialog', { name: '로그아웃할까요?' })
+  const loginId = page.getByLabel('아이디')
+  await expect(dialog.or(loginId)).toBeVisible()
+  if (await dialog.isVisible()) await dialog.getByRole('button', { name: '로그아웃', exact: true }).click()
+  await expect(loginId).toBeVisible()
 }
 
 /** 컨텍스트(또는 페이지)가 닫혀서 route 처리가 실패했는가 — 닫힘이 아닌 오류는 false */

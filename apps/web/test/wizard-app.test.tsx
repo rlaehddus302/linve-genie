@@ -256,7 +256,7 @@ describe('마법사 단계 (AC-I3-51~55)', () => {
       wizard = { status: 'IN_PROGRESS', step: 2 }
       await open('/start')
       await editFee('3000')
-      fireEvent.click(within(screen.getByRole('navigation', { name: '메뉴' })).getByRole('link', { name: '문자찜 입력' }))
+      fireEvent.click(within(screen.getByRole('navigation', { name: '메뉴' })).getByRole('link', { name: '문자찜' })) // MOB1 D-MOB1-04
       const asked = await dialog()
       expect(within(asked).getByText('저장하지 않은 값이 있어요. 떠나면 저장하지 않아요.')).toBeDefined()
       fireEvent.click(within(asked).getByRole('button', { name: '닫기' }))
@@ -458,7 +458,7 @@ describe('보조자 화면 (AC-I3-63)', () => {
     expect(await screen.findByText('보조자 계정으로는 쓸 수 없는 화면이에요.')).toBeDefined()
     expect(screen.getByRole('link', { name: '문자찜 입력으로 가기' }).getAttribute('href')).toBe('/sms')
     const menu = screen.getByRole('navigation', { name: '메뉴' })
-    expect(within(menu).getAllByRole('link').map((link) => link.textContent)).toEqual(['문자찜 입력'])
+    expect(within(menu).getAllByRole('link').map((link) => link.textContent)).toEqual(['문자찜']) // MOB1 D-MOB1-04
     expect(document.querySelector('.shop-name')?.textContent).toBe('구피 가게보조자')
     for (const path of ['/start', '/buyers', '/settlements', '/broadcasts/b1', '/']) {
       cleanup()

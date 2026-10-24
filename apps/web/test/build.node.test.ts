@@ -103,7 +103,8 @@ describe('vite build', () => {
     const html = read('index.html')
     expect(html).toMatch(/<html lang="ko">/)
     expect(html).toContain('<title>라이브지니</title>')
-    expect(html).toContain('<meta name="viewport" content="width=device-width, initial-scale=1" />')
+    // MOB1 D-MOB1-10
+    expect(html).toContain('<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />')
   })
 
   it('빌드한 index.html은 같은 출처의 파일만 부르고, 부르는 파일이 모두 있다', () => {

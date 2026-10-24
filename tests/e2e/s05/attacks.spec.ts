@@ -2,6 +2,7 @@
 // 같은 닉네임, 승계 결정(묻기), 직접 배정, 판매 종료 막힘, 생성기 상태 두 기기.
 import { test, expect, type Page } from '@playwright/test'
 import { LOGIN_ID, PASSWORD, boardItem, history, login, openNewBroadcast, postJson, register, sendViewerChat, uniqueDate, untilElapsed } from './support.ts'
+import { logoutFully } from '../menu.ts'
 
 async function queueCancelOfWinner(page: Page, no: number, nick: string, reason = '시청자 요청'): Promise<void> {
   await boardItem(page, no).click()
@@ -43,7 +44,7 @@ test('AC-S05-41: 대기 중 로그아웃하면 보내지 않는다', async ({ pa
   await expect(boardItem(page, 15)).toContainText('홍길동')
   await queueCancelOfWinner(page, 15, '홍길동')
   const t0 = Date.now()
-  await page.getByRole('button', { name: '로그아웃' }).click()
+  await logoutFully(page) // MOB1 D-MOB1-05 (끝내지 않은 리허설이 있어 확인 창 "로그아웃"까지)
   await expect(page.getByRole('button', { name: '로그인' })).toBeVisible()
   await login(page)
   await untilElapsed(page, t0, 4_000)

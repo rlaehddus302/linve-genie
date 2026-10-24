@@ -91,7 +91,8 @@ test('AC-I1-34·23: 위 줄 프린터 상태 — 연결됨 → 출력 기기 탭
   await expect(page.getByRole('region', { name: '알림' })).toContainText('출력 멈춤 · 출력을 멈췄어요.')
   await ctx.close()
   await inAppTo(page, '라벨')
-  await expect(region(page, '프린터')).toContainText("출력 기기 '휴대폰'와 연결이 끊겼어요.")
+  await expect(region(page, '프린터')).toContainText("출력 기기('휴대폰')가 연결되어 있지 않아요. 그 기기에서 라이브지니를 열고 화면을 켜 두세요.") // MOB1 D-MOB1-08
+  await expect(page.getByText('와 연결이 끊겼어요.')).toHaveCount(0) // MOB1 D-MOB1-08 (옛 문장 없음)
   await expect(region(page, '프린터')).toContainText('출력 기기: 휴대폰 · 끊김')
 })
 

@@ -122,10 +122,6 @@ p {
   gap: 0.25rem;
 }
 
-.button:hover:not(:disabled) {
-  background-color: #e3e5e8;
-}
-
 .button[aria-pressed='true'] {
   color: #041e49;
   background-color: #d3e3fd;
@@ -139,18 +135,10 @@ p {
   border-color: #0b57d0;
 }
 
-.button-primary:hover:not(:disabled) {
-  background-color: #0842a0;
-}
-
 .button-danger {
   color: #ffffff;
   background-color: #b3261e;
   border-color: #b3261e;
-}
-
-.button-danger:hover:not(:disabled) {
-  background-color: #8c1d18;
 }
 
 .button-small {
@@ -158,8 +146,7 @@ p {
 }
 
 /* 잠긴 버튼: 마우스를 올려도 모양(배경·글자·테두리)이 바뀌지 않는다, 명암비 3:1 이상 (AC-S06-64). 변형(주·위험) 뒤에 둔다 */
-.button:disabled,
-.button:disabled:hover {
+.button:disabled {
   cursor: not-allowed;
   color: #3c4043;
   background-color: #e8eaed;
@@ -412,10 +399,6 @@ p {
   text-decoration: none;
 }
 
-.menu-link:hover {
-  border-color: #0b57d0;
-}
-
 .menu-link[aria-current='page'] {
   color: #ffffff;
   background-color: #0b57d0;
@@ -470,10 +453,6 @@ p {
   border-radius: 0.75rem;
   color: #1a1a1a;
   text-decoration: none;
-}
-
-.broadcast-link:hover {
-  border-color: #0b57d0;
 }
 
 .broadcast-title {
@@ -567,18 +546,10 @@ p {
   font-weight: 700;
 }
 
-.alert-item:hover {
-  background-color: #8c1d18;
-}
-
 .alert-soft {
   color: #3d2b00;
   background-color: #fef7e0;
   border-color: #8a6100;
-}
-
-.alert-soft:hover {
-  background-color: #fdeec2;
 }
 
 .quick {
@@ -602,6 +573,12 @@ p {
   flex: 1 1 8rem;
   min-width: 0;
   font-size: 1.375rem;
+  /* 예시 글 "15 핑크프릴 10000"이 칸보다 길면 끝을 "…"로 — 잘린 "100"을 가격으로 읽지 않게 (MOB1 D-MOB1-17 (7), AC-MOB1-27) */
+  text-overflow: ellipsis;
+}
+
+.quick-input::placeholder {
+  text-overflow: ellipsis;
 }
 
 /* 개수 칸 (AC-ORD11-01): 빠른 입력 줄 옆, 좁게 — 375px 폭에서도 같은 줄에, 칸은 44px 이상·글자 16px 이상 */
@@ -761,10 +738,6 @@ p {
   color: #1a1a1a;
   text-align: left;
   cursor: pointer;
-}
-
-.board-item:hover {
-  border-color: #0b57d0;
 }
 
 .board-no {
@@ -938,6 +911,21 @@ p {
   justify-content: flex-end;
 }
 
+/* 휴대폰 아래쪽 창 (MOB1 D-MOB1-16, AC-MOB1-06): 로그아웃 확인 창만 — "더보기" 맨 끝에서 열어 엄지 쪽에 버튼을 둔다.
+ * 창 아래 끝 = 화면 아래 끝, 아이폰 아래 안전 영역은 창 안 여백으로 더한다. 위 여백을 auto로 밀어 붙이므로 창이 화면보다 길면(큰 글씨)
+ * 여백이 0이 되어 제목부터 스크롤로 볼 수 있다(위가 잘리지 않음). PC 폭은 위쪽 그대로. 다른 창은 그대로(MOB2) */
+@media (max-width: 47.99rem) {
+  .backdrop-phone-bottom {
+    padding: 1rem 0 0;
+  }
+
+  .backdrop-phone-bottom > .modal {
+    margin: auto 0 0;
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+    border-radius: 0.75rem 0.75rem 0 0;
+  }
+}
+
 .quote {
   padding: 0.5rem 0.75rem;
   border-left: 4px solid #5f6368;
@@ -1062,7 +1050,6 @@ p {
   cursor: pointer;
 }
 
-.choice-button:hover,
 .choice-button[aria-pressed='true'] {
   border-color: #0b57d0;
 }
@@ -1090,10 +1077,6 @@ p {
   border-radius: 0.5rem;
   color: #1a1a1a;
   text-decoration: none;
-}
-
-.list-link:hover {
-  border-color: #0b57d0;
 }
 
 .buyer-name {
@@ -1287,10 +1270,6 @@ html:has(.save-bar) {
 .list-table thead th {
   border-bottom: 2px solid #5f6368;
   background-color: #f8f9fa;
-}
-
-.list-table tbody tr:hover {
-  background-color: #f4f8ff;
 }
 
 .list-table .num {
@@ -1973,6 +1952,13 @@ html:has(.save-bar) {
     box-shadow: 0 -0.25rem 0.75rem rgb(0 0 0 / 15%);
   }
 
+  /* 더보기 목록 맨 끝 "로그아웃" 버튼 (D-MOB1-05) — 목록 링크와 같은 모양 */
+  .menu-logout {
+    font-family: inherit;
+    background-color: transparent;
+    cursor: pointer;
+  }
+
   .menu-more-list .menu-link {
     display: flex;
     justify-content: flex-start;
@@ -2095,10 +2081,18 @@ html:has(.save-bar) {
     display: none;
   }
 
-  /* PC 채팅 칸: 버튼을 낮춰 메시지가 한 번에 더 많이 보이게 (휴대폰은 44px 그대로) */
+  /* PC 채팅 칸: 버튼 좌우를 좁혀 메시지 글 자리를 넓힌다 — 높이는 휴대폰과 같은 44px 이상 (MOB1 D-MOB1-12, AC-MOB1-22).
+   * 버튼은 두 줄(이름·글) 칸을 함께 쓰므로 줄 높이가 거의 늘지 않는다(AC-S06-62 8줄 그대로) */
   .chat-row > .chat-convert {
-    min-height: 2.25rem;
+    min-height: 2.75rem;
     padding: 0.125rem 0.625rem;
+    /* 버튼(44px)은 줄의 위아래 여백까지 쓴다 — 버튼 줄 높이가 44px(전 36px 버튼 + 여백 8px과 같다)라 1440×900에서 8개 이상 보인다 (AC-S06-62) */
+    margin-block: -0.125rem;
+  }
+
+  /* 줄 위아래 여백을 줄인다 (버튼 없는 잡담 줄 37px → 33px) */
+  .chat-row {
+    padding-block: 0.125rem;
   }
 }
 
@@ -3147,6 +3141,35 @@ select.input {
   min-height: 2.75rem;
 }
 
+/* 고르기 칸 (MOB1 D-MOB1-10, AC-MOB1-19): 아이폰 사파리는 기본 모양을 끄지 않으면 높이(44px)를 따르지 않는다 —
+ * 기본 모양을 끄고 오른쪽에 화살표(배경 그라데이션 두 개로 그린 ▼, 글자색 — 흰 바탕과 대비 3:1 이상), 화살표 자리만큼 오른쪽 여백(2.5rem — 고른 글과 겹치지 않음).
+ * 외부 그림 파일·주소 그림은 쓰지 않는다(AC-S00-50). 키보드로 고르기·화면 읽기 이름은 그대로 */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 2.75rem;
+  font-size: max(1rem, 1em);
+  padding-inline-end: 2.5rem;
+  background-color: #ffffff;
+  background-image: linear-gradient(45deg, transparent 50%, #3c4043 50%), linear-gradient(135deg, #3c4043 50%, transparent 50%);
+  background-position:
+    right 1.25rem center,
+    right 0.875rem center;
+  background-size:
+    0.375rem 0.375rem,
+    0.375rem 0.375rem;
+  background-repeat: no-repeat;
+}
+
+select:disabled {
+  background-color: #e8eaed;
+}
+
+/* .input의 여백(0.75rem)보다 세게 — 화살표 자리 */
+select.input {
+  padding-inline-end: 2.5rem;
+}
+
 .sms-options .rule-choice {
   min-inline-size: 0;
 }
@@ -3333,19 +3356,10 @@ select.input {
   border: 2px solid #fee500;
 }
 
-.social-kakao:hover:not(:disabled) {
-  background-color: #f5dc00;
-}
-
 .social-naver {
   color: #1f1f1f;
   background-color: #ffffff;
   border: 2px solid #03c75a;
-}
-
-.social-naver:hover:not(:disabled),
-.social-google:hover:not(:disabled) {
-  background-color: #f1f3f4;
 }
 
 .social-naver-mark {
@@ -3588,4 +3602,144 @@ select.input {
 .extension-code-value.expired {
   color: #757575;
   text-decoration: line-through;
+}
+
+/* 마우스를 올렸을 때 (MOB1 D-MOB1-02, AC-MOB1-01): 모든 :hover는 이 블록 안에만 둔다 — 터치 휴대폰에서는 누른 뒤 올림 모양이 남지 않는다.
+ * 대비는 보통·올림 모두 4.5:1 이상. 알림 버튼은 .button 올림보다 세게(같은 요소의 더 구체적인 선택자) — 회색 바탕 + 흰 글자가 되지 않게.
+ * 잠긴 버튼(AC-S06-64)은 블록 밖 .button:disabled 그대로이고, 올려도 모양이 바뀌지 않게 여기서 한 번 더 같은 값을 준다(맨 뒤). */
+@media (hover: hover) {
+  .button:hover:not(:disabled) {
+    background-color: #e3e5e8;
+  }
+
+  .button-primary:hover:not(:disabled) {
+    background-color: #0842a0;
+  }
+
+  .button-danger:hover:not(:disabled) {
+    background-color: #8c1d18;
+  }
+
+  .button.alert-item:hover:not(:disabled) {
+    color: #ffffff;
+    background-color: #8c1d18;
+  }
+
+  .button.alert-item.alert-soft:hover:not(:disabled) {
+    color: #3d2b00;
+    background-color: #fdeec2;
+  }
+
+  .menu-link:hover {
+    border-color: #0b57d0;
+  }
+
+  .broadcast-link:hover {
+    border-color: #0b57d0;
+  }
+
+  .board-item:hover {
+    border-color: #0b57d0;
+  }
+
+  .choice-button:hover {
+    border-color: #0b57d0;
+  }
+
+  .list-link:hover {
+    border-color: #0b57d0;
+  }
+
+  .list-table tbody tr:hover {
+    background-color: #f4f8ff;
+  }
+
+  .social-kakao:hover:not(:disabled) {
+    background-color: #f5dc00;
+  }
+
+  .social-naver:hover:not(:disabled),
+  .social-google:hover:not(:disabled) {
+    background-color: #f1f3f4;
+  }
+
+  .button:disabled:hover {
+    cursor: not-allowed;
+    color: #3c4043;
+    background-color: #e8eaed;
+    border-color: #9aa0a6;
+  }
+}
+
+/* 휴대폰 큰 글씨(글자 150%)에서도 가로로 넘치지 않게 (MOB1 D-MOB1-03, AC-MOB1-02·03):
+ * 글 칸·고르기 칸은 기본 폭(글자 20자 안팎)이 글자 크기를 따라 커져 부모를 밀어낸다 — 칸이 부모보다 넓어지지 않게 줄어들 수 있게 하고,
+ * 칸 묶음(.field)의 한 칸 열은 0까지 줄어들 수 있게 둔다(칸은 그 열 폭을 넘지 않는다). 버튼 글은 버튼 안에서 줄을 바꾼다. */
+@media (max-width: 47.99rem) {
+  input,
+  select,
+  textarea {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .button {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* 빠른 입력 줄 (D-MOB1-03, AC-MOB1-03): 줄 폭이 글자 17자보다 좁아지면(휴대폰 + 큰 글씨) 이름·입력칸·개수를 세로로 쌓는다 —
+ * 입력칸은 한 줄을 다 쓴다. 보통 글씨(100%)의 휴대폰 375~412px은 지금처럼 한 줄이다(줄 폭 20rem 이상). 줄 폭은 글자 크기(rem)로 견준다 */
+.quick {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.quick-row {
+  container-type: inline-size;
+}
+
+@container (max-width: 17rem) {
+  .quick-input {
+    flex-basis: 100%;
+  }
+}
+
+/* 한 줄에 선 것들의 위 끝을 맞춘다 (D-MOB1-03, AC-MOB1-03): 이름 글은 옆 칸(44px)과 같은 높이 안에서 가운데 —
+ * 위 줄의 가게 이름·프린터 상태, 빠른 입력의 이름·입력칸·개수가 같은 위 끝에서 시작한다 */
+.shop-name {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  margin: 0;
+}
+
+.quick-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+}
+
+/* 콘솔 위 버튼 줄 (U-MOB1-01, D-MOB1-03): 휴대폰 + 큰 글씨(줄 폭이 글자 17자보다 좁음)면 버튼을 한 줄에 하나씩 쌓지 않고 두 칸씩 —
+ * 버튼 글은 버튼 안에서 줄을 바꾸고(높이 44px 이상 그대로), 네 버튼이 두 줄이라 빠른 입력칸이 아래 막대 위 첫 화면에 남는다.
+ * 보통 글씨(100%) 휴대폰·PC는 지금처럼 흐르는 줄이다 */
+.console-head {
+  container-type: inline-size;
+}
+
+@container (max-width: 17rem) {
+  .console-actions {
+    flex-basis: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .console-actions > .button {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    text-align: center;
+  }
 }

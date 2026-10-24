@@ -17,18 +17,20 @@
 //   그래서 자체 서명 인증서(실행마다 새로)로 https를 열고 안쪽 서버로 넘긴다. 휴대폰에 "안전하지 않음" 경고가 한 번 뜬다.
 //   인증서는 openssl이 있으면 openssl로, 없거나 실패하면(윈도우 기본) Node만으로 만든다(apps/server/src/try/self-signed-cert.ts).
 //   넘길 때 Origin 머리글을 화면 주소로 바꾼다(서버는 화면 주소 하나만 받는다) — 그 https 주소(와 https://localhost:<포트+1>)에서 온 요청만.
+//   유튜브 연결(MOB1 D-MOB1-06): 가짜 구글이면 승인·돌아오기·마지막 주소가 모두 휴대폰 https 주소로 이어지고(연습 전용 경로 /_try/google),
+//   진짜 구글(--real-youtube)이면 휴대폰에서는 연결하지 않고 이 컴퓨터에서 먼저 연결하라고 안내한다(phone-relay.mjs).
 //   E2E 서버와 달리 같은 와이파이에 열린다(휴대폰 때문). 연습 데이터뿐이고 비밀번호는 실행마다 무작위다.
 // - 기본 포트를 다른 프로그램이 쓰고 있으면 다음 빈 포트로 옮긴다.
 // 비밀번호·마스터 키는 파일과 로그에 남기지 않는다.
 import { execFileSync, spawnSync } from 'node:child_process'
 import { randomInt } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { request as httpRequest } from 'node:http'
 import { createServer as createHttpsServer } from 'node:https'
 import { createServer as createNetServer } from 'node:net'
 import { networkInterfaces, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createPhoneRelay, phoneYoutubeNotice } from './phone-relay.mjs'
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url))
 const CACHE = join(ROOT, 'node_modules', '.cache', 'livejjim-try')
@@ -289,37 +291,8 @@ if (lan !== null) {
     const { key, cert } = phoneCertificate(lans)
     // 휴대폰 주소들과, 이 컴퓨터에서 https로 여는 주소(사파리에서 로그인이 안 될 때) 모두 화면 주소로 바꿔 넘긴다
     const httpsOrigins = new Set([...lans.map((ip) => `https://${ip}:${String(phonePort)}`), `https://localhost:${String(phonePort)}`])
-    phone = createHttpsServer({ key, cert }, (req, res) => {
-      const headers = { ...req.headers }
-      if (typeof headers.origin === 'string' && httpsOrigins.has(headers.origin)) headers.origin = appOrigin
-      // 간편 로그인(L1): 돌려보내는 주소(Location)·승인 주소의 앞 http://localhost:<포트>를 휴대폰이 연 https 주소로 바꾼다.
-      // 돌아오는 주소 매개변수(redirect_uri)는 그대로 둔다 — 가짜 공급자에 등록한 값과 같아야 한다
-      const here = `https://${String(req.headers.host ?? '')}`
-      const swap = httpsOrigins.has(here) ? (text) => (text.startsWith(`${appOrigin}/`) ? `${here}${text.slice(appOrigin.length)}` : text) : (text) => text
-      const upstream = httpRequest({ host: '127.0.0.1', port, method: req.method, path: req.url, headers }, (answer) => {
-        const out = { ...answer.headers }
-        if (typeof out.location === 'string') out.location = swap(out.location)
-        if (req.method === 'POST' && (req.url === '/api/auth/start' || req.url === '/api/auth/link') && httpsOrigins.has(here)) {
-          const chunks = []
-          answer.on('data', (chunk) => chunks.push(chunk))
-          answer.on('end', () => {
-            const body = Buffer.from(Buffer.concat(chunks).toString('utf8').replaceAll(`"${appOrigin}/_try/oauth/`, `"${here}/_try/oauth/`), 'utf8')
-            delete out['content-length']
-            res.writeHead(answer.statusCode ?? 502, { ...out, 'content-length': String(body.length) })
-            res.end(body)
-          })
-          return
-        }
-        res.writeHead(answer.statusCode ?? 502, out)
-        answer.pipe(res)
-      })
-      upstream.on('error', () => {
-        if (!res.headersSent) res.writeHead(502)
-        res.end()
-      })
-      req.pipe(upstream)
-      res.on('close', () => upstream.destroy())
-    })
+    // 중계 규칙(Origin·Location·간편 로그인·유튜브 연결)은 phone-relay.mjs (MOB1 D-MOB1-06)
+    phone = createHttpsServer({ key, cert }, createPhoneRelay({ port, appOrigin, httpsOrigins, fakeGoogle: realGoogle === null ? { port: fake.port } : null, realYoutube: realGoogle !== null }))
     await new Promise((resolve, reject) => {
       phone.once('error', reject)
       phone.listen(phonePort, '0.0.0.0', resolve)
@@ -366,6 +339,7 @@ if (phone !== null) {
   say(` 3) 같은 와이파이 휴대폰  : https://${lan}:${String(phonePort)}`)
   say('    ("안전하지 않음" 경고가 나오면 docs/TRY-IT.md의 휴대폰 순서대로 넘어가세요)')
   if (lans.length > 1) say(`    (안 열리면 이 주소도 해 보세요: ${lans.slice(1).map((ip) => `https://${ip}:${String(phonePort)}`).join('  ')})`)
+  say(`    ${phoneYoutubeNotice(realGoogle !== null)}`)
 } else {
   say(` 3) ${phoneProblem ?? '휴대폰 주소를 만들지 못했어요. 와이파이에 연결돼 있는지 확인하고 다시 켜 주세요.'}`)
 }

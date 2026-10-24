@@ -11,12 +11,12 @@ import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from 're
 import { get, isApiError, patch, type ApiError } from '../api/client.ts'
 import type { LabelView, QueueSummary } from '../api/print-types.ts'
 import type { BroadcastItem, FullView } from '../api/types.ts'
-import { DENSITY_MAX, DENSITY_MIN, cleanDeviceName, savedDeviceName } from '../lib/device.ts'
+import { DENSITY_MAX, DENSITY_MIN, cleanDeviceName, savedDeviceName, storedDeviceName } from '../lib/device.ts'
 import { dateWords, kstToday } from '../lib/kst.ts'
 import { labelEnv } from '../lib/label-env.ts'
 import { canShareFile, downloadBytes, shareBytes } from '../lib/label-files.ts'
 import { a4PdfBytes, broadcastA4Name, labelErrorMessage, pngBytes, productPngName, renderJob, renderProduct, waitingA4Name } from '../lib/label-render.ts'
-import { CONNECT_TIPS_TITLE, KEEP_SCREEN_ON, PRINT_ACTION, connectTips, isAndroid, isWindows, showsConnectTips, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, labelOptionWords, replaceQuestion } from '../lib/print-words.ts'
+import { CONNECT_TIPS_TITLE, KEEP_SCREEN_ON, PRINT_ACTION, connectTips, IPHONE_TEST_PRINTER, isAndroid, isIphone, isWindows, showsConnectTips, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, labelOptionWords, replaceQuestion } from '../lib/print-words.ts'
 import type { PrinterMethod } from '../lib/printer-station.ts'
 import type { Navigate } from '../lib/router.ts'
 import { ErrorNote } from './ErrorNote.tsx'
@@ -263,6 +263,8 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
               ))}
             </div>
           ) : null}
+          {/* 아이폰에서 시험용 프린터가 보이면 그 바로 아래 한 줄 — 실제 아이폰에서도 될 것처럼 보이지 않게 (MOB1 D-MOB1-11, AC-MOB1-20) */}
+          {!connected && methods.includes('test') && isIphone() ? <p className="hint">{IPHONE_TEST_PRINTER}</p> : null}
           {station.connecting ? (
             <p role="status">{lastMethod === 'test' ? '연결하는 중…' : '연결하는 중… 브라우저 창에서 프린터(B1)를 골라 주세요.'}</p>
           ) : null}
@@ -403,7 +405,8 @@ function BecomeDevice({ primary }: { readonly primary: boolean }) {
   const api = usePrintApi()
   const print = usePrintState()
   const nameId = useId()
-  const [name, setName] = useState(savedDeviceName)
+  /** 판매자가 고쳐 적은 이름 (저장한 이름이 있으면 그 이름). 없으면 기본 이름 — 출력 기기 정보가 늦게 와도 " 2"를 맞춘다 (D-MOB1-13) */
+  const [typed, setName] = useState(storedDeviceName)
   const [nameError, setNameError] = useState<string | null>(null)
   const [asking, setAsking] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -411,6 +414,7 @@ function BecomeDevice({ primary }: { readonly primary: boolean }) {
   const [done, setDone] = useState(false)
   if (api === null) return null
   const queue = print.overview?.queue ?? null
+  const name = typed ?? savedDeviceName(queue?.device != null && queue.device.id !== api.station.deviceId ? queue.device.name : null)
   const become = async (replace: boolean) => {
     const cleaned = cleanDeviceName(name)
     if (cleaned === null) {

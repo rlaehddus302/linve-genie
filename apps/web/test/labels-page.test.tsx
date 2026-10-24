@@ -144,13 +144,16 @@ describe('출력 기기·멈춤 띠 (AC-I1-09·23·24)', () => {
     })
     await openLabels()
     expect(screen.getByText('출력 기기: 휴대폰 · 끊김')).toBeTruthy()
-    expect(screen.getByText("출력 기기 '휴대폰'와 연결이 끊겼어요.")).toBeTruthy()
+    // MOB1 D-MOB1-08: 새 문장(괄호 — 조사가 늘 "기기" 뒤)
+    expect(screen.getByText("출력 기기('휴대폰')가 연결되어 있지 않아요. 그 기기에서 라이브지니를 열고 화면을 켜 두세요.")).toBeTruthy()
+    expect(document.body.textContent).not.toContain('와 연결이 끊겼어요.')
     const band = screen.getByRole('region', { name: '출력 멈춤' })
     expect(within(band).getByText('프린터 연결이 끊겼어요.')).toBeTruthy()
     expect(within(band).getByText("출력 기기 '휴대폰'에서 다시 연결해 주세요.")).toBeTruthy()
     expect(within(band).queryByRole('button', { name: '다시 연결' })).toBeNull()
     const list = screen.getByRole('list', { name: '대기 작업' })
-    expect(list.textContent).toContain('15번 핑크프릴 · 우주천사 · 상품 · 자동 작업 대기 · 시도 1번')
+    // MOB1 D-MOB1-13: 만든 까닭과 상태 낱말 사이 " · "
+    expect(list.textContent).toContain('15번 핑크프릴 · 우주천사 · 상품 · 자동 · 작업 대기 · 시도 1번')
     expect(list.textContent).toContain('마지막 오류: 프린터 연결이 끊겼어요.')
   })
 

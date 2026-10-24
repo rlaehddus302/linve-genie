@@ -90,6 +90,8 @@ describe('로그인 화면 (AC-S05-01)', () => {
     fireEvent.click(screen.getByRole('button', { name: '로그인' }))
     expect(await screen.findByRole('heading', { name: '방송 목록' })).toBeDefined()
     expect(screen.getByText('구피 가게')).toBeDefined()
+    // MOB1 D-MOB1-05: 휴대폰 폭(jsdom)은 "더보기" 목록 맨 끝의 "로그아웃" — 끝내지 않은 방송이 없으면 묻지 않는다
+    fireEvent.click(screen.getByRole('button', { name: '더보기' }))
     fireEvent.click(screen.getByRole('button', { name: '로그아웃' }))
     expect(await screen.findByRole('button', { name: '로그인' })).toBeDefined()
     expect(screen.queryByText('로그인이 풀렸어요. 다시 로그인해 주세요.')).toBeNull()

@@ -424,9 +424,12 @@ describe('설정 — 인스타그램 (AC-67)', () => {
 
 async function openConsole() {
   render(<ConsolePage broadcastId="b1" navigate={navigate} />)
-  await screen.findByLabelText('빠른 입력')
+  // MOB1 D-MOB1-09: 끝난 방송에는 빠른 입력 줄이 없다 — 연 것은 상품 보드로 기다린다
+  await screen.findByRole('region', { name: '상품 보드' })
   await flush(15)
 }
+/** PC 폭 (MOB1 D-MOB1-09 — 휴대폰 폭은 쓸 수 없는 칸을 그리지 않는다. 그 칸의 문장은 PC에서 그대로 본다) */
+const wideScreen = () => vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(min-width: 48rem)', media: query, addEventListener: () => {}, removeEventListener: () => {} }))
 const igPanel = () => screen.getByRole('region', { name: '인스타그램' })
 const ttPanel = () => screen.getByRole('region', { name: '틱톡' })
 
@@ -456,6 +459,7 @@ describe('콘솔 — 플랫폼 칸 (AC-60·61)', () => {
 describe('콘솔 — 틱톡 칸 (AC-62)', () => {
   it('동의 없음·아이디 없음·운영자 꺼짐: 서버 문장 + "설정으로"만', async () => {
     tiktok = tiktokSettings()
+    wideScreen() // MOB1 D-MOB1-09
     await openConsole()
     expect(within(ttPanel()).getByText(TIKTOK_NO_CONSENT)).toBeDefined()
     expect(within(ttPanel()).getByRole('link', { name: '설정으로' }).getAttribute('href')).toBe('/settings/tiktok')
@@ -468,6 +472,7 @@ describe('콘솔 — 틱톡 칸 (AC-62)', () => {
     tiktok = tiktokSettings({ operator: false })
     capabilities[2] = { ...capabilities[2]!, ready: false, reasons: { ready: '지금은 틱톡 연결을 쓸 수 없어요. 댓글을 직접 넣어 주세요.' } }
     try {
+      wideScreen() // MOB1 D-MOB1-09
       await openConsole()
       expect(within(ttPanel()).getByText('지금은 틱톡 연결을 쓸 수 없어요. 댓글을 직접 넣어 주세요.')).toBeDefined()
     } finally {

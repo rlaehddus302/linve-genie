@@ -149,8 +149,11 @@ describe('창 버튼 이름 (AC-S06-60)', () => {
 describe('끝난 방송·알림 띠·조치 기록 (AC-S06-61·66·70)', () => {
   it('"끝난 방송이에요"는 버튼이 아닌 상태 글자', async () => {
     setup([{ type: 'broadcast.end', b: 'b1' }], { ended: ['b1'] })
-    await openConsole()
-    const note = screen.getByText('끝난 방송이에요')
+    // MOB1 D-MOB1-09: 끝난 방송에는 빠른 입력 줄이 없다 — 상태 글자로 연 것을 기다린다
+    render(<ConsolePage broadcastId="b1" navigate={vi.fn()} />)
+    const note = await screen.findByText('끝난 방송이에요')
+    await flush(10)
+    expect(screen.queryByLabelText('빠른 입력')).toBeNull()
     expect(note.tagName).toBe('P')
     expect(note.getAttribute('role')).toBe('status')
     expect(note.getAttribute('tabindex')).toBeNull()
@@ -269,13 +272,13 @@ describe('앱: 떠나기 전 확인·인터넷 없음 (AC-S06-01, D-083, D-093)'
     await screen.findByText('0.4초 뒤 보내요: 15번 홍길동 취소')
     const menu = screen.getByRole('navigation', { name: '메뉴' })
     expect(within(menu).getByRole('link', { name: '방송' }).getAttribute('aria-current')).toBe('page')
-    fireEvent.click(within(menu).getByRole('link', { name: '문자찜 입력' }))
+    fireEvent.click(within(menu).getByRole('link', { name: '문자찜' })) // MOB1 D-MOB1-04
     let ask = await screen.findByRole('dialog', { name: '다른 화면으로 갈까요?' })
     expect(ask.textContent).toContain('보내기 전인 조치가 있어요. 떠나면 보내지 않아요.')
     await waitFor(() => expect(document.activeElement).toBe(within(ask).getByRole('button', { name: '닫기' })))
     fireEvent.click(within(ask).getByRole('button', { name: '닫기' }))
     expect(window.location.pathname).toBe('/broadcasts/b1')
-    fireEvent.click(within(menu).getByRole('link', { name: '문자찜 입력' }))
+    fireEvent.click(within(menu).getByRole('link', { name: '문자찜' })) // MOB1 D-MOB1-04
     ask = await screen.findByRole('dialog', { name: '다른 화면으로 갈까요?' })
     fireEvent.click(within(ask).getByRole('button', { name: '보내지 않고 떠나기' }))
     await waitFor(() => expect(window.location.pathname).toBe('/sms'))

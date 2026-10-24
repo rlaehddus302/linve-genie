@@ -214,7 +214,8 @@ describe('로그인된 채 홈으로 돌아온 결과 (TE-L1-001)', () => {
     loggedIn = true
     window.history.replaceState(null, '', path)
     render(<App />)
-    await screen.findByRole('button', { name: '로그아웃' })
+    // MOB1 D-MOB1-05: 휴대폰 폭(jsdom)은 위 줄에 "로그아웃"이 없다 — 로그인됨은 메뉴로 기다린다
+    await screen.findByRole('navigation', { name: '메뉴' })
     await flush()
   }
 

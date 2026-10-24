@@ -80,6 +80,11 @@ function Settings() {
 }
 
 describe('설정 — 확장 연결 (AC-X1-08)', () => {
+  // MOB1 D-MOB1-09: 휴대폰 폭 설정의 크롬 확장 칸은 한 줄 안내뿐 — 이 묶음은 PC 폭(지금 그대로)으로 본다
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(min-width: 48rem)', media: query, addEventListener: () => {}, removeEventListener: () => {} }))
+  })
+
   it('"확장 연결" → 8자리 코드, 확장이 연결되면 코드를 내리고 알린다', async () => {
     render(<Settings />)
     const connect = await screen.findByRole('button', { name: '확장 연결' })

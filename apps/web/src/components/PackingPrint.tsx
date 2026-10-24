@@ -13,12 +13,13 @@
 // - TE-PL1B-001: 두 번 보냄 막기는 바로 바뀌는 표시(ref)로 — 같은 순간의 두 클릭(화면이 아직 잠금을 그리기 전)도 요청 하나.
 // - U-PL1B-02: 출력 기기가 없으면 접수 문장 뒤에 "출력 기기가 아직 없어 기다리는 중이에요. …" 한 줄과 라벨 화면 링크.
 //   이미 기다리는 중이라는 거절(`PRINT_IN_PROGRESS`)은 빨간 오류가 아니라 안내 — 서버 문장 + 할 일 + 라벨 화면 링크.
+// - MOB1 D-MOB1-08(AC-MOB1-14): 출력 기기가 있으나 끊겼으면 접수 문장 뒤 안내 상자에 "출력 기기('이름')가 연결되어 있지 않아요. …"와 라벨 화면 링크.
 // - U-PL1B-03: 그 밖의 거절은 RequestError(영어 코드를 보이지 않는다, 잠시 뒤 다시 하면 되는 실패는 "다시 시도").
 
 import { useEffect, useRef, useState } from 'react'
 import { isApiError, newRequestId, withRetry, type ApiError } from '../api/client.ts'
 import type { JobView } from '../api/print-types.ts'
-import { PRINT_ACTION } from '../lib/print-words.ts'
+import { PRINT_ACTION, deviceLostMessage } from '../lib/print-words.ts'
 import { AppLink } from './AppLink.tsx'
 import { RequestError } from './ErrorNote.tsx'
 import { usePrintApi, usePrintState } from './print-context.tsx'
@@ -109,6 +110,12 @@ function useNoPrintDevice(): boolean {
   return overview !== null && overview.queue.device === null
 }
 
+/** 출력 기기가 있으나 실시간 연결이 끊겼으면 그 이름 (MOB1 D-MOB1-08 — 모르면 null) */
+function useLostPrintDevice(): string | null {
+  const device = usePrintState().overview?.queue.device ?? null
+  return device !== null && !device.live ? device.name : null
+}
+
 function LabelsScreenLink() {
   return (
     <p className="packing-print-note">
@@ -120,6 +127,7 @@ function LabelsScreenLink() {
 export function PackingPrintResult({ print }: { readonly print: PackingPrintState }) {
   const box = useRef<HTMLDivElement>(null)
   const noDevice = useNoPrintDevice()
+  const lost = useLostPrintDevice()
   const shown = print.done !== null || print.error !== null
   useEffect(() => {
     if (!shown) return
@@ -133,6 +141,12 @@ export function PackingPrintResult({ print }: { readonly print: PackingPrintStat
       {print.done !== null && noDevice ? (
         <div className="notice stack-tight" role="note" data-tone="info">
           <p className="packing-print-note">{NO_PRINT_DEVICE_WAITING}</p>
+          <LabelsScreenLink />
+        </div>
+      ) : null}
+      {print.done !== null && lost !== null ? (
+        <div className="notice stack-tight" role="note" data-tone="info">
+          <p className="packing-print-note">{deviceLostMessage(lost)}</p>
           <LabelsScreenLink />
         </div>
       ) : null}

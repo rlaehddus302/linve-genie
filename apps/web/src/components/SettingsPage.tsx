@@ -14,7 +14,7 @@
 //   계좌 칸을 아직 받지 못했으면(불러오는 중·실패) 가게 이름만 저장한다(PUT /api/shop { name }).
 // - 백업: 마지막 자동 백업 시각(KST)·보관 기간·보관 중인 백업 목록(만든 시각·크기). 꺼져 있거나 마지막 성공이 26시간보다 오래되면 주의 안내.
 //   복구·백업 파일 내려받기 버튼은 없다(운영자에게 날짜를 알려 되돌린다 — D-I2-11).
-// - 전체 기록 내려받기: "전체 기록(JSON)"·"전체 판매대장(엑셀)" — 만드는 동안 그 버튼이 잠기고 "만드는 중이에요…".
+// - 전체 기록 내려받기: "전체 기록 파일 (옮기기·보관용)"(MOB1 D-MOB1-11 — 옛 "전체 기록(JSON)")·"전체 판매대장(엑셀)" — 만드는 동안 그 버튼이 잠기고 "만드는 중이에요…".
 // A1 (AC-A1-22): 틱톡 칸 뒤에 "AI 제안"(옵션 방송을 쓰는 판매자에게만 — 판매 방식 기본이 옵션이거나 옵션 방송 기록이 있다). `/settings/assist`는 그 칸이 보이게 연다.
 // L1 (AC-L1-21~23): 보조자 칸 뒤에 "로그인 방법"(판매자에게만 — 간편 로그인이 꺼진 서버면 칸이 없다). 공급자에서 돌아온 `?login=<코드>&provider=<p>`는
 //   그 칸에 정해진 문장을 한 번 보이고 주소에서 지운다. 연결·끊기 알림(`login`)과 다시 붙음에 목록을 다시 읽는다.
@@ -562,7 +562,7 @@ export function ExportSection() {
         {EXPORT_WARNING}
       </p>
       <div className="stack-tight">
-        <DownloadButton label="전체 기록(JSON)" busyText="만드는 중이에요…" path="/api/export/records.json.gz" fallbackName="livejjim-records.json.gz" />
+        <DownloadButton label="전체 기록 파일 (옮기기·보관용)" busyText="만드는 중이에요…" path="/api/export/records.json.gz" fallbackName="livejjim-records.json.gz" />
         <DownloadButton label="전체 판매대장(엑셀)" busyText="만드는 중이에요…" path="/api/export/ledger.xlsx" fallbackName="livejjim-ledger.xlsx" />
       </div>
     </section>

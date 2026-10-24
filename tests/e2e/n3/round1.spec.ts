@@ -236,7 +236,7 @@ test.describe('휴대폰 메뉴 — 확인 필요 수가 커도 (수정 라운�
     await fakeReviewCount(phone, 1234)
     for (const path of ['/sms', '/deposits', '/settlements']) {
       await phone.goto(path)
-      // AC-NAV-01·10: 막대는 ['방송','문자찜 입력','구매자','정산','더보기'] 한 줄·44px·화면 안 ("더보기"에는 수를 붙이지 않는다)
+      // AC-NAV-01·10: 막대는 ['방송','문자찜','구매자','정산','더보기'] (MOB1 D-MOB1-04) 한 줄·44px·화면 안 ("더보기"에는 수를 붙이지 않는다)
       await expectPhoneBar(phone)
       await expect(moreButton(phone)).toHaveText('더보기')
       // AC-NAV-02·05: 목록은 ['입금 확인 1234','포장','라벨','택배','설정'] ('라벨'은 라벨 기능이 켜져 있을 때만)

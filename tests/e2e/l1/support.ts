@@ -2,6 +2,7 @@
 // 선택자는 역할·이름 기반(L1 dev-notes "시험(test-e2e)에게"), 문장은 acceptance.md "결과 문장" 표 그대로.
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 import { fakeOAuthUrl } from '../../../apps/web/playwright.config.ts'
+import { logoutFully } from '../menu.ts'
 
 export { apiUrl, loginAs, loginNewSeller, newSeller, settingsRegion, type Seller } from '../i3/support.ts'
 
@@ -106,8 +107,7 @@ export async function whoAmI(request: APIRequestContext): Promise<{ status: numb
 }
 
 export async function logout(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '로그아웃' }).click()
-  await expect(page.getByLabel('아이디')).toBeVisible()
+  await logoutFully(page) // MOB1 D-MOB1-05 (휴대폰은 "더보기" 목록 맨 끝, 위험하면 확인 창)
 }
 
 function escapeRe(text: string): string {
