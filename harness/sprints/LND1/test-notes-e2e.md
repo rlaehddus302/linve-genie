@@ -35,3 +35,4 @@ AC-LND1-14의 `manifest.webmanifest`·`pwa/service-worker.ts` 차이: `git diff 
 ## 돌린 것
 
 - `CI=1 E2E_PORT_OFFSET=1700 pnpm exec playwright test --config apps/web/playwright.config.ts tests/e2e/lnd1` 과 바꾼 기존 파일들(`l1/**`, `s05/basic`, `s06/fixes`, `n3/reasons`, `n4b/screens`, `rn1/rename`, `i3/accounts`). 전체 E2E·`pnpm verify`는 돌리지 않았다(오케스트레이터 몫).
+- 도우미가 바뀐 영향 확인으로 `wiz/**`, `mob1/bar-logout`, `s05/attacks`, `s06/pwa`도 돌렸다. 하나만 실패했다. `s06/pwa` AC-S06-51 "새 버전…"은 `/sms`에서 시험 계정에 고를 방송이 없어 "메모" 칸이 잠겨 멈췄다("문자찜을 넣을 방송을 골라 주세요."). 앞 시험이 만든 방송이 있어야 통과하는 실행 순서 의존이고, 로그인 주소와는 상관없다(LND1 이전부터 있던 것).
