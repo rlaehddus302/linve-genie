@@ -80,7 +80,7 @@ describe('AC-RN1-09 서버 이름 상수', () => {
   it('고정 파일(연습 모드 안내)의 이름이 상수와 같다 (AC-RN1-11)', () => {
     const tryScript = read('scripts/try/try.mjs')
     expect(tryScript).toContain(`say('${SERVICE_NAME} 연습 모드를 준비하고 있어요. 처음에는 1~2분 걸려요...')`)
-    expect(tryScript).toContain(`say(' ${SERVICE_NAME} 연습 모드가 켜졌어요. (끄려면 이 창에서 Control + C)')`)
+    expect(tryScript).toContain(`say(' ${SERVICE_NAME} 연습 모드가 켜졌어요. (끄려면 이 창에서 Ctrl + C)')`) // RL1: 윈도우에서도 같은 글자(Ctrl + C)로 안내
     const chat = read('scripts/try/chat.html')
     expect(chat).toContain(`${SERVICE_NAME} 방송 화면에서 유튜브 "연습 라이브"를 이어 둔 뒤에 쓰세요.`)
     expect(chat).toContain(`보냈어요. ${SERVICE_NAME} 방송 화면에 몇 초 안에 나타나요.`)
