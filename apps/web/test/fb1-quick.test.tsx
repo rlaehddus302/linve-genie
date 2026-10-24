@@ -147,3 +147,24 @@ describe('콘솔 빠른 입력 (AC-FB1-02·03)', () => {
     expect(screen.queryByText(/^= /)).toBeNull()
   })
 })
+
+describe('휴대폰 고정 영역 (UX-04 · TE-FB1-001 · U-FB1-01)', () => {
+  it('휴대폰 폭: 단위 한 줄은 고정 영역 밖 바로 아래 — 고정 영역 안에는 "등록하면: …"만', async () => {
+    const quick = await openConsole()
+    const line = await screen.findByText('가격 단위: 천원 — 10은 10,000원, 2만은 20,000원')
+    const sticky = document.querySelector('.console-sticky')!
+    expect(sticky.contains(line)).toBe(false)
+    expect(sticky.nextElementSibling).toBe(line)
+    expect(screen.getAllByText(/^가격 단위: /)).toHaveLength(1)
+    fireEvent.change(quick, { target: { value: '15 엘레강스 10' } })
+    expect(sticky.contains(screen.getByText('등록하면: 15번 엘레강스 10,000원'))).toBe(true)
+  })
+
+  it('PC 폭: 단위 한 줄은 빠른 입력칸 아래(고정 영역 안) — 한 번만', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(min-width: 48rem)', media: query, addEventListener: () => {}, removeEventListener: () => {} }))
+    await openConsole()
+    const line = await screen.findByText('가격 단위: 천원 — 10은 10,000원, 2만은 20,000원')
+    expect(document.querySelector('.console-sticky')!.contains(line)).toBe(true)
+    expect(screen.getAllByText(/^가격 단위: /)).toHaveLength(1)
+  })
+})

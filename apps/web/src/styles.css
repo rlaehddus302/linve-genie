@@ -1984,6 +1984,11 @@ html:has(.save-bar) {
     margin: 0;
   }
 
+  /* 휴대폰: 단위 한 줄은 고정 영역 바로 아래(고정 영역 35% 이하, UX-04 · TE-FB1-001) */
+  .quick-unit-below {
+    margin: 0.375rem 0 0;
+  }
+
   /* 휴대폰: 개수 칸을 빠른 입력 줄과 한 줄에 (TE-STK-001) — 뒤 글자 "개"를 빼고 칸 안 여백을 줄여 빠른 입력 칸 폭을 남긴다 */
   .quick-row {
     gap: 0.375rem;

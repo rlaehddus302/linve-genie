@@ -118,3 +118,10 @@
 
 ### web에게
 - 단위 낱말·선택지는 `PRICE_UNITS` 순서로. 미리 보기는 지금처럼 `parseQuickInput`·`parseAmount`에 방송 스냅샷 설정을 넘기면 만원도 그대로 나온다(웹에서 따로 곱하지 않는다).
+
+## web 수정 라운드 (TE-FB1-001 · SA-FB1-01 · U-FB1-01 · U-FB1-02)
+
+- **휴대폰 고정 영역(UX-04)**: 휴대폰 폭(useWide 거짓)에서는 가격 단위 한 줄을 고정 영역(`.console-sticky`) 밖, 바로 아래(`QuickUnitLine`, `p.quick-unit.quick-unit-below`)에 그린다. 문장은 그대로(AC-FB1-02 — 문장 변경 없음, spec-keeper 거치지 않음). PC는 지금처럼 빠른 입력칸 아래 고정 영역 안. "등록하면: …"은 두 폭 모두 고정 영역 안(칸 가까이). 한 모양만 그린다(숨긴 사본 없음 — 단위 줄은 화면에 늘 하나).
+  - 확인: E2E s06/layout·nav/phone-menu·i4/voice-layout·n2b2/layout·i3/youtube·fb1/console·fb1/settings 60개 통과(기대값 그대로). 단위 시험 `apps/web/test/fb1-quick.test.tsx` "휴대폰 고정 영역" 둘.
+- **일부 실패 뒤 고칠 칸으로(U-FB1-02, UX-03)**: 저장 막대가 일부 실패를 받으면 실패한 칸 중 화면에서 첫 블록(`section.settings-section > h2` 이름)의 첫 `aria-invalid="true"` 칸으로 화면을 옮기고 포커스(접힌 "상세 설정" 안이면 편다). 빨간 칸이 없으면(네트워크 실패 등) 그 블록 제목(h2, tabIndex -1)으로. `apps/web/src/components/SaveBar.tsx` `focusFirstFailed`.
+  - e2e에게: 일부 실패 뒤 `expect(page.getByLabel('대기 인원 (0이면 대기 없음)')).toBeFocused()`, 네트워크 실패면 `heading "배송비"`가 포커스.

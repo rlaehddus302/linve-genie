@@ -55,7 +55,7 @@ import { OptionDialog } from './OptionDialog.tsx'
 import { useLabelsEnabled, usePrintState, useScopeLabels } from './print-context.tsx'
 import { DiscardDialog, PrintPauseDialog } from './PrintParts.tsx'
 import { ProductDetail } from './ProductDetail.tsx'
-import { QuickInput, type EditAsk, type FixState, type Registration } from './QuickInput.tsx'
+import { QuickInput, QuickUnitLine, type EditAsk, type FixState, type Registration } from './QuickInput.tsx'
 import { RehearsalPanel } from './RehearsalPanel.tsx'
 import { NOT_APPLIED_MESSAGE, UndoBar, secondsWord } from './UndoBar.tsx'
 import { PasteDialog } from './PasteDialog.tsx'
@@ -1271,6 +1271,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
                 onAskDismiss={removeAsk}
                 onAskRegister={registerAsk}
                 error={quickError}
+                unitInside={wide}
                 {...(attached !== null && attached.payload.options.length > 0
                   ? {}
                   : {
@@ -1319,6 +1320,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           </div>
           {wide ? voiceLive : null}
         </div>
+        {wide ? null : <QuickUnitLine />}
         {wide ? null : voiceLive}
         {/* 음성 칸 바로 아래 접는 칸 "음성 설정과 기록" (D-V2-21) — PC는 고정 영역 바로 아래 */}
         {voice === null ? null : <VoiceExtras voice={voice} snapshot={voiceSnapshot} />}

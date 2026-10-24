@@ -78,6 +78,11 @@ export interface QuickInputProps {
   /** "등록하기": 그 번호에 상품이 없어졌을 때 친 줄로 등록한다 (AC-S06-67) */
   readonly onAskRegister: (id: number) => void
   readonly error: ApiError | null
+  /**
+   * 가격 단위 한 줄을 이 안(고정 영역)에 그리는가. 휴대폰은 false — 고정 영역 35% 이하(UX-04, TE-FB1-001)라
+   * 콘솔이 고정 영역 바로 아래에 QuickUnitLine으로 그린다. 기본 true(PC)
+   */
+  readonly unitInside?: boolean
   /** 개수 칸 (없으면 보이지 않는다 — 옵션을 붙였을 때) */
   readonly count?: CountField
   /** 옵션 방송만: "옵션 추가" 버튼과 붙은 옵션 요약 (D-O2-05). 번호 방송에는 없다 */
@@ -86,6 +91,17 @@ export interface QuickInputProps {
     readonly onOpen: () => void
     readonly onClear: () => void
   }
+}
+
+/**
+ * 휴대폰 콘솔의 가격 단위 한 줄 (AC-FB1-02, D-FB1-01) — 고정 영역 바로 아래, 화면을 따라 내려가지 않는다.
+ * 고정 영역에 두면 두 줄로 꺾여 35%를 넘는다(UX-04, TE-FB1-001·U-FB1-01). 문장은 PC와 같다
+ */
+export function QuickUnitLine() {
+  const api = useConsoleApi()
+  const settings = api.settingsOf(api.b)
+  if (settings === null) return null
+  return <p className="hint quick-unit quick-unit-below">{unitLine(quickSettings(settings)['price.unit'])}</p>
 }
 
 export function QuickInput(props: QuickInputProps) {
@@ -182,7 +198,7 @@ export function QuickInput(props: QuickInputProps) {
       <p id="quick-help" className="hint quick-help">
         번호 품종 가격을 적고 Enter. 번호만 적으면 그 상품을 찾아요.{props.count !== undefined ? ' 같은 번호로 여러 개를 팔면 옆 개수 칸을 바꿔요.' : ''}
       </p>
-      {quick !== null ? <p className="hint quick-unit">{unitLine(quick['price.unit'])}</p> : null}
+      {quick !== null && props.unitInside !== false ? <p className="hint quick-unit">{unitLine(quick['price.unit'])}</p> : null}
       {willRegister !== null ? (
         <p className="quick-will-register" role="status">
           {willRegister}
