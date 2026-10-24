@@ -41,7 +41,7 @@ async function linkedSeller(page: Page, provider: Provider, user?: FakeUser): Pr
 async function socialLoginInNewContext(browser: Browser, baseURL: string, provider: Provider, user: FakeUser): Promise<{ ctx: BrowserContext; page: Page; callback: string }> {
   const ctx = await browser.newContext({ baseURL })
   const page = await ctx.newPage()
-  await page.goto('/')
+  await page.goto('/login') // LND1 D-LND1-01
   await pressContinue(page, provider)
   const callbackSeen = page.waitForRequest((r) => new URL(r.url()).pathname === `/api/auth/${provider}/callback`)
   await decideOnFakePage(page, provider, user)
@@ -113,7 +113,7 @@ for (const provider of PROVIDERS) {
 
     test(`4: ${P} 가짜 화면에서 취소 → 로그인 화면 CANCELLED 문장, 로그인되지 않음`, async ({ page }) => {
       const user = await fakeUser(page.request, provider)
-      await page.goto('/')
+      await page.goto('/login') // LND1 D-LND1-01
       await pressContinue(page, provider)
       await decideOnFakePage(page, provider, user, 'cancel')
       await expect(page.getByRole('alert')).toHaveText(MSG.CANCELLED(provider))
@@ -122,6 +122,10 @@ for (const provider of PROVIDERS) {
       expect((await whoAmI(page.request)).status).toBe(401)
       // 새로 고침하면 다시 보이지 않는다
       await page.reload()
+      // LND1 D-LND1-02: 새로고침한 '/'는 소개 화면 — 문장은 거기에도, 로그인 화면(/login)에도 없다
+      await expect(page.getByRole('heading', { level: 1, name: '라이브지니' })).toBeVisible()
+      await expect(page.getByText(MSG.CANCELLED(provider))).toHaveCount(0)
+      await page.goto('/login') // LND1 D-LND1-01
       await expect(page.getByLabel('아이디')).toBeFocused()
       await expect(page.getByText(MSG.CANCELLED(provider))).toHaveCount(0)
     })
@@ -131,7 +135,7 @@ for (const provider of PROVIDERS) {
       // 연결된 사용자로 시도해야 "state만 틀려서" 막혔음을 안다
       const ctx = await browser.newContext({ baseURL })
       const victim = await ctx.newPage()
-      await victim.goto('/')
+      await victim.goto('/login') // LND1 D-LND1-01
       await pressContinue(victim, provider)
       // 가짜 화면이 돌려보내는 주소를 받아 두고(앱으로 가지 않게), state를 바꿔 연다
       const back = await captureCallback(victim, provider, user)
@@ -145,7 +149,7 @@ for (const provider of PROVIDERS) {
       // 다른 문맥(공격자)에서 시작·동의해 받은 돌아오는 주소를 이 문맥에서 연다
       const attackerCtx = await browser.newContext({ baseURL })
       const attacker = await attackerCtx.newPage()
-      await attacker.goto('/')
+      await attacker.goto('/login') // LND1 D-LND1-01
       await pressContinue(attacker, provider)
       const foreign = (await captureCallback(attacker, provider, user)).href
       // 피해자는 이번엔 시작조차 안 했고(쿠키 없음), 시작해 둔 경우도 본다
@@ -154,7 +158,7 @@ for (const provider of PROVIDERS) {
       await noCookie.goto(foreign)
       await expect(noCookie.getByRole('alert')).toHaveText(MSG.EXPIRED)
       await expectLoggedOut(noCookie)
-      await victim.goto('/')
+      await victim.goto('/login') // LND1 D-LND1-01
       await pressContinue(victim, provider) // 피해자 브라우저에도 자기 __Host-lj_oauth가 있다
       await victim.goto(foreign)
       await expect(victim.getByRole('alert')).toHaveText(MSG.EXPIRED)
@@ -175,7 +179,7 @@ for (const provider of PROVIDERS) {
 
       // 새 state + 옛 코드: 새로 시작해 받은 state에 옛 code를 붙여 연다 → 가짜 서버가 코드 재사용을 거절 → PROVIDER_ERROR
       const oldCode = new URL(first.callback).searchParams.get('code') ?? ''
-      await first.page.goto('/')
+      await first.page.goto('/login') // LND1 D-LND1-01
       await pressContinue(first.page, provider)
       const newState = new URL(first.page.url()).searchParams.get('state') ?? ''
       const forged = new URL(first.callback)
@@ -195,7 +199,7 @@ for (const provider of PROVIDERS) {
       const expected = `${baseURL ?? ''}/api/auth/${provider}/callback`
       await fakeControl(page.request, '/_fake/redirect', { provider, redirectUri: `${baseURL ?? ''}/api/auth/${provider}/callback-other` })
       try {
-        await page.goto('/')
+        await page.goto('/login') // LND1 D-LND1-01
         await pressContinue(page, provider)
         await expect(page.locator('p[role=alert][data-error=redirect_uri_mismatch]')).toBeVisible()
         await expect(page.locator(`input[data-user="${user.id}"]`)).toHaveCount(0)
@@ -226,7 +230,7 @@ for (const provider of PROVIDERS) {
       const stranger = await fakeUser(page.request, provider, { email })
       const ctx = await browser.newContext({ baseURL })
       const p = await ctx.newPage()
-      await p.goto('/')
+      await p.goto('/login') // LND1 D-LND1-01
       await pressContinue(p, provider)
       await decideOnFakePage(p, provider, stranger)
       await expect(p.getByRole('alert')).toHaveText(MSG.NOT_LINKED(provider))

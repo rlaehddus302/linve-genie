@@ -325,7 +325,7 @@ test.describe('AC-N4b-42 리허설·보조자', () => {
       helper.on('request', (r) => {
         if (/receipt-(buyers|links)/.test(r.url())) asked.push(r.url())
       })
-      await helper.goto('/')
+      await helper.goto('/login') // LND1 D-LND1-01
       await helper.getByLabel('아이디').fill(assistant.loginId)
       await helper.getByLabel('비밀번호').fill(password)
       await helper.getByRole('button', { name: '로그인' }).click()
