@@ -123,7 +123,7 @@ export async function fillScope(server: LivejjimServer, sellerId: string, option
         const { chat } = maker.next(view)
         if (used.has(chat.id)) continue // 다시 보낸 사본은 채우기에서 뺀다 (한 트랜잭션 안의 같은 메시지 ID)
         used.add(chat.id)
-        drafts.push({ fields: { type: 'chat', ...chat }, actor: { kind: 'collector' }, chat: { b, id: chat.id } })
+        drafts.push({ fields: { type: 'chat', ...chat }, actor: { kind: 'collector' }, chat: { b, id: chat.id }, source: 'youtube' }) // 실제 범위의 유튜브 채팅 흉내
       }
       return drafts
     })

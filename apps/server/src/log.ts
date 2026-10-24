@@ -134,6 +134,8 @@ export type LogCode =
   | 'ASSIST_NETWORK'
   | 'ASSIST_FAILED'
   | 'ASSIST_NO_SUGGESTION'
+  // AIY1 (D-AIY1-06): 유튜브 줄을 AI로 보내지 않고 뺀 개수만. 글·닉네임·채널·메시지 ID는 남기지 않는다
+  | 'ASSIST_EXCLUDED'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -225,6 +227,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   ASSIST_NETWORK: 'AI 제안 요청을 보내지 못했어요(규칙 제안은 그대로)',
   ASSIST_FAILED: 'AI 제안을 처리하다 오류가 생겼어요(규칙 제안은 그대로)',
   ASSIST_NO_SUGGESTION: 'AI 답에서 검사를 통과하지 못한 항목을 제안 없음으로 두었어요',
+  ASSIST_EXCLUDED: '유튜브 채팅은 AI에 보내지 않고 규칙 제안만 두었어요',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */

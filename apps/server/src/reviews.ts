@@ -7,10 +7,12 @@
 // - 판정은 하지 않는다 — 코어 조회 함수(listReviews·listProducts·getBroadcast·getBuyer)만 부른다.
 // - A1 (CMT-06, R-20 10): 항목마다 suggestion(제안 { no, options?, qty, source: RULE|AI } 또는 null)을 더한다 — 볼 때마다 지금 상품 목록으로 다시 계산·검사하고
 //   외부 호출을 하지 않는다(assist/service.ts attach). 다른 키·순서·항목 수는 O2 그대로다.
+// - AIY1 (D-AIY1-04): 항목마다 excluded — 채팅 항목이고 유튜브에서 온 줄(이벤트 출처 youtube·extension·빈 값·모르는 값)이면 'YOUTUBE_POLICY', 아니면 null.
+//   AI 설정·사유·규칙 제안과 상관없이 같은 값. 유튜브 줄엔 AI 캐시 제안을 붙이지 않는다(규칙 제안만).
 import { getBroadcast, getBuyer, listProducts, listReviews, type ReviewInfo } from '@livejjim/core'
-import type { AssistService, ShownSuggestion } from './assist/service.ts'
+import { excludedOf, youtubeLine, type AssistService, type ExcludedReason, type ShownSuggestion } from './assist/service.ts'
 import type { Db } from './db/database.ts'
-import { eventBodiesAt, findBroadcast, optionScopes } from './store.ts'
+import { chatSourcesAt, eventBodiesAt, findBroadcast, optionScopes } from './store.ts'
 import { withIsoTimes } from './time.ts'
 import type { ScopeWriter } from './writer.ts'
 
@@ -33,6 +35,8 @@ export interface ReviewItem extends Omit<ReviewInfo, 'at'> {
   readonly phoneLast4: string | null
   /** 제안 (A1 — 채팅 항목·사유 UNKNOWN_WORD·PRODUCT_AMBIGUOUS만, 없으면 null). 판정이 아니다 */
   readonly suggestion: ShownSuggestion | null
+  /** AI로 보내지 않는 이유 (AIY1 D-AIY1-04): 유튜브에서 온 채팅 줄이면 'YOUTUBE_POLICY', 아니면 null */
+  readonly excluded: ExcludedReason | null
 }
 
 export interface ReviewsView {
@@ -77,17 +81,15 @@ export async function reviewsView(
     if (seq === 0 || scopeId === null) continue
     scopes.push({ date: target.date, rehearsal: target.rehearsal, seq })
     const items = listReviews(state).filter((review) => query.broadcast === undefined || review.broadcast === query.broadcast)
-    const bodies = await eventBodiesAt(db, sellerId, scopeId, [...new Set(items.map((review) => review.seq))])
+    const seqs = [...new Set(items.map((review) => review.seq))]
+    const bodies = await eventBodiesAt(db, sellerId, scopeId, seqs)
+    const sources = await chatSourcesAt(db, sellerId, scopeId, seqs)
     const seen = new Set<string>()
-    const suggestions = await assist.attach(
-      sellerId,
-      target,
-      state,
-      items.map((review) => {
-        const body = bodies.get(review.seq) ?? {}
-        return { broadcast: review.broadcast, origin: review.origin, reason: review.reason, no: review.no, text: review.origin === 'chat' ? str(body.text) : null }
-      }),
-    )
+    const attachItems = items.map((review) => {
+      const body = bodies.get(review.seq) ?? {}
+      return { broadcast: review.broadcast, origin: review.origin, reason: review.reason, no: review.no, text: review.origin === 'chat' ? str(body.text) : null, youtube: youtubeLine(review.origin, sources.get(review.seq)) }
+    })
+    const suggestions = await assist.attach(sellerId, target, state, attachItems)
     for (const [index, review] of items.entries()) {
       const broadcast = getBroadcast(state, review.broadcast)
       const body = bodies.get(review.seq) ?? {}
@@ -104,6 +106,7 @@ export async function reviewsView(
         received: sms ? str(body.received) : null,
         phoneLast4: sms ? str(body.phoneLast4) : null,
         suggestion: suggestions[index] ?? null,
+        excluded: excludedOf(attachItems[index] as (typeof attachItems)[number]),
       })
       seen.add(review.broadcast)
     }

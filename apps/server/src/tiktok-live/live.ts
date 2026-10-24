@@ -596,7 +596,7 @@ export class TikTokLive {
             // 같은 (회차, tt: 메시지 ID)가 이미 기록돼 있으면 다시 기록하지 않는다 — 모듈 기억(2만 개) 밖 중복의 2차 방어 (AC-N2b-2-52)
             if (seen.has(fields.id)) continue
             seen.add(fields.id)
-            drafts.push({ fields: { type: 'chat', b, ...fields }, actor: { kind: 'collector' }, chat: { b, id: fields.id }, skipIfInvalid: true })
+            drafts.push({ fields: { type: 'chat', b, ...fields }, actor: { kind: 'collector' }, chat: { b, id: fields.id }, source: 'other', skipIfInvalid: true })
           }
           drafted = drafts.length
           return drafts

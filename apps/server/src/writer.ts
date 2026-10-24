@@ -46,6 +46,9 @@ export type Actor = { readonly kind: 'account'; readonly accountId: string } | {
  */
 export type ChatSource = 'youtube' | 'extension' | 'rehearsal' | 'other'
 
+/** 유튜브 채팅일 수 있는지: 출처를 모르면(null) 유튜브로 본다 — 봉인 쪽이 안전하다 (D-AIY1-01, RA-AIY1-01) */
+const maybeYoutubeChat = (source: string | null): boolean => source !== 'other' && source !== 'rehearsal'
+
 /** 봉인한 범위에 쓰려 할 때 (AC-Y1-62) */
 export const SEALED_MESSAGE = '30일이 지난 방송 기록은 봉인되어 고칠 수 없어요.'
 
@@ -74,7 +77,10 @@ export interface Draft {
    * 거른 이벤트는 seq를 쓰지 않는다(뒤 이벤트가 그 seq를 받는다)
    */
   readonly skipIfInvalid?: boolean
-  /** 채팅이 어디서 왔는지 (채팅만, 기본 other). 본문·이름은 이벤트 기록 본문과 따로 둔다 (AC-Y1-60) */
+  /**
+   * 채팅이 어디서 왔는지 (채팅만). 본문·이름은 이벤트 기록 본문과 따로 둔다 (AC-Y1-60).
+   * 채팅을 쓰는 경로는 반드시 넘긴다. 빠뜨리면 출처 모름(null)으로 기록하고, 읽는 쪽은 유튜브처럼 다룬다 — AI로 보내지 않고 봉인 대상 (D-AIY1-01, RA-AIY1-01)
+   */
   readonly source?: ChatSource
 }
 
@@ -481,7 +487,7 @@ export class ScopeWriter {
             tx,
             rows.flatMap((row) => (row.raw === null ? [] : [row.raw])),
           )
-          if (!job.rehearsal && rows.some((row) => row.event.chatSource === 'youtube' || row.event.chatSource === 'extension')) await markYoutubeChat(tx, job.sellerId, scopeId)
+          if (!job.rehearsal && rows.some((row) => row.event.type === 'chat' && maybeYoutubeChat(row.event.chatSource))) await markYoutubeChat(tx, job.sellerId, scopeId)
           await insertOutbox(tx, computed.records.flatMap((record) => outboxRows(job, scopeId, record, now)))
           // 범위의 지금 seq — 실패 표시 이벤트도 seq를 쓴다 (AC-S05-60)
           await setScopeSeq(tx, job.sellerId, scopeId, computed.seq)
@@ -700,7 +706,7 @@ function eventRow(job: WriteJob, scopeId: string, record: CommittedRecord, draft
       changed: record.changed,
       failed: record.failed,
       digest: eventDigest(scopeId, record.seq, record.type, body, record.failed, split?.raw ?? null),
-      chatSource: record.type === 'chat' ? (draft.source ?? 'other') : null,
+      chatSource: record.type === 'chat' ? (draft.source ?? null) : null,
       raw: split !== null,
     },
     raw: split === null ? null : { sellerId: job.sellerId, scopeId, seq: record.seq, nick: split.raw.nick, text: split.raw.text },

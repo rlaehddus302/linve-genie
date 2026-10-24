@@ -428,6 +428,6 @@ expect:
 | `rule` | `settings`(`maxNumber`·`maxQuantity` — comment-options와 같음), `catalog` | `text`(댓글 본문 그대로), `review`(그 댓글의 확인 필요 결과 `{ reason, no?, options?, qty? }` — comment-options `review`와 같은 모양, 엔진이 읽은 것) | 제안 또는 `null`. 정확히 같음 |
 | `validate` | `settings`(`maxQuantity`), `catalog` | `items`(AI에 보낸 항목 `{ id, no? }` — `id` = 요청 안에서만 쓰는 글자 번호, `no` = 엔진이 읽은 번호, 없으면 키 없음), `response`(모델이 돌려준 글 그대로) | `items`의 모든 `id`를 키로 하는 객체, 값 = 제안 또는 `null`. 정확히 같음 |
 | `redact` | 없음 | `in`(댓글 본문 그대로) | AI로 보낼 글(문자열). 정확히 같음 |
-| `plan` | 없음 | `in` = `{ enabled, hasKey, usedToday, dailyLimit, globalUsed, globalLimit, batchMax, items }` — `items` = 한 방송의 확인 필요 항목 `{ id, origin: "chat"\|"sms", reason, no(정수 또는 null), rule(규칙 제안이 있는지), cached(같은 캐시 키의 AI 결과가 있는지), text }`(원래 순위 순) | `{ "send": [id …] }` — AI로 보낼 항목, 그 순서. 빈 목록이면 호출하지 않는다 |
+| `plan` | 없음 | `in` = `{ enabled, hasKey, usedToday, dailyLimit, globalUsed, globalLimit, batchMax, items }` — `items` = 한 방송의 확인 필요 항목 `{ id, origin: "chat"\|"sms", reason, no(정수 또는 null), rule(규칙 제안이 있는지), cached(같은 캐시 키의 AI 결과가 있는지), text, youtube? }`(원래 순위 순). `youtube`(AIY1, 선택, 없으면 `false`) = 유튜브에서 온 줄 — `true`면 보내지 않고 같은 글 묶기·묶음 수에서도 자리를 차지하지 않는다(D-AIY1-01·03). 실제 값은 서버가 기록의 출처로 정한다(경로를 모르면 `true`, D-AIY1-02) | `{ "send": [id …] }` — AI로 보낼 항목, 그 순서. 빈 목록이면 호출하지 않는다 |
 
 - `rule`의 "비슷함"·다시 읽기·사유 표, `validate`의 형식, `redact`의 순서, `plan`의 거르기·같은 글 묶기·상한은 DOMAIN_RULES R-20 10과 DECISIONS D-A1-02~D-A1-06이 정답이다. 캐시 키 계산·하루 사용량 세기(KST 날짜)·잠금·방송 고르기는 서버가 함수를 부르기 전·후에 하는 일이라 이 골든이 아니라 서버 시험·E2E가 본다.

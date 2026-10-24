@@ -786,6 +786,20 @@ export async function eventBodiesAt(db: Db, sellerId: string, scopeId: string, s
 }
 
 /**
+ * 범위 안 그 seq들의 채팅 출처(events.chat_source — 기록할 때 서버가 정한 값, AIY1 D-AIY1-02). 없거나 빈 값은 null. 판매자 ID 조건을 건다
+ */
+export async function chatSourcesAt(db: Db, sellerId: string, scopeId: string, seqs: readonly number[]): Promise<Map<number, string | null>> {
+  const out = new Map<number, string | null>()
+  if (seqs.length === 0) return out
+  const rows = await db
+    .select({ seq: events.seq, source: events.chatSource })
+    .from(events)
+    .where(and(eq(events.sellerId, sellerId), eq(events.scopeId, scopeId), inArray(events.seq, [...seqs])))
+  for (const row of rows) out.set(row.seq, row.source === null || row.source === '' ? null : row.source)
+  return out
+}
+
+/**
  * 한 회차에 since 뒤에 받은 그 경로의 채팅 (X1 D-X1-06 다른 경로 중복 판단): 메시지 ID·작성자 채널·게시 시각·본문.
  * 본문은 chat_raw에 있다(봉인 전). 판매자 ID 조건을 건다
  */
