@@ -1,6 +1,6 @@
 // AC-S05-01·02·10~15 기본 흐름 (test-e2e). 기대값은 acceptance.md 문장에서 정했다.
 import { test, expect } from '@playwright/test'
-import { LOGIN_ID, PASSWORD, board, boardItem, history, login, newBroadcast, register, uniqueDate } from './support.ts'
+import { LOGIN_ID, PASSWORD, board, boardItem, history, login, newBroadcast, postJson, register, uniqueDate } from './support.ts'
 import { logoutFully } from '../menu.ts'
 
 test.describe('AC-S05-01 로그인', () => {
@@ -55,14 +55,17 @@ test.describe('AC-S05-02 방송 목록', () => {
   test('새 방송 → 콘솔, 방송 끝내기 → "끝난 방송이에요", 목록에 끝남', async ({ page }) => {
     await login(page)
     const title = `끝낼 방송 ${String(Date.now() % 100000)}`
-    await newBroadcast(page, { date: uniqueDate(), title })
+    const b = await newBroadcast(page, { date: uniqueDate(), title })
     await page.getByRole('button', { name: '방송 끝내기' }).click()
     const dlg = page.getByRole('dialog', { name: '방송 끝내기' })
     await expect(dlg.getByText('방송을 끝낼까요? 끝난 뒤에도 늦게 온 채팅·문자찜은 처리돼요.')).toBeVisible()
     await dlg.getByRole('button', { name: '끝내기' }).click()
     await expect(page.getByText('끝난 방송이에요')).toBeVisible()
-    // 끝난 방송에서도 조치는 그대로 (R-1)
-    await register(page, '7 끝난뒤 7000', 7)
+    // 끝난 방송에서도 조치는 그대로 (R-1) — MOB1 D-MOB1-09: 끝난 방송 콘솔에는 빠른 입력 줄이 없어 등록은 API로(서버가 받는 것은 그대로)
+    await expect(page.getByLabel('빠른 입력')).toHaveCount(0)
+    const late = await postJson(page, '/api/events', { requestId: crypto.randomUUID(), type: 'product.register', b, no: 7, name: '끝난뒤', price: 7000 })
+    expect(late.status, JSON.stringify(late.body)).toBeLessThan(300)
+    await expect(boardItem(page, 7)).toBeVisible()
     await page.getByRole('link', { name: '방송 목록' }).click()
     await expect(page.getByRole('list', { name: '방송' }).getByRole('link', { name: new RegExp(title) })).toContainText('끝남')
   })
