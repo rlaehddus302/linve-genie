@@ -1,7 +1,7 @@
 // NIIMBOT 어댑터 — 지금은 B1 프로필 하나 (LABEL_RULES L-7, LBL-06·12, D-P1-08, TECH_REVIEW §1).
 // @mmote/niimbluelib(정확한 버전 고정)로 연결·출력한다. 클라이언트는 주입할 수 있어 시험은 가짜 클라이언트로 돈다.
 // import만으로는 navigator를 건드리지 않는다 — 기능 감지는 함수를 부를 때 한다.
-import { ImageEncoder, LabelType, NiimbotBluetoothClient, NiimbotSerialClient, PageColorType, type EncodedImage } from '@mmote/niimbluelib'
+import { ImageEncoder, LabelType, NiimbotBluetoothClient, NiimbotSerialClient, PageColorType, modelsLibrary, type EncodedImage } from '@mmote/niimbluelib'
 import { getPixel, isLabelBitmap, type LabelBitmap } from '@livejjim/label'
 import {
   DEFAULT_PRINT_TIMEOUT_MS,
@@ -16,7 +16,7 @@ import {
   type PrinterProfile,
   type PrinterTimer,
 } from './adapter.ts'
-import { OK, fail, type PrinterErrorCode, type PrinterResult } from './errors.ts'
+import { OK, fail, isTimeoutCause, modelDetail, retriedTimeoutDetail, type PrinterErrorCode, type PrinterResult } from './errors.ts'
 
 /** niimbluelib 인쇄 작업에서 이 어댑터가 쓰는 부분 */
 export interface NiimbotPrintTaskLike {
@@ -35,7 +35,11 @@ export interface NiimbotTaskOptions {
 
 /** niimbluelib 클라이언트(NiimbotBluetoothClient·NiimbotSerialClient)에서 이 어댑터가 쓰는 부분 */
 export interface NiimbotClientLike {
-  connect(): Promise<unknown>
+  /**
+   * 연결 — authorizedDevice를 주면 고르기 창을 띄우지 않고 그 기기로 잇는다(niimbluelib NiimbotBluetoothClient와 같다).
+   * 시리얼 클라이언트는 인자를 보지 않는다
+   */
+  connect(options?: { readonly authorizedDevice?: unknown }): Promise<unknown>
   disconnect(): Promise<void>
   isConnected(): boolean
   /** 연결한 프린터의 모델 정보 (모르면 undefined) */
@@ -79,6 +83,23 @@ export interface NiimbotAdapterOptions {
   readonly timer?: PrinterTimer
   /** 출력 시간 초과 (ms) */
   readonly printTimeoutMs?: number
+  /** B1 첫 확인이 시간 초과로 실패했을 때 같은 기기로 다시 잇기 전에 쉬는 시간 (ms, 기본 1초 — L-7, D-FB1-09) */
+  readonly reconnectDelayMs?: number
+}
+
+/** 다시 잇기 전에 쉬는 시간 기본값 (L-7 B1 첫 확인 다시 잇기) */
+export const NIIMBOT_RECONNECT_DELAY_MS = 1_000
+
+/** niimbluelib 블루투스 클라이언트가 쓰는 서비스 (BleDefaultConfiguration.SERVICES와 같다 — 0.47.1은 내보내지 않는다) */
+export const NIIMBOT_BLE_SERVICES: readonly string[] = Object.freeze(['e7810a71-73ae-499d-8c15-faa9aef0c3f2'])
+
+/**
+ * 고르기 창 거르기 — niimbluelib NiimbotBluetoothClient.connect()가 쓰는 것과 같다(모델 이름 첫 글자들 + 서비스).
+ * 어댑터가 고르기 창을 직접 띄우고 고른 기기를 클라이언트에 넘긴다 — 첫 확인이 시간 초과면 그 기기로 다시 잇는다(창을 다시 띄우지 않는다)
+ */
+export function niimbotRequestOptions(): { filters: ({ namePrefix: string } | { services: string[] })[] } {
+  const letters = [...new Set(modelsLibrary.map((m) => m.model[0]).filter((l): l is string => typeof l === 'string' && l !== ''))]
+  return { filters: [...letters.map((namePrefix) => ({ namePrefix })), { services: [...NIIMBOT_BLE_SERVICES] }] }
 }
 
 /** 1비트 그림 → niimbluelib 인쇄 그림 (흰색 0xffffff, 검정 0x000000) */
@@ -102,7 +123,8 @@ function connectErrorCode(error: unknown, method: ConnectionMethod): PrinterErro
   // 장치·포트 선택 창을 닫음 (사용자 동작 밖에서 부른 경우도 다시 누르게 안내한다)
   if (name === 'NotFoundError' || name === 'AbortError' || name === 'SecurityError' || name === 'NotAllowedError') return 'NOT_SELECTED'
   if (method === 'serial' && (name === 'InvalidStateError' || name === 'NetworkError' || /open|busy|access/i.test(message))) return 'PORT_BUSY'
-  return 'DISCONNECTED'
+  // 그 밖의 연결 중 예외 — 첫 확인 시간 초과·특성 없음·GATT 연결 실패 등 (FB1, D-FB1-09)
+  return 'CONNECT_FAILED'
 }
 
 /** NIIMBOT 어댑터 (켠 프로필 목록에 있는 모델만 받는다) */
@@ -131,28 +153,76 @@ export function createNiimbotAdapter(options: NiimbotAdapterOptions = {}): Print
     box.set('DISCONNECTED')
   }
 
+  /** 다시 잇기 전에 쉬는 동안의 깨우기 — 판매자가 연결 끊기를 누르면 바로 깨운다 */
+  let wakeWait: (() => void) | undefined
+  const reconnectDelayMs = options.reconnectDelayMs ?? NIIMBOT_RECONNECT_DELAY_MS
+
+  const pause = (ms: number): Promise<void> =>
+    new Promise<void>((resolve) => {
+      const handle = timer.setTimeout(() => {
+        wakeWait = undefined
+        resolve()
+      }, ms)
+      wakeWait = () => {
+        wakeWait = undefined
+        timer.clearTimeout(handle)
+        resolve()
+      }
+    })
+
   const connectOnce = async (method: ConnectionMethod): Promise<PrinterResult> => {
     const started = generation
+    const stale = (): boolean => generation !== started
     const env = environment()
     if (!detectMethods(env).includes(method)) return fail('UNSUPPORTED')
     box.set('CONNECTING')
+    /** 실패로 끝낸다 — 연결하는 동안 판매자가 끊기를 눌렀으면 언제나 DISCONNECTED(원인 없음) */
+    const giveUp = (code: PrinterErrorCode, cause?: unknown): PrinterResult => {
+      if (stale()) return fail('DISCONNECTED')
+      box.set('DISCONNECTED')
+      return fail(code, cause)
+    }
     if (method === 'bluetooth' && typeof env.bluetooth?.getAvailability === 'function') {
       // 확인할 수 없으면(예외) 연결을 시도해 본다
       const available = await env.bluetooth.getAvailability().catch(() => true)
-      if (!available) {
-        if (generation === started) box.set('DISCONNECTED')
-        return fail('BLUETOOTH_OFF')
-      }
+      if (!available) return giveUp('BLUETOOTH_OFF')
     }
+    if (stale()) return fail('DISCONNECTED')
     let next: NiimbotClientLike
     try {
       next = createClient(method)
-      await next.connect()
     } catch (error) {
-      box.set('DISCONNECTED')
-      return fail(connectErrorCode(error, method), error)
+      return giveUp(connectErrorCode(error, method), error)
     }
-    if (generation !== started) {
+    /** 판매자가 고른 기기 (블루투스 — 다시 잇기에 쓴다) */
+    let device: unknown
+    try {
+      if (method === 'bluetooth') {
+        const requestDevice = env.bluetooth?.requestDevice as (options: ReturnType<typeof niimbotRequestOptions>) => Promise<unknown>
+        device = await requestDevice.call(env.bluetooth, niimbotRequestOptions())
+        if (stale()) return fail('DISCONNECTED')
+        await next.connect(device === undefined || device === null ? undefined : { authorizedDevice: device })
+      } else {
+        await next.connect()
+      }
+    } catch (firstError) {
+      if (stale()) return fail('DISCONNECTED')
+      const code = connectErrorCode(firstError, method)
+      const canRetry = method === 'bluetooth' && code === 'CONNECT_FAILED' && device !== undefined && device !== null && isTimeoutCause(firstError)
+      if (!canRetry) return giveUp(code, firstError)
+      // B1 첫 확인 시간 초과 — 같은 기기로 한 번만, 쉬었다가 다시 잇는다(고르기 창을 다시 띄우지 않는다). 그동안 CONNECTING
+      await pause(reconnectDelayMs)
+      if (stale()) return fail('DISCONNECTED')
+      try {
+        // 같은 클라이언트로 다시 잇는다 — niimbluelib은 connect() 처음에 앞 연결을 정리한다
+        await next.connect({ authorizedDevice: device })
+      } catch (secondError) {
+        if (stale()) return fail('DISCONNECTED')
+        const again = connectErrorCode(secondError, method)
+        return giveUp(again, again === 'CONNECT_FAILED' ? retriedTimeoutDetail() : secondError)
+      }
+    }
+    if (stale()) {
       // 연결하는 동안 판매자가 연결 끊기를 눌렀다
       await next.disconnect().catch(() => undefined)
       return fail('DISCONNECTED')
@@ -161,8 +231,7 @@ export function createNiimbotAdapter(options: NiimbotAdapterOptions = {}): Print
     const matched = profiles.find((p) => p.model === model)
     if (!matched) {
       await next.disconnect().catch(() => undefined)
-      box.set('DISCONNECTED')
-      return fail('WRONG_MODEL', model === undefined ? undefined : `모델: ${model}`)
+      return giveUp('WRONG_MODEL', model === undefined ? undefined : modelDetail(model))
     }
     profile = matched
     client = next
@@ -192,6 +261,7 @@ export function createNiimbotAdapter(options: NiimbotAdapterOptions = {}): Print
 
     async disconnect() {
       generation++
+      wakeWait?.()
       const gone = client
       client = undefined
       gone?.off('disconnect', onDisconnect)

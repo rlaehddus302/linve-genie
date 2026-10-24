@@ -170,7 +170,8 @@ export function createMarklifeAdapter(options: MarklifeAdapterOptions = {}): Mar
     if (/adapter (is )?not available|bluetooth.*(off|disabled|unavailable)/i.test(message)) return 'BLUETOOTH_OFF'
     // 고르기 창을 닫음 (판매자 동작 밖에서 부른 경우도 다시 누르게 안내한다)
     if (name === 'NotFoundError' || name === 'AbortError' || name === 'SecurityError' || name === 'NotAllowedError') return 'NOT_SELECTED'
-    return 'DISCONNECTED'
+    // 그 밖의 연결 중 예외 (FB1, D-FB1-09)
+    return 'CONNECT_FAILED'
   }
 
   const connectOnce = async (method: ConnectionMethod): Promise<PrinterResult> => {
@@ -198,23 +199,23 @@ export function createMarklifeAdapter(options: MarklifeAdapterOptions = {}): Mar
     try {
       device = await bluetooth.requestDevice(request)
     } catch (error) {
-      if (stale()) return fail('DISCONNECTED', error)
+      if (stale()) return fail('DISCONNECTED')
       return giveUp(requestErrorCode(error), error)
     }
     if (stale()) return fail('DISCONNECTED')
     const matched = profileForDeviceName(device.name, profiles)
     if (!matched) {
       safeDisconnect(device.gatt)
-      return giveUp('WRONG_MODEL', '기기 이름이 켠 프로필의 이름 앞자리와 맞지 않다')
+      return giveUp('WRONG_MODEL')
     }
     const gatt = device.gatt
-    if (!gatt) return giveUp('DISCONNECTED')
+    if (!gatt) return giveUp('CONNECT_FAILED')
     let server: GattServerLike
     try {
       server = await gatt.connect()
     } catch (error) {
-      if (stale()) return fail('DISCONNECTED', error)
-      return giveUp('DISCONNECTED', error)
+      if (stale()) return fail('DISCONNECTED')
+      return giveUp('CONNECT_FAILED', error)
     }
     if (stale()) {
       safeDisconnect(gatt)
@@ -233,7 +234,8 @@ export function createMarklifeAdapter(options: MarklifeAdapterOptions = {}): Mar
     if (!chars) {
       const lost = !gatt.connected
       safeDisconnect(gatt)
-      return giveUp(lost ? 'DISCONNECTED' : 'WRONG_MODEL', lost ? undefined : '꾸러미 A(ff00)·C(fd00)가 없다')
+      // 꾸러미 A(ff00)·C(fd00)가 없으면 WRONG_MODEL, 그 사이 프린터 쪽에서 끊겼으면 연결 실패 (D-FB1-09)
+      return giveUp(lost ? 'CONNECT_FAILED' : 'WRONG_MODEL')
     }
     const { write: writeChar, notify, flow } = chars
     const withoutResponse = typeof writeChar.writeValueWithoutResponse === 'function' && writeChar.properties?.writeWithoutResponse !== false
@@ -287,15 +289,15 @@ export function createMarklifeAdapter(options: MarklifeAdapterOptions = {}): Mar
       if (current === link) current = undefined
       link.detach()
       safeDisconnect(gatt)
-      if (stale()) return fail('DISCONNECTED', error)
-      return giveUp('DISCONNECTED', error)
+      if (stale()) return fail('DISCONNECTED')
+      return giveUp('CONNECT_FAILED', error)
     }
     if (stale() || notConnected()) {
       if (current === link) current = undefined
       link.detach()
       safeDisconnect(gatt)
       if (stale()) return fail('DISCONNECTED')
-      return giveUp('DISCONNECTED')
+      return giveUp('CONNECT_FAILED')
     }
     profile = matched
     box.set('CONNECTED')

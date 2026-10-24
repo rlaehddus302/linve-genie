@@ -79,7 +79,7 @@ describe('AC-RN1-08 문서 정보의 서비스 이름', () => {
       receiver: { name: '홍길동', phone: '01012345678', address: '서울특별시 중구 세종대로 110', detail: '서울시청 3층', zip: '04524', memo: '' },
       sender: { name: '다육이네', phone: '0311234567', address: '경기도 성남시 분당구 판교역로 1' },
       itemCount: 1,
-      box: '소',
+      box: '80', // FB1 D-FB1-05 — 택배 크기 코드
       bookedDate: '2026-10-22',
     }
     const result = await renderWaybillsPdf([waybill], fontBytes())

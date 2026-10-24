@@ -124,7 +124,7 @@ describe('B1 어댑터 — 기능 감지와 연결 (AC-P1-41)', () => {
     const r = await setup(BOTH, client).adapter.connect('bluetooth')
     expect(!r.ok && r.error.code).toBe('NOT_SELECTED')
     expect(!r.ok && r.error.message).toBe(PRINTER_MESSAGES.NOT_SELECTED)
-    expect(!r.ok && r.error.detail).toBe('NotFoundError: User cancelled the requestDevice() chooser.')
+    expect(!r.ok && r.error.detail).toBeUndefined() // FB1 D-FB1-09 — 상세에 원래 예외 글을 넣지 않는다
   })
 
   it('블루투스를 쓸 수 없으면(getAvailability false) BLUETOOTH_OFF, 클라이언트를 만들지 않는다', async () => {
@@ -277,6 +277,7 @@ describe('끊김·오류·시간 초과 (AC-P1-43)', () => {
       PORT_BUSY: 'USB 연결을 다른 프로그램이 쓰고 있어요. NIIMBOT 프로그램을 닫거나 블루투스로 연결해 주세요.',
       WRONG_MODEL: '지금은 NIIMBOT B1만 연결할 수 있어요. B1을 골라 주세요.',
       DISCONNECTED: '프린터 연결이 끊겼어요.',
+      CONNECT_FAILED: '프린터에 연결하지 못했어요. 아래를 차례로 해 본 뒤 다시 연결해 주세요.', // FB1 D-FB1-09
       NOT_CONNECTED: '프린터를 먼저 연결해 주세요.',
       BUSY: '앞 라벨을 출력하는 중이에요. 끝난 뒤 다시 해 주세요.',
       IMAGE_TOO_WIDE: '라벨이 프린터보다 넓어요. 라벨 크기를 확인해 주세요.',
@@ -289,15 +290,16 @@ describe('끊김·오류·시간 초과 (AC-P1-43)', () => {
     for (const message of Object.values(PRINTER_MESSAGES)) expect(message.replace(/NIIMBOT|B1|USB/g, '')).not.toMatch(/[A-Za-z]/)
   })
 
-  it('출력 중 프린터 오류 예외 → PRINT_FAILED, 원래 예외는 기술 상세에만 (라벨 내용·전화번호 없음)', async () => {
+  it('출력 중 프린터 오류 예외 → PRINT_FAILED, 상세에 원래 예외 글 없음 (라벨 내용·전화번호 없음 — FB1 D-FB1-09)', async () => {
     const { adapter, client } = setup()
     await adapter.connect('bluetooth')
     client.failOn = 'page'
     const r = await adapter.print(sampleImage())
     expect(!r.ok && r.error.code).toBe('PRINT_FAILED')
-    expect(!r.ok && r.error.detail).toBe('PrintError: Print error 3: 덮개 열림')
-    expect(describeCause(new Error('구매자 010-1234-5678 출력 실패'))).toBe('Error: 구매자 *** 출력 실패')
-    expect(describeCause(new Error('Timeout 10000ms'))).toBe('Error: Timeout 10000ms')
+    // FB1 D-FB1-09 — 상세는 쉬운 말 고정 문장뿐이다(원래 예외 글을 돌려주지 않는다)
+    expect(!r.ok && r.error.detail).toBeUndefined()
+    expect(describeCause(new Error('구매자 010-1234-5678 출력 실패'))).toBeUndefined()
+    expect(describeCause(new Error('Timeout 10000ms'))).toBe('프린터가 답하지 않아 기다리는 시간이 지났어요.')
   })
 
   it('출력 중 클라이언트가 끊김을 알리면 DISCONNECTED, 끊김 알림보다 예외가 먼저 와도 끊김', async () => {

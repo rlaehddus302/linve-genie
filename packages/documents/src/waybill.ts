@@ -100,14 +100,41 @@ export function code128Bars(codes: readonly number[]): { readonly bars: readonly
 
 // ── 운송장 데이터 ─────────────────────────────────────────────────────────
 
-export type CarrierCode = 'FAKE' | 'EPOST'
+/** 운송장 택배사 코드 (PC-1 쓰는 택배사 — FB1 D-FB1-04). 직접 입력(OTHER)은 어댑터가 없어 운송장이 생기지 않는다 */
+export const CARRIER_CODES = ['FAKE', 'EPOST', 'CJ', 'HANJIN', 'LOGEN', 'LOTTE'] as const
+export type CarrierCode = (typeof CARRIER_CODES)[number]
+/** 운송장 택배사 이름 — 설정 화면 낱말과 같다(PC-1·PC-7). FAKE는 시험용 문장 그대로 */
 export const CARRIER_NAMES: Readonly<Record<CarrierCode, string>> = {
   FAKE: '가짜 택배 · 시험용 — 실제로 보낼 수 없어요',
-  EPOST: '우체국 택배',
+  EPOST: '우체국택배',
+  CJ: 'CJ대한통운',
+  HANJIN: '한진택배',
+  LOGEN: '로젠택배',
+  LOTTE: '롯데택배',
 }
 
-export const BOX_SIZES = ['극소', '소', '중', '대'] as const
+/** 택배 크기 코드 = 세 변의 합 cm 상한 (PC-6, FB1 D-FB1-05) */
+export const BOX_SIZES = ['60', '80', '100', '120', '160'] as const
 export type BoxSize = (typeof BOX_SIZES)[number]
+/** 택배 크기 화면 낱말 (PC-6 — 운송장도 같은 낱말, PC-7) */
+export const BOX_SIZE_NAMES: Readonly<Record<BoxSize, string>> = {
+  '60': '60cm 이하',
+  '80': '80cm 이하',
+  '100': '100cm 이하',
+  '120': '120cm 이하',
+  '160': '160cm 이하',
+}
+/** 옛 낱말 (FB1 전 — 극소·소·중·대) */
+export type LegacyBoxWord = '극소' | '소' | '중' | '대'
+/** 옛 낱말 → 새 코드 (차례대로 하나씩 — PC-6). 운송장은 옮기지 않은 옛 기록이 와도 새 낱말로 찍는다 */
+export const LEGACY_BOX_SIZES: Readonly<Record<LegacyBoxWord, BoxSize>> = Object.freeze({ 극소: '60', 소: '80', 중: '100', 대: '120' })
+
+/** 택배 크기 코드(또는 옛 낱말) → 코드. 표 밖이면 undefined */
+export function boxSizeOf(value: unknown): BoxSize | undefined {
+  if (typeof value !== 'string') return undefined
+  if ((BOX_SIZES as readonly string[]).includes(value)) return value as BoxSize
+  return Object.hasOwn(LEGACY_BOX_SIZES, value) ? LEGACY_BOX_SIZES[value as LegacyBoxWord] : undefined
+}
 
 /** 받는 분 (PC-2가 다듬은 여섯 칸 — 연락처는 숫자만, 우편번호·메모는 빈 글 가능) */
 export interface WaybillReceiver {
@@ -135,7 +162,8 @@ export interface WaybillData {
   readonly sender: WaybillSender
   /** 물품 수 (그 묶음 품목 수량 합) */
   readonly itemCount: number
-  readonly box: BoxSize
+  /** 택배 크기 코드 (옮기지 않은 옛 낱말도 받아 새 낱말로 찍는다) */
+  readonly box: BoxSize | LegacyBoxWord
   /** 접수 날짜 (KST YYYY-MM-DD) */
   readonly bookedDate: string
 }
@@ -301,7 +329,8 @@ const SIZE_STEPS = [12, 11.5, 11, 10.5, 10, 9.5, 9, 8.5, 8, 7.5, 7] as const
 export function layoutWaybill(data: WaybillData, fontSource: FontSource): WaybillLayoutResult {
   const font = asDocumentFont(fontSource)
   const codes = code128Codes(data.invoice)
-  if ('error' in codes || !(data.carrier in CARRIER_NAMES) || !Number.isSafeInteger(data.itemCount) || data.itemCount < 0) {
+  const box = boxSizeOf(data.box)
+  if ('error' in codes || !Object.hasOwn(CARRIER_NAMES, data.carrier) || box === undefined || !Number.isSafeInteger(data.itemCount) || data.itemCount < 0) {
     return { ok: false, error: { code: 'FORMAT', message: WAYBILL_FORMAT_MESSAGE } }
   }
   const { bars, modules } = code128Bars(codes.codes)
@@ -311,7 +340,7 @@ export function layoutWaybill(data: WaybillData, fontSource: FontSource): Waybil
   const footer = (placer: Placer): void => {
     placer.rule()
     placer.text('items', `물품 ${String(data.itemCount)}개`, FOOTER_SIZE)
-    placer.text('box', `상자 크기 ${clean(font, data.box)}`, FOOTER_SIZE)
+    placer.text('box', `상자 크기 ${BOX_SIZE_NAMES[box]}`, FOOTER_SIZE)
     placer.text('date', `접수 날짜 ${clean(font, data.bookedDate)}`, FOOTER_SIZE)
   }
 

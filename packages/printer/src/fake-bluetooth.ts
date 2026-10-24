@@ -20,6 +20,9 @@ import {
   type GattServiceLike,
 } from './bluetooth.ts'
 import { EXPERIMENTAL_PROFILES, MARKLIFE_PROFILES, profileForDeviceName } from './profiles.ts'
+import type { EncodedImage } from '@mmote/niimbluelib'
+import type { NiimbotClientLike, NiimbotPrintTaskLike, NiimbotTaskOptions, PrinterEnvironment } from './niimbot.ts'
+import type { ConnectionMethod } from './adapter.ts'
 
 /** 끝 알림: 보냄(작업을 다 받은 그 쓰기 안에서) · 안 보냄 · 붙잡아 두기(releaseAck로 보냄) · n ms 늦게 · 다른 바이트 */
 export type FakeAck = 'send' | 'none' | 'hold' | { readonly delayMs: number } | { readonly bytes: readonly number[] }
@@ -508,6 +511,193 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
     },
     setConnectFails: (value) => {
       connectFails = value
+    },
+  }
+}
+
+// ─── 가짜 NIIMBOT B1 블루투스 기기 (FB1, AC-FB1-36·40, D-FB1-09) ───
+// B1 어댑터의 environment·createClient 자리에 넣는다. niimbluelib 클라이언트 모양(connect({ authorizedDevice })·끊김 알림·인쇄 작업)을
+// 흉내 내고, 처음 N번의 첫 확인(협상)에 답하지 않게 정할 수 있다 — 그때 connect()는 niimbluelib과 같은 영어 예외를 던진다
+// (어댑터가 그 글을 화면·상세에 내지 않는지 보려고). 시각·난수를 쓰지 않는다(늦추기는 주입한 타이머).
+
+/** niimbluelib 0.47.1이 첫 확인 시간 초과에 던지는 글 (실제 윈도우 시험자 화면에 나온 글) */
+export const NIIMBOT_NEGOTIATE_TIMEOUT_MESSAGE = 'Unable to perform initial negotiate: Error: Timeout waiting response (waited for c2)'
+
+export interface FakeNiimbotBluetoothOptions {
+  /** 기기 이름 (기본 `B1-FAKE01`) */
+  readonly name?: string
+  /** 연결한 뒤 알리는 모델 (기본 `B1`) */
+  readonly model?: string
+  /** 처음 몇 번의 첫 확인(협상)에 답하지 않을지 (기본 0) — connect()마다 하나씩 센다 */
+  readonly unansweredNegotiations?: number
+  /** 답하지 않을 때 예외를 던지기까지 (ms, 기본 0 — 타이머로) */
+  readonly negotiationTimeoutMs?: number
+  /** 고르기 창에서: 기기를 고른다(기본) · 창을 닫는다(NotFoundError) */
+  readonly chooser?: 'pick' | 'cancel'
+  /** getAvailability() 값 (기본 true) */
+  readonly available?: boolean
+  readonly timer?: PrinterTimer
+}
+
+export interface FakeNiimbotPrint {
+  readonly options: NiimbotTaskOptions
+  readonly image: EncodedImage
+}
+
+export interface FakeNiimbotBluetooth {
+  /** 어댑터의 environment 자리에 넣는다 (블루투스만 — 시리얼 없음) */
+  readonly environment: PrinterEnvironment
+  /** 어댑터의 createClient 자리에 넣는다 */
+  readonly createClient: (method: ConnectionMethod) => NiimbotClientLike
+  /** 고르기 창(requestDevice)을 부른 횟수 */
+  readonly requests: number
+  /** 클라이언트 connect()를 부른 횟수 (다시 잇기 포함) */
+  readonly connectAttempts: number
+  /** connect()마다 받은 기기 — 고른 기기를 넘겼으면 그 기기, 안 넘겼으면 undefined */
+  readonly authorizedDevices: readonly unknown[]
+  /** 고르기 창이 돌려주는 기기 */
+  readonly device: { readonly name: string }
+  /** 아직 답하지 않을 협상 수 */
+  readonly unansweredNegotiations: number
+  readonly connected: boolean
+  /** 받은 인쇄 (받은 순서) */
+  readonly printed: readonly FakeNiimbotPrint[]
+  setUnansweredNegotiations(n: number): void
+  setChooser(chooser: 'pick' | 'cancel'): void
+  setAvailable(available: boolean): void
+  /** 프린터 쪽에서 끊긴다 */
+  disconnect(): void
+}
+
+export function createFakeNiimbotBluetooth(options: FakeNiimbotBluetoothOptions = {}): FakeNiimbotBluetooth {
+  const timer = options.timer ?? systemTimer
+  const device = Object.freeze({ name: options.name ?? 'B1-FAKE01' })
+  const model = options.model ?? 'B1'
+  let unanswered = Math.max(0, Math.floor(options.unansweredNegotiations ?? 0))
+  let chooser = options.chooser ?? 'pick'
+  let available = options.available ?? true
+  let requests = 0
+  let connectAttempts = 0
+  const authorizedDevices: unknown[] = []
+  const printed: FakeNiimbotPrint[] = []
+  /** 지금 이어진 클라이언트 (많아야 하나 — 프린터는 한 기기에만 이어진다) */
+  const live = new Set<FakeClient>()
+
+  const later = (ms: number): Promise<void> => (ms <= 0 ? Promise.resolve() : new Promise<void>((resolve) => timer.setTimeout(resolve, ms)))
+
+  class FakeClient implements NiimbotClientLike {
+    #connected = false
+    readonly #listeners = new Set<() => void>()
+    readonly protocol = {
+      newPrintTask: (_name: string, taskOptions: NiimbotTaskOptions): NiimbotPrintTaskLike => {
+        return {
+          printInit: () => (this.#connected ? Promise.resolve() : Promise.reject(new FakeError('NetworkError', 'GATT 서버가 끊겼다'))),
+          printPage: (image: EncodedImage) => {
+            if (!this.#connected) return Promise.reject(new FakeError('NetworkError', 'GATT 서버가 끊겼다'))
+            printed.push({ options: { ...taskOptions }, image })
+            return Promise.resolve()
+          },
+          waitForFinished: () => Promise.resolve(),
+          printEnd: () => Promise.resolve(true),
+        }
+      },
+    }
+
+    async connect(connectOptions?: { readonly authorizedDevice?: unknown }): Promise<unknown> {
+      await this.disconnect()
+      connectAttempts++
+      const given = connectOptions?.authorizedDevice
+      authorizedDevices.push(given)
+      if (given === undefined) {
+        // 고른 기기를 넘기지 않으면 niimbluelib처럼 고르기 창을 띄운다
+        requests++
+        if (chooser === 'cancel') throw new FakeError('NotFoundError', 'User cancelled the requestDevice() chooser.')
+      }
+      if (unanswered > 0) {
+        unanswered--
+        await later(options.negotiationTimeoutMs ?? 0)
+        throw new Error(NIIMBOT_NEGOTIATE_TIMEOUT_MESSAGE)
+      }
+      for (const other of [...live]) other.dropFromPrinter()
+      this.#connected = true
+      live.add(this)
+      return { deviceName: device.name, result: 1 }
+    }
+
+    disconnect(): Promise<void> {
+      live.delete(this)
+      this.#connected = false
+      return Promise.resolve()
+    }
+
+    isConnected(): boolean {
+      return this.#connected
+    }
+
+    getModelMetadata(): { readonly model: string } | undefined {
+      return this.#connected ? { model } : undefined
+    }
+
+    on(_event: 'disconnect', listener: () => void): unknown {
+      this.#listeners.add(listener)
+      return this
+    }
+
+    off(_event: 'disconnect', listener: () => void): unknown {
+      this.#listeners.delete(listener)
+      return this
+    }
+
+    dropFromPrinter(): void {
+      if (!this.#connected) return
+      this.#connected = false
+      live.delete(this)
+      for (const listener of [...this.#listeners]) listener()
+    }
+  }
+
+  const bluetooth = {
+    requestDevice: (): Promise<unknown> => {
+      requests++
+      if (chooser === 'cancel') return Promise.reject(new FakeError('NotFoundError', 'User cancelled the requestDevice() chooser.'))
+      return Promise.resolve(device)
+    },
+    getAvailability: (): Promise<boolean> => Promise.resolve(available),
+  }
+
+  return {
+    environment: { bluetooth },
+    createClient: () => new FakeClient(),
+    get requests() {
+      return requests
+    },
+    get connectAttempts() {
+      return connectAttempts
+    },
+    get authorizedDevices() {
+      return [...authorizedDevices]
+    },
+    device,
+    get unansweredNegotiations() {
+      return unanswered
+    },
+    get connected() {
+      return live.size > 0
+    },
+    get printed() {
+      return [...printed]
+    },
+    setUnansweredNegotiations: (n) => {
+      unanswered = Math.max(0, Math.floor(n))
+    },
+    setChooser: (value) => {
+      chooser = value
+    },
+    setAvailable: (value) => {
+      available = value
+    },
+    disconnect: () => {
+      for (const client of [...live]) client.dropFromPrinter()
     },
   }
 }

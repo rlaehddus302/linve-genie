@@ -1,5 +1,5 @@
 // 프린터 오류 코드와 화면 문장 (LABEL_RULES L-7 표, UX-01·UX-03, AC-P1-43·62).
-// 실패는 언제나 코드 + 이 문장으로 알린다. 원래 예외는 접어 둘 기술 상세(detail)에만 담고, 라벨 내용은 담지 않는다.
+// 실패는 언제나 코드 + 이 문장으로 알린다. 접어 둘 상세(detail)에는 원래 예외 글을 넣지 않는다 — 쉬운 말 고정 문장만 (FB1, D-FB1-09).
 
 /** L-7 표의 오류 코드 */
 export const PRINTER_ERROR_CODES = [
@@ -9,6 +9,7 @@ export const PRINTER_ERROR_CODES = [
   'PORT_BUSY',
   'WRONG_MODEL',
   'DISCONNECTED',
+  'CONNECT_FAILED',
   'NOT_CONNECTED',
   'BUSY',
   'IMAGE_TOO_WIDE',
@@ -31,6 +32,7 @@ export const PRINTER_MESSAGES: Readonly<Record<PrinterErrorCode, string>> = {
   PORT_BUSY: 'USB 연결을 다른 프로그램이 쓰고 있어요. NIIMBOT 프로그램을 닫거나 블루투스로 연결해 주세요.',
   WRONG_MODEL: '지금은 NIIMBOT B1만 연결할 수 있어요. B1을 골라 주세요.',
   DISCONNECTED: '프린터 연결이 끊겼어요.',
+  CONNECT_FAILED: '프린터에 연결하지 못했어요. 아래를 차례로 해 본 뒤 다시 연결해 주세요.',
   NOT_CONNECTED: '프린터를 먼저 연결해 주세요.',
   BUSY: '앞 라벨을 출력하는 중이에요. 끝난 뒤 다시 해 주세요.',
   IMAGE_TOO_WIDE: '라벨이 프린터보다 넓어요. 라벨 크기를 확인해 주세요.',
@@ -39,16 +41,29 @@ export const PRINTER_MESSAGES: Readonly<Record<PrinterErrorCode, string>> = {
   INVALID_DENSITY: '인쇄 농도는 1~5 사이의 정수로 정해 주세요.',
 }
 
-/** 끊김 문장과 함께 보일 단추 (LBL-06 AC2) */
+/** 끊김·연결 실패 문장과 함께 보일 단추 (LBL-06 AC2, D-FB1-09) */
 export const RECONNECT_ACTION = '다시 연결'
+
+/** `다시 연결` 단추가 붙는 코드 */
+const RECONNECT_CODES: ReadonlySet<PrinterErrorCode> = new Set(['DISCONNECTED', 'CONNECT_FAILED'])
+
+/** 상세 고정 문장 — 원인이 시간 초과일 때 (L-7 자세히) */
+export const TIMEOUT_DETAIL = '프린터가 답하지 않아 기다리는 시간이 지났어요.'
+/** 저절로 한 번 더 해 봤을 때 TIMEOUT_DETAIL 뒤에 붙는 문장 (L-7 B1 첫 확인 다시 잇기) */
+export const RETRIED_DETAIL_SUFFIX = ' 한 번 더 해 봤지만 안 됐어요.'
+/** 시간 초과로 실패해 한 번 더 해 봤지만 또 실패했을 때의 상세 */
+export const RETRIED_TIMEOUT_DETAIL = `${TIMEOUT_DETAIL}${RETRIED_DETAIL_SUFFIX}`
 
 export interface PrinterError {
   readonly code: PrinterErrorCode
   /** 화면에 그대로 쓰는 쉬운 한국어 문장 */
   readonly message: string
-  /** 함께 보일 단추 (끊김이면 `다시 연결`) */
+  /** 함께 보일 단추 (끊김·연결 실패면 `다시 연결`) */
   readonly action?: string
-  /** 접어 둘 기술 상세 — 원래 예외의 이름과 메시지(전화번호 꼴 숫자는 가린다). 라벨 내용은 담지 않는다 */
+  /**
+   * 접어 둘 상세 — 쉬운 말 고정 문장뿐이다(원래 예외 글·라벨 내용은 담지 않는다, D-FB1-09): TIMEOUT_DETAIL,
+   * RETRIED_TIMEOUT_DETAIL, WRONG_MODEL의 "모델: {모델 이름}". 그 밖엔 없다
+   */
   readonly detail?: string
 }
 
@@ -56,30 +71,61 @@ export type PrinterResult = { readonly ok: true } | { readonly ok: false; readon
 
 export const OK: PrinterResult = Object.freeze({ ok: true })
 
-const DETAIL_MAX = 300
+/** 원래 예외의 글 (이름 + 메시지) — 상세에 넣지 않고 원인을 가리는 데만 쓴다 */
+function causeText(cause: unknown): string {
+  if (cause instanceof Error) return `${cause.name}: ${cause.message}`
+  if (typeof cause === 'object' && cause !== null && 'name' in cause && 'message' in cause) return `${String(cause.name)}: ${String(cause.message)}`
+  return String(cause)
+}
 
-/** 원래 예외 → 기술 상세 글. 7자리 이상 이어진 숫자(구분자 포함)는 가린다 — 전화번호가 상세로 새지 않게 */
+/** 원인이 시간 초과인지 (예외 글에 `timeout`·`timed out`, 대소문자 무시 — L-7 자세히) */
+export function isTimeoutCause(cause: unknown): boolean {
+  if (cause === undefined || cause === null) return false
+  return /timeout|timed out/i.test(causeText(cause))
+}
+
+/**
+ * 원래 예외 → 상세 고정 문장. 시간 초과면 TIMEOUT_DETAIL, 그 밖엔 undefined.
+ * FB1(D-FB1-09)부터 원래 예외 글을 돌려주지 않는다 — 전에는 예외 이름·메시지를 돌려줬다.
+ */
 export function describeCause(cause: unknown): string | undefined {
-  if (cause === undefined) return undefined
-  let text: string
-  if (cause instanceof Error) text = `${cause.name}: ${cause.message}`
-  else if (typeof cause === 'object' && cause !== null && 'name' in cause && 'message' in cause) text = `${String(cause.name)}: ${String(cause.message)}`
-  else text = String(cause)
-  text = text.replace(/\d(?:[\s-]?\d){6,}/g, '***')
-  return text.length > DETAIL_MAX ? `${text.slice(0, DETAIL_MAX)}…` : text
+  return isTimeoutCause(cause) ? TIMEOUT_DETAIL : undefined
+}
+
+/** 상세를 정해 둔 원인 (WRONG_MODEL의 모델 이름, 다시 잇기 뒤의 상세) — 밖에서는 modelDetail·retriedTimeoutDetail로만 만든다 */
+class FixedDetail {
+  readonly text: string
+  constructor(text: string) {
+    this.text = text
+  }
+}
+
+/** 고정 상세: "모델: {모델 이름}" (WRONG_MODEL) */
+export function modelDetail(model: string): unknown {
+  return new FixedDetail(`모델: ${model}`)
+}
+
+/** 고정 상세: 시간 초과로 한 번 더 해 봤지만 안 됐다 */
+export function retriedTimeoutDetail(): unknown {
+  return new FixedDetail(RETRIED_TIMEOUT_DETAIL)
+}
+
+function detailOf(cause: unknown): string | undefined {
+  if (cause instanceof FixedDetail) return cause.text
+  return describeCause(cause)
 }
 
 export function printerError(code: PrinterErrorCode, cause?: unknown): PrinterError {
   return printerErrorWithMessage(code, PRINTER_MESSAGES[code], cause)
 }
 
-/** 코드 + 정한 문장으로 오류를 만든다 (어댑터마다 문장이 다른 코드 — L-12 6). 끊김이면 `다시 연결` 단추가 붙는다 */
+/** 코드 + 정한 문장으로 오류를 만든다 (어댑터마다 문장이 다른 코드 — L-12 6). 끊김·연결 실패면 `다시 연결` 단추가 붙는다 */
 export function printerErrorWithMessage(code: PrinterErrorCode, message: string, cause?: unknown): PrinterError {
-  const detail = describeCause(cause)
+  const detail = detailOf(cause)
   return {
     code,
     message,
-    ...(code === 'DISCONNECTED' ? { action: RECONNECT_ACTION } : {}),
+    ...(RECONNECT_CODES.has(code) ? { action: RECONNECT_ACTION } : {}),
     ...(detail === undefined ? {} : { detail }),
   }
 }
@@ -98,6 +144,7 @@ export const MARKLIFE_MESSAGES: Readonly<Record<MarklifeErrorCode, string>> = {
   BLUETOOTH_OFF: PRINTER_MESSAGES.BLUETOOTH_OFF,
   WRONG_MODEL: '연결할 수 없는 프린터예요. 목록에 있는 프린터를 골라 주세요.',
   DISCONNECTED: PRINTER_MESSAGES.DISCONNECTED,
+  CONNECT_FAILED: PRINTER_MESSAGES.CONNECT_FAILED,
   NOT_CONNECTED: PRINTER_MESSAGES.NOT_CONNECTED,
   BUSY: PRINTER_MESSAGES.BUSY,
   IMAGE_TOO_WIDE: PRINTER_MESSAGES.IMAGE_TOO_WIDE,

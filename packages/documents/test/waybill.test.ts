@@ -251,7 +251,7 @@ const BASE: WaybillData = {
   receiver: { name: '홍길동', phone: '01012345678', address: '서울특별시 중구 세종대로 110', detail: '서울시청 3층', zip: '04524', memo: '문 앞에 놓아 주세요' },
   sender: { name: '다육이네', phone: '0311234567', address: '경기도 성남시 분당구 판교역로 1' },
   itemCount: 3,
-  box: '소',
+  box: '80', // FB1 D-FB1-05 — 택배 크기 코드(세 변의 합). 옛 '소'와 같은 크기
   bookedDate: '2026-10-22',
 }
 
@@ -314,7 +314,7 @@ describe('AC-T1-41 운송장 PDF 내용과 바코드', () => {
       '0311234567',
       BASE.sender.address,
       '물품 3개',
-      '소',
+      '상자 크기 80cm 이하', // FB1 D-FB1-05 — 화면 낱말로 찍는다
       '2026-10-22',
     ]) {
       expect(all, expected).toContain(squash(expected))

@@ -288,11 +288,12 @@ describe('GATT 꾸러미 찾기 (AC-N1-32)', () => {
 })
 
 describe('연결 실패와 문장 (AC-N1-33·34)', () => {
-  it('고르기 창 닫기 NOT_SELECTED, 블루투스 꺼짐 BLUETOOTH_OFF, GATT 연결 실패 DISCONNECTED(+ 다시 연결)', async () => {
+  it('고르기 창 닫기 NOT_SELECTED, 블루투스 꺼짐 BLUETOOTH_OFF, GATT 연결 실패 CONNECT_FAILED(+ 다시 연결)', async () => {
     const cancel = setup({ chooser: 'cancel' })
     expect(await cancel.adapter.connect('bluetooth')).toEqual({
       ok: false,
-      error: { code: 'NOT_SELECTED', message: '프린터를 고르지 않았어요. 다시 연결을 누르고 목록에서 프린터를 골라 주세요.', detail: 'NotFoundError: User cancelled the requestDevice() chooser.' },
+      // FB1 D-FB1-09 — 상세에 원래 예외 글을 넣지 않는다
+      error: { code: 'NOT_SELECTED', message: '프린터를 고르지 않았어요. 다시 연결을 누르고 목록에서 프린터를 골라 주세요.' },
     })
     expect(cancel.states).toEqual(['CONNECTING', 'DISCONNECTED'])
     const off = setup({ available: false })
@@ -300,7 +301,8 @@ describe('연결 실패와 문장 (AC-N1-33·34)', () => {
     expect(off.fake.requests).toHaveLength(0)
     const broken = setup({ connectFails: true })
     const r = await broken.adapter.connect('bluetooth')
-    expect(r).toMatchObject({ ok: false, error: { code: 'DISCONNECTED', message: '프린터 연결이 끊겼어요.', action: '다시 연결' } })
+    // FB1 D-FB1-09 — 연결 중 예외는 CONNECT_FAILED, 상세 없음
+    expect(r).toEqual({ ok: false, error: { code: 'CONNECT_FAILED', message: '프린터에 연결하지 못했어요. 아래를 차례로 해 본 뒤 다시 연결해 주세요.', action: '다시 연결' } })
     expect(broken.adapter.state).toBe('DISCONNECTED')
     // 다시 누르면 다시 연결된다
     broken.fake.setConnectFails(false)
@@ -314,6 +316,7 @@ describe('연결 실패와 문장 (AC-N1-33·34)', () => {
       BLUETOOTH_OFF: '블루투스가 꺼져 있어요. 블루투스를 켠 뒤 다시 연결해 주세요.',
       WRONG_MODEL: '연결할 수 없는 프린터예요. 목록에 있는 프린터를 골라 주세요.',
       DISCONNECTED: '프린터 연결이 끊겼어요.',
+      CONNECT_FAILED: '프린터에 연결하지 못했어요. 아래를 차례로 해 본 뒤 다시 연결해 주세요.', // FB1 D-FB1-09
       NOT_CONNECTED: '프린터를 먼저 연결해 주세요.',
       BUSY: '앞 라벨을 출력하는 중이에요. 끝난 뒤 다시 해 주세요.',
       IMAGE_TOO_WIDE: '라벨이 프린터보다 넓어요. 라벨 크기를 확인해 주세요.',

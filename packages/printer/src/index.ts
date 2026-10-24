@@ -27,7 +27,11 @@ export {
   PRINTER_ERROR_CODES,
   PRINTER_MESSAGES,
   RECONNECT_ACTION,
+  RETRIED_DETAIL_SUFFIX,
+  RETRIED_TIMEOUT_DETAIL,
+  TIMEOUT_DETAIL,
   describeCause,
+  isTimeoutCause,
   printerError,
   printerErrorWithMessage,
   type MarklifeErrorCode,
@@ -73,7 +77,9 @@ export {
 } from './bluetooth.ts'
 export { MARKLIFE_DEFAULTS, createMarklifeAdapter, type MarklifeAdapter, type MarklifeAdapterOptions } from './marklife.ts'
 export {
+  NIIMBOT_NEGOTIATE_TIMEOUT_MESSAGE,
   createFakeBluetooth,
+  createFakeNiimbotBluetooth,
   fakeJobLength,
   fakeJobStartAt,
   type FakeAck,
@@ -81,14 +87,20 @@ export {
   type FakeBluetooth,
   type FakeBluetoothOptions,
   type FakeJobBehavior,
+  type FakeNiimbotBluetooth,
+  type FakeNiimbotBluetoothOptions,
+  type FakeNiimbotPrint,
 } from './fake-bluetooth.ts'
 export {
+  NIIMBOT_BLE_SERVICES,
+  NIIMBOT_RECONNECT_DELAY_MS,
   browserEnvironment,
   createB1Adapter,
   createNiimbotAdapter,
   defaultNiimbotClient,
   detectMethods,
   encodeForNiimbot,
+  niimbotRequestOptions,
   type NiimbotAdapterOptions,
   type NiimbotClientLike,
   type NiimbotPrintTaskLike,
