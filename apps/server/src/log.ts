@@ -42,6 +42,8 @@ export type LogCode =
   | 'REQUEST_FAILED'
   | 'STATE_FORMAT'
   | 'STREAM_FAILED'
+  // QS1 D-QS1-04: 실시간 연결을 한도로 닫음 — 판매자 ID와 까닭(reason: BUFFER_FULL · SELLER_LIMIT)만
+  | 'STREAM_CLOSED'
   | 'LOGIN_PRUNE_FAILED'
   | 'DRAFT_SKIPPED'
   // X1 크롬 확장 (YT-10 AC9): 종류·판매자만 — 토큰·닉네임·본문은 남기지 않는다
@@ -144,6 +146,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   REQUEST_FAILED: '요청 처리 중 오류가 생겼어요',
   STATE_FORMAT: '상태 형식이 달라 다시 불러와요',
   STREAM_FAILED: '실시간 연결에 보내지 못했어요',
+  STREAM_CLOSED: '실시간 연결을 한도로 닫았어요(브라우저가 다시 연결해요)',
   LOGIN_PRUNE_FAILED: '로그인 시도 기록을 정리하지 못했어요(로그인은 계속함)',
   DRAFT_SKIPPED: '서버가 덧붙이는 입력(차단 이어받기)이 입력 검사를 통과하지 못해 기록하지 않았어요',
   EXT_SAVE_FAILED: '확장에서 받은 채팅을 저장하지 못했어요(확장이 다시 보내요)',

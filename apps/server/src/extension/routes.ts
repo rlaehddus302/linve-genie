@@ -37,21 +37,35 @@ const invalid = (problems: FieldProblem[]) => apiError(400, 'INVALID_INPUT', '�
 const disconnected = () => apiError(401, 'EXT_DISCONNECTED', EXTENSION_MESSAGES.DISCONNECTED)
 const notFound = () => apiError(404, 'NOT_FOUND', '찾을 수 없어요.')
 
-/** 판매자 화면 경로 (/api/extension) */
-export function registerExtensionRoutes(api: Hono<ApiEnv>, extension: ExtensionService): void {
+/** 서버 전체 코드 넣기 한도 (10분, D-QS1-06 (2) — 600 → 3,000) */
+export const EXT_CODE_GLOBAL_MAX = 3000
+
+/**
+ * 판매자 화면 경로 (/api/extension). `address`는 요청의 주소 읽기(api.ts — 로그인 IP 한도와 같은 규칙)다.
+ * 코드를 만들거나 다시 만들면 그 주소를 판매자의 믿는 주소로 10분 기억한다(D-QS1-06 (3)). 주소를 모르면 기억하지 않는다
+ */
+export function registerExtensionRoutes(api: Hono<ApiEnv>, extension: ExtensionService, address: (c: Context) => string | null = () => null): void {
   const body = (c: Context<ApiEnv>) => c.get('body') ?? {}
   const session = (c: Context<ApiEnv>) => c.get('session')
+  const trust = (c: Context<ApiEnv>) => {
+    const at = address(c)
+    extension.trustedAddresses.remember(session(c).sellerId, at === null ? null : ipKey(at))
+  }
 
   api.get('/extension', async (c) => c.json({ extension: await extension.view(session(c).sellerId) }))
   api.post('/extension/code', async (c) => {
     const extra = onlyKeys(body(c), [])
     if (extra !== null) return extra
-    return c.json(await extension.issueCode(session(c).sellerId, session(c).accountId))
+    const issued = await extension.issueCode(session(c).sellerId, session(c).accountId)
+    trust(c)
+    return c.json(issued)
   })
   api.post('/extension/renew', async (c) => {
     const extra = onlyKeys(body(c), [])
     if (extra !== null) return extra
-    return c.json(await extension.renew(session(c).sellerId, session(c).accountId))
+    const issued = await extension.renew(session(c).sellerId, session(c).accountId)
+    trust(c)
+    return c.json(issued)
   })
   api.post('/extension/disconnect', async (c) => {
     const extra = onlyKeys(body(c), [])
@@ -98,9 +112,10 @@ type ExtEnv = { Variables: { body: Record<string, unknown> | null; caller: Exten
 export function createExtensionApp(deps: ExtensionAppDeps): Hono<ExtEnv> {
   const { extension } = deps
   const app = new Hono<ExtEnv>()
-  // 코드 넣기 시도 (주소마다 10분에 20번, 서버 전체 10분에 600번 — 8자리 코드를 맞혀 보지 못하게)
+  // 코드 넣기 시도 (주소마다 10분에 20번, 서버 전체 10분에 3,000번 — 8자리 코드를 맞혀 보지 못하게).
+  // 판매자가 코드를 만든 주소(믿는 주소)는 서버 전체 한도를 세지도 막지도 않는다 — 주소마다 20번은 그대로 (D-QS1-06)
   const codeLimiter = new IpLimiter(deps.clock)
-  const allCodes = new IpLimiter(deps.clock, { ipMaxAttempts: 600 })
+  const allCodes = new IpLimiter(deps.clock, { ipMaxAttempts: EXT_CODE_GLOBAL_MAX })
 
   app.use(async (c, next) => {
     await next()
@@ -145,7 +160,9 @@ export function createExtensionApp(deps: ExtensionAppDeps): Hono<ExtEnv> {
     const code = own(input, 'code')
     if (typeof code !== 'string') return invalid([{ field: 'code', message: '연결 코드 8자리를 적어 주세요.' }])
     const address = clientAddress(deps.address(c), c.req.header('x-forwarded-for'), deps.trustedProxies)
-    if (!codeLimiter.take(address === null ? null : ipKey(address)) || !allCodes.take('*')) return apiError(429, 'EXT_CODE_LIMITED', EXTENSION_MESSAGES.CODE_LIMITED)
+    const key = address === null ? null : ipKey(address)
+    if (!codeLimiter.take(key)) return apiError(429, 'EXT_CODE_LIMITED', EXTENSION_MESSAGES.CODE_LIMITED)
+    if (!extension.trustedAddresses.has(key) && !allCodes.take('*')) return apiError(429, 'EXT_CODE_LIMITED', EXTENSION_MESSAGES.CODE_LIMITED)
     const token = await extension.exchange(code.replace(/[\s-]/g, ''))
     if (token === null) return apiError(400, 'EXT_CODE_INVALID', EXTENSION_MESSAGES.CODE_INVALID)
     return c.json({ token })

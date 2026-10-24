@@ -90,3 +90,57 @@
 - 실제 크롬에서 `getDevices()`로 얻은 B1을 `authorizedDevice`로 넘겼을 때 niimbluelib `gatt.connect()`가 이어지는지(플랫폼에 따라 광고 감지(`watchAdvertisements`)가 먼저 필요할 수 있다)
 - 실제 B1의 USB 제조사·제품 번호, 다시 꽂은 뒤 같은 `SerialPort` 객체가 되살아나는지
 - 윈도우에서 `getAvailability()` false 오판일 때 고르기 창이 정상으로 뜨는지
+
+## server (dev-server) — `apps/server/**`
+
+### 바뀐 공개 모양
+
+**실시간 연결 한도** (`src/hub.ts`, D-QS1-04, AC-QS1-10~13)
+- 상수 `STREAM_BUFFER_MAX_BYTES = 1_048_576`, `STREAM_SELLER_MAX = 30`, 타입 `StreamCloseReason = 'BUFFER_FULL' | 'SELLER_LIMIT'`
+- `HubOptions`에 `log?`(서버 로그), `bufferMaxBytes?`·`sellerMax?`(시험용, 기본값은 위 상수)를 더했다. `server.ts`가 `log`를 넘긴다(한 줄)
+- 응답 본문 스트림은 이제 바이트 크기 전략(`highWaterMark: 0`, `size = byteLength`)이다. `-controller.desiredSize`가 받는 쪽이 아직 읽지 않은 바이트다
+- 쌓인 양: 글을 하나 넣은 뒤 아직 안 읽은 양이 1 MiB를 **넘으면** 그 연결만 닫는다. 그래서 연결마다 남는 양은 한도 + 알림 하나 이하다
+  - 닫는 법: 안 읽은 글이 있으면 `controller.error()`로 끝낸다. 쌓인 글을 버려 메모리를 바로 돌려받기 위해서다. **본문 읽기는 `done`이 아니라 거절(reject)로 끝난다.** 시험 도우미 `sseReader`는 둘 다 `closed`로 본다. 브라우저 EventSource는 오류를 받으면 3초 뒤 다시 연결한다(`retry: 3000`)
+  - 안 읽은 글이 없으면 보통으로 닫는다(`controller.close()`, 본문 `done`)
+- ready 전(범위 읽는 중): 모인 알림의 크기를 어림해 센다(JSON 길이 + 48바이트). 1 MiB를 넘으면 모은 것을 바로 비우고, 읽기가 끝나면 ready 없이 빈 본문으로 닫는다. 닫힌 읽는 중 연결(로그아웃 포함)에는 그 뒤 알림을 더 모으지 않는다
+- 판매자마다 30개: `open()`이 읽는 중 연결을 등록한 직후에 센다. 열린 연결(먼저 연 것부터) → 읽는 중 연결(먼저 시작한 것부터) 순서로 닫아 30개로 맞춘다. 새 연결은 늘 받는다. 다른 판매자 수와는 상관없다. 닫힌 연결이 출력 기기 ID를 밝힌 것이면 지금처럼 `onDevice`를 부르고 `deviceLive`가 false가 된다
+- 로그: `{ level: 'info', code: 'STREAM_CLOSED', seller, reason }` 한 줄(`src/log.ts`에 코드를 더함). 세션·쿠키·알림 내용은 남기지 않는다
+- 서버 전체 연결 수 상한은 없다(범위 밖)
+
+**확장 연결 코드 넣기 한도** (`src/extension/**`, D-QS1-06, AC-QS1-14·15)
+- `routes.ts`
+  - `EXT_CODE_GLOBAL_MAX = 3000`(서버 전체 10분, 600에서 바꿈). 주소마다 20번(`IP_MAX_ATTEMPTS`)은 그대로다
+  - 순서: 주소 한도(늘 센다) → 믿는 주소가 아니면 전체 한도. 넘으면 지금과 같은 429 `EXT_CODE_LIMITED`와 같은 문장이다
+  - `registerExtensionRoutes(api, extension, address?)`: 세 번째 인자로 주소 읽기를 받는다. `api.ts`가 로그인·간편 로그인과 같은 `clientAddress(connectionAddress, X-Forwarded-For, trustedProxies)`를 넘긴다(한 줄). `/api/extension/code`·`/renew`가 성공하면 그 주소의 `ipKey`를 믿는 주소로 기억한다. 주소를 모르면 기억하지 않는다
+- 새 `trusted.ts`
+  - `TrustedAddresses`(`TRUSTED_TTL_MS` 10분, `TRUSTED_PER_SELLER` 3)
+  - 판매자마다 최근 3개를 둔다. 같은 주소로 다시 만들면 새로 만든 때로 옮기고, 넘치면 가장 오래된 것부터 버린다
+  - 만든 때부터 10분이 되는 순간 믿지 않는다(`until > now`)
+  - 메모리에만 둔다(DB·로그 없음, 서버를 다시 켜면 비워진다)
+  - `has(key)`는 어느 판매자의 것이든 살아 있으면 true다
+  - `countFor(sellerId)`는 시험·점검용이고 주소 값은 내주지 않는다
+- `ExtensionService.trustedAddresses`(읽기 전용 속성): 두 앱(`/api`·`/ext`)이 같은 것을 쓴다
+
+**파일 경계 밖으로 고친 곳** (모두 apps/server, 한 줄씩)
+- `src/server.ts`: `new StreamHub({ log, … })`. 이것 없이는 AC-QS1-10의 서버 로그가 남지 않는다
+- `src/log.ts`: `STREAM_CLOSED` 코드와 문장
+
+### 시험
+- `apps/server/test/qs1-stream-limits.test.ts`(9개): AC-QS1-10~13과 `/api/stream` 31개 연결 이어 붙이기
+- `apps/server/test/qs1-ext-code-limit.test.ts`(11개): AC-QS1-14 (a)~(g), IPv6 /64·IPv4를 담은 표기, 다시 만들기 30번에도 3개, AC-QS1-15(로그·DB에 코드·토큰·주소 없음)
+  - 믿는 주소 검사를 빼면 4개가 실패하는 것을 확인했다
+- 관련 기존 시험도 통과했다
+  - 서버 hub·stream·x1·print·api·e2e·i3-login-limit·node-server·lint-guard: 190/190
+  - 적대 i1·s04·n5 privacy-switch: 49/49
+- 서버 `tsc`·eslint 통과. 전체 `pnpm verify`는 부하 규칙대로 돌리지 않았다
+
+### 다음 영역에게
+- web(`printer-station.ts`)
+  - 서버 쪽에 바꿀 것이 없다
+  - 실시간 연결은 한도로 닫혀도 브라우저가 다시 연결하고 ready로 따라잡는다. 출력 기기의 연결이 닫히면 다른 기기에 끊김이 잠깐 보인다(L-11 10)
+- domain(AC-QS1-31·32)
+  - 허브는 `new StreamHub({ heartbeatMs, sessionAlive, log, bufferMaxBytes?, sellerMax? })`로 직접 만들 수 있다. 연결 수는 `hub.size`, 읽는 중 수는 `hub.pendingSize`로 본다
+  - 한도로 닫힌 본문은 읽기가 거절되거나 `done`이다. 둘 다 "닫힘"으로 본다
+  - 안 읽은 양은 응답 본문을 읽지 않으면 그대로 쌓인다(`app.request`로 받은 Response는 노드 소켓이 없다)
+  - 코드 한도는 주소를 `app.request(path, init, { incoming: { socket: { remoteAddress } } })`로 넣는다. 형식이 틀린 코드(`'x'`)도 한도에는 세고 DB는 보지 않으니, 3,000번을 빠르게 채울 수 있다(한 세계에 약 0.3초)
+  - 믿는 주소 수는 `server.extension.trustedAddresses.countFor(sellerId)`로 본다

@@ -350,6 +350,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const liveLocks = new SellerLocks()
   const hub = new StreamHub({
     heartbeatMs,
+    log,
     sessionAlive: (hash) => auth.alive(hash),
     // 출력 기기의 실시간 연결이 열리고 닫히면 다른 기기에 대기열 요약을 알린다 (AC-I1-10·15)
     onDevice: (sellerId, deviceId) => {

@@ -22,6 +22,7 @@ import { LIVE_CHAT_MAX } from '../youtube/texts.ts'
 import type { Timer } from '../youtube/timer.ts'
 import { isOurPost } from '../youtube/outbox-store.ts'
 import type { ExtensionThanks, ThanksView } from './thanks.ts'
+import { TrustedAddresses } from './trusted.ts'
 import {
   activeBindings,
   activeToken,
@@ -161,9 +162,12 @@ export class ExtensionService {
   /** 판매자마다 마지막으로 알린 상태 (같은 상태는 다시 알리지 않는다) */
   readonly #published = new Map<string, string>()
   #closed = false
+  /** 코드를 만든 주소 (서버 전체 코드 넣기 한도 밖, D-QS1-06 (3)) — 메모리에만 */
+  readonly trustedAddresses: TrustedAddresses
 
   constructor(deps: ExtensionDeps) {
     this.#deps = deps
+    this.trustedAddresses = new TrustedAddresses(() => this.#now())
     deps.thanks.onChanged = (sellerId) => this.#notify(sellerId)
   }
 

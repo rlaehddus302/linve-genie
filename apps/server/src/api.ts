@@ -912,7 +912,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
 
   // ── 택배 자동 접수 (T1, PARCEL_RULES) — 판매자만(보조자는 roles.ts 허용 목록 밖이라 403) ──
   if (deps.parcels !== undefined) registerParcelRoutes(api, deps.parcels.service, deps.parcels.db)
-  if (deps.extension !== undefined) registerExtensionRoutes(api, deps.extension)
+  if (deps.extension !== undefined) registerExtensionRoutes(api, deps.extension, (c) => clientAddress(connectionAddress(c), c.req.header('x-forwarded-for'), deps.trustedProxies ?? 0))
 
   // 시험용 시청자 채팅 (입금 확인 시험 모드에서만 — 운영 기동에는 경로 자체가 없다, 404. SA-N3-03·D-N3-12).
   // 실제 방송에도 유튜브 구매자를 만들 수 있게(기억한 입금자명 흐름 E2E, AC-N3-42·46) 수집 함수(ingestChat, 조치자 수집기)를 그대로 부른다.

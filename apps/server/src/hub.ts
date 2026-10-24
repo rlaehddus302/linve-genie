@@ -14,8 +14,21 @@
 // - 입금이 저장·처리되거나 확인 필요 수·원천 상태가 바뀌면(N3, AC-N3-30) deposit 알림을 보낸다(바뀐 입금 번호·확인 필요 수·바뀐 원천 ID — 입금자명은 담지 않는다).
 //   연결이 출력 기기 ID를 밝히면(?device=) 그 기기의 실시간 연결이 열려 있는지 안다 — 열리고 닫힐 때 onDevice로 알린다(다른 기기의 "연결됨/끊김").
 // - 라벨 기능 켬/끔이 바뀌면(N4a, L-13) labels 알림을 보낸다(바뀐 값·바꾼 기록 한 줄·그때의 출력 기록 rev).
+// - 연결 한도 (QS1 D-QS1-04, SPEC §3): (1) 연결마다 아직 내보내지 못한(받는 쪽이 읽지 않은) 글이 1 MiB를 넘으면 그 연결만 닫는다 —
+//   쌓인 글은 버린다(본문은 오류로 끝난다, 메모리를 바로 돌려받는다). 범위를 읽는 중(ready 전)에 모인 알림도 같은 한도 — 넘으면 모은 것을 버리고
+//   ready 없이 닫힌 응답이다. (2) 판매자마다 연결(읽는 중 포함) 30개 — 넘게 되면 그 판매자의 가장 먼저 연 연결부터 닫는다(열린 연결이 먼저, 그다음 읽는 중).
+//   (3) 닫힌 연결의 브라우저는 다시 연결해 새 ready로 따라잡는다. 닫는 일은 로그에 판매자 ID와 까닭 코드(reason)만 남긴다.
+
+import type { LogSink } from './log.ts'
 
 const encoder = new TextEncoder()
+
+/** 연결마다 아직 내보내지 못한 글의 한도 (바이트, D-QS1-04 (1)) */
+export const STREAM_BUFFER_MAX_BYTES = 1_048_576
+/** 판매자마다 실시간 연결 수 (읽는 중 포함, D-QS1-04 (2)) */
+export const STREAM_SELLER_MAX = 30
+/** 연결을 닫은 까닭 (로그 reason) */
+export type StreamCloseReason = 'BUFFER_FULL' | 'SELLER_LIMIT'
 
 export interface StreamNotice {
   readonly date: string
@@ -54,6 +67,8 @@ interface Pending {
   readonly named: boolean
   /** 모인 알림 (generator 알림은 그대로 지나간다) */
   readonly notices: (StreamNotice | GeneratorNotice)[]
+  /** 모인 알림의 어림 크기 (바이트) — 한도를 넘으면 모은 것을 버리고 닫는다 */
+  bytes: number
   closed: boolean
 }
 
@@ -72,6 +87,12 @@ export interface HubOptions {
   readonly sessionAlive: (sessionHash: string) => Promise<boolean>
   /** 기기 ID를 밝힌 연결이 열리거나 닫혔다 (출력 기기 실시간 연결 여부, I1) */
   readonly onDevice?: (sellerId: string, deviceId: string) => void
+  /** 서버 로그 (연결을 한도로 닫았을 때 — 판매자 ID·까닭 코드만) */
+  readonly log?: LogSink
+  /** 연결마다 쌓이는 글 한도 (바이트, 기본 1 MiB — 시험용) */
+  readonly bufferMaxBytes?: number
+  /** 판매자마다 연결 수 (기본 30 — 시험용) */
+  readonly sellerMax?: number
 }
 
 export class StreamHub {
@@ -102,8 +123,9 @@ export class StreamHub {
   ): Promise<Response> {
     const named = options.named ?? true
     const deviceId = options.deviceId ?? null
-    const pending: Pending = { sellerId, sessionHash, named, notices: [], closed: false }
+    const pending: Pending = { sellerId, sessionHash, named, notices: [], bytes: 0, closed: false }
     this.#pending.add(pending)
+    this.#enforceSellerMax(sellerId)
     let scopes: readonly ScopeSeq[]
     try {
       scopes = await readScopes()
@@ -113,27 +135,32 @@ export class StreamHub {
     }
     let connection: Connection | null = null
     // start는 생성자 안에서 바로(동기로) 불린다 — 모인 알림 넘기기와 연결 등록 사이에 다른 알림이 끼지 않는다
-    const body = new ReadableStream<Uint8Array>({
-      start: (controller) => {
-        this.#pending.delete(pending)
-        if (pending.closed) {
-          controller.close()
-          return
-        }
-        const baseline = new Map(scopes.map((scope) => [scopeOf(scope), scope.seq]))
-        const live: Connection = { sellerId, sessionHash, named, deviceId, controller, baseline, nextId: 1, closed: false }
-        connection = live
-        this.#write(live, `retry: 3000\nevent: ready\ndata: ${JSON.stringify({ scopes })}\n\n`)
-        for (const notice of pending.notices) this.#send(live, notice)
-        if (live.closed) return
-        this.#connections.add(live)
-        this.#ensureTimer()
-        if (deviceId !== null) this.#deviceChanged(sellerId, deviceId)
+    // 크기 = 바이트, 높은 물 0 — desiredSize의 음수가 아직 내보내지 못한 바이트다 (D-QS1-04 (1))
+    const body = new ReadableStream<Uint8Array>(
+      {
+        start: (controller) => {
+          this.#pending.delete(pending)
+          if (pending.closed) {
+            controller.close()
+            return
+          }
+          const baseline = new Map(scopes.map((scope) => [scopeOf(scope), scope.seq]))
+          const live: Connection = { sellerId, sessionHash, named, deviceId, controller, baseline, nextId: 1, closed: false }
+          connection = live
+          this.#write(live, `retry: 3000\nevent: ready\ndata: ${JSON.stringify({ scopes })}\n\n`)
+          for (const notice of pending.notices) this.#send(live, notice)
+          pending.notices.length = 0
+          if (live.closed) return
+          this.#connections.add(live)
+          this.#ensureTimer()
+          if (deviceId !== null) this.#deviceChanged(sellerId, deviceId)
+        },
+        cancel: () => {
+          if (connection !== null) this.#drop(connection)
+        },
       },
-      cancel: () => {
-        if (connection !== null) this.#drop(connection)
-      },
-    })
+      { highWaterMark: 0, size: (chunk) => chunk.byteLength },
+    )
     return new Response(body, {
       status: 200,
       headers: {
@@ -152,7 +179,7 @@ export class StreamHub {
 
   /** 커밋된 이벤트 알림 (그 판매자의 연결 전부) */
   publish(sellerId: string, notices: readonly StreamNotice[]): void {
-    for (const pending of this.#pending) if (pending.sellerId === sellerId) pending.notices.push(...notices)
+    for (const pending of this.#pending) if (pending.sellerId === sellerId) for (const notice of notices) this.#hold(pending, notice)
     for (const connection of [...this.#connections]) {
       if (connection.sellerId !== sellerId) continue
       for (const notice of notices) this.#send(connection, notice)
@@ -215,13 +242,79 @@ export class StreamHub {
   }
 
   #publishKind(sellerId: string, notice: GeneratorNotice): void {
-    for (const pending of this.#pending) if (pending.sellerId === sellerId) pending.notices.push(notice)
+    for (const pending of this.#pending) if (pending.sellerId === sellerId) this.#hold(pending, notice)
     for (const connection of [...this.#connections]) if (connection.sellerId === sellerId) this.#send(connection, notice)
   }
 
   #publishNamed(sellerId: string, notice: GeneratorNotice): void {
-    for (const pending of this.#pending) if (pending.sellerId === sellerId && pending.named) pending.notices.push(notice)
+    for (const pending of this.#pending) if (pending.sellerId === sellerId && pending.named) this.#hold(pending, notice)
     for (const connection of [...this.#connections]) if (connection.sellerId === sellerId && connection.named) this.#send(connection, notice)
+  }
+
+  /** 읽는 중인 연결에 알림을 모은다. 모인 양이 한도를 넘으면 모은 것을 버리고 ready 없이 닫는다 (D-QS1-04 (1), AC-QS1-11) */
+  #hold(pending: Pending, notice: StreamNotice | GeneratorNotice): void {
+    if (pending.closed) return
+    pending.notices.push(notice)
+    // 실제로 보낼 글보다 조금 크게 어림한다 (event·id 줄)
+    pending.bytes += encoder.encode(isGenerator(notice) ? JSON.stringify(notice.data) : JSON.stringify(notice)).byteLength + 48
+    if (pending.bytes > this.#bufferMax) this.#closePending(pending, 'BUFFER_FULL')
+  }
+
+  #closePending(pending: Pending, reason: StreamCloseReason): void {
+    pending.closed = true
+    pending.notices.length = 0
+    pending.bytes = 0
+    this.#logClosed(pending.sellerId, reason)
+  }
+
+  get #bufferMax(): number {
+    return this.#options.bufferMaxBytes ?? STREAM_BUFFER_MAX_BYTES
+  }
+
+  /** 판매자의 연결(읽는 중 포함)이 한도를 넘으면 가장 먼저 연 것부터 닫는다 — 열린 연결이 먼저 (D-QS1-04 (2), AC-QS1-12) */
+  #enforceSellerMax(sellerId: string): void {
+    const max = this.#options.sellerMax ?? STREAM_SELLER_MAX
+    const live = [...this.#connections].filter((connection) => connection.sellerId === sellerId && !connection.closed)
+    const reading = [...this.#pending].filter((pending) => pending.sellerId === sellerId && !pending.closed)
+    let excess = live.length + reading.length - max
+    for (const connection of live) {
+      if (excess <= 0) return
+      this.#discard(connection, 'SELLER_LIMIT')
+      excess -= 1
+    }
+    for (const pending of reading) {
+      if (excess <= 0) return
+      this.#closePending(pending, 'SELLER_LIMIT')
+      excess -= 1
+    }
+  }
+
+  #logClosed(sellerId: string, reason: StreamCloseReason): void {
+    try {
+      this.#options.log?.({ level: 'info', code: 'STREAM_CLOSED', seller: sellerId, reason })
+    } catch {
+      // 로그 실패는 연결에 영향을 주지 않는다
+    }
+  }
+
+  /**
+   * 한도로 닫는다. 아직 내보내지 못한 글이 있으면 버리고(오류로 끝냄 — 메모리를 바로 돌려받는다), 없으면 보통으로 닫는다.
+   * 출력 기기 연결이면 지금처럼 onDevice로 알린다
+   */
+  #discard(connection: Connection, reason: StreamCloseReason): void {
+    if (connection.closed) return
+    const unread = -(connection.controller.desiredSize ?? 0)
+    if (unread > 0) {
+      try {
+        connection.controller.error(new Error('stream limit'))
+      } catch {
+        // 이미 닫힘
+      }
+      this.#drop(connection)
+    } else {
+      this.#close(connection)
+    }
+    this.#logClosed(connection.sellerId, reason)
   }
 
   /** 그 기기 ID를 밝힌 실시간 연결이 지금 열려 있는지 (출력 기기의 "연결됨/끊김", I1) */
@@ -287,7 +380,10 @@ export class StreamHub {
       connection.controller.enqueue(encoder.encode(text))
     } catch {
       this.#drop(connection)
+      return
     }
+    // 받는 쪽이 읽지 않아 쌓인 글이 한도를 넘으면 그 연결만 닫는다 (D-QS1-04 (1), AC-QS1-10)
+    if (-(connection.controller.desiredSize ?? 0) > this.#bufferMax) this.#discard(connection, 'BUFFER_FULL')
   }
 
   #close(connection: Connection): void {
