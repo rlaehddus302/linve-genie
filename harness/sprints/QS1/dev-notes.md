@@ -190,6 +190,10 @@
 - D-QS1-02 "시험용 프린터도 같다"대로 하면, 시험용 프린터가 끊긴 뒤 1초 만에 저절로 다시 이어진다. 그런데 `tests/e2e/i1/station.spec.ts` AC-I1-70은 12번째 출력에서 끊긴 뒤 PC 알림에 "출력 멈춤 · 프린터 연결이 끊겼어요."가 뜨고 판매자가 "다시 연결"을 누를 때까지 멈춰 있기를 기다린다. 1초 만에 풀려 알림이 뜨지 않아 실패한다(60초 기다리다 끝남)
 - `i1/attacks.spec.ts` AC-I1-09·23, `n4a/primary.spec.ts` AC-N4a-21 (다)는 이번에 통과했지만, 같은 1초 안에 띠·"다시 연결"을 잡아야 하는 시험이라 느린 컴퓨터에서 흔들릴 수 있다
 - 금지 경로 3 때문에 이 파일들을 QS1에서 고칠 수 없다. 스펙과 다르게 만들지 않았다(시험용 프린터도 저절로 잇는다)
+- **SA-QS1-001 (dev-device, spec-keeper에게)**: L-7 "블루투스 켜짐 확인"(LABEL_RULES 183줄)·L-12 3(290줄)·D-QS1-03은 "false일 때 그 시도가 어떤 이유로든 실패하면 `BLUETOOTH_OFF`"인데, 코드(`packages/printer/src/niimbot.ts` giveUp·`marklife.ts` giveUp)는 **`WRONG_MODEL`만 그대로** 둔다
+  - 까닭: `WRONG_MODEL`은 고르기 창에서 기기를 골랐고(이름 다름) 또는 GATT까지 이어졌다(꾸러미 없음·B1 아닌 모델)는 뜻이라 블루투스가 켜져 있음이 확인된 경우다. D-QS1-03의 근거("시도도 안 됐으니 블루투스를 켜 보라")가 맞지 않고, "블루투스를 켜 주세요"를 보이면 켜져 있는 판매자가 할 일이 없다. "B1을 골라 주세요"(L-7 `WRONG_MODEL`)가 판매자가 바로 할 일이다. 기억하지 않는 것(D-QS1-01 (4))도 그대로
+  - 코드는 바꾸지 않았다(스펙대로 바꾸면 안내가 틀려진다). 요청: L-7 "블루투스 켜짐 확인"·L-12 3·D-QS1-03에 "단, 다른 프린터를 고른 것(`WRONG_MODEL`)은 그대로 `WRONG_MODEL`" 한 줄을 더해 받아들이기. 받아들이지 않으면 두 `giveUp`의 `code !== 'WRONG_MODEL'` 조건을 빼고 아래 시험 둘을 스펙 결정에 맞게 바꾼다
+  - 고정 시험: `packages/printer/test/qs1-remember.test.ts` "false여도 다른 모델을 고른 것은 WRONG_MODEL 그대로"(B1, D110)·"(e) Marklife·바우아토도 false인데 다른 기기를 고른 것…"(이름 `Phomemo P12`·꾸러미 없음 — Marklife 조건을 빼면 실패함을 확인)
 - 고치는 길(정할 사람: spec-keeper·오케스트레이터): 그 시험들의 끊기 앞에 `livejjimTestPrinter.setAutoReconnect(false)` 한 줄을 넣도록 허락하거나, 끊기 앞에 `setConnectError('CONNECT_FAILED')`를 두고 "다시 연결" 전에 `setConnectError(null)`
 
 ### 다음 영역에게

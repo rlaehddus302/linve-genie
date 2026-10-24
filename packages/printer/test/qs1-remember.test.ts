@@ -544,6 +544,18 @@ describe('AC-QS1-06 getAvailability()가 false여도 한 번 시도 (D-QS1-03)',
     expect(await d.connect('bluetooth')).toEqual({ ok: false, error: { code: 'BLUETOOTH_OFF', message: PRINTER_MESSAGES.BLUETOOTH_OFF } })
     expect(isRememberingAdapter(d)).toBe(false)
   })
+
+  it('(e) Marklife·바우아토도 false인데 다른 기기를 고른 것(이름 다름·꾸러미 없음)은 WRONG_MODEL 그대로 — 고를 수 있었으니 블루투스는 켜져 있다 (SA-QS1-001)', async () => {
+    const otherName = createFakeBluetooth({ name: 'Phomemo P12', available: false, adapterOff: false })
+    const a = createMarklifeAdapter({ environment: () => otherName.environment, timer: new ManualTimer() })
+    expect(await a.connect('bluetooth')).toMatchObject({ ok: false, error: { code: 'WRONG_MODEL' } })
+    expect(a.state).toBe('DISCONNECTED')
+
+    const noBundle = createFakeBluetooth({ name: 'P12_X', available: false, adapterOff: false, bundle: 'none' })
+    const b = createMarklifeAdapter({ environment: () => noBundle.environment, timer: new ManualTimer() })
+    expect(await b.connect('bluetooth')).toMatchObject({ ok: false, error: { code: 'WRONG_MODEL' } })
+    expect(b.state).toBe('DISCONNECTED')
+  })
 })
 
 describe('AC-QS1-07 가짜 기기', () => {
