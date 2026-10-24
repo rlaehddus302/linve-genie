@@ -1,10 +1,14 @@
-// FB1 콘솔 빠른 입력 (AC-FB1-02·03, AC-FB1-90 콘솔 줄): 가격 단위 한 줄, 등록 전 "등록하면: …", 고치기 칸 "= …원" — 천원·원 방송 각각.
+// FB1 콘솔 빠른 입력 (AC-FB1-02·03, AC-FB1-90 콘솔 줄): 가격 단위 한 줄, 등록 전 "등록하면: …", 고치기 칸 "= …원" — 천원·원·만원 방송 각각.
+// 회차 2: 단위 줄 자리(D-FB1-15 — 1440 고정 영역 안, 375 바로 아래), "등록하면" 줄은 늘 있고 자리 고정(D-FB1-18 (a)).
 // 미리 보기 가격 = Enter로 보내는 가격(같은 해석). 진행 중 방송은 그 방송 설정 스냅샷의 단위.
 import { expect, test, type Page } from '@playwright/test'
-import { loginNewSeller, openRealBroadcast, patchSettings, settingsRegion, saveBar, saveButton } from './support.ts'
+import { DEV_WORDS, UNIT_CHANGE, UNIT_LINE, UNIT_WORDS, loginNewSeller, openRealBroadcast, patchSettings, settingsRegion, saveBar, saveButton, serverSettings } from './support.ts'
 
-const THOUSAND_LINE = '가격 단위: 천원 — 10은 10,000원, 2만은 20,000원'
-const WON_LINE = '가격 단위: 원 — 10000은 10,000원, 2만은 20,000원'
+const THOUSAND_LINE = UNIT_LINE.THOUSAND
+const WON_LINE = UNIT_LINE.WON
+const TEN_THOUSAND_LINE = UNIT_LINE.TEN_THOUSAND
+
+const board = (page: Page) => page.getByRole('region', { name: '상품 보드' })
 
 function willRegister(page: Page) {
   return page.locator('main').getByRole('status').filter({ hasText: /^등록하면: / })
@@ -109,7 +113,7 @@ test.describe('AC-FB1-02 원 방송', () => {
 
     // 설정 화면에서 천원으로 바꾸고 저장
     await page.goto('/settings')
-    await settingsRegion(page, '판매 규칙').getByRole('radio', { name: '천원 (10 → 10,000원)' }).check()
+    await settingsRegion(page, '판매 규칙').getByRole('radio', { name: UNIT_WORDS.THOUSAND }).check() // 회차 2 D-FB1-11 낱말
     await saveButton(page).click()
     await expect(saveBar(page).getByRole('status')).toContainText('저장했어요.')
     await page.goto(`/broadcasts/${encodeURIComponent(b)}`)
@@ -142,3 +146,163 @@ test.describe('UX-04 고정 영역 (AC-FB1-95와 같은 기준 — 35% 이하)',
     expect(h).toBeLessThanOrEqual(812 * 0.35)
   })
 })
+
+test.describe('AC-FB1-02 만원 방송 (D-FB1-11)', () => {
+  test('만원 방송: 단위 줄 "가격 단위: 만원 — …", 15 → 150,000원·15000 → 15,000원·5천 → 5,000원, Enter 가격 = 미리 보기(150000), 고치기 칸 14 → "= 140,000원"', async ({ page }) => {
+    await loginNewSeller(page)
+    await patchSettings(page, { 'price.unit': 'TEN_THOUSAND' })
+    await openRealBroadcast(page)
+    const input = page.getByLabel('빠른 입력')
+    await expect(page.getByText(TEN_THOUSAND_LINE, { exact: true })).toBeVisible()
+    await expect(page.getByText(THOUSAND_LINE, { exact: true })).toHaveCount(0)
+    await input.fill('15 엘레강스 15')
+    await expect(willRegister(page)).toHaveText('등록하면: 15번 엘레강스 150,000원')
+    await input.fill('15 엘레강스 15000')
+    await expect(willRegister(page)).toHaveText('등록하면: 15번 엘레강스 15,000원')
+    await input.fill('15 엘레강스 5천')
+    await expect(willRegister(page)).toHaveText('등록하면: 15번 엘레강스 5,000원')
+    await input.fill('15 엘레강스 2만')
+    await expect(willRegister(page)).toHaveText('등록하면: 15번 엘레강스 20,000원')
+    await input.fill('15 10')
+    await expect(willRegister(page)).toHaveText('등록하면: 15번 100,000원')
+
+    const registers = recordRegisters(page)
+    await input.fill('15 엘레강스 15')
+    await expect(willRegister(page)).toHaveText('등록하면: 15번 엘레강스 150,000원')
+    await input.press('Enter')
+    await expect.poll(() => registers.length).toBe(1)
+    expect(priceOf(registers[0]!)).toBe(150000)
+    await expect(board(page).getByRole('button', { name: /^15번 / })).toContainText('150,000원')
+
+    await input.fill('21 홍옥')
+    await input.press('Enter')
+    const fix = page.getByRole('group', { name: '고치기 칸' })
+    const price = fix.getByLabel('가격')
+    await price.fill('14')
+    await expect(fix.getByText('= 140,000원', { exact: true })).toBeVisible()
+    await price.fill('1.5만')
+    await expect(fix.getByText('= 15,000원', { exact: true })).toBeVisible()
+    await price.fill('14')
+    await price.press('Enter')
+    await expect.poll(() => registers.length).toBe(2)
+    expect(priceOf(registers[1]!)).toBe(140000)
+    expect(await page.locator('main').innerText()).not.toMatch(DEV_WORDS)
+  })
+
+  test('AC-FB1-01: 천원 방송 중 설정에서 만원으로 저장 → 이미 등록한 상품 가격 그대로, 진행 중 방송 줄은 천원 그대로, 다음 방송부터 만원', async ({ page }) => {
+    await loginNewSeller(page)
+    const one = await openRealBroadcast(page, { title: '천원 1부' })
+    const input = page.getByLabel('빠른 입력')
+    const registers = recordRegisters(page)
+    await input.fill('15 엘레강스 10')
+    await input.press('Enter')
+    await expect.poll(() => registers.length).toBe(1)
+    expect(priceOf(registers[0]!)).toBe(10000)
+    await expect(board(page).getByRole('button', { name: /^15번 / })).toContainText('10,000원')
+
+    await page.goto('/settings')
+    const unit = settingsRegion(page, '판매 규칙').getByRole('radiogroup', { name: '가격 단위' })
+    await unit.getByRole('radio', { name: UNIT_WORDS.TEN_THOUSAND }).check()
+    await expect(settingsRegion(page, '판매 규칙').getByText(UNIT_CHANGE.TEN_THOUSAND, { exact: true })).toBeVisible()
+    await saveButton(page).click()
+    await expect(saveBar(page).getByRole('status')).toContainText('저장했어요.')
+    expect((await serverSettings(page))['price.unit']).toBe('TEN_THOUSAND')
+
+    // 진행 중 1부: 상품 가격·단위 줄·해석 모두 천원 그대로
+    await page.goto(`/broadcasts/${encodeURIComponent(one.b)}`)
+    await expect(page.getByLabel('빠른 입력')).toBeFocused()
+    await expect(page.getByText(THOUSAND_LINE, { exact: true })).toBeVisible()
+    await expect(page.getByText(TEN_THOUSAND_LINE, { exact: true })).toHaveCount(0)
+    await expect(board(page).getByRole('button', { name: /^15번 / })).toContainText('10,000원')
+    await expect(board(page).getByRole('button', { name: /^15번 / })).not.toContainText('100,000원')
+    await page.getByLabel('빠른 입력').fill('16 선버스 15')
+    await expect(willRegister(page)).toHaveText('등록하면: 16번 선버스 15,000원')
+
+    // 다음 방송(2부)부터 만원
+    await openRealBroadcast(page, { title: '만원 2부', date: one.date })
+    await expect(page.getByText(TEN_THOUSAND_LINE, { exact: true })).toBeVisible()
+    await page.getByLabel('빠른 입력').fill('16 선버스 15')
+    await expect(willRegister(page)).toHaveText('등록하면: 16번 선버스 150,000원')
+  })
+})
+
+/** "등록하면" 줄(role=status, 늘 있음)과 단위 줄의 자리 (회차 2 D-FB1-15·D-FB1-18 (a)) */
+const LINE_OF = { 1440: THOUSAND_LINE, 375: THOUSAND_LINE } as const
+for (const width of [1440, 375] as const) {
+  test(`AC-FB1-02 ${String(width)}px 자리: 단위 줄은 화면에 하나(${width === 1440 ? '고정 영역 안' : '고정 영역 밖 바로 아래'}), "등록하면" 줄은 늘 있고 빈 글·한 줄 높이, 쳤다 지워도 빠른 입력칸과 그 아래 첫 요소 위치가 그대로`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 375 ? 812 : 900 })
+    await loginNewSeller(page)
+    await openRealBroadcast(page)
+    const input = page.getByLabel('빠른 입력')
+    const unitLines = page.getByText(LINE_OF[width], { exact: true })
+    await expect(unitLines).toHaveCount(1)
+    await expect(unitLines).toBeVisible()
+    const sticky = page.locator('.console-sticky')
+    const inSticky = await unitLines.evaluate((el) => el.closest('.console-sticky') !== null)
+    if (width === 1440) {
+      expect(inSticky, '1440px: 단위 줄은 고정 영역 안').toBe(true)
+    } else {
+      expect(inSticky, '375px: 단위 줄은 고정 영역 밖').toBe(false)
+      const s = (await sticky.boundingBox())!
+      const u = (await unitLines.boundingBox())!
+      // 고정 영역 바로 아래 — 사이에는 "등록하면" 줄만 (dev-notes: 휴대폰은 고정 영역 바로 아래, 단위 줄 위)
+      expect(u.y).toBeGreaterThanOrEqual(s.y + s.height - 1)
+      // 사이에 보이는 글이 없다 (빈 "등록하면" 줄만 있을 수 있다)
+      const between = await page.locator('main').evaluate((main, [a, b]) => {
+        const out: string[] = []
+        const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT)
+        for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+          const text = (n.textContent ?? '').trim()
+          if (text === '') continue
+          const range = document.createRange()
+          range.selectNodeContents(n)
+          for (const r of Array.from(range.getClientRects())) if (r.width > 0 && r.height > 0 && r.top >= a && r.bottom <= b) out.push(text)
+        }
+        return out
+      }, [s.y + s.height - 1, u.y + 1] as const)
+      expect(between).toEqual([])
+      expect(s.height).toBeLessThanOrEqual(812 * 0.35)
+    }
+
+    // 늘 있는 "등록하면" 줄: 미리 보기가 없으면 빈 글
+    // 빈 글이라 이름·글로 찾을 수 없다 — dev-notes의 자리 클래스(p.quick-will-register)로 찾고 역할을 확인한다
+    const line = page.locator('main .quick-will-register')
+    await expect(line).toHaveCount(1)
+    await expect(line).toHaveAttribute('role', 'status')
+    await expect(line).toHaveText('')
+    const firstBelow = async () => await input.evaluate((el) => {
+      // 빠른 입력칸 아래 첫 요소: 화면 순서로 빠른 입력칸 다음에 오는, 보이는 첫 요소의 위치
+      const r0 = el.getBoundingClientRect()
+      const all = Array.from(document.querySelectorAll('main *')) as HTMLElement[]
+      let best: number | null = null
+      for (const e of all) {
+        if (e === el || e.contains(el) || el.contains(e)) continue
+        const r = e.getBoundingClientRect()
+        if (r.width === 0 || r.height === 0) continue
+        if (r.top >= r0.bottom - 0.5 && (best === null || r.top < best)) best = r.top
+      }
+      return { input: r0.top, below: best }
+    })
+    const before = await firstBelow()
+    const lineBefore = (await line.boundingBox())!
+    await input.fill('15 엘레강스 10')
+    await expect(line).toHaveText('등록하면: 15번 엘레강스 10,000원')
+    const during = await firstBelow()
+    expect(during).toEqual(before)
+    const lineDuring = (await line.boundingBox())!
+    expect(lineDuring.height).toBe(lineBefore.height)
+    expect(lineDuring.y).toBe(lineBefore.y)
+    // 긴 품종도 한 줄 (끝이 잘림)
+    await input.fill(`15 ${'엘레강스하월화세덤'.repeat(8)} 10`)
+    await expect(line).toContainText('등록하면: 15번 ')
+    expect((await line.boundingBox())!.height).toBe(lineBefore.height)
+    expect(await firstBelow()).toEqual(before)
+    await input.fill('')
+    await expect(line).toHaveText('')
+    expect(await firstBelow()).toEqual(before)
+    if (width === 375) {
+      const h = await sticky.evaluate((el) => el.getBoundingClientRect().height)
+      expect(h).toBeLessThanOrEqual(812 * 0.35)
+    }
+  })
+}

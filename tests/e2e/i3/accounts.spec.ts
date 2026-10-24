@@ -109,7 +109,7 @@ test.describe('시작 마법사', () => {
     await expect(page.getByRole('textbox', { name: '가게 이름' })).toHaveValue(seller.shopName)
     await page.getByRole('button', { name: '다음' }).click()
     await expect(page.getByRole('heading', { level: 2, name: '2/5 판매 규칙 확인' })).toBeVisible()
-    for (const line of ['대기 인원: 5명', '1등이 취소되면: 대기 1순위가 바로 1등', '시청자가 채팅으로 취소하면: 내가 확인하고 처리해요', '가격 단위: 천원 (10 → 10,000원)', '기본 배송비: 4,000원', '무료배송 기준: 없음']) {
+    for (const line of ['대기 인원: 5명', '1등이 취소되면: 대기 1순위가 바로 1등', '시청자가 채팅으로 취소하면: 내가 확인하고 처리해요', '가격 단위: 천원 (15 → 15,000원)', '기본 배송비: 4,000원', '무료배송 기준: 없음']) { // FB1 D-FB1-11
       await expect(page.getByText(line, { exact: true })).toBeVisible()
     }
     await page.getByRole('button', { name: '다음' }).click()
@@ -189,7 +189,7 @@ test.describe('설정 화면', () => {
     await loginNewSeller(page)
     await page.goto('/settings')
     const rules = settingsRegion(page, '판매 규칙')
-    const more = rules.getByRole('button', { name: '상세 설정', exact: true }) // FB1 D-FB1-02
+    const more = rules.getByRole('button', { name: '판매 규칙 상세 설정', exact: true }) // FB1 D-FB1-02·D-FB1-18
     await expect(more).toHaveAttribute('aria-expanded', 'false')
     await expect(rules.getByRole('radiogroup', { name: '주문 인식 방식' })).toBeHidden()
     await rules.getByRole('radiogroup', { name: '시청자가 채팅으로 취소하면' }).getByRole('radio', { name: '바로 취소해요' }).check()
@@ -204,7 +204,7 @@ test.describe('설정 화면', () => {
       if (r.method() === 'PATCH' && r.url().endsWith('/api/settings')) patches.push(r.postDataJSON())
     })
     await page.getByRole('region', { name: '저장', exact: true }).getByRole('button', { name: '저장' }).click() // FB1 D-FB1-06
-    await expect(rules.getByText('0부터 100까지의 정수로 적어 주세요', { exact: false })).toBeVisible()
+    await expect(rules.getByText('0부터 100까지 숫자로 적어 주세요.', { exact: true })).toBeVisible() // FB1 D-FB1-18
     const before = await (await page.request.get('/api/settings')).json() as { settings: Record<string, unknown> }
     expect(before.settings['waitlist.max']).toBe(5)
     expect(before.settings['cancel.buyerChat']).toBe('REQUEST')

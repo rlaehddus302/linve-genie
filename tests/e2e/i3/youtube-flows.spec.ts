@@ -30,7 +30,7 @@ test.afterEach(async ({ request }) => {
 async function saveThanksLiveChat(page: Page, on: boolean) {
   await page.goto('/settings')
   const thanks = settingsRegion(page, '구매 감사 메시지')
-  const box = thanks.getByRole('checkbox', { name: '실시간 채팅에 감사 메시지 남기기' })
+  const box = thanks.getByRole('checkbox', { name: '찜이 확정될 때마다 채팅에 감사 메시지 남기기' }) // FB1 D-FB1-14
   await box.setChecked(on)
   await page.getByRole('region', { name: '저장', exact: true }).getByRole('button', { name: '저장' }).click() // FB1 D-FB1-06
   await expect(page.getByRole('region', { name: '저장', exact: true }).getByText('저장했어요. 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.')).toBeVisible() // FB1 D-FB1-06

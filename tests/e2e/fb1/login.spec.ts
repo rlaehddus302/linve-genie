@@ -3,7 +3,7 @@
 // (pagehide 없음). 답하지 않고 붙잡아 두는 방법은 Playwright가 그 이동이 끝나기를 기다려 화면을 읽지 못해 쓰지 않는다(test-notes-e2e "로그인 이동 막기").
 import { expect, test, type Page } from '@playwright/test'
 import { escapeRe, fakeOAuth, methodsRegion } from '../l1/support.ts'
-import { LEAVE_TEXT, LEAVE_TITLE, loginNewSeller, saveBar, settingsRegion } from './support.ts'
+import { LEAVE_TEXT, LEAVE_TITLE, loginNewSeller, saveBar, serverSettings, settingsRegion } from './support.ts'
 
 function linkRequests(page: Page): string[] {
   const seen: string[] = []
@@ -46,7 +46,8 @@ test.describe('AC-FB1-31·32 간편 로그인 연결하기 @social', () => {
     const dlg = page.getByRole('dialog', { name: LEAVE_TITLE })
     await expect(dlg).toContainText(LEAVE_TEXT)
     await expect(dlg.getByRole('button', { name: '닫기' })).toBeFocused()
-    await expect(dlg.getByRole('button', { name: '저장하지 않고 떠나기' })).toBeVisible()
+    // 회차 2 D-FB1-18 (e): 단추 셋, 이 차례
+    await expect(dlg.getByRole('button')).toHaveText(['저장하고 떠나기', '저장하지 않고 떠나기', '닫기'])
     await page.keyboard.press('Escape')
     await expect(dlg).toHaveCount(0)
     expect(links).toEqual([])
@@ -64,6 +65,33 @@ test.describe('AC-FB1-31·32 간편 로그인 연결하기 @social', () => {
     await expect(page).toHaveURL(new RegExp(`^${escapeRe(fakeOAuth())}/kakao/authorize\\?`))
     expect(links).toHaveLength(1)
     expect(dialogs).toEqual([])
+  })
+
+  test('회차 2 "저장하고 떠나기": 실패면 연결 요청 없이 설정에 남음(버튼 "카카오 연결하기" 그대로) → 고쳐서 다시 → 저장 뒤 연결 요청 → 브라우저 확인 없이 이동', async ({ page }) => {
+    await loginNewSeller(page)
+    await page.goto('/settings')
+    const waitlist = settingsRegion(page, '판매 규칙').getByLabel('대기 인원 (0이면 대기 없음)')
+    await waitlist.fill('101')
+    const links = linkRequests(page)
+    const dialogs = beforeUnloadDialogs(page)
+    const button = methodsRegion(page).getByRole('button', { name: '카카오 연결하기' })
+    await button.click()
+    const dlg = page.getByRole('dialog', { name: LEAVE_TITLE })
+    await dlg.getByRole('button', { name: '저장하고 떠나기' }).click()
+    await expect(dlg).toHaveCount(0)
+    await expect(saveBar(page).getByRole('alert')).toHaveText('저장하지 못한 칸이 있어요: 판매 규칙. 빨간 글을 확인해 주세요.')
+    await expect(waitlist).toBeFocused()
+    await expect(button).toBeEnabled()
+    await expect(page).toHaveURL(/\/settings/)
+    expect(links).toEqual([])
+
+    await waitlist.fill('7')
+    await button.click()
+    await dlg.getByRole('button', { name: '저장하고 떠나기' }).click()
+    await expect(page).toHaveURL(new RegExp(`^${escapeRe(fakeOAuth())}/kakao/authorize\\?`))
+    expect(links).toHaveLength(1)
+    expect(dialogs).toEqual([])
+    expect((await serverSettings(page))['waitlist.max']).toBe(7)
   })
 
   test('네이버도 같다 — 고친 값이 있으면 앱 창, 떠나면 브라우저 확인 없이 이동', async ({ page }) => {

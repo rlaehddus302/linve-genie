@@ -131,3 +131,30 @@ test('AC-FB1-28: 가게 이름 항목을 끄면 칸 옆 안내, 켜면 사라짐
   await item.check()
   await expect(settings.getByText(SHOP_OFF)).toHaveCount(0)
 })
+
+// 회차 2 D-FB1-18 (h) — AC-FB1-42·28: 가격 칸 이름 "라벨에 찍는 가격 모양", 빈 가게 이름 칸의 예시 글
+for (const width of [1440, 375]) {
+  test(`AC-FB1-42·28 ${String(width)}px: 가격 고르기 이름 "라벨에 찍는 가격 모양"("가격 표기" 없음), 빈 가게 이름 칸 placeholder "비워 두면 찍히는 이름: 초록다육", 글을 적으면 값이 보임`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 375 ? 812 : 900 })
+    await loginNewSeller(page)
+    const origin = new URL(page.url()).origin
+    const enable = await page.request.put('/api/settings/labels', { data: { enabled: true }, headers: { Origin: origin } })
+    expect(enable.ok(), await enable.text()).toBe(true)
+    const shopRes = await page.request.put('/api/shop', { data: { name: '초록다육' }, headers: { Origin: origin } })
+    expect(shopRes.status(), await shopRes.text()).toBeLessThan(300)
+    await page.goto('/labels')
+    const settings = region(page, '라벨 설정')
+    const price = settings.getByRole('radiogroup', { name: '라벨에 찍는 가격 모양', exact: true })
+    await expect(price).toBeVisible()
+    await expect(price.getByRole('radio').first()).toBeVisible()
+    await expect(settings.getByText('라벨에 찍는 가격 모양', { exact: true })).toBeVisible()
+    await expect(settings).not.toContainText('가격 표기')
+    const shop = settings.getByRole('textbox', { name: '가게 이름' })
+    await expect(shop).toHaveValue('')
+    await expect(shop).toHaveAttribute('placeholder', '비워 두면 찍히는 이름: 초록다육')
+    await shop.fill('다육상회')
+    await expect(shop).toHaveValue('다육상회')
+    const width2 = await page.evaluate(() => document.documentElement.scrollWidth)
+    expect(width2).toBeLessThanOrEqual(width)
+  })
+}

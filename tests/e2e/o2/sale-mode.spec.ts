@@ -38,7 +38,7 @@ test('AC-O2-01: 설정 판매 규칙 맨 위 "판매 방식" — 기본은 번�
   const firstInput = rules(page).locator('input, select, textarea').first()
   await expect(firstInput).toHaveAccessibleName(NUMBERS_WORD)
   // 엄격/느슨은 "더 보기" 안에 그대로
-  await rules(page).getByRole('button', { name: '상세 설정', exact: true }).click() // FB1 D-FB1-02
+  await rules(page).getByRole('button', { name: '판매 규칙 상세 설정', exact: true }).click() // FB1 D-FB1-02·D-FB1-18
   await expect(rules(page).getByRole('radiogroup', { name: '주문 인식 방식' }).or(rules(page).getByRole('group', { name: '주문 인식 방식' })).or(rules(page).getByLabel('주문 인식 방식'))).toBeVisible()
   await expect(page.locator('body')).not.toContainText(/STRICT|LOOSE|OPTIONS|ARRIVAL/)
 })
@@ -49,7 +49,7 @@ test('AC-O2-02: 실제 시각순 판매자가 옵션 방식을 고르면 겨루�
   const res = await page.request.patch('/api/settings', { data: { settings: { 'contention.policy': 'RECEIVED_TIME' } }, headers: { Origin: origin } })
   expect(res.status(), await res.text()).toBe(200)
   await page.goto('/settings')
-  await rules(page).getByRole('button', { name: '상세 설정', exact: true }).click() // FB1 D-FB1-02
+  await rules(page).getByRole('button', { name: '판매 규칙 상세 설정', exact: true }).click() // FB1 D-FB1-02·D-FB1-18
   await expect(rules(page).getByText('주문 인식 방식')).toBeVisible()
   await rules(page).getByRole('radio', { name: OPTIONS_WORD }).check()
   await expect(rules(page).getByText('주문 인식 방식')).toHaveCount(0)
