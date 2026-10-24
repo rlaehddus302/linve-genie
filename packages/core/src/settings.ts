@@ -148,7 +148,7 @@ function ruleProblem(rule: SettingRule, value: unknown): string | null {
     case 'int': {
       if (rule.nullable && value === null) return null
       if (typeof value === 'number' && Number.isSafeInteger(value) && value >= rule.min && value <= rule.max) return null
-      const range = `${grouped(rule.min)}부터 ${grouped(rule.max)}까지의 정수로 적어 주세요`
+      const range = `${grouped(rule.min)}부터 ${grouped(rule.max)}까지 숫자로 적어 주세요.`
       return rule.nullable ? `비워 두거나 ${range}` : range
     }
   }

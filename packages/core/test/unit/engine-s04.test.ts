@@ -354,14 +354,18 @@ describe('AC-S04-05 설정값 검사 함수 (checkSettings)', () => {
       const problems = checkSettings({ [key]: bad })
       expect(problems, `${key}=${String(bad)}`).toHaveLength(1)
       expect(problems[0]?.key).toBe(key)
-      expect(problems[0]?.message).toContain('정수')
+      // FB1 D-FB1-18 (g): 문장 전체를 맞춘다 (AC-FB1-41)
+      const comma = (n: number): string => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+      const range = `${comma(min)}부터 ${comma(max)}까지 숫자로 적어 주세요.`
+      expect(problems[0]?.message).toBe(key === 'shipping.freeThreshold' ? `비워 두거나 ${range}` : range)
     }
   })
 
   it('무료배송 기준은 null(없음)을 받는다. 문구는 세 자리마다 쉼표', () => {
     expect(checkSettings({ 'shipping.freeThreshold': null })).toEqual([])
-    expect(checkSettings({ 'shipping.freeThreshold': -1 })).toEqual([{ key: 'shipping.freeThreshold', message: '비워 두거나 0부터 100,000,000까지의 정수로 적어 주세요' }])
-    expect(checkSettings({ 'shipping.baseFee': 1_000_001 })).toEqual([{ key: 'shipping.baseFee', message: '0부터 1,000,000까지의 정수로 적어 주세요' }])
+    expect(checkSettings({ 'shipping.freeThreshold': -1 })).toEqual([{ key: 'shipping.freeThreshold', message: '비워 두거나 0부터 100,000,000까지 숫자로 적어 주세요.' }]) // FB1 D-FB1-18 (g)
+    expect(checkSettings({ 'shipping.baseFee': 1_000_001 })).toEqual([{ key: 'shipping.baseFee', message: '0부터 1,000,000까지 숫자로 적어 주세요.' }]) // FB1 D-FB1-18 (g)
+    expect(checkSettings({ 'waitlist.max': 101 })).toEqual([{ key: 'waitlist.max', message: '0부터 100까지 숫자로 적어 주세요.' }]) // FB1 D-FB1-18 (g) AC-FB1-41
   })
 
   it('모르는 키·선택지 밖·true/false가 아닌 예/아니오 — 문제마다 키와 쉬운 이유', () => {
