@@ -133,19 +133,24 @@ export function App() {
     }
   }, [])
 
+  // 로그인한 화면을 보던 중인가 — 이때의 401만 '로그인이 풀렸어요'다 (TE-LND1-001)
+  const sessionLive = useRef(false)
   useEffect(() => {
-    // 처음 확인(/api/me)의 401은 아직 로그인하지 않은 것 — 그 뒤의 401은 세션이 끝난 것
-    let ready = false
+    sessionLive.current = session.state === 'in'
+  }, [session.state])
+
+  useEffect(() => {
+    // 로그인 확인(/api/me)의 401은 처음이든 끊김·503 뒤 다시 확인이든 아직 로그인하지 않은 것 — check()가 처리한다.
+    // 로그인한 화면을 보던 중의 401만 세션이 끝난 것
     onUnauthorized(() => {
-      if (!ready) return
+      if (!sessionLive.current) return
+      sessionLive.current = false
       setLeftInTab(true)
       setSession({ state: 'out', expired: true })
       setLeaving(null)
       asking.current = false
     })
-    void check().finally(() => {
-      ready = true
-    })
+    void check()
     return () => onUnauthorized(null)
   }, [check])
 

@@ -271,6 +271,45 @@ describe('앱 흐름 (AC-LND1-01~03·05~08, D-LND1-01·02·08)', () => {
     expect(screen.queryByText('판매자의 하루')).toBeNull()
   })
 
+  it('첫 로그인 확인이 인터넷 끊김 → "다시 시도" → 401이면 소개 화면, "로그인이 풀렸어요" 없음 (TE-LND1-001)', async () => {
+    let first = true
+    server.on('GET', /^\/api\/me$/, () => {
+      if (first) {
+        first = false
+        return { network: true }
+      }
+      return apiError(401, 'UNAUTHORIZED', '로그인이 필요해요.')
+    })
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: '다시 시도' }))
+    expect(await screen.findByRole('heading', { name: '판매자의 하루' })).toBeDefined()
+    expect(screen.queryByText('로그인이 풀렸어요. 다시 로그인해 주세요.')).toBeNull()
+    expect(screen.queryByLabelText('아이디')).toBeNull()
+  })
+
+  it('첫 로그인 확인이 서버 오류(503) → "다시 시도" → 401이면 소개 화면, 로그인한 뒤 풀리면 그때는 "로그인이 풀렸어요" (TE-LND1-001)', async () => {
+    let first = true
+    server.on('GET', /^\/api\/me$/, () => {
+      if (first) {
+        first = false
+        return { status: 503, body: { error: { code: 'UNAVAILABLE', message: '잠시 뒤에 다시 해 주세요.' } } }
+      }
+      return signedIn ? { body: me } : apiError(401, 'UNAUTHORIZED', '로그인이 필요해요.')
+    })
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: '다시 시도' }))
+    expect(await screen.findByRole('heading', { name: '판매자의 하루' })).toBeDefined()
+    expect(screen.queryByText('로그인이 풀렸어요. 다시 로그인해 주세요.')).toBeNull()
+    // 로그인한 다음에 세션이 끝나면 그때는 풀림이다
+    fireEvent.click(screen.getByRole('link', { name: '로그인' }))
+    fireEvent.change(await screen.findByLabelText('아이디'), { target: { value: 'shop1' } })
+    fireEvent.change(screen.getByLabelText('비밀번호'), { target: { value: 'pass-word-1' } })
+    server.on('GET', /^\/api\/broadcasts$/, () => apiError(401, 'UNAUTHORIZED', '로그인이 필요해요.'))
+    fireEvent.click(screen.getByRole('button', { name: '로그인' }))
+    expect(await screen.findByText('로그인이 풀렸어요. 다시 로그인해 주세요.')).toBeDefined()
+    expect(screen.queryByText('판매자의 하루')).toBeNull()
+  })
+
   it('홈 화면 앱(display-mode: standalone · navigator.standalone): `/`에서 바로 로그인 화면', async () => {
     vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(display-mode: standalone)', media: query, addEventListener: () => {}, removeEventListener: () => {} }))
     render(<App />)
