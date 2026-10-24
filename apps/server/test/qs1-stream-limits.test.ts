@@ -125,12 +125,13 @@ describe('AC-QS1-11 ready 전 모인 알림도 같은 한도', () => {
 })
 
 describe('AC-QS1-12 판매자마다 30개, 넘으면 가장 오래된 것부터 (D-QS1-04 (2)(4))', () => {
-  it('P의 31번째 연결에 P의 1번이 닫히고 31번째가 ready를 받는다. Q의 30개는 그대로. 닫힌 1번이 출력 기기면 onDevice로 알리고 deviceLive가 false', async () => {
+  it('P의 31번째 연결에 P의 1번(기기 ID 없음)이 닫히고 31번째가 ready를 받는다. Q의 30개는 그대로. 출력 기기 ID를 밝힌 2번은 열린 채', async () => {
     const deviceEvents: string[] = []
     const { hub, logs } = newHub({ onDevice: (sellerId, deviceId) => deviceEvents.push(`${sellerId}:${deviceId}`) })
     expect(STREAM_SELLER_MAX).toBe(30)
     const p: ReturnType<typeof sseReader>[] = []
-    for (let i = 1; i <= 30; i += 1) p.push(read(await hub.open('P', `p${String(i)}`, scopesAt(0), i === 1 ? { deviceId: 'dev-1' } : {})))
+    // 1번이 가장 먼저 연 것이고 기기 ID 없음, 2번이 출력 기기 ID를 밝힘 (AC-QS1-12 Given, D-QS1-13)
+    for (let i = 1; i <= 30; i += 1) p.push(read(await hub.open('P', `p${String(i)}`, scopesAt(0), i === 2 ? { deviceId: 'dev-1' } : {})))
     const q: ReturnType<typeof sseReader>[] = []
     for (let i = 1; i <= 30; i += 1) q.push(read(await hub.open('Q', `q${String(i)}`, scopesAt(0))))
     await Promise.all([...p, ...q].map((reader) => reader.until(() => reader.events.length >= 1)))
@@ -143,19 +144,15 @@ describe('AC-QS1-12 판매자마다 30개, 넘으면 가장 오래된 것부터 
     await p[0]?.until(() => p[0]?.closed === true)
     expect(p[0]?.closed).toBe(true)
     expect(hub.size).toBe(60)
-    expect(deviceEvents).toEqual(['P:dev-1'])
-    expect(hub.deviceLive('P', 'dev-1')).toBe(false)
+    expect(deviceEvents).toEqual([])
+    expect(hub.deviceLive('P', 'dev-1')).toBe(true)
     expect(logs).toEqual([{ level: 'info', code: 'STREAM_CLOSED', seller: 'P', reason: 'SELLER_LIMIT' }])
     // Q는 하나도 닫히지 않고 알림을 받는다. P의 2~31번도 받는다
     hub.publish('Q', [notice(1)])
     hub.publish('P', [notice(1)])
     await Promise.all([...q, ...p.slice(1), p31].map((reader) => reader.until(() => changes(reader).length === 1)))
     for (const reader of q) expect(reader.closed).toBe(false)
-    // 출력 기기가 다시 열면 true
-    const back = read(await hub.open('P', 'p-dev', scopesAt(1), { deviceId: 'dev-1' }))
-    await back.until(() => back.events.length >= 1)
-    expect(hub.deviceLive('P', 'dev-1')).toBe(true)
-    await p[1]?.until(() => p[1]?.closed === true)
+    expect(p[1]?.closed).toBe(false)
   })
 
   it('범위를 읽는 중인 연결도 30개에 센다 — 열린 연결이 먼저 닫히고, 그다음 읽는 중인 것 중 가장 오래된 것', async () => {
@@ -213,6 +210,75 @@ describe('AC-QS1-12 판매자마다 30개, 넘으면 가장 오래된 것부터 
     expect(q.closed).toBe(false)
     hub.publish('Q', [notice(1)])
     await q.until(() => changes(q).length === 1)
+  })
+})
+
+describe('AC-QS1-46 30개를 넘을 때 출력 기기 연결은 마지막에 닫음 (D-QS1-13)', () => {
+  it('1번이 출력 기기(dev-1)이고 2~30번은 기기 ID 없음 — 31번째에 2번이 닫히고 1번은 열린 채, onDevice 알림 없음, deviceLive true', async () => {
+    const deviceEvents: string[] = []
+    const { hub, logs } = newHub({ onDevice: (sellerId, deviceId) => deviceEvents.push(`${sellerId}:${deviceId}`) })
+    const p: ReturnType<typeof sseReader>[] = []
+    for (let i = 1; i <= 30; i += 1) p.push(read(await hub.open('P', `p${String(i)}`, scopesAt(0), i === 1 ? { deviceId: 'dev-1' } : {})))
+    await Promise.all(p.map((reader) => reader.until(() => reader.events.length >= 1)))
+    deviceEvents.length = 0
+    const p31 = read(await hub.open('P', 'p31', scopesAt(0)))
+    await p31.until(() => p31.events.length >= 1)
+    expect(p31.events[0]?.event).toBe('ready')
+    await p[1]?.until(() => p[1]?.closed === true)
+    expect(p[0]?.closed).toBe(false)
+    expect(p.slice(2).every((reader) => !reader.closed)).toBe(true)
+    expect(hub.size).toBe(30)
+    expect(deviceEvents).toEqual([])
+    expect(hub.deviceLive('P', 'dev-1')).toBe(true)
+    expect(logs).toEqual([{ level: 'info', code: 'STREAM_CLOSED', seller: 'P', reason: 'SELLER_LIMIT' }])
+    hub.publish('P', [notice(1)])
+    await p[0]?.until(() => changes(p[0] as ReturnType<typeof sseReader>).length === 1)
+  })
+
+  it('기기 ID를 밝힌 연결이 1·2번이고 나머지는 없음 — 31·32번째에 3번, 그다음 4번이 닫힌다', async () => {
+    const deviceEvents: string[] = []
+    const { hub } = newHub({ onDevice: (sellerId, deviceId) => deviceEvents.push(`${sellerId}:${deviceId}`) })
+    const p: ReturnType<typeof sseReader>[] = []
+    for (let i = 1; i <= 30; i += 1) p.push(read(await hub.open('P', `p${String(i)}`, scopesAt(0), i <= 2 ? { deviceId: `dev-${String(i)}` } : {})))
+    await Promise.all(p.map((reader) => reader.until(() => reader.events.length >= 1)))
+    deviceEvents.length = 0
+    const p31 = read(await hub.open('P', 'p31', scopesAt(0)))
+    await p[2]?.until(() => p[2]?.closed === true)
+    expect(p[3]?.closed).toBe(false)
+    const p32 = read(await hub.open('P', 'p32', scopesAt(0)))
+    await p[3]?.until(() => p[3]?.closed === true)
+    await Promise.all([p31, p32].map((reader) => reader.until(() => reader.events.length >= 1)))
+    expect(p[0]?.closed).toBe(false)
+    expect(p[1]?.closed).toBe(false)
+    expect(p.slice(4).every((reader) => !reader.closed)).toBe(true)
+    expect(hub.size).toBe(30)
+    expect(deviceEvents).toEqual([])
+    expect(hub.deviceLive('P', 'dev-1')).toBe(true)
+    expect(hub.deviceLive('P', 'dev-2')).toBe(true)
+  })
+
+  it('30개 모두 기기 ID를 밝힘 — 31번째에 그중 가장 오래된 것이 닫히고 그때만 onDevice로 알린다(다시 열면 deviceLive true). 새 연결은 닫지 않는다', async () => {
+    const deviceEvents: string[] = []
+    const { hub } = newHub({ onDevice: (sellerId, deviceId) => deviceEvents.push(`${sellerId}:${deviceId}`) })
+    const p: ReturnType<typeof sseReader>[] = []
+    for (let i = 1; i <= 30; i += 1) p.push(read(await hub.open('P', `p${String(i)}`, scopesAt(0), { deviceId: `dev-${String(i)}` })))
+    await Promise.all(p.map((reader) => reader.until(() => reader.events.length >= 1)))
+    deviceEvents.length = 0
+    // 31번째는 기기 ID 없음 — 기기 ID 없는 연결이 이것뿐이어도 새 연결이라 닫지 않는다
+    const p31 = read(await hub.open('P', 'p31', scopesAt(0)))
+    await p31.until(() => p31.events.length >= 1)
+    expect(p31.events[0]?.event).toBe('ready')
+    await p[0]?.until(() => p[0]?.closed === true)
+    expect(p.slice(1).every((reader) => !reader.closed)).toBe(true)
+    expect(hub.size).toBe(30)
+    expect(deviceEvents).toEqual(['P:dev-1'])
+    expect(hub.deviceLive('P', 'dev-1')).toBe(false)
+    const back = read(await hub.open('P', 'p-dev', scopesAt(1), { deviceId: 'dev-1' }))
+    await back.until(() => back.events.length >= 1)
+    expect(hub.deviceLive('P', 'dev-1')).toBe(true)
+    // 다시 연 dev-1 연결로 31개가 넘어 기기 ID 없는 31번째가 닫힌다
+    await p31.until(() => p31.closed)
+    expect(hub.size).toBe(30)
   })
 })
 

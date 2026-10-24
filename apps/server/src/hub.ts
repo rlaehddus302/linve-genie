@@ -65,6 +65,8 @@ interface Pending {
   readonly sellerId: string
   readonly sessionHash: string
   readonly named: boolean
+  /** 밝힌 출력 기기 ID (없으면 null) — 30개를 넘을 때 마지막에 닫는다 (D-QS1-13) */
+  readonly deviceId: string | null
   /** 모인 알림 (generator 알림은 그대로 지나간다) */
   readonly notices: (StreamNotice | GeneratorNotice)[]
   /** 모인 알림의 어림 크기 (바이트) — 한도를 넘으면 모은 것을 버리고 닫는다 */
@@ -123,9 +125,9 @@ export class StreamHub {
   ): Promise<Response> {
     const named = options.named ?? true
     const deviceId = options.deviceId ?? null
-    const pending: Pending = { sellerId, sessionHash, named, notices: [], bytes: 0, closed: false }
+    const pending: Pending = { sellerId, sessionHash, named, deviceId, notices: [], bytes: 0, closed: false }
     this.#pending.add(pending)
-    this.#enforceSellerMax(sellerId)
+    this.#enforceSellerMax(sellerId, pending)
     let scopes: readonly ScopeSeq[]
     try {
       scopes = await readScopes()
@@ -271,20 +273,27 @@ export class StreamHub {
     return this.#options.bufferMaxBytes ?? STREAM_BUFFER_MAX_BYTES
   }
 
-  /** 판매자의 연결(읽는 중 포함)이 한도를 넘으면 가장 먼저 연 것부터 닫는다 — 열린 연결이 먼저 (D-QS1-04 (2), AC-QS1-12) */
-  #enforceSellerMax(sellerId: string): void {
+  /**
+   * 판매자의 연결(읽는 중 포함)이 한도를 넘으면 가장 먼저 연 것부터 닫는다 — 열린 연결이 먼저 (D-QS1-04 (2), AC-QS1-12).
+   * 출력 기기 ID를 밝힌 연결(`?device=`)은 마지막에 닫는다 — 밝히지 않은 연결이 남아 있으면 그중 가장 오래된 것부터 (D-QS1-13, AC-QS1-46).
+   * 새로 연 연결(`fresh`)은 닫지 않는다
+   */
+  #enforceSellerMax(sellerId: string, fresh: Pending): void {
     const max = this.#options.sellerMax ?? STREAM_SELLER_MAX
     const live = [...this.#connections].filter((connection) => connection.sellerId === sellerId && !connection.closed)
     const reading = [...this.#pending].filter((pending) => pending.sellerId === sellerId && !pending.closed)
     let excess = live.length + reading.length - max
-    for (const connection of live) {
-      if (excess <= 0) return
-      this.#discard(connection, 'SELLER_LIMIT')
-      excess -= 1
+    if (excess <= 0) return
+    // 닫을 차례: 기기 ID 없는 것(열린 것 → 읽는 중) → 기기 ID 밝힌 것(열린 것 → 읽는 중). 각 안에서는 연 차례(Set 순서)
+    const order: ({ readonly live: Connection } | { readonly reading: Pending })[] = []
+    for (const withDevice of [false, true]) {
+      for (const connection of live) if ((connection.deviceId !== null) === withDevice) order.push({ live: connection })
+      for (const pending of reading) if (pending !== fresh && (pending.deviceId !== null) === withDevice) order.push({ reading: pending })
     }
-    for (const pending of reading) {
+    for (const victim of order) {
       if (excess <= 0) return
-      this.#closePending(pending, 'SELLER_LIMIT')
+      if ('live' in victim) this.#discard(victim.live, 'SELLER_LIMIT')
+      else this.#closePending(victim.reading, 'SELLER_LIMIT')
       excess -= 1
     }
   }
