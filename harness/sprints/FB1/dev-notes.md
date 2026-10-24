@@ -125,3 +125,12 @@
   - 확인: E2E s06/layout·nav/phone-menu·i4/voice-layout·n2b2/layout·i3/youtube·fb1/console·fb1/settings 60개 통과(기대값 그대로). 단위 시험 `apps/web/test/fb1-quick.test.tsx` "휴대폰 고정 영역" 둘.
 - **일부 실패 뒤 고칠 칸으로(U-FB1-02, UX-03)**: 저장 막대가 일부 실패를 받으면 실패한 칸 중 화면에서 첫 블록(`section.settings-section > h2` 이름)의 첫 `aria-invalid="true"` 칸으로 화면을 옮기고 포커스(접힌 "상세 설정" 안이면 편다). 빨간 칸이 없으면(네트워크 실패 등) 그 블록 제목(h2, tabIndex -1)으로. `apps/web/src/components/SaveBar.tsx` `focusFirstFailed`.
   - e2e에게: 일부 실패 뒤 `expect(page.getByLabel('대기 인원 (0이면 대기 없음)')).toBeFocused()`, 네트워크 실패면 `heading "배송비"`가 포커스.
+
+## web 만원 단위·여러 번호 예시 (SA-FB1-02 — AC-FB1-01·02·04 [web], AC-FB1-07 D-FB1-12)
+
+- **가격 단위 고르기**: 선택지는 코어 `PRICE_UNITS` 순서 `원 (15000 → 15,000원)`·`천원 (15 → 15,000원)`·`만원 (15 → 150,000원)`(값 `WON`·`THOUSAND`·`TEN_THOUSAND`, 처음 값은 코어 기본 천원). 안내 `PRICE_UNIT_HINT` = "'2만'·'15000원'처럼 단위를 붙여 적으면 이 설정과 상관없이 적힌 대로 들어가요."(옛 "만원 단위는 '2만'·'1.5만'처럼…" 없앰). 시작 마법사 2단계 요약도 같은 낱말(`valueWords`).
+- **바꿀 때 확인 한 줄**: `settings-fields.ts` `fieldChangeNote(field, value, saved)`·`PRICE_UNIT_CHANGE` — 고른 값 ≠ 저장된 값이면 가격 단위 고르기 안 `p.warning role=note` 하나(AC-FB1-01 세 문장 그대로), 같거나 저장하면 없음. 창은 없다. `RuleField`에 `saved` 속성(설정 화면 기본 칸·마법사 칸이 넘김).
+- **콘솔 단위 줄**: `unitLine('TEN_THOUSAND')` = "가격 단위: 만원 — 15는 150,000원, 5천은 5,000원"(전에는 천원 줄로 떨어졌다). 해석은 그대로 코어 `parseQuickInput`·`parseAmount`(웹이 곱하지 않음).
+- **여러 번호 예시(D-FB1-12)**: `FieldDef.lead`(글 한 줄) → `leadChat { author, text }`. 고르기 바로 아래 `p.chat-example` = "예:" + `span.chat-example-author` "@홍길동"(회색, 1rem) + `span.chat-example-text` "132 475"(1.125rem 굵게). 선택지 `모두 주문 (132번·475번 둘 다 찜)`·`첫 번호만 주문 (132번만 찜)`·`주문으로 보지 않아요 (둘 다 찜 아님)`. 글자 크기는 16px 규칙(styles.node 시험) 때문에 글쓴이를 16px 아래로 내리지 않고 글을 키워 "작은 글씨"를 냈다.
+- 시험: `apps/web/test/fb1-settings.test.tsx`(세 낱말·안내·옛 문장 없음·확인 문장 세 가지와 되돌리기/저장 뒤 없음·`TEN_THOUSAND` 저장·마법사 낱말·글쓴이/글 다른 요소), `fb1-quick.test.tsx`(만원 줄·미리 보기 150,000·15,000·5,000·Enter 가격 150000·고치기 칸 "= 140,000원", 무작위 대조 세 단위). 바뀐 낱말 고정값 `i3-lib.test.ts`·`wizard-app.test.tsx`(`// FB1 D-FB1-11`).
+- **e2e에게(맞춰야 할 곳)**: `tests/e2e/fb1/support.ts` `UNIT_HINT`, `fb1/settings.spec.ts` 198·199·214·215·222행(옛 낱말·예시), `fb1/console.spec.ts` 112행 `'천원 (10 → 10,000원)'` → `'천원 (15 → 15,000원)'`, `i3/accounts.spec.ts` 112행 마법사 요약 `'가격 단위: 천원 (15 → 15,000원)'`. 예시는 `getByText('@홍길동')`·`getByText('132 475')`. 만원 콘솔·확인 문장 E2E(AC-FB1-90)는 새로.

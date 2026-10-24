@@ -7,6 +7,7 @@ import { onUnauthorized } from '../src/api/client.ts'
 import type { ParcelSettings } from '../src/api/parcel-types.ts'
 import type { Shop } from '../src/api/types.ts'
 import { setTopLevelNavigation } from '../src/lib/google-return.ts'
+import { fieldOf, valueWords } from '../src/lib/settings-fields.ts'
 import { dirtyLine, failedMessage, orderBlocks, runSteps, savedMessage } from '../src/lib/save-bar.ts'
 import { FakeEventSource, FakeServer, apiError, flush, youtubeNotConfigured, type Reply } from './support.ts'
 
@@ -288,29 +289,84 @@ describe('저장 막대 (AC-FB1-22~25)', () => {
 })
 
 describe('설정 문구 (AC-FB1-01·05~08)', () => {
-  it('가격 단위 두 낱말과 만원 안내, 배송비 안내, "상세 설정"과 펼친 칸 위 안내, 여러 번호 예시, 같은 1분 낱말', async () => {
+  it('가격 단위 세 낱말과 단위 붙인 글 안내, 배송비 안내, "상세 설정"과 펼친 칸 위 안내, 여러 번호 예시, 같은 1분 낱말', async () => {
     await open()
     const rules = section('판매 규칙')
     const unit = within(rules).getByRole('radiogroup', { name: '가격 단위' })
-    expect(within(unit).getAllByRole('radio').map((radio) => radio.parentElement?.textContent)).toEqual(['천원 (10 → 10,000원)', '원 (10000 → 10,000원)'])
-    expect(within(unit).getByText("만원 단위는 '2만'·'1.5만'처럼 적으면 돼요. 어느 단위를 골라도 '2만'은 20,000원이에요.")).toBeDefined()
+    // FB1 D-FB1-11 (5): 원·천원·만원 (D-FB1-01의 두 낱말 대체)
+    expect(within(unit).getAllByRole('radio').map((radio) => radio.parentElement?.textContent)).toEqual(['원 (15000 → 15,000원)', '천원 (15 → 15,000원)', '만원 (15 → 150,000원)'])
+    expect((within(unit).getByRole('radio', { name: '천원 (15 → 15,000원)' }) as HTMLInputElement).checked).toBe(true)
+    expect(within(unit).getByText("'2만'·'15000원'처럼 단위를 붙여 적으면 이 설정과 상관없이 적힌 대로 들어가요.")).toBeDefined()
     expect(within(section('배송비')).getByText('배송비는 그날 첫 방송을 시작할 때의 값으로 정산해요. 오늘 방송을 이미 시작했으면 바꾼 배송비는 내일부터 적용돼요.')).toBeDefined()
     const detail = within(rules).getByRole('button', { name: '상세 설정' })
     expect(detail.getAttribute('aria-expanded')).toBe('false')
     fireEvent.click(detail)
     expect(within(rules).getByText('잘 모르면 그대로 두세요.')).toBeDefined()
     const multi = within(rules).getByRole('radiogroup', { name: '한 채팅에 번호가 여러 개면' })
-    expect(within(multi).getByText("예: 채팅 '15 28'")).toBeDefined()
-    expect(within(multi).getAllByRole('radio').map((radio) => radio.parentElement?.textContent)).toEqual(['모두 주문 (15번·28번 둘 다)', '첫 번호만 주문 (15번만)', '주문으로 보지 않아요'])
+    // FB1 D-FB1-12: 채팅 한 줄 모양 — 글쓴이와 글은 다른 요소, 글쓴이는 다른 모양(회색 작은 글씨)
+    const author = within(multi).getByText('@홍길동')
+    const chat = within(multi).getByText('132 475')
+    expect(author).not.toBe(chat)
+    expect(author.contains(chat) || chat.contains(author)).toBe(false)
+    expect(author.className).not.toBe(chat.className)
+    expect(author.parentElement?.textContent).toBe('예: @홍길동 132 475')
+    expect(within(multi).getAllByRole('radio').map((radio) => radio.parentElement?.textContent)).toEqual(['모두 주문 (132번·475번 둘 다 찜)', '첫 번호만 주문 (132번만 찜)', '주문으로 보지 않아요 (둘 다 찜 아님)'])
     const tie = within(rules).getByRole('radiogroup', { name: '문자찜과 유튜브 찜이 같은 1분 안에 들어오면 (실제 받은 시각 순서일 때만)' })
     expect(within(tie).getAllByRole('radio').map((radio) => radio.parentElement?.textContent)).toEqual(['유튜브 먼저', '문자 먼저', '내가 정해요'])
     const text = document.body.textContent ?? ''
-    for (const gone of ['더 보기 (잘 모르면 그대로 두세요)', '그날 첫 방송이 이미 있으면 그날 정산은 그대로예요.', '@', '극소', 'THOUSAND', 'WON', 'EPOST', 'OTHER', 'PER_SALE']) expect(text).not.toContain(gone)
-    // 저장 값은 그대로 THOUSAND·WON
-    fireEvent.click(within(unit).getByRole('radio', { name: '원 (10000 → 10,000원)' }))
+    for (const gone of [
+      '더 보기 (잘 모르면 그대로 두세요)',
+      '그날 첫 방송이 이미 있으면 그날 정산은 그대로예요.',
+      "만원 단위는 '2만'·'1.5만'처럼 적으면 돼요.",
+      "예: 채팅 '15 28'",
+      '15번·28번 둘 다',
+      '극소',
+      'TEN_THOUSAND',
+      'THOUSAND',
+      'WON',
+      'EPOST',
+      'OTHER',
+      'PER_SALE',
+    ])
+      expect(text).not.toContain(gone)
+    // 저장 값은 WON·THOUSAND·TEN_THOUSAND
+    fireEvent.click(within(unit).getByRole('radio', { name: '원 (15000 → 15,000원)' }))
     fireEvent.click(saveButton())
     await within(bar()).findByText(/저장했어요/)
     expect(server.callsTo('PATCH', /^\/api\/settings$/).at(-1)?.body).toEqual({ settings: { 'price.unit': 'WON' } })
+  })
+
+  it('가격 단위를 저장된 값과 다르게 고르면 확인 한 줄(창 없음), 되돌리거나 저장하면 없다 — 만원 저장 값 TEN_THOUSAND (AC-FB1-01)', async () => {
+    await open()
+    const unit = within(section('판매 규칙')).getByRole('radiogroup', { name: '가격 단위' })
+    const TEN = "저장하면 다음 방송부터 '15'는 150,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요."
+    const THOUSAND_NOTE = "저장하면 다음 방송부터 '15'는 15,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요."
+    const WON_NOTE = "저장하면 다음 방송부터 숫자를 원 그대로 읽어요('15000' → 15,000원). 이미 등록한 상품 가격은 바뀌지 않아요."
+    const notes = () => [TEN, THOUSAND_NOTE, WON_NOTE].filter((note) => within(unit).queryByText(note) !== null)
+    expect(notes()).toEqual([])
+    fireEvent.click(within(unit).getByRole('radio', { name: '만원 (15 → 150,000원)' }))
+    expect(notes()).toEqual([TEN])
+    expect(screen.queryByRole('dialog')).toBeNull()
+    fireEvent.click(within(unit).getByRole('radio', { name: '원 (15000 → 15,000원)' }))
+    expect(notes()).toEqual([WON_NOTE])
+    fireEvent.click(within(unit).getByRole('radio', { name: '천원 (15 → 15,000원)' }))
+    expect(notes()).toEqual([])
+    fireEvent.click(within(unit).getByRole('radio', { name: '만원 (15 → 150,000원)' }))
+    fireEvent.click(saveButton())
+    await within(bar()).findByText(/저장했어요/)
+    expect(server.callsTo('PATCH', /^\/api\/settings$/).at(-1)?.body).toEqual({ settings: { 'price.unit': 'TEN_THOUSAND' } })
+    expect(notes()).toEqual([])
+    // 저장된 값이 만원일 때 천원으로 바꾸면 천원 문장
+    fireEvent.click(within(unit).getByRole('radio', { name: '천원 (15 → 15,000원)' }))
+    expect(notes()).toEqual([THOUSAND_NOTE])
+    expect(document.body.textContent).not.toContain('TEN_THOUSAND')
+  })
+})
+
+describe('시작 마법사 요약의 가격 단위 낱말 (AC-FB1-01)', () => {
+  it('설정 화면과 같은 낱말', () => {
+    const word = (unit: SaleSettings['price.unit']) => valueWords(fieldOf('price.unit'), { ...DEFAULT_SETTINGS, 'price.unit': unit })
+    expect([word('WON'), word('THOUSAND'), word('TEN_THOUSAND')]).toEqual(['원 (15000 → 15,000원)', '천원 (15 → 15,000원)', '만원 (15 → 150,000원)'])
   })
 })
 

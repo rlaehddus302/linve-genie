@@ -219,7 +219,8 @@ describe('판매 규칙 칸 (AC-I3-45·46·52)', () => {
     const words = (['waitlist.max', 'cancel.succession', 'cancel.buyerChat', 'price.unit', 'shipping.baseFee', 'shipping.freeThreshold'] as const).map((key) =>
       valueWords(fieldOf(key), DEFAULT_SETTINGS),
     )
-    expect(words).toEqual(['5명', '대기 1순위가 바로 1등', '내가 확인하고 처리해요', '천원 (10 → 10,000원)', '4,000원', '없음'])
+    // FB1 D-FB1-11: 가격 단위 낱말 원·천원·만원 (AC-FB1-01)
+    expect(words).toEqual(['5명', '대기 1순위가 바로 1등', '내가 확인하고 처리해요', '천원 (15 → 15,000원)', '4,000원', '없음'])
     expect(valueWords(fieldOf('shipping.freeThreshold'), { ...DEFAULT_SETTINGS, 'shipping.freeThreshold': 50000 })).toBe('50,000원')
   })
 })

@@ -422,7 +422,7 @@ function RuleLine({
       </div>
       {editing ? (
         <div className="card stack-tight">
-          <RuleField field={field} value={form.draft[field.key]} onChange={(value) => form.set(field.key, value)} problem={settingProblem(form.error, field.key)} />
+          <RuleField field={field} value={form.draft[field.key]} saved={settings[field.key]} onChange={(value) => form.set(field.key, value)} problem={settingProblem(form.error, field.key)} />
           <div className="row">
             <button
               type="button"

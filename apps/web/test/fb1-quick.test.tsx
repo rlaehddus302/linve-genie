@@ -10,12 +10,23 @@ import { DATE, FakeEventSource, FakeServer, broadcastItem, broadcastView, emptyC
 
 const THOUSAND = quickSettings({ ...DEFAULT_SETTINGS, 'price.unit': 'THOUSAND' })
 const WON = quickSettings({ ...DEFAULT_SETTINGS, 'price.unit': 'WON' })
+const TEN_THOUSAND = quickSettings({ ...DEFAULT_SETTINGS, 'price.unit': 'TEN_THOUSAND' })
 const none = (): Product | undefined => undefined
 
 describe('lib (AC-FB1-02·03)', () => {
   it('단위 한 줄', () => {
     expect(unitLine('THOUSAND')).toBe('가격 단위: 천원 — 10은 10,000원, 2만은 20,000원')
     expect(unitLine('WON')).toBe('가격 단위: 원 — 10000은 10,000원, 2만은 20,000원')
+    // SA-FB1-02: 만원 방송이 천원 줄을 보이면 안 된다 (D-FB1-11 (6))
+    expect(unitLine('TEN_THOUSAND')).toBe('가격 단위: 만원 — 15는 150,000원, 5천은 5,000원')
+  })
+
+  it('만원 방송 미리 보기 (D-FB1-11, AC-FB1-02)', () => {
+    expect(registerPreview('15 엘레강스 15', TEN_THOUSAND, none)).toBe('등록하면: 15번 엘레강스 150,000원')
+    expect(registerPreview('15 엘레강스 15000', TEN_THOUSAND, none)).toBe('등록하면: 15번 엘레강스 15,000원')
+    expect(registerPreview('15 엘레강스 5천', TEN_THOUSAND, none)).toBe('등록하면: 15번 엘레강스 5,000원')
+    expect(fixPricePreview('14', TEN_THOUSAND)).toBe('= 140,000원')
+    expect(fixPricePreview('1.5만', TEN_THOUSAND)).toBe('= 15,000원')
   })
 
   it('"등록하면: …" — 품종 있음·없음·만 단위, 있는 번호·번호만·오류면 없음', () => {
@@ -31,7 +42,7 @@ describe('lib (AC-FB1-02·03)', () => {
     expect(registerPreview('', THOUSAND, none)).toBeNull()
   })
 
-  it('미리 보기 가격 = 등록 판단 가격 (무작위 줄, 두 단위) — 표시는 원 표기 정수', () => {
+  it('미리 보기 가격 = 등록 판단 가격 (무작위 줄, 세 단위) — 표시는 원 표기 정수', () => {
     let seed = 7
     const next = (n: number) => {
       seed = (seed * 1103515245 + 12345) % 2147483648
@@ -40,7 +51,7 @@ describe('lib (AC-FB1-02·03)', () => {
     const parts = ['15', '7번', '엘레강스', '핑크 프릴', '10', '2만', '1.5만', '10000', '3천', '0', '1만5천', '999', '<b>x</b>', '']
     for (let i = 0; i < 500; i++) {
       const line = Array.from({ length: 1 + next(4) }, () => parts[next(parts.length)]).join(' ')
-      for (const settings of [THOUSAND, WON]) {
+      for (const settings of [THOUSAND, WON, TEN_THOUSAND]) {
         const preview = registerPreview(line, settings, none)
         const decision = decideQuickInput(line, settings, none)
         if (decision.kind !== 'register') {
@@ -130,6 +141,30 @@ describe('콘솔 빠른 입력 (AC-FB1-02·03)', () => {
     expect(await screen.findByText('가격 단위: 원 — 10000은 10,000원, 2만은 20,000원')).toBeDefined()
     fireEvent.change(quick, { target: { value: '15 엘레강스 10000' } })
     expect(screen.getByText('등록하면: 15번 엘레강스 10,000원')).toBeDefined()
+  })
+
+  it('만원 방송: 단위 한 줄은 만원, "등록하면: … 150,000원", Enter로 보낸 가격 = 150000, 고치기 칸 "= 140,000원"', async () => {
+    unit = 'TEN_THOUSAND'
+    const quick = await openConsole()
+    expect(await screen.findByText('가격 단위: 만원 — 15는 150,000원, 5천은 5,000원')).toBeDefined()
+    expect(screen.queryByText(/^가격 단위: 천원/)).toBeNull()
+    fireEvent.change(quick, { target: { value: '15 엘레강스 15000' } })
+    expect(screen.getByText('등록하면: 15번 엘레강스 15,000원')).toBeDefined()
+    fireEvent.change(quick, { target: { value: '15 엘레강스 15' } })
+    expect(screen.getByText('등록하면: 15번 엘레강스 150,000원')).toBeDefined()
+    fireEvent.keyDown(quick, { key: 'Enter' })
+    await waitFor(() => expect(events.some((event) => event.type === 'product.register')).toBe(true))
+    expect(events.find((event) => event.type === 'product.register')).toMatchObject({ no: 15, name: '엘레강스', price: 150000 })
+  })
+
+  it('만원 방송: 고치기 칸 가격 옆 "= 140,000원"', async () => {
+    unit = 'TEN_THOUSAND'
+    const quick = await openConsole()
+    fireEvent.change(quick, { target: { value: '16 엘레강스' } })
+    fireEvent.keyDown(quick, { key: 'Enter' })
+    const fix = await screen.findByRole('group', { name: '고치기 칸' })
+    fireEvent.change(fix.querySelectorAll('input')[2] as HTMLInputElement, { target: { value: '14' } })
+    expect(screen.getByText('= 140,000원')).toBeDefined()
   })
 
   it('품종은 글자로만 (HTML로 읽지 않는다), 고치기 칸 가격 옆 "= 15,000원"', async () => {

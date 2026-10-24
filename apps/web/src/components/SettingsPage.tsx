@@ -279,7 +279,7 @@ function RuleSections({ settings, onSaved, youtube }: { readonly settings: SaleS
           problem={settingProblem(form.error, 'claim.parseMode')}
         />
         {BASIC_FIELDS.map((field) => (
-          <RuleField key={field.key} field={field} value={form.draft[field.key]} onChange={(value) => form.set(field.key, value)} problem={settingProblem(form.error, field.key)} />
+          <RuleField key={field.key} field={field} value={form.draft[field.key]} saved={settings[field.key]} onChange={(value) => form.set(field.key, value)} problem={settingProblem(form.error, field.key)} />
         ))}
         <div className="stack-tight">
           {/* FB1 D-FB1-02 (2): "상세 설정" — 펴면 맨 위에 "잘 모르면 그대로 두세요." */}

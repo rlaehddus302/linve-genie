@@ -1,10 +1,24 @@
 // 판매 규칙 칸 (SPEC §7 화면 8, DOMAIN_RULES 설정표, D-I3-08, AC-I3-45·46·10). 화면에는 설정 키·영문 값이 없다 — 칸 이름과 선택지 낱말만.
 // settlement.groupBy(직접 묶기, D-059)·print.autoOnConfirm(I1)은 보이지 않고 보내지도 않는다.
 // 숫자 칸은 적은 글자를 그대로 정수로 읽어 보낸다 — 범위 검사는 서버(코어 checkSettings)가 하고 그 문장을 칸 옆에 보인다.
-import { formatWon, parseAmount, type SaleSettings } from '@livejjim/core'
+import { PRICE_UNITS, formatWon, isPriceUnit, parseAmount, type PriceUnit, type SaleSettings } from '@livejjim/core'
 
-/** 가격 단위 안내 (FB1 D-FB1-01) */
-export const PRICE_UNIT_HINT = "만원 단위는 '2만'·'1.5만'처럼 적으면 돼요. 어느 단위를 골라도 '2만'은 20,000원이에요."
+/** 가격 단위 안내 (FB1 D-FB1-11 (5), AC-FB1-01) — 단위를 붙인 글은 설정과 상관없이 읽힌다(R-14 4) */
+export const PRICE_UNIT_HINT = "'2만'·'15000원'처럼 단위를 붙여 적으면 이 설정과 상관없이 적힌 대로 들어가요."
+/** 가격 단위 낱말 (AC-FB1-01) — 선택지 순서는 코어 PRICE_UNITS(원·천원·만원) */
+export const PRICE_UNIT_WORDS: Readonly<Record<PriceUnit, string>> = {
+  WON: '원 (15000 → 15,000원)',
+  THOUSAND: '천원 (15 → 15,000원)',
+  TEN_THOUSAND: '만원 (15 → 150,000원)',
+}
+/** 저장된 값과 다른 가격 단위를 골랐을 때(저장 전) 고르기 아래 확인 문장 (AC-FB1-01) */
+export const PRICE_UNIT_CHANGE: Readonly<Record<PriceUnit, string>> = {
+  WON: "저장하면 다음 방송부터 숫자를 원 그대로 읽어요('15000' → 15,000원). 이미 등록한 상품 가격은 바뀌지 않아요.",
+  THOUSAND: "저장하면 다음 방송부터 '15'는 15,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요.",
+  TEN_THOUSAND: "저장하면 다음 방송부터 '15'는 150,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요.",
+}
+/** 여러 번호 예시 — 채팅 한 줄 모양 (FB1 D-FB1-12, AC-FB1-07) */
+export const MULTI_NUMBER_EXAMPLE = { author: '@홍길동', text: '132 475' } as const
 /** 배송비 칸 안내 (FB1 D-FB1-02 (1)) */
 export const SHIPPING_HINT = '배송비는 그날 첫 방송을 시작할 때의 값으로 정산해요. 오늘 방송을 이미 시작했으면 바꾼 배송비는 내일부터 적용돼요.'
 /** 감사 대상 설명 (FB1 D-FB1-02 (6)) */
@@ -20,8 +34,8 @@ interface Base<K extends keyof SaleSettings> {
   readonly key: K
   readonly label: string
   readonly place: FieldPlace
-  /** 칸 이름 바로 아래 한 줄 (예시 — FB1 D-FB1-02) */
-  readonly lead?: string
+  /** 칸 이름 바로 아래 채팅 한 줄 모양 예시 (FB1 D-FB1-12) — 글쓴이와 글은 다른 요소 */
+  readonly leadChat?: { readonly author: string; readonly text: string }
   /** 칸 아래 늘 보이는 안내 (FB1 D-FB1-01·02) */
   readonly hint?: string
 }
@@ -88,11 +102,8 @@ export const FIELDS: readonly FieldDef[] = [
     label: '가격 단위',
     place: 'basic',
     kind: 'choice',
-    options: [
-      { value: 'THOUSAND', word: '천원 (10 → 10,000원)' },
-      { value: 'WON', word: '원 (10000 → 10,000원)' },
-    ],
-    // FB1 D-FB1-01: 만원 단위는 더하지 않는다 — 한글 단위는 price.unit과 상관없이 읽힌다(R-14 4)
+    // FB1 D-FB1-11: 원·천원(기본)·만원 — 단위 없는 숫자에만 곱한다, 한글 단위·'원'은 price.unit과 상관없이 읽힌다(R-14 4)
+    options: PRICE_UNITS.map((value) => ({ value, word: PRICE_UNIT_WORDS[value] })),
     hint: PRICE_UNIT_HINT,
   },
   {
@@ -110,11 +121,11 @@ export const FIELDS: readonly FieldDef[] = [
     label: '한 채팅에 번호가 여러 개면',
     place: 'more',
     kind: 'choice',
-    lead: "예: 채팅 '15 28'",
+    leadChat: MULTI_NUMBER_EXAMPLE,
     options: [
-      { value: 'ALL', word: '모두 주문 (15번·28번 둘 다)' },
-      { value: 'FIRST', word: '첫 번호만 주문 (15번만)' },
-      { value: 'IGNORE', word: '주문으로 보지 않아요' },
+      { value: 'ALL', word: '모두 주문 (132번·475번 둘 다 찜)' },
+      { value: 'FIRST', word: '첫 번호만 주문 (132번만 찜)' },
+      { value: 'IGNORE', word: '주문으로 보지 않아요 (둘 다 찜 아님)' },
     ],
   },
   { key: 'claim.maxNumber', label: '주문으로 볼 가장 큰 번호', place: 'more', kind: 'int' },
@@ -211,6 +222,12 @@ export function fieldWarning(field: FieldDef, value: string | boolean | undefine
   if (field.key === 'claim.parseMode' && value === 'LOOSE') return "느슨하게 하면 '15번 예뻐요' 같은 채팅도 주문이 될 수 있어요."
   if (field.key === 'cancel.buyerChat' && value === 'AUTO') return '장난 취소도 바로 처리돼요.'
   return null
+}
+
+/** 고른 값이 저장된 값과 다를 때(저장 전) 고르기 아래 확인 한 줄 — 지금은 가격 단위만 (AC-FB1-01). 같으면 null */
+export function fieldChangeNote(field: FieldDef, value: string | boolean | undefined, saved: unknown): string | null {
+  if (field.key !== 'price.unit' || saved === undefined || value === saved || !isPriceUnit(value)) return null
+  return PRICE_UNIT_CHANGE[value]
 }
 
 export const SAVED_MESSAGE = '저장했어요. 다음에 시작하는 방송부터 적용돼요.'

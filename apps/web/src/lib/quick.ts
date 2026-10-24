@@ -171,7 +171,10 @@ export function editQuestion(no: number, closed: boolean): string {
 
 /** 빠른 입력칸 아래 그 방송의 가격 단위 한 줄 */
 export function unitLine(unit: SaleSettings['price.unit']): string {
-  return unit === 'WON' ? '가격 단위: 원 — 10000은 10,000원, 2만은 20,000원' : '가격 단위: 천원 — 10은 10,000원, 2만은 20,000원'
+  // 모르는 값은 없다(코어 checkSettings가 스냅샷을 거른다) — 그래도 천원으로 추측해 보이지 않게 셋을 따로 (SA-FB1-02)
+  if (unit === 'WON') return '가격 단위: 원 — 10000은 10,000원, 2만은 20,000원'
+  if (unit === 'TEN_THOUSAND') return '가격 단위: 만원 — 15는 150,000원, 5천은 5,000원'
+  return '가격 단위: 천원 — 10은 10,000원, 2만은 20,000원'
 }
 
 /** 친 줄이 새 상품 등록으로 읽히면 "등록하면: 15번 엘레강스 10,000원"(품종이 없으면 "등록하면: 15번 10,000원"), 아니면 null */

@@ -252,6 +252,22 @@ p {
   margin-bottom: 1rem;
 }
 
+/* 여러 번호 예시 — 채팅 한 줄 모양 (FB1 D-FB1-12): 글쓴이는 회색·더 작은 글씨(16px 아래로는 내리지 않는다), 글은 큰 굵은 글씨 */
+.chat-example {
+  color: #3c4043;
+}
+
+.chat-example-author {
+  color: #5f6368;
+  font-size: 1rem;
+}
+
+.chat-example-text {
+  color: #202124;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
 .warning {
   padding: 0.5rem 0.75rem;
   border-left: 4px solid #8a6100;

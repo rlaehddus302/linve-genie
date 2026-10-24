@@ -3,7 +3,7 @@
 import type { SaleSettings } from '@livejjim/core'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { isApiError, patch, type ApiError } from '../api/client.ts'
-import { changedSettings, draftOf, fieldWarning, type Draft, type FieldDef } from '../lib/settings-fields.ts'
+import { changedSettings, draftOf, fieldChangeNote, fieldWarning, type Draft, type FieldDef } from '../lib/settings-fields.ts'
 import { OPTIONS_ARRIVAL_NOTE, OPTIONS_ARRIVAL_WORD, SALE_MODE_CHOICE, type SaleMode } from '../lib/words.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 
@@ -14,13 +14,16 @@ export interface RuleFieldProps {
   /** 그 칸의 서버 문장 */
   readonly problem?: string | undefined
   readonly disabled?: boolean
+  /** 저장된 값 — 다르게 고르면 확인 한 줄 (가격 단위, AC-FB1-01) */
+  readonly saved?: unknown
 }
 
 /** 칸 하나 */
-export function RuleField({ field, value, onChange, problem, disabled = false }: RuleFieldProps) {
+export function RuleField({ field, value, onChange, problem, disabled = false, saved }: RuleFieldProps) {
   const id = useId()
   const problemId = `${id}-problem`
   const warning = fieldWarning(field, value)
+  const changeNote = fieldChangeNote(field, value, saved)
   const described = problem !== undefined ? problemId : undefined
   if (field.kind === 'bool') {
     return (
@@ -38,7 +41,12 @@ export function RuleField({ field, value, onChange, problem, disabled = false }:
     return (
       <fieldset className="rule-choice" role="radiogroup" aria-describedby={described} disabled={disabled}>
         <legend>{field.label}</legend>
-        {field.lead !== undefined ? <p className="hint">{field.lead}</p> : null}
+        {field.leadChat !== undefined ? (
+          // 채팅 한 줄 모양 (D-FB1-12): "예:" + 글쓴이(회색 작은 글씨) + 글
+          <p className="chat-example">
+            <span>예:</span> <span className="chat-example-author">{field.leadChat.author}</span> <span className="chat-example-text">{field.leadChat.text}</span>
+          </p>
+        ) : null}
         <div className="choice-list">
           {field.options.map((option) => (
             <label key={option.value} className="choice">
@@ -48,6 +56,11 @@ export function RuleField({ field, value, onChange, problem, disabled = false }:
           ))}
         </div>
         {field.hint !== undefined ? <p className="hint">{field.hint}</p> : null}
+        {changeNote !== null ? (
+          <p className="warning" role="note">
+            {changeNote}
+          </p>
+        ) : null}
         {warning !== null ? (
           <p className="warning" role="note">
             {warning}
