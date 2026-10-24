@@ -196,3 +196,119 @@ export async function broadcastApi(page: Page, date: string, rehearsal = false, 
   if (typeof b !== 'string') throw new Error(`방송 ID 없음: ${JSON.stringify(body)}`)
   return b
 }
+
+export interface FakeWakeOptions {
+  /** navigator.wakeLock이 없다 */
+  readonly absent?: boolean
+  /** request가 거절된다 */
+  readonly reject?: boolean
+}
+
+/**
+ * 가짜 Wake Lock (AC-MOB1-10 — addInitScript): `navigator.wakeLock.request(type)`를 기록하고 잠금 객체(release()·'release' 사건)를 돌려준다.
+ * 화면 숨김 흉내: `hideScreen(page)`는 `document.visibilityState`를 'hidden'으로 하고 브라우저처럼 살아 있는 잠금을 모두 놓은 뒤(release 사건) visibilitychange를 보낸다.
+ */
+export async function installFakeWake(target: Page | BrowserContext, options: FakeWakeOptions = {}): Promise<void> {
+  await target.addInitScript((opts: FakeWakeOptions) => {
+    interface Sentinel {
+      type: string
+      released: boolean
+      by: 'app' | 'browser' | null
+      listeners: (() => void)[]
+      onrelease: (() => void) | null
+      addEventListener(type: string, listener: () => void): void
+      removeEventListener(type: string, listener: () => void): void
+      release(): Promise<void>
+    }
+    const state = { requests: [] as string[], sentinels: [] as Sentinel[], visibility: 'visible' as DocumentVisibilityState }
+    ;(window as unknown as { __wake: typeof state }).__wake = state
+    try {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state.visibility })
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => state.visibility === 'hidden' })
+    } catch {
+      // 바꿀 수 없으면 그대로
+    }
+    if (opts.absent === true) {
+      try {
+        Object.defineProperty(Navigator.prototype, 'wakeLock', { configurable: true, get: () => undefined })
+        Object.defineProperty(navigator, 'wakeLock', { configurable: true, get: () => undefined })
+      } catch {
+        // 없음
+      }
+      return
+    }
+    const make = (type: string): Sentinel => {
+      const s: Sentinel = {
+        type,
+        released: false,
+        by: null,
+        listeners: [],
+        onrelease: null,
+        addEventListener(t, listener) {
+          if (t === 'release') this.listeners.push(listener)
+        },
+        removeEventListener(t, listener) {
+          if (t === 'release') this.listeners = this.listeners.filter((x) => x !== listener)
+        },
+        async release() {
+          if (this.released) return
+          this.released = true
+          this.by = 'app'
+          for (const l of this.listeners) l()
+          this.onrelease?.()
+        },
+      }
+      return s
+    }
+    const lock = {
+      request(type: string): Promise<Sentinel> {
+        state.requests.push(type)
+        if (opts.reject === true) return Promise.reject(new DOMException('거절', 'NotAllowedError'))
+        const s = make(type)
+        state.sentinels.push(s)
+        return Promise.resolve(s)
+      },
+    }
+    Object.defineProperty(Navigator.prototype, 'wakeLock', { configurable: true, get: () => lock })
+  }, options)
+}
+
+export interface WakeCounts {
+  readonly requests: readonly string[]
+  /** 아직 놓지 않은 잠금 수 */
+  readonly held: number
+  /** 화면이 놓은 수 (release() 호출) */
+  readonly releasedByApp: number
+}
+
+export async function wakeCounts(page: Page): Promise<WakeCounts> {
+  return await page.evaluate(() => {
+    const s = (window as unknown as { __wake?: { requests: string[]; sentinels: { released: boolean; by: string | null }[] } }).__wake
+    if (s === undefined) return { requests: [], held: 0, releasedByApp: 0 }
+    return { requests: [...s.requests], held: s.sentinels.filter((x) => !x.released).length, releasedByApp: s.sentinels.filter((x) => x.by === 'app').length }
+  })
+}
+
+/** 화면이 숨는다 — 브라우저처럼 잠금을 모두 놓는다(release 사건) */
+export async function hideScreen(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const s = (window as unknown as { __wake: { visibility: string; sentinels: { released: boolean; by: string | null; listeners: (() => void)[]; onrelease: (() => void) | null }[] } }).__wake
+    s.visibility = 'hidden'
+    for (const x of s.sentinels) {
+      if (x.released) continue
+      x.released = true
+      x.by = 'browser'
+      for (const l of x.listeners) l()
+      x.onrelease?.()
+    }
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+}
+
+/** 화면이 다시 보인다 */
+export async function showScreen(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    ;(window as unknown as { __wake: { visibility: string } }).__wake.visibility = 'visible'
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+}
