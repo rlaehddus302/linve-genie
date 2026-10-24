@@ -4,6 +4,7 @@ import { PRINTER_MESSAGES, type PrinterErrorCode } from '@livejjim/printer'
 import type { JobReason, JobView, LabelData, LabelView, QueueSummary } from '../api/print-types.ts'
 import { kstHm } from './kst.ts'
 import { saleOptionWords } from './sale-line.ts'
+import { SERVICE_NAME } from '../brand.ts'
 
 /** 알림 띠 낱말 (D-I1-08) */
 export const PRINT_ALERT_WORD = {
@@ -129,4 +130,44 @@ export function printerStatusWord(queue: QueueSummary | null): string {
 export function deviceWord(queue: QueueSummary): string {
   if (queue.device === null) return '출력 기기 없음'
   return `출력 기기: ${queue.device.name} · ${queue.device.live ? '연결됨' : '끊김'}`
+}
+
+// ── 프린터 연결 실패의 해볼 일 (FB1 D-FB1-09, LABEL_RULES L-7 "해볼 일", AC-FB1-38) ─────────
+
+/** 해볼 일 목록 제목 */
+export const CONNECT_TIPS_TITLE = '해볼 일'
+
+export interface ConnectTipEnv {
+  /** 윈도우 (사용자 에이전트에 `Windows`) */
+  readonly windows: boolean
+  /** 이 브라우저에 USB 연결(Web Serial)이 있다 */
+  readonly serial: boolean
+  /** Marklife·바우아토 연결 (NIIMBOT 앱 → 프린터 앱, B1 → 프린터) */
+  readonly marklife?: boolean
+}
+
+/** 해볼 일을 보이는 오류 코드 */
+export function showsConnectTips(code: string): boolean {
+  return code === 'CONNECT_FAILED' || code === 'DISCONNECTED'
+}
+
+/** L-7 ①~⑥ 가운데 그 환경에 맞는 것만, 차례대로 */
+export function connectTips(env: ConnectTipEnv): string[] {
+  const app = env.marklife === true ? '프린터 앱' : 'NIIMBOT 앱'
+  const printer = env.marklife === true ? '프린터를' : 'B1을'
+  return [
+    "프린터 전원을 껐다 켠 뒤 '다시 연결'을 눌러 주세요.",
+    `휴대폰의 ${app}이 프린터에 이어져 있으면 앱을 닫아 주세요. 프린터는 한 기기에만 이어져요.`,
+    ...(env.windows
+      ? [`윈도우 설정 → 블루투스 및 장치에서 ${printer} '장치 제거'한 뒤 여기서 '다시 연결'을 눌러 목록에서 ${printer} 골라 주세요. 윈도우에서 미리 연결(페어링)하지 않아도 돼요.`]
+      : []),
+    ...(env.serial ? ['USB 선이 있으면 USB 연결로 해 보세요.'] : []),
+    `그래도 안 되면 안드로이드 폰의 크롬에서 ${SERVICE_NAME}에 로그인해 프린터를 연결하고 '이 기기에서 출력'을 눌러 주세요. 컴퓨터에서 만든 라벨도 그 폰이 찍어요.`,
+    `아이폰·아이패드는 프린터에 바로 연결할 수 없어요. 라벨을 그림 파일로 저장해 ${app}에서 인쇄해 주세요.`,
+  ]
+}
+
+/** 이 브라우저가 윈도우인가 */
+export function isWindows(userAgent: string = typeof navigator === 'undefined' ? '' : navigator.userAgent): boolean {
+  return userAgent.includes('Windows')
 }

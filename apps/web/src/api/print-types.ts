@@ -110,8 +110,11 @@ export type PrintNotice =
   | { readonly template: { readonly kind: 'product' | 'packing'; readonly version: number } }
 
 export interface StoredTemplate<T extends LabelTemplate = LabelTemplate> {
+  /** 서버가 내준 템플릿 — 가게 이름이 비면 설정 "가게"의 가게 이름을 채운 것 (FB1 D-FB1-07, 출력과 같다) */
   readonly template: T
   readonly version: number
+  /** 저장된 본문의 가게 이름 그대로 (저장한 적 없으면 '' — 라벨 설정 칸은 이 값으로 채운다) */
+  readonly storedShopName?: string
 }
 
 export interface Templates {

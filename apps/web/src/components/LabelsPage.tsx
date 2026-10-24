@@ -16,7 +16,7 @@ import { dateWords, kstToday } from '../lib/kst.ts'
 import { labelEnv } from '../lib/label-env.ts'
 import { canShareFile, downloadBytes, shareBytes } from '../lib/label-files.ts'
 import { a4PdfBytes, broadcastA4Name, labelErrorMessage, pngBytes, productPngName, renderJob, renderProduct, waitingA4Name } from '../lib/label-render.ts'
-import { KEEP_SCREEN_ON, PRINT_ACTION, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, labelOptionWords, replaceQuestion } from '../lib/print-words.ts'
+import { CONNECT_TIPS_TITLE, KEEP_SCREEN_ON, PRINT_ACTION, connectTips, isWindows, showsConnectTips, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, labelOptionWords, replaceQuestion } from '../lib/print-words.ts'
 import type { PrinterMethod } from '../lib/printer-station.ts'
 import type { Navigate } from '../lib/router.ts'
 import { ErrorNote } from './ErrorNote.tsx'
@@ -139,14 +139,29 @@ function LabelsOnPage() {
 
 // ── 프린터 (AC-I1-21~23·50) ────────────────────────────────────────────────
 
-function PrinterErrorView({ error, onRetry }: { readonly error: PrinterError; readonly onRetry?: () => void }) {
+/**
+ * 연결 실패 상자 (L-7, FB1 D-FB1-09 — AC-FB1-38·39): 문장 · "다시 연결" · 해볼 일(연결하지 못함·끊김일 때만, 그 환경에 맞는 것만 차례대로) ·
+ * "자세히"(쉬운 말 상세가 있을 때만 — 어댑터가 원래 예외 글을 넣지 않는다). 시작 마법사 프린터 단계도 같은 칸을 쓴다
+ */
+export function PrinterErrorView({ error, onRetry, serial, windows = isWindows() }: { readonly error: PrinterError; readonly onRetry?: () => void; readonly serial: boolean; readonly windows?: boolean }) {
+  const tips = showsConnectTips(error.code) ? connectTips({ windows, serial }) : []
   return (
-    <div className="error-note" role="alert">
+    <div className="error-note stack-tight" role="alert">
       <p>{error.message}</p>
       {onRetry !== undefined ? (
         <button type="button" className="button" onClick={onRetry}>
           {error.action ?? RECONNECT_ACTION}
         </button>
+      ) : null}
+      {tips.length > 0 ? (
+        <div className="stack-tight">
+          <p className="field-label">{CONNECT_TIPS_TITLE}</p>
+          <ol className="connect-tips" aria-label={CONNECT_TIPS_TITLE}>
+            {tips.map((tip) => (
+              <li key={tip}>{tip}</li>
+            ))}
+          </ol>
+        </div>
       ) : null}
       {error.detail !== undefined ? (
         <details className="details">
@@ -232,7 +247,7 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
           {station.connecting ? (
             <p role="status">{lastMethod === 'test' ? '연결하는 중…' : '연결하는 중… 브라우저 창에서 프린터(B1)를 골라 주세요.'}</p>
           ) : null}
-          {station.connectError !== null && !connected ? <PrinterErrorView error={station.connectError} {...(lastMethod !== null && methods.includes(lastMethod) ? { onRetry: () => connect(lastMethod) } : {})} /> : null}
+          {station.connectError !== null && !connected ? <PrinterErrorView error={station.connectError} serial={station.methods.includes('serial')} {...(lastMethod !== null && methods.includes(lastMethod) ? { onRetry: () => connect(lastMethod) } : {})} /> : null}
           {connected ? <ConnectedPrinter answer={answer} onAnswer={setAnswer} primary={primary && !testAnswered} /> : null}
           {connected && !mine ? <BecomeDevice primary={primary && testAnswered} /> : null}
           {testMode ? <TestHandlePanel /> : null}

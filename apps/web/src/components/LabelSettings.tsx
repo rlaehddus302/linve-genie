@@ -42,6 +42,22 @@ import { FONT_ERROR, useLabelEnv, usePrintApi, usePrintState } from './print-con
 export const SHOP_NAME_MAX = 40
 export const SHOP_NAME_TOO_LONG = '가게 이름은 40자 이하로 적어 주세요.'
 export const SAVED_MESSAGE = '라벨 설정을 저장했어요.'
+/** 가게 이름 칸 안내 (FB1 D-FB1-07, AC-FB1-28) */
+export const SHOP_NAME_HINT = "라벨 맨 위에 찍히는 이름이에요. 비워 두면 설정 '가게'의 가게 이름이 찍혀요. 찍지 않으려면 아래 '가게 이름' 항목을 꺼 주세요."
+export const SHOP_ITEM_OFF = '가게 이름 항목이 꺼져 있어 라벨에 찍히지 않아요.'
+
+/** 칸에 넣을 템플릿: 가게 이름은 저장된 본문의 이름 그대로(서버가 채운 이름을 칸에 넣으면 저장할 때 템플릿에 굳는다) */
+export function editableTemplate(stored: StoredTemplate): LabelTemplate {
+  return stored.storedShopName === undefined ? stored.template : ({ ...stored.template, shopName: stored.storedShopName } as LabelTemplate)
+}
+
+/** 저장된 템플릿 이름이 빈 쪽의 서버 템플릿 이름 = 설정 "가게"의 가게 이름 (모르면 '') */
+export function shopNameFallback(stored: readonly (StoredTemplate | null | undefined)[]): string {
+  for (const item of stored) {
+    if (item?.storedShopName !== undefined && trimLabelText(item.storedShopName) === '') return item.template.shopName
+  }
+  return ''
+}
 /** 위치 한 번 옮기기 (점, 0.5mm) */
 const MOVE_STEP = 4
 /** 글자 크기 한 번 바꾸기 (점) */
@@ -112,7 +128,7 @@ interface Draft {
 }
 
 const draftOf = (stored: StoredTemplate): Draft => ({
-  template: stored.template,
+  template: editableTemplate(stored),
   version: stored.version,
   dirty: false,
   perPageText: stored.template.kind === 'packing' ? String(stored.template.perPage) : '',
@@ -156,10 +172,13 @@ function TemplateEditor({ kind }: { readonly kind: Kind }) {
   const nameOff = template?.kind === 'product' && !template.items.name.visible
   const hasOptions = useHasOptionBroadcasts(nameOff)
 
+  // 미리 보기 = 출력과 같은 그림: 가게 이름 칸이 비면 서버처럼 설정 "가게"의 가게 이름으로 (D-FB1-07)
+  const fallback = shopNameFallback([stored, print.templates?.[kind === 'product' ? 'packing' : 'product']])
   const preview: PagesOutcome | null = useMemo(() => {
     if (env.state !== 'ready' || template === null || problems.length > 0) return null
-    return renderSample(env.env, template, longest)
-  }, [env, template, longest, problems.length])
+    const shown = trimLabelText(template.shopName) === '' && fallback !== '' ? ({ ...template, shopName: fallback } as LabelTemplate) : template
+    return renderSample(env.env, shown, longest)
+  }, [env, template, longest, problems.length, fallback])
 
   // 저장된 설정을 지금 검사(가장 넓은 날짜 포함)로 다시 본다 (L-11 13, D-STB-01). 서버·출력 기기는 저장된 설정을 그대로 쓰고,
   // 여기서는 저장이 막힐 때와 같은 문장으로 경고만 한다(새로 저장하는 것은 지금처럼 막힌다)
@@ -252,9 +271,10 @@ function TemplateEditor({ kind }: { readonly kind: Kind }) {
     }
     setBusy(true)
     try {
-      const response = await put<{ template: LabelTemplate; version: number; message: string }>(`/api/print/templates/${kind}`, { template: result.template, version: draft.version })
-      api?.store.setTemplate(kind, { template: response.template, version: response.version })
-      setDraft({ template: response.template, version: response.version, dirty: false, perPageText: response.template.kind === 'packing' ? String(response.template.perPage) : '' })
+      const response = await put<{ template: LabelTemplate; version: number; message: string; storedShopName?: string }>(`/api/print/templates/${kind}`, { template: result.template, version: draft.version })
+      const saved: StoredTemplate = { template: response.template, version: response.version, ...(response.storedShopName === undefined ? {} : { storedShopName: response.storedShopName }) }
+      api?.store.setTemplate(kind, saved)
+      setDraft(draftOf(saved))
       setSaved(response.message)
     } catch (error) {
       if (!isApiError(error)) throw error
@@ -306,6 +326,12 @@ function TemplateEditor({ kind }: { readonly kind: Kind }) {
             </p>
           ) : null}
           {serverProblem('shopName') !== null ? <p className="field-error">{serverProblem('shopName')}</p> : null}
+          <p className="hint">{SHOP_NAME_HINT}</p>
+          {items['shop']?.visible === false ? (
+            <p className="notice" role="note" data-tone="warning">
+              {SHOP_ITEM_OFF}
+            </p>
+          ) : null}
         </div>
         {template.kind === 'product' ? (
           <fieldset className="fieldset">

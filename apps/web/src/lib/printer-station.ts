@@ -13,10 +13,12 @@ import {
   PRINTER_MESSAGES,
   browserEnvironment,
   createB1Adapter,
+  createFakeNiimbotBluetooth,
   createFakePrinter,
   detectMethods,
   type ConnectionMethod,
   type ConnectionState,
+  type FakeNiimbotBluetooth,
   type FakePrintBehavior,
   type FakePrinter,
   type PrinterAdapter,
@@ -109,6 +111,15 @@ export interface TestPrinterHandle {
   simulateDisconnect(): void
   /** 다음 연결 시도에서 낼 오류 (null이면 성공) */
   setConnectError(code: PrinterErrorCode | null): void
+  /**
+   * "블루투스로 연결"을 가짜 B1 블루투스 기기(실제 B1 어댑터 + 가짜 기기)로 바꾼다 (FB1 AC-FB1-40 — 첫 확인 시간 초과·다시 잇기를 실제 어댑터로 본다).
+   * 시험 모드에서만 있다. 부른 뒤 연결 방법에 블루투스가 생긴다
+   */
+  useFakeB1(): void
+  /** 가짜 B1이 처음 몇 번의 첫 확인(협상)에 답하지 않을지 */
+  setUnansweredNegotiations(n: number): void
+  /** 가짜 B1: 고르기 창을 띄운 횟수 · 연결 시도 수(다시 잇기 포함) · 이어져 있는지 */
+  fakeB1(): { readonly requests: number; readonly connectAttempts: number; readonly connected: boolean } | null
 }
 
 function readMethod(): PrinterMethod | null {
@@ -139,6 +150,7 @@ export class PrinterStation {
   #unlistenAdapter: (() => void) | null = null
   #real: PrinterAdapter | null = null
   #test: FakePrinter | null = null
+  #fakeB1: FakeNiimbotBluetooth | null = null
   #unsubscribeStore: (() => void) | null = null
   #stopped = false
   #pumping = false
@@ -275,9 +287,34 @@ export class PrinterStation {
         setBehavior: (n, behavior) => test.setBehavior(n, behavior ?? undefined),
         simulateDisconnect: () => test.simulateDisconnect(),
         setConnectError: (code) => test.setConnectError(code ?? undefined),
+        useFakeB1: () => this.#useFakeB1(),
+        setUnansweredNegotiations: (n) => {
+          this.#useFakeB1().setUnansweredNegotiations(n)
+        },
+        fakeB1: () => {
+          const fake = this.#fakeB1
+          return fake === null ? null : { requests: fake.requests, connectAttempts: fake.connectAttempts, connected: fake.connected }
+        },
       })
     }
     return this.#test
+  }
+
+  /** 시험 모드: 실제 B1 어댑터에 가짜 블루투스 기기를 꽂는다 (한 번 — 이미 꽂았으면 그것) */
+  #useFakeB1(): FakeNiimbotBluetooth {
+    if (this.#fakeB1 !== null) return this.#fakeB1
+    const fake = createFakeNiimbotBluetooth()
+    this.#fakeB1 = fake
+    const previous = this.#real
+    this.#real = createB1Adapter({ environment: () => fake.environment, createClient: fake.createClient })
+    if (previous !== null && this.#adapter === previous) {
+      this.#unlistenAdapter?.()
+      this.#unlistenAdapter = null
+      this.#adapter = null
+      void previous.disconnect()
+    }
+    if (!this.#snapshot.methods.includes('bluetooth')) this.#set({ methods: ['bluetooth', ...this.#snapshot.methods] })
+    return fake
   }
 
   #adapterFor(method: PrinterMethod): PrinterAdapter {
