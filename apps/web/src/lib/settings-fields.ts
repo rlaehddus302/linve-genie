@@ -21,11 +21,11 @@ export const PRICE_UNIT_CHANGE: Readonly<Record<PriceUnit, string>> = {
 export const MULTI_NUMBER_EXAMPLE = { author: '@홍길동', text: '132 475' } as const
 /** 배송비 칸 안내 (FB1 D-FB1-02 (1)) */
 export const SHIPPING_HINT = '배송비는 그날 첫 방송을 시작할 때의 값으로 정산해요. 오늘 방송을 이미 시작했으면 바꾼 배송비는 내일부터 적용돼요.'
-/** 감사 대상 설명 (FB1 D-FB1-02 (6)) */
-export const LIVE_CHAT_HINT = '방송 중 영상 옆 채팅창에 바로 보이는 글이에요.'
-export const VIDEO_COMMENT_HINT = '방송 영상 아래 댓글란에 남는 글이에요. 방송이 끝나도 남아요.'
-/** "상세 설정" (FB1 D-FB1-02 (2)) */
-export const DETAIL_SETTINGS = '상세 설정'
+/** 접는 단추 이름 (FB1 D-FB1-18 (c) — 옛 "상세 설정" 하나를 칸마다 나눔). 보이는 글 뒤 화살표는 aria-hidden */
+export const RULES_DETAIL = '판매 규칙 상세 설정'
+export const THANKS_DETAIL = '감사 메시지 상세 설정'
+export const DETAIL_CLOSED_ARROW = '▼'
+export const DETAIL_OPEN_ARROW = '▲'
 export const DETAIL_SETTINGS_NOTE = '잘 모르면 그대로 두세요.'
 
 export type FieldPlace = 'basic' | 'more' | 'shipping' | 'thanks'
@@ -143,7 +143,8 @@ export const FIELDS: readonly FieldDef[] = [
   },
   {
     key: 'contention.sameMinuteTieBreaker',
-    label: '문자찜과 유튜브 찜이 같은 1분 안에 들어오면 (실제 받은 시각 순서일 때만)',
+    // FB1 D-FB1-13 (사용자 결정): 판매자가 쓰는 말 "댓글찜", 괄호 조건은 뺌 — 규칙(R-6)·선택지 그대로
+    label: '문자찜과 댓글찜이 동시에(같은 1분 안에) 들어오면',
     place: 'more',
     kind: 'choice',
     options: [
@@ -154,10 +155,11 @@ export const FIELDS: readonly FieldDef[] = [
   },
   { key: 'shipping.baseFee', label: '기본 배송비 (원)', place: 'shipping', kind: 'money', nullable: false },
   { key: 'shipping.freeThreshold', label: '무료배송 기준 금액 (원, 비우면 없음)', place: 'shipping', kind: 'money', nullable: true },
-  { key: 'thanks.liveChat', label: '실시간 채팅에 감사 메시지 남기기', place: 'thanks', kind: 'bool', hint: LIVE_CHAT_HINT },
+  // FB1 D-FB1-14 (사용자 결정): 감사 만들기는 채팅 체크 한 줄 (설명 줄 없음)
+  { key: 'thanks.liveChat', label: '찜이 확정될 때마다 채팅에 감사 메시지 남기기', place: 'thanks', kind: 'bool' },
   {
     key: 'thanks.videoComment',
-    // 화면은 켜기 체크 + 방식 고르기(ThanksSettings, FB1 D-FB1-03) — 이 낱말은 마법사 요약·고르기 선택지에 쓴다
+    // 화면에서 새로 켤 수 없다(FB1 D-FB1-14) — 켜 둔 판매자에게만 끄기 한 줄(ThanksSettings). 이 낱말은 마법사 요약에 쓴다
     label: '영상 댓글',
     place: 'thanks',
     kind: 'choice',

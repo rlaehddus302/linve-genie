@@ -142,6 +142,8 @@ export interface ConnectTipEnv {
   readonly windows: boolean
   /** 이 브라우저에 USB 연결(Web Serial)이 있다 */
   readonly serial: boolean
+  /** 안드로이드 (사용자 에이전트에 `Android`) — ⑤ "안드로이드 폰으로"는 안드로이드가 아닐 때만 (D-FB1-17). 없으면 안드로이드 아님 */
+  readonly android?: boolean
   /** Marklife·바우아토 연결 (NIIMBOT 앱 → 프린터 앱, B1 → 프린터) */
   readonly marklife?: boolean
 }
@@ -151,7 +153,7 @@ export function showsConnectTips(code: string): boolean {
   return code === 'CONNECT_FAILED' || code === 'DISCONNECTED'
 }
 
-/** L-7 ①~⑥ 가운데 그 환경에 맞는 것만, 차례대로 */
+/** L-7 ①~⑤ 가운데 그 환경에 맞는 것만, 차례대로 (FB1 D-FB1-17: 옛 ⑥ 아이폰·아이패드 줄은 뺐다, ⑤는 안드로이드가 아닐 때만) */
 export function connectTips(env: ConnectTipEnv): string[] {
   const app = env.marklife === true ? '프린터 앱' : 'NIIMBOT 앱'
   const printer = env.marklife === true ? '프린터를' : 'B1을'
@@ -162,9 +164,15 @@ export function connectTips(env: ConnectTipEnv): string[] {
       ? [`윈도우 설정 → 블루투스 및 장치에서 ${printer} '장치 제거'한 뒤 여기서 '다시 연결'을 눌러 목록에서 ${printer} 골라 주세요. 윈도우에서 미리 연결(페어링)하지 않아도 돼요.`]
       : []),
     ...(env.serial ? ['USB 선이 있으면 USB 연결로 해 보세요.'] : []),
-    `그래도 안 되면 안드로이드 폰의 크롬에서 ${SERVICE_NAME}에 로그인해 프린터를 연결하고 '이 기기에서 출력'을 눌러 주세요. 컴퓨터에서 만든 라벨도 그 폰이 찍어요.`,
-    `아이폰·아이패드는 프린터에 바로 연결할 수 없어요. 라벨을 그림 파일로 저장해 ${app}에서 인쇄해 주세요.`,
+    ...(env.android === true
+      ? []
+      : [`그래도 안 되면 안드로이드 폰의 크롬에서 ${SERVICE_NAME}에 로그인해 프린터를 연결하고 '이 기기에서 출력'을 눌러 주세요. 컴퓨터에서 만든 라벨도 그 폰이 찍어요.`]),
   ]
+}
+
+/** 이 브라우저가 안드로이드인가 (D-FB1-17) */
+export function isAndroid(userAgent: string = typeof navigator === 'undefined' ? '' : navigator.userAgent): boolean {
+  return userAgent.includes('Android')
 }
 
 /** 이 브라우저가 윈도우인가 */

@@ -28,7 +28,7 @@ import { useUnsavedGuard } from '../lib/leave-guard.ts'
 import { useLiveEvents } from '../lib/live-events.ts'
 import { routePath, type Navigate, type Route, type SettingsRoute } from '../lib/router.ts'
 import { saleModeOf } from '../lib/words.ts'
-import { DETAIL_SETTINGS, DETAIL_SETTINGS_NOTE, fieldsAt, ONGOING_NOTICE, SHIPPING_HINT, type FieldDef } from '../lib/settings-fields.ts'
+import { DETAIL_SETTINGS_NOTE, RULES_DETAIL, fieldsAt, ONGOING_NOTICE, SHIPPING_HINT, type FieldDef } from '../lib/settings-fields.ts'
 import { useSaveStep, type SaveBlock, type StepResult } from '../lib/save-bar.ts'
 import { SaveBarArea } from './SaveBar.tsx'
 import { hasChannel } from '../lib/youtube.ts'
@@ -41,7 +41,7 @@ import { LabelSwitchSection } from './LabelSwitchSection.tsx'
 import { ParcelSettingsSection } from './ParcelSettings.tsx'
 import { LoginMethodsPanel, showLoginMethods, useLoginMethods } from './LoginMethods.tsx'
 import { parseLoginResult, stripLoginParams } from '../lib/social-login.ts'
-import { FixedArrivalField, RuleField, SaleModeField, settingProblem, useRuleForm } from './RuleFields.tsx'
+import { DetailToggle, FixedArrivalField, RuleField, SaleModeField, settingProblem, useRuleForm } from './RuleFields.tsx'
 import { ThanksSettings } from './ThanksSettings.tsx'
 import { InstagramCallbackResult, InstagramSettings, TikTokSettingsSection, useInstagramConnection, useTikTokSettings } from './PlatformSettings.tsx'
 import { CallbackResult, useQuota, useYoutubeConnection, YoutubeStatus } from './YoutubeConnection.tsx'
@@ -282,10 +282,8 @@ function RuleSections({ settings, onSaved, youtube }: { readonly settings: SaleS
           <RuleField key={field.key} field={field} value={form.draft[field.key]} saved={settings[field.key]} onChange={(value) => form.set(field.key, value)} problem={settingProblem(form.error, field.key)} />
         ))}
         <div className="stack-tight">
-          {/* FB1 D-FB1-02 (2): "상세 설정" — 펴면 맨 위에 "잘 모르면 그대로 두세요." */}
-          <button type="button" className="button" aria-expanded={moreOpen} aria-controls={moreId} onClick={() => setMore(!moreOpen)}>
-            {DETAIL_SETTINGS}
-          </button>
+          {/* FB1 D-FB1-02 (2)·D-FB1-18 (c): "판매 규칙 상세 설정 ▼" — 펴면 맨 위에 "잘 모르면 그대로 두세요." */}
+          <DetailToggle label={RULES_DETAIL} open={moreOpen} controls={moreId} onToggle={() => setMore(!moreOpen)} />
           <div id={moreId} className="stack" hidden={!moreOpen}>
             <p className="hint">{DETAIL_SETTINGS_NOTE}</p>
             {MORE_FIELDS.map((field) =>

@@ -3,7 +3,7 @@
 import type { SaleSettings } from '@livejjim/core'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { isApiError, patch, type ApiError } from '../api/client.ts'
-import { changedSettings, draftOf, fieldChangeNote, fieldWarning, type Draft, type FieldDef } from '../lib/settings-fields.ts'
+import { changedSettings, DETAIL_CLOSED_ARROW, DETAIL_OPEN_ARROW, draftOf, fieldChangeNote, fieldWarning, type Draft, type FieldDef } from '../lib/settings-fields.ts'
 import { OPTIONS_ARRIVAL_NOTE, OPTIONS_ARRIVAL_WORD, SALE_MODE_CHOICE, type SaleMode } from '../lib/words.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 
@@ -127,6 +127,19 @@ export function SaleModeField({
       ) : null}
       <Problem id={`${id}-problem`} text={problem} />
     </fieldset>
+  )
+}
+
+/**
+ * 접는 단추 (FB1 D-FB1-18 (c)): 접근 이름은 낱말만("판매 규칙 상세 설정"·"감사 메시지 상세 설정"),
+ * 보이는 글 뒤에 접힘 "▼"·펼침 "▲"(aria-hidden).
+ */
+export function DetailToggle({ label, open, controls, onToggle }: { readonly label: string; readonly open: boolean; readonly controls: string; readonly onToggle: () => void }) {
+  return (
+    <button type="button" className="button" aria-expanded={open} aria-controls={controls} onClick={onToggle}>
+      {label}{' '}
+      <span aria-hidden="true">{open ? DETAIL_OPEN_ARROW : DETAIL_CLOSED_ARROW}</span>
+    </button>
   )
 }
 

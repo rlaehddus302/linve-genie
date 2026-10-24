@@ -26,7 +26,7 @@ function setup() {
       const changes = (call.body?.settings ?? {}) as Record<string, unknown>
       const window = changes['thanks.batchWindowSec']
       if (window !== undefined && (typeof window !== 'number' || !Number.isInteger(window) || window < 0 || window > 600)) {
-        return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'settings.thanks.batchWindowSec', message: '0부터 600까지의 정수로 적어 주세요' }])
+        return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'settings.thanks.batchWindowSec', message: '0부터 600까지 숫자로 적어 주세요.' }]) // FB1 D-FB1-18 (g) 코어 범위 문장
       }
       settings = { ...settings, ...changes } as SaleSettings
       return { body: { settings } }
@@ -129,10 +129,10 @@ describe('메뉴·칸 (AC-I3-44)', () => {
 })
 
 describe('판매 규칙 (AC-I3-45·46)', () => {
-  it('"상세 설정"은 처음에 접혀 있고 펼치면 칸이 보인다, 경고 한 줄은 저장 전에도', async () => {
+  it('"판매 규칙 상세 설정"은 처음에 접혀 있고 펼치면 칸이 보인다, 경고 한 줄은 저장 전에도', async () => {
     await open()
     const rules = section('판매 규칙')
-    const more = within(rules).getByRole('button', { name: '상세 설정' }) // FB1 D-FB1-02 (2)
+    const more = within(rules).getByRole('button', { name: '판매 규칙 상세 설정' }) // FB1 D-FB1-02 (2)·D-FB1-18 (c)
     expect(more.getAttribute('aria-expanded')).toBe('false')
     const strict = within(rules).getByRole('radio', { name: /엄격하게/, hidden: true })
     expect(strict.closest('[hidden]')).not.toBeNull()
@@ -184,21 +184,20 @@ describe('구매 감사 메시지 (AC-I3-10~14)', () => {
   it('만들기 세 칸(지금 값), 범위 밖이면 서버 문장을 칸 옆에, 저장하면 다음 방송부터', async () => {
     await open()
     const thanks = section('구매 감사 메시지')
-    expect((within(thanks).getByRole('checkbox', { name: '실시간 채팅에 감사 메시지 남기기' }) as HTMLInputElement).checked).toBe(true)
-    expect((within(thanks).getByRole('checkbox', { name: '영상 댓글에 감사 메시지 남기기' }) as HTMLInputElement).checked).toBe(false) // FB1 D-FB1-03 (끔 = 남기지 않음)
-    fireEvent.click(within(thanks).getByRole('button', { name: '상세 설정' })) // FB1 D-FB1-03 묶는 시간은 상세 설정 안
+    expect((within(thanks).getByRole('checkbox', { name: '찜이 확정될 때마다 채팅에 감사 메시지 남기기' }) as HTMLInputElement).checked).toBe(true) // FB1 D-FB1-14
+    expect(within(thanks).queryByRole('checkbox', { name: '영상 댓글에 감사 메시지 남기기' })).toBeNull() // FB1 D-FB1-14 (새로 켤 칸 없음)
+    fireEvent.click(within(thanks).getByRole('button', { name: '감사 메시지 상세 설정' })) // FB1 D-FB1-03·D-FB1-18 (c) 묶는 시간은 상세 설정 안
     const batch = within(thanks).getByLabelText('몇 초 동안의 판매를 한 메시지로 묶을까요? (0이면 하나씩)') as HTMLInputElement
     expect(batch.value).toBe('0')
     fireEvent.change(batch, { target: { value: '601' } })
     clickSave() // FB1 D-FB1-06
-    expect(await within(thanks).findByText('0부터 600까지의 정수로 적어 주세요')).toBeDefined()
+    expect(await within(thanks).findByText('0부터 600까지 숫자로 적어 주세요.')).toBeDefined() // FB1 D-FB1-18 (g)
     expect(settings['thanks.batchWindowSec']).toBe(0)
     fireEvent.change(batch, { target: { value: '30' } })
-    fireEvent.click(within(thanks).getByRole('checkbox', { name: '영상 댓글에 감사 메시지 남기기' })) // FB1 D-FB1-03 (처음 켜면 판매마다)
-    expect((within(thanks).getByRole('radio', { name: '판매마다 댓글' }) as HTMLInputElement).checked).toBe(true)
+    fireEvent.click(within(thanks).getByRole('checkbox', { name: '찜이 확정될 때마다 채팅에 감사 메시지 남기기' })) // FB1 D-FB1-14 (영상 댓글은 켤 길 없음 — 채팅 체크로)
     clickSave() // FB1 D-FB1-06
     expect(await within(saveBar()).findByText('저장했어요. 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.')).toBeDefined() // FB1 D-FB1-06
-    expect(server.callsTo('PATCH', /^\/api\/settings$/).at(-1)?.body).toEqual({ settings: { 'thanks.batchWindowSec': 30, 'thanks.videoComment': 'PER_SALE' } })
+    expect(server.callsTo('PATCH', /^\/api\/settings$/).at(-1)?.body).toEqual({ settings: { 'thanks.liveChat': false, 'thanks.batchWindowSec': 30 } }) // FB1 D-FB1-14
     // 저장한 묶음 시간이 0보다 크면 묶음 미리 보기
     expect(within(thanks).getByText('15번 핑크프릴 10,000원 홍길동님, 16번 라울 5,000원 김철수님 구매 감사합니다')).toBeDefined()
   })
@@ -209,8 +208,8 @@ describe('구매 감사 메시지 (AC-I3-10~14)', () => {
     const thanks = section('구매 감사 메시지')
     const summary = within(thanks).getByRole('region', { name: '지금 설정의 결과' })
     await waitFor(() => expect(summary.textContent).toContain('실시간 채팅 — 다음 방송부터 자동으로 남겨요'))
-    expect(summary.textContent).toContain('영상 댓글 — 감사 메시지를 만들지 않아요.')
-    fireEvent.click(within(thanks).getByRole('checkbox', { name: '실시간 채팅에 감사 메시지 남기기' }))
+    expect(summary.textContent).not.toContain('영상 댓글') // FB1 D-FB1-14 (3): 저장값 OFF면 영상 댓글 줄 없음
+    fireEvent.click(within(thanks).getByRole('checkbox', { name: '찜이 확정될 때마다 채팅에 감사 메시지 남기기' })) // FB1 D-FB1-14
     expect(summary.textContent).toContain('실시간 채팅 — 다음 방송부터 자동으로 남겨요')
     expect(within(thanks).getByText('15번 핑크프릴 10,000원 홍길동님 구매 감사합니다')).toBeDefined()
     expect(within(thanks).queryByText(/16번 라울/)).toBeNull()
@@ -219,6 +218,7 @@ describe('구매 감사 메시지 (AC-I3-10~14)', () => {
 
   it('동의 켜기: 설명 창(처음 포커스 "닫기") — 닫으면 요청 없음, "동의해요"면 켜짐과 켠 때, 요약이 바뀐다', async () => {
     youtube = connection({ permissions: { read: true, publish: true } })
+    settings = { ...settings, 'thanks.videoComment': 'PER_SALE' } // FB1 D-FB1-14 (3): 영상 댓글 동의 줄은 켜 둔 판매자에게만
     await open()
     const thanks = section('구매 감사 메시지')
     fireEvent.click(await within(thanks).findByRole('button', { name: '실시간 채팅 자동 게시 켜기' }))
@@ -269,6 +269,7 @@ describe('구매 감사 메시지 (AC-I3-10~14)', () => {
     expect((within(thanks).getByRole('button', { name: '실시간 채팅 자동 게시 켜기' }) as HTMLButtonElement).disabled).toBe(true)
     cleanup()
     youtube = null
+    settings = { ...settings, 'thanks.videoComment': 'SUMMARY' } // FB1 D-FB1-14 (3): 영상 댓글 동의 줄은 켜 둔 판매자에게만
     await open()
     thanks = section('구매 감사 메시지')
     expect(await within(thanks).findByText('유튜브 연동을 준비하지 않은 서버예요.')).toBeDefined()

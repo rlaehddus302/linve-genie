@@ -6,13 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import { App } from '../src/App.tsx'
 import { onUnauthorized } from '../src/api/client.ts'
 import type { StoredTemplate, Templates } from '../src/api/print-types.ts'
-import { SHOP_ITEM_OFF, SHOP_NAME_HINT, editableTemplate, shopNameFallback } from '../src/components/LabelSettings.tsx'
+import { PRICE_STYLE_LABEL, SHOP_ITEM_OFF, SHOP_NAME_HINT, editableTemplate, shopNameFallback, shopNamePlaceholder } from '../src/components/LabelSettings.tsx'
 import { setLabelEnv } from '../src/lib/label-env.ts'
 import { jsdomLabelEnv, overview, templates } from './print-support.ts'
 import { DATE, FakeEventSource, FakeServer, flush } from './support.ts'
 
 let server: FakeServer
 let served: Templates
+let meName: string
 
 const filled = (stored: string, shop = '초록다육'): StoredTemplate<ProductTemplate> => ({
   template: { ...defaultTemplate('product'), shopName: stored.trim() === '' ? shop : stored },
@@ -22,10 +23,11 @@ const filled = (stored: string, shop = '초록다육'): StoredTemplate<ProductTe
 
 beforeEach(() => {
   window.sessionStorage.clear()
+  meName = '초록다육'
   server = new FakeServer()
   served = { ...templates(), product: filled('') }
   server
-    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '초록다육' }, loginId: 'shop1' } }))
+    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: meName }, loginId: 'shop1' } }))
     .on('GET', /^\/api\/client-config$/, () => ({ body: { hostActionDelayMs: 5000, testPrinter: false } }))
     .on('GET', /^\/api\/print$/, () => ({ body: overview() }))
     .on('GET', /^\/api\/print\/templates$/, () => ({ body: served }))
@@ -110,5 +112,47 @@ describe('라벨 설정 가게 이름 칸 (AC-FB1-28)', () => {
     expect(within(editor).getByText(SHOP_ITEM_OFF)).toBeDefined()
     fireEvent.click(within(editor).getByRole('checkbox', { name: /^가게 이름/ }))
     expect(within(editor).queryByText(SHOP_ITEM_OFF)).toBeNull()
+  })
+})
+
+// FB1 D-FB1-18 (h): 흐린 예시 글·가격 칸 이름
+describe('라벨 설정 다듬기 (AC-FB1-28 회차 2·AC-FB1-42)', () => {
+  it('칸이 비고 대신 찍힐 이름이 있으면 placeholder "비워 두면 찍히는 이름: 초록다육" — 글을 적어도 속성은 그대로(브라우저가 숨김)', async () => {
+    const editor = await openEditor()
+    const field = within(editor).getByLabelText('가게 이름') as HTMLInputElement
+    expect(field.value).toBe('')
+    expect(field.getAttribute('placeholder')).toBe('비워 두면 찍히는 이름: 초록다육')
+    expect(shopNamePlaceholder('초록다육')).toBe('비워 두면 찍히는 이름: 초록다육')
+    fireEvent.change(field, { target: { value: '다육상회' } })
+    expect(field.value).toBe('다육상회')
+  })
+
+  it('두 템플릿 모두 이름을 저장했어도 로그인 정보의 가게 이름으로 예시 글, 대신 찍힐 이름이 없으면 placeholder 없음', async () => {
+    served = { ...served, product: filled('다육상회'), packing: { ...served.packing, storedShopName: '다육상회', template: { ...served.packing.template, shopName: '다육상회' } } }
+    meName = '새가게'
+    const editor = await openEditor()
+    const field = within(editor).getByLabelText('가게 이름') as HTMLInputElement
+    expect(field.value).toBe('다육상회')
+    expect(field.getAttribute('placeholder')).toBe('비워 두면 찍히는 이름: 새가게')
+    cleanup()
+    meName = ''
+    const again = await openEditor()
+    expect((within(again).getByLabelText('가게 이름') as HTMLInputElement).hasAttribute('placeholder')).toBe(false)
+  })
+
+  it('가게 이름은 속성 값(글)로만 — HTML로 읽지 않는다', async () => {
+    served = { ...served, product: filled('', '<img src=x onerror=alert(1)>') }
+    const editor = await openEditor()
+    expect((within(editor).getByLabelText('가게 이름') as HTMLInputElement).getAttribute('placeholder')).toBe('비워 두면 찍히는 이름: <img src=x onerror=alert(1)>')
+    expect(document.querySelector('img[src="x"]')).toBeNull()
+  })
+
+  it('상품 라벨 가격 고르기 이름은 "라벨에 찍는 가격 모양" — "가격 표기"는 어디에도 없다', async () => {
+    const editor = await openEditor()
+    const group = within(editor).getByRole('radiogroup', { name: '라벨에 찍는 가격 모양' })
+    expect(group.closest('fieldset')?.querySelector('legend')?.textContent).toBe('라벨에 찍는 가격 모양')
+    expect(PRICE_STYLE_LABEL).toBe('라벨에 찍는 가격 모양')
+    expect(editor.textContent).not.toContain('가격 표기')
+    expect(within(editor).queryByRole('radiogroup', { name: '가격 표기' })).toBeNull()
   })
 })

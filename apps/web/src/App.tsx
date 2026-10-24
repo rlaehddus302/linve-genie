@@ -45,7 +45,7 @@ import { TopBar } from './components/TopBar.tsx'
 import { WizardPage } from './components/WizardPage.tsx'
 import { takeGoogleReturn } from './lib/google-return.ts'
 import { parseLoginResult, resultMessage, stripLoginParams, type LoginResult } from './lib/social-login.ts'
-import { ExternalLeaveContext, LEAVE_QUESTION, LEAVE_TITLE, LeaveGuardContext, type ExternalLeave, type LeaveGuard } from './lib/leave-guard.ts'
+import { ExternalLeaveContext, LEAVE_QUESTION, LEAVE_TITLE, LeaveGuardContext, SAVE_AND_LEAVE, SAVE_AND_LEAVE_BUSY, type ExternalLeave, type LeaveGuard } from './lib/leave-guard.ts'
 import { NavigateContext } from './components/AppLink.tsx'
 import { historyDepth, isGuardEntry, isPublicRoute, pushGuardEntry, routePath, useRoute, type BillingRoute, type Navigate, type NavigateOptions, type Route } from './lib/router.ts'
 import { SERVICE_NAME } from './brand.ts'
@@ -68,6 +68,8 @@ interface Leaving {
   readonly guard: boolean
   /** 앱 밖으로 떠나기(간편 로그인 공급자 등, FB1 D-FB1-08)의 답 — 있으면 화면을 옮기지 않고 답만 준다 */
   readonly external?: (leave: boolean) => void
+  /** "저장하고 떠나기" (설정 화면 저장 막대, FB1 D-FB1-18 (e)) */
+  readonly save?: () => Promise<boolean>
 }
 
 /** 보조자 계정이 쓸 수 없는 화면 (AC-I3-63) */
@@ -82,12 +84,14 @@ export function App() {
   const asking = useRef(false)
   const ask = useCallback((next: Leaving) => {
     const waiting = [...guards.current].find((guard) => guard.pending())
+    const saver = [...guards.current].find((guard) => guard.save !== undefined && guard.pending())?.save
     asking.current = true
     for (const guard of guards.current) guard.hold()
     setLeaving({
       ...next,
       ...(waiting?.question === undefined ? {} : { question: waiting.question }),
       ...(waiting?.leaveLabel === undefined ? {} : { leaveLabel: waiting.leaveLabel }),
+      ...(saver === undefined ? {} : { save: saver }),
     })
   }, [])
   /** 지금 기록이 떠나기 확인용으로 더 쌓은 기록인가 (AC-S06b-43) */
@@ -226,8 +230,9 @@ export function App() {
    * "닫기": 보던 화면에 남는다 — 멈췄던 조치는 대기 시간 전체를 다시 기다리고(D-103), 브라우저 뒤로·앞으로였으면 보던 주소를 다시 적는다.
    * 처음 연 화면의 뒤로 가기였으면 묻는 기록을 다시 쌓는다(다음 뒤로 가기도 묻는다).
    */
-  const stay = () => {
-    const target = leaving
+  const stay = (from: Leaving | null = leaving) => {
+    if (from === leaving && leaveSavingRef.current) return
+    const target = from
     setLeaving(null)
     asking.current = false
     // 묻는 기록을 먼저 다시 쌓는다 (시계가 다시 흐를 때 한 번만 쌓이게)
@@ -243,9 +248,31 @@ export function App() {
     if (target?.guard !== true && target?.fromPop === true) go(route)
   }
 
-  /** "보내지 않고 떠나기": 기다리던 조치를 보내지 않고 간다 (같은 화면 안의 이동이어도) */
-  const leave = () => {
+  /**
+   * "저장하고 떠나기" (FB1 D-FB1-18 (e)): 저장 막대와 같은 요청 차례. 보내는 동안 세 단추 잠김(두 번 눌러도 한 번, Esc도 기다린다).
+   * 모두 성공 → 가려던 곳으로("저장하지 않고 떠나기"와 같은 길). 하나라도 실패 → 창을 닫고 남는다(막대에 실패 문장·첫 빨간 칸에 포커스는 막대가)
+   */
+  const [leaveSaving, setLeaveSaving] = useState(false)
+  const leaveSavingRef = useRef(false)
+  const saveAndLeave = async () => {
     const target = leaving
+    if (target?.save === undefined || leaveSavingRef.current) return
+    leaveSavingRef.current = true
+    setLeaveSaving(true)
+    let ok: boolean
+    try {
+      ok = await target.save()
+    } finally {
+      leaveSavingRef.current = false
+      setLeaveSaving(false)
+    }
+    if (ok) leave(target)
+    else stay(target)
+  }
+
+  /** "보내지 않고 떠나기": 기다리던 조치를 보내지 않고 간다 (같은 화면 안의 이동이어도) */
+  const leave = (from: Leaving | null = leaving) => {
+    const target = from
     setLeaving(null)
     asking.current = false
     for (const guard of guards.current) guard.discard()
@@ -354,11 +381,20 @@ export function App() {
       {leaving !== null ? (
         <Modal
           title={LEAVE_TITLE}
-          onClose={stay}
+          onClose={() => stay()}
+          closeLast={leaving.save !== undefined}
+          closeDisabled={leaveSaving}
           actions={
-            <button type="button" className="button button-danger" onClick={leave}>
-              {leaving.leaveLabel ?? '보내지 않고 떠나기'}
-            </button>
+            <>
+              {leaving.save !== undefined ? (
+                <button type="button" className="button button-primary" disabled={leaveSaving} onClick={() => void saveAndLeave()}>
+                  {leaveSaving ? SAVE_AND_LEAVE_BUSY : SAVE_AND_LEAVE}
+                </button>
+              ) : null}
+              <button type="button" className="button button-danger" disabled={leaveSaving} onClick={() => leave()}>
+                {leaving.leaveLabel ?? '보내지 않고 떠나기'}
+              </button>
+            </>
           }
         >
           <p>{leaving.question ?? LEAVE_QUESTION}</p>
@@ -437,7 +473,7 @@ function Screen({ route, navigate, me, onRenamed }: ScreenProps) {
     case 'reviews':
       return <ReviewsPage route={route} navigate={navigate} />
     case 'labels':
-      return <LabelsPage navigate={navigate} />
+      return <LabelsPage navigate={navigate} shopName={me.seller.name} />
     case 'billing':
       return <BillingScreen route={route} navigate={navigate} />
     case 'settings':

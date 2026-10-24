@@ -21,6 +21,11 @@ export interface LeaveGuard {
   readonly leaveLabel?: string
   /** 보내기 전인 조치가 바뀔 때 알린다 (돌려준 함수로 그만 듣는다) */
   readonly subscribe?: (listener: () => void) => () => void
+  /**
+   * "저장하고 떠나기" (FB1 D-FB1-18 (e) — 설정 화면의 저장 막대만): 저장하고 모두 성공하면 true. 있으면 떠나기 창에 단추가 하나 더 생긴다
+   * (주 버튼 "저장하고 떠나기" · "저장하지 않고 떠나기" · "닫기")
+   */
+  readonly save?: () => Promise<boolean>
 }
 
 /**
@@ -72,6 +77,9 @@ export const LEAVE_QUESTION = '보내기 전인 조치가 있어요. 떠나면 �
 /** 저장하지 않은 값 (설정 화면, AC-I3-46) */
 export const UNSAVED_QUESTION = '저장하지 않은 값이 있어요. 떠나면 저장하지 않아요.'
 export const UNSAVED_LEAVE = '저장하지 않고 떠나기'
+/** 저장하고 떠나기 (FB1 D-FB1-18 (e)) — 보내는 동안 "저장하는 중…" */
+export const SAVE_AND_LEAVE = '저장하고 떠나기'
+export const SAVE_AND_LEAVE_BUSY = '저장하는 중…'
 
 /**
  * 이 화면에 저장하지 않은 값이 있으면 다른 곳으로 가기 전에 같은 창으로 묻는다 (새로고침·탭 닫기는 브라우저가 묻는다).

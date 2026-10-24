@@ -1210,6 +1210,15 @@ html:has(.save-bar) {
 .quick-will-register {
   margin: 0.25rem 0 0;
   font-weight: 700;
+  /* 늘 한 줄 높이 (FB1 D-FB1-18 (a)) — 빈 글이어도 같은 높이, 길면 끝을 "…"로 */
+  /* (줄바꿈 금지 대신 한 줄 자르기 — 375px 가로 스크롤 규칙) */
+  height: 1.75rem;
+  line-height: 1.75rem;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  overflow: hidden;
 }
 
 .fix-price {

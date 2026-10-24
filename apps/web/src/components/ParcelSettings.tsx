@@ -1,7 +1,7 @@
 // 설정 "택배" (SPEC §7 화면 8, PARCEL_RULES PC-1·PC-6, D-T1-09, AC-T1-66, FB1 D-FB1-04·05·06 — AC-FB1-19).
 // - 쓰는 택배사 고르기: 고르지 않음·우체국택배·CJ대한통운·한진택배·로젠택배·롯데택배·직접 입력(+ "택배사 이름" 칸, 20자)
-//   (+ 시험 모드면 서버가 목록 끝에 주는 "가짜 택배(시험용)"). 잠긴 줄 없음. 자동 접수가 안 되는 택배사를 골랐거나 고르지 않았으면
-//   "자동 접수는 아직 준비 중이에요. …" 안내. 택배사 고객 번호(저장 뒤 끝 4자리만), 보내는 사람(이름 — 비면 가게 이름이 기본값),
+//   (+ 시험 모드면 서버가 목록 끝에 주는 "가짜 택배(시험용)"). 잠긴 줄 없음. "택배사 이름" 칸은 고르기 바로 아래, 그 아래 안내는 하나
+//   (D-FB1-18 (f)) — 자동 접수가 안 되는 택배사를 골랐거나 고르지 않았으면 "자동 접수는 아직 준비 중이에요. …". 택배사 고객 번호(저장 뒤 끝 4자리만), 보내는 사람(이름 — 비면 가게 이름이 기본값),
 //   기본 택배 크기(세 변의 합 60·80·100·120·160cm 이하).
 // - 틀리면 칸마다 서버 문장(PC-2와 같은 칸 코드). 저장은 화면 아래 저장 막대 하나(D-FB1-06 — 바뀌었을 때만 PUT /api/parcels/settings).
 //   저장하지 않은 값이 있으면 떠나기 전에 묻는다.
@@ -165,8 +165,6 @@ export function ParcelSettingsSection() {
             {carrierProblem.message}
           </p>
         ) : null}
-        {chosen === undefined || !chosen.autoBook ? <p className="notice">{NO_AUTO_BOOK_NOTE}</p> : null}
-        <p className="hint">택배사를 고르지 않아도 포장 화면에서 배송 완료·송장번호를 직접 적을 수 있어요.</p>
       </div>
       {draft.carrier === OTHER_CARRIER ? (
         <div className="field">
@@ -178,12 +176,9 @@ export function ParcelSettingsSection() {
             maxLength={CARRIER_NAME_MAX * 2}
             value={draft.carrierName}
             aria-invalid={nameProblem !== undefined}
-            aria-describedby={nameProblem === undefined ? `${id}-carrier-name-hint` : `${id}-carrier-name-error`}
+            aria-describedby={nameProblem === undefined ? undefined : `${id}-carrier-name-error`}
             onChange={(event) => change({ carrierName: event.target.value })}
           />
-          <p className="hint" id={`${id}-carrier-name-hint`}>
-            {String(CARRIER_NAME_MAX)}자까지 적을 수 있어요.
-          </p>
           {nameProblem !== undefined ? (
             <p className="field-error" role="alert" id={`${id}-carrier-name-error`}>
               {nameProblem.message}
@@ -191,6 +186,8 @@ export function ParcelSettingsSection() {
           ) : null}
         </div>
       ) : null}
+      {/* 안내는 하나 (FB1 D-FB1-18 (f)): 택배사 이름 칸 아래. 자동 접수가 되는 택배사면 없음 */}
+      {chosen === undefined || !chosen.autoBook ? <p className="notice">{NO_AUTO_BOOK_NOTE}</p> : null}
       <div className="field">
         <label htmlFor={`${id}-customer`}>택배사 고객 번호</label>
         <input

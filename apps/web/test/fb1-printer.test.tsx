@@ -6,7 +6,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PrinterErrorView } from '../src/components/LabelsPage.tsx'
 import { PrintStore } from '../src/lib/print-store.ts'
-import { connectTips, isWindows, showsConnectTips } from '../src/lib/print-words.ts'
+import { connectTips, isAndroid, isWindows, showsConnectTips } from '../src/lib/print-words.ts'
 import { PrinterStation, type TestPrinterHandle } from '../src/lib/printer-station.ts'
 import { device, overview, queue, templates } from './print-support.ts'
 import { DATE, FakeEventSource, FakeServer, flush } from './support.ts'
@@ -17,6 +17,7 @@ const TIPS = {
   windows: "윈도우 설정 → 블루투스 및 장치에서 B1을 '장치 제거'한 뒤 여기서 '다시 연결'을 눌러 목록에서 B1을 골라 주세요. 윈도우에서 미리 연결(페어링)하지 않아도 돼요.",
   usb: 'USB 선이 있으면 USB 연결로 해 보세요.',
   android: "그래도 안 되면 안드로이드 폰의 크롬에서 라이브지니에 로그인해 프린터를 연결하고 '이 기기에서 출력'을 눌러 주세요. 컴퓨터에서 만든 라벨도 그 폰이 찍어요.",
+  // FB1 D-FB1-17: 옛 ⑥ — 어디에도 없어야 한다
   ios: '아이폰·아이패드는 프린터에 바로 연결할 수 없어요. 라벨을 그림 파일로 저장해 NIIMBOT 앱에서 인쇄해 주세요.',
 }
 
@@ -29,11 +30,20 @@ function latinWords(text: string, allowed: readonly string[] = []): string[] {
 afterEach(() => cleanup())
 
 describe('해볼 일 (lib)', () => {
-  it('①②⑤⑥은 늘, ③은 윈도우만, ④는 USB 연결이 있을 때만 — 차례대로', () => {
-    expect(connectTips({ windows: false, serial: false })).toEqual([TIPS.power, TIPS.app, TIPS.android, TIPS.ios])
-    expect(connectTips({ windows: true, serial: false })).toEqual([TIPS.power, TIPS.app, TIPS.windows, TIPS.android, TIPS.ios])
-    expect(connectTips({ windows: false, serial: true })).toEqual([TIPS.power, TIPS.app, TIPS.usb, TIPS.android, TIPS.ios])
-    expect(connectTips({ windows: true, serial: true })).toEqual([TIPS.power, TIPS.app, TIPS.windows, TIPS.usb, TIPS.android, TIPS.ios])
+  // FB1 D-FB1-17: ⑥ 뺌, ⑤는 안드로이드가 아닐 때만 (옛 이름 "①②⑤⑥은 늘")
+  it('①②는 늘, ③은 윈도우만, ④는 USB 연결이 있을 때만, ⑤는 안드로이드가 아닐 때만 — 차례대로, ⑥(아이폰 줄) 없음', () => {
+    expect(connectTips({ windows: false, serial: false })).toEqual([TIPS.power, TIPS.app, TIPS.android])
+    expect(connectTips({ windows: true, serial: false })).toEqual([TIPS.power, TIPS.app, TIPS.windows, TIPS.android])
+    expect(connectTips({ windows: false, serial: true })).toEqual([TIPS.power, TIPS.app, TIPS.usb, TIPS.android])
+    expect(connectTips({ windows: true, serial: true })).toEqual([TIPS.power, TIPS.app, TIPS.windows, TIPS.usb, TIPS.android])
+    expect(connectTips({ windows: false, serial: true, android: true })).toEqual([TIPS.power, TIPS.app, TIPS.usb])
+    expect(connectTips({ windows: false, serial: false, android: false })).toEqual([TIPS.power, TIPS.app, TIPS.android])
+    for (const windows of [true, false]) for (const serial of [true, false]) for (const android of [true, false]) for (const marklife of [true, false]) {
+      expect(connectTips({ windows, serial, android, marklife }).join('\n')).not.toContain('아이폰')
+    }
+    expect(isAndroid('Mozilla/5.0 (Linux; Android 14; SM-S918N) Chrome/130 Mobile')).toBe(true)
+    expect(isAndroid('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/130')).toBe(false)
+    expect(isAndroid('Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130')).toBe(false)
     const marklife = connectTips({ windows: true, serial: false, marklife: true })
     expect(marklife.join('\n')).not.toMatch(/NIIMBOT|B1/)
     expect(marklife[1]).toContain('프린터 앱')
@@ -66,6 +76,40 @@ describe('연결 실패 상자 (AC-FB1-38·39)', () => {
         expect(latinWords(box.textContent ?? '')).toEqual([])
       })
     }
+
+  // FB1 D-FB1-18 (b): 차례는 문장 → 해볼 일 → "다시 연결"(하나) → 자세히
+  it('차례: 문장 → 해볼 일 → "다시 연결"(하나) → 자세히. 해볼 일이 없는 코드는 "다시 연결"이 문장 바로 아래', () => {
+    render(<PrinterErrorView error={withDetail(printerError('CONNECT_FAILED'), TIMEOUT_DETAIL)} onRetry={() => {}} serial windows primary />)
+    const box = screen.getByRole('alert')
+    const message = within(box).getByText('프린터에 연결하지 못했어요. 아래를 차례로 해 본 뒤 다시 연결해 주세요.')
+    const list = within(box).getByRole('list', { name: '해볼 일' })
+    const buttons = within(box).getAllByRole('button', { name: '다시 연결' })
+    expect(buttons).toHaveLength(1)
+    const details = within(box).getByText('자세히')
+    const follows = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+    expect(follows(message, list)).toBe(true)
+    expect(follows(list, buttons[0] as Node)).toBe(true)
+    expect(follows(buttons[0] as Node, details)).toBe(true)
+    cleanup()
+    render(<PrinterErrorView error={printerError('PORT_BUSY')} onRetry={() => {}} serial windows primary />)
+    const box2 = screen.getByRole('alert')
+    expect(within(box2).queryByRole('list')).toBeNull()
+    const first = box2.querySelector('p')
+    expect(first?.textContent).toBe(printerError('PORT_BUSY').message)
+    expect(follows(first as Node, within(box2).getByRole('button'))).toBe(true)
+  })
+
+  it('"다시 연결"은 primary면 주 버튼, 아니면 보통 버튼 · 안드로이드면 ⑤ 없음, 맥이면 ⑤ 있음 · 아이폰 줄은 어디에도 없음', () => {
+    render(<PrinterErrorView error={printerError('CONNECT_FAILED')} onRetry={() => {}} serial={false} windows={false} android={false} primary />)
+    expect(screen.getByRole('button', { name: '다시 연결' }).className).toContain('button-primary')
+    expect(screen.getByText(TIPS.android)).toBeDefined()
+    expect(screen.queryByText(TIPS.ios)).toBeNull()
+    cleanup()
+    render(<PrinterErrorView error={printerError('CONNECT_FAILED')} onRetry={() => {}} serial android windows={false} />)
+    expect(screen.getByRole('button', { name: '다시 연결' }).className).not.toContain('button-primary')
+    expect(screen.queryByText(TIPS.android)).toBeNull()
+    expect(screen.queryByText(TIPS.ios)).toBeNull()
+  })
 
   it('끊김에도 같은 목록, 그 밖의 코드엔 목록이 없다, 상세가 없으면 자세히도 없다', () => {
     render(<PrinterErrorView error={printerError('DISCONNECTED')} onRetry={() => {}} serial={false} windows={false} />)

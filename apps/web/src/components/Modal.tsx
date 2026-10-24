@@ -16,6 +16,10 @@ export interface ModalProps {
   readonly wide?: boolean
   /** 볼 수만 있는 화면(봉인한 날짜)에서도 안의 버튼을 잠그지 않는다 — 창이 스스로 쓰기 버튼을 잠글 때 (기본 잠금, AC-I3-41) */
   readonly unlocked?: boolean
+  /** "닫기"를 버튼 줄 끝에 둔다 (설정 떠나기 창 — "저장하고 떠나기"·"저장하지 않고 떠나기"·"닫기" 순서, FB1 D-FB1-18 (e)). 처음 포커스는 그대로 "닫기" */
+  readonly closeLast?: boolean
+  /** "닫기"를 잠근다 (보내는 동안) */
+  readonly closeDisabled?: boolean
 }
 
 const FOCUSABLE = 'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
@@ -27,7 +31,7 @@ function isTextField(element: Element | null): boolean {
   return !['button', 'checkbox', 'radio', 'submit', 'reset'].includes(element.type)
 }
 
-export function Modal({ title, onClose, initialFocus, children, actions, closeLabel = '닫기', wide = false, unlocked = false }: ModalProps) {
+export function Modal({ title, onClose, initialFocus, children, actions, closeLabel = '닫기', wide = false, unlocked = false, closeLast = false, closeDisabled = false }: ModalProps) {
   const readOnly = useReadOnly() && !unlocked
   const titleId = useId()
   const panel = useRef<HTMLDivElement>(null)
@@ -76,6 +80,11 @@ export function Modal({ title, onClose, initialFocus, children, actions, closeLa
     }
   }
 
+  const close = (
+    <button ref={closeButton} type="button" className="button" disabled={closeDisabled} onClick={onClose}>
+      {closeLabel}
+    </button>
+  )
   return (
     <div className="backdrop">
       <div ref={panel} className={wide ? 'modal modal-wide' : 'modal'} role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={onKeyDown}>
@@ -92,9 +101,7 @@ export function Modal({ title, onClose, initialFocus, children, actions, closeLa
           )}
         </div>
         <div className="modal-actions">
-          <button ref={closeButton} type="button" className="button" onClick={onClose}>
-            {closeLabel}
-          </button>
+          {closeLast ? null : close}
           {readOnly && actions !== undefined ? (
             <fieldset className="lock lock-inline" disabled>
               {actions}
@@ -102,6 +109,7 @@ export function Modal({ title, onClose, initialFocus, children, actions, closeLa
           ) : (
             actions
           )}
+          {closeLast ? close : null}
         </div>
       </div>
     </div>

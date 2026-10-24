@@ -80,7 +80,7 @@ export interface QuickInputProps {
   readonly error: ApiError | null
   /**
    * 가격 단위 한 줄을 이 안(고정 영역)에 그리는가. 휴대폰은 false — 고정 영역 35% 이하(UX-04, TE-FB1-001)라
-   * 콘솔이 고정 영역 바로 아래에 QuickUnitLine으로 그린다. 기본 true(PC)
+   * 콘솔이 고정 영역 바로 아래에 QuickUnitLine으로 그린다. 기본 true(PC). "등록하면: …" 줄도 함께 옮긴다(FB1 D-FB1-18 (a))
    */
   readonly unitInside?: boolean
   /** 개수 칸 (없으면 보이지 않는다 — 옵션을 붙였을 때) */
@@ -95,13 +95,30 @@ export interface QuickInputProps {
 
 /**
  * 휴대폰 콘솔의 가격 단위 한 줄 (AC-FB1-02, D-FB1-01) — 고정 영역 바로 아래, 화면을 따라 내려가지 않는다.
- * 고정 영역에 두면 두 줄로 꺾여 35%를 넘는다(UX-04, TE-FB1-001·U-FB1-01). 문장은 PC와 같다
+ * 고정 영역에 두면 두 줄로 꺾여 35%를 넘는다(UX-04, TE-FB1-001·U-FB1-01). 문장은 PC와 같다.
+ * FB1 D-FB1-18 (a): 늘 있는 "등록하면: …" 한 줄도 휴대폰에선 고정 영역에 두면 35%를 넘어(n2b2 layout 293px > 284px) 같은 자리로 — 단위 줄 위.
+ * value: 빠른 입력칸의 글 (미리 보기는 칸 안과 같은 코어 해석)
  */
-export function QuickUnitLine() {
+export function QuickUnitLine({ value }: { readonly value: string }) {
   const api = useConsoleApi()
   const settings = api.settingsOf(api.b)
-  if (settings === null) return null
-  return <p className="hint quick-unit quick-unit-below">{unitLine(quickSettings(settings)['price.unit'])}</p>
+  const quick = settings === null ? null : quickSettings(settings)
+  const willRegister = quick === null ? null : registerPreview(value, quick, (n) => api.data.products.get(productKey(api.b, n)))
+  return (
+    <>
+      <RegisterLine text={willRegister} />
+      {quick === null ? null : <p className="hint quick-unit quick-unit-below">{unitLine(quick['price.unit'])}</p>}
+    </>
+  )
+}
+
+/** "등록하면: …" 한 줄 (D-FB1-18 (a)): 늘 있다(미리 보기가 없으면 빈 글) — 높이 한 줄 고정, 길면 끝을 "…"로. 치는 동안 아래 요소가 움직이지 않는다 */
+function RegisterLine({ text }: { readonly text: string | null }) {
+  return (
+    <p className="quick-will-register" role="status">
+      {text ?? ''}
+    </p>
+  )
 }
 
 export function QuickInput(props: QuickInputProps) {
@@ -199,11 +216,8 @@ export function QuickInput(props: QuickInputProps) {
         번호 품종 가격을 적고 Enter. 번호만 적으면 그 상품을 찾아요.{props.count !== undefined ? ' 같은 번호로 여러 개를 팔면 옆 개수 칸을 바꿔요.' : ''}
       </p>
       {quick !== null && props.unitInside !== false ? <p className="hint quick-unit">{unitLine(quick['price.unit'])}</p> : null}
-      {willRegister !== null ? (
-        <p className="quick-will-register" role="status">
-          {willRegister}
-        </p>
-      ) : null}
+      {/* FB1 D-FB1-18 (a): PC는 칸 바로 아래(고정 영역 안), 휴대폰은 고정 영역 바로 아래(QuickUnitLine) */}
+      {props.unitInside !== false ? <RegisterLine text={willRegister} /> : null}
       {preview !== undefined ? (
         <div className="quick-preview" role="status" aria-label="찾은 상품">
           <ProductSummary product={preview} />

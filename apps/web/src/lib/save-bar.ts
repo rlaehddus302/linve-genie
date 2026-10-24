@@ -56,9 +56,13 @@ export function savedMessage(saved: readonly SaveBlock[]): string {
   return `${SAVED_ALL}${rules ? SAVED_RULES_SUFFIX : ''}${shipping ? SAVED_SHIPPING_SUFFIX : ''}`
 }
 
-/** "저장하지 못한 칸이 있어요: 판매 규칙. 빨간 글을 확인해 주세요." */
-export function failedMessage(failed: readonly SaveBlock[]): string {
-  return `저장하지 못한 칸이 있어요: ${orderBlocks(failed).join(' · ')}. 빨간 글을 확인해 주세요.`
+/**
+ * "저장하지 못한 칸이 있어요: 판매 규칙. 빨간 글을 확인해 주세요. 저장한 칸: 택배." (FB1 D-FB1-18 (d)) —
+ * 저장한 칸이 없으면 앞 두 문장만, 둘 이상이면 화면 순서로 " · "
+ */
+export function failedMessage(failed: readonly SaveBlock[], saved: readonly SaveBlock[] = []): string {
+  const head = `저장하지 못한 칸이 있어요: ${orderBlocks(failed).join(' · ')}. 빨간 글을 확인해 주세요.`
+  return saved.length === 0 ? head : `${head} 저장한 칸: ${orderBlocks(saved).join(' · ')}.`
 }
 
 /** 단계들을 차례로 보낸다 (하나가 실패해도 다음 단계는 보낸다) */

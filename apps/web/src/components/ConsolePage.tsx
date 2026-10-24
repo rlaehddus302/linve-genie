@@ -1320,7 +1320,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           </div>
           {wide ? voiceLive : null}
         </div>
-        {wide ? null : <QuickUnitLine />}
+        {wide ? null : <QuickUnitLine value={quickText} />}
         {wide ? null : voiceLive}
         {/* 음성 칸 바로 아래 접는 칸 "음성 설정과 기록" (D-V2-21) — PC는 고정 영역 바로 아래 */}
         {voice === null ? null : <VoiceExtras voice={voice} snapshot={voiceSnapshot} />}

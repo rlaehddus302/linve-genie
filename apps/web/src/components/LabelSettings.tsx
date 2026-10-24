@@ -1,5 +1,5 @@
 // 라벨 설정 편집·미리 보기 (LBL-03·04·05, L-0 1, L-3·L-4·L-5, L-11 13, D-I1-05, AC-I1-25·26).
-// - 상품·포장 두 가지: 라벨 크기·가게 이름·가격 표기(상품)·한 장 번호 수(포장)·항목마다 켜기/끄기(끌 수 없는 항목은 잠김)·글자 크기·위치, 기본으로 되돌리기.
+// - 상품·포장 두 가지: 라벨 크기·가게 이름·라벨에 찍는 가격 모양(상품)·한 장 번호 수(포장)·항목마다 켜기/끄기(끌 수 없는 항목은 잠김)·글자 크기·위치, 기본으로 되돌리기.
 // - 미리 보기는 출력과 같은 렌더러의 1비트 그림(판매자 샘플 또는 가장 긴 값).
 // - 저장 전: 템플릿 검사 오류면 저장 단추가 막히고 칸 옆에 문장. 최악값으로 그려 들어가지 않으면 저장하지 않고 그 항목을 알린다. 겹침은 경고만.
 // - 열 때: 이미 저장된 설정이 같은 최악값 검사에 걸리면 같은 문장으로 경고만 한다(L-11 13, D-STB-01 — 저장된 설정은 그대로 쓴다).
@@ -45,6 +45,10 @@ export const SAVED_MESSAGE = '라벨 설정을 저장했어요.'
 /** 가게 이름 칸 안내 (FB1 D-FB1-07, AC-FB1-28) */
 export const SHOP_NAME_HINT = "라벨 맨 위에 찍히는 이름이에요. 비워 두면 설정 '가게'의 가게 이름이 찍혀요. 찍지 않으려면 아래 '가게 이름' 항목을 꺼 주세요."
 export const SHOP_ITEM_OFF = '가게 이름 항목이 꺼져 있어 라벨에 찍히지 않아요.'
+/** 가게 이름 칸이 비었을 때의 흐린 예시 글 (FB1 D-FB1-18 (h), AC-FB1-28) */
+export const shopNamePlaceholder = (name: string): string => `비워 두면 찍히는 이름: ${name}`
+/** 상품 라벨 가격 고르기 이름 (FB1 D-FB1-18 (h), AC-FB1-42 — 옛 "가격 표기") */
+export const PRICE_STYLE_LABEL = '라벨에 찍는 가격 모양'
 
 /** 칸에 넣을 템플릿: 가게 이름은 저장된 본문의 이름 그대로(서버가 채운 이름을 칸에 넣으면 저장할 때 템플릿에 굳는다) */
 export function editableTemplate(stored: StoredTemplate): LabelTemplate {
@@ -100,7 +104,8 @@ const PRICE_CHOICES: readonly { readonly value: PriceStyle; readonly word: strin
 
 type Kind = 'product' | 'packing'
 
-export function LabelSettings() {
+/** shopName: 설정 "가게"의 가게 이름 (로그인 정보 — 서버가 채운 이름을 아직 모를 때 대신 찍힐 이름) */
+export function LabelSettings({ shopName = '' }: { readonly shopName?: string } = {}) {
   const [kind, setKind] = useState<Kind>('product')
   return (
     <div className="stack">
@@ -112,7 +117,7 @@ export function LabelSettings() {
           포장 라벨
         </button>
       </div>
-      <TemplateEditor key={kind} kind={kind} />
+      <TemplateEditor key={kind} kind={kind} shopName={shopName} />
     </div>
   )
 }
@@ -138,7 +143,7 @@ function problemsAt(problems: readonly TemplateProblem[], path: string): string[
   return problems.filter((problem) => problem.path === path || problem.path.startsWith(`${path}.`)).map((problem) => problem.message)
 }
 
-function TemplateEditor({ kind }: { readonly kind: Kind }) {
+function TemplateEditor({ kind, shopName }: { readonly kind: Kind; readonly shopName: string }) {
   const print = usePrintState()
   const api = usePrintApi()
   const env = useLabelEnv()
@@ -173,7 +178,7 @@ function TemplateEditor({ kind }: { readonly kind: Kind }) {
   const hasOptions = useHasOptionBroadcasts(nameOff)
 
   // 미리 보기 = 출력과 같은 그림: 가게 이름 칸이 비면 서버처럼 설정 "가게"의 가게 이름으로 (D-FB1-07)
-  const fallback = shopNameFallback([stored, print.templates?.[kind === 'product' ? 'packing' : 'product']])
+  const fallback = shopNameFallback([stored, print.templates?.[kind === 'product' ? 'packing' : 'product']]) || trimLabelText(shopName)
   const preview: PagesOutcome | null = useMemo(() => {
     if (env.state !== 'ready' || template === null || problems.length > 0) return null
     const shown = trimLabelText(template.shopName) === '' && fallback !== '' ? ({ ...template, shopName: fallback } as LabelTemplate) : template
@@ -317,6 +322,8 @@ function TemplateEditor({ kind }: { readonly kind: Kind }) {
             className="input"
             autoComplete="off"
             value={template.shopName}
+            // 대신 찍힐 이름이 있으면 흐린 예시 글 (FB1 D-FB1-18 (h)) — 속성 값(글)로만 들어간다
+            {...(fallback === '' ? {} : { placeholder: shopNamePlaceholder(fallback) })}
             aria-invalid={shopTooLong}
             onChange={(event) => change({ ...template, shopName: event.target.value })}
           />
@@ -335,8 +342,8 @@ function TemplateEditor({ kind }: { readonly kind: Kind }) {
         </div>
         {template.kind === 'product' ? (
           <fieldset className="fieldset">
-            <legend>가격 표기</legend>
-            <div className="choice-list-plain" role="radiogroup" aria-label="가격 표기">
+            <legend>{PRICE_STYLE_LABEL}</legend>
+            <div className="choice-list-plain" role="radiogroup" aria-label={PRICE_STYLE_LABEL}>
               {PRICE_CHOICES.map((choice) => (
                 <label key={choice.value} className="choice">
                   <input type="radio" name="price-style" checked={template.priceStyle === choice.value} onChange={() => change({ ...template, priceStyle: choice.value })} />

@@ -138,3 +138,18 @@
 ## dev-server 고침 회차 (D-FB1-16·D-FB1-18 (g))
 - 택배사 직접 입력 이름(`carrierName`)은 `apps/server/src/parcel/service.ts`에서 `@livejjim/label`의 `trimLabelText`(L-2)로 다듬는다. 서식 글자(`\p{Cf}`)는 지우고, 제어 글자·줄/문단 구분자는 공백으로. 다듬어 빈 글이면 400 "택배사 이름을 적어 주세요.", 20자는 다듬은 뒤 코드 포인트로 센다. 보내는 사람·고객 번호의 PC-2 `tidyText`는 그대로.
 - 범위 문장 기대값만 새 문장으로: `apps/server/test/api.test.ts` 2줄, `apps/server/test/o2-options.test.ts` 1줄(`// FB1 D-FB1-18 (g)`).
+
+## web 고침 회차 (D-FB1-13·14·17·18)
+
+- **감사 만들기(D-FB1-14)**: `ThanksSettings.tsx` `MakeFields` = 체크 한 줄 `checkbox "찜이 확정될 때마다 채팅에 감사 메시지 남기기"`(`thanks.liveChat`). 묶음·영상 댓글 체크·방식 고르기·설명 두 줄 없앰. **저장된** `thanks.videoComment` ≠ `OFF`일 때만 `div.video-comment-off` "영상 댓글에도 감사 메시지를 남기고 있어요." + 보통 버튼 "영상 댓글 끄기" → (고친 값 `OFF`) "저장하면 영상 댓글에는 남기지 않아요." + 보통 버튼 "되돌리기"(저장된 방식으로). "자동 게시 동의"의 영상 댓글 줄(`영상 댓글 자동 게시 켜기/끄기`)·"지금 설정의 결과"의 영상 댓글 줄도 저장값 ≠ `OFF`일 때만. 늘 보이는 안내는 "유튜브가 하루에 받아 주는 양이 모자라면 저절로 1분씩 묶어 남겨요." 하나.
+- **접는 단추(D-FB1-18 (c))**: `RuleFields.tsx` `DetailToggle` — 판매 규칙 `button "판매 규칙 상세 설정"`, 감사 `button "감사 메시지 상세 설정"`(보이는 글 "… ▼"/"… ▲", 화살표 `span aria-hidden`). 접근 이름이 정확히 "상세 설정"인 단추는 없다.
+- **같은 분 칸 이름(D-FB1-13)**: `radiogroup "문자찜과 댓글찜이 동시에(같은 1분 안에) 들어오면"`.
+- **"등록하면" 줄 자리(D-FB1-18 (a)) — 어느 자리인지**: `p.quick-will-register role=status`는 늘 있다(미리 보기가 없으면 빈 글), 높이 `1.75rem` 고정·한 줄 자르기(`-webkit-line-clamp: 1` — 375px 규칙 때문에 `white-space: nowrap`은 쓰지 않음). **PC(넓은 화면)**: 빠른 입력칸 아래 고정 영역(`.console-sticky`) 안. **휴대폰 폭**: 고정 영역에 두면 `n2b2/layout` 375×812 고정 영역이 293px(> 284px, 35%)가 되어 **고정 영역 바로 아래, 단위 줄 위**로 옮겼다(`QuickUnitLine({ value })`가 등록 줄 + 단위 줄을 그린다). 이 때문에 `ConsolePage.tsx` 한 줄(`<QuickUnitLine value={quickText} />`)을 고쳤다 — 고침 회차 파일 목록 밖, 넘겨줄 값 하나뿐.
+- **일부 저장 문장(D-FB1-18 (d))**: `failedMessage(failed, saved)` — "저장하지 못한 칸이 있어요: 판매 규칙. 빨간 글을 확인해 주세요. 저장한 칸: 택배."(저장한 칸이 없으면 앞 두 문장만).
+- **떠나기 창 "저장하고 떠나기"(D-FB1-18 (e))**: `LeaveGuard.save?: () => Promise<boolean>`(새 칸) — 설정 화면의 저장 막대(`SaveBar`)가 떠나기 확인으로 자기 저장을 알린다. 앱 떠나기 창은 그 확인이 있으면 단추 셋을 이 차례로: 주 버튼 "저장하고 떠나기" · "저장하지 않고 떠나기" · "닫기"(처음 포커스 "닫기"). 보내는 동안 그 단추 "저장하는 중…"·세 단추 잠김·Esc 무시. 성공 → "저장하지 않고 떠나기"와 같은 길(메뉴·뒤로 가기·로그인 방법 연결하기), 실패 → 창 닫고 남음(연결하기면 연결 요청 없음), 막대의 실패 문장·첫 빨간 칸 포커스는 막대 저장 그대로. 시작 마법사·라벨 설정·콘솔은 `save`가 없어 두 단추 그대로. `Modal.tsx`에 `closeLast`·`closeDisabled` 두 속성을 더했다(파일 목록 밖 — "닫기"를 끝에 두는 차례 때문, 다른 창은 그대로).
+- **택배사(D-FB1-18 (f))**: 택배사 고르기 칸 → (직접 입력이면) "택배사 이름" 칸 → 안내 `p.notice` 하나(자동 접수가 안 되거나 고르지 않았으면). 옛 두 안내 없앰.
+- **해볼 일(D-FB1-17)**: `connectTips({ windows, serial, android?, marklife? })` — ⑥ 뺌, ⑤는 `android !== true`일 때만. `isAndroid(ua)` 새로(UA에 `Android`).
+- **"다시 연결"(D-FB1-18 (b))**: `PrinterErrorView`의 차례 = 문장 → 해볼 일 → "다시 연결"(하나) → 자세히. 새 속성 `primary`(라벨 화면은 `stepPrimary` — 멈춤 띠 조치가 보이면 거짓). 상자에 "다시 연결"이 보이면 연결 방법 버튼은 모두 보통 버튼.
+- **라벨 설정(D-FB1-18 (h))**: 가격 고르기 묶음 제목·`radiogroup` 이름 "라벨에 찍는 가격 모양". "가게 이름" 칸 `placeholder` "비워 두면 찍히는 이름: {이름}" — 이름은 지금처럼 저장된 이름이 빈 템플릿의 서버 이름, 그것이 없으면(두 템플릿 모두 이름을 저장함) 로그인 정보의 가게 이름(`LabelsPage`·`LabelSettings`에 `shopName` 속성, App이 넘김). 미리 보기도 같은 이름으로 그린다(서버와 같음).
+- 시험: `fb1-settings.test.tsx`(감사 OFF·PER_SALE·SUMMARY × 끄기/되돌리기/저장, 접는 단추 이름·화살표, 같은 분 낱말, 일부 저장 문장, 떠나기 창 셋 — 성공·일부 실패·네트워크 실패·카카오 연결하기, 택배 칸 차례·안내 하나), `fb1-printer.test.tsx`(⑤·⑥·안드로이드, 차례, 주 버튼), 새 `fb1-printer-retry.test.tsx`(라벨 화면 주 버튼 하나), `fb1-quick.test.tsx`(늘 있는 줄·자리), `fb1-label-shop.test.tsx`(placeholder·가격 칸 이름), 바뀐 낱말 `settings-page.test.tsx`(`// FB1 D-FB1-1x`).
+- **e2e에게**: 아직 옛 낱말을 찾는 `tests/e2e/fb1` 시험 — `settings.spec.ts`(영상 댓글 체크·`상세 설정` exact·실패 문장 뒤 " 저장한 칸: …"), `printer-connect.spec.ts`(TIP6 없음), `console.spec.ts:112`(지난 회차 `'천원 (10 → 10,000원)'`). 휴대폰 "등록하면" 줄은 `.console-sticky` 바로 다음 형제다.

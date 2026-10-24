@@ -183,16 +183,50 @@ describe('콘솔 빠른 입력 (AC-FB1-02·03)', () => {
   })
 })
 
+// FB1 D-FB1-18 (a): "등록하면: …" 줄은 늘 있다(빈 글) — 같은 요소, 한 줄 높이 고정은 CSS(.quick-will-register — E2E가 자리를 잰다)
+describe('"등록하면" 줄 자리 고정 (AC-FB1-02 회차 2)', () => {
+  it('미리 보기가 없을 때도 role=status 줄이 빈 글로 있고, 쳤다 지워도 같은 요소 — 빠른 입력칸 바로 아래 차례도 그대로', async () => {
+    const quick = await openConsole()
+    const line = () => document.querySelector('.quick-will-register') as HTMLElement
+    const first = line()
+    expect(first).not.toBeNull()
+    expect(first.getAttribute('role')).toBe('status')
+    expect(first.textContent).toBe('')
+    const siblings = () => [...(first.parentElement?.children ?? [])].map((element) => element.className)
+    const before = siblings()
+    fireEvent.change(quick, { target: { value: '15 엘레강스 10' } })
+    expect(line()).toBe(first)
+    expect(first.textContent).toBe('등록하면: 15번 엘레강스 10,000원')
+    expect(siblings()).toEqual(before)
+    fireEvent.change(quick, { target: { value: '' } })
+    expect(line()).toBe(first)
+    expect(first.textContent).toBe('')
+    expect(siblings()).toEqual(before)
+    // 번호만·있는 번호도 빈 글 (요소는 그대로)
+    fireEvent.change(quick, { target: { value: '7 엘레강스 10' } })
+    expect(line()).toBe(first)
+    expect(first.textContent).toBe('')
+  })
+})
+
 describe('휴대폰 고정 영역 (UX-04 · TE-FB1-001 · U-FB1-01)', () => {
-  it('휴대폰 폭: 단위 한 줄은 고정 영역 밖 바로 아래 — 고정 영역 안에는 "등록하면: …"만', async () => {
+  // FB1 D-FB1-18 (a): 늘 있는 "등록하면" 줄을 고정 영역에 두면 휴대폰 35%를 넘는다(n2b2 layout 293px > 284px) — 고정 영역 바로 아래, 단위 줄 위로
+  it('휴대폰 폭: 고정 영역 바로 아래에 "등록하면: …" 줄(늘 있음), 그 아래 단위 한 줄 — 고정 영역 안에는 둘 다 없다', async () => {
     const quick = await openConsole()
     const line = await screen.findByText('가격 단위: 천원 — 10은 10,000원, 2만은 20,000원')
     const sticky = document.querySelector('.console-sticky')!
     expect(sticky.contains(line)).toBe(false)
-    expect(sticky.nextElementSibling).toBe(line)
+    const register = sticky.nextElementSibling as HTMLElement
+    expect(register.className).toBe('quick-will-register')
+    expect(register.getAttribute('role')).toBe('status')
+    expect(register.textContent).toBe('')
+    expect(register.nextElementSibling).toBe(line)
     expect(screen.getAllByText(/^가격 단위: /)).toHaveLength(1)
+    expect(document.querySelectorAll('.quick-will-register')).toHaveLength(1)
     fireEvent.change(quick, { target: { value: '15 엘레강스 10' } })
-    expect(sticky.contains(screen.getByText('등록하면: 15번 엘레강스 10,000원'))).toBe(true)
+    expect(sticky.nextElementSibling).toBe(register)
+    expect(register.textContent).toBe('등록하면: 15번 엘레강스 10,000원')
+    expect(sticky.contains(register)).toBe(false)
   })
 
   it('PC 폭: 단위 한 줄은 빠른 입력칸 아래(고정 영역 안) — 한 번만', async () => {
@@ -201,5 +235,8 @@ describe('휴대폰 고정 영역 (UX-04 · TE-FB1-001 · U-FB1-01)', () => {
     const line = await screen.findByText('가격 단위: 천원 — 10은 10,000원, 2만은 20,000원')
     expect(document.querySelector('.console-sticky')!.contains(line)).toBe(true)
     expect(screen.getAllByText(/^가격 단위: /)).toHaveLength(1)
+    // FB1 D-FB1-18 (a): PC는 "등록하면" 줄도 칸 가까이(고정 영역 안), 하나
+    expect(document.querySelectorAll('.quick-will-register')).toHaveLength(1)
+    expect(document.querySelector('.console-sticky')!.contains(document.querySelector('.quick-will-register'))).toBe(true)
   })
 })

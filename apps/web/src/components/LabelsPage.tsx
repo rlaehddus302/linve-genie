@@ -16,7 +16,7 @@ import { dateWords, kstToday } from '../lib/kst.ts'
 import { labelEnv } from '../lib/label-env.ts'
 import { canShareFile, downloadBytes, shareBytes } from '../lib/label-files.ts'
 import { a4PdfBytes, broadcastA4Name, labelErrorMessage, pngBytes, productPngName, renderJob, renderProduct, waitingA4Name } from '../lib/label-render.ts'
-import { CONNECT_TIPS_TITLE, KEEP_SCREEN_ON, PRINT_ACTION, connectTips, isWindows, showsConnectTips, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, labelOptionWords, replaceQuestion } from '../lib/print-words.ts'
+import { CONNECT_TIPS_TITLE, KEEP_SCREEN_ON, PRINT_ACTION, connectTips, isAndroid, isWindows, showsConnectTips, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, labelOptionWords, replaceQuestion } from '../lib/print-words.ts'
 import type { PrinterMethod } from '../lib/printer-station.ts'
 import type { Navigate } from '../lib/router.ts'
 import { ErrorNote } from './ErrorNote.tsx'
@@ -52,7 +52,7 @@ export function pauseActionHere(queue: QueueSummary | null, mine: boolean): bool
   return queue.pause.reason !== 'DISCONNECTED' || mine
 }
 
-export function LabelsPage({ navigate }: { readonly navigate?: Navigate }) {
+export function LabelsPage({ navigate, shopName }: { readonly navigate?: Navigate; readonly shopName?: string }) {
   const labels = useLabelsEnabled()
   if (labels !== true) {
     return (
@@ -62,7 +62,7 @@ export function LabelsPage({ navigate }: { readonly navigate?: Navigate }) {
       </main>
     )
   }
-  return <LabelsOnPage />
+  return <LabelsOnPage {...(shopName === undefined ? {} : { shopName })} />
 }
 
 /** 켬/끔을 아직 모른다: 라벨 조작 없이 기다린다 (불러오지 못했으면 다시 시도) */
@@ -98,7 +98,7 @@ function LabelsOffBody({ navigate }: { readonly navigate?: Navigate }) {
   )
 }
 
-function LabelsOnPage() {
+function LabelsOnPage({ shopName }: { readonly shopName?: string }) {
   const ids = { queue: useId(), discard: useId(), history: useId(), settings: useId() }
   const api = usePrintApi()
   const print = usePrintState()
@@ -130,7 +130,7 @@ function LabelsOnPage() {
           라벨 설정
         </h2>
         <AutoPrintSetting />
-        <LabelSettings />
+        <LabelSettings {...(shopName === undefined ? {} : { shopName })} />
       </section>
       <ExportSection />
     </main>
@@ -140,19 +140,29 @@ function LabelsOnPage() {
 // ── 프린터 (AC-I1-21~23·50) ────────────────────────────────────────────────
 
 /**
- * 연결 실패 상자 (L-7, FB1 D-FB1-09 — AC-FB1-38·39): 문장 · "다시 연결" · 해볼 일(연결하지 못함·끊김일 때만, 그 환경에 맞는 것만 차례대로) ·
- * "자세히"(쉬운 말 상세가 있을 때만 — 어댑터가 원래 예외 글을 넣지 않는다). 시작 마법사 프린터 단계도 같은 칸을 쓴다
+ * 연결 실패 상자 (L-7, FB1 D-FB1-09·D-FB1-17·D-FB1-18 (b) — AC-FB1-38·39): 문장 · 해볼 일(연결하지 못함·끊김일 때만, 그 기기에 맞는 것만 차례대로) ·
+ * "다시 연결"(하나 — 해볼 일이 있으면 그 아래, 없으면 문장 바로 아래) · "자세히"(쉬운 말 상세가 있을 때만 — 어댑터가 원래 예외 글을 넣지 않는다).
+ * primary: "다시 연결"이 지금 할 일(주 버튼)인가 — 출력 멈춤 띠의 조치가 보이면 아니다(AC-N4a-21). 시작 마법사 프린터 단계도 같은 칸을 쓴다
  */
-export function PrinterErrorView({ error, onRetry, serial, windows = isWindows() }: { readonly error: PrinterError; readonly onRetry?: () => void; readonly serial: boolean; readonly windows?: boolean }) {
-  const tips = showsConnectTips(error.code) ? connectTips({ windows, serial }) : []
+export function PrinterErrorView({
+  error,
+  onRetry,
+  serial,
+  windows = isWindows(),
+  android = isAndroid(),
+  primary = false,
+}: {
+  readonly error: PrinterError
+  readonly onRetry?: () => void
+  readonly serial: boolean
+  readonly windows?: boolean
+  readonly android?: boolean
+  readonly primary?: boolean
+}) {
+  const tips = showsConnectTips(error.code) ? connectTips({ windows, serial, android }) : []
   return (
     <div className="error-note stack-tight" role="alert">
       <p>{error.message}</p>
-      {onRetry !== undefined ? (
-        <button type="button" className="button" onClick={onRetry}>
-          {error.action ?? RECONNECT_ACTION}
-        </button>
-      ) : null}
       {tips.length > 0 ? (
         <div className="stack-tight">
           <p className="field-label">{CONNECT_TIPS_TITLE}</p>
@@ -161,6 +171,13 @@ export function PrinterErrorView({ error, onRetry, serial, windows = isWindows()
               <li key={tip}>{tip}</li>
             ))}
           </ol>
+        </div>
+      ) : null}
+      {onRetry !== undefined ? (
+        <div className="row">
+          <button type="button" className={primary ? 'button button-primary' : 'button'} onClick={onRetry}>
+            {error.action ?? RECONNECT_ACTION}
+          </button>
         </div>
       ) : null}
       {error.detail !== undefined ? (
@@ -212,6 +229,8 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
   const lastMethod = station.method
   // 이 기기가 이미 출력 기기면 프린터 단계에 주 버튼이 없다 (AC-N4a-21)
   const primary = stepPrimary && !mine
+  // 연결 실패 상자의 "다시 연결"이 보이면 그것이 지금 할 일 — 연결 방법 버튼은 보통 버튼 (D-FB1-18 (b))
+  const retryShown = station.connectError !== null && !connected && lastMethod !== null && methods.includes(lastMethod)
   const testAnswered = answer === 'yes' && station.testPrinted
   return (
     <section id={PRINTER_ID} className="card stack" aria-labelledby={titleId}>
@@ -238,7 +257,7 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
           {!connected ? (
             <div className="row" role="group" aria-label="연결 방법">
               {methods.map((method) => (
-                <button key={method} type="button" className={primary && method === methods[0] ? 'button button-primary' : 'button'} disabled={station.connecting} onClick={() => connect(method)}>
+                <button key={method} type="button" className={primary && !retryShown && method === methods[0] ? 'button button-primary' : 'button'} disabled={station.connecting} onClick={() => connect(method)}>
                   {METHOD_WORD[method]}
                 </button>
               ))}
@@ -247,7 +266,9 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
           {station.connecting ? (
             <p role="status">{lastMethod === 'test' ? '연결하는 중…' : '연결하는 중… 브라우저 창에서 프린터(B1)를 골라 주세요.'}</p>
           ) : null}
-          {station.connectError !== null && !connected ? <PrinterErrorView error={station.connectError} serial={station.methods.includes('serial')} {...(lastMethod !== null && methods.includes(lastMethod) ? { onRetry: () => connect(lastMethod) } : {})} /> : null}
+          {station.connectError !== null && !connected ? (
+            <PrinterErrorView error={station.connectError} serial={station.methods.includes('serial')} primary={stepPrimary} {...(retryShown && lastMethod !== null ? { onRetry: () => connect(lastMethod) } : {})} />
+          ) : null}
           {connected ? <ConnectedPrinter answer={answer} onAnswer={setAnswer} primary={primary && !testAnswered} /> : null}
           {connected && !mine ? <BecomeDevice primary={primary && testAnswered} /> : null}
           {testMode ? <TestHandlePanel /> : null}
