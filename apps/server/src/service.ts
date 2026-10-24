@@ -773,7 +773,7 @@ export class Service {
           ended = true
           return rejection(409, 'BROADCAST_ENDED', '끝난 방송이에요.')
         }
-        return [{ fields, actor: { kind: 'collector' }, chat }]
+        return [{ fields, actor: { kind: 'collector' }, chat, source: 'other' }]
       },
       ...(guard === undefined
         ? {}
