@@ -70,8 +70,8 @@ test.describe('설정 화면 (AC-I2-02·65)', () => {
       await expect(phone.getByLabel('가게 이름')).toHaveValue('시험 가게')
       await expect(preview.getByText('확인서에 입금 계좌가 나오지 않아요.')).toBeVisible()
       await phone.getByLabel('은행').fill('농협')
-      // 합친 뒤(main I3) 설정 화면에는 칸마다 "저장"이 있다(판매 규칙·배송비·감사 메시지) — 가게 칸의 것을 누른다
-      const shopSave = phone.getByRole('region', { name: '가게' }).getByRole('button', { name: '저장' })
+      // FB1 D-FB1-06: 설정 화면의 저장은 화면 아래 저장 막대 하나 — 가게 칸만 고쳤으니 막대의 "저장"이 가게만 보낸다
+      const shopSave = phone.getByRole('region', { name: '저장', exact: true }).getByRole('button', { name: '저장' }) // FB1 D-FB1-06
       await shopSave.click()
       await expect(phone.getByText('은행·계좌번호·예금주를 모두 적거나 모두 비워 주세요.')).toBeVisible()
       await expect(phone.getByLabel('계좌번호')).toHaveAttribute('aria-invalid', 'true')

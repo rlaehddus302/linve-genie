@@ -15,38 +15,38 @@ test.describe('AC-T1-66 설정 "택배"', () => {
     await expect(region).toBeVisible()
     const carrier = region.getByRole('combobox', { name: '택배사' })
     await expect(carrier.getByRole('option', { name: '가짜 택배(시험용)' })).toHaveCount(1)
-    await expect(carrier.getByRole('option', { name: /^우체국 택배 — 준비 중$/ })).toBeDisabled()
+    await expect(carrier.getByRole('option', { name: '우체국택배', exact: true })).toBeEnabled() // FB1 D-FB1-04
     const sender = region.getByRole('group', { name: '보내는 사람' })
     await expect(sender.getByLabel('보내는 사람 이름')).toHaveValue(seller.shopName)
-    const box = region.getByRole('combobox', { name: '기본 상자 크기' })
-    await expect(box.getByRole('option')).toHaveText(['극소', '소', '중', '대'])
-    await expect(box).toHaveValue('소')
+    const box = region.getByRole('combobox', { name: '기본 택배 크기 (세 변의 합)' }) // FB1 D-FB1-05
+    await expect(box.getByRole('option')).toHaveText(['60cm 이하', '80cm 이하', '100cm 이하', '120cm 이하', '160cm 이하']) // FB1 D-FB1-05
+    await expect(box).toHaveValue('80') // FB1 D-FB1-05
 
     // 틀린 보내는 사람 연락처
     await carrier.selectOption({ label: '가짜 택배(시험용)' })
     await sender.getByLabel('보내는 사람 연락처').fill('12345')
     await sender.getByLabel('보내는 주소').fill(SENDER.address)
-    await region.getByRole('button', { name: '저장' }).click()
+    await page.getByRole('region', { name: '저장', exact: true }).getByRole('button', { name: '저장' }).click() // FB1 D-FB1-06
     // 보내는 사람 칸 문장 (D-T1-17): 집 전화 예도 함께, 받는 분·010 문장은 없다
     await expect(sender.getByText('전화번호를 숫자로 적어 주세요. 예: 010-1234-5678, 031-123-4567')).toBeVisible()
     await expect(sender.getByLabel('보내는 사람 연락처')).toHaveAttribute('aria-invalid', 'true')
     expect(await sender.innerText()).not.toMatch(/받는 분|010으로 시작/)
-    await expect(region.getByText('택배 설정을 저장했어요.')).toHaveCount(0)
+    await expect(page.getByRole('region', { name: '저장', exact: true }).getByText('저장했어요.')).toHaveCount(0) // FB1 D-FB1-06
 
     await sender.getByLabel('보내는 사람 연락처').fill(SENDER.phone)
     await sender.getByLabel('보내는 상세 주소').fill(SENDER.detail)
     await sender.getByLabel('보내는 우편번호(몰라도 돼요)').fill(SENDER.zip)
     await region.getByLabel('택배사 고객 번호').fill('ABC-1234-5678')
-    await box.selectOption('중')
-    await region.getByRole('button', { name: '저장' }).click()
-    await expect(region.getByText('택배 설정을 저장했어요.')).toBeVisible()
+    await box.selectOption('100') // FB1 D-FB1-05
+    await page.getByRole('region', { name: '저장', exact: true }).getByRole('button', { name: '저장' }).click() // FB1 D-FB1-06
+    await expect(page.getByRole('region', { name: '저장', exact: true }).getByText('저장했어요.')).toBeVisible() // FB1 D-FB1-06
     // 다시 열어도 그대로, 고객 번호는 끝 4자리만
     await page.reload()
     await expect(parcelSettings(page).getByRole('combobox', { name: '택배사' })).toHaveValue('FAKE')
     await expect(parcelSettings(page).getByText('저장한 번호 끝 5678')).toBeVisible()
     await expect(parcelSettings(page).getByLabel('택배사 고객 번호')).toHaveValue('')
     expect(await page.locator('main').innerText()).not.toContain('ABC-1234')
-    await expect(parcelSettings(page).getByRole('combobox', { name: '기본 상자 크기' })).toHaveValue('중')
+    await expect(parcelSettings(page).getByRole('combobox', { name: '기본 택배 크기 (세 변의 합)' })).toHaveValue('100') // FB1 D-FB1-05
     await expect(parcelSettings(page).getByLabel('보내는 사람 연락처')).toHaveValue(/031-?123-?4567/)
   })
 })
@@ -67,15 +67,15 @@ test.describe('AC-T1-66 보내는 사람 이름 30자·칸 문장 (D-T1-16·17)'
     // 연락처 123 → 보내는 사람 문장 (받는 분·010 문장 없음)
     await sender.getByLabel('보내는 사람 연락처').fill('123')
     await sender.getByLabel('보내는 주소').fill(SENDER.address)
-    await region.getByRole('button', { name: '저장' }).click()
+    await page.getByRole('region', { name: '저장', exact: true }).getByRole('button', { name: '저장' }).click() // FB1 D-FB1-06
     await expect(sender.getByLabel('보내는 사람 연락처')).toHaveAttribute('aria-invalid', 'true')
     await expect(sender.getByText('전화번호를 숫자로 적어 주세요. 예: 010-1234-5678, 031-123-4567')).toBeVisible()
     expect(await sender.innerText()).not.toMatch(/받는 분|010으로 시작/)
     await expect(sender.getByLabel('보내는 사람 이름')).toHaveAttribute('aria-invalid', 'false')
     // 집 전화로 고쳐 저장 (이름은 손대지 않음)
     await sender.getByLabel('보내는 사람 연락처').fill(SENDER.phone)
-    await region.getByRole('button', { name: '저장' }).click()
-    await expect(region.getByText('택배 설정을 저장했어요.')).toBeVisible()
+    await page.getByRole('region', { name: '저장', exact: true }).getByRole('button', { name: '저장' }).click() // FB1 D-FB1-06
+    await expect(page.getByRole('region', { name: '저장', exact: true }).getByText('저장했어요.')).toBeVisible() // FB1 D-FB1-06
     await page.reload()
     await expect(parcelSettings(page).getByRole('group', { name: '보내는 사람' }).getByLabel('보내는 사람 이름')).toHaveValue(shopName)
     const saved = (await (await page.request.get('/api/parcels/settings')).json()) as { settings: { sender: { name: string } | null } }

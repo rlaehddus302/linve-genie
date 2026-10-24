@@ -32,8 +32,8 @@ async function saveThanksLiveChat(page: Page, on: boolean) {
   const thanks = settingsRegion(page, '구매 감사 메시지')
   const box = thanks.getByRole('checkbox', { name: '실시간 채팅에 감사 메시지 남기기' })
   await box.setChecked(on)
-  await thanks.getByRole('button', { name: '저장' }).click()
-  await expect(thanks.getByText('저장했어요. 다음에 시작하는 방송부터 적용돼요.')).toBeVisible()
+  await page.getByRole('region', { name: '저장', exact: true }).getByRole('button', { name: '저장' }).click() // FB1 D-FB1-06
+  await expect(page.getByRole('region', { name: '저장', exact: true }).getByText('저장했어요. 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.')).toBeVisible() // FB1 D-FB1-06
 }
 
 test('@youtube AC-I3-10: 실시간 채팅 감사를 끄고 저장 → 진행 중이던 1부 판매엔 실시간 채팅 감사가 있고, 새 2부 판매엔 없다', async ({ page }) => {

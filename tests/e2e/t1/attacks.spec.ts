@@ -135,7 +135,7 @@ test.describe('연결 끊김·연타 (AC-T1-31·62, PC-5)', () => {
     await expect(page.getByText('택배사에 접수하는 중이에요…')).toBeVisible()
     await expect(bookButton(page)).toBeDisabled()
     await expect(readyGroup(page).getByRole('checkbox')).toBeDisabled()
-    await expect(readyGroup(page).getByRole('combobox', { name: '상자 크기' })).toBeDisabled()
+    await expect(readyGroup(page).getByRole('combobox', { name: '택배 크기' })).toBeDisabled() // FB1 D-FB1-05
     release()
     await expect(bookedGroup(page).getByRole('listitem')).toHaveCount(1)
     expect(posts).toHaveLength(1)

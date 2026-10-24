@@ -152,8 +152,8 @@ test.describe('@youtube 감사 메시지 설정', () => {
     const t2 = settingsRegion(page, '구매 감사 메시지')
     await t2.getByRole('checkbox', { name: '실시간 채팅에 감사 메시지 남기기' }).uncheck()
     await expect(t2.getByRole('region', { name: '지금 설정의 결과' })).toContainText('실시간 채팅 — 다음 방송부터 자동으로 남겨요')
-    await t2.getByRole('button', { name: '저장' }).click()
-    await expect(t2.getByText('저장했어요. 다음에 시작하는 방송부터 적용돼요.')).toBeVisible()
+    await page.getByRole('region', { name: '저장', exact: true }).getByRole('button', { name: '저장' }).click() // FB1 D-FB1-06
+    await expect(page.getByRole('region', { name: '저장', exact: true }).getByText('저장했어요. 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.')).toBeVisible() // FB1 D-FB1-06
     await expect(t2.getByRole('region', { name: '지금 설정의 결과' })).toContainText('실시간 채팅 — 감사 메시지를 만들지 않아요.')
   })
 
@@ -167,12 +167,13 @@ test.describe('@youtube 감사 메시지 설정', () => {
     const preview = thanks.getByRole('region', { name: '미리 보기' })
     await expect(preview).toContainText('15번 핑크프릴 10,000원 홍길동님 구매 감사합니다')
     await expect(preview).toContainText("문자찜으로 산 분은 '문자찜'으로 나가요. 메모·전화번호는 절대 나가지 않아요.")
+    await thanks.getByRole('button', { name: '상세 설정', exact: true }).click() // FB1 D-FB1-03
     await thanks.getByLabel('몇 초 동안의 판매를 한 메시지로 묶을까요? (0이면 하나씩)').fill('601')
-    await thanks.getByRole('button', { name: '저장' }).click()
+    await page.getByRole('region', { name: '저장', exact: true }).getByRole('button', { name: '저장' }).click() // FB1 D-FB1-06
     await expect(thanks.getByRole('alert').first()).toBeVisible()
     await expect(preview).not.toContainText('16번 라울')
     await thanks.getByLabel('몇 초 동안의 판매를 한 메시지로 묶을까요? (0이면 하나씩)').fill('30')
-    await thanks.getByRole('button', { name: '저장' }).click()
+    await page.getByRole('region', { name: '저장', exact: true }).getByRole('button', { name: '저장' }).click() // FB1 D-FB1-06
     await expect(preview).toContainText('15번 핑크프릴 10,000원 홍길동님, 16번 라울 5,000원 김철수님 구매 감사합니다')
   })
 })

@@ -140,7 +140,7 @@ test.describe('AC-T1-61 택배 화면 구성', () => {
     const ready = readyGroup(page)
     await expect(ready.getByRole('checkbox')).toHaveCount(1)
     await expect(ready.getByRole('checkbox', { name: s.name(s.b1) })).toBeChecked()
-    await expect(ready.getByRole('combobox', { name: '상자 크기' })).toHaveValue('소')
+    await expect(ready.getByRole('combobox', { name: '택배 크기' })).toHaveValue('80') // FB1 D-FB1-05
     await expect(bookButton(page)).toHaveText('1개 택배 접수하기')
     await expect(bookButton(page)).toBeEnabled()
 
@@ -188,7 +188,7 @@ test.describe('AC-T1-61 택배 화면 구성', () => {
       const ready = readyGroup(phone)
       await expect(ready.getByRole('checkbox')).toHaveCount(1)
       await tall(ready.getByRole('checkbox').locator('xpath=ancestor::label[1]'))
-      await tall(ready.getByRole('combobox', { name: '상자 크기' }))
+      await tall(ready.getByRole('combobox', { name: '택배 크기' })) // FB1 D-FB1-05
       await tall(bookButton(phone))
       await tall(phone.getByRole('combobox', { name: '날짜' }))
       const group = bookedGroup(phone).getByRole('group', { name: `${s.name(s.b6)} 택배` })
@@ -270,7 +270,7 @@ test.describe('AC-T1-62 접수하기 흐름', () => {
     await openParcels(page, date)
     await expect(readyGroup(page).getByRole('checkbox')).toHaveCount(3)
     // 상자 크기 하나 바꾸기
-    await readyGroup(page).getByRole('combobox', { name: '상자 크기' }).nth(1).selectOption('대')
+    await readyGroup(page).getByRole('combobox', { name: '택배 크기' }).nth(1).selectOption('120') // FB1 D-FB1-05
     const posts: string[] = []
     page.on('request', (r) => {
       if (r.method() === 'POST' && r.url().includes('/book')) posts.push(r.postData() ?? '')
@@ -286,7 +286,7 @@ test.describe('AC-T1-62 접수하기 흐름', () => {
     await expect(bookButton(page)).toBeDisabled()
     expect(posts).toHaveLength(1)
     const sent = JSON.parse(posts[0]!) as { items: { buyer: string; box: string }[] }
-    expect(sent.items.map((i) => i.box)).toEqual(['소', '대', '소'])
+    expect(sent.items.map((i) => i.box)).toEqual(['80', '120', '80']) // FB1 D-FB1-05
     const day = await parcelDay(page, date)
     expect(day.booked.map((r) => r.parcel?.state)).toEqual(['BOOKED', 'BOOKED', 'BOOKED'])
     // 포장 상태 = 배송 완료 (AC-T1-30)
