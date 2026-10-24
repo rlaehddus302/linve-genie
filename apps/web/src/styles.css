@@ -2065,6 +2065,13 @@ html:has(.save-bar) {
   .chat-row > .chat-convert {
     min-height: 2.75rem;
     padding: 0.125rem 0.625rem;
+    /* 버튼(44px)은 줄의 위아래 여백까지 쓴다 — 버튼 줄 높이가 44px(전 36px 버튼 + 여백 8px과 같다)라 1440×900에서 8개 이상 보인다 (AC-S06-62) */
+    margin-block: -0.125rem;
+  }
+
+  /* 줄 위아래 여백을 줄인다 (버튼 없는 잡담 줄 37px → 33px) */
+  .chat-row {
+    padding-block: 0.125rem;
   }
 }
 
