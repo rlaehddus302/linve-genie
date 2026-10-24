@@ -145,6 +145,7 @@ const [{ openPglite }, { generateMasterKey }, { createServer }, { createNodeServ
 const { FakeOAuth } = await server('social/fake-oauth.ts')
 const { FakeLlm } = await server('assist/fake-llm.ts')
 const { createSelfSignedCertificate, lanAddresses } = await server('try/self-signed-cert.ts')
+const { createSmsTestBox, createSmsTestHttpServer, makeSmsTestToken, SMS_TEST_PATH } = await server('try/sms-test.ts')
 
 /** 같은 와이파이에서 이 컴퓨터를 찾는 주소들 (와이파이 먼저, 윈도우의 가상·VPN 연결은 뒤로). 첫 주소를 휴대폰 주소로 알린다 */
 const lans = lanAddresses(networkInterfaces())
@@ -216,8 +217,13 @@ const viewerId = (name) => {
 }
 const CHAT_PAGE = readFileSync(new URL('./chat.html', import.meta.url), 'utf8').replace('"__VIEWERS__"', JSON.stringify(VIEWERS))
 
+// ── 문자 자동 수신 시험 (/_try/sms-test, 실험 — 판정·문자찜에 잇지 않는다. 메모리에만 최근 50건, 번호는 끝 4자리만) ──
+const smsTestToken = makeSmsTestToken()
+const smsTest = createSmsTestBox({ token: smsTestToken })
+
 async function tryRoute(request) {
   const url = new URL(request.url)
+  if (url.pathname === SMS_TEST_PATH) return (await smsTest.handle(request)) ?? new Response('없는 주소예요.', { status: 404 })
   if (url.pathname.startsWith('/_try/oauth/') && oauth !== null) return oauth.handle(request)
   if (url.pathname.startsWith('/_try/llm/')) return llm.handle(request)
   if (request.method === 'GET' && url.pathname === '/_try/chat') {
@@ -324,6 +330,25 @@ if (lan !== null) {
   }
 }
 
+// ── 문자 시험만 받는 같은 와이파이 http (SMST) — 단축어·MacroDroid가 자체 서명 https를 거절할 때. /_try/sms-test 말고는 모두 404 ──
+let smsHttp = null
+let smsHttpPort = null
+if (phone !== null) {
+  for (let candidate = phonePort + 1; candidate < phonePort + 41 && candidate <= 65_535; candidate++) {
+    if (!(await free(candidate, '0.0.0.0'))) continue
+    const opening = createSmsTestHttpServer(smsTest)
+    const opened = await new Promise((resolve) => {
+      opening.once('error', () => resolve(false))
+      opening.listen(candidate, '0.0.0.0', () => resolve(true))
+    })
+    if (opened) {
+      smsHttp = opening
+      smsHttpPort = candidate
+      break
+    }
+  }
+}
+
 say('')
 say('==============================================================')
 say(' 라이브지니 연습 모드가 켜졌어요. (끄려면 이 창에서 Ctrl + C)')
@@ -343,6 +368,15 @@ if (phone !== null) {
   if (lans.length > 1) say(`    (안 열리면 이 주소도 해 보세요: ${lans.slice(1).map((ip) => `https://${ip}:${String(phonePort)}`).join('  ')})`)
 } else {
   say(` 3) ${phoneProblem ?? '휴대폰 주소를 만들지 못했어요. 와이파이에 연결돼 있는지 확인하고 다시 켜 주세요.'}`)
+}
+say('')
+if (phone !== null) {
+  say(` 문자 자동 수신 시험 주소 : https://${lan}:${String(phonePort)}${SMS_TEST_PATH}   (보기: 같은 주소 뒤에 ?t=${smsTestToken})`)
+  say(` 문자 자동 수신 시험 토큰 : ${smsTestToken}   (머리글 X-Try-Token, 켤 때마다 바뀌어요. docs/TRY-IT.md "문자 자동 수신 시험하기")`)
+  if (smsHttp !== null) say(` https가 안 되면 이 주소(http)를 쓰세요 : http://${lan}:${String(smsHttpPort)}${SMS_TEST_PATH}   (문자 시험만 받아요)`)
+} else {
+  say(` 문자 자동 수신 시험 주소 : ${appOrigin}${SMS_TEST_PATH}   (휴대폰 주소가 없어 이 컴퓨터에서만 돼요)`)
+  say(` 문자 자동 수신 시험 토큰 : ${smsTestToken}`)
 }
 say('')
 say(' 연습 기록은 이 창을 끄면 모두 지워져요. 실제 방송·실제 프린터·실제 돈과는 상관없어요.')
@@ -381,6 +415,8 @@ async function stop() {
   say('\n끄는 중이에요...')
   phone?.closeAllConnections()
   phone?.close()
+  smsHttp?.closeAllConnections()
+  smsHttp?.close()
   http.closeAllConnections()
   http.close()
   livejjim.close()
