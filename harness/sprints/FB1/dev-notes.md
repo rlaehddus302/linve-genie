@@ -134,3 +134,7 @@
 - **여러 번호 예시(D-FB1-12)**: `FieldDef.lead`(글 한 줄) → `leadChat { author, text }`. 고르기 바로 아래 `p.chat-example` = "예:" + `span.chat-example-author` "@홍길동"(회색, 1rem) + `span.chat-example-text` "132 475"(1.125rem 굵게). 선택지 `모두 주문 (132번·475번 둘 다 찜)`·`첫 번호만 주문 (132번만 찜)`·`주문으로 보지 않아요 (둘 다 찜 아님)`. 글자 크기는 16px 규칙(styles.node 시험) 때문에 글쓴이를 16px 아래로 내리지 않고 글을 키워 "작은 글씨"를 냈다.
 - 시험: `apps/web/test/fb1-settings.test.tsx`(세 낱말·안내·옛 문장 없음·확인 문장 세 가지와 되돌리기/저장 뒤 없음·`TEN_THOUSAND` 저장·마법사 낱말·글쓴이/글 다른 요소), `fb1-quick.test.tsx`(만원 줄·미리 보기 150,000·15,000·5,000·Enter 가격 150000·고치기 칸 "= 140,000원", 무작위 대조 세 단위). 바뀐 낱말 고정값 `i3-lib.test.ts`·`wizard-app.test.tsx`(`// FB1 D-FB1-11`).
 - **e2e에게(맞춰야 할 곳)**: `tests/e2e/fb1/support.ts` `UNIT_HINT`, `fb1/settings.spec.ts` 198·199·214·215·222행(옛 낱말·예시), `fb1/console.spec.ts` 112행 `'천원 (10 → 10,000원)'` → `'천원 (15 → 15,000원)'`, `i3/accounts.spec.ts` 112행 마법사 요약 `'가격 단위: 천원 (15 → 15,000원)'`. 예시는 `getByText('@홍길동')`·`getByText('132 475')`. 만원 콘솔·확인 문장 E2E(AC-FB1-90)는 새로.
+
+## dev-server 고침 회차 (D-FB1-16·D-FB1-18 (g))
+- 택배사 직접 입력 이름(`carrierName`)은 `apps/server/src/parcel/service.ts`에서 `@livejjim/label`의 `trimLabelText`(L-2)로 다듬는다. 서식 글자(`\p{Cf}`)는 지우고, 제어 글자·줄/문단 구분자는 공백으로. 다듬어 빈 글이면 400 "택배사 이름을 적어 주세요.", 20자는 다듬은 뒤 코드 포인트로 센다. 보내는 사람·고객 번호의 PC-2 `tidyText`는 그대로.
+- 범위 문장 기대값만 새 문장으로: `apps/server/test/api.test.ts` 2줄, `apps/server/test/o2-options.test.ts` 1줄(`// FB1 D-FB1-18 (g)`).

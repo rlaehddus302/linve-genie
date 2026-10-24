@@ -41,7 +41,7 @@ describe('AC-O2-03 설정 API가 함께 둘 수 없는 값을 막는다', () => 
     for (const value of [0, 100, 1.5]) {
       const bad = await api.patch('/api/settings', { settings: { 'claim.maxQuantity': value } })
       expect(bad.status).toBe(400)
-      expect(problemsOf(bad)).toEqual([{ field: 'settings.claim.maxQuantity', message: '1부터 99까지의 정수로 적어 주세요' }])
+      expect(problemsOf(bad)).toEqual([{ field: 'settings.claim.maxQuantity', message: '1부터 99까지 숫자로 적어 주세요.' }]) // FB1 D-FB1-18 (g) 범위 문장
     }
     expect((await api.get('/api/settings')).body).toEqual(before)
     for (const value of [1, 99]) expect((await expectOk(api.patch('/api/settings', { settings: { 'claim.maxQuantity': value } }))).body.settings).toMatchObject({ 'claim.maxQuantity': value })

@@ -74,6 +74,40 @@ describe('AC-FB1-15 쓰는 택배사 저장 (D-FB1-04)', () => {
     expect(JSON.stringify(world.logs)).not.toContain('대신택배')
   })
 
+  it('(회차 2, D-FB1-16 · PC-1) 직접 입력 이름은 L-2 글 다듬기 — 서식 글자만이면 400, 글자 수는 다듬은 뒤 셈', async () => {
+    const world = await parcelWorld()
+    const seller = await parcelSeller(world, { carrier: 'CJ', sender: SENDER, box: '100' })
+    const api = parcelApi(world, seller.cookie)
+    const before = await settingsRow(world, seller)
+    for (const carrierName of ['\u200B', '\u200D', '\u00AD', '\u202E', '\uFEFF', '\u200B\u200D\u00AD\u202E\uFEFF', ' \u200B \uFEFF\u3000\t', '\u2028\u2029\n']) {
+      const refused = await api.putSettings({ carrier: 'OTHER', carrierName })
+      expect(refused.status, JSON.stringify(carrierName)).toBe(400)
+      expect(refused.body.error).toMatchObject({ code: 'INVALID_INPUT', problems: [{ field: 'carrierName', message: '택배사 이름을 적어 주세요.' }] })
+      expect(await settingsRow(world, seller)).toEqual(before)
+    }
+    const nfdName = '경동'.normalize('NFD')
+    expect(nfdName).not.toBe('경동')
+    for (const [input, stored] of [
+      ['경동\u200B택배', '경동택배'],
+      ['\u202E경동', '경동'],
+      ['경동\n택배', '경동 택배'],
+      [nfdName, '경동'],
+    ] as const) {
+      const saved = await expect200(api.putSettings({ carrier: 'OTHER', carrierName: input }))
+      expect(saved.body.settings, JSON.stringify(input)).toMatchObject({ carrier: 'OTHER', carrierName: stored })
+      expect((await expect200(api.settings())).body.settings).toMatchObject({ carrierName: stored })
+      expect(await settingsRow(world, seller)).toMatchObject({ carrier: 'OTHER', carrier_name: stored })
+    }
+    // 20자 + 서식 글자 3개 → 다듬은 뒤 20자라 저장, 21자 + 서식 글자 → 거절
+    const twenty = '가'.repeat(20)
+    const padded = `\u200B${'가'.repeat(10)}\u00AD${'가'.repeat(10)}\uFEFF`
+    expect((await expect200(api.putSettings({ carrier: 'OTHER', carrierName: padded }))).body.settings).toMatchObject({ carrierName: twenty })
+    const tooLong = await api.putSettings({ carrier: 'OTHER', carrierName: `\u200B${'가'.repeat(21)}` })
+    expect(tooLong.status).toBe(400)
+    expect(tooLong.body.error).toMatchObject({ problems: [{ field: 'carrierName', message: '택배사 이름은 20자까지 적어 주세요.' }] })
+    expect(await settingsRow(world, seller)).toMatchObject({ carrier_name: twenty })
+  })
+
   it('OTHER가 아닌 코드와 함께 온 carrierName은 저장하지 않고, 다른 택배사로 바꾸면 직접 입력 이름은 지운다', async () => {
     const world = await parcelWorld()
     const seller = await parcelSeller(world, {})

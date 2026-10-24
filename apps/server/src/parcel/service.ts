@@ -8,6 +8,7 @@
 // - 판매자 ID 조건은 늘 세션의 판매자다. 없는 범위·모르는 구매자는 404(다른 판매자의 묶음이 있는지 드러내지 않는다).
 import { currentBuyerOf, getBuyer, getSettlement, isValidDate, type EngineState } from '@livejjim/core'
 import { formatInvoiceNumber, type WaybillData, type WaybillsPdfResult } from '@livejjim/documents'
+import { trimLabelText } from '@livejjim/label'
 import { and, eq, sql } from 'drizzle-orm'
 import { ClosingService, type ApiProblem, type FileResult, type Outcome } from '../closing.ts'
 import type { Db } from '../db/database.ts'
@@ -485,7 +486,8 @@ export class ParcelService {
     // 직접 입력 이름: OTHER를 새로 보냈으면 이름이 있어야 한다. OTHER 그대로이고 이름만 보냈으면 이름만 바꾼다
     const nameRaw = body.carrierName
     if (carrier === OTHER_CARRIER && (carrierRaw === OTHER_CARRIER || nameRaw !== undefined)) {
-      const tidy = typeof nameRaw === 'string' ? tidyText(nameRaw) : ''
+      // FB1 D-FB1-16 · PC-1: 택배사 이름은 L-2 글 다듬기(라벨 패키지 trimLabelText 그대로) — 서식 글자만이면 빈 글, 글자 수는 다듬은 뒤
+      const tidy = typeof nameRaw === 'string' ? trimLabelText(nameRaw) : ''
       if (tidy === '') problems.push({ field: 'carrierName', message: PARCEL_MESSAGES.carrierNameEmpty })
       else if ([...tidy].length > CARRIER_NAME_MAX) problems.push({ field: 'carrierName', message: PARCEL_MESSAGES.carrierNameTooLong })
       else carrierName = tidy

@@ -41,9 +41,9 @@ describe('AC-S04-50 판매 규칙 설정 읽기·바꾸기', () => {
         code: 'INVALID_INPUT',
         message: '입력한 내용을 확인해 주세요.',
         problems: [
-          { field: 'settings.waitlist.max', message: '0부터 100까지의 정수로 적어 주세요' },
+          { field: 'settings.waitlist.max', message: '0부터 100까지 숫자로 적어 주세요.' }, // FB1 D-FB1-18 (g) 범위 문장
           { field: 'settings.claim.parseMode', message: '고를 수 있는 값이 아니에요' },
-          { field: 'settings.shipping.baseFee', message: '0부터 1,000,000까지의 정수로 적어 주세요' },
+          { field: 'settings.shipping.baseFee', message: '0부터 1,000,000까지 숫자로 적어 주세요.' }, // FB1 D-FB1-18 (g) 범위 문장
           { field: 'settings.claim.ignoreOwner', message: '예나 아니오로만 정할 수 있어요' },
         ],
       },
