@@ -44,3 +44,98 @@
   - 서버 문장은 그대로다. 진짜 구글 모드에서 휴대폰으로 "구글로 유튜브 연결하기"를 누르면 지금 오류 칸에 `error.message`가 그대로 나온다(유튜브 화면 파일은 고치지 않음).
   - `docs/TRY-IT.md` 4장 4번에 아래 막대가 "방송 · 문자찜 입력 · …"으로 적혀 있다. D-MOB1-04로 막대 이름이 "문자찜"으로 바뀌면 이 문서 줄도 맞춰야 한다. 이번에 나는 고치지 않았다.
 - **e2e**: 연습 모드(`pnpm try`) 자체는 E2E 서버가 아니다. 휴대폰 유튜브 한 바퀴는 서버 시험이 확인한다.
+
+## web (dev-web) — 휴대폰 점검 바로 고칠 것 (AC-MOB1-01~06·10~26)
+
+금지 파일(`ConsoleYoutube.tsx`·`YoutubeConnection.tsx`·`lib/youtube.ts`)과 `packages/**`는 고치지 않았다.
+
+### 바뀐 공개 모양 (내보내는 이름·문장 상수)
+
+- `lib/menu.ts`: `SMS_BAR_LABEL = '문자찜'`, `barLabel(item)` — 휴대폰 아래 막대(판매자·보조자)만 "문자찜". `menuLayout`의 `label`은 "문자찜 입력" 그대로(PC 위 줄·`h1`).
+- 새 `components/LogoutButton.tsx`: `LogoutButton`, 순수 함수 `logoutRisks({ broadcasts, station })`, 문장 `LOGOUT_TITLE`·`LOGOUT_KEEP`("로그인 유지")·`LOGOUT_LIVE`·`LOGOUT_STATION`·`LOGOUT_UNKNOWN`.
+  - 누를 때 `GET /api/broadcasts`를 한 번 받는다(받는 동안 버튼 잠김). 실패하면 "방송 중인지 확인하지 못했어요."로 묻는다. 출력 기기 = 라벨 켜짐 + `station.isMine(queue)`. 보조자는 묻지 않고 목록도 받지 않는다.
+  - 휴대폰 판매자: 위 줄에 없음, "더보기" 목록 맨 끝 `<li><button class="menu-link menu-logout">로그아웃</button></li>`(링크 아님). PC·보조자: 위 줄 그대로.
+  - 휴대폰에서 확인 창은 목록이 열린 채 그 위에 뜬다(목록 안에서 그린다). "로그인 유지"를 누르면 창만 닫히고 목록은 열린 채다. Esc는 목록의 Esc 처리(창·목록 모두 닫힘, 로그아웃 안 함)가 먼저 받는다.
+- `lib/print-words.ts`: `deviceLostMessage(name)` 새 문장, `NO_STATION_PILING`, 순수 함수 `stationLeadText({ labelsOn, rehearsal, ended, queue, mine })`, `isIphone(ua)`, `IPHONE_TEST_PRINTER`.
+- `components/AlertStrip.tsx`: `AlertLead.uncounted?: boolean` — 알림 수("알림 n 펼치기")에 넣지 않는다. 콘솔이 플랫폼 줄 다음에 `{ key: 'print-station', soft: true, uncounted: true }` 항목을 붙인다(누르면 `/labels`). Alt+1 순서(`firstAlert`)는 그대로.
+- `components/PackingPrint.tsx`: 접수 문장 뒤 끊김 안내 상자(`role=note`, `deviceLostMessage` + "라벨 화면으로"). 출력 기기 없음 문장은 그대로.
+- `components/VoicePanel.tsx`: `CONSENT_OTHER_DEVICE`가 `CONSENT_LINES`의 넷째 줄이다(줄 4개).
+- 새 `voice/wake.ts`: `ScreenWake`(요청 함수·문서를 넣어 시험), `useScreenWake(active)`, `browserScreenWake()`. 콘솔이 `voice.phase === 'on'`일 때 켠다. 숨으면 잡은 잠금을 잊고, 보이면 다시 1번 요청한다. 출력 기기 잠금(printer-station)과 따로 잡는다.
+- `lib/device.ts`: `DEFAULT_DEVICE_NAMES`, 순수 함수 `defaultDeviceName({ userAgent, narrow, otherStation })`, `storedDeviceName()`, `savedDeviceName(otherStation?)`. 라벨 화면 기기 이름 칸은 판매자가 고치기 전까지 지금 출력 기기 이름에 맞춰 " 2"를 다시 계산한다(출력 기록이 늦게 와도 맞음).
+- `components/ExtensionConnection.tsx`: `EXTENSION_PHONE_ONLY` — 휴대폰 폭이면 칸 안이 이 한 줄뿐(`<p class="extension-phone">`). 쓰기 요청 없음(`GET /api/extension`은 그대로 받는다).
+- `components/QuickInput.tsx`: `closed?: boolean` — 끝난 방송·봉인 날짜(`ended || sealed`, 리허설 포함)에는 빠른 입력 줄 전부가 없다. 오류·"고칠까요?"·고치기 칸은 남는다. 콘솔은 끝나면 치던 글을 비운다. 상품 자세히의 "고치기"는 `EditDialog`라 영향 없다.
+- `components/ConsolePlatforms.tsx`: 휴대폰 폭에서 그리지 않는 칸
+  - 인스타그램: 서버 준비 안 됨, 또는 `NOT_CONNECTED`이고 이은 것·알림·DM 실패·오류가 없을 때. `RECONNECT_NEEDED` 경고 칸은 그대로 둔다(할 일이 있음).
+  - 틱톡: 막힘 문장(`tiktokBlocker`)이 있고 잇지 않았을 때.
+  - 단축키 줄(`.shortcuts`)은 PC 폭에서만 그린다.
+- 끝난 방송·봉인 날짜에는 "음성 켜기"가 없다(켜져 있던 음성의 끄기는 음성 칸에 남음).
+- `index.html` viewport는 `…, interactive-widget=resizes-content`.
+- 설정 버튼은 "전체 기록 파일 (옮기기·보관용)"(같은 경로·파일). 받은 시각 칸 `placeholder`는 없다. 작업 줄은 "자동 · 작업 대기".
+- 포장 모드에서 "포장 라벨 출력"과 결과 문장은 "포장 라벨" 제목 바로 아래(그림·"라벨 PDF" 위)의 자기 줄이다(`.packing-print-row`).
+- 아이폰 사용자 에이전트에서 시험용 프린터가 보이면 연결 방법 버튼 줄 바로 아래에 `p.hint`가 붙는다. 라벨 화면과 마법사 4/5가 같은 `PrinterSection`이다.
+- `styles.css`
+  - 모든 `:hover`는 파일 끝 `@media (hover: hover)` 안으로 옮겼다. 알림 올림은 `.button.alert-item:hover:not(:disabled)`이다.
+  - `select`: `appearance: none`, 화살표는 그라데이션 두 개라 `url()`이 없다. `min-height` 44px, `select.input`의 오른쪽 여백은 2.5rem이다.
+  - 휴대폰 폭에서 글 칸·고르기 칸에 `min-width: 0; max-width: 100%`, `.field`는 `minmax(0,1fr)`, `.button`은 줄바꿈이다.
+  - `.quick-row`는 container이고, 줄 폭이 17rem 이하이면 입력칸이 한 줄을 다 쓴다(쌓기).
+  - `.shop-name`·`.quick-label`은 높이 44px 가운데 정렬이라 위 끝이 맞는다.
+  - PC 채팅의 `.chat-convert`는 높이 44px이고 `margin-block: -0.125rem`, 줄 위아래 여백은 0.125rem이다.
+
+### 확인한 것
+
+- 웹 단위 시험 전체: `pnpm exec vitest run --project web` 91파일 1,470개 통과. 새 시험 3파일
+  - `test/mob1-menu-logout.test.tsx`
+  - `test/mob1-styles.node.test.ts`
+  - `test/mob1-print-voice.test.tsx`
+- tsc·eslint는 깨끗하다.
+- 기존 단위 시험은 바꾼 낱말·자리 줄만 고쳤고, 줄마다 `// MOB1 D-MOB1-0x`를 달았다.
+  - 막대 "문자찜": phone-menu·billing-page·wizard-app·console-s06
+  - 로그아웃 자리: App·l1-social-login
+  - 끊김 문장·" · ": labels-page
+  - 버튼 이름: closing-pages
+  - viewport: index-html·build.node
+  - 끝난 방송·봉인 날짜의 빠른 입력 없음: console-s06·console-youtube·receipts-page·n2b2-platforms. 잠긴 칸이 있던 자리는 "칸이 없음"으로 단언한다.
+  - 단축키 줄·휴대폰 숨김 칸·크롬 확장 칸: console-labels-off·n2b2-platforms·x1-extension·x1-ext-thanks. 이 시험들은 PC 폭(matchMedia)으로 열어 지금 단언을 그대로 둔다.
+  - 포장 버튼 자리: pl1b-packing
+- 임시 Playwright 확인은 작업 폴더 밖(scratchpad)에서 했다. E2E 시험 파일은 쓰지 않았다.
+  - 글자 150%, 375·412 크로미움, 393 WebKit: 방송 목록·진행 중 콘솔·리허설 콘솔·문자찜·구매자·정산·포장·라벨·설정·더보기 모두 넘침 0이다.
+  - 빠른 입력
+    - 100%: 이름·입력·개수의 위 끝이 275/274/275로 한 줄이다.
+    - 150%: 세로로 쌓이고, 입력칸 폭은 화면의 87%(375)·88%(412)다.
+  - 위 줄 100%: 가게 이름·프린터 위 끝이 8/8이다.
+  - 아래 막대 글 상자: 100%는 18 < 29, 150%는 28 < 43이다.
+  - 고정 영역 100%: 375에서 109px(13%)다.
+  - 412 터치에서 빨간 알림을 누르고 닫은 뒤 `rgb(179,38,30)`/흰 글자다. PC에서 올리면 `rgb(140,29,24)`/흰 글자다.
+  - 포장 버튼(품목 1개)은 375에서 687~731(막대 위 759), 412에서 651~695(막대 862)다.
+  - `select`는 44px·18px·`appearance:none`·배경 그림 있음이다(크로미움·WebKit).
+  - 끊김 항목: 안드로이드 출력 기기 탭을 닫으면 다른 기기 콘솔에 바로 뜬다. 두 번째 안드로이드의 기본 이름은 "안드로이드 폰 2"다.
+- 기존 E2E `s06/layout.spec.ts`
+  - AC-S06-62·64는 통과했다.
+  - AC-S06-61(375)은 로그인 도우미가 위 줄 "로그아웃"을 기다려서 실패한다 — e2e 몫(AC-MOB1-91).
+- 규칙대로 전체 `pnpm verify`는 돌리지 않았다.
+
+### 다음 영역에게
+
+- **e2e (AC-MOB1-90·91)**
+  - 휴대폰 폭에서 `login()` 도우미(`s05/support.ts:43` 등)가 `button '로그아웃'`을 기다리면 실패한다. 메뉴 `nav[aria-label="메뉴"]`를 기다리게 바꿔야 한다. 로그아웃은 "더보기"를 연 뒤 목록 안 버튼으로 누르고, 방송 중이면 확인 창의 위험 버튼 "로그아웃"까지 누른다.
+  - 데스크톱 기본 크기(1280)는 위 줄 그대로다.
+  - 기존 E2E에서 바뀌는 것
+    - 휴대폰 막대 "문자찜 입력" → "문자찜"
+    - 끊김 문장(`i1/screens.spec.ts` AC-I1-23)
+    - "전체 기록(JSON)" → "전체 기록 파일 (옮기기·보관용)"
+    - 끝난 방송·봉인 날짜에서 "빠른 입력"을 기다리던 줄은 칸이 없으니 "끝난 방송이에요"나 상품 보드로 기다린다.
+    - 휴대폰 콘솔의 인스타·틱톡 "쓸 수 없음" 칸·단축키 줄은 없다.
+    - 휴대폰 설정의 크롬 확장 칸은 한 줄뿐이다.
+    - 포장 "포장 라벨 출력"은 "라벨 PDF"와 같은 줄이 아니다(제목 바로 아래).
+    - 작업 줄 글은 "자동 · 작업 대기"다.
+  - 끊김 항목을 사라지게 하려면 **같은 탭**을 다시 열어 연결한다(새로고침). 기기 ID가 탭마다라 새 탭은 다른 기기다.
+  - 출력 기기 항목은 `region '알림'` 안의 첫 `button`(플랫폼 줄이 없을 때)이고, 이름 = 문장 전체다. "알림 n 펼치기" 수에는 들지 않는다. 이 항목 하나뿐이면 펼치기 버튼이 없다.
+  - 가짜 Wake Lock은 `navigator.wakeLock.request('screen')`를 `addInitScript`로 바꾸면 된다. 돌려주는 값에는 `release()`와 (있으면) `addEventListener('release', …)`가 필요하다.
+  - 화면이 숨었다 보이는 것은 `document.visibilityState`를 덮고 `visibilitychange`를 보내면 된다. 숨을 때 잠금을 잊으므로 `release` 사건 없이도 보이면 1번 다시 요청한다.
+- **ux (AC-MOB1-95)**: 아래 셋을 보면 좋겠다.
+  - 휴대폰에서 확인 창이 열린 "더보기" 목록 위에 뜬다.
+  - 출력 기기 항목이 접힌 띠에서 한 줄로 말줄임된다(전문은 버튼 이름과 라벨 화면에 있다).
+  - 끝난 리허설에도 빠른 입력 줄이 없다.
+- **spec-keeper 확인 거리(바꾸지 않았다)**
+  - 끝난 방송의 빠른 입력 숨김을 끝난 **리허설**에도 적용했다. AC 글은 "끝난 실제 방송 또는 봉인 날짜"다. 끝난 회차에 새 상품을 넣는 실수를 막는 쪽이 같아서 그렇게 했다.
+  - 인스타그램 `RECONNECT_NEEDED`(다시 연결 필요) 칸은 휴대폰에서도 남겼다. 할 일이 있는 경고라서다.
