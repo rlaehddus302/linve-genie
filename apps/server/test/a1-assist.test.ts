@@ -51,7 +51,7 @@ describe('AC-A1-02 목록에 붙는 제안', () => {
     expect((await reviews(world, seller))[0]?.suggestion).toEqual({ no: 21, options: { 사이즈: 'L' }, qty: 1, source: 'AI' })
   })
 
-  it('응답의 다른 키·순서·항목 수는 O2 그대로 — 항목에 suggestion 하나만 더한다', async () => {
+  it('응답의 다른 키·순서·항목 수는 O2 그대로 — 항목에 suggestion(A1)과 excluded(AIY1 AC-AIY1-07)만 더한다', async () => {
     const { world, seller } = await assistWorld({ key: false })
     const b = await shortsBroadcast(world, seller)
     await chat(world, seller, b.id, '반바지')
@@ -60,7 +60,7 @@ describe('AC-A1-02 목록에 붙는 제안', () => {
     const item = (body.reviews as Record<string, unknown>[])[0] as Record<string, unknown>
     const state = (await world.server.writer.read(seller.sellerId, b.date)).state
     const engine = listReviews(state)[0] as unknown as Record<string, unknown>
-    expect(Object.keys(item)).toEqual([...Object.keys(engine), 'date', 'rehearsal', 'broadcastDate', 'broadcastTitle', 'buyerName', 'text', 'received', 'phoneLast4', 'suggestion'])
+    expect(Object.keys(item)).toEqual([...Object.keys(engine), 'date', 'rehearsal', 'broadcastDate', 'broadcastTitle', 'buyerName', 'text', 'received', 'phoneLast4', 'suggestion', 'excluded'])
   })
 })
 

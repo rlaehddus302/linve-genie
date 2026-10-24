@@ -54,8 +54,19 @@ export async function shortsBroadcast(world: TestServer, seller: Seller, input: 
 }
 
 let chatCounter = 0
-/** 댓글 하나 (메시지 ID를 돌려준다) */
+/**
+ * 댓글 하나 (메시지 ID를 돌려준다). AIY1(D-AIY1-01) 뒤로 유튜브 줄은 AI로 보내지 않으므로, A1 시험의 댓글은 AI로 보낼 수 있는 출처
+ * — 인스타그램 댓글 수집 경로(ingestOpenChat, 출처 other)로 넣는다(리허설 방송이어도 출처 other)
+ */
 export async function chat(world: TestServer, seller: Seller, b: string, text: string, nick = '시청자', ch?: string): Promise<string> {
+  const id = `m${String(++chatCounter)}`
+  const outcome = await world.server.service.ingestOpenChat(seller.sellerId, { b, id, ch: ch ?? `UC${String(chatCounter).padStart(4, '0')}`, nick, text })
+  expect(outcome.status).toBe('recorded')
+  return id
+}
+
+/** 유튜브 채팅 하나 (유튜브 수집기 경로 ingestChat — 실제 방송이면 출처 youtube, AIY1) */
+export async function youtubeChat(world: TestServer, seller: Seller, b: string, text: string, nick = '시청자', ch?: string): Promise<string> {
   const id = `m${String(++chatCounter)}`
   const outcome = await world.server.ingestChat(seller.sellerId, { b, id, ch: ch ?? `UC${String(chatCounter).padStart(4, '0')}`, nick, text })
   expect(outcome.status).toBe('recorded')

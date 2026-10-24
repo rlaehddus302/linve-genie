@@ -7,17 +7,19 @@
 //   어드바이저리 락 안에서 세고 호출 기록 줄을 먼저 넣는다(실패한 호출도 센다). 부르기 직전마다 켬을 다시 읽는다(끄면 그 순간부터 새 호출 없음).
 // - 캐시 = (판매자, 범위, 방송, 가린 글의 해시, 읽은 번호) → 검사를 통과한 제안 또는 "없음". HTTP 오류·시간 초과·연결 실패는 캐시하지 않는다.
 // - 댓글 원문·가린 글·요청·응답 본문은 저장·로그하지 않는다. 로그는 정해진 코드·판매자 ID·HTTP 상태·개수만.
+// - AIY1 (D-AIY1-01~04·06): 유튜브에서 온 줄(이벤트 출처 youtube·extension·모름 — DB의 events.chat_source)은 AI로 보내지 않는다.
+//   거르기는 planAssist 안에서 같은 글 묶기·묶음 수보다 먼저, 그리고 켬 다시 읽기·하루 상한 세기(#reserve)보다 먼저다. 유튜브 줄엔 AI 캐시 제안도 보이지 않는다(규칙 제안만).
 import { createHmac } from 'node:crypto'
 import { DEFAULT_SETTINGS, getBroadcast, listBroadcasts, listProducts, listReviews, type EngineState, type OptionCatalogEntry, type ReviewInfo, type SaleSettings } from '@livejjim/core'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
 import { assistCache, assistCalls, assistSettings } from '../db/schema.ts'
 import { errorKind, type LogSink } from '../log.ts'
-import { eventBodiesAt, findBroadcast, optionScopes } from '../store.ts'
+import { chatSourcesAt, eventBodiesAt, findBroadcast, optionScopes } from '../store.ts'
 import { kstDate, type Clock } from '../time.ts'
 import type { ScopeWriter } from '../writer.ts'
 import { ANTHROPIC_BASE_URL, AnthropicAssist, DEFAULT_ASSIST_MODEL, type CommentAssist } from './anthropic.ts'
-import { SUGGEST_REASONS, planAssist, redact, ruleSuggestion, validateResponse, type PlanItem, type Suggestion } from './rules.ts'
+import { SUGGEST_REASONS, isYoutubeSource, planAssist, redact, ruleSuggestion, validateResponse, type PlanItem, type Suggestion } from './rules.ts'
 
 /** 판매자 하루 호출 상한 기본값 (D-A1-04) */
 export const DEFAULT_SELLER_DAILY_CALLS = 20
@@ -127,7 +129,17 @@ export interface AttachItem {
   readonly no: number | null
   /** 댓글 글 (채팅) — 없으면 null */
   readonly text: string | null
+  /** 유튜브에서 온 줄 (D-AIY1-01 — youtubeLine으로 정한다). true면 AI 캐시 제안을 찾지 않는다(규칙 제안만) */
+  readonly youtube: boolean
 }
+
+/** 확인 필요 항목의 AI 제외 이유 코드 (D-AIY1-04): 채팅 항목이고 유튜브에서 온 줄이면 'YOUTUBE_POLICY', 아니면 null */
+export type ExcludedReason = 'YOUTUBE_POLICY'
+
+/** 유튜브에서 온 줄인가: 채팅 항목이고 이벤트 출처가 youtube·extension·빈 값·모르는 값 (문자찜은 false) */
+export const youtubeLine = (origin: 'chat' | 'sms', source: string | null | undefined): boolean => origin === 'chat' && isYoutubeSource(source)
+
+export const excludedOf = (item: { readonly origin: 'chat' | 'sms'; readonly youtube: boolean }): ExcludedReason | null => (item.origin === 'chat' && item.youtube ? 'YOUTUBE_POLICY' : null)
 
 /** 방송 하나의 상품 목록(판매 종료가 아닌 상품, 번호 순 — 코어 인식 함수의 입력과 같음)·상태·설정 */
 interface BroadcastContext {
@@ -321,6 +333,8 @@ export class AssistService {
         continue
       }
       out.push(null)
+      // D-AIY1-04: 유튜브 줄은 AI 캐시를 찾지 않는다 (예전 캐시·같은 글의 다른 출처 캐시도 보이지 않는다 — 행은 그대로)
+      if (item.youtube) continue
       if (item.origin !== 'chat' || !SUGGEST_REASONS.has(item.reason) || item.text === null) continue
       const redacted = redact(item.text)
       if (redacted === '') continue
@@ -394,12 +408,15 @@ export class AssistService {
       if (seq === 0 || scopeId === null) continue
       const reviews = listReviews(state).filter((review) => only === undefined || review.broadcast === only)
       if (reviews.length === 0) continue
-      const bodies = await eventBodiesAt(this.#db, sellerId, scopeId, [...new Set(reviews.map((review) => review.seq))])
+      const seqs = [...new Set(reviews.map((review) => review.seq))]
+      const bodies = await eventBodiesAt(this.#db, sellerId, scopeId, seqs)
+      // D-AIY1-02: 출처는 화면이 아니라 DB의 기록(events.chat_source)에서 읽는다
+      const sources = await chatSourcesAt(this.#db, sellerId, scopeId, seqs)
       // 오래된 방송부터 (그 범위의 선언 순서)
       for (const broadcast of listBroadcasts(state)) {
         const items = reviews.filter((review) => review.broadcast === broadcast.id)
         if (items.length === 0) continue
-        const outcome = await this.#runBroadcast(sellerId, target, state, broadcast.id, items, bodies, adapter)
+        const outcome = await this.#runBroadcast(sellerId, target, state, broadcast.id, items, bodies, sources, adapter)
         if (outcome === 'disabled') return { result: called === 0 ? 'OFF' : 'DONE', called }
         if (outcome === 'limit') return { result: called === 0 ? 'LIMIT' : 'DONE', called }
         if (outcome === 'failed') return { result: 'FAILED', called: called + 1 }
@@ -416,16 +433,20 @@ export class AssistService {
     broadcast: string,
     reviews: readonly ReviewInfo[],
     bodies: ReadonlyMap<number, Record<string, unknown>>,
+    sources: ReadonlyMap<number, string | null>,
     adapter: CommentAssist,
   ): Promise<'none' | 'called' | 'failed' | 'limit' | 'disabled'> {
     const context = contextOf(state, broadcast)
     const rows = reviews.map((review) => {
       const body = bodies.get(review.seq) ?? {}
       const text = review.origin === 'chat' && typeof body.text === 'string' ? body.text : null
-      const item: AttachItem = { broadcast, origin: review.origin, reason: review.reason, no: review.no, text }
-      const redacted = text === null ? '' : redact(text)
+      const item: AttachItem = { broadcast, origin: review.origin, reason: review.reason, no: review.no, text, youtube: youtubeLine(review.origin, sources.get(review.seq)) }
+      // 유튜브 줄은 가리지도·해시하지도 않는다 (글이 이 아래로 흘러가지 않게)
+      const redacted = text === null || item.youtube ? '' : redact(text)
       return { id: review.item, item, redacted, hash: redacted === '' ? '' : this.#hash(redacted), rule: ruleFor(item, context) !== null }
     })
+    const excluded = rows.filter((row) => row.item.youtube && SUGGEST_REASONS.has(row.item.reason) && !row.rule && row.item.text !== null).length
+    if (excluded > 0) this.#log({ level: 'info', code: 'ASSIST_EXCLUDED', seller: sellerId, count: excluded })
     const cached = await this.#cached(
       sellerId,
       scope,
@@ -439,11 +460,15 @@ export class AssistService {
       no: row.item.no,
       rule: row.rule,
       cached: row.hash !== '' && cached.has(`${String(row.item.no ?? 0)}\u0000${row.hash}`),
-      text: row.item.text ?? '',
+      // 유튜브 줄의 글은 plan에도 넘기지 않는다 (youtube: true면 어차피 보내지 않는다)
+      text: row.item.youtube ? '' : (row.item.text ?? ''),
+      youtube: row.item.youtube,
     }))
     // 상한은 아래 #reserve가 락 안에서 센다 — 여기서는 보낼 것이 있는지만 본다
     const { send } = planAssist({ enabled: true, hasKey: true, usedToday: 0, dailyLimit: 1, globalUsed: 0, globalLimit: 1, batchMax: this.#batchMax, items: planItems })
     if (send.length === 0) return 'none'
+    // 마지막 안전장치 (D-AIY1-02): 유튜브 줄이 고른 목록에 있으면 부르지 않는다 (planAssist가 이미 거른다 — 상한·기록보다 먼저)
+    if (send.some((id) => rows.find((row) => row.id === id)?.item.youtube !== false)) return 'none'
     // 부르기 직전에 켬을 다시 읽는다 (끄면 그 순간부터 새 호출 없음, AC-A1-08)
     if (!(await this.#row(sellerId)).enabled) return 'disabled'
     const callId = await this.#reserve(sellerId, send.length)

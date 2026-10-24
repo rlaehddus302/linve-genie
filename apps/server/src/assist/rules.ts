@@ -296,6 +296,12 @@ export function validateResponse(items: readonly SentItem[], response: unknown, 
 
 // ── 호출 고르기 (R-20 10, D-A1-03·D-A1-04) ────────────────────────────
 
+/** AI로 보낼 수 있는 채팅 출처 (D-AIY1-01): 인스타·틱톡·붙여넣기(other)·리허설뿐 */
+const AI_SOURCES: ReadonlySet<string> = new Set(['other', 'rehearsal'])
+
+/** 유튜브에서 온 줄인가 (D-AIY1-01): 출처 youtube·extension이거나 빈 값·모르는 값이면 true — 모르면 보내지 않는 쪽 */
+export const isYoutubeSource = (source: string | null | undefined): boolean => source === null || source === undefined || !AI_SOURCES.has(source)
+
 export interface PlanItem {
   readonly id: string
   readonly origin: 'chat' | 'sms'
@@ -306,6 +312,8 @@ export interface PlanItem {
   /** 같은 캐시 키의 AI 결과가 있는지 */
   readonly cached: boolean
   readonly text: string
+  /** 유튜브에서 온 줄(출처 youtube·extension·모름 — D-AIY1-01). true면 보내지 않고 묶음·같은 글 묶기의 자리를 차지하지 않는다. 없으면 false */
+  readonly youtube?: boolean
 }
 
 export interface PlanInput {
@@ -325,7 +333,7 @@ export const cacheKeyOf = (redacted: string, no: number | null): string => `${St
 
 /**
  * AI로 보낼 항목과 그 순서: 켜짐·키 있음·상한 안일 때만, 채팅 항목·사유 UNKNOWN_WORD·PRODUCT_AMBIGUOUS·규칙 제안 없음·캐시 없음·가린 글이 빈 글이 아님,
- * 같은 (가린 글, 읽은 번호)는 처음 하나만, 원래 순위 순으로 batchMax개까지. 빈 목록이면 부르지 않는다
+ * 유튜브 줄(youtube: true — D-AIY1-01) 아님, 같은 (가린 글, 읽은 번호)는 처음 하나만, 원래 순위 순으로 batchMax개까지. 빈 목록이면 부르지 않는다
  */
 export function planAssist(input: PlanInput): { send: string[] } {
   if (!input.enabled || !input.hasKey) return { send: [] }
@@ -335,6 +343,8 @@ export function planAssist(input: PlanInput): { send: string[] } {
   for (const item of input.items) {
     if (send.length >= input.batchMax) break
     if (item.origin !== 'chat' || !SUGGEST_REASONS.has(item.reason) || item.rule || item.cached) continue
+    // D-AIY1-01·03: 유튜브 줄은 같은 글 묶기·묶음 수보다 먼저 거른다
+    if (item.youtube === true) continue
     const redacted = redact(item.text)
     if (redacted === '') continue
     const key = cacheKeyOf(redacted, item.no)

@@ -1,5 +1,5 @@
 // AC-A1-01 제안 골든 (tests/golden/assist/*.json, R-20 10, D-A1-02·05·06): 서버의 순수 함수(규칙 제안·응답 검사·가리기·호출 고르기)를 모든 사례로 돌려
-// out과 깊은 같음으로 비교한다. 파일 수 5·사례 수 108을 고정값으로 단언하고, 모르는 kind·키·열거값이면 읽기 오류로 실패한다(미구현 허용 장치 없음).
+// out과 깊은 같음으로 비교한다. 파일 수 5·사례 수 112를 고정값으로 단언하고, 모르는 kind·키·열거값이면 읽기 오류로 실패한다(미구현 허용 장치 없음).
 // TZ를 바꿔 돌려도 같다 — 함수가 시계를 쓰지 않는다(아래 "TZ" 시험이 다른 시간대의 자식 프로세스로 다시 돌린다).
 import { spawnSync } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
@@ -11,7 +11,7 @@ import { planAssist, redact, ruleSuggestion, validateResponse, type PlanInput } 
 
 const DIR = fileURLToPath(new URL('../../../tests/golden/assist/', import.meta.url))
 const FILES = 5
-const CASES = 108 // D-A1-11: redact 225~227 추가
+const CASES = 112 // D-A1-11: redact 225~227 추가 · D-AIY1-07: plan 314~317(유튜브 줄) 추가
 
 const KINDS = new Set(['rule', 'validate', 'redact', 'plan'])
 const REASONS = new Set(['OPTION_MISSING', 'OPTION_CONFLICT', 'UNKNOWN_WORD', 'QTY_INVALID', 'NUMBER_AMBIGUOUS', 'PRODUCT_AMBIGUOUS', 'MULTI_PRODUCT', 'FOCUS_CHANGED', 'STOCK_SHORT'])
@@ -89,7 +89,8 @@ function checkPlanInput(where: string, value: unknown): PlanInput {
   for (const item of value.items as unknown[]) {
     if (!isObj(item)) fail(where, 'items 항목이 객체가 아니다')
     const row = item as Json
-    onlyKeys(where, row, ['id', 'origin', 'reason', 'no', 'rule', 'cached', 'text'], ['id', 'origin', 'reason', 'no', 'rule', 'cached', 'text'])
+    onlyKeys(where, row, ['id', 'origin', 'reason', 'no', 'rule', 'cached', 'text', 'youtube'], ['id', 'origin', 'reason', 'no', 'rule', 'cached', 'text'])
+    if (row.youtube !== undefined && typeof row.youtube !== 'boolean') fail(where, 'youtube가 참·거짓이 아니다')
     if (row.origin !== 'chat' && row.origin !== 'sms') fail(where, `모르는 origin ${String(row.origin)}`)
     if (!REASONS.has(row.reason as string)) fail(where, `모르는 사유 ${String(row.reason)}`)
   }
@@ -162,10 +163,10 @@ function load(): { files: string[]; cases: Loaded[] } {
   return { files, cases }
 }
 
-describe('AC-A1-01 제안 골든 105사례', () => {
+describe('AC-A1-01 제안 골든 112사례', () => {
   const loaded = load()
 
-  it('파일 5개·사례 105개를 읽는다 (조용히 빠지면 실패)', () => {
+  it('파일 5개·사례 112개를 읽는다 (조용히 빠지면 실패)', () => {
     expect(loaded.files).toHaveLength(FILES)
     expect(loaded.cases).toHaveLength(CASES)
   })
