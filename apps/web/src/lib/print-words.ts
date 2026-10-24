@@ -52,8 +52,10 @@ export function backlogMessage(count: number): string {
   return `대기 중인 라벨 ${String(count)}장이 있어요. 출력 시작을 누르면 먼저 들어온 것부터 출력해요.`
 }
 
-/** 다른 기기에서 보는 출력 기기 안내 (AC-I1-23) */
-export const deviceLostMessage = (name: string): string => `출력 기기 '${name}'와 연결이 끊겼어요.`
+/** 다른 기기에서 보는 출력 기기 안내 (AC-I1-23 → MOB1 D-MOB1-08, L-11 10): 이름을 괄호에 넣어 조사가 늘 "기기" 뒤 — 받침과 상관없다 */
+export const deviceLostMessage = (name: string): string => `출력 기기('${name}')가 연결되어 있지 않아요. 그 기기에서 ${SERVICE_NAME}를 열고 화면을 켜 두세요.`
+/** 출력 기기가 없고 대기 라벨이 쌓일 때 콘솔 알림 띠 맨 앞 항목 (D-MOB1-08, AC-MOB1-13) */
+export const NO_STATION_PILING = "출력 기기가 아직 없어 라벨이 쌓이고 있어요. 출력할 기기의 라벨 화면에서 '이 기기에서 출력'을 눌러 주세요."
 export const reconnectThereMessage = (name: string): string => `출력 기기 '${name}'에서 다시 연결해 주세요.`
 export const replaceQuestion = (name: string): string => `지금은 '${name}'에서 출력하고 있어요. 이 기기로 바꿀까요?`
 

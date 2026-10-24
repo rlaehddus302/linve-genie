@@ -54,6 +54,8 @@ import { Modal } from './Modal.tsx'
 import { smsLast4Suffix, smsResultWords, useSentToReview, useSmsClaim } from './SmsPage.tsx'
 import { SERVICE_NAME } from '../brand.ts'
 
+/** 안내 창 마지막 줄 (MOB1 D-MOB1-07, AC-MOB1-11) */
+export const CONSENT_OTHER_DEVICE = '방송하는 폰이 아닌 다른 기기(관리 폰이나 PC)에서 켜 주세요. 방송 앱이 마이크를 쓰는 폰에서는 잘 듣지 못해요.'
 /** 안내 창 문장 (D-I4-04, AC-I4-11 — 외부 전송 문장은 D-I5-06, 마이크 줄은 D-I5-11로 바꿈) */
 export const CONSENT_TITLE = '음성으로 상품 등록'
 export const CONSENT_LINES: readonly string[] = [
@@ -61,6 +63,8 @@ export const CONSENT_LINES: readonly string[] = [
   `음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. ${SERVICE_NAME}는 음성을 녹음하거나 저장하지 않아요.`,
   // D-I5-11: 크롬·사파리 모두에 맞게 "브라우저가"
   '다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.',
+  // MOB1 D-MOB1-07: 방송 앱과 마이크가 겹치지 않게
+  CONSENT_OTHER_DEVICE,
 ]
 export const AUTO_CONFIRM_LABEL = '확실한 카드는 자동으로 등록'
 export const AUTO_CONFIRM_HELP = '번호·품종·가격이 모두 확실한 카드만, 손대지 않으면 정한 시간 뒤 등록해요. 등록 뒤 5초 안에 되돌릴 수 있어요.'

@@ -532,7 +532,6 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
               className="input"
               inputMode="numeric"
               autoComplete="off"
-              placeholder="20:01"
               value={received}
               disabled={disabled}
               readOnly={locked}

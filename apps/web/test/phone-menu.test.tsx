@@ -46,7 +46,7 @@ describe('휴대폰 메뉴 막대 (AC-NAV-01·02)', () => {
       await phoneTopBar({ name: 'home' }, { labels })
       expect(barCells().map((cell) => [cell.tagName, cell.textContent])).toEqual([
         ['A', '방송'],
-        ['A', '문자찜 입력'],
+        ['A', '문자찜'], // MOB1 D-MOB1-04
         ['A', '구매자'],
         ['A', '정산'],
         ['BUTTON', '더보기'],
@@ -79,7 +79,10 @@ describe('휴대폰 메뉴 막대 (AC-NAV-01·02)', () => {
       ['택배', '/parcels'],
       ['설정', '/settings'],
     ])
-    expect(within(opened).getAllByRole('listitem')).toHaveLength(5)
+    // MOB1 D-MOB1-05: 링크 다섯 줄 뒤 맨 끝 줄은 버튼 "로그아웃"(링크가 아님)
+    expect(within(opened).getAllByRole('listitem')).toHaveLength(6)
+    expect(within(opened).getAllByRole('listitem').at(-1)?.querySelector('a')).toBeNull()
+    expect(within(within(opened).getAllByRole('listitem').at(-1) as HTMLElement).getByRole('button', { name: '로그아웃' })).toBeDefined()
     expect(screen.getAllByRole('link', { name: '설정' })).toHaveLength(1)
     // 키보드 차례: "더보기" 다음이 목록 항목 (DOM 순서 = Tab 순서)
     expect(more().compareDocumentPosition(links[0] as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -175,7 +178,7 @@ describe('지금 위치·수 (AC-NAV-04·05)', () => {
     const cases: readonly [Route, string][] = [
       [{ name: 'home' }, '방송'],
       [{ name: 'console', id: 'b1' }, '방송'],
-      [{ name: 'sms' }, '문자찜 입력'],
+      [{ name: 'sms' }, '문자찜'], // MOB1 D-MOB1-04
       [{ name: 'buyers', rehearsal: false }, '구매자'],
       [{ name: 'settlements', rehearsal: false }, '정산'],
     ]
@@ -192,7 +195,7 @@ describe('지금 위치·수 (AC-NAV-04·05)', () => {
 describe('보조자 (AC-NAV-08)', () => {
   it('"문자찜 입력" 한 칸, "더보기" 없음', async () => {
     await phoneTopBar({ name: 'sms' }, { assistant: true })
-    expect(barCells().map((cell) => cell.textContent)).toEqual(['문자찜 입력'])
+    expect(barCells().map((cell) => cell.textContent)).toEqual(['문자찜']) // MOB1 D-MOB1-04
     expect(within(menuNav()).queryByRole('button', { name: '더보기' })).toBeNull()
   })
 })

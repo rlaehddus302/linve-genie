@@ -122,10 +122,6 @@ p {
   gap: 0.25rem;
 }
 
-.button:hover:not(:disabled) {
-  background-color: #e3e5e8;
-}
-
 .button[aria-pressed='true'] {
   color: #041e49;
   background-color: #d3e3fd;
@@ -139,18 +135,10 @@ p {
   border-color: #0b57d0;
 }
 
-.button-primary:hover:not(:disabled) {
-  background-color: #0842a0;
-}
-
 .button-danger {
   color: #ffffff;
   background-color: #b3261e;
   border-color: #b3261e;
-}
-
-.button-danger:hover:not(:disabled) {
-  background-color: #8c1d18;
 }
 
 .button-small {
@@ -158,8 +146,7 @@ p {
 }
 
 /* 잠긴 버튼: 마우스를 올려도 모양(배경·글자·테두리)이 바뀌지 않는다, 명암비 3:1 이상 (AC-S06-64). 변형(주·위험) 뒤에 둔다 */
-.button:disabled,
-.button:disabled:hover {
+.button:disabled {
   cursor: not-allowed;
   color: #3c4043;
   background-color: #e8eaed;
@@ -412,10 +399,6 @@ p {
   text-decoration: none;
 }
 
-.menu-link:hover {
-  border-color: #0b57d0;
-}
-
 .menu-link[aria-current='page'] {
   color: #ffffff;
   background-color: #0b57d0;
@@ -470,10 +453,6 @@ p {
   border-radius: 0.75rem;
   color: #1a1a1a;
   text-decoration: none;
-}
-
-.broadcast-link:hover {
-  border-color: #0b57d0;
 }
 
 .broadcast-title {
@@ -567,18 +546,10 @@ p {
   font-weight: 700;
 }
 
-.alert-item:hover {
-  background-color: #8c1d18;
-}
-
 .alert-soft {
   color: #3d2b00;
   background-color: #fef7e0;
   border-color: #8a6100;
-}
-
-.alert-soft:hover {
-  background-color: #fdeec2;
 }
 
 .quick {
@@ -761,10 +732,6 @@ p {
   color: #1a1a1a;
   text-align: left;
   cursor: pointer;
-}
-
-.board-item:hover {
-  border-color: #0b57d0;
 }
 
 .board-no {
@@ -1062,7 +1029,6 @@ p {
   cursor: pointer;
 }
 
-.choice-button:hover,
 .choice-button[aria-pressed='true'] {
   border-color: #0b57d0;
 }
@@ -1090,10 +1056,6 @@ p {
   border-radius: 0.5rem;
   color: #1a1a1a;
   text-decoration: none;
-}
-
-.list-link:hover {
-  border-color: #0b57d0;
 }
 
 .buyer-name {
@@ -1287,10 +1249,6 @@ html:has(.save-bar) {
 .list-table thead th {
   border-bottom: 2px solid #5f6368;
   background-color: #f8f9fa;
-}
-
-.list-table tbody tr:hover {
-  background-color: #f4f8ff;
 }
 
 .list-table .num {
@@ -1971,6 +1929,13 @@ html:has(.save-bar) {
     border-top: 1px solid #c4c7c5;
     background-color: #ffffff;
     box-shadow: 0 -0.25rem 0.75rem rgb(0 0 0 / 15%);
+  }
+
+  /* 더보기 목록 맨 끝 "로그아웃" 버튼 (D-MOB1-05) — 목록 링크와 같은 모양 */
+  .menu-logout {
+    font-family: inherit;
+    background-color: transparent;
+    cursor: pointer;
   }
 
   .menu-more-list .menu-link {
@@ -3333,19 +3298,10 @@ select.input {
   border: 2px solid #fee500;
 }
 
-.social-kakao:hover:not(:disabled) {
-  background-color: #f5dc00;
-}
-
 .social-naver {
   color: #1f1f1f;
   background-color: #ffffff;
   border: 2px solid #03c75a;
-}
-
-.social-naver:hover:not(:disabled),
-.social-google:hover:not(:disabled) {
-  background-color: #f1f3f4;
 }
 
 .social-naver-mark {
@@ -3588,4 +3544,71 @@ select.input {
 .extension-code-value.expired {
   color: #757575;
   text-decoration: line-through;
+}
+
+/* 마우스를 올렸을 때 (MOB1 D-MOB1-02, AC-MOB1-01): 모든 :hover는 이 블록 안에만 둔다 — 터치 휴대폰에서는 누른 뒤 올림 모양이 남지 않는다.
+ * 대비는 보통·올림 모두 4.5:1 이상. 알림 버튼은 .button 올림보다 세게(같은 요소의 더 구체적인 선택자) — 회색 바탕 + 흰 글자가 되지 않게.
+ * 잠긴 버튼(AC-S06-64)은 블록 밖 .button:disabled 그대로이고, 올려도 모양이 바뀌지 않게 여기서 한 번 더 같은 값을 준다(맨 뒤). */
+@media (hover: hover) {
+  .button:hover:not(:disabled) {
+    background-color: #e3e5e8;
+  }
+
+  .button-primary:hover:not(:disabled) {
+    background-color: #0842a0;
+  }
+
+  .button-danger:hover:not(:disabled) {
+    background-color: #8c1d18;
+  }
+
+  .button.alert-item:hover:not(:disabled) {
+    color: #ffffff;
+    background-color: #8c1d18;
+  }
+
+  .button.alert-item.alert-soft:hover:not(:disabled) {
+    color: #3d2b00;
+    background-color: #fdeec2;
+  }
+
+  .menu-link:hover {
+    border-color: #0b57d0;
+  }
+
+  .broadcast-link:hover {
+    border-color: #0b57d0;
+  }
+
+  .board-item:hover {
+    border-color: #0b57d0;
+  }
+
+  .choice-button:hover {
+    border-color: #0b57d0;
+  }
+
+  .list-link:hover {
+    border-color: #0b57d0;
+  }
+
+  .list-table tbody tr:hover {
+    background-color: #f4f8ff;
+  }
+
+  .social-kakao:hover:not(:disabled) {
+    background-color: #f5dc00;
+  }
+
+  .social-naver:hover:not(:disabled),
+  .social-google:hover:not(:disabled) {
+    background-color: #f1f3f4;
+  }
+
+  .button:disabled:hover {
+    cursor: not-allowed;
+    color: #3c4043;
+    background-color: #e8eaed;
+    border-color: #9aa0a6;
+  }
 }

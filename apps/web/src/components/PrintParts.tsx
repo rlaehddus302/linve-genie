@@ -123,7 +123,10 @@ export function JobLine({ job }: { readonly job: JobView }) {
         {job.kind === 'product' && labelOptionWords(job.data) !== '' ? <span>{labelOptionWords(job.data)}</span> : null}
         <span> · {buyerWord(job.label.buyer)}</span>
         <span> · {KIND_WORD[job.kind]}</span>
-        <span> · {REASON_WORD[job.reason]}</span> <span className={job.status === 'PRINTING' ? 'tag tag-printing' : 'tag'}>{job.word}</span>
+        {/* 만든 까닭과 상태 낱말 사이 " · " — "자동 · 작업 대기"로 읽힌다 (MOB1 D-MOB1-13, AC-MOB1-25) */}
+        <span> · {REASON_WORD[job.reason]}</span>
+        {' · '}
+        <span className={job.status === 'PRINTING' ? 'tag tag-printing' : 'tag'}>{job.word}</span>
         {job.attempts > 0 ? <span> · 시도 {job.attempts}번</span> : null}
       </p>
       {job.lastError !== null ? <p className="job-error">마지막 오류: {printErrorMessage(job.lastError)}</p> : null}

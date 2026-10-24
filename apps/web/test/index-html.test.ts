@@ -23,7 +23,8 @@ describe('index.html', () => {
   it('휴대폰 폭에 맞추는 viewport 설정이 있다', () => {
     const viewports = page.querySelectorAll('meta[name="viewport"]')
     expect(viewports).toHaveLength(1)
-    expect(viewports[0]?.getAttribute('content')).toBe('width=device-width, initial-scale=1')
+    // MOB1 D-MOB1-10: 휴대폰 키보드가 화면 높이를 줄이게(interactive-widget)
+    expect(viewports[0]?.getAttribute('content')).toBe('width=device-width, initial-scale=1, interactive-widget=resizes-content')
   })
 
   it('글자 인코딩이 UTF-8이다', () => {

@@ -1,5 +1,5 @@
 // 화면 위 줄 (AC-S05-01, AC-S06-01·51·52, AC-I1-20·34, AC-I3-44·63, AC-N4a-10·13·18, I2 AC-I2-02·35, AC-N3-40, AC-NAV-01~10): 가게 이름, 프린터 상태(누르면 라벨 화면),
-// 메뉴(지금 화면은 aria-current="page"), 앱 설치 안내, 로그아웃, 새 버전 안내. 메뉴 항목·순서는 lib/menu.ts 한 곳에서 정한다.
+// 메뉴(지금 화면은 aria-current="page"), 앱 설치 안내, 로그아웃(휴대폰 판매자는 "더보기" 맨 끝 — D-MOB1-05), 새 버전 안내. 메뉴 항목·순서는 lib/menu.ts 한 곳에서 정한다.
 // - PC(48rem 이상): 모든 메뉴가 위 줄에 링크로 — "방송"·"문자찜 입력"·"구매자"·"정산"·"입금 확인"·"포장"·"라벨"·"설정", 더보기 없음.
 // - 휴대폰(48rem 미만, D-NAV-01): 아래 고정 막대 한 줄 다섯 칸 — 앞 네 칸 링크 + "더보기" 버튼(aria-expanded). 누르면 막대 바로 위에 나머지 목록.
 //   다시 누르기·Esc(포커스는 "더보기"로)·목록 밖 누르기(아무 데도 가지 않는다)·항목 고르기·화면 바뀜이면 닫힌다. 닫힌 목록은 그리지 않는다(화면 읽기에도 없다).
@@ -14,11 +14,12 @@
 import { useEffect, useId, useRef, useState, type MouseEvent } from 'react'
 import { useInstallHint, useUpdateNotice } from '../pwa/pwa.ts'
 import { PRINT_ACTION, printerStatusWord } from '../lib/print-words.ts'
-import { menuAll, menuLayout, type MenuItem } from '../lib/menu.ts'
+import { SMS_BAR_LABEL, menuAll, menuLayout, type MenuItem } from '../lib/menu.ts'
 import { menuOf, routePath, type MenuKey, type Navigate, type Route } from '../lib/router.ts'
 import { useWide } from '../lib/use-wide.ts'
 import { useDepositReview } from './deposit-context.tsx'
 import { useBillingConfig } from './billing-context.tsx'
+import { LogoutButton } from './LogoutButton.tsx'
 import { useLabelsEnabled, usePrintApi, usePrintState, useStationState } from './print-context.tsx'
 
 export interface TopBarProps {
@@ -55,20 +56,19 @@ export function TopBar({ shopName, assistant = false, onLogout, route, navigate 
         {assistant || !labels ? null : <PrinterStatus onOpen={(event) => go(event, { name: 'labels' })} />}
         {assistant ? (
           <nav className="menu menu-single" aria-label="메뉴">
-            <MenuLinks items={layout.bar} current={current} go={go} />
+            <MenuLinks items={layout.bar} current={current} go={go} short={!wide} />
           </nav>
         ) : wide ? (
           <nav className="menu" aria-label="메뉴">
             <MenuLinks items={menuAll(layout)} current={current} go={go} />
           </nav>
         ) : (
-          <PhoneMenu bar={layout.bar} more={layout.more} current={current} go={go} routeKey={routePath(route)} />
+          <PhoneMenu bar={layout.bar} more={layout.more} current={current} go={go} routeKey={routePath(route)} onLogout={onLogout} />
         )}
         <div className="topbar-actions">
           <InstallButton />
-          <button type="button" className="button" onClick={onLogout}>
-            로그아웃
-          </button>
+          {/* 휴대폰 판매자는 "더보기" 목록 맨 끝에 (D-MOB1-05) — PC·보조자는 여기 그대로 */}
+          {wide || assistant ? <LogoutButton onLogout={onLogout} assistant={assistant} className="button" /> : null}
         </div>
       </header>
       <IosInstallHint />
@@ -76,7 +76,7 @@ export function TopBar({ shopName, assistant = false, onLogout, route, navigate 
   )
 }
 
-function MenuLinks({ items, current, go, onPick }: { readonly items: readonly MenuItem[]; readonly current: MenuKey | null; readonly go: Go; readonly onPick?: () => void }) {
+function MenuLinks({ items, current, go, onPick, short = false }: { readonly items: readonly MenuItem[]; readonly current: MenuKey | null; readonly go: Go; readonly onPick?: () => void; readonly short?: boolean }) {
   return items.map((item) => (
     <a
       key={item.key}
@@ -88,7 +88,7 @@ function MenuLinks({ items, current, go, onPick }: { readonly items: readonly Me
         go(event, item.to)
       }}
     >
-      {item.label}
+      {short && item.key === 'sms' ? SMS_BAR_LABEL : item.label}
       {item.count === undefined ? null : (
         <>
           {' '}
@@ -103,7 +103,21 @@ function MenuLinks({ items, current, go, onPick }: { readonly items: readonly Me
  * 휴대폰 메뉴 (D-NAV-01, AC-NAV-01~07): 막대 다섯 칸 + "더보기" 목록.
  * 화면(주소)이 바뀌면(뒤로 가기 포함) 그리는 중에 바로 닫는다 — 바뀐 화면에 열린 목록이 한 번도 보이지 않는다.
  */
-function PhoneMenu({ bar, more, current, go, routeKey }: { readonly bar: readonly MenuItem[]; readonly more: readonly MenuItem[]; readonly current: MenuKey | null; readonly go: Go; readonly routeKey: string }) {
+function PhoneMenu({
+  bar,
+  more,
+  current,
+  go,
+  routeKey,
+  onLogout,
+}: {
+  readonly bar: readonly MenuItem[]
+  readonly more: readonly MenuItem[]
+  readonly current: MenuKey | null
+  readonly go: Go
+  readonly routeKey: string
+  readonly onLogout: () => void
+}) {
   const [open, setOpen] = useState(false)
   const [shownAt, setShownAt] = useState(routeKey)
   if (shownAt !== routeKey) {
@@ -134,7 +148,7 @@ function PhoneMenu({ bar, more, current, go, routeKey }: { readonly bar: readonl
       {/* 목록 밖 누르기: 아래 화면을 덮어 아무 데도 가지 않고 닫는다 (마우스·손가락 전용 — 키보드는 Esc) */}
       {open ? <div className="menu-more-backdrop" aria-hidden="true" onClick={close} /> : null}
       <nav className={open ? 'menu menu-open' : 'menu'} aria-label="메뉴">
-        <MenuLinks items={bar} current={current} go={go} />
+        <MenuLinks items={bar} current={current} go={go} short />
         <button
           ref={button}
           type="button"
@@ -153,6 +167,10 @@ function PhoneMenu({ bar, more, current, go, routeKey }: { readonly bar: readonl
                 <MenuLinks items={[item]} current={current} go={go} onPick={close} />
               </li>
             ))}
+            {/* 로그아웃은 맨 끝("설정" 다음) 버튼 — 링크가 아니다(AC-NAV-02는 링크만 센다). 위험할 때만 확인 창(D-MOB1-05) */}
+            <li>
+              <LogoutButton onLogout={onLogout} assistant={false} className="menu-link menu-logout" />
+            </li>
           </ul>
         ) : null}
       </nav>
