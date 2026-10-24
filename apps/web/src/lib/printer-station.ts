@@ -8,22 +8,34 @@
 // - 출력 기기는 화면 꺼짐 막기를 요청한다(지원할 때). 안 되면 화면이 안내한다.
 // - 라벨 기능이 꺼져 있거나 켬/끔을 아직 모르면 받지 않는다(N4a, L-13 5·6, AC-N4a-17·18). 꺼지면(labels 알림·대기열 요약·받기의 LABELS_OFF)
 //   새 받기를 멈추고, 이미 받은 한 장은 마저 찍어 결과를 알린다. 꺼진 동안은 화면 꺼짐 막기도 풀어 둔다(출력하지 않는다).
+// - 마지막 프린터를 기억한다(QS1, D-QS1-01, L-7 "마지막 프린터 기억"): 연결에 성공하면 연결 방법과 기기를 알아보는 값만 이 브라우저 저장소에 둔다
+//   (서버로 보내지 않는다). "다시 연결"은 기억한 기기로(고르기 창 없이 — 얻을 수 없으면 고르기 창), 연결 방법 단추는 늘 고르기 창이다.
+// - 출력 기기에서 프린터가 저절로 끊기면 기억한 기기로만 1·2·4·8·16·30초 뒤 모두 6번 다시 잇는다(D-QS1-02, L-11 8). 이어진 뒤 60초가 지나야
+//   횟수를 새로 센다. "연결 끊기"·다른 연결 방법·출력 기기에서 내려옴·라벨 기능 꺼짐이면 그친다. 다시 이어도 라벨을 다시 보내지 않는다.
 import type { LabelBitmap } from '@livejjim/label'
 import {
   PRINTER_MESSAGES,
   browserEnvironment,
+  combineNiimbotFakes,
   createB1Adapter,
   createFakeNiimbotBluetooth,
+  createFakeNiimbotSerial,
   createFakePrinter,
   detectMethods,
+  isRememberingAdapter,
+  parseRememberedPrinter,
+  systemTimer,
   type ConnectionMethod,
   type ConnectionState,
   type FakeNiimbotBluetooth,
+  type FakeNiimbotSerial,
   type FakePrintBehavior,
   type FakePrinter,
   type PrinterAdapter,
   type PrinterError,
   type PrinterErrorCode,
+  type PrinterResult,
+  type PrinterTimer,
 } from '@livejjim/printer'
 import { isApiError, post, withRetry, type ApiError } from '../api/client.ts'
 import type { ClaimedJob, QueueSummary } from '../api/print-types.ts'
@@ -35,6 +47,17 @@ import { LABELS_OFF, type PrintStore } from './print-store.ts'
 export type PrinterMethod = ConnectionMethod | 'test'
 
 const METHOD_KEY = 'livejjim.printMethod'
+/** 기억한 프린터 (실제 프린터 어댑터 — 연결 방법과 기기 ID·USB 번호만, D-QS1-01 (6)) */
+export const REMEMBERED_KEY = 'livejjim.printer.remembered'
+/** 기억한 시험용 프린터 (시험 모드 — 실제 프린터 기억과 섞이지 않게 따로) */
+export const REMEMBERED_TEST_KEY = 'livejjim.printer.rememberedTest'
+/** 시험 모드의 가짜 B1·가짜 USB 설정 (새로고침을 넘는 E2E — 시험 모드에서만 쓴다, AC-QS1-25) */
+export const FAKE_DEVICES_KEY = 'livejjim.test.fakeDevices'
+
+/** 저절로 다시 잇기 간격 (끊긴 때부터 차례로 — 누적 1·3·7·15·31·61초, D-QS1-02 (2)) */
+export const AUTO_RECONNECT_DELAYS_MS: readonly number[] = [1000, 2000, 4000, 8000, 16000, 30000]
+/** 다시 이어진 뒤 이만큼 끊기지 않아야 저절로 다시 잇기 횟수를 새로 센다 (D-QS1-02 (3)) */
+export const AUTO_RECONNECT_STABLE_MS = 60_000
 
 /**
  * 그리기가 던지면(설정 오류가 아님 — 느린·메모리가 모자란 휴대폰의 글꼴 불러오기·캔버스 만들기 실패 등) 같은 장을 다시 그리기 전에 기다리는 시간.
@@ -98,6 +121,30 @@ export interface StationOptions {
   readonly today: () => string
   /** 시험용 프린터 손잡이를 놓을 곳 (시험 모드에서만) */
   readonly exposeTestHandle?: (handle: TestPrinterHandle | null) => void
+  /** 저절로 다시 잇기의 타이머 (기본: 시스템 타이머 — 시험은 손으로 돌리는 타이머를 넣는다) */
+  readonly timer?: PrinterTimer
+}
+
+/** 가짜 B1 블루투스 설정 (시험 모드 손잡이 — 새로고침을 넘어 이어 갈 값) */
+export interface FakeB1Setup {
+  /** navigator.bluetooth.getDevices 없음·있음·예외 */
+  readonly getDevices?: boolean | 'throws'
+  /** 이미 허락된 기기인지 (새로고침 뒤 getDevices가 돌려준다) */
+  readonly permitted?: boolean
+  /** getAvailability() 값 */
+  readonly available?: boolean
+  /** 블루투스 장치가 정말 꺼짐 (없으면 available을 따른다 — `available: false, adapterOff: false`가 윈도우 오판) */
+  readonly adapterOff?: boolean
+  /** 프린터 전원 (끄면 다시 잇기를 거절한다) */
+  readonly powered?: boolean
+}
+
+/** 가짜 B1 USB 설정 (시험 모드 손잡이) */
+export interface FakeUsbSetup {
+  /** navigator.serial.getPorts 있음·없음·예외 */
+  readonly getPorts?: boolean | 'throws'
+  /** 포트들 — 없으면 B1 포트 하나 */
+  readonly ports?: readonly { readonly plugged?: boolean; readonly permitted?: boolean; readonly usbVendorId?: number; readonly usbProductId?: number }[]
 }
 
 /** E2E가 쓰는 시험용 프린터 손잡이 (서버가 시험 모드일 때만 생긴다, AC-I1-50) */
@@ -120,6 +167,35 @@ export interface TestPrinterHandle {
   setUnansweredNegotiations(n: number): void
   /** 가짜 B1: 고르기 창을 띄운 횟수 · 연결 시도 수(다시 잇기 포함) · 이어져 있는지 */
   fakeB1(): { readonly requests: number; readonly connectAttempts: number; readonly connected: boolean } | null
+  /** 가짜 B1 더 보기 (QS1): fakeB1()에 더해 전원 · 허락됨 · getDevices를 부른 횟수 */
+  fakeB1State(): {
+    readonly requests: number
+    readonly connectAttempts: number
+    readonly connected: boolean
+    readonly powered: boolean
+    readonly permitted: boolean
+    readonly getDevicesCalls: number
+  } | null
+  /** 가짜 B1 설정을 바꾼다 (없으면 가짜 B1을 먼저 꽂는다). 새로고침을 넘어 이어 간다(시험 모드의 sessionStorage) */
+  setFakeB1(setup: FakeB1Setup): void
+  /** 가짜 B1 프린터 쪽 끊김 (전원은 그대로 — 다시 잇기를 받는다) */
+  fakeB1Disconnect(): void
+  /** "USB 선으로 연결"을 가짜 B1 USB 포트로 바꾼다 (가짜 B1 블루투스와 같은 B1 어댑터에 꽂는다). 부른 뒤 연결 방법에 USB 선이 생긴다 */
+  useFakeUsb(setup?: FakeUsbSetup): void
+  /** 가짜 USB n번째(0부터) 포트를 뽑는다(이어져 있었으면 끊김) · 다시 꽂는다 */
+  unplugFakeUsb(index?: number): void
+  plugFakeUsb(index?: number): void
+  /** 가짜 USB: 고르기 창(requestPort) 횟수 · getPorts를 부른 횟수 · 연결 시도 수 · 이어져 있는지 */
+  fakeUsb(): { readonly requests: number; readonly getPortsCalls: number; readonly connectAttempts: number; readonly connected: boolean } | null
+  /** 저절로 다시 잇기 시도 수 (이 페이지에서 — 기억한 기기로만 잇기를 부른 횟수) */
+  autoReconnectAttempts(): number
+  /** 저절로 다시 잇기를 기다리는 중인지 (다음 시도가 잡혀 있다) */
+  autoReconnectWaiting(): boolean
+  /**
+   * 저절로 다시 잇기 켬/끔 (시험 모드만, 기본 켬 — 운영과 같다). 끊김 멈춤이 그대로 남아야 하는 앞 스프린트 E2E가 쓸 수 있게 둔다.
+   * 끄면 기다리던 시도도 그친다
+   */
+  setAutoReconnect(on: boolean): void
 }
 
 function readMethod(): PrinterMethod | null {
@@ -141,6 +217,74 @@ function writeMethod(method: PrinterMethod): void {
 
 const bitmapOut = (image: LabelBitmap) => ({ width: image.width, height: image.height, data: [...image.data] })
 
+function readJson(storage: Storage, key: string): unknown {
+  try {
+    const raw = storage.getItem(key)
+    return raw === null ? null : (JSON.parse(raw) as unknown)
+  } catch {
+    // 깨진 값·저장소를 쓸 수 없음: 없는 것으로 본다
+    return null
+  }
+}
+
+function writeJson(storage: Storage, key: string, value: unknown): void {
+  try {
+    if (value === null) storage.removeItem(key)
+    else storage.setItem(key, JSON.stringify(value))
+  } catch {
+    // 이 페이지 동안만
+  }
+}
+
+interface SavedFakes {
+  b1?: FakeB1Setup
+  usb?: FakeUsbSetup
+}
+
+function readFakes(): SavedFakes {
+  if (typeof window === 'undefined') return {}
+  const value = readJson(window.sessionStorage, FAKE_DEVICES_KEY)
+  if (typeof value !== 'object' || value === null) return {}
+  const v = value as Record<string, unknown>
+  const pick = (x: unknown): Record<string, unknown> | undefined => (typeof x === 'object' && x !== null ? (x as Record<string, unknown>) : undefined)
+  const mode = (x: unknown): boolean | 'throws' | undefined => (x === true || x === false || x === 'throws' ? x : undefined)
+  const flag = (x: unknown): boolean | undefined => (typeof x === 'boolean' ? x : undefined)
+  const out: SavedFakes = {}
+  const b1 = pick(v['b1'])
+  if (b1 !== undefined) {
+    const setup: { -readonly [K in keyof FakeB1Setup]: FakeB1Setup[K] } = {}
+    const getDevices = mode(b1['getDevices'])
+    if (getDevices !== undefined) setup.getDevices = getDevices
+    for (const key of ['permitted', 'available', 'adapterOff', 'powered'] as const) {
+      const f = flag(b1[key])
+      if (f !== undefined) setup[key] = f
+    }
+    out.b1 = setup
+  }
+  const usb = pick(v['usb'])
+  if (usb !== undefined) {
+    const getPorts = mode(usb['getPorts'])
+    const ports = Array.isArray(usb['ports'])
+      ? (usb['ports'] as unknown[]).slice(0, 8).map((p) => {
+          const port = pick(p) ?? {}
+          const id = (x: unknown): number | undefined => (typeof x === 'number' && Number.isInteger(x) && x >= 0 && x <= 0xffff ? x : undefined)
+          const plugged = flag(port['plugged'])
+          const permitted = flag(port['permitted'])
+          const vendor = id(port['usbVendorId'])
+          const product = id(port['usbProductId'])
+          return {
+            ...(plugged === undefined ? {} : { plugged }),
+            ...(permitted === undefined ? {} : { permitted }),
+            ...(vendor === undefined ? {} : { usbVendorId: vendor }),
+            ...(product === undefined ? {} : { usbProductId: product }),
+          }
+        })
+      : undefined
+    out.usb = { ...(getPorts === undefined ? {} : { getPorts }), ...(ports === undefined ? {} : { ports }) }
+  }
+  return out
+}
+
 export class PrinterStation {
   readonly #options: StationOptions
   readonly #listeners = new Set<() => void>()
@@ -151,6 +295,31 @@ export class PrinterStation {
   #real: PrinterAdapter | null = null
   #test: FakePrinter | null = null
   #fakeB1: FakeNiimbotBluetooth | null = null
+  #fakeB1Setup: FakeB1Setup = {}
+  #fakeUsb: FakeNiimbotSerial | null = null
+  #fakeUsbSetup: FakeUsbSetup = {}
+  /** 기억한 프린터를 저장소에 맞추는 구독 (실제 어댑터·시험용 프린터) */
+  #unlistenRealMemory: (() => void) | null = null
+  #unlistenTestMemory: (() => void) | null = null
+  /** 지금 어댑터의 마지막 상태 (연결된 뒤 끊김인지 가린다) */
+  #lastState: ConnectionState = 'DISCONNECTED'
+  readonly #timer: PrinterTimer
+  /** 저절로 다시 잇기: 이번 끊김 묶음에서 쓴 시도 수 (D-QS1-02 (2)(3) — 6이면 그친다) */
+  #autoUsed = 0
+  /** 저절로 다시 잇기: 다음 시도 타이머 */
+  #autoTimer: unknown = undefined
+  /** 저절로 다시 잇기: 하는 중인 시도 */
+  #autoInFlight: Promise<PrinterResult> | null = null
+  /** 저절로 다시 잇기를 그칠 때마다 늘린다 — 그 전의 시도 결과는 다음 시도를 잡지 않는다 */
+  #autoSeries = 0
+  /** 다시 이어진 뒤 60초 타이머 (지나면 횟수를 새로 센다) */
+  #stableTimer: unknown = undefined
+  /** 판매자가 "연결 끊기"를 눌렀다 — 다시 이어질 때까지 저절로 잇지 않는다 */
+  #autoBlocked = false
+  /** 이 페이지에서 저절로 다시 잇기를 시도한 수 (시험 손잡이) */
+  #autoAttempts = 0
+  /** 시험 손잡이로 저절로 다시 잇기를 껐다 (시험 모드만) */
+  #autoOffForTest = false
   #unsubscribeStore: (() => void) | null = null
   #stopped = false
   #pumping = false
@@ -174,6 +343,7 @@ export class PrinterStation {
 
   constructor(options: StationOptions) {
     this.#options = options
+    this.#timer = options.timer ?? systemTimer
     this.#snapshot = {
       methods: (options.detect ?? (() => detectMethods(browserEnvironment())))(),
       method: readMethod(),
@@ -221,9 +391,13 @@ export class PrinterStation {
   }
 
   stop(): void {
+    this.#stopAuto()
+    this.#clearStable()
     this.#stopped = true
     this.#unsubscribeStore?.()
     this.#unlistenAdapter?.()
+    this.#unlistenRealMemory?.()
+    this.#unlistenTestMemory?.()
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.#onVisible)
     if (this.#retryTimer !== undefined) clearTimeout(this.#retryTimer)
     void this.#releaseWake()
@@ -242,6 +416,8 @@ export class PrinterStation {
     const queue = snapshot.overview?.queue ?? null
     if (queue === null) return
     const mine = this.isMine(queue)
+    // 출력 기기에서 내려옴·라벨 기능 꺼짐: 저절로 다시 잇기를 그친다 (D-QS1-02 (4))
+    if ((this.#autoTimer !== undefined || this.#autoInFlight !== null) && !this.#autoAllowed()) this.#stopAuto()
     if (mine !== this.#mine) {
       this.#mine = mine
       if (!mine) {
@@ -280,6 +456,7 @@ export class PrinterStation {
     if (this.#test === null) {
       this.#test = this.#options.createTestPrinter?.() ?? createFakePrinter({ methods: ['bluetooth'] })
       const test = this.#test
+      this.#unlistenTestMemory = this.#wireMemory(test, REMEMBERED_TEST_KEY)
       this.#options.exposeTestHandle?.({
         printed: () => test.printed.map((record) => bitmapOut(record.image)),
         printedCount: () => test.printed.length,
@@ -287,7 +464,10 @@ export class PrinterStation {
         setBehavior: (n, behavior) => test.setBehavior(n, behavior ?? undefined),
         simulateDisconnect: () => test.simulateDisconnect(),
         setConnectError: (code) => test.setConnectError(code ?? undefined),
-        useFakeB1: () => this.#useFakeB1(),
+        useFakeB1: () => {
+          this.#useFakeB1()
+          this.#saveFakes()
+        },
         setUnansweredNegotiations: (n) => {
           this.#useFakeB1().setUnansweredNegotiations(n)
         },
@@ -295,36 +475,180 @@ export class PrinterStation {
           const fake = this.#fakeB1
           return fake === null ? null : { requests: fake.requests, connectAttempts: fake.connectAttempts, connected: fake.connected }
         },
+        fakeB1State: () => {
+          const fake = this.#fakeB1
+          return fake === null
+            ? null
+            : {
+                requests: fake.requests,
+                connectAttempts: fake.connectAttempts,
+                connected: fake.connected,
+                powered: fake.powered,
+                permitted: fake.permitted,
+                getDevicesCalls: fake.getDevicesCalls,
+              }
+        },
+        setFakeB1: (setup) => this.#setFakeB1(setup),
+        fakeB1Disconnect: () => {
+          this.#fakeB1?.disconnect()
+        },
+        useFakeUsb: (setup) => {
+          this.#useFakeUsb(setup ?? {})
+          this.#saveFakes()
+        },
+        unplugFakeUsb: (index) => {
+          this.#fakeUsb?.unplug(index)
+          this.#saveFakes()
+        },
+        plugFakeUsb: (index) => {
+          this.#fakeUsb?.plug(index)
+          this.#saveFakes()
+        },
+        fakeUsb: () => {
+          const fake = this.#fakeUsb
+          return fake === null ? null : { requests: fake.requests, getPortsCalls: fake.getPortsCalls, connectAttempts: fake.connectAttempts, connected: fake.connected }
+        },
+        autoReconnectAttempts: () => this.#autoAttempts,
+        autoReconnectWaiting: () => this.#autoTimer !== undefined,
+        setAutoReconnect: (on) => {
+          this.#autoOffForTest = !on
+          if (!on) this.#stopAuto()
+        },
       })
+      // 새로고침을 넘는 시험(AC-QS1-42): 앞 페이지에서 꽂은 가짜 기기를 같은 설정(허락됨 포함)으로 다시 꽂는다 — 시험 모드에서만
+      const saved = readFakes()
+      if (saved.b1 !== undefined) {
+        this.#fakeB1Setup = saved.b1
+        this.#useFakeB1()
+      }
+      if (saved.usb !== undefined) this.#useFakeUsb(saved.usb)
     }
     return this.#test
+  }
+
+  /** 기억한 프린터를 저장소에서 되살리고, 바뀔 때마다 저장소에 쓴다 (D-QS1-01 (6) — 서버로 보내지 않는다) */
+  #wireMemory(adapter: PrinterAdapter, key: string): (() => void) | null {
+    if (!isRememberingAdapter(adapter) || typeof window === 'undefined') return null
+    adapter.restoreRemembered(parseRememberedPrinter(readJson(window.localStorage, key)))
+    return adapter.onRememberedChange((value) => {
+      writeJson(window.localStorage, key, value)
+    })
   }
 
   /** 시험 모드: 실제 B1 어댑터에 가짜 블루투스 기기를 꽂는다 (한 번 — 이미 꽂았으면 그것) */
   #useFakeB1(): FakeNiimbotBluetooth {
     if (this.#fakeB1 !== null) return this.#fakeB1
-    const fake = createFakeNiimbotBluetooth()
+    const setup = this.#fakeB1Setup
+    const fake = createFakeNiimbotBluetooth({
+      ...(setup.getDevices === undefined ? {} : { getDevices: setup.getDevices }),
+      ...(setup.permitted === undefined ? {} : { permitted: setup.permitted }),
+      ...(setup.available === undefined ? {} : { available: setup.available }),
+      ...(setup.adapterOff === undefined ? {} : { adapterOff: setup.adapterOff }),
+      ...(setup.powered === undefined ? {} : { powered: setup.powered }),
+    })
     this.#fakeB1 = fake
+    this.#plugFakeReal()
+    if (!this.#snapshot.methods.includes('bluetooth')) this.#set({ methods: ['bluetooth', ...this.#snapshot.methods] })
+    return fake
+  }
+
+  /** 시험 모드: 가짜 B1 설정 바꾸기 */
+  #setFakeB1(setup: FakeB1Setup): void {
+    const fake = this.#useFakeB1()
+    if (setup.getDevices !== undefined) fake.setGetDevices(setup.getDevices)
+    if (setup.permitted !== undefined) fake.setPermitted(setup.permitted)
+    if (setup.available !== undefined) fake.setAvailable(setup.available)
+    if ('adapterOff' in setup) fake.setAdapterOff(setup.adapterOff)
+    if (setup.powered !== undefined) fake.setPowered(setup.powered)
+    this.#fakeB1Setup = { ...this.#fakeB1Setup, ...setup }
+    this.#saveFakes()
+  }
+
+  /** 시험 모드: 가짜 B1 USB 포트를 꽂는다 (가짜 B1 블루투스와 한 어댑터 — 한 번) */
+  #useFakeUsb(setup: FakeUsbSetup): FakeNiimbotSerial {
+    if (this.#fakeUsb !== null) {
+      if (setup.getPorts !== undefined) this.#fakeUsb.setGetPorts(setup.getPorts)
+      return this.#fakeUsb
+    }
+    this.#fakeUsbSetup = setup
+    const usb = createFakeNiimbotSerial({
+      ...(setup.getPorts === undefined ? {} : { getPorts: setup.getPorts }),
+      ...(setup.ports === undefined ? {} : { ports: setup.ports }),
+    })
+    this.#fakeUsb = usb
+    if (this.#fakeB1 === null) this.#useFakeB1()
+    else this.#plugFakeReal()
+    if (!this.#snapshot.methods.includes('serial')) this.#set({ methods: [...this.#snapshot.methods, 'serial'] })
+    return usb
+  }
+
+  /** 시험 모드: 가짜 기기로 실제 B1 어댑터를 새로 만든다 (앞의 어댑터가 쓰이던 중이면 끊는다) */
+  #plugFakeReal(): void {
+    const bt = this.#fakeB1
+    if (bt === null) return
+    const usb = this.#fakeUsb
+    const fakes = usb === null ? { environment: bt.environment, createClient: bt.createClient } : combineNiimbotFakes(bt, usb)
     const previous = this.#real
-    this.#real = createB1Adapter({ environment: () => fake.environment, createClient: fake.createClient })
+    this.#unlistenRealMemory?.()
+    this.#real = createB1Adapter({ environment: () => fakes.environment, createClient: fakes.createClient })
+    this.#unlistenRealMemory = this.#wireMemory(this.#real, REMEMBERED_KEY)
     if (previous !== null && this.#adapter === previous) {
+      this.#stopAuto()
       this.#unlistenAdapter?.()
       this.#unlistenAdapter = null
       this.#adapter = null
       void previous.disconnect()
     }
-    if (!this.#snapshot.methods.includes('bluetooth')) this.#set({ methods: ['bluetooth', ...this.#snapshot.methods] })
-    return fake
+  }
+
+  /** 시험 모드: 꽂은 가짜 기기 설정(허락됨 포함)을 이 탭의 sessionStorage에 둔다 — 새로고침 뒤 같은 기기 */
+  #saveFakes(): void {
+    if (typeof window === 'undefined' || (this.#fakeB1 === null && this.#fakeUsb === null)) return
+    const bt = this.#fakeB1
+    const usb = this.#fakeUsb
+    writeJson(window.sessionStorage, FAKE_DEVICES_KEY, {
+      ...(bt === null ? {} : { b1: { ...this.#fakeB1Setup, permitted: bt.permitted, powered: bt.powered } }),
+      ...(usb === null
+        ? {}
+        : {
+            usb: {
+              ...(this.#fakeUsbSetup.getPorts === undefined ? {} : { getPorts: this.#fakeUsbSetup.getPorts }),
+              ports: usb.ports.map((port) => ({ plugged: port.plugged, permitted: port.permitted, ...port.getInfo() })),
+            },
+          }),
+    })
   }
 
   #adapterFor(method: PrinterMethod): PrinterAdapter {
     if (method === 'test') return this.#ensureTestPrinter()
-    this.#real ??= this.#options.createAdapter?.() ?? createB1Adapter()
+    if (this.#real === null) {
+      this.#real = this.#options.createAdapter?.() ?? createB1Adapter()
+      this.#unlistenRealMemory = this.#wireMemory(this.#real, REMEMBERED_KEY)
+    }
     return this.#real
   }
 
-  /** 연결 (판매자가 누른 동작 안에서 부른다). 다른 방법으로 이어져 있었으면 먼저 끊는다 */
+  /** 연결 방법 단추 (판매자가 누른 동작 안에서 부른다 — 늘 고르기 창). 다른 방법으로 이어져 있었으면 먼저 끊는다 */
   async connect(method: PrinterMethod): Promise<boolean> {
+    return this.#connect(method, 'pick')
+  }
+
+  async #connect(method: PrinterMethod, mode: 'pick' | 'remembered'): Promise<boolean> {
+    // 판매자 동작: 저절로 다시 잇기를 그친다 (기다림은 없어지고, 하는 중인 시도는 끝까지 기다린다 — 같은 때 두 번 잇지 않는다)
+    this.#stopAuto()
+    const inFlight = this.#autoInFlight
+    if (inFlight !== null) {
+      await inFlight
+      if (mode === 'remembered' && this.#adapter !== null && this.#adapter.state === 'CONNECTED') {
+        // 그 시도로 이어졌다 = "다시 연결"의 결과 — 이 연결부터 새로 센다
+        this.#autoUsed = 0
+        this.#clearStable()
+        this.#set({ connectError: null, lastError: null })
+        if (this.isMine()) await this.#report(true, true)
+        void this.pump()
+        return true
+      }
+    }
     if (this.#snapshot.connecting) return false
     const adapter = this.#adapterFor(method)
     if (this.#adapter !== null && this.#adapter !== adapter) {
@@ -335,15 +659,21 @@ export class PrinterStation {
     }
     if (this.#adapter !== adapter) {
       this.#adapter = adapter
+      this.#lastState = adapter.state
       this.#unlistenAdapter = adapter.onStateChange((state) => this.#onAdapterState(state))
     }
     this.#adapterMethod = method
     writeMethod(method)
     const wasConnected = adapter.state === 'CONNECTED'
     this.#set({ method, connecting: true, connectError: null, connection: adapter.state })
-    const result = await adapter.connect(method === 'test' ? (adapter.availableMethods()[0] ?? 'bluetooth') : method)
+    const target = method === 'test' ? (adapter.availableMethods()[0] ?? 'bluetooth') : method
+    // "다시 연결"은 기억한 기기로 (얻을 수 없으면 고르기 창), 연결 방법 단추는 늘 고르기 창 (D-QS1-01 (5))
+    const result = await (mode === 'remembered' && isRememberingAdapter(adapter) ? adapter.reconnect(target) : adapter.connect(target))
     this.#set({ connecting: false, connection: adapter.state, connectError: result.ok ? null : result.error, ...(result.ok ? { lastError: null } : {}) })
     if (result.ok) {
+      // 판매자가 이은 연결부터 저절로 다시 잇기 횟수를 새로 센다 (D-QS1-02 (3))
+      this.#autoUsed = 0
+      this.#clearStable()
       // 이미 이어져 있던 프린터(연결 바뀜 알림이 없다)라도 다시 알린다: 서버는 끊김 결과(찍지 못한 장·늦게 닿은 결과)로 프린터를 끊김으로
       // 적었을 수 있다 — 알리지 않으면 "다시 연결"을 눌러도 끊김 멈춤이 풀리지 않는다
       if (this.isMine()) await this.#report(true, wasConnected)
@@ -352,13 +682,13 @@ export class PrinterStation {
     return result.ok
   }
 
-  /** "다시 연결": 마지막으로 쓴 방법으로 */
+  /** "다시 연결": 마지막으로 쓴 방법의 기억한 기기로 (고르기 창 없이 — 얻을 수 없으면 고르기 창, D-QS1-01) */
   async reconnect(): Promise<boolean> {
     const method = this.#adapterMethod ?? this.#snapshot.method
     if (method === null) return false
     if (method === 'test' && this.#options.store.getSnapshot().config?.testPrinter !== true) return false
     if (method !== 'test' && !this.#snapshot.methods.includes(method)) return false
-    return this.connect(method)
+    return this.#connect(method, 'remembered')
   }
 
   /** 다시 연결할 수 있는 방법이 있는지 */
@@ -369,17 +699,109 @@ export class PrinterStation {
     return this.#snapshot.methods.includes(method)
   }
 
+  /** "연결 끊기": 저절로 다시 잇기도 그친다 (기억은 지우지 않는다 — "다시 연결"이 쓴다) */
   async disconnect(): Promise<void> {
+    this.#stopAuto()
+    this.#autoBlocked = true
     await this.#adapter?.disconnect()
   }
 
   #onAdapterState(state: ConnectionState): void {
+    const previous = this.#lastState
+    this.#lastState = state
     this.#set({ connection: state })
+    if (state === 'CONNECTED') {
+      this.#autoBlocked = false
+      // 저절로 다시 이어졌다: 60초 동안 끊기지 않으면 횟수를 새로 센다
+      if (this.#autoUsed > 0) this.#armStable()
+      this.#saveFakes()
+    } else if (state === 'DISCONNECTED' && (previous === 'CONNECTED' || previous === 'PRINTING')) {
+      // 연결된 뒤 끊김 (판매자 조작 아님 — "연결 끊기"는 #autoBlocked, 다른 방법은 듣기를 먼저 그만둔다)
+      this.#clearStable()
+      if (!this.#autoBlocked && this.#autoAllowed()) this.#scheduleAuto()
+    }
     if (!this.isMine()) return
     if (state === 'DISCONNECTED') void this.#report(false)
     else if (state === 'CONNECTED') {
       void this.#report(true)
       void this.pump()
+    }
+  }
+
+  // ── 저절로 다시 잇기 (D-QS1-02, L-11 8) ─────────────────────────────────
+
+  /** 저절로 다시 이어도 되는가: 출력 기기이고 라벨 기능이 켜져 있고, 지금 어댑터가 기억한 기기를 안다 */
+  #autoAllowed(): boolean {
+    const adapter = this.#adapter
+    return (
+      !this.#stopped &&
+      !this.#autoOffForTest &&
+      this.isMine() &&
+      this.#options.store.queue?.labelsEnabled === true &&
+      adapter !== null &&
+      isRememberingAdapter(adapter) &&
+      adapter.hasRemembered
+    )
+  }
+
+  /** 다음 시도를 잡는다 (이미 잡혀 있거나 6번을 다 썼으면 하지 않는다) */
+  #scheduleAuto(): void {
+    if (this.#autoTimer !== undefined || this.#autoInFlight !== null || this.#stopped) return
+    const delay = AUTO_RECONNECT_DELAYS_MS[this.#autoUsed]
+    if (delay === undefined) return
+    const series = this.#autoSeries
+    this.#autoTimer = this.#timer.setTimeout(() => {
+      this.#autoTimer = undefined
+      if (series === this.#autoSeries) void this.#autoAttempt(series)
+    }, delay)
+  }
+
+  async #autoAttempt(series: number): Promise<void> {
+    const adapter = this.#adapter
+    if (!this.#autoAllowed() || this.#autoBlocked || adapter === null || !isRememberingAdapter(adapter)) return
+    if (adapter.state !== 'DISCONNECTED' || this.#snapshot.connecting) return
+    this.#autoUsed++
+    this.#autoAttempts++
+    // 시도하는 동안은 지금의 "연결 중" (새 문장 없음, D-QS1-05). 저절로 잇기의 실패는 오류 상자를 띄우지 않는다(판매자 동작이 아니다)
+    this.#set({ connecting: true })
+    const attempt = adapter.connectRemembered()
+    this.#autoInFlight = attempt
+    let result: PrinterResult
+    try {
+      result = await attempt
+    } finally {
+      this.#autoInFlight = null
+      this.#set({ connecting: false, connection: adapter.state })
+    }
+    if (result.ok) {
+      this.#set({ connectError: null, lastError: null })
+      return
+    }
+    if (series !== this.#autoSeries || this.#adapter !== adapter) return
+    this.#scheduleAuto()
+  }
+
+  /** 저절로 다시 잇기를 그친다 (기다리던 시도는 일어나지 않는다) */
+  #stopAuto(): void {
+    this.#autoSeries++
+    if (this.#autoTimer !== undefined) {
+      this.#timer.clearTimeout(this.#autoTimer)
+      this.#autoTimer = undefined
+    }
+  }
+
+  #armStable(): void {
+    this.#clearStable()
+    this.#stableTimer = this.#timer.setTimeout(() => {
+      this.#stableTimer = undefined
+      this.#autoUsed = 0
+    }, AUTO_RECONNECT_STABLE_MS)
+  }
+
+  #clearStable(): void {
+    if (this.#stableTimer !== undefined) {
+      this.#timer.clearTimeout(this.#stableTimer)
+      this.#stableTimer = undefined
     }
   }
 

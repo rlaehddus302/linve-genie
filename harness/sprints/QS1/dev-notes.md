@@ -144,3 +144,60 @@
   - 안 읽은 양은 응답 본문을 읽지 않으면 그대로 쌓인다(`app.request`로 받은 Response는 노드 소켓이 없다)
   - 코드 한도는 주소를 `app.request(path, init, { incoming: { socket: { remoteAddress } } })`로 넣는다. 형식이 틀린 코드(`'x'`)도 한도에는 세고 DB는 보지 않으니, 3,000번을 빠르게 채울 수 있다(한 세계에 약 0.3초)
   - 믿는 주소 수는 `server.extension.trustedAddresses.countFor(sellerId)`로 본다
+
+## web (dev-web) — `apps/web/src/lib/printer-station.ts`
+
+### 바뀐 공개 모양
+- `StationOptions.timer?: PrinterTimer` (기본 `systemTimer` — 부를 때의 전역 `setTimeout`이라 Playwright `page.clock`으로 당길 수 있다). 저절로 다시 잇기 간격과 60초에만 쓴다
+- 내보냄: `AUTO_RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000, 16000, 30000]`, `AUTO_RECONNECT_STABLE_MS = 60_000`, 저장소 열쇠 `REMEMBERED_KEY = 'livejjim.printer.remembered'`(실제 프린터 — 시험 모드의 가짜 B1·가짜 USB도 이것), `REMEMBERED_TEST_KEY = 'livejjim.printer.rememberedTest'`(시험용 프린터), `FAKE_DEVICES_KEY = 'livejjim.test.fakeDevices'`(sessionStorage, 시험 모드만), 타입 `FakeB1Setup`·`FakeUsbSetup`
+- `StationSnapshot`은 그대로다(새 칸 없음, AC-QS1-24). 기다리는 동안 `connection: 'DISCONNECTED'`·`connecting: false`, 시도하는 동안 `connecting: true`. 저절로 잇기의 실패는 `connectError`를 바꾸지 않는다(오류 상자 없음 — 판매자 동작이 아니다)
+- `station.connect(method)` = 연결 방법 단추 → `adapter.connect`(늘 고르기 창). `station.reconnect()` = "다시 연결" → 기억하는 어댑터면 `adapter.reconnect(method)`, 아니면 `adapter.connect`
+- 저장소: 어댑터를 만들 때 `restoreRemembered(parseRememberedPrinter(localStorage 값))`, `onRememberedChange`로 쓰기·지우기. 깨진 JSON·형식 밖은 없는 것. 페이지를 열 때 잇지 않는다
+
+### 저절로 다시 잇기 (D-QS1-02)
+- 시작: 지금 어댑터가 `CONNECTED`/`PRINTING` → `DISCONNECTED`로 바뀌었고, 이 기기가 출력 기기, 라벨 기능 켬, 기억하는 어댑터이고 `hasRemembered`, "연결 끊기" 뒤가 아님. 다른 방법으로 바꿀 땐 앞 어댑터 듣기를 먼저 그만둬서 시작하지 않는다
+- 시도: `adapter.connectRemembered()` 한 번씩(웹이 부른 횟수 = 시도 수). 실패하면 다음 간격. 6번을 다 쓰면 그친다
+- 횟수: 저절로 이어지면 60초 타이머. 지나면 0으로. 그 안에 끊기면 남은 간격부터. 판매자가 이은 연결(연결 방법 단추·"다시 연결")은 바로 0
+- 그침: `disconnect()`, `connect()`/`reconnect()`(판매자 동작 — 기다림을 없애고 하는 중인 시도는 함께 기다린다: 그 시도로 이어지면 "다시 연결"의 성공, 아니면 판매자 시도 한 번), 출력 기기에서 내려옴·라벨 꺼짐(`#onStore`·시도 직전에 다시 본다), `stop()`
+- 다시 이어지면 `#onAdapterState(CONNECTED)`가 지금처럼 서버에 연결됨을 알리고 `pump()`. 라벨을 다시 보내지 않는다
+
+### 시험 손잡이 (`window.livejjimTestPrinter`, 시험 모드만, AC-QS1-25)
+- 그대로: `useFakeB1()`, `setUnansweredNegotiations(n)`, `fakeB1()`(모양 그대로 `{ requests, connectAttempts, connected }` — FB1 시험이 toEqual로 본다)
+- 새로 더함
+  - `fakeB1State()`: `fakeB1()` + `powered`·`permitted`·`getDevicesCalls`
+  - `setFakeB1({ getDevices?, permitted?, available?, adapterOff?, powered? })`: 없으면 가짜 B1을 먼저 꽂는다. 오판은 `{ available: false, adapterOff: false }`, 장치 꺼짐은 `{ available: false }` 또는 `{ adapterOff: true }`, 다시 잇기 거절/허락은 `{ powered: false/true }`
+  - `fakeB1Disconnect()`: 프린터 쪽 끊김(전원 그대로)
+  - `useFakeUsb({ getPorts?, ports? }?)`: 가짜 B1 USB 포트를 같은 B1 어댑터에 꽂는다(가짜 B1 블루투스도 함께), 연결 방법에 `serial`이 생긴다. `unplugFakeUsb(i?)`·`plugFakeUsb(i?)`, `fakeUsb()` = `{ requests, getPortsCalls, connectAttempts, connected }`
+  - `autoReconnectAttempts()`: 이 페이지에서 저절로 잇기를 부른 수. `autoReconnectWaiting()`: 다음 시도가 잡혀 있는지
+  - `setAutoReconnect(on)`: 기본 켬(운영과 같다). 끄면 기다리던 시도도 그친다 — 아래 "앞 E2E와 부딪힘"용
+- 새로고침을 넘기: 가짜 기기 설정과 허락됨(`permitted`·포트별 `plugged`·`permitted`·번호)을 이 탭의 sessionStorage `FAKE_DEVICES_KEY`에 둔다(손잡이를 부를 때·연결될 때). 새 페이지에서 시험용 프린터를 만들 때(설정 `testPrinter: true`) 그 값이 있으면 같은 설정으로 가짜 B1(·USB)을 다시 꽂는다. 기억 값은 localStorage `REMEMBERED_KEY`. 운영(시험 모드 아님)에는 손잡이도 이 길도 없다
+
+### 시험
+- `apps/web/test/qs1-printer-station.test.ts`(30개, 손으로 돌리는 타이머): AC-QS1-20~25
+- `apps/web/test/qs1-printer-step.test.tsx`(4개): AC-QS1-26 — 지금 화면 코드로 통과한다(화면 파일은 고치지 않음)
+- 일부러 고장 내 보기: 저절로 잇기를 끄면 13개, "다시 연결"을 `adapter.connect`로 되돌리면 10개, "연결 끊기"의 그침을 빼면 2개가 실패한다
+- 웹 단위 전체 1474개 중 실패 3개는 시간대(TZ 없이 돌림 — verify는 TZ를 넣는다)·부하 때문이고, 따로 TZ를 넣어 돌리면 통과한다
+- E2E: `fb1/printer-connect` 5/5, `n4a/primary` 5/5, `i1/attacks` 앞 두 시험 2/2 통과. **`i1/station.spec.ts` AC-I1-70은 실패**(아래)
+
+### 앞 E2E와 부딪힘 (disputesWithSpec — spec-keeper·test-e2e·오케스트레이터에게)
+- D-QS1-02 "시험용 프린터도 같다"대로 하면, 시험용 프린터가 끊긴 뒤 1초 만에 저절로 다시 이어진다. 그런데 `tests/e2e/i1/station.spec.ts` AC-I1-70은 12번째 출력에서 끊긴 뒤 PC 알림에 "출력 멈춤 · 프린터 연결이 끊겼어요."가 뜨고 판매자가 "다시 연결"을 누를 때까지 멈춰 있기를 기다린다. 1초 만에 풀려 알림이 뜨지 않아 실패한다(60초 기다리다 끝남)
+- `i1/attacks.spec.ts` AC-I1-09·23, `n4a/primary.spec.ts` AC-N4a-21 (다)는 이번에 통과했지만, 같은 1초 안에 띠·"다시 연결"을 잡아야 하는 시험이라 느린 컴퓨터에서 흔들릴 수 있다
+- 금지 경로 3 때문에 이 파일들을 QS1에서 고칠 수 없다. 스펙과 다르게 만들지 않았다(시험용 프린터도 저절로 잇는다)
+- 고치는 길(정할 사람: spec-keeper·오케스트레이터): 그 시험들의 끊기 앞에 `livejjimTestPrinter.setAutoReconnect(false)` 한 줄을 넣도록 허락하거나, 끊기 앞에 `setConnectError('CONNECT_FAILED')`를 두고 "다시 연결" 전에 `setConnectError(null)`
+
+### 다음 영역에게
+- test-e2e (`tests/e2e/qs1/**`)
+  - AC-QS1-40·41·44: `page.clock.install()`을 로그인 전에 하면 `fastForward`로 1·3·7·15·31·61초를 당길 수 있다(station 타이머는 부를 때의 전역 `setTimeout`)
+  - AC-QS1-41: `useFakeB1()` → "블루투스로 연결" → `setFakeB1({ powered: false })`(끊김 + 다시 잇기 거절)
+    - 시도 수는 `autoReconnectAttempts()`로 본다. 가짜 B1의 `connectAttempts`는 FB1 다시 잇기를 2로 세니 시도 수로 쓰지 않는다
+    - `setFakeB1({ powered: true })` 뒤 출력 멈춤 띠의 "다시 연결"(TopBar·PrintParts는 `station.reconnect()`). `fakeB1().requests`는 그대로 1이다
+  - AC-QS1-42: `setFakeB1({ getDevices: true })` → 연결 → 출력 기기 → `page.reload()`
+    - 새로고침 뒤 연결 시도 0은 `fakeB1State().connectAttempts === 0`으로 본다
+    - "다시 연결"은 띠(끊김 멈춤 — 새 페이지가 열 때 서버에 끊김을 알린다)에서 누른다
+    - `getDevices` 없음은 `setFakeB1({ getDevices: false })`. 이 값도 새로고침을 넘는다
+    - USB: `useFakeUsb()` → "USB 선으로 연결"
+  - AC-QS1-43: 오판 `setFakeB1({ available: false, adapterOff: false })`, 장치 꺼짐 `setFakeB1({ available: false })`
+  - 주의: 프린터 칸(`LabelsPage` `PrinterSection`)의 연결 실패 상자 "다시 연결"은 지금 `station.connect(lastMethod)`라 늘 고르기 창이다. 이 화면 파일은 금지 경로 1이라 고치지 않았다(MOB1 뒤 후속 — `api.station.reconnect()`로 바꾸면 된다). 고르기 창 없는 "다시 연결"은 출력 멈춤 띠·윗줄의 단추로 시험한다
+- domain (AC-QS1-30)
+  - `new PrinterStation({ …, timer })`에 손으로 돌리는 타이머를 넣는다. 예시는 `apps/web/test/qs1-printer-station.test.ts`의 `ManualTimer`
+  - 연결 시도가 겹치는지는 시험용 프린터의 `connectAttempts`와 상태로 본다
