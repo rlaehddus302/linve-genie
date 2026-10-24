@@ -8,7 +8,7 @@
 //   그대로 넘기고, 휴대폰이 실제 구글 승인 주소(accounts.google.com)를 받는다.
 import fc from 'fast-check'
 import { afterAll, describe, expect, it } from 'vitest'
-import { FAKE_GOOGLE_AUTHORIZE_PATH, FAKE_GOOGLE_PREFIX, TRY_PHONE_YOUTUBE, fakeGoogleTarget, phoneYoutubeMessage, relayAuthorizeUrl, swapOrigin } from '../../../scripts/try/phone-relay.mjs'
+import { FAKE_GOOGLE_AUTHORIZE_PATH, FAKE_GOOGLE_PREFIX, TRY_PHONE_YOUTUBE, fakeGoogleRedirectOk, fakeGoogleTarget, phoneYoutubeMessage, relayAuthorizeUrl, swapOrigin } from '../../../scripts/try/phone-relay.mjs'
 import { json, takeDials, tryWorld, type TryWorld } from './helpers.ts'
 
 const worlds: TryWorld[] = []
@@ -75,8 +75,14 @@ describe('AC-MOB1-09 연습 전용 가짜 구글 경로는 가짜 구글로만',
     for (const target of targets) {
       for (const method of ['GET', 'POST', 'HEAD', 'OPTIONS']) {
         const reply = await item.raw(`${method} ${target} HTTP/1.1`, method === 'POST' ? { 'content-length': '0' } : {})
-        const forwarded = method === 'GET' && fakeGoogleTarget(target) !== null
-        if (forwarded) {
+        const path = fakeGoogleTarget(target)
+        // MOB1 D-MOB1-17 (6)·AC-MOB1-09: redirect_uri가 이 컴퓨터 주소(http://localhost:<포트>/)로 시작하지 않으면 400 — 가짜 구글로 넘기지 않는다
+        const badRedirect = method === 'GET' && path !== null && !fakeGoogleRedirectOk(path, item.appOrigin)
+        const forwarded = method === 'GET' && path !== null && !badRedirect
+        if (target.includes(`redirect_uri=http://${decoy}/`) && method === 'GET') expect(badRedirect, target).toBe(true)
+        if (badRedirect) {
+          expect(reply.status, `${method} ${target}`).toBe(400)
+        } else if (forwarded) {
           reachedAuth += 1
           // 가짜 구글의 승인 경로에만 닿는다(client_id가 틀리면 가짜 구글이 400)
           expect([302, 400], `${method} ${target}`).toContain(reply.status)
@@ -95,6 +101,54 @@ describe('AC-MOB1-09 연습 전용 가짜 구글 경로는 가짜 구글로만',
     }
     expect(item.decoyHits).toEqual([])
     expect(item.fake.calls('oauth.auth') - authBefore).toBe(reachedAuth)
+    expect(strayDials([item.phonePort, item.port, item.fake.port], [item.phonePort, item.fake.port])).toEqual([])
+  })
+
+  // MOB1 D-MOB1-17 (6)·AC-MOB1-09 (TD-MOB1-002·RA-MOB1-02): 열린 돌려보내기 없음 — 미끼·다른 곳 redirect_uri는 400, 가짜 구글 도달 0.
+  // 정상 redirect_uri(http://localhost:<포트>/…)는 그대로 가짜 구글 승인 경로에 닿는다.
+  it('redirect_uri 검사 — 미끼·https 아무곳·@evil·.evil·다른 포트·퍼센트로 감춘 값은 400·가짜 구글 0번, 이 컴퓨터 주소는 넘어간다', async () => {
+    const item = await world(false)
+    const decoy = `127.0.0.1:${String(item.decoyPort)}`
+    const head = `${FAKE_GOOGLE_PREFIX}${FAKE_GOOGLE_AUTHORIZE_PATH}`
+    const app = item.appOrigin
+    const otherPort = app.replace(/:(\d+)$/, (_, p: string) => `:${String(Number(p) + 1)}`)
+    const id = encodeURIComponent(item.fake.clientId)
+    const bad = [
+      `http://${decoy}/`,
+      `http://${decoy}/api/youtube/oauth/callback`,
+      'https://evil.example/',
+      `${app}@evil.example/`,
+      `${app}.evil.example/`,
+      `${otherPort}/api/youtube/oauth/callback`,
+      app,
+      encodeURIComponent(`http://${decoy}/`),
+      encodeURIComponent(`${app}@evil.example/`),
+      `http%3A%2F%2F${decoy}%2F`,
+    ]
+    takeDials()
+    const before = item.fake.calls('oauth.auth')
+    for (const value of bad) {
+      for (const query of [`client_id=${id}&redirect_uri=${value}`, `redirect_uri=${value}&client_id=${id}`, `client_id=${id}&redirect_uri=${encodeURIComponent(`${app}/api/youtube/oauth/callback`)}&redirect_uri=${value}`]) {
+        const reply = await item.raw(`GET ${head}?${query} HTTP/1.1`)
+        expect(reply.status, query).toBe(400)
+        expect(reply.body, query).toContain('갈 수 없는 주소예요')
+      }
+    }
+    expect(item.fake.calls('oauth.auth') - before).toBe(0)
+    expect(item.decoyHits).toEqual([])
+    expect(strayDials([item.phonePort, item.port, item.fake.port], [item.phonePort])).toEqual([])
+
+    // 정상: 이 컴퓨터 주소로 돌아오는 redirect_uri는 가짜 구글로 넘어간다(가짜 구글 승인 경로 도달 1번씩)
+    const good = [`${app}/api/youtube/oauth/callback`, encodeURIComponent(`${app}/api/youtube/oauth/callback`)]
+    const goodBefore = item.fake.calls('oauth.auth')
+    for (const value of good) {
+      const reply = await item.raw(`GET ${head}?client_id=${id}&redirect_uri=${value}&response_type=code&state=s HTTP/1.1`)
+      // 중계가 막은 400('갈 수 없는 주소예요.')이 아니다 — 가짜 구글이 답한다(승인 302 또는 매개변수 검사 400)
+      expect(reply.body, value).not.toContain('갈 수 없는 주소예요')
+      expect([302, 400], value).toContain(reply.status)
+    }
+    expect(item.fake.calls('oauth.auth') - goodBefore).toBe(good.length)
+    expect(item.decoyHits).toEqual([])
     expect(strayDials([item.phonePort, item.port, item.fake.port], [item.phonePort, item.fake.port])).toEqual([])
   })
 
@@ -117,8 +171,11 @@ describe('AC-MOB1-09 연습 전용 가짜 구글 경로는 가짜 구글로만',
       const reply = await item.raw(`GET ${line} HTTP/1.1`)
       const isPrefix = line === FAKE_GOOGLE_PREFIX || line.startsWith(`${FAKE_GOOGLE_PREFIX}/`) || line.startsWith(`${FAKE_GOOGLE_PREFIX}?`)
       // 400은 Node의 요청 줄 읽기가 처리기 앞에서 막은 것(바이트가 요청 줄에 쓸 수 없는 글자) — 어디로도 넘기지 않는다
-      if (isPrefix && fakeGoogleTarget(line) === null) expect([400, 404], line).toContain(reply.status)
-      if (isPrefix && fakeGoogleTarget(line) !== null) allowed += 1
+      const path = isPrefix ? fakeGoogleTarget(line) : null
+      if (isPrefix && path === null) expect([400, 404], line).toContain(reply.status)
+      // MOB1 D-MOB1-17 (6): 이 컴퓨터 주소가 아닌 redirect_uri는 400, 넘기지 않는다
+      else if (path !== null && !fakeGoogleRedirectOk(path, item.appOrigin)) expect(reply.status, line).toBe(400)
+      else if (path !== null) allowed += 1
     }
     expect(item.decoyHits).toEqual([])
     expect(item.fake.calls() - before).toBe(allowed)
