@@ -55,3 +55,7 @@
 - `tests/e2e/i3/youtube.spec.ts:107` AC-I3-01·25 "invalid_grant → 콘솔 고정 영역 경고": 1280 폭 콘솔에서 `setViewportSize(375×812)` 직후 바로 `.console-sticky` 높이를 잰다. 화면은 폭이 바뀐 뒤 React가 휴대폰 모양으로 다시 그릴 때(`useWide` — matchMedia 알림 → 다시 그리기) 단위 줄·"등록하면" 줄을 고정 영역 밖으로 옮기는데, 그 전 한 순간(PC 구조 그대로 375 폭)을 재면 332px(> 284px)이다. 다시 그린 뒤는 231px. 탐침으로 확인: PC 구조 그대로 375 폭이면 단위 줄이 두 줄(58px)·"개수" 이름이 칸 위로 쌓여 고정 영역이 약 50px 커진다. 실제 휴대폰은 1280 → 375로 바뀌지 않으므로 제품 경쟁 상태가 아니라 시험의 측정 시점 문제다.
   고칠 길(맥북 쪽 — i3 파일, 이 스프린트는 고치지 않음): 폭을 바꾼 뒤 휴대폰 모양이 된 것을 기다리고 잰다(예: `await expect(page.locator('.console-sticky .quick-unit')).toHaveCount(0)` 또는 `expect.poll`로 높이). MOB1에서 새로 생긴 흔들림인지는 BASE에서 돌려 보지 않아 모른다.
 - 전체 `pnpm verify`·전체 E2E는 돌리지 않았다(부하 규칙 — 오케스트레이터 몫).
+
+## 재검토 (SA-MOB1-01)
+- `tests/e2e/mob1/bar-logout.spec.ts` 다시 돌림: 14 통과, TE-MOB1-001 그대로 실패. 시험은 AC-MOB1-06 "알아내지 못했다(목록 요청 실패·응답 전)"을 그대로 따른다 — 약화·삭제하지 않음.
+- 남은 일은 제품 쪽(dev:web): `apps/web/src/components/LogoutButton.tsx` `press()`가 `GET /api/broadcasts`를 시간 제한 없이 기다린 뒤에야 창을 정한다. 기다리는 동안 버튼만 잠기고 창이 없다. 테스터는 제품 코드를 고치지 않는다(test-common.md).
