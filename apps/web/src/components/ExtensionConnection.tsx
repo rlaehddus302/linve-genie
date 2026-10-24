@@ -3,6 +3,8 @@
 // - 콘솔: 경고 한 줄(오지 않음·숨은 탭·읽지 못함 + "주문은 손으로 넣어 주세요" + 문자찜 입력으로 가는 버튼)과 유튜브 칸의 받는 경로 한 줄.
 // - 설정의 "확장으로 감사 채팅 올리기"(AC11, 판매자만, 기본 꺼짐): 켤 때 설명 창에서 "켤게요"를 눌러야 켜진다.
 // - 콘솔 고정 영역: 이 방송의 감사 올리기 경고(채널 주인 아님·연달아 실패해 멈춤 + "다시 켜기", AC12·AC17).
+// - MOB1 D-MOB1-09(AC-MOB1-16): 휴대폰 폭의 설정 칸은 한 줄 "크롬 확장은 PC 크롬에서 연결하고 설정해요."뿐 — 코드·끊기·감사 올리기 스위치가 없고
+//   요청도 보내지 않는다(저장된 상태 그대로). PC 폭은 그대로.
 // - 상태는 SSE `extension`으로 바로 바뀌고, 끊겼다 다시 붙으면 다시 읽는다. 서버 상태 값(영어)은 보이지 않고 서버 문장만 보인다.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, isApiError, post, type ApiError } from '../api/client.ts'
@@ -32,6 +34,7 @@ import {
 import { kstClockWords, kstDateTimeWords } from '../lib/kst.ts'
 import { useLiveEvents } from '../lib/live-events.ts'
 import { routePath, type Navigate } from '../lib/router.ts'
+import { useWide } from '../lib/use-wide.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { Modal } from './Modal.tsx'
 
@@ -76,6 +79,9 @@ export function useExtension(enabled = true): ExtensionHandle {
 
 type Ask = 'renew' | 'disconnect' | 'thanks' | null
 
+/** 휴대폰 설정의 크롬 확장 칸 한 줄 (D-MOB1-09) */
+export const EXTENSION_PHONE_ONLY = '크롬 확장은 PC 크롬에서 연결하고 설정해요.'
+
 export function ExtensionSettings({ handle }: { readonly handle: ExtensionHandle }) {
   const { view } = handle
   const [code, setCode] = useState<ExtensionCode | null>(null)
@@ -85,6 +91,7 @@ export function ExtensionSettings({ handle }: { readonly handle: ExtensionHandle
   const [ask, setAsk] = useState<Ask>(null)
   const [justConnected, setJustConnected] = useState(false)
   const wasConnected = useRef<boolean | null>(null)
+  const wide = useWide()
 
   // 코드를 띄운 동안 확장이 연결되면 코드를 내리고 알린다
   useEffect(() => {
@@ -160,6 +167,8 @@ export function ExtensionSettings({ handle }: { readonly handle: ExtensionHandle
       setAsk(null)
     }
   }
+
+  if (!wide) return <p className="extension-phone">{EXTENSION_PHONE_ONLY}</p>
 
   if (view === null) {
     if (handle.error !== null) return <ErrorNote error={handle.error} onRetry={() => void handle.reload()} retryLabel="다시 불러오기" />

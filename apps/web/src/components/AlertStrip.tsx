@@ -1,6 +1,7 @@
 // 알림 띠 (AC-S05-30, AC-S06-61, AC-I1-32, AC-I3-30, D-088·D-I1-08): 충돌 · 취소 요청 · 승계 결정 필요 · 출력 멈춤(까닭 문장) · 버릴 라벨 · 보류 찜 · 확인 필요 · 감사 실패.
 // 0인 항목은 숨기고, 모두 0이면 "알림 없음". 맨 앞에는 플랫폼 줄(틱톡 알림 줄·인스타그램 알림·붙여넣기 결과, N2b-2)이 붙는다. 출력 멈춤·버릴 라벨은 판매자의 출력 기록(모든 기기 같음)이다.
 // "감사 실패"는 판매자가 할 일이 있는 감사 발송 실패만 센다(동의하지 않음·방송을 잇지 않음은 세지 않는다 — D-I3-05).
+// 플랫폼 줄 다음에는 출력 기기 항목(끊김·출력 기기 없음 — MOB1 D-MOB1-08)이 붙는다 — Alt+1 순서와 알림 수에는 넣지 않는다.
 // 휴대폰에서는 한 줄로 접히고("알림 5 펼치기") 펼친 동안만 늘어난다. 접은 동안에도 알림 항목은 그대로 있다(한 줄에 들어가는 것만 보인다) —
 // 펼치기 버튼은 "알림" 영역 밖에 둔다(영역의 글자는 PC와 같다).
 import type { AlertCounts } from '../lib/derive.ts'
@@ -43,6 +44,8 @@ export interface AlertLead {
   readonly onClick?: () => void
   /** 덜 급한 알림(인스타그램 알림)은 연한 색 */
   readonly soft?: boolean
+  /** 알림 수("알림 n 펼치기")에 넣지 않는다 — 출력 기기 항목(MOB1 D-MOB1-08, AC-MOB1-13) */
+  readonly uncounted?: boolean
   /** 그 줄 옆의 작은 단추 (틱톡 저장 실패 "확인했어요" — D-N2b-2-16) */
   readonly action?: { readonly label: string; readonly onClick: () => void; readonly busy?: boolean }
 }
@@ -75,7 +78,7 @@ export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanks
     { kind: 'reviews', word: ALERT_WORD.attention, count: reviews, text: `${ALERT_WORD.attention} ${String(reviews)}건` },
   ]
   const shown = items.filter((item) => item.count > 0)
-  const pressable = leads.filter((lead) => lead.onClick !== undefined).length
+  const pressable = leads.filter((lead) => lead.onClick !== undefined && lead.uncounted !== true).length
   const total = shown.reduce((sum, item) => sum + item.count, 0) + pressable
   return (
     <div className={expanded ? 'alert-bar alert-bar-open' : 'alert-bar'}>

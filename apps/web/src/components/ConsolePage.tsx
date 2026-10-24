@@ -21,7 +21,7 @@ import { COUNT_PROBLEM, DEFAULT_COUNT, readCount } from '../lib/stock.ts'
 import { SALE_MODE_WORD } from '../lib/words.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
 import { dateWords } from '../lib/kst.ts'
-import { LABELS_OFF_NOTE } from '../lib/print-words.ts'
+import { LABELS_OFF_NOTE, stationLeadText } from '../lib/print-words.ts'
 import { useLeaveGuard } from '../lib/leave-guard.ts'
 import { ReadOnlyContext } from '../lib/read-only.ts'
 import { changedFields, decideFixForm, decideQuickInput, editQuestion, quickSettings, type QuickDecision } from '../lib/quick.ts'
@@ -52,9 +52,10 @@ import { LiveNotices } from './LiveNotices.tsx'
 import { ProductBoard, CurrentProduct, FocusBanner } from './ProductBoard.tsx'
 import { EditOptionsHost } from './ProductOptions.tsx'
 import { OptionDialog } from './OptionDialog.tsx'
-import { useLabelsEnabled, usePrintState, useScopeLabels } from './print-context.tsx'
+import { useLabelsEnabled, usePrintApi, usePrintState, useScopeLabels } from './print-context.tsx'
 import { DiscardDialog, PrintPauseDialog } from './PrintParts.tsx'
 import { ProductDetail } from './ProductDetail.tsx'
+import { useScreenWake } from '../voice/wake.ts'
 import { QuickInput, QuickUnitLine, type EditAsk, type FixState, type Registration } from './QuickInput.tsx'
 import { RehearsalPanel } from './RehearsalPanel.tsx'
 import { NOT_APPLIED_MESSAGE, UndoBar, secondsWord } from './UndoBar.tsx'
@@ -388,6 +389,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     return () => controller.dispose()
   }, [b, store, broadcast.date, broadcast.rehearsal])
   const voiceSnapshot = useSyncExternalStore(voice?.subscribe ?? noSubscribe, voice?.getSnapshot ?? idleVoice)
+  // 음성이 듣는 동안 화면 꺼짐 막기 (MOB1 D-MOB1-07, AC-MOB1-10) — 출력 기기의 막기와 따로
+  useScreenWake(voice !== null && voiceSnapshot.phase === 'on')
   // 봉인한 날짜(AC-I3-41)는 등록할 수 없다 — 음성 켜기를 숨기고, 켜 둔 채 봉인되면 끈다(카드는 남고 자동 확정은 멈춘다)
   useEffect(() => {
     if (sealed) voice?.turnOff()
@@ -541,6 +544,15 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   )
   const printAlertsRef = useRef(printAlerts)
   printAlertsRef.current = printAlerts
+  // 출력 기기 끊김·출력 기기 없음 항목 (MOB1 D-MOB1-08, AC-MOB1-13): 알림 띠 맨 앞(플랫폼 줄 다음), Alt+1 순서·알림 수에는 넣지 않는다
+  const printApi = usePrintApi()
+  const stationText = stationLeadText({
+    labelsOn,
+    rehearsal: broadcast.rehearsal,
+    ended: ended || sealed,
+    queue: queueSummary,
+    mine: printApi !== null && queueSummary !== null && printApi.station.isMine(queueSummary),
+  })
   /** 되돌릴 것이 없는 Ctrl+Z에 음성 문자찜 결과 카드가 열려 있다는 알림 (잠시 보인다, D-V1-22) */
   const [undoNote, setUndoNote] = useState<{ readonly text: string; readonly n: number } | null>(null)
   useEffect(() => {
@@ -590,6 +602,12 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   const clearLine = useCallback((line: string | null) => {
     if (line !== null && quickTextRef.current === line) setQuickText('')
   }, [])
+
+  // 방송이 끝나면(다른 기기에서 끝내도) 빠른 입력 줄이 사라지고 치던 글은 버린다 — 보내지 않는다 (MOB1 D-MOB1-09, AC-MOB1-17)
+  const closedQuick = ended || sealed
+  useEffect(() => {
+    if (closedQuick) setQuickText('')
+  }, [closedQuick])
 
   /** 판매자가 그 줄 뒤에 다른 줄을 치기 시작했나 (앞 등록 응답을 기다린 줄의 판단이 늦게 날 때) */
   const typedNext = useCallback((line: string): boolean => {
@@ -1231,7 +1249,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
                 </button>
               </>
             )}
-            {voice !== null && !sealed ? <VoiceToggle voice={voice} snapshot={voiceSnapshot} ready={settings !== null} /> : null}
+            {/* 끝난 방송·봉인 날짜에는 "음성 켜기"가 없다 — 켜져 있던 음성의 끄기는 음성 칸에 남는다 (MOB1 D-MOB1-09, AC-MOB1-17) */}
+            {voice !== null && !sealed && !ended ? <VoiceToggle voice={voice} snapshot={voiceSnapshot} ready={settings !== null} /> : null}
           </div>
         </div>
         {endError !== null ? <ErrorNote error={endError} /> : null}
@@ -1244,7 +1263,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           <QuotaToast />
           <div className="console-sticky-quick">
             <AlertStrip
-              leads={platformLeads({ live, sealed, onPaste: openPaste, pasteNote })}
+              leads={[
+                ...platformLeads({ live, sealed, onPaste: openPaste, pasteNote }),
+                ...(stationText === null ? [] : [{ key: 'print-station', text: stationText, soft: true, uncounted: true, onClick: () => navigate({ name: 'labels' }) }]),
+              ]}
               counts={counts}
               print={printAlerts}
               thanksFailed={yt.thanksFailed}
@@ -1272,6 +1294,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
                 onAskRegister={registerAsk}
                 error={quickError}
                 unitInside={wide}
+                closed={ended || sealed}
                 {...(attached !== null && attached.payload.options.length > 0
                   ? {}
                   : {
@@ -1320,7 +1343,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           </div>
           {wide ? voiceLive : null}
         </div>
-        {wide ? null : <QuickUnitLine value={quickText} />}
+        {wide || ended || sealed ? null : <QuickUnitLine value={quickText} />}
         {wide ? null : voiceLive}
         {/* 음성 칸 바로 아래 접는 칸 "음성 설정과 기록" (D-V2-21) — PC는 고정 영역 바로 아래 */}
         {voice === null ? null : <VoiceExtras voice={voice} snapshot={voiceSnapshot} />}
@@ -1365,7 +1388,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
             platformTags={platformTags}
           />
         </div>
-        <p className="shortcuts">{shortcutsWord(labelsOn === true)}</p>
+        {/* 단축키 줄은 PC 폭만 (MOB1 D-MOB1-09, AC-MOB1-15) — 휴대폰에는 키보드 단축키가 없다 */}
+        {wide ? <p className="shortcuts">{shortcutsWord(labelsOn === true)}</p> : null}
       </main>
       {voice !== null && voiceSnapshot.phase === 'consent' ? <VoiceConsentDialog voice={voice} /> : null}
       {pasteOpen ? (

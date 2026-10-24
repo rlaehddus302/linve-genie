@@ -431,8 +431,10 @@ describe('콘솔의 "영수증 보내기" (AC-N4b-30)', () => {
     vi.stubGlobal('fetch', engine.server.fetch)
     const navigate = vi.fn()
     render(<ConsolePage broadcastId="b1" navigate={navigate} />)
-    await screen.findByLabelText('빠른 입력')
+    // MOB1 D-MOB1-09: 끝난 방송에는 빠른 입력 줄이 없다 — 상태 글자로 연 것을 기다린다
+    await screen.findByText('끝난 방송이에요')
     await flush(10)
+    expect(screen.queryByLabelText('빠른 입력')).toBeNull()
     const link = screen.getByRole('link', { name: '영수증 보내기' })
     expect(link.getAttribute('href')).toBe('/broadcasts/b1/receipts')
     expect([...document.querySelectorAll('main .button-primary')].map((el) => el.textContent)).toEqual(['영수증 보내기'])

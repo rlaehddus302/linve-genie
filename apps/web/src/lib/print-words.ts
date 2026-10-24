@@ -56,6 +56,27 @@ export function backlogMessage(count: number): string {
 export const deviceLostMessage = (name: string): string => `출력 기기('${name}')가 연결되어 있지 않아요. 그 기기에서 ${SERVICE_NAME}를 열고 화면을 켜 두세요.`
 /** 출력 기기가 없고 대기 라벨이 쌓일 때 콘솔 알림 띠 맨 앞 항목 (D-MOB1-08, AC-MOB1-13) */
 export const NO_STATION_PILING = "출력 기기가 아직 없어 라벨이 쌓이고 있어요. 출력할 기기의 라벨 화면에서 '이 기기에서 출력'을 눌러 주세요."
+export interface StationLeadInput {
+  /** 라벨 기능 켬(true)·끔(false)·모름(null) */
+  readonly labelsOn: boolean | null
+  readonly rehearsal: boolean
+  /** 끝난 방송·봉인 날짜 */
+  readonly ended: boolean
+  /** 출력 기록 요약 (모르면 null) */
+  readonly queue: Pick<QueueSummary, 'device' | 'waiting'> | null
+  /** 이 기기가 출력 기기인가 */
+  readonly mine: boolean
+}
+
+/**
+ * 콘솔 알림 띠 맨 앞 출력 기기 항목의 문장 (MOB1 D-MOB1-08, AC-MOB1-13 — 순수 함수). 없으면 null.
+ * 라벨 켜짐·실제 방송·끝나지 않음·이 기기가 출력 기기가 아닐 때만: 출력 기기가 끊겼으면 deviceLostMessage, 출력 기기가 없고 대기 라벨이 있으면 NO_STATION_PILING
+ */
+export function stationLeadText({ labelsOn, rehearsal, ended, queue, mine }: StationLeadInput): string | null {
+  if (labelsOn !== true || rehearsal || ended || mine || queue === null) return null
+  if (queue.device === null) return queue.waiting > 0 ? NO_STATION_PILING : null
+  return queue.device.live ? null : deviceLostMessage(queue.device.name)
+}
 export const reconnectThereMessage = (name: string): string => `출력 기기 '${name}'에서 다시 연결해 주세요.`
 export const replaceQuestion = (name: string): string => `지금은 '${name}'에서 출력하고 있어요. 이 기기로 바꿀까요?`
 
@@ -176,6 +197,14 @@ export function connectTips(env: ConnectTipEnv): string[] {
 export function isAndroid(userAgent: string = typeof navigator === 'undefined' ? '' : navigator.userAgent): boolean {
   return userAgent.includes('Android')
 }
+
+/** 이 브라우저가 아이폰·아이패드인가 (MOB1 D-MOB1-11) */
+export function isIphone(userAgent: string = typeof navigator === 'undefined' ? '' : navigator.userAgent): boolean {
+  return /iPhone|iPad/.test(userAgent)
+}
+
+/** 아이폰에서 시험용 프린터 바로 아래 한 줄 (D-MOB1-11, AC-MOB1-20) */
+export const IPHONE_TEST_PRINTER = '실제 아이폰에선 프린터에 바로 연결할 수 없어요. 라벨 그림을 저장해 출력해 주세요.'
 
 /** 이 브라우저가 윈도우인가 */
 export function isWindows(userAgent: string = typeof navigator === 'undefined' ? '' : navigator.userAgent): boolean {

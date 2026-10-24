@@ -9,6 +9,8 @@
 // - 쓰기 응답(잇기·끊기·다시 연결)은 그사이 SSE로 더 새 상태가 오지 않았을 때만 넣는다 — 왔으면 서버 상태를 다시 받는다(TE-N2b-2-003).
 // - 실시간: 범위 저장소의 같은 연결로 SSE `instagram`·`tiktok`을 받는다(새로 고침 없이). 끊겼다 이어지면 모두 다시 받는다.
 //   댓글 수는 알림마다 오지 않으므로 새 채팅이 들어오면 모아서 한 번 다시 받는다.
+// - MOB1 D-MOB1-09(AC-MOB1-15): 휴대폰 폭에서는 쓸 수 없는 칸("준비되지 않았어요"·"연결 안 함"·틱톡 막힘 문장 + "설정으로"뿐)을 그리지 않는다 —
+//   이 방송에 이었거나 이을 수 있는 칸, 알림·오류가 있는 칸, 다시 연결할 칸은 그대로. PC 폭과 리허설 한 줄은 그대로.
 // 서버 문장(수집 상태·오류·알림)은 고치지 않고 그대로 보인다. 아이디·라이브 ID는 글자로만 보인다.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, isApiError, newRequestId, post, withRetry, withQuery, type ApiError } from '../api/client.ts'
@@ -36,6 +38,7 @@ import {
   tiktokUnseenSaveFailed,
 } from '../lib/platforms.ts'
 import { routePath, type Navigate, type SettingsSection } from '../lib/router.ts'
+import { useWide } from '../lib/use-wide.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { Modal } from './Modal.tsx'
 
@@ -420,12 +423,22 @@ export function PlatformPanels(props: PlatformPanelsProps) {
       </section>
     )
   }
+  return <LivePanels {...props} />
+}
+
+function LivePanels(props: PlatformPanelsProps) {
+  const wide = useWide()
   return (
     <>
-      <InstagramPanel {...props} />
-      <TikTokPanel {...props} />
+      <InstagramPanel {...props} hideIdle={!wide} />
+      <TikTokPanel {...props} hideIdle={!wide} />
     </>
   )
+}
+
+/** 휴대폰에서 숨길 칸 — 쓸 수 없음·연결 안 함 문장과 "설정으로"뿐인 칸 (D-MOB1-09) */
+interface IdleProps {
+  readonly hideIdle: boolean
 }
 
 /** 보내기 하나의 진행 (잠금·오류·다시 보내도 같은 요청 번호) */
@@ -479,7 +492,7 @@ async function send<T>(ids: ReturnType<typeof useRequestIds>, key: string, path:
 
 // ── 인스타그램 칸 (AC-N2b-2-63) ───────────────────────────────────────
 
-function InstagramPanel({ live, broadcastId, navigate, ended, sealed }: PlatformPanelsProps) {
+function InstagramPanel({ live, broadcastId, navigate, ended, sealed, hideIdle }: PlatformPanelsProps & IdleProps) {
   const { instagram, igLink } = live
   const action = useAction()
   const ids = useRequestIds()
@@ -528,6 +541,8 @@ function InstagramPanel({ live, broadcastId, navigate, ended, sealed }: Platform
 
   const open = igLink !== null && igLink.state !== 'NONE'
   const collection = igLink?.collection ?? null
+  const idle = instagram !== null && (!instagram.configured || instagram.status === 'NOT_CONNECTED') && !open && live.notices.length === 0 && live.dmFailed === 0 && action.error === null && !asking
+  if (hideIdle && idle) return null
   return (
     <section className="card stack platform-panel instagram-panel" aria-label="인스타그램">
       <h2 className="section-title">인스타그램</h2>
@@ -650,7 +665,7 @@ function InstagramPanel({ live, broadcastId, navigate, ended, sealed }: Platform
 
 // ── 틱톡 칸 (AC-N2b-2-62) ─────────────────────────────────────────────
 
-function TikTokPanel({ live, broadcastId, navigate, ended, sealed, onPaste }: PlatformPanelsProps) {
+function TikTokPanel({ live, broadcastId, navigate, ended, sealed, onPaste, hideIdle }: PlatformPanelsProps & IdleProps) {
   const { tiktok, ttLink } = live
   const action = useAction()
   const ids = useRequestIds()
@@ -684,6 +699,7 @@ function TikTokPanel({ live, broadcastId, navigate, ended, sealed, onPaste }: Pl
 
   const trouble = tiktokTrouble(live)
   const blocker = tiktok === null ? null : tiktokBlocker(tiktok, reason)
+  if (hideIdle && !linked && blocker !== null && action.error === null && !asking) return null
   return (
     <section className="card stack platform-panel tiktok-panel" aria-label="틱톡">
       <h2 className="section-title">틱톡</h2>

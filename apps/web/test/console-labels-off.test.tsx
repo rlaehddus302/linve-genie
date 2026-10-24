@@ -139,6 +139,8 @@ describe('콘솔 — 꺼져 있을 때 (AC-N4a-14)', () => {
   })
 
   it('Alt+P는 창을 열지 않고 출력 요청도 보내지 않으며 안내를 알린다(role=status) — 빠른 입력칸 글자 없음·포커스 그대로. 단축키 안내에서 Alt+P가 빠진다', async () => {
+    // MOB1 D-MOB1-09: 단축키 안내 줄은 PC 폭에만 있다 — PC 폭으로 연다
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(min-width: 48rem)', media: query, addEventListener: () => {}, removeEventListener: () => {} }))
     const quick = await openConsole()
     quick.focus()
     const event = new KeyboardEvent('keydown', { key: 'π', code: 'KeyP', altKey: true, bubbles: true, cancelable: true })
@@ -230,6 +232,8 @@ describe('콘솔 — 바뀌면 바로, 모르면 숨김 (AC-N4a-18·19)', () => 
       return { body: current }
     })
     current = overview({ queue: queue({ labelsEnabled: true, pause: { reason: 'SELLER', message: '출력을 멈췄어요.', backlog: false } }) })
+    // MOB1 D-MOB1-09: 단축키 안내 줄은 PC 폭에만 있다 — PC 폭으로 연다
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(min-width: 48rem)', media: query, addEventListener: () => {}, removeEventListener: () => {} }))
     const quick = await openConsole()
     expect(boardItem().textContent).not.toMatch(/라벨|출력/)
     expect(within(screen.getByRole('region', { name: '알림' })).queryByRole('button', { name: /출력 멈춤/ })).toBeNull()

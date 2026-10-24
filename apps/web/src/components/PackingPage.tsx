@@ -11,7 +11,7 @@
 //   저장되면 포커스를 "다음 구매자"(없으면 결과 안내)로 옮긴다. 포장 완료 직후엔 "다음 구매자"가 주 버튼이다 (UX-I2-001).
 // - 포장 라벨: 쪽마다 서버 그림(대체 글 "포장 라벨 1/2쪽")·"그림 저장"(PNG)·"라벨 PDF". 라벨에 찍히는 값(품목·방송 제목·상품 합계·구매자 이름·가게 이름)이
 //   바뀌면 새로 받고, 받기 전엔 저장을 잠근다 (SA-I2-002).
-//   PL1B(D-PL1-05, AC-PL1B-10~13): 라벨 켜짐이면 "라벨 PDF" 옆에 보통 버튼 "포장 라벨 출력"(PackingPrint — 정산 자세히와 같은 요청, 누를 때만).
+//   PL1B(D-PL1-05, AC-PL1B-10~13): 라벨 켜짐이면 보통 버튼 "포장 라벨 출력"(MOB1 D-MOB1-13: "포장 라벨" 제목 바로 아래·그림 위로 옮김)(PackingPrint — 정산 자세히와 같은 요청, 누를 때만).
 //   PL1 합침(AC-PL1A-19·AC-PL1B-14, D-PL1-04·10): 봉인 날짜(포장 목록 응답 `sealed`)는 "포장 라벨 출력"과 그 결과·안내(출력 기기 없음 등)를 그리지 않는다 —
 //   그림 저장·라벨 PDF는 그대로(볼 수만 있는 날짜라도 라벨을 다시 받을 수는 있다). 서버도 봉인 날짜 출력을 409로 막는다.
 //   라벨 꺼짐이면 칸 전체가 "라벨 쓰지 않음 — 설정에서 켤 수 있어요."이고 그림을 받지 않는다. 켬/끔을 모르면 출력 버튼만 없다.
@@ -835,6 +835,13 @@ function PackingLabelSection({
   return (
     <section className="stack-tight packing-label" aria-label="포장 라벨">
       <h3 className="sub-title">포장 라벨</h3>
+      {/* "포장 라벨 출력"은 제목 바로 아래(미리 보기 그림 위) — 휴대폰 첫 화면에서 보이게, 결과 문장은 그 바로 아래 (MOB1 D-MOB1-13, AC-MOB1-26) */}
+      {!empty && printable ? (
+        <div className="row packing-print-row">
+          <PackingPrintButton print={print} />
+        </div>
+      ) : null}
+      {!empty && printable ? <PackingPrintResult print={print} /> : null}
       {empty ? <p>{NO_LABEL_ITEMS}</p> : null}
       {!empty && loading ? <p role="status">{LABEL_LOADING}</p> : null}
       {!empty && error !== null ? <RequestError error={error} onRetry={() => setAttempt((n) => n + 1)} retryLabel="다시 만들기" /> : null}
@@ -855,11 +862,9 @@ function PackingLabelSection({
           <button type="button" className="button" disabled={locked || pdf.busy} onClick={() => void pdf.run(withQuery(`/api/days/${date}/packing-label.pdf`, { buyer }), `packing-label-${date}.pdf`)}>
             라벨 PDF
           </button>
-          {printable ? <PackingPrintButton print={print} /> : null}
           {pdf.busy ? <span role="status">라벨 PDF를 만드는 중이에요…</span> : null}
         </div>
       ) : null}
-      {!empty && printable ? <PackingPrintResult print={print} /> : null}
       {pdf.error !== null ? <RequestError error={pdf.error} /> : null}
     </section>
   )

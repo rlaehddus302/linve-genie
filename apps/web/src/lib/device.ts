@@ -98,20 +98,63 @@ export function streamUrl(): string {
   return `/api/stream?device=${encodeURIComponent(deviceId())}`
 }
 
-/** 휴대폰처럼 보이는 기기인지 (기본 기기 이름) */
-export function looksLikePhone(): boolean {
+/** 지금 화면이 휴대폰 폭인가 (use-wide.ts와 같은 경계 — PC 폭이 아니면 휴대폰) */
+function narrowScreen(): boolean {
   try {
-    if (/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)) return true
-    // 화면 모양과 같은 폭 경계 (use-wide.ts — PC 폭이 아니면 휴대폰)
     return typeof window.matchMedia === 'function' && !window.matchMedia(WIDE_QUERY).matches
   } catch {
     return false
   }
 }
 
-/** 기기 이름: 이 기기에서 정한 이름, 없으면 "휴대폰" 또는 "PC" */
-export function savedDeviceName(): string {
-  return read(DEVICE_NAME_KEY) ?? (looksLikePhone() ? '휴대폰' : 'PC')
+function userAgent(): string {
+  try {
+    return navigator.userAgent
+  } catch {
+    return ''
+  }
+}
+
+/** 휴대폰처럼 보이는 기기인지 (기본 기기 이름) */
+export function looksLikePhone(): boolean {
+  return /Android|iPhone|iPad|Mobile/i.test(userAgent()) || narrowScreen()
+}
+
+/** 기본 기기 이름 네 가지 (MOB1 D-MOB1-13, AC-MOB1-24) */
+export const DEFAULT_DEVICE_NAMES = { iphone: '아이폰', android: '안드로이드 폰', phone: '휴대폰', pc: 'PC' } as const
+
+export interface DefaultNameInput {
+  readonly userAgent: string
+  /** 휴대폰 폭인가 (사용자 에이전트로 모를 때 — looksLikePhone과 같은 규칙) */
+  readonly narrow: boolean
+  /** 지금 출력 기기가 다른 기기면 그 이름 (없거나 이 기기면 null) */
+  readonly otherStation: string | null
+}
+
+/**
+ * 판매자가 이름을 정하지 않았을 때의 기기 이름 (순수 함수): 아이폰·아이패드 "아이폰", 안드로이드 "안드로이드 폰", 그 밖의 휴대폰 "휴대폰", 아니면 "PC".
+ * 다른 출력 기기의 이름이 같으면 뒤에 " 2" — 두 기기가 같은 이름으로 보이지 않게. 결과는 늘 cleanDeviceName을 지난다(1~20자)
+ */
+export function defaultDeviceName({ userAgent: agent, narrow, otherStation }: DefaultNameInput): string {
+  const base = /iPhone|iPad/i.test(agent)
+    ? DEFAULT_DEVICE_NAMES.iphone
+    : /Android/i.test(agent)
+      ? DEFAULT_DEVICE_NAMES.android
+      : /Mobile/i.test(agent) || narrow
+        ? DEFAULT_DEVICE_NAMES.phone
+        : DEFAULT_DEVICE_NAMES.pc
+  const other = otherStation === null ? null : cleanDeviceName(otherStation)
+  return other === base ? `${base} 2` : base
+}
+
+/** 이 기기에서 정해 저장한 이름 (없으면 null) */
+export function storedDeviceName(): string | null {
+  return read(DEVICE_NAME_KEY)
+}
+
+/** 기기 이름: 이 기기에서 정한 이름, 없으면 기본 이름(defaultDeviceName — 다른 출력 기기의 이름과 겹치면 " 2") */
+export function savedDeviceName(otherStation: string | null = null): string {
+  return storedDeviceName() ?? defaultDeviceName({ userAgent: userAgent(), narrow: narrowScreen(), otherStation })
 }
 
 export function saveDeviceName(name: string): void {

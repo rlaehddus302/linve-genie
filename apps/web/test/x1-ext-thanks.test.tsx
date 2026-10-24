@@ -62,6 +62,11 @@ function Bar({ ended = false, broadcast = B }: { readonly ended?: boolean; reado
 }
 
 describe('설정 — 확장으로 감사 채팅 올리기 (AC-X1-26)', () => {
+  // MOB1 D-MOB1-09: 휴대폰 폭 설정의 크롬 확장 칸은 한 줄 안내뿐 — 이 묶음은 PC 폭(지금 그대로)으로 본다
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(min-width: 48rem)', media: query, addEventListener: () => {}, removeEventListener: () => {} }))
+  })
+
   it('기본은 꺼짐. 켜기는 설명 창에서 "켤게요"를 눌러야 하고, "그대로 두기"면 아무것도 보내지 않는다', async () => {
     render(<Settings />)
     const group = await screen.findByRole('group', { name: '확장으로 감사 채팅 올리기' })

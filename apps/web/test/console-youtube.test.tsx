@@ -140,9 +140,10 @@ afterEach(() => {
 
 async function openConsole() {
   render(<ConsolePage broadcastId="b1" navigate={navigate} />)
-  const quick = (await screen.findByLabelText('빠른 입력')) as HTMLInputElement
+  // MOB1 D-MOB1-09: 끝난 방송·봉인 날짜에는 빠른 입력 줄이 없다 — 연 것은 상품 보드로 기다린다
+  await screen.findByRole('region', { name: '상품 보드' })
   await flush(10)
-  return quick
+  return screen.queryByLabelText('빠른 입력') as HTMLInputElement
 }
 
 const panel = () => screen.getByRole('region', { name: '유튜브' })
@@ -520,10 +521,9 @@ describe('봉인한 날짜 (AC-I3-41)', () => {
     sealed = true
     await openConsole()
     expect(screen.getByText('30일이 지나 봉인한 날짜예요. 볼 수만 있어요.')).toBeDefined()
-    const quick = screen.getByLabelText('빠른 입력') as HTMLInputElement
-    expect(quick.matches(':disabled')).toBe(true)
-    fireEvent.change(quick, { target: { value: '15 핑크 10000' } })
-    fireEvent.keyDown(quick, { key: 'Enter' })
+    // MOB1 D-MOB1-09: 봉인 날짜에는 빠른 입력 줄 자체가 없다(잠긴 칸 대신) — 칠 곳이 없고 요청도 없다
+    expect(screen.queryByLabelText('빠른 입력')).toBeNull()
+    expect(screen.queryByRole('textbox', { name: '빠른 입력' })).toBeNull()
     await flush()
     expect(server.callsTo('POST', /^\/api\/events/)).toHaveLength(0)
     expect(screen.getByText('30일이 지나 채팅 내용을 지웠어요.')).toBeDefined()
@@ -544,7 +544,8 @@ describe('봉인한 날짜 (AC-I3-41)', () => {
     sealed = true
     act(() => FakeEventSource.last.emit('youtube', { kind: 'sealed', date: DATE }))
     expect(await screen.findByText('30일이 지나 봉인한 날짜예요. 볼 수만 있어요.')).toBeDefined()
-    await waitFor(() => expect(screen.getByLabelText('빠른 입력').matches(':disabled')).toBe(true))
+    // MOB1 D-MOB1-09: 봉인되면 빠른 입력 줄이 사라진다(잠긴 칸 대신)
+    await waitFor(() => expect(screen.queryByLabelText('빠른 입력')).toBeNull())
     for (let seqNext = 2; seqNext < 6; seqNext++) act(() => FakeEventSource.last.emit('change', { date: DATE, rehearsal: false, seq: seqNext, type: 'x' }))
     await flush(10)
     expect(server.callsTo('GET', /\/changes\?/).length).toBeLessThanOrEqual(1)
