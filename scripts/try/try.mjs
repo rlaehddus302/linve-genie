@@ -14,7 +14,8 @@
 //   설정 → "AI 제안"에서 동의하고 켜면, 옵션 리허설의 확인 필요 화면을 열 때 가짜 AI가 글에 든 선택지 이름으로 제안한다.
 // - 이 컴퓨터: http://localhost:<포트> (127.0.0.1에서만 연다).
 // - 같은 와이파이의 휴대폰: https://<이 컴퓨터 주소>:<포트+1>. 로그인 쿠키가 Secure라 휴대폰은 https로만 로그인된다.
-//   그래서 자체 서명 인증서(openssl, 실행마다 새로)로 https를 열고 안쪽 서버로 넘긴다. 휴대폰에 "안전하지 않음" 경고가 한 번 뜬다.
+//   그래서 자체 서명 인증서(실행마다 새로)로 https를 열고 안쪽 서버로 넘긴다. 휴대폰에 "안전하지 않음" 경고가 한 번 뜬다.
+//   인증서는 openssl이 있으면 openssl로, 없거나 실패하면(윈도우 기본) Node만으로 만든다(apps/server/src/try/self-signed-cert.ts).
 //   넘길 때 Origin 머리글을 화면 주소로 바꾼다(서버는 화면 주소 하나만 받는다) — 그 https 주소(와 https://localhost:<포트+1>)에서 온 요청만.
 //   E2E 서버와 달리 같은 와이파이에 열린다(휴대폰 때문). 연습 데이터뿐이고 비밀번호는 실행마다 무작위다.
 // - 기본 포트를 다른 프로그램이 쓰고 있으면 다음 빈 포트로 옮긴다.
@@ -120,19 +121,6 @@ const appOrigin = `http://localhost:${String(port)}`
 /** 화면 빌드 폴더 — 포트마다 따로(연습 모드를 둘 켜도 서로의 화면 파일을 지우지 않게) */
 const WEB_DIR = join(CACHE, `web-${String(port)}`)
 
-/** 같은 와이파이에서 이 컴퓨터를 찾는 주소 (en0 = 맥의 와이파이 먼저) */
-function lanAddress() {
-  const all = networkInterfaces()
-  const names = Object.keys(all).sort((a, b) => (a === 'en0' ? -1 : b === 'en0' ? 1 : a < b ? -1 : 1))
-  for (const name of names) {
-    for (const entry of all[name] ?? []) {
-      if (entry.family === 'IPv4' && !entry.internal && !entry.address.startsWith('169.254.')) return entry.address
-    }
-  }
-  return null
-}
-const lan = lanAddress()
-
 // ── 화면 빌드 ──────────────────────────────────────────────
 say('')
 say('라이브지니 연습 모드를 준비하고 있어요. 처음에는 1~2분 걸려요...')
@@ -156,6 +144,11 @@ const [{ openPglite }, { generateMasterKey }, { createServer }, { createNodeServ
 ])
 const { FakeOAuth } = await server('social/fake-oauth.ts')
 const { FakeLlm } = await server('assist/fake-llm.ts')
+const { createSelfSignedCertificate, lanAddresses } = await server('try/self-signed-cert.ts')
+
+/** 같은 와이파이에서 이 컴퓨터를 찾는 주소들 (와이파이 먼저, 윈도우의 가상·VPN 연결은 뒤로). 첫 주소를 휴대폰 주소로 알린다 */
+const lans = lanAddresses(networkInterfaces())
+const lan = lans[0] ?? null
 
 const database = await openPglite()
 const masterKey = generateMasterKey()
@@ -262,20 +255,35 @@ await new Promise((resolve, reject) => {
 }).catch(() => fail(`포트 ${String(port)}를 열지 못했어요. pnpm try --port 8800 처럼 다른 번호로 해 보세요.`))
 
 // ── 휴대폰용 https (같은 와이파이) ──────────────────────────
+/**
+ * 휴대폰용 자체 서명 인증서 (2일, 주소: 같은 와이파이 주소들·localhost, 서버 인증용).
+ * openssl이 있으면 지금까지처럼 openssl로(임시 폴더에 쓰고 바로 지운다), 없거나 실패하면 Node만으로 만든다 — 윈도우에는 openssl이 기본으로 없다.
+ */
+function phoneCertificate(ips) {
+  const dir = mkdtempSync(join(tmpdir(), 'livejjim-try-cert-'))
+  try {
+    const keyFile = join(dir, 'key.pem')
+    const certFile = join(dir, 'cert.pem')
+    const configFile = join(dir, 'openssl.cnf')
+    const config = `[req]\ndistinguished_name=dn\nx509_extensions=ext\nprompt=no\n[dn]\nCN=livejjim-try\n[ext]\nsubjectAltName=${[...ips.map((ip) => `IP:${ip}`), 'DNS:localhost'].join(',')}\nbasicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n`
+    writeFileSync(configFile, config)
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '2', '-keyout', keyFile, '-out', certFile, '-config', configFile], { stdio: 'ignore', windowsHide: true, timeout: 20_000 })
+    return { key: readFileSync(keyFile), cert: readFileSync(certFile) }
+  } catch {
+    return createSelfSignedCertificate({ ips, now: new Date(), days: 2 })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 let phone = null
-let certDir = null
+let phoneProblem = null
 if (lan !== null) {
   try {
-    certDir = mkdtempSync(join(tmpdir(), 'livejjim-try-cert-'))
-    const keyFile = join(certDir, 'key.pem')
-    const certFile = join(certDir, 'cert.pem')
-    const configFile = join(certDir, 'openssl.cnf')
-    const config = `[req]\ndistinguished_name=dn\nx509_extensions=ext\nprompt=no\n[dn]\nCN=livejjim-try\n[ext]\nsubjectAltName=IP:${lan},DNS:localhost\nbasicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n`
-    writeFileSync(configFile, config)
-    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '2', '-keyout', keyFile, '-out', certFile, '-config', configFile], { stdio: 'ignore' })
-    // 휴대폰 주소와, 이 컴퓨터에서 https로 여는 주소(사파리에서 로그인이 안 될 때) 둘 다 화면 주소로 바꿔 넘긴다
-    const httpsOrigins = new Set([`https://${lan}:${String(phonePort)}`, `https://localhost:${String(phonePort)}`])
-    phone = createHttpsServer({ key: readFileSync(keyFile), cert: readFileSync(certFile) }, (req, res) => {
+    const { key, cert } = phoneCertificate(lans)
+    // 휴대폰 주소들과, 이 컴퓨터에서 https로 여는 주소(사파리에서 로그인이 안 될 때) 모두 화면 주소로 바꿔 넘긴다
+    const httpsOrigins = new Set([...lans.map((ip) => `https://${ip}:${String(phonePort)}`), `https://localhost:${String(phonePort)}`])
+    phone = createHttpsServer({ key, cert }, (req, res) => {
       const headers = { ...req.headers }
       if (typeof headers.origin === 'string' && httpsOrigins.has(headers.origin)) headers.origin = appOrigin
       // 간편 로그인(L1): 돌려보내는 주소(Location)·승인 주소의 앞 http://localhost:<포트>를 휴대폰이 연 https 주소로 바꾼다.
@@ -312,12 +320,13 @@ if (lan !== null) {
     })
   } catch {
     phone = null
+    phoneProblem = `휴대폰용 주소(포트 ${String(phonePort)})를 열지 못했어요. 껐다가 다시 켜 보세요.`
   }
 }
 
 say('')
 say('==============================================================')
-say(' 라이브지니 연습 모드가 켜졌어요. (끄려면 이 창에서 Control + C)')
+say(' 라이브지니 연습 모드가 켜졌어요. (끄려면 이 창에서 Ctrl + C)')
 say('==============================================================')
 say('')
 say(` 1) 이 컴퓨터 크롬에서 열기 : ${appOrigin}`)
@@ -331,8 +340,9 @@ say('')
 if (phone !== null) {
   say(` 3) 같은 와이파이 휴대폰  : https://${lan}:${String(phonePort)}`)
   say('    ("안전하지 않음" 경고가 나오면 docs/TRY-IT.md의 휴대폰 순서대로 넘어가세요)')
+  if (lans.length > 1) say(`    (안 열리면 이 주소도 해 보세요: ${lans.slice(1).map((ip) => `https://${ip}:${String(phonePort)}`).join('  ')})`)
 } else {
-  say(' 3) 휴대폰 주소를 만들지 못했어요. 와이파이에 연결돼 있는지 확인하고 다시 켜 주세요.')
+  say(` 3) ${phoneProblem ?? '휴대폰 주소를 만들지 못했어요. 와이파이에 연결돼 있는지 확인하고 다시 켜 주세요.'}`)
 }
 say('')
 say(' 연습 기록은 이 창을 끄면 모두 지워져요. 실제 방송·실제 프린터·실제 돈과는 상관없어요.')
@@ -378,9 +388,10 @@ async function stop() {
   await fake.close().catch(() => {})
   await database.close().catch(() => {})
   rmSync(backupDir, { recursive: true, force: true })
-  if (certDir !== null) rmSync(certDir, { recursive: true, force: true })
   say('껐어요. 다시 켜려면 pnpm try')
   process.exit(0)
 }
-process.on('SIGINT', () => void stop())
-process.on('SIGTERM', () => void stop())
+// 끄기: Control(Ctrl) + C(SIGINT — 윈도우 명령 프롬프트에서도 Node가 이 이름으로 받는다), 창 닫기(SIGHUP — 맥·윈도우 둘 다),
+// Ctrl + Break(SIGBREAK — 윈도우만), 그 밖의 끄기 요청(SIGTERM — 윈도우에는 없다). 창이 닫힌 뒤 글을 쓰다 나는 오류는 무시한다
+process.stdout.on('error', () => {})
+for (const signal of process.platform === 'win32' ? ['SIGINT', 'SIGHUP', 'SIGBREAK'] : ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => void stop())
