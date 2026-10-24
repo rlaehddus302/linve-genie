@@ -2,7 +2,7 @@
 // jsdom에는 matchMedia가 없어 휴대폰 모양이다(use-wide.ts). PC 모양은 matchMedia를 흉내 낸다.
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { LOGOUT_LIVE, LOGOUT_STATION, LOGOUT_UNKNOWN, logoutRisks } from '../src/components/LogoutButton.tsx'
+import { LOGOUT_LIVE, LOGOUT_STATION, LOGOUT_UNKNOWN, LOGOUT_WAIT_MS, logoutRisks } from '../src/components/LogoutButton.tsx'
 import { SMS_BAR_LABEL, barLabel, menuAll, menuLayout } from '../src/lib/menu.ts'
 import type { BroadcastItem } from '../src/api/types.ts'
 import { menuNav, openMore } from './menu-support.ts'
@@ -54,12 +54,14 @@ describe('로그아웃할지 묻는 조건 (AC-MOB1-06)', () => {
 
 interface World {
   readonly broadcasts: BroadcastItem[] | 'fail'
+  /** 주면 방송 목록 답을 이것이 풀릴 때까지 늦춘다 (느린 망 — 응답 전) */
+  readonly hold?: Promise<void>
   readonly mine?: boolean
   readonly assistant?: boolean
   readonly wide?: boolean
 }
 
-async function topBar({ broadcasts, mine = false, assistant = false, wide = false }: World) {
+async function topBar({ broadcasts, hold, mine = false, assistant = false, wide = false }: World) {
   if (wide) vi.stubGlobal('matchMedia', (query: string) => ({ matches: true, media: query, addEventListener: () => {}, removeEventListener: () => {} }))
   const { TopBar } = await import('../src/components/TopBar.tsx')
   const { PrintContext } = await import('../src/components/print-context.tsx')
@@ -68,6 +70,7 @@ async function topBar({ broadcasts, mine = false, assistant = false, wide = fals
   vi.stubGlobal('fetch', async (url: string) => {
     calls.push(String(url))
     if (String(url).startsWith('/api/broadcasts')) {
+      if (hold !== undefined) await hold
       if (broadcasts === 'fail') return new Response(JSON.stringify({ error: { code: 'X', message: '잠시 뒤에 다시 해 주세요.' } }), { status: 500, headers: { 'Content-Type': 'application/json' } })
       return new Response(JSON.stringify({ broadcasts }), { status: 200, headers: { 'Content-Type': 'application/json' } })
     }
@@ -166,5 +169,95 @@ describe('위험할 때만 확인 창 (AC-MOB1-06)', () => {
     await press(screen.getByRole('button', { name: '로그아웃' }))
     expect(screen.getByRole('dialog', { name: '로그아웃할까요?' }).textContent).toContain(LOGOUT_UNKNOWN)
     expect(onLogout).not.toHaveBeenCalled()
+  })
+
+  describe('응답 전에도 묻는다 (TE-MOB1-001)', () => {
+    function gate() {
+      let open: () => void = () => {}
+      const hold = new Promise<void>((resolve) => {
+        open = resolve
+      })
+      return { hold, open }
+    }
+    const wait = (ms: number) => act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+    const logoutIn = () => within(openMore()).getByRole('button', { name: '로그아웃' })
+
+    it('답이 오지 않으면 잠깐 뒤 같은 창에 "방송 중인지 확인하지 못했어요." — 처음 포커스 "로그인 유지", 로그아웃하지 않는다', async () => {
+      const g = gate()
+      const { onLogout } = await topBar({ broadcasts: [], hold: g.hold })
+      await press(logoutIn())
+      await wait(LOGOUT_WAIT_MS + 100)
+      const dialog = screen.getByRole('dialog', { name: '로그아웃할까요?' })
+      expect(dialog.textContent).toContain(LOGOUT_UNKNOWN)
+      expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: '로그인 유지' }))
+      expect(onLogout).not.toHaveBeenCalled()
+      // 창의 "로그아웃"은 답을 기다리지 않고 바로 로그아웃
+      fireEvent.click(within(dialog).getByRole('button', { name: '로그아웃' }))
+      expect(onLogout).toHaveBeenCalledTimes(1)
+      await act(async () => {
+        g.open()
+        await flush()
+      })
+      expect(onLogout).toHaveBeenCalledTimes(1)
+      expect(screen.queryByRole('dialog')).toBeNull()
+    })
+
+    it('창이 뜬 뒤 끝내지 않은 방송이 있다는 답이 오면 문장을 맞춘다(출력 기기 문장도)', async () => {
+      const g = gate()
+      const { onLogout } = await topBar({ broadcasts: [broadcastItem({ ended: false })], hold: g.hold, mine: true })
+      await press(logoutIn())
+      await wait(LOGOUT_WAIT_MS + 100)
+      expect(screen.getByRole('dialog').textContent).toContain(LOGOUT_UNKNOWN)
+      expect(screen.getByRole('dialog').textContent).toContain(LOGOUT_STATION)
+      await act(async () => {
+        g.open()
+        await flush()
+      })
+      const text = screen.getByRole('dialog', { name: '로그아웃할까요?' }).textContent ?? ''
+      expect(text).not.toContain(LOGOUT_UNKNOWN)
+      expect(text.indexOf(LOGOUT_LIVE)).toBeGreaterThanOrEqual(0)
+      expect(text.indexOf(LOGOUT_STATION)).toBeGreaterThan(text.indexOf(LOGOUT_LIVE))
+      expect(onLogout).not.toHaveBeenCalled()
+    })
+
+    it('창이 뜬 뒤 위험이 없다는 답이 오면 처음 누른 대로 로그아웃, "로그인 유지"로 닫은 뒤 온 답은 버린다', async () => {
+      const first = gate()
+      const done = await topBar({ broadcasts: [broadcastItem({ ended: true })], hold: first.hold })
+      await press(logoutIn())
+      await wait(LOGOUT_WAIT_MS + 100)
+      expect(screen.getByRole('dialog').textContent).toContain(LOGOUT_UNKNOWN)
+      await act(async () => {
+        first.open()
+        await flush()
+      })
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(done.onLogout).toHaveBeenCalledTimes(1)
+      cleanup()
+      vi.unstubAllGlobals()
+      vi.resetModules()
+
+      const second = gate()
+      const kept = await topBar({ broadcasts: [broadcastItem({ ended: true })], hold: second.hold })
+      await press(logoutIn())
+      await wait(LOGOUT_WAIT_MS + 100)
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '로그인 유지' }))
+      expect(screen.queryByRole('dialog')).toBeNull()
+      await act(async () => {
+        second.open()
+        await flush()
+      })
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(kept.onLogout).not.toHaveBeenCalled()
+      // 다시 누르면 새로 묻는다(버튼이 잠긴 채 남지 않는다)
+      expect((logoutIn() as HTMLButtonElement).disabled).toBe(false)
+    })
+
+    it('답이 빨리 오면 창 없이 바로 로그아웃 — 기다리는 시간이 지나도 창이 뒤늦게 뜨지 않는다', async () => {
+      const { onLogout } = await topBar({ broadcasts: [] })
+      await press(logoutIn())
+      expect(onLogout).toHaveBeenCalledTimes(1)
+      await wait(LOGOUT_WAIT_MS + 100)
+      expect(screen.queryByRole('dialog')).toBeNull()
+    })
   })
 })

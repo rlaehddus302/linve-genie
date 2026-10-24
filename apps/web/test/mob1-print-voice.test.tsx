@@ -32,7 +32,7 @@ describe('출력 기기 끊김 문장 (AC-MOB1-12)', () => {
   })
 })
 
-describe('콘솔 알림 띠 맨 앞 출력 기기 항목 (AC-MOB1-13)', () => {
+describe('콘솔 알림 띠 맨 끝 출력 기기 항목 (AC-MOB1-13, D-MOB1-14)', () => {
   const lost = queue({ device: device('other', { name: '안드로이드 폰', live: false }), waiting: 2 })
   const base = { labelsOn: true, rehearsal: false, ended: false, queue: lost, mine: false } as const
 
@@ -53,18 +53,55 @@ describe('콘솔 알림 띠 맨 앞 출력 기기 항목 (AC-MOB1-13)', () => {
     expect(stationLeadText({ ...base, queue: null })).toBeNull()
   })
 
-  it('띠 맨 앞의 노란 버튼 — 알림 수("알림 n 펼치기")에 넣지 않는다, 누르면 할 일, 기기 이름의 태그는 글자로만', () => {
+  // MOB1 D-MOB1-14: 출력 기기 항목은 띠 맨 끝(세는 알림 모두의 뒤)으로 바뀌었다 — 예전 "맨 앞" 단언을 바꾼 스펙에 맞춤
+  it('띠 맨 끝의 노란 버튼 — 알림 수("알림 n 펼치기")에 넣지 않는다, 누르면 할 일, 기기 이름의 태그는 글자로만', () => {
     const onClick = vi.fn()
     const text = deviceLostMessage('<b>폰</b><script>x()</script>')
     render(<AlertStrip leads={[{ key: 'print-station', text, soft: true, uncounted: true, onClick }]} counts={{ ...COUNTS, pending: 2 }} onOpen={() => {}} onToggle={() => {}} />)
     const region = screen.getByRole('region', { name: '알림' })
     const buttons = within(region).getAllByRole('button')
-    expect(buttons[0]?.textContent).toBe(text)
-    expect(buttons[0]?.className).toContain('alert-soft')
+    expect(buttons.map((b) => b.textContent)).toEqual(['보류 찜 2', text])
+    const last = buttons[buttons.length - 1] as HTMLElement
+    expect(last.className).toContain('alert-soft')
     expect(region.querySelector('b, script')).toBeNull()
     expect(screen.getByRole('button', { name: '알림 2 펼치기' })).toBeDefined()
-    fireEvent.click(buttons[0] as HTMLElement)
+    fireEvent.click(last)
     expect(onClick).toHaveBeenCalledTimes(1)
+  })
+
+  it('"출력 멈춤"(빨간)이 있으면 첫 항목은 "출력 멈춤 · …"이고 출력 기기 항목은 세는 알림 모두의 뒤 — 플랫폼 줄은 그대로 맨 앞 (U-MOB1-02)', () => {
+    const text = deviceLostMessage('안드로이드 폰')
+    render(
+      <AlertStrip
+        leads={[
+          { key: 'tiktok', text: '틱톡 알림 줄', onClick: () => {} },
+          { key: 'print-station', text, soft: true, uncounted: true, onClick: () => {} },
+        ]}
+        counts={{ conflict: 1, cancelRequest: 0, succession: 0, pending: 3, attention: 1 }}
+        print={{ pause: '프린터가 꺼졌어요.', discard: 2 }}
+        thanksFailed={1}
+        onOpen={() => {}}
+        onToggle={() => {}}
+      />,
+    )
+    const region = screen.getByRole('region', { name: '알림' })
+    const words = within(region).getAllByRole('button').map((b) => b.textContent)
+    expect(words[0]).toBe('틱톡 알림 줄')
+    expect(words[words.length - 1]).toBe(text)
+    expect(words.slice(1, -1)).toEqual(['충돌 1', '출력 멈춤 · 프린터가 꺼졌어요.', '버릴 라벨 2', '보류 찜 3', '확인 필요 1', '감사 실패 1'])
+  })
+
+  it('플랫폼 줄 없이 "출력 멈춤"과 함께면 접힌 한 줄의 첫 항목이 "출력 멈춤 · …", 다른 알림이 없으면 출력 기기 항목이 첫 항목', () => {
+    const text = deviceLostMessage('휴대폰')
+    const lead = { key: 'print-station', text, soft: true, uncounted: true, onClick: () => {} }
+    const { unmount } = render(<AlertStrip leads={[lead]} counts={COUNTS} print={{ pause: '종이가 없어요.', discard: 0 }} onOpen={() => {}} onToggle={() => {}} />)
+    let buttons = within(screen.getByRole('region', { name: '알림' })).getAllByRole('button')
+    expect(buttons[0]?.textContent).toBe('출력 멈춤 · 종이가 없어요.')
+    expect(buttons[1]?.textContent).toBe(text)
+    unmount()
+    render(<AlertStrip leads={[lead]} counts={COUNTS} onOpen={() => {}} onToggle={() => {}} />)
+    buttons = within(screen.getByRole('region', { name: '알림' })).getAllByRole('button')
+    expect(buttons.map((b) => b.textContent)).toEqual([text])
   })
 })
 
