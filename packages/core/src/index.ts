@@ -1,6 +1,6 @@
 // @livejjim/core — 순수 판정 엔진 (CLAUDE.md 절대 규칙 1, D-024)
 export { NotImplementedError, isNotImplemented } from './not-implemented.ts'
-export { DEFAULT_SETTINGS, checkSettings, resolveSettings, type SaleSettings, type SettingKey, type SettingsOverride, type SettingsProblem } from './settings.ts'
+export { DEFAULT_SETTINGS, PRICE_UNITS, checkSettings, isPriceUnit, resolveSettings, type PriceUnit, type SaleSettings, type SettingKey, type SettingsOverride, type SettingsProblem } from './settings.ts'
 export {
   parseChat,
   parseAmount,

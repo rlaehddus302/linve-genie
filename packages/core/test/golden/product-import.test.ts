@@ -39,10 +39,11 @@ const failing = (core: GoldenCore): string[] =>
     .map((item) => item.input)
 
 describe('AC-I2-50 러너가 product-import를 안다', () => {
-  it('실제 해석 함수로 product-import 26사례(21 + I2 마지막 감사 5 — D-I2-17·21)가 모두 통과하고 파일은 parser/product-import.yaml', () => {
+  // FB1 D-FB1-11: 끝의 TEN_THOUSAND 문서 1사례를 더해 27 (교체 — 약화 아님)
+  it('실제 해석 함수로 product-import 27사례(21 + I2 마지막 감사 5 — D-I2-17·21 + FB1 만원 1 — D-FB1-11)가 모두 통과하고 파일은 parser/product-import.yaml', () => {
     const { items, readErrors } = importItems(realCore)
     expect(readErrors).toBe(0)
-    expect(items).toHaveLength(26)
+    expect(items).toHaveLength(27)
     expect(items.every((item) => item.status === 'pass' && item.file === IMPORT_FILE)).toBe(true)
   })
 

@@ -2,6 +2,18 @@
  * 판매 규칙 설정 (DOMAIN_RULES "판매 규칙 설정표"). 키는 점 표기 그대로 쓴다.
  * 기본값은 이 파일의 `DEFAULT_SETTINGS` 한 곳에서만 정의한다. 파서·엔진·서버는 `resolveSettings`로 채워 쓴다.
  */
+/**
+ * 손으로 적는 가격의 단위 없는 숫자 단위 (R-14 3). 이 순서가 화면 선택지 순서다(원·천원·만원).
+ * TEN_THOUSAND = 만원 단위(FB1, D-FB1-11).
+ */
+export const PRICE_UNITS = Object.freeze(['WON', 'THOUSAND', 'TEN_THOUSAND'] as const)
+export type PriceUnit = (typeof PRICE_UNITS)[number]
+
+/** 저장 값이 가격 단위인가 (서버의 방송 스냅샷 읽기 등에서 쓴다) */
+export function isPriceUnit(value: unknown): value is PriceUnit {
+  return typeof value === 'string' && (PRICE_UNITS as readonly string[]).includes(value)
+}
+
 export interface SaleSettings {
   /** OPTIONS = 상품명·옵션·수량도 읽는 옵션 방송 (R-19·R-20, O1, D-O-02) */
   'claim.parseMode': 'STRICT' | 'LOOSE' | 'OPTIONS'
@@ -16,7 +28,7 @@ export interface SaleSettings {
   'cancel.succession': 'AUTO' | 'ASK' | 'REOPEN'
   'contention.policy': 'ARRIVAL' | 'RECEIVED_TIME'
   'contention.sameMinuteTieBreaker': 'YOUTUBE' | 'SMS' | 'HOST'
-  'price.unit': 'WON' | 'THOUSAND'
+  'price.unit': PriceUnit
   'shipping.baseFee': number
   'shipping.freeThreshold': number | null
   'settlement.groupBy': 'DATE' | 'MANUAL'
@@ -105,7 +117,7 @@ const SETTING_RULES: Readonly<Record<SettingKey, SettingRule>> = {
   'cancel.succession': choice('AUTO', 'ASK', 'REOPEN'),
   'contention.policy': choice('ARRIVAL', 'RECEIVED_TIME'),
   'contention.sameMinuteTieBreaker': choice('YOUTUBE', 'SMS', 'HOST'),
-  'price.unit': choice('WON', 'THOUSAND'),
+  'price.unit': choice(...PRICE_UNITS),
   'shipping.baseFee': int(0, 1_000_000),
   'shipping.freeThreshold': int(0, 100_000_000, true),
   // MANUAL은 형식은 맞지만 아직 지원하지 않는다 — 문제가 아니라 엔진이 미구현을 알린다 (D-059)

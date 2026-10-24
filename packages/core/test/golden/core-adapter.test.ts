@@ -678,15 +678,17 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
 //   +1·+0·+2·+2) = 파일 38 · 파서 596 · 엔진 156 · 통과 752 (실제 pnpm golden 결과, 교체 — 약화 아님, SA-O2-02).
 // O4 통합 확인(track/o4-options-e2e ea73bc6): 파일 38 · 파서 596 · 엔진 156 · 통과 752 + O4(engine/25-o4-integration.yaml G-ENG-O4-01~03, AC-O4-01 —
 //   새 엔진 규칙 없음, O4 +1·+0·+3·+3 (교체 — 약화 아님)) = 파일 39 · 파서 596 · 엔진 159 · 통과 755.
-describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + Y1 + I3 + N2 + I2 + N3 + N5 + N2b-2 + O1 + O3 + O2 + O4 합계)', () => {
-  it('파일 39 · 파서 596 · 엔진 159 · 통과 755, 나머지 0', () => {
+// FB1 D-FB1-11·D-FB1-12(spec 2ea576b): parser/amount.yaml TEN_THOUSAND 21사례·quick-input.yaml 12사례·product-import.yaml 1사례, chat.yaml `132 475` 3사례
+//   — +0·+37·+0·+37 = 파일 39 · 파서 633 · 엔진 159 · 통과 792 (교체 — 약화 아님). product-import 만원 사례는 서버 몫(AC-FB1-04 [server])이 들어와야 통과한다.
+describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + Y1 + I3 + N2 + I2 + N3 + N5 + N2b-2 + O1 + O3 + O2 + O4 + FB1 합계)', () => {
+  it('파일 39 · 파서 633 · 엔진 159 · 통과 792, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
       files: 39,
-      parserCases: 596,
+      parserCases: 633,
       scenarios: 159,
-      pass: 755,
+      pass: 792,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,

@@ -103,3 +103,18 @@
   - 가짜 B1: 라벨 화면을 연 뒤 `window.livejjimTestPrinter.useFakeB1()` + `setUnansweredNegotiations(2)` → "블루투스로 연결". 이 기기의 연결 방법 단추가 바뀌므로 `useFakeB1()`을 부른 뒤 단추를 찾는다.
 - **domain**: 빠른 입력 미리 보기(AC-FB1-03)는 `apps/web/src/lib/quick.ts`의 `registerPreview`가 `decideQuickInput`과 같은 결과다(가격 = `parseQuickInput` 가격, 표시는 `formatWon`).
 - **ux**: 막대의 성공 문장은 바뀐 칸이 없어진 뒤에만 보이고, 다음에 칸을 고치면 사라진다. "다시 연결" 단추는 보통 버튼(라벨 화면 주 버튼 하나 규칙 — AC-N4a-21)이다.
+
+## core — 만원 단위 (AC-FB1-04 [core], D-FB1-11, R-14 3)
+
+### 바뀐 공개 모양 (`@livejjim/core`)
+- `SaleSettings['price.unit']`: `PriceUnit` = `'WON' | 'THOUSAND' | 'TEN_THOUSAND'`. 기본값 `THOUSAND` 그대로. `checkSettings`가 셋을 받고 다른 값은 지금처럼 `price.unit` 문제로 거절(판매 규칙 저장·백업 복구·방송 스냅샷 공용).
+- 새 내보냄: `PRICE_UNITS`(`['WON','THOUSAND','TEN_THOUSAND']` — 화면 선택지 순서 원·천원·만원), `type PriceUnit`, `isPriceUnit(value: unknown): value is PriceUnit`.
+- `parseAmount(text, { 'price.unit': 'TEN_THOUSAND' })`: 단위 없는 숫자가 1000 미만이면 ×10000(`15` → 150000, `1.5` → 15000, `0.0001` → 1), 1000 이상은 원 그대로, `원`·한글 단위는 설정 무시, 원 단위 소수가 남으면 `null`(`1.23456`). 자리 계산(`scaleDecimal`) — 부동소수점 곱셈 없음. `parseQuickInput(text, settings)`는 설정을 그대로 넘긴다(규칙 같음).
+- 모르는 `price.unit` 값(검사를 건너뛴 값)이면 단위 없는 숫자는 `null`(추측하지 않음 — 예전엔 천원으로 읽었다). `원`·한글 단위 글은 그대로 읽는다. 저장·스냅샷은 `checkSettings`를 거치므로 보통은 생기지 않는다.
+- 골든 계약 `price.unit` = `WON / THOUSAND / TEN_THOUSAND`.
+
+### server에게 (남은 몫 — 지금 깨져 있음)
+- `apps/server/src/product-import.ts` `ResolvedSettings.unit` 타입이 `'WON' | 'THOUSAND'`라 `pnpm typecheck`가 69행에서 실패하고, `resolve()`(63행)가 `TEN_THOUSAND`를 기본값 천원으로 바꿔 골든 `product-import.yaml` 만원 문서가 불일치 1(15 → 15,000, 1.5 → 1,500 — 10배 틀린 가격). 고칠 모양: `readonly unit: PriceUnit`, `const unit = isPriceUnit(unitValue) ? unitValue : DEFAULT_SETTINGS['price.unit']`. 이것이 들어오면 `pnpm golden` 불일치 0, core 시험 `core-adapter.test.ts`(합계 파일 39 · 파서 633 · 엔진 159 · 통과 792)·`product-import.test.ts`(27사례) 3건도 통과한다.
+
+### web에게
+- 단위 낱말·선택지는 `PRICE_UNITS` 순서로. 미리 보기는 지금처럼 `parseQuickInput`·`parseAmount`에 방송 스냅샷 설정을 넘기면 만원도 그대로 나온다(웹에서 따로 곱하지 않는다).

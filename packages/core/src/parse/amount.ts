@@ -1,6 +1,6 @@
 // R-14 금액 해석 (빠른 입력·음성 공용, D-029). 애매한 금액은 추측하지 않고 null(다시 입력)로 돌려준다.
 // 결과는 0 이상의 안전한 정수 원(CLAUDE.md 규칙 2). 소수는 문자열 자리 계산으로만 다루고 부동소수점 곱셈을 쓰지 않는다.
-import { resolveSettings, type SettingsOverride } from '../settings.ts'
+import { isPriceUnit, resolveSettings, type PriceUnit, type SettingsOverride } from '../settings.ts'
 import { asText, isAllDigits, isDigitAt, normalizeText, trimTrailingZeros } from './text.ts'
 
 /** 한자어 숫자 일~구 (R-14 4, R-15) */
@@ -64,15 +64,23 @@ function readNumeral(s: string): { intDigits: string; fracDigits: string } | nul
   return { intDigits, fracDigits }
 }
 
-function parseNumeral(s: string, unitIsWon: boolean): number | null {
+/** 단위 없는 숫자가 1000 미만일 때 곱하는 10의 거듭제곱 (R-14 3): 원 0, 천원 3(D-007), 만원 4(D-FB1-11) */
+const SMALL_NUMBER_EXPONENT: Readonly<Record<PriceUnit, number>> = Object.freeze({ WON: 0, THOUSAND: 3, TEN_THOUSAND: 4 })
+
+/** 설정의 price.unit → 곱하는 지수. 모르는 값은 null(추측하지 않는다 — 10배 틀린 가격보다 읽지 못함이 안전하다). */
+function smallNumberExponent(unit: unknown): number | null {
+  return isPriceUnit(unit) ? SMALL_NUMBER_EXPONENT[unit] : null
+}
+
+function parseNumeral(s: string, smallExponent: number): number | null {
   const numeral = readNumeral(s)
   if (numeral === null) return null
   const { intDigits, fracDigits } = numeral
   // Number.MAX_SAFE_INTEGER는 16자리. 그보다 긴 정수부는 볼 필요 없이 범위 밖이다.
   if (intDigits.length > 16) return null
   const int = Number(intDigits)
-  // THOUSAND: 값이 1000 미만이면 천원 단위 (D-007). 정수부가 1000 미만이면 값도 1000 미만이다.
-  const exponent = !unitIsWon && int < 1000 ? 3 : 0
+  // 값이 1000 미만이면 단위만큼 곱한다(천원 D-007, 만원 D-FB1-11). 정수부가 1000 미만이면 값도 1000 미만이다.
+  const exponent = int < 1000 ? smallExponent : 0
   return scaleDecimal(intDigits, fracDigits, exponent)
 }
 
@@ -203,13 +211,16 @@ function isNumeralShape(s: string): boolean {
 
 /** 한글·숫자 금액 → 정수 원 (R-14). 해석 실패는 null. 어떤 문자열에도 예외를 던지지 않는다. */
 export function parseAmount(text: string, settings: SettingsOverride = {}): number | null {
-  const unitIsWon = resolveSettings(settings)['price.unit'] === 'WON'
+  const smallExponent = smallNumberExponent(resolveSettings(settings)['price.unit'])
   let s = normalizeText(asText(text))
   // '원'은 맨 끝에 한 번만(앞 공백 허용). 원이 붙으면 단위 설정과 상관없이 원이다.
   const won = s.endsWith(WON)
   if (won) s = s.slice(0, s.endsWith(` ${WON}`) ? -2 : -1)
   if (s === '' || s.includes(WON)) return null
-  if (isNumeralShape(s)) return parseNumeral(s, unitIsWon || won)
+  if (isNumeralShape(s)) {
+    if (won) return parseNumeral(s, 0)
+    return smallExponent === null ? null : parseNumeral(s, smallExponent)
+  }
   // 한글 단위가 있으면 단위 설정을 무시한다
   return parseKoreanUnits(s)
 }
