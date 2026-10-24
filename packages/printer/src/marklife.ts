@@ -181,15 +181,19 @@ export function createMarklifeAdapter(options: MarklifeAdapterOptions = {}): Mar
     const bluetooth = env.bluetooth
     if (method !== 'bluetooth' || typeof bluetooth?.requestDevice !== 'function') return unsupported(env)
     box.set('CONNECTING')
+    /** getAvailability()가 false였다 — 그래도 한 번 시도하고, 실패하면 BLUETOOTH_OFF (D-QS1-03, L-12 3) */
+    let reportedOff = false
     const giveUp = (code: MarklifeErrorCode, cause?: unknown): PrinterResult => {
       if (!stale()) box.set('DISCONNECTED')
+      // 브라우저도 꺼졌다고 했고 시도도 안 됐다. 목록 밖 프린터를 고른 것(WRONG_MODEL)은 블루투스가 된 것이라 그대로 알린다
+      if (reportedOff && !stale() && code !== 'WRONG_MODEL') return fail('BLUETOOTH_OFF')
       return fail(code, cause)
     }
     if (typeof bluetooth.getAvailability === 'function') {
-      // 확인할 수 없으면(예외) 연결을 시도해 본다
+      // 확인할 수 없으면(예외) 연결을 시도해 본다. false여도 시도한다(윈도우 크롬 오판 — D-QS1-03)
       const available = await bluetooth.getAvailability().catch(() => true)
       if (stale()) return fail('DISCONNECTED')
-      if (!available) return giveUp('BLUETOOTH_OFF')
+      if (!available) reportedOff = true
     }
     const request: BluetoothRequestOptions = {
       filters: profiles.map((p) => ({ namePrefix: p.namePrefix as string })),

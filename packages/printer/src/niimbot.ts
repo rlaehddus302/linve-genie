@@ -6,15 +6,17 @@ import { getPixel, isLabelBitmap, type LabelBitmap } from '@livejjim/label'
 import {
   DEFAULT_PRINT_TIMEOUT_MS,
   ENABLED_PROFILES,
+  RememberBox,
   StateBox,
   systemTimer,
   withBlankRows,
   type ConnectionMethod,
   type ConnectionState,
   type PrintOptions,
-  type PrinterAdapter,
   type PrinterProfile,
   type PrinterTimer,
+  type RememberedPrinter,
+  type RememberingPrinterAdapter,
 } from './adapter.ts'
 import { OK, fail, isTimeoutCause, modelDetail, retriedTimeoutDetail, type PrinterErrorCode, type PrinterResult } from './errors.ts'
 
@@ -36,10 +38,10 @@ export interface NiimbotTaskOptions {
 /** niimbluelib 클라이언트(NiimbotBluetoothClient·NiimbotSerialClient)에서 이 어댑터가 쓰는 부분 */
 export interface NiimbotClientLike {
   /**
-   * 연결 — authorizedDevice를 주면 고르기 창을 띄우지 않고 그 기기로 잇는다(niimbluelib NiimbotBluetoothClient와 같다).
-   * 시리얼 클라이언트는 인자를 보지 않는다
+   * 연결 — authorizedDevice(블루투스)·authorizedPort(USB)를 주면 고르기 창을 띄우지 않고 그 기기·포트로 잇는다
+   * (niimbluelib NiimbotBluetoothClient·NiimbotSerialClient와 같다). 주지 않으면 클라이언트가 고르기 창을 띄운다
    */
-  connect(options?: { readonly authorizedDevice?: unknown }): Promise<unknown>
+  connect(options?: { readonly authorizedDevice?: unknown; readonly authorizedPort?: unknown }): Promise<unknown>
   disconnect(): Promise<void>
   isConnected(): boolean
   /** 연결한 프린터의 모델 정보 (모르면 undefined) */
@@ -51,8 +53,43 @@ export interface NiimbotClientLike {
 
 /** 기능 감지에 쓰는 환경 (브라우저의 navigator.bluetooth·navigator.serial) */
 export interface PrinterEnvironment {
-  readonly bluetooth?: { readonly requestDevice?: unknown; getAvailability?(): Promise<boolean> }
-  readonly serial?: { readonly requestPort?: unknown }
+  /** getDevices는 있을 때만 쓴다(크롬 기본값엔 없을 수 있다) — 새로고침 뒤 기억한 기기 ID 찾기 (D-QS1-01 (3)) */
+  readonly bluetooth?: { readonly requestDevice?: unknown; getAvailability?(): Promise<boolean>; getDevices?(): Promise<readonly unknown[]> }
+  /** getPorts — 새로고침 뒤 기억한 USB 제조사·제품 번호의 포트 찾기 (D-QS1-01 (3)) */
+  readonly serial?: { readonly requestPort?: unknown; getPorts?(): Promise<readonly unknown[]> }
+}
+
+/** 블루투스 기기의 ID (Web Bluetooth BluetoothDevice.id) — 없으면 null */
+export function bluetoothDeviceId(device: unknown): string | null {
+  if (typeof device !== 'object' || device === null) return null
+  const id = (device as { id?: unknown }).id
+  return typeof id === 'string' && id !== '' ? id : null
+}
+
+/** USB 포트의 제조사·제품 번호 (Web Serial SerialPort.getInfo()) — 없거나 예외면 null */
+export function serialPortIds(port: unknown): { readonly usbVendorId: number; readonly usbProductId: number } | null {
+  if (typeof port !== 'object' || port === null) return null
+  const getInfo = (port as { getInfo?: unknown }).getInfo
+  if (typeof getInfo !== 'function') return null
+  try {
+    const info = getInfo.call(port) as { usbVendorId?: unknown; usbProductId?: unknown } | undefined
+    const vendor = info?.usbVendorId
+    const product = info?.usbProductId
+    if (typeof vendor !== 'number' || typeof product !== 'number') return null
+    return { usbVendorId: vendor, usbProductId: product }
+  } catch {
+    return null
+  }
+}
+
+/** 이은 기기 → 저장소에 둘 값 (알아볼 값이 없으면 null) */
+function rememberedValueOf(method: ConnectionMethod, target: unknown): RememberedPrinter | null {
+  if (method === 'bluetooth') {
+    const id = bluetoothDeviceId(target)
+    return id === null ? null : { method: 'bluetooth', deviceId: id }
+  }
+  const ids = serialPortIds(target)
+  return ids === null ? null : { method: 'serial', ...ids }
 }
 
 /** 지금 브라우저의 환경 (부를 때 읽는다) */
@@ -128,7 +165,7 @@ function connectErrorCode(error: unknown, method: ConnectionMethod): PrinterErro
 }
 
 /** NIIMBOT 어댑터 (켠 프로필 목록에 있는 모델만 받는다) */
-export function createNiimbotAdapter(options: NiimbotAdapterOptions = {}): PrinterAdapter {
+export function createNiimbotAdapter(options: NiimbotAdapterOptions = {}): RememberingPrinterAdapter {
   const profiles = options.profiles ?? ENABLED_PROFILES
   const first = profiles[0]
   if (!first) throw new Error('프로필이 하나도 없다')
@@ -170,41 +207,100 @@ export function createNiimbotAdapter(options: NiimbotAdapterOptions = {}): Print
       }
     })
 
-  const connectOnce = async (method: ConnectionMethod): Promise<PrinterResult> => {
+  /** 마지막으로 연결에 성공한 기기 (D-QS1-01) */
+  const memory = new RememberBox<unknown>()
+
+  /**
+   * 기억한 기기를 지금 얻는다 — 페이지 안의 객체가 있으면 그것, 새로고침 뒤면 getDevices(블루투스, 있을 때만)·getPorts(USB —
+   * 같은 번호가 정확히 하나일 때만)로 찾는다. 못 얻으면 undefined
+   */
+  const rememberedTarget = async (env: PrinterEnvironment, method: ConnectionMethod): Promise<unknown> => {
+    if (memory.methodOf !== method) return undefined
+    if (memory.object !== undefined) return memory.object
+    const saved = memory.value
+    if (saved === null) return undefined
+    if (saved.method === 'bluetooth') {
+      const getDevices = env.bluetooth?.getDevices
+      if (typeof getDevices !== 'function') return undefined
+      const devices = await Promise.resolve()
+        .then(() => getDevices.call(env.bluetooth))
+        .catch(() => [] as readonly unknown[])
+      return (Array.isArray(devices) ? devices : []).find((d) => bluetoothDeviceId(d) === saved.deviceId)
+    }
+    const getPorts = env.serial?.getPorts
+    if (typeof getPorts !== 'function') return undefined
+    const ports = await Promise.resolve()
+      .then(() => getPorts.call(env.serial))
+      .catch(() => [] as readonly unknown[])
+    const same = (Array.isArray(ports) ? ports : []).filter((port) => {
+      const ids = serialPortIds(port)
+      return ids !== null && ids.usbVendorId === saved.usbVendorId && ids.usbProductId === saved.usbProductId
+    })
+    return same.length === 1 ? same[0] : undefined
+  }
+
+  /**
+   * 연결 시도 하나. mode: pick = 늘 고르기 창(연결 방법 단추) · prefer = 기억한 기기가 있으면 그것, 없으면 고르기 창("다시 연결") ·
+   * only = 기억한 기기로만(저절로 다시 잇기 — 고르기 창 없음)
+   */
+  const connectOnce = async (method: ConnectionMethod, mode: 'pick' | 'prefer' | 'only'): Promise<PrinterResult> => {
     const started = generation
     const stale = (): boolean => generation !== started
     const env = environment()
     if (!detectMethods(env).includes(method)) return fail('UNSUPPORTED')
+    if (mode === 'only' && !memory.has) return fail('DISCONNECTED')
     box.set('CONNECTING')
+    /** getAvailability()가 false였다 — 그래도 한 번 시도하고, 실패하면 BLUETOOTH_OFF (D-QS1-03) */
+    let reportedOff = false
+    /** 기억한 기기로 잇는 시도인지 */
+    let usingMemory = false
     /** 실패로 끝낸다 — 연결하는 동안 판매자가 끊기를 눌렀으면 언제나 DISCONNECTED(원인 없음) */
     const giveUp = (code: PrinterErrorCode, cause?: unknown): PrinterResult => {
       if (stale()) return fail('DISCONNECTED')
       box.set('DISCONNECTED')
+      // "다시 연결"로 기억한 기기에 이은 시도가 실패하면 기억을 지운다 — 다음 "다시 연결"은 고르기 창부터 (D-QS1-01 (4))
+      if (usingMemory && mode === 'prefer') memory.forget()
+      // 브라우저도 꺼졌다고 했고 시도도 안 됐다 — 블루투스를 켜 보라는 안내 (D-QS1-03). 다른 모델을 고른 것은 블루투스가 된 것이다
+      if (reportedOff && code !== 'WRONG_MODEL') return fail('BLUETOOTH_OFF')
       return fail(code, cause)
     }
     if (method === 'bluetooth' && typeof env.bluetooth?.getAvailability === 'function') {
-      // 확인할 수 없으면(예외) 연결을 시도해 본다
+      // 확인할 수 없으면(예외) 지금처럼 시도해 본다. false여도 시도한다(윈도우 크롬 오판 — D-QS1-03)
       const available = await env.bluetooth.getAvailability().catch(() => true)
-      if (!available) return giveUp('BLUETOOTH_OFF')
+      if (!available) reportedOff = true
     }
     if (stale()) return fail('DISCONNECTED')
+    /** 고르기 창 없이 이을 기기·포트 */
+    const target = mode === 'pick' ? undefined : await rememberedTarget(env, method)
+    if (stale()) return fail('DISCONNECTED')
+    if (mode === 'only' && target === undefined) {
+      // 기억한 기기를 지금 얻을 수 없다 — 시도하지 않는다(기억은 그대로)
+      box.set('DISCONNECTED')
+      return fail('DISCONNECTED')
+    }
+    usingMemory = target !== undefined
     let next: NiimbotClientLike
     try {
       next = createClient(method)
     } catch (error) {
       return giveUp(connectErrorCode(error, method), error)
     }
-    /** 판매자가 고른 기기 (블루투스 — 다시 잇기에 쓴다) */
-    let device: unknown
+    /** 이은 기기 (블루투스 기기·USB 포트 — 다시 잇기와 기억에 쓴다) */
+    let device: unknown = target
+    const linkOptions = (picked: unknown): { authorizedDevice: unknown } | { authorizedPort: unknown } | undefined =>
+      picked === undefined || picked === null ? undefined : method === 'bluetooth' ? { authorizedDevice: picked } : { authorizedPort: picked }
     try {
-      if (method === 'bluetooth') {
+      if (target === undefined && method === 'bluetooth') {
         const requestDevice = env.bluetooth?.requestDevice as (options: ReturnType<typeof niimbotRequestOptions>) => Promise<unknown>
         device = await requestDevice.call(env.bluetooth, niimbotRequestOptions())
         if (stale()) return fail('DISCONNECTED')
-        await next.connect(device === undefined || device === null ? undefined : { authorizedDevice: device })
-      } else {
-        await next.connect()
+      } else if (target === undefined) {
+        // USB 고르기 창도 어댑터가 띄운다 — 고른 포트를 기억하려고 (niimbluelib도 거르기 없이 requestPort()를 부른다)
+        const requestPort = env.serial?.requestPort as () => Promise<unknown>
+        device = await requestPort.call(env.serial)
+        if (stale()) return fail('DISCONNECTED')
       }
+      await next.connect(linkOptions(device))
     } catch (firstError) {
       if (stale()) return fail('DISCONNECTED')
       const code = connectErrorCode(firstError, method)
@@ -231,32 +327,61 @@ export function createNiimbotAdapter(options: NiimbotAdapterOptions = {}): Print
     const matched = profiles.find((p) => p.model === model)
     if (!matched) {
       await next.disconnect().catch(() => undefined)
+      // WRONG_MODEL은 기억하지 않는다 (D-QS1-01 (4))
       return giveUp('WRONG_MODEL', model === undefined ? undefined : modelDetail(model))
     }
     profile = matched
     client = next
     next.on('disconnect', onDisconnect)
+    // 기억 = 마지막으로 연결에 성공한 기기. 고른 기기를 모르면(클라이언트가 직접 고름) 기억할 것이 없다
+    if (device === undefined || device === null) memory.forget()
+    else memory.remember(method, device, rememberedValueOf(method, device))
     box.set('CONNECTED')
     return OK
   }
 
-  const adapter: PrinterAdapter = {
+  /** 연결 중에 또 부르면 같은 연결을 기다린다 (세 길 모두 — 시도는 하나) */
+  const start = (method: ConnectionMethod, mode: 'pick' | 'prefer' | 'only'): Promise<PrinterResult> => {
+    if (box.state === 'CONNECTED' || box.state === 'PRINTING') return Promise.resolve(OK)
+    connecting ??= connectOnce(method, mode).finally(() => {
+      connecting = undefined
+    })
+    return connecting
+  }
+
+  const adapter: RememberingPrinterAdapter = {
     get profile() {
       return profile
     },
     get state(): ConnectionState {
       return box.state
     },
+    get hasRemembered() {
+      return memory.has
+    },
+    get remembered() {
+      return memory.value
+    },
     onStateChange: (listener) => box.listen(listener),
+    onRememberedChange: (listener) => memory.listen(listener),
     availableMethods: () => detectMethods(environment()),
 
-    connect(method) {
-      if (box.state === 'CONNECTED' || box.state === 'PRINTING') return Promise.resolve(OK)
-      // 연결 중에 또 누르면 같은 연결을 기다린다
-      connecting ??= connectOnce(method).finally(() => {
-        connecting = undefined
-      })
-      return connecting
+    restoreRemembered(value) {
+      memory.restore(value)
+    },
+
+    connect: (method) => start(method, 'pick'),
+
+    reconnect: (method) => start(method, 'prefer'),
+
+    connectRemembered() {
+      if (connecting) return connecting
+      const method = memory.methodOf
+      if (method === undefined || !memory.has) {
+        if (box.state === 'CONNECTED' || box.state === 'PRINTING') return Promise.resolve(OK)
+        return Promise.resolve(fail('DISCONNECTED'))
+      }
+      return start(method, 'only')
     },
 
     async disconnect() {
@@ -332,6 +457,6 @@ export function createNiimbotAdapter(options: NiimbotAdapterOptions = {}): Print
 }
 
 /** B1 어댑터 (켠 프로필 = B1 하나) */
-export function createB1Adapter(options: Omit<NiimbotAdapterOptions, 'profiles'> = {}): PrinterAdapter {
+export function createB1Adapter(options: Omit<NiimbotAdapterOptions, 'profiles'> = {}): RememberingPrinterAdapter {
   return createNiimbotAdapter({ ...options, profiles: ENABLED_PROFILES })
 }

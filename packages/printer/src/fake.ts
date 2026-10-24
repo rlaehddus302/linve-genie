@@ -5,16 +5,30 @@ import { copyBitmap, isLabelBitmap, type LabelBitmap } from '@livejjim/label'
 import {
   B1_PROFILE,
   DEFAULT_PRINT_TIMEOUT_MS,
+  RememberBox,
   StateBox,
+  sameRememberedPrinter,
   systemTimer,
   type ConnectionMethod,
   type ConnectionState,
   type PrintOptions,
-  type PrinterAdapter,
   type PrinterProfile,
   type PrinterTimer,
+  type RememberedPrinter,
+  type RememberingPrinterAdapter,
 } from './adapter.ts'
 import { OK, fail, type PrinterErrorCode, type PrinterResult } from './errors.ts'
+import { FAKE_B1_USB_PRODUCT_ID, FAKE_B1_USB_VENDOR_ID } from './fake-serial.ts'
+
+/** 시험용 프린터를 기억할 때의 값 (블루투스 기기 ID) */
+export const FAKE_PRINTER_DEVICE_ID = 'fake-printer'
+
+/** 시험용 프린터의 연결 방법마다의 기억 값 */
+export function fakePrinterRemembered(method: ConnectionMethod): RememberedPrinter {
+  return method === 'bluetooth'
+    ? { method: 'bluetooth', deviceId: FAKE_PRINTER_DEVICE_ID }
+    : { method: 'serial', usbVendorId: FAKE_B1_USB_VENDOR_ID, usbProductId: FAKE_B1_USB_PRODUCT_ID }
+}
 
 /** n번째 출력에서 낼 일: 끊김 · 프린터 오류(PRINT_FAILED) · 지연(그 뒤 성공, 시간 초과보다 길면 TIMEOUT) */
 export type FakePrintBehavior = 'disconnect' | 'fail' | { readonly delayMs: number }
@@ -37,11 +51,17 @@ export interface FakePrinterOptions {
   readonly printTimeoutMs?: number
 }
 
-export interface FakePrinter extends PrinterAdapter {
+export interface FakePrinter extends RememberingPrinterAdapter {
   /** 끝까지 출력한 그림들 (받은 순서) */
   readonly printed: readonly FakePrintRecord[]
   /** print를 부른 횟수 (거절 포함하지 않음 — 보내기 시작한 출력만 센다) */
   readonly printCalls: number
+  /** 연결 시도 수 (고르기 창 길·기억한 기기 길 모두 — 시도하지 않고 끝난 것은 세지 않는다) */
+  readonly connectAttempts: number
+  /** 고르기 창을 거친 연결 시도 수 (B1의 requestDevice 횟수에 해당) */
+  readonly pickerCount: number
+  /** 기억한 기기로 이은 시도 수 (고르기 창 없음) */
+  readonly rememberedAttempts: number
   /** 지금 연결이 끊긴 것처럼 한다 (출력 중이면 그 출력은 DISCONNECTED) */
   simulateDisconnect(): void
   /** n번째 출력에서 낼 일을 정한다 */
@@ -63,11 +83,63 @@ export function createFakePrinter(options: FakePrinterOptions = {}): FakePrinter
   let interrupt: (() => void) | undefined
   /** 끊길 때마다 늘린다 — 출력 결과가 정해진 뒤 끊겼는지(B1 어댑터의 `client !== current`와 같은 판단) */
   let session = 0
+  /** 판매자가 연결 끊기를 누를 때마다 늘린다 — 그 전에 시작한 연결은 붙지 않는다 (B1 어댑터의 generation과 같다) */
+  let generation = 0
+  let connecting: Promise<PrinterResult> | undefined
+  let connectAttempts = 0
+  let pickerCount = 0
+  let rememberedAttempts = 0
+  /** 마지막으로 연결에 성공한 연결 방법 (D-QS1-01) */
+  const memory = new RememberBox<ConnectionMethod>()
 
   const disconnectNow = (): void => {
     session++
     interrupt?.()
     box.set('DISCONNECTED')
+  }
+
+  /** 기억한 기기를 지금 얻을 수 있는지 — 페이지 안의 기억이거나, 되살린 값이 이 시험용 프린터의 값일 때 */
+  const rememberedFor = (method: ConnectionMethod): boolean => {
+    if (memory.methodOf !== method) return false
+    if (memory.object !== undefined) return true
+    return sameRememberedPrinter(memory.value, fakePrinterRemembered(method))
+  }
+
+  /**
+   * 연결 시도 하나 (시도하지 않고 끝나는 경우는 start가 먼저 거른다). 기다림은 한 번뿐이다 — 지금까지의 시험용 프린터와 같은 때에
+   * 연결된다(출력 기기 시험들이 이 때에 기대고 있다)
+   */
+  const connectOnce = async (method: ConnectionMethod, usingMemory: boolean, mode: 'pick' | 'prefer' | 'only'): Promise<PrinterResult> => {
+    const started = generation
+    box.set('CONNECTING')
+    connectAttempts++
+    if (usingMemory) rememberedAttempts++
+    else pickerCount++
+    await Promise.resolve()
+    connecting = undefined
+    if (generation !== started) return fail('DISCONNECTED')
+    if (connectError) {
+      box.set('DISCONNECTED')
+      // "다시 연결"로 기억한 기기에 이은 시도가 실패하면 기억을 지운다 (D-QS1-01 (4))
+      if (usingMemory && mode === 'prefer') memory.forget()
+      return fail(connectError)
+    }
+    memory.remember(method, method, fakePrinterRemembered(method))
+    box.set('CONNECTED')
+    return OK
+  }
+
+  /** 연결 중에 또 부르면 같은 연결을 기다린다 (세 길 모두 — 시도는 하나) */
+  const start = (method: ConnectionMethod, mode: 'pick' | 'prefer' | 'only'): Promise<PrinterResult> => {
+    if (box.state === 'CONNECTED' || box.state === 'PRINTING') return Promise.resolve(OK)
+    if (connecting) return connecting
+    if (!methods.includes(method)) return Promise.resolve(fail('UNSUPPORTED'))
+    const usingMemory = mode !== 'pick' && rememberedFor(method)
+    // 기억한 기기로만 잇기 — 얻을 수 없으면 시도하지 않는다(기억은 그대로)
+    if (mode === 'only' && !usingMemory) return Promise.resolve(fail('DISCONNECTED'))
+    const attempt = connectOnce(method, usingMemory, mode)
+    connecting = attempt
+    return attempt
   }
 
   return {
@@ -83,23 +155,45 @@ export function createFakePrinter(options: FakePrinterOptions = {}): FakePrinter
     get printCalls() {
       return calls
     },
+    get connectAttempts() {
+      return connectAttempts
+    },
+    get pickerCount() {
+      return pickerCount
+    },
+    get rememberedAttempts() {
+      return rememberedAttempts
+    },
+    get hasRemembered() {
+      return memory.has
+    },
+    get remembered() {
+      return memory.value
+    },
     onStateChange: (listener) => box.listen(listener),
+    onRememberedChange: (listener) => memory.listen(listener),
     availableMethods: () => [...methods],
 
-    async connect(method) {
-      if (box.state === 'CONNECTED' || box.state === 'PRINTING') return OK
-      if (!methods.includes(method)) return fail('UNSUPPORTED')
-      box.set('CONNECTING')
-      await Promise.resolve()
-      if (connectError) {
-        box.set('DISCONNECTED')
-        return fail(connectError)
+    restoreRemembered(value) {
+      memory.restore(value)
+    },
+
+    connect: (method) => start(method, 'pick'),
+
+    reconnect: (method) => start(method, 'prefer'),
+
+    connectRemembered() {
+      if (connecting) return connecting
+      const method = memory.methodOf
+      if (method === undefined || !memory.has) {
+        if (box.state === 'CONNECTED' || box.state === 'PRINTING') return Promise.resolve(OK)
+        return Promise.resolve(fail('DISCONNECTED'))
       }
-      box.set('CONNECTED')
-      return OK
+      return start(method, 'only')
     },
 
     async disconnect() {
+      generation++
       disconnectNow()
       await Promise.resolve()
     },

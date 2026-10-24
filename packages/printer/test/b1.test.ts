@@ -127,13 +127,20 @@ describe('B1 어댑터 — 기능 감지와 연결 (AC-P1-41)', () => {
     expect(!r.ok && r.error.detail).toBeUndefined() // FB1 D-FB1-09 — 상세에 원래 예외 글을 넣지 않는다
   })
 
-  it('블루투스를 쓸 수 없으면(getAvailability false) BLUETOOTH_OFF, 클라이언트를 만들지 않는다', async () => {
-    const env: PrinterEnvironment = { bluetooth: { requestDevice: () => undefined, getAvailability: async () => false } }
+  // QS1 D-QS1-03 — getAvailability false여도 한 번 시도한다. 전: "false면 BLUETOOTH_OFF, 클라이언트를 만들지 않는다"
+  it('블루투스를 쓸 수 없으면(getAvailability false) 한 번 시도하고, 시도도 실패하면 BLUETOOTH_OFF', async () => {
+    const env: PrinterEnvironment = {
+      bluetooth: { requestDevice: () => Promise.reject(domError('NotFoundError', 'User cancelled the requestDevice() chooser.')), getAvailability: async () => false },
+    }
     const { adapter, made } = setup(env)
     const r = await adapter.connect('bluetooth')
     expect(!r.ok && r.error).toEqual({ code: 'BLUETOOTH_OFF', message: PRINTER_MESSAGES.BLUETOOTH_OFF })
-    expect(made).toEqual([])
+    expect(made).toEqual(['bluetooth']) // QS1 D-QS1-03 — 시도했다
     expect(adapter.state).toBe('DISCONNECTED')
+    // QS1 D-QS1-03 — false인데 시도는 됨(윈도우 오판): 연결된다
+    const misjudged = setup({ bluetooth: { requestDevice: () => undefined, getAvailability: async () => false } })
+    expect(await misjudged.adapter.connect('bluetooth')).toEqual({ ok: true })
+    expect(misjudged.adapter.state).toBe('CONNECTED')
     // 어댑터가 꺼져 있다는 예외도 같다
     const client = new FakeNiimbotClient()
     client.connectError = domError('NotFoundError', 'Bluetooth adapter not available.')

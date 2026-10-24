@@ -298,7 +298,7 @@ describe('연결 실패와 문장 (AC-N1-33·34)', () => {
     expect(cancel.states).toEqual(['CONNECTING', 'DISCONNECTED'])
     const off = setup({ available: false })
     expect(await off.adapter.connect('bluetooth')).toEqual({ ok: false, error: { code: 'BLUETOOTH_OFF', message: '블루투스가 꺼져 있어요. 블루투스를 켠 뒤 다시 연결해 주세요.' } })
-    expect(off.fake.requests).toHaveLength(0)
+    expect(off.fake.requests).toHaveLength(1) // QS1 D-QS1-03 — getAvailability false여도 고르기 창을 한 번 시도한다(장치가 정말 꺼져 실패)
     const broken = setup({ connectFails: true })
     const r = await broken.adapter.connect('bluetooth')
     // FB1 D-FB1-09 — 연결 중 예외는 CONNECT_FAILED, 상세 없음

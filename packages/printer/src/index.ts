@@ -4,6 +4,10 @@
 export {
   B1_PROFILE,
   CONNECTION_STATES,
+  RememberBox,
+  isRememberingAdapter,
+  parseRememberedPrinter,
+  sameRememberedPrinter,
   CONNECTION_STATE_NAMES,
   DEFAULT_PRINT_TIMEOUT_MS,
   ENABLED_PROFILES,
@@ -21,6 +25,8 @@ export {
   type PrinterProtocol,
   type PrinterRotate,
   type PrinterTimer,
+  type RememberedPrinter,
+  type RememberingPrinterAdapter,
 } from './adapter.ts'
 export {
   MARKLIFE_MESSAGES,
@@ -77,6 +83,7 @@ export {
 } from './bluetooth.ts'
 export { MARKLIFE_DEFAULTS, createMarklifeAdapter, type MarklifeAdapter, type MarklifeAdapterOptions } from './marklife.ts'
 export {
+  FAKE_GATT_CONNECT_FAILED_MESSAGE,
   NIIMBOT_NEGOTIATE_TIMEOUT_MESSAGE,
   createFakeBluetooth,
   createFakeNiimbotBluetooth,
@@ -94,6 +101,7 @@ export {
 export {
   NIIMBOT_BLE_SERVICES,
   NIIMBOT_RECONNECT_DELAY_MS,
+  bluetoothDeviceId,
   browserEnvironment,
   createB1Adapter,
   createNiimbotAdapter,
@@ -101,13 +109,33 @@ export {
   detectMethods,
   encodeForNiimbot,
   niimbotRequestOptions,
+  serialPortIds,
   type NiimbotAdapterOptions,
   type NiimbotClientLike,
   type NiimbotPrintTaskLike,
   type NiimbotTaskOptions,
   type PrinterEnvironment,
 } from './niimbot.ts'
-export { createFakePrinter, type FakePrintBehavior, type FakePrintRecord, type FakePrinter, type FakePrinterOptions } from './fake.ts'
+export {
+  FAKE_PRINTER_DEVICE_ID,
+  createFakePrinter,
+  fakePrinterRemembered,
+  type FakePrintBehavior,
+  type FakePrintRecord,
+  type FakePrinter,
+  type FakePrinterOptions,
+} from './fake.ts'
+export {
+  FAKE_B1_USB_PRODUCT_ID,
+  FAKE_B1_USB_VENDOR_ID,
+  combineNiimbotFakes,
+  createFakeNiimbotSerial,
+  type FakeNiimbotSerial,
+  type FakeNiimbotSerialOptions,
+  type FakeNiimbotSerialPrint,
+  type FakeSerialPort,
+  type FakeSerialPortOptions,
+} from './fake-serial.ts'
 export {
   JOB_STATUS_NAMES,
   PAUSE_MESSAGES,

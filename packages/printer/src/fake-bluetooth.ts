@@ -50,6 +50,11 @@ export interface FakeBluetoothOptions {
   readonly missingCharacteristics?: readonly string[]
   /** getAvailability() 값 (기본 true) */
   readonly available?: boolean
+  /**
+   * 블루투스 장치가 정말 꺼짐 — requestDevice가 `NotFoundError`(Bluetooth adapter not available.), gatt.connect()가 실패한다.
+   * 기본은 getAvailability() 값을 따른다(false면 꺼짐). `available: false, adapterOff: false` = 윈도우 크롬 오판(실제로는 이어진다 — D-QS1-03)
+   */
+  readonly adapterOff?: boolean
   /** getAvailability가 있는지 (기본 true) */
   readonly hasAvailability?: boolean
   /** 고르기 창에서: 기기를 고른다(기본) · 창을 닫는다(NotFoundError) */
@@ -125,6 +130,8 @@ export interface FakeBluetooth {
   readonly stalledWrites: number
   setJob(n: number, behavior: FakeJobBehavior | undefined): void
   setAvailable(available: boolean): void
+  /** 블루투스 장치 꺼짐을 정한다. undefined면 getAvailability() 값을 따른다 */
+  setAdapterOff(off: boolean | undefined): void
   setChooser(chooser: 'pick' | 'cancel'): void
   setConnectFails(fails: boolean): void
 }
@@ -200,6 +207,8 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
     options.protocol ??
     ((profileForDeviceName(name, [...MARKLIFE_PROFILES, ...EXPERIMENTAL_PROFILES])?.protocol ?? 'MARKLIFE_YXQ2') as Exclude<PrinterProtocol, 'NIIMBOT_B1'>)
   let available = options.available ?? true
+  let adapterOffSetting = options.adapterOff
+  const adapterOff = (): boolean => adapterOffSetting ?? !available
   let chooser = options.chooser ?? 'pick'
   let connectFails = options.connectFails ?? false
   const initialCredits = options.initialCredits === undefined ? 4 : options.initialCredits
@@ -323,7 +332,7 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
       return connected
     },
     connect: () => {
-      if (connectFails) return Promise.reject(new FakeError('NetworkError', '연결하지 못했다'))
+      if (connectFails || adapterOff()) return Promise.reject(new FakeError('NetworkError', '연결하지 못했다'))
       connected = true
       connectCount++
       return Promise.resolve(server)
@@ -450,6 +459,7 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
   const bluetooth: BluetoothLike = {
     requestDevice: (request) => {
       requests.push({ filters: request.filters.map((f) => ({ ...f })), optionalServices: [...request.optionalServices] })
+      if (adapterOff()) return Promise.reject(new FakeError('NotFoundError', 'Bluetooth adapter not available.'))
       if (chooser === 'cancel' || (options.respectFilters === true && !nameMatches(request))) {
         return Promise.reject(new FakeError('NotFoundError', 'User cancelled the requestDevice() chooser.'))
       }
@@ -506,6 +516,9 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
     setAvailable: (value) => {
       available = value
     },
+    setAdapterOff: (value) => {
+      adapterOffSetting = value
+    },
     setChooser: (value) => {
       chooser = value
     },
@@ -536,6 +549,19 @@ export interface FakeNiimbotBluetoothOptions {
   readonly chooser?: 'pick' | 'cancel'
   /** getAvailability() 값 (기본 true) */
   readonly available?: boolean
+  /**
+   * 블루투스 장치가 정말 꺼짐 — 고르기 창이 `NotFoundError`(Bluetooth adapter not available.), 기억한 기기 잇기도 실패한다.
+   * 기본은 getAvailability() 값을 따른다(false면 꺼짐). `available: false, adapterOff: false` = 윈도우 크롬 오판(D-QS1-03)
+   */
+  readonly adapterOff?: boolean
+  /** 블루투스 기기 ID (Web Bluetooth BluetoothDevice.id, 기본 `fake-b1-01`) — 새로고침 뒤 getDevices로 찾는 값 */
+  readonly id?: string
+  /** 프린터 전원 (기본 켜짐). 꺼지면 이어진 연결이 끊기고, 다시 잇기(connect)가 실패하고, 고르기 창에 기기가 없다(닫음) */
+  readonly powered?: boolean
+  /** navigator.bluetooth.getDevices — 없음(기본 — 크롬 기본값) · 있음 · 있지만 예외 */
+  readonly getDevices?: boolean | 'throws'
+  /** 이미 허락된 기기인지 (getDevices가 돌려준다, 기본 false — 고르기 창에서 고르면 허락됨) — 새로고침 뒤를 흉내 낸다 */
+  readonly permitted?: boolean
   readonly timer?: PrinterTimer
 }
 
@@ -555,27 +581,49 @@ export interface FakeNiimbotBluetooth {
   readonly connectAttempts: number
   /** connect()마다 받은 기기 — 고른 기기를 넘겼으면 그 기기, 안 넘겼으면 undefined */
   readonly authorizedDevices: readonly unknown[]
-  /** 고르기 창이 돌려주는 기기 */
-  readonly device: { readonly name: string }
+  /** 고르기 창·getDevices가 돌려주는 기기 (늘 같은 객체) */
+  readonly device: { readonly name: string; readonly id: string }
   /** 아직 답하지 않을 협상 수 */
   readonly unansweredNegotiations: number
   readonly connected: boolean
+  /** 프린터 전원 */
+  readonly powered: boolean
+  /** 허락된 기기인지 (getDevices가 돌려주는지) */
+  readonly permitted: boolean
+  /** getDevices를 부른 횟수 */
+  readonly getDevicesCalls: number
   /** 받은 인쇄 (받은 순서) */
   readonly printed: readonly FakeNiimbotPrint[]
   setUnansweredNegotiations(n: number): void
   setChooser(chooser: 'pick' | 'cancel'): void
   setAvailable(available: boolean): void
-  /** 프린터 쪽에서 끊긴다 */
+  /** 블루투스 장치 꺼짐을 정한다. undefined면 getAvailability() 값을 따른다 */
+  setAdapterOff(off: boolean | undefined): void
+  /** 프린터 전원 — 끄면 이어진 연결이 끊기고 다시 잇기를 거절한다, 켜면 다시 잇기를 받는다 */
+  setPowered(on: boolean): void
+  /** getDevices 없음·있음·예외 (환경 객체는 그대로 — 부를 때 본다) */
+  setGetDevices(mode: boolean | 'throws'): void
+  setPermitted(permitted: boolean): void
+  /** 프린터 쪽에서 끊긴다 (전원은 그대로 — 다시 잇기를 받는다) */
   disconnect(): void
 }
 
+/** 꺼진 프린터에 잇는 GATT 실패 글 (크롬이 내는 글과 같은 꼴 — 시간 초과가 아니라 다시 잇지 않는다) */
+export const FAKE_GATT_CONNECT_FAILED_MESSAGE = 'Connection failed for unknown reason.'
+
 export function createFakeNiimbotBluetooth(options: FakeNiimbotBluetoothOptions = {}): FakeNiimbotBluetooth {
   const timer = options.timer ?? systemTimer
-  const device = Object.freeze({ name: options.name ?? 'B1-FAKE01' })
+  const device = Object.freeze({ name: options.name ?? 'B1-FAKE01', id: options.id ?? 'fake-b1-01' })
   const model = options.model ?? 'B1'
   let unanswered = Math.max(0, Math.floor(options.unansweredNegotiations ?? 0))
   let chooser = options.chooser ?? 'pick'
   let available = options.available ?? true
+  let adapterOffSetting = options.adapterOff
+  const adapterOff = (): boolean => adapterOffSetting ?? !available
+  let powered = options.powered ?? true
+  let getDevicesMode: boolean | 'throws' = options.getDevices ?? false
+  let permitted = options.permitted ?? false
+  let getDevicesCalls = 0
   let requests = 0
   let connectAttempts = 0
   const authorizedDevices: unknown[] = []
@@ -611,8 +659,14 @@ export function createFakeNiimbotBluetooth(options: FakeNiimbotBluetoothOptions 
       if (given === undefined) {
         // 고른 기기를 넘기지 않으면 niimbluelib처럼 고르기 창을 띄운다
         requests++
-        if (chooser === 'cancel') throw new FakeError('NotFoundError', 'User cancelled the requestDevice() chooser.')
+        if (adapterOff()) throw new FakeError('NotFoundError', 'Bluetooth adapter not available.')
+        if (chooser === 'cancel' || !powered) throw new FakeError('NotFoundError', 'User cancelled the requestDevice() chooser.')
+        permitted = true
+      } else if (given !== device) {
+        // 이 프린터가 아닌 기기 — 잇지 못한다
+        throw new FakeError('NetworkError', FAKE_GATT_CONNECT_FAILED_MESSAGE)
       }
+      if (adapterOff() || !powered) throw new FakeError('NetworkError', FAKE_GATT_CONNECT_FAILED_MESSAGE)
       if (unanswered > 0) {
         unanswered--
         await later(options.negotiationTimeoutMs ?? 0)
@@ -659,11 +713,26 @@ export function createFakeNiimbotBluetooth(options: FakeNiimbotBluetoothOptions 
   const bluetooth = {
     requestDevice: (): Promise<unknown> => {
       requests++
-      if (chooser === 'cancel') return Promise.reject(new FakeError('NotFoundError', 'User cancelled the requestDevice() chooser.'))
+      if (adapterOff()) return Promise.reject(new FakeError('NotFoundError', 'Bluetooth adapter not available.'))
+      // 전원이 꺼진 프린터는 목록에 없다 — 판매자가 창을 닫는다
+      if (chooser === 'cancel' || !powered) return Promise.reject(new FakeError('NotFoundError', 'User cancelled the requestDevice() chooser.'))
+      permitted = true
       return Promise.resolve(device)
     },
     getAvailability: (): Promise<boolean> => Promise.resolve(available),
   }
+  // getDevices는 정해 둔 때만 있다 (없음이 크롬 기본값) — 부를 때마다 본다
+  Object.defineProperty(bluetooth, 'getDevices', {
+    enumerable: true,
+    get: () =>
+      getDevicesMode === false
+        ? undefined
+        : (): Promise<readonly unknown[]> => {
+            getDevicesCalls++
+            if (getDevicesMode === 'throws') return Promise.reject(new FakeError('SecurityError', 'getDevices is not allowed'))
+            return Promise.resolve(permitted ? [device] : [])
+          },
+  })
 
   return {
     environment: { bluetooth },
@@ -684,6 +753,15 @@ export function createFakeNiimbotBluetooth(options: FakeNiimbotBluetoothOptions 
     get connected() {
       return live.size > 0
     },
+    get powered() {
+      return powered
+    },
+    get permitted() {
+      return permitted
+    },
+    get getDevicesCalls() {
+      return getDevicesCalls
+    },
     get printed() {
       return [...printed]
     },
@@ -695,6 +773,19 @@ export function createFakeNiimbotBluetooth(options: FakeNiimbotBluetoothOptions 
     },
     setAvailable: (value) => {
       available = value
+    },
+    setAdapterOff: (value) => {
+      adapterOffSetting = value
+    },
+    setPowered: (on) => {
+      powered = on
+      if (!on) for (const client of [...live]) client.dropFromPrinter()
+    },
+    setGetDevices: (mode) => {
+      getDevicesMode = mode
+    },
+    setPermitted: (value) => {
+      permitted = value
     },
     disconnect: () => {
       for (const client of [...live]) client.dropFromPrinter()

@@ -154,6 +154,133 @@ export interface PrinterAdapter {
   print(image: LabelBitmap, options?: PrintOptions): Promise<PrinterResult>
 }
 
+/**
+ * 기억한 프린터 — 이 기기의 브라우저 저장소에 둘 값 (D-QS1-01 (6)). 연결 방법과 기기를 알아보는 값만 있다
+ * (블루투스 기기 ID, USB 제조사·제품 번호). 기기 이름·판매자 정보는 없다. 서버로 보내지 않는다.
+ */
+export type RememberedPrinter =
+  | { readonly method: 'bluetooth'; readonly deviceId: string }
+  | { readonly method: 'serial'; readonly usbVendorId: number; readonly usbProductId: number }
+
+/** 블루투스 기기 ID 글자 수 상한 (크롬의 ID는 24자 base64 — 넉넉히) */
+const MAX_DEVICE_ID_LENGTH = 128
+
+/** 저장소에서 읽은 값 → 기억한 프린터. 형식 밖(깨진 값)이면 null (AC-QS1-21) */
+export function parseRememberedPrinter(value: unknown): RememberedPrinter | null {
+  if (typeof value !== 'object' || value === null) return null
+  const v = value as Record<string, unknown>
+  if (v['method'] === 'bluetooth') {
+    const id = v['deviceId']
+    if (typeof id !== 'string' || id === '' || id.length > MAX_DEVICE_ID_LENGTH) return null
+    return { method: 'bluetooth', deviceId: id }
+  }
+  if (v['method'] === 'serial') {
+    const vendor = v['usbVendorId']
+    const product = v['usbProductId']
+    const isUsbId = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= 0xffff
+    if (!isUsbId(vendor) || !isUsbId(product)) return null
+    return { method: 'serial', usbVendorId: vendor, usbProductId: product }
+  }
+  return null
+}
+
+/** 두 기억이 같은 기기인지 */
+export function sameRememberedPrinter(a: RememberedPrinter | null, b: RememberedPrinter | null): boolean {
+  if (a === null || b === null) return a === b
+  if (a.method === 'bluetooth' && b.method === 'bluetooth') return a.deviceId === b.deviceId
+  if (a.method === 'serial' && b.method === 'serial') return a.usbVendorId === b.usbVendorId && a.usbProductId === b.usbProductId
+  return false
+}
+
+/**
+ * 마지막 프린터를 기억하는 어댑터 (LBL-06 다시 잇기, D-QS1-01, L-7 "마지막 프린터 기억").
+ * - 기억 = 이 어댑터로 마지막으로 연결에 성공한 기기(연결 방법 + 그 기기). 한 번도 성공하지 못한 기기·WRONG_MODEL은 기억하지 않는다.
+ * - `connect(method)`(연결 방법 단추)는 기억이 있어도 늘 고르기 창이다. 성공하면 기억이 그 기기로 바뀐다.
+ * - 세 연결 길(connect·reconnect·connectRemembered)은 같은 시도 하나를 나눠 기다린다(연결 중에 또 부르면 같은 결과).
+ */
+export interface RememberingPrinterAdapter extends PrinterAdapter {
+  /** 기억한 기기가 있는지 (페이지 안의 기기 객체 또는 되살린 값) */
+  readonly hasRemembered: boolean
+  /** 저장소에 둘 값 — 기억이 없거나 알아볼 값이 없는 기기(ID 없는 블루투스·번호 없는 포트)면 null */
+  readonly remembered: RememberedPrinter | null
+  /** 새로고침 뒤: 저장소에서 읽은 값을 넘긴다(null이면 기억을 지운다). 형식 밖이면 없는 것으로 본다. 연결하지 않는다 */
+  restoreRemembered(value: RememberedPrinter | null): void
+  /** 기억이 바뀔 때마다(기억함·바뀜·잊음) 부른다 — 저장소에 쓰는 데 쓴다. 돌려준 함수로 그만 듣는다 */
+  onRememberedChange(listener: (value: RememberedPrinter | null) => void): () => void
+  /**
+   * 화면의 "다시 연결" (판매자 동작 안에서). 그 연결 방법의 기억한 기기를 지금 얻을 수 있으면 고르기 창 없이 그 기기로,
+   * 아니면 connect(method)처럼 고르기 창. 기억한 기기로 이은 시도가 실패하면(B1 첫 확인 다시 잇기 포함 한 번) 기억을 지운다(D-QS1-01 (4))
+   */
+  reconnect(method: ConnectionMethod): Promise<PrinterResult>
+  /**
+   * 기억한 기기로만 잇기 (저절로 다시 잇기 — D-QS1-02). 고르기 창(requestDevice·requestPort)을 부르지 않는다.
+   * 기억이 없거나 지금 얻을 수 없으면 시도 없이 fail('DISCONNECTED'). 실패해도 기억은 지우지 않는다(다음 시도·"다시 연결"이 쓴다)
+   */
+  connectRemembered(): Promise<PrinterResult>
+}
+
+/** 기억하는 어댑터인지 (B1·시험용 프린터는 그렇다, Marklife·바우아토는 아니다) */
+export function isRememberingAdapter(adapter: PrinterAdapter): adapter is RememberingPrinterAdapter {
+  const a = adapter as Partial<RememberingPrinterAdapter>
+  return typeof a.reconnect === 'function' && typeof a.connectRemembered === 'function' && typeof a.restoreRemembered === 'function'
+}
+
+/** 기억을 다루는 작은 도우미 (알림 포함) */
+export class RememberBox<T> {
+  /** 페이지 안의 기기 객체 (있으면 그대로 쓴다) */
+  object: T | undefined
+  private saved: RememberedPrinter | null = null
+  private method: ConnectionMethod | undefined
+  private readonly listeners = new Set<(value: RememberedPrinter | null) => void>()
+
+  get has(): boolean {
+    return this.object !== undefined || this.saved !== null
+  }
+
+  get value(): RememberedPrinter | null {
+    return this.saved
+  }
+
+  /** 기억한 연결 방법 */
+  get methodOf(): ConnectionMethod | undefined {
+    return this.saved?.method ?? this.method
+  }
+
+  remember(method: ConnectionMethod, object: T, value: RememberedPrinter | null): void {
+    this.object = object
+    this.method = method
+    this.saved = value
+    // 성공할 때마다 알린다 (같은 값이어도 — 저장소 쓰기는 같은 값을 다시 써도 된다)
+    this.emit()
+  }
+
+  restore(value: RememberedPrinter | null): void {
+    const parsed = parseRememberedPrinter(value)
+    this.object = undefined
+    this.method = parsed?.method
+    this.saved = parsed
+  }
+
+  forget(): void {
+    if (!this.has) return
+    this.object = undefined
+    this.method = undefined
+    this.saved = null
+    this.emit()
+  }
+
+  listen(listener: (value: RememberedPrinter | null) => void): () => void {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+
+  private emit(): void {
+    for (const listener of [...this.listeners]) listener(this.saved)
+  }
+}
+
 /** 상태와 알림을 다루는 작은 도우미 */
 export class StateBox {
   private value: ConnectionState = 'DISCONNECTED'
