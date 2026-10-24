@@ -7,11 +7,15 @@
 // - 연습용 시청자 채팅 화면 /_try/chat: 가짜 유튜브 라이브에 시청자 채팅을 넣는다(이 스크립트만 가진 화면).
 // - 간편 로그인(L1, AC-L1-24): 가짜 구글·카카오·네이버를 연습 전용 경로 /_try/oauth/<공급자>/…에 붙여 켠다(운영 기동에는 이 경로가 없다).
 //   승인 화면 위에 "연습용 가짜 화면이에요."가 보이고 연습 계정 둘(이메일 있음·없음)을 고른다. 돌아오는 주소는 http://localhost:<포트>/api/auth/<공급자>/callback.
+// - 실제 간편 로그인(RL1, pnpm try --real-login): 저장소 맨 위 .env.login.local(깃에 올리지 않음)에서 운영과 같은 이름
+//   (LIVEJJIM_LOGIN_GOOGLE_*·LIVEJJIM_LOGIN_KAKAO_*·LIVEJJIM_LOGIN_NAVER_*)을 읽어 값이 있는 공급자만 실제 카카오·네이버·구글로 켜고,
+//   없는 공급자는 끈다(가짜를 섞지 않는다). 값은 화면·로그에 내지 않는다. 각 회사에 등록한 돌아오는 주소가 localhost라 휴대폰 https 주소로는 간편 로그인이 안 된다.
 // - AI 확인 필요 제안(A1, AC-A1-12): 가짜 LLM 서버를 연습 전용 경로 /_try/llm 밑에 붙이고 가짜 키로 켠다(실제 AI 회사로 나가는 요청은 없다).
 //   설정 → "AI 제안"에서 동의하고 켜면, 옵션 리허설의 확인 필요 화면을 열 때 가짜 AI가 글에 든 선택지 이름으로 제안한다.
 // - 이 컴퓨터: http://localhost:<포트> (127.0.0.1에서만 연다).
 // - 같은 와이파이의 휴대폰: https://<이 컴퓨터 주소>:<포트+1>. 로그인 쿠키가 Secure라 휴대폰은 https로만 로그인된다.
-//   그래서 자체 서명 인증서(openssl, 실행마다 새로)로 https를 열고 안쪽 서버로 넘긴다. 휴대폰에 "안전하지 않음" 경고가 한 번 뜬다.
+//   그래서 자체 서명 인증서(실행마다 새로)로 https를 열고 안쪽 서버로 넘긴다. 휴대폰에 "안전하지 않음" 경고가 한 번 뜬다.
+//   인증서는 openssl이 있으면 openssl로, 없거나 실패하면(윈도우 기본) Node만으로 만든다(apps/server/src/try/self-signed-cert.ts).
 //   넘길 때 Origin 머리글을 화면 주소로 바꾼다(서버는 화면 주소 하나만 받는다) — 그 https 주소(와 https://localhost:<포트+1>)에서 온 요청만.
 //   E2E 서버와 달리 같은 와이파이에 열린다(휴대폰 때문). 연습 데이터뿐이고 비밀번호는 실행마다 무작위다.
 // - 기본 포트를 다른 프로그램이 쓰고 있으면 다음 빈 포트로 옮긴다.
@@ -46,13 +50,15 @@ if (!existsSync(join(ROOT, 'node_modules', '.pnpm'))) fail('먼저 설치가 필
 const args = process.argv.slice(2)
 let wanted = DEFAULT_PORT
 let realYoutube = false
+let realLoginWanted = false
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--port' && /^\d{2,5}$/.test(args[i + 1] ?? '')) {
     wanted = Number(args[i + 1])
     i++
   } else if (args[i] === '--real-youtube') realYoutube = true
+  else if (args[i] === '--real-login') realLoginWanted = true
   else if (args[i] === '--') continue
-  else fail('쓰는 법: pnpm try 또는 pnpm try --port 7800 또는 pnpm try --real-youtube')
+  else fail('쓰는 법: pnpm try 또는 pnpm try --port 7800 또는 pnpm try --real-youtube 또는 pnpm try --real-login (함께 써도 돼요)')
 }
 // 실제 유튜브 시험: 운영자가 만든 구글 OAuth 클라이언트 값을 저장소 밖에 커밋되지 않는 .env.youtube.local에서 읽는다(대화·로그에 남기지 않음)
 let realGoogle = null
@@ -70,6 +76,28 @@ if (realYoutube) {
   const clientSecret = values.LIVEJJIM_GOOGLE_CLIENT_SECRET ?? ''
   if (clientId === '' || clientSecret === '') fail('.env.youtube.local에 LIVEJJIM_GOOGLE_CLIENT_ID와 LIVEJJIM_GOOGLE_CLIENT_SECRET을 적어 주세요.')
   realGoogle = { clientId, clientSecret }
+}
+// 실제 간편 로그인 시험: .env.login.local을 운영과 같은 이름·규칙으로 읽는다. 파일이 없으면 셋 다 끈 채로 켠다(가짜를 섞지 않는다). 값은 어디에도 출력하지 않는다
+const LOGIN_FILE = '.env.login.local'
+let realLogin = null
+let realLoginFileMissing = false
+if (realLoginWanted) {
+  const { parseLoginEnvFile } = await import(new URL('../../apps/server/src/social/login-env-file.ts', import.meta.url).href)
+  const file = join(ROOT, LOGIN_FILE)
+  if (existsSync(file)) {
+    let text
+    try {
+      text = readFileSync(file, 'utf8')
+    } catch {
+      fail(`${LOGIN_FILE} 파일을 읽지 못했어요. 파일 권한을 확인해 주세요.`)
+    }
+    const parsed = parseLoginEnvFile(text)
+    if (!parsed.ok) fail(`${parsed.message}\n            (docs/TRY-IT.md "실제 간편 로그인으로 시험하기"를 보세요.)`)
+    realLogin = parsed.providers
+  } else {
+    realLoginFileMissing = true
+    realLogin = {}
+  }
 }
 if (wanted < 1024 || wanted > 65_000) fail('--port는 1024~65000 사이로 적어 주세요.')
 
@@ -92,19 +120,6 @@ const phonePort = port + 1
 const appOrigin = `http://localhost:${String(port)}`
 /** 화면 빌드 폴더 — 포트마다 따로(연습 모드를 둘 켜도 서로의 화면 파일을 지우지 않게) */
 const WEB_DIR = join(CACHE, `web-${String(port)}`)
-
-/** 같은 와이파이에서 이 컴퓨터를 찾는 주소 (en0 = 맥의 와이파이 먼저) */
-function lanAddress() {
-  const all = networkInterfaces()
-  const names = Object.keys(all).sort((a, b) => (a === 'en0' ? -1 : b === 'en0' ? 1 : a < b ? -1 : 1))
-  for (const name of names) {
-    for (const entry of all[name] ?? []) {
-      if (entry.family === 'IPv4' && !entry.internal && !entry.address.startsWith('169.254.')) return entry.address
-    }
-  }
-  return null
-}
-const lan = lanAddress()
 
 // ── 화면 빌드 ──────────────────────────────────────────────
 say('')
@@ -129,6 +144,11 @@ const [{ openPglite }, { generateMasterKey }, { createServer }, { createNodeServ
 ])
 const { FakeOAuth } = await server('social/fake-oauth.ts')
 const { FakeLlm } = await server('assist/fake-llm.ts')
+const { createSelfSignedCertificate, lanAddresses } = await server('try/self-signed-cert.ts')
+
+/** 같은 와이파이에서 이 컴퓨터를 찾는 주소들 (와이파이 먼저, 윈도우의 가상·VPN 연결은 뒤로). 첫 주소를 휴대폰 주소로 알린다 */
+const lans = lanAddresses(networkInterfaces())
+const lan = lans[0] ?? null
 
 const database = await openPglite()
 const masterKey = generateMasterKey()
@@ -141,7 +161,7 @@ const fakeLive = fake.addBroadcast(fakeChannel.id, { title: '연습 라이브', 
 
 // 가짜 간편 로그인 (연습 전용 경로 /_try/oauth — 승인 화면은 브라우저가 연습 화면과 같은 주소로 열고, 토큰·사용자 정보는 서버가 127.0.0.1로 부른다)
 const SOCIAL = ['google', 'kakao', 'naver']
-const oauth = new FakeOAuth({ practice: true, basePath: '/_try/oauth', redirectUris: Object.fromEntries(SOCIAL.map((p) => [p, `${appOrigin}/api/auth/${p}/callback`])) })
+const oauth = realLogin !== null ? null : new FakeOAuth({ practice: true, basePath: '/_try/oauth', redirectUris: Object.fromEntries(SOCIAL.map((p) => [p, `${appOrigin}/api/auth/${p}/callback`])) })
 // 가짜 AI (연습 전용 경로 /_try/llm — 서버가 127.0.0.1로 부른다. 조작 경로 없음)
 const llm = new FakeLlm({ practice: true, basePath: '/_try/llm' })
 
@@ -174,7 +194,8 @@ const livejjim = createServer({
   webDir: WEB_DIR,
   testPrinter: true,
   deposits: { testMode: true, popbill: null, pollMs: 1000 },
-  socialLogin: oauth.setup({ authBase: appOrigin, apiBase: `http://127.0.0.1:${String(port)}` }),
+  // --real-login: 실제 공급자 고정 주소(https)·값이 있는 공급자만. 돌아오는 주소는 서버가 appOrigin(http://localhost:<포트>)으로 만든다
+  socialLogin: realLogin === null ? oauth.setup({ authBase: appOrigin, apiBase: `http://127.0.0.1:${String(port)}` }) : { providers: realLogin },
   assist: llm.setup({ base: `http://127.0.0.1:${String(port)}` }),
 })
 
@@ -197,7 +218,7 @@ const CHAT_PAGE = readFileSync(new URL('./chat.html', import.meta.url), 'utf8').
 
 async function tryRoute(request) {
   const url = new URL(request.url)
-  if (url.pathname.startsWith('/_try/oauth/')) return oauth.handle(request)
+  if (url.pathname.startsWith('/_try/oauth/') && oauth !== null) return oauth.handle(request)
   if (url.pathname.startsWith('/_try/llm/')) return llm.handle(request)
   if (request.method === 'GET' && url.pathname === '/_try/chat') {
     return new Response(CHAT_PAGE, {
@@ -234,20 +255,35 @@ await new Promise((resolve, reject) => {
 }).catch(() => fail(`포트 ${String(port)}를 열지 못했어요. pnpm try --port 8800 처럼 다른 번호로 해 보세요.`))
 
 // ── 휴대폰용 https (같은 와이파이) ──────────────────────────
+/**
+ * 휴대폰용 자체 서명 인증서 (2일, 주소: 같은 와이파이 주소들·localhost, 서버 인증용).
+ * openssl이 있으면 지금까지처럼 openssl로(임시 폴더에 쓰고 바로 지운다), 없거나 실패하면 Node만으로 만든다 — 윈도우에는 openssl이 기본으로 없다.
+ */
+function phoneCertificate(ips) {
+  const dir = mkdtempSync(join(tmpdir(), 'livejjim-try-cert-'))
+  try {
+    const keyFile = join(dir, 'key.pem')
+    const certFile = join(dir, 'cert.pem')
+    const configFile = join(dir, 'openssl.cnf')
+    const config = `[req]\ndistinguished_name=dn\nx509_extensions=ext\nprompt=no\n[dn]\nCN=livejjim-try\n[ext]\nsubjectAltName=${[...ips.map((ip) => `IP:${ip}`), 'DNS:localhost'].join(',')}\nbasicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n`
+    writeFileSync(configFile, config)
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '2', '-keyout', keyFile, '-out', certFile, '-config', configFile], { stdio: 'ignore', windowsHide: true, timeout: 20_000 })
+    return { key: readFileSync(keyFile), cert: readFileSync(certFile) }
+  } catch {
+    return createSelfSignedCertificate({ ips, now: new Date(), days: 2 })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 let phone = null
-let certDir = null
+let phoneProblem = null
 if (lan !== null) {
   try {
-    certDir = mkdtempSync(join(tmpdir(), 'livejjim-try-cert-'))
-    const keyFile = join(certDir, 'key.pem')
-    const certFile = join(certDir, 'cert.pem')
-    const configFile = join(certDir, 'openssl.cnf')
-    const config = `[req]\ndistinguished_name=dn\nx509_extensions=ext\nprompt=no\n[dn]\nCN=livejjim-try\n[ext]\nsubjectAltName=IP:${lan},DNS:localhost\nbasicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n`
-    writeFileSync(configFile, config)
-    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '2', '-keyout', keyFile, '-out', certFile, '-config', configFile], { stdio: 'ignore' })
-    // 휴대폰 주소와, 이 컴퓨터에서 https로 여는 주소(사파리에서 로그인이 안 될 때) 둘 다 화면 주소로 바꿔 넘긴다
-    const httpsOrigins = new Set([`https://${lan}:${String(phonePort)}`, `https://localhost:${String(phonePort)}`])
-    phone = createHttpsServer({ key: readFileSync(keyFile), cert: readFileSync(certFile) }, (req, res) => {
+    const { key, cert } = phoneCertificate(lans)
+    // 휴대폰 주소들과, 이 컴퓨터에서 https로 여는 주소(사파리에서 로그인이 안 될 때) 모두 화면 주소로 바꿔 넘긴다
+    const httpsOrigins = new Set([...lans.map((ip) => `https://${ip}:${String(phonePort)}`), `https://localhost:${String(phonePort)}`])
+    phone = createHttpsServer({ key, cert }, (req, res) => {
       const headers = { ...req.headers }
       if (typeof headers.origin === 'string' && httpsOrigins.has(headers.origin)) headers.origin = appOrigin
       // 간편 로그인(L1): 돌려보내는 주소(Location)·승인 주소의 앞 http://localhost:<포트>를 휴대폰이 연 https 주소로 바꾼다.
@@ -284,12 +320,13 @@ if (lan !== null) {
     })
   } catch {
     phone = null
+    phoneProblem = `휴대폰용 주소(포트 ${String(phonePort)})를 열지 못했어요. 껐다가 다시 켜 보세요.`
   }
 }
 
 say('')
 say('==============================================================')
-say(' 라이브지니 연습 모드가 켜졌어요. (끄려면 이 창에서 Control + C)')
+say(' 라이브지니 연습 모드가 켜졌어요. (끄려면 이 창에서 Ctrl + C)')
 say('==============================================================')
 say('')
 say(` 1) 이 컴퓨터 크롬에서 열기 : ${appOrigin}`)
@@ -303,12 +340,39 @@ say('')
 if (phone !== null) {
   say(` 3) 같은 와이파이 휴대폰  : https://${lan}:${String(phonePort)}`)
   say('    ("안전하지 않음" 경고가 나오면 docs/TRY-IT.md의 휴대폰 순서대로 넘어가세요)')
+  if (lans.length > 1) say(`    (안 열리면 이 주소도 해 보세요: ${lans.slice(1).map((ip) => `https://${ip}:${String(phonePort)}`).join('  ')})`)
 } else {
-  say(' 3) 휴대폰 주소를 만들지 못했어요. 와이파이에 연결돼 있는지 확인하고 다시 켜 주세요.')
+  say(` 3) ${phoneProblem ?? '휴대폰 주소를 만들지 못했어요. 와이파이에 연결돼 있는지 확인하고 다시 켜 주세요.'}`)
 }
 say('')
 say(' 연습 기록은 이 창을 끄면 모두 지워져요. 실제 방송·실제 프린터·실제 돈과는 상관없어요.')
 say('')
+if (realLogin !== null) {
+  // 값은 보이지 않는다 — 켜짐·꺼짐과 등록할 주소만
+  const NAMES = { kakao: '카카오', naver: '네이버', google: '구글' }
+  say('--------------------------------------------------------------')
+  say(' 실제 간편 로그인 시험 (가짜 로그인 화면은 꺼져 있어요)')
+  say('--------------------------------------------------------------')
+  say(' 각 회사 개발자 사이트에 아래 주소를 글자 그대로 등록해요.')
+  if (realLoginFileMissing) say(` ${LOGIN_FILE} 파일이 없어서 카카오·네이버·구글 로그인이 모두 꺼져 있어요.`)
+  for (const provider of ['kakao', 'naver', 'google']) {
+    const on = realLogin[provider] !== undefined
+    say(` ${NAMES[provider]}: ${on ? `진짜 ${NAMES[provider]} 로그인이 켜져 있어요` : `꺼져 있어요 (${LOGIN_FILE}에 값이 없어요)`}`)
+    say(`    돌아오는 주소(Redirect URI) : ${appOrigin}/api/auth/${provider}/callback`)
+    if (provider === 'kakao') say(`    Web 플랫폼 사이트 도메인    : ${appOrigin}`)
+    if (provider === 'naver') say(`    서비스 URL                  : ${appOrigin}`)
+  }
+  say('')
+  if (port !== DEFAULT_PORT) {
+    say(` 주의: 지금 포트가 ${String(DEFAULT_PORT)}이 아니라 ${String(port)}이에요. 각 회사에 http://localhost:${String(DEFAULT_PORT)}/… 로 등록했다면 주소가 달라서`)
+    say(`       로그인이 안 돼요. 위 주소를 그대로 등록하거나, ${String(DEFAULT_PORT)}번을 쓰는 프로그램을 끄고 다시 켜 주세요.`)
+    say('')
+  }
+  say(' 휴대폰(https 주소)으로는 간편 로그인이 안 돼요. 등록한 돌아오는 주소가 이 컴퓨터(localhost)라서예요.')
+  say(` 간편 로그인은 이 컴퓨터 크롬의 ${appOrigin} 에서 해 보세요. 아이디·비밀번호 로그인은 휴대폰에서도 돼요.`)
+  say(` 먼저 아이디로 로그인한 뒤 설정 → 로그인 방법에서 [연결하기]를 눌러야 그 계정으로 들어올 수 있어요.`)
+  say('')
+}
 
 let stopping = false
 async function stop() {
@@ -324,9 +388,10 @@ async function stop() {
   await fake.close().catch(() => {})
   await database.close().catch(() => {})
   rmSync(backupDir, { recursive: true, force: true })
-  if (certDir !== null) rmSync(certDir, { recursive: true, force: true })
   say('껐어요. 다시 켜려면 pnpm try')
   process.exit(0)
 }
-process.on('SIGINT', () => void stop())
-process.on('SIGTERM', () => void stop())
+// 끄기: Control(Ctrl) + C(SIGINT — 윈도우 명령 프롬프트에서도 Node가 이 이름으로 받는다), 창 닫기(SIGHUP — 맥·윈도우 둘 다),
+// Ctrl + Break(SIGBREAK — 윈도우만), 그 밖의 끄기 요청(SIGTERM — 윈도우에는 없다). 창이 닫힌 뒤 글을 쓰다 나는 오류는 무시한다
+process.stdout.on('error', () => {})
+for (const signal of process.platform === 'win32' ? ['SIGINT', 'SIGHUP', 'SIGBREAK'] : ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => void stop())
