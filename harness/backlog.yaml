@@ -898,7 +898,7 @@ sprints:
       - "MOB1 뒤 화면 작업: 저절로 다시 잇는 동안 '프린터에 다시 잇고 있어요. ({n}/6)'·그친 뒤 '저절로 다시 잇지 못했어요. 아래를 해 본 뒤 '다시 연결'을 눌러 주세요.' 문장 확정·E2E (D-QS1-05)"
       - "AC-FB1-39 시험이 지금 PrinterStep에서 실패하면 MOB1 뒤 화면에서 고침 (D-QS1-07)"
     specIds: [LBL-06, LBL-08, SYS-02, YT-10, NFR-01]
-    status: doing
+    status: done
 
 techDebt:
   - "TD-S00-008: Host 헤더 두 개·absolute-form 요청을 200으로 처리"
