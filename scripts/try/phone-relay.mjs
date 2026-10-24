@@ -10,6 +10,11 @@
 //   승인 주소가 들어 있으면 그 응답 대신 같은 409를 돌려준다(구글 콘솔에 등록한 돌아오는 주소가 localhost라서).
 //   경로는 글자 그대로가 아니라 relayPath(절대 주소·퍼센트·`.`·`..`·`#` 정리)로 읽고(TD-MOB1-001), 그와 별개로 경로와 상관없이
 //   모든 JSON 응답의 맨 위 authorizeUrl을 검사한다(진짜 구글이면 409, 가짜 구글이면 휴대폰 주소로 바꾸기). 간편 로그인 시작만 뺀다.
+//   진짜 구글이면 /api 아래 응답은 종류(content-type)와 상관없이 본다(실시간 알림 흐름만 빼고). 경로 판정은 relayPath(넓게)와
+//   honoPath(안쪽 서버가 읽는 그대로) 둘 다 — 막는 판정은 둘 중 하나, 빼 주는 판정(간편 로그인)은 둘 다 맞아야.
+// - 연습 전용 가짜 구글 경로는 redirect_uri가 정확히 http://localhost:<포트>/로 시작할 때만 넘기고 아니면 400(TD-MOB1-002).
+//   위쪽 응답의 Location은 휴대폰 주소·http://localhost:<포트>/(안쪽 서버는 같은 곳 경로 `/…`도)로 시작할 때만 넘기고 아니면 400.
+// - hop-by-hop 머리글(connection·keep-alive·transfer-encoding·upgrade·te·trailer·proxy-*·connection에 적힌 이름)은 양쪽 다 옮기지 않는다(TD-MOB1-003).
 // 주소 바꾸기 규칙은 순수 함수(입력 글 → 바꾼 글)로 나눠 두고, 중계 처리기는 그것을 쓴다.
 import { request as httpRequest } from 'node:http'
 
@@ -70,6 +75,32 @@ export function fakeGoogleTarget(target) {
   return `${FAKE_GOOGLE_AUTHORIZE_PATH}${rest}`
 }
 
+/**
+ * 연습 전용 가짜 구글 경로의 `redirect_uri` 검사 (TD-MOB1-002·RA-MOB1-02, D-MOB1-17 (6)).
+ * 매개변수가 없으면 true(가짜 구글이 등록 값과 맞춰 본다). 있으면 모든 값이(퍼센트를 푼 뒤) 정확히 `${appOrigin}/`로 시작하고
+ * 그 주소의 출처가 appOrigin일 때만 true — `https://아무곳/`·`${appOrigin}@evil/`·`${appOrigin}.evil/`·다른 포트는 false.
+ */
+export function fakeGoogleRedirectOk(target, appOrigin) {
+  if (typeof target !== 'string' || typeof appOrigin !== 'string') return false
+  const at = target.indexOf('?')
+  if (at < 0) return true
+  let values
+  try {
+    values = new URLSearchParams(target.slice(at + 1).split('#')[0] ?? '').getAll('redirect_uri')
+  } catch {
+    return false
+  }
+  for (const value of values) {
+    if (!value.startsWith(`${appOrigin}/`)) return false
+    try {
+      if (new URL(value).origin !== appOrigin) return false
+    } catch {
+      return false
+    }
+  }
+  return true
+}
+
 /** 퍼센트 글자 풀기 — 깨진 퍼센트(%zz·%E0 하나만 등)가 있어도 풀 수 있는 것은 푼다 */
 function decodePercent(text) {
   try {
@@ -108,20 +139,97 @@ export function relayPath(target) {
   return `/${segments.join('/')}`.toLowerCase()
 }
 
+/** 절대 주소(`http://`·`https://`로 시작)인가 — 안쪽 서버(@hono/node-server)가 절대 주소로 읽는 것과 같은 조건 */
+const ABSOLUTE = /^https?:\/\//i
+
+/**
+ * 안쪽 서버(@hono/node-server + Hono)가 읽는 경로 그대로 (TD-MOB1-001).
+ * 절대 주소면 그 주소의 pathname, 아니면 `http://<호스트><대상>`의 pathname(`.`·`..`·`%2e` 정리, `#`·`?` 뒤 뗌, `\`는 `/`),
+ * 그 뒤 decodeURI처럼 퍼센트를 푼다(`%2F`·`%3F`·`%23` 같은 예약 글자는 그대로). 읽을 수 없으면 null.
+ */
+export function honoPath(target) {
+  if (typeof target !== 'string') return null
+  let pathname
+  try {
+    pathname = ABSOLUTE.test(target) && !target.startsWith('/') ? new URL(target).pathname : new URL(`http://relay.invalid${target}`).pathname
+  } catch {
+    return null
+  }
+  try {
+    return decodeURI(pathname)
+  } catch {
+    return pathname.replace(/%[0-9a-fA-F]{2}/g, (hex) => {
+      try {
+        return decodeURI(hex)
+      } catch {
+        return hex
+      }
+    })
+  }
+}
+
+/** 두 읽기(relayPath·honoPath) 가운데 하나라도 /api 아래인가 */
+function apiPath(target) {
+  const loose = relayPath(target)
+  const strict = honoPath(target)
+  return loose === '/api' || loose.startsWith('/api/') || (strict !== null && (strict === '/api' || strict.startsWith('/api/')))
+}
+
+/** 한 연결 구간에만 쓰는 머리글 — 중계가 옮기지 않는다 (TD-MOB1-003·RA-MOB1-03) */
+const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'te', 'trailer', 'trailers'])
+
+/** 머리글 묶음에서 hop-by-hop 머리글(위 목록·proxy-*·connection 값에 적힌 이름)을 뺀 새 묶음 */
+export function withoutHopByHop(headers) {
+  const named = new Set()
+  const connection = headers?.connection
+  for (const value of Array.isArray(connection) ? connection : [connection]) {
+    if (typeof value !== 'string') continue
+    for (const name of value.split(',')) {
+      const trimmed = name.trim().toLowerCase()
+      if (trimmed !== '') named.add(trimmed)
+    }
+  }
+  const out = {}
+  for (const [name, value] of Object.entries(headers ?? {})) {
+    const lower = name.toLowerCase()
+    if (HOP_BY_HOP.has(lower) || lower.startsWith('proxy-') || named.has(lower)) continue
+    if (value === undefined) continue
+    out[name] = value
+  }
+  return out
+}
+
+/**
+ * 중계가 넘겨도 되는 돌려보내는 주소(Location)인가 (TD-MOB1-002). 휴대폰 주소 바꾸기(swapOrigin) 뒤의 값으로 본다.
+ * 휴대폰 주소(`${here}/`, 알려진 휴대폰 주소일 때만)·`${appOrigin}/`로 시작하는 것만. allowRelative면 같은 곳의 경로(`/…`, `//`·`/\` 제외)도.
+ */
+export function locationAllowed(location, { here, known, appOrigin, allowRelative }) {
+  if (typeof location !== 'string') return false
+  if (known && location.startsWith(`${here}/`)) return true
+  if (location.startsWith(`${appOrigin}/`)) return true
+  if (allowRelative && location.startsWith('/') && !location.startsWith('//') && !location.startsWith('/\\')) return true
+  return false
+}
+
 /** 간편 로그인 시작(L1) — 응답의 authorizeUrl은 로그인 공급자 주소다(유튜브 아님) */
 export function loginRoute(method, target) {
   if (method !== 'POST') return false
+  // 넓게 읽은 경로(relayPath)와 안쪽 서버가 읽는 경로(honoPath)가 둘 다 로그인 시작일 때만 — 빼 주는 쪽이라 좁게 본다
   const path = relayPath(target)
-  return path === '/api/auth/start' || path === '/api/auth/link'
+  const strict = honoPath(target)
+  return (path === '/api/auth/start' || path === '/api/auth/link') && (strict === '/api/auth/start' || strict === '/api/auth/link')
 }
 
 /** 응답에 승인 주소(authorizeUrl)가 올 수 있는 요청인가 — 연결 시작·자동 게시 동의·다시 보내기. 경로는 relayPath로 읽는다 */
 export function authorizeRoute(method, target) {
   if (typeof target !== 'string') return null
-  const path = relayPath(target)
-  if (method === 'POST' && path === '/api/youtube/connection/start') return 'start'
-  if (method === 'PUT' && path === '/api/youtube/consent') return 'consent'
-  if (method === 'POST' && /^\/api\/outbox\/\d{1,15}\/resend$/.test(path)) return 'resend'
+  // 넓게 읽은 경로(relayPath)와 안쪽 서버가 읽는 경로(honoPath) 가운데 하나라도 맞으면 — 막는 쪽이라 넓게 본다
+  const strict = honoPath(target)
+  for (const path of strict === null ? [relayPath(target)] : [relayPath(target), strict]) {
+    if (method === 'POST' && path === '/api/youtube/connection/start') return 'start'
+    if (method === 'PUT' && path === '/api/youtube/consent') return 'consent'
+    if (method === 'POST' && /^\/api\/outbox\/\d{1,15}\/resend$/.test(path)) return 'resend'
+  }
   return null
 }
 
@@ -172,26 +280,39 @@ export function createPhoneRelay(options) {
   }
   const refuse = (res) => send(res, 409, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, phoneYoutubeBody(port))
   const notFound = (res) => send(res, 404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }, '없는 주소예요.')
+  const badRequest = (res) => send(res, 400, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }, '갈 수 없는 주소예요.')
 
   return (req, res) => {
     const here = `https://${String(req.headers.host ?? '')}`
     const known = origins.has(here)
     const swap = known ? (text) => swapOrigin(text, appOrigin, here) : (text) => text
     const target = req.url ?? '/'
+    /** 위쪽 응답 머리글 → 휴대폰에 줄 머리글. hop-by-hop은 빼고, Location은 바꾼 뒤 허락된 것만. 허락 안 되면 null */
+    const answerHeaders = (answer, allowRelative) => {
+      const out = withoutHopByHop(answer.headers)
+      if (out.location !== undefined) {
+        const location = swap(Array.isArray(out.location) ? out.location[0] : out.location)
+        if (!locationAllowed(location, { here, known, appOrigin, allowRelative })) return null
+        out.location = location
+      }
+      return out
+    }
 
     // 가짜 구글 연습 전용 경로 — 가짜 구글 승인 경로 하나로만, 가짜 구글 주소로만 넘긴다
     if (target === FAKE_GOOGLE_PREFIX || target.startsWith(`${FAKE_GOOGLE_PREFIX}/`) || target.startsWith(`${FAKE_GOOGLE_PREFIX}?`)) {
       const path = fakeGoogleTarget(target)
-      if (googleOrigin === null || !known || req.method !== 'GET' || path === null) {
-        req.resume()
-        return notFound(res)
-      }
       req.resume()
+      if (googleOrigin === null || !known || req.method !== 'GET' || path === null) return notFound(res)
+      // redirect_uri가 이 컴퓨터 화면 주소가 아니면 가짜 구글로 넘기지 않는다 — 열린 돌려보내기 없음 (TD-MOB1-002)
+      if (!fakeGoogleRedirectOk(path, appOrigin)) return badRequest(res)
       const upstream = httpRequest(
         { host: '127.0.0.1', port: fakeGoogle.port, method: 'GET', path, headers: { host: `127.0.0.1:${String(fakeGoogle.port)}`, accept: req.headers.accept ?? '*/*' } },
         (answer) => {
-          const out = { ...answer.headers }
-          if (typeof out.location === 'string') out.location = swap(out.location)
+          const out = answerHeaders(answer, false)
+          if (out === null) {
+            answer.resume()
+            return badRequest(res)
+          }
           res.writeHead(answer.statusCode ?? 502, out)
           answer.pipe(res)
         },
@@ -212,22 +333,40 @@ export function createPhoneRelay(options) {
       return refuse(res)
     }
 
-    const headers = { ...req.headers }
+    const headers = withoutHopByHop(req.headers)
+    // 본문 길이가 없는 덩어리 본문은 그대로 덩어리로 넘긴다(옮기지 않은 transfer-encoding 대신 Node가 다시 붙인다)
+    if (headers['content-length'] === undefined && req.headers['transfer-encoding'] !== undefined) headers['transfer-encoding'] = 'chunked'
     if (typeof headers.origin === 'string' && origins.has(headers.origin)) headers.origin = appOrigin
     // 응답 본문을 늘 읽을 수 있게 압축은 받지 않는다(아래 승인 주소 검사가 압축된 본문을 지나치지 않게)
     delete headers['accept-encoding']
     const login = loginRoute(req.method, target)
+    const underApi = apiPath(target)
     const upstream = httpRequest({ host: innerHost, port, method: req.method, path: target, headers }, (answer) => {
-      const out = { ...answer.headers }
-      if (typeof out.location === 'string') out.location = swap(out.location)
+      const out = answerHeaders(answer, true)
+      if (out === null) {
+        answer.resume()
+        return badRequest(res)
+      }
       const loginRewrite = login && known
-      const isJson = /^application\/json\b/i.test(String(out['content-type'] ?? ''))
-      // 승인 주소 검사는 경로와 상관없이 모든 JSON 응답에 한다(경로 모양을 바꿔 들어와도 지나치지 않게, TD-MOB1-001)
-      const youtubeCheck = (route !== null || isJson) && (realYoutube || (known && googleOrigin !== null))
+      const type = String(out['content-type'] ?? '')
+      const isJson = /^application\/json\b/i.test(type)
+      const isStream = /^text\/event-stream\b/i.test(type)
+      // 승인 주소 검사는 경로와 상관없이 모든 JSON 응답에 한다(경로 모양을 바꿔 들어와도 지나치지 않게, TD-MOB1-001).
+      // 진짜 구글이면 /api 아래 응답은 종류와 상관없이 본다(실시간 알림 흐름만 빼고) — 이중 안전
+      const youtubeCheck = (realYoutube && underApi && !isStream) || ((route !== null || isJson) && (realYoutube || (known && googleOrigin !== null)))
       if (loginRewrite || youtubeCheck) {
+        const encoding = String(out['content-encoding'] ?? 'identity').trim().toLowerCase()
         const chunks = []
         answer.on('data', (chunk) => chunks.push(chunk))
         answer.on('end', () => {
+          // 압축된 본문은 읽을 수 없다 — 진짜 구글이면 넘기지 않는다
+          const encoded = encoding !== 'identity' && encoding !== ''
+          if (realYoutube && youtubeCheck && !login && encoded) return refuse(res)
+          if (encoded) {
+            // 가짜 구글 모드에서 압축된 본문은 바꾸지 않고 그대로 (글자로 풀면 깨진다)
+            res.writeHead(answer.statusCode ?? 502, out)
+            return res.end(Buffer.concat(chunks))
+          }
           let text = Buffer.concat(chunks).toString('utf8')
           delete out['content-length']
           if (loginRewrite) text = text.replaceAll(`"${appOrigin}/_try/oauth/`, `"${here}/_try/oauth/`)

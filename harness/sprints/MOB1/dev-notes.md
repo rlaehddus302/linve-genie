@@ -169,3 +169,10 @@
 - U-MOB1-02 (D-MOB1-14, AC-MOB1-13): `AlertStrip.tsx` — `uncounted` 항목(출력 기기)은 세는 알림 모두의 뒤(맨 끝), 플랫폼 줄은 그대로 맨 앞. 알림 수·Alt+1은 그대로.
   - 단위: `apps/web/test/mob1-print-voice.test.tsx` — 옛 "맨 앞" 단언을 D-MOB1-14로 맞춤(`// MOB1 D-MOB1-14`), 전체 순서·"출력 멈춤" 첫 항목·혼자면 첫 항목 시험 추가.
 - **test-e2e에게**: `tests/e2e/mob1/station.spec.ts`의 두 시험이 이제 바뀐 스펙대로 실패한다 — 96줄(접힌 띠에서 출력 기기 항목이 첫 줄 안에 있다는 121줄 단언: 이제 보류 찜이 앞이라 출력 기기 항목은 펼쳐야 보임)과 142줄(162줄 "맨 앞" 단언). AC-MOB1-13 375 접힘 첫 항목 "출력 멈춤" 시험도 아직 없다.
+
+### 서버 2회차 — TD-MOB1-001 이중 안전 · TD-MOB1-002 · TD-MOB1-003 (scripts/try/phone-relay.mjs)
+- TD-MOB1-001: `honoPath`(안쪽 서버 @hono/node-server+Hono가 읽는 그대로 — 절대 주소면 pathname, 아니면 `http://<호스트><대상>`의 pathname, decodeURI처럼 풀기)를 더함. `authorizeRoute`는 `relayPath`(넓게)·`honoPath` 중 하나라도 맞으면(막는 쪽은 넓게), 빼 주는 `loginRoute`는 둘 다 맞아야(좁게). 진짜 구글이면 `/api` 아래 응답은 content-type과 상관없이(실시간 알림 흐름만 빼고) 맨 위 `authorizeUrl`이 있으면 409, 압축돼서 읽을 수 없으면 409.
+- TD-MOB1-002: (1) D-MOB1-17 (6)·AC-MOB1-09 그대로 — 연습 전용 가짜 구글 경로는 `redirect_uri`(퍼센트 푼 값, 여러 개면 모두)가 정확히 `http://localhost:<포트>/`로 시작하고 출처가 같을 때만 넘기고, 아니면 400(가짜 구글로 0개). (2) 위쪽 응답의 Location은 휴대폰 주소·`http://localhost:<포트>/`(안쪽 서버는 같은 곳 경로 `/…`도, `//`·`/\` 빼고)로 시작할 때만 넘기고 아니면 400.
+- TD-MOB1-003: hop-by-hop 머리글(connection·keep-alive·transfer-encoding·upgrade·te·trailer·proxy-*·connection 값에 적힌 이름)을 요청·응답 양쪽에서 옮기지 않음. 길이 없는 덩어리 요청 본문은 `transfer-encoding: chunked`만 다시 붙임.
+- **test-domain 몫**: `tests/adversarial/mob1/try-relay.test.ts`의 '조작 경로…' 시험 하나가 이제 실패한다(97행 `expected 2 to be 3`). 목록의 `${head}?redirect_uri=http://<미끼>/&client_id=nope`를 `fakeGoogleTarget`만 보고 "가짜 구글로 넘긴다"로 세는데, AC-MOB1-09 새 줄(D-MOB1-17 (6))은 이 경우 400·가짜 구글로 0개다. 기대값을 AC-MOB1-09 새 줄에 맞춰 주길 요청(구현은 스펙대로 둠).
+- 확인: `apps/server/test/mob1-try-relay.test.ts` 27개 통과(새 9개), typecheck·lint 통과.

@@ -10,6 +10,10 @@ export declare function swapOrigin(text: string, from: string, to: string): stri
 export declare function relayAuthorizeUrl(text: string, googleOrigin: string, here: string): string
 export declare function fakeGoogleTarget(target: string): string | null
 export declare function relayPath(target: string): string
+export declare function fakeGoogleRedirectOk(target: string, appOrigin: string): boolean
+export declare function honoPath(target: string): string | null
+export declare function withoutHopByHop<T extends Record<string, unknown>>(headers: T): Record<string, Exclude<T[keyof T], undefined>>
+export declare function locationAllowed(location: unknown, context: { readonly here: string; readonly known: boolean; readonly appOrigin: string; readonly allowRelative: boolean }): boolean
 export declare function loginRoute(method: string | undefined, target: string): boolean
 export declare function authorizeRoute(method: string | undefined, target: string): 'start' | 'consent' | 'resend' | null
 export declare function rewriteAuthorizeBody(text: string, change: (url: string) => string): { text: string; authorizeUrl: string | null }
