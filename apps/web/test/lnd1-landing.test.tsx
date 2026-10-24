@@ -1,4 +1,4 @@
-// LND1 공개 소개 화면 (AC-LND1-01~03·05~08·10·90, D-LND1-01~05·08): 경로 읽기, 소개를 보일지 판단, 운영 사업자 줄, 화면 흐름.
+// LND1 공개 소개 화면 (AC-LND1-01~03·05~08·10·90, D-LND1-01~05·08·11): 경로 읽기, 소개를 보일지 판단, 운영 사업자 줄, 화면 흐름.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../src/App.tsx'
@@ -25,9 +25,12 @@ const GOOGLE = [
   '유튜브를 연결하면 판매자 본인 채널의 이름, 본인 라이브 방송 목록, 고른 방송의 채팅 글을 읽어요. 채팅에서 주문을 찾는 데만 써요.',
   '판매자가 설정에서 감사 메시지 자동 게시를 켜고 동의했을 때만 본인 방송 채팅이나 본인 영상 댓글에 짧은 감사 글을 올려요.',
   '구글로 로그인하면 구글 계정 번호와 가린 이메일만 저장해요.',
-  '채팅 글과 시청자 이름은 방송 날짜부터 30일 뒤에 지워요. 구글 사용자 데이터를 팔거나 광고에 쓰지 않아요.',
+  '유튜브에서 받은 채팅 글과 채팅만 한 시청자의 이름은 방송 날짜부터 30일 뒤에 지워요. 찜이 정해진 손님의 이름은 판매 장부(확인서·정산·포장)에 남아요.',
+  '유튜브에서 받은 채팅은 AI 제안으로 보내지 않아요. 구글 사용자 데이터를 팔거나 광고에 쓰지 않아요.',
   '설정의 유튜브 칸에서 언제든 연결을 끊을 수 있어요.',
 ]
+const ENGLISH_DATA =
+  "Google sign-in uses only openid and email. Live chat messages received from YouTube, and the names of viewers who only chatted, are deleted 30 days after the broadcast date. The display names of buyers whose orders were confirmed are kept in the seller's sales records (order confirmations, settlement and packing). Chat received from YouTube is never sent to the optional AI suggestion feature. We do not transfer YouTube data to third parties. We do not sell Google user data or use it for advertising. LiveGenie's use"
 const LIMITED_USE = '라이브지니가 구글 API에서 받은 정보를 쓰고 다른 앱으로 옮길 때는 구글 API 서비스 사용자 데이터 정책(제한적 사용 요건 포함)을 따릅니다.'
 
 describe('경로 (AC-LND1-90)', () => {
@@ -98,6 +101,13 @@ describe('소개 화면 문장 (AC-LND1-01·09·13)', () => {
     expect(LANDING_ENGLISH.endsWith('including the Limited Use requirements.')).toBe(true)
   })
 
+  it('지우는 범위·AI·제3자 문장 (D-LND1-11)', () => {
+    expect(LANDING_GOOGLE_ITEMS).toHaveLength(6)
+    expect(LANDING_GOOGLE_ITEMS.join(' ')).not.toMatch(/제3자|다른 곳에 넘기지/)
+    expect(LANDING_ENGLISH).toContain(ENGLISH_DATA)
+    expect(LANDING_ENGLISH).not.toContain('Live chat text and viewer names')
+  })
+
   it('제목·한 줄 소개·버튼 둘·절·목록 순서·제한적 사용 링크·영문 단락·정책 링크, 그림·입력 칸 없음', () => {
     render(<LandingPage onLogin={() => {}} />)
     expect(screen.getAllByRole('heading', { level: 1 }).map((h) => h.textContent)).toEqual(['라이브지니'])
@@ -126,11 +136,12 @@ describe('소개 화면 문장 (AC-LND1-01·09·13)', () => {
     expect(document.body.textContent).not.toMatch(/다른 곳에 넘기지 않아요|제3자/)
   })
 
-  it('영문 단락 밖의 글에 영어 낱말이 없다 (예외: "API", "TEUM")', () => {
+  it('영문 단락 밖의 글에 영어 낱말이 없다 (예외: "API", "TEUM", 기능 이름 "AI 제안"의 "AI")', () => {
     const { container } = render(<LandingPage onLogin={() => {}} />)
     const copy = container.cloneNode(true) as HTMLElement
     for (const element of copy.querySelectorAll('[lang="en"]')) element.remove()
-    const words = (copy.textContent ?? '').match(/[A-Za-z_][A-Za-z0-9_.-]*/g) ?? []
+    // "AI"는 기능 이름 "AI 제안"으로만 허용 (AC-LND1-13, D-LND1-11)
+    const words = (copy.textContent ?? '').replaceAll('AI 제안', '제안').match(/[A-Za-z_][A-Za-z0-9_.-]*/g) ?? []
     expect(words.filter((word) => word !== 'API' && word !== 'TEUM')).toEqual([])
   })
 
