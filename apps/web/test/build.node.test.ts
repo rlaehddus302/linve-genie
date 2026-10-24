@@ -113,9 +113,27 @@ describe('vite build', () => {
     expect(urls.filter(isExternalUrl)).toEqual([])
     for (const url of urls.filter((u) => !u.startsWith('data:'))) {
       // 해시가 붙은 정적 파일 또는 PWA 파일(매니페스트·아이콘 — public 폴더, AC-S06-50)
+      // LND1 D-LND1-06: #root 안 정적 글의 정책 링크는 파일이 아니라 화면 주소(서버가 index.html로 낸다)
+      if (url === '/privacy' || url === '/terms') continue
       expect(url, url).toMatch(/^\/(assets\/|icons\/[a-z0-9-]+\.png$|manifest\.webmanifest$)/)
       expect(existsSync(join(outDir, url.slice(1))), url).toBe(true)
     }
+  })
+
+  it('AC-LND1-11 (D-LND1-06): 자바스크립트 없이 읽는 index.html — meta description이 한 줄 소개, #root 안에 이름·한 줄 소개·정책 링크, 인라인 스크립트·style 없음', () => {
+    const html = read('index.html')
+    const tagline = '유튜브·인스타그램·틱톡 라이브 판매의 찜을 자동으로 받아 선착순을 정하고, 라벨 출력과 정산까지 도와드려요.'
+    const metas = [...html.matchAll(/<meta\s+name="description"\s+content="([^"]*)"/g)].map((match) => match[1])
+    expect(metas).toEqual([tagline])
+    const root = /<div id="root">([\s\S]*?)<\/div>/.exec(html)?.[1] ?? ''
+    expect(root).toContain('<h1>라이브지니</h1>')
+    expect(root).toContain(tagline)
+    expect(root).toMatch(/<a href="\/privacy">개인정보처리방침<\/a>/)
+    expect(root).toMatch(/<a href="\/terms">이용약관<\/a>/)
+    // CSP 그대로: 본문 있는 <script>·<style>·style= 속성 없음
+    for (const match of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)) expect((match[1] ?? '').trim()).toBe('')
+    expect(html).not.toMatch(/<style\b/i)
+    expect(html).not.toMatch(/\sstyle\s*=/i)
   })
 
   it('PWA (AC-S06-50·51): 매니페스트·아이콘 크기, /sw.js가 그 빌드의 앱 껍데기만 저장하고 /api/는 없다', () => {

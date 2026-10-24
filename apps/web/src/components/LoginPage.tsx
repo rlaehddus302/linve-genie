@@ -4,7 +4,7 @@
 // L1 간편 로그인(AC-L1-20·21): 서버가 공급자를 켜 두었으면 로그인 칸 아래 "또는" 줄과 "카카오로 계속하기"·"네이버로 계속하기"·"구글로 계속하기"
 // (켜진 것만, 이 순서). 누르면 버튼 셋이 잠기고 같은 탭에서 승인 주소로 간다. 돌아온 결과(`/?login=<코드>&provider=<p>`)는 정해진 문장을 한 번 보이고
 // 주소에서 지운다. 가입 화면·링크는 여전히 없다(D-L1-01).
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react'
 import { isApiError, post, type ApiError } from '../api/client.ts'
 import type { Me } from '../api/types.ts'
 import { goTopLevel } from '../lib/google-return.ts'
@@ -12,8 +12,24 @@ import { continueLabel, fetchLoginProviders, movingLabel, parseLoginResult, resu
 import { SERVICE_NAME } from '../brand.ts'
 
 export const SESSION_EXPIRED_MESSAGE = '로그인이 풀렸어요. 다시 로그인해 주세요.'
+/** 주소가 `/login`일 때만 로그인 칸 아래 (D-LND1-10 (2)) */
+export const LOGIN_ACCOUNT_NOTE = '계정은 운영자가 만들어 드려요. 아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요.'
+export const LOGIN_BACK_HOME = '처음 화면으로'
+/** 아이디·비밀번호가 틀렸을 때(LOGIN_FAILED) 서버 문장 바로 아래, alert 밖 — 모든 로그인 화면 (D-LND1-10 (3)) */
+export const LOGIN_FAILED_HINT = '아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요.'
 
-export function LoginPage({ expired, onLoggedIn }: { readonly expired: boolean; readonly onLoggedIn: (me: Me) => void }) {
+const plainClick = (event: MouseEvent) => event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
+
+export function LoginPage({
+  expired,
+  onLoggedIn,
+  onHome,
+}: {
+  readonly expired: boolean
+  readonly onLoggedIn: (me: Me) => void
+  /** 주소가 `/login`일 때만 준다 — 계정 안내·"처음 화면으로"(`/`)를 그린다. 그 자리 로그인 화면엔 없음 */
+  readonly onHome?: () => void
+}) {
   const [loginId, setLoginId] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<ApiError | null>(null)
@@ -89,11 +105,30 @@ export function LoginPage({ expired, onLoggedIn }: { readonly expired: boolean; 
             {error.message}
           </p>
         ) : null}
+        {error !== null && error.code === 'LOGIN_FAILED' ? <p className="field-hint">{LOGIN_FAILED_HINT}</p> : null}
         <button type="submit" className="button button-primary" disabled={busy}>
           로그인
         </button>
       </form>
       <SocialLogin onStart={() => setResult(null)} />
+      {onHome !== undefined ? (
+        <div className="stack-tight login-help">
+          <p>{LOGIN_ACCOUNT_NOTE}</p>
+          <p>
+            <a
+              className="text-link"
+              href="/"
+              onClick={(event) => {
+                if (!plainClick(event)) return
+                event.preventDefault()
+                onHome()
+              }}
+            >
+              {LOGIN_BACK_HOME}
+            </a>
+          </p>
+        </div>
+      ) : null}
       <nav className="row policy-links" aria-label="약관">
         <a href="/privacy">개인정보처리방침</a>
         <a href="/terms">이용약관</a>

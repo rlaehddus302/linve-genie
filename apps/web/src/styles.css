@@ -267,6 +267,11 @@ p {
   font-weight: 700;
 }
 
+/* LND1 D-LND1-10 (3): 틀린 비밀번호 문장 바로 아래 다음에 할 일 (alert 밖) */
+.field-error + .field-hint {
+  margin-top: -0.5rem;
+}
+
 .error-note {
   display: grid;
   gap: 0.5rem;
@@ -3742,4 +3747,72 @@ select.input {
     padding-right: 0.5rem;
     text-align: center;
   }
+}
+
+/* ── LND1: 공개 소개 화면 (D-LND1-03·09) ─────────── */
+/* 글 폭은 .page(40rem)로 제한, 목록은 번호·점이 화면 안에 들어오게 */
+.landing {
+  /* 큰 글씨(150%)의 PC에서도 글 줄이 900px를 넘지 않게 */
+  max-width: min(40rem, 900px);
+}
+
+.landing h2 {
+  margin: 0;
+  font-size: 1.375rem;
+}
+
+.landing h2:focus {
+  outline: 3px solid #0b57d0;
+  outline-offset: 2px;
+}
+
+.landing-tagline {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.landing-actions .button {
+  font-size: 1.125rem;
+}
+
+.landing-list,
+.landing-operator {
+  margin: 0;
+  padding-left: 1.5rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.landing-operator {
+  list-style: none;
+  padding-left: 0;
+}
+
+.landing .policy-links {
+  margin-top: 0.5rem;
+}
+
+/* LND1 D-LND1-10 (4): 영문 단락 머리말 — 작은 글이지만 16px 이상(D-MOB1-03) */
+.landing-english-caption {
+  margin: 0 0 -0.25rem;
+  font-size: 1rem;
+  color: #4b5563;
+}
+
+/* LND1 U-LND1-04: 문장 안 링크 — 줄을 끊지 않고, 위아래 여백으로 누르는 높이 44px 이상(줄 간격은 그대로) */
+.text-link.text-link-inline {
+  display: inline;
+  min-height: 0;
+  padding-block: 0.875rem;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* LND1 D-LND1-10 (2): /login 계정 안내·처음 화면으로 */
+.login-help {
+  margin-top: 1rem;
+}
+
+.login-help p {
+  margin: 0;
 }

@@ -36,7 +36,7 @@ export function uniqueDate(): string {
 }
 
 export async function login(page: Page): Promise<void> {
-  await page.goto('/')
+  await page.goto('/login') // LND1 D-LND1-01
   await page.getByLabel('아이디').fill(LOGIN_ID)
   await page.getByLabel('비밀번호').fill(PASSWORD)
   await page.getByRole('button', { name: '로그인' }).click()

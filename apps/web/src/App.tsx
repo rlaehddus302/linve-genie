@@ -17,6 +17,8 @@
 // N4b: 끝난 방송의 영수증 보내기 `/broadcasts/<ID>/receipts`(AC-N4b-30) — 보조자는 다른 화면처럼 안내만.
 // 보조자 계정은 문자찜 입력만 — 로그인하면 `/sms`로, 다른 화면 주소는 안내만 보이고 그 화면의 데이터를 부르지 않는다(AC-I3-63).
 // 저장하지 않은 설정 값이 있으면 같은 떠나기 창이 그 문장으로 묻는다(AC-I3-46).
+// LND1(D-LND1-01·02): 로그아웃 상태의 `/`는 브라우저 탭에서 처음 열면 공개 소개 화면, 로그인 화면은 `/login`(로그인하면 `/`로 바꿔 간다 — 보조자는 `/sms`).
+// `/?login=` 결과가 붙어 왔거나, 이 탭에서 로그아웃·풀린 뒤(새로고침 전까지), 홈 화면 앱으로 열었으면 `/`에서도 바로 로그인 화면. 그 밖의 앱 주소는 지금처럼 그 자리에 로그인 화면.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { get, isApiError, onUnauthorized, post, type ApiError } from './api/client.ts'
 import { isAssistant, type Me } from './api/types.ts'
@@ -30,6 +32,7 @@ import { ErrorNote } from './components/ErrorNote.tsx'
 import { HomePage } from './components/HomePage.tsx'
 import { LabelsPage } from './components/LabelsPage.tsx'
 import { RefusalReset } from './components/LabelsOff.tsx'
+import { LandingPage } from './components/LandingPage.tsx'
 import { LoginPage } from './components/LoginPage.tsx'
 import { Modal } from './components/Modal.tsx'
 import { PackingPage } from './components/PackingPage.tsx'
@@ -44,6 +47,8 @@ import { SmsPage } from './components/SmsPage.tsx'
 import { TopBar } from './components/TopBar.tsx'
 import { WizardPage } from './components/WizardPage.tsx'
 import { takeGoogleReturn } from './lib/google-return.ts'
+import { hasLoginResultParam, shouldShowLanding } from './lib/landing.ts'
+import { isStandalone } from './pwa/pwa.ts'
 import { parseLoginResult, resultMessage, stripLoginParams, type LoginResult } from './lib/social-login.ts'
 import { ExternalLeaveContext, LEAVE_QUESTION, LEAVE_TITLE, LeaveGuardContext, SAVE_AND_LEAVE, SAVE_AND_LEAVE_BUSY, type ExternalLeave, type LeaveGuard } from './lib/leave-guard.ts'
 import { NavigateContext } from './components/AppLink.tsx'
@@ -112,6 +117,10 @@ export function App() {
   const [session, setSession] = useState<Session>({ state: 'checking' })
   const [checkError, setCheckError] = useState<ApiError | null>(null)
   const [logoutError, setLogoutError] = useState<ApiError | null>(null)
+  // 소개 화면을 건너뛸 까닭 (D-LND1-02): 처음 연 주소의 간편 로그인 결과·홈 화면 앱은 연 때 한 번 본다. 로그아웃·풀림은 이 탭에서 새로고침 전까지
+  const [loginParam] = useState(() => hasLoginResultParam(window.location.search))
+  const [standalone] = useState(isStandalone)
+  const [leftInTab, setLeftInTab] = useState(false)
 
   const check = useCallback(async () => {
     setCheckError(null)
@@ -124,18 +133,24 @@ export function App() {
     }
   }, [])
 
+  // 로그인한 화면을 보던 중인가 — 이때의 401만 '로그인이 풀렸어요'다 (TE-LND1-001)
+  const sessionLive = useRef(false)
   useEffect(() => {
-    // 처음 확인(/api/me)의 401은 아직 로그인하지 않은 것 — 그 뒤의 401은 세션이 끝난 것
-    let ready = false
+    sessionLive.current = session.state === 'in'
+  }, [session.state])
+
+  useEffect(() => {
+    // 로그인 확인(/api/me)의 401은 처음이든 끊김·503 뒤 다시 확인이든 아직 로그인하지 않은 것 — check()가 처리한다.
+    // 로그인한 화면을 보던 중의 401만 세션이 끝난 것
     onUnauthorized(() => {
-      if (!ready) return
+      if (!sessionLive.current) return
+      sessionLive.current = false
+      setLeftInTab(true)
       setSession({ state: 'out', expired: true })
       setLeaving(null)
       asking.current = false
     })
-    void check().finally(() => {
-      ready = true
-    })
+    void check()
     return () => onUnauthorized(null)
   }, [check])
 
@@ -155,10 +170,14 @@ export function App() {
     setLogoutError(null)
     try {
       await post('/api/logout', {})
+      setLeftInTab(true)
       setSession({ state: 'out', expired: false })
     } catch (error) {
       if (!isApiError(error)) throw error
-      if (error.status === 401) setSession({ state: 'out', expired: false })
+      if (error.status === 401) {
+        setLeftInTab(true)
+        setSession({ state: 'out', expired: false })
+      }
       else setLogoutError(error)
     }
   }, [])
@@ -307,29 +326,38 @@ export function App() {
     stripLoginParams()
   }, [signedIn, route.name])
 
-  /** 로그인: 보조자 계정은 문자찜 입력으로 (AC-I3-63) */
+  /** 로그인: 보조자 계정은 문자찜 입력으로 (AC-I3-63). `/login`에서 로그인하면 방송 목록으로 바꿔 간다 — 뒤로 가기가 로그인 화면으로 가지 않는다 (D-LND1-01) */
   const loggedIn = (me: Me) => {
     setSession({ state: 'in', me })
     if (isAssistant(me) && route.name !== 'sms') go({ name: 'sms' }, { replace: true })
+    else if (route.name === 'login') go({ name: 'home' }, { replace: true })
   }
+
+  // 로그인한 채 `/login`을 열면 로그인 화면 없이 방송 목록으로(보조자는 문자찜 입력) — 기록을 쌓지 않는다 (D-LND1-01 (3))
+  const assistantSignedIn = session.state === 'in' && isAssistant(session.me)
+  useEffect(() => {
+    if (signedIn && route.name === 'login') go(assistantSignedIn ? { name: 'sms' } : { name: 'home' }, { replace: true })
+  }, [signedIn, assistantSignedIn, route.name, go])
 
   /** 가게 이름을 바꾸면 이 기기의 위 줄이 바로 바뀐다 (AC-I3-47) */
   const renamed = useCallback((name: string) => {
     setSession((current) => (current.state === 'in' ? { state: 'in', me: { ...current.me, seller: { name } } } : current))
   }, [])
 
-  // 정책 페이지는 로그인 없이 연다 (세션이 없어도 로그인 화면으로 바꾸지 않는다, AC-I3-77)
-  if (isPublicRoute(route) && session.state !== 'in') {
+  // 정책 페이지는 로그인 없이 연다 (세션이 없어도 로그인 화면으로 바꾸지 않는다, AC-I3-77).
+  // "로그인 화면으로"는 `/login`으로, 확인 중의 "처음 화면으로"는 `/` (D-LND1-08)
+  if (isPublicRoute(route) && route.name !== 'login' && session.state !== 'in') {
+    const back: Route = session.state === 'checking' ? { name: 'home' } : { name: 'login' }
     return (
       <>
         <header className="topbar">
           <p className="shop-name">{SERVICE_NAME}</p>
           <a
             className="button"
-            href={routePath({ name: 'home' })}
+            href={routePath(back)}
             onClick={(event) => {
               event.preventDefault()
-              go({ name: 'home' })
+              go(back)
             }}
           >
             {session.state === 'checking' ? '처음 화면으로' : '로그인 화면으로'}
@@ -360,7 +388,8 @@ export function App() {
     )
   }
   if (session.state === 'out') {
-    return <LoginPage expired={session.expired} onLoggedIn={loggedIn} />
+    if (shouldShowLanding({ signedOut: true, route, loginParam, leftInTab, standalone })) return <LandingPage onLogin={() => go({ name: 'login' })} />
+    return <LoginPage expired={session.expired} onLoggedIn={loggedIn} onHome={route.name === 'login' ? () => go({ name: 'home' }) : undefined} />
   }
   const me = session.me
   const assistant = isAssistant(me)
@@ -488,6 +517,9 @@ function Screen({ route, navigate, me, onRenamed }: ScreenProps) {
       return <DepositsPage route={route} navigate={navigate} />
     case 'home':
       return <HomePage navigate={navigate} />
+    case 'login':
+      // 로그인한 채 연 `/login`: 효과가 곧 방송 목록(보조자는 문자찜 입력)으로 바꿔 간다
+      return null
   }
 }
 

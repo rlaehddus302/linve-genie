@@ -1,6 +1,7 @@
 // AC-L1-20·21·22·23 화면 (로그인 화면 버튼·돌아온 결과 문장·설정 "로그인 방법"·보조자). 제목 @social → chromium-social 묶음(세 공급자).
 // 기대값은 acceptance.md에서 정했다.
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expectLanding } from '../lnd1/support.ts'
 import {
   MSG,
   NAME,
@@ -50,7 +51,7 @@ async function noHorizontalScroll(page: Page): Promise<void> {
 
 test.describe('AC-L1-20 로그인 화면 버튼 @social', () => {
   test('로그인 칸 그대로 위·아이디 커서 → "또는" → 카카오·네이버·구글 순 · 가입 없음 · 색·명암비 · 그림 없음 · PC 44px', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/login') // LND1 D-LND1-01
     await expect(page.getByLabel('아이디')).toBeFocused()
     await expect(continueButton(page, 'google')).toBeVisible()
     const order = await page.getByRole('button').evaluateAll((els) => els.map((e) => (e.getAttribute('aria-label') ?? e.textContent ?? '').trim()))
@@ -87,11 +88,11 @@ test.describe('AC-L1-20 로그인 화면 버튼 @social', () => {
   })
 
   test('Tab 순서: 아이디 → 비밀번호 → 로그인 → 카카오 → 네이버 → 구글 → 정책 링크', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/login') // LND1 D-LND1-01
     await expect(continueButton(page, 'google')).toBeVisible()
     await expect(page.getByLabel('아이디')).toBeFocused()
     const names: string[] = []
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 7; i++) { // LND1 D-LND1-10: /login엔 정책 링크 위에 "처음 화면으로"가 하나 더 있다
       await page.keyboard.press('Tab')
       names.push(await page.evaluate(() => {
         const el = document.activeElement as HTMLElement | null
@@ -100,13 +101,13 @@ test.describe('AC-L1-20 로그인 화면 버튼 @social', () => {
         return (el.getAttribute('aria-label') ?? el.innerText).replace(/\s+/g, '').trim()
       }))
     }
-    expect(names).toEqual(['비밀번호', '로그인', '카카오로계속하기', 'N네이버로계속하기', '구글로계속하기', '개인정보처리방침'])
+    expect(names).toEqual(['비밀번호', '로그인', '카카오로계속하기', 'N네이버로계속하기', '구글로계속하기', '처음화면으로', '개인정보처리방침']) // LND1 D-LND1-10
   })
 
   test('휴대폰 폭(390): 버튼 폭 가득·44px 이상·글 16px 이상·가로 스크롤 없음', async ({ browser, baseURL }) => {
     const ctx = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: 'ko-KR', timezoneId: 'Asia/Seoul' })
     const page = await ctx.newPage()
-    await page.goto('/')
+    await page.goto('/login') // LND1 D-LND1-01
     await expect(continueButton(page, 'google')).toBeVisible()
     const idWidth = (await page.getByLabel('아이디').boundingBox())?.width ?? 0
     for (const p of PROVIDERS) {
@@ -121,7 +122,7 @@ test.describe('AC-L1-20 로그인 화면 버튼 @social', () => {
   })
 
   test('누르면 버튼 셋이 잠기고 누른 버튼이 "카카오로 이동하는 중…" → 같은 탭으로 승인 화면 · 두 번 눌러도 시작 요청 하나', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/login') // LND1 D-LND1-01
     await expect(continueButton(page, 'kakao')).toBeVisible()
     let release: () => void = () => undefined
     const held = new Promise<void>((r) => {
@@ -147,7 +148,7 @@ test.describe('AC-L1-20 로그인 화면 버튼 @social', () => {
   })
 
   test('시작 요청이 실패하면 잠금이 풀리고 버튼 아래에 문장 (본문 없음 → 정한 문장, 서버 문장 → 그대로)', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/login') // LND1 D-LND1-01
     await expect(continueButton(page, 'naver')).toBeVisible()
     await page.route('**/api/auth/start', (route) => route.fulfill({ status: 502, body: '' }))
     await continueButton(page, 'naver').click()
@@ -162,11 +163,11 @@ test.describe('AC-L1-20 로그인 화면 버튼 @social', () => {
     await continueButton(page, 'google').click()
     await expect(page.getByRole('alert')).toHaveText(MSG.RATE_LIMITED)
     await expect(continueButton(page, 'google')).toBeEnabled()
-    await expect(page).toHaveURL(/\/$/)
+    await expect(page).toHaveURL(/\/login$/) // LND1 D-LND1-01 (로그인 화면 주소 그대로)
   })
 
   test('공급자 화면에서 브라우저 "뒤로" → 로그인 화면 버튼이 다시 눌린다', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/login') // LND1 D-LND1-01
     await pressContinue(page, 'google')
     await page.goBack()
     await expect(page.getByLabel('아이디')).toBeVisible()
@@ -192,6 +193,10 @@ test.describe('AC-L1-21 돌아온 결과 문장 @social', () => {
       await expect(page.getByLabel('아이디')).toBeFocused()
       await expect(page).toHaveURL(/\/$/)
       await page.reload()
+      // LND1 D-LND1-02: 새로고침한 '/'는 소개 화면 — 문장은 거기에도, 로그인 화면(/login)에도 없다
+      await expectLanding(page) // LND1 SA-LND1-01: 소개 화면에만 있는 절·한 줄 소개·"시작하기" + 아이디 칸 없음 (h1만으로는 로그인 화면과 구별 안 됨)
+      await expect(page.getByText(text)).toHaveCount(0)
+      await page.goto('/login') // LND1 D-LND1-01
       await expect(page.getByLabel('아이디')).toBeFocused()
       await expect(page.getByRole('alert')).toHaveCount(0)
     })
@@ -447,7 +452,7 @@ test.describe('AC-L1-23 보조자 @social', () => {
     p.on('response', (r) => {
       if (r.status() === 403) forbidden.push(r.url())
     })
-    await p.goto('/')
+    await p.goto('/login') // LND1 D-LND1-01
     for (const prov of PROVIDERS) await expect(continueButton(p, prov)).toBeVisible()
     await loginAs(p, { loginId: assistant.loginId, password })
     await p.goto('/settings')

@@ -508,6 +508,9 @@ describe('앱: 떠나기 전 확인·인터넷 없음 (AC-S06-01, D-083, D-093)'
     act(() => {
       window.dispatchEvent(new Event('online'))
     })
-    expect(await screen.findByRole('button', { name: '로그인' })).toBeDefined()
+    // 처음 연 `/`에서 로그인하지 않은 사람 — 소개 화면이고 "로그인이 풀렸어요"가 아니다 (D-LND1-02, TE-LND1-001)
+    expect(await screen.findByRole('heading', { name: '판매자의 하루' })).toBeDefined()
+    expect(screen.queryByText('인터넷 연결이 없어요. 연결되면 다시 불러와요.')).toBeNull()
+    expect(screen.queryByText('로그인이 풀렸어요. 다시 로그인해 주세요.')).toBeNull()
   })
 })

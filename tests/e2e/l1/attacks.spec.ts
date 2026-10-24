@@ -31,7 +31,7 @@ test.describe('L1 깨뜨리기 @social', () => {
 
     const kakaoCtx = await browser.newContext({ baseURL })
     const kakaoPage = await kakaoCtx.newPage()
-    await kakaoPage.goto('/')
+    await kakaoPage.goto('/login') // LND1 D-LND1-01
     await pressContinue(kakaoPage, 'kakao')
     await decideOnFakePage(kakaoPage, 'kakao', user)
     await expect(kakaoPage.getByRole('button', { name: '로그아웃' })).toBeVisible()
@@ -90,7 +90,7 @@ test.describe('L1 깨뜨리기 @social', () => {
     await linkFromSettings(page, 'google', user)
     const ctx = await browser.newContext({ baseURL })
     const p = await ctx.newPage()
-    await p.goto('/')
+    await p.goto('/login') // LND1 D-LND1-01
     const origin = new URL(p.url()).origin
     for (let i = 0; i < 10; i++) {
       const res = await p.request.post('/api/login', { data: { loginId: seller.loginId, password: `wrong-${String(i)}` }, headers: { Origin: origin } })
@@ -113,7 +113,7 @@ test.describe('L1 깨뜨리기 @social', () => {
     const pwCookie = (await page.context().cookies()).find((c) => c.name === 'lj_session')
     const ctx = await browser.newContext({ baseURL })
     const p = await ctx.newPage()
-    await p.goto('/')
+    await p.goto('/login') // LND1 D-LND1-01
     await pressContinue(p, 'kakao')
     const oauth = (await ctx.cookies()).find((c) => c.name === '__Host-lj_oauth')
     expect(oauth?.path).toBe('/')
@@ -167,7 +167,7 @@ test.describe('L1 깨뜨리기 @social', () => {
       await linkFromSettings(page, 'kakao', user)
       const ctx = await browser.newContext({ baseURL })
       const p = await ctx.newPage()
-      await p.goto('/')
+      await p.goto('/login') // LND1 D-LND1-01
       await pressContinue(p, 'kakao')
       await fakeControl(p.request, '/_fake/fail', { provider: 'kakao', ...fault, times: 1 })
       await decideOnFakePage(p, 'kakao', user)
@@ -185,7 +185,7 @@ test.describe('L1 깨뜨리기 @social', () => {
     await linkFromSettings(page, 'google', user)
     const ctx = await browser.newContext({ baseURL })
     const p = await ctx.newPage()
-    await p.goto('/')
+    await p.goto('/login') // LND1 D-LND1-01
     await pressContinue(p, 'google')
     await fakeControl(p.request, '/_fake/fail', { provider: 'google', step: 'token', delayMs: 12_000, times: 1 })
     const done = decideOnFakePage(p, 'google', user)
@@ -208,9 +208,9 @@ test.describe('L1 깨뜨리기 @social', () => {
     const ctx = await browser.newContext({ baseURL })
     const t1 = await ctx.newPage()
     const t2 = await ctx.newPage()
-    await t1.goto('/')
+    await t1.goto('/login') // LND1 D-LND1-01
     await pressContinue(t1, 'kakao')
-    await t2.goto('/')
+    await t2.goto('/login') // LND1 D-LND1-01
     await pressContinue(t2, 'naver')
     await decideOnFakePage(t2, 'naver', n)
     await expect(t2.getByRole('banner')).toContainText(seller.shopName)
@@ -227,7 +227,7 @@ test.describe('L1 깨뜨리기 @social', () => {
     await linkFromSettings(page, 'kakao', k)
     const ctx = await browser.newContext({ baseURL })
     const p = await ctx.newPage()
-    await p.goto('/')
+    await p.goto('/login') // LND1 D-LND1-01
     await pressContinue(p, 'kakao')
     await decideOnFakePage(p, 'kakao', k)
     await expect(p.getByRole('button', { name: '로그아웃' })).toBeVisible()
@@ -270,7 +270,7 @@ test.describe('L1 깨뜨리기 @social', () => {
     // A에게도 없다: 그 카카오 계정으로 로그인하면 NOT_LINKED
     const other = await browser.newContext({ baseURL })
     const p = await other.newPage()
-    await p.goto('/')
+    await p.goto('/login') // LND1 D-LND1-01
     await pressContinue(p, 'kakao')
     await decideOnFakePage(p, 'kakao', user)
     await expect(p.getByRole('alert')).toHaveText(MSG.NOT_LINKED('kakao'))
@@ -317,7 +317,7 @@ test.describe('L1 깨뜨리기 @social', () => {
   })
 
   test('시작 요청이 네트워크에서 끊기면(오프라인) 정한 문장과 잠금 풀림 · 다시 누르면 간다', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/login') // LND1 D-LND1-01
     await expect(page.getByRole('button', { name: '카카오로 계속하기' })).toBeVisible()
     await page.route('**/api/auth/start', (route) => route.abort('internetdisconnected'))
     await page.getByRole('button', { name: '카카오로 계속하기' }).click()

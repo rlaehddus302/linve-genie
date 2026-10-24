@@ -141,7 +141,7 @@ test.describe('한꺼번에·시간대·붙여넣기 한계', () => {
     const [d] = await deposit(page, src, [{ key: uniq('hi'), at, amount: sale.remaining, name }])
     const ctx = await browser.newContext({ locale: 'ko-KR', timezoneId: 'Pacific/Honolulu', baseURL: new URL(page.url()).origin })
     const hi = await ctx.newPage()
-    await hi.goto('/')
+    await hi.goto('/login') // LND1 D-LND1-01
     await hi.getByLabel('아이디').fill('e2e-shop')
     await hi.getByLabel('비밀번호').fill('e2e-pass-1234')
     await hi.getByRole('button', { name: '로그인' }).click()
