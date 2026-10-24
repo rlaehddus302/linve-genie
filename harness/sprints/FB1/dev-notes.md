@@ -32,3 +32,40 @@
   - 화면의 오류 상자에 라틴 글자가 없게(AC-FB1-38): 이제 어댑터는 영어 상세를 내지 않는다. 남는 라틴 글자는 `B1`·`NIIMBOT`·`USB`·`Marklife`, 그리고 B1 `WRONG_MODEL`의 "모델: D110" 같은 모델 이름뿐.
 - **domain**: 기존 적대 시험 `tests/adversarial/n1`·`p1`·`i1`·`pl1b`는 지금 그대로 통과한다(바꿀 기대값 없음 — 돌려 봄). `tests/adversarial/fb1/printer-detail.test.ts`는 `createB1Adapter`에 가짜 클라이언트(`connect`가 무작위 예외)·`createFakeNiimbotBluetooth`, `createMarklifeAdapter`에 `createFakeBluetooth`로 연결·출력 실패를 내면 된다. `detail` 허용: `undefined`·`TIMEOUT_DETAIL`·`RETRIED_TIMEOUT_DETAIL`·`/^모델: /`(B1 WRONG_MODEL만). AC-FB1-35 (a)의 `detail` = 첫 문장은 다시 잇지 않는 경우(USB, 환경의 `requestDevice`가 기기를 돌려주지 않는 시험 환경 — 예: `requestDevice: () => undefined`)다. B1 블루투스에서 기기를 골랐으면 (a)는 다시 잇기로 가고, 계속 시간 초과면 `RETRIED_TIMEOUT_DETAIL`이다(AC-FB1-36).
 - **실기기 확인(HG-2)**: 실제 B1 + 윈도우 크롬에서 다시 잇기로 나아지는지, 어댑터가 직접 띄운 고르기 창(niimbluelib과 같은 거르기)에 B1이 그대로 보이는지는 사용자 확인.
+
+## server (dev-server)
+
+### 바뀐 공개 모양 — 택배 (`apps/server/src/parcel/**`, AC-FB1-15·16·17)
+
+- **`GET/PUT /api/parcels/settings` 응답 `settings`**:
+  - `carrier`: `'EPOST' | 'CJ' | 'HANJIN' | 'LOGEN' | 'LOTTE' | 'OTHER' | 'FAKE' | null` (쓰는 택배사 — 모두 고를 수 있음, `FAKE`는 시험 모드만).
+  - 새 칸 `carrierName: string | null` — 고른 택배사의 화면 이름(`우체국택배`·`CJ대한통운`·`한진택배`·`로젠택배`·`롯데택배`·`가짜 택배(시험용)`, `OTHER`면 판매자가 적은 이름, 고르지 않았으면 `null`).
+  - `carriers`: 줄 모양이 **`{ code, name, autoBook }`** 로 바뀜(전 `available`·`note` 없어짐). 차례 `EPOST`·`CJ`·`HANJIN`·`LOGEN`·`LOTTE`·`OTHER`(`name` = `직접 입력`) + 시험 모드면 끝에 `FAKE`. `autoBook` = 이 서버에 그 택배사의 자동 접수 어댑터가 있음(지금은 시험 모드 `FAKE`만 `true`). `고르지 않음`은 화면 몫.
+  - `box`: 새 코드 `'60' | '80' | '100' | '120' | '160'`(기본 `'80'`), `boxes` = `['60','80','100','120','160']`. 화면 낱말("80cm 이하")은 화면 몫(문서 패키지 `BOX_SIZE_NAMES`와 같은 낱말).
+- **PUT 본문**: 새 키 `carrierName`. `carrier: 'OTHER'`면 `carrierName` 필요(다듬기 = `tidyText` — 앞뒤 공백 지우고 이어진 공백·전각 공백·제어 글자는 공백 하나, 코드 포인트 1~20자). 비거나 공백만·없음·글이 아님 → 400 `problems: [{ field: 'carrierName', message: '택배사 이름을 적어 주세요.' }]`, 21자 이상 → "택배사 이름은 20자까지 적어 주세요." — 그 요청은 아무것도 저장하지 않는다. 이미 `OTHER`면 `carrierName`만 보내도 이름만 바뀐다. `OTHER`가 아닌 코드와 온 `carrierName`은 버린다(저장·응답에 없음). 다른 택배사로 바꾸면 직접 입력 이름은 지운다. 그 밖의 `carrier` 값 → "택배사를 골라 주세요."(전처럼), `FAKE`는 시험 모드 밖에서 "가짜 택배는 시험 모드에서만 고를 수 있어요."(전처럼). `EPOST` "준비 중" 거절은 없어졌다(`PARCEL_MESSAGES.epostNotReady` 지움).
+- **`box`(설정 저장·접수 `items[].box`)** 는 골든 `parcel/box.json` 함수 `readBox`로 읽는다(문서 패키지 `boxSizeOf`를 그대로 씀 — 한 벌). 새 코드 다섯 그대로, 옛 낱말 `극소`·`소`·`중`·`대` → `60`·`80`·`100`·`120`으로 옮겨 저장·접수, 그 밖은 400 "상자 크기를 골라 주세요."(접수는 아무것도 접수하지 않음). 응답·저장·택배사 어댑터가 받는 값은 늘 새 코드. 저장된 값에 옛 낱말이 남아 있으면 읽을 때 옮긴다(`storedBox`).
+- **택배 화면 `GET /api/parcels/days/:date`의 `blocked.code`**: 새 코드 **`NO_AUTO_BOOK`** — 고른 택배사에 자동 접수 어댑터가 없음(`EPOST`·`CJ`·`HANJIN`·`LOGEN`·`LOTTE`·`OTHER`, 운영은 모두). 문장 "고른 택배사는 아직 자동 접수를 할 수 없어요. 포장 화면에서 송장번호를 직접 적어 주세요." 접수 요청은 409 `PARCEL_BLOCKED`(같은 문장) — 택배사에 아무것도 보내지 않는다. 고르지 않았으면(또는 시험 모드 밖에 남은 `FAKE`) 전처럼 `NO_CARRIER` "택배사를 먼저 이어 주세요.". 차례: 택배사 없음 → 자동 접수 없음 → 보내는 사람 없음.
+- **택배 화면 `carrier`**: `{ code: SettingsCarrier, name }` — `OTHER`면 `name`이 적은 이름.
+- **택배사 이름 표**: `CARRIER_LABELS.EPOST` = `우체국택배`(전 "우체국 택배"), `CJ`·`HANJIN`·`LOGEN`·`LOTTE` 더함 — 운송장 `CARRIER_NAMES`와 같다. `CARRIER_CODES`(접수 기록에 오는 코드)는 어댑터를 둘 수 있는 여섯(`FAKE`·`EPOST`·`CJ`·`HANJIN`·`LOGEN`·`LOTTE`), 설정 쪽 타입은 `SettingsCarrier = CarrierCode | 'OTHER'`.
+- **DB**: 마이그레이션 `0019_fb1_parcel_box_carrier.sql` — `parcel_settings.box`·`parcels.box`의 옛 낱말을 하나씩 옮김, `parcel_settings.box` 기본값 `'80'`, `parcel_settings.carrier_name text`(null 허용, `OTHER`일 때만 값). 지우는 것 없음. 직접 입력 이름은 로그에 남기지 않는다.
+- 확인: `apps/server/test/fb1-parcel-settings.test.ts`(10개 — BASE 모양 DB에 0019 다시 적용, 0018까지 만든 빈 DB에 적용 포함), `t1-parcel-golden.test.ts`(box 종류·`G-PCL-FB1-` ID·파일 4·사례 74), 바뀐 기대값만 `t1-address`·`t1-book`·`t1-resume`(줄마다 `// FB1 D-FB1-0x`). `t1-book`의 "운영 기동" 시험은 D-FB1-04로 뜻이 바뀌어(우체국 고를 수 있음) 이름과 단언을 바꿨다.
+
+### 바뀐 공개 모양 — 라벨 가게 이름 (`apps/server/src/print.ts`, AC-FB1-27)
+
+- 서버가 템플릿을 내주는 곳(`servedTemplate` 한 곳)에서 템플릿 `shopName`을 L-2(`trimLabelText`)로 다듬어 빈 글이면 **그 판매자의 가게 이름**(설정 "가게", `sellers.name`)을 채운다(`fillShopName`). DB 본문·판(version)은 그대로.
+  - `GET /api/print/templates`: `{ product|packing: { template(채운 것), version, storedShopName } }` — **새 칸 `storedShopName`** = 저장된 본문의 가게 이름 그대로(저장한 적 없으면 `''`).
+  - `PUT /api/print/templates/:kind` 답: `template`은 조회와 같은 채운 모양, 새 칸 `storedShopName` = 방금 저장한 본문의 이름.
+  - 출력 기기 `POST /api/print/claim`의 `job.template`도 채운 것(상품·포장). 포장 라벨 장 수 계산도 같은 템플릿.
+  - 서버가 그리는 포장 라벨 그림(`/api/days/:date/packing-label.png`·`.pdf` — `closing.ts`)의 가게 이름 = 저장된 **포장** 템플릿 가게 이름, 비면 가게 이름(전에는 늘 가게 이름). `closing.ts`는 파일 경계 밖이지만 AC-FB1-27 "서버가 그리는 라벨 그림"이 이 한 줄이라 고쳤다(dev-server 영역 안).
+  - `packages/label`·라벨 골든 diff 0줄. 확인: `apps/server/test/fb1-label-shop.test.ts`(7개 — (a)~(d) × 조회·작업·PNG, 가게 이름 바꾸기, 두 판매자), 바뀐 기대값만 `print-rules.test.ts`(AC-I1-14 기본 템플릿 조회 — `// FB1 D-FB1-07`).
+- **라벨 가게 이름 원인(AC-FB1-29)**: 서버 쪽 원인은 혼동이었다 — 라벨 가게 이름은 템플릿 `shopName`(기본 빈 글, L-3 비면 안 찍음)이고 설정 "가게" 이름과 다른 값이라, 라벨 설정에 적지 않았거나 저장하지 않았으면 비어 찍히지 않았다. 템플릿에 적어 저장한 이름은 BASE에서도 조회·작업에 그대로 실려 나갔다(서버 버그는 찾지 못함). 단 BASE의 포장 라벨 PNG(서버 그림)는 템플릿 이름을 보지 않고 늘 설정 가게 이름이었다 — 이번에 템플릿 이름을 먼저 보게 했다. E2E가 실패하면 web의 미리 보기·저장 쪽을 먼저 본다.
+
+### 다음 영역에게
+
+- **web**:
+  - `api/parcel-types.ts`: `CarrierCode`에 `CJ`·`HANJIN`·`LOGEN`·`LOTTE`·`OTHER`, `BoxKind` = `'60'|'80'|'100'|'120'|'160'`, 설정 `carrierName`, `carriers[]` = `{ code, name, autoBook }`, `blocked.code`에 `NO_AUTO_BOOK`.
+  - 택배 설정: `직접 입력`이면 `{ carrier: 'OTHER', carrierName }`을 보낸다. 칸 문제는 `field: 'carrierName'`. 안내 "자동 접수는 아직 준비 중이에요…"는 고른 줄의 `autoBook === false`이거나 고르지 않았을 때.
+  - 택배 화면: `blocked.code === 'NO_AUTO_BOOK'`이면 그 문장 + 설정 링크 + 접수 잠금(`NO_CARRIER`와 같은 자리).
+  - 라벨 설정의 가게 이름 칸은 **`storedShopName`** 으로 채워야 한다(`template.shopName`은 채운 이름이라 그대로 칸에 넣고 저장하면 가게 이름이 템플릿에 굳는다). 저장 답도 `storedShopName`을 쓴다. 미리 보기는 `template`(채운 것) 그대로 그리면 출력과 같다. 저장할 때 보내는 `template.shopName`은 칸 값(빈 글 그대로).
+- **domain**: 택배 크기 `readBox`(rules.ts)가 골든 함수 — 무작위 값은 이것과 같아야 한다. 마이그레이션 시험은 `fb1-parcel-settings.test.ts`의 "0018까지 만든 빈 DB" 방식(임시 폴더에 0000~0018만 두고 `migrate` → 행 넣고 `openPglite(pg)`)을 쓰면 된다. 어댑터 없는 택배사 접수 → `world.carrier.requests`에 `book` 0개. 라벨 두 판매자는 `/api/print/templates`·`/api/print/claim`·`packing-label.png`.
+- **e2e**: 시험 모드 서버의 택배사 목록 끝에 `가짜 택배(시험용)`이 있다(전에는 맨 앞). `t1/flow.spec.ts`의 기본 상자 크기 낱말·값은 새 코드(`'80'` 등)로.

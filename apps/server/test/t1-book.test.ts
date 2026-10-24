@@ -31,7 +31,7 @@ describe('AC-T1-20 가짜 택배사', () => {
   it('같은 요청 번호면 같은 송장번호, 새 요청 번호면 새 12자리(9로 시작), 취소는 접수됨일 때만, 조회는 시험이 넘긴 상태, 받은 요청을 읽을 수 있다', async () => {
     const world = await parcelWorld()
     const adapter = world.carrier.adapter()
-    const request = { requestKey: 'k1', customerNo: null, receiver: { ...ADDRESS, phone: '01012345678' }, sender: SENDER, box: '소' as const, count: 2 }
+    const request = { requestKey: 'k1', customerNo: null, receiver: { ...ADDRESS, phone: '01012345678' }, sender: SENDER, box: '80' as const, count: 2 } // FB1 D-FB1-05 어댑터는 새 코드를 받는다
     const first = await adapter.book(request)
     const again = await adapter.book(request)
     const other = await adapter.book({ ...request, requestKey: 'k2' })
@@ -66,18 +66,22 @@ describe('AC-T1-20 가짜 택배사', () => {
     expect(productionServerOptions({ ...env, LIVEJJIM_EPOST_API_KEY: '' }, world.database)).toMatchObject({ ok: true, options: { parcel: { carriers: {} } } })
   })
 
-  it('운영 기동(가짜 택배사를 붙이지 않은 서버)에서는 가짜 택배를 고를 수 없고 우체국은 준비 중', async () => {
+  // FB1 D-FB1-04: 우체국택배는 "준비 중"으로 잠그지 않고 고를 수 있다 — 자동 접수 어댑터가 없어 접수만 막힌다
+  it('운영 기동(가짜 택배사를 붙이지 않은 서버)에서는 가짜 택배를 고를 수 없고 우체국은 고를 수 있지만 자동 접수는 없다', async () => {
     const world = await parcelWorld({ overrides: { parcel: {} } })
     const seller = await parcelSeller(world, {})
     const api = parcelApi(world, seller.cookie)
     const settings = await expect200(api.settings())
-    expect(settings.body.settings).toMatchObject({ carrier: null, carriers: [{ code: 'EPOST', name: '우체국 택배', available: false, note: '준비 중' }] })
+    expect(settings.body.settings).toMatchObject({ carrier: null }) // FB1 D-FB1-04
+    const carriers = (settings.body.settings as { carriers: { code: string; autoBook: boolean }[] }).carriers
+    expect(carriers.map((item) => item.code)).toEqual(['EPOST', 'CJ', 'HANJIN', 'LOGEN', 'LOTTE', 'OTHER'])
+    expect(carriers.every((item) => !item.autoBook)).toBe(true)
     const fake = await api.putSettings({ carrier: 'FAKE' })
     expect(fake.status).toBe(400)
     expect(fake.text).toContain('가짜 택배는 시험 모드에서만 고를 수 있어요.')
-    const epost = await api.putSettings({ carrier: 'EPOST' })
-    expect(epost.status).toBe(400)
-    expect(epost.text).toContain('우체국 택배는 아직 준비 중이에요.')
+    const epost = await api.putSettings({ carrier: 'EPOST' }) // FB1 D-FB1-04
+    expect(epost.status).toBe(200)
+    expect(epost.body.settings).toMatchObject({ carrier: 'EPOST', carrierName: '우체국택배' })
   })
 })
 
@@ -146,7 +150,7 @@ describe('AC-T1-22 접수 목록 API', () => {
 
     const rows = await dayRows(world, seller)
     expect(rows.blocked).toBeNull()
-    expect(rows.ready.map((row) => [row.buyer, row.box])).toEqual([['UC_1', '소']])
+    expect(rows.ready.map((row) => [row.buyer, row.box])).toEqual([['UC_1', '80']]) // FB1 D-FB1-05 기본 80
     expect(rows.excluded.map((row) => [row.buyer, row.reason, row.message])).toEqual([
       ['UC_2', 'NOT_PAID', '입금 완료 전이에요'],
       ['UC_3', 'NOT_PACKED', '포장 전이에요'],
@@ -229,7 +233,7 @@ describe('AC-T1-30 한 번에 접수', () => {
       ])
     }
     expect(keys.size).toBe(3)
-    expect((await attempts(world, seller.sellerId, 'UC_A'))[0]).toMatchObject({ box: '중', qty: 2 })
+    expect((await attempts(world, seller.sellerId, 'UC_A'))[0]).toMatchObject({ box: '100', qty: 2 }) // FB1 D-FB1-05 옛 낱말 중 → 100
     // 택배사에 보낸 요청: 받는 분 여섯 칸·보내는 사람·상자·물품 N개만 (품종·가격·구매자 ID·닉네임 없음)
     for (const request of world.carrier.requests.filter((item) => item.op === 'book')) {
       const body = request.body as Record<string, unknown>
@@ -385,7 +389,7 @@ describe('AC-T1-33 일부 실패와 실패한 것만 다시', () => {
     expect(booked).not.toBeNull()
     for (const kind of ['ADDRESS', 'REJECTED'] as const) {
       world.carrier.failNext('book', kind)
-      expect(await world.carrier.adapter().book({ requestKey: key, customerNo: null, receiver: { ...ADDRESS, phone: '01012345678' }, sender: SENDER, box: '소', count: 1 })).toEqual({ kind: 'BOOKED', invoice: booked?.invoice })
+      expect(await world.carrier.adapter().book({ requestKey: key, customerNo: null, receiver: { ...ADDRESS, phone: '01012345678' }, sender: SENDER, box: '80', count: 1 })).toEqual /* FB1 D-FB1-05 */({ kind: 'BOOKED', invoice: booked?.invoice })
     }
     world.carrier.failNext('book', 'ADDRESS')
     const again = await bookOk(world, seller, [{ buyer: 'UC_A' }])

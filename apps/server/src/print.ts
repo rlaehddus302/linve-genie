@@ -71,6 +71,7 @@ import {
   type QueueRow,
 } from './print-store.ts'
 import type { ScopeRuntime } from './runtime.ts'
+import { readShop } from './shop.ts'
 import { findBroadcast, scopeSealInfo } from './store.ts'
 import type { Clock } from './time.ts'
 import { claimIndex } from './views.ts'
@@ -1423,17 +1424,19 @@ export class PrintService {
 
   // ── 템플릿 (L-11 13) ─────────────────────────────────────────────────────
 
+  /** 내주는 템플릿 (조회·출력 기기 작업·포장 라벨 장 수): 저장된 것(없으면 기본) + 가게 이름 채우기(L-11 13, FB1 D-FB1-07) */
   async #template(db: Db, sellerId: string, kind: 'product' | 'packing'): Promise<LabelTemplate> {
-    const row = await readTemplate(db, sellerId, kind)
-    if (row === null) return defaultTemplate(kind)
-    const checked = validateTemplate(JSON.parse(row.body))
-    return checked.ok ? checked.template : defaultTemplate(kind)
+    return (await servedTemplate(db, sellerId, kind)).template
   }
 
-  async templates(sellerId: string): Promise<Record<'product' | 'packing', { template: LabelTemplate; version: number }>> {
+  /**
+   * 템플릿 조회: template = 내주는 템플릿(가게 이름이 비면 설정 "가게"의 가게 이름을 채운 것), storedShopName = 저장된 템플릿 본문의 가게 이름 그대로
+   * (라벨 설정 칸에 보이는 값 — 비어 있으면 채운 이름을 칸에 넣지 않는다, FB1 D-FB1-07)
+   */
+  async templates(sellerId: string): Promise<Record<'product' | 'packing', { template: LabelTemplate; version: number; storedShopName: string }>> {
     const read = async (kind: 'product' | 'packing') => {
-      const row = await readTemplate(this.#db, sellerId, kind)
-      return { template: await this.#template(this.#db, sellerId, kind), version: row?.version ?? 0 }
+      const served = await servedTemplate(this.#db, sellerId, kind)
+      return { template: served.template, version: served.version, storedShopName: served.storedShopName }
     }
     return { product: await read('product'), packing: await read('packing') }
   }
@@ -1447,7 +1450,7 @@ export class PrintService {
     kind: 'product' | 'packing',
     value: unknown,
     version: number,
-  ): Promise<ActionOutcome<{ template: LabelTemplate; version: number; warnings: { field: string; message: string }[]; message: string }>> {
+  ): Promise<ActionOutcome<{ template: LabelTemplate; version: number; storedShopName: string; warnings: { field: string; message: string }[]; message: string }>> {
     // 라벨 기능이 꺼져 있으면 저장하지 않는다 (L-13 5 — 형식 검사보다 먼저)
     if (await labelsOff(this.#db, sellerId)) return labelsOffRejected()
     let text: string
@@ -1480,9 +1483,11 @@ export class PrintService {
     if (saved === 'off') return labelsOffRejected()
     if (saved === null) return rejected(409, 'TEMPLATE_CONFLICT', PRINT_MESSAGES.templateConflict)
     if (!this.#closed) this.#options.publish(sellerId, { template: { kind, version: saved } })
+    // 답의 template은 조회와 같은 모양(가게 이름 채움), 저장한 본문의 가게 이름은 storedShopName (FB1 D-FB1-07)
+    const shop = await readShop(this.#db, sellerId)
     return {
       kind: 'ok',
-      value: { template, version: saved, warnings: checked.warnings.map((warning) => ({ field: templateField(warning.path), message: warning.message })), message: PRINT_MESSAGES.templateSaved },
+      value: { template: fillShopName(template, shop.name), version: saved, storedShopName: template.shopName, warnings: checked.warnings.map((warning) => ({ field: templateField(warning.path), message: warning.message })), message: PRINT_MESSAGES.templateSaved },
     }
   }
 
@@ -1543,6 +1548,23 @@ export class PrintService {
 }
 
 /** 출력 기기 비우기 (끊김 멈춤은 다시 연결할 기기가 없으니 푼다) */
+/**
+ * 라벨 가게 이름 채우기 (LABEL_RULES L-11 13, FB1 D-FB1-07): 템플릿의 가게 이름을 L-2로 다듬은 결과가 빈 글이면 그 판매자의 가게 이름(설정 "가게")을 넣는다.
+ * 글 계산(L-3 shop — 비면 찍지 않음)은 그대로다 — 채우는 것은 서버가 템플릿을 내주는 곳뿐. 저장된 본문·판은 바꾸지 않는다
+ */
+export function fillShopName(template: LabelTemplate, shopName: string): LabelTemplate {
+  return trimLabelText(template.shopName) === '' ? { ...template, shopName } : template
+}
+
+/** 저장된 템플릿(없거나 읽을 수 없으면 기본) + 가게 이름 채우기. 판매자 ID 조건으로만 읽는다(다른 판매자의 가게 이름은 오지 않는다) */
+export async function servedTemplate(db: Db, sellerId: string, kind: 'product' | 'packing'): Promise<{ template: LabelTemplate; version: number; storedShopName: string }> {
+  const row = await readTemplate(db, sellerId, kind)
+  const checked = row === null ? null : validateTemplate(JSON.parse(row.body))
+  const stored = checked !== null && checked.ok ? checked.template : defaultTemplate(kind)
+  const shop = await readShop(db, sellerId)
+  return { template: fillShopName(stored, shop.name), version: row?.version ?? 0, storedShopName: stored.shopName }
+}
+
 function clearDevice(paused: PauseReason | null): QueuePatch {
   return { deviceId: null, deviceName: null, printerConnected: false, releasing: false, ...(paused === 'DISCONNECTED' ? { paused: null } : {}) }
 }

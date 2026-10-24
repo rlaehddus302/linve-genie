@@ -340,19 +340,25 @@ describe('AC-T1-23 설정 "택배"', () => {
       customerNoLast4: null,
       sender: null,
       shopName: `가게 ${seller.loginId}`,
-      box: '소',
-      boxes: ['극소', '소', '중', '대'],
+      box: '80', // FB1 D-FB1-05
+      boxes: ['60', '80', '100', '120', '160'], // FB1 D-FB1-05
+      // FB1 D-FB1-04 쓰는 택배사 목록 (autoBook = 어댑터가 있음 — 시험 서버는 가짜 택배만)
       carriers: [
-        { code: 'FAKE', name: '가짜 택배(시험용)', available: true, note: null },
-        { code: 'EPOST', name: '우체국 택배', available: false, note: '준비 중' },
+        { code: 'EPOST', name: '우체국택배', autoBook: false },
+        { code: 'CJ', name: 'CJ대한통운', autoBook: false },
+        { code: 'HANJIN', name: '한진택배', autoBook: false },
+        { code: 'LOGEN', name: '로젠택배', autoBook: false },
+        { code: 'LOTTE', name: '롯데택배', autoBook: false },
+        { code: 'OTHER', name: '직접 입력', autoBook: false },
+        { code: 'FAKE', name: '가짜 택배(시험용)', autoBook: true },
       ],
     })
     const saved = await expect200(api.putSettings({ carrier: 'FAKE', customerNo: 'CUST-998877', sender: SENDER, box: '중' }))
-    expect(saved.body.settings).toMatchObject({ carrier: 'FAKE', customerNoLast4: '8877', sender: { ...SENDER, phone: '0311234567' }, box: '중' })
+    expect(saved.body.settings).toMatchObject({ carrier: 'FAKE', customerNoLast4: '8877', sender: { ...SENDER, phone: '0311234567' }, box: '100' }) // FB1 D-FB1-05 옛 낱말 중 → 100
     const dump = await dumpAllTables(world.database)
     for (const value of ['CUST-998877', '998877', '다육이네', '효원로', '0311234567']) expect(dump, value).not.toContain(value)
     // 고객 번호를 적지 않으면 그대로, 빈 글이면 지운다
-    expect((await expect200(api.putSettings({ box: '대' }))).body.settings).toMatchObject({ customerNoLast4: '8877', box: '대' })
+    expect((await expect200(api.putSettings({ box: '대' }))).body.settings).toMatchObject({ customerNoLast4: '8877', box: '120' }) // FB1 D-FB1-05 옛 낱말 대 → 120
     expect((await expect200(api.putSettings({ customerNo: '' }))).body.settings).toMatchObject({ customerNoLast4: null })
     expect((await api.putSettings({ customerNo: 'x'.repeat(31) })).status).toBe(400)
     expect((await api.putSettings({ box: '특대' })).status).toBe(400)

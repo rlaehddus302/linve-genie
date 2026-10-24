@@ -7,11 +7,32 @@
 import type { BoxKind, ParcelAddress, TrackCode } from './rules.ts'
 import { INVOICE_RE, TRACK_CODES } from './rules.ts'
 
-export const CARRIER_CODES = ['FAKE', 'EPOST'] as const
+/** 어댑터를 둘 수 있는 택배사 코드 (접수 기록의 carrier — 운송장 택배사 이름 표와 같은 코드, FB1 D-FB1-04) */
+export const CARRIER_CODES = ['FAKE', 'EPOST', 'CJ', 'HANJIN', 'LOGEN', 'LOTTE'] as const
 export type CarrierCode = (typeof CARRIER_CODES)[number]
 
-/** 화면에 보이는 택배사 이름 */
-export const CARRIER_LABELS: Readonly<Record<CarrierCode, string>> = { FAKE: '가짜 택배(시험용)', EPOST: '우체국 택배' }
+/** 화면에 보이는 택배사 이름 (PC-1 — 운송장 PC-7과 같은 낱말) */
+export const CARRIER_LABELS: Readonly<Record<CarrierCode, string>> = {
+  FAKE: '가짜 택배(시험용)',
+  EPOST: '우체국택배',
+  CJ: 'CJ대한통운',
+  HANJIN: '한진택배',
+  LOGEN: '로젠택배',
+  LOTTE: '롯데택배',
+}
+
+/** 직접 입력 택배사 (어댑터가 없다 — 이름은 판매자가 적는다) */
+export const OTHER_CARRIER = 'OTHER'
+export const OTHER_CARRIER_LABEL = '직접 입력'
+/** 설정 "택배사"에 저장할 수 있는 코드 (쓰는 택배사 — 자동 접수는 어댑터가 있을 때만, FB1 D-FB1-04) */
+export type SettingsCarrier = CarrierCode | typeof OTHER_CARRIER
+/** 설정의 택배사 목록 차례 (`고르지 않음`은 화면 몫, FAKE는 시험 모드에서만 끝에) */
+export const SETTINGS_CARRIER_ORDER: readonly SettingsCarrier[] = ['EPOST', 'CJ', 'HANJIN', 'LOGEN', 'LOTTE', OTHER_CARRIER, 'FAKE']
+/** 직접 입력 택배사 이름 상한 (코드 포인트) */
+export const CARRIER_NAME_MAX = 20
+
+export const isCarrierCode = (value: unknown): value is CarrierCode => typeof value === 'string' && (CARRIER_CODES as readonly string[]).includes(value)
+export const isSettingsCarrier = (value: unknown): value is SettingsCarrier => value === OTHER_CARRIER || isCarrierCode(value)
 
 /** 어댑터 시간 제한 기본값 (AC-T1-21) */
 export const CARRIER_TIMEOUT_MS = 15_000

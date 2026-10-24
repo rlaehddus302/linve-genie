@@ -3,6 +3,8 @@
 // - 시계·난수·DB를 쓰지 않는다. 판정 엔진(packages/core) 규칙이 아니다 — 택배는 1등·금액을 바꾸지 않는다(D-T1-01).
 // - 화면 문장은 여기 한곳에 둔다(쉬운 한국어 — 영어 상태값은 화면에 내지 않는다, CLAUDE.md 규칙 8).
 
+import { BOX_SIZES, LEGACY_BOX_SIZES, boxSizeOf, type BoxSize } from '@livejjim/documents'
+
 // ── 배송지 (PC-2) ────────────────────────────────────────────────────────
 
 /** 배송지 여섯 칸 (칸 순서 = 오류 순서) */
@@ -277,10 +279,28 @@ export function effectiveState(state: ParcelState, updatedAt: number, now: numbe
   return state === 'PENDING' && now - updatedAt > STALE_PENDING_MS ? 'UNKNOWN' : state
 }
 
-/** 상자 크기 (PC-6) */
-export const BOX_KINDS = ['극소', '소', '중', '대'] as const
-export type BoxKind = (typeof BOX_KINDS)[number]
-export const DEFAULT_BOX: BoxKind = '소'
+// ── 택배 크기 (PC-6, FB1 D-FB1-05) ────────────────────────────────────
+
+/** 택배 크기 = 세 변의 합 코드 (화면 낱말 "80cm 이하" — 운송장과 같은 표, 문서 패키지 BOX_SIZES) */
+export const BOX_KINDS = BOX_SIZES
+export type BoxKind = BoxSize
+export const DEFAULT_BOX: BoxKind = '80'
+/** 옛 낱말 → 코드 (극소→60·소→80·중→100·대→120 — 옛 화면을 연 탭이 보내는 값, 0019 마이그레이션과 같은 표) */
+export const LEGACY_BOXES = LEGACY_BOX_SIZES
+
+export type BoxRead = { readonly box: BoxKind } | { readonly error: 'BOX_INVALID' }
+
+/**
+ * 택배 크기 읽기 (PC-6, G-PCL-FB1-01~19): 새 코드 다섯은 그대로, 옛 낱말 넷은 옮긴 코드, 그 밖(글이 아닌 값 포함)은 BOX_INVALID.
+ * 다듬기·반각 바꾸기 없이 글자 그대로 비교한다 — 운송장(문서 패키지 boxSizeOf)과 같은 규칙을 그대로 쓴다(두 벌 두지 않는다)
+ */
+export function readBox(value: unknown): BoxRead {
+  const box = boxSizeOf(value)
+  return box === undefined ? { error: 'BOX_INVALID' } : { box }
+}
+
+/** 저장된 값 → 코드 (옛 낱말이 남아 있으면 옮긴 값, 모르는 값이면 기본값) */
+export const storedBox = (value: string): BoxKind => boxSizeOf(value) ?? DEFAULT_BOX
 
 /** 한 번에 접수할 수 있는 묶음 수 (PC-5) */
 export const BOOK_MAX = 200
@@ -318,12 +338,16 @@ export const PARCEL_MESSAGES = {
   cancelUnknown: '취소됐는지 아직 몰라요. 잠시 뒤 다시 해 주세요.',
   tooMany: `한 번에 ${String(BOOK_MAX)}개까지 접수할 수 있어요.`,
   rehearsal: '리허설 방송은 택배를 접수하지 않아요.',
-  epostNotReady: '우체국 택배는 아직 준비 중이에요.',
+  noAutoBook: '고른 택배사는 아직 자동 접수를 할 수 없어요. 포장 화면에서 송장번호를 직접 적어 주세요.',
   fakeTestOnly: '가짜 택배는 시험 모드에서만 고를 수 있어요.',
   busy: '아직 접수하고 있어요. 잠시 뒤 다시 확인해 주세요.',
   request: '이미 받은 입력이에요.',
   unmergeBooking: '택배 접수 결과를 기다리는 구매자에게서는 떼어 낼 수 없어요. 택배 화면에서 접수 결과를 먼저 확인해 주세요.',
   saved: '저장했어요',
+  boxInvalid: '상자 크기를 골라 주세요.',
+  carrierInvalid: '택배사를 골라 주세요.',
+  carrierNameEmpty: '택배사 이름을 적어 주세요.',
+  carrierNameTooLong: '택배사 이름은 20자까지 적어 주세요.',
   pickupLink: '직접 받기로 했어요.',
   combinedLink: '다른 주문과 함께 보내요.',
   linkNotice: '받는 분·연락처·주소는 이 주문을 보내는 데만 쓰고, 주문 날짜로부터 30일 뒤 지워요.',

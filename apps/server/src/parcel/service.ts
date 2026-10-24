@@ -24,7 +24,19 @@ import { iso, kstDate, type Clock } from '../time.ts'
 import { WorkBusy, WorkFailed, type WorkPools } from '../work-pool.ts'
 import { SEALED_MESSAGE, type ScopeWriter } from '../writer.ts'
 import { kstMidnightAfter, type Timer } from '../youtube/timer.ts'
-import { CARRIER_CODES, CARRIER_LABELS, type CarrierAdapter, type CarrierCode, type ParcelSender } from './carrier.ts'
+import {
+  CARRIER_CODES,
+  CARRIER_LABELS,
+  CARRIER_NAME_MAX,
+  OTHER_CARRIER,
+  OTHER_CARRIER_LABEL,
+  SETTINGS_CARRIER_ORDER,
+  isSettingsCarrier,
+  type CarrierAdapter,
+  type CarrierCode,
+  type ParcelSender,
+  type SettingsCarrier,
+} from './carrier.ts'
 import {
   BOOK_MAX,
   BOX_KINDS,
@@ -42,6 +54,7 @@ import {
   phoneLast4,
   readAddress,
   readAddressInput,
+  readBox,
   readSender,
   senderProblems,
   tidyText,
@@ -97,7 +110,7 @@ const TRACK_CHUNK = 100
 export const CUSTOMER_NO_MAX = 30
 
 export interface ParcelOptions {
-  /** 이어진 택배사 어댑터 (T1: 가짜 택배사 FAKE — 시험 모드·서버 시험만. 운영 기동에는 없다 — 설정에 "우체국 택배 — 준비 중"만) */
+  /** 이어진 택배사 어댑터 (T1: 가짜 택배사 FAKE — 시험 모드·서버 시험만. 운영 기동에는 없다 — 쓰는 택배사는 고를 수 있고 자동 접수만 막힌다, FB1 D-FB1-04) */
   readonly carriers?: Partial<Record<CarrierCode, CarrierAdapter>>
   /** 조회 간격 (기본 30분 — 시험 모드는 줄일 수 있다) */
   readonly trackEveryMs?: number
@@ -172,8 +185,9 @@ export interface ParcelDay {
   readonly date: string
   readonly seq: number
   /** 목록 위 한 문장 (보내는 사람 없음·택배사 없음 — 접수 버튼을 잠근다) */
-  readonly blocked: { readonly code: 'NO_SENDER' | 'NO_CARRIER'; readonly message: string } | null
-  readonly carrier: { readonly code: CarrierCode; readonly name: string } | null
+  readonly blocked: { readonly code: ParcelBlockedCode; readonly message: string } | null
+  /** 쓰는 택배사 (이름 = 화면 낱말, 직접 입력이면 적은 이름 — FB1 D-FB1-04) */
+  readonly carrier: { readonly code: SettingsCarrier; readonly name: string } | null
   readonly box: BoxKind
   readonly ready: readonly ParcelRow[]
   readonly excluded: readonly ParcelRow[]
@@ -198,9 +212,23 @@ export interface BundleView {
   readonly row: ParcelRow
 }
 
+/**
+ * 택배 화면 목록 위 막힘 (접수 버튼을 잠근다): 택배사를 고르지 않음(또는 이 서버에 없는 가짜 택배) · 고른 택배사에 자동 접수 어댑터가 없음(FB1 D-FB1-04) · 보내는 사람 없음
+ */
+export type ParcelBlockedCode = 'NO_CARRIER' | 'NO_AUTO_BOOK' | 'NO_SENDER'
+
+/** 설정의 택배사 한 줄 (FB1 D-FB1-04 — 모두 고를 수 있다. autoBook = 이 서버에 그 택배사의 자동 접수 어댑터가 있다) */
+export interface CarrierChoice {
+  readonly code: SettingsCarrier
+  readonly name: string
+  readonly autoBook: boolean
+}
+
 export interface ParcelSettingsView {
-  readonly carrier: CarrierCode | null
-  readonly carriers: readonly { readonly code: CarrierCode; readonly name: string; readonly available: boolean; readonly note: string | null }[]
+  readonly carrier: SettingsCarrier | null
+  /** 고른 택배사의 화면 이름 (직접 입력이면 적은 이름, 고르지 않았으면 null) */
+  readonly carrierName: string | null
+  readonly carriers: readonly CarrierChoice[]
   /** 고객 번호 끝 4자리 (없으면 null) */
   readonly customerNoLast4: string | null
   readonly sender: ParcelSender | null
@@ -274,8 +302,15 @@ export class ParcelService {
   }
 
   /** 이 서버가 고를 수 있는 택배사 (가짜 택배사는 시험 모드에서만 — 운영에는 어댑터가 없다) */
-  available(code: CarrierCode): boolean {
-    return this.#carriers[code] !== undefined
+  available(code: SettingsCarrier): boolean {
+    return code !== OTHER_CARRIER && this.#carriers[code] !== undefined
+  }
+
+  /** 설정에 저장된 택배사의 화면 이름 (직접 입력이면 적은 이름) */
+  static carrierNameOf(settings: Pick<StoredSettings, 'carrier' | 'carrierName'>): string | null {
+    if (settings.carrier === null) return null
+    if (settings.carrier === OTHER_CARRIER) return settings.carrierName ?? OTHER_CARRIER_LABEL
+    return CARRIER_LABELS[settings.carrier]
   }
 
   // ── 공통 ───────────────────────────────────────────────────────────────
@@ -396,7 +431,10 @@ export class ParcelService {
   }
 
   #blocked(settings: StoredSettings): ParcelDay['blocked'] {
-    if (settings.carrier === null || !this.available(settings.carrier)) return { code: 'NO_CARRIER', message: PARCEL_MESSAGES.noCarrier }
+    // 가짜 택배는 시험 모드에서만 고를 수 있다 — 어댑터가 없는 서버에 남은 값은 고르지 않은 것으로 본다
+    if (settings.carrier === null || (settings.carrier === 'FAKE' && !this.available('FAKE'))) return { code: 'NO_CARRIER', message: PARCEL_MESSAGES.noCarrier }
+    // 쓰는 택배사를 골랐지만 자동 접수 어댑터가 없다 — 택배사에 아무것도 보내지 않는다(FB1 D-FB1-04)
+    if (!this.available(settings.carrier)) return { code: 'NO_AUTO_BOOK', message: PARCEL_MESSAGES.noAutoBook }
     if (settings.sender === null) return { code: 'NO_SENDER', message: PARCEL_MESSAGES.noSender }
     return null
   }
@@ -408,11 +446,11 @@ export class ParcelService {
     const shop = await readShop(this.#deps.db, sellerId)
     return {
       carrier: stored.carrier,
-      carriers: CARRIER_CODES.filter((code) => code !== 'FAKE' || this.available('FAKE')).map((code) => ({
+      carrierName: ParcelService.carrierNameOf(stored),
+      carriers: SETTINGS_CARRIER_ORDER.filter((code) => code !== 'FAKE' || this.available('FAKE')).map((code) => ({
         code,
-        name: CARRIER_LABELS[code],
-        available: this.available(code),
-        note: this.available(code) ? null : '준비 중',
+        name: code === OTHER_CARRIER ? OTHER_CARRIER_LABEL : CARRIER_LABELS[code],
+        autoBook: this.available(code),
       })),
       customerNoLast4: stored.customerNo === null || stored.customerNo === '' ? null : [...stored.customerNo].slice(-4).join(''),
       sender: stored.sender,
@@ -422,9 +460,13 @@ export class ParcelService {
     }
   }
 
-  /** PUT 설정 "택배": { carrier, customerNo?, sender, box }. 틀리면 칸마다 문제(보내는 사람은 PC-2와 같은 칸 코드 — extra.codes) */
+  /**
+   * PUT 설정 "택배": { carrier, carrierName?, customerNo?, sender, box }. 틀리면 칸마다 문제(보내는 사람은 PC-2와 같은 칸 코드 — extra.codes).
+   * 택배사(FB1 D-FB1-04): EPOST·CJ·HANJIN·LOGEN·LOTTE는 모두 고를 수 있다(자동 접수는 어댑터가 있을 때만), OTHER는 carrierName(다듬어 1~20자)과 함께,
+   * FAKE는 시험 모드에서만. OTHER가 아닌 코드와 함께 온 carrierName은 저장하지 않는다. 이름은 로그에 남기지 않는다
+   */
   async updateSettings(sellerId: string, body: Record<string, unknown>): Promise<Outcome<ParcelSettingsView>> {
-    const allowed = ['carrier', 'customerNo', 'sender', 'box']
+    const allowed = ['carrier', 'carrierName', 'customerNo', 'sender', 'box']
     const extra = Object.keys(body).filter((key) => !allowed.includes(key))
     if (extra.length > 0) return problem(400, 'UNKNOWN_FIELD', '받을 수 없는 항목이 있어요.', unknownFieldProblems(extra))
     const current = await readSettings(this.#deps.db, this.#deps.masterKey, sellerId)
@@ -432,13 +474,23 @@ export class ParcelService {
     let codes: AddressErrorCode[] = []
     // 택배사
     const carrierRaw = body.carrier
-    let carrier: CarrierCode | null = current.carrier
+    let carrier: SettingsCarrier | null = current.carrier
+    let carrierName: string | null = current.carrierName
     if (carrierRaw === null) carrier = null
-    else if (carrierRaw === 'EPOST') problems.push({ field: 'carrier', message: PARCEL_MESSAGES.epostNotReady })
     else if (carrierRaw === 'FAKE') {
       if (this.available('FAKE')) carrier = 'FAKE'
       else problems.push({ field: 'carrier', message: PARCEL_MESSAGES.fakeTestOnly })
-    } else if (carrierRaw !== undefined) problems.push({ field: 'carrier', message: '택배사를 골라 주세요.' })
+    } else if (isSettingsCarrier(carrierRaw)) carrier = carrierRaw
+    else if (carrierRaw !== undefined) problems.push({ field: 'carrier', message: PARCEL_MESSAGES.carrierInvalid })
+    // 직접 입력 이름: OTHER를 새로 보냈으면 이름이 있어야 한다. OTHER 그대로이고 이름만 보냈으면 이름만 바꾼다
+    const nameRaw = body.carrierName
+    if (carrier === OTHER_CARRIER && (carrierRaw === OTHER_CARRIER || nameRaw !== undefined)) {
+      const tidy = typeof nameRaw === 'string' ? tidyText(nameRaw) : ''
+      if (tidy === '') problems.push({ field: 'carrierName', message: PARCEL_MESSAGES.carrierNameEmpty })
+      else if ([...tidy].length > CARRIER_NAME_MAX) problems.push({ field: 'carrierName', message: PARCEL_MESSAGES.carrierNameTooLong })
+      else carrierName = tidy
+    }
+    if (carrier !== OTHER_CARRIER) carrierName = null
     // 고객 번호 (적지 않으면 그대로, 빈 글이면 지운다)
     let customerNo = current.customerNo
     if (body.customerNo !== undefined) {
@@ -464,14 +516,15 @@ export class ParcelService {
         } else sender = read.ok
       }
     }
-    // 기본 상자 크기
+    // 기본 택배 크기 (골든 parcel/box.json — 옛 낱말은 옮긴 코드로 저장, FB1 D-FB1-05)
     let box = current.box
     if (body.box !== undefined) {
-      if (typeof body.box === 'string' && (BOX_KINDS as readonly string[]).includes(body.box)) box = body.box as BoxKind
-      else problems.push({ field: 'box', message: '상자 크기를 골라 주세요.' })
+      const read = readBox(body.box)
+      if ('box' in read) box = read.box
+      else problems.push({ field: 'box', message: PARCEL_MESSAGES.boxInvalid })
     }
     if (problems.length > 0) return problem(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', problems, codes.length > 0 ? { codes } : undefined)
-    await writeSettings(this.#deps.db, this.#deps.masterKey, sellerId, { carrier, customerNo, sender, box }, new Date(this.#deps.clock.now()))
+    await writeSettings(this.#deps.db, this.#deps.masterKey, sellerId, { carrier, carrierName, customerNo, sender, box }, new Date(this.#deps.clock.now()))
     this.#deps.hub.publishNamed(sellerId, 'parcel', { settings: true })
     return ok(await this.settings(sellerId))
   }
@@ -530,7 +583,7 @@ export class ParcelService {
       date,
       seq: runtime.seq,
       blocked: this.#blocked(settings),
-      carrier: settings.carrier === null ? null : { code: settings.carrier, name: CARRIER_LABELS[settings.carrier] },
+      carrier: settings.carrier === null ? null : { code: settings.carrier, name: ParcelService.carrierNameOf(settings) ?? '' },
       box: settings.box,
       ready: rows.filter((row) => row.ready),
       booked: rows.filter((row) => row.parcel?.state === 'BOOKED'),
@@ -718,9 +771,11 @@ export class ParcelService {
       if (!keys.includes('buyer') || !keys.every((key) => key === 'buyer' || key === 'box')) return bad('접수할 묶음을 확인해 주세요.')
       const { buyer, box } = item as { buyer: unknown; box?: unknown }
       if (typeof buyer !== 'string' || buyer === '' || [...buyer].length > 128 || seen.has(buyer)) return bad('접수할 묶음을 확인해 주세요.')
-      if (box !== undefined && !(typeof box === 'string' && (BOX_KINDS as readonly string[]).includes(box))) return bad('상자 크기를 골라 주세요.')
+      // 골든 parcel/box.json과 같은 읽기 — 옛 낱말은 옮긴 코드로 접수한다(FB1 D-FB1-05)
+      const read = box === undefined ? null : readBox(box)
+      if (read !== null && 'error' in read) return bad(PARCEL_MESSAGES.boxInvalid)
       seen.add(buyer)
-      out.push({ buyer, box: (box as BoxKind | undefined) ?? null })
+      out.push({ buyer, box: read === null ? null : read.box })
     }
     return { ok: true, items: out }
   }
@@ -801,7 +856,8 @@ export class ParcelService {
       if (typeof item === 'string') out.push({ buyer: item, box: null })
       else if (typeof item === 'object' && item !== null && typeof (item as { buyer?: unknown }).buyer === 'string') {
         const box = (item as { box?: unknown }).box
-        out.push({ buyer: (item as { buyer: string }).buyer, box: typeof box === 'string' && (BOX_KINDS as readonly string[]).includes(box) ? (box as BoxKind) : null })
+        const read = readBox(box)
+        out.push({ buyer: (item as { buyer: string }).buyer, box: 'box' in read ? read.box : null })
       }
     }
     return out

@@ -1638,7 +1638,7 @@ export const parcels = pgTable(
       .references(() => sellers.id),
     date: text('date').notNull(),
     buyer: text('buyer').notNull(),
-    /** FAKE(가짜 택배사 — 시험 모드) · EPOST */
+    /** FAKE(가짜 택배사 — 시험 모드) · EPOST · CJ · HANJIN · LOGEN · LOTTE (자동 접수 어댑터가 있는 택배사만 — OTHER는 오지 않는다, FB1 D-FB1-04) */
     carrier: text('carrier').notNull(),
     requestKey: text('request_key').notNull(),
     /** PENDING · UNKNOWN · BOOKED · FAILED · CANCELLED */
@@ -1647,7 +1647,7 @@ export const parcels = pgTable(
     reason: text('reason'),
     /** 송장번호 (숫자 8~20자리, BOOKED·CANCELLED) */
     invoice: text('invoice'),
-    /** 상자 크기 극소·소·중·대 */
+    /** 택배 크기 = 세 변의 합 코드 60·80·100·120·160 (FB1 D-FB1-05 — 옛 극소·소·중·대는 0019가 옮겼다) */
     box: text('box').notNull(),
     /** 물품 수 (그 묶음 품목 수량 합 — 접수할 때) */
     qty: integer('qty').notNull(),
@@ -1701,13 +1701,16 @@ export const parcelSettings = pgTable('parcel_settings', {
   sellerId: text('seller_id')
     .primaryKey()
     .references(() => sellers.id),
-  /** FAKE · EPOST (고르지 않았으면 null) */
+  /** 쓰는 택배사 FAKE · EPOST · CJ · HANJIN · LOGEN · LOTTE · OTHER (고르지 않았으면 null — FB1 D-FB1-04) */
   carrier: text('carrier'),
+  /** 직접 입력(OTHER) 택배사 이름 (다듬은 1~20자, 그 밖엔 null — FB1 D-FB1-04) */
+  carrierName: text('carrier_name'),
   /** 택배사 고객 번호 암호문 (없으면 null) */
   customerEnc: text('customer_enc'),
   /** 보내는 사람 다섯 칸 JSON 암호문 (없으면 null) */
   senderEnc: text('sender_enc'),
-  box: text('box').notNull().default('소'),
+  /** 기본 택배 크기 코드 (FB1 D-FB1-05) */
+  box: text('box').notNull().default('80'),
   updatedAt: timestamptz('updated_at').notNull(),
 })
 

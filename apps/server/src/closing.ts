@@ -18,6 +18,7 @@ import { IMPORT_FILE_MAX_BYTES, IMPORT_FILE_MESSAGES, IMPORT_REGISTER_BODY_LIMIT
 import { AMOUNT_MISSING_MESSAGE, MissingAmountError } from './amount.ts'
 import type { LogSink } from './log.ts'
 import { phoneIdProblem, unknownFieldProblems } from './messages.ts'
+import { servedTemplate } from './print.ts'
 import {
   PACKING_ACTIONS,
   PACKING_MESSAGES,
@@ -648,8 +649,8 @@ export class ClosingService {
       return this.#amountProblem(date, error)
     }
     if (data === null) return problem(422, 'NO_ITEMS', LABEL_NO_ITEMS_MESSAGE)
-    const shop = await readShop(this.#deps.db, sellerId)
-    const rendered = renderPacking(data, shop.name)
+    // 가게 이름 = 포장 템플릿의 가게 이름, 비면 설정 "가게"의 가게 이름 (L-11 13, FB1 D-FB1-07 — 출력 기기가 받는 템플릿과 같은 이름)
+    const rendered = renderPacking(data, (await servedTemplate(this.#deps.db, sellerId, 'packing')).template.shopName)
     if (!rendered.ok) {
       this.#deps.log({ level: 'error', code: 'LABEL_INVALID', date })
       return problem(500, 'LABEL_INVALID', LABEL_FAILED_MESSAGE)

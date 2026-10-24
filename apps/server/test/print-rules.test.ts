@@ -510,7 +510,8 @@ describe('AC-I1-14 템플릿 저장', () => {
     const seller = await addSeller(world)
     const p = printApi(world, seller)
     const read = (await expectOk(p.api.get('/api/print/templates'))).body as { product: { template: ProductTemplate; version: number }; packing: { version: number } }
-    expect(read.product).toEqual({ template: defaultTemplate('product'), version: 0 })
+    // FB1 D-FB1-07: 비어 있는 가게 이름은 설정 "가게"의 가게 이름으로 채워 내주고, 저장된 본문의 이름은 storedShopName
+    expect(read.product).toEqual({ template: { ...defaultTemplate('product'), shopName: `가게 ${seller.loginId}` }, version: 0, storedShopName: '' })
     expect(read.packing.version).toBe(0)
     const base = defaultTemplate('product')
     const bad = await p.put('/api/print/templates/product', { template: { ...base, items: { ...base.items, number: { ...base.items.number, visible: false } } }, version: 0 })

@@ -6,10 +6,9 @@ import { and, asc, desc, eq, inArray, isNull, lte, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
 import { parcelAddresses, parcelRequests, parcelSettings, parcels } from '../db/schema.ts'
 import { SecretError, openText, sealText } from '../secrets.ts'
-import { CARRIER_CODES, type CarrierCode, type ParcelSender } from './carrier.ts'
+import { CARRIER_CODES, OTHER_CARRIER, isSettingsCarrier, type CarrierCode, type ParcelSender, type SettingsCarrier } from './carrier.ts'
 import {
   ADDRESS_FIELDS,
-  BOX_KINDS,
   DEFAULT_BOX,
   LIVE_STATES,
   PARCEL_STATES,
@@ -19,6 +18,7 @@ import {
   readAddress,
   readAddressInput,
   readSender,
+  storedBox,
   type AddressState,
   type BoxKind,
   type FailureReason,
@@ -190,7 +190,7 @@ const toAttempt = (row: RawAttempt): AttemptRow => ({
   state: (PARCEL_STATES as readonly string[]).includes(row.state) ? (row.state as ParcelState) : 'UNKNOWN',
   reason: row.reason === 'ADDRESS' || row.reason === 'REJECTED' || row.reason === 'UNAVAILABLE' ? row.reason : null,
   invoice: row.invoice,
-  box: (BOX_KINDS as readonly string[]).includes(row.box) ? (row.box as BoxKind) : DEFAULT_BOX,
+  box: storedBox(row.box),
   qty: row.qty,
   track: (TRACK_CODES as readonly string[]).includes(row.track ?? '') ? (row.track as TrackCode) : null,
   trackedAt: row.trackedAt,
@@ -379,7 +379,10 @@ const senderAad = (sellerId: string) => `livejjim/parcel-sender/v1/${sellerId}`
 const customerAad = (sellerId: string) => `livejjim/parcel-customer/v1/${sellerId}`
 
 export interface StoredSettings {
-  readonly carrier: CarrierCode | null
+  /** 쓰는 택배사 (자동 접수는 그 코드의 어댑터가 있을 때만 — FB1 D-FB1-04) */
+  readonly carrier: SettingsCarrier | null
+  /** 직접 입력(OTHER) 이름 — 그 밖엔 null */
+  readonly carrierName: string | null
   readonly customerNo: string | null
   readonly sender: ParcelSender | null
   readonly box: BoxKind
@@ -388,7 +391,7 @@ export interface StoredSettings {
 export async function readSettings(db: Db, masterKey: Buffer, sellerId: string): Promise<StoredSettings> {
   const rows = await db.select().from(parcelSettings).where(eq(parcelSettings.sellerId, sellerId)).limit(1)
   const row = rows[0]
-  if (row === undefined) return { carrier: null, customerNo: null, sender: null, box: DEFAULT_BOX }
+  if (row === undefined) return { carrier: null, carrierName: null, customerNo: null, sender: null, box: DEFAULT_BOX }
   const open = (aad: string, sealed: string | null): string | null => {
     if (sealed === null) return null
     try {
@@ -410,16 +413,18 @@ export async function readSettings(db: Db, masterKey: Buffer, sellerId: string):
     }
   }
   return {
-    carrier: (CARRIER_CODES as readonly string[]).includes(row.carrier ?? '') ? (row.carrier as CarrierCode) : null,
+    carrier: isSettingsCarrier(row.carrier) ? row.carrier : null,
+    carrierName: row.carrier === OTHER_CARRIER && row.carrierName !== null && row.carrierName !== '' ? row.carrierName : null,
     customerNo: open(customerAad(sellerId), row.customerEnc),
     sender,
-    box: (BOX_KINDS as readonly string[]).includes(row.box) ? (row.box as BoxKind) : DEFAULT_BOX,
+    box: storedBox(row.box),
   }
 }
 
 export async function writeSettings(db: Db, masterKey: Buffer, sellerId: string, value: StoredSettings, now: Date): Promise<void> {
   const values = {
     carrier: value.carrier,
+    carrierName: value.carrier === OTHER_CARRIER ? value.carrierName : null,
     customerEnc: value.customerNo === null || value.customerNo === '' ? null : sealText(masterKey, customerAad(sellerId), value.customerNo),
     senderEnc: value.sender === null ? null : sealText(masterKey, senderAad(sellerId), JSON.stringify(value.sender)),
     box: value.box,

@@ -204,7 +204,7 @@ export interface BackupPacking {
 export interface BackupParcel {
   readonly date: string
   readonly buyer: string
-  /** 택배사 코드 (FAKE·EPOST) */
+  /** 택배사 코드 (FAKE·EPOST·CJ·HANJIN·LOGEN·LOTTE — 어댑터가 있는 택배사) */
   readonly carrier: string
   /** 송장번호 (숫자 8~20자리, 없으면 null) */
   readonly invoice: string | null

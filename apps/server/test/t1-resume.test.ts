@@ -41,7 +41,7 @@ describe('TD-T1-002 결과 없이 멈춘 요청 번호', () => {
     expect(resumed[0]).toMatchObject({ buyer: 'UC_A', ok: true })
     expect(bookRequests(world)).toHaveLength(1)
     const rows = await attempts(world, seller.sellerId, 'UC_A')
-    expect(rows.map((row) => [row.state, row.box])).toEqual([['BOOKED', '대']])
+    expect(rows.map((row) => [row.state, row.box])).toEqual([['BOOKED', '120']]) // FB1 D-FB1-05 옛 낱말 대 → 120
     expect(world.logs.some((record) => record.code === 'PARCEL_BOOK_RESUMED')).toBe(true)
     // 같은 요청 번호 다시: 저장된 결과, 택배사에 새로 가지 않는다
     expect(await bookOk(world, seller, [{ buyer: 'UC_A', box: '대' }], D, requestId)).toEqual(resumed)
@@ -71,7 +71,7 @@ describe('TD-T1-002 결과 없이 멈춘 요청 번호', () => {
     expect(results[1]).toMatchObject({ buyer: 'UC_B', ok: true })
     expect(bookRequests(world)).toHaveLength(2)
     expect((await attempts(world, seller.sellerId, 'UC_A')).map((row) => row.state)).toEqual(['BOOKED'])
-    expect((await attempts(world, seller.sellerId, 'UC_B')).map((row) => [row.state, row.box])).toEqual([['BOOKED', '중']])
+    expect((await attempts(world, seller.sellerId, 'UC_B')).map((row) => [row.state, row.box])).toEqual([['BOOKED', '100']]) // FB1 D-FB1-05 옛 낱말 중 → 100
   })
 
   it('이어받을 때도 지금 다시 판단한다 — 접수할 수 없는 묶음(입금 전)은 BOOKING이 아니라 그 이유, 택배사에 가지 않는다', async () => {
@@ -131,6 +131,6 @@ describe('TD-T1-002 결과 없이 멈춘 요청 번호', () => {
     const requestId = await strandedRequest(world, seller, clock, ['UC_A'])
     clock.advance(STALE_PENDING_MS + 1)
     expect((await bookOk(world, seller, [{ buyer: 'UC_A' }], D, requestId))[0]).toMatchObject({ ok: true })
-    expect((await attempts(world, seller.sellerId, 'UC_A')).map((row) => row.box)).toEqual(['소'])
+    expect((await attempts(world, seller.sellerId, 'UC_A')).map((row) => row.box)).toEqual(['80']) // FB1 D-FB1-05 기본 80
   })
 })
