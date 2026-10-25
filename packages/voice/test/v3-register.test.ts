@@ -27,9 +27,9 @@ import {
 } from '../src/index.ts'
 
 const GOLDEN_DIR = fileURLToPath(new URL('../../../tests/golden/voice-register/', import.meta.url))
-/** V3 고정값 (README "음성 바로 등록 골든": 파일 4 · 사례 138 — variety-guess 42 · same-number 54 · seller-note 22 · renumber 20, D-V3-22 (c)) */
+/** V3 고정값 (README "음성 바로 등록 골든": 파일 4 · 사례 142 — variety-guess 42 · same-number 54 · seller-note 22 · renumber 24, D-V3-22 (c)) */
 const EXPECTED_FILES = 4
-const EXPECTED_CASES = 138
+const EXPECTED_CASES = 142
 
 const FILE_KEYS = new Set(['kind', 'about', 'cases'])
 const CASE_KEYS = new Set(['id', 'title', 'refs', 'note', 'in', 'out'])

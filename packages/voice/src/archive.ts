@@ -21,11 +21,11 @@ export const VOICE_ARCHIVE_NOTICE = '판매자 목소리를 글로 바꾼 것이
 const ENDING_PATTERN = [...ENDINGS].sort((a, b) => b.length - a.length).join('|')
 
 /** 문자찜 끝자리 낱말 (R-21 4) — 바로 뒤 숫자 4개를 가린다 */
-const LAST4_WORDS = ['끝자리', '뒷번호', '뒷자리', '끝 자리', '뒷 번호']
+const LAST4_WORDS = ['끝자리', '뒷번호', '뒷자리', '끝번호', '끝 자리', '뒷 번호']
 
 /**
  * 남기기 전 가리기: 숫자 8자리 이상(공백·`-`이 끼어도, D-V2-20과 같은 판단) → `****`,
- * 끝자리 낱말(끝자리·뒷번호·뒷자리·끝 자리·뒷 번호) 바로 뒤 숫자 4개 → `****` ("끝자리 1234 김민지님" → "끝자리 **** 김민지님").
+ * 끝자리 낱말(끝자리·뒷번호·뒷자리·끝번호·끝 자리·뒷 번호) 바로 뒤 숫자 4개 → `****` ("끝자리 1234 김민지님" → "끝자리 **** 김민지님").
  */
 export function maskArchiveText(text: unknown): string {
   if (typeof text !== 'string') return ''

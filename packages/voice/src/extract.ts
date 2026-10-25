@@ -162,7 +162,8 @@ function mergeLeft(tokens: readonly string[], punct: readonly boolean[], xAt: nu
     const leftValue = parseKoreanNumber(left) as number
     if (/^[0-9]$/.test(left) && /^[0-9]$/.test(text) && i === xAt - 1) value = leftValue * 10 + value
     else if (lowestPlace(leftValue) > String(value).length - 1) value = leftValue + value
-    else return i === xAt - 1 ? 'overlap' : { value, first }
+    // 이어 더하다 겹쳐도 문장 전체 번호·가격을 비운다(D-V3-66 — `1 이십 오번`)
+    else return 'overlap'
     first = i
     text = String(value)
   }
@@ -185,8 +186,11 @@ export interface NumberMarkers {
  * R-15로 읽히면 번호를 끊어 말했거나 인식이 번호를 갈랐을 수 있다(`1 5번` → `15`, `십 오번` → `십오`, `이 십 번` → `이십`, `백 오번` → `백오`).
  * 앞 토큰이 없거나 붙인 글이 수가 아니면 해당 없다(`이 15번` → `이15`, `네 15번` → `네15`).
  */
+/** 0 토큰(`0`·`영`·`공`)은 합치기와 끊어 말한 번호 검사 둘 다에서 보지 않는다 (D-V3-66 — `0 5번` = 5번) */
+const isZeroToken = (token: string | undefined): boolean => token !== undefined && /^(0+|영|공)$/.test(token)
+
 function isSplitNumber(previous: string | undefined, x: string): boolean {
-  return previous !== undefined && parseKoreanNumber(previous + x) !== null
+  return previous !== undefined && !isZeroToken(previous) && parseKoreanNumber(previous + x) !== null
 }
 
 /**
@@ -862,14 +866,18 @@ export function listNumberMarkers(tokens: readonly string[], punct: readonly boo
   const digits = findDigitReadings(tokens, forms).filter((reading) => reading.beon)
   const digitTokens = new Set(digits.flatMap((reading) => reading.tokens))
   const out: (NumberMarker & { split: boolean })[] = digits.map((reading) => ({ start: reading.tokens[0] as number, last: reading.tokens[reading.tokens.length - 1] as number, value: reading.value, split: false }))
+  const bySplit = new Set<number>()
   const take = (xAt: number, x: string, last: number): void => {
     const merged = mergeLeft(tokens, punct, xAt, x)
     if (merged !== null && merged !== 'overlap') {
       out.push({ start: merged.first, last, value: merged.value, split: trailingDigit(tokens, last) })
       return
     }
-    out.push({ start: xAt, last, value: numberValue(x) as number, split: merged === 'overlap' || isSplitNumber(xAt > 0 ? tokens[xAt - 1] : undefined, x) || trailingDigit(tokens, last) })
+    const hard = merged === 'overlap' || isSplitNumber(xAt > 0 ? tokens[xAt - 1] : undefined, x)
+    if (hard) bySplit.add(xAt)
+    out.push({ start: xAt, last, value: numberValue(x) as number, split: hard || trailingDigit(tokens, last) })
   }
+  const isSplitByMerge = (marker: NumberMarker): boolean => bySplit.has(marker.start)
   for (let i = 0; i < tokens.length; i++) {
     if (digitTokens.has(i)) continue
     const attached = (forms[i] ?? []).find((form) => form.length >= 2 && form.endsWith(BEON) && numberValue(form.slice(0, -BEON.length)) !== null)
@@ -883,8 +891,11 @@ export function listNumberMarkers(tokens: readonly string[], punct: readonly boo
       i++
     }
   }
-  // 합친 표시가 앞 표시의 토큰을 덮으면(`15번 1 5번`은 덮지 않는다) 뒤 것만 남긴다
-  return out.sort((a, b) => a.start - b.start)
+  // 번호 뒤 한 자리 수가 다음 번호 표시의 앞 조각이면(`6 5번은 6 1번`) 애매하지 않다
+  const covered = new Set(out.flatMap((marker) => Array.from({ length: marker.last - marker.start + 1 }, (_, k) => marker.start + k)))
+  return out
+    .map((marker) => (marker.split && covered.has(marker.last + 1) && !isSplitByMerge(marker) ? { ...marker, split: false } : marker))
+    .sort((a, b) => a.start - b.start)
 }
 
 /** 원 가격 줄 목록 (토큰 위치·값, 애매하면 value null). 번호 표시·자리 읽기 토큰에서 멈춘다. bareNumbers = '번' 없는 번호로 앞 수를 뗄 수 있나 */

@@ -239,3 +239,18 @@ describe('R69~R73 품종 없는 빠른 꼴 (D-V3-63, 만원 단위)', () => {
     expect(extractVoice('68번 3', { dictionary: DICT }).no).toBeNull()
   })
 })
+
+describe('D-V3-66 이어 더하다 겹치면 비움 · 0 토큰 · 끝번호 가리기', () => {
+  it('"1 이십 오번 라울 만원" → 번호·가격 비움 (25번 아님)', () => {
+    expect(extractVoice('1 이십 오번 라울 만원', { dictionary: DICT })).toMatchObject({ no: null, price: null })
+    expect(seg('1 이십 오번 라울 만원', { final: true }).picks).toEqual([])
+  })
+  it('"0 5번 라울 만원" → 5번 (0은 합치지도, 끊어 말한 번호로 보지도 않음)', () => {
+    expect(extractVoice('0 5번 라울 만원', { dictionary: DICT })).toMatchObject({ no: 5, price: 10000 })
+    expect(extractVoice('영 5번 라울 만원', { dictionary: DICT })).toMatchObject({ no: 5, price: 10000 })
+  })
+  it('끝번호 뒤 4숫자도 가린다', async () => {
+    const { maskArchiveText } = await import('../src/index.ts')
+    expect(maskArchiveText('끝번호 1234 김민지님')).toBe('끝번호 **** 김민지님')
+  })
+})
