@@ -1485,7 +1485,9 @@ export class VoiceController {
         if (chunkEnd) this.#pickDone.add(key)
         continue
       }
-      if (pick.blocked !== null) {
+      // 300만 원 넘는 가격: 없는 번호면 덩어리 끝에 카드, 이미 있는 번호면 아래 R-22(가격 차이로 묻기, D-V3-33)
+      const blockedExisting = pick.blocked !== null ? this.#existingOf(pick.no) : null
+      if (pick.blocked !== null && (blockedExisting === null || blockedExisting === 'closed')) {
         if (chunkEnd) {
           this.#pickDone.add(key)
           this.#pickCard(work, module, pick, text, PRICE_CHECK_NOTE)
