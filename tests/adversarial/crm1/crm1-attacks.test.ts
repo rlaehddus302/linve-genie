@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { createBackupBytes } from '../../../apps/server/src/backup.ts'
 import { at, buy, chat, countOf, crm, crmWorld, kst, ok, payAll } from '../../../apps/server/test/crm1-support.ts'
 import { getFile } from '../../../apps/server/test/i2-support.ts'
-import { readZip } from '../../../apps/server/test/n4b-support.ts'
+import { linkApi, openLink, readZip, tokenOf } from '../../../apps/server/test/n4b-support.ts'
 import { addSeller, client, createBroadcast, expectOk, login, writeEvent } from '../../../apps/server/test/support.ts'
 
 /** 농부 이모지 = U+1F469 ZWJ U+1F33E (코드 포인트 3개) */
@@ -203,8 +203,8 @@ describe('AC-CRM1-25·27 다른 판매자·로그 (적대)', () => {
 
 // ── AC-CRM1-26 구매자에게 가는 것·백업 ──────────────────────────────────
 
-describe('AC-CRM1-26 판매대장·백업·포장 라벨·발송함에 손님 기록·메모가 없다 (적대)', () => {
-  it('입금 늦음 주의·메모 "노쇼 2번 조심" 손님 — 판매대장 엑셀(전체·그날)·백업 파일·포장 라벨 자료·발송함 글에 메모·꼬리표 낱말이 없다', async () => {
+describe('AC-CRM1-26 판매대장·백업·포장 라벨·발송함·공유 링크에 손님 기록·메모가 없다 (적대)', () => {
+  it('입금 늦음 주의·메모 "노쇼 2번 조심" 손님 — 판매대장 엑셀(전체·그날)·백업 파일·포장 라벨 자료·발송함 글·공유 링크 화면에 메모·꼬리표 낱말이 없다', async () => {
     const { world, seller } = await crmWorld()
     const c = crm(world, seller)
     await buy(world, seller, '2026-10-08', 'UC_B', '비', 10_000)
@@ -226,6 +226,12 @@ describe('AC-CRM1-26 판매대장·백업·포장 라벨·발송함에 손님 �
     if (label.status === 200) texts.push(['packing-label', label.text])
     const outbox = await world.database.pglite?.query<{ body: string }>('select body from outbox')
     texts.push(['outbox', JSON.stringify(outbox?.rows ?? [])])
+    // SA-CRM1-04: 구매자에게 가는 공유 링크 화면 /r/<토큰> (로그인 없이 연다)
+    const created = await linkApi(world, seller.cookie).create('2026-10-22', 'UC_B')
+    expect(created.status, created.text).toBe(200)
+    const page = await openLink(world, `/r/${tokenOf((created.body.link as { url: string }).url)}`)
+    expect(page.status).toBe(200)
+    texts.push(['share-link', page.text])
     for (const [where, text] of texts) {
       for (const word of ['노쇼 2번 조심', '입금 늦음 주의', '단골', 'regularCount', 'customer_memos', 'caution']) expect(text, `${where} ${word}`).not.toContain(word)
     }
