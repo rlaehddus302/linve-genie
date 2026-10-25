@@ -61,3 +61,10 @@
   - D-MOB2-06 뒤로, 보류 찜을 만든 뒤 30초 넘게 걸리는 기존 시험은 그 칩이 저절로 빠진다. 예: `ql2/alerts.spec.ts` sixWorld는 보류 찜 뒤 출력 기기 끊김을 30초까지 기다린 다음 "알림 2 펼치기"를 본다. 이번 실행에서는 통과했지만 느린 기계에서는 흔들릴 수 있다. 준비 줄에 `claim.preOpenWindowSec`을 늘리는 것은 AC-MOB2-80 밖이라 하지 않았다.
   - `s06/support.ts`의 `openSms`는 방송이 하나뿐인 새 판매자에게서 끝나지 않는다. 화면이 그 방송을 저절로 골라 두어 조회 응답을 다시 기다리지 않기 때문이다. mob2는 `openSmsSole`을 쓴다.
   - AC-MOB2-34의 W 600은 코어 설정 상한(300) 밖 — test-domain 메모와 같음.
+
+## 재검토 라운드 1 (SA-MOB2-01)
+- dev 수정 db505531(TE-MOB2-001)·98019ed5(TD-MOB2-001) 뒤 다시 실행.
+- mob2(크로미움·WebKit): 54개 모두 통과. TE-MOB2-001 시험은 --repeat-each 3에서도 3/3 통과.
+- s05/attacks.spec.ts(크로미움): 12개 모두 통과 — "응답만 잃어버림" 통과.
+- tests/adversarial/mob2(TZ=Asia/Seoul): 72개 모두 통과(TD-MOB2-001 포함).
+- resolvedIds: TE-MOB2-001, TD-MOB2-001(확인만, 시험은 그대로 둠).
