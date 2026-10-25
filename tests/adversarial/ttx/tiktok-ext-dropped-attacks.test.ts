@@ -70,10 +70,10 @@ const linkOf = async (w: TtWorld, sellerId: string, b: string) => {
 }
 
 /** 판매자 + 동의 + 실제 회차 + 틱톡 잇기(서명 실패로 다시 시도 중) + 확장 토큰 */
-async function linked(w: TtWorld, tiktokId: string) {
+async function linked(w: TtWorld, tiktokId: string, failure: 'SIGN_FAILED' | 'BLOCKED' | 'NETWORK' = 'SIGN_FAILED') {
   const { seller } = await tiktokSeller(w, { tiktokId })
   const b = await realBroadcast(w, seller)
-  w.webcast.failNext('SIGN_FAILED', 50)
+  w.webcast.failNext(failure, 50)
   const r = await linkTiktok(w, seller, b)
   expect(r.status, r.text).toBe(200)
   await waitFor(async () => (await linkView(w, seller.cookie, b))?.collection?.state === 'RETRYING')
@@ -178,5 +178,24 @@ describe('TTX 적대 — 확장 dropped는 보낸 판매자의 이어진 연결�
     const now = await saveFailedAll(w)
     expect(now.get(second.id)).toMatchObject({ saveFailed: 6 })
     expect(now.get(first.id)).toMatchObject({ saveFailed: 4 })
+  })
+})
+
+describe('TTX 적대 — 직접 연결이 어떤 이유로 다시 시도 중이든 확장이 받는다 (AC-TTX-17, SA-TTX-04)', () => {
+  it('TD-TTX-R46: RETRYING 사유 SIGN_FAILED·BLOCKED·NETWORK 모두 — 확장 묶음이 기록되고 받는 길 줄은 확장으로 받는 중', async () => {
+    for (const failure of ['SIGN_FAILED', 'BLOCKED', 'NETWORK'] as const) {
+      const w = await world()
+      const a = await linked(w, 'seller_kim', failure)
+      expect((await status(w, a.token)).status, failure).toBe(200)
+      const sent = await ext(w, '/ext/tiktok/chats', a.token, {
+        pageId: 'seller_kim',
+        items: [{ commentId: `7400000000000000${String(Date.now() % 1000)}1`, userId: '7102000000000001', uniqueId: 'buyer_a', nickname: '시청자', text: '15' }],
+      })
+      expect(sent.status, `${failure} ${sent.text}`).toBe(200)
+      expect(sent.body, failure).toMatchObject({ result: 'recorded', recorded: 1 })
+      const view = await linkView(w, a.seller.cookie, a.b)
+      expect(view?.collection?.state, failure).toBe('RETRYING')
+      expect(view?.extension, failure).toMatchObject({ state: 'RECEIVING', active: true })
+    }
   })
 })

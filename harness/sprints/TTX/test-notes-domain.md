@@ -36,6 +36,7 @@
   - R40 두 판매자가 같은 틱톡 아이디(D-TTX-19) → dropped는 보낸 판매자 연결에만 · R41 연결 없는 판매자 10,000 → 어디에도 안 더함
   - R42 JSON 글자 그대로: `1e400`·`9007199254740993`·`"0x10"`·`[3]`·`{}`·`10000.5`·`1e5`·`-1`·`null`·`true` 400, `1e4`·`10000.0` 받음, `-0`은 0, `__proto__`로 숨긴 dropped 안 더함
   - R43 같은 상태 동시 30번 → 200 받은 수 × 3만큼 정확히 · R44 유튜브 `/ext/status`의 dropped는 틱톡에 안 더함 · R45 끊은 연결엔 안 더함, 다시 이은 새 연결은 0부터
+  - R46 (SA-TTX-04 서버 몫) 직접 연결이 `SIGN_FAILED`·`BLOCKED`·`NETWORK` 어느 사유로 다시 시도 중이든 확장 묶음 기록·확장으로 받는 중(통과). AC-TTX-20 HIDDEN·UNREADABLE E2E는 test-e2e 몫으로 남김
 
 ### 찾은 것
 - TD-TTX-003 (major, web — `apps/extension/src/tiktok-outbox.ts` `dropTab`·`#trim`): 버린 수가 **서버가 저장한 댓글까지** 센다.
