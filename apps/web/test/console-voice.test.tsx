@@ -269,17 +269,16 @@ describe('자막·카드·Enter 등록 (AC-I4-13·20·21)', () => {
 })
 
 describe('번호·가격 없음, 이미 있는 번호, 고치기 (AC-I4-22·23)', () => {
-  it('이미 있는 번호 → 빠른 입력과 같은 "고칠까요?"(카드 값), 아니요면 쓰기 없음', async () => {
+  // D-V3-06 (AC-V3-41·47 R30): 이미 있는 번호를 다르게 들으면 카드 대신 묻기 카드 — 바로 등록을 끈 기기는 까닭 줄 없이 묻기만
+  it('이미 있는 번호 → 카드 없이 묻기 카드 "15번을 고칠까요?", 그대로 두기면 쓰기 없음 (D-V3-06)', async () => {
     setup([register(15, '핑크프릴', 10000)])
     await openConsole()
     await turnOnVoice()
     FakeRecognition.say('15번 라울 만원')
     await quiet()
-    fireEvent.click(screen.getByRole('button', { name: '15번 라울 10,000원 등록' }))
-    const dialog = await screen.findByRole('dialog', { name: '15번이 이미 있어요. 고칠까요?' })
-    expect(dialog.textContent).toContain('라울')
+    const offer = await screen.findByRole('listitem', { name: '15번을 고칠까요? 품종 핑크프릴 → 라울' })
     expect(screen.queryByRole('listitem', { name: '15번 라울 10,000원 카드' })).toBeNull()
-    fireEvent.click(within(dialog).getByRole('button', { name: '아니요' }))
+    fireEvent.click(within(offer).getByRole('button', { name: '그대로 두기' }))
     await flush()
     expect(engine.posts).toEqual([])
   })

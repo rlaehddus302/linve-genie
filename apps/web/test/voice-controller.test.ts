@@ -724,7 +724,8 @@ describe('자동 확정 (AC-I4-30·31, D-I4-05)', () => {
     for (const stored of [{ 'voice.autoConfirm': 'true' }, { 'voice.autoConfirmSec': 0 }, { 'voice.autoConfirmSec': 31 }, { x: true }, 'x', null]) {
       const h = harness({ readSettings: () => stored })
       await turnOn(h)
-      expect(h.voice.getSnapshot().settings).toEqual({ 'voice.autoConfirm': false, 'voice.autoConfirmSec': 5 })
+      // D-V3-16: resolveVoiceSettings가 바로 등록 칸(기본 켬)도 채운다
+      expect(h.voice.getSnapshot().settings).toEqual({ 'voice.autoConfirm': false, 'voice.autoConfirmSec': 5, 'voice.autoRegister': true })
       h.voice.dispose()
     }
   })

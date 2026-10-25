@@ -919,6 +919,8 @@ export class VoiceController {
     const module = this.#module
     const settings = this.#snapshot.settings
     if (settings !== null && !settings['voice.autoConfirm']) this.#phraseAutoOff = true
+    // 덩어리 도중 한 번이라도 바로 등록이 꺼져 있었으면 그 덩어리는 카드만·같은 번호는 묻기 (D-V3-35)
+    if (!this.#snapshot.instant) this.#phraseInstantOff = true
     if (!result.final) {
       // 중간 결과도 조용한 시간을 다시 센다 (D-V2-03, 사례 S17) — 말하는 동안 자동 등록을 멈춘다 (D-V2-06)
       if (module !== null && settings !== null && this.#phrase !== null) {
@@ -1078,8 +1080,9 @@ export class VoiceController {
     const notes = new Map(work.notes)
     const candidatesFor = (name: string | null): readonly VarietyCandidate[] => (name === null ? reading.candidates : [])
     // V3 바로 등록 (D-V3-01·05·08·10·13·19·21): 덩어리 끝에 바로 등록한 번호·이미 있는 번호·합치기·확정 읽기를 먼저 본다
-    const v3 = this.#instantOn() ? this.#readRegistration(module, chunk.text, true) : null
-    const noAuto = chunk.noAutoConfirm === true || this.#phraseInstantOff
+    // 설정을 꺼도 V3 읽기(추측 품종·같은 번호 무시·합치기)는 하고 바로 등록·바로 고침만 하지 않는다 (R30, TE-V3-005)
+    const v3 = this.#instantHost() ? this.#readRegistration(module, chunk.text, true) : null
+    const noAuto = chunk.noAutoConfirm === true || this.#phraseInstantOff || !this.#snapshot.instant
     const instantDone = v3 === null ? null : this.#instantChunk(work, module, chunk, reading, action, v3, noAuto)
     this.#instantNos = new Map()
     if (this.#phrase === null || module.nextTickAt(this.#phrase) === null) this.#phraseInstantOff = false
@@ -1414,6 +1417,8 @@ export class VoiceController {
     const interim = this.#phrase === null ? '' : module.heardText(this.#phrase).interim
     const ready = this.#readRegistration(module, text, interim.trim() === '')?.ready ?? null
     if (ready === null || this.#instantNos.has(ready.no) || this.#rejected.has(ready.no)) return
+    // 판매자가 손댄(고치는 중인) 같은 번호 카드가 있으면 바로 등록하지 않는다 — 판매자 값이 먼저다 (D-V3-08, TE-V3-003)
+    if (work.cards.some((card) => isOpen(card) && card.no === ready.no && card.touched)) return
     if (this.#host.dialogOpen()) return
     const existing = this.#existingOf(ready.no)
     // 판매 종료한 번호(등록을 되돌린 번호 포함)는 바로 하지 않는다 — 덩어리가 끝나면 카드
@@ -1507,11 +1512,14 @@ export class VoiceController {
     if (Object.keys(changes).length > 0) {
       const edited = module.editCard(open, changes, { maxNumber: this.#host.maxNumber() })
       if (!edited.ok) return { action: 'discard', reason: edited.message, readout: null }
-      next = changes.name === undefined ? edited.card : { ...edited.card, nameNeedsCheck: guessed || reading.nameNeedsCheck }
+      // 말로 합친 것은 판매자가 손댄 것이 아니다 — 손대지 않은 카드로 둔다 (editCard는 손댄 카드로 만든다)
+      const merged: SuggestionCard = { ...edited.card, touched: false }
+      next = changes.name === undefined ? merged : { ...merged, nameNeedsCheck: guessed || reading.nameNeedsCheck }
       if (changes.name !== undefined && reading.nameWindow !== null) this.#windows.set(open.id, reading.nameWindow)
     }
     // 합친 뒤 번호·원 가격이 갖춰지면 그 자리에서 바로 등록 (AC-V3-27 R23)
-    if (!noAuto && v3 !== null && v3.priceSure && v3.blocked === null && next.no !== null && next.price !== null && next.price <= module.AUTO_REGISTER_PRICE_MAX) {
+    // 번호를 'N번'으로 들었을 때만 (AC-V3-06 e, D-V3-32)
+    if (!noAuto && v3 !== null && v3.priceSure && v3.blocked === null && v3.numberFrom === 'marker' && next.no !== null && next.price !== null && next.price <= module.AUTO_REGISTER_PRICE_MAX) {
       if (this.#host.dialogOpen()) this.#dueCards.add(next.id)
       else {
         work.cards = module.replaceCard(work.cards, next)
@@ -1649,6 +1657,9 @@ export class VoiceController {
 
   /** 바로 고침: 보내기 직전에 상품을 다시 보고(찜·판매 중) 손 고치기와 같은 상품 고치기, 고친 뒤 [되돌리기] (D-V3-07) */
   async #autoFix(offerId: string, key: string, no: number, existing: ExistingView, changes: InstantChanges): Promise<void> {
+    // 묻기·알림 카드가 화면 목록에 들어간 뒤에 바꾼다 (이 함수는 목록을 만드는 중에 불린다, TE-V3-007)
+    await Promise.resolve()
+    if (this.#disposed) return
     let now: ExistingView | null
     try {
       now = this.#host.existingProduct?.(no) ?? null
@@ -1656,7 +1667,8 @@ export class VoiceController {
       now = null
     }
     const status = now?.status ?? 'OPEN'
-    if (now !== null && (now.claimCount > 0 || (status !== 'OPEN' && status !== 'SOLD'))) {
+    // 찜이 생겼으면 가격 고침은 묻는다 (사전 이름으로 빈 품종만 채우는 것은 찜이 있어도 바로, R-22)
+    if (now !== null && ((now.claimCount > 0 && changes.price !== undefined) || (status !== 'OPEN' && status !== 'SOLD'))) {
       const note = status !== 'OPEN' && status !== 'SOLD' ? REASON_NOT_OPEN : REASON_CLAIMS
       this.#replaceOffer(offerId, { stage: 'ask', message: askMessage(no, existing, changes), note })
       return
@@ -2020,7 +2032,9 @@ export class VoiceController {
 
   /** 저장: 자동 확정 설정 + 조용한 시간(기본값이 아니면 같은 저장값에 `voice.quietMs`, D-V2-09) */
   #writeSettings(settings: VoiceSettings, quietMs: number = this.#snapshot.quietMs): void {
-    const base: VoiceSettings & { readonly 'voice.quietMs'?: number } = quietMs === 1800 ? settings : { ...settings, 'voice.quietMs': quietMs }
+    // 바로 등록 칸은 화면 상태(instant)가 정한다 — 패키지가 채운 값은 빼고 아래에서 끈 때만 남긴다
+    const { [INSTANT_KEY]: _stored, ...plain } = settings as VoiceSettings & Record<string, unknown>
+    const base: VoiceSettings & { readonly 'voice.quietMs'?: number } = quietMs === 1800 ? (plain as VoiceSettings) : { ...(plain as VoiceSettings), 'voice.quietMs': quietMs }
     // 바로 등록은 끈 때만 남긴다 (기본 켬, V3)
     const value = this.#snapshot.instant ? base : { ...base, [INSTANT_KEY]: false }
     this.#host.writeSettings(value)
@@ -2069,7 +2083,7 @@ export class VoiceController {
   keyCandidateCard(): string | null {
     let newest: SuggestionCard | null = null
     for (const card of this.#snapshot.cards) if (isOpen(card) && (newest === null || card.createdAt > newest.createdAt)) newest = card
-    if (newest === null || newest.name !== null) return null
+    if (newest === null || (newest.name !== null && newest.nameNeedsCheck !== true)) return null
     return (this.#snapshot.info.get(newest.id)?.candidates.length ?? 0) > 0 ? newest.id : null
   }
 
@@ -2690,7 +2704,9 @@ export class VoiceController {
     const ripeCard = this.#ripeAuto()
     const ripeSms = this.#ripeSms()
     const ripe = ripeCard === 'now' || ripeSms === 'now' ? 'now' : ripeCard ?? ripeSms
-    const delay = ripe === 'now' ? 0 : ripe === 'deferred' ? Math.min(wake ?? DEFERRED_POLL_MS, DEFERRED_POLL_MS) : wake
+    // 창이 열려 미룬 바로 등록이 있으면 창이 닫혔는지 자주 본다 (어떤 창이 닫혀도, AC-V3-43 a)
+    const deferred = ripe === 'deferred' || this.#dueCards.size > 0
+    const delay = ripe === 'now' ? 0 : deferred ? Math.min(wake ?? DEFERRED_POLL_MS, DEFERRED_POLL_MS) : wake
     if (delay === null) return
     this.#timer = setTimeout(() => {
       this.#timer = null

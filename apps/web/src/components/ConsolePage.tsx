@@ -100,6 +100,8 @@ interface RegRequest {
   readonly onExists?: (product: Product) => void
   /** 다시 보내기로 고칠 수 없는 실패·기록되지 않음 (음성 카드는 카드를 되살린다) */
   readonly onFailed?: () => void
+  /** 잠깐의 오류 ("다시 보내기"가 남는다 — 바로 등록은 카드도 돌려놓는다, AC-V3-39) */
+  readonly onTransient?: () => void
   /** 등록이 저장됨 (음성 카드 — 방금 등록한 상품으로 기억한다, D-V2-06 3) */
   readonly onDone?: (key: string) => void
   /** 개수 칸이 1이 아니었으면 그 개수 (옵션 없는 상품만 — AC-ORD11-01) */
@@ -111,6 +113,8 @@ interface RegHooks {
   readonly onExists?: (product: Product) => void
   readonly onFailed?: () => void
   readonly onDone?: (key: string) => void
+  /** 잠깐의 오류로 보내지 못했다 ("다시 보내기"가 남는다) */
+  readonly onTransient?: () => void
   readonly extra?: OptionPayload
   readonly draftOf?: OptionDraft
   readonly stock?: number
@@ -745,6 +749,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         if (!isApiError(error)) throw error
         if (error.transient) {
           setRegistrations((list) => list.map((item) => (item.id === id ? { ...item, status: 'failed', error } : item)))
+          request.onTransient?.()
         } else {
           remove()
           setQuickError(error)
@@ -786,9 +791,14 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       enqueueRegistration(cardLine(no, name, price), no, name, price, false, {
         ...(source === 'auto' ? { onExists: (product: Product) => voice?.restore(card, { note: editQuestion(product.no, product.status === 'CLOSED') }) } : {}),
         // 바로 등록인데 차례에서 그 번호가 생겼다 — 이미 있는 번호 규칙(무시·자동 고침·묻기)대로, 창은 띄우지 않는다 (V3)
-        ...(source === 'instant' ? { onExists: () => voice?.instantExists(card) } : {}),
+        // 바로 등록이 잠깐의 오류로 실패하면 "다시 보내기"와 함께 그 말의 카드도 돌려놓는다 (AC-V3-39, TE-V3-008)
+        ...(source === 'instant' ? { onExists: () => voice?.instantExists(card), onTransient: () => voice?.restore(card, { touched: true }) } : {}),
         onFailed: () => voice?.restore(card, { touched: true }),
-        onDone: (key) => voice?.noteVoiceRegistered({ id: key, no, name, price }),
+        onDone: (key) => {
+          // "다시 보내기"로 등록됐으면 돌려놓은 카드는 뺀다
+          if (source === 'instant') voice?.take(card.id)
+          voice?.noteVoiceRegistered({ id: key, no, name, price })
+        },
       })
       if (source === 'click') focusQuick()
     },

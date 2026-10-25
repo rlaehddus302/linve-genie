@@ -59,9 +59,13 @@ import { INSTANT_CONSENT_LINE, INSTANT_HELP, INSTANT_LABEL, NOTICE_OK } from '..
 export const CONSENT_OTHER_DEVICE = '방송하는 폰이 아닌 다른 기기(관리 폰이나 PC)에서 켜 주세요. 방송 앱이 마이크를 쓰는 폰에서는 잘 듣지 못해요.'
 /** 안내 창 문장 (D-I4-04, AC-I4-11 — 외부 전송 문장은 D-I5-06, 마이크 줄은 D-I5-11로 바꿈) */
 export const CONSENT_TITLE = '음성으로 상품 등록'
+/** 바로 등록을 끈 기기의 첫 줄 (I4 그대로, D-V3-36) */
+export const CONSENT_FIRST_CARD = '말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.'
+/** 바로 등록을 켠 기기의 첫 줄 (D-V3-36) */
+export const CONSENT_FIRST_INSTANT = '번호와 가격이 확실하지 않으면 카드로 보여 드려요. 카드를 확인하고 등록해요.'
+/** 바로 등록을 켠 기기의 안내 창 (D-V3-36: 첫 줄 · 바로 등록 줄 · 나머지 그대로) */
 export const CONSENT_LINES: readonly string[] = [
-  '말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.',
-  // V3 D-V3-17
+  CONSENT_FIRST_INSTANT,
   INSTANT_CONSENT_LINE,
   `음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. ${SERVICE_NAME}는 음성을 녹음하거나 저장하지 않아요.`,
   // D-I5-11: 크롬·사파리 모두에 맞게 "브라우저가"
@@ -95,7 +99,13 @@ export function VoiceToggle({ voice, snapshot, ready }: { readonly voice: VoiceC
 }
 
 /** 처음 켤 때의 안내 창 (외부 전송 고지·권한 안내). 처음 포커스는 "닫기" */
+/** 안내 창 줄: 바로 등록을 끈 기기(또는 V3가 아닌 화면)는 I4 첫 줄이고 바로 등록 줄이 없다 (D-V3-36) */
+export function consentLines(instant: boolean): readonly string[] {
+  return instant ? CONSENT_LINES : [CONSENT_FIRST_CARD, ...CONSENT_LINES.slice(2)]
+}
+
 export function VoiceConsentDialog({ voice }: { readonly voice: VoiceController }) {
+  const lines = consentLines(voice.getSnapshot().instant && voice.instantScreen())
   return (
     <Modal
       title={CONSENT_TITLE}
@@ -107,7 +117,7 @@ export function VoiceConsentDialog({ voice }: { readonly voice: VoiceController 
       }
     >
       <div className="stack-tight">
-        {CONSENT_LINES.map((line) => (
+        {lines.map((line) => (
           <p key={line}>{line}</p>
         ))}
       </div>
@@ -531,13 +541,13 @@ function VoiceCard({ card, described, badge, countdown, paused, info, note, offe
         <p className="voice-card-text">
           <strong>{described}</strong>
           {low || flushed ? <span className="tag tag-waiting">확인 필요</span> : null}
-          {card.name === null ? <span className="tag tag-waiting">{NAME_CHECK}</span> : null}
+          {card.name === null || card.nameNeedsCheck === true ? <span className="tag tag-waiting">{NAME_CHECK}</span> : null}
           {badge ? <span className="tag tag-order">{ENTER_BADGE}</span> : null}
         </p>
         <p className="voice-card-heard">들은 말: {card.text}</p>
         {info !== null && info.ask !== null ? <p className="voice-card-ask">{info.ask}</p> : null}
         {flushed ? <p className="voice-card-why">{FLUSHED_CARD_NOTE}</p> : null}
-        {card.name === null && info !== null && info.candidates.length > 0 ? (
+        {(card.name === null || card.nameNeedsCheck === true) && info !== null && info.candidates.length > 0 ? (
           <div className="voice-candidates" role="group" aria-label={`${short} 품종 후보`}>
             <span className="voice-candidates-ask">혹시 이 품종인가요? 누르면 채워져요</span>
             <div className="voice-candidates-list">
@@ -816,6 +826,12 @@ export function VoiceExtras({ voice, snapshot }: { readonly voice: VoiceControll
   const smsSettings = snapshot.smsSettings
   const smsWords = voice.smsWords()
   const [logOpen, setLogOpen] = useState(false)
+  // 음성 기록 창이 닫힌 뒤(화면에서 빠진 뒤) 창 때문에 미룬 바로 등록을 다시 본다 (AC-V3-43 a, TE-V3-006)
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    if (wasOpen.current && !logOpen) voice.refresh()
+    wasOpen.current = logOpen
+  }, [logOpen, voice])
   const [open, setOpen] = useState(false)
   if (!on && !snapshot.everOn) return null
   return (

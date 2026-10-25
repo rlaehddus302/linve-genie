@@ -344,6 +344,17 @@ describe('바로 등록 V3 수용 사례', () => {
     expect(cards(h).map((card) => card.no)).toEqual([15])
   })
 
+  it('창이 닫히면 따로 알리지 않아도 곧 등록 (AC-V3-43 a, TE-V3-006)', async () => {
+    const h = await ready()
+    h.dialog = true
+    say('네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요')
+    at(3000)
+    expect(h.registered).toEqual([])
+    h.dialog = false
+    at(3300)
+    expect(reg(h).map((item) => item.no)).toEqual([108])
+  })
+
   it('창이 열린 동안은 미루고 창이 닫히면 등록 (AC-V3-43 a)', async () => {
     const h = await ready()
     h.dialog = true
@@ -404,6 +415,31 @@ describe('중간 결과 끝의 번 없는 번호 (D-V3-26)·막음 (실방송 3�
     at(3000)
     expect(h.fixes).toEqual([])
     expect(h.voice.getSnapshot().offers[0]?.stage).toBe('ask')
+  })
+})
+
+describe('덩어리 내내 켜져 있어야 바로 (D-V3-35)', () => {
+  it('끈 채 말하고 조용한 시간 안에 켜면 그 덩어리는 카드만, 다음 덩어리부터 바로', async () => {
+    const h = await ready()
+    h.voice.setInstant(false)
+    say('108번 bts 10만 원', false)
+    h.voice.setInstant(true)
+    say('108번 bts 10만 원')
+    at(3000)
+    expect(h.registered).toEqual([])
+    expect(cards(h).map((card) => card.no)).toEqual([108])
+    say('109번 라울 만 원')
+    expect(reg(h).map((item) => item.no)).toEqual([109])
+  })
+
+  it('켠 채 말하다 도중에 끄면 바로 등록하지 않는다', async () => {
+    const h = await ready()
+    say('108번 bts', false)
+    h.voice.setInstant(false)
+    h.voice.setInstant(true)
+    say('108번 bts 10만 원')
+    at(3000)
+    expect(h.registered).toEqual([])
   })
 })
 
