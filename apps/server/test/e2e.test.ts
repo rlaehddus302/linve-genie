@@ -28,8 +28,9 @@ describe('AC-S05-91 E2E 서버 기동 (프로그램)', () => {
       const get = async (path: string) => (await e2e.server.app.request(path, { headers: { Cookie: cookie } })).json() as Promise<Record<string, unknown>>
       expect(await get('/api/me')).toEqual({ seller: { name: account.shopName }, loginId: account.loginId, role: 'SELLER', assistant: null })
       expect(e2e.fill).toMatchObject({ date: '2026-10-19', products: 20, chats: 300, seq: 1 + 20 + 300 })
-      // Y1: 범위마다 봉인 예정 시각·봉인 여부 (AC-Y1-62). 채우기 채팅은 유튜브 수집기 것이 아니라 봉인 예정이 없다
-      expect(await get('/api/days')).toEqual({ days: [{ date: '2026-10-19', rehearsal: false, seq: 321, sealAt: null, sealed: false }] })
+      // Y1: 범위마다 봉인 예정 시각·봉인 여부 (AC-Y1-62). AIY1(RA-AIY1-01): 채우기 채팅은 유튜브 흉내라 출처 youtube로 적혀
+      // 봉인 예정이 생긴다 — 방송 날짜 + 30일의 한국 0시(2026-11-18 00:00 KST)
+      expect(await get('/api/days')).toEqual({ days: [{ date: '2026-10-19', rehearsal: false, seq: 321, sealAt: '2026-11-17T15:00:00.000Z', sealed: false }] })
       const view = await get('/api/days/2026-10-19')
       expect((view.products as unknown[]).length).toBe(20)
       expect((view.broadcasts as { title: string }[]).map((b) => b.title)).toEqual(['채운 방송'])
