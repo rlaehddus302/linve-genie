@@ -158,7 +158,7 @@ describe('입금 붙여넣기 화면 (D-QL3R2-01·05)', () => {
 describe('쉬운 낱말 (D-QL3R2-04)', () => {
   it('늦은 입금·같은 입금 두 번·구매자 확인서 링크 문장', () => {
     expect(PASTE_STATE_WORD.FUTURE).toBe('시각이 지금보다 늦은 입금')
-    expect(reasonWords('POSSIBLE_DUPLICATE', 2)).toBe('같은 입금이 두 번 들어왔을 수 있어요 (입금 #2도 같은 입금이에요)')
+    expect(reasonWords('POSSIBLE_DUPLICATE', 2)).toBe('같은 입금이 두 번 들어왔을 수 있어요 (입금 번호 2도 같은 입금이에요)') // D-QL3R1-10 (3): MOB2 "입금 번호 n"과 합친 문장
     expect(reasonWords('POSSIBLE_DUPLICATE', 2)).not.toContain('#2과')
     expect(BUYER_CAN_WRITE).toBe("구매자 확인서 링크에서 구매자가 직접 적을 수도 있어요. 링크는 방송을 끝낸 뒤 '영수증 보내기'에서 만들어요.")
   })

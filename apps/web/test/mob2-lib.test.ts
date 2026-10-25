@@ -27,7 +27,7 @@ import { flush } from './support.ts'
 describe('입금 이름은 "입금 번호 n" (AC-MOB2-21, D-MOB2-05)', () => {
   it('depositLabel·같은 입금 문장·정산 기록 연결 세 모양', () => {
     expect(depositLabel(12)).toBe('입금 번호 12')
-    expect(reasonWords('POSSIBLE_DUPLICATE', 7)).toBe('같은 입금이 두 번 들어왔을 수 있어요 (입금 번호 7과 같아요)')
+    expect(reasonWords('POSSIBLE_DUPLICATE', 7)).toBe('같은 입금이 두 번 들어왔을 수 있어요 (입금 번호 7도 같은 입금이에요)') // D-QL3R1-10 (3): 조사가 숫자에 따라 틀리지 않는 합친 문장
     const link = (patch: Partial<DepositLinkView> = {}): DepositLinkView => ({
       seq: 9,
       kind: 'payment',
