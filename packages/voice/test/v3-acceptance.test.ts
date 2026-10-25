@@ -261,3 +261,13 @@ describe('D-V3-44 켬이면 원 가격 없는 결과는 기억(카드 없음), �
     expect(chooseInstantAction(chunk(text), { registered: [15], registration: reg(text), autoRegister: false })).toBeNull()
   })
 })
+
+describe('TD-V3-003 켬에서 원 없는 정정 덩어리는 카드 없음', () => {
+  const on = (text: string) => chooseAction(chunk(text), { cards: [], now: 0, autoRegister: true, registration: reg(text) })
+  it.each(['15번 만오천 아니 만팔천', '만팔천 말고 15번', '15번 라울 만오천말고 만팔천', '15번 만오천 다시 만팔천'])('%s → 가격을 못 들었어요', (text) => {
+    expect(on(text)).toMatchObject({ kind: 'discard', reason: '가격을 못 들었어요' })
+  })
+  it('15번 만오천원 아니 만팔천원 → 카드 15번 18,000원 그대로', () => {
+    expect(on('15번 만오천원 아니 만팔천원')).toMatchObject({ kind: 'create', extraction: { no: 15, price: 18000 } })
+  })
+})

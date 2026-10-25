@@ -88,6 +88,8 @@ export interface RegistrationReading {
   readonly heardNumbers: readonly number[]
   /** 읽힌 가격 전부 (겹친 값 한 번) */
   readonly heardPrices: readonly number[]
+  /** 원 가격 줄에서 읽힌 가격 (겹친 값 한 번) — 정정 덩어리의 덮은 가격이 '원'으로 들렸는지 (D-V3-44, TD-V3-003) */
+  readonly wonPrices: readonly number[]
   /** 등록·카드에 쓸 추측 품종 — D-V3-30부터 `guess`와 같다(두 번 이상 나온 낱말만, 풀이말 끝 모양 제외). 예전 이름이라 남겨 둔다 */
   readonly safeGuess: string | null
   /** 번호를 낸 것 (no가 없으면 null) */
@@ -137,7 +139,7 @@ export function readRegistration(text: unknown, options: RegistrationOptions = {
       ? // D-V3-37: 등록 품종은 사전 맞춤(name)뿐 — 추측은 카드 후보 단추(guess)로만
         { no: extraction.no as number, price: extraction.price as number, name: extraction.name, nameNeedsCheck: false, numberFrom }
       : null
-  return { extraction, guess, safeGuess, numberFrom, blocked, priceSure, correction, heardNumbers: analysis.heardNumbers, heardPrices: analysis.heardPrices, ready }
+  return { extraction, guess, safeGuess, numberFrom, blocked, priceSure, correction, heardNumbers: analysis.heardNumbers, heardPrices: analysis.heardPrices, wonPrices: analysis.wonPrices, ready }
 }
 
 /**

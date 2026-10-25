@@ -46,7 +46,7 @@ export interface TargetContext {
   /** 덩어리 글이 300글자를 넘었는가 (R-17 1 — "문장이 너무 길어요") */
   readonly tooLong?: boolean
   /** 같은 덩어리의 V3 읽기 (readRegistration) — 번호 둘·가격 뒤 '번' 없는 번호를 버리는 데 쓴다(D-V3-41). 생략하면 그 검사 없음 */
-  readonly registration?: { readonly heardNumbers: readonly number[]; readonly blocked: string | null; readonly priceSure?: boolean } | null
+  readonly registration?: { readonly heardNumbers: readonly number[]; readonly blocked: string | null; readonly priceSure?: boolean; readonly wonPrices?: readonly number[] } | null
   /** 바로 등록이 켜져 있는가 (V3 D-V3-44). 생략 = 끔 = V2 할 일·문구 그대로 */
   readonly autoRegister?: boolean
 }
@@ -255,8 +255,9 @@ function numberDiscard(reading: ChunkReading, context: TargetContext): VoiceActi
 /** 켬(D-V3-44)에서 새 카드 대신: '원' 가격이 없으면 기억(보이지 않음), 원 가격이 있으면 카드 그대로(정정 덩어리·300만 원 넘음 등) */
 function createOrRemember(reading: ChunkReading, context: TargetContext): VoiceAction {
   if (context.autoRegister === true) {
-    // 정정 덩어리로 만든 새 카드(D-V2-14)는 가격이 둘이라 원 가격 줄 확정이 비어도 카드로 남긴다
-    const wonPrice = reading.price !== null && (context.registration?.priceSure === true || reading.correction)
+    // 정정 덩어리로 만든 새 카드(D-V2-14)는 가격이 둘이라 확정이 비어도, 덮은 가격이 '원'으로 들렸으면 카드로 남긴다(TD-V3-003)
+    const wonPrice =
+      reading.price !== null && (context.registration?.priceSure === true || (reading.correction && (context.registration?.wonPrices ?? []).includes(reading.price)))
     if (!wonPrice) return { kind: 'discard', reason: VOICE_LOG_REASONS.noPrice, cancelled: false, remembered: { no: reading.no, name: reading.name, price: reading.price, confidence: reading.confidence } }
   }
   return createAction(reading)

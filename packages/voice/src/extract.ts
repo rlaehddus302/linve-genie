@@ -383,6 +383,8 @@ interface PriceReading {
   readonly wonLines: number
   /** 원 가격 줄의 끝 토큰 위치 (나온 차례) */
   readonly wonLineEnds: readonly number[]
+  /** 원 가격 줄의 읽힌 값 (애매한 줄은 빼고) */
+  readonly wonLineValues: readonly number[]
   /** 읽힌 값 전부 (나온 차례) */
   readonly values: readonly number[]
   /** '번' 없는 번호 후보 (토큰 위치 → 값) */
@@ -499,7 +501,7 @@ function findPrice(
   const values = ordered.map((item) => item.value).filter((value): value is number => value !== null)
   const distinct = new Set(values)
   const price = !ambiguous && distinct.size === 1 ? (values[0] as number) : null
-  return { price, tokens: inBundle, wonLines: lines.length, wonLineEnds: lines.map((line) => line.end), values, bare, bareSplit: bareNumbers.split }
+  return { price, tokens: inBundle, wonLines: lines.length, wonLineEnds: lines.map((line) => line.end), wonLineValues: lines.map((line) => line.value).filter((value): value is number => value !== null), values, bare, bareSplit: bareNumbers.split }
 }
 
 // ── 5. 품종 ──────────────────────────────────────────────────────────────
@@ -661,6 +663,8 @@ export interface SentenceAnalysis {
   readonly heardNumbers: readonly number[]
   /** 읽힌 가격 값 전부 (겹친 값은 한 번) */
   readonly heardPrices: readonly number[]
+  /** 원 가격 줄에서 읽힌 값 (겹친 값은 한 번) — 정정 덩어리의 덮은 가격이 '원'으로 들렸는지 본다(D-V3-44) */
+  readonly wonPrices: readonly number[]
   /** no가 '번' 없는 번호이고 그 후보 토큰 하나가 글의 마지막 토큰인가 (R-17 8, D-V3-26) */
   readonly bareNumberAtEnd: boolean
   /** no를 낸 것: 'N번'(자리 읽기 + 번 포함) = marker, '번' 없는 번호 = bare, no가 없으면 null */
@@ -678,6 +682,7 @@ const EMPTY_ANALYSIS: SentenceAnalysis = Object.freeze({
   wonLines: 0,
   heardNumbers: Object.freeze([]),
   heardPrices: Object.freeze([]),
+  wonPrices: Object.freeze([]),
   bareNumberAtEnd: false,
   numberFrom: null,
   bareNumberAfterPrice: false,
@@ -757,6 +762,7 @@ export function analyzeSentence(text: unknown, options: ExtractOptions = {}): Se
     wonLines: bundles.wonLines,
     heardNumbers: [...distinctNumbers],
     heardPrices: [...new Set(bundles.values)],
+    wonPrices: [...new Set(bundles.wonLineValues)],
     bareNumberAtEnd: beonValues.length === 0 && no !== null && bareCandidates.some((candidate) => candidate.tokens.includes(tokens.length - 1)),
     numberFrom: no === null ? null : beonValues.length > 0 ? 'marker' : 'bare',
     bareNumberAfterPrice:

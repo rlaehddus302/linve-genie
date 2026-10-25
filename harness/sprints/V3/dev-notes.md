@@ -217,3 +217,8 @@
 - `chooseInstantAction` context에 `autoRegister?: boolean`(생략 = 켬)을 더했다. `false`면 늘 null이다.
 - 단위 시험: R25·R51·R52·R53과 켬일 때 300만 원 넘음 카드(v3-acceptance.test.ts).
 - 적대 v3 "R51 "15번" → 작은 카드 하나 '가격을 말하면 바로 등록돼요'"가 D-V3-44로 바뀐 기대라 실패한다 — test-domain 몫.
+
+### dev-device 추가 12 — TD-V3-003 (6ecfad4e)
+- 켬에서 정정 덩어리의 새 카드는 덮은 가격이 **원 가격 줄**에서 읽혔을 때만 남긴다. 원 없는 정정("15번 만오천 아니 만팔천" 등)은 버리고 까닭은 "가격을 못 들었어요"다. "15번 만오천원 아니 만팔천원"은 그대로 카드 15번 18,000원이다.
+- `RegistrationReading.wonPrices`(원 가격 줄 값, 겹친 값은 한 번)를 더했다. `chooseAction`의 `registration`에 readRegistration 결과를 그대로 넘기면 이 칸을 쓴다.
+- tests/adversarial/v3 141개 통과.
