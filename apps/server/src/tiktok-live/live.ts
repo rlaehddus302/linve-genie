@@ -31,6 +31,7 @@ import {
 } from '../tiktok/index.ts'
 import type { Draft, Rejection, ScopeWriter, TxHookContext } from '../writer.ts'
 import { tiktokChatFields } from './chat.ts'
+import { extensionViewOf, type TikTokExtensionView } from './extension.ts'
 import { TIKTOK_NOTICE, TIKTOK_NOTICE_VERSION, type TikTokNotice } from './notice.ts'
 import {
   bumpTiktokCounter,
@@ -127,6 +128,8 @@ export interface TikTokLinkView {
   /** 이을 때의 틱톡 아이디 */
   readonly tiktokId: string | null
   readonly collection: TikTokCollectionView | null
+  /** 크롬 확장 쪽 (TTX, D-TTX-09): 받는 길 한 줄·경고·확장 상태·기록 수·대기 수·읽지 못함 수. 연결이 없으면(NONE) null */
+  readonly extension: TikTokExtensionView | null
 }
 
 /** 설정의 "틱톡 라이브(베타)" (AC-N2b-2-21) */
@@ -303,7 +306,7 @@ export class TikTokLive {
   // ── 연결 보기 ─────────────────────────────────────────────────────────
 
   async #viewOf(sellerId: string, broadcastId: string, link: TiktokLinkRow | null, db: Db = this.#options.db): Promise<TikTokLinkView> {
-    if (link === null || link.state === 'UNLINKED') return { broadcast: broadcastId, platform: 'TIKTOK', state: 'NONE', linkedAt: null, actor: null, tiktokId: null, collection: null }
+    if (link === null || link.state === 'UNLINKED') return { broadcast: broadcastId, platform: 'TIKTOK', state: 'NONE', linkedAt: null, actor: null, tiktokId: null, collection: null, extension: null }
     const stats = await tiktokChatStats(db, sellerId, broadcastId)
     const entry = this.#entries.get(sellerId)
     const status = link.state === 'LINKED' && entry !== undefined && entry.linkId === link.id ? entry.conn.status() : null
@@ -337,6 +340,9 @@ export class TikTokLive {
         ...counts,
       }
     }
+    // 확장 쪽: 이어진 연결이고 운영자 스위치·동의가 맞을 때만 "확장으로 받는 중"이 될 수 있다 (D-TTX-06). 상태가 없으면 동의를 묻지 않는다
+    const open = link.state === 'LINKED' && link.extStatusAt !== null && this.operatorOn && (await this.#consentIn(db, sellerId))
+    const extension = extensionViewOf(link, link.state === 'LINKED' && status?.state === 'CONNECTED', open, this.#options.clock.now())
     return {
       broadcast: broadcastId,
       platform: 'TIKTOK',
@@ -345,6 +351,7 @@ export class TikTokLive {
       actor: { kind: 'account', loginId: link.actorLoginId },
       tiktokId: link.tiktokId,
       collection,
+      extension,
     }
   }
 
@@ -358,6 +365,22 @@ export class TikTokLive {
   async list(sellerId: string): Promise<TikTokLinkView[]> {
     const link = await sellerOpenTiktokLink(this.#options.db, sellerId)
     return link === null ? [] : [await this.#viewOf(sellerId, link.broadcastId, link)]
+  }
+
+  /** 그 연결의 직접 연결 상태 (연결 객체가 없거나 다른 연결이면 null) — 확장 경로가 대기인지 정한다 (D-TTX-07) */
+  directState(sellerId: string, linkId: number): string | null {
+    const entry = this.#entries.get(sellerId)
+    return entry === undefined || entry.linkId !== linkId || entry.closed ? null : entry.conn.status().state
+  }
+
+  /** 연결 객체의 시계·타이머 (확장 상태 확인 예약이 같은 시계를 쓴다) */
+  get tiktokClock(): TikTokClock {
+    return this.#clock
+  }
+
+  /** 연결 보기를 알린다 (확장 경로가 상태를 바꿨을 때) */
+  publishLink(sellerId: string, broadcastId: string): void {
+    this.#publish(sellerId, broadcastId)
   }
 
   #publish(sellerId: string, broadcastId: string): void {

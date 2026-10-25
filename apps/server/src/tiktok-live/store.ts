@@ -71,6 +71,15 @@ export interface TiktokLinkRow {
   readonly saveFailed: number
   readonly saveFailedSeen: number
   readonly skipped: number
+  /** 확장 경로 (TTX, D-TTX-07·09): 기록 수 · 대기 수 · 마지막 확장 상태 (상태가 한 번도 없으면 extStatusAt null) */
+  readonly extRecorded: number
+  readonly extStandby: number
+  readonly extStatusAt: Date | null
+  readonly extScreen: string | null
+  readonly extHidden: boolean
+  readonly extRead: number
+  readonly extUnread: number
+  readonly extUnreadSince: Date | null
 }
 
 const linkColumns = {
@@ -88,6 +97,14 @@ const linkColumns = {
   saveFailed: tiktokLinks.saveFailed,
   saveFailedSeen: tiktokLinks.saveFailedSeen,
   skipped: tiktokLinks.skipped,
+  extRecorded: tiktokLinks.extRecorded,
+  extStandby: tiktokLinks.extStandby,
+  extStatusAt: tiktokLinks.extStatusAt,
+  extScreen: tiktokLinks.extScreen,
+  extHidden: tiktokLinks.extHidden,
+  extRead: tiktokLinks.extRead,
+  extUnread: tiktokLinks.extUnread,
+  extUnreadSince: tiktokLinks.extUnreadSince,
 }
 
 const linkQuery = (db: Db) => db.select(linkColumns).from(tiktokLinks).leftJoin(accounts, eq(accounts.id, tiktokLinks.actorAccountId))
@@ -192,6 +209,49 @@ export async function bumpTiktokCounter(db: Db, sellerId: string, linkId: number
     .update(tiktokLinks)
     .set(set)
     .where(and(eq(tiktokLinks.sellerId, sellerId), eq(tiktokLinks.id, linkId)))
+}
+
+// ── 크롬 확장 경로 (TTX) ────────────────────────────────────────────────────
+
+export type TiktokExtCounter = 'extRecorded' | 'extStandby'
+
+/** 확장 경로의 기록 수·대기 수를 더한다 (그 판매자의 그 연결만) */
+export async function bumpTiktokExtCounter(db: Db, sellerId: string, linkId: number, counter: TiktokExtCounter, by: number): Promise<void> {
+  if (by <= 0) return
+  const set = counter === 'extRecorded' ? { extRecorded: sql`least(${tiktokLinks.extRecorded}::bigint + ${by}, 2147483647)::int` } : { extStandby: sql`least(${tiktokLinks.extStandby}::bigint + ${by}, 2147483647)::int` }
+  await db
+    .update(tiktokLinks)
+    .set(set)
+    .where(and(eq(tiktokLinks.sellerId, sellerId), eq(tiktokLinks.id, linkId)))
+}
+
+export interface TiktokExtStatus {
+  readonly statusAt: Date
+  readonly screen: string
+  readonly hidden: boolean
+  readonly read: number
+  readonly unread: number
+  readonly unreadSince: Date | null
+}
+
+/** 마지막 확장 상태를 그 연결(이어진 것만)에 쓴다. 이어진 연결이 아니면 false */
+export async function writeTiktokExtStatus(db: Db, sellerId: string, linkId: number, status: TiktokExtStatus): Promise<boolean> {
+  const rows = await db
+    .update(tiktokLinks)
+    .set({ extStatusAt: status.statusAt, extScreen: status.screen, extHidden: status.hidden, extRead: status.read, extUnread: status.unread, extUnreadSince: status.unreadSince })
+    .where(and(eq(tiktokLinks.sellerId, sellerId), eq(tiktokLinks.id, linkId), eq(tiktokLinks.state, 'LINKED')))
+    .returning({ id: tiktokLinks.id })
+  return rows.length > 0
+}
+
+/** 확장 연결을 끊었다: 그 판매자의 이어진 연결의 확장 상태를 비운다 (기록 수·대기 수는 둔다). 비운 연결의 회차 */
+export async function clearTiktokExtStatus(db: Db, sellerId: string): Promise<string[]> {
+  const rows = await db
+    .update(tiktokLinks)
+    .set({ extStatusAt: null, extScreen: null, extHidden: false, extRead: 0, extUnread: 0, extUnreadSince: null })
+    .where(and(eq(tiktokLinks.sellerId, sellerId), eq(tiktokLinks.state, 'LINKED'), sql`${tiktokLinks.extStatusAt} is not null`))
+    .returning({ broadcastId: tiktokLinks.broadcastId })
+  return rows.map((row) => row.broadcastId)
 }
 
 /**

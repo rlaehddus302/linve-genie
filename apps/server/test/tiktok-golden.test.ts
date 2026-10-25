@@ -1,9 +1,10 @@
 // 틱톡 골든 시험 (N2b-1, AC-N2b-1-10·20·90, D-N2b-1-07 · N2b-2, AC-N2b-2-50·55·91 — kind chat·paste). tests/golden/tiktok/의 모든 *.json을 읽어
 // tests/golden/README.md "틱톡 골든" 형식 계약을 검사하고(모르는 키·모르는 kind·id 형식·겹친 id·빈 refs·out 모양·events와 out 길이), 사례를 모두 돌린다.
+// TTX(AC-TTX-90): kind extension(확장 묶음 항목 → 레코드/버림)을 더했다.
 // 합계를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다. 골든 파일은 고치지 않는다(spec-keeper 소유).
 import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { createCommentFilter, parseTikTokTarget, type TikTokCommentRecord } from '../src/tiktok/index.ts'
+import { createCommentFilter, createExtensionCommentFilter, parseTikTokTarget, type TikTokCommentRecord } from '../src/tiktok/index.ts'
 import { tiktokChatFields } from '../src/tiktok-live/chat.ts'
 import { parsePaste } from '../src/tiktok-live/paste.ts'
 
@@ -11,8 +12,8 @@ const DIR = new URL('../../../tests/golden/tiktok/', import.meta.url)
 
 const FILE_KEYS = ['kind', 'about', 'cases']
 const COMMON_KEYS = ['id', 'title', 'refs', 'note', 'out']
-const CASE_KEYS: Record<string, readonly string[]> = { target: [...COMMON_KEYS, 'in'], comment: [...COMMON_KEYS, 'target', 'events'], chat: [...COMMON_KEYS, 'in'], paste: [...COMMON_KEYS, 'in'] }
-const KINDS = ['target', 'comment', 'chat', 'paste'] as const
+const CASE_KEYS: Record<string, readonly string[]> = { target: [...COMMON_KEYS, 'in'], comment: [...COMMON_KEYS, 'target', 'events'], chat: [...COMMON_KEYS, 'in'], paste: [...COMMON_KEYS, 'in'], extension: [...COMMON_KEYS, 'target', 'receivedAt', 'items'] }
+const KINDS = ['target', 'comment', 'chat', 'paste', 'extension'] as const
 type Kind = (typeof KINDS)[number]
 const CHAT_KEYS = ['id', 'ch', 'nick', 'text', 'owner']
 const PASTE_ERRORS = new Set(['TOO_LONG', 'TOO_MANY_LINES'])
@@ -21,6 +22,10 @@ const RAW_KEYS = new Set(['msgId', 'userId', 'uniqueId', 'nickname', 'comment', 
 const RECORD_KEYS = ['platform', 'commentId', 'userId', 'nickname', 'text', 'receivedAt', 'owner']
 const TARGET_ERRORS = new Set(['EMPTY', 'INVALID', 'SHORT_LINK'])
 const DROPS = new Set(['BAD_COMMENT_ID', 'BAD_USER_ID', 'NO_TEXT', 'TEXT_TOO_LONG', 'DUPLICATE'])
+/** 확장 경로 버림 코드 (README — NO_AUTHOR를 더함, D-TTX-06) */
+const EXT_DROPS = new Set([...DROPS, 'NO_AUTHOR'])
+/** 확장 항목이 객체일 때 쓸 수 있는 키 (README "extension") */
+const ITEM_KEYS = new Set(['commentId', 'userId', 'uniqueId', 'nickname', 'text', 'owner', 'postedAt'])
 const ID_RE = /^G-TTK-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*-[0-9]{2,}$/
 const ISO_MS_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 const DECIMAL_RE = /^[1-9][0-9]{0,31}$/
@@ -103,6 +108,29 @@ function contractProblems(files: readonly { file: string; data: unknown }[]): st
           Object.keys(out).length === 1 &&
           (typeof out['uniqueId'] === 'string' || (typeof out['error'] === 'string' && TARGET_ERRORS.has(out['error'])))
         if (!ok) problems.push(`${at}: out 모양`)
+      } else if (kind === 'extension') {
+        if (typeof c['target'] !== 'string') problems.push(`${at}: target`)
+        if (typeof c['receivedAt'] !== 'string' || !ISO_MS_RE.test(c['receivedAt'])) problems.push(`${at}: receivedAt`)
+        const items = c['items']
+        const out = c['out']
+        if (!Array.isArray(items) || items.length === 0) problems.push(`${at}: items`)
+        else
+          items.forEach((item: unknown, i) => {
+            if (isObj(item) && !Object.keys(item).every((k) => ITEM_KEYS.has(k))) problems.push(`${at}.items[${String(i)}]: 모르는 키`)
+          })
+        if (!Array.isArray(out)) problems.push(`${at}: out`)
+        else {
+          if (!Array.isArray(items) || out.length !== items.length) problems.push(`${at}: items와 out 길이 다름`)
+          out.forEach((o: unknown, i) => {
+            const where = `${at}.out[${String(i)}]`
+            if (!isObj(o) || Object.keys(o).length !== 1) return problems.push(`${where}: 모양`)
+            if ('drop' in o) {
+              if (typeof o['drop'] !== 'string' || !EXT_DROPS.has(o['drop'])) problems.push(`${where}: 버림 코드`)
+              return
+            }
+            if (!isRecord(o['record'])) problems.push(`${where}: 레코드 모양`)
+          })
+        }
       } else {
         if (typeof c['target'] !== 'string') problems.push(`${at}: target`)
         const events = c['events']
@@ -171,6 +199,7 @@ const targetCases = loaded.filter((f) => f.kind === 'target').flatMap((f) => f.c
 const commentCases = loaded.filter((f) => f.kind === 'comment').flatMap((f) => f.cases)
 const chatCases = loaded.filter((f) => f.kind === 'chat').flatMap((f) => f.cases)
 const pasteCases = loaded.filter((f) => f.kind === 'paste').flatMap((f) => f.cases)
+const extensionCases = loaded.filter((f) => f.kind === 'extension').flatMap((f) => f.cases)
 
 describe('AC-N2b-1-90 틱톡 골든 형식 계약과 합계', () => {
   it('README 형식 계약을 지킨다', () => {
@@ -178,9 +207,12 @@ describe('AC-N2b-1-90 틱톡 골든 형식 계약과 합계', () => {
   })
 
   // N2b-2(AC-N2b-2-91): chat 10 · paste 22를 더했다 — 파일 2 → 4, 사례 58 → 90 (교체 — 약화 아님)
-  it('합계: 파일 4 · 사례 90(target 40 · comment 18 · chat 10 · paste 22) · 댓글 65', () => {
-    expect(fileNames).toEqual(['chat.json', 'comment.json', 'paste.json', 'target.json'])
-    expect(targetCases.length + commentCases.length + chatCases.length + pasteCases.length).toBe(90)
+  // TTX(AC-TTX-90): extension 13을 더했다 — 파일 4 → 5, 사례 90 → 103, 확장 항목 32 (교체 — 약화 아님)
+  it('합계: 파일 5 · 사례 103(target 40 · comment 18 · chat 10 · paste 22 · extension 13) · 댓글 65 · 확장 항목 32', () => {
+    expect(fileNames).toEqual(['chat.json', 'comment.json', 'extension.json', 'paste.json', 'target.json'])
+    expect(targetCases.length + commentCases.length + chatCases.length + pasteCases.length + extensionCases.length).toBe(103)
+    expect(extensionCases).toHaveLength(13)
+    expect(extensionCases.reduce((sum, c) => sum + (c['items'] as unknown[]).length, 0)).toBe(32)
     expect(targetCases).toHaveLength(40)
     expect(commentCases).toHaveLength(18)
     expect(chatCases).toHaveLength(10)
@@ -210,6 +242,8 @@ describe('AC-N2b-1-90 틱톡 골든 형식 계약과 합계', () => {
     const goodPaste = { id: 'G-TTK-N2b-2-91', title: 't', refs: ['PLT-02'], in: 'a: 1', out: { rows: [{ line: 1, nickname: 'a', text: '1' }, { line: 2, error: 'NO_TEXT' }] } }
     expect(contractProblems([{ file: 'a.json', data: { kind: 'chat', about: '', cases: [goodChat] } }])).toEqual([])
     expect(contractProblems([{ file: 'a.json', data: { kind: 'paste', about: '', cases: [goodPaste] } }])).toEqual([])
+    const goodExt = { id: 'G-TTK-TTX-90', title: 't', refs: ['PLT-02'], target: 'seller_kim', receivedAt: '2026-10-26T11:00:00.000Z', items: [{ commentId: '1' }, '15'], out: [{ drop: 'NO_AUTHOR' }, { drop: 'BAD_COMMENT_ID' }] }
+    expect(contractProblems([{ file: 'a.json', data: { kind: 'extension', about: '', cases: [goodExt] } }])).toEqual([])
     const bad: Array<[string, unknown]> = [
       ['모르는 파일 키', { kind: 'target', about: '', cases: [good], extra: 1 }],
       ['모르는 kind', { kind: 'label', about: '', cases: [good] }],
@@ -230,6 +264,12 @@ describe('AC-N2b-1-90 틱톡 골든 형식 계약과 합계', () => {
       ['paste 모르는 전체 오류', { kind: 'paste', about: '', cases: [{ ...goodPaste, out: { error: 'NOPE' } }] }],
       ['paste 줄 번호 0', { kind: 'paste', about: '', cases: [{ ...goodPaste, out: { rows: [{ line: 0, nickname: 'a', text: '1' }] } }] }],
       ['paste 모르는 사례 키', { kind: 'paste', about: '', cases: [{ ...goodPaste, target: 'x' }] }],
+      ['extension 모르는 항목 키', { kind: 'extension', about: '', cases: [{ ...goodExt, items: [{ commentId: '1', secUid: 'x' }] }] }],
+      ['extension 길이 다름', { kind: 'extension', about: '', cases: [{ ...goodExt, out: [] }] }],
+      ['extension 모르는 버림 코드', { kind: 'extension', about: '', cases: [{ ...goodExt, out: [{ drop: 'SPAM' }] }] }],
+      ['extension 시각 형식', { kind: 'extension', about: '', cases: [{ ...goodExt, receivedAt: '2026-10-26T11:00:00Z' }] }],
+      ['extension events 키', { kind: 'extension', about: '', cases: [{ ...goodExt, events: [] }] }],
+      ['comment에 NO_AUTHOR', { kind: 'comment', about: '', cases: [{ ...goodComment, out: [{ drop: 'NO_AUTHOR' }] }] }],
     ]
     for (const [label, data] of bad) expect(contractProblems([{ file: 'a.json', data }]).length, label).toBeGreaterThan(0)
   })
@@ -270,6 +310,18 @@ describe('AC-N2b-2-55 붙여넣기 줄 읽기 골든 (G-TTK-N2b-2-01~22)', () =>
   for (const c of pasteCases) {
     it(`${String(c['id'])} ${String(c['title'])}`, () => {
       expect(parsePaste(c['in'] as string)).toEqual(c['out'])
+    })
+  }
+})
+
+describe('AC-TTX-13 확장 묶음 항목 → 공통 레코드 골든 (G-TTK-TTX-01~13)', () => {
+  for (const c of extensionCases) {
+    it(`${String(c['id'])} ${String(c['title'])}`, () => {
+      const filter = createExtensionCommentFilter(c['target'] as string)
+      const receivedAt = new Date(c['receivedAt'] as string)
+      const actual = (c['items'] as unknown[]).map((item) => filter.accept(item, receivedAt))
+      expect(actual).toEqual(c['out'])
+      for (const outcome of actual) if ('record' in outcome) expect(Object.keys(outcome.record)).toEqual(RECORD_KEYS)
     })
   }
 })

@@ -6,6 +6,8 @@
 //    POST /ext/connect { code } → { token } · GET /ext/broadcasts?v= · POST /ext/bind { v, broadcast } · POST /ext/chats { v, messages[] } · POST /ext/status
 //    감사 올리기(X1 AC11~AC17): POST /ext/thanks/take { v, meIsOwner, owner } · POST /ext/thanks/result { ids, result }
 //    판매자 화면: POST /api/extension/thanks { enabled, agreed } · POST /api/extension/thanks/resume { broadcast }
+//    틱톡 읽기(TTX, D-TTX-01~14 — 유튜브 /chats와 따로): GET /ext/tiktok · POST /ext/tiktok/chats { pageId, items[] } · POST /ext/tiktok/status { screen, hidden, read, unread }
+//    속도 제한은 유튜브와 따로 센다(토큰마다 초당 5요청·분당 600댓글). 계약은 harness/sprints/TTX/dev-notes.md "dev-server".
 // 받은 값(토큰·닉네임·본문)은 응답·로그에 되돌려 보내지 않는다.
 import { Hono, type Context } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
@@ -15,6 +17,8 @@ import { apiError, JSON_CONTENT_TYPE, type FieldProblem } from '../errors.ts'
 import { IpLimiter, clientAddress, ipKey } from '../login-limit.ts'
 import { unknownFieldProblems } from '../messages.ts'
 import type { Clock } from '../time.ts'
+import { activeToken } from './store.ts'
+import { EXT_TIKTOK_BATCH_MAX, EXT_TIKTOK_COUNT_MAX, EXT_TIKTOK_MESSAGES, EXT_TIKTOK_SCREENS, type ExtTiktokInfo, type ExtTiktokScreen, type TikTokExtension } from '../tiktok-live/extension.ts'
 import { BATCH_MAX, EXTENSION_MESSAGES, type ExtensionCaller, type ExtensionService, type IncomingChat } from './service.ts'
 import { EXT_THANKS_MESSAGES, type ThanksResult } from './thanks.ts'
 
@@ -104,7 +108,15 @@ export interface ExtensionAppDeps {
   readonly trustedProxies: number
   /** 연결 주소 읽기 (api.ts connectionAddress) */
   readonly address: (c: Context) => string | null
+  /** 틱톡 확장 읽기 (TTX). 없으면 /ext/tiktok 경로가 없다(404) */
+  readonly tiktok?: TikTokExtension
 }
+
+/** 틱톡 묶음 본문 상한 — 50개 × 500자(이모지 4바이트) + 키를 담는다. 그 밖의 확장 요청은 64KB 그대로 */
+export const EXT_TIKTOK_BODY_MAX = 256 * 1024
+/** 틱톡 묶음 항목이 객체일 때 쓸 수 있는 키 (owner·postedAt은 받아도 쓰지 않는다 — D-TTX-06·14) */
+const TIKTOK_ITEM_KEYS = ['commentId', 'userId', 'uniqueId', 'nickname', 'text', 'owner', 'postedAt']
+const TIKTOK_PATH = /^\/ext\/tiktok(?:\/|$)/
 
 type ExtEnv = { Variables: { body: Record<string, unknown> | null; caller: ExtensionCaller } }
 
@@ -121,7 +133,10 @@ export function createExtensionApp(deps: ExtensionAppDeps): Hono<ExtEnv> {
     await next()
     c.res.headers.set('Cache-Control', 'no-store')
   })
-  app.use(bodyLimit({ maxSize: 64 * 1024, onError: () => apiError(413, 'PAYLOAD_TOO_LARGE', '보낸 내용이 너무 커요.') }))
+  const tooLarge = () => apiError(413, 'PAYLOAD_TOO_LARGE', '보낸 내용이 너무 커요.')
+  const smallBody = bodyLimit({ maxSize: 64 * 1024, onError: tooLarge })
+  const tiktokBody = bodyLimit({ maxSize: EXT_TIKTOK_BODY_MAX, onError: tooLarge })
+  app.use(async (c, next) => (c.req.path === '/ext/tiktok/chats' ? tiktokBody(c, next) : smallBody(c, next)))
   app.use(async (c, next) => {
     c.set('body', null)
     if (c.req.method !== 'POST') return next()
@@ -144,8 +159,10 @@ export function createExtensionApp(deps: ExtensionAppDeps): Hono<ExtEnv> {
     const caller = match === null ? null : await extension.authenticate(match[1] as string)
     if (caller === null) return disconnected()
     c.set('caller', caller)
-    const messages = c.req.method === 'POST' && c.req.path === '/ext/chats' ? messageCount(c.get('body')) : 0
-    const admitted = extension.admit(caller.tokenId, messages)
+    // 틱톡 경로는 따로 센다 (D-TTX-08 — 유튜브 /chats와 서로 밀어내지 않는다)
+    const lane = TIKTOK_PATH.test(c.req.path) ? 'tiktok' : 'youtube'
+    const messages = c.req.method !== 'POST' ? 0 : c.req.path === '/ext/chats' ? messageCount(c.get('body')) : c.req.path === '/ext/tiktok/chats' ? itemCount(c.get('body')) : 0
+    const admitted = extension.admit(caller.tokenId, messages, lane)
     if (!admitted.ok) return apiError(429, 'EXT_RATE_LIMITED', EXTENSION_MESSAGES.RATE_LIMITED, [], {}, { 'Retry-After': String(Math.ceil(admitted.retryAfterMs / 1000)) })
     return next()
   })
@@ -274,8 +291,74 @@ export function createExtensionApp(deps: ExtensionAppDeps): Hono<ExtEnv> {
     return c.json({ rows })
   })
 
+  const tiktok = deps.tiktok
+  if (tiktok !== undefined) registerTiktokExtRoutes(app, tiktok)
+
   app.notFound(() => notFound())
   return app
+}
+
+/** 확장 틱톡 응답 본문 (아이디는 그 판매자 자신의 것 — 확장이 화면 주소와 비교한다) */
+const tiktokInfo = (info: ExtTiktokInfo) => ({ tiktokId: info.tiktokId, mode: info.mode, code: info.code, message: info.message, broadcast: info.broadcast })
+
+/** 틱톡 확장 경로 (TTX). 토큰·속도 제한은 위 미들웨어가 했다 */
+function registerTiktokExtRoutes(app: Hono<ExtEnv>, tiktok: TikTokExtension): void {
+  const body = (c: Context<ExtEnv>) => c.get('body') ?? {}
+  const caller = (c: Context<ExtEnv>) => c.get('caller')
+
+  app.get('/tiktok', async (c) => c.json(tiktokInfo(await tiktok.info(caller(c).sellerId))))
+
+  app.post('/tiktok/chats', async (c) => {
+    const input = body(c)
+    const extra = onlyKeys(input, ['pageId', 'items'])
+    if (extra !== null) return extra
+    const items = own(input, 'items')
+    if (!Array.isArray(items) || items.length === 0) return invalid([{ field: 'items', message: '댓글 목록을 보내 주세요.' }])
+    if (items.length > EXT_TIKTOK_BATCH_MAX) return invalid([{ field: 'items', message: `한 번에 ${String(EXT_TIKTOK_BATCH_MAX)}개까지 보낼 수 있어요.` }])
+    // 항목 모양은 거르개가 본다(못 읽은 항목은 버림으로 센다). 객체 항목의 모르는 키만 거절한다
+    for (const [index, item] of items.entries()) {
+      if (!isPlainObject(item)) continue
+      const unknown = ownKeys(item).filter((key) => !TIKTOK_ITEM_KEYS.includes(key))
+      if (unknown.length > 0) return apiError(400, 'UNKNOWN_FIELD', '받을 수 없는 항목이 있어요.', unknownFieldProblems(unknown.map((key) => `items.${String(index)}.${key}`)))
+    }
+    const who = caller(c)
+    const outcome = await tiktok.ingest(who.sellerId, own(input, 'pageId'), items, async (tx) => (await activeToken(tx, who.sellerId))?.id === who.tokenId)
+    switch (outcome.kind) {
+      case 'recorded':
+        return c.json({ result: 'recorded', recorded: outcome.recorded, standby: 0, dropped: outcome.dropped, duplicates: outcome.duplicates, broadcast: outcome.broadcast, message: EXT_TIKTOK_MESSAGES.RECORDING })
+      case 'standby':
+        return c.json({ result: 'standby', recorded: 0, standby: outcome.standby, dropped: outcome.dropped, duplicates: 0, broadcast: outcome.broadcast, message: EXT_TIKTOK_MESSAGES.STANDBY })
+      case 'blocked':
+        return apiError(outcome.code === 'NOT_OWN_LIVE' ? 403 : 409, outcome.code, EXT_TIKTOK_MESSAGES[outcome.code])
+      case 'save_failed':
+        return apiError(500, 'SAVE_FAILED', EXT_TIKTOK_MESSAGES.SAVE_FAILED)
+    }
+  })
+
+  app.post('/tiktok/status', async (c) => {
+    const input = body(c)
+    const extra = onlyKeys(input, ['screen', 'hidden', 'read', 'unread'])
+    if (extra !== null) return extra
+    const screen = own(input, 'screen')
+    const hidden = own(input, 'hidden')
+    const read = own(input, 'read') ?? 0
+    const unread = own(input, 'unread') ?? 0
+    const problems: FieldProblem[] = []
+    if (typeof screen !== 'string' || !(EXT_TIKTOK_SCREENS as readonly string[]).includes(screen)) problems.push({ field: 'screen', message: '화면 종류가 올바르지 않아요.' })
+    if (typeof hidden !== 'boolean') problems.push({ field: 'hidden', message: '틱톡 화면이 보이는지 알려 주세요.' })
+    for (const [field, value] of [['read', read], ['unread', unread]] as const) {
+      if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > EXT_TIKTOK_COUNT_MAX) problems.push({ field, message: '수는 0 이상의 정수로 보내 주세요.' })
+    }
+    if (problems.length > 0) return invalid(problems)
+    const info = await tiktok.status(caller(c).sellerId, { screen: screen as ExtTiktokScreen, hidden: hidden as boolean, read: read as number, unread: unread as number })
+    return c.json(tiktokInfo(info))
+  })
+}
+
+/** 틱톡 묶음 항목 수 (속도 제한용 — 모양 검사는 처리기가 한다) */
+function itemCount(body: Record<string, unknown> | null): number {
+  const items = body === null ? undefined : own(body, 'items')
+  return Array.isArray(items) ? items.length : 0
 }
 
 /** 메시지 수 (속도 제한용 — 모양 검사는 처리기가 한다) */
