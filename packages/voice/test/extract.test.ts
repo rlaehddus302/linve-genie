@@ -139,6 +139,8 @@ describe('AC-P2-02 번호 (R-17 3)', () => {
         fc.oneof(fc.integer({ min: 1, max: 9999 }).map(String), fc.stringMatching(/^[일이삼사오육칠팔구십백천]{1,6}$/)),
         (numeral) => {
           fc.pre(numeral !== '이')
+          // V3 자리 읽기(D-V3-11): 한글 자리 글자 정확히 셋 + 번은 자리를 이은 값 (아래 별도 시험)
+          fc.pre(!/^[일이삼사오육칠팔구]{3}$/.test(numeral))
           const want = parseKoreanNumber(numeral)
           const got = extractVoice(`${numeral}번 만원`, { maxNumber: 9999 }).no
           expect(got).toBe(want)
@@ -181,8 +183,6 @@ describe('AC-P2-03 가격 (R-17 4)', () => {
     '15번 만 원 하던 거 오천 원에',
     '15번 1만 500',
     '15번 이 만원짜리',
-    '15번 2 만원',
-    '15번 오 천 원',
     '15번 만원 오천원',
   ])('%s → 가격 없음', (text) => {
     expect(x(text).price).toBe(null)

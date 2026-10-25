@@ -27,7 +27,7 @@ export interface ExtractOptions {
 export const SENTENCE_MAX_CODE_POINTS = 300
 /** claim.maxNumber 기본값 (DOMAIN_RULES 설정표) */
 const DEFAULT_MAX_NUMBER = 999
-/** 끝말 21개 (R-17 2). 읽는 모양은 짧은 끝말부터 뗀다 */
+/** 끝말 23개 (R-17 2 — V3에서 `까지`·`인데`를 더했다, D-V3-04). 읽는 모양은 짧은 끝말부터 뗀다 */
 export const ENDINGS: readonly string[] = Object.freeze([
   '이에요',
   '예요',
@@ -50,6 +50,8 @@ export const ENDINGS: readonly string[] = Object.freeze([
   '도',
   '요',
   '랑',
+  '까지',
+  '인데',
 ])
 const ENDINGS_SHORT_FIRST: readonly string[] = [...ENDINGS].sort((a, b) => a.length - b.length)
 /** 토큰 끝에서 지우는 문장 부호 (R-17 1) */
@@ -174,6 +176,69 @@ export function findNumberMarkers(tokens: readonly string[], forms: readonly (re
   return { tokens: marked, values, split }
 }
 
+// ── 3b. 자리 읽기 번호 (V3, D-V3-11) ─────────────────────────────────────
+
+/** 한글 자리 글자 (값 = 위치) */
+const HANGUL_DIGITS = '공일이삼사오육칠팔구'
+const isHangulDigit = (char: string): boolean => char.length === 1 && HANGUL_DIGITS.includes(char)
+const digitValue = (char: string): number => (/^[0-9]$/.test(char) ? Number(char) : HANGUL_DIGITS.indexOf(char))
+/** 자리 글자 하나로 된 토큰 (`일`·`8`) */
+const isDigitToken = (token: string | undefined): boolean => token !== undefined && token.length === 1 && (isHangulDigit(token) || /^[0-9]$/.test(token))
+const isThreeHangulDigits = (text: string): boolean => text.length === 3 && [...text].every(isHangulDigit)
+/** 자리 셋 → 값 (첫 자리가 0이면 null) */
+function digitsValue(chars: readonly string[]): number | null {
+  if (chars.length !== 3 || digitValue(chars[0] as string) === 0) return null
+  return chars.reduce((sum, char) => sum * 10 + digitValue(char), 0)
+}
+
+export interface DigitReading {
+  /** 자리 읽기에 든 토큰 위치 (`번` 토큰 포함) */
+  readonly tokens: readonly number[]
+  readonly value: number
+  /** `번`이 붙었는가 (번호 표시) */
+  readonly beon: boolean
+}
+
+/** R-17 3 자리 읽기: ⓐ 토큰 하나가 한글 자리 글자 셋, ⓑ 이어진 토큰 셋이 저마다 자리 글자 하나 (`번`이 붙으면 번호 표시) */
+export function findDigitReadings(tokens: readonly string[], forms: readonly (readonly string[])[]): DigitReading[] {
+  const readings: DigitReading[] = []
+  const used = new Set<number>()
+  for (let i = 0; i < tokens.length; i++) {
+    if (used.has(i)) continue
+    const add = (indices: number[], value: number | null, beon: boolean): boolean => {
+      if (value === null) return false
+      readings.push({ tokens: indices, value, beon })
+      for (const j of indices) used.add(j)
+      return true
+    }
+    const own = forms[i] ?? []
+    // ⓐ + 번 (붙여 씀)
+    const attached = own.find((form) => form.endsWith(BEON) && isThreeHangulDigits(form.slice(0, -BEON.length)))
+    if (attached !== undefined && add([i], digitsValue([...attached.slice(0, -BEON.length)]), true)) continue
+    const bare = own.find(isThreeHangulDigits)
+    if (bare !== undefined) {
+      // ⓐ + 번 (띄어 씀): 토큰 그대로가 자리 글자 셋이고 다음 토큰의 읽는 모양 하나가 `번`
+      if (isThreeHangulDigits(tokens[i] as string) && (forms[i + 1] ?? []).includes(BEON) && add([i, i + 1], digitsValue([...(tokens[i] as string)]), true)) {
+        i++
+        continue
+      }
+      if (add([i], digitsValue([...bare]), false)) continue
+    }
+    // ⓑ 토큰 셋 (앞 토큰은 자리 글자 하나가 아니다)
+    if (isDigitToken(tokens[i]) && isDigitToken(tokens[i + 1]) && !isDigitToken(tokens[i - 1]) && i + 2 < tokens.length && !isDigitToken(tokens[i + 3])) {
+      const third = tokens[i + 2] as string
+      const head = [tokens[i] as string, tokens[i + 1] as string]
+      if (isDigitToken(third)) {
+        if (add([i, i + 1, i + 2], digitsValue([...head, third]), false)) i += 2
+        continue
+      }
+      const beonForm = (forms[i + 2] ?? []).find((form) => form.length === 2 && form.endsWith(BEON) && isDigitToken(form.charAt(0)))
+      if (beonForm !== undefined && add([i, i + 1, i + 2], digitsValue([...head, beonForm.charAt(0)]), true)) i += 2
+    }
+  }
+  return readings
+}
+
 // ── 4. 가격 ──────────────────────────────────────────────────────────────
 
 interface PriceBundle {
@@ -186,6 +251,7 @@ interface PriceBundle {
 
 const hasWonOrKoreanAmount = (text: string): boolean => text.includes(WON) || [...text].some((char) => KOREAN_AMOUNT.has(char))
 const isAmountToken = (token: string): boolean => token !== '' && [...token].every((char) => AMOUNT_TOKEN_CHARS.has(char))
+const isAmountText = (text: string): boolean => [...text].every((char) => AMOUNT_TOKEN_CHARS.has(char))
 
 /** 한 시작 토큰에서 잡을 수 있는 가장 긴 묶음 (없으면 null) */
 function longestBundleAt(tokens: readonly string[], forms: readonly (readonly string[])[], start: number, isMarker: (i: number) => boolean): PriceBundle | null {
@@ -206,15 +272,104 @@ function longestBundleAt(tokens: readonly string[], forms: readonly (readonly st
   return best
 }
 
-function findPrice(tokens: readonly string[], forms: readonly (readonly string[])[], isMarker: (i: number) => boolean): { price: number | null; tokens: ReadonlySet<number> } {
+const SINO_DIGITS = ['', '일', '이', '삼', '사', '오', '육', '칠', '팔', '구']
+const SINO_PLACES: readonly (readonly [string, number])[] = [
+  ['천', 1000],
+  ['백', 100],
+  ['십', 10],
+]
+
+/** 1..9999 → 한자어 읽기 (10 `십`, 174 `백칠십사`) */
+function sinoBelowMan(n: number): string {
+  let text = ''
+  for (const [unit, place] of SINO_PLACES) {
+    const digit = Math.floor(n / place) % 10
+    if (digit !== 0) text += (digit === 1 ? '' : SINO_DIGITS[digit]) + unit
+  }
+  return text + (SINO_DIGITS[n % 10] as string)
+}
+
+/** 1..9999만 → 한자어 읽기 (R-15를 거꾸로 — 30 `삼십`, 35000 `삼만오천`). 범위 밖이면 null */
+export function numberToSino(n: number): string | null {
+  if (!Number.isSafeInteger(n) || n < 1 || n > 99_999_999) return null
+  const man = Math.floor(n / 10000)
+  const rest = n % 10000
+  return (man === 0 ? '' : `${man === 1 ? '' : sinoBelowMan(man)}만`) + (rest === 0 ? '' : sinoBelowMan(rest))
+}
+
+/** 토큰의 숫자 부분을 한자어로 바꾼 글 (`5만` → `오만`). `,`·`.`가 있거나 바꿀 수 없으면 null */
+function tokenToSino(token: string): string | null {
+  if (/[,.]/.test(token)) return null
+  let failed = false
+  const text = token.replace(/[0-9]+/g, (digits) => {
+    const sino = numberToSino(Number(digits))
+    if (sino === null) failed = true
+    return sino ?? ''
+  })
+  return failed ? null : text
+}
+
+/** 원 가격 줄 (R-17 4, D-V3-03): `원`으로 끝나는 토큰 T와 그 왼쪽으로 이어진 금액 글자 토큰 */
+interface WonLine {
+  readonly start: number
+  readonly end: number
+  /** 읽은 값 — 애매하면 null */
+  readonly value: number | null
+}
+
+/** 토큰의 읽는 모양 가운데 `원`으로 끝나고 `원` 앞 글이 비었거나 금액 글자뿐인 첫 모양 */
+function wonForm(forms: readonly string[]): string | null {
+  return forms.find((form) => form.endsWith(WON) && isAmountText(form.slice(0, -WON.length))) ?? null
+}
+
+function wonLineValue(parts: readonly string[], first: string): number | null {
+  if (first === '이') return null
+  let value = parseAmount(parts.join(' '), WON_UNIT)
+  if (value === null && parts.length >= 2) {
+    const converted = parts.map(tokenToSino)
+    if (converted.some((text) => text === null)) return null
+    value = parseAmount(converted.join(''), WON_UNIT)
+  }
+  return value !== null && value >= 100 ? value : null
+}
+
+function findWonLines(tokens: readonly string[], forms: readonly (readonly string[])[], isMarker: (i: number) => boolean): WonLine[] {
+  const lines: WonLine[] = []
+  for (let end = 0; end < tokens.length; end++) {
+    if (isMarker(end)) continue
+    const form = wonForm(forms[end] ?? [])
+    if (form === null) continue
+    let start = end
+    while (start - 1 >= 0 && !isMarker(start - 1) && isAmountToken(tokens[start - 1] as string)) start--
+    const parts = [...tokens.slice(start, end), form]
+    lines.push({ start, end, value: wonLineValue(parts, tokens[start] as string) })
+  }
+  return lines
+}
+
+interface PriceReading {
+  readonly price: number | null
+  /** 가격 묶음·원 가격 줄 토큰 */
+  readonly tokens: ReadonlySet<number>
+  /** 원 가격 줄이 하나 이상 있는가 */
+  readonly wonLines: number
+  /** 읽힌 값 전부 (나온 차례) */
+  readonly values: readonly number[]
+}
+
+function findPrice(tokens: readonly string[], forms: readonly (readonly string[])[], isMarker: (i: number) => boolean): PriceReading {
+  const lines = findWonLines(tokens, forms, isMarker)
+  const inLine = new Set<number>()
+  for (const line of lines) for (let j = line.start; j <= line.end; j++) inLine.add(j)
+  const blocked = (i: number): boolean => isMarker(i) || inLine.has(i)
   const bundles: PriceBundle[] = []
   let i = 0
   while (i < tokens.length) {
-    if (isMarker(i)) {
+    if (blocked(i)) {
       i++
       continue
     }
-    const bundle = longestBundleAt(tokens, forms, i, isMarker)
+    const bundle = longestBundleAt(tokens, forms, i, blocked)
     if (bundle === null) {
       i++
       continue
@@ -222,39 +377,61 @@ function findPrice(tokens: readonly string[], forms: readonly (readonly string[]
     bundles.push(bundle)
     i = bundle.end + 1
   }
-  const inBundle = new Set<number>()
+  const inBundle = new Set<number>(inLine)
   for (const bundle of bundles) for (let j = bundle.start; j <= bundle.end; j++) inBundle.add(j)
-  // 금액 조각: 이웃 토큰이 번호 표시나 다른 묶음에 속하면 보지 않는다
+  // 금액 조각: 이웃 토큰이 번호 표시나 다른 묶음(원 가격 줄 포함)에 속하면 보지 않는다
   const fragmentNeighbour = (j: number): boolean => j >= 0 && j < tokens.length && !isMarker(j) && !inBundle.has(j) && isAmountToken(tokens[j] as string)
-  const ambiguous = bundles.some(
-    (bundle) =>
-      (UNIT_START.has(bundle.text.charAt(0)) && fragmentNeighbour(bundle.start - 1)) || (!bundle.text.endsWith(WON) && fragmentNeighbour(bundle.end + 1)),
-  )
-  const values = new Set(bundles.map((bundle) => bundle.value))
-  const price = !ambiguous && values.size === 1 ? (bundles[0] as PriceBundle).value : null
-  return { price, tokens: inBundle }
+  const ambiguous =
+    lines.some((line) => line.value === null) ||
+    bundles.some(
+      (bundle) =>
+        (UNIT_START.has(bundle.text.charAt(0)) && fragmentNeighbour(bundle.start - 1)) || (!bundle.text.endsWith(WON) && fragmentNeighbour(bundle.end + 1)),
+    )
+  const ordered = [...lines.map((line) => ({ at: line.start, value: line.value })), ...bundles.map((bundle) => ({ at: bundle.start, value: bundle.value as number | null }))].sort((a, b) => a.at - b.at)
+  const values = ordered.map((item) => item.value).filter((value): value is number => value !== null)
+  const distinct = new Set(values)
+  const price = !ambiguous && distinct.size === 1 ? (values[0] as number) : null
+  return { price, tokens: inBundle, wonLines: lines.length, values }
 }
 
 // ── 5. 품종 ──────────────────────────────────────────────────────────────
 
-/** 창의 글(공백 없이 이은 것, 마지막 토큰은 읽는 모양마다) 전부 */
-function windowTexts(tokens: readonly string[], forms: readonly (readonly string[])[], excluded: (i: number) => boolean): Set<string> {
+/** 숫자 하나가 붙은 토큰 (R-17 5, D-V3-12): `3강` → `삼강`. 해당 없으면 null */
+export function oneDigitReading(text: string): string | null {
+  if (!/^[0-9][가-힣]/.test(text)) return null
+  return (SINO_DIGITS[Number(text.charAt(0))] || '영') + text.slice(1)
+}
+
+/** 창에서 쓰는 읽는 모양: 읽는 모양마다 숫자 하나가 붙은 모양도 더한다 */
+export function windowForms(token: string): string[] {
+  const forms = readingForms(token)
+  const extra = forms.map(oneDigitReading).filter((form): form is string => form !== null)
+  return [...forms, ...extra.filter((form) => !forms.includes(form))]
+}
+
+/** 창의 글(공백 없이 이은 것, 마지막 토큰은 읽는 모양마다 — 앞 토큰은 그대로·숫자 하나 바꾼 모양) 전부 */
+export function windowTexts(tokens: readonly string[], forms: readonly (readonly string[])[], excluded: (i: number) => boolean): Set<string> {
   const texts = new Set<string>()
+  const variants = (j: number): string[] => {
+    const token = tokens[j] as string
+    const converted = oneDigitReading(token)
+    return converted === null ? [token] : [token, converted]
+  }
   let segmentStart = 0
   for (let i = 0; i <= tokens.length; i++) {
     if (i < tokens.length && !excluded(i)) continue
     // [segmentStart, i) = 뺀 토큰에서 끊긴 덩어리
     for (let start = segmentStart; start < i; start++) {
+      let prefixes = ['']
       for (let end = start; end < i && end < start + WINDOW_MAX_TOKENS; end++) {
-        const prefix = tokens.slice(start, end).join('')
-        for (const form of forms[end] ?? []) texts.add(prefix + form)
+        for (const prefix of prefixes) for (const form of forms[end] ?? []) texts.add(prefix + form)
+        prefixes = prefixes.flatMap((prefix) => variants(end).map((variant) => prefix + variant))
       }
     }
     segmentStart = i + 1
   }
   return texts
 }
-
 /** 창 하나와 사전 이름의 거리 함수 (limit을 넘으면 limit보다 큰 값) */
 function distanceFrom(jamo: readonly number[], dictionary: VarietyDictionary): (entry: DictionaryEntry, limit: number) => number {
   if (jamo.length > BIT_PATTERN_MAX) {
@@ -270,14 +447,14 @@ function distanceFrom(jamo: readonly number[], dictionary: VarietyDictionary): (
   return (entry, limit) => bitParallelDistance(jamo.length, peq, entry.ids, limit)
 }
 
-interface VarietyMatch {
+export interface VarietyMatch {
   readonly name: string | null
   readonly exact: boolean
   /** 그 이름을 낸 창 글 (공백 없이) — 이름이 없으면 null */
   readonly window: string | null
 }
 
-function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDictionary): VarietyMatch {
+export function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDictionary): VarietyMatch {
   const top: { similarity: Similarity | null; readonly entries: Map<string, DictionaryEntry>; readonly windows: Map<string, string> } = { similarity: null, entries: new Map(), windows: new Map() }
   const consider = (similarity: Similarity, entry: DictionaryEntry, text: string): void => {
     const order = top.similarity === null ? 1 : compareSimilarity(similarity, top.similarity)
@@ -337,8 +514,9 @@ function resolveDictionary(options: unknown): VarietyDictionary {
 
 /**
  * 문장 하나 → { no, name, price, confidence } (R-17).
- * - no: 번호 표시(`X번`·`X 번`, X = 숫자 1~4자리 또는 한자어 수사, `이` 제외) 값이 모두 같고 1..maxNumber 안이고 끊어 말한 번호가 없으면 그 값
- * - price: 원 단위로 읽은 말 금액 묶음 값이 모두 같고 금액 조각·끊어 말한 번호가 없으면 그 값 (100원 이상, `원`이나 한글 수·단위가 있는 글)
+ * - no: 번호 표시(`X번`·`X 번`, X = 숫자 1~4자리 또는 한자어 수사, `이` 제외, V3 자리 읽기 + `번`) 값이 모두 같고 1..maxNumber 안이고 끊어 말한 번호가 없으면 그 값.
+ *   번호 표시가 없으면 `번` 없는 자리 읽기(`일육팔`·`1 6 8`, D-V3-11) 값
+ * - price: 원 가격 줄(D-V3-03)과 가격 묶음 값이 모두 같고 애매한 줄·금액 조각·끊어 말한 번호가 없으면 그 값
  * - 끊어 말한 번호(D-I4-01): 번호 표시의 X 바로 앞 토큰 + X가 R-15로 읽히는 표시가 하나라도 있으면 no·price 모두 null
  * - name: 사전에서 자모 유사도 0.8 이상으로 가장 가까운 이름(여럿이면 나머지를 모두 품는 이름) — 사전에 없는 말은 넣지 않는다
  * - confidence: 셋이 모두 있고 품종이 사전 이름과 공백만 다르면 HIGH
@@ -360,29 +538,97 @@ export interface SentenceReading {
   readonly rest: string
 }
 
+/** V3 읽기의 속 (품종 추측 R-17 7·확정 읽기 R-17 8이 쓴다) */
+export interface SentenceAnalysis {
+  readonly reading: SentenceReading
+  readonly tokens: readonly string[]
+  /** 번호 토큰 묶음(첫 번호 표시, 없으면 첫 자리 읽기)의 첫·마지막 토큰 위치 — 번호 표시·자리 읽기가 없으면 null */
+  readonly numberSpan: { readonly first: number; readonly last: number } | null
+  /** 번호 표시·자리 읽기·가격 묶음·원 가격 줄 토큰 */
+  readonly claimedTokens: ReadonlySet<number>
+  /** 원 가격 줄 수 (R-17 8: 하나 이상이어야 가격 확정) */
+  readonly wonLines: number
+  /** 들린 번호 값 전부 (번호 표시가 있으면 그 값들, 없으면 `번` 없는 자리 읽기 값들 — 겹친 값은 한 번) */
+  readonly heardNumbers: readonly number[]
+  /** 읽힌 가격 값 전부 (겹친 값은 한 번) */
+  readonly heardPrices: readonly number[]
+}
+
 const EMPTY_READING: SentenceReading = Object.freeze({ extraction: EMPTY, nameExact: false, nameWindow: null, windows: Object.freeze(new Set<string>()), rest: '' })
+const EMPTY_ANALYSIS: SentenceAnalysis = Object.freeze({
+  reading: EMPTY_READING,
+  tokens: Object.freeze([]),
+  numberSpan: null,
+  claimedTokens: Object.freeze(new Set<number>()),
+  wonLines: 0,
+  heardNumbers: Object.freeze([]),
+  heardPrices: Object.freeze([]),
+})
+
+/** 이어진 위치들의 첫 묶음 (위치 집합에서 가장 앞의 이어진 덩어리) */
+function firstSpan(indices: Iterable<number>): { first: number; last: number } | null {
+  const sorted = [...indices].sort((a, b) => a - b)
+  if (sorted.length === 0) return null
+  const first = sorted[0] as number
+  let last = first
+  for (const i of sorted.slice(1)) {
+    if (i !== last + 1) break
+    last = i
+  }
+  return { first, last }
+}
 
 /** R-17 한 문장 읽기 (extractVoice와 같은 계산, 창·정확도까지) */
 export function readSentence(text: unknown, options: ExtractOptions = {}): SentenceReading {
+  return analyzeSentence(text, options).reading
+}
+
+/** R-17 1~6 읽기 + V3 속 결과 */
+export function analyzeSentence(text: unknown, options: ExtractOptions = {}): SentenceAnalysis {
   const tokens = tokenize(text)
-  if (tokens === null || tokens.length === 0) return EMPTY_READING
+  if (tokens === null || tokens.length === 0) return EMPTY_ANALYSIS
   const maxNumber = resolveMaxNumber(options)
   const dictionary = resolveDictionary(options)
   const forms = tokens.map(readingForms)
 
-  const markers = findNumberMarkers(tokens, forms)
-  const isMarker = (i: number): boolean => markers.tokens.has(i)
-  const distinctNumbers = new Set(markers.values)
-  const onlyNumber = distinctNumbers.size === 1 ? (markers.values[0] as number) : null
+  // 자리 읽기(D-V3-11): `번`이 붙은 것은 번호 표시 — 끊어 말한 번호 검사를 하지 않으므로 지금 번호 표시 찾기에서 뺀다
+  const digits = findDigitReadings(tokens, forms)
+  const digitTokens = new Set(digits.flatMap((reading) => reading.tokens))
+  const beonDigitTokens = new Set(digits.filter((reading) => reading.beon).flatMap((reading) => reading.tokens))
+  const markers = findNumberMarkers(tokens, forms, (i) => beonDigitTokens.has(i))
+  const beonValues = [...markers.values, ...digits.filter((reading) => reading.beon).map((reading) => reading.value)]
+  const bareValues = digits.filter((reading) => !reading.beon).map((reading) => reading.value)
+  const heard = beonValues.length > 0 ? beonValues : bareValues
+  const distinctNumbers = new Set(heard)
+  const onlyNumber = distinctNumbers.size === 1 ? (heard[0] as number) : null
+  const isMarker = (i: number): boolean => markers.tokens.has(i) || digitTokens.has(i)
   // 끊어 말한 번호가 있으면 번호·가격을 모두 비운다 — 앞 조각이 가격으로도 읽힐 수 있다(`백 오번`의 `백` = 100원, D-I4-01)
   const no = !markers.split && onlyNumber !== null && onlyNumber >= 1 && onlyNumber <= maxNumber ? onlyNumber : null
 
   const bundles = findPrice(tokens, forms, isMarker)
   const price = markers.split ? null : bundles.price
   // 가격을 비워도 묶음 토큰은 품종 창에서 뺀다 (R-17 4·5)
-  const windows = windowTexts(tokens, forms, (i) => isMarker(i) || bundles.tokens.has(i))
+  const excluded = (i: number): boolean => isMarker(i) || bundles.tokens.has(i)
+  const windows = windowTexts(tokens, tokens.map(windowForms), excluded)
   const variety = findVariety(windows, dictionary)
 
   const confidence: Confidence = no !== null && price !== null && variety.name !== null && variety.exact ? 'HIGH' : 'LOW'
-  return { extraction: { no, name: variety.name, price, confidence }, nameExact: variety.name !== null && variety.exact, nameWindow: variety.window, windows, rest: tokens.filter((_, i) => !isMarker(i) && !bundles.tokens.has(i)).join(' ') }
+  const reading: SentenceReading = {
+    extraction: { no, name: variety.name, price, confidence },
+    nameExact: variety.name !== null && variety.exact,
+    nameWindow: variety.window,
+    windows,
+    rest: tokens.filter((_, i) => !excluded(i)).join(' '),
+  }
+  const beonTokens = new Set<number>([...markers.tokens, ...beonDigitTokens])
+  const claimed = new Set<number>([...markers.tokens, ...digitTokens, ...bundles.tokens])
+  return {
+    reading,
+    tokens,
+    numberSpan: firstSpan(beonTokens.size > 0 ? beonTokens : digitTokens),
+    claimedTokens: claimed,
+    wonLines: bundles.wonLines,
+    heardNumbers: [...distinctNumbers],
+    heardPrices: [...new Set(bundles.values)],
+  }
 }

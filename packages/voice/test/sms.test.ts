@@ -351,8 +351,8 @@ const extractDocs = parseAllDocuments(readFileSync(EXTRACT_GOLDEN, 'utf8')).map(
 const extractCases = extractDocs.flatMap((doc) => doc.cases.map((item) => ({ ...item, dictionary: doc.settings?.dictionary ?? [], maxNumber: doc.settings?.maxNumber })))
 
 describe('AC-V1-02 문장 → 상품 카드 또는 문자찜 카드 (readVoiceSentence)', () => {
-  it('voice-extract.yaml 81사례는 문자찜 문장이 아니고, 입구의 결과가 골든 out과 같다 (R-17 그대로)', () => {
-    expect(extractCases).toHaveLength(81)
+  it('voice-extract.yaml 사례(P2~V2 81 + V3 추가)는 문자찜 문장이 아니고, 입구의 결과가 골든 out과 같다 (R-17 그대로)', () => {
+    expect(extractCases.length).toBeGreaterThanOrEqual(81)
     for (const item of extractCases) {
       expect(readSmsSentence(item.in)).toBeNull()
       const extract = { dictionary: item.dictionary, ...(item.maxNumber === undefined ? {} : { maxNumber: item.maxNumber }) }

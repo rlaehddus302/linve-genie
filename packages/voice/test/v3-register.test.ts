@@ -1,0 +1,232 @@
+// V3 음성 바로 등록 (R-17 3·4·5·7·8, R-22, D-V3-01~D-V3-12) — 골든 tests/golden/voice-register/*.json 러너 + 실제 방송 문장 단위 시험.
+// 골든 폴더의 모든 *.json을 읽어 kind에 맞는 함수로 돌리고 out과 깊은 같음으로 비교한다. 모르는 키·kind·겹친 id·표 밖 열거값은 읽기 오류.
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { describe, expect, it } from 'vitest'
+import {
+  createCard,
+  decideForExisting,
+  decideSameNumber,
+  extractVoice,
+  guessVariety,
+  mergeSameNumberCards,
+  prepareVoiceDictionary,
+  readRegistration,
+  readyToRegister,
+  touchCard,
+  type SameNumberInput,
+  type SuggestionCard,
+} from '../src/index.ts'
+
+const GOLDEN_DIR = fileURLToPath(new URL('../../../tests/golden/voice-register/', import.meta.url))
+/** V3 고정값 (README "음성 바로 등록 골든": 파일 2 · 사례 54 — variety-guess 30 · same-number 24) */
+const EXPECTED_FILES = 2
+const EXPECTED_CASES = 54
+
+const FILE_KEYS = new Set(['kind', 'about', 'cases'])
+const CASE_KEYS = new Set(['id', 'title', 'refs', 'note', 'in', 'out'])
+const ID_PATTERN = /^G-(VGS|VSN)-[A-Z0-9]+-[0-9]{2}$/
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
+const fail = (where: string, message: string): never => {
+  throw new Error(`${where}: ${message}`)
+}
+const onlyKeys = (where: string, value: unknown, keys: readonly string[]): Record<string, unknown> => {
+  if (!isObject(value)) return fail(where, '객체가 아니다')
+  for (const key of Object.keys(value)) if (!keys.includes(key)) fail(where, `모르는 키 ${key}`)
+  return value
+}
+const STATUSES = ['READY', 'OPEN', 'SOLD', 'HOLD', 'CLOSED']
+const NAME_FROM = ['DICTIONARY', 'GUESS', null]
+
+interface Loaded {
+  readonly id: string
+  readonly kind: 'variety-guess' | 'same-number'
+  readonly input: Record<string, unknown>
+  readonly out: unknown
+}
+
+function load(): Loaded[] {
+  const files = readdirSync(GOLDEN_DIR).filter((file) => file.endsWith('.json')).sort()
+  expect(files).toHaveLength(EXPECTED_FILES)
+  const ids = new Set<string>()
+  const cases: Loaded[] = []
+  for (const file of files) {
+    const doc = JSON.parse(readFileSync(join(GOLDEN_DIR, file), 'utf8')) as unknown
+    if (!isObject(doc)) fail(file, '객체가 아니다')
+    const root = doc as Record<string, unknown>
+    for (const key of Object.keys(root)) if (!FILE_KEYS.has(key)) fail(file, `모르는 키 ${key}`)
+    const kind = root.kind
+    if (kind !== 'variety-guess' && kind !== 'same-number') return fail(file, `모르는 kind ${String(kind)}`)
+    if (!Array.isArray(root.cases)) fail(file, 'cases가 배열이 아니다')
+    for (const item of root.cases as unknown[]) {
+      if (!isObject(item)) fail(file, '사례가 객체가 아니다')
+      const c = item as Record<string, unknown>
+      for (const key of Object.keys(c)) if (!CASE_KEYS.has(key)) fail(file, `모르는 사례 키 ${key}`)
+      const id = c.id
+      if (typeof id !== 'string' || !ID_PATTERN.test(id)) return fail(file, `id ${String(id)}`)
+      if (ids.has(id)) fail(file, `겹친 id ${id}`)
+      ids.add(id)
+      if (!Array.isArray(c.refs) || c.refs.length === 0) fail(id, 'refs')
+      if (kind === 'variety-guess') {
+        const input = onlyKeys(id, c.in, ['text', 'maxNumber'])
+        if (typeof input.text !== 'string') fail(id, 'text')
+        const out = onlyKeys(id, c.out, ['guess'])
+        if (!('guess' in out) || !(out.guess === null || (typeof out.guess === 'string' && out.guess !== ''))) fail(id, 'out.guess')
+        cases.push({ id, kind, input, out })
+      } else {
+        const input = onlyKeys(id, c.in, ['heard', 'product', 'auto'])
+        const heard = onlyKeys(id, input.heard, ['price', 'priceSure', 'name', 'nameFrom'])
+        const product = onlyKeys(id, input.product, ['name', 'price', 'status', 'liveClaims'])
+        if (!NAME_FROM.includes(heard.nameFrom as string | null)) fail(id, 'nameFrom')
+        if (!STATUSES.includes(product.status as string)) fail(id, 'status')
+        if (typeof input.auto !== 'boolean') fail(id, 'auto')
+        const out = onlyKeys(id, c.out, ['action', 'changes', 'reason'])
+        if (!['IGNORE', 'AUTO_FIX', 'ASK'].includes(out.action as string)) fail(id, 'action')
+        if (![null, 'NO_AUTO', 'NOT_OPEN', 'PRICE_NOT_SURE', 'CLAIMS'].includes(out.reason as string | null)) fail(id, 'reason')
+        onlyKeys(id, out.changes, ['price', 'name'])
+        cases.push({ id, kind, input, out })
+      }
+    }
+  }
+  expect(cases).toHaveLength(EXPECTED_CASES)
+  return cases
+}
+
+describe('골든 voice-register (R-17 7·R-22)', () => {
+  const cases = load()
+  it.each(cases.map((item) => [item.id, item] as const))('%s', (_, item) => {
+    if (item.kind === 'variety-guess') {
+      const maxNumber = item.input.maxNumber
+      expect({ guess: guessVariety(item.input.text, typeof maxNumber === 'number' ? { maxNumber } : {}) }).toEqual(item.out)
+    } else {
+      expect(decideSameNumber(item.input as unknown as SameNumberInput)).toStrictEqual(item.out)
+    }
+  })
+})
+
+// ── 실제 방송 문장 (harness/sprints/V3/real-broadcast.txt, 크롬 인식 그대로) ──
+
+const DICT = prepareVoiceDictionary()
+const read = (text: string) => readRegistration(text, { dictionary: DICT })
+
+describe('실제 방송 문장 → 바로 등록 (기본 사전)', () => {
+  it('1. 108번 bts 10만 원까지 → 108 · 100,000원 · bts(확인 필요)', () => {
+    const text = '네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요'
+    expect(readyToRegister(text, { dictionary: DICT })).toEqual({ no: 108, price: 100000, name: 'bts', nameNeedsCheck: true })
+  })
+  it('2. 10만 원 108번(끝) → 108 · 100,000원 · bts(두 번 나온 낱말)', () => {
+    const r = readyToRegister('자 bts는 자 bts 요거 그대로 보냅니다 요 아이 자 10만 원 108번', { dictionary: DICT })
+    expect(r).toMatchObject({ no: 108, price: 100000 })
+  })
+  it('3. 180번 … 30 5만 원 → 180 · 350,000원 · 삼광색금', () => {
+    const text = '자 180번 상관 세금 자 요 아이 자 유아이 35만 원까지 네 요 아이는 35만 원까지 그대로 봅니다 색금 이렇게 잘 들었어요 자 3강색급 요 아이는 30 5만 원'
+    expect(readyToRegister(text, { dictionary: DICT })).toEqual({ no: 180, price: 350000, name: '삼광색금', nameNeedsCheck: false })
+  })
+  it('4. 28만 원 174번 … 174(번 없음) → 174 · 280,000원 · 삼광색금', () => {
+    const text = '자 파이텐트까지 나오는 상강색 게임 잘 들었어요 자 상강 색금 자 요 아이 자 28만 원 174번 자 174 자 이거 28만 원 자 3강색은 요 아이 28마리까지'
+    expect(readyToRegister(text, { dictionary: DICT })).toEqual({ no: 174, price: 280000, name: '삼광색금', nameNeedsCheck: false })
+  })
+  it("5. '3번'이 말 그대로 있음 → 3 · 250,000원 (스펙 R-17 8대로 확정 — 판매자 뜻은 170번일 수 있어 되돌리기로 고친다, D-V3-20)", () => {
+    const text = '자 9cm에 자 9cm에 3번 자 3강 세금 뿌리 다 남았고요 얘는 자 25만 원 170 자 요런 색금 예쁘게 나왔습니다 이거 25만 원 3강 세금 170 자 이 703강 세금이 자 25만 원까지'
+    const r = read(text)
+    expect(r.extraction.no).toBe(3)
+    expect(r.extraction.price).toBe(250000)
+    expect(r.extraction.name).toBe('삼광색금')
+  })
+  it('6. 189번 … 139번 → 번호 비움, 바로 등록 안 함, 들린 번호 둘', () => {
+    const r = read('어 자 요거 지금 189번인데 뿌리가 있습니다 뿌리 있는데 컵이 너무 잘 들었어요 빅뱅 금 139번 얘 50만 원 들어요')
+    expect(r.ready).toBeNull()
+    expect(r.extraction.no).toBeNull()
+    expect(r.extraction.price).toBe(500000)
+    expect(r.extraction.name).toBe('빅뱅금')
+    expect(r.heardNumbers).toEqual([189, 139])
+  })
+  it('7. 일육팔 삼광색금 이십오만 원 → 168 · 250,000원 · 삼광색금', () => {
+    expect(readyToRegister('일육팔 삼광색금 이십오만 원', { dictionary: DICT })).toEqual({ no: 168, price: 250000, name: '삼광색금', nameNeedsCheck: false })
+  })
+  it("'요 아이'를 적은 ui·UI·유아이·요아이는 품종 후보가 아니다", () => {
+    expect(readyToRegister('자 ui 삼광색금 180번 35만 원', { dictionary: DICT })).toEqual({ no: 180, price: 350000, name: '삼광색금', nameNeedsCheck: false })
+    for (const filler of ['ui는', 'UI는', '유아이는', '요아이가', '요 아이는']) {
+      const r = readyToRegister(`180번 ${filler} 35만 원`, { dictionary: DICT })
+      expect(r).toEqual({ no: 180, price: 350000, name: null, nameNeedsCheck: false })
+    }
+  })
+})
+
+describe('확정 읽기 (R-17 8) — 중간 결과', () => {
+  it("'원'이 들리기 전·'번'이 들리기 전에는 확정이 아니다", () => {
+    expect(readyToRegister('108번 bts 10만', { dictionary: DICT })).toBeNull()
+    expect(readyToRegister('108번 30 5만', { dictionary: DICT })).toBeNull()
+    expect(readyToRegister('108 bts 10만 원', { dictionary: DICT })).toBeNull()
+    expect(readyToRegister('108번 bts 10만 원', { dictionary: DICT })).toEqual({ no: 108, price: 100000, name: 'bts', nameNeedsCheck: true })
+  })
+  it('원 없는 가격(묶음)만으로는 확정이 아니다', () => {
+    const r = read('15번 라울 만오천')
+    expect(r.extraction.price).toBe(15000)
+    expect(r.priceSure).toBe(false)
+    expect(r.ready).toBeNull()
+  })
+  it('정정·취소 낱말이 있으면 확정하지 않는다(칸 이름은 막지 않는다)', () => {
+    expect(readyToRegister('15번 라울 만 원 아니 2만 원', { dictionary: DICT })).toBeNull()
+    expect(readyToRegister('15번 취소 만 원', { dictionary: DICT })).toBeNull()
+    expect(readyToRegister('15번 품종은 라울 만 원', { dictionary: DICT })).toMatchObject({ no: 15, price: 10000 })
+  })
+  it('자리 읽기: 일 육 팔 / 1 6 8 / 일육팔번', () => {
+    expect(extractVoice('일 육 팔 이십오만 원')).toMatchObject({ no: 168, price: 250000 })
+    expect(extractVoice('1 6 8 이십오만 원')).toMatchObject({ no: 168, price: 250000 })
+    expect(extractVoice('일육팔번 만 원')).toMatchObject({ no: 168, price: 10000 })
+    expect(extractVoice('1 6 8번 만 원')).toMatchObject({ no: 168, price: 10000 })
+    // 번호 표시가 따로 있으면 번 없는 자리 읽기는 보지 않는다
+    expect(extractVoice('일육팔 15번 만 원')).toMatchObject({ no: 15, price: 10000 })
+    // 두 자리·네 자리는 아니다
+    expect(extractVoice('일오 만 원').no).toBeNull()
+    expect(extractVoice('1 6 8 9 만 원').no).toBeNull()
+  })
+})
+
+describe('음성 같은 번호 — 화면용 decideForExisting', () => {
+  const product = { no: 108, name: 'bts', price: 100000, claimCount: 0 }
+  it('같으면 IGNORE, 품종 없음·가격 같음도 IGNORE', () => {
+    expect(decideForExisting(product, { name: 'bts', price: 100000, nameNeedsCheck: true })).toEqual({ kind: 'IGNORE' })
+    expect(decideForExisting(product, { name: null, price: 100000 })).toEqual({ kind: 'IGNORE' })
+  })
+  it('찜 0이면 가격·품종 바로 고침 (바뀌는 칸만)', () => {
+    expect(decideForExisting(product, { name: null, price: 120000 })).toEqual({ kind: 'AUTO_FIX', price: 120000, name: null })
+    expect(decideForExisting(product, { name: '삼광색금', price: 100000 })).toEqual({ kind: 'AUTO_FIX', price: null, name: '삼광색금' })
+  })
+  it('추측 품종은 있는 품종을 덮지 않는다', () => {
+    expect(decideForExisting({ ...product, name: '삼광색금' }, { name: '상관', price: 100000, nameNeedsCheck: true })).toEqual({ kind: 'IGNORE' })
+  })
+  it('찜이 있으면: 비었던 품종을 사전 이름으로 채우기만 FILL_NAME, 가격 다르면 ASK', () => {
+    const claimed = { ...product, name: '', claimCount: 2 }
+    expect(decideForExisting(claimed, { name: '삼광색금', price: 100000 })).toEqual({ kind: 'FILL_NAME', name: '삼광색금' })
+    expect(decideForExisting(claimed, { name: null, price: 90000 })).toEqual({ kind: 'ASK', price: 90000, name: null })
+    expect(decideForExisting({ ...product, claimCount: 1 }, { name: '삼광색금', price: 100000 })).toEqual({ kind: 'ASK', price: null, name: '삼광색금' })
+  })
+})
+
+describe('열린 카드 합치기', () => {
+  const card = (id: string, no: number | null, name: string | null, price: number | null, createdAt: number): SuggestionCard => {
+    const made = createCard({ id, extraction: { no, name, price, confidence: 'LOW' }, text: '', createdAt })
+    if (made === null) throw new Error('카드 없음')
+    return made
+  }
+  it('같은 번호 열린 카드는 새 카드에 빈 칸을 채우고 옛 카드를 닫는다', () => {
+    const cards = [card('b', 108, null, 100000, 2), card('a', 108, 'bts', null, 1), card('c', 5, null, 5000, 0)]
+    const merged = mergeSameNumberCards(cards)
+    expect(merged.map((item) => [item.id, item.status, item.name, item.price])).toEqual([
+      ['b', 'OPEN', 'bts', 100000],
+      ['a', 'CLOSED', 'bts', null],
+      ['c', 'OPEN', null, 5000],
+    ])
+    expect(cards[0]?.name).toBeNull()
+  })
+  it('손댄 카드가 남는다', () => {
+    const cards = [card('b', 108, null, 100000, 2), touchCard(card('a', 108, 'bts', null, 1))]
+    expect(mergeSameNumberCards(cards).map((item) => [item.id, item.status, item.price])).toEqual([
+      ['b', 'CLOSED', 100000],
+      ['a', 'OPEN', 100000],
+    ])
+  })
+})
