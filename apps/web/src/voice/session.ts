@@ -9,6 +9,7 @@ import type { WriteResult } from '../api/types.ts'
 import { ConsoleStore } from '../lib/console-store.ts'
 import { productKey, productSlots } from '../lib/derive.ts'
 import { OFFER_FIX_FAILED, VoiceController, type ExistingView, type RecentFixOutcome, type VoiceHost } from './controller.ts'
+import { addArchiveChunk } from './archive-store.ts'
 import { fetchPastNames } from './history.ts'
 import { loadVoice } from './load.ts'
 import { readConsent, readLearned, readSettings, readSmsSettings, writeConsent, writeLearned, writeSettings, writeSmsSettings } from './storage.ts'
@@ -256,6 +257,11 @@ export class VoiceSession {
       openProduct: (id) => pick().openProduct?.(id),
       smsAutoAllowed: () => this.#console !== null,
       voiceOff: () => writeVoiceOn(null),
+      // 음성 인식 기록 모아 두기 — 방송 제목·날짜와 함께 이 기기에 (D-V3-56)
+      archiveChunk: (chunk) => {
+        const broadcast = this.#store.getSnapshot().broadcast
+        void addArchiveChunk({ broadcastId: this.broadcastId, title: this.#title, date: broadcast?.date ?? '', chunk })
+      },
     }
     return host
   }

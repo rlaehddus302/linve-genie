@@ -46,6 +46,7 @@ interface Harness {
   readonly undone: string[]
   readonly moves: [number, number][]
   readonly fixOptions: unknown[]
+  readonly archived: unknown[]
 }
 
 function harness(options: { settings?: unknown; noBoard?: boolean; priceUnit?: 'WON' | 'THOUSAND' } = {}): Harness {
@@ -59,6 +60,7 @@ function harness(options: { settings?: unknown; noBoard?: boolean; priceUnit?: '
     undone: [] as string[],
     moves: [] as [number, number][],
     fixOptions: [] as unknown[],
+    archived: [] as unknown[],
   }
   const host: VoiceHost = {
     load: async () => voiceModule,
@@ -84,6 +86,9 @@ function harness(options: { settings?: unknown; noBoard?: boolean; priceUnit?: '
       state.fixOptions.push(options ?? {})
       const product = [...state.board.values()].find((item) => item.key === id)
       return state.fixResult ?? { kind: 'fixed', before: { ...(changes.price !== undefined ? { price: product?.price ?? 0 } : {}), ...(changes.name !== undefined ? { name: product?.name ?? '' } : {}) } }
+    },
+    archiveChunk: (chunk) => {
+      state.archived.push(chunk)
     },
     renumber: async (from, to) => {
       state.moves.push([from, to])
@@ -576,6 +581,23 @@ describe('음성 기록 한 줄 (R-25, D-V3-65)', () => {
     const offer = h.voice.getSnapshot().offers[0]
     await h.voice.revertOffer(offer?.id ?? '')
     expect(h.fixOptions[1]).toMatchObject({ voiceLog: { undo: requestId } })
+  })
+})
+
+describe('음성 인식 기록 모아 두기 (D-V3-56)', () => {
+  it('켜져 있으면 덩어리마다 가린 글·읽은 값·한 일을 남긴다', async () => {
+    const h = await ready({ settings: { 'voice.archive': true } })
+    say('15번 라울 만 원 끝자리 1234', false)
+    say('15번 라울 만 원 끝자리 1234')
+    at(2000)
+    expect(h.archived[0]).toMatchObject({ text: '15번 라울 만 원 끝자리 ****', action: 'REGISTERED', reading: { no: 15 } })
+  })
+
+  it('꺼져 있으면 남기지 않는다', async () => {
+    const h = await ready({ settings: { 'voice.archive': false } })
+    say('15번 라울 만 원')
+    at(2000)
+    expect(h.archived).toEqual([])
   })
 })
 

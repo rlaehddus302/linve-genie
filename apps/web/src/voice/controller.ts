@@ -12,6 +12,7 @@
 // 기다림(그 기기 설정, 기본 3초) 뒤 콘솔이 넘긴 쓰기(host.writeSms — 손 입력과 같은 `sms` 이벤트)로 넣는다. 넣은·닫은 카드도 10초 동안은
 // 같은 말 막기(D-V1-06)를 위해 들고 있다. 열린 카드 수 규칙은 상품 카드와 함께 센다(addVoiceCard).
 import { formatWon, type PriceUnit } from '@livejjim/core'
+import { ARCHIVE_KEY, archiveBroadcasts, readArchive } from './archive-store.ts'
 import { isHomeScreenApp } from './standalone.ts'
 import type {
   ChunkFields,
@@ -32,6 +33,7 @@ import type {
   SegmentPick,
   SegmentReading,
   WaitingNumber,
+  VoiceArchiveChunk,
   InterimCandidate,
   InterimSeen,
   SmsBuyerCandidate,
@@ -448,6 +450,8 @@ export interface VoiceSnapshot {
   // ── V3 ──
   /** 번호와 가격이 들리면 바로 등록 (그 기기 설정, 기본 켬) */
   readonly instant: boolean
+  /** 음성 인식 기록 모아 두기 (그 기기 설정, D-V3-56) */
+  readonly archive: boolean
 }
 
 /** 그 방송에 이미 있는 상품 (V3 — 콘솔의 상품 보드에서) */
@@ -550,6 +554,8 @@ export interface VoiceHost {
   renumber?(from: number, to: number, options?: VoiceWriteOptions): Promise<boolean>
   /** 문자찜을 저절로 넣어도 되나 (콘솔 밖은 아니다 — 카드로 남긴다, D-V3-52). 없으면 참 */
   smsAutoAllowed?(): boolean
+  /** 음성 인식 기록 한 덩어리를 이 기기에 남긴다 (설정이 켜져 있을 때, D-V3-56) */
+  archiveChunk?(chunk: VoiceArchiveChunk): void
   /** 판매자가 "음성 끄기"를 눌렀다 (켠 방송 ID를 지운다, D-V3-52) */
   voiceOff?(): void
   /** 그 상품을 손으로 고치는 창을 연다 (D-V3-59 [아까 것을 다른 번호로]) */
@@ -597,6 +603,7 @@ export const VOICE_IDLE: VoiceSnapshot = {
   quietProblem: null,
   learnedCount: 0,
   instant: true,
+  archive: false,
 }
 
 /** ms → "1.8" */
@@ -759,6 +766,10 @@ export class VoiceController {
   #interimSeen: readonly InterimSeen[] = []
   #interimShown: { readonly candidate: InterimCandidate; readonly text: string } | null = null
   #interimTimer: ReturnType<typeof setTimeout> | null = null
+  /** 이 덩어리에서 한 일 (기록 모아 두기, D-V3-56) */
+  readonly #chunkActs = new Set<VoiceArchiveChunk['action']>()
+  /** 이 덩어리의 중간 결과 글 (기록 모아 두기, D-V3-56) */
+  #chunkInterims: readonly string[] = []
   /** 지금 처리 중인 들은 말 (R-25 기록 한 줄 — 가려서 보낸다) */
   #heardNow = ''
   /** 기다리는 번호 (D-V3-67) — 하나만, 음성을 끄면 버린다 */
@@ -818,7 +829,7 @@ export class VoiceController {
       const settings = module.resolveVoiceSettings(stored)
       // 조용한 시간은 같은 저장값의 `voice.quietMs` (범위 밖·모르는 값은 1800, D-V2-09)
       const quietMs = module.resolveQuietMs(stored)
-      this.#set({ settings, secondsText: String(settings['voice.autoConfirmSec']), quietMs, quietText: quietText(quietMs), quietProblem: null, instant: readInstant(stored) })
+      this.#set({ settings, secondsText: String(settings['voice.autoConfirmSec']), quietMs, quietText: quietText(quietMs), quietProblem: null, instant: readInstant(stored), archive: readArchive(stored) })
     }
     if (this.#phrase === null) this.#phrase = module.createPhraseState({ quietMs: this.#snapshot.quietMs })
     if (!this.#learnedLoaded) {
@@ -1008,6 +1019,7 @@ export class VoiceController {
         const work = this.#startWork(module)
         this.#runOutputs(work, module, step.out)
         this.#tryInstant(work, module)
+        if (this.#snapshot.archive && this.#chunkInterims.length < 50) this.#chunkInterims = [...this.#chunkInterims, result.text]
         this.#set({ interim: result.text, ...this.#finishWork(work, module) })
         return
       }
@@ -1144,7 +1156,61 @@ export class VoiceController {
       work.log = module.addLogEntry(work.log, module.createLogEntry({ at: this.#host.now(), pieces: [{ text: out.sms.text, flushedAtEnd: out.sms.flushedAtEnd }], action: 'sms' }))
       return
     }
+    const before = work.log
     this.#runChunk(work, module, out.chunk, held)
+    this.#archive(module, out.chunk, before === work.log ? null : (work.log[0] ?? null))
+    this.#chunkInterims = []
+    this.#chunkActs.clear()
+  }
+
+  /** 덩어리 하나를 기록 모아 두기에 (설정 켬일 때만, D-V3-56) */
+  #archive(module: VoiceModule, chunk: PhraseChunk, entry: VoiceLogEntry | null): void {
+    if (!this.#snapshot.archive || this.#host.archiveChunk === undefined || typeof module.createArchiveChunk !== 'function') return
+    const reason = entry?.reason ?? null
+    const acts = this.#chunkActs
+    const action: VoiceArchiveChunk['action'] = acts.has('REGISTERED')
+      ? 'REGISTERED'
+      : acts.has('FIXED')
+        ? 'FIXED'
+        : acts.has('ASKED')
+          ? 'ASKED'
+          : acts.has('IGNORED')
+            ? 'IGNORED'
+            : entry === null
+        ? 'DROPPED'
+        : entry.action === 'create'
+          ? 'REGISTERED'
+          : entry.action === 'edit' || entry.action === 'fill'
+            ? 'FIXED'
+            : entry.action === 'offer'
+              ? 'ASKED'
+              : reason === LOG_ALREADY
+                ? 'IGNORED'
+                : 'DROPPED'
+    try {
+      const read = entry?.read ?? null
+      this.#host.archiveChunk(
+        module.createArchiveChunk({ at: this.#host.now(), text: chunk.text, interims: this.#chunkInterims, reading: read === null ? null : { no: read.no, price: read.price, name: read.name }, action, reason }),
+      )
+    } catch {
+      // 남기지 못하면 이번 덩어리는 없다
+    }
+  }
+
+  /** "음성 인식 기록 모아 두기" 켬/끔 (D-V3-56) */
+  setArchive(on: boolean): void {
+    const settings = this.#snapshot.settings
+    if (settings === null) return
+    this.#set({ archive: on })
+    this.#writeSettings(settings)
+  }
+
+  /** 내려받기 JSON (broadcastId가 있으면 그 방송만) — 음성 모듈이 없으면 null */
+  async exportArchive(broadcastId?: string): Promise<unknown> {
+    const module = this.#module
+    if (module === null || typeof module.createArchiveExport !== 'function') return null
+    const broadcasts = await archiveBroadcasts(broadcastId)
+    return module.createArchiveExport(broadcasts, this.#host.now())
   }
 
   /** 덩어리 하나: 읽기(readChunk) → 할 일 고르기(chooseAction) → 실행, 기록·결과 한 줄 (D-V2-04~08) */
@@ -2035,6 +2101,7 @@ export class VoiceController {
     this.#pending.set(no, { cardId: card.id, name: registration.name, price, key: null, at: this.#host.now() })
     this.#host.register(card, registration, 'instant')
     this.#touchVoice(no, 'register')
+    this.#chunkActs.add('REGISTERED')
     return { action: 'create', reason: LOG_INSTANT, readout: registeredReadout(no, name, price) }
   }
 
@@ -2061,6 +2128,7 @@ export class VoiceController {
       decision = { action: 'IGNORE', changes: {}, reason: null }
     }
     const ignore: InstantDone = { action: 'discard', reason: LOG_ALREADY, readout: quiet ? null : alreadyReadout(no) }
+    this.#chunkActs.add(decision.action === 'IGNORE' ? 'IGNORED' : decision.action === 'ASK' ? 'ASKED' : 'FIXED')
     if (decision.action === 'IGNORE') return ignore
     const changes = pickChanges(existing, { name: decision.changes.name ?? null, price: decision.changes.price ?? null })
     if (Object.keys(changes).length === 0) return ignore
@@ -2508,8 +2576,9 @@ export class VoiceController {
     // 바로 등록 칸은 화면 상태(instant)가 정한다 — 패키지가 채운 값은 빼고 아래에서 끈 때만 남긴다
     const { [INSTANT_KEY]: _stored, ...plain } = settings as VoiceSettings & Record<string, unknown>
     const base: VoiceSettings & { readonly 'voice.quietMs'?: number } = quietMs === 1800 ? (plain as VoiceSettings) : { ...(plain as VoiceSettings), 'voice.quietMs': quietMs }
-    // 바로 등록은 끈 때만 남긴다 (기본 켬, V3)
-    const value = this.#snapshot.instant ? base : { ...base, [INSTANT_KEY]: false }
+    // 바로 등록은 끈 때만 남긴다 (기본 켬, V3). 기록 모아 두기는 그 기기 기본(연습 켬·운영 끔)과 다를 때만 (D-V3-56)
+    const instant = this.#snapshot.instant ? base : { ...base, [INSTANT_KEY]: false }
+    const value = this.#snapshot.archive === readArchive(null) ? instant : { ...instant, [ARCHIVE_KEY]: this.#snapshot.archive }
     this.#host.writeSettings(value)
   }
 

@@ -54,6 +54,8 @@ import { Modal } from './Modal.tsx'
 import { smsLast4Suffix, smsResultWords, useSentToReview, useSmsClaim } from './SmsPage.tsx'
 import { SERVICE_NAME } from '../brand.ts'
 import { INSTANT_CONSENT_LINE, INSTANT_HELP, INSTANT_LABEL, MAYBE_OTHER_FIX, MAYBE_OTHER_RENUMBER } from '../voice/instant.ts'
+import { ARCHIVE_CLEAR, ARCHIVE_CLEARED, ARCHIVE_DOWNLOAD_ALL, ARCHIVE_DOWNLOAD_ONE, ARCHIVE_LABEL, VOICE_ARCHIVE_NOTICE, clearArchive, downloadJson } from '../voice/archive-store.ts'
+import { getVoiceSession } from '../voice/session.ts'
 
 /** 안내 창 마지막 줄 (MOB1 D-MOB1-07, AC-MOB1-11) */
 export const CONSENT_OTHER_DEVICE = '방송하는 폰이 아닌 다른 기기(관리 폰이나 PC)에서 켜 주세요. 방송 앱이 마이크를 쓰는 폰에서는 잘 듣지 못해요.'
@@ -895,6 +897,12 @@ export function VoiceExtras({ voice, snapshot }: { readonly voice: VoiceControll
               {settings['voice.autoConfirm'] ? <p className="hint">{AUTO_CONFIRM_HELP}</p> : null}
             </>
           )}
+          <label className="choice">
+            <input type="checkbox" checked={snapshot.archive} onChange={(event) => voice.setArchive(event.target.checked)} />
+            <span>{ARCHIVE_LABEL}</span>
+          </label>
+          {snapshot.archive ? <p className="hint">{VOICE_ARCHIVE_NOTICE}</p> : null}
+          <ArchiveButtons voice={voice} />
           <label className="voice-seconds">
             <span>{QUIET_LABEL}</span>
             <input className="input" inputMode="decimal" autoComplete="off" value={snapshot.quietText} onChange={(event) => voice.setQuietSeconds(event.target.value)} />
@@ -912,5 +920,41 @@ export function VoiceExtras({ voice, snapshot }: { readonly voice: VoiceControll
       </details>
       {logOpen ? <VoiceLogDialog voice={voice} snapshot={snapshot} onClose={() => setLogOpen(false)} /> : null}
     </section>
+  )
+}
+
+/** 음성 인식 기록 [내려받기]·[기록 지우기] (D-V3-56) — 서버로 보내지 않고 이 기기 파일로 */
+function ArchiveButtons({ voice }: { readonly voice: VoiceController }) {
+  const [note, setNote] = useState<string | null>(null)
+  const broadcastId = getVoiceSession()?.broadcastId
+  const download = async (one: boolean) => {
+    const value = await voice.exportArchive(one ? broadcastId : undefined)
+    if (value !== null) downloadJson(`음성-인식-기록${one && broadcastId !== undefined ? `-${broadcastId}` : ''}.json`, value)
+  }
+  return (
+    <div className="row">
+      {broadcastId !== undefined ? (
+        <button type="button" className="button" onClick={() => void download(true)}>
+          {ARCHIVE_DOWNLOAD_ONE}
+        </button>
+      ) : null}
+      <button type="button" className="button" onClick={() => void download(false)}>
+        {ARCHIVE_DOWNLOAD_ALL}
+      </button>
+      <button
+        type="button"
+        className="button"
+        onClick={() => {
+          void clearArchive().then(() => setNote(ARCHIVE_CLEARED))
+        }}
+      >
+        {ARCHIVE_CLEAR}
+      </button>
+      {note !== null ? (
+        <p className="hint" role="status">
+          {note}
+        </p>
+      ) : null}
+    </div>
   )
 }
