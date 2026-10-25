@@ -1,9 +1,9 @@
 # V3 수용 기준 — 음성 상품 등록: 번호·가격 중심 바로 등록
 
-- 스프린트: V3 · spec ID: **VOC-02**, **VOC-03**, **VOC-04**, **PRD-06** (연결: VOC-01, VOC-05, PRD-01, PRD-02, UX-01, UX-06, R-10, R-17, R-22) · 근거 결정: **D-V3-01~D-V3-39**(AUTO — D-V3-01~03·11·23은 사용자 결정), 바뀌는 결정 D-202·D-203·D-204·D-I4-01·D-I4-05·D-V2-14(상태 칸에 V3 표시)
+- 스프린트: V3 · spec ID: **VOC-02**, **VOC-03**, **VOC-04**, **PRD-06** (연결: VOC-01, VOC-05, PRD-01, PRD-02, UX-01, UX-06, R-10, R-17, R-22) · 근거 결정: **D-V3-01~D-V3-40**(AUTO — D-V3-01~03·11·23은 사용자 결정), 바뀌는 결정 D-202·D-203·D-204·D-I4-01·D-I4-05·D-V2-14(상태 칸에 V3 표시)
 - 배경(2026-10-25 사용자 실방송 시험, 원문 `harness/sprints/V3/real-broadcast.txt`): 품종을 말해도 칸이 비고, 같은 상품 카드가 두 장·등록 뒤에도 또 생기고, 일일이 Enter. 사용자: "이미 등록됐으면 무시하고 인식 잘못 되어있으면 자동으로 고치고. 중요한건 번호랑 가격이잖아." · "번호랑 가격이 확실하게 들렸으면 뒷말 더 듣지 말고 바로 등록해야 해. 나중에 정정하더라도 나중에 수정하는 거지." · "번호는 ..번 이걸 알아듣고 금액은 ..원 나올 때까지 들으면 되겠지. 삼십...오만원 이렇게 말하는 걸 30번 5만원 이렇게 알아먹지 말란 뜻이야." · "168번을 일육팔 이렇게 부를 때도 있네." · "번호 부를 때 번 없이 부를 때도 있어. 168을 백육십팔, 일육팔 이렇게 부를 때도 있단 말이지. 그런거 다 인식해야해."
 - 개발 영역: **device**(`packages/voice/**`), **web**(`apps/web/**`) · 테스트: **domain**(`tests/adversarial/v3/**`), **e2e**(`tests/e2e/v3/**` + D-V3-22의 기존 시험 준비 바꾸기) · **core·server 없음** — 판정·정산 규칙은 바뀌지 않는다. 상품 등록·고치기·되돌리기는 지금 서버 경로 그대로.
-- 골든: `tests/golden/parser/voice-extract.yaml`(V3 문서 6개 + 기존 기대 변경 — `2 만원`·`오 천 원` D-V3-03, `일 육 팔 …` 두 사례 D-V3-27, 단위 뒤 띄어 쓴 숫자 D-V3-29 — 81 → 155사례), 새 `tests/golden/voice-register/variety-guess.json`(42)·`same-number.json`(38). 형식은 `tests/golden/README.md` "음성 바로 등록 골든".
+- 골든: `tests/golden/parser/voice-extract.yaml`(V3 문서 6개 + 기존 기대 변경 — `2 만원`·`오 천 원` D-V3-03, `일 육 팔 …` 두 사례 D-V3-27, 단위 뒤 띄어 쓴 숫자 D-V3-29, 풀이말 끝 창 D-V3-40 — 81 → 159사례), 새 `tests/golden/voice-register/variety-guess.json`(42)·`same-number.json`(38). 형식은 `tests/golden/README.md` "음성 바로 등록 골든".
 - 가짜 음성 인식은 I4 시험 계약 그대로(`page.addInitScript`로 가짜 `SpeechRecognition`, 화면 코드에 시험용 갈림길 없음). 시각은 Playwright 시계 또는 단위 시험의 입력 시각.
 - 정답의 우선순위: 골든 → DOMAIN_RULES(R-17·R-22)·SPEC → DECISIONS(D-V3) → 이 문서. 따옴표 문장은 그대로 쓴다(E2E가 글자로 찾는다).
 
@@ -19,8 +19,8 @@
 | | `packages/voice/src/target.ts`, `correction.ts`, `phrase.ts`, `voice-log.ts`, `index.ts` | 덩어리 읽기에 `guess`·`priceSure`·`numbers`, 할 일 고르기에 같은 번호(R-22)·합치기·"바로 등록한 덩어리"의 끝 처리·덩어리 안 `취소` 되돌림(D-V3-21), 모으는 글(최종 + 중간) 꺼내기, 기록 문구 |
 | | `packages/voice/src/settings.ts` | `voice.autoRegister`(기본 `true`), 옛 `voice.autoConfirm`·`voice.autoConfirmSec`는 아는 키·읽지 않음(D-V3-16) |
 | | `packages/voice/data/varieties.ko.json` | `○○금` 이름 40개 이상(삼광색금·창녹금·빅뱅금 반드시), 전체 360개 이상, 삼광색금 별칭 5개(D-V3-14) |
-| | `packages/voice/test/**` | 단위 시험, `tests/golden/voice-register/*.json` 읽는 시험(파일 2·사례 80 고정), `sms.test.ts`의 voice-extract 사례 수는 정확히 155(D-V3-24 (3)) |
-| | `packages/core/test/golden/voice-extract.test.ts`·`core-adapter.test.ts` | **숫자만**: 81 → 155사례, 파서 633 → 707·통과 792 → 866(D-V3-22 (c)) |
+| | `packages/voice/test/**` | 단위 시험, `tests/golden/voice-register/*.json` 읽는 시험(파일 2·사례 80 고정), `sms.test.ts`의 voice-extract 사례 수는 정확히 159(D-V3-24 (3)) |
+| | `packages/core/test/golden/voice-extract.test.ts`·`core-adapter.test.ts` | **숫자만**: 81 → 159사례, 파서 633 → 711·통과 792 → 870(D-V3-22 (c)) |
 | **web** | `apps/web/src/voice/controller.ts` | 결과(중간 포함)마다 `readSure` → 바로 등록, 덩어리 끝 R-22, 합치기, 거절한 번호(D-V3-10), 보내는 중 번호(D-V3-19), 등록 뒤 다른 번호 알림, 바로 고침·10초 되돌리기 |
 | | `apps/web/src/lib/voice.ts`, `apps/web/src/voice/storage.ts` | 자동 확정 카운트다운 도움 함수 정리, 새 설정 키 읽기·쓰기 |
 | | `apps/web/src/components/VoicePanel.tsx` | 설정 문구·"기다리는 시간" 빼기, 알림·묻기 카드·번호 확인 카드, 추측 품종 카드의 후보 단추, 첫 안내 창 한 줄 |
@@ -92,7 +92,7 @@
 
 ### 읽기 규칙 (device — 골든)
 
-- **AC-V3-01** [device] (VOC-02·VOC-03, R-17, D-V3-03·04·11·12) Given `tests/golden/parser/voice-extract.yaml`(155사례), When `pnpm golden`, Then 모두 통과하고 V3 바뀐 두 사례(`15번 핑크프릴 2 만원` → 20,000원 `HIGH`, `오 천 원` → 5,000원 `HIGH`)도 통과한다. `packages/core/test/golden/voice-extract.test.ts`·`packages/voice/test/sms.test.ts`의 사례 수는 정확히 155, `core-adapter.test.ts` 합계는 파일 39 · 파서 707 · 엔진 159 · 통과 866(다른 트랙이 합쳐져 다르면 그 합계 + 74) — 숫자만 바꾸고 주석에 D-V3-22. 확인: 골든.
+- **AC-V3-01** [device] (VOC-02·VOC-03, R-17, D-V3-03·04·11·12) Given `tests/golden/parser/voice-extract.yaml`(159사례), When `pnpm golden`, Then 모두 통과하고 V3 바뀐 두 사례(`15번 핑크프릴 2 만원` → 20,000원 `HIGH`, `오 천 원` → 5,000원 `HIGH`)도 통과한다. `packages/core/test/golden/voice-extract.test.ts`·`packages/voice/test/sms.test.ts`의 사례 수는 정확히 159, `core-adapter.test.ts` 합계는 파일 39 · 파서 711 · 엔진 159 · 통과 870(다른 트랙이 합쳐져 다르면 그 합계 + 78) — 숫자만 바꾸고 주석에 D-V3-22. 확인: 골든.
 - **AC-V3-02** [device] (VOC-03·VOC-04, R-17 7·R-22, D-V3-06·09) Given `tests/golden/voice-register/*.json`, When `packages/voice` 단위 시험, Then 파일 2 · 사례 80(variety-guess 42 · same-number 38)가 모두 깊은 같음으로 통과하고, 모르는 `kind`·모르는 키·겹친 `id`·표 밖 열거값을 넣은 사본은 읽기 오류로 실패한다. 확인: 골든(단위).
 - **AC-V3-03** [device] (R-17 8, D-V3-02·D-V3-23·D-V3-26) 확정 읽기(`readyToRegister`/`readRegistration` — dev-notes의 이름이면 된다, 글이 최종 결과인지 `final`을 받는다): 사례 표 R1~R12·R31~R48의 결과 k마다 `sure`가 표의 "등록 때"에서 처음 참이 되고 그 전엔 거짓이다. 그때 `no`·`price`·품종(사전 이름만 — D-V3-37)이 표의 기대와 같다. `원`이 없는 글(`15번 라울 삼십 오만`, `108번 10만`)·정정 표시나 취소 낱말이 든 글(`108번 10만원 아니`)·서로 다른 `N번` 둘(`numbers` = [189, 139])은 `sure` 거짓. 확인: 단위.
 - **AC-V3-04** [device] (R-17 4, D-V3-03) 줄어들지 않는 성질: "15번 라울 삼십 오만 원"을 k = 1…5로 넣으면 `sure`인 결과는 k=5 하나이고 그 `price`는 350,000이다. "180번 30 5만 원"도 같다(k=4, 350,000). 어떤 k에서도 30,000·50,000이 `sure` 가격이 아니다. 확인: 단위.
@@ -142,7 +142,7 @@
 - **AC-V3-46** [web] (VOC-01, D-V2-08) 받아쓴 글은 서버로 가지 않는다(AC-V2-30 그대로) — 바로 등록·고치기 요청 본문엔 번호·품종·가격만 있다. 확인: E2E.
 - **AC-V3-47** [e2e] (D-V3-22) 기존 I4·I5·V1·V2·N3 등 음성 E2E가 모두 통과한다. 카드·Enter를 보려는 시험은 준비 단계에서 `voice.autoRegister: false`를 넣고(기대 그대로), 바뀐 규칙을 단언하던 시험(AC-I4-30·31의 기본 꺼짐·5초·`HIGH`만, AC-V2-20·24의 자동 확정 기다림, 같은 번호 카드 두 장)은 AC-V3 기준으로 바꾸며 시험 이름이나 주석에 D-V3-01·D-V3-06을 적는다. 바꾼 시험 목록을 dev-notes에 남긴다. `.skip`·`.only`·삭제 없음. 확인: E2E.
 - **AC-V3-48** [device·web] `pnpm verify` 전 단계 통과. 확인: 검증.
-- **AC-V3-50** [device·web] (VOC-03, D-V3-38) 배운 별칭: 카드에서 품종을 고를 때 들은 글이 `보니까`·`그런데`·`있고요`(풀이말 끝)·`한번`·`약간`(2글자 이하)·`요거`(군말)·`3강`(숫자)이면 배우지 않는다. 저장소에 `[{"heard":"보니까","name":"보니타","usedAt":…}]`를 넣고 켠 뒤 "15번 보니까 만오천 원"을 말하면 품종 미입력으로 등록된다(보니타 아님). `선버스` → `선버스트`(AC-V2-09)는 그대로 배운다. 확인: 단위 + E2E.
+- **AC-V3-50** [device·web] (VOC-03, D-V3-38·40) 배운 별칭: 카드에서 품종을 고를 때 들은 글이 `보니까`·`그런데`·`있고요`(풀이말 끝)·`한번`·`약간`(2글자 이하)·`요거`(군말)·`3강`(숫자)이면 배우지 않는다. 저장소에 `[{"heard":"보니까","name":"보니타","usedAt":…}]`를 넣고 켠 뒤 "15번 보니까 만오천 원"을 말하면 품종 미입력으로 등록된다(보니타 아님). `선버스` → `선버스트`(AC-V2-09)는 그대로 배운다. 확인: 단위 + E2E.
 - **AC-V3-49** [web] (VOC-04) 문자찜 카드(V1)는 바뀌지 않는다 — `문자찜` 낱말이 든 결과는 바로 등록 확인을 하지 않는다(R-21 2). 기존 V1 E2E 통과. 확인: E2E.
 
 ### 적대 (domain)

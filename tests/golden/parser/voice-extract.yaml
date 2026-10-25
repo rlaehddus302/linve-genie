@@ -284,3 +284,14 @@ cases:
   - { in: "15번 라울 5천 50원", out: { no: 15, name: 라울, price: 5050, confidence: HIGH } }         # '오천오십원' 5,050
   - { in: "15번 라울 1만 5원", out: { no: 15, name: 라울, confidence: LOW } }                        # '일만오원' — 만 바로 뒤 일의 자리(D-032) → 비움
   - { in: "15번 라울 2천 5원", out: { no: 15, name: 라울, confidence: LOW } }                        # '이천오원' — 천 바로 뒤 일의 자리(D-032) → 비움
+---
+# V3 — 풀이말 끝 창 (R-17 5, D-V3-40). 창 글이 다·요·죠·네·까·고·게·서·면·데로 끝나면 유사도 맞추기(0.8)에 쓰지 않는다(공백만 다른 정확한 맞춤만).
+# 보니까 = ㅂㅗ ㄴㅣ ㄲㅏ (6) vs 보니타 ㅂㅗ ㄴㅣ ㅌㅏ (6): 거리 1 → 0.83 — 그래도 '까'로 끝나 맞추지 않음.
+suite: voice-extract
+settings:
+  dictionary: [보니타, 라울, 핑크문]
+cases:
+  - { in: "15번 보니까 만오천 원", out: { no: 15, price: 15000, confidence: LOW } }              # 풀이말 끝 '까' → 보니타로 맞추지 않음
+  - { in: "15번 보니타 만오천 원", out: { no: 15, name: 보니타, price: 15000, confidence: HIGH } }  # 정확한 이름은 그대로
+  - { in: "15번 라울이고 만원", out: { no: 15, name: 라울, price: 10000, confidence: HIGH } }       # '라울이고'는 '고'로 끝나지만 끝말 '이고' 뗀 '라울'은 따로 본다
+  - { in: "15번 핑크무네 만원", out: { no: 15, price: 10000, confidence: LOW } }                   # '핑크무네'('네' 끝)는 핑크문과 비슷해도 맞추지 않음
