@@ -654,16 +654,14 @@ describe('Enter·등록·고치기 (AC-I4-21·22·23, D-I4-03)', () => {
     expect(h.registered).toEqual([])
   })
 
-  it('번호 없는 카드 → 등록 없이 고치기 칸(번호 칸 커서·"번호가 없어요…"), 가격 없는 카드 → 가격 칸', async () => {
+  // D-V3-41 (AC-V3-47): 번호 없는 말은 카드를 만들지 않는다(음성 기록에만) — 가격 없는 카드는 그대로 고치기 칸
+  it('번호 없는 말 → 카드 없음 (D-V3-41), 가격 없는 카드 → 등록 없이 고치기 칸(가격 칸)', async () => {
     const h = harness()
     await turnOn(h)
     FakeRecognition.last.say('핑크프릴 만오천 원')
     quiet()
-    const id = h.voice.getSnapshot().cards[0]?.id as string
-    h.voice.confirm(id, 'click')
+    expect(h.voice.getSnapshot().cards).toEqual([])
     expect(h.registered).toEqual([])
-    expect(h.voice.getSnapshot().forms.get(id)).toMatchObject({ no: '', name: '핑크프릴', price: '15,000원', focus: 'no', message: '번호가 없어요. 번호를 넣어 주세요.' })
-    expect(h.voice.getSnapshot().cards[0]?.touched).toBe(true)
     FakeRecognition.last.say('15번 핑크프릴')
     quiet()
     const id2 = h.voice.getSnapshot().cards[0]?.id as string
@@ -780,9 +778,9 @@ describe('자동 확정 (AC-I4-30·31, D-I4-05)', () => {
     FakeRecognition.last.sayAll('15번 핑크프릴 만오천 원', '16번 라울 오천 원')
     quiet()
     vi.advanceTimersByTime(500)
-    FakeRecognition.last.say('블루엘프 칠천 원') // 번호 없음 — 맨 앞, 자동 확정 없음
+    FakeRecognition.last.say('블루엘프 칠천 원') // 번호 없음 — D-V3-41로 카드가 생기지 않는다
     quiet()
-    expect(h.voice.getSnapshot().cards).toHaveLength(3)
+    expect(h.voice.getSnapshot().cards).toHaveLength(2)
     vi.advanceTimersByTime(4499)
     expect(h.registered).toEqual([])
     vi.advanceTimersByTime(1)

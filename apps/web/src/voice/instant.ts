@@ -30,7 +30,6 @@ export const REASON_BARE_NUMBER = "번호를 '번' 없이 들어 저절로 고�
 export const REASON_PRICE_FAR = '가격 차이가 너무 커서 저절로 고치지 않았어요.'
 /** 바로 등록을 막은 카드 (실방송 3차 — 판매자가 보고 등록) */
 export const PRICE_CHECK_NOTE = '가격 확인 필요 · 가격이 커서 바로 등록하지 않았어요. 맞으면 "등록"을 눌러 주세요.'
-export const NUMBER_CHECK_NOTE = "번호 확인 필요 · 가격 뒤에 '번' 없이 들린 번호예요. 맞으면 \"등록\"을 눌러 주세요."
 /** 알림의 단추 */
 export const NOTICE_OK = '알겠어요'
 
@@ -76,17 +75,15 @@ export function askMessage(no: number, current: { readonly name: string; readonl
   return `${String(no)}번을 고칠까요? ${changeWords(current, changes)}`
 }
 
-/** 바로 등록 뒤 큰 글자 칸: "108번 bts 100,000원 등록했어요 · 품종 확인 필요" */
-export function registeredReadout(no: number, name: string | null, price: number, needsCheck: boolean): string {
+/** 바로 등록 뒤 큰 글자 칸: "108번 100,000원 등록했어요", 사전 이름이 있으면 "180번 삼광색금 350,000원 등록했어요" (D-V3-37) */
+export function registeredReadout(no: number, name: string | null, price: number): string {
   const shown = name === null || name === '' ? '' : ` ${name}`
-  return `${String(no)}번${shown} ${formatWon(price)} 등록했어요${needsCheck && shown !== '' ? ' · 품종 확인 필요' : ''}`
+  return `${String(no)}번${shown} ${formatWon(price)} 등록했어요`
 }
 
 /** 무시: "108번은 이미 등록됐어요" */
 export const alreadyReadout = (no: number): string => `${String(no)}번은 이미 등록됐어요`
 
-/** 번호 둘 이상 (D-V3-05): "번호 확인 필요 · 들린 번호: 189·139" */
-export const numbersNote = (numbers: readonly number[]): string => `번호 확인 필요 · 들린 번호: ${numbers.map(String).join('·')}`
 
 /** 등록 뒤 다른 번호 (D-V3-05): "189번으로 등록했는데 139번도 들렸어요. 맞는지 확인해 주세요." */
 export const otherNumberMessage = (registered: number, others: readonly number[]): string =>

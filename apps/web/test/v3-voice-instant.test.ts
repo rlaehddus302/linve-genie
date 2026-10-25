@@ -3,7 +3,7 @@ import * as voiceModule from '@livejjim/voice'
 import type { SuggestionCard, VoiceSettings } from '@livejjim/voice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VoiceController, type ExistingView, type RecentFixOutcome, type VoiceHost } from '../src/voice/controller.ts'
-import { NUMBER_CHECK_NOTE, PRICE_CHECK_NOTE, askMessage, fixedMessage, numbersNote, otherNumberMessage, readInstant, registeredReadout } from '../src/voice/instant.ts'
+import { PRICE_CHECK_NOTE, askMessage, fixedMessage, otherNumberMessage, readInstant, registeredReadout } from '../src/voice/instant.ts'
 
 const T0 = Date.UTC(2026, 9, 25, 1, 0, 0)
 
@@ -263,14 +263,26 @@ function finish(h: Harness, index = 0): void {
 }
 
 describe('바로 등록 V3 수용 사례', () => {
-  it('R7: 서로 다른 N번 둘이면 등록하지 않고 번호 칸이 빈 카드에 "번호 확인 필요 · 들린 번호: 189·139"', async () => {
+  it('R7: 서로 다른 N번 둘이면 등록도 카드도 없이 기록·큰 글자 칸 "번호가 여럿 들렸어요: 189·139" (D-V3-41)', async () => {
     const h = await ready()
     say('어 자 요거 지금 189번인데 뿌리가 있습니다 뿌리 있는데 컵이 너무 잘 들었어요 빅뱅 금 139번 얘 50만 원 들어요')
-    at(3000)
+    at(2000)
     expect(h.registered).toEqual([])
+    expect(cards(h)).toEqual([])
+    expect(h.voice.getSnapshot().readout?.text).toBe('번호가 여럿 들렸어요: 189·139')
+    expect(h.voice.getSnapshot().log[0]?.reason).toBe('번호가 여럿 들렸어요: 189·139')
+  })
+
+  it('번호 없는 말은 카드 없이 "번호를 못 들었어요", 번호만 있는 카드는 "가격을 말하면 바로 등록돼요" (D-V3-41)', async () => {
+    const h = await ready()
+    say('핑크프릴 만오천 원')
+    at(2000)
+    expect(cards(h)).toEqual([])
+    expect(h.voice.getSnapshot().readout?.text).toBe('번호를 못 들었어요')
+    say('15번 핑크프릴')
+    at(5000)
     const card = cards(h)[0]
-    expect(card?.no).toBeNull()
-    expect(h.voice.getSnapshot().notes.get(card?.id ?? '')).toBe('번호 확인 필요 · 들린 번호: 189·139')
+    expect(h.voice.cardInfo(card?.id ?? '')?.ask).toBe('가격을 말하면 바로 등록돼요')
   })
 
   it('R26: 등록 뒤 같은 덩어리에서 다른 번호가 들리면 알림만 ("알겠어요"까지)', async () => {
@@ -387,16 +399,15 @@ describe('바로 등록 V3 수용 사례', () => {
 })
 
 describe('중간 결과 끝의 번 없는 번호 (D-V3-26)·막음 (실방송 3차)', () => {
-  it('R34: "… 25만 원 170"은 중간 결과에서도 최종 결과에서도 바로 등록하지 않고 카드에 "번호 확인 필요"', async () => {
+  it('R34: "… 25만 원 170"은 바로 등록하지 않고 카드도 없이 "번호가 가격 뒤에 들렸어요" (D-V3-41)', async () => {
     const h = await ready()
     say('자 9cm에 이거 25만 원 170', false)
     expect(h.registered).toEqual([])
     say('자 9cm에 이거 25만 원 170')
-    at(3000)
+    at(2000)
     expect(h.registered).toEqual([])
-    const card = cards(h)[0]
-    expect(card?.no).toBe(170)
-    expect(h.voice.getSnapshot().notes.get(card?.id ?? '')).toBe(NUMBER_CHECK_NOTE)
+    expect(cards(h)).toEqual([])
+    expect(h.voice.getSnapshot().readout?.text).toBe('번호가 가격 뒤에 들렸어요')
   })
 
   it('300만 원을 넘는 가격은 바로 등록하지 않고 카드에 "가격 확인 필요"', async () => {
@@ -443,6 +454,27 @@ describe('덩어리 내내 켜져 있어야 바로 (D-V3-35)', () => {
   })
 })
 
+describe('추측 품종은 등록에 쓰지 않는다 (D-V3-37)', () => {
+  it('바로 등록은 품종 미입력, 큰 글자 칸 "15번 10,000원 등록했어요"', async () => {
+    const h = await ready()
+    say('15번 bts 자 bts 만 원')
+    expect(reg(h)).toEqual([{ no: 15, name: '', price: 10000, source: 'instant' }])
+    expect(h.voice.getSnapshot().readout?.text).toBe('15번 10,000원 등록했어요')
+  })
+
+  it('카드 품종 칸은 비우고 추측은 후보 단추 — 누르면 채우고 손댄 카드', async () => {
+    const h = await ready()
+    say('15번 bts 자 bts 만오천')
+    at(3000)
+    const card = cards(h)[0]
+    expect(card?.name).toBeNull()
+    expect(h.voice.cardInfo(card?.id ?? '')?.candidates.map((item) => item.name)).toContain('bts')
+    h.voice.chooseCandidate(card?.id ?? '', 'bts')
+    expect(cards(h)[0]?.name).toBe('bts')
+    expect(cards(h)[0]?.touched).toBe(true)
+  })
+})
+
 describe('바로 등록 문장', () => {
   it('저장값 읽기: 없거나 모르는 값은 켬', () => {
     expect(readInstant(null)).toBe(true)
@@ -454,8 +486,8 @@ describe('바로 등록 문장', () => {
     expect(fixedMessage(108, { name: 'bts', price: 100000 }, { price: 120000 })).toBe('108번을 고쳤어요: 가격 100,000원 → 120,000원')
     expect(fixedMessage(108, { name: '', price: 100000 }, { name: '핑크프릴' })).toBe('108번을 고쳤어요: 품종 없음 → 핑크프릴')
     expect(askMessage(108, { name: 'bts', price: 100000 }, { price: 120000 })).toBe('108번을 고칠까요? 가격 100,000원 → 120,000원')
-    expect(registeredReadout(108, 'bts', 100000, true)).toBe('108번 bts 100,000원 등록했어요 · 품종 확인 필요')
-    expect(numbersNote([189, 139])).toBe('번호 확인 필요 · 들린 번호: 189·139')
+    expect(registeredReadout(108, '', 100000)).toBe('108번 100,000원 등록했어요')
+    expect(registeredReadout(180, '삼광색금', 350000)).toBe('180번 삼광색금 350,000원 등록했어요')
     expect(otherNumberMessage(189, [139])).toBe('189번으로 등록했는데 139번도 들렸어요. 맞는지 확인해 주세요.')
   })
 })

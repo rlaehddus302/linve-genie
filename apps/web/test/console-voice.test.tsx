@@ -193,10 +193,8 @@ describe('자막·카드·Enter 등록 (AC-I4-13·20·21)', () => {
     FakeRecognition.say('<img src=x onerror=alert(1)>15번 라울 만원')
     await quiet()
     expect(screen.queryByText(/들리는 말:/)).toBeNull()
-    // 붙여 쓴 "…>15번"은 번호 표시가 아니다(R-17) — 품종·가격 카드, "확인 필요"
-    const card = screen.getByRole('listitem', { name: '번호 없음 라울 10,000원 카드' })
-    expect(card.textContent).toContain('들은 말: <img src=x onerror=alert(1)>15번 라울 만원')
-    expect(within(card).getByText('확인 필요')).toBeDefined()
+    // 붙여 쓴 "…>15번"은 번호 표시가 아니다(R-17) — 번호 없는 말은 카드 없이 기록에만 (D-V3-41)
+    expect(screen.queryByRole('listitem', { name: '번호 없음 라울 10,000원 카드' })).toBeNull()
     expect(document.querySelector('img')).toBeNull()
     // 최종 결과의 기록은 [음성 기록] 창 하나 (D-V2-21 — "들린 말 기록" 목록은 없다)
     expect(screen.queryByText('들린 말 기록')).toBeNull()
@@ -283,25 +281,16 @@ describe('번호·가격 없음, 이미 있는 번호, 고치기 (AC-I4-22·23)'
     expect(engine.posts).toEqual([])
   })
 
-  it('번호 없는 카드의 Enter → 고치기 칸(번호 칸 커서·문장) → 17 Enter로 등록', async () => {
+  // D-V3-41 (AC-V3-47): 번호 없는 말은 카드가 없다 — Enter는 빠른 입력 그대로
+  it('번호 없는 말 → 카드 없음, 큰 글자 칸 "번호를 못 들었어요", 쓰기 없음 (D-V3-41)', async () => {
     setup()
-    const { quick } = await openConsole()
+    await openConsole()
     await turnOnVoice()
     FakeRecognition.say('핑크프릴 만오천 원')
     await quiet()
-    await sleep(1050)
-    quick.focus()
-    pressEnter(quick)
-    const form = await screen.findByRole('group', { name: '번호 없음 핑크프릴 15,000원 고치기 칸' })
-    expect(within(form).getByText('번호가 없어요. 번호를 넣어 주세요.')).toBeDefined()
-    const no = within(form).getByLabelText('번호') as HTMLInputElement
-    await waitFor(() => expect(document.activeElement).toBe(no))
-    expect(no.inputMode).toBe('numeric')
-    expect((within(form).getByLabelText('가격') as HTMLInputElement).inputMode).toBe('numeric')
+    expect(screen.queryByRole('listitem', { name: '번호 없음 핑크프릴 15,000원 카드' })).toBeNull()
+    expect(screen.getByText('번호를 못 들었어요')).toBeDefined()
     expect(registers()).toEqual([])
-    fireEvent.change(no, { target: { value: '17' } })
-    pressEnter(no)
-    await waitFor(() => expect(registers()).toEqual([[17, '핑크프릴', 15000]]))
   })
 
   it('고치기 칸의 가격은 그 방송 단위(천원): "10" = 10,000원, 틀리면 빠른 입력과 같은 문장', async () => {
