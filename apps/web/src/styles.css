@@ -2005,6 +2005,20 @@ html:has(.save-bar) {
     margin: 0.375rem 0 0;
   }
 
+  /* 휴대폰: 빈 "등록하면" 줄은 자리를 차지하지 않는다 — 미리 보기가 생기면 한 줄 (QL2 D-QL2-11 (2)). PC는 늘 한 줄 자리(D-FB1-18 (a)) */
+  .quick-will-register[data-empty] {
+    display: none;
+  }
+
+  /* 휴대폰 고정 영역 맨 끝의 현재 상품 한 줄 요약 (QL2 D-QL2-11 (1)) — 줄바꿈은 되고(글자 잘림 0), 글자 16px 이상 */
+  .current-summary {
+    margin: 0;
+    font-size: 1rem;
+    line-height: 1.375;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+
   /* 휴대폰: 개수 칸을 빠른 입력 줄과 한 줄에 (TE-STK-001) — 뒤 글자 "개"를 빼고 칸 안 여백을 줄여 빠른 입력 칸 폭을 남긴다 */
   .quick-row {
     gap: 0.375rem;
@@ -2072,6 +2086,34 @@ html:has(.save-bar) {
 
   .alert-bar-open .alerts {
     max-height: none;
+  }
+
+  /* 펼친 동안 목록은 띠 전체 폭, 항목은 한 줄에 하나씩 — "접기" 단추는 목록 아래 자기 줄 (QL2 D-QL2-12 (1)). 문서·Tab 차례는 그대로 */
+  .alert-bar-open {
+    flex-wrap: wrap;
+  }
+
+  .alert-bar-open .alerts {
+    flex: 1 1 100%;
+  }
+
+  .alert-bar-open .alerts-list {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+  }
+
+  .alert-bar-open .alerts-list > li {
+    inline-size: 100%;
+  }
+
+  .alert-bar-open .alert-item,
+  .alert-bar-open .alert-lead-button {
+    inline-size: 100%;
+  }
+
+  .alert-bar-open .alert-toggle {
+    margin-inline-start: auto;
   }
 
   .alert-bar .alerts-list > li {

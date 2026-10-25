@@ -118,8 +118,10 @@ export function QuickUnitLine({ value }: { readonly value: string }) {
 
 /** "등록하면: …" 한 줄 (D-FB1-18 (a)): 늘 있다(미리 보기가 없으면 빈 글) — 높이 한 줄 고정, 길면 끝을 "…"로. 치는 동안 아래 요소가 움직이지 않는다 */
 function RegisterLine({ text }: { readonly text: string | null }) {
+  // 빈 줄 표시(data-empty): 휴대폰은 미리 보기가 있을 때만 자리를 차지한다(QL2 D-QL2-11 (2)) — PC는 늘 한 줄 자리 그대로
+  const empty = text === null || text === ''
   return (
-    <p className="quick-will-register" role="status">
+    <p className="quick-will-register" role="status" data-empty={empty ? 'yes' : undefined}>
       {text ?? ''}
     </p>
   )

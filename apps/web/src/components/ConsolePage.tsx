@@ -50,7 +50,7 @@ import { ErrorNote } from './ErrorNote.tsx'
 import { ImportDialog } from './ImportDialog.tsx'
 import { ReprintDialog } from './LabelParts.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
-import { ProductBoard, CurrentProduct, FocusBanner } from './ProductBoard.tsx'
+import { ProductBoard, CurrentProduct, CurrentSummary, FocusBanner } from './ProductBoard.tsx'
 import { EditOptionsHost } from './ProductOptions.tsx'
 import { OptionDialog } from './OptionDialog.tsx'
 import { useLabelsEnabled, usePrintApi, usePrintState, useScopeLabels } from './print-context.tsx'
@@ -1362,6 +1362,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
                 {labelsNote.text}
               </p>
             ) : null}
+            {/* 휴대폰만: 고정 영역 맨 끝에 현재 상품 한 줄 요약 — 스크롤해도 늘 보인다. PC·끝난 방송에는 없다 (QL2 D-QL2-11 (1)) */}
+            {wide || ended || sealed ? null : <CurrentSummary product={current} />}
           </div>
           {wide ? voiceLive : null}
         </div>

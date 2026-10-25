@@ -7,6 +7,7 @@ import type { ClaimedJob, PrintOverview } from '../src/api/print-types.ts'
 import { saveAttempt, savedAttempt } from '../src/lib/device.ts'
 import { PrintStore } from '../src/lib/print-store.ts'
 import { PrinterStation, type TestPrinterHandle } from '../src/lib/printer-station.ts'
+import { replaceQuestion } from '../src/lib/print-words.ts'
 import { device, overview, queue, templates } from './print-support.ts'
 import { DATE, FakeEventSource, FakeServer, flush } from './support.ts'
 
@@ -371,6 +372,12 @@ describe('출력 기기 되기 (AC-I1-10·23)', () => {
     server.on('POST', /^\/api\/print\/device$/, () => ({ status: 409, body: { error: { code: 'PRINT_DEVICE_TAKEN', message: '다른 기기에서 출력하고 있어요. 이 기기로 바꾸려면 바꾸기를 눌러 주세요.' }, device: { name: 'PC' } } }))
     const s = await start()
     expect(await s.become('휴대폰', false)).toEqual({ kind: 'taken', name: 'PC' })
+  })
+
+  it('바꾸기 창 문장 — 이름이 같아도 "다른 기기"로 뜻이 분명하다 (AC-QL2-45)', () => {
+    // QL2 D-QL2-12
+    expect(replaceQuestion('휴대폰')).toBe("지금은 다른 기기 '휴대폰'에서 출력하고 있어요. 이 기기로 바꿀까요?")
+    expect(replaceQuestion('<b>PC</b>')).toBe("지금은 다른 기기 '<b>PC</b>'에서 출력하고 있어요. 이 기기로 바꿀까요?")
   })
 })
 

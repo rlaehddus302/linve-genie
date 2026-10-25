@@ -10,6 +10,7 @@ import { stockLeftWords } from '../lib/stock.ts'
 import { ALERT_WORD, PRODUCT_STATUS_WORD } from '../lib/words.ts'
 import { consoleLabels, useConsoleApi } from './console-context.ts'
 import { boardLabelWords } from './LabelParts.tsx'
+import { currentSummaryWords } from '../lib/current-summary.ts'
 
 /** 1등 표시 이름 (재고 2 이상이면 여럿). 없으면 "아직 없음". 옵션 상품은 1등이 변형마다라 "변형별" (D-O2-12) */
 function useWinnerNames(product: Product): string {
@@ -133,6 +134,23 @@ export function CurrentProduct({ product, onOpen }: { readonly product: Product 
       {product === undefined ? <p>아직 등록한 상품이 없어요. 빠른 입력칸에 "15 핑크프릴 10000"처럼 적어 주세요.</p> : <CurrentBody product={product} onOpen={onOpen} />}
     </section>
   )
+}
+
+/**
+ * 휴대폰 고정 영역 맨 끝의 현재 상품 한 줄 요약 (QL2 D-QL2-11 (1), AC-QL2-01) — 스크롤해도 늘 보인다. 누르는 기능은 없다(카드가 그대로 있다).
+ * 값은 카드와 같다(1등·대기). 100% 글자 고정 영역 35%는 요약이 든 채로 지켜져(측정, dev-notes) 6글자 줄이기(D-QL2-11 (3))는 쓰지 않는다
+ */
+export function CurrentSummary({ product }: { readonly product: Product | undefined }) {
+  return (
+    <p className="current-summary" role="status" aria-live="polite" aria-label="현재 상품 요약">
+      {product === undefined ? currentSummaryWords(undefined) : <SummaryText product={product} />}
+    </p>
+  )
+}
+
+function SummaryText({ product }: { readonly product: Product }) {
+  const winners = useWinnerNames(product)
+  return <>{currentSummaryWords({ no: product.no, name: nameOf(product), status: product.status, winners, waiting: waitCount(product) })}</>
 }
 
 function CurrentBody({ product, onOpen }: { readonly product: Product; readonly onOpen: (key: string) => void }) {

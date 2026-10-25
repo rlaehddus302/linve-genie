@@ -97,7 +97,7 @@ export const reconnectThereMessage = (name: string): string => `출력 기기 '$
 export const autoReconnectingMessage = (attempt: number, total: number): string => `프린터에 다시 잇고 있어요. (${String(attempt)}/${String(total)})`
 /** 출력 기기 자신의 멈춤 띠: 저절로 다시 잇기가 그친 뒤 (QL2 D-QL2-04 (2)) — 아래에 해볼 일 목록과 "다시 연결" */
 export const AUTO_RECONNECT_GAVE_UP = "저절로 다시 잇지 못했어요. 아래를 해 본 뒤 '다시 연결'을 눌러 주세요."
-export const replaceQuestion = (name: string): string => `지금은 '${name}'에서 출력하고 있어요. 이 기기로 바꿀까요?`
+export const replaceQuestion = (name: string): string => `지금은 다른 기기 '${name}'에서 출력하고 있어요. 이 기기로 바꿀까요?`
 
 /** 라벨의 구매자 표시 (유튜브 닉네임, 문자찜은 `문자찜`) */
 export function buyerWord(buyer: LabelBuyer): string {
