@@ -92,3 +92,19 @@
 - `tests/e2e/ql2/console.spec.ts` AC-QL2-01 150% 넷(375·412 × 실제·리허설): 아직 **카드**("15번"·이름·"1등: ")를 첫 화면에서 찾는다 → D-QL2-11 (4)대로 150%는 요약 줄(`getByRole('status', { name: '현재 상품 요약' })`)로. 실제 값은 `15번 핑크프릴 · 판매 완료 · 1등 문자찜(<b>해커<… · 대기 0명` — 재고 1에 1등이 있어 상태는 "판매 완료"이고, 문자찜 구매자 이름은 카드처럼 "문자찜(메모)"라 10글자에서 잘린다(AC-QL2-01 예문 "판매 중 · 1등 <b>해커</b>"와 다름 — spec-keeper 확인 필요). 375 리허설 150%는 위 측정대로 아직 못 미침
 - `tests/e2e/fb1/console.spec.ts:232` AC-FB1-02 375px "'등록하면' 줄은 늘 있고 한 줄 높이" → D-QL2-11 (2)로 휴대폰 빈 줄은 높이 0(1440 줄은 그대로 통과)
 - 폴더 실행에서 흔들린 것(따로 돌리면 통과): `n3/flow.spec.ts:215`, `ql2/ipad.spec.ts` 아이패드 줄
+
+## 4회차 고치기 (D-QL2-13 · SA-QL2-01) — dev-web
+
+### 넣은 것
+- 리허설 띠(`p.rehearsal-banner`, `role="note"` 그대로)에 두 문장: `.rehearsal-banner-wide` "리허설 중 — 실제 판매가 아니에요"(PC), `.rehearsal-banner-short` "리허설 · 실제 판매 아님"(휴대폰). 숨긴 쪽 `display:none`. 휴대폰은 띠 위아래 여백 0.25rem·줄 높이 1.25, 제목 안 "리허설" 꼬리표 숨김(`.console-rehearsal .console-title .tag-rehearsal`). 색·테두리·굵은 글자·줄바꿈 그대로, 누르는 기능 없음
+- SA-QL2-01(펼친 알림 겹침): **CSS 문제가 아니었다.** 실측(375×812 150%, 펼친 뒤 300ms): 출력 멈춤 24~142, 보류 찜 154~220, 출력 기기 끊김 232~380 — 겹침 0, 세 항목 폭 327 = 띠 폭. 겹쳐 보인 까닭은 펼친 **다음 그리기**에 `useKeepAboveBar`(U-MOB1-01, 크기 관찰 → requestAnimationFrame)가 화면을 231px 올려서, 그 사이에 잰 첫 항목(y 254, 올리기 전)과 둘째 항목(y 154, 올린 뒤)이 겹친 것처럼 읽혔다(스크롤 0 → 231). `.alert-lead { flex: 0 1 auto }`는 그대로 둠
+  - 고침: `ConsolePage.tsx`에서 `alertsOpen`이 바뀐 그 그리기 안(`useLayoutEffect`, 칠하기 전)에서 포커스가 빠른 입력 묶음 안이면 `keepAboveBar`를 바로 부른다 — 판매자에게도 펼친 목록이 한 번 제자리에 그려졌다가 뛰어 올라가는 흔들림이 없어진다. 뒤따르는 관찰의 올릴 거리는 0
+- 단위 시험: `apps/web/test/ql2-alert-lift.test.tsx`(누른 즉시 올림 231 · 포커스가 묶음 밖이면 안 올림 — 고침을 빼면 실패 확인), `apps/web/test/ql2-rehearsal.node.test.ts`(스타일), `apps/web/test/console.test.tsx` 리허설 줄에 두 문장 단언 추가
+
+### 측정 (크로미움, 임시 시험 — 저장소에 남기지 않음)
+- 375×812·412×915 150% 리허설: 띠 글 "리허설 · 실제 판매 아님" 한 줄(`Range.getClientRects` 줄 1개), 띠 높이 49.75(전 114), 잘림 0. 제목은 "리허설 1 / 날짜" 두 줄 46.8
+- 1440×900 리허설: "리허설 중 — 실제 판매가 아니에요" 한 줄, 꼬리표 보임
+- E2E `tests/e2e/ql2/console.spec.ts`·`alerts.spec.ts` 32개 모두 통과(375 150% 리허설 요약 줄·AC-QL2-44 포함)
+
+### test-e2e에게
+- D-QL2-13 새 단언(375·412 150% 리허설 띠 한 줄·글자 그대로, 1440 옛 문장)은 아직 E2E에 없다. 띠 안 두 문장은 각각 `span`이라 `getByText('리허설 · 실제 판매 아님')`·`getByText('리허설 중 — 실제 판매가 아니에요')`로 잡히고, 보이는 쪽만 `toBeVisible`이다. `getByRole('note')`의 `textContent`에는 두 문장이 다 있으니 `toHaveText`는 `useInnerText: true`로

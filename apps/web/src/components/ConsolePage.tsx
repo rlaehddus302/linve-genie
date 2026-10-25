@@ -9,7 +9,7 @@
 // Alt+P는 창을 열지 않고 "라벨 쓰지 않음 — 설정에서 켤 수 있어요."를 알린다(빠른 입력칸 포커스 그대로). 버릴 라벨은 남는다.
 import { DEFAULT_SETTINGS, type SaleSettings } from '@livejjim/core'
 import type { CardRegistration, SmsProductView, SmsReadOptions, SuggestionCard } from '@livejjim/voice'
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ApiError, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
 import type { ChatMessage, Product, WriteResult } from '../api/types.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
@@ -28,7 +28,7 @@ import { changedFields, decideFixForm, decideQuickInput, editQuestion, quickSett
 import { routePath, type Navigate } from '../lib/router.ts'
 import { useScopeStore } from '../lib/use-store.ts'
 import { useWide } from '../lib/use-wide.ts'
-import { useKeepAboveBar } from '../lib/above-bar.ts'
+import { keepAboveBar, useKeepAboveBar } from '../lib/above-bar.ts'
 import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
 import { cardLine, enterBadgeCard } from '../lib/voice.ts'
 import { readReceived } from '../lib/received.ts'
@@ -319,6 +319,12 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   /** 상품 키 → 등록 되돌리기 항목 (음성 "취소" → 되돌릴까요 카드, D-V2-06 3) */
   const regUndo = useRef(new Map<string, number>())
   const [alertsOpen, setAlertsOpen] = useState(false)
+  // 알림 띠를 펼치거나 접은 그 그리기 안에서(칠하기 전) 묶음을 막대 위로 올린다 — 다음 그리기(useKeepAboveBar의 크기 관찰)까지 미루면
+  // 펼친 목록이 한 번 제자리에 그려진 뒤 화면이 뛰어 올라가, 그 사이에 잰 항목 위치가 서로 겹쳐 보인다(SA-QL2-01). 그 뒤의 관찰은 올릴 거리 0
+  useLayoutEffect(() => {
+    const box = quickBoxRef.current
+    if (box !== null && box.contains(box.ownerDocument.activeElement)) keepAboveBar(box, quickRef.current)
+  }, [alertsOpen])
   const wide = useWide()
   const wideRef = useRef(wide)
   wideRef.current = wide
@@ -1262,8 +1268,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       <ReadOnlyContext.Provider value={sealed}>
       <main className={broadcast.rehearsal ? 'console console-rehearsal' : 'console'}>
         {broadcast.rehearsal ? (
+          // 휴대폰(48rem 미만)은 한 줄 "리허설 · 실제 판매 아님", PC는 옛 문장 — 폭에 맞는 하나만 보이고 읽힌다(숨긴 쪽 display:none) (QL2 D-QL2-13 (1))
           <p className="rehearsal-banner" role="note">
-            리허설 중 — 실제 판매가 아니에요
+            <span className="rehearsal-banner-wide">리허설 중 — 실제 판매가 아니에요</span>
+            <span className="rehearsal-banner-short">리허설 · 실제 판매 아님</span>
           </p>
         ) : null}
         <div ref={headRef} className="console-head">

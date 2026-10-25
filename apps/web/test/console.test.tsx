@@ -522,12 +522,17 @@ describe('리허설·화면 말 (AC-S05-54·70)', () => {
     model.rehearsal = true
     await openConsole()
     expect(screen.getByText('리허설 중 — 실제 판매가 아니에요')).toBeDefined()
+    // 휴대폰 한 줄 문장도 같은 띠(role=note) 안에 — 폭에 따라 하나만 보인다(스타일은 ql2-rehearsal.node.test.ts, 보이는 쪽은 E2E) (D-QL2-13 (1))
+    const note = screen.getByRole('note')
+    expect(note.querySelector('.rehearsal-banner-wide')?.textContent).toBe('리허설 중 — 실제 판매가 아니에요')
+    expect(note.querySelector('.rehearsal-banner-short')?.textContent).toBe('리허설 · 실제 판매 아님')
     expect(screen.getByRole('region', { name: '리허설 조작판' })).toBeDefined()
     expect(screen.getByRole('button', { name: '시청자로 보내기' })).toBeDefined()
     cleanup()
     model.rehearsal = false
     await openConsole()
     expect(screen.queryByText('리허설 중 — 실제 판매가 아니에요')).toBeNull()
+    expect(screen.queryByText('리허설 · 실제 판매 아님')).toBeNull()
     expect(screen.queryByRole('region', { name: '리허설 조작판' })).toBeNull()
     expect(screen.queryByRole('button', { name: '시청자로 보내기' })).toBeNull()
   })
