@@ -27,7 +27,23 @@ function beonValues(tokens: readonly string[]): number[] {
     if (/^[공일이삼사오육칠팔구]{3}$/.test(x) && x[0] !== '공') return Number([...x].map((c) => '공일이삼사오육칠팔구'.indexOf(c)).join(''))
     return parseKoreanNumber(x)
   }
+  // 자리 읽기 ⓑ + 번 (D-V3-11·27): 이어진 한 자리 토큰 셋, 셋째가 `X번` → 세 자리 번호 하나 (`6 이 8번` = 628번)
+  const DIGITS = '0123456789'
+  const HANGUL = '공일이삼사오육칠팔구'
+  const one = (t: string | undefined) => t !== undefined && t.length === 1 && (DIGITS.includes(t) || HANGUL.includes(t))
+  const val = (c: string) => (DIGITS.includes(c) ? Number(c) : HANGUL.indexOf(c))
+  const triple = (i: number): number | null => {
+    const third = formsOf(tokens[i] as string).find((f) => f.length === 2 && f.endsWith('번') && one(f.charAt(0)))
+    if (third === undefined || !one(tokens[i - 1]) || !one(tokens[i - 2]) || one(tokens[i - 3]) || one(tokens[i + 1])) return null
+    const first = val(tokens[i - 2] as string)
+    return first === 0 ? null : first * 100 + val(tokens[i - 1] as string) * 10 + val(third.charAt(0))
+  }
   tokens.forEach((token, i) => {
+    const t3 = triple(i)
+    if (t3 !== null) {
+      values.push(t3)
+      return
+    }
     for (const form of formsOf(token)) {
       if (form.length >= 2 && form.endsWith('번')) {
         const v = xValue(form.slice(0, -1))
@@ -73,6 +89,14 @@ function checkPrefix(prefix: string, final: boolean): void {
   expect(Number.isSafeInteger(reading.ready.price)).toBe(true)
   expect(reading.priceSure).toBe(true)
   expect(reading.correction).toBe(false)
+  // D-V3-33: 3,000,000원을 넘으면 확정이 아니다
+  expect(reading.ready.price, `300만 원 넘는 가격으로 등록: ${prefix}`).toBeLessThanOrEqual(3_000_000)
+  // D-V3-34: '번' 없는 번호의 (처음) 후보 토큰이 첫 원 가격 줄보다 뒤면 확정이 아니다 — '번' 없는 번호면 그 수가 첫 '원' 토큰보다 앞에 있어야 한다
+  if (!beonValues(tokens).includes(reading.ready.no)) {
+    const firstWon = tokens.findIndex((t) => formsOf(t).some((f) => f.endsWith('원') && AMOUNT.test(f.slice(0, -1))))
+    const before = tokens.slice(0, firstWon)
+    expect(hasNumberSource(before, reading.ready.no), `원 가격 뒤의 '번' 없는 번호로 등록: ${prefix}`).toBe(true)
+  }
   // D-V3-26: 중간 결과에서 '번' 없는 번호의 후보 토큰이 글의 마지막 토큰이면 확정이 아니다 ('N번'은 글 끝이어도 바로)
   if (!final && !beonValues(tokens).includes(reading.ready.no)) {
     const last = tokens[tokens.length - 1] as string
@@ -124,7 +148,6 @@ describe('AC-V3-60 — 무작위 문장을 낱말 하나씩 늘려 넣기', () =
     ['일육팔 삼광색금 이십오만 원', 4, 168, 250_000],
     ['1 6 8번 라울 만원', 5, 168, 10_000],
     ['백육십팔 삼광색금 이십오만 원', 4, 168, 250_000],
-    ['자 9cm에 이거 25만 원 170', 6, 170, 250_000],
     ['170 25만 원', 3, 170, 250_000],
     ['108번 10만원 아니 12만원', 2, 108, 100_000],
     ['21번 핑크문 만원 취소', 3, 21, 10_000],
@@ -135,7 +158,7 @@ describe('AC-V3-60 — 무작위 문장을 낱말 하나씩 늘려 넣기', () =
     expect([ready?.no, ready?.price]).toEqual([no, price])
   })
 
-  it.each(['택배는 이삼 일 걸리고 만 원이에요', '삼광색금 3강 25만 원', '15번 라울 174 28만 원', '백 육십팔 라울 만원', '15번 핑크프릴 만오천', '189번 빅뱅금 139번 50만 원', '25만 원 1 5번', '25만 원 이십 오번', '100 5만 원', '이백 오만 원', '택배는 이 삼 일 걸리고 만 원이에요'])('"%s" → 어느 k에서도 확정 없음', (text) => {
+  it.each(['택배는 이삼 일 걸리고 만 원이에요', '삼광색금 3강 25만 원', '15번 라울 174 28만 원', '백 육십팔 라울 만원', '15번 핑크프릴 만오천', '189번 빅뱅금 139번 50만 원', '25만 원 1 5번', '25만 원 이십 오번', '자 9cm에 이거 25만 원 170', '요 아이는 65만 원까지 자 색감이 이렇게 예쁘게 나왔네요 자 60 어 자', '38번 605만 원까지', '25만 원 170', '100 5만 원', '이백 오만 원', '택배는 이 삼 일 걸리고 만 원이에요'])('"%s" → 어느 k에서도 확정 없음', (text) => {
     expect(feedWords(text).firstK).toBeNull()
   })
 })

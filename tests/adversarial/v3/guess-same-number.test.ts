@@ -13,7 +13,6 @@ import {
   readRegistration,
   prepareVoiceDictionary,
   type NameFrom,
-  type SameNumberDecision,
   type SameNumberInput,
   type SameNumberStatus,
 } from '@livejjim/voice'
@@ -67,6 +66,10 @@ describe('AC-V3-63 — 품종 추측은 군말·막는 낱말·정정·칸 이�
         expect(/[0-9]/.test(guess)).toBe(false)
         expect([...guess].length).toBeGreaterThanOrEqual(2)
         expect([...guess].length).toBeLessThanOrEqual(20)
+        // D-V3-30: 두 번 이상 나온 낱말만, 풀이말 끝(다 요 죠 네 까 고 게 서 면 데) 모양은 아님
+        expect(/[다요죠네까고게서면데]$/.test(guess), `풀이말 끝: ${text} → ${guess}`).toBe(false)
+        const times = text.split(' ').filter((t) => t === guess || (t.startsWith(guess) && ENDINGS.includes(t.slice(guess.length)))).length
+        expect(times, `한 번만 나온 낱말: ${text} → ${guess}`).toBeGreaterThanOrEqual(2)
         // 바로 등록 값의 품종도 같다
         const ready = readRegistration(text, { dictionary: DICT }).ready
         if (ready !== null && ready.nameNeedsCheck) expect(ready.name).toBe(guess)
@@ -75,105 +78,170 @@ describe('AC-V3-63 — 품종 추측은 군말·막는 낱말·정정·칸 이�
     )
   })
 
+  // D-V3-30: 추측은 두 번 이상 나온 후보 낱말 가운데 처음 것 — 군말을 지나 되풀이한 품종을 고른다
   it.each([
-    ['15번 UI는 bts 만원', 'bts'],
-    ['15번 요 아이는 bts 만원', 'bts'],
-    ['15번 유 아이 bts 만원', 'bts'],
-    ['15번 품종은 bts 만원', 'bts'],
-    ['15번 이거요 그거는 저것도 bts 만원', 'bts'],
-    ['15번 얘가 걔는 bts 만원', 'bts'],
+    ['15번 UI는 bts 자 bts 만원', 'bts'],
+    ['15번 요 아이는 bts 요 아이는 bts는 만원', 'bts'],
+    ['15번 유 아이 bts 유 아이 bts 만원', 'bts'],
+    ['15번 이거요 그거는 저것도 bts 이거 bts요 만원', 'bts'],
+    ['15번 얘가 걔는 bts 얘는 bts 만원', 'bts'],
   ])('"%s" → 군말을 지나 %s', (text, guess) => {
     expect(guessVariety(text)).toBe(guess)
   })
+
+  // D-V3-30: 한 번만 나온 사전 밖 낱말·풀이말 끝 모양은 추측이 아니다 (실제 방송 1·실방송 3차 R44)
+  it.each([
+    '네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요',
+    '15번 UI는 bts 만원',
+    '15번 품종은 bts 만원',
+    '요 아이는 65만 원까지 자 색감이 이렇게 예쁘게 나왔네요 자 60 어 자',
+    '15번 나왔네요 자 나왔네요 만원',
+    '15번 예쁘고 예쁘고 만원',
+    '15번 좋다 좋다 만원',
+  ])('"%s" → 추측 없음, 바로 등록 품종도 비움', (text) => {
+    expect(guessVariety(text)).toBeNull()
+    const ready = readRegistration(text, { dictionary: DICT, final: true }).ready
+    if (ready !== null) expect(ready.name).toBeNull()
+  })
 })
 
-describe('AC-V3-61 — decideSameNumber 모든 조합', () => {
+describe('AC-V3-61 — decideSameNumber 모든 조합 (R-22, D-V3-31~33)', () => {
+  // R-22 입력·결과는 스펙 문장 그대로 쓴다 (numberFrom·NUMBER_BARE·PRICE_JUMP — D-V3-32·33)
+  type SpecNumberFrom = 'MARKER' | 'BARE'
+  type SpecReason = 'NO_AUTO' | 'NUMBER_BARE' | 'NOT_OPEN' | 'PRICE_NOT_SURE' | 'PRICE_JUMP' | 'CLAIMS'
+  interface SpecInput {
+    readonly heard: { readonly price: number | null; readonly priceSure: boolean; readonly name: string | null; readonly nameFrom: NameFrom | null; readonly numberFrom: SpecNumberFrom }
+    readonly product: { readonly name: string; readonly price: number; readonly status: SameNumberStatus; readonly liveClaims: number }
+    readonly auto: boolean
+  }
+  interface SpecDecision {
+    readonly action: 'IGNORE' | 'AUTO_FIX' | 'ASK'
+    readonly changes: { readonly price?: number; readonly name?: string }
+    readonly reason: SpecReason | null
+  }
+  const decide = (input: SpecInput): SpecDecision => decideSameNumber(input as unknown as SameNumberInput) as unknown as SpecDecision
+
   const PRODUCT_NAMES = ['', '핑크프릴'] as const
   const HEARD_NAMES = [null, '핑크프릴', '핑크 프릴', 'bts'] as const // 품종 4가지: 없음·같음·공백만 다름·다름
   const FROMS: readonly (NameFrom | null)[] = ['DICTIONARY', 'GUESS', null]
   const STATUSES: readonly SameNumberStatus[] = ['READY', 'OPEN', 'SOLD', 'HOLD', 'CLOSED']
-  const PRICES = [null, 100_000, 120_000] as const // 없음·같음·다름 (상품 100,000원)
+  const NUMBER_FROMS: readonly SpecNumberFrom[] = ['MARKER', 'BARE']
+  /** 상품 가격 × 들은 가격 (PRICE_JUMP 경계: 딱 3배·3배+1·딱 1/3·1/3 밑·딱 300만·300만+1) */
+  const PRICE_PAIRS: readonly (readonly [number, number | null])[] = [
+    [100_000, null],
+    [100_000, 100_000],
+    [100_000, 120_000],
+    [100_000, 300_000],
+    [100_000, 300_001],
+    [300_000, 100_000],
+    [300_000, 99_999],
+    [1_500_000, 3_000_000],
+    [1_500_000, 3_000_001],
+    [650_000, 6_050_000],
+  ]
 
-  const all: SameNumberInput[] = []
-  for (const price of PRICES)
+  const all: SpecInput[] = []
+  for (const [productPrice, price] of PRICE_PAIRS)
     for (const priceSure of [true, false])
       for (const name of HEARD_NAMES)
         for (const nameFrom of FROMS)
-          for (const productName of PRODUCT_NAMES)
-            for (const status of STATUSES)
-              for (const liveClaims of [0, 1])
-                for (const auto of [true, false]) all.push({ heard: { price, priceSure, name, nameFrom: name === null ? null : nameFrom }, product: { name: productName, price: 100_000, status, liveClaims }, auto })
+          for (const numberFrom of NUMBER_FROMS)
+            for (const productName of PRODUCT_NAMES)
+              for (const status of STATUSES)
+                for (const liveClaims of [0, 1])
+                  for (const auto of [true, false])
+                    all.push({ heard: { price, priceSure, name, nameFrom: name === null ? null : nameFrom, numberFrom }, product: { name: productName, price: productPrice, status, liveClaims }, auto })
+
+  const jump = (now: number, next: number): boolean => next > now * 3 || next * 3 < now || next > 3_000_000
 
   /** R-22 문장 그대로 옮긴 기대 */
-  function oracle(input: SameNumberInput): SameNumberDecision {
+  function oracle(input: SpecInput): SpecDecision {
     const { heard, product } = input
     const changes: { price?: number; name?: string } = {}
     if (heard.price !== null && heard.price !== product.price) changes.price = heard.price
-    let fillDictionary = false
-    if (heard.name !== null && compact(heard.name) !== compact(product.name)) {
-      if (compact(product.name) === '') {
-        changes.name = heard.name
-        fillDictionary = heard.nameFrom === 'DICTIONARY'
-      } else if (heard.nameFrom === 'DICTIONARY') changes.name = heard.name
-    }
+    // 1. 품종은 사전 이름일 때만 (D-V3-31 — 추측은 채우지도 바꾸지도 않는다)
+    if (heard.nameFrom === 'DICTIONARY' && heard.name !== null && compact(heard.name) !== compact(product.name)) changes.name = heard.name
     if (Object.keys(changes).length === 0) return { action: 'IGNORE', changes: {}, reason: null }
-    if (!input.auto) return { action: 'ASK', changes, reason: 'NO_AUTO' }
-    if (product.status !== 'OPEN' && product.status !== 'SOLD') return { action: 'ASK', changes, reason: 'NOT_OPEN' }
-    if (changes.price !== undefined && !heard.priceSure) return { action: 'ASK', changes, reason: 'PRICE_NOT_SURE' }
-    if (product.liveClaims > 0 && !(fillDictionary && changes.price === undefined)) return { action: 'ASK', changes, reason: 'CLAIMS' }
+    const ask = (reason: SpecReason): SpecDecision => ({ action: 'ASK', changes, reason })
+    if (!input.auto) return ask('NO_AUTO')
+    if (heard.numberFrom === 'BARE') return ask('NUMBER_BARE')
+    if (product.status !== 'OPEN' && product.status !== 'SOLD') return ask('NOT_OPEN')
+    if (changes.price !== undefined && !heard.priceSure) return ask('PRICE_NOT_SURE')
+    if (changes.price !== undefined && jump(product.price, changes.price)) return ask('PRICE_JUMP')
+    const fillOnly = changes.price === undefined && compact(product.name) === ''
+    if (product.liveClaims > 0 && !fillOnly) return ask('CLAIMS')
     return { action: 'AUTO_FIX', changes, reason: null }
   }
 
   it(`조합 ${all.length}개가 R-22 문장과 같다`, () => {
-    expect(all.length).toBe(2880) // 가격 3 × priceSure 2 × 품종 4 × nameFrom 3 × 상품 품종 2 × 상태 5 × 찜 2 × auto 2 (품종 없음은 nameFrom null로 둔다)
-    const wrong = all.map((input) => ({ input, got: decideSameNumber(input), want: oracle(input) })).filter(({ got, want }) => JSON.stringify(got) !== JSON.stringify(want))
-    expect(wrong.slice(0, 5)).toEqual([])
+    expect(all.length).toBe(10 * 2 * 4 * 3 * 2 * 2 * 5 * 2 * 2) // 가격 짝 10 × priceSure × 품종 4 × nameFrom 3 × numberFrom 2 × 상품 품종 2 × 상태 5 × 찜 2 × auto 2
+    const wrong = all.map((input) => ({ input, got: decide(input), want: oracle(input) })).filter(({ got, want }) => JSON.stringify(got) !== JSON.stringify(want))
+    expect(wrong.length, JSON.stringify(wrong.slice(0, 3))).toBe(0)
   })
 
-  it('바꿀 칸이 없으면 늘 IGNORE · 찜 + 가격 바뀜은 AUTO_FIX 아님 · 추측은 있는 품종을 안 바꿈 · READY/HOLD/CLOSED는 AUTO_FIX 아님', () => {
+  it('늘 지키는 것: 바꿀 칸 없으면 IGNORE · 찜+가격 바뀜·BARE·3배 초과/1/3 미만/300만 초과·READY/HOLD/CLOSED는 AUTO_FIX 아님 · GUESS는 품종을 건드리지 않음', () => {
     for (const input of all) {
-      const got = decideSameNumber(input)
-      const nothing = (input.heard.price === null || input.heard.price === input.product.price) && (input.heard.name === null || compact(input.heard.name) === compact(input.product.name) || (input.product.name !== '' && input.heard.nameFrom !== 'DICTIONARY'))
-      if (nothing) expect(got).toEqual({ action: 'IGNORE', changes: {}, reason: null })
-      if (input.product.liveClaims > 0 && got.changes.price !== undefined) expect(got.action).not.toBe('AUTO_FIX')
-      if (input.heard.nameFrom !== 'DICTIONARY' && input.product.name !== '') expect(got.changes.name).toBeUndefined()
-      if (['READY', 'HOLD', 'CLOSED'].includes(input.product.status)) expect(got.action).not.toBe('AUTO_FIX')
+      const got = decide(input)
+      const { heard, product } = input
+      const priceChange = heard.price !== null && heard.price !== product.price
+      const nameChange = heard.nameFrom === 'DICTIONARY' && heard.name !== null && compact(heard.name) !== compact(product.name)
+      if (!priceChange && !nameChange) expect(got).toEqual({ action: 'IGNORE', changes: {}, reason: null })
+      if (product.liveClaims > 0 && got.changes.price !== undefined) expect(got.action).not.toBe('AUTO_FIX')
+      if (heard.numberFrom === 'BARE') expect(got.action).not.toBe('AUTO_FIX')
+      if (heard.nameFrom !== 'DICTIONARY') expect(got.changes.name).toBeUndefined()
+      if (heard.price !== null && priceChange && jump(product.price, heard.price)) expect(got.action).not.toBe('AUTO_FIX')
+      if (['READY', 'HOLD', 'CLOSED'].includes(product.status)) expect(got.action).not.toBe('AUTO_FIX')
       if (got.action === 'IGNORE' || got.action === 'AUTO_FIX') expect(got.reason).toBeNull()
       else expect(got.reason).not.toBeNull()
       expect(Object.keys(got).sort()).toEqual(['action', 'changes', 'reason'])
     }
   })
 
+  it.each([
+    ['R45 38번 · 설비 · 650,000원에 추측 + 6,050,000원', { price: 6_050_000, priceSure: true, name: '나왔네', nameFrom: 'GUESS', numberFrom: 'MARKER' }, { name: '설비', price: 650_000 }, { action: 'ASK', changes: { price: 6_050_000 }, reason: 'PRICE_JUMP' }],
+    ['R47 딱 3배는 받음', { price: 300_000, priceSure: true, name: null, nameFrom: null, numberFrom: 'MARKER' }, { name: 'bts', price: 100_000 }, { action: 'AUTO_FIX', changes: { price: 300_000 }, reason: null }],
+    ['R48 번 없이 들은 다른 가격', { price: 120_000, priceSure: true, name: null, nameFrom: null, numberFrom: 'BARE' }, { name: 'bts', price: 100_000 }, { action: 'ASK', changes: { price: 120_000 }, reason: 'NUMBER_BARE' }],
+    ['번 없이 들은 같은 말은 무시', { price: 100_000, priceSure: true, name: 'bts', nameFrom: 'GUESS', numberFrom: 'BARE' }, { name: 'bts', price: 100_000 }, { action: 'IGNORE', changes: {}, reason: null }],
+    ['빈 품종에 추측 → 무시 (D-V3-31)', { price: 100_000, priceSure: true, name: 'bts', nameFrom: 'GUESS', numberFrom: 'MARKER' }, { name: '', price: 100_000 }, { action: 'IGNORE', changes: {}, reason: null }],
+  ] as const)('%s', (_title, heard, product, want) => {
+    expect(decide({ heard, product: { ...product, status: 'OPEN', liveClaims: 0 }, auto: true })).toEqual(want)
+  })
+
   it('넘긴 값을 바꾸지 않는다', () => {
     for (const input of all.slice(0, 200)) {
       const copy = structuredClone(input)
-      decideSameNumber(Object.freeze({ ...input, heard: Object.freeze({ ...input.heard }), product: Object.freeze({ ...input.product }) }))
+      decide(Object.freeze({ ...input, heard: Object.freeze({ ...input.heard }), product: Object.freeze({ ...input.product }) }))
       expect(input).toEqual(copy)
     }
   })
 
-  it('decideForExisting도 같은 규칙: 찜 있는 상품의 가격은 바로 고치지 않고, 추측은 있는 품종을 덮지 않는다', () => {
+  it('decideForExisting도 같은 규칙: 찜·번 없는 번호·가격 크게 바뀜이면 바로 고치지 않고, 추측은 품종을 건드리지 않는다', () => {
     fc.assert(
       fc.property(
         fc.constantFrom('', '핑크프릴'),
         fc.constantFrom(0, 1, 3),
-        fc.constantFrom(null, 100_000, 120_000),
+        fc.constantFrom(null, 100_000, 120_000, 300_000, 300_001, 33_333, 3_000_001),
         fc.constantFrom(null, '핑크프릴', 'bts'),
         fc.boolean(),
         fc.boolean(),
         fc.constantFrom<SameNumberStatus>('READY', 'OPEN', 'SOLD', 'HOLD', 'CLOSED'),
-        (name, claimCount, price, heardName, guessed, auto, status) => {
-          const got = decideForExisting({ no: 108, name, price: 100_000, claimCount }, { name: heardName, price, nameNeedsCheck: guessed }, { auto, status })
-          if (got.kind === 'AUTO_FIX') {
-            expect(claimCount === 0 || got.price === null).toBe(true)
+        fc.constantFrom<'marker' | 'bare'>('marker', 'bare'),
+        (name, claimCount, price, heardName, guessed, auto, status, numberFrom) => {
+          const got = decideForExisting({ no: 108, name, price: 100_000, claimCount }, { name: heardName, price, nameNeedsCheck: guessed, numberFrom }, { auto, status })
+          if (got.kind === 'AUTO_FIX' || got.kind === 'FILL_NAME') {
             expect(['OPEN', 'SOLD']).toContain(status)
             expect(auto).toBe(true)
+            expect(numberFrom).toBe('marker')
+          }
+          if (got.kind === 'AUTO_FIX') {
+            expect(claimCount === 0 || got.price === null).toBe(true)
+            if (got.price !== null) expect(jump(100_000, got.price)).toBe(false)
           }
           if (got.kind === 'FILL_NAME') expect([claimCount > 0, name, guessed]).toEqual([true, '', false])
-          if (guessed && name !== '' && (got.kind === 'AUTO_FIX' || got.kind === 'ASK' || got.kind === 'FILL_NAME')) expect(got.name).toBeNull()
+          if (guessed && got.kind !== 'IGNORE') expect(got.name).toBeNull()
         },
       ),
-      { numRuns: 500 },
+      { numRuns: 800 },
     )
   })
 })
