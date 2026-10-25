@@ -254,3 +254,15 @@ describe('D-V3-66 이어 더하다 겹치면 비움 · 0 토큰 · 끝번호 가
     expect(maskArchiveText('끝번호 1234 김민지님')).toBe('끝번호 **** 김민지님')
   })
 })
+
+describe('빠른 꼴 수 뒤 판매 말투 (사용자 "150번 180 가겠습니다")', () => {
+  it('"150번 180 가겠습니다"(final) → 천원 180,000원 / 만원 1,800,000원, "150번 180"(final) → 180,000원', () => {
+    expect(seg('150번 180 가겠습니다', { priceUnit: 'THOUSAND', final: true }).picks).toMatchObject([{ no: 150, price: 180000, priceFrom: 'quick' }])
+    expect(seg('150번 180 가겠습니다', { priceUnit: 'TEN_THOUSAND', final: true }).picks).toMatchObject([{ no: 150, price: 1800000 }])
+    expect(seg('150번 180', { priceUnit: 'THOUSAND', final: true }).picks).toMatchObject([{ no: 150, price: 180000 }])
+    for (const tail of ['갑니다', '갈게요', '드릴게요', '보냅니다', '까지요', '입니다', '요']) {
+      expect(seg(`150번 180 ${tail}`, { priceUnit: 'THOUSAND', final: true }).picks, tail).toMatchObject([{ no: 150, price: 180000 }])
+    }
+    expect(seg('150번 180 가겠습니다', { priceUnit: 'THOUSAND' }).picks).toEqual([])
+  })
+})

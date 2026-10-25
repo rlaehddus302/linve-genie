@@ -91,6 +91,10 @@ function commonAliasIn(tokens: readonly string[], options: SegmentOptions): stri
   return null
 }
 
+/** 빠른 꼴 수 뒤에 와도 조각 끝으로 보는 판매 말투 ("150번 180 가겠습니다") — 끝말 붙은 꼴은 끝말 뗀 모양으로 */
+export const SALE_TAIL_WORDS: readonly string[] = Object.freeze(['갑니다', '가겠습니다', '갈게요', '가요', '드릴게요', '드려요', '드립니다', '보낼게요', '보냅니다', '보내요', '할게요', '입니다', '이에요', '예요', '요', '까지', '까지요'])
+const isSaleTail = (token: string): boolean => readingForms(token).some((form) => SALE_TAIL_WORDS.includes(form))
+
 const skipFillers = (tokens: readonly string[], from: number): number => {
   let k = from
   while (k < tokens.length && isWindowFiller(tokens[k] as string)) k++
@@ -152,7 +156,7 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
         if (numberToken === undefined || !QUICK_NUMBER.test(numberToken)) continue
         const next = markers.find((marker) => marker.start > q)
         const stop = next === undefined ? tokens.length : next.start
-        if (tokens.slice(q + 1, stop).some((token) => !isWindowFiller(token))) continue
+        if (tokens.slice(q + 1, stop).some((token) => !isWindowFiller(token) && !isSaleTail(token))) continue
         if (q === tokens.length - 1 && !final) continue // 중간 결과 끝의 수는 기다린다(60 → 60만)
         // 품종 없는 꼴은 덩어리가 끝났을 때만(D-V3-63 — 뒤에 무엇이 올지 모른다)
         if (name === null && !final) continue
