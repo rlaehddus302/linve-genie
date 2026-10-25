@@ -71,7 +71,8 @@ describe('AC-V3-06 mergeIntoCard', () => {
   it("(e) 원 가격이고 번호가 'N번'이면 바로 등록 대상, '번' 없는 번호면 아님", () => {
     expect(mergeIntoCard(card('핑크프릴', null), chunk('15번 만오천 원'), reg('15번 만오천 원'))).toMatchObject({ autoDue: true, card: { price: 15000 } })
     expect(mergeIntoCard(card('핑크프릴', null), chunk('15 만오천 원'), reg('15 만오천 원')).autoDue).toBe(false)
-    expect(mergeIntoCard(card('핑크프릴', null), chunk('15번 400만 원'), reg('15번 400만 원')).autoDue).toBe(false)
+    // D-V3-64: 가격 크기로 막지 않는다
+    expect(mergeIntoCard(card('핑크프릴', null), chunk('15번 400만 원'), reg('15번 400만 원')).autoDue).toBe(true)
   })
 })
 
@@ -253,7 +254,7 @@ describe('D-V3-44 켬이면 원 가격 없는 결과는 기억(카드 없음), �
     // 끔은 덩어리 사이 이어 채우기도 V2 그대로
     expect(off('엘레강스 이만원', [card(null, null)], 4000, 4000)).toMatchObject({ kind: 'fill', cardId: 'c1' })
   })
-  it('켬이어도 원 가격이 있는 카드(300만 원 넘음)는 남긴다', () => {
+  it('켬이어도 원 가격이 있으면 카드(덩어리 끝 — 바로 등록은 조각 읽기가 이미 했다)', () => {
     expect(on('15번 400만 원')).toMatchObject({ kind: 'create', extraction: { no: 15, price: 4000000 } })
   })
   it('chooseInstantAction은 끔이면 null', () => {

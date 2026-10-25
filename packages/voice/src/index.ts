@@ -282,6 +282,7 @@ export {
 export {
   AUTO_FIX_PRICE_RATIO,
   AUTO_REGISTER_PRICE_MAX,
+  isBigChange,
   GUESS_FILLERS,
   PREDICATE_END_CHARS,
   looksLikePredicate,

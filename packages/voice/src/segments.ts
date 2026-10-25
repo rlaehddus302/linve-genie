@@ -3,7 +3,7 @@
 // 순수 함수: 시계·난수를 쓰지 않고 어떤 입력에도 예외를 던지지 않는다.
 import { parseAmount, parseKoreanNumber, type PriceUnit } from '@livejjim/core'
 import { analyzeSentence, listNumberMarkers, listWonLines, punctuatedTokens, readSentence, readingForms, tokenize } from './extract.ts'
-import { AUTO_REGISTER_PRICE_MAX, readRegistration, type ReadyBlock, type RegistrationOptions } from './register.ts'
+import { isBigChange, readRegistration, type ReadyBlock, type RegistrationOptions } from './register.ts'
 import { DEFAULT_COMMON_ALIASES } from './default-dictionary.ts'
 import { VarietyDictionary } from './dictionary.ts'
 import { CANCEL_WORDS, CORRECTION_MARKERS, isWindowFiller } from './words.ts'
@@ -26,8 +26,10 @@ export interface SegmentPick {
   readonly start: number
   /** 소비한 마지막 토큰 위치 — 다음 조각은 그 뒤부터 */
   readonly end: number
-  /** 바로 등록하지 않고 카드로만 보일 까닭 (300만 원 넘음) — 없으면 null */
+  /** 바로 등록하지 않고 카드로만 보일 까닭 — D-V3-64부터 늘 null(가격 크기로는 막지 않는다). 옛 모양을 위해 남김 */
   readonly blocked: ReadyBlock | null
+  /** 크게 바뀜 (R-25, D-V3-64): 등록 가격 > 3,000,000원 — 막지 않고 기록에 표시 */
+  readonly bigChange: boolean
 }
 
 export interface SegmentReading {
@@ -123,7 +125,7 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
         const ready = readRegistration(rest, options).ready
         const firstLine = segLines[0]
         if (ready === null || firstLine === undefined || ready.numberFrom !== 'bare') break
-        pick({ no: ready.no, price: ready.price, name: ready.name, numberFrom: 'bare', priceFrom: 'won', start: s, end: firstLine.end, blocked: null })
+        pick({ no: ready.no, price: ready.price, name: ready.name, numberFrom: 'bare', priceFrom: 'won', start: s, end: firstLine.end, blocked: null, bigChange: isBigChange(null, ready.price) })
         continue
       }
       // 1. 짝: 앞에 'N번'이 있는 첫 원 가격 줄 R과 그 앞 가장 뒤의 'N번' M
@@ -135,7 +137,7 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
         if (m.split || line.value === null || m.value > maxNumber || correctionBetween(m.start, line.end)) break
         const reading = analyzeSentence(tokens.slice(m.start, line.end + 1).join(' '), { dictionary: options.dictionary ?? [], maxNumber })
         const name = reading.reading.extraction.name ?? commonAliasIn(tokens.slice(m.last + 1, line.start), options)
-        pick({ no: m.value, price: line.value, name, numberFrom: 'marker', priceFrom: 'won', start: m.start, end: line.end, blocked: line.value > AUTO_REGISTER_PRICE_MAX ? 'PRICE_TOO_HIGH' : null })
+        pick({ no: m.value, price: line.value, name, numberFrom: 'marker', priceFrom: 'won', start: m.start, end: line.end, blocked: null, bigChange: isBigChange(null, line.value) })
         continue
       }
       // 2. "N번 품종 수" (D-V3-48): 표시 → (군말) 사전 품종 → 수 → 조각 끝
@@ -160,7 +162,7 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
         const sino = /^[일이삼사오육칠팔구십백천]+$/.test(numberToken) ? parseKoreanNumber(numberToken) : null
         const price = parseAmount(sino === null ? numberToken : String(sino), { 'price.unit': unit })
         if (price === null || price < 100) continue
-        quick = { no: m.value, price, name: name?.name ?? null, numberFrom: 'marker', priceFrom: 'quick', start: m.start, end: stop - 1, blocked: price > AUTO_REGISTER_PRICE_MAX ? 'PRICE_TOO_HIGH' : null }
+        quick = { no: m.value, price, name: name?.name ?? null, numberFrom: 'marker', priceFrom: 'quick', start: m.start, end: stop - 1, blocked: null, bigChange: isBigChange(null, price) }
         break
       }
       if (quick !== null) {
@@ -175,7 +177,7 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
           const m = segMarkers.find((marker) => marker.start > r.end) as (typeof segMarkers)[number]
           if (!m.split && m.value <= maxNumber && !correctionBetween(s, m.last)) {
             const reading = analyzeSentence(tokens.slice(s, m.last + 1).join(' '), { dictionary: options.dictionary ?? [], maxNumber })
-            pick({ no: m.value, price: r.value, name: reading.reading.extraction.name, numberFrom: 'marker', priceFrom: 'won', start: s, end: m.last, blocked: r.value > AUTO_REGISTER_PRICE_MAX ? 'PRICE_TOO_HIGH' : null })
+            pick({ no: m.value, price: r.value, name: reading.reading.extraction.name, numberFrom: 'marker', priceFrom: 'won', start: s, end: m.last, blocked: null, bigChange: isBigChange(null, r.value) })
             continue
           }
         }

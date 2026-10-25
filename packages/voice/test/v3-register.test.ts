@@ -11,10 +11,12 @@ import {
   decideSameNumber,
   extractVoice,
   guessVariety,
+  isBigChange,
   mergeSameNumberCards,
   prepareVoiceDictionary,
   readChunk,
   readRenumber,
+  readSegments,
   readSellerNote,
   readRegistration,
   readyToRegister,
@@ -333,11 +335,13 @@ describe('실방송 3차 위험 사례 (판매자 안전)', () => {
     expect(readRegistration('15번 나왔네 자 나왔네 만 원', { dictionary: DICT }).safeGuess).toBeNull()
     expect(readRegistration('15번 bts 자 bts 만 원', { dictionary: DICT }).safeGuess).toBe('bts')
   })
-  it('b) "605만 원"(육십오만을 잘못 적음) → 300만 원 넘어 바로 등록 안 함', () => {
+  // D-V3-64(사용자 "가격차이 커도 고칠건 자동으로 고쳐야지"): 가격 크기로 막지 않고 크게 바뀜 표시만 — 처음 기대(막음)를 바꿈
+  it('b) "605만 원" → 바로 등록, 크게 바뀜 표시', () => {
     const r = readRegistration('38번 진등의 금이 잘 표현되고 ui 자 605만 원까지', { dictionary: DICT })
-    expect(r.ready).toBeNull()
-    expect(r.blocked).toBe('PRICE_TOO_HIGH')
-    expect(readyToRegister('38번 300만 원', { dictionary: DICT })).toMatchObject({ no: 38, price: 3000000 })
+    expect(r.ready).toMatchObject({ no: 38, price: 6050000 })
+    expect(r.blocked).toBeNull()
+    expect(readSegments('38번 605만 원', { dictionary: DICT }).picks).toMatchObject([{ no: 38, price: 6050000, blocked: null, bigChange: true }])
+    expect(readSegments('38번 300만 원', { dictionary: DICT }).picks).toMatchObject([{ price: 3000000, bigChange: false }])
   })
   const existing = { no: 38, name: '', price: 650000, claimCount: 0 }
   it('b) 추측 품종은 이미 있는 상품 품종을 채우지도 바꾸지도 않는다', () => {
@@ -347,12 +351,15 @@ describe('실방송 3차 위험 사례 (판매자 안전)', () => {
     expect(decideForExisting(existing, { name: '창녹금', price: 650000 })).toEqual({ kind: 'AUTO_FIX', price: null, name: '창녹금' })
   })
   // D-V3-55·57: 묻는 것은 새 가격 300만 원 초과뿐 — 내림("62번 2만 원")·3배 넘는 올림(300만 원 이하)은 바로 고친다
-  it('b) 새 가격이 300만 원을 넘으면 묻고, 그 밖의 올림·내림은 바로 고친다', () => {
-    expect(decideForExisting(existing, { name: null, price: 6050000 })).toEqual({ kind: 'ASK', price: 6050000, name: null })
-    expect(decideForExisting(existing, { name: null, price: 200000 })).toEqual({ kind: 'AUTO_FIX', price: 200000, name: null })
+  // D-V3-64: 300만 원 넘어도 바로 고치고 크게 바뀜 표시 (R-25: 새 가격 > 300만·3배 넘게 오름·1/3 미만 내림)
+  it('b) 가격 크기와 상관없이 바로 고치고, 크게 바뀜이면 표시', () => {
+    expect(decideForExisting(existing, { name: null, price: 6050000 })).toEqual({ kind: 'AUTO_FIX', price: 6050000, name: null, bigChange: true })
+    expect(decideForExisting(existing, { name: null, price: 200000 })).toEqual({ kind: 'AUTO_FIX', price: 200000, name: null, bigChange: true })
+    expect(decideForExisting(existing, { name: null, price: 300000 })).toEqual({ kind: 'AUTO_FIX', price: 300000, name: null })
     expect(decideForExisting(existing, { name: null, price: 1950000 })).toEqual({ kind: 'AUTO_FIX', price: 1950000, name: null })
-    expect(decideForExisting({ no: 62, name: '', price: 100000, claimCount: 0 }, { name: null, price: 20000 })).toEqual({ kind: 'AUTO_FIX', price: 20000, name: null })
-    expect(decideForExisting({ no: 62, name: '', price: 100000, claimCount: 3 }, { name: null, price: 20000 })).toEqual({ kind: 'AUTO_FIX', price: 20000, name: null })
+    expect(decideForExisting(existing, { name: null, price: 1950001 })).toEqual({ kind: 'AUTO_FIX', price: 1950001, name: null, bigChange: true })
+    expect(decideForExisting({ no: 62, name: '', price: 100000, claimCount: 0 }, { name: null, price: 20000 })).toEqual({ kind: 'AUTO_FIX', price: 20000, name: null, bigChange: true })
+    expect(decideForExisting({ no: 62, name: '', price: 100000, claimCount: 3 }, { name: null, price: 34000 })).toEqual({ kind: 'AUTO_FIX', price: 34000, name: null })
   })
   it("'번' 없는 번호로 잡힌 같은 번호는 바로 고치지 않는다", () => {
     expect(decideForExisting(existing, { name: null, price: 650000, numberFrom: 'bare' })).toEqual({ kind: 'IGNORE' })
@@ -382,5 +389,17 @@ describe('TE-V3-001·004', () => {
     expect(withObject('12번 루비')).toBe('12번 루비를')
     expect(withObject('3번 GTM')).toBe('3번 GTM을')
     expect(withObject('7번')).toBe('7번을')
+  })
+})
+
+describe('AC-V3-70 크게 바뀜 판단 (R-25, 정수 비교)', () => {
+  it('등록: 3,000,001원 표시, 3,000,000원 아님 / 고침: 100,000 → 300,001 표시, 300,000 아님, 33,333 표시, 34,000 아님', () => {
+    expect(isBigChange(null, 3000001)).toBe(true)
+    expect(isBigChange(null, 3000000)).toBe(false)
+    expect(isBigChange(100000, 300001)).toBe(true)
+    expect(isBigChange(100000, 300000)).toBe(false)
+    expect(isBigChange(100000, 33333)).toBe(true)
+    expect(isBigChange(100000, 34000)).toBe(false)
+    expect(isBigChange(1000000, 3000001)).toBe(true)
   })
 })

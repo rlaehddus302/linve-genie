@@ -341,3 +341,18 @@
 
 ### dev-device 추가 17 — TD-V3-006 (ebb09fa1)
 - `maskArchiveText`: 끝자리 낱말에 끝말이 붙어도(`끝자리는`·`뒷번호가`) 뒤 숫자 4개를 가린다. 끝말은 R-17 2 목록이다. TD-V3-005(recent가 "다른 번호를 고침"에 끊김)는 화면 controller.ts `#recentVoice` 몫이다 — web.
+
+### dev-device 추가 18 — D-V3-64·65 (spec b276382b), R-25, AC-V3-70·71
+- 가격 크기로 막거나 묻지 않는다.
+  - `decideSameNumber`에서 PRICE_JUMP를 없앴다(골든 same-number 54 통과).
+  - `readSegments` pick의 `blocked`는 늘 null이고 새 칸 `bigChange`를 실었다(등록 가격 > 3,000,000원).
+  - `readRegistration`의 PRICE_TOO_HIGH와 `mergeIntoCard` autoDue의 300만 원 상한도 뺐다.
+- `isBigChange(before: number | null, after: number)`(R-25 크게 바뀜, 정수 비교): 등록(before null)이면 > 3,000,000. 고침이면 > 3,000,000 또는 > 전 × 3 또는 × 3 < 전. 서버 기록·화면 표시에 쓴다.
+- `decideForExisting` AUTO_FIX 결과에 크게 바뀜이면 `bigChange: true`가 붙는다.
+- 가리기 함수 `maskArchiveText`는 그대로 내보낸다(서버 R-25 들은 말 가리기에 쓰면 됨).
+- packages/documents
+  - `ledgerToXlsx(rows, options?, { voiceLog })`: voiceLog를 넘기면 "음성 기록" 시트를 더한다. 열은 시각·번호·한 일·전·후·출처·찜 수·들은 말·표시이고, 기존 "판매대장" 시트·열은 그대로다.
+  - 줄 모양은 `VoiceLedgerRow { at, no, toNo?, action: REGISTER|PRICE|NAME|RENUMBER|UNDO, before, after, source: voice|seller-note, claims, heard(가린 글), marks: BIG_CHANGE|WITH_CLAIMS|UNDONE[] }`이다.
+  - 글은 글 칸(수식 아님), 가격은 #,##0이다.
+  - 넘기지 않으면 지금처럼 시트 하나다.
+- 단위 시험: 크게 바뀜 경계(AC-V3-70 숫자 그대로), documents/test/voice-ledger.test.ts. 실방송 3차 사례의 "605만 원 막음"·"300만 원 넘으면 묻기" 기대를 D-V3-64로 바꿨다.

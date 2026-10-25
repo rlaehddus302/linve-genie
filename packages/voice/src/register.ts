@@ -100,8 +100,19 @@ export interface RegistrationReading {
   readonly ready: ReadyRegistration | null
 }
 
-/** 바로 등록할 수 있는 가격 상한 (원). 넘으면 카드만 — "가격 확인 필요" (크롬이 "육십오만"을 "605만"으로 적는 일이 있다) */
+/** 크게 바뀜 기준 가격 (원, R-25 — D-V3-64부터 막지 않고 기록에 표시만. 크롬이 "육십오만"을 "605만"으로 적는 일이 있다) */
 export const AUTO_REGISTER_PRICE_MAX = 3_000_000
+
+/**
+ * 크게 바뀜 (R-25, D-V3-64 — 정수 비교): 등록(before = null)이면 가격 > 3,000,000원.
+ * 고침이면 새 가격 > 3,000,000원, 또는 새 가격 > 전 가격 × 3, 또는 새 가격 × 3 < 전 가격.
+ */
+export function isBigChange(before: number | null, after: number): boolean {
+  if (!Number.isSafeInteger(after)) return false
+  if (after > AUTO_REGISTER_PRICE_MAX) return true
+  if (before === null || !Number.isSafeInteger(before)) return false
+  return after > before * AUTO_FIX_PRICE_RATIO || after * AUTO_FIX_PRICE_RATIO < before
+}
 
 
 const MALGO = '말고'
@@ -129,9 +140,7 @@ export function readRegistration(text: unknown, options: RegistrationOptions = {
   const sure = extraction.no !== null && extraction.price !== null && priceSure && !correction && (options.final === true || !analysis.bareNumberAtEnd)
   const blocked: ReadyBlock | null = !sure
     ? null
-    : (extraction.price as number) > AUTO_REGISTER_PRICE_MAX
-      ? 'PRICE_TOO_HIGH'
-      : analysis.bareNumberAfterPrice
+    : analysis.bareNumberAfterPrice
         ? 'BARE_NUMBER_AFTER_PRICE'
         : null
   const ready: ReadyRegistration | null =
@@ -203,7 +212,7 @@ export function decideSameNumber(input: SameNumberInput): SameNumberDecision {
   if (heard.numberFrom === 'BARE') return ask('NUMBER_BARE')
   if (product.status !== 'OPEN' && product.status !== 'SOLD') return ask('NOT_OPEN')
   // D-V3-55·57: 'N번' + '원' 확정(같은 조각)이면 올림·내림·찜과 상관없이 바로 고친다 — 묻는 것은 새 가격 300만 원 초과뿐(판매 중 아님은 위에서)
-  if (changes.price !== undefined && changes.price > AUTO_REGISTER_PRICE_MAX) return ask('PRICE_JUMP')
+  // D-V3-64: 가격 크기로는 묻지 않는다 — 크게 바뀜은 isBigChange로 기록에 표시
   // D-V3-59: 고쳐 말함이 아니고(나중에 다시 들음) 찜이 있으면 다른 화분일 수 있어 덮어쓰지 않는다. 찜 0이면 바꾸되 까닭 NOT_RECENT(화면 안내)
   const recent = input.recent !== false
   if (!recent && product.liveClaims > 0) return ask('MAYBE_OTHER')
@@ -221,7 +230,7 @@ export interface ExistingProduct {
 
 export type ExistingDecision =
   | { readonly kind: 'IGNORE' }
-  | { readonly kind: 'AUTO_FIX'; readonly price: number | null; readonly name: string | null }
+  | { readonly kind: 'AUTO_FIX'; readonly price: number | null; readonly name: string | null; readonly bigChange?: boolean }
   | { readonly kind: 'FILL_NAME'; readonly name: string }
   | { readonly kind: 'ASK'; readonly price: number | null; readonly name: string | null }
 
@@ -268,7 +277,7 @@ export function decideForExisting(existing: ExistingProduct, heard: ExistingHear
   if (decision.action === 'IGNORE') return { kind: 'IGNORE' }
   if (decision.action === 'ASK') return { kind: 'ASK', price, name }
   if (existing.claimCount > 0 && name !== null && price === null) return { kind: 'FILL_NAME', name }
-  return { kind: 'AUTO_FIX', price, name }
+  return { kind: 'AUTO_FIX', price, name, ...(price !== null && isBigChange(existing.price, price) ? { bigChange: true } : {}) }
 }
 
 // ── 열린 카드 합치기 (D-V3-06) ───────────────────────────────────────────
@@ -341,7 +350,7 @@ export interface MergeResult {
   /** 합친 카드 (바뀌지 않았으면 넘긴 카드 그대로) */
   readonly card: SuggestionCard
   readonly changed: boolean
-  /** 합친 카드가 바로 등록 대상인가: 원 가격(priceSure)·막는 까닭 없음·번호가 음성 'N번'·번호와 가격이 있고 300만 원 이하 */
+  /** 합친 카드가 바로 등록 대상인가: 원 가격(priceSure)·막는 까닭 없음·번호가 음성 'N번'·번호와 가격이 있음 (D-V3-64 — 가격 크기로 막지 않음) */
   readonly autoDue: boolean
   /** 바꾸지 않은 까닭 (손댄 카드·고칠 수 없는 값) — 없으면 null */
   readonly reason: string | null
@@ -373,8 +382,7 @@ export function mergeIntoCard(card: SuggestionCard, reading: ChunkReading, regis
       registration.blocked === null &&
       registration.numberFrom === 'marker' &&
       next.no !== null &&
-      next.price !== null &&
-      next.price <= AUTO_REGISTER_PRICE_MAX
+      next.price !== null
     return { card: next, changed: next !== card, autoDue, reason: null }
   } catch {
     return { card, changed: false, autoDue: false, reason: null }
