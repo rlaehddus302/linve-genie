@@ -8,6 +8,7 @@ import {
   currentBuyerOf,
   getBroadcast,
   getBuyer,
+  getProduct,
   isValidDate,
   listBlocked,
   listBroadcasts,
@@ -24,7 +25,8 @@ import {
   type EngineState,
   type SaleSettings,
 } from '@livejjim/core'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
+import { readSellerNote } from '@livejjim/voice'
 import { eq } from 'drizzle-orm'
 import { API_EVENTS, CHAT_FIELDS, hasControlChar, isPlainObject, own, ownKeys } from './api-fields.ts'
 import type { Db } from './db/database.ts'
@@ -44,6 +46,8 @@ import {
   type GeneratorTimer,
 } from './generator.ts'
 import type { IdSource } from './ids.ts'
+import { errorKind, type LogSink } from './log.ts'
+import { learnSellerName, listSellerNames, SELLER_NAMES_MAX, type SellerNoteOutcome } from './seller-names.ts'
 import type { ScopeRuntime } from './runtime.ts'
 import { fieldMessage, phoneIdProblem, safeFieldName, unknownFieldProblems } from './messages.ts'
 import { productOwners } from './product-history.ts'
@@ -168,6 +172,10 @@ export interface ServiceOptions {
   readonly billing?: BillingService
   /** AI 확인 필요 제안 (A1 — 확인 필요 목록의 suggestion. 없으면 키 없는 서비스: 규칙 제안만) */
   readonly assist?: AssistService
+  /** 서버 로그 (판매자 채팅 품종 글 결과 코드 — R-23. 없으면 남기지 않는다) */
+  readonly log?: LogSink
+  /** 판매자 품종 사전에 새 이름이 생겼을 때 (SSE voice 알림 — R-23, D-V3-49) */
+  readonly onSellerNames?: (sellerId: string, payload: Readonly<Record<string, unknown>>) => void
 }
 
 export type ChatIngestOutcome =
@@ -187,6 +195,11 @@ export interface CollectedChat {
   readonly nick: string
   readonly text: string
   readonly owner?: boolean
+  /**
+   * 주인 배지가 확실한가 (R-23 — 판매자 채팅 품종 글을 읽을지). 기록하는 owner와 따로다: 확장 경로는 회차 채널을 모를 때도 owner로 기록하지만(D-X1-29)
+   * 그때는 확실하지 않다. 생략 = 아니오
+   */
+  readonly ownerSure?: boolean
   readonly publishedAt?: number
 }
 
@@ -885,6 +898,8 @@ export class Service {
     })
     switch (outcome.kind) {
       case 'ok':
+        // 채팅 이벤트가 기록된 뒤에만 읽는다 (절대 규칙 3, R-23). 배우다 실패해도 채팅 기록은 그대로 성공이다
+        await this.#sellerNotes(sellerId, row, chats, outcome.records)
         return { status: 'ok', recorded: outcome.records.length }
       case 'empty':
         return { status: 'ok', recorded: 0 }
@@ -898,6 +913,78 @@ export class Service {
       case 'save_failed':
         return { status: 'save_failed' }
     }
+  }
+
+  // ── 판매자 채팅 품종 글 (R-23, D-V3-49, AC-V3-55) ──────────────────────
+
+  /** 판매자 품종 사전 (GET /api/voice/seller-names — 최근 본 것부터, 최대 SELLER_NAMES_MAX개) */
+  async sellerNames(sellerId: string): Promise<{ names: string[]; max: number }> {
+    return { names: await listSellerNames(this.#options.db, sellerId), max: SELLER_NAMES_MAX }
+  }
+
+  /**
+   * 이번에 새로 기록한 채팅 중 주인 배지가 확실한 것(ownerSure)만 R-23으로 읽는다(packages/voice readSellerNote).
+   * 읽히면 (ㄱ) 판매자 품종 사전에 넣고 (ㄴ) 그 방송 같은 번호 상품의 품종이 비었고 가격이 같으면 손으로 고칠 때와 같은 상품 고치기(product.update, 품종만)를 기록한다.
+   * 채팅의 판정(R-3 — 주인 글은 언급)·감사는 건드리지 않는다. 로그에는 결과 코드만 (글·닉네임·품종 없음)
+   */
+  async #sellerNotes(sellerId: string, row: BroadcastRow, chats: readonly CollectedChat[], records: readonly CommittedRecord[]): Promise<void> {
+    const b = row.id
+    const recorded = new Set<string>()
+    for (const record of records) {
+      const event = record.event as unknown as { readonly type?: unknown; readonly b?: unknown; readonly id?: unknown }
+      if (event.type === 'chat' && event.b === b && typeof event.id === 'string') recorded.add(event.id)
+    }
+    for (const chat of chats) {
+      if (chat.ownerSure !== true || !recorded.has(chat.id)) continue
+      try {
+        const runtime = await this.#options.writer.read(sellerId, row.date)
+        const maxNumber = getBroadcast(runtime.state, b)?.settings['claim.maxNumber']
+        const note = readSellerNote(chat.text, typeof maxNumber === 'number' ? { maxNumber } : {})
+        if (note === null) continue
+        const added = await learnSellerName(this.#options.db, sellerId, note.name, new Date(this.#options.clock.now()))
+        if (added) this.#options.onSellerNames?.(sellerId, { kind: 'sellerNames', name: note.name })
+        const outcome = await this.#fillFromNote(sellerId, row, chat.id, note)
+        this.#options.log?.({ level: 'info', code: 'SELLER_NOTE', seller: sellerId, date: row.date, reason: outcome, count: added ? 1 : 0 })
+      } catch (error) {
+        this.#options.log?.({ level: 'warn', code: 'SELLER_NOTE_FAILED', seller: sellerId, date: row.date, errorKind: errorKind(error) })
+      }
+    }
+  }
+
+  /** (ㄴ) 같은 번호 상품의 빈 품종 채우기 — 범위 락 안의 지금 상태로 한 번 더 본다(그사이 판매자가 품종을 적었으면 덮지 않는다) */
+  async #fillFromNote(sellerId: string, row: BroadcastRow, chatId: string, note: { readonly no: number; readonly name: string; readonly price: number }): Promise<SellerNoteOutcome> {
+    const check = (state: EngineState): SellerNoteOutcome | null => {
+      const product = getProduct(state, row.id, note.no)
+      if (product === null) return 'NO_PRODUCT'
+      if (product.name !== '') return 'HAS_NAME'
+      if (product.price !== note.price) return 'PRICE_DIFFERS'
+      return null
+    }
+    const before = check((await this.#options.writer.read(sellerId, row.date)).state)
+    if (before !== null) return before
+    let refused: SellerNoteOutcome | null = null
+    // 같은 채팅으로는 한 번만 (요청 번호 = 방송·채팅 ID의 해시 — 다시 받아도 두 번 기록하지 않는다)
+    const requestId = `sn_${createHash('sha256').update(JSON.stringify([row.id, chatId]), 'utf8').digest('hex').slice(0, 40)}`
+    const outcome = await this.#options.writer.write({
+      sellerId,
+      date: row.date,
+      rehearsal: row.rehearsal,
+      createScope: false,
+      requestId,
+      build: () => [
+        {
+          fields: { type: 'product.update', b: row.id, no: note.no, name: note.name },
+          actor: { kind: 'server' },
+          requestId,
+          validate: (state) => {
+            refused = check(state)
+            return refused === null ? null : rejection(409, 'PROCESSING_FAILED', '상품이 바뀌었어요.')
+          },
+        },
+      ],
+    })
+    if (outcome.kind === 'ok' && outcome.records[0] !== undefined && !outcome.records[0].failed && outcome.records[0].changed) return 'FILLED'
+    return refused ?? 'NOT_FILLED'
   }
 
   // ── 리허설: 시청자로 보내기·가짜 채팅 생성기 (AC-S05-51·52, D-082) ────────

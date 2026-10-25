@@ -279,3 +279,19 @@
     - 바뀌는 때(숨음 시작 + 30초, 마지막 채팅 + 30초)에 다시 보고 알린다.
   - 둘 다 새 빌드면 콘솔 HIDDEN은 실제 숨김 뒤 약 60초(확장 30초 + 서버 30초)에 뜬다. 배지는 30초. 판매자에게 조용한 쪽으로 두었다. 줄이려면 서버 기다림을 10초로 줄이는 방법이 있다 — spec-keeper가 D-X1-11에서 정해 주세요.
   - 서버 시험 `탭이 뒤로 간 채 30초 이어지면 HIDDEN …`의 기대를 "바로"에서 "30초 이어지면"으로 바꿨다. 시험 하나를 더했다: 잠깐 숨음·채팅 들어오는 동안 받는 중.
+
+### dev-server — D-V3-49·R-23 판매자 채팅 품종 글 (AC-V3-55 서버 몫)
+- **읽는 곳**: `Service.ingestYoutubeBatch`(공식 수집기·확장 `/ext/chats` 둘 다 이 길). 채팅 이벤트가 커밋된 **뒤**, 이번에 새로 기록된 채팅 중 `ownerSure`인 것만 `readSellerNote(text, { maxNumber: 그 방송 스냅샷 claim.maxNumber })`(packages/voice)로 읽는다. 서버에 규칙 복제 없음.
+  - 공식: `isChatOwner` = 확실.
+  - 확장: 주인 표시가 있고 **회차 방송 채널을 알고 그 채널과 같을 때만** 확실. 회차 채널을 몰라 D-X1-29로 표시를 믿고 owner로 기록한 글은 읽지 않는다(R-23 "모르면 부르지 않는다"). 유튜브 연결도·이은 채널도·감사 채널도 없는 확장 전용 판매자는 배우지 못한다 — 필요하면 spec 판단.
+  - 리허설 회차는 이 길로 오지 않는다(배우지 않음).
+- **사전 저장**: 새 표 `seller_names`(마이그레이션 0020) — (판매자, 이름) 유일, 같은 이름은 `seen_at`만 고침, 판매자마다 2,000줄(넘으면 오래 안 본 것부터 지움). 복구는 이 표를 그대로 둔다(RESTORE_KEPT_TABLES — 백업 파일에 없음).
+- **상품 고치기**: 그 방송 같은 번호 상품이 있고 `name === ''`이고 `price === ₩가격`이면 `product.update { b, no, name }`(품종만, actor server, 요청 번호 `sn_<해시(방송·채팅 ID)>`)를 writer로 기록한다 — 손 고치기(`POST /api/events`)와 같은 기록 경로·이벤트라 상품 이력(`/api/days/:date/history?b&no`)에 그대로 나온다. 범위 락 안의 상태로 한 번 더 보고(그사이 판매자가 품종을 적었으면 덮지 않음), 아니면 기록만(로그 `SELLER_NOTE` reason = FILLED·NO_PRODUCT·HAS_NAME·PRICE_DIFFERS·NOT_FILLED, 글·닉네임·품종은 로그에 없음). 배우다 실패해도 채팅 기록은 성공(로그 `SELLER_NOTE_FAILED`).
+- 채팅 판정(언급)·감사·발송함은 건드리지 않는다(product.update는 효과를 내지 않음 — 시험으로 확인).
+
+**화면이 쓸 API**
+- `GET /api/voice/seller-names` (판매자 로그인, 보조자는 403 — 보조자 허용 목록에 넣지 않음) → `200 { names: string[], max: 2000 }` — 최근 본 것부터, 최대 2,000개. 이름은 2~20글자 한글·로마자·공백(R-23 4). 화면은 글자로만 그린다.
+- SSE `event: voice`, `data: { kind: 'sellerNames', name }` — **새 이름**이 생길 때만(같은 이름 다시 배움은 알림 없음). 판매자의 모든 연결(보조자 포함)에 간다. 화면은 받으면 위 API를 다시 읽으면 된다(web 7da75311이 이미 이렇게 한다).
+
+**남의 영역**: 루트 `Dockerfile` 실행 단계에 `packages/voice`(package.json·src·node_modules)를 더함 — 서버가 이제 `@livejjim/voice`를 부른다. `pnpm-lock.yaml`에 apps/server → @livejjim/voice 링크 한 줄(설치는 돌리지 않고 링크만 — 돌던 verify를 건드리지 않으려고).
+- 덧붙여 본 것(고치지 않음): 실행 단계가 `packages/documents/src`를 복사하지 않는데 서버(receipt-page.ts)가 `@livejjim/documents`의 값을 가져온다 — 이미지에서 확인 필요(orch).

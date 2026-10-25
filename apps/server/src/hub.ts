@@ -76,7 +76,7 @@ interface Pending {
 
 /** 리허설 생성기 상태 알림 (event: generator) · 유튜브 알림 (event: youtube — 연결·수집·발송함·할당량·삭제·차단, AC-Y1-05·27·28·39·52) · 출력 기록 알림 (event: print, I1) · I2 포장·배송(event: packing)·가게 설정(event: shop) 알림 · 인스타그램 알림 (event: instagram, N2) · 라벨 기능 켬/끔 (event: labels, N4a) · 틱톡 연결 알림 (event: tiktok, N2b-2) · 입금 확인 알림 (event: deposit, N3) · 요금 알림 (event: billing, N5) — seq가 없다 */
 export interface GeneratorNotice {
-  readonly kind: 'generator' | 'youtube' | 'print' | 'packing' | 'shop' | 'instagram' | 'labels' | 'tiktok' | 'deposit' | 'billing' | 'login' | 'parcel' | 'extension'
+  readonly kind: 'generator' | 'youtube' | 'print' | 'packing' | 'shop' | 'instagram' | 'labels' | 'tiktok' | 'deposit' | 'billing' | 'login' | 'parcel' | 'extension' | 'voice'
   readonly data: Readonly<Record<string, unknown>>
 }
 
@@ -241,6 +241,14 @@ export class StreamHub {
   /** 입금 확인 알림 (그 판매자의 연결 전부, N3 AC-N3-30 — 입금 번호·확인 필요 수·원천 ID만) */
   publishDeposit(sellerId: string, data: Readonly<Record<string, unknown>>): void {
     this.#publishKind(sellerId, { kind: 'deposit', data })
+  }
+
+  /**
+   * 판매자 품종 사전에 새 이름이 생김 (V3 R-23, D-V3-49, event: voice — data { kind: 'sellerNames', name }). 그 판매자의 연결 전부.
+   * name은 판매자가 주인 배지 채팅에 쓴 품종(2~20글자 한글·로마자·공백)이다 — 화면은 글자로만 보인다
+   */
+  publishVoice(sellerId: string, data: Readonly<Record<string, unknown>>): void {
+    this.#publishKind(sellerId, { kind: 'voice', data })
   }
 
   #publishKind(sellerId: string, notice: GeneratorNotice): void {

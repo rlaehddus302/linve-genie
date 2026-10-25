@@ -250,6 +250,9 @@ importers:
       '@livejjim/label':
         specifier: workspace:*
         version: link:../../packages/label
+      '@livejjim/voice':
+        specifier: workspace:*
+        version: link:../../packages/voice
       drizzle-orm:
         specifier: 0.45.3
         version: 0.45.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9)

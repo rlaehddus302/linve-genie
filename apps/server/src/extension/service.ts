@@ -377,7 +377,7 @@ export class ExtensionService {
     const castChannel = await this.#deps.thanks.broadcastChannel(caller.sellerId, binding.broadcastId)
     let ownerDenied = 0
     let skipped = 0
-    const recordable: { id: string; ch: string; nick: string; text: string; publishedAt: number; owner?: true }[] = []
+    const recordable: { id: string; ch: string; nick: string; text: string; publishedAt: number; owner?: true; ownerSure?: true }[] = []
     for (const chat of chats) {
       const publishedAt = Math.min(chat.at, now + FUTURE_SLACK_MS)
       const text = cutText(chat.text)
@@ -390,7 +390,9 @@ export class ExtensionService {
         owner = castChannel === null || castChannel === chat.ch
         if (!owner) ownerDenied += 1
       }
-      recordable.push({ id: chat.id, ch: chat.ch, nick: chat.nick, text, publishedAt, ...(owner ? { owner: true as const } : {}) })
+      // 판매자 채팅 품종 글(R-23)은 주인 표시가 회차 방송 채널과 맞을 때만 읽는다 — 회차 채널을 몰라 표시를 믿은 글은 확실하지 않다("모르면 부르지 않는다")
+      const ownerSure = owner && castChannel !== null && castChannel === chat.ch
+      recordable.push({ id: chat.id, ch: chat.ch, nick: chat.nick, text, publishedAt, ...(owner ? { owner: true as const } : {}), ...(ownerSure ? { ownerSure: true as const } : {}) })
     }
     const outcome = await service.ingestYoutubeBatch(
       caller.sellerId,
