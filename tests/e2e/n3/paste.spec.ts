@@ -102,7 +102,7 @@ test.describe('입금 내역 붙여넣기', () => {
     const body = Buffer.concat([header, Buffer.from(`${t},`), hong, Buffer.from(`${suffix},${String(sale.remaining)},0,50000\r\n`)])
     expect(body.toString('utf8')).not.toContain('홍길동') // 정말 UTF-8이 아니다
     await openPaste(page)
-    await page.getByLabel('CSV 파일 고르기').setInputFiles({ name: '거래내역.csv', mimeType: 'text/csv', buffer: body })
+    await page.getByLabel('은행 파일 고르기(.csv)').setInputFiles({ name: '거래내역.csv', mimeType: 'text/csv', buffer: body }) // QL3R1 D-QL3R1-06
     await expect(page.getByLabel('입금 내역')).toHaveValue(new RegExp(`거래일시,적요,입금액,출금액,잔액[\\s\\S]*${name}`))
     const preview = page.getByRole('region', { name: '읽어 본 결과' })
     await expect(preview).toContainText(name)

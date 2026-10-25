@@ -12,23 +12,26 @@ async function sellerIn(page: Page) {
   return seller
 }
 
-test('AC-I3-40: 봉인 7일 전 날짜 — 방송 목록·정산·구매자에 "… 0시에 봉인돼요"와 경고 상자, 봉인 예정만인 날짜는 경고 상자 없음', async ({ page }) => {
+test('AC-I3-40: 봉인 7일 전 날짜 — 방송 목록·정산·구매자에 "… 0시부터 잠겨요. 그 뒤로는 고칠 수 없어요."와 경고 상자, 봉인 예정만인 날짜는 경고 상자 없음', async ({ page }) => {
   const seller = await sellerIn(page)
   const soon = await e2eDate(page.request, seller.loginId, 'sealSoon')
   const later = await e2eDate(page.request, seller.loginId, 'youtube')
   await page.goto('/')
   const rows = page.getByRole('main').getByRole('listitem')
   const soonRow = rows.filter({ hasText: new RegExp(`${String(Number(soon.date.slice(5, 7)))}월 ${String(Number(soon.date.slice(8, 10)))}일`) })
-  await expect(soonRow.first()).toContainText(/이 날짜 기록은 \d+월 \d+일 0시에 봉인돼요/)
+  await expect(soonRow.first()).toContainText(/이 날짜 기록은 \d+월 \d+일 0시부터 잠겨요\. 그 뒤로는 고칠 수 없어요\./) // QL3R1 D-QL3R1-07
   await expect(soonRow.first()).toContainText(SEAL_WARNING)
   const laterRow = rows.filter({ hasText: new RegExp(`${String(Number(later.date.slice(5, 7)))}월 ${String(Number(later.date.slice(8, 10)))}일`) })
-  await expect(laterRow.first()).toContainText(/이 날짜 기록은 \d+월 \d+일 0시에 봉인돼요/)
+  await expect(laterRow.first()).toContainText(/이 날짜 기록은 \d+월 \d+일 0시부터 잠겨요\. 그 뒤로는 고칠 수 없어요\./) // QL3R1 D-QL3R1-07
+  await expect(page.getByRole('main')).not.toContainText('봉인돼요') // QL3R1 D-QL3R1-07
   await expect(laterRow.first()).not.toContainText(SEAL_WARNING)
   await page.goto(`/settlements?date=${soon.date}`)
-  await expect(page.getByRole('main')).toContainText(/이 날짜 기록은 \d+월 \d+일 0시에 봉인돼요/)
+  await expect(page.getByRole('main')).toContainText(/이 날짜 기록은 \d+월 \d+일 0시부터 잠겨요\. 그 뒤로는 고칠 수 없어요\./) // QL3R1 D-QL3R1-07
+  await expect(page.getByRole('main')).not.toContainText('봉인돼요') // QL3R1 D-QL3R1-07
   await expect(page.getByRole('main')).toContainText(SEAL_WARNING)
   await page.goto(`/buyers?date=${soon.date}`)
-  await expect(page.getByRole('main')).toContainText(/이 날짜 기록은 \d+월 \d+일 0시에 봉인돼요/)
+  await expect(page.getByRole('main')).toContainText(/이 날짜 기록은 \d+월 \d+일 0시부터 잠겨요\. 그 뒤로는 고칠 수 없어요\./) // QL3R1 D-QL3R1-07
+  await expect(page.getByRole('main')).not.toContainText('봉인돼요') // QL3R1 D-QL3R1-07
 })
 
 test('AC-I3-41: 봉인된 날짜 — 콘솔 안내·빠른 입력 잠금·채팅 칸 서버 문장, 문자찜 방송 고르기에 없음', async ({ page }) => {
