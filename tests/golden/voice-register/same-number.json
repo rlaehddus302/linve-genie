@@ -1,6 +1,6 @@
 {
   "kind": "same-number",
-  "about": "음성 같은 번호 (VOC-04·PRD-06, DOMAIN_RULES R-22, V3 — D-V3-06). 들은 번호의 상품이 그 방송에 이미 있을 때 → { action: IGNORE|AUTO_FIX|ASK, changes: { price?, name? }, reason: ASK면 NO_AUTO|NUMBER_BARE|NOT_OPEN|MAYBE_OTHER(D-V3-57부터 CLAIMS, D-V3-64부터 PRICE_JUMP 없음), IGNORE면 null|PRICE_NOT_SURE, AUTO_FIX면 null|NOT_RECENT; ASK에 MAYBE_OTHER(D-V3-59) }. in = { recent(고쳐 말함인가 — D-V3-59), heard: { price, priceSure, name, nameFrom: DICTIONARY|GUESS|null, numberFrom: MARKER|BARE }, product: { name ('' = 품종 미입력), price, status: READY|OPEN|SOLD|HOLD|CLOSED, liveClaims }, auto }. packages/voice 단위 시험이 읽는다 — README '음성 바로 등록 골든'.",
+  "about": "음성 같은 번호 (VOC-04·PRD-06, DOMAIN_RULES R-22, V3 — D-V3-06). 들은 번호의 상품이 그 방송에 이미 있을 때 → { action: IGNORE|AUTO_FIX|ASK, changes: { price?, name? }, reason: ASK면 NO_AUTO|NUMBER_BARE|NOT_OPEN|MAYBE_OTHER(D-V3-57부터 CLAIMS, D-V3-64부터 PRICE_JUMP 없음), IGNORE면 null|PRICE_NOT_SURE, AUTO_FIX면 null|NOT_RECENT; ASK에 MAYBE_OTHER(D-V3-59) }. in = { otherDevice(그 번호의 마지막 등록·고침이 다른 기기였나 — D-V3-76), recent(고쳐 말함인가 — D-V3-59), heard: { price, priceSure, name, nameFrom: DICTIONARY|GUESS|null, numberFrom: MARKER|BARE }, product: { name ('' = 품종 미입력), price, status: READY|OPEN|SOLD|HOLD|CLOSED, liveClaims }, auto }. packages/voice 단위 시험이 읽는다 — README '음성 바로 등록 골든'.",
   "cases": [
     {
       "id": "G-VSN-V3-01",
@@ -26,7 +26,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "IGNORE",
@@ -57,7 +58,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "IGNORE",
@@ -89,7 +91,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "IGNORE",
@@ -120,7 +123,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -154,7 +158,8 @@
           "liveClaims": 1
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -188,7 +193,8 @@
           "liveClaims": 1
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -221,7 +227,8 @@
           "liveClaims": 1
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "IGNORE",
@@ -254,7 +261,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "IGNORE",
@@ -285,7 +293,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -319,7 +328,8 @@
           "liveClaims": 1
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -352,7 +362,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "ASK",
@@ -385,7 +396,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "ASK",
@@ -418,7 +430,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "ASK",
@@ -451,7 +464,8 @@
           "liveClaims": 0
         },
         "auto": false,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "ASK",
@@ -484,7 +498,8 @@
           "liveClaims": 0
         },
         "auto": false,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "IGNORE",
@@ -515,7 +530,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "IGNORE",
@@ -547,7 +563,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -581,7 +598,8 @@
           "liveClaims": 2
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -615,7 +633,8 @@
           "liveClaims": 1
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -650,7 +669,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "IGNORE",
@@ -681,7 +701,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "IGNORE",
@@ -713,7 +734,8 @@
           "liveClaims": 3
         },
         "auto": false,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "ASK",
@@ -746,7 +768,8 @@
           "liveClaims": 2
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "ASK",
@@ -779,7 +802,8 @@
           "liveClaims": 1
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "IGNORE",
@@ -812,7 +836,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "ASK",
@@ -845,7 +870,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "IGNORE",
@@ -877,7 +903,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -911,7 +938,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -945,7 +973,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -979,7 +1008,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1013,7 +1043,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1047,7 +1078,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1080,7 +1112,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1114,7 +1147,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "ASK",
@@ -1147,7 +1181,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "IGNORE",
@@ -1179,7 +1214,8 @@
           "liveClaims": 1
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1214,7 +1250,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1247,7 +1284,8 @@
           "liveClaims": 0
         },
         "auto": false,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "ASK",
@@ -1281,7 +1319,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1315,7 +1354,8 @@
           "liveClaims": 0
         },
         "auto": false,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "IGNORE",
@@ -1347,7 +1387,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "IGNORE",
@@ -1378,7 +1419,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1412,7 +1454,8 @@
           "liveClaims": 1
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1446,7 +1489,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "ASK",
@@ -1479,7 +1523,8 @@
           "liveClaims": 2
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1513,7 +1558,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1547,7 +1593,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "ASK",
@@ -1580,7 +1627,8 @@
           "liveClaims": 1
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1614,7 +1662,8 @@
           "liveClaims": 0
         },
         "auto": true,
-        "recent": false
+        "recent": false,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1648,7 +1697,8 @@
           "liveClaims": 2
         },
         "auto": true,
-        "recent": false
+        "recent": false,
+        "otherDevice": false
       },
       "out": {
         "action": "ASK",
@@ -1682,7 +1732,8 @@
           "liveClaims": 2
         },
         "auto": true,
-        "recent": true
+        "recent": true,
+        "otherDevice": false
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1715,7 +1766,8 @@
           "liveClaims": 2
         },
         "auto": true,
-        "recent": false
+        "recent": false,
+        "otherDevice": false
       },
       "out": {
         "action": "IGNORE",
@@ -1746,7 +1798,8 @@
           "liveClaims": 1
         },
         "auto": true,
-        "recent": false
+        "recent": false,
+        "otherDevice": false
       },
       "out": {
         "action": "ASK",
@@ -1779,7 +1832,8 @@
           "liveClaims": 1
         },
         "auto": true,
-        "recent": false
+        "recent": false,
+        "otherDevice": false
       },
       "out": {
         "action": "ASK",
@@ -1789,6 +1843,141 @@
         "reason": "MAYBE_OTHER"
       },
       "note": "D-V3-64로 기대 바뀜(처음: ASK/PRICE_JUMP) — 300만 원 묻기 없앰, 기록에 '크게 바뀜'"
+    },
+    {
+      "id": "G-VSN-V3-55",
+      "title": "다른 기기가 등록한 번호 — 찜 없어도 묻기 (D-V3-76)",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": 50000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "",
+          "price": 30000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true,
+        "recent": true,
+        "otherDevice": true
+      },
+      "out": {
+        "action": "ASK",
+        "changes": {
+          "price": 50000
+        },
+        "reason": "MAYBE_OTHER"
+      },
+      "note": "고쳐 말함은 같은 기기만"
+    },
+    {
+      "id": "G-VSN-V3-56",
+      "title": "다른 기기가 등록한 번호 — 같은 값이면 무시",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": 30000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "",
+          "price": 30000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true,
+        "recent": true,
+        "otherDevice": true
+      },
+      "out": {
+        "action": "IGNORE",
+        "changes": {},
+        "reason": null
+      }
+    },
+    {
+      "id": "G-VSN-V3-57",
+      "title": "다른 기기 + 사전 품종 채우기도 묻기",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": null,
+          "priceSure": false,
+          "name": "핑크프릴",
+          "nameFrom": "DICTIONARY",
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "",
+          "price": 30000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true,
+        "recent": true,
+        "otherDevice": true
+      },
+      "out": {
+        "action": "ASK",
+        "changes": {
+          "name": "핑크프릴"
+        },
+        "reason": "MAYBE_OTHER"
+      }
+    },
+    {
+      "id": "G-VSN-V3-58",
+      "title": "다른 기기여도 판매 중 아님이 먼저",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": 50000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "",
+          "price": 30000,
+          "status": "CLOSED",
+          "liveClaims": 0
+        },
+        "auto": true,
+        "recent": true,
+        "otherDevice": true
+      },
+      "out": {
+        "action": "ASK",
+        "changes": {
+          "price": 50000
+        },
+        "reason": "NOT_OPEN"
+      }
     }
   ]
 }
