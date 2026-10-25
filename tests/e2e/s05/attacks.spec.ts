@@ -3,6 +3,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { LOGIN_ID, PASSWORD, boardItem, history, login, openNewBroadcast, postJson, register, sendViewerChat, uniqueDate, untilElapsed } from './support.ts'
 import { logoutFully } from '../menu.ts'
+import { onlineWithWritesBlocked } from '../mob2/support.ts'
 
 async function queueCancelOfWinner(page: Page, no: number, nick: string, reason = '시청자 요청'): Promise<void> {
   await boardItem(page, no).click()
@@ -231,13 +232,17 @@ test('AC-S05-63: 보낼 때 오프라인인 방송자 조치 → "저장하지 �
   await page.context().setOffline(true)
   const bar = page.getByRole('region', { name: '보내기 전 조치' })
   await expect(bar).toContainText('저장하지 못했어요', { timeout: 20_000 })
-  await page.context().setOffline(false)
+  // MOB2 D-MOB2-07: 연결이 돌아오면 저절로 한 번 다시 보낸다 — "다시 보내기"를 직접 누르는 길을 보려고 돌아올 때 쓰기를 막아 둔다(저절로 보낸 것도 실패), 누르기 전에 푼다
+  const held = await onlineWithWritesBlocked(page, async () => {
+    await expect(bar.getByRole('button', { name: '다시 보내기' })).toBeVisible({ timeout: 30_000 })
+  })
+  await held.release()
   await bar.getByRole('button', { name: '다시 보내기' }).click()
   await expect(boardItem(page, 15)).not.toContainText('홍길동', { timeout: 15_000 })
   expect((await history(page, date, true)).filter((e) => e.type === 'host.cancel')).toHaveLength(1)
 })
 
-test('AC-S05-63: 방송자 조치의 응답만 잃어버림(서버는 기록) → 같은 요청 번호로 다시 보내 이력에 한 번, 결과는 "보냈어요"', async ({ page }) => {
+test('AC-S05-63: 방송자 조치의 응답만 잃어버림(서버는 기록) → 같은 요청 번호로 다시 보내 이력에 한 번, 결과는 1등 자리 결과 한 줄(MOB2 D-MOB2-04)', async ({ page }) => {
   await login(page)
   const date = uniqueDate()
   const b = await openNewBroadcast(page, { date, rehearsal: true })
@@ -256,6 +261,7 @@ test('AC-S05-63: 방송자 조치의 응답만 잃어버림(서버는 기록) �
   })
   await queueCancelOfWinner(page, 15, '홍길동')
   const bar = page.getByRole('region', { name: '보내기 전 조치' })
-  await expect(bar).toContainText('보냈어요: 15번 홍길동 취소', { timeout: 20_000 })
+  // MOB2 D-MOB2-04: 1등 찜을 비운 조치는 "보냈어요" 대신 결과 한 줄 — 대기 없음·재고 1이라 다시 판매 중 (응답을 잃고 다시 보내도 같다)
+  await expect(bar.getByRole('status').filter({ hasText: '1등 자리가' })).toHaveText('15번 1등 자리가 비었어요 · 대기 없음 · 판매 중', { timeout: 20_000 })
   expect((await history(page, date, true)).filter((e) => e.type === 'host.cancel')).toHaveLength(1)
 })

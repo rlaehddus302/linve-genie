@@ -73,7 +73,7 @@ async function openPendingAt(page: Page, at: number, seconds: number): Promise<R
 }
 
 test.describe('AC-QL2-43 보류 찜 창의 시간과 뜻', () => {
-  test('등록 안 한 번호 31 — 383초 "6분 전"·45초 "45초 전"·60초 "1분 전", 맨 위 뜻 문장(기본 30초), "번호 넣기"·만료 태그 그대로', async ({ page }) => {
+  test('등록 안 한 번호 31 — 10초 "10초 전", 맨 위 뜻 문장(기본 30초), "번호 넣기"·만료 태그 그대로, 383·45·60초는 "시간이 지난 보류 찜"의 "31번 1개"(MOB2 D-MOB2-06)', async ({ page }) => {
     await loginNewSeller(page)
     const date = uniqueDate()
     const b = await broadcastApi(page, date)
@@ -88,6 +88,17 @@ test.describe('AC-QL2-43 보류 찜 창의 시간과 뜻', () => {
       const dlg = await openPendingAt(page, at, seconds)
       const meaning = dlg.getByText(pendingMeaning(30), { exact: true })
       await expect(meaning).toBeVisible()
+      if (seconds > 30) {
+        // MOB2 D-MOB2-06: 창(30초)이 지난 찜만 남은 번호는 위 묶음이 아니라 아래 "시간이 지난 보류 찜" 목록의 "31번 1개" — "번호 넣기" 없음
+        const old = dlg.getByRole('region', { name: '시간이 지난 보류 찜' })
+        const oldRow = old.getByRole('listitem').filter({ hasText: '31번' })
+        await expect(oldRow).toHaveText('31번 1개')
+        await expectOrder([['뜻 문장', meaning], ['31번 줄', oldRow]], `${String(seconds)}초 창 맨 위`)
+        await expect(dlg.getByRole('button', { name: /번호 넣기/ })).toHaveCount(0)
+        await dlg.getByRole('button', { name: '닫기' }).click()
+        await expect(dlg).toHaveCount(0)
+        continue
+      }
       const row = dlg.getByRole('listitem').filter({ hasText: '31번' })
       await expectOrder([['뜻 문장', meaning], ['31번 줄', row]], `${String(seconds)}초 창 맨 위`)
       await expect(row).toContainText(`보류 찜 1개 · 가장 오래된 찜 ${word}`)
