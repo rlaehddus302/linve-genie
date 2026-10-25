@@ -285,3 +285,12 @@ describe('사용자 "113번 45에 드려볼게요. 자 45~"', () => {
     expect(seg('113번 45에 드려볼게요 자 50', { priceUnit: 'TEN_THOUSAND', final: true }).picks).toEqual([])
   })
 })
+
+describe('TD-V3-007 "180이요"·늘임표 "…"', () => {
+  it('"150번 180이요"·"150번 라울 180이요"(최종, 천원) → 180,000원, "45…"도 수', () => {
+    expect(seg('150번 180이요', { priceUnit: 'THOUSAND', final: true }).picks).toMatchObject([{ no: 150, price: 180000 }])
+    expect(seg('150번 라울 180이요', { priceUnit: 'THOUSAND', final: true }).picks).toMatchObject([{ no: 150, name: '라울', price: 180000 }])
+    expect(seg('113번 45…', { priceUnit: 'TEN_THOUSAND', final: true }).picks).toMatchObject([{ no: 113, price: 450000 }])
+    expect(seg('113번 45에 드려볼게요 자 45…', { priceUnit: 'TEN_THOUSAND', final: true }).picks).toMatchObject([{ no: 113, price: 450000 }])
+  })
+})

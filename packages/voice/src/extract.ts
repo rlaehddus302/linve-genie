@@ -56,8 +56,8 @@ export const ENDINGS: readonly string[] = Object.freeze([
   '인데',
 ])
 const ENDINGS_SHORT_FIRST: readonly string[] = [...ENDINGS].sort((a, b) => a.length - b.length)
-/** 토큰 끝에서 지우는 문장 부호 (R-17 1) */
-const TRAILING_PUNCTUATION = new Set(['.', ',', '?', '!', '~'])
+/** 토큰 끝에서 지우는 문장 부호 (R-17 1 — V3: 유니코드 늘임표 `…`도, TD-V3-007) */
+const TRAILING_PUNCTUATION = new Set(['.', ',', '?', '!', '~', '…'])
 /** 한자어 수사 글자 (R-17 3) */
 const SINO_NUMERAL = new Set([...'일이삼사오육칠팔구십백천'])
 /** 한글 수·단위 (R-17 4: 가격 묶음의 글에 있어야 하는 글자, `원`과 함께) */

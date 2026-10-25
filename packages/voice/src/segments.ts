@@ -96,8 +96,8 @@ export const SALE_TAIL_WORDS: readonly string[] = Object.freeze([
   '갑니다', '가겠습니다', '갈게요', '가요', '드릴게요', '드릴게요요', '드려요', '드립니다', '드려볼게요', '드려봅니다', '드려', '볼게요', '보겠습니다', '줄게요',
   '보낼게요', '보냅니다', '보내요', '할게요', '입니다', '이에요', '예요', '요', '까지', '까지요',
 ])
-/** 빠른 꼴 수 토큰에 붙어도 떼는 말 (`45에`·`45에요`·`180입니다`) */
-const NUMBER_TAILS: readonly string[] = [...SALE_TAIL_WORDS, '에', '에요'].sort((a, b) => b.length - a.length)
+/** 빠른 꼴 수 토큰에 붙어도 떼는 말 (`45에`·`45에요`·`180이요`·`180입니다`) */
+const NUMBER_TAILS: readonly string[] = [...SALE_TAIL_WORDS, '에', '에요', '이요'].sort((a, b) => b.length - a.length)
 const isSaleTail = (token: string): boolean => readingForms(token).some((form) => SALE_TAIL_WORDS.includes(form))
 
 const skipFillers = (tokens: readonly string[], from: number): number => {
