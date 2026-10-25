@@ -300,7 +300,7 @@ export interface VoiceOffer {
    * offer = 품종·가격 고칠까요, number = 번호는 상품 목록에서, undo = 등록 되돌릴까요, late = 되돌릴 시간 지남,
    * card = 열린 카드 위 "12,000원을 18,000원으로 고칠까요?" (D-V2-19 — registrationId는 그 카드 ID)
    */
-  readonly kind: 'offer' | 'number' | 'undo' | 'late' | 'card' | 'notice'
+  readonly kind: 'offer' | 'number' | 'undo' | 'late' | 'card'
   readonly registrationId: string
   /** V3: 그 상품 번호 (거절한 번호 D-V3-10에 쓴다) */
   readonly no?: number
@@ -1454,7 +1454,7 @@ export class VoiceController {
 
   /**
    * 덩어리가 끝났을 때 (V3): 처리했으면 기록할 것, 아니면 null(V2 할 일 그대로).
-   * 1) 바로 등록한 덩어리에 취소 → 되돌림(D-V3-21) 2) 다른 'N번' → 알림만(D-V3-05) 3) 바로 한 번호 → 덮은 결과로 R-22(D-V3-13·19)
+   * 1) 바로 등록한 덩어리에 취소 → 되돌림(D-V3-21) 2) 다른 'N번' → 큰 글자 칸·기록만(D-V3-05·45) 3) 바로 한 번호 → 덮은 결과로 R-22(D-V3-13·19)
    * 4) 새 카드(create)의 번호: 이미 있는 번호 → R-22, 같은 번호 열린 카드 → 합치기(D-V3-08), 확정 → 바로 등록
    */
   #instantChunk(work: CardWork, module: VoiceModule, chunk: PhraseChunk, reading: ChunkReading, action: VoiceAction, v3: RegistrationReading | null, noAuto: boolean): InstantDone | null {
@@ -2287,14 +2287,6 @@ export class VoiceController {
     this.#rejectOffer(offer)
     this.#recent = this.#recent.filter((item) => item.id !== offer.registrationId)
     this.#set({ offers: this.#snapshot.offers.filter((item) => item.id !== id) })
-  }
-
-  /** 알림의 "알겠어요" (D-V3-05) */
-  seenNotice(id: string): void {
-    const offer = this.#findOffer(id)
-    if (offer === undefined || offer.kind !== 'notice') return
-    this.#set({ offers: this.#snapshot.offers.filter((item) => item.id !== id) })
-    this.#host.focusQuick()
   }
 
   /** 그 고칠까요·되돌리기의 번호를 거절한 번호로 (D-V3-10) */

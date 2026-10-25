@@ -29,8 +29,6 @@ export const REASON_BARE_NUMBER = "번호를 '번' 없이 들어 저절로 고�
 export const REASON_PRICE_FAR = '가격 차이가 너무 커서 저절로 고치지 않았어요.'
 /** 바로 등록을 막은 카드 (실방송 3차 — 판매자가 보고 등록) */
 export const PRICE_CHECK_NOTE = '가격 확인 필요 · 가격이 커서 바로 등록하지 않았어요. 맞으면 "등록"을 눌러 주세요.'
-/** 알림의 단추 */
-export const NOTICE_OK = '알겠어요'
 
 /** 저장값에서 바로 등록 켬/끔 (없거나 모르는 값은 켬, 옛 `voice.autoConfirm`은 읽지 않는다 — D-V3-16) */
 export function readInstant(stored: unknown): boolean {

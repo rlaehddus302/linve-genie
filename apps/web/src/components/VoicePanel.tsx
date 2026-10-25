@@ -53,7 +53,7 @@ import { useConsoleApi } from './console-context.ts'
 import { Modal } from './Modal.tsx'
 import { smsLast4Suffix, smsResultWords, useSentToReview, useSmsClaim } from './SmsPage.tsx'
 import { SERVICE_NAME } from '../brand.ts'
-import { INSTANT_CONSENT_LINE, INSTANT_HELP, INSTANT_LABEL, NOTICE_OK } from '../voice/instant.ts'
+import { INSTANT_CONSENT_LINE, INSTANT_HELP, INSTANT_LABEL } from '../voice/instant.ts'
 
 /** 안내 창 마지막 줄 (MOB1 D-MOB1-07, AC-MOB1-11) */
 export const CONSENT_OTHER_DEVICE = '방송하는 폰이 아닌 다른 기기(관리 폰이나 PC)에서 켜 주세요. 방송 앱이 마이크를 쓰는 폰에서는 잘 듣지 못해요.'
@@ -383,12 +383,6 @@ function OfferView({ offer, voice }: { readonly offer: VoiceOffer; readonly voic
           닫기
         </button>
       </>
-    )
-  } else if (offer.kind === 'notice') {
-    actions = (
-      <button type="button" className="button button-primary" onClick={() => voice.seenNotice(offer.id)}>
-        {NOTICE_OK}
-      </button>
     )
   } else if (offer.kind === 'undo') {
     actions = (
