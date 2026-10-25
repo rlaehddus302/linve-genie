@@ -9,7 +9,7 @@ import type { WriteResult } from '../api/types.ts'
 import { ConsoleStore } from '../lib/console-store.ts'
 import { productKey, productSlots } from '../lib/derive.ts'
 import { OFFER_FIX_FAILED, VoiceController, type ExistingView, type RecentFixOutcome, type VoiceHost } from './controller.ts'
-import { fetchPastNames, fetchSellerNames } from './history.ts'
+import { fetchPastNames } from './history.ts'
 import { loadVoice } from './load.ts'
 import { readConsent, readLearned, readSettings, readSmsSettings, writeConsent, writeLearned, writeSettings, writeSmsSettings } from './storage.ts'
 
@@ -217,7 +217,6 @@ export class VoiceSession {
       products: () => pick().products(),
       existingProduct: (no) => pick().existingProduct?.(no) ?? null,
       fetchHistory: () => pick().fetchHistory(),
-      fetchSellerNames: () => pick().fetchSellerNames?.() ?? Promise.resolve([]),
       dialogOpen: () => pick().dialogOpen(),
       readConsent: () => pick().readConsent(),
       writeConsent: () => pick().writeConsent(),
@@ -273,7 +272,6 @@ export class VoiceSession {
       const broadcast = this.#store.getSnapshot().broadcast
       return broadcast === null ? Promise.resolve([]) : fetchPastNames({ date: broadcast.date, rehearsal: broadcast.rehearsal })
     },
-    fetchSellerNames,
     dialogOpen: anyDialogOpen,
     readConsent,
     writeConsent,

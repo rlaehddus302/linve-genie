@@ -41,8 +41,6 @@ export interface LiveHandlers {
   readonly onLogin?: () => void
   /** 크롬 확장 상태가 바뀌었다 (SSE `extension` — X1 YT-10 AC7·AC8) */
   readonly onExtension?: (view: ExtensionView) => void
-  /** 음성 알림 (SSE `voice` — `{ kind: 'sellerNames' }` 판매자 품종 사전이 늘었다, D-V3-49) */
-  readonly onVoice?: (event: { readonly kind: string }) => void
 }
 
 export function parseYoutubeEvent(raw: unknown): YoutubeEvent | null {
@@ -106,12 +104,6 @@ export class LiveEvents {
       } catch {
         // 읽지 못한 알림은 버린다 (다시 붙을 때 다시 읽는다)
       }
-    })
-    stream.addEventListener('voice', (event) => {
-      const handler = this.#handlers().onVoice
-      if (handler === undefined) return
-      const data = parseObject(event.data)
-      if (data !== null && typeof data.kind === 'string') handler({ kind: data.kind })
     })
     stream.addEventListener('extension', (event) => {
       const data = parseExtensionEvent(event.data)

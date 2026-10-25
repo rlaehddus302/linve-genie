@@ -494,8 +494,6 @@ export interface VoiceHost {
   products(): ReadonlyMap<number, boolean>
   /** 지난 실제 범위의 상품 이름 (음성을 켤 때 한 번) */
   fetchHistory(): Promise<readonly PastDay[]>
-  /** 판매자 품종 사전 (판매자 채팅에서 배운 이름, R-23 — 음성을 켤 때·사전이 바뀔 때, D-V3-49) */
-  fetchSellerNames?(): Promise<readonly string[]>
   /** 창이 열려 있다 */
   dialogOpen(): boolean
   readConsent(): boolean
@@ -712,9 +710,7 @@ export class VoiceController {
   #heldTimer: ReturnType<typeof setTimeout> | null = null
   /** 이 시각까지만 이력을 기다린다 (host.now 기준) */
   #historyDeadline = 0
-  #dictionary: { readonly names: readonly string[]; readonly past: readonly PastDay[]; readonly learned: readonly LearnedAlias[]; readonly seller: readonly string[]; readonly prepared: VarietyDictionary } | null = null
-  /** 판매자 품종 사전 (D-V3-49) — 받지 못하면 빈 목록 */
-  #sellerNames: readonly string[] = []
+  #dictionary: { readonly names: readonly string[]; readonly past: readonly PastDay[]; readonly learned: readonly LearnedAlias[]; readonly prepared: VarietyDictionary } | null = null
   /** 문자찜 카드 ID → 주문마다의 요청 번호 (다시 보낼 때 같은 번호 — 찜이 둘 생기지 않게) */
   readonly #smsRequests = new Map<string, string[]>()
   /** 카드마다 요청 번호를 만든 때의 넣기 방법 — 같은 방법으로 다시 보내면 같은 요청 번호(서버 멱등), 바뀌면 새 번호 */
@@ -2113,23 +2109,7 @@ export class VoiceController {
 
   // ── 판매 이력 사전 (D-I4-06) ────────────────────────────────────────
 
-  /** 판매자 품종 사전을 다시 받는다 (음성을 켤 때·실시간 알림 `voice`·다시 붙었을 때). 받지 못하면 그대로 */
-  refreshSellerNames(): void {
-    const fetch = this.#host.fetchSellerNames
-    if (this.#disposed || fetch === undefined || this.#module === null) return
-    fetch().then(
-      (names) => {
-        if (this.#disposed) return
-        this.#sellerNames = names.filter((name) => typeof name === 'string' && name.trim() !== '').slice(0, 2000)
-      },
-      () => {
-        // 받지 못하면 지난 사전 그대로 — 판매 이력·기본 사전으로 알아듣는다
-      },
-    )
-  }
-
   #loadHistory(): void {
-    this.refreshSellerNames()
     if (this.#history.state === 'loading' || this.#history.state === 'done') return
     this.#history = { state: 'loading', past: [] }
     this.#historyDeadline = this.#host.now() + HISTORY_WAIT_MS
@@ -2155,13 +2135,11 @@ export class VoiceController {
     const past = this.#history.state === 'done' ? this.#history.past : []
     const cached = this.#dictionary
     const learned = this.#learned
-    const seller = this.#sellerNames
-    if (cached !== null && cached.names === names && cached.past === past && cached.learned === learned && cached.seller === seller) return cached.prepared
-    // 지금 범위 → 판매자 품종 사전(판매자가 채팅에 쓴 이름, D-V3-49) → 지난 범위 (판매 이력 순서, D-I4-06)
-    const history = historyNames([...names, ...seller], past, module.normalizeDictionary)
+    if (cached !== null && cached.names === names && cached.past === past && cached.learned === learned) return cached.prepared
+    const history = historyNames(names, past, module.normalizeDictionary)
     // 배운 별칭 → 판매 이력 → 기본 사전(데이터 사전·별칭) (D-V2-10)
     const prepared = module.prepareVoiceDictionary({ learned, history })
-    this.#dictionary = { names, past, learned, seller, prepared }
+    this.#dictionary = { names, past, learned, prepared }
     return prepared
   }
 

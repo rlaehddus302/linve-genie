@@ -47,7 +47,7 @@ interface Harness {
   readonly moves: [number, number][]
 }
 
-function harness(options: { settings?: unknown; noBoard?: boolean; priceUnit?: 'WON' | 'THOUSAND'; seller?: readonly string[] } = {}): Harness {
+function harness(options: { settings?: unknown; noBoard?: boolean; priceUnit?: 'WON' | 'THOUSAND' } = {}): Harness {
   const state = {
     registered: [] as Harness['registered'],
     written: [] as unknown[],
@@ -63,7 +63,6 @@ function harness(options: { settings?: unknown; noBoard?: boolean; priceUnit?: '
     now: () => Date.now(),
     maxNumber: () => 999,
     priceUnit: () => options.priceUnit ?? 'WON',
-    ...(options.seller === undefined ? {} : { fetchSellerNames: async () => options.seller ?? [] }),
     currentNames: () => [],
     products: () => new Map([...state.board].map(([no, product]) => [no, product.closed])),
     fetchHistory: async () => [],
@@ -558,20 +557,6 @@ describe('추측 품종은 등록에 쓰지 않는다 (D-V3-37)', () => {
     h.voice.chooseCandidate(card?.id ?? '', 'bts')
     expect(cards(h)[0]?.name).toBe('bts')
     expect(cards(h)[0]?.touched).toBe(true)
-  })
-})
-
-describe('판매자 품종 사전 (D-V3-49)', () => {
-  it('켤 때 받은 판매자 품종 이름을 사전에 넣어 바로 등록 품종으로 쓴다', async () => {
-    const h = await ready({ seller: ['용용초'] })
-    say('15번 용용초 만 원')
-    expect(reg(h)).toEqual([{ no: 15, name: '용용초', price: 10000, source: 'instant' }])
-  })
-
-  it('판매자 사전이 없으면 같은 말은 품종 미입력', async () => {
-    const h = await ready()
-    say('15번 용용초 만 원')
-    expect(reg(h)).toEqual([{ no: 15, name: '', price: 10000, source: 'instant' }])
   })
 })
 
