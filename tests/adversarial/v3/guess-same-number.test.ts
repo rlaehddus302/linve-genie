@@ -70,9 +70,9 @@ describe('AC-V3-63 — 품종 추측은 군말·막는 낱말·정정·칸 이�
         expect(/[다요죠네까고게서면데]$/.test(guess), `풀이말 끝: ${text} → ${guess}`).toBe(false)
         const times = text.split(' ').filter((t) => t === guess || (t.startsWith(guess) && ENDINGS.includes(t.slice(guess.length)))).length
         expect(times, `한 번만 나온 낱말: ${text} → ${guess}`).toBeGreaterThanOrEqual(2)
-        // 바로 등록 값의 품종도 같다
-        const ready = readRegistration(text, { dictionary: DICT }).ready
-        if (ready !== null && ready.nameNeedsCheck) expect(ready.name).toBe(guess)
+        // D-V3-37: 추측은 후보 단추용 — 바로 등록 품종은 사전 맞춤(name)뿐
+        const reading = readRegistration(text, { dictionary: DICT, final: true })
+        if (reading.ready !== null) expect(reading.ready.name).toBe(reading.extraction.name)
       }),
       { numRuns: 1500 },
     )

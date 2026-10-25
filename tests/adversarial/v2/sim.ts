@@ -12,6 +12,7 @@ import {
   fillCard,
   prepareVoiceDictionary,
   readChunk,
+  readRegistration,
   replaceCard,
   tick,
   type PhraseChunk,
@@ -72,7 +73,9 @@ export function simulate(results: readonly SimResult[], until: number, init: { c
       const { chunk } = item
       chunks.push(chunk)
       const reading = readChunk(chunk.text, { dictionary: DICT })
-      const action = chooseAction(reading, { cards, recent: init.recent ?? [], now: chunk.endedAt, chunkStartedAt: chunk.startedAt })
+      // V3(D-V3-41): 화면은 덩어리 끝 확정 읽기(번호 둘·가격 뒤 '번' 없는 번호)를 chooseAction에 넘긴다
+      const registration = readRegistration(chunk.text, { dictionary: DICT, final: true })
+      const action = chooseAction(reading, { cards, recent: init.recent ?? [], now: chunk.endedAt, chunkStartedAt: chunk.startedAt, registration })
       actions.push({ at: chunk.endedAt, action })
       if (action.kind === 'create') {
         const card = createChunkCard({ id: `c${String(nextId++)}`, action, text: chunk.text, createdAt: chunk.endedAt, settings: init.settings, noAutoConfirm: chunk.noAutoConfirm })

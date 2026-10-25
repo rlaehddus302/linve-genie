@@ -80,7 +80,7 @@ describe('AC-I4-21 Enter 대상·1초 (D-I4-03)', () => {
 
   it('속성: 등록은 빈 칸·조합 아님·창 없음·PC·맨 앞 고치기 칸 닫힘·맨 앞이 된 지 1초 이상일 때만, 그때 맨 앞 카드', () => {
     const a = card('15번 핑크프릴 만오천 원', T0)
-    const b = card('핑크프릴 만오천 원', T0 + 10)
+    const b = card('16번 핑크프릴 만오천', T0 + 10) // D-V3-41: 번호 없는 결과는 카드가 아니므로 번호 있는 카드로
     const cards = addCard(addCard([], a), b)
     fc.assert(
       fc.property(

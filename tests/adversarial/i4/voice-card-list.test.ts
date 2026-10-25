@@ -35,7 +35,12 @@ describe('AC-I4-02 카드 목록 속성', () => {
           time += 100
           if (step.kind === 'add') {
             const before = cards
-            const card = make(time % 3 === 0 ? null : (time / 100) % 999 || 1, time)
+            // D-V3-41: 번호 없는 결과는 카드가 되지 않는다
+            if (time % 3 === 0) {
+              expect(createCard({ id: 'none', extraction: { no: null, name: '라울', price: 10000, confidence: 'LOW' }, text: '말', createdAt: time, settings: { 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5 } })).toBeNull()
+              continue
+            }
+            const card = make((time / 100) % 999 || 1, time)
             cards = addCard(before, card)
             const touchedOpen = cards.filter((item) => item.status === 'OPEN' && item.touched).length
             expect(cards[0]).toEqual(card)
