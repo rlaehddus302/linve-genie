@@ -2,7 +2,9 @@
 // - 날짜 하나 = 판매자의 실제 범위 하나. 리허설 범위는 읽지 않는다.
 // - 표지 (D-CRM1-02, 지난 구매 D-I2-08과 같은 규칙): 채팅 구매자(유튜브·인스타그램 `ig:`·틱톡 `tt:`)는 구매자 키 그대로 `c:<키>`,
 //   휴대폰 번호가 있는 문자 구매자는 그 구매자를 만든 문자찜의 전화번호 키 `p:<키>`(그 범위의 문자찜 이벤트 본문에서 — 응답·화면·로그에 내지 않는다).
-//   전화번호 없는 문자 구매자는 표지가 없다.
+//   전화번호 없는 문자 구매자는 표지가 없다. 음성 문자찜의 "끝자리만"(last4)·"새 손님으로 넣기"(newBuyer) 구매자도 전화번호 없는 문자 구매자다(TD-CRM1-001):
+//   그 phoneKey는 전체 번호가 아니라 그날 범위·끝자리(·ref)로 만든 키(sms-last4.ts)라, 판매자 키로 같은 키를 다시 만들어 보고 같으면 표지를 주지 않는다
+//   (이벤트 본문 형식을 바꾸지 않아 이미 쌓인 기록에도 맞다).
 // - 묶음 = 그날 지금의 구매자(root)의 정산 묶음. items = 확정 찜 수량 합, subtotal = 코어 정산 상품 합계, payment = 코어 입금 상태,
 //   cancels = 1등(확정)이었던 적이 있고(가격 스냅샷이 있다) 지금 취소·무효(방송자)인 찜 수,
 //   noPay = 그중 방송자 조치(취소·무효·교체 취소)의 사유가 '입금 안 함'으로 끝난 찜 수.
@@ -10,15 +12,21 @@
 // - 봉인 날짜(30일, D-PL1-04)는 봉인 장부로 다시 세운 상태로 센다(D-CRM1-02). 장부에는 끝난 찜·조치 사유가 없어 그 날짜의 cancels·noPay는 0이다.
 //   장부를 읽을 수 없으면 그 날짜를 빼고 오류 로그(코드·날짜만)를 남긴다.
 // - 캐시 (D-CRM1-11): (판매자, 범위 ID, 범위 seq, 봉인 여부)가 같으면 그 날짜의 재료를 다시 쓴다. 판매자·범위가 키에 들어 있어 섞이지 않는다.
-import { applyEvent, currentBuyerOf, getBuyer, getSettlement, listBuyers, listClaims, type EngineEvent, type EngineState } from '@livejjim/core'
-import { and, asc, eq, gt, inArray } from 'drizzle-orm'
+//   한 범위엔 한 벌만 둔다(RA-CRM1-01): 캐시 자리 = (판매자, 범위 ID), seq·봉인 여부는 값에 — 방송 중 seq가 바뀌면 같은 자리를 덮어쓴다.
+//   상한은 자리 수와 크기(구매자·묶음 수 합) 둘 다. 같은 재료를 동시에 세우는 요청은 하나의 약속을 함께 쓴다(RA-CRM1-02).
+// - '입금 안 함' 찜 찾기는 범위마다 이어 센다(RA-CRM1-02): 어디까지 다시 적용했는지·찾은 찜 ID를 두고, 새 후보가 생기면 그 뒤만 적용한다.
+//   이어 갈 상태가 없으면(처음·밀려남) 첫 새 후보보다 앞선 스냅샷에서 시작한다. 이벤트는 나눠 읽고, 나눌 때마다 이벤트 루프에 양보해 방송 판정과 번갈아 돈다.
+import { STATE_FORMAT, applyEvent, currentBuyerOf, getBuyer, getSettlement, listBuyers, listClaims, type EngineEvent, type EngineState } from '@livejjim/core'
+import { and, asc, eq, gt, inArray, lte } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
 import { events, scopes } from '../db/schema.ts'
 import type { LogSink } from '../log.ts'
 import { platformOfKey, type Platform } from '../platform.ts'
-import { emptyState } from '../runtime.ts'
+import { emptyState, usableSnapshot } from '../runtime.ts'
+import { phoneKeyOf } from '../secrets.ts'
 import { readSealed } from '../sealed-state.ts'
-import { eventsAfter } from '../store.ts'
+import { last4KeyText, newBuyerKeyText } from '../sms-last4.ts'
+import { eventsBetween, snapshotBefore } from '../store.ts'
 import type { ScopeWriter } from '../writer.ts'
 import { isNoPayReason, type SummaryBundle } from './summary.ts'
 
@@ -73,56 +81,146 @@ function noPayCandidate(type: string, body: string): boolean {
 
 const isEnded = (status: string, reason: string | null) => status === 'CANCELLED' || (status === 'REJECTED' && reason === 'BY_HOST')
 
-/** 그 범위에서 '입금 안 함' 조치로 끝난 확정 찜 ID (이벤트 기록을 처음부터 다시 적용하며, 후보 이벤트 앞뒤의 찜 상태를 비교한다) */
-async function noPayClaims(db: Db, sellerId: string, scopeId: string, upto: number, log: LogSink, date: string): Promise<{ key: string; ids: ReadonlySet<string> }> {
-  const rows = await db
-    .select({ seq: events.seq, type: events.type, body: events.body })
-    .from(events)
-    .where(and(eq(events.sellerId, sellerId), eq(events.scopeId, scopeId), eq(events.failed, false), inArray(events.type, [...ACTION_TYPES]), gt(events.seq, 0)))
-    .orderBy(asc(events.seq))
-  const candidates = new Set(rows.filter((row) => row.seq <= upto && noPayCandidate(row.type, row.body)).map((row) => row.seq))
-  const last = Math.max(0, ...candidates)
-  const key = `${scopeId}|${String(last)}`
-  if (candidates.size === 0) return { key, ids: new Set() }
-  const cached = noPayCache.get(key)
-  if (cached !== undefined) return { key, ids: cached }
-  const ids = new Set<string>()
-  let state: EngineState = emptyState()
-  for (const row of await eventsAfter(db, sellerId, scopeId, 0)) {
-    if (row.seq > last) break
-    if (row.failed) continue
-    const before = candidates.has(row.seq) ? new Set(listClaims(state).filter((claim) => claim.status === 'CONFIRMED').map((claim) => claim.id)) : null
-    try {
-      state = applyEvent(state, JSON.parse(row.body) as EngineEvent).state
-    } catch {
-      // 재생이 건너뛴 입력과 같다 (runtime.ts replayRow) — 코드·날짜·seq만
-      log({ level: 'warn', code: 'REPLAY_SKIPPED', date, seq: row.seq })
-      continue
-    }
-    if (before === null) continue
-    for (const claim of listClaims(state)) if (before.has(claim.id) && isEnded(claim.status, claim.reason)) ids.add(claim.id)
-  }
-  remember(noPayCache, key, ids, NO_PAY_CACHE_MAX)
-  return { key, ids }
+/** 범위 하나의 '입금 안 함' 찾기 진행 (판매자·범위마다 한 벌) */
+interface NoPayProgress {
+  /** 여기까지(이 seq까지) 다시 적용했다 */
+  replayed: number
+  /** 여기까지 후보를 찾아봤다 (replayed 이상) */
+  checked: number
+  /** 찾은 찜 ID (replayed까지의 후보로) */
+  ids: ReadonlySet<string>
+  /** replayed 시점의 상태 — 메모리를 아끼려 최근 것 몇 벌만 둔다(없으면 다음에 스냅샷에서 시작) */
+  state: EngineState | null
 }
 
-/** 그 범위의 문자찜 ref → 전화번호 키 (문자찜 이벤트 본문의 phoneKey) */
-async function phoneKeys(db: Db, sellerId: string, scopeId: string): Promise<Map<string, string>> {
-  const rows = await db
+/** 한 번에 읽는 이벤트 수, 그만큼 적용할 때마다 이벤트 루프에 양보한다 */
+export const NO_PAY_CHUNK = 500
+const yieldTurn = () => new Promise<void>((resolve) => setImmediate(resolve))
+
+/**
+ * 그 범위에서 '입금 안 함' 조치로 끝난 확정 찜 ID (후보 이벤트 앞뒤의 찜 상태를 코어 applyEvent로 비교한다).
+ * 이어 센다: 지난번 다시 적용한 곳 뒤의 새 후보만 본다. 앞선 후보의 결과는 뒤 이벤트로 바뀌지 않는다(그 조치 앞뒤 비교라서).
+ */
+async function noPayClaims(db: Db, sellerId: string, scopeId: string, upto: number, log: LogSink, date: string): Promise<ReadonlySet<string>> {
+  const key = JSON.stringify([sellerId, scopeId])
+  return oneAtATime(noPayRunning, key, async () => {
+    const known = noPayProgress.get(key)
+    const progress: NoPayProgress = known ?? { replayed: 0, checked: 0, ids: new Set(), state: null }
+    if (upto <= progress.checked) return progress.ids
+    const rows = await db
+      .select({ seq: events.seq, type: events.type, body: events.body })
+      .from(events)
+      .where(
+        and(
+          eq(events.sellerId, sellerId),
+          eq(events.scopeId, scopeId),
+          eq(events.failed, false),
+          inArray(events.type, [...ACTION_TYPES]),
+          gt(events.seq, progress.checked),
+          lte(events.seq, upto),
+        ),
+      )
+      .orderBy(asc(events.seq))
+    const candidates = rows.filter((row) => noPayCandidate(row.type, row.body)).map((row) => row.seq)
+    const first = candidates[0]
+    const last = candidates.at(-1)
+    if (first === undefined || last === undefined) {
+      progress.checked = upto
+      remember(noPayProgress, key, progress, NO_PAY_CACHE_MAX)
+      return progress.ids
+    }
+    const wanted = new Set(candidates)
+    // 시작 상태: 이어 갈 상태, 없으면 첫 새 후보보다 앞선 스냅샷, 그것도 없으면 빈 상태(0번부터)
+    let state: EngineState
+    let from: number
+    if (progress.state !== null) {
+      state = progress.state
+      from = progress.replayed
+    } else {
+      const snapshot = await snapshotBefore(db, sellerId, scopeId, STATE_FORMAT, first)
+      const usable = snapshot === null ? null : usableSnapshot(snapshot.state, snapshot.attention)
+      if (snapshot !== null && usable !== null) {
+        state = usable.state
+        from = snapshot.seq
+      } else {
+        state = emptyState()
+        from = 0
+      }
+    }
+    const ids = new Set(progress.ids)
+    while (from < last) {
+      const chunk = await eventsBetween(db, sellerId, scopeId, from, last, NO_PAY_CHUNK)
+      if (chunk.length === 0) break
+      for (const row of chunk) {
+        from = row.seq
+        if (row.failed) continue
+        const before = wanted.has(row.seq) ? new Set(listClaims(state).filter((claim) => claim.status === 'CONFIRMED').map((claim) => claim.id)) : null
+        try {
+          state = applyEvent(state, JSON.parse(row.body) as EngineEvent).state
+        } catch {
+          // 재생이 건너뛴 입력과 같다 (runtime.ts replayRow) — 코드·날짜·seq만
+          log({ level: 'warn', code: 'REPLAY_SKIPPED', date, seq: row.seq })
+          continue
+        }
+        if (before === null) continue
+        for (const claim of listClaims(state)) if (before.has(claim.id) && isEnded(claim.status, claim.reason)) ids.add(claim.id)
+      }
+      noPayReplayed += chunk.length
+      if (from < last) await yieldTurn()
+    }
+    const next: NoPayProgress = { replayed: last, checked: upto, ids, state }
+    remember(noPayProgress, key, next, NO_PAY_CACHE_MAX)
+    keepState(key)
+    return ids
+  })
+}
+
+/** 이어 갈 상태는 최근 NO_PAY_STATE_MAX 범위만 (나머지는 찾은 ID만 두고 상태를 버린다) */
+function keepState(key: string): void {
+  noPayStates.delete(key)
+  noPayStates.add(key)
+  while (noPayStates.size > NO_PAY_STATE_MAX) {
+    const oldest = noPayStates.values().next().value as string
+    noPayStates.delete(oldest)
+    const progress = noPayProgress.get(oldest)
+    if (progress !== undefined) progress.state = null
+  }
+}
+
+/** 판매자 키로 다시 만든 "끝자리만"·"새 손님으로 넣기" 키인지 (TD-CRM1-001 — 전체 번호에서 나온 키가 아니다) */
+function isLast4Key(sellerKey: Buffer, date: string, ref: string, phoneKey: string, last4: unknown): boolean {
+  if (typeof last4 !== 'string') return false
+  return phoneKey === phoneKeyOf(sellerKey, last4KeyText(date, false, last4)) || phoneKey === phoneKeyOf(sellerKey, newBuyerKeyText(date, false, last4, ref))
+}
+
+/** 그 범위의 문자찜 ref → 전체 전화번호 키 (문자찜 이벤트 본문의 phoneKey — 끝자리만으로 만든 키는 뺀다). 범위마다 이어 읽는다 */
+async function phoneKeys(deps: FactsDeps, sellerId: string, scope: ScopeRow): Promise<ReadonlyMap<string, string>> {
+  const cacheKey = JSON.stringify([sellerId, scope.id])
+  const known = phoneKeyCache.get(cacheKey)
+  if (known !== undefined && known.seq >= scope.seq) return known.keys
+  const after = known?.seq ?? 0
+  const rows = await deps.db
     .select({ ref: events.smsRef, body: events.body })
     .from(events)
-    .where(and(eq(events.sellerId, sellerId), eq(events.scopeId, scopeId), eq(events.type, 'sms')))
-  const out = new Map<string, string>()
+    .where(and(eq(events.sellerId, sellerId), eq(events.scopeId, scope.id), eq(events.type, 'sms'), gt(events.seq, after), lte(events.seq, scope.seq)))
+  const keys = new Map(known?.keys ?? [])
+  let sellerKey: Buffer | null = null
   for (const row of rows) {
     if (row.ref === null) continue
+    let body: { phoneKey?: unknown; phoneLast4?: unknown }
     try {
-      const key = (JSON.parse(row.body) as { phoneKey?: unknown }).phoneKey
-      if (typeof key === 'string' && key !== '') out.set(row.ref, key)
+      body = JSON.parse(row.body) as typeof body
     } catch {
-      // 읽을 수 없는 본문은 표지 없음
+      continue // 읽을 수 없는 본문은 표지 없음
     }
+    const key = body.phoneKey
+    if (typeof key !== 'string' || key === '') continue
+    sellerKey ??= await deps.sellerKey(sellerId)
+    if (isLast4Key(sellerKey, scope.date, row.ref, key, body.phoneLast4)) continue
+    keys.set(row.ref, key)
   }
-  return out
+  remember(phoneKeyCache, cacheKey, { seq: scope.seq, keys }, FACTS_CACHE_MAX)
+  return keys
 }
 
 /** 범위 상태 하나 → 그날 재료 (판정 없음 — 코어 조회 결과만) */
@@ -184,12 +282,31 @@ export function factsOf(date: string, scopeId: string, state: EngineState, keys:
 
 // ── 캐시 ─────────────────────────────────────────────────────────────────
 
-/** 날짜 재료 캐시 크기 (판매자 여럿 × 날짜 수백 — 넘으면 오래 안 쓴 것부터 버린다) */
+/** 날짜 재료 캐시 자리 수 (판매자 여럿 × 날짜 수백 — 범위마다 한 자리, 넘으면 오래 안 쓴 것부터 버린다) */
 export const FACTS_CACHE_MAX = 4000
-const NO_PAY_CACHE_MAX = 1000
-const factsCache = new Map<string, DayFacts>()
-const noPayCache = new Map<string, ReadonlySet<string>>()
+/** 날짜 재료 캐시 크기 상한 (모든 자리의 구매자 수 + 묶음 수 합 — 넘으면 오래 안 쓴 것부터 버린다) */
+export const FACTS_CACHE_WEIGHT_MAX = 400_000
+const NO_PAY_CACHE_MAX = 4000
+const NO_PAY_STATE_MAX = 16
+
+interface FactsEntry {
+  readonly seq: number
+  readonly sealed: boolean
+  readonly facts: DayFacts
+  readonly weight: number
+}
+
+/** (판매자, 범위 ID) → 그 범위의 재료 한 벌 */
+const factsCache = new Map<string, FactsEntry>()
+let factsWeight = 0
+/** 세우고 있는 재료 (판매자, 범위 ID, seq, 봉인 여부) → 약속 */
+const factsBuilding = new Map<string, Promise<DayFacts | null>>()
+const noPayProgress = new Map<string, NoPayProgress>()
+const noPayStates = new Set<string>()
+const noPayRunning = new Map<string, Promise<unknown>>()
+const phoneKeyCache = new Map<string, { seq: number; keys: ReadonlyMap<string, string> }>()
 let factsBuilds = 0
+let noPayReplayed = 0
 
 function remember<V>(cache: Map<string, V>, key: string, value: V, max: number): void {
   cache.delete(key)
@@ -197,15 +314,66 @@ function remember<V>(cache: Map<string, V>, key: string, value: V, max: number):
   while (cache.size > max) cache.delete(cache.keys().next().value as string)
 }
 
+function rememberFacts(key: string, entry: FactsEntry): void {
+  const old = factsCache.get(key)
+  if (old !== undefined) {
+    factsWeight -= old.weight
+    factsCache.delete(key)
+  }
+  factsCache.set(key, entry)
+  factsWeight += entry.weight
+  while (factsCache.size > FACTS_CACHE_MAX || (factsWeight > FACTS_CACHE_WEIGHT_MAX && factsCache.size > 1)) {
+    const oldest = factsCache.keys().next().value as string
+    factsWeight -= factsCache.get(oldest)?.weight ?? 0
+    factsCache.delete(oldest)
+  }
+}
+
+/** 같은 키의 일은 차례로 (앞 일이 끝난 뒤 시작 — 앞 일이 남긴 진행을 이어 쓴다) */
+function oneAtATime<T>(running: Map<string, Promise<unknown>>, key: string, task: () => Promise<T>): Promise<T> {
+  const before = running.get(key) ?? Promise.resolve()
+  const next = before.then(task, task)
+  const tail = next.then(
+    () => undefined,
+    () => undefined,
+  )
+  running.set(key, tail)
+  void tail.then(() => {
+    if (running.get(key) === tail) running.delete(key)
+  })
+  return next
+}
+
 /** 시험용: 날짜 재료를 새로 만든 횟수 (캐시를 쓰는지 본다) */
 export function factsBuildCount(): number {
   return factsBuilds
+}
+
+/** 시험용: '입금 안 함' 찾기로 다시 적용한 이벤트 수 (이어 세는지 본다) */
+export function noPayReplayCount(): number {
+  return noPayReplayed
+}
+
+/** 시험용: 이어 갈 '입금 안 함' 상태를 모두 버린다 (밀려난 뒤처럼 — 찾은 ID는 남는다) */
+export function forgetNoPayStates(): void {
+  for (const key of noPayStates) {
+    const progress = noPayProgress.get(key)
+    if (progress !== undefined) progress.state = null
+  }
+  noPayStates.clear()
+}
+
+/** 시험용: 날짜 재료 캐시의 (판매자, 범위) 자리 수와 크기 */
+export function factsCacheStats(): { entries: number; weight: number } {
+  return { entries: factsCache.size, weight: factsWeight }
 }
 
 export interface FactsDeps {
   readonly db: Db
   readonly writer: ScopeWriter
   readonly log: LogSink
+  /** 판매자 전화번호 키 (끝자리만으로 만든 키를 가려낸다 — 응답·로그에 내지 않는다) */
+  readonly sellerKey: (sellerId: string) => Promise<Buffer>
 }
 
 interface ScopeRow {
@@ -228,13 +396,23 @@ export async function realScopes(db: Db, sellerId: string): Promise<ScopeRow[]> 
 /** 범위 하나의 재료 (캐시). 봉인 장부를 읽을 수 없으면 null */
 async function factsFor(deps: FactsDeps, sellerId: string, scope: ScopeRow): Promise<DayFacts | null> {
   const sealed = scope.sealedAt !== null
-  const key = JSON.stringify([sellerId, scope.id, scope.seq, sealed])
-  const hit = factsCache.get(key)
-  if (hit !== undefined) {
-    remember(factsCache, key, hit, FACTS_CACHE_MAX)
-    return hit
+  const slot = JSON.stringify([sellerId, scope.id])
+  const hit = factsCache.get(slot)
+  if (hit !== undefined && hit.seq === scope.seq && hit.sealed === sealed) {
+    rememberFacts(slot, hit)
+    return hit.facts
   }
+  const buildKey = JSON.stringify([sellerId, scope.id, scope.seq, sealed])
+  const building = factsBuilding.get(buildKey)
+  if (building !== undefined) return building
+  const promise = buildFacts(deps, sellerId, scope, sealed, slot).finally(() => factsBuilding.delete(buildKey))
+  factsBuilding.set(buildKey, promise)
+  return promise
+}
+
+async function buildFacts(deps: FactsDeps, sellerId: string, scope: ScopeRow, sealed: boolean, slot: string): Promise<DayFacts | null> {
   let state: EngineState
+  let seq = scope.seq
   let ended: ReadonlySet<string> = new Set()
   if (sealed) {
     const read = await readSealed(deps.db, sellerId, scope.date)
@@ -247,11 +425,14 @@ async function factsFor(deps: FactsDeps, sellerId: string, scope: ScopeRow): Pro
     const runtime = await deps.writer.readDetached(sellerId, scope.date, false)
     if (runtime.scopeId !== scope.id) return null
     state = runtime.state
-    ended = (await noPayClaims(deps.db, sellerId, scope.id, runtime.seq, deps.log, scope.date)).ids
+    seq = runtime.seq
+    ended = await noPayClaims(deps.db, sellerId, scope.id, runtime.seq, deps.log, scope.date)
   }
-  const facts = factsOf(scope.date, scope.id, state, await phoneKeys(deps.db, sellerId, scope.id), ended)
+  const facts = factsOf(scope.date, scope.id, state, await phoneKeys(deps, sellerId, { ...scope, seq }), ended)
   factsBuilds += 1
-  remember(factsCache, key, facts, FACTS_CACHE_MAX)
+  // 읽은 상태의 seq로 둔다 — 범위 줄의 seq보다 앞서 읽었으면 다음 조회가 다시 세운다
+  const current = factsCache.get(slot)
+  if (current === undefined || current.seq <= seq) rememberFacts(slot, { seq, sealed, facts, weight: facts.buyers.size + facts.bundles.size })
   return facts
 }
 

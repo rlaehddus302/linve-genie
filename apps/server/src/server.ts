@@ -442,7 +442,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   })
   const work = options.work ?? sharedWorkPools()
   const closing = new ClosingService({ db, writer, clock, hub, backups, log, work })
-  const customers = new CustomerService({ db, writer, clock, log })
+  const customers = new CustomerService({ db, writer, clock, log, masterKey })
   // 구매자 확인서 공유 링크 (N4b) — 링크 주소 = 앱 주소 + /r/<토큰>
   const receiptLinks = new ReceiptLinkService({ db, writer, clock, masterKey, appOrigin: options.appOrigin, closing, log })
   const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)

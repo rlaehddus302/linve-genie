@@ -10,7 +10,8 @@ import type { Db } from '../db/database.ts'
 import { customerMemos, customerSettings } from '../db/schema.ts'
 import type { LogSink } from '../log.ts'
 import type { Platform } from '../platform.ts'
-import { sha256Hex } from '../secrets.ts'
+import { openSellerKey, sha256Hex } from '../secrets.ts'
+import { findSeller } from '../store.ts'
 import { kstDate, type Clock } from '../time.ts'
 import type { ScopeWriter } from '../writer.ts'
 import { allFacts, type DayBundle, type DayFacts } from './facts.ts'
@@ -29,6 +30,8 @@ export interface CustomerDeps {
   readonly writer: ScopeWriter
   readonly clock: Clock
   readonly log: LogSink
+  /** 판매자 전화번호 키를 여는 주 키 (끝자리만 말한 문자 구매자를 가려낸다, TD-CRM1-001) */
+  readonly masterKey: Buffer
 }
 
 export interface MemoView {
@@ -114,9 +117,21 @@ interface Index {
 
 export class CustomerService {
   readonly #deps: CustomerDeps
+  readonly #sellerKeys = new Map<string, Buffer>()
 
   constructor(deps: CustomerDeps) {
     this.#deps = deps
+  }
+
+  /** 판매자 전화번호 키 (메모리에만 — 응답·로그에 내지 않는다) */
+  readonly #sellerKey = async (sellerId: string): Promise<Buffer> => {
+    const cached = this.#sellerKeys.get(sellerId)
+    if (cached !== undefined) return cached
+    const seller = await findSeller(this.#deps.db, sellerId)
+    if (seller === null) throw new Error('판매자가 없다')
+    const key = openSellerKey(this.#deps.masterKey, sellerId, seller.phoneKeyEnc)
+    this.#sellerKeys.set(sellerId, key)
+    return key
   }
 
   // ── 설정 "손님 관리" (D-CRM1-05) ─────────────────────────────────────
@@ -141,7 +156,7 @@ export class CustomerService {
 
   async #index(sellerId: string): Promise<Index> {
     const { db, writer, log, clock } = this.#deps
-    const facts = await allFacts({ db, writer, log }, sellerId)
+    const facts = await allFacts({ db, writer, log, sellerKey: this.#sellerKey }, sellerId)
     const days = new Map<string, DayFacts>()
     const markerDates = new Map<string, string[]>()
     for (const day of facts) {
