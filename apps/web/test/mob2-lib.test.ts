@@ -431,7 +431,12 @@ describe('연결이 돌아오면 다시 보내기 (AC-MOB2-41·44·45, D-MOB2-07
     const second = board.flush()
     await first
     await second
-    expect(log).toEqual(['15 등록 시작', '15 등록 끝', '16 등록 시작', '16 등록 끝', '일시 중지 시작', '일시 중지 끝', '방송자 조치 시작', '방송자 조치 끝', '문자찜 시작', '문자찜 끝'])
+    // 보내는 중에 온 두 번째 회복은 겹쳐 보내지 않고, 첫 차례가 끝난 뒤 남은 것으로 한 번 더 돈다(TD-MOB2-001).
+    // 올린 항목은 이미 보내 내려갔으므로 다시 가지 않고, 방송자 조치 목록만 한 번 더 묻는다(그 목록은 다시 실패한 것만 보낸다)
+    expect(log).toEqual([
+      '15 등록 시작', '15 등록 끝', '16 등록 시작', '16 등록 끝', '일시 중지 시작', '일시 중지 끝', '방송자 조치 시작', '방송자 조치 끝', '문자찜 시작', '문자찜 끝',
+      '방송자 조치 시작', '방송자 조치 끝',
+    ])
     expect(board.size).toBe(0)
     // 한 번 보냈으면 내려간다 — 다음 회복 때는 다시 올라온 것만
     log.length = 0
@@ -453,5 +458,64 @@ describe('연결이 돌아오면 다시 보내기 (AC-MOB2-41·44·45, D-MOB2-07
     expect(board.has('r15')).toBe(true)
     await board.flush()
     expect(calls).toBe(2)
+  })
+
+  it('ResendBoard: 보내는 중에 또 끊겼다 이어지면, 그 사이 다시 실패한 항목을 그 차례가 끝난 뒤 한 번 더 — 동시에 하나 (TD-MOB2-001, AC-MOB2-45)', async () => {
+    const board = new ResendBoard()
+    let online = false
+    let inFlight = 0
+    const log: string[] = []
+    let release: (() => void) | undefined
+    const r15 = async () => {
+      inFlight++
+      expect(inFlight).toBe(1)
+      log.push(online ? '15 성공' : '15 실패')
+      inFlight--
+      if (!online) board.add('r15', 'register', r15)
+    }
+    board.add('r15', 'register', r15)
+    board.add('sms', 'sms', async () => {
+      inFlight++
+      expect(inFlight).toBe(1)
+      log.push('문자찜')
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+      inFlight--
+    })
+    const first = board.flush() // 회복 #1 — 곧바로 또 끊겨 15 실패
+    await flush()
+    expect(log).toEqual(['15 실패', '문자찜'])
+    online = true
+    const second = board.flush() // 회복 #2 — 문자찜 응답을 기다리는 중
+    await second
+    expect(log).toEqual(['15 실패', '문자찜']) // 겹쳐 보내지 않는다
+    release?.()
+    await first
+    expect(log).toEqual(['15 실패', '문자찜', '15 성공'])
+    expect(board.has('r15')).toBe(false)
+    expect(board.running).toBe(false)
+    // 회복이 겹치지 않았으면 다시 실패한 항목은 다음 회복까지 기다린다(위 시험 그대로)
+  })
+
+  it('ResendBoard: 보내는 중에 회복이 여러 번 와도 한 번만 더 돈다', async () => {
+    const board = new ResendBoard()
+    let passes = 0
+    let release: (() => void) | undefined
+    board.addHost(async () => {
+      passes++
+      if (passes === 1)
+        await new Promise<void>((resolve) => {
+          release = resolve
+        })
+    })
+    const first = board.flush()
+    await flush()
+    void board.flush()
+    void board.flush()
+    void board.flush()
+    release?.()
+    await first
+    expect(passes).toBe(2)
   })
 })
