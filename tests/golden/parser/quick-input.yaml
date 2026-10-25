@@ -112,3 +112,13 @@ cases:
   - { in: "15 엘레강스 15원", out: { error: PRICE_TOO_LOW, no: 15, name: "엘레강스" } }  # `원` → 15원 < 100
   - { in: "15 엘레강스 0", out: { error: PRICE_TOO_LOW, no: 15, name: "엘레강스" } }     # 0 × 10000 = 0 < 100
   - { in: "15 엘레강스 1.23456", out: { error: PRICE_MISSING, no: 15, name: "엘레강스 1.23456" } }  # 12345.6원 → 금액 아님, '엘레강스 1.23456'도 아님 → 품종 = 번호 뒤 전부
+---
+# V3 D-V3-70 — 빠른 입력 가격 단위 자동(AUTO)
+suite: quick-input
+settings: { unit: AUTO }
+cases:
+  - { in: "15 핑크프릴 25", out: { no: 15, name: "핑크프릴", price: 250000 } }   # 두 자리 → 만원
+  - { in: "15 핑크프릴 180", out: { no: 15, name: "핑크프릴", price: 180000 } }  # 세 자리 → 천원
+  - { in: "15 핑크프릴 15000", out: { no: 15, name: "핑크프릴", price: 15000 } } # 1000 이상 → 원 그대로
+  - { in: "15 핑크프릴 2만", out: { no: 15, name: "핑크프릴", price: 20000 } }   # 적힌 단위 그대로
+  - { in: "150 180", out: { no: 150, name: "", price: 180000 } }
