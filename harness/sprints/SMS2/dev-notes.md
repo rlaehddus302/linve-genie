@@ -30,4 +30,4 @@
 ## dev-web (할 일 없음)
 
 - 수용 기준 범위(D-SMS2-01)대로 `apps/web/**`는 고치지 않았다. 시험 화면은 서버가 만드는 HTML(`apps/server/src/try/sms-test.ts`)이고, 웹 앱·Playwright 설정(`apps/web/playwright.config.ts`)도 그대로다.
-- e2e 쪽: `tests/e2e/sms2/**`는 기존 설정으로 돈다(`CI=1 E2E_PORT_OFFSET=4400 pnpm exec playwright test --config apps/web/playwright.config.ts tests/e2e/sms2`). 서버 시험 화면을 열 때 웹 앱 화면이나 웹 쪽 이름(aria-label)에 기대지 말고 위 dev-server의 화면 구조(`.group`·`.card`·`.btn`·`form button.btn.danger`)를 쓴다. 설정에 새 프로젝트(WebKit 393×852 등)가 필요하면 시험 파일 안에서 `test.use({ viewport })`로 맞춘다.
+- e2e 쪽: `tests/e2e/sms2/**`는 기존 설정으로 돈다(`CI=1 E2E_PORT_OFFSET=4400 pnpm exec playwright test --config apps/web/playwright.config.ts tests/e2e/sms2`). 서버 시험 화면을 열 때 웹 앱 화면이나 웹 쪽 이름(aria-label)에 기대지 말고 위 dev-server의 화면 구조(`.group`·`.card`·`.btn`·`form button.btn.danger`)를 쓴다. WebKit(아이폰) 시험은 제목에 `@webkit` 꼬리표를 달면 기존 `webkit-iphone` 프로젝트(iPhone 15, 393×852)에서 돈다. Chromium 375×812·412×915·1280×800은 시험 파일 안에서 `test.use({ viewport })`나 `page.setViewportSize`로 맞추면 되고, 새 프로젝트는 만들지 않았다.
