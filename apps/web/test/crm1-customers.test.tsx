@@ -502,7 +502,8 @@ describe('콘솔 1등 옆 "입금 늦음 주의" (D-CRM1-07, AC-CRM1-18·19)', (
 
   const scope = (winners: readonly string[]): ScopeData => ({ products: new Map([['b1/15', { winners, variants: [] }]]) }) as unknown as ScopeData
 
-  it('1등이 바뀌면 다시 받되 10초에 한 번까지, 실패하면 꼬리표 없음, 리허설은 부르지 않는다', async () => {
+  // CRM1 D-CRM1-14: 받기 사이 10초 → 4초 이상
+  it('1등이 바뀌면 다시 받되 받기 사이 4초 이상(그 안의 변화는 한 번으로 모음), 1등이 그대로면 다시 받지 않음, 실패하면 꼬리표 없음, 리허설은 부르지 않는다', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     let status = 200
     const server = new FakeServer().on('GET', new RegExp(`^/api/days/${DATE}/customers$`), () =>
@@ -524,21 +525,31 @@ describe('콘솔 1등 옆 "입금 늦음 주의" (D-CRM1-07, AC-CRM1-18·19)', (
     rerender(<Probe data={scope(['UC_B'])} rehearsal={false} onCaution={(value) => seen.push(value)} />)
     await settle()
     expect(calls()).toBe(2)
-    // 그 뒤 또 바뀜 → 10초가 안 지났으니 미뤘다가 한 번
-    rerender(<Probe data={scope(['UC_B', 'UC_C'])} rehearsal={false} onCaution={(value) => seen.push(value)} />)
-    rerender(<Probe data={scope(['UC_B', 'UC_D'])} rehearsal={false} onCaution={(value) => seen.push(value)} />)
-    expect(calls()).toBe(2)
+    // 1등이 그대로면 다시 받지 않는다
+    rerender(<Probe data={scope(['UC_B'])} rehearsal={false} onCaution={(value) => seen.push(value)} />)
     await act(async () => {
-      vi.advanceTimersByTime(9_000)
+      vi.advanceTimersByTime(5_000)
     })
     await settle()
     expect(calls()).toBe(2)
+    // 그 뒤 잇달아 바뀜 → 지난 받기에서 4초가 안 지났으면 미뤘다가 한 번
+    rerender(<Probe data={scope(['UC_B', 'UC_C'])} rehearsal={false} onCaution={(value) => seen.push(value)} />)
+    await settle()
+    expect(calls()).toBe(3) // 지난 받기에서 5초가 지나 바로
+    rerender(<Probe data={scope(['UC_B', 'UC_D'])} rehearsal={false} onCaution={(value) => seen.push(value)} />)
+    rerender(<Probe data={scope(['UC_B', 'UC_E'])} rehearsal={false} onCaution={(value) => seen.push(value)} />)
+    expect(calls()).toBe(3)
+    await act(async () => {
+      vi.advanceTimersByTime(3_000)
+    })
+    await settle()
+    expect(calls()).toBe(3) // 3초 — 아직 4초 전
     status = 500
     await act(async () => {
       vi.advanceTimersByTime(1_100)
     })
     await settle()
-    expect(calls()).toBe(3)
+    expect(calls()).toBe(4) // 4초가 되어 미뤄 둔 두 변화를 한 번에
     expect(seen.at(-1)).toBe(true) // 실패해도 받은 값 그대로
     // 실패해도 받은 값은 그대로 (오류 띠 없음) — 처음부터 실패면 꼬리표 없음
     cleanup()
