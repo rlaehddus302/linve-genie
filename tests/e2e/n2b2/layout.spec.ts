@@ -20,6 +20,7 @@ import {
   CONNECT_WAIT,
   unlinkTiktok,
 } from './support.ts'
+import { pendingWord } from '../mob1/support.ts' // QL3R2 D-QL3R2-02
 
 /** 화면 위·아래에 고정된 영역(position fixed·sticky, 가장 바깥 것)의 보이는 높이 합 (S06 layout.spec과 같은 셈) */
 async function fixedHeight(page: Page): Promise<{ total: number; parts: string[] }> {
@@ -75,7 +76,7 @@ test.describe('N2b-2 휴대폰 고정 영역 @multi', () => {
     // 보류 찜 (없는 번호 문자찜)
     await smsApi(page, { b, no: 40, memo: '병' })
     const strip = page.getByRole('region', { name: '알림' })
-    await expect(strip.getByRole('button', { name: /^보류 찜 \d+$/ })).toBeVisible()
+    await expect(strip.getByRole('button', { name: new RegExp(`^${pendingWord(page)} \\d+$`) })).toBeVisible() // QL3R2 D-QL3R2-02
     await expect(strip.getByRole('button', { name: /^취소 요청 \d+$/ })).toBeVisible()
     // 인스타그램 알림
     await meta(page.request, '/_fake/comments', { accountId: account.id, liveId, comments: [{ igsid: '92000001', username: 'viewer.one', text: '3' }] })

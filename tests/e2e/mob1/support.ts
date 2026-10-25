@@ -312,3 +312,22 @@ export async function showScreen(page: Page): Promise<void> {
     document.dispatchEvent(new Event('visibilitychange'))
   })
 }
+
+/**
+ * 보류 단추 낱말 (QL3R2 D-QL3R2-02 (2)): 접힌 휴대폰 띠(48rem 미만)는 "보류", 펼친 띠·PC는 "보류 찜" — 띠가 접힌 상태에서 부른다.
+ * 미디어 질의의 rem은 글자 크기 설정과 무관한 16px라 폭 768px가 경계다.
+ */
+export function pendingWord(page: Page): string {
+  return (page.viewportSize()?.width ?? 1280) < 768 ? '보류' : '보류 찜'
+}
+
+/** 접힌 휴대폰 띠의 출력 기기 짧은 줄 — 끊김 (QL3R1 D-QL3R1-04, 이름 11낱자 이상은 앞 10낱자 + "…") */
+export function shortLostText(name: string): string {
+  const chars = Array.from(name)
+  return `라벨이 안 나가요 · '${chars.length > 10 ? `${chars.slice(0, 10).join('')}…` : name}' 화면을 켜 주세요`
+}
+
+/** 접힌 휴대폰 띠의 짧은 줄 ("알림" 영역 밖, 띠 아래 자기 줄 — QL3R2 D-QL3R2-02 (1)) */
+export function foldedShortRow(page: Page, text: string): Locator {
+  return page.locator('.alert-bar').getByRole('button', { name: text, exact: true })
+}

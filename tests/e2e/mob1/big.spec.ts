@@ -4,7 +4,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { login, uniqueDate } from '../s05/support.ts'
 import { registerApi, sendViewerChat, smsApi, smsField } from '../s06/support.ts'
 import { menu, openMore } from '../menu.ts'
-import { ANDROID, PHONE, alerts, baseUrlOf, broadcastApi, endBroadcastApi, expectBig, expectNoOverflow, freshSeller, newDevice, setLabelsApi } from './support.ts'
+import { ANDROID, PHONE, alerts, baseUrlOf, broadcastApi, endBroadcastApi, expectBig, expectNoOverflow, freshSeller, newDevice, setLabelsApi, pendingWord } from './support.ts' // QL3R2 D-QL3R2-02 (pendingWord)
 
 interface Day {
   readonly date: string
@@ -74,7 +74,7 @@ for (const [label, viewport] of [['375×812', PHONE], ['412×915', ANDROID]] as 
       const input = dev.getByLabel('빠른 입력')
       await expect(input).toBeVisible()
       await expect(alerts(dev).getByRole('button', { name: /^출력 멈춤 · / })).toHaveCount(1)
-      await expect(alerts(dev).getByRole('button', { name: /^보류 찜 \d+$/ })).toHaveCount(1)
+      await expect(alerts(dev).getByRole('button', { name: new RegExp(`^${pendingWord(dev)} \\d+$`) })).toHaveCount(1) // QL3R2 D-QL3R2-02
       await expectNoOverflow(dev, '콘솔(띠 접음)')
       // 빠른 입력 줄: 세로로 쌓임 — 입력칸 폭 ≥ 화면 60%, 입력칸·"개수" 칸이 화면 안
       const ib = (await input.boundingBox())!

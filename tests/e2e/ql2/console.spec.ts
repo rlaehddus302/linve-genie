@@ -4,7 +4,7 @@
 import { expect, test, type Browser, type Locator, type Page } from '@playwright/test'
 import { postJson, uniqueDate } from '../s05/support.ts'
 import { registerApi, smsApi, viewerClaim, writeEvent } from '../s06/support.ts'
-import { IPHONE_UA } from '../mob1/support.ts'
+import { IPHONE_UA, pendingWord } from '../mob1/support.ts' // QL3R2 D-QL3R2-02
 import { ANDROID, PC, PHONE, alerts, baseUrlOf, barHeight, broadcastApi, endBroadcastApi, expectBig, expectFirstScreen, expectNoClip, expectNoOverflow, expectOrder, freshSeller, setLabelsApi } from './support.ts'
 
 const IPHONE = { width: 393, height: 852 } as const
@@ -67,7 +67,7 @@ async function consoleWorld(browser: Browser, page: Page, options: Options): Pro
   if (options.big) await expectBig(dev)
   const strip = alerts(dev)
   await expect(strip.getByRole('button', { name: /^출력 멈춤 · / })).toHaveCount(1)
-  await expect(strip.getByRole('button', { name: /^보류 찜 1$/ })).toHaveCount(1)
+  await expect(strip.getByRole('button', { name: `${pendingWord(dev)} 1`, exact: true })).toHaveCount(1) // QL3R2 D-QL3R2-02
   if (options.viewport.width < 768) await expect(dev.getByRole('button', { name: '알림 2 펼치기', exact: true })).toHaveAttribute('aria-expanded', 'false')
   const current = dev.getByRole('region', { name: '현재 상품' })
   await expect(current.getByText('15번', { exact: true })).toBeVisible()

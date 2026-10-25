@@ -72,10 +72,10 @@ async function checkSticky(page: Page, device: Device): Promise<void> {
     // 알림 띠는 접힌 한 줄 말줄임(D-QL2-02)이라 옆은 재지 않는다 — 위아래만
     await expectNoClipIn(target, `${where} ${name}`, side)
   }
-  // 알림 띠의 첫 항목 "보류 찜 1"은 잘리지 않고 보인다
-  const pending = page.getByRole('region', { name: '알림' }).getByRole('button', { name: '보류 찜 1', exact: true })
-  await expectInsideSticky(page, pending, `${where} 보류 찜 1`)
-  await expectNoClipIn(pending, `${where} 보류 찜 1`, false)
+  // 알림 띠의 첫 항목 "보류 1"(접힌 휴대폰 — 펼친 띠·PC는 "보류 찜 1")은 잘리지 않고 보인다
+  const pending = page.getByRole('region', { name: '알림' }).getByRole('button', { name: '보류 1', exact: true }) // QL3R2 D-QL3R2-02
+  await expectInsideSticky(page, pending, `${where} 보류 1`)
+  await expectNoClipIn(pending, `${where} 보류 1`, false)
   await page.evaluate(() => window.scrollTo(0, 0))
 }
 

@@ -4,6 +4,7 @@ import { expect, test, type Browser, type Page } from '@playwright/test'
 import { loginAs, loginNewSeller, login, noHorizontalScroll, openNewBroadcast, registerApi, sendViewerChat, settingsRegion, smsApi, uniqueDate, viewerClaim } from '../i3/support.ts'
 import { deposit, fakeSource, kstIso, postJson, uniq } from '../n3/support.ts'
 import { BAR_CELLS, barCells, closeMore, expectPhoneBar, expectTarget, fakeReviewCount, menu, menuLink, moreButton, moreLinks, moreList, openMore } from '../menu.ts'
+import { pendingWord } from '../mob1/support.ts' // QL3R2 D-QL3R2-02
 
 const PHONE = { width: 375, height: 812 }
 // T1(AC-T1-60, AC-NAV-09): "택배"는 판매자 목록의 "설정" 바로 앞
@@ -419,7 +420,7 @@ test.describe('AC-NAV-07: 콘솔 고정 영역', () => {
       await sendViewerChat(phone, b, '셋째', '7 취소', 'sim_third_0004')
       await smsApi(phone, { b, no: 40, memo: '병' })
       const strip = phone.getByRole('region', { name: '알림' })
-      await expect(strip.getByRole('button', { name: /^보류 찜 \d+$/ })).toBeVisible()
+      await expect(strip.getByRole('button', { name: new RegExp(`^${pendingWord(phone)} \\d+$`) })).toBeVisible() // QL3R2 D-QL3R2-02
       await expect(strip.getByRole('button', { name: /^취소 요청 \d+$/ })).toBeVisible()
       const input = phone.getByLabel('빠른 입력')
       await input.fill('20 새상품 10000')

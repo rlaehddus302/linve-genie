@@ -141,7 +141,10 @@ test.describe('AC-QL3R1-25·26 출력 기기 끊김 — 휴대폰 접힌 띠는 
         await openConsole(v.page, w.b, true)
         expect(shortLost(name)).toBe("라벨이 안 나가요 · '<b>굵게</b>안…' 화면을 켜 주세요")
         await expectShortRow(v.page, name, '375 150% 긴 이름')
-        await expect(alerts(v.page).getByRole('button', { name: longLost(name), exact: true })).toHaveCount(1)
+        // 접힌 동안 긴 문장은 0번(이중 표시 없음), 펼치면 이름 전체가 든 긴 문장 1번
+        await expect(alerts(v.page).getByRole('button', { name: longLost(name), exact: true })).toHaveCount(0) // QL3R2 D-QL3R2-02
+        await v.page.getByRole('button', { name: /^알림 \d+ 펼치기$/ }).click() // QL3R2 D-QL3R2-02
+        await expect(alerts(v.page).getByRole('button', { name: longLost(name), exact: true })).toHaveCount(1) // QL3R2 D-QL3R2-02
         expect(await v.page.locator('.alert-bar b').count(), '알림 띠 안 b 요소').toBe(0)
       } finally {
         await v.context.close()
