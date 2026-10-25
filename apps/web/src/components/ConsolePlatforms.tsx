@@ -328,7 +328,7 @@ export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastM
 
 /** 틱톡 댓글이 들어오지 않는다 (알림 줄·주 단추) */
 export function tiktokTrouble(live: ConsolePlatforms): boolean {
-  return live.enabled && live.ttLink?.state === 'LINKED' && tiktokNeedsPaste(live.ttLink.collection)
+  return live.enabled && live.ttLink?.state === 'LINKED' && tiktokNeedsPaste(live.ttLink.collection, live.ttLink.extension ?? null)
 }
 
 // ── 알림 띠 맨 앞 항목 (고정 영역에 줄을 더하지 않는다) ─────────────────
@@ -674,6 +674,8 @@ function TikTokPanel({ live, broadcastId, navigate, ended, sealed, onPaste, hide
   const writable = !ended && !sealed
   const linked = ttLink !== null && ttLink.state === 'LINKED'
   const collection = ttLink?.collection ?? null
+  // 크롬 확장 쪽 받는 길·경고 (TTX D-TTX-09) — 상태가 한 번도 없던 회차는 줄 없이 지금 화면 그대로
+  const extension = linked && ttLink.extension != null && ttLink.extension.state !== 'NONE' ? ttLink.extension : null
   const reason = live.platforms?.find((item) => item.platform === 'TIKTOK')?.reasons.ready
 
   const link = () =>
@@ -713,6 +715,12 @@ function TikTokPanel({ live, broadcastId, navigate, ended, sealed, onPaste, hide
               <p>
                 <strong>{collection.message}</strong>
               </p>
+              {extension?.route != null ? (
+                <p className="tiktok-route" role="status" aria-label="틱톡 댓글 받는 길">
+                  {extension.route}
+                </p>
+              ) : null}
+              {extension?.warning != null ? <p className="warning">{extension.warning}</p> : null}
               {collection.missed && collection.missedMessage !== null ? <p className="warning">{collection.missedMessage}</p> : null}
               {!sealed && tiktokUnseenSaveFailed(collection) > 0 ? (
                 <div className="row">
