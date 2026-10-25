@@ -501,6 +501,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       if (latest.current.sealed) return
       const reopen = input.reopen
       let before: VacatedBefore | null = null
+      let captured = false
       queue.add({
         label: input.label,
         ...(input.message === undefined ? {} : { meta: input.message }),
@@ -508,7 +509,11 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         products: input.products ?? [],
         send: async (requestId) => {
           // 1등 찜을 비우는 조치면 보내기 직전 모양을 잡아 둔다 (D-MOB2-04 결과 한 줄)
-          before = captureVacated(store.getSnapshot().data, input.event, input.claims ?? [])
+          // 처음 보낼 때 한 번만 — 응답을 잃고 다시 보내거나 연결이 돌아와 저절로 보낼 때 다시 잡으면 이미 바뀐 모양이라 결과 줄을 잃는다(TE-MOB2-001)
+          if (!captured) {
+            captured = true
+            before = captureVacated(store.getSnapshot().data, input.event, input.claims ?? [])
+          }
           const scoped = typeof input.event.b !== 'string'
           const path = withQuery('/api/events', scoped ? { date: broadcast.date, rehearsal: broadcast.rehearsal } : {})
           return post<WriteResult>(path, { requestId, ...input.event })

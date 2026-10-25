@@ -106,6 +106,7 @@ export function useHostActions({ store, data, queue, date, rehearsal, b, ended, 
       if (sealed) return
       const reopen = input.reopen
       let before: VacatedBefore | null = null
+      let captured = false
       queue.add({
         label: input.label,
         ...(input.message === undefined ? {} : { meta: input.message }),
@@ -113,7 +114,11 @@ export function useHostActions({ store, data, queue, date, rehearsal, b, ended, 
         products: input.products ?? [],
         send: (requestId) => {
           // 1등 찜을 비우는 조치면 보내기 직전 모양을 잡아 둔다 (D-MOB2-04 결과 한 줄 — 콘솔과 같음)
-          before = captureVacated(store.getSnapshot().data, input.event, input.claims ?? [])
+          // 처음 보낼 때 한 번만 — 응답을 잃고 다시 보내거나 연결이 돌아와 저절로 보낼 때 다시 잡으면 이미 바뀐 모양이라 결과 줄을 잃는다(TE-MOB2-001)
+          if (!captured) {
+            captured = true
+            before = captureVacated(store.getSnapshot().data, input.event, input.claims ?? [])
+          }
           return post<WriteResult>(pathFor(input.event), { requestId, ...input.event })
         },
         outcome: async (result) => {
