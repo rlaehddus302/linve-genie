@@ -385,6 +385,8 @@ export interface InstantContext {
   readonly handled?: readonly number[]
   /** 같은 덩어리의 readRegistration 결과 (들린 번호) */
   readonly registration: RegistrationReading | null
+  /** 바로 등록이 켜져 있는가 (D-V3-44). false면 늘 null(V2 할 일). 생략 = 켬 */
+  readonly autoRegister?: boolean
 }
 
 export type InstantAction =
@@ -405,6 +407,7 @@ export const otherNumberMessage = (registered: number, others: readonly number[]
  */
 export function chooseInstantAction(reading: ChunkReading, context: InstantContext): InstantAction | null {
   try {
+    if (context.autoRegister === false) return null
     const registered = Array.isArray(context.registered) ? context.registered : []
     const handled = Array.isArray(context.handled) ? context.handled : registered
     if (registered.length > 0 && reading.cancel) return { kind: 'undoRegistered', nos: [...registered] }

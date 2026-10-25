@@ -22,6 +22,8 @@ export const VOICE_LOG_REASONS = Object.freeze({
   noNumber: '번호를 못 들었어요',
   /** V3 D-V3-41·34: '번' 없는 번호가 원 가격 뒤 */
   numberAfterPrice: '번호가 가격 뒤에 들렸어요',
+  /** V3 D-V3-44: 켬에서 번호만·원 없는 가격의 결과를 덩어리 끝에 버림 */
+  noPrice: '가격을 못 들었어요',
 } as const)
 
 /** V3 D-V3-41·05: 서로 다른 번호가 둘 이상 — "번호가 여럿 들렸어요: 189·139" */

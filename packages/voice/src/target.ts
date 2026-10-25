@@ -15,9 +15,9 @@ export const RECENT_WINDOW_MS = 60_000
 /** 고칠까요 카드로 고친 뒤 되돌리기 시간 (D-V2-06 3) */
 export const OFFER_UNDO_MS = 10_000
 
-/** V3 D-V3-41: 번호만 있는 카드 — 원 가격이 들리면 바로 등록된다(이어 채우기·합치기) */
-export const ASK_NAME_PRICE = '가격을 말하면 바로 등록돼요'
-export const ASK_PRICE = '가격을 말하면 바로 등록돼요'
+/** 번호만 있는 카드 (V2 D-V2-04 — V3 D-V3-44: 바로 등록이 꺼졌을 때만 이런 카드가 생긴다) */
+export const ASK_NAME_PRICE = '품종·가격을 말해 주세요'
+export const ASK_PRICE = '가격을 말해 주세요'
 export const NUMBER_FIX_MESSAGE = '번호는 상품 목록에서 고쳐 주세요'
 export const UNDO_LATE_MESSAGE = '되돌릴 시간이 지났어요. 상품 목록에서 고쳐 주세요.'
 
@@ -46,7 +46,9 @@ export interface TargetContext {
   /** 덩어리 글이 300글자를 넘었는가 (R-17 1 — "문장이 너무 길어요") */
   readonly tooLong?: boolean
   /** 같은 덩어리의 V3 읽기 (readRegistration) — 번호 둘·가격 뒤 '번' 없는 번호를 버리는 데 쓴다(D-V3-41). 생략하면 그 검사 없음 */
-  readonly registration?: { readonly heardNumbers: readonly number[]; readonly blocked: string | null } | null
+  readonly registration?: { readonly heardNumbers: readonly number[]; readonly blocked: string | null; readonly priceSure?: boolean } | null
+  /** 바로 등록이 켜져 있는가 (V3 D-V3-44). 생략 = 끔 = V2 할 일·문구 그대로 */
+  readonly autoRegister?: boolean
 }
 
 export interface ChunkFields {
@@ -82,12 +84,17 @@ export type VoiceAction =
   | { readonly kind: 'offer'; readonly registrationId: string; readonly changes: { readonly name?: string; readonly price?: number }; readonly message: string }
   | { readonly kind: 'offerNumber'; readonly registrationId: string; readonly message: string }
   | { readonly kind: 'offerUndo'; readonly registrationId: string; readonly canUndo: boolean; readonly message: string }
-  | { readonly kind: 'discard'; readonly reason: string | null; readonly cancelled: boolean }
+  /**
+   * 버림. V3 D-V3-44: 바로 등록이 켜져 있을 때 번호는 확정인데 '원' 가격이 없는 결과는 화면 카드 대신 이것 — `remembered`에 그 결과(보이지 않는 기억)를 담고
+   * 까닭은 "가격을 못 들었어요". 덩어리 안에서는 확정 읽기(readRegistration)가 원 가격을 기다려 바로 등록하고, 덩어리 끝의 이 할 일은 버림으로 기록한다.
+   * (새 kind를 만들지 않은 것은 화면의 할 일 표를 깨지 않으려는 것 — 화면은 지금처럼 버림으로 기록하면 된다)
+   */
+  | { readonly kind: 'discard'; readonly reason: string | null; readonly cancelled: boolean; readonly remembered?: VoiceExtraction }
 
 const isTime = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 const discard = (reason: string | null, cancelled = false): VoiceAction => ({ kind: 'discard', reason, cancelled })
 
-/** 카드 안내: 가격이 없으면 "가격을 말하면 바로 등록돼요" (D-V2-04, V3 D-V3-41) */
+/** 카드 안내: 번호만 있으면 "품종·가격을 말해 주세요", 가격만 없으면 "가격을 말해 주세요" (D-V2-04 — V3 D-V3-44로 다시 V2 문구) */
 export function askFor(fields: { readonly name: string | null; readonly price: number | null }): string | null {
   if (fields.price !== null) return null
   return fields.name === null ? ASK_NAME_PRICE : ASK_PRICE
@@ -245,15 +252,27 @@ function numberDiscard(reading: ChunkReading, context: TargetContext): VoiceActi
   return null
 }
 
+/** 켬(D-V3-44)에서 새 카드 대신: '원' 가격이 없으면 기억(보이지 않음), 원 가격이 있으면 카드 그대로(정정 덩어리·300만 원 넘음 등) */
+function createOrRemember(reading: ChunkReading, context: TargetContext): VoiceAction {
+  if (context.autoRegister === true) {
+    // 정정 덩어리로 만든 새 카드(D-V2-14)는 가격이 둘이라 원 가격 줄 확정이 비어도 카드로 남긴다
+    const wonPrice = reading.price !== null && (context.registration?.priceSure === true || reading.correction)
+    if (!wonPrice) return { kind: 'discard', reason: VOICE_LOG_REASONS.noPrice, cancelled: false, remembered: { no: reading.no, name: reading.name, price: reading.price, confidence: reading.confidence } }
+  }
+  return createAction(reading)
+}
+
 export function chooseAction(reading: ChunkReading, context: TargetContext): VoiceAction {
   try {
+    const createAction = (r: ChunkReading): VoiceAction => createOrRemember(r, context)
     const blockedNumber = numberDiscard(reading, context)
     if (context.tooLong === true) return discard(VOICE_LOG_REASONS.tooLong)
     const now = isTime(context.now) ? context.now : 0
     const startedAt = isTime(context.chunkStartedAt) ? context.chunkStartedAt : now
     if (!reading.correction) {
       if (reading.no !== null) return blockedNumber ?? createAction(reading)
-      const fill = tryFill(reading, context, startedAt)
+      // 켬이면 덩어리 사이 이어 채우기 없음 (D-V3-44)
+      const fill = context.autoRegister === true ? null : tryFill(reading, context, startedAt)
       if (fill !== null) return fill
       if (isCardWorthy(reading)) return createAction(reading)
       // 번호 없는 결과는 카드 없이 기록만 (D-V3-41)

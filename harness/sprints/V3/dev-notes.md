@@ -204,3 +204,16 @@
   - '자보'는 군말 토큰 `자`와 다음 토큰을 이은 창에서 맞춰진 것으로 본다. 그래서 군말 토큰을 품종 창에서 뺀다(extract.ts, words.ts `isWindowFiller`).
   - 빼는 토큰: 한 글자 군말 자·네·예·어·음·응·요·좀·막·또·뭐·얘·쟤·걔, 그리고 R-17 7 군말. 끝말 은·는·이·가·을·를·요·도·랑을 뗀 모양까지 본다.
   - 골든 159사례는 그대로 통과한다(`나울→라울` 포함). **R-17 5 창 문장에 더해야 한다 — 스펙 관리자 확인 필요.**
+
+### dev-device 추가 11 — D-V3-44 (spec 5a2e5e02)
+- `chooseAction` context에 `autoRegister?: boolean`을 더했다(생략 = 끔 = V2 그대로). `registration`에 `priceSure`를 넘기면 원 가격 판단에 쓴다(readRegistration 결과 그대로 넘기면 된다).
+- **켬일 때**
+  - 번호는 확정인데 원 가격이 없는 결과(번호만, `만오천`처럼 원 없는 가격, 애매해 비운 가격)는 카드를 만들지 않는다.
+  - 대신 할 일 `{ kind: 'discard', reason: '가격을 못 들었어요', cancelled: false, remembered: { no, name, price, confidence } }`를 돌려준다. 새 kind를 만들지 않은 것은 화면 할 일 표(controller.ts LOG_ACTION)를 깨지 않으려는 것이다. 화면은 지금처럼 버림으로 기록하면 된다.
+  - 같은 덩어리 안의 "기억"은 덩어리 글 전체를 다시 읽는 확정 읽기(`readRegistration`)가 맡는다. 원 가격이 들리는 순간 바로 등록된다.
+  - 덩어리 사이 이어 채우기는 하지 않는다. 번호 없는 덩어리는 "번호를 못 들었어요"로 버린다.
+  - 원 가격이 있는 카드(300만 원 넘음, 정정 덩어리 새 카드)는 그대로 카드다.
+- **끔일 때**: V2 할 일과 문구 그대로다. `ASK_NAME_PRICE` = "품종·가격을 말해 주세요", `ASK_PRICE` = "가격을 말해 주세요"(D-V3-41에서 바꿨던 "가격을 말하면 바로 등록돼요"는 되돌렸다). 이어 채우기도 V2 그대로다.
+- `chooseInstantAction` context에 `autoRegister?: boolean`(생략 = 켬)을 더했다. `false`면 늘 null이다.
+- 단위 시험: R25·R51·R52·R53과 켬일 때 300만 원 넘음 카드(v3-acceptance.test.ts).
+- 적대 v3 "R51 "15번" → 작은 카드 하나 '가격을 말하면 바로 등록돼요'"가 D-V3-44로 바뀐 기대라 실패한다 — test-domain 몫.

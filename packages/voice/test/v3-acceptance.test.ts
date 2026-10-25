@@ -203,10 +203,10 @@ describe('AC-V3-51 카드는 확정된 번호가 있을 때만 (D-V3-41)', () =>
   ])('%s → 카드 없음, 기록 "%s"', (text, reason) => {
     expect(act(text)).toEqual({ kind: 'discard', reason, cancelled: false })
   })
-  it('R51 "15번" → 작은 카드 "가격을 말하면 바로 등록돼요"', () => {
+  it('끔 "15번" → 번호만 카드 (문구는 D-V3-44로 V2 그대로)', () => {
     const action = act('15번')
-    expect(action).toMatchObject({ kind: 'create', ask: '가격을 말하면 바로 등록돼요', extraction: { no: 15, price: null } })
-    expect(askFor({ name: '라울', price: null })).toBe('가격을 말하면 바로 등록돼요')
+    expect(action).toMatchObject({ kind: 'create', ask: '품종·가격을 말해 주세요', extraction: { no: 15, price: null } })
+    expect(askFor({ name: '라울', price: null })).toBe('가격을 말해 주세요')
   })
   it('isCardWorthy는 no ≠ null일 때만', () => {
     expect(isCardWorthy({ no: null, name: '핑크문', price: 10000, confidence: 'LOW' })).toBe(false)
@@ -228,5 +228,36 @@ describe('실방송 화면 사례 — 군말이 낀 창은 사전 이름에 맞�
     expect(extractVoice('59번 자 보 7만 원', { dictionary: DICT }).name).toBeNull()
     expect(extractVoice('59번 요 자보 7만 원', { dictionary: DICT }).name).toBe('자보')
     expect(extractVoice('59번 얘는 자보 7만 원', { dictionary: DICT }).name).toBe('자보')
+  })
+})
+
+describe('D-V3-44 켬이면 원 가격 없는 결과는 기억(카드 없음), 끔이면 V2 그대로', () => {
+  const on = (text: string, cards: SuggestionCard[] = [], now = 0, chunkStartedAt = 0) =>
+    chooseAction(chunk(text), { cards, now, chunkStartedAt, autoRegister: true, registration: reg(text) })
+  const off = (text: string, cards: SuggestionCard[] = [], now = 0, chunkStartedAt = 0) => chooseAction(chunk(text), { cards, now, chunkStartedAt, registration: reg(text) })
+  it('R25 켬 한 덩어리 "15번 엘레강스 이만원" → 확정 읽기로 바로 등록, 그 전("15번 엘레강스")은 기억', () => {
+    expect(on('15번 엘레강스')).toEqual({ kind: 'discard', reason: '가격을 못 들었어요', cancelled: false, remembered: { no: 15, name: '엘레강스', price: null, confidence: 'LOW' } })
+    expect(readyToRegister('15번 엘레강스 이만원', { dictionary: DICT })).toMatchObject({ no: 15, name: '엘레강스', price: 20000 })
+  })
+  it('R51 켬 "15번" 뒤 4초에 "엘레강스 이만원" → 첫 덩어리 기억(버림), 둘째는 이어 채우기 없이 번호를 못 들었어요', () => {
+    expect(on('15번')).toMatchObject({ kind: 'discard', reason: '가격을 못 들었어요', remembered: { no: 15 } })
+    const open = card(null, null)
+    expect(on('엘레강스 이만원', [open], 4000, 4000)).toEqual({ kind: 'discard', reason: '번호를 못 들었어요', cancelled: false })
+  })
+  it('R52 켬 잡담 "이 10번 …"·원 없는 가격 "15번 핑크프릴 만오천" → 카드 없음, 가격을 못 들었어요', () => {
+    expect(on('이 10번 오타 하나 지우신 거예요 아 그런가요')).toMatchObject({ kind: 'discard', reason: '가격을 못 들었어요', remembered: { no: 10 } })
+    expect(on('15번 핑크프릴 만오천')).toMatchObject({ kind: 'discard', reason: '가격을 못 들었어요', remembered: { no: 15, price: 15000 } })
+  })
+  it('R53 끔 "15번" → V2 카드 "품종·가격을 말해 주세요"', () => {
+    expect(off('15번')).toMatchObject({ kind: 'create', ask: '품종·가격을 말해 주세요' })
+    // 끔은 덩어리 사이 이어 채우기도 V2 그대로
+    expect(off('엘레강스 이만원', [card(null, null)], 4000, 4000)).toMatchObject({ kind: 'fill', cardId: 'c1' })
+  })
+  it('켬이어도 원 가격이 있는 카드(300만 원 넘음)는 남긴다', () => {
+    expect(on('15번 400만 원')).toMatchObject({ kind: 'create', extraction: { no: 15, price: 4000000 } })
+  })
+  it('chooseInstantAction은 끔이면 null', () => {
+    const text = '15번 라울 만원 취소'
+    expect(chooseInstantAction(chunk(text), { registered: [15], registration: reg(text), autoRegister: false })).toBeNull()
   })
 })
