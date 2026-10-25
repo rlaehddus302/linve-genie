@@ -115,6 +115,41 @@ describe('AC-TTX-10: 틱톡 묶음 보내기', () => {
     box.dropTab(TAB)
     expect(box.snapshot().items.map((held) => held.item.text)).toEqual(['4', '5'])
   })
+
+  it('TD-TTX-001: 다시 보내기를 기다리는 동안 화면을 떠나 대기열이 비어도, 돌아와 붙은 댓글은 보낸다 (429·500·닿지 못함)', async () => {
+    for (const failure of [fail(429, 'RATE_LIMITED', null, 2000), fail(500, 'SAVE_FAILED'), fail(0, 'NETWORK')]) {
+      const { api, timers, box, sent } = outbox()
+      api.replies.push(failure)
+      api.fallback = ok({ result: 'recorded', recorded: 1 })
+      box.add(TAB, 'seller_kim', [item(1)])
+      await timers.fire()
+      expect(sent(), String(failure.status)).toEqual([['1']])
+      box.dropTab(TAB)
+      expect(box.size).toBe(0)
+      // 다시 보내기 타이머가 빈 대기열에서 돈다
+      await timers.fire()
+      expect(timers.delays()).toEqual([])
+      // 다시 내 방송 화면: 새 댓글
+      box.add(TAB, 'seller_kim', [item(2)])
+      expect(timers.delays(), String(failure.status)).toEqual([TT_FLUSH_MS])
+      await timers.fire()
+      expect(sent(), String(failure.status)).toEqual([['1'], ['2']])
+      expect(box.size).toBe(0)
+    }
+  })
+
+  it('TD-TTX-001: 기다리는 시간 안에 돌아와 붙은 댓글은 그 시간(Retry-After)을 지키고 그 타이머에 보낸다', async () => {
+    const { api, timers, box, sent } = outbox()
+    api.replies.push(fail(429, 'RATE_LIMITED', null, 5000))
+    api.fallback = ok({ result: 'recorded', recorded: 1 })
+    box.add(TAB, 'seller_kim', [item(1)])
+    await timers.fire()
+    box.dropTab(TAB)
+    box.add(TAB, 'seller_kim', [item(2)])
+    expect(timers.delays()).toEqual([5000])
+    await timers.fire()
+    expect(sent()).toEqual([['1'], ['2']])
+  })
 })
 
 /** 가짜 서버 (fetch 모양) — 경로마다 답을 정한다 */

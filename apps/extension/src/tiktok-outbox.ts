@@ -139,8 +139,11 @@ export class TikTokOutbox {
 
   /** 지금 한 묶음 보내기 (맨 앞 댓글과 같은 화면 아이디인 것만, 50개까지) */
   async flush(): Promise<void> {
-    if (this.#sending || this.#stopped || this.#queue.length === 0) return
+    if (this.#sending || this.#stopped) return
+    // 다시 보내기 기다림은 이 타이머로 끝난다 — 그동안 화면을 떠나(dropTab) 대기열이 비었어도 풀어야
+    // 그 뒤 붙는 댓글을 add가 다시 예약한다 (TD-TTX-001: 풀지 않으면 워커가 다시 뜰 때까지 영영 멈춘다)
     this.#waitUntilRetry = false
+    if (this.#queue.length === 0) return
     const first = this.#queue[0]
     if (first === undefined) return
     const batch: TikTokHeld[] = []
