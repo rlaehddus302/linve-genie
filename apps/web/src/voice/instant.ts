@@ -116,3 +116,4 @@ export const RENUMBER_FAILED = '번호를 옮기지 못했어요. 인터넷 연�
 export const missedPriceNote = (no: number): string => `${String(no)}번 가격을 못 들었어요`
 export const TAKEN_MARK = '이어 받음'
 export const LOG_TAKEN = '기다리던 번호에 다음 가격을 이어 받아 등록했어요'
+export const LOG_INTERIM = '중간 글로 등록'

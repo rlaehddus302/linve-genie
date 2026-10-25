@@ -596,6 +596,30 @@ describe('고쳐 말함 (D-V3-59, TD-V3-005)', () => {
   })
 })
 
+describe('중간 결과 안정 (D-V3-71)', () => {
+  it('중간 결과 "148번 280"이 1초 같으면 바로 등록하고, 최종이 280을 지워도 다시 등록하지 않는다', async () => {
+    const h = await ready({ priceUnit: 'THOUSAND' })
+    say('148번 280', false)
+    at(999)
+    expect(h.registered).toEqual([])
+    at(1000)
+    expect(reg(h).map((item) => [item.no, item.price])).toEqual([[148, 280000]])
+    expect(h.voice.getSnapshot().log[0]?.reason).toBe('중간 글로 등록')
+    say('148번 자 회장님들 자국 8번 캡처 떠 주시고요')
+    at(5000)
+    expect(h.registered).toHaveLength(1)
+  })
+
+  it('1초 안에 바뀌면 다시 센다', async () => {
+    const h = await ready({ priceUnit: 'THOUSAND' })
+    say('148번 280', false)
+    at(600)
+    say('148번 280만', false)
+    at(1100)
+    expect(h.registered).toEqual([])
+  })
+})
+
 describe('기다리는 번호 (D-V3-67)', () => {
   it('번호만 들린 덩어리 뒤 60초 안에 원 가격만 들리면 그 번호로 바로 등록 (이어 받음)', async () => {
     const h = await ready()

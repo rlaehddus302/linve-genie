@@ -32,6 +32,8 @@ import type {
   SegmentPick,
   SegmentReading,
   WaitingNumber,
+  InterimCandidate,
+  InterimSeen,
   SmsBuyerCandidate,
   SmsCard,
   SmsProductView,
@@ -78,6 +80,7 @@ import {
   REASON_NOT_OPEN,
   claimsKeptNote,
   LOG_TAKEN,
+  LOG_INTERIM,
   TAKEN_MARK,
   missedPriceNote,
   RENUMBER_FAILED,
@@ -736,6 +739,10 @@ export class VoiceController {
   #instantNos = new Map<number, 'register' | 'existing'>()
   /** 지금 덩어리에서 처리한 조각 (`${no}@${start}`, D-V3-46) */
   readonly #pickDone = new Set<string>()
+  /** 중간 결과 후보와 보인 시간 (D-V3-71) — 덩어리가 끝나면 비운다 */
+  #interimSeen: readonly InterimSeen[] = []
+  #interimShown: { readonly candidate: InterimCandidate; readonly text: string } | null = null
+  #interimTimer: ReturnType<typeof setTimeout> | null = null
   /** 기다리는 번호 (D-V3-67) — 하나만, 음성을 끄면 버린다 */
   #waiting: WaitingNumber | null = null
   /** 차례를 기다리는 큰 글자 칸 안내 (D-V3-61) */
@@ -862,6 +869,7 @@ export class VoiceController {
     this.#clearPhraseTimer()
     this.#releaseRestart()
     this.#dropHeld()
+    if (this.#interimTimer !== null) clearTimeout(this.#interimTimer)
     this.#engine?.stop()
     this.#listeners.clear()
   }
@@ -915,6 +923,10 @@ export class VoiceController {
     this.#instantNos = new Map()
     this.#pickDone.clear()
     this.#waiting = null
+    this.#interimSeen = []
+    this.#interimShown = null
+    if (this.#interimTimer !== null) clearTimeout(this.#interimTimer)
+    this.#interimTimer = null
     this.#dueCards.clear()
     this.#phraseInstantOff = false
     this.#set({ phase: 'off', stateLabel: null, interim: null, tooSoon: false, cards, sms, hearing: null, paused: new Map() })
@@ -1560,6 +1572,58 @@ export class VoiceController {
     const interim = this.#phrase === null ? '' : module.heardText(this.#phrase).interim
     const seg = this.#readSegments(module, text, interim.trim() === '')
     if (seg !== null) this.#runPicks(work, module, seg, text, false)
+    // 중간 결과의 빠른 꼴이 1초 동안 같으면 바로 (D-V3-71)
+    if (interim.trim() !== '') this.#trackInterim(work, module, text)
+    else this.#interimShown = null
+  }
+
+  /** 중간 결과 후보를 센다 (D-V3-71 (ㄱ)) — 1,000ms 같으면 등록, 아니면 그 시각에 다시 본다 */
+  #trackInterim(work: CardWork, module: VoiceModule, text: string): void {
+    if (typeof module.interimCandidate !== 'function' || typeof module.trackInterim !== 'function') return
+    let candidate: InterimCandidate | null
+    try {
+      const unit = this.#host.priceUnit?.()
+      candidate = module.interimCandidate(text, { dictionary: this.#prepared(module), maxNumber: this.#host.maxNumber(), ...(unit === undefined ? {} : { priceUnit: unit }) })
+    } catch {
+      candidate = null
+    }
+    this.#interimShown = candidate === null ? null : { candidate, text }
+    if (candidate === null) return
+    const step = module.trackInterim(this.#interimSeen, candidate, this.#host.now())
+    this.#interimSeen = step.seen
+    if (step.stable !== null) {
+      this.#interimPick(work, module, step.stable, text)
+      return
+    }
+    // 1,000ms 뒤 같은 후보가 아직 보이면 등록
+    if (this.#interimTimer !== null) clearTimeout(this.#interimTimer)
+    const last = step.seen.at(-1)
+    const wait = last === undefined ? module.INTERIM_STABLE_MS : last.since + module.INTERIM_STABLE_MS - this.#host.now()
+    this.#interimTimer = setTimeout(() => {
+      this.#interimTimer = null
+      this.#onInterimTimer()
+    }, Math.max(0, wait))
+  }
+
+  #onInterimTimer(): void {
+    const module = this.#module
+    const shown = this.#interimShown
+    if (this.#disposed || module === null || shown === null || this.#snapshot.phase !== 'on' || !this.#instantOn() || this.#phraseInstantOff) return
+    const step = module.trackInterim(this.#interimSeen, shown.candidate, this.#host.now())
+    this.#interimSeen = step.seen
+    if (step.stable === null || this.#host.dialogOpen()) return
+    const work = this.#emptyWork()
+    this.#interimPick(work, module, step.stable, shown.text)
+    this.#set(this.#workPatch(work))
+  }
+
+  /** 중간 글 후보 하나를 조각처럼 처리 (바로 등록·같은 번호 R-22), 기록 "중간 글로 등록" */
+  #interimPick(work: CardWork, module: VoiceModule, item: InterimCandidate, text: string): void {
+    if (this.#instantNos.has(item.no)) return
+    const pick: SegmentPick = { no: item.no, price: item.price, name: item.name, numberFrom: 'marker', priceFrom: 'quick', start: -1, end: -1, blocked: null, bigChange: false }
+    const before = work.log
+    this.#runPicks(work, module, { tokens: [], picks: [pick], others: [], tail: null, rest: '' }, text, false)
+    if (work.log !== before && work.log[0] !== undefined) work.log = [{ ...work.log[0], reason: LOG_INTERIM }, ...work.log.slice(1)]
   }
 
   /** 조각 읽기 (D-V3-46·48): 덩어리 글 → 조각마다 등록 값. final = 최종 결과만 든 글 */
@@ -1733,6 +1797,17 @@ export class VoiceController {
   #segmentsChunk(work: CardWork, module: VoiceModule, chunk: PhraseChunk): InstantDone | null {
     const seg = this.#readSegments(module, chunk.text, true)
     if (seg === null || chunk.text.includes('문자찜')) return null
+    // 최종 글에서 그 번호의 가격이 사라졌으면 1초 넘게 보였던 중간 후보로 (D-V3-71 (ㄴ))
+    const seen = this.#interimSeen
+    this.#interimSeen = []
+    this.#interimShown = null
+    if (typeof module.interimFallback === 'function' && seen.length > 0) {
+      const fallback = module.interimFallback(seen, seg.picks, [...this.#instantNos.keys()])
+      if (fallback !== null && this.#existingOf(fallback.no) === null && !this.#rejected.has(fallback.no)) {
+        this.#interimPick(work, module, fallback, chunk.text)
+        if (seg.picks.length === 0) return { action: 'create', reason: LOG_INTERIM, readout: work.readout?.text ?? null }
+      }
+    }
     if (seg.picks.length === 0) return this.#renumberChunk(work, module, chunk.text)
     this.#runPicks(work, module, seg, chunk.text, true)
     // 등록 직후 같은 덩어리의 "아니 61번" (R-24 ⓒ)
