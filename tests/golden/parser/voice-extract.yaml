@@ -339,4 +339,4 @@ settings:
 cases:
   - { in: "1 이십 오번 라울 만원", out: { name: 라울, confidence: LOW } }                    # 이십 + 오 = 25, 그 앞 1(일) vs 25(십) 겹침 → 번호·가격 비움(25번 아님)
   - { in: "0 삼번 라울 만원", out: { no: 3, name: 라울, price: 10000, confidence: HIGH } }      # 0은 수 토큰이 아님 → 합치지 않음 → 3번
-  - { in: "0 5번 라울 만원", out: { no: 5, name: 라울, price: 10000, confidence: HIGH } }       # '0'+'5' = '05'도 R-15로 안 읽힘 → 5번
+  - { in: "0 5번 라울 만원", out: { no: 5, name: 라울, price: 10000, confidence: HIGH } }       # 0 토큰은 무시 — D-I4-01 검사('05')에도 쓰지 않음 → 5번
