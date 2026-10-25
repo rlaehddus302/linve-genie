@@ -337,7 +337,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     register: (card: SuggestionCard, registration: CardRegistration, source: RegisterSource) => void
     focusQuick: () => void
     writeSms: (write: VoiceSmsWrite, received: string | null, requestId: string) => Promise<SmsWriteOutcome>
-    fixRecent: (id: string, changes: { readonly name?: string; readonly price?: number }) => Promise<RecentFixOutcome>
+    fixRecent: (id: string, changes: { readonly name?: string; readonly price?: number }, options?: { readonly newOnly?: boolean }) => Promise<RecentFixOutcome>
+    openProduct: (id: string) => void
     undoRecent: (id: string) => boolean
   }>({
     register: () => {},
@@ -345,6 +346,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     writeSms: async () => ({ kind: 'failed', message: SMS_SEND_FAILED }),
     fixRecent: async () => ({ kind: 'failed', message: OFFER_FIX_FAILED }),
     undoRecent: () => false,
+    openProduct: () => {},
   })
   const [voice, setVoice] = useState<VoiceController | null>(null)
   // 등록 성공을 음성 칸에 알린다 (지원 안 함 안내를 내림, D-I5-15) — 등록 경로가 음성 컨트롤러를 의존하지 않게 ref로
@@ -395,7 +397,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       // ── V2 ──
       readLearned,
       writeLearned: (list) => writeLearned(list),
-      fixRecent: (id, changes) => voiceActions.current.fixRecent(id, changes),
+      fixRecent: (id, changes, options) => voiceActions.current.fixRecent(id, changes, options),
+      openProduct: (id) => voiceActions.current.openProduct(id),
       undoRecent: (id) => voiceActions.current.undoRecent(id),
       // ── V3 바로 등록: 그 번호 상품과 1등+대기 수 (상품 보드 데이터) ──
       existingProduct: (no) => {
@@ -857,11 +860,13 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
    * 손 고치기 창(PRD-01 — 누구에게 적용할지 묻는 안내 그대로)을 연다.
    */
   const fixRecentProduct = useCallback(
-    async (key: string, changes: { readonly name?: string; readonly price?: number }): Promise<RecentFixOutcome> => {
+    async (key: string, changes: { readonly name?: string; readonly price?: number }, options: { readonly newOnly?: boolean } = {}): Promise<RecentFixOutcome> => {
       const product = (store.getSnapshot().data ?? latest.current.data).products.get(key)
       if (product === undefined) return { kind: 'failed', message: '그 상품을 찾지 못했어요. 상품 목록에서 확인해 주세요.' }
       const slots = productSlots(product)
-      if (changes.price !== undefined && changes.price !== product.price && slots.winners.length + slots.waitlist.length > 0) {
+      const claimed = slots.winners.length + slots.waitlist.length > 0
+      // 음성 바로 고침·[새 가격으로 바꾸기]는 창 없이 새 찜부터만 새 가격 (NEW_ONLY — 확정 찜 가격은 그대로, D-V3-57·59)
+      if (options.newOnly !== true && changes.price !== undefined && changes.price !== product.price && claimed) {
         openDialog({ kind: 'edit', product: product.key, name: changes.name ?? product.name, price: changes.price, line: null })
         return { kind: 'dialog' }
       }
@@ -869,7 +874,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       if (changes.name !== undefined) before.name = product.name
       if (changes.price !== undefined) before.price = product.price
       try {
-        await write(newRequestId(), { type: 'product.update', b, no: product.no, ...changes })
+        const newOnly = options.newOnly === true && changes.price !== undefined && claimed
+        await write(newRequestId(), { type: 'product.update', b, no: product.no, ...changes, ...(newOnly ? { applyTo: 'NEW_ONLY' } : {}) })
         return { kind: 'fixed', before }
       } catch (error) {
         if (!isApiError(error) || error.network) return { kind: 'failed', message: OFFER_FIX_FAILED }
@@ -885,7 +891,15 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     },
     [queue],
   )
-  voiceActions.current = { register: registerVoiceCard, focusQuick, writeSms: writeVoiceSms, fixRecent: fixRecentProduct, undoRecent: undoRecentProduct }
+  voiceActions.current = {
+    register: registerVoiceCard,
+    focusQuick,
+    writeSms: writeVoiceSms,
+    fixRecent: fixRecentProduct,
+    undoRecent: undoRecentProduct,
+    // [아까 것을 다른 번호로] — 그 상품 자세히(손 고치기, R-10 안내 그대로)
+    openProduct: (key) => openDialog({ kind: 'product', key }),
+  }
 
   /** 카드 고치기 칸의 Enter: 빠른 입력 고치기 칸과 같은 해석 (decideFixForm — 그 방송의 price.unit) */
   const submitCardForm = useCallback(

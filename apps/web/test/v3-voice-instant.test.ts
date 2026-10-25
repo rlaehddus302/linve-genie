@@ -289,8 +289,11 @@ describe('바로 등록 V3 수용 사례', () => {
     expect(reg(h).map((item) => [item.no, item.price])).toEqual([[139, 500000]])
     expect(cards(h)).toEqual([])
     const text = '139번으로 등록했는데 189번도 들렸어요. 맞는지 확인해 주세요.'
-    expect(h.voice.getSnapshot().readout?.text).toBe(text)
     expect(h.voice.getSnapshot().log[0]?.reason).toBe(text)
+    // 등록 안내 4초 뒤 차례로 (D-V3-61)
+    expect(h.voice.getSnapshot().readout?.text).toBe('139번 500,000원 등록했어요')
+    at(2000 + 4000)
+    expect(h.voice.getSnapshot().readout?.text).toBe(text)
   })
 
   it('D-V3-46: 쉬지 않고 이어 말한 한 덩어리의 상품 둘을 조각마다 바로 등록', async () => {
@@ -313,7 +316,7 @@ describe('바로 등록 V3 수용 사례', () => {
     say('핑크프릴 만오천 원')
     at(2000)
     expect(cards(h)).toEqual([])
-    expect(h.voice.getSnapshot().readout?.text).toBe('번호를 못 들었어요')
+    expect(h.voice.getSnapshot().readout?.text).toBe('15,000원 · 번호를 못 들었어요')
     const off = await ready({ settings: { 'voice.autoRegister': false } })
     say('15번 핑크프릴')
     at(3000)
@@ -328,10 +331,12 @@ describe('바로 등록 V3 수용 사례', () => {
     at(1800)
     const text = '189번으로 등록했는데 139번도 들렸어요. 맞는지 확인해 주세요.'
     expect(reg(h).map((item) => item.no)).toEqual([189])
-    expect(h.voice.getSnapshot().readout?.text).toBe(text)
     expect(h.voice.getSnapshot().log[0]?.reason).toBe(text)
     expect(h.voice.getSnapshot().offers).toEqual([])
+    // 등록 안내 다음 차례로 4초 (D-V3-61)
     at(1800 + 4000)
+    expect(h.voice.getSnapshot().readout?.text).toBe(text)
+    at(1800 + 8100)
     expect(h.voice.getSnapshot().readout).toBeNull()
   })
 
@@ -355,10 +360,11 @@ describe('바로 등록 V3 수용 사례', () => {
     say('21번 핑크문 만원 취소')
     at(3000)
     expect(h.undone).toEqual(['b1:21'])
+    at(5000)
     expect(h.voice.getSnapshot().readout?.text).toBe('21번 등록을 되돌렸어요')
     h.board.delete(21)
     say('21번 핑크문 만원')
-    at(6000)
+    at(11000)
     expect(h.registered).toHaveLength(1)
     expect(cards(h).map((card) => card.no)).toEqual([21])
     h.voice.turnOff()
@@ -421,14 +427,14 @@ describe('바로 등록 V3 수용 사례', () => {
     expect(cards(h)).toEqual([])
   })
 
-  it('찜이 있으면 묻기 카드에 까닭 줄, "그대로 두기"를 누르면 그 번호는 묻기만 (까닭 줄 없음)', async () => {
+  // D-V3-59: 이 콘솔이 방금 등록한 번호가 아니고 찜이 있으면 다른 화분일 수 있다는 카드 — 그대로 두면 거절한 번호(묻기만)
+  it('찜 있는 상품을 다시 들으면 "108번이 이미 있어요" 카드, 그대로 두면 그 번호는 묻기만 (까닭 줄 없음)', async () => {
     const h = await ready()
     h.board.set(108, { ...product(108, 'bts', 100000, 1), status: 'OPEN' })
     say('108번 12만 원')
     at(3000)
     const offer = h.voice.getSnapshot().offers[0]
-    expect(offer?.message).toBe('108번을 고칠까요? 가격 100,000원 → 120,000원')
-    expect(offer?.note).toBe('찜이 있는 상품이라 저절로 고치지 않았어요.')
+    expect(offer?.message).toBe('108번이 이미 있어요 (100,000원, 찜 1개)')
     h.voice.dismissOffer(offer?.id ?? '')
     h.board.set(108, product(108, 'bts', 100000, 0))
     say('108번 12만 원')
@@ -461,13 +467,41 @@ describe('중간 결과 끝의 번 없는 번호 (D-V3-26)·막음 (실방송 3�
     expect(h.voice.getSnapshot().notes.get(card?.id ?? '')).toBe(PRICE_CHECK_NOTE)
   })
 
-  it('이미 있는 상품의 가격이 3배를 넘게 들리면 묻기만', async () => {
+  // D-V3-57·59: 3배 넘게 바뀌어도 N번 + 원이면 바로 고친다 — 이 콘솔이 방금 등록한 번호가 아니면(찜 0) 바꾸고 다른 번호였을 때 할 말을 4초
+  it('이미 있는 상품(찜 0)을 N번 + 원으로 다시 들으면 3배가 넘어도 바로 고치고, 고쳐 말함이 아니면 안내 (D-V3-57·59)', async () => {
     const h = await ready()
     h.board.set(38, product(38, '라울', 100000))
     say('38번 라울 50만 원')
-    at(3000)
+    await settle()
+    expect(h.fixes).toEqual([{ id: 'b1:38', changes: { price: 500000 } }])
+    expect(h.voice.getSnapshot().readout?.text).toBe("38번을 바꿨어요: 100,000원 → 500,000원 · 아까 것이 다른 번호였으면 '아까 38번은 61번'이라고 말해 주세요")
+  })
+
+  it('찜 있는 상품을 나중에 다시 들으면 덮어쓰지 않고 "65번이 이미 있어요 (30,000원, 찜 2개)" (D-V3-59)', async () => {
+    const h = await ready()
+    h.board.set(65, product(65, '라울', 30000, 2))
+    say('65번 5만 원')
+    await settle()
     expect(h.fixes).toEqual([])
-    expect(h.voice.getSnapshot().offers[0]?.stage).toBe('ask')
+    const offer = h.voice.getSnapshot().offers[0]
+    expect(offer?.message).toBe('65번이 이미 있어요 (30,000원, 찜 2개)')
+    expect(offer?.maybeOther).toBe(true)
+    await h.voice.fixOffer(offer?.id ?? '')
+    expect(h.fixes).toEqual([{ id: 'b1:65', changes: { price: 50000 } }])
+  })
+
+  it('방금 바로 등록한 번호를 찜이 생긴 뒤 다시 말하면 바로 고치고 "찜 N개는 전 가격 그대로예요" (D-V3-57)', async () => {
+    const h = await ready()
+    say('70번 라울 3만 원')
+    finish(h)
+    h.board.set(70, { ...product(70, '라울', 30000, 1), status: 'OPEN' })
+    at(2500)
+    say('70번 5만 원')
+    await settle()
+    expect(h.fixes).toEqual([{ id: 'b1:70', changes: { price: 50000 } }])
+    const offer = h.voice.getSnapshot().offers[0]
+    expect(offer?.stage).toBe('fixed')
+    expect(offer?.note).toBe('찜 1개는 전 가격 그대로예요. 바꾸려면 상품에서 고쳐 주세요.')
   })
 })
 

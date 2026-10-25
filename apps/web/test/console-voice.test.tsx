@@ -284,14 +284,15 @@ describe('번호·가격 없음, 이미 있는 번호, 고치기 (AC-I4-22·23)'
   })
 
   // D-V3-41 (AC-V3-47): 번호 없는 말은 카드가 없다 — Enter는 빠른 입력 그대로
-  it('번호 없는 말 → 카드 없음, 큰 글자 칸 "번호를 못 들었어요", 쓰기 없음 (D-V3-41)', async () => {
+  // 이 파일은 바로 등록 끔 — "70,000원 · 번호를 못 들었어요"는 켬에서만 (D-V3-61 b)
+  it('번호 없는 말 → 카드 없음, 바로 등록 끔이면 큰 글자 칸 알림도 없음, 쓰기 없음 (D-V3-41·61)', async () => {
     setup()
     await openConsole()
     await turnOnVoice()
     FakeRecognition.say('핑크프릴 만오천 원')
     await quiet()
     expect(screen.queryByRole('listitem', { name: '번호 없음 핑크프릴 15,000원 카드' })).toBeNull()
-    expect(screen.getByText('번호를 못 들었어요')).toBeDefined()
+    expect(screen.queryByText(/번호를 못 들었어요/)).toBeNull()
     expect(registers()).toEqual([])
   })
 

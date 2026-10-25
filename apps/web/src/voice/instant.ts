@@ -26,7 +26,7 @@ export const REASON_CLAIMS = '찜이 있는 상품이라 저절로 고치지 않
 export const REASON_NOT_OPEN = '판매 중이 아닌 상품이라 저절로 고치지 않았어요.'
 export const REASON_PRICE_NOT_SURE = "가격 끝에 '원'이 들리지 않아 저절로 고치지 않았어요."
 export const REASON_BARE_NUMBER = "번호를 '번' 없이 들어 저절로 고치지 않았어요."
-export const REASON_PRICE_FAR = '가격 차이가 너무 커서 저절로 고치지 않았어요.'
+export const REASON_PRICE_FAR = '가격이 너무 커서 저절로 고치지 않았어요.'
 /** 바로 등록을 막은 카드 (실방송 3차 — 판매자가 보고 등록) */
 export const PRICE_CHECK_NOTE = '가격 확인 필요 · 가격이 커서 바로 등록하지 않았어요. 맞으면 "등록"을 눌러 주세요.'
 
@@ -88,3 +88,19 @@ export const otherNumberMessage = (registered: number, others: readonly number[]
 
 /** 덩어리 안 취소로 되돌림 (D-V3-21) */
 export const undoneReadout = (no: number): string => `${String(no)}번 등록을 되돌렸어요`
+
+/** 바로 고친 상품에 찜이 있을 때 (D-V3-57 — 찜 가격은 그대로, NEW_ONLY) */
+export const claimsKeptNote = (count: number): string => `찜 ${String(count)}개는 전 가격 그대로예요. 바꾸려면 상품에서 고쳐 주세요.`
+
+/** 다른 화분일 수 있는 같은 번호 (D-V3-59): "65번이 이미 있어요 (30,000원, 찜 2개)" */
+export const maybeOtherMessage = (no: number, price: number, claims: number): string => `${String(no)}번이 이미 있어요 (${formatWon(price)}, 찜 ${String(claims)}개)`
+export const MAYBE_OTHER_FIX = '새 가격으로 바꾸기'
+export const MAYBE_OTHER_RENUMBER = '아까 것을 다른 번호로'
+
+/** 고쳐 말함이 아닌 바로 바꿈 (D-V3-59): "65번을 바꿨어요: 30,000원 → 50,000원 · 아까 것이 다른 번호였으면 '아까 65번은 61번'이라고 말해 주세요" */
+export function notRecentReadout(no: number, current: { readonly name: string; readonly price: number }, changes: InstantChanges): string {
+  const parts: string[] = []
+  if (changes.price !== undefined) parts.push(`${formatWon(current.price)} → ${formatWon(changes.price)}`)
+  if (changes.name !== undefined) parts.push(`품종 ${current.name === '' ? '없음' : current.name} → ${changes.name}`)
+  return `${String(no)}번을 바꿨어요: ${parts.join(', ')} · 아까 것이 다른 번호였으면 '아까 ${String(no)}번은 61번'이라고 말해 주세요`
+}

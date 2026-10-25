@@ -312,15 +312,19 @@ describe('인식 문장·카드 (AC-I4-13·20, D-I4-09)', () => {
     expect(h.voice.getSnapshot().heard[0]?.text).toBe('잡담 24')
   })
 
-  it('카드를 만들 결과가 아니면(인사·만원만·끊어 말한 번호) 기록에만 남는다', async () => {
+  // D-V3-54: 끊어 말한 번호(`십 오번`·`1 5번`)는 이제 합쳐 15번으로 읽는다 — 카드가 아닌 것은 인사·만원만
+  it('카드를 만들 결과가 아니면(인사·만원만) 기록에만 남는다, 끊어 말한 번호는 합쳐 읽는다 (D-V3-54)', async () => {
     const h = harness()
     await turnOn(h)
-    for (const text of ['안녕하세요 여러분', '만원', '십 오번 라울 오천 원', '1 5번 핑크프릴 만오천 원']) {
+    for (const text of ['안녕하세요 여러분', '만원']) {
       FakeRecognition.last.say(text)
       quiet()
     }
     expect(h.voice.getSnapshot().cards).toEqual([])
-    expect(h.voice.getSnapshot().heard).toHaveLength(4)
+    FakeRecognition.last.say('십 오번 라울 오천 원')
+    quiet()
+    expect(h.voice.getSnapshot().cards.map((card) => card.no)).toEqual([15])
+    expect(h.voice.getSnapshot().heard).toHaveLength(3)
   })
 
   it('사전 = 지금 범위 이름 → 지난 범위 → 기본 사전; 지금 범위 이름이 바뀌면 다음 문장부터', async () => {

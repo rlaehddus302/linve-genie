@@ -117,13 +117,14 @@ describe('"들은 말" 칸 (AC-V2-17, D-V2-07)', () => {
     expect(voiceRegion().textContent).not.toMatch(/HIGH|LOW|final/)
   }, 15_000)
 
-  it('카드를 만들 수 없는 말은 "번호와 가격이 안 들렸어요"', async () => {
+  // D-V3-61: 번호도 '원' 가격도 없는 말은 화면 알림이 없다 — 음성 기록에만 ("번호와 가격이 안 들렸어요")
+  it('카드를 만들 수 없는 말은 화면 알림 없이 기록에만 (D-V3-61)', async () => {
     setup()
     await openConsole()
     await turnOnVoice()
     FakeRecognition.say('안녕하세요 여러분')
     await quiet()
-    expect(within(heardBox()).getByRole('status').textContent).toBe('번호와 가격이 안 들렸어요')
+    expect(within(heardBox()).queryByRole('status')).toBeNull()
   }, 15_000)
 })
 
