@@ -339,11 +339,12 @@ describe('상품 관리 명령의 저절로 다시 보내기는 상품마다 하
     expect(t.sent[1]?.requestId).toBe(t.sent[0]?.requestId)
   })
 
-  it('"안내 닫기"를 누르면 저절로 보내지 않는다 (판매자가 닫은 것)', async () => {
+  it('실패 안내의 "확인"을 누르면 저절로 보내지 않는다 (판매자가 닫은 것) — 창의 "닫기"와 이름이 겹치지 않는다', async () => {
     const t = setup(opened())
     fireEvent.click(screen.getByRole('button', { name: '일시 중지' }))
     await act(flush)
-    fireEvent.click(screen.getByRole('button', { name: '안내 닫기' }))
+    expect(screen.getAllByRole('button', { name: /닫기/ }).map((button) => button.textContent)).not.toContain('확인')
+    fireEvent.click(within(screen.getByRole('region', { name: '상품 관리' })).getByRole('button', { name: '확인', exact: true }))
     expect(within(screen.getByRole('region', { name: '상품 관리' })).queryByRole('alert')).toBeNull()
     t.goOnline()
     await act(() => t.board.flush())

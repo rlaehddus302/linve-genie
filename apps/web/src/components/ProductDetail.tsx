@@ -110,7 +110,7 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
     await attempt(event, requestId, false)
   }
 
-  /** 판매자가 실패 안내를 닫았다: 저절로 보내지 않는다 (D-MOB2-07) */
+  /** 판매자가 실패 안내를 "확인"으로 닫았다: 저절로 보내지 않는다 (D-MOB2-07 — 되돌리기 띠의 "확인"과 같은 말. "닫기"는 창 닫기와 이름이 겹친다) */
   const dismiss = () => {
     api.resend?.remove(boardKey)
     setError(null)
@@ -271,7 +271,7 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
         {error?.retryable === true && api.resend !== undefined && api.resend.has(boardKey) ? <p className="hint">{AUTO_RESEND_NOTE}</p> : null}
         {error !== null ? (
           <button type="button" className="button" onClick={dismiss}>
-            안내 닫기
+            확인
           </button>
         ) : null}
         {skipped ? <p role="status">{STATUS_CHANGED_NOTE}</p> : null}
