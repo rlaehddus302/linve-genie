@@ -90,3 +90,23 @@
 ## 사람 확인 (HG-BND1) — 코드에서 기댄 곳
 
 - 경로를 붙인 `redirect_uri`(`<등록 주소>/<표>`)가 받아들여지는지 · 거부 때 `code` 없이 돌아오는지(가짜 서버는 `error=access_denied`) · 토큰 응답의 `scope` 이름·`user_key`·`expires_in` · 글·댓글의 `author.user_key`가 실제로 오는지(안 오면 "내가 쓴 글만 이을 수 있어요."·"작성자를 알 수 없는 밴드 댓글 {N}개…") · `created_at` 밀리초 · 쪽 크기 · 오류 코드(10401·60102…). 수용 기준 HG-BND1 목록 그대로.
+
+## dev-web (BND1) — 한 일
+
+- 낱말·판단: `apps/web/src/lib/platforms.ts`(`band:` → `BAND`, "밴드" — 대문자 `BAND:`·쌍점 없는 `bandX`는 유튜브), `apps/web/src/lib/band.ts`(돌아온 결과 문장·확인 창·단추·알림 띠 문장, `bandNotComing`·`bandUnseenEdits`·`bandSeenUpTo` 등). 타입 `api/types.ts`(`BandAccount`·`BandLinkView`·`BandEvent` …, `PlatformName`에 `BAND`). SSE `band`를 받는다(`stream.ts`·`live-events.ts`·`console-store.ts` — `PLATFORM_STREAM_TYPES`).
+- 설정 `components/BandSettings.tsx` + `SettingsPage.tsx`: 칸 이름 "네이버 밴드"(틱톡 칸 뒤, 보조자에게는 칸도 요청도 없음). 주소 `/settings/band`, 돌아온 결과 `?band=` → 한 번 보이고 주소에서 지움(`router.ts` `bandResult`). 모르는 결과 값은 "밴드 연결 결과를 확인하지 못했어요. 아래 연결 상태를 확인해 주세요."(수용 기준에 없어 정함 — 인스타그램과 같은 방식).
+- 콘솔 `components/ConsoleBand.tsx` + `ConsolePlatforms.tsx`: 틱톡 칸 뒤 "밴드" 칸(영역 이름 `밴드`, id `band-panel`), 알림 목록(목록 이름 `밴드 알림`, id `band-notices`). 고르기 창 제목 "밴드 고르기"·"내 글 고르기"·"이 글 잇기", 끊기 창 "밴드 연결 끊기"(설정 끊기 창도 같은 제목). 밴드 목록 이름 `가입한 밴드`, 글 목록 이름 `내가 쓴 글`.
+  - "다른 글 잇기": `NO_ACCESS`면 끊기 → 고르기, `FINISHED`이고 `canLink`면 바로 고르기.
+  - 다시 시도 60초: 마지막으로 읽은 때(`lastReadAt`, 없으면 `linkedAt`)부터 60초가 넘으면 알림 띠. 화면이 그때 맞춰 다시 그린다(타이머).
+  - 휴대폰 폭에서 그리지 않는 칸: 이은 연결이 없고 `canLink`가 거짓이며 막는 까닭이 설정 쪽(`NOT_CONFIGURED`·`NOT_CONNECTED`·`RECONNECT_NEEDED`)·`ENDED`·`REHEARSAL`이고 알림·오류가 없을 때. `YOUTUBE_LINKED`·`BAND_IN_USE`·`RECEIVED_TIME_NOT_ALLOWED` 막힘은 휴대폰에서도 문장을 보인다.
+  - 리허설 회차: 지금의 "인스타그램·틱톡" 한 줄("리허설 방송에는 라이브를 이을 수 없어요.")을 그대로 두고 밴드 칸·밴드 요청은 없다(같은 문장이 두 번 나오면 기존 E2E `getByText`가 깨진다).
+- 개인정보처리방침: 1번 목록에 `BAND_ITEM` 한 줄(시청자 정보 다음).
+- E2E 설정 `apps/web/playwright.config.ts`: `chromium-multi`(가짜 유튜브·메타와 같은 서버) `--band fake --band-port 4107+오프셋`, `webkit-iphone` `--band fake --band-port 4108+오프셋`. `fakeBandUrl(project)`. 조작은 `e2eServerUrl(project)` + `/_e2e/band/*`.
+- 단위 시험 `apps/web/test/bnd1-band.test.tsx`(32개), `e2e-config.node.test.ts`에 밴드 묶음 1개. 웹 단위 시험 전체 통과(105파일). 타입 검사·lint 통과.
+- 실제 브라우저 확인(임시, 커밋 안 함): `chromium-multi` 서버로 375폭 연결 → 밴드 둘 중 고르기 → 내 글만 → 잇기(기준선 3) → 새 댓글 → 지움 알림 → 확인했어요 → 토큰 풀림 문장까지 통과, 가로 넘침 없음, 가짜 밴드가 받은 요청 `onlyAllowed: true`. 띄운 서버는 꺼짐.
+
+### 화면 → test-e2e
+- 보조자는 콘솔·설정을 열 수 없다(앱이 문자찜 입력 화면만 연다 — `AssistantBlocked`). 그래서 AC-BND1-71 "보조자는 상태·수·알림만"·E2E 10번 "콘솔 상태만"은 더 강하게 막혀 있다: 보조자로 콘솔 주소를 열면 "문자찜 입력만 쓸 수 있어요" 안내이고 밴드 요청은 0이다. 이 차이는 spec-keeper 확인 후보(disputesWithSpec).
+- 판매대장·확인서(`packages/documents`)에는 플랫폼 이름을 적는 곳이 없다(인스타그램·틱톡도 없음). 플랫폼 글자를 쓰는 화면은 채팅 줄(`ChatPanel`)·구매자 목록·표·상세·찾기·합치기 창(`BuyersPage`)·문자찜 입력의 구매자 찾기(`SmsPage`) — 모두 `platformOfKey`/`buyerPlatformWord`를 거쳐 "밴드"로 나온다(AC-BND1-75).
+- 알림 띠 줄 이름: "밴드 댓글이 들어오지 않아요."(누르면 밴드 칸에 포커스), "밴드에서 지우거나 고친 댓글이 {N}개 있어요."(누르면 알림 목록에 포커스) + 옆 단추 "확인했어요". 밴드 칸에도 "확인했어요"(늦게 읽음만 남았을 때도).
+- "잇기"를 누르면 단추가 잠기고 "글을 읽는 중이에요…"(창 안 상태 문장). 응답이 늦을 때 다시 보내기는 네트워크 실패만 같은 요청 번호로 자동(`withRetry`) — 잠긴 동안 또 누를 수 없다.
