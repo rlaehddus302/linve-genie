@@ -129,15 +129,11 @@ describe('실방송 8차 — 대화 속 "아니"', () => {
   })
 })
 
-describe('AC-V3-54 readSellerNote·readSegments는 어떤 글에도 예외 없음', () => {
+describe('readSegments는 어떤 글에도 예외 없음', () => {
   it('무작위 1,000개', async () => {
     const fc = (await import('fast-check')).default
-    const { readSellerNote } = await import('../src/index.ts')
     fc.assert(
       fc.property(fc.oneof(fc.string({ maxLength: 60 }), fc.string({ unit: 'grapheme', maxLength: 60 }), fc.constantFrom('', '₩', '[', '93번[', '₩,', '<b>93번</b>[x] ₩1')), (text) => {
-        expect(() => readSellerNote(text)).not.toThrow()
-        const note = readSellerNote(text)
-        if (note !== null) expect(note.price).toBeGreaterThanOrEqual(100)
         expect(() => readSegments(text, { dictionary: DICT, final: true })).not.toThrow()
       }),
       { numRuns: 1000 },
@@ -177,14 +173,6 @@ describe('실방송 8차 — 끊긴 번호("오십삼번"→13번, "63번"→60�
   })
 })
 
-describe('TD-V3-004 판매자 채팅 가격은 0으로 시작하지 않는다', () => {
-  it('₩0500·₩070,000 → null', async () => {
-    const { readSellerNote } = await import('../src/index.ts')
-    expect(readSellerNote('93번 [청개구리] ₩0500')).toBeNull()
-    expect(readSellerNote('93번 [청개구리] ₩070,000')).toBeNull()
-    expect(readSellerNote('93번 [청개구리] ₩70,000')).toEqual({ no: 93, name: '청개구리', price: 70000 })
-  })
-})
 
 describe('AC-V3-65 흔한 말 별칭 녹음 → 녹금은 N번 조각 안에서만', () => {
   it('"89번 녹음 7만 원" → 녹금, 번호 없는 "녹음 잘 되고 있죠"는 품종 아님', () => {

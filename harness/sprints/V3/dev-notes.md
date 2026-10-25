@@ -389,3 +389,8 @@
 - 시험 `apps/server/test/v3-seller-names.test.ts`는 "없음 확인"으로 바꿈: 공식·확장(묶인 영상 owner 글) 어느 길로 주인 글이 와도 품종 미입력 상품 그대로·product.* 고치기 없음·판정 언급·감사 줄 없음·조회 404·`publishVoice` 없음.
 - **아직 남긴 것**: `seller_names` 표(0020)와 schema·복구 목록 줄. 지우려면 DROP 마이그레이션이 필요한데 0021 번호는 R-25 음성 기록(`0021_v3_voice_log.sql`, 다른 dev-server, 아직 커밋 전)이 쓰고 있다. 그 커밋 뒤에 `0022_v3_drop_seller_names`(DROP TABLE IF EXISTS)로 넣겠다 — 번호 순서를 orch가 정해 주면 된다. 표는 이제 쓰는 코드가 없어 비어 있다.
 - R-25 쪽(`voice-log.ts`의 `seller-note` 출처, seal.ts의 seller-note 질의)은 그 작업자 몫이라 건드리지 않았다. 판매자 글 읽기가 없어졌으니 그 출처는 더 생기지 않는다.
+
+### dev-device 추가 21 — D-V3-68 (spec 43f688ac, 서버 8e6d2146 뒤)
+- R-23 판매자 채팅 읽기를 없앴다. src/seller-note.ts, package.json `./seller-note` 하위 경로, index.ts `readSellerNote` 내보내기, 골든 seller-note 러너 갈래, 관련 단위 시험(TD-V3-004·AC-V3-54의 판매자 글 부분)을 지웠다.
+- readSegments 예외 없음 무작위 시험은 남겼다.
+- 경계 시험(boundaries.test.ts)은 원래 규칙으로 되돌렸다 — 서버는 `@livejjim/voice`를 전혀 참조하지 않는다.

@@ -17,7 +17,6 @@ import {
   readChunk,
   readRenumber,
   readSegments,
-  readSellerNote,
   readRegistration,
   readyToRegister,
   touchCard,
@@ -33,7 +32,7 @@ const EXPECTED_CASES = 120
 
 const FILE_KEYS = new Set(['kind', 'about', 'cases'])
 const CASE_KEYS = new Set(['id', 'title', 'refs', 'note', 'in', 'out'])
-const ID_PATTERN = /^G-(VGS|VSN|VSL|VRN)-[A-Z0-9]+-[0-9]{2}$/
+const ID_PATTERN = /^G-(VGS|VSN|VRN)-[A-Z0-9]+-[0-9]{2}$/
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 const fail = (where: string, message: string): never => {
   throw new Error(`${where}: ${message}`)
@@ -48,7 +47,7 @@ const NAME_FROM = ['DICTIONARY', 'GUESS', null]
 
 interface Loaded {
   readonly id: string
-  readonly kind: 'variety-guess' | 'same-number' | 'seller-note' | 'renumber'
+  readonly kind: 'variety-guess' | 'same-number' | 'renumber'
   readonly input: Record<string, unknown>
   readonly out: unknown
 }
@@ -64,7 +63,7 @@ function load(): Loaded[] {
     const root = doc as Record<string, unknown>
     for (const key of Object.keys(root)) if (!FILE_KEYS.has(key)) fail(file, `모르는 키 ${key}`)
     const kind = root.kind
-    if (kind !== 'variety-guess' && kind !== 'same-number' && kind !== 'seller-note' && kind !== 'renumber') return fail(file, `모르는 kind ${String(kind)}`)
+    if (kind !== 'variety-guess' && kind !== 'same-number' && kind !== 'renumber') return fail(file, `모르는 kind ${String(kind)}`)
     if (!Array.isArray(root.cases)) fail(file, 'cases가 배열이 아니다')
     for (const item of root.cases as unknown[]) {
       if (!isObject(item)) fail(file, '사례가 객체가 아니다')
@@ -81,14 +80,6 @@ function load(): Loaded[] {
         if (c.out !== null) {
           const out = onlyKeys(id, c.out, ['from', 'to'])
           if (!(out.from === null || typeof out.from === 'number') || typeof out.to !== 'number') fail(id, 'out')
-        }
-        cases.push({ id, kind, input, out: c.out })
-      } else if (kind === 'seller-note') {
-        const input = onlyKeys(id, c.in, ['text', 'maxNumber'])
-        if (typeof input.text !== 'string') fail(id, 'text')
-        if (c.out !== null) {
-          const out = onlyKeys(id, c.out, ['no', 'name', 'price'])
-          if (typeof out.no !== 'number' || typeof out.name !== 'string' || typeof out.price !== 'number') fail(id, 'out')
         }
         cases.push({ id, kind, input, out: c.out })
       } else if (kind === 'variety-guess') {
@@ -124,9 +115,6 @@ describe('골든 voice-register (R-17 7·R-22)', () => {
     if (item.kind === 'renumber') {
       const maxNumber = item.input.maxNumber
       expect(readRenumber(item.input.text, typeof maxNumber === 'number' ? { maxNumber } : {})).toEqual(item.out)
-    } else if (item.kind === 'seller-note') {
-      const maxNumber = item.input.maxNumber
-      expect(readSellerNote(item.input.text, typeof maxNumber === 'number' ? { maxNumber } : {})).toEqual(item.out)
     } else if (item.kind === 'variety-guess') {
       const maxNumber = item.input.maxNumber
       expect({ guess: guessVariety(item.input.text, typeof maxNumber === 'number' ? { maxNumber } : {}) }).toEqual(item.out)

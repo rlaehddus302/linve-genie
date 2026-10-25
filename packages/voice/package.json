@@ -5,8 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./accuracy": "./src/accuracy.ts",
-    "./seller-note": "./src/seller-note.ts"
+    "./accuracy": "./src/accuracy.ts"
   },
   "scripts": {
     "accuracy": "node scripts/accuracy.ts"

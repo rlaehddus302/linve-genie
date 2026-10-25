@@ -319,8 +319,6 @@ export {
   type SameNumberReason,
   type SameNumberStatus,
 } from './register.ts'
-// V3 R-23: 판매자 채팅 품종 글 (D-V3-49) — 서버가 주인 배지 채팅에 쓴다
-export { readSellerNote, type SellerNote } from './seller-note.ts'
 // V3 덩어리 조각 소비 (R-17 8, D-V3-46·48) — 화면은 pick마다 한 번 바로 등록
 export { readSegments, type SegmentOptions, type SegmentPick, type SegmentReading } from './segments.ts'
 // V3 음성 인식 기록 모아 두기 (D-V3-56) — 가리기·내려받기 형식

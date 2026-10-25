@@ -220,15 +220,8 @@ describe('AC-I4-04·AC-P2-15 다른 곳은 @livejjim/voice에 기대지 않는�
     .map((name) => `apps/${name}`)
   const scopes = [...otherApps, 'packages/core/src', 'packages/label', 'packages/documents']
 
-  // V3(D-V3-49, R-23): 서버는 판매자 채팅 품종 글 읽기만 하위 경로 `@livejjim/voice/seller-note`로 쓴다(코어만 기대는 파일 하나 — 음성 묶음 전체를 불러오지 않는다).
-  // 그 경로와 package.json의 의존 줄만 지우고 본다. 교체이지 약화가 아니다 — 다른 참조는 여전히 실패한다.
-  const SERVER_ALLOWED = [/['"]@livejjim\/voice\/seller-note['"]/g, /"@livejjim\/voice":\s*"workspace:\*"/g]
   it.each(scopes)('%s 안에 @livejjim/voice·packages/voice 참조가 없다', (scope) => {
-    const offenders = files(join(ROOT, scope)).filter((file) => {
-      let text = readFileSync(file, 'utf8')
-      if (scope === 'apps/server') for (const allowed of SERVER_ALLOWED) text = text.replace(allowed, '')
-      return VOICE_TEXT.test(text)
-    })
+    const offenders = files(join(ROOT, scope)).filter((file) => VOICE_TEXT.test(readFileSync(file, 'utf8')))
     expect(offenders.map(rel)).toEqual([])
   })
 
