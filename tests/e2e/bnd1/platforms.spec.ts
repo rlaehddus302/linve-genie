@@ -8,6 +8,7 @@ import {
   T,
   alertStrip,
   bandComment,
+  bandRequests,
   bandUser,
   bandWorld,
   boardItem,
@@ -173,6 +174,44 @@ test.describe('BND1 여러 플랫폼 @multi', () => {
       await expect(otherRegion.getByRole('button', { name: T.linkStart })).toBeVisible()
       // 1부 콘솔 주소는 그대로 (새로 고침·이동 없음)
       expect(page.url()).toContain(encodeURIComponent(first.b))
+    } finally {
+      await second.close()
+    }
+  })
+
+  test('D-BND1-24 AC-BND1-50 RA-BND1-08: 조용한 읽기 차례(새 댓글 없음) 동안 열어 둔 다른 방송 콘솔은 밴드 연결 보기(GET /api/broadcasts/:id/band)를 다시 부르지 않고, 새 댓글이 들어오면 다시 부른다 @multi', async ({ page }) => {
+    const w = await bandWorld(page)
+    const first = await openRealBroadcast(page, { title: '1부' })
+    await registerApi(page, first.b, 1, '핑크프릴', 12_000)
+    const second = await page.context().newPage()
+    try {
+      await second.goto('/')
+      const other = await openRealBroadcast(second, { title: '2부' })
+      const otherRegion = consoleBand(second)
+      await expect(otherRegion.getByRole('button', { name: T.linkStart })).toBeVisible()
+      const bandPath = `/api/broadcasts/${encodeURIComponent(other.b)}/band`
+      const gets: string[] = []
+      second.on('request', (req) => {
+        if (req.method() === 'GET' && new URL(req.url()).pathname === bandPath) gets.push(new Date().toISOString())
+      })
+      const commentReads = async () => (await bandRequests(page.request)).requests.filter((r) => r.path === '/v2/band/post/comments').length
+      // 1부에 잇기(판매자 조작 — 알림은 늘 보낸다) → 2부가 다시 받아 BAND_IN_USE
+      await linkBandUi(page, w)
+      await expect(otherRegion.getByText(T.inUse, { exact: true })).toBeVisible({ timeout: 15_000 })
+      // 잇기 알림의 다시 받기가 끝나도록 읽기 차례 하나를 지나 보낸 뒤부터 센다
+      const start = await commentReads()
+      await expect.poll(commentReads, { timeout: READ_WAIT }).toBeGreaterThanOrEqual(start + 1)
+      const before = gets.length
+      const from = await commentReads()
+      // 조용한 차례 3번(가짜 밴드가 댓글 읽기 요청을 3번 더 받을 때까지)
+      await expect.poll(commentReads, { timeout: 30_000 }).toBeGreaterThanOrEqual(from + 3)
+      expect(gets.length - before, `조용한 차례 3번 동안 2부 콘솔의 ${bandPath} 다시 부름(시각: ${gets.slice(before).join(', ')})`).toBe(0)
+      await expect(otherRegion.getByText(T.inUse, { exact: true })).toBeVisible()
+      // 대조: 새 댓글 하나 → 1부 보드에 들어오고, 그 알림으로 2부 콘솔은 다시 부른다(재는 방법이 살아 있다)
+      const guest = await bandUser(page.request, '조용손님')
+      await bandComment(page.request, w.post, { content: '1번이요', name: '조용손님', userKey: guest })
+      await expect(boardItem(page, 1)).toContainText('조용손님', { timeout: READ_WAIT })
+      await expect.poll(() => gets.length - before, { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
     } finally {
       await second.close()
     }
