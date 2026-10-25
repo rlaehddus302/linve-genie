@@ -15,6 +15,11 @@ export interface Sender {
   send(event: Readonly<Record<string, unknown>>): Promise<WriteResult | null>
   /** 마지막으로 보내지 못한 것을 같은 요청 번호로 다시 */
   resend(): Promise<WriteResult | null>
+  /**
+   * 보내지 못해 남겨 둔 요청 번호를 바뀐 내용(event)에 그대로 잇는다 — 다음에 그 내용을 보내면 같은 요청 번호 (D-MOB2-09:
+   * 비운 받은 시각을 처음 누른 시각으로 채워 다시 보내도 서버가 처음 것을 기록했으면 처음 기록·응답을 돌려준다). 남긴 것이 없으면 false
+   */
+  carry(event: Readonly<Record<string, unknown>>): boolean
   clearError(): void
 }
 
@@ -57,6 +62,11 @@ export function useSender(command: (event: Readonly<Record<string, unknown>>, re
     error,
     send: run,
     resend: async () => (pending.current === null ? null : run(pending.current.event)),
+    carry: (event) => {
+      if (pending.current === null) return false
+      pending.current = { key: JSON.stringify(event), requestId: pending.current.requestId, event }
+      return true
+    },
     clearError: () => setError(null),
   }
 }

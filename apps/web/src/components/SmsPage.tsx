@@ -340,11 +340,6 @@ interface SentResult {
   readonly buyer: string | null
   /** 연결이 돌아와 저절로 다시 보낸 문자찜 (D-MOB2-07 — 결과 카드 앞에 "연결이 돌아와 보냈어요: ") */
   readonly auto: boolean
-  /**
-   * 받은 시각을 비운 채 저절로 다시 보냈으면 처음 누른 때(밀리초). 비운 받은 시각은 서버가 도착 시각으로 적으므로(SPEC ORD-08 AC6)
-   * 처음 누른 때보다 늦게 들어갔다고 알린다 (RA-MOB2-02)
-   */
-  readonly firstAt: number | null
 }
 
 interface SmsFormProps {
@@ -419,41 +414,55 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
   }
   const optionsMissing = optionMode && product !== undefined && product.hasOptions && variantTextOf(product, effectivePicks) === null
 
-  /** 처음 누른 때 — 칸 내용이 같으면 그대로 (RA-MOB2-02) */
+  /** 처음 누른 때 — 칸 내용이 같으면 그대로 (RA-MOB2-02, D-MOB2-09) */
   const pressRef = useRef<{ readonly key: string; readonly at: number } | null>(null)
+  const receivedRef = useRef(received)
+  receivedRef.current = received
+  /** 받은 시각을 비운 채 실패해 칸에 채워 넣은 처음 누른 시각 `HH:MM:SS` (D-MOB2-09) */
+  const [filled, setFilled] = useState<string | null>(null)
 
-  const send = async (auto = false) => {
-    if (api === undefined || number === null) return
-    const at = Date.now()
-    // 같은 칸 내용으로 처음 누른 때 (다시 보내기·저절로 다시 보내기에서도 처음 것 — RA-MOB2-02)
-    const pressKey = JSON.stringify([no, received, phone, memo, buyer, picks, qtyText])
-    if (pressRef.current?.key !== pressKey) pressRef.current = { key: pressKey, at }
-    const firstAt = pressRef.current.at
-    const current = readReceived(received, at)
-    const event = {
+  /** 보낼 쓰기 (받은 시각은 읽은 값 — 비우면 넣지 않는다, ORD-08 AC6) */
+  const eventOf = (receivedValue: string | null): Readonly<Record<string, unknown>> | null => {
+    if (api === undefined || number === null) return null
+    return {
       type: 'sms',
       b: api.b,
       no: number,
-      ...(current.kind === 'ok' ? { received: current.value } : {}),
+      ...(receivedValue !== null ? { received: receivedValue } : {}),
       ...(buyer === null && phone.trim() !== '' ? { phone: phone.trim() } : {}),
       ...(memo.trim() === '' ? {} : { memo: memo.trim() }),
       ...(buyer === null ? {} : { buyer }),
       ...(optionMode ? { qty: qty ?? 1 } : {}),
       ...(optionMode && product !== undefined && product.hasOptions ? { options: { ...effectivePicks } } : {}),
     }
+  }
+  const eventOfRef = useRef(eventOf)
+  eventOfRef.current = eventOf
+
+  const send = async (auto = false) => {
+    if (api === undefined || number === null) return
+    const at = Date.now()
+    // 받은 시각은 ref에서 — 실패한 순간 채운 값이 다시 그리기 전에 눌린 "다시 보내기"에도 실리게 (D-MOB2-09)
+    const receivedText = receivedRef.current
+    // 같은 칸 내용으로 처음 누른 때 (다시 보내기·저절로 다시 보내기에서도 처음 것 — RA-MOB2-02)
+    const pressKey = JSON.stringify([no, receivedText, phone, memo, buyer, picks, qtyText])
+    if (pressRef.current?.key !== pressKey) pressRef.current = { key: pressKey, at }
+    const current = readReceived(receivedText, at)
+    const event = eventOf(current.kind === 'ok' ? current.value : null)
+    if (event === null) return
     const written = await sender.send(event)
     // 실패면 칸은 친 그대로 (AC-SMS-04)
     if (written === null) return
     pressRef.current = null
+    setFilled(null)
     setResult({
       seq: written.seq,
       no: number,
       b: api.b,
-      receivedText: received,
+      receivedText,
       phoneLast4: typeof written.phoneLast4 === 'string' ? written.phoneLast4 : normalized === null ? null : phoneLast4(normalized),
       buyer: typeof written.buyer === 'string' ? written.buyer : null,
       auto,
-      firstAt: auto && current.kind === 'empty' ? firstAt : null,
     })
     // 성공 응답 바로 칸을 모두 비우고 번호 칸으로 — 따라잡기를 기다리지 않는다 (전화번호 원문을 남기지 않는다, AC-S06-13·81, AC-SMS-02)
     setNo('')
@@ -505,6 +514,8 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
   const fieldsKey = JSON.stringify([no, received, phone, memo, buyer, picks, qtyText])
   const fieldsRef = useRef(fieldsKey)
   fieldsRef.current = fieldsKey
+  /** 저절로 다시 보낼 때 견줄 칸 내용 — 실패한 때(받은 시각을 채웠으면 채운 뒤, D-MOB2-09) */
+  const failedKeyRef = useRef(fieldsKey)
   const sendRef = useRef(send)
   sendRef.current = send
   const board = api?.resend
@@ -514,13 +525,34 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
       board.remove(SMS_RESEND_KEY)
       return
     }
-    const failedKey = fieldsRef.current
+    failedKeyRef.current = fieldsRef.current
     board.add(SMS_RESEND_KEY, 'sms', async () => {
-      if (fieldsRef.current !== failedKey) return
+      if (fieldsRef.current !== failedKeyRef.current) return
       await sendRef.current(true)
     })
   }, [board, serverError])
   useEffect(() => () => board?.remove(SMS_RESEND_KEY), [board])
+
+  // 받은 시각을 비운 채 저절로 다시 보낼 실패로 끝나면 칸에 처음 "넣기"를 누른 시각을 채운다 (D-MOB2-09, RA-MOB2-02).
+  // 다시 보내기(저절로·직접)는 이 값으로, 요청 번호는 처음 것 그대로 — 서버가 처음 것을 이미 기록했으면 처음 기록을 돌려준다.
+  // 저절로 다시 보내기는 채운 뒤의 칸과 견준다 — 판매자가 칸을 지우거나 고치면 보내지 않는다
+  useEffect(() => {
+    if (serverError === null || !serverError.retryable) return
+    const press = pressRef.current
+    if (press === null || receivedRef.current.trim() !== '') return
+    const text = kstTime(press.at)
+    const filledRead = readReceived(text, Date.now())
+    if (filledRead.kind !== 'ok') return
+    const event = eventOfRef.current(filledRead.value)
+    if (event === null) return
+    sender.carry(event)
+    const [fieldNo, , ...rest] = JSON.parse(fieldsRef.current) as unknown[]
+    failedKeyRef.current = JSON.stringify([fieldNo, text, ...rest])
+    receivedRef.current = text
+    setReceived(text)
+    setFilled(text)
+    // sender는 그리는 때마다 새 묶음이지만 carry는 같은 요청 번호 자리를 쓴다
+  }, [serverError])
 
   return (
     <section className="sms-form card" aria-label="문자찜 넣기">
@@ -581,7 +613,7 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
               disabled={disabled}
               readOnly={locked}
               aria-invalid={receivedProblem !== null}
-              aria-describedby={`${receivedId}-help ${receivedId}-error`}
+              aria-describedby={`${receivedId}-help ${receivedId}-filled ${receivedId}-error`}
               onChange={(event) => {
                 if (!locked) setReceived(event.target.value)
               }}
@@ -590,6 +622,11 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
           <p id={`${receivedId}-help`} className="hint">
             {read.kind === 'ok' ? `${receivedWords(read)}에 받은 문자` : RECEIVED_HELP}
           </p>
+          {filled !== null && received === filled ? (
+            <p id={`${receivedId}-filled`} className="hint" role="status">
+              {filledReceivedWords(filled)}
+            </p>
+          ) : null}
           <FieldNote id={`${receivedId}-error`} message={receivedProblem ?? serverProblem(serverError, 'received')} />
         </div>
 
@@ -661,7 +698,6 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
           {/* 다시 보내기: 칸은 그대로라 같은 내용 → 같은 요청 번호 (한 번만 기록) */}
           {serverError !== null ? <WriteError error={serverError} onRetry={() => void send()} omitFields={['no', 'received', 'phone', 'memo', 'buyer', 'qty', 'options']} /> : null}
           {serverError?.retryable === true && board !== undefined ? <p className="hint">{AUTO_RESEND_NOTE}</p> : null}
-          {serverError?.retryable === true && read.kind === 'empty' ? <p className="hint">{RESEND_RECEIVED_NOTE}</p> : null}
           <div className="row">
             <button type="submit" className="button button-primary sms-submit" disabled={disabled || number === null || sender.busy || optionsMissing || qtyProblem !== null}>
               {label}
@@ -811,12 +847,9 @@ export function claimTone(status: ClaimStatus): 'success' | 'warning' | 'info' {
  * "같은 사람 하나 더"는 응답의 buyer로 채운다(null이면 버튼이 없다).
  * 번호 칸 바로 위에 둔다 — 보낸 뒤 칸이 비고 번호 칸으로 가도 결과가 첫 화면에 보인다(UX-S06-002).
  */
-/** 받은 시각을 비운 채 실패했을 때 (RA-MOB2-02): 다시 보낸 때가 받은 시각이 된다 */
-export const RESEND_RECEIVED_NOTE = '받은 시각을 비워 두면 다시 보낸 때가 받은 시각이 돼요. 선착순이 걸리면 문자를 받은 시각을 적어 주세요.'
-
-/** 받은 시각을 비운 채 저절로 다시 보낸 결과 (RA-MOB2-02) */
-export function lateReceivedWords(firstAt: number): string {
-  return `받은 시각이 처음 누른 ${kstTime(firstAt)}이 아니라 연결이 돌아와 보낸 때로 들어갔어요. 문자가 더 일찍 왔으면 이 찜을 취소하고 받은 시각을 적어 다시 넣어 주세요.`
+/** 받은 시각을 비운 채 실패해 처음 누른 시각을 채워 둔 때 (D-MOB2-09, RA-MOB2-02) */
+export function filledReceivedWords(time: string): string {
+  return `받은 시각을 비워 두셔서 처음 누른 시각(${time})을 넣어 두었어요. 다시 보내도 이 시각으로 들어가요.`
 }
 
 function ResultCard({
@@ -846,11 +879,6 @@ function ResultCard({
         </strong>
         {suffix !== null ? <span>{suffix}</span> : null}
       </p>
-      {result.firstAt !== null ? (
-        <p className="warning" data-tone="warning">
-          {lateReceivedWords(result.firstAt)}
-        </p>
-      ) : null}
       <div className="row">
         {caught && claim !== undefined && isActive(claim) ? (
           <button type="button" className="button" onClick={() => openClaimAction(api, claim, 'host.cancel')}>

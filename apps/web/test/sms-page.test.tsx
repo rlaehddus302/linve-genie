@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { onUnauthorized } from '../src/api/client.ts'
-import { RESEND_RECEIVED_NOTE, SmsPage, lateReceivedWords } from '../src/components/SmsPage.tsx'
+import { SmsPage, filledReceivedWords } from '../src/components/SmsPage.tsx'
 import { kstTime } from '../src/lib/kst.ts'
 import { chat, register, sms } from './engine.ts'
 import { EngineServer, PHONE_SENTENCE } from './engine-server.ts'
@@ -577,33 +577,92 @@ describe('보내는 동안 잠금·성공 응답 바로 비우기 (D-SMS-01, AC-
   }, 10_000)
 })
 
-describe('받은 시각을 비운 문자찜을 연결이 돌아와 저절로 보냄 (RA-MOB2-02, D-MOB2-07, SPEC ORD-08 AC6)', () => {
+describe('받은 시각을 비운 문자찜이 저절로 다시 보낼 실패로 끝나면 처음 누른 시각을 칸에 채움 (RA-MOB2-02, D-MOB2-09, D-MOB2-07, SPEC ORD-08 AC6)', () => {
   const reconnect = () => {
     for (const stream of FakeEventSource.instances) if (!stream.closed) stream.emit('ready', { scopes: [] })
   }
+  const at = (clock: string) => vi.setSystemTime(Date.parse(`2026-10-19T${clock}+09:00`))
+  const smsRequestIds = () => engine.server.callsTo('POST', /^\/api\/events/).map((call) => call.body?.requestId)
 
-  it('실패 줄에 "받은 시각을 비워 두면 다시 보낸 때가…", 저절로 보낸 결과 카드에 처음 누른 시각과 함께 늦게 들어갔다는 안내 — 본문에는 받은 시각을 넣지 않는다(서버가 도착 시각)', async () => {
+  it('실패한 순간 칸에 처음 누른 시각(20:01:05)과 안내 — 연결이 돌아와 저절로 보낼 때 다시 누른 때가 아니라 그 시각, 요청 번호는 처음 것', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    at('20:01:05')
     setup([register(15, '핑크프릴', 10000, 'b2')])
     await open()
     reconnect() // 첫 연결
     type(numberField(), '15')
     engine.down = true
-    const pressed = Date.now()
     fireEvent.submit(numberField().form as HTMLFormElement)
     expect(await screen.findByText(/저장하지 못했어요/, {}, { timeout: 6000 })).toBeDefined()
-    expect(screen.getByText(RESEND_RECEIVED_NOTE)).toBeDefined()
+    await waitFor(() => expect(field('받은 시각').value).toBe('20:01:05'))
+    expect(screen.getByText(filledReceivedWords('20:01:05'))).toBeDefined()
+    expect(filledReceivedWords('20:01:05')).toBe('받은 시각을 비워 두셔서 처음 누른 시각(20:01:05)을 넣어 두었어요. 다시 보내도 이 시각으로 들어가요.')
+    expect(document.body.textContent).not.toContain('다시 보낸 때가 받은 시각')
+    // 끊긴 사이 42초가 지나 연결이 돌아온다
+    at('20:01:47')
     engine.down = false
-    reconnect() // 다시 이어짐
+    reconnect()
     const result = await screen.findByRole('region', { name: '넣은 결과' }, { timeout: 6000 })
     await waitFor(() => expect(result.textContent).toContain('연결이 돌아와 보냈어요: 15번 · 문자찜 · 1등'))
-    const words = within(result).getByText(/처음 누른/).textContent ?? ''
-    // 처음 누른 시각(초까지)
-    expect([lateReceivedWords(pressed), lateReceivedWords(pressed + 1000)]).toContain(words)
+    expect(result.textContent).not.toContain('늦게 들어갔어요')
+    expect(result.textContent).not.toContain('처음 누른')
     expect(engine.posts).toHaveLength(1)
-    expect(engine.posts[0]).not.toHaveProperty('received')
+    expect(engine.posts[0]).toMatchObject({ type: 'sms', no: 15, received: '20:01:05' })
+    expect(new Set(smsRequestIds()).size).toBe(1)
+    // 보낸 뒤 칸과 안내는 비운다
+    expect(field('받은 시각').value).toBe('')
+    expect(screen.queryByText(filledReceivedWords('20:01:05'))).toBeNull()
   }, 15_000)
 
-  it('받은 시각을 적었으면 실패 줄·결과 카드에 그 안내가 없다', async () => {
+  it('"다시 보내기"를 직접 눌러도(또 실패한 뒤에도) 칸의 처음 누른 시각으로 — 다시 누른 시각 20:01:30·20:01:47이 아니다', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    at('20:01:05')
+    setup([register(15, '핑크프릴', 10000, 'b2')])
+    await open()
+    type(numberField(), '15')
+    engine.down = true
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    expect(await screen.findByText(/저장하지 못했어요/, {}, { timeout: 6000 })).toBeDefined()
+    await waitFor(() => expect(field('받은 시각').value).toBe('20:01:05'))
+    at('20:01:30')
+    fireEvent.click(screen.getByRole('button', { name: '다시 보내기' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '다시 보내기' })).toBeDefined(), { timeout: 6000 })
+    await flush(20)
+    expect(field('받은 시각').value).toBe('20:01:05')
+    expect(screen.getByText(filledReceivedWords('20:01:05'))).toBeDefined()
+    at('20:01:47')
+    engine.down = false
+    fireEvent.click(screen.getByRole('button', { name: '다시 보내기' }))
+    await waitFor(() => expect(screen.getByRole('region', { name: '넣은 결과' }).textContent).toContain('15번 · 문자찜 · 1등'))
+    expect(engine.posts).toHaveLength(1)
+    expect(engine.posts[0]).toMatchObject({ received: '20:01:05' })
+    expect(new Set(smsRequestIds()).size).toBe(1)
+  }, 20_000)
+
+  it('채운 받은 시각을 판매자가 지우면 저절로 보내지 않는다(요청 0) — 안내도 내린다', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    at('20:01:05')
+    setup([register(15, '핑크프릴', 10000, 'b2')])
+    await open()
+    reconnect()
+    type(numberField(), '15')
+    engine.down = true
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    expect(await screen.findByText(/저장하지 못했어요/, {}, { timeout: 6000 })).toBeDefined()
+    await waitFor(() => expect(field('받은 시각').value).toBe('20:01:05'))
+    type(field('받은 시각'), '')
+    expect(screen.queryByText(filledReceivedWords('20:01:05'))).toBeNull()
+    const before = smsRequestIds().length
+    engine.down = false
+    at('20:01:47')
+    reconnect()
+    await flush(30)
+    expect(smsRequestIds()).toHaveLength(before)
+    expect(engine.posts).toHaveLength(0)
+    expect(screen.queryByRole('region', { name: '넣은 결과' })).toBeNull()
+  }, 15_000)
+
+  it('받은 시각을 적었으면 칸은 적은 그대로, 채움 안내가 없다', async () => {
     setup([register(15, '핑크프릴', 10000, 'b2')])
     await open()
     reconnect()
@@ -614,7 +673,9 @@ describe('받은 시각을 비운 문자찜을 연결이 돌아와 저절로 보
     engine.down = true
     fireEvent.submit(numberField().form as HTMLFormElement)
     expect(await screen.findByText(/저장하지 못했어요/, {}, { timeout: 6000 })).toBeDefined()
-    expect(screen.queryByText(RESEND_RECEIVED_NOTE)).toBeNull()
+    // 적은 시각은 그대로, 채움 안내 없음 (D-MOB2-09는 비운 칸만)
+    expect(field('받은 시각').value).toBe(earlier)
+    expect(screen.queryByText(/처음 누른 시각/)).toBeNull()
     engine.down = false
     reconnect()
     const result = await screen.findByRole('region', { name: '넣은 결과' }, { timeout: 6000 })
