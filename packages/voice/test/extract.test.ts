@@ -2,7 +2,7 @@
 import { normalizeText, parseAmount, parseKoreanNumber } from '@livejjim/core'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { extractVoice, prepareDictionary, readingForms, tokenize, type VoiceExtraction } from '../src/index.ts'
+import { extractVoice, punctuatedTokens, prepareDictionary, readingForms, tokenize, type VoiceExtraction } from '../src/index.ts'
 
 const DICT = ['핑크프릴', '핑크프릴 금', '방울복랑 금', '라울', '왕비뇌신금', '블루엘프', '레티지아', '십이지권', '천사의눈물', '벨루가', '로라']
 const x = (text: unknown, options: Parameters<typeof extractVoice>[1] = { dictionary: DICT }): VoiceExtraction => extractVoice(text, options)
@@ -307,9 +307,25 @@ describe('AC-P2-05 신뢰도 (R-17 6)', () => {
 // AC-I4-01 끊어 말한 번호 (R-17 3·4, D-I4-01, TD-P2-002). 골든(voice-extract.yaml 마지막 문서 12사례)은 골든 러너가 돌린다.
 
 /** 규칙 문장(R-17 3)을 그대로 옮긴 판단 — 시험 쪽의 독립 구현. 번호 표시의 X마다 바로 앞 토큰(그대로) + X가 R-15로 읽히는가 */
+/**
+ * 끊어 말한 번호 표시가 있는가 (D-I4-01) — V3 D-V3-54부터 앞 토큰이 합칠 수 있는 수(숫자·한글 수, `이` 제외, 문장 부호 없음,
+ * 둘 다 숫자 한 개이거나 자리가 내려감)이면 합쳐 읽으므로 끊어 말한 표시가 아니다.
+ */
 function hasSplitMarker(text: string): boolean {
   const tokens = tokenize(text) ?? []
+  const punct = punctuatedTokens(text)
   const isX = (value: string): boolean => value !== '이' && (/^[0-9]{1,4}$/.test(value) || /^[일이삼사오육칠팔구십백천]+$/.test(value)) && parseKoreanNumber(value) !== null
+  const lowest = (n: number): number => {
+    let k = 0
+    for (let v = n; v % 10 === 0 && v > 0; v /= 10) k++
+    return k
+  }
+  const mergeOk = (prev: string, x: string, i: number): boolean => {
+    if (!isX(prev) || punct[i - 1] === true) return false
+    if (/^[0-9]$/.test(prev) && /^[0-9]$/.test(x)) return true
+    const coefficient = /^[0-9]+/.exec(x)?.[0] ?? String(parseKoreanNumber(x.split(/[만천원]/)[0] ?? '') ?? '')
+    return coefficient !== '' && lowest(parseKoreanNumber(prev) as number) > coefficient.length - 1
+  }
   return tokens.some((token, i) => {
     const xs = readingForms(token)
       .filter((form) => form.length >= 2 && form.endsWith('번'))
@@ -320,7 +336,10 @@ function hasSplitMarker(text: string): boolean {
     // V3 자리 읽기 ⓑ + 번(D-V3-11): 자리 글자 하나 토큰 둘 뒤의 `X번`(X도 자리 글자 하나, 앞뒤는 자리 글자 아님)은 세 자리를 이어 읽어 끊어 말한 번호 검사를 하지 않는다
     const one = (value: string | undefined): boolean => value !== undefined && /^([0-9]|[공일이삼사오육칠팔구])$/.test(value)
     const triple = one(tokens[i - 2]) && one(previous) && !one(tokens[i - 3]) && !one(next)
-    return previous !== undefined && xs.some((value) => isX(value) && parseKoreanNumber(previous + value) !== null && !(triple && one(value) && token === `${value}번`))
+    return (
+      previous !== undefined &&
+      xs.some((value) => isX(value) && parseKoreanNumber(previous + value) !== null && !(triple && one(value) && token === `${value}번`) && !mergeOk(previous, value, i))
+    )
   })
 }
 
@@ -328,20 +347,28 @@ describe('AC-I4-01 끊어 말한 번호 (R-17 3·4, D-I4-01)', () => {
   const GOLDEN_DICT = ['핑크프릴', '라울', '블루엘프']
   const g = (text: string): VoiceExtraction => extractVoice(text, { dictionary: GOLDEN_DICT, maxNumber: 999 })
 
+  // V3 D-V3-54로 남은 끊어 말한 꼴 (`이` 앞 토큰·문장 부호·자리 겹침)
   it.each([
-    ['1 5번 핑크프릴 만오천 원', '핑크프릴'],
     ['1, 5번 라울 만원', '라울'],
-    ['1 5 번 라울 만원', '라울'],
-    ['십 오번 라울 오천 원', '라울'],
     ['이 십 번 블루엘프 칠천 원', '블루엘프'],
     ['이 십오번 핑크프릴 만원', '핑크프릴'],
-    ['백 오번 라울', '라울'],
     ['2 15번 핑크프릴 만원', '핑크프릴'],
-    ['백 이십 삼번 라울 만원', '라울'],
-    ['15번 1 5번 핑크프릴 만원', '핑크프릴'],
   ])('%s → 번호·가격 비움, 품종 %s, LOW', (text, name) => {
     expect(g(text)).toEqual(out({ name }))
     expect(hasSplitMarker(text)).toBe(true)
+  })
+
+  // V3 D-V3-54(실방송 8차 "오십삼번을 십삼번으로"): 앞 수와 합치기 — 처음 기대(비움)를 바꿈(약화 아님, 골든도 같이 바뀜)
+  it.each([
+    ['1 5번 핑크프릴 만오천 원', { no: 15, name: '핑크프릴', price: 15000, confidence: 'HIGH' }],
+    ['1 5 번 라울 만원', { no: 15, name: '라울', price: 10000, confidence: 'HIGH' }],
+    ['십 오번 라울 오천 원', { no: 15, name: '라울', price: 5000, confidence: 'HIGH' }],
+    ['백 오번 라울', { no: 105, name: '라울', price: null, confidence: 'LOW' }],
+    ['백 이십 삼번 라울 만원', { no: 123, name: '라울', price: 10000, confidence: 'HIGH' }],
+    ['15번 1 5번 핑크프릴 만원', { no: 15, name: '핑크프릴', price: 10000, confidence: 'HIGH' }],
+    ['１ ５번 라울 만원', { no: 15, name: '라울', price: 10000, confidence: 'HIGH' }],
+  ] as const)('앞 수와 합침: %s', (text, want) => {
+    expect(g(text)).toEqual(want)
   })
 
   it.each([
@@ -352,8 +379,8 @@ describe('AC-I4-01 끊어 말한 번호 (R-17 3·4, D-I4-01)', () => {
     expect(hasSplitMarker(text)).toBe(false)
   })
 
-  it('정규화·끝 문장 부호를 지운 토큰으로 본다: 전각 숫자, `1.`·`1~`', () => {
-    for (const text of ['１ ５번 라울 만원', '1. 5번 라울 만원', '1~ 5번 라울 만원', '1?! 5 번 라울 만원']) expect(g(text)).toEqual(out({ name: '라울' }))
+  it('끝 문장 부호가 있던 앞 토큰은 합치지 않고 끊어 말한 번호: `1.`·`1~`·`1?!`', () => {
+    for (const text of ['1. 5번 라울 만원', '1~ 5번 라울 만원', '1?! 5 번 라울 만원']) expect(g(text)).toEqual(out({ name: '라울' }))
   })
 
   it('앞 토큰은 끝말을 떼지 않는다 — `십이요 오번`은 `십이요오`(수 아님)라 5번 그대로', () => {
@@ -367,19 +394,19 @@ describe('AC-I4-01 끊어 말한 번호 (R-17 3·4, D-I4-01)', () => {
     expect(g('십 이번 라울 만원')).toEqual(out({ name: '라울', price: 10000 }))
   })
 
-  it('붙인 글이 R-15 범위(4자리)를 넘으면 해당 없다: `1 2345번` → 12345는 R-15 실패, 2345번 그대로', () => {
-    expect(extractVoice('1 2345번 라울 만원', { dictionary: GOLDEN_DICT, maxNumber: 9999 })).toEqual({ no: 2345, name: '라울', price: 10000, confidence: 'HIGH' })
-    expect(hasSplitMarker('1 2345번 라울 만원')).toBe(false)
+  // V3 실방송 8차("오십삼번"을 13번으로 넣음): 앞 토큰도 수면 붙여 R-15로 안 읽혀도 끊어 말한 번호로 본다 — 뒤 조각만 번호로 쓰지 않는다(바뀐 규칙, 약화 아님)
+  it('앞 토큰이 수면 붙인 글이 R-15 범위(4자리)를 넘어도 끊어 말한 번호: `1 2345번` → 번호·가격 비움', () => {
+    expect(extractVoice('1 2345번 라울 만원', { dictionary: GOLDEN_DICT, maxNumber: 9999 })).toEqual({ no: null, name: '라울', price: null, confidence: 'LOW' })
   })
 
-  it('끊어 말한 표시가 뒤에 와도, 같은 번호를 되풀이해도 비운다', () => {
-    expect(g('15번 라울 만원 1 5번')).toEqual(out({ name: '라울' }))
-    expect(g('1 5번 1 5번 라울 만원')).toEqual(out({ name: '라울' }))
+  it('끊어 말한 표시가 뒤에 와도, 같은 번호를 되풀이해도 비운다 (합칠 수 없는 꼴)', () => {
+    expect(g('15번 라울 만원 2 15번')).toEqual(out({ name: '라울' }))
+    expect(g('2 15번 2 15번 라울 만원')).toEqual(out({ name: '라울' }))
   })
 
   it('가격을 비워도 묶음 토큰은 품종 창에서 빠진다 — `오천`이 품종 창에 남아 다른 이름에 맞지 않는다', () => {
     // 사전에 '오천라울'이 있어도 '오천 원' 묶음 토큰은 창에서 빠지므로 '라울'
-    expect(extractVoice('1 5번 오천 원 라울', { dictionary: ['라울', '오천원라울'] })).toEqual(out({ name: '라울' }))
+    expect(extractVoice('2 15번 오천 원 라울', { dictionary: ['라울', '오천원라울'] })).toEqual(out({ name: '라울' }))
   })
 
   const sentence = fc
@@ -410,8 +437,9 @@ describe('AC-I4-01 끊어 말한 번호 (R-17 3·4, D-I4-01)', () => {
 
   it('속성: 앞 조각 + 번호 표시를 넣은 문장은 어디에 넣어도 번호·가격을 비운다 — 품종은 그대로 고른다', () => {
     const piece = fc.oneof(
-      fc.tuple(fc.integer({ min: 1, max: 9 }), fc.integer({ min: 1, max: 99 })).map(([a, b]) => [String(a), `${String(b)}번`] as const),
-      fc.constantFrom(['십', '오번'], ['이', '십 번'], ['백', '오번'], ['이', '십오번'], ['구', '십구번'], ['천', '오 번']) as fc.Arbitrary<readonly [string, string]>,
+      // V3 D-V3-54: 합칠 수 없는 꼴만 (자리 겹침·`이` 앞 토큰) — 합치는 꼴은 아래 시험
+      fc.tuple(fc.integer({ min: 1, max: 9 }), fc.integer({ min: 10, max: 99 })).map(([a, b]) => [String(a), `${String(b)}번`] as const),
+      fc.constantFrom(['이', '십 번'], ['이', '십오번'], ['구', '십구번']) as fc.Arbitrary<readonly [string, string]>,
     )
     fc.assert(
       fc.property(piece, fc.constantFrom('핑크프릴', '라울', '블루엘프'), fc.constantFrom('만원', '오천 원', '15,000원'), fc.boolean(), ([head, marker], name, price, markerFirst) => {

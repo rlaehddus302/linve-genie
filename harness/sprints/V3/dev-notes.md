@@ -295,3 +295,30 @@
 
 **남의 영역**: 루트 `Dockerfile` 실행 단계에 `packages/voice`(package.json·src·node_modules)를 더함 — 서버가 이제 `@livejjim/voice`를 부른다. `pnpm-lock.yaml`에 apps/server → @livejjim/voice 링크 한 줄(설치는 돌리지 않고 링크만 — 돌던 verify를 건드리지 않으려고).
 - 덧붙여 본 것(고치지 않음): 실행 단계가 `packages/documents/src`를 복사하지 않는데 서버(receipt-page.ts)가 `@livejjim/documents`의 값을 가져온다 — 이미지에서 확인 필요(orch).
+
+### dev-device 추가 15 — D-V3-54~61 (spec 3fe41580·3b4a9dfe), 실방송 8차, TD-V3-004
+- **D-V3-54 앞 수와 합치기 (상품 등록 R-17만, 음성 문자찜 R-21은 D-I4-01 그대로)**: extract.ts `mergeLeft`.
+  - 번호 표시의 X 바로 앞 토큰이 수(숫자·R-15 한글 수, `이` 제외, 끝 문장 부호 없음)면 합친다.
+  - 둘 다 숫자 한 개면 두 자리다(`6 3번` 63·`1 5번` 15). 아니면 앞 수의 0 아닌 가장 낮은 자리 > 뒤 수의 가장 높은 자리일 때만 더하고, 왼쪽으로 이어 더한다(`오십 삼번` 53·`60 3번` 63·`백 이십 삼번` 123).
+  - 겹치면(`5 13번`·`50 13번`·`오 13번`·`오 십 번`) 번호·가격을 비운다.
+  - 번호 표시 바로 뒤 한 자리 수(`60번 3 라울 만원`)는 번호만 비운다. 단 다음이 단위(`3 개`)나 금액(`2 만원`)이면 아니다.
+  - `punctuatedTokens(text)`를 새로 내보냈다(끝 문장 부호가 있던 토큰). readSegments의 표시 목록도 같은 규칙이다.
+- **흔한 말 별칭** — 데이터 `commonAliases`(녹금: `녹음`), `DEFAULT_COMMON_ALIASES`.
+  - R-17 5 비슷함 맞추기에서는 이 낱말 창을 뺀다(`녹음` → 녹금 비슷함 1/6이 원래 맞았다).
+  - readSegments의 'N번' 조각 안(번호와 원 가격 사이, "N번 품종 수" 꼴)에서만 이름으로 쓴다.
+- **R-22 (D-V3-55·57·59)**
+  - `decideSameNumber`: CLAIMS·3배·1/3 묻기를 없앴다. 묻는 것은 NO_AUTO·NUMBER_BARE·NOT_OPEN·PRICE_JUMP(300만 원 초과)·MAYBE_OTHER다.
+  - 새 입력 `recent?: boolean`(생략 = 참). 거짓이고 찜이 있으면 ASK/MAYBE_OTHER, 거짓이고 찜이 0이면 AUTO_FIX/NOT_RECENT다.
+  - `decideForExisting` context에도 `recent?`를 더했다.
+- **R-24 `readRenumber(text, { maxNumber })` → `{ from, to } | null`**(src/renumber.ts): 골든 renumber 20 통과.
+- **D-V3-56 기록 모아 두기**(src/archive.ts)
+  - `maskArchiveText`: 8자리 이상 숫자, 끝자리·뒷번호·뒷자리·끝 자리·뒷 번호 뒤 4숫자 → `****`.
+  - `createArchiveChunk`·`createArchiveExport(broadcasts, exportedAt)` → 정확히 `{ format: 'livegenie-voice-log', version: 1, exportedAt(ISO), broadcasts }`.
+  - `pruneArchive(chunks, now)`(30일), `VOICE_ARCHIVE_NOTICE`.
+- **TD-V3-004**: readSellerNote 가격이 0으로 시작하면(`₩0500`·`₩070,000`) null이다.
+- **판매자 채팅 읽기 하위 경로**: `@livejjim/voice/seller-note`(package.json exports)를 더했다.
+  - 서버(apps/server/src/service.ts)가 지금 `@livejjim/voice` 전체를 불러와 음성 경계 시험(AC-I4-04 — 서버는 음성 묶음에 기대지 않음)이 실패한다. **서버 담당: import를 `@livejjim/voice/seller-note`로 바꿔 주세요.**
+  - 경계 시험은 서버에 그 경로와 package.json 의존 줄만 허용하도록 고쳤다.
+- 사례 수: voice-extract 174, core-adapter 파서 726 · 통과 885, voice-register 파일 4 · 사례 138. `pnpm golden` 불일치 0.
+- 단위 시험 손봄(규칙 변경을 따라감): extract.test D-I4-01 사례 6개를 합친 번호로 바꿨다. 속성 시험 두 개는 합칠 수 있는 꼴을 빼고(끊어 말한 판정 함수에 D-V3-54 반영), v3-register decideForExisting 기대를 D-V3-57로 바꿨다.
+- 적대 v3 실패 7건은 D-V3-54·57 전 모델이다(test-domain 몫): "15번 1 5번 만 원 → 비움"(이제 15), R-22 조합 모델·늘 지키는 것·decideForExisting(CLAIMS·3배), 확정 읽기 성질·"25만 원 1 5번"·"25만 원 이십 오번"(이제 합쳐 15·25).

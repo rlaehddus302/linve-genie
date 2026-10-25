@@ -14,6 +14,7 @@ import {
   mergeSameNumberCards,
   prepareVoiceDictionary,
   readChunk,
+  readRenumber,
   readSellerNote,
   readRegistration,
   readyToRegister,
@@ -24,13 +25,13 @@ import {
 } from '../src/index.ts'
 
 const GOLDEN_DIR = fileURLToPath(new URL('../../../tests/golden/voice-register/', import.meta.url))
-/** V3 고정값 (README "음성 바로 등록 골든": 파일 3 · 사례 105 — variety-guess 42 · same-number 41 · seller-note 22, D-V3-22 (c)) */
-const EXPECTED_FILES = 3
-const EXPECTED_CASES = 105
+/** V3 고정값 (README "음성 바로 등록 골든": 파일 4 · 사례 138 — variety-guess 42 · same-number 54 · seller-note 22 · renumber 20, D-V3-22 (c)) */
+const EXPECTED_FILES = 4
+const EXPECTED_CASES = 138
 
 const FILE_KEYS = new Set(['kind', 'about', 'cases'])
 const CASE_KEYS = new Set(['id', 'title', 'refs', 'note', 'in', 'out'])
-const ID_PATTERN = /^G-(VGS|VSN|VSL)-[A-Z0-9]+-[0-9]{2}$/
+const ID_PATTERN = /^G-(VGS|VSN|VSL|VRN)-[A-Z0-9]+-[0-9]{2}$/
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 const fail = (where: string, message: string): never => {
   throw new Error(`${where}: ${message}`)
@@ -45,7 +46,7 @@ const NAME_FROM = ['DICTIONARY', 'GUESS', null]
 
 interface Loaded {
   readonly id: string
-  readonly kind: 'variety-guess' | 'same-number' | 'seller-note'
+  readonly kind: 'variety-guess' | 'same-number' | 'seller-note' | 'renumber'
   readonly input: Record<string, unknown>
   readonly out: unknown
 }
@@ -61,7 +62,7 @@ function load(): Loaded[] {
     const root = doc as Record<string, unknown>
     for (const key of Object.keys(root)) if (!FILE_KEYS.has(key)) fail(file, `모르는 키 ${key}`)
     const kind = root.kind
-    if (kind !== 'variety-guess' && kind !== 'same-number' && kind !== 'seller-note') return fail(file, `모르는 kind ${String(kind)}`)
+    if (kind !== 'variety-guess' && kind !== 'same-number' && kind !== 'seller-note' && kind !== 'renumber') return fail(file, `모르는 kind ${String(kind)}`)
     if (!Array.isArray(root.cases)) fail(file, 'cases가 배열이 아니다')
     for (const item of root.cases as unknown[]) {
       if (!isObject(item)) fail(file, '사례가 객체가 아니다')
@@ -72,7 +73,15 @@ function load(): Loaded[] {
       if (ids.has(id)) fail(file, `겹친 id ${id}`)
       ids.add(id)
       if (!Array.isArray(c.refs) || c.refs.length === 0) fail(id, 'refs')
-      if (kind === 'seller-note') {
+      if (kind === 'renumber') {
+        const input = onlyKeys(id, c.in, ['text', 'maxNumber'])
+        if (typeof input.text !== 'string') fail(id, 'text')
+        if (c.out !== null) {
+          const out = onlyKeys(id, c.out, ['from', 'to'])
+          if (!(out.from === null || typeof out.from === 'number') || typeof out.to !== 'number') fail(id, 'out')
+        }
+        cases.push({ id, kind, input, out: c.out })
+      } else if (kind === 'seller-note') {
         const input = onlyKeys(id, c.in, ['text', 'maxNumber'])
         if (typeof input.text !== 'string') fail(id, 'text')
         if (c.out !== null) {
@@ -87,7 +96,8 @@ function load(): Loaded[] {
         if (!('guess' in out) || !(out.guess === null || (typeof out.guess === 'string' && out.guess !== ''))) fail(id, 'out.guess')
         cases.push({ id, kind, input, out })
       } else {
-        const input = onlyKeys(id, c.in, ['heard', 'product', 'auto'])
+        const input = onlyKeys(id, c.in, ['heard', 'product', 'auto', 'recent'])
+        if (!(input.recent === undefined || typeof input.recent === 'boolean')) fail(id, 'recent')
         const heard = onlyKeys(id, input.heard, ['price', 'priceSure', 'name', 'nameFrom', 'numberFrom'])
         if (!['MARKER', 'BARE', undefined].includes(heard.numberFrom as string | undefined)) fail(id, 'numberFrom')
         const product = onlyKeys(id, input.product, ['name', 'price', 'status', 'liveClaims'])
@@ -96,7 +106,7 @@ function load(): Loaded[] {
         if (typeof input.auto !== 'boolean') fail(id, 'auto')
         const out = onlyKeys(id, c.out, ['action', 'changes', 'reason'])
         if (!['IGNORE', 'AUTO_FIX', 'ASK'].includes(out.action as string)) fail(id, 'action')
-        if (![null, 'NO_AUTO', 'NUMBER_BARE', 'NOT_OPEN', 'PRICE_NOT_SURE', 'PRICE_JUMP', 'CLAIMS'].includes(out.reason as string | null)) fail(id, 'reason')
+        if (![null, 'NO_AUTO', 'NUMBER_BARE', 'NOT_OPEN', 'PRICE_NOT_SURE', 'PRICE_JUMP', 'MAYBE_OTHER', 'NOT_RECENT'].includes(out.reason as string | null)) fail(id, 'reason')
         onlyKeys(id, out.changes, ['price', 'name'])
         cases.push({ id, kind, input, out })
       }
@@ -109,7 +119,10 @@ function load(): Loaded[] {
 describe('골든 voice-register (R-17 7·R-22)', () => {
   const cases = load()
   it.each(cases.map((item) => [item.id, item] as const))('%s', (_, item) => {
-    if (item.kind === 'seller-note') {
+    if (item.kind === 'renumber') {
+      const maxNumber = item.input.maxNumber
+      expect(readRenumber(item.input.text, typeof maxNumber === 'number' ? { maxNumber } : {})).toEqual(item.out)
+    } else if (item.kind === 'seller-note') {
       const maxNumber = item.input.maxNumber
       expect(readSellerNote(item.input.text, typeof maxNumber === 'number' ? { maxNumber } : {})).toEqual(item.out)
     } else if (item.kind === 'variety-guess') {
@@ -218,11 +231,12 @@ describe('음성 같은 번호 — 화면용 decideForExisting', () => {
   it('추측 품종은 있는 품종을 덮지 않는다', () => {
     expect(decideForExisting({ ...product, name: '삼광색금' }, { name: '상관', price: 100000, nameNeedsCheck: true })).toEqual({ kind: 'IGNORE' })
   })
-  it('찜이 있으면: 비었던 품종을 사전 이름으로 채우기만 FILL_NAME, 가격 다르면 ASK', () => {
+  // D-V3-55·57: 'N번' + '원' 확정이면 찜이 있어도 바로 고친다(품종만이면 FILL_NAME, 가격이 바뀌면 AUTO_FIX)
+  it('찜이 있어도: 품종만 사전 이름으로 바뀌면 FILL_NAME, 가격이 바뀌면 AUTO_FIX', () => {
     const claimed = { ...product, name: '', claimCount: 2 }
     expect(decideForExisting(claimed, { name: '삼광색금', price: 100000 })).toEqual({ kind: 'FILL_NAME', name: '삼광색금' })
-    expect(decideForExisting(claimed, { name: null, price: 90000 })).toEqual({ kind: 'ASK', price: 90000, name: null })
-    expect(decideForExisting({ ...product, claimCount: 1 }, { name: '삼광색금', price: 100000 })).toEqual({ kind: 'ASK', price: null, name: '삼광색금' })
+    expect(decideForExisting(claimed, { name: null, price: 90000 })).toEqual({ kind: 'AUTO_FIX', price: 90000, name: null })
+    expect(decideForExisting({ ...product, claimCount: 1 }, { name: '삼광색금', price: 100000 })).toEqual({ kind: 'FILL_NAME', name: '삼광색금' })
   })
 })
 
@@ -332,10 +346,13 @@ describe('실방송 3차 위험 사례 (판매자 안전)', () => {
     expect(decideForExisting(existing, { name: '나왔네', price: 700000, nameNeedsCheck: true })).toEqual({ kind: 'AUTO_FIX', price: 700000, name: null })
     expect(decideForExisting(existing, { name: '창녹금', price: 650000 })).toEqual({ kind: 'AUTO_FIX', price: null, name: '창녹금' })
   })
-  it('b) 가격이 3배 넘게·1/3 아래로 바뀌면 묻는다', () => {
+  // D-V3-55·57: 묻는 것은 새 가격 300만 원 초과뿐 — 내림("62번 2만 원")·3배 넘는 올림(300만 원 이하)은 바로 고친다
+  it('b) 새 가격이 300만 원을 넘으면 묻고, 그 밖의 올림·내림은 바로 고친다', () => {
     expect(decideForExisting(existing, { name: null, price: 6050000 })).toEqual({ kind: 'ASK', price: 6050000, name: null })
-    expect(decideForExisting(existing, { name: null, price: 200000 })).toEqual({ kind: 'ASK', price: 200000, name: null })
+    expect(decideForExisting(existing, { name: null, price: 200000 })).toEqual({ kind: 'AUTO_FIX', price: 200000, name: null })
     expect(decideForExisting(existing, { name: null, price: 1950000 })).toEqual({ kind: 'AUTO_FIX', price: 1950000, name: null })
+    expect(decideForExisting({ no: 62, name: '', price: 100000, claimCount: 0 }, { name: null, price: 20000 })).toEqual({ kind: 'AUTO_FIX', price: 20000, name: null })
+    expect(decideForExisting({ no: 62, name: '', price: 100000, claimCount: 3 }, { name: null, price: 20000 })).toEqual({ kind: 'AUTO_FIX', price: 20000, name: null })
   })
   it("'번' 없는 번호로 잡힌 같은 번호는 바로 고치지 않는다", () => {
     expect(decideForExisting(existing, { name: null, price: 650000, numberFrom: 'bare' })).toEqual({ kind: 'IGNORE' })

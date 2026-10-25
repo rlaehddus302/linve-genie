@@ -155,7 +155,7 @@ export function readyToRegister(text: string, options: RegistrationOptions = {})
 export type NameFrom = 'DICTIONARY' | 'GUESS'
 export type SameNumberStatus = 'READY' | 'OPEN' | 'SOLD' | 'HOLD' | 'CLOSED'
 export type SameNumberAction = 'IGNORE' | 'AUTO_FIX' | 'ASK'
-export type SameNumberReason = 'NO_AUTO' | 'NUMBER_BARE' | 'NOT_OPEN' | 'PRICE_NOT_SURE' | 'PRICE_JUMP' | 'CLAIMS'
+export type SameNumberReason = 'NO_AUTO' | 'NUMBER_BARE' | 'NOT_OPEN' | 'PRICE_NOT_SURE' | 'PRICE_JUMP' | 'CLAIMS' | 'MAYBE_OTHER' | 'NOT_RECENT'
 export type NumberFrom = 'MARKER' | 'BARE'
 
 export interface SameNumberInput {
@@ -170,6 +170,8 @@ export interface SameNumberInput {
   readonly product: { readonly name: string; readonly price: number; readonly status: SameNumberStatus; readonly liveClaims: number }
   /** 바로 고쳐도 되는 덩어리인가 (자동 등록 켬 ∧ 덩어리 내내 켜짐 ∧ 끝에서 넘긴 덩어리 아님 ∧ 그 번호를 거절하지 않음) */
   readonly auto: boolean
+  /** 고쳐 말함인가 (D-V3-59): 같은 덩어리이거나, 이 콘솔이 그 번호를 음성으로 등록·고친 지 60초 안이고 그 사이 다른 번호를 음성으로 등록하지 않음. 생략 = 참 */
+  readonly recent?: boolean
 }
 
 export interface SameNumberDecision {
@@ -191,24 +193,21 @@ export function decideSameNumber(input: SameNumberInput): SameNumberDecision {
   // D-V3-47: '원'까지 확정되지 않은 가격(priceSure 거짓)은 바꿀 칸이 아니다 — 묻지도 않는다
   const unsurePrice = heard.price !== null && heard.price !== product.price && !heard.priceSure
   if (heard.price !== null && heard.price !== product.price && heard.priceSure) changes.price = heard.price
-  let fillOnly = false
   // 추측(GUESS)은 이미 있는 상품의 품종을 채우지도 바꾸지도 않는다 (D-V3-31) — 사전 이름만
   if (heard.nameFrom === 'DICTIONARY' && heard.name !== null && compactName(heard.name) !== '' && compactName(heard.name) !== compactName(product.name)) {
     changes.name = heard.name
-    fillOnly = compactName(product.name) === ''
   }
   if (changes.price === undefined && changes.name === undefined) return { action: 'IGNORE', changes: {}, reason: unsurePrice ? 'PRICE_NOT_SURE' : null }
   const ask = (reason: SameNumberReason): SameNumberDecision => ({ action: 'ASK', changes, reason })
   if (!input.auto) return ask('NO_AUTO')
   if (heard.numberFrom === 'BARE') return ask('NUMBER_BARE')
   if (product.status !== 'OPEN' && product.status !== 'SOLD') return ask('NOT_OPEN')
-  if (
-    changes.price !== undefined &&
-    (changes.price > product.price * AUTO_FIX_PRICE_RATIO || changes.price * AUTO_FIX_PRICE_RATIO < product.price || changes.price > AUTO_REGISTER_PRICE_MAX)
-  )
-    return ask('PRICE_JUMP')
-  if (product.liveClaims > 0 && !(fillOnly && changes.price === undefined)) return ask('CLAIMS')
-  return { action: 'AUTO_FIX', changes, reason: null }
+  // D-V3-55·57: 'N번' + '원' 확정(같은 조각)이면 올림·내림·찜과 상관없이 바로 고친다 — 묻는 것은 새 가격 300만 원 초과뿐(판매 중 아님은 위에서)
+  if (changes.price !== undefined && changes.price > AUTO_REGISTER_PRICE_MAX) return ask('PRICE_JUMP')
+  // D-V3-59: 고쳐 말함이 아니고(나중에 다시 들음) 찜이 있으면 다른 화분일 수 있어 덮어쓰지 않는다. 찜 0이면 바꾸되 까닭 NOT_RECENT(화면 안내)
+  const recent = input.recent !== false
+  if (!recent && product.liveClaims > 0) return ask('MAYBE_OTHER')
+  return { action: 'AUTO_FIX', changes, reason: recent ? null : 'NOT_RECENT' }
 }
 
 /** 화면이 쓰는 짧은 모양 — 이미 등록된 상품 */
@@ -243,6 +242,8 @@ export interface ExistingContext {
   readonly auto?: boolean
   /** 상품 상태. 생략 = 판매 중(OPEN) */
   readonly status?: SameNumberStatus
+  /** 고쳐 말함인가 (D-V3-59). 생략 = 참 */
+  readonly recent?: boolean
 }
 
 /**
@@ -260,6 +261,7 @@ export function decideForExisting(existing: ExistingProduct, heard: ExistingHear
     },
     product: { name: existing.name, price: existing.price, status: context.status ?? 'OPEN', liveClaims: existing.claimCount },
     auto: context.auto !== false,
+    recent: context.recent !== false,
   })
   const price = decision.changes.price ?? null
   const name = decision.changes.name ?? null

@@ -5,6 +5,7 @@
 import { normalizeText, parseAmount, parseKoreanNumber } from '@livejjim/core'
 import { VarietyDictionary, type DictionaryEntry } from './dictionary.ts'
 import { isWindowFiller, looksLikePredicate } from './words.ts'
+import { DEFAULT_COMMON_ALIASES } from './default-dictionary.ts'
 import { BIT_PATTERN_MAX, JamoPattern, bitParallelDistance, candidateLengthRange, compareSimilarity, isCandidate, jamoKey, jamoOf, type Similarity } from './jamo.ts'
 
 export type Confidence = 'HIGH' | 'LOW'
@@ -102,6 +103,17 @@ export function tokenize(text: unknown): string[] | null {
     .filter((token) => token !== '')
 }
 
+/** 토큰마다 끝 문장 부호를 지웠는가 (tokenize와 같은 토큰 순서) — D-V3-54 "문장 부호가 없으면" */
+export function punctuatedTokens(text: unknown): boolean[] {
+  const normalized = normalizeText(typeof text === 'string' ? text : '')
+  if (normalized === '' || codePointCount(normalized) > SENTENCE_MAX_CODE_POINTS) return []
+  return normalized
+    .split(' ')
+    .map((token) => ({ stripped: stripTrailingPunctuation(token), had: stripTrailingPunctuation(token) !== token }))
+    .filter((item) => item.stripped !== '')
+    .map((item) => item.had)
+}
+
 /** R-17 2: 토큰 그대로, 그다음 끝말 하나를 뗀 모양(남는 글자가 있을 때만, 짧은 끝말부터) */
 export function readingForms(token: string): string[] {
   const forms = [token]
@@ -123,6 +135,40 @@ function numberValue(x: string): number | null {
   return parseKoreanNumber(x)
 }
 
+/**
+ * 앞 수와 합치기 (R-17 3, D-V3-54 — 상품 등록만): 번호 표시의 X(위치 xAt의 글 x) 바로 앞 토큰이 수 토큰(숫자 1~4자리·R-15 한글 수, `이` 제외)이고 문장 부호가 없으면
+ * 둘 다 숫자 한 개면 두 자리(`6 3번` 63), 아니면 자리가 내려갈 때만 더하고(`오십 삼번` 53·`60 3번` 63) 왼쪽으로 이어 더한다(`백 이십 삼번` 123).
+ * 결과: 합친 값과 첫 토큰 위치 | 'overlap'(겹침 — 번호·가격 비움) | null(앞 토큰이 수가 아님 — D-I4-01 검사로)
+ */
+/** 0이 아닌 가장 낮은 자리 (50 → 1, 100 → 2, 3 → 0) */
+function lowestPlace(n: number): number {
+  let place = 0
+  for (let v = n; v % 10 === 0 && v > 0; v /= 10) place++
+  return place
+}
+
+function mergeLeft(tokens: readonly string[], punct: readonly boolean[], xAt: number, x: string): { value: number; first: number } | 'overlap' | null {
+  const isNumberToken = (i: number): boolean => {
+    const token = tokens[i]
+    return token !== undefined && token !== '이' && punct[i] !== true && (isDigitString(token) || isSinoOnly(token)) && parseKoreanNumber(token) !== null
+  }
+  const xValue = parseKoreanNumber(x)
+  if (xValue === null || !isNumberToken(xAt - 1)) return null
+  let value = xValue
+  let first = xAt
+  let text = x
+  for (let i = xAt - 1; i >= 0 && isNumberToken(i); i--) {
+    const left = tokens[i] as string
+    const leftValue = parseKoreanNumber(left) as number
+    if (/^[0-9]$/.test(left) && /^[0-9]$/.test(text) && i === xAt - 1) value = leftValue * 10 + value
+    else if (lowestPlace(leftValue) > String(value).length - 1) value = leftValue + value
+    else return i === xAt - 1 ? 'overlap' : { value, first }
+    first = i
+    text = String(value)
+  }
+  return { value, first }
+}
+
 export interface NumberMarkers {
   /** 번호 표시에 속한 토큰 위치 */
   readonly tokens: ReadonlySet<number>
@@ -130,6 +176,8 @@ export interface NumberMarkers {
   readonly values: readonly number[]
   /** 끊어 말한 번호가 하나라도 있는가 (R-17 3, D-I4-01) */
   readonly split: boolean
+  /** 번호 표시 바로 뒤에 한 자리 수만 왔는가 (`60번 3` — 번호만 비움, D-V3-54) */
+  readonly trailing?: boolean
 }
 
 /**
@@ -145,36 +193,63 @@ function isSplitNumber(previous: string | undefined, x: string): boolean {
  * 번호 표시 찾기 (R-17 3). R-21 7(V1)도 같은 코드를 쓴다: `skip`이 참인 토큰(맡은 토큰)은 표시 토큰이 될 수 없다.
  * 끊어 말한 번호 검사의 앞 토큰은 맡은 토큰이어도 그대로 본다(R-21 7).
  */
-export function findNumberMarkers(tokens: readonly string[], forms: readonly (readonly string[])[], skip: (i: number) => boolean = () => false): NumberMarkers {
+export function findNumberMarkers(
+  tokens: readonly string[],
+  forms: readonly (readonly string[])[],
+  skip: (i: number) => boolean = () => false,
+  wideSplit = false,
+  punct: readonly boolean[] = [],
+): NumberMarkers {
   const marked = new Set<number>()
   const values: number[] = []
   let split = false
+  /** 앞 수와 합치기(상품 등록만, D-V3-54) 또는 끊어 말한 번호 검사(D-I4-01) */
+  const take = (xAt: number, x: string, own: readonly number[]): void => {
+    const previous = xAt > 0 ? tokens[xAt - 1] : undefined
+    const merged = wideSplit ? mergeLeft(tokens, punct, xAt, x) : null
+    if (merged === 'overlap') split = true
+    else if (merged !== null) {
+      for (let j = merged.first; j < xAt; j++) marked.add(j)
+      values.push(merged.value)
+      for (const j of own) marked.add(j)
+      return
+    } else if (isSplitNumber(previous, x)) split = true
+    const value = numberValue(x)
+    if (value === null) return
+    values.push(value)
+    for (const j of own) marked.add(j)
+  }
   tokens.forEach((token, i) => {
     if (skip(i)) return
-    const previous = i > 0 ? tokens[i - 1] : undefined
     // 붙여 씀: 읽는 모양 하나가 `X번` (앞 토큰 = 표시 토큰의 앞 토큰)
     for (const form of forms[i] ?? []) {
       if (form.length < 2 || !form.endsWith(BEON)) continue
       const x = form.slice(0, -BEON.length)
-      const value = numberValue(x)
-      if (value === null) continue
-      marked.add(i)
-      values.push(value)
-      if (isSplitNumber(previous, x)) split = true
+      if (numberValue(x) === null) continue
+      take(i, x, [i])
     }
     // 띄어 씀: 토큰 X(그대로) 바로 다음 토큰의 읽는 모양 하나가 `번` (앞 토큰 = X 토큰의 앞 토큰)
     const next = forms[i + 1]
-    if (next !== undefined && next.includes(BEON) && !skip(i + 1)) {
-      const value = numberValue(token)
-      if (value !== null) {
-        marked.add(i)
-        marked.add(i + 1)
-        values.push(value)
-        if (isSplitNumber(previous, token)) split = true
-      }
-    }
+    if (next !== undefined && next.includes(BEON) && !skip(i + 1) && numberValue(token) !== null) take(i, token, [i, i + 1])
   })
-  return { tokens: marked, values, split }
+  // 번호 표시 바로 뒤 한 자리 수(`60번 3 …`)는 번호만 비운다(가격은 그대로, D-V3-54)
+  let trailing = false
+  if (wideSplit) {
+    for (const i of marked) if (!marked.has(i + 1) && trailingDigit(tokens, i)) trailing = true
+  }
+  return { tokens: marked, values, split, trailing }
+}
+
+/**
+ * 번호 표시 바로 뒤에 한 자리 수 토큰만 오고 그다음이 단위가 아니면(`60번 3 라울 만원`) 63번인지 60번인지 애매하다 (실방송 8차 "63번을 60번으로").
+ * `이`는 '이것'이라 보지 않는다. last = 번호 표시의 마지막 토큰
+ */
+function trailingDigit(tokens: readonly string[], last: number): boolean {
+  const next = tokens[last + 1]
+  if (next === undefined || !(/^[0-9]$/.test(next) || (next.length === 1 && '일삼사오육칠팔구'.includes(next)))) return false
+  const after = tokens[last + 2]
+  // 다음이 단위(`3 개`)나 금액 단위로 시작하는 토큰(`2 만원` — 가격의 앞자리)이면 번호 조각이 아니다
+  return !isUnitToken(after) && !(after !== undefined && /^[십백천만원]/.test(after))
 }
 
 // ── 3b. 자리 읽기 번호 (V3, D-V3-11) ─────────────────────────────────────
@@ -587,7 +662,8 @@ export function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDicti
     for (const text of texts) {
       const jamo = jamoOf(text)
       // 풀이말 끝 모양 창(D-V3-30·38)은 비슷함으로 사전 이름에 맞추지 않는다 — `보니까` → 보니타가 되지 않게(AC-V3-50). 공백만 다른 맞춤은 그대로
-      if (jamo.length === 0 || looksLikePredicate(text)) continue
+      // 흔한 말 별칭(`녹음` → 녹금, D-V3-54)은 비슷함으로도 맞추지 않는다 — 'N번' 조각 안에서만(segments.ts)
+      if (jamo.length === 0 || looksLikePredicate(text) || DEFAULT_COMMON_ALIASES.has(text)) continue
       const distance = distanceFrom(jamo, dictionary)
       const range = candidateLengthRange(jamo.length)
       for (let length = range.min; length <= range.max; length++) {
@@ -718,7 +794,8 @@ export function analyzeSentence(text: unknown, options: ExtractOptions = {}): Se
   const digits = findDigitReadings(tokens, forms)
   const digitTokens = new Set(digits.flatMap((reading) => reading.tokens))
   const beonDigitTokens = new Set(digits.filter((reading) => reading.beon).flatMap((reading) => reading.tokens))
-  const markers = findNumberMarkers(tokens, forms, (i) => beonDigitTokens.has(i))
+  // R-17(상품 등록)은 넓은 끊김 검사(실방송 8차 — '오 13번'·'오십 13번'), 음성 문자찜(R-21)은 그대로
+  const markers = findNumberMarkers(tokens, forms, (i) => beonDigitTokens.has(i), true, punctuatedTokens(text))
   const beonValues = [...markers.values, ...digits.filter((reading) => reading.beon).map((reading) => reading.value)]
   const isMarker = (i: number): boolean => markers.tokens.has(i) || digitTokens.has(i)
   // '번' 없는 번호(자리 읽기·따로 선 수)는 번호 표시가 하나도 없을 때만 본다 (V3: 'N번' > '번' 없는 번호)
@@ -732,7 +809,7 @@ export function analyzeSentence(text: unknown, options: ExtractOptions = {}): Se
   const distinctNumbers = new Set(heard)
   const onlyNumber = distinctNumbers.size === 1 ? (heard[0] as number) : null
   // 끊어 말한 번호가 있으면 번호·가격을 모두 비운다 — 앞 조각이 가격으로도 읽힐 수 있다(`백 오번`의 `백` = 100원, D-I4-01)
-  const no = !markers.split && !(beonValues.length === 0 && bundles.bareSplit) && onlyNumber !== null && onlyNumber >= 1 && onlyNumber <= maxNumber ? onlyNumber : null
+  const no = !markers.split && markers.trailing !== true && !(beonValues.length === 0 && bundles.bareSplit) && onlyNumber !== null && onlyNumber >= 1 && onlyNumber <= maxNumber ? onlyNumber : null
 
   const price = markers.split ? null : bundles.price
   // 가격을 비워도 묶음 토큰은 품종 창에서 뺀다 (R-17 4·5)
@@ -779,34 +856,46 @@ export interface NumberMarker {
   readonly value: number
 }
 
-/** 덩어리 토큰의 번호 표시 목록 (앞에서부터). 끊어 말한 번호(D-I4-01)인 표시는 split 참 */
-export function listNumberMarkers(tokens: readonly string[]): (NumberMarker & { readonly split: boolean })[] {
+/** 덩어리 토큰의 번호 표시 목록 (앞에서부터, 상품 등록 규칙 — 앞 수와 합치기 D-V3-54 포함). 끊어 말한(겹쳐 합칠 수 없는) 표시·뒤에 한 자리 수가 오는 표시는 split 참 */
+export function listNumberMarkers(tokens: readonly string[], punct: readonly boolean[] = []): (NumberMarker & { readonly split: boolean })[] {
   const forms = tokens.map(readingForms)
   const digits = findDigitReadings(tokens, forms).filter((reading) => reading.beon)
   const digitTokens = new Set(digits.flatMap((reading) => reading.tokens))
   const out: (NumberMarker & { split: boolean })[] = digits.map((reading) => ({ start: reading.tokens[0] as number, last: reading.tokens[reading.tokens.length - 1] as number, value: reading.value, split: false }))
+  const take = (xAt: number, x: string, last: number): void => {
+    const merged = mergeLeft(tokens, punct, xAt, x)
+    if (merged !== null && merged !== 'overlap') {
+      out.push({ start: merged.first, last, value: merged.value, split: trailingDigit(tokens, last) })
+      return
+    }
+    out.push({ start: xAt, last, value: numberValue(x) as number, split: merged === 'overlap' || isSplitNumber(xAt > 0 ? tokens[xAt - 1] : undefined, x) || trailingDigit(tokens, last) })
+  }
   for (let i = 0; i < tokens.length; i++) {
     if (digitTokens.has(i)) continue
-    const previous = i > 0 ? tokens[i - 1] : undefined
     const attached = (forms[i] ?? []).find((form) => form.length >= 2 && form.endsWith(BEON) && numberValue(form.slice(0, -BEON.length)) !== null)
     if (attached !== undefined) {
-      const x = attached.slice(0, -BEON.length)
-      out.push({ start: i, last: i, value: numberValue(x) as number, split: isSplitNumber(previous, x) })
+      take(i, attached.slice(0, -BEON.length), i)
       continue
     }
     const token = tokens[i] as string
     if (!digitTokens.has(i + 1) && (forms[i + 1] ?? []).includes(BEON) && numberValue(token) !== null) {
-      out.push({ start: i, last: i + 1, value: numberValue(token) as number, split: isSplitNumber(previous, token) })
+      take(i, token, i + 1)
       i++
     }
   }
+  // 합친 표시가 앞 표시의 토큰을 덮으면(`15번 1 5번`은 덮지 않는다) 뒤 것만 남긴다
   return out.sort((a, b) => a.start - b.start)
 }
 
 /** 원 가격 줄 목록 (토큰 위치·값, 애매하면 value null). 번호 표시·자리 읽기 토큰에서 멈춘다. bareNumbers = '번' 없는 번호로 앞 수를 뗄 수 있나 */
-export function listWonLines(tokens: readonly string[], options: { readonly maxNumber?: number; readonly bareNumbers?: boolean } = {}): { readonly start: number; readonly end: number; readonly value: number | null }[] {
+export function listWonLines(
+  tokens: readonly string[],
+  options: { readonly maxNumber?: number; readonly bareNumbers?: boolean; readonly punct?: readonly boolean[] } = {},
+): { readonly start: number; readonly end: number; readonly value: number | null }[] {
   const forms = tokens.map(readingForms)
   const digits = findDigitReadings(tokens, forms)
-  const marked = new Set<number>([...listNumberMarkers(tokens).flatMap((marker) => [marker.start, marker.last]), ...digits.flatMap((reading) => reading.tokens)])
+  const marked = new Set<number>()
+  for (const marker of listNumberMarkers(tokens, options.punct ?? [])) for (let j = marker.start; j <= marker.last; j++) marked.add(j)
+  for (const reading of digits) for (const j of reading.tokens) marked.add(j)
   return findWonLines(tokens, forms, (i) => marked.has(i), resolveMaxNumber(options), options.bareNumbers === true)
 }

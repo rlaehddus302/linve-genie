@@ -2,8 +2,10 @@
 // 덩어리 글(모은 최종 결과 + 지금 중간 결과)을 앞에서부터 읽어 "N번 … 가격 원" 짝마다 등록할 값(pick)을 낸다 — 화면은 pick마다 한 번씩 바로 등록한다.
 // 순수 함수: 시계·난수를 쓰지 않고 어떤 입력에도 예외를 던지지 않는다.
 import { parseAmount, type PriceUnit } from '@livejjim/core'
-import { analyzeSentence, listNumberMarkers, listWonLines, readSentence, tokenize } from './extract.ts'
+import { analyzeSentence, listNumberMarkers, listWonLines, punctuatedTokens, readSentence, readingForms, tokenize } from './extract.ts'
 import { AUTO_REGISTER_PRICE_MAX, readRegistration, type ReadyBlock, type RegistrationOptions } from './register.ts'
+import { DEFAULT_COMMON_ALIASES } from './default-dictionary.ts'
+import { VarietyDictionary } from './dictionary.ts'
 import { CANCEL_WORDS, CORRECTION_MARKERS, isWindowFiller } from './words.ts'
 
 export interface SegmentOptions extends RegistrationOptions {
@@ -61,8 +63,30 @@ function nameWindowEnd(tokens: readonly string[], k: number, options: SegmentOpt
     if (piece.some((token) => isWindowFiller(token) || /[0-9]/.test(token))) break
     const reading = readSentence(piece.join(' '), { dictionary: options.dictionary ?? [] })
     if (reading.extraction.name !== null && reading.nameWindow !== null && reading.nameWindow.startsWith(piece[0] as string)) found = { end: j, name: reading.extraction.name }
+    else if (found === null && piece.length === 1) {
+      const alias = commonAliasIn(piece, options)
+      if (alias !== null) found = { end: j, name: alias }
+    }
   }
   return found
+}
+
+/** 흔한 말 별칭(D-V3-54)의 이름이 넘긴 사전에 있는가 */
+function dictionaryHas(options: SegmentOptions, name: string): boolean {
+  const dictionary = options.dictionary
+  if (dictionary instanceof VarietyDictionary) return dictionary.byKey.has(name.split(' ').join(''))
+  return Array.isArray(dictionary) && dictionary.some((item) => typeof item === 'string' && item.split(' ').join('') === name.split(' ').join(''))
+}
+
+/** 조각 안 흔한 말 별칭(`녹음` → 녹금): 토큰(그대로 또는 끝말 뗀 모양)이 별칭이면 그 이름 */
+function commonAliasIn(tokens: readonly string[], options: SegmentOptions): string | null {
+  for (const token of tokens) {
+    for (const form of readingForms(token)) {
+      const name = DEFAULT_COMMON_ALIASES.get(form)
+      if (name !== undefined && dictionaryHas(options, name)) return name
+    }
+  }
+  return null
 }
 
 const skipFillers = (tokens: readonly string[], from: number): number => {
@@ -79,8 +103,9 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
     const final = options.final === true
     const maxNumber = maxNumberOf(options)
     const unit: PriceUnit = options.priceUnit ?? 'WON'
-    const markers = listNumberMarkers(tokens)
-    const lines = listWonLines(tokens, { maxNumber })
+    const punct = punctuatedTokens(text)
+    const markers = listNumberMarkers(tokens, punct)
+    const lines = listWonLines(tokens, { maxNumber, punct })
     const picks: SegmentPick[] = []
     const dropped: number[] = []
     let s = 0
@@ -109,7 +134,8 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
         for (const other of before) if (other.value !== m.value) dropped.push(other.value)
         if (m.split || line.value === null || m.value > maxNumber || correctionBetween(m.start, line.end)) break
         const reading = analyzeSentence(tokens.slice(m.start, line.end + 1).join(' '), { dictionary: options.dictionary ?? [], maxNumber })
-        pick({ no: m.value, price: line.value, name: reading.reading.extraction.name, numberFrom: 'marker', priceFrom: 'won', start: m.start, end: line.end, blocked: line.value > AUTO_REGISTER_PRICE_MAX ? 'PRICE_TOO_HIGH' : null })
+        const name = reading.reading.extraction.name ?? commonAliasIn(tokens.slice(m.last + 1, line.start), options)
+        pick({ no: m.value, price: line.value, name, numberFrom: 'marker', priceFrom: 'won', start: m.start, end: line.end, blocked: line.value > AUTO_REGISTER_PRICE_MAX ? 'PRICE_TOO_HIGH' : null })
         continue
       }
       // 2. "N번 품종 수" (D-V3-48): 표시 → (군말) 사전 품종 → 수 → 조각 끝

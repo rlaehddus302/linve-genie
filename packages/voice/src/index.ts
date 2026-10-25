@@ -7,6 +7,7 @@ export {
   extractVoice,
   readSentence,
   analyzeSentence,
+  punctuatedTokens,
   BARE_NUMBER_UNITS,
   findBareNumbers,
   plainNumberValue,
@@ -321,3 +322,22 @@ export {
 export { readSellerNote, type SellerNote } from './seller-note.ts'
 // V3 덩어리 조각 소비 (R-17 8, D-V3-46·48) — 화면은 pick마다 한 번 바로 등록
 export { readSegments, type SegmentOptions, type SegmentPick, type SegmentReading } from './segments.ts'
+// V3 음성 인식 기록 모아 두기 (D-V3-56) — 가리기·내려받기 형식
+export {
+  VOICE_ARCHIVE_ACTIONS,
+  VOICE_ARCHIVE_FORMAT,
+  VOICE_ARCHIVE_KEEP_MS,
+  VOICE_ARCHIVE_NOTICE,
+  VOICE_ARCHIVE_VERSION,
+  createArchiveChunk,
+  createArchiveExport,
+  maskArchiveText,
+  pruneArchive,
+  type VoiceArchiveAction,
+  type VoiceArchiveBroadcast,
+  type VoiceArchiveChunk,
+  type VoiceArchiveExport,
+  type VoiceArchiveReading,
+} from './archive.ts'
+// V3 R-24: 음성 번호 옮기기 말 (D-V3-58)
+export { readRenumber, type Renumber } from './renumber.ts'

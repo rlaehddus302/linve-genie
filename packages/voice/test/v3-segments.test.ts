@@ -1,6 +1,6 @@
 // AC-V3-52·53 덩어리 조각 소비 (R-17 8, D-V3-46·48) — 사례 R54~R64, 실방송 8차, 실제 방송 1~6.
 import { describe, expect, it } from 'vitest'
-import { prepareVoiceDictionary, readSegments, type SegmentOptions } from '../src/index.ts'
+import { extractVoice, prepareVoiceDictionary, readSegments, type SegmentOptions } from '../src/index.ts'
 
 const DICT = prepareVoiceDictionary()
 const seg = (text: string, options: SegmentOptions = {}) => readSegments(text, { dictionary: DICT, ...options })
@@ -135,5 +135,78 @@ describe('AC-V3-54 readSellerNote·readSegments는 어떤 글에도 예외 없�
       }),
       { numRuns: 1000 },
     )
+  })
+})
+
+describe('실방송 8차 — 끊긴 번호("오십삼번"→13번, "63번"→60번)는 뒤·앞 조각만 번호로 쓰지 않는다', () => {
+  const no = (text: string) => extractVoice(`${text} 라울 만원`, { dictionary: DICT }).no
+  const sure = (text: string) => readSegments(`${text} 라울 만원`, { dictionary: DICT, final: true }).picks.map((p) => p.no)
+  // D-V3-54: 앞 수와 합치기 — 자리가 내려가면 더하고, 숫자 한 개 둘은 두 자리
+  it.each([
+    ['53번', 53],
+    ['오십삼번', 53],
+    ['오십 삼번', 53],
+    ['50 3번', 53],
+    ['63번', 63],
+    ['육십삼번', 63],
+    ['육십 삼번', 63],
+    ['60 3번', 63],
+    ['60 삼번', 63],
+    ['육십 3번', 63],
+    ['6 3번', 63],
+  ])('%s → %i', (text, want) => {
+    expect(no(text)).toBe(want)
+    expect(sure(text)).toEqual([want])
+  })
+  // 겹쳐 합칠 수 없거나(`5 13번`) 번호 뒤 한 자리 수(`60번 3`)면 번호를 비운다 — 13·3·60만 번호가 되지 않는다
+  it.each(['5 13번', '오 13번', '50 13번', '오십 13번', '5십삼번', '60번 3'])('%s → 번호 없음, 바로 등록 없음', (text) => {
+    expect(no(text)).toBeNull()
+    expect(sure(text)).toEqual([])
+  })
+  it('번호 뒤 한 자리 수 다음이 단위면 애매하지 않다: "15번 3 개 라울 만원" → 15', () => {
+    expect(extractVoice('15번 3 개 라울 만원', { dictionary: DICT }).no).toBe(15)
+    expect(extractVoice('이 15번 라울 만원', { dictionary: DICT }).no).toBe(15)
+    expect(extractVoice('15번 이 아이 만원', { dictionary: DICT }).no).toBe(15)
+  })
+})
+
+describe('TD-V3-004 판매자 채팅 가격은 0으로 시작하지 않는다', () => {
+  it('₩0500·₩070,000 → null', async () => {
+    const { readSellerNote } = await import('../src/index.ts')
+    expect(readSellerNote('93번 [청개구리] ₩0500')).toBeNull()
+    expect(readSellerNote('93번 [청개구리] ₩070,000')).toBeNull()
+    expect(readSellerNote('93번 [청개구리] ₩70,000')).toEqual({ no: 93, name: '청개구리', price: 70000 })
+  })
+})
+
+describe('AC-V3-65 흔한 말 별칭 녹음 → 녹금은 N번 조각 안에서만', () => {
+  it('"89번 녹음 7만 원" → 녹금, 번호 없는 "녹음 잘 되고 있죠"는 품종 아님', () => {
+    expect(seg('89번 녹음 7만 원').picks).toMatchObject([{ no: 89, name: '녹금', price: 70000 }])
+    expect(seg('89번 녹음 60', { priceUnit: 'THOUSAND', final: true }).picks).toMatchObject([{ no: 89, name: '녹금', price: 60000 }])
+    expect(extractVoice('녹음 잘 되고 있죠', { dictionary: DICT }).name).toBeNull()
+  })
+})
+
+describe('AC-V3-66 음성 인식 기록 가리기·내려받기 형식', () => {
+  it('가리기: 8자리 이상 숫자, 끝자리 낱말 뒤 4숫자', async () => {
+    const { maskArchiveText } = await import('../src/index.ts')
+    expect(maskArchiveText('끝자리 1234 김민지님')).toBe('끝자리 **** 김민지님')
+    expect(maskArchiveText('010-1234-5678')).toBe('****')
+    expect(maskArchiveText('뒷 번호 5678 문자찜')).toBe('뒷 번호 **** 문자찜')
+    expect(maskArchiveText('15번 라울 만원')).toBe('15번 라울 만원')
+  })
+  it('내려받기 JSON 모양과 30일 지우기', async () => {
+    const { createArchiveExport, pruneArchive, VOICE_ARCHIVE_KEEP_MS } = await import('../src/index.ts')
+    const value = createArchiveExport(
+      [{ broadcastId: 'b1', title: '방송', date: '2026-10-25', chunks: [{ at: 1, text: '끝자리 1234', reading: { no: 15, price: 10000, name: null, numberFrom: 'marker', priceFrom: 'won' }, action: 'REGISTERED', reason: null, undone: false, edited: false }] }],
+      0,
+    )
+    expect(value).toEqual({
+      format: 'livegenie-voice-log',
+      version: 1,
+      exportedAt: '1970-01-01T00:00:00.000Z',
+      broadcasts: [{ broadcastId: 'b1', title: '방송', date: '2026-10-25', chunks: [{ at: 1, text: '끝자리 ****', reading: { no: 15, price: 10000, name: null, numberFrom: 'marker', priceFrom: 'won' }, action: 'REGISTERED', reason: null, undone: false, edited: false }] }],
+    })
+    expect(pruneArchive([{ at: 0 }, { at: 10 }], VOICE_ARCHIVE_KEEP_MS + 5)).toEqual([{ at: 10 }])
   })
 })
