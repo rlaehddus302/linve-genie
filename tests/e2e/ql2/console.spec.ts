@@ -9,7 +9,7 @@ import { ANDROID, PC, PHONE, alerts, baseUrlOf, barHeight, broadcastApi, endBroa
 
 const IPHONE = { width: 393, height: 852 } as const
 const HACKER = '<b>해커</b>'
-/** 휴대폰 고정 영역 맨 끝의 현재 상품 한 줄 요약 (D-QL2-11 (1)) */
+/** 휴대폰 고정 영역 맨 위(제목·리허설 띠 바로 아래, 알림 띠 위)의 현재 상품 한 줄 요약 (D-QL2-11 (1)·QL2 D-QL2-14 (1)) */
 const summary = (page: Page) => page.getByRole('status', { name: '현재 상품 요약' })
 /** D-QL2-11 (1): 이름·1등은 낱자(Array.from) 10글자를 넘으면 앞 10글자 + "…" */
 const clip10 = (text: string): string => {
@@ -18,6 +18,11 @@ const clip10 = (text: string): string => {
 }
 /** 리허설 채팅 닉네임 그대로의 요약 — AC-QL2-01 글자 그대로 */
 const REHEARSAL_SUMMARY = `15번 핑크프릴 · 판매 중 · 1등 ${HACKER} · 대기 0명`
+
+/** 리허설 띠 (role="note") — 두 문장 중 폭에 맞는 하나만 보인다 (D-QL2-13 (1)) */
+const REHEARSAL_WIDE = '리허설 중 — 실제 판매가 아니에요'
+const REHEARSAL_SHORT = '리허설 · 실제 판매 아님'
+const band = (page: Page) => page.getByRole('note').filter({ hasText: '실제 판매' })
 
 /** 수량을 정해 API로 상품 등록 */
 async function registerStock(page: Page, b: string, no: number, name: string, price: number, stock: number): Promise<void> {
@@ -112,6 +117,49 @@ async function expectSummaryOnFirstScreen(dev: Page, where: string, rehearsal: b
   await dev.evaluate(() => window.scrollTo(0, 0))
 }
 
+/**
+ * QL2 D-QL2-14 (1): 요약 줄은 고정 영역 **맨 위** — 문서 차례 (리허설 띠 →) 제목 h1 → 요약 → 알림 띠 → 빠른 입력,
+ * 화면에서 제목 아래 끝 ≤ 요약 위 끝, 요약 아래 끝 ≤ 알림 띠 위 끝, 요약 위로 고정 영역 안에 보이는 다른 요소가 없다(스크롤 0).
+ */
+async function expectSummaryOnTop(dev: Page, where: string, rehearsal: boolean): Promise<void> {
+  const line = summary(dev)
+  const title = dev.getByRole('heading', { level: 1 })
+  const strip = alerts(dev)
+  const quick = dev.getByLabel('빠른 입력')
+  await expectOrder(
+    [
+      ...(rehearsal ? [['리허설 띠', band(dev)] as const] : []),
+      ['제목', title],
+      ['요약 줄', line],
+      ['알림 띠', strip],
+      ['빠른 입력', quick],
+    ],
+    `${where} 고정 영역 차례`,
+  )
+  expect(await dev.evaluate(() => window.scrollY), `${where}: 스크롤 0`).toBe(0)
+  const t = (await title.boundingBox())!
+  const s = (await line.boundingBox())!
+  const a = (await strip.boundingBox())!
+  const pos = `${where}: 제목 아래 ${String(Math.round(t.y + t.height))} · 요약 ${String(Math.round(s.y))}~${String(Math.round(s.y + s.height))} · 알림 띠 위 ${String(Math.round(a.y))}`
+  expect(s.y, `${pos} — 요약이 제목 아래`).toBeGreaterThanOrEqual(t.y + t.height - 0.5)
+  expect(s.y + s.height, `${pos} — 요약이 알림 띠 위`).toBeLessThanOrEqual(a.y + 0.5)
+  // 고정 영역(위에 붙는 조상) 안에서 요약보다 위에 보이는 요소가 없다 — 맨 위 자리
+  const above = await line.evaluate((el) => {
+    let pinned: Element | null = el.parentElement
+    while (pinned !== null && getComputedStyle(pinned).position !== 'sticky') pinned = pinned.parentElement
+    if (pinned === null) return ['고정 영역 없음']
+    const top = el.getBoundingClientRect().top
+    return [...pinned.querySelectorAll('*')]
+      .filter((x) => x !== el && !el.contains(x) && !x.contains(el))
+      .filter((x) => {
+        const r = x.getBoundingClientRect()
+        return r.width > 0 && r.height > 0 && r.bottom <= top + 0.5
+      })
+      .map((x) => `${x.tagName}.${x.className} "${(x.textContent ?? '').trim().slice(0, 20)}"`)
+  })
+  expect(above, `${where} 고정 영역 안 요약보다 위에 있는 요소`).toEqual([])
+}
+
 test.describe('AC-QL2-01 첫 화면에 현재 상품 — 150%는 요약 줄, 100%는 요약 줄과 카드 (D-QL2-11 (4))', () => {
   for (const [label, viewport] of [['375×812', PHONE], ['412×915', ANDROID]] as const) {
     for (const rehearsal of [false, true]) {
@@ -125,6 +173,8 @@ test.describe('AC-QL2-01 첫 화면에 현재 상품 — 150%는 요약 줄, 100
             await expectOrder([['현재 상품', w.dev.getByRole('region', { name: '현재 상품' })], ['리허설 조작판', panel]], `${label} 리허설`)
           }
           await expectSummaryOnFirstScreen(w.dev, `${label} 150%${rehearsal ? ' 리허설' : ''}`, rehearsal)
+          // QL2 D-QL2-14 (1): 요약은 고정 영역 맨 위, 알림 띠 위
+          await expectSummaryOnTop(w.dev, `${label} 150%${rehearsal ? ' 리허설' : ''}`, rehearsal)
         } finally {
           await w.close()
         }
@@ -133,6 +183,8 @@ test.describe('AC-QL2-01 첫 화면에 현재 상품 — 150%는 요약 줄, 100
         const w = await consoleWorld(browser, page, { viewport, big: false, rehearsal })
         try {
           await expectSummaryOnFirstScreen(w.dev, `${label} 100%${rehearsal ? ' 리허설' : ''}`, rehearsal)
+          // QL2 D-QL2-14 (1): 요약은 고정 영역 맨 위, 알림 띠 위
+          await expectSummaryOnTop(w.dev, `${label} 100%${rehearsal ? ' 리허설' : ''}`, rehearsal)
           await expectCurrentOnFirstScreen(w.dev, `${label} 100%${rehearsal ? ' 리허설' : ''}`)
         } finally {
           await w.close()
@@ -141,26 +193,37 @@ test.describe('AC-QL2-01 첫 화면에 현재 상품 — 150%는 요약 줄, 100
     }
   }
 
-  test('393×852 WebKit 글자 100%: 요약 줄과 카드가 보인다, 가로 넘침 0 @webkit', async ({ page, browser }) => {
-    const w = await consoleWorld(browser, page, { viewport: IPHONE, big: false, userAgent: IPHONE_UA })
-    try {
-      await expectSummaryOnFirstScreen(w.dev, '393 WebKit 100%', false)
-      await expectCurrentOnFirstScreen(w.dev, '393 WebKit 100%')
-      await expectNoOverflow(w.dev, '393 WebKit 콘솔')
-    } finally {
-      await w.close()
-    }
-  })
+  // QL2 D-QL2-14 (2): 393×852 WebKit도 글자 100%·150% × 실제 방송·리허설 (열두 경우 — 375·412는 위 묶음)
+  for (const rehearsal of [false, true]) {
+    const kind = rehearsal ? '리허설' : '실제'
+    test(`393×852 WebKit 글자 100%: ${kind} 방송 — 요약 줄(고정 영역 맨 위, 알림 띠 위)과 카드가 보인다, 가로 넘침 0 @webkit`, async ({ page, browser }) => {
+      const w = await consoleWorld(browser, page, { viewport: IPHONE, big: false, rehearsal, userAgent: IPHONE_UA })
+      try {
+        await expectSummaryOnFirstScreen(w.dev, `393 WebKit 100% ${kind}`, rehearsal)
+        await expectSummaryOnTop(w.dev, `393 WebKit 100% ${kind}`, rehearsal)
+        await expectCurrentOnFirstScreen(w.dev, `393 WebKit 100% ${kind}`)
+        await expectNoOverflow(w.dev, `393 WebKit ${kind} 콘솔`)
+      } finally {
+        await w.close()
+      }
+    })
 
-  test('393×852 WebKit 글자 150%: 요약 줄이 보인다, 가로 넘침 0 @webkit', async ({ page, browser }) => {
-    const w = await consoleWorld(browser, page, { viewport: IPHONE, big: true, userAgent: IPHONE_UA })
-    try {
-      await expectSummaryOnFirstScreen(w.dev, '393 WebKit 150%', false)
-      await expectNoOverflow(w.dev, '393 WebKit 150% 콘솔')
-    } finally {
-      await w.close()
-    }
-  })
+    test(`393×852 WebKit 글자 150%: ${kind} 방송 — 요약 줄이 고정 영역 맨 위(알림 띠 위)에 아래 막대에 가리지 않고 보이고, 600px 스크롤해도 보인다, 가로 넘침 0 @webkit`, async ({ page, browser }) => {
+      const w = await consoleWorld(browser, page, { viewport: IPHONE, big: true, rehearsal, userAgent: IPHONE_UA })
+      try {
+        if (rehearsal) {
+          // 리허설 띠는 보이고 짧은 한 줄 (D-QL2-13)
+          await expect(band(w.dev)).toHaveText(REHEARSAL_SHORT, { useInnerText: true })
+          await expectFirstScreen(w.dev, band(w.dev), '393 WebKit 150% 리허설 띠')
+        }
+        await expectSummaryOnFirstScreen(w.dev, `393 WebKit 150% ${kind}`, rehearsal)
+        await expectSummaryOnTop(w.dev, `393 WebKit 150% ${kind}`, rehearsal)
+        await expectNoOverflow(w.dev, `393 WebKit 150% ${kind} 콘솔`)
+      } finally {
+        await w.close()
+      }
+    })
+  }
 
   test('375×812 요약 문장: 현재 상품 없음 → "현재 상품: 아직 없어요", 1등 없음 → "1등 아직 없음", 판매 완료 상태 낱말, 12글자 이름은 앞 10글자 + "…"(카드는 전체)', async ({ page, browser }) => {
     await page.goto('/')
@@ -213,10 +276,6 @@ test.describe('AC-QL2-01 첫 화면에 현재 상품 — 150%는 요약 줄, 100
   })
 })
 
-/** 리허설 띠 (role="note") — 두 문장 중 폭에 맞는 하나만 보인다 (D-QL2-13 (1)) */
-const REHEARSAL_WIDE = '리허설 중 — 실제 판매가 아니에요'
-const REHEARSAL_SHORT = '리허설 · 실제 판매 아님'
-const band = (page: Page) => page.getByRole('note').filter({ hasText: '실제 판매' })
 
 /** 띠의 보이는 글 줄 수 (Range.getClientRects 줄 위 끝을 모아 셈 — 숨긴 문장은 상자가 없다), 색·테두리·굵기 */
 async function bandShape(target: Locator): Promise<{ lines: number; bg: string; border: string; weight: string }> {
@@ -322,16 +381,39 @@ test.describe('AC-QL2-01b 빈 "등록하면" 줄 (D-QL2-11 (2))', () => {
         await expect(line).toHaveCount(1)
         await expect(line).toHaveText('')
         expect(await line.evaluate((el) => el.getBoundingClientRect().height), '빈 "등록하면" 줄 높이').toBe(0)
-        // 빠른 입력 줄(.console-sticky-quick) 아래 끝 ~ 요약 줄 위 끝 사이에 빈 줄 자리가 없다 (되돌리기 대기 없음)
-        const quick = (await dev.locator('main .console-sticky-quick').boundingBox())!
-        const s = (await summary(dev).boundingBox())!
-        const gap = s.y - (quick.y + quick.height)
+        // QL2 D-QL2-14: 요약 줄은 고정 영역 맨 위로 갔다 — 빠른 입력 줄 아래의 다음 요소는 되돌리기 띠(대기 없음이라 없다) → 고정 영역 끝.
+        // 휴대폰의 "등록하면" 줄은 고정 영역 바로 아래(D-FB1-18 (a))라, 빈 줄 자리는 (가) 빠른 입력 묶음 아래 끝 → 고정 영역 끝,
+        // (나) 고정 영역 끝 → 그 아래 처음 보이는 요소 사이에 생긴다. 둘 다 "등록하면" 한 줄 높이보다 작아야 한다
+        // (나)의 "그 아래 요소"는 "등록하면" 줄 자신을 빼고 센다 — 치면 그 줄이 들어가 그 요소가 한 줄만큼 내려가는지도 본다
+        const gaps = async (): Promise<{ inner: number; below: number; next: string }> =>
+          await dev.locator('main .console-sticky-quick').evaluate((quickBox) => {
+            let pinned: Element | null = quickBox.parentElement
+            while (pinned !== null && getComputedStyle(pinned).position !== 'sticky') pinned = pinned.parentElement
+            if (pinned === null) throw new Error('고정 영역 없음')
+            const area = pinned.getBoundingClientRect()
+            const s = getComputedStyle(pinned)
+            const contentBottom = area.bottom - parseFloat(s.paddingBottom) - parseFloat(s.borderBottomWidth)
+            let next: Element | null = pinned.nextElementSibling
+            while (next !== null && (next.getBoundingClientRect().height === 0 || next.classList.contains('quick-will-register'))) next = next.nextElementSibling
+            if (next === null) throw new Error('고정 영역 아래 요소 없음')
+            return {
+              inner: contentBottom - quickBox.getBoundingClientRect().bottom,
+              below: next.getBoundingClientRect().top - area.bottom,
+              next: `${next.tagName}.${next.className} "${(next.textContent ?? '').trim().slice(0, 20)}"`,
+            }
+          })
+        const empty = await gaps()
         await input.fill('15 핑크프릴 10000')
         await expect(line).toHaveText('등록하면: 15번 핑크프릴 10,000원')
         await expect(line).toBeVisible()
         // 빈 때의 틈은 "등록하면" 한 줄 높이보다 작다 (빈 줄 자리 없음)
         const shown = (await line.boundingBox())!
-        expect(gap, `빈 칸일 때 빠른 입력 줄 아래 끝 → 요약 줄 ${String(gap)}px, "등록하면" 줄 ${String(shown.height)}px`).toBeLessThan(shown.height)
+        expect(shown.height, '"등록하면" 줄 높이').toBeGreaterThan(0)
+        expect(empty.inner, `빈 칸일 때 빠른 입력 묶음 아래 끝 → 고정 영역 끝 ${String(empty.inner)}px, "등록하면" 줄 ${String(shown.height)}px`).toBeLessThan(shown.height)
+        expect(empty.below, `빈 칸일 때 고정 영역 끝 → ${empty.next} ${String(empty.below)}px, "등록하면" 줄 ${String(shown.height)}px`).toBeLessThan(shown.height)
+        // 치면 그 줄이 고정 영역 끝과 그 아래 요소 사이에 들어가 틈이 한 줄만큼 는다 (재는 자리가 맞는지)
+        const typed = await gaps()
+        expect(typed.below, `치고 난 뒤 고정 영역 끝 → ${typed.next} ${String(typed.below)}px`).toBeGreaterThanOrEqual(empty.below + shown.height - 1)
         await input.fill('')
         await expect(line).toHaveText('')
         expect(await line.evaluate((el) => el.getBoundingClientRect().height)).toBe(0)
