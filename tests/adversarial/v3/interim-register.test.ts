@@ -112,8 +112,6 @@ function checkPrefix(prefix: string, final: boolean): void {
   expect(Number.isSafeInteger(reading.ready.price)).toBe(true)
   expect(reading.priceSure).toBe(true)
   expect(reading.correction).toBe(false)
-  // D-V3-33: 3,000,000원을 넘으면 확정이 아니다
-  expect(reading.ready.price, `300만 원 넘는 가격으로 등록: ${prefix}`).toBeLessThanOrEqual(3_000_000)
   // D-V3-34: '번' 없는 번호의 (처음) 후보 토큰이 첫 원 가격 줄보다 뒤면 확정이 아니다 — '번' 없는 번호면 그 수가 첫 '원' 토큰보다 앞에 있어야 한다
   if (!beonValues(tokens).includes(reading.ready.no)) {
     const firstWon = tokens.findIndex((t) => formsOf(t).some((f) => f.endsWith('원') && AMOUNT.test(f.slice(0, -1))))
@@ -177,6 +175,8 @@ describe('AC-V3-60 — 무작위 문장을 낱말 하나씩 늘려 넣기', () =
     ['174 28만 원', 3, 174, 280_000],
     // D-V3-54: 앞 수와 합치기 — 글 끝 맨 수(`1`·`이십`)는 기다리고(D-V3-26), `5번`·`오번`이 오면 15·25번 (처음 기대 "확정 없음"을 바꿈)
     ['25만 원 1 5번', 4, 15, 250_000],
+    // D-V3-64: 300만 원 넘어도 '원'이 들린 순간 등록 (처음 기대 "확정 없음"을 바꿈)
+    ['38번 605만 원까지', 3, 38, 6_050_000],
     ['25만 원 이십 오번', 4, 25, 250_000],
   ])('"%s" → 처음 확정 k=%i, %i번 · %i원 (사례 표)', (text, k, no, price) => {
     expect(feedWords(text).firstK).toBe(k)
@@ -184,7 +184,7 @@ describe('AC-V3-60 — 무작위 문장을 낱말 하나씩 늘려 넣기', () =
     expect([ready?.no, ready?.price]).toEqual([no, price])
   })
 
-  it.each(['택배는 이삼 일 걸리고 만 원이에요', '삼광색금 3강 25만 원', '15번 라울 174 28만 원', '백 육십팔 라울 만원', '15번 핑크프릴 만오천', '189번 빅뱅금 139번 50만 원', '자 9cm에 이거 25만 원 170', '요 아이는 65만 원까지 자 색감이 이렇게 예쁘게 나왔네요 자 60 어 자', '38번 605만 원까지', '25만 원 170', '100 5만 원', '이백 오만 원', '택배는 이 삼 일 걸리고 만 원이에요'])('"%s" → 어느 k에서도 확정 없음', (text) => {
+  it.each(['택배는 이삼 일 걸리고 만 원이에요', '삼광색금 3강 25만 원', '15번 라울 174 28만 원', '백 육십팔 라울 만원', '15번 핑크프릴 만오천', '189번 빅뱅금 139번 50만 원', '자 9cm에 이거 25만 원 170', '요 아이는 65만 원까지 자 색감이 이렇게 예쁘게 나왔네요 자 60 어 자', '25만 원 170', '100 5만 원', '이백 오만 원', '택배는 이 삼 일 걸리고 만 원이에요'])('"%s" → 어느 k에서도 확정 없음', (text) => {
     expect(feedWords(text).firstK).toBeNull()
   })
 })

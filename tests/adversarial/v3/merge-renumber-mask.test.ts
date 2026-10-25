@@ -28,6 +28,19 @@ describe('D-V3-54 앞 수와 합치기 (R-17 3)', () => {
     expect(read(text)).toEqual({ no: null, price: null })
   })
 
+  // D-V3-66 (1) 이어 더하다 겹치면 비움 · (2) 0·영·공 토큰은 합치지도 끊어 말함으로 보지도 않음
+  it.each([
+    ['1 이십 오번 라울 만원', null, null],
+    ['자 3 오십 삼번 라울 만원', null, null],
+    ['0 삼번 라울 만원', 3, 10_000],
+    ['0 5번 라울 만원', 5, 10_000],
+    ['영 5번 라울 만원', 5, 10_000],
+    ['공 오번 라울 만원', 5, 10_000],
+    ['0 오십 삼번 라울 만원', 53, 10_000],
+  ] as const)('D-V3-66 "%s" → %s번 · %s원', (text, no, price) => {
+    expect(read(text)).toEqual({ no, price })
+  })
+
   it.each([
     // 합치면 1234·5015 — 999 밖이라 번호 없음, 앞 수는 번호 토큰이라 가격도 아님
     ['천 이백 삼십 사번 만원', null, 10_000],
@@ -137,6 +150,21 @@ describe('R-24 번호 옮기기 말 (readRenumber, D-V3-58)', () => {
     expect(readRenumber(text)).toBeNull()
   })
 
+  // D-V3-66 (4): R-24 번호는 R-17 3 번호 표시 그대로 — 띄어 쓴 `번`·앞 수와 합치기 포함, 겹쳐 비우는 꼴은 null
+  it.each([
+    ['65 번은 61번', { from: 65, to: 61 }],
+    ['6 5번은 6 1번', { from: 65, to: 61 }],
+    ['육십 오번은 육십 일번', { from: 65, to: 61 }],
+    ['65번 아니 6 1번', { from: 65, to: 61 }],
+    ['아니 6 1번', { from: null, to: 61 }],
+    ['아까 65 번은 61 번이에요', { from: 65, to: 61 }],
+  ])('D-V3-66 "%s" → %o', (text, want) => {
+    expect(readRenumber(text)).toEqual(want)
+  })
+  it.each(['오 13번은 61번', '65번 아니 오 13번', '1 이십 오번은 61번'])('D-V3-66 겹쳐 비우는 번호 "%s" → null', (text) => {
+    expect(readRenumber(text)).toBeNull()
+  })
+
   it('maxNumber 밖 번호는 null', () => {
     expect(readRenumber('65번 아니 61번', { maxNumber: 63 })).toBeNull()
     expect(readRenumber('아까 61번은 63번', { maxNumber: 63 })).toEqual({ from: 61, to: 63 })
@@ -173,6 +201,9 @@ describe('음성 기록 가리기 (maskArchiveText, D-V3-56·R-21 4)', () => {
     ['계좌 110-123-456789', '계좌 ****'],
     ['15번 만오천 원', '15번 만오천 원'],
     ['1234567', '1234567'], // 7자리는 그대로 (8자리 이상만)
+    // D-V3-66 (3): 가리기 목록 = R-21 4 끝자리 낱말 전부 (끝번호 포함)
+    ['끝번호 1234 김민지님', '끝번호 **** 김민지님'],
+    ['끝번호는 5678', '끝번호는 ****'],
   ])('"%s" → "%s"', (text, want) => {
     expect(maskArchiveText(text)).toBe(want)
   })

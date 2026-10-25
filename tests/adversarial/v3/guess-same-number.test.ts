@@ -8,9 +8,11 @@ import {
   GUESS_FILLERS,
   STOP_WORDS,
   decideForExisting,
+  isBigChange,
   decideSameNumber,
   guessVariety,
   readRegistration,
+  readSegments,
   prepareVoiceDictionary,
   type NameFrom,
   type SameNumberInput,
@@ -105,8 +107,8 @@ describe('AC-V3-63 — 품종 추측은 군말·막는 낱말·정정·칸 이�
   })
 })
 
-describe('AC-V3-61 — decideSameNumber 모든 조합 (R-22, D-V3-31~33·47·55·57·59)', () => {
-  // R-22 입력·결과는 스펙 문장 그대로 쓴다 (numberFrom·recent — D-V3-32·59). V3 D-V3-57부터 찜(CLAIMS)·3배·1/3 묻기는 없다
+describe('AC-V3-61 — decideSameNumber 모든 조합 (R-22, D-V3-31·32·47·55·57·59·64)', () => {
+  // R-22 입력·결과는 스펙 문장 그대로 쓴다 (numberFrom·recent — D-V3-32·59). D-V3-57부터 찜(CLAIMS)·3배·1/3, D-V3-64부터 300만 원(PRICE_JUMP) 묻기는 없다
   type SpecNumberFrom = 'MARKER' | 'BARE'
   type SpecReason = 'NO_AUTO' | 'NUMBER_BARE' | 'NOT_OPEN' | 'PRICE_NOT_SURE' | 'PRICE_JUMP' | 'MAYBE_OTHER' | 'NOT_RECENT'
   interface SpecInput {
@@ -169,7 +171,6 @@ describe('AC-V3-61 — decideSameNumber 모든 조합 (R-22, D-V3-31~33·47·55�
     if (!input.auto) return ask('NO_AUTO')
     if (heard.numberFrom === 'BARE') return ask('NUMBER_BARE')
     if (product.status !== 'OPEN' && product.status !== 'SOLD') return ask('NOT_OPEN')
-    if (changes.price !== undefined && changes.price > 3_000_000) return ask('PRICE_JUMP')
     if (!recent && product.liveClaims > 0) return ask('MAYBE_OTHER')
     return { action: 'AUTO_FIX', changes, reason: recent ? null : 'NOT_RECENT' }
   }
@@ -180,17 +181,18 @@ describe('AC-V3-61 — decideSameNumber 모든 조합 (R-22, D-V3-31~33·47·55�
     expect(wrong.length, JSON.stringify(wrong.slice(0, 3))).toBe(0)
   })
 
-  it('늘 지키는 것: BARE·자동 등록 끔·판매 중 아님·300만 원 초과는 절대 바로 고치지 않음 · 고쳐 말함 아님 + 찜 있음은 덮어쓰지 않음 · GUESS는 품종을 건드리지 않음 · 확정 안 된 가격은 바꾸지 않음 · CLAIMS는 나오지 않음', () => {
+  it('늘 지키는 것: BARE·자동 등록 끔·판매 중 아님은 절대 바로 고치지 않음 · 가격 크기로는 묻지 않음(D-V3-64) · 고쳐 말함 아님 + 찜 있음은 덮어쓰지 않음 · GUESS는 품종을 건드리지 않음 · 확정 안 된 가격은 바꾸지 않음 · CLAIMS는 나오지 않음', () => {
     for (const input of all) {
       const got = decide(input)
       const { heard, product } = input
       if (heard.numberFrom === 'BARE' || !input.auto || !['OPEN', 'SOLD'].includes(product.status)) expect(got.action).not.toBe('AUTO_FIX')
-      if (got.changes.price !== undefined && got.changes.price > 3_000_000) expect(got.action).not.toBe('AUTO_FIX')
+      if (heard.numberFrom === 'MARKER' && input.auto && ['OPEN', 'SOLD'].includes(product.status) && input.recent !== false) expect(got.action).not.toBe('ASK')
+      expect(got.reason).not.toBe('PRICE_JUMP')
       if (input.recent === false && product.liveClaims > 0) expect(got.action).not.toBe('AUTO_FIX')
       if (heard.nameFrom !== 'DICTIONARY') expect(got.changes.name).toBeUndefined()
       if (!heard.priceSure) expect(got.changes.price).toBeUndefined()
       expect(got.reason).not.toBe('CLAIMS')
-      if (got.action === 'ASK') expect(['NO_AUTO', 'NUMBER_BARE', 'NOT_OPEN', 'PRICE_JUMP', 'MAYBE_OTHER']).toContain(got.reason)
+      if (got.action === 'ASK') expect(['NO_AUTO', 'NUMBER_BARE', 'NOT_OPEN', 'MAYBE_OTHER']).toContain(got.reason)
       if (got.action === 'AUTO_FIX') expect([null, 'NOT_RECENT']).toContain(got.reason)
       if (got.action === 'IGNORE') expect([null, 'PRICE_NOT_SURE']).toContain(got.reason)
       expect(Object.keys(got).sort()).toEqual(['action', 'changes', 'reason'])
@@ -198,7 +200,8 @@ describe('AC-V3-61 — decideSameNumber 모든 조합 (R-22, D-V3-31~33·47·55�
   })
 
   it.each([
-    ['R45 300만 원 넘는 올림은 묻기', { price: 6_050_000, priceSure: true, name: '나왔네', nameFrom: 'GUESS', numberFrom: 'MARKER' }, { name: '설비', price: 650_000, liveClaims: 0 }, true, { action: 'ASK', changes: { price: 6_050_000 }, reason: 'PRICE_JUMP' }],
+    ['R45 300만 원 넘는 올림도 바로 고침 (D-V3-64)', { price: 6_050_000, priceSure: true, name: '나왔네', nameFrom: 'GUESS', numberFrom: 'MARKER' }, { name: '설비', price: 650_000, liveClaims: 0 }, true, { action: 'AUTO_FIX', changes: { price: 6_050_000 }, reason: null }],
+    ['D-V3-64 찜 있는 상품 300만 원 넘는 고침도 고쳐 말함이면 바로', { price: 5_000_000, priceSure: true, name: null, nameFrom: null, numberFrom: 'MARKER' }, { name: '', price: 30_000, liveClaims: 1 }, true, { action: 'AUTO_FIX', changes: { price: 5_000_000 }, reason: null }],
     ['D-V3-55 62번 1/3 미만 내림도 바로 고침', { price: 20_000, priceSure: true, name: null, nameFrom: null, numberFrom: 'MARKER' }, { name: '', price: 100_000, liveClaims: 0 }, true, { action: 'AUTO_FIX', changes: { price: 20_000 }, reason: null }],
     ['D-V3-57 찜 있어도 고쳐 말함이면 바로 고침', { price: 120_000, priceSure: true, name: null, nameFrom: null, numberFrom: 'MARKER' }, { name: 'bts', price: 100_000, liveClaims: 3 }, true, { action: 'AUTO_FIX', changes: { price: 120_000 }, reason: null }],
     ['D-V3-57 3배 넘는 올림(300만 원 안)도 바로 고침', { price: 300_001, priceSure: true, name: null, nameFrom: null, numberFrom: 'MARKER' }, { name: 'bts', price: 100_000, liveClaims: 0 }, true, { action: 'AUTO_FIX', changes: { price: 300_001 }, reason: null }],
@@ -218,12 +221,12 @@ describe('AC-V3-61 — decideSameNumber 모든 조합 (R-22, D-V3-31~33·47·55�
     }
   })
 
-  it('decideForExisting도 같은 규칙: 번 없는 번호·끔·판매 중 아님·300만 원 초과·(고쳐 말함 아님 + 찜)은 바로 고치지 않고, 추측은 품종을 건드리지 않는다', () => {
+  it('decideForExisting도 같은 규칙: 번 없는 번호·끔·판매 중 아님·(고쳐 말함 아님 + 찜)은 바로 고치지 않고, 추측은 품종을 건드리지 않으며, 바로 고침의 bigChange는 R-25 크게 바뀜과 정확히 같다', () => {
     fc.assert(
       fc.property(
         fc.constantFrom('', '핑크프릴'),
         fc.constantFrom(0, 1, 3),
-        fc.constantFrom(null, 100_000, 20_000, 300_001, 3_000_001),
+        fc.constantFrom(null, 100_000, 20_000, 33_333, 33_334, 300_000, 300_001, 3_000_001),
         fc.constantFrom(null, '핑크프릴', 'bts'),
         fc.boolean(),
         fc.boolean(),
@@ -238,11 +241,59 @@ describe('AC-V3-61 — decideSameNumber 모든 조합 (R-22, D-V3-31~33·47·55�
             expect(numberFrom).toBe('marker')
             expect(recent || claimCount === 0).toBe(true)
           }
-          if (got.kind === 'AUTO_FIX' && got.price !== null) expect(got.price).toBeLessThanOrEqual(3_000_000)
+          // R-25 크게 바뀜 (가격 고침): 새 가격 > 300만 원, 새 > 전 × 3, 새 × 3 < 전 — 표시만, 막지 않음
+          if (got.kind === 'AUTO_FIX') expect(got.bigChange === true).toBe(got.price !== null && (got.price > 3_000_000 || got.price > 300_000 || got.price * 3 < 100_000))
           if (guessed && got.kind !== 'IGNORE') expect(got.name).toBeNull()
         },
       ),
       { numRuns: 800 },
+    )
+  })
+})
+
+describe('R-25 크게 바뀜 (isBigChange, D-V3-64·65)', () => {
+  it.each([
+    // 등록 (전 값 없음): 가격 > 3,000,000원
+    [null, 3_000_000, false],
+    [null, 3_000_001, true],
+    [null, 100, false],
+    // 가격 고침: 새 > 300만 · 새 > 전 × 3 · 새 × 3 < 전 (정수 비교, 딱 3배·딱 1/3은 아님)
+    [100_000, 300_000, false],
+    [100_000, 300_001, true],
+    [300_000, 100_000, false],
+    [300_000, 99_999, true],
+    [100_000, 33_334, false],
+    [100_000, 33_333, true],
+    [2_000_000, 3_000_000, false],
+    [2_000_000, 3_000_001, true],
+    [5_000_000, 4_000_000, true], // 내림이어도 새 가격이 300만 원 넘음
+    [650_000, 6_050_000, true], // R45 육십오만 → 605만
+    [100_000, 100_000, false],
+  ] as const)('전 %s → 새 %i원: %s', (before, after, want) => {
+    expect(isBigChange(before, after)).toBe(want)
+  })
+
+  it('성질: 스펙 식과 늘 같다 (0원·큰 수 포함)', () => {
+    fc.assert(
+      fc.property(fc.option(fc.integer({ min: 0, max: 50_000_000 }), { nil: null }), fc.integer({ min: 0, max: 50_000_000 }), (before, after) => {
+        const want = after > 3_000_000 || (before !== null && (after > before * 3 || after * 3 < before))
+        expect(isBigChange(before, after)).toBe(want)
+      }),
+      { numRuns: 3000 },
+    )
+  })
+
+  it('성질: 어떤 가격도 바로 등록을 막지 않고, 고른 값의 bigChange는 등록 식(> 300만 원)과 정확히 같다', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 1, max: 99_999 }), fc.integer({ min: 1, max: 999 }), (k, no) => {
+        const price = k * 100
+        const won = `${no}번 ${String(price)}원`
+        const ready = readRegistration(won, { dictionary: DICT, final: true }).ready
+        expect(ready?.price).toBe(price)
+        const picks = readSegments(won, { dictionary: DICT, final: true }).picks
+        expect(picks.map((p) => [p.no, p.price, p.blocked, p.bigChange])).toEqual([[no, price, null, price > 3_000_000]])
+      }),
+      { numRuns: 1000 },
     )
   })
 })

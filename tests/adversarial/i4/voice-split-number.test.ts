@@ -105,9 +105,7 @@ const highestPlace = (n: number): number => String(n).length - 1
  * R-17 3 문장 그대로의 참고 판단: 이 문장은 번호·가격을 비워야 하는가 —
  * 번호 표시의 앞 토큰이 수 토큰이면 앞 수와 합치기(겹치면 비움, D-V3-54), 아니면 D-I4-01(앞 토큰 + X가 R-15로 읽히면 비움).
  */
-let unclear = false
 function mustVoid(text: string): boolean {
-  unclear = false
   const tokens = tokenize(text)
   if (tokens === null) return false
   // 문장 부호 붙은 토큰을 알려고 원래 토큰도 본다 (R-17 1과 같이 나누고 부호를 지우기 전 — 빈 토큰은 tokenize도 버린다)
@@ -124,23 +122,17 @@ function mustVoid(text: string): boolean {
     if (value === null || xIndex === 0) return false
     const previous = tokens[xIndex - 1] as string
     const pValue = numberTokenValue(raws[xIndex - 1] as string)
+    // D-V3-66 (2): 값 0인 토큰(`0`·`영`·`공`)은 수 토큰이 아니고 끊어 말한 번호 검사에도 쓰지 않는다 (`0 5번` = 5번)
+    if (/^(0+|영|공)$/.test(previous)) return false
     if (pValue === null) return parseKoreanNumber(previous + x) !== null // D-I4-01
     if (/^[0-9]$/.test(previous) && /^[0-9]$/.test(x)) return false // 숫자 한 개 둘 → 두 자리
-    // 앞 수 0(`0 삼번`)은 '0이 아닌 가장 낮은 자리'가 없다 — 스펙이 정하지 않았다(보고에 올림)
-    if (pValue === 0) {
-      unclear = true
-      return false
-    }
     if (lowestPlace(pValue) <= highestPlace(value)) return true // 겹침 → 비움
-    // 왼쪽으로 이어 더하다 겹치는 꼴(`1 이십 오번`)은 스펙이 비움인지 멈춤인지 적지 않았다 — 판단하지 않는다(보고에 올림)
+    // D-V3-66 (1): 왼쪽으로 이어 더하다 앞 수 토큰과 겹치면(`1 이십 오번`) 그 문장의 번호·가격을 비운다. 0 토큰에서는 멈춘다
     let sum = value + pValue
     for (let k = xIndex - 2; k >= 0; k--) {
       const left = numberTokenValue(raws[k] as string)
-      if (left === null) break
-      if (left === 0 || lowestPlace(left) <= highestPlace(sum)) {
-        unclear = true
-        break
-      }
+      if (left === null || left === 0) break
+      if (lowestPlace(left) <= highestPlace(sum)) return true
       sum += left
     }
     return false
@@ -169,7 +161,6 @@ describe('속성 (AC-I4-01 확인): 임의 문장', () => {
         const text = tokens.join(' ')
         const result = run(text)
         const expectVoid = mustVoid(text)
-        if (unclear) return
         if (expectVoid) {
           expect(result.no).toBeNull()
           expect(result.price).toBeNull()

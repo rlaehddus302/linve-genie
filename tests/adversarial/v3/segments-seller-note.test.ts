@@ -81,11 +81,12 @@ describe('조각 소비 — 사례 표 R54~R68', () => {
     expect(picks(text, { final, priceUnit: 'TEN_THOUSAND' })).toEqual(want)
   })
 
-  it('D-V3-63 만원 단위 300만 원 초과 "68번 400"(최종) → 4,000,000원은 막힘(카드 "가격 확인 필요"), 딱 300 = 3,000,000원은 바로', () => {
+  // D-V3-64: 가격 크기로 막지 않는다 — 300만 원 넘으면 바로 등록하고 R-25 "크게 바뀜" 표시만 (처음 기대 "막힘"을 바꿈)
+  it('D-V3-63·64 만원 단위 "68번 400"(최종) → 4,000,000원 바로 등록 + 크게 바뀜, 딱 300 = 3,000,000원은 표시 없음', () => {
     const over = seg('68번 400', { priceUnit: 'TEN_THOUSAND' }).picks
-    expect(over.map((p) => [p.no, p.price, p.blocked !== null])).toEqual([[68, 4_000_000, true]])
+    expect(over.map((p) => [p.no, p.price, p.blocked, p.bigChange])).toEqual([[68, 4_000_000, null, true]])
     const edge = seg('68번 300', { priceUnit: 'TEN_THOUSAND' }).picks
-    expect(edge.map((p) => [p.no, p.price, p.blocked])).toEqual([[68, 3_000_000, null]])
+    expect(edge.map((p) => [p.no, p.price, p.blocked, p.bigChange])).toEqual([[68, 3_000_000, null, false]])
   })
 
   it('D-V3-63 낱말 하나씩 늘려 넣기: 품종 없는 "N번 수"는 어느 중간 결과에서도 고르지 않는다', () => {
@@ -124,7 +125,7 @@ describe('조각 소비 — 성질', () => {
     '15번', '16번', '93번', '97번', '108번', '15 번', '일육팔번', '170', '1', '5번', '만 원', '23만 원', '10만원', '7만 원까지', '만오천', '60', '6만', '605만 원', '라울', '청개구리', '빅뱅',
     '자', '요거', '갑니다', '아니', '아니고요', '다시', '말고', '취소', '가격이', '보여', '9cm', '지영님', '달래요', '그런가요',
   ] as const
-  it('고른 값: 번호 1..999 · 가격 100원 이상 · 300만 원 넘으면 막힘 표시 · 조각이 겹치지 않고 차례대로 · 원 가격이면 조각 안에 원 토큰, 품종 없는 빠른 꼴은 최종만', () => {
+  it('고른 값: 번호 1..999 · 가격 100원 이상 · 어떤 가격도 막지 않고 300만 원 넘으면 크게 바뀜(D-V3-64) · 조각이 겹치지 않고 차례대로 · 원 가격이면 조각 안에 원 토큰, 품종 없는 빠른 꼴은 최종만', () => {
     fc.assert(
       fc.property(fc.array(fc.constantFrom(...VOCAB), { minLength: 1, maxLength: 14 }), fc.boolean(), fc.constantFrom<'WON' | 'THOUSAND'>('WON', 'THOUSAND'), (parts, final, priceUnit) => {
         const r = readSegments(parts.join(' '), { dictionary: DICT, final, priceUnit })
@@ -134,7 +135,8 @@ describe('조각 소비 — 성질', () => {
           expect(p.no).toBeLessThanOrEqual(999)
           expect(p.price).toBeGreaterThanOrEqual(100)
           expect(Number.isSafeInteger(p.price)).toBe(true)
-          if (p.price > 3_000_000) expect(p.blocked).not.toBeNull()
+          expect(p.blocked).toBeNull()
+          expect(p.bigChange).toBe(p.price > 3_000_000)
           expect(p.start).toBeGreaterThan(last)
           expect(p.end).toBeGreaterThanOrEqual(p.start)
           last = p.end

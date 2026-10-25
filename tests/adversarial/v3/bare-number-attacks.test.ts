@@ -235,14 +235,14 @@ describe('AC-V3-64 — 원 가격 줄은 m이거나 비움', () => {
     expect(readyToRegister(text, { dictionary: DICT })?.price).toBe(price)
   })
 
-  // D-V3-33: 3,000,000원을 넘는 가격은 읽어도 바로 등록하지 않는다(카드 "가격 확인 필요")
+  // D-V3-64(D-V3-33 상한을 없앰): 3,000,000원을 넘어도 바로 등록한다 — 표시는 R-25 기록 쪽(isBigChange)
   it.each([
     ['15번 999 만 9천9백 원', 9_999_900],
     ['38번 605만 원까지', 6_050_000],
     ['15번 300만 1백 원', 3_000_100],
-  ])('D-V3-33: "%s" → 가격 %i원으로 읽지만 바로 등록 없음', (text, price) => {
+  ])('D-V3-64: "%s" → %i원으로 바로 등록', (text, price) => {
     expect(read(text).price).toBe(price)
-    expect(readyToRegister(text, { dictionary: DICT, final: true })).toBeNull()
+    expect(readyToRegister(text, { dictionary: DICT, final: true })?.price).toBe(price)
   })
 
   it.each(['15번 백 오만 원', '15번 100 5만 원', '15번 1.5 만원', '15번 이 만원짜리', '15번 라울 174 28만 원', '15번 170 25만 원'])('애매한 줄 "%s" → 가격 비움, 바로 등록 없음', (text) => {
