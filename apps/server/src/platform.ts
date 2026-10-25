@@ -5,12 +5,15 @@
 // - 댓글 원천(라이브 찾기)과 감사 보내기는 플랫폼 공통 어댑터 모양이고 인스타그램이 첫 구현이다.
 // - 틱톡(N2b-2, D-904·D-N2b-2-05): 비공식 웹캐스트 연결(tiktok-live/)로 댓글을 읽기만 한다. 감사는 보내지 않는다.
 // - 한 회차에 플랫폼마다 연결 하나(동시 송출, D-N2b-2-01). 플랫폼 이름은 PLATFORM_NAMES로 판매자 문장에 넣는다.
+// - 밴드(BND1, D-BND1-02): 공식 밴드 Open API로 내 글의 댓글을 읽기만 한다(band/). `band:` 접두어 — 감사는 보내지 않는다.
 
-export const PLATFORMS = ['YOUTUBE', 'INSTAGRAM', 'TIKTOK'] as const
+export const PLATFORMS = ['YOUTUBE', 'INSTAGRAM', 'TIKTOK', 'BAND'] as const
 export type Platform = (typeof PLATFORMS)[number]
 
 export const INSTAGRAM_PREFIX = 'ig:'
 export const TIKTOK_PREFIX = 'tt:'
+/** 밴드 글 댓글 (BND1, D-BND1-02) — 소문자만 접두어다(`BAND:`는 유튜브로 본다) */
+export const BAND_PREFIX = 'band:'
 export const SMS_PREFIX = 'sms:'
 /** 접두어를 붙인 키·메시지 ID의 길이 상한 (수집 함수 메시지 ID 상한과 같다) */
 export const PLATFORM_KEY_MAX = 256
@@ -23,6 +26,7 @@ export function isPlatform(value: unknown): value is Platform {
 export function platformOfKey(key: string): Platform | null {
   if (key.startsWith(INSTAGRAM_PREFIX)) return 'INSTAGRAM'
   if (key.startsWith(TIKTOK_PREFIX)) return 'TIKTOK'
+  if (key.startsWith(BAND_PREFIX)) return 'BAND'
   if (key.startsWith(SMS_PREFIX)) return null
   return 'YOUTUBE'
 }
@@ -54,7 +58,7 @@ export interface PlatformCapability {
 }
 
 /** 판매자 문장에 넣는 플랫폼 이름 */
-export const PLATFORM_NAMES: Readonly<Record<Platform, string>> = { YOUTUBE: '유튜브', INSTAGRAM: '인스타그램', TIKTOK: '틱톡' }
+export const PLATFORM_NAMES: Readonly<Record<Platform, string>> = { YOUTUBE: '유튜브', INSTAGRAM: '인스타그램', TIKTOK: '틱톡', BAND: '밴드' }
 
 /** 같은 플랫폼 라이브가 이미 이어져 있음 (AC-N2b-2-01 — 플랫폼마다 같은 모양) */
 export function alreadyLinkedMessage(platform: Platform): string {
@@ -72,7 +76,7 @@ export const PLATFORM_MESSAGES = {
  * 플랫폼 능력 표. YOUTUBE.ready = 유튜브 연동 설정이 있는지, INSTAGRAM.ready = 인스타그램 설정이 있는지(AC-N2-17),
  * TIKTOK은 틱톡 연결(tiktok-live/live.ts capability — 운영자 스위치, AC-N2b-2-04)이 준다
  */
-export function platformCapabilities(ready: { readonly youtube: boolean; readonly instagram: boolean }, tiktok: PlatformCapability): PlatformCapability[] {
+export function platformCapabilities(ready: { readonly youtube: boolean; readonly instagram: boolean }, tiktok: PlatformCapability, band?: PlatformCapability): PlatformCapability[] {
   return [
     {
       platform: 'YOUTUBE',
@@ -95,6 +99,7 @@ export function platformCapabilities(ready: { readonly youtube: boolean; readonl
       },
     },
     tiktok,
+    ...(band === undefined ? [] : [band]),
   ]
 }
 
