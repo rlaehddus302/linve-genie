@@ -141,16 +141,21 @@ export function CurrentProduct({ product, onOpen }: { readonly product: Product 
  * 값은 카드와 같다(1등·대기). 100% 글자 고정 영역 35%는 요약이 든 채로 지켜져(측정, dev-notes) 6글자 줄이기(D-QL2-11 (3))는 쓰지 않는다
  */
 export function CurrentSummary({ product }: { readonly product: Product | undefined }) {
-  return (
-    <p className="current-summary" role="status" aria-live="polite" aria-label="현재 상품 요약">
-      {product === undefined ? currentSummaryWords(undefined) : <SummaryText product={product} />}
-    </p>
-  )
+  return product === undefined ? <SummaryLine text={currentSummaryWords(undefined)} /> : <CurrentProductSummary product={product} />
 }
 
-function SummaryText({ product }: { readonly product: Product }) {
+function CurrentProductSummary({ product }: { readonly product: Product }) {
   const winners = useWinnerNames(product)
-  return <>{currentSummaryWords({ no: product.no, name: nameOf(product), status: product.status, winners, waiting: waitCount(product) })}</>
+  return <SummaryLine text={currentSummaryWords({ no: product.no, name: nameOf(product), status: product.status, winners, waiting: waitCount(product) })} />
+}
+
+/** 요약 한 줄 — 휴대폰 큰 글씨에서는 한 줄 말줄임이라 문장 전체를 title에도 둔다 (QL3R1 D-QL3R1-02 ⓒ). 글로만 넣는다 */
+function SummaryLine({ text }: { readonly text: string }) {
+  return (
+    <p className="current-summary" role="status" aria-live="polite" aria-label="현재 상품 요약" title={text}>
+      {text}
+    </p>
+  )
 }
 
 function CurrentBody({ product, onOpen }: { readonly product: Product; readonly onOpen: (key: string) => void }) {

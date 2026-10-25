@@ -59,13 +59,13 @@ describe('봉인 예고 (AC-I3-40)', () => {
     days({ sealAt: new Date(LATER).toISOString(), sealed: false })
     render(<Harness initial={{ name: 'settlements', date: DATE, rehearsal: false }} />)
     await flush(10)
-    expect(screen.getByText(/^이 날짜 기록은 \d+월 \d+일 \d+시( \d+분)?에 봉인돼요$/)).toBeDefined()
+    expect(screen.getByText(/^이 날짜 기록은 \d+월 \d+일 \d+시( \d+분)?부터 잠겨요\. 그 뒤로는 고칠 수 없어요\.$/)).toBeDefined()
     expect(screen.queryByText(/그 전에 정산을 마쳐 주세요/)).toBeNull()
     cleanup()
     days({ sealAt: new Date(SOON).toISOString(), sealed: false })
     render(<Harness initial={{ name: 'buyers', date: DATE, rehearsal: false }} />)
     await flush(10)
-    expect(screen.getByText(/이 날짜 기록은 .*봉인돼요/)).toBeDefined()
+    expect(screen.getByText(/이 날짜 기록은 .*부터 잠겨요\. 그 뒤로는 고칠 수 없어요\./)).toBeDefined()
     expect(screen.getByRole('note').textContent).toBe('30일이 지나면 채팅 내용을 지우고 기록을 봉인해요. 그 뒤로는 입금·배송비 같은 기록을 고칠 수 없어요. 그 전에 정산을 마쳐 주세요.')
   })
 
@@ -84,7 +84,7 @@ describe('봉인 예고 (AC-I3-40)', () => {
     const items = within(screen.getByRole('list', { name: '방송' })).getAllByRole('listitem')
     const real = items.find((item) => item.textContent?.includes('1부')) as HTMLElement
     const rehearsal = items.find((item) => item.textContent?.includes('리허설')) as HTMLElement
-    expect(real.textContent).toMatch(/이 날짜 기록은 .*봉인돼요/)
+    expect(real.textContent).toMatch(/이 날짜 기록은 .*부터 잠겨요\. 그 뒤로는 고칠 수 없어요\./)
     expect(real.textContent).toContain('그 전에 정산을 마쳐 주세요.')
     expect(rehearsal.textContent).not.toContain('봉인')
   })

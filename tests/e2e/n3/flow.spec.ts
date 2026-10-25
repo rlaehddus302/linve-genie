@@ -158,7 +158,7 @@ test.describe('입금 확인 끝까지 흐름', () => {
     const [second] = await deposit(page, src2, [{ key: uniq('a'), at, amount: sale.remaining, name }])
     expect(second!.status).toBe('REVIEW')
     await openReview(page)
-    await expect(depositRow(page, second!.no)).toContainText(`같은 입금이 두 번 들어왔을 수 있어요 (입금 번호 ${String(first!.no)}과 같아요)`) // MOB2 D-MOB2-05
+    await expect(depositRow(page, second!.no)).toContainText(`같은 입금이 두 번 들어왔을 수 있어요 (입금 번호 ${String(first!.no)}도 같은 입금이에요)`) // MOB2 D-MOB2-05 + QL3R2 D-QL3R2-04 (D-QL3R1-10 (3))
     // 묶음은 과입금이 아니다
     const s = (await scopeView(page, sale.date, false)).settlements.find((x) => x.buyer === sale.buyer)!
     expect(s.received).toBe(sale.remaining)

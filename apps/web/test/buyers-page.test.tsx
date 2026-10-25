@@ -244,8 +244,7 @@ describe('합치기·떼어 내기 (AC-S06-23·24, AC-S06b-33·34, G-ENG-171·17
     const smsRow = rows.find((row) => row.textContent?.includes('문자찜')) as HTMLElement
     fireEvent.click(within(smsRow).getByRole('button', { name: '찜 취소하기' }))
     const reason = await screen.findByRole('dialog', { name: '1부 18번 문자찜(김씨) 취소' })
-    fireEvent.click(within(reason).getByRole('button', { name: '3 번호 착오' }))
-    fireEvent.click(within(reason).getByRole('button', { name: '찜 취소하기' }))
+    fireEvent.click(within(reason).getByRole('button', { name: '3 번호 착오' })) // 찜 취소 창은 고르면 바로 보낸다 (QL3R1 D-QL3R1-05)
     // 사유 창이 닫히면 상품 자세히가 그대로 — 합치기로 돌아가는 길이 있다
     const again = await screen.findByRole('dialog', { name: '1부 18번 자세히' })
     await waitFor(() => expect(engine.posts.some((post) => post.type === 'host.cancel')).toBe(true))

@@ -6,7 +6,7 @@ import { installFakeSpeech, turnOnVoice, voiceRegion } from '../i4/support.ts'
 import { consoleInstagram, consoleTiktok, enableTiktokApi, newTiktokId, ttLive } from '../n2b2/support.ts'
 import { boardItem, history, uniqueDate } from '../s05/support.ts'
 import { registerApi, smsApi } from '../s06/support.ts'
-import { PC, PHONE, alerts, baseUrlOf, broadcastApi, endBroadcastApi, expectNoDevWords, freshSeller, newDevice } from './support.ts'
+import { PC, PHONE, alerts, baseUrlOf, broadcastApi, endBroadcastApi, expectNoDevWords, freshSeller, newDevice, pendingWord } from './support.ts' // QL3R2 D-QL3R2-02 (pendingWord)
 
 const INSTAGRAM_NOT_READY = '인스타그램 연동이 아직 준비되지 않았어요. 운영자에게 문의해 주세요.'
 const REHEARSAL_LIVE = '리허설 방송에는 라이브를 이을 수 없어요.'
@@ -160,7 +160,7 @@ test.describe('AC-MOB1-17 끝난 방송 콘솔', () => {
         await expectNoQuickRow(dev, label)
         await expect(dev.getByRole('button', { name: '음성 켜기', exact: true })).toHaveCount(0)
         await expect(alerts(dev)).toBeVisible()
-        await expect(alerts(dev).getByRole('button', { name: /^보류 찜 1$/ })).toHaveCount(1)
+        await expect(alerts(dev).getByRole('button', { name: `${pendingWord(dev)} 1`, exact: true })).toHaveCount(1) // QL3R2 D-QL3R2-02
         await expect(dev.getByRole('region', { name: '상품 보드' })).toBeVisible()
         await expect(dev.getByRole('link', { name: '영수증 보내기' })).toBeVisible()
         await expectNoDevWords(dev, `${label} 끝난 콘솔`)

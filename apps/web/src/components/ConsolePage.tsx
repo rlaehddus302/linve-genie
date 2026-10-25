@@ -22,7 +22,7 @@ import { COUNT_PROBLEM, DEFAULT_COUNT, readCount } from '../lib/stock.ts'
 import { SALE_MODE_WORD } from '../lib/words.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
 import { dateWords } from '../lib/kst.ts'
-import { LABELS_OFF_NOTE, pauseAlertMessage, stationLeadText } from '../lib/print-words.ts'
+import { LABELS_OFF_NOTE, pauseAlertMessage, stationLeadShortText, stationLeadText } from '../lib/print-words.ts'
 import { useLeaveGuard } from '../lib/leave-guard.ts'
 import { ReadOnlyContext } from '../lib/read-only.ts'
 import { changedFields, decideFixForm, decideQuickInput, editQuestion, quickSettings, type QuickDecision } from '../lib/quick.ts'
@@ -182,7 +182,7 @@ export function ConsolePage(props: ConsolePageProps) {
   if (snapshot.phase === 'error' && snapshot.error !== null) {
     return (
       <main className="page">
-        <h1>콘솔을 열지 못했어요</h1>
+        <h1>방송 화면을 열지 못했어요</h1>
         <ErrorNote error={snapshot.error} onRetry={() => window.location.reload()} retryLabel="다시 열기" />
       </main>
     )
@@ -590,13 +590,16 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   printAlertsRef.current = printAlerts
   // 출력 기기 끊김·출력 기기 없음 항목 (MOB1 D-MOB1-08, AC-MOB1-13): 알림 띠 맨 앞(플랫폼 줄 다음), Alt+1 순서·알림 수에는 넣지 않는다
   const printApi = usePrintApi()
-  const stationText = stationLeadText({
+  const stationInput = {
     labelsOn,
     rehearsal: broadcast.rehearsal,
     ended: ended || sealed,
     queue: queueSummary,
     mine: printApi !== null && queueSummary !== null && printApi.station.isMine(queueSummary),
-  })
+  }
+  const stationText = stationLeadText(stationInput)
+  // 휴대폰 접힌 띠에서만 쓰는 끊김 짧은 문장 (QL3R1 D-QL3R1-04)
+  const stationShort = stationLeadShortText(stationInput)
   /** 되돌릴 것이 없는 Ctrl+Z에 음성 문자찜 결과 카드가 열려 있다는 알림 (잠시 보인다, D-V1-22) */
   const [undoNote, setUndoNote] = useState<{ readonly text: string; readonly n: number } | null>(null)
   useEffect(() => {
@@ -1262,7 +1265,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     ) : null
 
   // 행동 줄 (방송 목록·상품 목록 가져오기·방송 끝내기 / 끝난 방송: "끝난 방송이에요"·영수증 보내기 / 음성 켜기).
-  // PC는 제목 옆, 휴대폰은 현재 상품 아래 (QL2 D-QL2-01 (1) — 안의 차례·문장·확인 창 그대로)
+  // PC는 제목 옆, 휴대폰은 채팅 아래 (QL3R1 D-QL3R1-03 — 안의 차례·문장·확인 창 그대로)
   const actions = (
     <div className="row console-actions">
       <a
@@ -1318,6 +1321,27 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     />
   ) : null
   const currentProduct = <CurrentProduct product={current} onOpen={(key) => openDialog({ kind: 'product', key })} />
+  // 상품 보드·채팅 — PC는 칸 격자 안, 휴대폰은 음성 칸 바로 아래·행동 줄 위 (QL3R1 D-QL3R1-03)
+  const board = (
+    <ProductBoard
+      onOpen={(key) => {
+        setSelected(key)
+        openDialog({ kind: 'product', key })
+      }}
+    />
+  )
+  const chat = (
+    <ChatPanel
+      messages={snapshot.messages}
+      older={snapshot.olderMessages}
+      loadingOlder={snapshot.loadingOlder}
+      onLoadOlder={() => void store.loadOlder()}
+      convertNotes={convertNotes}
+      sealedMessage={snapshot.sealedMessage}
+      {...(optionMode ? { onReview: () => navigate({ name: 'reviews', broadcast: b, rehearsal: broadcast.rehearsal }) } : {})}
+      platformTags={platformTags}
+    />
+  )
 
   return (
     <ConsoleContext.Provider value={api}>
@@ -1355,7 +1379,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
             <AlertStrip
               leads={[
                 ...platformLeads({ live, sealed, onPaste: openPaste, pasteNote }),
-                ...(stationText === null ? [] : [{ key: 'print-station', text: stationText, soft: true, uncounted: true, onClick: () => navigate({ name: 'labels' }) }]),
+                ...(stationText === null ? [] : [{ key: 'print-station', text: stationText, ...(stationShort === null ? {} : { shortText: stationShort }), soft: true, uncounted: true, onClick: () => navigate({ name: 'labels' }) }]),
               ]}
               counts={counts}
               print={printAlerts}
@@ -1439,12 +1463,15 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           {wide ? voiceLive : null}
         </div>
         {wide || ended || sealed ? null : <QuickUnitLine value={quickText} />}
-        {/* 휴대폰: 고정 영역·단위 줄 다음 현재 상품 → 행동 줄 → 음성 칸 → 리허설 조작판 (QL2 D-QL2-01 (1)) — 큰 글씨 첫 화면에 지금 상품과 1등 */}
+        {/* 휴대폰 차례 (QL3R1 D-QL3R1-03 — D-QL2-01 (1)을 대신함): 고정 영역·단위 줄 → 현재 상품 → 음성 칸 → 상품 보드 → 채팅 → 행동 줄 → 리허설 조작판
+            → 여러 플랫폼 안내 → 유튜브 칸 → 인스타그램·틱톡 칸. 방송 중 자주 보는 보드·채팅을 엄지 가까이, 드물게 누르는 "방송 끝내기"는 그 아래. PC는 그대로 */}
         {wide ? null : currentProduct}
-        {wide ? null : <div className="console-head console-head-actions">{actions}</div>}
         {wide ? null : voiceLive}
         {/* 음성 칸 바로 아래 접는 칸 "음성 설정과 기록" (D-V2-21) — PC는 고정 영역 바로 아래 */}
         {voice === null ? null : <VoiceExtras voice={voice} snapshot={voiceSnapshot} />}
+        {wide ? null : board}
+        {wide ? null : chat}
+        {wide ? null : <div className="console-head console-head-actions">{actions}</div>}
         {wide ? null : rehearsalPanel}
         <div className="console-grid">
           <div className="console-side">
@@ -1461,22 +1488,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
             />
             <PlatformPanels live={live} broadcastId={b} navigate={navigate} ended={ended} sealed={sealed} onPaste={openPaste} />
           </div>
-          <ProductBoard
-            onOpen={(key) => {
-              setSelected(key)
-              openDialog({ kind: 'product', key })
-            }}
-          />
-          <ChatPanel
-            messages={snapshot.messages}
-            older={snapshot.olderMessages}
-            loadingOlder={snapshot.loadingOlder}
-            onLoadOlder={() => void store.loadOlder()}
-            convertNotes={convertNotes}
-            sealedMessage={snapshot.sealedMessage}
-            {...(optionMode ? { onReview: () => navigate({ name: 'reviews', broadcast: b, rehearsal: broadcast.rehearsal }) } : {})}
-            platformTags={platformTags}
-          />
+          {wide ? board : null}
+          {wide ? chat : null}
         </div>
         {/* 단축키 줄은 PC 폭만 (MOB1 D-MOB1-09, AC-MOB1-15) — 휴대폰에는 키보드 단축키가 없다 */}
         {wide ? <p className="shortcuts">{shortcutsWord(labelsOn === true)}</p> : null}

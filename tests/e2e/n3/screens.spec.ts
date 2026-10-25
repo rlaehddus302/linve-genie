@@ -98,7 +98,7 @@ test.describe('입금 확인 화면 경계', () => {
     await page.goto('/deposits?tab=sources')
     await expect(page.getByText('계좌 연동은 아직 준비 중이에요. 붙여넣기로 넣어 주세요.')).toBeVisible()
     await expect(page.getByLabel(/비밀번호/)).toHaveCount(0)
-    const item = page.getByRole('listitem', { name: `원천 ${label}` })
+    const item = page.getByRole('listitem', { name: `입금 받는 곳 ${label}` }) // QL3R2 D-QL3R2-04
     await expect(item).toBeVisible()
     await expect(item).toContainText('시험용 입금')
     await expect(item.getByLabel('받아 오는 주기')).toBeVisible()
@@ -136,7 +136,7 @@ test.describe('입금 확인 화면 경계', () => {
       if (tab === '') await expect(phone.getByRole('list', { name: '확인 필요 입금' }).getByRole('listitem').first()).toBeVisible()
       if (tab === '?tab=done') await expect(phone.getByRole('list', { name: '자동 확인됨·확인함 입금' }).getByRole('listitem').first()).toBeVisible()
       if (tab === '?tab=ignored') await expect(phone.getByRole('list', { name: '무시한 입금' }).getByRole('listitem').first()).toBeVisible()
-      if (tab === '?tab=sources') await expect(phone.getByRole('list', { name: '원천' })).toBeVisible()
+      if (tab === '?tab=sources') await expect(phone.getByRole('list', { name: '입금 받는 곳' })).toBeVisible() // QL3R2 D-QL3R2-04
       if (tab === '?tab=paste') await expect(phone.getByLabel('입금 내역')).toBeVisible()
       await expect(phone.getByRole('table')).toHaveCount(0)
       await noHorizontalScroll(phone)

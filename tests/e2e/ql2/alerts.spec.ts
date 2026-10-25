@@ -26,6 +26,8 @@ import {
   setLabelsApi,
   stationLost,
 } from './support.ts'
+import { foldedShortRow, pendingWord, shortLostText } from '../mob1/support.ts' // QL3R2 D-QL3R2-02
+import { NO_STATION_SHORT } from '../ql3r2/support.ts' // QL3R2 D-QL3R2-03
 
 interface World {
   readonly main: Page
@@ -64,8 +66,11 @@ test.describe('AC-QL2-05·40 세는 알림 0이어도 펼치기 — 출력 기�
       await registerApi(w.main, b, 1, '품종1', 1000)
       await smsApi(w.main, { b, no: 1, phone: '010-6200-0001' })
       const item = alerts(w.main).getByRole('button', { name: NO_STATION_PILING, exact: true })
-      await expect(item).toHaveCount(1)
-      await expect(alerts(w.main).getByRole('button')).toHaveCount(1)
+      // 접힌 휴대폰 띠: 출력 기기 없음 항목은 "알림" 영역 안에 없고 짧은 줄 하나로만 // QL3R2 D-QL3R2-02·03
+      const short = foldedShortRow(w.main, NO_STATION_SHORT) // QL3R2 D-QL3R2-03
+      await expect(short).toHaveCount(1) // QL3R2 D-QL3R2-03
+      await expect(item).toHaveCount(0) // QL3R2 D-QL3R2-02
+      await expect(alerts(w.main).getByRole('button')).toHaveCount(0) // QL3R2 D-QL3R2-02
       const open = w.main.getByRole('button', { name: '알림 펼치기', exact: true })
       await expect(open).toBeVisible()
       await expect(open).toHaveAttribute('aria-expanded', 'false')
@@ -75,10 +80,11 @@ test.describe('AC-QL2-05·40 세는 알림 0이어도 펼치기 — 출력 기�
       await expect(item).toBeVisible()
       await expect(item).toHaveText(NO_STATION_PILING)
       await expectNoClip(item, '펼친 출력 기기 없음 항목')
+      await expect(short).toHaveCount(0) // QL3R2 D-QL3R2-02
       await close.click()
       await expect(w.main.getByRole('button', { name: '알림 펼치기', exact: true })).toHaveAttribute('aria-expanded', 'false')
-      // 누르면 라벨 화면 (지금 그대로)
-      await item.click()
+      // 누르면 라벨 화면 (지금 그대로 — 접힌 동안은 짧은 줄) // QL3R2 D-QL3R2-03
+      await short.click() // QL3R2 D-QL3R2-03
       await expect(w.main).toHaveURL(/\/labels$/)
     } finally {
       await w.context.close()
@@ -104,9 +110,12 @@ async function sixWorld(browser: Browser, page: Page, viewport: { width: number;
   if (big) await expectBig(w.main)
   const strip = alerts(w.main)
   // MOB2 D-MOB2-02: 접힌 띠에서 상자에 다 들지 않는 칩은 숨겨지고 접근성 트리에서도 빠진다 — 준비 확인은 숨은 칩도 센다(항목이 있는지만 본다)
-  await expect(strip.getByRole('button', { name: '보류 찜 1', exact: true, includeHidden: true })).toHaveCount(1) // MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
+  await expect(strip.getByRole('button', { name: `${pendingWord(w.main)} 1`, exact: true, includeHidden: true })).toHaveCount(1) // QL3R2 D-QL3R2-02 · MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
   await expect(strip.getByRole('button', { name: SELLER_PAUSE_ALERT, exact: true, includeHidden: true })).toHaveCount(1) // MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
-  await expect(strip.getByRole('button', { name: stationLost('안드로이드 폰'), exact: true, includeHidden: true })).toHaveCount(1, { timeout: 30_000 }) // MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
+  // 접힌 휴대폰 띠: 끊김은 "알림" 영역 밖 짧은 줄 하나로만 // QL3R2 D-QL3R2-02
+  const folded = viewport.width < 768 // QL3R2 D-QL3R2-02
+  if (folded) await expect(foldedShortRow(w.main, shortLostText('안드로이드 폰'))).toHaveCount(1, { timeout: 30_000 }) // QL3R2 D-QL3R2-02
+  await expect(strip.getByRole('button', { name: stationLost('안드로이드 폰'), exact: true, includeHidden: true })).toHaveCount(folded ? 0 : 1, { timeout: 30_000 }) // QL3R2 D-QL3R2-02 · MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
   return { w, dev }
 }
 

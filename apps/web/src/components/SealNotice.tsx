@@ -4,7 +4,7 @@ import { kstHourWords } from '../lib/kst.ts'
 import { SEALED_READ_ONLY, SEAL_WARNING, sealSoon } from '../lib/youtube.ts'
 
 export function sealAtWords(sealAt: string): string {
-  return `이 날짜 기록은 ${kstHourWords(sealAt)}에 봉인돼요`
+  return `이 날짜 기록은 ${kstHourWords(sealAt)}부터 잠겨요. 그 뒤로는 고칠 수 없어요.`
 }
 
 /** 봉인 예정 (봉인 시각이 없으면 아무것도 없다) */

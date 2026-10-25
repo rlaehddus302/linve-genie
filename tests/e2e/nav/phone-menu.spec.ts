@@ -4,6 +4,7 @@ import { expect, test, type Browser, type Page } from '@playwright/test'
 import { loginAs, loginNewSeller, login, noHorizontalScroll, openNewBroadcast, registerApi, sendViewerChat, settingsRegion, smsApi, uniqueDate, viewerClaim } from '../i3/support.ts'
 import { deposit, fakeSource, kstIso, postJson, uniq } from '../n3/support.ts'
 import { BAR_CELLS, barCells, closeMore, expectPhoneBar, expectTarget, fakeReviewCount, menu, menuLink, moreButton, moreLinks, moreList, openMore } from '../menu.ts'
+import { pendingWord } from '../mob1/support.ts' // QL3R2 D-QL3R2-02
 
 const PHONE = { width: 375, height: 812 }
 // T1(AC-T1-60, AC-NAV-09): "택배"는 판매자 목록의 "설정" 바로 앞
@@ -368,8 +369,7 @@ test.describe('AC-NAV-06: 목록 항목도 같은 메뉴 링크', () => {
     await item.click()
     const detail = page.getByRole('dialog', { name: '15번 자세히' })
     await detail.getByRole('button', { name: '찜 취소하기' }).first().click()
-    await page.keyboard.press('1')
-    await page.keyboard.press('Enter')
+    await page.keyboard.press('1') // QL3R1 D-QL3R1-05: 빠른 사유로 바로 5초 대기 (보내기 Enter 없음)
     await expect(detail).toHaveCount(0)
     await openMore(page)
     await menuLink(page, /^입금 확인( \d+)?$/).click()
@@ -421,7 +421,7 @@ test.describe('AC-NAV-07: 콘솔 고정 영역', () => {
       await smsApi(phone, { b, no: 40, memo: '병' })
       const strip = phone.getByRole('region', { name: '알림' })
       // MOB2 D-MOB2-02: 접힌 띠에 다 들지 않는 칩은 숨겨지고 접근성 트리에서도 빠진다 — 항목이 있는지·차례는 숨은 칩도 센다
-      await expect(strip.getByRole('button', { name: /^보류 찜 \d+$/, includeHidden: true })).toHaveCount(1) // MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
+      await expect(strip.getByRole('button', { name: new RegExp(`^${pendingWord(phone)} \\d+$`), includeHidden: true })).toHaveCount(1) // QL3R2 D-QL3R2-02 · MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
       await expect(strip.getByRole('button', { name: /^취소 요청 \d+$/, includeHidden: true })).toHaveCount(1) // MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
       const input = phone.getByLabel('빠른 입력')
       await input.fill('20 새상품 10000')

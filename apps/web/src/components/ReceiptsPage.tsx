@@ -94,7 +94,7 @@ export function ReceiptsPage({ broadcastId, navigate, shopName }: ReceiptsPagePr
         navigate({ name: 'console', id: broadcastId })
       }}
     >
-      콘솔로 돌아가기
+      방송 화면으로 돌아가기
     </a>
   )
   if (!ended) {
