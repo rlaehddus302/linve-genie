@@ -382,18 +382,17 @@ expect:
 
 ## 음성 바로 등록 골든 (`voice-register/*.json`, V3 — D-V3-06·D-V3-09)
 
-음성 패키지(`packages/voice`)의 네 순수 함수를 고정한다. 규칙 문장은 `docs/spec/DOMAIN_RULES.md` R-17 7(품종 추측)·R-22(음성 같은 번호)·R-23(판매자 채팅 품종 글)·R-24(음성 번호 옮기기 말)이다. 바로 등록의 때(확정 읽기 R-17 8)·카드 합치기·되돌리기는 시계·화면 상태에 기대므로 골든이 아니라 수용 기준(`harness/sprints/V3/acceptance.md` 사례 표)의 단위·적대·E2E 시험으로 본다. 확정 읽기의 번호·가격 값 자체는 `parser/voice-extract.yaml`(R-17 1~5)이 고정한다.
+음성 패키지(`packages/voice`)의 세 순수 함수를 고정한다. 규칙 문장은 `docs/spec/DOMAIN_RULES.md` R-17 7(품종 추측)·R-22(음성 같은 번호)·R-24(음성 번호 옮기기 말)이다(R-23은 D-V3-68로 없앰). 바로 등록의 때(확정 읽기 R-17 8)·카드 합치기·되돌리기는 시계·화면 상태에 기대므로 골든이 아니라 수용 기준(`harness/sprints/V3/acceptance.md` 사례 표)의 단위·적대·E2E 시험으로 본다. 확정 읽기의 번호·가격 값 자체는 `parser/voice-extract.yaml`(R-17 1~5)이 고정한다.
 
-- **누가 읽나**: 코어 골든 러너는 읽지 않는다(`*.yaml`만 — 허용 목록의 대상도 아니다). `packages/voice` 단위 테스트가 이 폴더의 모든 `*.json`을 읽어 `kind`에 맞는 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 파일 수·사례 수 합계(V3: 파일 4 · 사례 142 — variety-guess 42 · same-number 54 · seller-note 22 · renumber 24. same-number `in`에 `recent`(D-V3-59)가 더해졌다. 실방송 3차 뒤 D-V3-30~32, 7차 뒤 D-V3-47, 8차 뒤 D-V3-55·57로 기존 사례 기대를 바꿈 — 근거는 DECISIONS, 바뀐 사례의 note에 처음 기대)를 고정값으로 단언한다 — 미구현을 허용하는 장치가 없어 하나라도 빠지거나 다르면 test 단계가 실패한다.
-- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `variety-guess`·`same-number`·`seller-note`(V3 D-V3-49, R-23)·`renumber`(V3 D-V3-58, R-24). 모르는 키·모르는 `kind`·겹친 `id`·아래 표 밖의 열거값은 테스트 실패(읽기 오류)다.
-- **사례 키**: `id`(`G-VGS-V3-`·`G-VSN-V3-`·`G-VSL-V3-`·`G-VRN-V3-` + 두 자리, 이 폴더 전체에서 유일 — 다음 스프린트는 `G-VGS-<스프린트>-`), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `in`, `out`.
+- **누가 읽나**: 코어 골든 러너는 읽지 않는다(`*.yaml`만 — 허용 목록의 대상도 아니다). `packages/voice` 단위 테스트가 이 폴더의 모든 `*.json`을 읽어 `kind`에 맞는 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 파일 수·사례 수 합계(V3: 파일 3 · 사례 120 — variety-guess 42 · same-number 54 · renumber 24. seller-note 22사례는 D-V3-68로 지웠다. same-number `in`에 `recent`(D-V3-59)가 더해졌다. 실방송 3차 뒤 D-V3-30~32, 7차 뒤 D-V3-47, 8차 뒤 D-V3-55·57로 기존 사례 기대를 바꿈 — 근거는 DECISIONS, 바뀐 사례의 note에 처음 기대)를 고정값으로 단언한다 — 미구현을 허용하는 장치가 없어 하나라도 빠지거나 다르면 test 단계가 실패한다.
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `variety-guess`·`same-number`·`renumber`(V3 D-V3-58, R-24). (`seller-note`(D-V3-49, R-23)는 D-V3-68로 규칙을 없애 파일을 지웠다 — 이 kind가 나오면 읽기 오류.) 모르는 키·모르는 `kind`·겹친 `id`·아래 표 밖의 열거값은 테스트 실패(읽기 오류)다.
+- **사례 키**: `id`(`G-VGS-V3-`·`G-VSN-V3-`·`G-VRN-V3-` + 두 자리 — `G-VSL-V3-`는 지운 seller-note 것이라 다시 쓰지 않는다, 이 폴더 전체에서 유일 — 다음 스프린트는 `G-VGS-<스프린트>-`), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `in`, `out`.
 
 | `kind` | `in` | `out` |
 |---|---|---|
 | `variety-guess` | `{ "text", "maxNumber"? }` — `text` 글(그대로 넘긴다), `maxNumber` = `claim.maxNumber`(1~9999, 생략하면 999). 사전은 없다(추측은 사전을 쓰지 않는다) | `{ "guess" }` 정확히 한 키 — 낱말(빈 글이 아닌 문자열) 또는 `null` |
 | `same-number` | `{ "heard", "product", "auto" }` — `heard` = `{ "price", "priceSure", "name", "nameFrom", "numberFrom" }`(`price` 100 이상 정수 또는 `null`, `priceSure` 불리언, `name` 문자열 또는 `null`, `nameFrom` ∈ `DICTIONARY`·`GUESS`·`null`, `numberFrom` ∈ `MARKER`·`BARE` — V3 D-V3-32), `product` = `{ "name", "price", "status", "liveClaims" }`(`name` 문자열 — `""` = 품종 미입력, `price` 100 이상 정수, `status` ∈ `READY`·`OPEN`·`SOLD`·`HOLD`·`CLOSED`, `liveClaims` 0 이상 정수), `auto` 불리언 | `{ "action", "changes", "reason" }` 정확히 세 키 — `action` ∈ `IGNORE`·`AUTO_FIX`·`ASK`, `changes` = `{}` 또는 `{ "price"?, "name"? }`(있는 키만 — 실제 결과에도 없어야 한다), `reason` — `ASK`면 `NO_AUTO`·`NUMBER_BARE`·`NOT_OPEN`·`MAYBE_OTHER`(D-V3-57부터 `CLAIMS`, D-V3-64부터 `PRICE_JUMP` 없음), `IGNORE`면 `null`·`PRICE_NOT_SURE`(D-V3-47), `AUTO_FIX`면 `null`·`NOT_RECENT`(D-V3-59). `in`에 `"recent"` 불리언(필수) |
 | `renumber` | `{ "text", "maxNumber"? }` — 조각 글 하나 | `{ "from", "to" }`(`from` 정수 또는 `null`, `to` 정수) 또는 `null` (R-24) |
-| `seller-note` | `{ "text", "maxNumber"? }` — 판매자(주인 배지) 채팅 글, `maxNumber` 생략 = 999 | `{ "no", "name", "price" }` 정확히 세 키(정수·문자열·정수) 또는 `null` (R-23) |
 
 ## 택배 골든 (`parcel/*.json`, T1 — D-T1-03·D-T1-05)
 
