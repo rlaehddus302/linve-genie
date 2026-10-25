@@ -710,6 +710,11 @@ p {
   font-weight: 700;
 }
 
+/* 되돌리기 항목의 글 묶음(문장 + 남은 시간): PC에서는 묶음이 없는 것처럼 예전 한 줄 모양 그대로 (D-QL3R1-12) */
+.undo-text {
+  display: contents;
+}
+
 .console-grid {
   display: grid;
   gap: 1rem;
@@ -2208,9 +2213,33 @@ html:has(.save-bar) {
     flex: none;
   }
 
+  /* 되돌리기 항목은 두 칸 한 줄 (D-QL3R1-12, AC-QL3R1-63): 왼쪽 칸 = 문장과 "남은 시간 n초"(낱말 사이에서 줄바꿈, 말줄임 없음),
+   * 오른쪽 칸 = 단추(44px, 위아래 가운데). 단추 하나 때문에 빈 둘째 줄이 생기지 않아 고정 영역 35%를 지킨다(UX-04).
+   * 단추가 여럿인 항목(저장 실패 등)은 단추가 서로 옆 칸으로 늘어선다 — 글 칸이 너무 좁아지지 않게 그때만 줄바꿈 */
   .undo-item {
-    padding: 0.125rem 0.5rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
+    grid-auto-columns: auto;
+    align-items: center;
     gap: 0.25rem 0.5rem;
+    padding: 0 0.5rem;
+    line-height: 1.25;
+  }
+
+  .undo-item:has(> .button ~ .button) {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .undo-text {
+    display: block;
+    min-width: 0;
+    overflow-wrap: break-word;
+  }
+
+  .undo-item > .button {
+    align-self: center;
   }
 }
 

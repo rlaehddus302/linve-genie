@@ -215,3 +215,26 @@ describe('포장 라벨 출력 결과 문장 아래 여백 (U-PL1B-01)', () => {
     expect(marginOf(true)).toBe('calc(5rem + env(safe-area-inset-bottom))')
   })
 })
+
+describe('휴대폰 되돌리기 항목 두 칸 한 줄 (D-QL3R1-12, AC-QL3R1-63)', () => {
+  const mobile = (selector: string, property: string) =>
+    declarations.find((d) => d.selector === selector && d.property === property && d.media.some((m) => m.includes('max-width: 47.99rem')))?.value
+  const pc = (selector: string, property: string) => declarations.find((d) => d.selector === selector && d.property === property && d.media.length === 0)?.value
+
+  it('휴대폰: 왼쪽 글 칸(줄어듦) + 오른쪽 단추 칸, 위아래 안쪽 여백 0, 줄 높이 1.25', () => {
+    expect(mobile('.undo-item', 'display')).toBe('grid')
+    expect(mobile('.undo-item', 'grid-template-columns')).toBe('minmax(0, 1fr)')
+    expect(mobile('.undo-item', 'grid-auto-flow')).toBe('column')
+    expect(mobile('.undo-item', 'align-items')).toBe('center')
+    expect(mobile('.undo-item', 'padding')).toBe('0 0.5rem')
+    expect(mobile('.undo-item', 'line-height')).toBe('1.25')
+    expect(mobile('.undo-text', 'display')).toBe('block')
+    expect(mobile('.undo-text', 'min-width')).toBe('0')
+  })
+
+  it('PC: 글 묶음은 없는 것처럼(예전 한 줄 모양 그대로)', () => {
+    expect(pc('.undo-text', 'display')).toBe('contents')
+    expect(pc('.undo-item', 'display')).toBe('flex')
+    expect(pc('.undo-item', 'padding')).toBe('0.25rem 0.75rem')
+  })
+})
