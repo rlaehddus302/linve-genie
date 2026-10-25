@@ -272,13 +272,15 @@ describe('쉬운 낱말 (D-QL3R1-06·07)', () => {
     expect(sealAtWords('2026-11-24T15:00:00.000Z')).toBe('이 날짜 기록은 11월 25일 0시부터 잠겨요. 그 뒤로는 고칠 수 없어요.')
   })
 
-  it('상품 자세히: 칸 제목 "상품 바꾸기"(이름도), 찜 목록 위 한 줄 설명', async () => {
+  // QL3R1 D-QL3R1-10: 칸 제목이 "상품 관리"로 바뀜(AC-QL3R1-47)
+  it('상품 자세히: 칸 제목 "상품 관리"(이름도), 옛 이름 "상품 바꾸기"·"상품 명령" 없음, 찜 목록 위 한 줄 설명', async () => {
     setup([register(15, '핑크프릴', 10000), chat('m1', 'UC_hong1234', '홍길동', '15')])
     const { quick } = await openConsole()
     enter(quick, '15')
     const detail = await screen.findByRole('dialog', { name: '15번 자세히' })
-    expect(within(detail).getByRole('region', { name: '상품 바꾸기' })).toBeDefined()
-    expect(within(detail).getByRole('heading', { name: '상품 바꾸기' })).toBeDefined()
+    expect(within(detail).getByRole('region', { name: '상품 관리' })).toBeDefined()
+    expect(within(detail).getByRole('heading', { name: '상품 관리' })).toBeDefined()
+    expect(within(detail).queryByText('상품 바꾸기')).toBeNull()
     expect(within(detail).queryByText('상품 명령')).toBeNull()
     expect(within(detail).getByText('찜 취소: 손님이 안 사기로 했을 때 · 무효: 장난이나 잘못 들어온 찜 · 확인(잠금): 늦게 온 찜이 이 1등을 저절로 밀어내지 않게')).toBeDefined()
   })
