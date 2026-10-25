@@ -4,13 +4,20 @@ import { expect, request, type Page, type Request, type Route } from '@playwrigh
 
 /** 연결이 돌아와 저절로 보낸 것의 앞말 (D-MOB2-07, AC-MOB2-40) */
 export const RESENT_PREFIX = '연결이 돌아와 보냈어요: '
-/** 다시 보낼 실패 줄의 안내 (D-MOB2-07, AC-MOB2-40) */
-export const AUTO_RESEND_NOTE = '연결이 돌아오면 저절로 다시 보내요.'
+/** 다시 보낼 실패 줄의 안내 (D-MOB2-07 → D-MOB2-16 (2), AC-MOB2-40) */
+export const AUTO_RESEND_NOTE = "연결이 돌아오면 저절로 다시 보내요. 바로 보내려면 '다시 보내기'를 눌러도 돼요."
+/** 저절로 다시 보낼 빠른 입력 실패 줄 (D-MOB2-16 (2) — "다시 보내기를 눌러 주세요" 없음) */
+export const autoFailedLine = (line: string): string => `저장하지 못했어요: ${line}`
+/** 저절로 보내지 않는 빠른 입력 실패 줄 (이 스프린트 전 문장 그대로, D-MOB2-16 (2)) */
+export const manualFailedLine = (line: string): string => `저장하지 못했어요. 다시 보내기를 눌러 주세요: ${line}`
+/** 옛 "누르라"는 문장 — 저절로 보낼 실패에는 없어야 한다 (D-MOB2-16 (2)) */
+export const PRESS_RESEND = /다시 보내기를 눌러 주세요/
 /** 실시간 연결이 끊긴 안내 (돌아옴 = 이 안내가 사라짐 — F 공통 Given) */
 export const LOST_NOTICE = '실시간 연결이 끊겼어요. 다시 연결하는 중이에요.'
 /** 시간이 지난 보류 찜 (D-MOB2-06, AC-MOB2-30) */
 export const TIMED_OUT_WORD = '보류 · 시간 지남'
-export const TIMED_OUT_TAIL = ' — 지금 등록해도 판정되지 않아요'
+/** 결과 카드 끝 (D-MOB2-06 → D-MOB2-16 (3) 다음 할 일) */
+export const TIMED_OUT_TAIL = ' — 지금 등록해도 판정되지 않아요. 판매를 시작한 뒤 문자찜을 다시 넣어 주세요'
 /** 1등 자리를 비운 조치의 결과 (D-MOB2-04, AC-MOB2-10~13) */
 export const newWinner = (label: string, name: string): string => `${label} 새 1등: ${name}`
 export const vacatedEmpty = (label: string, status: string): string => `${label} 1등 자리가 비었어요 · 대기 없음 · ${status}`

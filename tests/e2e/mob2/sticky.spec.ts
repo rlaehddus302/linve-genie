@@ -1,6 +1,7 @@
 // MOB2 A·B. 글자 150% 고정 영역·접힌 칩·빠른 입력칸 (AC-MOB2-01~03·05, D-MOB2-02·03, UX-04) — test-e2e.
 // 기기: 375×812·412×915 크로미움(터치), 393×852 WebKit(@webkit 묶음, 아이폰 사용자 에이전트). 글자 150% = html { font-size: 150% !important }.
 // 고정 영역 높이 = .console-sticky의 getBoundingClientRect().height (알림 띠 접힘·"더보기" 목록 닫힘·고치기 칸 닫힘) — 공통 전제 그대로.
+// 50% 셈(AC-MOB2-01, D-MOB2-13): 잰 높이 = 고정 영역 높이 − 띠 아래 출력 기기 짧은 줄(.alert-short-row) 상자 높이 − 그 줄의 margin-top (리허설은 짧은 줄이 없어 그대로).
 // Given(AC-MOB2-01): 현재 상품 15번 "핑크프릴"(1등 <b>해커</b>), 세는 알림 둘(충돌 1·보류 찜 1) + 출력 기기 없음 항목, 되돌리기 대기 1개(찜 취소 대기 중).
 //   보류 찜이 시험 도중 "시간 지남"(D-MOB2-06)으로 빠지지 않게 claim.preOpenWindowSec = 300.
 //   충돌은 실제 시각순(contention.policy = RECEIVED_TIME)에서 초까지 적은 문자찜과 같은 분의 분까지만 적은 문자찜(동률 HOST)으로 만든다. 1등: 리허설은 채팅 닉네임, 실제는 문자찜 메모.
@@ -101,6 +102,8 @@ interface StickyShot {
   readonly sticky: { top: number; bottom: number; height: number }
   readonly parts: Record<string, { top: number; bottom: number; left: number; right: number; height: number; inside: boolean; shown: boolean } | null>
   readonly outside: string[]
+  /** 띠 아래 출력 기기 짧은 줄 (.alert-short-row, D-MOB2-13) — 없으면 null */
+  readonly short: { height: number; marginTop: number; shown: boolean; sw: number; cw: number; lines: number; text: string } | null
 }
 
 /** 스크롤 y에서 고정 영역과 그 안의 요소들을 한 번에 잰다 (대기 2초 안에 끝나게 한 번의 evaluate로) */
@@ -137,7 +140,24 @@ async function shoot(page: Page, ys: readonly number[]): Promise<StickyShot[]> {
         const ok = r.top >= s.top - 1 && r.bottom <= s.bottom + 1 && r.left >= Math.max(s.left, 0) - 1 && r.right <= Math.min(s.right, window.innerWidth) + 1
         if (!ok) outsideList.push(`${el.tagName.toLowerCase()} "${(el.getAttribute('aria-label') ?? el.textContent ?? '').trim().slice(0, 30)}" ${String(Math.round(r.left))},${String(Math.round(r.top))}~${String(Math.round(r.right))},${String(Math.round(r.bottom))} / 고정 ${String(Math.round(s.top))}~${String(Math.round(s.bottom))}`)
       }
-      out.push({ y: window.scrollY, vh: window.innerHeight, sticky: { top: s.top, bottom: s.bottom, height: s.height }, parts, outside: outsideList })
+      // D-MOB2-13: 짧은 줄 상자 높이 + 그 줄의 위 간격(margin-top)은 50% 셈에서 뺀다. 글 줄 수는 글 범위의 getClientRects() 줄(위치가 다른 줄)로 센다
+      const shortEl = sticky.querySelector<HTMLElement>('.alert-short-row')
+      let short: StickyShot['short'] = null
+      if (shortEl !== null) {
+        const r = shortEl.getBoundingClientRect()
+        const range = document.createRange()
+        range.selectNodeContents(shortEl)
+        // 위 끝이 4px 넘게 다른 글 상자를 다른 줄로 센다 (같은 줄의 다른 크기 글은 한 줄)
+        const tops = [...range.getClientRects()].filter((rect) => rect.width > 0 && rect.height > 0).map((rect) => rect.top).sort((a, b) => a - b)
+        let lines = 0
+        let last = Number.NEGATIVE_INFINITY
+        for (const top of tops) {
+          if (top - last > 4) lines++
+          last = top
+        }
+        short = { height: r.height, marginTop: parseFloat(getComputedStyle(shortEl).marginTop) || 0, shown: shown(shortEl), sw: shortEl.scrollWidth, cw: shortEl.clientWidth, lines, text: (shortEl.textContent ?? '').trim() }
+      }
+      out.push({ y: window.scrollY, vh: window.innerHeight, sticky: { top: s.top, bottom: s.bottom, height: s.height }, parts, outside: outsideList, short })
     }
     window.scrollTo(0, 0)
     return out
@@ -186,8 +206,20 @@ for (const d of DEVICES) {
         const shots = await shoot(page, [0, 600])
         for (const shot of shots) {
           const at = `${where} 스크롤 ${String(shot.y)}`
-          console.log(`[MOB2 측정] ${at}: 고정 영역 ${String(Math.round(shot.sticky.height))} / 기준 ${String(shot.vh * 0.5)} (위 ${String(Math.round(shot.sticky.top))})`)
-          expect(shot.sticky.height, `${at} 고정 영역 높이 ≤ innerHeight × 0.5`).toBeLessThanOrEqual(shot.vh * 0.5)
+          // D-MOB2-13: 잰 높이 = 고정 영역 − (보이는 짧은 줄 상자 높이 + 그 줄의 margin-top). 짧은 줄이 없으면(리허설) 고정 영역 그대로
+          const short = shot.short !== null && shot.short.shown ? shot.short : null
+          const cut = short === null ? 0 : short.height + short.marginTop
+          const measured = shot.sticky.height - cut
+          console.log(`[MOB2 측정] ${at}: 고정 영역 ${String(Math.round(shot.sticky.height))} · 짧은 줄 ${short === null ? '없음' : `${String(Math.round(short.height))}+간격 ${String(Math.round(short.marginTop))}`} · 잰 높이 ${String(Math.round(measured))} / 기준 ${String(shot.vh * 0.5)} (위 ${String(Math.round(shot.sticky.top))})`)
+          expect(measured, `${at} 잰 높이(짧은 줄 뺌) ≤ innerHeight × 0.5`).toBeLessThanOrEqual(shot.vh * 0.5)
+          if (rehearsal) expect(short, `${at} 리허설에는 출력 기기 짧은 줄이 없다`).toBeNull()
+          else {
+            // 실제 방송: 짧은 줄 "라벨이 안 나가요 · …"가 보이고, 말줄임 없이, 높이 ≥ 44px (D-QL3R1-04·D-QL3R2-03). 글 두 줄 이하는 아래 TE-MOB2-007 시험
+            expect(short, `${at} 출력 기기 짧은 줄 보임 (${JSON.stringify(shot.short)})`).not.toBeNull()
+            expect(short!.text, `${at} 짧은 줄 글`).toContain(NO_STATION_SHORT)
+            expect(short!.sw, `${at} 짧은 줄 말줄임 없음 (${JSON.stringify(short)})`).toBeLessThanOrEqual(short!.cw + 1)
+            expect(short!.height, `${at} 짧은 줄 높이 ≥ 44px`).toBeGreaterThanOrEqual(44)
+          }
           for (const [name, part] of Object.entries(shot.parts)) {
             expect(part, `${at} ${name} 있음`).not.toBeNull()
             expect(part!.shown, `${at} ${name} 보임`).toBe(true)
@@ -205,6 +237,22 @@ for (const d of DEVICES) {
       }
     })
   }
+}
+
+// TE-MOB2-007 (D-MOB2-13 "짧은 줄은 … 글은 두 줄 이하", D-QL3R2-02 "짧은 줄 하나(두 줄 글)"): 50%에서 빼는 짧은 줄이 자기 규칙(두 줄 이하)을 지키는지
+for (const d of DEVICES) {
+  test(`TE-MOB2-007 · AC-MOB2-01 ${d.label} 글자 150% 실제: 띠 아래 출력 기기 짧은 줄 "${NO_STATION_SHORT}"의 글이 두 줄 이하${tag(d)}`, async ({ browser, baseURL }) => {
+    const w = await world(browser, baseURL!, d, { big: true, rehearsal: false })
+    try {
+      const [shot] = await shoot(w.page, [0])
+      const short = shot!.short
+      console.log(`[MOB2 측정] ${d.label} 150% 실제 짧은 줄: ${JSON.stringify(short)}`)
+      expect(short?.shown, `짧은 줄 보임 (${JSON.stringify(short)})`).toBe(true)
+      expect(short!.lines, `짧은 줄 글 두 줄 이하 (${JSON.stringify(short)})`).toBeLessThanOrEqual(2)
+    } finally {
+      await w.close()
+    }
+  })
 }
 
 // SA-MOB2-02 / D-MOB2-11: 8글자 이상 제목(제목 줄의 날짜가 다음 줄로 넘어가는 길이 — U-MOB2-01이 재현된 조건)에서도 AC-MOB2-05 그대로

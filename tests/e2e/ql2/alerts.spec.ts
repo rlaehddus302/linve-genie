@@ -99,6 +99,8 @@ test.describe('AC-QL2-05·40 세는 알림 0이어도 펼치기 — 출력 기�
 async function sixWorld(browser: Browser, page: Page, viewport: { width: number; height: number }, big: boolean): Promise<{ w: World; dev: { page: Page; context: BrowserContext } }> {
   const w = await world(browser, page, viewport, big)
   const dev = await station(browser, w, '안드로이드 폰')
+  const set = await w.main.request.patch('/api/settings', { data: { settings: { 'claim.preOpenWindowSec': 300 } }, headers: { Origin: baseUrlOf(page) } }) // MOB2 D-MOB2-16: 보류 찜 뒤 출력 기기 끊김을 30초까지 기다리는 동안 그 찜이 "시간 지남"으로 빠지지 않게
+  expect(set.status(), await set.text()).toBe(200) // MOB2 D-MOB2-16
   const b = await broadcastApi(w.main, uniqueDate())
   await smsApi(w.main, { b, no: 40, memo: '보류' })
   // 출력 기기에서 "출력 멈추기" (판매자 멈춤)

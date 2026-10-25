@@ -5,7 +5,7 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { boardItem, history, sendViewerChat, uniqueDate } from '../s05/support.ts'
 import { writeEvent } from '../s06/support.ts'
-import { PC, alerts, broadcastApi, freshSeller, newDevice } from '../mob1/support.ts'
+import { PC, PHONE, alerts, broadcastApi, expectBig, freshSeller, newDevice } from '../mob1/support.ts'
 import { newWinner, vacatedAsk, vacatedCleared, vacatedEmpty } from './support.ts'
 
 const HACKER = '<b>해커</b>'
@@ -19,8 +19,9 @@ interface World {
 }
 
 /** 새 판매자 · 리허설 방송 · 15번 "핑크프릴"(재고 stock) · 1등들(winners)·대기(waiting) 차례로 채팅 찜 */
-async function world(browser: Browser, baseURL: string, opts: { succession?: 'AUTO' | 'ASK' | 'REOPEN'; buyerChat?: 'AUTO'; stock?: number; winners: readonly string[]; waiting: readonly string[]; clock?: boolean }): Promise<World> {
-  const { page, context, seller } = await freshSeller(browser, baseURL, { viewport: PC })
+async function world(browser: Browser, baseURL: string, opts: { succession?: 'AUTO' | 'ASK' | 'REOPEN'; buyerChat?: 'AUTO'; stock?: number; winners: readonly string[]; waiting: readonly string[]; clock?: boolean; viewport?: { width: number; height: number }; big?: boolean }): Promise<World> {
+  const viewport = opts.viewport ?? PC
+  const { page, context, seller } = await freshSeller(browser, baseURL, { viewport, touch: viewport.width < 768, big: opts.big === true })
   if (opts.clock === true) await page.clock.install()
   const settings = { ...(opts.succession === undefined ? {} : { 'cancel.succession': opts.succession }), ...(opts.buyerChat === undefined ? {} : { 'cancel.buyerChat': opts.buyerChat }) }
   if (Object.keys(settings).length > 0) {
@@ -34,6 +35,7 @@ async function world(browser: Browser, baseURL: string, opts: { succession?: 'AU
   for (const nick of [...opts.winners, ...opts.waiting]) await sendViewerChat(page, b, nick, '15')
   await page.goto(`/broadcasts/${encodeURIComponent(b)}`)
   await expect(page.getByLabel('빠른 입력')).toBeVisible()
+  if (opts.big === true) await expectBig(page)
   for (const nick of opts.winners) await expect(boardItem(page, 15)).toContainText(nick)
   if (opts.waiting.length > 0) await expect(boardItem(page, 15)).toContainText(`대기 ${String(opts.waiting.length)}`)
   return { page, b, date, seller, close: () => context.close() }
@@ -55,12 +57,18 @@ async function claimAction(page: Page, nick: string, verb: '찜 취소하기' | 
   await expect(bar(page)).toContainText(`15번 ${nick} ${word}`)
 }
 
-/** 결과 줄이 보이고 "보냈어요: …"는 없다 */
-async function expectOutcome(page: Page, text: string): Promise<void> {
+const PICK = '1등 고르기'
+
+/** 결과 줄이 보이고 "보냈어요: …"는 없다. 승계를 골라야 하는 줄(ASK)에만 "1등 고르기"가 있다 (D-MOB2-16 (1)) */
+async function expectOutcome(page: Page, text: string, pick = false): Promise<void> {
   const line = bar(page).getByRole('status').filter({ hasText: text })
   await expect(line, `결과 줄 "${text}"`).toHaveText(text, { timeout: 15_000 })
   await expect(bar(page)).not.toContainText('보냈어요')
+  if (!pick) await expect(bar(page).getByRole('button', { name: PICK }), `"${text}" 줄에는 "${PICK}" 없음`).toHaveCount(0)
 }
+
+/** 결과 줄(되돌리기 띠의 그 줄 항목) 안의 "1등 고르기" */
+const pickButton = (page: Page, text: string) => bar(page).getByRole('listitem').filter({ has: page.getByRole('status').filter({ hasText: text }) }).getByRole('button', { name: PICK, exact: true })
 
 test.describe('AC-MOB2-10 새 1등이 생김 (AUTO)', () => {
   test('1등 찜 취소 → "15번 새 1등: 김철수", "보냈어요" 없음, 카드 1등도 김철수 — "확인"을 누르면 바로 사라진다', async ({ browser, baseURL }) => {
@@ -147,12 +155,60 @@ test.describe('AC-MOB2-11 대기 없음', () => {
 })
 
 test.describe('AC-MOB2-12·13 승계 설정', () => {
-  test('ASK·대기 2명 → "15번 1등 자리가 비었어요 · 대기 2명 — 누구를 1등으로 할지 골라 주세요", 알림 띠 "승계 결정 필요"는 그대로', async ({ browser, baseURL }) => {
+  test('ASK·대기 2명 → "15번 1등 자리가 비었어요 · 대기 2명 — 누구를 1등으로 할지 골라 주세요", 알림 띠 "승계 결정 필요"는 그대로, 그 줄의 "1등 고르기"(44px 이상·화면 안) → 15번 승계 결정 창(대기 2명)', async ({ browser, baseURL }) => {
     const w = await world(browser, baseURL!, { succession: 'ASK', winners: [HACKER], waiting: ['김철수', '박영희'] })
     try {
       await claimAction(w.page, HACKER, '찜 취소하기')
-      await expectOutcome(w.page, vacatedAsk('15번', 2))
+      const text = vacatedAsk('15번', 2)
+      await expectOutcome(w.page, text, true)
       await expect(alerts(w.page).getByRole('button', { name: /^승계 결정 필요 1$/, includeHidden: true })).toHaveCount(1)
+      // D-MOB2-16 (1): 결과 줄 안의 "1등 고르기"
+      const pick = pickButton(w.page, text)
+      await expect(pick).toBeVisible()
+      const box = (await pick.boundingBox())!
+      const vp = w.page.viewportSize()!
+      expect(box.height, '"1등 고르기" 높이 ≥ 44px').toBeGreaterThanOrEqual(44)
+      expect(box.x >= -0.5 && box.y >= -0.5 && box.x + box.width <= vp.width + 0.5 && box.y + box.height <= vp.height + 0.5, `"1등 고르기" 상자 전체가 화면 안 ${JSON.stringify(box)}`).toBe(true)
+      await pick.click()
+      const dlg = w.page.getByRole('dialog', { name: /^승계 결정 — 15번/ })
+      await expect(dlg, '알림 칩을 누를 때와 같은 승계 결정 창').toBeVisible()
+      await expect(dlg).toContainText('김철수')
+      await expect(dlg).toContainText('박영희')
+    } finally {
+      await w.close()
+    }
+  })
+
+  test('ASK · 375×812 글자 150% 알림 접힘: 접힌 띠의 승계 칩 글(=단추 이름) "승계 1"이 말줄임 없이, 펼친 띠는 "승계 결정 필요 1"', async ({ browser, baseURL }) => {
+    const w = await world(browser, baseURL!, { succession: 'ASK', winners: [HACKER], waiting: ['김철수', '박영희'], viewport: PHONE, big: true })
+    try {
+      await claimAction(w.page, HACKER, '찜 취소하기')
+      await expectOutcome(w.page, vacatedAsk('15번', 2), true)
+      await w.page.evaluate(() => window.scrollTo(0, 0))
+      const strip = alerts(w.page)
+      const chip = strip.getByRole('button', { name: '승계 1', exact: true, includeHidden: true })
+      await expect(chip).toHaveCount(1)
+      await expect(chip).toHaveText('승계 1')
+      await expect(strip.getByRole('button', { name: /^승계 결정 필요/, includeHidden: true }), '접힌 휴대폰 띠에는 긴 이름 없음').toHaveCount(0)
+      // 알림이 승계 하나뿐이라 첫 칩 = 승계 칩, 늘 보인다(AC-MOB2-02)
+      await expect(chip).toBeVisible()
+      const fit = await chip.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }))
+      expect(fit.sw, `"승계 1" 말줄임 없음 ${JSON.stringify(fit)}`).toBeLessThanOrEqual(fit.cw + 1)
+      await w.page.getByRole('button', { name: '알림 1 펼치기', exact: true }).click()
+      await expect(strip.getByRole('button', { name: '승계 결정 필요 1', exact: true })).toBeVisible()
+      await expect(strip.getByRole('button', { name: '승계 1', exact: true, includeHidden: true })).toHaveCount(0)
+    } finally {
+      await w.close()
+    }
+  })
+
+  test('ASK · 1440×900: 알림 띠 "승계 결정 필요 1" 그대로("승계 1" 아님)', async ({ browser, baseURL }) => {
+    const w = await world(browser, baseURL!, { succession: 'ASK', winners: [HACKER], waiting: ['김철수', '박영희'] })
+    try {
+      await claimAction(w.page, HACKER, '찜 취소하기')
+      await expectOutcome(w.page, vacatedAsk('15번', 2), true)
+      await expect(alerts(w.page).getByRole('button', { name: '승계 결정 필요 1', exact: true })).toBeVisible()
+      await expect(alerts(w.page).getByRole('button', { name: '승계 1', exact: true, includeHidden: true })).toHaveCount(0)
     } finally {
       await w.close()
     }
