@@ -48,3 +48,30 @@
 ### 범위 밖·주의 (disputesWithSpec 없음)
 - 봉인 날짜의 취소·'입금 안 함' 취소 횟수는 0(장부에 없는 값을 지어내지 않음). spec-keeper가 다르게 원하면 봉인 장부 형식(youtube/seal.ts — 금지 경로)을 바꿔야 하므로 맥북 쪽 작업이 된다.
 - 메모 글은 평문으로 저장한다(번호는 거절). 암호화·보관 기간은 "사용자 확인 필요"(DECISIONS).
+
+## dev-web (구매자 화면 꼬리표·손님 기록·모든 손님·메모·설정 "손님 관리"·콘솔 주의 꼬리표)
+
+### 만든 것
+- `apps/web/src/lib/customers.ts` — 서버 응답 타입, 낱말(`customerDate` 올해면 "10월 15일(목)"·아니면 "2025년 12월 29일(월)", 기준 연도 = 응답 `today`), `memoSavedWords`(UTC → KST "10월 26일(월) 저장"), `summaryLines`, 정렬 `byCumulative`(누적 → 이름 `localeCompare('ko')` → ID), 거르기 `passesFilter`, 받기 훅 `useDayCustomers(date, enabled, refresh, minGapMs)`(refresh가 바뀌면 다시 받되 minGap에 한 번, 실패면 받은 값 그대로).
+- `components/CustomerParts.tsx` — `CustomerTags`("단골" `.tag-regular`·"입금 늦음 주의" `.tag-caution`·"차단"), `CustomerRecord`(구매자 자세히 "손님 기록" 칸, `GET /api/days/:date/customer?buyer=`, 404면 칸 없음), `MemoEditor`(바로 저장 `PUT /api/customers/:id/memo`, 200자 넘으면 보내지 않고 "메모는 200자까지 적을 수 있어요.", 서버 거절 문장은 칸 아래, 저장하지 않은 글은 떠나기 확인).
+- `components/AllCustomers.tsx` — "모든 손님" 목록·손님 자세히.
+- `components/CustomerSettings.tsx` — 설정 "손님 관리" 칸(저장 막대 단계 `customers`, 칸 이름 `손님 관리` — `lib/save-bar.ts`의 `SAVE_BLOCKS`·`SAVE_STEPS` 끝에 더함, 택배 다음 차례). 숫자(쉼표 묶음 허용)는 정수로, 아닌 글("10.5"·빈 칸)은 글 그대로 보내 서버 문장을 받는다. 금액 칸을 비우면 `null`. 보조자 화면엔 칸이 없다.
+- `components/caution.tsx` — 콘솔 `CautionContext`·`useConsoleCaution`(실제 방송만, 1등 집합 `winnersKey`가 바뀌면 다시 받기 — 10초에 한 번, 첫 변화는 바로), `CautionMark`(누를 수 없는 `span`, 보이는 글 "입금 늦음 주의"/"주의"는 `aria-hidden`, 읽기 프로그램엔 `.sr-only` "입금 늦음 주의 손님"), `WinnerNames`.
+- 콘솔: `ProductBoard.tsx`(현재 상품 카드 "1등: …", 상품 보드 줄, 번호 찾기 요약, 변형 줄, 휴대폰 요약 줄), `ProductDetail.tsx`(1등 목록 줄 — `CONFIRMED`만), `ConsolePage.tsx`(Provider 하나·훅 하나만). 주의 손님이 없으면 1등 글은 예전처럼 한 덩어리 글(기존 시험·E2E 글자 그대로).
+- 휴대폰 요약 줄(`SummaryFit`): 긴 꼬리표를 넣어 줄 높이가 꼬리표 없을 때보다 커지면 "주의" 한 낱말. 잴 때만 줄 안에 보이지 않는 두 벌(`.summary-measure`, `aria-hidden`)을 두고 그림 전에 재고 뺀다 — 다 그린 뒤 DOM 글자엔 남지 않는다. 폭이 바뀌면(ResizeObserver) 다시 잰다. **"주의"도 한 줄을 늘리는 경우(꼬리표 없는 줄이 거의 꽉 찬 경우)는 그대로 "주의"로 둔다** — D-CRM1-07이 준 줄임은 "주의"까지라서. test-e2e가 AC-CRM1-20 측정에서 높이가 늘면 알려 주세요(그때는 1등 글 자르기 6글자 꼴 D-QL2-11 (3)을 꼬리표 있을 때만 쓰는 쪽을 검토).
+- 주소(`lib/router.ts`): `/buyers?view=customers[&sort=recent|unpaid][&filter=regular|caution][&customer=<32자 ID>]` — 기본 `total`·`all`은 적지 않는다. 찾는 말은 주소에 넣지 않는다(끝자리 숫자일 수 있어서). 날짜 `date`는 그대로 남겨 "날짜별"로 돌아갈 때 쓴다.
+- 스타일: `.tag-regular`(초록)·`.tag-caution`(갈색 글·노란 바탕, 굵게), `.memo-text`(`white-space: break-spaces` — 375px 규칙 시험이 `pre-wrap`을 막아서), `.memo-input`, `.summary-measure`, `.current-summary { position: relative }`.
+- 단위 시험 `apps/web/test/crm1-customers.test.tsx`(17건): 낱말·정렬·거르기·주소, 설정 저장 막대(PUT 본문·거절 문장), 구매자 목록 꼬리표·누적 큰 순·거르기·실패·리허설, 자세히 손님 기록·메모(이스케이프·저장·200자·이벤트 안 씀), 모든 손님(20줄·더 보기·정렬 주소·자세히 날짜 줄·차단 길), 콘솔 꼬리표(글·읽기 글, 10초 간격·실패·리허설). 웹 단위 시험 전체 105파일 1620건 통과, `tsc`·`eslint` 통과. 전체 `pnpm verify`는 규칙대로 돌리지 않았다.
+
+### 화면 계약 (test-e2e에게 — 역할·이름)
+- 구매자 화면 맨 위 `group "보기"`: 버튼 "날짜별"·"모든 손님"(`aria-pressed`).
+- 날짜별 목록(실제 날짜만): `group "정렬"`에 "이름 순"·"합계 큰 순"·"누적 큰 순", `group "거르기"`에 "모두"·"단골만"·"입금 늦음 주의만"(모두 `aria-pressed`). 목록 `list "구매자"`(휴대폰) / `table "구매자"`(48rem 이상) — 꼬리표는 줄 안 글자 "단골"·"입금 늦음 주의"·"차단". 손님 기록을 못 받으면(404 밖) 누적 정렬·거르기 없이 "손님 기록을 불러오지 못했어요." + "다시 불러오기". 리허설은 손님 기록 조회를 아예 부르지 않는다.
+- 구매자 자세히: `region "손님 기록"`(지난 구매 `region "지난 구매"` 위). 메모 칸마다 제목 `heading "메모 · 유튜브 · 다육이맘"`/"메모 · 문자 · 끝자리 1234", 글 칸 이름 "메모 — {같은 이름}", 버튼 이름 "메모 저장 — {같은 이름}"(보이는 글 "메모 저장"), 저장 뒤 `status` "메모를 저장했어요."/"메모를 지웠어요.", 저장 날짜 "10월 ○일(○) 저장". 전화번호 없는 문자 손님은 글 칸 없이 "전화번호 없는 문자 손님은 다른 날과 이어지지 않아 메모를 남길 수 없어요.".
+- 모든 손님: `region "모든 손님"`, 찾기 칸 이름 "손님 찾기"(0.3초 뒤 묻는다), `group "정렬"`("누적 큰 순"·"최근 산 순"·"미입금 많은 순"), `group "거르기"`, `status` "손님 n명", 목록 `list "손님"`/`table "손님"`, "더 보기 (n명 더)". 손님 자세히 `region "손님 자세히"`: 버튼 "모든 손님 목록으로", 링크 "가장 최근 날짜(10월 22일)의 구매자 화면에서 차단할 수 있어요", `region "날짜별 기록"`의 링크(날짜·"그날 이름 …"·"상품 합계 …"·입금 낱말·미입금 날 "미입금" — 입금 상태가 미입금인 미입금 날은 "미입금" 한 번만).
+- 뒤로 가기: 손님 자세히 → 목록은 같은 정렬·거르기(주소)·찾는 말·불러온 줄(화면 기억)·스크롤 자리. 돌아오면 받아 둔 줄을 바로 보이고 같은 줄 수만큼 뒤에서 새로 받아 바꾼다(차단 꼬리표 반영).
+- 콘솔: 꼬리표 요소 `.caution-mark`(누를 수 없음), 보이는 글 "입금 늦음 주의"(요약 줄은 넘치면 "주의"), 읽기 글 "입금 늦음 주의 손님". 가짜 500이면 꼬리표 없음·오류 띠 없음. 다시 받기는 1등 집합이 바뀔 때만, 10초에 한 번까지.
+
+### 다음 영역에게
+- **test-e2e**: 위 계약으로. 콘솔 꼬리표는 이벤트를 쓰지 않으니 "꼬리표 끈 같은 시나리오"는 `/api/days/:date/customers`를 가짜 500으로 막은 쪽과 비교하면 된다. 설정 칸 제목은 `heading "손님 관리"`, 칸 이름 "단골 횟수"·"단골 금액"·"입금 기다리는 날".
+- **ux**: 날짜별 목록 도구 막대에 정렬 3·거르기 3 단추가 더해져 휴대폰에서 두세 줄로 감싼다(가로 스크롤 없음). 손님 자세히의 차단 길은 링크 모양(버튼 아님 — D-CRM1-09 "차단 버튼 없음").
+- **dev-server**: 구매자 자세히 응답(`/api/days/:date/customer`)에 `today`가 없어 화면은 같은 날짜의 `/customers` 응답 `today`를 쓴다(아직 없으면 기기 KST 날짜). 넣어 주면 그쪽을 쓰게 바꾸겠다(필수 아님).

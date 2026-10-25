@@ -56,6 +56,7 @@ import { OptionDialog } from './OptionDialog.tsx'
 import { useLabelsEnabled, usePrintApi, usePrintState, useScopeLabels } from './print-context.tsx'
 import { DiscardDialog, PrintPauseDialog } from './PrintParts.tsx'
 import { ProductDetail } from './ProductDetail.tsx'
+import { CautionContext, useConsoleCaution } from './caution.tsx'
 import { useScreenWake } from '../voice/wake.ts'
 import { QuickInput, QuickUnitLine, type EditAsk, type FixState, type Registration } from './QuickInput.tsx'
 import { RehearsalPanel } from './RehearsalPanel.tsx'
@@ -607,6 +608,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     }),
     [b, broadcast.date, broadcast.rehearsal, ended, sealed, data, names, labels, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command, writeOnly, fillQuick, optionMode],
   )
+
+  // 1등 옆 "입금 늦음 주의" (CRM1 D-CRM1-07): 실제 방송만, 판매자 전용 조회 — 받지 못하면 꼬리표 없이 그대로(오류 띠 없음)
+  const caution = useConsoleCaution(data, broadcast.date, broadcast.rehearsal)
 
   // ── 빠른 입력 (AC-S05-10~13, D-084) ──────────────────────────────────
 
@@ -1264,6 +1268,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
 
   return (
     <ConsoleContext.Provider value={api}>
+      <CautionContext.Provider value={caution}>
       <YoutubeContext.Provider value={yt}>
       <ReadOnlyContext.Provider value={sealed}>
       <main className={broadcast.rehearsal ? 'console console-rehearsal' : 'console'}>
@@ -1468,6 +1473,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       ) : null}
       </ReadOnlyContext.Provider>
       </YoutubeContext.Provider>
+      </CautionContext.Provider>
     </ConsoleContext.Provider>
   )
 }

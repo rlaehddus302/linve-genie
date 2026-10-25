@@ -28,5 +28,14 @@ export interface SummaryInput {
 /** 요약 문장. 상품이 없으면 "현재 상품: 아직 없어요" */
 export function currentSummaryWords(input: SummaryInput | undefined, max: number = SUMMARY_LIMIT): string {
   if (input === undefined) return NO_CURRENT_SUMMARY
-  return `${String(input.no)}번 ${clipWords(input.name, max)} · ${PRODUCT_STATUS_WORD[input.status]} · 1등 ${clipWords(input.winners, max)} · 대기 ${String(input.waiting)}명`
+  const [head, tail] = currentSummaryParts(input, max)
+  return `${head}${tail}`
+}
+
+/**
+ * 요약 문장을 1등 글 바로 뒤에서 둘로 (CRM1 D-CRM1-07 — 1등 뒤 "입금 늦음 주의" 꼬리표 자리): ["15번 핑크프릴 · 판매 중 · 1등 홍길동", " · 대기 0명"].
+ * 두 조각을 이으면 currentSummaryWords와 같다.
+ */
+export function currentSummaryParts(input: SummaryInput, max: number = SUMMARY_LIMIT): readonly [string, string] {
+  return [`${String(input.no)}번 ${clipWords(input.name, max)} · ${PRODUCT_STATUS_WORD[input.status]} · 1등 ${clipWords(input.winners, max)}`, ` · 대기 ${String(input.waiting)}명`]
 }

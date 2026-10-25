@@ -31,6 +31,7 @@ import { saleModeOf } from '../lib/words.ts'
 import { DETAIL_SETTINGS_NOTE, RULES_DETAIL, fieldsAt, ONGOING_NOTICE, SHIPPING_HINT, type FieldDef } from '../lib/settings-fields.ts'
 import { useSaveStep, type SaveBlock, type StepResult } from '../lib/save-bar.ts'
 import { SaveBarArea } from './SaveBar.tsx'
+import { CustomerSettingsSection } from './CustomerSettings.tsx'
 import { hasChannel } from '../lib/youtube.ts'
 import { AssistSection, useShowAssist } from './AssistSection.tsx'
 import { AssistantsSection } from './AssistantsSection.tsx'
@@ -186,6 +187,12 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
       <SettingsSection title="택배" focus={route.section === 'parcel' && (settings !== null || loadError !== null)}>
         <ParcelSettingsSection />
       </SettingsSection>
+      {/* 손님 기록의 단골·입금 늦음 주의 기준 (CRM1 D-CRM1-05) — 판매자 계정만 */}
+      {assistant ? null : (
+        <SettingsSection title="손님 관리">
+          <CustomerSettingsSection />
+        </SettingsSection>
+      )}
       <SettingsSection title="유튜브" focus={route.section === 'youtube' && (settings !== null || loadError !== null)}>
         <CallbackResult code={result} />
         <YoutubeStatus handle={youtube} quota={quota.quota} navigate={navigate} place="settings" />

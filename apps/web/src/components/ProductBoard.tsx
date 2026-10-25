@@ -1,7 +1,8 @@
 // 현재 상품·상품 보드 (AC-S05-14, SPEC §7 화면 2, PRD-04, D-088, AC-I1-30). 값은 서버 조회(코어 조회 함수 결과) 그대로이고 낱말로만 바꾼다.
+// CRM1 D-CRM1-07: 실제 방송의 1등이 "입금 늦음 주의" 손님이면 카드·보드·요약 줄·변형 줄의 이름 뒤에 작은 꼬리표(caution.tsx) — 판정은 그대로.
 // 라벨 상태 낱말은 서버의 출력 기록(라벨 키마다 — 라벨 대기·출력 중·라벨 출력됨·재출력 필요·출력 안 함)이다. 리허설은 보이지 않는다.
 import { FOCUS_GRACE_SEC } from '@livejjim/core'
-import { memo, useEffect, useMemo, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { isApiError, type ApiError } from '../api/client.ts'
 import type { Product } from '../api/types.ts'
 import { boardProducts, cancelRequestCount, formatWon, productSlots } from '../lib/derive.ts'
@@ -10,7 +11,9 @@ import { stockLeftWords } from '../lib/stock.ts'
 import { ALERT_WORD, PRODUCT_STATUS_WORD } from '../lib/words.ts'
 import { consoleLabels, useConsoleApi } from './console-context.ts'
 import { boardLabelWords } from './LabelParts.tsx'
-import { currentSummaryWords } from '../lib/current-summary.ts'
+import { currentSummaryParts, currentSummaryWords } from '../lib/current-summary.ts'
+import { CautionMark, WinnerNames, useCaution } from './caution.tsx'
+import { CAUTION_WORD } from '../lib/customers.ts'
 
 /** 1등 표시 이름 (재고 2 이상이면 여럿). 없으면 "아직 없음". 옵션 상품은 1등이 변형마다라 "변형별" (D-O2-12) */
 function useWinnerNames(product: Product): string {
@@ -18,6 +21,14 @@ function useWinnerNames(product: Product): string {
   if (product.hasOptions) return '변형별'
   if (product.winners.length === 0) return '아직 없음'
   return product.winners.map((id) => api.names.name(id)).join(', ')
+}
+
+/** 1등 이름들 + 주의 꼬리표 (옵션 상품은 "변형별", 없으면 "아직 없음" — 글자는 useWinnerNames와 같다) */
+function Winners({ product }: { readonly product: Product }) {
+  const api = useConsoleApi()
+  if (product.hasOptions) return <>변형별</>
+  if (product.winners.length === 0) return <>아직 없음</>
+  return <WinnerNames ids={product.winners} nameOf={(id) => api.names.name(id)} />
 }
 
 /** 옵션 상품의 모은 값: "변형 3개 · 남은 1" */
@@ -114,11 +125,12 @@ const nameOf = (product: Product): string => (product.name.trim() === '' ? '품�
 
 /** 상품 한 줄 요약: 번호·품종·가격·상태·1등·대기 수 (번호 찾기 미리 보기) */
 export function ProductSummary({ product }: { readonly product: Product }) {
-  const winners = useWinnerNames(product)
   return (
     <p className="summary">
       <strong>{product.no}번</strong> <span>{nameOf(product)}</span> <span>{formatWon(product.price)}</span>{' '}
-      <span className={`tag status-${product.status}`}>{PRODUCT_STATUS_WORD[product.status]}</span> <span>1등 {winners}</span>{' '}
+      <span className={`tag status-${product.status}`}>{PRODUCT_STATUS_WORD[product.status]}</span> <span>
+        1등 <Winners product={product} />
+      </span>{' '}
       <span>대기 {waitCount(product)}명</span>
       {stockLeftWords(product) !== null ? <span> {stockLeftWords(product)}</span> : null}
       {product.hasOptions ? <span> {variantTotals(product)}</span> : null}
@@ -150,18 +162,74 @@ export function CurrentSummary({ product }: { readonly product: Product | undefi
 
 function SummaryText({ product }: { readonly product: Product }) {
   const winners = useWinnerNames(product)
-  return <>{currentSummaryWords({ no: product.no, name: nameOf(product), status: product.status, winners, waiting: waitCount(product) })}</>
+  const caution = useCaution()
+  const input = { no: product.no, name: nameOf(product), status: product.status, winners, waiting: waitCount(product) }
+  // 1등 중 입금 늦음 주의 손님이 있으면 1등 글 뒤에 꼬리표 하나 (요약 줄에 다 들어가지 않으면 "주의" — SummaryFit)
+  const flagged = !product.hasOptions && product.winners.some((id) => caution(id))
+  if (!flagged) return <>{currentSummaryWords(input)}</>
+  const [head, tail] = currentSummaryParts(input)
+  return <SummaryFit key={`${head}|${tail}`} head={head} tail={tail} />
+}
+
+/**
+ * 요약 줄의 꼬리표 (D-CRM1-07, AC-CRM1-20): "입금 늦음 주의"를 넣어도 줄 수(높이)가 꼬리표 없을 때와 같으면 그대로, 늘면 "주의" 한 낱말.
+ * 고정 영역 높이 규칙(D-QL2-11·D-QL2-14)을 넘지 않게. 잴 때만 보이지 않는 두 벌(꼬리표 없음·긴 꼬리표)을 줄 안에 두고 그림 전에 재고 뺀다
+ * — 다 그린 줄의 글자에는 두 벌이 남지 않는다. 폭이 바뀌면 다시 잰다. 글이 바뀌면 부르는 쪽이 key로 새로 만든다.
+ */
+function SummaryFit({ head, tail }: { readonly head: string; readonly tail: string }) {
+  const box = useRef<HTMLSpanElement>(null)
+  const [fit, setFit] = useState<{ readonly measuring: boolean; readonly short: boolean; readonly width: number }>({ measuring: true, short: false, width: -1 })
+  useLayoutEffect(() => {
+    if (!fit.measuring) return
+    const element = box.current
+    if (element === null) return
+    const bare = element.querySelector<HTMLElement>('[data-fit="bare"]')
+    const long = element.querySelector<HTMLElement>('[data-fit="long"]')
+    const a = bare?.getBoundingClientRect().height ?? 0
+    const b = long?.getBoundingClientRect().height ?? 0
+    const width = element.parentElement?.getBoundingClientRect().width ?? 0
+    setFit({ measuring: false, short: a > 0 && b > a, width })
+  }, [fit.measuring])
+  useEffect(() => {
+    const line = box.current?.parentElement
+    if (line === null || line === undefined || typeof ResizeObserver !== 'function') return
+    const observer = new ResizeObserver(() => {
+      const width = line.getBoundingClientRect().width
+      setFit((current) => (current.measuring || Math.abs(current.width - width) < 0.5 ? current : { ...current, measuring: true }))
+    })
+    observer.observe(line)
+    return () => observer.disconnect()
+  }, [])
+  return (
+    <span ref={box}>
+      {head} <CautionMark short={fit.short} />
+      {tail}
+      {fit.measuring ? (
+        <span className="summary-measure" aria-hidden="true">
+          <span data-fit="bare">
+            {head}
+            {tail}
+          </span>
+          <span data-fit="long">
+            {head} <span className="tag tag-caution caution-mark">{CAUTION_WORD}</span>
+            {tail}
+          </span>
+        </span>
+      ) : null}
+    </span>
+  )
 }
 
 function CurrentBody({ product, onOpen }: { readonly product: Product; readonly onOpen: (key: string) => void }) {
-  const winners = useWinnerNames(product)
   return (
     <div className="current-body">
       <p className="current-number">{product.no}번</p>
       <div className="stack-tight">
         <p className="current-name">{nameOf(product)}</p>
         {/* 1등은 이름 바로 아래 — 큰 글씨에서 "몇 번·무엇·누가"가 한눈에 (QL2 D-QL2-01 (2)) */}
-        <p>1등: {winners}</p>
+        <p>
+          1등: <Winners product={product} />
+        </p>
         <p>{formatWon(product.price)}</p>
         <p>
           <span className={`tag status-${product.status}`}>{PRODUCT_STATUS_WORD[product.status]}</span>
@@ -196,7 +264,6 @@ export function ProductBoard({ onOpen }: { readonly onOpen: (key: string) => voi
 
 const BoardItem = memo(function BoardItem({ product, onOpen }: { readonly product: Product; readonly onOpen: (key: string) => void }) {
   const api = useConsoleApi()
-  const winners = useWinnerNames(product)
   const requests = cancelRequestCount(api.data, product)
   const labels = boardLabelWords(consoleLabels(api), api.data.claims, product)
   const waiting = api.waiting.products.has(product.key)
@@ -208,7 +275,9 @@ const BoardItem = memo(function BoardItem({ product, onOpen }: { readonly produc
         <span className="board-name">{nameOf(product)}</span>
         <span>{formatWon(product.price)}</span>
         <span className={`tag status-${product.status}`}>{PRODUCT_STATUS_WORD[product.status]}</span>
-        <span>1등 {winners}</span>
+        <span>
+          1등 <Winners product={product} />
+        </span>
         <span>대기 {waitCount(product)}</span>
         {stockLeftWords(product) !== null ? <span>{stockLeftWords(product)}</span> : null}
         {product.hasOptions ? <span>{variantTotals(product)}</span> : null}
@@ -243,17 +312,36 @@ const BoardItem = memo(function BoardItem({ product, onOpen }: { readonly produc
  */
 export function VariantLines({ product }: { readonly product: Product }) {
   const api = useConsoleApi()
+  const caution = useCaution()
   return (
     <ul className="plain-list variant-lines" aria-label={`변형 — ${String(product.no)}번`}>
       {product.variants.map((variant) => {
         const winners = variant.winnerClaims
           .map((id) => api.data.claims.get(id))
           .filter((claim) => claim !== undefined)
-          .map((claim) => `${api.names.name(claim.currentBuyer)}${claim.qty > 1 ? ` ×${String(claim.qty)}` : ''}`)
+          .map((claim) => ({ id: claim.currentBuyer, text: `${api.names.name(claim.currentBuyer)}${claim.qty > 1 ? ` ×${String(claim.qty)}` : ''}` }))
         return (
           <li key={variant.key} className="variant-line">
             <strong>{variant.text}</strong> <span className={`tag status-${variant.status}`}>{PRODUCT_STATUS_WORD[variant.status]}</span>{' '}
-            <span>1등 {winners.length === 0 ? '아직 없음' : winners.join(', ')}</span> <span>대기 {variant.waitlist.length}</span> <span>남은 {variant.remaining}</span>
+            <span>
+              1등{' '}
+              {winners.length === 0
+                ? '아직 없음'
+                : !winners.some((winner) => caution(winner.id))
+                  ? winners.map((winner) => winner.text).join(', ')
+                  : winners.map((winner, index) => (
+                    <span key={`${winner.id}-${String(index)}`}>
+                      {index > 0 ? ', ' : ''}
+                      {winner.text}
+                      {caution(winner.id) ? (
+                        <>
+                          {' '}
+                          <CautionMark />
+                        </>
+                      ) : null}
+                    </span>
+                  ))}
+            </span> <span>대기 {variant.waitlist.length}</span> <span>남은 {variant.remaining}</span>
             {variant.conflict ? <span className="tag tag-alert">{ALERT_WORD.conflict}</span> : null}
             {variant.awaitingSuccession ? <span className="tag tag-alert">{ALERT_WORD.succession}</span> : null}
           </li>
