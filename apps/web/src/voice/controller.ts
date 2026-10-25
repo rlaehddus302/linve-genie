@@ -738,7 +738,10 @@ export class VoiceController {
   readonly #pickDone = new Set<string>()
   /** 차례를 기다리는 큰 글자 칸 안내 (D-V3-61) */
   /** 음성으로 등록·고친 번호와 시각 (D-V3-59 고쳐 말함) */
-  #voiceTouches: { readonly no: number; readonly at: number }[] = []
+  /** 번호마다 마지막으로 음성으로 등록·고친 시각 (D-V3-59, TD-V3-005) */
+  readonly #voiceTouched = new Map<number, number>()
+  /** 음성으로 새로 등록한 번호와 시각 (최근 것이 뒤) — 고쳐 말함을 끊는 것은 다른 번호의 새 등록뿐 */
+  #voiceRegistered: { readonly no: number; readonly at: number }[] = []
   readonly #readoutQueue: { readonly text: string; readonly discarded: boolean }[] = []
   /** 판매자가 닫거나 되돌리거나 "그대로 두기"를 누른 번호 — 음성을 끌 때까지 카드만 (D-V3-10) */
   readonly #rejected = new Set<number>()
@@ -1584,7 +1587,7 @@ export class VoiceController {
     }
     if (read === null) return null
     const corrected = /(아니|말고|정정)/.test(text)
-    const from = read.from ?? this.#voiceTouches.at(-1)?.no ?? null
+    const from = read.from ?? this.#voiceRegistered.at(-1)?.no ?? null
     if (from === null || from === read.to) return null
     // ⓑ·ⓒ는 고쳐 말함일 때만 (D-V3-59)
     if (corrected && this.#instantNos.get(from) !== 'register' && !this.#recentVoice(from)) return null
@@ -1616,7 +1619,7 @@ export class VoiceController {
       this.#set({ readout: { text: RENUMBER_FAILED, discarded: true, until: now + READOUT_MS } })
       return
     }
-    this.#touchVoice(to)
+    this.#touchVoice(to, 'fix')
     const message = renumberDone(from, to)
     const offer: VoiceOffer = { id: `offer-${String(this.#nextOffer++)}`, kind: 'offer', registrationId: '', no: to, message, changes: {}, stage: 'fixed', before: null, undoUntil: now + (this.#module?.OFFER_UNDO_MS ?? 10_000), error: null, renumber: { from, to } }
     this.#set({ offers: [offer, ...this.#snapshot.offers], readout: { text: message, discarded: false, until: now + READOUT_MS } })
@@ -1867,7 +1870,7 @@ export class VoiceController {
     const registration: CardRegistration = { no, name, price }
     this.#pending.set(no, { cardId: card.id, name: registration.name, price, key: null, at: this.#host.now() })
     this.#host.register(card, registration, 'instant')
-    this.#touchVoice(no)
+    this.#touchVoice(no, 'register')
     return { action: 'create', reason: LOG_INSTANT, readout: registeredReadout(no, name, price) }
   }
 
@@ -1919,13 +1922,18 @@ export class VoiceController {
   /** 이 콘솔이 그 번호를 음성으로 등록·고친 지 60초 안이고 그 뒤 다른 번호를 음성으로 등록하지 않았나 (D-V3-59) */
   #recentVoice(no: number): boolean {
     const now = this.#host.now()
-    const last = this.#voiceTouches.at(-1)
-    return last !== undefined && last.no === no && now - last.at <= 60_000
+    const at = this.#voiceTouched.get(no)
+    if (at === undefined || now - at > 60_000) return false
+    // 그 뒤 다른 번호를 음성으로 새로 등록했으면 고쳐 말함이 아니다 (다른 번호를 고치기만 한 것은 끊지 않는다, TD-V3-005)
+    return !this.#voiceRegistered.some((item) => item.no !== no && item.at > at)
   }
 
   /** 음성으로 등록·고친 번호를 적는다 (D-V3-59) */
-  #touchVoice(no: number): void {
-    this.#voiceTouches = [...this.#voiceTouches.filter((item) => this.#host.now() - item.at <= 60_000), { no, at: this.#host.now() }].slice(-20)
+  #touchVoice(no: number, kind: 'register' | 'fix'): void {
+    const now = this.#host.now()
+    this.#voiceTouched.set(no, now)
+    for (const [key, at] of this.#voiceTouched) if (now - at > 60_000) this.#voiceTouched.delete(key)
+    if (kind === 'register') this.#voiceRegistered = [...this.#voiceRegistered.filter((item) => now - item.at <= 60_000), { no, at: now }].slice(-50)
   }
 
   /** 묻기 카드 (같은 상품·같은 고칠 값의 묻기는 하나만, AC-V3-31) */
@@ -1978,7 +1986,7 @@ export class VoiceController {
     }
     this.#recent = this.#recent.map((item) => (item.id === key ? { ...item, ...changes } : item))
     const offerTime = this.#module?.OFFER_UNDO_MS ?? 10_000
-    this.#touchVoice(no)
+    this.#touchVoice(no, 'fix')
     const fixed = fixedMessage(no, existing, changes)
     // 찜이 있는 상품 가격을 바꾸면 찜 가격은 그대로라고 알린다 (D-V3-57)
     const note = changes.price !== undefined && claims > 0 ? claimsKeptNote(claims) : undefined
@@ -2474,7 +2482,7 @@ export class VoiceController {
     const now = this.#host.now()
     this.#pruneRecent(now)
     this.#recent = [...this.#recent.filter((item) => item.id !== entry.id), { ...entry, registeredAt: now, undoUntil: now + REGISTER_UNDO_MS }]
-    this.#touchVoice(entry.no)
+    this.#touchVoice(entry.no, 'register')
     const pending = this.#pending.get(entry.no)
     if (pending !== undefined) {
       this.#pending.set(entry.no, { ...pending, key: entry.id, at: now })

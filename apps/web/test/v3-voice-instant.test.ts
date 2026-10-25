@@ -575,6 +575,41 @@ describe('판매자 품종 사전 (D-V3-49)', () => {
   })
 })
 
+describe('고쳐 말함 (D-V3-59, TD-V3-005)', () => {
+  it('다른 번호를 음성으로 고치기만 한 것은 고쳐 말함을 끊지 않는다 — 다른 번호의 새 등록만 끊는다', async () => {
+    const h = await ready()
+    say('70번 라울 3만 원')
+    finish(h)
+    h.board.set(71, product(71, '녹금', 20000))
+    at(2500)
+    say('71번 2만 5천 원')
+    await settle()
+    expect(h.fixes.map((fix) => fix.id)).toEqual(['b1:71'])
+    h.board.set(70, product(70, '라울', 30000, 1))
+    at(5000)
+    say('70번 4만 원')
+    await settle()
+    // 찜이 있어도 고쳐 말함이면 바로 고친다 (MAYBE_OTHER 카드 아님)
+    expect(h.fixes.map((fix) => fix.id)).toEqual(['b1:71', 'b1:70'])
+    expect(h.voice.getSnapshot().offers.some((offer) => offer.maybeOther === true)).toBe(false)
+  })
+
+  it('그 뒤 다른 번호를 새로 등록했으면 고쳐 말함이 아니다 — 찜 있으면 "이미 있어요" 카드', async () => {
+    const h = await ready()
+    say('70번 라울 3만 원')
+    finish(h, 0)
+    at(2500)
+    say('72번 녹금 2만 원')
+    finish(h, 1)
+    h.board.set(70, product(70, '라울', 30000, 1))
+    at(5000)
+    say('70번 4만 원')
+    await settle()
+    expect(h.fixes).toEqual([])
+    expect(h.voice.getSnapshot().offers[0]?.maybeOther).toBe(true)
+  })
+})
+
 describe('음성 번호 옮기기 (R-24, D-V3-58)', () => {
   it('"아까 65번은 61번이에요" → 번호 바꾸기, 4초 "65번을 61번으로 옮겼어요"와 [되돌리기]', async () => {
     const h = await ready()
