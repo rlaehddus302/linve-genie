@@ -1,6 +1,7 @@
 // 서비스 워커: 연결·끊김·상태·배지·회차 고르기 (YT-10 AC4·AC6·AC7, AC-X1-18)
 import { describe, expect, it } from 'vitest'
-import { badgeFor, FRAME_GONE_MS, HIDDEN_WARN_MS, Hub, QUEUE_KEY, TOKEN_KEY, type HubView } from '../src/hub.ts'
+import { ASK_STATUS } from '../src/chrome.ts'
+import { ASK_WAIT_MS, badgeFor, FRAME_GONE_MS, FRAMES_KEY, FRAMES_SAVE_MS, HIDDEN_WARN_MS, Hub, QUEUE_KEY, TOKEN_KEY, type HubView } from '../src/hub.ts'
 import { WORDS } from '../src/words.ts'
 import { FakeTimers, fakeChrome, message, settle } from './fakes.ts'
 
@@ -305,6 +306,108 @@ describe('Hub', () => {
       const hub = new Hub(chrome, ORIGIN, fetcher, new FakeTimers(), () => 5_000_000)
       const view = (await hub.handle({ type: 'status', v: LIVE, hidden: false, read: 0, unread: 0 }, WATCH)) as HubView
       expect(view).toMatchObject({ connected: false, message: WORDS.DISCONNECTED, light: 'bad' })
+    })
+  
+    describe('워커가 쉬었다 깨어나도 (MV3 — 메모리가 비어도)', () => {
+      function restartable(bound: boolean) {
+        const { chrome, session } = fakeChrome({ [TOKEN_KEY]: 'tok' })
+        const reply = bound ? { status: 200, body: { bound: { id: 'b1', date: '2026-10-25', title: '저녁 방송' }, broadcasts: [] } } : { status: 200, body: { bound: null, broadcasts: [{ id: 'b1', date: '2026-10-25', title: '저녁 방송' }] } }
+        const fetcher = () => {
+          const { fetcher: f } = server({ 'GET /ext/broadcasts': [reply] })
+          return f
+        }
+        const clock = { t: 3_000_000 }
+        const make = (extra: Partial<typeof chrome> = {}) => new Hub({ ...chrome, ...extra }, ORIGIN, (url, init) => fetcher()(url, init), new FakeTimers(), () => clock.t)
+        return { chrome, session, clock, make }
+      }
+
+      it('회차에 이어진 영상: 새 워커의 팝업이 "채팅 창 없음"이 아니라 받는 중', async () => {
+        const { make, clock } = restartable(true)
+        const first = make()
+        await first.handle({ type: 'status', v: LIVE, hidden: false, read: 2, unread: 0 }, WATCH)
+        await first.saved()
+        // 워커가 쉬고(보고 사이) 팝업을 열어 새 워커가 뜬다
+        clock.t += 5_000
+        const second = make()
+        const view = (await second.handle({ type: 'view' })) as HubView
+        expect(view).toMatchObject({ video: LIVE, message: WORDS.RECEIVING, light: 'ok' })
+      })
+
+      it('이어지지 않은 영상: 새 워커의 팝업이 회차 고르기를 보인다', async () => {
+        const { make, clock } = restartable(false)
+        const first = make()
+        await first.handle({ type: 'status', v: LIVE, hidden: false, read: 0, unread: 0 }, WATCH)
+        await first.saved()
+        clock.t += 5_000
+        const view = (await make().handle({ type: 'view' })) as HubView
+        expect(view).toMatchObject({ video: LIVE, message: WORDS.NOT_BOUND, notBound: true })
+      })
+
+      it('세션에 둔 마지막 보고가 90초보다 오래면 닫힌 것으로 보고, 표가 비면 유튜브 탭에 물어 채운다', async () => {
+        const { make, clock } = restartable(true)
+        const first = make()
+        await first.handle({ type: 'status', v: OLD, hidden: false, read: 0, unread: 0 }, OLD_POPOUT)
+        await first.saved()
+        clock.t += FRAME_GONE_MS + 1
+        const asked: unknown[] = []
+        let second: Hub | null = null
+        second = make({
+          tabs: {
+            query: () => Promise.resolve([{ id: 1 }]),
+            sendMessage: (tabId: number, message: unknown) => {
+              asked.push([tabId, message])
+              // 시청 페이지 안 채팅 iframe의 content script가 지금 상태를 보낸다
+              setTimeout(() => void second?.handle({ type: 'status', v: LIVE, hidden: false, read: 0, unread: 0 }, WATCH), 0)
+              return Promise.resolve(undefined)
+            },
+          },
+        })
+        const view = (await second.handle({ type: 'view' })) as HubView
+        expect(asked).toEqual([[1, { type: ASK_STATUS }]])
+        expect(view).toMatchObject({ video: LIVE, message: WORDS.RECEIVING })
+      })
+
+      it('물어도 답이 없으면 기다림(ASK_WAIT_MS) 뒤 "채팅 창 없음"', async () => {
+        const { chrome } = fakeChrome({ [TOKEN_KEY]: 'tok' })
+        const timers = new FakeTimers()
+        const hub = new Hub({ ...chrome, tabs: { query: () => Promise.resolve([{ id: 4 }]), sendMessage: () => Promise.resolve(undefined) } }, ORIGIN, server({}).fetcher, timers, () => 1)
+        const pending = hub.handle({ type: 'view' })
+        await settle()
+        expect(timers.delays()).toEqual([ASK_WAIT_MS])
+        await timers.fire()
+        expect(((await pending) as HubView).message).toBe(WORDS.NO_CHAT)
+      })
+
+      it('시청 페이지 안 채팅이 영상 ID를 못 꺼내 v 없이 보고하면, 보낸 탭(시청 페이지) 주소에서 정하고 content script에 알려 준다', async () => {
+        const { make } = restartable(true)
+        const hub = make()
+        const iframe = { id: 'ext', url: 'https://www.youtube.com/live_chat?continuation=0ofMyANqGlhDaWtxSndvWVZVTjRPVGd3', tab: { id: 1, url: `https://www.youtube.com/watch?v=${LIVE}` }, frameId: 7 }
+        const reply = (await hub.handle({ type: 'status', v: null, hidden: false, read: 0, unread: 0 }, iframe)) as HubView & { frameVideo: string | null }
+        expect(reply).toMatchObject({ frameVideo: LIVE, video: LIVE, message: WORDS.RECEIVING })
+        expect(((await hub.handle({ type: 'view' })) as HubView).message).toBe(WORDS.RECEIVING)
+      })
+
+      it('보고 시각만 바뀌면 세션에 FRAMES_SAVE_MS에 한 번만 쓴다', async () => {
+        const { make, clock, session } = restartable(true)
+        const hub = make()
+        await hub.handle({ type: 'status', v: LIVE, hidden: false, read: 1, unread: 0 }, WATCH)
+        await hub.saved()
+        const firstSaved = JSON.stringify(session[FRAMES_KEY])
+        clock.t += 5_000
+        await hub.handle({ type: 'status', v: LIVE, hidden: false, read: 1, unread: 0 }, WATCH)
+        await hub.saved()
+        expect(JSON.stringify(session[FRAMES_KEY])).toBe(firstSaved)
+        clock.t += FRAMES_SAVE_MS
+        await hub.handle({ type: 'status', v: LIVE, hidden: false, read: 1, unread: 0 }, WATCH)
+        await hub.saved()
+        expect(JSON.stringify(session[FRAMES_KEY])).not.toBe(firstSaved)
+        // 모양이 바뀌면(숨음) 바로 쓴다
+        const before = JSON.stringify(session[FRAMES_KEY])
+        clock.t += 1_000
+        await hub.handle({ type: 'status', v: LIVE, hidden: true, read: 1, unread: 0 }, WATCH)
+        await hub.saved()
+        expect(JSON.stringify(session[FRAMES_KEY])).not.toBe(before)
+      })
     })
   })
 })

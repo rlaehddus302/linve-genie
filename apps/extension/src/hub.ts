@@ -10,14 +10,16 @@
 //   다른 영상 프레임의 보고는 서버로 보내지 않는다. 숨김은 그 영상의 어느 프레임도 HIDDEN_WARN_MS 동안 보이지 않을 때만 경고한다.
 // - 출력하지 않는다(console 없음) — 닉네임·본문·토큰이 어디에도 찍히지 않게(AC9).
 import { createApi, type Api, type Fetch } from './api.ts'
-import type { ChromeLike, MessageSender } from './chrome.ts'
+import { ASK_STATUS, type ChromeLike, type MessageSender } from './chrome.ts'
 import { Outbox, type OutboxEvent, type OutboxSnapshot, type Timers } from './outbox.ts'
-import { isLiveChatPage, type ChatMessage } from './reader.ts'
+import { isLiveChatPage, videoIdOf, type ChatMessage } from './reader.ts'
 import { WORDS } from './words.ts'
 
 export const TOKEN_KEY = 'token'
 /** chrome.storage.session: 못 보낸 채팅 */
 export const QUEUE_KEY = 'queue'
+/** chrome.storage.session: 프레임 표·지금 영상·이어짐 (워커가 쉬었다 깨도 이어 쓴다 — dev-notes V3 "X1 상태 흔들림") */
+export const FRAMES_KEY = 'frames'
 
 export type ThanksState = 'POST' | 'NONE' | 'OFF' | 'NOT_BOUND' | 'NOT_OWNER' | 'PAUSED'
 export type ThanksOutcome = 'POSTED' | 'UNCONFIRMED' | 'NOT_POSTED'
@@ -89,6 +91,10 @@ export function badgeFor(light: Light): { readonly text: string; readonly color:
 export const HIDDEN_WARN_MS = 30_000
 /** 이만큼 보고가 없는 프레임은 닫힌 것으로 본다 (뒤로 간 탭은 크롬이 타이머를 1분에 한 번까지 늦춘다 — 1분 + 여유) */
 export const FRAME_GONE_MS = 90_000
+/** 보고 시각만 바뀌었으면 이 간격으로만 세션에 쓴다 (나머지가 바뀌면 바로) */
+export const FRAMES_SAVE_MS = 10_000
+/** 팝업을 열었는데 열린 채팅 프레임을 모르면, 유튜브 탭에 물어 첫 답을 이만큼 기다린다 */
+export const ASK_WAIT_MS = 1_500
 
 interface FrameReport {
   readonly v: string | null
@@ -116,6 +122,11 @@ export class Hub {
   readonly #timers: Timers
   readonly #now: () => number
   #hiddenTimer: unknown = null
+  /** 세션에 마지막으로 쓴 프레임 표 (시각 뺀 모양·쓴 때) */
+  #savedShape: string | null = null
+  #savedAt = 0
+  /** 다음 상태 보고를 기다리는 팝업 */
+  #waiters: (() => void)[] = []
   /** 영상 → 회차에 이어졌는가 (모르면 없음) */
   readonly #bound = new Map<string, boolean>()
   #thanks: string | null = null
@@ -144,13 +155,73 @@ export class Hub {
     const stored = await this.#chrome.storage.local.get([TOKEN_KEY])
     const token = stored[TOKEN_KEY]
     this.#token = typeof token === 'string' && token !== '' ? token : null
-    const session = await this.#chrome.storage.session.get([QUEUE_KEY]).catch(() => ({}) as Record<string, unknown>)
+    const session = await this.#chrome.storage.session.get([QUEUE_KEY, FRAMES_KEY]).catch(() => ({}) as Record<string, unknown>)
+    this.#restoreFrames(session[FRAMES_KEY])
     const saved = session[QUEUE_KEY]
     if (this.#token === null) {
       if (saved !== undefined) await this.#chrome.storage.session.remove([QUEUE_KEY]).catch(() => undefined)
       return
     }
     if (isRecord(saved) && Array.isArray(saved['items'])) this.#outbox.restore({ items: saved['items'] as OutboxSnapshot['items'], dropped: typeof saved['dropped'] === 'number' ? saved['dropped'] : 0 })
+  }
+
+  /** 세션의 프레임 표를 읽는다 (모양이 틀린 것은 버린다) */
+  #restoreFrames(raw: unknown): void {
+    if (!isRecord(raw)) return
+    const video = raw['video']
+    if (typeof video === 'string' || video === null) this.#video = video
+    if (Array.isArray(raw['frames']))
+      for (const item of raw['frames'] as unknown[]) {
+        if (!Array.isArray(item) || typeof item[0] !== 'string' || !isRecord(item[1])) continue
+        const f = item[1]
+        if ((typeof f['v'] !== 'string' && f['v'] !== null) || typeof f['hidden'] !== 'boolean' || typeof f['at'] !== 'number') continue
+        this.#frames.set(item[0], { v: f['v'] as string | null, hidden: f['hidden'], read: safeCount(f['read']), unread: safeCount(f['unread']), at: f['at'] })
+      }
+    if (Array.isArray(raw['seen']))
+      for (const item of raw['seen'] as unknown[]) {
+        if (!Array.isArray(item) || typeof item[0] !== 'string' || !isRecord(item[1]) || typeof item[1]['first'] !== 'number') continue
+        const visible = item[1]['visible']
+        this.#seen.set(item[0], { first: item[1]['first'], visible: typeof visible === 'number' ? visible : null })
+      }
+    if (Array.isArray(raw['bound'])) for (const item of raw['bound'] as unknown[]) if (Array.isArray(item) && typeof item[0] === 'string' && typeof item[1] === 'boolean') this.#bound.set(item[0], item[1])
+    if (Array.isArray(raw['ended'])) for (const item of raw['ended'] as unknown[]) if (typeof item === 'string') this.#ended.add(item)
+  }
+
+  /** 프레임 표를 세션에 둔다 — 보고 시각만 바뀌었으면 FRAMES_SAVE_MS에 한 번 */
+  #saveFrames(): void {
+    const now = this.#now()
+    const shapeOf = (withTime: boolean) =>
+      JSON.stringify({
+        video: this.#video,
+        frames: [...this.#frames].map(([key, f]) => [key, withTime ? f : { ...f, at: 0 }]),
+        seen: [...this.#seen].map(([key, seen]) => [key, withTime ? seen : { first: 0, visible: seen.visible === null ? null : 0 }]),
+        bound: [...this.#bound],
+        ended: [...this.#ended],
+      })
+    const shape = shapeOf(false)
+    if (shape === this.#savedShape && now - this.#savedAt < FRAMES_SAVE_MS) return
+    this.#savedShape = shape
+    this.#savedAt = now
+    const value = JSON.parse(shapeOf(true)) as unknown
+    const area = this.#chrome.storage.session
+    this.#persist = this.#persist.then(() => area.set({ [FRAMES_KEY]: value })).catch(() => undefined)
+  }
+
+  /** 팝업: 열린 채팅 프레임을 모르면(워커가 막 깨어남) 유튜브 탭에 지금 상태를 물어 첫 답을 잠깐 기다린다 */
+  async #askFrames(): Promise<void> {
+    this.#prune(this.#now())
+    const tabs = this.#chrome.tabs
+    if (this.#token === null || this.#frames.size > 0 || tabs === undefined) return
+    const found = await tabs.query({ url: 'https://www.youtube.com/*' }).catch(() => [] as readonly { readonly id?: number }[])
+    const ids = found.map((tab) => tab.id).filter((id): id is number => typeof id === 'number')
+    if (ids.length === 0) return
+    let handle: unknown = null
+    await new Promise<void>((resolve) => {
+      this.#waiters.push(resolve)
+      handle = this.#timers.set(resolve, ASK_WAIT_MS)
+      for (const id of ids) tabs.sendMessage(id, { type: ASK_STATUS }).catch(() => undefined)
+    })
+    if (handle !== null) this.#timers.clear(handle)
   }
 
   /** 붙든 채팅을 세션에 둔다 (순서대로 — 앞의 쓰기가 끝난 뒤) */
@@ -191,6 +262,7 @@ export class Hub {
       case 'thanksResult':
         return this.#result(m)
       case 'view':
+        await this.#askFrames()
         return this.view()
       case 'connect':
         return this.#connect(m.code)
@@ -249,6 +321,7 @@ export class Hub {
   }
 
   async #badge(): Promise<void> {
+    this.#saveFrames()
     const view = this.view()
     const badge = badgeFor(view.light)
     await this.#chrome.action.setBadgeText({ text: badge.text })
@@ -256,7 +329,9 @@ export class Hub {
     await this.#chrome.action.setTitle({ title: `라이브지니 — ${view.message}` })
   }
 
-  async #status(m: Extract<PageMessage, { type: 'status' }>, sender: MessageSender | undefined): Promise<HubView> {
+  async #status(raw: Extract<PageMessage, { type: 'status' }>, sender: MessageSender | undefined): Promise<HubView & { readonly frameVideo: string | null }> {
+    // 시청 페이지 안 채팅 iframe은 주소에 v=가 없을 수 있다 — content script가 못 꺼냈으면 보낸 탭(시청 페이지) 주소에서 꺼낸다
+    const m = raw.v !== null || sender === undefined ? raw : { ...raw, v: videoIdOf(sender.url ?? '', sender.tab?.url ?? null) }
     const now = this.#now()
     this.#prune(now)
     const vk = m.v ?? ''
@@ -288,7 +363,10 @@ export class Hub {
       }
     }
     await this.#badge()
-    return this.view()
+    const waiters = this.#waiters
+    this.#waiters = []
+    for (const resolve of waiters) resolve()
+    return { ...this.view(), frameVideo: m.v }
   }
 
   /** 오래 보고가 없는 프레임을 지운다 */
