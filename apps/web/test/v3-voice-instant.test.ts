@@ -218,7 +218,8 @@ describe('바로 등록 (V3)', () => {
     expect(h.voice.getSnapshot().log[0]?.reason).toBe('가격을 못 들었어요')
     say('15번 핑크프릴 만오천')
     at(5000)
-    expect(cards(h)).toEqual([])
+    // D-V3-67: 기다리던 10번은 다른 N번(15번)이 먼저 와서 "가격을 못 들었어요" 카드가 되고, 15번이 새로 기다린다
+    expect(cards(h).map((card) => card.no)).toEqual([10])
     const off = await ready({ settings: { 'voice.autoRegister': false } })
     say('15번 핑크문')
     at(3000)
@@ -592,6 +593,41 @@ describe('고쳐 말함 (D-V3-59, TD-V3-005)', () => {
     await settle()
     expect(h.fixes).toEqual([])
     expect(h.voice.getSnapshot().offers[0]?.maybeOther).toBe(true)
+  })
+})
+
+describe('기다리는 번호 (D-V3-67)', () => {
+  it('번호만 들린 덩어리 뒤 60초 안에 원 가격만 들리면 그 번호로 바로 등록 (이어 받음)', async () => {
+    const h = await ready()
+    say('15번 이거 예쁘죠')
+    at(2000)
+    expect(h.registered).toEqual([])
+    expect(cards(h)).toEqual([])
+    say('자 이건 만오천 원')
+    at(5000)
+    expect(reg(h)).toEqual([{ no: 15, name: '', price: 15000, source: 'instant' }])
+    expect(h.voice.getSnapshot().readout?.text).toContain('이어 받음')
+  })
+
+  it('다른 N번이 먼저 오면 기다리던 번호는 "15번 가격을 못 들었어요" 카드', async () => {
+    const h = await ready()
+    say('15번 이거 예쁘죠')
+    at(2000)
+    say('16번 라울 만 원')
+    at(5000)
+    expect(reg(h).map((item) => item.no)).toEqual([16])
+    const card = cards(h).find((item) => item.no === 15)
+    expect(card).toBeDefined()
+    expect(h.voice.getSnapshot().notes.get(card?.id ?? '')).toBe('15번 가격을 못 들었어요')
+  })
+
+  it('60초가 지나면 덩어리가 없어도 카드', async () => {
+    const h = await ready()
+    say('15번 이거 예쁘죠')
+    at(2000)
+    expect(cards(h)).toEqual([])
+    at(2000 + 61_000)
+    expect(cards(h).map((card) => card.no)).toEqual([15])
   })
 })
 

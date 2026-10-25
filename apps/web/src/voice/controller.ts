@@ -11,7 +11,7 @@
 // V1 음성 문자찜 (ORD-08 AC9, VOC-01·04, D-V1-03~09, AC-V1-20~28): 문자찜 문장(R-21)은 상품 카드 대신 문자찜 카드가 된다. 손대지 않은 카드는
 // 기다림(그 기기 설정, 기본 3초) 뒤 콘솔이 넘긴 쓰기(host.writeSms — 손 입력과 같은 `sms` 이벤트)로 넣는다. 넣은·닫은 카드도 10초 동안은
 // 같은 말 막기(D-V1-06)를 위해 들고 있다. 열린 카드 수 규칙은 상품 카드와 함께 센다(addVoiceCard).
-import { formatWon } from '@livejjim/core'
+import { formatWon, type PriceUnit } from '@livejjim/core'
 import { isHomeScreenApp } from './standalone.ts'
 import type {
   ChunkFields,
@@ -31,6 +31,7 @@ import type {
   RegistrationReading,
   SegmentPick,
   SegmentReading,
+  WaitingNumber,
   SmsBuyerCandidate,
   SmsCard,
   SmsProductView,
@@ -76,6 +77,9 @@ import {
   LOG_UNDONE,
   REASON_NOT_OPEN,
   claimsKeptNote,
+  LOG_TAKEN,
+  TAKEN_MARK,
+  missedPriceNote,
   RENUMBER_FAILED,
   renumberClaims,
   renumberDone,
@@ -489,7 +493,7 @@ export interface VoiceHost {
   /** 지금 범위의 상품 이름 — 자료가 같으면 같은 배열 (사전을 다시 만들지 않게) */
   currentNames(): readonly string[]
   /** 그 방송 판매 규칙의 price.unit ("N번 품종 수" 꼴, D-V3-48) */
-  priceUnit?(): 'WON' | 'THOUSAND' | 'TEN_THOUSAND'
+  priceUnit?(): PriceUnit
   /** 그 방송에 지금 있는 상품: 번호 → 판매 종료인가 */
   products(): ReadonlyMap<number, boolean>
   /** 지난 실제 범위의 상품 이름 (음성을 켤 때 한 번) */
@@ -732,6 +736,8 @@ export class VoiceController {
   #instantNos = new Map<number, 'register' | 'existing'>()
   /** 지금 덩어리에서 처리한 조각 (`${no}@${start}`, D-V3-46) */
   readonly #pickDone = new Set<string>()
+  /** 기다리는 번호 (D-V3-67) — 하나만, 음성을 끄면 버린다 */
+  #waiting: WaitingNumber | null = null
   /** 차례를 기다리는 큰 글자 칸 안내 (D-V3-61) */
   /** 음성으로 등록·고친 번호와 시각 (D-V3-59 고쳐 말함) */
   /** 번호마다 마지막으로 음성으로 등록·고친 시각 (D-V3-59, TD-V3-005) */
@@ -908,6 +914,7 @@ export class VoiceController {
     this.#rejected.clear()
     this.#instantNos = new Map()
     this.#pickDone.clear()
+    this.#waiting = null
     this.#dueCards.clear()
     this.#phraseInstantOff = false
     this.#set({ phase: 'off', stateLabel: null, interim: null, tooSoon: false, cards, sms, hearing: null, paused: new Map() })
@@ -1136,6 +1143,14 @@ export class VoiceController {
     this.#pickDone.clear()
     this.#instantNos = new Map()
     if (this.#phrase === null || module.nextTickAt(this.#phrase) === null) this.#phraseInstantOff = false
+    // 기다리는 번호 (D-V3-67): 번호만 들린 조각은 다음 원 가격을 60초 기다리고, 놓치면 "15번 가격을 못 들었어요" 카드
+    const waited = v3 !== null && !noAuto ? this.#stepWaiting(work, module, chunk, reading, v3, handledNos) : null
+    if (waited !== null) {
+      const read = { no: reading.no, name: reading.name, price: reading.price, candidates: reading.candidates }
+      work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: chunk.pieces, read, action: waited.action, reason: waited.reason }))
+      if (waited.readout !== null) work.readout = { text: waited.readout, discarded: false, until: now + READOUT_MS }
+      return
+    }
     if (instantDone !== null) {
       const read = { no: reading.no, name: reading.name, price: reading.price, candidates: reading.candidates }
       work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: chunk.pieces, read, action: instantDone.action, reason: instantDone.reason }))
@@ -1277,14 +1292,67 @@ export class VoiceController {
     work.readout = { text, discarded: action.kind === 'discard', until: now + READOUT_MS }
   }
 
+  /**
+   * 기다리는 번호 한 걸음 (D-V3-67, 음성 패키지 stepWaiting): 이어 받으면 그 번호로 바로 등록("이어 받음"),
+   * 다른 'N번'이 먼저 오거나 60초가 지나면 가격 입력 카드. 이어 받아 처리했으면 기록할 것, 아니면 null
+   */
+  #stepWaiting(work: CardWork, module: VoiceModule, chunk: PhraseChunk, reading: ChunkReading, v3: RegistrationReading, handled: ReadonlySet<number>): InstantDone | null {
+    if (typeof module.stepWaiting !== 'function' || !this.#snapshot.instant || chunk.text.includes('문자찜')) return null
+    const last = [...handled].at(-1)
+    const piece =
+      last !== undefined
+        ? { markerNo: last, wonPrice: null, paired: true }
+        : {
+            markerNo: v3.numberFrom === 'marker' ? reading.no : null,
+            wonPrice: reading.no === null && v3.priceSure && reading.price !== null ? reading.price : null,
+            paired: false,
+          }
+    let step: ReturnType<VoiceModule['stepWaiting']>
+    try {
+      step = module.stepWaiting({ waiting: this.#waiting, now: this.#host.now(), piece, exists: (no) => this.#existingOf(no) !== null })
+    } catch {
+      return null
+    }
+    this.#waiting = step.waiting
+    if (step.card !== null) this.#missedCard(work, module, step.card)
+    const take = step.take
+    if (take === null || this.#rejected.has(take.no) || this.#existingOf(take.no) !== null) return null
+    this.#instantNos.set(take.no, 'register')
+    const done = this.#registerInstant(work, { no: take.no, price: take.price, name: null, nameNeedsCheck: false, numberFrom: 'marker' }, chunk.text)
+    this.#instantNos = new Map()
+    return { action: 'create', reason: LOG_TAKEN, readout: done.readout === null ? null : `${done.readout} · ${TAKEN_MARK}` }
+  }
+
+  /** "15번 가격을 못 들었어요" 카드 (D-V3-67) — 가격을 적어 [등록]하거나 [닫기]. 같은 번호 카드가 있으면 그대로 */
+  #missedCard(work: CardWork, module: VoiceModule, no: number): void {
+    if (this.#existingOf(no) !== null || work.cards.some((card) => isOpen(card) && card.no === no)) return
+    const id = `voice-${String(this.#nextCard++)}`
+    const card: SuggestionCard = { id, no, name: null, price: null, confidence: 'LOW', text: '', createdAt: this.#host.now(), status: 'OPEN', touched: false, autoConfirmAt: null }
+    work.notes = new Map(work.notes).set(id, missedPriceNote(no))
+    work.info = new Map(work.info).set(id, { candidates: [], ask: null })
+    this.#place(work, module, card)
+  }
+
+  /** 60초가 지난 기다리는 번호를 카드로 (덩어리가 오지 않아도) */
+  #expireWaiting(): void {
+    const module = this.#module
+    if (module === null || this.#waiting === null || typeof module.waitingExpired !== 'function') return
+    if (!module.waitingExpired(this.#waiting, this.#host.now())) return
+    const no = this.#waiting.no
+    this.#waiting = null
+    const work = this.#emptyWork()
+    this.#missedCard(work, module, no)
+    this.#set(this.#workPatch(work))
+  }
+
   /** V3 버림의 큰 글자 칸 (D-V3-41·61) — 보이지 않으면 null(기록에만) */
   #discardReadout(module: VoiceModule, why: string | null, reading: ChunkReading, v3: RegistrationReading, handled: ReadonlySet<number>): string | null {
     const reasons = module.VOICE_LOG_REASONS
     // 번호가 들린 버림(번호 여럿·가격 뒤 번호)은 그대로 4초 (D-V3-41)
     if (why !== null && (why === reasons.numberAfterPrice || why.startsWith('번호가 여럿'))) return why
     const instant = this.#snapshot.instant
-    if (instant && reading.no !== null && reading.price === null && !handled.has(reading.no)) return `${String(reading.no)}번 · ${PRICE_MISSING_READOUT}`
-    if (instant && reading.no !== null && !v3.priceSure && !handled.has(reading.no)) return `${String(reading.no)}번 · ${PRICE_MISSING_READOUT}`
+    // 번호만 들린 조각은 4초 안내 대신 기다리는 번호가 된다 (D-V3-67)
+    void handled
     if (instant && reading.no === null && reading.price !== null && v3.priceSure) return `${formatWon(reading.price)} · ${NUMBER_MISSING_READOUT}`
     return null
   }
@@ -2607,6 +2675,7 @@ export class VoiceController {
   refresh(): void {
     if (this.#disposed) return
     this.#autoConfirm()
+    this.#expireWaiting()
     this.#runDue()
     this.#smsAuto()
     // 맨 앞 카드의 "Enter 등록"이 보이면 "새 카드가 방금 나왔어요…"는 할 일을 다 했다
@@ -3020,7 +3089,8 @@ export class VoiceController {
     const now = this.#snapshot.now
     const later = (at: number | null): number | null => (at === null || at <= now ? null : at - now)
     const offerEnds = this.#snapshot.offers.map((offer) => (offer.stage === 'fixed' ? later(offer.undoUntil) : null))
-    const wakes = [nextWake(this.#snapshot.cards, this.#snapshot.front, now), this.#smsWake(), later(this.#snapshot.readout?.until ?? null), ...offerEnds].filter(
+    const waitingEnd = this.#waiting === null ? null : later(this.#waiting.since + 60_001)
+    const wakes = [nextWake(this.#snapshot.cards, this.#snapshot.front, now), this.#smsWake(), later(this.#snapshot.readout?.until ?? null), waitingEnd, ...offerEnds].filter(
       (value): value is number => value !== null,
     )
     const wake = wakes.length === 0 ? null : Math.min(...wakes)

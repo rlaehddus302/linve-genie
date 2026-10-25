@@ -10,12 +10,15 @@ export const PRICE_UNIT_WORDS: Readonly<Record<PriceUnit, string>> = {
   WON: '원 (15000 → 15,000원)',
   THOUSAND: '천원 (15 → 15,000원)',
   TEN_THOUSAND: '만원 (15 → 150,000원)',
+  // D-V3-70: 두 자리 이하는 만원, 세 자리는 천원, 1000 이상은 원 그대로
+  AUTO: '자동 (25 → 250,000원, 180 → 180,000원)',
 }
 /** 저장된 값과 다른 가격 단위를 골랐을 때(저장 전) 고르기 아래 확인 문장 (AC-FB1-01) */
 export const PRICE_UNIT_CHANGE: Readonly<Record<PriceUnit, string>> = {
   WON: "저장하면 다음 방송부터 숫자를 원 그대로 읽어요('15000' → 15,000원). 이미 등록한 상품 가격은 바뀌지 않아요.",
   THOUSAND: "저장하면 다음 방송부터 '15'는 15,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요.",
   TEN_THOUSAND: "저장하면 다음 방송부터 '15'는 150,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요.",
+  AUTO: "저장하면 다음 방송부터 '25'는 250,000원, '180'은 180,000원, '15000'은 15,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요.",
 }
 /** 여러 번호 예시 — 채팅 한 줄 모양 (FB1 D-FB1-12, AC-FB1-07) */
 export const MULTI_NUMBER_EXAMPLE = { author: '@홍길동', text: '132 475' } as const

@@ -111,3 +111,8 @@ export const renumberTaken = (to: number): string => `${String(to)}번이 이미
 export const renumberClaims = (from: number): string => `${String(from)}번에 찜이 있어 번호를 옮기지 않았어요. 상품 목록에서 고쳐 주세요.`
 export const renumberNotOpen = (from: number): string => `${String(from)}번이 없거나 판매 중이 아니라 번호를 옮기지 않았어요.`
 export const RENUMBER_FAILED = '번호를 옮기지 못했어요. 인터넷 연결을 확인하고 상품 목록에서 고쳐 주세요.'
+
+/** 기다리는 번호 (D-V3-67) */
+export const missedPriceNote = (no: number): string => `${String(no)}번 가격을 못 들었어요`
+export const TAKEN_MARK = '이어 받음'
+export const LOG_TAKEN = '기다리던 번호에 다음 가격을 이어 받아 등록했어요'
