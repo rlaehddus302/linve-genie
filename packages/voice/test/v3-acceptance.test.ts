@@ -220,8 +220,8 @@ describe('AC-V3-51 카드는 확정된 번호가 있을 때만 (D-V3-41)', () =>
 
 describe('실방송 화면 사례 — 군말이 낀 창은 사전 이름에 맞추지 않는다', () => {
   const text = '지금 금이 선명하게 안 보여서 그런지 금은 다 있어요 자 그러면 안쪽부터 금은 다 물고 있습니다 청개구리 어 요이 자 얘는 행운의 소장합니다 7만 원'
-  it('번호 없음 → 카드 없음, 품종도 없음', () => {
-    expect(extractVoice(text, { dictionary: DICT })).toEqual({ no: null, name: null, price: 70000, confidence: 'LOW' })
+  it('번호 없음 → 카드 없음 (청개구리는 실방송 7차로 사전에 들어가 말 그대로 맞음)', () => {
+    expect(extractVoice(text, { dictionary: DICT })).toEqual({ no: null, name: '청개구리', price: 70000, confidence: 'LOW' })
     expect(chooseAction(chunk(text), { cards: [], now: 0, registration: reg(text) })).toEqual({ kind: 'discard', reason: '번호를 못 들었어요', cancelled: false })
   })
   it("'자' + 다음 낱말 창이 '자보' 같은 사전 이름이 되지 않는다", () => {
@@ -269,5 +269,22 @@ describe('TD-V3-003 켬에서 원 없는 정정 덩어리는 카드 없음', () 
   })
   it('15번 만오천원 아니 만팔천원 → 카드 15번 18,000원 그대로', () => {
     expect(on('15번 만오천원 아니 만팔천원')).toMatchObject({ kind: 'create', extraction: { no: 15, price: 18000 } })
+  })
+})
+
+describe('실방송 7차 품종 (사전 추가 — 사용자 확인 필요)', () => {
+  it.each([
+    ['89번 녹금 7만 원', '녹금'],
+    ['89번 녹색금 7만 원', '녹금'],
+    ['89번 록금 7만 원', '녹금'],
+    ['92번 빅뱅 6만 원', '빅뱅'],
+    ['92번 빅뱅금 6만 원', '빅뱅금'],
+    ['92번 빅뱅 금 6만 원', '빅뱅금'],
+    ['30번 청개구리 5만 원', '청개구리'],
+    ['31번 청수박 5만 원', '청수박'],
+    ['32번 로제스타 5만 원', '로제스타수박'],
+    ['33번 로제스타수박 5만 원', '로제스타수박'],
+  ])('%s → %s', (text, name) => {
+    expect(readyToRegister(text, { dictionary: DICT })).toMatchObject({ name })
   })
 })
