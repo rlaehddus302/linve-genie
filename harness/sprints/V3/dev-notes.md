@@ -93,3 +93,30 @@
 - 적대 tests/adversarial/v3 남은 실패 2건은 시험이 D-V3-26·27보다 먼저 써졌기 때문이다(test-domain 몫).
   - "일 육 팔 bts 25만 원 → 168번 확정"(TD-V3-001 회귀 짝): D-V3-27로 이제 번호 없음이다.
   - 사례 표 "자 9cm에 이거 25만 원 170 → k=6 확정": D-V3-26으로 중간 결과 끝의 '번' 없는 번호라 k=6에서 확정되지 않는다. 최종 결과(`final: true`)라야 확정이다.
+
+### dev-device 추가 5 — 실방송 3차 위험 사례 (오케스트레이터 지시, 판매자 안전 우선)
+대상 문장: "… 65만 원까지 … 나왔네요 자 60 어 자"가 60번 · "나왔네" · 650,000원으로 바로 등록됐고, 38번이 "설비"·"나왔네"·6,050,000원으로 자동으로 고쳐졌다.
+1. **품종 추측**
+   - `readRegistration`에 `safeGuess`를 더했다. 추측(R-17 7 `guess`)이 같은 덩어리에 후보 낱말로 두 번 이상 나왔고 말끝 모양(`looksLikePredicate` — …습니다·니다·는데·어요·아요·해요·네요·죠·네·요·다·고·게·서·데·해·어·지)이 아닐 때만 값이 있다.
+   - `ready.name`은 사전 이름 ?? `safeGuess`다. **화면은 카드에도 `guess` 대신 `safeGuess`를 쓰길 권한다.**
+   - `guessVariety`·`guess`는 골든(variety-guess) 그대로다.
+2. **추측 품종으로 이미 있는 상품을 건드리지 않는다**
+   - `decideForExisting`에서 `nameNeedsCheck: true`인 품종은 없는 것으로 본다. 채우기·바꾸기 모두 없다(그래서 FILL_NAME·AUTO_FIX에 이름이 들어가지 않는다).
+   - 사전 이름만 채우거나 고친다.
+   - `decideSameNumber`(R-22 골든)는 그대로다. 골든 G-VSN-V3-03 "빈 품종을 추측으로 채움 → AUTO_FIX"와 화면 판단이 달라졌다 — **스펙 판정 필요**.
+3. **numberFrom**
+   - `ReadyRegistration.numberFrom: 'marker' | 'bare'`, `RegistrationReading.numberFrom: 'marker' | 'bare' | null`을 더했다.
+   - `decideForExisting`의 heard에 `numberFrom?`를 받는다. `'bare'`면 바로 고치지 않는다. 바뀔 칸이 없으면 IGNORE, 있으면 ASK다(FILL_NAME도 ASK).
+4. **가격 크기**
+   - 바로 등록 가격 상한은 `AUTO_REGISTER_PRICE_MAX` = 3,000,000원이다. 넘으면 `ready` = null, `blocked` = `'PRICE_TOO_HIGH'`다(카드에 "가격 확인 필요").
+   - 바로 고침은 새 가격이 기존의 3배(`AUTO_FIX_PRICE_RATIO`)를 넘거나 1/3 미만이면 ASK다.
+5. **원 가격 줄 뒤의 '번' 없는 번호**
+   - `no`가 '번' 없는 번호이고 그 후보 토큰이 어떤 원 가격 줄보다 뒤에 있으면 바로 등록하지 않는다. `blocked` = `'BARE_NUMBER_AFTER_PRICE'`, 카드만 보여 준다.
+   - real-broadcast R34 "자 9cm에 이거 25만 원 170"(final)도 이제 카드다(D-V3-23 사례 — **스펙 판정 필요**).
+   - `170 25만 원`처럼 번호가 가격 앞이면 지금처럼 바로 등록된다.
+- 골든·적대와 부딪히는 사례:
+  - 골든 voice-register `same-number.json` G-VSN-V3-03: `decideSameNumber`는 그대로 통과한다. 화면용 `decideForExisting`만 추측으로 채우지 않는다.
+  - real-broadcast 1 "108번 bts …" 기대 "bts(품종 확인 필요)" → 이제 품종 없음(bts가 한 번만 나옴).
+  - 적대 v3 "15번 999 만 9천9백 원 → 9,999,900원 바로 등록" → 300만 원 상한으로 카드만(blocked PRICE_TOO_HIGH).
+  - 적대 v3 사례 표 "자 9cm에 이거 25만 원 170 → k=6 확정" → 카드만(앞서부터 실패하던 건과 같은 사례).
+  - `pnpm golden` 불일치는 없다(155사례 통과).

@@ -375,6 +375,8 @@ interface PriceReading {
   readonly tokens: ReadonlySet<number>
   /** 원 가격 줄이 하나 이상 있는가 */
   readonly wonLines: number
+  /** 원 가격 줄의 끝 토큰 위치 (나온 차례) */
+  readonly wonLineEnds: readonly number[]
   /** 읽힌 값 전부 (나온 차례) */
   readonly values: readonly number[]
   /** '번' 없는 번호 후보 (토큰 위치 → 값) */
@@ -489,7 +491,7 @@ function findPrice(
   const values = ordered.map((item) => item.value).filter((value): value is number => value !== null)
   const distinct = new Set(values)
   const price = !ambiguous && distinct.size === 1 ? (values[0] as number) : null
-  return { price, tokens: inBundle, wonLines: lines.length, values, bare, bareSplit: bareNumbers.split }
+  return { price, tokens: inBundle, wonLines: lines.length, wonLineEnds: lines.map((line) => line.end), values, bare, bareSplit: bareNumbers.split }
 }
 
 // ── 5. 품종 ──────────────────────────────────────────────────────────────
@@ -652,6 +654,10 @@ export interface SentenceAnalysis {
   readonly heardPrices: readonly number[]
   /** no가 '번' 없는 번호이고 그 후보 토큰 하나가 글의 마지막 토큰인가 (R-17 8, D-V3-26) */
   readonly bareNumberAtEnd: boolean
+  /** no를 낸 것: 'N번'(자리 읽기 + 번 포함) = marker, '번' 없는 번호 = bare, no가 없으면 null */
+  readonly numberFrom: 'marker' | 'bare' | null
+  /** no가 '번' 없는 번호이고 그 후보 토큰이 어떤 원 가격 줄보다 뒤에 있는가 (다음 상품 번호를 부르기 시작한 것일 수 있다) */
+  readonly bareNumberAfterPrice: boolean
 }
 
 const EMPTY_READING: SentenceReading = Object.freeze({ extraction: EMPTY, nameExact: false, nameWindow: null, windows: Object.freeze(new Set<string>()), rest: '' })
@@ -664,6 +670,8 @@ const EMPTY_ANALYSIS: SentenceAnalysis = Object.freeze({
   heardNumbers: Object.freeze([]),
   heardPrices: Object.freeze([]),
   bareNumberAtEnd: false,
+  numberFrom: null,
+  bareNumberAfterPrice: false,
 })
 
 /** 이어진 위치들의 첫 묶음 (위치 집합에서 가장 앞의 이어진 덩어리) */
@@ -740,5 +748,8 @@ export function analyzeSentence(text: unknown, options: ExtractOptions = {}): Se
     heardNumbers: [...distinctNumbers],
     heardPrices: [...new Set(bundles.values)],
     bareNumberAtEnd: beonValues.length === 0 && no !== null && bareCandidates.some((candidate) => candidate.tokens.includes(tokens.length - 1)),
+    numberFrom: no === null ? null : beonValues.length > 0 ? 'marker' : 'bare',
+    bareNumberAfterPrice:
+      beonValues.length === 0 && no !== null && bareCandidates.some((candidate) => candidate.value === no && bundles.wonLineEnds.some((end) => end < (candidate.tokens[0] as number))),
   }
 }

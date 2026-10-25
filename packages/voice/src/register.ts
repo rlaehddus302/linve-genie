@@ -96,7 +96,12 @@ export interface ReadyRegistration {
   readonly name: string | null
   /** 품종이 추측이다 — 카드·목록에 "품종 확인 필요" */
   readonly nameNeedsCheck: boolean
+  /** 번호를 낸 것: 'N번'이 들림(marker) · '번' 없는 번호(bare). 이미 있는 번호면 decideForExisting에 그대로 넘긴다 */
+  readonly numberFrom: 'marker' | 'bare'
 }
+
+/** 바로 등록하지 않는 까닭 (카드만 — 화면 문구는 화면이 정한다) */
+export type ReadyBlock = 'PRICE_TOO_HIGH' | 'BARE_NUMBER_AFTER_PRICE'
 
 /** 덩어리 하나를 V3로 읽은 결과 (화면 카드·기록용) */
 export interface RegistrationReading {
@@ -112,8 +117,28 @@ export interface RegistrationReading {
   readonly heardNumbers: readonly number[]
   /** 읽힌 가격 전부 (겹친 값 한 번) */
   readonly heardPrices: readonly number[]
+  /** 등록·카드에 쓸 추측 품종 — 추측이 같은 덩어리에 두 번 이상 나왔고 말끝(…네·…요·…다 등) 모양이 아닐 때만, 아니면 null */
+  readonly safeGuess: string | null
+  /** 번호를 낸 것 (no가 없으면 null) */
+  readonly numberFrom: 'marker' | 'bare' | null
+  /** 번호·'원' 가격은 확정됐지만 바로 등록하지 않는 까닭 (없으면 null) — 카드로 보여 준다 */
+  readonly blocked: ReadyBlock | null
   /** 확정이면 바로 등록할 값, 아니면 null */
   readonly ready: ReadyRegistration | null
+}
+
+/** 바로 등록할 수 있는 가격 상한 (원). 넘으면 카드만 — "가격 확인 필요" (크롬이 "육십오만"을 "605만"으로 적는 일이 있다) */
+export const AUTO_REGISTER_PRICE_MAX = 3_000_000
+
+/** 말끝 모양 — 동사·형용사로 끝나는 낱말은 품종 추측으로 쓰지 않는다 (`나왔네`·`예쁘죠`·`있고`) */
+const PREDICATE_ENDINGS: readonly string[] = ['습니다', '니다', '는데', '어요', '아요', '해요', '네요', '죠', '네', '요', '다', '고', '게', '서', '데', '해', '어', '지']
+export const looksLikePredicate = (word: string): boolean => PREDICATE_ENDINGS.some((ending) => word.length > ending.length && word.endsWith(ending))
+
+function safeGuessOf(analysis: SentenceAnalysis, guess: string | null): string | null {
+  if (guess === null || looksLikePredicate(guess)) return null
+  const kinds = tokenKinds(analysis)
+  const count = analysis.tokens.filter((token, i) => kinds[i] === 'word' && guessWord(token) === guess).length
+  return count >= 2 ? guess : null
 }
 
 const MALGO = '말고'
@@ -136,11 +161,21 @@ export function readRegistration(text: unknown, options: RegistrationOptions = {
   const guess = guessFromAnalysis(analysis)
   const priceSure = extraction.price !== null && analysis.wonLines > 0
   const correction = hasCorrectionWord(analysis.tokens)
+  const safeGuess = safeGuessOf(analysis, guess)
+  const numberFrom = analysis.numberFrom
+  const sure = extraction.no !== null && extraction.price !== null && priceSure && !correction && (options.final === true || !analysis.bareNumberAtEnd)
+  const blocked: ReadyBlock | null = !sure
+    ? null
+    : (extraction.price as number) > AUTO_REGISTER_PRICE_MAX
+      ? 'PRICE_TOO_HIGH'
+      : analysis.bareNumberAfterPrice
+        ? 'BARE_NUMBER_AFTER_PRICE'
+        : null
   const ready: ReadyRegistration | null =
-    extraction.no !== null && extraction.price !== null && priceSure && !correction && (options.final === true || !analysis.bareNumberAtEnd)
-      ? { no: extraction.no, price: extraction.price, name: extraction.name ?? guess, nameNeedsCheck: extraction.name === null && guess !== null }
+    sure && blocked === null && numberFrom !== null
+      ? { no: extraction.no as number, price: extraction.price as number, name: extraction.name ?? safeGuess, nameNeedsCheck: extraction.name === null && safeGuess !== null, numberFrom }
       : null
-  return { extraction, guess, priceSure, correction, heardNumbers: analysis.heardNumbers, heardPrices: analysis.heardPrices, ready }
+  return { extraction, guess, safeGuess, numberFrom, blocked, priceSure, correction, heardNumbers: analysis.heardNumbers, heardPrices: analysis.heardPrices, ready }
 }
 
 /**
@@ -217,7 +252,12 @@ export interface ExistingHeard {
   readonly nameNeedsCheck?: boolean
   /** 가격이 원 가격 줄에서 나왔는가. 생략 = 참 */
   readonly priceSure?: boolean
+  /** 번호를 낸 것. 'bare'('번' 없는 번호)면 바로 고치지 않는다(IGNORE 또는 ASK). 생략 = 'marker' */
+  readonly numberFrom?: 'marker' | 'bare'
 }
+
+/** 바로 고침에서 받는 가격 비율 — 새 가격이 기존의 3배를 넘거나 1/3 미만이면 묻는다 */
+export const AUTO_FIX_PRICE_RATIO = 3
 
 export interface ExistingContext {
   /** 바로 고쳐도 되는 덩어리인가 (R-22 auto). 생략 = 참 */
@@ -231,22 +271,23 @@ export interface ExistingContext {
  * IGNORE = 같음 · AUTO_FIX = 찜 없고 바로 고침 · FILL_NAME = 찜이 있어도 비었던 품종을 사전 이름으로 채움 · ASK = 고칠까요 카드.
  */
 export function decideForExisting(existing: ExistingProduct, heard: ExistingHeard, context: ExistingContext = {}): ExistingDecision {
+  // 추측 품종(사전 밖)은 이미 있는 상품의 품종을 채우지도 바꾸지도 않는다 — 사전 이름만 (실방송 3차: "설비"·"나왔네"가 채워짐)
+  const name = heard.nameNeedsCheck === true ? null : heard.name
   const decision = decideSameNumber({
-    heard: {
-      price: heard.price,
-      priceSure: heard.priceSure !== false,
-      name: heard.name,
-      nameFrom: heard.name === null ? null : heard.nameNeedsCheck === true ? 'GUESS' : 'DICTIONARY',
-    },
+    heard: { price: heard.price, priceSure: heard.priceSure !== false, name, nameFrom: name === null ? null : 'DICTIONARY' },
     product: { name: existing.name, price: existing.price, status: context.status ?? 'OPEN', liveClaims: existing.claimCount },
     auto: context.auto !== false,
   })
   const price = decision.changes.price ?? null
-  const name = decision.changes.name ?? null
+  const changedName = decision.changes.name ?? null
   if (decision.action === 'IGNORE') return { kind: 'IGNORE' }
-  if (decision.action === 'ASK') return { kind: 'ASK', price, name }
-  if (existing.claimCount > 0 && name !== null && price === null) return { kind: 'FILL_NAME', name }
-  return { kind: 'AUTO_FIX', price, name }
+  if (decision.action === 'ASK') return { kind: 'ASK', price, name: changedName }
+  // '번' 없는 번호로 잡힌 같은 번호는 바로 고치지 않는다
+  if (heard.numberFrom === 'bare') return { kind: 'ASK', price, name: changedName }
+  // 가격 크기 지킴: 3배 초과·1/3 미만이면 묻는다 ("605만" 같은 잘못 적음)
+  if (price !== null && (price > existing.price * AUTO_FIX_PRICE_RATIO || price * AUTO_FIX_PRICE_RATIO < existing.price)) return { kind: 'ASK', price, name: changedName }
+  if (existing.claimCount > 0 && changedName !== null && price === null) return { kind: 'FILL_NAME', name: changedName }
+  return { kind: 'AUTO_FIX', price, name: changedName }
 }
 
 // ── 열린 카드 합치기 (D-V3-06) ───────────────────────────────────────────

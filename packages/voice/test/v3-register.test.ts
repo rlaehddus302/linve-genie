@@ -111,21 +111,21 @@ const DICT = prepareVoiceDictionary()
 const read = (text: string) => readRegistration(text, { dictionary: DICT })
 
 describe('실제 방송 문장 → 바로 등록 (기본 사전)', () => {
-  it('1. 108번 bts 10만 원까지 → 108 · 100,000원 · bts(확인 필요)', () => {
+  it('1. 108번 bts 10만 원까지 → 108 · 100,000원 · 추측 bts는 한 번만 나와 품종 없음(실방송 3차 — 추측은 두 번 이상 나올 때만)', () => {
     const text = '네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요'
-    expect(readyToRegister(text, { dictionary: DICT })).toEqual({ no: 108, price: 100000, name: 'bts', nameNeedsCheck: true })
+    expect(readyToRegister(text, { dictionary: DICT })).toEqual({ no: 108, price: 100000, name: null, nameNeedsCheck: false, numberFrom: 'marker' })
   })
   it('2. 10만 원 108번(끝) → 108 · 100,000원 · bts(두 번 나온 낱말)', () => {
     const r = readyToRegister('자 bts는 자 bts 요거 그대로 보냅니다 요 아이 자 10만 원 108번', { dictionary: DICT })
-    expect(r).toMatchObject({ no: 108, price: 100000 })
+    expect(r).toEqual({ no: 108, price: 100000, name: 'bts', nameNeedsCheck: true, numberFrom: 'marker' })
   })
   it('3. 180번 … 30 5만 원 → 180 · 350,000원 · 삼광색금', () => {
     const text = '자 180번 상관 세금 자 요 아이 자 유아이 35만 원까지 네 요 아이는 35만 원까지 그대로 봅니다 색금 이렇게 잘 들었어요 자 3강색급 요 아이는 30 5만 원'
-    expect(readyToRegister(text, { dictionary: DICT })).toEqual({ no: 180, price: 350000, name: '삼광색금', nameNeedsCheck: false })
+    expect(readyToRegister(text, { dictionary: DICT })).toEqual({ no: 180, price: 350000, name: '삼광색금', nameNeedsCheck: false, numberFrom: 'marker' })
   })
   it('4. 28만 원 174번 … 174(번 없음) → 174 · 280,000원 · 삼광색금', () => {
     const text = '자 파이텐트까지 나오는 상강색 게임 잘 들었어요 자 상강 색금 자 요 아이 자 28만 원 174번 자 174 자 이거 28만 원 자 3강색은 요 아이 28마리까지'
-    expect(readyToRegister(text, { dictionary: DICT })).toEqual({ no: 174, price: 280000, name: '삼광색금', nameNeedsCheck: false })
+    expect(readyToRegister(text, { dictionary: DICT })).toEqual({ no: 174, price: 280000, name: '삼광색금', nameNeedsCheck: false, numberFrom: 'marker' })
   })
   it("5. '3번'이 말 그대로 있음 → 3 · 250,000원 (스펙 R-17 8대로 확정 — 판매자 뜻은 170번일 수 있어 되돌리기로 고친다, D-V3-20)", () => {
     const text = '자 9cm에 자 9cm에 3번 자 3강 세금 뿌리 다 남았고요 얘는 자 25만 원 170 자 요런 색금 예쁘게 나왔습니다 이거 25만 원 3강 세금 170 자 이 703강 세금이 자 25만 원까지'
@@ -143,13 +143,13 @@ describe('실제 방송 문장 → 바로 등록 (기본 사전)', () => {
     expect(r.heardNumbers).toEqual([189, 139])
   })
   it('7. 일육팔 삼광색금 이십오만 원 → 168 · 250,000원 · 삼광색금', () => {
-    expect(readyToRegister('일육팔 삼광색금 이십오만 원', { dictionary: DICT })).toEqual({ no: 168, price: 250000, name: '삼광색금', nameNeedsCheck: false })
+    expect(readyToRegister('일육팔 삼광색금 이십오만 원', { dictionary: DICT })).toEqual({ no: 168, price: 250000, name: '삼광색금', nameNeedsCheck: false, numberFrom: 'bare' })
   })
   it("'요 아이'를 적은 ui·UI·유아이·요아이는 품종 후보가 아니다", () => {
-    expect(readyToRegister('자 ui 삼광색금 180번 35만 원', { dictionary: DICT })).toEqual({ no: 180, price: 350000, name: '삼광색금', nameNeedsCheck: false })
+    expect(readyToRegister('자 ui 삼광색금 180번 35만 원', { dictionary: DICT })).toEqual({ no: 180, price: 350000, name: '삼광색금', nameNeedsCheck: false, numberFrom: 'marker' })
     for (const filler of ['ui는', 'UI는', '유아이는', '요아이가', '요 아이는']) {
       const r = readyToRegister(`180번 ${filler} 35만 원`, { dictionary: DICT })
-      expect(r).toEqual({ no: 180, price: 350000, name: null, nameNeedsCheck: false })
+      expect(r).toEqual({ no: 180, price: 350000, name: null, nameNeedsCheck: false, numberFrom: 'marker' })
     }
   })
 })
@@ -159,7 +159,7 @@ describe('확정 읽기 (R-17 8) — 중간 결과', () => {
     expect(readyToRegister('108번 bts 10만', { dictionary: DICT })).toBeNull()
     expect(readyToRegister('108번 30 5만', { dictionary: DICT })).toBeNull()
     expect(readyToRegister('bts 10만 원', { dictionary: DICT })).toBeNull()
-    expect(readyToRegister('108번 bts 10만 원', { dictionary: DICT })).toEqual({ no: 108, price: 100000, name: 'bts', nameNeedsCheck: true })
+    expect(readyToRegister('108번 bts 10만 원', { dictionary: DICT })).toEqual({ no: 108, price: 100000, name: null, nameNeedsCheck: false, numberFrom: 'marker' })
   })
   it('원 없는 가격(묶음)만으로는 확정이 아니다', () => {
     const r = read('15번 라울 만오천')
@@ -236,19 +236,22 @@ describe('열린 카드 합치기', () => {
 describe("'번' 없는 번호 (V3 사용자 추가 요구: 'N번' > '번' 없는 번호)", () => {
   const ready = (text: string) => readyToRegister(text, { dictionary: DICT })
   it('한글 수·숫자·자리 읽기·끝말 붙은 꼴', () => {
-    expect(ready('백육십팔 삼광색금 이십오만 원')).toEqual({ no: 168, price: 250000, name: '삼광색금', nameNeedsCheck: false })
-    expect(ready('168 삼광색금 25만 원')).toEqual({ no: 168, price: 250000, name: '삼광색금', nameNeedsCheck: false })
+    expect(ready('백육십팔 삼광색금 이십오만 원')).toEqual({ no: 168, price: 250000, name: '삼광색금', nameNeedsCheck: false, numberFrom: 'bare' })
+    expect(ready('168 삼광색금 25만 원')).toEqual({ no: 168, price: 250000, name: '삼광색금', nameNeedsCheck: false, numberFrom: 'bare' })
     expect(ready('일육팔은 25만 원')).toMatchObject({ no: 168, price: 250000 })
     expect(ready('168은 25만 원')).toMatchObject({ no: 168, price: 250000 })
-    expect(ready('108 bts 10만 원')).toEqual({ no: 108, price: 100000, name: 'bts', nameNeedsCheck: true })
+    expect(ready('108 bts 10만 원')).toEqual({ no: 108, price: 100000, name: null, nameNeedsCheck: false, numberFrom: 'bare' })
   })
   it('단위가 붙거나 한글이 붙은 수는 번호가 아니다', () => {
-    expect(readyToRegister('자 9cm에 이거 25만 원 170', { dictionary: DICT, final: true })).toMatchObject({ no: 170, price: 250000 })
+    // 실방송 3차: 원 가격 줄 뒤에 온 '번' 없는 번호는 다음 상품 번호일 수 있어 카드만 (D-V3-23 사례 — 스펙 판정 대기)
+    expect(readyToRegister('자 9cm에 이거 25만 원 170', { dictionary: DICT, final: true })).toBeNull()
+    expect(readRegistration('자 9cm에 이거 25만 원 170', { dictionary: DICT, final: true })).toMatchObject({ blocked: 'BARE_NUMBER_AFTER_PRICE', extraction: { no: 170, price: 250000 } })
     // D-V3-26: 중간 결과(final 생략) 끝의 '번' 없는 번호는 다음 낱말·최종 결과까지 기다린다. 'N번'은 글 끝이어도 바로
     expect(ready('자 9cm에 이거 25만 원 170')).toBeNull()
     expect(ready('25만 원 1')).toBeNull()
     expect(ready('25만 원 이십')).toBeNull()
-    expect(ready('25만 원 이십 라울')).toMatchObject({ no: 20, price: 250000 })
+    // 다음 낱말이 와도 원 가격 줄 뒤의 '번' 없는 번호라 카드만 (실방송 3차)
+    expect(readRegistration('25만 원 이십 라울', { dictionary: DICT })).toMatchObject({ ready: null, blocked: 'BARE_NUMBER_AFTER_PRICE', extraction: { no: 20 } })
     expect(ready('25만 원 108번')).toMatchObject({ no: 108, price: 250000 })
     expect(read('삼광색금 3강 25만 원').extraction).toMatchObject({ no: null, price: 250000, name: '삼광색금' })
     expect(read('삼광색금 3 개 25만 원').extraction.no).toBeNull()
@@ -284,5 +287,42 @@ describe('적대 지적 TD-V3-001·002', () => {
   it('자리 겹침이면 뗀다: 170 25만 원, 174 28만 원(번호 표시 없음)', () => {
     expect(read('170 25만 원').extraction).toMatchObject({ no: 170, price: 250000 })
     expect(read('174 28만 원').extraction).toMatchObject({ no: 174, price: 280000 })
+  })
+})
+
+describe('실방송 3차 위험 사례 (판매자 안전)', () => {
+  it('a) "… 65만 원까지 … 60 어 자" → 바로 등록 안 함, 품종 "나왔네" 아님', () => {
+    const r = readRegistration('자 sp 참 다진노게임 자 요 아이는 65만 원까지 자 색감이 이렇게 예쁘게 나왔네요 자 60 어 자', { dictionary: DICT, final: true })
+    expect(r.ready).toBeNull()
+    expect(r.blocked).toBe('BARE_NUMBER_AFTER_PRICE')
+    expect(r.safeGuess).toBeNull()
+  })
+  it('말끝 모양 낱말은 두 번 나와도 추측으로 쓰지 않는다', () => {
+    expect(readRegistration('15번 나왔네 자 나왔네 만 원', { dictionary: DICT }).safeGuess).toBeNull()
+    expect(readRegistration('15번 bts 자 bts 만 원', { dictionary: DICT }).safeGuess).toBe('bts')
+  })
+  it('b) "605만 원"(육십오만을 잘못 적음) → 300만 원 넘어 바로 등록 안 함', () => {
+    const r = readRegistration('38번 진등의 금이 잘 표현되고 ui 자 605만 원까지', { dictionary: DICT })
+    expect(r.ready).toBeNull()
+    expect(r.blocked).toBe('PRICE_TOO_HIGH')
+    expect(readyToRegister('38번 300만 원', { dictionary: DICT })).toMatchObject({ no: 38, price: 3000000 })
+  })
+  const existing = { no: 38, name: '', price: 650000, claimCount: 0 }
+  it('b) 추측 품종은 이미 있는 상품 품종을 채우지도 바꾸지도 않는다', () => {
+    expect(decideForExisting(existing, { name: '설비', price: 650000, nameNeedsCheck: true })).toEqual({ kind: 'IGNORE' })
+    expect(decideForExisting({ ...existing, claimCount: 2 }, { name: '나왔네', price: 650000, nameNeedsCheck: true })).toEqual({ kind: 'IGNORE' })
+    expect(decideForExisting(existing, { name: '나왔네', price: 700000, nameNeedsCheck: true })).toEqual({ kind: 'AUTO_FIX', price: 700000, name: null })
+    expect(decideForExisting(existing, { name: '창녹금', price: 650000 })).toEqual({ kind: 'AUTO_FIX', price: null, name: '창녹금' })
+  })
+  it('b) 가격이 3배 넘게·1/3 아래로 바뀌면 묻는다', () => {
+    expect(decideForExisting(existing, { name: null, price: 6050000 })).toEqual({ kind: 'ASK', price: 6050000, name: null })
+    expect(decideForExisting(existing, { name: null, price: 200000 })).toEqual({ kind: 'ASK', price: 200000, name: null })
+    expect(decideForExisting(existing, { name: null, price: 1950000 })).toEqual({ kind: 'AUTO_FIX', price: 1950000, name: null })
+  })
+  it("'번' 없는 번호로 잡힌 같은 번호는 바로 고치지 않는다", () => {
+    expect(decideForExisting(existing, { name: null, price: 650000, numberFrom: 'bare' })).toEqual({ kind: 'IGNORE' })
+    expect(decideForExisting(existing, { name: null, price: 700000, numberFrom: 'bare' })).toEqual({ kind: 'ASK', price: 700000, name: null })
+    expect(decideForExisting({ ...existing, claimCount: 1 }, { name: '창녹금', price: 650000, numberFrom: 'bare' })).toEqual({ kind: 'ASK', price: null, name: '창녹금' })
+    expect(readRegistration('170 25만 원', { dictionary: DICT }).ready).toMatchObject({ no: 170, numberFrom: 'bare' })
   })
 })

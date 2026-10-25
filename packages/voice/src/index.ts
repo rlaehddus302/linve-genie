@@ -277,7 +277,10 @@ export {
 } from './cloud.ts'
 // V3: 음성 바로 등록 — 품종 추측(R-17 7)·확정 읽기(R-17 8)·음성 같은 번호(R-22)·열린 카드 합치기 (D-V3-01~D-V3-12)
 export {
+  AUTO_FIX_PRICE_RATIO,
+  AUTO_REGISTER_PRICE_MAX,
   GUESS_FILLERS,
+  looksLikePredicate,
   GUESS_WORD_MAX,
   decideForExisting,
   decideSameNumber,
@@ -291,6 +294,7 @@ export {
   type ExistingHeard,
   type ExistingProduct,
   type NameFrom,
+  type ReadyBlock,
   type ReadyRegistration,
   type RegistrationOptions,
   type RegistrationReading,
