@@ -939,6 +939,25 @@ sprints:
     specIds: [CMT-06, DAT-06]
     status: done
 
+  - id: V3
+    phase: 6
+    title: 음성 상품 등록 — 번호·가격 중심 바로 등록
+    dependsOn: []
+    devs: [device, web]
+    tests: [domain, e2e]
+    uxReview: false
+    goal: >
+      실제 방송 시험(2026-10-25, harness/sprints/V3/real-broadcast.txt) 사용자 요구: 'N번'과 '…원' 가격이 확정되는 순간(중간 결과 포함)
+      조용한 시간·카운트다운 없이 바로 등록(기본 켬, 되돌리기 유지 — D-V3-01·02), 가격은 '원'까지 이어진 수 전체(30 5만 원 = 350,000원 — D-V3-03),
+      'N번' 먼저·'번' 없는 수(168·백육십팔·일육팔은)도 번호(D-V3-23), 자리 읽기 번호 일육팔 = 168(D-V3-11), 이미 있는 번호는 같으면 무시·다르면 찜 없을 때 바로 고침·찜 있으면 묻기(R-22, D-V3-06·07),
+      열린 카드 합치기(D-V3-08), 사전 밖 품종 추측(R-17 7, D-V3-09), 3강색급 → 삼광색금(D-V3-12), '○○금' 사전 늘리기(D-V3-14).
+      수용 기준: harness/sprints/V3/acceptance.md(AC-V3-01~09·20~49·60~64), D-V3-01~D-V3-24, 골든 parser/voice-extract.yaml V3·voice-register/*.json.
+    carryOver:
+      - "D-V3-15: 판매자가 유튜브 채팅(주인 배지)에 쓴 '103번🍀[창녹금] ₩70,000'에서 품종을 사전·상품 품종으로 배우기 — 채팅 읽기·주인 배지 판단·새 문장 규칙과 골든 필요"
+      - "실제 방송 목소리·아이폰 사파리 중간 결과로 바로 등록 오등록 비율 확인(사용자 확인 필요 표)"
+    specIds: [VOC-02, VOC-03, VOC-04, PRD-06]
+    status: in_progress
+
 techDebt:
   - "TD-S00-008: Host 헤더 두 개·absolute-form 요청을 200으로 처리"
   - "TD-S00-012: 골든 파일 탐색이 심볼릭 링크와 대문자 확장자를 조용히 건너뜀"
