@@ -1,4 +1,5 @@
-// V3 적대 시험 (test-domain, AC-V3-60, R-17 8, D-V3-02·D-V3-05·D-V3-23): 중간 결과를 낱말 하나씩 늘려 넣으며 바로 등록(확정 읽기)을 공격한다.
+// V3 적대 시험 (test-domain, R-17 8 덩어리 글 하나의 확정 읽기 readRegistration — 회귀, D-V3-02·D-V3-05·D-V3-23): 중간 결과를 낱말 하나씩 늘려 넣으며 확정 읽기를 공격한다.
+// SA-V3-003: 화면의 실제 바로 등록은 조각 소비(readSegments)가 정한다 — AC-V3-60 성질은 segments-property.test.ts가 readSegments로 본다. 이 파일은 readRegistration(카드·같은 번호 판단의 읽기) 회귀로 남긴다.
 // 노리는 것: '원'이 안 들렸는데 등록, 번호가 안 들렸는데 등록, 정정·취소가 든 글에서 등록, 서로 다른 'N번' 둘인데 등록, 실제 방송 문장 변형에서 엉뚱한 등록.
 // 한 덩어리 등록 횟수(많아야 한 번)는 화면이 처음 확정된 결과에서만 등록한다는 뜻이라 여기서는 "처음 확정된 k"만 보는 흉내로 센다.
 import { readFileSync } from 'node:fs'
@@ -152,7 +153,7 @@ const VOCAB = [
   '아니', '말고', '만오천말고', '취소', '다시', '품종은', '문자찜',
 ] as const
 
-describe('AC-V3-60 — 무작위 문장을 낱말 하나씩 늘려 넣기', () => {
+describe('readRegistration 회귀 — 무작위 문장을 낱말 하나씩 늘려 넣기', () => {
   it('확정이면 그 순간 글에 원 토큰·번호가 있고 정정·취소가 없으며, 서로 다른 N번 둘이면 확정이 아니다', () => {
     fc.assert(
       fc.property(fc.array(fc.constantFrom(...VOCAB), { minLength: 1, maxLength: 14 }), (parts) => {
@@ -189,7 +190,7 @@ describe('AC-V3-60 — 무작위 문장을 낱말 하나씩 늘려 넣기', () =
   })
 })
 
-describe('AC-V3-60 — 실제 방송 6문장 변형 500개', () => {
+describe('readRegistration 회귀 — 실제 방송 6문장 변형 500개', () => {
   const lines = readFileSync(join(import.meta.dirname, '../../../harness/sprints/V3/real-broadcast.txt'), 'utf8')
     .split('\n')
     .map((line) => /^([1-6])\. (.+)$/.exec(line)?.[2])

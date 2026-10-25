@@ -116,6 +116,8 @@ describe('AC-V3-61 — decideSameNumber 모든 조합 (R-22, D-V3-31·32·47·55
     readonly product: { readonly name: string; readonly price: number; readonly status: SameNumberStatus; readonly liveClaims: number }
     readonly auto: boolean
     readonly recent?: boolean
+    /** D-V3-76: 그 번호의 마지막 등록·고침이 다른 기기였나 */
+    readonly otherDevice?: boolean
   }
   interface SpecDecision {
     readonly action: 'IGNORE' | 'AUTO_FIX' | 'ASK'
@@ -153,7 +155,8 @@ describe('AC-V3-61 — decideSameNumber 모든 조합 (R-22, D-V3-31·32·47·55
                 for (const liveClaims of [0, 2])
                   for (const auto of [true, false])
                     for (const recent of RECENTS)
-                      all.push({ heard: { price, priceSure, name, nameFrom: name === null ? null : nameFrom, numberFrom }, product: { name: productName, price: productPrice, status, liveClaims }, auto, ...(recent === undefined ? {} : { recent }) })
+                      for (const otherDevice of [undefined, true] as const)
+                        all.push({ heard: { price, priceSure, name, nameFrom: name === null ? null : nameFrom, numberFrom }, product: { name: productName, price: productPrice, status, liveClaims }, auto, ...(recent === undefined ? {} : { recent }), ...(otherDevice === undefined ? {} : { otherDevice }) })
 
   /** R-22 문장 그대로 옮긴 기대 */
   function oracle(input: SpecInput): SpecDecision {
@@ -171,12 +174,14 @@ describe('AC-V3-61 — decideSameNumber 모든 조합 (R-22, D-V3-31·32·47·55
     if (!input.auto) return ask('NO_AUTO')
     if (heard.numberFrom === 'BARE') return ask('NUMBER_BARE')
     if (product.status !== 'OPEN' && product.status !== 'SOLD') return ask('NOT_OPEN')
+    // D-V3-76: 다른 기기가 등록·고친 번호는 고쳐 말함이 아니고, 찜이 없어도 묻는다
+    if (input.otherDevice === true) return ask('MAYBE_OTHER')
     if (!recent && product.liveClaims > 0) return ask('MAYBE_OTHER')
     return { action: 'AUTO_FIX', changes, reason: recent ? null : 'NOT_RECENT' }
   }
 
   it(`조합 ${all.length}개가 R-22 문장과 같다`, () => {
-    expect(all.length).toBe(8 * 2 * 4 * 3 * 2 * 2 * 5 * 2 * 2 * 3)
+    expect(all.length).toBe(8 * 2 * 4 * 3 * 2 * 2 * 5 * 2 * 2 * 3 * 2)
     const wrong = all.map((input) => ({ input, got: decide(input), want: oracle(input) })).filter(({ got, want }) => JSON.stringify(got) !== JSON.stringify(want))
     expect(wrong.length, JSON.stringify(wrong.slice(0, 3))).toBe(0)
   })
@@ -186,9 +191,10 @@ describe('AC-V3-61 — decideSameNumber 모든 조합 (R-22, D-V3-31·32·47·55
       const got = decide(input)
       const { heard, product } = input
       if (heard.numberFrom === 'BARE' || !input.auto || !['OPEN', 'SOLD'].includes(product.status)) expect(got.action).not.toBe('AUTO_FIX')
-      if (heard.numberFrom === 'MARKER' && input.auto && ['OPEN', 'SOLD'].includes(product.status) && input.recent !== false) expect(got.action).not.toBe('ASK')
+      if (heard.numberFrom === 'MARKER' && input.auto && ['OPEN', 'SOLD'].includes(product.status) && input.recent !== false && input.otherDevice !== true) expect(got.action).not.toBe('ASK')
       expect(got.reason).not.toBe('PRICE_JUMP')
       if (input.recent === false && product.liveClaims > 0) expect(got.action).not.toBe('AUTO_FIX')
+      if (input.otherDevice === true) expect(got.action).not.toBe('AUTO_FIX')
       if (heard.nameFrom !== 'DICTIONARY') expect(got.changes.name).toBeUndefined()
       if (!heard.priceSure) expect(got.changes.price).toBeUndefined()
       expect(got.reason).not.toBe('CLAIMS')
