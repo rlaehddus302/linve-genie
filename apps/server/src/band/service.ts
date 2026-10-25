@@ -996,6 +996,14 @@ export class BandService {
     if (!read.ok) return this.#failed(entry, link, read.failure)
     const done = await this.#ingest(entry, link, got.account, read, full)
     if (!done || entry.closed) return
+    // 전체 읽기가 1,000개에서 멈췄으면 그 뒤의 새 댓글은 그 읽기에 없다 — 같은 차례에 빠른 읽기를 한 번 더 한다(새 댓글이 한 차례 늦지 않게)
+    if (full && read.overflow) {
+      const extra = await this.#readComments(sellerId, got.token, link.bandKey, link.postKey, 'fast', linkId)
+      if (entry.closed) return
+      if (!extra.ok) return this.#failed(entry, link, extra.failure)
+      const fresh = (await findBandLink(db, sellerId, linkId)) ?? link
+      if (!(await this.#ingest(entry, fresh, got.account, extra, false)) || entry.closed) return
+    }
     entry.rateMs = 0
     this.#schedule(entry, this.#timing.fastMs)
   }

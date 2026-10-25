@@ -114,7 +114,7 @@ export class FakeBand {
   readonly posts = new Map<string, FakeBandPost>()
   readonly #tokens = new Map<string, TokenInfo>()
   readonly #codes = new Map<string, CodeInfo>()
-  readonly #faults = new Map<BandOp, FakeBandFault[]>()
+  readonly #faults = new Map<BandOp, (FakeBandFault | null)[]>()
   readonly #delays = new Map<BandOp, number>()
   readonly #hanging = new Set<ServerResponse>()
   #login: FakeBandLogin = { decision: 'approve' }
@@ -256,16 +256,21 @@ export class FakeBand {
     for (const info of this.#tokens.values()) if (info.userKey === userKey) info.valid = false
   }
 
-  /** 시험이 승인 창 없이 토큰을 바로 만든다 */
-  issueToken(userKey: string): string {
-    const token = this.#next('T')
+  /** 다음 토큰 응답이 낼 토큰 값 · 다음 승인 창이 낼 code (시험이 심은 값 — 한 번 쓰고 비운다) */
+  nextToken: string | null = null
+  nextCode: string | null = null
+
+  /** 시험이 승인 창 없이 토큰을 바로 만든다 (value를 주면 그 값) */
+  issueToken(userKey: string, value?: string): string {
+    const token = value ?? this.#next('T')
     this.#tokens.set(token, { userKey, valid: true })
     return token
   }
 
-  /** 그 요청 이름의 다음 times번을 fault로 */
-  fail(op: BandOp, fault: FakeBandFault, times = 1): void {
+  /** 그 요청 이름의 다음 times번을 fault로 (after = 그 앞에 오류 없이 지나갈 수 — 쪽 중간 실패) */
+  fail(op: BandOp, fault: FakeBandFault, times = 1, after = 0): void {
     const list = this.#faults.get(op) ?? []
+    for (let i = 0; i < after; i += 1) list.push(null)
     for (let i = 0; i < times; i += 1) list.push(fault)
     this.#faults.set(op, list)
   }
@@ -313,8 +318,8 @@ export class FakeBand {
     res.on('close', () => this.#inflight.set(counter, Math.max(0, (this.#inflight.get(counter) ?? 1) - 1)))
     const wait = this.#delays.get(op) ?? 0
     if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
-    const fault = this.#faults.get(op)?.shift()
-    if (fault !== undefined) {
+    const fault = this.#faults.get(op)?.shift() ?? null
+    if (fault !== null) {
       if (fault === 'HANG') {
         this.#hanging.add(res)
         return
@@ -357,7 +362,8 @@ export class FakeBand {
     } else {
       const userKey = login.userKey ?? this.defaultUser
       if (userKey === null) return this.#raw(res, 400, 'text/plain; charset=utf-8', '사용자 없음')
-      const code = this.#next('CODE')
+      const code = this.nextCode ?? this.#next('CODE')
+      this.nextCode = null
       this.#codes.set(code, { login, userKey, used: false })
       target.searchParams.set('code', code)
     }
@@ -372,7 +378,8 @@ export class FakeBand {
     const info = query['grant_type'] === 'authorization_code' ? this.#codes.get(query['code'] ?? '') : undefined
     if (info === undefined || info.used) return this.#json(res, 400, { error: 'invalid_grant' })
     info.used = true
-    const token = this.issueToken(info.userKey)
+    const token = this.issueToken(info.userKey, this.nextToken ?? undefined)
+    this.nextToken = null
     const body: Obj = { access_token: token, token_type: 'bearer', refresh_token: `R${token}` }
     if (info.login.expiresIn !== null) body['expires_in'] = info.login.expiresIn ?? 315_359_999
     if (info.login.scope !== null) body['scope'] = info.login.scope ?? FAKE_BAND_DEFAULT_SCOPE
