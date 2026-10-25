@@ -5,6 +5,8 @@
 //   이 파일은 로그를 쓰지 않는다.
 // - 머리글 X-Try-Token(보기 화면은 ?t=)이 켤 때마다 새로 만든 토큰과 같을 때만 받는다.
 // - 보기 화면의 모든 글은 이스케이프한다(본문·기기 이름은 믿을 수 없는 입력).
+// - SMS2: 휴대폰이 받은 시각·늦은 정도, 일련번호("시험 3"), 겹쳐 온 문자 한 번, 기기별 요약(빠진 번호·늦게 온 번호·다음에 보낼 글),
+//   처음부터 다시 세기(확인 화면 → POST, 토큰 그대로), 휴대폰 카드 화면 (D-SMS2-01~08).
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 
@@ -27,16 +29,20 @@ export function makeSmsTestToken(): string {
 export type SenderKind = 'number' | 'name' | 'empty'
 
 export interface SmsTestEntry {
-  /** 몇 번째로 받았는지 (1부터) */
+  /** 몇 번째 줄인지 (1부터, 겹쳐 온 것은 올리지 않는다) */
   readonly seq: number
   /** 보낸 사람 번호 끝 4자리 (번호가 아니면 null) */
   readonly last4: string | null
   readonly senderKind: SenderKind
   readonly body: string
   readonly device: string
-  /** 휴대폰이 알려 준 받은 시각 (없거나 읽을 수 없으면 null) */
+  /** 본문에서 읽은 일련번호 "시험 3" → 3 (없으면 null, D-SMS2-04) */
+  readonly serial: number | null
+  /** 같은 문자가 온 횟수 (처음 1, D-SMS2-05) */
+  readonly count: number
+  /** 휴대폰이 알려 준 받은 시각 (없거나 읽을 수 없으면 null, D-SMS2-02) */
   readonly phoneAt: Date | null
-  /** 서버가 받은 시각 */
+  /** 서버가 받은 시각 (겹쳐 온 것은 처음 온 것 그대로) */
   readonly serverAt: Date
 }
 
@@ -53,10 +59,87 @@ function cut(text: string, max: number): string {
   return Array.from(text).slice(0, max).join('')
 }
 
-function parsePhoneAt(value: unknown): Date | null {
-  if (typeof value !== 'string' && typeof value !== 'number') return null
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? null : date
+const HOUR_MS = 60 * 60 * 1000
+const DAY_MS = 24 * HOUR_MS
+const KST_OFFSET_MS = 9 * HOUR_MS
+const ISO_AT = /^(\d{4})-(\d{2})-(\d{2})[Tt ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(?:([Zz])|([+-])(\d{2}):?(\d{2}))?$/
+
+/** 숫자 시각: 13자리 이상이면 밀리초, 10~12자리면 초 (D-SMS2-02 다) */
+function numberAt(value: number): number | null {
+  if (!Number.isFinite(value) || value < 0) return null
+  const digits = String(Math.trunc(value)).length
+  if (digits >= 13) return Math.round(value)
+  if (digits >= 10) return Math.round(value * 1000)
+  return null
+}
+
+/** ISO 모양 시각. 오프셋이 없으면 한국 시각으로 본다(서버 시간대와 상관없이, D-SMS2-02 가·나) */
+function isoAt(text: string): number | null {
+  const m = ISO_AT.exec(text)
+  if (m === null) return null
+  const [, y, mo, d, h, mi, s, frac, z, sign, oh, om] = m
+  const year = Number(y)
+  const month = Number(mo)
+  const day = Number(d)
+  const hour = Number(h)
+  const minute = Number(mi)
+  const second = s === undefined ? 0 : Number(s)
+  if (month < 1 || month > 12 || day < 1 || hour > 23 || minute > 59 || second > 59) return null
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  if (day > daysInMonth) return null
+  const ms = frac === undefined ? 0 : Number(frac.slice(0, 3).padEnd(3, '0'))
+  let offsetMs = KST_OFFSET_MS
+  if (z !== undefined) offsetMs = 0
+  else if (sign !== undefined) {
+    const offH = Number(oh)
+    const offM = Number(om)
+    if (offH > 23 || offM > 59) return null
+    offsetMs = (sign === '-' ? -1 : 1) * (offH * HOUR_MS + offM * 60 * 1000)
+  }
+  const utc = Date.UTC(year, month - 1, day, hour, minute, second, ms) - offsetMs
+  return Number.isFinite(utc) ? utc : null
+}
+
+/**
+ * 휴대폰이 받은 시각 읽기 (D-SMS2-02). 읽을 수 없거나 서버 시각과 하루 넘게 차이 나면 null(화면 "-").
+ */
+export function parsePhoneAt(value: unknown, serverAt: Date): Date | null {
+  let at: number | null = null
+  if (typeof value === 'number') at = numberAt(value)
+  else if (typeof value === 'string') {
+    const text = value.trim()
+    if (text.length > 64) return null
+    at = /^\d+$/.test(text) ? numberAt(Number(text)) : isoAt(text)
+  }
+  if (at === null) return null
+  if (Math.abs(serverAt.getTime() - at) > DAY_MS) return null
+  return new Date(at)
+}
+
+/**
+ * 시험 문자 일련번호 읽기 (D-SMS2-04): 처음 나오는 "시험" 바로 뒤(띄어쓰기 건너)의 아라비아 숫자 1~3자리, 1~999.
+ * 그 밖은 모두 번호 없음(null). 본문은 이미 200자로 자른 것을 준다.
+ */
+export function readSerial(body: string): number | null {
+  const at = body.indexOf('시험')
+  if (at < 0) return null
+  const m = /^\s*([0-9]{1,3})(?![0-9])/.exec(body.slice(at + 2))
+  if (m === null) return null
+  const n = Number(m[1])
+  return n >= 1 && n <= 999 ? n : null
+}
+
+/** 줄마다 늦은 정도 (D-SMS2-03). delayMs = 서버 − 휴대폰 */
+export function delayLabel(delayMs: number | null): string {
+  if (delayMs === null) return '-'
+  if (delayMs < -1000) return '시계 차이'
+  if (delayMs < 1000) return '1초 안'
+  return `${String(Math.floor((delayMs + 500) / 1000))}초`
+}
+
+/** 글 사이(태그 밖)에 넣을 글 — 따옴표는 그대로 둔다 */
+function text(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
 export function escapeHtml(text: string): string {
@@ -65,7 +148,7 @@ export function escapeHtml(text: string): string {
 
 /** 한국 시각 "10월 25일 14:03:05" */
 function kst(date: Date): string {
-  const shifted = new Date(date.getTime() + 9 * 60 * 60 * 1000)
+  const shifted = new Date(date.getTime() + KST_OFFSET_MS)
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${String(shifted.getUTCMonth() + 1)}월 ${String(shifted.getUTCDate())}일 ${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}:${pad(shifted.getUTCSeconds())}`
 }
@@ -78,6 +161,7 @@ function sameToken(given: string | null, token: string): boolean {
 }
 
 const TEXT_HEADERS = { 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' }
+const CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'"
 
 function json(body: unknown, status: number): Response {
   return Response.json(body, { status, headers: TEXT_HEADERS })
@@ -89,9 +173,132 @@ function html(body: string, status: number): Response {
     headers: {
       ...TEXT_HEADERS,
       'content-type': 'text/html; charset=utf-8',
-      'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
+      'content-security-policy': CSP,
     },
   })
+}
+
+const STYLE =
+  'body{font-family:sans-serif;font-size:1.125rem;line-height:1.5;margin:0;padding:16px;overflow-wrap:anywhere;word-break:keep-all}' +
+  'main{max-width:720px;margin:0 auto}' +
+  'h1{font-size:1.5rem;margin:0 0 12px}h2{font-size:1.25rem;margin:20px 0 8px}h3{font-size:1.125rem;margin:0 0 6px}' +
+  'p{margin:4px 0}ol{margin:4px 0;padding-left:1.5em}' +
+  '.group,.card{border:1px solid #bbb;border-radius:8px;padding:12px;margin:0 0 12px}' +
+  '.top{font-weight:bold}.b{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-all;margin-top:8px}' +
+  '.btn{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-height:48px;padding:8px 16px;margin:4px 0;border:2px solid #333;border-radius:8px;background:#fff;color:#000;font:inherit;text-decoration:none;max-width:100%}' +
+  '.danger{background:#b00020;color:#fff;border-color:#b00020}form{margin:0}'
+
+function pageShell(inner: string, refresh: boolean): string {
+  return `<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+${refresh ? '<meta http-equiv="refresh" content="5">\n' : ''}<title>문자 자동 수신 시험</title>
+<style>${STYLE}</style>
+</head>
+<body>
+<main>
+<h1>문자 자동 수신 시험</h1>
+${inner}
+</main>
+</body>
+</html>
+`
+}
+
+/** 앞 20개를 쉼표로, 나머지는 개수 */
+function listNumbers(numbers: readonly number[]): string {
+  const shown = numbers.slice(0, 20).map(String).join(', ')
+  return numbers.length > 20 ? `${shown} 외 ${String(numbers.length - 20)}개` : shown
+}
+
+interface MutableEntry {
+  seq: number
+  last4: string | null
+  senderKind: SenderKind
+  body: string
+  device: string
+  serial: number | null
+  count: number
+  phoneAt: Date | null
+  serverAt: Date
+  /** 겹침 비교 열쇠: 기기·보낸 사람 종류·끝 4자리·내용 (원문 번호·이름은 들어가지 않는다) */
+  key: string
+}
+
+function delayOf(entry: MutableEntry): number | null {
+  return entry.phoneAt === null ? null : entry.serverAt.getTime() - entry.phoneAt.getTime()
+}
+
+/** 기기 하나의 요약 문장들 (D-SMS2-06). arrived는 서버가 받은 차례(오래된 것부터) */
+export function summarizeDevice(arrived: readonly Pick<SmsTestEntry, 'serial' | 'count' | 'phoneAt' | 'serverAt'>[]): string[] {
+  const lines: string[] = []
+  const extra = arrived.reduce((sum, e) => sum + e.count, 0) - arrived.length
+  lines.push(extra === 0 ? '겹쳐 온 것: 없음' : `겹쳐 온 것: ${String(extra)}번 (한 번으로 셌어요)`)
+
+  let measured = 0
+  let sumMs = 0
+  let maxMs = 0
+  let clockOff = 0
+  let noTime = 0
+  for (const e of arrived) {
+    if (e.phoneAt === null) {
+      noTime += 1
+      continue
+    }
+    const d = e.serverAt.getTime() - e.phoneAt.getTime()
+    if (d < -1000) {
+      clockOff += 1
+      continue
+    }
+    const v = Math.max(d, 0)
+    measured += 1
+    sumMs += v
+    if (v > maxMs) maxMs = v
+  }
+  if (measured === 0) lines.push('늦은 정도: 휴대폰이 받은 시각이 오지 않아 잴 수 없어요.')
+  else {
+    let average = '1초 안'
+    if (sumMs >= 1000 * measured) {
+      const tenths = Math.floor((sumMs + 50 * measured) / (100 * measured))
+      average = `${String(Math.floor(tenths / 10))}.${String(tenths % 10)}초`
+    }
+    lines.push(`늦은 정도: 평균 ${average} · 가장 늦은 것 ${delayLabel(maxMs)} (${String(measured)}건으로 쟀어요)`)
+  }
+  if (clockOff > 0) lines.push(`휴대폰 시계가 맞지 않아 뺀 것 ${String(clockOff)}건`)
+  if (noTime > 0) lines.push(`휴대폰이 받은 시각 없이 온 것 ${String(noTime)}건`)
+
+  const order: number[] = []
+  const seen = new Set<number>()
+  let withoutSerial = 0
+  for (const e of arrived) {
+    if (e.serial === null) {
+      withoutSerial += 1
+      continue
+    }
+    if (seen.has(e.serial)) continue
+    seen.add(e.serial)
+    order.push(e.serial)
+  }
+  const max = order.reduce((m, n) => Math.max(m, n), 0)
+  if (order.length === 0) lines.push("'시험 1'처럼 번호를 붙여 보내면 빠진 문자와 순서도 볼 수 있어요.")
+  else {
+    const missing: number[] = []
+    for (let n = 1; n <= max; n++) if (!seen.has(n)) missing.push(n)
+    lines.push(missing.length === 0 ? `시험 1~${String(max)}: 빠진 번호 없어요` : `시험 1~${String(max)}: 빠진 번호 ${listNumbers(missing)}`)
+    const late: number[] = []
+    let highest = 0
+    for (const n of order) {
+      if (n < highest) late.push(n)
+      else highest = n
+    }
+    lines.push(late.length === 0 ? '순서: 보낸 차례대로 왔어요' : `순서: 늦게 온 번호 ${listNumbers(late)}`)
+    if (withoutSerial > 0) lines.push(`번호 없는 문자 ${String(withoutSerial)}건`)
+    lines.push(`'시험 ${String(max)}' 뒤에 보낸 문자가 안 왔는지는 이 화면이 알 수 없어요. 마지막으로 보낸 번호와 비교해 보세요.`)
+  }
+  lines.push(max >= 999 ? "번호를 999까지 다 썼어요. '처음부터 다시 세기'를 누르세요." : `다음에 보낼 글: 시험 ${String(max + 1)}`)
+  return lines
 }
 
 export interface SmsTestBoxOptions {
@@ -109,8 +316,13 @@ export interface SmsTestBox {
 
 export function createSmsTestBox(options: SmsTestBoxOptions): SmsTestBox {
   const now = options.now ?? (() => new Date())
-  const list: SmsTestEntry[] = []
+  /** 새것이 앞 */
+  const list: MutableEntry[] = []
   let seq = 0
+  /** 50건이 넘어 오래된 줄이 밀려났는지 (다시 세기로 지운다) */
+  let dropped = false
+
+  const viewHref = `${SMS_TEST_PATH}?t=${encodeURIComponent(options.token)}`
 
   async function receive(request: Request): Promise<Response> {
     if (!sameToken(request.headers.get('x-try-token'), options.token)) return json({ error: '시험 토큰이 맞지 않아요.' }, 401)
@@ -129,68 +341,129 @@ export function createSmsTestBox(options: SmsTestBoxOptions): SmsTestBox {
     const { last4, senderKind } = maskSender(record['from'])
     const body = typeof record['body'] === 'string' ? cut(record['body'], SMS_TEST_BODY_MAX) : ''
     const device = typeof record['device'] === 'string' && record['device'].trim() !== '' ? cut(record['device'].trim(), SMS_TEST_DEVICE_MAX) : '알 수 없음'
+    const serial = readSerial(body)
+    const key = JSON.stringify([device, senderKind, last4, body])
+    const same = list.find((entry) => entry.key === key)
+    if (same !== undefined) {
+      same.count += 1
+      return json({ ok: true, seq: same.seq, last4, serial, duplicate: true }, 200)
+    }
+    const serverAt = now()
     seq += 1
-    const entry: SmsTestEntry = { seq, last4, senderKind, body, device, phoneAt: parsePhoneAt(record['receivedAt']), serverAt: now() }
-    list.unshift(entry)
-    if (list.length > SMS_TEST_LIMIT) list.length = SMS_TEST_LIMIT
-    return json({ ok: true, seq, last4 }, 200)
+    list.unshift({ seq, last4, senderKind, body, device, serial, count: 1, phoneAt: parsePhoneAt(record['receivedAt'], serverAt), serverAt, key })
+    if (list.length > SMS_TEST_LIMIT) {
+      list.length = SMS_TEST_LIMIT
+      dropped = true
+    }
+    return json({ ok: true, seq, last4, serial, duplicate: false }, 200)
   }
 
-  function senderText(entry: SmsTestEntry): string {
-    if (entry.senderKind === 'number') return `끝 ${entry.last4 ?? ''}`
+  function senderText(entry: MutableEntry): string {
+    if (entry.senderKind === 'number') return `보낸 사람 끝 ${entry.last4 ?? ''}`
     if (entry.senderKind === 'name') return '번호 대신 이름이 왔어요'
     return '보낸 사람 없음'
   }
 
-  function delayText(entry: SmsTestEntry): string {
-    if (entry.phoneAt === null) return '-'
-    const seconds = Math.round((entry.serverAt.getTime() - entry.phoneAt.getTime()) / 1000)
-    return `${String(seconds)}초`
+  function summary(): string {
+    const e = escapeHtml
+    const parts: string[] = ['<section>', '<h2>요약</h2>']
+    if (list.length === 0) {
+      parts.push("<p>아직 받은 문자가 없어요. 다른 휴대폰에서 사장님 번호로 '시험 1'을 보내 보세요.</p>")
+      parts.push('<p>다음에 보낼 글: 시험 1</p>')
+    } else {
+      const groups = new Map<string, MutableEntry[]>()
+      for (const entry of list.slice().reverse()) {
+        const group = groups.get(entry.device)
+        if (group === undefined) groups.set(entry.device, [entry])
+        else group.push(entry)
+      }
+      for (const [device, arrived] of groups) {
+        parts.push('<div class="group">')
+        parts.push(`<h3>${e(device)} — 받은 문자 ${String(arrived.length)}건</h3>`)
+        // 요약 문장에는 받은 글이 들어가지 않는다(숫자·고정 문장뿐) — 그래도 이스케이프해 둔다(따옴표는 글 그대로 보이게 남김)
+        for (const line of summarizeDevice(arrived)) parts.push(`<p>${text(line)}</p>`)
+        parts.push('</div>')
+      }
+    }
+    if (dropped) parts.push("<p>50건이 넘어 오래된 문자는 지워졌어요. 빠진 번호가 틀릴 수 있으니 '처음부터 다시 세기'를 누르고 다시 시험하세요.</p>")
+    parts.push(`<p>최근 ${String(SMS_TEST_LIMIT)}건 안에서만 세요. 연습 모드를 끄면 모두 사라져요.</p>`)
+    parts.push('</section>')
+    return parts.join('\n')
+  }
+
+  function card(entry: MutableEntry): string {
+    const e = escapeHtml
+    const head = `${String(entry.seq)}번째 · ${entry.serial === null ? '번호 없음' : `시험 ${String(entry.serial)}`}`
+    const lines = [
+      `<div class="card">`,
+      `<p class="top"><span>${head}</span> · <span>늦은 정도 ${delayLabel(delayOf(entry))}</span></p>`,
+      `<p>휴대폰이 받은 시각 ${entry.phoneAt === null ? '-' : kst(entry.phoneAt)}</p>`,
+      `<p>서버가 받은 시각 ${kst(entry.serverAt)}</p>`,
+      `<p>${e(senderText(entry))}</p>`,
+      `<p>기기 ${e(entry.device)}</p>`,
+    ]
+    if (entry.count > 1) lines.push(`<p>${String(entry.count)}번 왔어요 (한 번으로 셌어요)</p>`)
+    lines.push(`<div class="b">${e(entry.body)}</div>`, '</div>')
+    return lines.join('\n')
   }
 
   function page(): string {
     const e = escapeHtml
-    const rows = list
-      .map(
-        (entry) =>
-          `<tr><td>${String(entry.seq)}</td><td>${entry.phoneAt === null ? '-' : e(kst(entry.phoneAt))}</td><td>${e(kst(entry.serverAt))}</td><td>${e(delayText(entry))}</td><td>${e(senderText(entry))}</td><td>${e(entry.device)}</td><td class="b">${e(entry.body)}</td></tr>`,
-      )
-      .join('\n')
-    const table =
-      list.length === 0
-        ? '<p>아직 받은 문자가 없어요. 휴대폰으로 문자를 보내 보세요.</p>'
-        : `<table>\n<tr><th>번호</th><th>휴대폰이 받은 시각</th><th>서버가 받은 시각</th><th>늦은 정도</th><th>보낸 사람</th><th>보낸 기기</th><th>내용</th></tr>\n${rows}\n</table>`
-    return `<!doctype html>
-<html lang="ko">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="5">
-<title>문자 자동 수신 시험</title>
-<style>body{font-family:sans-serif;margin:16px;font-size:16px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:6px;text-align:left;vertical-align:top}.b{white-space:pre-wrap;word-break:break-all}</style>
-</head>
-<body>
-<h1>문자 자동 수신 시험</h1>
-<p>5초마다 새로 보여요. 최근 ${String(SMS_TEST_LIMIT)}건까지만 들고 있고, 연습 모드를 끄면 모두 사라져요.</p>
-<p>보낸 사람 번호는 끝 4자리만 남겨요. 지금 ${String(list.length)}건.</p>
-${table}
-</body>
-</html>
-`
+    const guide = [
+      '<section>',
+      '<h2>시험 순서</h2>',
+      '<ol>',
+      "<li>다른 휴대폰에서 사장님 번호로 '시험 1', '시험 2', '시험 3'… 차례로 보내세요.</li>",
+      "<li>기기마다 '다음에 보낼 글'을 보고 보내면 돼요.</li>",
+      '<li>다 보냈으면 이 화면을 사진으로 찍어 두세요.</li>',
+      '</ol>',
+      '</section>',
+    ].join('\n')
+    const reset = `<p><a class="btn" href="${e(`${viewHref}&do=reset-ask`)}">처음부터 다시 세기</a></p>`
+    const cards = list.length === 0 ? '' : `<section>\n<h2>받은 문자 (새것이 위)</h2>\n${list.map(card).join('\n')}\n</section>`
+    const note = `<p>5초마다 새로 보여요. 보낸 사람 번호는 끝 4자리만 남겨요. 지금 ${String(list.length)}건.</p>`
+    return pageShell([note, summary(), guide, reset, cards].filter((part) => part !== '').join('\n'), true)
   }
+
+  function askPage(): string {
+    const e = escapeHtml
+    return pageShell(
+      [
+        `<p>받은 시험 문자 ${String(list.length)}건을 지우고 처음부터 셀까요? 지우면 되돌릴 수 없어요. 결과 사진을 먼저 찍어 두세요.</p>`,
+        `<form method="post" action="${e(`${viewHref}&do=reset`)}"><button class="btn danger" type="submit">네, 지우고 처음부터 셀게요</button></form>`,
+        `<p><a class="btn" href="${e(viewHref)}">아니요, 돌아갈게요</a></p>`,
+      ].join('\n'),
+      false,
+    )
+  }
+
+  const badTokenPage = () =>
+    html('<!doctype html><html lang="ko"><meta charset="utf-8"><title>문자 자동 수신 시험</title><p>시험 토큰이 맞지 않아요. 터미널에 나온 주소를 그대로 여세요.</p></html>\n', 401)
 
   return {
     async handle(request) {
       const url = new URL(request.url)
       if (url.pathname !== SMS_TEST_PATH) return null
-      if (request.method === 'POST') return receive(request)
+      const action = url.searchParams.get('do')
+      if (request.method === 'POST') {
+        if (action === null) return receive(request)
+        if (action !== 'reset') return json({ error: '없는 방법이에요.' }, 400)
+        // 지우기는 주소의 t로만 (머리글 토큰으로는 지우지 않는다, D-SMS2-07)
+        if (!sameToken(url.searchParams.get('t'), options.token)) return json({ error: '시험 토큰이 맞지 않아요.' }, 401)
+        list.length = 0
+        seq = 0
+        dropped = false
+        return new Response(null, { status: 303, headers: { ...TEXT_HEADERS, location: viewHref } })
+      }
       if (request.method === 'GET') {
-        if (!sameToken(url.searchParams.get('t'), options.token)) return html('<!doctype html><html lang="ko"><meta charset="utf-8"><title>문자 자동 수신 시험</title><p>시험 토큰이 맞지 않아요. 터미널에 나온 주소를 그대로 여세요.</p></html>\n', 401)
+        if (!sameToken(url.searchParams.get('t'), options.token)) return badTokenPage()
+        if (action === 'reset-ask') return html(askPage(), 200)
         return html(page(), 200)
       }
       return json({ error: '없는 방법이에요.' }, 405)
     },
-    entries: () => list.slice(),
+    entries: () =>
+      list.map(({ seq: s, last4, senderKind, body, device, serial, count, phoneAt, serverAt }) => ({ seq: s, last4, senderKind, body, device, serial, count, phoneAt, serverAt })),
   }
 }
 
