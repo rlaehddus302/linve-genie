@@ -295,3 +295,12 @@ cases:
   - { in: "15번 보니타 만오천 원", out: { no: 15, name: 보니타, price: 15000, confidence: HIGH } }  # 정확한 이름은 그대로
   - { in: "15번 라울이고 만원", out: { no: 15, name: 라울, price: 10000, confidence: HIGH } }       # '라울이고'는 '고'로 끝나지만 끝말 '이고' 뗀 '라울'은 따로 본다
   - { in: "15번 핑크무네 만원", out: { no: 15, price: 10000, confidence: LOW } }                   # '핑크무네'('네' 끝)는 핑크문과 비슷해도 맞추지 않음
+---
+# V3 — 군말 토큰은 품종 창에서 뺀다 (R-17 5, D-V3-42). '자 보'가 이어져 '자보'가 되지 않는다.
+suite: voice-extract
+settings:
+  dictionary: [자보, 라울]
+cases:
+  - { in: "59번 자 보 7만 원", out: { no: 59, price: 70000, confidence: LOW } }              # '자'는 군말 토큰 → 창에서 빠지고 '보'(1글자)만 남음 → 품종 없음
+  - { in: "59번 요 자보 7만 원", out: { no: 59, name: 자보, price: 70000, confidence: HIGH } }   # 붙여 쓴 '자보'는 그대로 맞음
+  - { in: "15번 네 라울 만원", out: { no: 15, name: 라울, price: 10000, confidence: HIGH } }      # 군말 '네'를 빼도 라울은 그대로
