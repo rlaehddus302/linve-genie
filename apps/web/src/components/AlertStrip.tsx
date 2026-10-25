@@ -8,14 +8,21 @@
 // QL2 D-QL2-02: 띠에 항목이 하나라도 있으면 펼치기 단추가 늘 있다 — 세는 알림이 0이면 "알림 펼치기"/"알림 접기".
 // 펼친 동안 모든 항목은 문장 전체(줄바꿈), 접힌 동안 한 줄·말줄임. 높이는 글자 크기를 따른다(styles.css).
 // QL3R1 D-QL3R1-04: 출력 기기 끊김 줄은 접힌 휴대폰 띠에서 짧은 문장("라벨이 안 나가요 · 'PC' 화면을 켜 주세요")으로 띠 아래 자기 줄 — 말줄임 없이 줄바꿈.
+// QL3R2 D-QL3R2-02 (1): 접힌 휴대폰 띠에서는 짧은 문장이 있는 항목을 "알림" 영역 안에서 그리지 않는다(화면·화면 읽기 모두 없음) —
+// 경고는 짧은 줄 하나로만. 펼친 띠·PC는 영역 안 긴 문장 하나(짧은 줄 없음). D-QL3R2-03: 출력 기기 없음에도 짧은 줄.
+// QL3R2 D-QL3R2-02 (2): 접힌 휴대폰 띠의 보류 단추 글은 "보류 n"(보이는 글 = 단추 이름), 펼친 띠·PC는 "보류 찜 n".
+// 휴대폰·PC는 useWide로 한 모양만 그린다(숨긴 사본을 두지 않는다 — use-wide.ts).
 import type { AlertCounts } from '../lib/derive.ts'
 import { PRINT_ALERT_WORD } from '../lib/print-words.ts'
+import { useWide } from '../lib/use-wide.ts'
 import { ALERT_WORD } from '../lib/words.ts'
 
 export type AlertKind = 'conflict' | 'cancelRequests' | 'succession' | 'printPause' | 'discard' | 'pending' | 'attention' | 'thanks' | 'reviews'
 
 /** 알림 띠 낱말 "감사 실패" (AC-I3-30) */
 export const THANKS_FAILED_WORD = '감사 실패'
+/** 접힌 휴대폰 띠의 보류 단추 낱말 (QL3R2 D-QL3R2-02 (2)) — 펼친 띠·PC·보류 찜 창은 ALERT_WORD.pending("보류 찜") */
+export const PENDING_SHORT_WORD = '보류'
 
 /** 출력 알림 (판매자의 출력 기록): 멈춘 까닭 문장(멈추지 않았으면 null)·버릴 라벨 장 수 */
 export interface PrintAlerts {
@@ -81,13 +88,15 @@ export interface AlertStripProps {
 }
 
 export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanksFailed = 0, reviews = 0, onOpen, expanded = false, onToggle }: AlertStripProps) {
+  // 접힌 휴대폰 띠 (48rem 미만 + 접힘) — 짧은 줄·"보류 n"은 이때만 (D-QL3R1-04·D-QL3R2-02)
+  const folded = !useWide() && !expanded
   const items: { kind: AlertKind; word: string; count: number; text?: string }[] = [
     { kind: 'conflict', word: ALERT_WORD.conflict, count: counts.conflict },
     { kind: 'cancelRequests', word: ALERT_WORD.cancelRequest, count: counts.cancelRequest },
     { kind: 'succession', word: ALERT_WORD.succession, count: counts.succession },
     { kind: 'printPause', word: PRINT_ALERT_WORD.paused, count: print.pause === null ? 0 : 1, text: `${PRINT_ALERT_WORD.paused} · ${print.pause ?? ''}` },
     { kind: 'discard', word: PRINT_ALERT_WORD.discard, count: print.discard },
-    { kind: 'pending', word: ALERT_WORD.pending, count: counts.pending },
+    { kind: 'pending', word: folded ? PENDING_SHORT_WORD : ALERT_WORD.pending, count: counts.pending },
     { kind: 'attention', word: ALERT_WORD.attention, count: counts.attention },
     { kind: 'thanks', word: THANKS_FAILED_WORD, count: thanksFailed },
     { kind: 'reviews', word: ALERT_WORD.attention, count: reviews, text: `${ALERT_WORD.attention} ${String(reviews)}건` },
@@ -96,11 +105,13 @@ export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanks
   const pressable = leads.filter((lead) => lead.onClick !== undefined && lead.uncounted !== true).length
   const total = shown.reduce((sum, item) => sum + item.count, 0) + pressable
   // 플랫폼 줄은 맨 앞, 출력 기기 항목(uncounted)은 세는 알림 모두의 뒤 — 맨 끝 (D-MOB1-14, AC-MOB1-13)
-  const front = leads.filter((lead) => lead.uncounted !== true)
-  const tail = leads.filter((lead) => lead.uncounted === true)
-  // 짧은 문장이 있는 줄 (D-QL3R1-04): 접힌 휴대폰 띠에서만 "알림" 한 줄 아래 자기 줄로 보인다(CSS — PC·펼친 띠에서는 그리지 않음).
-  // "알림" 영역 안의 항목은 그대로 둔다 — 접힌 한 줄 높이·항목 수·이름(AC-MOB1-13)이 BASE와 같다
-  const shortLeads = leads.filter((lead) => lead.shortText !== undefined && lead.onClick !== undefined)
+  // 짧은 문장이 있는 줄 (D-QL3R1-04): 접힌 휴대폰 띠에서만 "알림" 한 줄 아래 자기 줄로 보인다(PC·펼친 띠에서는 그리지 않음).
+  // 그동안 "알림" 영역 안의 그 항목은 그리지 않는다(D-QL3R2-02 (1), 이중 표시 없음) — 알림 수는 그대로(출력 기기 항목은 세지 않는다)
+  const hasShort = (lead: AlertLead) => lead.shortText !== undefined && lead.onClick !== undefined
+  const shortLeads = folded ? leads.filter(hasShort) : []
+  const listed = folded ? leads.filter((lead) => !hasShort(lead)) : leads
+  const front = listed.filter((lead) => lead.uncounted !== true)
+  const tail = listed.filter((lead) => lead.uncounted === true)
   const renderLead = (lead: AlertLead) => (
     <li key={lead.key} className={lead.action !== undefined ? 'alert-lead alert-lead-with-action' : 'alert-lead'}>
       {lead.onClick !== undefined ? (
@@ -143,7 +154,7 @@ export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanks
           {alertToggleWord(total, expanded)}
         </button>
       ) : null}
-      {!expanded
+      {shortLeads.length > 0
         ? shortLeads.map((lead) => (
             <button key={`${lead.key}-short`} type="button" className="button alert-item alert-soft alert-short-row" onClick={lead.onClick}>
               {lead.shortText}

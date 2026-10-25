@@ -165,7 +165,7 @@ describe('끝난 방송·알림 띠·조치 기록 (AC-S06-61·66·70)', () => {
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
     const region = screen.getByRole('region', { name: '알림' })
     expect(region.contains(toggle)).toBe(false)
-    expect(region.textContent).toBe('보류 찜 2')
+    expect(region.textContent).toBe('보류 2') // QL3R2 D-QL3R2-02 — 접힌 휴대폰 띠는 "보류 n"
     fireEvent.click(toggle)
     expect(screen.getByRole('button', { name: '알림 2 접기' }).getAttribute('aria-expanded')).toBe('true')
   })

@@ -1,5 +1,6 @@
 // 알기 쉬운 오류 (UX-03, AC-S05-71): 서버의 문장(message, problems[].message, hint)을 그대로 보이고
 // 오류 코드·HTTP 상태는 "자세히" 안에 접어 둔다. 잠시 뒤 다시 하면 되는 실패에는 "다시 보내기".
+import type { ReactNode } from 'react'
 import type { ApiError } from '../api/client.ts'
 
 export interface ErrorNoteProps {
@@ -8,14 +9,17 @@ export interface ErrorNoteProps {
   readonly omitFields?: readonly string[]
   readonly onRetry?: () => void
   readonly retryLabel?: string
+  /** 서버 문장 바로 아래 덧붙이는 화면 안내 (글로만 — 예: 입금 붙여넣기 머리 줄 없음, D-QL3R2-05) */
+  readonly extra?: ReactNode
 }
 
-export function ErrorNote({ error, omitFields = [], onRetry, retryLabel = '다시 보내기' }: ErrorNoteProps) {
+export function ErrorNote({ error, omitFields = [], onRetry, retryLabel = '다시 보내기', extra }: ErrorNoteProps) {
   // 위 문장과 같은 문제 문장은 두 번 보이지 않는다 (예: 합치기·떼어 내기 409 — D-I2-20)
   const problems = error.problems.filter((problem) => (problem.field === null || !omitFields.includes(problem.field)) && !(problem.message === error.message && problem.hint === undefined))
   return (
     <div className="error-note" role="alert" data-tone="danger">
       <p>{error.message}</p>
+      {extra !== undefined ? <p className="error-extra">{extra}</p> : null}
       {problems.length > 0 ? (
         <ul className="plain-list">
           {problems.map((problem, index) => (

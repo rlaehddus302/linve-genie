@@ -179,7 +179,7 @@ export function ConsolePage(props: ConsolePageProps) {
   if (snapshot.phase === 'error' && snapshot.error !== null) {
     return (
       <main className="page">
-        <h1>콘솔을 열지 못했어요</h1>
+        <h1>방송 화면을 열지 못했어요</h1>
         <ErrorNote error={snapshot.error} onRetry={() => window.location.reload()} retryLabel="다시 열기" />
       </main>
     )

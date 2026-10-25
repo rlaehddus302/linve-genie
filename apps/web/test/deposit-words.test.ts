@@ -43,7 +43,7 @@ describe('DP-8 낱말 (AC-N3-41·50)', () => {
   it('상태·원천·사유 문장은 규칙서 그대로', () => {
     expect(Object.values(DEPOSIT_STATUS_WORD)).toEqual(['확인 필요', '자동 확인됨', '확인함', '무시함'])
     expect(SOURCE_KIND_WORD).toEqual({ POPBILL: '계좌조회', PASTE: '붙여넣기', FAKE: '시험용 입금' })
-    expect(reasonWords('POSSIBLE_DUPLICATE', 7)).toBe('같은 입금이 두 번 들어왔을 수 있어요 (입금 #7과 같아요)')
+    expect(reasonWords('POSSIBLE_DUPLICATE', 7)).toBe('같은 입금이 두 번 들어왔을 수 있어요 (입금 #7도 같은 입금이에요)') // QL3R2 D-QL3R2-04
     expect(reasonWords('SAME_NAME', null)).toBe('같은 이름의 구매자가 여럿이에요')
     expect(reasonWords('MULTIPLE', null)).toBe('금액과 이름이 맞는 묶음이 여럿이에요')
     expect(reasonWords('NAME_MISMATCH', null)).toBe('금액은 맞는데 이름이 달라요')
@@ -90,7 +90,7 @@ describe('DP-8 낱말 (AC-N3-41·50)', () => {
   })
 
   it('붙여넣기 낱말과 결과 문장 (AC-N3-45)', () => {
-    expect(Object.values(PASTE_STATE_WORD)).toEqual(['새 입금', '이미 있는 입금', '오래된 입금', '시각이 앞으로인 입금'])
+    expect(Object.values(PASTE_STATE_WORD)).toEqual(['새 입금', '이미 있는 입금', '오래된 입금', '시각이 지금보다 늦은 입금']) // QL3R2 D-QL3R2-04
     expect(UNREADABLE_WORD).toEqual({ BAD_AMOUNT: '금액을 읽지 못했어요', BAD_TIME: '시각을 읽지 못했어요(분까지 필요해요)' })
     expect(pasteResultWords({ new: 5, auto: 3, review: 2, existing: 1 })).toBe('새 입금 5건 — 자동 확인 3건, 확인 필요 2건 (이미 있던 입금 1건)')
   })

@@ -61,7 +61,7 @@ describe('콘솔 알림 띠 맨 끝 출력 기기 항목 (AC-MOB1-13, D-MOB1-14)
     render(<AlertStrip leads={[{ key: 'print-station', text, soft: true, uncounted: true, onClick }]} counts={{ ...COUNTS, pending: 2 }} onOpen={() => {}} onToggle={() => {}} />)
     const region = screen.getByRole('region', { name: '알림' })
     const buttons = within(region).getAllByRole('button')
-    expect(buttons.map((b) => b.textContent)).toEqual(['보류 찜 2', text])
+    expect(buttons.map((b) => b.textContent)).toEqual(['보류 2', text]) // QL3R2 D-QL3R2-02 — 접힌 휴대폰 띠는 "보류 n"
     const last = buttons[buttons.length - 1] as HTMLElement
     expect(last.className).toContain('alert-soft')
     expect(region.querySelector('b, script')).toBeNull()
@@ -89,7 +89,7 @@ describe('콘솔 알림 띠 맨 끝 출력 기기 항목 (AC-MOB1-13, D-MOB1-14)
     const words = within(region).getAllByRole('button').map((b) => b.textContent)
     expect(words[0]).toBe('틱톡 알림 줄')
     expect(words[words.length - 1]).toBe(text)
-    expect(words.slice(1, -1)).toEqual(['충돌 1', '출력 멈춤 · 프린터가 꺼졌어요.', '버릴 라벨 2', '보류 찜 3', '확인 필요 1', '감사 실패 1'])
+    expect(words.slice(1, -1)).toEqual(['충돌 1', '출력 멈춤 · 프린터가 꺼졌어요.', '버릴 라벨 2', '보류 3', '확인 필요 1', '감사 실패 1']) // QL3R2 D-QL3R2-02 — 접힌 휴대폰 띠는 "보류 n"
   })
 
   it('플랫폼 줄 없이 "출력 멈춤"과 함께면 접힌 한 줄의 첫 항목이 "출력 멈춤 · …", 다른 알림이 없으면 출력 기기 항목이 첫 항목', () => {

@@ -134,9 +134,14 @@ describe('styles.css', () => {
     const widthProperties = new Set(['width', 'min-width', 'inline-size', 'min-inline-size', 'flex-basis'])
     const at375 = declarations.filter((d) => !skipsAt375(d.media))
     expect(at375.length).toBeGreaterThan(declarations.length / 2)
+    // QL3R2 D-QL3R2-02 (5): text-wrap-mode: nowrap 규칙의 옛 브라우저 대체 white-space: nowrap만 된다 — 같은 규칙이 넘친 글을 자른다(overflow: hidden)
+    const clippedNowrap = (d: (typeof at375)[number]) => {
+      const same = at375.filter((other) => other.selector === d.selector && other.media.join('|') === d.media.join('|'))
+      return same.some((other) => other.property === 'text-wrap-mode' && other.value === 'nowrap') && same.some((other) => other.property === 'overflow' && other.value === 'hidden')
+    }
     for (const d of at375) {
       if (widthProperties.has(d.property)) expect(d.value, `${d.selector} { ${d.property}: ${d.value} }`).not.toMatch(fixedLength)
-      if (d.property === 'white-space') expect(d.value, `${d.selector} { white-space: ${d.value} }`).not.toMatch(/nowrap|pre\b/)
+      if (d.property === 'white-space' && !(d.value === 'nowrap' && clippedNowrap(d))) expect(d.value, `${d.selector} { white-space: ${d.value} }`).not.toMatch(/nowrap|pre\b/) // QL3R2 D-QL3R2-02
     }
     // 긴 낱말(닉네임 등)도 줄을 바꿔 화면 밖으로 나가지 않는다
     expect(declarations.some((d) => d.selector === 'body' && d.property === 'overflow-wrap' && d.value === 'anywhere')).toBe(true)

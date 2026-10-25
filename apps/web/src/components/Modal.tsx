@@ -82,6 +82,8 @@ export function Modal({ title, onClose, initialFocus, children, actions, closeLa
       if (choice) {
         event.preventDefault()
         event.stopPropagation()
+        // 키를 누르고 있어 반복된 입력은 무시한다 — 한 번 누름 = 한 번 동작 (QL3R2 D-QL3R2-06 (2))
+        if (event.repeat) return
         choice.click()
       }
     }

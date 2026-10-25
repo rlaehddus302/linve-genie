@@ -2061,6 +2061,7 @@ html:has(.save-bar) {
   @container console-sticky (max-width: 17rem) {
     .current-summary {
       overflow-wrap: normal;
+      white-space: nowrap;
       text-wrap-mode: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -2177,11 +2178,12 @@ html:has(.save-bar) {
 
   /* 접힌 동안: 한 줄·말줄임 (QL2 D-QL2-02 (3)) — 글은 버튼 안 칸(overflow: hidden, min-width: 0)에서 줄어 버튼·화면 밖으로 나가지 않는다(가로 넘침 없음).
    * 줄 수 제한(line-clamp)은 숨은 둘째 줄의 글자 상자가 버튼 상자 밖에 남아(Range.getClientRects) 쓰지 않는다 — 줄을 바꾸지 않는 한 줄(text-wrap-mode)로.
-   * text-wrap-mode를 모르는 옛 브라우저는 줄을 바꾸되 한 줄 높이(max-block-size)에서 잘린다 */
+   * text-wrap-mode를 모르는 옛 브라우저(옛 아이폰 사파리)는 먼저 둔 white-space: nowrap으로 한 줄(QL3R2 D-QL3R2-02 (5)) */
   .alert-bar:not(.alert-bar-open) .alert-item-text {
     display: block;
     min-width: 0;
     max-block-size: 1.25em;
+    white-space: nowrap;
     text-wrap-mode: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2644,6 +2646,7 @@ html:has(.save-bar) {
     display: block;
     min-width: 0;
     max-block-size: 1.25em;
+    white-space: nowrap;
     text-wrap-mode: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2652,6 +2655,7 @@ html:has(.save-bar) {
   .alert-bar:not(.alert-bar-open) .alert-lead-note {
     display: block;
     min-width: 0;
+    white-space: nowrap;
     text-wrap-mode: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2670,11 +2674,15 @@ html:has(.save-bar) {
   display: none;
 }
 
+/* 접힌 휴대폰 띠에서 짧은 줄이 있는 항목은 "알림" 영역 안에 그리지 않는다(이중 표시 없음 — AlertStrip이 한 모양만, QL3R2 D-QL3R2-02 (1)) */
 @media (max-width: 47.99rem) {
+  /* 짧은 줄 위 간격은 0.25rem (QL3R2 D-QL3R2-02 (3)) — 띠의 가로 간격은 그대로 */
   .alert-bar:has(> .alert-short-row) {
     flex-wrap: wrap;
+    row-gap: 0.25rem;
   }
 
+  /* 안쪽 위아래 여백 0.25rem, 누르는 곳 44px 이상(button의 min-height) */
   .alert-bar:not(.alert-bar-open) > .alert-short-row {
     display: flex;
     flex: 1 1 100%;
@@ -2684,6 +2692,31 @@ html:has(.save-bar) {
     text-align: start;
     white-space: normal;
     overflow-wrap: anywhere;
+    line-height: 1.25;
+    padding-block: 0.25rem;
+  }
+
+  /* 짧은 줄이 있을 때 고정 영역 ≤ 화면 40% (QL3R2 D-QL3R2-02 (3)(4) → D-QL3R1-02 ⓑ): 글자 16px 이상·누르는 곳 44px 이상은 그대로 두고
+   * 고정 영역 안 여백만 줄인다 — 짧은 줄 안쪽 위아래 여백 0(높이는 min-height 2.75rem), 고정 영역 위아래 여백 0.125rem·칸 사이 0.25rem.
+   * 375×150%에서 출력 기기 없음 문장은 세 줄(낱말 사이에서만 줄을 바꾼다)이라 여기까지 줄여야 들어간다. 출력 기기 정상(짧은 줄 없음)은 그대로 */
+  .console-sticky:has(.alert-short-row) {
+    padding-block: 0.125rem;
+    gap: 0.25rem;
+  }
+
+  .console-sticky:has(.alert-short-row) .console-sticky-quick {
+    gap: 0.25rem;
+  }
+
+  .console-sticky .alert-bar:not(.alert-bar-open) > .alert-short-row {
+    padding-block: 0;
+  }
+}
+
+/* 짧은 줄이 있을 때 빠른 입력 위 이름 줄("빠른 입력"·"개수")의 줄 높이를 글 한 줄(1.25)로 (QL3R2 D-QL3R2-02 (4)) — 큰 글씨 휴대폰 격자에서만 */
+@container quick (max-width: 17rem) {
+  .console-sticky:has(.alert-short-row) .quick-row > .quick-label,
+  .console-sticky:has(.alert-short-row) .quick-row > .quick-count > label {
     line-height: 1.25;
   }
 }

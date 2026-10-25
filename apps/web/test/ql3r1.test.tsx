@@ -151,14 +151,14 @@ describe('출력 기기 끊김 짧은 줄 (D-QL3R1-04, AC-QL3R1-25·26)', () => 
     expect(deviceLostShortMessage('🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵')).toBe("라벨이 안 나가요 · '🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵…' 화면을 켜 주세요")
   })
 
-  it('짧은 문장은 출력 기기 끊김일 때만 — 출력 기기 없음·정상·이 기기가 출력 기기면 없다', () => {
+  it('짧은 문장은 출력 기기 끊김·출력 기기 없음+대기 라벨일 때만 — 정상·이 기기가 출력 기기면 없다', () => { // QL3R2 D-QL3R2-03
     const base = { labelsOn: true, rehearsal: false, ended: false, mine: false } as const
     const device = { id: 'd1', name: 'PC', live: false, printerConnected: true, releasing: false }
     const queue = { rev: 1, device, pause: null, waiting: 0, printing: 0, discard: 0, labelsEnabled: true }
     expect(stationLeadText({ ...base, queue })).toBe(deviceLostMessage('PC'))
     expect(stationLeadShortText({ ...base, queue })).toBe("라벨이 안 나가요 · 'PC' 화면을 켜 주세요")
     expect(stationLeadShortText({ ...base, queue: { ...queue, device: { ...device, live: true } } })).toBeNull()
-    expect(stationLeadShortText({ ...base, queue: { ...queue, device: null, waiting: 3 } })).toBeNull()
+    expect(stationLeadShortText({ ...base, queue: { ...queue, device: null, waiting: 3 } })).toBe('라벨이 안 나가요 · 라벨 화면에서 프린터를 연결해 주세요') // QL3R2 D-QL3R2-03
     expect(stationLeadShortText({ ...base, mine: true, queue })).toBeNull()
     expect(stationLeadShortText({ ...base, rehearsal: true, queue })).toBeNull()
   })
@@ -169,7 +169,7 @@ describe('출력 기기 끊김 짧은 줄 (D-QL3R1-04, AC-QL3R1-25·26)', () => 
     const lead = { key: 'print-station', text: deviceLostMessage(name), shortText: deviceLostShortMessage(name), soft: true, uncounted: true, onClick }
     const { rerender } = render(<AlertStrip leads={[lead]} counts={counts} onOpen={() => undefined} expanded={false} onToggle={() => undefined} />)
     const region = screen.getByRole('region', { name: '알림' })
-    expect(within(region).getByRole('button', { name: deviceLostMessage(name) })).toBeDefined()
+    expect(within(region).queryByRole('button', { name: deviceLostMessage(name) })).toBeNull() // QL3R2 D-QL3R2-02 — 접힌 휴대폰 띠는 짧은 줄 하나만(이중 표시 없음)
     expect(within(region).queryByText(/라벨이 안 나가요/)).toBeNull()
     const short = screen.getByRole('button', { name: "라벨이 안 나가요 · '<b>굵게</b>' 화면을 켜 주세요" })
     expect(region.contains(short)).toBe(false)
@@ -178,6 +178,7 @@ describe('출력 기기 끊김 짧은 줄 (D-QL3R1-04, AC-QL3R1-25·26)', () => 
     expect(onClick).toHaveBeenCalledTimes(1)
     rerender(<AlertStrip leads={[lead]} counts={counts} onOpen={() => undefined} expanded onToggle={() => undefined} />)
     expect(screen.queryByText(/라벨이 안 나가요/)).toBeNull()
+    expect(within(screen.getByRole('region', { name: '알림' })).getByRole('button', { name: deviceLostMessage(name) })).toBeDefined() // QL3R2 D-QL3R2-02 — 펼치면 긴 문장
   })
 })
 

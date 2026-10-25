@@ -1,6 +1,6 @@
 // 입금 내역 붙여넣기 (N3, DP-1·DP-2, D-N3-08, AC-N3-45·13).
 // 글 칸에 은행 거래내역 표를 머리글 줄까지 붙여 넣거나 CSV 파일을 고른다(UTF-8로 읽어 보고 아니면 EUC-KR).
-// "읽어 보기" → 서버 미리 보기(아무것도 기록하지 않음): 줄마다 새 입금·이미 있는 입금·오래된 입금·시각이 앞으로인 입금, 건너뛴 줄 수,
+// "읽어 보기" → 서버 미리 보기(아무것도 기록하지 않음): 줄마다 새 입금·이미 있는 입금·오래된 입금·시각이 지금보다 늦은 입금, 건너뛴 줄 수,
 // 읽지 못한 줄은 줄 번호와 이유 → "입금 내역 넣기"(주 버튼) → 결과 문장 "새 입금 5건 — 자동 확인 3건, 확인 필요 2건 (이미 있던 입금 1건)".
 // 미리 본 글이 바뀌면 다시 읽어 봐야 넣을 수 있다. 넣은 뒤 글 칸을 비운다. 머리글 없음·줄 수 초과·너무 큼은 서버 문장을 그대로.
 // 붙여 넣은 글은 이 화면에만 있고 어디에도 남기지 않는다(주소·저장소에 넣지 않는다).
@@ -17,6 +17,8 @@ import { ErrorNote } from './ErrorNote.tsx'
 
 export const PASTE_HINT = '은행 거래내역 표를 첫 줄(거래일시·입금액 같은 칸 이름)까지 복사해 붙여 넣거나 은행에서 받은 파일(.csv)을 골라 주세요. 출금 줄은 넣지 않아요.'
 export const FILE_ERROR = '파일을 읽지 못했어요. 은행에서 받은 .csv 파일인지 확인해 주세요.'
+/** 머리 줄 없음(PASTE_NO_HEADER) 서버 문장 아래 — 휴대폰 판매자가 할 수 있는 길 (D-QL3R2-05) */
+export const NO_HEADER_PHONE_HINT = "휴대폰에서는 PC로 은행 거래내역을 복사해 넣거나, 정산 화면의 '입금 적기'로 직접 적어 주세요."
 
 interface Result {
   readonly summary: PasteSummary
@@ -69,13 +71,16 @@ export function PasteTab() {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (file === undefined) return
+    let value: string
     try {
-      const value = await readCsvFile(file)
-      edit(value)
-      await readPreview(value)
+      value = await readCsvFile(file)
     } catch {
+      // 글 파일이 아니면(사진·PDF 등, D-QL3R2-01) 글 칸은 고르기 전 그대로 두고 미리 보기도 부르지 않는다
       setFileError(FILE_ERROR)
+      return
     }
+    edit(value)
+    await readPreview(value)
   }
 
   const send = async () => {
@@ -114,7 +119,7 @@ export function PasteTab() {
         </button>
       </div>
       {preview !== null && current === null ? <p className="hint">글이 바뀌었어요. "읽어 보기"를 다시 눌러 주세요.</p> : null}
-      {previewError !== null ? <ErrorNote error={previewError} /> : null}
+      {previewError !== null ? <ErrorNote error={previewError} {...(previewError.code === 'PASTE_NO_HEADER' ? { extra: NO_HEADER_PHONE_HINT } : {})} /> : null}
       {insert.error !== null ? <ErrorNote error={insert.error} {...(insert.error.transient ? { onRetry: () => void send() } : {})} /> : null}
       {result !== null ? <PasteResult summary={result.summary} /> : null}
       {current !== null ? <PreviewView view={current} /> : null}
@@ -124,7 +129,7 @@ export function PasteTab() {
 
 function PasteResult({ summary }: { readonly summary: PasteSummary }) {
   const lines: string[] = []
-  if (summary.old > 0 || summary.future > 0) lines.push(`오래된 입금 ${String(summary.old)}건, 시각이 앞으로인 입금 ${String(summary.future)}건은 넣지 않았어요.`)
+  if (summary.old > 0 || summary.future > 0) lines.push(`오래된 입금 ${String(summary.old)}건, 시각이 지금보다 늦은 입금 ${String(summary.future)}건은 넣지 않았어요. 은행 글의 날짜·시각을 확인해 주세요.`)
   if (summary.skipped > 0) lines.push(`건너뛴 줄 ${String(summary.skipped)}개(출금 등)`)
   for (const item of summary.unreadable) lines.push(lineWords(item.line, item.why))
   return (

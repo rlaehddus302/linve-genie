@@ -233,7 +233,7 @@ describe('영수증 보내기 화면 (AC-N4b-31·32)', () => {
     await open(BASE.slice(0, -1), [])
     expect(screen.getByText(NOT_ENDED)).toBeDefined()
     expect(screen.queryByRole('list', { name: '구매자' })).toBeNull()
-    fireEvent.click(screen.getByRole('link', { name: '콘솔로 돌아가기' }))
+    fireEvent.click(screen.getByRole('link', { name: '방송 화면으로 돌아가기' })) // QL3R2 D-QL3R2-04
     expect(screen.getByText('콘솔 console')).toBeDefined()
   })
 })
