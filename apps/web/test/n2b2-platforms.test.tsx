@@ -640,9 +640,9 @@ describe('콘솔 — 틱톡 칸 (AC-62)', () => {
 
 const ROUTE = { DIRECT: '서버 연결로 받는 중', DIRECT_STANDBY: '서버 연결로 받는 중 · 확장은 대기 중', EXTENSION: '확장으로 받는 중' } as const
 const EXT_WARNING = {
-  STALE: '확장에서 틱톡 댓글이 오지 않아요',
+  STALE: '확장에서 틱톡 댓글이 오지 않아요. 크롬에서 내 틱톡 방송 화면을 다시 열어 주세요.',
   HIDDEN: '틱톡 방송 화면을 앞으로 꺼내 두세요',
-  UNREADABLE: '틱톡 화면이 바뀌어 댓글을 읽지 못해요',
+  UNREADABLE: '틱톡 화면이 바뀌어 댓글을 읽지 못해요. 댓글을 직접 붙여 넣어 주세요.',
   ELSEWHERE: '확장이 내 틱톡 방송 화면에 있지 않아요. 내 방송 화면을 열어 주세요.',
 } as const
 const MISSED = '끊긴 동안의 틱톡 댓글은 받지 못했을 수 있어요. 틱톡 앱에서 확인해 주세요.'
@@ -759,6 +759,63 @@ describe('TTX: 확장으로 받는 중의 붙여넣기 알림 (AC-TTX-21)', () =
     expect(tiktokNeedsPaste(ttCollection({ state: 'CONNECTED', saveFailed: 1 }), active)).toBe(true)
     expect(tiktokNeedsPaste(ttCollection({ state: 'RETRYING', reason: 'SIGN_FAILED' }), ttExt({ active: false }))).toBe(true)
     expect(tiktokNeedsPaste(ttCollection({ state: 'RETRYING', reason: 'SIGN_FAILED' }), null)).toBe(true)
+  })
+})
+
+describe('TTX: 막혔을 때 확장 안내 한 줄 (AC-TTX-33 (1), D-TTX-17)', () => {
+  const HINT = 'PC 크롬에서 내 틱톡 방송 화면을 열어 두면 확장이 댓글을 대신 받아요.'
+  const SIGN = '틱톡 연결 준비에 실패해 다시 시도하는 중이에요. 그동안 댓글을 직접 넣어 주세요.'
+
+  it('서버가 준 안내 글자 그대로, 경고 모양이 아니게 — 붙여넣기 알림 띠는 지금 조건 그대로', async () => {
+    ttLink = ttWithExt({ state: 'RETRYING', reason: 'SIGN_FAILED', message: SIGN }, ttExt({ state: 'NONE', active: false, route: null, hint: HINT }))
+    await openConsole()
+    const hint = within(ttPanel()).getByText(HINT)
+    expect(hint.textContent).toBe(HINT)
+    expect(hint.className).not.toContain('warning')
+    expect(hint.closest('.warning')).toBeNull()
+    expect(hint.getAttribute('role')).toBeNull()
+    // 확장 상태가 없던 회차: 받는 길 줄 없이 직접 연결 문장과 알림 띠는 그대로
+    expect(within(ttPanel()).queryByRole('status', { name: '틱톡 댓글 받는 길' })).toBeNull()
+    expect(within(ttPanel()).getByText(SIGN)).toBeDefined()
+    expect(screen.getByRole('button', { name: TIKTOK_PASTE_ALERT })).toBeDefined()
+  })
+
+  it('서버가 안내를 빼면(확장 상태가 생김·확장 끊김·직접 연결 받는 중) 줄이 없어진다, 예전 서버(칸 없음)도 없다', async () => {
+    ttLink = ttWithExt({ state: 'RETRYING', reason: 'BLOCKED', message: SIGN }, ttExt({ state: 'NONE', active: false, route: null, hint: HINT }))
+    await openConsole()
+    expect(within(ttPanel()).getByText(HINT)).toBeDefined()
+    for (const extension of [ttExt(), ttExt({ state: 'NONE', active: false, route: null, hint: null }), ttExt({ state: 'NONE', active: false, route: null })]) {
+      act(() => FakeEventSource.last.emit('tiktok', { kind: 'LINK', broadcast: 'b1', link: ttWithExt({ state: 'RETRYING', reason: 'BLOCKED', message: SIGN }, extension) }))
+      expect(within(ttPanel()).queryByText(HINT)).toBeNull()
+    }
+  })
+
+  it('안내 글은 글자로만 그린다 (HTML로 넣지 않는다)', async () => {
+    const tricky = '<b>굵게</b> & <img src=x>'
+    ttLink = ttWithExt({ state: 'STOPPED', reason: null, message: '틱톡에 다시 연결하지 못했어요.' }, ttExt({ state: 'NONE', active: false, route: null, hint: tricky }))
+    await openConsole()
+    expect(within(ttPanel()).getByText(tricky)).toBeDefined()
+    expect(ttPanel().querySelector('b, img')).toBeNull()
+  })
+})
+
+describe('TTX: 틱톡 칸 단추 자리 고정 (U-TTX-04)', () => {
+  const names = () => within(within(ttPanel()).getByRole('group', { name: '틱톡 댓글 받기' })).getAllByRole('button').map((button) => button.textContent)
+  const order = (list: (string | null)[]) => list.filter((name) => name === '댓글 붙여넣기' || name === '다시 연결' || name === '끊기')
+
+  it('붙여넣기 → 다시 연결 → 끊기, 상태가 바뀌어도 자리는 그대로이고 강조만 바뀐다', async () => {
+    ttLink = ttWithExt(BLOCKED, ttExt())
+    await openConsole()
+    const receiving = order(names())
+    expect(receiving).toEqual(['댓글 붙여넣기', '다시 연결', '끊기'])
+    expect(within(ttPanel()).getByRole('button', { name: '댓글 붙여넣기' }).className).not.toContain('button-primary')
+    act(() => FakeEventSource.last.emit('tiktok', { kind: 'LINK', broadcast: 'b1', link: ttWithExt(BLOCKED, ttExt({ state: 'STALE', active: false, route: null, warning: EXT_WARNING.STALE })) }))
+    expect(order(names())).toEqual(receiving)
+    expect(within(ttPanel()).getByRole('button', { name: '댓글 붙여넣기' }).className).toContain('button-primary')
+    act(() => FakeEventSource.last.emit('tiktok', { kind: 'LINK', broadcast: 'b1', link: ttWithExt({}, ttExt({ state: 'STANDBY', active: false, route: ROUTE.DIRECT_STANDBY })) }))
+    // 직접 연결 받는 중: 다시 연결은 없고 남은 둘의 자리는 그대로
+    expect(order(names())).toEqual(['댓글 붙여넣기', '끊기'])
+    expect(within(ttPanel()).getByRole('button', { name: '댓글 붙여넣기' }).className).not.toContain('button-primary')
   })
 })
 

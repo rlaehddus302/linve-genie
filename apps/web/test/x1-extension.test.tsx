@@ -139,10 +139,12 @@ describe('설정 — 확장 연결 (AC-X1-08)', () => {
     expect(await screen.findByText('보조자 계정으로는 할 수 없어요.')).toBeTruthy()
   })
 
-  it('U-TTX-02: 확장 칸 설명에 틱톡 대비책(내 틱톡 방송 화면을 열어 두면 대신 받음)이 있다', async () => {
+  it('U-TTX-02·AC-TTX-33 (3): 확장 칸 설명에 표의 틱톡 문장이 글자 그대로 있고 "서버" 낱말이 없다', async () => {
     render(<Settings />)
     await screen.findByRole('button', { name: '확장 연결' })
-    expect(screen.getByText(/틱톡도 같은 확장으로 받아요/).textContent).toContain('내 틱톡 방송 화면을 열어 두면, 확장이 틱톡 댓글을 대신 읽어 보내요.')
+    const intro = screen.getByText(/틱톡도 같은 확장으로 받을 수 있어요/).textContent ?? ''
+    expect(intro).toContain('틱톡도 같은 확장으로 받을 수 있어요. 틱톡 연결이 막혔을 때 이 크롬에서 내 틱톡 방송 화면을 열어 두면 확장이 댓글을 대신 읽어 보내요.')
+    expect(intro).not.toContain('서버')
   })
 
   it('영어 상태값을 보이지 않는다', async () => {

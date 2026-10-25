@@ -743,6 +743,11 @@ export interface TikTokExtensionView {
   readonly route: string | null
   /** 확장 경고 문장 (서버 문장 그대로) — 없으면 null */
   readonly warning: string | null
+  /**
+   * 직접 연결이 막혔고(BLOCKED·SIGN_FAILED 다시 시도·멈춤) 확장을 이었지만 이 회차 확장 상태가 없을 때의 안내 한 줄
+   * (D-TTX-17, 서버 문장 그대로 — 경고가 아니다). 없으면 null, 예전 서버면 없음
+   */
+  readonly hint?: string | null
   readonly screen: 'OWN' | 'OTHER' | 'ELSEWHERE' | null
   readonly hidden: boolean
   readonly statusAt: string | null

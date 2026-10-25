@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { Hub, QUEUE_KEY, TOKEN_KEY, type HubView } from '../src/hub.ts'
 import { TT_QUEUE_KEY } from '../src/tiktok-hub.ts'
+import { TT_DROPPED_REPORT_MAX } from '../src/tiktok-outbox.ts'
 import { TikTokOutbox, TT_BATCH_MAX, TT_FLUSH_MS, TT_HOLD_MAX, type TikTokOutboxEvent } from '../src/tiktok-outbox.ts'
 import type { TikTokItem } from '../src/tiktok-reader.ts'
 import { TT_WORDS } from '../src/words.ts'
@@ -282,8 +283,8 @@ describe('서비스 워커의 틱톡 몫', () => {
     await hub.handle(status('ELSEWHERE'), tiktokSender('https://www.tiktok.com/foryou', 9))
     const posted = s.calls.filter((c) => c.key === 'POST /ext/tiktok/status').map((c) => c.body)
     expect(posted).toEqual([
-      { screen: 'OWN', hidden: false, read: 4, unread: 1 },
-      { screen: 'OWN', hidden: false, read: 4, unread: 1 },
+      { screen: 'OWN', hidden: false, read: 4, unread: 1, dropped: 0 },
+      { screen: 'OWN', hidden: false, read: 4, unread: 1, dropped: 0 },
     ])
     expect(s.calls.some((c) => c.key === 'POST /ext/status')).toBe(false)
   })
@@ -365,5 +366,176 @@ describe('AC-TTX-22: 팝업 틱톡 줄', () => {
     for (const words of Object.values(TT_WORDS)) {
       expect(words).not.toMatch(/[A-Z]{3,}|standby|DOM|토큰|API/)
     }
+  })
+})
+
+describe('AC-TTX-32 (D-TTX-16): 확장이 버린 틱톡 댓글 수를 다음 상태에 싣는다', () => {
+  const statusBodies = (s: ReturnType<typeof server>) => s.calls.filter((c) => c.key === 'POST /ext/tiktok/status').map((c) => (c.body as { dropped: unknown }).dropped)
+
+  it('(1) 대기열이 넘쳐 3개 버림 → 다음 상태에 dropped 3, 서버가 받은 뒤에는 0', async () => {
+    const { chrome } = fakeChrome({ [TOKEN_KEY]: 'tok' })
+    const s = server({ 'POST /ext/tiktok/chats': [{ status: 500, body: {} }] })
+    const hub = new Hub(chrome, ORIGIN, s.fetcher, new FakeTimers())
+    await hub.handle({ type: 'ttChats', pageId: 'seller_kim', items: items(1, TT_HOLD_MAX + 3) }, tiktokSender())
+    expect(hub.tiktok.outbox.unreported).toBe(3)
+    await hub.handle(status('OWN'), tiktokSender())
+    await hub.handle(status('OWN'), tiktokSender())
+    expect(statusBodies(s)).toEqual([3, 0])
+    expect(hub.tiktok.outbox.unreported).toBe(0)
+    // 팝업의 "놓친 틱톡 댓글" 표시는 그대로 (켠 뒤 누적)
+    expect(hub.tiktok.outbox.dropped).toBe(3)
+  })
+
+  it('(2) 상태 요청이 실패하면(500·429·닿지 못함·400) 버린 수가 남아 다음 상태에 더해 실린다', async () => {
+    const { chrome } = fakeChrome({ [TOKEN_KEY]: 'tok' })
+    const s = server({
+      'POST /ext/tiktok/chats': [{ status: 500, body: {} }],
+      'POST /ext/tiktok/status': [{ status: 500, body: {} }, { status: 429, body: {}, headers: { 'Retry-After': '1' } }, { status: 400, body: { error: { code: 'INVALID_INPUT', message: 'x' } } }],
+    })
+    const hub = new Hub(chrome, ORIGIN, s.fetcher, new FakeTimers())
+    await hub.handle({ type: 'ttChats', pageId: 'seller_kim', items: items(1, TT_HOLD_MAX + 2) }, tiktokSender())
+    await hub.handle(status('OWN'), tiktokSender())
+    await hub.handle({ type: 'ttChats', pageId: 'seller_kim', items: items(600, 600) }, tiktokSender())
+    await hub.handle(status('OWN'), tiktokSender())
+    await hub.handle(status('OWN'), tiktokSender())
+    await hub.handle(status('OWN'), tiktokSender())
+    await hub.handle(status('OWN'), tiktokSender())
+    expect(statusBodies(s)).toEqual([2, 3, 3, 3, 0])
+  })
+
+  it('(2) 워커가 다시 떠도 알리지 않은 버린 수를 잃지 않는다 (알리는 중에 멈춘 것 포함)', async () => {
+    const { chrome, session } = fakeChrome({ [TOKEN_KEY]: 'tok' })
+    let hang = true
+    const s = server({ 'POST /ext/tiktok/chats': [{ status: 500, body: {} }] })
+    const fetcher = (url: string, init: RequestInit) => (hang && new URL(url).pathname === '/ext/tiktok/status' ? new Promise<Response>(() => undefined) : s.fetcher(url, init))
+    const first = new Hub(chrome, ORIGIN, fetcher, new FakeTimers())
+    await first.handle({ type: 'ttChats', pageId: 'seller_kim', items: items(1, TT_HOLD_MAX + 4) }, tiktokSender())
+    void first.handle(status('OWN'), tiktokSender())
+    await settle()
+    await first.saved()
+    expect((session[TT_QUEUE_KEY] as { unreported: number }).unreported).toBe(4)
+    hang = false
+    const second = new Hub(chrome, ORIGIN, s.fetcher, new FakeTimers())
+    await second.handle(status('OWN'), tiktokSender())
+    expect(statusBodies(s)).toEqual([4])
+    expect(second.tiktok.outbox.unreported).toBe(0)
+  })
+
+  it('(3) 내 방송 주소를 벗어나 아직 보내지 않은 댓글 2개를 버림 → dropped 2', async () => {
+    const { chrome } = fakeChrome({ [TOKEN_KEY]: 'tok' })
+    const s = server()
+    const hub = new Hub(chrome, ORIGIN, s.fetcher, new FakeTimers())
+    await hub.handle({ type: 'ttChats', pageId: 'seller_kim', items: items(1, 2) }, tiktokSender())
+    await hub.handle({ type: 'ttLeave' }, tiktokSender())
+    expect(hub.tiktok.outbox.size).toBe(0)
+    await hub.handle(status('ELSEWHERE'), tiktokSender('https://www.tiktok.com/foryou'))
+    expect(statusBodies(s)).toEqual([2])
+  })
+
+  it('(4) 세지 않음: 409로 거절된 묶음, standby, 서버에 닿지 못해 다시 보내는 중', async () => {
+    const { chrome } = fakeChrome({ [TOKEN_KEY]: 'tok' })
+    const timers = new FakeTimers()
+    const s = server({
+      'POST /ext/tiktok/chats': [
+        { status: 409, body: { error: { code: 'NOT_LINKED', message: TT_WORDS.NOT_LINKED } } },
+        { status: 200, body: { result: 'standby', recorded: 0, standby: 1 } },
+        { status: 500, body: {} },
+      ],
+    })
+    const hub = new Hub(chrome, ORIGIN, s.fetcher, timers)
+    for (const n of [1, 2, 3]) {
+      await hub.handle({ type: 'ttChats', pageId: 'seller_kim', items: [item(n)] }, tiktokSender())
+      await timers.fire()
+      await settle()
+    }
+    await hub.handle(status('OWN'), tiktokSender())
+    expect(statusBodies(s)).toEqual([0])
+    expect(hub.tiktok.outbox.size).toBe(1)
+  })
+
+  it('(4) "끊기"(연결 지우기)로 지운 대기열과 버린 수는 세지 않는다 — 다시 이어도 0', async () => {
+    const { chrome } = fakeChrome({ [TOKEN_KEY]: 'tok' })
+    const s = server({ 'POST /ext/tiktok/chats': [{ status: 500, body: {} }], 'POST /ext/connect': [{ status: 200, body: { token: 'tok2' } }] })
+    const hub = new Hub(chrome, ORIGIN, s.fetcher, new FakeTimers())
+    await hub.handle({ type: 'ttChats', pageId: 'seller_kim', items: items(1, TT_HOLD_MAX + 5) }, tiktokSender())
+    await hub.handle({ type: 'forget' })
+    expect(hub.tiktok.outbox.unreported).toBe(0)
+    await hub.handle({ type: 'connect', code: '12345678' })
+    await hub.handle(status('OWN'), tiktokSender())
+    expect(statusBodies(s)).toEqual([0])
+  })
+
+  it('끊기 직전 떼어 둔 수는 끊은 뒤 실패해도 되돌아오지 않는다', () => {
+    const box = new TikTokOutbox(new FakeApi(), new FakeTimers(), () => undefined)
+    box.add(TAB, 'seller_kim', items(1, TT_HOLD_MAX + 6))
+    const report = box.takeDropped()
+    expect(report.count).toBe(6)
+    box.stop()
+    box.resume()
+    box.settleDropped(report, false)
+    expect(box.unreported).toBe(0)
+    expect(box.takeDropped().count).toBe(0)
+  })
+
+  it('두 상태가 동시에 가도 같은 수를 두 번 싣지 않는다', () => {
+    const box = new TikTokOutbox(new FakeApi(), new FakeTimers(), () => undefined)
+    box.add(TAB, 'seller_kim', items(1, TT_HOLD_MAX + 5))
+    const a = box.takeDropped()
+    const b = box.takeDropped()
+    expect([a.count, b.count]).toEqual([5, 0])
+    expect(box.unreported).toBe(5)
+    box.settleDropped(a, true)
+    box.settleDropped(b, true)
+    expect(box.unreported).toBe(0)
+  })
+
+  it('한 번에 10,000개까지만 싣고 나머지는 다음 상태에 (서버 상한)', () => {
+    const box = new TikTokOutbox(new FakeApi(), new FakeTimers(), () => undefined)
+    box.restore({ items: [], dropped: 0, unreported: TT_DROPPED_REPORT_MAX + 7 })
+    const first = box.takeDropped()
+    expect(first.count).toBe(TT_DROPPED_REPORT_MAX)
+    box.settleDropped(first, true)
+    expect(box.takeDropped().count).toBe(7)
+  })
+
+  it('세션에서 읽은 이상한 값(음수·소수·글자)은 0으로', () => {
+    for (const bad of [-3, 1.5, '4', Number.NaN] as unknown[]) {
+      const box = new TikTokOutbox(new FakeApi(), new FakeTimers(), () => undefined)
+      box.restore({ items: [], dropped: 0, unreported: bad as number })
+      expect(box.unreported, String(bad)).toBe(0)
+    }
+  })
+})
+
+describe('AC-TTX-33 (2) (D-TTX-17): 연결 직후 팝업 틱톡 줄', () => {
+  it('틱톡 화면을 연 적 없어도 서버의 판매자 틱톡 아이디가 있으면 "내 틱톡 방송 화면을 열면 댓글을 보내요."', async () => {
+    const { chrome } = fakeChrome()
+    const s = server({ 'POST /ext/connect': [{ status: 200, body: { token: 'tok' } }] })
+    const hub = new Hub(chrome, ORIGIN, s.fetcher, new FakeTimers())
+    expect(((await hub.handle({ type: 'view' })) as HubView).tiktok).toBeNull()
+    const result = (await hub.handle({ type: 'connect', code: '12345678' })) as { ok: boolean; view: HubView }
+    expect(result.ok).toBe(true)
+    expect(result.view.tiktok).toEqual({ message: TT_WORDS.ELSEWHERE_PAGE, light: 'off', overflow: null })
+    expect(s.calls.map((c) => c.key)).toEqual(['POST /ext/connect', 'GET /ext/tiktok'])
+    // 연결을 지우면 줄이 없어진다
+    expect(((await hub.handle({ type: 'forget' })) as HubView).tiktok).toBeNull()
+  })
+
+  it('판매자 틱톡 아이디가 없으면(유튜브만) 틱톡 줄이 없다, 물어보지 못해도 없다', async () => {
+    for (const reply of [{ status: 200, body: { tiktokId: null, mode: 'blocked', code: 'NO_TIKTOK_ID' } }, { status: 500, body: {} }]) {
+      const { chrome } = fakeChrome()
+      const s = server({ 'POST /ext/connect': [{ status: 200, body: { token: 'tok' } }], 'GET /ext/tiktok': [reply] })
+      const hub = new Hub(chrome, ORIGIN, s.fetcher, new FakeTimers())
+      const result = (await hub.handle({ type: 'connect', code: '12345678' })) as { view: HubView }
+      expect(result.view.tiktok, String(reply.status)).toBeNull()
+    }
+  })
+
+  it('워커가 다시 뜨면(연결 직후가 아님) 틱톡 화면을 볼 때까지 줄이 없다 — 지금 동작 그대로', async () => {
+    const { chrome } = fakeChrome({ [TOKEN_KEY]: 'tok' })
+    const s = server()
+    const hub = new Hub(chrome, ORIGIN, s.fetcher, new FakeTimers())
+    expect(((await hub.handle({ type: 'view' })) as HubView).tiktok).toBeNull()
+    expect(s.calls).toHaveLength(0)
   })
 })

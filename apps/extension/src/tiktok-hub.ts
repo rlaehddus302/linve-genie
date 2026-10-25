@@ -88,6 +88,8 @@ export class TikTokLane {
   readonly #tabs = new Map<number | null, TabState>()
   #failing: string | null = null
   #seen = false
+  /** 연결 직후 서버가 판매자 틱톡 아이디를 알려 줬다 — 틱톡 화면을 보기 전에도 틱톡 줄을 보인다(D-TTX-17) */
+  #offer = false
 
   constructor(options: TikTokLaneOptions) {
     this.#o = options
@@ -111,13 +113,24 @@ export class TikTokLane {
       if (saved !== undefined) await this.#o.session.remove([TT_QUEUE_KEY]).catch(() => undefined)
       return
     }
-    if (isRecord(saved) && Array.isArray(saved['items'])) this.#outbox.restore({ items: saved['items'] as TikTokOutboxSnapshot['items'], dropped: typeof saved['dropped'] === 'number' ? saved['dropped'] : 0 })
+    if (isRecord(saved) && Array.isArray(saved['items'])) {
+      this.#outbox.restore({
+        items: saved['items'] as TikTokOutboxSnapshot['items'],
+        dropped: typeof saved['dropped'] === 'number' ? saved['dropped'] : 0,
+        unreported: typeof saved['unreported'] === 'number' ? saved['unreported'] : 0,
+      })
+    }
   }
 
   #save(snapshot: TikTokOutboxSnapshot): void {
     const area = this.#o.session
     this.#persist = this.#persist
-      .then(() => (snapshot.items.length === 0 && snapshot.dropped === 0 ? area.remove([TT_QUEUE_KEY]) : area.set({ [TT_QUEUE_KEY]: { items: snapshot.items, dropped: snapshot.dropped } })))
+      .then(() => {
+        const unreported = snapshot.unreported ?? 0
+        return snapshot.items.length === 0 && snapshot.dropped === 0 && unreported === 0
+          ? area.remove([TT_QUEUE_KEY])
+          : area.set({ [TT_QUEUE_KEY]: { items: snapshot.items, dropped: snapshot.dropped, unreported } })
+      })
       .catch(() => undefined)
   }
 
@@ -130,6 +143,7 @@ export class TikTokLane {
     this.#outbox.stop()
     this.#info = null
     this.#failing = null
+    this.#offer = false
     await this.#persist
     await this.#o.session.remove([TT_QUEUE_KEY]).catch(() => undefined)
   }
@@ -138,6 +152,13 @@ export class TikTokLane {
   resume(): void {
     this.#info = null
     this.#outbox.resume()
+  }
+
+  /** 연결 코드로 이은 직후: 판매자 틱톡 아이디를 한 번 묻는다. 있으면 팝업에 틱톡 줄, 없으면(유튜브만) 줄 없음 */
+  async afterConnect(): Promise<void> {
+    this.#offer = false
+    await this.#ensureInfo().catch(() => undefined)
+    this.#offer = this.#o.connected() && this.#info !== null && this.#info.tiktokId !== null
   }
 
   async handle(message: TikTokPageMessage, tab: number | null): Promise<unknown> {
@@ -192,7 +213,10 @@ export class TikTokLane {
     this.#tabs.set(tab, { screen, hidden: m.hidden === true, read: count(m.read), unread: count(m.unread), at: this.#o.now() })
     const best = this.#best()
     if (this.#o.connected() && best !== null) {
-      const result = await this.#o.api.call('POST', '/ext/tiktok/status', { screen: best.screen, hidden: best.hidden, read: best.read, unread: best.unread })
+      // 확장이 버린 댓글 수(넘침·화면 떠남)를 싣는다 — 서버가 저장 실패 알림에 더한다(D-TTX-16). 받은 뒤에만 뺀다
+      const report = this.#outbox.takeDropped()
+      const result = await this.#o.api.call('POST', '/ext/tiktok/status', { screen: best.screen, hidden: best.hidden, read: best.read, unread: best.unread, dropped: report.count })
+      this.#outbox.settleDropped(report, result.status === 200)
       if (result.status === 401) await this.#o.lost()
       else if (result.status === 200 && result.body !== null) this.#take(result.body)
     }
@@ -241,9 +265,10 @@ export class TikTokLane {
     this.#o.changed()
   }
 
-  /** 팝업 틱톡 줄 — 이 워커가 틱톡 화면을 본 적이 없거나 연결 전이면 null */
+  /** 팝업 틱톡 줄 — 연결 전이면 null. 이 워커가 틱톡 화면을 본 적이 없으면, 연결 직후 판매자 틱톡 아이디를 받았을 때만 안내 줄 */
   view(): TikTokView | null {
-    if (!this.#seen || !this.#o.connected()) return null
+    if (!this.#o.connected()) return null
+    if (!this.#seen) return this.#offer && this.#info !== null && this.#info.tiktokId !== null ? { message: TT_WORDS.ELSEWHERE_PAGE, light: 'off', overflow: null } : null
     const overflow = this.#outbox.dropped > 0 ? TT_WORDS.OVERFLOW : null
     const line = (message: string, light: TikTokLight): TikTokView => ({ message, light, overflow })
     if (this.#info !== null && this.#info.tiktokId === null) return line(TT_WORDS.NO_TIKTOK_ID, 'warn')

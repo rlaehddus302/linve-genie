@@ -6,6 +6,8 @@
 // - 500개까지 붙든다. 넘으면 오래된 것부터 버리고 센다("놓친 틱톡 댓글이 있어요").
 // - 붙든 것은 바뀔 때마다 onChange로 알린다 → 서비스 워커가 chrome.storage.session에 두고 다시 뜨면 이어 보낸다. 디스크에는 두지 않는다.
 // - 화면을 떠나면(dropTab) 그 탭의 아직 보내지 않은 댓글을 버린다(D-TTX-02).
+// - 넘침·화면 떠남으로 버린 수는 서버에 아직 알리지 않은 수로 따로 센다(D-TTX-16) → 다음 틱톡 상태의 `dropped`.
+//   서버가 받으면(200) 보낸 만큼 빼고, 못 받으면 남겨 다음 상태에 더한다. 409로 거절한 묶음·끊기·standby는 세지 않는다.
 import type { Api } from './api.ts'
 import type { Timers } from './outbox.ts'
 import type { TikTokItem } from './tiktok-reader.ts'
@@ -15,6 +17,8 @@ export const TT_HOLD_MAX = 500
 export const TT_FLUSH_MS = 1000
 const BACKOFF_MAX_MS = 30_000
 export const TT_CHATS_PATH = '/ext/tiktok/chats'
+/** 상태 한 번에 알리는 버린 수 상한 (서버가 10,000 넘으면 400 — 넘으면 나눠 보낸다) */
+export const TT_DROPPED_REPORT_MAX = 10_000
 
 /** 기록 0의 까닭 (서버 응답 코드) */
 export type TikTokBlockCode = 'NOT_OWN_LIVE' | 'NOT_LINKED' | 'NO_CONSENT' | 'PLATFORM_NOT_READY' | 'NO_TIKTOK_ID'
@@ -38,6 +42,14 @@ export interface TikTokHeld {
 export interface TikTokOutboxSnapshot {
   readonly items: readonly TikTokHeld[]
   readonly dropped: number
+  /** 서버에 아직 알리지 않은 버린 수 (알리는 중인 것 포함 — 워커가 그사이 멈춰도 잃지 않게) */
+  readonly unreported?: number
+}
+
+/** 상태에 실어 보내려고 떼어 둔 버린 수 */
+export interface TikTokDroppedReport {
+  readonly count: number
+  readonly epoch: number
 }
 
 export class TikTokOutbox {
@@ -52,6 +64,10 @@ export class TikTokOutbox {
   #backoff = 0
   #waitUntilRetry = false
   #dropped = 0
+  #unreported = 0
+  #reporting = 0
+  /** stop()마다 늘린다 — 끊기 전에 떼어 둔 수가 끊은 뒤 되돌아오지 않게 */
+  #epoch = 0
 
   constructor(api: Api, timers: Timers, onEvent: (event: TikTokOutboxEvent) => void, onChange: (snapshot: TikTokOutboxSnapshot) => void = () => undefined) {
     this.#api = api
@@ -61,7 +77,7 @@ export class TikTokOutbox {
   }
 
   snapshot(): TikTokOutboxSnapshot {
-    return { items: [...this.#queue], dropped: this.#dropped }
+    return { items: [...this.#queue], dropped: this.#dropped, unreported: this.#unreported + this.#reporting }
   }
 
   get size(): number {
@@ -73,12 +89,35 @@ export class TikTokOutbox {
     return this.#dropped
   }
 
+  /** 서버에 아직 알리지 않은 버린 수 (알리는 중인 것 포함) */
+  get unreported(): number {
+    return this.#unreported + this.#reporting
+  }
+
+  /** 다음 틱톡 상태에 실을 버린 수를 떼어 둔다 (동시에 두 상태가 가도 같은 수를 두 번 싣지 않는다) */
+  takeDropped(): TikTokDroppedReport {
+    const count = Math.min(this.#unreported, TT_DROPPED_REPORT_MAX)
+    this.#unreported -= count
+    this.#reporting += count
+    return { count, epoch: this.#epoch }
+  }
+
+  /** 상태 요청이 끝났다: 서버가 받았으면(200) 뺀 채로, 아니면 되돌려 다음 상태에 더한다 */
+  settleDropped(report: TikTokDroppedReport, accepted: boolean): void {
+    if (report.epoch !== this.#epoch || report.count === 0) return
+    this.#reporting = Math.max(0, this.#reporting - report.count)
+    if (!accepted) this.#unreported += report.count
+    else this.#changed()
+  }
+
   /** 워커가 다시 떴을 때: 보관해 둔 것을 앞에 두고 이어 보낸다 */
   restore(snapshot: TikTokOutboxSnapshot): void {
     if (this.#stopped) return
     const items = Array.isArray(snapshot.items) ? snapshot.items.filter(isHeld) : []
     this.#queue = [...items, ...this.#queue]
     this.#dropped = Math.max(this.#dropped, Number.isSafeInteger(snapshot.dropped) && snapshot.dropped > 0 ? snapshot.dropped : 0)
+    const unreported = snapshot.unreported
+    this.#unreported = Math.max(this.#unreported, typeof unreported === 'number' && Number.isSafeInteger(unreported) && unreported > 0 ? unreported : 0)
     this.#trim()
     this.#changed()
     if (this.#queue.length > 0 && !this.#sending && !this.#waitUntilRetry) this.#schedule(this.#queue.length >= TT_BATCH_MAX ? 0 : TT_FLUSH_MS)
@@ -98,7 +137,11 @@ export class TikTokOutbox {
   dropTab(tab: number | null): void {
     const before = this.#queue.length
     this.#queue = this.#queue.filter((held) => held.tab !== tab)
-    if (this.#queue.length !== before) this.#changed()
+    const gone = before - this.#queue.length
+    if (gone > 0) {
+      this.#unreported += gone
+      this.#changed()
+    }
   }
 
   /** 끊겼을 때·연결을 지울 때: 모두 버리고 멈춘다 */
@@ -106,6 +149,9 @@ export class TikTokOutbox {
     this.#stopped = true
     this.#queue = []
     this.#dropped = 0
+    this.#unreported = 0
+    this.#reporting = 0
+    this.#epoch += 1
     if (this.#timer !== null) this.#timers.clear(this.#timer)
     this.#timer = null
     this.#changed()
@@ -122,6 +168,7 @@ export class TikTokOutbox {
     if (over > 0) {
       this.#queue.splice(0, over)
       this.#dropped += over
+      this.#unreported += over
     }
   }
 

@@ -27,7 +27,11 @@ function show(view: HubView): void {
   thanks.textContent = view.thanks === null ? '' : `! ${view.thanks}`
   // 틱톡 줄 (TTX) — 정해진 문장만, 글자로
   const tiktok = view.tiktok
-  $('tiktok').hidden = tiktok === null
+  const ttSection = $('tiktok')
+  ttSection.hidden = tiktok === null
+  // 유튜브 채팅 창 없이 틱톡만 쓸 때는 틱톡 줄을 맨 위로 (U-TTX-05 — 유튜브 문장은 그대로, 자리만)
+  if (view.connected && view.video === null && tiktok !== null) $('state').before(ttSection)
+  else $('thanks').after(ttSection)
   const ttState = $('tiktok-state')
   ttState.textContent = tiktok?.message ?? ''
   ttState.dataset['light'] = tiktok?.light ?? 'off'

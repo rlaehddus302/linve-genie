@@ -335,6 +335,7 @@ export class Hub {
     await this.#chrome.storage.local.set({ [TOKEN_KEY]: token })
     this.#outbox.resume()
     this.#tiktok.resume()
+    await this.#tiktok.afterConnect()
     if (this.#video !== null) await this.#checkBound(this.#video)
     await this.#badge()
     return { ok: true, message: WORDS.CONNECTED, view: this.view() }
