@@ -291,6 +291,84 @@ describe('AC-V3-70 음성 쓰기 → 기록 한 줄 (상품 명령보다 먼저,
   })
 })
 
+describe('RA-V3-001·003 찜이 있는 상품의 음성 번호 옮기기·되돌리기', () => {
+  it('옮길 상품(65번)에 살아 있는 찜이 있으면 409 VOICE_RENUMBER_CLAIMED, 번호 바꾸기 없음, 실패 줄(찜 수·찜 있을 때 고침) — 되돌리기도 같음, 손 번호 바꾸기는 그대로', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller)
+    await expectOk(writeEvent(world, seller, { type: 'product.register', b: b.id, no: 65, name: '', price: 30_000 }))
+    await expectOk(writeEvent(world, seller, { type: 'sms', b: b.id, no: 65, received: '12:00', phone: '010-5555-6666', memo: '이모' }))
+    const moved = await voiceWrite(world, seller, { type: 'product.renumber', b: b.id, from: 65, to: 61 }, '아까 65번은 61번이에요')
+    expect(moved.response.status).toBe(409)
+    expect(moved.response.body.error).toEqual({ code: 'VOICE_RENUMBER_CLAIMED', message: '찜이 있는 상품이라 번호를 옮기지 않았어요.' })
+    const undo = await voiceWrite(world, seller, { type: 'product.renumber', b: b.id, from: 65, to: 64 }, '', { undo: 'vo-old' })
+    expect(undo.response.status).toBe(409)
+    expect(await eventCount(world, 'product.renumber')).toBe(0)
+    const state = (await world.server.writer.read(seller.sellerId, b.date)).state
+    expect(getProduct(state, b.id, 65)).not.toBeNull()
+    const list = await entries(world, seller, `b=${b.id}`)
+    expect(list.map((entry) => [entry.kind, entry.no, entry.toNo, entry.claims, entry.withClaims, entry.failed])).toEqual([
+      ['RENUMBER', 65, 61, 1, true, true],
+      ['UNDO', 65, 64, 1, true, true],
+    ])
+    // 손 번호 바꾸기(기록 칸 없음)는 지금처럼 R-10 그대로
+    await expectOk(writeEvent(world, seller, { type: 'product.renumber', b: b.id, from: 65, to: 61 }))
+    expect(await eventCount(world, 'product.renumber')).toBe(1)
+  })
+
+  it('찜이 있는 상품의 가격 고침을 되돌리면 UNDO 줄에도 찜 수·찜 있을 때 고침 표시 (정산 띠에 나옴)', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller)
+    await expectOk(writeEvent(world, seller, { type: 'product.register', b: b.id, no: 20, name: '', price: 20_000 }))
+    await expectOk(writeEvent(world, seller, { type: 'sms', b: b.id, no: 20, received: '12:00', phone: '010-5555-6666', memo: '이모' }))
+    const fixed = await voiceWrite(world, seller, { type: 'product.update', b: b.id, no: 20, price: 25_000, applyTo: 'NEW_ONLY' }, '20번 2만 5천 원')
+    expect(fixed.response.status).toBe(200)
+    expect((await voiceWrite(world, seller, { type: 'product.update', b: b.id, no: 20, price: 20_000, applyTo: 'NEW_ONLY' }, '', { undo: fixed.requestId })).response.status).toBe(200)
+    const list = await entries(world, seller, `b=${b.id}`)
+    expect(list.map((entry) => [entry.kind, entry.claims, entry.withClaims, entry.undone])).toEqual([
+      ['PRICE', 1, true, true],
+      ['UNDO', 1, true, false],
+    ])
+  })
+})
+
+describe('D-V3-75·77 한글 수 전화번호 가리기 · 봉인 때 들은 말 지우기', () => {
+  it('서버가 받은 "공일공 일이삼사 오육칠팔"·"끝번호 일이삼사"·"010-1234-5678"을 저장 전 ****로', async () => {
+    expect(maskHeard('공일공 일이삼사 오육칠팔 연락')).toBe('**** 연락')
+    expect(maskHeard('끝번호 일이삼사 김민지님')).toBe('끝번호 **** 김민지님')
+    expect(maskHeard('뒷 번호 칠칠칠칠이요')).toBe('뒷 번호 ****이요')
+    expect(maskHeard('끝 자리는 공 공 일 이')).toBe('끝 자리는 ****')
+    expect(maskHeard('끝번호 5678')).toBe('끝번호 ****')
+    // 값 말은 그대로
+    expect(maskHeard('오십 삼번 이만 오천 원')).toBe('오십 삼번 이만 오천 원')
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller)
+    await voiceWrite(world, seller, { type: 'product.register', b: b.id, no: 9, name: '', price: 9000 }, '9번 9천 원 공일공 일이삼사 오육칠팔 끝번호 일이삼사 010-1234-5678')
+    expect((await entries(world, seller, `b=${b.id}`))[0]?.heard).toBe('9번 9천 원 **** 끝번호 **** ****')
+  })
+
+  it('방송 날짜 + 30일 봉인 뒤 그 날짜 줄들의 heard는 빈 글, 나머지 칸·다른 날짜·리허설은 그대로', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller)
+    const other = await createBroadcast(world, seller, { date: '2026-10-20' })
+    const rehearsal = await createBroadcast(world, seller, { rehearsal: true })
+    await voiceWrite(world, seller, { type: 'product.register', b: b.id, no: 1, name: '녹금', price: 3_500_000 }, '1번 녹금 용용님')
+    await voiceWrite(world, seller, { type: 'product.register', b: other.id, no: 2, name: '', price: 2000 }, '2번')
+    await voiceWrite(world, seller, { type: 'product.register', b: rehearsal.id, no: 3, name: '', price: 3000 }, '3번')
+    const before = await entries(world, seller, `b=${b.id}`)
+    const scopeId = await world.server.service.scopeId(seller.sellerId, b.date)
+    expect(await world.server.sealer.seal(seller.sellerId, scopeId as string, b.date)).toBe(true)
+    const after = await entries(world, seller, `b=${b.id}`)
+    expect(after).toEqual(before.map((entry) => ({ ...entry, heard: '' })))
+    expect(after[0]?.big).toBe(true)
+    expect((await entries(world, seller, `b=${other.id}`))[0]?.heard).toBe('2번')
+    expect((await entries(world, seller, `b=${rehearsal.id}`))[0]?.heard).toBe('3번')
+  })
+})
+
 describe('AC-V3-70 조회 API', () => {
   it('방송·날짜로 거르고, 시각순, 판매자 자기 것만 — 다른 판매자·로그인 없음·보조자는 못 본다, 거르기 없으면 400', async () => {
     const world = await newWorld()

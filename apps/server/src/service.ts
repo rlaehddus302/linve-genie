@@ -71,7 +71,7 @@ import {
   VOICE_MESSAGE,
 } from './sms-last4.ts'
 import { VOICE_REPEATED_MESSAGE, VoiceRepeats, voiceSignature } from './voice-repeat.ts'
-import { insertFailedVoiceLog, insertVoiceLog, listVoiceLog, parseVoiceLogInput, planVoiceLog, settleVoiceLog, voiceLogTypeProblem, VOICE_LOG_TYPES, type VoiceLogContext, type VoiceLogEntry, type VoiceLogFilter, type VoiceLogPlan } from './voice-log.ts'
+import { insertFailedVoiceLog, insertVoiceLog, listVoiceLog, parseVoiceLogInput, planVoiceLog, settleVoiceLog, voiceLogTypeProblem, VOICE_LOG_MESSAGES, VOICE_LOG_TYPES, type VoiceLogContext, type VoiceLogEntry, type VoiceLogFilter, type VoiceLogPlan } from './voice-log.ts'
 import {
   actionRows,
   chatRows,
@@ -936,6 +936,9 @@ export class Service {
         const refused = outerGuard === undefined ? null : await outerGuard(tx, runtime)
         if (refused !== null) return refused
         planned.plans = planVoiceLog(runtime.state, fields, undo)
+        // 음성 번호 옮기기(되돌리기 포함): 옮길 상품에 살아 있는 찜이 있으면 옮기지 않는다 (R-24, RA-V3-001 — R-10 번호 바꾸기는 그 찜을 RENUMBERED로 끝낸다).
+        // 같은 범위 락 안의 지금 상태로 본다. 거절하면 트랜잭션이 롤백되고 아래에서 실패 줄을 남긴다
+        if (fields['type'] === 'product.renumber' && planned.plans.some((plan) => plan.claims > 0)) return rejection(409, 'VOICE_RENUMBER_CLAIMED', VOICE_LOG_MESSAGES.renumberClaimed)
         await insertVoiceLog(tx, ctx, planned.plans, new Date(this.#options.clock.now()))
         return null
       },

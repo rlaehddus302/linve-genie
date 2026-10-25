@@ -19,7 +19,7 @@ import {
 } from '@livejjim/core'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
-import { chatRaw, outbox, scopeLockKey, scopes, snapshots, youtubeCollectors, youtubeNotices, youtubeOwnMessages } from '../db/schema.ts'
+import { chatRaw, outbox, scopeLockKey, scopes, snapshots, youtubeCollectors, youtubeNotices, voiceLog, youtubeOwnMessages } from '../db/schema.ts'
 import { errorKind, type LogSink } from '../log.ts'
 import { emptyState } from '../runtime.ts'
 import { sha256Hex } from '../secrets.ts'
@@ -291,6 +291,11 @@ export class Sealer {
         await tx.delete(snapshots).where(and(eq(snapshots.sellerId, sellerId), eq(snapshots.scopeId, scopeId)))
         await tx.delete(youtubeNotices).where(and(eq(youtubeNotices.sellerId, sellerId), eq(youtubeNotices.scopeId, scopeId)))
         await tx.delete(youtubeOwnMessages).where(and(eq(youtubeOwnMessages.sellerId, sellerId), eq(youtubeOwnMessages.scopeId, scopeId)))
+        // V3 음성 등록·고침 기록의 들은 말 (R-25, D-V3-77 — 시청자 이름이 들어갈 수 있어 채팅 원문과 같은 때 지운다). 나머지 칸(시각·번호·전→후·출처·찜 수·표시)은 정산 기록이라 남긴다
+        await tx
+          .update(voiceLog)
+          .set({ heard: '' })
+          .where(and(eq(voiceLog.sellerId, sellerId), eq(voiceLog.date, date), eq(voiceLog.rehearsal, false)))
         await tx
           .update(youtubeCollectors)
           .set({ pageToken: null, status: 'STOPPED', reason: 'SEALED', leaseOwner: null, leaseUntil: null, updatedAt: new Date(now) })

@@ -27,6 +27,8 @@ export type ErrorCode =
   | 'BUYER_AMBIGUOUS'
   // V1: 여러 기기의 같은 음성 문자찜 쓰기 (D-V1-13, AC-V1-14)
   | 'VOICE_REPEATED'
+  // V3: 음성 번호 옮기기의 옮길 상품에 살아 있는 찜이 있음 (R-24, RA-V3-001 — 옮기지 않고 음성 기록에 실패 줄)
+  | 'VOICE_RENUMBER_CLAIMED'
   | 'STATE_FORMAT'
   | 'SAVE_FAILED'
   | 'PROCESSING_FAILED'

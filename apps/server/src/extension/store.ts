@@ -2,7 +2,7 @@
 // 코드·토큰은 해시로만 둔다. 채팅 내용·닉네임은 여기 없다.
 import { and, eq, isNull, lt, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
-import { extBindings, extCodes, extPostLanes, extPostSettings, extStatus, extTokens, youtubeConnections } from '../db/schema.ts'
+import { broadcasts, extBindings, extCodes, extPostLanes, extPostSettings, extStatus, extTokens, scopes, youtubeConnections } from '../db/schema.ts'
 
 export type RevokeReason = 'DISCONNECTED' | 'RENEWED' | 'IDLE'
 
@@ -127,6 +127,19 @@ export async function activeBindings(db: Db, sellerId: string): Promise<BindingR
     .select(bindingColumns)
     .from(extBindings)
     .where(and(eq(extBindings.sellerId, sellerId), isNull(extBindings.unboundAt)))
+}
+
+/**
+ * 끝나지 않은 회차에 이어진 살아 있는 묶음 (한 번의 조회 — RA-V3-010: 보고마다 묶음 수만큼 방송을 따로 찾지 않는다).
+ * 방송·범위 모두 그 판매자 것만 (findBroadcast와 같은 조건)
+ */
+export async function liveBindings(db: Db, sellerId: string): Promise<BindingRow[]> {
+  return db
+    .select(bindingColumns)
+    .from(extBindings)
+    .innerJoin(broadcasts, and(eq(broadcasts.sellerId, sellerId), eq(broadcasts.id, extBindings.broadcastId)))
+    .innerJoin(scopes, and(eq(scopes.id, broadcasts.scopeId), eq(scopes.sellerId, sellerId)))
+    .where(and(eq(extBindings.sellerId, sellerId), isNull(extBindings.unboundAt), isNull(broadcasts.endedAt)))
 }
 
 export async function unbind(db: Db, sellerId: string, bindingId: string, now: Date): Promise<void> {

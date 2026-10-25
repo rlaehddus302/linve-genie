@@ -32,6 +32,7 @@ import {
   clearStatus,
   insertBinding,
   insertToken,
+  liveBindings,
   markChatReceived,
   readStatus,
   replaceCode,
@@ -451,12 +452,7 @@ export class ExtensionService {
   async #otherVideoReceives(sellerId: string, videoId: string): Promise<boolean> {
     const { db } = this.#deps
     if ((await bindingOfVideo(db, sellerId, videoId)) !== null) return false
-    for (const binding of await activeBindings(db, sellerId)) {
-      if (binding.videoId === videoId) continue
-      const broadcast = await findBroadcast(db, sellerId, binding.broadcastId)
-      if (broadcast !== null && broadcast.endedAt === null) return true
-    }
-    return false
+    return (await liveBindings(db, sellerId)).some((binding) => binding.videoId !== videoId)
   }
 
   /** 판매자 화면이 보는 확장 상태 (지금 시각으로 계산) */
@@ -467,10 +463,7 @@ export class ExtensionService {
     const status = token === null ? null : await readStatus(db, sellerId)
     const live: string[] = []
     if (token !== null) {
-      for (const binding of await activeBindings(db, sellerId)) {
-        const broadcast = await findBroadcast(db, sellerId, binding.broadcastId)
-        if (broadcast !== null && broadcast.endedAt === null) live.push(binding.broadcastId)
-      }
+      for (const binding of await liveBindings(db, sellerId)) live.push(binding.broadcastId)
     }
     const state: ExtensionState = token === null || status === null || status.tokenId !== token.id ? 'NONE' : stateOf(status, live.length > 0, now, this.#hiddenSince.get(sellerId) ?? null)
     const warning = state === 'STALE' || state === 'HIDDEN' || state === 'UNREADABLE'

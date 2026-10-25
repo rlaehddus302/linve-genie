@@ -44,6 +44,7 @@ export const VOICE_LOG_MESSAGES = {
   undo: '되돌린 쓰기의 요청 번호 형식이 올바르지 않아요.',
   undoType: '판매 종료는 음성 등록을 되돌릴 때만 음성 기록 칸을 보낼 수 있어요.',
   undoRegister: '상품 등록은 되돌리기가 될 수 없어요.',
+  renumberClaimed: '찜이 있는 상품이라 번호를 옮기지 않았어요.',
   filter: "어느 방송(b)이나 날짜(date)의 기록인지 적어 주세요.",
   date: "날짜는 '2026-10-18'처럼 적어 주세요.",
   no: '상품 번호는 1 이상의 정수예요.',
@@ -110,11 +111,21 @@ const codePoints = (text: string): number => {
   return count
 }
 
-/** 숫자 8자리 이상(공백·`-`이 끼어도)·끝자리 낱말 뒤 숫자 4개 → `****` (화면 가리기 D-V3-56의 그물 — 화면이 이미 가렸으면 바뀌지 않는다) */
+/**
+ * 화면 가리기(D-V3-56 maskArchiveText)의 그물 — 화면이 이미 가렸으면 바뀌지 않는다. 화면 규칙보다 덜 가리지 않게, 같거나 더 넓게:
+ * - 숫자 8자리 이상(공백·`-`이 끼어도) → `****`
+ * - 한글 숫자 낱자(공·영·일·이·삼·사·오·육·륙·칠·팔·구) 8개 이상 이어 말한 전화번호(공백·`-`이 끼어도) → `****` (D-V3-75, RA-V3-004 — dev-device 가리기와 같은 규칙)
+ * - 끝자리 낱말(끝자리·끝 자리·끝번호·끝 번호·뒷번호·뒷 번호·뒷자리·뒷 자리, 끝말이 붙어도) 바로 뒤 숫자 4개 또는 한글 숫자 낱자 4개 → `****`
+ */
 const LONG_DIGITS = /[0-9](?:[\s-]*[0-9]){7,}/g
-const LAST4 = /((?:끝\s*자리|뒷\s*번호|뒷\s*자리)[가-힣]{0,3})(\s*)[0-9]{4}(?![0-9])/g
+const KOREAN_DIGIT = '[공영일이삼사오육륙칠팔구]'
+const LONG_KOREAN_DIGITS = new RegExp(`${KOREAN_DIGIT}(?:[\\s-]*${KOREAN_DIGIT}){7,}`, 'g')
+const LAST4_WORD = '(?:끝\\s*자리|끝\\s*번호|뒷\\s*번호|뒷\\s*자리)'
+const LAST4 = new RegExp(`(${LAST4_WORD}[가-힣]{0,3})(\\s*)[0-9]{4}(?![0-9])`, 'g')
+const LAST4_KOREAN = new RegExp(`(${LAST4_WORD}(?:이에요|입니다|이요|예요|은|는|이|가|을|를|도|만|요)?)(\\s*)${KOREAN_DIGIT}(?:\\s*${KOREAN_DIGIT}){3}`, 'g')
 export function maskHeard(text: string): string {
-  return text.replace(LONG_DIGITS, '****').replace(LAST4, (_match, lead: string, space: string) => `${lead}${space}****`)
+  const keep = (_match: string, lead: string, space: string): string => `${lead}${space}****`
+  return text.replace(LONG_DIGITS, '****').replace(LONG_KOREAN_DIGITS, '****').replace(LAST4, keep).replace(LAST4_KOREAN, keep)
 }
 
 /** 저장할 들은 말: 짝 없는 서로게이트·제어 문자 빼기(줄바꿈·탭 → 공백), 앞뒤 공백 지우기, 한 번 더 가리기, 300글자까지 */
@@ -190,7 +201,7 @@ export function planVoiceLog(state: EngineState, fields: Readonly<Record<string,
     const to = int(fields['to'])
     const product = getProduct(state, b, from)
     const claims = product === null ? 0 : liveClaimCount(state, product.key)
-    return [{ kind: undo ? 'UNDO' : 'RENUMBER', productId: product?.id ?? null, no: from, toNo: to, before: { no: from }, after: to === null ? null : { no: to }, claims, big: false, withClaims: !undo && claims > 0 }]
+    return [{ kind: undo ? 'UNDO' : 'RENUMBER', productId: product?.id ?? null, no: from, toNo: to, before: { no: from }, after: to === null ? null : { no: to }, claims, big: false, withClaims: claims > 0 }]
   }
   const no = int(fields['no']) ?? 0
   const product = getProduct(state, b, no)
@@ -203,7 +214,7 @@ export function planVoiceLog(state: EngineState, fields: Readonly<Record<string,
   }
   if (type === 'product.close') {
     // 음성 등록 되돌리기 = 판매 종료 (D-083)
-    return [{ kind: 'UNDO', productId, no, toNo: null, before: product === null ? null : { name: product.name, price: product.price }, after: null, claims, big: false, withClaims: false }]
+    return [{ kind: 'UNDO', productId, no, toNo: null, before: product === null ? null : { name: product.name, price: product.price }, after: null, claims, big: false, withClaims: claims > 0 }]
   }
   // product.update
   const price = int(fields['price'])
@@ -219,7 +230,7 @@ export function planVoiceLog(state: EngineState, fields: Readonly<Record<string,
       if (product !== null) before.price = product.price
       after.price = price
     }
-    return [{ kind: 'UNDO', productId, no, toNo: null, before, after, claims, big: false, withClaims: false }]
+    return [{ kind: 'UNDO', productId, no, toNo: null, before, after, claims, big: false, withClaims: claims > 0 }]
   }
   const rows: VoiceLogPlan[] = []
   const priceRow = (): VoiceLogPlan => ({
