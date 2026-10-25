@@ -250,7 +250,7 @@ export const INFO_COLUMNS: readonly DepositColumn[] = [
   { head: '입금 시각', cell: (deposit) => depositTime(deposit.at, deposit.precision) },
   { head: '입금자명', cell: (deposit) => <span className="deposit-name">{depositName(deposit.name)}</span> },
   { head: '금액', cell: (deposit) => <span className="won">{formatWon(deposit.amount)}</span>, num: true },
-  { head: '원천', cell: (deposit) => sourceWords(deposit.source) },
+  { head: '받은 곳', cell: (deposit) => sourceWords(deposit.source) },
 ]
 
 export interface DepositRowsProps {
@@ -394,7 +394,7 @@ export function DepositDetailDialog({ no, onClose }: { readonly no: number; read
               <dd>{formatWon(detail.amount)}</dd>
             </div>
             <div>
-              <dt>원천</dt>
+              <dt>받은 곳</dt>
               <dd>{sourceWords(detail.source)}</dd>
             </div>
             <div>

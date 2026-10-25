@@ -230,6 +230,13 @@ p {
   color: #3c4043;
 }
 
+/* 상품 자세히 찜 목록 위 한 줄 설명 (QL3R1 D-QL3R1-07 (4)) — 글자 16px 이상, 휴대폰에서는 줄바꿈(가로 넘침 0) */
+.claim-help {
+  margin: 0;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
 .notice {
   padding: 0.75rem 1rem;
   border: 2px solid #8a6100;
@@ -2045,6 +2052,21 @@ html:has(.save-bar) {
     overflow-wrap: anywhere;
   }
 
+  /* QL3R1 D-QL3R1-02 ⓒ: 고정 영역 폭이 글자 17자보다 좁을 때(휴대폰 + 큰 글씨) 요약 줄은 한 줄 말줄임 — 문장 전체는 title·현재 상품 카드에 그대로.
+   * 보통 글씨(100%)는 위 줄바꿈 그대로(D-QL2-11 (1)) */
+  .console-sticky {
+    container: console-sticky / inline-size;
+  }
+
+  @container console-sticky (max-width: 17rem) {
+    .current-summary {
+      overflow-wrap: normal;
+      text-wrap-mode: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+
   /* 휴대폰: 개수 칸을 빠른 입력 줄과 한 줄에 (TE-STK-001) — 뒤 글자 "개"를 빼고 칸 안 여백을 줄여 빠른 입력 칸 폭을 남긴다 */
   .quick-row {
     gap: 0.375rem;
@@ -2640,6 +2662,29 @@ html:has(.save-bar) {
     line-height: 2.5rem;
     min-height: 0;
     max-block-size: max(2.75rem, calc(1.25rem + 1rem + 4px));
+  }
+}
+
+/* 출력 기기 끊김 짧은 줄 (QL3R1 D-QL3R1-04): 휴대폰 접힌 띠에서만 — 띠 아래 자기 줄, 말줄임 없이 줄바꿈. PC·펼친 띠는 목록 속 긴 문장 */
+.alert-short-row {
+  display: none;
+}
+
+@media (max-width: 47.99rem) {
+  .alert-bar:has(> .alert-short-row) {
+    flex-wrap: wrap;
+  }
+
+  .alert-bar:not(.alert-bar-open) > .alert-short-row {
+    display: flex;
+    flex: 1 1 100%;
+    inline-size: 100%;
+    min-width: 0;
+    justify-content: flex-start;
+    text-align: start;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.25;
   }
 }
 
@@ -3829,6 +3874,56 @@ select.input {
 @container (max-width: 17rem) {
   .quick-input {
     flex-basis: 100%;
+  }
+}
+
+/* QL3R1 D-QL3R1-02 ⓐ: 줄 폭이 글자 17자보다 좁을 때(휴대폰 + 큰 글씨) "개수" 칸을 빠른 입력 칸과 같은 줄에 — 고정 영역이 한 줄 줄어든다.
+ * 이름("빠른 입력"·"개수")은 위 한 줄에 글로만(누르는 곳이 아니라 44px 높이를 두지 않음), 그 아래 줄에 입력칸 | 개수 칸.
+ * 문서 차례(이름 → 입력칸 → 개수)와 Tab 차례는 그대로. 개수 칸이 없으면(옵션을 붙임) 입력칸이 한 줄을 다 쓴다. 보통 글씨(100%)·PC는 위 흐르는 줄 그대로 */
+.quick {
+  container: quick / inline-size;
+}
+
+@container quick (max-width: 17rem) {
+  .quick-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    column-gap: 0.375rem;
+    row-gap: 0.125rem;
+    align-items: end;
+  }
+
+  .quick-row:has(> .quick-count) {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .quick-row > .quick-label {
+    grid-area: 1 / 1;
+    min-height: 0;
+  }
+
+  .quick-row > .quick-input {
+    grid-area: 2 / 1;
+  }
+
+  .quick-row > .quick-count {
+    display: contents;
+  }
+
+  .quick-row > .quick-count > label {
+    grid-area: 1 / 2;
+  }
+
+  .quick-row > .quick-count > .quick-count-input {
+    grid-area: 2 / 2;
+  }
+
+  .quick-row > .quick-count > .quick-count-unit {
+    display: none;
+  }
+
+  .quick-row > :not(.quick-label, .quick-input, .quick-count) {
+    grid-column: 1 / -1;
   }
 }
 

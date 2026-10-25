@@ -52,7 +52,7 @@ export function ReasonDialog({ spec, onClose }: { readonly spec: ReasonSpec; rea
           setReason(value)
           setEmpty(false)
         }}
-        onPicked={() => submitButton.current?.focus()}
+        onPicked={(picked) => (spec.submitOnPick === true ? spec.onSubmit(picked) : submitButton.current?.focus())}
         empty={empty}
         error={spec.error}
         inputRef={field}

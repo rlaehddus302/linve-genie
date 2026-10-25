@@ -18,6 +18,9 @@ import { ProductLabels } from './LabelParts.tsx'
 import { FocusButton } from './ProductBoard.tsx'
 import { Modal } from './Modal.tsx'
 
+/** 찜 목록 위 한 줄 설명 (QL3R1 D-QL3R1-07 (4)) */
+export const CLAIM_BUTTONS_HELP = '찜 취소: 손님이 안 사기로 했을 때 · 무효: 장난이나 잘못 들어온 찜 · 확인(잠금): 늦게 온 찜이 이 1등을 저절로 밀어내지 않게'
+
 export function ProductDetail({ productKey, onClose, onEdit }: { readonly productKey: string; readonly onClose: () => void; readonly onEdit: (product: Product) => void }) {
   const api = useConsoleApi()
   const product = api.data.products.get(productKey)
@@ -47,6 +50,8 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
   const winners = product.hasOptions ? product.variants.flatMap((variant) => claimsOf(variant.winnerClaims)) : claimsOf(product.winnerClaims)
   const waitlist = claimsOf(product.waitlistClaims)
   const open = claims.filter((claim) => claim.status === 'PENDING' || claim.status === 'CONFLICT')
+  // 찜 줄 단추(찜 취소하기·무효로 하기)가 있는 찜 — 1등·대기·보류·충돌
+  const activeClaims = claims.filter((claim) => claim.status === 'CONFIRMED' || claim.status === 'WAITLISTED' || claim.status === 'PENDING' || claim.status === 'CONFLICT').length
   const ended = claims.filter((claim) => claim.status === 'CANCELLED' || claim.status === 'REJECTED' || claim.status === 'DUPLICATE').sort((a, b) => b.seq - a.seq)
   const requests = [...api.data.cancelRequests.values()].filter((request) => request.product === product.key)
 
@@ -113,6 +118,8 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
         </div>
       </dl>
 
+      {/* 찜 줄 단추 셋의 차이 한 줄 (QL3R1 D-QL3R1-07 (4)) — 단추 이름은 되돌리기 띠·기록 문장과 짝이라 그대로 두고 설명만. 누르는 곳이 아니라 Tab 차례는 그대로 */}
+      {activeClaims > 0 ? <p className="hint claim-help">{CLAIM_BUTTONS_HELP}</p> : null}
       {/* 찜이 먼저: 창의 "닫기"(처음 포커스)에서 Tab 한 번이면 1등 찜의 "찜 취소하기" (AC-S06-63) */}
       {product.hasOptions ? (
         product.variants.map((variant) => {
@@ -145,8 +152,8 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
         nameOf={(claim) => api.names.name(claim.currentBuyer)}
       />
 
-      <section aria-label="상품 명령" className="stack-tight">
-        <h3 className="sub-title">상품 명령</h3>
+      <section aria-label="상품 바꾸기" className="stack-tight">
+        <h3 className="sub-title">상품 바꾸기</h3>
         <div className="row">
           {selling ? (
             <button type="button" className="button" disabled={busy} onClick={() => void run({ type: 'product.hold', ...base })}>

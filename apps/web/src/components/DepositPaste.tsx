@@ -15,8 +15,8 @@ import { useDepositStore } from './deposit-context.tsx'
 import { useAction } from './deposit-parts.tsx'
 import { ErrorNote } from './ErrorNote.tsx'
 
-export const PASTE_HINT = '은행 거래내역 표를 첫 줄(거래일시·입금액 같은 칸 이름)까지 복사해 붙여 넣거나 CSV 파일을 골라 주세요. 출금 줄은 넣지 않아요.'
-export const FILE_ERROR = '파일을 읽지 못했어요. CSV 파일인지 확인해 주세요.'
+export const PASTE_HINT = '은행 거래내역 표를 첫 줄(거래일시·입금액 같은 칸 이름)까지 복사해 붙여 넣거나 은행에서 받은 파일(.csv)을 골라 주세요. 출금 줄은 넣지 않아요.'
+export const FILE_ERROR = '파일을 읽지 못했어요. 은행에서 받은 .csv 파일인지 확인해 주세요.'
 
 interface Result {
   readonly summary: PasteSummary
@@ -97,7 +97,7 @@ export function PasteTab() {
         <textarea id={textId} className="input paste-input" rows={8} spellCheck={false} autoComplete="off" value={text} onChange={(event) => edit(event.target.value)} />
       </div>
       <div className="field">
-        <label htmlFor={fileId}>CSV 파일 고르기</label>
+        <label htmlFor={fileId}>은행 파일 고르기(.csv)</label>
         <input id={fileId} className="input file-input" type="file" accept=".csv,text/csv,text/plain" onChange={(event) => void pickFile(event)} />
       </div>
       {fileError !== null ? (
