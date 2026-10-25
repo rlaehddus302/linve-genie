@@ -1,6 +1,6 @@
 {
   "kind": "same-number",
-  "about": "음성 같은 번호 (VOC-04·PRD-06, DOMAIN_RULES R-22, V3 — D-V3-06). 들은 번호의 상품이 그 방송에 이미 있을 때 → { action: IGNORE|AUTO_FIX|ASK, changes: { price?, name? }, reason: ASK면 NO_AUTO|NUMBER_BARE|NOT_OPEN|PRICE_JUMP(V3 D-V3-57부터 CLAIMS 없음), IGNORE면 null|PRICE_NOT_SURE, AUTO_FIX면 null|NOT_RECENT; ASK에 MAYBE_OTHER(D-V3-59) }. in = { recent(고쳐 말함인가 — D-V3-59), heard: { price, priceSure, name, nameFrom: DICTIONARY|GUESS|null, numberFrom: MARKER|BARE }, product: { name ('' = 품종 미입력), price, status: READY|OPEN|SOLD|HOLD|CLOSED, liveClaims }, auto }. packages/voice 단위 시험이 읽는다 — README '음성 바로 등록 골든'.",
+  "about": "음성 같은 번호 (VOC-04·PRD-06, DOMAIN_RULES R-22, V3 — D-V3-06). 들은 번호의 상품이 그 방송에 이미 있을 때 → { action: IGNORE|AUTO_FIX|ASK, changes: { price?, name? }, reason: ASK면 NO_AUTO|NUMBER_BARE|NOT_OPEN|MAYBE_OTHER(D-V3-57부터 CLAIMS, D-V3-64부터 PRICE_JUMP 없음), IGNORE면 null|PRICE_NOT_SURE, AUTO_FIX면 null|NOT_RECENT; ASK에 MAYBE_OTHER(D-V3-59) }. in = { recent(고쳐 말함인가 — D-V3-59), heard: { price, priceSure, name, nameFrom: DICTIONARY|GUESS|null, numberFrom: MARKER|BARE }, product: { name ('' = 품종 미입력), price, status: READY|OPEN|SOLD|HOLD|CLOSED, liveClaims }, auto }. packages/voice 단위 시험이 읽는다 — README '음성 바로 등록 골든'.",
   "cases": [
     {
       "id": "G-VSN-V3-01",
@@ -991,13 +991,13 @@
     },
     {
       "id": "G-VSN-V3-31",
-      "title": "실방송 3차 — 605만 원(육십오만의 오기) 자동 고침 막기",
+      "title": "[D-V3-64] 실방송 3차 — 605만 원(육십오만의 오기) 자동 고침 막기",
       "refs": [
         "VOC-04",
         "PRD-06",
         "R-22"
       ],
-      "note": "6050000 > 650000×3, 3,000,000 넘음",
+      "note": "6050000 > 650000×3, 3,000,000 넘음 · D-V3-64로 기대 바뀜(처음: ASK/PRICE_JUMP) — 300만 원 묻기 없앰, 기록에 '크게 바뀜'",
       "in": {
         "heard": {
           "price": 6050000,
@@ -1016,22 +1016,22 @@
         "recent": true
       },
       "out": {
-        "action": "ASK",
+        "action": "AUTO_FIX",
         "changes": {
           "price": 6050000
         },
-        "reason": "PRICE_JUMP"
+        "reason": null
       }
     },
     {
       "id": "G-VSN-V3-32",
-      "title": "3배 안이어도 3,000,000원 넘으면 묻기",
+      "title": "[D-V3-64] 3배 안이어도 3,000,000원 넘으면 묻기",
       "refs": [
         "VOC-04",
         "PRD-06",
         "R-22"
       ],
-      "note": "3000001 ≤ 4500000이지만 상한 넘음",
+      "note": "3000001 ≤ 4500000이지만 상한 넘음 · D-V3-64로 기대 바뀜(처음: ASK/PRICE_JUMP) — 300만 원 묻기 없앰, 기록에 '크게 바뀜'",
       "in": {
         "heard": {
           "price": 3000001,
@@ -1050,11 +1050,11 @@
         "recent": true
       },
       "out": {
-        "action": "ASK",
+        "action": "AUTO_FIX",
         "changes": {
           "price": 3000001
         },
-        "reason": "PRICE_JUMP"
+        "reason": null
       }
     },
     {
@@ -1758,7 +1758,7 @@
     },
     {
       "id": "G-VSN-V3-54",
-      "title": "나중이어도 300만 원 넘음은 PRICE_JUMP가 먼저",
+      "title": "[D-V3-64] 나중이어도 300만 원 넘음은 PRICE_JUMP가 먼저",
       "refs": [
         "VOC-04",
         "PRD-06",
@@ -1786,8 +1786,9 @@
         "changes": {
           "price": 5000000
         },
-        "reason": "PRICE_JUMP"
-      }
+        "reason": "MAYBE_OTHER"
+      },
+      "note": "D-V3-64로 기대 바뀜(처음: ASK/PRICE_JUMP) — 300만 원 묻기 없앰, 기록에 '크게 바뀜'"
     }
   ]
 }
