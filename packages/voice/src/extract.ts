@@ -322,8 +322,8 @@ function wonForm(forms: readonly string[]): string | null {
   return forms.find((form) => form.endsWith(WON) && isAmountText(form.slice(0, -WON.length))) ?? null
 }
 
-function wonLineValue(parts: readonly string[], first: string): number | null {
-  if (first === '이') return null
+/** 줄 글을 읽은 값: 공백으로 이어 R-14, 안 되면(토큰 둘 이상) 숫자를 한자어로 바꿔 붙여 R-14. 100원 미만·안 읽힘은 null */
+function readLine(parts: readonly string[]): number | null {
   let value = parseAmount(parts.join(' '), WON_UNIT)
   if (value === null && parts.length >= 2) {
     const converted = parts.map(tokenToSino)
@@ -333,7 +333,20 @@ function wonLineValue(parts: readonly string[], first: string): number | null {
   return value !== null && value >= 100 ? value : null
 }
 
-function findWonLines(tokens: readonly string[], forms: readonly (readonly string[])[], isMarker: (i: number) => boolean): WonLine[] {
+/** '번' 없는 번호로 읽을 수 있는 토큰 그대로의 값 (숫자 1~4자리 또는 한자어 수사 2글자 이상, 1..max) — 아니면 null */
+export function plainNumberValue(text: string, maxNumber: number): number | null {
+  if (!isDigitString(text) && !(isSinoOnly(text) && text.length >= 2)) return null
+  const value = parseKoreanNumber(text)
+  return value !== null && value >= 1 && value <= maxNumber ? value : null
+}
+
+/**
+ * 원 가격 줄 찾기 (D-V3-03, V3 사용자 추가 요구): '원' 앞 금액 글자 토큰을 왼쪽 끝부터 붙여 읽어 보고, 읽히는 가장 긴 줄을 쓴다.
+ * 자리가 겹치거나 올라가 함께 읽히지 않는 왼쪽 토큰(`170 25만 원`의 170, `3 5만 원`의 3)은 줄에서 빠진다 — 빠진 토큰이
+ * '번' 없는 번호로 읽히는 수가 아니면(`1.5`·범위 밖) 줄이 애매하다. 'N번'이 있어 '번' 없는 번호를 보지 않는 문장에서는 빠진 토큰을
+ * 설명할 수 없으니 애매하다(`15번 라울 174 28만 원`·`15번 3 5만 원` — 골든 그대로). 읽힌 줄의 첫 토큰이 `이` 한 글자면 애매하다.
+ */
+function findWonLines(tokens: readonly string[], forms: readonly (readonly string[])[], isMarker: (i: number) => boolean, maxNumber: number, allowDrop: boolean): WonLine[] {
   const lines: WonLine[] = []
   for (let end = 0; end < tokens.length; end++) {
     if (isMarker(end)) continue
@@ -341,8 +354,16 @@ function findWonLines(tokens: readonly string[], forms: readonly (readonly strin
     if (form === null) continue
     let start = end
     while (start - 1 >= 0 && !isMarker(start - 1) && isAmountToken(tokens[start - 1] as string)) start--
-    const parts = [...tokens.slice(start, end), form]
-    lines.push({ start, end, value: wonLineValue(parts, tokens[start] as string) })
+    let line: WonLine = { start, end, value: null }
+    for (let from = start; from <= end; from++) {
+      const value = readLine([...tokens.slice(from, end), form])
+      if (value === null) continue
+      const dropped = tokens.slice(start, from)
+      if (tokens[from] === '이' || (dropped.length > 0 && !allowDrop) || dropped.some((token) => plainNumberValue(token, maxNumber) === null)) break
+      line = { start: from, end, value }
+      break
+    }
+    lines.push(line)
   }
   return lines
 }
@@ -355,13 +376,48 @@ interface PriceReading {
   readonly wonLines: number
   /** 읽힌 값 전부 (나온 차례) */
   readonly values: readonly number[]
+  /** '번' 없는 번호 후보 (토큰 위치 → 값) */
+  readonly bare: ReadonlyMap<number, number>
 }
 
-function findPrice(tokens: readonly string[], forms: readonly (readonly string[])[], isMarker: (i: number) => boolean): PriceReading {
-  const lines = findWonLines(tokens, forms, isMarker)
+/** '번' 없는 번호 뒤에 오면 번호가 아닌 단위 (V3 사용자 추가 요구) — 토큰이 이 글자로 시작하면 단위로 본다 */
+export const BARE_NUMBER_UNIT_PREFIXES: readonly string[] = Object.freeze(['원', '만', '천', '백', '십', 'cm', '센치', '센티', '미리', 'mm', '키로', 'kg', '마리', '송이', '포기', '프로', '%', '번째', '개월'])
+/** 토큰 그대로 또는 끝말 뗀 모양이 이 낱말이면 단위로 본다 (`개에`·`살이`) */
+export const BARE_NUMBER_UNITS: readonly string[] = Object.freeze(['개', '분', '초', '살', '년', '월', '일', '시', '등', '위', '배', '장', '촉', '명', '주', '대', '차', '호', '층', '번'])
+/** '번' 없는 번호 뒤에 붙어도 되는 끝말 (`168은`) */
+const BARE_NUMBER_ENDINGS: readonly string[] = ['은', '는', '이', '가', '요', '이요', '이에요', '입니다']
+
+const isUnitToken = (token: string | undefined): boolean =>
+  token !== undefined && (BARE_NUMBER_UNIT_PREFIXES.some((unit) => token.toLowerCase().startsWith(unit)) || readingForms(token).some((form) => BARE_NUMBER_UNITS.includes(form)))
+
+/** '번' 없는 번호 후보 (V3 사용자 추가 요구): 따로 선 수 낱말(끝말 은·는·이·가·요·이요·이에요·입니다 허용)이고 뒤에 단위가 오지 않는 것 */
+export function findBareNumbers(tokens: readonly string[], blocked: (i: number) => boolean, maxNumber: number): Map<number, number> {
+  const found = new Map<number, number>()
+  tokens.forEach((token, i) => {
+    if (blocked(i) || isUnitToken(tokens[i + 1])) return
+    for (const form of [token, ...BARE_NUMBER_ENDINGS.filter((ending) => token.length > ending.length && token.endsWith(ending)).map((ending) => token.slice(0, -ending.length))]) {
+      const value = plainNumberValue(form, maxNumber)
+      if (value !== null) {
+        found.set(i, value)
+        return
+      }
+    }
+  })
+  return found
+}
+
+function findPrice(
+  tokens: readonly string[],
+  forms: readonly (readonly string[])[],
+  isMarker: (i: number) => boolean,
+  options: { readonly maxNumber: number; readonly bareNumbers: boolean },
+): PriceReading {
+  const lines = findWonLines(tokens, forms, isMarker, options.maxNumber, options.bareNumbers)
   const inLine = new Set<number>()
   for (const line of lines) for (let j = line.start; j <= line.end; j++) inLine.add(j)
-  const blocked = (i: number): boolean => isMarker(i) || inLine.has(i)
+  // '번' 없는 번호는 원 가격 줄 다음, 가격 묶음 전에 잡는다 — `백육십팔`이 168원 묶음이 되지 않게
+  const bare = options.bareNumbers ? findBareNumbers(tokens, (i) => isMarker(i) || inLine.has(i), options.maxNumber) : new Map<number, number>()
+  const blocked = (i: number): boolean => isMarker(i) || inLine.has(i) || bare.has(i)
   const bundles: PriceBundle[] = []
   let i = 0
   while (i < tokens.length) {
@@ -380,7 +436,7 @@ function findPrice(tokens: readonly string[], forms: readonly (readonly string[]
   const inBundle = new Set<number>(inLine)
   for (const bundle of bundles) for (let j = bundle.start; j <= bundle.end; j++) inBundle.add(j)
   // 금액 조각: 이웃 토큰이 번호 표시나 다른 묶음(원 가격 줄 포함)에 속하면 보지 않는다
-  const fragmentNeighbour = (j: number): boolean => j >= 0 && j < tokens.length && !isMarker(j) && !inBundle.has(j) && isAmountToken(tokens[j] as string)
+  const fragmentNeighbour = (j: number): boolean => j >= 0 && j < tokens.length && !isMarker(j) && !bare.has(j) && !inBundle.has(j) && isAmountToken(tokens[j] as string)
   const ambiguous =
     lines.some((line) => line.value === null) ||
     bundles.some(
@@ -391,7 +447,7 @@ function findPrice(tokens: readonly string[], forms: readonly (readonly string[]
   const values = ordered.map((item) => item.value).filter((value): value is number => value !== null)
   const distinct = new Set(values)
   const price = !ambiguous && distinct.size === 1 ? (values[0] as number) : null
-  return { price, tokens: inBundle, wonLines: lines.length, values }
+  return { price, tokens: inBundle, wonLines: lines.length, values, bare }
 }
 
 // ── 5. 품종 ──────────────────────────────────────────────────────────────
@@ -597,18 +653,19 @@ export function analyzeSentence(text: unknown, options: ExtractOptions = {}): Se
   const beonDigitTokens = new Set(digits.filter((reading) => reading.beon).flatMap((reading) => reading.tokens))
   const markers = findNumberMarkers(tokens, forms, (i) => beonDigitTokens.has(i))
   const beonValues = [...markers.values, ...digits.filter((reading) => reading.beon).map((reading) => reading.value)]
-  const bareValues = digits.filter((reading) => !reading.beon).map((reading) => reading.value)
-  const heard = beonValues.length > 0 ? beonValues : bareValues
+  const isMarker = (i: number): boolean => markers.tokens.has(i) || digitTokens.has(i)
+  // '번' 없는 번호(자리 읽기·따로 선 수)는 번호 표시가 하나도 없을 때만 본다 (V3: 'N번' > '번' 없는 번호)
+  const bundles = findPrice(tokens, forms, isMarker, { maxNumber, bareNumbers: beonValues.length === 0 })
+  const bareTokens = new Map<number, number>([...digits.filter((reading) => !reading.beon).map((reading) => [reading.tokens[0] as number, reading.value] as const), ...bundles.bare])
+  const heard = beonValues.length > 0 ? beonValues : [...bareTokens.entries()].sort((a, b) => a[0] - b[0]).map(([, value]) => value)
   const distinctNumbers = new Set(heard)
   const onlyNumber = distinctNumbers.size === 1 ? (heard[0] as number) : null
-  const isMarker = (i: number): boolean => markers.tokens.has(i) || digitTokens.has(i)
   // 끊어 말한 번호가 있으면 번호·가격을 모두 비운다 — 앞 조각이 가격으로도 읽힐 수 있다(`백 오번`의 `백` = 100원, D-I4-01)
   const no = !markers.split && onlyNumber !== null && onlyNumber >= 1 && onlyNumber <= maxNumber ? onlyNumber : null
 
-  const bundles = findPrice(tokens, forms, isMarker)
   const price = markers.split ? null : bundles.price
   // 가격을 비워도 묶음 토큰은 품종 창에서 뺀다 (R-17 4·5)
-  const excluded = (i: number): boolean => isMarker(i) || bundles.tokens.has(i)
+  const excluded = (i: number): boolean => isMarker(i) || bundles.tokens.has(i) || bundles.bare.has(i)
   const windows = windowTexts(tokens, tokens.map(windowForms), excluded)
   const variety = findVariety(windows, dictionary)
 
@@ -621,11 +678,12 @@ export function analyzeSentence(text: unknown, options: ExtractOptions = {}): Se
     rest: tokens.filter((_, i) => !excluded(i)).join(' '),
   }
   const beonTokens = new Set<number>([...markers.tokens, ...beonDigitTokens])
-  const claimed = new Set<number>([...markers.tokens, ...digitTokens, ...bundles.tokens])
+  const claimed = new Set<number>([...markers.tokens, ...digitTokens, ...bundles.tokens, ...bundles.bare.keys()])
+  const bareSpan = new Set<number>([...digitTokens, ...bundles.bare.keys()])
   return {
     reading,
     tokens,
-    numberSpan: firstSpan(beonTokens.size > 0 ? beonTokens : digitTokens),
+    numberSpan: firstSpan(beonTokens.size > 0 ? beonTokens : bareSpan),
     claimedTokens: claimed,
     wonLines: bundles.wonLines,
     heardNumbers: [...distinctNumbers],

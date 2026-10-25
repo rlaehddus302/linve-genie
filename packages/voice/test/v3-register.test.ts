@@ -155,10 +155,10 @@ describe('실제 방송 문장 → 바로 등록 (기본 사전)', () => {
 })
 
 describe('확정 읽기 (R-17 8) — 중간 결과', () => {
-  it("'원'이 들리기 전·'번'이 들리기 전에는 확정이 아니다", () => {
+  it("'원'이 들리기 전에는 확정이 아니다", () => {
     expect(readyToRegister('108번 bts 10만', { dictionary: DICT })).toBeNull()
     expect(readyToRegister('108번 30 5만', { dictionary: DICT })).toBeNull()
-    expect(readyToRegister('108 bts 10만 원', { dictionary: DICT })).toBeNull()
+    expect(readyToRegister('bts 10만 원', { dictionary: DICT })).toBeNull()
     expect(readyToRegister('108번 bts 10만 원', { dictionary: DICT })).toEqual({ no: 108, price: 100000, name: 'bts', nameNeedsCheck: true })
   })
   it('원 없는 가격(묶음)만으로는 확정이 아니다', () => {
@@ -228,5 +228,39 @@ describe('열린 카드 합치기', () => {
       ['b', 'CLOSED', 100000],
       ['a', 'OPEN', 100000],
     ])
+  })
+})
+
+describe("'번' 없는 번호 (V3 사용자 추가 요구: 'N번' > '번' 없는 번호)", () => {
+  const ready = (text: string) => readyToRegister(text, { dictionary: DICT })
+  it('한글 수·숫자·자리 읽기·끝말 붙은 꼴', () => {
+    expect(ready('백육십팔 삼광색금 이십오만 원')).toEqual({ no: 168, price: 250000, name: '삼광색금', nameNeedsCheck: false })
+    expect(ready('168 삼광색금 25만 원')).toEqual({ no: 168, price: 250000, name: '삼광색금', nameNeedsCheck: false })
+    expect(ready('일육팔은 25만 원')).toMatchObject({ no: 168, price: 250000 })
+    expect(ready('168은 25만 원')).toMatchObject({ no: 168, price: 250000 })
+    expect(ready('108 bts 10만 원')).toEqual({ no: 108, price: 100000, name: 'bts', nameNeedsCheck: true })
+  })
+  it('단위가 붙거나 한글이 붙은 수는 번호가 아니다', () => {
+    expect(ready('자 9cm에 이거 25만 원 170')).toMatchObject({ no: 170, price: 250000 })
+    expect(read('삼광색금 3강 25만 원').extraction).toMatchObject({ no: null, price: 250000, name: '삼광색금' })
+    expect(read('삼광색금 3 개 25만 원').extraction.no).toBeNull()
+    expect(read('삼광색금 28 마리 25만 원').extraction.no).toBeNull()
+    expect(read('이 아이 25만 원').extraction.no).toBeNull()
+  })
+  it("가격 줄은 자리가 내려갈 때만 합친다 — 170 25만 원 → 170번 250,000원, 30 5만 원 → 350,000원", () => {
+    expect(ready('170 25만 원')).toMatchObject({ no: 170, price: 250000 })
+    expect(ready('108번 30 5만 원')).toMatchObject({ no: 108, price: 350000 })
+    // 'N번'이 있으면 줄에서 빠진 수를 설명할 수 없어 가격이 애매하다 (골든 voice-extract '15번 라울 174 28만 원')
+    expect(read('15번 라울 174 28만 원').extraction.price).toBeNull()
+  })
+  it("'번' 없는 번호가 서로 다르면 비우고, 같은 수 되풀이는 하나", () => {
+    const r = read('168 삼광색금 170 25만 원')
+    expect(r.extraction.no).toBeNull()
+    expect(r.heardNumbers).toEqual([168, 170])
+    expect(r.ready).toBeNull()
+    expect(ready('168 삼광색금 168 25만 원')).toMatchObject({ no: 168, price: 250000 })
+  })
+  it("'N번'이 있으면 그것을 쓴다 (실제 방송 5: 3번)", () => {
+    expect(ready('170 자 3번 25만 원')).toMatchObject({ no: 3, price: 250000 })
   })
 })
