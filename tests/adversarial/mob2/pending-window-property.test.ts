@@ -105,10 +105,10 @@ describe('AC-MOB2-34 화면의 "시간 지남"과 코어 R-5의 경계가 같다
     expect(checkSettings({ 'claim.preOpenWindowSec': 600 }).length).toBeGreaterThan(0)
   })
 
-  it('순수 함수 대조: pendingWindowPassed(at, T, W) = (at < T − W×1000) — W 0·1·30·45·600, 무작위 밀리초 (시드 고정)', async () => {
+  it('순수 함수 대조: pendingWindowPassed(at, T, W) = (at < T − W×1000) — W 0·1·30·45·300(설정 범위 0~300, D-MOB2-11), 무작위 밀리초 (시드 고정)', async () => {
     const { d } = await load()
     fc.assert(
-      fc.property(fc.constantFrom(0, 1, 30, 45, 600), fc.integer({ min: -2_000_000, max: 2_000_000 }), fc.integer({ min: 0, max: 4_000_000_000 }), (w, delta, base) => {
+      fc.property(fc.constantFrom(...ENGINE_WINDOWS), fc.integer({ min: -2_000_000, max: 2_000_000 }), fc.integer({ min: 0, max: 4_000_000_000 }), (w, delta, base) => {
         const at = T0 + base
         const t = at + delta
         // 코어 openPending: start = T − W×1000, claim.at < start → EXPIRED
