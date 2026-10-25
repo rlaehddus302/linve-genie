@@ -20,9 +20,9 @@ import {
 } from '../src/index.ts'
 
 const GOLDEN_DIR = fileURLToPath(new URL('../../../tests/golden/voice-register/', import.meta.url))
-/** V3 고정값 (README "음성 바로 등록 골든": 파일 2 · 사례 58, D-V3-22 (c)) */
+/** V3 고정값 (README "음성 바로 등록 골든": 파일 2 · 사례 62 — variety-guess 38 · same-number 24, D-V3-22 (c)) */
 const EXPECTED_FILES = 2
-const EXPECTED_CASES = 58
+const EXPECTED_CASES = 62
 
 const FILE_KEYS = new Set(['kind', 'about', 'cases'])
 const CASE_KEYS = new Set(['id', 'title', 'refs', 'note', 'in', 'out'])
@@ -173,7 +173,9 @@ describe('확정 읽기 (R-17 8) — 중간 결과', () => {
     expect(readyToRegister('15번 품종은 라울 만 원', { dictionary: DICT })).toMatchObject({ no: 15, price: 10000 })
   })
   it('자리 읽기: 일 육 팔 / 1 6 8 / 일육팔번', () => {
-    expect(extractVoice('일 육 팔 이십오만 원')).toMatchObject({ no: 168, price: 250000 })
+    // D-V3-27: 띄어 쓴 한글 한 글자 셋은 '번'이 붙을 때만 번호
+    expect(extractVoice('일 육 팔 이십오만 원').no).toBeNull()
+    expect(extractVoice('이 삼 일번 만 원')).toMatchObject({ no: 231, price: 10000 })
     expect(extractVoice('1 6 8 이십오만 원')).toMatchObject({ no: 168, price: 250000 })
     expect(extractVoice('일육팔번 만 원')).toMatchObject({ no: 168, price: 10000 })
     expect(extractVoice('1 6 8번 만 원')).toMatchObject({ no: 168, price: 10000 })
@@ -241,12 +243,13 @@ describe("'번' 없는 번호 (V3 사용자 추가 요구: 'N번' > '번' 없는
     expect(ready('108 bts 10만 원')).toEqual({ no: 108, price: 100000, name: 'bts', nameNeedsCheck: true })
   })
   it('단위가 붙거나 한글이 붙은 수는 번호가 아니다', () => {
-    expect(ready('자 9cm에 이거 25만 원 170')).toMatchObject({ no: 170, price: 250000 })
-    // 중간 결과(isFinal: false) 끝의 수 낱말은 더 들어 본다
-    expect(readyToRegister('자 9cm에 이거 25만 원 170', { dictionary: DICT, isFinal: false })).toBeNull()
-    expect(readyToRegister('108번 25만 원 1', { dictionary: DICT, isFinal: false })).toBeNull()
-    expect(readyToRegister('108번 25만 원 이십', { dictionary: DICT, isFinal: false })).toBeNull()
-    expect(readyToRegister('108번 25만 원', { dictionary: DICT, isFinal: false })).toMatchObject({ no: 108, price: 250000 })
+    expect(readyToRegister('자 9cm에 이거 25만 원 170', { dictionary: DICT, final: true })).toMatchObject({ no: 170, price: 250000 })
+    // D-V3-26: 중간 결과(final 생략) 끝의 '번' 없는 번호는 다음 낱말·최종 결과까지 기다린다. 'N번'은 글 끝이어도 바로
+    expect(ready('자 9cm에 이거 25만 원 170')).toBeNull()
+    expect(ready('25만 원 1')).toBeNull()
+    expect(ready('25만 원 이십')).toBeNull()
+    expect(ready('25만 원 이십 라울')).toMatchObject({ no: 20, price: 250000 })
+    expect(ready('25만 원 108번')).toMatchObject({ no: 108, price: 250000 })
     expect(read('삼광색금 3강 25만 원').extraction).toMatchObject({ no: null, price: 250000, name: '삼광색금' })
     expect(read('삼광색금 3 개 25만 원').extraction.no).toBeNull()
     expect(read('삼광색금 28 마리 25만 원').extraction.no).toBeNull()
@@ -271,7 +274,7 @@ describe("'번' 없는 번호 (V3 사용자 추가 요구: 'N번' > '번' 없는
 })
 
 describe('적대 지적 TD-V3-001·002', () => {
-  it.each(['일육팔에 25만 원', '일육팔까지 25만 원', '일육팔이에요 25만 원', '일육팔 개 25만 원', '일 육 팔 개 25만 원', '일육팔 마리 25만 원'])('%s → 번호 없음', (text) => {
+  it.each(['일육팔에 25만 원', '일육팔까지 25만 원', '일육팔이에요 25만 원', '일육팔 개 25만 원', '일 육 팔 개 25만 원', '일육팔 마리 25만 원', '택배는 이 삼 일 걸리고 만 원이에요'])('%s → 번호 없음', (text) => {
     expect(read(text).extraction.no).toBeNull()
     expect(read(text).ready).toBeNull()
   })

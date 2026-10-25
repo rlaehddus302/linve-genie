@@ -123,14 +123,11 @@ const hasCorrectionWord = (tokens: readonly string[]): boolean =>
 /** 확정 읽기 설정 */
 export interface RegistrationOptions extends ExtractOptions {
   /**
-   * 글이 최종 결과로 끝났는가. `false`(중간 결과)를 넘기면 글 맨 끝의 수 낱말은 아직 확정하지 않는다 — "25만 원 1" 뒤에 "5번"이 올 수 있다.
-   * 생략하면 지금 스펙(R-17 8)대로 끝 낱말을 보지 않는다(적대 시험 AC-V3 사례 표 "자 9cm에 이거 25만 원 170" → k=6 확정). 화면은 중간 결과에 `false`를 넘긴다.
+   * 글이 최종 결과로 끝났는가 (R-17 8, D-V3-26). 생략 = 거짓(중간 결과). 중간 결과에서 `no`가 '번' 없는 번호이고 그 후보 토큰이 글의 마지막 토큰이면
+   * 확정하지 않는다 — "25만 원 1" 뒤에 "5번"이, "25만 원 이십" 뒤에 "오번"이 올 수 있다. 'N번'은 글 끝이어도 바로.
    */
-  readonly isFinal?: boolean
+  readonly final?: boolean
 }
-
-/** 금액 글자(숫자·한글 수)로만 된 토큰이나 자리 글자 하나 — 중간 결과 끝에 오면 더 들어 본다 */
-const isNumberWord = (token: string | undefined): boolean => token !== undefined && /^[0-9,.일이삼사오육칠팔구십백천만공]+$/.test(token)
 
 /** 덩어리 글(모은 최종 결과 + 지금 중간 결과)을 V3로 읽는다 */
 export function readRegistration(text: unknown, options: RegistrationOptions = {}): RegistrationReading {
@@ -140,7 +137,7 @@ export function readRegistration(text: unknown, options: RegistrationOptions = {
   const priceSure = extraction.price !== null && analysis.wonLines > 0
   const correction = hasCorrectionWord(analysis.tokens)
   const ready: ReadyRegistration | null =
-    extraction.no !== null && extraction.price !== null && priceSure && !correction && (options.isFinal !== false || !isNumberWord(analysis.tokens[analysis.tokens.length - 1]))
+    extraction.no !== null && extraction.price !== null && priceSure && !correction && (options.final === true || !analysis.bareNumberAtEnd)
       ? { no: extraction.no, price: extraction.price, name: extraction.name ?? guess, nameNeedsCheck: extraction.name === null && guess !== null }
       : null
   return { extraction, guess, priceSure, correction, heardNumbers: analysis.heardNumbers, heardPrices: analysis.heardPrices, ready }
@@ -148,7 +145,7 @@ export function readRegistration(text: unknown, options: RegistrationOptions = {
 
 /**
  * 확정 읽기 (R-17 8): 'N번'(또는 자리 읽기 번호)과 '…원' 가격이 둘 다 확정됐을 때만 바로 등록할 값, 아니면 null.
- * 번호가 둘 이상 다르면·'원'이 아직 안 들렸으면·정정/취소 낱말이 있으면·중간 결과(isFinal 아님)가 수 낱말로 끝나면 null. 품종은 기다리지 않는다.
+ * 번호가 둘 이상 다르면·'원'이 아직 안 들렸으면·정정/취소 낱말이 있으면·중간 결과(final 아님)가 '번' 없는 번호로 끝나면 null. 품종은 기다리지 않는다.
  */
 export function readyToRegister(text: string, options: RegistrationOptions = {}): ReadyRegistration | null {
   return readRegistration(text, options).ready

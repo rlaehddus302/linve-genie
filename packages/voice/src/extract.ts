@@ -229,7 +229,8 @@ export function findDigitReadings(tokens: readonly string[], forms: readonly (re
       const third = tokens[i + 2] as string
       const head = [tokens[i] as string, tokens[i + 1] as string]
       if (isDigitToken(third)) {
-        if (add([i, i + 1, i + 2], digitsValue([...head, third]), false)) i += 2
+        // 한글 한 글자가 든 셋(`일 육 팔`·`이 삼 일`)은 '번'이 붙을 때만 자리 읽기다 (D-V3-27). 숫자 셋 `1 6 8`은 '번' 없이도
+        if ([...head, third].every((token) => /^[0-9]$/.test(token)) && add([i, i + 1, i + 2], digitsValue([...head, third]), false)) i += 2
         continue
       }
       const beonForm = (forms[i + 2] ?? []).find((form) => form.length === 2 && form.endsWith(BEON) && isDigitToken(form.charAt(0)))
@@ -649,6 +650,8 @@ export interface SentenceAnalysis {
   readonly heardNumbers: readonly number[]
   /** 읽힌 가격 값 전부 (겹친 값은 한 번) */
   readonly heardPrices: readonly number[]
+  /** no가 '번' 없는 번호이고 그 후보 토큰 하나가 글의 마지막 토큰인가 (R-17 8, D-V3-26) */
+  readonly bareNumberAtEnd: boolean
 }
 
 const EMPTY_READING: SentenceReading = Object.freeze({ extraction: EMPTY, nameExact: false, nameWindow: null, windows: Object.freeze(new Set<string>()), rest: '' })
@@ -660,6 +663,7 @@ const EMPTY_ANALYSIS: SentenceAnalysis = Object.freeze({
   wonLines: 0,
   heardNumbers: Object.freeze([]),
   heardPrices: Object.freeze([]),
+  bareNumberAtEnd: false,
 })
 
 /** 이어진 위치들의 첫 묶음 (위치 집합에서 가장 앞의 이어진 덩어리) */
@@ -735,5 +739,6 @@ export function analyzeSentence(text: unknown, options: ExtractOptions = {}): Se
     wonLines: bundles.wonLines,
     heardNumbers: [...distinctNumbers],
     heardPrices: [...new Set(bundles.values)],
+    bareNumberAtEnd: beonValues.length === 0 && no !== null && bareCandidates.some((candidate) => candidate.tokens.includes(tokens.length - 1)),
   }
 }

@@ -317,7 +317,10 @@ function hasSplitMarker(text: string): boolean {
     const next = tokens[i + 1]
     if (next !== undefined && readingForms(next).includes('번')) xs.push(token)
     const previous = tokens[i - 1]
-    return previous !== undefined && xs.some((value) => isX(value) && parseKoreanNumber(previous + value) !== null)
+    // V3 자리 읽기 ⓑ + 번(D-V3-11): 자리 글자 하나 토큰 둘 뒤의 `X번`(X도 자리 글자 하나, 앞뒤는 자리 글자 아님)은 세 자리를 이어 읽어 끊어 말한 번호 검사를 하지 않는다
+    const one = (value: string | undefined): boolean => value !== undefined && /^([0-9]|[공일이삼사오육칠팔구])$/.test(value)
+    const triple = one(tokens[i - 2]) && one(previous) && !one(tokens[i - 3]) && !one(next)
+    return previous !== undefined && xs.some((value) => isX(value) && parseKoreanNumber(previous + value) !== null && !(triple && one(value) && token === `${value}번`))
   })
 }
 
