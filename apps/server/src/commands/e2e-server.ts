@@ -215,7 +215,10 @@ try {
   const opened = await e2e.listen(port)
   const filled = e2e.fill === null ? '채우기 없음' : `채운 범위 ${e2e.fill.date} · 상품 ${String(e2e.fill.products)} · 채팅 ${String(e2e.fill.chats)}`
   const youtube = e2e.fakeGoogle === null ? '' : ` · 가짜 유튜브 ${e2e.fakeGoogle.url}`
-  const meta = (e2e.fakeMeta === null ? '' : ` · 가짜 메타 ${e2e.fakeMeta.url}`) + (e2e.fakeWebcast === null ? '' : ' · 가짜 틱톡(/_e2e/tiktok/*)')
+  const meta =
+    (e2e.fakeMeta === null ? '' : ` · 가짜 메타 ${e2e.fakeMeta.url}`) +
+    (e2e.fakeWebcast === null ? '' : ' · 가짜 틱톡(/_e2e/tiktok/*)') +
+    (e2e.fakeBand === null ? '' : ` · 가짜 밴드 ${e2e.fakeBand.origin}(/_e2e/band/*)`)
   const web =
     (webDir === undefined ? '' : ' · 화면 함께 냄') +
     (e2e.fakeCarrier === null ? '' : ` · 가짜 택배 ${e2e.fakeCarrier.url}(/_e2e/parcel/*)`) +
