@@ -30,7 +30,7 @@ test.describe('BND1 실패·막힘 @multi', () => {
     await cleanupBand(page)
   })
 
-  test('AC-BND1-80 ⑥·55·54·71: 토큰 풀림(10401) → 새로 고침 없이 밴드 칸 "밴드 연결이 풀렸어요…"·알림 띠 → 설정에서 다시 연결 → 그 사이 댓글 3개가 들어오고 늦게 읽음 알림 @multi', async ({ page }) => {
+  test('AC-BND1-80 ⑥·55·54·70·71·73: 토큰 풀림(10401) → 새로 고침 없이 밴드 칸 "밴드 연결이 풀렸어요…"·알림 띠 → 설정 "다시 연결하기" → 그 사이 댓글 3개가 들어오고 늦게 읽음 알림 → 그 하나만으로 띠 "확인하지 않은 밴드 알림이 1개 있어요." @multi', async ({ page }) => {
     const w = await bandWorld(page)
     const { b, date } = await linkedBroadcast(page, w)
     const consoleUrl = page.url()
@@ -53,7 +53,9 @@ test.describe('BND1 실패·막힘 @multi', () => {
     await band(page.request, 'login', { decision: 'approve', userKey: w.me })
     await page.goto('/settings/band')
     await expect(bandSettings(page).getByText(T.reconnect)).toBeVisible()
-    await bandSettings(page).getByRole('button', { name: '밴드 연결하기' }).click()
+    // D-BND1-19: 다시 연결 필요면 단추는 "다시 연결하기"(같은 동작) — "밴드 연결하기"는 없다
+    await expect(bandSettings(page).getByRole('button', { name: T.connectButton, exact: true })).toHaveCount(0)
+    await bandSettings(page).getByRole('button', { name: T.reconnectButton, exact: true }).click()
     await expect(page.getByText(T.connected)).toBeVisible()
     await page.goto(consoleUrl)
     await expect(consoleBand(page).getByText(T.reading)).toBeVisible({ timeout: READ_WAIT })
@@ -64,6 +66,15 @@ test.describe('BND1 실패·막힘 @multi', () => {
     const late = (await linkView(page, b)).notices.items.find((n) => n.kind === 'LATE')
     expect(late?.message.match(T.late)?.[1]).toBe('3')
     await expect(alertStrip(page).getByText(T.notComing)).toHaveCount(0)
+    // AC-BND1-73·D-BND1-17: 확인하지 않은 알림이 늦게 읽음 하나뿐이어도 알림 띠 줄이 있다 (N=1)
+    const view = await linkView(page, b)
+    expect(view.notices.items.filter((n) => !n.seen).map((n) => n.kind)).toEqual(['LATE'])
+    expect(view.notices.unseen).toBe(1)
+    const strip = alertStrip(page)
+    await expect(strip.getByText(T.notices(1), { exact: true })).toBeVisible()
+    await strip.getByRole('button', { name: T.seen }).click()
+    await expect(strip.getByText(T.notices(1), { exact: true })).toHaveCount(0)
+    expect((await linkView(page, b)).notices.unseen).toBe(0)
   })
 
   test('AC-BND1-80 ⑦·50: 읽을 수 없음(60102) → NO_ACCESS 문장·알림 띠 → "다른 글 잇기" → 끊고 다시 고르기 → 새 글로 읽는 중 @multi', async ({ page }) => {
@@ -129,6 +140,36 @@ test.describe('BND1 실패·막힘 @multi', () => {
     expect(await detailCalls() - detailBefore).toBe(1)
     const live = (await (await page.request.get(`/api/broadcasts/${b}/live`)).json()) as { links: { platform: string }[] }
     expect(live.links.filter((l) => l.platform === 'BAND')).toHaveLength(1)
+  })
+
+  test('D-BND1-19 AC-BND1-22·72: 잇기 중 밴드가 계속 5xx → 확인 창에 "밴드 글을 읽지 못해 잇지 못했어요. 잠시 뒤 다시 눌러 주세요." · 연결 없음 · 옛 문장 없음 → 나은 뒤 다시 누르면 이어진다 @multi', async ({ page }) => {
+    const w = await bandWorld(page)
+    const { b } = await openRealBroadcast(page)
+    const region = consoleBand(page)
+    await region.getByRole('button', { name: T.linkStart }).click()
+    await page.getByRole('dialog', { name: '밴드 고르기' }).getByRole('button', { name: new RegExp(escapeRe(w.bandAName)) }).click()
+    await page.getByRole('dialog', { name: '내 글 고르기' }).getByRole('button', { name: new RegExp(escapeRe(w.postLine)) }).click()
+    const confirm = page.getByRole('dialog', { name: '이 글 잇기' })
+    await expect(confirm.getByText(T.confirm)).toBeVisible()
+    // 잇기 때 글을 끝까지 읽는 요청(댓글 목록)이 계속 500
+    await band(page.request, 'fail', { op: 'comments', http: 500, times: 1000 })
+    await confirm.getByRole('button', { name: '잇기', exact: true }).click()
+    await expect(page.getByText(T.linkUnavailable, { exact: true })).toBeVisible({ timeout: 60_000 })
+    // 저절로 다시 하는 것처럼 읽히는 옛 문장은 없다 (D-BND1-19)
+    await expect(page.getByText('밴드 글을 읽지 못해 잇지 못했어요. 다시 시도하고 있어요.')).toHaveCount(0)
+    const res = await page.request.get(`/api/broadcasts/${encodeURIComponent(b)}/live`)
+    const live = (await res.json()) as { links: { platform: string }[] }
+    expect(live.links.filter((l) => l.platform === 'BAND'), '잇지 못했으면 연결이 없다').toHaveLength(0)
+    // 나은 뒤 같은 창에서 다시 누르면 이어진다
+    await band(page.request, 'clear')
+    // 거절 문장은 확인 창 안에 남고 "잇기"는 다시 누를 수 있다(잠김 풀림)
+    await expect(confirm.getByText(T.linkUnavailable, { exact: true })).toBeVisible()
+    const again = confirm.getByRole('button', { name: '잇기', exact: true })
+    await expect(again).toBeEnabled()
+    await again.click()
+    await expect(confirm).toHaveCount(0, { timeout: 30_000 })
+    await expect(region.getByText(T.reading)).toBeVisible({ timeout: 30_000 })
+    await expect(region.getByText(T.baseline(3))).toBeVisible()
   })
 
   test('AC-BND1-22·71: 이미 다른 방송에 밴드 글이 이어져 있으면 새 방송 밴드 칸에 서버 문장 그대로, 잇기 단추 없음 @multi', async ({ page }) => {

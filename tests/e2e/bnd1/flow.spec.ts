@@ -119,9 +119,9 @@ test.describe('BND1 콘솔 밴드 칸 @multi', () => {
     expect(seqs).toEqual([`band:${keys[2]!}`, `band:${keys[0]!}`, `band:${keys[1]!}`])
   })
 
-  test('AC-BND1-80 ⑤·74: 손님 댓글 지우기·고치기 → 알림 띠 "…2개 있어요." → 밴드 칸 문장 둘·"새 알림" → 확인했어요 → 줄 사라짐 · 찜 그대로 @multi', async ({ page }) => {
+  test('AC-BND1-80 ⑤·73·74: 손님 댓글 지우기·고치기 → 알림 띠 "확인하지 않은 밴드 알림이 2개 있어요." → 밴드 칸 문장 둘·"새 알림" → 확인했어요 → 줄 사라짐 · 찜 그대로 @multi', async ({ page }) => {
     const w = await bandWorld(page)
-    const { date } = await linkedBroadcast(page, w, [
+    const { b, date } = await linkedBroadcast(page, w, [
       { no: 1, name: '핑크프릴', price: 12_000 },
       { no: 2, name: '블루엘프', price: 8_000 },
     ])
@@ -135,14 +135,17 @@ test.describe('BND1 콘솔 밴드 칸 @multi', () => {
     await band(page.request, 'drop', { postKey: w.post, commentKey: ka })
     await band(page.request, 'edit', { postKey: w.post, commentKey: kc, content: '2번 취소할게요' })
     const strip = alertStrip(page)
-    await expect(strip.getByText(T.edits(2))).toBeVisible({ timeout: READ_WAIT })
+    await expect(strip.getByText(T.notices(2), { exact: true })).toBeVisible({ timeout: READ_WAIT })
+    // D-BND1-17: 옛 문장("밴드에서 지우거나 고친 댓글이 …")은 없다 — 띠 N은 확인하지 않은 밴드 알림 전부
+    await expect(page.getByText(T.oldEdits)).toHaveCount(0)
+    expect((await linkView(page, b)).notices.unseen).toBe(2)
     const region = consoleBand(page)
     const notices = region.getByRole('list', { name: '밴드 알림' })
     await expect(notices.getByText(T.deleted('지울손님', '1번이요'), { exact: true })).toBeVisible()
     await expect(notices.getByText(T.edited('고칠손님', '2번이요', '2번 취소할게요'), { exact: true })).toBeVisible()
     await expect(notices.getByText(T.newNotice, { exact: true })).toHaveCount(2)
     await strip.getByRole('button', { name: T.seen }).click()
-    await expect(strip.getByText(T.edits(2))).toHaveCount(0)
+    await expect(strip.getByText(T.notices(2))).toHaveCount(0)
     await expect(notices.getByText(T.newNotice, { exact: true })).toHaveCount(0)
     // 찜은 그대로
     const after = await scopeView(page, date, false)
@@ -152,7 +155,7 @@ test.describe('BND1 콘솔 밴드 칸 @multi', () => {
     const k3 = await bandComment(page.request, w.post, { content: '1번 하나 더', name: '또손님', userKey: await bandUser(page.request, '또손님') })
     await expect(chatPanel(page).getByText('1번 하나 더')).toBeVisible({ timeout: READ_WAIT })
     await band(page.request, 'drop', { postKey: w.post, commentKey: k3 })
-    await expect(strip.getByText(T.edits(1))).toBeVisible({ timeout: READ_WAIT })
+    await expect(strip.getByText(T.notices(1))).toBeVisible({ timeout: READ_WAIT })
   })
 
   test('AC-BND1-80 ⑪: 끊기 확인 창 → 그 뒤 단 댓글은 보드에 없음(다시 이으면 기준선) · 방송 끝내기 → 그 뒤 단 댓글도 없음 @multi', async ({ page, browser }) => {

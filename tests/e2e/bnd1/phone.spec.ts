@@ -247,11 +247,11 @@ test.describe('BND1 휴대폰 @multi', () => {
       const key = await bandComment(page.request, w.post, { content: '1번', name: '두기기손님', userKey: guest })
       await expect(boardItem(phone, 1)).toContainText('두기기손님', { timeout: READ_WAIT })
       await band(page.request, 'drop', { postKey: w.post, commentKey: key })
-      await expect(alertStrip(page).getByText(T.edits(1))).toBeVisible({ timeout: READ_WAIT })
-      await expect(alertStrip(phone).getByText(T.edits(1))).toBeVisible({ timeout: READ_WAIT })
+      await expect(alertStrip(page).getByText(T.notices(1))).toBeVisible({ timeout: READ_WAIT })
+      await expect(alertStrip(phone).getByText(T.notices(1))).toBeVisible({ timeout: READ_WAIT })
       await consoleBand(phone).getByRole('button', { name: T.seen }).click()
-      await expect(alertStrip(phone).getByText(T.edits(1))).toHaveCount(0)
-      await expect(alertStrip(page).getByText(T.edits(1))).toHaveCount(0, { timeout: 5_000 })
+      await expect(alertStrip(phone).getByText(T.notices(1))).toHaveCount(0)
+      await expect(alertStrip(page).getByText(T.notices(1))).toHaveCount(0, { timeout: 5_000 })
       // 두 기기가 같은 "확인했어요"를 거의 함께 눌러도 오류 없이 같다
       expect((await bandRequests(page.request)).onlyAllowed).toBe(true)
     } finally {

@@ -22,6 +22,9 @@ test.describe('BND1 설정 밴드 칸 @multi', () => {
     await page.reload()
     await expect(bandSettings(page).getByText(`연결됨 — ${name}`)).toBeVisible()
     await expect(page.getByText(T.connected)).toHaveCount(0)
+    // D-BND1-19: 연결됨이면 단추는 "다시 연결하기" — "밴드 연결하기"는 없다
+    await expect(bandSettings(page).getByRole('button', { name: T.reconnectButton, exact: true })).toBeVisible()
+    await expect(bandSettings(page).getByRole('button', { name: T.connectButton, exact: true })).toHaveCount(0)
   })
 
   test('AC-BND1-80 ①·12: 가짜 밴드에서 거부 → "밴드 연결을 취소했어요." · 연결 안 됨 그대로 @multi', async ({ page }) => {

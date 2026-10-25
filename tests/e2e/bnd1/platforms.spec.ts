@@ -130,9 +130,9 @@ test.describe('BND1 여러 플랫폼 @multi', () => {
     expect(settlement[0]!.subtotal).toBe(20_000)
   })
 
-  // TE-BND1-001: 같은 콘솔에서 유튜브를 이으면 밴드 칸은 그대로 "밴드 글 잇기"를 보인다 — 세 단계를 다 고른 뒤에야 거절 문장을 본다.
-  // AC-BND1-71 "유튜브를 이은 회차는 YOUTUBE_LINKED 문장". 밴드 칸의 연결 보기(canLink)를 유튜브 잇기 뒤에 다시 받지 않는다.
-  test('TE-BND1-001: 열어 둔 콘솔에서 유튜브를 이으면 새로 고침 없이 밴드 칸이 "유튜브 라이브를 이은 방송에는 아직 밴드 글을 이을 수 없어요."로 바뀐다 @multi', async ({ page }) => {
+  // SA-BND1-01·TE-BND1-001 (AC-BND1-71·80 ⑧): 열어 둔 콘솔은 어느 플랫폼의 연결 알림을 받아도 밴드 연결 보기(canLink·blockCode)를 다시 받는다.
+  // 고치기 전에는 유튜브를 이어도 밴드 칸이 "밴드 글 잇기"를 그대로 보여 세 단계를 다 고른 뒤에야 거절 문장을 봤다.
+  test('SA-BND1-01·TE-BND1-001 AC-BND1-71·80 ⑧: 열어 둔 콘솔에서 유튜브를 이으면 새로 고침 없이 15초 안에 밴드 칸이 "유튜브 라이브를 이은 방송에는 아직 밴드 글을 이을 수 없어요."로 바뀐다 @multi', async ({ page }) => {
     await bandWorld(page, { baseline: 0, oneBand: true })
     const channel = await connectYoutube(page)
     const yt = await fakeBroadcast(page.request, channel.id)
@@ -141,7 +141,40 @@ test.describe('BND1 여러 플랫폼 @multi', () => {
     await expect(region.getByRole('button', { name: T.linkStart })).toBeVisible()
     await linkByAddress(page, yt.videoId)
     expect((await linkView(page, b)).blockCode).toBe('YOUTUBE_LINKED')
-    await expect(region.getByText(T.youtubeLinkedBlock, { exact: true })).toBeVisible({ timeout: READ_WAIT })
+    await expect(region.getByText(T.youtubeLinkedBlock, { exact: true })).toBeVisible({ timeout: 15_000 })
     await expect(region.getByRole('button', { name: T.linkStart })).toHaveCount(0)
+  })
+
+  test('SA-BND1-01 AC-BND1-71·80 ⑧: 방송 둘의 콘솔을 열어 두고 한쪽에 밴드 글을 이으면 다른 쪽 밴드 칸에 BAND_IN_USE 문장(잇기 없음), 끊으면 15초 안에 사라지고 "밴드 글 잇기"가 돌아온다 — 새로 고침 없이 @multi', async ({ page }) => {
+    const w = await bandWorld(page)
+    const first = await openRealBroadcast(page, { title: '1부' })
+    const second = await page.context().newPage()
+    try {
+      await second.goto('/')
+      const other = await openRealBroadcast(second, { title: '2부' })
+      const otherRegion = consoleBand(second)
+      await expect(otherRegion.getByRole('button', { name: T.linkStart })).toBeVisible()
+      expect((await linkView(second, other.b)).canLink).toBe(true)
+      // 1부 콘솔에서 잇기 → 열어 둔 2부 콘솔이 새로 고침 없이 막힌다
+      await linkBandUi(page, w)
+      const inUse = await linkView(second, other.b)
+      expect(inUse.canLink).toBe(false)
+      expect(inUse.blockCode).toBe('BAND_IN_USE')
+      await expect(otherRegion.getByText(T.inUse, { exact: true })).toBeVisible({ timeout: 15_000 })
+      await expect(otherRegion.getByRole('button', { name: T.linkStart })).toHaveCount(0)
+      // 1부 콘솔에서 끊기 → 2부 콘솔의 막힘이 새로 고침 없이 풀린다
+      const region = consoleBand(page)
+      await region.getByRole('button', { name: '끊기', exact: true }).click()
+      const dlg = page.getByRole('dialog', { name: '밴드 연결 끊기' })
+      await dlg.getByRole('button', { name: '끊기', exact: true }).click()
+      await expect(region.getByText(T.unlinked, { exact: true })).toBeVisible()
+      expect((await linkView(second, other.b)).canLink).toBe(true)
+      await expect(otherRegion.getByText(T.inUse, { exact: true })).toHaveCount(0, { timeout: 15_000 })
+      await expect(otherRegion.getByRole('button', { name: T.linkStart })).toBeVisible()
+      // 1부 콘솔 주소는 그대로 (새로 고침·이동 없음)
+      expect(page.url()).toContain(encodeURIComponent(first.b))
+    } finally {
+      await second.close()
+    }
   })
 })

@@ -26,9 +26,12 @@ export const T = {
   ended: '방송을 끝내서 밴드 댓글을 그만 받았어요.',
   rehearsal: '리허설 방송에는 라이브를 이을 수 없어요.',
   linkStart: '밴드 글 잇기',
+  inUse: '이미 다른 방송에 밴드 글이 이어져 있어요. 먼저 그 방송의 밴드 연결을 끊어 주세요.',
   linkOther: '다른 글 잇기',
   confirm: '이 글에 지금부터 달리는 댓글을 찜으로 받아요. 이미 달려 있는 댓글은 넣지 않아요. 글을 올린 뒤 바로 이어 주세요.',
   busy: '글을 읽는 중이에요…',
+  /** 잇기 중 일시 실패(503 UNAVAILABLE — 5xx·연결 실패·응답 모양·호출 한도, D-BND1-19) */
+  linkUnavailable: '밴드 글을 읽지 못해 잇지 못했어요. 잠시 뒤 다시 눌러 주세요.',
   noPosts: '이 밴드에 내가 쓴 글이 없어요. 밴드 앱에서 공지 글을 먼저 올려 주세요.',
   unlinkQuestion: '끊으면 이 방송의 밴드 댓글을 더 받지 않아요. 이미 받은 찜은 그대로예요.',
   notComing: '밴드 댓글이 들어오지 않아요.',
@@ -37,7 +40,13 @@ export const T = {
   notMyPost: '내가 쓴 글만 이을 수 있어요.',
   noAuthor: (n: number) => `작성자를 알 수 없는 밴드 댓글 ${String(n)}개는 넣지 못했어요. 밴드에서 직접 확인해 주세요.`,
   baseline: (n: number) => `이을 때 이미 달려 있던 댓글 ${String(n)}개는 넣지 않았어요.`,
-  edits: (n: number) => `밴드에서 지우거나 고친 댓글이 ${String(n)}개 있어요.`,
+  /** 알림 띠 한 줄 — 확인하지 않은 밴드 알림을 종류와 상관없이 센다 (D-BND1-17, AC-BND1-73) */
+  notices: (n: number) => `확인하지 않은 밴드 알림이 ${String(n)}개 있어요.`,
+  /** D-BND1-17 앞의 옛 문장 — 더는 보이지 않아야 한다 */
+  oldEdits: /밴드에서 지우거나 고친 댓글이 \d+개 있어요\./,
+  /** 설정 칸 단추 — 연결됨·다시 연결 필요 (D-BND1-19) */
+  reconnectButton: '다시 연결하기',
+  connectButton: '밴드 연결하기',
   deleted: (nick: string, text: string) => `밴드에서 지운 댓글이에요 — ${nick}: '${text}'. 찜은 그대로예요. 취소하려면 찜에서 직접 취소해 주세요.`,
   edited: (nick: string, before: string, after: string) => `밴드에서 고친 댓글이에요 — ${nick}: '${before}' → '${after}'. 찜은 처음 글대로예요.`,
   late: /^밴드 댓글을 \d+분 동안 읽지 못했어요\. 그 사이 달린 댓글 (\d+)개를 지금 넣었어요\. 찜 순서는 지금 넣은 차례예요\.$/,
@@ -176,7 +185,7 @@ export interface LinkViewLite {
   received: number
   baseline: number
   skipped: Record<string, number>
-  notices: { items: { id: number; kind: string; message: string; seen: boolean }[]; unseen: number; unseenEdits: number }
+  notices: { items: { id: number; kind: string; message: string; seen: boolean }[]; unseen: number }
 }
 
 export async function linkView(page: Page, b: string): Promise<LinkViewLite> {

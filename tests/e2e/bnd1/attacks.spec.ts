@@ -76,13 +76,13 @@ test.describe('BND1 흐름 깨뜨리기 @multi', () => {
     const k2 = await bandComment(page.request, w.post, { content: '1번 저도요', name: '확인손님2', userKey: g[1]! })
     await expect(chatPanel(page).getByText('1번 저도요')).toBeVisible({ timeout: READ_WAIT })
     await band(page.request, 'drop', { postKey: w.post, commentKey: k1 })
-    await expect(alertStrip(page).getByText(T.edits(1))).toBeVisible({ timeout: READ_WAIT })
+    await expect(alertStrip(page).getByText(T.notices(1))).toBeVisible({ timeout: READ_WAIT })
     const ctx = await browser.newContext({ baseURL: test.info().project.use.baseURL, viewport: { width: 375, height: 812 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' })
     const phone = await ctx.newPage()
     try {
       await loginAs(phone, w.seller)
       await phone.goto(`/broadcasts/${encodeURIComponent(b)}`)
-      await expect(alertStrip(phone).getByText(T.edits(1))).toBeVisible()
+      await expect(alertStrip(phone).getByText(T.notices(1))).toBeVisible()
       // 휴대폰의 확인 요청을 붙잡아 둔다
       let held: Route | null = null
       await phone.route(`**/api/broadcasts/${b}/band/notices-seen`, (route) => {
@@ -92,12 +92,13 @@ test.describe('BND1 흐름 깨뜨리기 @multi', () => {
       await expect.poll(() => held !== null).toBe(true)
       // 그 사이 새 지운 댓글
       await band(page.request, 'drop', { postKey: w.post, commentKey: k2 })
-      await expect(alertStrip(page).getByText(T.edits(2))).toBeVisible({ timeout: READ_WAIT })
+      await expect(alertStrip(page).getByText(T.notices(2))).toBeVisible({ timeout: READ_WAIT })
       await (held as unknown as Route).continue()
-      await expect(alertStrip(page).getByText(T.edits(1))).toBeVisible({ timeout: READ_WAIT })
-      await expect(alertStrip(phone).getByText(T.edits(1))).toBeVisible({ timeout: READ_WAIT })
+      await expect(alertStrip(page).getByText(T.notices(1))).toBeVisible({ timeout: READ_WAIT })
+      await expect(alertStrip(phone).getByText(T.notices(1))).toBeVisible({ timeout: READ_WAIT })
       const view = await linkView(page, b)
-      expect(view.notices.unseenEdits).toBe(1)
+      // D-BND1-17: 띠 N은 확인하지 않은 밴드 알림 전부(notices.unseen)
+      expect(view.notices.unseen).toBe(1)
       expect(view.notices.items.filter((n) => !n.seen)).toHaveLength(1)
     } finally {
       await ctx.close()
@@ -133,7 +134,7 @@ test.describe('BND1 흐름 깨뜨리기 @multi', () => {
     await expect(seen).toBeVisible({ timeout: READ_WAIT })
     await seen.focus()
     await page.keyboard.press('Enter')
-    await expect(alertStrip(page).getByText(T.edits(1))).toHaveCount(0)
+    await expect(alertStrip(page).getByText(T.notices(1))).toHaveCount(0)
     await region.getByRole('button', { name: '끊기', exact: true }).focus()
     await page.keyboard.press('Enter')
     const dlg = page.getByRole('dialog', { name: '밴드 연결 끊기' })
