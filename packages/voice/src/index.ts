@@ -292,6 +292,7 @@ export {
   type ExistingProduct,
   type NameFrom,
   type ReadyRegistration,
+  type RegistrationOptions,
   type RegistrationReading,
   type SameNumberAction,
   type SameNumberDecision,

@@ -359,7 +359,7 @@ function findWonLines(tokens: readonly string[], forms: readonly (readonly strin
       const value = readLine([...tokens.slice(from, end), form])
       if (value === null) continue
       const dropped = tokens.slice(start, from)
-      if (tokens[from] === '이' || (dropped.length > 0 && (!allowDrop || isUnitOnly(tokens[from] as string) || readingForms(tokens[from] as string).some(isUnitOnly))) || dropped.some((token) => plainNumberValue(token, maxNumber) === null)) break
+      if (tokens[from] === '이' || (dropped.length > 0 && (!allowDrop || isUnitOnly(tokens[from] as string) || readingForms(tokens[from] as string).some(isUnitOnly))) || dropped.some((token) => plainNumberValue(token, maxNumber) === null) || (dropped.length > 0 && !placesOverlap(plainNumberValue(dropped[dropped.length - 1] as string, maxNumber) as number, tokens[from] as string))) break
       line = { start: from, end, value }
       break
     }
@@ -412,6 +412,35 @@ export function findBareNumbers(tokens: readonly string[], blocked: (i: number) 
     }
   })
   return { values, split }
+}
+
+/** 자리 읽기('번' 없음)가 번호 후보 조건(R-17 3)에 맞는가 */
+function isBareDigitCandidate(tokens: readonly string[], reading: DigitReading): boolean {
+  const last = reading.tokens[reading.tokens.length - 1] as number
+  if (isUnitToken(tokens[last + 1])) return false
+  if (reading.tokens.length !== 1) return true
+  const token = tokens[last] as string
+  return isThreeHangulDigits(token) || BARE_NUMBER_ENDINGS.some((ending) => token.endsWith(ending) && isThreeHangulDigits(token.slice(0, -ending.length)))
+}
+
+/** 줄 꼬리 첫 토큰의 수 부분 (`25만` → 25, `오만` → 5, `5천` → 5). 못 읽으면 null */
+function leadingCoefficient(token: string): number | null {
+  const digits = /^[0-9]+/.exec(token)
+  if (digits !== null) return Number(digits[0])
+  const head = token.split(/[만천원]/)[0] ?? ''
+  return head === '' ? null : parseKoreanNumber(head)
+}
+
+/**
+ * 뗀 수와 꼬리 첫 토큰이 '자리 겹침'으로만 함께 읽히지 않는가 (TD-V3-002): 뗀 수의 가장 낮은 0 아닌 자리 ≤ 꼬리 수의 가장 높은 자리.
+ * `170 25만`(십의 자리 겹침) → 참. `100 5만`(백오만 — 자리는 안 겹치고 다른 까닭으로 안 읽힘) → 거짓(줄이 애매).
+ */
+function placesOverlap(dropped: number, tail: string): boolean {
+  const coefficient = leadingCoefficient(tail)
+  if (coefficient === null || coefficient < 1) return false
+  let lowest = 0
+  for (let n = dropped; n % 10 === 0 && n > 0; n /= 10) lowest++
+  return lowest <= String(coefficient).length - 1
 }
 
 /** 십·백·천·만·원으로만 된 토큰 (`만원`·`천`·`원`) — 줄 꼬리의 첫 토큰이면 앞 토큰을 떼지 않는다 */
@@ -669,7 +698,8 @@ export function analyzeSentence(text: unknown, options: ExtractOptions = {}): Se
   // '번' 없는 번호(자리 읽기·따로 선 수)는 번호 표시가 하나도 없을 때만 본다 (V3: 'N번' > '번' 없는 번호)
   const bundles = findPrice(tokens, forms, isMarker, { maxNumber, bareNumbers: beonValues.length === 0 })
   const bareCandidates = [
-    ...digits.filter((reading) => !reading.beon).map((reading) => ({ tokens: reading.tokens, value: reading.value })),
+    // 자리 읽기도 '번' 없는 번호 후보 조건을 따른다(TD-V3-001): 끝말은 은·는·이·가·요만, 다음 토큰이 단위 낱말이면 아님
+    ...digits.filter((reading) => !reading.beon && isBareDigitCandidate(tokens, reading)).map((reading) => ({ tokens: reading.tokens, value: reading.value })),
     ...[...bundles.bare].map(([i, value]) => ({ tokens: [i] as readonly number[], value })),
   ].sort((a, b) => (a.tokens[0] as number) - (b.tokens[0] as number))
   const heard = beonValues.length > 0 ? beonValues : bareCandidates.map((candidate) => candidate.value)

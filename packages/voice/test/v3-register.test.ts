@@ -242,6 +242,11 @@ describe("'번' 없는 번호 (V3 사용자 추가 요구: 'N번' > '번' 없는
   })
   it('단위가 붙거나 한글이 붙은 수는 번호가 아니다', () => {
     expect(ready('자 9cm에 이거 25만 원 170')).toMatchObject({ no: 170, price: 250000 })
+    // 중간 결과(isFinal: false) 끝의 수 낱말은 더 들어 본다
+    expect(readyToRegister('자 9cm에 이거 25만 원 170', { dictionary: DICT, isFinal: false })).toBeNull()
+    expect(readyToRegister('108번 25만 원 1', { dictionary: DICT, isFinal: false })).toBeNull()
+    expect(readyToRegister('108번 25만 원 이십', { dictionary: DICT, isFinal: false })).toBeNull()
+    expect(readyToRegister('108번 25만 원', { dictionary: DICT, isFinal: false })).toMatchObject({ no: 108, price: 250000 })
     expect(read('삼광색금 3강 25만 원').extraction).toMatchObject({ no: null, price: 250000, name: '삼광색금' })
     expect(read('삼광색금 3 개 25만 원').extraction.no).toBeNull()
     expect(read('삼광색금 28 마리 25만 원').extraction.no).toBeNull()
@@ -262,5 +267,19 @@ describe("'번' 없는 번호 (V3 사용자 추가 요구: 'N번' > '번' 없는
   })
   it("'N번'이 있으면 그것을 쓴다 (실제 방송 5: 3번)", () => {
     expect(ready('170 자 3번 25만 원')).toMatchObject({ no: 3, price: 250000 })
+  })
+})
+
+describe('적대 지적 TD-V3-001·002', () => {
+  it.each(['일육팔에 25만 원', '일육팔까지 25만 원', '일육팔이에요 25만 원', '일육팔 개 25만 원', '일 육 팔 개 25만 원', '일육팔 마리 25만 원'])('%s → 번호 없음', (text) => {
+    expect(read(text).extraction.no).toBeNull()
+    expect(read(text).ready).toBeNull()
+  })
+  it.each(['100 5만 원', '이백 오만 원', '육백 삼만원', '자 300 2만 원'])('%s → 자리가 안 겹치는데 안 읽힘 → 가격·번호 비움', (text) => {
+    expect(read(text).extraction).toMatchObject({ no: null, price: null })
+  })
+  it('자리 겹침이면 뗀다: 170 25만 원, 174 28만 원(번호 표시 없음)', () => {
+    expect(read('170 25만 원').extraction).toMatchObject({ no: 170, price: 250000 })
+    expect(read('174 28만 원').extraction).toMatchObject({ no: 174, price: 280000 })
   })
 })
