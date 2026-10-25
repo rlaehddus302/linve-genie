@@ -1074,7 +1074,7 @@ export class VoiceController {
     const notes = new Map(work.notes)
     const candidatesFor = (name: string | null): readonly VarietyCandidate[] => (name === null ? reading.candidates : [])
     // V3 바로 등록 (D-V3-01·05·08·10·13·19·21): 덩어리 끝에 바로 등록한 번호·이미 있는 번호·합치기·확정 읽기를 먼저 본다
-    const v3 = this.#instantOn() ? this.#readRegistration(module, chunk.text) : null
+    const v3 = this.#instantOn() ? this.#readRegistration(module, chunk.text, true) : null
     const noAuto = chunk.noAutoConfirm === true || this.#phraseInstantOff
     const instantDone = v3 === null ? null : this.#instantChunk(work, module, chunk, reading, action, v3, noAuto)
     this.#instantNos = new Map()
@@ -1387,9 +1387,10 @@ export class VoiceController {
     return [view.collected, view.interim].filter((part) => part.trim() !== '').join(' ')
   }
 
-  #readRegistration(module: VoiceModule, text: string): RegistrationReading | null {
+  /** final = 최종 결과만 든 글 (중간 결과가 끝에 붙어 있으면 거짓 — 글 끝의 '번' 없는 번호는 아직 확정하지 않는다, D-V3-26) */
+  #readRegistration(module: VoiceModule, text: string, final: boolean): RegistrationReading | null {
     try {
-      return module.readRegistration(text, { dictionary: this.#prepared(module), maxNumber: this.#host.maxNumber() })
+      return module.readRegistration(text, { dictionary: this.#prepared(module), maxNumber: this.#host.maxNumber(), ...(final ? { final: true } : {}) })
     } catch {
       return null
     }
@@ -1403,7 +1404,8 @@ export class VoiceController {
     if (!this.#instantOn() || this.#phraseInstantOff || this.#waitingHistory() || this.#snapshot.phase !== 'on') return
     const text = this.#chunkText(module)
     if (text === '' || text.includes('문자찜')) return
-    const ready = this.#readRegistration(module, text)?.ready ?? null
+    const interim = this.#phrase === null ? '' : module.heardText(this.#phrase).interim
+    const ready = this.#readRegistration(module, text, interim.trim() === '')?.ready ?? null
     if (ready === null || this.#instantNos.has(ready.no) || this.#rejected.has(ready.no)) return
     if (this.#host.dialogOpen()) return
     const existing = this.#existingOf(ready.no)

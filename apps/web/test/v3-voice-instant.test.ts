@@ -375,6 +375,16 @@ describe('바로 등록 V3 수용 사례', () => {
   })
 })
 
+describe('중간 결과 끝의 번 없는 번호 (D-V3-26)', () => {
+  it('R34: 중간 결과 "… 25만 원 170"은 아직 등록하지 않고, 최종 결과가 되면 170번으로 등록', async () => {
+    const h = await ready()
+    say('자 9cm에 이거 25만 원 170', false)
+    expect(h.registered).toEqual([])
+    say('자 9cm에 이거 25만 원 170')
+    expect(reg(h).map((item) => [item.no, item.price])).toEqual([[170, 250000]])
+  })
+})
+
 describe('바로 등록 문장', () => {
   it('저장값 읽기: 없거나 모르는 값은 켬', () => {
     expect(readInstant(null)).toBe(true)
