@@ -1232,7 +1232,7 @@ export const bandSeen = pgTable(
     textHash: text('text_hash'),
     nick: text('nick'),
     text: text('text'),
-    /** 지운 댓글 알림을 냈는지 · 마지막으로 알린 고친 본문의 해시 */
+    /** 지운 댓글 알림을 냈는지 · 알린 고친 본문의 해시들(공백으로 나눔, 최근 200개 — TD-BND1-001) */
     deletedNoticed: boolean('deleted_noticed').notNull().default(false),
     editedHash: text('edited_hash'),
     createdAt: timestamptz('created_at').notNull(),

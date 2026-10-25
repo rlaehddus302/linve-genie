@@ -121,6 +121,8 @@ export type LogCode =
   | 'BAND_YOUTUBE_LINKED'
   | 'BAND_READ_FAILED'
   | 'BAND_PAGING_LOOP'
+  | 'BAND_PAGING_LIMIT'
+  | 'BAND_RETRY_STATE_FAILED'
   | 'BAND_SAVE_FAILED'
   | 'BAND_SKIPPED'
   | 'BAND_RESUME_FAILED'
@@ -229,6 +231,8 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   BAND_YOUTUBE_LINKED: '유튜브를 이은 회차라 밴드 읽기를 멈췄어요',
   BAND_READ_FAILED: '밴드 댓글 읽기 중 오류가 생겨 다시 시도해요',
   BAND_PAGING_LOOP: '밴드 쪽 넘기기가 같은 쪽을 다시 가리켜 그 읽기를 끝냈어요',
+  BAND_PAGING_LIMIT: '밴드 쪽 넘기기가 쪽 수 상한에 닿아 그 읽기를 끝냈어요',
+  BAND_RETRY_STATE_FAILED: '밴드 다시 시도 상태를 저장하지 못했어요(다음 읽기는 예약함)',
   BAND_SAVE_FAILED: '밴드 댓글을 기록하지 못해 다시 시도해요',
   BAND_SKIPPED: '입력 검사를 통과하지 못한 밴드 댓글을 기록하지 않았어요',
   BAND_RESUME_FAILED: '서버를 다시 켤 때 밴드 읽기를 이어받지 못했어요',

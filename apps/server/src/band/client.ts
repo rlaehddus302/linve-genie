@@ -103,14 +103,17 @@ export class BandClient {
     return { ok: false, failure }
   }
 
-  async #send(op: BandOp, query: Readonly<Record<string, string>>, headers: Readonly<Record<string, string>>): Promise<SendOutcome> {
+  async #send(op: BandOp, query: Readonly<Record<string, string>>, headers: Readonly<Record<string, string>>, signal?: AbortSignal): Promise<SendOutcome> {
+    if (signal?.aborted === true) return { failure: { kind: 'RETRY', code: 'ABORTED' } }
     if (this.appPauseRemaining() > 0) return { failure: { kind: 'RATE_APP', code: 'PAUSED' } }
     const url = bandRequestUrl(this.#options.settings, op, 'GET', query)
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this.#options.settings.timeoutMs)
     timer.unref?.()
+    // 부르는 쪽이 그만두면(끊기·회차 끝) 기다리지 않고 요청을 닫는다
+    const both = signal === undefined ? controller.signal : AbortSignal.any([controller.signal, signal])
     try {
-      const response = await this.#fetch(url, { method: 'GET', headers: { Accept: 'application/json', ...headers }, redirect: 'error', signal: controller.signal })
+      const response = await this.#fetch(url, { method: 'GET', headers: { Accept: 'application/json', ...headers }, redirect: 'error', signal: both })
       const text = await response.text()
       let body: unknown
       try {
@@ -120,17 +123,18 @@ export class BandClient {
       }
       return { status: response.status, body }
     } catch {
-      return { failure: { kind: 'RETRY', code: controller.signal.aborted ? 'TIMEOUT' : 'NETWORK' } }
+      const stopped: boolean = signal?.aborted ?? false
+      return { failure: { kind: 'RETRY', code: stopped ? 'ABORTED' : controller.signal.aborted ? 'TIMEOUT' : 'NETWORK' } }
     } finally {
       clearTimeout(timer)
     }
   }
 
-  /** API 하나 (토큰은 질의에 싣는다 — 공식 문서) → result_data 객체 */
-  async api(op: Exclude<BandOp, 'authorize' | 'token'>, token: string, query: Readonly<Record<string, string>>, sellerId: string | null): Promise<BandResult<Obj>> {
+  /** API 하나 (토큰은 질의에 싣는다 — 공식 문서) → result_data 객체. signal이 끊기면 ABORTED(다시 시도 종류)로 바로 끝난다 */
+  async api(op: Exclude<BandOp, 'authorize' | 'token'>, token: string, query: Readonly<Record<string, string>>, sellerId: string | null, signal?: AbortSignal): Promise<BandResult<Obj>> {
     let sent: SendOutcome
     try {
-      sent = await this.#send(op, { ...query, access_token: token }, {})
+      sent = await this.#send(op, { ...query, access_token: token }, {}, signal)
     } catch (error) {
       this.#options.log({ level: 'error', code: 'BAND_API_FAILED', reason: `${op}_ERROR`, errorKind: errorKind(error) })
       return { ok: false, failure: { kind: 'RETRY', code: 'ERROR' } }

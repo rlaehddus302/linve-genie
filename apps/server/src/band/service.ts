@@ -1,7 +1,11 @@
 // 밴드 글 댓글 묶음 (PLT-04, BND1, D-BND1-01~15): 계정 연결(경로 표 OAuth·토큰 암호화)·밴드/글 목록·회차 잇기(기준선)·끊기,
 // 10초 빠른 읽기·60초 전체 읽기 → chat 기록(접수순, 한 묶음 안은 작성 시각 순)·지운/고친 댓글 알림·실패와 다시 시도·호출 한도.
 // - 판정은 하지 않는다 — 댓글을 수집 경로(record, 조치자 collector)로 넣을 뿐이고 판정은 엔진이 한다.
-// - 판매자마다 읽기는 하나다(타이머는 앞 읽기가 끝난 뒤에만 건다). 잇기·끊기·다시 연결은 판매자 잠금(플랫폼 공통) 안에서 한다.
+// - 판매자마다 읽기는 하나다(타이머는 앞 읽기가 끝난 뒤에만 건다). 빠른·전체 읽기와 잇기의 글 상세·기준선 읽기는 판매자별 읽기 줄(#reads) 하나로
+//   차례로 돈다 — 끊기·회차 끝은 진행 중인 요청을 닫고(AbortSignal), 다음 읽기는 그것이 끝난 뒤에 시작한다(AC-BND1-30).
+// - 밴드에 묻는 동안 판매자 공통 잠금(플랫폼 공통 — 인스타그램 웹훅 기록도 쓴다)을 쥐지 않는다(RA-BND1-01). 잠금은 짧은 DB 단계에만 쓰고,
+//   겹침은 트랜잭션 안의 다시 확인·유일 색인·요청 번호별 약속이 막는다.
+// - 다음 읽기 예약은 무엇이 실패해도 남는다(DB가 잠깐 끊겨도 — 메모리의 실패 수로 시간표를 건다, RA-BND1-02).
 // - 기록은 범위 락 안에서 연결 상태를 다시 본다 — 끊기·회차 끝·유튜브 잇기 뒤의 댓글은 기록하지 않는다.
 // - 토큰·코드·경로 표·user_key·밴드/글 키·손님 이름·댓글 본문은 로그·오류 응답에 쓰지 않는다(D-BND1-14). 로그는 정해진 코드와 수만.
 import { randomBytes } from 'node:crypto'
@@ -12,7 +16,7 @@ import { scopeLockKey } from '../db/schema.ts'
 import { errorKind, type LogSink } from '../log.ts'
 import type { PlatformCapability } from '../platform.ts'
 import type { PlatformRecordJob, PlatformRecordOutcome } from '../platform-record.ts'
-import { sellerLinkLockKey, type SellerLocks } from '../seller-locks.ts'
+import { sellerLinkLockKey, SellerLocks } from '../seller-locks.ts'
 import { SecretError } from '../secrets.ts'
 import { findBroadcast } from '../store.ts'
 import { findRequest, insertRequest } from '../instagram/store.ts'
@@ -97,6 +101,8 @@ export interface BandTiming {
   /** 빠른 읽기 한 번의 쪽 수 · 전체 읽기의 댓글 수 상한 */
   readonly fastPages: number
   readonly fullMax: number
+  /** 전체 읽기 쪽 수 상한의 여유 (상한 = ⌈fullMax ÷ 본 쪽 크기⌉ + 이것. 쪽이 모두 비면 쪽 크기 20으로 본다) */
+  readonly fullSparePages: number
   /** 글 목록 "더 보기" 쪽 수 상한 */
   readonly postPages: number
   /** 보관 기간이 지난 손님 글 지우기 간격 */
@@ -113,6 +119,7 @@ export const BAND_TIMING: BandTiming = Object.freeze({
   lateMs: 60_000,
   fastPages: 5,
   fullMax: 1_000,
+  fullSparePages: 10,
   postPages: 5,
   eraseEveryMs: 60 * 60 * 1000,
 })
@@ -293,6 +300,10 @@ interface Entry {
   lastFullAt: number
   /** 판매자 호출 한도 쉼 (0 = 처음) */
   rateMs: number
+  /** 이어진 실패 수 (DB에 쓰지 못해도 다음 시도 시간표를 건다) */
+  failures: number
+  /** 끊기·회차 끝에 진행 중인 밴드 요청을 닫는다 */
+  readonly abort: AbortController
 }
 
 interface Cursor {
@@ -306,6 +317,25 @@ interface Cursor {
 /** 읽기 결과 (오래된 것부터의 차례) */
 type ReadResult = { readonly ok: true; readonly items: readonly unknown[]; readonly complete: boolean; readonly overflow: boolean } | { readonly ok: false; readonly failure: BandFailure }
 
+/** 다시 시도 시간표 (failures = 1부터) */
+function retryWait(timing: BandTiming, failures: number): number {
+  return timing.retryMs[failures - 1] ?? timing.retryEveryMs
+}
+
+/** 전체 읽기의 쪽 수 상한 — 본 가장 큰 쪽 크기로 1,000개를 담을 쪽 수 + 여유 (쪽이 모두 비었으면 20개 쪽으로 본다) */
+function fullPageLimit(timing: BandTiming, widest: number): number {
+  return Math.ceil(timing.fullMax / (widest > 0 ? widest : 20)) + timing.fullSparePages
+}
+
+/** 알린 고친 글 해시들 (공백으로 나눠 한 칸에 — 해시는 base64url이라 공백이 없다) */
+const EDITED_KEEP = 200
+function editedHashes(value: string | null): string[] {
+  return value === null || value === '' ? [] : value.split(' ')
+}
+function joinEditedHashes(hashes: readonly string[]): string {
+  return hashes.slice(-EDITED_KEEP).join(' ')
+}
+
 export class BandService {
   readonly #o: BandServiceOptions
   readonly #timing: BandTiming
@@ -315,6 +345,10 @@ export class BandService {
   readonly #cursors = new Map<string, Cursor>()
   readonly #bandsCache = new Map<string, { keys: Set<string>; at: number }>()
   readonly #pending = new Set<Promise<unknown>>()
+  /** 판매자별 밴드 댓글 읽기 줄 (빠른·전체 읽기, 잇기의 글 상세·기준선) — 하나가 끝나야 다음 (AC-BND1-30) */
+  readonly #reads = new SellerLocks()
+  /** 처리 중인 잇기 (판매자·요청 번호) — 같은 요청 번호가 겹쳐 와도 밴드에 한 번만 묻는다 */
+  readonly #linking = new Map<string, Promise<BandOutcome>>()
   #eraseCancel: (() => void) | null = null
   #closed = false
 
@@ -799,45 +833,71 @@ export class BandService {
   async #link(sellerId: string, accountId: string, requestId: string, broadcastId: string, bandKey: unknown, postKey: unknown): Promise<BandOutcome> {
     const prior = await this.#prior(sellerId, requestId)
     if (prior !== null) return prior
+    // 같은 요청 번호가 처리 중이면 그 결과를 같이 기다린다 (밴드에 두 번 묻지 않는다)
+    const key = `${sellerId}\n${requestId}`
+    const inflight = this.#linking.get(key)
+    if (inflight !== undefined) return inflight
+    const run = this.#linkOnce(sellerId, accountId, requestId, broadcastId, bandKey, postKey)
+    this.#linking.set(key, run)
+    try {
+      return await run
+    } finally {
+      if (this.#linking.get(key) === run) this.#linking.delete(key)
+    }
+  }
+
+  /**
+   * 잇기 한 번: (1) 거절 검사 (2) 글 상세·기준선 읽기 — 판매자 공통 잠금 밖, 읽기 줄 안 (3) 판매자 잠금 + 트랜잭션 안에서 다시 확인하고 연결.
+   * 밴드 응답을 기다리는 동안 같은 판매자의 인스타그램 댓글 기록·다른 잇기·끊기를 막지 않는다 (RA-BND1-01)
+   */
+  async #linkOnce(sellerId: string, accountId: string, requestId: string, broadcastId: string, bandKey: unknown, postKey: unknown): Promise<BandOutcome> {
+    const block = await this.#block(sellerId, broadcastId, this.#o.db)
+    if (block !== null) return block.code === 'NOT_FOUND' ? notFound() : fail(409, block.code, block.message)
+    if (typeof bandKey !== 'string' || !KEY_RE.test(bandKey)) return badInput('bandKey', '밴드를 골라 주세요.')
+    if (typeof postKey !== 'string' || !KEY_RE.test(postKey)) return badInput('postKey', '이을 글을 골라 주세요.')
+    const got = await this.#tokenOf(sellerId)
+    if (!got.ok) return got.outcome
+    const client = this.#client as BandClient
+    type Fetched = { ok: true; post: Obj; items: readonly unknown[] } | { ok: false; outcome: BandOutcome }
+    const fetched = await this.#reads.run(sellerId, async (): Promise<Fetched> => {
+      // (2) 글 상세 — 작성자가 판매자인지
+      const detail = await client.api('post', got.token, { band_key: bandKey, post_key: postKey }, sellerId)
+      if (!detail.ok) return { ok: false, outcome: await this.#failureOutcome(sellerId, detail.failure) }
+      const post = detail.data['post']
+      if (!isObj(post) || authorUserKey(post) !== got.account.userKey) return { ok: false, outcome: fail(409, 'NOT_MY_POST', BAND_MESSAGES.NOT_MY_POST) }
+      // (3) 댓글을 오래된 순으로 끝까지 — 그때 있던 댓글은 모두 기준선
+      const read = await this.#readComments(sellerId, got.token, bandKey, postKey, 'full')
+      if (!read.ok) return { ok: false, outcome: await this.#failureOutcome(sellerId, read.failure) }
+      if (read.overflow) return { ok: false, outcome: fail(409, 'TOO_MANY_COMMENTS', BAND_MESSAGES.TOO_MANY_COMMENTS) }
+      if (!read.complete) return { ok: false, outcome: fail(503, 'UNAVAILABLE', BAND_MESSAGES.RETRYING) }
+      return { ok: true, post, items: read.items }
+    })
+    if (!fetched.ok) return fetched.outcome
+    const { post, items } = fetched
+    const keys = new Set<string>()
+    let keyless = 0
+    for (const item of items) {
+      const commentKey = isObj(item) ? item['comment_key'] : undefined
+      if (typeof commentKey === 'string' && commentKey !== '' && commentKey.length <= 1024) keys.add(commentKey)
+      else keyless += 1
+    }
     let created: number | null = null
     const outcome = await this.#o.locks.run(sellerId, async (): Promise<BandOutcome> => {
       const again = await this.#prior(sellerId, requestId)
       if (again !== null) return again
-      const block = await this.#block(sellerId, broadcastId, this.#o.db)
-      if (block !== null) return block.code === 'NOT_FOUND' ? notFound() : fail(409, block.code, block.message)
-      if (typeof bandKey !== 'string' || !KEY_RE.test(bandKey)) return badInput('bandKey', '밴드를 골라 주세요.')
-      if (typeof postKey !== 'string' || !KEY_RE.test(postKey)) return badInput('postKey', '이을 글을 골라 주세요.')
-      const got = await this.#tokenOf(sellerId)
-      if (!got.ok) return got.outcome
-      const client = this.#client as BandClient
-      // (2) 글 상세 — 작성자가 판매자인지
-      const detail = await client.api('post', got.token, { band_key: bandKey, post_key: postKey }, sellerId)
-      if (!detail.ok) return this.#failureOutcome(sellerId, detail.failure)
-      const post = detail.data['post']
-      if (!isObj(post) || authorUserKey(post) !== got.account.userKey) return fail(409, 'NOT_MY_POST', BAND_MESSAGES.NOT_MY_POST)
-      // (3) 댓글을 오래된 순으로 끝까지 — 그때 있던 댓글은 모두 기준선
-      const read = await this.#readComments(sellerId, got.token, bandKey, postKey, 'full')
-      if (!read.ok) return this.#failureOutcome(sellerId, read.failure)
-      if (read.overflow) return fail(409, 'TOO_MANY_COMMENTS', BAND_MESSAGES.TOO_MANY_COMMENTS)
-      if (!read.complete) return fail(503, 'UNAVAILABLE', BAND_MESSAGES.RETRYING)
-      const keys = new Set<string>()
-      let keyless = 0
-      for (const item of read.items) {
-        const key = isObj(item) ? item['comment_key'] : undefined
-        if (typeof key === 'string' && key !== '' && key.length <= 1024) keys.add(key)
-        else keyless += 1
-      }
       const broadcast = await findBroadcast(this.#o.db, sellerId, broadcastId)
       if (broadcast === null) return notFound()
       const receivedTime = await this.#receivedTime(sellerId, broadcastId)
       try {
         return await this.#o.db.transaction(async (tx): Promise<BandOutcome> => {
           await tx.execute(sql`select pg_advisory_xact_lock(${sellerLinkLockKey(sellerId)})`)
+          const stored = await findRequest(tx, sellerId, requestId)
+          if (stored !== null) return JSON.parse(stored) as BandOutcome
           // 바깥에 묻는 동안 바뀌었을 수 있다 — 다시 본다
           const recheck = await this.#block(sellerId, broadcastId, tx, receivedTime)
           if (recheck !== null) return recheck.code === 'NOT_FOUND' ? notFound() : fail(409, recheck.code, recheck.message)
           const now = this.#now()
-          const linkId = await insertBandLink(tx, { sellerId, broadcastId, date: broadcast.date, bandKey, postKey, postLine: bandFirstLine(post['content']), actorAccountId: accountId, baseline: read.items.length, skipBadKey: keyless, now })
+          const linkId = await insertBandLink(tx, { sellerId, broadcastId, date: broadcast.date, bandKey, postKey, postLine: bandFirstLine(post['content']), actorAccountId: accountId, baseline: items.length, skipBadKey: keyless, now })
           await insertBandSeen(tx, sellerId, linkId, [...keys].map((commentKey): BandSeenInput => ({ commentKey, kind: 'BASELINE' })), now)
           const view = await this.#viewOf(sellerId, broadcastId, await findBandLink(tx, sellerId, linkId), tx, receivedTime)
           const result: BandOutcome = { status: 200, body: { link: view } }
@@ -934,7 +994,7 @@ export class BandService {
       return
     }
     this.#retire(sellerId)
-    const entry: Entry = { sellerId, linkId, cancel: null, running: null, closed: false, lastFullAt: soon ? Number.NEGATIVE_INFINITY : this.#clock.now(), rateMs: 0 }
+    const entry: Entry = { sellerId, linkId, cancel: null, running: null, closed: false, lastFullAt: soon ? Number.NEGATIVE_INFINITY : this.#clock.now(), rateMs: 0, failures: 0, abort: new AbortController() }
     this.#entries.set(sellerId, entry)
     this.#schedule(entry, soon ? 0 : this.#timing.fastMs)
   }
@@ -945,6 +1005,8 @@ export class BandService {
     entry.closed = true
     entry.cancel?.()
     entry.cancel = null
+    // 진행 중인 밴드 요청을 닫는다 — 다음 읽기(다른 회차 잇기의 기준선 포함)는 읽기 줄에서 이것이 끝나기를 기다린다
+    entry.abort.abort()
     this.#entries.delete(sellerId)
   }
 
@@ -954,13 +1016,17 @@ export class BandService {
     entry.cancel = this.#clock.setTimer(Math.max(0, ms), () => {
       entry.cancel = null
       if (entry.closed || entry.running !== null) return
-      const run = this.#cycle(entry)
+      const run = this.#reads
+        .run(entry.sellerId, () => (entry.closed ? Promise.resolve() : this.#cycle(entry)))
         .catch((error: unknown) => {
           this.#o.log({ level: 'error', code: 'BAND_READ_FAILED', seller: entry.sellerId, errorKind: errorKind(error) })
           return this.#retryLater(entry, 'ERROR')
         })
+        .catch(() => undefined)
         .finally(() => {
           entry.running = null
+          // 무엇이 실패해도 다음 읽기는 남는다 (RA-BND1-02): 끝나지 않았는데 걸린 타이머가 없으면 메모리의 시간표로 건다
+          if (!entry.closed && !this.#closed && entry.cancel === null) this.#scheduleRetry(entry)
         })
       entry.running = run
       void this.#track(run)
@@ -991,39 +1057,43 @@ export class BandService {
     if (paused > 0) return this.#rateWait(entry, link, paused)
     const full = link.state === 'READING' && this.#clock.now() - entry.lastFullAt >= this.#timing.fullMs
     if (full) entry.lastFullAt = this.#clock.now()
-    const read = await this.#readComments(sellerId, got.token, link.bandKey, link.postKey, full ? 'full' : 'fast', linkId)
+    const read = await this.#readComments(sellerId, got.token, link.bandKey, link.postKey, full ? 'full' : 'fast', linkId, entry.abort.signal)
     if (entry.closed) return
     if (!read.ok) return this.#failed(entry, link, read.failure)
     const done = await this.#ingest(entry, link, got.account, read, full)
     if (!done || entry.closed) return
     // 전체 읽기가 1,000개에서 멈췄으면 그 뒤의 새 댓글은 그 읽기에 없다 — 같은 차례에 빠른 읽기를 한 번 더 한다(새 댓글이 한 차례 늦지 않게)
     if (full && read.overflow) {
-      const extra = await this.#readComments(sellerId, got.token, link.bandKey, link.postKey, 'fast', linkId)
+      const extra = await this.#readComments(sellerId, got.token, link.bandKey, link.postKey, 'fast', linkId, entry.abort.signal)
       if (entry.closed) return
       if (!extra.ok) return this.#failed(entry, link, extra.failure)
       const fresh = (await findBandLink(db, sellerId, linkId)) ?? link
       if (!(await this.#ingest(entry, fresh, got.account, extra, false)) || entry.closed) return
     }
     entry.rateMs = 0
+    entry.failures = 0
     this.#schedule(entry, this.#timing.fastMs)
   }
 
   /**
    * 댓글 목록 읽기 (D-BND1-08). fast = 최신순, 본 댓글이 나온 쪽에서 멈춤, 5쪽까지. full = 오래된 순 처음부터 끝까지, 1,000개까지(넘으면 overflow).
    * 다음 쪽은 next_params의 값 가운데 토큰·밴드 키·글 키를 버리고 우리 값으로 채운다. 같은 after가 다시 나오면 그 읽기를 끝낸다(고리).
+   * full의 쪽 수에도 상한이 있다(⌈1,000 ÷ 본 가장 큰 쪽 크기⌉ + 여유 — 빈 쪽에 늘 새 after가 와도 끝난다, TD-BND1-002). 넘으면 '끝까지 되지 않음'.
    * 돌려주는 items는 오래된 것부터의 차례다
    */
-  async #readComments(sellerId: string, token: string, bandKey: string, postKey: string, mode: 'fast' | 'full', linkId?: number): Promise<ReadResult> {
+  async #readComments(sellerId: string, token: string, bandKey: string, postKey: string, mode: 'fast' | 'full', linkId?: number, signal?: AbortSignal): Promise<ReadResult> {
     const client = this.#client as BandClient
     const collected: unknown[] = []
     const afters = new Set<string>()
     let params: Readonly<Record<string, string>> = {}
+    let widest = 0
     for (let page = 1; ; page += 1) {
-      const result = await client.api('comments', token, { ...params, band_key: bandKey, post_key: postKey, sort: mode === 'full' ? '+created_at' : '-created_at' }, sellerId)
+      const result = await client.api('comments', token, { ...params, band_key: bandKey, post_key: postKey, sort: mode === 'full' ? '+created_at' : '-created_at' }, sellerId, signal)
       if (!result.ok) return result
       const items = result.data['items']
       if (!Array.isArray(items)) return { ok: false, failure: { kind: 'RETRY', code: 'SHAPE' } }
       collected.push(...items)
+      widest = Math.max(widest, items.length)
       if (mode === 'full' && collected.length > this.#timing.fullMax) return { ok: true, items: collected.slice(0, this.#timing.fullMax), complete: false, overflow: true }
       if (mode === 'fast' && linkId !== undefined) {
         const keys = items.map((item) => (isObj(item) ? item['comment_key'] : undefined)).filter((key): key is string => typeof key === 'string')
@@ -1039,6 +1109,10 @@ export class BandService {
       }
       afters.add(after)
       if (mode === 'fast' && page >= this.#timing.fastPages) break
+      if (mode === 'full' && page >= fullPageLimit(this.#timing, widest)) {
+        this.#o.log({ level: 'warn', code: 'BAND_PAGING_LIMIT', seller: sellerId, count: page })
+        return { ok: true, items: collected, complete: false, overflow: false }
+      }
       params = next
     }
     return { ok: true, items: collected.reverse(), complete: false, overflow: false }
@@ -1097,6 +1171,7 @@ export class BandService {
       await insertBandNotice(db, { sellerId, linkId, kind: 'LATE', minutes: Math.max(1, Math.ceil(gap / 60_000)), count: recorded.recorded.length, now })
     }
     await setBandLinkState(db, sellerId, linkId, BAND_ACTIVE_STATES, { state: 'READING', failures: 0, retryAt: null, rateLimited: false, lastReadAt: now })
+    entry.failures = 0
     this.#publishLink(sellerId, link.broadcastId)
     return true
   }
@@ -1117,9 +1192,11 @@ export class BandService {
       }
       const text = bandText(item['content']) ?? ''
       const hash = bandHash(text)
-      if (hash === row.textHash || hash === row.editedHash) continue
+      // 알린 고친 글을 모두 기억한다 — A→B→C→B여도 B는 한 번 (AC-BND1-40)
+      const noticed = editedHashes(row.editedHash)
+      if (hash === row.textHash || noticed.includes(hash)) continue
       await insertBandNotice(db, { sellerId, linkId, kind: 'EDITED', nick: row.nick, beforeText: row.text, afterText: text, now })
-      await markBandSeen(db, sellerId, row.id, { editedHash: hash })
+      await markBandSeen(db, sellerId, row.id, { editedHash: joinEditedHashes([...noticed, hash]) })
     }
   }
 
@@ -1154,13 +1231,34 @@ export class BandService {
   /** 다시 시도 시간표: 첫 실패 뒤 10·20·40·80·160초, 그 뒤 300초마다 (AC-BND1-52) */
   async #retryLater(entry: Entry, _code: string): Promise<void> {
     if (entry.closed) return
-    const link = await findBandLink(this.#o.db, entry.sellerId, entry.linkId)
+    let link: BandLinkRow | null
+    try {
+      link = await findBandLink(this.#o.db, entry.sellerId, entry.linkId)
+    } catch (error) {
+      // DB가 잠깐 안 됨 — 상태는 못 써도 다음 시도는 건다 (RA-BND1-02)
+      this.#o.log({ level: 'error', code: 'BAND_RETRY_STATE_FAILED', seller: entry.sellerId, errorKind: errorKind(error) })
+      return this.#scheduleRetry(entry)
+    }
     if (link === null || !BAND_ACTIVE_STATES.includes(link.state)) return this.#retire(entry.sellerId, entry.linkId)
-    const failures = link.failures + 1
-    const wait = this.#timing.retryMs[failures - 1] ?? this.#timing.retryEveryMs
-    await setBandLinkState(this.#o.db, entry.sellerId, entry.linkId, BAND_ACTIVE_STATES, { state: 'RETRYING', failures, rateLimited: false, retryAt: new Date(this.#clock.now() + wait) })
+    const failures = Math.max(link.failures, entry.failures) + 1
+    entry.failures = failures
+    const wait = retryWait(this.#timing, failures)
+    // 타이머를 먼저 건다 — 상태 쓰기가 실패해도 다음 읽기는 남는다
     this.#schedule(entry, wait)
+    try {
+      await setBandLinkState(this.#o.db, entry.sellerId, entry.linkId, BAND_ACTIVE_STATES, { state: 'RETRYING', failures, rateLimited: false, retryAt: new Date(this.#clock.now() + wait) })
+    } catch (error) {
+      this.#o.log({ level: 'error', code: 'BAND_RETRY_STATE_FAILED', seller: entry.sellerId, errorKind: errorKind(error) })
+      return
+    }
     this.#publishLink(entry.sellerId, link.broadcastId)
+  }
+
+  /** DB 없이 다음 시도를 건다 (메모리의 실패 수로 같은 시간표) */
+  #scheduleRetry(entry: Entry): void {
+    if (entry.closed) return
+    entry.failures += 1
+    this.#schedule(entry, retryWait(this.#timing, entry.failures))
   }
 
   // ── 서버 시작·운영 ─────────────────────────────────────────────────────
