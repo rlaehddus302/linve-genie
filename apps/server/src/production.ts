@@ -24,6 +24,7 @@ import type { BillingSetup } from './billing/service.ts'
 import { readAppOrigin } from './config.ts'
 import type { Database } from './db/database.ts'
 import { readInstagramConfig } from './instagram/config.ts'
+import { readBandConfig } from './band/config.ts'
 import { readMasterKey } from './secrets.ts'
 import { popbillHttpTransport, readPopbillKeys } from './deposit/popbill.ts'
 import type { ServerOptions } from './server.ts'
@@ -70,7 +71,13 @@ export function productionServerOptions(
   if (!assist.ok) return { ok: false, message: assist.message }
   const libraryEnv = TIKTOK_LIBRARY_ENV_NAMES.filter((name) => (env[name] ?? '').trim() !== '')
   const popbill = readPopbillKeys(env)
-  const warnings = [...(instagram.warning === undefined ? [] : [instagram.warning]), ...((env['LIVEJJIM_EPOST_API_KEY'] ?? '').trim() === '' ? [] : (['PARCEL_CARRIER_NOT_READY'] as const))]
+  // 밴드 (BND1 D-BND1-13): 셋 중 하나라도 비면 설정 없음, 주소가 https가 아니면 설정 없음 + 경고 BAND_CONFIG_INVALID(값 없이) — 서버는 정상으로 시작
+  const band = readBandConfig(env)
+  const warnings = [
+    ...(instagram.warning === undefined ? [] : [instagram.warning]),
+    ...((env['LIVEJJIM_EPOST_API_KEY'] ?? '').trim() === '' ? [] : (['PARCEL_CARRIER_NOT_READY'] as const)),
+    ...(band.warning === undefined ? [] : [band.warning]),
+  ]
   return {
     ok: true,
     options: {
@@ -81,6 +88,7 @@ export function productionServerOptions(
       instagram: instagram.settings,
       ...(warnings.length === 0 ? {} : { startupWarnings: warnings }),
       tiktok: { settings: readTikTokSettings(env), libraryEnv },
+      band: { settings: band.settings },
       deposits: { testMode: false, popbill: popbill === null ? null : popbillHttpTransport(popbill) },
       billing,
       // 택배사 어댑터 없음 (T1 — 가짜 택배사는 고를 수 없고 바깥으로 나가는 택배사 연결이 없다)

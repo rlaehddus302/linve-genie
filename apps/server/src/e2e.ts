@@ -15,6 +15,7 @@
 //   시험용 조작 경로 /_e2e/*(새 판매자 계정·봉인 시험 날짜·지금 봉인) — 이 기동에서만 앞에 붙는다(서버 앱에는 없다).
 // - 택배 자동 접수 시험 모드(T1 PARCEL_RULES PC-1, AC-T1-20): 가짜 택배사를 127.0.0.1의 빈 포트에 띄우고 서버가 그 어댑터를 쓴다(parcel: false로 끈다).
 //   조회 주기는 기본 5초(parcelTrackMs). 시험 조작 /_e2e/parcel/*(상태 넘기기·오류 주입·받은 요청·지금 조회·지금 정리)는 이 기동에서만 있다.
+// - 선택: 가짜 밴드 서버(band: {}, BND1 AC-BND1-62·80) — 127.0.0.1에 띄우고 밴드 연동을 그 주소로 둔다. 조작 경로 /_e2e/band/*는 이 기동에서만 있다.
 // - 선택: 가짜 웹캐스트(tiktok: true, N2b-2 AC-N2b-2-73·80) — 틱톡 운영자 스위치를 켜고 연결 객체가 가짜 웹캐스트를 쓴다.
 //   시험이 댓글·끊김·막힘을 넣는 경로 /_e2e/tiktok/*는 이 기동에서만 있다(운영 서버 시작 경로에는 없다 — 운영은 실제 감싸개 libraryWebcast()).
 // - 선택: 가짜 LLM 서버(assist, A1 AC-A1-11) — 127.0.0.1의 빈 포트(또는 정한 포트)에 띄우고 AI 제안을 그 주소·가짜 키(fake-assist-key)로 켠다. 상한을 작게 줄 수 있다.
@@ -34,6 +35,8 @@ import { openPglite, type Database } from './db/database.ts'
 import { ChatMaker, generatorView } from './generator.ts'
 import { createNodeServer } from './node-server.ts'
 import { FakeMeta } from './instagram/fake-meta.ts'
+import { FakeBand, type FakeBandFault } from './band/fake.ts'
+import { BAND_ALLOWED_PATHS, isBandOp } from './band/endpoints.ts'
 import { FAKE_FAILURES, FAKE_TRACK_STATUSES, FakeCarrier, type FakeFailure, type FakeTrackStatus } from './parcel/fake-carrier.ts'
 import { FakeWebcast, readTikTokSettings, type FakeAccountState, type TikTokFailureKind } from './tiktok/index.ts'
 import { generateMasterKey, type PasswordCost } from './secrets.ts'
@@ -168,6 +171,11 @@ export interface E2eOptions {
   readonly webDir?: string
   /** 가짜 웹캐스트로 틱톡 라이브 베타를 켠다 (운영자 스위치 켬 — N2b-2). 조작은 /_e2e/tiktok/* */
   readonly tiktok?: boolean
+  /**
+   * 가짜 밴드 서버를 127.0.0.1의 그 포트(0이면 빈 포트)에 함께 띄우고 밴드 연동을 그 주소로 둔다 (BND1, D-BND1-13). 조작은 /_e2e/band/*.
+   * 돌아오는 주소 = 화면 주소 + /api/band/callback(화면이 /api를 서버로 넘긴다). 읽기 간격은 E2E용으로 짧다(fastMs·fullMs — 기본 1초·3초)
+   */
+  readonly band?: { readonly port?: number; readonly fastMs?: number; readonly fullMs?: number }
   /** 입금 확인 시험 모드 — 가짜 원천·시험용 입금 넣기 (기본 true. 운영 기동에는 없다, AC-N3-17) */
   readonly testDeposits?: boolean
   /** 가짜·계좌조회 원천의 받아 오기 주기 (밀리초, 100~300000, 기본 1000 — E2E 기동만) */
@@ -218,7 +226,15 @@ function daysBefore(date: string, days: number): string {
  * - POST /_e2e/seal { loginId, date } → { sealed } — 그 날짜(실제 범위)를 지금 봉인 (열린 화면이 봉인되는 시험)
  * 그 밖의 요청은 서버 앱으로 그대로 (요청 정보 env도 — 로그인 IP 한도)
  */
-export function e2eControl(server: LivejjimServer, database: Database, masterKey: Buffer, passwordCost?: PasswordCost, webcast?: FakeWebcast | null, carrier?: FakeCarrier | null): Hono {
+export function e2eControl(
+  server: LivejjimServer,
+  database: Database,
+  masterKey: Buffer,
+  passwordCost?: PasswordCost,
+  webcast?: FakeWebcast | null,
+  carrier?: FakeCarrier | null,
+  band?: FakeBand | null,
+): Hono {
   const control = new Hono()
   const read = async (request: Request): Promise<Record<string, unknown>> => {
     try {
@@ -275,8 +291,137 @@ export function e2eControl(server: LivejjimServer, database: Database, masterKey
   })
   if (webcast !== undefined && webcast !== null) registerTiktokControl(control, webcast, read)
   if (carrier !== undefined && carrier !== null) registerParcelControl(control, server, carrier, read)
+  if (band !== undefined && band !== null) registerBandControl(control, band, read)
   control.all('*', (c) => server.app.fetch(c.req.raw, c.env))
   return control
+}
+
+/** E2E 기동의 밴드 읽기 간격 (밀리초 — 운영 10초·60초) */
+export const E2E_BAND_FAST_MS = 1000
+export const E2E_BAND_FULL_MS = 3000
+
+/**
+ * 가짜 밴드 조작 경로 (BND1, E2E 기동만 — 운영 서버 시작 경로에는 없다, AC-BND1-62). JSON POST(조회는 GET):
+ * - POST /_e2e/band/user { name, userKey? } → { userKey } — 밴드 사용자(판매자·손님). 처음 사용자가 승인 창의 기본 사용자
+ * - POST /_e2e/band/login { decision: approve|deny, userKey?, scope?(null이면 칸 없음), omitUserKey?, expiresIn?(null이면 칸 없음) } — 다음 승인 창
+ * - POST /_e2e/band/band { name, members: [userKey], bandKey? } → { bandKey }
+ * - POST /_e2e/band/post { bandKey, authorUserKey(null이면 user_key 없음), content?, createdAt? } → { postKey }
+ * - POST /_e2e/band/comment { postKey, content, name?, userKey?(null이면 user_key 없음), createdAt?, commentKey? } → { commentKey }
+ * - POST /_e2e/band/comments { postKey, items: [위와 같은 댓글] } → { commentKeys } — 한 번에 여러 개(같은 읽기에 함께 잡힌다)
+ * - POST /_e2e/band/drop { postKey, commentKey } — 밴드에서 지움 · POST /_e2e/band/edit { postKey, commentKey, content } — 고침
+ * - POST /_e2e/band/fail { op, resultCode? | http? | kind?(HANG·NOT_JSON·BAD_SHAPE), times? } — 그 요청 이름(token·profile·bands·posts·post·comments)의 다음 times번(기본 1)
+ * - POST /_e2e/band/clear — 넣은 오류 지우기 · POST /_e2e/band/revoke { userKey } — 그 사용자의 토큰 풀기(다음 요청 10401)
+ * - POST /_e2e/band/delay { op, ms } — 그 요청 이름의 응답을 늦춤(0이면 그만)
+ * - GET  /_e2e/band/requests → { requests: [{ method, path }], onlyAllowed } — 받은 요청과 그것이 모두 읽기 일곱 GET인지(AC-BND1-60)
+ */
+function registerBandControl(control: Hono, band: FakeBand, read: (request: Request) => Promise<Record<string, unknown>>): void {
+  const str = (value: unknown, max = 2000): string | null => (typeof value === 'string' && value.length <= max ? value : null)
+  const comment = (input: Record<string, unknown>) => ({
+    content: input.content,
+    ...(input.name === undefined ? {} : { name: input.name === null ? null : String(input.name) }),
+    ...(input.userKey === undefined ? {} : { userKey: input.userKey === null ? null : String(input.userKey) }),
+    ...(input.createdAt === undefined ? {} : { createdAt: input.createdAt }),
+    ...(input.commentKey === undefined ? {} : { commentKey: input.commentKey === null ? null : String(input.commentKey) }),
+  })
+  control.post('/_e2e/band/user', async (c) => {
+    const body = await read(c.req.raw)
+    const name = str(body.name, 200)
+    if (name === null) return c.json({ error: 'input' }, 400)
+    return c.json({ userKey: band.addUser(name, str(body.userKey, 300) ?? undefined) })
+  })
+  control.post('/_e2e/band/login', async (c) => {
+    const body = await read(c.req.raw)
+    if (body.decision !== 'approve' && body.decision !== 'deny') return c.json({ error: 'input' }, 400)
+    band.nextLogin({
+      decision: body.decision,
+      ...(typeof body.userKey === 'string' ? { userKey: body.userKey } : {}),
+      ...(body.scope === undefined ? {} : { scope: body.scope === null ? null : String(body.scope) }),
+      ...(body.omitUserKey === true ? { omitUserKey: true } : {}),
+      ...(body.expiresIn === undefined ? {} : { expiresIn: typeof body.expiresIn === 'number' ? body.expiresIn : null }),
+    })
+    return c.json({ ok: true })
+  })
+  control.post('/_e2e/band/band', async (c) => {
+    const body = await read(c.req.raw)
+    const name = str(body.name, 200)
+    if (name === null || !Array.isArray(body.members)) return c.json({ error: 'input' }, 400)
+    return c.json({ bandKey: band.addBand({ name, members: body.members.map(String), ...(typeof body.bandKey === 'string' ? { bandKey: body.bandKey } : {}) }) })
+  })
+  control.post('/_e2e/band/post', async (c) => {
+    const body = await read(c.req.raw)
+    const bandKey = str(body.bandKey, 200)
+    if (bandKey === null || !band.bands.has(bandKey)) return c.json({ error: 'input' }, 400)
+    const postKey = band.addPost({
+      bandKey,
+      authorUserKey: typeof body.authorUserKey === 'string' ? body.authorUserKey : null,
+      ...(typeof body.content === 'string' ? { content: body.content } : {}),
+      ...(typeof body.createdAt === 'number' ? { createdAt: body.createdAt } : {}),
+    })
+    return c.json({ postKey })
+  })
+  control.post('/_e2e/band/comment', async (c) => {
+    const body = await read(c.req.raw)
+    const postKey = str(body.postKey, 200)
+    if (postKey === null || !band.posts.has(postKey)) return c.json({ error: 'input' }, 400)
+    return c.json({ commentKey: band.addComment(postKey, comment(body)) })
+  })
+  control.post('/_e2e/band/comments', async (c) => {
+    const body = await read(c.req.raw)
+    const postKey = str(body.postKey, 200)
+    if (postKey === null || !band.posts.has(postKey) || !Array.isArray(body.items)) return c.json({ error: 'input' }, 400)
+    const items = body.items.filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+    return c.json({ commentKeys: items.map((item) => band.addComment(postKey, comment(item))) })
+  })
+  control.post('/_e2e/band/drop', async (c) => {
+    const body = await read(c.req.raw)
+    const postKey = str(body.postKey, 200)
+    const commentKey = str(body.commentKey, 300)
+    if (postKey === null || commentKey === null || !band.posts.has(postKey)) return c.json({ error: 'input' }, 400)
+    return c.json({ ok: band.dropComment(postKey, commentKey) })
+  })
+  control.post('/_e2e/band/edit', async (c) => {
+    const body = await read(c.req.raw)
+    const postKey = str(body.postKey, 200)
+    const commentKey = str(body.commentKey, 300)
+    const content = str(body.content)
+    if (postKey === null || commentKey === null || content === null || !band.posts.has(postKey)) return c.json({ error: 'input' }, 400)
+    return c.json({ ok: band.editComment(postKey, commentKey, content) })
+  })
+  control.post('/_e2e/band/fail', async (c) => {
+    const body = await read(c.req.raw)
+    const op = body.op
+    const times = typeof body.times === 'number' && Number.isSafeInteger(body.times) && body.times > 0 && body.times <= 1000 ? body.times : 1
+    let fault: FakeBandFault | null = null
+    if (typeof body.resultCode === 'number' && Number.isSafeInteger(body.resultCode)) fault = { resultCode: body.resultCode }
+    else if (typeof body.http === 'number' && Number.isSafeInteger(body.http)) fault = { http: body.http }
+    else if (body.kind === 'HANG' || body.kind === 'NOT_JSON' || body.kind === 'BAD_SHAPE') fault = body.kind
+    if (!isBandOp(op) || op === 'authorize' || fault === null) return c.json({ error: 'input' }, 400)
+    band.fail(op, fault, times)
+    return c.json({ ok: true })
+  })
+  control.post('/_e2e/band/clear', (c) => {
+    band.clearFaults()
+    band.releaseHanging()
+    return c.json({ ok: true })
+  })
+  control.post('/_e2e/band/revoke', async (c) => {
+    const body = await read(c.req.raw)
+    const userKey = str(body.userKey, 300)
+    if (userKey === null) return c.json({ error: 'input' }, 400)
+    band.revoke(userKey)
+    return c.json({ ok: true })
+  })
+  control.post('/_e2e/band/delay', async (c) => {
+    const body = await read(c.req.raw)
+    const ms = typeof body.ms === 'number' && Number.isSafeInteger(body.ms) && body.ms >= 0 && body.ms <= 120_000 ? body.ms : null
+    if (!isBandOp(body.op) || ms === null) return c.json({ error: 'input' }, 400)
+    band.delay(body.op, ms)
+    return c.json({ ok: true })
+  })
+  control.get('/_e2e/band/requests', (c) => {
+    const requests = band.requests.map((request) => ({ method: request.method, path: request.path }))
+    return c.json({ requests, onlyAllowed: requests.every((request) => request.method === 'GET' && BAND_ALLOWED_PATHS.includes(request.path)) })
+  })
 }
 
 const TIKTOK_ACCOUNT_STATES: readonly FakeAccountState[] = ['LIVE', 'OFFLINE', 'MISSING']
@@ -406,6 +551,8 @@ export interface E2eServer {
   readonly fakeMeta: FakeMeta | null
   /** 가짜 웹캐스트 (tiktok: true일 때만) */
   readonly fakeWebcast: FakeWebcast | null
+  /** 가짜 밴드 서버 (band를 주었을 때만, BND1) */
+  readonly fakeBand: FakeBand | null
   /** 가짜 택배사 (parcel: false가 아니면) */
   readonly fakeCarrier: FakeCarrier | null
   /** 가짜 OAuth 서버 (social을 주었을 때만, L1) */
@@ -433,6 +580,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
         })
   const budget = options.youtube?.quotaBudget
   const fakeWebcast = options.tiktok === true ? new FakeWebcast() : null
+  const fakeBand = options.band === undefined ? null : await FakeBand.start(options.band.port === undefined ? {} : { port: options.band.port })
   const fakeCarrier = options.parcel === false ? null : await FakeCarrier.start(options.parcelPort === undefined ? {} : { port: options.parcelPort })
   const socialProviders: readonly ProviderId[] = options.social?.providers ?? ['google', 'kakao', 'naver']
   const fakeOAuth =
@@ -487,6 +635,9 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     testPrinter: options.testPrinter ?? true,
     ...(options.billing === true ? { billing: testBilling() } : {}),
     ...(fakeWebcast === null ? {} : { tiktok: { settings: readTikTokSettings({ LIVEJJIM_TIKTOK_BETA: 'on' }), webcast: fakeWebcast.factory } }),
+    ...(fakeBand === null
+      ? {}
+      : { band: { settings: fakeBand.settings({ redirectUri: `${appOrigin}/api/band/callback` }), timing: { fastMs: options.band?.fastMs ?? E2E_BAND_FAST_MS, fullMs: options.band?.fullMs ?? E2E_BAND_FULL_MS } } }),
     deposits: {
       testMode: options.testDeposits ?? true,
       popbill: null,
@@ -508,7 +659,9 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
   if (fakeGoogle !== null) server.start()
   // 택배 배송 조회·배송지 정리 (유튜브를 켜지 않은 기동도 — 시험 모드 주기)
   else if (fakeCarrier !== null) server.parcels.start()
-  const http = createNodeServer({ app: e2eControl(server, database, Buffer.from(masterKey, 'base64'), options.passwordCost, fakeWebcast, fakeCarrier) })
+  // 밴드 보관 기간 지우기·이어받기 (유튜브를 켜지 않은 기동도)
+  if (fakeBand !== null && fakeGoogle === null) void server.band.resume()
+  const http = createNodeServer({ app: e2eControl(server, database, Buffer.from(masterKey, 'base64'), options.passwordCost, fakeWebcast, fakeCarrier, fakeBand) })
   return {
     server,
     database,
@@ -520,6 +673,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     http,
     fakeMeta,
     fakeWebcast,
+    fakeBand,
     fakeCarrier,
     fakeOAuth,
     fakeLlm,
@@ -548,6 +702,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
         else http.close(() => resolve())
       })
       await fakeMeta?.close()
+      await fakeBand?.close()
       await fakeCarrier?.close()
       await fakeOAuth?.close()
       await fakeLlm?.close()
