@@ -1,6 +1,6 @@
 // V3 적대 시험 (test-domain, AC-V3-60 — R-17 8 조각 소비, D-V3-23·26·46·51·71·73, SA-V3-003): 화면이 실제로 바로 등록을 정하는 readSegments를
 // 낱말 하나씩 늘려 넣으며 공격한다. 노리는 것: 원 가격 없이 등록, 원 가격 바로 앞이 아닌 번호와 짝, 남은 조각의 맨 수를 번호로, 글 끝 맨 수로 등록,
-// 정정이 든 조각에서 등록, 한 조각에 등록 둘, 글이 늘면서 앞 등록이 바뀜, 실제 방송 변형에서 엉뚱한 번호.
+// 정정이 든 조각에서 등록, 한 조각에 등록 둘, 실제 방송 변형에서 엉뚱한 번호. (d) 등록된 pick이 뒤 말로 되돌려짐은 controller-stability.test.ts(D-V3-79).
 // 1,000ms 안정(D-V3-71)은 시각을 받는 따로 된 함수(trackInterim)라 waiting-interim-auto.test.ts가 본다 — 여기서 품종 없는 빠른 꼴은 최종일 때만이다.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -94,10 +94,9 @@ function checkPick(r: SegmentReading, p: SegmentPick, index: number, final: bool
 }
 
 /** 낱말 하나씩 늘려 넣기 (k < n 중간 결과, k = n 최종): 성질 (a)~(d)를 보고, 화면처럼 `${no}@${start}`마다 한 번 등록한다고 센다 */
-function feed(text: string, stable = false): { registered: { no: number; price: number; start: number }[] } {
+function feed(text: string): { registered: { no: number; price: number; start: number }[] } {
   const tokens = text.split(' ').filter((t) => t !== '')
   const done = new Map<string, { no: number; price: number; start: number }>()
-  let previous: readonly SegmentPick[] = []
   for (let k = 1; k <= tokens.length; k++) {
     const prefix = tokens.slice(0, k).join(' ')
     const final = k === tokens.length
@@ -107,20 +106,10 @@ function feed(text: string, stable = false): { registered: { no: number; price: 
     r.picks.forEach((p, i) => {
       expect(p.start > last, `조각이 겹침: ${prefix}`).toBe(true)
       last = p.end
-      if (!stable) checkPick(r, p, i, final, prefix)
+      checkPick(r, p, i, final, prefix)
       const key = `${String(p.no)}@${String(p.start)}`
       if (!done.has(key)) done.set(key, { no: p.no, price: p.price, start: p.start })
     })
-    // (d) 글이 늘어도 앞 pick은 바뀌지 않는다 — 앞 글의 pick은 그대로(같은 자리·번호·가격) 남는다 (stable일 때만 — TD-V3-008은 따로)
-    // 빠른 꼴(priceFrom quick) pick은 뺀다 — R-17 8 문장("수 뒤가 조각 끝 — 뒤에 군말만")대로면 "15번 라울 60 자"의 pick이 "… 자 뿌리"에서 사라져
-    // AC-V3-60 (d)와 부딪힌다(스펙 확인 필요로 보고). 원 가격 짝·'번' 없는 번호 pick만 본다
-    if (stable) for (const old of previous.filter((p) => p.priceFrom === 'won')) {
-      expect(
-        r.picks.some((p) => p.start === old.start && p.no === old.no && p.price === old.price),
-        `앞 pick ${old.no}번 ${old.price}원@${old.start}이 바뀜: ${prefix}`,
-      ).toBe(true)
-    }
-    previous = r.picks
   }
   return { registered: [...done.values()] }
 }
@@ -134,7 +123,7 @@ const VOCAB = [
 
 const PLAIN = VOCAB.filter((word) => !isCorrectionToken(word) && word !== '다시')
 
-describe('AC-V3-60 — readSegments에 무작위 문장을 낱말 하나씩 (a)~(d)', () => {
+describe('AC-V3-60 — readSegments에 무작위 문장을 낱말 하나씩 (a)~(c)', () => {
   it('(a)(c) 정정·취소 낱말 없는 글: pick마다 원 가격 줄·빠른 꼴, 원 가격 바로 앞 N번(또는 첫 조각의 번 없는 번호), 한 조각 하나', () => {
     fc.assert(
       fc.property(fc.array(fc.constantFrom(...PLAIN), { minLength: 1, maxLength: 16 }), (parts) => {
@@ -153,21 +142,8 @@ describe('AC-V3-60 — readSegments에 무작위 문장을 낱말 하나씩 (a)~
     )
   })
 
-  // TD-V3-008: AC-V3-60 (d) "글이 늘어도 앞 pick은 바뀌지 않는다" — 첫 조각의 '번' 없는 번호 pick이 뒤에 붙은 말(남은 조각의 맨 수·N번)에 따라
-  // 사라진다. D-V3-73으로 남은 조각에선 '번' 없는 수가 번호가 아닌데, 구현은 덩어리 글 전체의 '번' 없는 번호·N번 우선 판단을 첫 조각에 다시 적용한다.
-  // 화면은 중간 결과에서 이미 170번을 등록한 뒤라, 최종 읽기와 등록이 어긋난다(덩어리 끝 처리·기록이 그 등록을 모름).
-  it.each([
-    ['170 25만 원', '170 25만 원 1'],
-    ['170 25만 원', '170 25만 원 자 3번'],
-    ['170 25만 원', '170 25만 원 자 15번 만원'],
-    ['15 5만 원까지', '15 5만 원까지 15번'],
-  ])('TD-V3-008: "%s"의 pick이 "%s"에서도 그대로', (head, longer) => {
-    const before = seg(head, false).picks.map((p) => [p.no, p.price, p.start])
-    expect(before).toHaveLength(1)
-    const after = seg(longer, false).picks.map((p) => [p.no, p.price, p.start])
-    expect(after).toContainEqual(before[0])
-  })
-
+  // D-V3-79(결정 변경 — 약화 아님): AC-V3-60 (d)는 "등록된 pick은 뒤 말로 바뀌거나 사라지지 않는다(다시 읽은 글에서 없어져도 쓰기를 되돌리지 않음)"이고
+  // 등록 전 pick 변화는 허용한다. 그래서 readSegments 글이 늘 때의 pick 안정(지난 TD-V3-008 시험)은 지우고, (d)는 화면 컨트롤러의 쓰기로 본다 — controller-stability.test.ts.
   // TD-V3-009: AC-V3-60 (b) "정정·취소 낱말(D-V3-51 꼴)이 든 조각엔 pick이 없다". 빠른 꼴(D-V3-48·63)이 정정·취소 낱말을 군말처럼 건너뛰어
   // "15번 취소 180"을 15번 · 180,000원으로 바로 등록한다(취소라고 말했는데 등록). 원 가격 꼴("15번 취소 만 원")은 막힌다.
   it.each(['15번 취소 180', '15번 아니 180', '15번 아니 오만', '15번 다시 180', '15번 정정 180', '15번 삼광색금 만오천말고 25만', '15번 라울 만오천 말고 25만'])('TD-V3-009: "%s"(최종, 천원) → pick 없음', (text) => {
@@ -175,15 +151,6 @@ describe('AC-V3-60 — readSegments에 무작위 문장을 낱말 하나씩 (a)~
   })
   it.each(['15번 취소 만 원', '15번 아니 만 원', '15번 라울 취소 180'])('"%s"(최종) → pick 없음 (회귀)', (text) => {
     expect(seg(text, true).picks).toEqual([])
-  })
-
-  it('TD-V3-008 성질 (d): 무작위 문장에서 글이 늘어도 앞 원 가격 pick은 그대로', () => {
-    fc.assert(
-      fc.property(fc.array(fc.constantFrom(...VOCAB), { minLength: 1, maxLength: 16 }), (parts) => {
-        feed(parts.join(' '), true)
-      }),
-      { numRuns: 1000 },
-    )
   })
 
   it.each([
