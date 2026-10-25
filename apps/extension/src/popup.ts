@@ -25,6 +25,15 @@ function show(view: HubView): void {
   const thanks = $('thanks')
   thanks.hidden = view.thanks === null
   thanks.textContent = view.thanks === null ? '' : `! ${view.thanks}`
+  // 틱톡 줄 (TTX) — 정해진 문장만, 글자로
+  const tiktok = view.tiktok
+  $('tiktok').hidden = tiktok === null
+  const ttState = $('tiktok-state')
+  ttState.textContent = tiktok?.message ?? ''
+  ttState.dataset['light'] = tiktok?.light ?? 'off'
+  const overflow = $('tiktok-overflow')
+  overflow.hidden = tiktok?.overflow == null
+  overflow.textContent = tiktok?.overflow ?? ''
   $('connect').hidden = view.connected
   $('connected').hidden = !view.connected
   if (view.connected && view.video !== null) void loadPick()
