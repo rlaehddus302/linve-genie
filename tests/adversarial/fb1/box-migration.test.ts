@@ -2,24 +2,35 @@
 // BASE 모양(0018까지)의 DB에 여러 판매자의 설정·접수 기록(옛 낱말 넷과 새 코드가 무작위로 섞임)을 넣고 0019를 적용하면
 // 하나씩 정확히 옮겨지고(극소→60·소→80·중→100·대→120, 새 코드는 그대로), DB에 옛 낱말이 0개, 행 수는 그대로(지우는 것 없음),
 // 옮긴 뒤 서버 조회(storedBox)도 같은 값을 읽는다.
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { openPglite } from '../../../apps/server/src/db/database.ts'
+import { MIGRATIONS_FOLDER, openPglite } from '../../../apps/server/src/db/database.ts'
 import { storedBox } from '../../../apps/server/src/parcel/rules.ts'
 import { newWorld } from '../../../apps/server/test/support.ts'
+
+/** 0019 마이그레이션의 저널 시각 (drizzle.__drizzle_migrations.created_at = 저널 when) */
+const MIGRATION_0019_WHEN = (
+  JSON.parse(readFileSync(join(MIGRATIONS_FOLDER, 'meta', '_journal.json'), 'utf8')) as { entries: { tag: string; when: number }[] }
+).entries.find((entry) => entry.tag === '0019_fb1_parcel_box_carrier')?.when as number
 
 const MOVE: Readonly<Record<string, string>> = { 극소: '60', 소: '80', 중: '100', 대: '120', '60': '60', '80': '80', '100': '100', '120': '120', '160': '160' }
 
 describe('TD-FB1 0019 옛 낱말 옮기기 (AC-FB1-16)', () => {
   it('무작위 판매자 40명·접수 기록 200개: 하나씩 정확히 옮기고 옛 낱말 0개, 행 수 그대로, 서버가 읽는 값도 같다', async () => {
-    // 새 DB를 만든 뒤 BASE(0018까지)의 모양으로 되돌린다: 기본값 '소', carrier_name 없음, 0019 적용 기록 없음 — 그 위에 옛 행을 넣고 0019를 다시 적용
+    // 새 DB를 만든 뒤 BASE(0018까지)의 모양으로 되돌린다: 기본값 '소', carrier_name 없음, 0019 적용 기록 없음 — 그 위에 옛 행을 넣고 0019를 다시 적용.
+    // 0019 뒤의 마이그레이션(CRM1 0020 — 손님 표 둘)도 적용 전으로 되돌린다 (CRM1: "마지막 기록 하나 지우기"는 0020이 생겨 0019가 아니게 됨 —
+    // "0019(저널 when) 이후 기록 지우기"로 교체. 약화 아님: 같은 0019를 다시 적용하는 같은 시험)
     const world = await newWorld()
     const pg = world.database.pglite
     if (pg === null || pg === undefined) throw new Error('PGlite가 아니다')
     await pg.exec(`
       alter table parcel_settings alter column box set default '소';
       alter table parcel_settings drop column carrier_name;
-      delete from drizzle.__drizzle_migrations where id = (select max(id) from drizzle.__drizzle_migrations);`)
+      drop table customer_memos;
+      drop table customer_settings;
+      delete from drizzle.__drizzle_migrations where created_at >= ${String(MIGRATION_0019_WHEN)};`)
     {
       const words = Object.keys(MOVE)
       const sellerBoxes = fc.sample(fc.constantFrom(...words), { numRuns: 40, seed: 3 })
