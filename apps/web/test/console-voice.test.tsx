@@ -59,6 +59,8 @@ beforeEach(() => {
   FakeEventSource.reset()
   FakeRecognition.all.length = 0
   window.localStorage.clear()
+  // 이 시험들은 카드 확인 동작을 본다 — V3 "번호와 가격이 들리면 바로 등록"(기본 켬)을 끈 기기로 시작한다 (바로 등록은 v3-voice-instant 시험)
+  window.localStorage.setItem(VOICE_SETTINGS_KEY, JSON.stringify({ 'voice.instantRegister': false }))
   window.history.replaceState(null, '', '/')
 })
 
@@ -370,12 +372,12 @@ describe('끄기·설정 (AC-I4-14·30)', () => {
     fireEvent.change(seconds, { target: { value: '31' } })
     expect(screen.getByText('자동 확정 기다림은 3초부터 30초까지의 정수로 적어 주세요')).toBeDefined()
     fireEvent.change(seconds, { target: { value: '8' } })
-    expect(JSON.parse(window.localStorage.getItem(VOICE_SETTINGS_KEY) ?? 'null')).toEqual({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 8 })
+    expect(JSON.parse(window.localStorage.getItem(VOICE_SETTINGS_KEY) ?? 'null')).toEqual({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 8, 'voice.instantRegister': false })
   })
 
   it('자동 확정: 남은 초와 "자동 등록 멈추기"가 보이고 정한 시간 뒤 등록', async () => {
     setup()
-    window.localStorage.setItem(VOICE_SETTINGS_KEY, JSON.stringify({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 3 }))
+    window.localStorage.setItem(VOICE_SETTINGS_KEY, JSON.stringify({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 3, 'voice.instantRegister': false }))
     await openConsole()
     await turnOnVoice()
     FakeRecognition.say('15번 핑크프릴 만오천 원')
@@ -410,4 +412,22 @@ describe('판매 이력 사전 (AC-I4-40)', () => {
     await turnOnVoice()
     expect(await screen.findByText('지난 판매 품종을 불러오지 못했어요. 기본 품종 사전으로 알아들어요.')).toBeDefined()
   })
+})
+
+describe('바로 등록 (V3 — 기본 켬)', () => {
+  it('번호와 가격이 들리면 조용한 시간 없이 빠른 입력과 같은 등록(되돌리기 띠), 카드 없음 — 같은 말을 다시 해도 한 번', async () => {
+    setup()
+    window.localStorage.removeItem(VOICE_SETTINGS_KEY)
+    await openConsole()
+    await turnOnVoice()
+    FakeRecognition.say('15번 핑크프릴 만오천 원')
+    await waitFor(() => expect(registers()).toEqual([[15, '핑크프릴', 15000]]))
+    expect(await screen.findByText('15번을 등록했어요')).toBeDefined()
+    expect(screen.queryByRole('listitem', { name: '15번 핑크프릴 15,000원 카드' })).toBeNull()
+    await quiet()
+    FakeRecognition.say('15번 핑크프릴 만오천 원')
+    await quiet()
+    expect(registers()).toEqual([[15, '핑크프릴', 15000]])
+    expect(screen.queryByRole('listitem', { name: '15번 핑크프릴 15,000원 카드' })).toBeNull()
+  }, 10_000)
 })

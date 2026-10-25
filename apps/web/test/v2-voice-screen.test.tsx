@@ -58,6 +58,8 @@ beforeEach(() => {
   FakeEventSource.reset()
   FakeRecognition.all.length = 0
   window.localStorage.clear()
+  // 이 시험들은 카드 확인 동작을 본다 — V3 "번호와 가격이 들리면 바로 등록"(기본 켬)을 끈 기기로 시작한다 (바로 등록은 v3-voice-instant 시험)
+  window.localStorage.setItem(VOICE_SETTINGS_KEY, JSON.stringify({ 'voice.instantRegister': false }))
   window.history.replaceState(null, '', '/')
 })
 
@@ -184,7 +186,7 @@ describe('음성 기록 보기·조용한 시간 설정 (AC-V2-16·28·29)', () 
     fireEvent.change(quietField, { target: { value: '4.5' } })
     expect(screen.getByText('말이 끝났다고 볼 때까지는 1.0초부터 4.0초까지 0.1초 단위로 정해 주세요')).toBeDefined()
     fireEvent.change(quietField, { target: { value: '1.0' } })
-    expect(JSON.parse(window.localStorage.getItem(VOICE_SETTINGS_KEY) ?? 'null')).toEqual({ 'voice.autoConfirm': false, 'voice.autoConfirmSec': 5, 'voice.quietMs': 1000 })
+    expect(JSON.parse(window.localStorage.getItem(VOICE_SETTINGS_KEY) ?? 'null')).toEqual({ 'voice.autoConfirm': false, 'voice.autoConfirmSec': 5, 'voice.quietMs': 1000, 'voice.instantRegister': false })
     FakeRecognition.say('아니 이거 너무 예쁘죠')
     await sleep(1100)
     fireEvent.click(screen.getByRole('button', { name: '음성 기록' }))

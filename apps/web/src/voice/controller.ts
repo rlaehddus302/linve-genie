@@ -26,6 +26,9 @@ import type {
   VoiceLogAction,
   VoiceLogEntry,
   CardRegistration,
+  ExistingDecision,
+  ExistingHeard,
+  ReadyRegistration,
   SmsBuyerCandidate,
   SmsCard,
   SmsProductView,
@@ -57,11 +60,29 @@ import {
   type HeardLine,
 } from '../lib/voice.ts'
 import { REGISTER_UNDO_MS } from '../lib/undo-queue.ts'
+import {
+  AUTO_FIX_FAILED,
+  INSTANT_KEY,
+  LOG_ALREADY,
+  LOG_ASK,
+  LOG_AUTO_FIX,
+  LOG_INSTANT,
+  LOG_INSTANT_DONE,
+  LOG_PENDING,
+  LOG_UPDATED_CARD,
+  askMessage,
+  fixedMessage,
+  fixingMessage,
+  pickChanges,
+  readInstant,
+  type InstantChanges,
+} from './instant.ts'
 import type { VoiceModule } from './load.ts'
 
 export type VoicePhase = 'off' | 'loading' | 'consent' | 'on'
 export type FormField = 'no' | 'name' | 'price'
-export type RegisterSource = 'enter' | 'click' | 'auto'
+/** instant = V3 바로 등록 (번호·가격이 들린 순간, 카드 없이) */
+export type RegisterSource = 'enter' | 'click' | 'auto' | 'instant'
 
 /** 음성 코드를 받지 못했을 때 */
 export const VOICE_LOAD_FAILED = '음성 기능을 불러오지 못했어요. 인터넷 연결을 확인하고 다시 켜 주세요.'
@@ -369,7 +390,41 @@ export interface VoiceSnapshot {
   readonly quietProblem: string | null
   /** 배운 품종 이름 수 */
   readonly learnedCount: number
+  // ── V3 ──
+  /** 번호와 가격이 들리면 바로 등록 (그 기기 설정, 기본 켬) */
+  readonly instant: boolean
 }
+
+/** 그 방송에 이미 있는 상품 (V3 — 콘솔의 상품 보드에서) */
+export interface ExistingView {
+  /** 상품 키 (고치기·되돌리기에 쓴다) */
+  readonly key: string
+  readonly name: string
+  readonly price: number
+  /** 1등 + 대기 수 */
+  readonly claimCount: number
+  /** 판매 종료 */
+  readonly closed: boolean
+}
+
+/** 바로 등록을 보낸 뒤 상품 목록에 보이기 전까지 들고 있는 것 (같은 번호를 두 번 보내지 않게) */
+interface PendingInstant {
+  readonly cardId: string
+  readonly name: string
+  readonly price: number
+  readonly key: string | null
+  readonly at: number
+}
+
+/** 바로 등록 쪽이 한 일 (기록·결과 한 줄) */
+interface InstantDone {
+  readonly action: VoiceLogAction
+  readonly reason: string
+  readonly readout: string | null
+}
+
+/** 보낸 바로 등록을 들고 있는 시간 */
+const PENDING_KEEP_MS = 60_000
 
 /** 지난 실제 범위 하나의 상품 이름 */
 export interface PastDay {
@@ -421,6 +476,9 @@ export interface VoiceHost {
   fixRecent?(registrationId: string, changes: { readonly name?: string; readonly price?: number }): Promise<RecentFixOutcome>
   /** 등록 되돌리기 (지금의 5초 되돌리기). 되돌리기를 시작했으면 true */
   undoRecent?(registrationId: string): boolean
+  // ── V3 — 이것이 있어야 바로 등록을 한다 (없는 화면은 V2 카드 확인 그대로) ──
+  /** 그 방송의 그 번호 상품, 없으면 null */
+  existingProduct?(no: number): ExistingView | null
 }
 
 /** 컨트롤러가 생기기 전·꺼진 처음 상태 */
@@ -458,6 +516,7 @@ export const VOICE_IDLE: VoiceSnapshot = {
   quietText: '1.8',
   quietProblem: null,
   learnedCount: 0,
+  instant: true,
 }
 
 /** ms → "1.8" */
@@ -611,6 +670,11 @@ export class VoiceController {
   /** 이 콘솔에서 음성 카드로 등록한 상품 (60초, D-V2-06 3) */
   #recent: RecentRegistration[] = []
   #nextOffer = 1
+  // ── V3 ──
+  /** 지금 모으는 덩어리에서 이미 바로 등록(또는 처리)한 번호 — 덩어리가 끝나면 비운다 */
+  #instantNos = new Set<number>()
+  /** 보낸 바로 등록 (번호 → 보낸 값) */
+  readonly #pending = new Map<number, PendingInstant>()
 
   constructor(host: VoiceHost) {
     this.#host = host
@@ -651,7 +715,7 @@ export class VoiceController {
       const settings = module.resolveVoiceSettings(stored)
       // 조용한 시간은 같은 저장값의 `voice.quietMs` (범위 밖·모르는 값은 1800, D-V2-09)
       const quietMs = module.resolveQuietMs(stored)
-      this.#set({ settings, secondsText: String(settings['voice.autoConfirmSec']), quietMs, quietText: quietText(quietMs), quietProblem: null })
+      this.#set({ settings, secondsText: String(settings['voice.autoConfirmSec']), quietMs, quietText: quietText(quietMs), quietProblem: null, instant: readInstant(stored) })
     }
     if (this.#phrase === null) this.#phrase = module.createPhraseState({ quietMs: this.#snapshot.quietMs })
     if (!this.#learnedLoaded) {
@@ -825,6 +889,7 @@ export class VoiceController {
         this.#phrase = step.state
         const work = this.#startWork(module)
         this.#runOutputs(work, module, step.out)
+        this.#tryInstant(work, module)
         this.#set({ interim: result.text, ...this.#finishWork(work, module) })
         return
       }
@@ -842,6 +907,7 @@ export class VoiceController {
     this.#phrase = step.state
     const work = this.#startWork(module)
     this.#runOutputs(work, module, step.out)
+    this.#tryInstant(work, module)
     this.#set({ ...label, interim: null, heard, ...this.#finishWork(work, module) })
   }
 
@@ -973,6 +1039,15 @@ export class VoiceController {
     const info = new Map(work.info)
     const notes = new Map(work.notes)
     const candidatesFor = (name: string | null): readonly VarietyCandidate[] => (name === null ? reading.candidates : [])
+    // V3 바로 등록: 번호가 들린 새 카드 — 이미 바로 등록한 번호·이미 있는 번호·번호와 가격이 다 들린 말·같은 번호 열린 카드를 먼저 본다
+    const instantDone = action.kind === 'create' && this.#instantOn() ? this.#instantChunk(work, module, chunk, reading) : null
+    this.#instantNos = new Set()
+    if (instantDone !== null) {
+      const read = { no: reading.no, name: reading.name, price: reading.price, candidates: reading.candidates }
+      work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: chunk.pieces, read, action: instantDone.action, reason: instantDone.reason }))
+      if (instantDone.readout !== null) work.readout = { text: instantDone.readout, discarded: false, until: now + READOUT_MS }
+      return
+    }
     switch (action.kind) {
       case 'create': {
         const id = `voice-${String(this.#nextCard++)}`
@@ -1223,6 +1298,214 @@ export class VoiceController {
     this.dismissUnsupported()
   }
 
+  // ── V3 바로 등록 (번호·가격이 들리는 순간) ───────────────────────────
+
+  /** 바로 등록을 하는가: 설정 켬 + 콘솔이 상품 보드를 넘긴다 + 음성 패키지에 판단 함수가 있다 */
+  #instantOn(): boolean {
+    const module = this.#module
+    return this.#snapshot.instant && this.#host.existingProduct !== undefined && module !== null && typeof module.readyToRegister === 'function'
+  }
+
+  /** "번호와 가격이 들리면 바로 등록" 켬/끔 — 같은 음성 설정 저장값에 */
+  setInstant(on: boolean): void {
+    const settings = this.#snapshot.settings
+    if (settings === null) return
+    this.#set({ instant: on })
+    this.#writeSettings(settings)
+  }
+
+  /** 지금 모으는 덩어리 글 (모은 글 + 중간 결과) */
+  #chunkText(module: VoiceModule): string {
+    if (this.#phrase === null) return ''
+    const view = module.heardText(this.#phrase)
+    return [view.collected, view.interim].filter((part) => part.trim() !== '').join(' ')
+  }
+
+  #ready(module: VoiceModule, text: string): ReadyRegistration | null {
+    if (text.trim() === '') return null
+    try {
+      return module.readyToRegister(text, { dictionary: this.#prepared(module), maxNumber: this.#host.maxNumber() })
+    } catch {
+      return null
+    }
+  }
+
+  /** 결과가 올 때마다(중간 결과 포함): 번호와 가격이 다 들렸으면 조용한 시간을 기다리지 않고 바로 (덩어리 안 같은 번호는 한 번만) */
+  #tryInstant(work: CardWork, module: VoiceModule): void {
+    if (!this.#instantOn()) return
+    const text = this.#chunkText(module)
+    const ready = this.#ready(module, text)
+    if (ready === null || this.#instantNos.has(ready.no)) return
+    const existing = this.#existingOf(ready.no)
+    // 판매 종료한 번호(등록을 되돌린 번호 포함)는 바로 하지 않는다 — 덩어리가 끝나면 지금처럼 카드
+    if (existing === 'closed') return
+    this.#instantNos.add(ready.no)
+    const now = this.#host.now()
+    const pieces = [{ text }]
+    const read = { no: ready.no, name: ready.name, price: ready.price, candidates: [] }
+    const done = existing === null ? this.#registerInstant(work, ready, text) : this.#applyExisting(work, module, ready.no, existing, { name: ready.name, price: ready.price, nameNeedsCheck: ready.nameNeedsCheck, priceSure: true }, true)
+    work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces, read, action: done.action, reason: done.reason }))
+    if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: now + READOUT_MS }
+  }
+
+  /**
+   * 덩어리가 끝났을 때 번호가 들린 새 카드 (create): 처리했으면 기록할 것, 아니면 null(지금처럼 카드).
+   * 1) 이 덩어리에서 이미 바로 한 번호 → 아무것도 안 함 2) 이미 있는 번호 → decideForExisting
+   * 3) 덩어리 글로 번호·가격이 다 들림 → 바로 등록 4) 같은 번호 카드가 열려 있음 → 그 카드를 고침
+   */
+  #instantChunk(work: CardWork, module: VoiceModule, chunk: PhraseChunk, reading: ChunkReading): InstantDone | null {
+    const no = reading.no
+    if (no === null) return null
+    if (this.#instantNos.has(no)) return { action: 'discard', reason: LOG_INSTANT_DONE, readout: null }
+    const existing = this.#existingOf(no)
+    if (existing === 'closed') return null
+    if (existing !== null) {
+      // 가격이 '…원'으로 들렸는지(R-22 priceSure) — 읽지 못하면 확실하지 않다고 본다(묻는 쪽)
+      let priceSure: boolean
+      try {
+        priceSure = module.readRegistration(chunk.text, { dictionary: this.#prepared(module), maxNumber: this.#host.maxNumber() }).priceSure
+      } catch {
+        priceSure = false
+      }
+      const heard: ExistingHeard = { name: reading.name, price: reading.price, nameNeedsCheck: reading.nameNeedsCheck, priceSure }
+      return this.#applyExisting(work, module, no, existing, heard, chunk.noAutoConfirm !== true)
+    }
+    const ready = this.#ready(module, chunk.text)
+    if (ready !== null && !this.#instantNos.has(ready.no) && this.#existingOf(ready.no) === null) return this.#registerInstant(work, ready, chunk.text)
+    const open = work.cards.find((card) => isOpen(card) && card.no === no)
+    if (open === undefined) return null
+    const changes: { name?: string; price?: number } = {}
+    if (reading.name !== null && reading.name !== open.name) changes.name = reading.name
+    if (reading.price !== null && reading.price !== open.price) changes.price = reading.price
+    if (Object.keys(changes).length === 0) return { action: 'discard', reason: LOG_UPDATED_CARD, readout: null }
+    const edited = module.editCard(open, changes, { maxNumber: this.#host.maxNumber() })
+    if (!edited.ok) return null
+    const next: SuggestionCard = reading.nameNeedsCheck && changes.name !== undefined ? { ...edited.card, nameNeedsCheck: true } : edited.card
+    work.cards = module.replaceCard(work.cards, next).filter(isOpen)
+    const info = new Map(work.info)
+    info.set(open.id, { candidates: next.name === null ? reading.candidates : [], ask: module.askFor(next) })
+    work.info = info
+    if (changes.name !== undefined && reading.nameWindow !== null) this.#windows.set(open.id, reading.nameWindow)
+    return { action: 'edit', reason: LOG_UPDATED_CARD, readout: module.describeCard(next) }
+  }
+
+  /** 그 번호의 지금 상품 (판매 종료면 'closed'), 보낸 바로 등록이 아직 목록에 없으면 보낸 값, 없으면 null */
+  #existingOf(no: number): (ExistingView & { readonly pending?: true }) | 'closed' | null {
+    let found: ExistingView | null
+    try {
+      found = this.#host.existingProduct?.(no) ?? null
+    } catch {
+      found = null
+    }
+    if (found !== null) return found.closed ? 'closed' : found
+    const pending = this.#pending.get(no)
+    if (pending === undefined) return null
+    if (this.#host.now() - pending.at > PENDING_KEEP_MS) {
+      this.#pending.delete(no)
+      return null
+    }
+    return { key: pending.key ?? '', name: pending.name, price: pending.price, claimCount: 0, closed: false, pending: true }
+  }
+
+  /** 바로 등록: 카드 없이 등록 경로로 (같은 번호 열린 카드는 닫는다). 등록하지 못하면 콘솔이 카드로 돌려놓는다 */
+  #registerInstant(work: CardWork, ready: ReadyRegistration, text: string): InstantDone {
+    const now = this.#host.now()
+    const id = `voice-${String(this.#nextCard++)}`
+    const card: SuggestionCard = {
+      id,
+      no: ready.no,
+      name: ready.name,
+      price: ready.price,
+      confidence: 'HIGH',
+      text,
+      createdAt: now,
+      status: 'OPEN',
+      touched: false,
+      autoConfirmAt: null,
+      ...(ready.nameNeedsCheck ? { nameNeedsCheck: true } : {}),
+    }
+    work.cards = work.cards.filter((item) => !(isOpen(item) && item.no === ready.no))
+    const registration: CardRegistration = { no: ready.no, name: ready.name ?? '', price: ready.price }
+    this.#pending.set(ready.no, { cardId: id, name: registration.name, price: registration.price, key: null, at: now })
+    this.#host.register(card, registration, 'instant')
+    return { action: 'create', reason: LOG_INSTANT, readout: `${String(ready.no)}번 ${ready.name ?? '품종 미입력'} ${formatWon(ready.price)} · 바로 등록했어요` }
+  }
+
+  /** 이미 있는 번호: 무시 · 자동으로 고침(되돌리기 10초) · 품종 채움 · 고칠까요 카드 */
+  #applyExisting(work: CardWork, module: VoiceModule, no: number, existing: ExistingView & { readonly pending?: true }, heard: ExistingHeard, auto: boolean): InstantDone {
+    let decision: ExistingDecision
+    try {
+      decision = module.decideForExisting({ no, name: existing.name, price: existing.price, claimCount: existing.claimCount }, heard, { auto })
+    } catch {
+      decision = { kind: 'IGNORE' }
+    }
+    if (decision.kind === 'IGNORE') return { action: 'discard', reason: LOG_ALREADY, readout: null }
+    const changes = pickChanges(existing, decision.kind === 'FILL_NAME' ? { name: decision.name, price: null } : { name: decision.name, price: decision.price })
+    if (Object.keys(changes).length === 0) return { action: 'discard', reason: LOG_ALREADY, readout: null }
+    // 보낸 등록이 아직 상품 목록에 없다 — 고칠 상품을 가리킬 수 없으니 그대로 둔다 (되돌리기로 고친다)
+    if (existing.pending === true || existing.key === '') return { action: 'discard', reason: LOG_PENDING, readout: null }
+    if (decision.kind === 'ASK') {
+      const message = askMessage(no, existing, changes)
+      const offer: VoiceOffer = { id: `offer-${String(this.#nextOffer++)}`, kind: 'offer', registrationId: existing.key, message, changes, stage: 'ask', before: null, undoUntil: null, error: null }
+      work.offers = [offer, ...work.offers.filter((item) => !(item.kind === 'offer' && item.stage === 'ask' && item.registrationId === existing.key))]
+      return { action: 'offer', reason: LOG_ASK, readout: message }
+    }
+    const offer: VoiceOffer = {
+      id: `offer-${String(this.#nextOffer++)}`,
+      kind: 'offer',
+      registrationId: existing.key,
+      message: fixingMessage(no, existing, changes),
+      changes,
+      stage: 'busy',
+      before: null,
+      undoUntil: null,
+      error: null,
+    }
+    work.offers = [offer, ...work.offers]
+    void this.#autoFix(offer.id, existing.key, no, existing, changes)
+    return { action: 'edit', reason: LOG_AUTO_FIX, readout: null }
+  }
+
+  /** 자동 고침: 고칠까요의 [고치기]와 같은 상품 고치기, 고친 뒤 [되돌리기] */
+  async #autoFix(offerId: string, key: string, no: number, existing: { readonly name: string; readonly price: number }, changes: InstantChanges): Promise<void> {
+    const fix = this.#host.fixRecent
+    let outcome: RecentFixOutcome
+    try {
+      outcome = fix === undefined ? { kind: 'failed', message: AUTO_FIX_FAILED } : await fix(key, changes)
+    } catch {
+      outcome = { kind: 'failed', message: AUTO_FIX_FAILED }
+    }
+    if (this.#disposed || this.#findOffer(offerId) === undefined) return
+    if (outcome.kind === 'dialog') {
+      this.#set({ offers: this.#snapshot.offers.filter((item) => item.id !== offerId) })
+      return
+    }
+    if (outcome.kind === 'failed') {
+      // 묻는 카드로 남긴다 — 판매자가 [고치기]를 다시 누를 수 있다
+      this.#replaceOffer(offerId, { stage: 'ask', message: askMessage(no, existing, changes), error: outcome.message })
+      return
+    }
+    this.#recent = this.#recent.map((item) => (item.id === key ? { ...item, ...changes } : item))
+    const offerTime = this.#module?.OFFER_UNDO_MS ?? 10_000
+    this.#replaceOffer(offerId, { stage: 'fixed', before: outcome.before, undoUntil: this.#host.now() + offerTime, message: fixedMessage(no, existing, changes), error: null })
+  }
+
+  /** 바로 등록을 보냈는데 차례에서 그 번호가 이미 있었다 (다른 기기 등) — 이미 있는 번호 규칙대로 */
+  instantExists(card: SuggestionCard): void {
+    const module = this.#module
+    if (this.#disposed || module === null || card.no === null) return
+    if (this.#pending.get(card.no)?.cardId === card.id) this.#pending.delete(card.no)
+    const existing = this.#existingOf(card.no)
+    if (existing === null || existing === 'closed') {
+      this.restore(card, { touched: true })
+      return
+    }
+    const work = this.#emptyWork()
+    const done = this.#applyExisting(work, module, card.no, existing, { name: card.name, price: card.price, nameNeedsCheck: card.nameNeedsCheck === true, priceSure: true }, true)
+    work.log = module.addLogEntry(work.log, module.createLogEntry({ at: this.#host.now(), pieces: [{ text: card.text }], read: { no: card.no, name: card.name, price: card.price, candidates: [] }, action: done.action, reason: done.reason }))
+    this.#set(this.#workPatch(work))
+  }
+
   // ── 이력을 기다리며 미룬 문장 (HISTORY_WAIT_MS) ─────────────────────
 
   #waitingHistory(): boolean {
@@ -1445,6 +1728,7 @@ export class VoiceController {
    * 등록 경로에서 돌아온 카드를 다시 넣는다 (자동 확정인데 차례에서 같은 번호가 생김·저장하지 못함). 자동 확정은 끄고, 만든 순서 자리에 넣는다.
    */
   restore(card: SuggestionCard, options: { readonly note?: string; readonly touched?: boolean } = {}): void {
+    if (card.no !== null && this.#pending.get(card.no)?.cardId === card.id) this.#pending.delete(card.no)
     if (this.#disposed || this.#snapshot.cards.some((item) => item.id === card.id)) return
     const back: SuggestionCard = { ...card, status: 'OPEN', autoConfirmAt: null, touched: card.touched || options.touched === true }
     const cards = [...this.#snapshot.cards]
@@ -1488,7 +1772,9 @@ export class VoiceController {
 
   /** 저장: 자동 확정 설정 + 조용한 시간(기본값이 아니면 같은 저장값에 `voice.quietMs`, D-V2-09) */
   #writeSettings(settings: VoiceSettings, quietMs: number = this.#snapshot.quietMs): void {
-    const value: VoiceSettings & { readonly 'voice.quietMs'?: number } = quietMs === 1800 ? settings : { ...settings, 'voice.quietMs': quietMs }
+    const base: VoiceSettings & { readonly 'voice.quietMs'?: number } = quietMs === 1800 ? settings : { ...settings, 'voice.quietMs': quietMs }
+    // 바로 등록은 끈 때만 남긴다 (기본 켬, V3)
+    const value = this.#snapshot.instant ? base : { ...base, [INSTANT_KEY]: false }
     this.#host.writeSettings(value)
   }
 
@@ -1609,6 +1895,8 @@ export class VoiceController {
     const now = this.#host.now()
     this.#pruneRecent(now)
     this.#recent = [...this.#recent.filter((item) => item.id !== entry.id), { ...entry, registeredAt: now, undoUntil: now + REGISTER_UNDO_MS }]
+    const pending = this.#pending.get(entry.no)
+    if (pending !== undefined) this.#pending.set(entry.no, { ...pending, key: entry.id, at: now })
   }
 
   #findOffer(id: string): VoiceOffer | undefined {

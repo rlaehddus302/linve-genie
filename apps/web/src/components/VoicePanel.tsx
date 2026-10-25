@@ -53,6 +53,7 @@ import { useConsoleApi } from './console-context.ts'
 import { Modal } from './Modal.tsx'
 import { smsLast4Suffix, smsResultWords, useSentToReview, useSmsClaim } from './SmsPage.tsx'
 import { SERVICE_NAME } from '../brand.ts'
+import { INSTANT_HELP_OFF, INSTANT_HELP_ON, INSTANT_LABEL } from '../voice/instant.ts'
 
 /** 안내 창 마지막 줄 (MOB1 D-MOB1-07, AC-MOB1-11) */
 export const CONSENT_OTHER_DEVICE = '방송하는 폰이 아닌 다른 기기(관리 폰이나 PC)에서 켜 주세요. 방송 앱이 마이크를 쓰는 폰에서는 잘 듣지 못해요.'
@@ -838,6 +839,11 @@ export function VoiceExtras({ voice, snapshot }: { readonly voice: VoiceControll
       ) : null}
       {on && settings !== null ? (
         <div className="voice-settings">
+          <label className="choice">
+            <input type="checkbox" checked={snapshot.instant} onChange={(event) => voice.setInstant(event.target.checked)} />
+            <span>{INSTANT_LABEL}</span>
+          </label>
+          <p className="hint">{snapshot.instant ? INSTANT_HELP_ON : INSTANT_HELP_OFF}</p>
           <label className="choice">
             <input type="checkbox" checked={settings['voice.autoConfirm']} onChange={(event) => voice.setAutoConfirm(event.target.checked)} />
             <span>{AUTO_CONFIRM_LABEL}</span>

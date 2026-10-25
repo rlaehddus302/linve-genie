@@ -389,6 +389,14 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       writeLearned: (list) => writeLearned(list),
       fixRecent: (id, changes) => voiceActions.current.fixRecent(id, changes),
       undoRecent: (id) => voiceActions.current.undoRecent(id),
+      // ── V3 바로 등록: 그 번호 상품과 1등+대기 수 (상품 보드 데이터) ──
+      existingProduct: (no) => {
+        const current = store.getSnapshot().data ?? latest.current.data
+        const product = current.products.get(productKey(b, no))
+        if (product === undefined) return null
+        const slots = productSlots(product)
+        return { key: product.key, name: product.name, price: product.price, claimCount: slots.winners.length + slots.waitlist.length, closed: product.status === 'CLOSED' }
+      },
     })
     setVoice(controller)
     return () => controller.dispose()
@@ -775,6 +783,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       dropAttached(no)
       enqueueRegistration(cardLine(no, name, price), no, name, price, false, {
         ...(source === 'auto' ? { onExists: (product: Product) => voice?.restore(card, { note: editQuestion(product.no, product.status === 'CLOSED') }) } : {}),
+        // 바로 등록인데 차례에서 그 번호가 생겼다 — 이미 있는 번호 규칙(무시·자동 고침·묻기)대로, 창은 띄우지 않는다 (V3)
+        ...(source === 'instant' ? { onExists: () => voice?.instantExists(card) } : {}),
         onFailed: () => voice?.restore(card, { touched: true }),
         onDone: (key) => voice?.noteVoiceRegistered({ id: key, no, name, price }),
       })
