@@ -4,7 +4,6 @@ import {
   boardItem,
   card,
   cardButton,
-  notice,
   openLog,
   productWrites,
   readout,
@@ -12,6 +11,8 @@ import {
   sayChunk,
   sayWords,
   settle,
+  notices,
+  undoBar,
   GAP_MS,
   speak,
   setupV3,
@@ -36,7 +37,7 @@ test('AC-V3-25·51 R7 (D-V3-41): 실제 방송 6(189번인데 … 139번) → �
   await expect(dlg.getByRole('list', { name: '음성 기록 목록' }).getByRole('listitem').first()).toContainText('번호가 여럿 들렸어요: 189·139')
 })
 
-test('AC-V3-25 R26: "189번 빅뱅금 50만 원 139번" → 결과 4에서 189번 등록 하나, 덩어리 끝 다른 번호 알림이 "알겠어요"까지 남음', async ({ page }) => {
+test('AC-V3-25 R26 (D-V3-45): "189번 빅뱅금 50만 원 139번" → 결과 4에서 189번 등록 하나, 덩어리 끝 큰 글자 칸 4초 안내(단추 없음)·음성 기록, 5초 되돌리기 띠 그대로', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
   await sayWords(page, '189번 빅뱅금 50만 원 139번', {
@@ -45,15 +46,20 @@ test('AC-V3-25 R26: "189번 빅뱅금 50만 원 139번" → 결과 4에서 189�
     },
   })
   await page.clock.runFor(QUIET_MS + 100)
-  const other = notice(page, '189번으로 등록했는데 139번도 들렸어요. 맞는지 확인해 주세요.')
-  await expect(other).toBeVisible()
+  const OTHER = '189번으로 등록했는데 139번도 들렸어요. 맞는지 확인해 주세요.'
+  await expect(readout(page)).toHaveText(OTHER)
+  await expect(undoBar(page).getByRole('button', { name: '189번 등록 되돌리기' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '알겠어요' })).toHaveCount(0)
+  await expect(notices(page).getByRole('listitem', { name: OTHER })).toHaveCount(0)
   await expect(boardItem(page, 139)).toHaveCount(0)
-  await page.clock.runFor(30_000)
-  await expect(other).toBeVisible()
+  await page.clock.runFor(3500)
+  await expect(readout(page)).toHaveText(OTHER)
+  await page.clock.runFor(1000)
+  await expect(readout(page).filter({ hasText: OTHER })).toHaveCount(0)
   await settle(page)
   expect(productWrites(writes)).toEqual([['product.register', 189, '빅뱅금', 500000]])
-  await other.getByRole('button', { name: '알겠어요' }).click()
-  await expect(other).toHaveCount(0)
+  const dlg = await openLog(page)
+  await expect(dlg.getByRole('list', { name: '음성 기록 목록' }).getByRole('listitem').filter({ hasText: '139번도 들렸어요' })).toHaveCount(1)
 })
 
 test('AC-V3-27 R22 (설정 끔): 열린 15번 카드에 "15번 핑크문 만오천" → 카드 한 장(핑크문), 이어 "15번 만오천 원"은 카드 값만·쓰기 0, 누르면 등록', async ({ page }) => {

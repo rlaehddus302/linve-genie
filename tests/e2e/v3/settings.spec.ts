@@ -197,7 +197,8 @@ test('AC-V3-43 (d): 덩어리 도중 설정을 끈 덩어리는 바로 등록하
 test('AC-V3-44: 휴대폰 폭 375 — 알림·묻기 카드·가격 확인 카드가 가로로 넘치지 않고 단추 44px 이상, 영어 상태값 없음', async ({ page }) => {
   await setupV3(page, { width: 375 })
   await sayChunk(page, '189번 빅뱅금 50만 원 139번')
-  await expect(notice(page, '189번으로 등록했는데 139번도 들렸어요. 맞는지 확인해 주세요.')).toBeVisible()
+  // D-V3-45: 다른 번호 안내는 큰 글자 칸 4초(알림 카드 아님)
+  await expect(readout(page)).toHaveText('189번으로 등록했는데 139번도 들렸어요. 맞는지 확인해 주세요.')
   await page.clock.runFor(6000)
   await sayChunk(page, '189번 60만 원')
   await expect(notice(page, '189번을 고쳤어요: 가격 500,000원 → 600,000원')).toBeVisible()
