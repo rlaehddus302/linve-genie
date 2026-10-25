@@ -152,7 +152,7 @@ export class PasteService {
         const stored = JSON.parse(prior.result) as StoredInsert
         return { status: 200, body: pasteRehydrate(stored, 'error' in reparsed ? [] : reparsed.rows) }
       }
-      return error(409, 'REQUEST_REUSED', '이미 쓴 요청 번호예요. 다시 미리 보기를 해 주세요.')
+      return error(409, 'REQUEST_REUSED', '이미 보낸 내용이에요. 다시 미리 보기를 해 주세요.')
     }
     if ((await findPasteRequest(this.#options.db, sellerId, requestId)) !== null) return again()
     const parsed = parsePaste(text)

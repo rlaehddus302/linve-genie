@@ -124,3 +124,23 @@
   - 문자찜 결과 카드는 `region "넣은 결과"`의 `strong`.
   - 상품 자세히는 `region "상품 관리"`.
 - 시계: 화면 낱말·알림 수는 `Date.now`와 `setTimeout`(다음 바뀌는 때 at+W×1000+1ms)으로 바뀐다. `page.clock`으로 당기면 된다.
+
+## server (dev-server)
+
+### 바뀐 것 (AC-MOB2-24, D-MOB2-05) — 문장만, 코드·HTTP 상태·칸 이름 그대로
+- `INVALID_REQUEST_ID`(400) 맨 위 "보내는 중 문제가 생겼어요. 화면을 새로고침한 뒤 다시 해 주세요.", 칸 `requestId` "화면을 새로고침한 뒤 다시 해 주세요."
+  - 파일: `api.ts`·`print-api.ts`·`deposit/api.ts`·`parcel/api.ts`·`tiktok-live/routes.ts`, 칸 문장 표 `messages.ts`(`fieldMessage('requestId')`), 리허설 생성기 검사 `service.ts`
+  - 경계 표 밖이지만 같은 문장 한 줄이라 함께 바꿈: `instagram/routes.ts`·`billing/api.ts`(같은 오류가 판매자 화면에 나가므로 문장을 맞춤 — 코드·상태는 그대로)
+- 기기 칸 `deviceId`(출력 기기 4경로)·`device`(`/api/stream?device=`) "이 기기를 알아보지 못했어요. 화면을 새로고침한 뒤 다시 해 주세요."
+- 조치 기록 조회에서 상품을 두 방법으로 고른 경우 칸 `product` "상품을 하나만 골라 주세요."
+- 틱톡 붙여넣기 `REQUEST_REUSED`(409) "이미 보낸 내용이에요. 다시 미리 보기를 해 주세요."
+- 시험: `apps/server/test/mob2-errors.test.ts`(7개 — 일반·출력·입금·택배·틱톡 쓰기 경로, 기기·상품·다시 쓴 요청, 문장에 "요청 번호"·"ID"·"영문"·"product" 없음, 거절된 쓰기는 이벤트 0)
+
+### 남긴 것
+- `apps/server/src/youtube/routes.ts`의 같은 `INVALID_REQUEST_ID` 문장은 금지 경로라 그대로다 — 맥북 쪽에서 같은 두 문장으로 바꾸면 된다(backlog carryOver 후보).
+- 서버 안에서만 쓰는 오류(`receipt-links.ts`·`parcel/service.ts`의 `super('요청 번호가 이미 있다')`)와 운영 기록 문장(`log.ts`)은 화면에 나가지 않아 그대로.
+- 기존 시험(`apps/**`·`tests/**`)에 옛 문장을 단언하는 줄은 없었다(grep 확인) — test-e2e·test-domain이 고칠 기존 줄 없음.
+
+### test-domain·test-e2e에게
+- 서버 문장 단언이 필요하면 위 문장 그대로. 화면은 오류 코드로 판단하므로 화면 동작은 바뀌지 않는다.
+- AC-MOB2-70대(같은 요청 번호 여러 번 → 기록 하나)는 이번에 서버 코드를 바꾸지 않았다 — 기존 멱등 경로(`writer.ts` 요청 번호 확인, 붙여넣기 요약값)를 그대로 시험하면 된다.

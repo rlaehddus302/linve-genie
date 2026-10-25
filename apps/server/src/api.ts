@@ -115,7 +115,7 @@ const notFound = () => apiError(404, 'NOT_FOUND', '찾을 수 없어요.')
 const unauthorized = () => apiError(401, 'UNAUTHORIZED', '로그인이 필요해요.')
 const assistantForbidden = () => apiError(403, 'ASSISTANT_FORBIDDEN', ASSISTANT_FORBIDDEN_MESSAGE)
 const invalidRequestId = () =>
-  apiError(400, 'INVALID_REQUEST_ID', '요청 번호가 없거나 형식이 올바르지 않아요.', [{ field: 'requestId', message: "요청 번호는 영문·숫자·'_'·'-'로 된 1~64자여야 해요." }])
+  apiError(400, 'INVALID_REQUEST_ID', '보내는 중 문제가 생겼어요. 화면을 새로고침한 뒤 다시 해 주세요.', [{ field: 'requestId', message: '화면을 새로고침한 뒤 다시 해 주세요.' }])
 
 function json(c: Context, body: unknown, status: 200 = 200): Response {
   return c.json(body as object, status)
@@ -569,7 +569,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     const productId = c.req.query('product')
     if (productId !== undefined && (b !== undefined || no !== undefined || !PRODUCT_ID_RE.test(productId))) {
       return apiError(400, 'INVALID_INPUT', '조회 범위를 확인해 주세요.', [
-        { field: 'product', message: '상품은 상품 ID(product) 하나로만 고르고, 방송(b)·번호(no)와 함께 적지 않아요.' },
+        { field: 'product', message: '상품을 하나만 골라 주세요.' },
       ])
     }
     if ((b === undefined) !== (no === undefined) || (b !== undefined && b === '') || (no !== undefined && (!NUMBER_RE.test(no) || Number(no) < 1))) {
@@ -880,7 +880,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     const session = c.get('session')
     const device = c.req.query('device')
     if (device !== undefined && !DEVICE_ID_RE.test(device)) {
-      return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'device', message: "기기 ID는 영문·숫자·'_'·'-'로 된 8~64자여야 해요." }])
+      return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'device', message: '이 기기를 알아보지 못했어요. 화면을 새로고침한 뒤 다시 해 주세요.' }])
     }
     // 연결을 먼저 등록한 뒤 범위별 seq를 읽는다 — 그 사이 커밋된 변경도 알림으로 받는다 (RA-S04-003)
     // 보조자 연결은 유튜브·리허설 생성기·출력 기록 알림을 받지 않는다 (범위 변경 알림만 — 문자찜 입력 화면이 쓰는 것).
