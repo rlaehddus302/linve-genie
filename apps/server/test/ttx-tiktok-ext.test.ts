@@ -2,11 +2,15 @@
 // 확장 토큰·묶음 상한·따로 세는 속도 제한, 본인 방송 확인, 같은 거르개·같은 chat, 받는 조건(연결·운영자 스위치·동의),
 // 접수순·저장 실패, 중복(같은 묶음·직접 연결과 확장 사이), 직접 연결 우선(대기), 넘어가는 순간, 확장 상태와 연결 보기, 로그.
 // 가짜 웹캐스트·주입한 가짜 시계로 돈다 — 실제 틱톡에 붙지 않는다.
-import { listClaims, listProducts } from '@livejjim/core'
+import { listClaims, listEffects, listProducts } from '@livejjim/core'
+import ExcelJS from 'exceljs'
 import { afterEach, describe, expect, it } from 'vitest'
+import { FakeLlm } from '../src/assist/fake-llm.ts'
 import type { LogRecord } from '../src/log.ts'
 import { EXT_TIKTOK_MESSAGES, EXT_TIKTOK_ROUTES, EXT_TIKTOK_WARNINGS } from '../src/tiktok-live/extension.ts'
-import { addSeller, client, rid, waitFor, type Seller } from './support.ts'
+import { byText, enableAssist, optionBroadcast, reviews, sentTexts, SIZES, suggest } from './a1-support.ts'
+import { getFile } from './i2-support.ts'
+import { addSeller, client, expectOk, rid, waitFor, writeEvent, type Seller } from './support.ts'
 import { chats, connected, consentOn, DATE, linkTiktok, logText, msgId, realBroadcast, tiktokComment, tiktokSeller, ttWorld, unlinkTiktok, type TtOptions, type TtWorld } from './tiktok-live-support.ts'
 
 const worlds: TtWorld[] = []
@@ -66,11 +70,11 @@ const engineState = async (w: TtWorld, sellerId: string) => (await w.server.writ
  * 판매자 seller_kim + 동의 + 실제 회차 + 틱톡 잇기 + 확장 토큰. direct = 직접 연결 상태
  * ('blocked' = 서명 실패로 다시 시도 중, 'connected' = 받는 중)
  */
-async function linkedWorld(options: { direct?: 'blocked' | 'connected'; world?: TtOptions; logs?: LogRecord[] } = {}) {
+async function linkedWorld(options: { direct?: 'blocked' | 'connected'; world?: TtOptions; logs?: LogRecord[]; saleMode?: 'OPTIONS' } = {}) {
   const logs = options.logs
   const w = await world({ ...options.world, ...(logs === undefined ? {} : { overrides: { ...options.world?.overrides, log: (record: LogRecord) => logs.push(record) } }) })
   const { seller, tiktokId } = await tiktokSeller(w, { tiktokId: 'seller_kim' })
-  const b = await realBroadcast(w, seller)
+  const b = options.saleMode === undefined ? await realBroadcast(w, seller) : await optionBroadcast(w, seller, { date: DATE, saleMode: options.saleMode }).then((made) => made.id)
   if ((options.direct ?? 'blocked') === 'blocked') w.webcast.failNext('SIGN_FAILED', 9)
   const linked = await linkTiktok(w, seller, b)
   expect(linked.status, linked.text).toBe(200)
@@ -497,5 +501,101 @@ describe('AC-TTX-30 확장으로 받은 chat = 직접 연결로 받은 chat (D-T
     expect(viaExt?.source).toBe(direct?.source)
     expect(viaExt?.source).toBe('other')
     expect(Object.keys(JSON.parse(viaExt!.body) as object).sort()).toEqual(Object.keys(JSON.parse(direct!.body) as object).sort())
+  })
+})
+
+/** 직접 연결을 끊어(서명 실패로 다시 시도 중) 확장이 받게 한다 */
+async function toExtension(w: TtWorld, seller: Seller, b: string, tiktokId: string): Promise<void> {
+  w.webcast.failNext('SIGN_FAILED', 9)
+  w.webcast.openHandles(tiktokId).forEach((handle) => handle.drop())
+  await waitFor(async () => (await linkView(w, seller.cookie, b)).collection?.state === 'RETRYING')
+}
+
+/** 판매대장 엑셀 첫 장의 줄 (머리 줄 포함, 칸은 글자) */
+async function ledgerRows(w: TtWorld, seller: Seller): Promise<string[][]> {
+  const file = await getFile(w, seller.cookie, `/api/ledger.xlsx?from=${DATE}&to=${DATE}`)
+  expect(file.status, JSON.stringify(file.json)).toBe(200)
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load(Buffer.from(file.bytes) as unknown as ArrayBuffer)
+  const sheet = workbook.worksheets[0]
+  const rows: string[][] = []
+  for (let r = 1; r <= (sheet?.rowCount ?? 0); r += 1) {
+    const row = sheet!.getRow(r)
+    const cells: string[] = []
+    for (let c = 1; c <= row.cellCount; c += 1) {
+      const value = row.getCell(c).value
+      cells.push(value === null || value === undefined ? '' : String(value))
+    }
+    rows.push(cells)
+  }
+  return rows
+}
+
+describe('AC-TTX-30 세 곳 비교 — 확장으로 받은 chat과 직접 연결로 받은 chat (D-TTX-12, SA-TTX-03)', () => {
+  it('AI 제안(CMT-06): 두 경로 줄 모두 AI 제외 사유 없음 · 같은 요청 하나로 보냄 · 같은 확인 사유와 같은 AI 제안', async () => {
+    const fake = await FakeLlm.start()
+    try {
+      const { w, seller, b, token, tiktokId } = await linkedWorld({ direct: 'connected', saleMode: 'OPTIONS', world: { overrides: { assist: fake.setup() } } })
+      await expectOk(writeEvent(w, seller, { type: 'product.register', b, no: 21, name: '반바지', price: 15000, options: SIZES, stocks: { S: 1, M: 1, L: 3 } }))
+      await tiktokComment(w, tiktokId, { userId: '7101000000000000001', uniqueId: 'buyer_a', nickname: '에이', comment: '반바지 사아자' })
+      await toExtension(w, seller, b, tiktokId)
+      expect((await send(w, token, [item({ userId: '7101000000000000002', uniqueId: 'buyer_b', nickname: '비', text: '반바지 차카타' })])).status).toBe(200)
+      // 두 줄이 정말 서로 다른 경로로 들어왔다 (직접 연결 1줄 → 확장 1줄, 출처는 둘 다 other)
+      const sources = await w.database.pglite?.query<{ source: string | null }>(`select chat_source as source from events where seller_id = $1 and type = 'chat' order by seq`, [seller.sellerId])
+      expect(sources?.rows.map((row) => row.source)).toEqual(['other', 'other'])
+      await enableAssist(w, seller)
+      fake.answer('반바지 사아자', { no: 21, options: { 사이즈: 'M' }, qty: 1 })
+      fake.answer('반바지 차카타', { no: 21, options: { 사이즈: 'M' }, qty: 1 })
+      expect((await expectOk(suggest(w, seller))).body).toEqual({ result: 'DONE', called: 1 })
+      expect(fake.calls).toBe(1)
+      expect(sentTexts(fake, 0)).toEqual(['반바지 사아자', '반바지 차카타'])
+      const rows = await reviews(w, seller)
+      const direct = byText(rows, '반바지 사아자') as unknown as Record<string, unknown>
+      const viaExt = byText(rows, '반바지 차카타') as unknown as Record<string, unknown>
+      expect(direct.excluded).toBeNull()
+      expect(viaExt.excluded).toBeNull()
+      expect(viaExt.reason).toBe(direct.reason)
+      expect(viaExt.origin).toBe(direct.origin)
+      expect(direct.suggestion).toEqual({ no: 21, options: { 사이즈: 'M' }, qty: 1, source: 'AI' })
+      expect(viaExt.suggestion).toEqual(direct.suggestion)
+    } finally {
+      await fake.close()
+    }
+  })
+
+  it('감사(D-N2b-2-09)와 판매대장 채널 칸: 두 경로 찜 모두 감사 발송함 행이 건너뜀(NOT_SUPPORTED)·게시 보고 없음, 대장 채널 칸이 같다', async () => {
+    const { w, seller, b, token, tiktokId } = await linkedWorld({ direct: 'connected' })
+    await register(w, seller.cookie, b, 15)
+    await register(w, seller.cookie, b, 16)
+    await tiktokComment(w, tiktokId, { userId: '7101000000000000001', uniqueId: 'buyer_a', nickname: '에이', comment: '15' })
+    await toExtension(w, seller, b, tiktokId)
+    expect((await send(w, token, [item({ userId: '7101000000000000002', uniqueId: 'buyer_b', nickname: '비', text: '16' })])).status).toBe(200)
+    // 찜: 두 경로 모두 같은 출처(chat)·같은 tt: 구매자 키 모양
+    const claims = listClaims(await engineState(w, seller.sellerId))
+    const claimOf = (no: number) => claims.find((claim) => claim.product.endsWith(`/${String(no)}`))
+    expect(claimOf(15)).toMatchObject({ buyer: 'tt:7101000000000000001' })
+    expect(claimOf(16)).toMatchObject({ buyer: 'tt:7101000000000000002' })
+    expect(claimOf(16)?.origin).toBe(claimOf(15)?.origin)
+    // 감사: 발송함 행이 둘 다 건너뜀(NOT_SUPPORTED) — 경로로 다르지 않다
+    const outbox = await w.database.pglite?.query<{ product: string; state: string | null; reason: string | null }>(
+      `select body::jsonb->>'product' as product, state, reason from outbox where seller_id = $1 and kind = 'POST_THANKS' order by id`,
+      [seller.sellerId],
+    )
+    const thanks = new Map(outbox?.rows.map((row) => [row.product.split('/')[1], row]))
+    expect(thanks.get('15')).toMatchObject({ state: 'SKIPPED', reason: 'NOT_SUPPORTED' })
+    expect(thanks.get('16')).toMatchObject({ state: 'SKIPPED', reason: 'NOT_SUPPORTED' })
+    // 건너뛴 감사는 게시 보고가 없다 — 두 효과 모두 PENDING 그대로
+    const effects = listEffects(await engineState(w, seller.sellerId)).filter((effect) => effect.kind === 'POST_THANKS')
+    expect(effects.find((effect) => effect.product.endsWith('/15'))?.status).toBe('PENDING')
+    expect(effects.find((effect) => effect.product.endsWith('/16'))?.status).toBe('PENDING')
+    // 판매대장: 두 찜 줄의 채널 칸이 같다 (빈칸 아님)
+    const rows = await ledgerRows(w, seller)
+    const header = rows[0] ?? []
+    const channel = header.indexOf('채널')
+    const no = header.indexOf('상품 번호')
+    expect(channel).toBeGreaterThan(-1)
+    const rowOf = (n: number) => rows.slice(1).find((row) => row[no] === String(n))
+    expect(rowOf(15)?.[channel]).not.toBe('')
+    expect(rowOf(16)?.[channel]).toBe(rowOf(15)?.[channel])
   })
 })

@@ -454,6 +454,9 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     // E2E는 모든 브라우저 로그인이 한 주소(127.0.0.1 — 화면 서버의 /api 넘기기)에서 온다. 시험 수십 개가 같은 IP 한도(10분 20번)에 걸리지 않게
     // E2E 기동만 IP 한도를 넓힌다(운영 main은 기본값 — 로그인 제한 동작은 서버 시험 i3-login-limit이 확인한다)
     loginLimits: { ipMaxAttempts: 1_000_000 },
+    // 확장 코드 넣기(/ext/connect)도 같은 까닭으로 E2E 기동만 주소 한도를 넓힌다(TE-TTX-004 — 확장을 잇는 시험이 20번을 넘으면 429).
+    // 서버 전체 한도·운영 기본값(주소마다 10분 20번, D-QS1-06)과 그 한도 확인 시험(서버 시험)은 그대로다
+    extensionCodeLimits: { ipMaxAttempts: 1_000_000 },
     ...(fakeGoogle === null
       ? {}
       : {

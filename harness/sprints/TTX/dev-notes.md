@@ -172,3 +172,20 @@
   - TD-TTX-003의 넘침 사례와 R33은 준비가 같다(날아가는 1개 + 500개 넘게 붙임). TD-TTX-003은 그 1개를 세지 않아야 하고 R33은 바로 세야 하므로 둘을 함께 맞출 수 없다.
   - 고칠 방향(제안): R33의 `overflow`를 날아가는 1개를 뺀 `21 * 500 - TT_HOLD_MAX`로 둔다. 그 1개는 답이 실패일 때만 더해진다는 단언을 더하면 더 정확하다. 단언을 지우는 것이 아니라 새 스펙대로 고치는 것이다.
 - R30·R31·R32·TD-TTX-003·R21은 통과한다. R31은 `≥` 그대로 통과했다. `toBe`로 바꿀 때는 주의해야 한다. 모형은 다시 뜨기 때 죽은 워커가 날리던 떠난 묶음을 "버려짐"으로 본다(답을 받지 않음). 하지만 D-TTX-21 (2)는 이 묶음을 세지 않는다. 그래서 같음 단언은 이 경우를 모형의 "실제로 버림"에서 빼야 맞다.
+
+## dev-server — 수정 라운드 4 (SA-TTX-03, TE-TTX-004)
+
+### SA-TTX-03 — AC-TTX-30 세 곳 비교 시험(acceptance.md:109 판정 그대로)
+- `apps/server/test/ttx-tiktok-ext.test.ts`의 "AC-TTX-30 세 곳 비교" 묶음에 시험 둘을 더했다. 두 시험 모두 같은 회차에서 직접 연결로 1줄을 받은 뒤 직접 연결을 끊고(서명 실패로 다시 시도 중) 확장으로 1줄을 받는다.
+  - (1) AI 제안(CMT-06): 옵션 방송, 확인 필요 줄 둘. 두 줄 모두 `excluded`가 null이다. 가짜 LLM 요청 하나에 두 글이 함께 실린다. 확인 사유·출처(origin)가 같고, AI 제안 `{ no: 21, 사이즈 M, qty 1, source AI }`가 같다.
+  - (2) 감사(D-N2b-2-09)·판매대장 채널 칸: 두 찜의 POST_THANKS 발송함 행이 모두 `SKIPPED`·`NOT_SUPPORTED`이다. 두 효과 모두 PENDING(게시 보고 없음)이다. 판매대장 엑셀의 두 줄 채널 칸이 같고 빈칸이 아니다.
+- 채널 칸 값은 지금 "유튜브"다(`packages/documents` CHANNEL_WORDS chat → 유튜브). 틱톡 표기는 D-N2-15대로 N4 몫이라, 시험은 값이 아니라 두 경로가 같은지만 본다.
+- `linkedWorld`에 `saleMode: 'OPTIONS'` 선택을 더했다(옵션 방송으로 잇기). 다른 시험은 그대로다.
+
+### TE-TTX-004 — E2E 기동만 확장 코드 넣기 주소 한도를 넓힘
+- `ServerOptions.extensionCodeLimits`(→ `ExtensionAppDeps.codeLimits` → `/ext/connect`의 codeLimiter)를 더했다. 없으면 기본값(주소마다 10분 20번, D-QS1-06) 그대로다.
+- `apps/server/src/e2e.ts`만 `extensionCodeLimits: { ipMaxAttempts: 1_000_000 }`를 넘긴다(로그인 `loginLimits`와 같은 방식). 운영 `src/main.ts`는 넘기지 않는다. 서버 전체 한도(3,000번)는 그대로다.
+- 단위 시험 `apps/server/test/qs1-ext-code-limit.test.ts`의 "TE-TTX-004" 묶음: 넓힌 서버는 한 주소 30번이 모두 400이다. 넓히지 않은 서버는 21번째가 429 그대로다. e2e.ts만 넓히고 main.ts는 넓히지 않는다. 기존 AC-QS1-14·15 한도 시험은 바꾸지 않았다.
+
+### SA-TTX-05 · RA-TTX-08 — dev-web(확장) 몫
+- 서버는 바꿀 것이 없다(팝업 수는 확장 안 `#dropped`).

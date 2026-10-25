@@ -14,7 +14,7 @@ import { bodyLimit } from 'hono/body-limit'
 import { isPlainObject, own, ownKeys } from '../api-fields.ts'
 import type { SessionContext } from '../auth.ts'
 import { apiError, JSON_CONTENT_TYPE, type FieldProblem } from '../errors.ts'
-import { IpLimiter, clientAddress, ipKey } from '../login-limit.ts'
+import { IpLimiter, clientAddress, ipKey, type LoginLimitOptions } from '../login-limit.ts'
 import { unknownFieldProblems } from '../messages.ts'
 import type { Clock } from '../time.ts'
 import { activeToken } from './store.ts'
@@ -110,6 +110,8 @@ export interface ExtensionAppDeps {
   readonly address: (c: Context) => string | null
   /** 틱톡 확장 읽기 (TTX). 없으면 /ext/tiktok 경로가 없다(404) */
   readonly tiktok?: TikTokExtension
+  /** 코드 넣기의 주소마다 한도 (없으면 기본값 10분 20번 — E2E 기동만 넓힌다, D-QS1-06) */
+  readonly codeLimits?: LoginLimitOptions
 }
 
 /** 틱톡 묶음 본문 상한 — 50개 × 500자(이모지 4바이트) + 키를 담는다. 그 밖의 확장 요청은 64KB 그대로 */
@@ -126,7 +128,7 @@ export function createExtensionApp(deps: ExtensionAppDeps): Hono<ExtEnv> {
   const app = new Hono<ExtEnv>()
   // 코드 넣기 시도 (주소마다 10분에 20번, 서버 전체 10분에 3,000번 — 8자리 코드를 맞혀 보지 못하게).
   // 판매자가 코드를 만든 주소(믿는 주소)는 서버 전체 한도를 세지도 막지도 않는다 — 주소마다 20번은 그대로 (D-QS1-06)
-  const codeLimiter = new IpLimiter(deps.clock)
+  const codeLimiter = new IpLimiter(deps.clock, deps.codeLimits)
   const allCodes = new IpLimiter(deps.clock, { ipMaxAttempts: EXT_CODE_GLOBAL_MAX })
 
   app.use(async (c, next) => {

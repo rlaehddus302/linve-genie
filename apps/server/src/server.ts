@@ -126,6 +126,8 @@ export interface ServerOptions {
   readonly trustedProxies?: number
   /** 로그인 경로 속도 제한 (시험에서 줄인다 — 운영은 기본값, AC-I3-66·67) */
   readonly loginLimits?: LoginLimitOptions
+  /** 확장 코드 넣기(/ext/connect)의 주소마다 한도 (E2E 기동만 넓힌다 — 운영은 기본값 10분 20번, D-QS1-06) */
+  readonly extensionCodeLimits?: LoginLimitOptions
   /** 비밀번호 확인 함수 (시험이 호출 수·동시 수를 잰다) */
   readonly passwordVerifier?: (password: string, stored: string) => Promise<boolean>
   /** 화면 빌드 폴더 — 같은 출처로 함께 낸다 (LIVEJJIM_WEB_DIR, AC-I3-70). 그 폴더에 index.html이 없으면 만들지 않는다 */
@@ -623,7 +625,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       extension,
       assist,
     },
-    extension: createExtensionApp({ extension, clock, trustedProxies, address: connectionAddress, tiktok: tiktokExtension }) as unknown as Hono,
+    extension: createExtensionApp({ extension, clock, trustedProxies, address: connectionAddress, tiktok: tiktokExtension, ...(options.extensionCodeLimits === undefined ? {} : { codeLimits: options.extensionCodeLimits }) }) as unknown as Hono,
     https: options.appOrigin.startsWith('https://'),
     web: options.webDir === undefined ? null : createWebServer(options.webDir),
     ready: async () => {
