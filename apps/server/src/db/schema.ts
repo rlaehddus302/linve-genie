@@ -1943,6 +1943,52 @@ export const customerMemos = pgTable(
   (t) => [index('customer_memos_marker_idx').on(t.sellerId, t.marker, t.id)],
 )
 
+/**
+ * 손님 기록 보관 (D-CRM1-12, AC-CRM1-33): 30일 봉인 장부엔 끝난 찜·조치 사유가 없어, 봉인 전에 손님 기록용 숫자를 따로 남긴다.
+ * 날짜 줄: 실제 날짜마다 한 줄 — 마지막으로 적은 범위 seq, 봉인을 본 뒤엔 frozen(그 뒤 차례·복구로 바꾸지 않는다).
+ * 범위가 아니라 날짜로 잇는다(복구가 범위를 새 ID로 다시 만들어도 같다 — 범위를 참조하지 않아 RESTORE_KEPT_TABLES에 둔다).
+ * 백업 파일·구매자에게 가는 것·로그에 넣지 않는다(D-CRM1-10)
+ */
+export const customerArchiveDays = pgTable(
+  'customer_archive_days',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** 방송 날짜 (KST, YYYY-MM-DD) */
+    date: text('date').notNull(),
+    /** 이 seq까지 본 범위 상태로 적었다 */
+    seq: integer('seq').notNull(),
+    /** 봉인을 봤다 — 다시 쓰지도 지우지도 않는다 */
+    frozen: boolean('frozen').notNull(),
+    writtenAt: timestamptz('written_at').notNull(),
+  },
+  (t) => [unique('customer_archive_days_seller_date_uq').on(t.sellerId, t.date)],
+)
+
+/**
+ * 손님 기록 보관 행 (D-CRM1-12): 그날 기록 묶음마다 한 행 — 묶음 뿌리 구매자 ID, 표지가 있는 구성원(구매자 ID·표지·그날 표시 이름·끝자리), 취소 수, '입금 안 함' 찜 수.
+ * 품목·금액·입금은 적지 않는다(장부에 있다). 표지(전화번호 키)는 서버 안에서만
+ */
+export const customerArchiveRows = pgTable(
+  'customer_archive_rows',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    date: text('date').notNull(),
+    /** 그날 지금의 구매자 (묶음 뿌리) */
+    root: text('root').notNull(),
+    /** JSON 목록 [{ id, marker, display, phoneLast4 }] — 표지가 있는 구성원만 */
+    members: text('members').notNull(),
+    cancels: integer('cancels').notNull(),
+    noPay: integer('no_pay').notNull(),
+  },
+  (t) => [index('customer_archive_rows_date_idx').on(t.sellerId, t.date)],
+)
+
 export const schema = {
   sellers,
   accounts,
@@ -2015,6 +2061,8 @@ export const schema = {
   assistCalls,
   customerSettings,
   customerMemos,
+  customerArchiveDays,
+  customerArchiveRows,
 }
 
 /**

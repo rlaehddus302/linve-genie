@@ -90,3 +90,47 @@
 - **TE-CRM1-004**: 메모 칸 key에서 `savedAt`을 뺐다. 다시 받은 메모는 "저장된 메모" 자리에 바로 보이고, 글 칸은 저장하지 않은 글이 없을 때만 따라간다. 쓰는 중이면 친 글을 그대로 두고 status "다른 기기에서 이 손님 메모를 바꿨어요. 위에 보이는 것이 지금 저장된 메모예요. 쓰던 글을 남기려면 "메모 저장"을 눌러 주세요."
 - **U-CRM1-01 (spec-keeper 확인 필요 — D-CRM1-06 낱말)**: 손님 자세히 "날짜별 기록"에서 미입금으로 센 날은 "미입금으로 셈"(입금 상태가 미입금이면 그 낱말 대신 이것 하나, 일부 입금 등이면 입금 낱말 + 이것), 세지 않은 입금 안 된 날(기다리는 날 안, 상품 합계 > 0)은 "입금 기다리는 중". D-CRM1-06 글자 그대로는 "입금 상태 낱말·미입금 날이면 '미입금'"이라 같은 "미입금"이 두 뜻으로 색만 다르게 보였다(UX-04). 판매자가 노쇼로 오해하지 않는 쪽으로 AUTO로 정했으니 D-CRM1-06에 낱말을 올려 주세요. `lib/customers.ts` `dayLineTags`·`UNPAID_COUNTED_WORD`·`PAY_WAITING_WORD`.
 - 시험: `apps/web/test/crm1-customers.test.tsx` 21건(콘솔 간격 기대를 D-CRM1-07에 맞게 바로잡음 + 자료 오기 전·주소로 바로 연 손님 자세히·날짜 줄 꼬리표·메모 다른 기기 시험 더함). 웹 단위 전체 105파일 통과(KST 시험 셋은 TZ가 KST가 아닌 환경에서만 뜻이 있어 TZ=America/New_York로 확인). E2E `tests/e2e/crm1` 31건 모두 통과. 전체 `pnpm verify`는 규칙대로 돌리지 않았다.
+
+## dev-server 수정 라운드 2 (SA-CRM1-02 · RA-CRM1-03)
+
+### SA-CRM1-02 — FIXED: 봉인 뒤 노쇼 기록 보관 행 (D-CRM1-12, AC-CRM1-33)
+- 표 둘(마이그레이션 `0021_crm1_customer_archive.sql`): `customer_archive_days`(판매자·날짜마다 한 줄 — 마지막으로 적은 범위 seq, `frozen`), `customer_archive_rows`(그날 기록 묶음마다 한 행 — 뿌리 구매자 ID, 구성원 JSON `[{ id, marker, display, phoneLast4 }]`, 취소 수, '입금 안 함' 찜 수). 품목·금액·입금은 적지 않는다(장부에 있다). 범위가 아니라 날짜로 잇고 범위를 참조하지 않는다.
+- 차례 `apps/server/src/customers/archive.ts` `CustomerArchiver`: 서버 시작 때와 1시간마다(`CUSTOMER_ARCHIVE_EVERY_MS`). 봉인 안 된 실제 날짜 중 날짜 < 오늘(KST)이고 범위 seq가 마지막으로 적은 seq와 다를 때만 그 날짜 행을 통째로 바꿔 적는다. 쓰기는 봉인과 같은 범위 줄(`writer.serial`)·범위 잠금 안에서 범위가 아직 봉인 전인지 다시 보고 한다. 봉인된 날짜 줄은 `frozen`으로 굳혀 그 뒤 차례·복구로 바꾸지 않는다.
+- 셈 `facts.ts mergeArchive`: 봉인 날짜 = 장부 묶음(구매·(가)) + 보관 행의 취소 수·(나). 같은 뿌리면 같은 묶음, 장부에 없는 뿌리면 품목 0·상품 합계 0·`UNPAID` 묶음(`archived`). 장부에 없는 구성원도 그 묶음 아래 구매자로 넣어 표지로 잇는다. 보관 행이 없는 봉인 날짜는 장부만으로 센다.
+- 장부에 없는 구매자의 그날 자세히(`GET /api/days/<봉인 날짜>/customer?buyer=`)는 404 그대로다. 그 날짜 구매자 목록 꼬리표(`/customers`)에도 넣지 않는다.
+- 복구·가져오기: 두 표는 `RESTORE_KEPT_TABLES`에 있다. 백업 파일에 들어가지 않고 복구가 지우지도 않는다.
+- 로그: `CUSTOMER_ARCHIVED`(개수), `CUSTOMER_ARCHIVE_FAILED`(판매자 ID·날짜·오류 종류), `CUSTOMER_ARCHIVE_UNREADABLE`(날짜)만 남긴다. 표지·이름·숫자 내용은 남기지 않는다.
+- 단위 시험 `apps/server/test/crm1-archive.test.ts`(7개): AC-33 (1)(2)는 봉인 전과 같은 숫자인지, (3)은 차례가 돌지 않은 날짜, (4)는 굳힘, (5)는 로그·복구 분류·보조자 403을 본다. seq가 바뀐 날짜만 다시 적는지, 판매자끼리 섞이지 않는지, 시작·멈춤도 본다.
+- 기존 시험에 함께 적은 것(약화 아님)
+  - `commands.test.ts`: 표 수 71→73.
+  - `fb1-parcel-settings.test.ts`: 되돌리기에서 새 표 둘도 지운다.
+  - `crm1-records.test.ts`: 날짜 줄 `toEqual`에 `openable: true`를 더했다.
+
+### dev-web에게 (API 추가 — 화면 몫)
+- `GET /api/customers/:id`의 `days[]` 줄에 **`openable: boolean`**이 생겼다. false면 봉인 날짜의 보관 행으로만 남은 줄이다(장부에 없는 구매자). D-CRM1-12에 따라 "줄은 보이되 누르는 것이 아니다". 링크(`<a>`) 대신 누를 수 없는 줄로 그려 달라. 그 줄은 `subtotal: 0`·`payment: 'UNPAID'`·`unpaid: true`라서 `dayLineTags`가 "미입금으로 셈"을 그린다.
+
+### test-domain에게 (AC-CRM1-30·33)
+- 모형은 봉인 날짜를 "장부 + 그 날짜의 마지막 보관 행"으로 센다. 서버에서 차례를 돌리는 곳은 `world.server.customerArchiver.runOnce()`이고, `{ written, frozen, failed }`를 돌려준다. 차례는 날짜 < 오늘(서버 시계 KST)인 봉인 전 날짜만 적는다.
+- 차례를 돈 날짜와 돌지 않은 날짜를 섞어 달라. 차례 뒤에 그 날짜를 바꾸고 차례 없이 봉인하면, 봉인 날짜는 "마지막으로 적은 보관 행"으로 센다(그 뒤 변경은 빠진다 — D-CRM1-12에서 받아들인 한계).
+- 표: `customer_archive_days`(seller_id, date, seq, frozen), `customer_archive_rows`(seller_id, date, root, members, cancels, no_pay).
+
+### test-e2e에게 (AC-CRM1-33 봉인 날짜 노쇼)
+- 새 시험 경로 **`POST /_e2e/customer-archive` `{}`**는 보관 차례를 바로 한 번 돌린다. 순서는 다음과 같다.
+  1. `/_e2e/dates { kind: 'youtube', date: 오늘 − 31일 }`로 그 날짜 방송을 만든다.
+  2. 그 날짜에 UC_N 1등을 사유 "입금 안 함"으로 취소한다.
+  3. `/_e2e/customer-archive`를 부른다.
+  4. `/_e2e/seal { date }`를 부른다.
+  5. "모든 손님"에 UC_N 줄이 있고 미입금 1번·취소 1번·"입금 늦음 주의"인지 본다. 손님 자세히의 그 날짜 줄은 누를 수 없어야 한다(화면은 dev-web 몫). 그날 `/customer?buyer=UC_N`은 404여야 한다.
+- 3을 빼면 "차례가 돌지 않은 봉인 날짜"가 되어 UC_N 줄이 없다(AC-33 (3)).
+
+### RA-CRM1-03 — FIXED: 성능 사례 (게이트 밖, `pnpm perf`)
+- `crm1-customers.perf.test.ts`에 두 번째 사례를 더했다. 재는 것은 셋이다.
+  - (1) 손님 기록 캐시와 범위 상태를 버린 뒤의 첫 "모든 손님" 조회(서버를 막 켠 뒤와 같은 상태). 시험용 `forgetCustomerCaches()`로 캐시를 버린다.
+  - (2) 셋째 날마다 1등 셋을 '입금 안 함'으로 취소한 날짜. '입금 안 함' 찾기가 이벤트를 다시 적용하는 경로를 탄다.
+  - (3) 마지막 날짜에 채팅 300개를 넣으면서 10개마다 구매자 화면 꼬리표를 동시에 받는 경우. 판정·저장 p95(NFR-01 300ms), 꼬리표 p95, 메모리 늘어난 양을 잰다.
+- 결과(Mac mini, 90일 × 200명, 한 번 실행)
+  - 차가운 첫 조회 1,030ms(상한 2초)
+  - 판정 p95 6ms
+  - 꼬리표 p95 15ms
+  - 힙 증가 약 41MB
+- 첫 사례(데운 캐시)도 같은 실행에서 통과했다.

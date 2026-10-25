@@ -297,10 +297,11 @@ describe('AC-CRM1-16 "모든 손님" 보기 목록', () => {
     const [row] = await c.rows()
     const detail = await expectOk(c.customer(row?.id as string))
     expect(detail.body).toMatchObject({ customer: { name: '이름22', purchaseDays: 11, unpaidDays: 11 }, memo: null, more: true, next: '2026-09-03' })
-    const days = detail.body.days as { date: string; name: string; subtotal: number; payment: string; unpaid: boolean; buyer: string }[]
+    const days = detail.body.days as { date: string; name: string; subtotal: number; payment: string; unpaid: boolean; buyer: string; openable: boolean }[]
     expect(days).toHaveLength(20)
-    expect(days[0]).toEqual({ date: '2026-09-22', buyer: 'UC_A', name: '이름22', subtotal: 1000, payment: 'UNPAID', unpaid: true })
-    expect(days[1]).toEqual({ date: '2026-09-21', buyer: 'UC_A', name: '이름21', subtotal: 1000, payment: 'PAID', unpaid: false })
+    // CRM1 D-CRM1-12: 날짜 줄에 openable(그날 자세히를 열 수 있는지)을 더해 같은 단언에 함께 적음 — 약화 아님(봉인 날짜 보관 행 줄은 false, crm1-archive.test.ts)
+    expect(days[0]).toEqual({ date: '2026-09-22', buyer: 'UC_A', name: '이름22', subtotal: 1000, payment: 'UNPAID', unpaid: true, openable: true })
+    expect(days[1]).toEqual({ date: '2026-09-21', buyer: 'UC_A', name: '이름21', subtotal: 1000, payment: 'PAID', unpaid: false, openable: true })
     const next = await expectOk(c.customer(row?.id as string, '2026-09-03'))
     expect((next.body.days as { date: string }[]).map((day) => day.date)).toEqual(['2026-09-02', '2026-09-01'])
     expect(next.body).toMatchObject({ more: false, next: null })

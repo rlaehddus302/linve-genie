@@ -14,7 +14,7 @@ import { openSellerKey, sha256Hex } from '../secrets.ts'
 import { findSeller } from '../store.ts'
 import { kstDate, type Clock } from '../time.ts'
 import type { ScopeWriter } from '../writer.ts'
-import { allFacts, type DayBundle, type DayFacts } from './facts.ts'
+import { allFacts, type DayBundle, type DayFacts, type FactsDeps } from './facts.ts'
 import { DEFAULT_CUSTOMER_SETTINGS, customerSummary, isUnpaid, type CustomerSettings, type CustomerSummary } from './summary.ts'
 
 export const CUSTOMERS_PAGE_SIZE = 20
@@ -86,6 +86,8 @@ export interface CustomerDay {
   readonly payment: DayBundle['payment']
   /** 미입금 날인지 */
   readonly unpaid: boolean
+  /** 그날 구매자 자세히를 열 수 있는지 — 봉인 날짜의 보관 행으로만 남은 묶음(장부에 없는 구매자)은 false: 줄은 보이되 누르는 것이 아니다 (D-CRM1-12) */
+  readonly openable: boolean
 }
 
 export interface CustomerListQuery {
@@ -134,6 +136,12 @@ export class CustomerService {
     return key
   }
 
+  /** 날짜 재료를 세우는 데 쓰는 것 (손님 기록 보관 차례가 같은 재료·캐시를 쓴다, D-CRM1-12) */
+  factsDeps(): FactsDeps {
+    const { db, writer, log } = this.#deps
+    return { db, writer, log, sellerKey: this.#sellerKey }
+  }
+
   // ── 설정 "손님 관리" (D-CRM1-05) ─────────────────────────────────────
 
   async settings(sellerId: string): Promise<CustomerSettings> {
@@ -155,8 +163,7 @@ export class CustomerService {
   // ── 기록 모으기 ──────────────────────────────────────────────────────
 
   async #index(sellerId: string): Promise<Index> {
-    const { db, writer, log, clock } = this.#deps
-    const facts = await allFacts({ db, writer, log, sellerKey: this.#sellerKey }, sellerId)
+    const facts = await allFacts(this.factsDeps(), sellerId)
     const days = new Map<string, DayFacts>()
     const markerDates = new Map<string, string[]>()
     for (const day of facts) {
@@ -167,7 +174,7 @@ export class CustomerService {
         else list.push(day.date)
       }
     }
-    return { sellerId, today: kstDate(clock.now()), settings: await this.settings(sellerId), days, markerDates }
+    return { sellerId, today: kstDate(this.#deps.clock.now()), settings: await this.settings(sellerId), days, markerDates }
   }
 
   /** 표지가 나온 날짜마다 그날 그 구매자의 지금의 구매자 묶음 (기록 묶음만) */
@@ -265,7 +272,8 @@ export class CustomerService {
     const day = index.days.get(date)
     if (day === undefined) return null
     const customers: DayCustomer[] = []
-    for (const root of day.bundles.keys()) customers.push({ buyer: root, ...CustomerService.#summary(index, CustomerService.#recordOf(index, day, root)) })
+    // 봉인 날짜의 보관 행으로만 남은 묶음은 그날 목록에 없는 구매자라 넣지 않는다 (D-CRM1-12)
+    for (const [root, bundle] of day.bundles) if (!bundle.archived) customers.push({ buyer: root, ...CustomerService.#summary(index, CustomerService.#recordOf(index, day, root)) })
     customers.sort((a, b) => byText(a.buyer, b.buyer))
     return { date, today: index.today, settings: index.settings, customers }
   }
@@ -274,8 +282,10 @@ export class CustomerService {
   async dayCustomer(sellerId: string, date: string, buyer: string): Promise<{ date: string; buyer: string; summary: CustomerSummary; members: DayMember[] } | null> {
     const index = await this.#index(sellerId)
     const day = index.days.get(date)
-    const root = day?.buyers.get(buyer)?.root
-    if (day === undefined || root === undefined) return null
+    const found = day?.buyers.get(buyer)
+    const root = found?.root
+    // 보관 행에서만 나온 구매자(장부에 없다)의 그날 자세히는 없다 — 404 그대로 (D-CRM1-12, AC-CRM1-33 (1))
+    if (day === undefined || root === undefined || found?.archived === true || day.bundles.get(root)?.archived === true) return null
     const own = day.bundles.get(root)
     if (own === undefined) return null
     const memberBuyers = own.members.map((id) => day.buyers.get(id)).filter((item) => item !== undefined)
@@ -351,6 +361,7 @@ export class CustomerService {
       subtotal: bundle.subtotal,
       payment: bundle.payment,
       unpaid: isUnpaid(bundle, index.today, index.settings.waitDays),
+      openable: !bundle.archived,
     }))
     const memo = (await this.#memos(sellerId, [marker])).get(marker) ?? null
     // today = 서버 KST 날짜 — 화면이 주소로 바로 열어도 올해 기준을 기기 시계·손님 마지막 날짜가 아니라 이것으로 정한다(AC-CRM1-15, TE-CRM1-003)
