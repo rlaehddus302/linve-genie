@@ -73,7 +73,9 @@ export function undoTone(item: UndoItem): 'success' | 'warning' | 'danger' | 'in
 
 function UndoLine({ item, queue, now }: { readonly item: UndoItem; readonly queue: UndoQueue; readonly now: number }) {
   // 떠날지 묻는 동안은 시계가 멈춰 있다 (남은 시간 그대로)
-  const left = Math.max(0, Math.ceil((item.kind === 'action' && item.pausedLeft !== null ? item.pausedLeft : item.deadline - now) / 1000))
+  // 처음 그릴 때 시계(now)가 줄이 생기기 전 값이라 대기 시간보다 큰 초가 잠깐 보이지 않게 대기 시간으로 상한 (U-MOB2-07)
+  const cap = Math.ceil((item.kind === 'registration' ? queue.registerUndoMs : queue.delayMs) / 1000)
+  const left = Math.min(cap, Math.max(0, Math.ceil((item.kind === 'action' && item.pausedLeft !== null ? item.pausedLeft : item.deadline - now) / 1000)))
   if (item.kind === 'registration') {
     switch (item.status) {
       case 'open':

@@ -166,6 +166,21 @@ describe('되돌리기 띠: 결과 한 줄과 다시 보내기 문장 (AC-MOB2-1
     expect(screen.getAllByRole('status').map((item) => item.textContent)).toContain('연결이 돌아와 보냈어요: 15번 홍길동 취소')
   })
 
+  it('U-MOB2-07: 띠의 시계가 줄이 생기기 전 값이어도 남은 초는 대기 시간(2초·등록 되돌리기 시간)을 넘지 않는다', () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(1_000_000)
+    const queue = new UndoQueue({ timer: new ManualTimer(), now: () => Date.now(), delayMs: 2000, registerUndoMs: 3000 })
+    const { rerender } = render(<Bar queue={queue} />)
+    // 띠가 처음 그려진 뒤 1.5초가 지나서 줄이 생긴다 (띠의 시계는 아직 처음 값)
+    vi.setSystemTime(1_001_500)
+    queue.add({ label: '15번 홍길동 취소', send: async () => written() })
+    queue.addRegistration({ no: 16, product: 'b1/16', undo: async () => 'undone' })
+    rerender(<Bar queue={queue} />)
+    const bar = screen.getByRole('region', { name: '보내기 전 조치' })
+    expect(bar.textContent).toContain('2초 뒤 보내요: 15번 홍길동 취소')
+    expect([...bar.querySelectorAll('.countdown')].map((item) => item.textContent)).toEqual(['남은 시간 2초', '남은 시간 3초'])
+  })
+
   it('저절로 다시 보낸 등록은 "연결이 돌아와 보냈어요: 15번을 등록했어요" + 되돌리기', () => {
     const queue = new UndoQueue({ timer: new ManualTimer(), now: () => 0 })
     queue.addRegistration({ no: 15, product: 'b1/15', undo: async () => 'undone', auto: true })
@@ -344,7 +359,7 @@ describe('상품 관리 명령의 저절로 다시 보내기는 상품마다 하
     fireEvent.click(screen.getByRole('button', { name: '일시 중지' }))
     await act(flush)
     expect(screen.getAllByRole('button', { name: /닫기/ }).map((button) => button.textContent)).not.toContain('확인')
-    fireEvent.click(within(screen.getByRole('region', { name: '상품 관리' })).getByRole('button', { name: '확인', exact: true }))
+    fireEvent.click(within(screen.getByRole('region', { name: '상품 관리' })).getByRole('button', { name: '확인' }))
     expect(within(screen.getByRole('region', { name: '상품 관리' })).queryByRole('alert')).toBeNull()
     t.goOnline()
     await act(() => t.board.flush())
