@@ -92,7 +92,12 @@ function commonAliasIn(tokens: readonly string[], options: SegmentOptions): stri
 }
 
 /** 빠른 꼴 수 뒤에 와도 조각 끝으로 보는 판매 말투 ("150번 180 가겠습니다") — 끝말 붙은 꼴은 끝말 뗀 모양으로 */
-export const SALE_TAIL_WORDS: readonly string[] = Object.freeze(['갑니다', '가겠습니다', '갈게요', '가요', '드릴게요', '드려요', '드립니다', '보낼게요', '보냅니다', '보내요', '할게요', '입니다', '이에요', '예요', '요', '까지', '까지요'])
+export const SALE_TAIL_WORDS: readonly string[] = Object.freeze([
+  '갑니다', '가겠습니다', '갈게요', '가요', '드릴게요', '드릴게요요', '드려요', '드립니다', '드려볼게요', '드려봅니다', '드려', '볼게요', '보겠습니다', '줄게요',
+  '보낼게요', '보냅니다', '보내요', '할게요', '입니다', '이에요', '예요', '요', '까지', '까지요',
+])
+/** 빠른 꼴 수 토큰에 붙어도 떼는 말 (`45에`·`45에요`·`180입니다`) */
+const NUMBER_TAILS: readonly string[] = [...SALE_TAIL_WORDS, '에', '에요'].sort((a, b) => b.length - a.length)
 const isSaleTail = (token: string): boolean => readingForms(token).some((form) => SALE_TAIL_WORDS.includes(form))
 
 const skipFillers = (tokens: readonly string[], from: number): number => {
@@ -154,12 +159,14 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
         const q = name === null ? k : name.end + 1
         // 수에 붙은 판매 말투는 뗀다 (`180입니다`·`180까지요` — D-V3-69, AC-V3-73)
         const rawNumber = tokens[q]
-        const attachedTail = rawNumber === undefined ? undefined : [...SALE_TAIL_WORDS].sort((a, b) => b.length - a.length).find((tail) => rawNumber.length > tail.length && rawNumber.endsWith(tail) && QUICK_NUMBER.test(rawNumber.slice(0, -tail.length)))
+        const attachedTail = rawNumber === undefined ? undefined : NUMBER_TAILS.find((tail) => rawNumber.length > tail.length && rawNumber.endsWith(tail) && QUICK_NUMBER.test(rawNumber.slice(0, -tail.length)))
         const numberToken = rawNumber !== undefined && attachedTail !== undefined ? rawNumber.slice(0, -attachedTail.length) : rawNumber
         if (numberToken === undefined || !QUICK_NUMBER.test(numberToken)) continue
         const next = markers.find((marker) => marker.start > q)
         const stop = next === undefined ? tokens.length : next.start
-        if (tokens.slice(q + 1, stop).some((token) => !isWindowFiller(token) && !isSaleTail(token))) continue
+        // 뒤에 군말·판매 말투, 또는 같은 수를 다시 말한 것(`113번 45에 드려볼게요 자 45~` — 중복)만 오면 조각 끝
+        const sameNumber = (token: string): boolean => token === numberToken || NUMBER_TAILS.some((tail) => token === numberToken + tail)
+        if (tokens.slice(q + 1, stop).some((token) => !isWindowFiller(token) && !isSaleTail(token) && !sameNumber(token))) continue
         if (q === tokens.length - 1 && !final) continue // 중간 결과 끝의 수는 기다린다(60 → 60만)
         // 품종 없는 꼴은 덩어리가 끝났을 때만(D-V3-63 — 뒤에 무엇이 올지 모른다)
         if (name === null && !final) continue

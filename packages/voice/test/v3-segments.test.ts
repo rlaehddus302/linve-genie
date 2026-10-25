@@ -271,3 +271,17 @@ describe('AC-V3-73 R81~R84 판매 말투는 군말 (D-V3-69, 천원 단위)', ()
     expect(seg('150번 라울 180 드릴게요 자', thousand).picks).toMatchObject([{ no: 150, name: '라울', price: 180000 }])
   })
 })
+
+describe('사용자 "113번 45에 드려볼게요. 자 45~"', () => {
+  it('수에 붙은 에·에요를 떼고, 드려볼게요 등 판매 말투·늘임표·같은 수 되풀이는 조각 끝', () => {
+    expect(seg('113번 45에 드려볼게요', { priceUnit: 'TEN_THOUSAND', final: true }).picks).toMatchObject([{ no: 113, price: 450000 }])
+    expect(seg('113번 45에 드려볼게요', { priceUnit: 'THOUSAND', final: true }).picks).toMatchObject([{ no: 113, price: 45000 }])
+    expect(seg('113번 45에 드려볼게요 자 45~', { priceUnit: 'TEN_THOUSAND', final: true }).picks).toMatchObject([{ no: 113, price: 450000 }])
+    expect(seg('113번 45~~ 드려 볼게요', { priceUnit: 'TEN_THOUSAND', final: true }).picks).toMatchObject([{ no: 113, price: 450000 }])
+    for (const tail of ['드려 보겠습니다', '드려봅니다', '줄게요', '드릴게요요', '볼게요']) {
+      expect(seg(`113번 45에요 ${tail}`, { priceUnit: 'TEN_THOUSAND', final: true }).picks, tail).toMatchObject([{ no: 113, price: 450000 }])
+    }
+    // 다른 수가 뒤에 오면 조각 끝이 아니다
+    expect(seg('113번 45에 드려볼게요 자 50', { priceUnit: 'TEN_THOUSAND', final: true }).picks).toEqual([])
+  })
+})
