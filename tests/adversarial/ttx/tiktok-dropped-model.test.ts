@@ -6,6 +6,7 @@
 // 무작위 붙이기·응답·화면 떠남·상태 보내기(떼어 두기/받음/실패)·워커 다시 뜨기를 섞어,
 //   (1) 서버가 받은 dropped 합 = 실제로 버려진 댓글 수 (다시 뜨기가 있어도 정확히 — 모형도 D-TTX-21 (2)대로 본다)
 //   (2) 상태 하나에 싣는 수는 10,000 이하, 동시에 떼어 둔 상태끼리 같은 수를 두 번 싣지 않음
+//   (3) 팝업 "놓친 틱톡 댓글" 수 = 넘쳐 잘린 보내지 않던 수 + 답이 429·5xx·닿지 못함인 날아가던 잘린 수 (D-TTX-21 (3), 화면 떠남·워커 멈춤은 넣지 않음)
 // 을 본다. 가짜 서버·가짜 타이머 — 네트워크 없음.
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
@@ -101,6 +102,10 @@ async function runModel(ops: readonly Op[], withRestart: boolean): Promise<void>
   let reports: { gen: number; report: TikTokDroppedReport }[] = []
   /** 서버가 받은 dropped 합 */
   let reportedToServer = 0
+  /** 팝업 "놓친 틱톡 댓글" 모형 (D-TTX-21 (3)): 넘쳐 잘린 보내지 않던 수 + 실패 답을 받은 날아가던 잘린 수. 화면 떠남은 넣지 않음 */
+  let popup = 0
+  /** 지금 날아가는 묶음 중 넘침으로 잘린 수 (답을 보고 정함) */
+  let flyingTrimmed = 0
 
   const make = (gen: number) => {
     const api: Api = {
@@ -123,6 +128,8 @@ async function runModel(ops: readonly Op[], withRestart: boolean): Promise<void>
     if (p.gen !== generation) return
     if (r === 'recorded' || r === 'standby') for (const it of p.items) accepted.add(it.commentId)
     if (r === '409' || r === '400') for (const it of p.items) if (!accepted.has(it.commentId)) refused.add(it.commentId)
+    if (r === '429' || r === '500' || r === 'net') popup += flyingTrimmed
+    flyingTrimmed = 0
     p.resolve(result(r))
     await flushMicrotasks()
   }
@@ -151,7 +158,15 @@ async function runModel(ops: readonly Op[], withRestart: boolean): Promise<void>
           added.add(id)
           items.push(comment(id))
         }
+        const before = outbox.snapshot().items.map((held) => held.item.commentId)
         outbox.add(op.tab, 'seller_kim', items)
+        const after = new Set(outbox.snapshot().items.map((held) => held.item.commentId))
+        const flying = new Set(pending !== null && pending.gen === generation ? pending.items.map((it) => it.commentId) : [])
+        for (const id of [...before, ...items.map((it) => it.commentId)]) {
+          if (after.has(id)) continue
+          if (flying.has(id)) flyingTrimmed += 1
+          else popup += 1
+        }
         break
       }
       case 'tick':
@@ -183,9 +198,12 @@ async function runModel(ops: readonly Op[], withRestart: boolean): Promise<void>
         generation += 1
         outbox = make(generation)
         outbox.restore(saved)
+        // 워커가 멈춰 답을 받지 못한 날아가던 잘린 몫은 팝업 수에 넣지 않는다(D-TTX-21 (3))
+        flyingTrimmed = 0
         break
       }
     }
+    expect(outbox.dropped, `팝업 "놓친 틱톡 댓글" 수 ≠ 모형 (${op.kind}, 다시 뜨기 ${String(withRestart)})`).toBe(popup)
   }
   // 끝: 모두 받음으로 답하며 비우고, 떼어 둔 상태를 실패로 돌린 뒤 남은 수를 모두 알린다
   for (let i = 0; i < 400 && (outbox.size > 0 || pending !== null); i += 1) {
@@ -200,6 +218,7 @@ async function runModel(ops: readonly Op[], withRestart: boolean): Promise<void>
     settle(true)
   }
   expect(outbox.unreported).toBe(0)
+  expect(outbox.dropped, '끝까지 비운 뒤 팝업 수 ≠ 모형').toBe(popup)
   // 실제로 버려진 것 = 붙인 것 중 서버가 받지도(200) 거절하지도(409·400) 않은 것
   const reallyDropped = [...added].filter((id) => !accepted.has(id) && !refused.has(id)).length
   // 서버가 받은 댓글을 버린 수로 세지 않았는가 (세면 판매자가 붙여 넣어 같은 찜이 두 번 — D-TTX-16)
@@ -208,7 +227,7 @@ async function runModel(ops: readonly Op[], withRestart: boolean): Promise<void>
 }
 
 describe('TTX 적대 — 확장이 버린 댓글 수 회계 (AC-TTX-32, D-TTX-16)', () => {
-  it('TD-TTX-R30: 무작위 붙이기·응답·화면 떠남·상태 떼어 두기/받음/실패 — 서버가 받은 dropped 합 = 실제로 버려진 댓글 수, 상태 하나에 10,000 이하', async () => {
+  it('TD-TTX-R30: 무작위 붙이기·응답·화면 떠남·상태 떼어 두기/받음/실패 — 서버가 받은 dropped 합 = 실제로 버려진 댓글 수, 상태 하나에 10,000 이하, 팝업 "놓친 틱톡 댓글" 수 = 모형 (SA-TTX-05, D-TTX-21 (3))', async () => {
     await fc.assert(
       fc.asyncProperty(fc.array(arbOp(false), { minLength: 1, maxLength: 50 }), async (ops) => {
         await runModel(ops, false)
@@ -217,7 +236,7 @@ describe('TTX 적대 — 확장이 버린 댓글 수 회계 (AC-TTX-32, D-TTX-16
     )
   })
 
-  it('TD-TTX-R31: 워커 다시 뜨기를 섞어도 알린 수 = 실제로 버린 수 — 아직 떼어 두지 않은 수는 잃지 않고, 알리던 수·날아가던 떠난 묶음은 두 번 세지 않음 (D-TTX-21 (2))', async () => {
+  it('TD-TTX-R31: 워커 다시 뜨기를 섞어도 알린 수 = 실제로 버린 수 — 아직 떼어 두지 않은 수는 잃지 않고, 알리던 수·날아가던 떠난 묶음은 두 번 세지 않음, 팝업 수에 멈춘 워커의 날아가던 잘린 몫을 넣지 않음 (D-TTX-21 (2)(3))', async () => {
     await fc.assert(
       fc.asyncProperty(fc.array(arbOp(true), { minLength: 1, maxLength: 50 }), async (ops) => {
         await runModel(ops, true)
@@ -265,7 +284,8 @@ describe('TTX 적대 — 확장이 버린 댓글 수 회계 (AC-TTX-32, D-TTX-16
     expect(overflow).toBeGreaterThan(TT_DROPPED_REPORT_MAX)
     expect(outbox.size).toBe(TT_HOLD_MAX)
     expect(outbox.unreported, '날아가는 묶음을 잘린 자리에서 셈').toBe(overflow)
-    expect(outbox.dropped, '팝업 누적 "놓친 틱톡 댓글"은 잘린 수 그대로').toBe(overflow + 1)
+    // D-TTX-21 (3): 팝업 수도 보내지 않던 몫(j = overflow)만 바로 센다 — 날아가던 1개(k)는 답이 실패일 때만
+    expect(outbox.dropped, '팝업 "놓친 틱톡 댓글"에 날아가던 묶음을 답 전에 셈(200이면 붙여 넣어 이중 찜)').toBe(overflow)
     const first = outbox.takeDropped()
     const second = outbox.takeDropped()
     const third = outbox.takeDropped()
@@ -283,6 +303,8 @@ describe('TTX 적대 — 확장이 버린 댓글 수 회계 (AC-TTX-32, D-TTX-16
     await flushMicrotasks()
     expect(outbox.unreported, '잘린 날아가던 묶음이 실패했는데 세지 않음(잃은 댓글을 판매자가 모름)').toBe(overflow - TT_DROPPED_REPORT_MAX + 1)
     expect(saved.unreported ?? 0).toBe(overflow - TT_DROPPED_REPORT_MAX + 1)
+    expect(outbox.dropped, '실패 답이면 팝업 수에 날아가던 몫 k=1을 더함 (j + k)').toBe(overflow + 1)
+    expect(saved.dropped, '세션 저장소의 팝업 수도 j + k').toBe(overflow + 1)
     const again = outbox.takeDropped()
     expect(again.count).toBe(overflow - TT_DROPPED_REPORT_MAX + 1)
     outbox.stop()
