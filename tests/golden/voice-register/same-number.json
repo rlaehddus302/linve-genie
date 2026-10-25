@@ -1,6 +1,6 @@
 {
   "kind": "same-number",
-  "about": "음성 같은 번호 (VOC-04·PRD-06, DOMAIN_RULES R-22, V3 — D-V3-06). 들은 번호의 상품이 그 방송에 이미 있을 때 → { action: IGNORE|AUTO_FIX|ASK, changes: { price?, name? }, reason: null|NO_AUTO|NUMBER_BARE|NOT_OPEN|PRICE_NOT_SURE|PRICE_JUMP|CLAIMS }. in = { heard: { price, priceSure, name, nameFrom: DICTIONARY|GUESS|null, numberFrom: MARKER|BARE }, product: { name ('' = 품종 미입력), price, status: READY|OPEN|SOLD|HOLD|CLOSED, liveClaims }, auto }. packages/voice 단위 시험이 읽는다 — README '음성 바로 등록 골든'.",
+  "about": "음성 같은 번호 (VOC-04·PRD-06, DOMAIN_RULES R-22, V3 — D-V3-06). 들은 번호의 상품이 그 방송에 이미 있을 때 → { action: IGNORE|AUTO_FIX|ASK, changes: { price?, name? }, reason: ASK면 NO_AUTO|NUMBER_BARE|NOT_OPEN|PRICE_JUMP|CLAIMS, IGNORE면 null|PRICE_NOT_SURE, AUTO_FIX면 null }. in = { heard: { price, priceSure, name, nameFrom: DICTIONARY|GUESS|null, numberFrom: MARKER|BARE }, product: { name ('' = 품종 미입력), price, status: READY|OPEN|SOLD|HOLD|CLOSED, liveClaims }, auto }. packages/voice 단위 시험이 읽는다 — README '음성 바로 등록 골든'.",
   "cases": [
     {
       "id": "G-VSN-V3-01",
@@ -609,13 +609,13 @@
     },
     {
       "id": "G-VSN-V3-20",
-      "title": "원 없는 가격은 바로 고치지 않음",
+      "title": "원 없는 가격은 무시",
       "refs": [
         "VOC-04",
         "PRD-06",
         "R-22"
       ],
-      "note": "'만팔천'처럼 원이 안 들림 (R-17 8)",
+      "note": "'만팔천'처럼 원이 안 들림 (R-17 8) · D-V3-47: 원까지 확정되지 않은 가격은 바꿀 칸이 아니다 → 묻지 않고 무시(기록용 까닭)",
       "in": {
         "heard": {
           "price": 18000,
@@ -633,10 +633,8 @@
         "auto": true
       },
       "out": {
-        "action": "ASK",
-        "changes": {
-          "price": 18000
-        },
+        "action": "IGNORE",
+        "changes": {},
         "reason": "PRICE_NOT_SURE"
       }
     },
@@ -737,7 +735,7 @@
     },
     {
       "id": "G-VSN-V3-24",
-      "title": "차례: 원 없는 가격이 찜보다 먼저",
+      "title": "차례: 원 없는 가격이 찜보다 먼저 — 무시",
       "refs": [
         "VOC-04",
         "PRD-06",
@@ -760,12 +758,11 @@
         "auto": true
       },
       "out": {
-        "action": "ASK",
-        "changes": {
-          "price": 120000
-        },
+        "action": "IGNORE",
+        "changes": {},
         "reason": "PRICE_NOT_SURE"
-      }
+      },
+      "note": "D-V3-47: 원까지 확정되지 않은 가격은 바꿀 칸이 아니다 → 묻지 않고 무시(기록용 까닭)"
     },
     {
       "id": "G-VSN-V3-25",
@@ -1068,7 +1065,7 @@
         "PRD-06",
         "R-22"
       ],
-      "note": "NO_AUTO → NUMBER_BARE → NOT_OPEN → PRICE_NOT_SURE → PRICE_JUMP → CLAIMS",
+      "note": "(원 없는 가격은 먼저 뺀다) NO_AUTO → NUMBER_BARE → NOT_OPEN → PRICE_JUMP → CLAIMS",
       "in": {
         "heard": {
           "price": 120000,
@@ -1095,7 +1092,7 @@
     },
     {
       "id": "G-VSN-V3-35",
-      "title": "차례: 원 없는 가격이 큰 변화보다 먼저",
+      "title": "차례: 원 없는 가격이 큰 변화보다 먼저 — 무시",
       "refs": [
         "VOC-04",
         "PRD-06",
@@ -1118,12 +1115,11 @@
         "auto": true
       },
       "out": {
-        "action": "ASK",
-        "changes": {
-          "price": 400000
-        },
+        "action": "IGNORE",
+        "changes": {},
         "reason": "PRICE_NOT_SURE"
-      }
+      },
+      "note": "D-V3-47: 원까지 확정되지 않은 가격은 바꿀 칸이 아니다 → 묻지 않고 무시(기록용 까닭)"
     },
     {
       "id": "G-VSN-V3-36",
@@ -1220,6 +1216,101 @@
           "price": 120000
         },
         "reason": "NO_AUTO"
+      }
+    },
+    {
+      "id": "G-VSN-V3-39",
+      "title": "원 없는 가격이어도 사전 품종 채우기는 함",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "note": "가격은 빼고 품종만(D-V3-47)",
+      "in": {
+        "heard": {
+          "price": 18000,
+          "priceSure": false,
+          "name": "핑크문",
+          "nameFrom": "DICTIONARY",
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "",
+          "price": 15000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "AUTO_FIX",
+        "changes": {
+          "name": "핑크문"
+        },
+        "reason": null
+      }
+    },
+    {
+      "id": "G-VSN-V3-40",
+      "title": "원 없는 다른 가격 + 자동 등록 끔 — 묻지 않고 무시",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "note": "가격을 먼저 빼므로 NO_AUTO까지 가지 않는다",
+      "in": {
+        "heard": {
+          "price": 18000,
+          "priceSure": false,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "핑크문",
+          "price": 15000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": false
+      },
+      "out": {
+        "action": "IGNORE",
+        "changes": {},
+        "reason": "PRICE_NOT_SURE"
+      }
+    },
+    {
+      "id": "G-VSN-V3-41",
+      "title": "실방송 7차 — 원 없는 110을 1,100,000원으로 묻지 않음",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "note": "옛 코드는 '가격 차이가 너무 커서' 묻기 카드",
+      "in": {
+        "heard": {
+          "price": 1100000,
+          "priceSure": false,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "",
+          "price": 230000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "IGNORE",
+        "changes": {},
+        "reason": "PRICE_NOT_SURE"
       }
     }
   ]
