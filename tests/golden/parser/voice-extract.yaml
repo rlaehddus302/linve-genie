@@ -323,3 +323,11 @@ cases:
   - { in: "육 삼번 라울 만원", out: { name: 라울, confidence: LOW } }                         # 한글 한 글자 둘은 두 자리로 잇지 않음(숫자만) → 겹침 → 비움
   - { in: "60번 3 라울 만원", out: { name: 라울, price: 10000, confidence: LOW } }           # 번호 뒤 한 자리 수 → 63인지 60인지 애매 → 번호만 비움
   - { in: "60번 3 개 라울 만원", out: { no: 60, name: 라울, price: 10000, confidence: HIGH } }   # 뒤 '3' 다음이 단위 낱말 '개' → 개수 → 60번
+---
+# V3 — 품종 없는 "N번 수"(D-V3-63)는 R-17 1~5로는 가격이 아니다(숫자만·100원 미만 한글 수는 가격 묶음이 아님 — D-202). 가격 단위로 읽는 것은 확정 읽기(R-17 8, 덩어리 끝)이고 수용 기준 표 R69~R72가 고정한다.
+suite: voice-extract
+settings:
+  dictionary: [라울]
+cases:
+  - { in: "육십팔번 이십오", out: { no: 68, confidence: LOW } }     # '이십오' = 25 → 100원 미만이라 R-17 가격 아님
+  - { in: "68번 25 개", out: { no: 68, confidence: LOW } }         # 숫자만 → 가격 아님
