@@ -1,5 +1,6 @@
 // 음성 인식 기록 모아 두기 (VOC-01, D-V3-56, AC-V3-66): 기기(IndexedDB)에 남기기 전 가리기와 내려받기 JSON 형식. 저장·화면은 apps/web.
 // 순수 함수: 시각은 부르는 쪽이 넘기고, 넘긴 값을 바꾸지 않는다. 서버로 보내지 않는다(이 패키지는 연결이 없다).
+import { ENDINGS } from './extract.ts'
 import { MASKED_DIGITS, maskLongDigits } from './voice-log.ts'
 
 /** 기록 모아 두기의 가린 글 (AC-V3-66 — `****`) */
@@ -16,6 +17,9 @@ export type VoiceArchiveAction = (typeof VOICE_ARCHIVE_ACTIONS)[number]
 /** 켤 때 안내 (D-V3-56) */
 export const VOICE_ARCHIVE_NOTICE = '판매자 목소리를 글로 바꾼 것이 이 기기에 남아요. 시청자 이름이 들어갈 수 있어요.'
 
+/** 끝자리 낱말에 붙는 끝말 (R-17 2 끝말, 긴 것부터) */
+const ENDING_PATTERN = [...ENDINGS].sort((a, b) => b.length - a.length).join('|')
+
 /** 문자찜 끝자리 낱말 (R-21 4) — 바로 뒤 숫자 4개를 가린다 */
 const LAST4_WORDS = ['끝자리', '뒷번호', '뒷자리', '끝 자리', '뒷 번호']
 
@@ -28,7 +32,8 @@ export function maskArchiveText(text: unknown): string {
   let out = maskLongDigits(text).split(MASKED_DIGITS).join(ARCHIVE_MASK)
   for (const word of LAST4_WORDS) {
     const escaped = word.replace(/ /g, '\\s*')
-    out = out.replace(new RegExp(`(${escaped})(\\s*)[0-9]{4}(?![0-9])`, 'g'), (_match, lead: string, space: string) => `${lead}${space}${ARCHIVE_MASK}`)
+    // 낱말에 끝말이 붙어도(`끝자리는`·`뒷번호가`, R-21 4 읽는 모양 — TD-V3-006) 바로 뒤 숫자 4개를 가린다. 숫자 뒤 끝말(`1234요`)은 그대로 둔다
+    out = out.replace(new RegExp(`(${escaped}(?:${ENDING_PATTERN})?)(\\s*)[0-9]{4}(?![0-9])`, 'g'), (_match, lead: string, space: string) => `${lead}${space}${ARCHIVE_MASK}`)
   }
   return out
 }
