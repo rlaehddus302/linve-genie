@@ -26,9 +26,6 @@ export const REASON_CLAIMS = '찜이 있는 상품이라 저절로 고치지 않
 export const REASON_NOT_OPEN = '판매 중이 아닌 상품이라 저절로 고치지 않았어요.'
 export const REASON_PRICE_NOT_SURE = "가격 끝에 '원'이 들리지 않아 저절로 고치지 않았어요."
 export const REASON_BARE_NUMBER = "번호를 '번' 없이 들어 저절로 고치지 않았어요."
-export const REASON_PRICE_FAR = '가격이 너무 커서 저절로 고치지 않았어요.'
-/** 바로 등록을 막은 카드 (실방송 3차 — 판매자가 보고 등록) */
-export const PRICE_CHECK_NOTE = '가격 확인 필요 · 가격이 커서 바로 등록하지 않았어요. 맞으면 "등록"을 눌러 주세요.'
 
 /** 저장값에서 바로 등록 켬/끔 (없거나 모르는 값은 켬, 옛 `voice.autoConfirm`은 읽지 않는다 — D-V3-16) */
 export function readInstant(stored: unknown): boolean {

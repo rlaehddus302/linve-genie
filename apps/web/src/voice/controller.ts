@@ -91,8 +91,6 @@ import {
   maybeOtherMessage,
   notRecentReadout,
   REASON_BARE_NUMBER,
-  REASON_PRICE_FAR,
-  PRICE_CHECK_NOTE,
   alreadyReadout,
   askMessage,
   fixedMessage,
@@ -1191,8 +1189,6 @@ export class VoiceController {
           break
         }
         if (v3 !== null) {
-          // 바로 등록을 막은 까닭 (실방송 3차): 너무 큰 가격·가격 뒤의 '번' 없는 번호 — 카드만
-          if (v3.blocked === 'PRICE_TOO_HIGH') notes.set(id, PRICE_CHECK_NOTE)
           // 창이 열려 미룬 바로 등록 — 창이 닫히면 등록 (AC-V3-43 a)
           if (v3.ready !== null && v3.ready.no === placed.no && !noAuto && !this.#rejected.has(v3.ready.no)) this.#dueCards.add(id)
         }
@@ -1214,7 +1210,7 @@ export class VoiceController {
         this.#touchLearned(module, reading, now)
         if (action.skipped.length > 0) reason = module.VOICE_LOG_REASONS.conflict
         // 이어 채우기로 원 가격이 채워지면 그 카드를 바로 등록 (D-V3-01, AC-V3-28)
-        if (v3 !== null && v3.priceSure && v3.blocked === null && (filled.price ?? 0) <= module.AUTO_REGISTER_PRICE_MAX && !noAuto && !filled.touched && filled.no !== null && filled.price !== null && !this.#rejected.has(filled.no) && this.#existingOf(filled.no) === null) {
+        if (v3 !== null && v3.priceSure && v3.blocked === null && !noAuto && !filled.touched && filled.no !== null && filled.price !== null && !this.#rejected.has(filled.no) && this.#existingOf(filled.no) === null) {
           if (this.#host.dialogOpen()) this.#dueCards.add(filled.id)
           else this.#registerCard(work, filled)
         }
@@ -1662,15 +1658,6 @@ export class VoiceController {
         if (chunkEnd) this.#pickDone.add(key)
         continue
       }
-      // 300만 원 넘는 가격: 없는 번호면 덩어리 끝에 카드, 이미 있는 번호면 아래 R-22(가격 차이로 묻기, D-V3-33)
-      const blockedExisting = pick.blocked !== null ? this.#existingOf(pick.no) : null
-      if (pick.blocked !== null && (blockedExisting === null || blockedExisting === 'closed')) {
-        if (chunkEnd) {
-          this.#pickDone.add(key)
-          this.#pickCard(work, module, pick, text, PRICE_CHECK_NOTE)
-        }
-        continue
-      }
       const existing = this.#existingOf(pick.no)
       // 판매 종료한 번호(등록을 되돌린 번호 포함)는 바로 하지 않는다 — 덩어리 끝에 카드
       if (existing === 'closed') {
@@ -1920,7 +1907,7 @@ export class VoiceController {
     }
     // 합친 뒤 번호·원 가격이 갖춰지면 그 자리에서 바로 등록 (AC-V3-27 R23)
     // 번호를 'N번'으로 들었을 때만 (AC-V3-06 e, D-V3-32)
-    if (!noAuto && v3 !== null && v3.priceSure && v3.blocked === null && v3.numberFrom === 'marker' && next.no !== null && next.price !== null && next.price <= module.AUTO_REGISTER_PRICE_MAX) {
+    if (!noAuto && v3 !== null && v3.priceSure && v3.blocked === null && v3.numberFrom === 'marker' && next.no !== null && next.price !== null) {
       if (this.#host.dialogOpen()) this.#dueCards.add(next.id)
       else {
         work.cards = module.replaceCard(work.cards, next)
@@ -2048,7 +2035,7 @@ export class VoiceController {
         work.offers = [offer, ...work.offers.filter((item) => !(item.kind === 'offer' && item.stage === 'ask' && item.registrationId === existing.key))]
         return { action: 'offer', reason: LOG_ASK, readout: null }
       }
-      const note = decision.reason === 'NOT_OPEN' ? REASON_NOT_OPEN : decision.reason === 'NUMBER_BARE' ? REASON_BARE_NUMBER : decision.reason === 'PRICE_JUMP' ? REASON_PRICE_FAR : undefined
+      const note = decision.reason === 'NOT_OPEN' ? REASON_NOT_OPEN : decision.reason === 'NUMBER_BARE' ? REASON_BARE_NUMBER : undefined
       this.#ask(work, no, existing, changes, note)
       return { action: 'offer', reason: LOG_ASK, readout: askMessage(no, existing, changes) }
     }
