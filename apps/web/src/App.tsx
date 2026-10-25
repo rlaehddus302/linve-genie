@@ -24,6 +24,8 @@ import { BillingConfigProvider, useBillingConfigState } from './components/billi
 import { BillingPage } from './components/BillingPage.tsx'
 import { BuyersPage } from './components/BuyersPage.tsx'
 import { ConsolePage } from './components/ConsolePage.tsx'
+import { VoiceBand } from './components/VoiceBand.tsx'
+import { logoutVoice } from './voice/session.ts'
 import { DepositProvider } from './components/deposit-context.tsx'
 import { DepositsPage } from './components/DepositsPage.tsx'
 import { ErrorNote } from './components/ErrorNote.tsx'
@@ -153,6 +155,8 @@ export function App() {
 
   const logout = useCallback(async () => {
     setLogoutError(null)
+    // 로그아웃하면 음성도 끄고 켠 방송 ID를 지운다 (D-V3-52)
+    logoutVoice()
     try {
       await post('/api/logout', {})
       setSession({ state: 'out', expired: false })
@@ -367,6 +371,7 @@ export function App() {
   const shell = (
     <>
       <TopBar shopName={me.seller.name} assistant={assistant} onLogout={() => void logout()} route={route} navigate={navigate} />
+      {assistant ? null : <VoiceBand route={route} navigate={navigate} />}
       {assistant ? null : <RefusalReset screen={routePath(route)} />}
       {logoutError !== null ? <ErrorNote error={logoutError} /> : null}
       {homeNotice !== null ? (

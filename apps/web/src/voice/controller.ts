@@ -527,6 +527,10 @@ export interface VoiceHost {
   fixRecent?(registrationId: string, changes: { readonly name?: string; readonly price?: number }, options?: { readonly newOnly?: boolean }): Promise<RecentFixOutcome>
   /** 상품 번호 바꾸기 (손 고치기와 같은 product.renumber, R-10·D-V3-58). 바꿨으면 true */
   renumber?(from: number, to: number): Promise<boolean>
+  /** 문자찜을 저절로 넣어도 되나 (콘솔 밖은 아니다 — 카드로 남긴다, D-V3-52). 없으면 참 */
+  smsAutoAllowed?(): boolean
+  /** 판매자가 "음성 끄기"를 눌렀다 (켠 방송 ID를 지운다, D-V3-52) */
+  voiceOff?(): void
   /** 그 상품을 손으로 고치는 창을 연다 (D-V3-59 [아까 것을 다른 번호로]) */
   openProduct?(registrationId: string): void
   /** 등록 되돌리기 (지금의 5초 되돌리기). 되돌리기를 시작했으면 true */
@@ -838,6 +842,7 @@ export class VoiceController {
       return
     }
     if (phase === 'off') return
+    this.#host.voiceOff?.()
     this.#becomeOff()
     this.#engine?.stop()
     this.#host.focusQuick()
@@ -2905,6 +2910,8 @@ export class VoiceController {
   #smsAuto(): void {
     const module = this.#module
     if (module === null) return
+    // 콘솔 밖에서는 저절로 넣지 않는다 — 콘솔을 열면 넣는다 (D-V3-52)
+    if (this.#host.smsAutoAllowed?.() === false) return
     const now = this.#host.now()
     const voiceOn = this.#snapshot.phase === 'on'
     let dialogOpen: boolean | null = null

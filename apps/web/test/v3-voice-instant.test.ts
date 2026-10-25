@@ -3,7 +3,7 @@ import * as voiceModule from '@livejjim/voice'
 import type { SuggestionCard, VoiceSettings } from '@livejjim/voice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VoiceController, type ExistingView, type RecentFixOutcome, type VoiceHost } from '../src/voice/controller.ts'
-import { PRICE_CHECK_NOTE, askMessage, fixedMessage, otherNumberMessage, readInstant, registeredReadout } from '../src/voice/instant.ts'
+import { askMessage, fixedMessage, otherNumberMessage, readInstant, registeredReadout } from '../src/voice/instant.ts'
 
 const T0 = Date.UTC(2026, 9, 25, 1, 0, 0)
 
@@ -468,13 +468,13 @@ describe('중간 결과 끝의 번 없는 번호 (D-V3-26)·막음 (실방송 3�
     expect(h.voice.getSnapshot().readout?.text).toBe('번호가 가격 뒤에 들렸어요')
   })
 
-  it('300만 원을 넘는 가격은 바로 등록하지 않고 카드에 "가격 확인 필요"', async () => {
+  // D-V3-64: N번 + 원으로 분명히 들은 등록은 크기와 상관없이 바로 (300만 원 "가격 확인 필요" 카드 없음 — 정산 때 다시 본다)
+  it('300만 원을 넘는 가격도 바로 등록한다 (D-V3-64)', async () => {
     const h = await ready()
     say('38번 라울 605만 원')
     at(3000)
-    expect(h.registered).toEqual([])
-    const card = cards(h)[0]
-    expect(h.voice.getSnapshot().notes.get(card?.id ?? '')).toBe(PRICE_CHECK_NOTE)
+    expect(reg(h).map((item) => [item.no, item.price])).toEqual([[38, 6050000]])
+    expect(cards(h)).toEqual([])
   })
 
   // D-V3-57·59: 3배 넘게 바뀌어도 N번 + 원이면 바로 고친다 — 이 콘솔이 방금 등록한 번호가 아니면(찜 0) 바꾸고 다른 번호였을 때 할 말을 4초

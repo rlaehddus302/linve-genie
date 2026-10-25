@@ -3734,3 +3734,34 @@ select.input {
     text-align: center;
   }
 }
+
+/* 콘솔 밖 음성 띠 (D-V3-52) — 화면 위에 붙는다(휴대폰 아래 메뉴와 겹치지 않게) */
+.voice-band {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #e8f0fe;
+  border-bottom: 1px solid #a8c7fa;
+  font-size: 1rem;
+}
+
+.voice-band-line {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.voice-band-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.voice-band-actions .button {
+  min-height: 44px;
+}

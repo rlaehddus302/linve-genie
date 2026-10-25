@@ -10,6 +10,8 @@ export default mergeConfig(
       name: 'web',
       environment: 'jsdom',
       include: ['test/**/*.test.{ts,tsx}'],
+      // 앱 전체 음성(D-V3-52)을 시험마다 끝낸다
+      setupFiles: ['test/setup-voice-session.ts'],
     },
   }),
 )
