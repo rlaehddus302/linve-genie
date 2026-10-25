@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { ASK_STATUS } from '../src/chrome.ts'
 import { ASK_WAIT_MS, badgeFor, FRAME_GONE_MS, FRAMES_KEY, FRAMES_SAVE_MS, HIDDEN_WARN_MS, Hub, QUEUE_KEY, TOKEN_KEY, type HubView } from '../src/hub.ts'
 import { WORDS } from '../src/words.ts'
+import { continuationFor } from './continuation.ts'
 import { FakeTimers, fakeChrome, message, settle } from './fakes.ts'
 
 const V = 'abcdEFGH123'
@@ -385,6 +386,25 @@ describe('Hub', () => {
         const reply = (await hub.handle({ type: 'status', v: null, hidden: false, read: 0, unread: 0 }, iframe)) as HubView & { frameVideo: string | null }
         expect(reply).toMatchObject({ frameVideo: LIVE, video: LIVE, message: WORDS.RECEIVING })
         expect(((await hub.handle({ type: 'view' })) as HubView).message).toBe(WORDS.RECEIVING)
+      })
+
+      it('RA-V3-010: 프레임이 한 번 받은 영상 ID는 탭 주소가 바뀌어도 그대로, 다시 만들어진 프레임(새 문서)만 새로, continuation이 다르면 버린다', async () => {
+        const { make } = restartable(true)
+        const hub = make()
+        const chatUrl = (video: string) => `https://www.youtube.com/live_chat?continuation=${continuationFor(video)}`
+        const frame = (video: string, tabVideo: string, doc: string) => ({ id: 'ext', url: chatUrl(video), tab: { id: 1, url: `https://www.youtube.com/watch?v=${tabVideo}` }, frameId: 7, documentId: doc })
+        const status = { type: 'status', v: null, hidden: false, read: 0, unread: 0 }
+        let reply = (await hub.handle(status, frame(LIVE, LIVE, 'doc-1'))) as { frameVideo: string | null }
+        expect(reply.frameVideo).toBe(LIVE)
+        // SPA로 탭이 다른 영상(OLD)으로 옮겼지만 같은 문서 — 그대로 LIVE
+        reply = (await hub.handle(status, frame(LIVE, OLD, 'doc-1'))) as { frameVideo: string | null }
+        expect(reply.frameVideo).toBe(LIVE)
+        // 같은 iframe이 새 문서로 다시 열렸는데 continuation이 아직 옛 영상(LIVE) — 탭 영상(OLD)을 받지 않는다
+        reply = (await hub.handle(status, frame(LIVE, OLD, 'doc-2'))) as { frameVideo: string | null }
+        expect(reply.frameVideo).toBeNull()
+        // 새 문서가 새 영상 continuation이면 새 영상
+        reply = (await hub.handle(status, frame(OLD, OLD, 'doc-3'))) as { frameVideo: string | null }
+        expect(reply.frameVideo).toBe(OLD)
       })
 
       it('보고 시각만 바뀌면 세션에 FRAMES_SAVE_MS에 한 번만 쓴다', async () => {

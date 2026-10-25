@@ -3,7 +3,7 @@
 // - 감사 올리기(poster.ts, 선택 기능): 서버가 켜져 있다고 할 때만 서버가 준 감사 글을 입력 칸에 넣고 보낸다.
 import { ASK_STATUS, chromeApi } from './chrome.ts'
 import { ThanksPoster } from './poster.ts'
-import { ChatReader, isLiveChatPage, videoIdOf } from './reader.ts'
+import { ChatReader, frameVideoOf, isLiveChatPage } from './reader.ts'
 
 const STATUS_MS = 10_000
 
@@ -15,15 +15,13 @@ function topHref(): string | null {
   }
 }
 
-/** 바깥 시청 페이지 주소: window.top이 안 되면 이 iframe을 연 페이지(referrer — 같은 사이트라 전체 주소) */
-function outerHref(): string | null {
-  return topHref() ?? (document.referrer === '' ? null : document.referrer)
-}
 
 function main(): void {
   if (!isLiveChatPage(location.href)) return
   const chrome = chromeApi()
-  let v = videoIdOf(location.href, topHref()) ?? videoIdOf(location.href, outerHref())
+  // 영상 ID는 이 문서에서 한 번 정하면 바꾸지 않는다(SPA로 바깥 주소가 바뀌어도 — 다시 만들어진 프레임에서만 새로, RA-V3-010).
+  // 바깥 주소(window.top, 안 되면 이 iframe을 연 페이지 referrer)는 continuation이 다른 영상 것이면 쓰지 않는다
+  let v = frameVideoOf(location.href, [topHref(), document.referrer === '' ? null : document.referrer])
   const send = (message: unknown) => {
     chrome.runtime.sendMessage(message).catch(() => undefined)
   }

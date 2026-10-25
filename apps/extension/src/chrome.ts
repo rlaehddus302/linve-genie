@@ -7,6 +7,8 @@ export interface MessageSender {
   readonly tab?: { readonly id?: number; readonly url?: string }
   /** 탭 안 프레임 번호 (0 = 맨 위 문서, 시청 페이지 안 채팅 iframe은 다른 수) */
   readonly frameId?: number
+  /** 문서 번호 (크롬 106+) — 같은 iframe이 새 주소로 다시 열리면 바뀐다 */
+  readonly documentId?: string
   readonly id?: string
   /** 보낸 곳 주소 (팝업이면 chrome-extension://<id>/popup.html, content script면 유튜브 주소) */
   readonly url?: string

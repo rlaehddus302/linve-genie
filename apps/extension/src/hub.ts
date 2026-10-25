@@ -12,7 +12,7 @@
 import { createApi, type Api, type Fetch } from './api.ts'
 import { ASK_STATUS, type ChromeLike, type MessageSender } from './chrome.ts'
 import { Outbox, type OutboxEvent, type OutboxSnapshot, type Timers } from './outbox.ts'
-import { isLiveChatPage, videoIdOf, type ChatMessage } from './reader.ts'
+import { frameVideoOf, isLiveChatPage, type ChatMessage } from './reader.ts'
 import { WORDS } from './words.ts'
 
 export const TOKEN_KEY = 'token'
@@ -331,7 +331,9 @@ export class Hub {
 
   async #status(raw: Extract<PageMessage, { type: 'status' }>, sender: MessageSender | undefined): Promise<HubView & { readonly frameVideo: string | null }> {
     // 시청 페이지 안 채팅 iframe은 주소에 v=가 없을 수 있다 — content script가 못 꺼냈으면 보낸 탭(시청 페이지) 주소에서 꺼낸다
-    const m = raw.v !== null || sender === undefined ? raw : { ...raw, v: videoIdOf(sender.url ?? '', sender.tab?.url ?? null) }
+    // 한 번 정한 프레임(문서)의 영상은 탭 주소가 바뀌어도 그대로, continuation이 탭 영상과 다르면 쓰지 않는다 (RA-V3-010)
+    const known = this.#frames.get(frameKey(sender, null))?.v ?? null
+    const m = raw.v !== null || sender === undefined ? raw : { ...raw, v: known ?? frameVideoOf(sender.url ?? '', [sender.tab?.url ?? null]) }
     const now = this.#now()
     this.#prune(now)
     const vk = m.v ?? ''
@@ -565,7 +567,8 @@ export function takeReplyOf(body: Record<string, unknown>): TakeReply {
 function frameKey(sender: MessageSender | undefined, v: string | null): string {
   const tab = sender?.tab?.id
   if (tab === undefined) return `v:${v ?? ''}`
-  return `${String(tab)}:${String(sender?.frameId ?? 0)}`
+  // 문서 번호가 있으면 함께 — 같은 iframe이 다른 영상 채팅으로 다시 열리면 다른 프레임이다
+  return `${String(tab)}:${String(sender?.frameId ?? 0)}:${sender?.documentId ?? ''}`
 }
 
 const safeCount = (value: unknown): number => (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0)
