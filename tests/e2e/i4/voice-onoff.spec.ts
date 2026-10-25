@@ -72,14 +72,18 @@ test.describe('I4 음성 켜기·끄기', () => {
   test('AC-I4-11: 처음 켤 때 안내 창 — 문장 세 개·처음 포커스 닫기, 닫기·Esc는 꺼진 그대로, 두 번째는 창 없이, 인식 설정 ko-KR·continuous·interim', async ({ browser }) => {
     const baseURL = test.info().project.use.baseURL!
     const context = await browser.newContext({ baseURL, viewport: { width: 1440, height: 900 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' })
-    await installFakeSpeech(context)
+    // 처음 켜는 기기 그대로(저장값 없음 = 바로 등록 켬, D-V3-16)
+    await installFakeSpeech(context, { autoRegister: true })
     const page = await context.newPage()
     await login(page)
     await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
     await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
     const dlg = page.getByRole('dialog', { name: '음성으로 상품 등록' })
     await expect(dlg).toBeVisible()
-    await expect(dlg).toContainText('말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.')
+    // V3 교체(D-V3-36): 바로 등록이 켜져 있으면 첫 줄이 바뀌고 그 아래 바로 등록 줄(D-V3-17). 꺼진 경우는 tests/e2e/v3 AC-V3-42
+    await expect(dlg).toContainText('번호와 가격이 확실하지 않으면 카드로 보여 드려요. 카드를 확인하고 등록해요.')
+    await expect(dlg).toContainText('번호와 가격이 들리면 바로 등록돼요. 음성 설정에서 끌 수 있어요.')
+    await expect(dlg).not.toContainText('카드를 확인하고 등록해야 상품이 생겨요.')
     // D-I5-06: 외부 전송 문장 교체 (I5)
     await expect(dlg).toContainText('음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브지니는 음성을 녹음하거나 저장하지 않아요.')
     // D-I5-11: 마이크 줄 "크롬이" → "브라우저가" (I5)

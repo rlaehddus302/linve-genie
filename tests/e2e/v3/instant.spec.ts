@@ -47,7 +47,7 @@ async function expectRegisteredAt(page: Page, writes: Write[], sentence: string,
   await expect(voiceCards(page)).toHaveCount(0)
 }
 
-test('AC-V3-20 R1: 실제 방송 1 — 결과 7(원까지)에서 조용한 시간 전에 108번 bts 100,000원 등록 하나, 5초 되돌리기 띠·큰 글자 칸, 카드 없음', async ({ page }) => {
+test('AC-V3-20 R1: 실제 방송 1 — 결과 7(원까지)에서 조용한 시간 전에 108번 품종 미입력 100,000원 등록 하나(bts 한 번 → 추측 없음, D-V3-30), 5초 되돌리기 띠·큰 글자 칸, 카드 없음', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
   await sayWords(page, BROADCAST_1, {
@@ -57,8 +57,8 @@ test('AC-V3-20 R1: 실제 방송 1 — 결과 7(원까지)에서 조용한 시�
         expect(productWrites(writes)).toEqual([])
       }
       if (k === 7) {
-        await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, 'bts', 100000]])
-        await expect(readout(page)).toHaveText('108번 bts 100,000원 등록했어요 · 품종 확인 필요')
+        await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, '', 100000]])
+        await expect(readout(page)).toHaveText('108번 100,000원 등록했어요')
         await expect(undoBar(page).getByRole('button', { name: '108번 등록 되돌리기' })).toBeVisible()
       }
     },
@@ -68,13 +68,13 @@ test('AC-V3-20 R1: 실제 방송 1 — 결과 7(원까지)에서 조용한 시�
   await page.clock.runFor(QUIET_MS + 100)
   await expect(boardItem(page, 108)).toContainText('100,000원')
   await settle(page)
-  expect(productWrites(writes)).toEqual([['product.register', 108, 'bts', 100000]])
+  expect(productWrites(writes)).toEqual([['product.register', 108, '', 100000]])
   await expect(voiceCards(page)).toHaveCount(0)
 })
 
-test('AC-V3-20: 큰 글자 칸 "등록했어요"는 4초 뒤 사라진다', async ({ page }) => {
+test('AC-V3-20: 추측 품종이면 큰 글자 칸 "… 등록했어요 · 품종 확인 필요"(두 번 나온 bts, D-V3-30), 4초 뒤 사라진다', async ({ page }) => {
   await setupV3(page)
-  await sayWords(page, '108번 bts 10만 원')
+  await sayWords(page, '108번 bts bts 10만 원')
   await expect(readout(page)).toHaveText('108번 bts 100,000원 등록했어요 · 품종 확인 필요')
   await page.clock.runFor(3500)
   await expect(readout(page)).toHaveText('108번 bts 100,000원 등록했어요 · 품종 확인 필요')
@@ -157,7 +157,6 @@ const REGISTERS: readonly (readonly [string, string, number, readonly [number, s
   ['R31', '백육십팔 삼광색금 이십오만 원', 4, [168, '삼광색금', 250000]],
   ['R32', '168 삼광색금 25만 원', 4, [168, '삼광색금', 250000]],
   ['R33', '일육팔은 25만 원', 3, [168, '', 250000]],
-  ['R34', '자 9cm에 이거 25만 원 170', 6, [170, '', 250000]],
   ['R36', '170 25만 원', 3, [170, '', 250000]],
   ['R43', '174 28만 원', 3, [174, '', 280000]],
 ]
@@ -198,6 +197,27 @@ for (const [id, sentence, noCard] of NO_WRITES) {
     await settle(page)
     expect(productWrites(writes)).toEqual([])
     if (noCard) await expect(voiceCards(page)).toHaveCount(0)
+  })
+}
+
+// '번' 없는 번호가 원 가격 줄 뒤(D-V3-34)·가격 300만 원 넘음(D-V3-33) → 쓰기 0, 카드 하나 + 확인 필요 줄
+const CARD_ONLY: readonly (readonly [string, string, string, string])[] = [
+  ['R34', '자 9cm에 이거 25만 원 170', '170번 품종 미입력 250,000원', '번호 확인 필요'],
+  ['R44', '요 아이는 65만 원까지 자 색감이 이렇게 예쁘게 나왔네요 자 60 어 자', '60번 품종 미입력 650,000원', '번호 확인 필요'],
+  ['R46', '38번 605만 원까지', '38번 품종 미입력 6,050,000원', '가격 확인 필요'],
+]
+
+for (const [id, sentence, short, why] of CARD_ONLY) {
+  test(`AC-V3-24 ${id}: "${sentence}" → 쓰기 0, 카드 "${short}" + "${why}"`, async ({ page }) => {
+    await setupV3(page)
+    const writes = recordWrites(page)
+    await sayChunk(page, sentence)
+    const c = card(page, short)
+    await expect(c).toBeVisible()
+    await expect(voiceCards(page)).toHaveCount(1)
+    await expect(c.getByText(why)).toBeVisible()
+    await settle(page)
+    expect(productWrites(writes)).toEqual([])
   })
 }
 
@@ -259,10 +279,25 @@ test('AC-V3-26 R21: 카드의 "등록"을 누르면 등록 하나', async ({ pag
   expect(productWrites(writes)).toEqual([['product.register', 15, '핑크프릴', 15000]])
 })
 
-test('TE-V3-002 AC-V3-29 R27: "19번 선버스 팔천"(원 없음) → 카드 품종 "선버스"·품종 확인 필요·후보 단추 "선버스트", 누르면 선버스트', async ({ page }) => {
+test('AC-V3-29 R27: "19번 선버스 팔천"(원 없음, 선버스 한 번 → 추측 없음 D-V3-30) → 카드 "19번 품종 미입력 8,000원" + 후보 단추 "선버스트", 누르면 선버스트', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
   await sayChunk(page, '19번 선버스 팔천')
+  const c = card(page, '19번 품종 미입력 8,000원')
+  await expect(c).toBeVisible()
+  const pick = c.getByRole('button', { name: '선버스트', exact: true })
+  await expect(pick).toBeVisible()
+  await pick.click()
+  await expect(card(page, '19번 선버스트 8,000원')).toBeVisible()
+  await settle(page)
+  expect(productWrites(writes)).toEqual([])
+})
+
+// D-V3-09(추측 품종 카드에도 "품종 확인 필요"·후보 단추) + D-V3-30(두 번 나온 낱말만 추측)
+test('TE-V3-002 AC-V3-29: "19번 선버스 선버스 팔천"(원 없음) → 카드 품종 "선버스"·품종 확인 필요·후보 단추 "선버스트", 누르면 선버스트', async ({ page }) => {
+  await setupV3(page)
+  const writes = recordWrites(page)
+  await sayChunk(page, '19번 선버스 선버스 팔천')
   const c = card(page, '19번 선버스 8,000원')
   await expect(c).toBeVisible()
   await expect(c.getByText('품종 확인 필요')).toBeVisible()
@@ -274,10 +309,10 @@ test('TE-V3-002 AC-V3-29 R27: "19번 선버스 팔천"(원 없음) → 카드 �
   expect(productWrites(writes)).toEqual([])
 })
 
-test('AC-V3-29 R28: "15번 <b>bts</b> 만원" → 이름 글자 그대로 등록, 화면에 b 요소 없음', async ({ page }) => {
+test('AC-V3-29 R28: "15번 <b>bts</b> <b>bts</b> 만원" → 결과 4에서 이름 글자 그대로 등록, 화면에 b 요소 없음', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
-  await expectRegisteredAt(page, writes, '15번 <b>bts</b> 만원', 3, [15, '<b>bts</b>', 10000])
+  await expectRegisteredAt(page, writes, '15번 <b>bts</b> <b>bts</b> 만원', 4, [15, '<b>bts</b>', 10000])
   await expect(readout(page)).toContainText('<b>bts</b>')
   await expect(boardItem(page, 15)).toContainText('<b>bts</b>')
   await expect(page.locator('b').filter({ hasText: 'bts' })).toHaveCount(0)

@@ -7,8 +7,8 @@ import { uniqueDate } from '../s05/support.ts'
 import { ANDROID, ANDROID_UA, baseUrlOf, broadcastApi, freshSeller, hideScreen, installFakeWake, setLabelsApi, showScreen, wakeCounts, type FakeWakeOptions } from './support.ts'
 
 const CONSENT_LINES = [
-  '말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.',
-  // V3 (D-V3-17, AC-V3-42): 처음 켤 때 안내 창에 한 줄 더 (D-I5-11 줄은 그대로)
+  // V3 (D-V3-36·D-V3-17, AC-V3-42): 처음 켤 때는 바로 등록이 켜져 있다(기본 켬) — 첫 줄이 바뀌고 바로 등록 줄이 붙는다. 나머지 줄(D-I5-11)은 그대로
+  '번호와 가격이 확실하지 않으면 카드로 보여 드려요. 카드를 확인하고 등록해요.',
   '번호와 가격이 들리면 바로 등록돼요. 음성 설정에서 끌 수 있어요.',
   '음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브지니는 음성을 녹음하거나 저장하지 않아요.',
   '다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.',
@@ -25,11 +25,11 @@ function voiceOff(page: Page) {
   return voiceRegion(page).getByRole('button', { name: '음성 끄기', exact: true })
 }
 
-async function seller(browser: Browser, page: Page, wake: FakeWakeOptions = {}, consent = true): Promise<{ dev: Page; close: () => Promise<void> }> {
+async function seller(browser: Browser, page: Page, wake: FakeWakeOptions = {}, consent = true, autoRegister = false): Promise<{ dev: Page; close: () => Promise<void> }> {
   await page.goto('/')
   const { page: dev, context } = await freshSeller(browser, baseUrlOf(page), { viewport: ANDROID, touch: true, userAgent: ANDROID_UA })
   await installFakeWake(context, wake)
-  await installFakeSpeech(context, { consent })
+  await installFakeSpeech(context, { consent, autoRegister })
   return { dev, close: () => context.close() }
 }
 
@@ -164,7 +164,8 @@ test.describe('AC-MOB1-10 음성이 켜진 동안 화면 꺼짐 막기', () => {
 
 test.describe('AC-MOB1-11 안내 창 한 줄', () => {
   test('음성을 처음 켤 때 "음성으로 상품 등록" 창 — 지금 세 줄 그대로 + 마지막 줄 "방송하는 폰이 아닌 다른 기기…"', async ({ page, browser }) => {
-    const { dev, close } = await seller(browser, page, {}, false)
+    // 처음 켜는 기기 그대로(저장값 없음 = 바로 등록 켬, D-V3-16·D-V3-36)
+    const { dev, close } = await seller(browser, page, {}, false, true)
     try {
       await setLabelsApi(dev, false)
       await voiceConsole(dev)

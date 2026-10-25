@@ -190,7 +190,7 @@ test.describe('음성 — 이력을 받는 동안 말한 문장 (수정 라운�
 })
 
 test.describe('음성 — 이력을 받는 동안 미룬 문장과 자동 등록 설정 (TE-N3-004)', () => {
-  test('TE-V3-009 (스펙 확인 필요) TE-N3-004: 자동 등록을 끈 채 말한 문장은, 이력을 기다리는 사이 자동 등록을 켜도 자동 등록 카드가 되지 않는다 (AC-I4-31 "설정을 끈 채 만든 카드", D-I4-05)', async ({ page }) => {
+  test('TE-V3-009 (D-V3-35) TE-N3-004: 자동 등록을 끈 채 말한 문장은, 이력을 기다리는 사이 자동 등록을 켜도 자동 등록 카드가 되지 않는다 (AC-I4-31 "설정을 끈 채 만든 카드", D-I4-05)', async ({ page }) => {
     // 시계를 멈춰 2초 기다림이 끝나지 않게 한다 — 이력 응답은 붙잡아 두었다가 자동 등록을 켠 뒤 놓아준다
     await installFakeSpeech(page, { consent: true, settings: { 'voice.autoConfirm': false, 'voice.autoConfirmSec': 5 } })
     await page.setViewportSize({ width: 1440, height: 900 })

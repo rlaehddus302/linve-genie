@@ -146,15 +146,51 @@ test('TE-V3-007 AC-V3-32 R15: 품종 미입력·1등 있는 108번에 "108번 �
   await expect.poll(() => productWrites(writes)).toEqual([['product.update', 108, '핑크프릴']])
 })
 
-test('AC-V3-32 R16: 품종 미입력·1등 있는 108번에 "108번 bts 10만 원" → 쓰기 0, 묻기 "품종 없음 → bts" + 찜 까닭 줄', async ({ page }) => {
+test('AC-V3-32 R16: 품종 미입력·1등 있는 108번에 "108번 bts bts 10만 원" → 쓰기 0, 카드 0, 이미 등록됨 (추측은 있는 상품 품종을 채우지 않음, D-V3-31)', async ({ page }) => {
   await with108(page, { name: '', claim: true })
   const writes = recordWrites(page)
-  await sayChunk(page, '108번 bts 10만 원')
-  const ask = notice(page, '108번을 고칠까요? 품종 없음 → bts')
-  await expect(ask).toBeVisible()
-  await expect(ask.getByText(REASON_CLAIMS)).toBeVisible()
+  await sayWords(page, '108번 bts bts 10만 원')
+  await expect(readout(page)).toHaveText('108번은 이미 등록됐어요')
+  await page.clock.runFor(QUIET_MS + 100)
   await settle(page)
   expect(productWrites(writes)).toEqual([])
+  await expect(voiceCards(page)).toHaveCount(0)
+  await expect(notices(page)).toHaveCount(0)
+})
+
+test('AC-V3-24 R45: 38번 설비 650,000원(찜 없음)에 "ui 자 38번 605만 원까지" → 쓰기 0, "38번을 고칠까요? 가격 650,000원 → 6,050,000원" (D-V3-33)', async ({ page }) => {
+  await setupV3(page, { before: async ({ b }) => {
+    await registerProduct(page, b, 38, '설비', 650000)
+    await expect(boardItem(page, 38)).toBeVisible()
+  } })
+  const writes = recordWrites(page)
+  await sayChunk(page, 'ui 자 38번 605만 원까지')
+  await expect(notice(page, '38번을 고칠까요? 가격 650,000원 → 6,050,000원')).toBeVisible()
+  await settle(page)
+  expect(productWrites(writes)).toEqual([])
+  await expect(boardItem(page, 38)).toContainText('650,000원')
+  await expect(boardItem(page, 38)).toContainText('설비')
+})
+
+test('AC-V3-24 R47: 100,000원 108번에 "108번 30만 원" → 결과 3에서 300,000원으로 바로 고침 (딱 3배는 받음)', async ({ page }) => {
+  await with108(page)
+  const writes = recordWrites(page)
+  await sayWords(page, '108번 30만 원', {
+    afterEach: async (k) => {
+      if (k === 3) await expect.poll(() => productWrites(writes)).toEqual([['product.update', 108, 300000]])
+    },
+  })
+  await expect(notice(page, '108번을 고쳤어요: 가격 100,000원 → 300,000원')).toBeVisible()
+})
+
+test('AC-V3-24 R48: 100,000원 108번에 "108 12만 원 자"(번 없이) → 쓰기 0, "108번을 고칠까요? 가격 100,000원 → 120,000원" (D-V3-32)', async ({ page }) => {
+  await with108(page)
+  const writes = recordWrites(page)
+  await sayChunk(page, '108 12만 원 자')
+  await expect(notice(page, ASK)).toBeVisible()
+  await settle(page)
+  expect(productWrites(writes)).toEqual([])
+  await expect(boardItem(page, 108)).toContainText('100,000원')
 })
 
 test('AC-V3-32 R17: 핑크프릴 108번에 "108번 bts 10만 원" → 쓰기 0, 카드 0, 기록 "이미 등록됨"', async ({ page }) => {
@@ -188,14 +224,15 @@ test('AC-V3-35 R18: "108번 10만원 아니 12만원" 한 덩어리 → 등록(1
   ])
 })
 
-test('TE-V3-004 AC-V3-35 R19: R1 등록 뒤 다음 덩어리 "아니 12만원" → V2 묻기 카드만, 누르기 전 쓰기 0', async ({ page }) => {
+test('AC-V3-35 R19: R1 등록 뒤 다음 덩어리 "아니 12만원" → V2 묻기 카드만, 누르기 전 쓰기 0', async ({ page }) => {
   await setupV3(page)
   await sayChunk(page, '네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요')
   await expect(boardItem(page, 108)).toBeVisible()
   const writes = recordWrites(page)
   await page.clock.runFor(1000)
   await sayChunk(page, '아니 12만원')
-  await expect(notice(page, '방금 등록한 108번 bts를 120,000원으로 고칠까요?')).toBeVisible()
+  // R1이 품종 없이 등록되므로(D-V3-30) V2 문장은 품종 없이 "방금 등록한 108번을 …" (D-V2-06 3)
+  await expect(notice(page, '방금 등록한 108번을 120,000원으로 고칠까요?')).toBeVisible()
   await settle(page)
   expect(productWrites(writes)).toEqual([])
   await expect(boardItem(page, 108)).toContainText('100,000원')
@@ -265,12 +302,12 @@ test('AC-V3-39: 등록 응답을 2초 늦춘 채 R1 → 같은 번호 처리는 
     await route.continue()
   })
   await sayChunk(page, '네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요')
-  await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, 'bts', 100000]])
+  await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, '', 100000]])
   await expect(voiceCards(page)).toHaveCount(0)
   release()
   await expect(boardItem(page, 108)).toBeVisible()
   await settle(page)
-  expect(productWrites(writes)).toEqual([['product.register', 108, 'bts', 100000]])
+  expect(productWrites(writes)).toEqual([['product.register', 108, '', 100000]])
   await expect(voiceCards(page)).toHaveCount(0)
   await expect(page.getByRole('dialog')).toHaveCount(0)
 })

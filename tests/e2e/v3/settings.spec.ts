@@ -1,5 +1,5 @@
 // V3 설정·안내·미룸·여러 기기·휴대폰 폭 (AC-V3-38·40~46·49). 문장은 D-V3-17 글자 그대로.
-import { test, expect } from '@playwright/test'
+import { test, expect, type Route } from '@playwright/test'
 import { loginNewSeller } from '../i3/support.ts'
 import {
   boardItem,
@@ -62,21 +62,21 @@ test('AC-V3-40: 옛 저장값 {autoConfirm:false, autoConfirmSec:5, quietMs:2500
   await expect(await quietField(page)).toHaveValue('2.5')
   const writes = recordWrites(page)
   await sayWords(page, '108번 bts 10만 원')
-  await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, 'bts', 100000]])
+  await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, '', 100000]])
 })
 
-test('TE-V3-005 AC-V3-41 R30: 설정 끔 — 실제 방송 1은 카드만(품종 확인 필요, 쓰기 0), 등록 뒤 방송 2는 무시(카드 없음), "108번 12만 원"은 까닭 줄 없는 묻기', async ({ page }) => {
+test('AC-V3-41 R30: 설정 끔 — 실제 방송 1은 카드 "108번 품종 미입력 100,000원"만(쓰기 0, D-V3-30), 등록 뒤 방송 2는 무시(카드 없음), "108번 12만 원"은 까닭 줄 없는 묻기', async ({ page }) => {
   await setupV3(page, { settings: { 'voice.autoRegister': false } })
   const writes = recordWrites(page)
   await sayChunk(page, BROADCAST_1)
-  const c = card(page, '108번 bts 100,000원')
+  const c = card(page, '108번 품종 미입력 100,000원')
   await expect(c).toBeVisible()
-  await expect(c.getByText('품종 확인 필요')).toBeVisible()
+  await expect(voiceCards(page)).toHaveCount(1)
   await settle(page)
   expect(productWrites(writes)).toEqual([])
-  await cardButton(page, '108번 bts 100,000원', '등록').click()
+  await cardButton(page, '108번 품종 미입력 100,000원', '등록').click()
   await expect(boardItem(page, 108)).toBeVisible()
-  expect(productWrites(writes)).toEqual([['product.register', 108, 'bts', 100000]])
+  expect(productWrites(writes)).toEqual([['product.register', 108, '', 100000]])
   await page.clock.runFor(6000)
   await sayChunk(page, BROADCAST_2)
   await expect(voiceCards(page)).toHaveCount(0)
@@ -91,14 +91,68 @@ test('TE-V3-005 AC-V3-41 R30: 설정 끔 — 실제 방송 1은 카드만(품종
   expect(productWrites(writes)).toHaveLength(1)
 })
 
-test('AC-V3-42: 그 기기에서 처음 켤 때 안내 창에 "번호와 가격이 들리면 바로 등록돼요. 음성 설정에서 끌 수 있어요."', async ({ page }) => {
+const FIRST_ON = '번호와 가격이 확실하지 않으면 카드로 보여 드려요. 카드를 확인하고 등록해요.'
+const FIRST_OFF = '말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.'
+const INSTANT_LINE = '번호와 가격이 들리면 바로 등록돼요. 음성 설정에서 끌 수 있어요.'
+
+test('AC-V3-42 (D-V3-36): 처음 켤 때(바로 등록 기본 켬) 안내 창 첫 줄이 바뀌고 그 아래 바로 등록 줄, 옛 첫 줄 없음, 나머지 줄 그대로', async ({ page }) => {
   await installFakeSpeech(page, { consent: false, autoRegister: true })
   await loginNewSeller(page)
   await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
   await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
   const dlg = page.getByRole('dialog', { name: '음성으로 상품 등록' })
   await expect(dlg).toBeVisible()
-  await expect(dlg.getByText('번호와 가격이 들리면 바로 등록돼요. 음성 설정에서 끌 수 있어요.', { exact: true })).toBeVisible()
+  const lines = dlg.locator('p')
+  await expect(lines.nth(0)).toHaveText(FIRST_ON)
+  await expect(lines.nth(1)).toHaveText(INSTANT_LINE)
+  await expect(dlg).not.toContainText('카드를 확인하고 등록해야 상품이 생겨요.')
+  await expect(dlg).toContainText('음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브지니는 음성을 녹음하거나 저장하지 않아요.')
+  await expect(dlg).toContainText('다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.')
+})
+
+test('AC-V3-42 (D-V3-36): 저장소에 바로 등록 끔이면 I4 첫 줄 그대로, 바로 등록 줄 없음', async ({ page }) => {
+  await installFakeSpeech(page, { consent: false, autoRegister: true, settings: { 'voice.autoRegister': false } })
+  await loginNewSeller(page)
+  await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
+  await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
+  const dlg = page.getByRole('dialog', { name: '음성으로 상품 등록' })
+  await expect(dlg).toBeVisible()
+  await expect(dlg.locator('p').nth(0)).toHaveText(FIRST_OFF)
+  await expect(dlg).not.toContainText(INSTANT_LINE)
+  await expect(dlg).not.toContainText(FIRST_ON)
+})
+
+test('AC-V3-43 (e) (D-V3-35): 끈 채 R1을 말하고 판매 이력 2초 기다림 도중 켜면 쓰기 0·카드 하나, 다음 덩어리부터 바로 등록', async ({ page }) => {
+  await installFakeSpeech(page, { consent: true, autoRegister: true, settings: { 'voice.autoRegister': false } })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.clock.install()
+  await loginNewSeller(page)
+  const waiting: Route[] = []
+  let open = false
+  await page.route((url) => url.pathname === '/api/days', async (route: Route) => {
+    if (open) return route.fallback()
+    waiting.push(route)
+  })
+  await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
+  await turnOnVoice(page)
+  const now = await page.evaluate(() => Date.now())
+  await page.clock.pauseAt(now + 500)
+  await expect.poll(() => waiting.length).toBe(1)
+  const writes = recordWrites(page)
+  await sayWords(page, BROADCAST_1) // 끈 채 말함
+  await (await instantBox(page)).check()
+  open = true
+  for (const r of waiting.splice(0)) await r.fallback()
+  await page.clock.runFor(QUIET_MS + 100)
+  await expect(card(page, '108번 품종 미입력 100,000원')).toBeVisible()
+  await expect(voiceCards(page)).toHaveCount(1)
+  await page.clock.runFor(10_000)
+  await settle(page)
+  expect(productWrites(writes)).toEqual([])
+  await expect(boardItem(page, 108)).toHaveCount(0)
+  // 다음 덩어리는 켬 → 바로 등록
+  await sayWords(page, '15번 핑크문 만원')
+  await expect.poll(() => productWrites(writes)).toEqual([['product.register', 15, '핑크문', 10000]])
 })
 
 test('TE-V3-006 AC-V3-43 (a): 창(음성 기록)이 열린 동안 R1 → 쓰기 0, 창을 닫으면 그때 등록 하나', async ({ page }) => {
@@ -110,7 +164,7 @@ test('TE-V3-006 AC-V3-43 (a): 창(음성 기록)이 열린 동안 R1 → 쓰기 
   expect(productWrites(writes)).toEqual([])
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog', { name: '음성 기록' })).toHaveCount(0)
-  await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, 'bts', 100000]])
+  await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, '', 100000]])
   await expect(voiceCards(page)).toHaveCount(0)
 })
 
