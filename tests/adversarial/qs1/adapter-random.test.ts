@@ -59,7 +59,13 @@ describe('B1 어댑터 세 길 속성 시험 (AC-QS1-30 (1)(2))', () => {
         const violations: string[] = []
         /** 고르기 창이 떠도 되는 판매자 동작(연결 방법·다시 연결)이 진행 중인 수 */
         let pickerAllowed = 0
-        let active = 0
+        /**
+         * 같은 때 연결 시도 수 — 페이지(어댑터)마다 센다. 새로고침(reload)은 옛 페이지의 자바스크립트를 통째로 없애므로 옛 어댑터가 하던 시도는
+         * 진짜 브라우저에선 남지 않는다. 이 흉내에선 옛 시도가 시계를 따라 계속 돌 뿐이라 새 페이지의 시도와 겹쳐 세면 거짓 위반이 된다
+         * (seed 1094365619 반례: 대답 없는 협상 1번 → 연결 → 새로고침 → 연결). AC-QS1-30 (1)은 한 페이지 안의 시도다(D-QS1-01 (3) 새로고침 뒤는 새 어댑터).
+         */
+        let generation = 0
+        const active = new Map<number, number>()
         const real = fakes.environment
         const env: PrinterEnvironment = {
           bluetooth: {
@@ -83,14 +89,14 @@ describe('B1 어댑터 세 길 속성 시험 (AC-QS1-30 (1)(2))', () => {
             },
           },
         }
-        const wrap = (client: NiimbotClientLike): NiimbotClientLike => ({
+        const wrap = (client: NiimbotClientLike, page: number): NiimbotClientLike => ({
           async connect(options) {
-            active++
-            if (active > 1) violations.push('같은 때 연결 시도 둘')
+            active.set(page, (active.get(page) ?? 0) + 1)
+            if ((active.get(page) ?? 0) > 1) violations.push('같은 때 연결 시도 둘')
             try {
               return await client.connect(options)
             } finally {
-              active--
+              active.set(page, (active.get(page) ?? 0) - 1)
             }
           },
           disconnect: () => client.disconnect(),
@@ -104,7 +110,8 @@ describe('B1 어댑터 세 길 속성 시험 (AC-QS1-30 (1)(2))', () => {
         })
         let stored: RememberedPrinter | null = null
         const make = (): RememberingPrinterAdapter => {
-          const a = createB1Adapter({ environment: () => env, createClient: (m) => wrap(fakes.createClient(m)), timer })
+          const page = ++generation
+          const a = createB1Adapter({ environment: () => env, createClient: (m) => wrap(fakes.createClient(m), page), timer })
           a.restoreRemembered(stored)
           a.onRememberedChange((v) => {
             stored = v
@@ -189,7 +196,11 @@ describe('B1 어댑터 세 길 속성 시험 (AC-QS1-30 (1)(2))', () => {
         await Promise.allSettled(pending)
         expect(violations).toEqual([])
       }),
-      { numRuns: 80 },
+      {
+        numRuns: 80,
+        // 고정 반례(전체 verify seed 1094365619): 새로고침 앞뒤 시도를 한 페이지 것처럼 세던 거짓 위반 — 늘 함께 돈다
+        examples: [[[{ k: 'unanswered', n: 1 }, { k: 'connect', m: 'bluetooth', wait: false }, { k: 'reload' }, { k: 'connect', m: 'bluetooth', wait: false }, { k: 'unanswered', n: 0 }]]],
+      },
     )
   })
 })
