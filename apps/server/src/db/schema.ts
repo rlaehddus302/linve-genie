@@ -1906,6 +1906,43 @@ export const assistCalls = pgTable(
   (t) => [index('assist_calls_day_idx').on(t.day, t.sellerId)],
 )
 
+// ── 손님 기록·메모 (CRM1, SPEC BUY-06·BUY-07, D-CRM1-05·D-CRM1-08) ─────────────
+// 엔진 이벤트와 상관없다(판정·금액을 바꾸지 않는다). 백업 파일에 넣지 않고 복구·가져오기는 그대로 둔다(판매자 설정·메모 — RESTORE_KEPT_TABLES).
+
+/** 설정 "손님 관리" (판매자마다 한 줄, 없으면 기본값 3번·100,000원·3일). 바꾼 기록은 남기지 않는다(마지막 값만) */
+export const customerSettings = pgTable('customer_settings', {
+  sellerId: text('seller_id')
+    .primaryKey()
+    .references(() => sellers.id),
+  /** 단골 횟수 2~99 */
+  regularCount: integer('regular_count').notNull(),
+  /** 단골 금액 1,000~100,000,000원, null = 금액 기준 안 씀 */
+  regularAmount: integer('regular_amount'),
+  /** 입금 기다리는 날 1~30 */
+  waitDays: integer('wait_days').notNull(),
+  updatedAt: timestamptz('updated_at').notNull(),
+})
+
+/**
+ * 손님 메모 (D-CRM1-08): 표지(채팅 구매자 키 `c:<키>` · 전화번호 키 `p:<키>`)마다 덧붙이기만 한다 — 화면엔 마지막 줄만(빈 글 = 지움).
+ * 글은 서버 로그에 남기지 않는다
+ */
+export const customerMemos = pgTable(
+  'customer_memos',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    marker: text('marker').notNull(),
+    /** 다듬은 글 0~200글자 (빈 글 = 지움) */
+    text: text('text').notNull(),
+    accountId: text('account_id').references(() => accounts.id),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [index('customer_memos_marker_idx').on(t.sellerId, t.marker, t.id)],
+)
+
 export const schema = {
   sellers,
   accounts,
@@ -1976,6 +2013,8 @@ export const schema = {
   assistSettings,
   assistCache,
   assistCalls,
+  customerSettings,
+  customerMemos,
 }
 
 /**

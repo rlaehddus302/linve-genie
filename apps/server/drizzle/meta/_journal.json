@@ -141,6 +141,13 @@
       "when": 1794355200000,
       "tag": "0019_fb1_parcel_box_carrier",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794441600000,
+      "tag": "0020_crm1_customers",
+      "breakpoints": true
     }
   ]
 }

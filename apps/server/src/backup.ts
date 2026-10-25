@@ -53,6 +53,8 @@ import {
   assistCache,
   assistCalls,
   assistSettings,
+  customerMemos,
+  customerSettings,
   depositSources,
   deposits,
   events,
@@ -1554,6 +1556,10 @@ export const RESTORE_KEPT_TABLES = [
   extPostSettings,
   assistSettings,
   assistCalls,
+  // CRM1 설정 "손님 관리"·손님 메모: 판매자 설정과 표지(채널 ID·전화번호 키)에 붙은 메모라 파일에 없고 복구·가져오기가 지우지 않는다(D-CRM1-08 —
+  // 표지 기준이라 복구 뒤에도 같은 손님에 맞는다. 백업 파일에 메모를 넣을지는 사용자 확인 필요)
+  customerSettings,
+  customerMemos,
 ] as const
 /** 판매자 데이터가 아닌 표 (로그인 전 시도 수 — 판매자 ID가 없다) */
 export const RESTORE_UNRELATED_TABLES = [loginLimits] as const

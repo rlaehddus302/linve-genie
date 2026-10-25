@@ -14,6 +14,10 @@ import { DEFAULT_BOX, readBox } from '../src/parcel/rules.ts'
 import { D, SENDER, attempts, bookOk, dayRows, expect200, makeReady, parcelApi, parcelSeller, parcelWorld, sell, type ParcelWorld } from './t1-support.ts'
 import type { Seller } from './support.ts'
 
+/** 0019 마이그레이션의 저널 시각 (drizzle.__drizzle_migrations.created_at = 저널 when) */
+const MIGRATION_0019_WHEN = (JSON.parse(readFileSync(join(MIGRATIONS_FOLDER, 'meta', '_journal.json'), 'utf8')) as { entries: { tag: string; when: number }[] }).entries.find(
+  (entry) => entry.tag === '0019_fb1_parcel_box_carrier',
+)?.when as number
 const NO_AUTO_BOOK = '고른 택배사는 아직 자동 접수를 할 수 없어요. 포장 화면에서 송장번호를 직접 적어 주세요.'
 
 async function settingsRow(world: ParcelWorld, seller: Seller): Promise<{ carrier: string | null; carrier_name: string | null; box: string } | undefined> {
@@ -252,13 +256,17 @@ describe('AC-FB1-16 택배 크기 코드와 옛 값 옮기기 (D-FB1-05)', () =>
     await makeReady(world, seller, 'UC_A')
     expect((await bookOk(world, seller, [{ buyer: 'UC_A' }]))[0]).toMatchObject({ ok: true })
     const pg = world.database.pglite as PGlite
-    // BASE(0018까지)의 모양으로 되돌린다: 옛 낱말, 기본값 소, carrier_name 없음, 0019 적용 기록 없음
+    // BASE(0018까지)의 모양으로 되돌린다: 옛 낱말, 기본값 소, carrier_name 없음, 0019 적용 기록 없음.
+    // 0019 뒤의 마이그레이션(CRM1 0020 — 손님 표 둘)도 적용 전으로 되돌린다: 다시 열면 0019부터 차례로 다시 적용된다
+    // (CRM1에서 "마지막 기록 하나 지우기"를 "0019(저널 when) 이후 기록 지우기"로 교체 — 약화 아님, 0019를 다시 적용하는 같은 시험)
     await pg.exec(`
       update parcel_settings set box = '중' where seller_id = '${seller.sellerId}';
       update parcels set box = '대' where seller_id = '${seller.sellerId}';
       alter table parcel_settings alter column box set default '소';
       alter table parcel_settings drop column carrier_name;
-      delete from drizzle.__drizzle_migrations where id = (select max(id) from drizzle.__drizzle_migrations);`)
+      drop table customer_memos;
+      drop table customer_settings;
+      delete from drizzle.__drizzle_migrations where created_at >= ${String(MIGRATION_0019_WHEN)};`)
     const reopened = await openPglite(pg)
     expect((await pg.query<{ box: string }>('select box from parcel_settings')).rows).toEqual([{ box: '100' }])
     expect((await pg.query<{ box: string }>('select box from parcels')).rows).toEqual([{ box: '120' }])

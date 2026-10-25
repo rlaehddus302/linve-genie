@@ -38,6 +38,7 @@ import { routeThanks } from './thanks-route.ts'
 import { libraryWebcast, type TikTokAttemptLimiter, type TikTokClock, type TikTokSettings, type WebcastFactory } from './tiktok/index.ts'
 import { TikTokLive } from './tiktok-live/live.ts'
 import { PasteService } from './tiktok-live/paste-service.ts'
+import { CustomerService } from './customers/service.ts'
 import { tiktokLinkCounts } from './tiktok-live/store.ts'
 import { instagramDmCounts } from './ops-store.ts'
 import { DepositService, type DepositOptions } from './deposit/service.ts'
@@ -239,6 +240,8 @@ export interface LivejjimServer {
   readonly extension: ExtensionService
   /** AI 확인 필요 제안 (A1 — 키가 없으면 규칙 제안만) */
   readonly assist: AssistService
+  /** 손님 기록·메모·설정 "손님 관리" (CRM1 — 판매자 계정만, 엔진 이벤트를 쓰지 않는다) */
+  readonly customers: CustomerService
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
   /** 유튜브 연동 (설정이 있을 때만) */
@@ -439,6 +442,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   })
   const work = options.work ?? sharedWorkPools()
   const closing = new ClosingService({ db, writer, clock, hub, backups, log, work })
+  const customers = new CustomerService({ db, writer, clock, log })
   // 구매자 확인서 공유 링크 (N4b) — 링크 주소 = 앱 주소 + /r/<토큰>
   const receiptLinks = new ReceiptLinkService({ db, writer, clock, masterKey, appOrigin: options.appOrigin, closing, log })
   const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)
@@ -605,6 +609,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       social,
       extension,
       assist,
+      customers,
     },
     extension: createExtensionApp({ extension, clock, trustedProxies, address: connectionAddress }) as unknown as Hono,
     https: options.appOrigin.startsWith('https://'),
@@ -646,6 +651,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     social,
     extension,
     assist,
+    customers,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     start: () => {
       youtube?.start()
