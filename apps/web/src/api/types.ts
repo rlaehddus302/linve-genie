@@ -780,10 +780,10 @@ export interface BandAccount {
   readonly chosenBand: string | null
 }
 
-/** 밴드 알림 한 줄 (지운·고친 댓글·늦게 읽음) */
+/** 밴드 알림 한 줄 (지운·고친 댓글·늦게 읽음·막다른 경우) */
 export interface BandNotice {
   readonly id: number
-  readonly kind: 'DELETED' | 'EDITED' | 'LATE'
+  readonly kind: 'DELETED' | 'EDITED' | 'LATE' | 'STUCK'
   readonly message: string
   readonly at: string
   readonly seen: boolean
@@ -820,8 +820,9 @@ export interface BandLinkView {
     readonly items: readonly BandNotice[]
     readonly total: number
     readonly seenUpTo: number
+    /** 확인하지 않은 알림 수 — 종류와 상관없이 (알림 띠, D-BND1-17) */
     readonly unseen: number
-    /** 확인하지 않은 지운·고친 댓글 알림 수 (알림 띠) */
+    /** 확인하지 않은 지운·고친 댓글 알림 수 (화면은 쓰지 않는다 — 알림 띠는 unseen) */
     readonly unseenEdits: number
   }
 }

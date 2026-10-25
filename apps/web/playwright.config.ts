@@ -54,6 +54,8 @@ const offset = Number(process.env['E2E_PORT_OFFSET'] ?? '0')
 const hostDelay = process.env['E2E_HOST_DELAY_MS'] ?? '2000'
 const chatSpeed = process.env['E2E_CHAT_SPEED'] ?? '20'
 const reuse = process.env['CI'] === undefined
+/** 띄울 묶음만 고른다 (쉼표로 나눈 프로젝트 이름, 비면 모두) — 부하를 줄이려고 필요한 묶음의 서버만 띄울 때 */
+const only = (process.env['E2E_ONLY'] ?? '').split(',').map((name) => name.trim()).filter((name) => name !== '')
 /** E2E 서버·화면이 듣는 주소 (모든 인터페이스가 아니다) */
 export const E2E_HOST = '127.0.0.1'
 /** 듣는 주소 (헬스체크·프록시 대상) */
@@ -218,6 +220,8 @@ export function e2eServerUrl(project: string): string | null {
   return port === undefined ? null : `http://${E2E_HOST}:${String(port)}`
 }
 
+const CHOSEN = only.length === 0 ? STACKS : STACKS.filter((stack) => only.includes(stack.name))
+
 export default defineConfig({
   testDir: fileURLToPath(new URL('../../tests/e2e', import.meta.url)),
   testMatch: '**/*.spec.ts',
@@ -236,7 +240,7 @@ export default defineConfig({
     timezoneId: 'Asia/Seoul',
     trace: 'retain-on-failure',
   },
-  projects: STACKS.map((stack) => ({
+  projects: CHOSEN.map((stack) => ({
     name: stack.name,
     use: {
       ...(stack.device === undefined ? {} : devices[stack.device]),
@@ -246,7 +250,7 @@ export default defineConfig({
     ...(stack.grep === undefined ? {} : { grep: stack.grep }),
     ...(stack.grepInvert === undefined ? {} : { grepInvert: stack.grepInvert }),
   })),
-  webServer: STACKS.flatMap((stack) =>
+  webServer: CHOSEN.flatMap((stack) =>
     stack.served === true
       ? [
           {

@@ -1,5 +1,5 @@
 // 설정의 "네이버 밴드" 칸 (SPEC §7 화면 8, PLT-04, D-BND1-11·15, AC-BND1-70) — 인스타그램 칸과 같은 모양.
-// - 설정 없음이면 서버 문장만. 아니면 상태("연결됨 — {프로필 이름}"·"연결 안 됨"·서버의 다시 연결 문장), "밴드 연결하기"(다시 연결도 같은 단추 —
+// - 설정 없음이면 서버 문장만. 아니면 상태("연결됨 — {프로필 이름}"·"연결 안 됨"·서버의 다시 연결 문장), "밴드 연결하기"(연결됨·다시 연결 필요면 같은 동작의 "다시 연결하기", D-BND1-19 —
 //   서버가 준 주소로 같은 탭 최상위 이동), "연결 끊기"(확인 창 — 같은 요청 번호로 다시 보내도 한 번).
 // - 밴드에서 돌아온 결과(`?band=`)는 이 칸에서 한 번 보이고, 설정 화면이 주소에서 지운다(새로 고침해도 다시 나오지 않음).
 // - 보조자에게는 이 칸이 없다(설정 화면이 그리지 않는다 — 경로도 403).
@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
 import type { BandAccount } from '../api/types.ts'
-import { BAND_CONNECT, BAND_DISCONNECT, BAND_DISCONNECT_HINT, BAND_DISCONNECT_QUESTION, bandAccountWords, bandCallbackMessage, bandCallbackSucceeded } from '../lib/band.ts'
+import { BAND_DISCONNECT, BAND_DISCONNECT_HINT, BAND_DISCONNECT_QUESTION, bandAccountWords, bandCallbackMessage, bandConnectLabel, bandCallbackSucceeded } from '../lib/band.ts'
 import { goToGoogle } from '../lib/google-return.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { Modal } from './Modal.tsx'
@@ -114,7 +114,7 @@ function BandReady({ account, onChanged }: { readonly account: BandAccount; read
       <div className="row">
         {/* 설정 화면은 칸마다 버튼이 있어 주 버튼을 두지 않는다 (인스타그램 칸과 같은 기준) */}
         <button type="button" className="button" disabled={busy} onClick={() => void connect()}>
-          {BAND_CONNECT}
+          {bandConnectLabel(account)}
         </button>
         {status !== 'NOT_CONNECTED' ? (
           <button

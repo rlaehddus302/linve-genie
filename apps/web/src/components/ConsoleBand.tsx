@@ -42,7 +42,7 @@ import { Modal } from './Modal.tsx'
 
 /** 밴드 칸 (알림 띠 "밴드 댓글이 들어오지 않아요."를 누르면 여기로) */
 export const BAND_PANEL_ID = 'band-panel'
-/** 밴드 알림 목록 (알림 띠 "밴드에서 지우거나 고친 댓글이…"를 누르면 여기로) */
+/** 밴드 알림 목록 (알림 띠 "확인하지 않은 밴드 알림이…"를 누르면 여기로) */
 export const BAND_NOTICES_ID = 'band-notices'
 
 export interface BandPanelProps {

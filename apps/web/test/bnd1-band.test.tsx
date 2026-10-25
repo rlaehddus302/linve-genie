@@ -18,15 +18,17 @@ import {
   BAND_NO_LINK,
   BAND_NO_POSTS,
   BAND_NOT_COMING,
+  BAND_RECONNECT,
   BAND_RETRY_ALERT_MS,
   BAND_UNLINK_QUESTION,
   bandAccountWords,
   bandCallbackMessage,
-  bandEditsMessage,
   bandNotComing,
   bandReadWords,
   bandSeenUpTo,
-  bandUnseenEdits,
+  bandConnectLabel,
+  bandNoticesMessage,
+  bandUnseen,
 } from '../src/lib/band.ts'
 import { setTopLevelNavigation } from '../src/lib/google-return.ts'
 import { MULTI_PLATFORM_NOTICE, PLATFORM_WORD, buyerPlatformWord, chatPlatformTags, platformOfKey } from '../src/lib/platforms.ts'
@@ -210,18 +212,23 @@ describe('밴드 낱말·판단 (lib/band.ts)', () => {
     expect(bandNotComing(null, at)).toBe(false)
   })
 
-  it('지운·고친 댓글 수는 끝난 연결에서 세지 않는다, 확인 번호는 본 것 가운데 가장 큰 번호', () => {
+  it('알림 띠 수는 종류와 상관없이 확인하지 않은 알림 모두(D-BND1-17), 끝난 연결에서 세지 않는다, 확인 번호는 본 것 가운데 가장 큰 번호', () => {
     const notices = { items: [notice(7), notice(5, { seen: true }), notice(6, { kind: 'LATE' })], total: 7, seenUpTo: 5, unseen: 2, unseenEdits: 1 }
-    expect(bandUnseenEdits(bandReading({ notices }))).toBe(1)
-    expect(bandUnseenEdits(bandReading({ state: 'FINISHED', notices }))).toBe(0)
+    expect(bandUnseen(bandReading({ notices }))).toBe(2)
+    expect(bandUnseen(bandReading({ state: 'FINISHED', notices }))).toBe(0)
+    expect(bandUnseen(bandNone({ notices }))).toBe(0)
+    expect(bandUnseen(null)).toBe(0)
     expect(bandSeenUpTo(bandReading({ notices }))).toBe(7)
     expect(bandSeenUpTo(bandReading())).toBeNull()
-    expect(bandEditsMessage(2)).toBe('밴드에서 지우거나 고친 댓글이 2개 있어요.')
+    expect(bandNoticesMessage(2)).toBe('확인하지 않은 밴드 알림이 2개 있어요.')
+    expect(bandConnectLabel(account({ status: 'NOT_CONNECTED', message: NOT_CONNECTED, profileName: null }))).toBe('밴드 연결하기')
+    expect(bandConnectLabel(account())).toBe('다시 연결하기')
+    expect(bandConnectLabel(account({ status: 'RECONNECT_NEEDED', message: RECONNECT }))).toBe('다시 연결하기')
     expect(bandReadWords('2026-10-19T10:00:05.000Z')).toBe('19:00:05에 읽었어요')
   })
 
   it('화면 문장에 영문 글자·개발 용어가 없다 (AC-BND1-77)', () => {
-    const texts = [...Object.values(BAND_CALLBACK), BAND_CALLBACK_UNKNOWN, BAND_DISCONNECT_QUESTION, BAND_DISCONNECT_HINT, BAND_UNLINK_QUESTION, BAND_LINK_CONFIRM, BAND_LINK_BUSY, BAND_NO_POSTS, BAND_NOT_COMING, BAND_NO_LINK, BAND_NEW_NOTICE, bandEditsMessage(3), BAND_ITEM.replace('[검토 필요]', '')]
+    const texts = [...Object.values(BAND_CALLBACK), BAND_CALLBACK_UNKNOWN, BAND_DISCONNECT_QUESTION, BAND_DISCONNECT_HINT, BAND_UNLINK_QUESTION, BAND_LINK_CONFIRM, BAND_LINK_BUSY, BAND_NO_POSTS, BAND_NOT_COMING, BAND_NO_LINK, BAND_NEW_NOTICE, BAND_RECONNECT, bandNoticesMessage(3), BAND_ITEM.replace('[검토 필요]', '')]
     for (const text of texts) {
       expect(text).not.toMatch(/[A-Za-z]/)
       expect(text).not.toMatch(/토큰|폴링|키\b/)
@@ -273,6 +280,21 @@ describe('설정 — 네이버 밴드 (AC-BND1-70)', () => {
     fireEvent.click(within(bandRegion()).getByRole('button', { name: '밴드 연결하기' }))
     expect(await within(bandRegion()).findByText(NOT_CONFIGURED)).toBeDefined()
     expect(assigned).toEqual([])
+  })
+
+  it('연결됨·다시 연결 필요: 단추는 "다시 연결하기"(같은 동작 — 서버가 준 주소로 이동, D-BND1-19), 상태 문장은 그대로', async () => {
+    server.on('POST', /^\/api\/band\/connect$/, () => ({ body: { url: 'https://auth.band.example/oauth2/authorize?x=2' } }))
+    await openSettings('/settings/band')
+    expect(within(bandRegion()).getByText('연결됨 — 김다육')).toBeDefined()
+    expect(within(bandRegion()).queryByRole('button', { name: '밴드 연결하기' })).toBeNull()
+    fireEvent.click(within(bandRegion()).getByRole('button', { name: '다시 연결하기' }))
+    await waitFor(() => expect(assigned).toEqual(['https://auth.band.example/oauth2/authorize?x=2']))
+    act(() => FakeEventSource.last.emit('band', { kind: 'ACCOUNT', band: account({ status: 'RECONNECT_NEEDED', message: RECONNECT }) }))
+    expect(within(bandRegion()).getByText(RECONNECT)).toBeDefined()
+    expect(within(bandRegion()).getByRole('button', { name: '다시 연결하기' })).toBeDefined()
+    expect(within(bandRegion()).getByRole('button', { name: '연결 끊기' })).toBeDefined()
+    act(() => FakeEventSource.last.emit('band', { kind: 'ACCOUNT', band: account({ status: 'NOT_CONNECTED', message: NOT_CONNECTED, profileName: null }) }))
+    expect(within(bandRegion()).getByRole('button', { name: '밴드 연결하기' })).toBeDefined()
   })
 
   it('연결됨: "연결됨 — 이름", 끊기 확인 창 두 문장 → 같은 요청 번호로 끊기(다시 보내기) → 연결 안 됨', async () => {
@@ -429,6 +451,48 @@ describe('콘솔 — 밴드 칸 (AC-BND1-71)', () => {
     expect(within(strip()).queryByRole('button', { name: BAND_NOT_COMING })).toBeNull()
   })
 
+  it('유튜브를 이 방송에 이으면(SSE youtube collector) 밴드 연결 보기를 다시 받아 새로 고침 없이 YOUTUBE_LINKED 문장, 잇기 없음 (SA-BND1-01·TE-BND1-001)', async () => {
+    const youtubeBlock = '유튜브 라이브를 이은 방송에는 아직 밴드 글을 이을 수 없어요.'
+    await openConsole()
+    expect(within(bandPanel()).getByRole('button', { name: '밴드 글 잇기' })).toBeDefined()
+    const before = server.callsTo('GET', /^\/api\/broadcasts\/b1\/band$/).length
+    // 다른 방송의 유튜브 알림은 이 방송의 막힘을 바꾸지 않는다 — 다시 받지 않는다
+    act(() => FakeEventSource.last.emit('youtube', { kind: 'collector', broadcast: 'b2', date: DATE, collector: null }))
+    await flush(5)
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(server.callsTo('GET', /^\/api\/broadcasts\/b1\/band$/)).toHaveLength(before)
+    bandLink = bandNone({ canLink: false, blockCode: 'YOUTUBE_LINKED', blockMessage: youtubeBlock })
+    act(() => {
+      // 알림이 몰려도 한 번만 다시 받는다
+      FakeEventSource.last.emit('youtube', { kind: 'collector', broadcast: 'b1', date: DATE, collector: null })
+      FakeEventSource.last.emit('youtube', { kind: 'collector', broadcast: 'b1', date: DATE, collector: null })
+    })
+    expect(await within(bandPanel()).findByText(youtubeBlock, {}, { timeout: 3000 })).toBeDefined()
+    expect(within(bandPanel()).queryByRole('button', { name: '밴드 글 잇기' })).toBeNull()
+    expect(server.callsTo('GET', /^\/api\/broadcasts\/b1\/band$/)).toHaveLength(before + 1)
+  })
+
+  it('다른 방송에 밴드 글을 잇거나 끊으면(그 방송의 band LINK) 이 방송의 BAND_IN_USE 막힘이 새로 고침 없이 생기고 풀린다 (AC-BND1-71·80 ⑧)', async () => {
+    const inUse = '이미 다른 방송에 밴드 글이 이어져 있어요. 먼저 그 방송의 밴드 연결을 끊어 주세요.'
+    await openConsole()
+    expect(within(bandPanel()).getByRole('button', { name: '밴드 글 잇기' })).toBeDefined()
+    bandLink = bandNone({ canLink: false, blockCode: 'BAND_IN_USE', blockMessage: inUse })
+    act(() => FakeEventSource.last.emit('band', { kind: 'LINK', broadcast: 'b2', link: bandReading({ broadcast: 'b2' }) }))
+    expect(await within(bandPanel()).findByText(inUse, {}, { timeout: 3000 })).toBeDefined()
+    expect(within(bandPanel()).queryByRole('button', { name: '밴드 글 잇기' })).toBeNull()
+    bandLink = bandNone()
+    act(() => FakeEventSource.last.emit('band', { kind: 'LINK', broadcast: 'b2', link: bandReading({ broadcast: 'b2', state: 'FINISHED', finishReason: 'UNLINKED' }) }))
+    expect(await within(bandPanel()).findByRole('button', { name: '밴드 글 잇기' }, { timeout: 3000 })).toBeDefined()
+    expect(within(bandPanel()).queryByText(inUse)).toBeNull()
+  })
+
+  it('인스타그램·틱톡 연결 알림이 와도 밴드 연결 보기를 다시 받는다 (어느 플랫폼의 연결 알림이든)', async () => {
+    await openConsole()
+    const before = server.callsTo('GET', /^\/api\/broadcasts\/b1\/band$/).length
+    act(() => FakeEventSource.last.emit('tiktok', { kind: 'LINK', broadcast: 'b2', link: { broadcast: 'b2', platform: 'TIKTOK', state: 'NONE', linkedAt: null, actor: null, tiktokId: null, collection: null } }))
+    await waitFor(() => expect(server.callsTo('GET', /^\/api\/broadcasts\/b1\/band$/)).toHaveLength(before + 1), { timeout: 3000 })
+  })
+
   it('다시 시도 중인 채 60초가 넘으면 그때 알림 띠에 올린다', async () => {
     const now = Date.now()
     bandLink = bandReading({ state: 'RETRYING', message: '밴드 댓글을 읽지 못해 다시 시도하고 있어요.', lastReadAt: new Date(now - BAND_RETRY_ALERT_MS + 300).toISOString() })
@@ -531,7 +595,7 @@ describe('콘솔 — 잇기 흐름 (AC-BND1-72)', () => {
 })
 
 describe('콘솔 — 알림 띠·알림 목록 (AC-BND1-73·74)', () => {
-  it('확인하지 않은 지운·고친 댓글: 띠 한 줄 + "확인했어요" → 본 마지막 번호를 보내고 줄이 사라진다, 새 알림이 오면 다시 뜬다', async () => {
+  it('확인하지 않은 알림(지운·고친·늦게 읽음 섞임): 띠 한 줄 + "확인했어요" → 본 마지막 번호를 보내고 줄이 사라진다, 새 알림이 오면 다시 뜬다', async () => {
     const items = [
       notice(3, { kind: 'EDITED', message: "밴드에서 고친 댓글이에요 — <b>손님</b>: '1번' → '2번'. 찜은 처음 글대로예요." }),
       notice(2),
@@ -544,7 +608,7 @@ describe('콘솔 — 알림 띠·알림 목록 (AC-BND1-73·74)', () => {
       return { body: { link: bandReading({ notices: { items: items.map((item) => ({ ...item, seen: true })), total: 3, seenUpTo: 3, unseen: 0, unseenEdits: 0 } }) } }
     })
     await openConsole()
-    const lead = within(strip()).getByRole('button', { name: '밴드에서 지우거나 고친 댓글이 2개 있어요.' })
+    const lead = within(strip()).getByRole('button', { name: '확인하지 않은 밴드 알림이 2개 있어요.' })
     expect(lead).toBeDefined()
     // 목록: 새것 위, 확인하지 않은 것은 "새 알림" 글자, 글은 글자로만
     const list = within(bandPanel()).getByRole('list', { name: '밴드 알림' })
@@ -555,7 +619,7 @@ describe('콘솔 — 알림 띠·알림 목록 (AC-BND1-73·74)', () => {
     expect(rows[0]?.querySelector('b')).toBeNull()
     expect(rows[2]?.textContent).not.toContain(BAND_NEW_NOTICE)
     fireEvent.click(within(strip()).getByRole('button', { name: '확인했어요' }))
-    await waitFor(() => expect(within(strip()).queryByRole('button', { name: '밴드에서 지우거나 고친 댓글이 2개 있어요.' })).toBeNull())
+    await waitFor(() => expect(within(strip()).queryByRole('button', { name: '확인하지 않은 밴드 알림이 2개 있어요.' })).toBeNull())
     expect(seen).toEqual([{ upTo: 3 }])
     expect(within(bandPanel()).queryByRole('button', { name: '확인했어요' })).toBeNull()
     expect(within(bandPanel()).queryByText(BAND_NEW_NOTICE)).toBeNull()
@@ -566,16 +630,32 @@ describe('콘솔 — 알림 띠·알림 목록 (AC-BND1-73·74)', () => {
         link: bandReading({ notices: { items: [notice(4), ...items.map((item) => ({ ...item, seen: true }))], total: 4, seenUpTo: 3, unseen: 1, unseenEdits: 1 } }),
       }),
     )
-    expect(within(strip()).getByRole('button', { name: '밴드에서 지우거나 고친 댓글이 1개 있어요.' })).toBeDefined()
+    expect(within(strip()).getByRole('button', { name: '확인하지 않은 밴드 알림이 1개 있어요.' })).toBeDefined()
     fireEvent.click(within(bandPanel()).getByRole('button', { name: '확인했어요' }))
     await waitFor(() => expect(seen).toEqual([{ upTo: 3 }, { upTo: 4 }]))
   })
 
-  it('늦게 읽음 알림만 확인하지 않았으면 띠 줄은 없고 칸에 "확인했어요"', async () => {
+  it('늦게 읽음 알림 하나만 확인하지 않았어도 띠 줄이 있다 (N=1, D-BND1-17·SA-BND1-04) — 칸에도 "확인했어요"', async () => {
     bandLink = bandReading({ notices: { items: [notice(1, { kind: 'LATE', message: '밴드 댓글을 1분 동안 읽지 못했어요. 그 사이 달린 댓글 1개를 지금 넣었어요. 찜 순서는 지금 넣은 차례예요.' })], total: 1, seenUpTo: 0, unseen: 1, unseenEdits: 0 } })
+    const seen: Record<string, unknown>[] = []
+    server.on('POST', /^\/api\/broadcasts\/b1\/band\/notices-seen$/, (call) => {
+      seen.push(call.body ?? {})
+      return { body: { link: bandReading({ notices: { items: [notice(1, { kind: 'LATE', seen: true })], total: 1, seenUpTo: 1, unseen: 0, unseenEdits: 0 } }) } }
+    })
     await openConsole()
-    expect(within(strip()).queryByRole('button', { name: /밴드에서 지우거나/ })).toBeNull()
+    expect(within(strip()).getByRole('button', { name: '확인하지 않은 밴드 알림이 1개 있어요.' })).toBeDefined()
     expect(within(bandPanel()).getByRole('button', { name: '확인했어요' })).toBeDefined()
+    fireEvent.click(within(strip()).getByRole('button', { name: '확인했어요' }))
+    await waitFor(() => expect(within(strip()).queryByRole('button', { name: /확인하지 않은 밴드 알림/ })).toBeNull())
+    expect(seen).toEqual([{ upTo: 1 }])
+  })
+
+  it('막다른 경우 알림(STUCK)도 띠 수에 든다 — 문장은 서버 그대로', async () => {
+    const stuck = '밴드 댓글이 너무 많이 한꺼번에 달려 차례대로 읽지 못하고 있어요. 밴드 글에서 직접 확인해 주세요.'
+    bandLink = bandReading({ state: 'RETRYING', message: '밴드 댓글을 읽지 못해 다시 시도하고 있어요.', lastReadAt: new Date().toISOString(), notices: { items: [notice(2, { kind: 'STUCK', message: stuck }), notice(1)], total: 2, seenUpTo: 0, unseen: 2, unseenEdits: 1 } })
+    await openConsole()
+    expect(within(strip()).getByRole('button', { name: '확인하지 않은 밴드 알림이 2개 있어요.' })).toBeDefined()
+    expect(within(bandPanel()).getByText(stuck)).toBeDefined()
   })
 
   it('끝난 연결은 알림 띠에 띄우지 않는다', async () => {
@@ -613,7 +693,7 @@ describe('알림 띠 — 밴드 줄은 휴대폰에서도 문장 끝까지 (U-BN
       <AlertStrip
         leads={[
           { key: 'tiktok', text: '틱톡 댓글을 붙여 넣어 주세요.', onClick: () => {} },
-          { key: 'band-notices', text: bandEditsMessage(1), onClick: () => {}, full: true, action: { label: '확인했어요', onClick: () => {} } },
+          { key: 'band-notices', text: bandNoticesMessage(1), onClick: () => {}, full: true, action: { label: '확인했어요', onClick: () => {} } },
         ]}
         counts={{ ...COUNTS, conflict: 1 }}
         onOpen={() => {}}
@@ -624,9 +704,9 @@ describe('알림 띠 — 밴드 줄은 휴대폰에서도 문장 끝까지 (U-BN
     const lists = region.querySelectorAll('ul')
     expect(lists).toHaveLength(2)
     expect(lists[0]?.className).toContain('alerts-full')
-    expect(within(lists[0] as HTMLElement).getByRole('button', { name: bandEditsMessage(1) })).toBeDefined()
+    expect(within(lists[0] as HTMLElement).getByRole('button', { name: bandNoticesMessage(1) })).toBeDefined()
     expect(within(lists[0] as HTMLElement).getByRole('button', { name: '확인했어요' }).className).toContain('alert-lead-action')
-    expect(within(lists[1] as HTMLElement).queryByText(bandEditsMessage(1))).toBeNull()
+    expect(within(lists[1] as HTMLElement).queryByText(bandNoticesMessage(1))).toBeNull()
     expect(within(lists[1] as HTMLElement).getByRole('button', { name: '틱톡 댓글을 붙여 넣어 주세요.' })).toBeDefined()
     // 띠는 나눠 그리는 모양(휴대폰 두 줄), 펼치기 단추는 영역 밖
     const bar = region.parentElement as HTMLElement
@@ -655,7 +735,7 @@ describe('알림 띠 — 밴드 줄은 휴대폰에서도 문장 끝까지 (U-BN
     await openConsole()
     const full = strip().querySelector('ul.alerts-full') as HTMLElement
     expect(full).not.toBeNull()
-    expect(within(full).getByRole('button', { name: bandEditsMessage(1) })).toBeDefined()
+    expect(within(full).getByRole('button', { name: bandNoticesMessage(1) })).toBeDefined()
     expect(within(full).getByRole('button', { name: '확인했어요' })).toBeDefined()
   })
 })

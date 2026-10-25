@@ -12,7 +12,9 @@
 // - MOB1 D-MOB1-09(AC-MOB1-15): 휴대폰 폭에서는 쓸 수 없는 칸("준비되지 않았어요"·"연결 안 함"·틱톡 막힘 문장 + "설정으로"뿐)을 그리지 않는다 —
 //   이 방송에 이었거나 이을 수 있는 칸, 알림·오류가 있는 칸, 다시 연결할 칸은 그대로. PC 폭과 리허설 한 줄은 그대로.
 // - BND1 (AC-BND1-71~74): 틱톡 칸 뒤에 "밴드" 칸(ConsoleBand.tsx). 연결 보기는 GET /api/broadcasts/:id/band + SSE `band` LINK.
-//   알림 띠: "밴드 댓글이 들어오지 않아요."(다시 시도 60초 넘음·다시 연결 필요·읽을 수 없음·유튜브 이은 회차) · "밴드에서 지우거나 고친 댓글이 {N}개 있어요." + "확인했어요".
+//   알림 띠: "밴드 댓글이 들어오지 않아요."(다시 시도 60초 넘음·다시 연결 필요·읽을 수 없음·유튜브 이은 회차) · "확인하지 않은 밴드 알림이 {N}개 있어요."(종류와 상관없이, D-BND1-17) + "확인했어요".
+//   막는 까닭(canLink·blockCode)은 다른 회차·다른 플랫폼 연결로도 바뀐다 — 어느 플랫폼의 연결 알림이 와도(유튜브 `collector`·다른 방송의 밴드 LINK 포함)
+//   연결 보기를 다시 받는다(SA-BND1-01·TE-BND1-001, 알림이 몰리면 한 번으로 모은다).
 //   리허설 회차는 위 한 줄 그대로("리허설 방송에는 라이브를 이을 수 없어요.") — 밴드 요청도 보내지 않는다.
 // 서버 문장(수집 상태·오류·알림)은 고치지 않고 그대로 보인다. 아이디·라이브 ID는 글자로만 보인다.
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -20,7 +22,7 @@ import { get, isApiError, newRequestId, post, withRetry, withQuery, type ApiErro
 import type { BandLinkView, BroadcastLive, InstagramConnection, InstagramDmRow, InstagramLinkView, InstagramLive, PlatformCapability, TikTokLinkView, TikTokSettings } from '../api/types.ts'
 import type { ConsoleStore } from '../lib/console-store.ts'
 import type { AlertLead } from './AlertStrip.tsx'
-import { BAND_NOT_COMING, BAND_SEEN, bandEditsMessage, bandLinkOpen, bandNotComing, bandRetryAlertAt, bandSeenUpTo, bandUnseenEdits } from '../lib/band.ts'
+import { BAND_NOT_COMING, BAND_SEEN, bandLinkOpen, bandNoticesMessage, bandNotComing, bandRetryAlertAt, bandSeenUpTo, bandUnseen } from '../lib/band.ts'
 import { kstClockWords } from '../lib/kst.ts'
 import { groupDigits } from '../lib/money.ts'
 import {
@@ -51,6 +53,8 @@ import { Modal } from './Modal.tsx'
 const REFRESH_MS = 700
 /** 감사 DM 알림이 몰리면 모아서 한 번 */
 const DM_REFRESH_MS = 250
+/** 다른 회차·다른 플랫폼 연결 알림이 몰려 오면 밴드 연결 보기는 이만큼 모아 한 번 다시 받는다 (SA-BND1-01) */
+const BAND_REFRESH_MS = 250
 /** 고정 영역의 인스타그램 알림은 최근 것 몇 개만 둔다 */
 const NOTICE_KEEP = 5
 
@@ -139,6 +143,7 @@ export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastM
   const ttVersion = useRef(0)
   const dmTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const countTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const bandTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const base = `/api/broadcasts/${encodeURIComponent(broadcastId)}`
 
   useEffect(() => {
@@ -147,6 +152,7 @@ export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastM
       alive.current = false
       clearTimeout(dmTimer.current)
       clearTimeout(countTimer.current)
+      clearTimeout(bandTimer.current)
     }
   }, [])
 
@@ -196,6 +202,13 @@ export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastM
       if (alive.current && mine === bandVersion.current && isApiError(error)) setBandError(error)
     }
   }, [base])
+  // 막는 까닭(YOUTUBE_LINKED·BAND_IN_USE 등)은 다른 회차·다른 플랫폼 연결로 바뀐다 — 알림을 모아 한 번 다시 받는다 (SA-BND1-01)
+  const scheduleBandReload = useCallback(() => {
+    clearTimeout(bandTimer.current)
+    bandTimer.current = setTimeout(() => {
+      if (alive.current) void reloadBandLink()
+    }, BAND_REFRESH_MS)
+  }, [reloadBandLink])
   const bandStamp = useCallback(() => bandVersion.current, [])
   const acceptBandLink = useCallback(
     (view: BandLinkView, stamp: number) => {
@@ -275,14 +288,16 @@ export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastM
     if (!enabled) return
     const off = store.onPlatform((data) => {
       if (data.type === 'tiktok') {
-        if (data.event.kind === 'LINK' && data.event.broadcast === broadcastId) setTtLink(data.event.link)
+        if (data.event.kind === 'LINK') {
+          if (data.event.broadcast === broadcastId) setTtLink(data.event.link)
+          scheduleBandReload()
+        }
         return
       }
       if (data.type === 'band') {
-        // 계정이 바뀌면(연결·풀림·끊기) 이 회차의 이을 수 있는지도 바뀐다 — 연결 보기를 다시 받는다
-        if (data.event.kind === 'LINK') {
-          if (data.event.broadcast === broadcastId) setBandLink(data.event.link)
-        } else void reloadBandLink()
+        // 이 회차의 연결은 알림 그대로. 다른 방송의 연결(BAND_IN_USE가 생기거나 풀림)·계정이 바뀌면(연결·풀림·끊기) 연결 보기를 다시 받는다
+        if (data.event.kind === 'LINK' && data.event.broadcast === broadcastId) setBandLink(data.event.link)
+        else scheduleBandReload()
         return
       }
       const event = data.event
@@ -292,6 +307,9 @@ export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastM
           setInstagramError(null)
           return
         case 'LINK':
+          if (event.broadcast === broadcastId) setIgLink(event.link)
+          scheduleBandReload()
+          return
         case 'COLLECTION':
           if (event.broadcast === broadcastId) setIgLink(event.link)
           return
@@ -308,12 +326,17 @@ export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastM
           return
       }
     })
+    // 유튜브를 이 회차에 잇거나 끊으면(`collector`) 밴드의 YOUTUBE_LINKED 막힘이 생기거나 풀린다 — 15초 안에 (AC-BND1-71)
+    const offYoutube = store.onYoutube((event) => {
+      if ((event.kind === 'collector' && event.broadcast === broadcastId) || event.kind === 'connection') scheduleBandReload()
+    })
     const offReconnect = store.onReconnect(() => void reload())
     return () => {
       off()
+      offYoutube()
       offReconnect()
     }
-  }, [store, enabled, broadcastId, date, reload, reloadDms, setIgLink, setTtLink, setBandLink, reloadBandLink])
+  }, [store, enabled, broadcastId, date, reload, reloadDms, setIgLink, setTtLink, setBandLink, scheduleBandReload])
 
   const igOpen = igLink !== null && igLink.state !== 'NONE'
   const ttOpen = ttLink !== null && ttLink.state === 'LINKED'
@@ -473,14 +496,14 @@ export function platformLeads({ live, sealed, onPaste, pasteNote }: { readonly l
         : undefined
     leads.push({ key: 'tiktok', text: TIKTOK_PASTE_ALERT, onClick: onPaste, ...(action !== undefined ? { action } : {}) })
   }
-  // 밴드 (AC-BND1-73): 휴대폰 띠에서도 문장 끝까지(full, U-BND1-01). 들어오지 않음(상태 문장은 밴드 칸에) · 확인하지 않은 지운·고친 댓글 + "확인했어요". 끝난 연결은 띄우지 않는다
+  // 밴드 (AC-BND1-73): 휴대폰 띠에서도 문장 끝까지(full, U-BND1-01). 들어오지 않음(상태 문장은 밴드 칸에) · 확인하지 않은 밴드 알림(종류와 상관없이, D-BND1-17) + "확인했어요". 끝난 연결은 띄우지 않는다
   if (live.bandNotComing) leads.push({ key: 'band', text: BAND_NOT_COMING, onClick: showBandPanel, full: true })
-  const edits = bandUnseenEdits(live.bandLink)
+  const unseenBand = bandUnseen(live.bandLink)
   const upTo = bandSeenUpTo(live.bandLink)
-  if (edits > 0) {
+  if (unseenBand > 0) {
     leads.push({
       key: 'band-notices',
-      text: bandEditsMessage(edits),
+      text: bandNoticesMessage(unseenBand),
       onClick: showBandNotices,
       // 휴대폰 접힌 띠에서도 문장 끝까지, "확인했어요"는 펼친 띠·밴드 칸에서만 (U-BND1-01)
       full: true,

@@ -28,6 +28,8 @@ export function bandCallbackSucceeded(code: string): boolean {
 // ── 설정 "네이버 밴드" (AC-BND1-70) ─────────────────────────────────────
 
 export const BAND_CONNECT = '밴드 연결하기'
+/** 연결됨·다시 연결 필요일 때의 같은 단추 (D-BND1-19) */
+export const BAND_RECONNECT = '다시 연결하기'
 export const BAND_DISCONNECT = '연결 끊기'
 export const BAND_NOT_CONNECTED_WORD = '연결 안 됨'
 export const BAND_DISCONNECT_QUESTION = '끊으면 이어 둔 밴드 글의 댓글도 더 받지 않아요.'
@@ -59,8 +61,14 @@ export const BAND_NOT_COMING = '밴드 댓글이 들어오지 않아요.'
 export const BAND_SEEN = '확인했어요'
 export const BAND_NEW_NOTICE = '새 알림'
 
-export function bandEditsMessage(count: number): string {
-  return `밴드에서 지우거나 고친 댓글이 ${String(count)}개 있어요.`
+/** 알림 띠 한 줄 — 확인하지 않은 밴드 알림을 종류와 상관없이 센다 (D-BND1-17) */
+export function bandNoticesMessage(count: number): string {
+  return `확인하지 않은 밴드 알림이 ${String(count)}개 있어요.`
+}
+
+/** 설정 칸의 연결 단추 글자 — 연결됨·다시 연결 필요면 "다시 연결하기" (D-BND1-19) */
+export function bandConnectLabel(account: BandAccount): string {
+  return account.status === 'CONNECTED' || account.status === 'RECONNECT_NEEDED' ? BAND_RECONNECT : BAND_CONNECT
 }
 
 /** "HH:MM:SS에 읽었어요" (KST) */
@@ -112,10 +120,10 @@ export function bandRetryAlertAt(link: BandLinkView | null): number | null {
   return Number.isFinite(since) ? since + BAND_RETRY_ALERT_MS + 1 : null
 }
 
-/** 알림 띠의 지운·고친 댓글 수 — 끝난 연결은 띄우지 않는다 */
-export function bandUnseenEdits(link: BandLinkView | null): number {
+/** 알림 띠의 확인하지 않은 밴드 알림 수 (지운·고친 댓글·늦게 읽음·막다른 경우 모두, D-BND1-17) — 끝난 연결은 띄우지 않는다 */
+export function bandUnseen(link: BandLinkView | null): number {
   if (link === null || link.state === 'NONE' || link.state === 'FINISHED') return 0
-  return Math.max(0, link.notices.unseenEdits)
+  return Math.max(0, link.notices.unseen)
 }
 
 /** "확인했어요"로 보낼 번호 = 화면이 본 마지막 알림 번호 (없으면 null) */
