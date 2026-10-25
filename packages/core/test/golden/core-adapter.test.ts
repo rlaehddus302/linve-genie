@@ -682,15 +682,17 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
 //   — +0·+37·+0·+37 = 파일 39 · 파서 633 · 엔진 159 · 통과 792 (교체 — 약화 아님). product-import 만원 사례는 서버 몫(AC-FB1-04 [server])이 들어와야 통과한다.
 // V3 D-V3-22 (c)(spec da8b3857): parser/voice-extract.yaml 81 → 179사례(+98, D-V3-25~66까지) — +0·+98·+0·+98 = 파일 39 · 파서 731 · 엔진 159 · 통과 890
 //   (voice-register/*.json은 러너가 읽지 않는다 — packages/voice 단위 시험, 교체 — 약화 아님).
+// V3 D-V3-70(spec bad7b4d3): parser/amount.yaml AUTO 20사례·quick-input.yaml AUTO 5사례 — +0·+25·+0·+25 = 파일 39 · 파서 756 · 엔진 159 · 통과 915
+//   (D-V3-22 합계 숫자만 바꿈, 교체 — 약화 아님).
 describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + Y1 + I3 + N2 + I2 + N3 + N5 + N2b-2 + O1 + O3 + O2 + O4 + FB1 + V3 합계)', () => {
-  it('파일 39 · 파서 731 · 엔진 159 · 통과 890, 나머지 0', () => {
+  it('파일 39 · 파서 756 · 엔진 159 · 통과 915, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
       files: 39,
-      parserCases: 731,
+      parserCases: 756,
       scenarios: 159,
-      pass: 890,
+      pass: 915,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,

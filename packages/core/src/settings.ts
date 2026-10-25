@@ -4,9 +4,9 @@
  */
 /**
  * 손으로 적는 가격의 단위 없는 숫자 단위 (R-14 3). 이 순서가 화면 선택지 순서다(원·천원·만원).
- * TEN_THOUSAND = 만원 단위(FB1, D-FB1-11).
+ * TEN_THOUSAND = 만원 단위(FB1, D-FB1-11). AUTO = 정수부 자릿수로 정함(1~2자리 만원, 3자리 천원 — V3, D-V3-70).
  */
-export const PRICE_UNITS = Object.freeze(['WON', 'THOUSAND', 'TEN_THOUSAND'] as const)
+export const PRICE_UNITS = Object.freeze(['WON', 'THOUSAND', 'TEN_THOUSAND', 'AUTO'] as const)
 export type PriceUnit = (typeof PRICE_UNITS)[number]
 
 /** 저장 값이 가격 단위인가 (서버의 방송 스냅샷 읽기 등에서 쓴다) */

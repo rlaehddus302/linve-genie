@@ -10,7 +10,7 @@ const TEN_THOUSAND = { 'price.unit': 'TEN_THOUSAND' } as const
 
 describe('price.unit 선택지 (D-FB1-11)', () => {
   it('선택지는 원·천원·만원 순서, 기본값은 THOUSAND 그대로', () => {
-    expect(PRICE_UNITS).toEqual(['WON', 'THOUSAND', 'TEN_THOUSAND'])
+    expect(PRICE_UNITS).toEqual(['WON', 'THOUSAND', 'TEN_THOUSAND', 'AUTO']) // V3 D-V3-70 넷째 단위
     expect(DEFAULT_SETTINGS['price.unit']).toBe('THOUSAND')
     expect(resolveSettings({})['price.unit']).toBe('THOUSAND')
     expect(resolveSettings(TEN_THOUSAND)['price.unit']).toBe('TEN_THOUSAND')
