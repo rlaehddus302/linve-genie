@@ -77,6 +77,10 @@ import {
   REASON_CLAIMS,
   REASON_NOT_OPEN,
   REASON_PRICE_NOT_SURE,
+  REASON_BARE_NUMBER,
+  REASON_PRICE_FAR,
+  PRICE_CHECK_NOTE,
+  NUMBER_CHECK_NOTE,
   alreadyReadout,
   askMessage,
   fixedMessage,
@@ -1097,9 +1101,12 @@ export class VoiceController {
         let placed: SuggestionCard = card
         if (v3 !== null) {
           // 사전 밖 품종은 추측으로 (R-17 7) — "품종 확인 필요", 후보 단추는 그대로 (AC-V3-29)
-          if (placed.name === null && v3.guess !== null && placed.no !== null) placed = { ...placed, name: v3.guess, nameNeedsCheck: true }
+          if (placed.name === null && v3.safeGuess !== null && placed.no !== null) placed = { ...placed, name: v3.safeGuess, nameNeedsCheck: true }
           // 서로 다른 'N번' 둘 이상 (D-V3-05)
           if (placed.no === null && v3.heardNumbers.length >= 2) notes.set(id, numbersNote(v3.heardNumbers))
+          // 바로 등록을 막은 까닭 (실방송 3차): 너무 큰 가격·가격 뒤의 '번' 없는 번호 — 카드만
+          else if (v3.blocked === 'PRICE_TOO_HIGH') notes.set(id, PRICE_CHECK_NOTE)
+          else if (v3.blocked === 'BARE_NUMBER_AFTER_PRICE') notes.set(id, NUMBER_CHECK_NOTE)
           // 창이 열려 미룬 바로 등록 — 창이 닫히면 등록 (AC-V3-43 a)
           if (v3.ready !== null && v3.ready.no === placed.no && !noAuto && !this.#rejected.has(v3.ready.no)) this.#dueCards.add(id)
         }
@@ -1120,7 +1127,7 @@ export class VoiceController {
         this.#touchLearned(module, reading, now)
         if (action.skipped.length > 0) reason = module.VOICE_LOG_REASONS.conflict
         // 이어 채우기로 원 가격이 채워지면 그 카드를 바로 등록 (D-V3-01, AC-V3-28)
-        if (v3 !== null && v3.priceSure && !noAuto && !filled.touched && filled.no !== null && filled.price !== null && !this.#rejected.has(filled.no) && this.#existingOf(filled.no) === null) {
+        if (v3 !== null && v3.priceSure && v3.blocked === null && (filled.price ?? 0) <= module.AUTO_REGISTER_PRICE_MAX && !noAuto && !filled.touched && filled.no !== null && filled.price !== null && !this.#rejected.has(filled.no) && this.#existingOf(filled.no) === null) {
           if (this.#host.dialogOpen()) this.#dueCards.add(filled.id)
           else this.#registerCard(work, filled, filled.nameNeedsCheck === true)
         }
@@ -1419,7 +1426,7 @@ export class VoiceController {
       done = this.#registerInstant(work, ready, text)
     } else {
       this.#instantNos.set(ready.no, 'existing')
-      done = this.#applyExisting(work, module, ready.no, existing, { name: ready.name, price: ready.price, nameNeedsCheck: ready.nameNeedsCheck, priceSure: true }, true, false)
+      done = this.#applyExisting(work, module, ready.no, existing, { name: ready.name, price: ready.price, nameNeedsCheck: ready.nameNeedsCheck, priceSure: true, numberFrom: ready.numberFrom }, true, false)
     }
     work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text }], read, action: done.action, reason: done.reason }))
     if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: now + READOUT_MS }
@@ -1447,10 +1454,11 @@ export class VoiceController {
     }
     const no = reading.no
     const heard = (): ExistingHeard => {
-      const guessed = reading.name === null && v3 !== null && v3.guess !== null
+      const guessed = reading.name === null && v3 !== null && v3.safeGuess !== null
       // 정정 덩어리는 가격이 둘이라 줄 읽기가 비지만, 덮은 가격이 '원'으로 들린 가격이면 확실하다 (D-V3-13)
       const sure = v3 !== null && (v3.priceSure || (v3.correction && reading.price !== null && v3.heardPrices.includes(reading.price) && chunk.text.includes('원')))
-      return { name: guessed ? v3.guess : reading.name, price: reading.price, nameNeedsCheck: guessed || reading.nameNeedsCheck, priceSure: sure }
+      const numberFrom = v3?.numberFrom ?? null
+      return { name: guessed ? v3.safeGuess : reading.name, price: reading.price, nameNeedsCheck: guessed || reading.nameNeedsCheck, priceSure: sure, ...(numberFrom === null ? {} : { numberFrom }) }
     }
     // 이미 있던 번호로 그 순간 처리했다 — 다시 하지 않는다 (고친 값이 목록에 닿기 전에 또 고치지 않게)
     if (no !== null && this.#instantNos.get(no) === 'existing') return { action: 'discard', reason: LOG_INSTANT_DONE, readout: null }
@@ -1490,8 +1498,8 @@ export class VoiceController {
     const changes: { name?: string; price?: number } = {}
     let guessed = false
     if (reading.name !== null && reading.name !== open.name) changes.name = reading.name
-    else if (reading.name === null && v3 !== null && v3.guess !== null && (open.name === null || open.nameNeedsCheck === true) && v3.guess !== open.name) {
-      changes.name = v3.guess
+    else if (reading.name === null && v3 !== null && v3.safeGuess !== null && (open.name === null || open.nameNeedsCheck === true) && v3.safeGuess !== open.name) {
+      changes.name = v3.safeGuess
       guessed = true
     }
     if (reading.price !== null && reading.price !== open.price) changes.price = reading.price
@@ -1503,7 +1511,7 @@ export class VoiceController {
       if (changes.name !== undefined && reading.nameWindow !== null) this.#windows.set(open.id, reading.nameWindow)
     }
     // 합친 뒤 번호·원 가격이 갖춰지면 그 자리에서 바로 등록 (AC-V3-27 R23)
-    if (!noAuto && v3 !== null && v3.priceSure && next.no !== null && next.price !== null) {
+    if (!noAuto && v3 !== null && v3.priceSure && v3.blocked === null && next.no !== null && next.price !== null && next.price <= module.AUTO_REGISTER_PRICE_MAX) {
       if (this.#host.dialogOpen()) this.#dueCards.add(next.id)
       else {
         work.cards = module.replaceCard(work.cards, next)
@@ -1608,7 +1616,20 @@ export class VoiceController {
     if (Object.keys(changes).length === 0) return ignore
     if (existing.pending === true || existing.key === '') return { action: 'discard', reason: LOG_PENDING, readout: null }
     if (decision.kind === 'ASK') {
-      const note = !auto ? undefined : status !== 'OPEN' && status !== 'SOLD' ? REASON_NOT_OPEN : existing.claimCount > 0 ? REASON_CLAIMS : changes.price !== undefined && heard.priceSure === false ? REASON_PRICE_NOT_SURE : undefined
+      const far = changes.price !== undefined && (changes.price > existing.price * module.AUTO_FIX_PRICE_RATIO || changes.price * module.AUTO_FIX_PRICE_RATIO < existing.price)
+      const note = !auto
+        ? undefined
+        : status !== 'OPEN' && status !== 'SOLD'
+          ? REASON_NOT_OPEN
+          : existing.claimCount > 0
+            ? REASON_CLAIMS
+            : changes.price !== undefined && heard.priceSure === false
+              ? REASON_PRICE_NOT_SURE
+              : heard.numberFrom === 'bare'
+                ? REASON_BARE_NUMBER
+                : far
+                  ? REASON_PRICE_FAR
+                  : undefined
       this.#ask(work, no, existing, changes, note)
       return { action: 'offer', reason: LOG_ASK, readout: askMessage(no, existing, changes) }
     }

@@ -3,7 +3,7 @@ import * as voiceModule from '@livejjim/voice'
 import type { SuggestionCard, VoiceSettings } from '@livejjim/voice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VoiceController, type ExistingView, type RecentFixOutcome, type VoiceHost } from '../src/voice/controller.ts'
-import { askMessage, fixedMessage, numbersNote, otherNumberMessage, readInstant, registeredReadout } from '../src/voice/instant.ts'
+import { NUMBER_CHECK_NOTE, PRICE_CHECK_NOTE, askMessage, fixedMessage, numbersNote, otherNumberMessage, readInstant, registeredReadout } from '../src/voice/instant.ts'
 
 const T0 = Date.UTC(2026, 9, 25, 1, 0, 0)
 
@@ -125,8 +125,8 @@ describe('바로 등록 (V3)', () => {
   it('중간 결과에서 번호와 가격이 들린 순간 조용한 시간 없이 등록한다 — 카드 없음', async () => {
     const h = await ready()
     say('네 108번 bts 어 요한이 10만 원까지', false)
-    expect(reg(h)).toEqual([{ no: 108, name: 'bts', price: 100000, source: 'instant' }])
-    expect(h.registered[0]?.card.nameNeedsCheck).toBe(true)
+    // 실방송 3차(dev-notes 추가 5): 한 번만 나온 추측 낱말은 품종으로 쓰지 않는다 — 품종 미입력
+    expect(reg(h)).toEqual([{ no: 108, name: '', price: 100000, source: 'instant' }])
     expect(cards(h)).toEqual([])
     // 같은 덩어리에서 더 들어와도 다시 등록하지 않는다
     say('네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요', false)
@@ -375,13 +375,35 @@ describe('바로 등록 V3 수용 사례', () => {
   })
 })
 
-describe('중간 결과 끝의 번 없는 번호 (D-V3-26)', () => {
-  it('R34: 중간 결과 "… 25만 원 170"은 아직 등록하지 않고, 최종 결과가 되면 170번으로 등록', async () => {
+describe('중간 결과 끝의 번 없는 번호 (D-V3-26)·막음 (실방송 3차)', () => {
+  it('R34: "… 25만 원 170"은 중간 결과에서도 최종 결과에서도 바로 등록하지 않고 카드에 "번호 확인 필요"', async () => {
     const h = await ready()
     say('자 9cm에 이거 25만 원 170', false)
     expect(h.registered).toEqual([])
     say('자 9cm에 이거 25만 원 170')
-    expect(reg(h).map((item) => [item.no, item.price])).toEqual([[170, 250000]])
+    at(3000)
+    expect(h.registered).toEqual([])
+    const card = cards(h)[0]
+    expect(card?.no).toBe(170)
+    expect(h.voice.getSnapshot().notes.get(card?.id ?? '')).toBe(NUMBER_CHECK_NOTE)
+  })
+
+  it('300만 원을 넘는 가격은 바로 등록하지 않고 카드에 "가격 확인 필요"', async () => {
+    const h = await ready()
+    say('38번 라울 605만 원')
+    at(3000)
+    expect(h.registered).toEqual([])
+    const card = cards(h)[0]
+    expect(h.voice.getSnapshot().notes.get(card?.id ?? '')).toBe(PRICE_CHECK_NOTE)
+  })
+
+  it('이미 있는 상품의 가격이 3배를 넘게 들리면 묻기만', async () => {
+    const h = await ready()
+    h.board.set(38, product(38, '라울', 100000))
+    say('38번 라울 50만 원')
+    at(3000)
+    expect(h.fixes).toEqual([])
+    expect(h.voice.getSnapshot().offers[0]?.stage).toBe('ask')
   })
 })
 
