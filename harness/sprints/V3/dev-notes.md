@@ -394,3 +394,30 @@
 - R-23 판매자 채팅 읽기를 없앴다. src/seller-note.ts, package.json `./seller-note` 하위 경로, index.ts `readSellerNote` 내보내기, 골든 seller-note 러너 갈래, 관련 단위 시험(TD-V3-004·AC-V3-54의 판매자 글 부분)을 지웠다.
 - readSegments 예외 없음 무작위 시험은 남겼다.
 - 경계 시험(boundaries.test.ts)은 원래 규칙으로 되돌렸다 — 서버는 `@livejjim/voice`를 전혀 참조하지 않는다.
+
+### dev-server — R-25 음성 등록·고침 기록 (D-V3-64·65, AC-V3-70)
+- 표 `voice_log` (마이그레이션 `0021_v3_voice_log.sql`). (판매자, 요청 번호, 한 일) 하나에 한 줄. 출처는 `voice`만(D-V3-68로 판매자 채팅 줄 없음).
+- **쓰기 (dev-web)**: 음성으로 한 `POST /api/events`에 선택 칸 `voiceLog`를 싣는다. 없으면 손 입력이라 기록하지 않는다.
+  - `voiceLog = { heard: string, source?: 'voice', undo?: <되돌린 쓰기의 requestId>, device?: /^[A-Za-z0-9_-]{1,64}$/ }`
+  - `heard`: 가린(maskArchiveText) 한 줄, 300글자(코드 포인트) 넘으면 400. 서버는 제어 문자를 빼고(줄바꿈 → 공백) 긴 숫자·끝자리 뒤 4숫자를 한 번 더 가린다. 모르는 칸은 400.
+  - 받는 종류: `product.register`(REGISTER) · `product.update`(값이 바뀐 칸마다 PRICE·NAME 한 줄씩) · `product.renumber`(RENUMBER — `no`=from·`toNo`=to) · `product.close`(`undo`가 있을 때만 — 음성 등록 되돌리기).
+  - 되돌리기: 되돌리는 쓰기(가격 되돌림 update·옮기기 되돌림 renumber·등록 되돌림 close)에 `undo: 처음 requestId`를 싣는다 → UNDO 줄이 생기고, 되돌린 줄에 `undone: true`가 붙는다. `product.register`에 `undo`를 실으면 400.
+  - 기록 줄은 같은 기록 트랜잭션 안에서 상품 이벤트보다 먼저 넣는다. 반영되지 않으면 `failed: true`: 거절·저장 실패, 실패로 기록됨, 엔진이 바꾼 것 없음(없는 번호·같은 값) 모두. 같은 requestId로 다시 보내 성공하면 실패 표시가 풀린다.
+- **조회**: `GET /api/voice/log?b=&date=&product=&no=&rehearsal=` (b·date 중 하나는 꼭). `{ entries: Entry[] }`, 시각순. 판매자 자기 것만 보이고 보조자는 403.
+  - `b`가 없으면 실제 범위만 보인다(`rehearsal=true`면 리허설). `no`는 옮긴 줄의 전·후 번호 어느 쪽이든 걸린다. `product`는 엔진 상품 ID(번호를 바꿔도 같음).
+  - `Entry = { id, at(ISO), date, rehearsal, b, product(id|null), no, toNo, kind: 'REGISTER'|'PRICE'|'NAME'|'RENUMBER'|'UNDO', before, after ({ no?, name?, price? } | null), source: 'voice', by: { kind: 'account', accountId } | { kind: 'server' }, device, claims(살아 있는 찜 수 — 확정·대기·보류·충돌), heard, big, withClaims, undone, undoOf, failed }`
+  - `big`: 등록 > 3,000,000원, 가격 고침은 새 값 > 3,000,000원 · 새 값 > 전 값 × 3 · 새 값 × 3 < 전 값. `withClaims`: PRICE·NAME·RENUMBER에서 claims > 0. 노란 띠 "확인할 음성 고침 N건"은 화면이 `big || withClaims`(그리고 `!failed`)로 센다.
+- **백업**: 파일 맨 위 `parcels` 뒤에 `voiceLog` 칸을 더했다. 형식 번호는 3 그대로이고, 칸이 없는 옛 파일도 읽는다. 요약값의 end 조각에는 칸이 있을 때만 줄 수가 붙는다. 검사는 칸 22개·한 일·출처·글자 수·`__proto__`·겹친 줄을 본다. 복구는 줄을 지우고 파일 것으로 다시 넣는다(RESTORE_REPLACED_TABLES).
+- **판매대장**: 날짜 조각마다 `voiceLog: VoiceLedgerRow[]`(packages/documents)를 넘기고, 워커는 줄이 하나라도 있을 때만 `ledgerToXlsx(rows, options, { voiceLog })`로 시트를 더한다. 줄이 없으면 전과 같은 파일이다. 실패 줄은 시트에 넣지 않는다. 등록의 "후"는 `"품종 100,000원"` 글(품종이 없으면 가격 수)이다.
+- `writer.afterInsert`에 5번째 인자 `states`를 더했다(등록 줄의 상품 ID를 채운다).
+- 서버 시험 `apps/server/test/v3-voice-log.test.ts`. 교체(약화 아님): api.test(voiceLog는 엔진 필드 아님), i2-backup(맨 위 칸 목록에 voiceLog), commands(표 71개), fb1-parcel-settings(0018 모양으로 되돌릴 때 voice_log도 지움 — 0022에서 seller_names를 지우면 이 줄도 맞춰야 한다).
+
+### dev-device 추가 22 — 빠른 꼴 말투(4b1ee23d), D-V3-70·71 (spec bad7b4d3·f6d0928e)
+- 4b1ee23d: 빠른 꼴 수에 붙은 `에`·`에요`(`45에`)를 뗀다. 판매 말투에 드려볼게요·드려(+볼게요/보겠습니다)·드려봅니다·줄게요·드릴게요요를 더했다. 늘임표(`45~`)는 토큰 끝 문장 부호로 이미 지운다. 같은 수 되풀이(`자 45~`)도 조각 끝으로 본다.
+- D-V3-70: 빠른 꼴은 core `parseAmount`의 `price.unit` AUTO를 그대로 쓴다. 한글 수만 된 토큰은 R-15 값을 숫자로 바꿔 넘긴다(`이십오` → 25 → AUTO 250,000원). R85~R87 단위 시험.
+- D-V3-71 중간 결과 안정(src/interim.ts) — 화면이 쓰는 법:
+  - `interimCandidate(text, segmentOptions)` → 중간 결과 글의 빠른 꼴 후보 `{ no, price, name } | null`. 최종이면 확정될 것만 낸다(원 가격 짝은 이미 바로 확정이라 후보가 아님).
+  - `trackInterim(seen, candidate, now)` → `{ seen, stable }`. 중간 결과마다·타이머마다 부르고, `stable`이 오면 바로 등록한다(기록 "중간 글로 등록"). 999ms 아직, 1,000ms 확정. 후보가 바뀌면 새로 센다.
+  - `interimFallback(seen, finalPicks, registered)` → 덩어리 끝에 최종 글에서 그 번호 가격이 사라졌으면 1,000ms 이상 보였던 후보(가장 나중 것).
+  - `INTERIM_STABLE_MS` = 1,000.
+  - 단위 시험: test/v3-interim.test.ts(R89~R92).

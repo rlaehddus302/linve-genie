@@ -342,3 +342,5 @@ export {
 export { readRenumber, type Renumber } from './renumber.ts'
 // V3 기다리는 번호 (R-17 8 6, D-V3-67)
 export { WAITING_MS, stepWaiting, waitingExpired, type WaitingNumber, type WaitingPiece, type WaitingResult } from './waiting.ts'
+// V3 중간 결과 안정 (R-17 8, D-V3-71)
+export { INTERIM_STABLE_MS, interimCandidate, interimFallback, trackInterim, type InterimCandidate, type InterimSeen } from './interim.ts'
