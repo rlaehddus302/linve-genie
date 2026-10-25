@@ -20,9 +20,9 @@ import {
 } from '../src/index.ts'
 
 const GOLDEN_DIR = fileURLToPath(new URL('../../../tests/golden/voice-register/', import.meta.url))
-/** V3 고정값 (README "음성 바로 등록 골든": 파일 2 · 사례 62 — variety-guess 38 · same-number 24, D-V3-22 (c)) */
+/** V3 고정값 (README "음성 바로 등록 골든": 파일 2 · 사례 80 — variety-guess 42 · same-number 38, D-V3-22 (c)) */
 const EXPECTED_FILES = 2
-const EXPECTED_CASES = 62
+const EXPECTED_CASES = 80
 
 const FILE_KEYS = new Set(['kind', 'about', 'cases'])
 const CASE_KEYS = new Set(['id', 'title', 'refs', 'note', 'in', 'out'])
@@ -76,14 +76,15 @@ function load(): Loaded[] {
         cases.push({ id, kind, input, out })
       } else {
         const input = onlyKeys(id, c.in, ['heard', 'product', 'auto'])
-        const heard = onlyKeys(id, input.heard, ['price', 'priceSure', 'name', 'nameFrom'])
+        const heard = onlyKeys(id, input.heard, ['price', 'priceSure', 'name', 'nameFrom', 'numberFrom'])
+        if (!['MARKER', 'BARE', undefined].includes(heard.numberFrom as string | undefined)) fail(id, 'numberFrom')
         const product = onlyKeys(id, input.product, ['name', 'price', 'status', 'liveClaims'])
         if (!NAME_FROM.includes(heard.nameFrom as string | null)) fail(id, 'nameFrom')
         if (!STATUSES.includes(product.status as string)) fail(id, 'status')
         if (typeof input.auto !== 'boolean') fail(id, 'auto')
         const out = onlyKeys(id, c.out, ['action', 'changes', 'reason'])
         if (!['IGNORE', 'AUTO_FIX', 'ASK'].includes(out.action as string)) fail(id, 'action')
-        if (![null, 'NO_AUTO', 'NOT_OPEN', 'PRICE_NOT_SURE', 'CLAIMS'].includes(out.reason as string | null)) fail(id, 'reason')
+        if (![null, 'NO_AUTO', 'NUMBER_BARE', 'NOT_OPEN', 'PRICE_NOT_SURE', 'PRICE_JUMP', 'CLAIMS'].includes(out.reason as string | null)) fail(id, 'reason')
         onlyKeys(id, out.changes, ['price', 'name'])
         cases.push({ id, kind, input, out })
       }

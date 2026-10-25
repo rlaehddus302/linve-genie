@@ -54,30 +54,22 @@ function tokenKinds(analysis: SentenceAnalysis): TokenKind[] {
   })
 }
 
+/** 풀이말 끝 모양 (R-17 7, D-V3-30): 낱말이 이 글자로 끝나면 후보 낱말이 아니다 (`나왔네`·`좋다`·`예쁘고`) */
+export const PREDICATE_END_CHARS: readonly string[] = Object.freeze(['다', '요', '죠', '네', '까', '고', '게', '서', '면', '데'])
+export const looksLikePredicate = (word: string): boolean => PREDICATE_END_CHARS.some((char) => word.endsWith(char))
+
 function guessFromAnalysis(analysis: SentenceAnalysis): string | null {
-  if (analysis.reading.extraction.no === null || analysis.numberSpan === null) return null
+  if (analysis.reading.extraction.no === null) return null
   const kinds = tokenKinds(analysis)
   const words = analysis.tokens.map(guessWord)
-  const walk = (from: number, step: 1 | -1): string | null => {
-    for (let i = from; i >= 0 && i < kinds.length; i += step) {
-      const kind = kinds[i] as TokenKind
-      if (kind === 'skip') continue
-      return kind === 'word' ? (words[i] as string) : null
-    }
-    return null
-  }
-  // ⓐ 번호 토큰 바로 뒤
-  const after = walk(analysis.numberSpan.last + 1, 1)
-  if (after !== null) return after
-  // ⓑ 두 번 이상 나온 후보 낱말 가운데 처음 나온 것
+  const candidate = (i: number): boolean => kinds[i] === 'word' && !looksLikePredicate(words[i] as string)
+  // 고르기 (D-V3-30): 두 번 이상 나온 후보 낱말 가운데 처음 나온 것. 한 번만 나온 낱말은 쓰지 않는다
   const counts = new Map<string, number>()
-  kinds.forEach((kind, i) => {
-    if (kind === 'word') counts.set(words[i] as string, (counts.get(words[i] as string) ?? 0) + 1)
+  words.forEach((word, i) => {
+    if (candidate(i)) counts.set(word, (counts.get(word) ?? 0) + 1)
   })
-  const repeated = kinds.findIndex((kind, i) => kind === 'word' && (counts.get(words[i] as string) ?? 0) >= 2)
-  if (repeated >= 0) return words[repeated] as string
-  // ⓒ 번호 토큰 바로 앞
-  return walk(analysis.numberSpan.first - 1, -1)
+  const first = words.findIndex((word, i) => candidate(i) && (counts.get(word) ?? 0) >= 2)
+  return first >= 0 ? (words[first] as string) : null
 }
 
 /** 사전 밖 품종 추측 (R-17 7). 번호가 없거나 애매하면 null. 사전을 쓰지 않는다 */
@@ -117,7 +109,7 @@ export interface RegistrationReading {
   readonly heardNumbers: readonly number[]
   /** 읽힌 가격 전부 (겹친 값 한 번) */
   readonly heardPrices: readonly number[]
-  /** 등록·카드에 쓸 추측 품종 — 추측이 같은 덩어리에 두 번 이상 나왔고 말끝(…네·…요·…다 등) 모양이 아닐 때만, 아니면 null */
+  /** 등록·카드에 쓸 추측 품종 — D-V3-30부터 `guess`와 같다(두 번 이상 나온 낱말만, 풀이말 끝 모양 제외). 예전 이름이라 남겨 둔다 */
   readonly safeGuess: string | null
   /** 번호를 낸 것 (no가 없으면 null) */
   readonly numberFrom: 'marker' | 'bare' | null
@@ -130,16 +122,6 @@ export interface RegistrationReading {
 /** 바로 등록할 수 있는 가격 상한 (원). 넘으면 카드만 — "가격 확인 필요" (크롬이 "육십오만"을 "605만"으로 적는 일이 있다) */
 export const AUTO_REGISTER_PRICE_MAX = 3_000_000
 
-/** 말끝 모양 — 동사·형용사로 끝나는 낱말은 품종 추측으로 쓰지 않는다 (`나왔네`·`예쁘죠`·`있고`) */
-const PREDICATE_ENDINGS: readonly string[] = ['습니다', '니다', '는데', '어요', '아요', '해요', '네요', '죠', '네', '요', '다', '고', '게', '서', '데', '해', '어', '지']
-export const looksLikePredicate = (word: string): boolean => PREDICATE_ENDINGS.some((ending) => word.length > ending.length && word.endsWith(ending))
-
-function safeGuessOf(analysis: SentenceAnalysis, guess: string | null): string | null {
-  if (guess === null || looksLikePredicate(guess)) return null
-  const kinds = tokenKinds(analysis)
-  const count = analysis.tokens.filter((token, i) => kinds[i] === 'word' && guessWord(token) === guess).length
-  return count >= 2 ? guess : null
-}
 
 const MALGO = '말고'
 const hasCorrectionWord = (tokens: readonly string[]): boolean =>
@@ -161,7 +143,7 @@ export function readRegistration(text: unknown, options: RegistrationOptions = {
   const guess = guessFromAnalysis(analysis)
   const priceSure = extraction.price !== null && analysis.wonLines > 0
   const correction = hasCorrectionWord(analysis.tokens)
-  const safeGuess = safeGuessOf(analysis, guess)
+  const safeGuess = guess
   const numberFrom = analysis.numberFrom
   const sure = extraction.no !== null && extraction.price !== null && priceSure && !correction && (options.final === true || !analysis.bareNumberAtEnd)
   const blocked: ReadyBlock | null = !sure
@@ -191,10 +173,18 @@ export function readyToRegister(text: string, options: RegistrationOptions = {})
 export type NameFrom = 'DICTIONARY' | 'GUESS'
 export type SameNumberStatus = 'READY' | 'OPEN' | 'SOLD' | 'HOLD' | 'CLOSED'
 export type SameNumberAction = 'IGNORE' | 'AUTO_FIX' | 'ASK'
-export type SameNumberReason = 'NO_AUTO' | 'NOT_OPEN' | 'PRICE_NOT_SURE' | 'CLAIMS'
+export type SameNumberReason = 'NO_AUTO' | 'NUMBER_BARE' | 'NOT_OPEN' | 'PRICE_NOT_SURE' | 'PRICE_JUMP' | 'CLAIMS'
+export type NumberFrom = 'MARKER' | 'BARE'
 
 export interface SameNumberInput {
-  readonly heard: { readonly price: number | null; readonly priceSure: boolean; readonly name: string | null; readonly nameFrom: NameFrom | null }
+  readonly heard: {
+    readonly price: number | null
+    readonly priceSure: boolean
+    readonly name: string | null
+    readonly nameFrom: NameFrom | null
+    /** 번호를 들은 꼴 — 없으면 MARKER (D-V3-32) */
+    readonly numberFrom?: NumberFrom
+  }
   readonly product: { readonly name: string; readonly price: number; readonly status: SameNumberStatus; readonly liveClaims: number }
   /** 바로 고쳐도 되는 덩어리인가 (자동 등록 켬 ∧ 덩어리 내내 켜짐 ∧ 끝에서 넘긴 덩어리 아님 ∧ 그 번호를 거절하지 않음) */
   readonly auto: boolean
@@ -209,23 +199,31 @@ export interface SameNumberDecision {
 
 const compactName = (name: string): string => normalizeText(name).split(' ').join('')
 
+/** 바로 고침에서 받는 가격 비율 (D-V3-33): 새 가격이 기존의 3배를 넘거나 1/3 미만이면 묻는다(딱 3배는 받는다) */
+export const AUTO_FIX_PRICE_RATIO = 3
+
 /** R-22: 들은 번호의 상품이 이미 있을 때 무엇을 할지 */
 export function decideSameNumber(input: SameNumberInput): SameNumberDecision {
   const { heard, product } = input
   const changes: { price?: number; name?: string } = {}
   if (heard.price !== null && heard.price !== product.price) changes.price = heard.price
   let fillOnly = false
-  if (heard.name !== null && compactName(heard.name) !== '' && compactName(heard.name) !== compactName(product.name)) {
-    if (compactName(product.name) === '') {
-      changes.name = heard.name
-      fillOnly = heard.nameFrom === 'DICTIONARY'
-    } else if (heard.nameFrom === 'DICTIONARY') changes.name = heard.name
+  // 추측(GUESS)은 이미 있는 상품의 품종을 채우지도 바꾸지도 않는다 (D-V3-31) — 사전 이름만
+  if (heard.nameFrom === 'DICTIONARY' && heard.name !== null && compactName(heard.name) !== '' && compactName(heard.name) !== compactName(product.name)) {
+    changes.name = heard.name
+    fillOnly = compactName(product.name) === ''
   }
   if (changes.price === undefined && changes.name === undefined) return { action: 'IGNORE', changes: {}, reason: null }
   const ask = (reason: SameNumberReason): SameNumberDecision => ({ action: 'ASK', changes, reason })
   if (!input.auto) return ask('NO_AUTO')
+  if (heard.numberFrom === 'BARE') return ask('NUMBER_BARE')
   if (product.status !== 'OPEN' && product.status !== 'SOLD') return ask('NOT_OPEN')
   if (changes.price !== undefined && !heard.priceSure) return ask('PRICE_NOT_SURE')
+  if (
+    changes.price !== undefined &&
+    (changes.price > product.price * AUTO_FIX_PRICE_RATIO || changes.price * AUTO_FIX_PRICE_RATIO < product.price || changes.price > AUTO_REGISTER_PRICE_MAX)
+  )
+    return ask('PRICE_JUMP')
   if (product.liveClaims > 0 && !(fillOnly && changes.price === undefined)) return ask('CLAIMS')
   return { action: 'AUTO_FIX', changes, reason: null }
 }
@@ -256,8 +254,6 @@ export interface ExistingHeard {
   readonly numberFrom?: 'marker' | 'bare'
 }
 
-/** 바로 고침에서 받는 가격 비율 — 새 가격이 기존의 3배를 넘거나 1/3 미만이면 묻는다 */
-export const AUTO_FIX_PRICE_RATIO = 3
 
 export interface ExistingContext {
   /** 바로 고쳐도 되는 덩어리인가 (R-22 auto). 생략 = 참 */
@@ -271,23 +267,23 @@ export interface ExistingContext {
  * IGNORE = 같음 · AUTO_FIX = 찜 없고 바로 고침 · FILL_NAME = 찜이 있어도 비었던 품종을 사전 이름으로 채움 · ASK = 고칠까요 카드.
  */
 export function decideForExisting(existing: ExistingProduct, heard: ExistingHeard, context: ExistingContext = {}): ExistingDecision {
-  // 추측 품종(사전 밖)은 이미 있는 상품의 품종을 채우지도 바꾸지도 않는다 — 사전 이름만 (실방송 3차: "설비"·"나왔네"가 채워짐)
-  const name = heard.nameNeedsCheck === true ? null : heard.name
   const decision = decideSameNumber({
-    heard: { price: heard.price, priceSure: heard.priceSure !== false, name, nameFrom: name === null ? null : 'DICTIONARY' },
+    heard: {
+      price: heard.price,
+      priceSure: heard.priceSure !== false,
+      name: heard.name,
+      nameFrom: heard.name === null ? null : heard.nameNeedsCheck === true ? 'GUESS' : 'DICTIONARY',
+      numberFrom: heard.numberFrom === 'bare' ? 'BARE' : 'MARKER',
+    },
     product: { name: existing.name, price: existing.price, status: context.status ?? 'OPEN', liveClaims: existing.claimCount },
     auto: context.auto !== false,
   })
   const price = decision.changes.price ?? null
-  const changedName = decision.changes.name ?? null
+  const name = decision.changes.name ?? null
   if (decision.action === 'IGNORE') return { kind: 'IGNORE' }
-  if (decision.action === 'ASK') return { kind: 'ASK', price, name: changedName }
-  // '번' 없는 번호로 잡힌 같은 번호는 바로 고치지 않는다
-  if (heard.numberFrom === 'bare') return { kind: 'ASK', price, name: changedName }
-  // 가격 크기 지킴: 3배 초과·1/3 미만이면 묻는다 ("605만" 같은 잘못 적음)
-  if (price !== null && (price > existing.price * AUTO_FIX_PRICE_RATIO || price * AUTO_FIX_PRICE_RATIO < existing.price)) return { kind: 'ASK', price, name: changedName }
-  if (existing.claimCount > 0 && changedName !== null && price === null) return { kind: 'FILL_NAME', name: changedName }
-  return { kind: 'AUTO_FIX', price, name: changedName }
+  if (decision.action === 'ASK') return { kind: 'ASK', price, name }
+  if (existing.claimCount > 0 && name !== null && price === null) return { kind: 'FILL_NAME', name }
+  return { kind: 'AUTO_FIX', price, name }
 }
 
 // ── 열린 카드 합치기 (D-V3-06) ───────────────────────────────────────────

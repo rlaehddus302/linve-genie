@@ -656,7 +656,7 @@ export interface SentenceAnalysis {
   readonly bareNumberAtEnd: boolean
   /** no를 낸 것: 'N번'(자리 읽기 + 번 포함) = marker, '번' 없는 번호 = bare, no가 없으면 null */
   readonly numberFrom: 'marker' | 'bare' | null
-  /** no가 '번' 없는 번호이고 그 후보 토큰이 어떤 원 가격 줄보다 뒤에 있는가 (다음 상품 번호를 부르기 시작한 것일 수 있다) */
+  /** no가 '번' 없는 번호이고 그 후보 토큰(처음 나온 것)이 첫 원 가격 줄보다 뒤에 있는가 (D-V3-34) (다음 상품 번호를 부르기 시작한 것일 수 있다) */
   readonly bareNumberAfterPrice: boolean
 }
 
@@ -750,6 +750,6 @@ export function analyzeSentence(text: unknown, options: ExtractOptions = {}): Se
     bareNumberAtEnd: beonValues.length === 0 && no !== null && bareCandidates.some((candidate) => candidate.tokens.includes(tokens.length - 1)),
     numberFrom: no === null ? null : beonValues.length > 0 ? 'marker' : 'bare',
     bareNumberAfterPrice:
-      beonValues.length === 0 && no !== null && bareCandidates.some((candidate) => candidate.value === no && bundles.wonLineEnds.some((end) => end < (candidate.tokens[0] as number))),
+      beonValues.length === 0 && no !== null && bareChosen !== undefined && bundles.wonLineEnds.length > 0 && (bundles.wonLineEnds[0] as number) < (bareChosen.tokens[0] as number),
   }
 }
