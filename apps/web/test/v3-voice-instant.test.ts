@@ -46,7 +46,7 @@ interface Harness {
   readonly undone: string[]
 }
 
-function harness(options: { settings?: unknown; noBoard?: boolean } = {}): Harness {
+function harness(options: { settings?: unknown; noBoard?: boolean; priceUnit?: 'WON' | 'THOUSAND'; seller?: readonly string[] } = {}): Harness {
   const state = {
     registered: [] as Harness['registered'],
     written: [] as unknown[],
@@ -60,6 +60,8 @@ function harness(options: { settings?: unknown; noBoard?: boolean } = {}): Harne
     load: async () => voiceModule,
     now: () => Date.now(),
     maxNumber: () => 999,
+    priceUnit: () => options.priceUnit ?? 'WON',
+    ...(options.seller === undefined ? {} : { fetchSellerNames: async () => options.seller ?? [] }),
     currentNames: () => [],
     products: () => new Map([...state.board].map(([no, product]) => [no, product.closed])),
     fetchHistory: async () => [],
@@ -280,14 +282,30 @@ function finish(h: Harness, index = 0): void {
 }
 
 describe('바로 등록 V3 수용 사례', () => {
-  it('R7: 서로 다른 N번 둘이면 등록도 카드도 없이 기록·큰 글자 칸 "번호가 여럿 들렸어요: 189·139" (D-V3-41)', async () => {
+  it('R7 (D-V3-46): 원 가격 바로 앞 139번과 짝지어 139번 500,000원 등록, 덩어리 끝에 "139번으로 등록했는데 189번도 들렸어요" 4초 + 기록', async () => {
     const h = await ready()
     say('어 자 요거 지금 189번인데 뿌리가 있습니다 뿌리 있는데 컵이 너무 잘 들었어요 빅뱅 금 139번 얘 50만 원 들어요')
     at(2000)
-    expect(h.registered).toEqual([])
+    expect(reg(h).map((item) => [item.no, item.price])).toEqual([[139, 500000]])
     expect(cards(h)).toEqual([])
-    expect(h.voice.getSnapshot().readout?.text).toBe('번호가 여럿 들렸어요: 189·139')
-    expect(h.voice.getSnapshot().log[0]?.reason).toBe('번호가 여럿 들렸어요: 189·139')
+    const text = '139번으로 등록했는데 189번도 들렸어요. 맞는지 확인해 주세요.'
+    expect(h.voice.getSnapshot().readout?.text).toBe(text)
+    expect(h.voice.getSnapshot().log[0]?.reason).toBe(text)
+  })
+
+  it('D-V3-46: 쉬지 않고 이어 말한 한 덩어리의 상품 둘을 조각마다 바로 등록', async () => {
+    const h = await ready()
+    say('93번 빅뱅금 10만 원 자 다음 97번 23만 원', false)
+    expect(reg(h).map((item) => [item.no, item.price])).toEqual([
+      [93, 100000],
+      [97, 230000],
+    ])
+  })
+
+  it('D-V3-48: 천원 단위 방송의 "92번 빅뱅 60"(최종 결과)은 60,000원으로 바로 등록', async () => {
+    const h = await ready({ priceUnit: 'THOUSAND' })
+    say('92번 빅뱅 60')
+    expect(reg(h).map((item) => [item.no, item.name, item.price])).toEqual([[92, '빅뱅', 60000]])
   })
 
   it('번호 없는 말은 카드 없이 "번호를 못 들었어요", 끔이면 번호만 있는 카드에 "가격을 말해 주세요" (D-V3-41·44)', async () => {
@@ -496,6 +514,20 @@ describe('추측 품종은 등록에 쓰지 않는다 (D-V3-37)', () => {
     h.voice.chooseCandidate(card?.id ?? '', 'bts')
     expect(cards(h)[0]?.name).toBe('bts')
     expect(cards(h)[0]?.touched).toBe(true)
+  })
+})
+
+describe('판매자 품종 사전 (D-V3-49)', () => {
+  it('켤 때 받은 판매자 품종 이름을 사전에 넣어 바로 등록 품종으로 쓴다', async () => {
+    const h = await ready({ seller: ['용용초'] })
+    say('15번 용용초 만 원')
+    expect(reg(h)).toEqual([{ no: 15, name: '용용초', price: 10000, source: 'instant' }])
+  })
+
+  it('판매자 사전이 없으면 같은 말은 품종 미입력', async () => {
+    const h = await ready()
+    say('15번 용용초 만 원')
+    expect(reg(h)).toEqual([{ no: 15, name: '', price: 10000, source: 'instant' }])
   })
 })
 

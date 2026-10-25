@@ -33,7 +33,8 @@ import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
 import { cardLine, enterBadgeCard } from '../lib/voice.ts'
 import { readReceived } from '../lib/received.ts'
 import { OFFER_FIX_FAILED, SMS_SEND_FAILED, SMS_UNDO_NOTE, VOICE_IDLE, VoiceController, type RecentFixOutcome, type RegisterSource, type SmsBuyerChoice, type SmsWriteOutcome, type VoiceSmsWrite, type VoiceSnapshot } from '../voice/controller.ts'
-import { fetchPastNames } from '../voice/history.ts'
+import { useLiveEvents } from '../lib/live-events.ts'
+import { fetchPastNames, fetchSellerNames } from '../voice/history.ts'
 import { loadVoice } from '../voice/load.ts'
 import { readConsent, readLearned, readSettings, readSmsSettings, writeConsent, writeLearned, writeSettings, writeSmsSettings } from '../voice/storage.ts'
 import { AssignDialog, ConfirmDialog, ConvertDialog, EditDialog, ReasonDialog } from './ActionDialogs.tsx'
@@ -354,6 +355,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       load: loadVoice,
       now: () => Date.now(),
       maxNumber: () => latest.current.data.broadcasts.get(b)?.settings['claim.maxNumber'] ?? DEFAULT_SETTINGS['claim.maxNumber'],
+      // "N번 품종 수"의 수는 그 방송 가격 단위로 (D-V3-48)
+      priceUnit: () => latest.current.data.broadcasts.get(b)?.settings['price.unit'] ?? DEFAULT_SETTINGS['price.unit'],
       currentNames: () => currentNamesRef.current,
       products: () => {
         const numbers = new Map<number, boolean>()
@@ -363,6 +366,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         return numbers
       },
       fetchHistory: () => fetchPastNames({ date: broadcast.date, rehearsal: broadcast.rehearsal }),
+      fetchSellerNames,
       dialogOpen: () => dialogCount.current > 0 || anyDialogOpen(),
       readConsent,
       writeConsent,
@@ -408,6 +412,16 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   const voiceSnapshot = useSyncExternalStore(voice?.subscribe ?? noSubscribe, voice?.getSnapshot ?? idleVoice)
   // 음성이 듣는 동안 화면 꺼짐 막기 (MOB1 D-MOB1-07, AC-MOB1-10) — 출력 기기의 막기와 따로
   useScreenWake(voice !== null && voiceSnapshot.phase === 'on')
+  // 판매자 품종 사전이 늘거나(SSE voice) 다시 붙으면 음성 사전에 다시 넣는다 — 음성이 켜진 동안만 (D-V3-49)
+  useLiveEvents(
+    {
+      onVoice: (event) => {
+        if (event.kind === 'sellerNames') voice?.refreshSellerNames()
+      },
+      onReconnect: () => voice?.refreshSellerNames(),
+    },
+    voice !== null && voiceSnapshot.phase === 'on',
+  )
   // 봉인한 날짜(AC-I3-41)는 등록할 수 없다 — 음성 켜기를 숨기고, 켜 둔 채 봉인되면 끈다(카드는 남고 자동 확정은 멈춘다)
   useEffect(() => {
     if (sealed) voice?.turnOff()

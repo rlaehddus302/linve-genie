@@ -184,12 +184,14 @@ describe('켜기 전·안내 창 (AC-I4-10·11)', () => {
 })
 
 describe('자막·카드·Enter 등록 (AC-I4-13·20·21)', () => {
-  it('중간 결과는 "들리는 말:" 한 줄, 최종은 카드 + 기록, 문장은 글자로만', async () => {
+  // D-V3-50: "들리는 말:" 작은 줄은 없고 큰 칸("지금 들리는 말") 하나에만 보인다
+  it('중간 결과는 큰 칸에만(작은 "들리는 말:" 줄 없음), 최종은 카드 + 기록, 문장은 글자로만', async () => {
     setup()
     await openConsole()
     await turnOnVoice()
     FakeRecognition.say('15번 핑크', false)
-    expect(screen.getByText('들리는 말: 15번 핑크')).toBeDefined()
+    expect(screen.queryByText(/들리는 말:/)).toBeNull()
+    expect(screen.getByRole('region', { name: '지금 들리는 말' }).textContent).toContain('15번 핑크')
     FakeRecognition.say('<img src=x onerror=alert(1)>15번 라울 만원')
     await quiet()
     expect(screen.queryByText(/들리는 말:/)).toBeNull()

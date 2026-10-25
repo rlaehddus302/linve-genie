@@ -29,3 +29,10 @@ export async function fetchPastNames(current: { readonly date: string; readonly 
     return { date, names }
   })
 }
+
+/** 판매자 품종 사전 (GET /api/voice/seller-names — 판매자 채팅에서 배운 이름, R-23·D-V3-49). 글자만 걸러 낸다(화면은 글자로만 그린다) */
+export async function fetchSellerNames(): Promise<string[]> {
+  const body = await get<{ names?: unknown }>('/api/voice/seller-names')
+  const names = Array.isArray(body.names) ? (body.names as readonly unknown[]) : []
+  return names.filter((name): name is string => typeof name === 'string' && name.trim() !== '' && [...name].length <= 20)
+}

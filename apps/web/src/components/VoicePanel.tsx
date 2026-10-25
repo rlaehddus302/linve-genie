@@ -222,7 +222,7 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
         </div>
       ) : null}
       {on ? <HeardNow snapshot={snapshot} /> : null}
-      {on && snapshot.interim !== null ? <p className="voice-interim">들리는 말: {snapshot.interim}</p> : null}
+      {/* D-V3-50: "들리는 말:" 작은 줄은 없다 — 맨 위 큰 칸 하나만 */}
       {snapshot.error !== null ? (
         snapshot.unsupported ? (
           // 지원 안 함은 잘못이 아니라 안내 — 안내 색·"닫기" (D-I5-15)

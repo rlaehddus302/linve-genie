@@ -1431,15 +1431,6 @@ html:has(.save-bar) {
   text-align: left;
 }
 
-.voice-interim {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 1;
-  line-clamp: 1;
-  overflow: hidden;
-  color: #3c4043;
-}
-
 .voice-error {
   color: #a50e0e;
   font-weight: 700;
