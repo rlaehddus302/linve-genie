@@ -342,3 +342,5 @@ export {
 } from './archive.ts'
 // V3 R-24: 음성 번호 옮기기 말 (D-V3-58)
 export { readRenumber, type Renumber } from './renumber.ts'
+// V3 기다리는 번호 (R-17 8 6, D-V3-67)
+export { WAITING_MS, stepWaiting, waitingExpired, type WaitingNumber, type WaitingPiece, type WaitingResult } from './waiting.ts'

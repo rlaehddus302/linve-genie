@@ -374,3 +374,11 @@
 - 기록 가리기 끝자리 낱말에 `끝번호`를 더했다.
 - R-24 `readRenumber`는 R-17 3 번호 표시(listNumberMarkers — 띄어 쓴 번·합치기)를 그대로 쓴다. 겹쳐 비우는 꼴이면 null이고, 끝 토큰의 `이야` 등 끝말은 떼고 읽는다. 골든 renumber 24 통과.
 - 사례 수: voice-extract 179, core-adapter 파서 731 · 통과 890, voice-register 파일 4 · 사례 142. 골든 불일치 0, adversarial/v3 324개 통과.
+
+### dev-device 추가 20 — 판매 말투 꼬리, D-V3-67 기다리는 번호
+- 빠른 꼴(N번 + 수)의 수 뒤에 오는 판매 말투는 조각 끝으로 본다(`SALE_TAIL_WORDS`: 갑니다·가겠습니다·갈게요·가요·드릴게요·드려요·드립니다·보낼게요·보냅니다·보내요·할게요·입니다·이에요·예요·요·까지·까지요, 끝말 붙은 꼴 포함). "150번 180 가겠습니다"(final) → 천원 단위 180,000원, 만원 단위 1,800,000원. 스펙 반영 필요(오케스트레이터가 알림).
+- D-V3-67 `stepWaiting({ waiting, now, piece: { markerNo, wonPrice, paired }, exists })` → `{ take, card, waiting }`, `waitingExpired(waiting, now)`, `WAITING_MS` = 60,000.
+  - 화면은 덩어리마다 조각 결과로 `piece`를 만들어 넘긴다. `markerNo`는 'N번' 확정 번호, `wonPrice`는 원 가격 줄 확정 가격, `paired`는 이 조각으로 등록함이다.
+  - `take`면 "이어 받음"으로 등록하고, `card`면 "가격 못 들은 번호" 카드를 만든다.
+  - 60초 경계(60,000 받음·60,001 카드), 다른 N번 먼저 → 카드, 있는 번호·'번' 없는 번호는 안 기다림, 원 가격만 이어 받음.
+  - 단위 시험: test/v3-waiting.test.ts(R51·R74·R75·R79·R80).
