@@ -24,7 +24,6 @@
     "@livejjim/core": "workspace:*",
     "@livejjim/documents": "workspace:*",
     "@livejjim/label": "workspace:*",
-    "@livejjim/voice": "workspace:*",
     "drizzle-orm": "0.45.3",
     "exceljs": "4.4.0",
     "hono": "4.13.13",

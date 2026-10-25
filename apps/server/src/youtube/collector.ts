@@ -738,8 +738,7 @@ export class CollectorManager {
     const outcome = await service.ingestYoutubeBatch(
       row.sellerId,
       link.broadcastId,
-      // isChatOwner는 유튜브가 붙인 주인 배지라 확실하다 — 판매자 채팅 품종 글을 읽는다 (R-23)
-      recordable.map((chat) => ({ id: chat.id, ch: chat.ch, nick: chat.nick, text: chat.text, publishedAt: chat.publishedAt, ...(chat.owner ? { owner: true, ownerSure: true } : {}) })),
+      recordable.map((chat) => ({ id: chat.id, ch: chat.ch, nick: chat.nick, text: chat.text, publishedAt: chat.publishedAt, ...(chat.owner ? { owner: true } : {}) })),
       async (tx) => await this.#stillCollecting(tx, row, link),
     )
     if (outcome.status === 'sealed') throw new StopRun()

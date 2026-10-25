@@ -539,8 +539,6 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     // 범위마다 봉인 예정 시각(sealAt)·봉인 여부 (AC-Y1-62)
     return c.json({ days: await service.days(sellerOf(c), rehearsal.value ?? false) })
   })
-  // 판매자 품종 사전 (V3 R-23, D-V3-49): 주인 배지 채팅에서 배운 품종 이름, 최근 본 것부터 — 화면이 음성 사전(판매 이력 순서, D-I4-06)에 넣는다
-  api.get('/voice/seller-names', async (c) => c.json(await service.sellerNames(sellerOf(c))))
   api.get('/days/:date', async (c) => {
     const date = c.req.param('date')
     if (!isValidDate(date)) return notFound()

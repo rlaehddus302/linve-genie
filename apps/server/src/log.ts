@@ -136,9 +136,6 @@ export type LogCode =
   | 'ASSIST_NO_SUGGESTION'
   // AIY1 (D-AIY1-06): 유튜브 줄을 AI로 보내지 않고 뺀 개수만. 글·닉네임·채널·메시지 ID는 남기지 않는다
   | 'ASSIST_EXCLUDED'
-  // V3 판매자 채팅 품종 글 (R-23, D-V3-49): 결과 코드(reason — FILLED·NO_PRODUCT·HAS_NAME·PRICE_DIFFERS·NOT_FILLED)·판매자·범위 날짜만. 채팅 글·닉네임·품종 글은 남기지 않는다
-  | 'SELLER_NOTE'
-  | 'SELLER_NOTE_FAILED'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -231,8 +228,6 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   ASSIST_FAILED: 'AI 제안을 처리하다 오류가 생겼어요(규칙 제안은 그대로)',
   ASSIST_NO_SUGGESTION: 'AI 답에서 검사를 통과하지 못한 항목을 제안 없음으로 두었어요',
   ASSIST_EXCLUDED: '유튜브 채팅은 AI에 보내지 않고 규칙 제안만 두었어요',
-  SELLER_NOTE: '판매자 채팅에서 품종을 배웠어요',
-  SELLER_NOTE_FAILED: '판매자 채팅에서 품종을 배우지 못했어요(채팅 기록은 저장됨)',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */

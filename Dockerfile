@@ -54,16 +54,12 @@ ENV NODE_ENV=production \
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=prod-deps /app/apps/server/node_modules ./apps/server/node_modules
 COPY --from=prod-deps /app/packages/label/node_modules ./packages/label/node_modules
-COPY --from=prod-deps /app/packages/voice/node_modules ./packages/voice/node_modules
 COPY package.json pnpm-workspace.yaml ./
 COPY packages/core/package.json packages/core/package.json
 COPY packages/core/src packages/core/src
 COPY packages/label/package.json packages/label/package.json
 COPY packages/label/src packages/label/src
 COPY packages/label/fonts packages/label/fonts
-# V3 판매자 채팅 품종 글(R-23 readSellerNote)을 서버가 부른다
-COPY packages/voice/package.json packages/voice/package.json
-COPY packages/voice/src packages/voice/src
 COPY apps/server/package.json apps/server/package.json
 COPY apps/server/src apps/server/src
 COPY apps/server/drizzle apps/server/drizzle

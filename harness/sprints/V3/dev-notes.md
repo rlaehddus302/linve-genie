@@ -382,3 +382,10 @@
   - `take`면 "이어 받음"으로 등록하고, `card`면 "가격 못 들은 번호" 카드를 만든다.
   - 60초 경계(60,000 받음·60,001 카드), 다른 N번 먼저 → 카드, 있는 번호·'번' 없는 번호는 안 기다림, 원 가격만 이어 받음.
   - 단위 시험: test/v3-waiting.test.ts(R51·R74·R75·R79·R80).
+
+### dev-server — D-V3-68 판매자 채팅 품종 읽기 없앰 (spec 43f688ac)
+- 지움: `ingestYoutubeBatch`의 판매자 글 읽기(`#sellerNotes`·`#fillFromNote`), `@livejjim/voice/seller-note` import와 apps/server의 `@livejjim/voice` 의존 줄(lockfile 줄, Dockerfile의 voice 복사 포함), `src/seller-names.ts`, `GET /api/voice/seller-names`, SSE `voice`(`sellerNames`·`sellerNoteMissing`, hub `publishVoice`), 확장·수집기의 `ownerSure`(D-V3-62 예외), 로그 코드 `SELLER_NOTE*`.
+  - 위 "D-V3-49·R-23"·"D-V3-60" 항목의 API·신호는 이제 없다. 화면은 `/api/voice/seller-names`(이제 404)와 SSE `voice`를 쓰지 않아야 한다.
+- 시험 `apps/server/test/v3-seller-names.test.ts`는 "없음 확인"으로 바꿈: 공식·확장(묶인 영상 owner 글) 어느 길로 주인 글이 와도 품종 미입력 상품 그대로·product.* 고치기 없음·판정 언급·감사 줄 없음·조회 404·`publishVoice` 없음.
+- **아직 남긴 것**: `seller_names` 표(0020)와 schema·복구 목록 줄. 지우려면 DROP 마이그레이션이 필요한데 0021 번호는 R-25 음성 기록(`0021_v3_voice_log.sql`, 다른 dev-server, 아직 커밋 전)이 쓰고 있다. 그 커밋 뒤에 `0022_v3_drop_seller_names`(DROP TABLE IF EXISTS)로 넣겠다 — 번호 순서를 orch가 정해 주면 된다. 표는 이제 쓰는 코드가 없어 비어 있다.
+- R-25 쪽(`voice-log.ts`의 `seller-note` 출처, seal.ts의 seller-note 질의)은 그 작업자 몫이라 건드리지 않았다. 판매자 글 읽기가 없어졌으니 그 출처는 더 생기지 않는다.
