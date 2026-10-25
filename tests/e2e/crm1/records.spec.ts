@@ -1,5 +1,6 @@
 // CRM1 손님 기록 칸·메모 (test-e2e) — AC-CRM1-05·06·09·15·22·23. 기대값은 acceptance.md·D-CRM1-03·04·06·08 그대로.
 import { test, expect } from '@playwright/test'
+import { apiUrl } from '../i3/support.ts'
 import { broadcast, chat, customerDateKo, customerRows, kstDate, loginNewSeller, payAll, registerApi, scopeView, settlementOf, smsSale, won, writeEvent, youtubeSale } from './support.ts'
 
 const NO_PHONE = '전화번호 없는 문자 손님은 다른 날과 이어지지 않아 메모를 남길 수 없어요.'
@@ -163,4 +164,38 @@ test('AC-CRM1-23: 메모 <img src=x onerror=alert(1)>는 글자 그대로, 실�
   await expect(page.getByRole('region', { name: '손님 자세히' }).locator('.memo-text')).toHaveText(evil)
   expect(await page.locator('main img, main b').count()).toBe(0)
   expect(dialogs).toBe(0)
+})
+
+test('AC-CRM1-07: 40일 전 실제 날짜(봉인)의 입금 완료 12,000원도 손님 기록에 1번으로 든다', async ({ page }) => {
+  test.setTimeout(150_000)
+  const seller = await loginNewSeller(page)
+  const ch = `UC_S${String(Date.now())}`
+  const old = kstDate(40)
+  await youtubeSale(page, { date: old, ch, nick: '봉인손님', prices: [12_000], paid: true })
+  const sealed = await page.request.post(`${apiUrl()}/_e2e/seal`, { data: { loginId: seller.loginId, date: old } })
+  expect(sealed.ok(), await sealed.text()).toBe(true)
+  expect(((await sealed.json()) as { sealed: boolean }).sealed).toBe(true)
+  const now = await youtubeSale(page, { date: kstDate(2), ch, nick: '봉인손님', prices: [3_000], paid: false })
+  await page.goto(`/buyers?date=${now.date}&buyer=${encodeURIComponent(now.buyer)}`)
+  const record = page.getByRole('region', { name: '손님 기록' })
+  await expect(record).toContainText(`누적 구매 ${won(12_000)} · 1번`)
+  await expect(record).toContainText(`마지막 구매 ${customerDateKo(old)}`)
+})
+
+test('AC-CRM1-08: 1등 찜을 사유 "입금 안 함"으로 취소한 날은 미입금, "입금 안 함 (연락 없음)"은 취소만', async ({ page }) => {
+  test.setTimeout(150_000)
+  await loginNewSeller(page)
+  const ch = `UC_C${String(Date.now())}`
+  const [d1, d2] = [kstDate(2), kstDate(1)] as const
+  const a = await youtubeSale(page, { date: d1, ch, nick: '취소손님', prices: [10_000], paid: false, firstNo: 15 })
+  expect((await writeEvent(page, { type: 'host.cancel', b: a.b, no: 15, buyer: ch, reason: '입금 안 함' })).status).toBeLessThan(300)
+  const b = await youtubeSale(page, { date: d2, ch, nick: '취소손님', prices: [10_000, 7_000], paid: false, firstNo: 15 })
+  expect((await writeEvent(page, { type: 'host.cancel', b: b.b, no: 15, buyer: ch, reason: '입금 안 함 (연락 없음)' })).status).toBeLessThan(300)
+  await expect.poll(async () => (await scopeView(page, d2, false)).claims.filter((c) => c.no === 15).map((c) => c.status)).not.toContain('CONFIRMED')
+  await expect.poll(async () => (await scopeView(page, d1, false)).claims.filter((c) => c.no === 15).map((c) => c.status)).not.toContain('CONFIRMED')
+  await page.goto(`/buyers?date=${d2}&buyer=${encodeURIComponent(b.buyer)}`)
+  const record = page.getByRole('region', { name: '손님 기록' })
+  await expect(record).toContainText(`미입금 1번 · 마지막 ${customerDateKo(d1)}`)
+  await expect(record).toContainText('취소 2번')
+  await expect(record).toContainText('입금 늦음 주의')
 })

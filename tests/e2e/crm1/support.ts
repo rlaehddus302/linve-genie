@@ -161,28 +161,36 @@ export function customerRows(page: Page) {
   return wide ? page.getByRole('table', { name: '손님' }).locator('tbody tr') : page.getByRole('list', { name: '손님' }).getByRole('listitem')
 }
 
-/** 가로 스크롤 0 · 누르는 것 44px 이상 · 글자 잘림(가로 넘침) 없음 (AC-CRM1-28) */
-export async function phoneLayoutOk(page: Page, where: string, root = 'main'): Promise<void> {
-  const report = await page.evaluate((sel) => {
+/**
+ * 가로 스크롤 0(문서 전체) · roots 안의 누르는 것 44px 이상 · 글자 잘림(가로 넘침) 없음 · 화면 밖으로 나간 단추 없음 (AC-CRM1-28).
+ * roots = 이번 스프린트가 더한 곳(손님 기록 칸·정렬·거르기·모든 손님·손님 관리)만 — 다른 스프린트 화면은 그 스프린트 시험이 본다.
+ */
+export async function phoneLayoutOk(page: Page, where: string, roots: readonly string[]): Promise<void> {
+  const report = await page.evaluate((sels) => {
     const out: string[] = []
     const doc = document.documentElement
     if (doc.scrollWidth > doc.clientWidth) out.push(`가로 스크롤 ${String(doc.scrollWidth)} > ${String(doc.clientWidth)}`)
-    const scope = document.querySelector(sel) ?? document.body
-    for (const el of Array.from(scope.querySelectorAll<HTMLElement>('button, a[href], input:not([type=hidden]), textarea, select'))) {
-      const r = el.getBoundingClientRect()
-      if (r.width === 0 && r.height === 0) continue
-      if (el.closest('[aria-hidden="true"]') !== null) continue
-      if (r.height < 43.5) out.push(`작은 누름 ${String(Math.round(r.height))}px: ${(el.getAttribute('aria-label') ?? el.textContent ?? '').trim().slice(0, 30)}`)
-      if (r.right > doc.clientWidth + 0.5) out.push(`화면 밖 ${(el.textContent ?? '').trim().slice(0, 30)}`)
+    const scopes = sels.flatMap((sel) => Array.from(document.querySelectorAll<HTMLElement>(sel)))
+    if (scopes.length === 0) out.push(`잴 곳 없음: ${sels.join(', ')}`)
+    for (const scope of scopes) {
+      for (const el of Array.from(scope.querySelectorAll<HTMLElement>('button, a[href], input:not([type=hidden]), textarea, select'))) {
+        const r = el.getBoundingClientRect()
+        if (r.width === 0 && r.height === 0) continue
+        const name = (el.getAttribute('aria-label') ?? el.textContent ?? '').trim().slice(0, 30)
+        if (r.height < 43.5) out.push(`작은 누름 ${String(Math.round(r.height))}px: ${name}`)
+        if (r.right > doc.clientWidth + 0.5 || r.left < -0.5) out.push(`화면 밖: ${name}`)
+      }
+      for (const el of Array.from(scope.querySelectorAll<HTMLElement>('*'))) {
+        if ((el.textContent ?? '').trim() === '') continue
+        const style = getComputedStyle(el)
+        if (style.display === 'inline') continue
+        if (el.scrollWidth > el.clientWidth + 1 && style.overflowX !== 'auto' && style.overflowX !== 'scroll') out.push(`잘림: ${(el.textContent ?? '').trim().slice(0, 30)}`)
+        const r = el.getBoundingClientRect()
+        if (r.width > 0 && r.right > doc.clientWidth + 0.5) out.push(`화면 밖 글: ${(el.textContent ?? '').trim().slice(0, 30)}`)
+      }
     }
-    for (const el of Array.from(scope.querySelectorAll<HTMLElement>('*'))) {
-      if (el.children.length > 0 || (el.textContent ?? '').trim() === '') continue
-      const style = getComputedStyle(el)
-      if (style.overflowX === 'visible' && style.textOverflow !== 'ellipsis') continue
-      if (el.scrollWidth > el.clientWidth + 1) out.push(`잘림: ${(el.textContent ?? '').trim().slice(0, 30)}`)
-    }
-    return out
-  }, root)
+    return [...new Set(out)]
+  }, roots)
   expect(report, where).toEqual([])
 }
 
