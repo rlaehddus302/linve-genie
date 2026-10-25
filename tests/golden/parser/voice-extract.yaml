@@ -331,3 +331,12 @@ settings:
 cases:
   - { in: "육십팔번 이십오", out: { no: 68, confidence: LOW } }     # '이십오' = 25 → 100원 미만이라 R-17 가격 아님
   - { in: "68번 25 개", out: { no: 68, confidence: LOW } }         # 숫자만 → 가격 아님
+---
+# V3 적대 판정(ebb09fa1, D-V3-66): 이어 더하다 겹치면 비움, 값 0 토큰은 합치지 않음(무시).
+suite: voice-extract
+settings:
+  dictionary: [라울]
+cases:
+  - { in: "1 이십 오번 라울 만원", out: { name: 라울, confidence: LOW } }                    # 이십 + 오 = 25, 그 앞 1(일) vs 25(십) 겹침 → 번호·가격 비움(25번 아님)
+  - { in: "0 삼번 라울 만원", out: { no: 3, name: 라울, price: 10000, confidence: HIGH } }      # 0은 수 토큰이 아님 → 합치지 않음 → 3번
+  - { in: "0 5번 라울 만원", out: { no: 5, name: 라울, price: 10000, confidence: HIGH } }       # '0'+'5' = '05'도 R-15로 안 읽힘 → 5번
