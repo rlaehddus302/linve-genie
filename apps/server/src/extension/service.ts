@@ -56,6 +56,11 @@ export const REQUESTS_PER_SECOND = 5
 export const MESSAGES_PER_MINUTE = 600
 export const STATUS_STALE_MS = 30 * 1000
 export const UNREADABLE_MS = 60 * 1000
+/**
+ * 숨은 탭 경고 기다림: 확장이 숨음을 이만큼 이어서 보낼 때만 HIDDEN (보고 10초 × 3, STALE 30초와 같은 크기).
+ * 그사이 채팅이 들어오면(마지막 채팅이 이 안) 읽기가 되고 있으니 받는 중으로 둔다 (dev-notes V3 "X1 상태 흔들림")
+ */
+export const HIDDEN_WARN_MS = 30 * 1000
 /** 회차를 끝낸 뒤 받는 기간 (YT-03과 같다) */
 export const AFTER_END_MS = 10 * 60 * 1000
 /** 서버 시계보다 앞선 게시 시각은 서버 시각으로 (확장 PC 시계가 빨라도 판정 순서는 서버 도착 시각으로 — R-1) */
@@ -161,6 +166,8 @@ export class ExtensionService {
   readonly #checks = new Map<string, AbortController>()
   /** 판매자마다 마지막으로 알린 상태 (같은 상태는 다시 알리지 않는다) */
   readonly #published = new Map<string, string>()
+  /** 판매자마다 숨음 보고가 이어지기 시작한 때 (메모리 — 서버를 다시 켜면 그때부터 다시 센다: 경고가 늦을 뿐 거짓 경고는 없다) */
+  readonly #hiddenSince = new Map<string, number>()
   #closed = false
   /** 코드를 만든 주소 (서버 전체 코드 넣기 한도 밖, D-QS1-06 (3)) — 메모리에만 */
   readonly trustedAddresses: TrustedAddresses
@@ -209,6 +216,7 @@ export class ExtensionService {
     if (revoked !== null) {
       this.#usage.delete(revoked)
       await clearStatus(this.#deps.db, sellerId)
+      this.#hiddenSince.delete(sellerId)
     }
     this.#notify(sellerId)
     return revoked !== null
@@ -430,6 +438,8 @@ export class ExtensionService {
       unreadSince,
       lastChatAt: same ? before.lastChatAt : null,
     }
+    if (!input.hidden) this.#hiddenSince.delete(caller.sellerId)
+    else if (!same || !before.hidden || !this.#hiddenSince.has(caller.sellerId)) this.#hiddenSince.set(caller.sellerId, now)
     await writeStatus(db, caller.sellerId, row)
     const view = await this.view(caller.sellerId)
     this.#publishIfChanged(caller.sellerId, view)
@@ -462,7 +472,7 @@ export class ExtensionService {
         if (broadcast !== null && broadcast.endedAt === null) live.push(binding.broadcastId)
       }
     }
-    const state: ExtensionState = token === null || status === null || status.tokenId !== token.id ? 'NONE' : stateOf(status, live.length > 0, now)
+    const state: ExtensionState = token === null || status === null || status.tokenId !== token.id ? 'NONE' : stateOf(status, live.length > 0, now, this.#hiddenSince.get(sellerId) ?? null)
     const warning = state === 'STALE' || state === 'HIDDEN' || state === 'UNREADABLE'
     return {
       connected: token !== null,
@@ -486,7 +496,13 @@ export class ExtensionService {
     const controller = new AbortController()
     this.#checks.set(sellerId, controller)
     const now = this.#now()
-    const at = [row.statusAt.getTime() + STATUS_STALE_MS + 1, ...(row.unreadSince === null ? [] : [row.unreadSince.getTime() + UNREADABLE_MS])].filter((t) => t > now)
+    const hiddenSince = row.hidden ? this.#hiddenSince.get(sellerId) : undefined
+    const at = [
+      row.statusAt.getTime() + STATUS_STALE_MS + 1,
+      ...(row.unreadSince === null ? [] : [row.unreadSince.getTime() + UNREADABLE_MS]),
+      ...(hiddenSince === undefined ? [] : [hiddenSince + HIDDEN_WARN_MS]),
+      ...(hiddenSince === undefined || row.lastChatAt === null ? [] : [row.lastChatAt.getTime() + HIDDEN_WARN_MS]),
+    ].filter((t) => t > now)
     if (at.length === 0) return
     const wait = Math.min(...at) - now
     void this.#deps.timer.sleep(wait, controller.signal).then(async () => {
@@ -523,11 +539,15 @@ export class ExtensionService {
   }
 }
 
-/** 상태 → 화면 상태 (경고가 겹치면 상태 없음 > 뒤로 간 탭 > 읽지 못함) */
-export function stateOf(status: StatusRow, hasLiveBroadcast: boolean, now: number): ExtensionState {
+/**
+ * 상태 → 화면 상태 (경고가 겹치면 상태 없음 > 뒤로 간 탭 > 읽지 못함).
+ * 뒤로 간 탭은 숨음이 HIDDEN_WARN_MS 이어지고(hiddenSince — 모르면 그 보고 시각부터) 그사이 채팅이 들어오지 않았을 때만.
+ */
+export function stateOf(status: StatusRow, hasLiveBroadcast: boolean, now: number, hiddenSince: number | null = null): ExtensionState {
   if (hasLiveBroadcast && now - status.statusAt.getTime() > STATUS_STALE_MS) return 'STALE'
   if (now - status.statusAt.getTime() > STATUS_STALE_MS) return 'NONE'
-  if (status.hidden) return 'HIDDEN'
+  const chatting = status.lastChatAt !== null && now - status.lastChatAt.getTime() < HIDDEN_WARN_MS
+  if (status.hidden && !chatting && now - (hiddenSince ?? status.statusAt.getTime()) >= HIDDEN_WARN_MS) return 'HIDDEN'
   if (status.unreadSince !== null && now - status.unreadSince.getTime() >= UNREADABLE_MS) return 'UNREADABLE'
   return 'RECEIVING'
 }

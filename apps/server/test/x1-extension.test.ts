@@ -439,8 +439,16 @@ describe('AC-X1-16 상태 경고 (YT-10 AC7, D-X1-11) — 서버 상태 계산',
     expect(await state(w, seller)).toMatchObject({ state: 'STALE', message: '확장에서 채팅이 오지 않아요', manual: '주문은 손으로 넣어 주세요' })
   })
 
-  it('탭이 뒤로 가면 HIDDEN, 읽지 못함만 1분 이어지면 UNREADABLE, 읽으면 다시 받는 중', async () => {
+  it('탭이 뒤로 간 채 30초 이어지면 HIDDEN, 읽지 못함만 1분 이어지면 UNREADABLE, 읽으면 다시 받는 중', async () => {
     const { w, seller, token } = await boundWorld()
+    await ext(w, 'POST', '/ext/status', token, { v: VIDEO, hidden: true, read: 0, unread: 0 })
+    expect((await state(w, seller)).state).toBe('RECEIVING')
+    for (let i = 0; i < 2; i++) {
+      await w.timer.advance(10_000)
+      await ext(w, 'POST', '/ext/status', token, { v: VIDEO, hidden: true, read: 0, unread: 0 })
+      expect((await state(w, seller)).state).toBe('RECEIVING')
+    }
+    await w.timer.advance(10_000)
     await ext(w, 'POST', '/ext/status', token, { v: VIDEO, hidden: true, read: 0, unread: 0 })
     expect(await state(w, seller)).toMatchObject({ state: 'HIDDEN', message: '유튜브 채팅 창을 앞으로 꺼내 두세요' })
     await w.timer.advance(10_000)
@@ -457,6 +465,31 @@ describe('AC-X1-16 상태 경고 (YT-10 AC7, D-X1-11) — 서버 상태 계산',
     expect(await state(w, seller)).toMatchObject({ state: 'UNREADABLE', message: '유튜브 화면이 바뀌어 채팅을 읽지 못해요', manual: '주문은 손으로 넣어 주세요' })
     await ext(w, 'POST', '/ext/status', token, { v: VIDEO, hidden: false, read: 3, unread: 10 })
     expect((await state(w, seller)).state).toBe('RECEIVING')
+  })
+
+  it('X1 상태 흔들림: 잠깐 숨었다 보이면 HIDDEN이 되지 않고, 숨음이 이어져도 채팅이 들어오는 동안은 받는 중', async () => {
+    const { w, seller, token } = await boundWorld()
+    await ext(w, 'POST', '/ext/status', token, { v: VIDEO, hidden: false, read: 0, unread: 0 })
+    await w.timer.advance(4_000)
+    await ext(w, 'POST', '/ext/status', token, { v: VIDEO, hidden: true, read: 0, unread: 0 })
+    expect((await state(w, seller)).state).toBe('RECEIVING')
+    await w.timer.advance(4_000)
+    await ext(w, 'POST', '/ext/status', token, { v: VIDEO, hidden: false, read: 0, unread: 0 })
+    expect((await state(w, seller)).state).toBe('RECEIVING')
+    // 숨은 채 40초 — 그사이 채팅이 계속 들어온다
+    await ext(w, 'POST', '/ext/status', token, { v: VIDEO, hidden: true, read: 0, unread: 0 })
+    for (let i = 0; i < 4; i++) {
+      await w.timer.advance(10_000)
+      expect((await ext(w, 'POST', '/ext/chats', token, { v: VIDEO, messages: [chat(w)] })).status).toBe(200)
+      await ext(w, 'POST', '/ext/status', token, { v: VIDEO, hidden: true, read: i + 1, unread: 0 })
+      expect((await state(w, seller)).state).toBe('RECEIVING')
+    }
+    // 채팅이 멎은 채 30초 지나면 HIDDEN
+    for (let i = 0; i < 3; i++) {
+      await w.timer.advance(10_000)
+      await ext(w, 'POST', '/ext/status', token, { v: VIDEO, hidden: true, read: 4, unread: 0 })
+    }
+    expect((await state(w, seller)).state).toBe('HIDDEN')
   })
 
   it('X1 상태 흔들림: 회차에 이어지지 않은 다른 영상(끝난 방송 창)의 보고는 받는 중 상태를 바꾸지 않는다', async () => {
