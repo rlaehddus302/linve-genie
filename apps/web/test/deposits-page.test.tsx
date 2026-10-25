@@ -167,7 +167,9 @@ describe('확인 필요 목록 (AC-N3-41·49·50)', () => {
     const table = screen.getByRole('table', { name: '확인 필요 입금' })
     expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['고르기', '번호', '입금 시각', '입금자명', '금액', '원천', '사유와 묶음', '처리'])
     const row = within(table).getByRole('row', { name: '입금 번호 7' }) // MOB2 D-MOB2-05
-    expect(row.textContent).toContain('#7')
+    // "번호" 칸은 숫자만 — "#"은 쓰지 않는다 (D-MOB2-12, AC-MOB2-21)
+    expect(row.querySelector('.deposit-no')?.textContent).toBe('7') // MOB2 D-MOB2-12
+    expect(row.textContent).not.toContain('#') // MOB2 D-MOB2-12
     expect(row.textContent).toContain('10/18 21:03:15')
     expect(within(row).getByRole('button', { name: '확정' })).toBeDefined()
   })

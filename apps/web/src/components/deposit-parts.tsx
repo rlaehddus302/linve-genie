@@ -286,7 +286,7 @@ export function DepositRows({ label, deposits, columns, lead }: DepositRowsProps
             {deposits.map((deposit) => (
               <tr key={deposit.no} aria-label={depositLabel(deposit.no)}>
                 {lead !== undefined ? <td>{lead.cell(deposit)}</td> : null}
-                <td className="deposit-no">#{deposit.no}</td>
+                <td className="deposit-no">{deposit.no}</td>
                 {columns.map((column) => (
                   <td key={column.head} className={column.num === true ? 'num' : undefined}>
                     {column.cell(deposit)}
