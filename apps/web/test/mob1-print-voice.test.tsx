@@ -182,8 +182,8 @@ describe('아이폰 시험용 프린터 줄 (AC-MOB1-20)', () => {
 
 describe('음성 안내 창 마지막 줄 (AC-MOB1-11)', () => {
   it('지금 세 줄 뒤에 "방송하는 폰이 아닌 다른 기기…"', () => {
-    // MOB1 D-MOB1-07: 줄이 넷이 됐다
-    expect(CONSENT_LINES).toHaveLength(4)
+    // MOB1 D-MOB1-07: 줄이 넷이 됐다 · V3 D-V3-17: 바로 등록 한 줄을 더해 다섯 (마지막 줄은 그대로)
+    expect(CONSENT_LINES).toHaveLength(5)
     expect(CONSENT_LINES.at(-1)).toBe(CONSENT_OTHER_DEVICE)
     expect(CONSENT_OTHER_DEVICE).toBe('방송하는 폰이 아닌 다른 기기(관리 폰이나 PC)에서 켜 주세요. 방송 앱이 마이크를 쓰는 폰에서는 잘 듣지 못해요.')
   })

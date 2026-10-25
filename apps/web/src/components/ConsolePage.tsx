@@ -395,7 +395,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         const product = current.products.get(productKey(b, no))
         if (product === undefined) return null
         const slots = productSlots(product)
-        return { key: product.key, name: product.name, price: product.price, claimCount: slots.winners.length + slots.waitlist.length, closed: product.status === 'CLOSED' }
+        return { key: product.key, name: product.name, price: product.price, claimCount: slots.winners.length + slots.waitlist.length, closed: product.status === 'CLOSED', status: product.status }
       },
     })
     setVoice(controller)
@@ -675,6 +675,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       const product = findProduct(no)
       if (product !== undefined && (productSlots(product).winners.length > 0 || productSlots(product).waitlist.length > 0)) return 'blocked'
       const result = await write(newRequestId(), { type: 'product.close', b, no })
+      // 되돌린 번호는 음성을 끌 때까지 바로 등록하지 않는다 (V3 D-V3-10)
+      if (result.changed) voiceRef.current?.rejectNumber(no)
       return result.changed ? 'undone' : 'blocked'
     },
     [b, findProduct, write],

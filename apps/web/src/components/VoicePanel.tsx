@@ -53,7 +53,7 @@ import { useConsoleApi } from './console-context.ts'
 import { Modal } from './Modal.tsx'
 import { smsLast4Suffix, smsResultWords, useSentToReview, useSmsClaim } from './SmsPage.tsx'
 import { SERVICE_NAME } from '../brand.ts'
-import { INSTANT_HELP_OFF, INSTANT_HELP_ON, INSTANT_LABEL } from '../voice/instant.ts'
+import { INSTANT_CONSENT_LINE, INSTANT_HELP, INSTANT_LABEL, NOTICE_OK } from '../voice/instant.ts'
 
 /** 안내 창 마지막 줄 (MOB1 D-MOB1-07, AC-MOB1-11) */
 export const CONSENT_OTHER_DEVICE = '방송하는 폰이 아닌 다른 기기(관리 폰이나 PC)에서 켜 주세요. 방송 앱이 마이크를 쓰는 폰에서는 잘 듣지 못해요.'
@@ -61,6 +61,8 @@ export const CONSENT_OTHER_DEVICE = '방송하는 폰이 아닌 다른 기기(�
 export const CONSENT_TITLE = '음성으로 상품 등록'
 export const CONSENT_LINES: readonly string[] = [
   '말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.',
+  // V3 D-V3-17
+  INSTANT_CONSENT_LINE,
   `음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. ${SERVICE_NAME}는 음성을 녹음하거나 저장하지 않아요.`,
   // D-I5-11: 크롬·사파리 모두에 맞게 "브라우저가"
   '다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.',
@@ -372,6 +374,12 @@ function OfferView({ offer, voice }: { readonly offer: VoiceOffer; readonly voic
         </button>
       </>
     )
+  } else if (offer.kind === 'notice') {
+    actions = (
+      <button type="button" className="button button-primary" onClick={() => voice.seenNotice(offer.id)}>
+        {NOTICE_OK}
+      </button>
+    )
   } else if (offer.kind === 'undo') {
     actions = (
       <>
@@ -396,6 +404,7 @@ function OfferView({ offer, voice }: { readonly offer: VoiceOffer; readonly voic
         <p className="voice-card-text" role="status">
           <strong>{offer.message}</strong>
         </p>
+        {offer.note !== undefined ? <p className="hint">{offer.note}</p> : null}
         {offer.error !== null ? (
           <p className="field-error" role="alert">
             {offer.error}
@@ -839,25 +848,32 @@ export function VoiceExtras({ voice, snapshot }: { readonly voice: VoiceControll
       ) : null}
       {on && settings !== null ? (
         <div className="voice-settings">
-          <label className="choice">
-            <input type="checkbox" checked={snapshot.instant} onChange={(event) => voice.setInstant(event.target.checked)} />
-            <span>{INSTANT_LABEL}</span>
-          </label>
-          <p className="hint">{snapshot.instant ? INSTANT_HELP_ON : INSTANT_HELP_OFF}</p>
-          <label className="choice">
-            <input type="checkbox" checked={settings['voice.autoConfirm']} onChange={(event) => voice.setAutoConfirm(event.target.checked)} />
-            <span>{AUTO_CONFIRM_LABEL}</span>
-          </label>
-          <label className="voice-seconds">
-            <span>{SECONDS_LABEL}</span>
-            <input className="input" inputMode="numeric" autoComplete="off" value={snapshot.secondsText} onChange={(event) => voice.setSeconds(event.target.value)} />
-          </label>
-          {snapshot.settingsProblem !== null ? (
-            <p className="field-error" role="alert">
-              {snapshot.settingsProblem}
-            </p>
-          ) : null}
-          {settings['voice.autoConfirm'] ? <p className="hint">{AUTO_CONFIRM_HELP}</p> : null}
+          {voice.instantScreen() ? (
+            <>
+              <label className="choice">
+                <input type="checkbox" checked={snapshot.instant} onChange={(event) => voice.setInstant(event.target.checked)} />
+                <span>{INSTANT_LABEL}</span>
+              </label>
+              <p className="hint">{INSTANT_HELP}</p>
+            </>
+          ) : (
+            <>
+              <label className="choice">
+                <input type="checkbox" checked={settings['voice.autoConfirm']} onChange={(event) => voice.setAutoConfirm(event.target.checked)} />
+                <span>{AUTO_CONFIRM_LABEL}</span>
+              </label>
+              <label className="voice-seconds">
+                <span>{SECONDS_LABEL}</span>
+                <input className="input" inputMode="numeric" autoComplete="off" value={snapshot.secondsText} onChange={(event) => voice.setSeconds(event.target.value)} />
+              </label>
+              {snapshot.settingsProblem !== null ? (
+                <p className="field-error" role="alert">
+                  {snapshot.settingsProblem}
+                </p>
+              ) : null}
+              {settings['voice.autoConfirm'] ? <p className="hint">{AUTO_CONFIRM_HELP}</p> : null}
+            </>
+          )}
           <label className="voice-seconds">
             <span>{QUIET_LABEL}</span>
             <input className="input" inputMode="decimal" autoComplete="off" value={snapshot.quietText} onChange={(event) => voice.setQuietSeconds(event.target.value)} />

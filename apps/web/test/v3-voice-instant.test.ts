@@ -3,7 +3,7 @@ import * as voiceModule from '@livejjim/voice'
 import type { SuggestionCard, VoiceSettings } from '@livejjim/voice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VoiceController, type ExistingView, type RecentFixOutcome, type VoiceHost } from '../src/voice/controller.ts'
-import { askMessage, fixedMessage, readInstant, ro } from '../src/voice/instant.ts'
+import { askMessage, fixedMessage, numbersNote, otherNumberMessage, readInstant, registeredReadout } from '../src/voice/instant.ts'
 
 const T0 = Date.UTC(2026, 9, 25, 1, 0, 0)
 
@@ -42,6 +42,8 @@ interface Harness {
   /** 상품 보드 (번호 → 상품) */
   readonly board: Map<number, ExistingView>
   fixResult: RecentFixOutcome | null
+  dialog: boolean
+  readonly undone: string[]
 }
 
 function harness(options: { settings?: unknown; noBoard?: boolean } = {}): Harness {
@@ -51,6 +53,8 @@ function harness(options: { settings?: unknown; noBoard?: boolean } = {}): Harne
     fixes: [] as Harness['fixes'],
     board: new Map<number, ExistingView>(),
     fixResult: null as RecentFixOutcome | null,
+    dialog: false,
+    undone: [] as string[],
   }
   const host: VoiceHost = {
     load: async () => voiceModule,
@@ -59,7 +63,7 @@ function harness(options: { settings?: unknown; noBoard?: boolean } = {}): Harne
     currentNames: () => [],
     products: () => new Map([...state.board].map(([no, product]) => [no, product.closed])),
     fetchHistory: async () => [],
-    dialogOpen: () => false,
+    dialogOpen: () => state.dialog,
     readConsent: () => true,
     writeConsent: () => {},
     readSettings: () => options.settings ?? null,
@@ -75,7 +79,10 @@ function harness(options: { settings?: unknown; noBoard?: boolean } = {}): Harne
       const product = [...state.board.values()].find((item) => item.key === id)
       return state.fixResult ?? { kind: 'fixed', before: { ...(changes.price !== undefined ? { price: product?.price ?? 0 } : {}), ...(changes.name !== undefined ? { name: product?.name ?? '' } : {}) } }
     },
-    undoRecent: () => true,
+    undoRecent: (id) => {
+      state.undone.push(id)
+      return true
+    },
     ...(options.noBoard === true ? {} : { existingProduct: (no: number) => state.board.get(no) ?? null }),
   }
   const voice = new VoiceController(host)
@@ -161,7 +168,7 @@ describe('바로 등록 (V3)', () => {
     expect(h.fixes).toEqual([{ id: 'b1:108', changes: { price: 120000 } }])
     const offer = h.voice.getSnapshot().offers[0]
     expect(offer?.stage).toBe('fixed')
-    expect(offer?.message).toBe('108번 가격을 100,000원 → 120,000원으로 고쳤어요')
+    expect(offer?.message).toBe('108번을 고쳤어요: 가격 100,000원 → 120,000원')
     // 되돌리기
     await h.voice.revertOffer(offer?.id ?? '')
     expect(h.fixes.at(-1)).toEqual({ id: 'b1:108', changes: { price: 100000 } })
@@ -213,17 +220,17 @@ describe('바로 등록 (V3)', () => {
   it('설정을 끄면 지금처럼 카드 확인 — 저장값에 끈 것을 남기고 다시 켜면 지운다', async () => {
     const h = await ready()
     h.voice.setInstant(false)
-    expect(h.written.at(-1)).toMatchObject({ 'voice.instantRegister': false })
+    expect(h.written.at(-1)).toMatchObject({ 'voice.autoRegister': false })
     say('108번 bts 10만 원')
     at(3000)
     expect(h.registered).toEqual([])
     expect(cards(h).map((card) => card.no)).toEqual([108])
     h.voice.setInstant(true)
-    expect(h.written.at(-1)).not.toHaveProperty('voice.instantRegister')
+    expect(h.written.at(-1)).not.toHaveProperty('voice.autoRegister')
   })
 
   it('저장값에 끈 것이 있으면 꺼진 채로 시작한다', async () => {
-    const h = await ready({ settings: { 'voice.instantRegister': false } })
+    const h = await ready({ settings: { 'voice.autoRegister': false } })
     expect(h.voice.getSnapshot().instant).toBe(false)
   })
 
@@ -246,23 +253,141 @@ describe('바로 등록 (V3)', () => {
   })
 })
 
+/** 콘솔이 등록을 마쳤다 (상품 보드에 생기고 음성에 알린다) */
+function finish(h: Harness, index = 0): void {
+  const sent = h.registered[index]
+  if (sent === undefined) throw new Error('보낸 등록이 없다')
+  const key = `b1:${String(sent.no)}`
+  h.board.set(sent.no, { key, name: sent.name, price: sent.price, claimCount: 0, closed: false, status: 'OPEN' })
+  h.voice.noteVoiceRegistered({ id: key, no: sent.no, name: sent.name, price: sent.price })
+}
+
+describe('바로 등록 V3 수용 사례', () => {
+  it('R7: 서로 다른 N번 둘이면 등록하지 않고 번호 칸이 빈 카드에 "번호 확인 필요 · 들린 번호: 189·139"', async () => {
+    const h = await ready()
+    say('어 자 요거 지금 189번인데 뿌리가 있습니다 뿌리 있는데 컵이 너무 잘 들었어요 빅뱅 금 139번 얘 50만 원 들어요')
+    at(3000)
+    expect(h.registered).toEqual([])
+    const card = cards(h)[0]
+    expect(card?.no).toBeNull()
+    expect(h.voice.getSnapshot().notes.get(card?.id ?? '')).toBe('번호 확인 필요 · 들린 번호: 189·139')
+  })
+
+  it('R26: 등록 뒤 같은 덩어리에서 다른 번호가 들리면 알림만 ("알겠어요"까지)', async () => {
+    const h = await ready()
+    say('189번 빅뱅금 50만 원', false)
+    say('189번 빅뱅금 50만 원 139번')
+    at(3000)
+    expect(reg(h).map((item) => item.no)).toEqual([189])
+    const notice = h.voice.getSnapshot().offers.find((offer) => offer.kind === 'notice')
+    expect(notice?.message).toBe('189번으로 등록했는데 139번도 들렸어요. 맞는지 확인해 주세요.')
+    at(20_000)
+    expect(h.voice.getSnapshot().offers.some((offer) => offer.kind === 'notice')).toBe(true)
+    h.voice.seenNotice(notice?.id ?? '')
+    expect(h.voice.getSnapshot().offers).toEqual([])
+  })
+
+  it('R18: "108번 10만원 아니 12만원" — 10만원에서 등록, 등록이 끝난 뒤 덩어리 결과로 바로 고침', async () => {
+    const h = await ready()
+    say('108번 10만원', false)
+    expect(reg(h).map((item) => item.price)).toEqual([100000])
+    say('108번 10만원 아니 12만원')
+    at(3000)
+    expect(h.fixes).toEqual([])
+    finish(h)
+    await settle()
+    expect(h.fixes).toEqual([{ id: 'b1:108', changes: { price: 120000 } }])
+    expect(h.registered).toHaveLength(1)
+  })
+
+  it('R20: 바로 등록한 덩어리 끝에 취소 → 그 등록을 되돌리고, 같은 말은 카드만 (껐다 켜면 다시 바로)', async () => {
+    const h = await ready()
+    say('21번 핑크문 만원', false)
+    finish(h)
+    say('21번 핑크문 만원 취소')
+    at(3000)
+    expect(h.undone).toEqual(['b1:21'])
+    expect(h.voice.getSnapshot().readout?.text).toBe('21번 등록을 되돌렸어요')
+    h.board.delete(21)
+    say('21번 핑크문 만원')
+    at(6000)
+    expect(h.registered).toHaveLength(1)
+    expect(cards(h).map((card) => card.no)).toEqual([21])
+    h.voice.turnOff()
+    await h.voice.turnOn()
+    await settle()
+    say('21번 핑크문 만원')
+    expect(reg(h).map((item) => item.no)).toEqual([21, 21])
+  })
+
+  it('R22·R23: 열린 카드에 같은 번호를 합치고, 원 가격이 들리면 그 카드(핑크문)로 바로 등록', async () => {
+    const h = await ready()
+    say('15번 핑크프릴 만오천')
+    at(3000)
+    say('15번 핑크문 만오천')
+    at(6000)
+    expect(cards(h).map((card) => [card.no, card.name])).toEqual([[15, '핑크문']])
+    say('15번 만오천 원')
+    at(9000)
+    expect(reg(h)).toEqual([{ no: 15, name: '핑크문', price: 15000, source: 'instant' }])
+    expect(cards(h)).toEqual([])
+  })
+
+  it('카드 "닫기"를 누른 번호는 같은 말을 해도 카드만 (D-V3-10)', async () => {
+    const h = await ready()
+    say('15번 핑크프릴 만오천')
+    at(3000)
+    h.voice.close(cards(h)[0]?.id ?? '')
+    say('15번 핑크프릴 만오천 원')
+    at(6000)
+    expect(h.registered).toEqual([])
+    expect(cards(h).map((card) => card.no)).toEqual([15])
+  })
+
+  it('창이 열린 동안은 미루고 창이 닫히면 등록 (AC-V3-43 a)', async () => {
+    const h = await ready()
+    h.dialog = true
+    say('108번 bts 10만 원')
+    at(3000)
+    expect(h.registered).toEqual([])
+    h.dialog = false
+    h.voice.refresh()
+    expect(reg(h).map((item) => item.no)).toEqual([108])
+    expect(cards(h)).toEqual([])
+  })
+
+  it('찜이 있으면 묻기 카드에 까닭 줄, "그대로 두기"를 누르면 그 번호는 묻기만 (까닭 줄 없음)', async () => {
+    const h = await ready()
+    h.board.set(108, { ...product(108, 'bts', 100000, 1), status: 'OPEN' })
+    say('108번 12만 원')
+    at(3000)
+    const offer = h.voice.getSnapshot().offers[0]
+    expect(offer?.message).toBe('108번을 고칠까요? 가격 100,000원 → 120,000원')
+    expect(offer?.note).toBe('찜이 있는 상품이라 저절로 고치지 않았어요.')
+    h.voice.dismissOffer(offer?.id ?? '')
+    h.board.set(108, product(108, 'bts', 100000, 0))
+    say('108번 12만 원')
+    at(6000)
+    const again = h.voice.getSnapshot().offers[0]
+    expect(again?.stage).toBe('ask')
+    expect(again?.note).toBeUndefined()
+    expect(h.fixes).toEqual([])
+  })
+})
+
 describe('바로 등록 문장', () => {
   it('저장값 읽기: 없거나 모르는 값은 켬', () => {
     expect(readInstant(null)).toBe(true)
-    expect(readInstant({ 'voice.instantRegister': 'no' })).toBe(true)
-    expect(readInstant({ 'voice.instantRegister': false })).toBe(false)
+    expect(readInstant({ 'voice.autoRegister': 'no' })).toBe(true)
+    expect(readInstant({ 'voice.autoRegister': false })).toBe(false)
   })
 
-  it('조사: 받침에 따라 으로/로', () => {
-    expect(ro('120,000원')).toBe('으로')
-    expect(ro('비티에스')).toBe('로')
-    expect(ro('삼광색금')).toBe('으로')
-    expect(ro('라울')).toBe('로')
-  })
-
-  it('알림 문장', () => {
-    expect(fixedMessage(108, { name: 'bts', price: 100000 }, { price: 120000 })).toBe('108번 가격을 100,000원 → 120,000원으로 고쳤어요')
-    expect(fixedMessage(108, { name: '', price: 100000 }, { name: '삼광색금' })).toBe('108번 품종을 삼광색금으로 채웠어요')
-    expect(askMessage(108, { name: 'bts', price: 100000 }, { price: 120000 })).toBe('108번은 이미 등록돼 있어요. 가격을 100,000원 → 120,000원으로 고칠까요?')
+  it('알림 문장 (D-V3-17)', () => {
+    expect(fixedMessage(108, { name: 'bts', price: 100000 }, { price: 120000 })).toBe('108번을 고쳤어요: 가격 100,000원 → 120,000원')
+    expect(fixedMessage(108, { name: '', price: 100000 }, { name: '핑크프릴' })).toBe('108번을 고쳤어요: 품종 없음 → 핑크프릴')
+    expect(askMessage(108, { name: 'bts', price: 100000 }, { price: 120000 })).toBe('108번을 고칠까요? 가격 100,000원 → 120,000원')
+    expect(registeredReadout(108, 'bts', 100000, true)).toBe('108번 bts 100,000원 등록했어요 · 품종 확인 필요')
+    expect(numbersNote([189, 139])).toBe('번호 확인 필요 · 들린 번호: 189·139')
+    expect(otherNumberMessage(189, [139])).toBe('189번으로 등록했는데 139번도 들렸어요. 맞는지 확인해 주세요.')
   })
 })

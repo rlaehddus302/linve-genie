@@ -60,7 +60,7 @@ beforeEach(() => {
   FakeRecognition.all.length = 0
   window.localStorage.clear()
   // 이 시험들은 카드 확인 동작을 본다 — V3 "번호와 가격이 들리면 바로 등록"(기본 켬)을 끈 기기로 시작한다 (바로 등록은 v3-voice-instant 시험)
-  window.localStorage.setItem(VOICE_SETTINGS_KEY, JSON.stringify({ 'voice.instantRegister': false }))
+  window.localStorage.setItem(VOICE_SETTINGS_KEY, JSON.stringify({ 'voice.autoRegister': false }))
   window.history.replaceState(null, '', '/')
 })
 
@@ -360,35 +360,36 @@ describe('끄기·설정 (AC-I4-14·30)', () => {
     await waitFor(() => expect(registers()).toEqual([[15, '핑크프릴', 15000]]))
   })
 
-  it('자동 확정 설정: 기본 꺼짐·5초, 켜면 안내 문장, 기기에 남는다', async () => {
+  // D-V3-01·D-V3-16 (AC-V3-40·47): 옛 "확실한 카드는 자동으로 등록"·"기다리는 시간(초)"은 빠지고 "번호와 가격이 들리면 바로 등록"(기본 켬)이 대신한다
+  it('바로 등록 설정: 처음 체크됨·도움말, 기다리는 시간 칸 없음, 끄면 기기에 남는다 — 옛 꺼짐 저장값이어도 켬 (D-V3-16)', async () => {
     setup()
+    window.localStorage.setItem(VOICE_SETTINGS_KEY, JSON.stringify({ 'voice.autoConfirm': false, 'voice.autoConfirmSec': 5, 'voice.quietMs': 2500 }))
     await openConsole()
     await turnOnVoice()
-    const box = screen.getByLabelText('확실한 카드는 자동으로 등록') as HTMLInputElement
-    const seconds = screen.getByLabelText('기다리는 시간(초)') as HTMLInputElement
-    expect([box.checked, seconds.value]).toEqual([false, '5'])
+    const box = screen.getByLabelText('번호와 가격이 들리면 바로 등록') as HTMLInputElement
+    expect(box.checked).toBe(true)
+    expect(screen.getByText("'○○번'과 '○○원'이 들리면 그 자리에서 등록해요. 같은 번호를 다시 말하면 새로 만들지 않고, 찜이 없는 상품은 들은 대로 고쳐요. 등록 뒤 5초 안에 되돌릴 수 있어요.")).toBeDefined()
+    expect(screen.queryByLabelText('기다리는 시간(초)')).toBeNull()
+    expect(screen.queryByLabelText('확실한 카드는 자동으로 등록')).toBeNull()
+    expect((screen.getByLabelText('말이 끝났다고 볼 때까지(초)') as HTMLInputElement).value).toBe('2.5')
     fireEvent.click(box)
-    expect(screen.getByText('번호·품종·가격이 모두 확실한 카드만, 손대지 않으면 정한 시간 뒤 등록해요. 등록 뒤 5초 안에 되돌릴 수 있어요.')).toBeDefined()
-    fireEvent.change(seconds, { target: { value: '31' } })
-    expect(screen.getByText('자동 확정 기다림은 3초부터 30초까지의 정수로 적어 주세요')).toBeDefined()
-    fireEvent.change(seconds, { target: { value: '8' } })
-    expect(JSON.parse(window.localStorage.getItem(VOICE_SETTINGS_KEY) ?? 'null')).toEqual({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 8, 'voice.instantRegister': false })
+    expect(JSON.parse(window.localStorage.getItem(VOICE_SETTINGS_KEY) ?? 'null')).toMatchObject({ 'voice.autoRegister': false, 'voice.quietMs': 2500 })
   })
 
-  it('자동 확정: 남은 초와 "자동 등록 멈추기"가 보이고 정한 시간 뒤 등록', async () => {
+  // D-V3-01 (AC-V3-26·47): 카드에는 자동 확정 기다림이 없다 — 옛 자동 확정 저장값이 있어도 남은 초가 없고 누르면 등록
+  it('바로 등록을 끈 기기: 옛 자동 확정 저장값이 있어도 카드에 남은 초가 없고, "등록"으로 등록된다 (D-V3-01)', async () => {
     setup()
-    window.localStorage.setItem(VOICE_SETTINGS_KEY, JSON.stringify({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 3, 'voice.instantRegister': false }))
+    window.localStorage.setItem(VOICE_SETTINGS_KEY, JSON.stringify({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 3, 'voice.autoRegister': false }))
     await openConsole()
     await turnOnVoice()
     FakeRecognition.say('15번 핑크프릴 만오천 원')
     await quiet()
     const card = screen.getByRole('listitem', { name: '15번 핑크프릴 15,000원 카드' })
-    expect(within(card).getByText('3초 뒤 자동 등록')).toBeDefined()
-    expect(within(card).getByRole('button', { name: '15번 핑크프릴 15,000원 자동 등록 멈추기' })).toBeDefined()
+    expect(within(card).queryByText('3초 뒤 자동 등록')).toBeNull()
     await sleep(3100)
+    expect(registers()).toEqual([])
+    fireEvent.click(within(card).getByRole('button', { name: /^15번 핑크프릴 15,000원 등록/ }))
     await waitFor(() => expect(registers()).toEqual([[15, '핑크프릴', 15000]]))
-    expect(await screen.findByText('15번을 등록했어요')).toBeDefined()
-    // 조용한 시간(1.8초) + 기다림 3초 — 기본 5초 시험 시간을 넘는다
   }, 10_000)
 })
 
