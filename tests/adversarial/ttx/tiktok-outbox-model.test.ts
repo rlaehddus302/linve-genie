@@ -4,10 +4,10 @@
 //  (4) 화면을 떠난 뒤 그 탭의 안 보낸 댓글은 다시 보내지 않음 (5) 일부러 버린 것 말고는 잃지 않음 (6) 401 뒤엔 보내지 않음.
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import type { Api, ApiResult } from '../../../apps/extension/src/api.ts'
-import type { Timers } from '../../../apps/extension/src/outbox.ts'
-import { TT_BATCH_MAX, TT_HOLD_MAX, TikTokOutbox, type TikTokOutboxSnapshot } from '../../../apps/extension/src/tiktok-outbox.ts'
-import type { TikTokItem } from '../../../apps/extension/src/tiktok-reader.ts'
+// 확장 소스는 ext-outbox.ts 경계로 불러온다 — 루트 typecheck가 확장의 DOM 소스를 끌어오지 않게 (SA-TTX-01)
+import { loadOutbox, type Api, type ApiResult, type TikTokItem, type TikTokOutboxSnapshot, type Timers } from './ext-outbox.ts'
+
+const { TT_BATCH_MAX, TT_HOLD_MAX, TikTokOutbox } = await loadOutbox()
 
 class FakeTimers implements Timers {
   now = 0
