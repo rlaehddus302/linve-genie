@@ -14,6 +14,10 @@ import { DEFAULT_BOX, readBox } from '../src/parcel/rules.ts'
 import { D, SENDER, attempts, bookOk, dayRows, expect200, makeReady, parcelApi, parcelSeller, parcelWorld, sell, type ParcelWorld } from './t1-support.ts'
 import type { Seller } from './support.ts'
 
+/** 0019 마이그레이션의 저널 시각 (drizzle.__drizzle_migrations.created_at = 저널 when) */
+const MIGRATION_0019_WHEN = (JSON.parse(readFileSync(join(MIGRATIONS_FOLDER, 'meta', '_journal.json'), 'utf8')) as { entries: { tag: string; when: number }[] }).entries.find(
+  (entry) => entry.tag === '0019_fb1_parcel_box_carrier',
+)?.when as number
 const NO_AUTO_BOOK = '고른 택배사는 아직 자동 접수를 할 수 없어요. 포장 화면에서 송장번호를 직접 적어 주세요.'
 
 async function settingsRow(world: ParcelWorld, seller: Seller): Promise<{ carrier: string | null; carrier_name: string | null; box: string } | undefined> {
@@ -253,7 +257,8 @@ describe('AC-FB1-16 택배 크기 코드와 옛 값 옮기기 (D-FB1-05)', () =>
     expect((await bookOk(world, seller, [{ buyer: 'UC_A' }]))[0]).toMatchObject({ ok: true })
     const pg = world.database.pglite as PGlite
     // BASE(0018까지)의 모양으로 되돌린다: 옛 낱말, 기본값 소, carrier_name 없음, 0019 적용 기록 없음.
-    // 0019 뒤의 마이그레이션(0020 TTX — 틱톡 연결의 확장 칸, 0021 BND1 — 밴드 표)도 되돌린다 — 다시 열면 0019부터 차례로 다시 적용된다
+    // 0019 뒤의 마이그레이션(0020 TTX — 틱톡 연결의 확장 칸, 0021 BND1 — 밴드 표, 0022 CRM1 — 손님 표 둘, 0023 CRM1 — 손님 기록 보관 표 둘)도 되돌린다 — 다시 열면 0019부터 차례로 다시 적용된다
+    // (CRM1에서 "마지막 기록 하나 지우기"를 "0019(저널 when) 이후 기록 지우기"로 교체 — 약화 아님, 0019를 다시 적용하는 같은 시험)
     await pg.exec(`
       update parcel_settings set box = '중' where seller_id = '${seller.sellerId}';
       update parcels set box = '대' where seller_id = '${seller.sellerId}';
@@ -261,9 +266,12 @@ describe('AC-FB1-16 택배 크기 코드와 옛 값 옮기기 (D-FB1-05)', () =>
       alter table parcel_settings drop column carrier_name;
       alter table tiktok_links drop column ext_recorded, drop column ext_standby, drop column ext_status_at, drop column ext_screen,
         drop column ext_hidden, drop column ext_read, drop column ext_unread, drop column ext_unread_since;
-      -- 0019 뒤의 마이그레이션(BND1 0021 밴드 표)도 되돌린다 — 0019부터 다시 적용된다 (바꾼 기존 시험, BND1 dev-notes)
       drop table band_notices; drop table band_seen; drop table band_links; drop table band_oauth_states; drop table band_accounts;
-      delete from drizzle.__drizzle_migrations where created_at >= 1794355200000;`)
+      drop table customer_archive_rows;
+      drop table customer_archive_days;
+      drop table customer_memos;
+      drop table customer_settings;
+      delete from drizzle.__drizzle_migrations where created_at >= ${String(MIGRATION_0019_WHEN)};`)
     const reopened = await openPglite(pg)
     expect((await pg.query<{ box: string }>('select box from parcel_settings')).rows).toEqual([{ box: '100' }])
     expect((await pg.query<{ box: string }>('select box from parcels')).rows).toEqual([{ box: '120' }])

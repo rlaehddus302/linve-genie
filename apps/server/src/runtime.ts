@@ -134,7 +134,7 @@ function parseAttention(text: string): AttentionItem[] | null {
 }
 
 /** 스냅샷을 쓸 수 있으면 그 상태, 아니면 null (형식·JSON·불변식·확인 필요 목록) */
-function usableSnapshot(text: string, attentionText: string): { state: EngineState; attention: AttentionItem[] } | null {
+export function usableSnapshot(text: string, attentionText: string): { state: EngineState; attention: AttentionItem[] } | null {
   try {
     const state = JSON.parse(text) as EngineState
     if (typeof state !== 'object' || state === null || state.format !== STATE_FORMAT) return null

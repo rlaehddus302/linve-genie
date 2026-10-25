@@ -36,9 +36,16 @@ export interface ScopeRoute {
   readonly into?: string
   /** 합치기 막힘에서 연 상품 자세히 (상품 키 `<방송>/<번호>`) */
   readonly product?: string
+  /** 구매자 화면의 "모든 손님" 보기 (CRM1 D-CRM1-06) — 날짜별 보기는 적지 않는다 */
+  readonly view?: 'customers'
+  /** "모든 손님"에서 연 손님 (서버가 만든 불투명 손님 ID — 전화번호·표지가 아니다) */
+  readonly customer?: string
+  /** "모든 손님"의 정렬·거르기 (기본 total·all은 적지 않는다). 찾는 말은 주소에 넣지 않는다 */
+  readonly sort?: string
+  readonly filter?: string
 }
 
-const SCOPE_PARAMS = ['buyer', 'merge', 'into', 'product'] as const
+const SCOPE_PARAMS = ['buyer', 'merge', 'into', 'product', 'customer', 'sort', 'filter'] as const
 
 /** 요금 화면 (휴대폰 결제 창이 돌아오면 그 결제 ID) */
 export interface BillingRoute {
@@ -136,6 +143,7 @@ function scopeRoute(name: ScopeRouteName, search: string): ScopeRoute {
     const value = params.get(key)
     if (value !== null && value !== '') out[key] = value
   }
+  if (name === 'buyers' && params.get('view') === 'customers') out.view = 'customers'
   return out
 }
 
@@ -251,6 +259,7 @@ export function routePath(route: Route): string {
       const params = new URLSearchParams()
       if (route.date !== undefined) params.set('date', route.date)
       if (route.rehearsal) params.set('rehearsal', 'true')
+      if (route.view === 'customers') params.set('view', 'customers')
       for (const key of SCOPE_PARAMS) {
         const value = route[key]
         if (value !== undefined) params.set(key, value)

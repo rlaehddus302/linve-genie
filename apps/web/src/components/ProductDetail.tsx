@@ -2,6 +2,7 @@
 // - 번호·품종·가격·재고·상태, 1등(들), 대기 목록, 그 번호의 보류·충돌 찜, 라벨(1등마다 미리 보기·상태·이력·출력·내보내기 — 리허설은 없음),
 //   취소 요청, 가격·품종 변경 이력, 조치 기록.
 // - 상품 명령(일시 중지·다시 판매·공개·판매 종료·고치기)은 바로 보낸다. 찜 조치(host.*)는 5초 뒤에 보낸다.
+import { CautionMark, useCaution } from './caution.tsx'
 import { useEffect, useMemo, useState } from 'react'
 import { get, isApiError, newRequestId, withQuery, type ApiError } from '../api/client.ts'
 import type { Claim, HistoryItem, Product } from '../api/types.ts'
@@ -327,10 +328,18 @@ function ClaimRow({ claim, product, full }: { readonly claim: Claim; readonly pr
   const blocked = self?.blocked === true
   const waiting = api.waiting.claims.has(claim.id)
   const pick = claimOptionsField(claim)
+  // 1등 목록의 "입금 늦음 주의" (CRM1 D-CRM1-07 — 실제 방송만, 판정은 그대로)
+  const caution = useCaution()
   return (
     <li className="claim-row">
       <p>
         <strong>{name}</strong>
+        {claim.status === 'CONFIRMED' && caution(claim.currentBuyer) ? (
+          <>
+            {' '}
+            <CautionMark />
+          </>
+        ) : null}
         {claim.variant !== null || claim.qty > 1 ? <span className="claim-option">{claimOptionWords(claim)}</span> : null} <span className="tag">{claimWord(api.data, claim)}</span>{' '}
         <span>{ORIGIN_WORD[claim.origin]}</span>{' '}
         <span>{kstTime(claim.rankTime)}</span>

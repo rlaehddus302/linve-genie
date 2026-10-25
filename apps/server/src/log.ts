@@ -104,6 +104,10 @@ export type LogCode =
   | 'AMOUNT_MISSING'
   // PL1A (D-PL1-04): 30일 봉인 날짜의 장부를 읽지 못해 문서를 만들지 않음 — 코드·날짜만 (장부 글·구매자 이름 없음)
   | 'LEDGER_UNREADABLE'
+  // CRM1 손님 기록 보관 (D-CRM1-12): 판매자 ID·날짜·개수·오류 종류만 (표지·이름·숫자 내용은 남기지 않는다)
+  | 'CUSTOMER_ARCHIVED'
+  | 'CUSTOMER_ARCHIVE_FAILED'
+  | 'CUSTOMER_ARCHIVE_UNREADABLE'
   // N5 요금 (결제 ID·사업자 정보·조회 원문·비밀값은 남기지 않는다)
   | 'BILLING_FAILED'
   | 'PAYMENT_LOOKUP_FAILED'
@@ -227,6 +231,9 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   BACKUP_PRUNE_FAILED: '오래된 백업을 지우지 못했어요(다음 확인 때 다시 해요)',
   AMOUNT_MISSING: '확정 찜에 찜 금액이 없어 그 결과(요약 댓글·라벨·포장·봉인 장부)를 만들지 않았어요',
   LEDGER_UNREADABLE: '30일이 지나 봉인한 날짜의 장부를 읽지 못해 그 날짜의 문서를 만들지 않았어요(지난 구매에서는 그 날짜만 뺌)',
+  CUSTOMER_ARCHIVED: '봉인 전 손님 기록(취소 수·입금 안 함)을 보관했어요',
+  CUSTOMER_ARCHIVE_FAILED: '봉인 전 손님 기록을 보관하지 못했어요(다음 차례에 다시 해요)',
+  CUSTOMER_ARCHIVE_UNREADABLE: '봉인 날짜의 손님 기록 보관 행을 읽지 못해 그 행만 뺐어요(장부 숫자는 그대로)',
   DOCUMENT_WORK_FAILED: '파일 작업 워커가 일을 끝내지 못했어요(시간·메모리 상한·끊긴 요청 등 — 서버 판정은 그대로)',
   BILLING_FAILED: '요금 정보를 읽지 못했어요',
   PAYMENT_LOOKUP_FAILED: '결제를 조회하지 못했어요(주문은 그대로)',

@@ -224,6 +224,8 @@ function daysBefore(date: string, days: number): string {
  * - POST /_e2e/dates { loginId, kind: 'sealed'|'sealSoon'|'youtube', date? } → { date, broadcast } — 그 날짜에 실제 방송·상품 하나·유튜브 채팅 하나(봉인 대상),
  *   sealed면 바로 봉인. 날짜 기본값: sealed 오늘 − 31일, sealSoon 오늘 − 24일(봉인 6일 전), youtube 오늘 − 3일
  * - POST /_e2e/seal { loginId, date } → { sealed } — 그 날짜(실제 범위)를 지금 봉인 (열린 화면이 봉인되는 시험)
+ * - POST /_e2e/customer-archive {} → { written, frozen, failed } — 손님 기록 보관 차례를 지금 한 번 (1시간 차례를 기다리지 않는다, D-CRM1-12 · AC-CRM1-33).
+ *   오늘보다 앞선 봉인 전 실제 날짜를 적고, 봉인된 날짜 줄은 굳힌다 — /_e2e/seal 앞에 부르면 "차례가 돈 봉인 날짜", 부르지 않으면 "돌지 않은 봉인 날짜"
  * 그 밖의 요청은 서버 앱으로 그대로 (요청 정보 env도 — 로그인 IP 한도)
  */
 export function e2eControl(
@@ -289,6 +291,7 @@ export function e2eControl(
     const scopeId = await server.service.scopeId(sellerId, date)
     return c.json({ sealed: scopeId === null ? false : await server.sealer.seal(sellerId, scopeId, date) })
   })
+  control.post('/_e2e/customer-archive', async (c) => c.json(await server.customerArchiver.runOnce()))
   if (webcast !== undefined && webcast !== null) registerTiktokControl(control, webcast, read)
   if (carrier !== undefined && carrier !== null) registerParcelControl(control, server, carrier, read)
   if (band !== undefined && band !== null) registerBandControl(control, band, read)
