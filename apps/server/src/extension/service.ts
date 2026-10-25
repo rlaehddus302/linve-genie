@@ -408,6 +408,8 @@ export class ExtensionService {
 
   async status(caller: ExtensionCaller, input: StatusInput): Promise<ExtensionView> {
     const { db } = this.#deps
+    // 회차에 이어지지 않은 다른 영상(끝난 방송의 채팅 창 등)의 보고는, 이어진 영상이 받는 중인 회차 상태를 바꾸지 않는다 (dev-notes V3 "X1 상태 흔들림")
+    if (input.videoId !== null && (await this.#otherVideoReceives(caller.sellerId, input.videoId))) return this.view(caller.sellerId)
     const now = this.#now()
     const before = await readStatus(db, caller.sellerId)
     const same = before !== null && before.tokenId === caller.tokenId
@@ -433,6 +435,18 @@ export class ExtensionService {
     this.#publishIfChanged(caller.sellerId, view)
     this.#schedule(caller.sellerId, row)
     return view
+  }
+
+  /** 이 영상은 이어지지 않았고, 다른 영상이 끝나지 않은 회차에 이어져 있다 */
+  async #otherVideoReceives(sellerId: string, videoId: string): Promise<boolean> {
+    const { db } = this.#deps
+    if ((await bindingOfVideo(db, sellerId, videoId)) !== null) return false
+    for (const binding of await activeBindings(db, sellerId)) {
+      if (binding.videoId === videoId) continue
+      const broadcast = await findBroadcast(db, sellerId, binding.broadcastId)
+      if (broadcast !== null && broadcast.endedAt === null) return true
+    }
+    return false
   }
 
   /** 판매자 화면이 보는 확장 상태 (지금 시각으로 계산) */

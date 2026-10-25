@@ -1,6 +1,6 @@
 // 서비스 워커: 연결·끊김·상태·배지·회차 고르기 (YT-10 AC4·AC6·AC7, AC-X1-18)
 import { describe, expect, it } from 'vitest'
-import { badgeFor, Hub, QUEUE_KEY, TOKEN_KEY, type HubView } from '../src/hub.ts'
+import { badgeFor, FRAME_GONE_MS, HIDDEN_WARN_MS, Hub, QUEUE_KEY, TOKEN_KEY, type HubView } from '../src/hub.ts'
 import { WORDS } from '../src/words.ts'
 import { FakeTimers, fakeChrome, message, settle } from './fakes.ts'
 
@@ -51,17 +51,30 @@ describe('Hub', () => {
     expect(await hub.handle({ type: 'connect', code: '12345678' })).toMatchObject({ ok: false, message: '연결 코드가 맞지 않거나 시간이 지났어요.' })
   })
 
-  it('AC-X1-18: 탭이 숨으면 배지가 바뀌고 상태 hidden을 보낸다', async () => {
+  it('AC-X1-18: 탭이 숨은 채 30초(HIDDEN_WARN_MS) 이어지면 배지가 바뀌고 상태 hidden을 보낸다 — 잠깐 숨김은 그대로', async () => {
     const { chrome, badge } = fakeChrome({ [TOKEN_KEY]: 'tok' })
     const { calls, fetcher } = server({})
-    const hub = new Hub(chrome, ORIGIN, fetcher, new FakeTimers())
+    const clock = { t: 1_000_000 }
+    const timers = new FakeTimers()
+    const hub = new Hub(chrome, ORIGIN, fetcher, timers, () => clock.t)
     await hub.handle({ type: 'status', v: V, hidden: false, read: 3, unread: 0 })
     expect(badge.text).toBe('ON')
-    const view = (await hub.handle({ type: 'status', v: V, hidden: true, read: 3, unread: 0 })) as HubView
-    expect(JSON.parse(String(calls.at(-1)?.init.body))).toEqual({ v: V, hidden: true, read: 3, unread: 0, dropped: 0 })
-    expect(view.message).toBe(WORDS.HIDDEN)
+    clock.t += 1_000
+    let view = (await hub.handle({ type: 'status', v: V, hidden: true, read: 3, unread: 0 })) as HubView
+    expect(JSON.parse(String(calls.at(-1)?.init.body))).toEqual({ v: V, hidden: false, read: 3, unread: 0, dropped: 0 })
+    expect(view.message).toBe(WORDS.RECEIVING)
+    expect(timers.delays()).toContain(HIDDEN_WARN_MS - 1_000)
+    clock.t += HIDDEN_WARN_MS - 1_000
+    await timers.fire()
     expect(badge).toMatchObject({ text: '!', color: badgeFor('warn').color })
     expect(badge.title).toContain(WORDS.HIDDEN)
+    view = (await hub.handle({ type: 'status', v: V, hidden: true, read: 3, unread: 0 })) as HubView
+    expect(JSON.parse(String(calls.at(-1)?.init.body))).toEqual({ v: V, hidden: true, read: 3, unread: 0, dropped: 0 })
+    expect(view.message).toBe(WORDS.HIDDEN)
+    // 다시 보이면 바로 받는 중
+    view = (await hub.handle({ type: 'status', v: V, hidden: false, read: 3, unread: 0 })) as HubView
+    expect(view.message).toBe(WORDS.RECEIVING)
+    expect(badge.text).toBe('ON')
   })
 
   it('401이면 토큰을 지우고 "연결이 끊겼어요"', async () => {
@@ -209,5 +222,89 @@ describe('Hub', () => {
     expect(((await hub.handle({ type: 'view' })) as HubView).thanks).toBeNull()
     expect(await hub.handle({ type: 'thanksResult', ids: [4, 5], result: 'POSTED' })).toEqual({ ok: true })
     expect(JSON.parse(String(calls.at(-1)?.init.body))).toEqual({ ids: [4, 5], result: 'POSTED' })
+  })
+
+  describe('X1 상태 흔들림: 프레임 여럿·끝난 다른 방송 창·숨김 전환 (dev-notes V3)', () => {
+    const LIVE = 'kkNQY46VpXU'
+    const OLD = 'JbBfRCRKtE8'
+    const WATCH = { id: 'ext', url: `https://www.youtube.com/live_chat?is_popout=0&v=${LIVE}`, tab: { id: 1 }, frameId: 7 }
+    const POPOUT = { id: 'ext', url: `https://www.youtube.com/live_chat?is_popout=1&v=${LIVE}`, tab: { id: 2 }, frameId: 0 }
+    const OLD_POPOUT = { id: 'ext', url: `https://www.youtube.com/live_chat?is_popout=1&v=${OLD}`, tab: { id: 3 }, frameId: 0 }
+
+    function setup() {
+      const { chrome, badge } = fakeChrome({ [TOKEN_KEY]: 'tok' })
+      const unbound = { status: 200, body: { bound: null, broadcasts: [] } }
+      const { calls, fetcher } = server({})
+      const routed = (url: string, init: RequestInit) => {
+        if (url.includes(`v=${OLD}`)) {
+          calls.push({ url, init })
+          return Promise.resolve(new Response(JSON.stringify(unbound.body), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+        }
+        return fetcher(url, init)
+      }
+      const clock = { t: 2_000_000 }
+      const timers = new FakeTimers()
+      const hub = new Hub(chrome, ORIGIN, routed, timers, () => clock.t)
+      const statusBodies = () => calls.filter((c) => c.url.endsWith('/ext/status')).map((c) => JSON.parse(String(c.init.body)) as Record<string, unknown>)
+      return { hub, badge, clock, timers, statusBodies }
+    }
+
+    it('같은 영상의 시청 페이지 안 채팅(보임)과 팝아웃(숨음)이 번갈아 보고해도 계속 받는 중이고, 서버에 숨음을 보내지 않는다', async () => {
+      const { hub, badge, clock, statusBodies } = setup()
+      const seen: string[] = []
+      for (let i = 0; i < 12; i++) {
+        clock.t += 5_000
+        const view = (await hub.handle({ type: 'status', v: LIVE, hidden: i % 2 === 1, read: i, unread: 0 }, i % 2 === 0 ? WATCH : POPOUT)) as HubView
+        seen.push(view.message, badge.text)
+      }
+      expect(new Set(seen)).toEqual(new Set([WORDS.RECEIVING, 'ON']))
+      expect(statusBodies().every((body) => body['hidden'] === false && body['v'] === LIVE)).toBe(true)
+    })
+
+    it('회차에 이어지지 않은 끝난 다른 방송의 팝아웃 보고는 지금 상태를 바꾸지 않고 서버로 보내지 않는다', async () => {
+      const { hub, badge, clock, statusBodies } = setup()
+      await hub.handle({ type: 'status', v: LIVE, hidden: false, read: 1, unread: 0 }, WATCH)
+      for (let i = 0; i < 6; i++) {
+        clock.t += 5_000
+        const view = (await hub.handle({ type: 'status', v: OLD, hidden: true, read: 0, unread: 0 }, OLD_POPOUT)) as HubView
+        expect(view).toMatchObject({ video: LIVE, message: WORDS.RECEIVING, notBound: false })
+        expect(badge.text).toBe('ON')
+        clock.t += 5_000
+        await hub.handle({ type: 'status', v: LIVE, hidden: false, read: 1, unread: 0 }, WATCH)
+      }
+      expect(statusBodies().some((body) => body['v'] === OLD)).toBe(false)
+    })
+
+    it('지금 영상의 창이 모두 닫혀(90초 보고 없음) 끝난 방송 창만 남으면 그 창 기준으로 알린다', async () => {
+      const { hub, clock } = setup()
+      await hub.handle({ type: 'status', v: LIVE, hidden: false, read: 1, unread: 0 }, WATCH)
+      clock.t += FRAME_GONE_MS + 1
+      const view = (await hub.handle({ type: 'status', v: OLD, hidden: false, read: 0, unread: 0 }, OLD_POPOUT)) as HubView
+      expect(view).toMatchObject({ video: OLD, message: WORDS.NOT_BOUND, light: 'warn' })
+    })
+
+    it('두 창이 모두 숨으면 30초 뒤에만 경고하고, 하나라도 다시 보이면 바로 받는 중', async () => {
+      const { hub, badge, clock } = setup()
+      await hub.handle({ type: 'status', v: LIVE, hidden: false, read: 1, unread: 0 }, WATCH)
+      for (let i = 0; i < 2; i++) {
+        clock.t += 10_000
+        await hub.handle({ type: 'status', v: LIVE, hidden: true, read: 1, unread: 0 }, WATCH)
+        await hub.handle({ type: 'status', v: LIVE, hidden: true, read: 1, unread: 0 }, POPOUT)
+        expect(badge.text).toBe('ON')
+      }
+      clock.t += 10_000
+      const warned = (await hub.handle({ type: 'status', v: LIVE, hidden: true, read: 1, unread: 0 }, POPOUT)) as HubView
+      expect(warned.message).toBe(WORDS.HIDDEN)
+      const back = (await hub.handle({ type: 'status', v: LIVE, hidden: false, read: 1, unread: 0 }, POPOUT)) as HubView
+      expect(back.message).toBe(WORDS.RECEIVING)
+    })
+
+    it('401(진짜 끊김)은 기다리지 않고 바로 알린다', async () => {
+      const { chrome } = fakeChrome({ [TOKEN_KEY]: 'tok' })
+      const { fetcher } = server({ 'POST /ext/status': [{ status: 401, body: { error: { code: 'EXT_DISCONNECTED', message: '연결이 끊겼어요.' } } }] })
+      const hub = new Hub(chrome, ORIGIN, fetcher, new FakeTimers(), () => 5_000_000)
+      const view = (await hub.handle({ type: 'status', v: LIVE, hidden: false, read: 0, unread: 0 }, WATCH)) as HubView
+      expect(view).toMatchObject({ connected: false, message: WORDS.DISCONNECTED, light: 'bad' })
+    })
   })
 })

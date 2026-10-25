@@ -5,6 +5,9 @@
 // - 감사 올리기(선택, AC11~AC17): content script(poster.ts)의 가져가기·결과를 /ext/thanks/*로 넘긴다. 글은 서버가 만든 것만.
 // - 팝업 전용 메시지(연결·지우기·회차)는 확장 페이지에서 온 것만, 채팅·상태·감사는 유튜브 채팅 페이지에서 온 것만 받는다(RA-X1-04).
 // - 상태: content script가 10초마다(또 탭이 숨거나 보일 때) 보내는 상태를 /ext/status로 넘기고, 아이콘 배지를 바꾼다.
+//   상태는 프레임 하나의 마지막 보고가 아니라 지금 영상(회차에 이어진 영상 먼저)의 모든 프레임을 합쳐 정한다 — 시청 페이지 안 채팅과
+//   팝아웃이 함께 열려 있어도, 끝난 다른 방송의 채팅 창이 남아 있어도 상태가 왔다 갔다 하지 않게(dev-notes V3 "X1 상태 흔들림").
+//   다른 영상 프레임의 보고는 서버로 보내지 않는다. 숨김은 그 영상의 어느 프레임도 HIDDEN_WARN_MS 동안 보이지 않을 때만 경고한다.
 // - 출력하지 않는다(console 없음) — 닉네임·본문·토큰이 어디에도 찍히지 않게(AC9).
 import { createApi, type Api, type Fetch } from './api.ts'
 import type { ChromeLike, MessageSender } from './chrome.ts'
@@ -82,6 +85,19 @@ export function badgeFor(light: Light): { readonly text: string; readonly color:
   }
 }
 
+/** 그 영상의 어느 채팅 프레임도 이만큼 보이지 않으면 "앞으로 꺼내 두세요" (보고 10초 × 3 — 잠깐 다른 탭을 보는 것은 경고하지 않는다) */
+export const HIDDEN_WARN_MS = 30_000
+/** 이만큼 보고가 없는 프레임은 닫힌 것으로 본다 (뒤로 간 탭은 크롬이 타이머를 1분에 한 번까지 늦춘다 — 1분 + 여유) */
+export const FRAME_GONE_MS = 90_000
+
+interface FrameReport {
+  readonly v: string | null
+  readonly hidden: boolean
+  readonly read: number
+  readonly unread: number
+  readonly at: number
+}
+
 const browserTimers: Timers = { set: (fn, ms) => setTimeout(fn, ms), clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>) }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -93,7 +109,13 @@ export class Hub {
   #token: string | null = null
   #loaded: Promise<void>
   #video: string | null = null
-  #hidden = false
+  /** 프레임(탭·프레임 번호) → 마지막 보고 */
+  readonly #frames = new Map<string, FrameReport>()
+  /** 영상('' = 영상을 모름) → 처음 본 때·마지막으로 보인 때 */
+  readonly #seen = new Map<string, { first: number; visible: number | null }>()
+  readonly #timers: Timers
+  readonly #now: () => number
+  #hiddenTimer: unknown = null
   /** 영상 → 회차에 이어졌는가 (모르면 없음) */
   readonly #bound = new Map<string, boolean>()
   #thanks: string | null = null
@@ -104,8 +126,10 @@ export class Hub {
   #failing: string | null = null
   #disconnected = false
 
-  constructor(chrome: ChromeLike, origin: string, fetcher?: Fetch, timers: Timers = browserTimers) {
+  constructor(chrome: ChromeLike, origin: string, fetcher?: Fetch, timers: Timers = browserTimers, now: () => number = () => Date.now()) {
     this.#chrome = chrome
+    this.#timers = timers
+    this.#now = now
     this.#api = createApi(origin, () => this.#token, fetcher)
     this.#outbox = new Outbox(
       this.#api,
@@ -157,11 +181,11 @@ export class Hub {
     const m = message as PageMessage | PopupMessage
     switch (m.type) {
       case 'chats':
-        this.#video = m.v
+        if (this.#video === null) this.#video = m.v
         if (this.#token !== null && !this.#ended.has(m.v)) this.#outbox.add(m.v, m.messages)
         return undefined
       case 'status':
-        return this.#status(m)
+        return this.#status(m, sender)
       case 'thanksTake':
         return this.#take(m)
       case 'thanksResult':
@@ -207,7 +231,7 @@ export class Hub {
     } else if (notBound) {
       message = WORDS.NOT_BOUND
       light = 'warn'
-    } else if (this.#hidden) {
+    } else if (this.#hiddenLong(this.#now())) {
       message = WORDS.HIDDEN
       light = 'warn'
     } else if (this.#serverState === 'UNREADABLE' || this.#serverState === 'STALE') {
@@ -221,7 +245,7 @@ export class Hub {
       light = 'ok'
     }
     if (connected && this.#thanks !== null && light === 'ok') light = 'warn'
-    return { connected, video: this.#video, message, light, notBound, dropped: this.#outbox.dropped, hidden: this.#hidden, thanks: connected ? this.#thanks : null }
+    return { connected, video: this.#video, message, light, notBound, dropped: this.#outbox.dropped, hidden: this.#hiddenLong(this.#now()), thanks: connected ? this.#thanks : null }
   }
 
   async #badge(): Promise<void> {
@@ -232,12 +256,29 @@ export class Hub {
     await this.#chrome.action.setTitle({ title: `라이브지니 — ${view.message}` })
   }
 
-  async #status(m: Extract<PageMessage, { type: 'status' }>): Promise<HubView> {
-    if (m.v !== null) this.#video = m.v
-    this.#hidden = m.hidden
+  async #status(m: Extract<PageMessage, { type: 'status' }>, sender: MessageSender | undefined): Promise<HubView> {
+    const now = this.#now()
+    this.#prune(now)
+    const vk = m.v ?? ''
+    // 그 영상의 프레임이 하나도 없다가 새로 열렸으면 숨김 기다림을 지금부터 센다
+    const fresh = ![...this.#frames.values()].some((frame) => (frame.v ?? '') === vk)
+    const seen = fresh ? { first: now, visible: null } : (this.#seen.get(vk) ?? { first: now, visible: null })
+    if (!m.hidden) seen.visible = now
+    this.#seen.set(vk, seen)
+    this.#frames.set(frameKey(sender, m.v), { v: m.v, hidden: m.hidden, read: safeCount(m.read), unread: safeCount(m.unread), at: now })
     if (this.#token !== null && m.v !== null && !this.#bound.has(m.v)) await this.#checkBound(m.v)
-    if (this.#token !== null) {
-      const body: Record<string, unknown> = { hidden: m.hidden, read: m.read, unread: m.unread, dropped: this.#outbox.dropped }
+    this.#video = this.#pick() ?? this.#video
+    // 지금 영상이 아닌 프레임(끝난 다른 방송의 채팅 창 등)의 보고는 서버 상태를 바꾸지 않는다
+    const current = m.v === null ? this.#video === null : m.v === this.#video
+    this.#armHiddenTimer(now)
+    if (this.#token !== null && current) {
+      const mine = [...this.#frames.values()].filter((frame) => frame.v === m.v)
+      const body: Record<string, unknown> = {
+        hidden: this.#hiddenLong(now),
+        read: mine.reduce((sum, frame) => sum + frame.read, 0),
+        unread: mine.reduce((sum, frame) => sum + frame.unread, 0),
+        dropped: this.#outbox.dropped,
+      }
       if (m.v !== null) body['v'] = m.v
       const result = await this.#api.call('POST', '/ext/status', body)
       if (result.status === 401) await this.#lost()
@@ -248,6 +289,54 @@ export class Hub {
     }
     await this.#badge()
     return this.view()
+  }
+
+  /** 오래 보고가 없는 프레임을 지운다 */
+  #prune(now: number): void {
+    for (const [key, frame] of this.#frames) if (now - frame.at > FRAME_GONE_MS) this.#frames.delete(key)
+  }
+
+  /**
+   * 지금 영상: 열려 있는 프레임의 영상 중 끝나지 않은 것, 회차에 이어진 것 > 모르는 것 > 이어지지 않은 것,
+   * 같으면 마지막으로 보인 것, 그다음 마지막 보고. 열린 프레임이 없으면 null (앞의 영상을 그대로 둔다).
+   */
+  #pick(): string | null {
+    let best: { v: string; rank: number; visible: number; at: number } | null = null
+    for (const frame of this.#frames.values()) {
+      if (frame.v === null || this.#ended.has(frame.v)) continue
+      const bound = this.#bound.get(frame.v)
+      const rank = bound === true ? 2 : bound === undefined ? 1 : 0
+      const visible = this.#seen.get(frame.v)?.visible ?? -1
+      const better = best === null || rank > best.rank || (rank === best.rank && (visible > best.visible || (visible === best.visible && frame.at > best.at)))
+      if (better) best = { v: frame.v, rank, visible, at: frame.at }
+    }
+    return best?.v ?? null
+  }
+
+  /** 지금 영상의 어느 프레임도 HIDDEN_WARN_MS 넘게 보이지 않았는가 */
+  #hiddenLong(now: number): boolean {
+    const vk = this.#video ?? ''
+    const frames = [...this.#frames.values()].filter((frame) => (frame.v ?? '') === vk && now - frame.at <= FRAME_GONE_MS)
+    if (frames.length === 0) return false
+    const seen = this.#seen.get(vk)
+    if (seen === undefined) return false
+    return now - (seen.visible ?? seen.first) >= HIDDEN_WARN_MS
+  }
+
+  /** 지금 숨어 있으면, 기다림이 끝나는 때 배지를 다시 본다 (그사이 보고가 없어도 경고가 늦지 않게) */
+  #armHiddenTimer(now: number): void {
+    if (this.#hiddenTimer !== null) this.#timers.clear(this.#hiddenTimer)
+    this.#hiddenTimer = null
+    const vk = this.#video ?? ''
+    const frames = [...this.#frames.values()].filter((frame) => (frame.v ?? '') === vk)
+    const seen = this.#seen.get(vk)
+    if (seen === undefined || frames.length === 0 || frames.some((frame) => !frame.hidden)) return
+    const due = (seen.visible ?? seen.first) + HIDDEN_WARN_MS - now
+    if (due <= 0) return
+    this.#hiddenTimer = this.#timers.set(() => {
+      this.#hiddenTimer = null
+      void this.#badge()
+    }, due)
   }
 
   #onOutbox(event: OutboxEvent): void {
@@ -393,6 +482,15 @@ export function takeReplyOf(body: Record<string, unknown>): TakeReply {
   }
   return { state, post: null, afterMs, message }
 }
+
+/** 프레임 이름: 탭 번호·프레임 번호 (보낸 곳을 모르면 영상마다 하나) */
+function frameKey(sender: MessageSender | undefined, v: string | null): string {
+  const tab = sender?.tab?.id
+  if (tab === undefined) return `v:${v ?? ''}`
+  return `${String(tab)}:${String(sender?.frameId ?? 0)}`
+}
+
+const safeCount = (value: unknown): number => (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0)
 
 function choiceOf(value: unknown): BroadcastChoice | null {
   if (!isRecord(value) || typeof value['id'] !== 'string') return null

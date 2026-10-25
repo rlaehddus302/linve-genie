@@ -459,6 +459,19 @@ describe('AC-X1-16 상태 경고 (YT-10 AC7, D-X1-11) — 서버 상태 계산',
     expect((await state(w, seller)).state).toBe('RECEIVING')
   })
 
+  it('X1 상태 흔들림: 회차에 이어지지 않은 다른 영상(끝난 방송 창)의 보고는 받는 중 상태를 바꾸지 않는다', async () => {
+    const { w, seller, token } = await boundWorld()
+    await ext(w, 'POST', '/ext/status', token, { v: VIDEO, hidden: false, read: 1, unread: 0 })
+    await w.timer.advance(5_000)
+    const other = await ext(w, 'POST', '/ext/status', token, { v: OTHER_VIDEO, hidden: true, read: 0, unread: 0 })
+    expect(other.status).toBe(200)
+    expect(other.body).toMatchObject({ state: 'RECEIVING' })
+    expect(await state(w, seller)).toMatchObject({ state: 'RECEIVING' })
+    // 다른 영상의 보고로 받은 때가 새로 쓰이지 않는다 — 이어진 영상의 보고가 끊기면 그대로 STALE
+    await w.timer.advance(26_000)
+    expect((await state(w, seller)).state).toBe('STALE')
+  })
+
   it('30초가 지나면 서버가 스스로 실시간 알림을 보낸다', async () => {
     const { w, seller, token } = await boundWorld()
     const published: string[] = []

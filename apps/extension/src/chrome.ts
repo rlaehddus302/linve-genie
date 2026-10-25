@@ -1,6 +1,8 @@
 // 확장이 쓰는 크롬 API의 모양 (필요한 것만). 권한은 storage 하나 — tabs·webRequest·cookies는 쓰지 않는다(D-X1-14).
 export interface MessageSender {
   readonly tab?: { readonly id?: number }
+  /** 탭 안 프레임 번호 (0 = 맨 위 문서, 시청 페이지 안 채팅 iframe은 다른 수) */
+  readonly frameId?: number
   readonly id?: string
   /** 보낸 곳 주소 (팝업이면 chrome-extension://<id>/popup.html, content script면 유튜브 주소) */
   readonly url?: string
