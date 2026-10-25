@@ -1,6 +1,6 @@
 {
   "kind": "same-number",
-  "about": "음성 같은 번호 (VOC-04·PRD-06, DOMAIN_RULES R-22, V3 — D-V3-06). 들은 번호의 상품이 그 방송에 이미 있을 때 → { action: IGNORE|AUTO_FIX|ASK, changes: { price?, name? }, reason: ASK면 NO_AUTO|NUMBER_BARE|NOT_OPEN|PRICE_JUMP|CLAIMS, IGNORE면 null|PRICE_NOT_SURE, AUTO_FIX면 null }. in = { heard: { price, priceSure, name, nameFrom: DICTIONARY|GUESS|null, numberFrom: MARKER|BARE }, product: { name ('' = 품종 미입력), price, status: READY|OPEN|SOLD|HOLD|CLOSED, liveClaims }, auto }. packages/voice 단위 시험이 읽는다 — README '음성 바로 등록 골든'.",
+  "about": "음성 같은 번호 (VOC-04·PRD-06, DOMAIN_RULES R-22, V3 — D-V3-06). 들은 번호의 상품이 그 방송에 이미 있을 때 → { action: IGNORE|AUTO_FIX|ASK, changes: { price?, name? }, reason: ASK면 NO_AUTO|NUMBER_BARE|NOT_OPEN|PRICE_JUMP(V3 D-V3-57부터 CLAIMS 없음), IGNORE면 null|PRICE_NOT_SURE, AUTO_FIX면 null }. in = { heard: { price, priceSure, name, nameFrom: DICTIONARY|GUESS|null, numberFrom: MARKER|BARE }, product: { name ('' = 품종 미입력), price, status: READY|OPEN|SOLD|HOLD|CLOSED, liveClaims }, auto }. packages/voice 단위 시험이 읽는다 — README '음성 바로 등록 골든'.",
   "cases": [
     {
       "id": "G-VSN-V3-01",
@@ -128,13 +128,13 @@
     },
     {
       "id": "G-VSN-V3-05",
-      "title": "가격이 다름 — 1등이 있으면 묻기",
+      "title": "[D-V3-57] 가격이 다름 — 1등이 있으면 묻기",
       "refs": [
         "VOC-04",
         "PRD-06",
         "R-22"
       ],
-      "note": "판매 중(SOLD)이라 상태 검사는 통과, 찜 1",
+      "note": "판매 중(SOLD)이라 상태 검사는 통과, 찜 1 · D-V3-57로 기대 바뀜(처음: ASK/CLAIMS) — N번 + 원 확정 가격으로 다시 들으면 찜·올림·내림과 상관없이 바로 고침",
       "in": {
         "heard": {
           "price": 120000,
@@ -152,11 +152,11 @@
         "auto": true
       },
       "out": {
-        "action": "ASK",
+        "action": "AUTO_FIX",
         "changes": {
           "price": 120000
         },
-        "reason": "CLAIMS"
+        "reason": null
       }
     },
     {
@@ -288,13 +288,13 @@
     },
     {
       "id": "G-VSN-V3-10",
-      "title": "사전 이름으로 바꾸기 — 찜 있으면 묻기",
+      "title": "[D-V3-57] 사전 이름으로 바꾸기 — 찜 있으면 묻기",
       "refs": [
         "VOC-04",
         "PRD-06",
         "R-22"
       ],
-      "note": "채우기가 아니라 바꾸기",
+      "note": "채우기가 아니라 바꾸기 · D-V3-57로 기대 바뀜(처음: ASK/CLAIMS) — N번 + 원 확정 가격으로 다시 들으면 찜·올림·내림과 상관없이 바로 고침",
       "in": {
         "heard": {
           "price": 100000,
@@ -312,11 +312,11 @@
         "auto": true
       },
       "out": {
-        "action": "ASK",
+        "action": "AUTO_FIX",
         "changes": {
           "name": "핑크프릴"
         },
-        "reason": "CLAIMS"
+        "reason": null
       }
     },
     {
@@ -542,13 +542,13 @@
     },
     {
       "id": "G-VSN-V3-18",
-      "title": "추측 품종은 빼고 가격만 — 찜(대기)이 있으면 묻기",
+      "title": "[D-V3-57] 추측 품종은 빼고 가격만 — 찜(대기)이 있으면 묻기",
       "refs": [
         "VOC-04",
         "PRD-06",
         "R-22"
       ],
-      "note": "품종 bts는 추측이라 바꿀 칸이 아님. 대기 찜도 셈",
+      "note": "품종 bts는 추측이라 바꿀 칸이 아님. 대기 찜도 셈 · D-V3-57로 기대 바뀜(처음: ASK/CLAIMS) — N번 + 원 확정 가격으로 다시 들으면 찜·올림·내림과 상관없이 바로 고침",
       "in": {
         "heard": {
           "price": 120000,
@@ -566,22 +566,22 @@
         "auto": true
       },
       "out": {
-        "action": "ASK",
+        "action": "AUTO_FIX",
         "changes": {
           "price": 120000
         },
-        "reason": "CLAIMS"
+        "reason": null
       }
     },
     {
       "id": "G-VSN-V3-19",
-      "title": "사전 채우기 + 가격 — 찜 있으면 전체를 묻기",
+      "title": "[D-V3-57] 사전 채우기 + 가격 — 찜 있으면 전체를 묻기",
       "refs": [
         "VOC-04",
         "PRD-06",
         "R-22"
       ],
-      "note": "채우기 하나뿐이 아님 → 일부만 고치지 않는다",
+      "note": "채우기 하나뿐이 아님 → 일부만 고치지 않는다 · D-V3-57로 기대 바뀜(처음: ASK/CLAIMS) — N번 + 원 확정 가격으로 다시 들으면 찜·올림·내림과 상관없이 바로 고침",
       "in": {
         "heard": {
           "price": 120000,
@@ -599,12 +599,12 @@
         "auto": true
       },
       "out": {
-        "action": "ASK",
+        "action": "AUTO_FIX",
         "changes": {
           "price": 120000,
           "name": "핑크프릴"
         },
-        "reason": "CLAIMS"
+        "reason": null
       }
     },
     {
@@ -862,13 +862,13 @@
     },
     {
       "id": "G-VSN-V3-28",
-      "title": "3배 넘음 — 묻기 (D-V3-33)",
+      "title": "[D-V3-57] 3배 넘음 — 묻기 (D-V3-33)",
       "refs": [
         "VOC-04",
         "PRD-06",
         "R-22"
       ],
-      "note": "300001 > 300000",
+      "note": "300001 > 300000 · D-V3-57로 기대 바뀜(처음: ASK/PRICE_JUMP) — N번 + 원 확정 가격으로 다시 들으면 찜·올림·내림과 상관없이 바로 고침",
       "in": {
         "heard": {
           "price": 300001,
@@ -886,11 +886,11 @@
         "auto": true
       },
       "out": {
-        "action": "ASK",
+        "action": "AUTO_FIX",
         "changes": {
           "price": 300001
         },
-        "reason": "PRICE_JUMP"
+        "reason": null
       }
     },
     {
@@ -928,13 +928,13 @@
     },
     {
       "id": "G-VSN-V3-30",
-      "title": "1/3 미만 — 묻기",
+      "title": "1/3 미만으로 내림 — 찜 없으면 바로 고침 (D-V3-55)",
       "refs": [
         "VOC-04",
         "PRD-06",
         "R-22"
       ],
-      "note": "33333×3 = 99999 < 100000",
+      "note": "D-V3-55: PRICE_JUMP는 올리는 쪽만. 내림은 판매자가 N번 … 원으로 다시 말한 정정일 때가 많다(처음 기대는 ASK/PRICE_JUMP)",
       "in": {
         "heard": {
           "price": 33333,
@@ -952,11 +952,11 @@
         "auto": true
       },
       "out": {
-        "action": "ASK",
+        "action": "AUTO_FIX",
         "changes": {
           "price": 33333
         },
-        "reason": "PRICE_JUMP"
+        "reason": null
       }
     },
     {
@@ -1123,7 +1123,7 @@
     },
     {
       "id": "G-VSN-V3-36",
-      "title": "차례: 큰 변화가 찜보다 먼저",
+      "title": "[D-V3-57] 차례: 큰 변화가 찜보다 먼저",
       "refs": [
         "VOC-04",
         "PRD-06",
@@ -1146,12 +1146,13 @@
         "auto": true
       },
       "out": {
-        "action": "ASK",
+        "action": "AUTO_FIX",
         "changes": {
           "price": 400000
         },
-        "reason": "PRICE_JUMP"
-      }
+        "reason": null
+      },
+      "note": "D-V3-57로 기대 바뀜(처음: ASK/PRICE_JUMP) — N번 + 원 확정 가격으로 다시 들으면 찜·올림·내림과 상관없이 바로 고침"
     },
     {
       "id": "G-VSN-V3-37",
@@ -1312,6 +1313,235 @@
         "changes": {},
         "reason": "PRICE_NOT_SURE"
       }
+    },
+    {
+      "id": "G-VSN-V3-42",
+      "title": "실방송 8차 — 62번 100,000원을 2만 원으로 다시 말함",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": 20000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "",
+          "price": 100000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "AUTO_FIX",
+        "changes": {
+          "price": 20000
+        },
+        "reason": null
+      },
+      "note": "내림 1/5 → 바로 고침(D-V3-55)"
+    },
+    {
+      "id": "G-VSN-V3-43",
+      "title": "[D-V3-57] 내림이어도 찜이 있으면 묻기",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": 20000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "",
+          "price": 100000,
+          "status": "SOLD",
+          "liveClaims": 1
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "AUTO_FIX",
+        "changes": {
+          "price": 20000
+        },
+        "reason": null
+      },
+      "note": "D-V3-57로 기대 바뀜(처음: ASK/CLAIMS) — N번 + 원 확정 가격으로 다시 들으면 찜·올림·내림과 상관없이 바로 고침"
+    },
+    {
+      "id": "G-VSN-V3-44",
+      "title": "내림이어도 '번' 없이 들으면 묻기",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": 20000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "BARE"
+        },
+        "product": {
+          "name": "",
+          "price": 100000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "ASK",
+        "changes": {
+          "price": 20000
+        },
+        "reason": "NUMBER_BARE"
+      }
+    },
+    {
+      "id": "G-VSN-V3-45",
+      "title": "찜 있는 상품 가격 올림 — 바로 고침 (D-V3-57)",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": 150000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "bts",
+          "price": 100000,
+          "status": "SOLD",
+          "liveClaims": 2
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "AUTO_FIX",
+        "changes": {
+          "price": 150000
+        },
+        "reason": null
+      },
+      "note": "정산은 확정 찜 스냅샷 그대로(R-10 NEW_ONLY)"
+    },
+    {
+      "id": "G-VSN-V3-46",
+      "title": "5배 올림이어도 300만 원 이하면 바로 고침",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": 500000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "bts",
+          "price": 100000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "AUTO_FIX",
+        "changes": {
+          "price": 500000
+        },
+        "reason": null
+      },
+      "note": "3배 묻기는 없앰"
+    },
+    {
+      "id": "G-VSN-V3-47",
+      "title": "판매 종료 상품은 여전히 묻기",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": 20000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "bts",
+          "price": 100000,
+          "status": "CLOSED",
+          "liveClaims": 0
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "ASK",
+        "changes": {
+          "price": 20000
+        },
+        "reason": "NOT_OPEN"
+      }
+    },
+    {
+      "id": "G-VSN-V3-48",
+      "title": "찜 있는 상품 품종 사전 이름으로 바꿈 — 바로",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": null,
+          "priceSure": false,
+          "name": "핑크프릴",
+          "nameFrom": "DICTIONARY",
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "bts",
+          "price": 100000,
+          "status": "SOLD",
+          "liveClaims": 1
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "AUTO_FIX",
+        "changes": {
+          "name": "핑크프릴"
+        },
+        "reason": null
+      },
+      "note": "R-10 재출력 필요 표시"
     }
   ]
 }

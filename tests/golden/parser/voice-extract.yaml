@@ -131,16 +131,16 @@ suite: voice-extract
 settings:
   dictionary: [핑크프릴, 라울, 블루엘프]
 cases:
-  - { in: "1 5번 핑크프릴 만오천 원", out: { name: 핑크프릴, confidence: LOW } }           # '1'+'5' = '15'(R-15 15). 규칙 없으면 5번·15,000원 HIGH
+  - { in: "1 5번 핑크프릴 만오천 원", out: { no: 15, name: 핑크프릴, price: 15000, confidence: HIGH } }   # V3 D-V3-54: 숫자 한 개 + 숫자 한 개번 → 두 자리로 이음 = 15 (처음 기대는 비움)
   - { in: "1, 5번 라울 만원", out: { name: 라울, confidence: LOW } }                      # 토큰 끝 ','를 지우면 '1' — 같다. 규칙 없으면 5번·10,000원 HIGH
-  - { in: "1 5 번 라울 만원", out: { name: 라울, confidence: LOW } }                      # 띄어 쓴 '5 번'의 X '5' 앞 '1' → '15'. 규칙 없으면 5번 HIGH
-  - { in: "십 오번 라울 오천 원", out: { name: 라울, confidence: LOW } }                  # '십'+'오' = '십오'(15). 규칙 없으면 5번·5,000원 HIGH
+  - { in: "1 5 번 라울 만원", out: { no: 15, name: 라울, price: 10000, confidence: HIGH } }   # V3 D-V3-54: 15 (처음 기대는 비움)
+  - { in: "십 오번 라울 오천 원", out: { no: 15, name: 라울, price: 5000, confidence: HIGH } }   # V3 D-V3-54: 십(10)의 가장 낮은 자리 십 > 오(5)의 가장 높은 자리 일 → 15 (처음 기대는 비움)
   - { in: "이 십 번 블루엘프 칠천 원", out: { name: 블루엘프, confidence: LOW } }          # '십 번'의 X '십' 앞 '이' → '이십'(20). 규칙 없으면 10번 HIGH
   - { in: "이 십오번 핑크프릴 만원", out: { name: 핑크프릴, confidence: LOW } }            # '이'+'십오' = '이십오'(25). 규칙 없으면 15번 HIGH
-  - { in: "백 오번 라울", out: { name: 라울, confidence: LOW } }                           # '백'+'오' = '백오'(105). 규칙 없으면 5번·'백'=100원 HIGH (가격도 비우는 이유)
+  - { in: "백 오번 라울", out: { no: 105, name: 라울, confidence: LOW } }   # V3 D-V3-54: 백 + 오 = 105, 백은 번호 토큰이라 가격이 아님 (처음 기대는 비움)
   - { in: "2 15번 핑크프릴 만원", out: { name: 핑크프릴, confidence: LOW } }               # '2'+'15' = '215'. 규칙 없으면 15번 HIGH
-  - { in: "백 이십 삼번 라울 만원", out: { name: 라울, confidence: LOW } }                 # '이십'+'삼' = '이십삼'(23). 가격 묶음 '백 이십'(120)·'만원'은 그래도 품종 창에서 빠진다. 규칙 없으면 3번
-  - { in: "15번 1 5번 핑크프릴 만원", out: { name: 핑크프릴, confidence: LOW } }           # 끊어 말한 표시가 하나라도 있으면 비운다('15번'이 따로 있어도). 규칙 없으면 가격 10,000원
+  - { in: "백 이십 삼번 라울 만원", out: { no: 123, name: 라울, price: 10000, confidence: HIGH } }   # V3 D-V3-54: 이십 + 삼 = 23, 백 + 23 = 123 (처음 기대는 비움)
+  - { in: "15번 1 5번 핑크프릴 만원", out: { no: 15, name: 핑크프릴, price: 10000, confidence: HIGH } }   # V3 D-V3-54: 1 5번 = 15, 15번과 같음 (처음 기대는 비움)
   # 앞 토큰을 붙인 글이 R-15로 읽히지 않으면 해당 없다 — 흔한 말버릇 뒤의 번호는 그대로
   - { in: "이 15번 핑크프릴 만원", out: { no: 15, name: 핑크프릴, price: 10000, confidence: HIGH } }   # '이15'는 수가 아니다('이 15번' = 이 15번 상품)
   - { in: "네 15번 라울 오천 원", out: { no: 15, name: 라울, price: 5000, confidence: HIGH } }        # '네15'는 수가 아니다
@@ -304,3 +304,22 @@ cases:
   - { in: "59번 자 보 7만 원", out: { no: 59, price: 70000, confidence: LOW } }              # '자'는 군말 토큰 → 창에서 빠지고 '보'(1글자)만 남음 → 품종 없음
   - { in: "59번 요 자보 7만 원", out: { no: 59, name: 자보, price: 70000, confidence: HIGH } }   # 붙여 쓴 '자보'는 그대로 맞음
   - { in: "15번 네 라울 만원", out: { no: 15, name: 라울, price: 10000, confidence: HIGH } }      # 군말 '네'를 빼도 라울은 그대로
+---
+# V3 — 앞 수와 합치기 (R-17 3, D-V3-54 — 실방송 8차 "오십삼번을 십삼번으로", "63번을 60번으로"). 상품 등록 추출만(음성 문자찜 R-21은 D-I4-01 그대로).
+# 번호 표시 X 바로 앞 수 토큰 P: 둘 다 숫자 한 개면 두 자리, 아니면 자리가 내려갈 때(P 가장 낮은 0 아닌 자리 > X 가장 높은 자리)만 더함. 겹치면 번호·가격 비움. P가 '이'·수 아님이면 D-I4-01 검사.
+suite: voice-extract
+settings:
+  dictionary: [라울]
+cases:
+  - { in: "오십 삼번 라울 만원", out: { no: 53, name: 라울, price: 10000, confidence: HIGH } }   # 50(십) > 3(일) → 53
+  - { in: "50 3번 라울 만원", out: { no: 53, name: 라울, price: 10000, confidence: HIGH } }
+  - { in: "60 3번 라울 만원", out: { no: 63, name: 라울, price: 10000, confidence: HIGH } }
+  - { in: "육십 삼번 라울 만원", out: { no: 63, name: 라울, price: 10000, confidence: HIGH } }
+  - { in: "60 삼번 라울 만원", out: { no: 63, name: 라울, price: 10000, confidence: HIGH } }
+  - { in: "6 3번 라울 만원", out: { no: 63, name: 라울, price: 10000, confidence: HIGH } }      # 숫자 한 개 + 숫자 한 개 → 두 자리
+  - { in: "5 13번 라울 만원", out: { name: 라울, confidence: LOW } }                         # 5(일) vs 13(십) 겹침 → 비움(13번 아님)
+  - { in: "50 13번 라울 만원", out: { name: 라울, confidence: LOW } }                        # 50(십) vs 13(십) 겹침 → 비움
+  - { in: "오 13번 라울 만원", out: { name: 라울, confidence: LOW } }                        # 한 글자 한글 수 오도 수 토큰 → 겹침 → 비움
+  - { in: "육 삼번 라울 만원", out: { name: 라울, confidence: LOW } }                         # 한글 한 글자 둘은 두 자리로 잇지 않음(숫자만) → 겹침 → 비움
+  - { in: "60번 3 라울 만원", out: { name: 라울, price: 10000, confidence: LOW } }           # 번호 뒤 한 자리 수 → 63인지 60인지 애매 → 번호만 비움
+  - { in: "60번 3 개 라울 만원", out: { no: 60, name: 라울, price: 10000, confidence: HIGH } }   # 뒤 '3' 다음이 단위 낱말 '개' → 개수 → 60번
