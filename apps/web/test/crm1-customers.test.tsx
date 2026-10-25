@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { onUnauthorized } from '../src/api/client.ts'
 import type { Buyer } from '../src/api/types.ts'
 import { AllCustomers, forgetCustomerList } from '../src/components/AllCustomers.tsx'
+import { MEMO_CHANGED_ELSEWHERE, MemoEditor } from '../src/components/CustomerParts.tsx'
 import { BuyersPage } from '../src/components/BuyersPage.tsx'
 import { CautionContext, WinnerNames, useConsoleCaution, winnersKey } from '../src/components/caution.tsx'
 import { CustomerSettingsSection, customerSettingsBody, settingValue } from '../src/components/CustomerSettings.tsx'
@@ -430,6 +431,34 @@ describe('"모든 손님" (AC-CRM1-16·17·24)', () => {
     expect(words('PAID', false)).toEqual(['입금 완료'])
     expect(words('UNPAID', false, 0)).toEqual(['미입금'])
     for (const payment of ['UNPAID', 'PARTIAL', 'PAID', 'OVERPAID'] as const) for (const unpaid of [true, false]) expect(words(payment, unpaid).filter((text) => text === '미입금')).toEqual([])
+  })
+})
+
+describe('메모 칸 — 다른 기기 저장 (D-CRM1-08, TE-CRM1-004)', () => {
+  it('쓰는 중이면 다시 받은 메모가 친 글을 지우지 않고 알린다, 쓰는 중이 아니면 새 메모를 따라간다', () => {
+    const first = { text: '처음 메모', savedAt: '2026-10-25T03:00:00.000Z' }
+    const other = { text: '폰 메모', savedAt: '2026-10-26T03:00:00.000Z' }
+    const later = { text: '또 바뀜', savedAt: '2026-10-26T04:00:00.000Z' }
+    const { rerender } = render(<MemoEditor customer="c1" label="유튜브 · 다육이맘" memo={first} today="2026-10-26" />)
+    const box = () => screen.getByLabelText('메모 — 유튜브 · 다육이맘') as HTMLTextAreaElement
+    expect(box().value).toBe('처음 메모')
+    // 쓰는 중이 아니면 따라간다
+    rerender(<MemoEditor customer="c1" label="유튜브 · 다육이맘" memo={other} today="2026-10-26" />)
+    expect(box().value).toBe('폰 메모')
+    expect(document.querySelector('.memo-text')?.textContent).toBe('폰 메모')
+    expect(screen.queryByText(MEMO_CHANGED_ELSEWHERE)).toBeNull()
+    // 쓰는 중에 다른 기기 저장 → 친 글 그대로, 저장된 메모 자리는 새 것, 알림
+    fireEvent.change(box(), { target: { value: 'PC에서 쓰는 중' } })
+    rerender(<MemoEditor customer="c1" label="유튜브 · 다육이맘" memo={later} today="2026-10-26" />)
+    expect(box().value).toBe('PC에서 쓰는 중')
+    expect(document.querySelector('.memo-text')?.textContent).toBe('또 바뀜')
+    expect(screen.getByText(MEMO_CHANGED_ELSEWHERE).getAttribute('role')).toBe('status')
+    // 같은 응답을 또 받아도 친 글 그대로
+    rerender(<MemoEditor customer="c1" label="유튜브 · 다육이맘" memo={{ ...later }} today="2026-10-26" />)
+    expect(box().value).toBe('PC에서 쓰는 중')
+    // 저장된 것과 같게 고치면 알림이 사라진다
+    fireEvent.change(box(), { target: { value: '또 바뀜' } })
+    expect(screen.queryByText(MEMO_CHANGED_ELSEWHERE)).toBeNull()
   })
 })
 

@@ -92,7 +92,7 @@ export function CustomerRecord({ date, buyer, today, refreshKey }: { readonly da
         <>
           <SummaryFacts summary={view.summary} today={base} />
           {view.members.map((member) => (
-            <MemberMemo key={`${member.buyer}|${member.memo?.savedAt ?? ''}`} member={member} today={base} />
+            <MemberMemo key={`${member.buyer}|${member.customer ?? ''}`} member={member} today={base} />
           ))}
         </>
       ) : null}
@@ -119,9 +119,16 @@ function MemberMemo({ member, today }: { readonly member: DayMember; readonly to
   return <MemoEditor customer={member.customer} label={label} memo={member.memo} today={today} />
 }
 
+/** 쓰는 중에 다른 기기가 메모를 바꿨을 때 (TE-CRM1-004) — 친 글은 그대로 두고 알린다 */
+export const MEMO_CHANGED_ELSEWHERE = '다른 기기에서 이 손님 메모를 바꿨어요. 위에 보이는 것이 지금 저장된 메모예요. 쓰던 글을 남기려면 "메모 저장"을 눌러 주세요.'
+
+const memoKey = (memo: MemoView | null): string => (memo === null ? '' : `${memo.savedAt}|${memo.text}`)
+
 /**
  * 메모 칸 하나 (BUY-07, D-CRM1-08): 마지막 메모와 "10월 26일(월) 저장", 글 칸, "메모 저장"(바로), 안내 "연락처·주소는 적지 마세요.".
  * 빈 글로 저장하면 지운다. 서버가 거절하면(번호·길이·제어 글자) 칸 아래 서버 문장 — 친 글은 그대로 둔다.
+ * 다시 받은 메모(다른 기기 저장)는 저장된 메모 자리에 바로 보이고, 글 칸은 저장하지 않은 글이 없을 때만 따라간다 —
+ * 쓰는 중이면 친 글을 그대로 두고 MEMO_CHANGED_ELSEWHERE로 알린다(D-CRM1-08 "나중 것이 마지막"은 저장끼리의 순서, 입력을 지우지 않는다 — TE-CRM1-004).
  */
 export function MemoEditor({ customer, label, memo: initial, today }: { readonly customer: string; readonly label: string; readonly memo: MemoView | null; readonly today: string }) {
   const id = useId()
@@ -130,8 +137,23 @@ export function MemoEditor({ customer, label, memo: initial, today }: { readonly
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const [done, setDone] = useState<string | null>(null)
+  const [changedElsewhere, setChangedElsewhere] = useState(false)
+  const [seen, setSeen] = useState(memoKey(initial))
   const saved = memo?.text ?? ''
   const dirty = text.trim() !== saved
+  // 부르는 쪽이 새 메모를 받아 오면(다른 기기 저장) 그린 중에 맞춘다
+  if (seen !== memoKey(initial)) {
+    setSeen(memoKey(initial))
+    const incoming = initial?.text ?? ''
+    if (memoKey(initial) !== memoKey(memo)) setMemo(initial)
+    if (!dirty) {
+      setText(incoming)
+      setChangedElsewhere(false)
+    } else if (text.trim() !== incoming) {
+      setChangedElsewhere(true)
+      setDone(null)
+    } else setChangedElsewhere(false)
+  }
   useUnsavedGuard(dirty)
   const tooLong = codePoints(text.trim()) > MEMO_MAX
   const problem = error?.problemFor('text')
@@ -145,6 +167,7 @@ export function MemoEditor({ customer, label, memo: initial, today }: { readonly
       const result = await put<{ memo: MemoView | null }>(`/api/customers/${customer}/memo`, { text })
       setMemo(result.memo)
       setText(result.memo?.text ?? '')
+      setChangedElsewhere(false)
       setDone(result.memo === null ? MEMO_CLEARED : MEMO_SAVED)
     } catch (caught) {
       if (!isApiError(caught)) throw caught
@@ -196,6 +219,11 @@ export function MemoEditor({ customer, label, memo: initial, today }: { readonly
           {busy ? '저장하는 중…' : '메모 저장'}
         </button>
       </div>
+      {changedElsewhere && dirty ? (
+        <p className="notice" role="status" data-tone="warning">
+          {MEMO_CHANGED_ELSEWHERE}
+        </p>
+      ) : null}
       {done !== null ? (
         <p className="notice" role="status" data-tone="success">
           {done}

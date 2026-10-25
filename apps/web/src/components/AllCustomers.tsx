@@ -403,7 +403,7 @@ function CustomerDetail({ route, id, navigate }: { readonly route: ScopeRoute; r
       <section className="stack-tight customer-record" aria-label="손님 기록">
         <h3 className="sub-title">손님 기록</h3>
         <SummaryFacts summary={row} today={base} />
-        <MemoEditor key={`${row.id}|${view.memo?.savedAt ?? ''}`} customer={row.id} label={label} memo={view.memo} today={base} />
+        <MemoEditor key={row.id} customer={row.id} label={label} memo={view.memo} today={base} />
       </section>
       <p className="hint">
         <a className="table-link" href={routePath(blockRoute)} onClick={(event) => linkClick(event, () => navigate(blockRoute))}>
