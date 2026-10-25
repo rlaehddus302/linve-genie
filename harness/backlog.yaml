@@ -943,7 +943,7 @@ sprints:
     phase: 6
     title: 음성 상품 등록 — 번호·가격 중심 바로 등록
     dependsOn: []
-    devs: [device, web]
+    devs: [device, server, web]
     tests: [domain, e2e]
     uxReview: false
     goal: >
