@@ -266,3 +266,20 @@ describe('빠른 꼴 수 뒤 판매 말투 (사용자 "150번 180 가겠습니�
     expect(seg('150번 180 가겠습니다', { priceUnit: 'THOUSAND' }).picks).toEqual([])
   })
 })
+
+describe('AC-V3-73 R81~R84 판매 말투는 군말 (D-V3-69, 천원 단위)', () => {
+  const thousand: SegmentOptions = { priceUnit: 'THOUSAND' }
+  it('R81 "150번 180 가겠습니다"(최종) → 150번 · 품종 미입력 · 180,000원', () => {
+    expect(seg('150번 180 가겠습니다', { ...thousand, final: true }).picks).toMatchObject([{ no: 150, name: null, price: 180000 }])
+  })
+  it('R82 "150번 180입니다"·"180까지요"(최종) → 수에 붙은 말투를 떼고 180,000원', () => {
+    expect(seg('150번 180입니다', { ...thousand, final: true }).picks).toMatchObject([{ no: 150, price: 180000 }])
+    expect(seg('150번 180까지요', { ...thousand, final: true }).picks).toMatchObject([{ no: 150, price: 180000 }])
+  })
+  it('R83 중간 결과 "150번 180 가" → 없음', () => {
+    expect(seg('150번 180 가', thousand).picks).toEqual([])
+  })
+  it('R84 "150번 라울 180 드릴게요 자"(중간) → 150번 · 라울 · 180,000원', () => {
+    expect(seg('150번 라울 180 드릴게요 자', thousand).picks).toMatchObject([{ no: 150, name: '라울', price: 180000 }])
+  })
+})

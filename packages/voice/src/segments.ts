@@ -152,7 +152,10 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
         const k = skipFillers(tokens, m.last + 1)
         const name = nameWindowEnd(tokens, k, options)
         const q = name === null ? k : name.end + 1
-        const numberToken = tokens[q]
+        // 수에 붙은 판매 말투는 뗀다 (`180입니다`·`180까지요` — D-V3-69, AC-V3-73)
+        const rawNumber = tokens[q]
+        const attachedTail = rawNumber === undefined ? undefined : [...SALE_TAIL_WORDS].sort((a, b) => b.length - a.length).find((tail) => rawNumber.length > tail.length && rawNumber.endsWith(tail) && QUICK_NUMBER.test(rawNumber.slice(0, -tail.length)))
+        const numberToken = rawNumber !== undefined && attachedTail !== undefined ? rawNumber.slice(0, -attachedTail.length) : rawNumber
         if (numberToken === undefined || !QUICK_NUMBER.test(numberToken)) continue
         const next = markers.find((marker) => marker.start > q)
         const stop = next === undefined ? tokens.length : next.start
