@@ -158,15 +158,17 @@ describe('AC-V3-61 — decideSameNumber 모든 조합 (R-22, D-V3-31~33)', () =>
   function oracle(input: SpecInput): SpecDecision {
     const { heard, product } = input
     const changes: { price?: number; name?: string } = {}
-    if (heard.price !== null && heard.price !== product.price) changes.price = heard.price
+    // 1. 가격은 원까지 확정된(priceSure) 것만 바꿀 칸 — 아니면 묻지도 않고 뺀다 (D-V3-47)
+    const unsurePrice = heard.price !== null && heard.price !== product.price && !heard.priceSure
+    if (heard.price !== null && heard.price !== product.price && heard.priceSure) changes.price = heard.price
     // 1. 품종은 사전 이름일 때만 (D-V3-31 — 추측은 채우지도 바꾸지도 않는다)
     if (heard.nameFrom === 'DICTIONARY' && heard.name !== null && compact(heard.name) !== compact(product.name)) changes.name = heard.name
-    if (Object.keys(changes).length === 0) return { action: 'IGNORE', changes: {}, reason: null }
+    // 2. 바꿀 칸이 없으면 IGNORE — 확정 안 된 다른 가격을 뺀 것이면 까닭 PRICE_NOT_SURE(기록용)
+    if (Object.keys(changes).length === 0) return { action: 'IGNORE', changes: {}, reason: unsurePrice ? 'PRICE_NOT_SURE' : null }
     const ask = (reason: SpecReason): SpecDecision => ({ action: 'ASK', changes, reason })
     if (!input.auto) return ask('NO_AUTO')
     if (heard.numberFrom === 'BARE') return ask('NUMBER_BARE')
     if (product.status !== 'OPEN' && product.status !== 'SOLD') return ask('NOT_OPEN')
-    if (changes.price !== undefined && !heard.priceSure) return ask('PRICE_NOT_SURE')
     if (changes.price !== undefined && jump(product.price, changes.price)) return ask('PRICE_JUMP')
     const fillOnly = changes.price === undefined && compact(product.name) === ''
     if (product.liveClaims > 0 && !fillOnly) return ask('CLAIMS')
@@ -179,20 +181,25 @@ describe('AC-V3-61 — decideSameNumber 모든 조합 (R-22, D-V3-31~33)', () =>
     expect(wrong.length, JSON.stringify(wrong.slice(0, 3))).toBe(0)
   })
 
-  it('늘 지키는 것: 바꿀 칸 없으면 IGNORE · 찜+가격 바뀜·BARE·3배 초과/1/3 미만/300만 초과·READY/HOLD/CLOSED는 AUTO_FIX 아님 · GUESS는 품종을 건드리지 않음', () => {
+  it('늘 지키는 것: 바꿀 칸 없으면 IGNORE · 확정 안 된 가격은 묻지도 바꾸지도 않음(D-V3-47) · 찜+가격 바뀜·BARE·3배 초과/1/3 미만/300만 초과·READY/HOLD/CLOSED는 AUTO_FIX 아님 · GUESS는 품종을 건드리지 않음', () => {
     for (const input of all) {
       const got = decide(input)
       const { heard, product } = input
-      const priceChange = heard.price !== null && heard.price !== product.price
+      const priceDiffers = heard.price !== null && heard.price !== product.price
+      const priceChange = priceDiffers && heard.priceSure
       const nameChange = heard.nameFrom === 'DICTIONARY' && heard.name !== null && compact(heard.name) !== compact(product.name)
-      if (!priceChange && !nameChange) expect(got).toEqual({ action: 'IGNORE', changes: {}, reason: null })
+      if (!priceChange && !nameChange) expect(got).toEqual({ action: 'IGNORE', changes: {}, reason: priceDiffers ? 'PRICE_NOT_SURE' : null })
+      if (!heard.priceSure) expect(got.changes.price).toBeUndefined()
+      if (!heard.priceSure && !nameChange) expect(got.action).toBe('IGNORE')
       if (product.liveClaims > 0 && got.changes.price !== undefined) expect(got.action).not.toBe('AUTO_FIX')
       if (heard.numberFrom === 'BARE') expect(got.action).not.toBe('AUTO_FIX')
       if (heard.nameFrom !== 'DICTIONARY') expect(got.changes.name).toBeUndefined()
       if (heard.price !== null && priceChange && jump(product.price, heard.price)) expect(got.action).not.toBe('AUTO_FIX')
       if (['READY', 'HOLD', 'CLOSED'].includes(product.status)) expect(got.action).not.toBe('AUTO_FIX')
-      if (got.action === 'IGNORE' || got.action === 'AUTO_FIX') expect(got.reason).toBeNull()
+      if (got.action === 'AUTO_FIX') expect(got.reason).toBeNull()
+      else if (got.action === 'IGNORE') expect([null, 'PRICE_NOT_SURE']).toContain(got.reason)
       else expect(got.reason).not.toBeNull()
+      expect(got.reason).not.toBe(got.action === 'ASK' ? 'PRICE_NOT_SURE' : '')
       expect(Object.keys(got).sort()).toEqual(['action', 'changes', 'reason'])
     }
   })
