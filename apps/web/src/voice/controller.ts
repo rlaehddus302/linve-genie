@@ -77,6 +77,7 @@ import {
   REASON_CLAIMS,
   REASON_NOT_OPEN,
   REASON_PRICE_NOT_SURE,
+  NO_PRICE_LOG,
   REASON_BARE_NUMBER,
   REASON_PRICE_FAR,
   PRICE_CHECK_NOTE,
@@ -1117,6 +1118,12 @@ export class VoiceController {
             reason: placed.no !== null ? module.VOICE_LOG_REASONS.numberAfterPrice : v3.heardNumbers.length >= 2 ? module.manyNumbersReason(v3.heardNumbers) : module.VOICE_LOG_REASONS.noNumber,
             cancelled: false,
           }
+          reason = action.reason
+          break
+        }
+        // 바로 등록 켬: 번호만 있고 '원' 가격이 없는 결과는 카드를 띄우지 않는다 — 같은 덩어리에서 '원' 가격이 오면 이미 바로 등록됐다 (D-V3-44)
+        if (v3 !== null && this.#snapshot.instant && !v3.priceSure) {
+          action = { kind: 'discard', reason: NO_PRICE_LOG, cancelled: false }
           reason = action.reason
           break
         }

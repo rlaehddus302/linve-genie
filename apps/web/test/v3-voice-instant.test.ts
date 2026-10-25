@@ -198,16 +198,33 @@ describe('바로 등록 (V3)', () => {
     expect(cards(h)).toEqual([])
   })
 
-  it('번호나 가격이 확정되지 않으면 자동 등록 없이 카드로', async () => {
+  it('D-V3-44: 바로 등록 켬에서 \'원\' 가격이 없는 결과는 카드 없이 기록 "가격을 못 들었어요" — 끔이면 카드', async () => {
     const h = await ready()
+    say('이 10번 오타 하나 지우신 거예요')
+    at(2000)
+    expect(h.registered).toEqual([])
+    expect(cards(h)).toEqual([])
+    expect(h.voice.getSnapshot().log[0]?.reason).toBe('가격을 못 들었어요')
+    say('15번 핑크프릴 만오천')
+    at(5000)
+    expect(cards(h)).toEqual([])
+    const off = await ready({ settings: { 'voice.autoRegister': false } })
     say('15번 핑크문')
     at(3000)
-    expect(h.registered).toEqual([])
-    expect(cards(h).map((card) => card.no)).toEqual([15])
+    expect(off.registered).toEqual([])
+    expect(cards(off).map((card) => card.no)).toEqual([15])
   })
 
-  it('같은 번호 카드가 열려 있으면 새 카드를 만들지 않고 그 카드를 고친다', async () => {
+  it('D-V3-44: 같은 덩어리에서 나중에 \'원\' 가격이 오면 바로 등록', async () => {
     const h = await ready()
+    say('15번 핑크프릴')
+    at(1000)
+    say('만오천 원')
+    expect(reg(h)).toEqual([{ no: 15, name: '핑크프릴', price: 15000, source: 'instant' }])
+  })
+
+  it('같은 번호 카드가 열려 있으면 새 카드를 만들지 않고 그 카드를 고친다 (바로 등록 끔)', async () => {
+    const h = await ready({ settings: { 'voice.autoRegister': false } })
     say('15번 핑크문')
     at(3000)
     expect(cards(h)).toHaveLength(1)
@@ -279,10 +296,11 @@ describe('바로 등록 V3 수용 사례', () => {
     at(2000)
     expect(cards(h)).toEqual([])
     expect(h.voice.getSnapshot().readout?.text).toBe('번호를 못 들었어요')
+    const off = await ready({ settings: { 'voice.autoRegister': false } })
     say('15번 핑크프릴')
-    at(5000)
-    const card = cards(h)[0]
-    expect(h.voice.cardInfo(card?.id ?? '')?.ask).toBe('가격을 말하면 바로 등록돼요')
+    at(3000)
+    const card = cards(off)[0]
+    expect(off.voice.cardInfo(card?.id ?? '')?.ask).toBe('가격을 말하면 바로 등록돼요')
   })
 
   it('R26: 등록 뒤 같은 덩어리에서 다른 번호가 들리면 알림만 ("알겠어요"까지)', async () => {
@@ -332,24 +350,30 @@ describe('바로 등록 V3 수용 사례', () => {
     expect(reg(h).map((item) => item.no)).toEqual([21, 21])
   })
 
-  it('R22·R23: 열린 카드에 같은 번호를 합치고, 원 가격이 들리면 그 카드(핑크문)로 바로 등록', async () => {
+  it('R22·R23 (D-V3-44 뒤): 원 없는 말은 카드가 없고, "15번 만오천 원"에서 바로 등록 · 끔이면 열린 카드에 합친다', async () => {
     const h = await ready()
     say('15번 핑크프릴 만오천')
     at(3000)
     say('15번 핑크문 만오천')
     at(6000)
-    expect(cards(h).map((card) => [card.no, card.name])).toEqual([[15, '핑크문']])
+    expect(cards(h)).toEqual([])
     say('15번 만오천 원')
     at(9000)
-    expect(reg(h)).toEqual([{ no: 15, name: '핑크문', price: 15000, source: 'instant' }])
-    expect(cards(h)).toEqual([])
+    expect(reg(h)).toEqual([{ no: 15, name: '', price: 15000, source: 'instant' }])
+    const off = await ready({ settings: { 'voice.autoRegister': false } })
+    say('15번 핑크프릴 만오천')
+    at(3000)
+    say('15번 핑크문 만오천')
+    at(6000)
+    expect(cards(off).map((card) => [card.no, card.name])).toEqual([[15, '핑크문']])
   })
 
   it('카드 "닫기"를 누른 번호는 같은 말을 해도 카드만 (D-V3-10)', async () => {
-    const h = await ready()
+    const h = await ready({ settings: { 'voice.autoRegister': false } })
     say('15번 핑크프릴 만오천')
     at(3000)
     h.voice.close(cards(h)[0]?.id ?? '')
+    h.voice.setInstant(true)
     say('15번 핑크프릴 만오천 원')
     at(6000)
     expect(h.registered).toEqual([])
@@ -462,8 +486,8 @@ describe('추측 품종은 등록에 쓰지 않는다 (D-V3-37)', () => {
     expect(h.voice.getSnapshot().readout?.text).toBe('15번 10,000원 등록했어요')
   })
 
-  it('카드 품종 칸은 비우고 추측은 후보 단추 — 누르면 채우고 손댄 카드', async () => {
-    const h = await ready()
+  it('카드 품종 칸은 비우고 추측은 후보 단추 — 누르면 채우고 손댄 카드 (바로 등록 끔)', async () => {
+    const h = await ready({ settings: { 'voice.autoRegister': false } })
     say('15번 bts 자 bts 만오천')
     at(3000)
     const card = cards(h)[0]
