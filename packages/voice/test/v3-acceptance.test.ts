@@ -3,13 +3,16 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import {
   MERGE_TOUCHED_REASON,
+  askFor,
   canLearnAlias,
+  chooseAction,
   checkVoiceSettings,
   chooseInstantAction,
   createCard,
   decideSameNumber,
   extractVoice,
   guessVariety,
+  isCardWorthy,
   learnAlias,
   mergeIntoCard,
   mergeSameNumberCards,
@@ -185,5 +188,45 @@ describe('D-V3-37 추측은 등록·합치기에 쓰지 않는다', () => {
     const older = card('bts', null, { id: 'a', nameNeedsCheck: true })
     const merged = mergeSameNumberCards([newer, older])
     expect(merged[0]).toMatchObject({ id: 'b', status: 'OPEN', name: null, price: 15000 })
+  })
+})
+
+describe('AC-V3-51 카드는 확정된 번호가 있을 때만 (D-V3-41)', () => {
+  const act = (text: string) => chooseAction(chunk(text), { cards: [], now: 0, registration: reg(text) })
+  it.each([
+    ['어 자 요거 지금 189번인데 뿌리가 있습니다 뿌리 있는데 컵이 너무 잘 들었어요 빅뱅 금 139번 얘 50만 원 들어요', '번호가 여럿 들렸어요: 189·139'], // R7
+    ['자 9cm에 이거 25만 원 170', '번호가 가격 뒤에 들렸어요'], // R34
+    ['삼광색금 3강 25만 원', '번호를 못 들었어요'], // R35
+    ['요 아이는 65만 원까지 자 색감이 이렇게 예쁘게 나왔네요 자 60 어 자', '번호가 가격 뒤에 들렸어요'], // R44
+    ['칠만 원', '번호를 못 들었어요'], // R50
+    ['핑크문 만원', '번호를 못 들었어요'], // R50
+  ])('%s → 카드 없음, 기록 "%s"', (text, reason) => {
+    expect(act(text)).toEqual({ kind: 'discard', reason, cancelled: false })
+  })
+  it('R51 "15번" → 작은 카드 "가격을 말하면 바로 등록돼요"', () => {
+    const action = act('15번')
+    expect(action).toMatchObject({ kind: 'create', ask: '가격을 말하면 바로 등록돼요', extraction: { no: 15, price: null } })
+    expect(askFor({ name: '라울', price: null })).toBe('가격을 말하면 바로 등록돼요')
+  })
+  it('isCardWorthy는 no ≠ null일 때만', () => {
+    expect(isCardWorthy({ no: null, name: '핑크문', price: 10000, confidence: 'LOW' })).toBe(false)
+    expect(isCardWorthy({ no: 15, name: null, price: null, confidence: 'LOW' })).toBe(true)
+  })
+  it('번호 없는 덩어리는 맨 앞 열린 카드 이어 채우기만', () => {
+    const open = card(null, null)
+    expect(chooseAction(chunk('엘레강스 이만원'), { cards: [open], now: 3000, chunkStartedAt: 2000, registration: reg('엘레강스 이만원') })).toMatchObject({ kind: 'fill', cardId: 'c1' })
+  })
+})
+
+describe('실방송 화면 사례 — 군말이 낀 창은 사전 이름에 맞추지 않는다', () => {
+  const text = '지금 금이 선명하게 안 보여서 그런지 금은 다 있어요 자 그러면 안쪽부터 금은 다 물고 있습니다 청개구리 어 요이 자 얘는 행운의 소장합니다 7만 원'
+  it('번호 없음 → 카드 없음, 품종도 없음', () => {
+    expect(extractVoice(text, { dictionary: DICT })).toEqual({ no: null, name: null, price: 70000, confidence: 'LOW' })
+    expect(chooseAction(chunk(text), { cards: [], now: 0, registration: reg(text) })).toEqual({ kind: 'discard', reason: '번호를 못 들었어요', cancelled: false })
+  })
+  it("'자' + 다음 낱말 창이 '자보' 같은 사전 이름이 되지 않는다", () => {
+    expect(extractVoice('59번 자 보 7만 원', { dictionary: DICT }).name).toBeNull()
+    expect(extractVoice('59번 요 자보 7만 원', { dictionary: DICT }).name).toBe('자보')
+    expect(extractVoice('59번 얘는 자보 7만 원', { dictionary: DICT }).name).toBe('자보')
   })
 })

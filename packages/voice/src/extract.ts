@@ -4,7 +4,7 @@
 // 정규화(R-3)·금액(R-14)·수사(R-15)는 코어 함수를 그대로 다시 쓴다 — 코어와 결과가 갈라지지 않게.
 import { normalizeText, parseAmount, parseKoreanNumber } from '@livejjim/core'
 import { VarietyDictionary, type DictionaryEntry } from './dictionary.ts'
-import { looksLikePredicate } from './words.ts'
+import { isWindowFiller, looksLikePredicate } from './words.ts'
 import { BIT_PATTERN_MAX, JamoPattern, bitParallelDistance, candidateLengthRange, compareSimilarity, isCandidate, jamoKey, jamoOf, type Similarity } from './jamo.ts'
 
 export type Confidence = 'HIGH' | 'LOW'
@@ -732,7 +732,8 @@ export function analyzeSentence(text: unknown, options: ExtractOptions = {}): Se
   const price = markers.split ? null : bundles.price
   // 가격을 비워도 묶음 토큰은 품종 창에서 뺀다 (R-17 4·5)
   const excluded = (i: number): boolean => isMarker(i) || bundles.tokens.has(i) || bundles.bare.has(i)
-  const windows = windowTexts(tokens, tokens.map(windowForms), excluded)
+  // 군말 토큰(`자`·`요`·`얘는`·`요거` 등)은 품종 창에서 뺀다 — 군말이 끼거나 군말로 시작한 창이 사전 이름에 맞지 않게(실방송: `자`+`보…` → 자보)
+  const windows = windowTexts(tokens, tokens.map(windowForms), (i) => excluded(i) || isWindowFiller(tokens[i] as string))
   const variety = findVariety(windows, dictionary)
 
   const confidence: Confidence = no !== null && price !== null && variety.name !== null && variety.exact ? 'HIGH' : 'LOW'

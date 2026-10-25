@@ -191,3 +191,16 @@
   - v2-units "200개 넘으면 오래된 것부터": 들은 말을 숫자 없는 3글자 이상으로 바꿨다(D-V3-38).
   - v3-register 실방송 2: 품종을 null로 바꾸고 guess bts를 따로 확인한다.
   - v3-acceptance (c2): 빈 카드에 추측을 채우지 않는다.
+
+### dev-device 추가 10 — D-V3-41 (spec fcb3880a), AC-V3-51, '자보' 사례
+- `isCardWorthy`는 `no ≠ null`일 때만 참이다.
+- `chooseAction`이 새 context 칸 `registration?: { heardNumbers, blocked }`를 받는다. 화면은 같은 덩어리의 `readRegistration` 결과를 넘긴다.
+  - 서로 다른 번호 둘 이상 → `discard`, 까닭 `manyNumbersReason([189, 139])` = "번호가 여럿 들렸어요: 189·139".
+  - '번' 없는 번호가 가격 뒤(`blocked` = `BARE_NUMBER_AFTER_PRICE`) → `discard`, 까닭 `VOICE_LOG_REASONS.numberAfterPrice` = "번호가 가격 뒤에 들렸어요".
+  - 번호 없음(품종·가격은 있음) → 이어 채우기만 한다. 채울 카드가 없으면 `discard`, 까닭 `VOICE_LOG_REASONS.noNumber` = "번호를 못 들었어요".
+  - `registration`을 생략하면 번호 둘·가격 뒤 검사는 하지 않는다(번호 없음 검사는 한다).
+- `ASK_PRICE`·`ASK_NAME_PRICE` = "가격을 말하면 바로 등록돼요"(번호만·품종만 있는 카드). V2 단위 시험 S3 문구 기대를 D-V3-41로 바꿨다.
+- '자보' 사례: 최신 코드로 재현하면 그 문장은 번호 없음 → 카드 없음이고, 추측도 쓰지 않는다.
+  - '자보'는 군말 토큰 `자`와 다음 토큰을 이은 창에서 맞춰진 것으로 본다. 그래서 군말 토큰을 품종 창에서 뺀다(extract.ts, words.ts `isWindowFiller`).
+  - 빼는 토큰: 한 글자 군말 자·네·예·어·음·응·요·좀·막·또·뭐·얘·쟤·걔, 그리고 R-17 7 군말. 끝말 은·는·이·가·을·를·요·도·랑을 뗀 모양까지 본다.
+  - 골든 159사례는 그대로 통과한다(`나울→라울` 포함). **R-17 5 창 문장에 더해야 한다 — 스펙 관리자 확인 필요.**

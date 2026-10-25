@@ -6,7 +6,7 @@ import type { VarietyCandidate } from './candidates.ts'
 import type { ChunkField, ChunkReading } from './correction.ts'
 import type { Confidence, VoiceExtraction } from './extract.ts'
 import { resolveVoiceSettings, type VoiceSettings } from './settings.ts'
-import { VOICE_LOG_REASONS } from './voice-log.ts'
+import { VOICE_LOG_REASONS, manyNumbersReason } from './voice-log.ts'
 
 /** 이어 채우기: 맨 앞 카드를 만든 때부터 덩어리 모으기 시작까지 (D-V2-04) */
 export const FILL_WINDOW_MS = 10_000
@@ -15,8 +15,9 @@ export const RECENT_WINDOW_MS = 60_000
 /** 고칠까요 카드로 고친 뒤 되돌리기 시간 (D-V2-06 3) */
 export const OFFER_UNDO_MS = 10_000
 
-export const ASK_NAME_PRICE = '품종·가격을 말해 주세요'
-export const ASK_PRICE = '가격을 말해 주세요'
+/** V3 D-V3-41: 번호만 있는 카드 — 원 가격이 들리면 바로 등록된다(이어 채우기·합치기) */
+export const ASK_NAME_PRICE = '가격을 말하면 바로 등록돼요'
+export const ASK_PRICE = '가격을 말하면 바로 등록돼요'
 export const NUMBER_FIX_MESSAGE = '번호는 상품 목록에서 고쳐 주세요'
 export const UNDO_LATE_MESSAGE = '되돌릴 시간이 지났어요. 상품 목록에서 고쳐 주세요.'
 
@@ -44,6 +45,8 @@ export interface TargetContext {
   readonly chunkStartedAt?: number
   /** 덩어리 글이 300글자를 넘었는가 (R-17 1 — "문장이 너무 길어요") */
   readonly tooLong?: boolean
+  /** 같은 덩어리의 V3 읽기 (readRegistration) — 번호 둘·가격 뒤 '번' 없는 번호를 버리는 데 쓴다(D-V3-41). 생략하면 그 검사 없음 */
+  readonly registration?: { readonly heardNumbers: readonly number[]; readonly blocked: string | null } | null
 }
 
 export interface ChunkFields {
@@ -84,7 +87,7 @@ export type VoiceAction =
 const isTime = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 const discard = (reason: string | null, cancelled = false): VoiceAction => ({ kind: 'discard', reason, cancelled })
 
-/** 카드 안내: 번호만 있으면 "품종·가격을 말해 주세요", 가격만 없으면 "가격을 말해 주세요" (D-V2-04) */
+/** 카드 안내: 가격이 없으면 "가격을 말하면 바로 등록돼요" (D-V2-04, V3 D-V3-41) */
 export function askFor(fields: { readonly name: string | null; readonly price: number | null }): string | null {
   if (fields.price !== null) return null
   return fields.name === null ? ASK_NAME_PRICE : ASK_PRICE
@@ -234,20 +237,31 @@ function tryFill(reading: ChunkReading, context: TargetContext, startedAt: numbe
  * 정정 덩어리: (1) 첫 조각에 번호 → 새 카드(취소면 버림) (2) 맨 앞 열린 카드 고침·닫기 (3) 60초 안 등록 상품의 고칠까요·되돌릴까요 카드
  * (4) 대상이 없으면 "고칠 카드가 없어요", 대상은 있는데 칸이 없으면 "번호와 가격이 안 들렸어요".
  */
+/** 번호 없는·확정 안 된 번호 결과의 까닭 (D-V3-41) — 카드 없이 기록만 */
+function numberDiscard(reading: ChunkReading, context: TargetContext): VoiceAction | null {
+  const heard = context.registration?.heardNumbers ?? []
+  if (reading.no === null && heard.length >= 2) return discard(manyNumbersReason(heard))
+  if (reading.no !== null && context.registration?.blocked === 'BARE_NUMBER_AFTER_PRICE') return discard(VOICE_LOG_REASONS.numberAfterPrice)
+  return null
+}
+
 export function chooseAction(reading: ChunkReading, context: TargetContext): VoiceAction {
   try {
+    const blockedNumber = numberDiscard(reading, context)
     if (context.tooLong === true) return discard(VOICE_LOG_REASONS.tooLong)
     const now = isTime(context.now) ? context.now : 0
     const startedAt = isTime(context.chunkStartedAt) ? context.chunkStartedAt : now
     if (!reading.correction) {
-      if (reading.no !== null) return createAction(reading)
+      if (reading.no !== null) return blockedNumber ?? createAction(reading)
       const fill = tryFill(reading, context, startedAt)
       if (fill !== null) return fill
       if (isCardWorthy(reading)) return createAction(reading)
-      return discard(VOICE_LOG_REASONS.noFields)
+      // 번호 없는 결과는 카드 없이 기록만 (D-V3-41)
+      if (blockedNumber !== null) return blockedNumber
+      return discard(reading.name !== null || reading.price !== null ? VOICE_LOG_REASONS.noNumber : VOICE_LOG_REASONS.noFields)
     }
     // (1) 덩어리 안 정정: 첫 조각(표시 앞)에 번호가 있으면 덮은 결과로 새 카드, 취소면 버림
-    if (reading.leadNumber) return reading.cancel ? discard(null, true) : createAction(reading)
+    if (reading.leadNumber) return reading.cancel ? discard(null, true) : (blockedNumber ?? createAction(reading))
     const card = frontOpenCard(context.cards)
     // (2) 맨 앞 열린 카드
     if (card !== null) {
@@ -274,7 +288,7 @@ export function chooseAction(reading: ChunkReading, context: TargetContext): Voi
       return { kind: 'offer', registrationId: recent.id, changes, message: offerMessage(recent, changes) }
     }
     // 고칠 대상이 없는데 번호까지 들린 말(`아니 16번 핑크문 만원`)은 새 카드로 — 판매자가 한 말을 버리지 않는다
-    if (reading.no !== null && !reading.cancel) return createAction(reading)
+    if (reading.no !== null && !reading.cancel) return blockedNumber ?? createAction(reading)
     return discard(VOICE_LOG_REASONS.noTarget)
   } catch {
     return discard(VOICE_LOG_REASONS.noFields)

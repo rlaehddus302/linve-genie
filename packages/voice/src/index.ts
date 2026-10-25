@@ -180,6 +180,7 @@ export {
   addLogEntry,
   clearLog,
   clipLogText,
+  manyNumbersReason,
   maskLongDigits,
   MASKED_DIGITS,
   MASK_DIGITS_MIN,

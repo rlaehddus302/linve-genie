@@ -91,7 +91,8 @@ describe('이어 붙이기 S2·S3·S16·S17·S21 (AC-V2-11·13·18)', () => {
     const first = simulate([{ text: '십오번', at: 0 }], 1800)
     expect(first.cards.map(view)).toEqual([{ no: 15, name: null, price: null }])
     const action = first.actions[0]?.action
-    expect(action?.kind === 'create' && action.ask).toBe('품종·가격을 말해 주세요')
+    // AC-V2-18 문구는 V3 D-V3-41·AC-V3-51로 바뀜 ("품종·가격을 말해 주세요" → "가격을 말하면 바로 등록돼요")
+    expect(action?.kind === 'create' && action.ask).toBe('가격을 말하면 바로 등록돼요')
     const run = simulate(
       [
         { text: '십오번', at: 0 },

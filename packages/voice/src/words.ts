@@ -38,3 +38,13 @@ export function isCommonWord(text: string): boolean {
   const key = normalizeText(text).split(' ').join('')
   return [...key].length <= 2 || isFiller(key) || looksLikePredicate(key) || /[0-9]/.test(key)
 }
+
+/** 품종 창에서 빼는 한 글자 군말 (방송 말버릇 — `자`·`요`·`어`·`얘` 등) */
+export const WINDOW_ONE_CHAR_FILLERS: readonly string[] = Object.freeze(['자', '네', '예', '어', '음', '응', '요', '좀', '막', '또', '뭐', '얘', '쟤', '걔'])
+
+/** 품종 창에서 뺄 군말 토큰인가: 토큰 그대로 또는 끝말 뗀 모양이 한 글자 군말이거나 R-17 7 군말 */
+export function isWindowFiller(token: string): boolean {
+  const forms = [token, ...ENDING_STRIPS.filter((ending) => token.length > ending.length && token.endsWith(ending)).map((ending) => token.slice(0, -ending.length))]
+  return forms.some((form) => WINDOW_ONE_CHAR_FILLERS.includes(form) || isFiller(form))
+}
+const ENDING_STRIPS: readonly string[] = ['은', '는', '이', '가', '을', '를', '요', '도', '랑']
