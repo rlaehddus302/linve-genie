@@ -130,7 +130,8 @@ test.describe('I4 흐름 깨뜨리기', () => {
     await expect(page.getByRole('dialog', { name: '음성 기록' })).not.toContainText('늦게 온 문장이에요')
   })
 
-  test('음성이 켜진 채 다른 방송 콘솔로 바로 가면 인식이 멈추고 새 콘솔은 꺼진 상태', async ({ page }) => {
+  // V3 교체(D-V3-52, AC-V3-58 (f)): 음성은 켠 방송에 묶여 켜진 채이고, 다른 방송 콘솔은 안내와 [그 방송으로 가기] — 그 콘솔엔 음성 등록이 생기지 않는다
+  test('음성이 켜진 채 다른 방송 콘솔로 바로 가면 인식은 켠 방송에 남고 새 콘솔엔 안내만, 음성 카드·등록 없음', async ({ page }) => {
     const { b } = await setup(page)
     await speak(page, '15번 라울 만원')
     const other = await (async () => {
@@ -144,13 +145,16 @@ test.describe('I4 흐름 깨뜨리기', () => {
       dispatchEvent(new PopStateEvent('popstate'))
     }, other)
     await expect(page.getByLabel('빠른 입력')).toBeFocused()
-    await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
+    await expect(page.getByText(/^음성은 '.+' 방송에서 듣는 중이에요\. 여기서 쓰려면 그 방송에서 끄고 여기서 켜 주세요\.$/)).toBeVisible()
+    await expect(page.getByRole('button', { name: '그 방송으로 가기' }).or(page.getByRole('link', { name: '그 방송으로 가기' }))).toBeVisible()
     await expect(cardList(page)).toHaveCount(0)
     const after = await page.evaluate(() => (window as unknown as { __speech: { stops: number; aborts: number } }).__speech)
-    expect(after.stops + after.aborts).toBeGreaterThan(before.stops + before.aborts)
-    // 지난 인식 객체의 늦은 결과는 새 콘솔에 카드를 만들지 않는다
+    expect(after.stops + after.aborts).toBe(before.stops + before.aborts)
+    // 들은 말은 켠 방송(A)의 것 — 이 콘솔(B)엔 카드도 상품도 생기지 않는다
     await speak(page, '16번 라울 만원')
+    await expect(page.getByText(/^음성은 '.+' 방송에서 듣는 중이에요/)).toBeVisible()
     await expect(cardList(page)).toHaveCount(0)
+    await expect(boardItem(page, 16)).toHaveCount(0)
     void b
   })
 
@@ -209,7 +213,9 @@ test.describe('I4 흐름 깨뜨리기', () => {
     await turnOnVoice(page)
     const long = '자 여러분 이번에 보여드릴 상품은요 정말 오랜만에 들어온 아주아주예쁜핑크빛으로물든다육이인데요 '.repeat(3)
     await speak(page, long, { final: false })
-    await expect(voiceRegion(page).getByText(/^들리는 말:/)).toBeVisible()
+    // V3 교체(D-V3-50): "들리는 말:" 줄 대신 맨 위 큰 칸
+    await expect(page.getByRole('region', { name: '지금 들리는 말', exact: true })).toContainText('아주아주예쁜핑크빛으로물든다육이인데요')
+    await expect(page.getByText(/^들리는 말:/)).toHaveCount(0)
     let width = await page.evaluate(() => document.documentElement.scrollWidth)
     expect(width).toBeLessThanOrEqual(375)
     await speak(page, `15번 핑크프릴 만오천 원 ${long}`)

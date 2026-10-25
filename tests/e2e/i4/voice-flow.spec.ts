@@ -44,9 +44,10 @@ test('AC-I4-90: 음성 등록 끝까지(①~⑧) — 보드·범위 이력·실�
   await expect(boardItem(page, 15)).toBeVisible()
   await expect(cardList(page)).toHaveCount(0)
   // ③ 끊어 말한 번호 → 카드 없음
-  await speak(page, '십 오번 라울 오천 원')
+  // V3 교체(D-V3-54): "십 오번"은 앞 수와 합쳐 15번 — 끊어 말해 비우는 꼴은 자리가 겹치는 "5 13번"(AC-V3-65)
+  await speak(page, '5 13번 라울 오천 원')
   await openVoiceLog(page)
-  await expect(voiceLogItems(page).first()).toContainText('십 오번 라울 오천 원')
+  await expect(voiceLogItems(page).first()).toContainText('5 13번 라울 오천 원')
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog', { name: '음성 기록' })).toHaveCount(0)
   await expect(cardList(page)).toHaveCount(0)
@@ -68,6 +69,8 @@ test('AC-I4-90: 음성 등록 끝까지(①~⑧) — 보드·범위 이력·실�
   await expect(boardItem(page, 17)).toBeVisible()
   // ⑥ 이미 있는 번호 → V3 교체(D-V3-06·D-V3-22 b): 카드·창 없이 R-22 묻기(설정 끔), "그대로 두기"로 바꾸지 않음
   await speak(page, '15번 라울 만원')
+  // 덩어리가 끝날 때까지(조용한 시간) — 설정은 말한 때를 따르므로(D-V3-35) 다음 덩어리 전에 끝낸다
+  await expect(page.getByRole('region', { name: '지금 들리는 말', exact: true })).not.toContainText('듣는 중…')
   const ask = page.getByRole('list', { name: '방금 등록한 상품 고치기' }).getByRole('listitem', { name: /^15번을 고칠까요\? / })
   await expect(ask).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -83,6 +86,7 @@ test('AC-I4-90: 음성 등록 끝까지(①~⑧) — 보드·범위 이력·실�
   await page.keyboard.press('Control+z')
   await expect(page.getByText('18번 등록을 되돌렸어요(판매 종료)')).toBeVisible()
   // ⑧ (D-V3-02·44: 바로 등록을 끄면 '원'이 없는 말은 카드) 음성 끄기 → 기다려도 등록 없음 → 등록 누르기
+  await expect(page.getByRole('region', { name: '지금 들리는 말', exact: true })).not.toContainText('듣는 중…')
   await (await openExtras(page)).getByRole('checkbox', { name: '번호와 가격이 들리면 바로 등록' }).uncheck()
   await input.focus()
   await speak(page, '19번 라울 만')
@@ -133,7 +137,7 @@ test('AC-I4-90: 음성 등록 끝까지(①~⑧) — 보드·범위 이력·실�
   // 실제 범위(같은 날짜)에는 아무것도 없다
   expect(await history(page, date, false)).toEqual([])
   // 인식 문장은 어느 요청에도 없다
-  for (const word of ['안녕하세요', '십 오번', '만오천', '핑크푸릴', '칠천', '만원']) {
+  for (const word of ['안녕하세요', '5 13번', '만오천', '핑크푸릴', '칠천', '만원']) {
     for (const r of requests) {
       expect(decodeURIComponent(r.url)).not.toContain(word)
       expect(r.body).not.toContain(word)

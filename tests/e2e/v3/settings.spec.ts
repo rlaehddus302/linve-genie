@@ -194,18 +194,21 @@ test('AC-V3-43 (d): 덩어리 도중 설정을 끈 덩어리는 바로 등록하
   await expect(boardItem(page, 108)).toHaveCount(0)
 })
 
-test('AC-V3-44: 휴대폰 폭 375 — 알림·묻기 카드·가격 확인 카드가 가로로 넘치지 않고 단추 44px 이상, 영어 상태값 없음', async ({ page }) => {
+test('AC-V3-44: 휴대폰 폭 375 — 알림·가격 못 들은 번호 카드가 가로로 넘치지 않고 단추 44px 이상, 영어 상태값 없음', async ({ page }) => {
   await setupV3(page, { width: 375 })
   await sayChunk(page, '189번 빅뱅금 50만 원 139번')
-  // D-V3-45: 다른 번호 안내는 큰 글자 칸 4초(알림 카드 아님)
+  // D-V3-45·61: 다른 번호 안내는 큰 글자 칸 4초(알림 카드 아님) — 등록 안내 다음 차례
+  await page.clock.runFor(2000)
   await expect(readout(page)).toHaveText('189번으로 등록했는데 139번도 들렸어요. 맞는지 확인해 주세요.')
   await page.clock.runFor(6000)
   await sayChunk(page, '189번 60만 원')
   await expect(notice(page, '189번을 고쳤어요: 가격 500,000원 → 600,000원')).toBeVisible()
   await page.clock.runFor(1000)
-  // D-V3-41·44: 번호 둘·번호만은 켬에서 카드가 없다 — 켬에서 남는 "가격 확인 필요" 카드(R46)로 본다
-  await sayChunk(page, '38번 605만 원까지')
-  await expect(page.getByText('가격 확인 필요')).toBeVisible()
+  // 켬에서 남는 카드: "가격 못 들은 번호"(D-V3-67 — 가격 칸·[등록]·[닫기])
+  await sayChunk(page, '15번')
+  await page.clock.runFor(1000)
+  await sayChunk(page, '16번 2만 원')
+  await expect(page.getByText('15번 가격을 못 들었어요')).toBeVisible()
   const width = await page.evaluate(() => document.documentElement.scrollWidth)
   expect(width).toBeLessThanOrEqual(375)
   const region = page.getByRole('region', { name: '음성 등록' })

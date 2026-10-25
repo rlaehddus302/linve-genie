@@ -57,16 +57,18 @@ test.describe('I4 음성 켜기·끄기', () => {
     await expect(voiceRegion(page)).toHaveCount(0)
     expect((await speechCounts(page)).instances).toBe(0)
 
-    // 켜고 방송 목록에 다녀오면 꺼짐, 인식은 멈춘다
+    // V3 교체(D-V3-52, AC-V3-58): 켜고 방송 목록에 다녀와도 음성은 켜진 채(인식을 멈추지 않음), 돌아오면 "듣는 중"
     await turnOnVoice(page)
+    counts = await speechCounts(page)
+    const stopped = counts.stops + counts.aborts
     await page.getByRole('link', { name: '방송 목록' }).click()
     await expect(page.getByRole('button', { name: '새 방송 시작' })).toBeVisible()
     counts = await speechCounts(page)
-    expect(counts.stops + counts.aborts).toBeGreaterThanOrEqual(1)
-    await page.goto(`/broadcasts/${encodeURIComponent(b)}`)
+    expect(counts.stops + counts.aborts).toBe(stopped)
+    await page.goBack()
     await expect(page.getByLabel('빠른 입력')).toBeFocused()
-    await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
-    await expect(voiceRegion(page)).toHaveCount(0)
+    await expect(voiceRegion(page).getByRole('status').filter({ hasText: '음성: 듣는 중' })).toBeVisible()
+    void b
   })
 
   test('AC-I4-11: 처음 켤 때 안내 창 — 문장 세 개·처음 포커스 닫기, 닫기·Esc는 꺼진 그대로, 두 번째는 창 없이, 인식 설정 ko-KR·continuous·interim', async ({ browser }) => {
@@ -234,14 +236,18 @@ test.describe('I4 음성 켜기·끄기', () => {
     await login(page)
     await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
     await turnOnVoice(page)
+    // V3 교체(D-V3-50, AC-V3-56): "들리는 말:" 줄이 없어지고 중간 결과는 맨 위 큰 칸("지금 들리는 말")에만 덮어써 보인다
+    const now = page.getByRole('region', { name: '지금 들리는 말', exact: true })
     await speak(page, '15번 핑', { final: false })
-    await expect(voiceRegion(page).getByText('들리는 말: 15번 핑', { exact: true })).toBeVisible()
+    await expect(now).toContainText('15번 핑')
+    await expect(page.getByText(/^들리는 말:/)).toHaveCount(0)
     await speak(page, '15번 핑크프릴', { final: false })
-    await expect(voiceRegion(page).getByText('들리는 말: 15번 핑크프릴', { exact: true })).toBeVisible()
-    await expect(voiceRegion(page).getByText('들리는 말: 15번 핑', { exact: true })).toHaveCount(0)
+    await expect(now).toContainText('15번 핑크프릴')
+    await expect(now.getByText('15번 핑', { exact: true })).toHaveCount(0)
+    await expect(page.getByText(/^들리는 말:/)).toHaveCount(0)
     await expect(cardList(page)).toHaveCount(0)
     await speak(page, '15번 핑크프릴 만오천 원')
-    await expect(voiceRegion(page).getByText(/^들리는 말:/)).toHaveCount(0)
+    await expect(page.getByText(/^들리는 말:/)).toHaveCount(0)
     await expect(card(page, '15번 핑크프릴 15,000원')).toBeVisible()
     await speak(page, '<img src=x onerror=alert(1)>16번 라울 만원')
     // D-V3-41: 번호가 붙지 않은 말이라 카드는 생기지 않는다 — 글자 그대로는 음성 기록에서 본다(아래)
@@ -325,7 +331,7 @@ test.describe('I4 음성 켜기·끄기', () => {
     await input.press('Control+z')
     await expect(page.getByText('20번 등록을 되돌렸어요(판매 종료)')).toBeVisible()
 
-    // 켜고 카드를 만든 채 떠났다 오면 카드·기록 없음
+    // V3 교체(D-V3-52, AC-V3-58): 켜고 카드를 만든 채 떠났다 와도 음성은 켜진 채(인식을 멈추지 않음)이고 카드는 그 방송 콘솔에 남는다
     await turnOnVoice(page)
     await speak(page, '17번 라울 만원')
     await expect(card(page, '17번 라울 10,000원')).toBeVisible()
@@ -333,12 +339,11 @@ test.describe('I4 음성 켜기·끄기', () => {
     await page.getByRole('link', { name: '방송 목록' }).click()
     await expect(page.getByRole('button', { name: '새 방송 시작' })).toBeVisible()
     const after = await speechCounts(page)
-    expect(after.stops + after.aborts).toBeGreaterThan(before.stops + before.aborts)
+    expect(after.stops + after.aborts).toBe(before.stops + before.aborts)
     await page.goBack()
     await expect(page.getByLabel('빠른 입력')).toBeFocused()
-    await expect(cardList(page)).toHaveCount(0)
-    await expect(page.getByRole('region', { name: '음성 설정과 기록' })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
+    await expect(card(page, '17번 라울 10,000원')).toBeVisible()
+    await expect(voiceRegion(page).getByRole('status').filter({ hasText: '음성: 듣는 중' })).toBeVisible()
     void b
   })
 })

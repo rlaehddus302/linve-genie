@@ -117,13 +117,14 @@ test('TE-V3-001 AC-V3-22 R4: 실제 방송 3 → 결과 11에서 180번 삼광�
   await expectRegisteredAt(page, writes, BROADCAST_3, 11, [180, '삼광색금', 350000])
 })
 
-test('AC-V3-22 R5: 실제 방송 4 → 결과 17(174번)에서 174번 삼광색금 280,000원', async ({ page }) => {
+test('TE-V3-013 AC-V3-22 R5 (D-V3-46): 실제 방송 4 → 결과 23(둘째 원)에서 174번 삼광색금 280,000원 — 앞에 번호 없던 첫 28만 원은 버림', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
-  await expectRegisteredAt(page, writes, BROADCAST_4, 17, [174, '삼광색금', 280000])
+  await expectRegisteredAt(page, writes, BROADCAST_4, 23, [174, '삼광색금', 280000])
 })
 
-test('AC-V3-22 R6: 실제 방송 5 → 결과 15(원)에서 3번 삼광색금 250,000원 (D-V3-20)', async ({ page }) => {
+// AC-V3-22 "그 덩어리의 쓰기는 하나뿐" — 지금은 남은 조각의 '번' 없는 170으로 170번 250,000원을 또 등록한다(TE-V3-012)
+test('TE-V3-012 AC-V3-22 R6: 실제 방송 5 → 결과 15(원)에서 3번 삼광색금 250,000원 하나뿐 (D-V3-20)', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
   await expectRegisteredAt(page, writes, BROADCAST_5, 15, [3, '삼광색금', 250000])
@@ -178,10 +179,20 @@ test('AC-V3-24 R12: "택배는 이삼 일 걸리고 만 원이에요" → 쓰기
   await expect(voiceCards(page)).toHaveCount(0)
 })
 
-// R39~R42 (D-V3-25~27): 글 끝의 '번' 없는 수는 기다림·끊어 말한 번호·자리가 겹치지 않는 앞 수·띄어 쓴 한글 한 글자 → 쓰기 0
+// R39·R40: D-V3-54(앞 수와 합치기 — "1 5번" = 15번, "이십 오번" = 25번) + D-V3-46(가격 뒤 번호 꼴은 덩어리 끝에 짝) → 덩어리 끝에 등록 하나
+// (사례 표 R39·R40의 "쓰기 0"은 D-V3-54 전 기대 — spec-keeper 확인 요청)
+for (const [id, sentence, no] of [['R39', '25만 원 1 5번', 15], ['R40', '25만 원 이십 오번', 25]] as const) {
+  test(`AC-V3-24 ${id} (D-V3-54·46): "${sentence}" → 덩어리 끝에 ${String(no)}번 250,000원 등록 하나`, async ({ page }) => {
+    await setupV3(page)
+    const writes = recordWrites(page)
+    await sayChunk(page, sentence)
+    await expect.poll(() => productWrites(writes)).toEqual([['product.register', no, '', 250000]])
+    await expect(voiceCards(page)).toHaveCount(0)
+  })
+}
+
+// R41·R42 (D-V3-25·27): 자리가 겹치지 않는 앞 수·띄어 쓴 한글 한 글자 → 쓰기 0
 const NO_WRITES: readonly (readonly [string, string, boolean])[] = [
-  ['R39', '25만 원 1 5번', false],
-  ['R40', '25만 원 이십 오번', false],
   ['R41', '100 5만 원', true],
   ['R41', '이백 오만 원', true],
   ['R41', '육백 삼만원', true],
@@ -200,17 +211,11 @@ for (const [id, sentence, noCard] of NO_WRITES) {
   })
 }
 
-// 가격 300만 원 넘음(D-V3-33): 번호는 확정이라 카드는 남는다(D-V3-41) + "가격 확인 필요"
-test('AC-V3-24 R46: "38번 605만 원까지" → 쓰기 0, 카드 "38번 품종 미입력 6,050,000원" + "가격 확인 필요"', async ({ page }) => {
+// D-V3-64: 300만 원 상한이 없어졌다 — 분명히 들은 등록은 크기와 상관없이 바로(기록에 "크게 바뀜")
+test('AC-V3-24 R46 (D-V3-64): "38번 605만 원까지" → 결과 3(원)에서 38번 품종 미입력 6,050,000원 바로 등록, 카드 없음', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
-  await sayChunk(page, '38번 605만 원까지')
-  const c = card(page, '38번 품종 미입력 6,050,000원')
-  await expect(c).toBeVisible()
-  await expect(voiceCards(page)).toHaveCount(1)
-  await expect(c.getByText('가격 확인 필요')).toBeVisible()
-  await settle(page)
-  expect(productWrites(writes)).toEqual([])
+  await expectRegisteredAt(page, writes, '38번 605만 원까지', 3, [38, '', 6050000])
 })
 
 // D-V3-41 (AC-V3-51): 확정된 번호가 없으면 카드 없이 기록만 — 가격 뒤 '번' 없는 번호(R34·R44)·번호 없음(R35·R50)
@@ -256,17 +261,18 @@ test('AC-V3-24 R37 (설정 끔): "15번 라울 174 28만 원" → 쓰기 0, 카�
   await expect(card(page, '15번 라울 가격 없음')).toBeVisible()
 })
 
-// R52 (켬, D-V3-44): 번호만·원 없는 가격 → 화면 카드 0, 기록 "가격을 못 들었어요"
-for (const sentence of ['이 10번 오타 하나 지우신 거예요 아 그런가요', '15번 핑크프릴 만오천']) {
-  test(`AC-V3-28·51 R52 (켬): "${sentence}" → 쓰기 0, 카드 0, 기록 "가격을 못 들었어요"`, async ({ page }) => {
+// R52 (켬, D-V3-44·67): 번호만·원 없는 가격 → 그때 화면 카드 0·쓰기 0, 그 번호는 기다리는 번호 — 60초가 지나면 "가격 못 들은 번호" 카드
+for (const [sentence, no] of [['이 10번 오타 하나 지우신 거예요 아 그런가요', 10], ['15번 핑크프릴 만오천', 15]] as const) {
+  test(`AC-V3-28·72 R52 (켬): "${sentence}" → 쓰기 0, 카드 0, 60초 뒤 카드 "${String(no)}번 가격을 못 들었어요"`, async ({ page }) => {
     await setupV3(page)
     const writes = recordWrites(page)
     await sayChunk(page, sentence)
     await settle(page)
     expect(productWrites(writes)).toEqual([])
     await expect(voiceCards(page)).toHaveCount(0)
-    const dlg = await openLog(page)
-    await expect(dlg.getByRole('list', { name: '음성 기록 목록' }).getByRole('listitem').first()).toContainText('가격을 못 들었어요')
+    await page.clock.runFor(61_000)
+    await expect(voiceCards(page).filter({ hasText: `${String(no)}번 가격을 못 들었어요` })).toHaveCount(1)
+    expect(productWrites(writes)).toEqual([])
   })
 }
 

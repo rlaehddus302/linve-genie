@@ -3,8 +3,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import {
   boardItem,
-  card,
-  cardButton,
   claimOne,
   history,
   notice,
@@ -13,6 +11,7 @@ import {
   readout,
   recordWrites,
   registerProduct,
+  scopeView,
   sayChunk,
   sayWords,
   settle,
@@ -95,54 +94,86 @@ test('AC-V3-30: 10초가 지나면 [되돌리기]가 사라진다', async ({ pag
   await expect(boardItem(page, 108)).toContainText('120,000원')
 })
 
-test('AC-V3-31 R14: 1등이 있는 108번에 "108번 12만 원" → 쓰기 0, 묻기 카드 + 까닭 줄. 또 말해도 묻기 카드 하나', async ({ page }) => {
-  await with108(page, { claim: true })
-  const writes = recordWrites(page)
-  await sayChunk(page, '108번 12만 원')
-  const ask = notice(page, ASK)
-  await expect(ask).toBeVisible()
-  await expect(ask.getByText(REASON_CLAIMS)).toBeVisible()
-  await expect(ask.getByRole('button', { name: '고치기' })).toBeVisible()
-  await expect(ask.getByRole('button', { name: '그대로 두기' })).toBeVisible()
-  await settle(page)
-  expect(productWrites(writes)).toEqual([])
+/** 음성으로 108번 10만 원을 등록하고(이 콘솔의 최근 등록 — D-V3-59 고쳐 말함 조건), 1등 찜 하나를 받는다 */
+async function voice108WithClaim(page: Page, b: string): Promise<void> {
+  await sayChunk(page, '108번 10만 원')
+  await expect(boardItem(page, 108)).toBeVisible()
+  await claimOne(page, b, 108)
+  await expect(boardItem(page, 108)).toContainText('찜손님')
   await page.clock.runFor(1000)
-  await sayChunk(page, '108번 12만 원')
-  await expect(notices(page).getByRole('listitem', { name: ASK })).toHaveCount(1)
-  expect(productWrites(writes)).toEqual([])
-  await expect(boardItem(page, 108)).toContainText('100,000원')
-})
+}
 
-test('AC-V3-31: [고치기] → 손 고치기와 같은 창("확정된 찜에도 새 가격을 적용할까요?", 기본 적용 안 함)', async ({ page }) => {
-  await with108(page, { claim: true })
-  await sayChunk(page, '108번 12만 원')
-  await notice(page, ASK).getByRole('button', { name: '고치기' }).click()
-  // 손 고치기와 같은 고치기 창(들은 값이 채워짐) → 적용 범위 질문, 처음 포커스는 "아니요, 새 찜부터"(기본 적용 안 함)
-  const edit = page.getByRole('dialog', { name: '108번 고치기' })
-  await expect(edit.getByLabel('가격')).toHaveValue(/120,?000/)
-  await edit.getByRole('button', { name: '고치기' }).click()
-  const apply = page.getByRole('dialog', { name: '확정된 찜에도 새 가격을 적용할까요?' })
-  await expect(apply.getByRole('button', { name: '아니요, 새 찜부터' })).toBeFocused()
-})
-
-test('AC-V3-31: [그대로 두기] → 쓰기 0, 108번은 거절한 번호', async ({ page }) => {
-  await with108(page, { claim: true })
+test('AC-V3-31 R14 (D-V3-57·59): 이 콘솔이 방금 음성 등록한 108번(1등 하나)에 "108번 12만 원" → 고치기 하나(NEW_ONLY), 알림에 찜 전 가격 문장·[되돌리기], 1등 정산 금액 그대로', async ({ page }) => {
+  const { b, date } = await setupV3(page)
+  await voice108WithClaim(page, b)
   const writes = recordWrites(page)
   await sayChunk(page, '108번 12만 원')
-  await notice(page, ASK).getByRole('button', { name: '그대로 두기' }).click()
-  await expect(notices(page).getByRole('listitem', { name: ASK })).toHaveCount(0)
-  await settle(page)
-  expect(productWrites(writes)).toEqual([])
+  const fixed = notice(page, '108번을 고쳤어요: 가격 100,000원 → 120,000원')
+  await expect(fixed).toBeVisible()
+  await expect(fixed).toContainText('찜 1개는 전 가격 그대로예요. 바꾸려면 상품에서 고쳐 주세요.')
+  await expect(fixed.getByRole('button', { name: '되돌리기' })).toBeVisible()
+  await expect.poll(() => productWrites(writes)).toEqual([['product.update', 108, 120000]])
+  const update = writes.find((w) => w.type === 'product.update')!
+  expect(update.body['applyTo'] ?? 'NEW_ONLY').toBe('NEW_ONLY')
+  await expect(boardItem(page, 108)).toContainText('120,000원')
+  const view = await scopeView(page, date, true)
+  const winner = view.settlements.find((st) => st.subtotal > 0)
+  expect(winner?.subtotal).toBe(100000)
+  // [되돌리기] → 100,000원
+  await fixed.getByRole('button', { name: '되돌리기' }).click()
   await expect(boardItem(page, 108)).toContainText('100,000원')
+  expect(productWrites(writes)).toEqual([
+    ['product.update', 108, 120000],
+    ['product.update', 108, 100000],
+  ])
 })
 
-test('TE-V3-007 AC-V3-32 R15: 품종 미입력·1등 있는 108번에 "108번 핑크프릴 10만 원" → 품종만 고치기, "품종 없음 → 핑크프릴"', async ({ page }) => {
-  await with108(page, { name: '', claim: true })
+test('AC-V3-68 (c) (D-V3-59): 65번 등록 뒤 66번을 등록하고 "65번 5만 원" — 찜 0이면 바꾸고 4초 안내', async ({ page }) => {
+  await setupV3(page)
+  const writes = recordWrites(page)
+  await sayChunk(page, '65번 3만 원')
+  await expect(boardItem(page, 65)).toBeVisible()
+  await page.clock.runFor(1000)
+  await sayChunk(page, '66번 2만 원')
+  await expect(boardItem(page, 66)).toBeVisible()
+  await page.clock.runFor(5000)
+  await sayWords(page, '65번 5만 원')
+  await expect(readout(page)).toHaveText("65번을 바꿨어요: 30,000원 → 50,000원 · 아까 것이 다른 번호였으면 '아까 65번은 61번'이라고 말해 주세요")
+  await expect.poll(() => productWrites(writes).filter((w) => w[0] === 'product.update')).toEqual([['product.update', 65, 50000]])
+})
+
+test('AC-V3-68 (c) (D-V3-59): 65번 등록 뒤 66번을 등록하고 "65번 5만 원" — 찜 2개면 쓰기 0과 카드 [새 가격으로 바꾸기] [아까 것을 다른 번호로]', async ({ page }) => {
+  const { b } = await setupV3(page)
+  const writes = recordWrites(page)
+  await sayChunk(page, '65번 3만 원')
+  await expect(boardItem(page, 65)).toBeVisible()
+  await claimOne(page, b, 65, '첫손님')
+  await claimOne(page, b, 65, '둘손님')
+  await page.clock.runFor(1000)
+  await sayChunk(page, '66번 2만 원')
+  await expect(boardItem(page, 66)).toBeVisible()
+  await page.clock.runFor(5000)
+  const before = productWrites(writes).length
+  await sayChunk(page, '65번 5만 원')
+  const ask = notice(page, '65번이 이미 있어요 (30,000원, 찜 2개)')
+  await expect(ask).toBeVisible()
+  await expect(ask.getByRole('button', { name: '새 가격으로 바꾸기' })).toBeVisible()
+  await settle(page)
+  expect(productWrites(writes)).toHaveLength(before)
+  await expect(boardItem(page, 65)).toContainText('30,000원')
+  // [아까 것을 다른 번호로] → 65번 상품의 번호 고치기 칸(손 고치기)
+  await ask.getByRole('button', { name: '아까 것을 다른 번호로' }).click()
+  await expect(page.getByRole('dialog').filter({ hasText: '65번' }).first()).toBeVisible()
+  expect(productWrites(writes)).toHaveLength(before)
+})
+
+test('AC-V3-32 R15 (D-V3-57·59): 방금 음성 등록한 108번(품종 미입력·1등 하나)에 "108번 핑크프릴 10만 원" → 품종만 고치기, "품종 없음 → 핑크프릴"', async ({ page }) => {
+  const { b } = await setupV3(page)
+  await voice108WithClaim(page, b)
   const writes = recordWrites(page)
   await sayChunk(page, '108번 핑크프릴 10만 원')
-  // 찜이 있는 상품의 고치기는 방송자 조치 대기(시험 서버 2초)를 거칠 수 있다
   await page.clock.runFor(2500)
-  await expect(notice(page, '108번을 고쳤어요: 품종 없음 → 핑크프릴')).toBeVisible()
+  await expect(notices(page).getByRole('listitem', { name: /^108번을 고쳤어요: 품종 없음 → 핑크프릴/ })).toBeVisible()
   await expect.poll(() => productWrites(writes)).toEqual([['product.update', 108, '핑크프릴']])
 })
 
@@ -158,18 +189,17 @@ test('AC-V3-32 R16: 품종 미입력·1등 있는 108번에 "108번 bts bts 10�
   await expect(notices(page)).toHaveCount(0)
 })
 
-test('AC-V3-24 R45: 38번 설비 650,000원(찜 없음)에 "ui 자 38번 605만 원까지" → 쓰기 0, "38번을 고칠까요? 가격 650,000원 → 6,050,000원" (D-V3-33)', async ({ page }) => {
+test('AC-V3-24 R45 (D-V3-64): 38번 설비 650,000원(찜 없음)에 "ui 자 38번 605만 원까지" → 바로 고침 6,050,000원·[되돌리기], 품종은 그대로', async ({ page }) => {
   await setupV3(page, { before: async ({ b }) => {
     await registerProduct(page, b, 38, '설비', 650000)
     await expect(boardItem(page, 38)).toBeVisible()
   } })
   const writes = recordWrites(page)
   await sayChunk(page, 'ui 자 38번 605만 원까지')
-  await expect(notice(page, '38번을 고칠까요? 가격 650,000원 → 6,050,000원')).toBeVisible()
-  await settle(page)
-  expect(productWrites(writes)).toEqual([])
-  await expect(boardItem(page, 38)).toContainText('650,000원')
+  await expect.poll(() => productWrites(writes)).toEqual([['product.update', 38, 6050000]])
+  await expect(boardItem(page, 38)).toContainText('6,050,000원')
   await expect(boardItem(page, 38)).toContainText('설비')
+  await expect(notices(page).getByRole('button', { name: '되돌리기' })).toBeVisible()
 })
 
 test('AC-V3-24 R47: 100,000원 108번에 "108번 30만 원" → 결과 3에서 300,000원으로 바로 고침 (딱 3배는 받음)', async ({ page }) => {
@@ -247,6 +277,8 @@ test('AC-V3-36 R20: "21번 핑크문 만원 취소" → 등록 뒤 되돌림(21�
     },
   })
   await page.clock.runFor(QUIET_MS + 100)
+  // 4초 안내는 차례로(D-V3-61): "등록했어요" 4초 뒤 "되돌렸어요"
+  await page.clock.runFor(2500)
   await expect(readout(page)).toHaveText('21번 등록을 되돌렸어요')
   await expect(boardItem(page, 21)).toContainText('판매 종료')
   expect(productWrites(writes)).toEqual([
@@ -276,18 +308,22 @@ test('AC-V3-37: 5초 띠에서 되돌린 번호는 같은 말을 해도 카드�
   await expect(voiceCards(page)).toHaveCount(1)
 })
 
-test('AC-V3-37: 카드 "닫기"를 누른 번호는 같은 말(원 있음)을 해도 바로 등록하지 않는다 (켬에서 남는 가격 확인 카드로, D-V3-44)', async ({ page }) => {
+test('AC-V3-37 (D-V3-10·67): "가격 못 들은 번호" 카드를 "닫기"로 닫은 번호는 같은 말(원 있음)을 해도 바로 등록하지 않는다', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
-  await sayChunk(page, '38번 605만 원까지')
-  await cardButton(page, '38번 품종 미입력 6,050,000원', '닫기').click()
-  await expect(voiceCards(page)).toHaveCount(0)
+  await sayChunk(page, '15번')
   await page.clock.runFor(1000)
-  await sayChunk(page, '38번 60만 원')
+  await sayChunk(page, '16번 2만 원')
+  await expect(boardItem(page, 16)).toBeVisible()
+  const missed = voiceCards(page).filter({ hasText: '15번 가격을 못 들었어요' })
+  await expect(missed).toHaveCount(1)
+  await missed.getByRole('button', { name: /닫기$/ }).click()
+  await expect(missed).toHaveCount(0)
+  await page.clock.runFor(1000)
+  await sayChunk(page, '15번 3만 원')
   await settle(page)
-  expect(productWrites(writes)).toEqual([])
-  await expect(boardItem(page, 38)).toHaveCount(0)
-  await expect(card(page, '38번 품종 미입력 600,000원')).toBeVisible()
+  expect(productWrites(writes).filter((w) => w[1] === 15)).toEqual([])
+  await expect(boardItem(page, 15)).toHaveCount(0)
 })
 
 test('AC-V3-39: 등록 응답을 2초 늦춘 채 R1 → 같은 번호 처리는 응답 뒤, 카드 생기지 않음, 쓰기 하나', async ({ page }) => {
