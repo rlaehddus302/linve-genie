@@ -31,3 +31,18 @@
 - 지적으로 남기지 않은 관찰(설계대로): 한 글의 댓글이 1,000개를 넘으면 전체 읽기는 늘 오래된 1,000개만 보므로, 그 뒤 한 차례에 1,000개 넘게 몰리면 영원히 막다른 경우가 된다 — D-BND1-16의 막다른 경우 알림이 이를 판매자에게 알린다.
 
 돌린 명령: `TZ=Asia/Seoul pnpm exec vitest run --config vitest.adversarial.config.ts tests/adversarial/bnd1` (25개 통과, 약 13초), `pnpm exec tsc -p tsconfig.json --noEmit`, `pnpm exec eslint tests/adversarial/bnd1`
+
+## 3회차 (감사 3회차 고침 확인 — dadfc9ed·4efb185f 뒤, D-BND1-22·23)
+
+- `fast-read-attacks.test.ts` TD-BND1-002를 D-BND1-23 (가)대로 **더 엄하게** 바꿨다(10초 차례를 기대하던 것):
+  - 알림이 난 뒤 둘째·셋째 차례는 59초 동안 요청 0, 60초에 차례. 회복도 60초 차례에서(59초엔 기록 0). 닿은 뒤에는 9초 동안 요청 0·10초에 다음 차례.
+  - 회복이 4분 뒤로 밀려 늦게 읽음 알림(AC-BND1-54) "밴드 댓글을 4분 동안 읽지 못했어요. 그 사이 달린 댓글 25개를 지금 넣었어요. 찜 순서는 지금 넣은 차례예요."가 하나 더 — 지우지 않고 글자 그대로 단언, 알림 차례 STUCK·LATE·STUCK, unseen 3, `BAND_STUCK` 로그 2.
+- 새 파일 `pace-attacks.test.ts`:
+  - fast-check(6번): 회차 끝이 아닌 거절 코드(NOT_FOUND·STATE_FORMAT·NOT_SUPPORTED·NOT_LINKED·ENGINE_ERROR·비슷한 이름 `BROADCAST_ENDED_X`·소문자 `sealed`·빈 문자열) 1~8번 → 간격 = min(10초×2^i, 300초)(0 없음), 걸린 타이머 늘 1, 차례마다 기록 시도 1, `RETRYING` 문장·마지막으로 읽은 때 그대로, `BAND_RECORD_REJECTED` 거절 코드 차례 그대로·로그에 댓글 글·이름 없음, 1ms 전엔 요청 0, 풀리면 그 댓글이 `chat` 1개·`READING`·그 뒤 130초 돌아도 두 번 없음.
+  - 거절이 끝없이(1시간): 기록 시도 16번(다시 시도 시간표 그대로), 타이머 늘 1 — 그 사이 회차 끝 → `FINISHED`·"방송을 끝내서…"·그 뒤 900초 요청 0·타이머 0.
+  - 끝나지 않는 쪽 넘기기 막다른 경우: 알림 뒤 120초 댓글 목록 요청 ≤ 306, 600초 동안 차례 10번·간격 정확히 60초, 알림 한 번.
+  - 1001 × 세 판매자(읽는 중·막다른 경우·기록 거절로 다시 시도): 첫 신호 뒤 300초까지·둘째 신호 뒤 600초까지 세 판매자 모두 `sort=+created_at` 0, 그동안 빠른 읽기로 새 댓글 기록, 그 뒤 세 판매자 모두 전체 읽기가 다시.
+- 민감도: `apps/server/src/band/service.ts`만 잠깐 dadfc9ed^ 판으로 돌려 돌렸더니 새·강화 시험 5개 모두 실패. 곧바로 되돌렸다(제품 코드 변경 없음).
+- 관찰(지적 minor, 스펙 확인 필요): 한도 신호 뒤 600초 안에 판매자가 새로 잇기를 누르면 기준선 읽기(`#readComments` full, `sort=+created_at`)는 그대로 나간다. 잇기는 기준선이 있어야 하는 판매자 조작이라 막지 않는 것이 맞아 보이나 AC-BND1-53 글은 "600초 동안 전체 읽기를 하지 않는다"뿐이다.
+
+돌린 명령: `TZ=Asia/Seoul pnpm exec vitest run --config vitest.adversarial.config.ts tests/adversarial/bnd1/` (4파일 29개 통과), `pnpm exec tsc --noEmit -p tsconfig.json`, `pnpm exec eslint tests/adversarial/bnd1/`

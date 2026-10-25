@@ -126,9 +126,14 @@ describe('TD-BND1-002 쪽 넘기기가 끝나지 않는 응답 — 이은 뒤 �
     const endless = (op: string, next: unknown) => (op === 'comments' ? { ...((next as Record<string, unknown> | null) ?? {}), after: String((n += 1)) } : next)
     const keys = burst(w, postKey, 25)
     w.fake.pagingOverride = endless
+    // 첫 차례는 10초 뒤, 막다른 경우 알림 뒤로는 닿을 때까지 60초 간격 (D-BND1-23 (가)) — 59초 동안 요청 0
     for (let round = 0; round < 3; round += 1) {
       const before = w.fake.calls('comments').length
-      await tick(w, 10_000)
+      if (round > 0) {
+        await tick(w, 59_000)
+        expect(w.fake.calls('comments').length - before).toBe(0)
+      }
+      await tick(w, round === 0 ? 10_000 : 1_000)
       const used = w.fake.calls('comments').length - before
       expect(used).toBeGreaterThan(0)
       expect(used).toBeLessThanOrEqual(3 * (Math.ceil(1_000 / 20) + 10))
@@ -138,19 +143,30 @@ describe('TD-BND1-002 쪽 넘기기가 끝나지 않는 응답 — 이은 뒤 �
     expect(notices.items.filter((item) => item.kind === 'STUCK').map((item) => item.message)).toEqual([STUCK])
     expect(notices.unseen).toBe(1)
     expect(w.logs.filter((log) => log.code === 'BAND_STUCK')).toHaveLength(1)
-    // 회복: 다음 차례에 25개 모두, 작성 시각 순서
+    // 회복: 다음 차례(아직 60초 간격)에 25개 모두, 작성 시각 순서
     w.fake.pagingOverride = null
-    await tick(w, 10_000)
+    await tick(w, 59_000)
+    expect(await chats(w, seller.sellerId)).toHaveLength(0)
+    await tick(w, 1_000)
     expect(await recordedKeys(w, seller.sellerId)).toEqual(keys)
+    // 닿는 읽기가 성공했으니 다시 10초 간격
+    const back = w.fake.calls('comments').length
+    await tick(w, 9_000)
+    expect(w.fake.calls('comments').length).toBe(back)
     expect(stuckCount(await noticesOf(w, seller, b))).toBe(1)
     // 닿은 읽기가 있은 뒤 다시 막히면 그것은 새 막다른 경우 — 알림 하나 더
     burst(w, postKey, 25)
     w.fake.pagingOverride = endless
-    await tick(w, 10_000)
-    await tick(w, 10_000)
+    await tick(w, 1_000)
+    expect(w.fake.calls('comments').length).toBeGreaterThan(back)
+    await tick(w, 60_000)
     notices = await noticesOf(w, seller, b)
     expect(stuckCount(notices)).toBe(2)
-    expect(notices.unseen).toBe(2)
+    // 60초 간격 탓에 회복이 4분 뒤 — 늦게 읽음 알림(AC-BND1-54)이 하나 더 (지우지 않고 글자 그대로)
+    expect(notices.items.map((item) => item.kind)).toEqual(['STUCK', 'LATE', 'STUCK'])
+    expect(notices.items[1]?.message).toBe('밴드 댓글을 4분 동안 읽지 못했어요. 그 사이 달린 댓글 25개를 지금 넣었어요. 찜 순서는 지금 넣은 차례예요.')
+    expect(notices.unseen).toBe(3)
+    expect(w.logs.filter((log) => log.code === 'BAND_STUCK')).toHaveLength(2)
     w.fake.pagingOverride = null
   }, 120_000)
 })
