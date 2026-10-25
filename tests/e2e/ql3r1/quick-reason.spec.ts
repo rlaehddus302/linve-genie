@@ -61,7 +61,7 @@ test.describe('AC-QL3R1-30 빠른 사유 한 번으로 5초 되돌리기 대기'
       await second.dlg.getByRole('button', { name: '1 시청자 요청', exact: true }).click()
       await expect(second.dlg).toHaveCount(0)
       await expect(undoBar(s.dev).getByRole('status').filter({ hasText: /초 뒤 보내요: 1번.* 밤톨맘 취소$/ })).toBeVisible()
-      await expect(undoBar(s.dev).getByRole('status').filter({ hasText: /^보냈어요: 1번.* 밤톨맘 취소$/ })).toBeVisible({ timeout: DELAY + 10_000 })
+      await expect(undoBar(s.dev).getByRole('status').filter({ hasText: /^1번 1등 자리가 비었어요 · 대기 없음 · 판매 중$/ })).toBeVisible({ timeout: DELAY + 10_000 }) // 합친 뒤 MOB2 D-MOB2-04: 1등 자리를 비운 조치가 적용되면 "보냈어요" 줄 대신 결과 한 줄
       const cancels = await events(s.dev, date, 'host.cancel')
       expect(cancels, 'host.cancel 하나').toHaveLength(1)
       expect(cancels[0]!.reason).toBe('시청자 요청')
@@ -80,7 +80,7 @@ test.describe('AC-QL3R1-30 빠른 사유 한 번으로 5초 되돌리기 대기'
       await s.dev.keyboard.press('2')
       await expect(dlg).toHaveCount(0)
       await expect(undoBar(s.dev).getByRole('status').filter({ hasText: /초 뒤 보내요: 1번.* 밤톨맘 무효$/ })).toBeVisible()
-      await expect(undoBar(s.dev).getByRole('status').filter({ hasText: /^보냈어요: 1번.* 밤톨맘 무효$/ })).toBeVisible({ timeout: DELAY + 10_000 })
+      await expect(undoBar(s.dev).getByRole('status').filter({ hasText: /^1번 1등 자리가 비었어요 · 대기 없음 · 판매 중$/ })).toBeVisible({ timeout: DELAY + 10_000 }) // 합친 뒤 MOB2 D-MOB2-04: 1등 자리를 비운 조치가 적용되면 "보냈어요" 줄 대신 결과 한 줄
       const rejects = await events(s.dev, date, 'host.reject')
       expect(rejects).toHaveLength(1)
       expect(rejects[0]!.reason).toBe('장난 찜')
@@ -89,7 +89,7 @@ test.describe('AC-QL3R1-30 빠른 사유 한 번으로 5초 되돌리기 대기'
       await expect(other.dlg.getByRole('button', { name: '4 입금 안 함', exact: true })).toBeVisible()
       await s.dev.keyboard.press('4')
       await expect(other.dlg).toHaveCount(0)
-      await expect(undoBar(s.dev).getByRole('status').filter({ hasText: /^보냈어요: 2번.* 도토리 취소$/ })).toBeVisible({ timeout: DELAY + 10_000 })
+      await expect(undoBar(s.dev).getByRole('status').filter({ hasText: /^2번 1등 자리가 비었어요 · 대기 없음 · 판매 중$/ })).toBeVisible({ timeout: DELAY + 10_000 }) // 합친 뒤 MOB2 D-MOB2-04: 1등 자리를 비운 조치가 적용되면 "보냈어요" 줄 대신 결과 한 줄
       const cancels = await events(s.dev, date, 'host.cancel')
       expect(cancels).toHaveLength(1)
       expect(cancels[0]!.reason).toBe('입금 안 함')
@@ -106,7 +106,7 @@ test.describe('AC-QL3R1-30 빠른 사유 한 번으로 5초 되돌리기 대기'
       const { dlg } = await openReason(s.dev, 1, '밤톨맘', '찜 취소하기')
       await dlg.getByRole('button', { name: '3 번호 착오', exact: true }).tap()
       await expect(dlg).toHaveCount(0)
-      await expect(undoBar(s.dev).getByRole('status').filter({ hasText: /^보냈어요: 1번.* 밤톨맘 취소$/ })).toBeVisible({ timeout: DELAY + 10_000 })
+      await expect(undoBar(s.dev).getByRole('status').filter({ hasText: /^1번 1등 자리가 비었어요 · 대기 없음 · 판매 중$/ })).toBeVisible({ timeout: DELAY + 10_000 }) // 합친 뒤 MOB2 D-MOB2-04: 1등 자리를 비운 조치가 적용되면 "보냈어요" 줄 대신 결과 한 줄
       const cancels = await events(s.dev, date, 'host.cancel')
       expect(cancels).toHaveLength(1)
       expect(cancels[0]!.reason).toBe('번호 착오')
@@ -140,7 +140,7 @@ test.describe('AC-QL3R1-31 직접 적은 사유·빈 사유·글 칸의 숫자',
       await field.fill('직접 적은 사유')
       await field.press('Enter')
       await expect(dlg).toHaveCount(0)
-      await expect(undoBar(s.dev).getByRole('status').filter({ hasText: /^보냈어요: 1번.* 밤톨맘 취소$/ })).toBeVisible({ timeout: DELAY + 10_000 })
+      await expect(undoBar(s.dev).getByRole('status').filter({ hasText: /^1번 1등 자리가 비었어요 · 대기 없음 · 판매 중$/ })).toBeVisible({ timeout: DELAY + 10_000 }) // 합친 뒤 MOB2 D-MOB2-04: 1등 자리를 비운 조치가 적용되면 "보냈어요" 줄 대신 결과 한 줄
       const cancels = await events(s.dev, date, 'host.cancel')
       expect(cancels).toHaveLength(1)
       expect(cancels[0]!.reason).toBe('직접 적은 사유')
@@ -158,7 +158,7 @@ test.describe('AC-QL3R1-31 직접 적은 사유·빈 사유·글 칸의 숫자',
       await dlg.getByLabel('사유').fill('손님이 전화로 취소')
       await dlg.getByRole('button', { name: '찜 취소하기', exact: true }).click()
       await expect(dlg).toHaveCount(0)
-      await expect(undoBar(s.dev).getByRole('status').filter({ hasText: /^보냈어요: 1번.* 밤톨맘 취소$/ })).toBeVisible({ timeout: DELAY + 10_000 })
+      await expect(undoBar(s.dev).getByRole('status').filter({ hasText: /^1번 1등 자리가 비었어요 · 대기 없음 · 판매 중$/ })).toBeVisible({ timeout: DELAY + 10_000 }) // 합친 뒤 MOB2 D-MOB2-04: 1등 자리를 비운 조치가 적용되면 "보냈어요" 줄 대신 결과 한 줄
       const cancels = await events(s.dev, date, 'host.cancel')
       expect(cancels).toHaveLength(1)
       expect(cancels[0]!.reason).toBe('손님이 전화로 취소')

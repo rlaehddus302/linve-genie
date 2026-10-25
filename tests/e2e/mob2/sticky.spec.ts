@@ -8,7 +8,8 @@
 import { expect, test, type Browser, type Locator, type Page } from '@playwright/test'
 import { uniqueDate } from '../s05/support.ts'
 import { kstTimeAgo, smsApi, viewerClaim, writeEvent } from '../s06/support.ts'
-import { ANDROID, IPHONE_UA, PHONE, alerts, broadcastApi, expectBig, expectNoOverflow, freshSeller, setLabelsApi } from '../mob1/support.ts'
+import { ANDROID, IPHONE_UA, PHONE, alerts, broadcastApi, expectBig, expectNoOverflow, foldedShortRow, freshSeller, pendingWord, setLabelsApi } from '../mob1/support.ts'
+import { NO_STATION_SHORT } from '../ql3r2/support.ts'
 import { barHeight, expectNoClip } from '../ql2/support.ts'
 
 const IPHONE = { width: 393, height: 852 } as const
@@ -69,9 +70,13 @@ async function world(browser: Browser, baseURL: string, d: Device, opts: { big: 
   if (opts.big) await expectBig(page)
   const strip = alerts(page)
   await expect(strip.getByRole('button', { name: '충돌 1', exact: true, includeHidden: true }), '충돌 1 (Given)').toHaveCount(1)
-  await expect(strip.getByRole('button', { name: '보류 찜 1', exact: true, includeHidden: true }), '보류 찜 1 (Given)').toHaveCount(1)
+  await expect(strip.getByRole('button', { name: `${pendingWord(page)} 1`, exact: true, includeHidden: true }), '보류 1 (Given)') // 합친 뒤 QL3R2 D-QL3R2-02: 접힌 휴대폰 띠는 "보류 n".toHaveCount(1)
   // 출력 기기 없음 항목은 라벨이 있는 실제 방송에서만 (리허설은 라벨을 만들지 않는다)
-  if (!opts.rehearsal) await expect(strip.locator('li').filter({ hasText: '출력 기기가 아직 없어' }), '출력 기기 없음 항목 (Given)').toHaveCount(1)
+  // 합친 뒤 QL3R2 D-QL3R2-02 (1)·03: 접힌 휴대폰 띠에서는 "알림" 영역 안 항목 대신 띠 아래 짧은 줄 하나(D-QL3R1-10 (1) — 칩이 아니라 숨기지 않음)
+  if (!opts.rehearsal) {
+    await expect(foldedShortRow(page, NO_STATION_SHORT), '출력 기기 없음 짧은 줄 (Given)').toBeVisible()
+    await expect(strip.locator('li').filter({ hasText: '출력 기기가 아직 없어' }), '접힌 띠 "알림" 영역 안에는 없음 (Given)').toHaveCount(0)
+  }
   await expect(page.getByRole('button', { name: '알림 2 펼치기', exact: true })).toHaveAttribute('aria-expanded', 'false')
   await expect(page.getByRole('region', { name: '현재 상품' }).getByText('15번', { exact: true })).toBeVisible()
   return { page, b, close: () => context.close() }
