@@ -146,7 +146,7 @@ test.describe('입금 확인 끝까지 흐름', () => {
     expect(page.url()).not.toContain(String(saleC.remaining))
   })
 
-  test('같은 입금 두 번 → "같은 입금이 두 번 들어왔을 수 있어요 (입금 번호 N과 같아요)", 자동으로 적지 않음 (DP-5 1, AC-N3-41)', async ({ page }) => { // MOB2 D-MOB2-05
+  test('같은 입금 두 번 → "같은 입금이 두 번 들어왔을 수 있어요 (입금 번호 N도 같은 입금이에요)", 자동으로 적지 않음 (DP-5 1, AC-N3-41)', async ({ page }) => { // MOB2 D-MOB2-05
     await login(page)
     const name = uniq('이중입금')
     const sale = await smsSale(page, { memo: name })
