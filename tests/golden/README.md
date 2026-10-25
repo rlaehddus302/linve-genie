@@ -27,6 +27,7 @@
 | `parcel/*.json` | 택배 — 배송지 여섯 칸 다듬기·검사, 묶음을 접수 목록에서 고를 수 있는지, 택배 크기 읽기 (PARCEL_RULES PC-2·PC-4·PC-6, T1, D-T1-03·D-T1-05, FB1 D-FB1-05). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "택배 골든" |
 | `waybill/*.json` | 운송장 — 송장번호 Code 128 부호값·받는 분 연락처 가리기·송장번호 글 (PARCEL_RULES PC-7, T1, D-T1-10). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/documents` 단위 시험이 읽는다 — 아래 "운송장 골든" |
 | `assist/*.json` | 확인 필요 항목의 제안 — 규칙 제안(비슷한 선택지로 바꿔 다시 읽기·같은 이름 상품 가르기)·AI 응답 검사·AI로 보내는 글 가리기·AI 호출 고르기 (SPEC CMT-06, DOMAIN_RULES R-20 10, A1 — D-A1-02~D-A1-06). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "AI 제안 골든" |
+| `regulars/*.json` | 손님 기록 요약 — 표지로 모은 기록 묶음 → 구매 날 수·누적 구매 금액·마지막 구매일·미입금 날 수·마지막 미입금·취소 수·단골·입금 늦음 주의 (SPEC BUY-06, CRM1 — D-CRM1-03~D-CRM1-05). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "손님 기록 골든" |
 
 ## 러너가 읽는 범위 (D-020, D-021)
 
@@ -431,3 +432,13 @@ expect:
 | `plan` | 없음 | `in` = `{ enabled, hasKey, usedToday, dailyLimit, globalUsed, globalLimit, batchMax, items }` — `items` = 한 방송의 확인 필요 항목 `{ id, origin: "chat"\|"sms", reason, no(정수 또는 null), rule(규칙 제안이 있는지), cached(같은 캐시 키의 AI 결과가 있는지), text, youtube? }`(원래 순위 순). `youtube`(AIY1, 선택, 없으면 `false`) = 유튜브에서 온 줄 — `true`면 보내지 않고 같은 글 묶기·묶음 수에서도 자리를 차지하지 않는다(D-AIY1-01·03). 실제 값은 서버가 기록의 출처로 정한다(경로를 모르면 `true`, D-AIY1-02) | `{ "send": [id …] }` — AI로 보낼 항목, 그 순서. 빈 목록이면 호출하지 않는다 |
 
 - `rule`의 "비슷함"·다시 읽기·사유 표, `validate`의 형식, `redact`의 순서, `plan`의 거르기·같은 글 묶기·상한은 DOMAIN_RULES R-20 10과 DECISIONS D-A1-02~D-A1-06이 정답이다. 캐시 키 계산·하루 사용량 세기(KST 날짜)·잠금·방송 고르기는 서버가 함수를 부르기 전·후에 하는 일이라 이 골든이 아니라 서버 시험·E2E가 본다.
+
+## 손님 기록 골든 (`regulars/*.json`, CRM1 — D-CRM1-03~D-CRM1-05)
+
+손님 기록 요약(SPEC BUY-06)의 순수 함수 하나를 고정한다. 판정 엔진이 아니라 서버의 규칙이라 엔진 골든(YAML)과 따로 둔다. 표지로 기록 묶음을 모으는 일(D-CRM1-02 — 지난 구매와 같은 표지·한 번만 따라가기), 묶음마다 `cancels`·`noPay`를 세는 일(코어 조회 결과의 찜 상태·사유)은 함수를 부르기 전에 서버가 하는 일이라 이 골든이 아니라 서버 시험·E2E가 본다.
+
+- **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. 서버(`apps/server`)의 단위 시험이 이 폴더의 모든 `*.json`을 읽어 서버의 순수 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 그 시험은 파일 수(1)와 사례 수 합계(13)를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다. 미구현을 허용하는 장치가 없다.
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` = `summary`. 모르는 키·모르는 `kind`는 시험 실패(읽기 오류)다.
+- **사례 키**: `id`(`G-CRM-` + 세 자리, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `today`(`YYYY-MM-DD` — 서버가 부를 때는 서버 시각의 KST 날짜), `settings` `{ regularCount, regularAmount, waitDays }`(`regularAmount`는 정수 원 또는 `null` = 금액 기준 안 씀), `bundles`(0개 이상 `{ date, buyer, items, subtotal, payment, cancels, noPay }` — `payment` ∈ `UNPAID`·`PARTIAL`·`PAID`·`OVERPAID`, 나머지 수는 0 이상 정수), `out`.
+- **`out`** = `{ "purchaseDays", "purchaseTotal", "lastPurchase", "unpaidDays", "lastUnpaid", "cancels", "regular", "caution" }` — 날짜는 `YYYY-MM-DD` 또는 `null`, 금액은 정수 원. 정확히 같음.
+- 결과는 실행 환경의 시간대와 상관없어야 한다(날짜 더하기는 달력 날짜 — 서버 시험도 `TZ`를 바꿔 돌린다). 묶음 순서가 바뀌어도 결과가 같아야 한다.

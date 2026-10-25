@@ -1,0 +1,175 @@
+{
+  "kind": "summary",
+  "about": "손님 기록 요약 (SPEC BUY-06, CRM1 — D-CRM1-03·D-CRM1-04·D-CRM1-05). 서버가 표지로 모은 그 손님의 기록 묶음(실제 날짜의 정산 묶음 하나 = { date, buyer, items, subtotal, payment, cancels, noPay })과 오늘(KST 날짜)·설정을 받아 요약을 낸다. items = 확정 찜 수량 합, subtotal = 상품 합계(원), payment = 코어 입금 상태, cancels = 1등이었다가 취소·무효로 끝난 찜 수, noPay = 그중 사유가 '입금 안 함'인 찜 수. 구매 = items ≥ 1이고 payment가 PAID·OVERPAID인 묶음. 미입금 날 = (items ≥ 1이고 payment가 UNPAID·PARTIAL이고 오늘 > date + waitDays일) 또는 noPay ≥ 1인 묶음의 날짜. 날짜는 같은 날이면 한 번만 센다. regular = purchaseDays ≥ regularCount 또는 (regularAmount가 null이 아니고 purchaseTotal ≥ regularAmount). caution = unpaidDays ≥ 1.",
+  "cases": [
+    {
+      "id": "G-CRM-001",
+      "title": "기록이 없으면 모두 0, 마지막 날은 없음, 표시 없음",
+      "refs": ["BUY-06", "D-CRM1-03"],
+      "today": "2026-10-26",
+      "settings": { "regularCount": 3, "regularAmount": 100000, "waitDays": 3 },
+      "bundles": [],
+      "out": { "purchaseDays": 0, "purchaseTotal": 0, "lastPurchase": null, "unpaidDays": 0, "lastUnpaid": null, "cancels": 0, "regular": false, "caution": false }
+    },
+    {
+      "id": "G-CRM-002",
+      "title": "입금 완료(과입금 포함) 세 날 = 단골 (횟수 기준, 3 ≥ 3)",
+      "refs": ["BUY-06", "D-CRM1-03", "D-CRM1-05"],
+      "note": "구매 날 10-01·10-08·10-15 → 3. 합 30,000 + 15,000 + 20,000 = 65,000. 금액 기준 없음(null).",
+      "today": "2026-10-26",
+      "settings": { "regularCount": 3, "regularAmount": null, "waitDays": 3 },
+      "bundles": [
+        { "date": "2026-10-01", "buyer": "UC_A", "items": 2, "subtotal": 30000, "payment": "PAID", "cancels": 0, "noPay": 0 },
+        { "date": "2026-10-08", "buyer": "UC_A", "items": 1, "subtotal": 15000, "payment": "PAID", "cancels": 0, "noPay": 0 },
+        { "date": "2026-10-15", "buyer": "UC_A", "items": 1, "subtotal": 20000, "payment": "OVERPAID", "cancels": 0, "noPay": 0 }
+      ],
+      "out": { "purchaseDays": 3, "purchaseTotal": 65000, "lastPurchase": "2026-10-15", "unpaidDays": 0, "lastUnpaid": null, "cancels": 0, "regular": true, "caution": false }
+    },
+    {
+      "id": "G-CRM-003",
+      "title": "두 날만 샀고 금액 기준이 없으면 단골 아님",
+      "refs": ["BUY-06", "D-CRM1-05"],
+      "note": "2 < 3, 금액 기준 null → regular false. 합 45,000.",
+      "today": "2026-10-26",
+      "settings": { "regularCount": 3, "regularAmount": null, "waitDays": 3 },
+      "bundles": [
+        { "date": "2026-10-01", "buyer": "UC_A", "items": 2, "subtotal": 30000, "payment": "PAID", "cancels": 0, "noPay": 0 },
+        { "date": "2026-10-08", "buyer": "UC_A", "items": 1, "subtotal": 15000, "payment": "PAID", "cancels": 0, "noPay": 0 }
+      ],
+      "out": { "purchaseDays": 2, "purchaseTotal": 45000, "lastPurchase": "2026-10-08", "unpaidDays": 0, "lastUnpaid": null, "cancels": 0, "regular": false, "caution": false }
+    },
+    {
+      "id": "G-CRM-004",
+      "title": "누적 금액이 기준과 딱 같으면 단골 (100,000 ≥ 100,000)",
+      "refs": ["BUY-06", "D-CRM1-05"],
+      "note": "구매 1번(1 < 3)이지만 금액 100,000 ≥ 100,000 → regular true.",
+      "today": "2026-10-26",
+      "settings": { "regularCount": 3, "regularAmount": 100000, "waitDays": 3 },
+      "bundles": [
+        { "date": "2026-10-05", "buyer": "UC_A", "items": 3, "subtotal": 100000, "payment": "PAID", "cancels": 0, "noPay": 0 }
+      ],
+      "out": { "purchaseDays": 1, "purchaseTotal": 100000, "lastPurchase": "2026-10-05", "unpaidDays": 0, "lastUnpaid": null, "cancels": 0, "regular": true, "caution": false }
+    },
+    {
+      "id": "G-CRM-005",
+      "title": "누적 금액이 기준보다 1원 적으면 단골 아님",
+      "refs": ["BUY-06", "D-CRM1-05"],
+      "note": "99,999 < 100,000, 1 < 3 → regular false.",
+      "today": "2026-10-26",
+      "settings": { "regularCount": 3, "regularAmount": 100000, "waitDays": 3 },
+      "bundles": [
+        { "date": "2026-10-05", "buyer": "UC_A", "items": 3, "subtotal": 99999, "payment": "PAID", "cancels": 0, "noPay": 0 }
+      ],
+      "out": { "purchaseDays": 1, "purchaseTotal": 99999, "lastPurchase": "2026-10-05", "unpaidDays": 0, "lastUnpaid": null, "cancels": 0, "regular": false, "caution": false }
+    },
+    {
+      "id": "G-CRM-006",
+      "title": "미입금·부분 입금은 구매에 세지 않고, 기다리는 날이 지난 것만 미입금",
+      "refs": ["BUY-06", "STL-07", "D-CRM1-04"],
+      "note": "오늘 10-26, 3일. 10-20(부분) + 3 = 10-23 < 10-26 → 미입금. 10-22 + 3 = 10-25 < 10-26 → 미입금. 10-23 + 3 = 10-26, 10-26 > 10-26 아님 → 아직 기다림. 미입금 날 2, 마지막 10-22. 구매 0.",
+      "today": "2026-10-26",
+      "settings": { "regularCount": 3, "regularAmount": 100000, "waitDays": 3 },
+      "bundles": [
+        { "date": "2026-10-20", "buyer": "UC_A", "items": 2, "subtotal": 20000, "payment": "PARTIAL", "cancels": 0, "noPay": 0 },
+        { "date": "2026-10-22", "buyer": "UC_A", "items": 1, "subtotal": 12000, "payment": "UNPAID", "cancels": 0, "noPay": 0 },
+        { "date": "2026-10-23", "buyer": "UC_A", "items": 1, "subtotal": 8000, "payment": "UNPAID", "cancels": 0, "noPay": 0 }
+      ],
+      "out": { "purchaseDays": 0, "purchaseTotal": 0, "lastPurchase": null, "unpaidDays": 2, "lastUnpaid": "2026-10-22", "cancels": 0, "regular": false, "caution": true }
+    },
+    {
+      "id": "G-CRM-007",
+      "title": "오늘 묶음은 미입금이 아니다 — 기다리는 날 1일",
+      "refs": ["BUY-06", "D-CRM1-04"],
+      "note": "1일. 10-24 + 1 = 10-25 < 10-26 → 미입금. 10-25 + 1 = 10-26 → 기다림. 10-26(오늘) → 기다림. 미입금 날 1, 마지막 10-24.",
+      "today": "2026-10-26",
+      "settings": { "regularCount": 3, "regularAmount": null, "waitDays": 1 },
+      "bundles": [
+        { "date": "2026-10-24", "buyer": "UC_A", "items": 1, "subtotal": 9000, "payment": "UNPAID", "cancels": 0, "noPay": 0 },
+        { "date": "2026-10-25", "buyer": "UC_A", "items": 1, "subtotal": 9000, "payment": "UNPAID", "cancels": 0, "noPay": 0 },
+        { "date": "2026-10-26", "buyer": "UC_A", "items": 1, "subtotal": 9000, "payment": "UNPAID", "cancels": 0, "noPay": 0 }
+      ],
+      "out": { "purchaseDays": 0, "purchaseTotal": 0, "lastPurchase": null, "unpaidDays": 1, "lastUnpaid": "2026-10-24", "cancels": 0, "regular": false, "caution": true }
+    },
+    {
+      "id": "G-CRM-008",
+      "title": "해를 넘기는 기한 계산 — 날짜 더하기는 달력 날짜로",
+      "refs": ["BUY-06", "D-CRM1-04"],
+      "note": "오늘 2026-01-02, 3일. 2025-12-29 + 3 = 2026-01-01 < 01-02 → 미입금. 2025-12-30 + 3 = 2026-01-02 → 기다림. 2025-12-24 입금 완료 18,000 → 구매 1.",
+      "today": "2026-01-02",
+      "settings": { "regularCount": 3, "regularAmount": 100000, "waitDays": 3 },
+      "bundles": [
+        { "date": "2025-12-24", "buyer": "UC_A", "items": 1, "subtotal": 18000, "payment": "PAID", "cancels": 0, "noPay": 0 },
+        { "date": "2025-12-29", "buyer": "UC_A", "items": 1, "subtotal": 7000, "payment": "UNPAID", "cancels": 0, "noPay": 0 },
+        { "date": "2025-12-30", "buyer": "UC_A", "items": 1, "subtotal": 7000, "payment": "UNPAID", "cancels": 0, "noPay": 0 }
+      ],
+      "out": { "purchaseDays": 1, "purchaseTotal": 18000, "lastPurchase": "2025-12-24", "unpaidDays": 1, "lastUnpaid": "2025-12-29", "cancels": 0, "regular": false, "caution": true }
+    },
+    {
+      "id": "G-CRM-009",
+      "title": "'입금 안 함'으로 1등을 취소해 품목이 없어진 날도 미입금 날이다",
+      "refs": ["BUY-06", "ORD-12", "D-CRM1-04"],
+      "note": "10-10: 품목 0, noPay 2 → 미입금 날(1번). 10-12: 입금 완료 15,000, 시청자 요청 취소 1(noPay 0) → 구매 1. 취소 2 + 1 = 3.",
+      "today": "2026-10-26",
+      "settings": { "regularCount": 3, "regularAmount": 100000, "waitDays": 3 },
+      "bundles": [
+        { "date": "2026-10-10", "buyer": "UC_A", "items": 0, "subtotal": 0, "payment": "UNPAID", "cancels": 2, "noPay": 2 },
+        { "date": "2026-10-12", "buyer": "UC_A", "items": 1, "subtotal": 15000, "payment": "PAID", "cancels": 1, "noPay": 0 }
+      ],
+      "out": { "purchaseDays": 1, "purchaseTotal": 15000, "lastPurchase": "2026-10-12", "unpaidDays": 1, "lastUnpaid": "2026-10-10", "cancels": 3, "regular": false, "caution": true }
+    },
+    {
+      "id": "G-CRM-010",
+      "title": "한 날에 기한 지난 미입금과 '입금 안 함' 취소가 함께 있어도 한 번",
+      "refs": ["BUY-06", "D-CRM1-04"],
+      "note": "10-15 + 3 = 10-18 < 10-26 → 미입금, noPay 1 → 같은 날 → 1번.",
+      "today": "2026-10-26",
+      "settings": { "regularCount": 3, "regularAmount": 100000, "waitDays": 3 },
+      "bundles": [
+        { "date": "2026-10-15", "buyer": "UC_A", "items": 1, "subtotal": 10000, "payment": "UNPAID", "cancels": 1, "noPay": 1 }
+      ],
+      "out": { "purchaseDays": 0, "purchaseTotal": 0, "lastPurchase": null, "unpaidDays": 1, "lastUnpaid": "2026-10-15", "cancels": 1, "regular": false, "caution": true }
+    },
+    {
+      "id": "G-CRM-011",
+      "title": "같은 날짜의 두 묶음(그날 따로인 두 구매자) — 날짜는 한 번, 금액은 둘 다",
+      "refs": ["BUY-06", "BUY-05", "D-CRM1-02", "D-CRM1-03"],
+      "note": "구매 날 {10-03, 10-10} = 2, 금액 10,000 + 5,000 + 7,000 = 22,000. 미입금: 10-05 두 묶음 모두 기한 지남 → 날짜 {10-05} = 1.",
+      "today": "2026-10-26",
+      "settings": { "regularCount": 3, "regularAmount": 100000, "waitDays": 3 },
+      "bundles": [
+        { "date": "2026-10-03", "buyer": "UC_A", "items": 1, "subtotal": 10000, "payment": "PAID", "cancels": 0, "noPay": 0 },
+        { "date": "2026-10-03", "buyer": "sms:r7", "items": 1, "subtotal": 5000, "payment": "PAID", "cancels": 0, "noPay": 0 },
+        { "date": "2026-10-05", "buyer": "UC_A", "items": 1, "subtotal": 6000, "payment": "UNPAID", "cancels": 0, "noPay": 0 },
+        { "date": "2026-10-05", "buyer": "sms:r9", "items": 1, "subtotal": 4000, "payment": "UNPAID", "cancels": 0, "noPay": 0 },
+        { "date": "2026-10-10", "buyer": "UC_A", "items": 1, "subtotal": 7000, "payment": "PAID", "cancels": 0, "noPay": 0 }
+      ],
+      "out": { "purchaseDays": 2, "purchaseTotal": 22000, "lastPurchase": "2026-10-10", "unpaidDays": 1, "lastUnpaid": "2026-10-05", "cancels": 0, "regular": false, "caution": true }
+    },
+    {
+      "id": "G-CRM-012",
+      "title": "단골이면서 입금 늦음 주의 — 둘 다 표시",
+      "refs": ["BUY-06", "D-CRM1-05", "D-CRM1-06"],
+      "note": "구매 날 10-01·10-08·10-15 = 3 ≥ 3, 금액 30,000 + 40,000 + 35,000 = 105,000. 10-01에 '입금 안 함' 취소 1 → 미입금 날 1(10-01). 취소 1.",
+      "today": "2026-10-26",
+      "settings": { "regularCount": 3, "regularAmount": 100000, "waitDays": 3 },
+      "bundles": [
+        { "date": "2026-10-01", "buyer": "UC_A", "items": 2, "subtotal": 30000, "payment": "PAID", "cancels": 1, "noPay": 1 },
+        { "date": "2026-10-08", "buyer": "UC_A", "items": 2, "subtotal": 40000, "payment": "PAID", "cancels": 0, "noPay": 0 },
+        { "date": "2026-10-15", "buyer": "UC_A", "items": 1, "subtotal": 35000, "payment": "PAID", "cancels": 0, "noPay": 0 }
+      ],
+      "out": { "purchaseDays": 3, "purchaseTotal": 105000, "lastPurchase": "2026-10-15", "unpaidDays": 1, "lastUnpaid": "2026-10-01", "cancels": 1, "regular": true, "caution": true }
+    },
+    {
+      "id": "G-CRM-013",
+      "title": "품목이 없는 과입금(환불 필요) 묶음은 구매도 미입금도 아니다",
+      "refs": ["BUY-06", "STL-09", "D-CRM1-03"],
+      "note": "items 0 → 구매 아님, noPay 0이고 items 0 → 미입금 아님. 취소 1(시청자 요청).",
+      "today": "2026-10-26",
+      "settings": { "regularCount": 3, "regularAmount": 100000, "waitDays": 3 },
+      "bundles": [
+        { "date": "2026-10-07", "buyer": "UC_A", "items": 0, "subtotal": 0, "payment": "OVERPAID", "cancels": 1, "noPay": 0 }
+      ],
+      "out": { "purchaseDays": 0, "purchaseTotal": 0, "lastPurchase": null, "unpaidDays": 0, "lastUnpaid": null, "cancels": 1, "regular": false, "caution": false }
+    }
+  ]
+}
