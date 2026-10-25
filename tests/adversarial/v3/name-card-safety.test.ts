@@ -94,13 +94,62 @@ describe('D-V3-41 — 확정된 번호가 있을 때만 카드', () => {
     expect(r.actions.map(({ action }) => action)).toEqual([{ kind: 'discard', reason, cancelled: false }])
   })
 
-  it('R51 "15번" → 작은 카드 하나 "가격을 말하면 바로 등록돼요", 이어서 "엘레강스 이만원"이면 채워진다', () => {
+  // D-V3-44: 바로 등록 켬이면 번호만·원 없는 가격 결과는 카드 0(기록 "가격을 못 들었어요"), 덩어리 사이 이어 채우기 없음. 끔은 V2 그대로
+  it('R51 켬: "15번" 뒤 4초에 "엘레강스 이만원" → 쓰기 0, 카드 0, 기록 "가격을 못 들었어요"·"번호를 못 들었어요"', () => {
+    const r = simulate([{ text: '15번', at: 0 }, { text: '엘레강스 이만원', at: 4000 }], 8000, { autoRegister: true })
+    expect(r.cards).toEqual([])
+    expect(r.registered).toEqual([])
+    expect(r.actions.map(({ action }) => (action.kind === 'discard' ? action.reason : action.kind))).toEqual(['가격을 못 들었어요', '번호를 못 들었어요'])
+  })
+
+  it.each(['이 10번 오타 하나 지우신 거예요 아 그런가요', '15번 핑크프릴 만오천'])('R52 켬: "%s" → 쓰기 0, 카드 0, 기록 "가격을 못 들었어요"', (text) => {
+    const r = simulate([{ text, at: 0 }], 3000, { autoRegister: true })
+    expect([r.cards, r.registered]).toEqual([[], []])
+    expect(r.actions.map(({ action }) => (action.kind === 'discard' ? action.reason : action.kind))).toEqual(['가격을 못 들었어요'])
+  })
+
+  it('R25 켬: 한 덩어리 안 "15번 엘레강스"(1.5초 쉼) "이만원" → 15번 · 엘레강스 · 20,000원 등록, 카드 0', () => {
+    const r = simulate([{ text: '15번 엘레강스', at: 0 }, { text: '이만원', at: 1500 }], 5000, { autoRegister: true })
+    expect(r.cards).toEqual([])
+    expect(r.registered.map(({ no, name, price }) => ({ no, name, price }))).toEqual([{ no: 15, name: '엘레강스', price: 20_000 }])
+  })
+
+  it('R53 끔: "15번" → 카드 "품종·가격을 말해 주세요"(V2 문구), 이어서 "엘레강스 이만원"이면 채움 (V2 S3)', () => {
     const r = simulate([{ text: '15번', at: 0 }], 3000)
     expect(openCards(r.cards).map(view)).toEqual([{ no: 15, name: null, price: null }])
     const create = r.actions[0]?.action
-    expect(create?.kind === 'create' ? create.ask : null).toBe('가격을 말하면 바로 등록돼요')
+    expect(create?.kind === 'create' ? create.ask : null).toBe('품종·가격을 말해 주세요')
     const filled = simulate([{ text: '엘레강스 이만원', at: 4000 }], 7000, { cards: r.cards })
     expect(openCards(filled.cards).map(view)).toEqual([{ no: 15, name: '엘레강스', price: 20_000 }])
+  })
+
+  // TD-V3-003: 켬에서 정정 덩어리의 새 카드는 '원' 가격이 있을 때만 남는다(D-V3-44 "정정 덩어리로 만든 새 카드(D-V2-14)…처럼 원 가격은 있는데
+  // 바로 등록하지 않는 카드"). 구현(target.ts createOrRemember)은 정정 말만 있으면 원 없는 가격(만오천·만팔천)으로도 카드를 만든다.
+  it.each(['15번 만오천 아니 만팔천', '만팔천 말고 15번', '15번 라울 만오천말고 만팔천', '15번 만오천 다시 만팔천'])('TD-V3-003 켬: 원 없는 정정 덩어리 "%s" → 카드 0, 기록 "가격을 못 들었어요"', (text) => {
+    const r = simulate([{ text, at: 0 }], 3000, { autoRegister: true })
+    expect(r.cards).toEqual([])
+    expect(r.actions.map(({ action }) => (action.kind === 'discard' ? action.reason : action.kind))).toEqual(['가격을 못 들었어요'])
+  })
+
+  it('켬: 원 가격이 든 정정 덩어리 "15번 만오천원 아니 만팔천원" → 카드 15번 · 18,000원은 남는다 (D-V2-14, D-V3-44)', () => {
+    const r = simulate([{ text: '15번 만오천원 아니 만팔천원', at: 0 }], 3000, { autoRegister: true })
+    expect(openCards(r.cards).map(view)).toEqual([{ no: 15, name: null, price: 18_000 }])
+  })
+
+  it("켬에서 '원' 가격 없는 결과는 어떤 말이어도 카드 0 (덩어리 둘 이어도, 정정 말이 섞여도)", () => {
+    const words = fc.constantFrom(
+      '15번', '십오번', '108번', '15 번', '일육팔', '170', '168은', '핑크문', '라울', '핑크프릴', '엘레강스', '만오천', '만팔천', '오천', '이만', '10만', '25만', '자', '요 아이', '3강', '9cm에',
+      'bts', '이번', '한 번', '아니', '말고', '만오천말고', '다시', '품종은', '가격은', '취소', '그런가요', '오타', '하나',
+    )
+    fc.assert(
+      fc.property(fc.array(fc.array(words, { minLength: 1, maxLength: 8 }), { minLength: 1, maxLength: 3 }), (chunks) => {
+        const results = chunks.map((parts, i) => ({ text: parts.join(' '), at: i * 4000 }))
+        const r = simulate(results, chunks.length * 4000 + 3000, { autoRegister: true })
+        expect(r.cards, JSON.stringify(results.map((x) => x.text))).toEqual([])
+        expect(r.registered).toEqual([])
+      }),
+      { numRuns: 500 },
+    )
   })
 
   it('번호 없는 덩어리는 어떤 말이어도 새 카드를 만들지 않는다 (채울 카드가 없을 때)', () => {

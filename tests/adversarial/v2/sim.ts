@@ -41,6 +41,8 @@ export interface SimOutcome {
   readonly sms: PhraseSms[]
   readonly actions: { readonly at: number; readonly action: VoiceAction }[]
   readonly log: VoiceLogEntry[]
+  /** 바로 등록 켬(autoRegister)에서 덩어리 끝 글이 확정(R-17 8)이라 등록한 값 — 카드·할 일 고르기 없이 */
+  readonly registered: { readonly at: number; readonly no: number; readonly price: number; readonly name: string | null }[]
 }
 
 const LOG_ACTION: Readonly<Record<VoiceAction['kind'], VoiceLogAction>> = {
@@ -55,13 +57,14 @@ const LOG_ACTION: Readonly<Record<VoiceAction['kind'], VoiceLogAction>> = {
   discard: 'discard',
 }
 
-export function simulate(results: readonly SimResult[], until: number, init: { cards?: SuggestionCard[]; recent?: RecentRegistration[]; quietMs?: number; settings?: Partial<VoiceSettings> } = {}): SimOutcome {
+export function simulate(results: readonly SimResult[], until: number, init: { cards?: SuggestionCard[]; recent?: RecentRegistration[]; quietMs?: number; settings?: Partial<VoiceSettings>; autoRegister?: boolean } = {}): SimOutcome {
   let state = createPhraseState({ quietMs: init.quietMs })
   let cards = [...(init.cards ?? [])]
   const chunks: PhraseChunk[] = []
   const sms: PhraseSms[] = []
   const actions: { at: number; action: VoiceAction }[] = []
   let log: VoiceLogEntry[] = []
+  const registered: SimOutcome['registered'] = []
   let nextId = 1
   const handle = (out: readonly PhraseOutput[]): void => {
     for (const item of out) {
@@ -75,7 +78,12 @@ export function simulate(results: readonly SimResult[], until: number, init: { c
       const reading = readChunk(chunk.text, { dictionary: DICT })
       // V3(D-V3-41): 화면은 덩어리 끝 확정 읽기(번호 둘·가격 뒤 '번' 없는 번호)를 chooseAction에 넘긴다
       const registration = readRegistration(chunk.text, { dictionary: DICT, final: true })
-      const action = chooseAction(reading, { cards, recent: init.recent ?? [], now: chunk.endedAt, chunkStartedAt: chunk.startedAt, registration })
+      // V3 바로 등록 켬: 확정이면 화면이 그 자리에서 등록한다(카드 없음 — 덩어리 안 중간 결과 등록의 최소 흉내)
+      if (init.autoRegister === true && registration.ready !== null) {
+        registered.push({ at: chunk.endedAt, no: registration.ready.no, price: registration.ready.price, name: registration.ready.name })
+        continue
+      }
+      const action = chooseAction(reading, { cards, recent: init.recent ?? [], now: chunk.endedAt, chunkStartedAt: chunk.startedAt, registration, autoRegister: init.autoRegister === true })
       actions.push({ at: chunk.endedAt, action })
       if (action.kind === 'create') {
         const card = createChunkCard({ id: `c${String(nextId++)}`, action, text: chunk.text, createdAt: chunk.endedAt, settings: init.settings, noAutoConfirm: chunk.noAutoConfirm })
@@ -116,7 +124,7 @@ export function simulate(results: readonly SimResult[], until: number, init: { c
     state = step.state
     handle(step.out)
   }
-  return { cards, chunks, sms, actions, log }
+  return { cards, chunks, sms, actions, log, registered }
 }
 
 export const openCards = (cards: readonly SuggestionCard[]): SuggestionCard[] => cards.filter((card) => card.status === 'OPEN')
