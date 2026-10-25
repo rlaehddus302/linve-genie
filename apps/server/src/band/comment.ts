@@ -1,5 +1,5 @@
 // 밴드 댓글 → chat 다섯 칸, 한 번 읽은 목록 나누기 (PLT-04, R-1 "밴드 글 댓글의 chat", D-BND1-02~07, 골든 tests/golden/band/*.json).
-// 순수 함수다 — 시계·난수·바깥 호출이 없다. 실제 읽기 경로(reader.ts)와 서버 골든 시험이 같은 함수를 부른다(AC-BND1-90).
+// 순수 함수다 — 시계·난수·바깥 호출이 없다. 실제 읽기 경로(service.ts BandService #ingest)와 서버 골든 시험이 같은 함수를 부른다(AC-BND1-90).
 // - 검사 순서: BAD_COMMENT_KEY → NO_AUTHOR → SELLER → BAD_TIME → NO_TEXT → TEXT_TOO_LONG (처음 걸린 것).
 // - 본문은 밴드 태그를 먼저 정리하고 그 뒤 이스케이프를 한 번 푼다(D-BND1-04) — 손님이 친 `&lt;band:refer&gt;`는 태그가 되지 않는다.
 // - owner는 늘 false(판매자 댓글은 넣지 않는다), publishedAt은 없다(밴드 회차는 접수순만, D-BND1-06).

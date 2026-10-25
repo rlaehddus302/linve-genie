@@ -44,6 +44,11 @@ export interface BandClientOptions {
   readonly log: LogSink
   /** HTTP 함수 (기본 전역 fetch) */
   readonly fetch?: typeof fetch
+  /**
+   * 밴드가 호출 한도 신호(1002·1003 → RATE_SELLER, 1001 → RATE_APP)를 줄 때마다 (D-BND1-23 (나) — 부르는 쪽이 전체 읽기를 멈춘다).
+   * 이미 쉬는 중이라 보내지 않은 요청(PAUSED)은 신호가 아니다
+   */
+  readonly onRateSignal?: (kind: 'RATE_SELLER' | 'RATE_APP', sellerId: string | null) => void
 }
 
 /** 다음 쪽 값 (D-BND1-08): next_params 중 우리 값으로 채우는 셋은 버리고 나머지 글 값만 */
@@ -93,6 +98,7 @@ export class BandClient {
       this.#pauseMs = this.#pauseMs === 0 ? BAND_APP_PAUSE_FIRST_MS : Math.min(BAND_APP_PAUSE_MAX_MS, this.#pauseMs * 2)
       this.#pauseUntil = this.#options.now() + this.#pauseMs
     }
+    if ((failure.kind === 'RATE_APP' || failure.kind === 'RATE_SELLER') && failure.code !== 'PAUSED') this.#options.onRateSignal?.(failure.kind, sellerId)
     this.#options.log({
       level: 'warn',
       code: 'BAND_API_FAILED',

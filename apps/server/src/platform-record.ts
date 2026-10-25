@@ -28,8 +28,11 @@ export interface PlatformRecordJob {
 export type PlatformRecordOutcome =
   /** recorded = 이번에 기록한 메시지 ID(차례대로), existing = 이미 기록돼 있던 것, skipped = 엔진 입력 검사로 뺀 것 */
   | { readonly kind: 'ok'; readonly recorded: readonly string[]; readonly existing: readonly string[]; readonly skipped: readonly string[] }
-  /** 연결이 끊겼거나 회차가 끝남 */
-  | { readonly kind: 'rejected' }
+  /**
+   * 기록 거절 — code = 거절 코드(writer·엔진의 것: BROADCAST_ENDED·SEALED·NOT_LINKED(guard)·NOT_FOUND(범위 없음)·STATE_FORMAT 등).
+   * 부르는 쪽은 회차 끝(BROADCAST_ENDED·SEALED)과 그 밖을 가른다 (D-BND1-22)
+   */
+  | { readonly kind: 'rejected'; readonly code: string }
   | { readonly kind: 'save_failed' }
 
 const STOPPED: Rejection = { status: 409, code: 'NOT_LINKED', message: '이어진 연결이 없어요.', problems: [] }
@@ -75,6 +78,7 @@ export async function recordPlatformChats(writer: ScopeWriter, job: PlatformReco
     const done = new Set(outcome.records.map((record) => (record.event as unknown as { id?: unknown }).id).filter((id): id is string => typeof id === 'string'))
     return { kind: 'ok', recorded: drafted.filter((id) => done.has(id)), existing, skipped: drafted.filter((id) => !done.has(id)) }
   }
-  if (outcome.kind === 'rejected' || outcome.kind === 'not_found') return { kind: 'rejected' }
+  if (outcome.kind === 'rejected') return { kind: 'rejected', code: outcome.rejection.code }
+  if (outcome.kind === 'not_found') return { kind: 'rejected', code: 'NOT_FOUND' }
   return { kind: 'save_failed' }
 }

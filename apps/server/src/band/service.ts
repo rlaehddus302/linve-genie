@@ -107,6 +107,10 @@ export interface BandTiming {
   readonly postPages: number
   /** 보관 기간이 지난 손님 글 지우기 간격 */
   readonly eraseEveryMs: number
+  /** 막다른 경우(닿는 읽기가 없던 차례) 뒤 다음 차례까지 — 닿는 읽기가 성공할 때까지 (D-BND1-23 (가)) */
+  readonly stuckMs: number
+  /** 호출 한도 신호를 받은 때부터 전체 읽기를 하지 않는 시간 (D-BND1-23 (나)) */
+  readonly rateFullPauseMs: number
 }
 
 export const BAND_TIMING: BandTiming = Object.freeze({
@@ -121,6 +125,8 @@ export const BAND_TIMING: BandTiming = Object.freeze({
   fullSparePages: 10,
   postPages: 5,
   eraseEveryMs: 60 * 60 * 1000,
+  stuckMs: 60_000,
+  rateFullPauseMs: 600_000,
 })
 
 /** 연결 시작 표 유효 시간 (10분) */
@@ -265,6 +271,8 @@ export interface SessionRef {
 export interface BandHooks {
   /** 본 댓글 표에 적기 직전 (던지면 적지 못한 것 — AC-BND1-34 (다)) */
   readonly beforeSeen?: () => void | Promise<void>
+  /** 댓글 묶음 기록을 가로챈다 (next = 실제 기록) — 회차 끝이 아닌 기록 거절 주입 (D-BND1-22 시험) */
+  readonly record?: (job: PlatformRecordJob, next: (job: PlatformRecordJob) => Promise<PlatformRecordOutcome>) => Promise<PlatformRecordOutcome>
 }
 
 export interface BandServiceOptions {
@@ -338,6 +346,19 @@ function joinEditedHashes(hashes: readonly string[]): string {
   return hashes.join(' ')
 }
 
+/**
+ * 연결 보기에서 시각 칸(이은 때·마지막으로 읽은 때·다시 읽을 때·알림 시각)과 쉬는 남은 초가 든 문장을 뺀 값 (D-BND1-24).
+ * 같으면 화면에 보낼 것이 없다 — 상태·문장·기록 수·뺀 수·알림 수와 번호·막는 까닭이 바뀌면 다르다
+ */
+export function bandLinkSignature(view: BandLinkView): string {
+  const { linkedAt: _linkedAt, lastReadAt: _lastReadAt, retryAt: _retryAt, message, notices, ...rest } = view
+  return JSON.stringify({
+    ...rest,
+    message: view.rateLimited ? 'RATE_LIMITED' : message,
+    notices: { ...notices, items: notices.items.map(({ at: _at, ...item }) => item) },
+  })
+}
+
 export class BandService {
   readonly #o: BandServiceOptions
   readonly #timing: BandTiming
@@ -351,6 +372,11 @@ export class BandService {
   readonly #reads = new SellerLocks()
   /** 처리 중인 잇기 (판매자·요청 번호) — 같은 요청 번호가 겹쳐 와도 밴드에 한 번만 묻는다 */
   readonly #linking = new Map<string, Promise<BandOutcome>>()
+  /** 호출 한도 신호 뒤 전체 읽기를 멈추는 끝 시각 — 판매자별(1002·1003) · 모든 판매자(1001) (D-BND1-23 (나)) */
+  readonly #fullPausedUntil = new Map<string, number>()
+  #appFullPausedUntil = 0
+  /** 회차별로 마지막에 보낸 연결 보기 (시각 칸을 뺀 값) — 차례 끝 알림은 이것과 다를 때만 (D-BND1-24) */
+  readonly #sentLinks = new Map<string, string>()
   #eraseCancel: (() => void) | null = null
   #closed = false
 
@@ -358,7 +384,31 @@ export class BandService {
     this.#o = options
     this.#timing = { ...BAND_TIMING, ...(options.timing ?? {}) }
     this.#clock = options.bandClock ?? realClockOf(options.clock)
-    this.#client = options.settings === null ? null : new BandClient({ settings: options.settings, now: () => this.#clock.now(), log: options.log, ...(options.fetch === undefined ? {} : { fetch: options.fetch }) })
+    this.#client =
+      options.settings === null
+        ? null
+        : new BandClient({
+            settings: options.settings,
+            now: () => this.#clock.now(),
+            log: options.log,
+            onRateSignal: (kind, sellerId) => this.#rateSignal(kind, sellerId),
+            ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+          })
+  }
+
+  /** 호출 한도 신호: 받은 때부터 rateFullPauseMs 동안 전체 읽기를 하지 않는다 (다시 오면 그때부터 다시) */
+  #rateSignal(kind: 'RATE_SELLER' | 'RATE_APP', sellerId: string | null): void {
+    const until = this.#clock.now() + this.#timing.rateFullPauseMs
+    if (kind === 'RATE_APP') this.#appFullPausedUntil = until
+    else if (sellerId !== null) this.#fullPausedUntil.set(sellerId, until)
+  }
+
+  /** 지금 그 판매자의 전체 읽기를 멈춘 동안인지 */
+  #fullPaused(sellerId: string): boolean {
+    const now = this.#clock.now()
+    const own = this.#fullPausedUntil.get(sellerId)
+    if (own !== undefined && own <= now) this.#fullPausedUntil.delete(sellerId)
+    return now < this.#appFullPausedUntil || (own !== undefined && now < own)
   }
 
   get configured(): boolean {
@@ -812,11 +862,21 @@ export class BandService {
     return link === null ? [] : [await this.#viewOf(sellerId, link.broadcastId, link)]
   }
 
-  #publishLink(sellerId: string, broadcastId: string): void {
+  /**
+   * 연결 알림 (SSE event: band, kind LINK). onlyIfChanged = 읽기 차례 끝 — 시각 칸을 뺀 값이 앞서 보낸 것과 같으면 보내지 않는다 (D-BND1-24).
+   * 판매자 조작·상태 바뀜은 늘 보낸다. 보낸 값은 모두 기억한다(서버를 다시 켜면 비어 있어 첫 차례는 보낸다)
+   */
+  #publishLink(sellerId: string, broadcastId: string, onlyIfChanged = false): void {
     if (this.#closed) return
     void this.view(sellerId, broadcastId)
       .then((link) => {
-        if (link !== null) this.#o.publish(sellerId, { kind: 'LINK', broadcast: broadcastId, link })
+        if (link === null || this.#closed) return
+        const key = `${sellerId}\n${broadcastId}`
+        const sig = bandLinkSignature(link)
+        if (onlyIfChanged && this.#sentLinks.get(key) === sig) return
+        if (link.state === 'FINISHED') this.#sentLinks.delete(key)
+        else this.#sentLinks.set(key, sig)
+        this.#o.publish(sellerId, { kind: 'LINK', broadcast: broadcastId, link })
       })
       .catch(() => undefined)
   }
@@ -1071,7 +1131,9 @@ export class BandService {
     const read = (mode: 'fast' | 'full') => this.#readComments(sellerId, got.token, link.bandKey, link.postKey, mode, linkId, entry.abort.signal)
     let recorded = 0
     let reached = false
-    let needFull = link.state === 'READING' && this.#clock.now() - entry.lastFullAt >= this.#timing.fullMs
+    // 호출 한도 신호 뒤에는 전체 읽기를 하지 않는다 — 빠른 읽기만, 닿지 못하면 막다른 경우 (D-BND1-23 (나))
+    const fullBlocked = this.#fullPaused(sellerId)
+    let needFull = !fullBlocked && link.state === 'READING' && this.#clock.now() - entry.lastFullAt >= this.#timing.fullMs
     if (!needFull) {
       const fast = await read('fast')
       if (entry.closed) return
@@ -1083,7 +1145,7 @@ export class BandService {
         reached = true
       } else {
         this.#o.log({ level: 'warn', code: 'BAND_FAST_UNREACHED', seller: sellerId })
-        needFull = true
+        needFull = !fullBlocked
       }
     }
     if (needFull) {
@@ -1114,7 +1176,8 @@ export class BandService {
     if (entry.closed) return
     entry.rateMs = 0
     entry.failures = 0
-    this.#schedule(entry, this.#timing.fastMs)
+    // 막다른 경우(닿는 읽기 없음 — 알림이 났다)는 닿는 읽기가 성공할 때까지 60초 간격 (D-BND1-23 (가))
+    this.#schedule(entry, reached ? this.#timing.fastMs : this.#timing.stuckMs)
   }
 
   /** 차례 끝: 늦게 읽음 알림(AC-BND1-54)·막다른 경우 알림(AC-BND1-30, 닿을 때까지 한 번)·READING·읽은 시각(닿았을 때만) */
@@ -1133,7 +1196,7 @@ export class BandService {
     }
     await setBandLinkState(db, sellerId, linkId, BAND_ACTIVE_STATES, { state: 'READING', failures: 0, retryAt: null, rateLimited: false, ...(reached ? { lastReadAt: now } : {}) })
     entry.failures = 0
-    this.#publishLink(sellerId, link.broadcastId)
+    this.#publishLink(sellerId, link.broadcastId, true)
   }
 
   /** 끝난 회차의 연결: FINISHED(회차 끝)로 끝내고 그 글에 더 요청하지 않는다 (RA-BND1-04) */
@@ -1193,7 +1256,8 @@ export class BandService {
     const keys = read.items.map((item) => (isObj(item) ? item['comment_key'] : undefined)).filter((key): key is string => typeof key === 'string')
     const known = await seenBandKeys(db, sellerId, linkId, keys)
     const batch = bandBatch({ sellerUserKey: account.userKey, postKey: link.postKey, known, items: read.items })
-    const recorded = await this.#o.record({
+    const intercept = this.#o.hooks?.record
+    const recordJob: PlatformRecordJob = {
       sellerId,
       date: link.date,
       b: link.broadcastId,
@@ -1202,12 +1266,24 @@ export class BandService {
         const now = await findBandLink(tx, sellerId, linkId)
         return now !== null && BAND_ACTIVE_STATES.includes(now.state) && !(await youtubeEverLinked(tx, sellerId, link.broadcastId))
       },
-    })
+    }
+    const recorded = intercept === undefined ? await this.#o.record(recordJob) : await intercept(recordJob, this.#o.record)
     if (recorded.kind === 'rejected') {
-      // 끊기·유튜브 잇기 뒤면 연결 상태가 이미 바뀌었다 — 다음 읽기에서 본다. 연결이 그대로인데 거절되면 회차 끝(엔진) — 바로 끝낸다 (RA-BND1-04)
+      // 끊기·유튜브 잇기 뒤면 연결 상태가 이미 바뀌었다 — 다음 읽기에서 본다(거기서 멈춘다)
       const now = await findBandLink(db, sellerId, linkId)
-      if (now !== null && BAND_ACTIVE_STATES.includes(now.state) && !(await youtubeEverLinked(db, sellerId, link.broadcastId))) await this.#finishEnded(entry, link)
-      else this.#schedule(entry, 0)
+      if (now === null || !BAND_ACTIVE_STATES.includes(now.state) || (await youtubeEverLinked(db, sellerId, link.broadcastId))) {
+        this.#schedule(entry, 0)
+        return null
+      }
+      // 회차가 정말 끝났을 때만 끝낸다 (RA-BND1-04·D-BND1-22): 거절 코드가 회차 끝·봉인이거나 회차 표에 끝난 시각이 있으면
+      const broadcast = await findBroadcast(db, sellerId, link.broadcastId)
+      if (recorded.code === 'BROADCAST_ENDED' || recorded.code === 'SEALED' || broadcast === null || broadcast.endedAt !== null) {
+        await this.#finishEnded(entry, link)
+        return null
+      }
+      // 그 밖의 거절(회차를 못 찾음·상태 형식 오류·엔진 예외·지원 안 함 등): 본 댓글 표에 적지 않고 다시 시도 시간표로 (말없이 멈추지 않는다)
+      this.#o.log({ level: 'warn', code: 'BAND_RECORD_REJECTED', seller: sellerId, reason: recorded.code })
+      await this.#retryLater(entry, recorded.code)
       return null
     }
     if (recorded.kind === 'save_failed') {

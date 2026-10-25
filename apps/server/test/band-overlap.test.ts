@@ -113,19 +113,34 @@ describe('TD-BND1-002 전체 읽기의 쪽 수 상한', () => {
     const limit = Math.ceil(BAND_TIMING.fullMax / 20) + BAND_TIMING.fullSparePages
     for (let round = 0; round < 3; round += 1) {
       const before = w.fake.calls('comments').length
-      await tick(w, 10_000)
+      if (round === 0) await tick(w, 10_000)
+      else {
+        // 막다른 경우 알림이 난 뒤에는 닿을 때까지 60초 간격 — 59초 동안 요청 0 (D-BND1-23 (가))
+        await tick(w, 59_000)
+        expect(w.fake.calls('comments').length).toBe(before)
+        await tick(w, 1_000)
+      }
       const sorts = w.fake.calls('comments').slice(before).map((call) => call.query['sort'])
-      // 빠른(닿지 못함) → 같은 차례 전체(끝까지 되지 않음) → 빠른 한 번 더(닿지 못함) — 읽기마다 상한 쪽 수
-      expect(sorts).toEqual([...Array<string>(limit).fill('-created_at'), ...Array<string>(limit).fill('+created_at'), ...Array<string>(limit).fill('-created_at')])
+      // 첫 차례: 빠른(닿지 못함) → 같은 차례 전체(끝까지 되지 않음) → 빠른 한 번 더(닿지 못함). 60초 뒤 차례는 전체 읽기 차례라 전체 → 빠른. 읽기마다 상한 쪽 수
+      const fast = Array<string>(limit).fill('-created_at')
+      const full = Array<string>(limit).fill('+created_at')
+      expect(sorts).toEqual(round === 0 ? [...fast, ...full, ...fast] : [...full, ...fast])
     }
     const stuck = (await bandView(w, seller, b)).notices as { total: number; items: { kind: string }[] }
     expect(stuck.items.map((item) => item.kind)).toEqual(['STUCK'])
     w.fake.pagingOverride = null
     guestComment(w, postKey, '1번')
-    await tick(w, 10_000)
+    await tick(w, 60_000)
     expect((await chats(w, seller.sellerId)).map((chat) => chat.text)).toContain('1번')
     expect((await bandView(w, seller, b)).state).toBe('READING')
-    expect(((await bandView(w, seller, b)).notices as { total: number }).total).toBe(1)
+    // 막다른 알림은 그대로 하나, 60초 간격으로 4분 넘게 닿지 못했으니 늦게 읽음 알림이 하나 더 (AC-BND1-54 — 그 사이 달린 1개)
+    const after4 = (await bandView(w, seller, b)).notices as { total: number; items: { kind: string; message: string }[] }
+    expect(after4.items.map((item) => item.kind)).toEqual(['LATE', 'STUCK'])
+    expect(after4.items[0]?.message).toBe('밴드 댓글을 4분 동안 읽지 못했어요. 그 사이 달린 댓글 1개를 지금 넣었어요. 찜 순서는 지금 넣은 차례예요.')
+    // 닿는 읽기가 성공했으니 다음 차례는 다시 10초 뒤
+    const after = w.fake.calls('comments').length
+    await tick(w, 10_000)
+    expect(w.fake.calls('comments').length).toBe(after + 1)
   })
 })
 

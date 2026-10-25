@@ -323,8 +323,14 @@ describe('AC-BND1-30 빠른 읽기 — 10초마다', () => {
     const stuck = '밴드 댓글이 너무 많이 한꺼번에 달려 차례대로 읽지 못하고 있어요. 밴드 글에서 직접 확인해 주세요.'
     for (let round = 0; round < 3; round += 1) {
       const before = w.fake.calls('comments').length
-      await tick(w, 10_000)
-      // 다음 차례에 다시 읽는다 (빠른 → 전체 → 빠른)
+      if (round === 0) await tick(w, 10_000)
+      else {
+        // 알림이 난 뒤에는 닿을 때까지 60초 간격 — 59초 동안 요청 0 (D-BND1-23 (가))
+        await tick(w, 59_000)
+        expect(w.fake.calls('comments').length).toBe(before)
+        await tick(w, 1_000)
+      }
+      // 다음 차례에 다시 읽는다 (빠른 → 전체 → 빠른, 60초 차례는 전체 → 빠른)
       expect(w.fake.calls('comments').length).toBeGreaterThan(before)
       expect(await chats(w, seller.sellerId)).toHaveLength(20)
       const view = await bandView(w, seller, b)
@@ -418,7 +424,10 @@ describe('AC-BND1-32 쪽 넘기기 — 밴드가 준 값을 그대로 따르지 
     // 객체가 아님 → 마지막 쪽
     w.fake.pagingOverride = (_op, next) => (next === null ? null : 'after=4')
     const before2 = w.fake.calls('comments').length
-    await tick(w, 10_000)
+    // 고리로 닿지 못한 차례(막다른 경우) 뒤에는 60초 간격 (D-BND1-23 (가))
+    await tick(w, 59_000)
+    expect(w.fake.calls('comments').length - before2).toBe(0)
+    await tick(w, 1_000)
     expect(w.fake.calls('comments').length - before2).toBe(1)
     expect(await bandView(w, seller, b)).toMatchObject({ state: 'READING' })
   })

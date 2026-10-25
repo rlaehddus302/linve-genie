@@ -143,3 +143,15 @@
 ### 테스트에게
 - E2E: 잇기 일시 실패 문장이 바뀌었다(위 D-BND1-19). 막다른 경우 알림은 띠의 N에 들어간다(D-BND1-17).
 - 적대 `tests/adversarial/bnd1` 20개 녹색(TD-BND1-001~003 포함).
+
+## dev-server (BND1 감사 3회차 수정) — RA-BND1-09·05·08·07 · D-BND1-22~24
+- RA-BND1-09 (D-BND1-22): `platform-record.ts`의 거절 결과에 거절 코드(`{ kind: 'rejected', code }` — writer·엔진 코드, 범위 없음은 `NOT_FOUND`). `service.ts #ingest`는 연결 상태가 바뀌었으면 다음 차례에 멈추고, `BROADCAST_ENDED`·`SEALED`이거나 회차 표에 끝난 시각이 있을 때만 `FINISHED`(회차 끝). 그 밖은 본 댓글 표에 적지 않고 `#retryLater`(RETRYING·10·20·40·80·160·300초), 로그 `BAND_RECORD_REJECTED` + `reason`=거절 코드만.
+- RA-BND1-05 (D-BND1-23): (가) 닿는 읽기가 없던 차례 뒤 다음 차례는 `timing.stuckMs`(60초), 닿으면 10초로. (나) `BandClient` `onRateSignal` — 1002·1003은 그 판매자, 1001은 모든 판매자, 받은 때부터 `timing.rateFullPauseMs`(600초) 동안 `#cycle`이 전체 읽기를 하지 않는다(빠른 읽기가 닿지 못하면 기록 0 → 막다른 경우). 이미 쉬는 중이라 보내지 않은 요청(PAUSED)은 신호로 치지 않는다.
+- RA-BND1-08 (D-BND1-24): `#publishLink(…, onlyIfChanged)` — 차례 끝(`#endCycle`)만 `bandLinkSignature`(시각 칸·쉬는 남은 초를 뺀 보기)가 앞서 보낸 것과 같으면 보내지 않는다. 다른 알림(조작·다시 시도·상태 바뀜)은 늘 보내고 그 값도 기억한다. 기억은 메모리라 서버를 다시 켠 뒤 첫 차례는 보낸다. 잇기 때 이미 마지막으로 읽은 때를 적으므로(기준선 읽기) 화면의 "…에 읽었어요"는 잇기 응답부터 보인다.
+- RA-BND1-07: `comment.ts` 머리 주석의 'reader.ts' → 'service.ts BandService #ingest'. `sanitizeNick` 옮기기는 그대로 맥북 쪽.
+- 시험용 고리 `hooks.record`(기록 가로채기 — 회차 끝이 아닌 거절 주입). 새 시험 `apps/server/test/band-pace.test.ts` 11개.
+- 바꾼 기존 시험(새 스펙대로 더 정확히): `band-reading.test.ts` 막다른 경우 세 차례·쪽 넘기기 고리, `band-overlap.test.ts` 끝나지 않는 쪽 넘기기 — 막다른 경우 뒤 "10초 뒤 다음 차례"를 "59초 동안 요청 0·60초에 다음 차례(전체 → 빠른)"로. 회복 차례가 4분 뒤가 되어 늦게 읽음 알림(AC-BND1-54)이 하나 더 생기는 것을 글자 그대로 단언.
+
+### 테스트에게
+- test-domain: `tests/adversarial/bnd1/fast-read-attacks.test.ts:131` "빈 쪽과 늘 새 after … 세 차례 뒤에도"가 막다른 경우 뒤 10초 차례를 가정해 실패한다(`used` 0). D-BND1-23 (가)대로 둘째 차례부터 60초로 바꿔야 한다.
+- test-e2e: D-BND1-24로 READING 동안 조용한 차례는 연결 알림을 보내지 않는다 — 밴드 칸의 "HH:MM:SS에 읽었어요"는 새 댓글·상태 바뀜·새로 고침 때만 바뀐다. 이 문장이 10초마다 바뀐다고 기대하는 E2E가 있으면 새 스펙과 어긋난다.
