@@ -534,9 +534,10 @@ describe('AC-TTX-32 (D-TTX-16): 확장이 버린 틱톡 댓글 수를 다음 상
         box.add(TAB, 'seller_kim', items(100, 100 + TT_HOLD_MAX - 1))
         expect(box.size).toBe(TT_HOLD_MAX)
         expect(box.unreported, '답 전에는 세지 않음').toBe(0)
-        expect(box.dropped, '팝업 "놓친 틱톡 댓글" 누적은 그대로 1').toBe(1)
+        expect(box.dropped, '팝업 "놓친 틱톡 댓글" 누적도 답 전에는 세지 않음 (D-TTX-21 (3))').toBe(0)
         await answer(reply)
         expect(box.unreported).toBe(counted[name])
+        expect(box.dropped, '팝업 누적 = 답이 실패일 때만 1').toBe(counted[name])
         expect(calls[0]?.map((i) => i.commentId)).toEqual([item(1).commentId])
         expect(box.snapshot().items.some((held) => held.item.commentId === item(1).commentId), '잘린 묶음이 대기열에 돌아옴').toBe(false)
       })
@@ -589,6 +590,109 @@ describe('AC-TTX-32 (D-TTX-16): 확장이 버린 틱톡 댓글 수를 다음 상
       const next = new TikTokOutbox(new FakeApi(), new FakeTimers(), () => undefined)
       next.restore(saved)
       expect(next.takeDropped().count).toBe(0)
+    })
+  })
+
+  describe('(10) 팝업 수 (D-TTX-21 (3)): 날아가는 묶음이 넘침으로 잘리면 팝업 수도 답으로 정한다', () => {
+    const PHRASE = '놓친 틱톡 댓글이 있어요. 라이브지니에서 댓글을 붙여 넣어 주세요.'
+    // 첫 틱톡 묶음 요청만 붙잡아 두는 가짜 서버 — 나머지는 server()의 기본 답
+    function heldWorld() {
+      const s = server()
+      let release: ((reply: Reply) => void) | null = null
+      let held = false
+      const fetcher = (url: string, init: RequestInit) => {
+        if (!held && `${init.method ?? 'GET'} ${new URL(url).pathname}` === 'POST /ext/tiktok/chats') {
+          held = true
+          s.calls.push({ key: 'POST /ext/tiktok/chats', body: JSON.parse(String(init.body)) })
+          return new Promise<Response>((resolve) => {
+            release = (reply) => resolve(new Response(JSON.stringify(reply.body ?? {}), { status: reply.status, headers: { 'Content-Type': 'application/json', ...reply.headers } }))
+          })
+        }
+        return s.fetcher(url, init)
+      }
+      const { chrome } = fakeChrome({ [TOKEN_KEY]: 'tok' })
+      const hub = new Hub(chrome, ORIGIN, fetcher, new FakeTimers())
+      const answer = async (reply: Reply) => {
+        ;(release as ((reply: Reply) => void) | null)?.(reply)
+        for (let i = 0; i < 4; i++) await settle()
+      }
+      const popup = async () => ((await hub.handle({ type: 'view' })) as HubView).tiktok?.overflow ?? null
+      return { hub, s, answer, popup }
+    }
+    const replies: Record<string, Reply> = {
+      '200': { status: 200, body: { result: 'recorded', recorded: 50, standby: 0, dropped: 0, duplicates: 0, broadcast: 'b1', message: TT_WORDS.RECORDING } },
+      standby: { status: 200, body: { result: 'standby', recorded: 0, standby: 50 } },
+      '409': { status: 409, body: { error: { code: 'NOT_LINKED', message: TT_WORDS.NOT_LINKED } } },
+      '400': { status: 400, body: { error: { code: 'INVALID_INPUT', message: 'x' } } },
+      '429': { status: 429, body: { error: { code: 'EXT_RATE_LIMITED', message: 'x' } }, headers: { 'Retry-After': '1' } },
+      '500': { status: 500, body: {} },
+      '503': { status: 503, body: {} },
+    }
+    const failed = new Set(['429', '500', '503'])
+    const K = 3
+
+    for (const [name, reply] of Object.entries(replies)) {
+      it(`50개 묶음이 날아가는 동안 500 + ${String(K)}개 → 잘린 ${String(K)}개는 모두 날아가던 것 → 답 ${name} → 팝업 수 ${failed.has(name) ? String(K) : '0'}`, async () => {
+        const { hub, s, answer, popup } = heldWorld()
+        await hub.handle(status('OWN'), tiktokSender())
+        await hub.handle({ type: 'ttChats', pageId: 'seller_kim', items: items(1, TT_BATCH_MAX) }, tiktokSender())
+        void hub.tiktok.outbox.flush()
+        await settle()
+        expect(s.ttChats().length).toBe(1)
+        await hub.handle({ type: 'ttChats', pageId: 'seller_kim', items: items(1000, 1000 + TT_HOLD_MAX - TT_BATCH_MAX + K - 1) }, tiktokSender())
+        expect(hub.tiktok.outbox.size).toBe(TT_HOLD_MAX)
+        expect(hub.tiktok.outbox.dropped, '답 전에는 팝업 수에 넣지 않음').toBe(0)
+        expect(await popup(), '답 전에는 붙여 넣으라고 하지 않음').toBeNull()
+        await answer(reply)
+        expect(hub.tiktok.outbox.dropped).toBe(failed.has(name) ? K : 0)
+        expect(await popup()).toBe(failed.has(name) ? PHRASE : null)
+      })
+    }
+
+    it('날아가지 않던 댓글이 잘린 몫 j는 잘릴 때 바로 팝업 수에 든다 — 합계 = j + 실패일 때 k', async () => {
+      const J = 4
+      for (const [name, total] of [['200', J], ['503', J + TT_BATCH_MAX]] as const) {
+        const { hub, answer, popup } = heldWorld()
+        await hub.handle(status('OWN'), tiktokSender())
+        await hub.handle({ type: 'ttChats', pageId: 'seller_kim', items: items(1, TT_BATCH_MAX) }, tiktokSender())
+        void hub.tiktok.outbox.flush()
+        await settle()
+        // 날아가는 50개 전부(k = 50)와 그 뒤의 j개가 잘린다
+        await hub.handle({ type: 'ttChats', pageId: 'seller_kim', items: items(1000, 1000 + TT_HOLD_MAX + J - 1) }, tiktokSender())
+        expect(hub.tiktok.outbox.dropped, `${name}: 잘릴 때 바로 j`).toBe(J)
+        expect(await popup(), name).toBe(PHRASE)
+        await answer(replies[name] as Reply)
+        expect(hub.tiktok.outbox.dropped, name).toBe(total)
+        expect(await popup(), name).toBe(PHRASE)
+      }
+    })
+
+    it('화면 떠남(dropTab)으로 뺀 날아가던 댓글은 실패 답에도 팝업 수에 들지 않는다 (서버에 알릴 수에만 듦)', async () => {
+      const { hub, answer, popup } = heldWorld()
+      await hub.handle(status('OWN'), tiktokSender())
+      await hub.handle({ type: 'ttChats', pageId: 'seller_kim', items: items(1, 2) }, tiktokSender())
+      void hub.tiktok.outbox.flush()
+      await settle()
+      hub.tiktok.outbox.dropTab(TAB)
+      await answer(replies['503'] as Reply)
+      expect(hub.tiktok.outbox.dropped).toBe(0)
+      expect(hub.tiktok.outbox.unreported).toBe(2)
+      expect(await popup()).toBeNull()
+    })
+
+    it('워커가 답을 받기 전에 멈췄다 다시 뜨면 날아가다 잘린 몫은 팝업 수에 들지 않는다', () => {
+      const snaps: ReturnType<TikTokOutbox['snapshot']>[] = []
+      const api: Api = { call: () => new Promise<ApiResult>(() => undefined) }
+      const box = new TikTokOutbox(api, new FakeTimers(), () => undefined, (snap) => snaps.push(snap))
+      box.add(TAB, 'seller_kim', items(1, TT_BATCH_MAX))
+      void box.flush()
+      box.add(TAB, 'seller_kim', items(1000, 1000 + TT_HOLD_MAX - TT_BATCH_MAX + K - 1))
+      const saved = snaps.at(-1)
+      expect(saved?.dropped).toBe(0)
+      const next = new TikTokOutbox(new FakeApi(), new FakeTimers(), () => undefined)
+      if (saved !== undefined) next.restore(saved)
+      expect(next.dropped).toBe(0)
+      expect(next.size).toBe(TT_HOLD_MAX)
     })
   })
 

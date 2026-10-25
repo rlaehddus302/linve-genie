@@ -3,7 +3,8 @@
 // - 응답 recorded·standby는 둘 다 성공(다시 보내지 않음). 429면 Retry-After만큼, 서버에 닿지 못하거나 5xx면 점점 길게 기다렸다 **같은 순서로** 다시.
 // - 401(끊김)이면 모두 버리고 멈춘다. 403 NOT_OWN_LIVE·409(NOT_LINKED·NO_CONSENT·PLATFORM_NOT_READY)·400은 그 묶음을 버린다
 //   (다시 보내도 기록되지 않고, 나중에 기록하면 늦게 온 댓글이 순서를 앞지른다 — 팝업에 까닭을 보인다).
-// - 500개까지 붙든다. 넘으면 오래된 것부터 버리고 센다("놓친 틱톡 댓글이 있어요").
+// - 500개까지 붙든다. 넘으면 오래된 것부터 버리고 센다("놓친 틱톡 댓글이 있어요"). 팝업 수도 날아가는 묶음 몫은 답으로 정한다(D-TTX-21 (3)):
+//   아직 보내지 않은 것은 잘릴 때 바로, 날아가던 것은 답이 429·5xx·닿지 못함일 때만. 화면 떠남은 팝업 수에 넣지 않는다.
 // - 붙든 것은 바뀔 때마다 onChange로 알린다 → 서비스 워커가 chrome.storage.session에 두고 다시 뜨면 이어 보낸다. 디스크에는 두지 않는다.
 // - 화면을 떠나면(dropTab) 그 탭의 아직 보내지 않은 댓글을 버린다(D-TTX-02).
 // - 넘침·화면 떠남으로 버린 수는 서버에 아직 알리지 않은 수로 따로 센다(D-TTX-16) → 다음 틱톡 상태의 `dropped`.
@@ -73,6 +74,8 @@ export class TikTokOutbox {
   #flying: ReadonlySet<TikTokHeld> | null = null
   /** 날아가는 묶음 중 떠남·넘침으로 대기열에서 뺀 수 — 답이 429·5xx·닿지 못함이면 그때 서버에 알릴 수로 센다 */
   #flyingGone = 0
+  /** #flyingGone 가운데 넘침으로 잘린 수 — 답이 429·5xx·닿지 못함이면 그때 팝업 수(#dropped)에도 더한다(D-TTX-21 (3)) */
+  #flyingOverflow = 0
   /** stop()마다 늘린다 — 끊기 전에 떼어 둔 수가 끊은 뒤 되돌아오지 않게 */
   #epoch = 0
 
@@ -165,6 +168,7 @@ export class TikTokOutbox {
     this.#reporting = 0
     this.#flying = null
     this.#flyingGone = 0
+    this.#flyingOverflow = 0
     this.#epoch += 1
     if (this.#timer !== null) this.#timers.clear(this.#timer)
     this.#timer = null
@@ -182,11 +186,13 @@ export class TikTokOutbox {
     if (over <= 0) return
     let gone = 0
     for (const held of this.#queue.splice(0, over)) {
-      if (this.#flying?.has(held) === true) this.#flyingGone += 1
-      else gone += 1
+      if (this.#flying?.has(held) === true) {
+        this.#flyingGone += 1
+        this.#flyingOverflow += 1
+      } else gone += 1
     }
-    // 팝업 "놓친 틱톡 댓글"의 누적 수는 대기열에서 뺀 그대로 센다(D-TTX-08) — 서버에 알릴 수만 답으로 정한다(D-TTX-21 (1))
-    this.#dropped += over
+    // 아직 보내지 않은 몫만 바로 센다 — 날아가던 몫은 팝업 수도 서버에 알릴 수도 답으로 정한다(D-TTX-21 (1)(3))
+    this.#dropped += gone
     this.#unreported += gone
   }
 
@@ -221,18 +227,24 @@ export class TikTokOutbox {
     const epoch = this.#epoch
     this.#flying = new Set(batch)
     this.#flyingGone = 0
+    this.#flyingOverflow = 0
     const result = await this.#api.call('POST', TT_CHATS_PATH, { pageId: first.pageId, items: batch.map((held) => held.item) })
     this.#sending = false
     // 그사이 끊었으면(stop) 그 묶음의 뺀 수는 끊기와 함께 지워졌다 — 되살리지 않는다
     const same = epoch === this.#epoch
     if (same) this.#flying = null
     const flyingGone = same ? this.#flyingGone : 0
-    if (same) this.#flyingGone = 0
+    const flyingOverflow = same ? this.#flyingOverflow : 0
+    if (same) {
+      this.#flyingGone = 0
+      this.#flyingOverflow = 0
+    }
     if (this.#stopped) return
     // 떠남·넘침으로 뺀 날아가던 댓글은 다시 보내지 않는다 — 서버가 받지 못했으면(429·5xx·닿지 못함) 여기서 센다
     const countGone = () => {
       if (flyingGone === 0) return
       this.#unreported += flyingGone
+      this.#dropped += flyingOverflow
       this.#changed()
     }
     const drop = () => {
