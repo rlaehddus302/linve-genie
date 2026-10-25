@@ -29,3 +29,24 @@
 
 ## 돌리는 법
 `CI=1 E2E_PORT_OFFSET=4200 pnpm exec playwright test --config apps/web/playwright.config.ts tests/e2e/ttx --project chromium-multi` (약 6분, 실패 대기열을 쓰는 시험은 직접 연결이 다시 붙을 때까지 기다려 다음 시험에 남기지 않는다). 기존 `tests/e2e/x1/**`·`n2b2/{tiktok,missed,paste}.spec.ts`도 함께 돌려 통과(25개).
+
+## 수정 라운드 2 (test-e2e)
+
+### 고친 것
+- **SA-TTX-02 (blocker)**: `extension.spec.ts` AC-TTX-25가 막힘 뒤 직접 연결 문장(`BLOCKED_MESSAGE`)이 보이기를 기다렸다 — D-TTX-15 이전 동작. 이제 서버 보기로 `RETRYING:BLOCKED`를 확인한 뒤, "확장으로 받는 중"인 동안 그 문장이 없고 틱톡 칸 어디에도 "직접 넣어 주세요"가 없으며 보조 단추 "댓글 붙여넣기"는 남는지 단언한다(기대를 지우지 않고 새 스펙대로 바꿈). AC-TTX-24 흐름(서명 실패)에도 같은 단언을 더했다.
+- **AC-TTX-27 (D-TTX-18)**: `support.ts` `WARN.STALE`·`WARN.UNREADABLE`을 할 일까지 붙은 새 문장 전체로 바꿨다(`exact: true` 단언이 이제 문장 전체를 본다).
+
+### 더한 것 (`fix2.spec.ts`, 5개)
+- AC-TTX-21a: 직접 연결 받는 중 + 확장 대기 → 막힘(4번) → "확장으로 받는 중"이면 직접 연결 문장·"직접 넣어 주세요" 없음, 띠 없음, 보조 단추 그대로 → 틱톡 탭 닫음 → 조용함 경고 + 막힘 문장이 `<strong>`으로 다시 + 띠 다시 + 안내 줄(D-TTX-17) 없음 → 직접 연결이 다시 붙을 때까지 기다려 실패 대기열을 비움.
+  - 30초 조용함은 서버 시계가 정하는데 E2E 서버에 서버 시계를 넘기는 조작이 없다. 그래서 가짜 시계 대신 실제 30초를 상태 기다림(`toBeVisible({ timeout })`)으로 기다린다. 수용 기준의 "가짜 시계"는 웹 단위 시험(`n2b2-platforms.test.tsx`)이 맡는다.
+- AC-TTX-32 넘침 흉내: 직접 연결 멈춤 + 확장 받는 중 → `/ext/tiktok/chats`를 500으로 막고 댓글 503개 → 상태 요청에 `dropped: 3`, 서버 `saveFailed` 3, 콘솔 "저장하지 못한 틱톡 댓글이 3개 있어요. …", 띠 + "확인했어요", 받는 길 "확장으로 받는 중" 그대로 → 막음을 풀면 남은 500개 기록, 그 뒤 상태는 `dropped: 0`, `saveFailed` 3 그대로 → "확인했어요"로 띠가 걷힘. 500인 동안 다시 보내는 중은 세지 않음(AC-TTX-32(5))도 함께 본다.
+- AC-TTX-32(3): `breaks.spec.ts` TE-TTX-001 끝에, 내 방송을 떠나며 버린 아직 보내지 않은 "15" 1개가 "저장하지 못한 틱톡 댓글이 1개"로 올라오고 받는 길 줄은 그대로인지 더했다.
+- AC-TTX-33(1)(3): 확장 연결 없음 + 멈춤 → 안내 줄 없음(띠는 그대로) → 설정 설명에 틱톡 문장 그대로·"서버" 없음 → 확장을 이으면 안내 줄(경고 모양 아님, 서버 `extension.hint`와 같은 글) → 확장 끊기 → 안내 줄 없음. 확장 상태가 생기면 없어지는 것은 AC-TTX-24 흐름에서 본다.
+- AC-TTX-33(2): 연결 직후(팝업을 다시 열지 않음) 아이디 있음 → 틱톡 줄 "내 틱톡 방송 화면을 열면 댓글을 보내요."이고 팝업 맨 위(U-TTX-05) / 아이디 없음 → 확장이 `GET /ext/tiktok` 답을 받은 뒤에도 틱톡 줄 없음.
+
+### 아직 못 한 것
+- SA-TTX-04 E2E 몫(HIDDEN·UNREADABLE 경고): 그대로 단위 시험 몫. headless에서 확장 쪽 `document.hidden`을 바꿀 수 없고, 읽지 못함은 서버 시계 1분 실제 대기다.
+- SA-TTX-03은 서버 단위 시험 몫(test-domain·dev-server)이라 E2E로 하지 않았다.
+
+### 돌린 것
+- `CI=1 E2E_PORT_OFFSET=4200 pnpm exec playwright test --config apps/web/playwright.config.ts tests/e2e/ttx --project chromium-multi` → 18개 중 17개 통과. 실패 1개는 내 시험이 한 시험 안에서 두 번째 판매자로 로그인하려다 멈춘 것이었고, 두 시험으로 나눈 뒤 통과했다. 그 뒤 `fix2.spec.ts`를 한 번 더 돌렸다.

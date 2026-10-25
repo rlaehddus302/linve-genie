@@ -30,6 +30,7 @@ import {
   registerApi,
   routeLine,
   routeTiktok,
+  saveFailedLine,
   scopeView,
   test,
   tiktokSeller,
@@ -272,5 +273,10 @@ test.describe('TTX 확장 틱톡 깨뜨리기 @multi', () => {
     await expect.poll(async () => claimsOf(await scopeView(page, date, false), b, 16), { timeout: 30_000 }).toBe(1)
     expect(claimsOf(await scopeView(page, date, false), b, 15)).toBe(0)
     await expectPopupTiktok(popup, POPUP.RECORDING)
+    // 내 방송 화면을 떠나며 버린, 아직 보내지 않은 "15" 1개는 저장하지 못한 댓글로 알린다 (D-TTX-16·AC-TTX-32(3)) — 받는 길 줄은 그대로
+    await expect(consoleTiktok(page).getByText(saveFailedLine(1), { exact: true })).toBeVisible({ timeout: 30_000 })
+    expect((await ttLinkView(page, b)).collection?.saveFailed).toBe(1)
+    await expect(routeLine(page)).toHaveText(ROUTE.EXTENSION)
+    await expect(page.getByRole('button', { name: PASTE_ALERT })).toBeVisible()
   })
 })

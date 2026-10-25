@@ -1,8 +1,9 @@
 // TTX E2E — 크롬 확장으로 틱톡 라이브 댓글 읽기 (서버 직접 연결의 대비책). 여러 플랫폼 묶음(@multi — 가짜 웹캐스트·가짜 유튜브).
-// AC-TTX-20·21·22·23·24·25·26·27·28·31. 압축 해제 확장(X1 도우미) + 가짜 틱톡 화면(Playwright가 돌려줌) + 콘솔.
+// AC-TTX-20·21·21a·22·23·24·25·26·27·28·31·33. 압축 해제 확장(X1 도우미) + 가짜 틱톡 화면(Playwright가 돌려줌) + 콘솔.
 // 가짜 웹캐스트의 실패 대기열(/_e2e/tiktok/fail·block)은 서버 하나에 하나라, 그것을 쓴 시험은 다시 붙을 때까지 기다려 대기열을 비우고 끝낸다.
 import {
   CONNECT_WAIT,
+  EXT_HINT,
   PASTE_ALERT,
   POPUP,
   ROUTE,
@@ -89,9 +90,17 @@ test.describe('TTX 확장 틱톡 @multi', () => {
     await tt(page.request, 'fail', { kind: 'SIGN_FAILED', times: 3 })
     await linkTiktokNoWait(page)
     await expect(consoleTiktok(page).getByText(SIGN_FAILED_MESSAGE)).toBeVisible({ timeout: 15_000 })
+    // 확장을 이었고 이 회차 확장 상태가 아직 없음 + 서명 실패 → 안내 한 줄(경고 모양 아님, D-TTX-17·AC-TTX-33(1))
+    const hint = consoleTiktok(page).getByText(EXT_HINT, { exact: true })
+    await expect(hint).toBeVisible()
+    await expect(hint).not.toHaveClass(/warning/)
 
     const tab = await openTiktok(context, `/@${tiktokId}/live`)
     await expect(routeLine(page)).toHaveText(ROUTE.EXTENSION, { timeout: 20_000 })
+    // 확장으로 받는 중이면 직접 연결 문장은 보이지 않고, 칸 어디에도 "직접 넣어 주세요"가 없다 (D-TTX-15·AC-TTX-21a). 확장 상태가 생겼으니 안내 줄도 없다
+    await expect(consoleTiktok(page).getByText(SIGN_FAILED_MESSAGE)).toHaveCount(0)
+    await expect(consoleTiktok(page)).not.toContainText('직접 넣어 주세요')
+    await expect(hint).toHaveCount(0)
     await expectPopupTiktok(popup, POPUP.RECORDING)
 
     await addTtComment(tab, { nickname: '확장손님', text: '15' })
@@ -155,8 +164,18 @@ test.describe('TTX 확장 틱톡 @multi', () => {
 
     // 막힘: 열린 연결이 끊기고 다음 세 번(5·10·20초 뒤)이 막힌다 → 75초쯤 다시 받는 중
     await tt(page.request, 'block', { uniqueId: tiktokId, times: 3 })
-    await expect(consoleTiktok(page).getByText(BLOCKED_MESSAGE)).toBeVisible({ timeout: 20_000 })
+    // 직접 연결이 막혀 다시 시도하는 중임은 서버 보기로 확인한다 — 확장이 대기 중이던 화면이라 칸은 곧장 "확장으로 받는 중"이 되고,
+    // 그동안 직접 연결 문장("…그동안 댓글을 직접 넣어 주세요.")은 보이지 않아야 한다 (D-TTX-15·AC-TTX-21a, SA-TTX-02)
+    await expect
+      .poll(async () => {
+        const c = (await ttLinkView(page, b)).collection
+        return c === null ? null : `${c.state}:${c.reason ?? ''}`
+      }, { timeout: 20_000 })
+      .toBe('RETRYING:BLOCKED')
     await expect(routeLine(page)).toHaveText(ROUTE.EXTENSION, { timeout: 15_000 })
+    await expect(consoleTiktok(page).getByText(BLOCKED_MESSAGE)).toHaveCount(0)
+    await expect(consoleTiktok(page)).not.toContainText('직접 넣어 주세요')
+    await expect(consoleTiktok(page).getByRole('button', { name: '댓글 붙여넣기' })).toBeVisible()
     await expect(page.getByRole('button', { name: PASTE_ALERT })).toHaveCount(0)
     await addTtComment(tab, { nickname: '넘어온손님', text: '16' })
     await expect(boardItem(page, 16)).toContainText('넘어온손님', { timeout: 15_000 })

@@ -17,11 +17,17 @@ export const ROUTE = {
   EXTENSION: '확장으로 받는 중',
 } as const
 export const WARN = {
-  STALE: '확장에서 틱톡 댓글이 오지 않아요',
+  STALE: '확장에서 틱톡 댓글이 오지 않아요. 크롬에서 내 틱톡 방송 화면을 다시 열어 주세요.',
   HIDDEN: '틱톡 방송 화면을 앞으로 꺼내 두세요',
-  UNREADABLE: '틱톡 화면이 바뀌어 댓글을 읽지 못해요',
+  UNREADABLE: '틱톡 화면이 바뀌어 댓글을 읽지 못해요. 댓글을 직접 붙여 넣어 주세요.',
   ELSEWHERE: '확장이 내 틱톡 방송 화면에 있지 않아요. 내 방송 화면을 열어 주세요.',
 } as const
+/** 콘솔 틱톡 칸 안내 한 줄 (D-TTX-17 — 확장을 이었고 이 회차 확장 상태 없음 + 직접 연결 막힘·멈춤) */
+export const EXT_HINT = 'PC 크롬에서 내 틱톡 방송 화면을 열어 두면 확장이 댓글을 대신 받아요.'
+/** 콘솔 저장 실패 문장 (D-TTX-16 — 확장이 버린 댓글도 직접 연결의 저장 실패 문장 그대로) */
+export const saveFailedLine = (n: number): string => `저장하지 못한 틱톡 댓글이 ${String(n)}개 있어요. 틱톡 앱에서 확인해 댓글을 붙여 넣어 주세요.`
+/** 설정 확장 칸 설명의 틱톡 문장 (D-TTX-17) */
+export const SETTINGS_TIKTOK_LINE = '틱톡도 같은 확장으로 받을 수 있어요. 틱톡 연결이 막혔을 때 이 크롬에서 내 틱톡 방송 화면을 열어 두면 확장이 댓글을 대신 읽어 보내요.'
 /** 확장 팝업 틱톡 줄 */
 export const POPUP = {
   RECORDING: '틱톡 댓글을 라이브지니로 보내고 있어요.',
@@ -119,7 +125,7 @@ export async function countTiktokChats(context: BrowserContext): Promise<{ count
 }
 
 /** 틱톡 연결 보기 (서버) */
-export async function ttLinkView(page: Page, b: string): Promise<{ state: string; collection: { state: string; reason: string | null } | null; extension: { state: string; active: boolean; route: string | null; warning: string | null; recorded: number; standby: number } | null }> {
+export async function ttLinkView(page: Page, b: string): Promise<{ state: string; collection: { state: string; reason: string | null; saveFailed: number } | null; extension: { state: string; active: boolean; route: string | null; warning: string | null; hint?: string | null; recorded: number; standby: number } | null }> {
   const res = await page.request.get(`/api/broadcasts/${encodeURIComponent(b)}/tiktok`)
   expect(res.ok(), await res.text()).toBe(true)
   return ((await res.json()) as { link: never }).link
