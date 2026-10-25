@@ -6,6 +6,8 @@ export interface VoiceSettings {
   readonly 'voice.autoConfirm': boolean
   /** 자동 확정까지 기다리는 초 (정수 3~30, 기본 5 — 되돌리기 5초와 같은 박자) */
   readonly 'voice.autoConfirmSec': number
+  /** V3: 번호와 가격이 들리면 바로 등록 — resolveVoiceSettings는 늘 채운다(선택 칸인 것은 옛 모양 객체를 그대로 받기 위해) (기본 켬 — 끈 때만 false, 옛 `voice.autoConfirm`은 읽지 않는다, D-V3-16) */
+  readonly 'voice.autoRegister'?: boolean
 }
 
 export type VoiceSettingKey = keyof VoiceSettings
@@ -14,6 +16,7 @@ export type VoiceSettingsOverride = Partial<VoiceSettings>
 export const DEFAULT_VOICE_SETTINGS: Readonly<VoiceSettings> = Object.freeze({
   'voice.autoConfirm': false,
   'voice.autoConfirmSec': 5,
+  'voice.autoRegister': true,
 })
 
 export const AUTO_CONFIRM_SEC_MIN = 3
@@ -75,6 +78,7 @@ export function checkVoiceSettings(value: unknown): VoiceSettingsProblem[] {
     if (key === 'voice.autoConfirmSec' && !(typeof setting === 'number' && Number.isSafeInteger(setting) && setting >= AUTO_CONFIRM_SEC_MIN && setting <= AUTO_CONFIRM_SEC_MAX)) {
       problems.push({ key, message: `자동 확정 기다림은 ${AUTO_CONFIRM_SEC_MIN}초부터 ${AUTO_CONFIRM_SEC_MAX}초까지의 정수로 적어 주세요` })
     }
+    if (key === 'voice.autoRegister' && typeof setting !== 'boolean') problems.push({ key, message: '바로 등록은 켬이나 끔으로만 정할 수 있어요' })
     if (key === QUIET_MS_KEY && !isQuietMs(setting)) problems.push({ key, message: '말이 끝났다고 볼 때까지는 1.0초부터 4.0초까지 0.1초 단위로 정해 주세요' })
   }
   return problems
@@ -93,5 +97,7 @@ export function resolveVoiceSettings(override?: unknown): VoiceSettings {
     'voice.autoConfirm': typeof auto === 'boolean' ? auto : DEFAULT_VOICE_SETTINGS['voice.autoConfirm'],
     'voice.autoConfirmSec':
       typeof sec === 'number' && Number.isSafeInteger(sec) && sec >= AUTO_CONFIRM_SEC_MIN && sec <= AUTO_CONFIRM_SEC_MAX ? sec : DEFAULT_VOICE_SETTINGS['voice.autoConfirmSec'],
+    // 끈 때(false)만 끔 — 없거나 틀린 값·옛 voice.autoConfirm은 상관없이 켬 (D-V3-16)
+    'voice.autoRegister': record['voice.autoRegister'] !== false,
   }
 }

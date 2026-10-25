@@ -137,3 +137,32 @@
   - 숫자는 0·1·3·6·7·8이면 "을", 나머지는 "를".
 - 사례 수: voice-register 80(variety-guess 42, same-number 38). `pnpm golden` 불일치 0, tests/adversarial/v3 100개 통과.
 - 남은 device 몫(acceptance에 [device]로 적혔는데 packages/voice에 아직 없음): AC-V3-06 `mergeIntoCard`, AC-V3-07 `resolveVoiceSettings`의 `voice.autoRegister`, AC-V3-08 할 일 고르기 확장(`otherNumber`·`undoRegistered`), AC-V3-09의 `readSure`. 화면 담당이 apps/web/src/voice/instant.ts에 비슷한 것을 만들었다 — 어느 쪽에 둘지 오케스트레이터 판단 필요.
+
+### dev-device 추가 7 — AC-V3-06~09 [device] 함수 (packages/voice, index.ts로 내보냄)
+- `mergeIntoCard(card, reading: ChunkReading, registration?: RegistrationReading | null, options?: { maxNumber? }): { card, changed, autoDue, reason }` (AC-V3-06)
+  - 판단은 controller.ts `#mergeCard`와 같다: 손댄 카드는 그대로이고 까닭은 `MERGE_TOUCHED_REASON`("고치는 중인 카드라 바꾸지 않았어요").
+  - 품종은 사전 이름이면 바꾼다. 추측은 카드 품종이 비었거나 추측(nameNeedsCheck)일 때만 쓴다. 가격은 다르면 바꾼다.
+  - acceptance의 `nameGuessed`는 카드의 `nameNeedsCheck`로 본다.
+  - `autoDue` = 원 가격(priceSure) ∧ blocked 없음 ∧ **numberFrom = 'marker'** ∧ 번호·가격 있음 ∧ 300만 원 이하.
+  - 화면 `#mergeCard`는 numberFrom을 보지 않는다(AC-V3-06 (e) "번호가 음성 N번이면"). 옮길 때 이 차이로 '번' 없는 번호 카드는 합쳐도 바로 등록되지 않는다.
+- `resolveVoiceSettings(...)['voice.autoRegister']` (AC-V3-07)
+  - 기본 켬이다. 끈 때(false)만 끔이고, 옛 `voice.autoConfirm`은 읽지 않는다.
+  - `checkVoiceSettings`는 `voice.autoRegister`가 불리언이 아니면 문제로 돌려준다.
+  - `VoiceSettings`의 이 칸은 선택(?) 칸이다 — 옛 모양 객체를 만드는 화면 시험이 깨지지 않게. 결과는 늘 채운다.
+  - 화면 `readInstant(stored)`와 결과가 같다.
+- `chooseInstantAction(reading: ChunkReading, { registered, handled?, registration }): InstantAction | null` (AC-V3-08)
+  - `undoRegistered{nos}` | `otherNumber{no, others, message}` | `sameNumber{no}`(→ R-22) | null(V2 chooseAction 그대로).
+  - controller.ts `#instantChunk` 앞부분과 같은 차례다: 취소 → 다른 번호 → 처리한 번호.
+  - `otherNumberMessage`도 같은 글로 내보낸다.
+- `readSure(text, options?: { dictionary, maxNumber, final }): { sure, no, price, name, guess, numbers, numberFrom, blocked }` (AC-V3-09 이름, readRegistration의 짧은 모양). 예외를 던지지 않는다.
+- 단위 시험: packages/voice/test/v3-acceptance.test.ts. 무작위 1,000개 문자열에서 예외가 없음을 확인한다.
+
+**화면이 바꿔 쓸 함수 (화면 담당이 옮김 — 지금 화면 파일은 그대로)**
+| 화면(apps/web/src/voice) | packages/voice |
+|---|---|
+| controller.ts `#mergeCard`의 합치기 판단 | `mergeIntoCard` (autoDue에 numberFrom 'marker' 조건이 더해짐) |
+| controller.ts `#instantChunk`의 취소·다른 번호·처리한 번호 고르기 | `chooseInstantAction` |
+| instant.ts `readInstant(stored)` | `resolveVoiceSettings(stored)['voice.autoRegister']` |
+| instant.ts `otherNumberMessage` | `otherNumberMessage` (같은 글) |
+| controller.ts `#readRegistration(...).ready !== null` | `readSure(...).sure` (또는 지금처럼 readRegistration) |
+| target.ts 밖에서 쓰던 조사 붙이기가 있다면 | `withObject`·`withRo` |

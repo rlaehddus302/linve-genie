@@ -42,9 +42,10 @@ const deepFreeze = <T>(value: T): T => {
 
 describe('음성 설정 (D-204): 자동 확정 기본 꺼짐, 기다림 기본 5초(정수 3~30)', () => {
   it('기본값', () => {
-    expect(DEFAULT_VOICE_SETTINGS).toEqual({ 'voice.autoConfirm': false, 'voice.autoConfirmSec': 5 })
+    // V3(AC-V3-07, D-V3-16): 바로 등록 voice.autoRegister 기본 켬이 더해짐 — 옛 두 키의 기본은 그대로
+    expect(DEFAULT_VOICE_SETTINGS).toEqual({ 'voice.autoConfirm': false, 'voice.autoConfirmSec': 5, 'voice.autoRegister': true })
     expect(resolveVoiceSettings()).toEqual(DEFAULT_VOICE_SETTINGS)
-    expect(resolveVoiceSettings({ 'voice.autoConfirm': true })).toEqual({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5 })
+    expect(resolveVoiceSettings({ 'voice.autoConfirm': true })).toEqual({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5, 'voice.autoRegister': true })
   })
 
   it('검사: 범위 밖·정수 아님·모르는 키·객체 아님을 문제로 돌려준다', () => {

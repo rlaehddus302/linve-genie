@@ -5,8 +5,8 @@
 // - 열린 카드 합치기: 같은 번호의 열린 카드를 하나로.
 // 모두 순수 함수: 넘긴 값을 바꾸지 않고, 시계·난수·네트워크를 쓰지 않으며, 어떤 입력에도 예외를 던지지 않는다(카드 합치기는 카드 모양만 믿는다).
 import { normalizeText } from '@livejjim/core'
-import { closeCard, type SuggestionCard } from './card.ts'
-import { CANCEL_WORDS, CORRECTION_MARKERS, FIELD_NAMES } from './correction.ts'
+import { closeCard, editCard, type SuggestionCard } from './card.ts'
+import { CANCEL_WORDS, CORRECTION_MARKERS, FIELD_NAMES, type ChunkReading } from './correction.ts'
 import { STOP_WORDS } from './default-dictionary.ts'
 import { ENDINGS, analyzeSentence, readingForms, type ExtractOptions, type SentenceAnalysis, type VoiceExtraction } from './extract.ts'
 
@@ -315,4 +315,131 @@ export function mergeSameNumberCards(cards: readonly SuggestionCard[]): Suggesti
     next[keep] = merged
   }
   return next
+}
+
+// ── 확정 읽기 짧은 모양 (AC-V3-03·09) ───────────────────────────────────
+
+/** 확정 읽기 결과 (acceptance 이름) */
+export interface SureReading {
+  /** 바로 등록할 때인가 (R-17 8) */
+  readonly sure: boolean
+  readonly no: number | null
+  readonly price: number | null
+  /** 사전 이름 */
+  readonly name: string | null
+  /** 품종 추측 (R-17 7) */
+  readonly guess: string | null
+  /** 들린 번호 전부 (D-V3-05 — 189·139) */
+  readonly numbers: readonly number[]
+  readonly numberFrom: 'marker' | 'bare' | null
+  /** 번호·'원' 가격은 확정됐지만 카드로만 보이는 까닭 */
+  readonly blocked: ReadyBlock | null
+}
+
+/** 확정 읽기 (R-17 8) — readRegistration의 짧은 모양. 어떤 입력에도 예외를 던지지 않는다 */
+export function readSure(text: unknown, options: RegistrationOptions = {}): SureReading {
+  try {
+    const r = readRegistration(text, options)
+    return { sure: r.ready !== null, no: r.extraction.no, price: r.extraction.price, name: r.extraction.name, guess: r.guess, numbers: r.heardNumbers, numberFrom: r.numberFrom, blocked: r.blocked }
+  } catch {
+    return { sure: false, no: null, price: null, name: null, guess: null, numbers: [], numberFrom: null, blocked: null }
+  }
+}
+
+// ── 같은 번호 열린 카드에 합치기 (AC-V3-06, D-V3-08) ─────────────────────
+
+/** 손댄 카드에 합치지 않은 까닭 (화면 기록 문장과 같다) */
+export const MERGE_TOUCHED_REASON = '고치는 중인 카드라 바꾸지 않았어요'
+
+export interface MergeResult {
+  /** 합친 카드 (바뀌지 않았으면 넘긴 카드 그대로) */
+  readonly card: SuggestionCard
+  readonly changed: boolean
+  /** 합친 카드가 바로 등록 대상인가: 원 가격(priceSure)·막는 까닭 없음·번호가 음성 'N번'·번호와 가격이 있고 300만 원 이하 */
+  readonly autoDue: boolean
+  /** 바꾸지 않은 까닭 (손댄 카드·고칠 수 없는 값) — 없으면 null */
+  readonly reason: string | null
+}
+
+/**
+ * 같은 번호의 열린 카드에 새 덩어리를 합친다 (D-V3-08, 화면 apps/web/src/voice/controller.ts #mergeCard와 같은 판단).
+ * - 손댄 카드는 바꾸지 않는다(까닭 MERGE_TOUCHED_REASON).
+ * - 품종: 덩어리의 사전 이름이 카드 품종과 다르면 그것으로. 사전 이름이 없고 추측이 있으면 카드 품종이 비었거나 추측(nameNeedsCheck)일 때만 추측으로 — 사전 품종 카드는 추측으로 바꾸지 않는다.
+ * - 가격: 덩어리 가격이 있고 다르면 그것으로.
+ * `registration`은 같은 덩어리의 readRegistration 결과(없으면 추측·바로 등록 판단 없이).
+ */
+export function mergeIntoCard(card: SuggestionCard, reading: ChunkReading, registration: RegistrationReading | null = null, options: { readonly maxNumber?: number } = {}): MergeResult {
+  try {
+    if (card.touched) return { card, changed: false, autoDue: false, reason: MERGE_TOUCHED_REASON }
+    const changes: { name?: string; price?: number } = {}
+    let guessed = false
+    const guess = registration?.guess ?? null
+    if (reading.name !== null && reading.name !== card.name) changes.name = reading.name
+    else if (reading.name === null && guess !== null && (card.name === null || card.nameNeedsCheck === true) && guess !== card.name) {
+      changes.name = guess
+      guessed = true
+    }
+    if (reading.price !== null && reading.price !== card.price) changes.price = reading.price
+    let next = card
+    if (Object.keys(changes).length > 0) {
+      const edited = editCard(card, changes, options)
+      if (!edited.ok) return { card, changed: false, autoDue: false, reason: edited.message }
+      next = changes.name === undefined ? edited.card : { ...edited.card, nameNeedsCheck: guessed || reading.nameNeedsCheck }
+    }
+    const autoDue =
+      registration !== null &&
+      registration.priceSure &&
+      registration.blocked === null &&
+      registration.numberFrom === 'marker' &&
+      next.no !== null &&
+      next.price !== null &&
+      next.price <= AUTO_REGISTER_PRICE_MAX
+    return { card: next, changed: next !== card, autoDue, reason: null }
+  } catch {
+    return { card, changed: false, autoDue: false, reason: null }
+  }
+}
+
+// ── 바로 등록한 덩어리의 끝 — 할 일 고르기 (AC-V3-08, D-V3-05·13·21) ────
+
+export interface InstantContext {
+  /** 이 덩어리에서 바로 등록한 번호 (등록한 차례) */
+  readonly registered: readonly number[]
+  /** 이 덩어리에서 이미 처리한 번호 전부 (바로 등록 + 이미 있던 번호로 처리한 것) — 생략하면 registered */
+  readonly handled?: readonly number[]
+  /** 같은 덩어리의 readRegistration 결과 (들린 번호) */
+  readonly registration: RegistrationReading | null
+}
+
+export type InstantAction =
+  /** 덩어리 안 취소 → 그 바로 등록들을 되돌린다 (D-V3-21) */
+  | { readonly kind: 'undoRegistered'; readonly nos: readonly number[] }
+  /** 등록한 번호와 다른 'N번'이 섞임 → 알림만 (D-V3-05) */
+  | { readonly kind: 'otherNumber'; readonly no: number; readonly others: readonly number[]; readonly message: string }
+  /** 등록한(또는 처리한) 번호를 덮은 결과로 다시 본다 → R-22 (D-V3-13) */
+  | { readonly kind: 'sameNumber'; readonly no: number }
+
+/** "189번으로 등록했는데 139번도 들렸어요. 맞는지 확인해 주세요." (화면 otherNumberMessage와 같다) */
+export const otherNumberMessage = (registered: number, others: readonly number[]): string =>
+  `${String(registered)}번으로 등록했는데 ${others.map((no) => `${String(no)}번`).join('·')}도 들렸어요. 맞는지 확인해 주세요.`
+
+/**
+ * 바로 등록한 덩어리가 끝났을 때의 할 일. null = V2 chooseAction 그대로(번호 없는 정정 덩어리는 offer 등).
+ * 차례: 취소 → undoRegistered, 처리 안 한 다른 번호가 들림 → otherNumber, 덩어리 번호가 처리한 번호 → sameNumber(R-22).
+ */
+export function chooseInstantAction(reading: ChunkReading, context: InstantContext): InstantAction | null {
+  try {
+    const registered = Array.isArray(context.registered) ? context.registered : []
+    const handled = Array.isArray(context.handled) ? context.handled : registered
+    if (registered.length > 0 && reading.cancel) return { kind: 'undoRegistered', nos: [...registered] }
+    const first = registered[0]
+    if (first !== undefined && context.registration !== null) {
+      const others = context.registration.heardNumbers.filter((no) => !handled.includes(no))
+      if (others.length > 0) return { kind: 'otherNumber', no: first, others, message: otherNumberMessage(first, others) }
+    }
+    if (reading.no !== null && handled.includes(reading.no)) return { kind: 'sameNumber', no: reading.no }
+    return null
+  } catch {
+    return null
+  }
 }
