@@ -152,8 +152,9 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
         nameOf={(claim) => api.names.name(claim.currentBuyer)}
       />
 
-      <section aria-label="상품 바꾸기" className="stack-tight">
-        <h3 className="sub-title">상품 바꾸기</h3>
+      {/* QL3R1 D-QL3R1-10: 상품 칸 이름은 "상품 관리" 하나로 */}
+      <section aria-label="상품 관리" className="stack-tight">
+        <h3 className="sub-title">상품 관리</h3>
         <div className="row">
           {selling ? (
             <button type="button" className="button" disabled={busy} onClick={() => void run({ type: 'product.hold', ...base })}>
