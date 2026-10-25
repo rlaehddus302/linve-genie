@@ -142,7 +142,7 @@ test.describe('TTX 수정 라운드 3 — 날아가는 묶음 @multi', () => {
     await unlinkTiktok(ext.page)
   })
 
-  // 확장 연결은 한 번만 — E2E 서버의 코드 넣기 주소 한도(10분 20번, D-QS1-06)를 ttx 폴더 전체가 함께 쓴다(TE-TTX-004)
+  // 두 사례를 확장 연결 한 번으로 본다 (TE-TTX-004 이후 E2E 서버는 코드 넣기 주소 한도를 넓혔지만, 사례 사이 상태 이어짐도 함께 본다)
   test('AC-TTX-32(8)(D-TTX-21 (1), TD-TTX-003·RA-TTX-07): 묶음이 날아가는 동안 내 방송을 떠나면 그때 세지 않고 답으로 정한다 — 200이면 찜 1건·저장 실패 알림 없음, 503이면 그때 세어 "저장하지 못한 틱톡 댓글이 1개"·찜 0건, 어느 쪽도 다시 보내지 않음 @multi', async ({ ext }) => {
     const { context, page, extId } = ext
     await routeTiktok(context)
