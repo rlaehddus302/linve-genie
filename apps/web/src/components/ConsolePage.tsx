@@ -35,7 +35,7 @@ import { readReceived } from '../lib/received.ts'
 import { OFFER_FIX_FAILED, SMS_SEND_FAILED, SMS_UNDO_NOTE, VOICE_IDLE, type VoiceController, type RecentFixOutcome, type RegisterSource, type SmsBuyerChoice, type SmsWriteOutcome, type VoiceHost, type VoiceLogInput, type VoiceSmsWrite, type VoiceSnapshot, type VoiceWriteOptions } from '../voice/controller.ts'
 import { fetchPastNames } from '../voice/history.ts'
 import { loadVoice } from '../voice/load.ts'
-import { VOICE_OFF_AFTER_RELOAD, acquireVoiceSession, forgetVoiceOn, getVoiceSession, microphoneGranted, readVoiceOn, voiceOtherBroadcast } from '../voice/session.ts'
+import { VOICE_OFF_AFTER_RELOAD, rejectsUnknownVoiceLog, acquireVoiceSession, forgetVoiceOn, getVoiceSession, microphoneGranted, readVoiceOn, voiceOtherBroadcast } from '../voice/session.ts'
 import { readConsent, readLearned, readSettings, readSmsSettings, writeConsent, writeLearned, writeSettings, writeSmsSettings } from '../voice/storage.ts'
 import { AssignDialog, ConfirmDialog, ConvertDialog, EditDialog, ReasonDialog } from './ActionDialogs.tsx'
 import { AttentionDialog, CancelRequestDialog, ConflictDialog, PendingDialog, SuccessionDialog } from './AlertDialogs.tsx'
@@ -71,6 +71,8 @@ export interface ConsolePageProps {
   readonly shopName?: string
   readonly onLogout?: () => void
   readonly navigate: Navigate
+  /** 열 때 그 번호 상품 자세히를 연다 (정산 화면 [상품 보기], AC-V3-71) */
+  readonly openProduct?: number
 }
 
 const NO_ITEMS: readonly UndoItem[] = []
@@ -126,11 +128,6 @@ interface RegHooks {
 }
 
 /** 창이 열려 있다 (콘솔 창·음성 안내 창·떠날지 묻는 창) */
-/** 서버가 voiceLog 칸을 모른다고 거절했다 (옛 서버 — 표에 없는 필드) */
-function rejectsVoiceLog(error: unknown): boolean {
-  return isApiError(error) && error.status === 400 && (error.problems.some((problem) => problem.field === 'voiceLog') || JSON.stringify(error.details).includes('voiceLog'))
-}
-
 function anyDialogOpen(): boolean {
   return document.querySelector('[role="dialog"]') !== null
 }
@@ -224,7 +221,7 @@ function isTextField(element: Element | null): element is HTMLInputElement | HTM
   return element instanceof HTMLInputElement && !['button', 'checkbox', 'radio', 'submit', 'reset'].includes(element.type)
 }
 
-function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps) {
+function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }: ConsoleProps) {
   const { data, broadcast } = snapshot
   const b = broadcastId
   const view = data.broadcasts.get(b)
@@ -348,7 +345,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     writeSms: (write: VoiceSmsWrite, received: string | null, requestId: string) => Promise<SmsWriteOutcome>
     fixRecent: (id: string, changes: { readonly name?: string; readonly price?: number }, options?: VoiceWriteOptions) => Promise<RecentFixOutcome>
     openProduct: (id: string) => void
-    renumber: (from: number, to: number, options?: VoiceWriteOptions) => Promise<boolean>
+    renumber: (from: number, to: number, options?: VoiceWriteOptions) => Promise<boolean | 'claimed'>
     undoRecent: (id: string) => boolean
   }>({
     register: () => {},
@@ -500,6 +497,16 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     },
     [store],
   )
+  // 정산 화면 [상품 보기]로 왔으면 그 상품 자세히를 한 번 연다 (AC-V3-71)
+  const openedProduct = useRef(false)
+  useEffect(() => {
+    if (openProduct === undefined || openedProduct.current) return
+    const key = productKey(b, openProduct)
+    if (!data.products.has(key)) return
+    openedProduct.current = true
+    openDialog({ kind: 'product', key })
+  }, [openProduct, data.products, b, openDialog])
+
 
   /** 쓰기 하나: 같은 요청 번호로 재시도 → 응답 seq까지 따라잡기 */
   const write = useCallback(
@@ -513,7 +520,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         result = await withRetry(() => post<WriteResult>(path, { requestId, ...event }))
       } catch (error) {
         // 음성 기록 칸(voiceLog, R-25)을 모르는 옛 서버면 그 칸 없이 한 번 더 — 등록·고치기가 막히지 않게
-        if (event.voiceLog !== undefined && rejectsVoiceLog(error)) {
+        if (event.voiceLog !== undefined && rejectsUnknownVoiceLog(error)) {
           const { voiceLog: _dropped, ...plain } = event
           return await write(requestId, plain, wait)
         }
@@ -905,7 +912,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       const slots = productSlots(product)
       const claimed = slots.winners.length + slots.waitlist.length > 0
       // 음성 바로 고침·[새 가격으로 바꾸기]는 창 없이 새 찜부터만 새 가격 (NEW_ONLY — 확정 찜 가격은 그대로, D-V3-57·59)
-      if (options.newOnly !== true && changes.price !== undefined && changes.price !== product.price && claimed) {
+      if (options.newOnly !== true && options.applyTo === undefined && changes.price !== undefined && changes.price !== product.price && claimed) {
         openDialog({ kind: 'edit', product: product.key, name: changes.name ?? product.name, price: changes.price, line: null })
         return { kind: 'dialog' }
       }
@@ -913,8 +920,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       if (changes.name !== undefined) before.name = product.name
       if (changes.price !== undefined) before.price = product.price
       try {
-        const newOnly = options.newOnly === true && changes.price !== undefined && claimed
-        await write(options.requestId ?? newRequestId(), { type: 'product.update', b, no: product.no, ...changes, ...(newOnly ? { applyTo: 'NEW_ONLY' } : {}), ...(options.voiceLog === undefined ? {} : { voiceLog: options.voiceLog }) })
+        const applyTo = changes.price === undefined || !claimed ? undefined : (options.applyTo ?? (options.newOnly === true ? 'NEW_ONLY' : undefined))
+        await write(options.requestId ?? newRequestId(), { type: 'product.update', b, no: product.no, ...changes, ...(applyTo === undefined ? {} : { applyTo }), ...(options.voiceLog === undefined ? {} : { voiceLog: options.voiceLog }) })
         return { kind: 'fixed', before }
       } catch (error) {
         if (!isApiError(error) || error.network) return { kind: 'failed', message: OFFER_FIX_FAILED }
@@ -943,8 +950,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       try {
         const result = await write(options.requestId ?? newRequestId(), { type: 'product.renumber', b, from, to, ...(options.voiceLog === undefined ? {} : { voiceLog: options.voiceLog }) })
         return result.changed
-      } catch {
-        return false
+      } catch (error) {
+        // 서버가 찜이 있는 상품이라 막았다 (RA-V3-001)
+        return isApiError(error) && error.code === 'VOICE_RENUMBER_CLAIMED' ? 'claimed' : false
       }
     },
   }
@@ -967,7 +975,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           dropAttached(no)
           // 고치기 칸에 적은 품종이 들은 말과 다르면 배운다 (D-V2-10)
           voice.learnFrom(card, name)
+          // 음성 카드를 손으로 고쳐 등록해도 그 카드의 조각 글을 기록에 (SA-V3-001)
+          const voiceLog = voice.voiceLogFor(card.text)
           enqueueRegistration(cardLine(no, name, price), no, name, price, false, {
+            ...(voiceLog === null ? {} : { voiceLog }),
             onFailed: () => voice.restore({ ...card, no, name: name === '' ? null : name, price }, { touched: true }),
             onDone: (key) => voice.noteVoiceRegistered({ id: key, no, name, price }),
           })

@@ -75,9 +75,6 @@ export const CONSENT_LINES: readonly string[] = [
   // MOB1 D-MOB1-07: 방송 앱과 마이크가 겹치지 않게
   CONSENT_OTHER_DEVICE,
 ]
-export const AUTO_CONFIRM_LABEL = '확실한 카드는 자동으로 등록'
-export const AUTO_CONFIRM_HELP = '번호·품종·가격이 모두 확실한 카드만, 손대지 않으면 정한 시간 뒤 등록해요. 등록 뒤 5초 안에 되돌릴 수 있어요.'
-export const SECONDS_LABEL = '기다리는 시간(초)'
 /** 문자찜 설정 안내 (VOC-04 문자찜 카드) */
 /** 후보 단추 키 안내 (U-V2-05, PC 폭) */
 export const CANDIDATE_KEYS_HINT = '입력칸 밖에서 1·2·3 키로도 골라요'
@@ -289,6 +286,10 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
             <OfferView key={offer.id} offer={offer} voice={voice} />
           ))}
         </ul>
+      ) : null}
+      {snapshot.missedFolded > 0 ? (
+        // 가격 못 들은 번호 카드가 3장을 넘어 접힌 수 (D-V3-67 R80)
+        <p className="hint" role="status">{`가격 못 들은 번호 ${String(snapshot.missedFolded)}개 더`}</p>
       ) : null}
       {items.length > 0 ? (
         <ul ref={listRef} className="plain-list voice-cards" aria-label="음성 카드">
@@ -875,32 +876,12 @@ export function VoiceExtras({ voice, snapshot }: { readonly voice: VoiceControll
       ) : null}
       {on && settings !== null ? (
         <div className="voice-settings">
-          {voice.instantScreen() ? (
-            <>
-              <label className="choice">
-                <input type="checkbox" checked={snapshot.instant} onChange={(event) => voice.setInstant(event.target.checked)} />
-                <span>{INSTANT_LABEL}</span>
-              </label>
-              <p className="hint">{INSTANT_HELP}</p>
-            </>
-          ) : (
-            <>
-              <label className="choice">
-                <input type="checkbox" checked={settings['voice.autoConfirm']} onChange={(event) => voice.setAutoConfirm(event.target.checked)} />
-                <span>{AUTO_CONFIRM_LABEL}</span>
-              </label>
-              <label className="voice-seconds">
-                <span>{SECONDS_LABEL}</span>
-                <input className="input" inputMode="numeric" autoComplete="off" value={snapshot.secondsText} onChange={(event) => voice.setSeconds(event.target.value)} />
-              </label>
-              {snapshot.settingsProblem !== null ? (
-                <p className="field-error" role="alert">
-                  {snapshot.settingsProblem}
-                </p>
-              ) : null}
-              {settings['voice.autoConfirm'] ? <p className="hint">{AUTO_CONFIRM_HELP}</p> : null}
-            </>
-          )}
+          {/* D-V3-16: 옛 "자동 확정"·"기다리는 시간(초)"은 없다 — 바로 등록 하나 */}
+          <label className="choice">
+            <input type="checkbox" checked={snapshot.instant} onChange={(event) => voice.setInstant(event.target.checked)} />
+            <span>{INSTANT_LABEL}</span>
+          </label>
+          <p className="hint">{INSTANT_HELP}</p>
           <label className="choice">
             <input type="checkbox" checked={snapshot.archive} onChange={(event) => voice.setArchive(event.target.checked)} />
             <span>{ARCHIVE_LABEL}</span>

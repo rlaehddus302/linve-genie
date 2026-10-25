@@ -117,3 +117,6 @@ export const LOG_TAKEN = '이어 받음'
 export const MISSED_PRICE_LABEL = '가격'
 export const MISSED_PRICE_PROBLEM = '가격을 확인해 주세요. 숫자로 적으면 그 방송 가격 단위로 들어가요.'
 export const LOG_INTERIM = '중간 글로 등록'
+export const renumberRevertClaims = (to: number): string => `${String(to)}번에 찜이 생겨 번호를 되돌리지 않았어요. 상품 목록에서 고쳐 주세요.`
+/** 서버가 막은 번호 옮기기 (409 VOICE_RENUMBER_CLAIMED) */
+export const RENUMBER_CLAIMED = '찜이 있는 상품이라 번호를 옮기지 않았어요.'

@@ -102,7 +102,8 @@ function EntryLine({ entry, onOpen }: { readonly entry: VoiceLogEntry; readonly 
         <span className="voice-log-time">{kstTime(entry.at).slice(0, 5)}</span> <strong>{no}</strong> {KIND_WORD[entry.kind]} {changeLine(entry)}
         {words.length > 0 ? <span className={flagged ? 'tag tag-waiting' : 'tag'}>{words.join(' · ')}</span> : null}
       </p>
-      {entry.heard !== '' ? <p className="hint">들은 말: {entry.heard}</p> : null}
+      {/* 봉인된 날짜의 들은 말은 서버가 지운다 (R-25) */}
+      <p className="hint">들은 말: {entry.heard === '' ? '(지움)' : entry.heard}</p>
       {onOpen !== undefined ? (
         <button type="button" className="button" onClick={() => onOpen(entry)}>
           상품 보기

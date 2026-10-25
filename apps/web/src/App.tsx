@@ -26,6 +26,7 @@ import { BuyersPage } from './components/BuyersPage.tsx'
 import { ConsolePage } from './components/ConsolePage.tsx'
 import { VoiceBand } from './components/VoiceBand.tsx'
 import { logoutVoice } from './voice/session.ts'
+import { clearArchiveForLogout, setArchiveSeller } from './voice/archive-store.ts'
 import { DepositProvider } from './components/deposit-context.tsx'
 import { DepositsPage } from './components/DepositsPage.tsx'
 import { ErrorNote } from './components/ErrorNote.tsx'
@@ -157,6 +158,8 @@ export function App() {
     setLogoutError(null)
     // 로그아웃하면 음성도 끄고 켠 방송 ID를 지운다 (D-V3-52)
     logoutVoice()
+    // 그 판매자의 음성 인식 기록도 지운다 (RA-V3-008)
+    void clearArchiveForLogout()
     try {
       await post('/api/logout', {})
       setSession({ state: 'out', expired: false })
@@ -367,6 +370,8 @@ export function App() {
     return <LoginPage expired={session.expired} onLoggedIn={loggedIn} />
   }
   const me = session.me
+  // 음성 인식 기록은 판매자마다 따로 (RA-V3-008)
+  setArchiveSeller(me.loginId)
   const assistant = isAssistant(me)
   const shell = (
     <>
@@ -462,7 +467,7 @@ interface ScreenProps {
 function Screen({ route, navigate, me, onRenamed }: ScreenProps) {
   switch (route.name) {
     case 'console':
-      return <ConsolePage key={route.id} broadcastId={route.id} navigate={navigate} />
+      return <ConsolePage key={route.id} broadcastId={route.id} navigate={navigate} {...(route.product === undefined ? {} : { openProduct: route.product })} />
     case 'receipts':
       return <ReceiptsPage key={route.id} broadcastId={route.id} navigate={navigate} shopName={me.seller.name} />
     case 'sms':

@@ -244,9 +244,8 @@ describe('그 밖', () => {
     expect(parseSecondsText(' 10 ')).toBe(10)
     expect(parseSecondsText('4.5')).toBe(4.5)
     for (const text of ['', 'abc', '1e1', '５', '3초']) expect(parseSecondsText(text)).toBeNaN()
-    expect(checkVoiceSettings({ 'voice.autoConfirmSec': parseSecondsText('4.5') })).toHaveLength(1)
-    expect(checkVoiceSettings({ 'voice.autoConfirmSec': parseSecondsText('2') })).toHaveLength(1)
-    expect(checkVoiceSettings({ 'voice.autoConfirmSec': parseSecondsText('31') })).toHaveLength(1)
+    // D-V3-16·SA-V3-009: 음성 패키지는 옛 키(voice.autoConfirmSec)를 더 검사하지 않는다 — 범위는 컨트롤러(setSeconds)가 본다
+    expect(checkVoiceSettings({ 'voice.autoConfirmSec': parseSecondsText('2') })).toEqual([])
     expect(checkVoiceSettings({ 'voice.autoConfirmSec': parseSecondsText('30') })).toEqual([])
   })
 })

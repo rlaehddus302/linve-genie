@@ -4,11 +4,13 @@
 // - 그 기기에 남기는 것은 켠 방송 ID 하나뿐(VOICE_ON_KEY) — 끄기·방송 끝·로그아웃 때 지운다. 인식 글은 남기지 않는다.
 // - 이 파일은 음성 패키지를 불러오지 않는다(음성 코드는 컨트롤러가 "음성 켜기" 때 불러온다, AC-I4-04).
 import type { CardRegistration, SuggestionCard } from '@livejjim/voice'
-import { isApiError, newRequestId, post, withQuery } from '../api/client.ts'
+import { DEFAULT_SETTINGS } from '@livejjim/core'
+import { get, isApiError, newRequestId, post, withQuery } from '../api/client.ts'
 import type { WriteResult } from '../api/types.ts'
 import { ConsoleStore } from '../lib/console-store.ts'
 import { productKey, productSlots } from '../lib/derive.ts'
 import { OFFER_FIX_FAILED, VoiceController, type ExistingView, type RecentFixOutcome, type VoiceHost } from './controller.ts'
+import { deviceId } from '../lib/device.ts'
 import { addArchiveChunk } from './archive-store.ts'
 import { fetchPastNames } from './history.ts'
 import { loadVoice } from './load.ts'
@@ -85,6 +87,9 @@ export class VoiceSession {
   readonly #listeners = new Set<() => void>()
   #view: VoiceSessionView
   #wasOn = false
+  /** 번호 → 그 번호를 마지막으로 음성으로 등록·고친 기기 (서버 음성 기록, D-V3-76) */
+  readonly #lastDevice = new Map<number, string>()
+  #deviceTimer: ReturnType<typeof setTimeout> | null = null
   #ended = false
 
   constructor(broadcastId: string, title: string) {
@@ -138,6 +143,7 @@ export class VoiceSession {
     if (this.#ended) return
     this.#ended = true
     if (this.#undoTimer !== null) clearTimeout(this.#undoTimer)
+    if (this.#deviceTimer !== null) clearTimeout(this.#deviceTimer)
     this.controller.dispose()
     this.#store.stop()
     this.#listeners.clear()
@@ -176,7 +182,31 @@ export class VoiceSession {
     this.#emit()
   }
 
+  /** 상품 보드가 바뀌면 조금 뒤 서버 음성 기록에서 번호마다 마지막 기기를 다시 읽는다 (D-V3-76) */
+  #refreshDevices(): void {
+    if (this.#deviceTimer !== null || this.#ended) return
+    this.#deviceTimer = setTimeout(() => {
+      this.#deviceTimer = null
+      if (this.#ended) return
+      get<{ entries?: unknown }>(withQuery('/api/voice/log', { b: this.broadcastId })).then(
+        (body) => {
+          if (this.#ended || !Array.isArray(body.entries)) return
+          this.#lastDevice.clear()
+          for (const entry of body.entries as readonly { no?: unknown; toNo?: unknown; device?: unknown; failed?: unknown }[]) {
+            if (entry.failed === true || typeof entry.device !== 'string') continue
+            const no = typeof entry.toNo === 'number' ? entry.toNo : entry.no
+            if (typeof no === 'number') this.#lastDevice.set(no, entry.device)
+          }
+        },
+        () => {
+          // 받지 못하면 이 기기 기억만 (같은 기기로 본다)
+        },
+      )
+    }, 500)
+  }
+
   #onStore(): void {
+    if (this.#wasOn) this.#refreshDevices()
     // 방송이 끝나면 음성도 끈다 (D-V3-52)
     const broadcast = this.#store.getSnapshot().broadcast
     if (broadcast !== null) this.#title = broadcast.title
@@ -212,7 +242,7 @@ export class VoiceSession {
       return await post<WriteResult>(path, { requestId, ...event })
     } catch (error) {
       // 음성 기록 칸(voiceLog, R-25)을 모르는 옛 서버면 그 칸 없이 한 번 더
-      if (event.voiceLog !== undefined && isApiError(error) && error.status === 400 && JSON.stringify(error).includes('voiceLog')) {
+      if (event.voiceLog !== undefined && rejectsUnknownVoiceLog(error)) {
         const { voiceLog: _dropped, ...plain } = event
         return await post<WriteResult>(path, { requestId, ...plain })
       }
@@ -231,7 +261,8 @@ export class VoiceSession {
       load: () => pick().load(),
       now: () => pick().now(),
       maxNumber: () => pick().maxNumber(),
-      priceUnit: () => pick().priceUnit?.() ?? 'WON',
+      priceUnit: () => pick().priceUnit?.() ?? DEFAULT_SETTINGS['price.unit'],
+      ready: () => pick().ready?.() ?? true,
       currentNames: () => pick().currentNames(),
       products: () => pick().products(),
       existingProduct: (no) => pick().existingProduct?.(no) ?? null,
@@ -258,7 +289,9 @@ export class VoiceSession {
       writeLearned: (list) => pick().writeLearned?.(list),
       fixRecent: (id, changes, options) => pick().fixRecent?.(id, changes, options) ?? Promise.resolve({ kind: 'failed', message: OFFER_FIX_FAILED }),
       undoRecent: (id) => pick().undoRecent?.(id) ?? false,
-      renumber: (from, to) => pick().renumber?.(from, to) ?? Promise.resolve(false),
+      renumber: (from, to, options) => pick().renumber?.(from, to, options) ?? Promise.resolve(false),
+      deviceId: () => deviceId(),
+      lastVoiceDevice: (no) => this.#lastDevice.get(no) ?? null,
       openProduct: (id) => pick().openProduct?.(id),
       smsAutoAllowed: () => this.#console !== null,
       voiceOff: () => writeVoiceOn(null),
@@ -275,8 +308,10 @@ export class VoiceSession {
   readonly #outside: VoiceHost = {
     load: loadVoice,
     now: () => Date.now(),
-    maxNumber: () => this.#data()?.broadcasts.get(this.broadcastId)?.settings['claim.maxNumber'] ?? 200,
-    priceUnit: () => this.#data()?.broadcasts.get(this.broadcastId)?.settings['price.unit'] ?? 'WON',
+    // 자료를 받기 전에는 바로 등록하지 않는다(ready) — 값은 판매 규칙 기본값 (RA-V3-006)
+    ready: () => this.#data()?.broadcasts.get(this.broadcastId) !== undefined,
+    maxNumber: () => this.#data()?.broadcasts.get(this.broadcastId)?.settings['claim.maxNumber'] ?? DEFAULT_SETTINGS['claim.maxNumber'],
+    priceUnit: () => this.#data()?.broadcasts.get(this.broadcastId)?.settings['price.unit'] ?? DEFAULT_SETTINGS['price.unit'],
     currentNames: () => {
       const data = this.#data()
       return data === null ? [] : [...data.products.values()].map((product) => product.name)
@@ -317,8 +352,9 @@ export class VoiceSession {
       if (changes.price !== undefined) before.price = product.price
       try {
         // 콘솔 밖은 창이 없다 — 찜이 있으면 새 찜부터만 새 가격 (NEW_ONLY, D-V3-57)
+        const applyTo = options.applyTo ?? 'NEW_ONLY'
         await this.#write(
-          { type: 'product.update', b: this.broadcastId, no: product.no, ...changes, ...(changes.price !== undefined && claimed ? { applyTo: 'NEW_ONLY' } : {}), ...(options.voiceLog === undefined ? {} : { voiceLog: options.voiceLog }) },
+          { type: 'product.update', b: this.broadcastId, no: product.no, ...changes, ...(changes.price !== undefined && claimed ? { applyTo } : {}), ...(options.voiceLog === undefined ? {} : { voiceLog: options.voiceLog }) },
           options.requestId,
         )
         return { kind: 'fixed', before }
@@ -326,15 +362,18 @@ export class VoiceSession {
         return { kind: 'failed', message: OFFER_FIX_FAILED }
       }
     },
-    undoRecent: () => {
+    // 넘겨받은 상품 키의 직전 등록만 되돌린다 — 다른 상품의 띠를 닫지 않는다 (RA-V3-002)
+    undoRecent: (key) => {
+      const undo = this.#undo
+      if (undo === null || undo.key !== key || Date.now() > undo.until) return false
       void this.undoOutside()
-      return this.#undo !== null
+      return true
     },
     renumber: async (from, to, options = {}) => {
       try {
         return (await this.#write({ type: 'product.renumber', b: this.broadcastId, from, to, ...(options.voiceLog === undefined ? {} : { voiceLog: options.voiceLog }) }, options.requestId)).changed
-      } catch {
-        return false
+      } catch (error) {
+        return isApiError(error) && error.code === 'VOICE_RENUMBER_CLAIMED' ? 'claimed' : false
       }
     },
   }
@@ -424,4 +463,9 @@ export async function microphoneGranted(): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+/** 서버가 voiceLog 칸을 "모르는 필드"로 거절했나 (옛 서버) — 그 밖의 400(들은 말 길이 등)은 다시 보내지 않는다 (RA-V3-005) */
+export function rejectsUnknownVoiceLog(error: unknown): boolean {
+  return isApiError(error) && error.status === 400 && error.problems.some((problem) => problem.field === 'voiceLog' && /없는 필드|모르는/.test(problem.message))
 }

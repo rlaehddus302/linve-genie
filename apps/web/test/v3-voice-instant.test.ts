@@ -49,7 +49,7 @@ interface Harness {
   readonly archived: unknown[]
 }
 
-function harness(options: { settings?: unknown; noBoard?: boolean; priceUnit?: 'WON' | 'THOUSAND' } = {}): Harness {
+function harness(options: { settings?: unknown; noBoard?: boolean; priceUnit?: 'WON' | 'THOUSAND'; lastDevice?: Map<number, string>; renumberResult?: 'claimed' } = {}): Harness {
   const state = {
     registered: [] as Harness['registered'],
     written: [] as unknown[],
@@ -67,6 +67,8 @@ function harness(options: { settings?: unknown; noBoard?: boolean; priceUnit?: '
     now: () => Date.now(),
     maxNumber: () => 999,
     priceUnit: () => options.priceUnit ?? 'WON',
+    deviceId: () => 'this-device',
+    lastVoiceDevice: (no) => options.lastDevice?.get(no) ?? null,
     currentNames: () => [],
     products: () => new Map([...state.board].map(([no, product]) => [no, product.closed])),
     fetchHistory: async () => [],
@@ -92,6 +94,7 @@ function harness(options: { settings?: unknown; noBoard?: boolean; priceUnit?: '
     },
     renumber: async (from, to) => {
       state.moves.push([from, to])
+      if (options.renumberResult === 'claimed') return 'claimed'
       const item = state.board.get(from)
       if (item === undefined) return false
       state.board.delete(from)
@@ -575,12 +578,14 @@ describe('음성 기록 한 줄 (R-25, D-V3-65)', () => {
     h.board.set(108, product(108, 'bts', 100000))
     say('108번 12만 원 끝자리 1234')
     await settle()
-    expect(h.fixOptions[0]).toMatchObject({ newOnly: true, voiceLog: { heard: '108번 12만 원 끝자리 ****', source: 'voice' } })
+    // RA-V3-004: 들은 말은 그 일을 만든 조각 글만 (뒤의 끝자리 말은 싣지 않는다)
+    expect(h.fixOptions[0]).toMatchObject({ newOnly: true, voiceLog: { heard: '108번 12만 원', source: 'voice' } })
     const requestId = (h.fixOptions[0] as { requestId: string }).requestId
     expect(typeof requestId).toBe('string')
     const offer = h.voice.getSnapshot().offers[0]
     await h.voice.revertOffer(offer?.id ?? '')
-    expect(h.fixOptions[1]).toMatchObject({ voiceLog: { undo: requestId } })
+    // RA-V3-003: 되돌리기는 입금 전 찜도 원래 가격으로
+    expect(h.fixOptions[1]).toMatchObject({ applyTo: 'UNPAID_CLAIMS', voiceLog: { undo: requestId } })
   })
 })
 
@@ -715,6 +720,21 @@ describe('기다리는 번호 (D-V3-67)', () => {
     expect(cards(h).map((card) => card.no)).toEqual([15])
   })
 
+  it('R80: 가격 못 들은 번호 카드는 3장까지, 넘으면 가장 오래된 것을 접는다', async () => {
+    const h = await ready()
+    let t = 0
+    for (const no of [15, 16, 17, 18]) {
+      say(`${String(no)}번`)
+      t += 3000
+      at(t)
+    }
+    expect(cards(h).map((card) => card.no).sort()).toEqual([15, 16, 17])
+    say('19번')
+    at(t + 3000)
+    expect(cards(h).map((card) => card.no).sort()).toEqual([16, 17, 18])
+    expect(h.voice.getSnapshot().missedFolded).toBe(1)
+  })
+
   it('60초가 지나면 덩어리가 없어도 카드', async () => {
     const h = await ready()
     say('15번 이거 예쁘죠')
@@ -722,6 +742,42 @@ describe('기다리는 번호 (D-V3-67)', () => {
     expect(cards(h)).toEqual([])
     at(2000 + 61_000)
     expect(cards(h).map((card) => card.no)).toEqual([15])
+  })
+})
+
+describe('위험 감사 RA-V3-001·007', () => {
+  it('옮긴 뒤 새 번호에 찜이 생겼으면 되돌리지 않고 4초 안내 (RA-V3-001)', async () => {
+    const h = await ready()
+    h.board.set(65, product(65, '라울', 30000))
+    say('아까 65번은 61번이에요')
+    at(2000)
+    await settle()
+    expect(h.moves).toEqual([[65, 61]])
+    h.board.set(61, product(61, '라울', 30000, 1))
+    const offer = h.voice.getSnapshot().offers[0]
+    await h.voice.revertOffer(offer?.id ?? '')
+    expect(h.moves).toEqual([[65, 61]])
+    // 옮긴 안내 다음 차례로 (D-V3-61)
+    at(6500)
+    expect(h.voice.getSnapshot().readout?.text).toBe('61번에 찜이 생겨 번호를 되돌리지 않았어요. 상품 목록에서 고쳐 주세요.')
+  })
+
+  it('서버가 찜이 있다고 막으면 그 문장 (409 VOICE_RENUMBER_CLAIMED)', async () => {
+    const h = await ready({ renumberResult: 'claimed' })
+    h.board.set(65, product(65, '라울', 30000))
+    say('아까 65번은 61번이에요')
+    at(2000)
+    await settle()
+    expect(h.voice.getSnapshot().readout?.text).toBe('찜이 있는 상품이라 번호를 옮기지 않았어요.')
+  })
+
+  it('다른 기기가 마지막으로 등록한 번호를 다른 가격으로 들으면 바로 고치지 않고 "이미 있어요" (D-V3-76)', async () => {
+    const h = await ready({ lastDevice: new Map([[108, 'phone-device']]) })
+    h.board.set(108, product(108, 'bts', 100000))
+    say('108번 12만 원')
+    await settle()
+    expect(h.fixes).toEqual([])
+    expect(h.voice.getSnapshot().offers[0]?.maybeOther).toBe(true)
   })
 })
 
