@@ -88,6 +88,8 @@ export interface Stack {
   readonly blockServiceWorkers?: boolean
   /** 가짜 LLM 서버 포트 (A1 — AI 제안 묶음만) */
   readonly assist?: number
+  /** 가짜 밴드 서버 포트 (BND1 — 여러 플랫폼 묶음·아이폰 크기 묶음만. 조작은 서버의 /_e2e/band/*) */
+  readonly band?: number
 }
 
 /** 서버가 화면을 내는 묶음의 화면 빌드 폴더 (실행마다 다시 빌드한다 — 빌드 결과물이 린트 범위에 들어가지 않게 node_modules/.cache 아래) */
@@ -99,6 +101,8 @@ const socialArgs = (port: number, providers?: string) => `--social fake --social
 /** AI 제안 묶음의 판매자 하루 상한 (작은 값 — 상한 문장을 빨리 본다) */
 export const E2E_ASSIST_DAILY = 3
 const assistArgs = (port: number) => `--assist fake --assist-port ${String(port)} --assist-daily ${String(E2E_ASSIST_DAILY)} --assist-timeout-ms 2000`
+/** 가짜 밴드 서버 (BND1 AC-BND1-80 — 읽기 간격 1초·3초, 조작 경로 /_e2e/band/*는 E2E 서버에만) */
+const bandArgs = (port: number) => `--band fake --band-port ${String(port)}`
 const youtubeArgs = (port: number) => `--youtube fake --youtube-port ${String(port)} --outbox-fast yes`
 
 export const STACKS: readonly Stack[] = [
@@ -136,7 +140,8 @@ export const STACKS: readonly Stack[] = [
     api: 3108 + offset,
     youtube: 4102 + offset,
     instagram: 4103 + offset,
-    serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed} ${youtubeArgs(4102 + offset)} --instagram yes --instagram-port ${String(4103 + offset)} --tiktok yes`,
+    band: 4107 + offset,
+    serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed} ${youtubeArgs(4102 + offset)} --instagram yes --instagram-port ${String(4103 + offset)} --tiktok yes ${bandArgs(4107 + offset)}`,
     grep: /@multi/,
   },
   {
@@ -160,7 +165,8 @@ export const STACKS: readonly Stack[] = [
     name: 'webkit-iphone',
     web: 5183 + offset,
     api: 3111 + offset,
-    serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`,
+    band: 4108 + offset,
+    serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed} ${bandArgs(4108 + offset)}`,
     grep: /@webkit/,
     device: 'iPhone 15',
     dropSecureCookie: true,
@@ -197,6 +203,12 @@ export function fakeOAuthUrl(project: string): string | null {
 /** 그 프로젝트의 가짜 LLM 주소 (AI 제안 묶음이 아니면 null) — 시험이 /_fake/*를 부를 때 (A1) */
 export function fakeLlmUrl(project: string): string | null {
   const port = STACKS.find((stack) => stack.name === project)?.assist
+  return port === undefined ? null : `http://${E2E_HOST}:${String(port)}`
+}
+
+/** 그 프로젝트의 가짜 밴드 주소 (가짜 밴드 묶음이 아니면 null) — 조작은 e2eServerUrl의 /_e2e/band/*로 한다 (BND1) */
+export function fakeBandUrl(project: string): string | null {
+  const port = STACKS.find((stack) => stack.name === project)?.band
   return port === undefined ? null : `http://${E2E_HOST}:${String(port)}`
 }
 
