@@ -473,8 +473,8 @@ export function platformLeads({ live, sealed, onPaste, pasteNote }: { readonly l
         : undefined
     leads.push({ key: 'tiktok', text: TIKTOK_PASTE_ALERT, onClick: onPaste, ...(action !== undefined ? { action } : {}) })
   }
-  // 밴드 (AC-BND1-73): 들어오지 않음(상태 문장은 밴드 칸에) · 확인하지 않은 지운·고친 댓글 + "확인했어요". 끝난 연결은 띄우지 않는다
-  if (live.bandNotComing) leads.push({ key: 'band', text: BAND_NOT_COMING, onClick: showBandPanel })
+  // 밴드 (AC-BND1-73): 휴대폰 띠에서도 문장 끝까지(full, U-BND1-01). 들어오지 않음(상태 문장은 밴드 칸에) · 확인하지 않은 지운·고친 댓글 + "확인했어요". 끝난 연결은 띄우지 않는다
+  if (live.bandNotComing) leads.push({ key: 'band', text: BAND_NOT_COMING, onClick: showBandPanel, full: true })
   const edits = bandUnseenEdits(live.bandLink)
   const upTo = bandSeenUpTo(live.bandLink)
   if (edits > 0) {
@@ -482,6 +482,8 @@ export function platformLeads({ live, sealed, onPaste, pasteNote }: { readonly l
       key: 'band-notices',
       text: bandEditsMessage(edits),
       onClick: showBandNotices,
+      // 휴대폰 접힌 띠에서도 문장 끝까지, "확인했어요"는 펼친 띠·밴드 칸에서만 (U-BND1-01)
+      full: true,
       ...(!sealed && upTo !== null ? { action: { label: BAND_SEEN, onClick: () => void live.ackBandNotices(upTo), busy: live.bandSeenBusy } } : {}),
     })
   }

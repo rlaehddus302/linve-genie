@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../src/App.tsx'
 import { onUnauthorized } from '../src/api/client.ts'
 import type { BandAccount, BandLinkView, BandNotice, ChatMessage } from '../src/api/types.ts'
+import { AlertStrip } from '../src/components/AlertStrip.tsx'
 import { ConsolePage } from '../src/components/ConsolePage.tsx'
 import { BAND_ITEM, PrivacyPage } from '../src/components/PolicyPages.tsx'
 import {
@@ -601,5 +602,60 @@ describe('콘솔 — 알림 띠·알림 목록 (AC-BND1-73·74)', () => {
     expect(within(chat).getByText('&lt;script&gt;alert(1)&lt;/script&gt; 1번', { exact: false })).toBeDefined()
     expect(chat.querySelector('img')).toBeNull()
     expect(chat.querySelector('script')).toBeNull()
+  })
+})
+
+describe('알림 띠 — 밴드 줄은 휴대폰에서도 문장 끝까지 (U-BND1-01, AC-BND1-76)', () => {
+  const COUNTS = { conflict: 0, cancelRequest: 0, succession: 0, pending: 0, attention: 0 }
+
+  it('밴드 줄(full)은 "알림" 영역 안의 첫 목록 — 나머지 알림은 둘째 목록, "확인했어요"는 그 줄 옆에 남는다(접힌 동안만 화면에서 숨김)', () => {
+    render(
+      <AlertStrip
+        leads={[
+          { key: 'tiktok', text: '틱톡 댓글을 붙여 넣어 주세요.', onClick: () => {} },
+          { key: 'band-notices', text: bandEditsMessage(1), onClick: () => {}, full: true, action: { label: '확인했어요', onClick: () => {} } },
+        ]}
+        counts={{ ...COUNTS, conflict: 1 }}
+        onOpen={() => {}}
+        onToggle={() => {}}
+      />,
+    )
+    const region = screen.getByRole('region', { name: '알림' })
+    const lists = region.querySelectorAll('ul')
+    expect(lists).toHaveLength(2)
+    expect(lists[0]?.className).toContain('alerts-full')
+    expect(within(lists[0] as HTMLElement).getByRole('button', { name: bandEditsMessage(1) })).toBeDefined()
+    expect(within(lists[0] as HTMLElement).getByRole('button', { name: '확인했어요' }).className).toContain('alert-lead-action')
+    expect(within(lists[1] as HTMLElement).queryByText(bandEditsMessage(1))).toBeNull()
+    expect(within(lists[1] as HTMLElement).getByRole('button', { name: '틱톡 댓글을 붙여 넣어 주세요.' })).toBeDefined()
+    // 띠는 나눠 그리는 모양(휴대폰 두 줄), 펼치기 단추는 영역 밖
+    const bar = region.parentElement as HTMLElement
+    expect(bar.className).toContain('alert-bar-split')
+    expect(region.contains(screen.getByRole('button', { name: '알림 3 펼치기' }))).toBe(false)
+  })
+
+  it('밴드 줄만 있으면 둘째 목록·"알림 없음" 없이 첫 목록 하나 + "알림 1 펼치기"', () => {
+    render(<AlertStrip leads={[{ key: 'band', text: BAND_NOT_COMING, onClick: () => {}, full: true }]} counts={COUNTS} onOpen={() => {}} onToggle={() => {}} />)
+    const region = screen.getByRole('region', { name: '알림' })
+    expect(region.querySelectorAll('ul')).toHaveLength(1)
+    expect(screen.queryByText('알림 없음')).toBeNull()
+    expect(within(region).getByRole('button', { name: BAND_NOT_COMING })).toBeDefined()
+    expect(screen.getByRole('button', { name: '알림 1 펼치기' })).toBeDefined()
+  })
+
+  it('밴드 줄이 없으면 지금 띠 그대로 (목록 하나, 나눠 그리지 않음)', () => {
+    render(<AlertStrip leads={[{ key: 'tiktok', text: '틱톡 댓글을 붙여 넣어 주세요.', onClick: () => {} }]} counts={COUNTS} onOpen={() => {}} onToggle={() => {}} />)
+    const region = screen.getByRole('region', { name: '알림' })
+    expect(region.querySelectorAll('ul')).toHaveLength(1)
+    expect((region.parentElement as HTMLElement).className).not.toContain('alert-bar-split')
+  })
+
+  it('콘솔: 지운 댓글 줄·들어오지 않음 줄은 첫 목록(끝까지 보일 줄)에 있다', async () => {
+    bandLink = bandReading({ notices: { items: [notice(1)], total: 1, seenUpTo: 0, unseen: 1, unseenEdits: 1 } })
+    await openConsole()
+    const full = strip().querySelector('ul.alerts-full') as HTMLElement
+    expect(full).not.toBeNull()
+    expect(within(full).getByRole('button', { name: bandEditsMessage(1) })).toBeDefined()
+    expect(within(full).getByRole('button', { name: '확인했어요' })).toBeDefined()
   })
 })

@@ -51,6 +51,12 @@ export interface AlertLead {
   readonly uncounted?: boolean
   /** 그 줄 옆의 작은 단추 (틱톡 저장 실패 "확인했어요" — D-N2b-2-16) */
   readonly action?: { readonly label: string; readonly onClick: () => void; readonly busy?: boolean }
+  /**
+   * 휴대폰 접힌 띠에서도 문장을 끝까지 보인다 (BND1 U-BND1-01, AC-BND1-76): 띠 첫 줄을 화면 폭 전체로 쓰고 줄을 바꾼다(말줄임 없음).
+   * 나머지 알림과 "알림 n 펼치기"는 그 아래 한 줄. 옆의 작은 단추(`action`)는 접힌 동안 숨긴다 — 무슨 알림인지 모른 채 누르지 않게.
+   * 펼친 동안·PC에서는 문장 옆에 그대로 있다. 앞쪽 줄(`uncounted` 아님)에만 쓴다.
+   */
+  readonly full?: boolean
 }
 
 /** 휴대폰 펼치기 단추 이름 (QL2 D-QL2-02 (1)): 세는 알림 n ≥ 1이면 "알림 n 펼치기"/"알림 n 접기", 0이면 "알림 펼치기"/"알림 접기" */
@@ -90,7 +96,10 @@ export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanks
   const pressable = leads.filter((lead) => lead.onClick !== undefined && lead.uncounted !== true).length
   const total = shown.reduce((sum, item) => sum + item.count, 0) + pressable
   // 플랫폼 줄은 맨 앞, 출력 기기 항목(uncounted)은 세는 알림 모두의 뒤 — 맨 끝 (D-MOB1-14, AC-MOB1-13)
-  const front = leads.filter((lead) => lead.uncounted !== true)
+  const front = leads.filter((lead) => lead.uncounted !== true && lead.full !== true)
+  // 끝까지 보일 줄(밴드)은 따로 첫 목록 — 휴대폰 접힌 띠에서 화면 폭 전체 (U-BND1-01)
+  const full = leads.filter((lead) => lead.uncounted !== true && lead.full === true)
+  const rest = front.length + shown.length + leads.filter((lead) => lead.uncounted === true).length
   const tail = leads.filter((lead) => lead.uncounted === true)
   const renderLead = (lead: AlertLead) => (
     <li key={lead.key} className={lead.action !== undefined ? 'alert-lead alert-lead-with-action' : 'alert-lead'}>
@@ -111,12 +120,13 @@ export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanks
     </li>
   )
   return (
-    <div className={expanded ? 'alert-bar alert-bar-open' : 'alert-bar'}>
-      <section id="alerts" className="alerts" aria-label="알림">
+    <div className={`alert-bar${expanded ? ' alert-bar-open' : ''}${full.length > 0 ? ' alert-bar-split' : ''}`}>
+      <section id="alerts" className={full.length > 0 ? 'alerts alerts-split' : 'alerts'} aria-label="알림">
+        {full.length > 0 ? <ul className="alerts-list alerts-full">{full.map(renderLead)}</ul> : null}
         {shown.length === 0 && leads.length === 0 ? (
           <p className="alerts-none">알림 없음</p>
-        ) : (
-          <ul className="alerts-list">
+        ) : rest === 0 ? null : (
+          <ul className="alerts-list alerts-rest">
             {front.map(renderLead)}
             {shown.map((item) => (
               <li key={item.kind}>

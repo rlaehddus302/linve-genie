@@ -2643,6 +2643,92 @@ html:has(.save-bar) {
   }
 }
 
+/* 끝까지 보일 줄(밴드 — U-BND1-01, AC-BND1-76)은 띠 안의 첫 목록. PC·펼친 띠에서는 다른 알림과 같은 줄 흐름 */
+.alerts-split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.alert-bar-open .alerts-split {
+  flex-direction: column;
+}
+
+/* 휴대폰 접힌 띠: 첫 줄은 화면 폭 전체에 문장 끝까지(줄바꿈, 말줄임 없음), 둘째 줄은 나머지 알림(한 줄·말줄임) + "알림 n 펼치기".
+ * 펼치기 단추는 "알림" 영역 밖 그대로 — 띠는 두 칸 격자, 영역은 그 격자를 나눠 쓴다(subgrid). 옆 "확인했어요"는 접힌 동안 숨긴다 */
+@media (max-width: 47.99rem) {
+  @supports (grid-template-columns: subgrid) {
+    .alert-bar-split:not(.alert-bar-open) {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-rows: auto auto;
+      gap: 0.5rem;
+      align-items: start;
+    }
+
+    .alert-bar-split:not(.alert-bar-open) .alerts {
+      grid-column: 1 / -1;
+      grid-row: 1 / span 2;
+      display: grid;
+      grid-template-columns: subgrid;
+      grid-template-rows: subgrid;
+      gap: 0.5rem;
+      max-height: none;
+      overflow: visible;
+      contain: none;
+      min-width: 0;
+    }
+
+    .alert-bar-split:not(.alert-bar-open) .alerts-full {
+      grid-column: 1 / -1;
+      grid-row: 1;
+      flex-direction: column;
+      flex-wrap: nowrap;
+      min-width: 0;
+    }
+
+    .alert-bar-split:not(.alert-bar-open) .alerts-rest {
+      grid-column: 1;
+      grid-row: 2;
+      min-width: 0;
+      max-height: max(2.75rem, calc(1.25rem + 1rem + 4px));
+      overflow: hidden;
+      contain: inline-size;
+    }
+
+    .alert-bar-split:not(.alert-bar-open) .alert-toggle {
+      grid-column: 2;
+      grid-row: 2;
+      position: relative;
+    }
+  }
+
+  .alert-bar:not(.alert-bar-open) .alerts-full > li,
+  .alert-bar:not(.alert-bar-open) .alerts-full .alert-lead-button {
+    inline-size: 100%;
+  }
+
+  .alert-bar:not(.alert-bar-open) .alerts-full .alert-lead-button {
+    white-space: normal;
+    text-align: start;
+    justify-content: flex-start;
+  }
+
+  .alert-bar:not(.alert-bar-open) .alerts-full .alert-lead-text {
+    display: block;
+    max-block-size: none;
+    text-wrap-mode: wrap;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+
+  .alert-bar:not(.alert-bar-open) .alerts-full .alert-lead-action {
+    display: none;
+  }
+}
+
 .tag-platform {
   border-style: dashed;
 }
