@@ -2,24 +2,45 @@
 // BASE 모양(0018까지)의 DB에 여러 판매자의 설정·접수 기록(옛 낱말 넷과 새 코드가 무작위로 섞임)을 넣고 0019를 적용하면
 // 하나씩 정확히 옮겨지고(극소→60·소→80·중→100·대→120, 새 코드는 그대로), DB에 옛 낱말이 0개, 행 수는 그대로(지우는 것 없음),
 // 옮긴 뒤 서버 조회(storedBox)도 같은 값을 읽는다.
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { openPglite } from '../../../apps/server/src/db/database.ts'
+import { MIGRATIONS_FOLDER, openPglite } from '../../../apps/server/src/db/database.ts'
 import { storedBox } from '../../../apps/server/src/parcel/rules.ts'
-import { newWorld } from '../../../apps/server/test/support.ts'
+
+/**
+ * BASE 모양(0018까지)의 빈 DB: 마이그레이션 기록(journal)에서 이름(`0018_…`)으로 0018을 찾아 거기까지만 SQL을 차례로 적용하고
+ * drizzle 적용 기록도 같은 모양(해시·시각)으로 남긴다. 그 뒤 openPglite가 0019부터 끝까지를 적용한다.
+ * (처음엔 "새 DB에서 마지막 기록 하나만 지우면 0018 모양"이라고 가정해 마이그레이션이 늘 때마다 깨졌다 — 전제 고침, 공격 뜻은 그대로)
+ */
+async function baseDatabaseAt0018() {
+  const journal = JSON.parse(readFileSync(join(MIGRATIONS_FOLDER, 'meta/_journal.json'), 'utf8')) as { entries: { idx: number; when: number; tag: string }[] }
+  const cut = journal.entries.findIndex((entry) => entry.tag.startsWith('0018_'))
+  if (cut < 0 || !journal.entries.some((entry) => entry.tag.startsWith('0019_fb1_parcel_box_carrier'))) throw new Error('0018·0019 마이그레이션을 찾지 못했다')
+  const database = await openPglite(undefined, { migrate: false })
+  const pg = database.pglite
+  if (pg === null || pg === undefined) throw new Error('PGlite가 아니다')
+  await pg.exec('create schema if not exists drizzle; create table if not exists drizzle.__drizzle_migrations (id serial primary key, hash text not null, created_at bigint)')
+  for (const entry of journal.entries.slice(0, cut + 1)) {
+    const sql = readFileSync(join(MIGRATIONS_FOLDER, `${entry.tag}.sql`), 'utf8')
+    for (const statement of sql.split('--> statement-breakpoint')) if (statement.trim() !== '') await pg.exec(statement)
+    await pg.query('insert into drizzle.__drizzle_migrations (hash, created_at) values ($1, $2)', [createHash('sha256').update(sql).digest('hex'), entry.when])
+  }
+  return { database, pg }
+}
 
 const MOVE: Readonly<Record<string, string>> = { 극소: '60', 소: '80', 중: '100', 대: '120', '60': '60', '80': '80', '100': '100', '120': '120', '160': '160' }
 
 describe('TD-FB1 0019 옛 낱말 옮기기 (AC-FB1-16)', () => {
   it('무작위 판매자 40명·접수 기록 200개: 하나씩 정확히 옮기고 옛 낱말 0개, 행 수 그대로, 서버가 읽는 값도 같다', async () => {
-    // 새 DB를 만든 뒤 BASE(0018까지)의 모양으로 되돌린다: 기본값 '소', carrier_name 없음, 0019 적용 기록 없음 — 그 위에 옛 행을 넣고 0019를 다시 적용
-    const world = await newWorld()
-    const pg = world.database.pglite
-    if (pg === null || pg === undefined) throw new Error('PGlite가 아니다')
-    await pg.exec(`
-      alter table parcel_settings alter column box set default '소';
-      alter table parcel_settings drop column carrier_name;
-      delete from drizzle.__drizzle_migrations where id = (select max(id) from drizzle.__drizzle_migrations);`)
+    // BASE(0018까지) 모양의 DB: 기본값 '소', carrier_name 없음 — 그 위에 옛 행을 넣고 0019(와 그 뒤 마이그레이션)를 적용
+    const { database, pg } = await baseDatabaseAt0018()
+    const base = await pg.query<{ column_default: string | null }>(`select column_default from information_schema.columns where table_name = 'parcel_settings' and column_name = 'box'`)
+    expect(base.rows[0]?.column_default).toContain('소')
+    const noCarrierName = await pg.query(`select 1 from information_schema.columns where table_name = 'parcel_settings' and column_name = 'carrier_name'`)
+    expect(noCarrierName.rows).toHaveLength(0)
     {
       const words = Object.keys(MOVE)
       const sellerBoxes = fc.sample(fc.constantFrom(...words), { numRuns: 40, seed: 3 })
@@ -59,6 +80,7 @@ describe('TD-FB1 0019 옛 낱말 옮기기 (AC-FB1-16)', () => {
       const left = await pg.query<{ n: number }>(`select (select count(*) from parcel_settings where box in ('극소','소','중','대')) + (select count(*) from parcels where box in ('극소','소','중','대')) as n`)
       expect(Number(left.rows[0]?.n)).toBe(0)
       await migrated.close()
+      await database.close().catch(() => {})
     }
   })
 })
