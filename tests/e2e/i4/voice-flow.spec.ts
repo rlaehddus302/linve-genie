@@ -56,20 +56,22 @@ test('AC-I4-90: 음성 등록 끝까지(①~⑧) — 보드·범위 이력·실�
   await expect(c16.getByText('확인 필요')).toBeVisible()
   await cardButton(page, '16번 핑크프릴 10,000원', '등록').click()
   await expect(boardItem(page, 16)).toBeVisible()
-  // ⑤ 번호 없음 → 고치기 칸 번호 17 → Enter
+  // ⑤ V3 교체(D-V3-41): 번호 없는 말은 카드가 되지 않으므로, 빈 칸 채우기는 번호만 카드(가격 없음)로 — 고치기 칸 가격 15(=15,000원) → Enter
   await speak(page, '핑크프릴 만오천 원')
-  await cardButton(page, '번호 없음 핑크프릴 15,000원', '고치기').click()
-  const form = page.getByRole('group', { name: '번호 없음 핑크프릴 15,000원 고치기 칸' })
-  await expect(form.getByLabel('번호')).toBeFocused()
-  await form.getByLabel('번호').fill('17')
-  await form.getByLabel('번호').press('Enter')
+  await expect(card(page, '번호 없음 핑크프릴 15,000원')).toHaveCount(0)
+  await speak(page, '17번 핑크프릴')
+  await cardButton(page, '17번 핑크프릴 가격 없음', '고치기').click()
+  const form = page.getByRole('group', { name: '17번 핑크프릴 가격 없음 고치기 칸' })
+  await expect(form.getByLabel('가격')).toBeFocused()
+  await form.getByLabel('가격').fill('15')
+  await form.getByLabel('가격').press('Enter')
   await expect(boardItem(page, 17)).toBeVisible()
-  // ⑥ 이미 있는 번호 → "고칠까요?"에서 바꾸지 않고 닫기
+  // ⑥ 이미 있는 번호 → V3 교체(D-V3-06·D-V3-22 b): 카드·창 없이 R-22 묻기(설정 끔), "그대로 두기"로 바꾸지 않음
   await speak(page, '15번 라울 만원')
-  await cardButton(page, '15번 라울 10,000원', '등록').click()
-  const ask = page.getByRole('dialog', { name: '15번이 이미 있어요. 고칠까요?' })
+  const ask = page.getByRole('list', { name: '방금 등록한 상품 고치기' }).getByRole('listitem', { name: /^15번을 고칠까요\? / })
   await expect(ask).toBeVisible()
-  await ask.getByRole('button', { name: '아니요' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await ask.getByRole('button', { name: '그대로 두기' }).click()
   await expect(ask).toHaveCount(0)
   await expect(input).toHaveValue('')
   // ⑦ V3 교체(D-V3-01·D-V3-22 b): 자동 확정(5초 기다림)이 "번호와 가격이 들리면 바로 등록"이 됐다 — 켬 → 기다림 없이 등록 → Ctrl+Z
@@ -80,7 +82,9 @@ test('AC-I4-90: 음성 등록 끝까지(①~⑧) — 보드·범위 이력·실�
   await expect(page.getByText(/초 뒤 자동 등록/)).toHaveCount(0)
   await page.keyboard.press('Control+z')
   await expect(page.getByText('18번 등록을 되돌렸어요(판매 종료)')).toBeVisible()
-  // ⑧ (D-V3-02: '원'이 없으면 카드) 음성 끄기 → 기다려도 등록 없음 → 등록 누르기
+  // ⑧ (D-V3-02·44: 바로 등록을 끄면 '원'이 없는 말은 카드) 음성 끄기 → 기다려도 등록 없음 → 등록 누르기
+  await (await openExtras(page)).getByRole('checkbox', { name: '번호와 가격이 들리면 바로 등록' }).uncheck()
+  await input.focus()
   await speak(page, '19번 라울 만')
   const c19 = card(page, '19번 라울 10,000원')
   await expect(c19).toBeVisible()

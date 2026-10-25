@@ -183,7 +183,7 @@ test('AC-V3-24 R47: 100,000원 108번에 "108번 30만 원" → 결과 3에서 3
   await expect(notice(page, '108번을 고쳤어요: 가격 100,000원 → 300,000원')).toBeVisible()
 })
 
-test('AC-V3-24 R48: 100,000원 108번에 "108 12만 원 자"(번 없이) → 쓰기 0, "108번을 고칠까요? 가격 100,000원 → 120,000원" (D-V3-32)', async ({ page }) => {
+test('TE-V3-010 AC-V3-24 R48: 100,000원 108번에 "108 12만 원 자"(번 없이) → 쓰기 0, "108번을 고칠까요? 가격 100,000원 → 120,000원" (D-V3-32)', async ({ page }) => {
   await with108(page)
   const writes = recordWrites(page)
   await sayChunk(page, '108 12만 원 자')
@@ -276,17 +276,18 @@ test('AC-V3-37: 5초 띠에서 되돌린 번호는 같은 말을 해도 카드�
   await expect(voiceCards(page)).toHaveCount(1)
 })
 
-test('AC-V3-37: 카드 "닫기"를 누른 번호는 같은 말(원 있음)을 해도 카드만', async ({ page }) => {
+test('AC-V3-37: 카드 "닫기"를 누른 번호는 같은 말(원 있음)을 해도 바로 등록하지 않는다 (켬에서 남는 가격 확인 카드로, D-V3-44)', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
-  await sayChunk(page, '15번 핑크문 만오천')
-  await cardButton(page, '15번 핑크문 15,000원', '닫기').click()
+  await sayChunk(page, '38번 605만 원까지')
+  await cardButton(page, '38번 품종 미입력 6,050,000원', '닫기').click()
   await expect(voiceCards(page)).toHaveCount(0)
   await page.clock.runFor(1000)
-  await sayChunk(page, '15번 핑크문 만오천 원')
+  await sayChunk(page, '38번 60만 원')
   await settle(page)
   expect(productWrites(writes)).toEqual([])
-  await expect(card(page, '15번 핑크문 15,000원')).toBeVisible()
+  await expect(boardItem(page, 38)).toHaveCount(0)
+  await expect(card(page, '38번 품종 미입력 600,000원')).toBeVisible()
 })
 
 test('AC-V3-39: 등록 응답을 2초 늦춘 채 R1 → 같은 번호 처리는 응답 뒤, 카드 생기지 않음, 쓰기 하나', async ({ page }) => {

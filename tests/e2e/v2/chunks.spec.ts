@@ -23,6 +23,7 @@ test('S3 AC-V2-18: 쉼이 길면 1800에 15번 카드("품종·가격을 말해 
   await expect(cards(page)).toHaveCount(1)
   const first = card(page, '15번 품종 미입력 가격 없음')
   await expect(first).toBeVisible()
+  // D-V3-44·D-V3-43 개정: 준비 단계에서 바로 등록 끔(D-V3-22 a) — 끔은 V2 문구 그대로
   await expect(first.getByText('품종·가격을 말해 주세요')).toBeVisible()
   await page.clock.runFor(2200)
   await speak2(page, '엘레강스 이만원')
@@ -197,9 +198,11 @@ test('S22·S23 AC-V2-36: 새 결과 첫 조각의 다른 번호(번호 없음 �
   await expect(cards(page)).toHaveCount(2)
   await page.clock.runFor(1000)
   await sayAt(page, [['핑크문 만원', 0], ['16번 루비 이만원', 1000]])
-  await expect(card(page, '번호 없음 핑크문 10,000원')).toBeVisible()
+  // D-V3-41 (AC-V3-51): 번호 없는 덩어리는 카드를 만들지 않는다(S23의 번호 없는 카드 대체) — 끊긴 뒤 16번은 따로 한 장
+  await expect(card(page, '번호 없음 핑크문 10,000원')).toHaveCount(0)
   await page.clock.runFor(1800)
   await expect(card(page, '16번 루비 20,000원')).toBeVisible()
+  await expect(card(page, '16번 루비 20,000원')).not.toContainText('핑크문')
 })
 
 test('S24 AC-V2-36: "15번 품종 핑크문 만원" → 15번 · 핑크문 · 10,000원 (D-V2-18)', async ({ page }) => {

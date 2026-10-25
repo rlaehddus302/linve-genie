@@ -139,8 +139,9 @@ test.describe('I4 자동 확정 → V3 바로 등록 (D-V3-01·D-V3-22 b)', () =
     expect((await history(page, date, true)).filter((e) => e.type === 'product.register').map((e) => e.fields['no'])).toEqual([16])
   })
 
-  test('AC-I4-31 → AC-V3-26 (D-V3-02): 원이 없는 카드는 기다려도·고치기를 눌러도 저절로 등록되지 않는다', async ({ page }) => {
-    const { date } = await setupPaused(page)
+  // D-V3-44: 켬이면 원 없는 결과는 카드가 없다 — 카드는 설정 끔에서 본다(R21)
+  test('AC-I4-31 → AC-V3-26 (D-V3-02·44): 설정 끔의 원이 없는 카드는 기다려도·고치기를 눌러도 저절로 등록되지 않는다', async ({ page }) => {
+    const { date } = await setupPaused(page, { 'voice.autoRegister': false })
     await said(page, '17번 라울 만')
     const c = card(page, '17번 라울 10,000원')
     await expect(c).toBeVisible()
@@ -152,8 +153,8 @@ test.describe('I4 자동 확정 → V3 바로 등록 (D-V3-01·D-V3-22 b)', () =
     expect((await history(page, date, true)).filter((e) => e.type === 'product.register')).toEqual([])
   })
 
-  test('AC-I4-31·14 → D-V3-01: 음성을 끄고 다시 켜도 카드는 저절로 등록되지 않고, 손으로는 등록된다', async ({ page }) => {
-    const { date } = await setupPaused(page)
+  test('AC-I4-31·14 → D-V3-01·44: (설정 끔) 음성을 끄고 다시 켜도 카드는 저절로 등록되지 않고, 손으로는 등록된다', async ({ page }) => {
+    const { date } = await setupPaused(page, { 'voice.autoRegister': false })
     await said(page, '19번 라울 만')
     const c = card(page, '19번 라울 10,000원')
     await expect(c).toBeVisible()

@@ -176,8 +176,10 @@ test.describe('I4 배치·쉬운 말', () => {
     await expect(card(page, '15번 핑크프릴 15,000원')).toBeVisible()
     await speak(page, '16번 핑크푸릴', { final: false })
     await speak(page, '핑크프릴 만원')
-    await expect(card(page, '번호 없음 핑크프릴 10,000원')).toBeVisible()
+    // D-V3-41: 번호 없는 결과는 카드가 되지 않는다(기록만) — 고치기 칸 오류는 아래 번호만 카드(17번)로 본다
+    await expect(card(page, '번호 없음 핑크프릴 10,000원')).toHaveCount(0)
     await speak(page, '17번 라울')
+    await expect(card(page, '17번 라울 가격 없음')).toBeVisible()
     const extras = await openExtras(page)
     // V3 교체(D-V3-01·D-V3-22 b): 자동 확정 체크·"기다리는 시간(초)"이 바로 등록 체크로 바뀌었다 — 틀린 값 오류는 조용한 시간 칸으로 본다
     await extras.getByRole('checkbox', { name: '번호와 가격이 들리면 바로 등록' }).check()
@@ -187,11 +189,11 @@ test.describe('I4 배치·쉬운 말', () => {
     seen.push(await log.innerText())
     await page.keyboard.press('Escape')
     await expect(log).toHaveCount(0)
-    await cardButton(page, '번호 없음 핑크프릴 10,000원', '등록').click()
-    await expect(page.getByRole('group', { name: '번호 없음 핑크프릴 10,000원 고치기 칸' })).toBeVisible()
+    await cardButton(page, '17번 라울 가격 없음', '등록').click()
+    await expect(page.getByRole('group', { name: '17번 라울 가격 없음 고치기 칸' })).toBeVisible()
     seen.push(await voiceRegion(page).innerText(), await extras.innerText())
     // 고치기 칸 오류
-    const form = page.getByRole('group', { name: '번호 없음 핑크프릴 10,000원 고치기 칸' })
+    const form = page.getByRole('group', { name: '17번 라울 가격 없음 고치기 칸' })
     await form.getByLabel('가격').fill('abc')
     await form.getByLabel('번호').fill('x')
     await form.getByLabel('번호').press('Enter')
