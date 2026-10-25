@@ -4,6 +4,7 @@
 //   `/packing` 포장 모드 — 고른 날짜(실제 범위만)·연 구매자는 검색값(`?date=2026-10-18&buyer=UC_A`) (I2 AC-I2-35)
 //   `/settings` 설정 · `/settings/youtube` 설정의 유튜브 칸(구글에서 돌아오면 `?youtube=<결과>` — 화면이 보인 뒤 지운다)
 //   `/settings/instagram`·`/settings/tiktok` 설정의 인스타그램·틱톡 칸 — 인스타그램에서 돌아온 `?instagram=<결과>`(경로 `/`여도)는 인스타그램 칸으로 (N2b-2)
+//   `/settings/band` 설정의 네이버 밴드 칸 — 밴드에서 돌아온 `?band=<결과>`는 그 칸에서 한 번 보이고 지운다 (BND1)
 //   `/settings/assist` 설정의 AI 제안 칸 (A1 — 확인 필요 화면의 "설정에서 AI 제안을 켤 수 있어요." 링크)
 //   `/settings/labels` 설정의 라벨 칸 (PL1B U-PL1B-06 — "라벨 쓰지 않음 — 설정에서 켤 수 있어요."의 "설정" 링크)
 //   `/login` 로그인 화면(LND1 D-LND1-01 — 메뉴에 없는 화면. 로그아웃 상태의 `/`는 소개 화면, 로그인하면 `/`로 바꿔 간다)
@@ -48,7 +49,7 @@ export interface BillingRoute {
 /** 결제 ID 모양 (서버가 만든 영문·숫자 — 넉넉히 영문·숫자·'_'·'-' 1~64자) */
 const PAYMENT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 
-export type SettingsSection = 'youtube' | 'instagram' | 'tiktok' | 'parcel' | 'extension' | 'assist' | 'labels'
+export type SettingsSection = 'youtube' | 'instagram' | 'tiktok' | 'band' | 'parcel' | 'extension' | 'assist' | 'labels'
 
 /** 입금 확인 화면의 목록 (N3) */
 export const DEPOSIT_TABS = ['review', 'done', 'ignored', 'paste', 'sources'] as const
@@ -81,6 +82,8 @@ export interface SettingsRoute {
   readonly youtubeResult?: string
   /** 인스타그램에서 돌아온 결과 코드 (`?instagram=` — 서버의 돌아오는 경로가 `/`여도 설정의 인스타그램 칸으로, N2b-2) */
   readonly instagramResult?: string
+  /** 밴드에서 돌아온 결과 코드 (`/settings/band?band=` — BND1 AC-BND1-12·70) */
+  readonly bandResult?: string
 }
 
 export interface StartRoute {
@@ -176,6 +179,10 @@ export function parseRoute(pathname: string, search = ''): Route {
   if (path === '/settings/youtube') return { name: 'settings', section: 'youtube', ...result }
   if (path === '/settings/instagram') return { name: 'settings', section: 'instagram' }
   if (path === '/settings/tiktok') return { name: 'settings', section: 'tiktok' }
+  if (path === '/settings/band') {
+    const band = new URLSearchParams(search).get('band')
+    return band !== null && band !== '' ? { name: 'settings', section: 'band', bandResult: band } : { name: 'settings', section: 'band' }
+  }
   if (path === '/settings/parcel') return { name: 'settings', section: 'parcel' }
   if (path === '/settings/extension') return { name: 'settings', section: 'extension' }
   if (path === '/settings/assist') return { name: 'settings', section: 'assist' }
@@ -228,6 +235,7 @@ export function routePath(route: Route): string {
     case 'settings': {
       const base = route.section === undefined ? '/settings' : `/settings/${route.section}`
       if (route.instagramResult !== undefined) return `${base}?${new URLSearchParams({ instagram: route.instagramResult }).toString()}`
+      if (route.bandResult !== undefined) return `${base}?${new URLSearchParams({ band: route.bandResult }).toString()}`
       return route.youtubeResult === undefined ? base : `${base}?${new URLSearchParams({ youtube: route.youtubeResult }).toString()}`
     }
     case 'start':
