@@ -44,6 +44,7 @@ interface Harness {
   fixResult: RecentFixOutcome | null
   dialog: boolean
   readonly undone: string[]
+  readonly moves: [number, number][]
 }
 
 function harness(options: { settings?: unknown; noBoard?: boolean; priceUnit?: 'WON' | 'THOUSAND'; seller?: readonly string[] } = {}): Harness {
@@ -55,6 +56,7 @@ function harness(options: { settings?: unknown; noBoard?: boolean; priceUnit?: '
     fixResult: null as RecentFixOutcome | null,
     dialog: false,
     undone: [] as string[],
+    moves: [] as [number, number][],
   }
   const host: VoiceHost = {
     load: async () => voiceModule,
@@ -80,6 +82,14 @@ function harness(options: { settings?: unknown; noBoard?: boolean; priceUnit?: '
       state.fixes.push({ id, changes })
       const product = [...state.board.values()].find((item) => item.key === id)
       return state.fixResult ?? { kind: 'fixed', before: { ...(changes.price !== undefined ? { price: product?.price ?? 0 } : {}), ...(changes.name !== undefined ? { name: product?.name ?? '' } : {}) } }
+    },
+    renumber: async (from, to) => {
+      state.moves.push([from, to])
+      const item = state.board.get(from)
+      if (item === undefined) return false
+      state.board.delete(from)
+      state.board.set(to, { ...item, key: `b1:${String(to)}` })
+      return true
     },
     undoRecent: (id) => {
       state.undone.push(id)
@@ -562,6 +572,36 @@ describe('판매자 품종 사전 (D-V3-49)', () => {
     const h = await ready()
     say('15번 용용초 만 원')
     expect(reg(h)).toEqual([{ no: 15, name: '', price: 10000, source: 'instant' }])
+  })
+})
+
+describe('음성 번호 옮기기 (R-24, D-V3-58)', () => {
+  it('"아까 65번은 61번이에요" → 번호 바꾸기, 4초 "65번을 61번으로 옮겼어요"와 [되돌리기]', async () => {
+    const h = await ready()
+    h.board.set(65, product(65, '라울', 30000))
+    say('아까 65번은 61번이에요')
+    at(2000)
+    await settle()
+    expect(h.moves).toEqual([[65, 61]])
+    const offer = h.voice.getSnapshot().offers[0]
+    expect(offer?.message).toBe('65번을 61번으로 옮겼어요')
+    await h.voice.revertOffer(offer?.id ?? '')
+    expect(h.moves).toEqual([[65, 61], [61, 65]])
+  })
+
+  it('찜이 있거나 새 번호가 있으면 옮기지 않고 4초 안내', async () => {
+    const h = await ready()
+    h.board.set(65, product(65, '라울', 30000, 1))
+    say('아까 65번은 61번이에요')
+    at(2000)
+    expect(h.moves).toEqual([])
+    expect(h.voice.getSnapshot().readout?.text).toBe('65번에 찜이 있어 번호를 옮기지 않았어요. 상품 목록에서 고쳐 주세요.')
+    h.board.set(65, product(65, '라울', 30000))
+    h.board.set(61, product(61, '녹금', 30000))
+    say('아까 65번은 61번이에요')
+    at(10_000)
+    expect(h.moves).toEqual([])
+    expect(h.voice.getSnapshot().log[0]?.reason).toBe('61번이 이미 있어 옮기지 않았어요')
   })
 })
 

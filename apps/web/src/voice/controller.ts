@@ -76,6 +76,11 @@ import {
   LOG_UNDONE,
   REASON_NOT_OPEN,
   claimsKeptNote,
+  RENUMBER_FAILED,
+  renumberClaims,
+  renumberDone,
+  renumberNotOpen,
+  renumberTaken,
   maybeOtherMessage,
   notRecentReadout,
   REASON_BARE_NUMBER,
@@ -314,6 +319,8 @@ export interface VoiceOffer {
   readonly note?: string
   /** V3: 다른 화분일 수 있는 같은 번호 (D-V3-59) — [새 가격으로 바꾸기] [아까 것을 다른 번호로] */
   readonly maybeOther?: boolean
+  /** V3: 음성 번호 옮기기 (R-24, D-V3-58) — 되돌리기는 to → from */
+  readonly renumber?: { readonly from: number; readonly to: number }
   /** card: 고칠 칸 (번호 포함) */
   readonly cardChanges?: ChunkFields
   /** card: 고친 뒤 카드에 보일 "고쳤어요: …" */
@@ -445,6 +452,8 @@ interface PendingInstant {
   readonly after?: { readonly heard: ExistingHeard; readonly auto: boolean }
   /** 등록이 끝나면 되돌린다 (덩어리 안 취소, D-V3-21) */
   readonly cancel?: boolean
+  /** 등록이 끝나면 이 번호로 옮긴다 (등록 직후 "아니 61번", R-24) */
+  readonly renumberTo?: number
 }
 
 /** 바로 등록 쪽이 한 일 (기록·결과 한 줄) */
@@ -516,6 +525,8 @@ export interface VoiceHost {
   writeLearned?(list: readonly LearnedAlias[]): void
   /** 고칠까요 카드의 [고치기]·[되돌리기]: 손 고치기와 같은 상품 고치기 (registrationId = noteVoiceRegistered에 넘긴 id) */
   fixRecent?(registrationId: string, changes: { readonly name?: string; readonly price?: number }, options?: { readonly newOnly?: boolean }): Promise<RecentFixOutcome>
+  /** 상품 번호 바꾸기 (손 고치기와 같은 product.renumber, R-10·D-V3-58). 바꿨으면 true */
+  renumber?(from: number, to: number): Promise<boolean>
   /** 그 상품을 손으로 고치는 창을 연다 (D-V3-59 [아까 것을 다른 번호로]) */
   openProduct?(registrationId: string): void
   /** 등록 되돌리기 (지금의 5초 되돌리기). 되돌리기를 시작했으면 true */
@@ -1554,6 +1565,82 @@ export class VoiceController {
     }
   }
 
+  /**
+   * 음성 번호 옮기기 (R-24, D-V3-58): "아까 65번은 61번이에요"(언제든)·"65번 아니 61번"·"아니 61번"(고쳐 말함일 때만).
+   * 찜 0·새 번호 비어 있음·판매 중일 때만 손 고치기와 같은 product.renumber, 10초 되돌리기. 아니면 4초 안내. 옮기기 말이 아니면 null
+   */
+  #renumberChunk(work: CardWork, module: VoiceModule, text: string): InstantDone | null {
+    if (typeof module.readRenumber !== 'function' || this.#host.renumber === undefined) return null
+    let read: { readonly from: number | null; readonly to: number } | null
+    try {
+      read = module.readRenumber(text, { maxNumber: this.#host.maxNumber() })
+    } catch {
+      read = null
+    }
+    if (read === null) return null
+    const corrected = /(아니|말고|정정)/.test(text)
+    const from = read.from ?? this.#voiceTouches.at(-1)?.no ?? null
+    if (from === null || from === read.to) return null
+    // ⓑ·ⓒ는 고쳐 말함일 때만 (D-V3-59)
+    if (corrected && this.#instantNos.get(from) !== 'register' && !this.#recentVoice(from)) return null
+    const to = read.to
+    const notice = (message: string): InstantDone => ({ action: 'discard', reason: message, readout: message })
+    const source = this.#existingOf(from)
+    if (source === null || source === 'closed' || (source.status !== undefined && source.status !== 'OPEN')) return notice(renumberNotOpen(from))
+    if (source.pending === true || source.key === '') {
+      this.#setPending(from, { renumberTo: to })
+      return { action: 'discard', reason: LOG_PENDING, readout: null }
+    }
+    if (source.claimCount > 0) return notice(renumberClaims(from))
+    if (this.#existingOf(to) !== null) return notice(renumberTaken(to))
+    void this.#runRenumber(from, to)
+    return { action: 'edit', reason: renumberDone(from, to), readout: null }
+  }
+
+  async #runRenumber(from: number, to: number): Promise<void> {
+    await Promise.resolve()
+    let ok: boolean
+    try {
+      ok = (await this.#host.renumber?.(from, to)) === true
+    } catch {
+      ok = false
+    }
+    if (this.#disposed) return
+    const now = this.#host.now()
+    if (!ok) {
+      this.#set({ readout: { text: RENUMBER_FAILED, discarded: true, until: now + READOUT_MS } })
+      return
+    }
+    this.#touchVoice(to)
+    const message = renumberDone(from, to)
+    const offer: VoiceOffer = { id: `offer-${String(this.#nextOffer++)}`, kind: 'offer', registrationId: '', no: to, message, changes: {}, stage: 'fixed', before: null, undoUntil: now + (this.#module?.OFFER_UNDO_MS ?? 10_000), error: null, renumber: { from, to } }
+    this.#set({ offers: [offer, ...this.#snapshot.offers], readout: { text: message, discarded: false, until: now + READOUT_MS } })
+  }
+
+  /** 옮긴 번호 되돌리기 (to → from, from이 아직 비었을 때) */
+  async #revertRenumber(offer: VoiceOffer): Promise<void> {
+    const move = offer.renumber
+    if (move === undefined || offer.stage !== 'fixed') return
+    if (offer.undoUntil !== null && this.#host.now() > offer.undoUntil) return
+    if (this.#existingOf(move.from) !== null) {
+      this.#replaceOffer(offer.id, { error: renumberTaken(move.from) })
+      return
+    }
+    this.#replaceOffer(offer.id, { stage: 'busy', error: null })
+    let ok: boolean
+    try {
+      ok = (await this.#host.renumber?.(move.to, move.from)) === true
+    } catch {
+      ok = false
+    }
+    if (this.#disposed) return
+    if (!ok) {
+      this.#replaceOffer(offer.id, { stage: 'fixed', error: RENUMBER_FAILED })
+      return
+    }
+    this.#set({ offers: this.#snapshot.offers.filter((item) => item.id !== offer.id) })
+  }
+
   /** 조각 하나를 카드로 (300만 원 넘음·거절한 번호·판매 종료) */
   #pickCard(work: CardWork, module: VoiceModule, pick: SegmentPick, text: string, note: string | null): void {
     const id = `voice-${String(this.#nextCard++)}`
@@ -1573,8 +1660,14 @@ export class VoiceController {
    */
   #segmentsChunk(work: CardWork, module: VoiceModule, chunk: PhraseChunk): InstantDone | null {
     const seg = this.#readSegments(module, chunk.text, true)
-    if (seg === null || seg.picks.length === 0 || chunk.text.includes('문자찜')) return null
+    if (seg === null || chunk.text.includes('문자찜')) return null
+    if (seg.picks.length === 0) return this.#renumberChunk(work, module, chunk.text)
     this.#runPicks(work, module, seg, chunk.text, true)
+    // 등록 직후 같은 덩어리의 "아니 61번" (R-24 ⓒ)
+    if (seg.rest.trim() !== '') {
+      const moved = this.#renumberChunk(work, module, seg.rest)
+      if (moved !== null) return moved
+    }
     const tail = seg.tail
     if (tail !== null && tail.kind === 'cancel' && this.#instantNos.get(tail.no) === 'register') {
       const text = this.#undoInstant(work, tail.no)
@@ -1915,6 +2008,12 @@ export class VoiceController {
     if (pending.cancel === true) {
       this.#pending.delete(no)
       if (this.#host.undoRecent?.(key) === true) this.#recent = this.#recent.filter((item) => item.id !== key)
+      return
+    }
+    if (pending.renumberTo !== undefined) {
+      const to = pending.renumberTo
+      this.#pending.delete(no)
+      if (this.#existingOf(to) === null) void this.#runRenumber(no, to)
       return
     }
     const after = pending.after
@@ -2465,6 +2564,10 @@ export class VoiceController {
   /** 고친 뒤 [되돌리기]: 앞 값으로 같은 고치기 */
   async revertOffer(id: string): Promise<void> {
     const offer = this.#findOffer(id)
+    if (offer?.renumber !== undefined) {
+      await this.#revertRenumber(offer)
+      return
+    }
     const fix = this.#host.fixRecent
     if (offer === undefined || offer.stage !== 'fixed' || offer.before === null || fix === undefined) return
     if (offer.undoUntil !== null && this.#host.now() > offer.undoUntil) return
@@ -2472,7 +2575,8 @@ export class VoiceController {
     this.#replaceOffer(id, { stage: 'busy', error: null })
     let outcome: RecentFixOutcome
     try {
-      outcome = await fix(offer.registrationId, before)
+      // 음성으로 바로 고친 것을 되돌릴 때도 창 없이 (D-V3-57)
+      outcome = await fix(offer.registrationId, before, offer.no === undefined ? {} : { newOnly: true })
     } catch {
       outcome = { kind: 'failed', message: OFFER_FIX_FAILED }
     }

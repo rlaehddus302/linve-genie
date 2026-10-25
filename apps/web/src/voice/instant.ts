@@ -104,3 +104,10 @@ export function notRecentReadout(no: number, current: { readonly name: string; r
   if (changes.name !== undefined) parts.push(`품종 ${current.name === '' ? '없음' : current.name} → ${changes.name}`)
   return `${String(no)}번을 바꿨어요: ${parts.join(', ')} · 아까 것이 다른 번호였으면 '아까 ${String(no)}번은 61번'이라고 말해 주세요`
 }
+
+/** 음성 번호 옮기기 (R-24, D-V3-58) */
+export const renumberDone = (from: number, to: number): string => `${String(from)}번을 ${String(to)}번으로 옮겼어요`
+export const renumberTaken = (to: number): string => `${String(to)}번이 이미 있어 옮기지 않았어요`
+export const renumberClaims = (from: number): string => `${String(from)}번에 찜이 있어 번호를 옮기지 않았어요. 상품 목록에서 고쳐 주세요.`
+export const renumberNotOpen = (from: number): string => `${String(from)}번이 없거나 판매 중이 아니라 번호를 옮기지 않았어요.`
+export const RENUMBER_FAILED = '번호를 옮기지 못했어요. 인터넷 연결을 확인하고 상품 목록에서 고쳐 주세요.'

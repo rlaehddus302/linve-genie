@@ -339,6 +339,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     writeSms: (write: VoiceSmsWrite, received: string | null, requestId: string) => Promise<SmsWriteOutcome>
     fixRecent: (id: string, changes: { readonly name?: string; readonly price?: number }, options?: { readonly newOnly?: boolean }) => Promise<RecentFixOutcome>
     openProduct: (id: string) => void
+    renumber: (from: number, to: number) => Promise<boolean>
     undoRecent: (id: string) => boolean
   }>({
     register: () => {},
@@ -347,6 +348,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     fixRecent: async () => ({ kind: 'failed', message: OFFER_FIX_FAILED }),
     undoRecent: () => false,
     openProduct: () => {},
+    renumber: async () => false,
   })
   const [voice, setVoice] = useState<VoiceController | null>(null)
   // 등록 성공을 음성 칸에 알린다 (지원 안 함 안내를 내림, D-I5-15) — 등록 경로가 음성 컨트롤러를 의존하지 않게 ref로
@@ -399,6 +401,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       writeLearned: (list) => writeLearned(list),
       fixRecent: (id, changes, options) => voiceActions.current.fixRecent(id, changes, options),
       openProduct: (id) => voiceActions.current.openProduct(id),
+      renumber: (from, to) => voiceActions.current.renumber(from, to),
       undoRecent: (id) => voiceActions.current.undoRecent(id),
       // ── V3 바로 등록: 그 번호 상품과 1등+대기 수 (상품 보드 데이터) ──
       existingProduct: (no) => {
@@ -899,6 +902,15 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     undoRecent: undoRecentProduct,
     // [아까 것을 다른 번호로] — 그 상품 자세히(손 고치기, R-10 안내 그대로)
     openProduct: (key) => openDialog({ kind: 'product', key }),
+    // 음성 번호 옮기기 — 손 고치기와 같은 product.renumber (R-10·D-V3-58)
+    renumber: async (from, to) => {
+      try {
+        const result = await write(newRequestId(), { type: 'product.renumber', b, from, to })
+        return result.changed
+      } catch {
+        return false
+      }
+    },
   }
 
   /** 카드 고치기 칸의 Enter: 빠른 입력 고치기 칸과 같은 해석 (decideFixForm — 그 방송의 price.unit) */
