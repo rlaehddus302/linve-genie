@@ -1,7 +1,7 @@
 // QL2 휴대폰 콘솔 첫 화면 — 현재 상품 (AC-QL2-01~04, D-QL2-01, UX-04) — test-e2e.
 // 기기: 375×812·412×915 크로미움(터치), 글자 150%·100%. 393×852 WebKit(@webkit 묶음 — devices['iPhone 15'])은 100%. PC 1440×900.
 // "보인다(첫 화면)"는 공통 전제의 뜻(support.ts expectFirstScreen) — 아래 메뉴 막대에 가리지 않음.
-import { expect, test, type Browser, type Page } from '@playwright/test'
+import { expect, test, type Browser, type Locator, type Page } from '@playwright/test'
 import { postJson, uniqueDate } from '../s05/support.ts'
 import { registerApi, smsApi, viewerClaim, writeEvent } from '../s06/support.ts'
 import { IPHONE_UA } from '../mob1/support.ts'
@@ -207,6 +207,99 @@ test.describe('AC-QL2-01 첫 화면에 현재 상품 — 150%는 요약 줄, 100
       await w.dev.reload()
       await expect(w.dev.getByText('끝난 방송이에요', { exact: true })).toBeVisible()
       await expect(summary(w.dev)).toHaveCount(0)
+    } finally {
+      await w.close()
+    }
+  })
+})
+
+/** 리허설 띠 (role="note") — 두 문장 중 폭에 맞는 하나만 보인다 (D-QL2-13 (1)) */
+const REHEARSAL_WIDE = '리허설 중 — 실제 판매가 아니에요'
+const REHEARSAL_SHORT = '리허설 · 실제 판매 아님'
+const band = (page: Page) => page.getByRole('note').filter({ hasText: '실제 판매' })
+
+/** 띠의 보이는 글 줄 수 (Range.getClientRects 줄 위 끝을 모아 셈 — 숨긴 문장은 상자가 없다), 색·테두리·굵기 */
+async function bandShape(target: Locator): Promise<{ lines: number; bg: string; border: string; weight: string }> {
+  return await target.evaluate((el) => {
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    const tops = new Set([...range.getClientRects()].filter((x) => x.width > 0 && x.height > 0).map((x) => Math.round(x.top)))
+    const s = getComputedStyle(el)
+    return { lines: tops.size, bg: s.backgroundColor, border: s.borderTopColor, weight: s.fontWeight }
+  })
+}
+
+async function expectBandLook(dev: Page, where: string): Promise<void> {
+  const shape = await bandShape(band(dev))
+  expect(shape.lines, `${where} 리허설 띠 글 줄 수`).toBe(1)
+  // 색(#fff4e5 바탕·#7a4100 테두리)·굵은 글자 그대로 (D-QL2-13 (2))
+  expect(shape.bg, `${where} 띠 바탕`).toBe('rgb(255, 244, 229)')
+  expect(shape.border, `${where} 띠 테두리`).toBe('rgb(122, 65, 0)')
+  expect(Number(shape.weight), `${where} 띠 굵기`).toBeGreaterThanOrEqual(700)
+  await expectNoClip(band(dev), `${where} 리허설 띠`)
+}
+
+test.describe('AC-QL2-01 리허설 띠 — 휴대폰은 짧은 한 줄, PC는 옛 문장 (D-QL2-13)', () => {
+  for (const [label, viewport] of [['375×812', PHONE], ['412×915', ANDROID]] as const) {
+    for (const big of [true, false]) {
+      test(`${label} 글자 ${big ? '150%' : '100%'} 리허설: 띠 글은 "${REHEARSAL_SHORT}" 한 줄·잘림 없음·첫 화면에 보임, 옛 문장은 안 보이고 읽히지 않음, 누르는 것·펼침 없음`, async ({ page, browser }) => {
+        const w = await consoleWorld(browser, page, { viewport, big, rehearsal: true })
+        try {
+          const dev = w.dev
+          const note = band(dev)
+          await expect(note).toHaveCount(1)
+          await expect(note).toBeVisible()
+          // textContent에는 두 문장이 다 있다 — 보이는 글(innerText)로 본다
+          await expect(note).toHaveText(REHEARSAL_SHORT, { useInnerText: true })
+          await expect(dev.getByText(REHEARSAL_WIDE, { exact: true })).toBeHidden()
+          // 읽기 프로그램도 짧은 문장 하나만 (숨긴 쪽 display:none)
+          await expect(note).toMatchAriaSnapshot(`- note: ${REHEARSAL_SHORT}`)
+          // 누르는 기능·펼침 없음 (D-QL2-13 (2))
+          await expect(note.getByRole('button')).toHaveCount(0)
+          expect(await note.getAttribute('aria-expanded'), `${label} 띠 aria-expanded`).toBeNull()
+          await expectBandLook(dev, `${label} ${big ? '150%' : '100%'}`)
+          await expectFirstScreen(dev, note, `${label} ${big ? '150%' : '100%'} 리허설 띠`)
+          // 띠를 눌러도 글이 그대로 (펼침 없음)
+          await note.click()
+          await expect(note).toHaveText(REHEARSAL_SHORT, { useInnerText: true })
+          expect((await bandShape(note)).lines, `${label} 누른 뒤 띠 줄 수`).toBe(1)
+          // 띠는 숨기거나 접지 않는다 — 600px 스크롤해도 문서에 보이는 상태
+          await dev.evaluate(() => window.scrollTo(0, 600))
+          await expect(note).toBeVisible()
+          await dev.evaluate(() => window.scrollTo(0, 0))
+          if (big) {
+            // D-QL2-13 (4): 150% 리허설에서 요약 줄이 아래 막대 위
+            await expectSummaryOnFirstScreen(dev, `${label} 150% 리허설(띠 한 줄)`, true)
+          }
+        } finally {
+          await w.close()
+        }
+      })
+    }
+  }
+
+  test('1440×900 PC 리허설: 띠 글은 옛 문장 "리허설 중 — 실제 판매가 아니에요" 한 줄, 짧은 문장은 안 보임, 제목의 "리허설" 꼬리표 그대로', async ({ page, browser }) => {
+    const w = await consoleWorld(browser, page, { viewport: PC, big: false, rehearsal: true })
+    try {
+      const dev = w.dev
+      const note = band(dev)
+      await expect(note).toBeVisible()
+      await expect(note).toHaveText(REHEARSAL_WIDE, { useInnerText: true })
+      await expect(dev.getByText(REHEARSAL_WIDE, { exact: true })).toBeVisible()
+      await expect(dev.getByText(REHEARSAL_SHORT, { exact: true })).toBeHidden()
+      await expect(note).toMatchAriaSnapshot(`- note: ${REHEARSAL_WIDE}`)
+      await expectBandLook(dev, '1440')
+      await expect(dev.getByRole('heading', { level: 1 }).getByText('리허설', { exact: true })).toBeVisible()
+    } finally {
+      await w.close()
+    }
+  })
+
+  test('375×812 실제 방송: 리허설 띠가 없다', async ({ page, browser }) => {
+    const w = await consoleWorld(browser, page, { viewport: PHONE, big: true })
+    try {
+      await expect(band(w.dev)).toHaveCount(0)
+      await expect(w.dev.getByText(REHEARSAL_SHORT, { exact: true })).toHaveCount(0)
     } finally {
       await w.close()
     }
