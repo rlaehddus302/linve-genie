@@ -18,6 +18,8 @@ const HOST_ORDER = 2
 export const RESENT_PREFIX = '연결이 돌아와 보냈어요: '
 /** 실패 줄에 덧붙이는 안내 (다시 보낼 대상인 실패만) */
 export const AUTO_RESEND_NOTE = '연결이 돌아오면 저절로 다시 보내요.'
+/** 저절로 다시 보내려다 그사이 상품 상태가 바뀌어 그만둔 때 (RA-MOB2-01) */
+export const STATUS_CHANGED_NOTE = '그사이 상품 상태가 바뀌어 저절로 보내지 않았어요. 지금 상태를 보고 필요하면 다시 눌러 주세요.'
 /** 저절로 다시 보내는 동안 */
 export const RESENDING_WORD = '다시 보내는 중…'
 

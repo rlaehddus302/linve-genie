@@ -430,6 +430,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   }, [])
 
   // 저장소의 지금 자료로 찾는다 — 앞 등록 응답 뒤에 판단하는 줄이 화면이 다시 그려지기 전에도 그 등록을 본다
+  /** 그리기와 상관없는 지금 자료 (RA-MOB2-01) */
+  const latestData = useCallback((): ScopeData => store.getSnapshot().data ?? latest.current.data, [store])
+
   const findProduct = useCallback(
     (no: number): Product | undefined => (store.getSnapshot().data ?? latest.current.data).products.get(productKey(b, no)),
     [b, store],
@@ -632,9 +635,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       fillQuick,
       select: setSelected,
       resend: resendBoard,
+      latest: latestData,
       options: optionMode,
     }),
-    [b, broadcast.date, broadcast.rehearsal, ended, sealed, data, names, labels, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command, writeOnly, fillQuick, optionMode, resendBoard],
+    [latestData, b, broadcast.date, broadcast.rehearsal, ended, sealed, data, names, labels, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command, writeOnly, fillQuick, optionMode, resendBoard],
   )
 
   // ── 빠른 입력 (AC-S05-10~13, D-084) ──────────────────────────────────
@@ -724,10 +728,13 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         if (request.onExists !== undefined) request.onExists(product)
         else askEdit(product, request.name, request.price, request.line, request.stock)
       }
-      if (first) {
+      if (first || auto) {
         const existing = findProduct(request.no)
         if (existing !== undefined) {
           remove()
+          // 저절로 다시 보내려는데 그 번호가 벌써 있다(판매자가 같은 번호를 새로 쳐 등록했거나 다른 기기): 옛 줄은 보내지 않고 내린다.
+          // 판매자가 누르지 않았으니 "고칠까요?" 창도 띄우지 않는다 — 상품 카드에 지금 모양이 보인다(RA-MOB2-01)
+          if (auto) return
           exists(existing)
           return
         }

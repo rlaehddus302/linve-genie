@@ -121,6 +121,11 @@ export interface ConsoleApi {
   /** 30일이 지나 봉인한 날짜 — 볼 수만 있다 (쓰기는 보내지 않는다, AC-I3-41) */
   readonly sealed: boolean
   readonly data: ScopeData
+  /**
+   * 그리기와 상관없는 지금 자료 (창이 닫힌 뒤 저절로 다시 보내기 직전에 상품의 지금 상태를 본다 — RA-MOB2-01).
+   * 없으면 그 확인을 건너뛴다
+   */
+  readonly latest?: () => ScopeData
   readonly names: BuyerNames
   /** 라벨 키 → 서버의 라벨 상태 (실제 범위만 — 리허설·콘솔 밖 화면은 없다, AC-I1-30) */
   readonly labels?: ReadonlyMap<string, LabelView>

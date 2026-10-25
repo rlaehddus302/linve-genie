@@ -10,6 +10,7 @@ import { ConsoleContext, type ConsoleApi } from '../src/components/console-conte
 import { ProductDetail } from '../src/components/ProductDetail.tsx'
 import { UndoBar } from '../src/components/UndoBar.tsx'
 import { BuyerNames } from '../src/lib/derive.ts'
+import { AUTO_RESEND_NOTE, ResendBoard, STATUS_CHANGED_NOTE } from '../src/lib/resend-board.ts'
 import type { ScopeData } from '../src/lib/scope-data.ts'
 import { UndoQueue, type Timer } from '../src/lib/undo-queue.ts'
 import { T0, chat, dataOf, register, sms } from './engine.ts'
@@ -243,5 +244,109 @@ describe('시간이 지난 보류 찜 (AC-MOB2-30·32, D-MOB2-06)', () => {
     })
     expect(within(section).getByText('보류 · 시간 지남', { exact: true })).toBeDefined()
     expect(section.textContent).not.toContain('만료')
+  })
+})
+
+describe('상품 관리 명령의 저절로 다시 보내기는 상품마다 하나, 상태가 바뀌면 보내지 않는다 (RA-MOB2-01, D-MOB2-07, AC-MOB2-42)', () => {
+  const networkError = () => new ApiError({ status: 0, code: 'NETWORK', message: '인터넷 연결이 끊겼어요.', network: true })
+  const ok = (): WriteResult => ({ seq: 1, changed: true }) as WriteResult
+
+  function setup(initial: ScopeData) {
+    const board = new ResendBoard()
+    let current = initial
+    let online = false
+    const sent: { type: unknown; requestId: string | undefined }[] = []
+    const api: ConsoleApi = {
+      ...apiOf(initial),
+      resend: board,
+      latest: () => current,
+      command: (event, requestId) => {
+        sent.push({ type: event.type, requestId })
+        return online ? Promise.resolve(ok()) : Promise.reject(networkError())
+      },
+    }
+    const view = render(
+      <ConsoleContext.Provider value={api}>
+        <ProductDetail productKey="b1/15" onClose={() => {}} onEdit={() => {}} />
+      </ConsoleContext.Provider>,
+    )
+    return {
+      board,
+      sent,
+      view,
+      goOnline: () => {
+        online = true
+      },
+      setData: (data: ScopeData) => {
+        current = data
+      },
+    }
+  }
+
+  const opened = () => dataOf([register(15, '핑크프릴', 10000)])
+  const held = () => dataOf([register(15, '핑크프릴', 10000), { type: 'product.hold', b: 'b1', no: 15 }])
+
+  it('실패한 일시 중지 뒤 직접 다시 눌러 보냄 → 옛 실패는 내려가고, 연결이 돌아와도 옛 요청 번호로 다시 가지 않는다', async () => {
+    const t = setup(opened())
+    fireEvent.click(screen.getByRole('button', { name: '일시 중지' }))
+    await act(flush)
+    expect(t.board.has('command:b1/15')).toBe(true)
+    expect(screen.getByText(AUTO_RESEND_NOTE)).toBeDefined()
+    const first = t.sent[0]?.requestId
+    // 연결이 돌아오자마자(실시간 다시 잇기 전) 판매자가 "일시 중지"를 다시 눌러 새 번호로 성공
+    t.goOnline()
+    fireEvent.click(screen.getByRole('button', { name: '일시 중지' }))
+    await act(flush)
+    expect(t.board.size).toBe(0)
+    // 그 뒤 판매자가 "다시 판매" — 실시간이 다시 이어져도 옛 일시 중지는 가지 않는다
+    await act(() => t.board.flush())
+    expect(t.sent.filter((item) => item.requestId === first)).toHaveLength(1)
+    expect(t.sent.map((item) => item.type)).toEqual(['product.hold', 'product.hold'])
+  })
+
+  it('창을 닫았고 그사이 상태가 바뀌었으면(일시 중지가 이미 됨) 저절로 보내지 않는다', async () => {
+    const t = setup(opened())
+    fireEvent.click(screen.getByRole('button', { name: '일시 중지' }))
+    await act(flush)
+    t.view.unmount()
+    t.goOnline()
+    t.setData(held())
+    await act(() => t.board.flush())
+    expect(t.sent).toHaveLength(1)
+    expect(t.board.size).toBe(0)
+  })
+
+  it('창이 열린 채 상태가 바뀌었으면 보내지 않고 "그사이 상품 상태가 바뀌어…" 안내', async () => {
+    const t = setup(opened())
+    fireEvent.click(screen.getByRole('button', { name: '일시 중지' }))
+    await act(flush)
+    t.goOnline()
+    t.setData(held())
+    await act(() => t.board.flush())
+    expect(t.sent).toHaveLength(1)
+    expect(within(screen.getByRole('region', { name: '상품 관리' })).getByRole('status').textContent).toBe(STATUS_CHANGED_NOTE)
+    expect(screen.queryByText(AUTO_RESEND_NOTE)).toBeNull()
+  })
+
+  it('상태가 그대로면(판매 중 ↔ 다 팔림 포함) 창이 닫혀 있어도 같은 요청 번호로 한 번 (AC-MOB2-42)', async () => {
+    const t = setup(opened())
+    fireEvent.click(screen.getByRole('button', { name: '일시 중지' }))
+    await act(flush)
+    t.view.unmount()
+    t.goOnline()
+    await act(() => t.board.flush())
+    expect(t.sent).toHaveLength(2)
+    expect(t.sent[1]?.requestId).toBe(t.sent[0]?.requestId)
+  })
+
+  it('"안내 닫기"를 누르면 저절로 보내지 않는다 (판매자가 닫은 것)', async () => {
+    const t = setup(opened())
+    fireEvent.click(screen.getByRole('button', { name: '일시 중지' }))
+    await act(flush)
+    fireEvent.click(screen.getByRole('button', { name: '안내 닫기' }))
+    expect(within(screen.getByRole('region', { name: '상품 관리' })).queryByRole('alert')).toBeNull()
+    t.goOnline()
+    await act(() => t.board.flush())
+    expect(t.sent).toHaveLength(1)
   })
 })
