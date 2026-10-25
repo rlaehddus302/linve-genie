@@ -261,14 +261,13 @@ describe('이어 붙이기 (AC-V2-14·17, D-V2-03)', () => {
 })
 
 describe('이어 채우기·정정 (AC-V2-18~27, D-V2-04~06)', () => {
-  // D-V3-41: 번호만 있는 카드의 안내는 "가격을 말하면 바로 등록돼요" (음성 패키지 ASK_NAME_PRICE)
-  it('S3: 1800에 카드 15번 + "가격을 말하면 바로 등록돼요", 5800에 같은 카드가 엘레강스 · 20,000원 (카드 1장)', async () => {
+  it('S3: 1800에 카드 15번 + "품종·가격을 말해 주세요", 5800에 같은 카드가 엘레강스 · 20,000원 (카드 1장)', async () => {
     const h = await ready()
     say('십오번')
     at(1800)
     const id = cards(h)[0]?.id as string
     expect(view(cards(h)[0])).toEqual({ no: 15, name: null, price: null })
-    expect(h.voice.cardInfo(id)?.ask).toBe('가격을 말하면 바로 등록돼요')
+    expect(h.voice.cardInfo(id)?.ask).toBe('품종·가격을 말해 주세요')
     at(4000)
     say('엘레강스 이만원')
     at(5800)

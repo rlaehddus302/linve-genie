@@ -290,7 +290,7 @@ describe('바로 등록 V3 수용 사례', () => {
     expect(h.voice.getSnapshot().log[0]?.reason).toBe('번호가 여럿 들렸어요: 189·139')
   })
 
-  it('번호 없는 말은 카드 없이 "번호를 못 들었어요", 번호만 있는 카드는 "가격을 말하면 바로 등록돼요" (D-V3-41)', async () => {
+  it('번호 없는 말은 카드 없이 "번호를 못 들었어요", 끔이면 번호만 있는 카드에 "가격을 말해 주세요" (D-V3-41·44)', async () => {
     const h = await ready()
     say('핑크프릴 만오천 원')
     at(2000)
@@ -300,7 +300,7 @@ describe('바로 등록 V3 수용 사례', () => {
     say('15번 핑크프릴')
     at(3000)
     const card = cards(off)[0]
-    expect(off.voice.cardInfo(card?.id ?? '')?.ask).toBe('가격을 말하면 바로 등록돼요')
+    expect(off.voice.cardInfo(card?.id ?? '')?.ask).toBe('가격을 말해 주세요')
   })
 
   it('R26: 등록 뒤 같은 덩어리에서 다른 번호가 들리면 알림만 ("알겠어요"까지)', async () => {

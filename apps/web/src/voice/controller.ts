@@ -77,7 +77,6 @@ import {
   REASON_CLAIMS,
   REASON_NOT_OPEN,
   REASON_PRICE_NOT_SURE,
-  NO_PRICE_LOG,
   REASON_BARE_NUMBER,
   REASON_PRICE_FAR,
   PRICE_CHECK_NOTE,
@@ -1083,8 +1082,10 @@ export class VoiceController {
     // 설정을 꺼도 V3 읽기(추측 품종·같은 번호 무시·합치기·번호 검사)는 하고 바로 등록·바로 고침만 하지 않는다 (R30, TE-V3-005)
     const v3 = this.#instantHost() ? this.#readRegistration(module, chunk.text, true) : null
     // 같은 덩어리의 V3 읽기를 넘겨 번호 둘·가격 뒤 '번' 없는 번호를 버리게 한다 (D-V3-41)
-    const registration = v3 === null ? null : { heardNumbers: v3.heardNumbers, blocked: v3.blocked }
-    let action = module.chooseAction(reading, { cards: work.cards, recent: this.#recent, now, chunkStartedAt: chunk.startedAt, tooLong, registration })
+    const registration = v3
+    // 바로 등록 켬이면 '원' 가격 없는 결과·덩어리 사이 이어 채우기를 할 일 고르기가 버린다 (D-V3-44)
+    const autoRegister = v3 !== null && this.#snapshot.instant
+    let action = module.chooseAction(reading, { cards: work.cards, recent: this.#recent, now, chunkStartedAt: chunk.startedAt, tooLong, registration, autoRegister })
     let reason: string | null = action.kind === 'discard' ? action.reason : null
     const info = new Map(work.info)
     const notes = new Map(work.notes)
@@ -1118,12 +1119,6 @@ export class VoiceController {
             reason: placed.no !== null ? module.VOICE_LOG_REASONS.numberAfterPrice : v3.heardNumbers.length >= 2 ? module.manyNumbersReason(v3.heardNumbers) : module.VOICE_LOG_REASONS.noNumber,
             cancelled: false,
           }
-          reason = action.reason
-          break
-        }
-        // 바로 등록 켬: 번호만 있고 '원' 가격이 없는 결과는 카드를 띄우지 않는다 — 같은 덩어리에서 '원' 가격이 오면 이미 바로 등록됐다 (D-V3-44)
-        if (v3 !== null && this.#snapshot.instant && !v3.priceSure) {
-          action = { kind: 'discard', reason: NO_PRICE_LOG, cancelled: false }
           reason = action.reason
           break
         }
@@ -1481,7 +1476,7 @@ export class VoiceController {
     const no = reading.no
     const heard = (): ExistingHeard => {
       // 정정 덩어리는 가격이 둘이라 줄 읽기가 비지만, 덮은 가격이 '원'으로 들린 가격이면 확실하다 (D-V3-13)
-      const sure = v3 !== null && (v3.priceSure || (v3.correction && reading.price !== null && v3.heardPrices.includes(reading.price) && chunk.text.includes('원')))
+      const sure = v3 !== null && (v3.priceSure || (v3.correction && reading.price !== null && v3.wonPrices.includes(reading.price)))
       const numberFrom = v3?.numberFrom ?? null
       // 추측 품종은 같은 번호 판단에도 쓰지 않는다 (D-V3-37)
       return { name: reading.name, price: reading.price, nameNeedsCheck: reading.nameNeedsCheck, priceSure: sure, ...(numberFrom === null ? {} : { numberFrom }) }
