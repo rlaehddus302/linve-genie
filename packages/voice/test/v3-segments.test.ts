@@ -294,3 +294,20 @@ describe('TD-V3-007 "180이요"·늘임표 "…"', () => {
     expect(seg('113번 45에 드려볼게요 자 45…', { priceUnit: 'TEN_THOUSAND', final: true }).picks).toMatchObject([{ no: 113, price: 450000 }])
   })
 })
+
+describe('R94~R96 (D-V3-72, 천원 단위)', () => {
+  const thousand: SegmentOptions = { priceUnit: 'THOUSAND', final: true }
+  it('R94 "113번 45에 드려볼게요 자 45~" → 113번 · 45,000원', () => {
+    expect(seg('113번 45에 드려볼게요 자 45~', thousand).picks).toMatchObject([{ no: 113, price: 45000 }])
+  })
+  it('R95 "113번 45 드려 보겠습니다" → 113번 · 45,000원', () => {
+    expect(seg('113번 45 드려 보겠습니다', thousand).picks).toMatchObject([{ no: 113, price: 45000 }])
+  })
+  it('R96 "113번 45에 드려볼게요 자 50" → 확정 아님, 113번은 기다리는 번호 (조각에 N번만 남음)', async () => {
+    const { stepWaiting } = await import('../src/index.ts')
+    const r = seg('113번 45에 드려볼게요 자 50', thousand)
+    expect(r.picks).toEqual([])
+    expect(r.others).toEqual([113])
+    expect(stepWaiting({ waiting: null, now: 0, piece: { markerNo: 113, wonPrice: null, paired: false }, exists: () => false }).waiting).toEqual({ no: 113, since: 0 })
+  })
+})
