@@ -117,8 +117,20 @@ import { mergeRaw } from './store.ts'
 import { startSettings, stateFromLedger } from './sealed-state.ts'
 import { readLedger, type Ledger } from './youtube/seal.ts'
 import { iso, kstDate, type Clock } from './time.ts'
-import { eventDigest, splitChatRaw } from './writer.ts'
+import { eventDigest, splitChatRaw, type ChatSource } from './writer.ts'
+import { INSTAGRAM_PREFIX, TIKTOK_PREFIX } from './platform.ts'
 import { SERVICE_NAME } from './brand.ts'
+
+/**
+ * 복구·가져오기에서 채팅 이벤트의 출처 (DAT-04, D-QL2-08). 파일엔 출처 칸이 없어 메시지 ID 접두어로 되살린다(platform.ts와 같은 접두어).
+ * 리허설 범위 = rehearsal, `ig:`·`tt:`로 시작 = other, 그 밖(접두어 없음·ID 없음·알 수 없음) = youtube — 모르면 AI에 보내지 않고 봉인 대상으로 본다.
+ * 크롬 확장(extension)으로 받은 줄은 youtube로 되살아난다(AI·봉인에서 같은 대우).
+ */
+export function restoredChatSource(rehearsal: boolean, messageId: unknown): ChatSource {
+  if (rehearsal) return 'rehearsal'
+  if (typeof messageId === 'string' && (messageId.startsWith(INSTAGRAM_PREFIX) || messageId.startsWith(TIKTOK_PREFIX))) return 'other'
+  return 'youtube'
+}
 
 export const BACKUP_FORMAT = 'livejjim-seller-backup'
 /** 형식 번호 (2 = 칸 차례가 정해진 스트림 형식·이어 계산하는 요약값, RA-I2-005 · 3 = 범위마다 봉인 칸, PL1A D-PL1-01). 만드는 파일은 늘 3 */
@@ -1641,7 +1653,10 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
           // 채팅의 본문·이름은 chat_raw에 따로 둔다 (Y1, AC-Y1-60 — 기록 경로와 같은 모양). 실제 범위의 채팅 = 유튜브 채팅(봉인 대상, AC-Y1-61)
           const split = event.type === 'chat' ? splitChatRaw(body) : null
           const stored = split === null ? event.body : JSON.stringify(split.body)
-          if (event.type === 'chat' && !scope.rehearsal) scope.youtubeChat = true
+          // 채팅 출처 (D-QL2-08): 파일엔 출처 칸이 없다 — 리허설 범위면 rehearsal, 메시지 ID가 ig:·tt:로 시작하면 other, 그 밖(접두어 없음·ID 없음)은 youtube(안전 쪽)
+          const chatSource = event.type === 'chat' ? restoredChatSource(scope.rehearsal, body.id) : null
+          // 범위의 유튜브 채팅 표시(봉인 대상)는 기록 경로(writer.ts maybeYoutubeChat)와 같은 규칙
+          if (chatSource !== null && !scope.rehearsal && chatSource !== 'other' && chatSource !== 'rehearsal') scope.youtubeChat = true
           await eventRows.push({
             sellerId,
             scopeId: scope.id,
@@ -1659,7 +1674,7 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
             changed,
             failed: event.failed,
             digest: eventDigest(scope.id, event.seq, event.type, stored, event.failed, split?.raw ?? null),
-            chatSource: event.type === 'chat' ? (scope.rehearsal ? 'rehearsal' : 'youtube') : null,
+            chatSource,
             raw: split !== null,
           })
           if (split !== null) await chatRawRows.push({ sellerId, scopeId: scope.id, seq: event.seq, nick: split.raw.nick, text: split.raw.text })
