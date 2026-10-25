@@ -17,6 +17,7 @@ import { ErrorNote } from './ErrorNote.tsx'
 import { ProductLabels } from './LabelParts.tsx'
 import { FocusButton } from './ProductBoard.tsx'
 import { Modal } from './Modal.tsx'
+import { ProductVoiceLog } from './VoiceLogView.tsx'
 
 export function ProductDetail({ productKey, onClose, onEdit }: { readonly productKey: string; readonly onClose: () => void; readonly onEdit: (product: Product) => void }) {
   const api = useConsoleApi()
@@ -112,6 +113,7 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
           </dd>
         </div>
       </dl>
+      <ProductVoiceLog b={product.broadcast} no={product.no} />
 
       {/* 찜이 먼저: 창의 "닫기"(처음 포커스)에서 Tab 한 번이면 1등 찜의 "찜 취소하기" (AC-S06-63) */}
       {product.hasOptions ? (

@@ -3765,3 +3765,27 @@ select.input {
 .voice-band-actions .button {
   min-height: 44px;
 }
+
+/* 음성 기록 (R-25, D-V3-65) */
+.voice-log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.voice-log-entry p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.voice-log-flagged {
+  background: #fff8e1;
+  border-left: 4px solid #f9a825;
+  padding-left: 0.5rem;
+}
+
+.voice-check-band {
+  background: #fff3c4;
+}

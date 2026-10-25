@@ -40,6 +40,8 @@ export class EngineServer {
   readonly server = new FakeServer()
   /** 받아 기록한 쓰기 (요청 본문) */
   readonly posts: Record<string, unknown>[] = []
+  /** 음성 쓰기에 실려 온 기록 한 줄 (R-25) */
+  readonly voiceLogs: unknown[] = []
   readonly #states: EngineState[]
   readonly #results = new Map<string, WriteResult>()
   #refs = 0
@@ -110,7 +112,9 @@ export class EngineServer {
 
   #post(body: Record<string, unknown>): Reply {
     if (this.down) return { network: true }
-    const { requestId, ...input } = body
+    // voiceLog(R-25)는 엔진 필드가 아니다 — 실제 서버처럼 떼고 따로 남긴다
+    const { requestId, voiceLog, ...input } = body
+    if (voiceLog !== undefined) this.voiceLogs.push(voiceLog)
     const prior = this.#results.get(String(requestId))
     if (prior !== undefined) return { body: prior }
     if (this.failNext !== null) {

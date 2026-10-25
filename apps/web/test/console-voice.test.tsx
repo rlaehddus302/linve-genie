@@ -239,7 +239,8 @@ describe('자막·카드·Enter 등록 (AC-I4-13·20·21)', () => {
     pressEnter(quick)
     await flush()
     expect(registers()).toHaveLength(1)
-  })
+    // 조용한 시간 두 번(1.85초씩) + 1초 기다림 — 기본 5초 시험 시간에 붙어 있어 넉넉히
+  }, 10_000)
 
   it('빠른 입력칸에 글자가 있으면 Enter는 빠른 입력이다(카드는 그대로)', async () => {
     setup()
