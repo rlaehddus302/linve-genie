@@ -60,9 +60,16 @@ describe('AC-V3-53 "N번 품종 수" (R61~R64, D-V3-48)', () => {
   it('R63 "92번 빅뱅 6만 자" → 60,000원 (단위 붙은 금액은 적힌 대로, 뒤에 군말만)', () => {
     expect(seg('92번 빅뱅 6만 자', thousand).picks).toMatchObject([{ no: 92, name: '빅뱅', price: 60000 }])
   })
-  it('R64 사전 품종이 없으면 확정 아님', () => {
-    expect(seg('92번 60', { ...thousand, final: true }).picks).toEqual([])
-    expect(seg('92번 저거 60', { ...thousand, final: true }).picks).toEqual([])
+  // D-V3-63: 품종 없이도 'N번' 바로 뒤 수가 조각 끝이고 final이면 확정 (R64 처음 기대 "확정 아님"을 바꿈)
+  it('품종 없는 빠른 꼴: final일 때만, 뒤에 단위 낱말이면 아님', () => {
+    const tenThousand: SegmentOptions = { priceUnit: 'TEN_THOUSAND' }
+    expect(seg('92번 60', { ...thousand, final: true }).picks).toMatchObject([{ no: 92, price: 60000, name: null, priceFrom: 'quick' }])
+    expect(seg('92번 저거 60', { ...thousand, final: true }).picks).toMatchObject([{ no: 92, price: 60000 }])
+    expect(seg('육십팔번 이십오', { ...tenThousand, final: true }).picks).toMatchObject([{ no: 68, price: 250000, name: null }])
+    expect(seg('육십팔번 이십오', tenThousand).picks).toEqual([])
+    expect(seg('68번 이십오 자 요거', { ...tenThousand, final: true }).picks).toMatchObject([{ no: 68, price: 250000 }])
+    expect(seg('68번 이십오 자 요거', tenThousand).picks).toEqual([])
+    expect(seg('68번 25 개', { ...tenThousand, final: true }).picks).toEqual([])
   })
   it('원 단위: 60000은 60,000원, 60은 100원 미만이라 아님. 만원 단위: 6 = 60,000원', () => {
     expect(seg('92번 빅뱅 60000', { final: true }).picks).toMatchObject([{ price: 60000 }])

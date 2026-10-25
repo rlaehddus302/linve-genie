@@ -1,7 +1,7 @@
 // V3 덩어리를 조각으로 소비하는 확정 읽기 (DOMAIN_RULES R-17 8, D-V3-46·D-V3-48). 실방송 7차: 쉬지 않고 이어 말해 한 덩어리에 93번·97번이 쌓였다.
 // 덩어리 글(모은 최종 결과 + 지금 중간 결과)을 앞에서부터 읽어 "N번 … 가격 원" 짝마다 등록할 값(pick)을 낸다 — 화면은 pick마다 한 번씩 바로 등록한다.
 // 순수 함수: 시계·난수를 쓰지 않고 어떤 입력에도 예외를 던지지 않는다.
-import { parseAmount, type PriceUnit } from '@livejjim/core'
+import { parseAmount, parseKoreanNumber, type PriceUnit } from '@livejjim/core'
 import { analyzeSentence, listNumberMarkers, listWonLines, punctuatedTokens, readSentence, readingForms, tokenize } from './extract.ts'
 import { AUTO_REGISTER_PRICE_MAX, readRegistration, type ReadyBlock, type RegistrationOptions } from './register.ts'
 import { DEFAULT_COMMON_ALIASES } from './default-dictionary.ts'
@@ -142,18 +142,23 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
       let quick: SegmentPick | null = null
       for (const m of segMarkers) {
         if (m.split || m.value > maxNumber) continue
-        const name = nameWindowEnd(tokens, skipFillers(tokens, m.last + 1), options)
-        if (name === null) continue
-        const q = name.end + 1
+        // D-V3-63: 품종 없이도 — 'N번' 바로 뒤(군말만 사이) 수가 조각 끝이면 (품종이 있으면 그 뒤 수)
+        const k = skipFillers(tokens, m.last + 1)
+        const name = nameWindowEnd(tokens, k, options)
+        const q = name === null ? k : name.end + 1
         const numberToken = tokens[q]
         if (numberToken === undefined || !QUICK_NUMBER.test(numberToken)) continue
         const next = markers.find((marker) => marker.start > q)
         const stop = next === undefined ? tokens.length : next.start
         if (tokens.slice(q + 1, stop).some((token) => !isWindowFiller(token))) continue
         if (q === tokens.length - 1 && !final) continue // 중간 결과 끝의 수는 기다린다(60 → 60만)
-        const price = parseAmount(numberToken, { 'price.unit': unit })
+        // 품종 없는 꼴은 덩어리가 끝났을 때만(D-V3-63 — 뒤에 무엇이 올지 모른다)
+        if (name === null && !final) continue
+        // 한글 수만 된 토큰(`이십오`)은 숫자로 바꿔 단위를 적용한다(만원 단위 `이십오` = 250,000원 — 숫자 `25`와 같게, D-V3-63)
+        const sino = /^[일이삼사오육칠팔구십백천]+$/.test(numberToken) ? parseKoreanNumber(numberToken) : null
+        const price = parseAmount(sino === null ? numberToken : String(sino), { 'price.unit': unit })
         if (price === null || price < 100) continue
-        quick = { no: m.value, price, name: name.name, numberFrom: 'marker', priceFrom: 'quick', start: m.start, end: stop - 1, blocked: price > AUTO_REGISTER_PRICE_MAX ? 'PRICE_TOO_HIGH' : null }
+        quick = { no: m.value, price, name: name?.name ?? null, numberFrom: 'marker', priceFrom: 'quick', start: m.start, end: stop - 1, blocked: price > AUTO_REGISTER_PRICE_MAX ? 'PRICE_TOO_HIGH' : null }
         break
       }
       if (quick !== null) {
