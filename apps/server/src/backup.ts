@@ -6,7 +6,8 @@
 // - 판매자의 전체 역사를 글 하나로 만들지 않는다(RA-I2-005 — V8 문자열 한도): 만들 때는 범위마다·이벤트 묶음마다 조각 글을 gzip 스트림에 이어 쓰고,
 //   요약값은 조각마다 이어 계산한다. 읽을 때(검사·복구)도 gzip 스트림을 조각으로 풀어 이벤트 하나씩 읽는다(json-stream.ts).
 //   그래서 파일 안 칸의 차례가 정해져 있다(형식 번호 2): 맨 위 format·version·createdAt·sellerId·shop·settings·scopes·packing·parcels·digest
-//   (parcels는 T1에 더한 칸 — 없는 옛 파일도 같은 번호로 읽는다, D-T1-07 "형식 판 번호 규칙은 D-I2-10 그대로"),
+//   (parcels는 T1에 더한 칸 — 없는 옛 파일도 같은 번호로 읽는다, D-T1-07 "형식 판 번호 규칙은 D-I2-10 그대로";
+//   parcels 뒤 voiceLog는 V3 음성 등록·고침 기록 R-25에 더한 칸 — 같은 규칙, 복구는 그 줄을 다시 넣는다),
 //   범위 안 date·rehearsal·sealed(번호 3)·events·seq·broadcasts. 이벤트·포장 기록·방송 하나의 칸 차례는 상관없다.
 // - 30일 봉인 범위 (PL1A D-PL1-01, D-I2-22 (1)): 형식 번호 3은 범위마다 sealed 칸 — 봉인 안 한 범위는 null, 봉인한 범위는
 //   { sealedAt(UTC ISO), ledger(저장된 장부 글 그대로), ledgerDigest(저장된 장부 요약값 그대로) }. 봉인 범위의 이벤트는 저장된 그대로(채팅 본문·이름 없음).
@@ -53,6 +54,7 @@ import {
   assistCache,
   assistCalls,
   sellerNames,
+  voiceLog,
   assistSettings,
   depositSources,
   deposits,
@@ -118,6 +120,7 @@ import { mergeRaw } from './store.ts'
 import { startSettings, stateFromLedger } from './sealed-state.ts'
 import { readLedger, type Ledger } from './youtube/seal.ts'
 import { iso, kstDate, type Clock } from './time.ts'
+import { VOICE_LOG_HEARD_MAX, VOICE_LOG_KINDS, VOICE_LOG_SOURCES } from './voice-log.ts'
 import { eventDigest, splitChatRaw } from './writer.ts'
 import { SERVICE_NAME } from './brand.ts'
 
@@ -216,6 +219,35 @@ export interface BackupParcel {
 }
 export const BACKUP_PARCEL_STATES = ['PENDING', 'UNKNOWN', 'BOOKED', 'FAILED', 'CANCELLED'] as const
 
+/**
+ * 음성 등록·고침 기록 한 줄 (V3 R-25, D-V3-65 — parcels 뒤에 더한 칸 voiceLog, 없는 옛 파일도 같은 번호로 읽는다).
+ * before·after는 저장된 JSON 객체 글 그대로({ no?, name?, price? }) 또는 null. 들은 말은 가린 한 줄
+ */
+export interface BackupVoiceLog {
+  readonly requestId: string
+  readonly kind: string
+  readonly at: string
+  readonly date: string
+  readonly rehearsal: boolean
+  readonly b: string
+  readonly product: string | null
+  readonly no: number
+  readonly toNo: number | null
+  readonly before: string | null
+  readonly after: string | null
+  readonly source: string
+  readonly actor: string
+  readonly accountId: string | null
+  readonly device: string | null
+  readonly claims: number
+  readonly heard: string
+  readonly big: boolean
+  readonly withClaims: boolean
+  readonly undone: boolean
+  readonly undoOf: string | null
+  readonly failed: boolean
+}
+
 /** 파일 내용 (시험·작은 기록용 — 서버는 이 모양을 메모리에 통째로 만들지 않는다) */
 export interface BackupFile {
   readonly format: typeof BACKUP_FORMAT
@@ -229,6 +261,8 @@ export interface BackupFile {
   readonly packing: readonly BackupPacking[]
   /** 택배 접수 기록 (T1에 더한 칸 — 옛 파일엔 없다) */
   readonly parcels?: readonly BackupParcel[]
+  /** 음성 등록·고침 기록 (V3에 더한 칸 — 옛 파일엔 없다) */
+  readonly voiceLog?: readonly BackupVoiceLog[]
   /** 내용 요약값 (BackupDigest) */
   readonly digest: string
 }
@@ -251,6 +285,8 @@ export class BackupDigest {
   #packing = 0
   /** parcels 칸이 있었으면 그 기록 수 (없던 옛 파일은 null — 요약값이 T1 전과 같다) */
   #parcels: number | null = null
+  /** voiceLog 칸이 있었으면 그 줄 수 (없던 옛 파일은 null — 요약값이 V3 전과 같다) */
+  #voiceLog: number | null = null
   /** 형식 번호 3이면 범위 조각에 봉인 칸을 넣는다 */
   #sealedField = false
 
@@ -296,14 +332,26 @@ export class BackupDigest {
     this.#feed(['parcel', record])
   }
 
+  /** voiceLog 칸이 시작됐다 (줄이 없어도 칸이 있으면 부른다) */
+  voiceLogStart(): void {
+    this.#voiceLog = 0
+  }
+
+  voiceLog(record: unknown): void {
+    this.#voiceLog = (this.#voiceLog ?? 0) + 1
+    this.#feed(['voiceLog', record])
+  }
+
   digest(): string {
-    this.#feed(this.#parcels === null ? ['end', this.#scopes, this.#packing] : ['end', this.#scopes, this.#packing, this.#parcels])
+    const end: unknown[] = this.#parcels === null ? ['end', this.#scopes, this.#packing] : ['end', this.#scopes, this.#packing, this.#parcels]
+    if (this.#voiceLog !== null) end.push(this.#voiceLog)
+    this.#feed(end)
     return this.#hash.digest('hex')
   }
 }
 
 /** 파일 내용 객체의 요약값 (시험이 고친 내용을 다시 요약할 때 — 만들기·검사와 같은 정의) */
-export function backupDigest(file: { readonly format: unknown; readonly version: unknown; readonly sellerId: unknown; readonly shop: unknown; readonly settings: unknown; readonly scopes: readonly unknown[]; readonly packing: readonly unknown[]; readonly parcels?: readonly unknown[] }): string {
+export function backupDigest(file: { readonly format: unknown; readonly version: unknown; readonly sellerId: unknown; readonly shop: unknown; readonly settings: unknown; readonly scopes: readonly unknown[]; readonly packing: readonly unknown[]; readonly parcels?: readonly unknown[]; readonly voiceLog?: readonly unknown[] }): string {
   const digest = new BackupDigest()
   digest.header(file)
   for (const raw of file.scopes) {
@@ -317,6 +365,10 @@ export function backupDigest(file: { readonly format: unknown; readonly version:
     digest.parcelsStart()
     for (const record of file.parcels) digest.parcel(record)
   }
+  if (file.voiceLog !== undefined) {
+    digest.voiceLogStart()
+    for (const record of file.voiceLog) digest.voiceLog(record)
+  }
   return digest.digest()
 }
 
@@ -325,6 +377,34 @@ export function backupDigest(file: { readonly format: unknown; readonly version:
 const toIso = (value: Date): string => value.toISOString()
 const yieldToLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
+/** 음성 기록 한 줄의 칸 차례 (만들기·검사가 같은 칸) */
+function voiceLogRow(record: BackupVoiceLog): BackupVoiceLog {
+  return {
+    requestId: record.requestId,
+    kind: record.kind,
+    at: record.at,
+    date: record.date,
+    rehearsal: record.rehearsal,
+    b: record.b,
+    product: record.product,
+    no: record.no,
+    toNo: record.toNo,
+    before: record.before,
+    after: record.after,
+    source: record.source,
+    actor: record.actor,
+    accountId: record.accountId,
+    device: record.device,
+    claims: record.claims,
+    heard: record.heard,
+    big: record.big,
+    withClaims: record.withClaims,
+    undone: record.undone,
+    undoOf: record.undoOf,
+    failed: record.failed,
+  }
+}
+
 /** 파일 글 조각을 만드는 쓰개 (칸 차례 = 형식 번호 3). 요약값을 함께 이어 계산한다 */
 class BackupWriter {
   readonly digest = new BackupDigest()
@@ -332,6 +412,7 @@ class BackupWriter {
   #eventCount = 0
   #packingCount = 0
   #parcelCount = 0
+  #voiceLogCount = 0
 
   header(createdAt: string, sellerId: string, shop: ShopView, settings: Readonly<Record<string, unknown>>): string {
     this.digest.header({ format: BACKUP_FORMAT, version: BACKUP_VERSION, sellerId, shop, settings })
@@ -387,6 +468,17 @@ class BackupWriter {
     const row = { date: record.date, buyer: record.buyer, carrier: record.carrier, invoice: record.invoice, state: record.state, at: record.at }
     this.digest.parcel(row)
     return `${this.#parcelCount++ === 0 ? '' : ','}${JSON.stringify(row)}`
+  }
+
+  voiceLogStart(): string {
+    this.digest.voiceLogStart()
+    return '],"voiceLog":['
+  }
+
+  voiceLog(record: BackupVoiceLog): string {
+    const row = voiceLogRow(record)
+    this.digest.voiceLog(row)
+    return `${this.#voiceLogCount++ === 0 ? '' : ','}${JSON.stringify(row)}`
   }
 
   end(): string {
@@ -539,6 +631,51 @@ export async function* backupPieces(db: Db, sellerId: string, now: number): Asyn
     lastParcel = tail.no
     await yieldToLoop()
   }
+  // 음성 등록·고침 기록 (V3 R-25, D-V3-65): 실제·리허설 모두, 넣은 순서대로
+  yield writer.voiceLogStart()
+  let lastVoice = 0
+  for (;;) {
+    const rows = await db
+      .select()
+      .from(voiceLog)
+      .where(and(eq(voiceLog.sellerId, sellerId), gt(voiceLog.id, lastVoice)))
+      .orderBy(asc(voiceLog.id))
+      .limit(BACKUP_PAGE)
+    if (rows.length > 0) {
+      yield rows
+        .map((row) =>
+          writer.voiceLog({
+            requestId: row.requestId,
+            kind: row.kind,
+            at: toIso(row.at),
+            date: row.date,
+            rehearsal: row.rehearsal,
+            b: row.broadcastId,
+            product: row.productId,
+            no: row.no,
+            toNo: row.toNo,
+            before: row.before,
+            after: row.after,
+            source: row.source,
+            actor: row.actor,
+            accountId: row.accountId,
+            device: row.device,
+            claims: row.claims,
+            heard: row.heard,
+            big: row.big,
+            withClaims: row.withClaims,
+            undone: row.undone,
+            undoOf: row.undoOf,
+            failed: row.failed,
+          }),
+        )
+        .join('')
+    }
+    const tail = rows.at(-1)
+    if (tail === undefined || rows.length < BACKUP_PAGE) break
+    lastVoice = tail.id
+    await yieldToLoop()
+  }
   yield writer.end()
 }
 
@@ -591,6 +728,7 @@ const MESSAGES = {
   scope: '범위의 형식이 올바르지 않아요.',
   packing: '포장 기록이 목록이 아니에요.',
   parcels: '택배 접수 기록이 목록이 아니에요.',
+  voiceLog: '음성 기록이 목록이 아니에요.',
   digest: '파일 요약값이 맞지 않아요(파일이 손상됐거나 바뀌었어요).',
   /** 봉인 범위 (D-PL1-01) */
   sealedRehearsal: '리허설 범위는 봉인할 수 없어요.',
@@ -642,6 +780,45 @@ function checkParcel(raw: unknown, index: number): BackupParcel {
   if (invoice !== null && (typeof invoice !== 'string' || !/^\d{8,20}$/.test(invoice))) return invalid(`${where}의 형식이 올바르지 않아요.`)
   if (typeof state !== 'string' || !(BACKUP_PARCEL_STATES as readonly string[]).includes(state) || !isIso(at)) return invalid(`${where}의 형식이 올바르지 않아요.`)
   return { date: date as string, buyer, carrier, invoice, state, at: at as string }
+}
+
+const VOICE_LOG_KEYS = ['requestId', 'kind', 'at', 'date', 'rehearsal', 'b', 'product', 'no', 'toNo', 'before', 'after', 'source', 'actor', 'accountId', 'device', 'claims', 'heard', 'big', 'withClaims', 'undone', 'undoOf', 'failed'] as const
+const VOICE_ID_RE = /^[A-Za-z0-9_-]{1,128}$/
+const isIdOrNull = (value: unknown): boolean => value === null || (typeof value === 'string' && VOICE_ID_RE.test(value))
+/** 전·후 값 글: null 또는 { no?, name?, price? } JSON 객체 글 (`__proto__` 칸 없음) */
+function isVoiceValue(value: unknown): boolean {
+  if (value === null) return true
+  if (typeof value !== 'string' || value.length > 2048 || hasProtoKey(value)) return false
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!isObject(parsed) || Object.keys(parsed).some((key) => !['no', 'name', 'price'].includes(key))) return false
+    return (parsed.no === undefined || isInt(parsed.no)) && (parsed.price === undefined || isInt(parsed.price)) && (parsed.name === undefined || (typeof parsed.name === 'string' && !hasUnsafe(parsed.name)))
+  } catch {
+    return false
+  }
+}
+const hasUnsafe = (text: string): boolean => {
+  if (!text.isWellFormed()) return true
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i)
+    if (code <= 0x1f || code === 0x7f) return true
+  }
+  return false
+}
+
+/** 음성 기록 한 줄 검사 (칸 22개만 — 다른 칸이 있으면 거절) */
+function checkVoiceLog(raw: unknown, index: number): BackupVoiceLog {
+  const where = `음성 기록 ${String(index)}번`
+  const bad = (): never => invalid(`${where}의 형식이 올바르지 않아요.`)
+  if (!isObject(raw) || !hasKeys(raw, VOICE_LOG_KEYS)) return bad()
+  const r = raw
+  if (typeof r.requestId !== 'string' || !VOICE_ID_RE.test(r.requestId) || typeof r.kind !== 'string' || !(VOICE_LOG_KINDS as readonly string[]).includes(r.kind)) return bad()
+  if (!isIso(r.at) || !isValidDate(r.date) || typeof r.rehearsal !== 'boolean' || typeof r.b !== 'string' || !VOICE_ID_RE.test(r.b) || !isIdOrNull(r.product)) return bad()
+  if (!isInt(r.no) || !(r.toNo === null || isInt(r.toNo)) || !isVoiceValue(r.before) || !isVoiceValue(r.after)) return bad()
+  if (typeof r.source !== 'string' || !(VOICE_LOG_SOURCES as readonly string[]).includes(r.source) || (r.actor !== 'account' && r.actor !== 'server') || !isIdOrNull(r.accountId) || !isIdOrNull(r.device)) return bad()
+  if (!isInt(r.claims) || typeof r.heard !== 'string' || hasUnsafe(r.heard) || [...r.heard].length > VOICE_LOG_HEARD_MAX) return bad()
+  if (typeof r.big !== 'boolean' || typeof r.withClaims !== 'boolean' || typeof r.undone !== 'boolean' || !isIdOrNull(r.undoOf) || typeof r.failed !== 'boolean') return bad()
+  return r as unknown as BackupVoiceLog
 }
 
 const scopeName = (date: string, rehearsal: boolean): string => `${date}${rehearsal ? ' 리허설' : ''}`
@@ -953,6 +1130,7 @@ interface BackupVisitor {
   /** 봉인 범위는 state가 null (재생하지 않는다) */
   scopeEnd?(seq: number, broadcastList: readonly BackupBroadcast[], state: EngineState | null, attention: readonly AttentionItem[]): Promise<void>
   packing?(record: BackupPacking): Promise<void>
+  voiceLog?(record: BackupVoiceLog): Promise<void>
 }
 
 /** gzip 바이트 → 풀린 글 조각 (gzip 오류는 GzipBroken으로) */
@@ -1110,6 +1288,27 @@ async function walkBackup(bytes: Uint8Array, visitor: BackupVisitor = {}): Promi
           digest.parcel(raw)
         } while (await reader.take(','))
         await reader.expect(']', MESSAGES.parcels)
+      }
+      await reader.expect(',', MESSAGES.keys)
+      next = await reader.readKey()
+    }
+    // 음성 등록·고침 기록 (V3에 더한 칸 — 없는 옛 파일도 읽는다). (요청 번호, 한 일)은 겹치지 않는다
+    let voiceLogCount = 0
+    if (next === 'voiceLog') {
+      await reader.expect('[', MESSAGES.voiceLog)
+      digest.voiceLogStart()
+      const seen = new Set<string>()
+      if (!(await reader.take(']'))) {
+        do {
+          const raw = await reader.readValue()
+          const record = checkVoiceLog(raw, ++voiceLogCount)
+          const key = JSON.stringify([record.requestId, record.kind])
+          if (seen.has(key)) invalid(`음성 기록 ${String(voiceLogCount)}번이 앞 줄과 겹쳐요.`)
+          seen.add(key)
+          digest.voiceLog(raw)
+          await visitor.voiceLog?.(record)
+        } while (await reader.take(','))
+        await reader.expect(']', MESSAGES.voiceLog)
       }
       await reader.expect(',', MESSAGES.keys)
       next = await reader.readKey()
@@ -1456,6 +1655,8 @@ const BATCH = 500
  *   복구한 구매자 ID가 다른 사람을 가리킬 수 있어 복구 전에 받은 배송지는 모두 버린다(D-N4b-06과 같음).
  */
 export const RESTORE_REPLACED_TABLES = [
+  // V3 음성 등록·고침 기록(R-25): 파일의 voiceLog 칸으로 다시 만든다(옛 파일엔 칸이 없어 비워진다 — 바꾸기 전 안전 백업에 남는다)
+  voiceLog,
   // X1 확장 회차 잇기·마지막 상태: 회차(방송 ID)에 딸린 연결이라 지운다(복구한 지난 회차를 다시 잇지 않는다 — 라이브 연결과 같음)
   extBindings,
   extStatus,
@@ -1628,6 +1829,7 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
       const chatRawRows = new Batcher<typeof chatRaw.$inferInsert>((rows) => tx.insert(chatRaw).values(rows))
       const outboxRows = new Batcher<typeof outbox.$inferInsert>((rows) => tx.insert(outbox).values(rows))
       const packingBatch = new Batcher<typeof packingRecords.$inferInsert>((rows) => tx.insert(packingRecords).values(rows))
+      const voiceBatch = new Batcher<typeof voiceLog.$inferInsert>((rows) => tx.insert(voiceLog).values(rows))
       const visitor: BackupVisitor = {
         scopeStart: async (date, rehearsal, sealed) => {
           const id = options.ids.scope()
@@ -1714,11 +1916,38 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
             requestId: record.requestId,
             createdAt: new Date(record.createdAt),
           }),
+        voiceLog: async (record) =>
+          voiceBatch.push({
+            sellerId,
+            requestId: record.requestId,
+            kind: record.kind,
+            at: new Date(record.at),
+            date: record.date,
+            rehearsal: record.rehearsal,
+            broadcastId: record.b,
+            productId: record.product,
+            no: record.no,
+            toNo: record.toNo,
+            before: record.before,
+            after: record.after,
+            source: record.source,
+            actor: record.actor,
+            accountId: keepAccount(record.accountId),
+            device: record.device,
+            claims: record.claims,
+            heard: record.heard,
+            big: record.big,
+            withClaims: record.withClaims,
+            undone: record.undone,
+            undoOf: record.undoOf,
+            failed: record.failed,
+          }),
       }
       // 같은 바이트를 한 번 더 읽으며 넣는다 (첫 검사를 통과했으니 같은 결과여야 한다 — 아니면 멈춘다)
       const written = await walkBackup(options.bytes, visitor)
       if (!written.ok || written.value.digest !== summary.digest) throw new RestoreAbort(RESTORE_MESSAGES.failed)
       await packingBatch.flush()
+      await voiceBatch.flush()
       await restoreDepositRecords(tx, sellerId, savedDeposits, scopeIds, now)
       await options.beforeCommit?.()
     })

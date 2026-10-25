@@ -26,7 +26,7 @@ import {
 } from '@livejjim/core'
 import { randomBytes } from 'node:crypto'
 import { eq } from 'drizzle-orm'
-import { API_EVENTS, CHAT_FIELDS, hasControlChar, isPlainObject, own, ownKeys } from './api-fields.ts'
+import { API_EVENTS, CHAT_FIELDS, VOICE_LOG_FIELD, hasControlChar, isPlainObject, own, ownKeys } from './api-fields.ts'
 import type { Db } from './db/database.ts'
 import { sellers } from './db/schema.ts'
 import type { FieldProblem } from './errors.ts'
@@ -44,7 +44,7 @@ import {
   type GeneratorTimer,
 } from './generator.ts'
 import type { IdSource } from './ids.ts'
-import type { LogSink } from './log.ts'
+import { errorKind, type LogSink } from './log.ts'
 import type { ScopeRuntime } from './runtime.ts'
 import { fieldMessage, phoneIdProblem, safeFieldName, unknownFieldProblems } from './messages.ts'
 import { productOwners } from './product-history.ts'
@@ -71,6 +71,7 @@ import {
   VOICE_MESSAGE,
 } from './sms-last4.ts'
 import { VOICE_REPEATED_MESSAGE, VoiceRepeats, voiceSignature } from './voice-repeat.ts'
+import { insertFailedVoiceLog, insertVoiceLog, listVoiceLog, parseVoiceLogInput, planVoiceLog, settleVoiceLog, voiceLogTypeProblem, VOICE_LOG_TYPES, type VoiceLogContext, type VoiceLogEntry, type VoiceLogFilter, type VoiceLogPlan } from './voice-log.ts'
 import {
   actionRows,
   chatRows,
@@ -102,7 +103,7 @@ import type { BillingService } from './billing/service.ts'
 import { iso, kstDate, kstTime, type Clock } from './time.ts'
 import type { ViewCacheBudget } from './view-budget.ts'
 import { changeSet, fullView, messageLookup, type ChangeSet, type FullView, type MessageLookup } from './views.ts'
-import { resultOf, scopeKey, WriteAbort, type Actor, type ChatSource, type CommittedRecord, type Draft, type Rejection, type ScopeWriter, type WriteOutcome, type WriteResult } from './writer.ts'
+import { resultOf, scopeKey, WriteAbort, type Actor, type ChatSource, type CommittedRecord, type Draft, type Rejection, type ScopeWriter, type WriteJob, type WriteOutcome, type WriteResult } from './writer.ts'
 import { cleanPostText, sanitizeNick } from './youtube/texts.ts'
 import { SEALED_CHAT_MESSAGE, sealAtOf, sealedView } from './youtube/seal.ts'
 
@@ -556,7 +557,7 @@ export class Service {
     const fields: Record<string, unknown> = { type }
     for (const field of spec.fields) {
       const value = own(body, field)
-      if (value !== undefined && field !== 'phone' && field !== 'last4' && field !== 'newBuyer' && field !== 'voice') Object.defineProperty(fields, field, { value, enumerable: true, writable: true, configurable: true })
+      if (value !== undefined && field !== 'phone' && field !== 'last4' && field !== 'newBuyer' && field !== 'voice' && field !== VOICE_LOG_FIELD) Object.defineProperty(fields, field, { value, enumerable: true, writable: true, configurable: true })
     }
 
     // 범위 정하기: 방송이 있는 종류는 그 방송의 범위(날짜·리허설인지), 없는 종류는 요청에 적은 날짜와 리허설인지(적지 않으면 실제) (D-069, D-081)
@@ -584,6 +585,20 @@ export class Service {
     }
 
     if (type === 'sms') return this.#writeSms(sellerId, actor, requestId, date, rehearsal, body, fields)
+    // 음성 기록 칸 (V3 R-25, D-V3-65): 있으면 같은 기록 트랜잭션에서 상품 명령보다 먼저 음성 기록 줄을 남긴다. 없으면 손 입력(기록 없음)
+    const voiceLogRaw = own(body, VOICE_LOG_FIELD)
+    if (voiceLogRaw !== undefined && VOICE_LOG_TYPES.includes(type)) {
+      const parsed = parseVoiceLogInput(voiceLogRaw)
+      if (!parsed.ok) return { kind: 'rejected', rejection: invalidInput(parsed.problems) }
+      const typeProblems = voiceLogTypeProblem(type, parsed.value)
+      if (typeProblems.length > 0) return { kind: 'rejected', rejection: invalidInput(typeProblems) }
+      const ctx: VoiceLogContext = { sellerId, requestId, date, rehearsal, b: String(own(body, 'b')), actor, input: parsed.value }
+      return this.#writeWithVoiceLog(
+        { sellerId, date, rehearsal, createScope: false, requestId, build: () => [{ fields, actor, requestId }] },
+        ctx,
+        fields,
+      )
+    }
     // 포장·배송을 적은 구매자의 합치기·떼어 내기 제한 (D-I2-20 — 실제 범위만, 엔진 이벤트를 기록하기 전에 같은 범위 줄·락 안에서)
     // 택배 (T1 PC-3·D-T1-07): 떼어 낼 구매자가 붙은 묶음에 접수 결과를 기다리는 시도가 있으면 막고, 합치면 같은 트랜잭션에서 그 날짜 배송지를 옮긴다(합칠 대상에 없을 때)
     let mergeTarget: { from: string; into: string } | null = null
@@ -901,6 +916,48 @@ export class Service {
       case 'save_failed':
         return { status: 'save_failed' }
     }
+  }
+
+  // ── 음성 등록·고침 기록 (R-25, D-V3-65, AC-V3-70) ─────────────────────
+
+  /**
+   * 기록 경로에 음성 기록을 끼운다: 범위 락을 잡은 트랜잭션 안에서(guard) 지금 상태로 줄을 만들어 상품 명령보다 먼저 넣고,
+   * 이벤트를 넣은 뒤(afterInsert) 실패로 기록됐으면 실패 표시·등록이면 상품 ID·되돌리기면 되돌린 줄에 표시.
+   * 명령이 기록되지 못하면(거절·저장 실패 — 트랜잭션이 롤백돼 줄도 없다) 실패 줄을 따로 남긴다. 같은 요청 번호의 두 번째 결과(duplicate)는 줄을 늘리지 않는다
+   */
+  async #writeWithVoiceLog(job: WriteJob, ctx: VoiceLogContext, fields: Readonly<Record<string, unknown>>): Promise<WriteOutcome> {
+    const undo = ctx.input.undo !== null
+    const planned: { plans: VoiceLogPlan[] | null } = { plans: null }
+    const outerGuard = job.guard
+    const outerAfter = job.afterInsert
+    const outcome = await this.#options.writer.write({
+      ...job,
+      guard: async (tx, runtime) => {
+        const refused = outerGuard === undefined ? null : await outerGuard(tx, runtime)
+        if (refused !== null) return refused
+        planned.plans = planVoiceLog(runtime.state, fields, undo)
+        await insertVoiceLog(tx, ctx, planned.plans, new Date(this.#options.clock.now()))
+        return null
+      },
+      afterInsert: async (tx, scopeId, records, now, states) => {
+        await outerAfter?.(tx, scopeId, records, now, states)
+        await settleVoiceLog(tx, ctx, records[0], states[0])
+      },
+    })
+    if (outcome.kind === 'rejected' || outcome.kind === 'save_failed') {
+      try {
+        const plans = planned.plans ?? planVoiceLog((await this.#options.writer.read(ctx.sellerId, ctx.date, ctx.rehearsal)).state, fields, undo)
+        await insertFailedVoiceLog(this.#options.db, ctx, plans, new Date(this.#options.clock.now()))
+      } catch (error) {
+        this.#options.log?.({ level: 'warn', code: 'VOICE_LOG_FAILED', seller: ctx.sellerId, date: ctx.date, errorKind: errorKind(error) })
+      }
+    }
+    return outcome
+  }
+
+  /** 음성 등록·고침 기록 조회 (GET /api/voice/log — 판매자 자기 것만, 시각순) */
+  async voiceLog(sellerId: string, filter: VoiceLogFilter): Promise<VoiceLogEntry[]> {
+    return listVoiceLog(this.#options.db, sellerId, filter)
   }
 
   // ── 리허설: 시청자로 보내기·가짜 채팅 생성기 (AC-S05-51·52, D-082) ────────

@@ -8,7 +8,7 @@
 // - 넘기는 값·결과는 구조화 복제로 오간다(파일 바이트는 옮긴다 — transfer). 작업 내용은 로그에 남기지 않는다.
 import { availableParallelism } from 'node:os'
 import { Worker } from 'node:worker_threads'
-import type { LedgerRow } from '@livejjim/documents'
+import type { LedgerRow, VoiceLedgerRow } from '@livejjim/documents'
 
 export type WorkKind = 'receiptPdf' | 'receiptPng' | 'receiptJpg' | 'receiptJpgZip' | 'ledgerXlsx' | 'xlsxRows' | 'waybillPdf'
 
@@ -16,6 +16,8 @@ export type WorkKind = 'receiptPdf' | 'receiptPng' | 'receiptJpg' | 'receiptJpgZ
 export interface LedgerChunk {
   readonly rows: readonly LedgerRow[]
   readonly options: boolean
+  /** 그 날짜의 음성 등록·고침 기록 (V3 R-25, D-V3-65 — 판매대장 "음성 기록" 시트). 조각 하나라도 넘기면 시트를 더한다 */
+  readonly voiceLog?: readonly VoiceLedgerRow[]
 }
 
 export interface WorkPoolOptions {

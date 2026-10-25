@@ -123,7 +123,7 @@ export interface WriteJob {
   /** 쓸 이벤트들. 첫 이벤트가 요청의 결과(요청 번호)다 */
   readonly build: (ctx: BuildContext, prepared: unknown) => readonly Draft[] | Rejection
   /** 같은 트랜잭션에서 더 쓸 것 (방송 목록) */
-  readonly afterInsert?: (tx: Db, scopeId: string, records: readonly CommittedRecord[], now: Date) => Promise<void>
+  readonly afterInsert?: (tx: Db, scopeId: string, records: readonly CommittedRecord[], now: Date, states: readonly EngineState[]) => Promise<void>
 }
 
 /** 범위 키 (판매자, 날짜, 리허설인지) */
@@ -491,7 +491,7 @@ export class ScopeWriter {
           await insertOutbox(tx, computed.records.flatMap((record) => outboxRows(job, scopeId, record, now)))
           // 범위의 지금 seq — 실패 표시 이벤트도 seq를 쓴다 (AC-S05-60)
           await setScopeSeq(tx, job.sellerId, scopeId, computed.seq)
-          await job.afterInsert?.(tx, scopeId, computed.records, now)
+          await job.afterInsert?.(tx, scopeId, computed.records, now, computed.states)
           const after =
             this.#options.txHook === undefined || computed.records.length === 0
               ? null

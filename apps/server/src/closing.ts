@@ -52,6 +52,7 @@ import { checkShopInput, checkShopName, documentShop, readShop, writeShop, type 
 import { findBroadcast, listBroadcastRows, scopeSeqs } from './store.ts'
 import { kstDate, type Clock } from './time.ts'
 import { WorkBusy, WorkFailed, type LedgerChunk, type WorkPools } from './work-pool.ts'
+import { voiceLogSheetRows } from './voice-log.ts'
 import { uniqueNames } from './zip.ts'
 import { SEALED_MESSAGE, type Actor, type Rejection, type ScopeWriter, type WriteOutcome } from './writer.ts'
 import { scopeSealedAt } from './store.ts'
@@ -388,7 +389,9 @@ export class ClosingService {
       // 봉인한 날짜의 "찜 시각" 칸은 빈칸 (D-PL1-03 — 장부 판 /2에 찜 시각이 없다. 확정 시각·다른 시각으로 채우지 않는다)
       const rows = sealed.sealed ? result.rows.map((row) => ({ ...row, claimedAt: '' })) : [...result.rows]
       // 열 모양(D-O3-07): 날짜 중 하나라도 옵션 방송을 담으면 대장 전체가 옵션·수량·단가 열 — 워커가 조각마다의 options를 OR로 모은다
-      yield { rows, options: result.options }
+      // 음성 등록·고침 기록 (V3 R-25, D-V3-65): 그 날짜의 실제 범위 줄 (고른 방송이 있으면 그 방송만) — "음성 기록" 시트
+      const voiceLog = await voiceLogSheetRows(this.#deps.db, sellerId, date, own)
+      yield { rows, options: result.options, voiceLog }
     }
   }
 

@@ -13,6 +13,7 @@ import { bodyLimit } from 'hono/body-limit'
 import { getCookie } from 'hono/cookie'
 import { ASSISTANT_LIMIT, ASSISTANT_LIMIT_MESSAGE, ASSISTANT_NAME_MESSAGE, SHOP_NAME_MESSAGE } from './accounts.ts'
 import { REQUEST_ID_RE, isPlainObject, own, ownKeys } from './api-fields.ts'
+import { VOICE_LOG_MESSAGES } from './voice-log.ts'
 import { CLEAR_SESSION_COOKIE, SESSION_COOKIE, sessionCookie, type Auth, type SessionContext } from './auth.ts'
 import { ClosingService, buyerParam, type ApiProblem, type FileResult, type Outcome } from './closing.ts'
 import { apiError, JSON_CONTENT_TYPE } from './errors.ts'
@@ -538,6 +539,31 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (!rehearsal.ok) return rehearsal.response
     // 범위마다 봉인 예정 시각(sealAt)·봉인 여부 (AC-Y1-62)
     return c.json({ days: await service.days(sellerOf(c), rehearsal.value ?? false) })
+  })
+  // 음성 등록·고침 기록 (V3 R-25, D-V3-65, AC-V3-70): 방송(b)·날짜(date) 중 하나는 적고, 상품 ID(product)·번호(no)로 더 거른다. 판매자 자기 것만, 시각순.
+  // 보조자는 허용 목록 밖이라 403 (roles.ts — 기본 거부)
+  api.get('/voice/log', async (c) => {
+    const rehearsal = rehearsalOf(c)
+    if (!rehearsal.ok) return rehearsal.response
+    const b = c.req.query('b')
+    const date = c.req.query('date')
+    const product = c.req.query('product')
+    const no = c.req.query('no')
+    const problems: { field: string; message: string }[] = []
+    if ((b === undefined || b === '') && date === undefined) problems.push({ field: 'b', message: VOICE_LOG_MESSAGES.filter })
+    if (b !== undefined && !REQUEST_ID_RE.test(b)) problems.push({ field: 'b', message: VOICE_LOG_MESSAGES.filter })
+    if (date !== undefined && !isValidDate(date)) problems.push({ field: 'date', message: VOICE_LOG_MESSAGES.date })
+    if (product !== undefined && !PRODUCT_ID_RE.test(product)) problems.push({ field: 'product', message: '상품 ID 형식이 올바르지 않아요.' })
+    if (no !== undefined && (!NUMBER_RE.test(no) || Number(no) < 1)) problems.push({ field: 'no', message: VOICE_LOG_MESSAGES.no })
+    if (problems.length > 0) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', problems)
+    const entries = await service.voiceLog(sellerOf(c), {
+      ...(b === undefined ? {} : { b }),
+      ...(date === undefined ? {} : { date }),
+      ...(product === undefined ? {} : { product }),
+      ...(no === undefined ? {} : { no: Number(no) }),
+      ...(rehearsal.value === undefined ? {} : { rehearsal: rehearsal.value }),
+    })
+    return c.json({ entries })
   })
   api.get('/days/:date', async (c) => {
     const date = c.req.param('date')
