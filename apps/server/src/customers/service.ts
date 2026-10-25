@@ -332,8 +332,8 @@ export class CustomerService {
     return false
   }
 
-  /** 손님 자세히: 줄 + 메모 + 날짜 줄(최근부터 20개, before=<날짜>로 다음 쪽). 없으면 null(404) */
-  async customer(sellerId: string, id: string, before: string | null): Promise<{ customer: CustomerRow; memo: MemoView | null; days: CustomerDay[]; more: boolean; next: string | null } | null> {
+  /** 손님 자세히: 오늘(서버 KST) + 줄 + 메모 + 날짜 줄(최근부터 20개, before=<날짜>로 다음 쪽). 없으면 null(404) */
+  async customer(sellerId: string, id: string, before: string | null): Promise<{ today: string; customer: CustomerRow; memo: MemoView | null; days: CustomerDay[]; more: boolean; next: string | null } | null> {
     const index = await this.#index(sellerId)
     const marker = CustomerService.#markerOf(index, id)
     if (marker === null) return null
@@ -353,7 +353,8 @@ export class CustomerService {
       unpaid: isUnpaid(bundle, index.today, index.settings.waitDays),
     }))
     const memo = (await this.#memos(sellerId, [marker])).get(marker) ?? null
-    return { customer: row, memo, days, more, next: more ? (page.at(-1)?.date ?? null) : null }
+    // today = 서버 KST 날짜 — 화면이 주소로 바로 열어도 올해 기준을 기기 시계·손님 마지막 날짜가 아니라 이것으로 정한다(AC-CRM1-15, TE-CRM1-003)
+    return { today: index.today, customer: row, memo, days, more, next: more ? (page.at(-1)?.date ?? null) : null }
   }
 
   // ── 메모 (D-CRM1-08) ─────────────────────────────────────────────────

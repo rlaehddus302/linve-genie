@@ -101,6 +101,8 @@ export interface CustomerDayLine {
 }
 
 export interface CustomerDetailView {
+  /** 서버 KST 오늘 — 날짜 문장의 올해 기준 (TE-CRM1-003) */
+  readonly today: string
   readonly customer: CustomerRow
   readonly memo: MemoView | null
   readonly days: readonly CustomerDayLine[]
@@ -160,6 +162,32 @@ export function summaryLines(summary: CustomerSummary, today: string): string[] 
 /** 손님 자세히 날짜 줄의 입금 상태 낱말 (영어 상태값을 보이지 않는다) */
 export function paymentWords(payment: PaymentStatus): string {
   return PAYMENT_WORD[payment]
+}
+
+/** 날짜 줄: 미입금 1번으로 센 날 (기다리는 날이 지났거나 '입금 안 함' 취소 — U-CRM1-01) */
+export const UNPAID_COUNTED_WORD = '미입금으로 셈'
+/** 날짜 줄: 아직 입금 기다리는 날 안의 입금 안 된 날 (그날 입금 상태 "미입금"과 센 날을 글자로 가른다 — U-CRM1-01, UX-04) */
+export const PAY_WAITING_WORD = '입금 기다리는 중'
+
+export interface DayLineTag {
+  readonly text: string
+  readonly className: string
+}
+
+/**
+ * 손님 자세히 날짜 줄의 꼬리표 (D-CRM1-06, U-CRM1-01): 같은 낱말 "미입금"이 두 뜻(그날 입금 상태·미입금으로 센 날)으로 색만 달리 보이지 않게.
+ * - 센 날: 입금 상태가 "미입금"이면 그 낱말 대신 "미입금으로 셈" 하나, 아니면(일부 입금 등) 입금 낱말 + "미입금으로 셈"
+ * - 세지 않은 입금 안 된 날(기다리는 날 안): "입금 기다리는 중"
+ * - 그 밖: 입금 낱말 그대로
+ */
+export function dayLineTags(line: Pick<CustomerDayLine, 'payment' | 'unpaid' | 'subtotal'>): readonly DayLineTag[] {
+  const pay: DayLineTag = { text: paymentWords(line.payment), className: `tag pay-${line.payment}` }
+  if (line.unpaid) {
+    const counted: DayLineTag = { text: UNPAID_COUNTED_WORD, className: 'tag tag-caution' }
+    return line.payment === 'UNPAID' ? [counted] : [pay, counted]
+  }
+  if (line.payment === 'UNPAID' && line.subtotal > 0) return [{ text: PAY_WAITING_WORD, className: `tag pay-${line.payment}` }]
+  return [pay]
 }
 
 /** 메모 칸 이름: 플랫폼 손님은 "유튜브 · 다육이맘", 문자 손님은 "문자 · 끝자리 1234" (AC-CRM1-23) */

@@ -29,6 +29,8 @@ describe('AC-CRM1-21 저장·지우기·다른 날짜에서 보임', () => {
     expect(saved.body).toEqual({ memo: { text, savedAt: new Date(world.clock.now()).toISOString() } })
     expect((await c.members('2026-10-22', 'UC_A'))[0]?.memo?.text).toBe(text)
     expect((await expectOk(c.customer(id))).body.memo).toEqual({ text, savedAt: new Date(world.clock.now()).toISOString() })
+    // 손님 자세히에도 서버 오늘(KST) — 화면의 올해 기준 (TE-CRM1-003)
+    expect((await expectOk(c.customer(id))).body.today).toBe('2026-10-26')
     world.clock.advance(60_000)
     expect((await expectOk(c.memo(id, '  '))).body).toEqual({ memo: null })
     expect((await c.members('2026-10-08', 'UC_A'))[0]?.memo).toBeNull()

@@ -12,10 +12,10 @@ import {
   FILTER_WORD,
   SORT_WORD,
   customerDate,
+  dayLineTags,
   isCustomerFilter,
   isCustomerSort,
   memberLabel,
-  paymentWords,
   type CustomerDetailView,
   type CustomerDayLine,
   type CustomerFilter,
@@ -24,7 +24,7 @@ import {
   type CustomersView,
 } from '../lib/customers.ts'
 import { formatWon } from '../lib/derive.ts'
-import { dateWords } from '../lib/kst.ts'
+import { dateWords, kstToday } from '../lib/kst.ts'
 import { routePath, type Navigate, type ScopeRoute } from '../lib/router.ts'
 import { useWide } from '../lib/use-wide.ts'
 import { CustomerTags, MemoEditor, SummaryFacts } from './CustomerParts.tsx'
@@ -387,8 +387,8 @@ function CustomerDetail({ route, id, navigate }: { readonly route: ScopeRoute; r
     )
   }
   const row = view.customer
-  // 올해 기준: 목록 응답의 today가 없으면(주소로 바로 열었을 때) 가장 최근 날짜의 연도
-  const base = today === '' ? row.latestDate : today
+  // 올해 기준: 이 응답의 서버 오늘(주소로 바로 열거나 새로고침해도 맞다 — TE-CRM1-003). 없으면 목록 응답의 today, 그것도 없으면 기기 KST 오늘
+  const base = typeof view.today === 'string' && view.today !== '' ? view.today : today !== '' ? today : kstToday()
   const label = memberLabel(row)
   const openDay = (line: CustomerDayLine) => navigate({ name: 'buyers', date: line.date, rehearsal: false, buyer: line.buyer })
   const blockRoute: ScopeRoute = { name: 'buyers', date: row.latestDate, rehearsal: false, buyer: row.latestBuyer }
@@ -414,15 +414,17 @@ function CustomerDetail({ route, id, navigate }: { readonly route: ScopeRoute; r
         <h3 className="sub-title">날짜별 기록</h3>
         <ul className="plain-list stack-tight">
           {days.map((line) => {
-            const pay = paymentWords(line.payment)
             return (
               <li key={`${line.date}|${line.buyer}`}>
                 <a className="list-link" href={routePath({ name: 'buyers', date: line.date, rehearsal: false, buyer: line.buyer })} onClick={(event) => linkClick(event, () => openDay(line))}>
                   <strong>{customerDate(line.date, base)}</strong>
                   <span>그날 이름 {line.name}</span>
                   <span>상품 합계 {formatWon(line.subtotal)}</span>
-                  {line.unpaid && pay === '미입금' ? null : <span className={`tag pay-${line.payment}`}>{pay}</span>}
-                  {line.unpaid ? <span className="tag tag-caution">미입금</span> : null}
+                  {dayLineTags(line).map((tag) => (
+                    <span key={tag.text} className={tag.className}>
+                      {tag.text}
+                    </span>
+                  ))}
                 </a>
               </li>
             )

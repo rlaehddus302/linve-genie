@@ -15,6 +15,7 @@ import {
   NO_PHONE_MEMO,
   byCumulative,
   customerDate,
+  dayLineTags,
   memberLabel,
   memoSavedWords,
   passesFilter,
@@ -354,9 +355,11 @@ describe('"모든 손님" (AC-CRM1-16·17·24)', () => {
       })
       .on('GET', new RegExp(`^/api/customers/${all[0]?.id ?? ''}$`), () => ({
         body: {
+          today: '2026-10-26',
           customer: all[0],
           memo: null,
           days: [
+            { date: '2026-10-26', buyer: 'UC_1', name: '오늘이름', subtotal: 3_000, payment: 'UNPAID', unpaid: false },
             { date: '2026-10-22', buyer: 'UC_1', name: '그날이름', subtotal: 15_000, payment: 'UNPAID', unpaid: true },
             { date: '2025-12-29', buyer: 'UC_1', name: '옛이름', subtotal: 9_000, payment: 'PAID', unpaid: false },
           ],
@@ -393,11 +396,40 @@ describe('"모든 손님" (AC-CRM1-16·17·24)', () => {
     expect(within(detail).queryByRole('button', { name: /차단/ })).toBeNull()
     const path = within(detail).getByRole('link', { name: '가장 최근 날짜(10월 22일)의 구매자 화면에서 차단할 수 있어요' })
     const lines = within(within(detail).getByRole('region', { name: '날짜별 기록' })).getAllByRole('link')
-    expect(lines.map((link) => link.textContent)).toEqual(['10월 22일(목)그날 이름 그날이름상품 합계 15,000원미입금', '2025년 12월 29일(월)그날 이름 옛이름상품 합계 9,000원입금 완료'])
-    fireEvent.click(lines[0] as HTMLElement)
+    // 그날 입금 상태 "미입금"과 미입금으로 센 날을 글자로 가른다 (U-CRM1-01)
+    expect(lines.map((link) => link.textContent)).toEqual([
+      '10월 26일(월)그날 이름 오늘이름상품 합계 3,000원입금 기다리는 중',
+      '10월 22일(목)그날 이름 그날이름상품 합계 15,000원미입금으로 셈',
+      '2025년 12월 29일(월)그날 이름 옛이름상품 합계 9,000원입금 완료',
+    ])
+    fireEvent.click(lines[1] as HTMLElement)
     expect(routes.at(-1)).toEqual({ name: 'buyers', date: '2026-10-22', rehearsal: false, buyer: 'UC_1' })
     fireEvent.click(path)
     expect(routes.at(-1)).toEqual({ name: 'buyers', date: '2026-10-22', rehearsal: false, buyer: 'UC_1' })
+  })
+
+  it('주소로 바로 연 손님 자세히(목록 기억 없음)도 올해 기준은 응답의 서버 오늘 — 지난해 날짜에 연도 (TE-CRM1-003)', async () => {
+    const one = row(1, { lastPurchase: '2025-12-29', latestDate: '2025-12-29' })
+    const server = new FakeServer().on('GET', new RegExp(`^/api/customers/${one.id}$`), () => ({
+      body: { today: '2026-10-26', customer: one, memo: null, days: [{ date: '2025-12-29', buyer: 'UC_1', name: '옛이름', subtotal: 9_000, payment: 'PAID', unpaid: false }], more: false, next: null },
+    }))
+    vi.stubGlobal('fetch', server.fetch)
+    render(<CustomersHarness initial={{ name: 'buyers', date: DATE, rehearsal: false, view: 'customers', customer: one.id }} routes={[]} />)
+    await flush(8)
+    const detail = screen.getByRole('region', { name: '손님 자세히' })
+    expect(within(detail).getByRole('region', { name: '손님 기록' }).textContent).toContain('마지막 구매 2025년 12월 29일(월)')
+    expect(within(within(detail).getByRole('region', { name: '날짜별 기록' })).getByRole('link').textContent).toContain('2025년 12월 29일(월)')
+  })
+
+  it('날짜 줄 꼬리표: 센 날은 "미입금으로 셈", 기다리는 날 안은 "입금 기다리는 중" — 같은 글자가 두 뜻으로 쓰이지 않는다 (U-CRM1-01)', () => {
+    const words = (payment: 'UNPAID' | 'PARTIAL' | 'PAID' | 'OVERPAID', unpaid: boolean, subtotal = 5_000) => dayLineTags({ payment, unpaid, subtotal }).map((tag) => tag.text)
+    expect(words('UNPAID', true)).toEqual(['미입금으로 셈'])
+    expect(words('UNPAID', false)).toEqual(['입금 기다리는 중'])
+    expect(words('PARTIAL', true)).toEqual(['부분 입금', '미입금으로 셈'])
+    expect(words('PAID', true, 0)).toEqual(['입금 완료', '미입금으로 셈'])
+    expect(words('PAID', false)).toEqual(['입금 완료'])
+    expect(words('UNPAID', false, 0)).toEqual(['미입금'])
+    for (const payment of ['UNPAID', 'PARTIAL', 'PAID', 'OVERPAID'] as const) for (const unpaid of [true, false]) expect(words(payment, unpaid).filter((text) => text === '미입금')).toEqual([])
   })
 })
 
