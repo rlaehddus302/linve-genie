@@ -173,12 +173,12 @@ settings:
 cases:
   - { in: "일육팔 삼광색금 이십오만 원", out: { no: 168, name: 삼광색금, price: 250000, confidence: HIGH } }  # 일육팔 = 1·6·8 → 168. 줄 [이십오만, 원](삼광색금에서 멈춤) 250,000. 창 '삼광색금' 같음 → HIGH
   - { in: "일육팔번 라울 만원", out: { no: 168, name: 라울, price: 10000, confidence: HIGH } }     # 자리 읽기 + '번' = 번호 표시
-  - { in: "일 육 팔 라울 만원", out: { no: 168, name: 라울, price: 10000, confidence: HIGH } }     # 토큰 셋이 저마다 자리 글자 하나
+  - { in: "일 육 팔 라울 만원", out: { name: 라울, price: 10000, confidence: LOW } }              # D-V3-27: 한글 한 글자 셋은 '번'이 붙을 때만 번호("이 삼 일"과 구별 못 함). 한 글자 한글 수는 번호 후보도 아님
   - { in: "1 6 8 라울 만원", out: { no: 168, name: 라울, price: 10000, confidence: HIGH } }       # 인식이 숫자로 적은 꼴
   - { in: "1 6 8번 라울 만원", out: { no: 168, name: 라울, price: 10000, confidence: HIGH } }     # 셋째 토큰이 X번 → 168번. 끊어 말한 번호 검사 안 함(세 자리를 이어 읽음)
   - { in: "일 육 팔번 라울 만원", out: { no: 168, name: 라울, price: 10000, confidence: HIGH } }
   - { in: "일육팔 이십오만 원", out: { no: 168, price: 250000, confidence: LOW } }               # 일육팔은 금액 글자뿐이지만 자리 읽기 토큰이라 줄에 넣지 않음 → 줄 [이십오만, 원]
-  - { in: "일 육 팔 이십오만 원", out: { no: 168, price: 250000, confidence: LOW } }             # 줄은 '팔'(자리 읽기 토큰)에서 멈춤
+  - { in: "일 육 팔 이십오만 원", out: { confidence: LOW } }                                     # D-V3-27: '번'이 없어 자리 읽기 아님 → 줄 [일, 육, 팔, 이십오만, 원] 안 읽힘, 뗄 토큰이 번호 후보 아님 → 가격 애매, 번호도 비움(D-V3-25)
   - { in: "일공팔 라울 만원", out: { no: 108, name: 라울, price: 10000, confidence: HIGH } }      # 공 = 0
   - { in: "공일팔 라울 만원", out: { name: 라울, price: 10000, confidence: LOW } }               # 첫 자리가 공 → 번호 아님
   - { in: "15번 일육팔 라울 만원", out: { no: 15, name: 라울, price: 10000, confidence: HIGH } }  # 번호 표시(15번)가 있으면 '번' 없는 자리 읽기는 보지 않는다
@@ -256,3 +256,18 @@ cases:
   - { in: "1 68 라울 만원", out: { name: 라울, price: 10000, confidence: LOW } }                       # '1'+'68' = 168 → 끊어 말한 번호 → 비움
   - { in: "3 개 라울 만원", out: { name: 라울, price: 10000, confidence: LOW } }                       # 다음 토큰 '개'가 단위 낱말 → 후보 아님
   - { in: "오 예쁘다 라울 만원", out: { name: 라울, price: 10000, confidence: LOW } }                   # '오' 한 글자 → 후보 아님
+---
+# V3 적대 판정(TD-V3-002, D-V3-25·27): 원 가격 줄 앞의 수는 자리가 겹칠 때만 떼어 '번' 없는 번호로 본다.
+# 겹침 = 뗀 수 L의 0이 아닌 가장 낮은 자리 ≤ 꼬리 첫 토큰의 계수 C(만·천 앞 수)의 가장 높은 자리. 겹치지 않는데 안 읽히면(백오만 — D-032) 번호·가격 모두 비움.
+suite: voice-extract
+settings:
+  dictionary: [라울]
+cases:
+  - { in: "100 5만 원", out: { confidence: LOW } }                    # L 100 가장 낮은 자리 백 > C 5 가장 높은 자리 일 → 떼지 않음. '백오만원'은 D-032로 안 읽힘 → 애매, 100도 번호 아님
+  - { in: "이백 오만 원", out: { confidence: LOW } }                   # L 200(백) > C 5(일) → 비움
+  - { in: "육백 삼만원", out: { confidence: LOW } }                    # 줄 [육백, 삼만원]: L 600(백) > C 3(일) → 비움
+  - { in: "자 300 2만 원", out: { confidence: LOW } }                  # L 300(백) > C 2(일) → 비움
+  - { in: "174 28만 원", out: { no: 174, price: 280000, confidence: LOW } }   # L 174(일) ≤ C 28(십) → 겹침 → 떼어 174번, 꼬리 280,000
+  - { in: "15번 100 5만 원", out: { no: 15, confidence: LOW } }         # 번호 표시가 있어 떼지 않음 → 가격 비움, 번호는 15번
+  - { in: "택배는 이 삼 일 걸리고 만 원이에요", out: { price: 10000, confidence: LOW } }   # D-V3-27: 띄어 쓴 한글 한 글자 셋은 '번' 없으면 번호 아님(231번 아님). 줄 [만, 원이에요] 10,000
+  - { in: "이 삼 일번 라울 만원", out: { no: 231, name: 라울, price: 10000, confidence: HIGH } }  # '번'이 붙으면 자리 읽기 + 번 = 231번
