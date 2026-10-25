@@ -56,6 +56,8 @@ export interface ReasonSpec {
   readonly submitLabel: string
   readonly initialReason?: string
   readonly error?: ApiError | null
+  /** 빠른 사유 단추(숫자 키 포함)를 누르면 그 사유로 바로 보낸다 — 찜 취소·무효 창만 (QL3R1 D-QL3R1-05). 없으면 보내기 단추로 포커스 */
+  readonly submitOnPick?: boolean
   /** 사유를 받아 5초 대기 조치를 넣는다 */
   readonly onSubmit: (reason: string) => void
 }

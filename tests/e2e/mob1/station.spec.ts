@@ -5,7 +5,7 @@ import { expect, test, type Browser, type BrowserContext, type Page } from '@pla
 import { becomeDevice, gotoLabels, region } from '../i1/support.ts'
 import { registerApi, smsApi } from '../s06/support.ts'
 import { uniqueDate } from '../s05/support.ts'
-import { ANDROID, ANDROID_UA, IPHONE_UA, PC, PHONE, alerts, baseUrlOf, broadcastApi, endBroadcastApi, expectNoDevWords, freshSeller, newDevice, setLabelsApi } from './support.ts'
+import { ANDROID, ANDROID_UA, IPHONE_UA, PC, PHONE, alerts, baseUrlOf, broadcastApi, endBroadcastApi, expectNoDevWords, freshSeller, newDevice, setLabelsApi, foldedShortRow, pendingWord, shortLostText } from './support.ts' // QL3R2 D-QL3R2-02 (foldedShortRow, pendingWord, shortLostText)
 import { loginAs } from '../i3/support.ts'
 
 const lost = (name: string) => `출력 기기('${name}')가 연결되어 있지 않아요. 그 기기에서 라이브지니를 열고 화면을 켜 두세요.`
@@ -105,23 +105,26 @@ test.describe('AC-MOB1-12·13 출력 기기 끊김 — 라벨 화면·콘솔 알
       await w.main.goto(`/broadcasts/${encodeURIComponent(b)}`)
       await expect(w.main.getByLabel('빠른 입력')).toBeVisible()
       await station.page.close()
-      const item = stationItem(w.main, lost(name))
+      // 접힌 휴대폰 띠: 출력 기기 항목은 "알림" 영역 안에 없고 짧은 줄 하나로만 // QL3R2 D-QL3R2-02
+      const item = foldedShortRow(w.main, shortLostText(name)) // QL3R2 D-QL3R2-02
       await expect(item).toBeVisible({ timeout: 30_000 })
       // HTML로 해석되지 않는다
-      expect(await alerts(w.main).locator('b, script').count()).toBe(0)
-      await expect(item).toHaveText(lost(name))
-      // 이 항목 하나뿐이면 띠의 첫 항목이고 세는 알림이 0이라 수 없는 "알림 펼치기" (수에 들지 않음) // MOB1 D-MOB1-14 · QL2 D-QL2-02
-      await expect(alerts(w.main).getByRole('button').first()).toHaveAccessibleName(lost(name))
+      expect(await w.main.locator('.alert-bar').locator('b, script').count()).toBe(0) // QL3R2 D-QL3R2-02
+      await expect(item).toHaveText(shortLostText(name)) // QL3R2 D-QL3R2-02
+      // 이 항목 하나뿐이면 세는 알림이 0이라 수 없는 "알림 펼치기" (수에 들지 않음) // MOB1 D-MOB1-14 · QL2 D-QL2-02
+      await expect(alerts(w.main).getByRole('button')).toHaveCount(0) // QL3R2 D-QL3R2-02
       await expect(w.main.getByRole('button', { name: /^알림 \d+ (펼치기|접기)$/ })).toHaveCount(0)
       await expect(w.main.getByRole('button', { name: '알림 펼치기', exact: true })).toBeVisible() // QL2 D-QL2-02
       // 보류 찜 1건(노란)을 더하면 "알림 1 펼치기" — 출력 기기 항목은 세지 않는다
       await smsApi(w.main, { b, no: 40, memo: '보류' })
-      await expect(alerts(w.main).getByRole('button', { name: /^보류 찜 1$/ })).toHaveCount(1)
+      await expect(alerts(w.main).getByRole('button', { name: '보류 1', exact: true })).toHaveCount(1) // QL3R2 D-QL3R2-02
       await expect(w.main.getByRole('button', { name: '알림 1 펼치기', exact: true })).toBeVisible()
-      // 보류 찜이 첫 항목, 출력 기기 항목은 맨 끝 (세는 알림의 뒤) // MOB1 D-MOB1-14
+      // 보류가 첫 항목, 출력 기기 항목은 접힌 동안 "알림" 영역 밖 짧은 줄 // MOB1 D-MOB1-14 · QL3R2 D-QL3R2-02
       const buttons = alerts(w.main).getByRole('button')
-      await expect(buttons.first()).toHaveAccessibleName('보류 찜 1')
-      await expect(buttons.last()).toHaveAccessibleName(lost(name))
+      await expect(buttons.first()).toHaveAccessibleName('보류 1') // QL3R2 D-QL3R2-02
+      await expect(buttons).toHaveCount(1) // QL3R2 D-QL3R2-02
+      await expect(stationItem(w.main, lost(name))).toHaveCount(0) // QL3R2 D-QL3R2-02
+      await expect(item).toBeVisible() // QL3R2 D-QL3R2-02
       // 접힌 띠는 한 줄 (첫 항목 보류 찜이 띠 안 — 출력 기기 항목은 그 뒤라 잘려 안 보일 수 있다) // MOB1 D-MOB1-14
       const strip = (await alerts(w.main).boundingBox())!
       const first = (await buttons.first().boundingBox())!
@@ -192,15 +195,17 @@ test.describe('AC-MOB1-12·13 출력 기기 끊김 — 라벨 화면·콘솔 알
         await expect(w.main.getByLabel('빠른 입력')).toBeVisible()
         await station.context.setOffline(true)
         const item = stationItem(w.main, lost('안드로이드 폰'))
-        await expect(item).toHaveCount(1, { timeout: 30_000 })
+        const folded = viewport === PHONE // QL3R2 D-QL3R2-02: 접힌 휴대폰 띠는 출력 기기 항목을 짧은 줄 하나로만
+        if (folded) await expect(foldedShortRow(w.main, shortLostText('안드로이드 폰'))).toHaveCount(1, { timeout: 30_000 }) // QL3R2 D-QL3R2-02
+        await expect(item).toHaveCount(folded ? 0 : 1, { timeout: 30_000 }) // QL3R2 D-QL3R2-02
         const buttons = alerts(w.main).getByRole('button')
         await expect(buttons.filter({ hasText: /^출력 멈춤 · / })).toHaveCount(1)
-        await expect(buttons.filter({ hasText: /^보류 찜 1$/ })).toHaveCount(1)
+        await expect(buttons.filter({ hasText: new RegExp(`^${pendingWord(w.main)} 1$`) })).toHaveCount(1) // QL3R2 D-QL3R2-02
         // 순서: 출력 멈춤 → 보류 찜 → 출력 기기 항목 (플랫폼 줄이 없는 기본 서버)
-        await expect(buttons).toHaveCount(3)
+        await expect(buttons).toHaveCount(folded ? 2 : 3) // QL3R2 D-QL3R2-02
         await expect(buttons.nth(0)).toHaveAccessibleName(/^출력 멈춤 · /)
-        await expect(buttons.nth(1)).toHaveAccessibleName('보류 찜 1')
-        await expect(buttons.nth(2)).toHaveAccessibleName(lost('안드로이드 폰'))
+        await expect(buttons.nth(1)).toHaveAccessibleName(`${pendingWord(w.main)} 1`) // QL3R2 D-QL3R2-02
+        if (!folded) await expect(buttons.nth(2)).toHaveAccessibleName(lost('안드로이드 폰')) // QL3R2 D-QL3R2-02
         if (viewport === PHONE) {
           // 접힌 한 줄: 첫 항목 "출력 멈춤 · …"이 띠 안에 보인다 (알림 수에 출력 기기 항목은 들지 않는다 — 출력 멈춤·보류 찜 2)
           const toggle = w.main.getByRole('button', { name: '알림 2 펼치기', exact: true })

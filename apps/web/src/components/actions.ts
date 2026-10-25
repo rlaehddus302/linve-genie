@@ -14,6 +14,8 @@ export interface ReasonActionInput {
   readonly claims?: readonly string[]
   readonly products?: readonly string[]
   readonly build: (reason: string) => Readonly<Record<string, unknown>>
+  /** 빠른 사유를 누르면 바로 보낸다 (찜 취소·무효만, QL3R1 D-QL3R1-05) */
+  readonly submitOnPick?: boolean
 }
 
 export function openReasonAction(api: ConsoleApi, input: ReasonActionInput, initialReason?: string, error?: ApiError | null): void {
@@ -25,6 +27,7 @@ export function openReasonAction(api: ConsoleApi, input: ReasonActionInput, init
       ...(input.warning === undefined ? {} : { warning: input.warning }),
       ...(initialReason === undefined ? {} : { initialReason }),
       ...(error === undefined ? {} : { error }),
+      ...(input.submitOnPick === true ? { submitOnPick: true } : {}),
       onSubmit: (reason) => {
         api.queueHost({
           label: input.label,
@@ -57,6 +60,8 @@ export function openClaimAction(api: ConsoleApi, claim: Claim, type: 'host.cance
     label,
     claims: [claim.id],
     products: [claim.product],
+    // 찜 취소·무효는 빠른 사유를 누르면 바로 5초 대기로 보낸다 — 1등으로 올리기는 그대로 (QL3R1 D-QL3R1-05)
+    ...(type === 'host.promote' ? {} : { submitOnPick: true }),
     // 옵션을 가진 찜은 그 변형을 함께 보낸다 — 같은 구매자의 다른 변형 찜은 그대로 (AC-O2-43)
     build: (reason) => ({ type, b: claim.broadcast, no: claim.no, buyer: claim.currentBuyer, ...claimOptionsField(claim), reason }),
   })

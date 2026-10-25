@@ -1002,6 +1002,46 @@ sprints:
     specIds: []
     status: done
 
+  - id: QL3R1
+    phase: 6
+    title: 품질 점수 3회차 1회차 고칠 것 — 긴 창 처음 초점·150% 고정 영역 높이·휴대폰 보드 차례·끊김 짧은 문장·사유 한 번에·쉬운 낱말·정책 보관 문장
+    dependsOn: [QL2, LND1]
+    devs: [web]
+    tests: [e2e]
+    uxReview: true
+    goal: >
+      QL3 1회차 채점 고치기만: 긴 창은 처음 초점을 preventScroll로 주고 배경·창을 맨 위로(D-QL3R1-01),
+      휴대폰 150%에서 내린 뒤 고정 영역 높이 ≤ 화면 35% — 개수 칸을 빠른 입력 줄에, 요약 한 줄 말줄임, 빠른 입력·알림은 숨기지 않음(D-QL3R1-02),
+      휴대폰 콘솔 차례 현재 상품 → 음성 칸 → 상품 보드 → 채팅 → 행동 줄 → 플랫폼 칸, PC 그대로(D-QL3R1-03),
+      휴대폰 접힌 알림 띠의 출력 기기 끊김 줄 "라벨이 안 나가요 · '{이름}' 화면을 켜 주세요"(D-QL3R1-04),
+      찜 취소·무효 창은 빠른 사유를 누르면 바로 5초 되돌리기로(D-QL3R1-05), 입금 "원천"→"받은 곳"·CSV 문장("입금 #"은 그대로, D-QL3R1-06),
+      "봉인돼요"·"묶음 n개"·"상품 명령" 바꾸기와 찜 단추 설명 한 줄(D-QL3R1-07), /privacy 보관 첫 줄을 D-LND1-11 문장으로(D-QL3R1-08).
+      수용 기준: harness/sprints/QL3R1/acceptance.md(AC-QL3R1-01~50·90), D-QL3R1-01~09. 골든 변경 없음.
+      금지: apps/server/src/youtube/**, 웹의 유튜브 이름 파일, tests/e2e/y1.
+    carryOver: []
+    specIds: [UX-01, UX-04, LBL-06, STL-07, DAT-04]
+    status: done
+  - id: QL3R2
+    phase: 6
+    title: 품질 점수 3회차 2회차 고칠 것 — .csv 아닌 파일 거름·끊김/없음 짧은 줄 한 번만·고정 영역 40%·"보류 n"·쉬운 낱말·입금 문자 안내·숫자 키 반복
+    dependsOn: [QL3R1]
+    devs: [web]
+    tests: [e2e]
+    uxReview: true
+    goal: >
+      QL3 2회차 채점 고치기만: 입금 붙여넣기에서 NUL이 있거나 UTF-8·EUC-KR(엄격)로 안 풀리는 파일은 읽기 실패·글 칸 그대로(D-QL3R2-01, blocker),
+      접힌 휴대폰 띠에서 짧은 줄이 있으면 영역 안 긴 문장 항목을 그리지 않음·"보류 n"·짧은 줄 여백 줄임·그때 150% 고정 영역 ≤ 화면 40%·nowrap 규칙에 white-space 대체(D-QL3R2-02),
+      출력 기기 없음 + 라벨 대기 짧은 줄 "라벨이 안 나가요 · 라벨 화면에서 프린터를 연결해 주세요"(D-QL3R2-03),
+      "콘솔"→"방송 화면", "원천"→"입금 받는 곳", "시각이 지금보다 늦은 입금", "(입금 #n도 같은 입금이에요)", 구매자 확인서 링크 안내 문장(D-QL3R2-04),
+      NO_HEADER 아래 휴대폰 안내 한 줄(D-QL3R2-05), 빠른 사유 범위 기록·숫자 키 repeat 무시·되돌리기 띠 잘림 E2E(D-QL3R2-06), SPEC UX-04 v0.1.48(D-QL3R2-07).
+      수용 기준: harness/sprints/QL3R2/acceptance.md(AC-QL3R2-01·02·10~14·20~24·30·31·90), D-QL3R2-01~08. 골든 변경 없음.
+      금지: apps/server/src/youtube/**, 웹의 유튜브 이름 파일, tests/e2e/y1.
+    carryOver:
+      - "다음 후보: 은행 입금 문자 붙여넣기 — DEPOSIT_RULES 새 절·골든 먼저(D-QL3R2-05 (2), U-QL3R2-05)"
+      - "맥북 쪽 유튜브 작업: SEAL_WARNING·SEALED_READ_ONLY '봉인' → '잠겨요' (SA-QL3R1-05, MOB1 carryOver 이어감)"
+    specIds: [UX-01, UX-04, UX-05, LBL-06, STL-07]
+    status: done
+
 techDebt:
   - "TD-S00-008: Host 헤더 두 개·absolute-form 요청을 200으로 처리"
   - "TD-S00-012: 골든 파일 탐색이 심볼릭 링크와 대문자 확장자를 조용히 건너뜀"

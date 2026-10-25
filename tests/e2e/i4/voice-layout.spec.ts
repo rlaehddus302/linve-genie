@@ -21,6 +21,7 @@ import {
   openExtras,
   openVoiceLog,
 } from './support.ts'
+import { pendingWord } from '../mob1/support.ts' // QL3R2 D-QL3R2-02
 
 async function fixedHeight(page: Page): Promise<{ total: number; parts: string[] }> {
   return await page.evaluate(() => {
@@ -54,7 +55,7 @@ async function makeAlerts(page: Page, b: string): Promise<void> {
   await sendViewerChat(page, b, '셋째', '7 취소', 'sim_third_0003')
   await smsApi(page, { b, no: 40, memo: '병' })
   const strip = page.getByRole('region', { name: '알림' })
-  await expect(strip.getByRole('button', { name: /^보류 찜 \d+$/ })).toBeVisible()
+  await expect(strip.getByRole('button', { name: new RegExp(`^${pendingWord(page)} \\d+$`) })).toBeVisible() // QL3R2 D-QL3R2-02
   await expect(strip.getByRole('button', { name: /^취소 요청 \d+$/ })).toBeVisible()
 }
 

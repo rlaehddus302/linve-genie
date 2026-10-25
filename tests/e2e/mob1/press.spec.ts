@@ -2,7 +2,7 @@
 // 412×915 터치(안드로이드 흉내 — isMobile·hasTouch)에서 알림 버튼을 손가락으로 누르고 창을 닫은 뒤의 계산된 색, 1440×900 마우스로 올렸을 때의 색·대비.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { sendViewerChat, smsApi, uniqueDate, viewerClaim, registerApi } from '../s06/support.ts'
-import { ANDROID, ANDROID_UA, PC, alerts, baseUrlOf, broadcastApi, colorsOf, contrast, freshSeller } from './support.ts'
+import { ANDROID, ANDROID_UA, PC, alerts, baseUrlOf, broadcastApi, colorsOf, contrast, freshSeller, pendingWord } from './support.ts' // QL3R2 D-QL3R2-02 (pendingWord)
 
 const RED = { bg: 'rgb(179, 38, 30)', color: 'rgb(255, 255, 255)' }
 const SOFT = { bg: 'rgb(254, 247, 224)', color: 'rgb(61, 43, 0)' }
@@ -26,7 +26,7 @@ function redAlert(page: Page): Locator {
   return alerts(page).getByRole('button', { name: /^취소 요청 1$/ })
 }
 function softAlert(page: Page): Locator {
-  return alerts(page).getByRole('button', { name: /^보류 찜 1$/ })
+  return alerts(page).getByRole('button', { name: `${pendingWord(page)} 1`, exact: true }) // QL3R2 D-QL3R2-02
 }
 
 /** 눌러 창을 열고 "닫기"로 닫는다 (터치면 손가락) */

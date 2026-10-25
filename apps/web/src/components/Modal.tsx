@@ -36,19 +36,24 @@ function isTextField(element: Element | null): boolean {
 export function Modal({ title, onClose, initialFocus, children, actions, closeLabel = '닫기', wide = false, unlocked = false, closeLast = false, closeDisabled = false, phoneBottom = false }: ModalProps) {
   const readOnly = useReadOnly() && !unlocked
   const titleId = useId()
+  const backdrop = useRef<HTMLDivElement>(null)
   const panel = useRef<HTMLDivElement>(null)
   const closeButton = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     const target = initialFocus?.current ?? closeButton.current
-    target?.focus()
+    // 화면보다 긴 창에서 처음 포커스가 맨 아래 "닫기"여도 창을 그 자리까지 내리지 않는다 — 제목·1등이 먼저 보이게 맨 위에서 연다 (QL3R1 D-QL3R1-01)
+    target?.focus({ preventScroll: true })
+    if (backdrop.current !== null) backdrop.current.scrollTop = 0
+    if (panel.current !== null) panel.current.scrollTop = 0
     // 처음 한 번만 (내용이 바뀔 때마다 포커스를 옮기지 않는다)
   }, [])
 
-  // 누른 버튼이 사라지거나(상태가 바뀌어 다른 버튼으로) 잠기면 포커스가 창 밖으로 빠진다 — 창의 "닫기"로 되돌린다(키보드만으로 계속 쓰게)
+  // 누른 버튼이 사라지거나(상태가 바뀌어 다른 버튼으로) 잠기면 포커스가 창 밖으로 빠진다 — 창의 "닫기"로 되돌린다(키보드만으로 계속 쓰게).
+  // 보던 자리는 옮기지 않는다 (D-QL3R1-01 (2))
   useEffect(() => {
     const element = panel.current
-    if (element !== null && !element.contains(document.activeElement)) closeButton.current?.focus()
+    if (element !== null && !element.contains(document.activeElement)) closeButton.current?.focus({ preventScroll: true })
   })
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -77,6 +82,8 @@ export function Modal({ title, onClose, initialFocus, children, actions, closeLa
       if (choice) {
         event.preventDefault()
         event.stopPropagation()
+        // 키를 누르고 있어 반복된 입력은 무시한다 — 한 번 누름 = 한 번 동작 (QL3R2 D-QL3R2-06 (2))
+        if (event.repeat) return
         choice.click()
       }
     }
@@ -88,7 +95,7 @@ export function Modal({ title, onClose, initialFocus, children, actions, closeLa
     </button>
   )
   return (
-    <div className={phoneBottom ? 'backdrop backdrop-phone-bottom' : 'backdrop'}>
+    <div ref={backdrop} className={phoneBottom ? 'backdrop backdrop-phone-bottom' : 'backdrop'}>
       <div ref={panel} className={wide ? 'modal modal-wide' : 'modal'} role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={onKeyDown}>
         <h2 id={titleId} className="modal-title">
           {title}

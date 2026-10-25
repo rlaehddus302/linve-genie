@@ -131,13 +131,13 @@ describe('확인 필요 목록 (AC-N3-41·49·50)', () => {
     expect(three).toContain('입금 시각10/18 21:03:15')
     expect(three).toContain('입금자명(이름 없음)')
     expect(three).toContain('금액14,000원')
-    expect(three).toContain('원천시험용 입금')
+    expect(three).toContain('받은 곳시험용 입금')
     expect(three).toContain('맞는 묶음을 찾지 못했어요')
     expect((within(card(3)).getByRole('button', { name: '확정' }) as HTMLButtonElement).disabled).toBe(true)
     const seven = card(7)
     expect(seven.textContent).toContain('입금 시각10/18 21:03')
     expect(seven.textContent).not.toContain('21:03:')
-    expect(seven.textContent).toContain('원천계좌조회 · 국민 1234')
+    expect(seven.textContent).toContain('받은 곳계좌조회 · 국민 1234')
     // 이름은 글자 그대로 (스크립트로 해석하지 않는다)
     expect(seven.textContent).toContain('<script>alert(1)</script>')
     expect(document.querySelector('main script')).toBeNull()
@@ -148,7 +148,7 @@ describe('확인 필요 목록 (AC-N3-41·49·50)', () => {
     expect((within(seven).getByRole('button', { name: '확정' }) as HTMLButtonElement).disabled).toBe(false)
     const nine = card(9)
     expect(nine.textContent).toContain('=1+2')
-    expect(nine.textContent).toContain('같은 입금이 두 번 들어왔을 수 있어요 (입금 #7과 같아요)')
+    expect(nine.textContent).toContain('같은 입금이 두 번 들어왔을 수 있어요 (입금 #7도 같은 입금이에요)') // QL3R2 D-QL3R2-04
     expect(nine.textContent).toContain('입금 완료 → 과입금(환불 필요 14,000원)')
     expect(nine.textContent).toContain('입금 시각이 이 묶음의 판매보다 먼저예요.')
     // 미리 고른 묶음이 없으면 확정은 누를 수 없다 — 고르면 누를 수 있다
@@ -165,7 +165,7 @@ describe('확인 필요 목록 (AC-N3-41·49·50)', () => {
     wide()
     await open([deposit(7)])
     const table = screen.getByRole('table', { name: '확인 필요 입금' })
-    expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['고르기', '번호', '입금 시각', '입금자명', '금액', '원천', '사유와 묶음', '처리'])
+    expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['고르기', '번호', '입금 시각', '입금자명', '금액', '받은 곳', '사유와 묶음', '처리'])
     const row = within(table).getByRole('row', { name: '입금 #7' })
     expect(row.textContent).toContain('#7')
     expect(row.textContent).toContain('10/18 21:03:15')
@@ -404,7 +404,7 @@ describe('붙여넣기 (AC-N3-45)', () => {
     expect(api.server.callsTo('POST', /^\/api\/deposits\/paste\/preview$/)[0]?.body).toEqual({ text: '거래일시\t입금액\n...' })
     const result = screen.getByRole('region', { name: '읽어 본 결과' })
     expect(result.textContent).toContain('읽은 입금 2건 · 건너뛴 줄 1개(출금 등) · 읽지 못한 줄 2개')
-    expect(result.textContent).toContain('새 입금 1건 · 이미 있는 입금 1건 · 오래된 입금 0건 · 시각이 앞으로인 입금 0건')
+    expect(result.textContent).toContain('새 입금 1건 · 이미 있는 입금 1건 · 오래된 입금 0건 · 시각이 지금보다 늦은 입금 0건') // QL3R2 D-QL3R2-04
     expect(within(result).getByRole('list', { name: '읽지 못한 줄' }).textContent).toBe('6번째 줄: 금액을 읽지 못했어요7번째 줄: 시각을 읽지 못했어요(분까지 필요해요)')
     const rows = within(within(result).getByRole('list', { name: '읽은 입금' })).getAllByRole('listitem')
     expect(rows.map((row) => row.textContent)).toEqual(['새 입금 3번째 줄10/18 21:03 · 김영희 · 14,000원', '이미 있는 입금 4번째 줄10/18 21:04:05 · (이름 없음) · 9,000원'])
@@ -438,7 +438,7 @@ describe('붙여넣기 (AC-N3-45)', () => {
     })
     const hex = 'b0c5b7a1c0cfbdc32cc0d4b1ddbed72cc0d4b1ddc0dab8ed0a323032362d31302d31382032313a30332c31343030302cb1e8bfb5c8f10a'
     const bytes = Uint8Array.from(hex.match(/../g) ?? [], (pair) => Number.parseInt(pair, 16))
-    const input = screen.getByLabelText('CSV 파일 고르기')
+    const input = screen.getByLabelText('은행 파일 고르기(.csv)')
     fireEvent.change(input, { target: { files: [new File([bytes], '거래내역.csv', { type: 'text/csv' })] } })
     await flush(10)
     expect((screen.getByLabelText('입금 내역') as HTMLTextAreaElement).value).toBe('거래일시,입금액,입금자명\n2026-10-18 21:03,14000,김영희\n')
@@ -454,11 +454,11 @@ describe('계좌 연동 (AC-N3-46)', () => {
         source({ id: 'dsrc_paste', kind: 'PASTE', label: '붙여넣기', fetchable: false, lastFetchedAt: null, lastNew: null }),
       ]
     })
-    const popbill = screen.getByRole('listitem', { name: '원천 국민 1234' })
+    const popbill = screen.getByRole('listitem', { name: '입금 받는 곳 국민 1234' }) // QL3R2 D-QL3R2-04
     expect(popbill.textContent).toContain('국민 1234 · 계좌조회 · 국민은행 계좌 끝 5678 · 켜짐 · 5분마다')
     expect(popbill.textContent).toContain('마지막으로 받아 온 때 10/18 21:05 · 새 입금 2건')
     expect(popbill.textContent).toContain('팝빌 연결을 확인해 주세요. (10/18 21:06)')
-    const paste = screen.getByRole('listitem', { name: '원천 붙여넣기' })
+    const paste = screen.getByRole('listitem', { name: '입금 받는 곳 붙여넣기' }) // QL3R2 D-QL3R2-04
     expect(within(paste).queryByRole('button', { name: '지금 받아 오기' })).toBeNull()
     fireEvent.click(within(popbill).getByRole('button', { name: '지금 받아 오기' }))
     await flush(10)
@@ -466,17 +466,17 @@ describe('계좌 연동 (AC-N3-46)', () => {
     fireEvent.change(within(popbill).getByLabelText('받아 오는 주기'), { target: { value: '2' } })
     await flush(10)
     expect(api.server.callsTo('PATCH', /^\/api\/deposits\/sources\/dsrc_p$/)[0]?.body).toEqual({ intervalMin: 2 })
-    fireEvent.click(within(screen.getByRole('listitem', { name: '원천 국민 1234' })).getByRole('button', { name: '끄기' }))
+    fireEvent.click(within(screen.getByRole('listitem', { name: '입금 받는 곳 국민 1234' })).getByRole('button', { name: '끄기' })) // QL3R2 D-QL3R2-04
     await flush(10)
     expect(api.server.callsTo('PATCH', /^\/api\/deposits\/sources\/dsrc_p$/)[1]?.body).toEqual({ enabled: false })
-    expect(screen.getByRole('listitem', { name: '원천 국민 1234' }).textContent).toContain('꺼짐')
+    expect(screen.getByRole('listitem', { name: '입금 받는 곳 국민 1234' }).textContent).toContain('꺼짐') // QL3R2 D-QL3R2-04
   })
 
   it('연동 키가 없는 서버: 추가 대신 준비 중 문장, 시험 모드에서만 시험용 입금 원천 추가', async () => {
     await open([], 'sources')
     expect(screen.getByText('계좌 연동은 아직 준비 중이에요. 붙여넣기로 넣어 주세요.')).toBeDefined()
     expect(screen.queryByLabelText('사업자번호')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '시험용 입금 원천 추가' }))
+    fireEvent.click(screen.getByRole('button', { name: '시험용 입금 받는 곳 추가' })) // QL3R2 D-QL3R2-04
     await flush(10)
     expect(api.server.callsTo('POST', /^\/api\/deposits\/sources$/)[0]?.body).toEqual({ kind: 'FAKE' })
     cleanup()
@@ -484,7 +484,7 @@ describe('계좌 연동 (AC-N3-46)', () => {
     await open([], 'sources', (server) => {
       server.testMode = false
     })
-    expect(screen.queryByRole('button', { name: '시험용 입금 원천 추가' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '시험용 입금 받는 곳 추가' })).toBeNull() // QL3R2 D-QL3R2-04
   })
 
   it('계좌조회 원천 추가: 번호 칸은 숫자 키패드, 비밀번호 칸은 없고 "계좌 비밀번호는 여기에 적지 않아요." — 보낸 뒤 칸을 비운다', async () => {

@@ -80,7 +80,7 @@ export function ReviewsPage({ route, navigate }: ReviewsPageProps) {
             모든 방송 보기
           </button>
           <button type="button" className="button" onClick={() => navigate({ name: 'console', id: route.broadcast ?? '' })}>
-            콘솔로
+            방송 화면으로
           </button>
         </div>
       ) : null}

@@ -62,7 +62,7 @@ describe('정산 목록 (AC-S06-30)', () => {
     await open()
     const summary = screen.getByRole('region', { name: '정산 요약' }).textContent ?? ''
     // 가나 34,000 미입금 · 다라 11,000 미입금 · 마바 7,000 중 3,000 부분 입금
-    expect(summary).toContain('묶음 3개 · 미입금 2 · 부분 입금 1 · 입금 완료 0 · 과입금 0')
+    expect(summary).toContain('손님 3명 · 미입금 2 · 부분 입금 1 · 입금 완료 0 · 과입금 0')
     expect(summary).toContain('최종 금액 합52,000원')
     expect(summary).toContain('받은 금액 합3,000원')
     expect(summary).toContain('남은 금액 합49,000원')

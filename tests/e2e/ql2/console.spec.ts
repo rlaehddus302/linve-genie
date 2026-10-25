@@ -4,7 +4,7 @@
 import { expect, test, type Browser, type Locator, type Page } from '@playwright/test'
 import { postJson, uniqueDate } from '../s05/support.ts'
 import { registerApi, smsApi, viewerClaim, writeEvent } from '../s06/support.ts'
-import { IPHONE_UA } from '../mob1/support.ts'
+import { IPHONE_UA, pendingWord } from '../mob1/support.ts' // QL3R2 D-QL3R2-02
 import { ANDROID, PC, PHONE, alerts, baseUrlOf, barHeight, broadcastApi, endBroadcastApi, expectBig, expectFirstScreen, expectNoClip, expectNoOverflow, expectOrder, freshSeller, setLabelsApi } from './support.ts'
 
 const IPHONE = { width: 393, height: 852 } as const
@@ -67,7 +67,7 @@ async function consoleWorld(browser: Browser, page: Page, options: Options): Pro
   if (options.big) await expectBig(dev)
   const strip = alerts(dev)
   await expect(strip.getByRole('button', { name: /^출력 멈춤 · / })).toHaveCount(1)
-  await expect(strip.getByRole('button', { name: /^보류 찜 1$/ })).toHaveCount(1)
+  await expect(strip.getByRole('button', { name: `${pendingWord(dev)} 1`, exact: true })).toHaveCount(1) // QL3R2 D-QL3R2-02
   if (options.viewport.width < 768) await expect(dev.getByRole('button', { name: '알림 2 펼치기', exact: true })).toHaveAttribute('aria-expanded', 'false')
   const current = dev.getByRole('region', { name: '현재 상품' })
   await expect(current.getByText('15번', { exact: true })).toBeVisible()
@@ -92,7 +92,7 @@ async function expectCurrentOnFirstScreen(dev: Page, where: string): Promise<voi
  * D-QL2-11 (1)(4): 요약 줄 글자 그대로 + 보인다 + 글자 잘림 0 + `b` 요소 0, 600px 스크롤해도 보인다(고정 영역).
  * 기대 문장은 스펙의 틀 "{번호}번 {이름} · {상태} · 1등 {1등} · 대기 {n}명" — {1등}은 카드의 "1등: …" 값을 10글자로 자른 것.
  */
-async function expectSummaryOnFirstScreen(dev: Page, where: string, rehearsal: boolean): Promise<void> {
+async function expectSummaryOnFirstScreen(dev: Page, where: string, rehearsal: boolean, oneLine = false): Promise<void> {
   const line = summary(dev)
   const winner = (await dev.getByRole('region', { name: '현재 상품' }).getByText(/^1등: /).innerText()).replace(/^1등: /, '').trim()
   expect(winner, `${where} 카드의 1등`).toContain(HACKER)
@@ -100,7 +100,13 @@ async function expectSummaryOnFirstScreen(dev: Page, where: string, rehearsal: b
   await expect(line).toHaveText(expected)
   expect(await line.locator('b, script').count(), `${where} 요약 닉네임이 HTML로 해석됨`).toBe(0)
   await expectFirstScreen(dev, line, `${where} 요약 줄`)
-  await expectNoClip(line, `${where} 요약 줄`)
+  if (oneLine) {
+    // QL3R1 D-QL3R1-02 ⓒ: 휴대폰 큰 글씨 고정 영역의 요약 줄은 한 줄 말줄임 — 위아래 잘림 0·한 줄, 문장 전체는 title
+    const r = await line.evaluate((el) => ({ sh: el.scrollHeight, ch: el.clientHeight, overflow: getComputedStyle(el).textOverflow }))
+    expect(r.sh, `${where} 요약 줄 위아래 잘림`).toBeLessThanOrEqual(r.ch + 1)
+    expect(r.overflow, `${where} 요약 줄 말줄임`).toBe('ellipsis')
+    expect(await line.getAttribute('title'), `${where} 요약 줄 title`).toBe(expected)
+  } else await expectNoClip(line, `${where} 요약 줄`)
   // 600px 아래로 스크롤해도 보인다 (고정 영역)
   await dev.evaluate(() => window.scrollTo(0, 600))
   const bar = await barHeight(dev)
@@ -172,7 +178,7 @@ test.describe('AC-QL2-01 첫 화면에 현재 상품 — 150%는 요약 줄, 100
             await expect(panel).toBeVisible()
             await expectOrder([['현재 상품', w.dev.getByRole('region', { name: '현재 상품' })], ['리허설 조작판', panel]], `${label} 리허설`)
           }
-          await expectSummaryOnFirstScreen(w.dev, `${label} 150%${rehearsal ? ' 리허설' : ''}`, rehearsal)
+          await expectSummaryOnFirstScreen(w.dev, `${label} 150%${rehearsal ? ' 리허설' : ''}`, rehearsal, true) // QL3R1 D-QL3R1-02
           // QL2 D-QL2-14 (1): 요약은 고정 영역 맨 위, 알림 띠 위
           await expectSummaryOnTop(w.dev, `${label} 150%${rehearsal ? ' 리허설' : ''}`, rehearsal)
         } finally {
@@ -216,7 +222,7 @@ test.describe('AC-QL2-01 첫 화면에 현재 상품 — 150%는 요약 줄, 100
           await expect(band(w.dev)).toHaveText(REHEARSAL_SHORT, { useInnerText: true })
           await expectFirstScreen(w.dev, band(w.dev), '393 WebKit 150% 리허설 띠')
         }
-        await expectSummaryOnFirstScreen(w.dev, `393 WebKit 150% ${kind}`, rehearsal)
+        await expectSummaryOnFirstScreen(w.dev, `393 WebKit 150% ${kind}`, rehearsal, true) // QL3R1 D-QL3R1-02
         await expectSummaryOnTop(w.dev, `393 WebKit 150% ${kind}`, rehearsal)
         await expectNoOverflow(w.dev, `393 WebKit 150% ${kind} 콘솔`)
       } finally {
@@ -328,7 +334,7 @@ test.describe('AC-QL2-01 리허설 띠 — 휴대폰은 짧은 한 줄, PC는 �
           await dev.evaluate(() => window.scrollTo(0, 0))
           if (big) {
             // D-QL2-13 (4): 150% 리허설에서 요약 줄이 아래 막대 위
-            await expectSummaryOnFirstScreen(dev, `${label} 150% 리허설(띠 한 줄)`, true)
+            await expectSummaryOnFirstScreen(dev, `${label} 150% 리허설(띠 한 줄)`, true, true) // QL3R1 D-QL3R1-02
           }
         } finally {
           await w.close()
@@ -425,7 +431,7 @@ test.describe('AC-QL2-01b 빈 "등록하면" 줄 (D-QL2-11 (2))', () => {
 })
 
 test.describe('AC-QL2-02 차례', () => {
-  test('375×812 진행 중 리허설 방송: h1 → 알림 띠·빠른 입력 → 단위 줄 → 현재 상품 → 방송 목록·상품 목록 가져오기·방송 끝내기 → 리허설 조작판 → 상품 보드', async ({ page, browser }) => {
+  test('375×812 진행 중 리허설 방송: h1 → 알림 띠·빠른 입력 → 단위 줄 → 현재 상품 → 상품 보드 → 방송 목록·상품 목록 가져오기·방송 끝내기 → 리허설 조작판 (QL3R1 D-QL3R1-03)', async ({ page, browser }) => {
     const w = await consoleWorld(browser, page, { viewport: PHONE, big: false, rehearsal: true })
     try {
       const dev = w.dev
@@ -437,11 +443,11 @@ test.describe('AC-QL2-02 차례', () => {
           ['빠른 입력', dev.getByLabel('빠른 입력')],
           ['단위 줄', dev.getByText(/^가격 단위: /)],
           ['현재 상품', dev.getByRole('region', { name: '현재 상품' })],
+          ['상품 보드', dev.getByRole('region', { name: '상품 보드' })], // QL3R1 D-QL3R1-03
           ['방송 목록', dev.getByRole('main').getByRole('link', { name: '방송 목록', exact: true })],
           ['상품 목록 가져오기', dev.getByRole('button', { name: '상품 목록 가져오기', exact: true })],
           ['방송 끝내기', dev.getByRole('button', { name: '방송 끝내기', exact: true })],
           ['리허설 조작판', dev.getByRole('region', { name: '리허설 조작판' })],
-          ['상품 보드', dev.getByRole('region', { name: '상품 보드' })],
         ],
         '375 차례',
       )
@@ -459,7 +465,7 @@ test.describe('AC-QL2-02 차례', () => {
     }
   })
 
-  test('375×812 실제 방송: 현재 상품 다음 행동 줄, 그 뒤 상품 보드 — 카드 안은 "현재 상품" → "15번" → 이름 → "1등: …" → 가격 → 상태 → "대기 n명" → "15번 자세히"', async ({ page, browser }) => {
+  test('375×812 실제 방송: 현재 상품 다음 상품 보드, 그 뒤 행동 줄(QL3R1 D-QL3R1-03) — 카드 안은 "현재 상품" → "15번" → 이름 → "1등: …" → 가격 → 상태 → "대기 n명" → "15번 자세히"', async ({ page, browser }) => {
     const w = await consoleWorld(browser, page, { viewport: PHONE, big: false })
     try {
       const dev = w.dev
@@ -467,9 +473,9 @@ test.describe('AC-QL2-02 차례', () => {
         [
           ['단위 줄', dev.getByText(/^가격 단위: /)],
           ['현재 상품', dev.getByRole('region', { name: '현재 상품' })],
+          ['상품 보드', dev.getByRole('region', { name: '상품 보드' })], // QL3R1 D-QL3R1-03
           ['방송 목록', dev.getByRole('main').getByRole('link', { name: '방송 목록', exact: true })],
           ['방송 끝내기', dev.getByRole('button', { name: '방송 끝내기', exact: true })],
-          ['상품 보드', dev.getByRole('region', { name: '상품 보드' })],
         ],
         '375 실제',
       )
