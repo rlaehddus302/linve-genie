@@ -1,7 +1,10 @@
 // 되돌리기 띠 (AC-S05-40·41, D-083): "5초 뒤 보내요: 15번 홍길동 취소"·남은 시간·되돌리기, 등록 직후 "15번을 등록했어요"·되돌리기,
 // 보낸 뒤의 결과("적용되지 않았어요…"), 보내지 않은 조치("보내지 않았어요"), 저장 실패의 "다시 보내기",
 // 서버가 입력을 거절한 조치의 "사유 고치기"(창을 다시 연다).
+// MOB2: 1등 자리를 비운 조치의 결과 한 줄 10초("15번 새 1등: 김철수" — D-MOB2-04), 연결이 돌아와 저절로 보낸 것의 앞말
+// "연결이 돌아와 보냈어요: "·다시 보낼 실패의 "연결이 돌아오면 저절로 다시 보내요." (D-MOB2-07).
 import { useEffect, useState } from 'react'
+import { AUTO_RESEND_NOTE, RESENDING_WORD, RESENT_PREFIX } from '../lib/resend-board.ts'
 import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
 
 export const NOT_APPLIED_MESSAGE = '적용되지 않았어요. 지금 상태를 확인해 주세요.'
@@ -59,6 +62,8 @@ export function undoTone(item: UndoItem): 'success' | 'warning' | 'danger' | 'in
       return 'warning'
     case 'done':
       return 'success'
+    case 'outcome':
+      return item.outcome?.tone ?? 'info'
     case 'failed':
       return 'danger'
     default:
@@ -74,7 +79,10 @@ function UndoLine({ item, queue, now }: { readonly item: UndoItem; readonly queu
       case 'open':
         return (
           <>
-            <span role="status">{item.no}번을 등록했어요</span>
+            <span role="status">
+              {item.auto ? RESENT_PREFIX : ''}
+              {item.no}번을 등록했어요
+            </span>
             <span className="countdown">남은 시간 {left}초</span>
             <button type="button" className="button" aria-label={`${String(item.no)}번 등록 되돌리기`} onClick={() => queue.undo(item.id)}>
               되돌리기
@@ -109,9 +117,19 @@ function UndoLine({ item, queue, now }: { readonly item: UndoItem; readonly queu
       )
     case 'sending':
     case 'retrying':
-      return <span role="status">보내는 중…: {item.label}</span>
+      return <span role="status">{item.auto ? RESENDING_WORD : '보내는 중…'}: {item.label}</span>
     case 'done':
-      return <span role="status">보냈어요: {item.label}</span>
+      return <span role="status">{item.auto ? RESENT_PREFIX : '보냈어요: '}{item.label}</span>
+    case 'outcome':
+      // 1등 자리를 비운 조치의 결과 (이름은 글로만 — React 이스케이프)
+      return (
+        <>
+          <span role="status">{item.outcome?.text ?? ''}</span>
+          <button type="button" className="button" onClick={() => queue.dismiss(item.id)}>
+            확인
+          </button>
+        </>
+      )
     case 'notApplied':
       return (
         <>
@@ -131,6 +149,7 @@ function UndoLine({ item, queue, now }: { readonly item: UndoItem; readonly queu
           <span role="alert">
             {item.label} — {item.error?.retryable === true ? `저장하지 못했어요. ${item.error.code === 'SAVE_FAILED' ? '' : item.error.message}` : (item.error?.message ?? '보내지 못했어요.')}
             {item.error?.problems.map((problem) => ` ${problem.message}${problem.hint !== undefined ? ` ${problem.hint}` : ''}`).join('')}
+            {item.error?.retryable === true ? ` ${AUTO_RESEND_NOTE}` : ''}
           </span>
           {item.reopenLabel !== null ? (
             <button type="button" className="button" aria-label={`${item.label} ${item.reopenLabel}`} onClick={() => queue.reopen(item.id)}>

@@ -1,4 +1,5 @@
 // 콘솔 안의 화면 조각이 같이 쓰는 값과 동작
+import type { ResendBoard } from '../lib/resend-board.ts'
 import type { SaleSettings } from '@livejjim/core'
 import { createContext, useContext } from 'react'
 import type { ApiError } from '../api/client.ts'
@@ -111,6 +112,8 @@ export interface HostActionInput {
 }
 
 export interface ConsoleApi {
+  /** 연결이 돌아오면 저절로 한 번 다시 보낼 실패 목록 (D-MOB2-07 — 콘솔·문자찜 화면). 없으면 저절로 보내지 않는다 */
+  readonly resend?: ResendBoard
   readonly b: string
   readonly date: string
   readonly rehearsal: boolean

@@ -4,6 +4,7 @@
 // 고치기 칸 가격 옆에 읽은 가격 "= …원".
 // MOB1 D-MOB1-09(AC-MOB1-17): 끝난 방송·봉인 날짜(closed)에는 빠른 입력 줄(입력칸·개수·옵션·도움말·단위 줄·"등록하면" 줄)이 없다 —
 // 상품 자세히의 "고치기"로 여는 고치기 칸·오류·"고칠까요?"는 그대로. 방송이 끝나면 치던 글은 버린다(보내지 않음 — 콘솔이 비운다). 해석은 Enter와 같은 함수(그 방송 스냅샷의 price.unit) — 품종은 React 글자로만 들어간다.
+import { AUTO_RESEND_NOTE, RESENDING_WORD } from '../lib/resend-board.ts'
 import { useEffect, useRef, type KeyboardEvent, type RefObject } from 'react'
 import type { ApiError } from '../api/client.ts'
 import { productKey } from '../lib/derive.ts'
@@ -32,6 +33,8 @@ export interface Registration {
   readonly no: number
   readonly status: 'sending' | 'retrying' | 'failed'
   readonly error: ApiError | null
+  /** 연결이 돌아와 저절로 다시 보내는 중인가 (D-MOB2-07 — "다시 보내는 중…") */
+  readonly auto?: boolean
 }
 
 /**
@@ -151,6 +154,7 @@ export function QuickInput(props: QuickInputProps) {
   const willRegister = quick === null ? null : registerPreview(value, quick, (n) => api.data.products.get(productKey(api.b, n)))
   const fixPrice = quick === null || fix === null ? null : fixPricePreview(fix.price, quick)
   const sending = props.registrations.some((item) => item.status !== 'failed')
+  const resending = props.registrations.some((item) => item.status !== 'failed' && item.auto === true)
   const failed = props.registrations.filter((item) => item.status === 'failed')
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -200,7 +204,7 @@ export function QuickInput(props: QuickInputProps) {
         ) : null}
         {sending ? (
           <span className="quick-status" role="status">
-            등록하는 중…
+            {resending ? RESENDING_WORD : '등록하는 중…'}
           </span>
         ) : null}
       </div>
@@ -241,6 +245,8 @@ export function QuickInput(props: QuickInputProps) {
             {SAVE_FAILED_LINE}: {item.line}
           </p>
           {item.error !== null ? <p>{item.error.message}</p> : null}
+          {/* 기록되지 않았음이 확실한 실패만 연결이 돌아오면 저절로 한 번 다시 보낸다 (D-MOB2-07) */}
+          {item.error?.retryable === true ? <p>{AUTO_RESEND_NOTE}</p> : null}
           <button type="button" className="button" onClick={() => props.onRetry(item.id)}>
             다시 보내기
           </button>

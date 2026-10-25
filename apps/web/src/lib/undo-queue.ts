@@ -6,6 +6,8 @@
 //   "보내지 않고 떠나기"(discardWaiting)면 기다리던 조치를 모두 보내지 않는다(같은 화면 안의 이동이어도) (D-083, AC-S06-01).
 // - 상품 등록: 바로 기록하고, 5초 동안 "되돌리기"(판매 종료)를 보인다 — 되돌리는 일은 화면이 넘긴 함수가 한다.
 // - Ctrl+Z는 가장 최근의 되돌릴 수 있는 것(기다리는 조치 또는 5초 안의 등록)을 되돌린다.
+// - 1등 자리를 비운 조치(D-MOB2-04): 화면이 넘긴 outcome이 결과 한 줄을 돌려주면 "보냈어요" 대신 그 줄을 10초 보인다("확인"으로 바로 닫힘).
+// - 연결이 돌아오면(D-MOB2-07) resendRetryable이 기록되지 않았음이 확실한 실패(retryable)만 같은 요청 번호로 차례대로 한 번 보낸다.
 // 시계·타이머는 주입할 수 있다(화면 단위 시험의 가짜 시계).
 import { ApiError, isApiError, newRequestId, withRetry, type RetryOptions } from '../api/client.ts'
 import type { WriteResult } from '../api/types.ts'
@@ -28,8 +30,16 @@ export const REGISTER_UNDO_MS = 5000
 /** 끝난 항목을 띠에 남겨 두는 시간 */
 const KEEP_DONE_MS = 4000
 const KEEP_NOT_APPLIED_MS = 10000
+/** 1등 자리를 비운 조치의 결과 한 줄을 보이는 시간 (D-MOB2-04) */
+export const KEEP_OUTCOME_MS = 10000
 
-export type ActionStatus = 'waiting' | 'sending' | 'retrying' | 'done' | 'notApplied' | 'cancelled' | 'failed'
+export type ActionStatus = 'waiting' | 'sending' | 'retrying' | 'done' | 'outcome' | 'notApplied' | 'cancelled' | 'failed'
+
+/** 1등 자리를 비운 조치의 결과 한 줄 (D-MOB2-04): 새 1등이면 성공 색, 골라야 하면 주의 색 */
+export interface OutcomeLine {
+  readonly text: string
+  readonly tone: 'success' | 'warning' | 'info'
+}
 export type RegistrationStatus = 'open' | 'undoing' | 'undone' | 'blocked' | 'failed' | 'expired'
 
 interface ItemBase {
@@ -56,6 +66,10 @@ export interface ActionItem extends ItemBase {
   readonly reopenLabel: string | null
   /** 시계가 멈춘 동안(떠날지 묻는 중) 남은 시간(밀리초), 흐르는 중이면 null */
   readonly pausedLeft: number | null
+  /** 연결이 돌아와 저절로 다시 보낸 것인가 (D-MOB2-07 — "연결이 돌아와 보냈어요: …") */
+  readonly auto: boolean
+  /** 1등 자리를 비운 조치의 결과 한 줄 (status 'outcome'일 때, D-MOB2-04) */
+  readonly outcome: OutcomeLine | null
 }
 
 /** 바로 기록한 등록의 되돌리기 */
@@ -65,6 +79,8 @@ export interface RegistrationItem extends ItemBase {
   readonly product: string
   readonly status: RegistrationStatus
   readonly message: string | null
+  /** 연결이 돌아와 저절로 다시 보낸 등록인가 (D-MOB2-07 — "연결이 돌아와 보냈어요: 15번을 등록했어요") */
+  readonly auto: boolean
 }
 
 export type UndoItem = ActionItem | RegistrationItem
@@ -92,6 +108,11 @@ export interface ActionInput {
   readonly reopen?: ReopenInput
   /** 다시 보내도 안 되거나 서버가 거절했을 때 (실패한 항목과 함께) */
   readonly onError?: (error: ApiError, item: ActionItem) => void
+  /**
+   * 적용된(changed) 뒤 결과 한 줄을 만든다 (D-MOB2-04 — 1등 자리를 비운 조치). 화면이 응답 seq까지 따라잡은 뒤 돌려준다.
+   * null이면 평소처럼 "보냈어요"
+   */
+  readonly outcome?: (result: WriteResult) => Promise<OutcomeLine | null>
 }
 
 export interface RegistrationInput {
@@ -102,6 +123,8 @@ export interface RegistrationInput {
    * 오류는 던진다.
    */
   readonly undo: () => Promise<'undone' | 'blocked'>
+  /** 연결이 돌아와 저절로 다시 보낸 등록 (D-MOB2-07) */
+  readonly auto?: boolean
 }
 
 export interface UndoQueueOptions {
@@ -197,6 +220,8 @@ export class UndoQueue {
       meta: input.meta ?? null,
       reopenLabel: null,
       pausedLeft: this.#paused ? this.delayMs : null,
+      auto: false,
+      outcome: null,
     }
     const entry: Internal = { item, timer: undefined, input }
     this.#items.set(item.id, entry)
@@ -218,6 +243,7 @@ export class UndoQueue {
       product: input.product,
       status: 'open',
       message: null,
+      auto: input.auto === true,
     }
     const entry: Internal = { item, timer: undefined, registration: input }
     this.#items.set(item.id, entry)
@@ -253,6 +279,13 @@ export class UndoQueue {
           this.#retry.onRetry?.(attempt)
         },
       })
+      if (result.changed && input.outcome !== undefined) {
+        // 결과 한 줄을 만드는 동안(따라잡기)은 "보내는 중"에 둔다 — "보냈어요"가 잠깐 비치지 않게. 다음 조치를 막지 않는다
+        this.#update(id, { status: 'sending', result, error: null })
+        input.onResult?.(result)
+        void this.#settle(id, input.outcome, result)
+        return
+      }
       this.#update(id, { status: result.changed ? 'done' : 'notApplied', result, error: null })
       this.#removeLater(id, result.changed ? KEEP_DONE_MS : KEEP_NOT_APPLIED_MS)
       input.onResult?.(result)
@@ -263,6 +296,18 @@ export class UndoQueue {
       const failed = this.#items.get(id)?.item
       if (failed?.kind === 'action') input.onError?.(apiError, failed)
     }
+  }
+
+  async #settle(id: number, outcome: (result: WriteResult) => Promise<OutcomeLine | null>, result: WriteResult): Promise<void> {
+    const line = await outcome(result).catch(() => null)
+    if (this.#disposed || this.#items.get(id) === undefined) return
+    if (line === null) {
+      this.#update(id, { status: 'done' })
+      this.#removeLater(id, KEEP_DONE_MS)
+      return
+    }
+    this.#update(id, { status: 'outcome', outcome: line })
+    this.#removeLater(id, KEEP_OUTCOME_MS)
   }
 
   /**
@@ -331,12 +376,32 @@ export class UndoQueue {
     return this.undo(item.id) ? item : undefined
   }
 
-  /** 저장하지 못한 조치를 같은 요청 번호로 다시 보낸다 */
+  /** 저장하지 못한 조치를 같은 요청 번호로 다시 보낸다 (판매자가 "다시 보내기"를 누름) */
   resend(id: number): void {
+    this.#resend(id, false)
+  }
+
+  #resend(id: number, auto: boolean): boolean {
     const entry = this.#items.get(id)
-    if (entry === undefined || entry.item.kind !== 'action' || entry.item.status !== 'failed' || this.#disposed) return
-    this.#update(id, { status: 'sending', error: null, reopenLabel: null })
+    if (entry === undefined || entry.item.kind !== 'action' || entry.item.status !== 'failed' || this.#disposed) return false
+    this.#update(id, { status: 'sending', error: null, reopenLabel: null, auto })
     this.#chain = this.#chain.then(() => this.#send(id))
+    return true
+  }
+
+  /**
+   * 연결이 돌아왔다 (D-MOB2-07): 기록되지 않았음이 확실한 실패(ApiError.retryable)만 누른 차례대로 같은 요청 번호로 한 번 보낸다.
+   * 판매자가 "확인"으로 닫은 것·되돌린 것은 목록에 없어 보내지 않는다. 보내는 중인 항목은 실패가 아니라 겹치지 않는다.
+   * 다 보낼 때까지 기다린다(다음 종류는 그 뒤에). 보낸 수
+   */
+  async resendRetryable(): Promise<number> {
+    let count = 0
+    for (const { item } of [...this.#items.values()].sort((a, b) => a.item.id - b.item.id)) {
+      if (item.kind !== 'action' || item.status !== 'failed' || item.error?.retryable !== true) continue
+      if (this.#resend(item.id, true)) count++
+    }
+    await this.#chain
+    return count
   }
 
   /** 끝난 항목을 띠에서 지운다 */

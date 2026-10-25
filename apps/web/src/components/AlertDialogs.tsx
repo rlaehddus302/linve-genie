@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { get, withQuery } from '../api/client.ts'
 import type { CancelRequest, Claim, HistoryItem, Product } from '../api/types.ts'
-import { claimOptionWords, claimOptionsField, claimWord, conflictUnits, orphanPending, successionUnits, variantOf, variantOptionsField } from '../lib/derive.ts'
+import { claimOptionWords, claimOptionsField, claimWord, conflictUnits, splitPending, successionUnits, variantOf, variantOptionsField } from '../lib/derive.ts'
 import { kstTime } from '../lib/kst.ts'
 import { ORIGIN_WORD, REJECT_REASON_WORD, agoWord, pendingMeaning } from '../lib/words.ts'
 import { openReopenAction, openReasonAction } from './actions.ts'
@@ -356,7 +356,8 @@ function useClock(fixed: number | undefined): number {
 export function PendingDialog({ onClose, now: fixedNow }: { readonly onClose: () => void; readonly now?: number }) {
   const api = useConsoleApi()
   const now = useClock(fixedNow)
-  const groups = orphanPending(api.data)
+  // 시간이 지나지 않은 찜이 있는 번호는 위 묶음, 시간이 지난 찜만 남은 번호는 아래 "시간이 지난 보류 찜" (D-MOB2-06)
+  const { live: groups, timedOut } = splitPending(api.data, now)
   const expired = [...api.data.claims.values()]
     .filter((claim) => claim.status === 'REJECTED' && claim.reason === 'EXPIRED')
     .sort((a, b) => b.seq - a.seq)
@@ -389,6 +390,18 @@ export function PendingDialog({ onClose, now: fixedNow }: { readonly onClose: ()
           )
         })}
       </ul>
+      {timedOut.length > 0 ? (
+        <section className="stack-tight" aria-label="시간이 지난 보류 찜">
+          <h3 className="sub-title">시간이 지난 보류 찜</h3>
+          <ul className="plain-list">
+            {timedOut.map((group) => (
+              <li key={group.product}>
+                {productLabel(api, group.broadcast, group.no)} {group.claims.length}개
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <h3 className="sub-title">최근 만료된 찜</h3>
       {expired.length === 0 ? <p>없어요.</p> : null}
       <ul className="plain-list">

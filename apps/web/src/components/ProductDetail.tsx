@@ -1,10 +1,12 @@
 // 상품 자세히 (AC-S05-15·34·35, PRD-02, PRD-04, R-2, R-8, R-9, R-10, ORD-12, D-083, D-088, AC-I1-31·36).
 // - 번호·품종·가격·재고·상태, 1등(들), 대기 목록, 그 번호의 보류·충돌 찜, 라벨(1등마다 미리 보기·상태·이력·출력·내보내기 — 리허설은 없음),
 //   취소 요청, 가격·품종 변경 이력, 조치 기록.
-// - 상품 명령(일시 중지·다시 판매·공개·판매 종료·고치기)은 바로 보낸다. 찜 조치(host.*)는 5초 뒤에 보낸다.
+// - 상품 관리(일시 중지·다시 판매·공개·판매 종료·고치기)은 바로 보낸다. 찜 조치(host.*)는 5초 뒤에 보낸다.
 import { useEffect, useMemo, useState } from 'react'
 import { get, isApiError, newRequestId, withQuery, type ApiError } from '../api/client.ts'
 import type { Claim, HistoryItem, Product } from '../api/types.ts'
+import { usePendingNow } from '../lib/use-pending-now.ts'
+import { AUTO_RESEND_NOTE, RESENDING_WORD } from '../lib/resend-board.ts'
 import { claimOptionWords, claimOptionsField, claimWord, formatWon, productSlots } from '../lib/derive.ts'
 import { optionSummary } from '../lib/options.ts'
 import { stockLeftWords } from '../lib/stock.ts'
@@ -53,9 +55,16 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
   /** 실패한 명령 (잠시 뒤 다시 시도하면 되는 실패면 같은 요청 번호로 "다시 보내기") */
   const [failed, setFailed] = useState<{ event: Readonly<Record<string, unknown>>; requestId: string } | null>(null)
 
-  const run = async (event: Readonly<Record<string, unknown>>, requestId: string = newRequestId()) => {
-    if (busy) return
+  /** 다시 보내는 중인가 (연결이 돌아와 저절로, D-MOB2-07) */
+  const [resending, setResending] = useState(false)
+
+  // 창이 닫혀도 남는 한 번 보내기 — 창이 닫혀 있으면 결과는 상품 카드 상태로 보인다(React는 닫힌 창의 상태 바꾸기를 무시한다)
+  const attempt = async (event: Readonly<Record<string, unknown>>, requestId: string, auto: boolean): Promise<void> => {
+    const board = api.resend
+    const key = `command:${requestId}`
+    board?.remove(key)
     setBusy(true)
+    setResending(auto)
     setError(null)
     setFailed(null)
     try {
@@ -64,9 +73,17 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
       if (!isApiError(caught)) throw caught
       setError(caught)
       if (caught.transient) setFailed({ event, requestId })
+      // 기록되지 않았음이 확실한 실패: 연결이 돌아오면 같은 요청 번호로 한 번 저절로 (D-MOB2-07)
+      if (caught.retryable) board?.add(key, 'command', () => attempt(event, requestId, true))
     } finally {
       setBusy(false)
+      setResending(false)
     }
+  }
+
+  const run = async (event: Readonly<Record<string, unknown>>, requestId: string = newRequestId()) => {
+    if (busy) return
+    await attempt(event, requestId, false)
   }
 
   const selling = product.status === 'OPEN' || product.status === 'SOLD'
@@ -145,8 +162,8 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
         nameOf={(claim) => api.names.name(claim.currentBuyer)}
       />
 
-      <section aria-label="상품 명령" className="stack-tight">
-        <h3 className="sub-title">상품 명령</h3>
+      <section aria-label="상품 관리" className="stack-tight">
+        <h3 className="sub-title">상품 관리</h3>
         <div className="row">
           {selling ? (
             <button type="button" className="button" disabled={busy} onClick={() => void run({ type: 'product.hold', ...base })}>
@@ -217,8 +234,9 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
           </p>
         ) : null}
         {!selling && !product.conflict ? <p className="hint">직접 배정은 판매 중일 때만 할 수 있어요.</p> : null}
-        {busy ? <p role="status">보내는 중…</p> : null}
+        {busy ? <p role="status">{resending ? RESENDING_WORD : '보내는 중…'}</p> : null}
         {error !== null ? <ErrorNote error={error} {...(failed === null ? {} : { onRetry: () => void run(failed.event, failed.requestId) })} /> : null}
+        {error?.retryable === true && api.resend !== undefined ? <p className="hint">{AUTO_RESEND_NOTE}</p> : null}
       </section>
 
       {requests.length > 0 ? (
@@ -319,11 +337,13 @@ function ClaimRow({ claim, product, full }: { readonly claim: Claim; readonly pr
   const blocked = self?.blocked === true
   const waiting = api.waiting.claims.has(claim.id)
   const pick = claimOptionsField(claim)
+  // 시간이 지난 보류 찜은 "보류 · 시간 지남" (D-MOB2-06 — 공개 전(READY) 상품의 보류 찜도 같은 규칙)
+  const now = usePendingNow(api.data)
   return (
     <li className="claim-row">
       <p>
         <strong>{name}</strong>
-        {claim.variant !== null || claim.qty > 1 ? <span className="claim-option">{claimOptionWords(claim)}</span> : null} <span className="tag">{claimWord(api.data, claim)}</span>{' '}
+        {claim.variant !== null || claim.qty > 1 ? <span className="claim-option">{claimOptionWords(claim)}</span> : null} <span className="tag">{claimWord(api.data, claim, now)}</span>{' '}
         <span>{ORIGIN_WORD[claim.origin]}</span>{' '}
         <span>{kstTime(claim.rankTime)}</span>
         {claim.locked ? <span className="tag">잠금</span> : null}

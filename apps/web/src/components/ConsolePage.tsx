@@ -14,6 +14,7 @@ import { ApiError, isApiError, newRequestId, post, withQuery, withRetry } from '
 import type { ChatMessage, Product, WriteResult } from '../api/types.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
+import { usePendingNow } from '../lib/use-pending-now.ts'
 import { BuyerNames, alertCounts, isOptionBroadcast, latestProduct, productKey, productSlots } from '../lib/derive.ts'
 import { EMPTY_DRAFT, optionSummary, type OptionDraft, type OptionPayload } from '../lib/options.ts'
 import { useReviews } from '../lib/reviews.ts'
@@ -30,6 +31,8 @@ import { useScopeStore } from '../lib/use-store.ts'
 import { useWide } from '../lib/use-wide.ts'
 import { keepAboveBar, useKeepAboveBar } from '../lib/above-bar.ts'
 import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
+import { ResendBoard } from '../lib/resend-board.ts'
+import { captureVacated, vacatedLine, type VacatedBefore } from '../lib/vacated.ts'
 import { cardLine, enterBadgeCard } from '../lib/voice.ts'
 import { readReceived } from '../lib/received.ts'
 import { OFFER_FIX_FAILED, SMS_SEND_FAILED, SMS_UNDO_NOTE, VOICE_IDLE, VoiceController, type RecentFixOutcome, type RegisterSource, type SmsBuyerChoice, type SmsWriteOutcome, type VoiceSmsWrite, type VoiceSnapshot } from '../voice/controller.ts'
@@ -312,6 +315,18 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   dialogCount.current = dialogs.length
   const [endError, setEndError] = useState<ApiError | null>(null)
   const chain = useRef<Promise<void>>(Promise.resolve())
+  // 연결이 돌아오면 저절로 한 번 다시 보낼 실패 (D-MOB2-07): 빠른 입력 등록 → 상품 관리 명령 → 방송자 조치 차례
+  const resendBoard = useMemo(() => new ResendBoard(), [])
+  useEffect(() => {
+    const offHost = resendBoard.addHost(async () => {
+      await queue.resendRetryable()
+    })
+    const offReconnect = store.onReconnect(() => void resendBoard.flush())
+    return () => {
+      offHost()
+      offReconnect()
+    }
+  }, [resendBoard, queue, store])
   /** 앞 등록 응답을 기다리며 판단을 미룬 줄 수 */
   const waitingLines = useRef(0)
   const regId = useRef(1)
@@ -485,15 +500,23 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     (input: HostActionInput) => {
       if (latest.current.sealed) return
       const reopen = input.reopen
+      let before: VacatedBefore | null = null
       queue.add({
         label: input.label,
         ...(input.message === undefined ? {} : { meta: input.message }),
         claims: input.claims ?? [],
         products: input.products ?? [],
         send: async (requestId) => {
+          // 1등 찜을 비우는 조치면 보내기 직전 모양을 잡아 둔다 (D-MOB2-04 결과 한 줄)
+          before = captureVacated(store.getSnapshot().data, input.event, input.claims ?? [])
           const scoped = typeof input.event.b !== 'string'
           const path = withQuery('/api/events', scoped ? { date: broadcast.date, rehearsal: broadcast.rehearsal } : {})
           return post<WriteResult>(path, { requestId, ...input.event })
+        },
+        outcome: async (result) => {
+          if (before === null) return null
+          await store.sync(result.seq)
+          return vacatedLine(before, store.getSnapshot().data)
         },
         onResult: (result) => {
           void store.sync(result.seq)
@@ -603,9 +626,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       write: writeOnly,
       fillQuick,
       select: setSelected,
+      resend: resendBoard,
       options: optionMode,
     }),
-    [b, broadcast.date, broadcast.rehearsal, ended, sealed, data, names, labels, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command, writeOnly, fillQuick, optionMode],
+    [b, broadcast.date, broadcast.rehearsal, ended, sealed, data, names, labels, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command, writeOnly, fillQuick, optionMode, resendBoard],
   )
 
   // ── 빠른 입력 (AC-S05-10~13, D-084) ──────────────────────────────────
@@ -679,9 +703,11 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   )
 
   const runRegistration = useCallback(
-    async (id: number, first: boolean) => {
+    async (id: number, first: boolean, auto = false) => {
       const request = regRequests.current.get(id)
       if (request === undefined) return
+      // 보내기 시작하면 저절로 다시 보낼 목록에서 내린다 (판매자가 "다시 보내기"를 눌렀거나 지금 저절로 보냄, D-MOB2-07)
+      resendBoard.remove(`register:${String(id)}`)
       const remove = () => {
         regRequests.current.delete(id)
         setRegistrations((list) => list.filter((item) => item.id !== id))
@@ -701,7 +727,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           return
         }
       }
-      setRegistrations((list) => list.map((item) => (item.id === id ? { ...item, status: 'sending', error: null } : item)))
+      setRegistrations((list) => list.map((item) => (item.id === id ? { ...item, status: 'sending', error: null, auto } : item)))
       try {
         const extra = request.extra
         const result = await write(request.requestId, {
@@ -734,13 +760,21 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         setSelected(key)
         setQuickError(null)
         voiceRef.current?.noteRegistered()
-        const undoItem = queue.addRegistration({ no: request.no, product: key, undo: () => undoRegistration(request.no) })
+        const undoItem = queue.addRegistration({ no: request.no, product: key, undo: () => undoRegistration(request.no), auto })
         regUndo.current.set(key, undoItem.id)
         request.onDone?.(key)
       } catch (error) {
         if (!isApiError(error)) throw error
         if (error.transient) {
-          setRegistrations((list) => list.map((item) => (item.id === id ? { ...item, status: 'failed', error } : item)))
+          setRegistrations((list) => list.map((item) => (item.id === id ? { ...item, status: 'failed', error, auto: false } : item)))
+          // 기록되지 않았음이 확실한 실패: 연결이 돌아오면 같은 요청 번호로 한 번 저절로 (D-MOB2-07)
+          if (error.retryable) {
+            resendBoard.add(`register:${String(id)}`, 'register', () => {
+              const next = chain.current.then(() => runRegistrationRef.current(id, false, true))
+              chain.current = next
+              return next
+            })
+          }
         } else {
           remove()
           setQuickError(error)
@@ -754,8 +788,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         }
       }
     },
-    [askEdit, b, clearLine, findProduct, noteDroppedOptions, queue, restoreCount, undoRegistration, write],
+    [askEdit, b, clearLine, findProduct, noteDroppedOptions, queue, restoreCount, undoRegistration, write, resendBoard],
   )
+  const runRegistrationRef = useRef(runRegistration)
+  runRegistrationRef.current = runRegistration
 
   const startRegistration = useCallback((line: string, no: number, name: string, price: number, fromFix: boolean, hooks: RegHooks = {}): number => {
     const id = regId.current++
@@ -1069,7 +1105,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
 
   // ── 단축키 (AC-S05-42, D-087) ────────────────────────────────────────
 
-  const counts = useMemo(() => alertCounts(data), [data])
+  // 시간이 지난 보류 찜은 "보류 찜" 수에서 뺀다 (D-MOB2-06) — 바뀌는 순간에 한 번 다시 그린다
+  const pendingNow = usePendingNow(data)
+  const counts = useMemo(() => alertCounts(data, pendingNow), [data, pendingNow])
   // 이 방송의 확인 필요 (옵션 방송만 — D-O2-03·14). 띠를 누르면 /reviews가 이 방송으로 걸러져 열린다
   const reviews = useReviews(optionMode ? { broadcast: b, rehearsal: broadcast.rehearsal } : null)
   const reviewCount = optionMode ? (reviews.view?.reviews.length ?? 0) : 0
@@ -1089,7 +1127,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       }
       if (event.altKey && !mod && (event.code === 'Digit1' || event.key === '1')) {
         event.preventDefault()
-        const kind = firstAlert(alertCounts(latest.current.data), printAlertsRef.current, thanksFailed.current)
+        const kind = firstAlert(alertCounts(latest.current.data, Date.now()), printAlertsRef.current, thanksFailed.current)
         if (kind !== null && kind !== 'reviews') openAlert(kind)
         return
       }
