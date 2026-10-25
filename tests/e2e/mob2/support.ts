@@ -1,6 +1,6 @@
 // MOB2 E2E 공용 도우미 (test-e2e) — 휴대폰 화면 남은 문제 (harness/sprints/MOB2/acceptance.md).
 // 기대 문장은 acceptance.md·DECISIONS D-MOB2-01~08의 따옴표 문장에서 정했다(구현을 보고 정하지 않음).
-import { expect, type Page, type Request, type Route } from '@playwright/test'
+import { expect, request, type Page, type Request, type Route } from '@playwright/test'
 
 /** 연결이 돌아와 저절로 보낸 것의 앞말 (D-MOB2-07, AC-MOB2-40) */
 export const RESENT_PREFIX = '연결이 돌아와 보냈어요: '
@@ -75,3 +75,57 @@ export async function openSmsSole(page: Page, title: string): Promise<void> {
   await expect(page.getByRole('region', { name: '최근 넣은 문자찜' })).toBeVisible()
   await expect(page.getByLabel('번호', { exact: true })).toBeEditable()
 }
+
+/** 이 화면이 보낸 쓰기 요청 본문을 모은다 (끊김 중 실패한 요청도 사건은 생긴다 — MOB2 수정 라운드 2) */
+export function watchBodies(page: Page): Record<string, unknown>[] {
+  const list: Record<string, unknown>[] = []
+  page.on('request', (r) => {
+    if (!isWrite(r)) return
+    try {
+      list.push(JSON.parse(r.postData() ?? '{}') as Record<string, unknown>)
+    } catch {
+      list.push({})
+    }
+  })
+  return list
+}
+
+/**
+ * 같은 계정의 다른 기기 — 이 화면의 오프라인 흉내(context.setOffline)와 상관없는 요청 컨텍스트.
+ * `post(path, data)`는 같은 출처 머리글을 붙여 보낸다. 끝나면 `dispose()`.
+ */
+export async function otherDevice(page: Page, baseURL: string): Promise<{ post: (path: string, data: Record<string, unknown>) => Promise<{ status: number; body: Record<string, unknown> }>; dispose: () => Promise<void> }> {
+  const api = await request.newContext({ baseURL, storageState: await page.context().storageState() })
+  return {
+    post: async (path, data) => {
+      const res = await api.post(path, { data: { requestId: crypto.randomUUID(), ...data }, headers: { Origin: baseURL } })
+      const text = await res.text()
+      let body: Record<string, unknown>
+      try {
+        body = JSON.parse(text) as Record<string, unknown>
+      } catch {
+        body = { text }
+      }
+      return { status: res.status(), body }
+    },
+    dispose: () => api.dispose(),
+  }
+}
+
+/** KST 오늘 날짜의 `HH:MM:SS` 시각 (밀리초) — 화면 시계를 당길 때 */
+export function kstTodayAt(time: string): number {
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+  return Date.parse(`${day}T${time}+09:00`)
+}
+
+/** 밀리초 → KST `HH:MM:SS` */
+export function kstClock(ms: number): string {
+  return new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(new Date(ms))
+}
+
+/** 받은 시각을 비운 채 실패해 처음 누른 시각을 채운 안내 (D-MOB2-09, AC-MOB2-43) */
+export const filledReceived = (time: string): string => `받은 시각을 비워 두셔서 처음 누른 시각(${time})을 넣어 두었어요. 다시 보내도 이 시각으로 들어가요.`
+/** 저절로 다시 보내려던 등록의 번호가 이미 있어 보내지 않음 (D-MOB2-10, AC-MOB2-40) */
+export const existsOnResend = (no: number): string => `연결이 돌아와 보내려 했지만 ${String(no)}번이 이미 있어 등록하지 않았어요.`
+/** 붙인 옵션을 넣지 않았다는 평소 안내의 앞부분 (O2 round1 DROPPED와 같은 문장) */
+export const droppedOptions = (no: number): string => `붙인 옵션은 ${String(no)}번에 넣지 않고 뗐어요.`

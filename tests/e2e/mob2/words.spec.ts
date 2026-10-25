@@ -1,4 +1,4 @@
-// MOB2 D. 개발 용어 (AC-MOB2-20·22·23·25, D-MOB2-05, UX-01) — test-e2e.
+// MOB2 D. 개발 용어 (AC-MOB2-20·21·22·23·25, D-MOB2-05, UX-01) — test-e2e.
 // 화면 훑기(AC-MOB2-25): 유튜브를 잇지 않은 새 판매자, 이름·메모·닉네임에 "#"·"ID"가 없는 시험 데이터. 375×812와 1440×900.
 // 콘솔 → 상품 자세히 → 문자찜 입력 → 입금 확인(목록·자세히) → 정산(기록 펼침)을 차례로 열고 document.body.innerText를 본다.
 // 기대: "명령"·"입금 #"·"정산 기록 "+숫자+"번"·"요청 번호"·" ID"가 없다. 저장된 메모·사유는 API에서 "입금 #n" 그대로(AC-MOB2-22).
@@ -55,8 +55,21 @@ for (const [label, viewport] of [['375×812', PHONE], ['1440×900', PC]] as cons
       await page.goto('/deposits?tab=done')
       const row = depositRow(page, d!.no, '자동 확인됨·확인함 입금')
       await expect(row).toBeVisible()
-      // 휴대폰 카드 제목은 "입금 번호 n" (PC 표 줄은 이름만 — 번호 칸 글은 지적 TE-MOB2-003)
+      // 휴대폰 카드 제목은 "입금 번호 n"
       if (viewport.width < 768) await expect(row).toContainText(`입금 번호 ${String(d!.no)}`)
+      else {
+        // 1440 PC 표: 줄 이름 "입금 번호 n" 그대로, "번호" 칸 글은 숫자만 — "#" 없음 (D-MOB2-12, AC-MOB2-21, TE-MOB2-003·U-MOB2-03)
+        await expect(row).toHaveAccessibleName(`입금 번호 ${String(d!.no)}`)
+        const cell = await row.evaluate((tr) => {
+          const table = tr.closest('table')
+          const heads = [...(table?.querySelectorAll('thead th') ?? [])].map((th) => (th.textContent ?? '').trim())
+          const at = heads.indexOf('번호')
+          return { at, text: at < 0 ? null : (tr.querySelectorAll('td')[at]?.textContent ?? null) }
+        })
+        expect(cell.at, '"번호" 열 머리').toBeGreaterThanOrEqual(0)
+        expect(cell.text, '"번호" 칸 글').toBe(String(d!.no))
+        await expect(row).not.toContainText('#')
+      }
       await expectPlainWords(page, `${label} 입금 확인 목록`)
       await row.getByRole('button', { name: '자세히' }).click()
       const dlg = page.getByRole('dialog', { name: `입금 번호 ${String(d!.no)}` })

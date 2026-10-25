@@ -34,7 +34,7 @@ interface World {
   readonly close: () => Promise<void>
 }
 
-async function world(browser: Browser, baseURL: string, d: Device, opts: { big: boolean; rehearsal: boolean }): Promise<World> {
+async function world(browser: Browser, baseURL: string, d: Device, opts: { big: boolean; rehearsal: boolean; title?: string }): Promise<World> {
   const { page, context } = await freshSeller(browser, baseURL, {
     viewport: d.viewport,
     touch: true,
@@ -44,7 +44,7 @@ async function world(browser: Browser, baseURL: string, d: Device, opts: { big: 
   await setLabelsApi(page, true)
   const set = await page.request.patch('/api/settings', { data: { settings: { 'contention.policy': 'RECEIVED_TIME', 'claim.preOpenWindowSec': 300 } }, headers: { Origin: baseURL } })
   expect(set.status(), await set.text()).toBe(200)
-  const b = await broadcastApi(page, uniqueDate(), opts.rehearsal)
+  const b = await broadcastApi(page, uniqueDate(), opts.rehearsal, opts.title)
   const reg = async (no: number, name: string, stock = 1) => {
     const res = await writeEvent(page, { type: 'product.register', b, no, name, price: 10000, stock })
     expect(res.status, JSON.stringify(res.body)).toBeLessThan(300)
@@ -139,6 +139,32 @@ async function shoot(page: Page, ys: readonly number[]): Promise<StickyShot[]> {
   }, ys)
 }
 
+/** AC-MOB2-05: 포커스를 빼고 스크롤 0 → 빠른 입력칸이 아래 막대 위·가운데가 그 칸, 리허설 띠·제목 h1, 누르면 AC-MOB1-03 그대로. 끝에 포커스를 뺀다 */
+async function expectQuickAboveBar(page: Page, where: string, rehearsal: boolean): Promise<void> {
+  const quick = page.getByLabel('빠른 입력')
+  await quick.evaluate((el) => (el as HTMLElement).blur())
+  await page.evaluate(() => window.scrollTo(0, 0))
+  const bar = await barHeight(page)
+  const vh = page.viewportSize()!.height
+  const q = await quick.evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+    return { bottom: r.bottom, top: r.top, hit: hit === el || el.contains(hit), y: window.scrollY, what: hit === null ? 'null' : `${hit.tagName}.${String(hit.className)}` }
+  })
+  console.log(`[MOB2 측정] ${where} 빠른 입력칸 위 ${String(Math.round(q.top))} 아래 ${String(Math.round(q.bottom))} / 막대 위 끝 ${String(Math.round(vh - bar))} (스크롤 ${String(q.y)})`)
+  expect(q.y, `${where} 스크롤 0`).toBe(0)
+  expect(q.bottom, `${where} 빠른 입력칸 아래 끝 ≤ 막대 위 끝`).toBeLessThanOrEqual(vh - bar + 0.5)
+  expect(q.hit, `${where} 칸 가운데를 덮은 것: ${q.what}`).toBe(true)
+  if (rehearsal) await expect(page.getByRole('note').filter({ hasText: '리허설 · 실제 판매 아님' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+  // 누르면 AC-MOB1-03 그대로 (포커스 뒤에도 막대 위)
+  await quick.click()
+  await expect(quick).toBeFocused()
+  const focused = (await quick.boundingBox())!
+  expect(focused.y + focused.height, `${where} 포커스 뒤 막대 위`).toBeLessThanOrEqual(vh - (await barHeight(page)) + 0.5)
+  await quick.evaluate((el) => (el as HTMLElement).blur())
+}
+
 for (const d of DEVICES) {
   for (const rehearsal of [false, true]) {
     const kind = rehearsal ? '리허설' : '실제'
@@ -148,28 +174,7 @@ for (const d of DEVICES) {
       try {
         const page = w.page
         // ── B. AC-MOB2-05 (되돌리기 대기 없음) ──
-        const quick = page.getByLabel('빠른 입력')
-        await quick.evaluate((el) => (el as HTMLElement).blur())
-        await page.evaluate(() => window.scrollTo(0, 0))
-        const bar = await barHeight(page)
-        const vh = page.viewportSize()!.height
-        const q = await quick.evaluate((el) => {
-          const r = el.getBoundingClientRect()
-          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
-          return { bottom: r.bottom, top: r.top, hit: hit === el || el.contains(hit), y: window.scrollY, what: hit === null ? 'null' : `${hit.tagName}.${String(hit.className)}` }
-        })
-        console.log(`[MOB2 측정] ${where} 빠른 입력칸 위 ${String(Math.round(q.top))} 아래 ${String(Math.round(q.bottom))} / 막대 위 끝 ${String(Math.round(vh - bar))} (스크롤 ${String(q.y)})`)
-        expect(q.y, `${where} 스크롤 0`).toBe(0)
-        expect(q.bottom, `${where} 빠른 입력칸 아래 끝 ≤ 막대 위 끝`).toBeLessThanOrEqual(vh - bar + 0.5)
-        expect(q.hit, `${where} 칸 가운데를 덮은 것: ${q.what}`).toBe(true)
-        if (rehearsal) await expect(page.getByRole('note').filter({ hasText: '리허설 · 실제 판매 아님' })).toBeVisible()
-        await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
-        // 누르면 AC-MOB1-03 그대로 (포커스 뒤에도 막대 위)
-        await quick.click()
-        await expect(quick).toBeFocused()
-        const focused = (await quick.boundingBox())!
-        expect(focused.y + focused.height, `${where} 포커스 뒤 막대 위`).toBeLessThanOrEqual(vh - (await barHeight(page)) + 0.5)
-        await quick.evaluate((el) => (el as HTMLElement).blur())
+        await expectQuickAboveBar(page, where, rehearsal)
 
         // ── A. AC-MOB2-01·03 (되돌리기 대기 1개) ──
         const undo = await queueCancel(page)
@@ -190,6 +195,23 @@ for (const d of DEVICES) {
         expect(shots[1]!.sticky.top, `${where} 스크롤 뒤에도 고정 영역이 위에 붙음`).toBeGreaterThanOrEqual(-1)
         void undo
         await expectNoOverflow(page, `${where} 콘솔`)
+      } finally {
+        await w.close()
+      }
+    })
+  }
+}
+
+// SA-MOB2-02 / D-MOB2-11: 8글자 이상 제목(제목 줄의 날짜가 다음 줄로 넘어가는 길이 — U-MOB2-01이 재현된 조건)에서도 AC-MOB2-05 그대로
+const LONG_TITLE = '토요일 다육 방송 특가전'
+for (const d of DEVICES) {
+  for (const rehearsal of [false, true]) {
+    const kind = rehearsal ? '리허설' : '실제'
+    test(`AC-MOB2-05 ${d.label} 글자 150% ${kind} · 8글자 이상 제목 "${LONG_TITLE}": 빠른 입력칸이 스크롤 0·포커스 없이 막대 위, 칸 가운데가 그 칸, 포커스 뒤에도 막대 위${tag(d)}`, async ({ browser, baseURL }) => {
+      const w = await world(browser, baseURL!, d, { big: true, rehearsal, title: LONG_TITLE })
+      try {
+        await expect(w.page.getByRole('heading', { level: 1 })).toContainText(LONG_TITLE)
+        await expectQuickAboveBar(w.page, `${d.label} 150% ${kind} 긴 제목`, rehearsal)
       } finally {
         await w.close()
       }

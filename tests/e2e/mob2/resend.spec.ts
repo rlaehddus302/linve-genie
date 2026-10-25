@@ -5,7 +5,7 @@ import { expect, test, type Browser, type Page, type Request } from '@playwright
 import { boardItem, history, uniqueDate } from '../s05/support.ts'
 import { smsApi, smsField, writeEvent } from '../s06/support.ts'
 import { PC, PHONE, broadcastApi, freshSeller } from '../mob1/support.ts'
-import { AUTO_RESEND_NOTE, LOST_NOTICE, RESENT_PREFIX, blockWrites, isWrite, openSmsSole, vacatedEmpty } from './support.ts'
+import { AUTO_RESEND_NOTE, LOST_NOTICE, RESENT_PREFIX, blockWrites, droppedOptions, existsOnResend, isWrite, openSmsSole, otherDevice, vacatedEmpty } from './support.ts'
 
 interface Sent {
   readonly requestId: string
@@ -132,6 +132,60 @@ test.describe('AC-MOB2-40 두 줄 차례', () => {
     }
   })
 })
+
+/** 빠른 입력 줄에 옵션(사이즈 S·M)을 붙인다 (o2/round1.spec.ts와 같은 조작) */
+async function attachSizes(page: Page): Promise<void> {
+  await page.getByRole('button', { name: '옵션 추가' }).click()
+  const dlg = page.getByRole('dialog', { name: '옵션 추가' })
+  await dlg.getByRole('button', { name: '항목 더하기' }).click()
+  await dlg.getByLabel('항목 1 이름').fill('사이즈')
+  await dlg.getByLabel('항목 1 선택지 여러 개').fill('S, M')
+  await dlg.getByRole('button', { name: '항목 1 선택지 한 번에 더하기' }).click()
+  await dlg.getByRole('button', { name: '옵션 넣기' }).click()
+  await expect(dlg).toHaveCount(0)
+  await expect(page.getByRole('group', { name: '붙은 옵션' })).toContainText('사이즈 S/M')
+}
+
+// D-MOB2-10 (SA-MOB2-03): 끊긴 사이 다른 기기가 같은 번호를 등록 — 돌아와 저절로 보내기 직전 번호가 이미 있으면 보내지 않고 한 줄 안내
+for (const withOptions of [false, true]) {
+  test(`TE-MOB2-006 · AC-MOB2-40 이미 있는 번호${withOptions ? '(옵션 방송 · 붙인 옵션 줄)' : ''}: 끊김 중 "15 핑크프릴 10000" 실패 → 그사이 다른 기기가 15번 등록 → 돌아와도 등록 요청 0, 실패 줄 사라짐, "연결이 돌아와 보내려 했지만 15번이 이미 있어 등록하지 않았어요."${withOptions ? '·옵션을 넣지 않았다는 안내' : ''}, "고칠까요?" 창 없음`, async ({ browser, baseURL }) => {
+    const s = await seller(browser, baseURL!, PHONE)
+    const other = await otherDevice(s.page, baseURL!)
+    try {
+      const date = uniqueDate()
+      const made = await other.post('/api/broadcasts', { date, rehearsal: withOptions, ...(withOptions ? { saleMode: 'OPTIONS' } : {}) })
+      expect(made.status, JSON.stringify(made.body)).toBeLessThan(300)
+      const b = String((made.body['broadcast'] as Record<string, unknown> | undefined)?.['id'] ?? (made.body['result'] as Record<string, unknown> | undefined)?.['b'] ?? made.body['b'] ?? made.body['id'])
+      await openConsole(s.page, b)
+      const sent = watchWrites(s.page)
+      await goOffline(s.page)
+      const input = s.page.getByLabel('빠른 입력')
+      await input.fill('15 핑크프릴 10000')
+      if (withOptions) await attachSizes(s.page)
+      await input.press('Enter')
+      await expect(s.page.getByText('저장하지 못했어요. 다시 보내기를 눌러 주세요: 15 핑크프릴 10000', { exact: true })).toBeVisible({ timeout: 20_000 })
+      await expect(s.page.getByText(AUTO_RESEND_NOTE, { exact: true }).first()).toBeVisible()
+      // 그사이 다른 기기에서 15번 등록 (이 화면은 끊겨 모른다)
+      const reg = await other.post('/api/events', { type: 'product.register', b, no: 15, name: '청보석', price: 20000 })
+      expect(reg.status, JSON.stringify(reg.body)).toBeLessThan(300)
+      const before = sent.length
+      await comeBack(s.page)
+      await expect(s.page.getByRole('status').filter({ hasText: existsOnResend(15) })).toHaveText(existsOnResend(15), { timeout: 10_000 })
+      if (withOptions) await expect(s.page.getByRole('status').filter({ hasText: droppedOptions(15) })).toBeVisible()
+      else await expect(s.page.getByText(/붙인 옵션은/)).toHaveCount(0)
+      await expect(s.page.getByText(/저장하지 못했어요\. 다시 보내기를 눌러 주세요/)).toHaveCount(0)
+      await expect(s.page.getByRole('dialog', { name: '15번이 이미 있어요. 고칠까요?' })).toHaveCount(0)
+      await expect(boardItem(s.page, 15)).toContainText('청보석')
+      await expect.poll(() => sent.slice(before).filter((x) => x.type === 'product.register').length, { timeout: 6_000, intervals: [500, 1000, 1500, 3000] }).toBe(0)
+      await expect(s.page.getByRole('dialog', { name: '15번이 이미 있어요. 고칠까요?' })).toHaveCount(0)
+      const regs = (await history(s.page, date, withOptions)).filter((e) => e.type === 'product.register')
+      expect(regs.map((e) => [e.fields['no'], e.fields['name'], e.fields['options']]), '다른 기기의 등록 하나뿐 (옵션 없음)').toEqual([[15, '청보석', undefined]])
+    } finally {
+      await other.dispose()
+      await s.close()
+    }
+  })
+}
 
 /** 실제 방송 · 15번 핑크프릴(재고 1) · 1등 문자찜(메모 "가나") */
 async function winnerWorld(page: Page): Promise<{ b: string; date: string }> {

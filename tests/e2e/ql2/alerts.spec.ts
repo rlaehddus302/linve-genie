@@ -104,9 +104,9 @@ async function sixWorld(browser: Browser, page: Page, viewport: { width: number;
   if (big) await expectBig(w.main)
   const strip = alerts(w.main)
   // MOB2 D-MOB2-02: 접힌 띠에서 상자에 다 들지 않는 칩은 숨겨지고 접근성 트리에서도 빠진다 — 준비 확인은 숨은 칩도 센다(항목이 있는지만 본다)
-  await expect(strip.getByRole('button', { name: '보류 찜 1', exact: true, includeHidden: true })).toHaveCount(1)
-  await expect(strip.getByRole('button', { name: SELLER_PAUSE_ALERT, exact: true, includeHidden: true })).toHaveCount(1)
-  await expect(strip.getByRole('button', { name: stationLost('안드로이드 폰'), exact: true, includeHidden: true })).toHaveCount(1, { timeout: 30_000 })
+  await expect(strip.getByRole('button', { name: '보류 찜 1', exact: true, includeHidden: true })).toHaveCount(1) // MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
+  await expect(strip.getByRole('button', { name: SELLER_PAUSE_ALERT, exact: true, includeHidden: true })).toHaveCount(1) // MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
+  await expect(strip.getByRole('button', { name: stationLost('안드로이드 폰'), exact: true, includeHidden: true })).toHaveCount(1, { timeout: 30_000 }) // MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
   return { w, dev }
 }
 

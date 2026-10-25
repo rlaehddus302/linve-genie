@@ -120,7 +120,7 @@ test.describe('AC-MOB1-12·13 출력 기기 끊김 — 라벨 화면·콘솔 알
       await expect(w.main.getByRole('button', { name: '알림 1 펼치기', exact: true })).toBeVisible()
       // 보류 찜이 첫 항목, 출력 기기 항목은 맨 끝 (세는 알림의 뒤) // MOB1 D-MOB1-14
       // MOB2 D-MOB2-02: 접힌 띠에 다 들지 않는 칩은 숨겨지고 접근성 트리에서도 빠진다 — 항목이 있는지·차례는 숨은 칩도 센다
-      const buttons = alerts(w.main).getByRole('button', { includeHidden: true })
+      const buttons = alerts(w.main).getByRole('button', { includeHidden: true }) // MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
       await expect(buttons.first()).toHaveAccessibleName('보류 찜 1')
       await expect(buttons.last()).toHaveText(lost(name)) // MOB2 D-MOB2-02: 숨은 칩은 접근성 이름이 비므로 글자로 본다
       // 접힌 띠는 한 줄 (첫 항목 보류 찜이 띠 안 — 출력 기기 항목은 그 뒤라 잘려 안 보일 수 있다) // MOB1 D-MOB1-14
@@ -193,9 +193,9 @@ test.describe('AC-MOB1-12·13 출력 기기 끊김 — 라벨 화면·콘솔 알
         await expect(w.main.getByLabel('빠른 입력')).toBeVisible()
         await station.context.setOffline(true)
         // MOB2 D-MOB2-02: 접힌 띠에 다 들지 않는 칩은 숨겨지고 접근성 트리에서도 빠진다 — 항목이 있는지·차례는 숨은 칩도 센다
-        const item = alerts(w.main).getByRole('button', { name: lost('안드로이드 폰'), exact: true, includeHidden: true })
+        const item = alerts(w.main).getByRole('button', { name: lost('안드로이드 폰'), exact: true, includeHidden: true }) // MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
         await expect(item).toHaveCount(1, { timeout: 30_000 })
-        const buttons = alerts(w.main).getByRole('button', { includeHidden: true })
+        const buttons = alerts(w.main).getByRole('button', { includeHidden: true }) // MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
         await expect(buttons.filter({ hasText: /^출력 멈춤 · / })).toHaveCount(1)
         await expect(buttons.filter({ hasText: /^보류 찜 1$/ })).toHaveCount(1)
         // 순서: 출력 멈춤 → 보류 찜 → 출력 기기 항목 (플랫폼 줄이 없는 기본 서버)
