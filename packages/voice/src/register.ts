@@ -6,27 +6,13 @@
 // 모두 순수 함수: 넘긴 값을 바꾸지 않고, 시계·난수·네트워크를 쓰지 않으며, 어떤 입력에도 예외를 던지지 않는다(카드 합치기는 카드 모양만 믿는다).
 import { normalizeText } from '@livejjim/core'
 import { closeCard, editCard, type SuggestionCard } from './card.ts'
-import { CANCEL_WORDS, CORRECTION_MARKERS, FIELD_NAMES, type ChunkReading } from './correction.ts'
-import { STOP_WORDS } from './default-dictionary.ts'
+import type { ChunkReading } from './correction.ts'
+import { CANCEL_WORDS, CORRECTION_MARKERS, GUESS_WORD_MAX, isFiller, looksLikePredicate } from './words.ts'
+export { GUESS_FILLERS, GUESS_WORD_MAX, PREDICATE_END_CHARS, isCommonWord, looksLikePredicate } from './words.ts'
 import { ENDINGS, analyzeSentence, readingForms, type ExtractOptions, type SentenceAnalysis, type VoiceExtraction } from './extract.ts'
 
 // ── 품종 추측 (R-17 7, D-V3-09) ──────────────────────────────────────────
 
-/** 군말 목록 (R-17 7). 실제 군말 = 이 목록 ∪ 기본 사전 stopWords ∪ 정정 표시·취소 낱말·칸 이름 */
-export const GUESS_FILLERS: readonly string[] = Object.freeze([
-  ...'요거 이거 그거 저거 요것 이것 그것 저것 요건 이건 그건 저건 요게 이게 그게 저게 요놈 이놈 얘 쟤 걔 아이 요아이 유아이'.split(' '),
-  ...'그대로 보냅니다 보내요 보내드려요 보내드릴게요 봅니다 봐요 보여요 드려요 드립니다 드릴게요 갑니다 가요 나갑니다 나가요'.split(' '),
-  ...'할게요 해요 합니다 있어요 있습니다 있고요 없어요 들었어요 나왔습니다 남았고요 예쁘게 진짜 정말 완전 너무 엄청 아주 되게 많이'.split(' '),
-  ...'일단 이제 지금 오늘 여기 거기 저기 이렇게 요렇게 그렇게 그러면 그럼 그리고 그래서 네네 예예 자자 여러분 사장님 언니 고객님'.split(' '),
-  ...'다음 다음은 이번 분양 분양합니다'.split(' '),
-])
-/** 낱말 최대 길이(코드 포인트) */
-export const GUESS_WORD_MAX = 20
-
-const lowerAscii = (text: string): string => text.replace(/[A-Z]/g, (char) => char.toLowerCase())
-const FILLER_KEYS: ReadonlySet<string> = new Set(
-  [...GUESS_FILLERS, ...STOP_WORDS, ...CORRECTION_MARKERS, ...CANCEL_WORDS, ...Object.keys(FIELD_NAMES)].map((word) => lowerAscii(normalizeText(word).split(' ').join(''))),
-)
 const ENDINGS_LONG_FIRST: readonly string[] = [...ENDINGS].sort((a, b) => b.length - a.length)
 const codePoints = (text: string): number => [...text].length
 
@@ -37,9 +23,6 @@ export function guessWord(token: string): string {
   }
   return token
 }
-
-/** 군말인가 — 영어 대문자는 소문자로 보고 맞춘다(`UI` = `ui`, 크롬이 "요 아이"를 적은 꼴) */
-const isFiller = (text: string): boolean => FILLER_KEYS.has(lowerAscii(text))
 
 type TokenKind = 'stop' | 'skip' | 'word'
 
@@ -53,10 +36,6 @@ function tokenKinds(analysis: SentenceAnalysis): TokenKind[] {
     return 'word'
   })
 }
-
-/** 풀이말 끝 모양 (R-17 7, D-V3-30): 낱말이 이 글자로 끝나면 후보 낱말이 아니다 (`나왔네`·`좋다`·`예쁘고`) */
-export const PREDICATE_END_CHARS: readonly string[] = Object.freeze(['다', '요', '죠', '네', '까', '고', '게', '서', '면', '데'])
-export const looksLikePredicate = (word: string): boolean => PREDICATE_END_CHARS.some((char) => word.endsWith(char))
 
 function guessFromAnalysis(analysis: SentenceAnalysis): string | null {
   if (analysis.reading.extraction.no === null) return null
@@ -84,9 +63,9 @@ export function guessVariety(text: unknown, options: { readonly maxNumber?: numb
 export interface ReadyRegistration {
   readonly no: number
   readonly price: number
-  /** 사전 이름, 없으면 추측(R-17 7), 없으면 null(품종 미입력) */
+  /** 사전 맞춤 이름, 없으면 null(품종 미입력) — 추측은 넣지 않는다(D-V3-37, RegistrationReading.guess는 후보 단추용) */
   readonly name: string | null
-  /** 품종이 추측이다 — 카드·목록에 "품종 확인 필요" */
+  /** V3 D-V3-37부터 늘 false (추측을 등록 품종에 쓰지 않는다) — 옛 모양을 위해 남김 */
   readonly nameNeedsCheck: boolean
   /** 번호를 낸 것: 'N번'이 들림(marker) · '번' 없는 번호(bare). 이미 있는 번호면 decideForExisting에 그대로 넘긴다 */
   readonly numberFrom: 'marker' | 'bare'
@@ -155,7 +134,8 @@ export function readRegistration(text: unknown, options: RegistrationOptions = {
         : null
   const ready: ReadyRegistration | null =
     sure && blocked === null && numberFrom !== null
-      ? { no: extraction.no as number, price: extraction.price as number, name: extraction.name ?? safeGuess, nameNeedsCheck: extraction.name === null && safeGuess !== null, numberFrom }
+      ? // D-V3-37: 등록 품종은 사전 맞춤(name)뿐 — 추측은 카드 후보 단추(guess)로만
+        { no: extraction.no as number, price: extraction.price as number, name: extraction.name, nameNeedsCheck: false, numberFrom }
       : null
   return { extraction, guess, safeGuess, numberFrom, blocked, priceSure, correction, heardNumbers: analysis.heardNumbers, heardPrices: analysis.heardPrices, ready }
 }
@@ -306,7 +286,8 @@ export function mergeSameNumberCards(cards: readonly SuggestionCard[]): Suggesti
     for (const i of indices) {
       if (i === keep) continue
       const other = cards[i] as SuggestionCard
-      if (merged.name === null && other.name !== null) {
+      // 추측 품종(nameNeedsCheck) 카드의 품종은 옮기지 않는다 (D-V3-37)
+      if (merged.name === null && other.name !== null && other.nameNeedsCheck !== true) {
         merged = { ...merged, name: other.name, ...(other.nameNeedsCheck === undefined ? {} : { nameNeedsCheck: other.nameNeedsCheck }), ...(other.nameExact === undefined ? {} : { nameExact: other.nameExact }) }
       }
       if (merged.price === null && other.price !== null) merged = { ...merged, price: other.price }
@@ -364,7 +345,7 @@ export interface MergeResult {
 /**
  * 같은 번호의 열린 카드에 새 덩어리를 합친다 (D-V3-08, 화면 apps/web/src/voice/controller.ts #mergeCard와 같은 판단).
  * - 손댄 카드는 바꾸지 않는다(까닭 MERGE_TOUCHED_REASON).
- * - 품종: 덩어리의 사전 이름이 카드 품종과 다르면 그것으로. 사전 이름이 없고 추측이 있으면 카드 품종이 비었거나 추측(nameNeedsCheck)일 때만 추측으로 — 사전 품종 카드는 추측으로 바꾸지 않는다.
+ * - 품종: 덩어리의 사전 이름(또는 칸 이름으로 말한 품종)이 카드 품종과 다르면 그것으로. 추측(R-17 7)은 쓰지 않는다(D-V3-37 — 카드 후보 단추로만).
  * - 가격: 덩어리 가격이 있고 다르면 그것으로.
  * `registration`은 같은 덩어리의 readRegistration 결과(없으면 추측·바로 등록 판단 없이).
  */
@@ -372,19 +353,14 @@ export function mergeIntoCard(card: SuggestionCard, reading: ChunkReading, regis
   try {
     if (card.touched) return { card, changed: false, autoDue: false, reason: MERGE_TOUCHED_REASON }
     const changes: { name?: string; price?: number } = {}
-    let guessed = false
-    const guess = registration?.guess ?? null
+    // D-V3-37: 합칠 때 추측 품종(R-17 7)은 쓰지 않는다 — 사전 이름(또는 칸 이름으로 말한 품종)만
     if (reading.name !== null && reading.name !== card.name) changes.name = reading.name
-    else if (reading.name === null && guess !== null && (card.name === null || card.nameNeedsCheck === true) && guess !== card.name) {
-      changes.name = guess
-      guessed = true
-    }
     if (reading.price !== null && reading.price !== card.price) changes.price = reading.price
     let next = card
     if (Object.keys(changes).length > 0) {
       const edited = editCard(card, changes, options)
       if (!edited.ok) return { card, changed: false, autoDue: false, reason: edited.message }
-      next = changes.name === undefined ? edited.card : { ...edited.card, nameNeedsCheck: guessed || reading.nameNeedsCheck }
+      next = changes.name === undefined ? edited.card : { ...edited.card, nameNeedsCheck: reading.nameNeedsCheck }
     }
     const autoDue =
       registration !== null &&

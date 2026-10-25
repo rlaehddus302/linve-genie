@@ -3,17 +3,22 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import {
   MERGE_TOUCHED_REASON,
+  canLearnAlias,
   checkVoiceSettings,
   chooseInstantAction,
   createCard,
   decideSameNumber,
   extractVoice,
   guessVariety,
+  learnAlias,
   mergeIntoCard,
+  mergeSameNumberCards,
   prepareVoiceDictionary,
   readChunk,
+  readLearnedAliases,
   readRegistration,
   readSure,
+  readyToRegister,
   resolveVoiceSettings,
   resolveQuietMs,
   touchCard,
@@ -48,9 +53,11 @@ describe('AC-V3-06 mergeIntoCard', () => {
     expect(r.card.name).toBe('핑크프릴')
     expect(r.changed).toBe(false)
   })
-  it('(c2) 빈 품종 카드 + 추측 → 추측(확인 필요)', () => {
+  it('(c2) 빈 품종 카드 + 추측 → 그대로 비움 (D-V3-37 — 추측은 후보 단추로만)', () => {
     const text = '15번 bts 자 bts 만오천'
-    expect(mergeIntoCard(card(null, 15000), chunk(text), reg(text)).card).toMatchObject({ name: 'bts', nameNeedsCheck: true })
+    const r = mergeIntoCard(card(null, 15000), chunk(text), reg(text))
+    expect(r.card.name).toBeNull()
+    expect(r.changed).toBe(false)
   })
   it('(d) 손댄 카드 → 바뀌지 않고 까닭', () => {
     const touched = touchCard(card('핑크프릴', 15000))
@@ -146,5 +153,37 @@ describe('E2E R48 — 자리가 겹치는 앞 수는 붙여 읽지 않는다 (D-
     expect(extractVoice('15번 2 만원').price).toBe(20000)
     // 단위만인 토큰(천·백)은 계수가 없어 겹침이 아니다
     expect(extractVoice('15번 2 천 5 백 원').price).toBe(2500)
+  })
+})
+
+describe('AC-V3-50 배운 별칭은 흔한 말을 배우지 않는다 (D-V3-38)', () => {
+  it.each(['보니까', '그런데', '있고요', '한번', '약간', '요거', '3강'])('%s → 배우지 않음', (heard) => {
+    expect(canLearnAlias(heard, '보니타')).toBe(false)
+    expect(learnAlias([], { heard, name: '보니타', at: 1 })).toEqual([])
+  })
+  it('선버스 → 선버스트는 그대로 배운다 (AC-V2-09)', () => {
+    expect(canLearnAlias('선버스', '선버스트')).toBe(true)
+  })
+  it('저장소에 있던 흔한 말 별칭은 읽을 때 버리고, 말하면 품종 미입력', () => {
+    const stored = [{ heard: '보니까', name: '보니타', usedAt: 5 }, { heard: '선버스', name: '선버스트', usedAt: 3 }]
+    const learned = readLearnedAliases(stored)
+    expect(learned).toEqual([{ heard: '선버스', name: '선버스트', usedAt: 3 }])
+    const dictionary = prepareVoiceDictionary({ learned, base: [{ name: '보니타' }, { name: '라울' }] })
+    expect(readyToRegister('15번 보니까 만오천 원', { dictionary })).toEqual({ no: 15, price: 15000, name: null, nameNeedsCheck: false, numberFrom: 'marker' })
+  })
+})
+
+describe('D-V3-37 추측은 등록·합치기에 쓰지 않는다', () => {
+  it('확정 읽기 name은 사전 맞춤뿐, 추측은 guess로', () => {
+    const r = readRegistration('15번 bts 자 bts 만오천 원', { dictionary: DICT })
+    expect(r.ready).toEqual({ no: 15, price: 15000, name: null, nameNeedsCheck: false, numberFrom: 'marker' })
+    expect(r.guess).toBe('bts')
+    expect(readSure('15번 bts 자 bts 만오천 원', { dictionary: DICT })).toMatchObject({ sure: true, name: null, guess: 'bts' })
+  })
+  it('mergeSameNumberCards는 추측 품종 카드의 품종을 옮기지 않는다', () => {
+    const newer = card(null, 15000, { id: 'b' })
+    const older = card('bts', null, { id: 'a', nameNeedsCheck: true })
+    const merged = mergeSameNumberCards([newer, older])
+    expect(merged[0]).toMatchObject({ id: 'b', status: 'OPEN', name: null, price: 15000 })
   })
 })

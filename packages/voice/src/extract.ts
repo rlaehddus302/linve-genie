@@ -4,6 +4,7 @@
 // 정규화(R-3)·금액(R-14)·수사(R-15)는 코어 함수를 그대로 다시 쓴다 — 코어와 결과가 갈라지지 않게.
 import { normalizeText, parseAmount, parseKoreanNumber } from '@livejjim/core'
 import { VarietyDictionary, type DictionaryEntry } from './dictionary.ts'
+import { looksLikePredicate } from './words.ts'
 import { BIT_PATTERN_MAX, JamoPattern, bitParallelDistance, candidateLengthRange, compareSimilarity, isCandidate, jamoKey, jamoOf, type Similarity } from './jamo.ts'
 
 export type Confidence = 'HIGH' | 'LOW'
@@ -583,7 +584,8 @@ export function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDicti
   if (top.similarity === null) {
     for (const text of texts) {
       const jamo = jamoOf(text)
-      if (jamo.length === 0) continue
+      // 풀이말 끝 모양 창(D-V3-30·38)은 비슷함으로 사전 이름에 맞추지 않는다 — `보니까` → 보니타가 되지 않게(AC-V3-50). 공백만 다른 맞춤은 그대로
+      if (jamo.length === 0 || looksLikePredicate(text)) continue
       const distance = distanceFrom(jamo, dictionary)
       const range = candidateLengthRange(jamo.length)
       for (let length = range.min; length <= range.max; length++) {

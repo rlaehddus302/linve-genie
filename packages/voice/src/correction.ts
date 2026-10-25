@@ -6,20 +6,17 @@ import { STOP_WORDS } from './default-dictionary.ts'
 import { candidatesFromWindows, type VarietyCandidate } from './candidates.ts'
 import { VarietyDictionary } from './dictionary.ts'
 import { readSentence, readingForms, tokenize, type Confidence, type SentenceReading } from './extract.ts'
+import { CANCEL_WORDS, CORRECTION_MARKERS, FIELD_NAMES } from './words.ts'
 
-/** 정정 표시 (D-V2-05). `말고`로 끝나는 토큰은 앞 글 + 표시 */
-export const CORRECTION_MARKERS: readonly string[] = Object.freeze(['아니', '아니야', '아니요', '아니고', '다시', '정정', '말고'])
-/** 취소 낱말 */
-export const CANCEL_WORDS: readonly string[] = Object.freeze(['취소', '취소요', '취소해', '취소해요', '취소할게요'])
-/** 칸 이름 → 칸 */
-export const FIELD_NAMES: Readonly<Record<string, ChunkField>> = Object.freeze({ 품종은: 'name', 품종: 'name', 이름은: 'name', 가격은: 'price', 번호는: 'no' })
+export { CANCEL_WORDS, CORRECTION_MARKERS, FIELD_NAMES } from './words.ts'
 /** 칸 이름으로 말한 사전 밖 품종 글의 최대 길이(코드 포인트) */
 export const RAW_NAME_MAX = 20
 
 const MALGO = '말고'
 const STOP_KEYS: ReadonlySet<string> = new Set(STOP_WORDS.map((word) => normalizeText(word).split(' ').join('')))
 
-export type ChunkField = 'no' | 'name' | 'price'
+export type { ChunkField } from './words.ts'
+import type { ChunkField } from './words.ts'
 
 /** 조각을 시작한 것: 덩어리 맨 앞(null)·정정 표시·취소 낱말·칸 이름 */
 export type PieceStart = 'correction' | 'cancel' | 'field' | null

@@ -5,6 +5,7 @@
 import { normalizeText } from '@livejjim/core'
 import { DEFAULT_DICTIONARY, DEFAULT_VARIETIES, STOP_WORDS, type VarietySource } from './default-dictionary.ts'
 import { compact, jamoKey, jamoOf } from './jamo.ts'
+import { isCommonWord } from './words.ts'
 
 export interface DictionaryEntry {
   /** 돌려줄 이름 = 사전에 적힌 모양을 R-3 정규화한 것 */
@@ -215,7 +216,8 @@ export function canLearnAlias(heard: unknown, name: unknown, options?: LearnOpti
   if (typeof heard !== 'string' || typeof name !== 'string') return false
   const key = compact(normalizeText(heard))
   const target = compact(normalizeText(name))
-  if (codePointLength(key) < 2 || codePointLength(target) < 2 || key === target || isStopWord(key)) return false
+  // D-V3-38: 흔한 말(2글자 이하·군말·풀이말 끝·숫자)은 배우지 않는다 — 읽을 때도 이 검사로 버린다(readLearnedAliases)
+  if (codePointLength(key) < 2 || codePointLength(target) < 2 || key === target || isStopWord(key) || isCommonWord(key)) return false
   try {
     return !knownDictionary(options).byKey.has(key)
   } catch {

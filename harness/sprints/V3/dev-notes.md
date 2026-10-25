@@ -172,3 +172,22 @@
 - 고침: 한자어로 붙여 읽기 전에 이웃한 두 토큰마다 자리 겹침(D-V3-25)을 보고, 겹치면 붙여 읽지 않는다. 결과: 108(번 없음, numberFrom bare) · 120,000원.
 - 단위만인 토큰(`백`·`천`·`만원`)은 계수가 없다고 본다(`2 천 5 백 원` = 2,500원 그대로).
 - 골든 불일치 0, adversarial/v3 100개 통과.
+
+### dev-device 추가 9 — D-V3-37·38 (spec 7b0469e2), AC-V3-50
+- D-V3-37: 확정 읽기의 등록 품종은 사전 맞춤 `name`뿐이다.
+  - `ReadyRegistration.name` = `extraction.name`(없으면 null), `nameNeedsCheck`는 늘 false다.
+  - 추측은 `RegistrationReading.guess`(= `safeGuess`)·`SureReading.guess`로만 돌려준다. 화면에서는 품종이 빈 카드의 후보 단추로 쓴다.
+  - `mergeIntoCard`는 추측을 쓰지 않는다. 사전 이름과 칸 이름으로 말한 품종만 쓴다.
+  - `mergeSameNumberCards`는 nameNeedsCheck 카드의 품종을 옮기지 않는다.
+  - `decideSameNumber`·`decideForExisting`은 이미 사전 이름만 본다(D-V3-31).
+- D-V3-38: `canLearnAlias`가 흔한 말을 배우지 않는다 — `isCommonWord`: 2글자 이하·군말·풀이말 끝 다요죠네까고게서면데·숫자가 든 글. `readLearnedAliases`는 같은 검사로 저장값에서도 버린다.
+- AC-V3-50 "15번 보니까 만오천 원 → 품종 미입력"을 맞추려고 하나 더 했다. **스펙 관리자 확인 필요.**
+  - 기본 사전에 `보니타`가 있어, 배운 별칭을 버려도 R-17 5 비슷함(자모 거리 1/6)으로 `보니까` → 보니타가 됐다.
+  - 그래서 풀이말 끝 모양 창은 비슷함 맞추기에서 뺀다(extract.ts findVariety. 공백만 다른 정확한 맞춤은 그대로).
+  - 골든 155사례는 그대로 통과한다. 처음엔 2글자 이하도 뺐는데 골든 `15번 나울 오천 원 → 라울`이 깨져 풀이말 끝만 남겼다.
+  - 이 내용을 R-17 5 문장에 더해야 한다.
+- 낱말 목록(정정 표시·취소·칸 이름·군말·풀이말 끝)은 새 파일 `src/words.ts`로 옮겼다. 사전·정정·등록이 서로 가져오며 생기는 고리를 막으려는 것이다. 내보내는 이름은 그대로다.
+- 단위 시험 손봄(규칙 변경을 따라감):
+  - v2-units "200개 넘으면 오래된 것부터": 들은 말을 숫자 없는 3글자 이상으로 바꿨다(D-V3-38).
+  - v3-register 실방송 2: 품종을 null로 바꾸고 guess bts를 따로 확인한다.
+  - v3-acceptance (c2): 빈 카드에 추측을 채우지 않는다.

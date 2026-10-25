@@ -119,9 +119,11 @@ describe('실제 방송 문장 → 바로 등록 (기본 사전)', () => {
     const text = '네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요'
     expect(readyToRegister(text, { dictionary: DICT })).toEqual({ no: 108, price: 100000, name: null, nameNeedsCheck: false, numberFrom: 'marker' })
   })
-  it('2. 10만 원 108번(끝) → 108 · 100,000원 · bts(두 번 나온 낱말)', () => {
+  it('2. 10만 원 108번(끝) → 108 · 100,000원 · 품종 미입력, 후보 bts(두 번 나온 낱말)', () => {
     const r = readyToRegister('자 bts는 자 bts 요거 그대로 보냅니다 요 아이 자 10만 원 108번', { dictionary: DICT })
-    expect(r).toEqual({ no: 108, price: 100000, name: 'bts', nameNeedsCheck: true, numberFrom: 'marker' })
+    // D-V3-37: 추측(bts)은 등록 품종이 아니고 후보 단추용 guess로만
+    expect(r).toEqual({ no: 108, price: 100000, name: null, nameNeedsCheck: false, numberFrom: 'marker' })
+    expect(readRegistration('자 bts는 자 bts 요거 그대로 보냅니다 요 아이 자 10만 원 108번', { dictionary: DICT }).guess).toBe('bts')
   })
   it('3. 180번 … 30 5만 원 → 180 · 350,000원 · 삼광색금', () => {
     const text = '자 180번 상관 세금 자 요 아이 자 유아이 35만 원까지 네 요 아이는 35만 원까지 그대로 봅니다 색금 이렇게 잘 들었어요 자 3강색급 요 아이는 30 5만 원'
