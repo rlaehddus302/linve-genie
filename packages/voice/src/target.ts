@@ -102,11 +102,22 @@ export function withRo(word: string): string {
 
 const productLabel = (r: RecentRegistration): string => `${String(r.no)}번${r.name === '' ? '' : ` ${r.name}`}`
 
-/** 목적격 조사: 받침 있으면 "을", 없으면 "를" (한글이 아니면 "을") */
-const withObject = (word: string): string => {
-  const last = word.codePointAt(word.length - 1) ?? 0
-  return `${word}${last >= 0xac00 && last <= 0xd7a3 && (last - 0xac00) % 28 === 0 ? '를' : '을'}`
+/** 로마자 글자 이름·숫자 읽기의 끝 받침 (L 엘·M 엠·N 엔·R 알, 0 영·1 일·3 삼·6 육·7 칠·8 팔) — `bts` → 에스(받침 없음) */
+const LATIN_BATCHIM = new Set([...'lmnr'])
+const DIGIT_BATCHIM = new Set([...'013678'])
+
+/** 끝 글자에 받침이 있는가 (한글은 종성, 로마자·숫자는 읽는 소리로) */
+function endsWithBatchim(word: string): boolean {
+  const lastChar = [...word].pop() ?? ''
+  const last = lastChar.codePointAt(0) ?? 0
+  if (last >= 0xac00 && last <= 0xd7a3) return (last - 0xac00) % 28 !== 0
+  if (/[0-9]/.test(lastChar)) return DIGIT_BATCHIM.has(lastChar)
+  if (/[a-zA-Z]/.test(lastChar)) return LATIN_BATCHIM.has(lastChar.toLowerCase())
+  return true
 }
+
+/** 목적격 조사: 받침 있으면 "을", 없으면 "를" (`bts` → "bts를", `핑크문` → "핑크문을") */
+export const withObject = (word: string): string => `${word}${endsWithBatchim(word) ? '을' : '를'}`
 
 /** "방금 등록한 15번 핑크문을 18,000원으로 고칠까요?" (품종·가격 둘 다면 "루비 · 18,000원으로") */
 export function offerMessage(r: RecentRegistration, changes: { readonly name?: string; readonly price?: number }): string {

@@ -120,3 +120,20 @@
   - 적대 v3 "15번 999 만 9천9백 원 → 9,999,900원 바로 등록" → 300만 원 상한으로 카드만(blocked PRICE_TOO_HIGH).
   - 적대 v3 사례 표 "자 9cm에 이거 25만 원 170 → k=6 확정" → 카드만(앞서부터 실패하던 건과 같은 사례).
   - `pnpm golden` 불일치는 없다(155사례 통과).
+
+### dev-device 추가 6 — D-V3-30~34 (spec 960d30d4), TE-V3-001·004
+- `guessVariety`는 D-V3-30을 따른다: 두 번 이상 나온 후보 낱말만 품종 추측이 된다. 낱말이 다·요·죠·네·까·고·게·서·면·데로 끝나면 후보가 아니다(`PREDICATE_END_CHARS`). 번호 앞뒤 낱말을 보던 규칙은 없앴다. `safeGuess`는 이제 `guess`와 같다(옛 이름이라 남겨 둠).
+- `decideSameNumber`는 R-22 새 입력을 받는다.
+  - `heard.numberFrom?: 'MARKER' | 'BARE'`(없으면 MARKER)를 받는다. BARE면 `ASK`이고 까닭은 NUMBER_BARE다.
+  - 가격이 바뀌면 PRICE_JUMP를 본다: 새 가격이 3배를 넘거나 1/3 미만이거나 300만 원을 넘으면 `ASK`다. 딱 3배와 300만 원은 받는다.
+  - 추측(GUESS)은 이미 있는 상품의 품종을 채우지도 바꾸지도 않는다.
+- `decideForExisting`은 `decideSameNumber` 위에 얹었다. heard의 `numberFrom: 'marker'|'bare'`와 `nameNeedsCheck`를 R-22 입력으로 바꿔 넘긴다.
+- D-V3-34 "가격 뒤의 '번' 없는 번호"는 처음 나온 후보 토큰과 첫 원 가격 줄을 견준다(스펙 문장대로 좁힘).
+- TE-V3-001: 삼광색금 별칭을 AC-V3-05 목록 그대로 맞췄다(삼강색금·삼강세금·상강색금·상관세금·삼광세금).
+  - 실방송 3 문장을 낱말 하나씩 늘려 넣으면, 처음 확정되는 때(k=11) 품종이 이미 삼광색금이다. 단위 시험으로 확인했다.
+  - 이제 추측은 두 번 나와야 하고, `상관 세금`은 별칭에 정확히 맞는다. 그래서 '상관'으로 먼저 등록되는 일이 없다.
+- TE-V3-004: `withObject`(target.ts, 이제 index.ts로도 내보냄)가 로마자·숫자의 읽는 소리로 받침을 본다.
+  - `bts` → "bts를", L·M·N·R은 "을".
+  - 숫자는 0·1·3·6·7·8이면 "을", 나머지는 "를".
+- 사례 수: voice-register 80(variety-guess 42, same-number 38). `pnpm golden` 불일치 0, tests/adversarial/v3 100개 통과.
+- 남은 device 몫(acceptance에 [device]로 적혔는데 packages/voice에 아직 없음): AC-V3-06 `mergeIntoCard`, AC-V3-07 `resolveVoiceSettings`의 `voice.autoRegister`, AC-V3-08 할 일 고르기 확장(`otherNumber`·`undoRegistered`), AC-V3-09의 `readSure`. 화면 담당이 apps/web/src/voice/instant.ts에 비슷한 것을 만들었다 — 어느 쪽에 둘지 오케스트레이터 판단 필요.

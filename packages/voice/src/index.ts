@@ -162,6 +162,7 @@ export {
   pauseAutoConfirm,
   resumeAutoConfirm,
   undoMessage,
+  withObject,
   withRo,
   type ChunkCardInput,
   type ChunkFields,

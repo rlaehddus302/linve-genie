@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_VARIETIES,
   createCard,
   decideForExisting,
   decideSameNumber,
@@ -12,9 +13,11 @@ import {
   guessVariety,
   mergeSameNumberCards,
   prepareVoiceDictionary,
+  readChunk,
   readRegistration,
   readyToRegister,
   touchCard,
+  withObject,
   type SameNumberInput,
   type SuggestionCard,
 } from '../src/index.ts'
@@ -325,5 +328,28 @@ describe('실방송 3차 위험 사례 (판매자 안전)', () => {
     expect(decideForExisting(existing, { name: null, price: 700000, numberFrom: 'bare' })).toEqual({ kind: 'ASK', price: 700000, name: null })
     expect(decideForExisting({ ...existing, claimCount: 1 }, { name: '창녹금', price: 650000, numberFrom: 'bare' })).toEqual({ kind: 'ASK', price: null, name: '창녹금' })
     expect(readRegistration('170 25만 원', { dictionary: DICT }).ready).toMatchObject({ no: 170, numberFrom: 'bare' })
+  })
+})
+
+describe('TE-V3-001·004', () => {
+  it('삼광색금 별칭은 AC-V3-05 목록 그대로이고, 들린 꼴이 모두 삼광색금', () => {
+    const entry = DEFAULT_VARIETIES.find((item) => item.name === '삼광색금')
+    expect(entry?.aliases).toEqual(['삼강색금', '삼강세금', '상강색금', '상관세금', '삼광세금'])
+    for (const text of ['180번 3강 세금 35만 원', '180번 상관 세금 35만 원', '174번 상강 색금 28만 원', '180번 3강색급 35만 원']) {
+      expect(readChunk(text, { dictionary: DICT }).name, text).toBe('삼광색금')
+    }
+  })
+  it('실방송 3: 낱말을 늘려 넣어도 처음 확정 때 품종이 이미 삼광색금 (추측으로 먼저 등록하지 않음)', () => {
+    const words = '자 180번 상관 세금 자 요 아이 자 유아이 35만 원까지 네 요 아이는 35만 원까지 그대로 봅니다 색금 이렇게 잘 들었어요 자 3강색급 요 아이는 30 5만 원'.split(' ')
+    const first = words.map((_, k) => readyToRegister(words.slice(0, k + 1).join(' '), { dictionary: DICT })).find((item) => item !== null)
+    expect(first).toEqual({ no: 180, price: 350000, name: '삼광색금', nameNeedsCheck: false, numberFrom: 'marker' })
+  })
+  it('목적격 조사: 받침 없는 로마자는 를', () => {
+    expect(withObject('108번 bts')).toBe('108번 bts를')
+    expect(withObject('15번 핑크문')).toBe('15번 핑크문을')
+    expect(withObject('15번 라울')).toBe('15번 라울을')
+    expect(withObject('12번 루비')).toBe('12번 루비를')
+    expect(withObject('3번 GTM')).toBe('3번 GTM을')
+    expect(withObject('7번')).toBe('7번을')
   })
 })
