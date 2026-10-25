@@ -7,6 +7,9 @@
 // 펼치기 버튼은 "알림" 영역 밖에 둔다(영역의 글자는 PC와 같다).
 // QL2 D-QL2-02: 띠에 항목이 하나라도 있으면 펼치기 단추가 늘 있다 — 세는 알림이 0이면 "알림 펼치기"/"알림 접기".
 // 펼친 동안 모든 항목은 문장 전체(줄바꿈), 접힌 동안 한 줄·말줄임. 높이는 글자 크기를 따른다(styles.css).
+// MOB2 D-MOB2-02: 접힌 동안 띠 상자(.alerts) 안에 상자 전체가 들어가지 않는 항목은 보이지 않게 한다(data-overflow → visibility: hidden,
+// 보조 기술에도 숨김) — 반쯤 잘린 칩을 잘못 누르지 않게. 첫 항목은 늘 보인다. 남은 수는 "알림 n 펼치기"가 말한다.
+import { useLayoutEffect, useRef } from 'react'
 import type { AlertCounts } from '../lib/derive.ts'
 import { PRINT_ALERT_WORD } from '../lib/print-words.ts'
 import { ALERT_WORD } from '../lib/words.ts'
@@ -74,7 +77,44 @@ export interface AlertStripProps {
   readonly onToggle?: () => void
 }
 
+/** 접힌 띠에서 상자 밖으로 나간 항목 표시 (밖이면 data-overflow) — 띠 상자와 1px까지 차이는 안으로 본다 */
+export function markOverflow(strip: HTMLElement, expanded: boolean): void {
+  const items = [...strip.querySelectorAll<HTMLElement>(':scope > .alerts-list > li')]
+  if (expanded) {
+    for (const item of items) item.removeAttribute('data-overflow')
+    return
+  }
+  const box = strip.getBoundingClientRect()
+  items.forEach((item, index) => {
+    const r = item.getBoundingClientRect()
+    const inside = r.top >= box.top - 1 && r.bottom <= box.bottom + 1 && r.left >= box.left - 1 && r.right <= box.right + 1
+    // 첫 항목은 늘 보인다 (말줄임으로 띠 폭 안에 든다)
+    if (index === 0 || inside) item.removeAttribute('data-overflow')
+    else item.setAttribute('data-overflow', 'true')
+  })
+}
+
+function useOverflowMarks(expanded: boolean) {
+  const ref = useRef<HTMLElement>(null)
+  // 그릴 때마다(항목·글이 바뀜) 다시 본다 — 표시는 보이기만 바꿔(자리는 그대로) 다시 그리지 않는다
+  useLayoutEffect(() => {
+    if (ref.current !== null) markOverflow(ref.current, expanded)
+  })
+  // 화면 폭·글자 크기가 바뀌면 다시 본다
+  useLayoutEffect(() => {
+    const strip = ref.current
+    if (strip === null || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => markOverflow(strip, expanded))
+    observer.observe(strip)
+    const list = strip.querySelector(':scope > .alerts-list')
+    if (list !== null) observer.observe(list)
+    return () => observer.disconnect()
+  }, [expanded])
+  return ref
+}
+
 export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanksFailed = 0, reviews = 0, onOpen, expanded = false, onToggle }: AlertStripProps) {
+  const stripRef = useOverflowMarks(expanded)
   const items: { kind: AlertKind; word: string; count: number; text?: string }[] = [
     { kind: 'conflict', word: ALERT_WORD.conflict, count: counts.conflict },
     { kind: 'cancelRequests', word: ALERT_WORD.cancelRequest, count: counts.cancelRequest },
@@ -112,7 +152,7 @@ export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanks
   )
   return (
     <div className={expanded ? 'alert-bar alert-bar-open' : 'alert-bar'}>
-      <section id="alerts" className="alerts" aria-label="알림">
+      <section ref={stripRef} id="alerts" className="alerts" aria-label="알림">
         {shown.length === 0 && leads.length === 0 ? (
           <p className="alerts-none">알림 없음</p>
         ) : (

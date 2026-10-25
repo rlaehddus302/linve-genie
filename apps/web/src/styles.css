@@ -3935,3 +3935,95 @@ select.input {
 .login-help p {
   margin: 0;
 }
+
+/* ── MOB2 D-MOB2-02·03: 휴대폰 글자 150% 콘솔 고정 영역 ≤ 화면 높이 50%, 스크롤 0에서도 빠른 입력칸이 아래 막대 위 ───────
+ * 글자 크기는 줄이지 않고, 숨기지 않는다. 줄이는 차례(D-MOB2-02): (b) 개수 칸을 입력칸과 한 줄에 → (c) 틈·여백 → (d) 되돌리기 한 항목을 한 덩어리로.
+ * (a) 요약 줄 6글자 꼴은 쓰지 않았다 — 150% 요약 줄의 10글자 기대(AC-QL2-01)를 바꾸게 되어서(dev-notes).
+ * 큰 글씨인지는 줄 폭을 글자 크기(rem)로 견주는 컨테이너 조건으로 안다(D-MOB1-03과 같은 17rem) — 보통 글씨(100%) 휴대폰·PC는 그대로다. */
+
+/* (b) 큰 글씨 빠른 입력 줄: 이름 "빠른 입력"과 "개수" 이름이 윗줄, 입력칸과 개수 칸이 아랫줄 — 입력칸은 줄 폭에서 개수 칸만 뺀 폭(화면 60% 이상) */
+@container (max-width: 17rem) {
+  .quick-row > * {
+    order: 5;
+  }
+
+  .quick-label {
+    order: 1;
+    flex: 1 1 calc(100% - 3.5rem - 0.375rem - 1px);
+    min-height: 0;
+  }
+
+  .quick-count {
+    display: contents;
+  }
+
+  .quick-count > label {
+    order: 2;
+    flex: 0 0 3.5rem;
+    text-align: center;
+  }
+
+  .quick-input {
+    order: 3;
+    flex: 1 1 calc(100% - 3.5rem - 0.375rem - 1px);
+  }
+
+  .quick-count-input {
+    order: 4;
+    flex: 0 0 3.5rem;
+    max-inline-size: 3.5rem;
+  }
+}
+
+@media (max-width: 47.99rem) {
+  /* (c) 고정 영역 안 위아래 틈·여백: 보통 글씨(16px)에서는 지금 값 6px 그대로, 큰 글씨(24px)에서는 4px —
+   * 10px − 0.25rem은 16px에서 6px, 24px에서 4px. 틈만 글자와 함께 커져 고정 영역이 늘지 않게 */
+  .console-sticky {
+    padding-block: max(2px, min(6px, calc(10px - 0.25rem)));
+    gap: max(2px, min(6px, calc(10px - 0.25rem)));
+  }
+
+  .console-sticky-quick,
+  .console-sticky-quick .quick,
+  .console-sticky-quick .quick-row,
+  .undo-bar ul {
+    row-gap: max(2px, min(6px, calc(10px - 0.25rem)));
+  }
+
+  .undo-bar {
+    container-type: inline-size;
+  }
+
+  /* D-MOB2-03: 제목 줄의 위아래 틈만 — 보통 글씨는 그대로(12px), 큰 글씨는 콘솔 틈 18px을 6px로(24px − 1.5rem = 0 / −12px).
+   * 리허설 띠·제목은 숨기지 않는다 */
+  .rehearsal-banner + .console-head,
+  .console-head + .console-sticky {
+    margin-block-start: min(0px, calc(24px - 1.5rem));
+  }
+}
+
+/* D-MOB2-02 칩: 접힌 알림 띠에 상자 전체가 들어가지 않는 항목은 보이지 않는다(보조 기술에도 숨김 — AlertStrip이 data-overflow를 붙인다).
+ * 자리는 그대로라 띠 높이·차례가 바뀌지 않는다. 펼치면 모두 보인다 */
+.alert-bar:not(.alert-bar-open) .alerts-list > li[data-overflow] {
+  visibility: hidden;
+}
+
+/* (d) 큰 글씨 되돌리기 띠 한 항목 = 한 덩어리: 문장 줄 아래에 남은 시간과 단추를 한 줄로(단추 44px 이상 그대로) */
+@container (max-width: 17rem) {
+  .undo-item {
+    padding-block: 2px;
+    row-gap: 2px;
+  }
+
+  .undo-item > [role='status'],
+  .undo-item > [role='alert'] {
+    flex: 1 1 100%;
+    line-height: 1.375;
+  }
+
+  /* 단추는 글자 한 줄 + 위아래 여백만 — 높이 44px 이상(글자 크기는 그대로) */
+  .undo-item > .button {
+    min-height: 44px;
+    padding-block: 0.25rem;
+  }
+}
