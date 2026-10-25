@@ -456,21 +456,29 @@ describe('콘솔 1등 옆 "입금 늦음 주의" (D-CRM1-07, AC-CRM1-18·19)', (
     expect(calls()).toBe(1)
     expect(winnersKey(scope(['UC_B', 'UC_A']))).toBe('UC_A|UC_B')
 
-    // 1등이 바뀜 → 10초가 안 지났으니 미뤘다가 한 번
+    // 연 직후 첫 1등 변화 → 연 때 받은 것은 간격에 세지 않으니 바로 (TE-CRM1-001, "1등이 바뀌면 5초 안에")
+    await act(async () => {
+      vi.advanceTimersByTime(500)
+    })
     rerender(<Probe data={scope(['UC_B'])} rehearsal={false} onCaution={(value) => seen.push(value)} />)
+    await settle()
+    expect(calls()).toBe(2)
+    // 그 뒤 또 바뀜 → 10초가 안 지났으니 미뤘다가 한 번
     rerender(<Probe data={scope(['UC_B', 'UC_C'])} rehearsal={false} onCaution={(value) => seen.push(value)} />)
-    expect(calls()).toBe(1)
+    rerender(<Probe data={scope(['UC_B', 'UC_D'])} rehearsal={false} onCaution={(value) => seen.push(value)} />)
+    expect(calls()).toBe(2)
     await act(async () => {
       vi.advanceTimersByTime(9_000)
     })
     await settle()
-    expect(calls()).toBe(1)
+    expect(calls()).toBe(2)
     status = 500
     await act(async () => {
       vi.advanceTimersByTime(1_100)
     })
     await settle()
-    expect(calls()).toBe(2)
+    expect(calls()).toBe(3)
+    expect(seen.at(-1)).toBe(true) // 실패해도 받은 값 그대로
     // 실패해도 받은 값은 그대로 (오류 띠 없음) — 처음부터 실패면 꼬리표 없음
     cleanup()
     const fresh: boolean[] = []
@@ -484,5 +492,30 @@ describe('콘솔 1등 옆 "입금 늦음 주의" (D-CRM1-07, AC-CRM1-18·19)', (
     await settle()
     expect(calls()).toBe(before)
     expect(rehearsalSeen.every((value) => !value)).toBe(true)
+  })
+
+  it('방송 자료가 오기 전엔 받지 않고, 자료가 온 뒤 연 때 받은 것은 간격에 세지 않는다 (TE-CRM1-001)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    const server = new FakeServer().on('GET', new RegExp(`^/api/days/${DATE}/customers$`), () => ({
+      body: { date: DATE, today: '2026-10-26', settings: { regularCount: 3, regularAmount: 100_000, waitDays: 3 }, customers: [day('UC_B', { caution: true })] },
+    }))
+    vi.stubGlobal('fetch', server.fetch)
+    const calls = () => server.callsTo('GET', /\/customers$/).length
+    function Late({ data }: { readonly data: ScopeData | null }) {
+      useConsoleCaution(data, DATE, false)
+      return null
+    }
+    const { rerender } = render(<Late data={null} />)
+    await settle()
+    expect(calls()).toBe(0)
+    rerender(<Late data={scope([])} />)
+    await settle()
+    expect(calls()).toBe(1)
+    await act(async () => {
+      vi.advanceTimersByTime(300)
+    })
+    rerender(<Late data={scope(['UC_B'])} />)
+    await settle()
+    expect(calls()).toBe(2)
   })
 })

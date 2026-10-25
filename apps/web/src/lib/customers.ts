@@ -228,12 +228,16 @@ const EMPTY: ReadonlyMap<string, DayCustomer> = new Map()
 /**
  * 그날 구매자 꼬리표·누적 (GET /api/days/:date/customers). 실제 날짜만 — enabled가 거짓이면(리허설) 부르지 않는다.
  * refresh가 바뀌면 다시 받되 minGapMs에 한 번까지(그 사이 바뀐 것은 간격이 차면 한 번 받는다). 실패하면 받은 값을 그대로 둔다.
+ * 화면을 열 때(날짜가 바뀔 때·다시 불러오기 포함) 받은 것은 간격에 세지 않는다 — 연 직후 첫 변화는 바로 받는다(D-CRM1-07 "1등이 바뀌면 5초 안에", TE-CRM1-001).
  */
 export function useDayCustomers(date: string, enabled: boolean, refresh: string, minGapMs: number): DayCustomers {
   const [view, setView] = useState<DayCustomersView | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
   const [attempt, setAttempt] = useState(0)
+  /** 간격을 세는 마지막 받기 시각 (0 = 셀 것 없음 — 아직 안 받았거나 연 때 받은 것뿐) */
   const last = useRef(0)
+  /** 이 날짜를 연 뒤 받은 적이 있나 (연 때 받은 것은 간격에 세지 않는다) */
+  const opened = useRef(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const alive = useRef(true)
   const fetchKey = `${date}|${String(enabled)}`
@@ -253,6 +257,7 @@ export function useDayCustomers(date: string, enabled: boolean, refresh: string,
     setView(null)
     setError(null)
     last.current = 0
+    opened.current = false
   }, [fetchKey])
 
   useEffect(() => {
@@ -260,7 +265,8 @@ export function useDayCustomers(date: string, enabled: boolean, refresh: string,
     const key = fetchKey
     const load = () => {
       timer.current = null
-      last.current = Date.now()
+      last.current = opened.current ? Date.now() : 0
+      opened.current = true
       get<DayCustomersView>(dayCustomersPath(date)).then(
         (result) => {
           if (!alive.current || keyRef.current !== key) return
@@ -286,6 +292,7 @@ export function useDayCustomers(date: string, enabled: boolean, refresh: string,
     error,
     retry: () => {
       last.current = 0
+      opened.current = false
       setAttempt((n) => n + 1)
     },
   }
