@@ -3,8 +3,10 @@
 import { useEffect, useState } from 'react'
 import { get, withQuery } from '../api/client.ts'
 import type { CancelRequest, Claim, HistoryItem, Product } from '../api/types.ts'
-import { claimOptionWords, claimOptionsField, claimWord, conflictUnits, splitPending, successionUnits, variantOf, variantOptionsField } from '../lib/derive.ts'
+import { claimOptionWords, claimOptionsField, claimWord, conflictUnits, splitPending, successionUnits, variantOf, variantOptionsField, type DecisionUnit } from '../lib/derive.ts'
+import type { SuccessionPick } from '../lib/undo-queue.ts'
 import { kstTime } from '../lib/kst.ts'
+import { usePendingNow } from '../lib/use-pending-now.ts'
 import { ORIGIN_WORD, REJECT_REASON_WORD, agoWord, pendingMeaning } from '../lib/words.ts'
 import { openReopenAction, openReasonAction } from './actions.ts'
 import { productLabel, useConsoleApi, type ConsoleApi } from './console-context.ts'
@@ -145,6 +147,7 @@ export function CancelRequestDialog({ onClose }: { readonly onClose: () => void 
  */
 function ChooseVariantBody({ request, count, onClose }: { readonly request: CancelRequest; readonly count: number; readonly onClose: () => void }) {
   const api = useConsoleApi()
+  const now = usePendingNow(api.data)
   const [chosen, setChosen] = useState<string | null>(null)
   const choices = request.choices.map((id) => api.data.claims.get(id)).filter((claim): claim is Claim => claim !== undefined)
   const first = choices[0]
@@ -204,7 +207,7 @@ function ChooseVariantBody({ request, count, onClose }: { readonly request: Canc
                 <input type="radio" name={`cancel-choice-${request.claim}`} checked={chosen === claim.id} onChange={() => setChosen(claim.id)} />
                 <span>
                   {claim.variant ?? '옵션 없음'}
-                  {claim.qty > 1 ? ` ${String(claim.qty)}개` : ''} · {claimWord(api.data, claim)}
+                  {claim.qty > 1 ? ` ${String(claim.qty)}개` : ''} · {claimWord(api.data, claim, now)}
                   {left !== undefined && left.waitlist.length > 0 && claim.status === 'CONFIRMED' ? ` · 대기 ${String(left.waitlist.length)}명` : ''}
                 </span>
               </label>
@@ -224,6 +227,7 @@ function ChooseVariantBody({ request, count, onClose }: { readonly request: Canc
 
 function CancelRequestBody({ request, count, onClose }: { readonly request: CancelRequest; readonly count: number; readonly onClose: () => void }) {
   const api = useConsoleApi()
+  const now = usePendingNow(api.data)
   const claim = api.data.claims.get(request.claim)
   const product = api.data.products.get(request.product) ?? (claim === undefined ? undefined : api.data.products.get(claim.product))
   const time = useSeqTime(api, request.seq)
@@ -264,7 +268,7 @@ function CancelRequestBody({ request, count, onClose }: { readonly request: Canc
         </div>
         <div>
           <dt>지금 상태</dt>
-          <dd>{claim === undefined ? '알 수 없음' : claimWord(api.data, claim)}</dd>
+          <dd>{claim === undefined ? '알 수 없음' : claimWord(api.data, claim, now)}</dd>
         </div>
         <div>
           <dt>요청 시각</dt>
@@ -282,10 +286,19 @@ function CancelRequestBody({ request, count, onClose }: { readonly request: Canc
 
 // ── 승계 결정 (AC-S05-33) ───────────────────────────────────────────────
 
-export function SuccessionDialog({ onClose }: { readonly onClose: () => void }) {
+/** 단위가 고른 것과 얼마나 맞나: 상품·변형 다 맞음 2, 상품만 1, 아님 0 */
+function pickRank(unit: DecisionUnit, pick: SuccessionPick): number {
+  if (unit.product.key !== pick.product) return 0
+  const text = unit.variant?.text ?? null
+  return text === pick.variant ? 2 : 1
+}
+
+export function SuccessionDialog({ onClose, pick }: { readonly onClose: () => void; readonly pick?: SuccessionPick }) {
   const api = useConsoleApi()
   // 옵션 상품은 승계 결정이 변형에 있다 (D-O1-01) — 상품 단위와 변형 단위를 함께 본다
-  const units = [...api.data.products.values()].filter((product) => !api.waiting.products.has(product.key)).flatMap((product) => successionUnits(product))
+  const all = [...api.data.products.values()].filter((product) => !api.waiting.products.has(product.key)).flatMap((product) => successionUnits(product))
+  // 결과 줄 "1등 고르기"로 열었으면 그 상품(그 변형)의 단위를 맨 앞에 (D-MOB2-16 (1)) — 이미 정해졌으면 평소 차례
+  const units = pick === undefined ? all : [...all].sort((a, c) => pickRank(c, pick) - pickRank(a, pick))
   const unit = units[0]
   if (unit === undefined) {
     return (

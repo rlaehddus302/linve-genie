@@ -194,3 +194,49 @@
 - AC-MOB2-43 받은 시각: 비운 채 끊김 → 칸 값이 처음 누른 시각, 위 문장이 보임, "늦게 들어갔어요"·"다시 보낸 때가 받은 시각" 문장은 없음. 회복 뒤 요청 본문 `received`가 그 시각이고 요청 번호는 처음 것. 칸을 지우면 회복해도 요청 0.
 - AC-MOB2-40 이미 있는 번호: 위 한 줄 문장(role=status), 요청 0, "고칠까요?" 창 없음. 옵션 줄이면 "붙인 옵션은 n번에 넣지 않고 뗐어요…"도.
 - AC-MOB2-21: PC 표 "번호" 칸 글은 "7"처럼 숫자만(`.deposit-no`).
+
+## 수정 라운드 3 (dev-web, D-MOB2-14·15·16)
+
+### 고친 것
+- **D-MOB2-14** (SA-MOB2-03·TE-MOB2-006·RA-MOB2-06, `ConsolePage.tsx` `runRegistration`)
+  - 저절로 다시 보낼 때(auto) `findProduct` 미리 보기를 뺐다. 미리 보기는 처음 보낼 때(`first`)만 한다. 저절로 보내는 등록은 처음 요청 번호로 한 번 나간다.
+  - `changed: true`(응답만 잃은 자기 등록이면 서버가 처음 결과를 돌려줌): 평소 성공과 같다("연결이 돌아와 보냈어요: n번을 등록했어요", 되돌리기·선택).
+  - `changed: false` + auto: 창을 열지 않는다. `existsOnResendWords`, 옵션이 있었으면 `noteDroppedOptions`. 개수 칸·붙인 옵션은 되살리지 않는다(`onFailed`도 부르지 않음). 화면이 따라잡았는지와 상관없다.
+  - 직접 "다시 보내기"는 지금처럼 `changed: false` → "고칠까요?".
+  - "기록되지 않았음이 확실한 실패"라고 적힌 주석은 모두 "같은 요청 번호로 다시 보내도 두 번 기록되지 않는 실패"로 고쳤다(`resend-board.ts`, `undo-queue.ts`, `QuickInput.tsx`, `ProductDetail.tsx`, `SmsPage.tsx`, `ConsolePage.tsx`).
+- **D-MOB2-15** (RA-MOB2-04·05)
+  - 새 `lib/claim-seen.ts` `ClaimSeen`: 범위(날짜·리허설)와 찜 ID마다 이 탭이 처음 받은 `Date.now()`를 남긴다. 탭 하나에 기록 하나(`TAB_CLAIM_SEEN`)라, 화면을 옮겨도 그대로다.
+  - `ConsoleStore.#set`이 `data`를 넣을 때마다(전체 조회·증분) 처음 보는 찜에 시각을 남기고 `data.seen`을 붙인다. 같은 찜이 다시 와도 처음 값을 쓴다.
+  - `derive.ts` `pendingStart`: `data.seen`이 있으면 처음 받은 시각을 쓰고, 그 찜 기록이 없으면 null(시간 지남 아님)이다. `seen`이 없는 자료(저장소를 거치지 않은 시험 자료)는 찜의 `at`을 쓴다.
+  - `isPendingTimedOut`·`nextPendingFlip`·`usePendingNow`가 `pendingStart`를 쓴다.
+  - `ChatPanel`·`AlertDialogs`(취소할 찜 고르기·취소 요청 "지금 상태")·`BuyersPage` 구매자 자세히·`ProductDetail` 찜 줄·`SmsPage`(결과 카드 "이미 찜한 구매자" 문장 포함)의 `claimWord`에 `usePendingNow` 시각을 넘긴다.
+- **D-MOB2-16**
+  - (1) `OutcomeLine.pick`(ASK일 때 `{ product, variant }`, `vacated.ts`). `UndoBar`의 `onPick`이 있으면 결과 줄에 "1등 고르기" 단추를 그린다. 콘솔만 넘기고 `{ kind: 'succession', pick }` 창을 연다.
+    - `SuccessionDialog`의 `pick`: 그 상품·변형 단위를 맨 앞에 둔다.
+    - `AlertStrip`: 접힌 휴대폰 띠(`folded`)의 승계 칩 글을 `SUCCESSION_SHORT_WORD`로 해 "승계 n"으로 보인다. 펼친 띠·PC는 "승계 결정 필요 n".
+  - (2) `AUTO_RESEND_NOTE`는 "연결이 돌아오면 저절로 다시 보내요. 바로 보내려면 '다시 보내기'를 눌러도 돼요."다. 빠른 입력 실패 줄은 retryable이면 "저장하지 못했어요: {줄}", 아니면 옛 문장 그대로다.
+  - (3) `PENDING_TIMED_OUT_TAIL`은 " — 지금 등록해도 판정되지 않아요. 판매를 시작한 뒤 문자찜을 다시 넣어 주세요"다.
+
+### 단위 시험
+- `test/mob2-register-resend.test.tsx`를 D-MOB2-14대로 다시 썼다. "요청 0" 단언이 "요청 1, 처음 요청 번호"로 바뀐 것은 새 판정대로 더 정확히 한 것이다.
+  - 다른 기기 등록을 알게 되는 순서 두 가지: 다시 이어지기 전(`engine.write`)과 다시 이어진 뒤(`writeQuietly`).
+  - 옵션 있음·없음.
+  - 따라잡은 뒤에도 창이 없고 다른 기기의 15번 청보석이 그대로인지.
+  - 응답만 잃은 경우(`EngineServer.loseReply`, 옵션 있음·없음): 평소 성공, 안내 두 줄 없음, 서버 기록 하나.
+  - 직접 다시 보내기 → "고칠까요?".
+- 새 `test/mob2-round3.test.tsx`
+  - 90초 앞선 시계에서 막 받은 찜은 "보류"이고 알림 수에 든다. 30초 + 1ms에 "시간 지남"으로 바뀐다.
+  - 같은 찜이 다시 와도 처음 시각이 유지된다. 다른 범위의 기록과 섞이지 않는다.
+  - 콘솔에서 2분 앞선 시계로 열면 "보류 1"이 보인다.
+  - ASK `pick`, "1등 고르기" 단추가 보이는 줄과 없는 줄, 승계 창이 고른 단위를 맨 앞에 두는지, "승계 1"과 "승계 결정 필요 1", 꼬리 문장.
+- 바뀐 문장에 맞춘 기대값(줄마다 `MOB2 D-MOB2-16` 표시)
+  - `mob2-lib`·`mob2-screens`: `AUTO_RESEND_NOTE`
+  - `console-flows`·`o2-screens`: jsdom은 좁은 화면이라 접힌 띠 "승계 1"
+
+### test-e2e에게
+- 저절로 다시 보내는 등록(AC-MOB2-40, TE-MOB2-006): 요청 1, `requestId`는 처음 것, 응답 `changed:false`, 창 없음, 한 줄 안내. 15번은 청보석 20,000원 그대로다.
+  - 응답만 잃은 경우: "연결이 돌아와 보냈어요: 15번을 등록했어요"와 되돌리기가 나오고, "이미 있어"·"붙인 옵션은" 문장은 없다.
+- 실패 줄: "저장하지 못했어요: 15 핑크프릴 10000"과 새 `AUTO_RESEND_NOTE`가 보이고, "다시 보내기를 눌러 주세요"는 없다. 되돌리기 띠·상품 자세히·문자찜 안내도 같은 문장이다.
+- AC-MOB2-12: 결과 줄(`보내기 전 조치` 영역 안)의 단추 이름은 "1등 고르기"다. 누르면 `승계 결정 — 15번 …` 창이 열린다. 접힌 휴대폰 띠는 "승계 1"이다.
+- AC-MOB2-35: 시간 지남은 그 탭이 찜을 처음 받은 때부터 잰다. 새로고침하면 다시 잰다.
+- D-MOB2-13: 웹 코드는 바꾸지 않았다(짧은 줄 `.alert-short-row` 그대로).

@@ -8,6 +8,7 @@ import type { ChatMessage } from '../api/types.ts'
 import { compareChars } from '@livejjim/core'
 import type { Product } from '../api/types.ts'
 import { chatOptionWords, claimWord } from '../lib/derive.ts'
+import { usePendingNow } from '../lib/use-pending-now.ts'
 import { kstTime } from '../lib/kst.ts'
 import { PLATFORM_WORD, platformOfKey } from '../lib/platforms.ts'
 import { CHAT_REVIEW_WORD, CHAT_WORD, REVIEW_REASON_WORD } from '../lib/words.ts'
@@ -72,6 +73,8 @@ export function highlightMentions(text: string, mentions: readonly number[]): Re
 
 export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertNotes, sealedMessage = null, onReview, platformTags = false }: ChatPanelProps) {
   const api = useConsoleApi()
+  // 찜 낱말 "보류" / "보류 · 시간 지남"은 다른 화면과 같은 판단 (D-MOB2-15)
+  const pendingNow = usePendingNow(api.data)
   const list = useRef<HTMLOListElement>(null)
   const atBottom = useRef(true)
   const lastSeq = useRef(0)
@@ -145,7 +148,7 @@ export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertN
             claimText={message.claims
               .map((id) => {
                 const claim = data.claims.get(id)
-                return claim === undefined ? '' : `${String(claim.no)}번${chatOptionWords(claim)} ${claimWord(data, claim)}`
+                return claim === undefined ? '' : `${String(claim.no)}번${chatOptionWords(claim)} ${claimWord(data, claim, pendingNow)}`
               })
               .filter((word) => word !== '')
               .join('|')}

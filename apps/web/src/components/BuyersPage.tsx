@@ -30,6 +30,7 @@ import {
 } from '../lib/buyers.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
 import { claimOptionWords, claimWord, formatWon, productSlots, type BuyerNames } from '../lib/derive.ts'
+import { usePendingNow } from '../lib/use-pending-now.ts'
 import { buyerQuantity, saleLine } from '../lib/sale-line.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
 import { PREVIEW_FAILED, PREVIEW_LOADING, PREVIEW_REFRESHING, useMergePreview } from '../lib/merge-preview.ts'
@@ -420,6 +421,8 @@ interface DetailProps {
 
 function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement, onPast }: DetailProps) {
   const [unmerging, setUnmerging] = useState<string | null>(null)
+  // 찜 낱말 "보류" / "보류 · 시간 지남"은 콘솔과 같은 판단 (D-MOB2-15)
+  const now = usePendingNow(api.data)
   const names = api.names
   const current = buyer.mergedInto === null ? buyer : (api.data.buyers.get(buyer.current) ?? buyer)
   const claims = useMemo(() => claimsOf(api.data, current.id), [api.data, current.id])
@@ -558,7 +561,7 @@ function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement, on
             {others.map((claim) => (
               <li key={claim.id}>
                 {productLabel(api, claim.broadcast, claim.no)}
-                {claimOptionWords(claim)} {claimWord(api.data, claim)}
+                {claimOptionWords(claim)} {claimWord(api.data, claim, now)}
               </li>
             ))}
           </ul>

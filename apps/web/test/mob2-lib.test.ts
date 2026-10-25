@@ -407,7 +407,7 @@ describe('연결이 돌아오면 다시 보내기 (AC-MOB2-41·44·45, D-MOB2-07
   })
 
   it('문장 상수', () => {
-    expect(AUTO_RESEND_NOTE).toBe('연결이 돌아오면 저절로 다시 보내요.')
+    expect(AUTO_RESEND_NOTE).toBe("연결이 돌아오면 저절로 다시 보내요. 바로 보내려면 '다시 보내기'를 눌러도 돼요.") // MOB2 D-MOB2-16 (2)
     expect(RESENT_PREFIX).toBe('연결이 돌아와 보냈어요: ')
     expect(RESENDING_WORD).toBe('다시 보내는 중…')
   })

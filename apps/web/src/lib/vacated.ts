@@ -72,5 +72,6 @@ export function vacatedLine(before: VacatedBefore, data: ScopeData | null): Outc
       return item === undefined ? names.name('') : names.name(item.currentBuyer)
     },
   })
-  return { text: result.text, tone: result.kind === 'winner' ? 'success' : result.kind === 'ask' ? 'warning' : 'info' }
+  if (result.kind === 'ask') return { text: result.text, tone: 'warning', pick: { product: product.key, variant: before.variant } }
+  return { text: result.text, tone: result.kind === 'winner' ? 'success' : 'info' }
 }

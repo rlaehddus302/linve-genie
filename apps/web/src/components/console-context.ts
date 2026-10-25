@@ -7,6 +7,7 @@ import type { LabelView } from '../api/print-types.ts'
 import type { WriteResult } from '../api/types.ts'
 import type { BuyerNames } from '../lib/derive.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
+import type { SuccessionPick } from '../lib/undo-queue.ts'
 
 /** 열린 창 (위에 쌓인다) */
 export type Dialog =
@@ -24,7 +25,8 @@ export type Dialog =
     }
   | { readonly kind: 'conflict' }
   | { readonly kind: 'cancelRequests' }
-  | { readonly kind: 'succession' }
+  /** pick: 결과 줄 "1등 고르기"로 열면 그 단위를 먼저 (D-MOB2-16 (1)) */
+  | { readonly kind: 'succession'; readonly pick?: SuccessionPick }
   | { readonly kind: 'pending' }
   | { readonly kind: 'attention' }
   | { readonly kind: 'reason'; readonly spec: ReasonSpec }

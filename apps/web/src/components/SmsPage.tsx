@@ -509,7 +509,7 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
 
   const serverError = sender.error
 
-  // 연결이 돌아오면 저절로 한 번 (D-MOB2-07): 기록되지 않았음이 확실한 실패이고, 칸 내용이 실패한 때와 같을 때만.
+  // 연결이 돌아오면 저절로 한 번 (D-MOB2-07): 같은 요청 번호로 다시 보내도 두 번 기록되지 않는 실패(D-MOB2-14)이고, 칸 내용이 실패한 때와 같을 때만.
   // 판매자가 번호·전화번호·메모·받은 시각·구매자(옵션·수량) 중 하나라도 바꿨으면 새로 보내는 것으로 보고 보내지 않는다
   const fieldsKey = JSON.stringify([no, received, phone, memo, buyer, picks, qtyText])
   const fieldsRef = useRef(fieldsKey)
@@ -949,7 +949,7 @@ export function smsResultWords(
   return {
     body:
       holder !== undefined
-        ? `${String(result.no)}번 · 이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 ${claimWord(api.data, holder)})`
+        ? `${String(result.no)}번 · 이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 ${claimWord(api.data, holder, now)})`
         : `${String(result.no)}번 · 새 찜이 생기지 않았어요. 지금 상태를 확인해 주세요.`,
     tone: 'warning',
   }

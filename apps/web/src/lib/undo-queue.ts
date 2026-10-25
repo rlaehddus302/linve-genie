@@ -7,7 +7,7 @@
 // - 상품 등록: 바로 기록하고, 5초 동안 "되돌리기"(판매 종료)를 보인다 — 되돌리는 일은 화면이 넘긴 함수가 한다.
 // - Ctrl+Z는 가장 최근의 되돌릴 수 있는 것(기다리는 조치 또는 5초 안의 등록)을 되돌린다.
 // - 1등 자리를 비운 조치(D-MOB2-04): 화면이 넘긴 outcome이 결과 한 줄을 돌려주면 "보냈어요" 대신 그 줄을 10초 보인다("확인"으로 바로 닫힘).
-// - 연결이 돌아오면(D-MOB2-07) resendRetryable이 기록되지 않았음이 확실한 실패(retryable)만 같은 요청 번호로 차례대로 한 번 보낸다.
+// - 연결이 돌아오면(D-MOB2-07) resendRetryable이 같은 요청 번호로 다시 보내도 두 번 기록되지 않는 실패(D-MOB2-14)(retryable)만 같은 요청 번호로 차례대로 한 번 보낸다.
 // 시계·타이머는 주입할 수 있다(화면 단위 시험의 가짜 시계).
 import { ApiError, isApiError, newRequestId, withRetry, type RetryOptions } from '../api/client.ts'
 import type { WriteResult } from '../api/types.ts'
@@ -39,6 +39,14 @@ export type ActionStatus = 'waiting' | 'sending' | 'retrying' | 'done' | 'outcom
 export interface OutcomeLine {
   readonly text: string
   readonly tone: 'success' | 'warning' | 'info'
+  /** 승계 결정이 필요하면(ASK) 그 단위 — 결과 줄의 "1등 고르기"가 그 승계 결정 창을 연다 (D-MOB2-16 (1)) */
+  readonly pick?: SuccessionPick
+}
+
+/** 승계 결정 창이 먼저 보일 단위: 상품 키와 변형 글(옵션 없는 찜이면 null) */
+export interface SuccessionPick {
+  readonly product: string
+  readonly variant: string | null
 }
 export type RegistrationStatus = 'open' | 'undoing' | 'undone' | 'blocked' | 'failed' | 'expired'
 
@@ -390,7 +398,7 @@ export class UndoQueue {
   }
 
   /**
-   * 연결이 돌아왔다 (D-MOB2-07): 기록되지 않았음이 확실한 실패(ApiError.retryable)만 누른 차례대로 같은 요청 번호로 한 번 보낸다.
+   * 연결이 돌아왔다 (D-MOB2-07): 같은 요청 번호로 다시 보내도 두 번 기록되지 않는 실패(D-MOB2-14)(ApiError.retryable)만 누른 차례대로 같은 요청 번호로 한 번 보낸다.
    * 판매자가 "확인"으로 닫은 것·되돌린 것은 목록에 없어 보내지 않는다. 보내는 중인 항목은 실패가 아니라 겹치지 않는다.
    * 다 보낼 때까지 기다린다(다음 종류는 그 뒤에). 보낸 수
    */

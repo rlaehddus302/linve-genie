@@ -242,10 +242,11 @@ export function QuickInput(props: QuickInputProps) {
       {failed.map((item) => (
         <div key={item.id} className="error-note" role="alert" data-tone="danger">
           <p>
-            {SAVE_FAILED_LINE}: {item.line}
+            {/* 저절로 다시 보낼 실패면 "다시 보내기를 눌러 주세요"를 빼고 아래 안내 한 문장으로 (D-MOB2-16 (2)) */}
+            {item.error?.retryable === true ? SAVE_FAILED_AUTO_LINE : SAVE_FAILED_LINE}: {item.line}
           </p>
           {item.error !== null ? <p>{item.error.message}</p> : null}
-          {/* 기록되지 않았음이 확실한 실패만 연결이 돌아오면 저절로 한 번 다시 보낸다 (D-MOB2-07) */}
+          {/* 같은 요청 번호로 다시 보내도 두 번 기록되지 않는 실패(D-MOB2-14)만 연결이 돌아오면 저절로 한 번 다시 보낸다 (D-MOB2-07) */}
           {item.error?.retryable === true ? <p>{AUTO_RESEND_NOTE}</p> : null}
           <button type="button" className="button" onClick={() => props.onRetry(item.id)}>
             다시 보내기
@@ -386,3 +387,5 @@ function CountInput({ id, field, onEnter }: { readonly id: string; readonly fiel
 }
 
 const SAVE_FAILED_LINE = '저장하지 못했어요. 다시 보내기를 눌러 주세요'
+/** 저절로 다시 보낼 실패(retryable)의 빠른 입력 실패 줄 앞말 (D-MOB2-16 (2)) */
+const SAVE_FAILED_AUTO_LINE = '저장하지 못했어요'

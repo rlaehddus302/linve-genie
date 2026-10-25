@@ -198,7 +198,7 @@ export function claimWord(data: ScopeData, claim: Claim, now?: number): string {
 /** 시간이 지난 보류 찜의 낱말 */
 export const PENDING_TIMED_OUT_WORD = '보류 · 시간 지남'
 /** 문자찜 결과 카드 문장 끝 (시간이 지난 보류 찜) */
-export const PENDING_TIMED_OUT_TAIL = ' — 지금 등록해도 판정되지 않아요'
+export const PENDING_TIMED_OUT_TAIL = ' — 지금 등록해도 판정되지 않아요. 판매를 시작한 뒤 문자찜을 다시 넣어 주세요' // D-MOB2-16 (3)
 /** 방송 설정이 없을 때의 보류 찜 유효 시간(초) — 서버 기본값과 같다 */
 const DEFAULT_PRE_OPEN_WINDOW_SEC = 30
 
@@ -217,31 +217,45 @@ export function preOpenWindowSec(data: Pick<ScopeData, 'broadcasts'>, b: string)
 }
 
 /**
- * 시간이 지난 보류 찜인가: 상태 `PENDING`, 그 번호의 상품이 아직 판매 중이 아님(없음·`READY`),
- * (지금 − 찜의 at) > 그 방송의 유효 시간 (D-MOB2-06)
+ * 시간 지남을 잴 때의 시작 시각(밀리초): 이 탭이 그 찜을 처음 받은 시각(D-MOB2-15 — 둘 다 이 기기 시계라 시계 차이가 없다).
+ * 자료에 처음 받은 시각 기록이 없으면(저장소를 거치지 않은 자료) 찜의 at. 기록은 있는데 그 찜이 없으면 null(아직 모름 — 시간 지남 아님)
  */
-export function isPendingTimedOut(data: Pick<ScopeData, 'broadcasts' | 'products'>, claim: Pick<Claim, 'status' | 'at' | 'product' | 'broadcast'>, now: number): boolean {
+export function pendingStart(data: Pick<ScopeData, 'seen'>, claim: Pick<Claim, 'id' | 'at'>): number | null {
+  if (data.seen !== undefined) return data.seen.get(claim.id) ?? null
+  const at = Date.parse(claim.at)
+  return Number.isFinite(at) ? at : null
+}
+
+/**
+ * 시간이 지난 보류 찜인가: 상태 `PENDING`, 그 번호의 상품이 아직 판매 중이 아님(없음·`READY`),
+ * (지금 − 이 탭이 그 찜을 처음 받은 시각) > 그 방송의 유효 시간 (D-MOB2-06·D-MOB2-15)
+ */
+export function isPendingTimedOut(
+  data: Pick<ScopeData, 'broadcasts' | 'products' | 'seen'>,
+  claim: Pick<Claim, 'id' | 'status' | 'at' | 'product' | 'broadcast'>,
+  now: number,
+): boolean {
   if (claim.status !== 'PENDING') return false
   const product = data.products.get(claim.product)
   if (product !== undefined && product.status !== 'READY') return false
-  const at = Date.parse(claim.at)
-  if (!Number.isFinite(at)) return false
-  return pendingWindowPassed(at, now, preOpenWindowSec(data, claim.broadcast))
+  const start = pendingStart(data, claim)
+  if (start === null) return false
+  return pendingWindowPassed(start, now, preOpenWindowSec(data, claim.broadcast))
 }
 
 /**
  * 다음에 보류 찜 하나가 "시간 지남"으로 바뀌는 시각(밀리초) — 없으면 null. 화면은 이때 한 번 다시 그린다(1초마다 그리지 않는다).
- * 시간이 지나는 순간은 at + W×1000 + 1ms(경계 정각은 아직 유효).
+ * 시간이 지나는 순간은 처음 받은 시각(pendingStart) + W×1000 + 1ms(경계 정각은 아직 유효).
  */
-export function nextPendingFlip(data: Pick<ScopeData, 'broadcasts' | 'products' | 'pending' | 'claims'>, now: number): number | null {
+export function nextPendingFlip(data: Pick<ScopeData, 'broadcasts' | 'products' | 'pending' | 'claims' | 'seen'>, now: number): number | null {
   let best: number | null = null
   for (const slot of data.pending.values()) {
     for (const id of slot.claims) {
       const claim = data.claims.get(id)
       if (claim === undefined || claim.status !== 'PENDING') continue
-      const at = Date.parse(claim.at)
-      if (!Number.isFinite(at)) continue
-      const flip = at + preOpenWindowSec(data, claim.broadcast) * 1000 + 1
+      const start = pendingStart(data, claim)
+      if (start === null) continue
+      const flip = start + preOpenWindowSec(data, claim.broadcast) * 1000 + 1
       if (flip > now && (best === null || flip < best)) best = flip
     }
   }

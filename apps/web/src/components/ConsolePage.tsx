@@ -733,17 +733,13 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         if (request.onExists !== undefined) request.onExists(product)
         else askEdit(product, request.name, request.price, request.line, request.stock)
       }
-      if (first || auto) {
+      // 처음 보낼 때만 화면을 미리 본다. 저절로 다시 보낼 때는 화면에 그 번호가 있어도 미리 보지 않고 처음 요청 번호로 한 번 보내
+      // 서버 답으로 판단한다(D-MOB2-14): 응답만 잃은 자기 등록이면 서버가 처음 결과(changed: true)를 돌려주고,
+      // 다른 곳에서 먼저 생긴 번호면 changed: false — 화면이 따라잡았는지와 상관없다.
+      if (first) {
         const existing = findProduct(request.no)
         if (existing !== undefined) {
           remove()
-          // 저절로 다시 보내려는데 그 번호가 벌써 있다(판매자가 같은 번호를 새로 쳐 등록했거나 다른 기기): 옛 줄은 보내지 않고 내린다.
-          // 판매자가 누르지 않았으니 "고칠까요?" 창도 띄우지 않고 한 줄로 알린다 — 붙인 옵션이 있었으면 넣지 않았다는 안내도(D-MOB2-10, RA-MOB2-01)
-          if (auto) {
-            setResendNote((note) => ({ text: existsOnResendWords(request.no), n: (note?.n ?? 0) + 1 }))
-            if (request.extra !== undefined) noteDroppedOptions(request.no)
-            return
-          }
           exists(existing)
           return
         }
@@ -764,6 +760,13 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         remove()
         const key = productKey(b, request.no)
         if (!result.changed) {
+          if (auto) {
+            // 저절로 다시 보냈는데 그사이 다른 곳에서 그 번호가 먼저 생겼다(D-MOB2-14 (2)): 판매자가 누르지 않았으니 "고칠까요?" 창을 열지 않고
+            // 한 줄로 알린다 — 붙인 옵션이 있었으면 넣지 않았다는 안내도. 개수 칸·붙인 옵션은 되살리지 않는다(지금 치는 줄을 건드리지 않게)
+            setResendNote((note) => ({ text: existsOnResendWords(request.no), n: (note?.n ?? 0) + 1 }))
+            if (request.extra !== undefined) noteDroppedOptions(request.no)
+            return
+          }
           // 그사이 다른 곳에서 같은 번호가 생겼다: 등록되지 않았으니 묻는다
           const existing = findProduct(request.no)
           if (existing !== undefined) exists(existing)
@@ -788,7 +791,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         if (!isApiError(error)) throw error
         if (error.transient) {
           setRegistrations((list) => list.map((item) => (item.id === id ? { ...item, status: 'failed', error, auto: false } : item)))
-          // 기록되지 않았음이 확실한 실패: 연결이 돌아오면 같은 요청 번호로 한 번 저절로 (D-MOB2-07)
+          // 같은 요청 번호로 다시 보내도 두 번 기록되지 않는 실패(응답만 잃은 경우 포함): 연결이 돌아오면 같은 요청 번호로 한 번 저절로 (D-MOB2-07·14)
           if (error.retryable) {
             resendBoard.add(`register:${String(id)}`, 'register', () => {
               const next = chain.current.then(() => runRegistrationRef.current(id, false, true))
@@ -1438,7 +1441,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
                   : {})}
               />
             </Lock>
-            <UndoBar items={items} queue={queue} />
+            <UndoBar items={items} queue={queue} onPick={(pick) => openDialog({ kind: 'succession', pick })} />
             {optionNote !== null ? (
               <p key={optionNote.n} className="notice" role="status" data-tone="warning">
                 {optionNote.text}
@@ -1590,7 +1593,7 @@ function DialogView({ dialog, broadcastId, onSync, messageOf, onClose, onEditDon
     case 'cancelRequests':
       return <CancelRequestDialog onClose={onClose} />
     case 'succession':
-      return <SuccessionDialog onClose={onClose} />
+      return <SuccessionDialog onClose={onClose} {...(dialog.pick === undefined ? {} : { pick: dialog.pick })} />
     case 'pending':
       return <PendingDialog onClose={onClose} />
     case 'attention':

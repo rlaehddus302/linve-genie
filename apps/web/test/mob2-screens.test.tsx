@@ -139,7 +139,7 @@ describe('되돌리기 띠: 결과 한 줄과 다시 보내기 문장 (AC-MOB2-1
     expect(screen.queryByRole('region', { name: '보내기 전 조치' })).toBeNull()
   })
 
-  it('저장 실패(네트워크)면 실패 줄 끝에 "연결이 돌아오면 저절로 다시 보내요.", 서버 오류(500)에는 없다 — 저절로 보내면 "연결이 돌아와 보냈어요: …"', async () => {
+  it('저장 실패(네트워크)면 실패 줄 끝에 "연결이 돌아오면 저절로 다시 보내요. 바로 보내려면 …"(D-MOB2-16 (2)), 서버 오류(500)에는 없다 — 저절로 보내면 "연결이 돌아와 보냈어요: …"', async () => {
     const timer = new ManualTimer()
     const queue = new UndoQueue({ timer, now: () => timer.now, delayMs: 5000, retry: { delays: [], sleep: async () => {} } })
     let fail: ApiError | null = new ApiError({ status: 0, code: 'NETWORK', message: '인터넷 연결을 확인해 주세요.', network: true })
@@ -156,7 +156,7 @@ describe('되돌리기 띠: 결과 한 줄과 다시 보내기 문장 (AC-MOB2-1
     const { rerender } = render(<Bar queue={queue} />)
     const alerts = screen.getAllByRole('alert').map((item) => item.textContent ?? '')
     expect(alerts[0]).toContain('15번 홍길동 취소 — 저장하지 못했어요.')
-    expect(alerts[0]?.endsWith(' 연결이 돌아오면 저절로 다시 보내요.')).toBe(true)
+    expect(alerts[0]?.endsWith(" 연결이 돌아오면 저절로 다시 보내요. 바로 보내려면 '다시 보내기'를 눌러도 돼요.")).toBe(true) // MOB2 D-MOB2-16 (2)
     expect(alerts[1]).not.toContain('연결이 돌아오면')
     fail = null
     await act(async () => {

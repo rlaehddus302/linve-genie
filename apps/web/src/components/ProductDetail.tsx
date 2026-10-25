@@ -43,6 +43,8 @@ export function ProductDetail({ productKey, onClose, onEdit }: { readonly produc
 
 function DetailBody({ product, onClose, onEdit }: { readonly product: Product; readonly onClose: () => void; readonly onEdit: (product: Product) => void }) {
   const api = useConsoleApi()
+  // 찜 낱말 "보류" / "보류 · 시간 지남"은 다른 화면과 같은 판단 (D-MOB2-15)
+  const now = usePendingNow(api.data)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const title = productLabel(api, product.broadcast, product.no)
@@ -99,7 +101,7 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
       if (!isApiError(caught)) throw caught
       setError(caught)
       if (caught.transient) setFailed({ event, requestId })
-      // 기록되지 않았음이 확실한 실패: 연결이 돌아오면 같은 요청 번호로 한 번 저절로 (D-MOB2-07)
+      // 같은 요청 번호로 다시 보내도 두 번 기록되지 않는 실패(D-MOB2-14): 연결이 돌아오면 같은 요청 번호로 한 번 저절로 (D-MOB2-07)
       if (caught.retryable) {
         const at = (api.latest?.() ?? api.data).products.get(product.key)?.status ?? product.status
         board?.add(boardKey, 'command', () => attempt(event, requestId, true, at))
@@ -323,7 +325,7 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
           <ul className="plain-list">
             {ended.slice(0, 50).map((claim) => (
               <li key={claim.id}>
-                {api.names.name(claim.currentBuyer)} · {claimWord(api.data, claim)} · {ORIGIN_WORD[claim.origin]}
+                {api.names.name(claim.currentBuyer)} · {claimWord(api.data, claim, now)} · {ORIGIN_WORD[claim.origin]}
               </li>
             ))}
           </ul>

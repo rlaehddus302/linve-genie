@@ -27,6 +27,8 @@ export type AlertKind = 'conflict' | 'cancelRequests' | 'succession' | 'printPau
 export const THANKS_FAILED_WORD = '감사 실패'
 /** 접힌 휴대폰 띠의 보류 단추 낱말 (QL3R2 D-QL3R2-02 (2)) — 펼친 띠·PC·보류 찜 창은 ALERT_WORD.pending("보류 찜") */
 export const PENDING_SHORT_WORD = '보류'
+/** 접힌 휴대폰 띠의 승계 칩 글 (D-MOB2-16 (1), "보류 n"과 같은 꼴 — 보이는 글 = 단추 이름). 펼친 띠·PC·창은 "승계 결정 필요" 그대로 */
+export const SUCCESSION_SHORT_WORD = '승계'
 
 /** 출력 알림 (판매자의 출력 기록): 멈춘 까닭 문장(멈추지 않았으면 null)·버릴 라벨 장 수 */
 export interface PrintAlerts {
@@ -134,7 +136,7 @@ export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanks
   const items: { kind: AlertKind; word: string; count: number; text?: string }[] = [
     { kind: 'conflict', word: ALERT_WORD.conflict, count: counts.conflict },
     { kind: 'cancelRequests', word: ALERT_WORD.cancelRequest, count: counts.cancelRequest },
-    { kind: 'succession', word: ALERT_WORD.succession, count: counts.succession },
+    { kind: 'succession', word: folded ? SUCCESSION_SHORT_WORD : ALERT_WORD.succession, count: counts.succession },
     { kind: 'printPause', word: PRINT_ALERT_WORD.paused, count: print.pause === null ? 0 : 1, text: `${PRINT_ALERT_WORD.paused} · ${print.pause ?? ''}` },
     { kind: 'discard', word: PRINT_ALERT_WORD.discard, count: print.discard },
     { kind: 'pending', word: folded ? PENDING_SHORT_WORD : ALERT_WORD.pending, count: counts.pending },

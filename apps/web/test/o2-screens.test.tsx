@@ -598,11 +598,11 @@ describe('옵션 방송 문자찜도 보내는 동안 잠금·성공 응답 바�
 describe('옵션 상품의 1등·대기·승계는 변형에 있다 (SA-O2-04, TE-O2-001·002·003, D-O1-01)', () => {
   const cancelM = { type: 'host.cancel', b: 'b1', no: 21, buyer: 'UC_a', options: { 사이즈: 'M' }, reason: '시험 취소' }
 
-  it('ASK에서 변형 M 1등을 취소하면 알림 띠 "승계 결정 필요 1"·상품 줄 표시, 창에는 M의 대기자와 options 붙은 조치', async () => {
+  it('ASK에서 변형 M 1등을 취소하면 알림 띠 "승계 1"(접힌 휴대폰)·상품 줄 표시, 창에는 M의 대기자와 options 붙은 조치', async () => {
     setup([shorts(21), chat('m1', 'UC_a', '홍길동', '반바지 M'), chat('m2', 'UC_b', '김철수', '반바지 M'), cancelM], { ...OPTIONS, 'cancel.succession': 'ASK' })
     await openConsole()
     const strip = screen.getByRole('region', { name: '알림' })
-    const alert = await within(strip).findByRole('button', { name: '승계 결정 필요 1' })
+    const alert = await within(strip).findByRole('button', { name: '승계 1' }) // MOB2 D-MOB2-16 (1): 접힌 휴대폰 띠는 "승계 n"
     const board = screen.getByRole('region', { name: '상품 보드' })
     expect(within(within(board).getByRole('button', { name: /^21번/ })).getByText('승계 결정 필요')).toBeDefined()
     fireEvent.click(alert)
