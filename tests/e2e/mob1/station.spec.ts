@@ -9,7 +9,7 @@ import { ANDROID, ANDROID_UA, IPHONE_UA, PC, PHONE, alerts, baseUrlOf, broadcast
 import { loginAs } from '../i3/support.ts'
 
 const lost = (name: string) => `출력 기기('${name}')가 연결되어 있지 않아요. 그 기기에서 라이브지니를 열고 화면을 켜 두세요.`
-const PILING = "출력 기기가 아직 없어 라벨이 쌓이고 있어요. 출력할 기기의 라벨 화면에서 '이 기기에서 출력'을 눌러 주세요."
+const PILING = "출력 기기가 아직 없어 라벨이 쌓이고 있어요. 출력할 기기의 라벨 화면에서 프린터를 연결한 뒤 '이 기기에서 출력'을 눌러 주세요." // QL2 D-QL2-09
 const OLD = '와 연결이 끊겼어요.'
 
 interface World {
@@ -110,9 +110,10 @@ test.describe('AC-MOB1-12·13 출력 기기 끊김 — 라벨 화면·콘솔 알
       // HTML로 해석되지 않는다
       expect(await alerts(w.main).locator('b, script').count()).toBe(0)
       await expect(item).toHaveText(lost(name))
-      // 이 항목 하나뿐이면 띠의 첫 항목이고 펼치기 버튼이 없다 (수에 들지 않음) // MOB1 D-MOB1-14
+      // 이 항목 하나뿐이면 띠의 첫 항목이고 세는 알림이 0이라 수 없는 "알림 펼치기" (수에 들지 않음) // MOB1 D-MOB1-14 · QL2 D-QL2-02
       await expect(alerts(w.main).getByRole('button').first()).toHaveAccessibleName(lost(name))
       await expect(w.main.getByRole('button', { name: /^알림 \d+ (펼치기|접기)$/ })).toHaveCount(0)
+      await expect(w.main.getByRole('button', { name: '알림 펼치기', exact: true })).toBeVisible() // QL2 D-QL2-02
       // 보류 찜 1건(노란)을 더하면 "알림 1 펼치기" — 출력 기기 항목은 세지 않는다
       await smsApi(w.main, { b, no: 40, memo: '보류' })
       await expect(alerts(w.main).getByRole('button', { name: /^보류 찜 1$/ })).toHaveCount(1)

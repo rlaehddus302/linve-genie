@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 import { board, boardItem, login, openNewBroadcast, register, sendViewerChat, uniqueDate } from './support.ts'
 
 /** 출력 기기 없음 항목 (MOB1 D-MOB1-08 문장) */
-const PILING = "출력 기기가 아직 없어 라벨이 쌓이고 있어요. 출력할 기기의 라벨 화면에서 '이 기기에서 출력'을 눌러 주세요."
+const PILING = "출력 기기가 아직 없어 라벨이 쌓이고 있어요. 출력할 기기의 라벨 화면에서 프린터를 연결한 뒤 '이 기기에서 출력'을 눌러 주세요." // QL2 D-QL2-09
 
 test('YT-09·AC-S05-30: 같은 날 리허설 채팅·찜은 실제 콘솔의 채팅·알림·보드에 섞이지 않고, 실제 콘솔이 따라잡기 조회도 하지 않는다', async ({ browser, baseURL }) => {
   const date = uniqueDate()
@@ -31,7 +31,7 @@ test('YT-09·AC-S05-30: 같은 날 리허설 채팅·찜은 실제 콘솔의 채
   // 다른 시험의 실제 방송 라벨로도 생기므로(리허설은 출력 작업을 만들지 않음 — RA-S05-002) 그 항목 하나만 빼고 본다.
   // 남는 것은 리허설이 실제 콘솔에 섞인 흔적이다 — 세는 알림(보류 찜·확인 필요·충돌 등)이 하나도 없어야 한다.
   const realAlerts = real.getByRole('region', { name: '알림' })
-  await expect(realAlerts).toContainText(/^(알림 없음|출력 기기가 아직 없어 라벨이 쌓이고 있어요\. 출력할 기기의 라벨 화면에서 '이 기기에서 출력'을 눌러 주세요\.)$/)
+  await expect(realAlerts).toContainText(/^(알림 없음|출력 기기가 아직 없어 라벨이 쌓이고 있어요\. 출력할 기기의 라벨 화면에서 프린터를 연결한 뒤 '이 기기에서 출력'을 눌러 주세요\.)$/) // QL2 D-QL2-09
   await expect(realAlerts.getByRole('listitem').filter({ hasNotText: PILING })).toHaveCount(0)
   await expect(realAlerts.getByRole('button', { name: /보류 찜|확인 필요/ })).toHaveCount(0)
   await expect(realAlerts).not.toContainText('연습손님')

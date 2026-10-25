@@ -13,7 +13,7 @@ export const READING = 'AI가 읽는 중이에요…'
 export const FAILED = 'AI 제안을 지금 받지 못했어요. 직접 골라 주세요.'
 export const LIMIT = (limit: number): string => `오늘 AI 제안을 다 썼어요(하루 ${String(limit)}번). 비슷한 글자로 찾은 제안만 보여요.`
 export const OFFER = '설정에서 AI 제안을 켤 수 있어요.'
-export const NOTICE = '확인 필요 댓글의 글이 AI 회사(Anthropic, 미국)로 보내져 읽혀요. 닉네임·전화번호는 빼고 보내요. 언제든 끌 수 있어요.'
+export const NOTICE = '확인 필요 댓글의 글이 AI 회사(Anthropic, 미국)로 보내져 읽혀요. 유튜브 채팅은 보내지 않아요. 닉네임·전화번호는 빼고 보내요. 언제든 끌 수 있어요.' // QL2 D-QL2-05
 export const CONSENT = '위 내용을 읽었고 동의해요'
 export const SWITCH = 'AI 제안 받기'
 export const UNAVAILABLE = '지금은 쓸 수 없어요.'
