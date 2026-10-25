@@ -38,12 +38,12 @@ describe('AC-N2-01 플랫폼 값과 키 접두어', () => {
 })
 
 describe('AC-N2-02 플랫폼 능력 조회', () => {
-  it('YOUTUBE·INSTAGRAM·TIKTOK의 값과 이유 문장 (로그인 필요)', async () => {
+  it('YOUTUBE·INSTAGRAM·TIKTOK·BAND의 값과 이유 문장 (로그인 필요)', async () => {
     const w = await world()
     const seller = await addSeller(w)
     expect((await client(w, null).get('/api/platforms')).status).toBe(401)
     const platforms = (await client(w, seller.cookie).get('/api/platforms')).body.platforms
-    expect(platforms).toEqual(platformCapabilities({ youtube: false, instagram: true }, w.server.tiktok.capability()))
+    expect(platforms).toEqual(platformCapabilities({ youtube: false, instagram: true }, w.server.tiktok.capability(), w.server.band.capability()))
     expect(platforms).toEqual([
       { platform: 'YOUTUBE', ready: false, receivedTime: true, thanks: 'PUBLIC_CHAT', videoComment: true, reasons: { ready: '유튜브 라이브는 아직 이 서버에서 이을 수 없어요.' } },
       {
@@ -66,6 +66,20 @@ describe('AC-N2-02 플랫폼 능력 조회', () => {
           receivedTime: '틱톡 라이브는 댓글마다의 시각이 없어 실제 시각순으로 판정할 수 없어요.',
           thanks: '틱톡에는 감사 메시지를 보내지 않아요.',
           videoComment: '틱톡에는 감사 메시지를 보내지 않아요.',
+        },
+      },
+      // BND1(AC-BND1-02)이 밴드 항목을 더했다 — 밴드 설정이 없는 서버 (바꾼 기존 시험, BND1 dev-notes)
+      {
+        platform: 'BAND',
+        ready: false,
+        receivedTime: false,
+        thanks: 'NONE',
+        videoComment: false,
+        reasons: {
+          ready: '밴드 연동이 아직 준비되지 않았어요. 운영자에게 문의해 주세요.',
+          receivedTime: '밴드 댓글은 몇 초마다 읽어 와서 실제 시각순으로 판정할 수 없어요.',
+          thanks: '밴드에는 감사 글을 남기지 않아요.',
+          videoComment: '밴드에는 감사 글을 남기지 않아요.',
         },
       },
     ])

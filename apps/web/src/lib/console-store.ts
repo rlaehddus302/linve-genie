@@ -12,7 +12,7 @@
 //   전체를 한 번 다시 받아 봉인한 장부를 보인다 (AC-I3-41, Y1 계약 5).
 import { get, isApiError, withQuery, type ApiError } from '../api/client.ts'
 import type { BroadcastItem, Changes, ChatMessage, FullView, GeneratorStatus, MessagesView, ScopeSeq, YoutubeEvent } from '../api/types.ts'
-import { parsePlatformEvent, parseYoutubeEvent, type PlatformStreamEvent } from './live-events.ts'
+import { PLATFORM_STREAM_TYPES, parsePlatformEvent, parseYoutubeEvent, type PlatformStreamEvent } from './live-events.ts'
 import { streamUrl } from './device.ts'
 import { applyChanges, fromFull, type ScopeData } from './scope-data.ts'
 import { sharedStream, type EventSourceLike } from './stream.ts'
@@ -197,7 +197,7 @@ export class ConsoleStore {
     return () => this.#youtube.delete(listener)
   }
 
-  /** 인스타그램·틱톡 알림(SSE `instagram`·`tiktok`)을 받는다. 돌려준 함수로 그만 받는다 */
+  /** 인스타그램·틱톡·밴드 알림(SSE `instagram`·`tiktok`·`band`)을 받는다. 돌려준 함수로 그만 받는다 */
   onPlatform = (listener: (event: PlatformStreamEvent) => void): (() => void) => {
     this.#platform.add(listener)
     return () => this.#platform.delete(listener)
@@ -454,7 +454,7 @@ export class ConsoleStore {
       if (data.kind === 'sealed' && scope !== null && !scope.rehearsal && data.date === scope.date && !this.#snapshot.sealed) void this.#reload()
       for (const listener of [...this.#youtube]) listener(data)
     })
-    for (const type of ['instagram', 'tiktok'] as const) {
+    for (const type of PLATFORM_STREAM_TYPES) {
       stream.addEventListener(type, (event) => {
         const data = parsePlatformEvent(type, event.data)
         if (data === null) return

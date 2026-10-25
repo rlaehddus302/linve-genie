@@ -1,5 +1,5 @@
 // E2E용 서버 기동 명령 (AC-S05-91): pnpm --filter @livejjim/server e2e [--port 3100 (0이면 빈 포트)] [--origin http://localhost:5173] [--fill yes]
-//   [--fill-products 500] [--fill-chats 10000] [--host-delay-ms 5000] [--chat-speed 1] [--test-printer yes|no] [--youtube fake] [--youtube-port 4100] [--instagram yes|no] [--instagram-port 4300] [--tiktok yes|no] [--billing yes|no]
+//   [--fill-products 500] [--fill-chats 10000] [--host-delay-ms 5000] [--chat-speed 1] [--test-printer yes|no] [--youtube fake] [--youtube-port 4100] [--instagram yes|no] [--instagram-port 4300] [--tiktok yes|no] [--band fake|no] [--band-port 4400] [--billing yes|no]
 //   [--social fake|no] [--social-port 4500] [--social-providers kakao,naver,google]
 //   [--assist fake|no] [--assist-port 4600] [--assist-daily 20] [--assist-global 500] [--assist-timeout-ms 15000]
 // - --assist fake: 가짜 LLM 서버(Anthropic Messages API 모양)를 127.0.0.1의 --assist-port(기본 0 = 빈 포트)에 함께 띄우고 AI 제안을 가짜 키로 켠다(A1, AC-A1-11).
@@ -19,6 +19,7 @@
 //   --youtube-quota-budget n(유튜브 할당량 판매자 예산·프로젝트 한도) · --outbox-fast yes(발송함 시간 줄이기) · --web-dir <폴더>(서버가 화면을 같은 출처로 함께 낸다).
 //   시험용 조작 경로 POST /_e2e/sellers · /_e2e/dates · /_e2e/seal (이 서버 주소, JSON).
 // - --instagram yes: 가짜 메타 서버를 함께 띄우고 인스타그램 연동을 그 주소로 둔다(N2 — 조작 주소 /_fake/*, harness/sprints/N2/dev-notes.md "화면에게"). 기본 no.
+// - --band fake: 가짜 밴드 서버를 함께 띄우고 밴드 연동을 그 주소로 둔다(BND1 — 조작 주소 /_e2e/band/*, 읽기 간격 1초·3초, harness/sprints/BND1/dev-notes.md "화면에게"). 기본 no.
 // - --tiktok yes: 가짜 웹캐스트로 틱톡 라이브 베타를 켠다(운영자 스위치 켬, N2b-2 — 조작 주소 /_e2e/tiktok/*, harness/sprints/N2b-2/dev-notes.md "화면에게"). 기본 no.
 // - --backup-dir: 백업 폴더(I2). 적지 않으면 임시 폴더를 만들고 끌 때 지운다. 시작할 때 시험 판매자의 자동 백업 하나를 만든다.
 // - --test-deposits: 입금 확인 시험 모드(가짜 원천·시험용 입금 넣기 POST /api/deposits/test/rows, N3). 기본 yes, no면 끈다.
@@ -52,6 +53,8 @@ const args = parseArgs(process.argv.slice(2), [
   'instagram',
   'instagram-port',
   'tiktok',
+  'band',
+  'band-port',
   'backup-dir',
   'billing',
   'test-deposits',
@@ -101,6 +104,8 @@ const instagramFlag = values.get('instagram')
 const billingFlag = values.get('billing')
 const instagramPort = intArg('instagram-port', 0, 65_535)
 const tiktokFlag = values.get('tiktok')
+const bandFlag = values.get('band')
+const bandPort = intArg('band-port', 0, 65_535)
 const testDepositsFlag = values.get('test-deposits')
 const depositPoll = intArg('deposit-poll-ms', 100, 300_000)
 const depositRefetch = intArg('deposit-refetch-ms', 0, 60_000)
@@ -126,6 +131,8 @@ if (
   chatSpeed === null ||
   youtubePort === null ||
   instagramPort === null ||
+  bandPort === null ||
+  (bandFlag !== undefined && bandFlag !== 'fake' && bandFlag !== 'no') ||
   quotaBudget === null ||
   depositPoll === null ||
   depositRefetch === null ||
@@ -152,7 +159,7 @@ if (
 ) {
   complain(
     '인자를 확인해 주세요. --port 0~65535, --fill yes|no, --fill-products 1~999, --fill-chats 0~100000, --host-delay-ms 0~5000, --chat-speed 1~1000, --test-printer yes|no, ' +
-      '--youtube fake|no, --youtube-port 0~65535, --youtube-quota-budget 1~1000000, --outbox-fast yes|no, --web-dir <index.html이 있는 화면 빌드 폴더>, --instagram yes|no, --tiktok yes|no, ' +
+      '--youtube fake|no, --youtube-port 0~65535, --youtube-quota-budget 1~1000000, --outbox-fast yes|no, --web-dir <index.html이 있는 화면 빌드 폴더>, --instagram yes|no, --tiktok yes|no, --band fake|no, --band-port 0~65535, ' +
       '--test-deposits yes|no, --deposit-poll-ms 100~300000, --deposit-refetch-ms 0~60000, --billing yes|no, --parcel yes|no, --parcel-port 0~65535, --parcel-track-ms 1000~1800000, --social fake|no, --social-port 0~65535, --social-providers google,kakao,naver 중 고른 것, ' +
       '--assist fake|no, --assist-port 0~65535, --assist-daily 0~1000000, --assist-global 0~1000000, --assist-timeout-ms 100~60000',
   )
@@ -179,6 +186,7 @@ const e2e = await startE2eServer({
   instagram: instagramFlag === 'yes',
   ...(instagramPort === undefined ? {} : { instagramPort }),
   tiktok: tiktokFlag === 'yes',
+  ...(bandFlag === 'fake' ? { band: bandPort === undefined ? {} : { port: bandPort } } : {}),
   ...(values.get('backup-dir') === undefined ? {} : { backupDir: values.get('backup-dir') as string }),
   billing: billingFlag === 'yes',
   testDeposits: testDepositsFlag !== 'no',
@@ -207,7 +215,10 @@ try {
   const opened = await e2e.listen(port)
   const filled = e2e.fill === null ? '채우기 없음' : `채운 범위 ${e2e.fill.date} · 상품 ${String(e2e.fill.products)} · 채팅 ${String(e2e.fill.chats)}`
   const youtube = e2e.fakeGoogle === null ? '' : ` · 가짜 유튜브 ${e2e.fakeGoogle.url}`
-  const meta = (e2e.fakeMeta === null ? '' : ` · 가짜 메타 ${e2e.fakeMeta.url}`) + (e2e.fakeWebcast === null ? '' : ' · 가짜 틱톡(/_e2e/tiktok/*)')
+  const meta =
+    (e2e.fakeMeta === null ? '' : ` · 가짜 메타 ${e2e.fakeMeta.url}`) +
+    (e2e.fakeWebcast === null ? '' : ' · 가짜 틱톡(/_e2e/tiktok/*)') +
+    (e2e.fakeBand === null ? '' : ` · 가짜 밴드 ${e2e.fakeBand.origin}(/_e2e/band/*)`)
   const web =
     (webDir === undefined ? '' : ' · 화면 함께 냄') +
     (e2e.fakeCarrier === null ? '' : ` · 가짜 택배 ${e2e.fakeCarrier.url}(/_e2e/parcel/*)`) +

@@ -64,6 +64,14 @@ export interface AlertLead {
   readonly shortText?: string
   /** 그 줄 옆의 작은 단추 (틱톡 저장 실패 "확인했어요" — D-N2b-2-16) */
   readonly action?: { readonly label: string; readonly onClick: () => void; readonly busy?: boolean }
+  /**
+   * 휴대폰 접힌 띠에서도 문장을 끝까지 보인다 (BND1 U-BND1-01, AC-BND1-76): 띠 첫 줄을 화면 폭 전체로 쓰고 줄을 바꾼다(말줄임 없음).
+   * 나머지 알림과 "알림 n 펼치기"는 그 아래 한 줄. 옆의 작은 단추(`action`)는 접힌 동안 숨긴다 — 무슨 알림인지 모른 채 누르지 않게.
+   * 펼친 동안·PC에서는 문장 옆에 그대로 있다. 앞쪽 줄(`uncounted` 아님)에만 쓴다.
+   * 휴대폰 접힌 띠에 이런 줄이 둘 이상이면 한 줄(누르는 곳 하나 — 첫 줄의 `onClick`)로 묶는다(BND1 D-BND1-21, AC-BND1-73·76):
+   * 문장은 글자 그대로 차례대로 따로 글 조각, 줄바꿈 허용·잘림 없음. 펼친 띠·PC는 따로 줄.
+   */
+  readonly full?: boolean
 }
 
 /** 휴대폰 펼치기 단추 이름 (QL2 D-QL2-02 (1)): 세는 알림 n ≥ 1이면 "알림 n 펼치기"/"알림 n 접기", 0이면 "알림 펼치기"/"알림 접기" */
@@ -88,8 +96,9 @@ export interface AlertStripProps {
 }
 
 export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanksFailed = 0, reviews = 0, onOpen, expanded = false, onToggle }: AlertStripProps) {
+  const wide = useWide()
   // 접힌 휴대폰 띠 (48rem 미만 + 접힘) — 짧은 줄·"보류 n"은 이때만 (D-QL3R1-04·D-QL3R2-02)
-  const folded = !useWide() && !expanded
+  const folded = !wide && !expanded
   const items: { kind: AlertKind; word: string; count: number; text?: string }[] = [
     { kind: 'conflict', word: ALERT_WORD.conflict, count: counts.conflict },
     { kind: 'cancelRequests', word: ALERT_WORD.cancelRequest, count: counts.cancelRequest },
@@ -110,8 +119,32 @@ export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanks
   const hasShort = (lead: AlertLead) => lead.shortText !== undefined && lead.onClick !== undefined
   const shortLeads = folded ? leads.filter(hasShort) : []
   const listed = folded ? leads.filter((lead) => !hasShort(lead)) : leads
-  const front = listed.filter((lead) => lead.uncounted !== true)
+  const front = listed.filter((lead) => lead.uncounted !== true && lead.full !== true)
+  // 끝까지 보일 줄(밴드)은 따로 첫 목록 — 휴대폰 접힌 띠에서 화면 폭 전체 (U-BND1-01)
+  const full = listed.filter((lead) => lead.uncounted !== true && lead.full === true)
   const tail = listed.filter((lead) => lead.uncounted === true)
+  const rest = front.length + shown.length + tail.length
+  // 휴대폰 접힌 띠: 끝까지 보일 줄(밴드 "들어오지 않아요"·"확인하지 않은 밴드 알림") 둘 이상은 한 줄로 (D-BND1-21 — 줄 틀 하나가 빠져 고정 영역이 준다, TE-BND1-005)
+  const merged = folded && full.length >= 2
+  const actions = full.flatMap((lead) => (lead.action === undefined ? [] : [{ key: lead.key, ...lead.action }]))
+  const mergedClick = full.find((lead) => lead.onClick !== undefined)?.onClick
+  const renderMerged = () => (
+    <li key="full-merged" className={actions.length > 0 ? 'alert-lead alert-lead-merged alert-lead-with-action' : 'alert-lead alert-lead-merged'}>
+      <button type="button" className="button alert-item alert-lead-button alert-lead-merged-button" onClick={mergedClick}>
+        {full.map((lead) => (
+          <span key={lead.key} className="alert-lead-text">
+            {lead.text}
+          </span>
+        ))}
+      </button>
+      {/* "확인했어요"는 접힌 동안 숨긴다(U-BND1-01) — 펼치면 그 줄 옆에 */}
+      {actions.map((action) => (
+        <button key={action.key} type="button" className="button alert-lead-action" aria-busy={action.busy === true} disabled={action.busy === true} onClick={action.onClick}>
+          {action.label}
+        </button>
+      ))}
+    </li>
+  )
   const renderLead = (lead: AlertLead) => (
     <li key={lead.key} className={lead.action !== undefined ? 'alert-lead alert-lead-with-action' : 'alert-lead'}>
       {lead.onClick !== undefined ? (
@@ -131,12 +164,13 @@ export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanks
     </li>
   )
   return (
-    <div className={expanded ? 'alert-bar alert-bar-open' : 'alert-bar'}>
-      <section id="alerts" className="alerts" aria-label="알림">
+    <div className={`alert-bar${expanded ? ' alert-bar-open' : ''}${full.length > 0 ? ' alert-bar-split' : ''}`}>
+      <section id="alerts" className={full.length > 0 ? 'alerts alerts-split' : 'alerts'} aria-label="알림">
+        {full.length > 0 ? <ul className="alerts-list alerts-full">{merged ? renderMerged() : full.map(renderLead)}</ul> : null}
         {shown.length === 0 && leads.length === 0 ? (
           <p className="alerts-none">알림 없음</p>
-        ) : (
-          <ul className="alerts-list">
+        ) : rest === 0 ? null : (
+          <ul className="alerts-list alerts-rest">
             {front.map(renderLead)}
             {shown.map((item) => (
               <li key={item.kind}>

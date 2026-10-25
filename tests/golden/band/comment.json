@@ -1,0 +1,1320 @@
+{
+  "kind": "comment",
+  "about": "밴드 Open API 댓글 목록(GET /v2/band/post/comments)의 항목 하나 → 서버가 기록하는 chat 다섯 칸 { id, ch, nick, text, owner } 또는 건너뜀 (PLT-04, BND1, D-BND1-03~06). id = 'band:' + 글 키 + ':' + comment_key, ch = 'band:' + author.user_key, nick = D-Y05 이름 정리, text = 본문을 D-BND1-04로 바꾼 것, owner = 늘 false(판매자 댓글은 넣지 않는다). publishedAt은 넣지 않는다(밴드 회차는 접수순만). 검사 순서: BAD_COMMENT_KEY → NO_AUTHOR → SELLER → BAD_TIME → NO_TEXT → TEXT_TOO_LONG. 서버 시험이 읽는다 — README '밴드 골든'.",
+  "cases": [
+    {
+      "id": "G-BND-BND1-01",
+      "title": "댓글 → chat 다섯 칸",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-Y05"
+      ],
+      "note": "id = band: + 글 키 + : + 댓글 키, ch = band: + 작성자 user_key, 닉네임 정리, 본문 그대로, owner 늘 false. created_at은 순서에만 쓰고 chat에 넣지 않는다",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "AADGZXHAFeWdd1NaGsc5hN07",
+          "content": "1번 2개요",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "chat": {
+          "id": "band:AABhEEQG08e1Fc227z2fRCwv:AADGZXHAFeWdd1NaGsc5hN07",
+          "ch": "band:UKEY_A1",
+          "nick": "김다육",
+          "text": "1번 2개요",
+          "owner": false
+        }
+      }
+    },
+    {
+      "id": "G-BND-BND1-02",
+      "title": "이름 뒤 공백은 뺀다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-Y05"
+      ],
+      "note": "공식 예시의 'Jordan Lee  ' — D-Y05 (5) 앞뒤 공백 빼기",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K02",
+          "content": "3번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "Jordan Lee  ",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "chat": {
+          "id": "band:AABhEEQG08e1Fc227z2fRCwv:K02",
+          "ch": "band:UKEY_A1",
+          "nick": "Jordan Lee",
+          "text": "3번",
+          "owner": false
+        }
+      }
+    },
+    {
+      "id": "G-BND-BND1-03",
+      "title": "판매자 본인 댓글은 넣지 않는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-BND1-05"
+      ],
+      "note": "author.user_key = 연결한 판매자 user_key → SELLER (owner true로 넣지 않는다 — 방송자 무시 설정과 상관없이)",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K03",
+          "content": "1번 마감이에요",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "다육가게",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "SELLERKEY01"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "skip": "SELLER"
+      }
+    },
+    {
+      "id": "G-BND-BND1-04",
+      "title": "작성자 user_key가 없으면 넣지 않는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-BND1-05"
+      ],
+      "note": "공식 문서 예시처럼 author에 user_key가 없음 → NO_AUTHOR (이름으로 대신하지 않는다 — 같은 이름 두 사람이 한 구매자가 됨)",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K04",
+          "content": "2번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "skip": "NO_AUTHOR"
+      }
+    },
+    {
+      "id": "G-BND-BND1-05",
+      "title": "작성자 user_key가 빈 글이면 넣지 않는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03"
+      ],
+      "note": "user_key '' → NO_AUTHOR",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K05",
+          "content": "2번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": ""
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "skip": "NO_AUTHOR"
+      }
+    },
+    {
+      "id": "G-BND-BND1-06",
+      "title": "user_key가 너무 길면 넣지 않는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-N2-02"
+      ],
+      "note": "band: 5자 + 252자 = 257자 > 256 → NO_AUTHOR",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K06",
+          "content": "2번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "skip": "NO_AUTHOR"
+      }
+    },
+    {
+      "id": "G-BND-BND1-07",
+      "title": "user_key가 256자 안이면 넣는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-N2-02"
+      ],
+      "note": "band: 5자 + 251자 = 256자 → 통과",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K07",
+          "content": "2번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "chat": {
+          "id": "band:AABhEEQG08e1Fc227z2fRCwv:K07",
+          "ch": "band:UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+          "nick": "김다육",
+          "text": "2번",
+          "owner": false
+        }
+      }
+    },
+    {
+      "id": "G-BND-BND1-08",
+      "title": "댓글 키가 없으면 넣지 않는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03"
+      ],
+      "note": "comment_key 없음 → BAD_COMMENT_KEY (가장 먼저 검사)",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "content": "2번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "skip": "BAD_COMMENT_KEY"
+      }
+    },
+    {
+      "id": "G-BND-BND1-09",
+      "title": "댓글 키가 글이 아니면 넣지 않는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03"
+      ],
+      "note": "comment_key 숫자 123 → BAD_COMMENT_KEY",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": 123,
+          "content": "2번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "skip": "BAD_COMMENT_KEY"
+      }
+    },
+    {
+      "id": "G-BND-BND1-10",
+      "title": "메시지 ID가 256자를 넘으면 넣지 않는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-N2-02"
+      ],
+      "note": "band:(5) + 글 키(24) + :(1) = 30자, 댓글 키 227자 → 257자 > 256 → BAD_COMMENT_KEY",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+          "content": "2번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "skip": "BAD_COMMENT_KEY"
+      }
+    },
+    {
+      "id": "G-BND-BND1-11",
+      "title": "메시지 ID가 256자면 넣는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-N2-02"
+      ],
+      "note": "30자 + 댓글 키 226자 = 256자 → 통과",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+          "content": "2번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "chat": {
+          "id": "band:AABhEEQG08e1Fc227z2fRCwv:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+          "ch": "band:UKEY_A1",
+          "nick": "김다육",
+          "text": "2번",
+          "owner": false
+        }
+      }
+    },
+    {
+      "id": "G-BND-BND1-12",
+      "title": "판매자 댓글이면서 빈 글 → 작성자 검사가 먼저",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-BND1-05"
+      ],
+      "note": "검사 순서 댓글 키 → 작성자 → 판매자 → 시각 → 본문: 빈 글이어도 SELLER",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K12",
+          "content": "",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "SELLERKEY01"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "skip": "SELLER"
+      }
+    },
+    {
+      "id": "G-BND-BND1-13",
+      "title": "댓글 키 없음이 판매자보다 먼저",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03"
+      ],
+      "note": "댓글 키 없음 + 판매자 → BAD_COMMENT_KEY",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "content": "2번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "SELLERKEY01"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "skip": "BAD_COMMENT_KEY"
+      }
+    },
+    {
+      "id": "G-BND-BND1-14",
+      "title": "작성 시각이 없으면 넣지 않는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-BND1-06"
+      ],
+      "note": "created_at 없음 → BAD_TIME (순서를 정할 수 없다)",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K14",
+          "content": "2번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "skip": "BAD_TIME"
+      }
+    },
+    {
+      "id": "G-BND-BND1-15",
+      "title": "작성 시각이 글이면 넣지 않는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-BND1-06"
+      ],
+      "note": "created_at '1793012400000'(문자열) → BAD_TIME",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K15",
+          "content": "2번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": "1793012400000",
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "skip": "BAD_TIME"
+      }
+    },
+    {
+      "id": "G-BND-BND1-16",
+      "title": "작성 시각이 소수면 넣지 않는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-BND1-06"
+      ],
+      "note": "created_at 1793012400000.5 → BAD_TIME (양의 안전 정수만)",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K16",
+          "content": "2번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000.5,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "skip": "BAD_TIME"
+      }
+    },
+    {
+      "id": "G-BND-BND1-17",
+      "title": "작성 시각이 0이면 넣지 않는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-BND1-06"
+      ],
+      "note": "created_at 0 → BAD_TIME (양의 정수만)",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K17",
+          "content": "2번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 0,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "skip": "BAD_TIME"
+      }
+    },
+    {
+      "id": "G-BND-BND1-18",
+      "title": "부르기 태그는 @이름으로",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-BND1-04"
+      ],
+      "note": "<band:refer …>박사장</band:refer> → '@박사장'. 그 뒤 파서가 남을 부른 댓글로 본다(이 골든 밖)",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K18",
+          "content": "<band:refer user_key=\"UKEY_B\">박사장</band:refer> 1번 주세요",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "chat": {
+          "id": "band:AABhEEQG08e1Fc227z2fRCwv:K18",
+          "ch": "band:UKEY_A1",
+          "nick": "김다육",
+          "text": "@박사장 1번 주세요",
+          "owner": false
+        }
+      }
+    },
+    {
+      "id": "G-BND-BND1-19",
+      "title": "해시태그 태그는 안의 글만",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-BND1-04"
+      ],
+      "note": "<band:hashtag>#공구</band:hashtag> → '#공구'",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K19",
+          "content": "<band:hashtag>#공구</band:hashtag> 3번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "chat": {
+          "id": "band:AABhEEQG08e1Fc227z2fRCwv:K19",
+          "ch": "band:UKEY_A1",
+          "nick": "김다육",
+          "text": "#공구 3번",
+          "owner": false
+        }
+      }
+    },
+    {
+      "id": "G-BND-BND1-20",
+      "title": "모르는 band: 태그는 표시만 지우고 안의 글은 둔다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-BND1-04"
+      ],
+      "note": "<band:sticker id=\"3\"></band:sticker> 지움 → '15번'",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K20",
+          "content": "<band:sticker id=\"3\"></band:sticker>15번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "chat": {
+          "id": "band:AABhEEQG08e1Fc227z2fRCwv:K20",
+          "ch": "band:UKEY_A1",
+          "nick": "김다육",
+          "text": "15번",
+          "owner": false
+        }
+      }
+    },
+    {
+      "id": "G-BND-BND1-21",
+      "title": "손님이 친 꺾쇠는 이스케이프가 풀린 글자로",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-BND1-04"
+      ],
+      "note": "&lt;img src=x onerror=alert(1)&gt; → 글자 그대로 '<img src=x onerror=alert(1)>' (화면은 늘 이스케이프 — 절대 규칙 7). 태그 처리 뒤에 풀므로 태그가 되지 않는다",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K21",
+          "content": "&lt;img src=x onerror=alert(1)&gt; 5번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "chat": {
+          "id": "band:AABhEEQG08e1Fc227z2fRCwv:K21",
+          "ch": "band:UKEY_A1",
+          "nick": "김다육",
+          "text": "<img src=x onerror=alert(1)> 5번",
+          "owner": false
+        }
+      }
+    },
+    {
+      "id": "G-BND-BND1-22",
+      "title": "손님이 친 band: 태그 모양은 태그가 아니다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-BND1-04"
+      ],
+      "note": "&lt;band:refer&gt;가 풀려 '<band:refer>' 글자로 남음 — 태그 처리는 풀기 전에 끝났다",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K22",
+          "content": "&lt;band:refer&gt;남&lt;/band:refer&gt; 6번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "chat": {
+          "id": "band:AABhEEQG08e1Fc227z2fRCwv:K22",
+          "ch": "band:UKEY_A1",
+          "nick": "김다육",
+          "text": "<band:refer>남</band:refer> 6번",
+          "owner": false
+        }
+      }
+    },
+    {
+      "id": "G-BND-BND1-23",
+      "title": "이스케이프는 한 번만 푼다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-BND1-04"
+      ],
+      "note": "&amp;lt;b&amp;gt; → '&lt;b&gt;' (&amp;는 마지막에 한 번)",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K23",
+          "content": "&amp;lt;b&amp;gt; 8번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "chat": {
+          "id": "band:AABhEEQG08e1Fc227z2fRCwv:K23",
+          "ch": "band:UKEY_A1",
+          "nick": "김다육",
+          "text": "&lt;b&gt; 8번",
+          "owner": false
+        }
+      }
+    },
+    {
+      "id": "G-BND-BND1-24",
+      "title": "따옴표 이스케이프",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-BND1-04"
+      ],
+      "note": "&quot; → \", &#39; → ', &#x27; → '",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K24",
+          "content": "&quot;7번&quot; &#39;요&#x27;",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "chat": {
+          "id": "band:AABhEEQG08e1Fc227z2fRCwv:K24",
+          "ch": "band:UKEY_A1",
+          "nick": "김다육",
+          "text": "\"7번\" '요'",
+          "owner": false
+        }
+      }
+    },
+    {
+      "id": "G-BND-BND1-25",
+      "title": "빈 글(스티커만)은 넣지 않는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03"
+      ],
+      "note": "content '' → NO_TEXT",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K25",
+          "content": "",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "skip": "NO_TEXT"
+      }
+    },
+    {
+      "id": "G-BND-BND1-26",
+      "title": "글이 없고 사진만 → 넣지 않는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03"
+      ],
+      "note": "content null → NO_TEXT",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K26",
+          "content": null,
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": {
+            "url": "http://img.band.us/a.jpg",
+            "width": 640,
+            "height": 480
+          }
+        }
+      },
+      "out": {
+        "skip": "NO_TEXT"
+      }
+    },
+    {
+      "id": "G-BND-BND1-27",
+      "title": "공백만인 글은 넣지 않는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03"
+      ],
+      "note": "'  \\n ' → 앞뒤 공백을 빼면 빈 글 → NO_TEXT",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K27",
+          "content": "  \n ",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "skip": "NO_TEXT"
+      }
+    },
+    {
+      "id": "G-BND-BND1-28",
+      "title": "글이 숫자 값이면 넣지 않는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03"
+      ],
+      "note": "content 15(숫자) → NO_TEXT",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K28",
+          "content": 15,
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "skip": "NO_TEXT"
+      }
+    },
+    {
+      "id": "G-BND-BND1-29",
+      "title": "태그만 있고 글이 없으면 넣지 않는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-BND1-04"
+      ],
+      "note": "<band:sticker></band:sticker> 지우면 빈 글 → NO_TEXT",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K29",
+          "content": "<band:sticker id=\"9\"></band:sticker>",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "skip": "NO_TEXT"
+      }
+    },
+    {
+      "id": "G-BND-BND1-30",
+      "title": "가운데 줄바꿈은 그대로, 앞뒤만 뺀다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03"
+      ],
+      "note": "' 1번\\n2번 ' → '1번\\n2번'",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K30",
+          "content": " 1번\n2번 ",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "chat": {
+          "id": "band:AABhEEQG08e1Fc227z2fRCwv:K30",
+          "ch": "band:UKEY_A1",
+          "nick": "김다육",
+          "text": "1번\n2번",
+          "owner": false
+        }
+      }
+    },
+    {
+      "id": "G-BND-BND1-31",
+      "title": "500자는 넣는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03"
+      ],
+      "note": "'1번' 2자 + '가' 498자 = 500자(코드 포인트) → 통과",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K31",
+          "content": "1번가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "chat": {
+          "id": "band:AABhEEQG08e1Fc227z2fRCwv:K31",
+          "ch": "band:UKEY_A1",
+          "nick": "김다육",
+          "text": "1번가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+          "owner": false
+        }
+      }
+    },
+    {
+      "id": "G-BND-BND1-32",
+      "title": "500자를 넘으면 넣지 않는다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03"
+      ],
+      "note": "'1번' 2자 + '가' 499자 = 501자 → TEXT_TOO_LONG (자르지 않는다)",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K32",
+          "content": "1번가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "skip": "TEXT_TOO_LONG"
+      }
+    },
+    {
+      "id": "G-BND-BND1-33",
+      "title": "이모지는 코드 포인트 하나로 센다",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03"
+      ],
+      "note": "'🌵' 500개 = 코드 포인트 500(UTF-16 1000) → 통과",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K33",
+          "content": "🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "김다육",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "chat": {
+          "id": "band:AABhEEQG08e1Fc227z2fRCwv:K33",
+          "ch": "band:UKEY_A1",
+          "nick": "김다육",
+          "text": "🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵🌵",
+          "owner": false
+        }
+      }
+    },
+    {
+      "id": "G-BND-BND1-34",
+      "title": "이름의 @와 점",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-Y05"
+      ],
+      "note": "'@shop.kr' → @ 지움, 점은 · → 'shop·kr'",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K34",
+          "content": "4번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "@shop.kr",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "chat": {
+          "id": "band:AABhEEQG08e1Fc227z2fRCwv:K34",
+          "ch": "band:UKEY_A1",
+          "nick": "shop·kr",
+          "text": "4번",
+          "owner": false
+        }
+      }
+    },
+    {
+      "id": "G-BND-BND1-35",
+      "title": "이름이 비면 시청자",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-Y05"
+      ],
+      "note": "name '' → '시청자'",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K35",
+          "content": "4번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": "",
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "chat": {
+          "id": "band:AABhEEQG08e1Fc227z2fRCwv:K35",
+          "ch": "band:UKEY_A1",
+          "nick": "시청자",
+          "text": "4번",
+          "owner": false
+        }
+      }
+    },
+    {
+      "id": "G-BND-BND1-36",
+      "title": "이름이 없으면 시청자",
+      "refs": [
+        "PLT-04",
+        "D-BND1-03",
+        "D-Y05"
+      ],
+      "note": "author.name 없음(null) → '시청자'",
+      "in": {
+        "sellerUserKey": "SELLERKEY01",
+        "postKey": "AABhEEQG08e1Fc227z2fRCwv",
+        "item": {
+          "band_key": "BANDKEY01",
+          "post_key": "AABhEEQG08e1Fc227z2fRCwv",
+          "comment_key": "K36",
+          "content": "4번",
+          "emotion_count": 0,
+          "is_audio_comment": false,
+          "created_at": 1793012400000,
+          "author": {
+            "name": null,
+            "description": "",
+            "role": "member",
+            "profile_image_url": "http://img.band.us/p.jpg",
+            "user_key": "UKEY_A1"
+          },
+          "photo": null
+        }
+      },
+      "out": {
+        "chat": {
+          "id": "band:AABhEEQG08e1Fc227z2fRCwv:K36",
+          "ch": "band:UKEY_A1",
+          "nick": "시청자",
+          "text": "4번",
+          "owner": false
+        }
+      }
+    }
+  ]
+}

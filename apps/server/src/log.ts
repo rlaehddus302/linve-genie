@@ -118,6 +118,25 @@ export type LogCode =
   | 'TIKTOK_RESUME_FAILED'
   // 인스타그램 설정 주소가 https가 아님 (D-N2b-2-10)
   | 'INSTAGRAM_CONFIG_INSECURE'
+  // BND1 밴드 (D-BND1-14): 정해진 코드·(요청 이름_결과 코드)·HTTP 상태·판매자 ID·개수만. 토큰·코드·주소·user_key·밴드/글 키·손님 이름·댓글은 남기지 않는다
+  | 'BAND_CONFIG_INVALID'
+  | 'BAND_API_FAILED'
+  | 'BAND_CONNECT_FAILED'
+  | 'BAND_TOKEN_UNREADABLE'
+  | 'BAND_RECONNECT_NEEDED'
+  | 'BAND_YOUTUBE_LINKED'
+  | 'BAND_READ_FAILED'
+  | 'BAND_PAGING_LOOP'
+  | 'BAND_PAGING_LIMIT'
+  | 'BAND_FAST_UNREACHED'
+  | 'BAND_STUCK'
+  | 'BAND_ENDED_STOPPED'
+  | 'BAND_RECORD_REJECTED'
+  | 'BAND_RETRY_STATE_FAILED'
+  | 'BAND_SAVE_FAILED'
+  | 'BAND_SKIPPED'
+  | 'BAND_RESUME_FAILED'
+  | 'BAND_ERASE_FAILED'
   | 'DEPOSIT_FETCH_FAILED'
   | 'DEPOSIT_SAVE_FAILED'
   | 'DEPOSIT_ROW_SAVE_RETRY'
@@ -220,6 +239,24 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   TIKTOK_SKIPPED: '틱톡 댓글이 입력 검사를 통과하지 못해 기록하지 않았어요(수만 셈)',
   TIKTOK_RESUME_FAILED: '서버를 다시 켠 뒤 틱톡 연결을 이어받지 못했어요',
   INSTAGRAM_CONFIG_INSECURE: '인스타그램 주소 설정이 https가 아니라 인스타그램 연동을 끈 것으로 봤어요',
+  BAND_CONFIG_INVALID: '밴드 주소 설정이 https가 아니거나 형식이 틀려 밴드 연동을 끈 것으로 봤어요',
+  BAND_API_FAILED: '밴드 요청이 실패했어요',
+  BAND_CONNECT_FAILED: '밴드 계정 연결을 마치지 못했어요',
+  BAND_TOKEN_UNREADABLE: '밴드 토큰을 풀지 못해 연결을 다시 연결 필요로 바꿨어요',
+  BAND_RECONNECT_NEEDED: '밴드 연결이 풀려 그 판매자의 밴드 읽기를 멈췄어요',
+  BAND_YOUTUBE_LINKED: '유튜브를 이은 회차라 밴드 읽기를 멈췄어요',
+  BAND_READ_FAILED: '밴드 댓글 읽기 중 오류가 생겨 다시 시도해요',
+  BAND_PAGING_LOOP: '밴드 쪽 넘기기가 같은 쪽을 다시 가리켜 그 읽기를 끝냈어요',
+  BAND_PAGING_LIMIT: '밴드 쪽 넘기기가 쪽 수 상한에 닿아 그 읽기를 끝냈어요',
+  BAND_FAST_UNREACHED: '밴드 빠른 읽기가 본 댓글까지 닿지 못해 기록하지 않았어요',
+  BAND_STUCK: '밴드 댓글이 한꺼번에 너무 많이 달려 차례대로 읽지 못하고 있어요',
+  BAND_ENDED_STOPPED: '끝난 방송에 남은 밴드 글 연결을 끝냈어요',
+  BAND_RECORD_REJECTED: '밴드 댓글 기록이 거절되어 다시 시도해요',
+  BAND_RETRY_STATE_FAILED: '밴드 다시 시도 상태를 저장하지 못했어요(다음 읽기는 예약함)',
+  BAND_SAVE_FAILED: '밴드 댓글을 기록하지 못해 다시 시도해요',
+  BAND_SKIPPED: '입력 검사를 통과하지 못한 밴드 댓글을 기록하지 않았어요',
+  BAND_RESUME_FAILED: '서버를 다시 켤 때 밴드 읽기를 이어받지 못했어요',
+  BAND_ERASE_FAILED: '보관 기간이 지난 밴드 알림 글을 지우지 못했어요(다음에 다시 해요)',
   DEPOSIT_FETCH_FAILED: '입금 원천에서 받아 오지 못했어요(다음 주기에 다시 함)',
   DEPOSIT_SAVE_FAILED: '받은 입금을 저장하지 못했어요(다음 주기에 다시 함)',
   DEPOSIT_ROW_SAVE_RETRY: '받은 입금을 한 번에 저장하지 못해 한 줄씩 다시 저장해요',

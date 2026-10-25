@@ -1131,6 +1131,155 @@ export const tiktokAccounts = pgTable('tiktok_accounts', {
   updatedBy: text('updated_by').references(() => accounts.id),
 })
 
+/**
+ * 판매자의 밴드 계정 연결 하나 (BND1, D-BND1-11). 토큰은 서버 마스터 키로 암호화한 값만 둔다(평문 없음, DAT-06). refresh_token은 두지 않는다.
+ * 상태: CONNECTED · RECONNECT_NEEDED(10401·만료 — 다시 연결하면 같은 user_key일 때 이어 읽음). 끊으면 행을 지운다
+ */
+export const bandAccounts = pgTable('band_accounts', {
+  sellerId: text('seller_id')
+    .primaryKey()
+    .references(() => sellers.id),
+  /** 밴드가 준 판매자 user_key (판매자 댓글·내 글 판단) */
+  userKey: text('user_key').notNull(),
+  tokenEnc: text('token_enc').notNull(),
+  /** 토큰이 끝나는 시각 (expires_in이 없으면 null) */
+  expiresAt: timestamptz('expires_at'),
+  status: text('status').notNull(),
+  profileName: text('profile_name'),
+  connectedAt: timestamptz('connected_at').notNull(),
+  /** 판매자가 마지막에 고른 밴드 키 (다음에 먼저 고른다) */
+  chosenBand: text('chosen_band'),
+  updatedAt: timestamptz('updated_at').notNull(),
+})
+
+/** 밴드 연결 시작의 한 번 쓰는 표 (D-BND1-11): 돌아오는 주소 경로에 붙는다. 원문은 두지 않고 해시만. 10분·한 번·그 로그인 세션 */
+export const bandOauthStates = pgTable(
+  'band_oauth_states',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    sessionHash: text('session_hash').notNull(),
+    stateHash: text('state_hash').notNull(),
+    expiresAt: timestamptz('expires_at').notNull(),
+    usedAt: timestamptz('used_at'),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('band_oauth_states_state_uq').on(t.stateHash), index('band_oauth_states_seller_idx').on(t.sellerId)],
+)
+
+/**
+ * 회차에 이은 밴드 글 하나 (BND1, D-BND1-07·10·12). 상태: READING · RETRYING · RECONNECT_NEEDED · NO_ACCESS · YOUTUBE_LINKED · FINISHED(finish_reason).
+ * 끝나지 않은(FINISHED가 아닌) 연결은 회차마다 하나, 판매자마다 하나(부분 유일 인덱스). 잇기·끊기는 엔진 이벤트가 아니다 — 누가·언제는 여기 남는다(DAT-05).
+ * 회차·범위를 외래 키로 잇지 않는다 — 복구·가져오기가 범위를 다시 만들어도 이 행은 남고 FINISHED(RESTORED)가 된다(D-BND1-14)
+ */
+export const bandLinks = pgTable(
+  'band_links',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    broadcastId: text('broadcast_id').notNull(),
+    /** 회차의 범위 날짜 (KST) */
+    date: text('date').notNull(),
+    state: text('state').notNull(),
+    /** FINISHED의 까닭: UNLINKED · ENDED · ACCOUNT_CHANGED · DISCONNECTED · RESTORED */
+    finishReason: text('finish_reason'),
+    bandKey: text('band_key').notNull(),
+    postKey: text('post_key').notNull(),
+    /** 글 첫 줄 (D-BND1-04로 바꾼 본문의 첫 줄 40자) */
+    postLine: text('post_line').notNull(),
+    actorAccountId: text('actor_account_id').references(() => accounts.id),
+    linkedAt: timestamptz('linked_at').notNull(),
+    /** 이을 때 이미 달려 있던 댓글 수 (기준선) */
+    baseline: integer('baseline').notNull().default(0),
+    /** 넣지 못한 댓글 수 (사유별) — BAD_COMMENT_KEY는 마지막 전체 읽기에 있던 수 */
+    skipSeller: integer('skip_seller').notNull().default(0),
+    skipNoAuthor: integer('skip_no_author').notNull().default(0),
+    skipBadKey: integer('skip_bad_key').notNull().default(0),
+    skipBadTime: integer('skip_bad_time').notNull().default(0),
+    skipNoText: integer('skip_no_text').notNull().default(0),
+    skipTooLong: integer('skip_too_long').notNull().default(0),
+    skipDuplicate: integer('skip_duplicate').notNull().default(0),
+    /** 마지막으로 읽은(성공한) 시각 */
+    lastReadAt: timestamptz('last_read_at'),
+    /** 이어서 실패한 수 · 다음 읽기 시각 · 호출 한도로 쉬는지 */
+    failures: integer('failures').notNull().default(0),
+    retryAt: timestamptz('retry_at'),
+    rateLimited: boolean('rate_limited').notNull().default(false),
+    /** 판매자가 "확인했어요"로 본 마지막 알림 번호 */
+    noticesSeen: bigint('notices_seen', { mode: 'number' }).notNull().default(0),
+    finishedAt: timestamptz('finished_at'),
+    finishedBy: text('finished_by').references(() => accounts.id),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('band_links_open_uq').on(t.sellerId, t.broadcastId).where(sql`state <> 'FINISHED'`),
+    uniqueIndex('band_links_seller_uq').on(t.sellerId).where(sql`state <> 'FINISHED'`),
+    index('band_links_broadcast_idx').on(t.sellerId, t.broadcastId),
+  ],
+)
+
+/**
+ * 본 댓글 표 (D-BND1-07): 연결마다 (댓글 키)는 한 번 — 기준선·기록한 것·건너뛴 것 모두. 다음 읽기에서 다시 보지 않는다.
+ * 기록한 댓글만 처음 글·닉네임·바꾼 본문의 해시를 둔다(지운·고친 댓글 알림, D-BND1-09). 글·닉네임은 채팅 원문과 같은 보관 규칙으로 지운다(D-BND1-14)
+ */
+export const bandSeen = pgTable(
+  'band_seen',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    linkId: bigint('link_id', { mode: 'number' })
+      .notNull()
+      .references(() => bandLinks.id),
+    commentKey: text('comment_key').notNull(),
+    /** BASELINE · RECORDED · SKIPPED */
+    kind: text('kind').notNull(),
+    textHash: text('text_hash'),
+    nick: text('nick'),
+    text: text('text'),
+    /** 지운 댓글 알림을 냈는지 · 알린 고친 본문의 해시들(공백으로 나눔, 상한 없이 모두 — TD-BND1-001, D-BND1-18) */
+    deletedNoticed: boolean('deleted_noticed').notNull().default(false),
+    editedHash: text('edited_hash'),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('band_seen_uq').on(t.linkId, t.commentKey), index('band_seen_seller_idx').on(t.sellerId, t.linkId)],
+)
+
+/**
+ * 밴드 글 연결의 알림 (D-BND1-09·10): DELETED 지운 댓글 · EDITED 고친 댓글 · LATE 오래 못 읽다가 다시 읽음 · STUCK 막다른 경우(차례대로 읽지 못함, AC-BND1-30). 번호 순으로 쌓는다.
+ * 손님 글·닉네임은 보관 기간이 지나면 지운다(erased — 문장이 바뀐다)
+ */
+export const bandNotices = pgTable(
+  'band_notices',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    linkId: bigint('link_id', { mode: 'number' })
+      .notNull()
+      .references(() => bandLinks.id),
+    kind: text('kind').notNull(),
+    nick: text('nick'),
+    beforeText: text('before_text'),
+    afterText: text('after_text'),
+    /** LATE: 지난 분 · 넣은 댓글 수 */
+    minutes: integer('minutes'),
+    count: integer('count'),
+    erased: boolean('erased').notNull().default(false),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [index('band_notices_link_idx').on(t.sellerId, t.linkId, t.id)],
+)
+
 /** 댓글 붙여넣기 넣기 요청 (D-N2b-2-08): 같은 요청 번호는 같은 글일 때만 처음 응답을 돌려준다 — 글은 두지 않고 요약값만 */
 export const pasteRequests = pgTable(
   'paste_requests',
@@ -1957,6 +2106,11 @@ export const schema = {
   tiktokConsents,
   tiktokAccounts,
   pasteRequests,
+  bandAccounts,
+  bandOauthStates,
+  bandLinks,
+  bandSeen,
+  bandNotices,
   labelSwitches,
   packingRecords,
   billingGrants,

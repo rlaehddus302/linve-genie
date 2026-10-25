@@ -26,8 +26,8 @@ const common = {
   root: import.meta.dirname,
   environment: 'node' as const,
   // 실제 구글로 나가는 요청을 막는다 (AC-Y1-72). 틱톡·서명 서비스로 나가는 연결도 막고, 막힌 시도가 있으면 그 시험 파일을 실패시킨다 (N2b-1, AC-N2b-1-04).
-  // 실제 메타 주소로 나가는 연결도 막는다 (N2 AC-N2-62)
-  setupFiles: ['test/setup-network-guard.ts', 'test/setup-outbound-guard.ts', 'test/network-guard.ts', 'test/setup-social-guard.ts', 'test/setup-assist-guard.ts'],
+  // 실제 메타 주소로 나가는 연결도 막는다 (N2 AC-N2-62). 실제 밴드 주소(band.us)도 막는다 (BND1 AC-BND1-63)
+  setupFiles: ['test/setup-network-guard.ts', 'test/setup-outbound-guard.ts', 'test/network-guard.ts', 'test/setup-social-guard.ts', 'test/setup-assist-guard.ts', 'test/setup-band-guard.ts'],
   // PGlite를 여는 시험이 많아 기본 5초보다 넉넉히 둔다 (지연 시험은 자체 시간 제한)
   hookTimeout: 30_000, // 부하 때 beforeAll(PGlite 열기·마이그레이션)이 기본 10초를 넘겨 파일 전체가 '건너뜀'으로 잡히던 일 (D-906과 같은 이유)
   testTimeout: 60_000, // 무거운 속성 시험이 병렬 부하에서 기본값을 넘긴다 — 걸린 시간은 성능 시험(*.perf.test.ts)이 따로 잰다 (D-902)

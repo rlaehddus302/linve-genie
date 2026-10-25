@@ -1,15 +1,17 @@
-// 여러 플랫폼(유튜브·인스타그램·틱톡) 화면 낱말·판단 (PLT-01·02·03, D-N2-15, D-N2b-2-02·13, AC-N2b-2-60~68).
-// - 플랫폼 이름은 키 접두어 하나로 정한다(서버 platformOfKey와 같다): `ig:` 인스타그램 · `tt:` 틱톡 · `sms:` 문자 · 그 밖 유튜브.
+// 여러 플랫폼(유튜브·인스타그램·틱톡·밴드) 화면 낱말·판단 (PLT-01·02·03·04, D-N2-15, D-N2b-2-02·13, AC-N2b-2-60~68, AC-BND1-01·75).
+// - 플랫폼 이름은 키 접두어 하나로 정한다(서버 platformOfKey와 같다): `ig:` 인스타그램 · `tt:` 틱톡 · `band:` 밴드 · `sms:` 문자 · 그 밖 유튜브.
+//   접두어는 소문자 그대로만 — `BAND:`·쌍점 없는 `bandX`는 유튜브다.
 // - 서버가 응답에 문장을 주는 곳(수집 상태·오류)은 서버 문장을 그대로 쓴다. 여기 문장은 서버가 응답으로 주지 않는 자리
 //   (조회 결과만으로 정하는 안내·확인 창·화면 문장)이고 acceptance의 따옴표 문장과 글자가 같다.
 import type { Buyer, ChatMessage, InstagramDmRow, TikTokCollection, TikTokExtensionView, TikTokSettings } from '../api/types.ts'
 
-export type KeyPlatform = 'YOUTUBE' | 'INSTAGRAM' | 'TIKTOK' | 'SMS'
+export type KeyPlatform = 'YOUTUBE' | 'INSTAGRAM' | 'TIKTOK' | 'BAND' | 'SMS'
 
 /** 키 → 플랫폼 (구매자 ID·채팅 채널) */
 export function platformOfKey(key: string): KeyPlatform {
   if (key.startsWith('ig:')) return 'INSTAGRAM'
   if (key.startsWith('tt:')) return 'TIKTOK'
+  if (key.startsWith('band:')) return 'BAND'
   if (key.startsWith('sms:')) return 'SMS'
   return 'YOUTUBE'
 }
@@ -19,17 +21,19 @@ export const PLATFORM_WORD: Readonly<Record<KeyPlatform, string>> = {
   YOUTUBE: '유튜브',
   INSTAGRAM: '인스타그램',
   TIKTOK: '틱톡',
+  BAND: '밴드',
   SMS: '문자',
 }
 
-/** 구매자 종류 글자: 유튜브·인스타그램·틱톡·문자 (인스타·틱톡 구매자가 없는 날은 지금처럼 유튜브·문자뿐이다) */
+/** 구매자 종류 글자: 유튜브·인스타그램·틱톡·밴드·문자 (다른 플랫폼 구매자가 없는 날은 지금처럼 유튜브·문자뿐이다) */
 export function buyerPlatformWord(buyer: Pick<Buyer, 'id' | 'kind'>): string {
   if (buyer.kind === 'sms') return PLATFORM_WORD.SMS
   return PLATFORM_WORD[platformOfKey(buyer.id)]
 }
 
 /**
- * 채팅 줄마다 플랫폼 글자를 붙일지 (AC-N2b-2-65): 그 회차에 인스타그램·틱톡 채팅이 있거나 인스타그램·틱톡이 이어져 있으면 모든 줄에.
+ * 채팅 줄마다 플랫폼 글자를 붙일지 (AC-N2b-2-65, AC-BND1-75): 그 회차에 유튜브가 아닌 플랫폼(인스타그램·틱톡·밴드) 채팅이 있거나
+ * 그 플랫폼이 이어져 있으면 모든 줄에.
  * 유튜브만 이은(또는 아무것도 잇지 않은) 회차는 지금 화면 그대로.
  */
 export function chatPlatformTags(messages: readonly Pick<ChatMessage, 'channel'>[], otherLinked: boolean): boolean {

@@ -620,7 +620,7 @@ export interface ReceiptBuyers {
 
 // ── 여러 플랫폼·인스타그램·틱톡 (harness/sprints/N2/dev-notes.md "화면에게", N2b-2 dev-notes "화면에게") ──────
 
-export type PlatformName = 'YOUTUBE' | 'INSTAGRAM' | 'TIKTOK'
+export type PlatformName = 'YOUTUBE' | 'INSTAGRAM' | 'TIKTOK' | 'BAND'
 
 /** 플랫폼 능력 (GET /api/platforms) — 쓸 수 없는 것마다 서버 문장 */
 export interface PlatformCapability {
@@ -793,6 +793,91 @@ export interface TikTokEvent {
   readonly broadcast: string
   readonly link: TikTokLinkView
 }
+
+// ── 네이버 밴드 글 댓글 (BND1 — harness/sprints/BND1/dev-notes.md "화면에게") ─────────────────────
+
+/** 판매자의 밴드 계정 (GET /api/band) — 토큰·작성자 구분 값은 없다 */
+export interface BandAccount {
+  readonly status: 'NOT_CONFIGURED' | 'NOT_CONNECTED' | 'CONNECTED' | 'RECONNECT_NEEDED'
+  /** 연결됨이 아니면 그 문장 (연결됨이면 null) */
+  readonly message: string | null
+  readonly profileName: string | null
+  readonly connectedAt: string | null
+  /** 기억한 밴드 */
+  readonly chosenBand: string | null
+}
+
+/** 밴드 알림 한 줄 (지운·고친 댓글·늦게 읽음·막다른 경우) */
+export interface BandNotice {
+  readonly id: number
+  readonly kind: 'DELETED' | 'EDITED' | 'LATE' | 'STUCK'
+  readonly message: string
+  readonly at: string
+  readonly seen: boolean
+}
+
+export type BandLinkState = 'NONE' | 'READING' | 'RETRYING' | 'RECONNECT_NEEDED' | 'NO_ACCESS' | 'YOUTUBE_LINKED' | 'FINISHED'
+
+/** 회차의 밴드 글 연결 (GET /api/broadcasts/:id/band 의 link) */
+export interface BandLinkView {
+  readonly broadcast: string
+  readonly platform: 'BAND'
+  readonly state: BandLinkState
+  /** 상태 문장 (NONE이면 null) */
+  readonly message: string | null
+  /** 지금 새로 이을 수 있는지와 막는 까닭 */
+  readonly canLink: boolean
+  readonly blockCode: string | null
+  readonly blockMessage: string | null
+  readonly linkedAt: string | null
+  readonly actor: { readonly kind: string; readonly loginId: string | null } | null
+  readonly post: { readonly bandKey: string; readonly postKey: string; readonly firstLine: string } | null
+  /** 마지막으로 읽은 때 (성공한 읽기) */
+  readonly lastReadAt: string | null
+  readonly received: number
+  readonly baseline: number
+  readonly baselineMessage: string | null
+  readonly skipped: Readonly<Record<string, number>>
+  readonly skipMessages: readonly string[]
+  readonly failures: number
+  readonly retryAt: string | null
+  readonly rateLimited: boolean
+  readonly finishReason: string | null
+  readonly notices: {
+    readonly items: readonly BandNotice[]
+    readonly total: number
+    readonly seenUpTo: number
+    /** 확인하지 않은 알림 수 — 종류와 상관없이 (알림 띠, D-BND1-17) */
+    readonly unseen: number
+    /** 확인하지 않은 지운·고친 댓글 알림 수 (화면은 쓰지 않는다 — 알림 띠는 unseen) */
+    readonly unseenEdits: number
+  }
+}
+
+/** 가입한 밴드 한 줄 (GET /api/band/bands) */
+export interface BandItem {
+  readonly bandKey: string
+  readonly name: string
+  readonly memberCount: number | null
+}
+
+/** 내 글 한 줄 (GET /api/band/posts) */
+export interface BandPostItem {
+  readonly postKey: string
+  readonly createdAt: string | null
+  readonly firstLine: string
+  readonly commentCount: number | null
+}
+
+export interface BandPostsPage {
+  readonly posts: readonly BandPostItem[]
+  readonly page: number
+  readonly more: boolean
+  readonly cursor: string | null
+}
+
+/** SSE `band` 알림 */
+export type BandEvent = { readonly kind: 'ACCOUNT'; readonly band: BandAccount } | { readonly kind: 'LINK'; readonly broadcast: string; readonly link: BandLinkView }
 
 /** 붙여넣기 줄 결과 */
 export interface PasteRowView {

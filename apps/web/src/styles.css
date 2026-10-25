@@ -2766,6 +2766,110 @@ html:has(.save-bar) {
   }
 }
 
+/* 끝까지 보일 줄(밴드 — U-BND1-01, AC-BND1-76)은 띠 안의 첫 목록. PC·펼친 띠에서는 다른 알림과 같은 줄 흐름 */
+.alerts-split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.alert-bar-open .alerts-split {
+  flex-direction: column;
+}
+
+/* 휴대폰 접힌 띠: 첫 줄은 화면 폭 전체에 문장 끝까지(줄바꿈, 말줄임 없음), 둘째 줄은 나머지 알림(한 줄·말줄임) + "알림 n 펼치기".
+ * 펼치기 단추는 "알림" 영역 밖 그대로 — 띠는 두 칸 격자, 영역은 그 격자를 나눠 쓴다(subgrid). 옆 "확인했어요"는 접힌 동안 숨긴다 */
+@media (max-width: 47.99rem) {
+  @supports (grid-template-columns: subgrid) {
+    .alert-bar-split:not(.alert-bar-open) {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-rows: auto auto;
+      gap: 0.5rem;
+      align-items: start;
+    }
+
+    .alert-bar-split:not(.alert-bar-open) .alerts {
+      grid-column: 1 / -1;
+      grid-row: 1 / span 2;
+      display: grid;
+      grid-template-columns: subgrid;
+      grid-template-rows: subgrid;
+      gap: 0.5rem;
+      max-height: none;
+      overflow: visible;
+      contain: none;
+      min-width: 0;
+    }
+
+    .alert-bar-split:not(.alert-bar-open) .alerts-full {
+      grid-column: 1 / -1;
+      grid-row: 1;
+      flex-direction: column;
+      flex-wrap: nowrap;
+      min-width: 0;
+    }
+
+    .alert-bar-split:not(.alert-bar-open) .alerts-rest {
+      grid-column: 1;
+      grid-row: 2;
+      min-width: 0;
+      max-height: max(2.75rem, calc(1.25rem + 1rem + 4px));
+      overflow: hidden;
+      contain: inline-size;
+    }
+
+    .alert-bar-split:not(.alert-bar-open) .alert-toggle {
+      grid-column: 2;
+      grid-row: 2;
+      position: relative;
+    }
+
+    /* 밴드 줄과 출력 기기 짧은 줄(D-QL3R1-04)이 함께면 짧은 줄은 격자 아래 자기 줄, 폭 전체 (합치기 — 두 결정 함께) */
+    .alert-bar-split:not(.alert-bar-open) > .alert-short-row {
+      grid-column: 1 / -1;
+      grid-row: 3;
+    }
+  }
+
+  .alert-bar:not(.alert-bar-open) .alerts-full > li,
+  .alert-bar:not(.alert-bar-open) .alerts-full .alert-lead-button {
+    inline-size: 100%;
+  }
+
+  .alert-bar:not(.alert-bar-open) .alerts-full .alert-lead-button {
+    white-space: normal;
+    text-align: start;
+    justify-content: flex-start;
+  }
+
+  .alert-bar:not(.alert-bar-open) .alerts-full .alert-lead-text {
+    display: block;
+    max-block-size: none;
+    text-wrap-mode: wrap;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+
+  .alert-bar:not(.alert-bar-open) .alerts-full .alert-lead-action {
+    display: none;
+  }
+
+  /* 밴드 줄 둘을 한 줄로 묶은 단추 (D-BND1-21, TE-BND1-005): 문장마다 한 줄씩 차례대로, 누르는 곳 하나(44px 이상) */
+  .alert-bar:not(.alert-bar-open) .alerts-full .alert-lead-merged-button {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.125rem;
+    padding-block: 0.375rem;
+  }
+
+  .alert-bar:not(.alert-bar-open) .alerts-full .alert-lead-merged-button .alert-lead-text {
+    inline-size: 100%;
+  }
+}
+
 .tag-platform {
   border-style: dashed;
 }
@@ -4107,4 +4211,54 @@ select.input {
 
 .login-help p {
   margin: 0;
+}
+
+/* ── 네이버 밴드 (BND1, AC-BND1-70~77) ───────────────────────────
+ * 글 첫 줄·밴드 이름·알림 글은 손님·판매자가 쓴 글이라 길 수 있다 — 375px·글자 150%에서도 줄을 바꿔 가로로 넘치지 않는다.
+ * 확인하지 않은 알림은 색만이 아니라 글자 "새 알림"으로 구분한다. */
+.band-panel .band-post-line,
+.band-picked,
+.band-post-first,
+.band-notice {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
+}
+
+.band-notices-title {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.band-notice {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #c4c7c5;
+  border-radius: 0.5rem;
+}
+
+.band-notice-new {
+  border: 2px solid #b06000;
+  background-color: #fef7e0;
+}
+
+.tag-new {
+  border-color: #b06000;
+  background-color: #ffffff;
+  color: #5f3200;
+  font-weight: 700;
+}
+
+.band-choices {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.band-post-choice {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.band-post-choice > * {
+  max-inline-size: 100%;
 }

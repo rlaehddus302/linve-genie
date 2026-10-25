@@ -97,6 +97,11 @@ import {
   snapshots,
   tiktokAccounts,
   tiktokConsents,
+  bandAccounts,
+  bandOauthStates,
+  bandLinks,
+  bandSeen,
+  bandNotices,
   tiktokLinks,
   youtubeCollectors,
   youtubeConnections,
@@ -118,17 +123,18 @@ import { startSettings, stateFromLedger } from './sealed-state.ts'
 import { readLedger, type Ledger } from './youtube/seal.ts'
 import { iso, kstDate, type Clock } from './time.ts'
 import { eventDigest, splitChatRaw, type ChatSource } from './writer.ts'
-import { INSTAGRAM_PREFIX, TIKTOK_PREFIX } from './platform.ts'
+import { BAND_PREFIX, INSTAGRAM_PREFIX, TIKTOK_PREFIX } from './platform.ts'
+import { BAND_RESTORED_REASON } from './band/store.ts'
 import { SERVICE_NAME } from './brand.ts'
 
 /**
  * 복구·가져오기에서 채팅 이벤트의 출처 (DAT-04, D-QL2-08). 파일엔 출처 칸이 없어 메시지 ID 접두어로 되살린다(platform.ts와 같은 접두어).
- * 리허설 범위 = rehearsal, `ig:`·`tt:`로 시작 = other, 그 밖(접두어 없음·ID 없음·알 수 없음) = youtube — 모르면 AI에 보내지 않고 봉인 대상으로 본다.
+ * 리허설 범위 = rehearsal, `ig:`·`tt:`·`band:`(BND1)로 시작 = other, 그 밖(접두어 없음·ID 없음·알 수 없음) = youtube — 모르면 AI에 보내지 않고 봉인 대상으로 본다.
  * 크롬 확장(extension)으로 받은 줄은 youtube로 되살아난다(AI·봉인에서 같은 대우).
  */
 export function restoredChatSource(rehearsal: boolean, messageId: unknown): ChatSource {
   if (rehearsal) return 'rehearsal'
-  if (typeof messageId === 'string' && (messageId.startsWith(INSTAGRAM_PREFIX) || messageId.startsWith(TIKTOK_PREFIX))) return 'other'
+  if (typeof messageId === 'string' && (messageId.startsWith(INSTAGRAM_PREFIX) || messageId.startsWith(TIKTOK_PREFIX) || messageId.startsWith(BAND_PREFIX))) return 'other'
   return 'youtube'
 }
 
@@ -1487,6 +1493,8 @@ export const RESTORE_REPLACED_TABLES = [
   liveRequests,
   tiktokLinks,
   pasteRequests,
+  // BND1 본 댓글 표: 연결마다의 기준선·기록한 댓글 — 파일에 없고 지운다(복구는 밴드 글 연결을 모두 끝낸다 — 다시 이으면 새 기준선, D-BND1-14)
+  bandSeen,
   printAttempts,
   printJobs,
   printLabels,
@@ -1528,6 +1536,12 @@ export const RESTORE_KEPT_TABLES = [
   igOauthStates,
   tiktokAccounts,
   tiktokConsents,
+  // BND1 밴드 계정 연결(토큰)·연결 시작 표는 계정 쪽이라 그대로 둔다. 밴드 글 연결·알림은 회차를 외래 키로 잇지 않아 남고,
+  // 복구가 열린 연결을 FINISHED(RESTORED)로 끝낸다 (D-BND1-14, AC-BND1-04) — 파일에 없다
+  bandAccounts,
+  bandOauthStates,
+  bandLinks,
+  bandNotices,
   printQueues,
   labelSwitches,
   billingGrants,
@@ -1626,6 +1640,11 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
       for (const table of RESTORE_REPLACED_TABLES) await tx.delete(table).where(eq(table.sellerId, sellerId))
       // 출력 대기열 줄은 남긴다(라벨 기능 켬/끔·출력 기기) — 지운 작업을 기다리는 출력 중·멈춤 상태만 지운다 (D-I2-14)
       await tx.update(printQueues).set({ releasing: false, paused: null, backlog: false, rev: sql`${printQueues.rev} + 1`, updatedAt: now }).where(eq(printQueues.sellerId, sellerId))
+      // 열린 밴드 글 연결은 모두 끝낸다 — 복구로 이벤트가 바뀌어 본 댓글 표와 어긋난다 (D-BND1-14, AC-BND1-04). 토큰(계정 연결)은 둔다
+      await tx
+        .update(bandLinks)
+        .set({ state: 'FINISHED', finishReason: BAND_RESTORED_REASON, finishedAt: now, retryAt: null })
+        .where(and(eq(bandLinks.sellerId, sellerId), ne(bandLinks.state, 'FINISHED')))
       await tx
         .update(sellers)
         .set({ name: summary.shop.name.trim(), shop: shopJson(summary.shop), settings: JSON.stringify(summary.settings) })

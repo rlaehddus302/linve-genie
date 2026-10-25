@@ -2,6 +2,8 @@
 // 칸: 가게 · 판매 규칙(자주 쓰는 칸 + "더 보기") · 배송비 · 구매 감사 메시지 · 라벨 · 택배(T1 AC-T1-66 — `/settings/parcel`은 그 칸으로) · 유튜브 · 인스타그램 · 틱톡 라이브(베타) · 보조자 · 그 밖. 칸마다 "저장"(바뀐 키만).
 // - "라벨" 칸은 라벨 기능 켜기/끄기·바꾼 기록이다(N4a AC-N4a-10, D-N4a-05) — 저장 버튼 없이 누르면 바로 바뀐다(끌 때는 묻는다).
 // - N2b-2: `/settings/instagram`·`/settings/tiktok`은 그 칸이 보이게 연다. 인스타그램에서 돌아온 결과(`?instagram=`)는 한 번 보이고 주소에서 지운다.
+// - BND1 (AC-BND1-70): 틱톡 칸 뒤에 "네이버 밴드"(판매자만 — 보조자에게는 칸이 없다). `/settings/band`는 그 칸이 보이게 열고,
+//   밴드에서 돌아온 결과(`?band=`)는 한 번 보이고 주소에서 지운다. 계정 알림(SSE `band` ACCOUNT)·다시 붙음에 바로 바뀐다.
 // - `/settings/youtube`는 같은 화면에서 유튜브 칸이 보이게(스크롤·포커스) 연다. 구글에서 돌아온 결과(`?youtube=`)는 한 번 보이고 주소에서 지운다.
 // - 끝나지 않은 실제 방송이 있으면 위에 "진행 중인 방송에는 바뀐 규칙이 적용되지 않아요."
 // - 저장하지 않은 값이 있으면 다른 화면으로 가기 전에 같은 떠나기 창이 묻는다.
@@ -43,6 +45,7 @@ import { LoginMethodsPanel, showLoginMethods, useLoginMethods } from './LoginMet
 import { parseLoginResult, stripLoginParams } from '../lib/social-login.ts'
 import { DetailToggle, FixedArrivalField, RuleField, SaleModeField, settingProblem, useRuleForm } from './RuleFields.tsx'
 import { ThanksSettings } from './ThanksSettings.tsx'
+import { BandCallbackResult, BandSettings, useBandAccount } from './BandSettings.tsx'
 import { InstagramCallbackResult, InstagramSettings, TikTokSettingsSection, useInstagramConnection, useTikTokSettings } from './PlatformSettings.tsx'
 import { CallbackResult, useQuota, useYoutubeConnection, YoutubeStatus } from './YoutubeConnection.tsx'
 
@@ -115,6 +118,9 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
   const [instagramResult] = useState<string | null>(route.instagramResult ?? null)
   const instagram = useInstagramConnection()
   const tiktok = useTikTokSettings()
+  // 밴드에서 돌아온 결과도 한 번만 (BND1) — 보조자는 칸이 없고 부르지 않는다
+  const [bandResult] = useState<string | null>(assistant ? null : (route.bandResult ?? null))
+  const band = useBandAccount(!assistant)
   // 간편 로그인 연결에서 돌아온 결과도 한 번만 (L1 AC-L1-21)
   const [loginResult] = useState(() => (assistant ? null : parseLoginResult(window.location.pathname, window.location.search, 'settings')))
   const loginMethods = useLoginMethods(!assistant)
@@ -143,8 +149,8 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
 
   // 돌아온 결과 코드는 주소에서 지운다 (기록을 늘리지 않고 — 새로고침해도 다시 나오지 않게)
   useEffect(() => {
-    if (route.youtubeResult !== undefined || route.instagramResult !== undefined) navigate({ name: 'settings', ...(route.section === undefined ? {} : { section: route.section }) }, { replace: true })
-  }, [route.youtubeResult, route.instagramResult, route.section, navigate])
+    if (route.youtubeResult !== undefined || route.instagramResult !== undefined || route.bandResult !== undefined) navigate({ name: 'settings', ...(route.section === undefined ? {} : { section: route.section }) }, { replace: true })
+  }, [route.youtubeResult, route.instagramResult, route.bandResult, route.section, navigate])
 
   useLiveEvents({
     onYoutube: (event) => {
@@ -156,6 +162,7 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
     },
     onPlatform: (event) => {
       if (event.type === 'instagram' && event.event.kind === 'CONNECTION') instagram.set(event.event.connection)
+      if (event.type === 'band' && event.event.kind === 'ACCOUNT' && !assistant) band.set(event.event.band)
     },
     onLogin: () => void loginMethods.reload(),
     onReconnect: () => {
@@ -164,6 +171,7 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
       void quota.reload()
       void instagram.reload()
       void tiktok.reload()
+      if (!assistant) void band.reload()
     },
   })
 
@@ -202,6 +210,12 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
       <SettingsSection title="틱톡 라이브(베타)" focus={route.section === 'tiktok' && (settings !== null || loadError !== null)}>
         <TikTokSettingsSection handle={tiktok} />
       </SettingsSection>
+      {assistant ? null : (
+        <SettingsSection title="네이버 밴드" focus={route.section === 'band' && (settings !== null || loadError !== null)}>
+          <BandCallbackResult code={bandResult} />
+          <BandSettings handle={band} />
+        </SettingsSection>
+      )}
       {showAssist ? (
         <SettingsSection title="AI 제안" focus={route.section === 'assist'}>
           <AssistSection />

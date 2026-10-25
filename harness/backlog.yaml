@@ -1063,6 +1063,29 @@ sprints:
       - "사용자 확인 필요: 틱톡 화면 자동 읽기의 약관 위험 — D-904 법률 검토에 확장 경로도 포함"
     specIds: [PLT-02, PLT-03, YT-10]
     status: done
+  - id: BND1
+    phase: 6
+    title: 네이버 밴드 글 댓글로 찜 받기 — 공식 밴드 Open API로 내 글 댓글 읽기(쓰기 없음)·접수순·휴대폰 우선 (서버+화면, 병렬 트랙)
+    dependsOn: [N2, N2b-2]
+    devs: [server, web]
+    tests: [domain, e2e]
+    uxReview: true
+    goal: >
+      판매자가 고른 밴드의 내 글(공구·라방 공지)에 달린 댓글을 공식 밴드 Open API 읽기 일곱 개(토큰·내 정보·밴드 목록·글 목록·글 상세·댓글 목록, 모두 GET — 쓰기·지우기 없음, D-BND1-01)로
+      10초(최신순)·60초(처음부터 끝까지, 1,000개까지)마다 읽어 지금 수집 경로의 chat으로 넣는다(D-BND1-08). 플랫폼 BAND, 키 band:<user_key>·메시지 ID band:<글 키>:<댓글 키>(D-BND1-02),
+      본문 밴드 태그·이스케이프 정리(D-BND1-04), 판매자 본인 댓글·작성자 없음은 넣지 않고 셈(D-BND1-05), 접수순만·한 묶음 안은 작성 시각 순(D-BND1-06),
+      이을 때 있던 댓글은 기준선으로 넣지 않음·두 번 넣지 않기(D-BND1-07), 지운·고친 댓글은 알림만(D-BND1-09), 실패·토큰 만료 상태와 다시 시도(D-BND1-10),
+      OAuth 경로 표·토큰 암호화(D-BND1-11), 내 글만·판매자당 연결 하나·유튜브와 한 회차에 함께 잇지 않음(D-BND1-12), 가짜 밴드 서버·LIVEJJIM_BAND_*(D-BND1-13),
+      로그에 토큰 든 주소 금지·백업 제외(D-BND1-14), 설정 "네이버 밴드"·콘솔 "밴드" 칸 휴대폰 우선(D-BND1-15). 감사 경로 band: 건너뜀·백업 출처 other.
+      순서 server → web. 수용 기준: harness/sprints/BND1/acceptance.md(AC-BND1-01~91), 골든 tests/golden/band/*.json(43사례, 서버 시험이 읽음), E2E_PORT_OFFSET=28300.
+      금지: apps/server/src/youtube/**, 웹의 유튜브 이름 파일, tests/e2e/y1/**.
+    carryOver:
+      - "사용자 결정 필요: 밴드 라이브 방송 채팅(공식 API 없음 — 비공식 수집 여부, D-BND1-01)"
+      - "사용자 몫: developers.band.us 서비스 등록·Open API 약관(상업적 이용·호출 한도)·운영 LIVEJJIM_BAND_* (D-BND1-13), 실물 확인 HG-BND1"
+      - "맥북 쪽 유튜브 작업으로 넘김: youtube/outbox.ts summaryLines 거르기에 band: 추가 — 그러면 밴드·유튜브 한 회차 함께 잇기 막기(D-BND1-12)를 풀 수 있음"
+      - "사용자 확인: 이을 때 이미 달린 댓글도 넣는 고르기, 밴드 댓글을 AI 제안에 보내도 되는지(AIY1 행)"
+    specIds: [PLT-04, PLT-03, YT-04, DAT-06, UX-04]
+    status: done
 
 techDebt:
   - "TD-S00-008: Host 헤더 두 개·absolute-form 요청을 200으로 처리"

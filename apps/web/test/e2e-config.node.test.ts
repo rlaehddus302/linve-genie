@@ -3,7 +3,7 @@
 // 브라우저 주소는 localhost(크로미움이 127.0.0.1로 잇는다 — Secure 세션 쿠키를 Playwright page.request가 보내도록), 서버 --origin은 브라우저 주소와 같다.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import config, { E2E_ASSIST_DAILY, E2E_HOST, SERVED_WEB_DIR, STACKS, e2eServerUrl, fakeLlmUrl, fakeMetaUrl, fakeOAuthUrl, fakeYoutubeUrl } from '../playwright.config.ts'
+import config, { E2E_ASSIST_DAILY, E2E_HOST, SERVED_WEB_DIR, STACKS, e2eServerUrl, fakeBandUrl, fakeLlmUrl, fakeMetaUrl, fakeOAuthUrl, fakeYoutubeUrl } from '../playwright.config.ts'
 
 const serve = readFileSync(new URL('../e2e/serve.ts', import.meta.url), 'utf8')
 
@@ -172,6 +172,28 @@ describe('E2E 기동 (코드 검사)', () => {
     expect(fakeLlmUrl('chromium-assist')).toBe(`http://127.0.0.1:${String(stack?.assist)}`)
     expect(fakeLlmUrl('chromium')).toBeNull()
     const ports = STACKS.flatMap((item) => [item.web, item.api, item.youtube, item.instagram, item.social, item.assist].filter((port): port is number => port !== undefined).filter((port, index, list) => list.indexOf(port) === index))
+    expect(new Set(ports).size).toBe(ports.length)
+  })
+
+  it('BND1 가짜 밴드(AC-BND1-80): 여러 플랫폼 묶음(유튜브·인스타그램과 같은 서버)·아이폰 크기 묶음만 정한 포트로 켠다, 포트는 겹치지 않는다', () => {
+    const servers = Array.isArray(config.webServer) ? config.webServer : []
+    const command = (name: string) => {
+      const stack = STACKS.find((item) => item.name === name)
+      return servers.find((item) => item.command?.includes(`--port ${String(stack?.api)}`) && item.command.includes('@livejjim/server'))?.command ?? ''
+    }
+    for (const name of ['chromium-multi', 'webkit-iphone']) {
+      const stack = STACKS.find((item) => item.name === name)
+      expect(stack?.band).toBeTypeOf('number')
+      expect(command(name)).toContain(`--band fake --band-port ${String(stack?.band)}`)
+      expect(fakeBandUrl(name)).toBe(`http://127.0.0.1:${String(stack?.band)}`)
+    }
+    expect(command('chromium-multi')).toContain('--youtube fake')
+    expect(command('chromium-multi')).toContain('--instagram yes')
+    for (const other of STACKS.filter((item) => item.name !== 'chromium-multi' && item.name !== 'webkit-iphone')) {
+      expect(command(other.name)).not.toContain('--band')
+      expect(fakeBandUrl(other.name)).toBeNull()
+    }
+    const ports = STACKS.flatMap((item) => [item.web, item.api, item.youtube, item.instagram, item.social, item.assist, item.band].filter((port): port is number => port !== undefined).filter((port, index, list) => list.indexOf(port) === index))
     expect(new Set(ports).size).toBe(ports.length)
   })
 })
