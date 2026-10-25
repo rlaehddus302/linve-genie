@@ -11,6 +11,8 @@ import { RequestError } from './ErrorNote.tsx'
 
 export const CUSTOMER_SETTINGS_HINT = '손님 기록의 "단골"·"입금 늦음 주의" 기준이에요. 판매 규칙·판정에는 영향이 없어요.'
 export const REGULAR_AMOUNT_HINT = '비우면 금액 기준을 쓰지 않아요.'
+/** 단골·주의 기준 설명 — 규칙은 "이상"(D-CRM1-05), "넘은"을 쓰지 않는다(D-CRM1-16 (4), U-CRM1-03) */
+export const CUSTOMER_RULE_HINT = '단골 = 이 횟수 이상 샀거나 이 금액 이상 산 손님. 입금 늦음 주의 = 미입금이 한 번이라도 있는 손님.'
 export const WAIT_DAYS_HINT = '방송 날짜에서 이 날 수가 지나도 입금이 없으면 미입금으로 세요.'
 
 interface Draft {
@@ -52,6 +54,8 @@ export function CustomerSettingsSection() {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [loadError, setLoadError] = useState<ApiError | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
+  // 거절된 뒤 값을 고친 칸 — 그 칸의 거절 문장·aria-invalid를 바로 지운다(다시 저장하면 다시 검사, D-CRM1-16 (3), TE-CRM1-006)
+  const [edited, setEdited] = useState<ReadonlySet<string>>(new Set())
   const [attempt, setAttempt] = useState(0)
   const busy = useRef(false)
   const dirty = settings !== null && draft !== null && !same(draft, draftOf(settings))
@@ -61,6 +65,7 @@ export function CustomerSettingsSection() {
     if (busy.current || settings === null || draft === null || !dirty) return { saved: [], failed: [] }
     busy.current = true
     setError(null)
+    setEdited(new Set())
     try {
       const result = await put<{ settings: CustomerSettings }>('/api/customer-settings', customerSettingsBody(draft))
       setSettings(result.settings)
@@ -97,7 +102,10 @@ export function CustomerSettingsSection() {
   if (settings === null || draft === null) {
     return loadError !== null ? <RequestError error={loadError} onRetry={() => setAttempt((n) => n + 1)} retryLabel="다시 불러오기" /> : <p role="status">손님 관리 설정을 불러오는 중…</p>
   }
-  const change = (patch: Partial<Draft>) => setDraft((current) => (current === null ? current : { ...current, ...patch }))
+  const change = (key: keyof Draft, value: string) => {
+    setDraft((current) => (current === null ? current : { ...current, [key]: value }))
+    if (error !== null) setEdited((current) => (current.has(key) ? current : new Set([...current, key])))
+  }
   const fields: readonly { key: keyof Draft; label: string; unit: string; hint?: string }[] = [
     { key: 'regularCount', label: '단골 횟수', unit: '번' },
     { key: 'regularAmount', label: '단골 금액', unit: '원', hint: REGULAR_AMOUNT_HINT },
@@ -114,9 +122,9 @@ export function CustomerSettingsSection() {
       }}
     >
       <p className="hint">{CUSTOMER_SETTINGS_HINT}</p>
-      <p className="hint">단골 = 횟수 기준 또는 금액 기준을 넘은 손님. 입금 늦음 주의 = 미입금이 한 번이라도 있는 손님.</p>
+      <p className="hint">{CUSTOMER_RULE_HINT}</p>
       {fields.map((field) => {
-        const problem = error?.problemFor(field.key)
+        const problem = edited.has(field.key) ? undefined : error?.problemFor(field.key)
         const inputId = `${id}-${field.key}`
         const described = [field.hint === undefined ? null : `${inputId}-hint`, problem === undefined ? null : `${inputId}-error`].filter((part) => part !== null).join(' ')
         return (
@@ -131,7 +139,7 @@ export function CustomerSettingsSection() {
                 value={draft[field.key]}
                 aria-invalid={problem !== undefined}
                 aria-describedby={described === '' ? undefined : described}
-                onChange={(event) => change({ [field.key]: event.target.value })}
+                onChange={(event) => change(field.key, event.target.value)}
               />
               <span>{field.unit}</span>
             </span>

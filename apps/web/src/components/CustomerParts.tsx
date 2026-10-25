@@ -27,6 +27,7 @@ import {
 } from '../lib/customers.ts'
 import { useUnsavedGuard } from '../lib/leave-guard.ts'
 import { RequestError } from './ErrorNote.tsx'
+import { Modal } from './Modal.tsx'
 
 /** 꼬리표 (기록이 없으면 아무것도) — 차단은 부르는 쪽이 따로 */
 export function CustomerTags({ summary, blocked = false }: { readonly summary: Pick<CustomerSummary, 'regular' | 'caution'> | undefined; readonly blocked?: boolean }) {
@@ -122,11 +123,17 @@ function MemberMemo({ member, today }: { readonly member: DayMember; readonly to
 /** 쓰는 중에 다른 기기가 메모를 바꿨을 때 (TE-CRM1-004) — 친 글은 그대로 두고 알린다 */
 export const MEMO_CHANGED_ELSEWHERE = '다른 기기에서 이 손님 메모를 바꿨어요. 위에 보이는 것이 지금 저장된 메모예요. 쓰던 글을 남기려면 "메모 저장"을 눌러 주세요.'
 
+/** 빈 글로 저장할 때 묻는 창 (D-CRM1-16 (1), U-CRM1-02) */
+export const MEMO_CLEAR_TITLE = '메모를 지울까요?'
+export const MEMO_CLEAR_MESSAGE = '지우면 이 손님 메모가 보이지 않아요. 잘못 비웠다면 "그대로 두기"를 눌러 주세요.'
+export const MEMO_CLEAR_CONFIRM = '지우기'
+export const MEMO_CLEAR_KEEP = '그대로 두기'
+
 const memoKey = (memo: MemoView | null): string => (memo === null ? '' : `${memo.savedAt}|${memo.text}`)
 
 /**
  * 메모 칸 하나 (BUY-07, D-CRM1-08): 마지막 메모와 "10월 26일(월) 저장", 글 칸, "메모 저장"(바로), 안내 "연락처·주소는 적지 마세요.".
- * 빈 글로 저장하면 지운다. 서버가 거절하면(번호·길이·제어 글자) 칸 아래 서버 문장 — 친 글은 그대로 둔다.
+ * 저장된 메모가 있는데 빈 글로 저장하면 "메모를 지울까요?"를 묻는다 — [지우기]면 지우고, [그대로 두기]면 저장하지 않고 칸에 저장된 글을 되돌린다(D-CRM1-16 (1)). 서버가 거절하면(번호·길이·제어 글자) 칸 아래 서버 문장 — 친 글은 그대로 둔다.
  * 다시 받은 메모(다른 기기 저장)는 저장된 메모 자리에 바로 보이고, 글 칸은 저장하지 않은 글이 없을 때만 따라간다 —
  * 쓰는 중이면 친 글을 그대로 두고 MEMO_CHANGED_ELSEWHERE로 알린다(D-CRM1-08 "나중 것이 마지막"은 저장끼리의 순서, 입력을 지우지 않는다 — TE-CRM1-004).
  */
@@ -139,6 +146,7 @@ export function MemoEditor({ customer, label, memo: initial, today }: { readonly
   const [done, setDone] = useState<string | null>(null)
   const [changedElsewhere, setChangedElsewhere] = useState(false)
   const [seen, setSeen] = useState(memoKey(initial))
+  const [asking, setAsking] = useState(false)
   const saved = memo?.text ?? ''
   const dirty = text.trim() !== saved
   // 부르는 쪽이 새 메모를 받아 오면(다른 기기 저장) 그린 중에 맞춘다
@@ -160,6 +168,7 @@ export function MemoEditor({ customer, label, memo: initial, today }: { readonly
   const message = tooLong ? MEMO_TOO_LONG : problem?.message
   const save = async () => {
     if (busy) return
+    setAsking(false)
     setBusy(true)
     setError(null)
     setDone(null)
@@ -175,6 +184,22 @@ export function MemoEditor({ customer, label, memo: initial, today }: { readonly
     } finally {
       setBusy(false)
     }
+  }
+  // 저장된 메모를 빈 글로 덮으면 먼저 묻는다 (한 손 엄지로 잘못 비운 메모는 화면에서 되살릴 길이 없다)
+  const askOrSave = () => {
+    if (busy) return
+    if (text.trim() === '' && memo !== null) {
+      setDone(null)
+      setAsking(true)
+      return
+    }
+    void save()
+  }
+  const keep = () => {
+    setAsking(false)
+    setText(memo?.text ?? '')
+    setError(null)
+    setChangedElsewhere(false)
   }
   return (
     <div className="stack-tight memo-box">
@@ -215,7 +240,7 @@ export function MemoEditor({ customer, label, memo: initial, today }: { readonly
         ) : null}
       </div>
       <div className="row">
-        <button type="button" className="button" aria-label={`메모 저장 — ${label}`} disabled={busy || tooLong} onClick={() => void save()}>
+        <button type="button" className="button" aria-label={`메모 저장 — ${label}`} disabled={busy || tooLong} onClick={askOrSave}>
           {busy ? '저장하는 중…' : '메모 저장'}
         </button>
       </div>
@@ -230,6 +255,22 @@ export function MemoEditor({ customer, label, memo: initial, today }: { readonly
         </p>
       ) : null}
       {error !== null && problem === undefined ? <RequestError error={error} onRetry={() => void save()} /> : null}
+      {asking ? (
+        <Modal
+          title={MEMO_CLEAR_TITLE}
+          onClose={keep}
+          closeLabel={MEMO_CLEAR_KEEP}
+          unlocked
+          actions={
+            <button type="button" className="button button-danger" disabled={busy} onClick={() => void save()}>
+              {MEMO_CLEAR_CONFIRM}
+            </button>
+          }
+        >
+          <p>{MEMO_CLEAR_MESSAGE}</p>
+          <p className="hint">{label}</p>
+        </Modal>
+      ) : null}
     </div>
   )
 }

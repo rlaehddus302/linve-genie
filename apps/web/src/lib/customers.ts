@@ -98,7 +98,15 @@ export interface CustomerDayLine {
   readonly subtotal: number
   readonly payment: PaymentStatus
   readonly unpaid: boolean
+  /** 그날 구매자 자세히를 열 수 있나 — 봉인 날짜의 보관 행으로만 남은 줄(장부에 없는 구매자)은 false: 줄은 보이되 누르는 것이 아니다(D-CRM1-12, AC-CRM1-33 (1)) */
+  readonly openable: boolean
 }
+
+/** 누를 수 없는 날짜 줄(봉인 날짜 보관 행)에 붙는 안내 */
+export const DAY_LINE_SEALED = '30일이 지나 그날 자세히는 볼 수 없어요'
+
+/** 입금 완료 구매가 없는 손님인가 — "모든 손님" 줄은 누적·횟수·마지막 구매 대신 NO_PURCHASE 한 줄(D-CRM1-16 (5)) */
+export const hasNoPurchase = (row: Pick<CustomerSummary, 'purchaseDays' | 'lastPurchase'>): boolean => row.purchaseDays === 0 || row.lastPurchase === null
 
 export interface CustomerDetailView {
   /** 서버 KST 오늘 — 날짜 문장의 올해 기준 (TE-CRM1-003) */
@@ -164,9 +172,9 @@ export function paymentWords(payment: PaymentStatus): string {
   return PAYMENT_WORD[payment]
 }
 
-/** 날짜 줄: 미입금 1번으로 센 날 (기다리는 날이 지났거나 '입금 안 함' 취소 — U-CRM1-01) */
+/** 날짜 줄: 미입금 1번으로 센 날 (기다리는 날이 지났거나 '입금 안 함' 취소 — U-CRM1-01, D-CRM1-13) */
 export const UNPAID_COUNTED_WORD = '미입금으로 셈'
-/** 날짜 줄: 아직 입금 기다리는 날 안의 입금 안 된 날 (그날 입금 상태 "미입금"과 센 날을 글자로 가른다 — U-CRM1-01, UX-04) */
+/** 날짜 줄: 아직 입금 기다리는 날 안의 입금 안 된 날 (그날 입금 상태 "미입금"과 센 날을 글자로 가른다 — U-CRM1-01, UX-04, D-CRM1-13) */
 export const PAY_WAITING_WORD = '입금 기다리는 중'
 
 export interface DayLineTag {

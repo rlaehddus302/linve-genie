@@ -12,7 +12,10 @@ import {
   FILTER_WORD,
   SORT_WORD,
   customerDate,
+  DAY_LINE_SEALED,
+  NO_PURCHASE,
   dayLineTags,
+  hasNoPurchase,
   isCustomerFilter,
   isCustomerSort,
   memberLabel,
@@ -256,7 +259,8 @@ interface RowsProps {
   readonly onOpen: (row: CustomerRow) => void
 }
 
-const lastWords = (row: CustomerRow, today: string): string => (row.lastPurchase === null ? '구매 없음' : customerDate(row.lastPurchase, today))
+// 입금 완료 구매가 없는 줄은 부르는 쪽이 NO_PURCHASE 한 줄로 그린다(D-CRM1-16 (5)) — "마지막 구매 구매 없음"을 만들지 않는다
+const lastWords = (row: CustomerRow, today: string): string => (row.lastPurchase === null ? '' : customerDate(row.lastPurchase, today))
 
 /** 휴대폰: 카드 */
 function CustomerCards({ rows, today, route, sort, filter, onOpen }: RowsProps) {
@@ -268,10 +272,16 @@ function CustomerCards({ rows, today, route, sort, filter, onOpen }: RowsProps) 
             <strong className="buyer-name">{row.name}</strong>
             <span className="tag">{row.kindLabel}</span>
             <CustomerTags summary={row} blocked={row.blocked} />
-            <span>
-              누적 {formatWon(row.purchaseTotal)} · {row.purchaseDays}번
-            </span>
-            <span>마지막 구매 {lastWords(row, today)}</span>
+            {hasNoPurchase(row) ? (
+              <span>{NO_PURCHASE}</span>
+            ) : (
+              <>
+                <span>
+                  누적 {formatWon(row.purchaseTotal)} · {row.purchaseDays}번
+                </span>
+                <span>마지막 구매 {lastWords(row, today)}</span>
+              </>
+            )}
             <span>미입금 {row.unpaidDays}번</span>
           </a>
         </li>
@@ -316,9 +326,15 @@ function CustomerTable({ rows, today, route, sort, filter, onOpen }: RowsProps) 
                   <CustomerTags summary={row} blocked={row.blocked} />
                 </span>
               </td>
-              <td className="num">{formatWon(row.purchaseTotal)}</td>
-              <td className="num">{row.purchaseDays}번</td>
-              <td>{lastWords(row, today)}</td>
+              {hasNoPurchase(row) ? (
+                <td colSpan={3}>{NO_PURCHASE}</td>
+              ) : (
+                <>
+                  <td className="num">{formatWon(row.purchaseTotal)}</td>
+                  <td className="num">{row.purchaseDays}번</td>
+                  <td>{lastWords(row, today)}</td>
+                </>
+              )}
               <td className="num">{row.unpaidDays}번</td>
             </tr>
           ))}
@@ -414,18 +430,31 @@ function CustomerDetail({ route, id, navigate }: { readonly route: ScopeRoute; r
         <h3 className="sub-title">날짜별 기록</h3>
         <ul className="plain-list stack-tight">
           {days.map((line) => {
+            const body = (
+              <>
+                <strong>{customerDate(line.date, base)}</strong>
+                <span>그날 이름 {line.name}</span>
+                <span>상품 합계 {formatWon(line.subtotal)}</span>
+                {dayLineTags(line).map((tag) => (
+                  <span key={tag.text} className={tag.className}>
+                    {tag.text}
+                  </span>
+                ))}
+              </>
+            )
             return (
               <li key={`${line.date}|${line.buyer}`}>
-                <a className="list-link" href={routePath({ name: 'buyers', date: line.date, rehearsal: false, buyer: line.buyer })} onClick={(event) => linkClick(event, () => openDay(line))}>
-                  <strong>{customerDate(line.date, base)}</strong>
-                  <span>그날 이름 {line.name}</span>
-                  <span>상품 합계 {formatWon(line.subtotal)}</span>
-                  {dayLineTags(line).map((tag) => (
-                    <span key={tag.text} className={tag.className}>
-                      {tag.text}
-                    </span>
-                  ))}
-                </a>
+                {line.openable === false ? (
+                  // 봉인 날짜의 보관 행으로만 남은 줄 — 그날 자세히가 없다(404), 누르는 것이 아니다(D-CRM1-12, AC-CRM1-33 (1))
+                  <div className="list-link day-line-static">
+                    {body}
+                    <span className="hint">{DAY_LINE_SEALED}</span>
+                  </div>
+                ) : (
+                  <a className="list-link" href={routePath({ name: 'buyers', date: line.date, rehearsal: false, buyer: line.buyer })} onClick={(event) => linkClick(event, () => openDay(line))}>
+                    {body}
+                  </a>
+                )}
               </li>
             )
           })}

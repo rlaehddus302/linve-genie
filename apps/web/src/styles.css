@@ -1183,6 +1183,11 @@ p {
   font-size: 1.125rem;
 }
 
+/* 누를 수 없는 날짜 줄(봉인 날짜 보관 행, D-CRM1-12): 링크와 같은 칸, 바탕만 옅게 */
+.day-line-static {
+  background-color: #f8f9fa;
+}
+
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -3841,6 +3846,10 @@ select.input {
 
   .list-link:hover {
     border-color: #0b57d0;
+  }
+
+  .list-link.day-line-static:hover {
+    border-color: #c4c7c5;
   }
 
   .list-table tbody tr:hover {
