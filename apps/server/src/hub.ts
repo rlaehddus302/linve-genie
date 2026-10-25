@@ -244,7 +244,8 @@ export class StreamHub {
   }
 
   /**
-   * 판매자 품종 사전에 새 이름이 생김 (V3 R-23, D-V3-49, event: voice — data { kind: 'sellerNames', name }). 그 판매자의 연결 전부.
+   * 음성 알림 (V3, event: voice) — 판매자 품종 사전에 새 이름이 생김 (R-23, D-V3-49 — data { kind: 'sellerNames', name }) ·
+   * 판매자 글의 번호가 그 방송에 상품으로 없음 (D-V3-60 — data { kind: 'sellerNoteMissing', b, date, no, name, price, chat }). 그 판매자의 연결 전부.
    * name은 판매자가 주인 배지 채팅에 쓴 품종(2~20글자 한글·로마자·공백)이다 — 화면은 글자로만 보인다
    */
   publishVoice(sellerId: string, data: Readonly<Record<string, unknown>>): void {

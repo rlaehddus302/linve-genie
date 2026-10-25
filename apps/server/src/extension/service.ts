@@ -390,8 +390,9 @@ export class ExtensionService {
         owner = castChannel === null || castChannel === chat.ch
         if (!owner) ownerDenied += 1
       }
-      // 판매자 채팅 품종 글(R-23)은 주인 표시가 회차 방송 채널과 맞을 때만 읽는다 — 회차 채널을 몰라 표시를 믿은 글은 확실하지 않다("모르면 부르지 않는다")
-      const ownerSure = owner && castChannel !== null && castChannel === chat.ch
+      // 판매자 채팅 품종 글(R-23, D-V3-62): 회차에 묶인 영상의 채팅에서 owner로 기록한 글이면 읽는다 — 확장의 주인 표시는 유튜브가 그린 작성자 유형이라
+      // 시청자가 꾸밀 수 없고, 회차 채널을 몰라도 그렇다(확장만 쓰는 판매자). 회차 채널을 알고 다르면 owner가 아니라 읽지 않는다. 묶이지 않은 영상은 여기까지 오지 않는다
+      const ownerSure = owner
       recordable.push({ id: chat.id, ch: chat.ch, nick: chat.nick, text, publishedAt, ...(owner ? { owner: true as const } : {}), ...(ownerSure ? { ownerSure: true as const } : {}) })
     }
     const outcome = await service.ingestYoutubeBatch(

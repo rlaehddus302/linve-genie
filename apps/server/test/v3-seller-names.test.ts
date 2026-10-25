@@ -4,7 +4,7 @@
 import { getProduct } from '@livejjim/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { learnSellerName, listSellerNames } from '../src/seller-names.ts'
-import { MERGED_BODY, RAW_JOIN, client, expectOk, writeEvent } from './support.ts'
+import { MERGED_BODY, RAW_JOIN, addSeller, client, createBroadcast, expectOk, writeEvent } from './support.ts'
 import { connectSeller, linkedBroadcast, until, youtubeWorld, type YoutubeWorld } from './youtube-support.ts'
 
 const worlds: YoutubeWorld[] = []
@@ -72,18 +72,19 @@ describe('AC-V3-55 (a) 주인 배지 채팅 → 이벤트 먼저, 판매자 품�
   it('공식 수집기: 채팅 이벤트가 기록되고 사전에 청개구리 하나 — 같은 글을 두 번 써도 하나, 조회 API·실시간 알림', async () => {
     const w = await world()
     const { connected, liveChatId } = await started(w)
-    const pushed = vi.spyOn(w.server.hub, 'publishVoice')
+    const spy = vi.spyOn(w.server.hub, 'publishVoice')
+    // 새 이름 알림만 센다 (93번 상품이 없어 놓친 번호 신호도 간다 — D-V3-60, 아래 시험)
+    const pushed = { calls: () => spy.mock.calls.filter((call) => (call[1] as { kind?: unknown }).kind === 'sellerNames') }
     expect(await names(w, connected.seller.cookie)).toEqual({ names: [], max: 2000 })
     await collect(w, liveChatId, { author: connected.channel.id, name: '구피 가게', text: NOTE })
     const events = await eventTypes(w)
     expect(events.filter((event) => event.type === 'chat').map((event) => event.body)).toEqual([expect.objectContaining({ text: NOTE, owner: true })])
     expect(await names(w, connected.seller.cookie)).toEqual({ names: ['청개구리'], max: 2000 })
-    expect(pushed).toHaveBeenCalledTimes(1)
-    expect(pushed).toHaveBeenCalledWith(connected.seller.sellerId, { kind: 'sellerNames', name: '청개구리' })
+    expect(pushed.calls()).toEqual([[connected.seller.sellerId, { kind: 'sellerNames', name: '청개구리' }]])
     // 같은 글을 한 번 더 (다른 메시지 ID) → 사전은 그대로 하나, 새 이름이 아니라 알림 없음
     await collect(w, liveChatId, { author: connected.channel.id, name: '구피 가게', text: NOTE })
     expect(await names(w, connected.seller.cookie)).toEqual({ names: ['청개구리'], max: 2000 })
-    expect(pushed).toHaveBeenCalledTimes(1)
+    expect(pushed.calls()).toHaveLength(1)
     expect((await pg(w).query<{ n: number }>(`select count(*)::int as n from seller_names`)).rows[0]?.n).toBe(1)
   })
 
@@ -151,6 +152,36 @@ describe('AC-V3-55 (b) 같은 번호 상품의 빈 품종 채우기', () => {
   })
 })
 
+describe('AC-V3-68 (d) 판매자 글의 번호가 그 방송에 없음 (D-V3-60)', () => {
+  it('61번이 없으면 채팅 이벤트를 먼저 기록한 뒤 voice 신호 sellerNoteMissing 하나 — 상품은 생기지 않는다. 있는 번호면 신호 없음', async () => {
+    const w = await world()
+    const { connected, b, liveChatId } = await started(w)
+    await expectOk(writeEvent(w, connected.seller, { type: 'product.register', b: b.id, no: 62, name: '', price: 30_000 }))
+    const pushed = vi.spyOn(w.server.hub, 'publishVoice')
+    const missing = () => pushed.mock.calls.filter((call) => (call[1] as { kind?: unknown }).kind === 'sellerNoteMissing')
+    let chatsAtSignal = -1
+    pushed.mockImplementation(() => {
+      void chatCount(w).then((n) => {
+        if (chatsAtSignal < 0) chatsAtSignal = n
+      })
+    })
+    await collect(w, liveChatId, { author: connected.channel.id, name: '구피 가게', text: '61번🍀[녹금] ₩30,000 [용용]님 감사합니다🍀' })
+    const events = await eventTypes(w)
+    const chat = events.find((event) => event.type === 'chat')
+    expect(missing()).toEqual([[connected.seller.sellerId, { kind: 'sellerNoteMissing', b: b.id, date: b.date, no: 61, name: '녹금', price: 30_000, chat: chat?.body.id }]])
+    expect(chatsAtSignal).toBe(1)
+    expect(events.filter((event) => event.type.startsWith('product.') && event.type !== 'product.register')).toEqual([])
+    const state = (await w.server.writer.read(connected.seller.sellerId, b.date)).state
+    expect(getProduct(state, b.id, 61)).toBeNull()
+    // 있는 번호(62번 · 품종 미입력 · 같은 가격)는 채우기만, 놓친 번호 신호 없음
+    await collect(w, liveChatId, { author: connected.channel.id, name: '구피 가게', text: '62번🍀[청수박] ₩30,000' })
+    expect(missing()).toHaveLength(1)
+    // 손님 글은 신호 없음
+    await collect(w, liveChatId, { author: 'UCbuyer0000000000000009', name: '용용', text: '63번🍀[녹금] ₩30,000' })
+    expect(missing()).toHaveLength(1)
+  })
+})
+
 describe('AC-V3-55 (c) 손님 채팅은 배우지 않는다', () => {
   it('주인 배지가 아닌 같은 글: 사전 없음·상품 그대로', async () => {
     const w = await world()
@@ -162,17 +193,63 @@ describe('AC-V3-55 (c) 손님 채팅은 배우지 않는다', () => {
     expect(getProduct(state, b.id, 93)).toMatchObject({ name: '' })
   })
 
-  it('확장 경로: 회차 채널과 같은 채널의 주인 표시만 배운다 — 다른 채널의 주인 표시·표시 없음은 배우지 않는다', async () => {
+  it('기록 함수: ownerSure인 글만 읽는다 — owner만 있고 ownerSure가 없는 글·표시 없는 글은 배우지 않는다', async () => {
     const w = await world()
     const { connected, b } = await started(w)
     const service = w.server.service
     const sellerId = connected.seller.sellerId
-    // 확장이 넘기는 모양 그대로 (ExtensionService.ingest가 ownerSure를 정한다 — 여기서는 그 결과)
+    // ownerSure는 받는 경로가 정한다 (공식 isChatOwner, 확장은 owner로 기록한 글 — D-V3-62, 아래 시험)
     expect(await service.ingestYoutubeBatch(sellerId, b.id, [{ id: 'ext-1', ch: 'UCbuyer0000000000000009', nick: '용용', text: NOTE }], undefined, 'extension')).toEqual({ status: 'ok', recorded: 1 })
     expect(await service.ingestYoutubeBatch(sellerId, b.id, [{ id: 'ext-2', ch: 'UCbuyer0000000000000009', nick: '용용', text: NOTE, owner: true }], undefined, 'extension')).toEqual({ status: 'ok', recorded: 1 })
     expect(await names(w, connected.seller.cookie)).toEqual({ names: [], max: 2000 })
     expect(await service.ingestYoutubeBatch(sellerId, b.id, [{ id: 'ext-3', ch: connected.channel.id, nick: '구피 가게', text: NOTE, owner: true, ownerSure: true }], undefined, 'extension')).toEqual({ status: 'ok', recorded: 1 })
     expect(await names(w, connected.seller.cookie)).toEqual({ names: ['청개구리'], max: 2000 })
+  })
+})
+
+describe('D-V3-62 확장만 쓰는 판매자 (유튜브 연결 없음 — 회차 채널을 모름)', () => {
+  const VIDEO = 'abcdefghijk'
+  const ORIGIN = { Origin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop' }
+  async function ext(w: YoutubeWorld, path: string, token: string | null, body: unknown) {
+    const headers: Record<string, string> = { ...ORIGIN, 'Content-Type': 'application/json' }
+    if (token !== null) headers.Authorization = `Bearer ${token}`
+    const response = await w.server.app.request(path, { method: 'POST', headers, body: JSON.stringify(body) })
+    const text = await response.text()
+    return { status: response.status, body: text === '' ? {} : (JSON.parse(text) as Record<string, unknown>), text }
+  }
+
+  it('묶인 영상의 owner 표시 글은 배우고 놓친 번호 신호를 보낸다 — 표시 없는 글·묶이지 않은 영상의 글은 읽지 않는다', async () => {
+    const w = await world()
+    const seller = await addSeller(w)
+    const b = await createBroadcast(w, seller)
+    await expectOk(writeEvent(w, seller, { type: 'product.register', b: b.id, no: 93, name: '', price: 70_000 }))
+    const issued = await client(w, seller.cookie).post('/api/extension/code', {})
+    const token = (await ext(w, '/ext/connect', null, { code: issued.body.code })).body.token as string
+    const spy = vi.spyOn(w.server.hub, 'publishVoice')
+    // 묶이지 않은 영상: 기록도 배우기도 없다
+    expect((await ext(w, '/ext/chats', token, { v: VIDEO, messages: [{ id: 'e0', ch: 'UCseller00000000000000001', nick: '가게', text: NOTE, at: w.timer.now(), owner: true }] })).status).toBe(409)
+    expect(await names(w, seller.cookie)).toEqual({ names: [], max: 2000 })
+    expect((await ext(w, '/ext/bind', token, { v: VIDEO, broadcast: b.id })).status).toBe(200)
+    // 표시 없는 같은 글(손님) → 읽지 않음
+    expect((await ext(w, '/ext/chats', token, { v: VIDEO, messages: [{ id: 'e1', ch: 'UCbuyer0000000000000009', nick: '용용', text: NOTE, at: w.timer.now() }] })).status).toBe(200)
+    expect(await names(w, seller.cookie)).toEqual({ names: [], max: 2000 })
+    // owner 표시 글 → 배우고 93번 품종을 채운다, 61번(없는 번호)은 신호만
+    const sent = await ext(w, '/ext/chats', token, {
+      v: VIDEO,
+      messages: [
+        { id: 'e2', ch: 'UCseller00000000000000001', nick: '가게', text: NOTE, at: w.timer.now(), owner: true },
+        { id: 'e3', ch: 'UCseller00000000000000001', nick: '가게', text: '61번🍀[녹금] ₩30,000', at: w.timer.now(), owner: true },
+      ],
+    })
+    expect(sent.status, sent.text).toBe(200)
+    expect(sent.body).toMatchObject({ recorded: 2, ownerDenied: 0 })
+    expect(await names(w, seller.cookie)).toEqual({ names: ['녹금', '청개구리'], max: 2000 })
+    const state = (await w.server.writer.read(seller.sellerId, b.date)).state
+    expect(getProduct(state, b.id, 93)).toMatchObject({ name: '청개구리' })
+    expect(getProduct(state, b.id, 61)).toBeNull()
+    expect(spy.mock.calls.filter((call) => (call[1] as { kind?: unknown }).kind === 'sellerNoteMissing').map((call) => call[1])).toEqual([
+      { kind: 'sellerNoteMissing', b: b.id, date: b.date, no: 61, name: '녹금', price: 30_000, chat: 'e3' },
+    ])
   })
 })
 

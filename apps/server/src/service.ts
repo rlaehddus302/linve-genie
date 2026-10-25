@@ -26,7 +26,7 @@ import {
   type SaleSettings,
 } from '@livejjim/core'
 import { createHash, randomBytes } from 'node:crypto'
-import { readSellerNote } from '@livejjim/voice'
+import { readSellerNote } from '@livejjim/voice/seller-note'
 import { eq } from 'drizzle-orm'
 import { API_EVENTS, CHAT_FIELDS, hasControlChar, isPlainObject, own, ownKeys } from './api-fields.ts'
 import type { Db } from './db/database.ts'
@@ -174,7 +174,7 @@ export interface ServiceOptions {
   readonly assist?: AssistService
   /** 서버 로그 (판매자 채팅 품종 글 결과 코드 — R-23. 없으면 남기지 않는다) */
   readonly log?: LogSink
-  /** 판매자 품종 사전에 새 이름이 생겼을 때 (SSE voice 알림 — R-23, D-V3-49) */
+  /** 음성 알림 (SSE voice — 판매자 품종 사전에 새 이름 { kind: 'sellerNames', name }(R-23, D-V3-49) · 판매자 글의 번호가 그 방송에 없음 { kind: 'sellerNoteMissing', … }(D-V3-60)) */
   readonly onSellerNames?: (sellerId: string, payload: Readonly<Record<string, unknown>>) => void
 }
 
@@ -923,7 +923,7 @@ export class Service {
   }
 
   /**
-   * 이번에 새로 기록한 채팅 중 주인 배지가 확실한 것(ownerSure)만 R-23으로 읽는다(packages/voice readSellerNote).
+   * 이번에 새로 기록한 채팅 중 주인 배지가 확실한 것(ownerSure)만 R-23으로 읽는다(음성 패키지 하위 경로 seller-note의 readSellerNote).
    * 읽히면 (ㄱ) 판매자 품종 사전에 넣고 (ㄴ) 그 방송 같은 번호 상품의 품종이 비었고 가격이 같으면 손으로 고칠 때와 같은 상품 고치기(product.update, 품종만)를 기록한다.
    * 채팅의 판정(R-3 — 주인 글은 언급)·감사는 건드리지 않는다. 로그에는 결과 코드만 (글·닉네임·품종 없음)
    */
@@ -944,6 +944,8 @@ export class Service {
         const added = await learnSellerName(this.#options.db, sellerId, note.name, new Date(this.#options.clock.now()))
         if (added) this.#options.onSellerNames?.(sellerId, { kind: 'sellerNames', name: note.name })
         const outcome = await this.#fillFromNote(sellerId, row, chat.id, note)
+        // (ㄷ) 그 방송에 그 번호 상품이 없음 = 음성으로 놓친 번호 (D-V3-60): 콘솔에 신호만 — 상품을 저절로 등록하지 않는다
+        if (outcome === 'NO_PRODUCT') this.#options.onSellerNames?.(sellerId, { kind: 'sellerNoteMissing', b, date: row.date, no: note.no, name: note.name, price: note.price, chat: chat.id })
         this.#options.log?.({ level: 'info', code: 'SELLER_NOTE', seller: sellerId, date: row.date, reason: outcome, count: added ? 1 : 0 })
       } catch (error) {
         this.#options.log?.({ level: 'warn', code: 'SELLER_NOTE_FAILED', seller: sellerId, date: row.date, errorKind: errorKind(error) })
