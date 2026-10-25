@@ -26,9 +26,9 @@ import {
 } from '../src/index.ts'
 
 const GOLDEN_DIR = fileURLToPath(new URL('../../../tests/golden/voice-register/', import.meta.url))
-/** V3 고정값 (README "음성 바로 등록 골든": 파일 3 · 사례 120 — variety-guess 42 · same-number 54 · renumber 24 (D-V3-68로 seller-note 없앰), D-V3-22 (c)) */
+/** V3 고정값 (README "음성 바로 등록 골든": 파일 3 · 사례 124 — variety-guess 42 · same-number 58 · renumber 24 (D-V3-68로 seller-note 없앰), D-V3-22 (c)) */
 const EXPECTED_FILES = 3
-const EXPECTED_CASES = 120
+const EXPECTED_CASES = 124
 
 const FILE_KEYS = new Set(['kind', 'about', 'cases'])
 const CASE_KEYS = new Set(['id', 'title', 'refs', 'note', 'in', 'out'])
@@ -89,8 +89,9 @@ function load(): Loaded[] {
         if (!('guess' in out) || !(out.guess === null || (typeof out.guess === 'string' && out.guess !== ''))) fail(id, 'out.guess')
         cases.push({ id, kind, input, out })
       } else {
-        const input = onlyKeys(id, c.in, ['heard', 'product', 'auto', 'recent'])
+        const input = onlyKeys(id, c.in, ['heard', 'product', 'auto', 'recent', 'otherDevice'])
         if (!(input.recent === undefined || typeof input.recent === 'boolean')) fail(id, 'recent')
+        if (!(input.otherDevice === undefined || typeof input.otherDevice === 'boolean')) fail(id, 'otherDevice')
         const heard = onlyKeys(id, input.heard, ['price', 'priceSure', 'name', 'nameFrom', 'numberFrom'])
         if (!['MARKER', 'BARE', undefined].includes(heard.numberFrom as string | undefined)) fail(id, 'numberFrom')
         const product = onlyKeys(id, input.product, ['name', 'price', 'status', 'liveClaims'])
@@ -99,7 +100,7 @@ function load(): Loaded[] {
         if (typeof input.auto !== 'boolean') fail(id, 'auto')
         const out = onlyKeys(id, c.out, ['action', 'changes', 'reason'])
         if (!['IGNORE', 'AUTO_FIX', 'ASK'].includes(out.action as string)) fail(id, 'action')
-        if (![null, 'NO_AUTO', 'NUMBER_BARE', 'NOT_OPEN', 'PRICE_NOT_SURE', 'PRICE_JUMP', 'MAYBE_OTHER', 'NOT_RECENT'].includes(out.reason as string | null)) fail(id, 'reason')
+        if (![null, 'NO_AUTO', 'NUMBER_BARE', 'NOT_OPEN', 'PRICE_NOT_SURE', 'MAYBE_OTHER', 'NOT_RECENT'].includes(out.reason as string | null)) fail(id, 'reason')
         onlyKeys(id, out.changes, ['price', 'name'])
         cases.push({ id, kind, input, out })
       }

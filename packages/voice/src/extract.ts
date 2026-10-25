@@ -313,7 +313,8 @@ export function findDigitReadings(tokens: readonly string[], forms: readonly (re
         if ([...head, third].every((token) => /^[0-9]$/.test(token)) && add([i, i + 1, i + 2], digitsValue([...head, third]), false)) i += 2
         continue
       }
-      const beonForm = (forms[i + 2] ?? []).find((form) => form.length === 2 && form.endsWith(BEON) && isDigitToken(form.charAt(0)))
+      // `이번`(이번에)은 번호가 아니다 — X가 `이` 한 글자인 표시는 받지 않는다(R-17 3)
+      const beonForm = (forms[i + 2] ?? []).find((form) => form.length === 2 && form.endsWith(BEON) && isDigitToken(form.charAt(0)) && form.charAt(0) !== '이')
       if (beonForm !== undefined && add([i, i + 1, i + 2], digitsValue([...head, beonForm.charAt(0)]), true)) i += 2
     }
   }

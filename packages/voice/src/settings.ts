@@ -74,10 +74,7 @@ export function checkVoiceSettings(value: unknown): VoiceSettingsProblem[] {
       continue
     }
     const setting: unknown = (value as Record<string, unknown>)[key]
-    if (key === 'voice.autoConfirm' && typeof setting !== 'boolean') problems.push({ key, message: '자동 확정은 켬이나 끔으로만 정할 수 있어요' })
-    if (key === 'voice.autoConfirmSec' && !(typeof setting === 'number' && Number.isSafeInteger(setting) && setting >= AUTO_CONFIRM_SEC_MIN && setting <= AUTO_CONFIRM_SEC_MAX)) {
-      problems.push({ key, message: `자동 확정 기다림은 ${AUTO_CONFIRM_SEC_MIN}초부터 ${AUTO_CONFIRM_SEC_MAX}초까지의 정수로 적어 주세요` })
-    }
+    // 옛 키 voice.autoConfirm·voice.autoConfirmSec는 V3(D-V3-16)부터 읽지 않으므로 틀린 값이어도 문제를 내지 않는다
     if (key === 'voice.autoRegister' && typeof setting !== 'boolean') problems.push({ key, message: '바로 등록은 켬이나 끔으로만 정할 수 있어요' })
     if (key === QUIET_MS_KEY && !isQuietMs(setting)) problems.push({ key, message: '말이 끝났다고 볼 때까지는 1.0초부터 4.0초까지 0.1초 단위로 정해 주세요' })
   }

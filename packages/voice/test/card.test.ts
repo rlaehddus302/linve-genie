@@ -52,14 +52,14 @@ describe('음성 설정 (D-204): 자동 확정 기본 꺼짐, 기다림 기본 5
     expect(checkVoiceSettings({})).toEqual([])
     expect(checkVoiceSettings({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 3 })).toEqual([])
     expect(checkVoiceSettings({ 'voice.autoConfirmSec': 30 })).toEqual([])
-    for (const sec of [2, 31, 5.5, Number.NaN, '5', null]) {
-      expect(checkVoiceSettings({ 'voice.autoConfirmSec': sec }).map((p) => p.key)).toEqual(['voice.autoConfirmSec'])
-    }
-    expect(checkVoiceSettings({ 'voice.autoConfirm': 'true' }).map((p) => p.key)).toEqual(['voice.autoConfirm'])
+    // V3(D-V3-16, AC-V3-07 — SA-V3-009): 옛 키 voice.autoConfirm·autoConfirmSec는 읽지 않으므로 틀린 값이어도 문제를 내지 않는다(처음 기대를 바꿈)
+    for (const sec of [2, 31, 5.5, Number.NaN, '5', null]) expect(checkVoiceSettings({ 'voice.autoConfirmSec': sec })).toEqual([])
+    expect(checkVoiceSettings({ 'voice.autoConfirm': 'true' })).toEqual([])
+    expect(checkVoiceSettings({ 'voice.autoRegister': 'true' }).map((p) => p.key)).toEqual(['voice.autoRegister'])
     expect(checkVoiceSettings({ 'voice.autoconfirm': true }).map((p) => p.key)).toEqual(['voice.autoconfirm'])
     for (const bad of [null, [], 'on', 5]) expect(checkVoiceSettings(bad)).toEqual([{ key: null, message: expect.any(String) }])
     // 문장에 영어 상태값·키 이름이 없다
-    for (const problem of checkVoiceSettings({ 'voice.autoConfirmSec': 99, 'voice.autoConfirm': 1, x: 1 })) expect(problem.message).not.toMatch(/[A-Za-z]/)
+    for (const problem of checkVoiceSettings({ 'voice.autoRegister': 99, 'voice.quietMs': 1, x: 1 })) expect(problem.message).not.toMatch(/[A-Za-z]/)
   })
 
   it('검사를 통과하지 못한 값은 쓰지 않는다 — 잘못된 설정으로 자동 확정이 켜지거나 기다림이 줄지 않는다', () => {

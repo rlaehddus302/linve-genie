@@ -164,7 +164,7 @@ export function readyToRegister(text: string, options: RegistrationOptions = {})
 export type NameFrom = 'DICTIONARY' | 'GUESS'
 export type SameNumberStatus = 'READY' | 'OPEN' | 'SOLD' | 'HOLD' | 'CLOSED'
 export type SameNumberAction = 'IGNORE' | 'AUTO_FIX' | 'ASK'
-export type SameNumberReason = 'NO_AUTO' | 'NUMBER_BARE' | 'NOT_OPEN' | 'PRICE_NOT_SURE' | 'PRICE_JUMP' | 'CLAIMS' | 'MAYBE_OTHER' | 'NOT_RECENT'
+export type SameNumberReason = 'NO_AUTO' | 'NUMBER_BARE' | 'NOT_OPEN' | 'PRICE_NOT_SURE' | 'MAYBE_OTHER' | 'NOT_RECENT'
 export type NumberFrom = 'MARKER' | 'BARE'
 
 export interface SameNumberInput {
@@ -181,6 +181,8 @@ export interface SameNumberInput {
   readonly auto: boolean
   /** 고쳐 말함인가 (D-V3-59): 같은 덩어리이거나, 이 콘솔이 그 번호를 음성으로 등록·고친 지 60초 안이고 그 사이 다른 번호를 음성으로 등록하지 않음. 생략 = 참 */
   readonly recent?: boolean
+  /** 그 번호의 마지막 등록·고침이 다른 기기였는가 (D-V3-76 — R-25 기록의 기기 칸). 참이면 고쳐 말함이 아니고 찜 0이어도 묻는다. 생략 = 거짓 */
+  readonly otherDevice?: boolean
 }
 
 export interface SameNumberDecision {
@@ -192,7 +194,7 @@ export interface SameNumberDecision {
 
 const compactName = (name: string): string => normalizeText(name).split(' ').join('')
 
-/** 바로 고침에서 받는 가격 비율 (D-V3-33): 새 가격이 기존의 3배를 넘거나 1/3 미만이면 묻는다(딱 3배는 받는다) */
+/** 크게 바뀜 가격 비율 (R-25, D-V3-64): 새 가격이 전 가격의 3배를 넘거나 1/3 미만이면 크게 바뀜 표시(묻지 않는다, 딱 3배는 아님) */
 export const AUTO_FIX_PRICE_RATIO = 3
 
 /** R-22: 들은 번호의 상품이 이미 있을 때 무엇을 할지 */
@@ -211,9 +213,11 @@ export function decideSameNumber(input: SameNumberInput): SameNumberDecision {
   if (!input.auto) return ask('NO_AUTO')
   if (heard.numberFrom === 'BARE') return ask('NUMBER_BARE')
   if (product.status !== 'OPEN' && product.status !== 'SOLD') return ask('NOT_OPEN')
-  // D-V3-55·57: 'N번' + '원' 확정(같은 조각)이면 올림·내림·찜과 상관없이 바로 고친다 — 묻는 것은 새 가격 300만 원 초과뿐(판매 중 아님은 위에서)
+  // D-V3-55·57: 'N번' + '원' 확정(같은 조각)이면 올림·내림·찜과 상관없이 바로 고친다
   // D-V3-64: 가격 크기로는 묻지 않는다 — 크게 바뀜은 isBigChange로 기록에 표시
   // D-V3-59: 고쳐 말함이 아니고(나중에 다시 들음) 찜이 있으면 다른 화분일 수 있어 덮어쓰지 않는다. 찜 0이면 바꾸되 까닭 NOT_RECENT(화면 안내)
+  // D-V3-76: 다른 기기가 등록·고친 번호는 고쳐 말함이 아니다 — 찜이 없어도 묻는다(두 기기가 같은 번호를 다르게 들은 것일 수 있다)
+  if (input.otherDevice === true) return ask('MAYBE_OTHER')
   const recent = input.recent !== false
   if (!recent && product.liveClaims > 0) return ask('MAYBE_OTHER')
   return { action: 'AUTO_FIX', changes, reason: recent ? null : 'NOT_RECENT' }
@@ -253,6 +257,8 @@ export interface ExistingContext {
   readonly status?: SameNumberStatus
   /** 고쳐 말함인가 (D-V3-59). 생략 = 참 */
   readonly recent?: boolean
+  /** 그 번호의 마지막 등록·고침이 다른 기기였는가 (D-V3-76). 생략 = 거짓 */
+  readonly otherDevice?: boolean
 }
 
 /**
@@ -271,6 +277,7 @@ export function decideForExisting(existing: ExistingProduct, heard: ExistingHear
     product: { name: existing.name, price: existing.price, status: context.status ?? 'OPEN', liveClaims: existing.claimCount },
     auto: context.auto !== false,
     recent: context.recent !== false,
+    otherDevice: context.otherDevice === true,
   })
   const price = decision.changes.price ?? null
   const name = decision.changes.name ?? null

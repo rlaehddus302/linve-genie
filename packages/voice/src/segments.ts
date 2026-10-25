@@ -128,16 +128,17 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
     for (let guard = 0; guard < tokens.length && s < tokens.length; guard++) {
       const segMarkers = markers.filter((marker) => marker.start >= s)
       const segLines = lines.filter((line) => line.start >= s)
-      if (segMarkers.length === 0) {
-        // '번' 없는 번호는 조각에 'N번'이 하나도 없을 때만 (D-V3-23·26·34도 조각 안에서), 그리고 조각 소비 뒤 남은 조각에서는 쓰지 않는다 (D-V3-73 — 'N번'만)
-        if (picks.length > 0) break
-        const rest = tokens.slice(s).join(' ')
-        const ready = readRegistration(rest, options).ready
-        const firstLine = segLines[0]
-        if (ready === null || firstLine === undefined || ready.numberFrom !== 'bare') break
-        pick({ no: ready.no, price: ready.price, name: ready.name, numberFrom: 'bare', priceFrom: 'won', start: s, end: firstLine.end, blocked: null, bigChange: isBigChange(null, ready.price) })
-        continue
+      // '번' 없는 번호는 첫 조각에서, 첫 원 가격 줄 앞에 'N번'이 없을 때만 그 줄까지의 글로 본다 (D-V3-23·73).
+      // 줄 뒤의 말은 보지 않는다 — 뒤에 낱말이 붙어도 이미 고른 값이 바뀌지 않게
+      const firstLine = segLines[0]
+      if (picks.length === 0 && firstLine !== undefined && !segMarkers.some((marker) => marker.start < firstLine.start)) {
+        const ready = readRegistration(tokens.slice(s, firstLine.end + 1).join(' '), options).ready
+        if (ready !== null && ready.numberFrom === 'bare') {
+          pick({ no: ready.no, price: ready.price, name: ready.name, numberFrom: 'bare', priceFrom: 'won', start: s, end: firstLine.end, blocked: null, bigChange: isBigChange(null, ready.price) })
+          continue
+        }
       }
+      if (segMarkers.length === 0) break
       // 1. 짝: 앞에 'N번'이 있는 첫 원 가격 줄 R과 그 앞 가장 뒤의 'N번' M
       const line = segLines.find((item) => segMarkers.some((marker) => marker.last < item.start))
       if (line !== undefined) {
@@ -162,6 +163,8 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
         if (m.split || m.value > maxNumber) continue
         // D-V3-63: 품종 없이도 — 'N번' 바로 뒤(군말만 사이) 수가 조각 끝이면 (품종이 있으면 그 뒤 수)
         const k = skipFillers(tokens, m.last + 1)
+        // 정정 표시·취소 낱말이 끼면 빠른 꼴이 아니다 (TD-V3-009 — `15번 다시 180`·`15번 취소 백육십팔`)
+        if (correctionBetween(m.last + 1, k)) continue
         const name = nameWindowEnd(tokens, k, options)
         const q = name === null ? k : name.end + 1
         // 수에 붙은 판매 말투는 뗀다 (`180입니다`·`180까지요` — D-V3-69, AC-V3-73)
@@ -174,6 +177,8 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
         // 뒤에 군말·판매 말투, 또는 같은 수를 다시 말한 것(`113번 45에 드려볼게요 자 45~` — 중복)만 오면 조각 끝
         const sameNumber = (token: string): boolean => token === numberToken || NUMBER_TAILS.some((tail) => token === numberToken + tail)
         if (tokens.slice(q + 1, stop).some((token) => !isWindowFiller(token) && !isSaleTail(token) && !sameNumber(token))) continue
+        // 수 뒤에 정정·취소 낱말이 오면 빠른 꼴이 아니다 (TD-V3-009 — `174번 170 다시 170`)
+        if (correctionBetween(q + 1, stop - 1)) continue
         if (q === tokens.length - 1 && !final) continue // 중간 결과 끝의 수는 기다린다(60 → 60만)
         // 품종 없는 꼴은 덩어리가 끝났을 때만(D-V3-63 — 뒤에 무엇이 올지 모른다)
         if (name === null && !final) continue

@@ -9,6 +9,7 @@ import {
   checkVoiceSettings,
   chooseInstantAction,
   createCard,
+  decideForExisting,
   decideSameNumber,
   extractVoice,
   guessVariety,
@@ -287,5 +288,35 @@ describe('실방송 7차 품종 (사전 추가 — 사용자 확인 필요)', ()
     ['33번 로제스타수박 5만 원', '로제스타수박'],
   ])('%s → %s', (text, name) => {
     expect(readyToRegister(text, { dictionary: DICT })).toMatchObject({ name })
+  })
+})
+
+describe('AC-V3-05 사전 개수 (SA-V3-002)', () => {
+  it('이름 360개 이상, 금으로 끝나는 이름이 V2(main) 5개보다 40개 이상 많다', async () => {
+    const { DEFAULT_VARIETIES } = await import('../src/index.ts')
+    expect(DEFAULT_VARIETIES.length).toBeGreaterThanOrEqual(360)
+    expect(DEFAULT_VARIETIES.filter((item) => item.name.split(' ').join('').endsWith('금')).length).toBeGreaterThanOrEqual(5 + 40)
+    for (const name of ['삼광색금', '창녹금', '빅뱅금']) expect(DEFAULT_VARIETIES.some((item) => item.name === name)).toBe(true)
+  })
+})
+
+describe('D-V3-75 한글 자리 글자 가리기', () => {
+  it('자리 글자 8개 이상(공백 사이 허용) → ****, 끝자리 낱말 뒤 자리 글자 4개 → ****', async () => {
+    const { maskArchiveText } = await import('../src/index.ts')
+    expect(maskArchiveText('공일공 일이삼사 오육칠팔')).toBe('****')
+    expect(maskArchiveText('전화 공일공일이삼사오육칠팔 주세요')).toBe('전화 **** 주세요')
+    expect(maskArchiveText('끝자리 일이삼사 김민지님')).toBe('끝자리 **** 김민지님')
+    expect(maskArchiveText('끝자리는 일 이 삼 사')).toBe('끝자리는 ****')
+    expect(maskArchiveText('뒷번호 1234')).toBe('뒷번호 ****')
+    // 7개 이하·자리 글자가 아닌 낱말이 섞이면 그대로
+    expect(maskArchiveText('일육팔 이십오만 원')).toBe('일육팔 이십오만 원')
+    expect(maskArchiveText('15번 사이 오이 라울 만원')).toBe('15번 사이 오이 라울 만원')
+  })
+})
+
+describe('D-V3-76 다른 기기가 등록한 번호', () => {
+  it('otherDevice면 찜 0이어도 묻고(MAYBE_OTHER), 화면 모양에서도 ASK', () => {
+    expect(decideSameNumber({ heard: { price: 50000, priceSure: true, name: null, nameFrom: null, numberFrom: 'MARKER' }, product: { name: '', price: 30000, status: 'OPEN', liveClaims: 0 }, auto: true, otherDevice: true })).toEqual({ action: 'ASK', changes: { price: 50000 }, reason: 'MAYBE_OTHER' })
+    expect(decideForExisting({ no: 1, name: '', price: 30000, claimCount: 0 }, { name: null, price: 50000 }, { otherDevice: true })).toEqual({ kind: 'ASK', price: 50000, name: null })
   })
 })

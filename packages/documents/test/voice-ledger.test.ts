@@ -6,7 +6,7 @@ import { readXlsx } from './helpers.ts'
 const T = Date.UTC(2026, 9, 25, 11, 5, 0) // 한국 20:05
 const rows: VoiceLedgerRow[] = [
   { at: T, no: 62, action: 'PRICE', before: 100000, after: 20000, source: 'voice', claims: 2, heard: '자 62번 2만 원 끝자리 ****', marks: ['BIG_CHANGE', 'WITH_CLAIMS'] },
-  { at: T + 1000, no: 93, action: 'NAME', before: null, after: '청개구리', source: 'seller-note', claims: 0, heard: '93번🍀[청개구리] ₩70,000', marks: [] },
+  { at: T + 1000, no: 93, action: 'NAME', before: null, after: '청개구리', source: 'voice', claims: 0, heard: '93번 청개구리 만 원', marks: [] },
   { at: T + 2000, no: 65, toNo: 61, action: 'RENUMBER', before: 65, after: 61, source: 'voice', claims: 0, heard: '=아까 65번은 61번이야', marks: [] },
 ]
 

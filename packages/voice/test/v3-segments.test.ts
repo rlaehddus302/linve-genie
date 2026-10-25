@@ -344,3 +344,18 @@ describe('D-V3-73 남은 조각에서는 번 없는 번호를 쓰지 않는다',
     expect(seg('15번 만 원 168 2만 원').picks.map((p) => p.no)).toEqual([15])
   })
 })
+
+describe('TD-V3-008·009 (적대 성질에서 찾음)', () => {
+  it('정정·취소 낱말이 낀 빠른 꼴은 확정 아님', () => {
+    for (const text of ['15번 다시 180', '15번 정정 180', '15번 취소 백육십팔', '174 번 170 다시 170 15번']) {
+      expect(seg(text, { priceUnit: 'THOUSAND', final: true }).picks, text).toEqual([])
+    }
+  })
+  it('"1 6 이번 만원짜리"의 이번은 번호 표시가 아니다 (162번 아님)', () => {
+    expect(seg('1 6 이번 만원짜리 15번', { final: true }).picks.map((p) => p.no)).not.toContain(162)
+  })
+  it('첫 조각의 번 없는 번호는 원 가격 줄까지의 글로만 — 뒤에 낱말이 붙어도 바뀌지 않음', () => {
+    expect(seg('174 이만원이에요').picks).toMatchObject([{ no: 174, price: 20000 }])
+    expect(seg('174 이만원이에요 15번').picks).toMatchObject([{ no: 174, price: 20000 }])
+  })
+})
