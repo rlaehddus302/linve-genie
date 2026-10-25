@@ -9,7 +9,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
 import { customerMemos, customerSettings } from '../db/schema.ts'
 import type { LogSink } from '../log.ts'
-import type { Platform } from '../platform.ts'
+import { PLATFORM_NAMES, type Platform } from '../platform.ts'
 import { openSellerKey, sha256Hex } from '../secrets.ts'
 import { findSeller } from '../store.ts'
 import { kstDate, type Clock } from '../time.ts'
@@ -97,10 +97,9 @@ export interface CustomerListQuery {
   readonly offset: number
 }
 
-const PLATFORM_LABELS: Readonly<Record<Platform, string>> = { YOUTUBE: '유튜브', INSTAGRAM: '인스타그램', TIKTOK: '틱톡' }
-
 export function kindLabelOf(platform: Platform | null, phoneLast4: string | null): string {
-  if (platform !== null) return PLATFORM_LABELS[platform]
+  // 플랫폼 이름은 공통 표 하나(밴드 포함 — BND1 D-BND1-02와 CRM1 D-CRM1-02를 합칠 때)
+  if (platform !== null) return PLATFORM_NAMES[platform]
   return phoneLast4 === null ? '문자' : `문자 · 끝자리 ${phoneLast4}`
 }
 
